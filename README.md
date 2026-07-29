@@ -1,5 +1,7 @@
 # review-loops
 
+> **English**: Two Claude Code loops that keep reviewing (or researching) until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure — never convergence. **Japanese only for now**: the criteria and prompts lean on the imperative force of the original wording, and a translation would loosen it.
+
 Claude Code のプラグイン。収束するまで回す 2 つのループを配る。
 
 - **`/review-loop`** — 実装したコード変更を、レビューと修正を繰り返して収束させる
@@ -34,7 +36,7 @@ Claude Code のプラグイン。収束するまで回す 2 つのループを�
 marketplace は **GitHub リポジトリ / 任意の git URL / ローカルディレクトリ**のどれでも指せる。リポジトリを立てずに、共有フォルダに置いて配ることもできる。
 
 ```bash
-/plugin marketplace add <owner>/<repo>                              # GitHub
+/plugin marketplace add raiki61/claude-review-loops                 # GitHub
 /plugin marketplace add https://git.example.com/team/review-loops   # 社内 git
 /plugin marketplace add //fileserver/share/review-loops             # 共有フォルダ・ローカルパス
 
@@ -97,4 +99,4 @@ python3 scripts/review-record.py templates/round-2.example.json templates/round-
 
 ## ライセンス
 
-MIT。`LICENSE` の著作権者欄は公開前に確定させること。
+MIT。
