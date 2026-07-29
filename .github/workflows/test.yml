@@ -1,0 +1,21 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      # 片方が落ちてももう片方の結果を見る。ここで直したバグは 2 件とも Windows 固有で、
+      # 「他の OS では通っていた」ことが分かって初めて原因が絞れた。
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。
+      - name: tests/run.sh
+        shell: bash
+        run: bash tests/run.sh

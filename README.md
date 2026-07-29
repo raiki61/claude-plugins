@@ -1,5 +1,7 @@
 # review-loops
 
+[![test](https://github.com/raiki61/claude-review-loops/actions/workflows/test.yml/badge.svg)](https://github.com/raiki61/claude-review-loops/actions/workflows/test.yml)
+
 > **English** — Two Claude Code loops that keep reviewing (or researching) until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
 >
 > **The instructions are in Japanese, but you don't have to read them — Claude does.** The loops report back in *your* language, so they work whatever you speak. Japanese is kept for the prompts because the criteria lean on the imperative force of the original wording and a translation would loosen it. You only need to read `REVIEW.md` yourself if you want to grow the criteria.
@@ -91,17 +93,15 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 
 ## 動作確認
 
-`review-record.py` の挙動は同梱の実例で確かめられる。
-
 ```bash
-# 非収束（block 2 件 + do-now 未対応 + 前ラウンド無し）→ exit 1
-python3 scripts/review-record.py templates/round-1.example.json
-
-# 阻害なし（block 解消・defer は構造的理由つき）→ exit 0。増えた scalar も出る
-python3 scripts/review-record.py templates/round-2.example.json templates/round-1.example.json
+bash tests/run.sh
 ```
 
-終了コードは `0`（阻害なし）/ `1`（阻害あり）/ `2`（記録が不正）。**2 と 1 を取り違えないこと**——2 は記録を直して再実行する合図で、非収束の判定ではない。
+15 件の検査が走る——`review-record.py` の終了コードの区別、`comment-ratio.sh` の注釈カウント、マニフェストの必須欄、手順書が名指しする `REVIEW.md` のセクションが実在するか、配布物に固有の技術名が混ざっていないか。CI が Linux / macOS / Windows で同じものを回す。
+
+**各ゲートは違反をわざと作って赤を確認済み**（`REVIEW.md` の「動かして赤・失敗を一度も見ていない保護機構を『機能している』と扱わない」を自分に適用した）。検査が 1 件も走らなかった場合も `exit 2` で落ちるので、対象が空でも緑になる穴は塞いである。
+
+`review-record.py` の終了コードは `0`（阻害なし）/ `1`（阻害あり）/ `2`（記録が不正）の 3 値。**2 と 1 を取り違えないこと**——2 は記録を直して再実行する合図で、非収束の判定ではない。
 
 ## ライセンス
 
