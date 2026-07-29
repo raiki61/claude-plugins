@@ -1,6 +1,8 @@
 # review-loops
 
-> **English**: Two Claude Code loops that keep reviewing (or researching) until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure — never convergence. **Japanese only for now**: the criteria and prompts lean on the imperative force of the original wording, and a translation would loosen it.
+> **English** — Two Claude Code loops that keep reviewing (or researching) until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
+>
+> **The instructions are in Japanese, but you don't have to read them — Claude does.** The loops report back in *your* language, so they work whatever you speak. Japanese is kept for the prompts because the criteria lean on the imperative force of the original wording and a translation would loosen it. You only need to read `REVIEW.md` yourself if you want to grow the criteria.
 
 Claude Code のプラグイン。収束するまで回す 2 つのループを配る。
 
@@ -58,6 +60,12 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 
 `/review-loop` はコード変更のレビュー、`/research-loop` は見立ての校正。逆に使わない。
 
+## 走らせると何が起きるか
+
+`/review-loop` は 1 ラウンドを **P0**（基準点と「元の目的」の固定）→ **P1**（素材集め・grader を並列起動）→ **P2**（診断・根本原因への変換とラベル確定）→ **P3**（修正）→ **P4**（再採点と機械突合）で回す。`[block]` が 0 になったら **P-R** の収束ゲート——R1 最小性 / R2 ゼロベース再導出 / R3 全体整合 / R4 見えてないスコープ——に進み、1 つでも `redesign-needed` なら新ラウンドに戻る。
+
+収束は**連続 2 ラウンド**で阻害要因ゼロ・CI 緑・R1〜R4 が全て `pass`。到達しなければ「収束せず」として止まり、判断を人に返す（ラウンド上限 5、超えたら必ず停止）。**黙って打ち切らない**のが設計の要点で、stuck / thrash / 前提不成立 / 未観測はそれぞれ別の停止条件として報告される。
+
 ## 依存
 
 **必須**: `git` / `python3` または `python`（3.7 以降を想定。実測は 3.12・3.13）/ `bash`
@@ -75,7 +83,7 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 
 ## この型が保証しないもの
 
-- **日本語のみ**。命令の強さ（「無言の省略を禁ずる」「注記は最後の手段」）で規律を保っている部分が多く、訳で緩む
+- **指示は日本語のみ**。報告は利用者の言語で返るので使う分には支障がないが、**観点を自分で育てる側に回るには `REVIEW.md` を読む必要がある**。命令の強さ（「無言の省略を禁ずる」「注記は最後の手段」）で規律を保っている箇所が多く、訳で緩むため日本語のままにしている
 - **GitHub 前提の箇所がある**（並行 PR の衝突チェック）
 - **`comment-ratio.sh` が数えられるのは Python と C 系コメントの言語だけ**。`#` 系（Ruby・Shell）は対象外——足しても注釈を 1 行も拾えないまま「0%」を自信ありげに出すので、行数で別に測る
 - **subagent を多数起動する**。1 ラウンドあたり grader 数体、収束ゲートで数体。軽い確認には向かない
