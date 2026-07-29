@@ -1,0 +1,69 @@
+{
+  "base": "0000000000000000000000000000000000000000",
+  "round": 1,
+  "materials": {
+    "local_review": {
+      "status": "found",
+      "count": 3,
+      "detail": "review-pr が 2 件（戻り値の型不整合・テスト欠落）、/simplify が 1 件（重複した整形処理）"
+    },
+    "consistency": {
+      "status": "found",
+      "count": 1,
+      "detail": "設定キー landing_timeout の追加に対し、既定値を持つ設定スキーマ側が追従していない"
+    },
+    "bypass": {
+      "status": "found",
+      "count": 1,
+      "detail": "ユーザー向け文字列 3 箇所が i18n の翻訳関数を通らず直書き"
+    },
+    "hygiene": {
+      "status": "clean",
+      "checked": "差分の追加行すべて。資源の対称性・公式機構の迂回・外部 I/O の上限とタイムアウト・検査の fail-open を見た"
+    },
+    "external_standards": {
+      "status": "found",
+      "count": 1,
+      "detail": "自作のリトライループが、既に依存に入っているクライアントの組み込みリトライ設定で置き換えられる"
+    },
+    "procedure_trace": {
+      "status": "not_applicable",
+      "reason": "対象差分に手順書・スクリプト・CI 定義の変更が無い"
+    },
+    "gate_efficacy": {
+      "status": "not_applicable",
+      "reason": "対象差分は検証ゲート（CI ジョブ・assert・pre-commit）を新設・変更していない"
+    },
+    "test_double_fidelity": {
+      "status": "clean",
+      "checked": "外部 API のフェイク応答を、実 API から取った 1 件と突合。キー名・型・null の入り方が一致"
+    },
+    "main_path_observation": {
+      "status": "clean",
+      "checked": "ローカルの dev サーバで検索から結果表示までを 1 回実行し、レスポンス本文と描画された件数を観測（テストの緑ではない）"
+    },
+    "provenance": {
+      "status": "clean",
+      "checked": "docstring の「正本は docs/config.md」を git log -S で確認。BASE 時点に実在"
+    }
+  },
+  "units": [
+    {
+      "key": "src/api/search.py:build_query — 検索条件の組み立てが 2 箇所に分岐し、片方だけ上限が効く",
+      "label": "block"
+    },
+    {
+      "key": "src/ui/panel.tsx:ResultPanel — ユーザー向け文字列が i18n を迂回して直書き",
+      "label": "block"
+    },
+    {
+      "key": "src/api/client.py:fetch — 自作リトライを依存の組み込み設定に寄せる",
+      "label": "suggest",
+      "disposition": "do-now"
+    }
+  ],
+  "scalars": {
+    "doc_lines": 120,
+    "comment_ratio_pct": 18
+  }
+}

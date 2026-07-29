@@ -1,0 +1,15 @@
+{
+  "name": "review-loops",
+  "metadata": {
+    "description": "レビューループ・調査ループのプラグイン",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "review-loops",
+      "description": "収束するまで回すレビューループ（/review-loop）と、一次情報で見立てを校正する調査ループ（/research-loop）。writer≠grader の分離と、無言の省略を許さない記録で収束を判定する。",
+      "source": "./",
+      "strict": false
+    }
+  ]
+}

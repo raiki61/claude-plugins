@@ -1,0 +1,62 @@
+{
+  "base": "0000000000000000000000000000000000000000",
+  "round": 2,
+  "materials": {
+    "local_review": {
+      "status": "clean",
+      "checked": "review-pr と /simplify を新しい context で再実行。前ラウンドの 3 件は解消、新規なし"
+    },
+    "consistency": {
+      "status": "clean",
+      "checked": "landing_timeout の宣言と使用を Grep で突合。設定スキーマ・docs・テストが追従済み"
+    },
+    "bypass": {
+      "status": "clean",
+      "checked": "差分内のユーザー向け文字列リテラルを 1 件ずつ確認。全て翻訳関数を経由"
+    },
+    "hygiene": {
+      "status": "clean",
+      "checked": "差分の追加行すべて。前ラウンドと同じ 4 観点を見た"
+    },
+    "external_standards": {
+      "status": "clean",
+      "checked": "リトライは依存の組み込み設定に寄せ済み。機構を変えたラウンドなので web も引き直した"
+    },
+    "procedure_trace": {
+      "status": "not_applicable",
+      "reason": "対象差分に手順書・スクリプト・CI 定義の変更が無い"
+    },
+    "gate_efficacy": {
+      "status": "not_applicable",
+      "reason": "対象差分は検証ゲートを新設・変更していない"
+    },
+    "test_double_fidelity": {
+      "status": "clean",
+      "checked": "前ラウンドから代役の形に変更なし（実 API 由来の 1 件との一致を維持）"
+    },
+    "main_path_observation": {
+      "status": "clean",
+      "checked": "i18n 経由に変えた表示経路を再度 1 回実行し、翻訳済みの文字列が描画されたことを観測"
+    },
+    "provenance": {
+      "status": "clean",
+      "checked": "前ラウンドから事実の主張に増減なし"
+    }
+  },
+  "units": [
+    {
+      "key": "src/api/search.py — クエリ組み立てをキャッシュ層に寄せる",
+      "label": "suggest",
+      "disposition": "defer",
+      "reason": "未解決の設計判断——キャッシュ層の導入範囲が別 PR で検討中で、そちらの結論に依存する"
+    },
+    {
+      "key": "src/ui/panel.tsx — 変数名 res を response に",
+      "label": "nit"
+    }
+  ],
+  "scalars": {
+    "doc_lines": 135,
+    "comment_ratio_pct": 21
+  }
+}
