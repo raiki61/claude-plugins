@@ -8,7 +8,25 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 - **スクリプト**: プラグイン同梱。以降 `review-record.py` / `comment-ratio.sh` と書いたものは `${CLAUDE_PLUGIN_ROOT}/scripts/` 配下を指す（実行例は P4 に書いてある）。
 - **ラウンド記録**: `.claude/review-rounds/round-<N>.json`（`<N>` は P4 のラウンド番号）。**前ラウンド分を消すな**——連続 2 ラウンドの突合と defer 台帳がこれで成立している。
-- **レビュー観点の正本**: レビュー対象リポジトリのルートの `REVIEW.md`。無ければ `/review-loop-init` で配置してから始めろ。**観点の写しをこの手順書に持ち込むな**（二重管理は片方が stale 化する）。
+- **レビュー観点の正本**: `${CLAUDE_PLUGIN_ROOT}/REVIEW.md`（言語・フレームワークに依存しない観点）。対象リポジトリのルートに `REVIEW.md` があれば**それも読み、そのチームが事故から足した固有の追加観点として併用しろ**。無くても走る。**観点の写しをこの手順書に持ち込むな**（二重管理は片方が stale 化する）。
+- **固有の規約**: どちらの `REVIEW.md` にも書かせず、対象リポジトリの一次情報（README・lint 設定・パッケージマニフェスト・CI 定義・近傍コード）から毎回把握しろ——手順は `REVIEW.md`「固有規約の把握」のとおり。**固有の技術名を観点側に書き写した時点で、それは複製で、リポジトリが変わっても古いまま残る。** 把握した内容は次ラウンドへ**参照として**引き継いでよいが、**文脈遮断 grader（P1）と R2（P-R）には渡すな**——渡した時点で隔離が壊れ、「このリポジトリではこうなっている」を所与にした追認になる。疑う役の入力は、対象差分と観点本文だけに保て。
+
+## 依存の自動導入（冪等・毎回そのまま実行しろ）
+
+局所レビューに使う公式プラグインを、無ければ入れる。**入っていれば no-op**（再実行しても `already installed` / `already on disk` で終了コード 0）なので、有無を調べる分岐を書かず毎回そのまま実行しろ。
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+claude plugin install pr-review-toolkit@claude-plugins-official
+```
+
+入れた直後は `/reload-plugins` を実行しろ——現セッションから `review-pr` が呼べるようになる。
+
+**`enabledPlugins` に宣言があっても、実体が入っているとは限らない。** 宣言と実体は別物で、宣言だけの状態では `review-pr` を呼べない。しかもその失敗は「観点が 1 つ静かに欠けたレビュー」として通るので、宣言を見て入っていると判断するな（実際に宣言済み・未インストールのまま運用されていたリポジトリがある）。
+
+導入に失敗したら（ネットワーク・権限）そこで止めるな。素材 `local_review` を `awaiting_human` として記録し理由を書いて進め——**無かったことを `not_applicable` にするな。**
+
+`/simplify` と `/security-review` は Claude Code 本体の組み込みなので、導入は要らない。
 
 ## 役割分担（最重要）
 
@@ -16,7 +34,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 **grader を都合よく使うな**: 同一ラウンドで grader を回し直して有利な結果を採るな（やり直しは次ラウンドのみ）。grader subagent の生出力（根本ユニットのキー集合・各 verdict）は最終報告にそのまま転記しろ。
 
-レビュー観点とラベルの正本は `REVIEW.md`（リポジトリルート）。grader はレビュー開始前に `REVIEW.md` を読むこと。ただしリポジトリ探索を禁じた隔離 grader（文脈遮断）は自分では読めないため、writer が該当セクションの本文をプロンプトに貼って渡せ。
+レビュー観点とラベルの正本は `REVIEW.md`（上の「道具と正本の場所」で定義した 2 つ。以降 `REVIEW.md` と書いたものはその併用を指す）。grader はレビュー開始前に `REVIEW.md` を読むこと。ただしリポジトリ探索を禁じた隔離 grader（文脈遮断）は自分では読めないため、writer が該当セクションの本文をプロンプトに貼って渡せ。
 
 武器の使い分け: **局所レビューは公式 skill に委譲**し再実装するな。ただし**欠陥と品質は別の道具**で、片方はもう片方を代替しない——欠陥（correctness）は `pr-review-toolkit:review-pr`、品質（reuse / 簡素化 / 効率 / altitude）は `/simplify` が担当する（`/simplify` は「バグは探さない」と自ら明記している）。**両方走らせろ**——「簡素化」は `review-pr` の観点にも含まれるが、観点が重なることは片方を省く理由にならない。根本診断・整合性・俯瞰は grader subagent で行う（公式に相当機能がない）。
 
@@ -35,7 +53,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 **素材の返答はラウンド記録（JSON）に書け。** 欄と取りうる値は `review-record.py` が正本で、手順書は列挙を持たない。要点は 1 つ——**「条件に当たらないのでやらなかった（not_applicable）」と「やるべきだったが飛ばした（not_run）」を別の値で書くこと**。散文ではこの 2 つが区別できず、後者が前者に化けるのが元の穴だった。埋め忘れは検証エラーで落ちるので、各素材の節で「明示的に返せ」と繰り返さない。
 
 - **局所（writer が main session で実行）**: 欠陥は `pr-review-toolkit:review-pr`、品質は `/simplify`、認証・データ取扱い・外部 I/O に触れるなら `/security-review` も実行し、findings のみ取得しろ。**findings を機械的に集めるだけで、採点・ラベル確定はするな。**
- - `review-pr` は 6 観点（欠陥・コメント・テスト・エラー処理・型設計・簡素化）を持ち、findings を返すだけで PR へのコメント投稿もコードの修正もしない。簡素化観点も同じく指摘止まりで、修正まで行う `/simplify`（下の作業ツリー確認を参照）の代わりにはならない。**`enabledPlugins` に載っていても各自が 1 回 `claude plugin install` を実行するまで読み込まれない**——導入後は `/reload-plugins` で現セッションから使える。
+ - `review-pr` は 6 観点（欠陥・コメント・テスト・エラー処理・型設計・簡素化）を持ち、findings を返すだけで PR へのコメント投稿もコードの修正もしない。簡素化観点も同じく指摘止まりで、修正まで行う `/simplify`（下の作業ツリー確認を参照）の代わりにはならない。
  - **findings を受け取れなかった素材は、記録に `awaiting_human` と書いて P2 へ進むな。**欠落したまま P2 が「局所 findings なし」と読むと、無いことが合格に化ける（`not_run` との区別は `review-record.py` が正本）。
  - `/simplify` は既定で修正まで行う skill なので、**実行前後で `git status --short` と `git stash list` を取り、作業ツリーが変わっていないことを確認しろ。** 変わっていたら P3 まで戻せ（P0 で固定した BASE 起点の差分追跡が崩れる）。
  - 直前ラウンドから対象差分にロジック変更が無いラウンドは `/simplify` の再実行を持ち越してよい。
