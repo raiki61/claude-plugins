@@ -31,8 +31,13 @@ Claude Code のプラグイン。収束するまで回す 2 つのループを�
 
 ## インストール
 
-```
-/plugin marketplace add <owner>/<repo>
+marketplace は **GitHub リポジトリ / 任意の git URL / ローカルディレクトリ**のどれでも指せる。リポジトリを立てずに、共有フォルダに置いて配ることもできる。
+
+```bash
+/plugin marketplace add <owner>/<repo>                              # GitHub
+/plugin marketplace add https://git.example.com/team/review-loops   # 社内 git
+/plugin marketplace add //fileserver/share/review-loops             # 共有フォルダ・ローカルパス
+
 /plugin install review-loops
 ```
 

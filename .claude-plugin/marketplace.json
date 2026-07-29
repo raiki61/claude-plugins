@@ -1,5 +1,8 @@
 {
   "name": "review-loops",
+  "owner": {
+    "name": "review-loops maintainers"
+  },
   "metadata": {
     "description": "レビューループ・調査ループのプラグイン",
     "version": "0.1.0"
