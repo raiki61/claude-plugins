@@ -25,7 +25,13 @@
 # 区別が付かず、測れていない数字がラウンド間の比較に混じる。
 set -euo pipefail
 
-BASE="${1:?usage: comment-ratio.sh <BASE-sha> [<ref>]}"
+# `${1:?...}` は使わない——bash の既定で **exit 1** になり、下の「0 測れた / 2 測れなかった」の
+# 契約から外れる（引数が違うのは計測不成立であって、1 は契約に無い値）。
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+    echo "comment-ratio: usage: comment-ratio.sh <BASE-sha> [<ref>]" >&2
+    exit 2
+fi
+BASE="$1"
 REF="${2:-}"
 
 # Windows の Python は `python3` を持たないことがある（逆に Linux / macOS は `python`

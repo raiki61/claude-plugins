@@ -80,6 +80,10 @@ VALUE = {
     "bad-round": lambda r: r.update(round=9),
     "bad-status": lambda r: r["materials"]["hygiene"].update(status="probably-fine"),
     "clean-without-checked": lambda r: r["materials"]["hygiene"].pop("checked"),
+    # ラベルと key の検査は、消えても記録が「阻害要因なし（exit 0）」で通ってしまう
+    # ——[block] が黙って数えられなくなる、この道具の存在理由そのものの穴。
+    "bad-label": lambda r: r["units"][0].update(label="blocker"),
+    "drop-key": lambda r: r["units"][0].pop("key"),
 }
 # 「型が違う」系。値の書き換えだけでは個別の型検査が一度も発火しない。
 TYPE = {
@@ -151,6 +155,8 @@ bad-base|base が違う
 bad-round|ラウンドが連番でない
 bad-status|status が不正
 clean-without-checked|'checked' が要る
+bad-label|label が不正
+drop-key|key が無い
 not-object|記録の最上位が object でない
 bad-round-type|'round' が整数でない
 bad-round-bool|'round' が整数でない
@@ -218,6 +224,11 @@ rm -f "$REPO/untracked.py"
 
 # 計測不成立は必ず 2。**旧版はここが exit 1 だった**（`raise SystemExit(str)` の既定）ので、
 # 「測れなかった」と「注釈 0%」が終了コードで区別できなかった。
+# 引数の誤りも計測不成立なので 2。bash の `${1:?...}` は exit 1 になるため使えない。
+expect_output 2 "usage" "引数なしは 1 と区別して落ちる" \
+    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh'"
+expect_output 2 "usage" "引数が多すぎる場合も 1 と区別して落ちる" \
+    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD HEAD extra"
 expect_output 2 "が失敗" "不正な ref は 1 と区別して落ちる" \
     bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 printf 'def f(\n' > "$REPO/broken.py"
