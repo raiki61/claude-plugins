@@ -38,6 +38,6 @@
 
 正本は `scripts/review-record.py` の `MATERIALS` / `STATUS` / `LABELS`。手順書は列挙を持たない（二重管理を避けるため）。実例は `templates/round-1.example.json` と `templates/round-2.example.json`。
 
-素材は P1 の各観点に加え、**手順の各段のうち仕組みで縛られていなかったもの**（`local_checks` = P0-2 / `base_determination` = P0-1 / `parallel_pr` = P0-5）を含む。writer の自己申告に留めず突合に載せるためで、条件と書き方は `commands/review-loop.md` の各段が正本。素材を増やすと**それ以前に書いた記録は明示返答を欠いて `exit 2` になる**（全素材の返答が要るため）。
+素材は P1 の各観点に加え、**P0 の各段のうち他に検査経路を持たないもの**も含む（どれが該当するかは `MATERIALS` のコメントが正本。手順書側は各段が自分の素材名を名指しする）。writer の自己申告に留めず突合に載せるためで、素材を増やすと**それ以前に書いた記録は明示返答を欠いて `exit 2` になる**（全素材の返答が要るため）。
 
 素材の状態は 5 値。**`not_applicable`（条件に当たらない）と `not_run`（やるべきだったが飛ばした）と `awaiting_human`（人の起動待ちで止まっている）を潰さない**のがこの schema の要点で、潰すと報告上で見分けられなくなる。`clean`（見たが無かった）には「何を見たか」を要求する——見た範囲が書けないものは、見たと言えない。
