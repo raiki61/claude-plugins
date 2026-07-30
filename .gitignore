@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# ラウンド記録は作業ファイル（docs/customize.md「ラウンド記録の置き場所」）。
+# 自分自身に /review-loop を当てるとここに溜まる。
+.claude/review-rounds/
