@@ -161,10 +161,13 @@ expect_output 2 "開けない" "存在しない記録は 1 と区別して落ち
     "$PY_BIN" "$RECORD" "$WORK/does-not-exist.json"
 expect_exit 2 "引数なしは 1 と区別して落ちる" "$PY_BIN" "$RECORD"
 expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる" "$PY_BIN" "$RECORD" "$R2" "$R1" "$R1"
-# json モジュールが投げる例外は JSONDecodeError だけではない。個別に列挙する方式では
-# 塞げないことの実証で、境界が受け止めていることをここで確かめる。
+# json モジュールが投げる例外は JSONDecodeError だけではない（深いネストは RecursionError）。
+# **ここは終了コードだけを見る。** どの経路で 2 になるかは環境で変わる——再帰上限に達すれば
+# 境界が受け、達しなければ最上位の型検査が受ける（macOS は 10 万段でも読み切る）。
+# 例外名を検査すると環境依存のテストになり、緑が環境の性質を映すだけになる。
+# 境界そのものは上の bad-scalars-type / unhashable-status が例外名まで検査している。
 "$PY_BIN" -c "import sys,pathlib; pathlib.Path(sys.argv[1]).write_text('['*100000 + ']'*100000, encoding='utf-8')" "$WORK/deep.json"
-expect_output 2 "想定外の例外（RecursionError）" "深いネストの JSON も 1 と区別して落ちる" \
+expect_exit 2 "深いネストの JSON も 1 と区別して落ちる（経路は環境で変わる）" \
     "$PY_BIN" "$RECORD" "$WORK/deep.json"
 
 echo "comment-ratio.sh"
