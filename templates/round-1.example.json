@@ -2,10 +2,19 @@
   "base": "0000000000000000000000000000000000000000",
   "round": 1,
   "materials": {
+    "base_determination": {
+      "status": "clean",
+      "checked": "P0-1 の 2（上流との分岐点）で決めた。git merge-base origin/main HEAD = 1a2b3c4。対象差分は 4 コミット分。"
+    },
     "local_checks": {
       "status": "found",
       "count": 1,
       "detail": "bash tests/run.sh を実行し 2 件赤（P3 で直す対象に含めた）。lint はこのリポジトリに設定が無い。"
+    },
+    "parallel_pr": {
+      "status": "found",
+      "count": 1,
+      "detail": "src/api/client.py を触る PR #212 が並行。自分の PR（#215）は除外済み。リトライの書き換えが衝突するので当該箇所は #212 へ申し送った。"
     },
     "local_review": {
       "status": "found",

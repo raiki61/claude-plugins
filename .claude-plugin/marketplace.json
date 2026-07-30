@@ -5,9 +5,11 @@
   },
   "metadata": {
     "description": "レビューループ・調査ループのプラグイン",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
-  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
+  "allowCrossMarketplaceDependenciesOn": [
+    "claude-plugins-official"
+  ],
   "plugins": [
     {
       "name": "review-loops",

@@ -51,9 +51,9 @@ GIT_TIMEOUT_SEC = 120
 
 
 def fail(msg):
-    """計測不成立で止まる。名前は `review-record.py` の `fail()` と揃えてある——
-    同じ契約（exit 2 = 計測不成立）の実装名が 2 つあると、片方を読んだ者がもう片方を
-    grep で見つけられない。**`raise SystemExit("...")` は exit 1 になるので使うな。**"""
+    """計測不成立で止まる。名前を `review-record.py` の `fail()` と揃えてあるのは、同じ契約の
+    実装名が 2 つあると片方を読んだ者がもう片方を grep で見つけられないため。
+    **`raise SystemExit("...")` は exit 1 になるので使うな**（契約の詳細は同ファイル docstring）。"""
     print(f"comment-ratio: {msg}", file=sys.stderr)
     sys.exit(2)
 
@@ -203,8 +203,7 @@ def main():
         annotated += len(added & marked)
 
     if total == 0:
-        # ここだけが「計測漏れの 0」と「本当に 0」が区別できない状態。数えられた行が
-        # 1 行も無く、かつ未追跡の対象ファイルが在るなら、どちらなのか原理的に言えない。
+        # ここだけが両者を区別できない状態（条件と理由はヘッダ）。
         if missed:
             fail(
                 "追加行が無いが未追跡の対象言語ファイルが在り、計測漏れと区別できない"
@@ -219,9 +218,8 @@ def main():
         print("未計測（未追跡・差分に載っていない）: " + " ".join(missed))
 
 
-# **終了コードの契約（0 測れた / 2 測れなかった）を担保するのはここ 1 箇所。**
-# 上の個別の except を全部すり抜けた想定外の例外も 2 に倒す——素通しすると Python の
-# 既定で exit 1 になり、契約に無い値が返る（`review-record.py` と同じ構造）。
+# **終了コードの契約を担保するのはここ 1 箇所**（`review-record.py` と同じ構造。理由は
+# ヘッダの終了コードの節）。
 try:
     main()
 except SystemExit:

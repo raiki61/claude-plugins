@@ -2,9 +2,17 @@
   "base": "0000000000000000000000000000000000000000",
   "round": 2,
   "materials": {
+    "base_determination": {
+      "status": "clean",
+      "checked": "P0-1 の 2（上流との分岐点）で決めた。基準点は前ラウンドから動かしていない（1a2b3c4）。対象差分は 6 コミット分。"
+    },
     "local_checks": {
       "status": "clean",
       "checked": "bash tests/run.sh を実行し 23 件すべて緑。lint はこのリポジトリに設定が無い（パッケージマニフェスト・CI 定義で確認）。"
+    },
+    "parallel_pr": {
+      "status": "clean",
+      "checked": "gh repo view の owner/repo が remote と一致することを確認。自分の PR を除いたオープン PR 3 件の変更ファイルと交差なし。"
     },
     "local_review": {
       "status": "clean",

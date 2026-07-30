@@ -49,9 +49,16 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8")
 
-# P1 が生産する素材。ここが正本で、手順書は列挙を持たない。
+# 明示返答を要求する素材。ここが正本で、手順書は列挙を持たない。
+# **P1 の観点だけでなく、P0 の各段のうち他に検査経路を持たないものも含める**——
+# 手順書に「報告しろ」と書くだけでは、writer が省略しても誰も気づかない（④注記）。
+# 欄を要求すれば欠落が exit 2 になる（③仕組み）。P0-3（前提の実測）と P0-4（目的テキスト）は
+# 既に別の検査経路を持つので入れない: 前者は R2 が所与として理想解を導くことで露見し、
+# 後者は grader のレビューと `unverifiable` の分岐がある。
 MATERIALS = (
+    "base_determination",  # BASE をどの規則で決めたか（P0-1）
     "local_checks",  # CI のテスト・lint のローカル実行（P0-2）
+    "parallel_pr",  # 並行 PR 衝突チェック（P0-5）
     "local_review",  # 局所レビュー（公式 skill）
     "consistency",
     "bypass",  # 標準機構の迂回
@@ -233,10 +240,7 @@ def main():
 
 
 if __name__ == "__main__":
-    # **終了コードの契約を担保するのはここ 1 箇所。** 上の型検査を全部すり抜けた想定外の
-    # 例外も 2（記録が不正）に倒す——素通しすると Python の既定で exit 1 になり
-    # 「阻害要因あり」と区別が付かなくなる。型検査を増やして塞ぐのでなく、漏れる前提で
-    # この境界に担保させる（冒頭 docstring の「列挙は完了しない」）。
+    # **終了コードの契約を担保するのはここ 1 箇所**（理由は冒頭 docstring）。
     try:
         main()
     except SystemExit:

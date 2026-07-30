@@ -50,56 +50,73 @@ expect_exit() {
     expect_output "$want" "" "$desc" "$@"
 }
 
-# 記録の一部を壊した JSON を作る。「壊すと落ちる」ことまで確かめないと、
-# 検証が空振りしても合格になる（fail-open）。
-break_record() {
-    "$PY_BIN" - "$ROOT" "$WORK" "$1" "$2" "${3:-round-2}" <<'PY'
+# 記録の一部を壊した JSON を**まとめて 1 プロセスで**書き出す。「壊すと落ちる」ことまで
+# 確かめないと、検証が空振りしても合格になる（fail-open）。
+#
+# **束ねてよいのは素材の生成だけ。** 検査そのものはケースごとに分けたまま——合否が個別に
+# 報告されることが要件で、束ねると失敗の切り分けができなくなる。生成を 1 ケース 1 プロセスに
+# すると Python の起動コストだけで 26 秒かかる（実測。まとめて 1.2 秒）。
+write_broken_records() {
+    "$PY_BIN" - "$ROOT" "$WORK" <<'PY'
 import json, sys, pathlib
-root, work, name, mutation, src = sys.argv[1:6]
-rec = json.loads((pathlib.Path(root)/f"templates/{src}.example.json").read_text(encoding="utf-8"))
-if mutation == "drop-material":
-    del rec["materials"]["hygiene"]
-elif mutation == "drop-defer-reason":
-    del next(u for u in rec["units"] if u.get("disposition") == "defer")["reason"]
-elif mutation == "drop-base":
-    del rec["base"]
-elif mutation == "drop-round":
-    del rec["round"]
-elif mutation == "bad-base":
-    rec["base"] = "1" * 40
-elif mutation == "bad-round":
-    rec["round"] = 9
-elif mutation == "bad-status":
-    rec["materials"]["hygiene"]["status"] = "probably-fine"
-elif mutation == "clean-without-checked":
-    del rec["materials"]["hygiene"]["checked"]
-# 以下は「型が違う」系。値の書き換えだけでは個別の型検査が一度も発火しない。
-elif mutation == "not-object":
-    rec = ["not", "an", "object"]
-elif mutation == "bad-round-type":
-    rec["round"] = "2"
-elif mutation == "bad-round-bool":
-    rec["round"] = True
-elif mutation == "round-below-one":
-    rec["round"] = -100
-elif mutation == "bad-materials-type":
-    rec["materials"] = []
-elif mutation == "bad-units-type":
-    rec["units"] = {}
-elif mutation == "bad-unit-type":
-    rec["units"][0] = "not-an-object"
-elif mutation == "bad-material-type":
-    rec["materials"]["hygiene"] = "looks-fine"
-# 以下は個別検査を通り抜け、末尾の例外境界だけが受け止めるもの。
-elif mutation == "bad-scalars-type":
-    rec["scalars"] = ["oops"]
-elif mutation == "unhashable-status":
-    rec["materials"]["hygiene"]["status"] = ["found"]
-elif mutation == "unhashable-key":
-    rec["units"][0]["key"] = ["not", "a", "string"]
-else:
-    raise SystemExit(f"未知の mutation: {mutation}")
-(pathlib.Path(work)/name).write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+templates = {
+    n: json.loads((root / f"templates/{n}.example.json").read_text(encoding="utf-8"))
+    for n in ("round-1", "round-2")
+}
+
+
+def defer_unit(rec):
+    return next(u for u in rec["units"] if u.get("disposition") == "defer")
+
+
+# 値を書き換えるだけの mutation。個別の欄の検査を発火させる。
+VALUE = {
+    "drop-material": lambda r: r["materials"].pop("hygiene"),
+    "drop-defer-reason": lambda r: defer_unit(r).pop("reason"),
+    "drop-base": lambda r: r.pop("base"),
+    "drop-round": lambda r: r.pop("round"),
+    "bad-base": lambda r: r.update(base="1" * 40),
+    "bad-round": lambda r: r.update(round=9),
+    "bad-status": lambda r: r["materials"]["hygiene"].update(status="probably-fine"),
+    "clean-without-checked": lambda r: r["materials"]["hygiene"].pop("checked"),
+}
+# 「型が違う」系。値の書き換えだけでは個別の型検査が一度も発火しない。
+TYPE = {
+    "bad-round-type": lambda r: r.update(round="2"),
+    "bad-round-bool": lambda r: r.update(round=True),
+    "round-below-one": lambda r: r.update(round=-100),
+    "bad-materials-type": lambda r: r.update(materials=[]),
+    "bad-units-type": lambda r: r.update(units={}),
+    "bad-unit-type": lambda r: r["units"].__setitem__(0, "not-an-object"),
+}
+# 個別の検査を通り抜け、末尾の例外境界だけが受け止めるもの。
+BOUNDARY = {
+    "bad-scalars-type": lambda r: r.update(scalars=["oops"]),
+    "unhashable-status": lambda r: r["materials"]["hygiene"].update(status=["found"]),
+}
+
+
+def write(name, rec):
+    (work / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+
+
+for name, mutate in {**VALUE, **TYPE, **BOUNDARY}.items():
+    rec = json.loads(json.dumps(templates["round-2"]))
+    mutate(rec)
+    write(name, rec)
+
+# 最上位が object でない記録は mutate 関数の形（rec を書き換える）に乗らないので別に書く。
+write("not-object", ["not", "an", "object"])
+
+# 突合（集合演算）は prev だけを走査するので、前ラウンド側の記録を壊す必要がある。
+prev = json.loads(json.dumps(templates["round-1"]))
+prev["units"][0]["key"] = ["not", "a", "string"]
+write("unhashable-key", prev)
+
+# JSON として読めない記録と、深いネスト（json モジュールが JSONDecodeError 以外を投げる例）。
+(work / "truncated.json").write_text('{ "base": ', encoding="utf-8")
+(work / "deep.json").write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
 PY
 }
 
@@ -117,12 +134,13 @@ expect_exit 0 "解消済みの記録は阻害要因なし" "$PY_BIN" "$RECORD" "
 expect_output 0 "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$R2" "$R1"
 expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$R2" "$R1"
 
+write_broken_records || { echo "  FAIL 壊した記録を作れない"; fail=1; }
+
 # 記録が不正（exit 2）。1 と混ざると「非収束」と誤読され、収束を永久に宣言できなくなる。
 # **期待メッセージまで検査する。** 終了コードだけを見ると、末尾の例外境界が想定外の例外も
 # 2 に倒すため、個別の検査を 1 つ消しても緑のまま通る（検査が恒真になる）。
 while IFS='|' read -r m msg; do
     [ -n "$m" ] || continue
-    break_record "$m.json" "$m" || { echo "  FAIL 壊した記録を作れない: $m"; fail=1; continue; }
     expect_output 2 "$msg" "不正な記録は 1 と区別して落ちる: $m" "$PY_BIN" "$RECORD" "$WORK/$m.json" "$R1"
 done <<'CASES'
 drop-material|素材 'hygiene' の返答が無い
@@ -140,33 +158,24 @@ round-below-one|'round' が 1 以上でない
 bad-materials-type|'materials' が object でない
 bad-units-type|'units' が配列でない
 bad-unit-type|units[0] が object でない
-bad-material-type|素材 'hygiene' の返答が無い
 bad-scalars-type|想定外の例外（AttributeError）
 unhashable-status|想定外の例外（TypeError）
 CASES
 
-# 前ラウンド側の記録が壊れている経路。突合（集合演算）は prev だけを走査するので、
-# 今ラウンドの記録を壊しても発火しない。
-break_record "unhashable-key.json" "unhashable-key" round-1 \
-    || { echo "  FAIL 壊した記録を作れない: unhashable-key"; fail=1; }
 expect_output 2 "想定外の例外（TypeError）" "前ラウンドの key が unhashable でも 1 と区別して落ちる" \
     "$PY_BIN" "$RECORD" "$R2" "$WORK/unhashable-key.json"
 
-# 記録に到達できない場合も 2。**Python の未処理例外は exit 1** なので、素通しすると
-# 「読めなかった」が「非収束」に化ける——手順どおり round-0.json を渡した瞬間に起きた穴。
-printf '{ "base": ' > "$WORK/truncated.json"
+# 記録に到達できない場合も 2（契約は冒頭 `review-record.py` の docstring が正本）。
 expect_output 2 "JSON として読めない" "壊れた JSON は 1 と区別して落ちる" \
     "$PY_BIN" "$RECORD" "$WORK/truncated.json"
 expect_output 2 "開けない" "存在しない記録は 1 と区別して落ちる（初回に round-0.json を渡した場合）" \
     "$PY_BIN" "$RECORD" "$WORK/does-not-exist.json"
 expect_exit 2 "引数なしは 1 と区別して落ちる" "$PY_BIN" "$RECORD"
 expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる" "$PY_BIN" "$RECORD" "$R2" "$R1" "$R1"
-# json モジュールが投げる例外は JSONDecodeError だけではない（深いネストは RecursionError）。
 # **ここは終了コードだけを見る。** どの経路で 2 になるかは環境で変わる——再帰上限に達すれば
-# 境界が受け、達しなければ最上位の型検査が受ける（macOS は 10 万段でも読み切る）。
-# 例外名を検査すると環境依存のテストになり、緑が環境の性質を映すだけになる。
-# 境界そのものは上の bad-scalars-type / unhashable-status が例外名まで検査している。
-"$PY_BIN" -c "import sys,pathlib; pathlib.Path(sys.argv[1]).write_text('['*100000 + ']'*100000, encoding='utf-8')" "$WORK/deep.json"
+# 境界が受け、達しなければ最上位の型検査が受ける（macOS は 10 万段でも読み切る）。例外名を
+# 検査すると、緑が環境の性質を映すだけになる。境界そのものは上の bad-scalars-type /
+# unhashable-status が例外名まで検査している。
 expect_exit 2 "深いネストの JSON も 1 と区別して落ちる（経路は環境で変わる）" \
     "$PY_BIN" "$RECORD" "$WORK/deep.json"
 
@@ -252,9 +261,8 @@ install_cmd = re.compile(r"claude\s+plugin\s+(?:\S+\s+)*install")
 assert not install_cmd.search(body), \
     "review-loop.md に自作の導入コマンドが戻っている（依存は plugin.json の dependencies が正本）"
 
-# `gh` は `-R owner/repo` が無いと cwd の remote と `gh` のログイン状態に暗黙依存し、
-# 別リポジトリの PR 一覧を**エラーにならず**返す。取り違えは正常終了するので、手順書の
-# 文言が `-R` 無しに戻ったことを検知できるのはこの検査だけ（実行時の付け忘れは別）。
+# 手順書の文言が `-R` 無しに戻ったことを検知できるのはこの検査だけ（実行時の付け忘れは
+# 縛れない）。`-R` を要求する理由は `docs/customize.md`「fork 運用・複数アカウント」が正本。
 bare_gh = [
     line.strip()
     for line in body.splitlines()

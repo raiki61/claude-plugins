@@ -1,8 +1,11 @@
 {
   "name": "review-loops",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "収束するまで回すレビューループと調査ループ。実装者（writer）と採点者（grader）を別 context に分離し、収束を機械で宣言させず不合格だけを機械に宣言させる。",
   "dependencies": [
-    { "name": "pr-review-toolkit", "marketplace": "claude-plugins-official" }
+    {
+      "name": "pr-review-toolkit",
+      "marketplace": "claude-plugins-official"
+    }
   ]
 }
