@@ -32,13 +32,21 @@ expect_exit() {
     fi
 }
 
+# 出力と終了コードの**両方**を検査する。終了コードを見ないと、対象が異常終了しても
+# そのエラーメッセージが期待文字列を偶然含んでいれば ok になる（fail-open）。
+# REVIEW.md のコード衛生観点が「検査自体が実行不能に終わったとき赤くなるか」を
+# 要求しているので、それを配るスイート自身が満たしていなければならない。
 expect_output() {
-    local want=$1 desc=$2
-    shift 2
+    local want_exit=$1 want=$2 desc=$3
+    shift 3
     local got
     got=$("$@" 2>&1)
+    local got_exit=$?
     ran=$((ran + 1))
-    if [[ "$got" == *"$want"* ]]; then
+    if [ "$got_exit" != "$want_exit" ]; then
+        echo "  FAIL $desc — exit $want_exit を期待したが $got_exit: $got"
+        fail=1
+    elif [[ "$got" == *"$want"* ]]; then
         echo "  ok   $desc"
     else
         echo "  FAIL $desc — 出力に '$want' が無い: $got"
@@ -57,6 +65,10 @@ if mutation == "drop-material":
     del rec["materials"]["hygiene"]
 elif mutation == "drop-defer-reason":
     del next(u for u in rec["units"] if u.get("disposition") == "defer")["reason"]
+elif mutation == "drop-base":
+    del rec["base"]
+elif mutation == "drop-round":
+    del rec["round"]
 elif mutation == "bad-base":
     rec["base"] = "1" * 40
 elif mutation == "bad-round":
@@ -79,15 +91,28 @@ RECORD="$ROOT/scripts/review-record.py"
 
 # 阻害あり: block 2 件・do-now 1 件・前ラウンドの記録が無い
 expect_exit 1 "非収束の記録は阻害要因を返す" "$PY_BIN" "$RECORD" "$R1"
+# 初回ラウンドの正しい呼び方（第 2 引数なし）。手順書がこの形を指示している。
+expect_output 1 "前ラウンドの記録が無い" "初回は第 2 引数なしで走り、比較の欠落を阻害要因に数える" \
+    "$PY_BIN" "$RECORD" "$R1"
 expect_exit 0 "解消済みの記録は阻害要因なし" "$PY_BIN" "$RECORD" "$R2" "$R1"
-expect_output "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$R2" "$R1"
-expect_output "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$R2" "$R1"
+expect_output 0 "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$R2" "$R1"
+expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$R2" "$R1"
 
 # 記録が不正（exit 2）。1 と混ざると「非収束」と誤読され、収束を永久に宣言できなくなる
-for m in drop-material drop-defer-reason bad-base bad-round bad-status clean-without-checked; do
+for m in drop-material drop-defer-reason drop-base drop-round bad-base bad-round bad-status clean-without-checked; do
     break_record "$m.json" "$m" || { echo "  FAIL 壊した記録を作れない: $m"; fail=1; continue; }
     expect_exit 2 "不正な記録は 1 と区別して落ちる: $m" "$PY_BIN" "$RECORD" "$WORK/$m.json" "$R1"
 done
+
+# 記録に到達できない場合も 2。**Python の未処理例外は exit 1** なので、素通しすると
+# 「読めなかった」が「非収束」に化ける——手順どおり round-0.json を渡した瞬間に起きた穴。
+printf '{ "base": ' > "$WORK/truncated.json"
+expect_output 2 "JSON として読めない" "壊れた JSON は 1 と区別して落ちる" \
+    "$PY_BIN" "$RECORD" "$WORK/truncated.json"
+expect_output 2 "開けない" "存在しない記録は 1 と区別して落ちる（初回に round-0.json を渡した場合）" \
+    "$PY_BIN" "$RECORD" "$WORK/does-not-exist.json"
+expect_exit 2 "引数なしは 1 と区別して落ちる" "$PY_BIN" "$RECORD"
+expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる" "$PY_BIN" "$RECORD" "$R2" "$R1" "$R1"
 
 echo "comment-ratio.sh"
 REPO="$WORK/repo"
@@ -103,10 +128,21 @@ mkdir -p "$REPO"
     git add -A
 ) >/dev/null 2>&1
 BASE=$(git -C "$REPO" rev-parse HEAD)
-expect_output "追加行 4 / 注釈 3 (75%)" "Python と C 系の注釈を数える" \
+expect_output 0 "追加行 4 / 注釈 3 (75%)" "Python と C 系の注釈を数える" \
     bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' '$BASE'"
-expect_output "追加行なし" "対象言語の追加行が無ければそう言う" \
-    bash -c "cd '$ROOT' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
+
+# 対象言語の追加行が無い正常系。**$ROOT でなく使い捨てリポジトリで測る**——$ROOT だと
+# 開発中の未コミット変更の有無で結果が変わり、検査が環境依存になる。
+git -C "$REPO" commit -qm change >/dev/null 2>&1
+expect_output 0 "追加行なし" "対象言語の追加行が無ければそう言う" \
+    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
+
+# 未追跡の対象言語ファイルは計測漏れ。数えずに落ちること（fail-closed）——落ちないと
+# 「計測漏れで追加行なし」と「本当に追加行なし」が同じ出力になり区別が付かない。
+printf 'y = 2\n' > "$REPO/untracked.py"
+expect_output 2 "未追跡の対象言語ファイル" "未追跡の対象ファイルがあれば数えずに落ちる" \
+    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
+rm -f "$REPO/untracked.py"
 
 echo "マニフェストと参照の整合"
 expect_exit 0 "marketplace.json / plugin.json が必須の欄を持つ" "$PY_BIN" - "$ROOT" <<'PY'
@@ -121,6 +157,23 @@ assert mk["plugins"], "plugins が空"
 pl = json.loads((root/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
 for key in ("name", "version", "description"):
     assert key in pl, f"plugin.json に {key} が無い"
+
+# 局所レビューの依存は公式の宣言機構で入れる。宣言が消えると pr-review-toolkit が
+# 入らないまま「欠陥の観点が 1 つ静かに欠けたレビュー」が通るので、宣言の実在を検査する。
+deps = [d for d in (pl.get("dependencies") or []) if isinstance(d, dict)]
+assert any(d.get("name") == "pr-review-toolkit" for d in deps), \
+    "plugin.json が pr-review-toolkit を dependencies で宣言していない"
+# 別 marketplace への依存は、ルート marketplace の許可リストが無いと install が
+# cross-marketplace エラーで落ちる。
+needed = {d["marketplace"] for d in deps if d.get("marketplace")}
+allowed = set(mk.get("allowCrossMarketplaceDependenciesOn") or [])
+assert needed <= allowed, \
+    f"marketplace.json の allowCrossMarketplaceDependenciesOn に {sorted(needed - allowed)} が無い"
+# 宣言に移した以上、手順書側に導入コマンドを戻すな（宣言と自作導入は排他——宣言が
+# 解決できない環境ではプラグイン自体がロードされず、導入コマンドに到達しない）。
+body = (root/"commands/review-loop.md").read_text(encoding="utf-8")
+assert "claude plugin install" not in body, \
+    "review-loop.md に自作の導入コマンドが戻っている（依存は plugin.json の dependencies が正本）"
 PY
 
 expect_exit 0 "手順書が名指しする REVIEW.md のセクションが実在する" "$PY_BIN" - "$ROOT" <<'PY'
@@ -151,7 +204,7 @@ assert not hits, "固有の技術名が残っている: " + " / ".join(hits)
 PY
 
 # 検査が 1 件も走らなかった場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
-EXPECTED_MIN=15
+EXPECTED_MIN=23
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"
     exit 2

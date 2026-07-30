@@ -7,10 +7,14 @@
 # 誰がいつ測っても同じ数字が出ることが要件——手計測に戻すとその前提が崩れる。
 #
 # **未追跡の新規ファイルは事前に `git add -N` で差分に載せろ。** 載せないと git diff に
-# 現れず、警告も出ないまま 0 として数える。
+# 現れないので、載っていない対象言語のファイルを見つけたら数えずに exit 2 で止まる
+# （計測漏れのある数字と、本当に対象ファイルが無い正常系が同じ出力になるのを防ぐ）。
 #
 # 使い方: bash comment-ratio.sh <BASE の SHA> [<比較先の ref>]
 #   比較先を省略すると作業ツリーと比べる。
+#
+# 終了コード: 0 測れた / 2 測れなかった。**計測不成立を 0 で返すな**——「注釈 0%」と
+# 区別が付かず、測れていない数字がラウンド間の比較に混じる。
 set -euo pipefail
 
 BASE="${1:?usage: comment-ratio.sh <BASE-sha> [<ref>]}"
@@ -32,6 +36,16 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 base, ref = sys.argv[1], sys.argv[2]
+
+
+def die(msg):
+    """計測不成立で止まる。**終了コードは 0（測れた）以外に統一して 2**——
+    `raise SystemExit("...")` は exit 1 になるので使わない。呼び出し側（P4）が
+    「測れなかった」と「注釈が 0%だった」を終了コードで区別できることが要件。"""
+    print(f"comment-ratio: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
 HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
 # Python は tokenize、それ以外は C 系コメントとして数える。`#` 系の言語（Ruby・
 # Shell 等）を足すな——注釈を 1 行も拾えないまま「注釈 0%」を自信ありげに出す。
@@ -46,20 +60,40 @@ def git(*args):
     # 含む diff を読んだ時点で UnicodeDecodeError になり、reader thread の中で落ちて
     # returncode の検査より前に p.stdout が None になる。リポジトリの中身は UTF-8 と
     # 決めて読む（不正なバイトはパス名を壊さない surrogateescape で通す）。
-    p = subprocess.run(
-        ["git", *args],
-        capture_output=True,
-        encoding="utf-8",
-        errors="surrogateescape",
-    )
+    try:
+        p = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            encoding="utf-8",
+            errors="surrogateescape",
+            # 認証待ちで固まる git 操作（credential helper のプロンプト等）で
+            # 無制限に待たない。待ち続けると P4 が進まないまま止まる。
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        die(f"git {' '.join(args)} が 120 秒で応答しない")
     if p.returncode != 0:
-        raise SystemExit(f"comment-ratio: git {' '.join(args)} が失敗: {p.stderr.strip()}")
+        die(f"git {' '.join(args)} が失敗: {p.stderr.strip()}")
     return p.stdout
 
 
 def changed_files():
     # -z を使うのは、空白や非 ASCII を含むパスが git の既定の引用で壊れるため。
     out = git("diff", "--name-only", "-z", base, *([ref] if ref else []))
+    return [p for p in out.split("\0") if p.endswith(EXTS)]
+
+
+def untracked_target_files():
+    """差分に載っていない未追跡の対象言語ファイル。
+
+    検知しないと、**計測漏れのある縮退状態と、本当に対象ファイルが無い正常系が
+    どちらも「追加行なし」という同じ出力になる**（fail-open）。ラウンド間で比べる
+    数字なので、漏れた状態の 0 が「注釈を足した」の証拠に化ける。
+    ref を指定した ref 間比較は作業ツリーを見ないので対象外。
+    """
+    if ref:
+        return []
+    out = git("ls-files", "--others", "--exclude-standard", "-z")
     return [p for p in out.split("\0") if p.endswith(EXTS)]
 
 
@@ -110,7 +144,7 @@ def python_annotation_lines(src, path):
     except (tokenize.TokenError, IndentationError, SyntaxError):
         # 構文が壊れたファイルが 1 つでもあれば計測全体を中断する——部分的な数字は
         # ラウンド間の比較に使えず、0 を返すより「測れなかった」と表に出す方がよい。
-        raise SystemExit(f"comment-ratio: {path} を解析できない（構文エラー）")
+        die(f"{path} を解析できない（構文エラー）")
     return lines
 
 
@@ -135,6 +169,13 @@ def c_style_annotation_lines(src):
             block = "*/" not in s
     return lines
 
+
+missed = untracked_target_files()
+if missed:
+    die(
+        "未追跡の対象言語ファイルが差分に載っていない（`git add -N` で載せてから測れ）: "
+        + " ".join(missed)
+    )
 
 total = annotated = 0
 for path in changed_files():

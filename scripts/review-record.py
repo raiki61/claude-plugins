@@ -11,10 +11,27 @@
 使い方:
     python3 review-record.py <今ラウンドの記録.json> [<前ラウンドの記録.json>]
 
+初回ラウンド（N=1）は前ラウンドの記録が存在しないので第 2 引数を省略しろ。省略すると
+「前ラウンドの記録が無い」が阻害要因として 1 件返る（収束は連続 2 ラウンドの比較を
+要するので、初回が阻害なしになることはない）。
+
 終了コード:
     0  阻害要因なし（収束の宣言ではない）
     1  阻害要因あり
-    2  記録が不正（欄の欠落・値の不正）——1 と取り違えるな
+    2  記録が不正（欄の欠落・値の不正・読めない・引数が違う）——1 と取り違えるな
+
+**1 は「記録は読めたが収束を妨げるものがある」だけに使う。** 読めなかった・引数が
+違ったといった計測不成立を 1 に混ぜると、非収束と区別が付かず、記録を直せば済む
+状態が「まだ直っていない」と読まれて収束を永久に宣言できない。Python の未処理例外は
+exit 1 なので、**例外を素通しした時点でこの契約は破れる**——だから読み込みも引数検査も
+明示的に 2 へ倒す。
+
+検証を JSON Schema で宣言せず手書きにしてあるのは 2 点の理由による。①検証の半分は
+ラウンド間の突合（`base` 一致・`round` 連番・scalar の増分）で、**単一ドキュメントに
+閉じないので Schema では原理的に表現できない**。②`jsonschema` の導入は pip を要し、
+README が配布上の売り文句にしている「必須は git / python3 / bash だけ」「セットアップは
+要らない」と正面から衝突する。入れても①は手書きのまま残るため、依存だけが増える。
+`research-loop.md` が Schema の語彙を使うのは、あちらの検証をハーネスが持っているため。
 """
 
 import json
@@ -65,14 +82,37 @@ def fail(msg):
     sys.exit(2)
 
 
+def load(path):
+    """記録を読む。**読めないことは記録の不正（2）で、非収束（1）ではない。**"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except OSError as e:
+        fail(f"{path}: 開けない（{e.strerror}）")
+    except json.JSONDecodeError as e:
+        fail(f"{path}: JSON として読めない（{e}）")
+    except UnicodeDecodeError as e:
+        fail(f"{path}: UTF-8 として読めない（{e}）")
+
+
 def validate(rec, path):
+    # 型まで見るのは、後段の比較・走査が投げる TypeError / AttributeError が exit 1 に
+    # なり「阻害要因あり」と混ざるため。ここで 2 に倒しておけば後段は素直に書ける。
+    if not isinstance(rec, dict):
+        fail(f"{path}: 記録の最上位が object でない")
     for key in ("base", "round", "materials", "units"):
         if key not in rec:
             fail(f"{path}: 必須の欄 '{key}' が無い")
+    if not isinstance(rec["round"], int) or isinstance(rec["round"], bool):
+        fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
+    if not isinstance(rec["materials"], dict):
+        fail(f"{path}: 'materials' が object でない")
+    if not isinstance(rec["units"], list):
+        fail(f"{path}: 'units' が配列でない")
 
     for name in MATERIALS:
         m = rec["materials"].get(name)
-        if m is None:
+        if not isinstance(m, dict):
             fail(f"{path}: 素材 '{name}' の返答が無い（明示返答は全素材に要る）")
         status = m.get("status")
         if status not in STATUS:
@@ -86,6 +126,8 @@ def validate(rec, path):
                 )
 
     for i, u in enumerate(rec["units"]):
+        if not isinstance(u, dict):
+            fail(f"{path}: units[{i}] が object でない")
         if not u.get("key"):
             fail(f"{path}: units[{i}] に key が無い（ラウンド間の突合に使う）")
         if u.get("label") not in LABELS:
@@ -145,21 +187,24 @@ def scalar_changes(rec, prev):
 
 
 def main():
-    if len(sys.argv) < 2:
-        sys.exit(__doc__)
-    with open(sys.argv[1], encoding="utf-8") as f:
-        rec = json.load(f)
+    # `sys.exit(__doc__)` は終了コード 1 になり「阻害要因あり」と混ざるので使わない。
+    if not 2 <= len(sys.argv) <= 3:
+        print(__doc__, file=sys.stderr)
+        fail(f"引数は 1 個か 2 個（受け取った数: {len(sys.argv) - 1}）")
+
+    rec = load(sys.argv[1])
+    # **突合より先に両方を検証する。** 逆順にすると、欄が欠けた記録で比較が
+    # KeyError を投げて exit 1 になり、記録の不正が非収束に化ける。
+    validate(rec, sys.argv[1])
+
     prev = None
     if len(sys.argv) > 2:
-        with open(sys.argv[2], encoding="utf-8") as f:
-            prev = json.load(f)
+        prev = load(sys.argv[2])
         validate(prev, sys.argv[2])
         if prev["base"] != rec["base"]:
             fail("2 つの記録の base が違う（基準点を動かすな）")
         if rec["round"] != prev["round"] + 1:
             fail(f"ラウンドが連番でない: {prev['round']} の次が {rec['round']}")
-
-    validate(rec, sys.argv[1])
 
     grew = scalar_changes(rec, prev)
     if grew:
