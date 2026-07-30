@@ -53,9 +53,9 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 
 ## 依存と入手経路
 
-`/review-loop` は欠陥の局所レビューに公式プラグイン `pr-review-toolkit` を使う。これを `plugin.json` の `dependencies` で宣言してあるので、**このプラグインを入れると一緒に入る**（公式 marketplace `claude-plugins-official` にあり、Claude Code が起動時に自動で追加する）。
+`/review-loop` は欠陥の局所レビューに公式プラグイン `pr-review-toolkit` を使う。これを `plugin.json` の `dependencies` で宣言してあるので、**このプラグインを入れると一緒に入る**（公式 marketplace `claude-plugins-official` にある）。
 
-**その解決に失敗すると、このプラグイン全体がロードされない**（`/review-loop` だけでなく `/research-loop` も使えない）。`claude plugin list` が実行すべきコマンドを表示するので、そこから復帰できる。依存を宣言する代わりに `/review-loop` の中で導入コマンドを実行する形は採っていない——宣言が未解決のときプラグインがロードされないので、その導入コマンドには到達できず両立しない。
+**その解決に失敗すると、このプラグイン全体がロードされない**（`/review-loop` だけでなく `/research-loop` も使えない）。使えないと気づいたら `claude plugin list` で状態を見て、`pr-review-toolkit` を入れ直せ。依存を宣言する代わりに `/review-loop` の中で導入コマンドを実行する形は採っていない——宣言が未解決のときプラグインがロードされないので、その導入コマンドには到達できず両立しない。
 
 **この制約が効くのは、`claude-plugins-official`（GitHub 上）に到達できない環境**だ。上のインストール節の 3 つのうち、**共有フォルダ・ローカルパス配布はこれに当たりやすい**（エアギャップの社内環境で使う動機がある人ほど当たる）。到達できないなら、利用者に先に `/plugin install pr-review-toolkit@claude-plugins-official` を通せる経路を用意するか、そこを通せないことを承知の上で配れ。
 
