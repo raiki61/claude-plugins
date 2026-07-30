@@ -38,4 +38,6 @@
 
 正本は `scripts/review-record.py` の `MATERIALS` / `STATUS` / `LABELS`。手順書は列挙を持たない（二重管理を避けるため）。実例は `templates/round-1.example.json` と `templates/round-2.example.json`。
 
+素材には P1 の各観点だけでなく **`local_checks`（P0-2 の CI ローカル実行）**も含まれる。緑かどうかを writer の自己申告に留めず記録に残すためで、**実行できなかった場合を `awaiting_human` として突合に載せる**のが要点（「たぶん緑だろう」で先に進む経路を塞ぐ）。
+
 素材の状態は 5 値。**`not_applicable`（条件に当たらない）と `not_run`（やるべきだったが飛ばした）と `awaiting_human`（人の起動待ちで止まっている）を潰さない**のがこの schema の要点で、潰すと報告上で見分けられなくなる。`clean`（見たが無かった）には「何を見たか」を要求する——見た範囲が書けないものは、見たと言えない。

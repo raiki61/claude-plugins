@@ -51,6 +51,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 # P1 が生産する素材。ここが正本で、手順書は列挙を持たない。
 MATERIALS = (
+    "local_checks",  # CI のテスト・lint のローカル実行（P0-2）
     "local_review",  # 局所レビュー（公式 skill）
     "consistency",
     "bypass",  # 標準機構の迂回

@@ -2,6 +2,10 @@
   "base": "0000000000000000000000000000000000000000",
   "round": 2,
   "materials": {
+    "local_checks": {
+      "status": "clean",
+      "checked": "bash tests/run.sh を実行し 23 件すべて緑。lint はこのリポジトリに設定が無い（パッケージマニフェスト・CI 定義で確認）。"
+    },
     "local_review": {
       "status": "clean",
       "checked": "review-pr と /simplify を新しい context で再実行。前ラウンドの 3 件は解消、新規なし"
