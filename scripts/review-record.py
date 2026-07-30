@@ -23,8 +23,13 @@
 **1 は「記録は読めたが収束を妨げるものがある」だけに使う。** 読めなかった・引数が
 違ったといった計測不成立を 1 に混ぜると、非収束と区別が付かず、記録を直せば済む
 状態が「まだ直っていない」と読まれて収束を永久に宣言できない。Python の未処理例外は
-exit 1 なので、**例外を素通しした時点でこの契約は破れる**——だから読み込みも引数検査も
-明示的に 2 へ倒す。
+exit 1 なので、**例外を素通しした時点でこの契約は破れる。**
+
+**この契約を担保するのは末尾の例外境界 1 つだけ。** 個々の型検査は診断メッセージを
+具体的にするために在るのであって、契約の保証ではない——起きうる不正値を列挙する方式は
+列挙の完了が原理的に保証されず、実際に列挙を 5 本足した直後に同じファイル内で 2 箇所
+（`status` / `key` が unhashable な場合）と `scalars`・深いネストの JSON が漏れた。
+検査を足すときは境界に頼れ。**列挙を増やして塞いだつもりになるな。**
 
 検証を JSON Schema で宣言せず手書きにしてあるのは 2 点の理由による。①検証の半分は
 ラウンド間の突合（`base` 一致・`round` 連番・scalar の増分）で、**単一ドキュメントに
@@ -96,8 +101,7 @@ def load(path):
 
 
 def validate(rec, path):
-    # 型まで見るのは、後段の比較・走査が投げる TypeError / AttributeError が exit 1 に
-    # なり「阻害要因あり」と混ざるため。ここで 2 に倒しておけば後段は素直に書ける。
+    # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
     if not isinstance(rec, dict):
         fail(f"{path}: 記録の最上位が object でない")
     for key in ("base", "round", "materials", "units"):
@@ -105,6 +109,10 @@ def validate(rec, path):
             fail(f"{path}: 必須の欄 '{key}' が無い")
     if not isinstance(rec["round"], int) or isinstance(rec["round"], bool):
         fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
+    # 連番検査（`rec["round"] != prev["round"] + 1`）は間隔しか見ないので、基点を
+    # 押さえないと負値から始めて連番のまま永久に素通りできる。手順書は「1 から 1 ずつ」。
+    if rec["round"] < 1:
+        fail(f"{path}: 'round' が 1 以上でない: {rec['round']!r}")
     if not isinstance(rec["materials"], dict):
         fail(f"{path}: 'materials' が object でない")
     if not isinstance(rec["units"], list):
@@ -187,14 +195,13 @@ def scalar_changes(rec, prev):
 
 
 def main():
-    # `sys.exit(__doc__)` は終了コード 1 になり「阻害要因あり」と混ざるので使わない。
     if not 2 <= len(sys.argv) <= 3:
         print(__doc__, file=sys.stderr)
         fail(f"引数は 1 個か 2 個（受け取った数: {len(sys.argv) - 1}）")
 
     rec = load(sys.argv[1])
-    # **突合より先に両方を検証する。** 逆順にすると、欄が欠けた記録で比較が
-    # KeyError を投げて exit 1 になり、記録の不正が非収束に化ける。
+    # **突合より先に両方を検証する。** 逆順にすると、欄が欠けた記録で比較が KeyError を
+    # 投げ、境界が 2 に倒すとはいえ「必須の欄が無い」より読みにくいメッセージになる。
     validate(rec, sys.argv[1])
 
     prev = None
@@ -225,4 +232,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # **終了コードの契約を担保するのはここ 1 箇所。** 上の型検査を全部すり抜けた想定外の
+    # 例外も 2（記録が不正）に倒す——素通しすると Python の既定で exit 1 になり
+    # 「阻害要因あり」と区別が付かなくなる。型検査を増やして塞ぐのでなく、漏れる前提で
+    # この境界に担保させる（冒頭 docstring の「列挙は完了しない」）。
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        fail(f"想定外の例外（{type(e).__name__}）: {e}")

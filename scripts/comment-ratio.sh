@@ -7,8 +7,16 @@
 # 誰がいつ測っても同じ数字が出ることが要件——手計測に戻すとその前提が崩れる。
 #
 # **未追跡の新規ファイルは事前に `git add -N` で差分に載せろ。** 載せないと git diff に
-# 現れないので、載っていない対象言語のファイルを見つけたら数えずに exit 2 で止まる
-# （計測漏れのある数字と、本当に対象ファイルが無い正常系が同じ出力になるのを防ぐ）。
+# 現れず数えられない。載っていない対象言語のファイルは出力に列挙する——「計測漏れの 0」と
+# 「本当に対象ファイルが無い 0」が同じ出力になるのを防ぐのが目的で、区別が付けば足りる。
+# **両者が原理的に区別できなくなる場合（追加行が 1 行も無く、かつ未追跡の対象ファイルが
+# ある）だけ exit 2 で止まる。** 数えられた場合に無関係な未追跡ファイルで止めるな——
+# 実開発の作業ツリーには下書き・診断用スクリプトが普通に在り、P4 が本来の目的と無関係な
+# 理由で毎回止まる。
+#
+# 測る範囲は git が見えているファイルだけ。`.gitignore` されたファイルは列挙にも計測にも
+# 現れない（`git ls-files --others --exclude-standard` の守備範囲）。**「漏れがあれば必ず
+# 止まる」ではない**——止まるのは上の 1 条件だけで、それ以外は列挙で見せる。
 #
 # 使い方: bash comment-ratio.sh <BASE の SHA> [<比較先の ref>]
 #   比較先を省略すると作業ツリーと比べる。
@@ -37,11 +45,15 @@ for _stream in (sys.stdout, sys.stderr):
 
 base, ref = sys.argv[1], sys.argv[2]
 
+# 認証待ちで固まる git 操作（credential helper のプロンプト等）で無制限に待たない。
+# 待ち続けると P4 が進まないまま止まる。メッセージからも参照するので定数で持つ。
+GIT_TIMEOUT_SEC = 120
 
-def die(msg):
-    """計測不成立で止まる。**終了コードは 0（測れた）以外に統一して 2**——
-    `raise SystemExit("...")` は exit 1 になるので使わない。呼び出し側（P4）が
-    「測れなかった」と「注釈が 0%だった」を終了コードで区別できることが要件。"""
+
+def fail(msg):
+    """計測不成立で止まる。名前は `review-record.py` の `fail()` と揃えてある——
+    同じ契約（exit 2 = 計測不成立）の実装名が 2 つあると、片方を読んだ者がもう片方を
+    grep で見つけられない。**`raise SystemExit("...")` は exit 1 になるので使うな。**"""
     print(f"comment-ratio: {msg}", file=sys.stderr)
     sys.exit(2)
 
@@ -66,35 +78,36 @@ def git(*args):
             capture_output=True,
             encoding="utf-8",
             errors="surrogateescape",
-            # 認証待ちで固まる git 操作（credential helper のプロンプト等）で
-            # 無制限に待たない。待ち続けると P4 が進まないまま止まる。
-            timeout=120,
+            timeout=GIT_TIMEOUT_SEC,
         )
     except subprocess.TimeoutExpired:
-        die(f"git {' '.join(args)} が 120 秒で応答しない")
+        fail(f"git {' '.join(args)} が {GIT_TIMEOUT_SEC} 秒で応答しない")
     if p.returncode != 0:
-        die(f"git {' '.join(args)} が失敗: {p.stderr.strip()}")
+        fail(f"git {' '.join(args)} が失敗: {p.stderr.strip()}")
     return p.stdout
 
 
-def changed_files():
-    # -z を使うのは、空白や非 ASCII を含むパスが git の既定の引用で壊れるため。
-    out = git("diff", "--name-only", "-z", base, *([ref] if ref else []))
+def target_paths(out):
+    """`-z` 区切りの git 出力から対象言語のパスだけを取る。
+
+    `-z` を使うのは、空白や非 ASCII を含むパスが git の既定の引用で壊れるため。
+    """
     return [p for p in out.split("\0") if p.endswith(EXTS)]
 
 
-def untracked_target_files():
-    """差分に載っていない未追跡の対象言語ファイル。
+def changed_files():
+    return target_paths(git("diff", "--name-only", "-z", base, *([ref] if ref else [])))
 
-    検知しないと、**計測漏れのある縮退状態と、本当に対象ファイルが無い正常系が
-    どちらも「追加行なし」という同じ出力になる**（fail-open）。ラウンド間で比べる
-    数字なので、漏れた状態の 0 が「注釈を足した」の証拠に化ける。
+
+def untracked_target_files():
+    """差分に載っていない未追跡の対象言語ファイル。**列挙するだけで、止める判断は
+    呼び出し側**（ヘッダの「両者が原理的に区別できなくなる場合だけ止まる」を参照）。
+
     ref を指定した ref 間比較は作業ツリーを見ないので対象外。
     """
     if ref:
         return []
-    out = git("ls-files", "--others", "--exclude-standard", "-z")
-    return [p for p in out.split("\0") if p.endswith(EXTS)]
+    return target_paths(git("ls-files", "--others", "--exclude-standard", "-z"))
 
 
 def added_line_numbers(path):
@@ -115,7 +128,10 @@ def post_image(path):
     開始と取り違えて以降を数え続ける）。"""
     if ref:
         return git("show", f"{ref}:{path}")
-    with open(path, encoding="utf-8") as f:
+    # 非 UTF-8 のソース（Shift_JIS で保存された .java 等）でも読み切る。数えるのは行なので、
+    # 化けた文字は行の数え方を変えない。**`surrogateescape` は使わない**——復号できても
+    # 後段で encode し直すときに落ち、測れないのと同じになる。
+    with open(path, encoding="utf-8", errors="replace") as f:
         return f.read()
 
 
@@ -144,7 +160,7 @@ def python_annotation_lines(src, path):
     except (tokenize.TokenError, IndentationError, SyntaxError):
         # 構文が壊れたファイルが 1 つでもあれば計測全体を中断する——部分的な数字は
         # ラウンド間の比較に使えず、0 を返すより「測れなかった」と表に出す方がよい。
-        die(f"{path} を解析できない（構文エラー）")
+        fail(f"{path} を解析できない（構文エラー）")
     return lines
 
 
@@ -170,29 +186,46 @@ def c_style_annotation_lines(src):
     return lines
 
 
-missed = untracked_target_files()
-if missed:
-    die(
-        "未追跡の対象言語ファイルが差分に載っていない（`git add -N` で載せてから測れ）: "
-        + " ".join(missed)
-    )
+def main():
+    missed = untracked_target_files()
+    total = annotated = 0
+    for path in changed_files():
+        added = added_line_numbers(path)
+        if not added:
+            continue
+        total += len(added)
+        src = post_image(path)
+        marked = (
+            python_annotation_lines(src, path)
+            if path.endswith(".py")
+            else c_style_annotation_lines(src)
+        )
+        annotated += len(added & marked)
 
-total = annotated = 0
-for path in changed_files():
-    added = added_line_numbers(path)
-    if not added:
-        continue
-    total += len(added)
-    src = post_image(path)
-    marked = (
-        python_annotation_lines(src, path)
-        if path.endswith(".py")
-        else c_style_annotation_lines(src)
-    )
-    annotated += len(added & marked)
-
-if total == 0:
-    print(f"対象言語（{' '.join(EXTS)}）のファイルに追加行なし")
-else:
+    if total == 0:
+        # ここだけが「計測漏れの 0」と「本当に 0」が区別できない状態。数えられた行が
+        # 1 行も無く、かつ未追跡の対象ファイルが在るなら、どちらなのか原理的に言えない。
+        if missed:
+            fail(
+                "追加行が無いが未追跡の対象言語ファイルが在り、計測漏れと区別できない"
+                "（`git add -N` で載せてから測れ）: " + " ".join(missed)
+            )
+        print(f"対象言語（{' '.join(EXTS)}）のファイルに追加行なし")
+        return
     print(f"追加行 {total} / 注釈 {annotated} ({annotated * 100 // total}%)")
+    if missed:
+        # 数えられているので止めない。ただし黙るな——この列挙が無いと、漏れのある数字と
+        # 完全な数字が同じ出力になる（ラウンド間で比べる値なので差が意味を持つ）。
+        print("未計測（未追跡・差分に載っていない）: " + " ".join(missed))
+
+
+# **終了コードの契約（0 測れた / 2 測れなかった）を担保するのはここ 1 箇所。**
+# 上の個別の except を全部すり抜けた想定外の例外も 2 に倒す——素通しすると Python の
+# 既定で exit 1 になり、契約に無い値が返る（`review-record.py` と同じ構造）。
+try:
+    main()
+except SystemExit:
+    raise
+except Exception as _e:
+    fail(f"想定外の例外（{type(_e).__name__}）: {_e}")
 PY
