@@ -2,16 +2,17 @@
 
 [![test](https://github.com/raiki61/claude-review-loops/actions/workflows/test.yml/badge.svg)](https://github.com/raiki61/claude-review-loops/actions/workflows/test.yml)
 
-> **English** — Two Claude Code loops that keep reviewing (or researching) until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
+> **English** — Three Claude Code loops that keep reviewing, researching, or diagnosing until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
 >
 > **The instructions are in Japanese, but you don't have to read them — Claude does.** The loops report back in *your* language, so they work whatever you speak. Japanese is kept for the prompts because the criteria lean on the imperative force of the original wording and a translation would loosen it. You only need to read `REVIEW.md` yourself if you want to grow the criteria.
 
-Claude Code のプラグイン。収束するまで回す 2 つのループを配る。
+Claude Code のプラグイン。収束するまで回す 3 つのループを配る。
 
 - **`/review-loop`** — 実装したコード変更を、レビューと修正を繰り返して収束させる
 - **`/research-loop`** — 設計・手法・技術選定の見立てを、業界 / 学界の一次情報で校正してからドメインに最適化する
+- **`/doctor-loop`** — まだ差分が無い既存コード・文書を読み取り専用で診て、改善候補（減らす・機械チェック化する・構造を正す・時代に合わせる）を新規所見が出なくなるまで検証し、**提案だけ**を返す（変更は適用しない）
 
-どちらも「1 回レビューして終わり」ではなく、**不動点に達するまで回して、達しなければ達しなかったと報告する**形になっている。
+どれも「1 回やって終わり」ではなく、**不動点（レビューなら指摘ゼロ、調査なら新規相違ゼロ、診断なら新規所見ゼロ）に達するまで回して、達しなければ達しなかったと報告する**形になっている。
 
 ## 普通のレビュー依頼と違うところ
 
