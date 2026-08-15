@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "レビュー・調査・診断ループのプラグイン",
-    "version": "0.8.0"
+    "version": "0.8.1"
   },
   "allowCrossMarketplaceDependenciesOn": [
     "claude-plugins-official"
@@ -13,7 +13,7 @@
   "plugins": [
     {
       "name": "convergence-loops",
-      "description": "収束するまで回すレビューループ（/review-loop）、一次情報で見立てを校正する調査ループ（/research-loop）、読み取り専用で改善候補を診て提案だけ返す診断ループ（/doctor-loop）。writer≠grader の分離と、無言の省略を許さない記録で収束を判定する。",
+      "description": "収束するまで回す 3 本組——コード変更を収束させる /review-loop、見立てを一次情報で校正する /research-loop、現状を読み取り専用で診て提案だけ返す /doctor-loop。writer≠grader の分離と、無言の省略を許さない記録で収束を判定する。",
       "source": "./",
       "strict": false
     }
