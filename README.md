@@ -1,6 +1,6 @@
-# review-loops
+# convergence-loops
 
-[![test](https://github.com/raiki61/claude-review-loops/actions/workflows/test.yml/badge.svg)](https://github.com/raiki61/claude-review-loops/actions/workflows/test.yml)
+[![test](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml/badge.svg)](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml)
 
 > **English** — Three Claude Code loops that keep reviewing, researching, or diagnosing until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
 >
@@ -41,11 +41,11 @@ Claude Code のプラグイン。収束するまで回す 3 つのループを�
 marketplace は **GitHub リポジトリ / 任意の git URL / ローカルディレクトリ**のどれでも指せる。
 
 ```bash
-/plugin marketplace add raiki61/claude-review-loops                 # GitHub
-/plugin marketplace add https://git.example.com/team/review-loops   # 社内 git
-/plugin marketplace add //fileserver/share/review-loops             # 共有フォルダ・ローカルパス
+/plugin marketplace add raiki61/claude-plugins                      # GitHub
+/plugin marketplace add https://git.example.com/team/claude-plugins   # 社内 git
+/plugin marketplace add //fileserver/share/claude-plugins             # 共有フォルダ・ローカルパス
 
-/plugin install review-loops
+/plugin install convergence-loops@raiki61
 ```
 
 **セットアップは要らない**。入れたらすぐ使える。
@@ -111,8 +111,8 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 **これはこのプラグイン自身を開発・改造する人向けの検証で、利用者が対象リポジトリで走らせるものではない。** `/plugin install` で入れた場合、実体はプラグインのキャッシュに置かれて作業ディレクトリには現れないので、`tests/run.sh` は clone しないと存在しない。
 
 ```bash
-git clone https://github.com/raiki61/claude-review-loops
-cd claude-review-loops
+git clone https://github.com/raiki61/claude-plugins
+cd claude-plugins
 bash tests/run.sh
 ```
 
