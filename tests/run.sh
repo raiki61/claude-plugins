@@ -295,6 +295,95 @@ expect_output 2 "開けない" "存在しない研究記録は 1 と区別して
 expect_exit 2 "深いネストの研究記録も 1 と区別して落ちる（経路は環境で変わる）" \
     "$PY_BIN" "$RR" "$WORK/deep.json"
 
+echo "doctor-record.py"
+DR="$ROOT/scripts/doctor-record.py"
+DR_EX="$ROOT/templates/doctor-record.example.json"
+
+expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを品質・飽和と名乗らない（診断記録）" \
+    "$PY_BIN" "$DR" "$DR_EX"
+
+"$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した診断記録を作れない"; fail=1; }
+import json, sys, pathlib
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+base = json.loads((root / "templates/doctor-record.example.json").read_text(encoding="utf-8"))
+
+UNVERIFIED = {
+    "key": "断面から生えた新候補（次ラウンド対象）",
+    "height": 1,
+    "verdict": "未検証",
+    "confidence": "仮説",
+    "weight": None,
+    "parent": None,
+    "evidence": "走査の断面で観測",
+}
+
+MUT = {
+    # 記録の不正（exit 2）
+    "dr-drop-nodes": lambda r: r.pop("nodes"),
+    "dr-bad-verdict": lambda r: r["nodes"][0].update(verdict="たぶん推奨"),
+    "dr-conditional-without-condition": lambda r: r["nodes"][1].pop("condition"),
+    "dr-parent-missing": lambda r: r["nodes"][1].update(parent="存在しない親"),
+    "dr-scout-unreturned-not-unseen": lambda r: r["scouts"][0].update(candidates_returned=False),
+    "dr-height-five": lambda r: r["nodes"][0].update(height=5),
+    "dr-oneshot-on-rejected": lambda r: r["oneshot"].update(
+        key="log_service/logger 置換案: 例外の握り潰しを logger 化する"
+    ),
+    "dr-votes-two": lambda r: r["oneshot"].update(votes=["票1", "票2"]),
+    "dr-escalation-stale": lambda r: r["nodes"][0].update(weight="ライブラリ級"),
+    "dr-modcheck-restored-without-note": lambda r: r.update(mod_check={"status": "restored"}),
+    "dr-rescan-empty": lambda r: r["rescan"].update(coverage=" "),
+    # 発行の阻害（exit 1）——飽和を名乗ったまま出してはいけない状態
+    "dr-unverified-node": lambda r: r["nodes"].append(dict(UNVERIFIED)),
+    "dr-sampling-na": lambda r: r.update(
+        sampling={"status": "not_applicable", "reason": "新規ゼロが自明なので省いた"}
+    ),
+    "dr-cart-fail": lambda r: r["gates"]["cartographer_comparison"].update(verdict="redesign-needed"),
+    "dr-overturned": lambda r: r["sampling"].update(overturned=2),
+    # 停止（未飽和）の正直な申告は発行できる（exit 0）
+    "dr-stopped-ok": lambda r: (
+        r["gates"]["cold_reader"]["rounds"].append({"verdict": "redesign-needed", "findings": 4}),
+        r["convergence"].update(outcome="stopped", stopped_reason="軽量段の 1 ラウンド打ち切り（設計どおり）"),
+    ),
+}
+for name, mutate in MUT.items():
+    rec = json.loads(json.dumps(base))
+    mutate(rec)
+    (work / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+PY
+
+while IFS='|' read -r m msg; do
+    [ -n "$m" ] || continue
+    expect_output 2 "$msg" "不正な診断記録は 1 と区別して落ちる: $m" "$PY_BIN" "$DR" "$WORK/$m.json"
+done <<'CASES'
+dr-drop-nodes|必須の欄 'nodes' が無い
+dr-bad-verdict|verdict が不正
+dr-conditional-without-condition|'condition' が空か文字列でない
+dr-parent-missing|が nodes に無い
+dr-scout-unreturned-not-unseen|「見つからなかった」と読むな
+dr-height-five|高さは固定 4 段
+dr-oneshot-on-rejected|一撃に選べるのは推奨・条件付きの節だけ
+dr-votes-two|3 票
+dr-escalation-stale|申告の腐り
+dr-modcheck-restored-without-note|'note' が空か文字列でない
+dr-rescan-empty|'coverage' が空か文字列でない
+CASES
+
+while IFS='|' read -r m msg; do
+    [ -n "$m" ] || continue
+    expect_output 1 "$msg" "飽和の偽装は 2 と区別して報せる: $m" "$PY_BIN" "$DR" "$WORK/$m.json"
+done <<'CASES'
+dr-unverified-node|飽和は全節に判定が付いてから
+dr-sampling-na|抜き取り検査が要る
+dr-cart-fail|pass していないのに飽和を名乗っている
+dr-overturned|飽和ではない
+CASES
+
+expect_output 0 "停止（未飽和）の申告つきで発行できる" "非飽和の停止は記録を偽らずに出せる" \
+    "$PY_BIN" "$DR" "$WORK/dr-stopped-ok.json"
+expect_exit 2 "引数なしは 1 と区別して落ちる（診断記録）" "$PY_BIN" "$DR"
+expect_exit 2 "深いネストの診断記録も 1 と区別して落ちる（経路は環境で変わる）" \
+    "$PY_BIN" "$DR" "$WORK/deep.json"
+
 echo "comment-ratio.sh"
 REPO="$WORK/repo"
 mkdir -p "$REPO"

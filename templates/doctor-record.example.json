@@ -1,0 +1,115 @@
+{
+  "area": "services/log_service（コード+README）×レンズ: 減らす・縛りの余地×層: 計器+scout",
+  "thickness": "標準",
+  "thickness_decider": "既定",
+  "scouts": [
+    { "area": "services/log_service", "lens": "減らす", "candidates_returned": true, "diagnosis_returned": true },
+    { "area": "services/log_service", "lens": "縛りの余地", "candidates_returned": true, "diagnosis_returned": true }
+  ],
+  "unseen": ["services/log_service/tests（時間切れではなく範囲指定外）"],
+  "nodes": [
+    {
+      "key": "log_service/requirements.txt: どこからも参照されない依存一覧",
+      "height": 1,
+      "verdict": "推奨",
+      "confidence": "確実",
+      "weight": "機械検証可能・小",
+      "parent": null,
+      "evidence": "Dockerfile と CI は pyproject.toml を読む（grep で参照ゼロを確認）",
+      "verification_plan": "削除後に build と全テストを実行",
+      "fixation": "脆弱性スキャンの対象定義を pyproject に一本化"
+    },
+    {
+      "key": "log_service/境界値: inputSchema の min/max に回帰テストが無い",
+      "height": 1,
+      "verdict": "条件付き",
+      "confidence": "有力",
+      "weight": "振る舞いに触れる・中",
+      "parent": "横展開: 検査の先例が 1 サービスで止まる",
+      "condition": "assert は inputSchema の値に対して書く（実装値への直書きは腐る）",
+      "evidence": "兄弟サービスに先例あり・当該サービスに無し（テスト一覧の突合）",
+      "verification_plan": "違反例を 1 つ作って赤を確認してから信じる",
+      "fixation": "境界回帰テストとして常設"
+    },
+    {
+      "key": "log_service/logger 置換案: 例外の握り潰しを logger 化する",
+      "height": 1,
+      "verdict": "棄却",
+      "confidence": "確実",
+      "weight": "機械検証可能・小",
+      "parent": null,
+      "reason": "握り潰しを静かにするだけ——except の撤去が本筋",
+      "evidence": "当該 except 節の実装読解と呼び出し元の突合"
+    },
+    {
+      "key": "横展開: 検査の先例が 1 サービスで止まる",
+      "height": 2,
+      "verdict": "既決着",
+      "confidence": "有力",
+      "weight": null,
+      "parent": null,
+      "settled_by": "共有基底への移設が既存 issue で進行中（完全 URL は散文の報告に記載）",
+      "evidence": "領域診断 2 件が同じ形を報告+issue の実在確認"
+    }
+  ],
+  "oneshot": {
+    "key": "log_service/境界値: inputSchema の min/max に回帰テストが無い",
+    "descendants": 2,
+    "descendants_with_unverifiable": 3,
+    "feasibility": "高",
+    "votes": ["条件付き（統合は正当・別の親は不成立）", "条件付き（既実装なし）", "条件付き（読み違いなし）"]
+  },
+  "triage": {
+    "discretion": ["requirements.txt の削除（確実×小）"],
+    "verification_decides": ["境界回帰テスト（赤の確認が条件）"],
+    "human_only": ["握り潰しの except 撤去の要否（エラー方針の決定）"]
+  },
+  "ledger_candidates": [
+    {
+      "claim": "例外の logger 化はやらない",
+      "reason": "握り潰しを静かにするだけで根本（except の撤去）に届かない",
+      "revisit": "エラー方針を変える決定が出たとき",
+      "evidence": "当該モジュールの except 節"
+    }
+  ],
+  "out_of_scope": [
+    { "finding": "タイムアウトの文面が設定値でなく既定値を表示する（欠陥——欠陥レビューへ引き継ぎ）" }
+  ],
+  "sampling": {
+    "status": "done",
+    "sampled_keys": ["log_service/logger 置換案: 例外の握り潰しを logger 化する"],
+    "overturned": 0
+  },
+  "gates": {
+    "cartographer_comparison": {
+      "verdict": "pass",
+      "reason": "列挙と実走査範囲の差分なし（比較係の判定）"
+    },
+    "cold_reader": {
+      "rounds": [
+        { "verdict": "redesign-needed", "findings": 2 },
+        { "verdict": "pass", "findings": 0 }
+      ]
+    },
+    "rederiver_comparison": {
+      "status": "not_applicable",
+      "reason": "標準段では走らせない（厚みの三段の表が正本）"
+    }
+  },
+  "convergence": {
+    "rounds_total": 3,
+    "consecutive_zero": 2,
+    "outcome": "saturated"
+  },
+  "mod_check": {
+    "status": "clean"
+  },
+  "process": {
+    "rerolls": 0,
+    "escalation_zero_reason": "全候補の重さが中以下（ライブラリ級・構成変更級なし）——重さは scout の根拠付き申告"
+  },
+  "rescan": {
+    "coverage": "services/log_service ×（減らす・縛りの余地）× 計器+scout 2 層",
+    "instruments": ["既存 lint", "未使用依存の検出（使い捨て実行）", "テスト一覧と inputSchema の突合"]
+  }
+}
