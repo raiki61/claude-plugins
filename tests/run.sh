@@ -185,6 +185,116 @@ expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる" "$PY_B
 expect_exit 2 "深いネストの JSON も 1 と区別して落ちる（経路は環境で変わる）" \
     "$PY_BIN" "$RECORD" "$WORK/deep.json"
 
+echo "research-record.py"
+RR="$ROOT/scripts/research-record.py"
+RR_EX="$ROOT/templates/research-record.example.json"
+
+expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを品質・飽和と名乗らない" \
+    "$PY_BIN" "$RR" "$RR_EX"
+
+# 記録の一部を壊した JSON をまとめて 1 プロセスで書き出す（生成のみ束ねる。理由は上の
+# write_broken_records と同じ——検査はケースごとに分けたままにする）。
+"$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した研究記録を作れない"; fail=1; }
+import json, sys, pathlib
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+base = json.loads((root / "templates/research-record.example.json").read_text(encoding="utf-8"))
+
+def all_unloaded(r):
+    for c in r["claims"]:
+        c["load_bearing"] = False
+    r["process"]["unrefuted_load_bearing"] = []
+    r["process"].pop("reason", None)
+
+
+MUT = {
+    # 記録の不正（exit 2）
+    "rr-drop-claims": lambda r: r.pop("claims"),
+    "rr-bad-verdict": lambda r: r["claims"][0].update(verdict="たぶん確証"),
+    "rr-conf-without-conditions": lambda r: r["claims"][0].pop("conditions"),
+    "rr-count-mismatch": lambda r: r["clusters"][0].update(claims_submitted=3),
+    "rr-corrections-gap": lambda r: r.update(
+        corrections=[{"no": 7, "text": "a"}, {"no": 9, "text": "b"}]
+    ),
+    "rr-corrections-bool": lambda r: r["corrections"][0].update(no=True),
+    "rr-undeclared-unrefuted": lambda r: r["process"].update(unrefuted_load_bearing=[]),
+    "rr-na-without-reason": lambda r: r.update(sampling={"status": "not_applicable"}),
+    "rr-number-without-source": lambda r: r["numbers"][0].pop("source"),
+    "rr-origin-missing": lambda r: r["constraints"][0].pop("origin"),
+    "rr-heavy-without-cartographer": lambda r: r.update(thickness="重厚"),
+    "rr-stopped-without-reason": lambda r: r["convergence"].update(outcome="stopped"),
+    "rr-load-zero-undeclared": all_unloaded,
+    "rr-decisions-empty": lambda r: r.update(
+        decisions={"decide_now": [], "poc": [], "human_only": []}
+    ),
+    # 個別の検査を通り抜け、末尾の例外境界だけが受け止めるもの
+    "rr-unhashable-declared": lambda r: r["process"].update(unrefuted_load_bearing=[["L2"]]),
+    # 発行の阻害（exit 1）——記録としては正しいが、収束を名乗ったまま出してはいけない状態
+    "rr-overturned": lambda r: r["sampling"].update(overturned=1),
+    "rr-rederiver-fail": lambda r: r["gates"]["rederiver"].update(verdict="redesign-needed"),
+    "rr-unrefuted-disagreement": lambda r: r["claims"][1].update(verdict="相違"),
+    "rr-coldreader-fail": lambda r: r["gates"]["cold_reader"].update(
+        rounds=[
+            {"verdict": "redesign-needed", "findings": 8},
+            {"verdict": "redesign-needed", "findings": 7},
+        ]
+    ),
+    # 停止（未収束）の正直な申告は発行できる（exit 0）——収束の偽装だけを塞ぐ
+    "rr-stopped-ok": lambda r: (
+        r["gates"]["rederiver"].update(verdict="unverifiable"),
+        r["convergence"].update(
+            outcome="stopped", stopped_reason="独立出典が取れず rederiver が unverifiable"
+        ),
+    ),
+}
+for name, mutate in MUT.items():
+    rec = json.loads(json.dumps(base))
+    mutate(rec)
+    (work / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+PY
+
+# 記録の不正（exit 2）。期待メッセージまで検査する理由は review-record.py の節と同じ。
+while IFS='|' read -r m msg; do
+    [ -n "$m" ] || continue
+    expect_output 2 "$msg" "不正な研究記録は 1 と区別して落ちる: $m" "$PY_BIN" "$RR" "$WORK/$m.json"
+done <<'CASES'
+rr-drop-claims|必須の欄 'claims' が無い
+rr-bad-verdict|verdict が不正
+rr-conf-without-conditions|'conditions' が空か文字列でない
+rr-count-mismatch|判定の欠落を「なし」と読むな
+rr-corrections-gap|連番でない
+rr-corrections-bool|'no' が 1 以上の整数でない
+rr-undeclared-unrefuted|申告も無い
+rr-na-without-reason|「該当なし+理由」
+rr-number-without-source|'source' が空か文字列でない
+rr-origin-missing|origin が不正
+rr-heavy-without-cartographer|盲点ゼロを名乗るな
+rr-stopped-without-reason|'stopped_reason' が空か文字列でない
+rr-load-zero-undeclared|'load_zero_reason' が空か文字列でない
+rr-decisions-empty|3 分類に仕分けろ
+rr-unhashable-declared|想定外の例外（TypeError）
+CASES
+
+# 発行の阻害（exit 1）。記録の不正（2）と混ぜない——直すべき対象が違う。
+while IFS='|' read -r m msg; do
+    [ -n "$m" ] || continue
+    expect_output 1 "$msg" "発行を妨げる状態は 2 と区別して報せる: $m" "$PY_BIN" "$RR" "$WORK/$m.json"
+done <<'CASES'
+rr-overturned|飽和ではない
+rr-rederiver-fail|収束を名乗っている
+rr-unrefuted-disagreement|反証を経ていない
+rr-coldreader-fail|cold-reader が pass していない
+CASES
+
+expect_output 0 "停止（未収束）の申告つきで発行できる" "非収束の停止は記録を偽らずに出せる" \
+    "$PY_BIN" "$RR" "$WORK/rr-stopped-ok.json"
+
+expect_exit 2 "引数なしは 1 と区別して落ちる" "$PY_BIN" "$RR"
+expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる（研究記録）" "$PY_BIN" "$RR" "$RR_EX" "$RR_EX"
+expect_output 2 "開けない" "存在しない研究記録は 1 と区別して落ちる" \
+    "$PY_BIN" "$RR" "$WORK/rr-does-not-exist.json"
+expect_exit 2 "深いネストの研究記録も 1 と区別して落ちる（経路は環境で変わる）" \
+    "$PY_BIN" "$RR" "$WORK/deep.json"
+
 echo "comment-ratio.sh"
 REPO="$WORK/repo"
 mkdir -p "$REPO"
@@ -312,7 +422,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=20
+EXPECTED_MIN=45
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"
     exit 2

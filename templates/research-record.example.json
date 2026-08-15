@@ -1,0 +1,100 @@
+{
+  "question": "LLM が実行する手順書の手続き規則を、散文からスクリプト・報告スキーマ・実走記録へ移す構成変更は、信頼性と保守性を上げるか",
+  "thickness": "標準",
+  "thickness_decider": "既定",
+  "constraints": [
+    {
+      "text": "対象は手順書 3 本（171〜316 行の散文）。機械実行部は 1 箇所のみ",
+      "source": "2026-08-16 に wc -l で実測（doctor-loop 254・research-loop 316・review-loop 171）",
+      "origin": "独立出典",
+      "breaks_if_false": "処方の対象自体が変わる"
+    },
+    {
+      "text": "実走で観測した失敗は欠落型（必須欄・数値の出所・語彙定義）で、初見検査の再検査が上限に到達",
+      "source": "2026-08-15/16 の実走記録",
+      "origin": "独立出典",
+      "breaks_if_false": "失敗が別の型なら処方（スキーマによる欠落の可視化）が変わる"
+    }
+  ],
+  "clusters": [
+    { "key": "llm-limits", "claims_submitted": 2 },
+    { "key": "structured-agents", "claims_submitted": 1 }
+  ],
+  "claims": [
+    {
+      "id": "L1",
+      "cluster": "llm-limits",
+      "claim": "長い入力の中間に置かれた情報の利用は性能が著しく下がる（Lost in the Middle）",
+      "verdict": "確証",
+      "load_bearing": true,
+      "refuted": true,
+      "sources": ["https://arxiv.org/abs/2307.03172"],
+      "conditions": "2023 年時点の特定モデル群・特定タスクの実測。後続研究で広く再現"
+    },
+    {
+      "id": "L2",
+      "cluster": "llm-limits",
+      "claim": "同時に課す制約の数が増えるほど全制約の同時充足率が下がる（IFEval が実測）",
+      "verdict": "留保",
+      "load_bearing": true,
+      "refuted": false,
+      "sources": ["https://arxiv.org/abs/2310.20410"],
+      "correction": "制約数依存を実測したのは IFEval でなく FollowBench 等。GPT-4-Preview-1106 で制約 1 個 84.7% → 5 個 61.9%"
+    },
+    {
+      "id": "S1",
+      "cluster": "structured-agents",
+      "claim": "公式ガイダンスはワークフロー（事前定義のコード経路）とエージェントを区別し、明確なタスクには前者を推奨",
+      "verdict": "確証",
+      "load_bearing": true,
+      "refuted": true,
+      "sources": ["https://www.anthropic.com/engineering/building-effective-agents"],
+      "conditions": "射程は well-defined なタスク。「可能な限り単純な構成から」の歯止め併記"
+    }
+  ],
+  "corrections": [
+    { "no": 1, "text": "制約数依存の出典を IFEval（評価手法の確立）と FollowBench（依存性の実測）に分けて記載" }
+  ],
+  "terms": [
+    { "term": "スキーマ", "definition": "出力の型（必須欄・値の制約）を機械可読に宣言したもの" }
+  ],
+  "numbers": [
+    { "value": "GPT-4-Preview-1106 の完全充足率 84.7%（制約 1 個）→ 61.9%（5 個）", "source": "FollowBench（arXiv:2310.20410）v3 Table 2" }
+  ],
+  "gates": {
+    "rederiver": {
+      "verdict": "pass",
+      "reason": "問いは実在。独立導出と統合見立ての構造に本質的な食い違いなし"
+    },
+    "cold_reader": {
+      "rounds": [
+        { "verdict": "redesign-needed", "findings": 3 },
+        { "verdict": "pass", "findings": 0 }
+      ]
+    },
+    "cartographer": {
+      "status": "not_applicable",
+      "reason": "標準段では走らせない（厚みの三段の表が正本）"
+    }
+  },
+  "sampling": {
+    "status": "done",
+    "sampled_ids": ["L1"],
+    "overturned": 0
+  },
+  "convergence": {
+    "rounds_total": 2,
+    "consecutive_zero": 2,
+    "outcome": "converged"
+  },
+  "process": {
+    "rerolls": 0,
+    "unrefuted_load_bearing": ["L2"],
+    "reason": "検証工程の仕様上、留保には反証が掛からない（相違と荷重確証のみ）"
+  },
+  "decisions": {
+    "decide_now": ["第 1 弾は 1 本に限定して報告スキーマと実行記録を導入する"],
+    "poc": ["スキーマ導入後に必須欄の欠落が実際に 0 になるか"],
+    "human_only": ["既存の設計原則（本文だけで走る）の再訪"]
+  }
+}
