@@ -1,5 +1,4 @@
 ---
-name: review-loop
 description: コード変更後の自動レビュー・修正サイクル。実装完了時、リファクタリング後、バグ修正後に使用する。
 allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 ---

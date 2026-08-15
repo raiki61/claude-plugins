@@ -1,5 +1,4 @@
 ---
-name: doctor-loop
 description: リポジトリの現状そのもの（コード・文書・CI・開発環境）を読み取り専用で診て、改善候補（減らす・機械チェック化する・構造を正す・時代に合わせる）を掘り、敵対検証で刈り込みながら根本の木を組み立て、生き残った候補と一撃（最も梃子の効く根本）を提案として報告する（刈った節と理由も併載）。変更は適用しない。変更を診るのではなく、変更を待たずに診る。技術選定・方式の校正は research-loop。
 allowed-tools: Bash, Agent, Workflow, Read, Grep, Glob, WebSearch, WebFetch
 ---
