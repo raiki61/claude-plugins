@@ -16,6 +16,11 @@
       "count": 1,
       "detail": "src/api/client.py を触る PR #212 が並行。自分の PR（#215）は除外済み。リトライの書き換えが衝突するので当該箇所は #212 へ申し送った。"
     },
+    "prior_decisions": {
+      "status": "found",
+      "count": 1,
+      "detail": "検索 API のリトライ方式は ADR-012 で決着済み（理由: 上流のバックオフと二重になる／再訪条件: 上流クライアントの更新時）。本差分の処方はこの決定に触れないことを確認。棄却済み一覧を持つ issue は無かった"
+    },
     "local_review": {
       "status": "found",
       "count": 3,
@@ -59,6 +64,10 @@
     "provenance": {
       "status": "clean",
       "checked": "docstring の「正本は docs/config.md」を git log -S で確認。BASE 時点に実在"
+    },
+    "fix_closure": {
+      "status": "not_applicable",
+      "reason": "初回ラウンドの P1 時点。修正は P3 でこれから行う"
     }
   },
   "units": [

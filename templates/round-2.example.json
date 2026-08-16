@@ -14,6 +14,10 @@
       "status": "clean",
       "checked": "gh repo view の owner/repo が remote と一致することを確認。自分の PR を除いたオープン PR 3 件の変更ファイルと交差なし。"
     },
+    "prior_decisions": {
+      "status": "clean",
+      "checked": "決定記録に変更が無いため前ラウンドの突合を持ち越し。本ラウンドの処方も ADR-012 に触れない"
+    },
     "local_review": {
       "status": "clean",
       "checked": "review-pr と /simplify を新しい context で再実行。前ラウンドの 3 件は解消、新規なし"
@@ -53,6 +57,10 @@
     "provenance": {
       "status": "clean",
       "checked": "前ラウンドから事実の主張に増減なし"
+    },
+    "fix_closure": {
+      "status": "clean",
+      "checked": "前ラウンドの [block] 2 件・do-now 1 件を修正し閉鎖を確認——分岐の統合は上限を外した退行を注入して赤→復元で緑、i18n 経由は直書き文字列の grep 0 件、リトライ置換は組み込み設定の発火をログで観測"
     }
   },
   "units": [

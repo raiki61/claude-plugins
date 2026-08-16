@@ -59,6 +59,7 @@ MATERIALS = (
     "base_determination",  # BASE をどの規則で決めたか（P0-1）
     "local_checks",  # CI のテスト・lint のローカル実行（P0-2）
     "parallel_pr",  # 並行 PR 衝突チェック（P0-5）
+    "prior_decisions",  # 先行議論の突合（P0-6）——決着済み論点の蒸し返し防止
     "local_review",  # 局所レビュー（公式 skill）
     "consistency",
     "bypass",  # 標準機構の迂回
@@ -69,6 +70,7 @@ MATERIALS = (
     "test_double_fidelity",  # 代役の忠実性
     "main_path_observation",  # 主経路の実行観測
     "provenance",  # 根拠の出所検査
+    "fix_closure",  # 修正の閉鎖実証（P3）——直したと書くだけでなく閉じたことを確かめたか
 )
 
 # 素材の状態と、その状態で追加に要求する欄。
