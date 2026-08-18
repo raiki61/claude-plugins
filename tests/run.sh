@@ -384,6 +384,122 @@ expect_exit 2 "引数なしは 1 と区別して落ちる（診断記録）" "$P
 expect_exit 2 "深いネストの診断記録も 1 と区別して落ちる（経路は環境で変わる）" \
     "$PY_BIN" "$DR" "$WORK/deep.json"
 
+echo "firstread-record.py"
+FR="$ROOT/scripts/firstread-record.py"
+
+# `pre_answers` は実在パスを要求する（**頭の中に置くのを許さない**のがこの欄の趣旨）。
+# テンプレートは雛形であって実行可能な記録ではないので、ここで実在パスへ差し替える。
+"$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した初読記録を作れない"; fail=1; }
+import json, sys, pathlib
+root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+
+pre = work / "pre-answers.md"
+pre.write_text("先に書いた答え（読み役の答えを見る前に書いたもの）\n", encoding="utf-8")
+
+def read(n):
+    r = json.loads((root / f"templates/firstread-round-{n}.example.json").read_text(encoding="utf-8"))
+    r["pre_answers"] = str(pre)
+    return r
+
+r1, r2 = read(1), read(2)
+(work / "fr-1.json").write_text(json.dumps(r1, ensure_ascii=False), encoding="utf-8")
+(work / "fr-2.json").write_text(json.dumps(r2, ensure_ascii=False), encoding="utf-8")
+
+MUT = {
+    # 記録の不正（exit 2）
+    "fr-drop-materials": lambda r: r.pop("materials"),
+    "fr-drop-skipped": lambda r: r["materials"].pop("skipped"),
+    "fr-none-without-asked": lambda r: r["materials"].__setitem__("ideas", {"status": "none"}),
+    "fr-item-no-key": lambda r: r["materials"]["stopped"]["items"][0].pop("key"),
+    "fr-item-no-verbatim": lambda r: r["materials"]["stopped"]["items"][0].pop("verbatim"),
+    "fr-pre-answers-gone": lambda r: r.update(pre_answers=str(work / "書いていない.md")),
+    "fr-no-profile": lambda r: r.update(reader_profile=""),
+    "fr-no-scope": lambda r: r.update(scope=[]),
+    "fr-no-in-scope": lambda r: r["materials"]["stopped"]["items"][0].pop("in_scope"),
+    "fr-outside-no-disposition": lambda r: r["materials"]["stopped"]["items"][1].pop("disposition"),
+    "fr-bad-verdict": lambda r: r["unresolved"][0].update(verdict="たぶん書き落とし"),
+    "fr-round-zero": lambda r: r.update(round=0),
+    "fr-no-size": lambda r: r.pop("size"),
+    "fr-empty-errands": lambda r: r.update(errands=[]),
+    "fr-writeup-no-written": lambda r: r["unresolved"][0].update(verdict="missing_writeup"),
+    # 収束の阻害（exit 1）
+    "fr-not-asked": lambda r: r["materials"].__setitem__(
+        "skipped", {"status": "not_asked", "reason": "聞き忘れた"}
+    ),
+    "fr-errand-lost": lambda r: r["errands"][0].update(found=False, reached=""),
+    "fr-writeup-unwritten": lambda r: r["unresolved"][0].update(
+        verdict="missing_writeup", written=False
+    ),
+    "fr-git-unchecked": lambda r: r.update(git_status_match=False),
+}
+for name, mutate in MUT.items():
+    rec = json.loads(json.dumps(r1))
+    mutate(rec)
+    (work / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+
+# 周をまたぐ検査は 2 周目の側を壊す。
+same = json.loads(json.dumps(r1)); same["round"] = 2
+(work / "fr-same-stuck.json").write_text(json.dumps(same, ensure_ascii=False), encoding="utf-8")
+
+new = json.loads(json.dumps(r2))
+new["materials"]["stopped"]["items"].append(
+    {"key": "rollback/前提が逆順", "verbatim": "戻す手順が、出す手順を読んだ前提で書かれていた",
+     "in_scope": True}
+)
+(work / "fr-new-stuck.json").write_text(json.dumps(new, ensure_ascii=False), encoding="utf-8")
+
+# 削除も移動も無いまま行数だけ増えた周。**阻害要因ではないが報せる。**
+grew = json.loads(json.dumps(r2))
+grew["size"] = {"lines_before": 138, "lines_after": 150}
+grew["removed"] = []
+grew["moved"] = []
+(work / "fr-grew-only.json").write_text(json.dumps(grew, ensure_ascii=False), encoding="utf-8")
+PY
+
+expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない（初読記録）" \
+    "$PY_BIN" "$FR" "$WORK/fr-2.json" "$WORK/fr-1.json"
+
+while IFS='|' read -r m msg; do
+    [ -n "$m" ] || continue
+    expect_output 2 "$msg" "不正な初読記録は 1 と区別して落ちる: $m" "$PY_BIN" "$FR" "$WORK/$m.json"
+done <<'CASES'
+fr-drop-materials|必須の欄 'materials' が無い
+fr-drop-skipped|素材 'skipped' の返答が無い
+fr-none-without-asked|status=none なので 'asked' が要る
+fr-item-no-key|key が無い
+fr-item-no-verbatim|読み役の原文
+fr-pre-answers-gone|'pre_answers' の指す先が無い
+fr-no-profile|前提の線を引かない
+fr-no-scope|'scope' が空
+fr-no-in-scope|'in_scope' が真偽値でない
+fr-outside-no-disposition|'disposition'（行き先
+fr-bad-verdict|verdict が不正
+fr-round-zero|'round' が 1 以上でない
+fr-no-size|'size' が object でない
+fr-empty-errands|'errands' が空
+fr-writeup-no-written|書き足したかの 'written' が要る
+CASES
+
+while IFS='|' read -r m msg; do
+    [ -n "$m" ] || continue
+    expect_output 1 "$msg" "収束の偽装は 2 と区別して報せる: $m" "$PY_BIN" "$FR" "$WORK/$m.json"
+done <<'CASES'
+fr-not-asked|素材 'skipped' を聞いていない
+fr-errand-lost|用事が片づいていない
+fr-writeup-unwritten|書き落としのまま
+fr-git-unchecked|書き換えていないことを確かめていない
+CASES
+
+expect_output 0 "範囲の外へ出したもの" "範囲外の詰まりは 2 周続いても収束を妨げない（行き先だけ報せる）" \
+    "$PY_BIN" "$FR" "$WORK/fr-2.json" "$WORK/fr-1.json"
+expect_output 1 "同じ場所でまた詰まった" "直し方が効いていないことを報せる" \
+    "$PY_BIN" "$FR" "$WORK/fr-same-stuck.json" "$WORK/fr-1.json"
+expect_output 1 "新しい詰まり" "新規の詰まりは収束を妨げる" \
+    "$PY_BIN" "$FR" "$WORK/fr-new-stuck.json" "$WORK/fr-1.json"
+expect_output 0 "足す側に偏っている" "削除も移動も無い増加を報せる（阻害要因にはしない）" \
+    "$PY_BIN" "$FR" "$WORK/fr-grew-only.json" "$WORK/fr-1.json"
+expect_exit 2 "引数なしは 1 と区別して落ちる（初読記録）" "$PY_BIN" "$FR"
+
 echo "comment-ratio.sh"
 REPO="$WORK/repo"
 mkdir -p "$REPO"

@@ -1,7 +1,7 @@
 {
   "name": "convergence-loops",
-  "version": "0.12.0",
-  "description": "収束するまで回すレビュー・調査・診断の 3 ループ。実装者（writer）と採点者（grader）を別 context に分離し、収束を機械で宣言させず不合格だけを機械に宣言させる。",
+  "version": "0.13.0",
+  "description": "収束するまで回すレビュー・調査・診断・初読の 4 ループ。実装者（writer）と採点者（grader）を別 context に分離し、収束を機械で宣言させず不合格だけを機械に宣言させる。",
   "dependencies": [
     {
       "name": "pr-review-toolkit",

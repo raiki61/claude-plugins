@@ -1,0 +1,97 @@
+{
+  "target": "docs/",
+  "round": 1,
+  "scope": [
+    "docs/how-to/release.md",
+    "docs/how-to/rollback.md"
+  ],
+  "reader_profile": "今日このリポジトリに来た人。この製品のドメイン知識は無い前提。git と CI は知っている",
+  "pre_answers": "（実行時に、先に書いた答えを置いたファイルの実在パスへ書き換える）",
+  "errands": [
+    {
+      "errand": "新しい版を本番に出したい",
+      "expected": "docs/how-to/release.md",
+      "reached": "docs/how-to/release.md",
+      "found": true
+    },
+    {
+      "errand": "壊れたので元に戻したい",
+      "expected": "docs/how-to/rollback.md",
+      "reached": "",
+      "found": false
+    }
+  ],
+  "materials": {
+    "stopped": {
+      "status": "found",
+      "items": [
+        {
+          "key": "release/配信先という語",
+          "verbatim": "「配信先」が何を指すか書いていないので止まった",
+          "in_scope": true
+        },
+        {
+          "key": "index/用語集が索引から引けない",
+          "verbatim": "用語の意味を索引から探したが、用語集への項目が無かった",
+          "in_scope": false,
+          "disposition": "issue #412 に起票。今回は docs/how-to/ しか触らないので次のブランチで"
+        }
+      ]
+    },
+    "guessed": {
+      "status": "found",
+      "items": [
+        {
+          "key": "release/設定ファイルの位置",
+          "verbatim": "たぶん deploy/ の下だろうと思って読み進めた",
+          "in_scope": true
+        }
+      ]
+    },
+    "misunderstood": {
+      "status": "none",
+      "asked": "閉本で 4 つの質問に答えさせ、先に書いた答えと突き合わせた。ずれは無かった"
+    },
+    "unreachable": {
+      "status": "found",
+      "items": [
+        {
+          "key": "rollback/索引から引けない",
+          "verbatim": "戻し方を索引から探したが見つからなかった",
+          "in_scope": true
+        }
+      ]
+    },
+    "questions": {
+      "status": "found",
+      "items": [
+        {
+          "key": "q/2つ目のテナント",
+          "verbatim": "2 つ目のテナントが来たらどうなるのか、と思ったが最後まで書いていなかった"
+        }
+      ]
+    },
+    "ideas": {
+      "status": "none",
+      "asked": "思いついたことを書けと指示した。出てこなかった"
+    },
+    "skipped": {
+      "status": "none",
+      "asked": "読み飛ばした箇所を書けと指示した。無いと答えた"
+    }
+  },
+  "unresolved": [
+    {
+      "question": "2 つ目のテナントが来たらどうなるのか",
+      "verdict": "design_gap",
+      "reason": "設計の側にも答えが無い。誰も決めていないので、書き足して埋めずに残す"
+    }
+  ],
+  "size": {
+    "lines_before": 120,
+    "lines_after": 138
+  },
+  "removed": [],
+  "moved": [],
+  "git_status_match": true
+}

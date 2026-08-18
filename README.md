@@ -2,17 +2,18 @@
 
 [![test](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml/badge.svg)](https://github.com/raiki61/claude-plugins/actions/workflows/test.yml)
 
-> **English** — Three Claude Code loops that keep reviewing, researching, or diagnosing until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
+> **English** — Four Claude Code loops that keep reviewing, researching, diagnosing, or first-reading until they reach a fixed point, with the implementer and the grader held in separate contexts. The machine is only ever allowed to declare failure, never convergence.
 >
 > **The instructions are in Japanese, but you don't have to read them — Claude does.** The loops report back in *your* language, so they work whatever you speak. Japanese is kept for the prompts because the criteria lean on the imperative force of the original wording and a translation would loosen it. You only need to read `REVIEW.md` yourself if you want to grow the criteria.
 
-Claude Code のプラグイン。収束するまで回す 3 つのループを配る。
+Claude Code のプラグイン。収束するまで回す 4 つのループを配る。
 
 - **`/review-loop`** — 実装したコード変更を、レビューと修正を繰り返して収束させる
 - **`/research-loop`** — 設計・手法・技術選定の見立てを、業界 / 学界の一次情報で校正してからドメインに最適化する
 - **`/doctor-loop`** — リポジトリの現状そのものを読み取り専用で診て、改善候補（減らす・機械チェック化する・構造を正す・時代に合わせる）を新規所見が出なくなるまで検証し、**提案だけ**を返す（変更は適用しない）。変更を診るのではなく、**変更を待たずに診る**
+- **`/firstread-loop`** — 書き上げた文書が、書いていない人に通じるかを確かめて、**通じなかったところを直す**。その文書を知らない読み役を毎回新しく立てて、**用事だけを渡してリポジトリの入口から探させ**、**どこで止まったか・読んだ後に何を誤解したか・読みながらどんな疑問が湧いたか**を集める。答えの出なかった疑問は、文書の抜けではなく設計の穴かもしれないので、埋めずに残す。読みやすさの点数は測らない ── **書いた本人は、自分の文書が分かるかどうかを判定できない**。これがこのループの前提
 
-どれも「1 回やって終わり」ではなく、**不動点（レビューなら指摘ゼロ、調査なら新規相違ゼロ、診断なら新規所見ゼロ）に達するまで回して、達しなければ達しなかったと報告する**形になっている。
+どれも「1 回やって終わり」ではなく、**不動点（レビューなら指摘ゼロ、調査なら新規相違ゼロ、診断なら新規所見ゼロ、初読なら新規の詰まりゼロ）に達するまで回して、達しなければ達しなかったと報告する**形になっている。
 
 ## 普通のレビュー依頼と違うところ
 
@@ -48,7 +49,7 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 /plugin install convergence-loops@raiki61
 ```
 
-**セットアップは要らない**。入れたらすぐ使える。
+`marketplace` は道具の配布元、`plugin` はそこから入れる道具の束のこと。**セットアップは要らない**。入れたらすぐ使える。
 
 **ただし入手経路には 1 つ条件がある**——次の節を読んでから配布方法を選べ。上の 3 つは対等な選択肢ではない。
 
@@ -71,9 +72,11 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 ```
 /review-loop                    実装・リファクタリング・バグ修正の後に
 /research-loop <調べたいこと>    設計文書の論拠固め・技術選定・方式検討で
+/doctor-loop                    変更を待たず、現状から改善候補を掘りたいときに
+/firstread-loop <読者が持つ用事>  文書を書き上げた後、通じるか確かめたいときに
 ```
 
-`/review-loop` はコード変更のレビュー、`/research-loop` は見立ての校正。逆に使わない。
+`/review-loop` はコード変更のレビュー、`/research-loop` は見立ての校正、`/firstread-loop` は文書が読み手に通じるかの検証。逆に使わない。
 
 ## 走らせると何が起きるか
 
@@ -95,6 +98,8 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 | `gh` CLI | 並行 PR との衝突チェック | 他ホストでは同等コマンドに読み替え。読み替えられないなら「確認できなかった」と報告させる |
 
 **`/research-loop` が呼ぶもの**: `WebSearch` / `WebFetch`、`Workflow` ツール（使えない環境では同じ構造を `Agent` の並列起動で再現する手順が本文にある）、`python3` と同梱の `research-record.py`（実行記録の検証——最終報告の必須欄の正本。実行できない環境では script 本文を読んで目視照合する手順が本文にある）
+
+**`/firstread-loop` が呼ぶもの**: `python3` と同梱の `firstread-record.py`（周の記録の検証——**聞いていない素材を「無かった」と書けなくする**のと、先に書いた答えがファイルとして実在するかの確認が主目的）
 
 **`/doctor-loop` が呼ぶもの**: 対象リポジトリに既にある読み取り専用の計器（lint・型検査・テスト等。無ければ「試せなかった計器」として報告）、`python3` と同梱の `doctor-record.py`（実行記録の検証。記録は対象リポジトリの作業ツリーの**外**に書く——変更禁止の規律と両立させるため）
 
@@ -118,7 +123,7 @@ cd claude-plugins
 bash tests/run.sh
 ```
 
-検査するもの——`review-record.py`・`research-record.py`・`doctor-record.py` の終了コードの区別（記録が不正・読めない・引数違い・想定外の例外を非収束と混ぜないこと。後者は「収束の偽装だけを塞ぎ、停止の正直な申告は通す」ことも含む）、`comment-ratio.sh` の注釈カウントと計測漏れの扱い、依存の宣言と marketplace の許可リストの整合、マニフェストの必須欄、手順書が名指しする `REVIEW.md` のセクションが実在するか、手順書に自作の導入コマンドと `-R` 無しの `gh` が戻っていないか、配布物に固有の技術名が混ざっていないか。件数はここに書き写さない（腐るので、走らせた出力を見てほしい）。CI が Linux / macOS / Windows で同じものを回す。
+検査するもの——`review-record.py`・`research-record.py`・`doctor-record.py`・`firstread-record.py` の終了コードの区別（記録が不正・読めない・引数違い・想定外の例外を非収束と混ぜないこと。後者は「収束の偽装だけを塞ぎ、停止の正直な申告は通す」ことも含む）、`comment-ratio.sh` の注釈カウントと計測漏れの扱い、依存の宣言と marketplace の許可リストの整合、マニフェストの必須欄、手順書が名指しする `REVIEW.md` のセクションが実在するか、手順書に自作の導入コマンドと `-R` 無しの `gh` が戻っていないか、配布物に固有の技術名が混ざっていないか。件数はここに書き写さない（腐るので、走らせた出力を見てほしい）。CI が Linux / macOS / Windows で同じものを回す。
 
 検査が空振りした場合も `exit 2` で落ちるので、対象が空でも緑になる穴は塞いである。**ゲートは違反をわざと作って赤を確認したものだけを「機能している」と扱う**（`REVIEW.md` の「動かして赤・失敗を一度も見ていない保護機構を『機能している』と扱わない」を自分に適用した）。**赤を確認していないガードはまだ複数残っている**（`comment-ratio.sh` の `python3` 不在ガードと例外境界、`SyntaxError` の腕、`git` の 120 秒タイムアウト分岐）。件数をここに書き写さない——数えて書いた瞬間に腐る。確かめたいなら、当該ガードを壊して `bash tests/run.sh` が赤くなるかを見てほしい。
 

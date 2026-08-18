@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""初読ループの周の記録を検証し、収束を妨げているものを列挙する。
+
+**この道具は不合格しか宣言しない。** 「阻害なし」は収束の宣言ではなく、機械で
+見つけられる阻害要因が無いという意味にすぎない。収束を宣言するのは人。
+
+守備範囲は、読み役から集めた 7 種の明示返答と、周をまたいで残った詰まりの突合だけ。
+**詰まりの中身が正しく分類されたかは見ない**——そちらは今も人が見る。
+
+使い方:
+    python3 firstread-record.py <今の周の記録.json> [<前の周の記録.json>]
+
+初回（round=1）は前の周の記録が無いので第 2 引数を省略しろ。省略すると「前の周の
+記録が無い」が阻害要因として 1 件返る。**1 人が詰まらなかったことは誰も詰まらない
+証拠にならない**ので、初回が阻害なしになることはない。
+
+終了コード:
+    0  阻害要因なし（収束の宣言ではない）
+    1  阻害要因あり
+    2  記録が不正（欄の欠落・値の不正・読めない・引数が違う）——1 と取り違えるな
+
+**1 は「記録は読めたが収束を妨げるものがある」だけに使う。** 読めなかった・引数が
+違ったといった計測不成立を 1 に混ぜると、非収束と区別が付かず、記録を直せば済む
+状態が「まだ直っていない」と読まれて収束を永久に宣言できない。Python の未処理例外は
+exit 1 なので、**例外を素通しした時点でこの契約は破れる。**
+
+**この契約を担保するのは末尾の例外境界 1 つだけ。** 個々の型検査は診断メッセージを
+具体的にするために在るのであって、契約の保証ではない。検査を足すときは境界に頼れ。
+
+検証を JSON Schema で宣言せず手書きにしてあるのは、検証の半分が周をまたぐ突合
+（`target` 一致・`round` 連番・同じ key の残存・行数の増減）で**単一ドキュメントに
+閉じないため**と、`jsonschema` の導入が README の「必須は git / python3 / bash だけ」と
+衝突するため。姉妹の記録器と同じ判断。
+
+## この道具が固有に見るもの
+
+**範囲の外へ倒したものに行き先を要求する。** 読み役はリポジトリ全体を探すので、詰まりも全体
+から出る。今回の変更が作ったのではない詰まりまで直すと変更が際限なく膨らむので範囲外に置ける
+ようにしてあるが、**範囲外は捨て場になりうる**——「対象外」と書けば何でも避けられる。行き先
+（issue・台帳・次のブランチ）を欄として要求して、書かずに落とせなくする。範囲外の詰まりは
+次の周でもまた出るので、**収束の判定からは外す**。直していないものがまた出るのは当然で、
+直し方が効いていない証拠ではない。
+
+**「足す側にしか倒れていないか」を測る。** 詰まりの直し方は「説明を足す」に偏りやすく、
+周を重ねるほど文書が膨らみ、膨らみ自体が次の周の詰まりになる。行数が増え続けて削除も
+移動も 1 件も無い状態を検出して報告する。**ただし阻害要因にはしない**——測れるものを
+ゲートにすると、直し方が測れるものへ寄る。増減の正当化を求める相手は人であって
+この道具ではない。
+"""
+
+import json
+import os
+import sys
+
+# Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。
+# 落ちると終了コードが 1 になり「阻害要因あり」と区別が付かないため、収束を永久に
+# 宣言できなくなる。出力を UTF-8 に固定して塞ぐ。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
+# 詰まり。**範囲の内外を割り振るのはこの 4 つだけ**——疑問・着想・読み飛ばしは
+# 「今回の変更が作ったか」で切れる性質のものではない。
+STUCK = ("stopped", "guessed", "misunderstood", "unreachable")
+
+# 読み役から集める素材。ここが正本で、手順書は列挙を持たない。
+# **後半 3 つ（疑問・着想・読み飛ばし）を欄として要求するのが要点**——これらは
+# 読み役が黙っていても「詰まりゼロ」に見えてしまい、散文の報告では省略が省略として
+# 見えない。欄にすれば欠落が exit 2 になる。
+MATERIALS = (
+    "stopped",  # 止まった場所
+    "guessed",  # 推測で埋めた場所
+    "misunderstood",  # 読んだ後の誤解（4 つの質問との突合で出る）
+    "unreachable",  # 辿り着けなかった先
+    "questions",  # 読みながら湧いた疑問
+    "ideas",  # 読みながら思いついたこと
+    "skipped",  # 読み飛ばした場所——**これだけが「減らす」材料**
+)
+
+# 素材の状態と、その状態で追加に要求する欄。
+# **`none` に `asked` を要求するのが「無言の省略を『なし』と読まない」の実装。**
+# 聞いていないから出てこなかったのか、聞いた上で無かったのかは、記録の上では
+# 同じ「空」に見える。何を聞いたかを書かせて初めて区別が付く。
+STATUS = {
+    "found": ("items",),  # 出てきた
+    "none": ("asked",),  # 聞いたが無かった（何を聞いたかを要求する）
+    "not_asked": ("reason",),  # 聞くべきだったが聞かなかった
+}
+
+# 収束を妨げる状態。**「聞かなかった」を潰さずに残すのが要点**——散文だと
+# 「無かった」と「聞いていない」が同じ空欄になり、後から見分けられない。
+BLOCKING = ("not_asked",)
+
+# 回収されなかった疑問の仕分け。**設計の穴は阻害要因にしない**——このループでは
+# 直せないものと決めてあり、ゲートにすると「直せないから収束できない」で
+# 永久に止まる。書き落としだけが直す対象。
+VERDICTS = ("missing_writeup", "design_gap")
+
+
+def fail(msg):
+    print(f"記録が不正: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def load(path):
+    """記録を読む。**読めないことは記録の不正（2）で、非収束（1）ではない。**"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except OSError as e:
+        fail(f"{path}: 開けない（{e.strerror}）")
+    except json.JSONDecodeError as e:
+        fail(f"{path}: JSON として読めない（{e}）")
+    except UnicodeDecodeError as e:
+        fail(f"{path}: UTF-8 として読めない（{e}）")
+
+
+def validate(rec, path):
+    # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
+    if not isinstance(rec, dict):
+        fail(f"{path}: 記録の最上位が object でない")
+    for key in ("target", "round", "scope", "reader_profile", "pre_answers", "errands", "materials"):
+        if key not in rec:
+            fail(f"{path}: 必須の欄 '{key}' が無い")
+    if not isinstance(rec["round"], int) or isinstance(rec["round"], bool):
+        fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
+    # 連番検査は間隔しか見ないので、基点を押さえないと負値から始めて連番のまま
+    # 永久に素通りできる。手順書は「1 から 1 ずつ」。
+    if rec["round"] < 1:
+        fail(f"{path}: 'round' が 1 以上でない: {rec['round']!r}")
+    # **範囲は読ませる前に書くもの。** 詰まりを見てから狭められると、都合の悪いものを
+    # 外に出す道具になる。書かれていること自体はここで、書いた時期は人が見る。
+    if not rec.get("scope"):
+        fail(f"{path}: 'scope' が空（今回直す範囲を先に書かないと、後から動かせる）")
+    if not rec.get("reader_profile"):
+        fail(f"{path}: 'reader_profile' が空（前提の線を引かないと、詰まりが読み役のせいにされる）")
+
+    # **答えを見る前に書いたことは機械では確かめられないが、書いたこと自体は確かめられる。**
+    # 頭の中に置くだけを許すと、答えを見てから正解を決める後付けになる。
+    pre = rec["pre_answers"]
+    if not isinstance(pre, str) or not pre:
+        fail(f"{path}: 'pre_answers' に先に書いた答えのパスが無い")
+    if not os.path.exists(pre):
+        fail(f"{path}: 'pre_answers' の指す先が無い: {pre}")
+
+    if not isinstance(rec["errands"], list) or not rec["errands"]:
+        fail(f"{path}: 'errands' が空（用事を渡さないと、探せるかを測れない）")
+    for i, e in enumerate(rec["errands"]):
+        if not isinstance(e, dict):
+            fail(f"{path}: errands[{i}] が object でない")
+        for field in ("errand", "expected", "reached"):
+            if field not in e:
+                fail(f"{path}: errands[{i}] に '{field}' が無い")
+        if not isinstance(e.get("found"), bool):
+            fail(f"{path}: errands[{i}] の 'found' が真偽値でない")
+        # 見つからなかったこと自体は阻害要因として後で数える。ここでは記録の形だけ見る。
+        if e["found"] and not e["reached"]:
+            fail(f"{path}: errands[{i}] は found なのに 'reached' が空")
+
+    if not isinstance(rec["materials"], dict):
+        fail(f"{path}: 'materials' が object でない")
+    for name in MATERIALS:
+        m = rec["materials"].get(name)
+        if not isinstance(m, dict):
+            fail(f"{path}: 素材 '{name}' の返答が無い（明示返答は全素材に要る）")
+        status = m.get("status")
+        if status not in STATUS:
+            fail(f"{path}: 素材 '{name}' の status が不正: {status!r}（{'/'.join(STATUS)}）")
+        for field in STATUS[status]:
+            if not m.get(field):
+                fail(f"{path}: 素材 '{name}' は status={status} なので '{field}' が要る")
+        if status == "found":
+            if not isinstance(m["items"], list):
+                fail(f"{path}: 素材 '{name}' の 'items' が配列でない")
+            for j, it in enumerate(m["items"]):
+                if not isinstance(it, dict):
+                    fail(f"{path}: 素材 '{name}' の items[{j}] が object でない")
+                # key は周をまたいだ突合に使う。無いと「同じ場所でまた詰まった」が測れない。
+                if not it.get("key"):
+                    fail(f"{path}: 素材 '{name}' の items[{j}] に key が無い（周をまたぐ突合に使う）")
+                # 読み役の原文。要約すると手触りが消えるので、欄として要求する。
+                if not it.get("verbatim"):
+                    fail(f"{path}: 素材 '{name}' の items[{j}] に 'verbatim'（読み役の原文）が無い")
+                if name in STUCK:
+                    if not isinstance(it.get("in_scope"), bool):
+                        fail(f"{path}: 素材 '{name}' の items[{j}] の 'in_scope' が真偽値でない")
+                    # 行き先の無い「範囲外」は、消したのと同じ（冒頭 docstring 参照）。
+                    if not it["in_scope"] and not it.get("disposition"):
+                        fail(
+                            f"{path}: 素材 '{name}' の items[{j}] は範囲外なので "
+                            "'disposition'（行き先: issue・台帳・次のブランチ）が要る"
+                        )
+
+    for i, u in enumerate(rec.get("unresolved") or []):
+        if not isinstance(u, dict):
+            fail(f"{path}: unresolved[{i}] が object でない")
+        if not u.get("question"):
+            fail(f"{path}: unresolved[{i}] に 'question' が無い")
+        if u.get("verdict") not in VERDICTS:
+            fail(f"{path}: unresolved[{i}] の verdict が不正: {u.get('verdict')!r}（{'/'.join(VERDICTS)}）")
+        if u["verdict"] == "missing_writeup" and not isinstance(u.get("written"), bool):
+            fail(f"{path}: unresolved[{i}] は書き落としなので、書き足したかの 'written' が要る")
+
+    size = rec.get("size")
+    if not isinstance(size, dict):
+        fail(f"{path}: 'size' が object でない（行数で増減を記録しろ）")
+    for field in ("lines_before", "lines_after"):
+        v = size.get(field)
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            fail(f"{path}: size.{field} が 0 以上の整数でない: {v!r}")
+
+
+def stuck_keys(rec):
+    """この周に出た**範囲内の**詰まりの key。
+
+    範囲外を混ぜないこと——直していないものが次の周でまた出るのは当然で、
+    「同じ場所でまた詰まった（直し方が効いていない）」とは別の事象。
+    """
+    keys = set()
+    for name in STUCK:
+        m = rec["materials"][name]
+        if m["status"] == "found":
+            keys.update(it["key"] for it in m["items"] if it["in_scope"])
+    return keys
+
+
+def out_of_scope(rec):
+    """範囲の外へ倒したものと、その行き先。**阻害要因にはしない。**"""
+    out = []
+    for name in STUCK:
+        m = rec["materials"][name]
+        if m["status"] == "found":
+            out.extend(
+                f"{it['key']} → {it['disposition']}"
+                for it in m["items"]
+                if not it["in_scope"]
+            )
+    return out
+
+
+def blockers(rec, prev):
+    out = []
+
+    for name in MATERIALS:
+        m = rec["materials"][name]
+        if m["status"] in BLOCKING:
+            out.append(f"素材 '{name}' を聞いていない: {m['reason']}")
+
+    for e in rec["errands"]:
+        if not e["found"]:
+            out.append(f"用事が片づいていない: {e['errand']}（想定した行き先: {e['expected']}）")
+
+    for u in rec.get("unresolved") or []:
+        # 設計の穴は直さないまま残すのが正しいので、阻害要因にしない（冒頭 VERDICTS 参照）。
+        if u["verdict"] == "missing_writeup" and not u["written"]:
+            out.append(f"書き落としのまま: {u['question']}")
+
+    if rec.get("git_status_match") is not True:
+        out.append("読み役がファイルを書き換えていないことを確かめていない")
+
+    if prev is None:
+        out.append("前の周の記録が無い（1 人が詰まらなかったことは、誰も詰まらない証拠にならない）")
+        return out
+
+    now, before = stuck_keys(rec), stuck_keys(prev)
+
+    for key in sorted(now - before):
+        out.append(f"新しい詰まり: {key}")
+
+    # **同じ key がまた出たら、直し方が効いていない。** 言い換えで塗り直しても
+    # 消えないので、作りを変えるまで阻害要因として残す。
+    for key in sorted(now & before):
+        out.append(f"同じ場所でまた詰まった（直し方が効いていない）: {key}")
+
+    return out
+
+
+def growth(rec, prev):
+    """足す側にしか倒れていないかを見る。**阻害要因にはしない**（冒頭 docstring 参照）。"""
+    if prev is None:
+        return []
+    delta = rec["size"]["lines_after"] - rec["size"]["lines_before"]
+    if delta <= 0:
+        return []
+    removed = rec.get("removed") or []
+    moved = rec.get("moved") or []
+    if removed or moved:
+        return []
+    prev_delta = prev["size"]["lines_after"] - prev["size"]["lines_before"]
+    if prev_delta <= 0:
+        return [f"{delta} 行増え、削除も移動も 0 件"]
+    return [
+        f"{delta} 行増え、削除も移動も 0 件（前の周も {prev_delta} 行増）。"
+        "**2 周続けて足す側にしか倒れていない**"
+    ]
+
+
+def main():
+    if not 2 <= len(sys.argv) <= 3:
+        print(__doc__, file=sys.stderr)
+        fail(f"引数は 1 個か 2 個（受け取った数: {len(sys.argv) - 1}）")
+
+    rec = load(sys.argv[1])
+    # **突合より先に両方を検証する。** 逆順にすると、欄が欠けた記録で比較が KeyError を
+    # 投げ、境界が 2 に倒すとはいえ「必須の欄が無い」より読みにくいメッセージになる。
+    validate(rec, sys.argv[1])
+
+    prev = None
+    if len(sys.argv) > 2:
+        prev = load(sys.argv[2])
+        validate(prev, sys.argv[2])
+        if prev["target"] != rec["target"]:
+            fail("2 つの記録の target が違う（対象を動かすな）")
+        if rec["round"] != prev["round"] + 1:
+            fail(f"周が連番でない: {prev['round']} の次が {rec['round']}")
+
+    outside = out_of_scope(rec)
+    if outside:
+        print("範囲の外へ出したもの（阻害要因ではない。行き先まで書かれているかを人が見ろ）:")
+        for line in outside:
+            print(f"  - {line}")
+
+    grew = growth(rec, prev)
+    if grew:
+        print("直し方が足す側に偏っている（阻害要因ではない。消す・場所を変える・並べ替えるを見たか）:")
+        for line in grew:
+            print(f"  - {line}")
+
+    found = blockers(rec, prev)
+    if found:
+        print(f"収束を妨げるもの {len(found)} 件:")
+        for b in found:
+            print(f"  - {b}")
+        sys.exit(1)
+    print(
+        "機械で見つけられる阻害要因は無い。**これは収束の宣言ではない**——"
+        "続けて何人が詰まらなかったか、この読み役では出なかったが出そうな詰まりが無いかは人が見ろ。"
+    )
+
+
+if __name__ == "__main__":
+    # **終了コードの契約を担保するのはここ 1 箇所**（理由は冒頭 docstring）。
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        fail(f"想定外の例外（{type(e).__name__}）: {e}")
