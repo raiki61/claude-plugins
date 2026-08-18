@@ -190,6 +190,12 @@ def validate(rec, path):
                             f"{path}: 素材 '{name}' の items[{j}] は範囲外なので "
                             "'disposition'（行き先: issue・台帳・次のブランチ）が要る"
                         )
+                    # 印だけ付けて理由を書かせないと、再出を消す逃げ道になる（冒頭 docstring 参照）。
+                    if "structural" in it and not (isinstance(it["structural"], str) and it["structural"]):
+                        fail(
+                            f"{path}: 素材 '{name}' の items[{j}] の 'structural' は、"
+                            "読み役の性質で再出する理由を書いた文字列でなければならない"
+                        )
 
     for i, u in enumerate(rec.get("unresolved") or []):
         if not isinstance(u, dict):
@@ -198,8 +204,13 @@ def validate(rec, path):
             fail(f"{path}: unresolved[{i}] に 'question' が無い")
         if u.get("verdict") not in VERDICTS:
             fail(f"{path}: unresolved[{i}] の verdict が不正: {u.get('verdict')!r}（{'/'.join(VERDICTS)}）")
-        if u["verdict"] == "missing_writeup" and not isinstance(u.get("written"), bool):
-            fail(f"{path}: unresolved[{i}] は書き落としなので、書き足したかの 'written' が要る")
+        if u["verdict"] == "missing_writeup":
+            if not isinstance(u.get("written"), bool):
+                fail(f"{path}: unresolved[{i}] は書き落としなので、書き足したかの 'written' が要る")
+            # **収束を判定するのは範囲内だけ**——手順書と同じ規則をここにも通す。既定は
+            # 範囲内（黙って外へ倒せないように）で、外へ倒すなら行き先を書かせる。
+            if u.get("in_scope") is False and not u.get("disposition"):
+                fail(f"{path}: unresolved[{i}] は範囲外の書き落としなので 'disposition'（行き先）が要る")
 
     size = rec.get("size")
     if not isinstance(size, dict):
@@ -210,18 +221,50 @@ def validate(rec, path):
             fail(f"{path}: size.{field} が 0 以上の整数でない: {v!r}")
 
 
-def stuck_keys(rec):
-    """この周に出た**範囲内の**詰まりの key。
+def stuck_items(rec):
+    """この周に出た**範囲内の**詰まりを key → 中身で返す。
 
     範囲外を混ぜないこと——直していないものが次の周でまた出るのは当然で、
     「同じ場所でまた詰まった（直し方が効いていない）」とは別の事象。
     """
-    keys = set()
+    items = {}
     for name in STUCK:
         m = rec["materials"][name]
         if m["status"] == "found":
-            keys.update(it["key"] for it in m["items"] if it["in_scope"])
-    return keys
+            for it in m["items"]:
+                if it["in_scope"]:
+                    items[it["key"]] = it
+    return items
+
+
+def repeated_skips(rec, prev):
+    """2 周続けて読み飛ばされた場所。**阻害要因にはしない。**
+
+    1 周だけの読み飛ばしは、その読み役が通った経路に固有の雑音でありうる。**別の
+    読み役が同じ場所をまた読まずに済ませて初めて信号になる。** 突合の機構は詰まりの
+    ために既に在るのに、読み飛ばしには使っていなかった。読み飛ばしは「減らす」側の
+    唯一の材料なので、拾い落とすと直し方が足す側にしか倒れない。
+    """
+    if prev is None:
+        return []
+
+    def keys(r):
+        m = r["materials"]["skipped"]
+        return {it["key"] for it in m["items"]} if m["status"] == "found" else set()
+
+    return sorted(keys(rec) & keys(prev))
+
+
+def structural_recurrence(rec, prev):
+    """読み役の性質で再出したと印を付けたもの。**阻害要因ではない。人が見ろ。**"""
+    if prev is None:
+        return []
+    now, before = stuck_items(rec), stuck_items(prev)
+    return [
+        f"{key}: {now[key]['structural']}"
+        for key in sorted(set(now) & set(before))
+        if now[key].get("structural")
+    ]
 
 
 def out_of_scope(rec):
@@ -252,7 +295,9 @@ def blockers(rec, prev):
 
     for u in rec.get("unresolved") or []:
         # 設計の穴は直さないまま残すのが正しいので、阻害要因にしない（冒頭 VERDICTS 参照）。
-        if u["verdict"] == "missing_writeup" and not u["written"]:
+        # **範囲外の書き落としも外す**——収束を判定するのは範囲内だけ、という手順書の規則を
+        # ここにも通す。既定は範囲内なので、黙って外へ倒すことはできない。
+        if u["verdict"] == "missing_writeup" and u.get("in_scope", True) and not u["written"]:
             out.append(f"書き落としのまま: {u['question']}")
 
     if rec.get("git_status_match") is not True:
@@ -262,14 +307,19 @@ def blockers(rec, prev):
         out.append("前の周の記録が無い（1 人が詰まらなかったことは、誰も詰まらない証拠にならない）")
         return out
 
-    now, before = stuck_keys(rec), stuck_keys(prev)
+    now, before = stuck_items(rec), stuck_items(prev)
 
-    for key in sorted(now - before):
+    for key in sorted(set(now) - set(before)):
         out.append(f"新しい詰まり: {key}")
 
     # **同じ key がまた出たら、直し方が効いていない。** 言い換えで塗り直しても
-    # 消えないので、作りを変えるまで阻害要因として残す。
-    for key in sorted(now & before):
+    # 消えないので、作りを変えるまで阻害要因として残す。ただし読み役の性質で
+    # 永久に再出するもの（例: 読み役がその技術を元々知っていた）は印を付けて外す
+    # ——直しようのない再出が、唯一の機械的な収束信号を汚す。**印が効くのは突合の
+    # 側だけで、新しい詰まりには効かない。** 理由の記入は validate 側で必須。
+    for key in sorted(set(now) & set(before)):
+        if now[key].get("structural"):
+            continue
         out.append(f"同じ場所でまた詰まった（直し方が効いていない）: {key}")
 
     return out
@@ -318,6 +368,18 @@ def main():
     if outside:
         print("範囲の外へ出したもの（阻害要因ではない。行き先まで書かれているかを人が見ろ）:")
         for line in outside:
+            print(f"  - {line}")
+
+    again = repeated_skips(rec, prev)
+    if again:
+        print("2 周続けて読み飛ばされた（阻害要因ではない。消す・場所を変える・見出しを付けるのどれかをしたか）:")
+        for line in again:
+            print(f"  - {line}")
+
+    fixed = structural_recurrence(rec, prev)
+    if fixed:
+        print("読み役の性質による再出として収束信号から外したもの（阻害要因ではない。理由が本当かを人が見ろ）:")
+        for line in fixed:
             print(f"  - {line}")
 
     grew = growth(rec, prev)
