@@ -247,11 +247,12 @@ def validate(rec, path):
                 f"{path}: fixes[{i}] の tax_verdict が不正: {fx['tax_verdict']!r}"
                 f"（{'/'.join(TAX_VERDICTS)}）"
             )
-        # 「通す」以外を押し切って当てたなら、理由を書かないと落ちる。
+        # 「通す」以外の判定で当てたなら、理由を書かないと落ちる。押し切ったのか、
+        # 判定が示した代案に作り直したのかは、記録の上では同じ空欄に見える。
         if fx["tax_verdict"] != "通す" and not fx.get("override_reason"):
             fail(
                 f"{path}: fixes[{i}] は検証役が『{fx['tax_verdict']}』なのに当てている——"
-                "'override_reason'（押し切った理由）が要る"
+                "'override_reason'（押し切ったのか、代案に作り直したのか）が要る"
             )
 
     # 導線の引き金。見たかどうかを毎周書く——見ていない引き金は「立っていない」と
@@ -445,12 +446,12 @@ def main():
     # 押し切りと引き金は阻害要因にしない——検証役の判定は鵜呑みにするものではなく、
     # 引き金は構造の判断（このループの外で実行されうる）へ渡すものだから。人が見る。
     pushed = [
-        f"{fx['key']} → 検証役『{fx['tax_verdict']}』を押し切り: {fx['override_reason']}"
+        f"{fx['key']} → 検証役『{fx['tax_verdict']}』: {fx['override_reason']}"
         for fx in rec["fixes"]
         if fx["tax_verdict"] != "通す"
     ]
     if pushed:
-        print("検証役の判定を押し切って当てた直し（阻害要因ではない。理由が本当かを人が見ろ）:")
+        print("「通す」以外の判定で当てた直し（阻害要因ではない。押し切りか代案採用かを人が見ろ）:")
         for line in pushed:
             print(f"  - {line}")
 
