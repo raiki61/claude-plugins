@@ -87,6 +87,19 @@
       "reason": "設計の側にも答えが無い。誰も決めていないので、書き足して埋めずに残す"
     }
   ],
+  "fixes": [
+    {
+      "key": "release/配信先という語",
+      "file": "docs/how-to/release.md",
+      "why_there": "語の初出がこのファイルで、役割（リリース手順の正本・恒久）に収まる",
+      "tax_verdict": "通す",
+      "tax_reason": "初出での定義は根本対処。置き場も役割どおりで、足す以外（リンクで済ます案)も検討済み"
+    }
+  ],
+  "structure_gate": {
+    "checked": "①閉本の出所は全員 release.md（正本）②役割外の集積なし ③再出は初回なので無し ④要約の分裂なし",
+    "fired": false
+  },
   "size": {
     "lines_before": 120,
     "lines_after": 138

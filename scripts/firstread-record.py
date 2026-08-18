@@ -46,6 +46,13 @@ exit 1 なので、**例外を素通しした時点でこの契約は破れる�
 移動も 1 件も無い状態を検出して報告する。**ただし阻害要因にはしない**——測れるものを
 ゲートにすると、直し方が測れるものへ寄る。増減の正当化を求める相手は人であって
 この道具ではない。
+
+**叩かせていない直しを記録に書けなくする。** 集める側（読み役）には検証の機構が積んで
+あるのに、直す側は回し手 1 人の無検証だった——直した本人はその直しの良さを判定できない
+のに（読みと同じ原理）。直しごとに置き場の根拠と検証役の判定を欄で要求し、「通す」以外を
+押し切ったら理由を書かせる。**導線の引き金（構造を疑う 4 つ）も毎周の欄にする**——見て
+いない引き金は「立っていない」と記録の上で区別が付かないため。どちらも詰まりと同じ規律を
+直しの側へ通しただけである。
 """
 
 import json
@@ -95,6 +102,11 @@ BLOCKING = ("not_asked",)
 # 直せないものと決めてあり、ゲートにすると「直せないから収束できない」で
 # 永久に止まる。書き落としだけが直す対象。
 VERDICTS = ("missing_writeup", "design_gap")
+
+# 直しを当てる前に叩かせる検証役の判定語彙。「通す」以外を押し切って当てるなら
+# 理由（override_reason）が要る——判定を鵜呑みにする必要はないが、黙って無視は
+# できない形にする。
+TAX_VERDICTS = ("通す", "置き場が違う", "根本が別にある", "作る詰まりの懸念")
 
 
 def fail(msg):
@@ -211,6 +223,48 @@ def validate(rec, path):
             # 範囲内（黙って外へ倒せないように）で、外へ倒すなら行き先を書かせる。
             if u.get("in_scope") is False and not u.get("disposition"):
                 fail(f"{path}: unresolved[{i}] は範囲外の書き落としなので 'disposition'（行き先）が要る")
+
+    # **直しの側にも、集める側と同じ規律を通す**（冒頭 docstring 参照）。
+    # 直していない周は空配列——欄自体が無いのは「直したのに書いていない」と
+    # 区別が付かないので許さない。
+    fixes = rec.get("fixes")
+    if not isinstance(fixes, list):
+        fail(f"{path}: 'fixes' が配列でない（直していない周は空配列 []。欄の省略は許さない）")
+    for i, fx in enumerate(fixes):
+        if not isinstance(fx, dict):
+            fail(f"{path}: fixes[{i}] が object でない")
+        for field, why in (
+            ("key", "どの詰まりへの直しか（詰まりの key）"),
+            ("file", "どのファイルへ書いたか"),
+            ("why_there", "そのファイルの役割・寿命にどう収まるか"),
+            ("tax_verdict", "当てる前に叩かせた検証役の判定"),
+            ("tax_reason", "検証役の理由"),
+        ):
+            if not fx.get(field):
+                fail(f"{path}: fixes[{i}] に '{field}' が無い（{why}）")
+        if fx["tax_verdict"] not in TAX_VERDICTS:
+            fail(
+                f"{path}: fixes[{i}] の tax_verdict が不正: {fx['tax_verdict']!r}"
+                f"（{'/'.join(TAX_VERDICTS)}）"
+            )
+        # 「通す」以外を押し切って当てたなら、理由を書かないと落ちる。
+        if fx["tax_verdict"] != "通す" and not fx.get("override_reason"):
+            fail(
+                f"{path}: fixes[{i}] は検証役が『{fx['tax_verdict']}』なのに当てている——"
+                "'override_reason'（押し切った理由）が要る"
+            )
+
+    # 導線の引き金。見たかどうかを毎周書く——見ていない引き金は「立っていない」と
+    # 記録の上で区別が付かない（聞いていない素材の 'asked' と同じ理屈）。
+    gate = rec.get("structure_gate")
+    if not isinstance(gate, dict):
+        fail(f"{path}: 'structure_gate' が無い（導線の引き金 4 つを見たかどうかは毎周書く）")
+    if not gate.get("checked"):
+        fail(f"{path}: structure_gate.checked が空（4 つの引き金をそれぞれ何で見たか）")
+    if not isinstance(gate.get("fired"), bool):
+        fail(f"{path}: structure_gate.fired が真偽値でない")
+    if gate["fired"] and not gate.get("decision"):
+        fail(f"{path}: structure_gate は fired なのに 'decision'（構造の判断と根拠）が無い")
 
     size = rec.get("size")
     if not isinstance(size, dict):
@@ -387,6 +441,22 @@ def main():
         print("直し方が足す側に偏っている（阻害要因ではない。消す・場所を変える・並べ替えるを見たか）:")
         for line in grew:
             print(f"  - {line}")
+
+    # 押し切りと引き金は阻害要因にしない——検証役の判定は鵜呑みにするものではなく、
+    # 引き金は構造の判断（このループの外で実行されうる）へ渡すものだから。人が見る。
+    pushed = [
+        f"{fx['key']} → 検証役『{fx['tax_verdict']}』を押し切り: {fx['override_reason']}"
+        for fx in rec["fixes"]
+        if fx["tax_verdict"] != "通す"
+    ]
+    if pushed:
+        print("検証役の判定を押し切って当てた直し（阻害要因ではない。理由が本当かを人が見ろ）:")
+        for line in pushed:
+            print(f"  - {line}")
+
+    if rec["structure_gate"]["fired"]:
+        print("導線の引き金が立った（阻害要因ではない。構造の判断がこの周の文章の直しより先）:")
+        print(f"  - {rec['structure_gate']['decision']}")
 
     found = blockers(rec, prev)
     if found:

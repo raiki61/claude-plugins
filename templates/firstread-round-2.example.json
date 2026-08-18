@@ -70,6 +70,27 @@
       "reason": "設計の側にも答えが無い。誰も決めていないので、書き足して埋めずに残す"
     }
   ],
+  "fixes": [
+    {
+      "key": "rollback/戻し方が索引から引けない",
+      "file": "docs/README.md",
+      "why_there": "索引の役割は入口（恒久）。入口の欠落は索引に書くのが役割どおり",
+      "tax_verdict": "通す",
+      "tax_reason": "リンク先は実在し、索引の役割に収まる"
+    },
+    {
+      "key": "release/前提の節が読まれない",
+      "file": "docs/how-to/release.md",
+      "why_there": "手順の正本。前提は手順の一部",
+      "tax_verdict": "作る詰まりの懸念",
+      "tax_reason": "冒頭に前提を足すと、急いで来た読者が本文へ着く前に止まる",
+      "override_reason": "前提を欠いたまま手順を打つ事故の方が重い。次の周で冒頭の詰まりを監視する"
+    }
+  ],
+  "structure_gate": {
+    "checked": "①閉本の出所: 2 人が索引でなく個別ファイルを直接挙げた（正本より多くはない）②役割外の集積なし ③再出 1 件は言い換えでなく作りを変えた ④要約の分裂なし",
+    "fired": false
+  },
   "size": {
     "lines_before": 138,
     "lines_after": 131
