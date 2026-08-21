@@ -24,7 +24,17 @@
 
 **計測が exit 2 で止まる場合**: `git add -N <path>` で未追跡の対象ファイルを差分に載せてから測る（P0-1 が指示している手順）。止まる条件と、その 1 条件だけに絞ってある理由は `comment-ratio.sh` のヘッダが正本。
 
-**`Workflow` ツールが無い環境**: `/research-loop` の P1 はワークフロースクリプトで checker → refuter の扇を回す。使えない環境では、同じ構造（checker=sonnet → 相違と【荷重】確証に refuter=opus・同じ判定語彙と schema）を `Agent` の並列起動で再現する。手順本文にその指示がある。
+**`Workflow` ツールが無い環境**: `/research-loop` の P1 はワークフロースクリプトで checker → refuter の扇を回す。使えない環境では、同じ構造（checker=`investigator` → 相違と【荷重】確証に refuter=`judge`・同じ判定語彙と schema）を `Agent` の並列起動で再現する。手順本文にその指示がある。
+
+## 役割 agent を変える
+
+4 ループが立てる subagent は `agents/` の 6 つの役割定義（`convergence-loops:<役割>`）で起動する。モデル・effort・持てる道具はそこが正本で、手順書は役割名しか書かない。
+
+**手順書にモデル名を書き戻さないこと。** `tests/run.sh` が `model:` の写しと `general-purpose` の復活を検知して落ちる。
+
+モデルや effort を変えたいときは、この plugin を fork して `agents/<役割>.md` の frontmatter を直す。手順書は `convergence-loops:` 付きの識別子で役を指すので、対象リポジトリの `.claude/agents/` に同名の定義を置いても上書きにならない。全 subagent のモデルだけを一括で差し替えたいなら環境変数 `CLAUDE_CODE_SUBAGENT_MODEL` が定義より優先される（effort と道具は定義のまま）。
+
+**遮断系（`cold-reader` / `blind-judge`）の `tools: []` を消さないこと。** 空にすると道具なしで起動する（実測 2026-08-21・Claude Code 2.1.238・`claude -p` で `tools: []` の agent にファイルを読ませようとして失敗、`tools: Read` なら読めた）。`tools` の行ごと消すと全道具を継承し、「読むな」が言い渡しに戻る。
 
 ## ラウンド記録の置き場所
 

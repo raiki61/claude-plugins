@@ -603,12 +603,60 @@ root = pathlib.Path(sys.argv[1])
 review = (root/"REVIEW.md").read_text(encoding="utf-8")
 known = set(re.findall(r"^##+ (.+)$", review, re.M)) | set(re.findall(r"\*\*(.+?)\*\*", review))
 missing = set()
-for f in (root/"commands").glob("*.md"):
+for f in [*(root/"commands").glob("*.md"), *(root/"agents").glob("*.md")]:
     body = f.read_text(encoding="utf-8")
     for name in re.findall(r"`REVIEW\.md`\s*(?:の)?\s*[「『]([^」』]+)[」』]", body):
         if not any(name in k for k in known):
             missing.add(f"{f.name}: 「{name}」")
 assert not missing, "REVIEW.md に無いセクションを参照している: " + " / ".join(sorted(missing))
+PY
+
+expect_exit 0 "役割 agent の定義と手順書の参照が整合する" "$PY_BIN" - "$ROOT" <<'PY'
+import re, sys, pathlib
+root = pathlib.Path(sys.argv[1])
+# 遮断系は道具ゼロで起動する。`tools: []` が「道具なし」、行ごと省くと全道具を継承、
+# 列挙した全部が解決できないときだけ起動拒否——という区別は実測で確かめた
+# （2026-08-21・Claude Code 2.1.238・`claude -p` で `tools: []` の agent は Read に失敗、
+# `tools: Read` の agent は読めた）。
+BLIND = {"cold-reader", "blind-judge"}
+WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
+agents = {}
+for f in sorted((root / "agents").glob("*.md")):
+    m = re.match(r"---\n(.*?)\n---\n", f.read_text(encoding="utf-8"), re.S)
+    assert m, f"{f.name}: frontmatter が無い"
+    fm = dict(re.findall(r"^([a-zA-Z-]+):[ \t]*(.*)$", m.group(1), re.M))
+    for key in ("name", "description", "model", "effort", "tools"):
+        assert fm.get(key) is not None, f"{f.name}: frontmatter に {key} が無い"
+    assert fm["name"] == f.stem, f"{f.name}: name '{fm['name']}' が filename と違う"
+    assert fm["model"] in ("sonnet", "opus", "haiku"), f"{f.name}: model が不正: {fm['model']}"
+    assert fm["effort"] in ("low", "medium", "high", "xhigh", "max"), f"{f.name}: effort が不正: {fm['effort']}"
+    raw = fm["tools"].strip()
+    assert raw, f"{f.name}: tools が空文字——省略と同じで全道具を継承する。道具なしは `tools: []` と書け"
+    tools = [] if raw == "[]" else [t.strip() for t in raw.split(",") if t.strip()]
+    # 「書き換えるな」を言い渡しでなく定義で担保する——どの役にも書く道具を渡さない
+    assert not (WRITE_TOOLS & set(tools)), f"{f.name}: 書く道具を持っている: {sorted(WRITE_TOOLS & set(tools))}"
+    agents[fm["name"]] = tools
+assert agents, "agents/ が空"
+for n in sorted(BLIND):
+    assert n in agents, f"遮断系の役 {n} が無い"
+    assert agents[n] == [], f"{n} は道具を持ってはいけない: {agents[n]}"
+
+# 存在検査は README・customize.md も対象。使用検査（孤児の検出）は手順書だけ——README は
+# 全役の一覧表を持つので、含めると孤児が原理的に出なくなる。
+commands = list((root / "commands").glob("*.md"))
+for f in [*commands, root / "docs" / "customize.md", root / "README.md"]:
+    for name in re.findall(r"convergence-loops:([a-z][a-z-]*)", f.read_text(encoding="utf-8")):
+        assert name in agents, f"{f.name}: 存在しない役割 convergence-loops:{name} を参照している"
+referenced = set()
+for f in commands:
+    body = f.read_text(encoding="utf-8")
+    referenced |= {n for n in re.findall(r"`([a-z][a-z-]*)`", body) if n in agents}
+    # 役割に寄せた以上、汎用 agent とモデル名の写しを手順書に戻すな（正本は agents/）
+    assert "general-purpose" not in body, f"{f.name}: subagent_type: general-purpose が戻っている"
+    hit = re.search(r"\bmodel:\s*['\"`]?(sonnet|opus|haiku|fable)", body)
+    assert not hit, f"{f.name}: モデル名の写しが戻っている: {hit.group(0)}"
+orphans = set(agents) - referenced
+assert not orphans, "どの手順書からも使われない役割がある: " + ", ".join(sorted(orphans))
 PY
 
 expect_exit 0 "配布物に固有の技術名が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
@@ -617,7 +665,7 @@ root = pathlib.Path(sys.argv[1])
 # 特定プロジェクト由来の名前が観点側に残ると、そのリポジトリでしか意味を持たない写しになる。
 banned = re.compile(r"FastAPI|next-intl|config_kit|DeepAgents|asyncio_mode|guided-resolver")
 hits = []
-for f in [root/"REVIEW.md", root/"README.md", *(root/"commands").glob("*.md"), *(root/"docs").glob("*.md")]:
+for f in [root/"REVIEW.md", root/"README.md", *(root/"commands").glob("*.md"), *(root/"agents").glob("*.md"), *(root/"docs").glob("*.md")]:
     for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
         if banned.search(line):
             hits.append(f"{f.name}:{i}")
