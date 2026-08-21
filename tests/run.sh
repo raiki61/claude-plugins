@@ -631,8 +631,10 @@ for f in sorted((root / "agents").glob("*.md")):
     assert fm["model"] in ("sonnet", "opus", "haiku"), f"{f.name}: model が不正: {fm['model']}"
     assert fm["effort"] in ("low", "medium", "high", "xhigh", "max"), f"{f.name}: effort が不正: {fm['effort']}"
     raw = fm["tools"].strip()
-    assert raw, f"{f.name}: tools が空文字——省略と同じで全道具を継承する。道具なしは `tools: []` と書け"
-    tools = [] if raw == "[]" else [t.strip() for t in raw.split(",") if t.strip()]
+    assert raw, f"{f.name}: tools が空文字——省略と同じで全道具を継承する。道具なしは `tools: []` と 1 行で書け（複数行の配列も不可）"
+    # CSV（`Read, Glob`）と YAML 配列（`["Read", "Glob"]`）はどちらも Claude Code が受ける。片方だけ
+    # 解くと、もう片方で書いた書く道具が素通りする。スコープ付き（`Write(docs/*)`）は括弧の前で切る。
+    tools = [t for t in (re.sub(r"\(.*", "", x.strip().strip("\"'")).strip() for x in raw.strip("[]").split(",")) if t]
     # 「書き換えるな」を言い渡しでなく定義で担保する——どの役にも書く道具を渡さない
     assert not (WRITE_TOOLS & set(tools)), f"{f.name}: 書く道具を持っている: {sorted(WRITE_TOOLS & set(tools))}"
     agents[fm["name"]] = tools
@@ -641,8 +643,9 @@ for n in sorted(BLIND):
     assert n in agents, f"遮断系の役 {n} が無い"
     assert agents[n] == [], f"{n} は道具を持ってはいけない: {agents[n]}"
 
-# 存在検査は README・customize.md も対象。使用検査（孤児の検出）は手順書だけ——README は
-# 全役の一覧表を持つので、含めると孤児が原理的に出なくなる。
+# 存在検査は手順書と文書のどこに識別子が出ても効かせる。使用検査（孤児の検出）は手順書だけ——
+# README は全役の一覧表を持つので、含めると孤児が原理的に出なくなる。手順書側の語彙宣言行
+# （「以降 `X` と書いたものは…」）も全役を列挙するので、同じ理由で使用に数えない。
 commands = list((root / "commands").glob("*.md"))
 for f in [*commands, root / "docs" / "customize.md", root / "README.md"]:
     for name in re.findall(r"convergence-loops:([a-z][a-z-]*)", f.read_text(encoding="utf-8")):
@@ -650,11 +653,19 @@ for f in [*commands, root / "docs" / "customize.md", root / "README.md"]:
 referenced = set()
 for f in commands:
     body = f.read_text(encoding="utf-8")
-    referenced |= {n for n in re.findall(r"`([a-z][a-z-]*)`", body) if n in agents}
-    # 役割に寄せた以上、汎用 agent とモデル名の写しを手順書に戻すな（正本は agents/）
+    for line in body.splitlines():
+        if "と書いたものは" in line:
+            continue
+        referenced |= {n for n in re.findall(r"`([a-z][a-z-]*)`", line) if n in agents}
+    # 役割に寄せた以上、汎用 agent とモデル名の写し（`model:` の形でも散文でも）を手順書に戻すな（正本は agents/）
     assert "general-purpose" not in body, f"{f.name}: subagent_type: general-purpose が戻っている"
-    hit = re.search(r"\bmodel:\s*['\"`]?(sonnet|opus|haiku|fable)", body)
+    hit = re.search(r"(?i)\b(sonnet|opus|haiku|fable)\b", body)
     assert not hit, f"{f.name}: モデル名の写しが戻っている: {hit.group(0)}"
+    # 役名の無い起動は既定 subagent に落ち、モデルも道具も継承する（遮断が崩れる）。孤児検査は
+    # 「役が一度も使われない」しか見ないので、「X を起動」の X が役名であることを別に見る。
+    # 見るのはこの語形だけ——doctor / research は「checker＝`inspector`」の形で役を束ねる。
+    for tok in re.findall(r"([^\s、。」（(]+)\s*を起動", body):
+        assert tok.strip("*") in {f"`{n}`" for n in agents}, f"{f.name}: 役名の付いていない起動がある: 「{tok} を起動」"
 orphans = set(agents) - referenced
 assert not orphans, "どの手順書からも使われない役割がある: " + ", ".join(sorted(orphans))
 PY

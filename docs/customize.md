@@ -30,7 +30,7 @@
 
 4 ループが立てる subagent は `agents/` の 6 つの役割定義（`convergence-loops:<役割>`）で起動する。モデル・effort・持てる道具はそこが正本で、手順書は役割名しか書かない。
 
-**手順書にモデル名を書き戻さないこと。** `tests/run.sh` が `model:` の写しと `general-purpose` の復活を検知して落ちる。
+**手順書にモデル名を書き戻さないこと。** `tests/run.sh` がモデル名の出現（`model:` の形でも散文でも）と `general-purpose` の復活を検知して落ちる。
 
 モデルや effort を変えたいときは、この plugin を fork して `agents/<役割>.md` の frontmatter を直す。手順書は `convergence-loops:` 付きの識別子で役を指すので、対象リポジトリの `.claude/agents/` に同名の定義を置いても上書きにならない。全 subagent のモデルだけを一括で差し替えたいなら環境変数 `CLAUDE_CODE_SUBAGENT_MODEL` が定義より優先される（effort と道具は定義のまま）。
 
