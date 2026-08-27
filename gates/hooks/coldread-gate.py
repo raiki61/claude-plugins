@@ -33,6 +33,12 @@ import subprocess
 import sys
 import time
 
+# Windows では stdio が cp1252 になり日本語の deny メッセージで UnicodeEncodeError に
+# なるため、UTF-8 に固定する(hook の入出力は常に UTF-8 の JSON)。
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 STATE_DIR = os.path.join(CONFIG_DIR, "coldread-gate")
 SKIP_LOG = os.path.join(STATE_DIR, "skip.log")
@@ -150,7 +156,7 @@ def run_reader(body: str):
     if override:
         proc = subprocess.run(
             override, shell=True, input=READER_PROMPT + body,
-            capture_output=True, text=True, timeout=READER_TIMEOUT,
+            capture_output=True, encoding="utf-8", errors="replace", timeout=READER_TIMEOUT,
         )
     else:
         # 認証: トークンを Keychain から読み、形式を検査して環境変数で渡す(ディスクにもログにも書かない)。
@@ -173,7 +179,7 @@ def run_reader(body: str):
             [claude_bin, "-p", READER_PROMPT + body,
              "--model", os.environ.get("COLDREAD_MODEL", "sonnet"),
              "--effort", os.environ.get("COLDREAD_EFFORT", "medium")],
-            capture_output=True, text=True, timeout=READER_TIMEOUT,
+            capture_output=True, encoding="utf-8", errors="replace", timeout=READER_TIMEOUT,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
     out = (proc.stdout or "").strip()
