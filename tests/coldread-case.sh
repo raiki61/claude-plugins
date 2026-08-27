@@ -7,9 +7,9 @@ cfg=$1 reader=$2 cmd=$3
 PY_BIN=$(command -v python3 || command -v python)
 payload=$("$PY_BIN" -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$cmd")
 if [ "$reader" = "-" ]; then
-    out=$(printf '%s' "$payload" | CLAUDE_CONFIG_DIR="$cfg" "$PY_BIN" "$(dirname "$0")/../coldread/hooks/coldread-gate.py")
+    out=$(printf '%s' "$payload" | CLAUDE_CONFIG_DIR="$cfg" "$PY_BIN" "$(dirname "$0")/../gates/hooks/coldread-gate.py")
 else
-    out=$(printf '%s' "$payload" | CLAUDE_CONFIG_DIR="$cfg" COLDREAD_READER_CMD="$reader" "$PY_BIN" "$(dirname "$0")/../coldread/hooks/coldread-gate.py")
+    out=$(printf '%s' "$payload" | CLAUDE_CONFIG_DIR="$cfg" COLDREAD_READER_CMD="$reader" "$PY_BIN" "$(dirname "$0")/../gates/hooks/coldread-gate.py")
 fi
 rc=$?
 [ -z "$out" ] && out=ALLOW_EMPTY

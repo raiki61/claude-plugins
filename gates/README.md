@@ -1,4 +1,8 @@
-# coldread — 外部投稿の門番
+# gates — 門番フック集
+
+外に出る操作を、検査が通るまで止める PreToolUse フックを配る。現在の門番は 1 本。
+
+## coldread — 外部投稿の門番
 
 gh で issue / PR へ本文を投稿するコマンドを PreToolUse フックで捕まえ、**フック自身が
 文脈ゼロの読み手(別プロセスの headless Claude)を走らせて**本文を初見検査する。
