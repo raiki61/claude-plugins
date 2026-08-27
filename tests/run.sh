@@ -725,6 +725,18 @@ expect_output 0 "残った疑問" "疑問のみなら通り、申し送りが載
     "$CR_CASE" "$CR_CFG" "$CR_STUB_QUEST" "$CR_POST"
 expect_output 0 "読み役の起動に失敗" "読み役の故障は deny+案内(投稿不能にはしない)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "$CR_POST"
+# 網の一般化: サブコマンド列挙でなく「本文を運ぶ旗」で捕まえる
+CR_NOTES="gh release create v9.9.9 --notes-file - <<'EOF'
+$CR_BODY
+$CR_PAD
+EOF"
+expect_output 0 "詰まり" "release create --notes-file も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_NOTES"
+expect_output 0 "詰まり" "issue close --comment も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue close 9 --comment '$CR_BODY $CR_PAD'"
+expect_output 0 "ALLOW_EMPTY" "gh api graphql の長い読み取りは巻き込まない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api graphql -f query='query { repository { pullRequest { comments(first: 50) { nodes { body } } } } } # $CR_PAD'"
+
 # 連続 deny: 間に allow が挟まると数え直しになる(仕様)ので、deny を 2 回積んでから 3 回目を見る
 "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1

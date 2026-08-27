@@ -47,11 +47,19 @@ MIN_LEN = int(os.environ.get("COLDREAD_MIN_LEN", "400"))
 READER_TIMEOUT = 210
 DENY_STREAK_WINDOW = 30 * 60
 
-POST_RE = re.compile(
-    r"(?:^|[;&|]\s*|\$\(\s*)(?:[A-Z_]+=\S+\s+)*gh\s+"
+# gh コマンドか(コマンド位置に gh。環境変数の前置は許す)
+GH_RE = re.compile(r"(?:^|[;&|]\s*|\$\(\s*)(?:[A-Z_]+=\S+\s+)*gh\s", re.MULTILINE)
+# 外向きの本文を運ぶ旗を持つか。サブコマンドを列挙しない——--body/--notes/--comment 等は
+# gh 全体の共通規約なので、issue/pr/release/gist や将来のコマンドもこれで網に入る。
+# 注意: 素の -f/--field を指標にしない(gh api graphql -f query=... は読み取りで、
+# 巻き込むと長い GraphQL が誤って止まる)。フィールド名 body= のときだけ拾う。
+PAYLOAD_RE = re.compile(
     r"(?:"
-    r"(?:issue|pr)\s+(?:create|comment|edit|review)\b"
-    r"|api\s+(?=[^\n]*(?:issues|pulls|comments|reviews))[^\n]*?(?:\s-X\s|\s--method\s|\s--input\s|\s-[fF]\s|\s--field\s|\s--raw-field\s)"
+    r"--(?:body|notes|comment)(?:[= ]|$)"
+    r"|-b[= ]"
+    r"|--(?:body|notes)-file[= ]"  # 実ファイル指定も拾う(抽出できず deny になる=検査できないものは通さない)
+    r"|--input[= ]-"
+    r"|(?:-f|-F|--field|--raw-field)[= ]?body="
     r")",
     re.MULTILINE,
 )
@@ -111,9 +119,10 @@ def body_candidates(command: str) -> list:
                 out.append(obj["body"])
         except ValueError:
             pass
-    for m in re.finditer(r"(?:--body|-b)[= ]'((?:[^'\\]|\\.)*)'", command, re.S):
+    flags = r"(?:--body|--notes|--comment|-b|(?:-f|-F|--field|--raw-field)[= ]?body)"
+    for m in re.finditer(flags + r"[= ]'((?:[^'\\]|\\.)*)'", command, re.S):
         out.append(m.group(1))
-    for m in re.finditer(r'(?:--body|-b)[= ]"((?:[^"\\]|\\.)*)"', command, re.S):
+    for m in re.finditer(flags + r'[= ]"((?:[^"\\]|\\.)*)"', command, re.S):
         out.append(m.group(1))
     return out
 
@@ -201,7 +210,7 @@ def main() -> None:
     except Exception:
         allow()
 
-    if not POST_RE.search(command) or len(command) < MIN_LEN:
+    if not GH_RE.search(command) or not PAYLOAD_RE.search(command) or len(command) < MIN_LEN:
         allow()
 
     if "COLDREAD_SKIP=1" in command:
