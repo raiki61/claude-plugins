@@ -163,8 +163,10 @@ def run_reader(body: str):
     """読み役を起動して出力文字列を返す。失敗は例外。"""
     override = os.environ.get("COLDREAD_READER_CMD")
     if override:
+        # POSIX シェル文字列として sh -c で実行する。shell=True だと Windows では
+        # cmd.exe に渡ってしまい、/dev/null 等が解決できない(CI の実測)。
         proc = subprocess.run(
-            override, shell=True, input=READER_PROMPT + body,
+            ["sh", "-c", override], input=READER_PROMPT + body,
             capture_output=True, encoding="utf-8", errors="replace", timeout=READER_TIMEOUT,
         )
     else:
