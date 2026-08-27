@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/coldread-gate.py\"",
+            "timeout": 260,
+            "statusMessage": "外部投稿ゲートを確認中"
+          }
+        ]
+      }
+    ]
+  }
+}

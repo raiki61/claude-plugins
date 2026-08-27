@@ -6,12 +6,20 @@
 >
 > **The instructions are in Japanese, but you don't have to read them — Claude does.** The loops report back in *your* language, so they work whatever you speak. Japanese is kept for the prompts because the criteria lean on the imperative force of the original wording and a translation would loosen it. You only need to read `REVIEW.md` yourself if you want to grow the criteria.
 
-Claude Code のプラグイン。収束するまで回す 4 つのループを配る。
+Claude Code のプラグイン。収束するまで回す 4 つのループ(convergence-loops)と、外部投稿の門番(coldread)を配る。
 
 - **`/review-loop`** — 実装したコード変更を、レビューと修正を繰り返して収束させる
 - **`/research-loop`** — 設計・手法・技術選定の見立てを、業界 / 学界の一次情報で校正してからドメインに最適化する
 - **`/doctor-loop`** — リポジトリの現状そのものを読み取り専用で診て、改善候補（減らす・機械チェック化する・構造を正す・時代に合わせる）を新規所見が出なくなるまで検証し、**提案だけ**を返す（変更は適用しない）。変更を診るのではなく、**変更を待たずに診る**
 - **`/firstread-loop`** — 書き上げた文書が、書いていない人に通じるかを確かめて、**通じなかったところを直す**。その文書を知らない読み役を毎回新しく立てて、**用事だけを渡してリポジトリの入口から探させ**、**どこで止まったか・読んだ後に何を誤解したか・読みながらどんな疑問が湧いたか**を集める。答えの出なかった疑問は、文書の抜けではなく設計の穴かもしれないので、埋めずに残す。読みやすさの点数は測らない ── **書いた本人は、自分の文書が分かるかどうかを判定できない**。これがこのループの前提
+
+## coldread(別プラグイン・フック)
+
+`coldread` は 2 本目のプラグイン。ループ集ではなく**フック**で、有効化した環境の gh 投稿
+(issue・PR の本文)を PreToolUse で捕まえ、文脈ゼロの読み手に初見で読ませて、理解を妨げる
+詰まりが直るまで投稿を止める。/firstread-loop がリポジトリ文書向けの重い検査であるのに対し、
+こちらは単体で読まれる短文向けの軽い妹で、呼ばなくても効く。投稿の挙動が変わるため
+convergence-loops には同梱せず、単体で有効化する。詳細は `coldread/README.md`。
 
 どれも「1 回やって終わり」ではなく、**不動点（レビューなら指摘ゼロ、調査なら新規相違ゼロ、診断なら新規所見ゼロ、初読なら新規の詰まりゼロ）に達するまで回して、達しなければ達しなかったと報告する**形になっている。
 

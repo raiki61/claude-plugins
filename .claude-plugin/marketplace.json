@@ -4,8 +4,8 @@
     "name": "raiki61"
   },
   "metadata": {
-    "description": "レビュー・調査・診断ループのプラグイン",
-    "version": "0.18.0"
+    "description": "レビュー・調査・診断ループと外部投稿ゲートのプラグイン",
+    "version": "0.19.0"
   },
   "allowCrossMarketplaceDependenciesOn": [
     "claude-plugins-official"
@@ -15,6 +15,12 @@
       "name": "convergence-loops",
       "description": "収束するまで回す 4 本組——コード変更を収束させる /review-loop、見立てを一次情報で校正する /research-loop、現状を読み取り専用で診て提案だけ返す /doctor-loop、書いた文書が通じるかを、その文書を知らない読み役に用事だけ渡して探させ確かめる /firstread-loop。writer≠grader の分離と、無言の省略を許さない記録で収束を判定する。",
       "source": "./",
+      "strict": false
+    },
+    {
+      "name": "coldread",
+      "description": "外部投稿の門番。gh の issue/PR 投稿を PreToolUse で捕まえ、文脈ゼロの読み手（別プロセス）に本文を初見で読ませ、理解を妨げる詰まりが直るまで投稿を止める。疑問は止めずに申し送る。逃げ道は COLDREAD_SKIP=1 の 1 本（記録が残る）。",
+      "source": "./coldread",
       "strict": false
     }
   ]

@@ -687,6 +687,50 @@ PY
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
 EXPECTED_MIN=45
+# ---- coldread ゲート ------------------------------------------------------
+# 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
+# allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
+# 実際の LLM 読み役を通した実測は配布前に手元で行う(coldread/README.md)。
+CR_CASE="$ROOT/tests/coldread-case.sh"
+CR_CFG="$WORK/coldread-cfg"; mkdir -p "$CR_CFG"
+CR_PAD=$("$PY_BIN" -c "print('x'*420)")
+CR_BODY=$("$PY_BIN" -c "print('これは検査対象の本文です。'*20)")
+CR_POST="gh issue comment 1 --body-file - <<'EOF'
+$CR_BODY
+$CR_PAD
+EOF"
+CR_STUB_CLEAN='cat >/dev/null; echo CLEAN'
+CR_STUB_BLOCK='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
+CR_STUB_QUEST='cat >/dev/null; printf "疑問: 期限はいつか\n"'
+CR_STUB_FAIL='cat >/dev/null; exit 1'
+
+echo "coldread ゲート:"
+expect_output 0 "ALLOW_EMPTY" "投稿以外の長いコマンドは素通し" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "git status && echo $CR_PAD"
+expect_output 0 "ALLOW_EMPTY" "gh の読み取りは素通し" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr view 12 --json state # $CR_PAD"
+expect_output 0 "ALLOW_EMPTY" "400 文字未満の返信は素通し" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body 'ありがとうございます'"
+expect_output 0 "ALLOW_EMPTY" "COLDREAD_SKIP=1 は通る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 $CR_POST"
+expect_output 0 "COLDREAD_SKIP" "skip は記録に残る" \
+    cat "$CR_CFG/coldread-gate/skip.log"
+expect_output 0 "取り出せない" "本文を取り出せない形は deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file /tmp/real.md # $CR_PAD"
+expect_output 0 "ALLOW_EMPTY" "読み役が CLEAN なら通る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN" "$CR_POST"
+expect_output 0 "詰まり" "読み役の詰まりで deny になり指摘が載る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+expect_output 0 "残った疑問" "疑問のみなら通り、申し送りが載る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_QUEST" "$CR_POST"
+expect_output 0 "読み役の起動に失敗" "読み役の故障は deny+案内(投稿不能にはしない)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "$CR_POST"
+# 連続 deny: 間に allow が挟まると数え直しになる(仕様)ので、deny を 2 回積んでから 3 回目を見る
+"$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+"$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "回連続で止まっている" "3 回連続 deny で skip の案内が出る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"
     exit 2
