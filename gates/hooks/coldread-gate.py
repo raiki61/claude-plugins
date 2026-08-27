@@ -18,7 +18,7 @@ deny + 逃げ道の案内にする(投稿不能にはならない)。連続 3 �
 
 環境変数:
   COLDREAD_SKIP=1            この 1 回だけゲートを通す(記録が残る)
-  COLDREAD_READER_CMD        読み役コマンドの差し替え(shell 文字列。stdin に依頼文+本文)。テスト用
+  COLDREAD_READER_CMD        読み役コマンドの差し替え(POSIX sh 文字列として sh -c 実行。stdin に依頼文+本文)。テスト用
   COLDREAD_MODEL             既定 sonnet
   COLDREAD_EFFORT            既定 medium
   COLDREAD_MIN_LEN           これ未満のコマンドは素通し。既定 400
@@ -33,8 +33,9 @@ import subprocess
 import sys
 import time
 
-# Windows では stdio が cp1252 になり日本語の deny メッセージで UnicodeEncodeError に
-# なるため、UTF-8 に固定する(hook の入出力は常に UTF-8 の JSON)。
+# Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
+# cp1252 を実測。日本語 Windows なら cp932)、日本語の deny メッセージが UnicodeEncodeError で
+# 落ちてフック自体が素通りになるため、UTF-8 に固定する(hook の入出力は UTF-8 の JSON)。
 for _stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -164,10 +165,12 @@ def run_reader(body: str):
     override = os.environ.get("COLDREAD_READER_CMD")
     if override:
         # POSIX シェル文字列として sh -c で実行する。shell=True だと Windows では
-        # cmd.exe に渡ってしまい、/dev/null 等が解決できない(CI の実測)。
+        # cmd.exe に渡ってしまい、/dev/null 等が解決できない(GitHub Actions windows-latest で実測)。
+        # 復号は strict に保つ——errors="replace" だと壊れた読み役出力で「詰まり」の行頭一致が
+        # 崩れ、deny が無音 allow に化ける。読めない出力は例外→deny(検査できないものは通さない)。
         proc = subprocess.run(
             ["sh", "-c", override], input=READER_PROMPT + body,
-            capture_output=True, encoding="utf-8", errors="replace", timeout=READER_TIMEOUT,
+            capture_output=True, encoding="utf-8", timeout=READER_TIMEOUT,
         )
     else:
         # 認証: トークンを Keychain から読み、形式を検査して環境変数で渡す(ディスクにもログにも書かない)。
@@ -178,7 +181,7 @@ def run_reader(body: str):
             try:
                 tok = subprocess.run(
                     ["security", "find-generic-password", "-s", keychain_service(), "-w"],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True, encoding="utf-8", timeout=10,
                 ).stdout.strip()
                 if tok.startswith("sk-ant-oat01-"):
                     env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
@@ -190,7 +193,7 @@ def run_reader(body: str):
             [claude_bin, "-p", READER_PROMPT + body,
              "--model", os.environ.get("COLDREAD_MODEL", "sonnet"),
              "--effort", os.environ.get("COLDREAD_EFFORT", "medium")],
-            capture_output=True, encoding="utf-8", errors="replace", timeout=READER_TIMEOUT,
+            capture_output=True, encoding="utf-8", timeout=READER_TIMEOUT,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
     out = (proc.stdout or "").strip()

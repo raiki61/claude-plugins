@@ -690,7 +690,7 @@ EXPECTED_MIN=45
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
-# 実際の LLM 読み役を通した実測は配布前に手元で行う(coldread/README.md)。
+# 実際の LLM 読み役を通した実測は配布前に手元で行う。
 CR_CASE="$ROOT/tests/coldread-case.sh"
 CR_CFG="$WORK/coldread-cfg"; mkdir -p "$CR_CFG"
 CR_PAD=$("$PY_BIN" -c "print('x'*420)")
@@ -737,11 +737,23 @@ expect_output 0 "詰まり" "issue close --comment も網に入る" \
 expect_output 0 "ALLOW_EMPTY" "gh api graphql の長い読み取りは巻き込まない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api graphql -f query='query { repository { pullRequest { comments(first: 50) { nodes { body } } } } } # $CR_PAD'"
 
-# 連続 deny: 間に allow が挟まると数え直しになる(仕様)ので、deny を 2 回積んでから 3 回目を見る
-"$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-"$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
-expect_output 0 "回連続で止まっている" "3 回連続 deny で skip の案内が出る" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+# 倒れ先の検査: 読み役出力が UTF-8 で読めないときは deny に倒す(復号を errors="replace" に
+# 緩めると詰まりマーカーが化けて無音 allow になる——それを赤くする回帰網)
+CR_STUB_SJIS='cat >/dev/null; printf "\213\154\202\334\202\350\072\040\223\307\202\337\202\310\202\242\012"'
+expect_output 0 "読み役の起動に失敗" "読み役出力が UTF-8 でないときは deny に倒す" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SJIS" "$CR_POST"
+# stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
+# UnicodeEncodeError → exit 1 = フック素通りになり、この 1 件が赤くなる)
+expect_output 0 "詰まり" "stdio を cp1252 に強制しても deny 文言が出る" \
+    env PYTHONIOENCODING=cp1252 "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+
+# 連続 deny: 専用 config で履歴を隔離し「ちょうど 3 回目」で発火する境界を検査する
+# (共有 config だと先行テストの deny が積まれ、見る回数が先行テストの増減で揺れる)
+CR_STREAK_CFG="$WORK/coldread-cfg-streak"; mkdir -p "$CR_STREAK_CFG"
+"$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+"$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "3 回連続で止まっている" "3 回連続 deny で skip の案内が出る(ちょうど 3 で発火)" \
+    "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"

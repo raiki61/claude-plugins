@@ -1,5 +1,5 @@
 {
   "name": "gates",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "外に出る操作を、検査が通るまで止める門番フック集。1 本目は coldread——gh の issue/PR 投稿を PreToolUse で捕まえ、文脈ゼロの読み手（別プロセス）に本文を初見で読ませ、理解を妨げる詰まりが直るまで投稿を止める。"
 }
