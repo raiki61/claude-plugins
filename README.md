@@ -116,7 +116,7 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 
 ## 依存
 
-**必須**: `git` / `python3` または `python`（3.7 以降を想定。実測は 3.12・3.13）/ `bash`
+**必須**: `git` / `python3` または `python`（3.8 以降。shlex の `punctuation_chars` が `whitespace_split` と併用可能になったのが 3.8。実測は 3.9・3.12・3.13）/ `bash`
 
 **`/review-loop` が呼ぶもの**:
 

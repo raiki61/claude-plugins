@@ -47,6 +47,8 @@ STATE_DIR = os.path.join(CONFIG_DIR, "coldread-gate")
 SKIP_LOG = os.path.join(STATE_DIR, "skip.log")
 DENY_LOG = os.path.join(STATE_DIR, "denies.log")
 MIN_LEN = int(os.environ.get("COLDREAD_MIN_LEN", "400"))
+# 上限。これを超える文字列は正規表現の後方追跡(HEREDOC_RE)が重くなりうるので解析せず deny
+MAX_LEN = int(os.environ.get("COLDREAD_MAX_LEN", "100000"))
 READER_TIMEOUT = 210
 DENY_STREAK_WINDOW = 30 * 60
 
@@ -54,29 +56,42 @@ DENY_STREAK_WINDOW = 30 * 60
 # 「gh らしさ」と「旗らしさ」を文字列全体へ独立に照合する方式は、複合コマンドで別コマンドの
 # 旗を gh の物と誤認し(git checkout -b)、引用・短縮形で取りこぼした(0.2.x で実測)。
 # gh 側に機械可読な read/write 分類は無い(https://github.com/cli/cli/issues/12912 が
-# 同要求のまま停滞)ため、界隈の実装が収束しているハイブリッド形を採る:
+# 同要求のまま停滞)ため、シェル文字列を段階的に解く:
 # ヒアドキュメントを盾置換(shlex はヒアドキュメントを解析できない) → shlex(POSIX 引用規則)で
-# トークン化 → ; | & 改行 () で単純コマンドに区切り、gh の引数列の中だけで「本文を運ぶ旗」を
-# 見る。方式の経緯と次段(PATH シム案)は docs/coldread-gate-next.md。
+# トークン化 → リダイレクトを除き ; | & && || 改行 () で単純コマンドに区切り、gh の引数列の
+# 中だけで「本文を運ぶ旗」を見る。同型の前処理(ヒアドキュメント盾置換)は guardian など先行例が
+# あるが、単純コマンド分割と旗表は自作なので網羅性はテストで守る。方式の経緯と、これを不要に
+# する次段(PATH シム + gh __complete 案)は docs/coldread-gate-next.md。
 # 対象外と受容した形は gates/README.md「網の射程」。
-HEREDOC_RE = re.compile(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?\n(.*?)\n\1(?:\n|$)", re.S)
+# デリミタは引用の有無(' か " か無し)と . - を許し、<<- の字下げ終端も拾う。
+HEREDOC_RE = re.compile(
+    r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1\n(.*?)\n[ \t]*\2(?:\n|$)""", re.S
+)
 
-# 本文を運ぶ旗の正本(検出も抽出もこの表を引く)。text=次の値が本文 / file=ファイル指定(- は stdin)。
-# 短縮形は gh --help で確認: -b/--body・-F/--body-file(release では -n/--notes・-F/--notes-file)・
-# -c/--comment(issue/pr の close・reopen)。-F は gh api でだけ --field の意味になる(下の is_api)。
+# 本文を運ぶ旗の表(非 api 経路はこれを引く。api・gist 経路は下でハードコード)。
+# text=次の値が本文 / file=ファイル指定(- は stdin)。短縮形は gh 2.96.0 で確認:
+# -b/--body・-F/--body-file(release では -n/--notes・-F/--notes-file)・-c/--comment(issue/pr の
+# close・reopen)。-F は文脈で意味が変わる旗で、gh api では --field、workflow run でも field。
+# それらは本文投稿ではないので下の NON_POSTING で表ごと除外する(is_api は別処理)。
 TEXT_FLAGS = {
     "--body": "text", "-b": "text",
     "--notes": "text", "-n": "text",
     "--comment": "text", "-c": "text",
     "--body-file": "file", "--notes-file": "file", "-F": "file",
 }
-# gh pr review の -c/--comment はレビュー種別を選ぶ真偽旗で、本文を取らない(gh --help で確認)
+# gh pr review の -c/--comment はレビュー種別を選ぶ真偽旗で、本文を取らない(gh 2.96.0 で確認)
 COMMENT_IS_BOOLEAN = {("pr", "review")}
-# 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)
-GLOBAL_VALUE_FLAGS = {"-R", "--repo"}
+# 本文旗と同じ綴りの旗を持つが投稿でない(値が機微・設定・入力)サブコマンド。表ごと除外する。
+NON_POSTING = {("secret", "set"), ("variable", "set"), ("workflow", "run")}
+# 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)。-H/-X は api の前置で挟まりうる。
+GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
 WRAPPERS = {"env", "command", "exec", "nohup"}
 OP_CHARS = set("();<>|&\n")
+# リダイレクト演算子(演算子と行き先を読み飛ばす)。&> >& <& は & を含むが区切りではない。
+REDIRECT_OPS = {"<", ">", ">>", "<<", "<<<", "<&", ">&", "&>", "&>>", ">|"}
 VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
+# 前段の粗選別。部分文字列だと highlight・through 等の語で解析に入ってしまう
+GH_WORD_RE = re.compile(r"\bgh\b")
 
 
 def shield_heredocs(command):
@@ -84,7 +99,7 @@ def shield_heredocs(command):
     bodies = []
 
     def repl(m):
-        bodies.append(m.group(2))
+        bodies.append(m.group(3))
         return " __HEREDOC__ \n"
 
     return HEREDOC_RE.sub(repl, command), bodies
@@ -102,14 +117,18 @@ def tokenize(text):
 
 
 def simple_commands(tokens):
-    """演算子で区切った単純コマンドのトークン列を返す。リダイレクトは先(< >)ごと読み飛ばす。"""
+    """演算子で区切った単純コマンドのトークン列を返す。リダイレクトは演算子と行き先ごと除く。"""
     cmds, cur, i = [], [], 0
     while i < len(tokens):
         tok = tokens[i]
         if tok and all(c in OP_CHARS for c in tok):
-            if set(tok) <= set("<>"):
-                i += 2  # リダイレクト先のファイル名を読み飛ばす
+            if tok in REDIRECT_OPS:
+                # 2>&1 の 2 のような先行 fd 番号はリダイレクトの一部で、引数ではない
+                if cur and cur[-1].isdigit():
+                    cur.pop()
+                i += 2  # 演算子とその行き先(fd かファイル名)を読み飛ばす
                 continue
+            # ; | & && || 改行 () は単純コマンドの区切り
             if cur:
                 cmds.append(cur)
                 cur = []
@@ -161,6 +180,8 @@ def subcommand(args):
 def classify(args, heredoc_bodies):
     """gh の引数列から (本文候補, 検査できない本文の説明) を返す。"""
     sub = subcommand(args)
+    if sub in NON_POSTING:
+        return [], []  # 投稿でないので本文検出も検査もしない
     is_api = sub[:1] == ("api",)
     is_graphql = sub == ("api", "graphql")
     candidates, blocked = [], []
@@ -223,9 +244,20 @@ def classify(args, heredoc_bodies):
                     add(kind, val or "")
         i += 1
 
-    # gist は本文旗を持たず、位置引数(- は stdin)が本文そのもの
+    # gist は本文旗を持たず、位置引数(- は stdin)が本文そのもの。
+    # -d/--desc・-f/--filename は値を取るので、その値を位置引数と数えない。
     if sub == ("gist", "create"):
-        pos = [t for t in args[2:] if t == "-" or not t.startswith("-")]
+        pos, j = [], 2
+        while j < len(args):
+            t = args[j]
+            if t in ("-d", "--desc", "-f", "--filename"):
+                j += 2
+                continue
+            if t.startswith("-") and t != "-":
+                j += 1
+                continue
+            pos.append(t)
+            j += 1
         if "-" in pos or "__HEREDOC__" in pos:
             add("file", "-")
         elif pos:
@@ -248,14 +280,16 @@ def posting_bodies(command):
         c, b = classify(args, heredoc_bodies)
         candidates.extend(c)
         blocked.extend(b)
-    # --input - に渡る JSON(このリポジトリの投稿作法)は .body も候補に足す
+    # --input - に渡る JSON(このリポジトリの投稿作法)は、殻でなく .body を読ませる。
+    # 殻は必ず本文より長いので、候補に残すと max(長さ) が殻を選び本文が読まれない。
     for text in list(candidates):
         try:
             obj = json.loads(text)
-            if isinstance(obj, dict) and isinstance(obj.get("body"), str):
-                candidates.append(obj["body"])
         except ValueError:
-            pass
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("body"), str):
+            candidates.remove(text)
+            candidates.append(obj["body"])
     return candidates, blocked, True
 
 
@@ -386,11 +420,11 @@ ESCAPE_NOTE = (
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
-        command = payload.get("tool_input", {}).get("command", "")
+        command = payload.get("tool_input", {}).get("command", "") or ""
     except Exception:
         allow()
 
-    if len(command) < MIN_LEN or "gh" not in command:
+    if len(command) < MIN_LEN or not GH_WORD_RE.search(command):
         allow()
 
     if "COLDREAD_SKIP=1" in command:
@@ -398,26 +432,42 @@ def main() -> None:
         log_line(DENY_LOG, "skip")
         allow()
 
-    candidates, blocked, parsed = posting_bodies(command)
+    # 解析の失敗は例外の形でも起こりうる(壊れた JSON の再帰・想定外の入力)。
+    # 「引用が閉じない」を deny にしているのに例外だけ素通りでは、検査を避ける口になる。
+    try:
+        if len(command) > MAX_LEN:
+            raise ValueError("コマンドが長すぎる(%d 文字)" % len(command))
+        candidates, blocked, parsed = posting_bodies(command)
+    except Exception as exc:
+        parsed, candidates, blocked = False, [], []
+        parse_error = str(exc)[:150]
+    else:
+        parse_error = "引用が閉じていない等"
     if not parsed:
         log_line(DENY_LOG, "deny")
         deny(
-            "外部投稿ゲート: このコマンドは引用が閉じていない等の理由で解析できない。"
-            "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
+            "外部投稿ゲート: このコマンドは解析できない(%s)。" % parse_error
+            + "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
             "引用を直して再実行すること。\n" + ESCAPE_NOTE
+        )
+
+    # 「検査できない本文がある」は、別の本文が読めたかどうかと独立に止める。
+    # ここを bodies の有無に従属させると、読める本文と同居した投稿が無検査で通る。
+    if blocked:
+        log_line(DENY_LOG, "deny")
+        deny(
+            "外部投稿ゲート: この投稿は本文をコマンドから取り出せない形をしている(%s)。"
+            "検査できないものは通せない。\n"
+            "本文はヒアドキュメント(<<'EOF' ... EOF)か、そのサブコマンドの本文旗"
+            "(--body / --notes 等)に直接書いて再実行すること。\n"
+            % "・".join(sorted(set(blocked))) + ESCAPE_NOTE
         )
 
     bodies = [b for b in candidates if len(b.strip()) >= 200]
     if not bodies:
-        if blocked:
-            log_line(DENY_LOG, "deny")
-            deny(
-                "外部投稿ゲート: この投稿は本文をコマンドから取り出せない形をしている(%s)。"
-                "検査できないものは通せない。\n"
-                "本文をヒアドキュメント(--body-file - <<'EOF' ... EOF)か --body で渡す形にして再実行すること。\n"
-                % "・".join(sorted(set(blocked))) + ESCAPE_NOTE
-            )
         allow()
+    # 複数の本文が同居するときは最長を代表として読ませる(全部読ませると読み役の回数と
+    # 待ち時間が本文の数だけ増える)。取りこぼしの受容は gates/README.md「網の射程」。
     body = max(bodies, key=len)
 
     try:

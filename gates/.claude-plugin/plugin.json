@@ -1,5 +1,5 @@
 {
   "name": "gates",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "外に出る操作を、検査が通るまで止める門番フック集。1 本目は coldread——gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・本文、release notes、gist 等)を PreToolUse で捕まえ、文脈ゼロの読み手（別プロセス）に本文を初見で読ませ、理解を妨げる詰まりが直るまで投稿を止める。"
 }

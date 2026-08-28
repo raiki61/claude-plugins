@@ -774,9 +774,70 @@ expect_output 0 "ALLOW_EMPTY" "別コマンドの -b を gh の旗と誤認し�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr list --limit 100 && git checkout -b feature/x && echo '$CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "引用の中の gh はコマンドと見なさない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "grep -r 'gh issue comment --body' . # $CR_PAD"
-expect_output 0 "ALLOW_EMPTY" "pr review の --comment は真偽旗なので本文扱いしない" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr review 12 --comment -b 'LGTM' # $CR_PAD"
+# --comment が真偽旗と分かっていないと、次の -b を値として食い、本文が位置引数に落ちて取りこぼす
+expect_output 0 "詰まり" "pr review の --comment は真偽旗なので後続の -b を本文として拾う" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr review 12 --comment -b '$CR_BODY $CR_PAD'"
+expect_output 0 "ALLOW_EMPTY" "pr review の --comment 自体は本文扱いしない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr review 12 --comment # $CR_PAD"
 # 検査できない本文は fail-closed で止める
+# 旗表・帰属の各分岐を個別に殺す網(消すとどれか 1 件だけが赤くなる形にする)
+expect_output 0 "詰まり" "--旗=値 の密着形も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body='$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "-b 値 の密着形も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 -b'$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "release create --notes 長形も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh release create v1 --notes '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "issue close -c 短縮形も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue close 9 -c '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "command 前置越しの gh も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "command gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "絶対パス起動の gh も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "/usr/local/bin/gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "-R 前置があってもサブコマンドを見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh -R o/r pr review 12 --comment -b '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "-H 前置があっても graphql の mutation を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api -H 'X-Foo: bar' graphql -f query='mutation { addComment(input:{body:\"$CR_BODY $CR_PAD\"}) }'"
+# リダイレクトは区切りではない(演算子と行き先だけを除く)。挟まれた本文を見失えば無検査で通る
+expect_output 0 "詰まり" "本文旗の直後のリダイレクトで本文を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 5 --body >&2 '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "2>&1 を挟んでも本文を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr comment 123 --body 2>&1 '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "出力リダイレクト付きでも本文を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 5 --body '$CR_BODY $CR_PAD' >/dev/null"
+# ヒアドキュメントのデリミタ記法(gh --help や人が実際に書く形)
+expect_output 0 "詰まり" '二重引用符デリミタのヒアドキュメントも網に入る' \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body-file - <<\"EOF\"
+$CR_BODY
+$CR_PAD
+EOF"
+expect_output 0 "詰まり" "ハイフン入りデリミタのヒアドキュメントも網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body-file - <<'JSON-EOF'
+$CR_BODY
+$CR_PAD
+JSON-EOF"
+# 本文でない値を読み役へ送らない・投稿でない gh を止めない
+# 読み役に渡るのが JSON の殻だと、初見の読み手は本文でなくエスケープ済みの構造を読まされる
+CR_STUB_SHELL='if grep -q body; then printf "詰まり: JSON の殻が読み役に渡った\\n"; else echo CLEAN; fi'
+expect_output 0 "ALLOW_EMPTY" "--input - の JSON は殻でなく .body が読み役に届く" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SHELL" "$CR_JSON_POST"
+# 解析を打ち切る上限。超える入力を素通しにすると、長さで検査を外せる
+expect_output 0 "解析できない" "上限を超える長さのコマンドは deny(fail-closed)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY' $("$PY_BIN" -c "print('#' + 'x'*100000)")"
+expect_output 0 "ALLOW_EMPTY" "secret set の値は読み役に送らない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh secret set DEPLOY_KEY -b '$CR_BODY $CR_PAD'"
+expect_output 0 "ALLOW_EMPTY" "workflow run の -F は本文ではないので止めない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh workflow run deploy.yml -F name=scully -F greeting=hello # $CR_PAD"
+expect_output 0 "ALLOW_EMPTY" "gist create の説明文(-d)だけでは本文と見なさない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh gist create -d '$CR_BODY $CR_PAD' # $CR_PAD"
+# 部分文字列で拾うと、gh コマンドの無い長文が「解析できない」で止まる(引用未終端で判別できる)
+expect_output 0 "ALLOW_EMPTY" "gh を含む語(highlight 等)だけでは解析に入らない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "echo it's a highlight of the day # $CR_PAD"
+# 検査できない本文は、読める本文が同居していても握り潰さない
+expect_output 0 "取り出せない" "読める本文と同居しても実ファイル指定は止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD' && gh pr comment 2 --body-file /tmp/x.md"
+# 解析が例外で落ちる形も、解析できないとして deny に倒す(素通りにしない)
+expect_output 0 "解析できない" "解析が例外で落ちるコマンドも deny(fail-closed)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$(printf '[%.0s' $(seq 1 3000))' # $CR_PAD"
 expect_output 0 "取り出せない" "--input 実ファイルは検査できないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input /tmp/payload.json # $CR_PAD"
 expect_output 0 "取り出せない" "-F 実ファイル(--body-file 短縮形)は検査できないので deny" \
