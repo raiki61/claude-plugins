@@ -725,7 +725,7 @@ expect_output 0 "残った疑問" "疑問のみなら通り、申し送りが載
     "$CR_CASE" "$CR_CFG" "$CR_STUB_QUEST" "$CR_POST"
 expect_output 0 "読み役の起動に失敗" "読み役の故障は deny+案内(投稿不能にはしない)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "$CR_POST"
-# 網の一般化: サブコマンド列挙でなく「本文を運ぶ旗」で捕まえる
+# 網: 「本文を運ぶ旗」を、ヒアドキュメント盾置換+shlex トークン化+単純コマンド単位の帰属で見る
 CR_NOTES="gh release create v9.9.9 --notes-file - <<'EOF'
 $CR_BODY
 $CR_PAD
@@ -736,6 +736,57 @@ expect_output 0 "詰まり" "issue close --comment も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue close 9 --comment '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "gh api graphql の長い読み取りは巻き込まない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api graphql -f query='query { repository { pullRequest { comments(first: 50) { nodes { body } } } } } # $CR_PAD'"
+expect_output 0 "詰まり" "--body の長文が読み役に届く" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "-b 短縮形も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr comment 1 -b '$CR_BODY $CR_PAD'"
+CR_FDASH="gh issue comment 1 -F - <<'EOF'
+$CR_BODY
+$CR_PAD
+EOF"
+expect_output 0 "詰まり" "-F - (--body-file 短縮形)のヒアドキュメントも網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_FDASH"
+expect_output 0 "詰まり" "release create -n 短縮形も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh release create v1 -n '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "gh api -f body= も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api repos/o/r/issues/1/comments -f body='$CR_BODY $CR_PAD'"
+CR_JSON_POST="gh api repos/o/r/issues/1/comments --input - <<'EOF'
+{\"body\": \"$CR_BODY $CR_PAD\"}
+EOF"
+expect_output 0 "詰まり" "--input - の JSON 本文も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_JSON_POST"
+expect_output 0 "詰まり" "graphql の mutation は網に入る(長い文字列リテラル)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api graphql -f query='mutation { addComment(input:{subjectId:\"x\", body:\"$CR_BODY $CR_PAD\"}) }'"
+expect_output 0 "詰まり" "列挙に無いサブコマンドでも本文の旗があれば網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh discussion comment 1 --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "複合コマンド中の gh も判定する" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "cd /tmp && gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "小文字・数字入りの環境変数前置でも gh を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "x1=1 gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+CR_GIST="gh gist create - <<'EOF'
+$CR_BODY
+$CR_PAD
+EOF"
+expect_output 0 "詰まり" "gist create - のヒアドキュメントも網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_GIST"
+# 帰属の負例: 旗が gh 以外のコマンドに付いていても巻き込まない
+expect_output 0 "ALLOW_EMPTY" "別コマンドの -b を gh の旗と誤認しない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr list --limit 100 && git checkout -b feature/x && echo '$CR_PAD'"
+expect_output 0 "ALLOW_EMPTY" "引用の中の gh はコマンドと見なさない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "grep -r 'gh issue comment --body' . # $CR_PAD"
+expect_output 0 "ALLOW_EMPTY" "pr review の --comment は真偽旗なので本文扱いしない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr review 12 --comment -b 'LGTM' # $CR_PAD"
+# 検査できない本文は fail-closed で止める
+expect_output 0 "取り出せない" "--input 実ファイルは検査できないので deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input /tmp/payload.json # $CR_PAD"
+expect_output 0 "取り出せない" "-F 実ファイル(--body-file 短縮形)は検査できないので deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr create -t T -F /tmp/body.md # $CR_PAD"
+expect_output 0 "取り出せない" "パイプの stdin は検査できないので deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat /tmp/b.md | gh issue comment 1 --body-file - # $CR_PAD"
+expect_output 0 "取り出せない" "変数渡しの本文は検査できないので deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body \"\$BODY\" # $CR_PAD"
+expect_output 0 "解析できない" "引用が閉じない gh コマンドは deny(fail-closed)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body 'これは閉じない引用 $CR_PAD"
 
 # 倒れ先の検査: 読み役出力が UTF-8 で読めないときは deny に倒す(復号を errors="replace" に
 # 緩めると詰まりマーカーが化けて無音 allow になる——それを赤くする回帰網)

@@ -4,7 +4,8 @@
 
 ## coldread — 外部投稿の門番
 
-gh で issue / PR へ本文を投稿するコマンドを PreToolUse フックで捕まえ、**フック自身が
+gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・本文、release notes、gist 等)を
+PreToolUse フックで捕まえ、**フック自身が
 文脈ゼロの読み手(別プロセスの headless Claude)を走らせて**本文を初見検査する。
 理解を妨げる「詰まり」があれば、その指摘を deny 理由に載せて投稿を止める。
 「疑問」(理解はできたが答えが本文に無いもの)は止めずに申し送る。
@@ -18,6 +19,17 @@ gh で issue / PR へ本文を投稿するコマンドを PreToolUse フック�
 設定は環境変数(すべて任意): `COLDREAD_MODEL`(既定 sonnet)・`COLDREAD_EFFORT`(既定
 medium)・`COLDREAD_MIN_LEN`(既定 400)・`COLDREAD_KEYCHAIN_SERVICE`(macOS で OAuth
 トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(読み役の差し替え)。
+
+## 網の射程(正直な限界)
+
+判定は「本文を運ぶ旗が gh 自身の引数列にあるか」で行う(単純コマンド単位で帰属を見る。
+方式の経緯と次段の PATH シム案は [docs/coldread-gate-next.md](../docs/coldread-gate-next.md))。
+次は原理的に対象外・または内容を読まずに止める形で受容している:
+
+- 旗を持たない投稿は対象外: `gh pr create --fill`(本文はコミットメッセージ由来)・エディタ起動(人が対話で書く)
+- graphql は `mutation` キーワード検出——クエリをファイルで渡す形は判定できず素通し
+- ラッパー越しの gh(`xargs -I{} gh ...` 等)は判定外
+- 実ファイル・パイプ・変数で渡る本文は内容を読めないため「検査できない」として止める(fail-closed)
 
 リポジトリ全体の文書の初読検査は convergence-loops の `/firstread-loop`(重い姉)。
 こちらは単体で読まれる短文向けの軽い妹で、フックなので呼ばなくても効く。

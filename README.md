@@ -7,7 +7,7 @@ raiki61 のプラグインマーケットプレイス。配るプラグインは
 | プラグイン | 何を配るか | 効き方 |
 |---|---|---|
 | **convergence-loops** | 収束するまで回す 4 つのループ（/review-loop・/research-loop・/doctor-loop・/firstread-loop） | 呼んだときに効く（コマンド） |
-| **gates** | 外に出る操作を、検査が通るまで止める門番。1 本目は coldread——gh の issue/PR 投稿本文を、文脈ゼロの読み手に初見で読ませて、詰まりが直るまで投稿を止める | 有効化した環境で常時効く（フック）→ [gates/README.md](gates/README.md) |
+| **gates** | 外に出る操作を、検査が通るまで止める門番。1 本目は coldread——gh の投稿本文(issue・PR・release notes・gist 等)を、文脈ゼロの読み手に初見で読ませて、詰まりが直るまで投稿を止める | 有効化した環境で常時効く（フック）→ [gates/README.md](gates/README.md) |
 
 2 本は規律（読み役は毎回新規・文脈遮断・点数を測らない）を共有するが、別々に有効化する——
 ループ集を入れたら投稿の挙動が黙って変わる、を避けるため。

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """外部投稿ゲート (PreToolUse/Bash)。
 
-gh で issue / PR へ本文を投稿するコマンドを検出すると、フック自身が読み役を走らせる:
+gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・本文、release notes、gist 等)を
+検出すると、フック自身が読み役を走らせる:
 コマンドから本文を取り出し、文脈ゼロの別プロセス(既定は claude -p の headless 実行)に
 初見で読ませ、理解を妨げた「詰まり」が出たら deny の理由にその指摘を載せて止める。
 「疑問」(理解はできたが答えが本文に無いもの)は止めずに申し送る——疑問ゼロの文章は
@@ -28,6 +29,7 @@ deny + 逃げ道の案内にする(投稿不能にはならない)。連続 3 �
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -48,22 +50,214 @@ MIN_LEN = int(os.environ.get("COLDREAD_MIN_LEN", "400"))
 READER_TIMEOUT = 210
 DENY_STREAK_WINDOW = 30 * 60
 
-# gh コマンドか(コマンド位置に gh。環境変数の前置は許す)
-GH_RE = re.compile(r"(?:^|[;&|]\s*|\$\(\s*)(?:[A-Z_]+=\S+\s+)*gh\s", re.MULTILINE)
-# 外向きの本文を運ぶ旗を持つか。サブコマンドを列挙しない——--body/--notes/--comment 等は
-# gh 全体の共通規約なので、issue/pr/release/gist や将来のコマンドもこれで網に入る。
-# 注意: 素の -f/--field を指標にしない(gh api graphql -f query=... は読み取りで、
-# 巻き込むと長い GraphQL が誤って止まる)。フィールド名 body= のときだけ拾う。
-PAYLOAD_RE = re.compile(
-    r"(?:"
-    r"--(?:body|notes|comment)(?:[= ]|$)"
-    r"|-b[= ]"
-    r"|--(?:body|notes)-file[= ]"  # 実ファイル指定も拾う(抽出できず deny になる=検査できないものは通さない)
-    r"|--input[= ]-"
-    r"|(?:-f|-F|--field|--raw-field)[= ]?body="
-    r")",
-    re.MULTILINE,
-)
+# ---- 投稿の判定 ------------------------------------------------------------
+# 「gh らしさ」と「旗らしさ」を文字列全体へ独立に照合する方式は、複合コマンドで別コマンドの
+# 旗を gh の物と誤認し(git checkout -b)、引用・短縮形で取りこぼした(0.2.x で実測)。
+# gh 側に機械可読な read/write 分類は無い(https://github.com/cli/cli/issues/12912 が
+# 同要求のまま停滞)ため、界隈の実装が収束しているハイブリッド形を採る:
+# ヒアドキュメントを盾置換(shlex はヒアドキュメントを解析できない) → shlex(POSIX 引用規則)で
+# トークン化 → ; | & 改行 () で単純コマンドに区切り、gh の引数列の中だけで「本文を運ぶ旗」を
+# 見る。方式の経緯と次段(PATH シム案)は docs/coldread-gate-next.md。
+# 対象外と受容した形は gates/README.md「網の射程」。
+HEREDOC_RE = re.compile(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?\n(.*?)\n\1(?:\n|$)", re.S)
+
+# 本文を運ぶ旗の正本(検出も抽出もこの表を引く)。text=次の値が本文 / file=ファイル指定(- は stdin)。
+# 短縮形は gh --help で確認: -b/--body・-F/--body-file(release では -n/--notes・-F/--notes-file)・
+# -c/--comment(issue/pr の close・reopen)。-F は gh api でだけ --field の意味になる(下の is_api)。
+TEXT_FLAGS = {
+    "--body": "text", "-b": "text",
+    "--notes": "text", "-n": "text",
+    "--comment": "text", "-c": "text",
+    "--body-file": "file", "--notes-file": "file", "-F": "file",
+}
+# gh pr review の -c/--comment はレビュー種別を選ぶ真偽旗で、本文を取らない(gh --help で確認)
+COMMENT_IS_BOOLEAN = {("pr", "review")}
+# 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)
+GLOBAL_VALUE_FLAGS = {"-R", "--repo"}
+WRAPPERS = {"env", "command", "exec", "nohup"}
+OP_CHARS = set("();<>|&\n")
+VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
+
+
+def shield_heredocs(command):
+    """ヒアドキュメント本文を取り出し、解析用の文字列では印に置き換える。"""
+    bodies = []
+
+    def repl(m):
+        bodies.append(m.group(2))
+        return " __HEREDOC__ \n"
+
+    return HEREDOC_RE.sub(repl, command), bodies
+
+
+def tokenize(text):
+    """POSIX の引用規則でトークン化する。引用が閉じない等で解析できなければ None。"""
+    lex = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
+    lex.whitespace = " \t\r"  # 改行は区切りの演算子として残す
+    lex.whitespace_split = True
+    try:
+        return list(lex)
+    except ValueError:
+        return None
+
+
+def simple_commands(tokens):
+    """演算子で区切った単純コマンドのトークン列を返す。リダイレクトは先(< >)ごと読み飛ばす。"""
+    cmds, cur, i = [], [], 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok and all(c in OP_CHARS for c in tok):
+            if set(tok) <= set("<>"):
+                i += 2  # リダイレクト先のファイル名を読み飛ばす
+                continue
+            if cur:
+                cmds.append(cur)
+                cur = []
+            i += 1
+            continue
+        cur.append(tok)
+        i += 1
+    if cur:
+        cmds.append(cur)
+    return cmds
+
+
+def gh_args(tokens):
+    """単純コマンド 1 件が gh 呼び出しなら gh より後のトークン列を、違えば None を返す。"""
+    i, after_wrapper = 0, False
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "gh" or tok.endswith("/gh"):
+            return tokens[i + 1:]
+        if re.match(r"[A-Za-z_][A-Za-z0-9_]*=", tok):
+            i += 1
+            continue
+        if tok in WRAPPERS:
+            after_wrapper = True
+            i += 1
+            continue
+        if after_wrapper and tok.startswith("-"):
+            i += 1
+            continue
+        return None
+    return None
+
+
+def subcommand(args):
+    """引数列の先頭の位置引数(最大 2 語)。旗の意味が api 系かどうかで変わるため先に確定する。"""
+    words, i = [], 0
+    while i < len(args) and len(words) < 2:
+        tok = args[i]
+        if tok in GLOBAL_VALUE_FLAGS:
+            i += 2
+            continue
+        if tok.startswith("-") and tok != "-":
+            break
+        words.append(tok)
+        i += 1
+    return tuple(words)
+
+
+def classify(args, heredoc_bodies):
+    """gh の引数列から (本文候補, 検査できない本文の説明) を返す。"""
+    sub = subcommand(args)
+    is_api = sub[:1] == ("api",)
+    is_graphql = sub == ("api", "graphql")
+    candidates, blocked = [], []
+
+    def add(kind, value):
+        if kind == "text":
+            # 変数・コマンド置換は実行時まで中身が無く、検査できない
+            if VAR_RE.match(value) or value.startswith("$("):
+                blocked.append("変数・コマンド置換渡し")
+            else:
+                candidates.append(value)
+        elif value in ("-", "@-"):
+            if heredoc_bodies:
+                candidates.extend(heredoc_bodies)
+            else:
+                blocked.append("別プロセスからの stdin 渡し")
+        else:
+            blocked.append("実ファイル指定")
+
+    i, n, seen_ddash = 0, len(args), False
+    while i < n:
+        tok = args[i]
+        if tok == "--":
+            seen_ddash = True
+        elif not seen_ddash and tok.startswith("-") and tok != "-":
+            name, val = tok, None
+            if tok.startswith("--") and "=" in tok:
+                name, val = tok.split("=", 1)
+            elif not tok.startswith("--") and len(tok) > 2:
+                name, val = tok[:2], tok[2:]  # -b本文 の密着形
+            if is_api:
+                if name in ("-f", "-F", "--field", "--raw-field"):
+                    if val is None and i + 1 < n:
+                        i += 1
+                        val = args[i]
+                    if val and "=" in val:
+                        key, fval = val.split("=", 1)
+                        if key == "query" and is_graphql:
+                            # mutation は投稿——長い文字列リテラルを本文として読ませる。
+                            # query のみは素通し(長い GraphQL の読み取りを止めない)。
+                            if re.search(r"\bmutation\b", fval):
+                                candidates.extend(re.findall(r'"""(.*?)"""', fval, re.S))
+                                candidates.extend(re.findall(r'"((?:[^"\\]|\\.)*)"', fval))
+                        elif key == "body":
+                            if name in ("-F", "--field") and fval.startswith("@"):
+                                add("file", "@-" if fval == "@-" else fval[1:])
+                            else:
+                                add("text", fval)
+                elif name == "--input":
+                    if val is None and i + 1 < n:
+                        i += 1
+                        val = args[i]
+                    add("file", val or "")
+            else:
+                kind = TEXT_FLAGS.get(name)
+                if kind and not (name in ("-c", "--comment") and sub in COMMENT_IS_BOOLEAN):
+                    if val is None and i + 1 < n:
+                        i += 1
+                        val = args[i]
+                    add(kind, val or "")
+        i += 1
+
+    # gist は本文旗を持たず、位置引数(- は stdin)が本文そのもの
+    if sub == ("gist", "create"):
+        pos = [t for t in args[2:] if t == "-" or not t.startswith("-")]
+        if "-" in pos or "__HEREDOC__" in pos:
+            add("file", "-")
+        elif pos:
+            blocked.append("実ファイル指定")
+
+    return candidates, blocked
+
+
+def posting_bodies(command):
+    """コマンド文字列から (本文候補, 検査できない本文の説明, 解析成否) を返す。"""
+    shielded, heredoc_bodies = shield_heredocs(command)
+    tokens = tokenize(shielded)
+    if tokens is None:
+        return [], [], False
+    candidates, blocked = [], []
+    for simple in simple_commands(tokens):
+        args = gh_args(simple)
+        if args is None:
+            continue
+        c, b = classify(args, heredoc_bodies)
+        candidates.extend(c)
+        blocked.extend(b)
+    # --input - に渡る JSON(このリポジトリの投稿作法)は .body も候補に足す
+    for text in list(candidates):
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict) and isinstance(obj.get("body"), str):
+                candidates.append(obj["body"])
+        except ValueError:
+            pass
+    return candidates, blocked, True
+
 
 READER_PROMPT = """あなたはこの文章について何も知らない初見の読者です。会話の経緯もリポジトリも見ていません。
 以下の「本文」だけを読み、理解を実際に妨げた事実だけを報告してください。
@@ -107,25 +301,6 @@ def log_line(path: str, text: str) -> None:
             f.write("%s\t%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), text))
     except OSError:
         pass
-
-
-def body_candidates(command: str) -> list:
-    out = []
-    for m in re.finditer(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?\n(.*?)\n\1(?:\n|$)", command, re.S):
-        text = m.group(2)
-        out.append(text)
-        try:
-            obj = json.loads(text)
-            if isinstance(obj, dict) and isinstance(obj.get("body"), str):
-                out.append(obj["body"])
-        except ValueError:
-            pass
-    flags = r"(?:--body|--notes|--comment|-b|(?:-f|-F|--field|--raw-field)[= ]?body)"
-    for m in re.finditer(flags + r"[= ]'((?:[^'\\]|\\.)*)'", command, re.S):
-        out.append(m.group(1))
-    for m in re.finditer(flags + r'[= ]"((?:[^"\\]|\\.)*)"', command, re.S):
-        out.append(m.group(1))
-    return out
 
 
 def deny_streak() -> int:
@@ -215,7 +390,7 @@ def main() -> None:
     except Exception:
         allow()
 
-    if not GH_RE.search(command) or not PAYLOAD_RE.search(command) or len(command) < MIN_LEN:
+    if len(command) < MIN_LEN or "gh" not in command:
         allow()
 
     if "COLDREAD_SKIP=1" in command:
@@ -223,14 +398,26 @@ def main() -> None:
         log_line(DENY_LOG, "skip")
         allow()
 
-    bodies = [b for b in body_candidates(command) if len(b.strip()) >= 200]
-    if not bodies:
+    candidates, blocked, parsed = posting_bodies(command)
+    if not parsed:
+        log_line(DENY_LOG, "deny")
         deny(
-            "外部投稿ゲート: この投稿は本文をコマンドから取り出せない形をしている"
-            "(エディタ起動・実ファイル指定など)。検査できないものは通せない。\n"
-            "本文をヒアドキュメント(--body-file - <<'EOF' ... EOF)か --body で渡す形にして再実行すること。\n"
-            + ESCAPE_NOTE
+            "外部投稿ゲート: このコマンドは引用が閉じていない等の理由で解析できない。"
+            "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
+            "引用を直して再実行すること。\n" + ESCAPE_NOTE
         )
+
+    bodies = [b for b in candidates if len(b.strip()) >= 200]
+    if not bodies:
+        if blocked:
+            log_line(DENY_LOG, "deny")
+            deny(
+                "外部投稿ゲート: この投稿は本文をコマンドから取り出せない形をしている(%s)。"
+                "検査できないものは通せない。\n"
+                "本文をヒアドキュメント(--body-file - <<'EOF' ... EOF)か --body で渡す形にして再実行すること。\n"
+                % "・".join(sorted(set(blocked))) + ESCAPE_NOTE
+            )
+        allow()
     body = max(bodies, key=len)
 
     try:
