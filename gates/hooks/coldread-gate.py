@@ -110,15 +110,55 @@ VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
 GH_WORD_RE = re.compile(r"\bgh\b")
 
 
+HEREDOC_MARK = "__HEREDOC%d__"
+
+
 def shield_heredocs(command):
-    """ヒアドキュメント本文を取り出し、解析用の文字列では印に置き換える。"""
+    """ヒアドキュメント本文を取り出し、解析用の文字列では番号付きの印に置き換える。
+
+    番号を振るのは、どの単純コマンドに付いたヒアドキュメントかを後で見分けるため。
+    番号が無いと、同じ行の別コマンド(cat > f <<EOF)の中身まで gh の本文候補に混ざる。
+    """
     bodies = []
 
     def repl(m):
         bodies.append(m.group(3))
-        return " __HEREDOC__ \n"
+        return " " + (HEREDOC_MARK % (len(bodies) - 1)) + " \n"
 
     return HEREDOC_RE.sub(repl, command), bodies
+
+
+def own_heredocs(args, heredoc_bodies):
+    """この単純コマンドに付いたヒアドキュメント本文だけを返す。"""
+    return [heredoc_bodies[i] for i in range(len(heredoc_bodies))
+            if (HEREDOC_MARK % i) in args]
+
+
+def has_live_substitution(text):
+    """引用の外(または二重引用の中)に $( や ` があるか。単一引用の中は展開されない。
+
+    引用の種別は shlex が落としてしまうので、生の文字列の側で見る。これを見ないと、
+    本文に ``` や `--body` を含むだけの普通の文章まで「置換渡し」と誤判定する。
+    """
+    i, quote = 0, None
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\" and quote != "'":
+            i += 1
+        elif quote == '"':
+            if c == '"':
+                quote = None
+            elif c == "`" or text.startswith("$(", i):
+                return True
+        elif c in "'\"":
+            quote = c
+        elif c == "`" or text.startswith("$(", i):
+            return True
+        i += 1
+    return False
 
 
 def tokenize(text):
@@ -203,8 +243,9 @@ def subcommand(args):
     return tuple(words)
 
 
-def classify(args, heredoc_bodies):
+def classify(args, heredoc_bodies, live_substitution=False):
     """gh の引数列から (本文候補, 検査できない本文の説明) を返す。"""
+    heredoc_bodies = own_heredocs(args, heredoc_bodies)
     sub = subcommand(args)
     if sub is None:
         # サブコマンドが読めない以上、本文を運ぶ旗があるかも判らない。素通しにすると
@@ -240,9 +281,11 @@ def classify(args, heredoc_bodies):
         elif kind == "text":
             # 変数・コマンド置換は実行時まで中身が無く、検査できない。
             # 引用されていない $(...) や `...` は shlex が演算子で割るので、値が "$" や
-            # "`cat" のような断片になって届く——これも中身が無いのは同じ。
-            if (VAR_RE.match(value) or value.startswith("$(")
-                    or value == "$" or value.endswith("$") or value.startswith("`")):
+            # "`cat" のような断片になって届く。断片かどうかは形だけでは決まらない
+            # (単一引用の中の ``` や $ は普通の文字)ので、生の文字列側の判定と併せて見る。
+            looks_sub = (value in ("$", "") or value.endswith("$")
+                         or value.startswith("`") or value.startswith("$("))
+            if VAR_RE.match(value) or (live_substitution and looks_sub):
                 blocked.append("変数・コマンド置換渡し")
             else:
                 candidates.append(value)
@@ -317,7 +360,7 @@ def classify(args, heredoc_bodies):
                 continue
             pos.append(t)
             j += 1
-        if "-" in pos or "__HEREDOC__" in pos:
+        if "-" in pos or any(t.startswith("__HEREDOC") for t in pos):
             add("file", "-")
         elif pos:
             blocked.append("実ファイル指定")
@@ -345,12 +388,13 @@ def posting_bodies(command):
     tokens = tokenize(shielded)
     if tokens is None:
         return [], [], False
+    live = has_live_substitution(shielded)
     candidates, blocked = [], []
     for simple in simple_commands(tokens):
         args = gh_args(simple)
         if args is None:
             continue
-        c, b = classify(args, heredoc_bodies)
+        c, b = classify(args, heredoc_bodies, live)
         candidates.extend(c)
         blocked.extend(b)
     return candidates, blocked, True

@@ -843,6 +843,21 @@ expect_output 0 "解析できない" "解析が例外で落ちても deny(fail-c
 # 読み役の中で発火すると、読み役が読み役を起こす入れ子になる(外側はタイムアウトで無検査通過)
 expect_output 0 "ALLOW_EMPTY" "読み役の中では発火しない(入れ子を作らない)" \
     env COLDREAD_IN_READER=1 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+# 引用の中の ` や $( は展開されないので、本文の一部として読ませる(止めると普通の文章が通らない)
+expect_output 0 "詰まり" "コードフェンスで始まる本文も読み役に届く" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '\`\`\`
+$CR_BODY $CR_PAD
+\`\`\`'"
+expect_output 0 "詰まり" "単一引用の中の \$( は展開されないので本文として読ませる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '\$(cat x) と書く。$CR_BODY $CR_PAD'"
+# ヒアドキュメントは付いた単純コマンドに帰属させる(同じ行の別コマンドの中身を巻き込まない)
+expect_output 0 "ALLOW_EMPTY" "別コマンドのヒアドキュメントを gh の本文に混ぜない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat > /tmp/cfg.json <<'SEC'
+{\"api_key\": \"$CR_BODY $CR_PAD\"}
+SEC
+gh pr comment 123 -F - <<'BODY'
+短い本文
+BODY"
 # 解析器が読めなかったものは「投稿でない」ではなく「検査できない」に倒す(素通りにしない)
 expect_output 0 "詰まり" "融合形の global 旗(--repo=)でもサブコマンドを見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh --repo=o/r issue comment 1 -b '$CR_BODY $CR_PAD'"
