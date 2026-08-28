@@ -1,0 +1,5 @@
+{
+  "name": "coldwrite",
+  "version": "0.1.0",
+  "description": "書かれる文書の門番(試作)。Write される **/*.md・**/*.adoc の散文を、prompt 型フックの coldreader(会話の文脈を構造的に見られない判定モデル)が初見で読み、詰まりが直るまで書き込みを止める。300 字未満・散文でない content は素通し。"
+}

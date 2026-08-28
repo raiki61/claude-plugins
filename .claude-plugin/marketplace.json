@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "レビュー・調査・診断ループと外部投稿ゲートのプラグイン",
-    "version": "0.23.0"
+    "version": "0.24.0"
   },
   "allowCrossMarketplaceDependenciesOn": [
     "claude-plugins-official"
@@ -21,6 +21,12 @@
       "name": "gates",
       "description": "外に出る操作を、検査が通るまで止める門番フック集。1 本目は coldread(投稿本文の初見検査)。gh で GitHub へ本文を投稿するコマンド(issue/PR・release notes・gist 等)を PreToolUse で捕まえ、文脈ゼロの読み手（別プロセス）に本文を初見で読ませ、理解を妨げる詰まりが直るまで投稿を止める。疑問は止めずに申し送る。逃げ道は COLDREAD_SKIP=1 の 1 本（記録が残る）。",
       "source": "./gates",
+      "strict": false
+    },
+    {
+      "name": "coldwrite",
+      "description": "書かれる文書の門番(試作)。Write される **/*.md・**/*.adoc の散文を、prompt 型フックの coldreader(会話の文脈を構造的に見られない判定モデル)が初見で読み、詰まりが直るまで書き込みを止める。300 字未満・散文でない content は素通し。",
+      "source": "./coldwrite",
       "strict": false
     }
   ]
