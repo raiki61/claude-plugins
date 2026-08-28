@@ -694,7 +694,14 @@ EXPECTED_MIN=45
 CR_CASE="$ROOT/tests/coldread-case.sh"
 CR_CFG="$WORK/coldread-cfg"; mkdir -p "$CR_CFG"
 CR_PAD=$("$PY_BIN" -c "print('x'*420)")
-CR_BODY=$("$PY_BIN" -c "print('これは検査対象の本文です。'*20)")
+# 生成側の stdout を UTF-8 に固定する。Windows の既定 code page(cp1252/cp932)では
+# 日本語が UnicodeEncodeError で落ち、CR_BODY が空のまま以降のテストが走っていた
+# (日本語本文の検査が実質 x の羅列になる)。
+CR_BODY=$(PYTHONIOENCODING=utf-8 "$PY_BIN" -c "print('これは検査対象の本文です。'*20)")
+if [ "${#CR_BODY}" -lt 200 ]; then
+    echo "  FAIL テスト土台: CR_BODY が生成できていない(長さ ${#CR_BODY})"
+    fail=1
+fi
 CR_POST="gh issue comment 1 --body-file - <<'EOF'
 $CR_BODY
 $CR_PAD
@@ -823,7 +830,7 @@ expect_output 0 "ALLOW_EMPTY" "--input - の JSON は殻でなく .body が読�
 # 解析を打ち切る上限。超える入力を素通しにすると、長さで検査を外せる。
 # あわせて「解析中の想定外の例外は deny に倒す」も検査する(上限超過は ValueError 以外で投がる)
 expect_output 0 "解析できない" "上限を超える長さのコマンドは deny(fail-closed)" \
-    env COLDREAD_MAX_LEN=500 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+    env COLDREAD_MAX_LEN=300 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "secret set の値は読み役に送らない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh secret set DEPLOY_KEY -b '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "workflow run の -F は本文ではないので止めない" \
