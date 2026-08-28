@@ -820,9 +820,10 @@ JSON-EOF"
 CR_STUB_SHELL='if grep -q body; then printf "詰まり: JSON の殻が読み役に渡った\\n"; else echo CLEAN; fi'
 expect_output 0 "ALLOW_EMPTY" "--input - の JSON は殻でなく .body が読み役に届く" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SHELL" "$CR_JSON_POST"
-# 解析を打ち切る上限。超える入力を素通しにすると、長さで検査を外せる
+# 解析を打ち切る上限。超える入力を素通しにすると、長さで検査を外せる。
+# あわせて「解析中の想定外の例外は deny に倒す」も検査する(上限超過は ValueError 以外で投がる)
 expect_output 0 "解析できない" "上限を超える長さのコマンドは deny(fail-closed)" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY' $("$PY_BIN" -c "print('#' + 'x'*100000)")"
+    env COLDREAD_MAX_LEN=500 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "secret set の値は読み役に送らない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh secret set DEPLOY_KEY -b '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "workflow run の -F は本文ではないので止めない" \
@@ -835,9 +836,6 @@ expect_output 0 "ALLOW_EMPTY" "gh を含む語(highlight 等)だけでは解析�
 # 検査できない本文は、読める本文が同居していても握り潰さない
 expect_output 0 "取り出せない" "読める本文と同居しても実ファイル指定は止める" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD' && gh pr comment 2 --body-file /tmp/x.md"
-# 解析が例外で落ちる形も、解析できないとして deny に倒す(素通りにしない)
-expect_output 0 "解析できない" "解析が例外で落ちるコマンドも deny(fail-closed)" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$(printf '[%.0s' $(seq 1 3000))' # $CR_PAD"
 expect_output 0 "取り出せない" "--input 実ファイルは検査できないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input /tmp/payload.json # $CR_PAD"
 expect_output 0 "取り出せない" "-F 実ファイル(--body-file 短縮形)は検査できないので deny" \

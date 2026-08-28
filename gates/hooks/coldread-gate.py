@@ -434,9 +434,11 @@ def main() -> None:
 
     # 解析の失敗は例外の形でも起こりうる(壊れた JSON の再帰・想定外の入力)。
     # 「引用が閉じない」を deny にしているのに例外だけ素通りでは、検査を避ける口になる。
+    # 捕まえるのは Exception 全体で、ValueError に狭めるな——狭めた瞬間に、それ以外の例外は
+    # フックのクラッシュ(=PreToolUse は続行)になって無検査で通る。
     try:
         if len(command) > MAX_LEN:
-            raise ValueError("コマンドが長すぎる(%d 文字)" % len(command))
+            raise RuntimeError("コマンドが長すぎる(%d 文字)" % len(command))
         candidates, blocked, parsed = posting_bodies(command)
     except Exception as exc:
         parsed, candidates, blocked = False, [], []
