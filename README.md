@@ -66,6 +66,13 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 
 `marketplace` は道具の配布元、`plugin` はそこから入れる道具の束のこと。**セットアップは要らない**。入れたらすぐ使える。
 
+更新は次の 2 行。セッションの再起動は要らない(`/reload-plugins` が読み直して適用する):
+
+```bash
+! claude plugin marketplace update raiki61 && claude plugin update <プラグイン名>@raiki61 -y
+/reload-plugins
+```
+
 **ただし入手経路には 1 つ条件がある**——次の節を読んでから配布方法を選べ。上の 3 つは対等な選択肢ではない。
 
 ## 依存と入手経路
