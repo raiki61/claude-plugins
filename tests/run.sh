@@ -762,7 +762,7 @@ CR_JSON_POST="gh api repos/o/r/issues/1/comments --input - <<'EOF'
 EOF"
 expect_output 0 "詰まり" "--input - の JSON 本文も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_JSON_POST"
-expect_output 0 "詰まり" "graphql の mutation は網に入る(長い文字列リテラル)" \
+expect_output 0 "取り出せない" "graphql の mutation は本文を取り出せないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api graphql -f query='mutation { addComment(input:{subjectId:\"x\", body:\"$CR_BODY $CR_PAD\"}) }'"
 expect_output 0 "詰まり" "列挙に無いサブコマンドでも本文の旗があれば網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh discussion comment 1 --body '$CR_BODY $CR_PAD'"
@@ -787,6 +787,8 @@ expect_output 0 "詰まり" "pr review の --comment は真偽旗なので後続
 expect_output 0 "ALLOW_EMPTY" "pr review の --comment 自体は本文扱いしない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr review 12 --comment # $CR_PAD"
 # 検査できない本文は fail-closed で止める
+# 表そのものを走査して、各項目が実際に効いていることを確かめる(表が増えれば検査も増える)
+expect_output 0 "TABLE_OK" "判定表の全項目が効いている" "$PY_BIN" "$ROOT/tests/coldread-table-case.py"
 # 旗表・帰属の各分岐を個別に殺す網(消すとどれか 1 件だけが赤くなる形にする)
 expect_output 0 "詰まり" "--旗=値 の密着形も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body='$CR_BODY $CR_PAD'"
@@ -802,7 +804,7 @@ expect_output 0 "詰まり" "絶対パス起動の gh も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "/usr/local/bin/gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 expect_output 0 "詰まり" "-R 前置があってもサブコマンドを見失わない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh -R o/r pr review 12 --comment -b '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "-H 前置があっても graphql の mutation を見失わない" \
+expect_output 0 "取り出せない" "-H 前置があっても graphql の mutation を見逃さない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api -H 'X-Foo: bar' graphql -f query='mutation { addComment(input:{body:\"$CR_BODY $CR_PAD\"}) }'"
 # リダイレクトは区切りではない(演算子と行き先だけを除く)。挟まれた本文を見失えば無検査で通る
 expect_output 0 "詰まり" "本文旗の直後のリダイレクトで本文を見失わない" \
@@ -841,6 +843,19 @@ expect_output 0 "解析できない" "解析が例外で落ちても deny(fail-c
 # 読み役の中で発火すると、読み役が読み役を起こす入れ子になる(外側はタイムアウトで無検査通過)
 expect_output 0 "ALLOW_EMPTY" "読み役の中では発火しない(入れ子を作らない)" \
     env COLDREAD_IN_READER=1 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+# 解析器が読めなかったものは「投稿でない」ではなく「検査できない」に倒す(素通りにしない)
+expect_output 0 "詰まり" "融合形の global 旗(--repo=)でもサブコマンドを見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh --repo=o/r issue comment 1 -b '$CR_BODY $CR_PAD'"
+expect_output 0 "取り出せない" "未クォートのコマンド置換は検査できないので deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body \$(cat /tmp/x) # $CR_PAD"
+expect_output 0 "取り出せない" "バッククォートのコマンド置換も検査できないので deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body \`cat /tmp/x\` # $CR_PAD"
+expect_output 0 "取り出せない" "知らない旗でサブコマンドを特定できないときは deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh --unknown-flag=x issue comment 1 -b '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "project edit の --readme も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh project edit 1 --readme '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "graphql のブロック文字列は本文として読ませる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api graphql -f query='mutation { addComment(input:{body: \"\"\"$CR_BODY $CR_PAD\"\"\"}) }'"
 # 短縮形は綴りが同じでも意味が違う。投稿でないサブコマンドの -b/-c/-n を本文と誤認すると、
 # ローカル操作の引数が読み役(外部プロセス)へ渡り、的外れな deny で作業も止まる
 expect_output 0 "ALLOW_EMPTY" "pr checkout の -b(ブランチ名)は本文扱いしない" \
@@ -852,7 +867,7 @@ expect_output 0 "ALLOW_EMPTY" "issue view の -c(--comments)は本文扱いし�
 expect_output 0 "詰まり" "close の -c(--comment)は本文として拾う" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue close 9 -c '$CR_BODY $CR_PAD'"
 # gh api --input の中身は本文とは限らない(secrets の暗号値等)。.body を持つときだけ読ませる
-expect_output 0 "ALLOW_EMPTY" "api --input の本文でない JSON は読み役に送らない" \
+expect_output 0 "取り出せない" "api --input の .body でない長い JSON は読み役に送らず deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api -X PUT /repos/o/r/actions/secrets/K --input - <<'EOF'
 {\"encrypted_value\": \"$CR_PAD$CR_PAD\", \"key_id\": \"1\"}
 EOF"

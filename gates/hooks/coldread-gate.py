@@ -72,8 +72,8 @@ HEREDOC_RE = re.compile(
 # 長い旗は綴りだけで判定してよい——gh 2.96.0 の全サブコマンドを走査した結果、この 5 つが
 # 本文以外を指すのは secret/variable set の --body(値は秘密そのもの)だけだった。
 LONG_TEXT_FLAGS = {
-    "--body": "text", "--notes": "text", "--comment": "text",
-    "--body-file": "file", "--notes-file": "file",
+    "--body": "text", "--notes": "text", "--comment": "text", "--readme": "text",
+    "--body-file": "file", "--notes-file": "file", "--readme-file": "file",
 }
 NON_POSTING = {("secret", "set"), ("variable", "set")}
 # 長い旗でも本文でない 1 例: gh pr review の --comment はレビュー種別を選ぶ真偽旗で値を取らない
@@ -179,15 +179,25 @@ def gh_args(tokens):
 
 
 def subcommand(args):
-    """引数列の先頭の位置引数(最大 2 語)。旗の意味が api 系かどうかで変わるため先に確定する。"""
+    """引数列の先頭の位置引数(最大 2 語)。旗の意味が api 系かどうかで変わるため先に確定する。
+
+    先頭に知らない旗があってサブコマンドを特定できないときは None を返す。空タプルと
+    区別するのは、「投稿でないと分かった」と「投稿かどうか判らなかった」を混ぜないため——
+    混ぜると後者が黙って allow に落ちる。
+    """
     words, i = [], 0
     while i < len(args) and len(words) < 2:
         tok = args[i]
+        # -R o/r・--repo=o/r・-Ro/r のどれでも来る(gh は pflag の融合形を受ける)
         if tok in GLOBAL_VALUE_FLAGS:
             i += 2
             continue
+        if any(tok.startswith(f + "=") or (not f.startswith("--") and tok.startswith(f))
+               for f in GLOBAL_VALUE_FLAGS):
+            i += 1
+            continue
         if tok.startswith("-") and tok != "-":
-            break
+            return None
         words.append(tok)
         i += 1
     return tuple(words)
@@ -196,10 +206,15 @@ def subcommand(args):
 def classify(args, heredoc_bodies):
     """gh の引数列から (本文候補, 検査できない本文の説明) を返す。"""
     sub = subcommand(args)
+    if sub is None:
+        # サブコマンドが読めない以上、本文を運ぶ旗があるかも判らない。素通しにすると
+        # 「読めなかった」が「投稿でない」に化けるので、検査できない側に倒す。
+        return [], ["サブコマンドを特定できない"]
     if sub in NON_POSTING:
         return [], []  # 投稿でないので本文検出も検査もしない
     is_api = sub[:1] == ("api",)
     is_graphql = sub == ("api", "graphql")
+    saw_mutation = False
     candidates, blocked = [], []
 
     def add(kind, value):
@@ -211,14 +226,23 @@ def classify(args, heredoc_bodies):
                     try:
                         obj = json.loads(raw)
                     except ValueError:
+                        blocked.append("JSON として読めない --input")
                         continue
-                    if isinstance(obj, dict) and isinstance(obj.get("body"), str):
-                        candidates.append(obj["body"])
+                    body = obj.get("body") if isinstance(obj, dict) else None
+                    if isinstance(body, str):
+                        candidates.append(body)
+                    elif json_has_long_text(obj):
+                        # .body 以外の場所に長い文字列がある。投稿本文なのか設定値なのか
+                        # 判らないので、読み役へ送らず「検査できない」として止める。
+                        blocked.append("JSON の本文の位置を特定できない")
             else:
                 blocked.append("実ファイル指定")
         elif kind == "text":
-            # 変数・コマンド置換は実行時まで中身が無く、検査できない
-            if VAR_RE.match(value) or value.startswith("$("):
+            # 変数・コマンド置換は実行時まで中身が無く、検査できない。
+            # 引用されていない $(...) や `...` は shlex が演算子で割るので、値が "$" や
+            # "`cat" のような断片になって届く——これも中身が無いのは同じ。
+            if (VAR_RE.match(value) or value.startswith("$(")
+                    or value == "$" or value.endswith("$") or value.startswith("`")):
                 blocked.append("変数・コマンド置換渡し")
             else:
                 candidates.append(value)
@@ -249,11 +273,12 @@ def classify(args, heredoc_bodies):
                     if val and "=" in val:
                         key, fval = val.split("=", 1)
                         if key == "query" and is_graphql:
-                            # mutation は投稿——長い文字列リテラルを本文として読ませる。
-                            # query のみは素通し(長い GraphQL の読み取りを止めない)。
+                            # mutation は投稿。ブロック文字列("""...""")は本文として読ませるが、
+                            # 普通の引用文字列まで拾うとトークンや ID を本文と誤認して外部の
+                            # 読み役へ送ってしまう(実測)。取れなければ検査できない側へ倒す。
                             if re.search(r"\bmutation\b", fval):
+                                saw_mutation = True
                                 candidates.extend(re.findall(r'"""(.*?)"""', fval, re.S))
-                                candidates.extend(re.findall(r'"((?:[^"\\]|\\.)*)"', fval))
                         elif key == "body":
                             if name in ("-F", "--field") and fval.startswith("@"):
                                 add("file", "@-" if fval == "@-" else fval[1:])
@@ -297,7 +322,21 @@ def classify(args, heredoc_bodies):
         elif pos:
             blocked.append("実ファイル指定")
 
+    if saw_mutation and not candidates:
+        blocked.append("graphql mutation の本文を取り出せない")
+
     return candidates, blocked
+
+
+def json_has_long_text(obj, limit=200):
+    """JSON のどこかに本文らしい長さの文字列があるか(位置は問わない)。"""
+    if isinstance(obj, str):
+        return len(obj.strip()) >= limit
+    if isinstance(obj, dict):
+        return any(json_has_long_text(v, limit) for v in obj.values())
+    if isinstance(obj, list):
+        return any(json_has_long_text(v, limit) for v in obj)
+    return False
 
 
 def posting_bodies(command):
@@ -478,8 +517,9 @@ def main() -> None:
         deny(
             "外部投稿ゲート: このコマンドは長すぎて解析しない(%d 文字 > 上限 %d)。\n"
             % (len(command), MAX_LEN)
-            + "本文を短くするか、上限を上げて再実行すること"
-            "(COLDREAD_MAX_LEN=<文字数> をコマンド先頭に付ける)。\n" + ESCAPE_NOTE
+            + "本文を短くして再実行すること"
+            "(上限を変えるにはフックを起動する側の環境変数 COLDREAD_MAX_LEN を設定する——"
+            "コマンド先頭に書いてもフック自身には届かない)。\n" + ESCAPE_NOTE
         )
 
     try:
