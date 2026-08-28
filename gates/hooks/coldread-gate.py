@@ -23,6 +23,8 @@ deny + 逃げ道の案内にする(投稿不能にはならない)。連続 3 �
   COLDREAD_MODEL             既定 sonnet
   COLDREAD_EFFORT            既定 medium
   COLDREAD_MIN_LEN           これ未満のコマンドは素通し。既定 400
+  COLDREAD_MAX_LEN           これを超えるコマンドは解析せず deny。既定 100000
+  COLDREAD_IN_READER=1       読み役の中であることの印(自動で付く)。入れ子の再発火を防ぐ
   COLDREAD_KEYCHAIN_SERVICE  macOS Keychain の OAuth トークンのサービス名(未指定なら
                              CLAUDE_CONFIG_DIR の末尾から推定: ~/.claude-p1 → claude-code-oauth-p1)
 """
@@ -386,6 +388,7 @@ def run_reader(body: str):
         # 取れなくても claude 自身の保存済み認証で動く場合があるため、失敗は握って進む。
         env = dict(os.environ)
         env.setdefault("CLAUDE_CONFIG_DIR", CONFIG_DIR)
+        env["COLDREAD_IN_READER"] = "1"
         if "CLAUDE_CODE_OAUTH_TOKEN" not in env and sys.platform == "darwin":
             try:
                 tok = subprocess.run(
@@ -401,7 +404,10 @@ def run_reader(body: str):
         proc = subprocess.run(
             [claude_bin, "-p", READER_PROMPT + body,
              "--model", os.environ.get("COLDREAD_MODEL", "sonnet"),
-             "--effort", os.environ.get("COLDREAD_EFFORT", "medium")],
+             "--effort", os.environ.get("COLDREAD_EFFORT", "medium"),
+             # 読み役は本文を読んで報告するだけで道具は要らない。検査対象の文章そのものを
+             # 渡すので、本文に紛れた指示で読み役が動く経路をここで断つ("" で全道具を無効化)。
+             "--tools", ""],
             capture_output=True, encoding="utf-8", timeout=READER_TIMEOUT,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
@@ -424,6 +430,11 @@ def main() -> None:
     except Exception:
         allow()
 
+    # 読み役の中で自分がもう一度発火すると、読み役が読み役を起こす入れ子になる
+    # (深さぶんの待ち時間になり、外側はフックのタイムアウトで無検査のまま通る)
+    if os.environ.get("COLDREAD_IN_READER") == "1":
+        allow()
+
     if len(command) < MIN_LEN or not GH_WORD_RE.search(command):
         allow()
 
@@ -436,9 +447,16 @@ def main() -> None:
     # 「引用が閉じない」を deny にしているのに例外だけ素通りでは、検査を避ける口になる。
     # 捕まえるのは Exception 全体で、ValueError に狭めるな——狭めた瞬間に、それ以外の例外は
     # フックのクラッシュ(=PreToolUse は続行)になって無検査で通る。
+    if len(command) > MAX_LEN:
+        log_line(DENY_LOG, "deny")
+        deny(
+            "外部投稿ゲート: このコマンドは長すぎて解析しない(%d 文字 > 上限 %d)。\n"
+            % (len(command), MAX_LEN)
+            + "本文を短くするか、上限を上げて再実行すること"
+            "(COLDREAD_MAX_LEN=<文字数> をコマンド先頭に付ける)。\n" + ESCAPE_NOTE
+        )
+
     try:
-        if len(command) > MAX_LEN:
-            raise RuntimeError("コマンドが長すぎる(%d 文字)" % len(command))
         candidates, blocked, parsed = posting_bodies(command)
     except Exception as exc:
         parsed, candidates, blocked = False, [], []

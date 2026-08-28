@@ -17,8 +17,9 @@ PreToolUse フックで捕まえ、**フック自身が
 - 読み役が起動できない環境でも投稿不能にはならない(deny + 逃げ道の案内)
 
 設定は環境変数(すべて任意): `COLDREAD_MODEL`(既定 sonnet)・`COLDREAD_EFFORT`(既定
-medium)・`COLDREAD_MIN_LEN`(既定 400)・`COLDREAD_KEYCHAIN_SERVICE`(macOS で OAuth
-トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(読み役の差し替え)。
+medium)・`COLDREAD_MIN_LEN`(これ未満のコマンドは素通し。既定 400)・`COLDREAD_MAX_LEN`
+(これを超えるコマンドは解析せず止める。既定 100000)・`COLDREAD_KEYCHAIN_SERVICE`(macOS で
+OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(読み役の差し替え)。
 
 ## 網の射程(正直な限界)
 

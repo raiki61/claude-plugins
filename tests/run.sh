@@ -829,8 +829,18 @@ expect_output 0 "ALLOW_EMPTY" "--input - の JSON は殻でなく .body が読�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SHELL" "$CR_JSON_POST"
 # 解析を打ち切る上限。超える入力を素通しにすると、長さで検査を外せる。
 # あわせて「解析中の想定外の例外は deny に倒す」も検査する(上限超過は ValueError 以外で投がる)
-expect_output 0 "解析できない" "上限を超える長さのコマンドは deny(fail-closed)" \
+expect_output 0 "COLDREAD_MAX_LEN" "上限を超える長さのコマンドは deny し、上げ方を案内する" \
     env COLDREAD_MAX_LEN=300 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+# 引用が閉じない形は解析器が None を返す経路(例外ではない)
+expect_output 0 "解析できない" "引用が閉じないコマンドは deny(fail-closed)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD"
+# 解析器が例外を投げる経路。実物の入力で非 ValueError を起こす手段は Python の版に依存する
+# ため、解析器を代役に差し替えて倒れ先だけを固定する
+expect_output 0 "解析できない" "解析が例外で落ちても deny(fail-closed)" \
+    "$PY_BIN" "$ROOT/tests/coldread-raise-case.py"
+# 読み役の中で発火すると、読み役が読み役を起こす入れ子になる(外側はタイムアウトで無検査通過)
+expect_output 0 "ALLOW_EMPTY" "読み役の中では発火しない(入れ子を作らない)" \
+    env COLDREAD_IN_READER=1 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "secret set の値は読み役に送らない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh secret set DEPLOY_KEY -b '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "workflow run の -F は本文ではないので止めない" \
