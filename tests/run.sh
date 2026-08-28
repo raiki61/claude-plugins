@@ -722,6 +722,26 @@ expect_output 0 "ALLOW_EMPTY" "COLDREAD_SKIP=1 は通る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 $CR_POST"
 expect_output 0 "COLDREAD_SKIP" "skip は記録に残る" \
     cat "$CR_CFG/coldread-gate/skip.log"
+# 逃げ道は書き手の前置であって、本文に文字列が入っていることではない。塞ぐ側と守る側を
+# 両方張る——守る側だけなら部分文字列一致のままでも緑、塞ぐ側だけなら逃げ道を殺しても緑になる。
+# 塞ぐ側で「詰まり」を期待するのは、deny になった事実でなく読み役が実際に本文を読んだことまで
+# 見るため($CR_STUB_FAIL だと「coldreader の起動に失敗」でも緑になり、検査が走った証明にならない)
+CR_BODY_MENTIONS="gh issue comment 1 --body-file - <<'EOF'
+$CR_BODY
+検査を飛ばすときは COLDREAD_SKIP=1 を付けて再実行します。
+$CR_PAD
+EOF"
+expect_output 0 "詰まり" "本文が COLDREAD_SKIP=1 に言及するだけでは外れない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_BODY_MENTIONS"
+expect_output 0 "詰まり" "旗の値としての COLDREAD_SKIP=1 でも外れない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body 'COLDREAD_SKIP=1 $CR_BODY $CR_PAD'"
+expect_output 0 "ALLOW_EMPTY" "cd の次の行に前置しても通る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cd /tmp
+COLDREAD_SKIP=1 $CR_POST"
+expect_output 0 "ALLOW_EMPTY" "&& の先に前置しても通る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cd /tmp && COLDREAD_SKIP=1 $CR_POST"
+expect_output 0 "ALLOW_EMPTY" "解析できないコマンドでも前置なら通る(逃げ道の主用途)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 gh issue comment 1 --body '引用が閉じない $CR_BODY $CR_PAD"
 expect_output 0 "取り出せない" "本文を取り出せない形は deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file /tmp/real.md # $CR_PAD"
 expect_output 0 "ALLOW_EMPTY" "読み役が CLEAN なら通る" \
@@ -730,7 +750,7 @@ expect_output 0 "詰まり" "読み役の詰まりで deny になり指摘が載
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 expect_output 0 "残った疑問" "疑問のみなら通り、申し送りが載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_QUEST" "$CR_POST"
-expect_output 0 "読み役の起動に失敗" "読み役の故障は deny+案内(投稿不能にはしない)" \
+expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "読み役の故障は deny+案内(投稿不能にはしない)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "$CR_POST"
 # 網: 「本文を運ぶ旗」を、ヒアドキュメント盾置換+shlex トークン化+単純コマンド単位の帰属で見る
 CR_NOTES="gh release create v9.9.9 --notes-file - <<'EOF'
@@ -869,8 +889,11 @@ expect_output 0 "取り出せない" "知らない旗でサブコマンドを特
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh --unknown-flag=x issue comment 1 -b '$CR_BODY $CR_PAD'"
 expect_output 0 "詰まり" "project edit の --readme も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh project edit 1 --readme '$CR_BODY $CR_PAD'"
-expect_output 0 "詰まり" "graphql のブロック文字列は本文として読ませる" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api graphql -f query='mutation { addComment(input:{body: \"\"\"$CR_BODY $CR_PAD\"\"\"}) }'"
+# mutation は body 以外のフィールドにもブロック文字列を書ける。中身を本文として抜くと ID・
+# トークン・設定値まで読み役(外部プロセス)へ渡るので、本文を取り出さず一律で止める。読み役が
+# 起動していればここは「coldreader の起動に失敗」になる(CR_STUB_FAIL は exit 1)——起動しないことの検査
+expect_output 0 "取り出せない" "graphql の mutation はブロック文字列でも読み役へ送らずに止める" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api graphql -f query='mutation { addComment(input:{subjectId: \"\"\"DB_PASSWORD=$CR_PAD\"\"\", body: \"\"\"$CR_BODY\"\"\"}) }'"
 # 短縮形は綴りが同じでも意味が違う。投稿でないサブコマンドの -b/-c/-n を本文と誤認すると、
 # ローカル操作の引数が読み役(外部プロセス)へ渡り、的外れな deny で作業も止まる
 expect_output 0 "ALLOW_EMPTY" "pr checkout の -b(ブランチ名)は本文扱いしない" \
@@ -903,6 +926,18 @@ expect_output 0 "取り出せない" "読める本文と同居しても実ファ
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body '$CR_BODY $CR_PAD' && gh pr comment 2 --body-file /tmp/x.md"
 expect_output 0 "取り出せない" "--input 実ファイルは検査できないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api repos/o/r/issues/1/comments --input /tmp/payload.json # $CR_PAD"
+# --input - でヒアドキュメントを取り損ねると候補ゼロ・止めた理由ゼロになり、「投稿でない」と
+# 読まれて無検査で通る。兄弟の --body-file - と同じ向きに倒すことの検査
+expect_output 0 "取り出せない" "--input - にヒアドキュメントが無ければ検査できないので deny" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "cat /tmp/payload.json | gh api repos/o/r/issues/1/comments --input - # $CR_PAD"
+# 行末が CRLF のヒアドキュメント。\n 固定で照合すると開始行・終端行ともマッチせず、正しく書いた
+# 投稿が「stdin 渡し」という嘘の理由で止まる(--body-file)か、無検査で通る(--input)
+CR_CRLF_FILE=$(printf 'gh issue comment 1 --body-file - <<'\''EOF'\''\r\n%s\r\n%s\r\nEOF\r\n' "$CR_BODY" "$CR_PAD")
+expect_output 0 "詰まり" "行末が CRLF のヒアドキュメントでも本文を取り出す" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CRLF_FILE"
+CR_CRLF_INPUT=$(printf 'gh api repos/o/r/issues/1/comments --input - <<'\''EOF'\''\r\n{"body": "%s%s"}\r\nEOF\r\n' "$CR_BODY" "$CR_PAD")
+expect_output 0 "詰まり" "CRLF のヒアドキュメントを --input - で渡しても本文を検査する" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CRLF_INPUT"
 expect_output 0 "取り出せない" "-F 実ファイル(--body-file 短縮形)は検査できないので deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr create -t T -F /tmp/body.md # $CR_PAD"
 expect_output 0 "取り出せない" "パイプの stdin は検査できないので deny" \
@@ -915,7 +950,7 @@ expect_output 0 "解析できない" "引用が閉じない gh コマンドは d
 # 倒れ先の検査: 読み役出力が UTF-8 で読めないときは deny に倒す(復号を errors="replace" に
 # 緩めると詰まりマーカーが化けて無音 allow になる——それを赤くする回帰網)
 CR_STUB_SJIS='cat >/dev/null; printf "\213\154\202\334\202\350\072\040\223\307\202\337\202\310\202\242\012"'
-expect_output 0 "読み役の起動に失敗" "読み役出力が UTF-8 でないときは deny に倒す" \
+expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "読み役出力が UTF-8 でないときは deny に倒す" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SJIS" "$CR_POST"
 # stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
 # UnicodeEncodeError → exit 1 = フック素通りになり、この 1 件が赤くなる)

@@ -6,20 +6,20 @@
 
 gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・本文、release notes、gist 等)を
 PreToolUse フックで捕まえ、**フック自身が
-文脈ゼロの読み手(別プロセスの headless Claude)を走らせて**本文を初見検査する。
+coldreader(文脈ゼロの読み手。別プロセスの headless Claude)を走らせて**本文を初見検査する。
 理解を妨げる「詰まり」があれば、その指摘を deny 理由に載せて投稿を止める。
 「疑問」(理解はできたが答えが本文に無いもの)は止めずに申し送る。
 
 - 検査の実行を書き手の申告に頼らない——「検査した印だけ押して通す」穴が構造的に無い
-- 再実行のたびに新しい読み手が直した本文を読む——収束をフックが機械的に駆動する
+- 再実行のたびに新しい coldreader が直した本文を読む——収束をフックが機械的に駆動する
 - 逃げ道は `COLDREAD_SKIP=1` の 1 本(`$CLAUDE_CONFIG_DIR/coldread-gate/skip.log` に記録が残る)
 - 400 文字未満の定型返信・読み取り系の gh コマンドには掛からない
-- 読み役が起動できない環境でも投稿不能にはならない(deny + 逃げ道の案内)
+- coldreader が起動できない環境でも投稿不能にはならない(deny + 逃げ道の案内)
 
 設定は環境変数(すべて任意): `COLDREAD_MODEL`(既定 sonnet)・`COLDREAD_EFFORT`(既定
 medium)・`COLDREAD_MIN_LEN`(これ未満のコマンドは素通し。既定 400)・`COLDREAD_MAX_LEN`
 (これを超えるコマンドは解析せず止める。既定 100000)・`COLDREAD_KEYCHAIN_SERVICE`(macOS で
-OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(読み役の差し替え)。
+OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(coldreader の差し替え)。
 
 ## 網の射程(正直な限界)
 
@@ -29,7 +29,9 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 
 - 旗を持たない投稿は対象外: `gh pr create --fill`(本文はコミットメッセージ由来)・エディタ起動(人が対話で書く)
 - graphql は `mutation` キーワード検出——`-f query=@file` のようにクエリをファイルで渡す形は素通し
-  (`--input file` の方はファイル指定として止まる)
+  (`--input file` の方はファイル指定として止まる)。捕まえた mutation は本文を取り出さず必ず止める
+  ——クエリ中のブロック文字列を本文として抜くと、`body:` 以外のフィールド(ID・トークン・設定値)まで
+  coldreader へ渡るため。投稿するときは本文を `--body` 系の旗かヒアドキュメントに書き直す
 - `gh` がコマンドとして現れない形は判定外: `xargs -I{} gh ...`・`sh -c "gh ..."`・引用の中の gh。
   ここだけは素通し(allow)に倒れる——`env`・`command`・`exec`・`nohup` の前置は判定内だが、
   `sudo`・`timeout` 等それ以外の前置は網に入らない
@@ -44,14 +46,19 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
   読める本文が同居していても止める
 - 引用が閉じていない・解析が例外で落ちる・上限(既定 10 万字)を超えるコマンドも、投稿かどうか
   確かめられないので止める(fail-closed)
-- 1 つのコマンドが複数の本文を運ぶときは、最長の 1 本だけを読み役に渡す
-- 旗の綴りは文脈で意味が変わるので、長い旗(`--body`・`--notes`・`--comment`・`--body-file`・
-  `--notes-file`)は綴りだけで本文と見なし、短縮形(`-b`・`-c`・`-n`・`-F`)は本文を意味する
+- 本文を取り出せても 200 字未満なら coldreader に渡さず通す(コマンド長の下限 400 字とは別の閾値。
+  短い定型の返信で coldreader を起こさないため)
+- 1 つのコマンドが複数の本文を運ぶときは、最長の 1 本だけを coldreader に渡す
+- 旗の綴りは文脈で意味が変わるので、長い旗(`--body`・`--notes`・`--comment`・`--readme`・
+  `--body-file`・`--notes-file`)は綴りだけで本文と見なし、短縮形(`-b`・`-c`・`-n`・`-F`)は本文を意味する
   サブコマンドの中でだけ本文と見る(gh 2.96.0 の全サブコマンドを走査して決めた)。
   よって `gh pr checkout -b <ブランチ名>`・`gh issue view -c`・`gh run download -n` 等は
   投稿ではないので網に入らない。逆に、gh が投稿サブコマンドを増やしても長い旗で書かれていれば
   網に入る。短縮形しか使われない新サブコマンドは取りこぼす
-- 値が本文でないものは読み役(外部プロセス)へ送らない: `gh secret set --body`・
+- フックの起動行は POSIX シェル(bash)で評価される前提で書いてある(`command -v` と `$(...)` で
+  `python3`/`python` を選ぶ)。bash が無い環境では本体がフック自体を起動できないので、
+  起動行の書き方に関わらず門番は動かない
+- 値が本文でないものは coldreader(外部プロセス)へ送らない: `gh secret set --body`・
   `gh variable set --body`(値は秘密そのもの)、`gh api --input` の JSON(`.body` を持つときだけ
   その中身を読ませ、持たない JSON は送らない)
 

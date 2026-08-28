@@ -62,8 +62,10 @@ DENY_STREAK_WINDOW = 30 * 60
 # 守る。なぜこの方式か・いつ乗り換えるかは docs/coldread-gate-next.md(正本)。
 # 対象外と受容した形は gates/README.md「網の射程」。
 # デリミタは引用の有無(' か " か無し)と . - を許し、<<- の字下げ終端も拾う。
+# 行末は \r?\n。コマンド文字列が CRLF で届くと \n 固定では開始行も終端行もマッチせず、
+# 正しく書いたヒアドキュメントが「stdin 渡し」という嘘の理由で止まる(実測)。
 HEREDOC_RE = re.compile(
-    r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1\n(.*?)\n[ \t]*\2(?:\n|$)""", re.S
+    r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_.-]*)\1\r?\n(.*?)\r?\n[ \t]*\2(?:\r?\n|\r?$)""", re.S
 )
 
 # 本文を運ぶ旗の表(非 api 経路はこれを引く。api・gist 経路は下でハードコード)。
@@ -73,7 +75,7 @@ HEREDOC_RE = re.compile(
 # 本文以外を指すのは secret/variable set の --body(値は秘密そのもの)だけだった。
 LONG_TEXT_FLAGS = {
     "--body": "text", "--notes": "text", "--comment": "text", "--readme": "text",
-    "--body-file": "file", "--notes-file": "file", "--readme-file": "file",
+    "--body-file": "file", "--notes-file": "file",
 }
 NON_POSTING = {("secret", "set"), ("variable", "set")}
 # 長い旗でも本文でない 1 例: gh pr review の --comment はレビュー種別を選ぶ真偽旗で値を取らない
@@ -106,6 +108,8 @@ OP_CHARS = set("();<>|&\n")
 # リダイレクト演算子(演算子と行き先を読み飛ばす)。&> >& <& は & を含むが区切りではない。
 REDIRECT_OPS = {"<", ">", ">>", "<<", "<<<", "<&", ">&", "&>", "&>>", ">|"}
 VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
+# 環境変数の前置(NAME=値)。単純コマンドの先頭で読み飛ばす範囲を決める
+ENV_PREFIX_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 # 前段の粗選別。部分文字列だと highlight・through 等の語で解析に入ってしまう
 GH_WORD_RE = re.compile(r"\bgh\b")
 
@@ -204,7 +208,7 @@ def gh_args(tokens):
         tok = tokens[i]
         if tok == "gh" or tok.endswith("/gh"):
             return tokens[i + 1:]
-        if re.match(r"[A-Za-z_][A-Za-z0-9_]*=", tok):
+        if ENV_PREFIX_RE.match(tok):
             i += 1
             continue
         if tok in WRAPPERS:
@@ -246,23 +250,41 @@ def subcommand(args):
 def classify(args, heredoc_bodies, live_substitution=False):
     """gh の引数列から (本文候補, 検査できない本文の説明) を返す。"""
     heredoc_bodies = own_heredocs(args, heredoc_bodies)
+    # 倒れ先はすべて blocked.append に集める。テスト側が理由の一覧を実装から機械で読み、
+    # 一つずつ実際に発火させて突合するため、ここだけは別経路(return の直書き)を作らない。
+    # 縛れるのは倒れ先だけで、候補(candidates)側の網羅は機械では言えない——抽出した文字列が
+    # 本文かどうかは判定できないので、候補を足す経路は人が読んで守る。
+    candidates, blocked = [], []
     sub = subcommand(args)
     if sub is None:
         # サブコマンドが読めない以上、本文を運ぶ旗があるかも判らない。素通しにすると
         # 「読めなかった」が「投稿でない」に化けるので、検査できない側に倒す。
-        return [], ["サブコマンドを特定できない"]
+        blocked.append("サブコマンドを特定できない")
+        return candidates, blocked
     if sub in NON_POSTING:
-        return [], []  # 投稿でないので本文検出も検査もしない
+        return candidates, blocked  # 投稿でないので本文検出も検査もしない
     is_api = sub[:1] == ("api",)
     is_graphql = sub == ("api", "graphql")
     saw_mutation = False
-    candidates, blocked = [], []
 
     def add(kind, value):
+        """本文旗 1 つ分を判定し、candidates(読ませる)か blocked(止める)へ必ず積む。
+
+        積まないのは「本文でないと確かめた」ときだけで、それは not_body で明示する。
+        main() は候補も blocked も無い状態を「投稿でない」と読んで allow するので、
+        積み忘れは取り損ねを黙って素通しにする——`--input -` でヒアドキュメントを
+        取り損ねた投稿が実際にこの形で allow に落ちていた(回帰網は tests/run.sh)。
+        """
+        mark = len(candidates) + len(blocked)
+        not_body = False
         if kind == "json":
             # gh api --input の中身は本文とは限らない(secrets の暗号値・設定の JSON 等)。
             # .body を持つときだけ本文として読ませ、持たない JSON は読み役へ送らない。
             if value in ("-", ""):
+                if not heredoc_bodies:
+                    # パイプ・別プロセスからの stdin と、ヒアドキュメントを取り損ねた形は
+                    # ここでは区別できない。兄弟の file 分岐と同じ向きに倒す。
+                    blocked.append("別プロセスからの stdin 渡し")
                 for raw in heredoc_bodies:
                     try:
                         obj = json.loads(raw)
@@ -276,6 +298,8 @@ def classify(args, heredoc_bodies, live_substitution=False):
                         # .body 以外の場所に長い文字列がある。投稿本文なのか設定値なのか
                         # 判らないので、読み役へ送らず「検査できない」として止める。
                         blocked.append("JSON の本文の位置を特定できない")
+                    else:
+                        not_body = True  # 本文らしい長さの文字列を持たない JSON
             else:
                 blocked.append("実ファイル指定")
         elif kind == "text":
@@ -289,13 +313,17 @@ def classify(args, heredoc_bodies, live_substitution=False):
                 blocked.append("変数・コマンド置換渡し")
             else:
                 candidates.append(value)
-        elif value in ("-", "@-"):
-            if heredoc_bodies:
-                candidates.extend(heredoc_bodies)
+        elif kind == "file":
+            if value in ("-", "@-"):
+                if heredoc_bodies:
+                    candidates.extend(heredoc_bodies)
+                else:
+                    blocked.append("別プロセスからの stdin 渡し")
             else:
-                blocked.append("別プロセスからの stdin 渡し")
-        else:
-            blocked.append("実ファイル指定")
+                blocked.append("実ファイル指定")
+        if not not_body and len(candidates) + len(blocked) == mark:
+            # 引き金は 2 つ: 表に知らない種別が足された・分岐が倒れ先を書き忘れた。
+            blocked.append("本文旗の値を判定できない")
 
     i, n, seen_ddash = 0, len(args), False
     while i < n:
@@ -316,12 +344,13 @@ def classify(args, heredoc_bodies, live_substitution=False):
                     if val and "=" in val:
                         key, fval = val.split("=", 1)
                         if key == "query" and is_graphql:
-                            # mutation は投稿。ブロック文字列("""...""")は本文として読ませるが、
-                            # 普通の引用文字列まで拾うとトークンや ID を本文と誤認して外部の
-                            # 読み役へ送ってしまう(実測)。取れなければ検査できない側へ倒す。
+                            # mutation は投稿。ブロック文字列("""...""")を本文として抜くと、
+                            # body 以外のフィールド(ID・トークン・設定値)の値まで外部の読み役
+                            # へ送ってしまう(実測)。フィールド名で絞るには GraphQL の構文解析が
+                            # 要り、それは docs/coldread-gate-next.md が扱う岐路に入るので、
+                            # mutation は本文を取り出さず一律で検査できない側へ倒す。
                             if re.search(r"\bmutation\b", fval):
                                 saw_mutation = True
-                                candidates.extend(re.findall(r'"""(.*?)"""', fval, re.S))
                         elif key == "body":
                             if name in ("-F", "--field") and fval.startswith("@"):
                                 add("file", "@-" if fval == "@-" else fval[1:])
@@ -365,7 +394,7 @@ def classify(args, heredoc_bodies, live_substitution=False):
         elif pos:
             blocked.append("実ファイル指定")
 
-    if saw_mutation and not candidates:
+    if saw_mutation:
         blocked.append("graphql mutation の本文を取り出せない")
 
     return candidates, blocked
@@ -522,6 +551,34 @@ def run_reader(body: str):
     return out
 
 
+SKIP_TOKEN = "COLDREAD_SKIP=1"
+# 生の文字列の先頭に置かれた逃げ道。解析できないコマンドでも読めるので先に見る。
+SKIP_PREFIX_RE = re.compile(r"\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*" + SKIP_TOKEN + r"(?=\s|$)")
+
+
+def wants_skip(command):
+    """逃げ道が書き手の前置として置かれているか。本文に文字列が入っているだけでは効かせない。
+
+    部分文字列一致にすると、門番自身の話題を投稿する本文で門番が黙って外れる(実測)。
+    2 段構えなのは、逃げ道の主用途が「解析できないコマンドを通す」ことだから——
+    解析前の先頭一致は必ず効かせ、解析できたときに限って cd や && の先の前置も拾う。
+    """
+    if SKIP_PREFIX_RE.match(command):
+        return True
+    tokens = tokenize(shield_heredocs(command)[0])
+    if tokens is None:
+        return False
+    for cmd in simple_commands(tokens):
+        for tok in cmd:
+            if tok == SKIP_TOKEN:
+                return True
+            # 読み飛ばす範囲は gh_args と同じにする。ここだけ env を透かさないと、
+            # ゲートが投稿と認めた形なのに逃げ道だけ効かず、案内どおり書いた人が嵌まる
+            if tok not in WRAPPERS and not ENV_PREFIX_RE.match(tok):
+                break  # 前置が途切れたら、そこから先は引数か本文
+    return False
+
+
 ESCAPE_NOTE = (
     "軽微と判断した指摘を残して通すとき・検査器が使えないときは、"
     "コマンド先頭に COLDREAD_SKIP=1 を付けて再実行する(記録が残る)。"
@@ -547,7 +604,7 @@ def main() -> None:
     if len(command) < MIN_LEN or not GH_WORD_RE.search(command):
         allow()
 
-    if "COLDREAD_SKIP=1" in command:
+    if wants_skip(command):
         log_line(SKIP_LOG, command[:200].replace("\n", " "))
         log_line(DENY_LOG, "skip")
         allow()
@@ -605,8 +662,8 @@ def main() -> None:
     except Exception as exc:
         log_line(DENY_LOG, "deny")
         deny(
-            "外部投稿ゲート: 読み役の起動に失敗した(%s)。\n" % str(exc)[:150]
-            + "手動で検査するなら skill『coldread』の手順で読み役を立てること。\n"
+            "外部投稿ゲート: coldreader(文脈ゼロの読み手)の起動に失敗した(%s)。\n" % str(exc)[:150]
+            + "手動で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
             + ESCAPE_NOTE
         )
 
@@ -622,8 +679,8 @@ def main() -> None:
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "allow",
-                    "permissionDecisionReason": "冷読は通過(詰まりゼロ)",
-                    "additionalContext": "投稿は通したが、初見の読み手に残った疑問(必要なら本文に反映して編集してよい):\n" + "\n".join(questions),
+                    "permissionDecisionReason": "coldreader の検査を通過(詰まりゼロ)",
+                    "additionalContext": "投稿は通したが、coldreader(初見の読み手)に残った疑問(必要なら本文に反映して編集してよい):\n" + "\n".join(questions),
                 }
             }, ensure_ascii=False))
         sys.exit(0)
@@ -631,13 +688,13 @@ def main() -> None:
     streak = deny_streak() + 1
     log_line(DENY_LOG, "deny")
     tail = (
-        "\n\n【%d 回連続で止まっている】初見指摘は読み手ごとに揺れる。残る指摘の採否を自分で判断し、"
+        "\n\n【%d 回連続で止まっている】初見指摘は coldreader ごとに揺れる。残る指摘の採否を自分で判断し、"
         "採らない指摘を理由にもう直さないなら COLDREAD_SKIP=1 で通してよい(記録が残る)。" % streak
         if streak >= 3 else "\n\n" + ESCAPE_NOTE
     )
     deny(
-        "外部投稿ゲート: 文脈ゼロの読み手(別プロセス)がこの本文で詰まった。以下を直してから"
-        "同じ形で再実行すること(再実行時は直した本文を新しい読み手が検査する):\n\n"
+        "外部投稿ゲート: coldreader(文脈ゼロの別プロセスの読み手)がこの本文で詰まった。以下を直してから"
+        "同じ形で再実行すること(再実行時は直した本文を新しい coldreader が検査する):\n\n"
         + "\n".join(blocking + questions)[:1500]
         + "\n\n直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
         "詳細は skill『coldread』。"
