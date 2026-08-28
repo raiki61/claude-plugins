@@ -14,7 +14,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。
       - name: tests/run.sh
         shell: bash
