@@ -809,6 +809,7 @@ expect_output 0 "ALLOW_EMPTY" "pr review の --comment 自体は本文扱いし�
 # 検査できない本文は fail-closed で止める
 # 表そのものを走査して、各項目が実際に効いていることを確かめる(表が増えれば検査も増える)
 expect_output 0 "TABLE_OK" "判定表の全項目が効いている" "$PY_BIN" "$ROOT/tests/coldread-table-case.py"
+expect_output 0 "COLDWRITE_CFG_OK" "coldwrite の宣言設定が 4 箇所で一致している" "$PY_BIN" "$ROOT/tests/coldwrite-config-check.py"
 # 旗表・帰属の各分岐を個別に殺す網(消すとどれか 1 件だけが赤くなる形にする)
 expect_output 0 "詰まり" "--旗=値 の密着形も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body='$CR_BODY $CR_PAD'"
