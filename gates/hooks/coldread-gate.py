@@ -57,13 +57,9 @@ DENY_STREAK_WINDOW = 30 * 60
 # ---- 投稿の判定 ------------------------------------------------------------
 # 「gh らしさ」と「旗らしさ」を文字列全体へ独立に照合する方式は、複合コマンドで別コマンドの
 # 旗を gh の物と誤認し(git checkout -b)、引用・短縮形で取りこぼした(0.2.x で実測)。
-# gh 側に機械可読な read/write 分類は無い(https://github.com/cli/cli/issues/12912 が
-# 同要求のまま停滞)ため、シェル文字列を段階的に解く:
-# ヒアドキュメントを盾置換(shlex はヒアドキュメントを解析できない) → shlex(POSIX 引用規則)で
-# トークン化 → リダイレクトを除き ; | & && || 改行 () で単純コマンドに区切り、gh の引数列の
-# 中だけで「本文を運ぶ旗」を見る。同型の前処理(ヒアドキュメント盾置換)は guardian など先行例が
-# あるが、単純コマンド分割と旗表は自作なので網羅性はテストで守る。方式の経緯と、これを不要に
-# する次段(PATH シム + gh __complete 案)は docs/coldread-gate-next.md。
+# 代わりに、ヒアドキュメントを盾置換 → shlex でトークン化 → 単純コマンドに区切り、gh の
+# 引数列の中だけで「本文を運ぶ旗」を見る。単純コマンド分割と旗表は自作なので網羅性はテストで
+# 守る。なぜこの方式か・いつ乗り換えるかは docs/coldread-gate-next.md(正本)。
 # 対象外と受容した形は gates/README.md「網の射程」。
 # デリミタは引用の有無(' か " か無し)と . - を許し、<<- の字下げ終端も拾う。
 HEREDOC_RE = re.compile(
@@ -71,20 +67,38 @@ HEREDOC_RE = re.compile(
 )
 
 # 本文を運ぶ旗の表(非 api 経路はこれを引く。api・gist 経路は下でハードコード)。
-# text=次の値が本文 / file=ファイル指定(- は stdin)。短縮形は gh 2.96.0 で確認:
-# -b/--body・-F/--body-file(release では -n/--notes・-F/--notes-file)・-c/--comment(issue/pr の
-# close・reopen)。-F は文脈で意味が変わる旗で、gh api では --field、workflow run でも field。
-# それらは本文投稿ではないので下の NON_POSTING で表ごと除外する(is_api は別処理)。
-TEXT_FLAGS = {
-    "--body": "text", "-b": "text",
-    "--notes": "text", "-n": "text",
-    "--comment": "text", "-c": "text",
-    "--body-file": "file", "--notes-file": "file", "-F": "file",
+# text=次の値が本文 / file=ファイル指定(- は stdin)。
+#
+# 長い旗は綴りだけで判定してよい——gh 2.96.0 の全サブコマンドを走査した結果、この 5 つが
+# 本文以外を指すのは secret/variable set の --body(値は秘密そのもの)だけだった。
+LONG_TEXT_FLAGS = {
+    "--body": "text", "--notes": "text", "--comment": "text",
+    "--body-file": "file", "--notes-file": "file",
 }
-# gh pr review の -c/--comment はレビュー種別を選ぶ真偽旗で、本文を取らない(gh 2.96.0 で確認)
-COMMENT_IS_BOOLEAN = {("pr", "review")}
-# 本文旗と同じ綴りの旗を持つが投稿でない(値が機微・設定・入力)サブコマンド。表ごと除外する。
-NON_POSTING = {("secret", "set"), ("variable", "set"), ("workflow", "run")}
+NON_POSTING = {("secret", "set"), ("variable", "set")}
+# 長い旗でも本文でない 1 例: gh pr review の --comment はレビュー種別を選ぶ真偽旗で値を取らない
+LONG_FLAG_NOT_BODY = {("--comment", ("pr", "review"))}
+# 短縮形は同じ綴りが別の意味に割り当てられていて、綴りだけでは判定できない(同じ走査で確認):
+# pr checkout -b=--branch / repo sync・view -b=--branch / issue develop -b=--base -c=--checkout
+# -n=--name / pr・issue・discussion view -c=--comments / pr status -c=--conflict-status /
+# discussion create・edit -c=--category / run download -n=--name / workflow run -F=--field /
+# pr review -c=--comment(レビュー種別を選ぶ真偽旗で値を取らない)。
+# そこで短縮形は「その綴りが本文を意味するサブコマンド」の中でだけ本文と見る。長い旗の側は
+# 一般のままなので、gh が投稿サブコマンドを増やしても --body 等で書かれていれば網に入る。
+SHORT_TEXT_FLAGS = {
+    "-b": ("text", {("issue", "comment"), ("issue", "create"), ("issue", "edit"),
+                    ("pr", "comment"), ("pr", "create"), ("pr", "edit"),
+                    ("pr", "merge"), ("pr", "revert"), ("pr", "review"),
+                    ("discussion", "comment"), ("discussion", "create"), ("discussion", "edit")}),
+    "-c": ("text", {("issue", "close"), ("issue", "reopen"),
+                    ("pr", "close"), ("pr", "reopen")}),
+    "-n": ("text", {("release", "create"), ("release", "edit")}),
+    "-F": ("file", {("issue", "comment"), ("issue", "create"), ("issue", "edit"),
+                    ("pr", "comment"), ("pr", "create"), ("pr", "edit"),
+                    ("pr", "merge"), ("pr", "revert"), ("pr", "review"),
+                    ("discussion", "comment"), ("discussion", "create"), ("discussion", "edit"),
+                    ("release", "create"), ("release", "edit")}),
+}
 # 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)。-H/-X は api の前置で挟まりうる。
 GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
 WRAPPERS = {"env", "command", "exec", "nohup"}
@@ -189,7 +203,20 @@ def classify(args, heredoc_bodies):
     candidates, blocked = [], []
 
     def add(kind, value):
-        if kind == "text":
+        if kind == "json":
+            # gh api --input の中身は本文とは限らない(secrets の暗号値・設定の JSON 等)。
+            # .body を持つときだけ本文として読ませ、持たない JSON は読み役へ送らない。
+            if value in ("-", ""):
+                for raw in heredoc_bodies:
+                    try:
+                        obj = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if isinstance(obj, dict) and isinstance(obj.get("body"), str):
+                        candidates.append(obj["body"])
+            else:
+                blocked.append("実ファイル指定")
+        elif kind == "text":
             # 変数・コマンド置換は実行時まで中身が無く、検査できない
             if VAR_RE.match(value) or value.startswith("$("):
                 blocked.append("変数・コマンド置換渡し")
@@ -236,10 +263,15 @@ def classify(args, heredoc_bodies):
                     if val is None and i + 1 < n:
                         i += 1
                         val = args[i]
-                    add("file", val or "")
+                    add("json", val or "")
             else:
-                kind = TEXT_FLAGS.get(name)
-                if kind and not (name in ("-c", "--comment") and sub in COMMENT_IS_BOOLEAN):
+                kind = LONG_TEXT_FLAGS.get(name)
+                if (name, sub) in LONG_FLAG_NOT_BODY:
+                    kind = None
+                if kind is None and name in SHORT_TEXT_FLAGS:
+                    short_kind, posting = SHORT_TEXT_FLAGS[name]
+                    kind = short_kind if sub in posting else None
+                if kind:
                     if val is None and i + 1 < n:
                         i += 1
                         val = args[i]
@@ -282,16 +314,6 @@ def posting_bodies(command):
         c, b = classify(args, heredoc_bodies)
         candidates.extend(c)
         blocked.extend(b)
-    # --input - に渡る JSON(このリポジトリの投稿作法)は、殻でなく .body を読ませる。
-    # 殻は必ず本文より長いので、候補に残すと max(長さ) が殻を選び本文が読まれない。
-    for text in list(candidates):
-        try:
-            obj = json.loads(text)
-        except ValueError:
-            continue
-        if isinstance(obj, dict) and isinstance(obj.get("body"), str):
-            candidates.remove(text)
-            candidates.append(obj["body"])
     return candidates, blocked, True
 
 
@@ -431,8 +453,12 @@ def main() -> None:
         allow()
 
     # 読み役の中で自分がもう一度発火すると、読み役が読み役を起こす入れ子になる
-    # (深さぶんの待ち時間になり、外側はフックのタイムアウトで無検査のまま通る)
+    # (深さぶんの待ち時間になり、外側はフックのタイムアウトで無検査のまま通る)。
+    # 読み役の道具を殺す --tools "" とは別の機構にしてある——あちらは「読み役が本文中の
+    # 指示で動かない」ための処置で、起動の仕方(差し替えの読み役)に依存する。こちらは
+    # 起動の仕方に関わらず入れ子を止める。allow に落ちる以上、逃げ道と同じく記録を残す。
     if os.environ.get("COLDREAD_IN_READER") == "1":
+        log_line(SKIP_LOG, "in-reader: " + command[:150].replace("\n", " "))
         allow()
 
     if len(command) < MIN_LEN or not GH_WORD_RE.search(command):

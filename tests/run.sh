@@ -686,7 +686,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=45
+EXPECTED_MIN=160
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -841,8 +841,26 @@ expect_output 0 "解析できない" "解析が例外で落ちても deny(fail-c
 # 読み役の中で発火すると、読み役が読み役を起こす入れ子になる(外側はタイムアウトで無検査通過)
 expect_output 0 "ALLOW_EMPTY" "読み役の中では発火しない(入れ子を作らない)" \
     env COLDREAD_IN_READER=1 "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body '$CR_BODY $CR_PAD'"
-expect_output 0 "ALLOW_EMPTY" "secret set の値は読み役に送らない" \
-    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh secret set DEPLOY_KEY -b '$CR_BODY $CR_PAD'"
+# 短縮形は綴りが同じでも意味が違う。投稿でないサブコマンドの -b/-c/-n を本文と誤認すると、
+# ローカル操作の引数が読み役(外部プロセス)へ渡り、的外れな deny で作業も止まる
+expect_output 0 "ALLOW_EMPTY" "pr checkout の -b(ブランチ名)は本文扱いしない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh pr checkout 123 -b $CR_BODY$CR_PAD"
+expect_output 0 "ALLOW_EMPTY" "issue develop の -n(ブランチ名)は本文扱いしない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue develop 5 -n $CR_BODY$CR_PAD"
+expect_output 0 "ALLOW_EMPTY" "issue view の -c(--comments)は本文扱いしない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue view 12 -c # $CR_PAD $CR_BODY"
+expect_output 0 "詰まり" "close の -c(--comment)は本文として拾う" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue close 9 -c '$CR_BODY $CR_PAD'"
+# gh api --input の中身は本文とは限らない(secrets の暗号値等)。.body を持つときだけ読ませる
+expect_output 0 "ALLOW_EMPTY" "api --input の本文でない JSON は読み役に送らない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh api -X PUT /repos/o/r/actions/secrets/K --input - <<'EOF'
+{\"encrypted_value\": \"$CR_PAD$CR_PAD\", \"key_id\": \"1\"}
+EOF"
+# secret/variable set は長い旗まで --body なので、綴りだけでは投稿と見分けられない
+expect_output 0 "ALLOW_EMPTY" "secret set の値(--body)は読み役に送らない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh secret set DEPLOY_KEY --body '$CR_BODY $CR_PAD'"
+expect_output 0 "ALLOW_EMPTY" "variable set の値(--body)は読み役に送らない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh variable set CONF --body '$CR_BODY $CR_PAD'"
 expect_output 0 "ALLOW_EMPTY" "workflow run の -F は本文ではないので止めない" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh workflow run deploy.yml -F name=scully -F greeting=hello # $CR_PAD"
 expect_output 0 "ALLOW_EMPTY" "gist create の説明文(-d)だけでは本文と見なさない" \
