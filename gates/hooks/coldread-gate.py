@@ -583,6 +583,12 @@ ESCAPE_NOTE = (
     "軽微と判断した指摘を残して通すとき・検査器が使えないときは、"
     "コマンド先頭に COLDREAD_SKIP=1 を付けて再実行する(記録が残る)。"
 )
+# 通過・差し戻しのどちらでも保証範囲を言う。無言で通すと、摩擦を越えた事実が
+# 「審査に合格した」と読まれ、権限・名義の検査の代わりにされる(実例あり)。
+SCOPE_NOTE = (
+    "この検査が見るのは通じやすさのみ——出してよい投稿か・名義・宛先は検査していない"
+    "(宛先の許可制は同梱の destgate)。"
+)
 
 
 def main() -> None:
@@ -674,15 +680,17 @@ def main() -> None:
 
     if is_clean or not blocking:
         log_line(DENY_LOG, "allow")
+        extra = SCOPE_NOTE
         if questions:
-            print(json.dumps({
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                    "permissionDecisionReason": "coldreader の検査を通過(詰まりゼロ)",
-                    "additionalContext": "投稿は通したが、coldreader(初見の読み手)に残った疑問(必要なら本文に反映して編集してよい):\n" + "\n".join(questions),
-                }
-            }, ensure_ascii=False))
+            extra += "\n投稿は通したが、coldreader(初見の読み手)に残った疑問(必要なら本文に反映して編集してよい):\n" + "\n".join(questions)
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": "coldreader の検査を通過(詰まりゼロ)",
+                "additionalContext": extra,
+            }
+        }, ensure_ascii=False))
         sys.exit(0)
 
     streak = deny_streak() + 1
@@ -697,7 +705,7 @@ def main() -> None:
         "同じ形で再実行すること(再実行時は直した本文を新しい coldreader が検査する):\n\n"
         + "\n".join(blocking + questions)[:1500]
         + "\n\n直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
-        "詳細は skill『coldread』。"
+        "詳細は skill『coldread』。\n" + SCOPE_NOTE
         + tail
     )
 

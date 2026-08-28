@@ -744,7 +744,7 @@ expect_output 0 "ALLOW_EMPTY" "解析できないコマンドでも前置なら�
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 gh issue comment 1 --body '引用が閉じない $CR_BODY $CR_PAD"
 expect_output 0 "取り出せない" "本文を取り出せない形は deny" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh issue comment 1 --body-file /tmp/real.md # $CR_PAD"
-expect_output 0 "ALLOW_EMPTY" "読み役が CLEAN なら通る" \
+expect_output 0 "通じやすさのみ" "読み役が CLEAN なら通り、保証範囲の注が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN" "$CR_POST"
 expect_output 0 "詰まり" "読み役の詰まりで deny になり指摘が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
@@ -848,7 +848,7 @@ JSON-EOF"
 # 本文でない値を読み役へ送らない・投稿でない gh を止めない
 # 読み役に渡るのが JSON の殻だと、初見の読み手は本文でなくエスケープ済みの構造を読まされる
 CR_STUB_SHELL='if grep -q body; then printf "詰まり: JSON の殻が読み役に渡った\\n"; else echo CLEAN; fi'
-expect_output 0 "ALLOW_EMPTY" "--input - の JSON は殻でなく .body が読み役に届く" \
+expect_output 0 "検査を通過" "--input - の JSON は殻でなく .body が読み役に届く" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_SHELL" "$CR_JSON_POST"
 # 解析を打ち切る上限。超える入力を素通しにすると、長さで検査を外せる。
 # あわせて「解析中の想定外の例外は deny に倒す」も検査する(上限超過は ValueError 以外で投がる)
@@ -965,6 +965,38 @@ CR_STREAK_CFG="$WORK/coldread-cfg-streak"; mkdir -p "$CR_STREAK_CFG"
 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "3 回連続で止まっている" "3 回連続 deny で skip の案内が出る(ちょうど 3 で発火)" \
     "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+
+# ---- destgate: 投稿先の許可一覧(coldread と独立の軸。一覧が無ければ眠る) ----
+DG_CASE="$ROOT/tests/destgate-case.sh"
+DG_CFG="$WORK/destgate-cfg"; mkdir -p "$DG_CFG/destgate"
+printf 'good/*\nallowed/repo\n' > "$DG_CFG/destgate/allowlist"
+DG_NOCFG="$WORK/destgate-nocfg"; mkdir -p "$DG_NOCFG"
+DG_POST_EVIL="gh issue comment 1 -R evil/place --body 'こんにちは、これは宛先検査のテスト本文です'"
+
+expect_output 0 "ALLOW_EMPTY" "destgate: 一覧が無ければ眠る(投稿でも素通し)" \
+    "$DG_CASE" "$DG_NOCFG" "$WORK" "$DG_POST_EVIL"
+expect_output 0 "ALLOW_EMPTY" "destgate: 一覧内の宛先(完全一致)は通る" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh issue comment 1 -R allowed/repo --body 'テストの本文です'"
+expect_output 0 "ALLOW_EMPTY" "destgate: owner/* パターンで通る" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh pr comment 2 -R good/anything --body 'テストの本文です'"
+expect_output 0 "許可一覧に無い" "destgate: 一覧外の宛先は deny" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "$DG_POST_EVIL"
+expect_output 0 "許可一覧に無い" "destgate: COLDREAD_SKIP=1 でも宛先検査は外れない" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "COLDREAD_SKIP=1 $DG_POST_EVIL"
+expect_output 0 "ALLOW_EMPTY" "destgate: 読み取り系は宛先が一覧外でも素通し" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh pr list -R evil/place --limit 5"
+expect_output 0 "許可一覧に無い" "destgate: gh api の repos/ パスから宛先を取る" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh api repos/evil/place/issues/1/comments -f body='宛先検査のテスト本文です'"
+expect_output 0 "特定できない" "destgate: 宛先を特定できない投稿は deny(-R の明示を促す)" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh api graphql -f query='mutation { m }' -f body='宛先検査のテスト本文です'"
+
+# 明示の -R が無い投稿は、gh と同じくカレントの git remote を宛先とみなす
+DG_REPO_OK="$WORK/dg-repo-ok"; git init -q "$DG_REPO_OK"; git -C "$DG_REPO_OK" remote add origin git@github.com:good/things.git
+DG_REPO_NG="$WORK/dg-repo-ng"; git init -q "$DG_REPO_NG"; git -C "$DG_REPO_NG" remote add origin https://github.com/evil/place.git
+expect_output 0 "ALLOW_EMPTY" "destgate: -R 無しは git remote を宛先にする(一覧内)" \
+    "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
+expect_output 0 "許可一覧に無い" "destgate: -R 無しの git remote が一覧外なら deny" \
+    "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue comment 1 --body 'テストの本文です'"
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"

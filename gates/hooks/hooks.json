@@ -10,6 +10,13 @@
             "shell": "bash",
             "timeout": 260,
             "statusMessage": "外部投稿ゲートを確認中"
+          },
+          {
+            "type": "command",
+            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/dest-gate.py\"",
+            "shell": "bash",
+            "timeout": 30,
+            "statusMessage": "宛先ゲートを確認中"
           }
         ]
       }
