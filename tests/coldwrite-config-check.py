@@ -1,8 +1,9 @@
 """coldwrite の宣言設定を機械で突合する。
 
-守るのは 2 つ。①6 ハンドラの複製が 1 本だけ直し漏れる事故(`if` 以外は完全同一であること)。
+守るのは 3 つ。①6 ハンドラの複製が 1 本だけ直し漏れる事故(`if` 以外は完全同一であること)。
 ②拡張子一覧が 4 箇所(hooks.json・plugin.json・coldwrite/README.md・トップ README)で
 食い違う事故。正本は hooks.json の `if` 列で、他の 3 箇所を追従側として検査する。
+③`continueOnBlock: true` の脱落(deny でターンが終わり、修正ループが成立しなくなる事故)。
 """
 import json
 import re
@@ -49,6 +50,10 @@ if "model" in base:
     fail("model が指定されている(設計条件違反)")
 if "coldwrite:skip" not in base.get("prompt", ""):
     fail("判定プロンプトに逃げ道(coldwrite:skip)が無い")
+if base.get("continueOnBlock") is not True:
+    # Claude Code 2.1.210 以降、prompt 型の ok:false は既定でターンを終える。true が無いと
+    # deny 理由が書き手のモデルへ返らず、修正ループが成立しない(coldwrite/README.md「設計条件」)
+    fail("continueOnBlock が true でない(deny でターンが終わり、修正ループが成立しない)")
 
 joined = "/".join(exts)
 followers = {

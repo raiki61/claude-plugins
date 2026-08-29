@@ -810,6 +810,23 @@ expect_output 0 "ALLOW_EMPTY" "pr review の --comment 自体は本文扱いし�
 # 表そのものを走査して、各項目が実際に効いていることを確かめる(表が増えれば検査も増える)
 expect_output 0 "TABLE_OK" "判定表の全項目が効いている" "$PY_BIN" "$ROOT/tests/coldread-table-case.py"
 expect_output 0 "COLDWRITE_CFG_OK" "coldwrite の宣言設定が 4 箇所で一致している" "$PY_BIN" "$ROOT/tests/coldwrite-config-check.py"
+# 壊すと落ちることまで確かめる(fail-open 対策)。検査対象の 4 箇所だけを作業場に写し、
+# continueOnBlock を全ハンドラから消した hooks.json で赤くなるか
+CW_WORK="$WORK/coldwrite-broken"
+mkdir -p "$CW_WORK/coldwrite/hooks" "$CW_WORK/coldwrite/.claude-plugin" "$CW_WORK/.claude-plugin" "$CW_WORK/tests"
+cp "$ROOT/coldwrite/README.md" "$CW_WORK/coldwrite/README.md"
+cp "$ROOT/coldwrite/.claude-plugin/plugin.json" "$CW_WORK/coldwrite/.claude-plugin/plugin.json"
+cp "$ROOT/.claude-plugin/marketplace.json" "$CW_WORK/.claude-plugin/marketplace.json"
+cp "$ROOT/README.md" "$CW_WORK/README.md"
+cp "$ROOT/tests/coldwrite-config-check.py" "$CW_WORK/tests/coldwrite-config-check.py"
+"$PY_BIN" - "$ROOT/coldwrite/hooks/hooks.json" "$CW_WORK/coldwrite/hooks/hooks.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+for h in d["hooks"]["PreToolUse"][0]["hooks"]:
+    h.pop("continueOnBlock", None)
+json.dump(d, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+expect_output 1 "continueOnBlock" "coldwrite: continueOnBlock を消すと赤くなる" "$PY_BIN" "$CW_WORK/tests/coldwrite-config-check.py"
 # 旗表・帰属の各分岐を個別に殺す網(消すとどれか 1 件だけが赤くなる形にする)
 expect_output 0 "詰まり" "--旗=値 の密着形も網に入る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 --body='$CR_BODY $CR_PAD'"

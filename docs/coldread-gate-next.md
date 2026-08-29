@@ -67,3 +67,11 @@ claude 2.1.250(macOS、headless の claude -p に --settings でフックを渡�
   門番が黙って消える形で現れる
 - 本 Bash 入口のゲートとは役割が別で併存する——投稿本文はヒアドキュメントで gh へ直接渡り、
   ファイルを経由しないため、Write 入口では捕まらない
+- **`continueOnBlock: true` を各ハンドラに書く(2026-08-30 追記、claude 2.1.251 で実測)**。上の
+  「deny 理由がツールエラーとして返り再修正ループが成立する」は、この指定が無いと現行では
+  成立しない——本体は 2.1.210 以降、prompt 型の `ok:false` を既定で「拒否してターンを終える」
+  に変えている(公式 docs hooks-guide「Prompt-based hooks」)。素の設定ディレクトリに隔離した
+  headless 子セッションで、指定なしは 1 回目の deny で終了(書き手は直せない)、指定ありは
+  理由を受けて直した 2 回目の Write まで進んだ。command 型の deny(permissionDecision:"deny")
+  は指定なしでも理由が返って続く——差は prompt 型だけにある。2.1.250 での「成立する」の
+  実測は再現できておらず、要確認
