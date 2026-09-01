@@ -51,6 +51,21 @@ LANDMARKS = (
 REFERENCED = re.compile(r"#(\d{1,6})\b")
 
 
+def pick_reference(asks):
+    """会話で呼ばれた番号を、本題である見込みの高い順に並べる。
+
+    立場はブランチの PR ではなく会話の本題で決めたい。本題はたいてい依頼者が
+    繰り返し番号で呼ぶので、頻度の高い順（同数なら後に呼ばれた方）にする。
+    ブランチから引くと、別件のブランチに居るだけで別の PR を拾う（実測: レビューの
+    セッションで、たまたま居たブランチの PR #1595 を本題として出した）。"""
+    count, last = {}, {}
+    for i, text in enumerate(asks):
+        for hit in REFERENCED.findall(text):
+            count[hit] = count.get(hit, 0) + 1
+            last[hit] = i
+    return sorted(count, key=lambda n: (-count[n], -last[n]))
+
+
 def gh(cwd, *args):
     """gh を呼ぶ。認証切れ・ネット無し・PR 無しは失敗であって異常ではないので、
     空文字を返して呼び出し側で節ごと落とす（材料が減るだけで、判定は壊れない）。"""
@@ -241,13 +256,16 @@ def render(title, turns, started, touched, cwd, full, limit):
             w("      " + " / ".join(detail))
     w("")
 
-    numbers = []
-    for turn in turns:
-        for hit in REFERENCED.findall(turn["ask"]):
-            if hit not in numbers:
-                numbers.append(hit)
+    numbers = pick_reference([turn["ask"] for turn in turns])
     if branch:
-        pr = role_on(cwd, numbers[0] if len(numbers) == 1 else None)
+        # 呼ばれた頻度の高い番号から順に当てる。issue の番号や消えた PR は gh が
+        # 失敗して None になるので次の候補へ、全部外れたらブランチの PR に落とす
+        pr = None
+        for number in numbers[:3]:
+            pr = role_on(cwd, number)
+            if pr:
+                break
+        pr = pr or role_on(cwd)
         if pr:
             w("## 扱っている件と、私の立場")
             draft = "・下書き" if pr.get("isDraft") else ""
@@ -255,8 +273,9 @@ def render(title, turns, started, touched, cwd, full, limit):
               f"（{str(pr.get('state', '')).lower()}{draft}）")
             w(f"  {pr.get('url', '')}")
             w(f"  **私の立場: {pr['role']}**")
-            if len(numbers) > 1:
-                w("  会話に出てきた他の番号: " + ", ".join("#" + n for n in numbers[1:8]))
+            others = [n for n in numbers if n != str(pr.get("number"))]
+            if others:
+                w("  会話に出てきた他の番号: " + ", ".join("#" + n for n in others[:7]))
             w("")
 
     if started:

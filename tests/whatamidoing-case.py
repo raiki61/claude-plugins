@@ -183,6 +183,18 @@ def _dirty(tmp):
     return ("DIRTY_OK" if got == want else f"DIRTY_NG {got}")
 
 
+@case("pick-reference")
+def _pick(tmp):
+    """立場の対象は、会話で一番呼ばれている番号を最優先にする。
+
+    ブランチから引くと、別件のブランチに居るだけで別の PR を拾う。頻度が同じなら
+    後に呼ばれた方（話題は後ろへ動く）。"""
+    asks = ["#100 を見て", "#200 も #100 も", "#100 の続き", "#300 やって", "#300 まとめ"]
+    got = wai.pick_reference(asks)
+    want = ["100", "300", "200"]
+    return "PICK_OK" if got == want else f"PICK_NG {got}"
+
+
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: whatamidoing-case.py <" + "|".join(CASES) + ">")

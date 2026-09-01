@@ -686,7 +686,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=194
+EXPECTED_MIN=195
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -1104,6 +1104,9 @@ expect_output 1 "セッション記録が見つからない" \
 expect_output 0 "→ 直して push しました" \
     "whatamidoing: stdio を cp1252 に強制しても日本語の報告が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$WAI_CASE" pairs
+expect_output 0 "PICK_OK" \
+    "whatamidoing: 立場の対象は会話で一番呼ばれている番号から当てる（ブランチ頼みは別件を拾う）" \
+    "$PY_BIN" "$WAI_CASE" pick-reference
 expect_output 0 "DIRTY_OK" \
     "whatamidoing: 未コミットのパスを位置で切らない（strip で桁がずれる）" \
     "$PY_BIN" "$WAI_CASE" dirty-paths
