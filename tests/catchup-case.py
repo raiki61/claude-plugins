@@ -9,6 +9,13 @@ import importlib.util
 import pathlib
 import sys
 
+# Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
+# cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
+# 報告そのものが日本語なので、落ちると道具が丸ごと使えない。UTF-8 に固定する
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location(
     "catchup", ROOT / "attention" / "scripts" / "catchup.py")

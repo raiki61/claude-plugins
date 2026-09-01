@@ -24,6 +24,13 @@ import shutil
 import subprocess
 import sys
 
+# Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
+# cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
+# 報告そのものが日本語なので、落ちると道具が丸ごと使えない。UTF-8 に固定する
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 # CheckRun.conclusion / StatusContext.state のうち、赤ではないもの。未知の値は赤に倒す
 # （CI の結論は増える。知らない値を緑に倒すと、増えた瞬間に検査が黙って甘くなる）
 GREEN = {"SUCCESS", "NEUTRAL", "SKIPPED", "EXPECTED", "CANCELLED", "STALE"}

@@ -686,7 +686,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=179
+EXPECTED_MIN=181
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -1063,6 +1063,15 @@ expect_output 1 "使い方" \
 expect_output 1 "番号か PR / issue の URL を渡す" \
     "catchup: 番号でも URL でもない引数は、gh を叩く前に落とす" \
     "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
+# stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
+# UnicodeEncodeError になり、日本語の報告そのものが出せない＝道具が丸ごと使えなくなる。
+# GitHub Actions の windows-latest で実測して赤くなった)
+expect_output 0 "○ 待ち" \
+    "catchup: stdio を cp1252 に強制しても日本語の報告が出る" \
+    env PYTHONIOENCODING=cp1252 "$PY_BIN" "$CU_CASE" waiting
+expect_output 1 "番号か PR / issue の URL を渡す" \
+    "catchup: cp1252 強制下でも引数エラーの日本語が出る" \
+    env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"
