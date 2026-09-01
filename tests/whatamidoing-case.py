@@ -132,8 +132,15 @@ def _missing(tmp):
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: whatamidoing-case.py <" + "|".join(CASES) + ">")
-    with tempfile.TemporaryDirectory() as tmp:
-        print(CASES[sys.argv[1]](tmp))
+    # ケースは作業場へ chdir する。戻さずに片づけると、Windows は使用中の
+    # ディレクトリを消せず PermissionError で落ちる（GitHub Actions の
+    # windows-latest で実測。出力自体は正しく出ているのに検査だけ赤くなる）
+    origin = os.getcwd()
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        try:
+            print(CASES[sys.argv[1]](tmp))
+        finally:
+            os.chdir(origin)
     return 0
 
 
