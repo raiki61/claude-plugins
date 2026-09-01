@@ -686,7 +686,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=181
+EXPECTED_MIN=191
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -1072,6 +1072,35 @@ expect_output 0 "○ 待ち" \
 expect_output 1 "番号か PR / issue の URL を渡す" \
     "catchup: cp1252 強制下でも引数エラーの日本語が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
+
+# ---- attention/whatamidoing: いま居るセッションが何のスレッドだったか ----
+# 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
+WAI_CASE="$ROOT/tests/whatamidoing-case.py"
+
+expect_output 0 "- 最初のお願い" \
+    "whatamidoing: 依頼者の発言をそのまま古い順に出す" "$PY_BIN" "$WAI_CASE" basic
+expect_output 0 "依頼 2 件" \
+    "whatamidoing: 同じ発言が連続で落ちる分は畳む（leafUuid 違いで何度も残る）" \
+    "$PY_BIN" "$WAI_CASE" dedupe-consecutive
+expect_output 0 "依頼 3 件" \
+    "whatamidoing: 離れて出た同じ発言は残す（後からもう一度言うことがある）" \
+    "$PY_BIN" "$WAI_CASE" dedupe-keeps-distant
+expect_output 0 "（題が付いていない）" \
+    "whatamidoing: 題が無いセッションはそう言う" "$PY_BIN" "$WAI_CASE" no-title
+expect_output 0 "開始 01-05" \
+    "whatamidoing: 開始は記録の 1 件目から取る（ctime は追記のたび動く）" \
+    "$PY_BIN" "$WAI_CASE" start-time
+expect_output 0 "間の 21 件は省いた" \
+    "whatamidoing: 上限を超えたら黙って切らずに省いた件数を書く" "$PY_BIN" "$WAI_CASE" elide
+expect_output 0 "29 番目のお願いです" \
+    "whatamidoing: --full なら省かない" "$PY_BIN" "$WAI_CASE" full
+expect_output 1 "セッション記録が見つからない" \
+    "whatamidoing: 記録が無ければ落ちる（黙って空を出さない）" "$PY_BIN" "$WAI_CASE" missing
+expect_output 0 "- 最初のお願い" \
+    "whatamidoing: stdio を cp1252 に強制しても日本語の報告が出る" \
+    env PYTHONIOENCODING=cp1252 "$PY_BIN" "$WAI_CASE" basic
+expect_output 1 "使い方" \
+    "whatamidoing: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$WAI_CASE"
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"
