@@ -1073,52 +1073,52 @@ expect_output 1 "番号か PR / issue の URL を渡す" \
     "catchup: cp1252 強制下でも引数エラーの日本語が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
 
-# ---- attention/whatamidoing: いま居るセッションで何が起きたか ----
+# ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
-WAI_CASE="$ROOT/tests/whatamidoing-case.py"
+WAI_CASE="$ROOT/tests/what-am-i-doing-case.py"
 
 expect_output 0 "→ 直して push しました" \
-    "whatamidoing: 依頼と返答を対で並べる（片方だけでは追いつけない）" \
+    "what-am-i-doing: 依頼と返答を対で並べる（片方だけでは追いつけない）" \
     "$PY_BIN" "$WAI_CASE" pairs
 expect_output 0 "やり取り 1 往復" \
-    "whatamidoing: 道具の出力を依頼に数えない（tool_result も user レコードで落ちる）" \
+    "what-am-i-doing: 道具の出力を依頼に数えない（tool_result も user レコードで落ちる）" \
     "$PY_BIN" "$WAI_CASE" ignores-tool-results
 expect_output 0 "テスト実行・コミット・push" \
-    "whatamidoing: 区切りになる操作を Bash の中身から拾う" "$PY_BIN" "$WAI_CASE" landmarks
+    "what-am-i-doing: 区切りになる操作を Bash の中身から拾う" "$PY_BIN" "$WAI_CASE" landmarks
 expect_output 0 "道具 Bash×2, WebSearch×1" \
-    "whatamidoing: 何の道具を何回使ったかを添える" "$PY_BIN" "$WAI_CASE" tool-counts
+    "what-am-i-doing: 何の道具を何回使ったかを添える" "$PY_BIN" "$WAI_CASE" tool-counts
 expect_output 0 "ONLY_FIRST_OK" \
-    "whatamidoing: 返答は最初のひとまとまりだけ（全文だと記録の写しになる）" \
+    "what-am-i-doing: 返答は最初のひとまとまりだけ（全文だと記録の写しになる）" \
     "$PY_BIN" "$WAI_CASE" first-reply-only
 expect_output 0 "（題が付いていない）" \
-    "whatamidoing: 題が無いセッションはそう言う" "$PY_BIN" "$WAI_CASE" no-title
+    "what-am-i-doing: 題が無いセッションはそう言う" "$PY_BIN" "$WAI_CASE" no-title
 expect_output 0 "開始 01-05" \
-    "whatamidoing: 開始は記録の 1 件目から取る（ctime は追記のたび動く）" \
+    "what-am-i-doing: 開始は記録の 1 件目から取る（ctime は追記のたび動く）" \
     "$PY_BIN" "$WAI_CASE" start-time
 expect_output 0 "間の 21 往復は省いた" \
-    "whatamidoing: 上限を超えたら黙って切らずに省いた数を書く" "$PY_BIN" "$WAI_CASE" elide
+    "what-am-i-doing: 上限を超えたら黙って切らずに省いた数を書く" "$PY_BIN" "$WAI_CASE" elide
 expect_output 0 "29 番目のお願いです" \
-    "whatamidoing: --full なら省かない" "$PY_BIN" "$WAI_CASE" full
+    "what-am-i-doing: --full なら省かない" "$PY_BIN" "$WAI_CASE" full
 expect_output 1 "セッション記録が見つからない" \
-    "whatamidoing: 記録が無ければ落ちる（黙って空を出さない）" "$PY_BIN" "$WAI_CASE" missing
+    "what-am-i-doing: 記録が無ければ落ちる（黙って空を出さない）" "$PY_BIN" "$WAI_CASE" missing
 expect_output 0 "→ 直して push しました" \
-    "whatamidoing: stdio を cp1252 に強制しても日本語の報告が出る" \
+    "what-am-i-doing: stdio を cp1252 に強制しても日本語の報告が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$WAI_CASE" pairs
 expect_output 0 "PICK_OK" \
-    "whatamidoing: 立場の対象は会話で一番呼ばれている番号から当てる（ブランチ頼みは別件を拾う）" \
+    "what-am-i-doing: 立場の対象は会話で一番呼ばれている番号から当てる（ブランチ頼みは別件を拾う）" \
     "$PY_BIN" "$WAI_CASE" pick-reference
 expect_output 0 "DIRTY_OK" \
-    "whatamidoing: 未コミットのパスを位置で切らない（strip で桁がずれる）" \
+    "what-am-i-doing: 未コミットのパスを位置で切らない（strip で桁がずれる）" \
     "$PY_BIN" "$WAI_CASE" dirty-paths
 expect_output 1 "使い方" \
-    "whatamidoing: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$WAI_CASE"
+    "what-am-i-doing: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$WAI_CASE"
 
-# ---- attention/whoseturn: open 全件から誰の番か ----
+# ---- attention/whose-turn: open 全件から誰の番か ----
 # GitHub には触らない。判定は純粋関数で、固定の材料が規則を 1 行ずつ固定する
-WT="$ROOT/attention/scripts/whoseturn.py"
-expect_output 0 "OK" "whoseturn: 判定規則の回帰（unittest 105 件。時刻はローカル、検査は UTC 固定）" \
-    "$PY_BIN" "$ROOT/tests/whoseturn-suite.py"
-expect_output 0 "見ていないもの" "whoseturn: --help に判定の定義と見ていないものが出る" \
+WT="$ROOT/attention/scripts/whose-turn.py"
+expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 105 件。時刻はローカル、検査は UTC 固定）" \
+    "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
+expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then

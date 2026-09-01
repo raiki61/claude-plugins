@@ -3,7 +3,7 @@
 
 〈目的〉並行して開いたセッションに戻ったとき、**その場に居なかった人でも同じ所まで
 追いつける**材料を出す。判定（何のスレッドか・次の一手）はしない——それは読む人か
-/whatamidoing の AI の仕事。
+/what-am-i-doing の AI の仕事。
 
 〈なぜ記録から取るか〉会話は長くなると要約されて前半が消える。記録の側には依頼も返答も
 道具の使用も全部残っていて、要約を挟まないので痩せない。**「何を頼まれたか」だけでは
@@ -330,4 +330,4 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception as e:  # noqa: BLE001
-        sys.exit(f"whatamidoing.py が想定外の例外で停止: {type(e).__name__}: {e}")
+        sys.exit(f"what-am-i-doing.py が想定外の例外で停止: {type(e).__name__}: {e}")

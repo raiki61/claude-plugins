@@ -3,7 +3,7 @@
 
 〈目的〉「私のボールの PR は」「担当 issue は」「呼ばれて返していないのは」に答える材料を、
 GitHub から取れる範囲で全部、決定的に集める。判断（返信が要るか・急ぎか）はしない——
-それは読む人か、/whoseturn の AI の仕事。母集団と、見ていないものを必ず併記する。
+それは読む人か、/whose-turn の AI の仕事。母集団と、見ていないものを必ず併記する。
 
 〈PR のボール〉1 つの PR が複数人に載る。形式上の状態と会話の状態を別の信号として出す:
   draft         作者。draft のまま
@@ -224,7 +224,7 @@ def fetch_all(query, owner, name, field):
         cursor = conn["pageInfo"]["endCursor"]
 
 
-# ---- 判定（純粋関数。tests/whoseturn-suite.py が規則を pin する） ------------------
+# ---- 判定（純粋関数。tests/whose-turn-suite.py が規則を pin する） ------------------
 
 
 def keep(conn, pred):

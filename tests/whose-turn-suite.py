@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""whoseturn.py の判定規則を pin する回帰テスト。GitHub には触らず固定の材料で回す。
+"""whose-turn.py の判定規則を pin する回帰テスト。GitHub には触らず固定の材料で回す。
 
-規則は whoseturn.py 冒頭の定義が正本で、ここは 1 行ずつそれを入力で叩く。
+規則は whose-turn.py 冒頭の定義が正本で、ここは 1 行ずつそれを入力で叩く。
 実データには出ない値（未知のチェック結論、退会済みユーザー、Team 宛の依頼）も含める——
 こういう値は「出ないから」で落としやすく、落ちた先が黙って消える方向なので。
 """
@@ -23,7 +23,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location(
-    "whoseturn", ROOT / "attention" / "scripts" / "whoseturn.py")
+    "whose-turn", ROOT / "attention" / "scripts" / "whose-turn.py")
 flow = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(flow)
 # 期待値は UTC の文字列で書いてある。走らせる機械のタイムゾーンに依らないよう固定する

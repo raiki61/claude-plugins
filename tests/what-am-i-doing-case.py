@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""whatamidoing.py の判定を、本物のセッション記録に触らず固定の材料で回す。
+"""what-am-i-doing.py の判定を、本物のセッション記録に触らず固定の材料で回す。
 
 記録の場所の解決（CLAUDE_CONFIG_DIR と cwd から辿る）まで含めて回すため、
 作業用の設定ディレクトリを毎回作って差し替える。"""
@@ -19,7 +19,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location(
-    "whatamidoing", ROOT / "attention" / "scripts" / "whatamidoing.py")
+    "what-am-i-doing", ROOT / "attention" / "scripts" / "what-am-i-doing.py")
 wai = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wai)
 
@@ -197,7 +197,7 @@ def _pick(tmp):
 
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
-        sys.exit("使い方: whatamidoing-case.py <" + "|".join(CASES) + ">")
+        sys.exit("使い方: what-am-i-doing-case.py <" + "|".join(CASES) + ">")
     # ケースは作業場へ chdir する。戻さずに片づけると、Windows は使用中の
     # ディレクトリを消せず PermissionError で落ちる（windows-latest で実測）
     origin = os.getcwd()

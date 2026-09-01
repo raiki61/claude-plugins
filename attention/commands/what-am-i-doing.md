@@ -1,5 +1,5 @@
 ---
-description: 「これ何してたっけ」への答え。いま居るセッションで何が起きたかを、その場に居なかった人でも同じ所まで追いつける形で説明する。並行して開いたセッションを切り替えて戻ってきたときに使う。特定の PR / issue に戻るのは /catchup、open 全件の棚卸しは /whoseturn。
+description: 「これ何してたっけ」への答え。いま居るセッションで何が起きたかを、その場に居なかった人でも同じ所まで追いつける形で説明する。並行して開いたセッションを切り替えて戻ってきたときに使う。特定の PR / issue に戻るのは /catchup、open 全件の棚卸しは /whose-turn。
 allowed-tools: Bash
 ---
 
@@ -16,7 +16,7 @@ allowed-tools: Bash
 
 ## やること
 
-1. `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/whatamidoing.py` を実行する。往復が多くて省かれたら
+1. `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/what-am-i-doing.py` を実行する。往復が多くて省かれたら
    `--full` で取り直せ。出るのは**依頼と、それに対して何をしたかの対**、区切りになった操作
    （コミット・push・テスト実行）、道具の使用、このセッションの間に入ったコミット、
    未コミットの残り。**あなたが読むための材料で、そのまま貼るものではない。**
