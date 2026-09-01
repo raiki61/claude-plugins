@@ -1,5 +1,5 @@
 ---
-description: open な PR・issue を全件走査して「誰の番か・なぜ今その人の番か」を機械で出し、呼びかけに返信が要るかを根拠付きで判定する。並行作業の全体を一度に見渡すときに使う。1 件の PR / issue に戻るのは /catchup、いま居るセッションに戻るのは /whatamidoing。
+description: 「残件は？」「今どこに何が残っている？」への答え。open な PR・issue を全件走査して、自分のボール・担当 issue・呼びかけ未返信を機械で洗い出し、「誰の番か・なぜ今その人の番か」を出して、返信が要るかを根拠付きで判定する。棚卸しのように全体を一度に見渡すときに使う。1 件の PR / issue に戻るのは /catchup、いま居るセッションに戻るのは /whatamidoing。
 model: sonnet
 allowed-tools: Bash
 ---
