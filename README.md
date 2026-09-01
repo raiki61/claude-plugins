@@ -77,6 +77,23 @@ marketplace は **GitHub リポジトリ / 任意の git URL / ローカルデ�
 /reload-plugins
 ```
 
+**更新を自動にしたいなら、入れる側が設定に 1 行足す。** 配る側からは点けられない——自動更新は
+利用者の `settings.json` にある欄で、`marketplace.json` に該当する欄は無い(手元の 4 つの
+marketplace を確認。公式スキーマ `https://anthropic.com/claude-code/marketplace.schema.json` は
+2026-09-01 時点で 404 で引けず、突き合わせていない)。
+
+```jsonc
+// ~/.claude/settings.json（CLAUDE_CONFIG_DIR を設定しているならその配下）
+"extraKnownMarketplaces": {
+  "raiki61": {
+    "source": { "source": "github", "repo": "raiki61/claude-plugins" },
+    "autoUpdate": true
+  }
+}
+```
+
+`/plugin marketplace add` はこの欄を作るが、`autoUpdate` は付けない。点けるかどうかは入れる人が決める。
+
 **ただし入手経路には 1 つ条件がある**——次の節を読んでから配布方法を選べ。上の 3 つは対等な選択肢ではない。
 
 ## 依存と入手経路
