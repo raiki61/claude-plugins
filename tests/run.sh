@@ -686,7 +686,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=195
+EXPECTED_MIN=197
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -1112,6 +1112,14 @@ expect_output 0 "DIRTY_OK" \
     "$PY_BIN" "$WAI_CASE" dirty-paths
 expect_output 1 "使い方" \
     "whatamidoing: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$WAI_CASE"
+
+# ---- attention/whoseturn: open 全件から誰の番か ----
+# GitHub には触らない。判定は純粋関数で、固定の材料が規則を 1 行ずつ固定する
+WT="$ROOT/attention/scripts/whoseturn.py"
+expect_output 0 "OK" "whoseturn: 判定規則の回帰（unittest 105 件。時刻はローカル、検査は UTC 固定）" \
+    "$PY_BIN" "$ROOT/tests/whoseturn-suite.py"
+expect_output 0 "見ていないもの" "whoseturn: --help に判定の定義と見ていないものが出る" \
+    "$PY_BIN" "$WT" --help
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"
