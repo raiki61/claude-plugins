@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""いま自分が居るセッションが何のスレッドだったかの材料を、記録から取り出す。
+"""いま自分が居るセッションで何が起きたかを、記録から取り出して時系列に並べる。
 
-〈目的〉並行して開いたセッションを切り替えたとき、「これ何をしていたんだっけ」を
-毎回プロンプトで聞き直さずに済ませる。判定（何のスレッドか・次の一手）はしない——
-それは読む人か /whatamidoing の AI の仕事。
+〈目的〉並行して開いたセッションに戻ったとき、**その場に居なかった人でも同じ所まで
+追いつける**材料を出す。判定（何のスレッドか・次の一手）はしない——それは読む人か
+/whatamidoing の AI の仕事。
 
-〈なぜ記録から取るか〉会話は context に載っているが、長くなると要約されて前半が消える。
-記録の側には**依頼者の発言が全部**残っていて、それがそのままスレッドの背骨になる。
-要約を挟まず一次情報を並べるので、何を頼まれてきたかが痩せない。
+〈なぜ記録から取るか〉会話は長くなると要約されて前半が消える。記録の側には依頼も返答も
+道具の使用も全部残っていて、要約を挟まないので痩せない。**「何を頼まれたか」だけでは
+追いつけない**——「それに対して何をしたか」が要る。だから往復で並べる。
+
+〈返答は冒頭だけ〉各ターンの返答は全文ではなく冒頭を取る。全文を並べると記録の写しに
+なり、読む方が会話を遡るのと変わらなくなる。冒頭には結論が来る書き方を前提にしている
+（そうでない書き方のセッションでは、ここは弱い手がかりになる）。
 
 〈題が古びること〉Claude Code は序盤に付けた題（aiTitle）を後から更新しない。実測: 話題が
-PR の棚卸しからプラグイン作りへ移った後も題は「PR残件確認」のままだった。だから題は
-出すが頼らない——判断の material は依頼者の発言の並びの方である。
+PR の棚卸しからプラグイン作りへ移った後も題は「PR残件確認」のままだった。題は出すが頼らない。
 """
 
 import argparse
@@ -19,6 +22,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -26,13 +30,75 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
+# 依頼者が自分で打った発言だけを拾う印。tool_result も user レコードとして落ちるので、
+# これで絞らないと道具の出力が依頼に化ける（実測: 219 件中 189 件が tool_result）
+TYPED = {"typed", "queued"}
+
+# Bash の中身から「区切りになる操作」を拾う。全部のコマンドを並べても追いつく助けに
+# ならないので、後から見て節目と分かるものだけ名前を付ける
+LANDMARKS = (
+    (re.compile(r"\bgit\s+commit\b"), "コミット"),
+    (re.compile(r"\bgit\s+push\b"), "push"),
+    (re.compile(r"\bgit\s+rebase\b"), "rebase"),
+    (re.compile(r"\bgh\s+pr\s+create\b"), "PR 作成"),
+    (re.compile(r"\bgh\s+run\s+(watch|view)\b"), "CI 確認"),
+    (re.compile(r"tests?/run\.sh|\bpytest\b|\bnpm\s+test\b"), "テスト実行"),
+)
+
+
+# 依頼文に出てくる PR / issue の番号。何の件を扱っているかは、たいてい依頼者が
+# 番号で呼んでいるので、そこから拾うのが一番素直
+REFERENCED = re.compile(r"#(\d{1,6})\b")
+
+
+def gh(cwd, *args):
+    """gh を呼ぶ。認証切れ・ネット無し・PR 無しは失敗であって異常ではないので、
+    空文字を返して呼び出し側で節ごと落とす（材料が減るだけで、判定は壊れない）。"""
+    try:
+        r = subprocess.run(  # noqa: S603 — 引数はこのファイル内のリテラルと数字だけ
+            ["gh", *args], cwd=cwd, capture_output=True, text=True, timeout=20)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def role_on(cwd, number=None):
+    """扱っている PR で自分が実装者かレビュワーかを決める。
+
+    「今どっちの立場か」は、戻ったときに真っ先に要る情報なのに、会話からは読み取りにくい
+    （どちらの側でもレビューの話をするため）。作者とレビュー依頼先は記録に残っているので、
+    そこから機械で決める。"""
+    args = ["pr", "view"]
+    if number:
+        args.append(str(number))
+    args += ["--json", "number,title,state,author,reviewRequests,isDraft,url"]
+    raw = gh(cwd, *args)
+    if not raw:
+        return None
+    try:
+        pr = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    me = gh(cwd, "api", "user", "--jq", ".login")
+    author = (pr.get("author") or {}).get("login", "")
+    reviewers = [(r or {}).get("login") for r in pr.get("reviewRequests") or []]
+    if me and author == me:
+        pr["role"] = "実装者（この PR の作者）"
+    elif me and me in reviewers:
+        pr["role"] = "レビュワー（レビュー依頼が来ている）"
+    elif me:
+        pr["role"] = f"どちらでもない（作者は {author}、レビュー依頼は "
+        pr["role"] += (", ".join(r for r in reviewers if r) or "誰にも出ていない") + "）"
+    else:
+        pr["role"] = "判定できない（gh の認証ユーザを取れない）"
+    return pr
+
 
 def transcript_path(session_id, cwd):
     """記録の実体を探す。session id が取れれば一意、取れなければ最新にする。"""
     config = pathlib.Path(
         os.environ.get("CLAUDE_CONFIG_DIR") or pathlib.Path.home() / ".claude")
-    slug = str(cwd).replace("/", "-")
-    folder = config / "projects" / slug
+    folder = config / "projects" / str(cwd).replace("/", "-")
     if not folder.is_dir():
         return None
     if session_id:
@@ -43,63 +109,188 @@ def transcript_path(session_id, cwd):
     return files[-1] if files else None
 
 
-def read(path):
-    """題と依頼者の発言の並びを取る。
+def text_of(content):
+    """message.content から人に見える文字列だけを取る。"""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = [b.get("text", "") for b in content
+             if isinstance(b, dict) and b.get("type") == "text"]
+    return "\n".join(p for p in parts if p)
 
-    全行を json に通すと記録が大きいときに待たされる（実測: 1 セッションで数 MB）。
-    欲しい 2 種類は行の中に型名が文字列で入っているので、先に文字列で絞る。"""
-    title, prompts, first_ts = None, [], None
+
+def read(path):
+    """記録を 1 度なめて、題と往復の並びを組み立てる。
+
+    往復は「依頼者が打った発言」から次の発言までを 1 つとして数える。返答も道具の使用も
+    その区間に属させる——どの依頼に対して何をしたかが、ここで結びつく。"""
+    title, first_ts, turns = None, None, []
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
-            # 開始時刻は記録の 1 件目から取る。ファイルの ctime は macOS では
-            # inode の更新時刻で、追記のたびに動くので開始時刻にならない（実測）
-            if first_ts is None and '"timestamp"' in line:
-                try:
-                    stamp = json.loads(line).get("timestamp")
-                except json.JSONDecodeError:
-                    stamp = None
-                if stamp:
-                    first_ts = dt.datetime.fromisoformat(
-                        stamp.replace("Z", "+00:00")).astimezone()
-            if '"ai-title"' not in line and '"last-prompt"' not in line:
-                continue
             try:
                 o = json.loads(line)
             except json.JSONDecodeError:
                 continue
             kind = o.get("type")
+            if first_ts is None and o.get("timestamp"):
+                first_ts = o["timestamp"]
+
             if kind == "ai-title" and o.get("aiTitle"):
                 title = o["aiTitle"]
-            elif kind == "last-prompt" and o.get("lastPrompt"):
-                text = o["lastPrompt"].strip()
-                # 同じ発言が leafUuid 違いで何度も落ちる。連続の重複だけ畳む
-                # （同じ言葉を後からもう一度言うことはあるので、全体の重複は消さない）
-                if not prompts or prompts[-1] != text:
-                    prompts.append(text)
-    last_ts = dt.datetime.fromtimestamp(path.stat().st_mtime)
-    return title, prompts, first_ts or last_ts, last_ts
+            elif kind == "user" and o.get("promptSource") in TYPED:
+                body = text_of(o.get("message", {}).get("content"))
+                if body.strip():
+                    turns.append({"at": o.get("timestamp"), "ask": body.strip(),
+                                  "reply": "", "tools": {}, "marks": []})
+            elif kind == "assistant" and turns:
+                turn = turns[-1]
+                content = o.get("message", {}).get("content", [])
+                said = text_of(content)
+                # 返答は最初のひとまとまりだけ。以降は道具を挟んだ続きで、冒頭に結論が来る
+                if said.strip() and not turn["reply"]:
+                    turn["reply"] = said.strip()
+                if isinstance(content, list):
+                    for b in content:
+                        if not isinstance(b, dict) or b.get("type") != "tool_use":
+                            continue
+                        name = b.get("name", "?")
+                        turn["tools"][name] = turn["tools"].get(name, 0) + 1
+                        cmd = (b.get("input") or {}).get("command", "")
+                        for pattern, label in LANDMARKS:
+                            if isinstance(cmd, str) and pattern.search(cmd) \
+                                    and label not in turn["marks"]:
+                                turn["marks"].append(label)
+    return title, turns, first_ts, dt.datetime.fromtimestamp(path.stat().st_mtime)
 
 
 def git(cwd, *args):
     try:
         r = subprocess.run(  # noqa: S603 — 引数はこのファイル内のリテラルだけ
-            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=10)
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=15)
         return r.stdout.strip() if r.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):
         return ""
 
 
-def one_line(text, limit):
+def dirty_paths(porcelain):
+    """git status --porcelain の各行からパスだけを取る。
+
+    位置で切ってはいけない。状態欄は 2 文字だが、出力全体を strip した時点で 1 行目の
+    先頭空白が消え、以降の桁がずれる（実測: " M deploy/..." が "M deploy/..." になり、
+    3 文字目から切ると "eploy/..." になった）。空白で 1 回だけ割って後ろを取る。"""
+    out = []
+    for line in porcelain.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split(maxsplit=1)
+        out.append(parts[1] if len(parts) > 1 else parts[0])
+    return out
+
+
+def stamp(raw):
+    if not raw:
+        return None
+    try:
+        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone()
+    except ValueError:
+        return None
+
+
+def squeeze(text, limit):
     s = " ".join(text.split())
-    return s[:limit] + "…" if len(s) > limit else s
+    return s[:limit] + "…" if limit and len(s) > limit else s
+
+
+def render(title, turns, started, touched, cwd, full, limit):
+    out = []
+    w = out.append
+    w(f"# このスレッド — {title or '（題が付いていない）'}")
+    branch = git(cwd, "branch", "--show-current")
+    w(f"  {cwd}" + (f" · ブランチ {branch}" if branch else ""))
+    span = f"開始 {started:%m-%d %H:%M}" if started else "開始 不明"
+    w(f"  {span} · 最後の動き {touched:%m-%d %H:%M} · やり取り {len(turns)} 往復")
+    w("")
+
+    shown, elided = turns, 0
+    if not full and len(turns) > limit:
+        head = limit // 3
+        shown = turns[:head] + [None] + turns[head - limit:]
+        elided = len(turns) - limit
+    w("## 経過（依頼と、それに対して何をしたか）")
+    if not turns:
+        w("  依頼の記録がまだ無い")
+    for item in shown:
+        w("")
+        if item is None:
+            w(f"  … 間の {elided} 往復は省いた（--full で全部出る）")
+            continue
+        at = stamp(item["at"])
+        head = f"  [{at:%m-%d %H:%M}] " if at else "  "
+        w(head + squeeze(item["ask"], 0 if full else 160))
+        if item["reply"]:
+            w("      → " + squeeze(item["reply"], 0 if full else 200))
+        detail = []
+        if item["marks"]:
+            detail.append("・".join(item["marks"]))
+        if item["tools"]:
+            detail.append("道具 " + ", ".join(
+                f"{k}×{v}" for k, v in sorted(item["tools"].items(),
+                                              key=lambda kv: -kv[1])[:4]))
+        if detail:
+            w("      " + " / ".join(detail))
+    w("")
+
+    numbers = []
+    for turn in turns:
+        for hit in REFERENCED.findall(turn["ask"]):
+            if hit not in numbers:
+                numbers.append(hit)
+    if branch:
+        pr = role_on(cwd, numbers[0] if len(numbers) == 1 else None)
+        if pr:
+            w("## 扱っている件と、私の立場")
+            draft = "・下書き" if pr.get("isDraft") else ""
+            w(f"  #{pr.get('number')} {pr.get('title', '')}"
+              f"（{str(pr.get('state', '')).lower()}{draft}）")
+            w(f"  {pr.get('url', '')}")
+            w(f"  **私の立場: {pr['role']}**")
+            if len(numbers) > 1:
+                w("  会話に出てきた他の番号: " + ", ".join("#" + n for n in numbers[1:8]))
+            w("")
+
+    if started:
+        since = started.strftime("%Y-%m-%dT%H:%M:%S")
+        log = git(cwd, "log", "--oneline", f"--since={since}", "-20")
+        if log:
+            lines = log.splitlines()
+            w(f"## このセッションの間に入ったコミット — {len(lines)} 件")
+            for line in lines:
+                w("  " + line)
+            w("")
+
+    dirty = dirty_paths(git(cwd, "status", "--porcelain"))
+    w("## いま手元に残っているもの")
+    if dirty:
+        w(f"  未コミット {len(dirty)} 件: " + ", ".join(dirty[:8])
+          + ("…" if len(dirty) > 8 else ""))
+    else:
+        w("  未コミットの変更なし")
+    w("")
+
+    w("見ていないもの:")
+    w("  - 私の返答は各ターンの冒頭だけ。続きと、道具に渡した中身は記録の側にある")
+    w("  - 記録に残らないやり取り（別のセッション・チャット・口頭）")
+    w("  - 題は序盤に付いたまま更新されない。古い可能性がある")
+    return "\n".join(out)
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(
-        description="このセッションが何のスレッドだったかの材料を出す")
-    p.add_argument("--limit", type=int, default=20,
-                   help="出す依頼の件数の上限（既定 20。超えたら間を省く）")
-    p.add_argument("--full", action="store_true", help="依頼を全文・全件で出す")
+        description="このセッションで何が起きたかを、追いつける形で並べる")
+    p.add_argument("--limit", type=int, default=25,
+                   help="出す往復の上限（既定 25。超えたら間を省く）")
+    p.add_argument("--full", action="store_true", help="全往復を全文で出す")
     a = p.parse_args(argv)
 
     cwd = pathlib.Path.cwd()
@@ -107,40 +298,8 @@ def main(argv=None):
     if not path:
         sys.exit(f"このディレクトリ（{cwd}）のセッション記録が見つからない")
 
-    title, prompts, started, touched = read(path)
-    out = []
-    w = out.append
-
-    w(f"# このスレッド — {title or '（題が付いていない）'}")
-    branch = git(cwd, "branch", "--show-current")
-    dirty = [ln for ln in git(cwd, "status", "--porcelain").splitlines() if ln]
-    w(f"  {cwd}" + (f" · ブランチ {branch}" if branch else ""))
-    w(f"  開始 {started:%m-%d %H:%M} · 最後の動き {touched:%m-%d %H:%M}"
-      f" · 依頼 {len(prompts)} 件")
-    if dirty:
-        w(f"  未コミット {len(dirty)} 件: "
-          + ", ".join(ln[3:] for ln in dirty[:5]) + ("…" if len(dirty) > 5 else ""))
-    w("")
-
-    w(f"## 頼まれてきたこと（依頼者の言葉のまま・古い順） — {len(prompts)} 件")
-    shown = prompts
-    elided = 0
-    if not a.full and len(prompts) > a.limit:
-        head, tail = a.limit // 3, a.limit - a.limit // 3
-        elided = len(prompts) - head - tail
-        shown = prompts[:head] + [None] + prompts[-tail:]
-    for item in shown:
-        if item is None:
-            w(f"  … 間の {elided} 件は省いた（--full で全部出る）")
-            continue
-        w("  - " + (item if a.full else one_line(item, 90)))
-    w("")
-
-    w("見ていないもの:")
-    w("  - 私（AI）が何を返したか。ここに出るのは依頼者の発言だけ")
-    w("  - 記録に残らないやり取り（別のセッション・チャット・口頭）")
-    w("  - 題は序盤に付いたまま更新されない。古い可能性がある")
-    print("\n".join(out))
+    title, turns, first, touched = read(path)
+    print(render(title, turns, stamp(first) or touched, touched, cwd, a.full, a.limit))
     return 0
 
 

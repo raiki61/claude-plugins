@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """whatamidoing.py の判定を、本物のセッション記録に触らず固定の材料で回す。
 
-網に載せるのは「記録 → 出力」の規則だけ。記録の場所の解決（CLAUDE_CONFIG_DIR と
-cwd から辿る）まで含めて回すため、作業用の設定ディレクトリを毎回作って差し替える。"""
+記録の場所の解決（CLAUDE_CONFIG_DIR と cwd から辿る）まで含めて回すため、
+作業用の設定ディレクトリを毎回作って差し替える。"""
 
 import contextlib
 import importlib.util
@@ -24,10 +24,30 @@ wai = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wai)
 
 SESSION = "11111111-2222-3333-4444-555555555555"
+T0 = "2026-08-30T01:00:00.000Z"
 
 
-def build(tmp, prompts, title="テストの題", first_stamp="2026-08-30T01:02:03.000Z"):
-    """記録を組み立てて、その cwd に居る状態を作る。"""
+def ask(text, at=T0):
+    return {"type": "user", "promptSource": "typed", "timestamp": at,
+            "message": {"content": text}, "sessionId": SESSION}
+
+
+def tool_result(text="道具の出力"):
+    """道具の出力も user レコードとして落ちる。依頼に数えてはいけない。"""
+    return {"type": "user", "message": {"content": [
+        {"type": "tool_result", "content": text}]}, "sessionId": SESSION}
+
+
+def reply(text, tools=(), at=T0):
+    blocks = [{"type": "text", "text": text}]
+    for name, cmd in tools:
+        blocks.append({"type": "tool_use", "name": name,
+                       "input": ({"command": cmd} if cmd else {})})
+    return {"type": "assistant", "timestamp": at,
+            "message": {"content": blocks}, "sessionId": SESSION}
+
+
+def build(tmp, records, title="テストの題"):
     cwd = pathlib.Path(tmp) / "work"
     cwd.mkdir(parents=True, exist_ok=True)
     # macOS の一時ディレクトリは /var → /private/var の symlink。chdir 後に見える
@@ -37,11 +57,9 @@ def build(tmp, prompts, title="テストの題", first_stamp="2026-08-30T01:02:0
     folder = config / "projects" / str(cwd).replace("/", "-")
     folder.mkdir(parents=True, exist_ok=True)
 
-    lines = [{"type": "user", "timestamp": first_stamp}]
-    for text in prompts:
-        lines.append({"type": "last-prompt", "lastPrompt": text, "sessionId": SESSION})
-        if title:
-            lines.append({"type": "ai-title", "aiTitle": title, "sessionId": SESSION})
+    lines = list(records)
+    if title:
+        lines.append({"type": "ai-title", "aiTitle": title, "sessionId": SESSION})
     (folder / f"{SESSION}.jsonl").write_text(
         "\n".join(json.dumps(x, ensure_ascii=False) for x in lines) + "\n",
         encoding="utf-8")
@@ -69,58 +87,83 @@ def case(name):
     return deco
 
 
-@case("basic")
-def _basic(tmp):
-    """題と、依頼者の発言の並びがそのまま出る。"""
-    build(tmp, ["最初のお願い", "次のお願い"])
+@case("pairs")
+def _pairs(tmp):
+    """依頼と、それに対する返答が対で並ぶ。片方だけでは追いつけない。"""
+    build(tmp, [ask("最初のお願い"), reply("承知しました。まず調べます"),
+                ask("次のお願い"), reply("直して push しました")])
     return run()
 
 
-@case("dedupe-consecutive")
-def _dedupe(tmp):
-    """同じ発言が leafUuid 違いで何度も落ちるので、連続の重複だけ畳む。"""
-    build(tmp, ["おなじことば", "おなじことば", "おなじことば", "ちがうことば"])
+@case("ignores-tool-results")
+def _ignores(tmp):
+    """道具の出力も user レコードとして落ちる。依頼に数えると往復数が壊れる。"""
+    build(tmp, [ask("ほんとうの依頼"), tool_result(), tool_result(),
+                reply("やりました")])
     return run()
 
 
-@case("dedupe-keeps-distant")
-def _distant(tmp):
-    """離れて出てきた同じ発言は残す。後からもう一度言うことがある。"""
-    build(tmp, ["おなじことば", "あいだのことば", "おなじことば"])
+@case("landmarks")
+def _landmarks(tmp):
+    """区切りになる操作（コミット・push・テスト）は名前で拾う。"""
+    build(tmp, [ask("直して出して"),
+                reply("直します", tools=[("Bash", "bash tests/run.sh"),
+                                          ("Bash", "git commit -m x && git push")])])
     return run()
+
+
+@case("tool-counts")
+def _tools(tmp):
+    """何の道具を何回使ったかを添える。作業の重さの手がかりになる。"""
+    build(tmp, [ask("調べて"), reply("調べます", tools=[("Bash", "ls"),
+                                                        ("Bash", "cat x"),
+                                                        ("WebSearch", None)])])
+    return run()
+
+
+@case("first-reply-only")
+def _first_reply(tmp):
+    """返答は最初のひとまとまりだけ。全文を並べると記録の写しになる。"""
+    build(tmp, [ask("お願い"), reply("さいしょの結論"), reply("あとの続き")])
+    out = run()
+    # 「出ない」ことは出力の突き合わせでは確かめられないので、判定を印にして出す
+    ok = "さいしょの結論" in out and "あとの続き" not in out
+    return out + ("\nONLY_FIRST_OK" if ok else "\nONLY_FIRST_NG")
 
 
 @case("no-title")
 def _no_title(tmp):
-    """題が付いていないセッションは、付いていないと言う。"""
-    build(tmp, ["題のないセッションでのお願い"], title=None)
+    build(tmp, [ask("題のないセッションでのお願い"), reply("はい")], title=None)
     return run()
 
 
 @case("start-time")
 def _start(tmp):
-    """開始時刻は記録の 1 件目から取る。ファイルの ctime は追記のたび動く。"""
-    build(tmp, ["ふるいセッションのお願い"], first_stamp="2026-01-05T00:00:00.000Z")
+    """開始は記録の 1 件目から取る。ファイルの ctime は追記のたび動く。"""
+    build(tmp, [ask("ふるいお願い", at="2026-01-05T00:00:00.000Z"), reply("はい")])
     return run()
 
 
 @case("elide")
 def _elide(tmp):
-    """上限を超えたら、黙って切らずに省いた件数を書く。"""
-    build(tmp, [f"{i:02d} 番目のお願いです" for i in range(30)])
+    recs = []
+    for i in range(30):
+        recs += [ask(f"{i:02d} 番目のお願いです"), reply(f"{i:02d} に答えました")]
+    build(tmp, recs)
     return run(["--limit", "9"])
 
 
 @case("full")
 def _full(tmp):
-    """--full なら省かない。"""
-    build(tmp, [f"{i:02d} 番目のお願いです" for i in range(30)])
+    recs = []
+    for i in range(30):
+        recs += [ask(f"{i:02d} 番目のお願いです"), reply(f"{i:02d} に答えました")]
+    build(tmp, recs)
     return run(["--full"])
 
 
 @case("missing")
 def _missing(tmp):
-    """記録が無いディレクトリでは、無いと言って落ちる（黙って空を出さない）。"""
     cwd = pathlib.Path(tmp) / "empty"
     cwd.mkdir(parents=True, exist_ok=True)
     os.environ["CLAUDE_CONFIG_DIR"] = str(pathlib.Path(tmp) / "nowhere")
@@ -129,12 +172,22 @@ def _missing(tmp):
     return run()
 
 
+@case("dirty-paths")
+def _dirty(tmp):
+    """git status の行からパスを取るとき、位置で切らない。
+
+    出力全体を strip すると 1 行目の先頭空白が消え、桁で切ると 1 文字欠ける。"""
+    stripped = "M deploy/local/README.adoc\n M hack/prune-local-disk.sh\n?? new.txt"
+    got = wai.dirty_paths(stripped)
+    want = ["deploy/local/README.adoc", "hack/prune-local-disk.sh", "new.txt"]
+    return ("DIRTY_OK" if got == want else f"DIRTY_NG {got}")
+
+
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: whatamidoing-case.py <" + "|".join(CASES) + ">")
     # ケースは作業場へ chdir する。戻さずに片づけると、Windows は使用中の
-    # ディレクトリを消せず PermissionError で落ちる（GitHub Actions の
-    # windows-latest で実測。出力自体は正しく出ているのに検査だけ赤くなる）
+    # ディレクトリを消せず PermissionError で落ちる（windows-latest で実測）
     origin = os.getcwd()
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         try:
