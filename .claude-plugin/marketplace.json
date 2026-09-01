@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "レビュー・調査・診断ループと外部投稿ゲートのプラグイン",
-    "version": "0.25.1"
+    "version": "0.26.0"
   },
   "allowCrossMarketplaceDependenciesOn": [
     "claude-plugins-official"
@@ -27,6 +27,12 @@
       "name": "coldwrite",
       "description": "書かれる文書の門番(試作)。Write される散文の拡張子(md/mdx/adoc/asciidoc/rst/txt)を、prompt 型フックの coldreader(会話の文脈を構造的に見られない判定モデル)が初見で読み、詰まりが直るまで書き込みを止める。300 字未満・散文でない content は素通し。",
       "source": "./coldwrite",
+      "strict": false
+    },
+    {
+      "name": "attention",
+      "description": "並行作業から戻るための道具。1 件の PR / issue について「前回自分が触ってから何が起きたか」を機械で取り切り、画面 1 つに収めて出す /catchup。中心は diff ではなく自分の最後の発言で、相手が今求めていることと並べて出す。戻ったときに失われているのは変更の中身ではなく会話の位置の方だという前提に立つ。手番（誰の番か・なぜ今その人の番か）を出す族で、先行例は Gerrit / Google Critique の Attention Set。",
+      "source": "./attention",
       "strict": false
     }
   ]

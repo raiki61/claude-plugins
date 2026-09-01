@@ -686,7 +686,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=160
+EXPECTED_MIN=178
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -1014,6 +1014,55 @@ expect_output 0 "ALLOW_EMPTY" "destgate: -R 無しは git remote を宛先にす
     "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
 expect_output 0 "許可一覧に無い" "destgate: -R 無しの git remote が一覧外なら deny" \
     "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue comment 1 --body 'テストの本文です'"
+
+# ---- attention/catchup: 1 件の PR / issue の「前回から何が起きたか」 ----
+# 取得(gh / GraphQL)は網の外。ここで検査するのは材料 → 出力の規則だけで、取得をモックすると
+# 検査対象が自分で書いたモックになる
+CU_CASE="$ROOT/tests/catchup-case.py"
+
+expect_output 0 "レビュー結果です。block が 1 件あります" \
+    "catchup: 自分の最後の発言が基準点になる" "$PY_BIN" "$CU_CASE" mine
+expect_output 0 "私宛の依頼が来ていて、その後に私は発言していない" \
+    "catchup: 依頼ボタンも未解決スレッドも無い名指しの依頼を手番として拾う" \
+    "$PY_BIN" "$CU_CASE" mine
+expect_output 0 "人にしか判断できない 3 点" \
+    "catchup: 依頼が「渡された時点」より前でも拾う" "$PY_BIN" "$CU_CASE" ask-before-handover
+expect_output 0 "まだ一度も発言していない" \
+    "catchup: 未発言の件はそう言う（作成時に落とさず、渡された時点を出す）" \
+    "$PY_BIN" "$CU_CASE" ask-before-handover
+expect_output 0 "レビュー依頼 を出している" \
+    "catchup: 本文の依頼を優先しつつ、後から押された依頼ボタンも申し送る" \
+    "$PY_BIN" "$CU_CASE" ask-prefers-text
+expect_output 0 "○ 待ち — レビュー待ち: someone" \
+    "catchup: 依頼も担当も無ければ私の番ではない" "$PY_BIN" "$CU_CASE" waiting
+expect_output 0 "CI 赤は作者（私）しか外せない" \
+    "catchup: 知らない conclusion は赤に倒す" "$PY_BIN" "$CU_CASE" ci-unknown-conclusion
+expect_output 0 "赤 1 件（deploy）" \
+    "catchup: 赤いチェックの名前を出す" "$PY_BIN" "$CU_CASE" ci-unknown-conclusion
+expect_output 0 "実行中 1 件" \
+    "catchup: 走っている最中は赤にも緑にも数えない" "$PY_BIN" "$CU_CASE" ci-running
+expect_output 0 "書きかけのレビューが未送信" \
+    "catchup: 未送信レビューを自分の宿題として出す" "$PY_BIN" "$CU_CASE" pending-review
+expect_output 0 "その後に起きたこと — 0 件" \
+    "catchup: 未送信レビューを時系列に混ぜない（相手には届いていない）" \
+    "$PY_BIN" "$CU_CASE" pending-review
+expect_output 0 "未解決スレッド 1 件で相手が返している（私が返す番）" \
+    "catchup: 自分が入っている未解決スレッドの返答を手番として拾う" \
+    "$PY_BIN" "$CU_CASE" thread-turn
+expect_output 0 "CI: 報告なし" \
+    "catchup: チェックが 1 本も無い状態を「全 pass」と言わない" "$PY_BIN" "$CU_CASE" no-checks
+expect_output 0 "まだ承認されていない（REVIEW_REQUIRED）" \
+    "catchup: API の値をそのまま出さず、中身を先に書いて原語を括弧で添える" \
+    "$PY_BIN" "$CU_CASE" waiting
+expect_output 0 "上限に当たったもの: コメント（140 件中 1 件）" \
+    "catchup: 取得上限に当たったら黙って切らずに申告する" "$PY_BIN" "$CU_CASE" cap
+expect_output 0 "（本文なし）" \
+    "catchup: 引用だけの本文を発言の中身として扱わない" "$PY_BIN" "$CU_CASE" quote-only
+expect_output 1 "使い方" \
+    "catchup: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$CU_CASE"
+expect_output 1 "番号か PR / issue の URL を渡す" \
+    "catchup: 番号でも URL でもない引数は、gh を叩く前に落とす" \
+    "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"
