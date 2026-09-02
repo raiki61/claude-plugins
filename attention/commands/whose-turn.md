@@ -151,3 +151,4 @@ open 全件を見渡すフェーズにいる。
 
 - `gh pr list` / `gh issue list` / `gh search` で一覧を組み立て直すな。取り方の正本は同梱の `scripts/whose-turn.py` で、判定の定義と見ていないものは `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/whose-turn.py --help` にある。
 - 出力に無い項目を足すな。スクリプトが失敗したら、そのエラーをそのまま報告して終わる。
+- subagent・Agent・Workflow を立てるな。手順 5 の読みも含めて `gh` は Bash で直列に呼ぶ（5 件で数秒）。並列化は起動の overhead で分単位を失い、結果待ちを誤ると 10 分止まる（実測 2026-09-02）。
