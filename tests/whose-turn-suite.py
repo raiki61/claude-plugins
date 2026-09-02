@@ -1270,7 +1270,7 @@ class Display(unittest.TestCase):
 
 
 class Buckets(unittest.TestCase):
-    """報告は段を出さず「私のボール / 待ち」の 2 節に分ける。段は並びの鍵としてだけ残る。"""
+    """報告は段を出さず「自分の番 / 相手の番」の 2 節に分ける。段は並びの鍵としてだけ残る。"""
 
     def render(self, *prs, who="bob", args=()):
         def fetch_all(_query, _owner, _name, field):
@@ -1285,11 +1285,11 @@ class Buckets(unittest.TestCase):
         return buf.getvalue()
 
     def bucket(self, out, n=1):
-        head, _, tail = out.partition("## 待ち")
+        head, _, tail = out.partition("## 相手の番")
         if re.search(rf"^  #{n}\b", head, re.M):
-            return "私のボール"
+            return "自分の番"
         if re.search(rf"^  #{n}\b", tail, re.M):
-            return "待ち"
+            return "相手の番"
         return "無し"
 
     def test_both_sides_owing_threads_stay_in_my_ball(self):
@@ -1301,13 +1301,13 @@ class Buckets(unittest.TestCase):
         )
         # 相手にも返す番があっても、自分の分は今日できる。待ちには落とさない
         for who in ("bob", "alice"):
-            self.assertEqual(self.bucket(self.render(p, who=who)), "私のボール", who)
+            self.assertEqual(self.bucket(self.render(p, who=who)), "自分の番", who)
 
     def test_one_sided_thread_turn_is_my_ball(self):
         p = pr(reviewThreads=conn(thread(comment(user("bob"), T2))))
-        self.assertEqual(self.bucket(self.render(p, who="alice")), "私のボール")
+        self.assertEqual(self.bucket(self.render(p, who="alice")), "自分の番")
         # 指摘した側は返事を待っている
-        self.assertEqual(self.bucket(self.render(p, who="bob")), "待ち")
+        self.assertEqual(self.bucket(self.render(p, who="bob")), "相手の番")
 
     def test_assignee_counts_as_handing_the_pr_over(self):
         """レビュー依頼を押さずに assignee で渡す運用がある。渡っていれば相手の番"""
@@ -1316,14 +1316,14 @@ class Buckets(unittest.TestCase):
             assignees=conn({"login": "bob"}),
             comments=conn(comment(user("alice"), T3, "扱いはお任せします")),
         )
-        self.assertEqual(self.bucket(self.render(handed, who="alice")), "待ち")
+        self.assertEqual(self.bucket(self.render(handed, who="alice")), "相手の番")
 
     def test_draft_stays_undelivered_even_with_an_assignee(self):
         """draft は作者が自分で「まだ出さない」と印を付けた状態で、渡したことにはならない"""
         out = self.render(
             pr(number=1, isDraft=True, assignees=conn({"login": "bob"})), who="alice"
         )
-        self.assertEqual(self.bucket(out), "私のボール")
+        self.assertEqual(self.bucket(out), "自分の番")
 
     def test_undelivered_pr_outranks_waiting_on_the_other_side(self):
         """未依頼はあなたしか動かせない。相手待ちと同じ段に混ぜると本当のボールが沈む"""
@@ -1334,8 +1334,8 @@ class Buckets(unittest.TestCase):
             comments=conn(comment(user("alice"), T3, "全部返しました")),
         )
         out = self.render(undelivered, waiting, who="alice")
-        self.assertEqual(self.bucket(out, 1), "私のボール")
-        self.assertEqual(self.bucket(out, 2), "待ち")
+        self.assertEqual(self.bucket(out, 1), "自分の番")
+        self.assertEqual(self.bucket(out, 2), "相手の番")
 
     def test_review_request_outranks_follow_up_the_author_is_blocking(self):
         """自分が作者でない PR で main 未追従なら、再確認だけの行は先頭に来ない"""
@@ -1348,16 +1348,16 @@ class Buckets(unittest.TestCase):
             ),
         )
         out = self.render(to_review, behind, who="bob")
-        self.assertEqual(self.bucket(out, 1), "私のボール")
-        self.assertEqual(self.bucket(out, 2), "待ち")
+        self.assertEqual(self.bucket(out, 1), "自分の番")
+        self.assertEqual(self.bucket(out, 2), "相手の番")
 
     def test_only_you_can_move_it_sorts_first_inside_my_ball(self):
         """段は印字しないが並びには残る。渡していない PR より、人を待たせている行が先"""
         undelivered = pr(number=1)
         to_review = pr(number=2, reviewRequests=requests(user("alice")))
         out = self.render(undelivered, to_review, who="alice")
-        self.assertEqual(self.bucket(out, 1), "私のボール")
-        self.assertEqual(self.bucket(out, 2), "私のボール")
+        self.assertEqual(self.bucket(out, 1), "自分の番")
+        self.assertEqual(self.bucket(out, 2), "自分の番")
         self.assertLess(out.index("  #2 "), out.index("  #1 "))
 
     def test_materials_carry_the_last_word_of_threads_you_must_re_check(self):
