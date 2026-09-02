@@ -203,6 +203,37 @@ def _topic(tmp):
     return "TOPIC_OK" if not bad else "TOPIC_NG " + ",".join(bad) + "\n" + out
 
 
+@case("unseen-wording")
+def _unseen_wording(tmp):
+    """「見ていないもの」は実際の状態に合わせる: 省いた往復と話題で外した往復は件数と、それで何を
+    見落としうるかを書き、--full で省いていなければ書かない。返答は --full でも最初のひとまとまり
+    なので「冒頭だけ」は常に言う。"""
+    recs = []
+    for i in range(30):
+        recs += [ask(f"{i:02d} 番目のお願いです"), reply(f"{i:02d} に答えました")]
+    build(tmp, recs)
+    plain, full, topic = run(["--limit", "9"]), run(["--full"]), run(["--topic", "07"])
+    want = {
+        "plain": "返答は各ターンの冒頭だけ" in plain and "間の 21 往復（--full で出る）" in plain,
+        "full": "冒頭だけ" in full and "間の" not in full,
+        "topic": "出なかった往復 29 件" in topic and "（全 30 往復）" in topic,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "UNSEEN_OK" if not bad else "UNSEEN_NG " + ",".join(bad) + "\n" + plain
+
+
+@case("stance")
+def _stance(tmp):
+    """立場の判定は lib/stance.py の純関数（/catchup と共用）。レビューを送った後は GitHub が
+    依頼から外すので、送ったレビューも数える。「どちらでもない」とは言わない。"""
+    s = wai.stance
+    got = [s("me", "me"), s("me", "me", is_pr=False), s("me", "x", requested=["me"]),
+           s("me", "x", reviewed=True), s("me", "x", assignees=["me"]),
+           s("me", "x", spoke=True), s("me", "x")]
+    want = ["実装者（作者）", "起票者", "レビュアー", "レビュアー", "担当", "参加者", "未参加"]
+    return "STANCE_OK" if got == want else f"STANCE_NG {got}"
+
+
 @case("dirty-tree")
 def _dirty_tree(tmp):
     """未コミットの変更が木で出る。周辺の追跡ファイルも薄く並び、新規は行頭 +、変更は ~。

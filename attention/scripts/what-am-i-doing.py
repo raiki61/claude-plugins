@@ -28,6 +28,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import changemap  # noqa: E402 — 変更ファイルの木。/catchup と共用
+from stance import stance  # noqa: E402 — 立場の判定。/catchup と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -81,15 +82,15 @@ def gh(cwd, *args):
 
 
 def role_on(cwd, number=None):
-    """扱っている PR で自分が実装者かレビュワーかを決める。
+    """扱っている PR で私が何者か。判定は lib/stance.py（/catchup と共用）で、ここは gh から
+    素の値（作者・レビュー依頼先・送ったレビュー・担当・発言）を取り出すだけ。
 
     「今どっちの立場か」は、戻ったときに真っ先に要る情報なのに、会話からは読み取りにくい
-    （どちらの側でもレビューの話をするため）。作者とレビュー依頼先は記録に残っているので、
-    そこから機械で決める。"""
+    （どちらの側でもレビューの話をするため）。GitHub に残っている事実から機械で決める。"""
     args = ["pr", "view"]
     if number:
         args.append(str(number))
-    args += ["--json", "number,title,state,author,reviewRequests,isDraft,url"]
+    args += ["--json", "number,title,state,author,reviewRequests,reviews,assignees,comments,isDraft,url"]
     raw = gh(cwd, *args)
     if not raw:
         return None
@@ -98,17 +99,25 @@ def role_on(cwd, number=None):
     except json.JSONDecodeError:
         return None
     me = gh(cwd, "api", "user", "--jq", ".login")
-    author = (pr.get("author") or {}).get("login", "")
-    reviewers = [(r or {}).get("login") for r in pr.get("reviewRequests") or []]
-    if me and author == me:
-        pr["role"] = "実装者（この PR の作者）"
-    elif me and me in reviewers:
-        pr["role"] = "レビュワー（レビュー依頼が来ている）"
-    elif me:
-        pr["role"] = f"どちらでもない（作者は {author}、レビュー依頼は "
-        pr["role"] += (", ".join(r for r in reviewers if r) or "誰にも出ていない") + "）"
-    else:
+    if not me:
         pr["role"] = "判定できない（gh の認証ユーザを取れない）"
+        return pr
+    author = (pr.get("author") or {}).get("login", "")
+    requested = [(r or {}).get("login") for r in pr.get("reviewRequests") or []]
+
+    def mine(items):
+        return any(((x or {}).get("author") or {}).get("login") == me for x in items or [])
+
+    reviewed = mine(pr.get("reviews"))
+    label = stance(me, author, True, requested, reviewed,
+                   [(a or {}).get("login") for a in pr.get("assignees") or []],
+                   reviewed or mine(pr.get("comments")))
+    if author == me:
+        pr["role"] = label
+    else:
+        # 作者と依頼先は、私が作者でないときに読む人が次に要る名前なので添える
+        pr["role"] = (f"{label}（作者は {author}、レビュー依頼は "
+                      + (", ".join(r for r in requested if r) or "誰にも出ていない") + "）")
     return pr
 
 
@@ -220,11 +229,12 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
     w(f"  {cwd}" + (f" · ブランチ {branch}" if branch else ""))
     span = f"開始 {started:%m-%d %H:%M}" if started else "開始 不明"
     w(f"  {span} · 最後の動き {touched:%m-%d %H:%M} · やり取り {len(turns)} 往復")
+    total = len(turns)
     if topic:
         # 話題で絞る（/catchup が番号でない語で呼ばれたとき）。会話にしか無い話題は GitHub に
         # 見に行く先が無いので、その語が出た往復だけを背骨として出す
         turns = [t for t in turns if about(t, topic)]
-        w(f"  話題「{topic}」が出た往復 {len(turns)} 件だけを出す")
+        w(f"  話題「{topic}」が出た往復 {len(turns)} 件だけを出す（全 {total} 往復）")
     w("")
 
     shown, elided = turns, 0
@@ -257,26 +267,26 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
     w("")
 
     numbers = pick_reference([turn["ask"] for turn in turns])
-    if branch:
-        # 呼ばれた頻度の高い番号から順に当てる。issue の番号や消えた PR は gh が
-        # 失敗して None になるので次の候補へ、全部外れたらブランチの PR に落とす
-        pr = None
-        for number in numbers[:3]:
-            pr = role_on(cwd, number)
-            if pr:
-                break
-        pr = pr or role_on(cwd)
+    # 呼ばれた頻度の高い番号から順に当てる。issue の番号や消えた PR は gh が
+    # 失敗して None になるので次の候補へ、全部外れたらブランチの PR に落とす
+    pr = None
+    for number in numbers[:3]:
+        pr = role_on(cwd, number)
         if pr:
-            w("## 扱っている件と、私の立場")
-            draft = "・下書き" if pr.get("isDraft") else ""
-            w(f"  #{pr.get('number')} {pr.get('title', '')}"
-              f"（{str(pr.get('state', '')).lower()}{draft}）")
-            w(f"  {pr.get('url', '')}")
-            w(f"  **私の立場: {pr['role']}**")
-            others = [n for n in numbers if n != str(pr.get("number"))]
-            if others:
-                w("  会話に出てきた他の番号: " + ", ".join("#" + n for n in others[:7]))
-            w("")
+            break
+    if not pr and branch:
+        pr = role_on(cwd)
+    if pr:
+        w("## 扱っている件と、私の立場")
+        draft = "・下書き" if pr.get("isDraft") else ""
+        w(f"  #{pr.get('number')} {pr.get('title', '')}"
+          f"（{str(pr.get('state', '')).lower()}{draft}）")
+        w(f"  {pr.get('url', '')}")
+        w(f"  **私の立場: {pr['role']}**")
+        others = [n for n in numbers if n != str(pr.get("number"))]
+        if others:
+            w("  会話に出てきた他の番号: " + ", ".join("#" + n for n in others[:7]))
+        w("")
 
     if started:
         since = started.strftime("%Y-%m-%dT%H:%M:%S")
@@ -302,7 +312,13 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
     w("")
 
     w("見ていないもの:")
+    # 上限や話題で外した分は、件数と「それで何を見落としうるか」まで書く（/catchup と同じ）。
+    # 件数だけでは、読む人がこの報告のどこを疑えばよいか分からない
     w("  - 私の返答は各ターンの冒頭だけ。続きと、道具に渡した中身は記録の側にある")
+    if elided:
+        w(f"  - 間の {elided} 往復（--full で出る）。そこで決めたことがあれば見落とす")
+    if topic and total > len(turns):
+        w(f"  - 話題「{topic}」が出なかった往復 {total - len(turns)} 件。言い換えで呼ばれていれば見落とす")
     w("  - 記録に残らないやり取り（別のセッション・チャット・口頭）")
     w("  - 題は序盤に付いたまま更新されない。古い可能性がある")
     return "\n".join(out)
@@ -313,7 +329,8 @@ def main(argv=None):
         description="このセッションで何が起きたかを、追いつける形で並べる")
     p.add_argument("--limit", type=int, default=25,
                    help="出す往復の上限（既定 25。超えたら間を省く）")
-    p.add_argument("--full", action="store_true", help="全往復を全文で出す")
+    p.add_argument("--full", action="store_true",
+                   help="全往復を省かず、依頼と返答も切り詰めずに出す（返答は最初のひとまとまりのまま）")
     p.add_argument("--topic", nargs="+", metavar="語",
                    help="この語句が出た往復だけを出す（/catchup が番号でない語で呼ばれたとき）。"
                         "複数の語は 1 つの語句として続けて当てる")

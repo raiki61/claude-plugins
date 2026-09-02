@@ -1194,6 +1194,12 @@ expect_output 0 "TREE_OK" \
 expect_output 0 "TOPIC_OK" \
     "what-am-i-doing: --topic はその語が出た往復だけを出す（/catchup が会話の話題を追う背骨）" \
     "$PY_BIN" "$WAI_CASE" topic
+expect_output 0 "UNSEEN_OK" \
+    "what-am-i-doing: 見ていないものを実際の状態に合わせる（省いた・外した往復は件数と見落としうるものを書く）" \
+    "$PY_BIN" "$WAI_CASE" unseen-wording
+expect_output 0 "STANCE_OK" \
+    "what-am-i-doing: 立場の判定は /catchup と共用の純関数。送ったレビューも数え、「どちらでもない」とは言わない" \
+    "$PY_BIN" "$WAI_CASE" stance
 expect_output 1 "使い方" \
     "what-am-i-doing: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$WAI_CASE"
 

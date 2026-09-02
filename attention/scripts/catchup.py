@@ -47,6 +47,7 @@ from urllib.parse import quote
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import changemap  # noqa: E402 — 変更の地図と手元の木の部品。/what-am-i-doing と共用
+from stance import stance  # noqa: E402 — 立場の判定。/what-am-i-doing と共用
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
 # cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
@@ -410,26 +411,18 @@ def check_state(node):
 
 
 def role_of(node, me, ev):
-    """この件での私の立場。戻ったとき真っ先に要るのがこれで、会話からは読み取りにくい。
-
-    「どちらでもない」と断定しない——名指しで呼ばれただけの件で「どちらでもない · 私の番」と並ぶと
-    1 行目の中で食い違って見える。発言していれば参加者、していなければ未参加。"""
+    """この件での私の立場。判定は lib/stance.py（/what-am-i-doing と共用）で、ここは GraphQL の
+    node から素の値を取り出すだけ。"""
     is_pr = node["__typename"] == "PullRequest"
-    if login_of(node["author"]) == me:
-        return "実装者（作者）" if is_pr else "起票者"
-    if is_pr:
-        req = [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"]
-               if r["requestedReviewer"]]
-        reviewed = any(login_of(r["author"]) == me for r in node["reviews"]["nodes"]) \
-            or any(login_of(c["author"]) == me
-                   for th in node["reviewThreads"]["nodes"] for c in th["comments"]["nodes"])
-        if any(r.get("login") == me for r in req) or reviewed:
-            return "レビュアー"
-    if any(a["login"] == me for a in node["assignees"]["nodes"]):
-        return "担当"
-    if any(e["who"] == me and e["cat"] == SPOKEN for e in ev):
-        return "参加者"
-    return "未参加"
+    requested = [r["requestedReviewer"].get("login") for r in node["reviewRequests"]["nodes"]
+                 if r["requestedReviewer"]] if is_pr else []
+    reviewed = is_pr and (
+        any(login_of(r["author"]) == me for r in node["reviews"]["nodes"])
+        or any(login_of(c["author"]) == me
+               for th in node["reviewThreads"]["nodes"] for c in th["comments"]["nodes"]))
+    return stance(me, login_of(node["author"]), is_pr, requested, reviewed,
+                  [a["login"] for a in node["assignees"]["nodes"]],
+                  any(e["who"] == me and e["cat"] == SPOKEN for e in ev))
 
 
 def my_turn(node, me, ev, red):
