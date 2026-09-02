@@ -42,6 +42,10 @@ import re
 import shutil
 import subprocess
 import sys
+from urllib.parse import quote
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import changemap  # noqa: E402 — 変更の地図と手元の木の部品。/what-am-i-doing と共用
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
 # cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
@@ -89,12 +93,12 @@ query($owner:String!,$name:String!,$num:Int!){
         closingIssuesReferences(first:10){nodes{number title state url}}
         comments(last:100){totalCount nodes{createdAt body author{__typename login}}}
         reviews(last:60){totalCount nodes{submittedAt state body author{__typename login}}}
-        reviewThreads(last:80){totalCount nodes{isResolved path line
+        reviewThreads(last:80){totalCount nodes{isResolved isOutdated path line
           comments(first:60){nodes{createdAt body author{__typename login}}}}}
         allCommits: commits(last:100){totalCount nodes{commit{
           oid committedDate messageHeadline additions deletions
           author{user{login} name email}}}}
-        head: commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){
+        head: commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){
           totalCount nodes{__typename
             ... on CheckRun{name conclusion status detailsUrl}
             ... on StatusContext{context state targetUrl}}}}}}}
@@ -161,19 +165,62 @@ def local_email():
     return r.stdout.strip().lower() if r.returncode == 0 else ""
 
 
+# 焦点の語。番号の後ろに付けると、その材料を末尾に足す（地図は --map yes と同じ）
+FOCUS = {"指摘": "threads", "地図": "map", "CI": "ci"}
+URL_RE = re.compile(r"https?://[^/]+/([^/]+)/([^/]+)/(?:pull|issues)/(\d+)")
+
+
+def split_words(words):
+    """引数の語を (対象, 焦点の集合) に分ける。対象が無ければ今のブランチ（this）。
+    焦点だけを渡した `catchup 指摘` も、今のブランチの指摘として通る。"""
+    focus, rest = set(), []
+    for w in words:
+        key = FOCUS.get(w) or FOCUS.get(w.upper())
+        if key:
+            focus.add(key)
+        else:
+            rest.append(w)
+    if len(rest) > 1:
+        sys.exit(f"対象は 1 つだけ渡す（受け取った値: {' '.join(rest)}）")
+    return (rest[0] if rest else "this"), focus
+
+
+def branch_number(branch):
+    """ブランチ名の中の issue / PR 番号。区切り（/ _ -）に挟まれた数字だけを取る——`python3.12` の
+    12 や `node-20.x` の 20 を番号にしない。1 桁も通す（issue-9）。無ければ None。"""
+    m = re.search(r"(?:^|[/_-])#?(\d+)(?=[/_-]|$)", branch or "")
+    return int(m.group(1)) if m else None
+
+
 def resolve_target(token, repo_opt):
-    """番号か URL から (owner, name, number) を決める。URL なら -R は要らない。"""
-    m = re.match(r"https?://[^/]+/([^/]+)/([^/]+)/(?:pull|issues)/(\d+)", token)
+    """番号・URL・this から (owner, name, number, 今のブランチとの関係) を決める。関係は None
+    （番号や URL で呼んだ）／"pr"（今のブランチの PR）／"branch"（PR が無く、ブランチ名の番号を
+    issue と見た。chore/1513-fold-remainders → #1513）。URL なら -R は要らない。"""
+    m = URL_RE.match(token)
     if m:
-        return m.group(1), m.group(2), int(m.group(3))
+        return m.group(1), m.group(2), int(m.group(3)), None
+    local = None
+    if token == "this":
+        url = gh_try("pr", "view", "--json", "url", "-q", ".url")
+        m = URL_RE.match((url or "").strip())
+        if m:
+            return m.group(1), m.group(2), int(m.group(3)), "pr"
+        branch = (changemap.git("branch", "--show-current") or "").strip()
+        num = branch_number(branch)
+        if num is None:
+            sys.exit("今のブランチ" + (f"（{branch}）" if branch else "") + " に PR が無く、"
+                     "名前に番号も無い。番号か PR / issue の URL を渡す")
+        token, local = str(num), "branch"
     if not token.lstrip("#").isdigit():
-        sys.exit(f"番号か PR / issue の URL を渡す（受け取った値: {token}）")
+        sys.exit(f"番号か PR / issue の URL を渡す（受け取った値: {token}。"
+                 "引数なしか this なら今のブランチ、番号でない語は会話の話題として"
+                 " what-am-i-doing.py --topic で追う）")
     slug = repo_opt or gh("repo", "view", "--json", "nameWithOwner",
                           "-q", ".nameWithOwner").strip()
     if "/" not in slug:
         sys.exit("リポジトリを特定できない（-R owner/repo を渡すか、リポジトリ内で実行する）")
     owner, name = slug.split("/", 1)
-    return owner, name, int(token.lstrip("#"))
+    return owner, name, int(token.lstrip("#")), local
 
 
 def fetch(owner, name, num):
@@ -494,7 +541,8 @@ def find_ask(ev, node, me, cutoff, own):
     return None
 
 
-def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps, with_map=False):
+def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
+           with_map=False, with_threads=False, with_ci=False):
     is_pr = node["__typename"] == "PullRequest"
     author = login_of(node["author"])
     out = []
@@ -612,8 +660,9 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
                 if url:
                     st(f"      {n}  {url}")
         unresolved = [t for t in node["reviewThreads"]["nodes"] if not t["isResolved"]]
-        human = [t for t in unresolved
-                 if any(not is_bot(c["author"]) for c in t["comments"]["nodes"])]
+        # 「人が入っている」は指摘の材料と同じ数え方（私以外の人の発言があるもの）。私だけの
+        # スレッドや bot だけのスレッドを数えると、本体の数字と末尾の材料が食い違う（実測）
+        human = unresolved_threads(node, me)
         st(f"  未解決スレッド: {len(unresolved)} 件"
            f"（うち人が入っているもの {len(human)} 件）")
     else:
@@ -652,7 +701,12 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     if is_pr:
         w(("  - diff の全文（下の地図は置き場所と骨組みと抜粋。gh pr diff で見る）" if with_map
            else "  - 本文と diff の中身（gh pr diff で見る）")
-          + ("、CI が落ちた理由（上の URL か gh pr checks で見る）" if red else ""))
+          + ("、CI が落ちた理由（上の URL か gh pr checks で見る）。CI を付けて呼ぶと末尾に出る"
+             if red and not with_ci else ""))
+        if with_threads:
+            w("  - スレッドの経緯（下の指摘は相手の最後の発言と、その行の前後だけ）")
+        elif human:
+            w("  - 未解決スレッドの中身（指摘 を付けて呼ぶと末尾に出る）")
     else:
         w("  - 本文の中身（gh issue view で見る）")
     if unlinked:
@@ -682,9 +736,6 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
 #
 # 行は 1 文字も変えずに `| ` の後ろに出す。AI が写す元になるので、ここで整えると写した先が実物と
 # 違ってしまう。
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-import changemap  # noqa: E402
 
 MAP_HEAD_LINES = changemap.HEAD_LINES
 MAP_HUNK_LIMIT = changemap.HUNK_LIMIT
@@ -832,6 +883,185 @@ def render_map(node, owner, name):
     return "\n".join(out)
 
 
+# ---- 指摘・CI・手元のブランチ（材料） --------------------------------------------
+#
+# 自分の PR に戻るとき失われているのは、変更の中身ではなく「何を言われて、どこで止まっているか」。
+# 未解決スレッドごとに、相手の最後の発言の全文と head のその行の前後を出す。AI はこれを地図の
+# file ごとの節と同じ「箇所」の形（見出し・誰が何を求めているか・実物の行・直すなら）に並べる。
+# CI は落ちた step のログの末尾、手元のブランチは push していない commit と未コミットの木。
+# どれも判断はせず、行は 1 文字も変えない。
+
+THREAD_CONTEXT = 5    # 指摘の行の前後に出す行数
+THREAD_CAP = 10       # 指摘の材料に出すスレッド数の上限
+THREAD_BODY_CAP = 40  # 相手の発言を出す行数の上限
+CI_TAIL = 30          # 落ちた step のログの末尾の行数
+RUN_URL = re.compile(r"/actions/runs/(\d+)/job/(\d+)")
+
+
+def head_oid(node):
+    heads = node.get("head", {}).get("nodes") or []
+    return (heads[0].get("commit") or {}).get("oid") if heads else None
+
+
+def head_reader(owner, name, oid):
+    """PR の head にあるファイルの行を返す関数を作る。手元の checkout が同じリポジトリで、その
+    commit を持っていれば `git show <oid>:<path>` で（working tree は読まない——未コミットの編集が
+    「head の行」に混ざる。実測: 手元で短くした file の窓が空で出た）、無ければ GitHub から取る
+    （取れなければ None）。同じ path は 1 回だけ読む。"""
+    top = changemap.repo_top()
+    local = bool(top and oid and changemap.origin_matches(top, owner, name))
+    cache = {}
+
+    def read(path):
+        if path in cache:
+            return cache[path]
+        text = changemap.git("show", f"{oid}:{path}", cwd=top) if local else None
+        if text is None and oid:
+            text = gh_try("api", "-H", "Accept: application/vnd.github.raw",
+                          f"repos/{owner}/{name}/contents/{quote(path)}?ref={oid}")
+        cache[path] = text.splitlines() if text is not None else None
+        return cache[path]
+    return read
+
+
+def unresolved_threads(node, me):
+    """未解決で人が入っているスレッド。相手（私でない人）の最後の発言と、私が返す番かを添える。
+    私しか発言していないスレッドは出さない——それは指摘ではなく、私が出した側。"""
+    out = []
+    for th in node.get("reviewThreads", {}).get("nodes", []):
+        if th["isResolved"]:
+            continue
+        cs = [c for c in th["comments"]["nodes"] if not is_bot(c["author"])]
+        theirs = [c for c in cs if login_of(c["author"]) != me]
+        if not theirs:
+            continue
+        out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
+                    "last": theirs[-1], "my_turn": login_of(cs[-1]["author"]) != me})
+    return out
+
+
+def render_threads(node, me, read_lines):
+    threads = unresolved_threads(node, me)
+    out = []
+    w = out.append
+    w("## 指摘（材料。未解決スレッドごとに、相手の最後の発言の全文と head のその行の前後）")
+    w("  `| ` の後ろは head の実物の行（行番号つき）。写すときはそのまま使う")
+    if not threads:
+        w("  人が入っている未解決スレッドは無い")
+        return "\n".join(out)
+    for i, th in enumerate(threads[:THREAD_CAP], 1):
+        where = th["path"] + (f":{th['line']}" if th["line"] else "")
+        turn = "← 私が返す番" if th["my_turn"] else "← 私が最後に発言している（相手の番）"
+        w(f"  === {i}/{len(threads)} {where}  {turn}")
+        c = th["last"]
+        w(f"  {login_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
+        body = [ln for ln in (c["body"] or "").splitlines() if not ln.lstrip().startswith(">")]
+        for ln in body[:THREAD_BODY_CAP]:
+            w("    " + ln)
+        if len(body) > THREAD_BODY_CAP:
+            w(f"    （発言はあと {len(body) - THREAD_BODY_CAP} 行。gh api で見る）")
+        if not th["line"]:
+            w("  行: 今の head に無い（消えた行か、diff の外）")
+            continue
+        lines = read_lines(th["path"])
+        if lines is None:
+            w("  行: 取れない（手元にその commit が無く、GitHub からも読めなかった）")
+            continue
+        if th["line"] > len(lines):
+            w(f"  行 {th['line']} は head のファイル（{len(lines)} 行）の外")
+            continue
+        lo = max(1, th["line"] - THREAD_CONTEXT)
+        hi = min(len(lines), th["line"] + THREAD_CONTEXT)
+        w(f"  head の {lo}〜{hi} 行"
+          + ("（指摘した時点から行がずれている。isOutdated）" if th["outdated"] else "") + ":")
+        for n in range(lo, hi + 1):
+            w(f"  | {n:4} {lines[n - 1]}")
+    if len(threads) > THREAD_CAP:
+        w(f"  （スレッドは他に {len(threads) - THREAD_CAP} 件）")
+    return "\n".join(out)
+
+
+def ci_excerpt(log, tail=CI_TAIL):
+    """--log-failed の出力から、落ちた場所だけを残す。行頭の job・step・時刻と色の制御文字は落とし、
+    最後の ##[error] までを出す——その後ろは後片付けのログで、落ちた理由ではない（実測: 末尾 30 行を
+    そのまま出すと、理由の行が Post job cleanup の 20 行の上に埋もれた）。"""
+    rows = []
+    for ln in log.splitlines():
+        parts = ln.split("\t", 2)
+        body = parts[2] if len(parts) == 3 else ln
+        body = re.sub(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?", "", body)
+        rows.append(re.sub(r"\x1b\[[0-9;]*m", "", body))
+    errs = [i for i, r in enumerate(rows) if "##[error]" in r]
+    end = errs[-1] + 1 if errs else len(rows)
+    return rows[max(0, end - tail):end]
+
+
+def render_ci(node, owner, name, run_log=None):
+    """赤いチェックごとに、失敗した step のログの末尾。run_log は検査用の差し替え口。"""
+    red, _, _ = check_state(node)
+    out = []
+    w = out.append
+    w("## CI が落ちた理由（材料。赤いチェックごとに、失敗した step のログの末尾）")
+    if not red:
+        w("  赤いチェックは無い")
+        return "\n".join(out)
+    for cname, url in red[:3]:
+        w(f"  === {cname}  {url or '（URL なし）'}")
+        m = RUN_URL.search(url or "")
+        if not m:
+            w("  | （GitHub Actions の run ではないのでログを取れない。URL を開く）")
+            continue
+        log = (run_log or (lambda run, job: gh_try(
+            "run", "view", run, "-R", f"{owner}/{name}", "--job", job, "--log-failed")))(
+            m.group(1), m.group(2))
+        if not log:
+            w("  | （ログを取れなかった。gh run view <run> --job <job> --log-failed で見る）")
+            continue
+        for ln in ci_excerpt(log):
+            w("  | " + ln)
+    if len(red) > 3:
+        w(f"  （赤は他に {len(red) - 3} 件）")
+    return "\n".join(out)
+
+
+def render_local(derived=None):
+    """今のブランチで呼んだときだけ出す手元の状態。GitHub に無いものはここにしか出ない。
+    derived は、PR が無くブランチ名の番号を issue と見たときのその番号（申告用）。"""
+    out = []
+    w = out.append
+    branch = (changemap.git("branch", "--show-current") or "").strip()
+    w(f"## 手元のブランチ {branch or '（detached）'}（this で呼んだので出す）")
+    if derived:
+        w(f"  PR が無いので、ブランチ名の番号から #{derived} を issue と見た（違えば番号を渡す）")
+    # 「push していない」は origin の同名ブランチとの差で数える。@{upstream} だと、origin/main から
+    # 切って -u 無しで push した枝は追跡先が origin/main のままで、push 済みの commit まで
+    # 「push していない」に数える（実測）
+    remote = f"origin/{branch}" if branch else ""
+    if remote and changemap.git("rev-parse", "--verify", "--quiet", remote) is not None:
+        ahead, label = changemap.git("log", "--oneline", f"{remote}..HEAD"), "push していない commit"
+    else:
+        upstream = (changemap.git("rev-parse", "--abbrev-ref", "@{upstream}") or "").strip()
+        ahead = changemap.git("log", "--oneline", "@{upstream}..HEAD") if upstream else None
+        label = f"origin に {branch or 'このブランチ'} が無い（未 push）。{upstream} より先の commit"
+    if ahead is None:
+        w("  push していない commit: 分からない（origin に同名のブランチも、追跡先も無い）")
+    elif ahead.strip():
+        lines = ahead.strip().splitlines()
+        w(f"  {label} {len(lines)} 件:")
+        for ln in lines[:10]:
+            w("    " + ln)
+    else:
+        w(f"  {label}: なし")
+    dirty, tree = changemap.working_tree()
+    if dirty:
+        w(f"  未コミット {len(dirty)} 件。木（行頭 + が新規・~ が変更・- が削除。"
+          "そのまま diff の枠に貼る）:")
+        out.extend(tree)
+    else:
+        w("  未コミットの変更なし")
+    return "\n".join(out)
+
+
 def collect_caps(node):
     caps = []
     for field, label in (("comments", "コメント"), ("reviews", "レビュー"),
@@ -845,7 +1075,11 @@ def collect_caps(node):
 def main(argv=None):
     p = argparse.ArgumentParser(
         description="1 件の PR / issue について、前回自分が触ってから何が起きたかを出す")
-    p.add_argument("target", help="番号、または PR / issue の URL")
+    p.add_argument("words", nargs="*", metavar="対象 [焦点]",
+                   help="対象は番号か PR / issue の URL。無ければ（または this なら）今のブランチの "
+                        "PR、それも無ければブランチ名の番号を issue と見る。末尾の材料は立場で決まり"
+                        "（作者が私でない PR は地図、自分の PR は未解決があれば指摘）、焦点の語 "
+                        "指摘・地図・CI を後ろに付けるとそれに足す")
     p.add_argument("-R", "--repo", help="owner/repo（URL を渡すときは不要）")
     p.add_argument("--me", help="基準にする login（既定は gh の認証ユーザ）。指定すると、"
                    "手元の git config の user.email による commit の照合はしない")
@@ -856,7 +1090,8 @@ def main(argv=None):
                    help="末尾に変更の地図の材料を付けるか。auto は作者が私でない PR のときだけ")
     a = p.parse_args(argv)
 
-    owner, name, num = resolve_target(a.target, a.repo)
+    target, focus = split_words(a.words)
+    owner, name, num, local = resolve_target(target, a.repo)
     me = a.me or gh("api", "user", "--jq", ".login").strip()
     # 他人を基準にするときは、手元の git config はその人のものではないので照合しない
     my_email = "" if a.me else local_email()
@@ -864,15 +1099,30 @@ def main(argv=None):
     ev, refs, unlinked = collect_events(node, me, my_email)
     anchor, anchor_kind = find_anchor(ev, node, me)
     is_pr = node["__typename"] == "PullRequest"
-    with_map = is_pr and (a.map == "yes" or (a.map == "auto" and login_of(node["author"]) != me))
+    own = login_of(node["author"]) == me
+    # 既定は立場で決まり、焦点はそれに足す（焦点で既定を消さない——CI だけ付けた他人の PR でも地図は
+    # 要る）。作者が私でない PR で失われているのは「何の PR か」なので地図、自分の PR で失われている
+    # のは「何を言われてどこで止まったか」なので指摘
+    with_map = is_pr and a.map != "no" and ("map" in focus or a.map == "yes" or not own)
+    with_threads = is_pr and ("threads" in focus or (own and bool(unresolved_threads(node, me))))
+    with_ci = is_pr and "ci" in focus
     print(render(node, me, ev, refs, unlinked, anchor, anchor_kind, a.full, a.limit,
-                 collect_caps(node), with_map=with_map))
+                 collect_caps(node), with_map=with_map, with_threads=with_threads,
+                 with_ci=with_ci))
+    tails = []
+    if local:
+        tails.append(render_local(num if local == "branch" else None))
     if with_map:
+        tails.append(render_map(node, owner, name))
+    if with_threads:
+        tails.append(render_threads(node, me, head_reader(owner, name, head_oid(node))))
+    if with_ci:
+        tails.append(render_ci(node, owner, name))
+    if not is_pr and (focus or a.map == "yes"):
+        tails.append("（issue には地図・指摘・CI の材料は無い）")
+    for t in tails:
         print()
-        print(render_map(node, owner, name))
-    elif a.map == "yes":
-        print()
-        print("（issue には変更の地図は無い）")
+        print(t)
     return 0
 
 

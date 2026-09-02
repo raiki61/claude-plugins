@@ -178,9 +178,29 @@ def _dirty(tmp):
 
     出力全体を strip すると 1 行目の先頭空白が消え、桁で切ると 1 文字欠ける。"""
     stripped = "M deploy/local/README.adoc\n M hack/prune-local-disk.sh\n?? new.txt"
-    got = wai.dirty_paths(stripped)
+    got = [e["path"] for e in wai.changemap.entries_from_porcelain(stripped)]
     want = ["deploy/local/README.adoc", "hack/prune-local-disk.sh", "new.txt"]
     return ("DIRTY_OK" if got == want else f"DIRTY_NG {got}")
+
+
+@case("topic")
+def _topic(tmp):
+    """--topic はその語が出た往復だけを出す（/catchup が番号でない語で呼ばれたときの背骨）。
+    大文字小文字は区別せず、返答の冒頭にしか無い語でも当てる。"""
+    build(tmp, [ask("A の話"), reply("a に答えた"),
+                ask("B の話"), reply("B に答えた"),
+                ask("C の話"), reply("了解。A も見た")])
+    out = run(["--topic", "A"])
+    want = {
+        "count": "往復 2 件だけを出す" in out,
+        "kept": "A の話" in out and "C の話" in out,
+        "dropped": "B の話" not in out,
+        "none": "この話題が出た往復は無い" in run(["--topic", "Z"]),
+        # 複数の語は 1 つの語句として当てる（語ごとの OR だと「の」でほぼ全部残る）
+        "phrase": "往復 1 件だけを出す" in run(["--topic", "A", "の話"]),
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "TOPIC_OK" if not bad else "TOPIC_NG " + ",".join(bad) + "\n" + out
 
 
 @case("dirty-tree")

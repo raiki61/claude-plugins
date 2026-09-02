@@ -425,6 +425,22 @@ def entries_from_porcelain(porcelain, numstat=None):
     return entries
 
 
+def working_tree(cwd=None):
+    """手元の未コミットの変更を (パスの一覧, 木の行) で返す。変更が無ければ ([], [])。
+    /catchup（今のブランチで呼んだとき）と /what-am-i-doing が共用。"""
+    # -uall: 未追跡の階層を中のファイルに展開する（既定は "newdir/" の 1 行で、木に名前の無い行が出る）
+    porcelain = git("status", "--porcelain", "--untracked-files=all", cwd=cwd) or ""
+    entries = entries_from_porcelain(
+        porcelain, parse_numstat(git("-c", "core.quotePath=false", "diff", "HEAD",
+                                     "--numstat", cwd=cwd)))
+    if not entries:
+        return [], []
+    top = repo_top(cwd)
+    sib = siblings_for(top, [e["path"] for e in entries]) if top else None
+    label = os.path.basename(top) if top else "."
+    return [e["path"] for e in entries], render_tree(entries, sib, root_label=label)
+
+
 def parse_numstat(text):
     out = {}
     for line in (text or "").splitlines():

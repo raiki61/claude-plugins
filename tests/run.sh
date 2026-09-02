@@ -1114,6 +1114,21 @@ expect_output 1 "使い方" \
 expect_output 1 "番号か PR / issue の URL を渡す" \
     "catchup: 番号でも URL でもない引数は、gh を叩く前に落とす" \
     "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
+expect_output 1 "対象は 1 つだけ渡す" \
+    "catchup: 対象を 2 つ渡したら gh を叩く前に落とす" \
+    "$PY_BIN" "$ROOT/attention/scripts/catchup.py" 1 2
+expect_output 0 "SPLIT_OK" \
+    "catchup: 引数の語を対象と焦点（指摘・地図・CI）に分ける。焦点だけ・引数なしは今のブランチ" \
+    "$PY_BIN" "$CU_CASE" split-words
+expect_output 0 "THREADS_OK" \
+    "catchup: 指摘の材料は相手の発言がある未解決スレッドだけ。相手の最後の発言と head の前後の行、file の外の行はそう言う" \
+    "$PY_BIN" "$CU_CASE" threads-material
+expect_output 0 "BRANCH_OK" \
+    "catchup: ブランチ名の番号は区切りに挟まれた数字だけ（版の数字を番号にせず、1 桁は通す）" \
+    "$PY_BIN" "$CU_CASE" branch-number
+expect_output 0 "CI_OK" \
+    "catchup: CI の材料は Actions の run だけログを取り、行頭の印を落として最後の ##[error] までにする" \
+    "$PY_BIN" "$CU_CASE" ci-material
 # stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
 # UnicodeEncodeError になり、日本語の報告そのものが出せない＝道具が丸ごと使えなくなる。
 # GitHub Actions の windows-latest で実測して赤くなった)
@@ -1169,6 +1184,9 @@ expect_output 0 "DIRTY_OK" \
 expect_output 0 "TREE_OK" \
     "what-am-i-doing: 未コミットの変更を木で出す（周辺つき、新規は行頭 +、変更は ~）" \
     "$PY_BIN" "$WAI_CASE" dirty-tree
+expect_output 0 "TOPIC_OK" \
+    "what-am-i-doing: --topic はその語が出た往復だけを出す（/catchup が会話の話題を追う背骨）" \
+    "$PY_BIN" "$WAI_CASE" topic
 expect_output 1 "使い方" \
     "what-am-i-doing: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$WAI_CASE"
 

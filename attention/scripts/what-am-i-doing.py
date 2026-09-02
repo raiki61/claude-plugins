@@ -191,19 +191,11 @@ def git(cwd, *args):
         return ""
 
 
-def dirty_paths(porcelain):
-    """git status --porcelain の各行からパスだけを取る。
-
-    位置で切ってはいけない。状態欄は 2 文字だが、出力全体を strip した時点で 1 行目の
-    先頭空白が消え、以降の桁がずれる（実測: " M deploy/..." が "M deploy/..." になり、
-    3 文字目から切ると "eploy/..." になった）。空白で 1 回だけ割って後ろを取る。"""
-    out = []
-    for line in porcelain.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split(maxsplit=1)
-        out.append(parts[1] if len(parts) > 1 else parts[0])
-    return out
+def about(turn, phrase):
+    """往復が話題の語句を含むか（依頼と返答の冒頭で見る。大文字小文字と空白の連なりは区別しない）。
+    語ごとの OR にはしない——「さっきの 4 件」を「4」「件」で当てると、ほぼ全往復が残る（実測）。"""
+    text = " ".join((turn["ask"] + " " + turn["reply"]).split()).lower()
+    return " ".join(phrase.split()).lower() in text
 
 
 def stamp(raw):
@@ -220,7 +212,7 @@ def squeeze(text, limit):
     return s[:limit] + "…" if limit and len(s) > limit else s
 
 
-def render(title, turns, started, touched, cwd, full, limit):
+def render(title, turns, started, touched, cwd, full, limit, topic=None):
     out = []
     w = out.append
     w(f"# このスレッド — {title or '（題が付いていない）'}")
@@ -228,6 +220,11 @@ def render(title, turns, started, touched, cwd, full, limit):
     w(f"  {cwd}" + (f" · ブランチ {branch}" if branch else ""))
     span = f"開始 {started:%m-%d %H:%M}" if started else "開始 不明"
     w(f"  {span} · 最後の動き {touched:%m-%d %H:%M} · やり取り {len(turns)} 往復")
+    if topic:
+        # 話題で絞る（/catchup が番号でない語で呼ばれたとき）。会話にしか無い話題は GitHub に
+        # 見に行く先が無いので、その語が出た往復だけを背骨として出す
+        turns = [t for t in turns if about(t, topic)]
+        w(f"  話題「{topic}」が出た往復 {len(turns)} 件だけを出す")
     w("")
 
     shown, elided = turns, 0
@@ -237,7 +234,7 @@ def render(title, turns, started, touched, cwd, full, limit):
         elided = len(turns) - limit
     w("## 経過（依頼と、それに対して何をしたか）")
     if not turns:
-        w("  依頼の記録がまだ無い")
+        w("  この話題が出た往復は無い" if topic else "  依頼の記録がまだ無い")
     for item in shown:
         w("")
         if item is None:
@@ -291,24 +288,15 @@ def render(title, turns, started, touched, cwd, full, limit):
                 w("  " + line)
             w("")
 
-    # -uall: 未追跡の階層を中のファイルに展開する（既定は "newdir/" の 1 行で、木に名前の無い行が出る）
-    porcelain = git(cwd, "status", "--porcelain", "--untracked-files=all")
-    dirty = dirty_paths(porcelain)
+    dirty, tree = changemap.working_tree(cwd)
     w("## いま手元に残っているもの")
     if dirty:
         w(f"  未コミット {len(dirty)} 件: " + ", ".join(dirty[:8])
           + ("…" if len(dirty) > 8 else ""))
         # 木は「全体のどこを触っているか」を IDE の変更一覧と同じ形で見せる。周辺の追跡ファイルを
         # 薄く並べるので、変更ファイルの名前だけより場所が読める。そのまま diff の枠に貼れる
-        numstat = changemap.parse_numstat(
-            git(cwd, "-c", "core.quotePath=false", "diff", "HEAD", "--numstat"))
-        entries = changemap.entries_from_porcelain(porcelain, numstat)
-        top = changemap.repo_top(cwd)
-        sib = changemap.siblings_for(top, [e["path"] for e in entries]) if top else None
-        label = os.path.basename(top) if top else "."
         w("  木（行頭 + が新規・~ が変更・- が削除。そのまま diff の枠に貼る）:")
-        for ln in changemap.render_tree(entries, sib, root_label=label):
-            w(ln)
+        out.extend(tree)
     else:
         w("  未コミットの変更なし")
     w("")
@@ -326,7 +314,13 @@ def main(argv=None):
     p.add_argument("--limit", type=int, default=25,
                    help="出す往復の上限（既定 25。超えたら間を省く）")
     p.add_argument("--full", action="store_true", help="全往復を全文で出す")
+    p.add_argument("--topic", nargs="+", metavar="語",
+                   help="この語句が出た往復だけを出す（/catchup が番号でない語で呼ばれたとき）。"
+                        "複数の語は 1 つの語句として続けて当てる")
     a = p.parse_args(argv)
+    topic = " ".join(a.topic).strip() if a.topic else None
+    if a.topic and not topic:
+        sys.exit("--topic には話題の語句を渡す（空だった）")
 
     cwd = pathlib.Path.cwd()
     path = transcript_path(os.environ.get("CLAUDE_CODE_SESSION_ID"), cwd)
@@ -334,7 +328,8 @@ def main(argv=None):
         sys.exit(f"このディレクトリ（{cwd}）のセッション記録が見つからない")
 
     title, turns, first, touched = read(path)
-    print(render(title, turns, stamp(first) or touched, touched, cwd, a.full, a.limit))
+    print(render(title, turns, stamp(first) or touched, touched, cwd, a.full, a.limit,
+                 topic=topic))
     return 0
 
 
