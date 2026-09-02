@@ -26,6 +26,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import changemap  # noqa: E402 — 変更ファイルの木。/catchup と共用
+
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -288,11 +291,24 @@ def render(title, turns, started, touched, cwd, full, limit):
                 w("  " + line)
             w("")
 
-    dirty = dirty_paths(git(cwd, "status", "--porcelain"))
+    # -uall: 未追跡の階層を中のファイルに展開する（既定は "newdir/" の 1 行で、木に名前の無い行が出る）
+    porcelain = git(cwd, "status", "--porcelain", "--untracked-files=all")
+    dirty = dirty_paths(porcelain)
     w("## いま手元に残っているもの")
     if dirty:
         w(f"  未コミット {len(dirty)} 件: " + ", ".join(dirty[:8])
           + ("…" if len(dirty) > 8 else ""))
+        # 木は「全体のどこを触っているか」を IDE の変更一覧と同じ形で見せる。周辺の追跡ファイルを
+        # 薄く並べるので、変更ファイルの名前だけより場所が読める。そのまま diff の枠に貼れる
+        numstat = changemap.parse_numstat(
+            git(cwd, "-c", "core.quotePath=false", "diff", "HEAD", "--numstat"))
+        entries = changemap.entries_from_porcelain(porcelain, numstat)
+        top = changemap.repo_top(cwd)
+        sib = changemap.siblings_for(top, [e["path"] for e in entries]) if top else None
+        label = os.path.basename(top) if top else "."
+        w("  木（行頭 + が新規・~ が変更・- が削除。そのまま diff の枠に貼る）:")
+        for ln in changemap.render_tree(entries, sib, root_label=label):
+            w(ln)
     else:
         w("  未コミットの変更なし")
     w("")

@@ -1124,6 +1124,11 @@ expect_output 1 "番号か PR / issue の URL を渡す" \
     "catchup: cp1252 強制下でも引数エラーの日本語が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
 
+# ---- attention/scripts/lib/changemap: 変更の地図の部品（/catchup と /what-am-i-doing が共用） ----
+# git にも GitHub にも触らない。diff の分解・骨組み・木の描画を固定の材料で叩く
+expect_output 0 "OK" "changemap: 変更の地図の部品の回帰（unittest。引用形の日本語 path・改名・木の周辺）" \
+    "$PY_BIN" "$ROOT/tests/changemap-suite.py"
+
 # ---- attention/what-am-i-doing: いま居るセッションで何が起きたか ----
 # 本物のセッション記録には触らない。作業用の設定ディレクトリを毎回作って差し替える
 WAI_CASE="$ROOT/tests/what-am-i-doing-case.py"
@@ -1161,6 +1166,9 @@ expect_output 0 "PICK_OK" \
 expect_output 0 "DIRTY_OK" \
     "what-am-i-doing: 未コミットのパスを位置で切らない（strip で桁がずれる）" \
     "$PY_BIN" "$WAI_CASE" dirty-paths
+expect_output 0 "TREE_OK" \
+    "what-am-i-doing: 未コミットの変更を木で出す（周辺つき、新規は行頭 +、変更は ~）" \
+    "$PY_BIN" "$WAI_CASE" dirty-tree
 expect_output 1 "使い方" \
     "what-am-i-doing: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$WAI_CASE"
 

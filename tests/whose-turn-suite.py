@@ -1384,6 +1384,48 @@ class Buckets(unittest.TestCase):
         self.assertNotIn("まだ答えていない指摘", materials)
         self.assertNotIn("で直しました", head)
 
+    def test_intro_and_size_only_for_others_pr_in_my_ball(self):
+        """人の PR が自分の番なら、作者の本文の 1 文と規模を添える。件名だけだと次の問いが
+        「内容は？」になる（実測）。自分の PR には付けない（本文は自分が書いた）。"""
+        p = pr(
+            body="## 概要\n\nPR 段階の検証ゲートを追加します。1 つのジョブで 2 つを見ます。",
+            additions=1541, deletions=12, changedFiles=14,
+            reviewRequests=requests(user("bob")),
+        )
+        out = self.render(p, who="bob")
+        self.assertEqual(self.bucket(out), "自分の番")
+        self.assertIn("本文: PR 段階の検証ゲートを追加します。", out)
+        self.assertIn("規模: 14 ファイル +1541/-12", out)
+        own = self.render(p, who="alice")
+        self.assertNotIn("本文:", own)
+        self.assertNotIn("規模:", own)
+
+    def test_intro_not_added_in_others_ball(self):
+        """相手の番の行には付けない。読まない件で行が増えるだけ。"""
+        p = pr(
+            body="本文の 1 文。",
+            additions=1, deletions=0, changedFiles=1,
+            reviewRequests=requests(user("carol")),
+        )
+        out = self.render(p, who="bob")
+        self.assertNotIn("本文:", out)
+
+    def test_intro_line_skips_headings_and_html(self):
+        self.assertEqual(
+            flow.intro_line("<!-- template -->\n# 題\n\n**太字**の説明です。続き。"),
+            "太字の説明です。",
+        )
+        self.assertEqual(flow.intro_line(""), "")
+        self.assertEqual(flow.intro_line("- 箇条書きだけ"), "- 箇条書きだけ")
+        # コードブロックの中身は説明ではない。閉じていないコメントの残骸も拾わない
+        self.assertEqual(flow.intro_line("# 概要\n```\nrm -rf /\n```\nこれは説明。続き。"), "これは説明。")
+        self.assertEqual(flow.intro_line("```python\nfoo = 1\n```"), "")
+        self.assertEqual(flow.intro_line("<!-- template\nsecret line\nreal body"), "")
+        # 略語のピリオドで切らない。v1.2 も切らない
+        self.assertEqual(flow.intro_line("Fixes the bug, e.g. when foo is empty. Also refactors."),
+                         "Fixes the bug, e.g. when foo is empty.")
+        self.assertEqual(flow.intro_line("v1.2 を直す。ほか"), "v1.2 を直す。")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

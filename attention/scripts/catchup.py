@@ -671,23 +671,29 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
 # 作者が私でない PR を渡されたとき、失われているのは「会話のどこで止まったか」より「何の PR か」の
 # 方である。それでも行の要約は出さない（思い出す助けにならず、AI が要約すると実物と違う言葉に
 # なる）。出すのは置き場所・骨組み・配線の材料で、判断はしない。AI はここから選んで並べ、散文だけ
-# 自分で書く。
+# 自分で書く。部品は scripts/lib/changemap.py（/what-am-i-doing と共用）。
 #
 # 出すもの:
 #   - 変更ファイルの一覧（種別と ±行数）と、直近マージの規模の目安
-#   - 同じ階層の既存の名前（手元の checkout が同じリポジトリのときだけ。手元の branch の中身）
-#   - 追加行が他の変更ファイルの名前を含む関係（呼び出しの当たり。確定ではない）
+#   - 変更ファイルの木（周辺の既存を薄く並べたもの。そのまま diff の枠に貼れる）
+#   - 名前の言及（追加行が他の変更ファイルの名前を含む関係と、その行。呼び出しの当たり）
 #   - 新規ファイルの先頭コメント / docstring（作者の自己紹介）と骨組み（step 名・def・上位 key）
-#   - 既存ファイルの hunk（変更が小さいものはそのまま。大きいものは @@ の見出しだけ）
+#   - 既存ファイルの hunk（変更が小さいものはそのまま。大きいものは @@ の見出しと追加行の骨組み）
 #
 # 行は 1 文字も変えずに `| ` の後ろに出す。AI が写す元になるので、ここで整えると写した先が実物と
 # 違ってしまう。
 
-MAP_HUNK_LIMIT = 15      # 既存ファイルの変更がこの行数以内なら hunk を丸ごと出す
-MAP_HEAD_LINES = 8       # 新規ファイルの先頭コメント / docstring を出す行数
-MAP_OUTLINE_CAP = 40     # 骨組みの行数の上限（1 ファイルあたり）
-MAP_SIBLINGS_CAP = 40    # 同じ階層の名前の上限（1 階層あたり）
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import changemap  # noqa: E402
+
+MAP_HEAD_LINES = changemap.HEAD_LINES
+MAP_HUNK_LIMIT = changemap.HUNK_LIMIT
+MAP_OUTLINE_CAP = changemap.OUTLINE_CAP
+MAP_SIBLINGS_CAP = 40    # 同じ階層の名前の上限（材料の一覧。木は lib が数件に絞る）
 MAP_DIFF_CAP = 400_000   # gh pr diff がこの文字数を超えたら中身の抽出をやめる
+split_diff, added_lines, file_head = changemap.split_diff, changemap.added_lines, changemap.file_head
+outline, call_refs, modified_hunks = changemap.outline, changemap.call_refs, changemap.modified_hunks
+unquote_git_path = changemap.unquote_git_path
 
 
 def gh_try(*args):
@@ -701,230 +707,14 @@ def gh_try(*args):
     return r.stdout if r.returncode == 0 else None
 
 
-def unquote_git_path(s):
-    r"""git の core.quotePath 形式（"…" の中に \ooo の 8 進エスケープ）を UTF-8 に戻す。
-    GitHub のサーバ側 diff は日本語名を必ずこの形で出すので、戻さないと GraphQL の path と
-    突き合わせられず、その file の中身が黙って落ちる（実測）。"""
-    if not (len(s) >= 2 and s[0] == '"' and s[-1] == '"'):
-        return s
-    esc = {"n": "\n", "t": "\t", '"': '"', "\\": "\\"}
-
-    def repl(m):
-        e = m.group(1)
-        return chr(int(e, 8)) if e[0] in "01234567" else esc.get(e, e)
-
-    decoded = re.sub(r"\\([0-7]{3}|.)", repl, s[1:-1])
-    try:
-        return decoded.encode("latin-1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return decoded
-
-
-def split_diff(text):
-    """unified diff を path → hunk の行に分ける。ファイル見出し（---/+++/index…）は落とし、
-    @@ 行と '+'/'-'/' ' の行だけ残す。見出しの判定は最初の @@ より前に限る——hunk の中の
-    '--- ' は削除された行（元の行が '-- ' で始まる）でありうる。
-    path は '+++ b/…' 行（削除なら '--- a/…'）を正とする。'diff --git a/x b/y' は path に
-    ' b/' を含むと切れ目が決められない。改名は renames[新] = 旧 に入れて返す。"""
-    files, renames, cur, in_hunk = {}, {}, None, False
-    for line in text.split("\n"):
-        if line.startswith("diff --git "):
-            cur = None
-            in_hunk = False
-            m = re.match(r'diff --git ("?)a/(.*?)\1 ("?)b/(.*?)\3$', line)
-            if m:
-                cur = unquote_git_path(m.group(3) + m.group(4) + m.group(3))
-                files.setdefault(cur, [])
-            continue
-        if in_hunk:
-            if line == "" or line[0] in "+- ":
-                if cur is not None:
-                    files[cur].append(line)
-            elif line.startswith("@@") and cur is not None:
-                files[cur].append(line)
-            # "\\ No newline at end of file" は落とす
-            continue
-        if line.startswith("@@"):
-            in_hunk = True
-            if cur is not None:
-                files[cur].append(line)
-            continue
-        # ここから下は @@ より前の見出し
-        if line.startswith("+++ ") and not line.startswith("+++ /dev/null"):
-            path = unquote_git_path(line[4:].strip())
-            path = path[2:] if path.startswith("b/") else path
-            if cur != path:
-                files[path] = files.pop(cur, []) if cur is not None else []
-                cur = path
-        elif line.startswith("--- ") and not line.startswith("--- /dev/null") and cur is None:
-            path = unquote_git_path(line[4:].strip())
-            cur = path[2:] if path.startswith("a/") else path
-            files.setdefault(cur, [])
-        elif line.startswith("rename from "):
-            renames["__from__"] = unquote_git_path(line[len("rename from "):].strip())
-        elif line.startswith("rename to "):
-            renames[unquote_git_path(line[len("rename to "):].strip())] = renames.pop("__from__", "")
-    renames.pop("__from__", None)
-    return files, renames
-
-
-def added_lines(hunk_lines):
-    return [ln[1:] for ln in hunk_lines if ln.startswith("+")]
-
-
-def file_head(path, lines, cap=MAP_HEAD_LINES):
-    """先頭のコメントか docstring。作者の自己紹介にあたる部分だけ取る。
-    返すのは (行, 切れたか)。切れたことは出力に書く——黙って切ると、途中で終わった文が
-    作者の言葉として写される（実測）。"""
-    i = 1 if lines and lines[0].startswith("#!") else 0
-    while i < len(lines) and not lines[i].strip():
-        i += 1
-    out = []
-    if path.endswith(".py"):
-        # coding 行や著作権のコメントが docstring の前にあることがある。# 塊を先に取り、
-        # その直後に docstring があれば続けて取る
-        j = i
-        while j < len(lines) and lines[j].startswith("#"):
-            out.append(lines[j])
-            j += 1
-        while j < len(lines) and not lines[j].strip():
-            j += 1
-        m = re.match(r"\s*[rRuUbB]{0,2}(\"\"\"|''')", lines[j]) if j < len(lines) else None
-        if m:
-            q = m.group(1)
-            out.append(lines[j])
-            closed = lines[j].count(q) >= 2
-            k = j + 1
-            while not closed and k < len(lines) and len(out) < cap:
-                out.append(lines[k])
-                closed = q in lines[k]
-                k += 1
-            if not closed:
-                return out[:cap], True
-        return out[:cap], len(out) > cap
-    # コメント塊は name:（workflow）や shebang の後ろに置かれることが多い。先頭 6 行以内に
-    # 現れる最初の塊を取り、コードで止める
-    while i < len(lines) and i < 6 and not lines[i].startswith(("#", "//")):
-        i += 1
-    for ln in lines[i:]:
-        if not ln.startswith(("#", "//")):
-            break
-        out.append(ln)
-    return out[:cap], len(out) > cap
-
-
-def outline(path, lines):
-    """骨組みの行。種類ごとに「読む人が構造として見る行」だけ拾う。知らない種類は空。"""
-    base = path.rsplit("/", 1)[-1]
-    ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
-    pats = {
-        "yml": r"^(?:[A-Za-z_][\w.-]*:|  [A-Za-z_][\w.-]*:\s*$|\s+- (?:name|id|uses): |\s+uses: )",
-        "py": r"^(?:(?:async )?def |class |    (?:async )?def )",
-        "sh": r"^(?:function [\w-]+|[\w-]+\s*\(\)\s*\{?\s*$)",
-        "bats": r"^@test ",
-        "hcl": r'^(?:target|group|variable|function) "',
-        "tf": r'^(?:resource|module|variable|output|data) "',
-        "ts": r"^(?:export |function |class |const \w+ = )",
-        "go": r"^(?:func |type )",
-        "adoc": r"^=+ ",
-        "md": r"^#+ ",
-    }
-    pats["yaml"], pats["bash"], pats["js"] = pats["yml"], pats["sh"], pats["ts"]
-    pat = pats.get(ext)
-    if pat is None and base.lower().startswith("dockerfile"):
-        pat = r"^(?:FROM|ENTRYPOINT|CMD|EXPOSE)\b"
-    if pat is None:
-        return []
-    return [ln for ln in lines if re.match(pat, ln)]
-
-
 def sibling_dirs(owner, name, paths):
-    """手元の checkout が同じリポジトリなら、変更ファイルと同じ階層の名前を返す。違えば None。
-    中身は手元の branch のもので、PR の head ではない（新規ファイルは手元に無いことがある）。"""
-    exe = shutil.which("git")
-    if not exe:
+    """手元の checkout が同じリポジトリなら、変更ファイルと同じ階層の追跡ファイル名を返す。
+    違えば None。中身は手元の HEAD のもので、PR の head ではない。"""
+    top = changemap.repo_top()
+    if not top or not changemap.origin_matches(top, owner, name):
         return None
-
-    def git(*args):
-        r = subprocess.run([exe, *args], capture_output=True,  # noqa: S603 — git は which で解決
-                           encoding="utf-8", errors="replace")
-        return r.stdout.strip() if r.returncode == 0 else None
-
-    top = git("rev-parse", "--show-toplevel")
-    url = git("remote", "get-url", "origin")
-    if not top or not url:
-        return None
-    # 末尾 2 セグメントの等値で照合する。部分一致だと org/platform-docs の checkout を
-    # org/platform と誤認し、別リポジトリの名前が「同じ階層の既存」に混ざる（実測）
-    m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url.strip())
-    if not m or (m.group(1).lower(), m.group(2).lower()) != (owner.lower(), name.lower()):
-        return None
-    dirs = sorted({p.rsplit("/", 1)[0] if "/" in p else "." for p in paths})
-    out = []
-    for d in dirs:
-        # 追跡ファイルだけ数える。os.listdir だと .venv や __pycache__ が「既存」に混ざる
-        # quotePath=false: 既定だと日本語名が "\346…" の引用形になり、名前として読めない
-        args = ["-c", "core.quotePath=false", "-C", top, "ls-tree", "--name-only", "HEAD"]
-        args += [] if d == "." else ["--", d + "/"]
-        listed = git(*args)
-        if not listed:
-            out.append((d, None))
-            continue
-        out.append((d, sorted(os.path.basename(n) for n in listed.splitlines() if n)))
-    return out
-
-
-def call_refs(paths, hunks):
-    """追加行が他の変更ファイルの名前を含む関係と、その行（先頭 6 行）。名前は basename、
-    composite action は dir 名。文字列一致なので当たりでしかない——コメントでの言及も混ざる。
-    呼び出しかどうかは AI が行を見て決める（uses:・run:・-f・import なら呼び出し）。"""
-    keys = {}
-    for p in paths:
-        base = p.rsplit("/", 1)[-1]
-        if base in ("action.yml", "action.yaml") and p.count("/") >= 1:
-            base = p.rsplit("/", 2)[-2]
-        if len(base) >= 4:
-            keys[p] = base
-    rel = {}
-    for a, lines in hunks.items():
-        if a not in paths:
-            continue
-        added = added_lines(lines)
-        for b, key in keys.items():
-            if a == b:
-                continue
-            hits = [ln for ln in added if key in ln]
-            if hits:
-                rel.setdefault(a, []).append((b, hits[:6]))
-    return rel
-
-
-def modified_hunks(path, lines, adds, dels):
-    """小さい変更は hunk をそのまま。大きい変更は @@ の見出し（関数名つき）と、追加行のうち
-    骨組みにあたる行（新しい step・def・見出し）だけ。骨組みの取れない種類（拡張子なし等）は
-    コメントでない変更行を数行。全文は gh pr diff で見る。
-    返すのは (prefix, text) の列。prefix が "| " なら実物の行、"" なら機械の説明。"""
-    if adds + dels <= MAP_HUNK_LIMIT:
-        return [("| ", ln) for ln in lines]
-    heads = [ln for ln in lines if ln.startswith("@@")]
-    out = [("| ", ln) for ln in heads[:5]]
-    if len(heads) > 5:
-        out.append(("", f"（@@ は他に {len(heads) - 5} 個）"))
-    ol = outline(path, added_lines(lines))
-    if ol:
-        out.append(("", "追加行の骨組み:"))
-        out.extend(("| ", "+" + ln) for ln in ol[:12])
-        if len(ol) > 12:
-            out.append(("", f"（他に {len(ol) - 12} 行）"))
-        return out
-    body = [ln for ln in lines if ln[:1] in "+-" and ln[1:].lstrip()
-            and not ln[1:].lstrip().startswith(("#", "//"))]
-    if body:
-        out.append(("", "コメントでない変更行:"))
-        out.extend(("| ", ln) for ln in body[:8])
-        if len(body) > 8:
-            out.append(("", f"（他に {len(body) - 8} 行）"))
-    return out
+    sib = changemap.siblings_for(top, paths)
+    return [(d, sib[d]) for d in sorted(sib)]
 
 
 def merged_size_context(owner, name):
@@ -973,6 +763,16 @@ def render_map(node, owner, name):
             shown = names[:MAP_SIBLINGS_CAP]
             more = f" …ほか {len(names) - len(shown)}" if len(names) > len(shown) else ""
             w(f"    {d}/ ({len(names)}): " + " ".join(shown) + more)
+
+    entries = []
+    for f in nodes:
+        mark = {"ADDED": "+", "DELETED": "-"}.get(f["changeType"], "~")
+        a, d = f["additions"], f["deletions"]
+        note = f"-{d}" if mark == "-" else (f"+{a}" if not d else f"+{a}/-{d}")
+        entries.append({"path": f["path"], "mark": mark, "note": note})
+    w("  変更ファイルの木（行頭 + が新規・~ が変更・- が削除。そのまま diff の枠に貼る）:")
+    for ln in changemap.render_tree(entries, dict(sib) if sib else None, root_label=name):
+        w(ln)
 
     text = gh_try("pr", "diff", str(node["number"]), "-R", f"{owner}/{name}")
     if text is None:

@@ -111,6 +111,7 @@ query($owner: String!, $name: String!, $cursor: String) {{
       pageInfo {{ hasNextPage endCursor }}
       nodes {{
         number title headRefName isDraft reviewDecision mergeStateStatus createdAt updatedAt
+        body additions deletions changedFiles
         author {{ login }}
         assignees(first: 10) {{ totalCount nodes {{ login }} }}
         reviewRequests(first: 20) {{ totalCount nodes {{ requestedReviewer {REVIEWER} }} }}
@@ -618,8 +619,33 @@ def turn_threads(pr, who):
     return [(t, c) for t, w, c, _ in thread_turns(pr) if w == who]
 
 
-def pr_facts(pr, who=None, targets=None, repo=""):
-    """判断材料。who を渡すと、その人から見た事実（作者は誰か・自分のレビュー・相手の沈黙）も足す。"""
+def intro_line(body):
+    """本文の最初の 1 文。見出し・空行・HTML コメント・コードブロックを飛ばし、句点か行末で
+    切る。無ければ空。"""
+    text = re.sub(r"<!--.*?-->", "", body or "", flags=re.S)
+    text = text.split("<!--", 1)[0]  # 閉じていないコメントは以降を捨てる（テンプレートの残骸）
+    fenced = False
+    for line in text.splitlines():
+        t = line.strip()
+        if t.startswith("```"):
+            fenced = not fenced
+            continue
+        # 見出し（# 概要）は題であって説明ではない。囲いの中はコードで、説明ではない
+        if fenced or not t or t.startswith(("#", "<", "|")):
+            continue
+        t = re.sub(r"\*\*|`", "", t)
+        # 句点・感嘆・疑問で切る。半角ピリオドは後ろが空白か行末のときだけ（v1.2 を切らない）で、
+        # e.g. / i.e. / etc. / cf. / vs. の直後は切らない
+        m = re.match(
+            r"(.+?(?:[。．！？!?]|(?<!\be\.g)(?<!\bi\.e)(?<!\betc)(?<!\bcf)(?<!\bvs)\.(?=\s|$)))", t)
+        return cut(m.group(1) if m else t, 90)
+    return ""
+
+
+def pr_facts(pr, who=None, targets=None, repo="", intro=False):
+    """判断材料。who を渡すと、その人から見た事実（作者は誰か・自分のレビュー・相手の沈黙）も足す。
+    intro は自分の番の人の PR にだけ付ける「何の PR か」（作者の本文の 1 文）と規模——件名だけでは
+    次の問いが「内容は？」になる（実測）。相手の番には付けない（読まない件で行が増える）。"""
     author = login(pr["author"])
     facts = []
     if pr["isDraft"]:
@@ -628,6 +654,15 @@ def pr_facts(pr, who=None, targets=None, repo=""):
     # 別物なので、作者が自分でないことは行から読めないといけない
     if who and author != who:
         facts.append(f"作者: {author or '退会済み'}")
+        if intro:
+            line = intro_line(pr.get("body"))
+            if line:
+                facts.append("本文: " + line)
+            if pr.get("changedFiles") is not None:
+                facts.append(
+                    f"規模: {pr['changedFiles']} ファイル "
+                    f"+{pr.get('additions', 0)}/-{pr.get('deletions', 0)}"
+                )
     asked = [reviewer(rq["requestedReviewer"]) for rq in pr["reviewRequests"]["nodes"]]
     asked = [a for a in asked if a]
     if asked:
@@ -1123,14 +1158,14 @@ def main(argv=None):
             rows.append((t, since, n))
         return sorted(rows)
 
-    def pr_lines(who, rows, indent=""):
+    def pr_lines(who, rows, indent="", intro=False):
         lines = []
         for _, since, n in rows:
             p = by_number[n]
             lines.append(
                 f"{indent}  #{n:<5} {days(since):>3} 日  {cut(p['title'], 62)}"
             )
-            for f in pr_facts(p, who, targets, repo):
+            for f in pr_facts(p, who, targets, repo, intro=intro):
                 lines.append(f"{indent}    {f}")
         return lines
 
@@ -1190,7 +1225,7 @@ def main(argv=None):
                 if not rows:
                     continue
                 print(f"  {who} — {len(rows)} 件")
-                print("\n".join(pr_lines(who, rows, "  ")))
+                print("\n".join(pr_lines(who, rows, "  ", intro=title == "自分の番")))
         print("\n## 返していない呼びかけ")
         for who in sorted({w for w, _, _ in pr_waits + issue_waits}):
             mine = [w for w in pr_waits + issue_waits if w[0] == who]
@@ -1201,7 +1236,7 @@ def main(argv=None):
         for title, keep in BUCKETS:
             bucket = [r for r in rows if keep(r[0])]
             print(f"\n## {title} — PR {len(bucket)} 件")
-            print("\n".join(pr_lines(me, bucket)))
+            print("\n".join(pr_lines(me, bucket, intro=title == "自分の番")))
         # PR と issue は番号が 1 本なので、呼びかけは種別で分けずに古い順に並べる
         mine = [w for w in pr_waits + issue_waits if w[0] == me]
         print(f"\n## 返していない呼びかけ — {len(mine)} 件")

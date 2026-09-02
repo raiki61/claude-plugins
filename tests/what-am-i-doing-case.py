@@ -183,6 +183,39 @@ def _dirty(tmp):
     return ("DIRTY_OK" if got == want else f"DIRTY_NG {got}")
 
 
+@case("dirty-tree")
+def _dirty_tree(tmp):
+    """未コミットの変更が木で出る。周辺の追跡ファイルも薄く並び、新規は行頭 +、変更は ~。
+    そのまま diff の枠に貼れる形（行頭 1 桁が印）。"""
+    import subprocess
+    cwd = build(tmp, [ask("木を見せて"), reply("はい")])
+    git = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q"], cwd=cwd, check=True)
+    (cwd / "docs").mkdir()
+    (cwd / "src").mkdir()
+    for rel, text in (("docs/a.md", "a\n"), ("docs/b.md", "b\n"), ("src/x.py", "x = 1\n")):
+        (cwd / rel).write_text(text, encoding="utf-8")
+    subprocess.run([*git, "add", "."], cwd=cwd, check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "init"], cwd=cwd, check=True)
+    (cwd / "docs" / "a.md").write_text("a\nmore\n", encoding="utf-8")
+    (cwd / "docs" / "new.md").write_text("n\n", encoding="utf-8")
+    (cwd / "newdir").mkdir()
+    (cwd / "newdir" / "n.txt").write_text("n\n", encoding="utf-8")  # 未追跡の階層は中の file で出る
+    out = run()
+    lines = out.splitlines()
+    want = {
+        "root": any(l.startswith(" work/") for l in lines),
+        "new": any(l.startswith("+") and l[1:].strip().startswith("new.md") and l.rstrip().endswith("新規") for l in lines),
+        "mod": any(l.startswith("~") and l[1:].strip().startswith("a.md") and l.rstrip().endswith("+1") for l in lines),
+        "sibling": any(l.startswith(" ") and l.strip() == "b.md" for l in lines),
+        "untouched_dir_hidden": not any("src/" in l for l in lines),
+        "untracked_dir_expanded": any(l.startswith("+") and l[1:].strip().startswith("n.txt") for l in lines),
+        "no_nameless_row": not any(l.startswith("+") and l[1:].strip().startswith("新規") for l in lines),
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "TREE_OK" if not bad else "TREE_NG " + ",".join(bad) + "\n" + out
+
+
 @case("pick-reference")
 def _pick(tmp):
     """立場の対象は、会話で一番呼ばれている番号を最優先にする。
