@@ -1021,24 +1021,33 @@ expect_output 0 "許可一覧に無い" "destgate: -R 無しの git remote が�
 CU_CASE="$ROOT/tests/catchup-case.py"
 
 expect_output 0 "レビュー結果です。block が 1 件あります" \
-    "catchup: 自分の最後の発言が基準点になる" "$PY_BIN" "$CU_CASE" mine
+    "catchup: 自分の最後の発言が「私が最後にしたこと」になる" "$PY_BIN" "$CU_CASE" mine
 expect_output 0 "私宛の依頼が来ていて、その後に私は発言していない" \
     "catchup: 依頼ボタンも未解決スレッドも無い名指しの依頼を手番として拾う" \
     "$PY_BIN" "$CU_CASE" mine
 expect_output 0 "人にしか判断できない 3 点" \
     "catchup: 依頼が「渡された時点」より前でも拾う" "$PY_BIN" "$CU_CASE" ask-before-handover
-expect_output 0 "まだ一度も発言していない" \
+expect_output 0 "で私に渡された" \
     "catchup: 未発言の件はそう言う（作成時に落とさず、渡された時点を出す）" \
     "$PY_BIN" "$CU_CASE" ask-before-handover
+expect_output 0 "レビュアー · ● 私の番" \
+    "catchup: レビュー依頼が来ていれば立場はレビュアー" "$PY_BIN" "$CU_CASE" ask-before-handover
 expect_output 0 "レビュー依頼 を出している" \
     "catchup: 本文の依頼を優先しつつ、後から押された依頼ボタンも申し送る" \
     "$PY_BIN" "$CU_CASE" ask-prefers-text
-expect_output 0 "○ 待ち — レビュー待ち: someone" \
-    "catchup: 依頼も担当も無ければ私の番ではない" "$PY_BIN" "$CU_CASE" waiting
-expect_output 0 "CI 赤は作者（私）しか外せない" \
-    "catchup: 知らない conclusion は赤に倒す" "$PY_BIN" "$CU_CASE" ci-unknown-conclusion
+expect_output 0 "未参加 · ○ 待ち — レビュー待ち: someone" \
+    "catchup: 依頼も担当も発言も無ければ私の番ではなく、立場は未参加" "$PY_BIN" "$CU_CASE" waiting
+expect_output 0 "実装者（作者） · ● 私の番" \
+    "catchup: 作者なら立場は実装者" "$PY_BIN" "$CU_CASE" ci-unknown-conclusion
+expect_output 0 "    - CI 赤は作者（私）しか外せない" \
+    "catchup: 知らない conclusion は赤に倒す。理由が複数なら箇条書き" \
+    "$PY_BIN" "$CU_CASE" ci-unknown-conclusion
 expect_output 0 "赤 1 件（deploy）" \
     "catchup: 赤いチェックの名前を出す" "$PY_BIN" "$CU_CASE" ci-unknown-conclusion
+expect_output 0 "lint  https://example.invalid/runs/1" \
+    "catchup: 赤いチェックに行き先の URL を添える" "$PY_BIN" "$CU_CASE" ci-red-url
+expect_output 0 "CI が落ちた理由（上の URL か gh pr checks で見る）" \
+    "catchup: CI が赤なら、落ちた理由は見ていないと断る" "$PY_BIN" "$CU_CASE" ci-red-url
 expect_output 0 "実行中 1 件" \
     "catchup: 走っている最中は赤にも緑にも数えない" "$PY_BIN" "$CU_CASE" ci-running
 expect_output 0 "書きかけのレビューが未送信" \
@@ -1051,13 +1060,55 @@ expect_output 0 "未解決スレッド 1 件で相手が返している（私が
     "$PY_BIN" "$CU_CASE" thread-turn
 expect_output 0 "CI: 報告なし" \
     "catchup: チェックが 1 本も無い状態を「全 pass」と言わない" "$PY_BIN" "$CU_CASE" no-checks
+expect_output 0 "この件で私はまだ何もしていない" \
+    "catchup: 触っていない件はそう言う" "$PY_BIN" "$CU_CASE" no-checks
 expect_output 0 "まだ承認されていない（REVIEW_REQUIRED）" \
     "catchup: API の値をそのまま出さず、中身を先に書いて原語を括弧で添える" \
     "$PY_BIN" "$CU_CASE" waiting
-expect_output 0 "上限に当たったもの: コメント（140 件中 1 件）" \
-    "catchup: 取得上限に当たったら黙って切らずに申告する" "$PY_BIN" "$CU_CASE" cap
+expect_output 0 "コメントの古い方 139 件（140 件中、新しい 1 件だけ取った）" \
+    "catchup: 取得上限に当たったら黙って切らず、何を見落としうるかまで申告する" \
+    "$PY_BIN" "$CU_CASE" cap
 expect_output 0 "（本文なし）" \
     "catchup: 引用だけの本文を発言の中身として扱わない" "$PY_BIN" "$CU_CASE" quote-only
+expect_output 0 "その後に起きたこと — 0 件" \
+    "catchup: login に結び付いていない commit を、手元の git config の user.email と照合して自分の push にする" \
+    "$PY_BIN" "$CU_CASE" push-alias
+expect_output 0 "me-git が push" \
+    "catchup: メールが一致しなければ、結び付いていない commit は名前のまま他人として出す（名前では照合しない）" \
+    "$PY_BIN" "$CU_CASE" push-stranger
+expect_output 0 "結び付いていない commit（名前: me-git）が誰のものか" \
+    "catchup: 照合に外れた結び付き無しの commit を末尾で申告する" \
+    "$PY_BIN" "$CU_CASE" push-stranger
+expect_output 0 "私の最後の発言（" \
+    "catchup: 自分の件で本文なしの承認と解決済みスレッドは「求められていること」に拾わない" \
+    "$PY_BIN" "$CU_CASE" ask-on-my-item-empty
+expect_output 0 "レビュー依頼が誰にも出ていない（依頼先を決めるのは私）" \
+    "catchup: 自分の PR でレビュー依頼が誰にも出ていなければ、渡すのは私" \
+    "$PY_BIN" "$CU_CASE" own-pr-unrequested
+expect_output 0 "未参加 · ● 私の番 — 私宛の依頼が来ていて" \
+    "catchup: 名指しで呼ばれただけの件は「未参加 · 私の番」（どちらでもないと断定しない）" \
+    "$PY_BIN" "$CU_CASE" mentioned-outsider
+expect_output 0 "再確認をお願いします" \
+    "catchup: push は返事ではない——最後の痕跡が push でも、依頼は最後の発言より後から探す" \
+    "$PY_BIN" "$CU_CASE" push-not-cutoff
+expect_output 0 "名指しは無い。私の件への発言" \
+    "catchup: 自分の件では名指しの無い発言も最後の 1 件を拾い、名指しが無いと断る" \
+    "$PY_BIN" "$CU_CASE" ask-on-my-item
+expect_output 0 "問いかは本文で確かめる" \
+    "catchup: 名指しの無い発言は、問いかどうかを機械で決めずに手番の理由に書く" \
+    "$PY_BIN" "$CU_CASE" ask-on-my-item
+expect_output 0 "その後に起きたこと — 0 件" \
+    "catchup: 参照（他の PR がこの番号を書いた）を出来事に数えない" \
+    "$PY_BIN" "$CU_CASE" refs-not-events
+expect_output 0 "#99 別の PR" \
+    "catchup: 参照はつながっている先に置く" "$PY_BIN" "$CU_CASE" refs-not-events
+expect_output 0 "○ 待ち — レビュー待ち: someone" \
+    "catchup: 自分の PR の assignee は、それだけでは私の番の理由にならない" \
+    "$PY_BIN" "$CU_CASE" assignee-own-pr
+expect_output 0 "担当 · ● 私の番 — 私が担当（assignee）" \
+    "catchup: issue では担当が手番の根拠で、立場も担当" "$PY_BIN" "$CU_CASE" issue-assignee
+expect_output 0 "本文の中身（gh issue view で見る）" \
+    "catchup: issue の「見ていないもの」に diff を書かない" "$PY_BIN" "$CU_CASE" issue-assignee
 expect_output 1 "使い方" \
     "catchup: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$CU_CASE"
 expect_output 1 "番号か PR / issue の URL を渡す" \
