@@ -1047,7 +1047,8 @@ expect_output 0 "赤 1 件（deploy）" \
 expect_output 0 "lint  https://example.invalid/runs/1" \
     "catchup: 赤いチェックに行き先の URL を添える" "$PY_BIN" "$CU_CASE" ci-red-url
 expect_output 0 "CI が落ちた理由（上の URL か gh pr checks で見る）" \
-    "catchup: CI が赤なら、落ちた理由は見ていないと断る" "$PY_BIN" "$CU_CASE" ci-red-url
+    "catchup: 焦点で CI の材料を外したときは、落ちた理由は見ていないと断り、CI を付ける口を書く" \
+    "$PY_BIN" "$CU_CASE" ci-red-url
 expect_output 0 "実行中 1 件" \
     "catchup: 走っている最中は赤にも緑にも数えない" "$PY_BIN" "$CU_CASE" ci-running
 expect_output 0 "書きかけのレビューが未送信" \
@@ -1120,6 +1121,12 @@ expect_output 1 "対象は 1 つだけ渡す" \
 expect_output 0 "SPLIT_OK" \
     "catchup: 引数の語を対象と焦点（指摘・地図・CI）に分ける。焦点だけ・引数なしは今のブランチ" \
     "$PY_BIN" "$CU_CASE" split-words
+expect_output 0 "TAILS_OK" \
+    "catchup: 末尾の材料は有れば全部出す（自分の PR にも地図）。焦点はその 1 つに絞り、issue には無い" \
+    "$PY_BIN" "$CU_CASE" tails-by-existence
+expect_output 0 "WORDING_OK" \
+    "catchup: 焦点なしの既定では、赤なら CI の材料が付くので「見ていない」と断らず、PR なら地図が付くと言う" \
+    "$PY_BIN" "$CU_CASE" tails-default-wording
 expect_output 0 "THREADS_OK" \
     "catchup: 指摘の材料は相手の発言がある未解決スレッドだけ。相手の最後の発言と head の前後の行、file の外の行はそう言う" \
     "$PY_BIN" "$CU_CASE" threads-material

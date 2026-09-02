@@ -110,11 +110,19 @@ def commit(t, oid, msg, login=None, name="", email=""):
                                   "name": name, "email": email}}}
 
 
-def render(node, full=False, my_email=""):
+def render(node, full=False, my_email="", tails=False):
+    """tails=True なら main() と同じ経路（焦点なし）で末尾の材料の有無を決めて渡す。既定の False は
+    材料を 1 つも付けない呼び方で、焦点で外したときの文言を見る。"""
     ev, refs, unlinked = catchup.collect_events(node, ME, my_email)
     anchor, kind = catchup.find_anchor(ev, node, ME)
+    flags = {}
+    if tails:
+        is_pr = node["__typename"] == "PullRequest"
+        m, t, c = catchup.pick_tails(is_pr, set(), bool(catchup.unresolved_threads(node, ME)),
+                                     bool(catchup.check_state(node)[0]) if is_pr else False)
+        flags = {"with_map": m, "with_threads": t, "with_ci": c}
     return catchup.render(node, ME, ev, refs, unlinked, anchor, kind, full, 12,
-                          catchup.collect_caps(node))
+                          catchup.collect_caps(node), **flags)
 
 
 CASES = {}
@@ -314,6 +322,45 @@ def _split_words():
     want = [("1569", {"threads"}), ("this", {"threads"}), ("this", set()),
             ("this", {"ci", "map"}), ("https://x/o/r/pull/3", set())]
     return "SPLIT_OK" if got == want else f"SPLIT_NG {got}"
+
+
+@case("tails-by-existence")
+def _tails_by_existence():
+    """末尾の材料は有れば出す——地図は PR なら常に（自分の PR でも）、指摘は人が入っている未解決
+    スレッドが有れば、CI は赤が有れば。焦点はその 1 つに絞り、無くても出す。issue には無い。"""
+    got = [catchup.pick_tails(*a) for a in (
+        (True, set(), False, False),        # 自分の PR に材料が無くても地図は出る
+        (True, set(), True, True),          # 指摘と赤が有れば全部
+        (True, set(), True, False),         # 指摘だけ有る（CI と取り違えない）
+        (True, set(), False, True),         # 赤だけ有る
+        (True, {"threads"}, False, False),  # 焦点は絞る。無くても出して「無い」と言わせる
+        (True, {"ci", "map"}, True, False),
+        (True, {"map"}, True, True),        # 焦点は、有る材料も落とす
+        (False, set(), True, True),         # issue には何も無い
+        (False, {"map"}, False, False),
+    )]
+    want = [(True, False, False), (True, True, True), (True, True, False), (True, False, True),
+            (False, True, False), (True, False, True), (True, False, False),
+            (False, False, False), (False, False, False)]
+    return "TAILS_OK" if got == want else f"TAILS_NG {got}"
+
+
+@case("tails-default-wording")
+def _tails_default_wording():
+    """焦点なしの既定の「見ていないもの」: 赤なら CI の材料が末尾に付くので「落ちた理由は見ていない」と
+    断らず、PR なら地図が付くので「diff の全文（下の地図は…）」と言う。人が入っている未解決スレッドが
+    有れば「スレッドの経緯（下の指摘は…）」。焦点で外したときの断り文は出ない。"""
+    node = pr(author=user(ME),
+              head=checks(check_run("lint", "FAILURE", url="https://example.invalid/runs/1")),
+              reviewThreads=conn([thread("app/main.py", False, comment(T1, "other", "[nit] 表記"))]))
+    out = render(node, tails=True)
+    want = {
+        "ci_material_attached": "CI が落ちた理由（上の URL" not in out and "CI を付けて呼ぶと" not in out,
+        "map_attached": "diff の全文（下の地図は" in out and "地図 を付けて呼ぶと" not in out,
+        "threads_attached": "スレッドの経緯（下の指摘は" in out and "指摘 を付けて呼ぶと" not in out,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "WORDING_OK" if not bad else "WORDING_NG " + ",".join(bad) + "\n" + out
 
 
 @case("threads-material")

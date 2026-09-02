@@ -1,5 +1,5 @@
 {
   "name": "attention",
-  "version": "0.13.0",
-  "description": "並行作業を見渡して戻るための道具 3 本。open な PR / issue を全件走査して「誰の番か・なぜ今その人の番か」を機械で出す /whose-turn、1 件の PR / issue について「前回自分が触ってから何が起きたか」を出す /catchup、いま居るセッションが何のスレッドだったかをその場に居なかった人でも追いつける形で説明する /what-am-i-doing。中心は変更の中身ではなく位置で、戻ったときに失われているのは会話のどこで止まったかの方だという前提に立つ。先行例は Gerrit / Google Critique の Attention Set。"
+  "version": "0.14.0",
+  "description": "並行作業を見渡して戻るための道具 3 本。open な PR / issue を全件走査して「誰の番か・なぜ今その人の番か」を機械で出す /whose-turn、1 件の PR / issue について「前回自分が触ってから何が起きたか」を出す /catchup、いま居るセッションが何のスレッドだったかをその場に居なかった人でも追いつける形で説明する /what-am-i-doing。中心は位置——戻ったときに真っ先に失われているのは会話のどこで止まったか——で、中身は要約せず実物の行で有るだけ後ろに付ける。先行例は Gerrit / Google Critique の Attention Set。"
 }

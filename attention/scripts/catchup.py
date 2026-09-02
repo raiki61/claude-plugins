@@ -24,11 +24,12 @@ commit していると author の login は空で、名前とメールだけが�
 状態は変わらない。時系列に混ぜると表示上限を食い、本当の出来事（コメント・レビュー）を押し出す。
 「つながっている先」にだけ置く。
 
-〈変更の地図〉行の要約は出さない。それは思い出す助けにならず、AI が要約すると実物と違う言葉に
-なる。自分の PR に戻るとき失われているのは「何を変える PR か」（本文に書いてある）ではなく、会話の
-どこで自分が止まったかの方である。ただし作者が私でない PR（レビューで渡された件）では逆で、失われて
-いるのは「何の PR か」の方なので、その場合だけ末尾に地図の材料——置き場所・骨組み・配線——を機械で
-出す（--map で強制・抑止）。地図でも判断はせず、行は 1 文字も変えない。
+〈末尾の材料〉行の要約は出さない。それは思い出す助けにならず、AI が要約すると実物と違う言葉に
+なる。末尾に付けるのは実物の行の材料——指摘（相手の発言と head のその行）・CI（落ちた step の
+ログ）・地図（置き場所・骨組み・配線）——で、**有れば出す、無ければ出さない**。作者が私かどうかでは
+出し分けない。この道具を呼ぶこと自体が、自分の PR でも中身を忘れている印だから（実測: 自分の PR で
+木が出ず、欲しかった）。焦点の語（指摘・地図・CI）は、その 1 つに絞る口。材料でも判断はせず、行は
+1 文字も変えない。
 
 〈短さ〉既定の出力は画面 1 つに収める。全文が要るときだけ --full を付ける。長い抜粋を既定に
 すると、思い出すための道具が読み直しの作業になり、目的と衝突する。
@@ -165,7 +166,7 @@ def local_email():
     return r.stdout.strip().lower() if r.returncode == 0 else ""
 
 
-# 焦点の語。番号の後ろに付けると、その材料を末尾に足す（地図は --map yes と同じ）
+# 焦点の語。番号の後ろに付けると、末尾の材料をその 1 つに絞る（付けなければ有るものを全部）
 FOCUS = {"指摘": "threads", "地図": "map", "CI": "ci"}
 URL_RE = re.compile(r"https?://[^/]+/([^/]+)/([^/]+)/(?:pull|issues)/(\d+)")
 
@@ -183,6 +184,19 @@ def split_words(words):
     if len(rest) > 1:
         sys.exit(f"対象は 1 つだけ渡す（受け取った値: {' '.join(rest)}）")
     return (rest[0] if rest else "this"), focus
+
+
+def pick_tails(is_pr, focus, has_threads, has_red):
+    """末尾に付ける材料 (地図, 指摘, CI) を決める。有れば出す——地図は PR なら常に、指摘は人が
+    入っている未解決スレッドが有れば、CI は赤が有れば。作者が私かどうかは見ない（この道具を呼ぶこと
+    自体が、自分の PR でも中身を忘れている印）。焦点を付けたときはその材料だけで、無くても出して
+    「無い」と言わせる——黙って落とすと、絞った側が「出なかった」のか「無かった」のか分からない。
+    issue には何も無い。"""
+    if not is_pr:
+        return False, False, False
+    if focus:
+        return "map" in focus, "threads" in focus, "ci" in focus
+    return True, has_threads, has_red
 
 
 def branch_number(branch):
@@ -699,11 +713,12 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
           "私の痕跡や私宛の依頼がそこにあれば見落とす")
     w("  - GitHub の外（チャット・口頭・メール）でのやり取り")
     if is_pr:
+        # 有るのに末尾に無い材料（焦点で他に絞ったとき）は、出す口を添える
         w(("  - diff の全文（下の地図は置き場所と骨組みと抜粋。gh pr diff で見る）" if with_map
-           else "  - 本文と diff の中身（gh pr diff で見る）")
+           else "  - 本文と diff の中身（gh pr diff で見る。地図 を付けて呼ぶと末尾に出る）")
           + ("、CI が落ちた理由（上の URL か gh pr checks で見る）。CI を付けて呼ぶと末尾に出る"
              if red and not with_ci else ""))
-        if with_threads:
+        if with_threads and human:
             w("  - スレッドの経緯（下の指摘は相手の最後の発言と、その行の前後だけ）")
         elif human:
             w("  - 未解決スレッドの中身（指摘 を付けて呼ぶと末尾に出る）")
@@ -722,10 +737,10 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
 
 # ---- 変更の地図（材料） --------------------------------------------------------
 #
-# 作者が私でない PR を渡されたとき、失われているのは「会話のどこで止まったか」より「何の PR か」の
-# 方である。それでも行の要約は出さない（思い出す助けにならず、AI が要約すると実物と違う言葉に
-# なる）。出すのは置き場所・骨組み・配線の材料で、判断はしない。AI はここから選んで並べ、散文だけ
-# 自分で書く。部品は scripts/lib/changemap.py（/what-am-i-doing と共用）。
+# PR なら作者を問わず出す。戻るとき「何の PR か」も失われている——自分の PR でも（理由は冒頭の
+# 〈末尾の材料〉）。それでも行の要約は出さない（思い出す助けにならず、AI が要約すると実物と違う
+# 言葉になる）。出すのは置き場所・骨組み・配線の材料で、判断はしない。AI はここから選んで並べ、散文
+# だけ自分で書く。部品は scripts/lib/changemap.py（/what-am-i-doing と共用）。
 #
 # 出すもの:
 #   - 変更ファイルの一覧（種別と ±行数）と、直近マージの規模の目安
@@ -789,7 +804,7 @@ def render_map(node, owner, name):
     paths = [f["path"] for f in nodes]
     kinds = {f["path"]: f["changeType"] for f in nodes}
 
-    w("## 変更の地図（材料。作者が私でない PR のとき出る。--map no で止める）")
+    w("## 変更の地図（材料。PR なら作者を問わず出る。焦点で他の材料に絞ったときだけ出ない）")
     w("  `| ` の後ろは 1 文字も変えていない。写すときはそのまま使う")
     size = f"{node['changedFiles']} ファイル +{node['additions']}/-{node['deletions']}"
     ctx = merged_size_context(owner, name)
@@ -885,7 +900,8 @@ def render_map(node, owner, name):
 
 # ---- 指摘・CI・手元のブランチ（材料） --------------------------------------------
 #
-# 自分の PR に戻るとき失われているのは、変更の中身ではなく「何を言われて、どこで止まっているか」。
+# 戻るとき「何を言われて、どこで止まっているか」も失われている——自分の PR でも、レビューで渡された
+# PR で作者が返してきた件でも。人が入っている未解決スレッドが有れば、作者を問わず出す。
 # 未解決スレッドごとに、相手の最後の発言の全文と head のその行の前後を出す。AI はこれを地図の
 # file ごとの節と同じ「箇所」の形（見出し・誰が何を求めているか・実物の行・直すなら）に並べる。
 # CI は落ちた step のログの末尾、手元のブランチは push していない commit と未コミットの木。
@@ -1077,17 +1093,15 @@ def main(argv=None):
         description="1 件の PR / issue について、前回自分が触ってから何が起きたかを出す")
     p.add_argument("words", nargs="*", metavar="対象 [焦点]",
                    help="対象は番号か PR / issue の URL。無ければ（または this なら）今のブランチの "
-                        "PR、それも無ければブランチ名の番号を issue と見る。末尾の材料は立場で決まり"
-                        "（作者が私でない PR は地図、自分の PR は未解決があれば指摘）、焦点の語 "
-                        "指摘・地図・CI を後ろに付けるとそれに足す")
+                        "PR、それも無ければブランチ名の番号を issue と見る。末尾の材料は有れば全部出る"
+                        "（地図は PR なら常に、指摘は人が入っている未解決スレッドが有れば、CI は赤が"
+                        "有れば）。焦点の語 指摘・地図・CI を後ろに付けると、その 1 つに絞る")
     p.add_argument("-R", "--repo", help="owner/repo（URL を渡すときは不要）")
     p.add_argument("--me", help="基準にする login（既定は gh の認証ユーザ）。指定すると、"
                    "手元の git config の user.email による commit の照合はしない")
     p.add_argument("--full", action="store_true", help="発言を全文で出す")
     p.add_argument("--limit", type=int, default=12,
                    help="その後に起きたことの表示件数（既定 12）")
-    p.add_argument("--map", choices=("auto", "yes", "no"), default="auto",
-                   help="末尾に変更の地図の材料を付けるか。auto は作者が私でない PR のときだけ")
     a = p.parse_args(argv)
 
     target, focus = split_words(a.words)
@@ -1099,26 +1113,23 @@ def main(argv=None):
     ev, refs, unlinked = collect_events(node, me, my_email)
     anchor, anchor_kind = find_anchor(ev, node, me)
     is_pr = node["__typename"] == "PullRequest"
-    own = login_of(node["author"]) == me
-    # 既定は立場で決まり、焦点はそれに足す（焦点で既定を消さない——CI だけ付けた他人の PR でも地図は
-    # 要る）。作者が私でない PR で失われているのは「何の PR か」なので地図、自分の PR で失われている
-    # のは「何を言われてどこで止まったか」なので指摘
-    with_map = is_pr and a.map != "no" and ("map" in focus or a.map == "yes" or not own)
-    with_threads = is_pr and ("threads" in focus or (own and bool(unresolved_threads(node, me))))
-    with_ci = is_pr and "ci" in focus
+    with_map, with_threads, with_ci = pick_tails(
+        is_pr, focus, bool(unresolved_threads(node, me)),
+        bool(check_state(node)[0]) if is_pr else False)
     print(render(node, me, ev, refs, unlinked, anchor, anchor_kind, a.full, a.limit,
                  collect_caps(node), with_map=with_map, with_threads=with_threads,
                  with_ci=with_ci))
+    # 並びは、私が動く材料（指摘・CI）→ 読み直す材料（地図）→ GitHub に無い手元の状態
     tails = []
-    if local:
-        tails.append(render_local(num if local == "branch" else None))
-    if with_map:
-        tails.append(render_map(node, owner, name))
     if with_threads:
         tails.append(render_threads(node, me, head_reader(owner, name, head_oid(node))))
     if with_ci:
         tails.append(render_ci(node, owner, name))
-    if not is_pr and (focus or a.map == "yes"):
+    if with_map:
+        tails.append(render_map(node, owner, name))
+    if local:
+        tails.append(render_local(num if local == "branch" else None))
+    if not is_pr and focus:
         tails.append("（issue には地図・指摘・CI の材料は無い）")
     for t in tails:
         print()
