@@ -141,6 +141,7 @@ def pr(**kw):
         "commits": rollup(None),
     }
     p.update(kw)
+    p.setdefault("url", f"https://example.invalid/pull/{p['number']}")
     return p
 
 
@@ -1048,6 +1049,7 @@ def issue(
         "id": "I1",
         "number": number,
         "title": "t",
+        "url": f"https://example.invalid/issues/{number}",
         "createdAt": created,
         "updatedAt": updated,
         "body": body,
@@ -1269,20 +1271,30 @@ class Display(unittest.TestCase):
         self.assertEqual(flow.cut("short", 10), "short")
 
 
+def report(*prs, issues=(), who="bob", args=()):
+    """固定の材料で main を回し、報告の全文を返す。GitHub には触らない"""
+
+    def fetch_all(_query, _owner, _name, field):
+        return list(prs) if field == "pullRequests" else list(issues)
+
+    def gh(*_args):  # 呼びかけがあるとき fill_reactions が引くリアクション。空で返す
+        return json.dumps({"data": {"nodes": []}})
+
+    buf = io.StringIO()
+    with (
+        mock.patch.object(flow, "fetch_all", fetch_all),
+        mock.patch.object(flow, "gh", gh),
+        contextlib.redirect_stdout(buf),
+    ):
+        flow.main([who, "--repo", "o/n", *args])
+    return buf.getvalue()
+
+
 class Buckets(unittest.TestCase):
     """報告は段を出さず「自分の番 / 相手の番」の 2 節に分ける。段は並びの鍵としてだけ残る。"""
 
     def render(self, *prs, who="bob", args=()):
-        def fetch_all(_query, _owner, _name, field):
-            return list(prs) if field == "pullRequests" else []
-
-        buf = io.StringIO()
-        with (
-            mock.patch.object(flow, "fetch_all", fetch_all),
-            contextlib.redirect_stdout(buf),
-        ):
-            flow.main([who, "--repo", "o/n", *args])
-        return buf.getvalue()
+        return report(*prs, who=who, args=args)
 
     def bucket(self, out, n=1):
         head, _, tail = out.partition("## 相手の番")
@@ -1426,6 +1438,48 @@ class Buckets(unittest.TestCase):
                          "Fixes the bug, e.g. when foo is empty.")
         self.assertEqual(flow.intro_line("v1.2 を直す。ほか"), "v1.2 を直す。")
 
+
+
+class Links(unittest.TestCase):
+    """各行の 2 行目は URL。読む側（AI）が番号をリンクにする材料で、番号から組み立てさせない
+    ——GHES では host が違い、issue と PR で path も違う（/issues と /pull）。"""
+
+    def render(self, prs=(), issues=(), who="bob", args=()):
+        return report(*prs, issues=issues, who=who, args=args).splitlines()
+
+    def line_after(self, lines, head):
+        i = next(i for i, line in enumerate(lines) if line.startswith(head))
+        return lines[i + 1]
+
+    def test_pr_rows_carry_the_url_right_under_the_number(self):
+        mine = pr(number=1, reviewRequests=requests(user("bob")))
+        theirs = pr(number=2, reviewThreads=conn(thread(comment(user("bob"), T2))))
+        # bob には #1 が自分の番、#2 が相手の番。どちらの節でも番号の次の行が URL
+        lines = self.render(prs=[mine, theirs], who="bob")
+        self.assertEqual(
+            self.line_after(lines, "  #1 "), "    https://example.invalid/pull/1"
+        )
+        self.assertEqual(
+            self.line_after(lines, "  #2 "), "    https://example.invalid/pull/2"
+        )
+
+    def test_mention_and_assigned_issue_rows_carry_the_url(self):
+        called = issue(number=3, comments=[(user("alice"), T1, "@bob 見て")])
+        assigned = issue(number=4, assignees=["bob"])
+        lines = self.render(issues=[called, assigned], who="bob")
+        self.assertEqual(
+            self.line_after(lines, "  #3 "), "    https://example.invalid/issues/3"
+        )
+        self.assertEqual(
+            self.line_after(lines, "  #4 "), "    https://example.invalid/issues/4"
+        )
+
+    def test_all_mode_keeps_the_url_under_each_row(self):
+        lines = self.render(prs=[pr(number=1, reviewRequests=requests(user("bob")))],
+                            args=("--all",))
+        self.assertEqual(
+            self.line_after(lines, "    #1 "), "      https://example.invalid/pull/1"
+        )
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

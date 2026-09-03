@@ -4,6 +4,7 @@
 〈目的〉「自分の番の PR は」「担当 issue は」「呼ばれて返していないのは」に答える材料を、
 GitHub から取れる範囲で全部、決定的に集める。判断（返信が要るか・急ぎか）はしない——
 それは読む人か、/whose-turn の AI の仕事。母集団と、見ていないものを必ず併記する。
+各行の 2 行目はその PR / issue の URL——読む側が番号をリンクにするための材料。
 
 〈PR の番〉1 つの PR が複数人に載る。形式上の状態と会話の状態を別の信号として出す:
   draft         作者。draft のまま
@@ -110,7 +111,7 @@ query($owner: String!, $name: String!, $cursor: String) {{
     pullRequests(first: 10, states: OPEN, after: $cursor) {{
       pageInfo {{ hasNextPage endCursor }}
       nodes {{
-        number title headRefName isDraft reviewDecision mergeStateStatus createdAt updatedAt
+        number title url headRefName isDraft reviewDecision mergeStateStatus createdAt updatedAt
         body additions deletions changedFiles
         author {{ login }}
         assignees(first: 10) {{ totalCount nodes {{ login }} }}
@@ -150,7 +151,7 @@ query($owner: String!, $name: String!, $cursor: String) {{
     issues(first: 40, states: OPEN, after: $cursor) {{
       pageInfo {{ hasNextPage endCursor }}
       nodes {{
-        id number title createdAt updatedAt body
+        id number title url createdAt updatedAt body
         author {ACTOR}
         assignees(first: 20) {{ totalCount nodes {{ login }} }}
         comments(last: 100) {{ totalCount nodes {{ id createdAt body author {ACTOR} }} }}
@@ -1158,6 +1159,8 @@ def main(argv=None):
             rows.append((t, since, n))
         return sorted(rows)
 
+    # 各行の 2 行目は URL。読む側が番号をリンクにする材料で、番号から組み立てさせない——
+    # GHES では host が違い、issue と PR で path も違う（/issues と /pull）
     def pr_lines(who, rows, indent="", intro=False):
         lines = []
         for _, since, n in rows:
@@ -1165,6 +1168,7 @@ def main(argv=None):
             lines.append(
                 f"{indent}  #{n:<5} {days(since):>3} 日  {cut(p['title'], 62)}"
             )
+            lines.append(f"{indent}    {p['url']}")
             for f in pr_facts(p, who, targets, repo, intro=intro):
                 lines.append(f"{indent}    {f}")
         return lines
@@ -1187,6 +1191,7 @@ def main(argv=None):
             lines.append(
                 f"{indent}  #{item['number']:<5} {local_time(info['since'], '%Y-%m-%d')} から {days(info['since']):>3} 日  {cut(item['title'], 56)}"
             )
+            lines.append(f"{indent}    {item['url']}")
             lines.append(
                 f"{indent}         {info['by']}: 「{info['excerpt']}」"
                 + (f"  [{' / '.join(tags)}]" if tags else "")
@@ -1207,6 +1212,7 @@ def main(argv=None):
                     else ""
                 )
             )
+            lines.append(f"{indent}    {i['url']}")
         return lines
 
     print(

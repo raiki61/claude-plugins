@@ -1206,7 +1206,7 @@ expect_output 1 "使い方" \
 # ---- attention/whose-turn: open 全件から誰の番か ----
 # GitHub には触らない。判定は純粋関数で、固定の材料が規則を 1 行ずつ固定する
 WT="$ROOT/attention/scripts/whose-turn.py"
-expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 105 件。時刻はローカル、検査は UTC 固定）" \
+expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 111 件。時刻はローカル、検査は UTC 固定）" \
     "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
