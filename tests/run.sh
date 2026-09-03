@@ -752,6 +752,104 @@ expect_output 0 "残った疑問" "疑問のみなら通り、申し送りが載
     "$CR_CASE" "$CR_CFG" "$CR_STUB_QUEST" "$CR_POST"
 expect_output 0 "coldreader(文脈ゼロの読み手)の起動に失敗" "読み役の故障は deny+案内(投稿不能にはしない)" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "$CR_POST"
+# 行継続(`\` + 改行)。tokenize は改行を区切りの演算子として残すので、正規化しないと 1 つの
+# gh 呼び出しが複数の単純コマンドに割れる。旗だけが載った断片は gh 呼び出しと認識されず、
+# 本文旗が引数列から消えて「投稿でない」として無検査・無記録で素通しになっていた。
+# 2026-09-03 の issue 3 本は逃げ道で通った(記録は残る)が、同じ 3 本から逃げ道を外すと
+# この経路で記録の無い素通しになることを実測した——同じコマンドに独立した穴が 2 つ在った。
+# 4 形を張るのは折り返す位置で壊れ方が変わるため。期待を「詰まり」にするのは、
+# deny になった事実でなく読み役が実際に本文を読んだことまで見るため。
+expect_output 0 "詰まり" "行継続: 旗の前で折り返しても網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue comment 1 \\
+  --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "行継続: サブコマンドの後で折り返しても網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue \\
+  comment 1 --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "行継続: gh api + ヒアドキュメント(事故の形)も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh api repos/o/r/issues -X POST \\
+  -f title='t' \\
+  -F body=@- <<'EOF'
+$CR_BODY
+$CR_PAD
+EOF"
+CR_CONT_CRLF=$(printf "gh issue comment 1 \\\\\r\n  --body '%s %s'" "$CR_BODY" "$CR_PAD")
+expect_output 0 "詰まり" "行継続: CRLF で届いても網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_CONT_CRLF"
+# 単一引用の中の `\`+改行 は行継続ではない(シェルが畳まない)。畳んでしまうと本文が
+# 書かれたとおりに読み役へ渡らないので、こちらは保つ側を張る。
+# 期待を「詰まり」にすると畳んでも緑になる(どちらでも読み役は走る)ので、読み役の側で
+# 本文を実際に見て、畳まれたかどうかで返す文言を変える
+CR_STUB_FOLD='if grep -q "まえ\\\\$"; then printf "詰まり: 行継続が畳まれずに届いた\n"; else printf "詰まり: 行継続が畳まれてしまった\n"; fi'
+expect_output 0 "畳まれずに届いた" "単一引用の中の改行は畳まず、本文が書かれたとおり読み役へ渡る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FOLD" "gh issue comment 1 --body 'まえ\\
+うしろ $CR_BODY $CR_PAD'"
+
+# 注釈(#)。shlex の既定は行末まで読み捨てるので、区切りにしている改行まで消えて
+# 単純コマンドが融合し、先頭語が cd や echo になって gh が見えなくなる。
+# 行継続を畳むようにしたぶん融合の射程が「物理行」から「論理行」へ広がるので、
+# 塞ぐ側を張る(1 件目は今回の変更が入れた退行、2 件目は元から在った穴)
+expect_output 0 "詰まり" "語中の # があっても行継続の先の本文旗を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue create -R o/r --title fix#123 \\
+  --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "注釈行の次の行の gh を見失わない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "cd /tmp  # 作業場所
+gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+
+# 注釈と行継続は 1 パスで落とす。2 パスだと順序をどちらに置いても、bash が実行する gh を
+# 片方で見失う(どちらも gh スタブを PATH に置いた bash で「実行される」ことを実測):
+#   注釈が先   → 1 件目を落とす(行が連結されるので #y は語中の # であって注釈ではない)
+#   行継続が先 → 2 件目を落とす(注釈は行末で切れるので、その \ は注釈の一部)
+# 2 件同時に緑になるのは 1 パスのときだけなので、この 2 本で順序への逆戻りを縛る
+expect_output 0 "詰まり" "行継続で連結した後の # は語中(注釈にせず、後ろの gh を残す)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "echo x\\
+#y; gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+expect_output 0 "詰まり" "注釈の中の \\ は行継続にしない(次の行の gh を残す)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "echo a # メモ \\
+gh issue comment 1 --body '$CR_BODY $CR_PAD'"
+
+# シェルの予約語。( gh … ) は元から網に入るのに { gh …; } は抜ける、という
+# 「書き方だけで片方が抜ける」状態だった
+expect_output 0 "詰まり" "{ } で括った gh も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "{ gh issue comment 1 --body '$CR_BODY $CR_PAD'; }"
+expect_output 0 "詰まり" "if の then に置いた gh も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "if true; then gh issue comment 1 --body '$CR_BODY $CR_PAD'; fi"
+expect_output 0 "詰まり" "while の do に置いた gh も網に入る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "while true; do gh issue comment 1 --body '$CR_BODY $CR_PAD'; break; done"
+
+# 網から落ちた投稿を数えられるようにする。sh -c は受容済みの限界(gates/README.md)だが、
+# 落ちた事実が 0 行なのは「投稿でなかった」と区別が付かず、押し出しの量を測れない
+expect_output 0 "ALLOW_EMPTY" "sh -c の中の gh は今も素通し(受容済みの限界)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "sh -c 'gh issue comment 1 --body \"$CR_BODY $CR_PAD\"'"
+expect_output 0 "--body" "網から落ちた投稿は旗の綴りだけ misses.log に残る" \
+    cat "$CR_CFG/coldread-gate/misses.log"
+
+# 補完(読み手が推測で埋めた箇所)。詰まり 0 件で通る自信のある誤読を書き手に返すための欄で、
+# 投稿は止めない。事故で最悪だった誤読(「いま CI が壊れている」)がこの型
+CR_STUB_FILL='cat >/dev/null; printf "補完: 障害は今起きていると読んだ\nCLEAN\n"'
+CR_STUB_BLOCK_FILL='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\n補完: 障害は今起きていると読んだ\n"'
+CR_STUB_PROSE='cat >/dev/null; printf "詰まりは無い。本文は将来の話をしている。\nCLEAN\n"'
+expect_output 0 "推測で埋めた箇所" "補完のみなら通り、埋めた中身が載る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FILL" "$CR_POST"
+expect_output 0 "補完: 障害は今起きている" "補完は deny の指摘にも載る(直す機会があるのは deny の側)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK_FILL" "$CR_POST"
+# 期待は allow にしか出ない語にする。「通じやすさのみ」(SCOPE_NOTE)は deny にも載るので
+# 恒真になる——実際に恒真だったのを変異で検出して直した
+expect_output 0 "検査を通過" "ラベルはコロンまで見る(「詰まりは無い」の地の文で deny にしない)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_PROSE" "$CR_POST"
+expect_output 0 "止めてはいないが" "deny の指摘は見出しで分ける(直す詰まりと、直さなくてよい補完)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK_FILL" "$CR_POST"
+# 末尾の CLEAN で詰まりが上書きされないこと。読み役に自由文の欄(補完)を足したぶん、
+# 「指摘を並べた後に CLEAN と書く」形が出やすくなっている
+CR_STUB_BLOCK_CLEAN='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\nCLEAN\n"'
+expect_output 0 "投稿を止めている詰まり" "詰まりを並べた後に CLEAN と書かれても通さない" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK_CLEAN" "$CR_POST"
+# misses.log は当たった旗の綴りだけを残す。gh secret set は投稿でない(NON_POSTING)ので
+# 必ず miss の枝に落ちるため、コマンドの抜粋を残すと秘密そのものが平文で溜まる
+expect_output 0 "ALLOW_EMPTY" "gh secret set は投稿でないので素通し" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_FAIL" "gh secret set MY_TOKEN --body 'sk-secret-value-$CR_PAD'"
+expect_output 1 "0" "misses.log に秘密の値を残さない" \
+    grep -c "sk-secret-value" "$CR_CFG/coldread-gate/misses.log"
+
 # 網: 「本文を運ぶ旗」を、ヒアドキュメント盾置換+shlex トークン化+単純コマンド単位の帰属で見る
 CR_NOTES="gh release create v9.9.9 --notes-file - <<'EOF'
 $CR_BODY
@@ -1000,6 +1098,9 @@ expect_output 0 "許可一覧に無い" "destgate: 一覧外の宛先は deny" \
     "$DG_CASE" "$DG_CFG" "$WORK" "$DG_POST_EVIL"
 expect_output 0 "許可一覧に無い" "destgate: COLDREAD_SKIP=1 でも宛先検査は外れない" \
     "$DG_CASE" "$DG_CFG" "$WORK" "COLDREAD_SKIP=1 $DG_POST_EVIL"
+expect_output 0 "許可一覧に無い" "destgate: 行継続で折り返しても宛先検査は外れない" \
+    "$DG_CASE" "$DG_CFG" "$WORK" "gh issue comment 1 -R evil/place \\
+  --body 'こんにちは、これは宛先検査のテスト本文です'"
 expect_output 0 "ALLOW_EMPTY" "destgate: 読み取り系は宛先が一覧外でも素通し" \
     "$DG_CASE" "$DG_CFG" "$WORK" "gh pr list -R evil/place --limit 5"
 expect_output 0 "許可一覧に無い" "destgate: gh api の repos/ パスから宛先を取る" \

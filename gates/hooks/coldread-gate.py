@@ -17,6 +17,17 @@ deny + 逃げ道の案内にする(投稿不能にはならない)。連続 3 �
 残る指摘の採否を判断して skip してよい旨を案内する(初見指摘は読み手ごとに揺れ、
 完全収束しないため。firstread-loop と同じ知見)。
 
+「補完」(読み手が推測で埋めた箇所)も止めずに申し送る。詰まりを数える設計では、
+読み手が自信を持って誤読した本文は詰まり 0 件で通ってしまうため、埋めた中身の側を
+書かせて書き手に返す。
+
+記録は $CLAUDE_CONFIG_DIR/coldread-gate/ に 3 本:
+  denies.log  allow / deny / skip の別(deny はタブ区切りで種別も。maxlen・parse-fail・
+              blocked・reader-down・finding)
+  skip.log    逃げ道を使った投稿のコマンド先頭 200 字
+  misses.log  本文旗の綴りが在るのに候補も blocked も空だった素通し=網から落ちた疑い。
+              「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
+
 環境変数:
   COLDREAD_SKIP=1            この 1 回だけゲートを通す(記録が残る)
   COLDREAD_READER_CMD        読み役コマンドの差し替え(POSIX sh 文字列として sh -c 実行。stdin に依頼文+本文)。テスト用
@@ -48,6 +59,7 @@ CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claud
 STATE_DIR = os.path.join(CONFIG_DIR, "coldread-gate")
 SKIP_LOG = os.path.join(STATE_DIR, "skip.log")
 DENY_LOG = os.path.join(STATE_DIR, "denies.log")
+MISS_LOG = os.path.join(STATE_DIR, "misses.log")
 MIN_LEN = int(os.environ.get("COLDREAD_MIN_LEN", "400"))
 # 上限。これを超える文字列は正規表現の後方追跡(HEREDOC_RE)が重くなりうるので解析せず deny
 MAX_LEN = int(os.environ.get("COLDREAD_MAX_LEN", "100000"))
@@ -103,7 +115,14 @@ SHORT_TEXT_FLAGS = {
 }
 # 値を取る global 旗(サブコマンド語の特定でだけ読み飛ばす)。-H/-X は api の前置で挟まりうる。
 GLOBAL_VALUE_FLAGS = {"-R", "--repo", "-H", "--header", "-X", "--method"}
-WRAPPERS = {"env", "command", "exec", "nohup"}
+WRAPPERS = {"env", "command", "exec", "nohup", "time"}
+# シェルの予約語。単純コマンドの先頭語になりうるが、コマンド名ではないので読み飛ばす。
+# 飛ばさないと `{ gh …; }`・`if …; then gh …`・`while …; do gh …`・`! gh …` の gh が
+# 見えず、投稿が無検査・無記録で通る(両ゲートとも。実測)。同じ意味の `( gh … )` は
+# `(` が OP_CHARS にあるので元から通っていた——書き方だけで片方が抜ける状態だった。
+# 載せるのは「直後にコマンドが来る」語だけ。done・fi・in は後ろにコマンドを取らないので
+# 入れない(入れても発火させられず、表の全メンバーを検査する回帰が張れない)。
+RESERVED = {"{", "!", "then", "else", "elif", "do"}
 OP_CHARS = set("();<>|&\n")
 # リダイレクト演算子(演算子と行き先を読み飛ばす)。&> >& <& は & を含むが区切りではない。
 REDIRECT_OPS = {"<", ">", ">>", "<<", "<<<", "<&", ">&", "&>", "&>>", ">|"}
@@ -112,6 +131,19 @@ VAR_RE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\Z")
 ENV_PREFIX_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 # 前段の粗選別。部分文字列だと highlight・through 等の語で解析に入ってしまう
 GH_WORD_RE = re.compile(r"\bgh\b")
+# 網から落ちたことの検出だけに使う綴り(判定には使わない)。本文旗が生の文字列にあるのに
+# 候補も blocked も空なら、投稿でないのではなく解析が取りこぼした疑いがある。
+# 権威表から導出する——手で 2 本目の綴り表を持つと、旗を足したとき計器だけが黙り、
+# 最も新しい=最も取りこぼしやすい旗のところで数えられなくなる(表と検査の突合は
+# tests/coldread-table-case.py)。--body-file は --body\b が既に当てるので重複は無害。
+API_BODY_FLAGS = {"--input"}  # classify() の api 経路が本文と見る旗
+BODY_FLAG_RE = re.compile(
+    "|".join(sorted(re.escape(f) + r"\b" for f in set(LONG_TEXT_FLAGS) | API_BODY_FLAGS))
+    + r"|-[fF]\s*body="
+)
+# 短縮形(-b/-c/-n/-F)は入れない。git checkout -b 等と綴りが衝突して誤検知が増え、計器が濁るため。
+# 生の文字列を見るので、行継続で割れた `--bo\<改行>dy` も数えられない。どちらもこの計器が
+# 下限しか出さないことの内訳で、押し出しの量は「これ以上」としてしか読めない。
 
 
 HEREDOC_MARK = "__HEREDOC%d__"
@@ -165,10 +197,123 @@ def has_live_substitution(text):
     return False
 
 
+# 正規化で出力が実際に変わるのは注釈と行継続の 2 事象だけ。事象の起きうる文字へ正規表現で
+# 跳び、その間はスライスで一括複製する。1 文字ずつ積むと 100KB の本文で 5ms/回掛かる
+_EVENT_RE = re.compile(r"""[#\\'"]""")
+
+
+def normalize_shell(text):
+    r"""字句解析の前に、bash が入力段で落とす 2 つ(行継続・注釈)を 1 度の走査で落とす。
+
+    bash は行継続の除去と注釈の認識を同じ 1 パスでやる。こちらも 1 パスにしないと、
+    どちらを先に置いても bash が実行する gh を見失う形が残る(両方とも bash で実測):
+      注釈が先   `echo x\<改行>#y; gh …` の gh が消える。bash は行を連結するので #y は
+                 語中の # であって注釈ではない
+      行継続が先 `echo a # メモ \<改行>gh …` の gh が消える。bash は注釈を行末で切るので
+                 その \ は注釈の一部であって行継続ではない
+    どちらも「gh は実行されるのにゲートには見えない」= 無検査・無記録の素通しになる。
+    1 パスなら両方が自然に出る——注釈の判定に使う直前の 1 文字を、入力側ではなく
+    出力側(prev)で見るため。行継続を落としても prev を据え置くので前後の語が連結し、
+    注釈を落とす枝は行末までしか進まないので次の行は残る。
+
+    落とすもの:
+      行継続 …… 引用の外と二重引用の中の `\`+改行。空白に置換せず削除する
+                 (POSIX の行継続は前後の語を連結する。`--bo\<改行>dy` は `--body`)。
+                 単一引用の中は行継続にならないので残す
+      注釈 …… 引用の外の、語頭の # から行末まで。改行は区切りとして残す
+
+    落とさないと何が起きるか:
+      行継続 …… tokenize は改行を区切りの演算子として残すので、1 つの gh 呼び出しが複数の
+        単純コマンドに割れる。旗だけが載った断片は gh 呼び出しと認識されず(gh_args が None)、
+        本文を運ぶ旗が引数列から消えて、候補も blocked も無い状態=投稿でないとして素通しになる。
+        2026-09-03 の issue 3 本(skip.log 53-55 行)は逃げ道 COLDREAD_SKIP=1 で通ったので記録は
+        残るが、同じ 3 本から逃げ道を外して掛け直すと、この経路で記録の無い素通しになることを
+        実測した——同じコマンドに独立した穴が 2 つ在り、こちらは黙って外れる方である。
+        同じ解析層を import している destgate の宛先検査も同時に外れていた。
+      注釈 …… shlex の既定の注釈処理は readline() で改行ごと捨てるので、改行を区切りにしている
+        tokenize では 2 つの単純コマンドが 1 本に融合し、先頭語が cd や echo になって gh が
+        見えなくなる。かといって注釈をただ切ると、注釈の語が引数として残り、gist create のように
+        位置引数を本文と見る経路で嘘の deny が出る。bash と同じ「語頭の # から行末まで」だけを
+        落とすのが、どちらにも倒れない唯一の形。
+    """
+    out, i, n, quote, copied, gap = [], 0, len(text), None, 0, ""
+    while True:
+        m = _EVENT_RE.search(text, i)
+        if m is None:
+            break
+        i = m.start()
+        c = text[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+            i += 1
+        elif c == "\\":
+            if text.startswith(("\\\r\n", "\\\n"), i):
+                # 連結するので gap(直前に出力した 1 文字)は据え置く。ここを改行や空白に
+                # すると `echo x\<改行>#y` の # が語頭に見え、注釈として次の gh まで消える
+                gap = text[i - 1] if i > copied else gap
+                out.append(text[copied:i])
+                i += 3 if text[i + 1] == "\r" else 2
+                copied = i
+            else:
+                i += 2  # 退避された 1 文字は事象として見ない(`\#` は注釈の開始ではない)
+        elif c == '"':
+            quote = None if quote == '"' else '"'
+            i += 1
+        elif c == "'" and quote is None:
+            quote = "'"
+            i += 1
+        elif c == "#" and quote is None and _head(text, i, copied, gap):
+            gap = text[i - 1] if i > copied else gap
+            out.append(text[copied:i])
+            nl = text.find("\n", i)
+            i = n if nl < 0 else nl  # 改行は残す(単純コマンドの区切り)
+            copied = i
+        else:  # 二重引用の中の '、引用の中の #、語中の # はどれも構文ではない
+            i += 1
+    if not out:
+        return text  # 落とす物が 1 件も無ければ複製しない
+    out.append(text[copied:])
+    return "".join(out)
+
+
+def _head(text, i, copied, gap):
+    r"""text[i] が語頭か——注釈の始まりかどうかの判定。
+
+    見るのは「直前に出力した 1 文字」で、入力側の text[i-1] ではない。複製待ちの区間が
+    残っていればその末尾が直前の出力、区間が空なら直前の削除の手前の 1 文字(gap)。
+    この違いが出るのが `echo x\<改行>#y` で、行継続を落とした後の直前の出力は x なので
+    # は語中=注釈ではない。入力側で見ると改行が直前になり、注釈として後ろの gh まで消える。
+    """
+    prev = text[i - 1] if i > copied else gap
+    return not prev or prev in " \t\n;|&()"
+
+
+def prepare(command):
+    r"""生のコマンド → (解析用に正規化した文字列, ヒアドキュメント本文)。解析する側は必ずここを通る。
+
+    盾置換が先で正規化が後。順序は入れ替えられない——ヒアドキュメント本文の中の # や
+    `\`+改行 は構文ではなく投稿する散文の中身なので、先に正規化すると本文が壊れる。
+    字句解析(tokenize)と生の文字列を見る検査(has_live_substitution)が同じ 1 本の文字列を
+    見ることを、この入口で構成として保証する——別々に正規化させると、片方だけ更新されて
+    食い違う(destgate が現にそうなっていた)。
+    """
+    shielded, bodies = shield_heredocs(command)
+    return normalize_shell(shielded), bodies
+
+
 def tokenize(text):
-    """POSIX の引用規則でトークン化する。引用が閉じない等で解析できなければ None。"""
+    """POSIX の引用規則でトークン化する。引用が閉じない等で解析できなければ None。
+
+    渡すのは prepare() を通した文字列。ここで正規化しないのは、生の文字列を見る検査
+    (has_live_substitution)と同じ 1 本を共有させるため——ここに隠すと呼び出し側ごとに
+    正規化を掛け直すことになり、100KB の本文で 1 回 6ms を余分に払う。
+    """
     lex = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"  # 改行は区切りの演算子として残す
+    # shlex 自身の注釈処理は使わない(上で bash の規則どおりに落とした)。既定のままだと
+    # 語の途中の # でも行末まで読み捨てるので、`--title fix#123 \` の次行の本文旗が消える。
+    lex.commenters = ""
     lex.whitespace_split = True
     try:
         return list(lex)
@@ -192,6 +337,14 @@ def simple_commands(tokens):
             if cur:
                 cmds.append(cur)
                 cur = []
+            i += 1
+            continue
+        # 予約語はコマンド位置(蓄積中の単純コマンドが空)でだけ読み飛ばす。ここで捌くのは、
+        # 同じ意味の `( gh … )` が `(` の区切りとして既に通っていたのに `{ gh …; }` は
+        # 抜ける、という非対称を構成として消すため。gh_args と wants_skip の両方が
+        # simple_commands を通るので、表の読者が増えても片方だけ外れることが起きない。
+        # 全トークンから除いてはいけない——`--body do` の本文が空になる(実測)。
+        if not cur and tok in RESERVED:
             i += 1
             continue
         cur.append(tok)
@@ -413,11 +566,13 @@ def json_has_long_text(obj, limit=200):
 
 def posting_bodies(command):
     """コマンド文字列から (本文候補, 検査できない本文の説明, 解析成否) を返す。"""
-    shielded, heredoc_bodies = shield_heredocs(command)
-    tokens = tokenize(shielded)
+    norm, heredoc_bodies = prepare(command)
+    tokens = tokenize(norm)
     if tokens is None:
         return [], [], False
-    live = has_live_substitution(shielded)
+    # 字句解析と同じ 1 本を見る。生の側を見ていると `--body "$\<改行>(cat x)"` が
+    # 置換渡しと判定されず、実行時まで中身の無い文字列が本文候補として読み役へ回る
+    live = has_live_substitution(norm)
     candidates, blocked = [], []
     for simple in simple_commands(tokens):
         args = gh_args(simple)
@@ -436,17 +591,29 @@ READER_PROMPT = """あなたはこの文章について何も知らない初見�
 (1) この文章があなたに求めていること(読んで何をすべきか)が言えるか
 (2) 冒頭 3 行で「何の話か・自分に関係あるか・急ぐか」が掴めるか
 (3) 本文の中だけでは意味を解決できない略語・識別子・参照は無いか
-(4) 意味を推測で埋めた箇所は無いか
+(4) 意味を推測で埋めた箇所と、埋めた推測の中身(特に時制・主体・範囲)
 (5) 読み終えて残った疑問は何か
 
-報告の形式(この 3 種類だけ。問題の無かった観点は一切書かない):
+報告の形式(この 4 種類だけ。問題の無かった観点は一切書かない):
 - (1)〜(4) に該当し、理解を実際に妨げたもの → 1 行 1 件、行頭に「詰まり: 」
 - (5) のうち、理解はできたが答えが本文に無い疑問 → 1 行 1 件、行頭に「疑問: 」
-- どちらも 1 件も無ければ、他に何も書かず CLEAN とだけ出力
+- (4) のうち、推測で埋めて読み進められた箇所 → 1 行 1 件、行頭に「補完: 」。
+  「何をどう埋めたか」を書く(例:「補完: 障害は今起きていると読んだ」)。
+  推測で埋めたなら、理解を妨げていなくても書く——書き手はここで初めて自分の誤読を知る
+- 詰まりも疑問も補完も 1 件も無いときだけ、他に何も書かず CLEAN とだけ出力
+  (1 件でもあるなら CLEAN とは書かない)
 規則: 点数・総評・文体の好み・軽微な言い換え提案は書かない。読めば分かることへの確認は書かない。日本語で。
 
 --- 本文 ---
 """
+# 読み役の 3 つのラベル。READER_PROMPT が指示する綴りと 1 対 1 なので隣に置く——
+# 欄を増やすときに、指示と仕分けが同じ画面で目に入る形にしておく
+LABEL_RE = re.compile(r"(詰まり|疑問|補完)\s*[:：]")
+
+
+def section(head: str, items: list) -> str:
+    """見出し付きの節。中身が無ければ空文字("".join の側で節ごと落ちる)。"""
+    return head + "\n" + "\n".join(items) if items else ""
 
 
 def allow() -> None:
@@ -565,7 +732,7 @@ def wants_skip(command):
     """
     if SKIP_PREFIX_RE.match(command):
         return True
-    tokens = tokenize(shield_heredocs(command)[0])
+    tokens = tokenize(prepare(command)[0])
     if tokens is None:
         return False
     for cmd in simple_commands(tokens):
@@ -574,6 +741,7 @@ def wants_skip(command):
                 return True
             # 読み飛ばす範囲は gh_args と同じにする。ここだけ env を透かさないと、
             # ゲートが投稿と認めた形なのに逃げ道だけ効かず、案内どおり書いた人が嵌まる
+            # (予約語は simple_commands が先に落とすので、ここに書かなくても揃う)
             if tok not in WRAPPERS and not ENV_PREFIX_RE.match(tok):
                 break  # 前置が途切れたら、そこから先は引数か本文
     return False
@@ -620,7 +788,7 @@ def main() -> None:
     # 捕まえるのは Exception 全体で、ValueError に狭めるな——狭めた瞬間に、それ以外の例外は
     # フックのクラッシュ(=PreToolUse は続行)になって無検査で通る。
     if len(command) > MAX_LEN:
-        log_line(DENY_LOG, "deny")
+        log_line(DENY_LOG, "deny\tmaxlen")
         deny(
             "外部投稿ゲート: このコマンドは長すぎて解析しない(%d 文字 > 上限 %d)。\n"
             % (len(command), MAX_LEN)
@@ -637,7 +805,7 @@ def main() -> None:
     else:
         parse_error = "引用が閉じていない等"
     if not parsed:
-        log_line(DENY_LOG, "deny")
+        log_line(DENY_LOG, "deny\tparse-fail")
         deny(
             "外部投稿ゲート: このコマンドは解析できない(%s)。" % parse_error
             + "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
@@ -647,7 +815,7 @@ def main() -> None:
     # 「検査できない本文がある」は、別の本文が読めたかどうかと独立に止める。
     # ここを bodies の有無に従属させると、読める本文と同居した投稿が無検査で通る。
     if blocked:
-        log_line(DENY_LOG, "deny")
+        log_line(DENY_LOG, "deny\tblocked")
         deny(
             "外部投稿ゲート: この投稿は本文をコマンドから取り出せない形をしている(%s)。"
             "検査できないものは通せない。\n"
@@ -655,6 +823,16 @@ def main() -> None:
             "(--body / --notes 等)に直接書いて再実行すること。\n"
             % "・".join(sorted(set(blocked))) + ESCAPE_NOTE
         )
+
+    # 素通しの理由が「投稿でない」なのか「網から落ちた」なのかを後から数えられるようにする。
+    # 本文旗の綴りが生の文字列にあるのに候補も blocked も空なら、解析の取りこぼしの疑いが濃い。
+    # deny にはしない——誤検知の率を測る前に門番の判定を変えると、また実測なしの設計になる。
+    miss = BODY_FLAG_RE.search(command)
+    if not candidates and not blocked and miss:
+        # 残すのは当たった旗の綴りだけ。コマンドの抜粋は残さない——`gh secret set --body <値>` は
+        # 投稿でない(NON_POSTING)ので必ずこの枝に落ち、抜粋にすると旗表が「値は秘密そのもの」と
+        # 書いている当の値が平文で溜まる。狙いは押し出しの量を測ることなので綴りで足りる。
+        log_line(MISS_LOG, miss.group(0))
 
     bodies = [b for b in candidates if len(b.strip()) >= 200]
     if not bodies:
@@ -666,23 +844,34 @@ def main() -> None:
     try:
         out = run_reader(body)
     except Exception as exc:
-        log_line(DENY_LOG, "deny")
+        log_line(DENY_LOG, "deny\treader-down")
         deny(
             "外部投稿ゲート: coldreader(文脈ゼロの読み手)の起動に失敗した(%s)。\n" % str(exc)[:150]
             + "手動で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
             + ESCAPE_NOTE
         )
 
-    lines = [l.strip() for l in out.splitlines() if l.strip()]
-    blocking = [l for l in lines if l.startswith("詰まり")]
-    questions = [l for l in lines if l.startswith("疑問")]
-    is_clean = bool(re.fullmatch(r"\**CLEAN\**\.?", lines[-1])) or out.strip() in ("CLEAN", "**CLEAN**")
+    # ラベルはコロンまで見る。行頭の語だけで拾うと「詰まりは無い」のような地の文が
+    # 詰まりに数えられ、指摘ゼロの本文が deny になる(補完の追加で自由文の行が増えたため)。
+    found = {"詰まり": [], "疑問": [], "補完": []}
+    for line in out.splitlines():
+        line = line.strip()
+        m = LABEL_RE.match(line)
+        if m:
+            found[m.group(1)].append(line)
+    blocking, questions, fills = found["詰まり"], found["疑問"], found["補完"]
 
-    if is_clean or not blocking:
+    # 詰まりの有無だけで決める。以前は「最終行が CLEAN なら」も allow の条件だったが、
+    # それだと詰まりを列挙した後に CLEAN と書かれた出力が通ってしまう。読み役に本文の
+    # 説明以外を書かせる欄(補完)を足したぶん、末尾が CLEAN で終わる形は出やすくなっている。
+    if not blocking:
         log_line(DENY_LOG, "allow")
-        extra = SCOPE_NOTE
-        if questions:
-            extra += "\n投稿は通したが、coldreader(初見の読み手)に残った疑問(必要なら本文に反映して編集してよい):\n" + "\n".join(questions)
+        extra = "\n".join(filter(None, (
+            SCOPE_NOTE,
+            section("coldreader が推測で埋めた箇所——意図と違うなら投稿を編集して直すこと:", fills),
+            section("投稿は通したが、coldreader(初見の読み手)に残った疑問"
+                    "(必要なら本文に反映して編集してよい):", questions),
+        )))
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -694,16 +883,23 @@ def main() -> None:
         sys.exit(0)
 
     streak = deny_streak() + 1
-    log_line(DENY_LOG, "deny")
+    log_line(DENY_LOG, "deny\tfinding")
     tail = (
         "\n\n【%d 回連続で止まっている】初見指摘は coldreader ごとに揺れる。残る指摘の採否を自分で判断し、"
         "採らない指摘を理由にもう直さないなら COLDREAD_SKIP=1 で通してよい(記録が残る)。" % streak
         if streak >= 3 else "\n\n" + ESCAPE_NOTE
     )
+    # 見出しで分ける。混ぜて並べると、直さなくてよい補完・疑問が過半を占めたまま
+    # 「以下を直せ」と読め、直す量を過大に見せて逃げ道を引く方向に働く(実測で 8.9 行中 4.7 行)。
+    detail = "\n\n".join(filter(None, (
+        section("投稿を止めている詰まり(直せば通る):", blocking),
+        section("止めてはいないが coldreader が推測で埋めた箇所(意図と違うなら直す):", fills),
+        section("残った疑問(反映するかは判断してよい):", questions),
+    )))
     deny(
-        "外部投稿ゲート: coldreader(文脈ゼロの別プロセスの読み手)がこの本文で詰まった。以下を直してから"
+        "外部投稿ゲート: coldreader(文脈ゼロの別プロセスの読み手)がこの本文で詰まった。詰まりを直してから"
         "同じ形で再実行すること(再実行時は直した本文を新しい coldreader が検査する):\n\n"
-        + "\n".join(blocking + questions)[:1500]
+        + detail[:1500]
         + "\n\n直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
         "詳細は skill『coldread』。\n" + SCOPE_NOTE
         + tail

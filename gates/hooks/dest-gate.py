@@ -107,11 +107,13 @@ def main():
     command = raw.get("tool_input", {}).get("command", "")
     if not allow_patterns or not cr.GH_WORD_RE.search(command):
         return
-    shielded, heredoc_bodies = cr.shield_heredocs(command)
-    tokens = cr.tokenize(shielded)
+    # 解析の入口は coldread と同じ cr.prepare 1 本。ここで独自に組むと、片方だけ
+    # 正規化が入って宛先検査が黙って外れる(行継続の穴のとき現にそうなっていた)
+    norm, heredoc_bodies = cr.prepare(command)
+    tokens = cr.tokenize(norm)
     if tokens is None:
         return  # 解析不能は coldread が長さに応じて止める(射程は README)
-    live = cr.has_live_substitution(shielded)
+    live = cr.has_live_substitution(norm)
     for simple in cr.simple_commands(tokens):
         args = cr.gh_args(simple)
         if args is None:

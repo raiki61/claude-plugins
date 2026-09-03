@@ -19,7 +19,7 @@
     },
     {
       "name": "gates",
-      "description": "外に出る操作を、検査が通るまで止める門番フック集。1 本目は coldread(投稿本文の初見検査)。gh で GitHub へ本文を投稿するコマンド(issue/PR・release notes・gist 等)を PreToolUse で捕まえ、文脈ゼロの読み手（別プロセス）に本文を初見で読ませ、理解を妨げる詰まりが直るまで投稿を止める。疑問は止めずに申し送る。逃げ道は COLDREAD_SKIP=1 の 1 本（記録が残る）。2 本目は destgate——投稿の宛先を人が管理する許可一覧で縛る(一覧が無ければ眠る)。",
+      "description": "外に出る操作を、検査が通るまで止める門番フック集。1 本目は coldread(投稿本文の初見検査)。gh で GitHub へ本文を投稿するコマンド(issue/PR・release notes・gist 等)を PreToolUse で捕まえ、文脈ゼロの読み手（別プロセス）に本文を初見で読ませ、理解を妨げる詰まりが直るまで投稿を止める。疑問と、読み手が推測で埋めた箇所は止めずに申し送る。逃げ道は COLDREAD_SKIP=1 の 1 本（記録が残る）。2 本目は destgate——投稿の宛先を人が管理する許可一覧で縛る(一覧が無ければ眠る)。",
       "source": "./gates",
       "strict": false
     },

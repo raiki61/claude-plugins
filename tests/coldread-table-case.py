@@ -117,6 +117,17 @@ WRAPPER_CASES = [
     ("command", "command gh issue comment 1 --body %s" % TEXT),
     ("exec", "exec gh issue comment 1 --body %s" % TEXT),
     ("nohup", "nohup gh issue comment 1 --body %s" % TEXT),
+    ("time", "time gh issue comment 1 --body %s" % TEXT),
+]
+# シェルの予約語 1 メンバー = ここ 1 行。( gh … ) は元から網に入るのに { gh …; } は抜ける、
+# という「書き方だけで片方が抜ける」状態だったので、全メンバーを実際に発火させて突合する
+RESERVED_CASES = [
+    ("{", "{ gh issue comment 1 --body %s; }" % TEXT),
+    ("!", "! gh issue comment 1 --body %s" % TEXT),
+    ("then", "if true; then gh issue comment 1 --body %s; fi" % TEXT),
+    ("else", "if false; then true; else gh issue comment 1 --body %s; fi" % TEXT),
+    ("elif", "if false; then true; elif gh issue comment 1 --body %s; then :; fi" % TEXT),
+    ("do", "while true; do gh issue comment 1 --body %s; break; done" % TEXT),
 ]
 # 値を取る global 旗 1 メンバー = ここ 1 行(同上)
 GLOBAL_FLAG_CASES = [
@@ -188,7 +199,15 @@ compare_keys("本文を運ぶ旗", {key for key, _ in FLAG_CASES}, impl_flag_key
 compare_keys("長い旗の本文でない例外", {key for key, _ in NOT_BODY_CASES}, set(gate.LONG_FLAG_NOT_BODY))
 compare_keys("投稿でないサブコマンド", {key for key, _ in NON_POSTING_CASES}, set(gate.NON_POSTING))
 compare_keys("前置ラッパー", {key for key, _ in WRAPPER_CASES}, set(gate.WRAPPERS))
+compare_keys("シェルの予約語", {key for key, _ in RESERVED_CASES}, set(gate.RESERVED))
 compare_keys("値を取る global 旗", {key for key, _ in GLOBAL_FLAG_CASES}, set(gate.GLOBAL_VALUE_FLAGS))
+
+# 取りこぼし計器(misses.log)の綴りは権威表から導出しているが、導出を手書きに戻されたら
+# 気付けるよう、表の全メンバーを計器に当てて突合する。計器が旗を知らないまま増えると、
+# 最も新しい=最も取りこぼしやすい旗のところで押し出しの量だけが黙って数えられなくなる
+for _flag in set(gate.LONG_TEXT_FLAGS) | gate.API_BODY_FLAGS:
+    if not gate.BODY_FLAG_RE.search("gh x %s v" % _flag):
+        failures.append("miss 計器: 本文旗 %s を知らない(権威表とずれた)" % _flag)
 
 # 倒れ先の文言も同じ形で突合する。実装から機械で読むので、理由を足したら検査も足すまで赤い。
 tree = ast.parse(io.open(gate_path, encoding="utf-8").read())
@@ -207,10 +226,17 @@ for _key, command in FLAG_CASES:
     bodies, blocked, parsed = bodies_of(command)
     if not bodies:
         failures.append("%s: 本文を拾えていない (blocked=%s parsed=%s)" % (_key, blocked, parsed))
-for command, why in POSTING:
+for command, why in POSTING + [(c, str(k)) for k, c in WRAPPER_CASES + RESERVED_CASES]:
     bodies, blocked, parsed = bodies_of(command)
     if not bodies:
         failures.append("%s: 本文を拾えていない (blocked=%s parsed=%s)" % (why, blocked, parsed))
+
+# 門番が発火する前置では、逃げ道 COLDREAD_SKIP=1 も必ず効かなければならない。片方だけ効くと、
+# ゲートに止められた人が案内どおり書いても通せない(予約語を gh_args にだけ足したとき実際にそうなった)。
+# 前置の読み飛ばしを simple_commands の 1 箇所に寄せてあることを、表の全メンバーで縛る
+for _key, command in WRAPPER_CASES + RESERVED_CASES:
+    if not gate.wants_skip(command.replace("gh ", "COLDREAD_SKIP=1 gh ", 1)):
+        failures.append("%s: 門番は発火するのに逃げ道が効かない" % _key)
 
 # 素通しであるべき形
 for command, why in QUIET + [(c, str(k)) for k, c in NOT_BODY_CASES + NON_POSTING_CASES]:
