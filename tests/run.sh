@@ -686,7 +686,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=197
+EXPECTED_MIN=224
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -1152,6 +1152,65 @@ expect_output 0 "○ 待ち" \
 expect_output 1 "番号か PR / issue の URL を渡す" \
     "catchup: cp1252 強制下でも引数エラーの日本語が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
+
+# ---- attention/catchup --switch: 該当ブランチへ移る（一時の git リポジトリで実際に動かす） ----
+# GitHub には触らない。guard は「git 自身が止めない状態」で組む（枝で中身が違う file で汚すと guard を
+# 消しても git が拒んで緑のまま）。合否は行の文言と git の状態（branch --show-current 等）の両方で見る
+CS_CASE="$ROOT/tests/catchup-switch-case.py"
+expect_output 0 "--switch" "catchup: --switch の口がある（命令書が番号か URL の呼び方に付ける）" \
+    "$PY_BIN" "$ROOT/attention/scripts/catchup.py" --help
+expect_output 0 "ISSUE_OK" \
+    "catchup --switch: issue の移る先は名前に番号を持つ手元の枝が 1 本のときだけ（純関数。0 本・2 本以上は候補名）" \
+    "$PY_BIN" "$CU_CASE" issue-branch
+expect_output 0 "SWITCH_OK" "catchup --switch: きれいな木なら移り、元のブランチ名を行に残す" \
+    "$PY_BIN" "$CS_CASE" moved
+expect_output 0 "SWITCH_OK" "catchup --switch: 追跡ファイルの未コミット（git は持ち越せる）があれば移らず、変更もそのまま" \
+    "$PY_BIN" "$CS_CASE" dirty
+expect_output 0 "SWITCH_OK" "catchup --switch: 未追跡だけなら移り、持ち越した数を行に書く" \
+    "$PY_BIN" "$CS_CASE" untracked
+expect_output 0 "SWITCH_OK" "catchup --switch: ignored の file を対象の枝が追跡していれば上書きせず止まる（--no-overwrite-ignore）" \
+    "$PY_BIN" "$CS_CASE" ignored
+expect_output 0 "SWITCH_OK" "catchup --switch: 既に居れば移らず、居る扱い（手元の節が付く）" \
+    "$PY_BIN" "$CS_CASE" already
+expect_output 0 "SWITCH_OK" "catchup --switch: 別の worktree に checkout 済みの枝には移らず、機械の言葉でその旨" \
+    "$PY_BIN" "$CS_CASE" worktree
+expect_output 0 "SWITCH_OK" "catchup --switch: origin にだけある枝は作らない（DWIM を止める）。案内は gh pr checkout" \
+    "$PY_BIN" "$CS_CASE" remote-only
+expect_output 0 "SWITCH_OK" "catchup --switch: 手元にも origin にも無ければそう言う" \
+    "$PY_BIN" "$CS_CASE" none
+expect_output 0 "SWITCH_OK" "catchup --switch: origin が別のリポジトリ・origin 無しなら移らない" \
+    "$PY_BIN" "$CS_CASE" origin-mismatch
+expect_output 0 "SWITCH_OK" "catchup --switch: git の checkout でない場所では移らない（落ちない）" \
+    "$PY_BIN" "$CS_CASE" no-git
+expect_output 0 "SWITCH_OK" "catchup --switch: guard の git status が読めなければ（None）止める。空と同じにしない（純関数）" \
+    "$PY_BIN" "$CS_CASE" status-none
+expect_output 0 "SWITCH_OK" "catchup --switch: fork の PR は名前だけでは移らず、手元の枝が head の commit を含むときだけ移る（手元が古い・無関係なら移らない）" \
+    "$PY_BIN" "$CS_CASE" fork
+expect_output 0 "SWITCH_OK" "catchup --switch: head が main の fork PR で手元の main に移らない。<owner>/main があればそれに移る。消えた fork も名前だけでは移らない" \
+    "$PY_BIN" "$CS_CASE" fork-main
+expect_output 0 "SWITCH_OK" "catchup --switch: origin が自分の fork（三角 workflow）なら、その fork からの PR は名前一致で移る" \
+    "$PY_BIN" "$CS_CASE" triangular
+expect_output 0 "SWITCH_OK" "catchup --switch: 解決済みの merge（MERGE_HEAD あり）は「途中」と言って移らない（stash は MERGE_HEAD を消す）" \
+    "$PY_BIN" "$CS_CASE" merge
+expect_output 0 "LINE_OK" "catchup --switch: 結果の行は見出しの URL の直下（命令書が位置に依存する）。無ければ足さない" \
+    "$PY_BIN" "$CU_CASE" branch-line
+expect_output 0 "SWITCH_OK" "catchup --switch: post-checkout hook が非 0 でも HEAD は移っているので移った扱い（終了コードで判定しない）" \
+    "$PY_BIN" "$CS_CASE" hook
+expect_output 0 "SWITCH_OK" "catchup --switch: index.lock（他のセッションが git を動かしている最中）なら移れず、その名前が行に出る" \
+    "$PY_BIN" "$CS_CASE" lock
+expect_output 0 "SWITCH_OK" "catchup --switch: 同名のタグがあっても枝を見失わない" \
+    "$PY_BIN" "$CS_CASE" tag-shadow
+expect_output 0 "SWITCH_OK" "catchup --switch: - で始まる枝名をオプションと取り違えない" \
+    "$PY_BIN" "$CS_CASE" dash-name
+expect_output 0 "SWITCH_OK" "catchup --switch: detached から移れ、置き去りの commit の警告を行に添える" \
+    "$PY_BIN" "$CS_CASE" detached
+expect_output 0 "SWITCH_OK" "catchup --switch: 衝突した rebase の途中なら「途中」と言って移らない（commit か stash とは言わない）" \
+    "$PY_BIN" "$CS_CASE" rebase
+expect_output 0 "SWITCH_OK" "catchup --switch: issue は名前に番号を持つ手元の枝が 1 本のときだけ移る（0 本・2 本以上は候補名）" \
+    "$PY_BIN" "$CS_CASE" issue
+expect_output 0 "SWITCH_OK" "catchup --switch: 手元の節で、PR の head より後ろなら数え、head を持っていなければそう言う" \
+    "$PY_BIN" "$CS_CASE" behind
+expect_exit 1 "catchup --switch: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$CS_CASE"
 
 # ---- attention/scripts/lib/changemap: 変更の地図の部品（/catchup と /what-am-i-doing が共用） ----
 # git にも GitHub にも触らない。diff の分解・骨組み・木の描画を固定の材料で叩く

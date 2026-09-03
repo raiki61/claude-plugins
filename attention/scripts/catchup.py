@@ -39,6 +39,12 @@ PR で、型の 1〜2 文と地図の 1 文だけでは初見に内容が読め�
 
 〈短さ〉既定の出力は画面 1 つに収める。全文が要るときだけ --full を付ける。長い抜粋を既定に
 すると、思い出すための道具が読み直しの作業になり、目的と衝突する。
+
+〈手元〉戻るとき、会話の位置と一緒に手元の枝も失われている。--switch を付けると、該当ブランチ（PR は
+head のブランチ、issue は名前に番号を持つ手元のブランチが 1 本のとき）が手元にあれば git switch で移る。
+手元を変える操作はこの git switch だけで、fetch・pull・stash・commit・gh pr checkout はしない。移った・
+移らなかった理由は見出しの「ブランチ」の行に出し、移った（または既に居た）ときは末尾に「手元のブランチ」
+の節が付く。移らない条件とその実測は「該当ブランチへ移る」の節に。
 """
 
 import argparse
@@ -92,6 +98,7 @@ query($owner:String!,$name:String!,$num:Int!){
       __typename
       ... on PullRequest {
         number title url state isDraft createdAt body
+        headRefName headRepository{nameWithOwner}
         additions deletions changedFiles mergeable reviewDecision
         files(first:100){totalCount nodes{path changeType additions deletions}}
         author { __typename login }
@@ -226,7 +233,7 @@ def resolve_target(token, repo_opt):
         m = URL_RE.match((url or "").strip())
         if m:
             return m.group(1), m.group(2), int(m.group(3)), "pr"
-        branch = (changemap.git("branch", "--show-current") or "").strip()
+        branch = changemap.current_branch() or ""
         num = branch_number(branch)
         if num is None:
             sys.exit("今のブランチ" + (f"（{branch}）" if branch else "") + " に PR が無く、"
@@ -555,7 +562,8 @@ def find_ask(ev, node, me, cutoff, own):
 
 
 def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
-           with_map=False, with_threads=False, with_ci=False):
+           with_map=False, with_threads=False, with_ci=False, branch_lines=()):
+    """branch_lines は --switch の結果（見出しの URL の行の後ろに足す。無ければ何も足さない）。"""
     is_pr = node["__typename"] == "PullRequest"
     author = login_of(node["author"])
     out = []
@@ -603,6 +611,8 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
                     f"+{node['additions']}/-{node['deletions']}")
     w("  " + " · ".join(head))
     w("  " + node["url"])
+    # ブランチの行は URL の後ろ——命令書は「URL は見出しの下の行から写す」で、行が下がるとずれる
+    out.extend("  " + ln for ln in branch_lines)
     w("")
 
     w("## 私が最後にしたこと")
@@ -1138,24 +1148,227 @@ def render_ci(node, owner, name, run_log=None):
     return "\n".join(out)
 
 
-def render_local(derived=None):
-    """今のブランチで呼んだときだけ出す手元の状態。GitHub に無いものはここにしか出ない。
-    derived は、PR が無くブランチ名の番号を issue と見たときのその番号（申告用）。"""
+# ---- 該当ブランチへ移る（--switch） -----------------------------------------------
+#
+# 並行作業から戻るとき、会話の位置と一緒に手元の枝も失われている。--switch を付けると、該当ブランチ
+# （PR は head のブランチ、issue は名前に番号を持つ手元のブランチが 1 本のとき）が手元にあれば git switch で
+# 移る。手元を変える操作はこの git switch だけ——fetch・pull・stash・commit・gh pr checkout はしない。
+# 手元に無い枝は origin にあっても作らない（--no-guess。fetch しない設計では古い origin の ref から
+# 枝を作ることになる）。
+#
+# 追跡ファイルに未コミットの変更があれば移らない。git は衝突しない限り黙って持ち越す（実測: exit 0 で
+# ` M a.txt` が次の枝に付いて来る）ので、別の枝に commit する事故の材料になる。未追跡だけなら移る
+# （git は失われる変更を作らない。衝突すれば拒む）。ignored のファイルは git 自身に守らせる
+# （--no-overwrite-ignore。既定は警告なしに置き換え、git のどこにも残らない）。
+#
+# 成否は git の終了コードでなく前後のブランチ名で決める——post-checkout hook が非 0 を返すと終了コードも
+# 非 0 だが HEAD は既に移っている。
+#
+# fork の PR は名前だけでは移らない——fork の head が trunk / main のような名前で来るのは普通で、名前一致で
+# 移ると別物のブランチに「居る」と申告する。手元のブランチが PR の head の commit を含むときだけ移る
+# （gh pr checkout で取ったブランチは head の commit を持っているので通る）。逆向き（手元の先端が head の
+# 先祖）は見ない——fork の head は base から切られているので手元の main が先祖になり、head が main の
+# fork PR で手元の main に移ってしまう（実測）。gh pr checkout は fork の head が base の既定ブランチと
+# 同名のとき <fork の owner>/<head> の名前で取るので、その名前を先に探す。
+#
+# 移る前に merge / rebase / cherry-pick の途中でないことを git の印（MERGE_HEAD 等）で見る。衝突を解決し
+# 終えた merge は普通の staged 変更に見え、「commit か stash」と助言すると stash が MERGE_HEAD を消す。
+
+STDERR_LINES = 4  # git の言い分を出す行数。拒否文の 1 行目は総称で、邪魔している path は 2 行目以降
+GONE = "消えた fork"  # headRepository が null（fork が消えている）のときの呼び名。出所が分からないので fork として扱う
+IN_PROGRESS = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")
+
+
+def local_branches(cwd=None):
+    """(手元のブランチ名 → それを checkout している worktree の path（していなければ ""）, 今のブランチ名
+    （detached なら ""）)。読めなければ (None, None)。for-each-ref 1 回で全部取る。
+    %(refname:short) は同名のタグがあると heads/x になる（実測）ので、%(refname) から refs/heads/ を剥ぐ。"""
+    out = changemap.git("for-each-ref", "--format=%(HEAD)\t%(refname)\t%(worktreepath)",
+                        "refs/heads/", cwd=cwd)
+    if out is None:
+        return None, None
+    found, current = {}, ""
+    for line in out.splitlines():
+        mark, ref, path = (line.split("\t") + ["", ""])[:3]
+        if not ref.startswith("refs/heads/"):
+            continue
+        name = ref[len("refs/heads/"):]
+        found[name] = path.strip()
+        if mark == "*":
+            current = name
+    return found, current
+
+
+def issue_branch(num, branches):
+    """issue の移る先。名前に番号を持つ手元のブランチが 1 本のときだけ（this の解決と同じ規則の逆向き。
+    0 本・2 本以上なら移らない）。戻り値は (名前 or None, 移らない理由)。"""
+    hits = sorted(b for b in branches if branch_number(b) == num)
+    if len(hits) == 1:
+        return hits[0], ""
+    if not hits:
+        return None, f"名前に #{num} を持つ手元のブランチは無い"
+    return None, (f"名前に #{num} を持つ手元のブランチが {len(hits)} 本ある（{', '.join(hits)}）。"
+                  "どれかを選んで手で git switch する")
+
+
+def fork_of(node, owner, name):
+    """PR の head が別のリポジトリ（fork）なら、その owner/name。同じなら None。fork が消えていると
+    headRepository は null——出所が分からないので GONE を返し、fork として扱う（名前だけでは移らない）。"""
+    if "headRepository" in node and node["headRepository"] is None:
+        return GONE
+    repo = (node.get("headRepository") or {}).get("nameWithOwner") or ""
+    return repo if repo and repo.lower() != f"{owner}/{name}".lower() else None
+
+
+def contains_head(branch, oid, cwd=None):
+    """手元の branch が commit oid を含む（先端かその先祖）か。True／False／None（oid を手元に持っていない）。"""
+    if not oid or changemap.git("cat-file", "-e", f"{oid}^{{commit}}", cwd=cwd) is None:
+        return None
+    return changemap.git("merge-base", "--is-ancestor", oid, f"refs/heads/{branch}", cwd=cwd) is not None
+
+
+def in_progress(top):
+    """merge / rebase / cherry-pick / revert の途中か。git が置く印の有無で見る（git 1 回）。読めなければ None。"""
+    out = changemap.git("rev-parse", *(a for n in IN_PROGRESS for a in ("--git-path", n)), cwd=top)
+    if out is None:
+        return None
+    return any(os.path.exists(os.path.join(top, p)) for p in out.splitlines() if p)
+
+
+def tree_blocker(text, target):
+    """git status --porcelain の行から、移るのを止める理由と未追跡の件数を返す。(理由 or None, 未追跡の数)。
+    text が None（読めない・timeout）なら止める——空と同じに扱うと、状態を測れないまま移る（fail-open）。"""
+    if text is None:
+        return "手元の状態が読めないので移らない", 0
+    rows = [r for r in text.splitlines() if r.strip()]
+    tracked = [r for r in rows if not r.startswith("??")]
+    untracked = len(rows) - len(tracked)
+    if tracked:
+        return (f"追跡ファイルに未コミットの変更 {len(tracked)} 件があるので移らない（git は持ち越せるが、"
+                f"別のブランチに commit する事故になるので止めた。自分の編集か確かめてから commit か stash → "
+                f"git switch {target}）"), untracked
+    return None, untracked
+
+
+def git_notes(err, failed=False):
+    """git switch の stderr から、行に添える言い分。成功なら Switched to 以外（置き去りの commit・origin より
+    遅れ・hook の出力）、失敗なら拒否文を Please / Aborting の手前まで（1 行目は総称で、邪魔している path は
+    2 行目以降）。どちらも STDERR_LINES 行まで。"""
+    notes = [ln.rstrip() for ln in err.splitlines() if ln.strip() and not ln.startswith("Switched to")]
+    if failed:
+        notes = notes[:next((i for i, n in enumerate(notes) if n.startswith(("Please", "Aborting"))),
+                            len(notes))]
+    return notes[:STDERR_LINES]
+
+
+def switch_branch(owner, name, num, node, cwd=None):
+    """--switch のとき、該当ブランチが手元にあれば git switch で移る。戻り値は (見出しに足す行, 居るブランチ
+    名 or None)。居る＝移った、または既に居た（末尾に手元の節を出す）。移らない理由は行に書く——黙って
+    何もしないことは無い。"""
+    is_pr = node["__typename"] == "PullRequest"
+    top = changemap.repo_top(cwd)
+    if not top:
+        return ["ブランチ: 手元に git の checkout が無いので移らない"], None
+    url = changemap.origin_url(top)
+    fork = fork_of(node, owner, name) if is_pr else None
+    # 三角 workflow（origin が自分の fork で、PR の head がその fork）なら手元は head の側。名前一致でよい
+    on_fork = bool(fork) and fork != GONE and changemap.origin_is(url, *fork.split("/", 1))
+    if not on_fork and not changemap.origin_is(url, owner, name):
+        return [f"ブランチ: 手元の origin が {owner}/{name} でない（{url or 'origin が無い'}）ので移らない"], None
+    if on_fork:
+        fork = None
+    branches, cur = local_branches(top)
+    if branches is None:
+        return ["ブランチ: 手元のブランチ一覧が読めないので移らない"], None
+    head_ref = node.get("headRefName")
+    who = "" if not fork else (GONE if fork == GONE else f"fork {fork}")
+    if is_pr:
+        # 番号では探さない——別のブランチに移るのは危ない。fork なら gh pr checkout が付ける
+        # <fork の owner>/<head> の名前を先に探す
+        names = ([f"{fork.split('/', 1)[0]}/{head_ref}"] if fork and fork != GONE else []) + [head_ref]
+        target = next((n for n in names if n in branches), None)
+        if target is None:
+            if fork:
+                return [f"ブランチ {head_ref}: {who} のブランチで、手元に無い（gh pr checkout {num} で取れる）"], None
+            on_origin = changemap.git("rev-parse", "--verify", "--quiet",
+                                      f"refs/remotes/origin/{head_ref}", cwd=top) is not None
+            hint = f"origin にはある。gh pr checkout {num} で取れる" if on_origin else "origin にも無い"
+            return [f"ブランチ {head_ref}: 手元に無い（{hint}）"], None
+    else:
+        target, why = issue_branch(num, branches)
+        if target is None:
+            return [f"ブランチ: {why}"], None
+    label = f"ブランチ {target}: "
+    if fork:
+        has = contains_head(target, head_oid(node), top)
+        if not has:
+            why = ("とは照合できない（PR の head の commit を手元に持っていない）" if has is None
+                   else "は PR の head の commit を含まない（別物か、head より古い）")
+            return [label + f"{who} のブランチ。手元の {target} {why}ので移らない。"
+                    f"gh pr checkout {num} で取り直せる"], None
+    if cur == target:
+        return [label + "既に居る"], target
+    if branches[target]:
+        path = branches[target]
+        if os.path.isdir(path):
+            return [label + f"別の worktree に checkout 済み: {path}（そこで続ける）"], None
+        return [label + f"worktree {path} に checkout 済みだが、その dir が無い"
+                f"（git worktree prune → git switch {target} で移れる）"], None
+    busy = in_progress(top)
+    if busy is None:
+        return [label + "手元の状態が読めないので移らない"], None
+    if busy:
+        return [label + "merge / rebase / cherry-pick / revert の途中なので移らない"
+                "（終えるか --quit で止める。別に取るなら git worktree add）"], None
+    # submodule の変更は switch がそのまま持ち越すので数えない
+    block, untracked = tree_blocker(
+        changemap.git("status", "--porcelain", "--ignore-submodules=all", cwd=top), target)
+    if block:
+        return [label + block], None
+    # 書く操作は timeout で殺さない——途中で殺すと HEAD は元のまま file だけ書き換わり、index.lock が残る
+    # （実測: smudge filter に sleep を仕込んで 15 秒で殺した）
+    rc, _, err = changemap.run("switch", "--no-guess", "--no-overwrite-ignore", "--", target,
+                               cwd=top, timeout=None)
+    if changemap.current_branch(top) == target:
+        # プロセスの cwd の階層が移った先に無いと消え、以後の cwd 無しの git が全部落ちる
+        # （render_local が「持っていない」「変更なし」と嘘を出す）。根に寄せる
+        try:
+            os.getcwd()
+        except FileNotFoundError:
+            os.chdir(top)
+        line = label + f"{cur or '（detached）'} から移った"
+        if untracked:
+            line += f"（未追跡 {untracked} 件は持ち越した）"
+        return [line, *("    " + n for n in git_notes(err))], target
+    if rc is None:
+        return [label + f"移れなかった（{err}）"], None
+    return [label + "移れなかった（git switch が拒んだ）",
+            *("    " + n for n in git_notes(err, failed=True))], None
+
+
+def render_local(derived=None, why="", pr_head=None, branch=None, cwd=None):
+    """今のブランチに居るときに出す手元の状態（this で呼んだ、または --switch で移った・既に居た。why は
+    その理由）。GitHub に無いものはここにしか出ない。derived は、PR が無くブランチ名の番号を issue と見た
+    ときのその番号（申告用）。pr_head は PR の head の commit——手元がそれより後ろなら数えて出す（push して
+    いない commit だけ数えると、別の機械から push した後の古い手元が「同期済み」に読める）。branch は
+    呼び手が知っていれば渡す（--switch で移った直後）。"""
     out = []
     w = out.append
-    branch = (changemap.git("branch", "--show-current") or "").strip()
-    w(f"## 手元のブランチ {branch or '（detached）'}（this で呼んだので出す）")
+    if branch is None:
+        branch = changemap.current_branch(cwd) or ""
+    w(f"## 手元のブランチ {branch or '（detached）'}（{why}）")
     if derived:
         w(f"  PR が無いので、ブランチ名の番号から #{derived} を issue と見た（違えば番号を渡す）")
     # 「push していない」は origin の同名ブランチとの差で数える。@{upstream} だと、origin/main から
     # 切って -u 無しで push した枝は追跡先が origin/main のままで、push 済みの commit まで
     # 「push していない」に数える（実測）
     remote = f"origin/{branch}" if branch else ""
-    if remote and changemap.git("rev-parse", "--verify", "--quiet", remote) is not None:
-        ahead, label = changemap.git("log", "--oneline", f"{remote}..HEAD"), "push していない commit"
+    if remote and changemap.git("rev-parse", "--verify", "--quiet", remote, cwd=cwd) is not None:
+        ahead = changemap.git("log", "--oneline", f"{remote}..HEAD", cwd=cwd)
+        label = "push していない commit"
     else:
-        upstream = (changemap.git("rev-parse", "--abbrev-ref", "@{upstream}") or "").strip()
-        ahead = changemap.git("log", "--oneline", "@{upstream}..HEAD") if upstream else None
+        upstream = (changemap.git("rev-parse", "--abbrev-ref", "@{upstream}", cwd=cwd) or "").strip()
+        ahead = changemap.git("log", "--oneline", "@{upstream}..HEAD", cwd=cwd) if upstream else None
         label = f"origin に {branch or 'このブランチ'} が無い（未 push）。{upstream} より先の commit"
     if ahead is None:
         w("  push していない commit: 分からない（origin に同名のブランチも、追跡先も無い）")
@@ -1166,7 +1379,14 @@ def render_local(derived=None):
             w("    " + ln)
     else:
         w(f"  {label}: なし")
-    dirty, tree = changemap.working_tree()
+    if pr_head:
+        # 持っていない commit を範囲に書くと rev-list が落ちる（None）。それで「持っていない」が分かる
+        behind = changemap.git("rev-list", "--count", f"HEAD..{pr_head}", cwd=cwd)
+        if behind is None:
+            w(f"  PR の head {pr_head[:7]} を手元に持っていない（fetch していない）")
+        elif behind.strip() != "0":
+            w(f"  PR の head {pr_head[:7]} より {behind.strip()} commit 後ろ（fetch / pull していない）")
+    dirty, tree = changemap.working_tree(cwd)
     if dirty:
         w(f"  未コミット {len(dirty)} 件。木（行頭 + が新規・~ が変更・- が削除。"
           "そのまま diff の枠に貼る）:")
@@ -1201,6 +1421,11 @@ def main(argv=None):
                    help="発言と本文を全文で出す（本文の 60 行、閉じる issue の冒頭 12 行の上限も外す）")
     p.add_argument("--limit", type=int, default=12,
                    help="その後に起きたことの表示件数（既定 12）")
+    p.add_argument("--switch", action="store_true",
+                   help="該当ブランチが手元にあれば git switch で移る（PR は head のブランチ、issue は名前に"
+                        "番号を持つブランチが 1 本のとき）。追跡ファイルに未コミットがあれば移らない。"
+                        "手元を変えるのはこの git switch だけ（fetch・stash・gh pr checkout はしない）。"
+                        "this では何もしない")
     a = p.parse_args(argv)
 
     target, focus = split_words(a.words)
@@ -1209,26 +1434,35 @@ def main(argv=None):
     # 他人を基準にするときは、手元の git config はその人のものではないので照合しない
     my_email = "" if a.me else local_email()
     node = fetch(owner, name, num)
+    is_pr = node["__typename"] == "PullRequest"
+    # 移るのは render より前——地図の「同じ階層の既存」は手元の HEAD から数えるので、移った後の枝で描く。
+    # this で呼んだときは今のブランチが対象なので何もしない
+    branch_lines, on_branch = [], None
+    if a.switch and not local:
+        branch_lines, on_branch = switch_branch(owner, name, num, node)
     ev, refs, unlinked = collect_events(node, me, my_email)
     anchor, anchor_kind = find_anchor(ev, node, me)
-    is_pr = node["__typename"] == "PullRequest"
     with_map, with_threads, with_ci = pick_tails(
         is_pr, focus, bool(unresolved_threads(node, me)),
         bool(check_state(node)[0]) if is_pr else False)
     print(render(node, me, ev, refs, unlinked, anchor, anchor_kind, a.full, a.limit,
                  collect_caps(node), with_map=with_map, with_threads=with_threads,
-                 with_ci=with_ci))
+                 with_ci=with_ci, branch_lines=branch_lines))
     # 並びは、作者の言葉（本文。どの呼び方でも出る）→ 私が動く材料（指摘・CI）→ 読み直す材料（地図）
     # → GitHub に無い手元の状態
     tails = [render_body(node, a.full, lambda n: fetch_ref(owner, name, n))]
+    pr_head = head_oid(node)  # issue なら None
     if with_threads:
-        tails.append(render_threads(node, me, head_reader(owner, name, head_oid(node))))
+        tails.append(render_threads(node, me, head_reader(owner, name, pr_head)))
     if with_ci:
         tails.append(render_ci(node, owner, name))
     if with_map:
         tails.append(render_map(node, owner, name))
-    if local:
-        tails.append(render_local(num if local == "branch" else None))
+    if local or on_branch:
+        tails.append(render_local(
+            num if local == "branch" else None,
+            "this で呼んだので出す" if local else "--switch でこの件のブランチに居るので出す",
+            pr_head=pr_head, branch=on_branch))
     if not is_pr and focus:
         tails.append("（issue には地図・指摘・CI の材料は無い）")
     for t in tails:

@@ -236,19 +236,30 @@ def modified_hunks(path, lines, adds, dels):
 # ---- 手元の git ------------------------------------------------------------------
 
 
-def git(*args, cwd=None):
-    """git を呼ぶ。無い・失敗なら None（地図の材料は無くても本体の報告は成り立つ）。"""
+def run(*args, cwd=None, timeout=15):
+    """git を呼んで (終了コード, stdout, stderr) を返す。失敗の言い分（stderr）が要るとき用（/catchup の
+    git switch）。git が無い・timeout・起動できないなら (None, "", 理由)。timeout は読むだけの呼び出し用
+    ——書く操作（switch）は timeout=None で呼ぶ。途中で殺すと書きかけの木と index.lock が残る（実測）。
+    stdin は閉じる（hook や filter が入力待ちで固まらない）。"""
     exe = shutil.which("git")
     if not exe:
-        return None
+        return None, "", "git が見つからない"
     try:
-        r = subprocess.run(  # noqa: S603 — git は which で解決。引数はこのファイル内のリテラルと path だけ
+        r = subprocess.run(  # noqa: S603 — git は which で解決。引数は呼び手のリテラルと path・ブランチ名だけ
             [exe, *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace",
-            timeout=15,
+            timeout=timeout, stdin=subprocess.DEVNULL,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return r.stdout if r.returncode == 0 else None
+    except subprocess.TimeoutExpired:
+        return None, "", f"{timeout} 秒で応答が無い"
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, "", str(e)
+    return r.returncode, r.stdout, r.stderr
+
+
+def git(*args, cwd=None):
+    """git を呼ぶ。無い・失敗なら None（地図の材料は無くても本体の報告は成り立つ）。"""
+    rc, out, _ = run(*args, cwd=cwd)
+    return out if rc == 0 else None
 
 
 def repo_top(cwd=None):
@@ -256,14 +267,27 @@ def repo_top(cwd=None):
     return out.strip() if out else None
 
 
-def origin_matches(top, owner, name):
-    """origin が owner/name か。末尾 2 セグメントの等値で見る——部分一致だと org/platform-docs の
+def current_branch(cwd=None):
+    """今のブランチ名。detached なら ""、読めなければ None（区別が要らない呼び手は or "" で受ける）。"""
+    out = git("branch", "--show-current", cwd=cwd)
+    return out.strip() if out is not None else None
+
+
+def origin_url(top):
+    """origin の URL。無ければ ""。"""
+    return (git("remote", "get-url", "origin", cwd=top) or "").strip()
+
+
+def origin_is(url, owner, name):
+    """url が owner/name か。末尾 2 セグメントの等値で見る——部分一致だと org/platform-docs の
     checkout を org/platform と誤認し、別リポジトリの名前が「同じ階層の既存」に混ざる（実測）。"""
-    url = git("remote", "get-url", "origin", cwd=top)
-    if not url:
-        return False
     m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url.strip())
     return bool(m) and (m.group(1).lower(), m.group(2).lower()) == (owner.lower(), name.lower())
+
+
+def origin_matches(top, owner, name):
+    """手元の checkout の origin が owner/name か。"""
+    return origin_is(origin_url(top), owner, name)
 
 
 def tracked_names(top, d):

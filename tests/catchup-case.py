@@ -488,6 +488,42 @@ def _branch_number():
     return "BRANCH_OK" if got == want else f"BRANCH_NG {got}"
 
 
+@case("branch-line")
+def _branch_line():
+    """--switch の結果の行は見出しの URL の直下（命令書が「URL は見出しの下の行から写す」で位置に依存する）。
+    無ければ何も足さない。"""
+    def draw(**flags):
+        node = pr()
+        ev, refs, unlinked = catchup.collect_events(node, ME, "")
+        anchor, kind = catchup.find_anchor(ev, node, ME)
+        return catchup.render(node, ME, ev, refs, unlinked, anchor, kind, False, 12,
+                              catchup.collect_caps(node), **flags).splitlines()
+    with_line = draw(branch_lines=["ブランチ feat/1: main から移った", "    note"])
+    without = draw()
+    i = with_line.index("  https://example.invalid/pull/1")
+    want = {"after_url": with_line[i + 1] == "  ブランチ feat/1: main から移った",
+            "note_indented": with_line[i + 2] == "      note",
+            "absent": without[without.index("  https://example.invalid/pull/1") + 1] == ""}
+    bad = [k for k, v in want.items() if not v]
+    return "LINE_OK" if not bad else f"LINE_NG {','.join(bad)}\n" + "\n".join(with_line[:8])
+
+
+@case("issue-branch")
+def _issue_branch():
+    """issue の移る先（純関数）。名前に番号を持つ手元の枝が 1 本のときだけ。0 本・2 本以上は理由に候補名。
+    版の数字（python3.12）は候補外。PR は head の名前の有無だけなので純関数を持たない。"""
+    local = {"feat/12-a": "", "fix/12-b": "", "chore/python3.12": "", "chore/1513-x": "", "main": ""}
+    one, two, zero = (catchup.issue_branch(n, local) for n in (1513, 12, 99))
+    want = {
+        "one": one == ("chore/1513-x", ""),
+        "two": two[0] is None and "feat/12-a, fix/12-b" in two[1],
+        "zero": zero[0] is None and "#99" in zero[1],
+        "version_not_number": catchup.issue_branch(12, {"chore/python3.12": ""})[0] is None,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "ISSUE_OK" if not bad else f"ISSUE_NG {','.join(bad)} {(one, two, zero)}"
+
+
 @case("ci-material")
 def _ci_material():
     """CI の材料: Actions の run だけログを取り、行頭の job・step・時刻を落として最後の ##[error] まで。

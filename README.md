@@ -9,7 +9,7 @@ raiki61 のプラグインマーケットプレイス。配るプラグインは
 | **convergence-loops** | 収束するまで回す 4 つのループ（/review-loop・/research-loop・/doctor-loop・/firstread-loop） | 呼んだときに効く（コマンド） |
 | **gates** | 外に出る操作を、検査が通るまで止める門番。1 本目は coldread——gh の投稿本文(issue・PR・release notes・gist 等)を、文脈ゼロの読み手に初見で読ませて、詰まりが直るまで投稿を止める。2 本目は destgate——投稿の宛先を人が管理する許可一覧で縛る（既定で眠る） | 有効化した環境で常時効く（フック）→ [gates/README.md](gates/README.md) |
 | **coldwrite** | 書かれる文書の門番(試作)。Write される散文の拡張子(md/mdx/adoc/asciidoc/rst/txt)を coldreader(文脈を持たない初見の読み手)が書き込み前に読み、詰まりが直るまで止める | 有効化した環境で常時効く（フック）→ [coldwrite/README.md](coldwrite/README.md) |
-| **attention** | 並行作業から戻るための道具 2 本。1 件の PR / issue に戻る /catchup（相手が今求めていることと、自分が最後に置いた場所を並べる）と、いま居るセッションが何のスレッドだったかを思い出す /whatamidoing | 呼んだときに効く（コマンド）→ [attention/README.md](attention/README.md) |
+| **attention** | 並行作業を見渡して戻るための道具 3 本。open 全件から誰の番かを出す /whose-turn、1 件の PR / issue に戻る /catchup（該当ブランチが手元にあれば移る）、いま居るセッションが何のスレッドだったかを思い出す /what-am-i-doing | 呼んだときに効く（コマンド）→ [attention/README.md](attention/README.md) |
 
 上の 3 本は規律（読み役は毎回新規・文脈遮断・点数を測らない）を共有するが、別々に有効化する——
 ループ集を入れたら投稿や書き込みの挙動が黙って変わる、を避けるため。attention はこの規律の外で、
