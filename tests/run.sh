@@ -686,7 +686,7 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=224
+EXPECTED_MIN=225
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -1257,6 +1257,9 @@ expect_output 0 "DIRTY_OK" \
 expect_output 0 "TREE_OK" \
     "what-am-i-doing: 未コミットの変更を木で出す（周辺つき、新規は行頭 +、変更は ~）" \
     "$PY_BIN" "$WAI_CASE" dirty-tree
+expect_output 0 "FRAMES_OK" \
+    "what-am-i-doing: 未コミットの中身は今の姿に機械が帯を入れた枠（関数まるごと。前の行はコメント）。未追跡は先頭と骨組み。--frame は 1 file を全部" \
+    "$PY_BIN" "$WAI_CASE" frames
 expect_output 0 "TOPIC_OK" \
     "what-am-i-doing: --topic はその語が出た往復だけを出す（/catchup が会話の話題を追う背骨）" \
     "$PY_BIN" "$WAI_CASE" topic

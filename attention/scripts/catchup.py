@@ -98,7 +98,7 @@ query($owner:String!,$name:String!,$num:Int!){
       __typename
       ... on PullRequest {
         number title url state isDraft createdAt body
-        headRefName headRepository{nameWithOwner}
+        headRefName headRepository{nameWithOwner} baseRefOid headRefOid
         additions deletions changedFiles mergeable reviewDecision
         files(first:100){totalCount nodes{path changeType additions deletions}}
         author { __typename login }
@@ -855,18 +855,17 @@ def render_body(node, full, get_ref=None):
 #   - 変更ファイルの木（周辺の既存を薄く並べたもの。そのまま diff の枠に貼れる）
 #   - 名前の言及（追加行が他の変更ファイルの名前を含む関係と、その行。呼び出しの当たり）
 #   - 新規ファイルの先頭コメント / docstring（作者の自己紹介）と骨組み（step 名・def・上位 key）
-#   - 既存ファイルの hunk（変更が小さいものはそのまま。大きいものは @@ の見出しと追加行の骨組み）
+#   - 既存ファイルの変更（今の姿に帯を入れた枠。関数まるごと。lib/changemap.py の「変更の枠」）
 #
 # 行は 1 文字も変えずに `| ` の後ろに出す。AI が写す元になるので、ここで整えると写した先が実物と
 # 違ってしまう。
 
 MAP_HEAD_LINES = changemap.HEAD_LINES
-MAP_HUNK_LIMIT = changemap.HUNK_LIMIT
 MAP_OUTLINE_CAP = changemap.OUTLINE_CAP
 MAP_SIBLINGS_CAP = 40    # 同じ階層の名前の上限（材料の一覧。木は lib が数件に絞る）
 MAP_DIFF_CAP = 400_000   # gh pr diff がこの文字数を超えたら中身の抽出をやめる
 split_diff, added_lines, file_head = changemap.split_diff, changemap.added_lines, changemap.file_head
-outline, call_refs, modified_hunks = changemap.outline, changemap.call_refs, changemap.modified_hunks
+outline, call_refs = changemap.outline, changemap.call_refs
 unquote_git_path = changemap.unquote_git_path
 
 
@@ -994,16 +993,40 @@ def render_map(node, owner, name):
 
     mod = [f for f in nodes if f["changeType"] != "ADDED"]
     if mod:
-        w(f"  既存ファイルの変更（{MAP_HUNK_LIMIT} 行以内は hunk をそのまま。"
-          "超える分は @@ の見出しだけ）:")
+        wide, note = pr_function_diff(owner, name, node, lambda: text)
+        frames = changemap.framed_diff(wide)
+        w("  既存ファイルの変更（" + changemap.FRAME_NOTE + f"。1 file {changemap.FRAME_FILE_CAP} 行を超えたら"
+          f"関数の切れ目で止めて、続きは --frame path で{note}）:")
         for f in mod:
             old = renames.get(f["path"])
             frm = f"  旧: {old}" if old else ""
             w(f"    === {f['path']}  ({f['changeType']} +{f['additions']}/-{f['deletions']}){frm}")
-            for prefix, ln in modified_hunks(f["path"], hunks.get(f["path"], []),
-                                             f["additions"], f["deletions"]):
+            info = frames.get(f["path"])
+            if not info:
+                w("    （改名のみ。中身の変更なし）" if old and not (f["additions"] or f["deletions"])
+                  else "    （中身が diff に無い。バイナリか空）")
+                continue
+            if changemap.is_prose(f["path"]):
+                w(f"    （散文・設定。枠は出さない——何を言うようになったかは本文と先頭コメントで。--frame {f['path']} で枠は出る）")
+                continue
+            for prefix, ln in changemap.join_frames(f["path"], info):
                 w("    " + prefix + ln)
     return "\n".join(out)
+
+
+def pr_function_diff(owner, name, node, get_text):
+    """PR の diff を関数まるごとの文脈で。手元がこのリポジトリの checkout で base と head の commit を
+    持っていれば git diff -W base...head。無ければ get_text()（gh pr diff。文脈 3 行）をそのまま使い、
+    理由を返す。戻り値は (diff の本文 or None, 見出しに添える断り)。"""
+    top = changemap.repo_top()
+    base, head = node.get("baseRefOid"), node.get("headRefOid")
+    if not top or not changemap.origin_matches(top, owner, name):
+        return get_text(), "。文脈は 3 行——手元がこのリポジトリの checkout ではない"
+    if not (base and head and all(changemap.git("cat-file", "-e", f"{o}^{{commit}}", cwd=top) is not None
+                                  for o in (base, head))):
+        return get_text(), "。文脈は 3 行——手元に base と head の commit が無い。fetch すれば関数まるごとになる"
+    wide = changemap.function_diff(cwd=top, rev=f"{base}...{head}")
+    return (wide, "") if wide is not None else (get_text(), "。文脈は 3 行——手元の git diff が失敗した")
 
 
 # ---- 指摘・CI・手元のブランチ（材料） --------------------------------------------
@@ -1421,6 +1444,8 @@ def main(argv=None):
                    help="発言と本文を全文で出す（本文の 60 行、閉じる issue の冒頭 12 行の上限も外す）")
     p.add_argument("--limit", type=int, default=12,
                    help="その後に起きたことの表示件数（既定 12）")
+    p.add_argument("--frame", metavar="path",
+                   help="地図の代わりに、この file の変更だけを関数まるごとの枠で全部出す（上限なし）")
     p.add_argument("--switch", action="store_true",
                    help="該当ブランチが手元にあれば git switch で移る（PR は head のブランチ、issue は名前に"
                         "番号を持つブランチが 1 本のとき）。追跡ファイルに未コミットがあれば移らない。"
@@ -1430,6 +1455,23 @@ def main(argv=None):
 
     target, focus = split_words(a.words)
     owner, name, num, local = resolve_target(target, a.repo)
+    if a.frame:
+        # 1 file の変更だけを関数まるごとの枠で。地図の 1 file の上限で切れた続きを見るための口。
+        # 本体の報告は組まないので、gh は取得の 1 回（と手元に commit が無いときの pr diff）だけ
+        node = fetch(owner, name, num)
+        if node["__typename"] != "PullRequest":
+            sys.exit("--frame は PR でだけ使える（issue には diff が無い）")
+        wide, note = pr_function_diff(owner, name, node,
+                                      lambda: gh_try("pr", "diff", str(num), "-R", f"{owner}/{name}"))
+        if wide is None:
+            sys.exit("diff が取れない（gh pr diff が失敗した）")
+        info = changemap.framed_diff(wide).get(a.frame)
+        if not info:
+            sys.exit(f"{a.frame} はこの PR の変更に無い（改名だけの file も含む。path はリポジトリの根からの相対）")
+        print(f"    === {a.frame}" + ("（新規）" if info["new"] else "") + (f"（{note.lstrip('。')}）" if note else ""))
+        for prefix, ln in changemap.join_frames(a.frame, info, cap=None):
+            print("    " + prefix + ln)
+        return 0
     me = a.me or gh("api", "user", "--jq", ".login").strip()
     # 他人を基準にするときは、手元の git config はその人のものではないので照合しない
     my_email = "" if a.me else local_email()

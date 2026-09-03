@@ -3,7 +3,7 @@
 
 固定するのは「材料 → 出力」の規則だけ: diff の分解（引用形の日本語 path・改名・' b/' を含む path・
 削除・バイナリ）、先頭コメント / docstring の取り方と切れの申告、骨組みの正規表現、名前の言及、
-大きい変更の縮め方、木の描画と周辺の選び方、git status --porcelain の読み方。
+変更の枠（今の姿に帯）、木の描画と周辺の選び方、git status --porcelain の読み方。
 """
 
 import importlib.util
@@ -130,19 +130,6 @@ class Refs(unittest.TestCase):
         ])
         self.assertNotIn("deploy/x.py", rel)
 
-    def test_modified_hunks_small_full_large_outline_or_body(self):
-        small = ["@@ -1 +1 @@", "-a", "+b"]
-        self.assertEqual(cm.modified_hunks("f.txt", small, 1, 1), [("| ", ln) for ln in small])
-        big = ["@@ -1,5 +1,50 @@ x"] + [f"+    - name: step {i}" for i in range(3)] + [f"+  k{i}: v" for i in range(30)]
-        out = cm.modified_hunks("w.yml", big, 33, 0)
-        self.assertEqual(out[0], ("| ", "@@ -1,5 +1,50 @@ x"))
-        self.assertIn(("", "追加行の骨組み:"), out)
-        self.assertIn(("| ", "+    - name: step 0"), out)
-        plain = ["@@ -1,20 +1,20 @@"] + ["-# c"] * 10 + ["-helm 3.16.4", "+helm 3.21.4"] + ["+# d"] * 10
-        out = cm.modified_hunks(".tool-versions", plain, 11, 11)
-        self.assertIn(("", "コメントでない変更行:"), out)
-        self.assertEqual([t for p, t in out if p == "| "][1:], ["-helm 3.16.4", "+helm 3.21.4"])
-
 
 class Tree(unittest.TestCase):
     def test_tree_marks_notes_siblings_and_rest_counts(self):
@@ -217,6 +204,143 @@ class Porcelain(unittest.TestCase):
         self.assertEqual(num["img.png"], (None, None))
         self.assertEqual(got["newdir"][0], "+")                   # 階層ごと新規。名前の無い行にしない
         self.assertIn("階層ごと", got["newdir"][1])
+
+
+FRAME_DIFF = """diff --git a/src/a.py b/src/a.py
+--- a/src/a.py
++++ b/src/a.py
+@@ -1,9 +1,11 @@ def f():
+ def f():
+     x = 1
++    y = 2
+     return x
+
+
+ def g(a,
+-      b):
++      b, c):
++    z = 3
+     return a
+@@ -40,3 +42,3 @@ def h():
+ def h():
+-    old = 1
++    new = 1
+     return 0
+diff --git a/web/app.ts b/web/app.ts
+--- a/web/app.ts
++++ b/web/app.ts
+@@ -1,3 +1,3 @@
+ const a = 1;
+-const b = 2;
++const b = 3;
+ export {a, b};
+diff --git a/docs/new.md b/docs/new.md
+new file mode 100644
+--- /dev/null
++++ b/docs/new.md
+@@ -0,0 +1,2 @@
++# t
++body
+diff --git a/docs/d.md b/docs/d.md
+--- a/docs/d.md
++++ b/docs/d.md
+@@ -1,3 +1,3 @@
+ # t
+-old text
++new text
+ same
+"""
+# 空の文脈行は実物（git / GitHub）では " "（空白 1 文字）。ここの "" は frame_hunk が許容する形で、
+# 実物の " " は tests/what-am-i-doing-case.py の frames（本物の git）が通す
+
+
+class Frame(unittest.TestCase):
+    """変更の枠: 今の姿に帯を入れる。今の行は 1 文字も変えない。"""
+
+    def setUp(self):
+        self.fr = cm.framed_diff(FRAME_DIFF)
+
+    def test_bands_wrap_changes_and_old_lines_become_aligned_comments(self):
+        block = self.fr["src/a.py"]["blocks"][0]
+        self.assertEqual(block[0], "def f():")                       # 今の行はそのまま
+        self.assertTrue(block[2].startswith("    # ┏━━ 追加 ━━"))     # y = 2 の前に帯（字下げは区間の最浅）
+        self.assertEqual(block[3], "    y = 2")
+        self.assertTrue(block[4].startswith("    # ┗━━━"))
+        i = block.index("      b, c):")
+        self.assertEqual(block[i - 1], "#│    b):")                 # 前の行は #│ の印で桁を揃えて薄く
+        self.assertTrue(block[i - 2].startswith("    # ┏━━ 変更 ━━"))    # 帯は区間で一番浅い行に合わせる
+        self.assertEqual(block[i + 1], "    z = 3")                  # 隣り合う変更は同じ枠（間 0 行）
+        self.assertTrue(block[i + 2].startswith("    # ┗━━━"))
+        self.assertEqual({cm.width(l) for l in block if "━" in l or "┅" in l}, {78})  # 帯の幅は 78 に揃う
+
+    def test_old_line_mark_differs_from_added_comment_line(self):
+        """前の行の印は専用——コメント記号だけだと、今足したコメント行と同じ字面になり読み方が 2 つになる。"""
+        out = cm.frame_hunk("a.py", [" import os", "-x = 1", "+# x = 1", "+x = 2", " z = 3"])
+        self.assertEqual(out[2], "#│ x = 1")                        # 前
+        self.assertEqual(out[3], "# x = 1")                         # 今足したコメント行（そのまま）
+        self.assertNotEqual(out[2], out[3])
+        shallow = cm.old_line(("#", ""), "  foo")                   # 字下げが印より浅い行は 1 桁だけずれる
+        self.assertEqual(shallow, "#│ foo")
+
+    def test_delete_only_and_other_languages(self):
+        h = self.fr["src/a.py"]["blocks"][1]
+        self.assertTrue(h[1].startswith("    # ┏━━ 変更 ━━"))
+        self.assertEqual(h[2], "#│  old = 1")
+        self.assertEqual(h[3], "    new = 1")
+        ts = self.fr["web/app.ts"]["blocks"][0]
+        self.assertTrue(ts[1].startswith("// ┏━━ 変更 ━━"))
+        self.assertEqual(ts[2], "//│ const b = 2;")
+        self.assertEqual(ts[3], "const b = 3;")
+        deleted = cm.frame_hunk("x.py", [" a", "-b", " c"])
+        self.assertTrue(deleted[1].startswith("# ┏━━ 削除 ━━"))
+        self.assertEqual(deleted[2], "#│ b")
+        md = self.fr["docs/d.md"]["blocks"][0]                       # markup は <!-- --> で前後を挟む
+        self.assertTrue(md[1].startswith("<!-- ┏━━ 変更 ━━") and md[1].endswith(" -->"))
+        self.assertEqual(cm.width(md[1]), 78)
+        self.assertEqual(md[2], "<!--│ old text -->")
+        css = cm.frame_hunk("a.css", [" a {", "-  color: red;", "+  color: blue;", " }"])
+        self.assertTrue(css[1].startswith("  /* ┏━━ 変更 ━━") and css[1].endswith(" */"))
+        self.assertEqual(css[2], "/*│ color: red; */")
+        go = cm.frame_hunk("m.go", [" func f() {", "-\tx := 1", "+\tx := 2", " }"])
+        self.assertTrue(go[1].startswith("    // ┏━━ 変更 ━━"))       # 帯の字下げの tab は空白 4 つ
+        self.assertEqual(cm.width(go[1].expandtabs(8)), 78)
+        self.assertEqual(go[2], "//│ \tx := 1")
+
+    def test_new_file_has_no_bands_and_gaps_between_hunks(self):
+        new = self.fr["docs/new.md"]
+        self.assertTrue(new["new"])
+        self.assertEqual(new["blocks"], [["# t", "body"]])
+        self.assertEqual(self.fr["src/a.py"]["gaps"], [42 - 12])    # 2 つ目の hunk までの行数
+
+    def test_join_caps_at_function_boundary_and_separates_hunks(self):
+        rows = cm.join_frames("src/a.py", self.fr["src/a.py"], cap=None)
+        texts = [t for _, t in rows]
+        self.assertTrue(any(t.startswith("# ┅┅┅ 30 行省略") for t in texts))  # hunk の間は点線
+        capped = cm.join_frames("src/a.py", self.fr["src/a.py"], cap=5)
+        self.assertEqual(capped[-1][0], "")                          # 関数の切れ目で止めて申告
+        self.assertIn("--frame src/a.py", capped[-1][1])
+        self.assertTrue(all(p == "| " for p, _ in capped[:-1]))
+        self.assertEqual(capped[0][1], "def f():")                   # cap を超えても最初の関数は必ず出る
+        self.assertIn("残り 1 関数 6 行", capped[-1][1])                # 申告の数字は残りの関数数と行数
+
+    def test_long_function_folds_unchanged_runs_and_caps_old_lines(self):
+        body = [" line%d" % i for i in range(60)] + ["-o", "+n"] + [" tail%d" % i for i in range(60)]
+        out = cm.frame_hunk("x.py", body)
+        folds = [l for l in out if "行省略" in l]
+        self.assertEqual(len(folds), 2)                              # 前後の長い区間を畳む
+        self.assertIn("line59", "\n".join(out))                      # 変更の前 FOLD_KEEP 行は残る
+        self.assertNotIn("line20", "\n".join(out))
+        many = cm.frame_hunk("x.py", ["-o%d" % i for i in range(20)] + ["+n"])
+        self.assertTrue(any("前の行 17 行省略" in l for l in many))
+        self.assertEqual(sum(1 for l in many if l.startswith("#│ o")), 3)
+
+    def test_gap_rule_splits_far_changes(self):
+        near = cm.frame_hunk("x.py", ["+a", " 1", " 2", " 3", "+b"])
+        far = cm.frame_hunk("x.py", ["+a", " 1", " 2", " 3", " 4", "+b"])
+        self.assertEqual(sum(1 for l in near if "┏" in l), 1)
+        self.assertIn("追加（変わっていない 3 行を挟む）", near[0])          # 挟まった行の数を帯に書く
+        self.assertEqual(sum(1 for l in far if "┏" in l), 2)
+        self.assertNotIn("挟む", far[0])
 
 
 if __name__ == "__main__":

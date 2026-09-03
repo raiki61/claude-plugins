@@ -19,7 +19,6 @@ import shutil
 import subprocess
 import unicodedata
 
-HUNK_LIMIT = 15      # 既存ファイルの変更がこの行数以内なら hunk を丸ごと出す
 HEAD_LINES = 8       # 新規ファイルの先頭コメント / docstring を出す行数
 OUTLINE_CAP = 40     # 骨組みの行数の上限（1 ファイルあたり）
 SIBLINGS_SHOWN = 4   # 木で 1 階層に薄く並べる周辺の名前の数
@@ -205,32 +204,208 @@ def call_refs(paths, hunks, hits_cap=6):
     return rel
 
 
-def modified_hunks(path, lines, adds, dels):
-    """小さい変更は hunk をそのまま。大きい変更は @@ の見出し（関数名つき）と、追加行のうち
-    骨組みにあたる行（新しい step・def・見出し）だけ。骨組みの取れない種類（拡張子なし等）は
-    コメントでない変更行を数行。全文は gh pr diff で見る。
-    返すのは (prefix, text) の列。prefix が "| " なら実物の行、"" なら機械の説明。"""
-    if adds + dels <= HUNK_LIMIT:
-        return [("| ", ln) for ln in lines]
-    heads = [ln for ln in lines if ln.startswith("@@")]
-    out = [("| ", ln) for ln in heads[:5]]
-    if len(heads) > 5:
-        out.append(("", f"（@@ は他に {len(heads) - 5} 個）"))
-    ol = outline(path, added_lines(lines))
-    if ol:
-        out.append(("", "追加行の骨組み:"))
-        out.extend(("| ", "+" + ln) for ln in ol[:12])
-        if len(ol) > 12:
-            out.append(("", f"（他に {len(ol) - 12} 行）"))
-        return out
-    body = [ln for ln in lines if ln[:1] in "+-" and ln[1:].lstrip()
-            and not ln[1:].lstrip().startswith(("#", "//"))]
-    if body:
-        out.append(("", "コメントでない変更行:"))
-        out.extend(("| ", ln) for ln in body[:8])
-        if len(body) > 8:
-            out.append(("", f"（他に {len(body) - 8} 行）"))
+# ---- 変更の枠（今の姿に、機械が帯を入れる） ---------------------------------------------
+#
+# 読む人が判断に使うのは diff ではなく「今のコードの中で、どこが変わったか」。unified diff は patch の
+# 形式で、@@ の行は人に意味が無く、行頭の +/- は構文の色を消す（端末の highlight は diff か言語かの
+# どちらか）。そこで今の姿（言語の色が付く）をそのまま出し、変わった所だけをコメント行の帯で囲む——
+# IntelliJ の gutter（構文色は残し、変更は脇の帯で示す）の端末版。
+#   実線の枠 ┏ … ┗ ＝ ここが変わった（追加・変更・削除）。中で行頭が `#│`（コメント記号＋│）の薄い行は
+#   前、色の行は今。前の行の印は専用にする——コメント記号だけだと、今足したコメント行（コメントアウト・
+#   設計コメント）と同じ字面になり、読み方が 2 つになる（実測）
+#   点線 ┅ ＝ 行が無い（長い関数で変わっていない区間を畳んだ。前の行が多すぎて省いた）
+# 帯はその言語のコメント記法で入れるので、枠は有効なコードのまま。帯の幅は東アジア幅で揃える
+# （揃わないと罫線でなく雑音に見える——実測）。近い変更（間 3 行以内）は 1 つの枠にまとめ、挟まった
+# 変わっていない行の数を帯に書く（1 行ごとに枠 2 行を払うと枠の山になる——実測）。行番号・変更の断片は
+# 入れない（実測: 要らない、ごちゃつく）。
+# 単位は関数まるごと（git diff -W）。削るのは関数の数で、行ではない——関数の途中を省くと読む人は
+# そこで判断を止める（実測）。長い関数だけ、変わっていない区間を点線で畳む。
+
+FRAME_WIDTH = 78   # 帯の全幅（字下げ込み。東アジア幅で数える）
+FRAME_GAP = 3      # 変わっていない行がこの数以内で隣り合う変更は 1 つの枠
+FRAME_WHOLE = 100  # hunk（-W なら関数まるごと）がこの行数以内なら畳まず全部出す
+FOLD_KEEP = 10     # 畳むとき、変更の前後に残す行数
+OLD_CAP = 15       # 枠の中に残す前の行の上限。超えたら先頭 3 行と行数
+FRAME_FILE_CAP = 300  # 1 file の枠の行数の目安。超えたら関数の切れ目で止めて、残りは --frame で
+FRAME_TOTAL_CAP = 800  # 変更の中身の合計の目安。超えた file は名前だけ（大きい変更で報告が材料に埋もれない）
+FRAME_NOTE = ("今の姿に機械が帯を入れた。実線の枠 ┏…┗ が変わった所で、中の行頭が `#│`（コメント記号＋│）の"
+              "行は前・色の行は今。間 3 行以内の変更は 1 枠で、挟まった変わっていない行の数は帯に書いてある。"
+              "点線 ┅ は畳んだ区間。`| ` の後ろをそのまま言語の枠に貼る")
+COMMENT_BY_EXT = {
+    ("//", ""): {"ts", "tsx", "js", "jsx", "mjs", "go", "java", "kt", "kts", "c", "h", "cc", "cpp",
+                 "hpp", "cs", "rs", "swift", "scala", "php", "hcl", "tf", "tfvars", "groovy", "dart",
+                 "proto", "json", "jsonc", "scss", "less", "sass"},
+    ("--", ""): {"sql", "lua", "hs", "elm"},
+    ("/*", " */"): {"css"},
+    ("<!--", " -->"): {"md", "html", "htm", "xml", "svg", "vue"},  # 散文・markup。AI は散文なら枠でなく文で言う
+}
+PROSE_EXT = {"md", "txt", "adoc", "rst", "html", "htm", "xml", "json", "jsonc", "csv", "lock"}
+
+
+def _ext(path):
+    base = path.rsplit("/", 1)[-1]
+    return base.rsplit(".", 1)[-1].lower() if "." in base else ""
+
+
+def comment_marks(path):
+    """その file のコメントの (前, 後)。知らない種類は #。"""
+    ext = _ext(path)
+    for marks, exts in COMMENT_BY_EXT.items():
+        if ext in exts:
+            return marks
+    return "#", ""
+
+
+def is_prose(path):
+    """散文・設定（md・txt・json など）。関数が無く git diff -W の文脈が file 全体に広がるので、既定の
+    出力では枠を出さず 1 行で済ませる（AI も散文は文で言う）。--frame なら出す。"""
+    return _ext(path) in PROSE_EXT
+
+
+def band(marks, indent, glyph, label, fill):
+    """帯 1 本。全幅 FRAME_WIDTH に東アジア幅で揃える。字下げの tab は空白 4 つに（帯は機械の行なので
+    変えてよい。tab のままだと端末で 7 桁はみ出す）。"""
+    pre, suf = marks
+    head = indent.expandtabs(4) + pre + " " + glyph + fill * 2 + (f" {label} " if label else "")
+    return head + fill * max(FRAME_WIDTH - width(head) - width(suf), 2) + suf
+
+
+def old_line(marks, text):
+    """前の行を `#│ ` の印で薄く見せる。先頭の空白を印の長さまで置き換えて、今の行と桁を揃える
+    （字下げが印より浅い行は最大 1 桁ずれる）。"""
+    pre, suf = marks
+    lead = pre + "│ "
+    strip = min(len(lead), len(text) - len(text.lstrip(" ")))
+    return lead + text[strip:] + suf
+
+
+def _indent_of(text):
+    return text[:len(text) - len(text.lstrip())]
+
+
+def _fold(run, marks, fold):
+    """変わっていない行の列。畳むなら前後 FOLD_KEEP 行を残して点線。"""
+    if not fold or len(run) <= FOLD_KEEP * 2 + 1:
+        return list(run)
+    dropped = len(run) - FOLD_KEEP * 2
+    return [*run[:FOLD_KEEP], band(marks, _indent_of(run[FOLD_KEEP]), "┅", f"{dropped} 行省略", "┅"),
+            *run[-FOLD_KEEP:]]
+
+
+def _segment(items, marks):
+    """変わった区間 1 つを枠にする。中は、前の行（コメント）→ 今の行。間の変わっていない行はそのまま。"""
+    kinds = {m for m, _ in items if m != " "}
+    label = "追加" if kinds == {"+"} else "削除" if kinds == {"-"} else "変更"
+    same = sum(1 for m, _ in items if m == " ")
+    if same:
+        label += f"（変わっていない {same} 行を挟む）"  # 近い変更を 1 枠にまとめた印。枠の中の行数と照らせる
+    # 帯の字下げは区間の中で一番浅い行に合わせる（深い行に合わせると、浅い行を囲む帯が中に食い込む）
+    indent = min((_indent_of(t) for _, t in items if t.strip()), key=len, default="")
+    out = [band(marks, indent, "┏", label, "━")]
+    olds = []
+
+    def flush():
+        if len(olds) > OLD_CAP:
+            out.extend(old_line(marks, t) for t in olds[:3])
+            out.append(band(marks, indent, "┅", f"前の行 {len(olds) - 3} 行省略", "┅"))
+        else:
+            out.extend(old_line(marks, t) for t in olds)
+        olds.clear()
+
+    for m, t in items:
+        if m == "-":
+            olds.append(t)
+        else:
+            flush()
+            out.append(t)
+    flush()
+    out.append(band(marks, indent, "┗", "", "━"))
     return out
+
+
+def frame_hunk(path, lines):
+    """1 つの hunk（-W で取れば関数まるごと）を「今の姿＋帯」にする。lines は '+'/'-'/' ' で始まる行
+    （@@ の行は無視）。返すのは貼れる行の列。今の行は 1 文字も変えない。"""
+    marks = comment_marks(path)
+    # 空行は文脈（diff は空の文脈行を " " で出すが、"" で来ても変更に数えない）
+    items = [((ln[:1] or " "), ln[1:]) for ln in lines if (ln[:1] or " ") in "+- "]
+    changed = [i for i, (m, _) in enumerate(items) if m != " "]
+    if not changed:
+        return [t for _, t in items]
+    segs, start, prev = [], changed[0], changed[0]
+    for i in changed[1:]:
+        if i - prev - 1 > FRAME_GAP:
+            segs.append((start, prev))
+            start = i
+        prev = i
+    segs.append((start, prev))
+    fold = len(items) > FRAME_WHOLE
+    out, pos = [], 0
+    for s, e in segs:
+        out.extend(_fold([t for _, t in items[pos:s]], marks, fold))
+        out.extend(_segment(items[s:e + 1], marks))
+        pos = e + 1
+    out.extend(_fold([t for _, t in items[pos:]], marks, fold))
+    return out
+
+
+HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def framed_diff(text):
+    """git diff（-W 推奨）の全文を、path → {"new": 新規か, "blocks": [hunk ごとの枠の行], "gaps": [hunk の
+    間の行数]} にする。全行が + の file（新規）は帯を入れない——全部が追加で、印が何も伝えない。"""
+    files, _ = split_diff(text)
+    out = {}
+    for path, lines in files.items():
+        body = [ln or " " for ln in lines if (ln[:1] or " ") in "+- "]
+        if not body:
+            continue
+        if all(ln.startswith("+") for ln in body):
+            out[path] = {"new": True, "blocks": [[ln[1:] for ln in body]], "gaps": []}
+            continue
+        blocks, gaps, cur, prev_end = [], [], [], None
+        for ln in lines:
+            m = HUNK_RE.match(ln)
+            if m:
+                if cur:
+                    blocks.append(cur)
+                cur = []
+                start, count = int(m.group(1)), int(m.group(2) or 1)
+                if prev_end is not None:
+                    gaps.append(max(start - prev_end, 0))
+                prev_end = start + count
+            elif (ln[:1] or " ") in "+- ":
+                cur.append(ln or " ")
+        if cur:
+            blocks.append(cur)
+        out[path] = {"new": False, "blocks": [frame_hunk(path, b) for b in blocks], "gaps": gaps}
+    return out
+
+
+def join_frames(path, info, cap=FRAME_FILE_CAP):
+    """1 file の枠を、hunk の間に点線を挟んで 1 列にする。cap を超えるなら関数の切れ目で止め、残りを
+    申告する（関数の途中では切らない）。返すのは (prefix, text) の列。"| " は貼る行、"" は機械の説明。"""
+    marks = comment_marks(path)
+    out, total = [], 0
+    for i, block in enumerate(info["blocks"]):
+        if cap and out and total + len(block) > cap:
+            rest = info["blocks"][i:]
+            out.append(("", f"（残り {len(rest)} 関数 {sum(len(b) for b in rest)} 行は --frame {path} で全部出る）"))
+            break
+        if i:
+            gap = info["gaps"][i - 1] if i - 1 < len(info["gaps"]) else 0
+            out.append(("| ", band(marks, "", "┅", f"{gap} 行省略" if gap else "別の関数", "┅")))
+        out.extend(("| ", ln) for ln in block)
+        total += len(block)
+    return out
+
+
+def function_diff(cwd=None, rev="HEAD", paths=()):
+    """関数まるごとを文脈にした diff（git diff -W）。rev は比べる元（手元なら HEAD、PR なら
+    base...head）。無い・失敗なら None。"""
+    return git("-c", "core.quotePath=false", "diff", "-W", rev, "--", *paths, cwd=cwd) if paths \
+        else git("-c", "core.quotePath=false", "diff", "-W", rev, cwd=cwd)
 
 
 # ---- 手元の git ------------------------------------------------------------------

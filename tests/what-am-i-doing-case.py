@@ -267,6 +267,50 @@ def _dirty_tree(tmp):
     return "TREE_OK" if not bad else "TREE_NG " + ",".join(bad) + "\n" + out
 
 
+@case("frames")
+def _frames(tmp):
+    """未コミットの変更の中身は、今の姿に機械が帯を入れた枠で出る（関数まるごと、言語のコメント記法）。
+    未追跡の新規 file は diff に無いので先頭と骨組みだけ。--frame path は 1 file を上限なしで出す。"""
+    import subprocess
+    cwd = build(tmp, [ask("中身を見せて"), reply("はい")])
+    git = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q"], cwd=cwd, check=True)
+    (cwd / "src").mkdir()
+    # 変更行の後ろに変わらない行を 5 行置く——unified diff の既定の文脈は 3 行なので、-W が無いと
+    # 関数の末尾が落ちて「関数まるごと」の検査が赤くなる。空行は実物の " " の文脈行を通すため
+    tail = "\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    return x\n"
+    (cwd / "src" / "x.py").write_text("def f():\n    x = 1\n" + tail, encoding="utf-8")
+    (cwd / "img.bin").write_bytes(b"\x00\x01")
+    subprocess.run([*git, "add", "."], cwd=cwd, check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "init"], cwd=cwd, check=True)
+    (cwd / "src" / "x.py").write_text("def f():\n    x = 2\n    y = 3\n" + tail, encoding="utf-8")
+    (cwd / "src" / "n.py").write_text('"""new one"""\ndef g():\n    pass\n', encoding="utf-8")
+    (cwd / "src" / "s.py").write_text('"""staged"""\ndef h():\n    pass\n', encoding="utf-8")
+    subprocess.run([*git, "add", "src/s.py"], cwd=cwd, check=True)
+    (cwd / "img.bin").write_bytes(b"\x00\x02")
+    out = run()
+    one = run(["--frame", "src/x.py"])
+    try:
+        run(["--frame", "img.bin"])
+        refused = ""
+    except SystemExit as e:
+        refused = str(e)
+    want = {
+        "heading": "変更の中身（" in out and "=== src/x.py" in out,
+        "band": "    |     # ┏━━ 変更 ━━" in out,
+        "old_is_marked": "    | #│  x = 1" in out,
+        "new_lines": "    |     x = 2" in out and "    |     y = 3" in out,
+        "whole_function": "    | def f():" in out and "    |     return x" in out,
+        "untracked": "=== src/n.py（未追跡の新規" in out and '    | """new one"""' in out and "    | def g():" in out,
+        "staged_new": "=== src/s.py（add 済みの新規" in out and "    | def h():" in out and "def h():" not in one,
+        "binary": "=== img.bin（中身が diff に無い" in out,
+        "frame_option": "=== src/x.py" in one and "    | #│  x = 1" in one and "変更の中身" not in one,
+        "frame_refuses_no_diff": "diff に無い" in refused,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "FRAMES_OK" if not bad else "FRAMES_NG " + ",".join(bad) + "\n" + out + "\n---\n" + one
+
+
 @case("pick-reference")
 def _pick(tmp):
     """立場の対象は、会話で一番呼ばれている番号を最優先にする。
