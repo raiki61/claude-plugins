@@ -24,6 +24,12 @@ commit していると author の login は空で、名前とメールだけが�
 状態は変わらない。時系列に混ぜると表示上限を食い、本当の出来事（コメント・レビュー）を押し出す。
 「つながっている先」にだけ置く。
 
+〈本文〉作者の本文は、末尾の材料の先頭に全文（60 行まで。--full で全部）を出す。閉じる issue と、本文が
+# で指す issue / PR（3 件まで）の本文の冒頭も添える——背景は Closes の無い参照先に書いてあることが多い
+（実測: 本文が「あわせて #1105」とだけ書く PR で、AI が gh issue view を自分で引いた）。戻るとき「何の PR か」も失われていて、題名と diff だけでは内容が分からない（実測: 28 file の
+PR で、型の 1〜2 文と地図の 1 文だけでは初見に内容が読めなかった）。AI は本文と地図の先頭コメントから
+「説明」（背景と課題・何をどう変えるか・使う側の変化）を書く。機械は要約しない。
+
 〈末尾の材料〉行の要約は出さない。それは思い出す助けにならず、AI が要約すると実物と違う言葉に
 なる。末尾に付けるのは実物の行の材料——指摘（相手の発言と head のその行）・CI（落ちた step の
 ログ）・地図（置き場所・骨組み・配線）——で、**有れば出す、無ければ出さない**。作者が私かどうかでは
@@ -92,7 +98,7 @@ query($owner:String!,$name:String!,$num:Int!){
         assignees(first:10){nodes{login}}
         reviewRequests(first:20){nodes{requestedReviewer{__typename
           ... on User{login} ... on Team{name}}}}
-        closingIssuesReferences(first:10){nodes{number title state url}}
+        closingIssuesReferences(first:10){nodes{number title state url body}}
         comments(last:100){totalCount nodes{createdAt body author{__typename login}}}
         reviews(last:60){totalCount nodes{submittedAt state body author{__typename login}}}
         reviewThreads(last:80){totalCount nodes{isResolved isOutdated path line
@@ -708,15 +714,17 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     if is_pr:
         # 有るのに末尾に無い材料（焦点で他に絞ったとき）は、出す口を添える
         w(("  - diff の全文（下の地図は置き場所と骨組みと抜粋。gh pr diff で見る）" if with_map
-           else "  - 本文と diff の中身（gh pr diff で見る。地図 を付けて呼ぶと末尾に出る）")
+           else "  - diff の中身（gh pr diff で見る。地図 を付けて呼ぶと末尾に出る）")
           + ("、CI が落ちた理由（上の URL か gh pr checks で見る）。CI を付けて呼ぶと末尾に出る"
              if red and not with_ci else ""))
         if with_threads and human:
             w("  - スレッドの経緯（下の指摘は相手の最後の発言と、その行の前後だけ）")
         elif human:
             w("  - 未解決スレッドの中身（指摘 を付けて呼ぶと末尾に出る）")
-    else:
-        w("  - 本文の中身（gh issue view で見る）")
+    # 本文は末尾の材料に出る。上限で切れた分だけ申告する
+    cut = 0 if full else max(0, len(body_rows(node.get("body"))) - BODY_CAP)
+    if cut:
+        w(f"  - 本文の残り {cut} 行（--full か gh {kind.lower()} view で見る）")
     if unlinked:
         w(f"  - GitHub の login に結び付いていない commit（名前: {', '.join(unlinked)}）が誰のものか。"
           "自分のものなら「私が最後にしたこと」は実際より古い（手元の git config の user.email と"
@@ -725,6 +733,103 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
       + ("（私の件なので、最後の 1 件だけは上に出した）" if ask and ask.get("unaddressed") else ""))
     if not full:
         w("  - 発言の全文。--full で出る")
+    return "\n".join(out)
+
+
+# ---- 本文（材料） ---------------------------------------------------------------
+#
+# 作者の本文と、閉じる issue の本文の冒頭。PR でも issue でも、焦点に関係なく末尾の先頭に出す——
+# 件名（型の 1 段落目）と「説明」の材料で、どの呼び方でも要る。行は 1 文字も変えない。
+
+BODY_CAP = 60          # 本文を出す行数の上限（--full で外れる）
+ISSUE_HEAD_LINES = 12  # 閉じる issue・本文が指す番号の本文の冒頭を出す行数
+ISSUE_CAP = 3          # 冒頭を出す閉じる issue の数
+BODY_REF_CAP = 3       # 本文が # で指す番号のうち、冒頭を出す数
+# 本文の中の #番号。直前が英数字か / のもの（URL の fragment、word#12）は番号ではない
+REF_RE = re.compile(r"(?<![\w/])#(\d+)\b")
+
+
+def body_refs(body, self_number, exclude):
+    """本文が # で指す番号（出た順・重複なし）。自分と閉じる issue は除く。"""
+    out = []
+    for m in REF_RE.finditer(body or ""):
+        n = int(m.group(1))
+        if n != self_number and n not in exclude and n not in out:
+            out.append(n)
+    return out
+
+
+def fetch_ref(owner, name, num):
+    """本文が指す番号の題名と本文。REST の issues は PR も返す（pull_request キーで見分ける）。
+    取れなければ None——材料は無くても本体の報告は成り立つ。"""
+    out = gh_try("api", f"repos/{owner}/{name}/issues/{num}")
+    if not out:
+        return None
+    try:
+        d = json.loads(out)
+    except ValueError:
+        return None
+    return {"number": num, "title": d.get("title") or "", "body": d.get("body") or "",
+            "kind": "PR" if d.get("pull_request") else "issue",
+            "state": (d.get("state") or "").lower()}
+
+
+def body_rows(body):
+    """本文の行。改行コードを揃え、末尾の空行だけ落とす。引用も HTML コメントも残す——
+    作者が置いたものは作者の言葉で、落とすと本文の形が変わる。"""
+    rows = (body or "").replace("\r\n", "\n").split("\n")
+    while rows and not rows[-1].strip():
+        rows.pop()
+    return rows
+
+
+def render_body(node, full, get_ref=None):
+    """get_ref は番号 → fetch_ref の戻り値（検査用の差し替え口。None なら本文が指す番号は引かない）。"""
+    is_pr = node["__typename"] == "PullRequest"
+    kind = "PR" if is_pr else "issue"
+    out = []
+    w = out.append
+    w("## 本文（材料。作者の言葉。件名と「説明」はここと地図の先頭コメントから書く）" if is_pr
+      else "## 本文（材料。作者の言葉。件名はここから書く）")
+    w("  `| ` の後ろは 1 文字も変えていない。写すときはそのまま使う")
+    rows = body_rows(node.get("body"))
+    if not rows:
+        w(f"  === {kind} の本文: （本文なし）")
+    else:
+        shown = rows if full else rows[:BODY_CAP]
+        w(f"  === {kind} の本文（{len(rows)} 行）")
+        for ln in shown:
+            w("  | " + ln)
+        if len(shown) < len(rows):
+            w(f"  （本文はあと {len(rows) - len(shown)} 行。--full か gh {kind.lower()} view で見る）")
+    linked = node.get("closingIssuesReferences", {}).get("nodes", []) if is_pr else []
+    for i in linked[:ISSUE_CAP]:
+        irows = body_rows(i.get("body"))
+        head = irows if full else irows[:ISSUE_HEAD_LINES]
+        w(f"  === 閉じる issue #{i['number']} {i['title']}"
+          + ("（本文なし）" if not irows else f"（本文の冒頭 {len(head)} 行／{len(irows)} 行）"))
+        for ln in head:
+            w("  | " + ln)
+        if len(head) < len(irows):
+            w(f"  （続きは gh issue view {i['number']} で見る）")
+    if len(linked) > ISSUE_CAP:
+        w(f"  （閉じる issue は他に {len(linked) - ISSUE_CAP} 件）")
+    refs = body_refs(node.get("body"), node["number"], {i["number"] for i in linked}) if get_ref else []
+    for n in refs[:BODY_REF_CAP]:
+        r = get_ref(n)
+        if not r:
+            w(f"  === 本文が指す #{n}: 取れなかった（gh issue view {n} で見る）")
+            continue
+        rrows = body_rows(r["body"])
+        head = rrows if full else rrows[:ISSUE_HEAD_LINES]
+        w(f"  === 本文が指す {r['kind']} #{n} {r['title']}（{r['state']}。"
+          + ("本文なし）" if not rrows else f"本文の冒頭 {len(head)} 行／{len(rrows)} 行）"))
+        for ln in head:
+            w("  | " + ln)
+        if len(head) < len(rrows):
+            w(f"  （続きは gh {'pr' if r['kind'] == 'PR' else 'issue'} view {n} で見る）")
+    if len(refs) > BODY_REF_CAP:
+        w(f"  （本文が指す番号は他に {len(refs) - BODY_REF_CAP} 件）")
     return "\n".join(out)
 
 
@@ -1092,7 +1197,8 @@ def main(argv=None):
     p.add_argument("-R", "--repo", help="owner/repo（URL を渡すときは不要）")
     p.add_argument("--me", help="基準にする login（既定は gh の認証ユーザ）。指定すると、"
                    "手元の git config の user.email による commit の照合はしない")
-    p.add_argument("--full", action="store_true", help="発言を全文で出す")
+    p.add_argument("--full", action="store_true",
+                   help="発言と本文を全文で出す（本文の 60 行、閉じる issue の冒頭 12 行の上限も外す）")
     p.add_argument("--limit", type=int, default=12,
                    help="その後に起きたことの表示件数（既定 12）")
     a = p.parse_args(argv)
@@ -1112,8 +1218,9 @@ def main(argv=None):
     print(render(node, me, ev, refs, unlinked, anchor, anchor_kind, a.full, a.limit,
                  collect_caps(node), with_map=with_map, with_threads=with_threads,
                  with_ci=with_ci))
-    # 並びは、私が動く材料（指摘・CI）→ 読み直す材料（地図）→ GitHub に無い手元の状態
-    tails = []
+    # 並びは、作者の言葉（本文。どの呼び方でも出る）→ 私が動く材料（指摘・CI）→ 読み直す材料（地図）
+    # → GitHub に無い手元の状態
+    tails = [render_body(node, a.full, lambda n: fetch_ref(owner, name, n))]
     if with_threads:
         tails.append(render_threads(node, me, head_reader(owner, name, head_oid(node))))
     if with_ci:

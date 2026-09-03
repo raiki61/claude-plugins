@@ -314,6 +314,88 @@ def _issue_assignee():
     return render(issue(assignees=conn([user(ME)])))
 
 
+@case("issue-not-seen")
+def _issue_not_seen():
+    """issue の「見ていないもの」に diff を書かない。本文は末尾の材料に出るので、上限で切れた分だけ申告する。"""
+    tail = render(issue(assignees=conn([user(ME)]))).split("見ていないもの:")[1]
+    long = render(issue(body="\n".join(f"行 {i}" for i in range(1, 100))))
+    want = {
+        "no_diff": "diff" not in tail and "gh pr" not in tail,
+        "no_body_line": "本文" not in tail,
+        "cut": "本文の残り 39 行（--full か gh issue view で見る）" in long,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "ISSUE_UNSEEN_OK" if not bad else "ISSUE_UNSEEN_NG " + ",".join(bad) + "\n" + tail
+
+
+@case("body-material")
+def _body_material():
+    """本文の材料: 作者の本文を 60 行まで（--full で全部）、閉じる issue は冒頭 12 行。空ならそう言う。
+    行は 1 文字も変えない（引用も HTML コメントも残す）。切れた分は「見ていないもの」に出る。"""
+    body = "## 何を\n> 引用も残す\n<!-- コメントも -->\n" + "\n".join(
+        f"本文 {i}" for i in range(1, 71)) + "\n\n"
+    linked = conn([
+        {"number": 5, "title": "困りごと", "state": "OPEN", "url": "",
+         "body": "\n".join(f"issue 行 {i}" for i in range(1, 21))},
+        {"number": 6, "title": "空の issue", "state": "OPEN", "url": "", "body": ""},
+    ])
+    node = pr(author=user(ME), body=body, closingIssuesReferences=linked)
+    out = catchup.render_body(node, full=False)
+    full = catchup.render_body(node, full=True)
+    empty = catchup.render_body(issue(body="   \n"), full=False)
+    seen = render(node)
+    want = {
+        "count": "=== PR の本文（73 行）" in out,
+        "verbatim": "  | > 引用も残す" in out and "  | <!-- コメントも -->" in out,
+        "cap": "  | 本文 57" in out and "本文 58" not in out
+        and "（本文はあと 13 行。--full か gh pr view で見る）" in out,
+        "full": "  | 本文 70" in full and "本文はあと" not in full,
+        "issue_head": "=== 閉じる issue #5 困りごと（本文の冒頭 12 行／20 行）" in out
+        and "  | issue 行 12" in out and "issue 行 13" not in out
+        and "（続きは gh issue view 5 で見る）" in out,
+        "issue_empty": "=== 閉じる issue #6 空の issue（本文なし）" in out,
+        "issue_full": "  | issue 行 20" in full and "続きは gh issue view" not in full,
+        "empty": "=== issue の本文: （本文なし）" in empty,
+        "unseen": "本文の残り 13 行（--full か gh pr view で見る）" in seen
+        and "本文と diff" not in seen and "diff の中身（gh pr diff で見る" in seen,
+        "unseen_full": "本文の残り" not in render(node, full=True),
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "BODY_OK" if not bad else "BODY_NG " + ",".join(bad) + "\n" + out + "\n" + seen
+
+
+@case("body-refs")
+def _body_refs():
+    """本文が # で指す番号の冒頭: 出た順・重複なし・3 件まで。自分と閉じる issue は除き、URL の fragment
+    （…/y#42）や word#12 は番号にしない。PR は PR と言う。取れなければそう言う。"""
+    body = ("背景は #1078 と #1105。#1 は自分で #5 は閉じる。#1078 は再掲。https://x/y#42 は URL。"
+            " word#12 も違う。#2000 と #2001 で 4 件目・5 件目")
+    linked = conn([{"number": 5, "title": "閉じる", "state": "OPEN", "url": "", "body": "x"}])
+    node = pr(author=user(ME), body=body, closingIssuesReferences=linked)
+    asked = []
+
+    def get_ref(n):
+        asked.append(n)
+        return {1078: {"number": 1078, "title": "困りごと", "body": "\n".join(f"行 {i}" for i in range(1, 21)),
+                       "kind": "issue", "state": "open"},
+                1105: {"number": 1105, "title": "権限", "body": "a\nb", "kind": "PR", "state": "closed"},
+                2000: None}.get(n)
+
+    out = catchup.render_body(node, full=False, get_ref=get_ref)
+    want = {
+        "order_and_cap": asked == [1078, 1105, 2000],
+        "refs": catchup.body_refs(body, 1, {5}) == [1078, 1105, 2000, 2001],
+        "issue": "=== 本文が指す issue #1078 困りごと（open。本文の冒頭 12 行／20 行）" in out
+        and "  | 行 12" in out and "行 13" not in out and "（続きは gh issue view 1078 で見る）" in out,
+        "pr": "=== 本文が指す PR #1105 権限（closed。本文の冒頭 2 行／2 行）" in out and "続きは gh pr view" not in out,
+        "missing": "=== 本文が指す #2000: 取れなかった（gh issue view 2000 で見る）" in out,
+        "rest": "（本文が指す番号は他に 1 件）" in out,
+        "no_fetch_without_hook": "本文が指す" not in catchup.render_body(node, full=False),
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "REFS_OK" if not bad else "REFS_NG " + ",".join(bad) + "\n" + out
+
+
 @case("split-words")
 def _split_words():
     """引数の語を対象と焦点に分ける。焦点だけなら今のブランチ、無ければ今のブランチ。"""

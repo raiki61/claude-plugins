@@ -1108,8 +1108,9 @@ expect_output 0 "○ 待ち — レビュー待ち: someone" \
     "$PY_BIN" "$CU_CASE" assignee-own-pr
 expect_output 0 "担当 · ● 私の番 — 私が担当（assignee）" \
     "catchup: issue では担当が手番の根拠で、立場も担当" "$PY_BIN" "$CU_CASE" issue-assignee
-expect_output 0 "本文の中身（gh issue view で見る）" \
-    "catchup: issue の「見ていないもの」に diff を書かない" "$PY_BIN" "$CU_CASE" issue-assignee
+expect_output 0 "ISSUE_UNSEEN_OK" \
+    "catchup: issue の「見ていないもの」に diff を書かず、本文は上限で切れた分だけ申告する" \
+    "$PY_BIN" "$CU_CASE" issue-not-seen
 expect_output 1 "使い方" \
     "catchup: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$CU_CASE"
 expect_output 1 "番号か PR / issue の URL を渡す" \
@@ -1136,6 +1137,12 @@ expect_output 0 "BRANCH_OK" \
 expect_output 0 "CI_OK" \
     "catchup: CI の材料は Actions の run だけログを取り、行頭の印を落として最後の ##[error] までにする" \
     "$PY_BIN" "$CU_CASE" ci-material
+expect_output 0 "BODY_OK" \
+    "catchup: 本文の材料は作者の本文を 60 行まで（--full で全部）、閉じる issue は冒頭 12 行。行は 1 文字も変えない" \
+    "$PY_BIN" "$CU_CASE" body-material
+expect_output 0 "REFS_OK" \
+    "catchup: 本文が # で指す番号の冒頭を 3 件まで出す（自分・閉じる issue・URL の fragment は除く。PR は PR と言う）" \
+    "$PY_BIN" "$CU_CASE" body-refs
 # stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
 # UnicodeEncodeError になり、日本語の報告そのものが出せない＝道具が丸ごと使えなくなる。
 # GitHub Actions の windows-latest で実測して赤くなった)
