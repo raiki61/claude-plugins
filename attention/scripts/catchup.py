@@ -49,6 +49,7 @@ head のブランチ、issue は名前に番号を持つ手元のブランチが
 
 import argparse
 import datetime as dt
+import functools
 import json
 import os
 import re
@@ -860,12 +861,10 @@ def render_body(node, full, get_ref=None):
 # 行は 1 文字も変えずに `| ` の後ろに出す。AI が写す元になるので、ここで整えると写した先が実物と
 # 違ってしまう。
 
-MAP_HEAD_LINES = changemap.HEAD_LINES
-MAP_OUTLINE_CAP = changemap.OUTLINE_CAP
 MAP_SIBLINGS_CAP = 40    # 同じ階層の名前の上限（材料の一覧。木は lib が数件に絞る）
-MAP_DIFF_CAP = 400_000   # gh pr diff がこの文字数を超えたら中身の抽出をやめる
-split_diff, added_lines, file_head = changemap.split_diff, changemap.added_lines, changemap.file_head
-outline, call_refs = changemap.outline, changemap.call_refs
+MAP_DIFF_CAP = 400_000   # 取った diff（手元なら git diff -W、無ければ gh pr diff）がこの文字数を超えたら中身の
+                         # 抽出をやめる。-W は文脈が関数まるごとに広がるので、同じ PR でも gh より早く当たる
+split_diff, added_lines, call_refs = changemap.split_diff, changemap.added_lines, changemap.call_refs
 unquote_git_path = changemap.unquote_git_path
 
 
@@ -880,11 +879,20 @@ def gh_try(*args):
     return r.stdout if r.returncode == 0 else None
 
 
+@functools.lru_cache(maxsize=None)
+def local_checkout(owner, name):
+    """手元（cwd）がこのリポジトリの checkout ならその根、違えば None。地図・指摘・手元の節がそれぞれ聞くので
+    覚えておく（同じ rev-parse と remote get-url を 1 回の実行で 4〜5 回 spawn していた）。根と origin は
+    git switch で枝を移っても変わらない。"""
+    top = changemap.repo_top()
+    return top if top and changemap.origin_matches(top, owner, name) else None
+
+
 def sibling_dirs(owner, name, paths):
     """手元の checkout が同じリポジトリなら、変更ファイルと同じ階層の追跡ファイル名を返す。
     違えば None。中身は手元の HEAD のもので、PR の head ではない。"""
-    top = changemap.repo_top()
-    if not top or not changemap.origin_matches(top, owner, name):
+    top = local_checkout(owner, name)
+    if not top:
         return None
     sib = changemap.siblings_for(top, paths)
     return [(d, sib[d]) for d in sorted(sib)]
@@ -947,9 +955,12 @@ def render_map(node, owner, name):
     for ln in changemap.render_tree(entries, dict(sib) if sib else None, root_label=name):
         w(ln)
 
-    text = gh_try("pr", "diff", str(node["number"]), "-R", f"{owner}/{name}")
+    # diff は 1 本——手元に base と head があれば git diff -W（関数まるごと）、無ければ gh pr diff（文脈 3 行）。
+    # 先頭・骨組み・名前の言及は + の行しか見ないので、文脈の広さで変わらない
+    text, note = pr_function_diff(owner, name, node,
+                                  lambda: gh_try("pr", "diff", str(node["number"]), "-R", f"{owner}/{name}"))
     if text is None:
-        w("  中身: 出せない（gh pr diff が失敗した）")
+        w("  中身: 出せない（diff が取れない。gh pr diff が失敗した）")
         return "\n".join(out)
     if len(text) > MAP_DIFF_CAP:
         w(f"  中身: 出さない（diff が {len(text)} 文字で上限 {MAP_DIFF_CAP} を超える）")
@@ -975,28 +986,15 @@ def render_map(node, owner, name):
             if not lines:
                 w("    | （中身が diff に無い。バイナリか空）")
                 continue
-            head, cut = file_head(p, lines)
-            for ln in head:
-                w("    | " + ln)
-            if not head:
-                w("    （先頭にコメントも docstring も無い）")
-            elif cut:
-                w(f"    （先頭は {MAP_HEAD_LINES} 行で切った。続きは gh pr diff で見る。"
-                  "切れた文を作者の言葉として写さない）")
-            ol = outline(p, lines)
-            if ol:
-                w("    骨組み:")
-                for ln in ol[:MAP_OUTLINE_CAP]:
-                    w("    | " + ln)
-                if len(ol) > MAP_OUTLINE_CAP:
-                    w(f"    （骨組みは他に {len(ol) - MAP_OUTLINE_CAP} 行）")
+            for prefix, ln in changemap.head_and_outline(
+                    p, lines, more="。続きは gh pr diff で見る。切れた文を作者の言葉として写さない"):
+                w("    " + prefix + ln)
 
     mod = [f for f in nodes if f["changeType"] != "ADDED"]
     if mod:
-        wide, note = pr_function_diff(owner, name, node, lambda: text)
-        frames = changemap.framed_diff(wide)
-        w("  既存ファイルの変更（" + changemap.FRAME_NOTE + f"。1 file {changemap.FRAME_FILE_CAP} 行を超えたら"
-          f"関数の切れ目で止めて、続きは --frame path で{note}）:")
+        frames = changemap.framed_diff(text)
+        w("  既存ファイルの変更（" + changemap.FRAME_NOTE + changemap.FRAME_CAP_NOTE
+          + (f"。{note}" if note else "") + "）:")
         for f in mod:
             old = renames.get(f["path"])
             frm = f"  旧: {old}" if old else ""
@@ -1007,26 +1005,24 @@ def render_map(node, owner, name):
                   else "    （中身が diff に無い。バイナリか空）")
                 continue
             if changemap.is_prose(f["path"]):
-                w(f"    （散文・設定。枠は出さない——何を言うようになったかは本文と先頭コメントで。--frame {f['path']} で枠は出る）")
+                w("    " + changemap.prose_skip(f["path"], "本文と先頭コメントで"))
                 continue
-            for prefix, ln in changemap.join_frames(f["path"], info):
-                w("    " + prefix + ln)
+            out.extend(changemap.frame_lines(f["path"], info))
     return "\n".join(out)
 
 
 def pr_function_diff(owner, name, node, get_text):
     """PR の diff を関数まるごとの文脈で。手元がこのリポジトリの checkout で base と head の commit を
     持っていれば git diff -W base...head。無ければ get_text()（gh pr diff。文脈 3 行）をそのまま使い、
-    理由を返す。戻り値は (diff の本文 or None, 見出しに添える断り)。"""
-    top = changemap.repo_top()
+    理由を返す。戻り値は (diff の本文 or None, 見出しに添える断り。関数まるごとなら "")。"""
+    top = local_checkout(owner, name)
+    if not top:
+        return get_text(), "文脈は 3 行——手元がこのリポジトリの checkout ではない"
     base, head = node.get("baseRefOid"), node.get("headRefOid")
-    if not top or not changemap.origin_matches(top, owner, name):
-        return get_text(), "。文脈は 3 行——手元がこのリポジトリの checkout ではない"
-    if not (base and head and all(changemap.git("cat-file", "-e", f"{o}^{{commit}}", cwd=top) is not None
-                                  for o in (base, head))):
-        return get_text(), "。文脈は 3 行——手元に base と head の commit が無い。fetch すれば関数まるごとになる"
+    if not all(changemap.has_commit(o, top) for o in (base, head)):
+        return get_text(), "文脈は 3 行——手元に base と head の commit が無い。fetch すれば関数まるごとになる"
     wide = changemap.function_diff(cwd=top, rev=f"{base}...{head}")
-    return (wide, "") if wide is not None else (get_text(), "。文脈は 3 行——手元の git diff が失敗した")
+    return (wide, "") if wide is not None else (get_text(), "文脈は 3 行——手元の git diff が失敗した")
 
 
 # ---- 指摘・CI・手元のブランチ（材料） --------------------------------------------
@@ -1055,8 +1051,8 @@ def head_reader(owner, name, oid):
     commit を持っていれば `git show <oid>:<path>` で（working tree は読まない——未コミットの編集が
     「head の行」に混ざる。実測: 手元で短くした file の窓が空で出た）、無ければ GitHub から取る
     （取れなければ None）。同じ path は 1 回だけ読む。"""
-    top = changemap.repo_top()
-    local = bool(top and oid and changemap.origin_matches(top, owner, name))
+    top = local_checkout(owner, name)
+    local = bool(top and oid)
     cache = {}
 
     def read(path):
@@ -1245,7 +1241,7 @@ def fork_of(node, owner, name):
 
 def contains_head(branch, oid, cwd=None):
     """手元の branch が commit oid を含む（先端かその先祖）か。True／False／None（oid を手元に持っていない）。"""
-    if not oid or changemap.git("cat-file", "-e", f"{oid}^{{commit}}", cwd=cwd) is None:
+    if not changemap.has_commit(oid, cwd):
         return None
     return changemap.git("merge-base", "--is-ancestor", oid, f"refs/heads/{branch}", cwd=cwd) is not None
 
@@ -1369,16 +1365,14 @@ def switch_branch(owner, name, num, node, cwd=None):
             *("    " + n for n in git_notes(err, failed=True))], None
 
 
-def render_local(derived=None, why="", pr_head=None, branch=None, cwd=None):
+def render_local(derived=None, why="", pr_head=None, cwd=None):
     """今のブランチに居るときに出す手元の状態（this で呼んだ、または --switch で移った・既に居た。why は
     その理由）。GitHub に無いものはここにしか出ない。derived は、PR が無くブランチ名の番号を issue と見た
     ときのその番号（申告用）。pr_head は PR の head の commit——手元がそれより後ろなら数えて出す（push して
-    いない commit だけ数えると、別の機械から push した後の古い手元が「同期済み」に読める）。branch は
-    呼び手が知っていれば渡す（--switch で移った直後）。"""
+    いない commit だけ数えると、別の機械から push した後の古い手元が「同期済み」に読める）。"""
     out = []
     w = out.append
-    if branch is None:
-        branch = changemap.current_branch(cwd) or ""
+    branch = changemap.current_branch(cwd) or ""
     w(f"## 手元のブランチ {branch or '（detached）'}（{why}）")
     if derived:
         w(f"  PR が無いので、ブランチ名の番号から #{derived} を issue と見た（違えば番号を渡す）")
@@ -1457,10 +1451,12 @@ def main(argv=None):
     owner, name, num, local = resolve_target(target, a.repo)
     if a.frame:
         # 1 file の変更だけを関数まるごとの枠で。地図の 1 file の上限で切れた続きを見るための口。
-        # 本体の報告は組まないので、gh は取得の 1 回（と手元に commit が無いときの pr diff）だけ
-        node = fetch(owner, name, num)
-        if node["__typename"] != "PullRequest":
-            sys.exit("--frame は PR でだけ使える（issue には diff が無い）")
+        # 本体の報告は組まないので、gh は base と head の 2 値を取る 1 回（と手元に commit が無いときの
+        # pr diff）だけ——本体の GraphQL（発言・レビュー・スレッド・commit・timeline）は要らない
+        got = gh_try("pr", "view", str(num), "-R", f"{owner}/{name}", "--json", "baseRefOid,headRefOid")
+        if got is None:
+            sys.exit("--frame は PR でだけ使える（issue には diff が無い）。PR なら gh pr view が失敗した")
+        node = json.loads(got)
         wide, note = pr_function_diff(owner, name, node,
                                       lambda: gh_try("pr", "diff", str(num), "-R", f"{owner}/{name}"))
         if wide is None:
@@ -1468,9 +1464,8 @@ def main(argv=None):
         info = changemap.framed_diff(wide).get(a.frame)
         if not info:
             sys.exit(f"{a.frame} はこの PR の変更に無い（改名だけの file も含む。path はリポジトリの根からの相対）")
-        print(f"    === {a.frame}" + ("（新規）" if info["new"] else "") + (f"（{note.lstrip('。')}）" if note else ""))
-        for prefix, ln in changemap.join_frames(a.frame, info, cap=None):
-            print("    " + prefix + ln)
+        print(f"    === {a.frame}" + ("（新規）" if info["new"] else "") + (f"（{note}）" if note else ""))
+        print("\n".join(changemap.frame_lines(a.frame, info, cap=None)))
         return 0
     me = a.me or gh("api", "user", "--jq", ".login").strip()
     # 他人を基準にするときは、手元の git config はその人のものではないので照合しない
@@ -1504,7 +1499,7 @@ def main(argv=None):
         tails.append(render_local(
             num if local == "branch" else None,
             "this で呼んだので出す" if local else "--switch でこの件のブランチに居るので出す",
-            pr_head=pr_head, branch=on_branch))
+            pr_head=pr_head))
     if not is_pr and focus:
         tails.append("（issue には地図・指摘・CI の材料は無い）")
     for t in tails:

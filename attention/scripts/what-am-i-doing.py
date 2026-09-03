@@ -191,15 +191,6 @@ def read(path):
     return title, turns, first_ts, dt.datetime.fromtimestamp(path.stat().st_mtime)
 
 
-def git(cwd, *args):
-    try:
-        r = subprocess.run(  # noqa: S603 — 引数はこのファイル内のリテラルだけ
-            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=15)
-        return r.stdout.strip() if r.returncode == 0 else ""
-    except (OSError, subprocess.SubprocessError):
-        return ""
-
-
 def about(turn, phrase):
     """往復が話題の語句を含むか（依頼と返答の冒頭で見る。大文字小文字と空白の連なりは区別しない）。
     語ごとの OR にはしない——「さっきの 4 件」を「4」「件」で当てると、ほぼ全往復が残る（実測）。"""
@@ -225,7 +216,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
     out = []
     w = out.append
     w(f"# このスレッド — {title or '（題が付いていない）'}")
-    branch = git(cwd, "branch", "--show-current")
+    branch = changemap.current_branch(cwd) or ""
     w(f"  {cwd}" + (f" · ブランチ {branch}" if branch else ""))
     span = f"開始 {started:%m-%d %H:%M}" if started else "開始 不明"
     w(f"  {span} · 最後の動き {touched:%m-%d %H:%M} · やり取り {len(turns)} 往復")
@@ -290,7 +281,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
 
     if started:
         since = started.strftime("%Y-%m-%dT%H:%M:%S")
-        log = git(cwd, "log", "--oneline", f"--since={since}", "-20")
+        log = (changemap.git("log", "--oneline", f"--since={since}", "-20", cwd=cwd) or "").strip()
         if log:
             lines = log.splitlines()
             w(f"## このセッションの間に入ったコミット — {len(lines)} 件")
@@ -325,61 +316,69 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
     return "\n".join(out)
 
 
-def _head_and_outline(path, lines):
-    """新規 file は先頭コメント（自己紹介）と骨組みだけ——全行が新しいので枠は何も伝えない。"""
-    out = []
-    head, cut = changemap.file_head(path, lines)
-    out.extend("    | " + ln for ln in head)
-    if cut:
-        out.append(f"    （先頭は {changemap.HEAD_LINES} 行で切った）")
-    out.extend("    | " + ln for ln in changemap.outline(path, lines)[:changemap.OUTLINE_CAP])
-    return out
+def tracked_set(cwd, paths):
+    """paths のうち index が追跡しているもの。1 回の ls-files で（file ごとに聞くと N 回 spawn する）。
+    -z は path を引用形にしないため（日本語名が集合と一致する）。paths が空だと ls-files は全 file を
+    列挙するので、空集合を返す。"""
+    if not paths:
+        return set()
+    out = changemap.git("ls-files", "-z", "--", *paths, cwd=cwd) or ""
+    return set(filter(None, out.split("\0")))
 
 
-def render_frames(cwd, dirty, only=None, cap=changemap.FRAME_FILE_CAP):
+def new_file_rows(cwd, path, kind):
+    """新規 file（未追跡・add 済み）の見出しと、先頭コメント・骨組み。file が読めなければ []。"""
+    full = pathlib.Path(cwd) / path
+    if not full.is_file():
+        return []
+    try:
+        lines = full.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    rows = changemap.head_and_outline(path, lines, more=f"。続きは --frame {path} か file を開く")
+    return [f"    === {path}（{kind}。{len(lines)} 行。先頭と骨組みだけ——全文は --frame {path} か file を開く）"] \
+        + ["    " + prefix + ln for prefix, ln in rows]
+
+
+def frame_one(cwd, path):
+    """--frame path: 1 file の未コミットの変更を関数まるごとの枠で上限なしに。追跡 file で diff に中身が
+    無ければ（変更なし・バイナリ・mode・改名だけ）止まる。未追跡の新規は先頭と骨組み。file が無ければ []。"""
+    info = changemap.framed_diff(changemap.function_diff(cwd=cwd, rev="HEAD", paths=(path,)) or "").get(path)
+    if info:
+        return [f"    === {path}" + ("（新規）" if info["new"] else "")] + changemap.frame_lines(path, info, cap=None)
+    if path in tracked_set(cwd, [path]):
+        sys.exit(f"{path} は追跡 file で、未コミットの変更が diff に無い（変更なし・バイナリ・mode・改名だけ）")
+    return new_file_rows(cwd, path, "未追跡の新規")
+
+
+def render_frames(cwd, dirty):
     """未コミットの変更の中身を、関数まるごと（git diff -W HEAD）の枠で。新規 file（未追跡・add 済み）は
-    先頭コメントと骨組みだけ、散文・設定は 1 行だけ——どちらも --frame なら全部出す。追跡 file で diff に
-    hunk が無ければ（バイナリ・mode・改名だけ）その旨。only は 1 file に絞る path（--frame）。"""
+    先頭コメントと骨組みだけ、散文・設定は 1 行だけ——どちらも --frame（frame_one）なら全部出す。追跡 file で
+    diff に hunk が無ければ（バイナリ・mode・改名だけ）その旨。"""
     out = []
     w = out.append
-    paths = (only,) if only else ()
-    frames = changemap.framed_diff(changemap.function_diff(cwd=cwd, rev="HEAD", paths=paths) or "")
-    targets = [only] if only else sorted(dirty)
-    if not only:
-        w("  変更の中身（" + changemap.FRAME_NOTE + f"。1 file {cap} 行、合計 {changemap.FRAME_TOTAL_CAP} 行を"
-          "超えたら関数の切れ目で止めて、残りは --frame path で）:")
+    frames = changemap.framed_diff(changemap.function_diff(cwd=cwd, rev="HEAD") or "")
+    tracked = tracked_set(cwd, dirty)
+    w("  変更の中身（" + changemap.FRAME_NOTE + changemap.FRAME_CAP_NOTE
+      + f"。合計は {changemap.FRAME_TOTAL_CAP} 行まで）:")
     total = 0
-    for path in targets:
+    for path in sorted(dirty):
         info = frames.get(path)
-        full = pathlib.Path(cwd) / path
-        tracked = bool((changemap.git("ls-files", "--", path, cwd=cwd) or "").strip())
-        if info is None and tracked:
-            if only:
-                sys.exit(f"{path} は追跡 file で、未コミットの変更が diff に無い（変更なし・バイナリ・mode・改名だけ）")
+        if info is None and path in tracked:
             w(f"    === {path}（中身が diff に無い。バイナリ・mode・改名だけ）")
             continue
-        if info is None or (info["new"] and not only):
-            # 新規（未追跡・add 済み）は先頭と骨組みだけ
-            if not full.is_file():
-                continue
-            try:
-                lines = full.read_text(encoding="utf-8", errors="replace").splitlines()
-            except OSError:
-                continue
-            kind = "add 済みの新規" if info else "未追跡の新規"
-            w(f"    === {path}（{kind}。{len(lines)} 行。先頭と骨組みだけ——全文は --frame {path} か file を開く）")
-            out.extend(_head_and_outline(path, lines))
+        if info is None or info["new"]:
+            out.extend(new_file_rows(cwd, path, "add 済みの新規" if info else "未追跡の新規"))
             continue
-        if not only and changemap.is_prose(path):
-            w(f"    === {path}（散文・設定。枠は出さない——何を言うようになったかは file で。--frame {path} で枠は出る）")
+        if changemap.is_prose(path):
+            w(f"    === {path}" + changemap.prose_skip(path, "file で"))
             continue
-        if not only and total >= changemap.FRAME_TOTAL_CAP:
+        if total >= changemap.FRAME_TOTAL_CAP:
             w(f"    === {path}（合計の上限。--frame {path} で出る）")
             continue
-        w(f"    === {path}" + ("（新規）" if info["new"] else ""))
-        rows = changemap.join_frames(path, info, cap=None if only else cap)
-        for prefix, ln in rows:
-            w("    " + prefix + ln)
+        w(f"    === {path}")
+        rows = changemap.frame_lines(path, info)
+        out.extend(rows)
         total += len(rows)
     return out
 
@@ -404,7 +403,7 @@ def main(argv=None):
 
     cwd = pathlib.Path.cwd()
     if a.frame:
-        lines = render_frames(cwd, [a.frame], only=a.frame)
+        lines = frame_one(cwd, a.frame)
         if not lines:
             sys.exit(f"{a.frame} が無い（path はリポジトリの根からの相対）")
         print("\n".join(lines))

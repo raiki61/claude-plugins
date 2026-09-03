@@ -165,11 +165,16 @@ OUTLINE_PATTERNS["bash"] = OUTLINE_PATTERNS["sh"]
 OUTLINE_PATTERNS["js"] = OUTLINE_PATTERNS["ts"]
 
 
+def _ext(path):
+    """拡張子（小文字）。無ければ ""。"""
+    base = path.rsplit("/", 1)[-1]
+    return base.rsplit(".", 1)[-1].lower() if "." in base else ""
+
+
 def outline(path, lines):
     """骨組みの行。種類ごとに「読む人が構造として見る行」だけ拾う。知らない種類は空。"""
     base = path.rsplit("/", 1)[-1]
-    ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
-    pat = OUTLINE_PATTERNS.get(ext)
+    pat = OUTLINE_PATTERNS.get(_ext(path))
     if pat is None and base.lower().startswith("dockerfile"):
         pat = r"^(?:FROM|ENTRYPOINT|CMD|EXPOSE)\b"
     if pat is None:
@@ -240,11 +245,6 @@ COMMENT_BY_EXT = {
     ("<!--", " -->"): {"md", "html", "htm", "xml", "svg", "vue"},  # 散文・markup。AI は散文なら枠でなく文で言う
 }
 PROSE_EXT = {"md", "txt", "adoc", "rst", "html", "htm", "xml", "json", "jsonc", "csv", "lock"}
-
-
-def _ext(path):
-    base = path.rsplit("/", 1)[-1]
-    return base.rsplit(".", 1)[-1].lower() if "." in base else ""
 
 
 def comment_marks(path):
@@ -383,6 +383,40 @@ def framed_diff(text):
     return out
 
 
+FRAME_CAP_NOTE = f"。1 file {FRAME_FILE_CAP} 行を超えたら関数の切れ目で止めて、続きは --frame path で"
+
+
+def frame_lines(path, info, cap=FRAME_FILE_CAP, indent="    "):
+    """join_frames の列を、出力に貼る形（字下げ＋prefix＋行）にした文字列の列。"""
+    return [indent + prefix + ln for prefix, ln in join_frames(path, info, cap)]
+
+
+def prose_skip(path, where):
+    """散文・設定の file に枠を出さないときの断り。where は「何を言うようになったか」を読む場所
+    （PR なら本文と先頭コメント、手元なら file）。"""
+    return f"（散文・設定。枠は出さない——何を言うようになったかは{where}。--frame {path} で枠は出る）"
+
+
+def head_and_outline(path, lines, more=""):
+    """新規 file の材料——先頭コメント / docstring（作者の自己紹介）と骨組み。全行が新しいので枠は何も
+    伝えない。返すのは join_frames と同じ (prefix, text) の列（"| " は貼る行、"" は機械の説明）。more は
+    先頭が切れたときに添える、続きを読む場所。"""
+    out = []
+    head, cut = file_head(path, lines)
+    out.extend(("| ", ln) for ln in head)
+    if not head:
+        out.append(("", "（先頭にコメントも docstring も無い）"))
+    elif cut:
+        out.append(("", f"（先頭は {HEAD_LINES} 行で切った{more}）"))
+    ol = outline(path, lines)
+    if ol:
+        out.append(("", "骨組み:"))
+        out.extend(("| ", ln) for ln in ol[:OUTLINE_CAP])
+        if len(ol) > OUTLINE_CAP:
+            out.append(("", f"（骨組みは他に {len(ol) - OUTLINE_CAP} 行）"))
+    return out
+
+
 def join_frames(path, info, cap=FRAME_FILE_CAP):
     """1 file の枠を、hunk の間に点線を挟んで 1 列にする。cap を超えるなら関数の切れ目で止め、残りを
     申告する（関数の途中では切らない）。返すのは (prefix, text) の列。"| " は貼る行、"" は機械の説明。"""
@@ -404,8 +438,7 @@ def join_frames(path, info, cap=FRAME_FILE_CAP):
 def function_diff(cwd=None, rev="HEAD", paths=()):
     """関数まるごとを文脈にした diff（git diff -W）。rev は比べる元（手元なら HEAD、PR なら
     base...head）。無い・失敗なら None。"""
-    return git("-c", "core.quotePath=false", "diff", "-W", rev, "--", *paths, cwd=cwd) if paths \
-        else git("-c", "core.quotePath=false", "diff", "-W", rev, cwd=cwd)
+    return git("-c", "core.quotePath=false", "diff", "-W", rev, "--", *paths, cwd=cwd)
 
 
 # ---- 手元の git ------------------------------------------------------------------
@@ -440,6 +473,11 @@ def git(*args, cwd=None):
 def repo_top(cwd=None):
     out = git("rev-parse", "--show-toplevel", cwd=cwd)
     return out.strip() if out else None
+
+
+def has_commit(oid, cwd=None):
+    """commit oid を手元に持っているか（^{commit} で tag / blob を除く）。oid が無ければ False。"""
+    return bool(oid) and git("cat-file", "-e", f"{oid}^{{commit}}", cwd=cwd) is not None
 
 
 def current_branch(cwd=None):
@@ -509,13 +547,11 @@ def rank_siblings(names, changed, shown=SIBLINGS_SHOWN):
     if not names:
         return []
     ctoks = set()
-    cexts = set()
     for c in changed:
         ctoks |= _tokens(c)
-        if "." in c:
-            cexts.add(c.rsplit(".", 1)[-1].lower())
+    cexts = {e for e in map(_ext, changed) if e}
     def score(n):
-        ext = n.rsplit(".", 1)[-1].lower() if "." in n else ""
+        ext = _ext(n)
         # 語の共有 → 拡張子の一致 → dotfile でない → 名前順。dotfile は設定で、隣として掴む相手ではない
         return (-len(_tokens(n) & ctoks), -(ext in cexts and ext != ""), n.startswith("."), n)
     pool = [n for n in names if n.rstrip("/") not in changed]
