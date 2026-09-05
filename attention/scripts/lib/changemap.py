@@ -444,18 +444,19 @@ def function_diff(cwd=None, rev="HEAD", paths=()):
 # ---- 手元の git ------------------------------------------------------------------
 
 
-def run(*args, cwd=None, timeout=15):
+def run(*args, cwd=None, timeout=15, env=None):
     """git を呼んで (終了コード, stdout, stderr) を返す。失敗の言い分（stderr）が要るとき用（/catchup の
     git switch）。git が無い・timeout・起動できないなら (None, "", 理由)。timeout は読むだけの呼び出し用
     ——書く操作（switch）は timeout=None で呼ぶ。途中で殺すと書きかけの木と index.lock が残る（実測）。
-    stdin は閉じる（hook や filter が入力待ちで固まらない）。"""
+    stdin は閉じる（hook や filter が入力待ちで固まらない）。env は環境に足す変数（/catchup の fetch が
+    GIT_TERMINAL_PROMPT=0 を足す。git は認証を stdin でなく端末に聞くので、stdin を閉じるだけでは固まる）。"""
     exe = shutil.which("git")
     if not exe:
         return None, "", "git が見つからない"
     try:
         r = subprocess.run(  # noqa: S603 — git は which で解決。引数は呼び手のリテラルと path・ブランチ名だけ
             [exe, *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace",
-            timeout=timeout, stdin=subprocess.DEVNULL,
+            timeout=timeout, stdin=subprocess.DEVNULL, env={**os.environ, **env} if env else None,
         )
     except subprocess.TimeoutExpired:
         return None, "", f"{timeout} 秒で応答が無い"
@@ -491,11 +492,23 @@ def origin_url(top):
     return (git("remote", "get-url", "origin", cwd=top) or "").strip()
 
 
+# remote URL の末尾「<区切り><owner>/<name>[.git]」。読む（origin_is）のと差し替える（swap_repo）のとで
+# 同じ形を 2 度書かないための 1 本——ssh の : ・.git・末尾 / の扱いが、片方だけ直る余地を無くす
+REPO_TAIL = re.compile(r"([:/])([^/:]+)/([^/]+?)(\.git)?/?$")
+
+
 def origin_is(url, owner, name):
     """url が owner/name か。末尾 2 セグメントの等値で見る——部分一致だと org/platform-docs の
     checkout を org/platform と誤認し、別リポジトリの名前が「同じ階層の既存」に混ざる（実測）。"""
-    m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url.strip())
-    return bool(m) and (m.group(1).lower(), m.group(2).lower()) == (owner.lower(), name.lower())
+    m = REPO_TAIL.search(url.strip())
+    return bool(m) and (m.group(2).lower(), m.group(3).lower()) == (owner.lower(), name.lower())
+
+
+def swap_repo(url, repo):
+    """remote URL の owner/name を repo（"owner/name"）に差し替える。scheme・host・.git はそのまま
+    （/catchup が origin の URL から fork の URL を作る。API の url を使わないのは、origin と同じ
+    scheme・認証を引き継ぐため）。"""
+    return REPO_TAIL.sub(lambda m: m.group(1) + repo + (m.group(4) or ""), url.strip())
 
 
 def origin_matches(top, owner, name):

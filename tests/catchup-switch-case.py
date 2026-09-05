@@ -71,9 +71,26 @@ def make_repo(tmp):
     return repo
 
 
+def make_origin(tmp, repo, owner="o", name="r"):
+    """origin を、その場に作った bare リポジトリに向ける（path の末尾が owner/name.git なので origin_is が
+    通る）。手元に無い枝を fetch する検査用——GitHub には触らない。戻り値は bare の path。"""
+    bare = os.path.join(tmp, owner, f"{name}.git")
+    os.makedirs(os.path.dirname(bare), exist_ok=True)
+    git(tmp, "init", "-q", "--bare", bare)
+    git(repo, "remote", "set-url", "origin", bare)
+    return bare
+
+
+def new_commit(repo, parent, msg):
+    """parent の子 commit を、木はそのままで作る（枝は動かさない）。"""
+    return git(repo, "commit-tree", git(repo, "write-tree"), "-p", parent, "-m", msg)
+
+
 def node(repo, **over):
-    n = {"__typename": "PullRequest", "headRefName": HEAD_REF,
-         "headRepository": {"nameWithOwner": "o/r"},
+    """PR の node。実物の GraphQL と同じ形で、state・既定ブランチ・maintainerCanModify も持つ。"""
+    n = {"__typename": "PullRequest", "headRefName": HEAD_REF, "state": "OPEN",
+         "headRepository": {"nameWithOwner": "o/r"}, "maintainerCanModify": False,
+         "baseRepository": {"defaultBranchRef": {"name": "main"}},
          "head": {"nodes": [{"commit": {"oid": git(repo, "rev-parse", "HEAD")}}]}}
     n.update(over)
     return n
@@ -192,22 +209,157 @@ def _worktree(tmp):
 
 @case("remote-only")
 def _remote_only(tmp):
-    """origin にだけある枝は作らない（DWIM を止める）。案内は gh pr checkout。"""
+    """origin にだけある枝は、その 1 本を fetch して作り、移る（名前・追跡先は gh pr checkout と同じ）。手元の
+    origin/<枝> の追跡 ref が古くても、fetch した先端で作る（fetch せずに手元の ref から作ると古い枝になる）。
+    手元にある枝（main・feat）は動かない。"""
     repo = make_repo(tmp)
-    git(repo, "update-ref", "refs/remotes/origin/pr-head", "HEAD")
-    out, on = call(repo, node(repo, headRefName="pr-head"))
-    return verdict({"line": "origin にはある" in out and f"gh pr checkout {NUM}" in out,
+    make_origin(tmp, repo)
+    # 追跡先は --track で明示的に付ける（既定の autoSetupMerge が付けるのに頼らない）。origin のタグは取らない
+    git(repo, "config", "branch.autoSetupMerge", "false")
+    old = git(repo, "rev-parse", "HEAD")
+    new = new_commit(repo, old, "pushed-from-elsewhere")
+    git(repo, "push", "-q", "origin", f"{new}:refs/heads/pr-head", f"{new}:refs/tags/v9")
+    git(repo, "update-ref", "refs/remotes/origin/pr-head", old)  # 手元の追跡 ref は古い
+    git(repo, "update-ref", "refs/heads/origin/pr-head", old)  # 短縮名 origin/pr-head を曖昧にする同名の枝
+    write(repo, "stray.txt", "u\n")
+    out, on = call(repo, node(repo, headRefName="pr-head", head={"nodes": [{"commit": {"oid": new}}]}))
+    return verdict({"line": "ブランチ pr-head: 手元に無かったので origin/pr-head から作って main から移った"
+                    "（未追跡 1 件は持ち越した）" in out and "gh pr checkout" not in out,
+                    "branch": current(repo) == "pr-head", "on": on == "pr-head",
+                    "tip": git(repo, "rev-parse", "HEAD") == new,
+                    # 同名の枝で短縮名が曖昧なので完全名で見る（--abbrev-ref は remotes/origin/pr-head に伸びる）
+                    "upstream": git(repo, "rev-parse", "--symbolic-full-name", "pr-head@{upstream}")
+                    == "refs/remotes/origin/pr-head",
+                    "no_tags": git(repo, "tag", "-l") == "",
+                    "others_kept": git(repo, "rev-parse", "main") == old
+                    and git(repo, "rev-parse", HEAD_REF) == old}, out)
+
+
+@case("remote-dirty")
+def _remote_dirty(tmp):
+    """手元に無い枝でも guard は先——追跡ファイルに未コミットがあれば fetch もせず止まる（古い追跡 ref が
+    そのまま＝fetch していない証拠）。枝は作らない。止まった行に今どこに居るかが添う。"""
+    repo = make_repo(tmp)
+    make_origin(tmp, repo)
+    old = git(repo, "rev-parse", "HEAD")
+    new = new_commit(repo, old, "pushed-from-elsewhere")
+    git(repo, "push", "-q", "origin", f"{new}:refs/heads/pr-head")
+    git(repo, "update-ref", "refs/remotes/origin/pr-head", old)
+    write(repo, "same.txt", "same\nedited\n")
+    out, on = call(repo, node(repo, headRefName="pr-head", head={"nodes": [{"commit": {"oid": new}}]}))
+    # 片付けた後の一手は「もう一度 /catchup」——git switch pr-head は枝が無いので失敗するか、古い追跡 ref から作る
+    return verdict({"line": "未コミットの変更 1 件" in out and "（手元は main のまま）" in out
+                    and f"→ もう一度 /catchup {NUM}" in out and "git switch pr-head" not in out,
                     "branch": current(repo) == "main", "not_on": not on,
-                    "no_new_branch": "refs/heads/pr-head" not in heads(repo)}, out)
+                    "no_new_branch": "refs/heads/pr-head" not in heads(repo),
+                    "no_fetch": git(repo, "rev-parse", "refs/remotes/origin/pr-head") == old}, out)
+
+
+@case("remote-ignored")
+def _remote_ignored(tmp):
+    """origin から作るときも ignored の file を上書きしない（switch -c にも --no-overwrite-ignore）。拒まれたら
+    枝は作られず、手元の file もそのまま。"""
+    repo = make_repo(tmp)
+    make_origin(tmp, repo)
+    git(repo, "switch", "-q", HEAD_REF)
+    write(repo, ".vscode/settings.json", "TRACKED\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "vscode")
+    git(repo, "push", "-q", "origin", f"{HEAD_REF}:refs/heads/vs-branch")
+    head = git(repo, "rev-parse", "HEAD")
+    git(repo, "switch", "-q", "main")
+    with open(os.path.join(repo, ".git", "info", "exclude"), "a", encoding="utf-8") as f:
+        f.write(".vscode/\n")
+    write(repo, ".vscode/settings.json", "PRIVATE\n")
+    out, on = call(repo, node(repo, headRefName="vs-branch", head={"nodes": [{"commit": {"oid": head}}]}))
+    return verdict({"line": "作れなかった" in out and "settings.json" in out and "（手元は main のまま）" in out,
+                    "branch": current(repo) == "main", "not_on": not on,
+                    "no_new_branch": "refs/heads/vs-branch" not in heads(repo),
+                    "kept": read(repo, ".vscode/settings.json").strip() == "PRIVATE"}, out)
 
 
 @case("none")
 def _none(tmp):
-    """手元にも origin にも無ければそう言う。"""
+    """手元にも origin にも無ければそう言い、枝は作らない——merge 済みで枝が削除された PR ならその旨と、
+    refs/pull/N/head からの取り方。origin に届かなければ（認証・URL 違い）git の言い分を添える。どちらも
+    手元の origin/<枝> の古い ref からは作らない。"""
     repo = make_repo(tmp)
-    out, on = call(repo, node(repo, headRefName="nope"))
-    return verdict({"line": "手元に無い（origin にも無い）" in out,
-                    "branch": current(repo) == "main", "not_on": not on}, out)
+    make_origin(tmp, repo)
+    git(repo, "update-ref", "refs/remotes/origin/nope", "HEAD")  # 古い追跡 ref だけ残っている
+    out, on = call(repo, node(repo, headRefName="nope", state="MERGED"))
+    git(repo, "remote", "set-url", "origin", os.path.join(tmp, "nowhere", "o", "r.git"))
+    out2, on2 = call(repo, node(repo, headRefName="nope"))
+    # 応答が無ければ FETCH_TIMEOUT 秒で切る（ssh を sleep する script に差し替えて再現。Windows は sh が無いことがある）。
+    # 待つのは検査の実時間なので、切る秒数は縮めて借りる（timeout は float を受ける）
+    short = 0.2
+    out3 = f"origin から取れなかった（{short} 秒で応答が無い）"
+    if os.name != "nt":
+        git(repo, "remote", "set-url", "origin", "ssh://nowhere.invalid/o/r.git")
+        slow = write(tmp, "slow-ssh", "#!/bin/sh\nsleep 5\n")
+        os.chmod(slow, 0o755)
+        os.environ["GIT_SSH_COMMAND"] = slow
+        saved, catchup.FETCH_TIMEOUT = catchup.FETCH_TIMEOUT, short
+        out3, on3 = call(repo, node(repo, headRefName="nope"))
+        catchup.FETCH_TIMEOUT = saved
+        del os.environ["GIT_SSH_COMMAND"]
+    return verdict({"gone": "origin にももう無い（PR は merge 済みで、枝は削除済み）" in out
+                    and f"git fetch origin refs/pull/{NUM}/head" in out and "（手元は main のまま）" in out,
+                    "unreachable": "origin から取れなかった（git fetch が失敗）" in out2
+                    and "does not appear to be a git repository" in out2,
+                    "timeout": f"origin から取れなかった（{short} 秒で応答が無い）" in out3,
+                    "branch": current(repo) == "main", "not_on": not on and not on2,
+                    "no_new_branch": "refs/heads/nope" not in heads(repo)}, "\n".join((out, out2, out3)))
+
+
+@case("fork-remote")
+def _fork_remote(tmp):
+    """fork の PR の枝が手元に無ければ origin の refs/pull/N/head から作って移る。追跡先は gh pr checkout と
+    同じ——既定は origin の refs/pull/N/head（pull は効き、push は上流名が違うので git が拒む）、PR が
+    maintainer の push を許していれば fork の URL の refs/heads/<head>。"""
+    repo = make_repo(tmp)
+    bare = make_origin(tmp, repo)
+    head = new_commit(repo, "main", "on-fork")
+    git(repo, "push", "-q", "origin", f"{head}:refs/pull/{NUM}/head")
+    n = node(repo, headRefName="fork-feat", headRepository={"nameWithOwner": "other/r"},
+             head={"nodes": [{"commit": {"oid": head}}]})
+    def again(over=None):
+        """main に戻して枝を消してから、もう一度呼ぶ（毎回「手元に無い」状態から始める）。"""
+        git(repo, "switch", "-q", "main")
+        git(repo, "branch", "-q", "-D", "fork-feat")
+        return call(repo, dict(n, **over) if over else n)
+
+    def cfg():
+        return tuple(git(repo, "config", "--get", f"branch.fork-feat.{k}")
+                     for k in ("remote", "pushRemote", "merge"))
+
+    out1, on1 = call(repo, n)
+    moved1 = current(repo) == "fork-feat" and git(repo, "rev-parse", "HEAD") == head
+    cfg1 = cfg()
+    out2, on2 = again({"maintainerCanModify": True})
+    moved2 = current(repo) == "fork-feat" and git(repo, "rev-parse", "HEAD") == head
+    cfg2 = cfg()
+    fork_bare = bare.replace(os.path.join(tmp, "o", "r.git"), os.path.join(tmp, "other", "r.git"))
+    # 消えた fork（headRepository null）は maintainerCanModify でも fork の URL が無いので origin の refs/pull へ
+    out3, on3 = again({"headRepository": None, "maintainerCanModify": True})
+    cfg3 = cfg()
+    # 追跡先が書けなければ（他のセッションが .git/config を書いている最中 = config.lock）移った上で注釈
+    git(repo, "switch", "-q", "main")
+    git(repo, "branch", "-q", "-D", "fork-feat")
+    lock = write(repo, os.path.join(".git", "config.lock"), "")
+    out4, on4 = call(repo, n)
+    os.remove(lock)
+    return verdict({
+        "line": f"ブランチ fork-feat: 手元に無かったので PR の head（origin の refs/pull/{NUM}/head。fork other/r）"
+                "から作って main から移った" in out1,
+        "moved": moved1 and on1 == "fork-feat" and moved2 and on2 == "fork-feat",
+        "track_pull_ref": cfg1 == ("origin", "origin", f"refs/pull/{NUM}/head"),
+        "track_fork": cfg2 == (fork_bare, fork_bare, "refs/heads/fork-feat"),
+        "gone_fork": "消えた fork）から作って" in out3 and on3 == "fork-feat"
+        and cfg3 == ("origin", "origin", f"refs/pull/{NUM}/head"),
+        "config_lock": on4 == "fork-feat" and current(repo) == "fork-feat"
+        and "追跡先を書けなかった（branch.fork-feat.remote / pushRemote / merge）" in out4,
+        "main_kept": git(repo, "rev-parse", "main") != head,
+    }, "\n".join((out1, out2, out3, out4)))
 
 
 @case("origin-mismatch")
@@ -218,8 +370,10 @@ def _origin_mismatch(tmp):
     out1, on1 = call(repo)
     git(repo, "remote", "remove", "origin")
     out2, on2 = call(repo)
+    # 別のリポジトリで呼ぶのは普通に起きるので、この行にも今どこに居るかが要る
     return verdict({"mismatch": "origin が o/r でない" in out1 and "x/y" in out1 and not on1,
                     "no_origin": "origin が無い" in out2 and not on2,
+                    "where": out1.endswith("（手元は main のまま）") and out2.endswith("（手元は main のまま）"),
                     "branch": current(repo) == "main"}, out1 + "\n" + out2)
 
 
@@ -252,16 +406,15 @@ def _fork(tmp):
     repo = make_repo(tmp)
     fork = {"nameWithOwner": "other/r"}
     base = git(repo, "rev-parse", "HEAD")
-    tree = git(repo, "write-tree")
     # 手元の feat を main より 1 commit 先にする（head = main の先端。手元が head を含む）
-    git(repo, "update-ref", f"refs/heads/{HEAD_REF}", git(repo, "commit-tree", tree, "-p", base, "-m", "ahead"))
+    git(repo, "update-ref", f"refs/heads/{HEAD_REF}", new_commit(repo, base, "ahead"))
     out_ahead, on_ahead = call(repo, node(repo, headRepository=fork))
     moved = current(repo) == HEAD_REF
     git(repo, "switch", "-q", "main")
     # head が手元の feat の子（手元が古い）。逆向きの判定なら移ってしまう
-    child = git(repo, "commit-tree", tree, "-p", HEAD_REF, "-m", "newer-on-fork")
+    child = new_commit(repo, HEAD_REF, "newer-on-fork")
     out_old, on_old = call(repo, node(repo, headRepository=fork, head={"nodes": [{"commit": {"oid": child}}]}))
-    orphan = git(repo, "commit-tree", tree, "-m", "orphan")
+    orphan = git(repo, "commit-tree", git(repo, "write-tree"), "-m", "orphan")  # 親が無いので new_commit では作れない
     out_unrel, on_unrel = call(repo, node(repo, headRepository=fork,
                                           head={"nodes": [{"commit": {"oid": orphan}}]}))
     out_none, on_none = call(repo, node(repo, headRepository=fork,
@@ -279,27 +432,39 @@ def _fork(tmp):
 
 @case("fork-main")
 def _fork_main(tmp):
-    """head が main の fork PR: 手元の main には移らない（main は fork の head の先祖）。gh pr checkout が
-    付ける <fork の owner>/main の名前があればそれに移る。fork が消えている（headRepository null）PR も
-    名前だけでは移らない。"""
+    """head が main の fork PR: 手元の main は候補にしない（base 側の枝で、fork の main とは別物）。gh pr checkout が
+    付ける <fork の owner>/main の名前が手元に無ければ refs/pull/N/head からその名前で作って移り、あればそれに
+    移る。既定ブランチ名が node に無ければ（取れなかったとき）従来どおり手元の main を照合して「含まない」で
+    止まる。fork が消えている（headRepository null）PR は名前だけでは移らず、head が既定ブランチ名なら作る名前を
+    決められないと言う。"""
     repo = make_repo(tmp)
+    make_origin(tmp, repo)
     fork = {"nameWithOwner": "other/r"}
-    tree = git(repo, "write-tree")
-    head = git(repo, "commit-tree", tree, "-p", "main", "-m", "on-fork-main")
+    base = git(repo, "rev-parse", "main")
+    head = new_commit(repo, "main", "on-fork-main")
+    git(repo, "push", "-q", "origin", f"{head}:refs/pull/{NUM}/head")
     n = node(repo, headRefName="main", headRepository=fork, head={"nodes": [{"commit": {"oid": head}}]})
-    out_main, on_main = call(repo, n)
+    out_nodef, on_nodef = call(repo, dict(n, baseRepository=None))
     stayed = current(repo) == "main"
-    git(repo, "update-ref", "refs/heads/other/main", head)
+    out_made, on_made = call(repo, n)
+    made = current(repo) == "other/main" and git(repo, "rev-parse", "HEAD") == head
+    git(repo, "switch", "-q", "main")
     out_pref, on_pref = call(repo, n)
     moved = current(repo) == "other/main"
     git(repo, "switch", "-q", "main")
     out_null, on_null = call(repo, node(repo, headRepository=None, head={"nodes": [{"commit": {"oid": head}}]}))
+    out_null_main, on_null_main = call(repo, node(repo, headRefName="main", headRepository=None,
+                                                  head={"nodes": [{"commit": {"oid": head}}]}))
     return verdict({
-        "main_stays": "既に居る" not in out_main and "含まない" in out_main and not on_main and stayed,
+        "no_default_stays": "既に居る" not in out_nodef and "含まない" in out_nodef and not on_nodef and stayed,
+        "made": "ブランチ other/main: 手元に無かったので PR の head" in out_made and on_made == "other/main"
+        and made and git(repo, "rev-parse", "main") == base,
         "prefixed": "ブランチ other/main: main から移った" in out_pref and on_pref == "other/main" and moved,
+        "gone_default": "作る名前を決められない" in out_null_main and f"refs/pull/{NUM}/head" in out_null_main
+        and not on_null_main,
         "gone_fork": "消えた fork" in out_null and "含まない" in out_null and not on_null,
         "still": current(repo) == "main",
-    }, "\n".join((out_main, out_pref, out_null)))
+    }, "\n".join((out_nodef, out_made, out_pref, out_null, out_null_main)))
 
 
 @case("triangular")
@@ -361,9 +526,13 @@ def _detached(tmp):
     repo = make_repo(tmp)
     git(repo, "switch", "-q", "--detach")
     git(repo, "commit", "-q", "--allow-empty", "-m", "stray")
+    write(repo, "same.txt", "same\nedited\n")
+    out_stay, on_stay = call(repo)  # 止まった行の末尾は、枝名が無いので detached HEAD と書く
+    git(repo, "checkout", "-q", "--", "same.txt")
     out, on = call(repo)
-    return verdict({"line": "（detached） から移った" in out, "warn": "leaving 1 commit behind" in out,
-                    "branch": current(repo) == HEAD_REF, "on": on}, out)
+    return verdict({"stay": out_stay.endswith("（手元は detached HEAD のまま）") and not on_stay,
+                    "line": "（detached） から移った" in out, "warn": "leaving 1 commit behind" in out,
+                    "branch": current(repo) == HEAD_REF, "on": on}, out_stay + "\n" + out)
 
 
 @case("rebase")

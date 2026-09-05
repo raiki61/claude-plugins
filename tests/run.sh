@@ -1275,11 +1275,17 @@ expect_output 0 "SWITCH_OK" "catchup --switch: 既に居れば移らず、居る
     "$PY_BIN" "$CS_CASE" already
 expect_output 0 "SWITCH_OK" "catchup --switch: 別の worktree に checkout 済みの枝には移らず、機械の言葉でその旨" \
     "$PY_BIN" "$CS_CASE" worktree
-expect_output 0 "SWITCH_OK" "catchup --switch: origin にだけある枝は作らない（DWIM を止める）。案内は gh pr checkout" \
+expect_output 0 "SWITCH_OK" "catchup --switch: origin にだけある枝は、その 1 本を fetch して作って移る（手元の古い追跡 ref からは作らない。追跡先は origin/<枝>）" \
     "$PY_BIN" "$CS_CASE" remote-only
-expect_output 0 "SWITCH_OK" "catchup --switch: 手元にも origin にも無ければそう言う" \
+expect_output 0 "SWITCH_OK" "catchup --switch: 手元に無い枝でも guard が先——未コミットがあれば fetch もせず止まり、一手は git switch でなく「もう一度 /catchup」、行に今どこに居るかが添う" \
+    "$PY_BIN" "$CS_CASE" remote-dirty
+expect_output 0 "SWITCH_OK" "catchup --switch: origin から作るときも ignored の file を上書きせず、拒まれたら枝を作らない" \
+    "$PY_BIN" "$CS_CASE" remote-ignored
+expect_output 0 "SWITCH_OK" "catchup --switch: 手元にも origin にも無ければ作らずそう言う（merge 済みなら削除済みと取り方、届かなければ git の言い分、応答が無ければ timeout）" \
     "$PY_BIN" "$CS_CASE" none
-expect_output 0 "SWITCH_OK" "catchup --switch: origin が別のリポジトリ・origin 無しなら移らない" \
+expect_output 0 "SWITCH_OK" "catchup --switch: fork の PR の枝が手元に無ければ origin の refs/pull/N/head から作って移り、追跡先は gh pr checkout と同じ" \
+    "$PY_BIN" "$CS_CASE" fork-remote
+expect_output 0 "SWITCH_OK" "catchup --switch: origin が別のリポジトリ・origin 無しなら移らない（その行にも今どこに居るかが付く）" \
     "$PY_BIN" "$CS_CASE" origin-mismatch
 expect_output 0 "SWITCH_OK" "catchup --switch: git の checkout でない場所では移らない（落ちない）" \
     "$PY_BIN" "$CS_CASE" no-git
@@ -1287,7 +1293,7 @@ expect_output 0 "SWITCH_OK" "catchup --switch: guard の git status が読めな
     "$PY_BIN" "$CS_CASE" status-none
 expect_output 0 "SWITCH_OK" "catchup --switch: fork の PR は名前だけでは移らず、手元の枝が head の commit を含むときだけ移る（手元が古い・無関係なら移らない）" \
     "$PY_BIN" "$CS_CASE" fork
-expect_output 0 "SWITCH_OK" "catchup --switch: head が main の fork PR で手元の main に移らない。<owner>/main があればそれに移る。消えた fork も名前だけでは移らない" \
+expect_output 0 "SWITCH_OK" "catchup --switch: head が main の fork PR で手元の main に移らず、<owner>/main を無ければ refs/pull/N/head から作り、あればそれに移る。消えた fork は名前だけでは移らない" \
     "$PY_BIN" "$CS_CASE" fork-main
 expect_output 0 "SWITCH_OK" "catchup --switch: origin が自分の fork（三角 workflow）なら、その fork からの PR は名前一致で移る" \
     "$PY_BIN" "$CS_CASE" triangular

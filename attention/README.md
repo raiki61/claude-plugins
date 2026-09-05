@@ -5,7 +5,7 @@
 | コマンド | いつ使うか | 失われているもの |
 |---|---|---|
 | `/whose-turn` | 全件を一度に見渡すとき | **今どこに何が残っていて、誰の番か** |
-| `/catchup [番号] [指摘・地図・CI]` | 1 件の PR / issue、今のブランチ、会話の話題に戻るとき（該当ブランチが手元にあれば、そこへ移る） | **会話のどこで自分が止まったか**と、**何を言われ・何のために何を変える PR か** |
+| `/catchup [番号] [指摘・地図・CI]` | 1 件の PR / issue、今のブランチ、会話の話題に戻るとき（該当ブランチへ移る。手元に無ければ origin から取る） | **会話のどこで自分が止まったか**と、**何を言われ・何のために何を変える PR か** |
 | `/what-am-i-doing` | セッションを切り替えて戻ってきたとき | **このスレッドが何の作業だったか** |
 
 ## 何を解く道具か
@@ -79,7 +79,7 @@ python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] [--all] [--materials]
 ### 使い方
 
 ```
-/catchup 1505                 # 番号か URL（該当ブランチが手元にあれば git switch で移る）
+/catchup 1505                 # 番号か URL（該当ブランチへ git switch で移る。手元に無ければ origin から取る）
 /catchup                      # 今のブランチの PR（無ければブランチ名の番号を issue と見る）
 /catchup 1569 指摘             # 焦点の語を後ろに付けると、末尾の材料をその 1 つに絞る（指摘・地図・CI）
 /catchup 新しく出たもの        # 番号でない語は会話の中の話題（会話が材料。番号に結び付いていれば機械で補う）
@@ -92,16 +92,21 @@ commit・未コミットの木）が付く。番号でない語は、会話の�
 `what-am-i-doing.py --topic "<語句>"` でその語句が出た往復を背骨に、同じ型で書く。話題が会話の中で番号に
 結び付いていれば、その番号で catchup.py も走らせて「PR に書いたか・相手が動いたか」を機械の事実で補う。
 
-**番号か URL で呼ぶと、該当ブランチが手元にあれば移る**（命令書が `--switch` を付ける）。PR は head のブランチ、
-issue は名前に番号を持つ手元のブランチが 1 本のとき。戻るとき、会話の位置と一緒に手元の枝も失われているので。
-移った・移らなかった理由は見出しの「ブランチ」の行に出て、移った（または既に居た）ときは末尾に手元の状態が付く。
-移らないのは、追跡ファイルに未コミットの変更があるとき（git は衝突しない限り黙って持ち越すので、別の枝に
-commit する事故になる。未追跡だけなら移る）、merge / rebase / cherry-pick の途中、別の worktree に checkout
-済みのとき、手元に無いとき（origin にあっても作らない。`gh pr checkout <番号>` を案内する）、fork の PR で手元の
-同名ブランチが head の commit を含まないとき（fork の head は trunk / main のような名前で来る。`gh pr checkout` が
-付ける `<fork の owner>/<head>` の名前は先に探す）。**手元を変えるのはこの `git switch` だけ**で、
-fetch・pull・stash・commit はしない。戻すのは `git switch -`（元のブランチ名が行に残る）。移った後は `/catchup`
-（引数なし）が移った先の枝を指す。
+**番号か URL で呼ぶと、該当ブランチへ移る**（命令書が `--switch` を付ける）。PR は head のブランチ、issue は名前に
+番号を持つ手元のブランチが 1 本のとき。戻るとき、会話の位置と一緒に手元の枝も失われているので。PR の枝が手元に
+無ければ、origin からその元を 1 本だけ fetch して作って移る——名前と追跡先は `gh pr checkout` と同じ（同じリポジトリの
+PR は `origin/<head>` を追跡する `<head>`、fork の PR は `refs/pull/<番号>/head` から `<head>`。head が既定ブランチ名なら
+`<fork の owner>/<head>`。origin が自分の fork（三角 workflow）なら、その fork からの PR は同じリポジトリの PR と同じ扱い）。
+issue の枝は origin から探さない（番号で選ぶのは当て推量）。
+移った・移らなかった理由は見出しの「ブランチ」の行に出て（移らなかったときは今どこに居るかも）、移った（または
+既に居た）ときは末尾に手元の状態が付く。移らないのは、追跡ファイルに未コミットの変更があるとき（git は衝突しない限り
+黙って持ち越すので、別の枝に commit する事故になる。未追跡だけなら移る）、merge / rebase / cherry-pick の途中、
+別の worktree に checkout 済みのとき、origin にももう無いとき（merge 済みで枝が削除された PR。取り方を行に書く）、
+fetch が失敗したとき（認証は端末に聞かずに失敗する）、fork の PR で手元の同名ブランチが head の commit を含まないとき
+（fork の head は trunk / main のような名前で来る）。**手元を変えるのはこの `git switch` と、その 1 本の
+`git fetch` だけ**で、手元にある枝は動かさない（pull・merge・stash・commit はしない。fetch が更新するのは
+`origin/<head>` の追跡 ref だけ）。戻すのは `git switch -`（元のブランチ名が行に残る。origin から作った枝はそのまま
+残る）。移った後は `/catchup`（引数なし）が移った先の枝を指す。
 
 同じ checkout を複数のセッションで共有しているなら、片方の `/catchup` がもう片方のブランチを変える。未コミットが
 あれば移らないが、commit 済みで手を止めている側は守れない。分けるなら `git worktree`（別 worktree に
@@ -395,9 +400,9 @@ python3 scripts/what-am-i-doing.py [--full] [--limit 25] [--topic 語句] [--fra
   先頭コメントから書く（型の後ろの「説明」）
 - **`/catchup` は全件の棚卸しをしない。** 対象は 1 つ（番号・URL・今のブランチ・会話の話題のどれか）で、
   その番号を決めるのは `/whose-turn`
-- **手元を変えるのは `/catchup` の `--switch` の `git switch` だけ。** fetch・pull・stash・commit・`gh pr checkout`
-  はしない。追跡ファイルに未コミットがあれば移らず、手元に無い枝は origin にあっても作らない。他の 2 本は
-  手元を読むだけ
+- **手元を変えるのは `/catchup` の `--switch` の `git switch` と、手元に無い枝の元を 1 本だけ取る `git fetch` だけ。**
+  pull・merge・stash・commit・`gh pr checkout` はしない。追跡ファイルに未コミットがあれば移らず、手元にある枝は
+  fetch でも動かさない。他の 2 本は手元を読むだけ
 
 ## 先行例
 
