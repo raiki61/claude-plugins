@@ -50,6 +50,7 @@ gh pr checkout と同じ）。手元を変える操作はこの git switch と�
 """
 
 import argparse
+import concurrent.futures
 import datetime as dt
 import functools
 import json
@@ -94,6 +95,7 @@ MERGEABLE = {
 # 出来事の種別。spoken だけが「発言」で、依頼を探す範囲の切れ目になる。push は痕跡だが返事ではない
 SPOKEN, PUSH, EVENT = "spoken", "push", "event"
 
+
 QUERY = """
 query($owner:String!,$name:String!,$num:Int!){
   repository(owner:$owner,name:$name){
@@ -103,6 +105,10 @@ query($owner:String!,$name:String!,$num:Int!){
         number title url state isDraft createdAt body
         headRefName headRepository{nameWithOwner} baseRefOid headRefOid
         maintainerCanModify baseRepository{defaultBranchRef{name}}
+        baseRefName isCrossRepository
+        baseRef{name associatedPullRequests(last:5){totalCount nodes{number title state reviewDecision
+          isCrossRepository author{login}}}}
+        suggestedReviewers{isAuthor isCommenter reviewer{login}}
         additions deletions changedFiles mergeable reviewDecision
         files(first:100){totalCount nodes{path changeType additions deletions}}
         author { __typename login }
@@ -111,11 +117,12 @@ query($owner:String!,$name:String!,$num:Int!){
           ... on User{login} ... on Team{name}}}}
         closingIssuesReferences(first:10){nodes{number title state url body}}
         comments(last:100){totalCount nodes{createdAt body author{__typename login}}}
-        reviews(last:60){totalCount nodes{submittedAt state body author{__typename login}}}
+        reviews(last:60){totalCount nodes{submittedAt state body author{__typename login}
+          commit{oid}}}
         reviewThreads(last:80){totalCount nodes{isResolved isOutdated path line
-          comments(first:60){nodes{createdAt body author{__typename login}}}}}
+          comments(first:60){nodes{createdAt body author{__typename login} originalCommit{oid}}}}}
         allCommits: commits(last:100){totalCount nodes{commit{
-          oid committedDate messageHeadline additions deletions
+          oid committedDate messageHeadline additions deletions parents{totalCount}
           author{user{login} name email}}}}
         head: commits(last:1){nodes{commit{oid statusCheckRollup{contexts(first:100){
           totalCount nodes{__typename
@@ -307,9 +314,12 @@ def collect_events(node, me, my_email=""):
     結び付き無しは、それでも誰のものか決められなかった commit の author 名（申告用）。"""
     ev, refs, unlinked = [], [], set()
 
-    def add(t, who, kind, text, cat, bot=False):
+    def add(t, who, kind, text, cat, bot=False, oid=None):
+        # oid は出来事が指す commit（レビューは提出時の head、スレッドの最初の発言は付けた時点の commit、
+        # push はその commit）。「私の痕跡以降に変わった file」の基準になる。本文コメントとスレッドへの
+        # 返信には無い——返信の originalCommit は元の発言の commit を継ぐので、返信の時点を指さない
         ev.append({"t": ts(t), "who": who, "kind": kind, "text": text,
-                   "bot": bot, "cat": cat})
+                   "bot": bot, "cat": cat, "oid": oid})
 
     for c in node["comments"]["nodes"]:
         add(c["createdAt"], login_of(c["author"]), "コメント", c["body"], SPOKEN,
@@ -323,14 +333,15 @@ def collect_events(node, me, my_email=""):
         label = {"APPROVED": "レビュー（承認）",
                  "CHANGES_REQUESTED": "レビュー（要修正）"}.get(r["state"], "レビュー")
         add(r["submittedAt"], login_of(r["author"]), label, r["body"], SPOKEN,
-            is_bot(r["author"]))
+            is_bot(r["author"]), oid=(r.get("commit") or {}).get("oid"))
 
     for th in node.get("reviewThreads", {}).get("nodes", []):
         where = th["path"] + (f":{th['line']}" if th["line"] else "")
         state = "解決済" if th["isResolved"] else "未解決"
-        for c in th["comments"]["nodes"]:
+        for k, c in enumerate(th["comments"]["nodes"]):
             add(c["createdAt"], login_of(c["author"]), f"スレッド {where}（{state}）",
-                c["body"], SPOKEN, is_bot(c["author"]))
+                c["body"], SPOKEN, is_bot(c["author"]),
+                oid=(c.get("originalCommit") or {}).get("oid") if k == 0 else None)
 
     for n in node.get("allCommits", {}).get("nodes", []):
         c = n["commit"]
@@ -345,7 +356,7 @@ def collect_events(node, me, my_email=""):
                 unlinked.add(name)
         add(c["committedDate"], who, "push",
             f"{c['oid'][:9]} {c['messageHeadline']} (+{c['additions']}/-{c['deletions']})",
-            PUSH)
+            PUSH, oid=c["oid"])
 
     for it in node.get("timelineItems", {}).get("nodes", []):
         k = it["__typename"]
@@ -452,8 +463,7 @@ def my_turn(node, me, ev, red):
     reasons = []
 
     if is_pr:
-        req = [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"]
-               if r["requestedReviewer"]]
+        req = requested_reviewers(node)
         if any(r.get("login") == me for r in req):
             reasons.append("レビュー依頼が私に来ている")
         if any(r["state"] == "PENDING" and login_of(r["author"]) == me
@@ -482,7 +492,7 @@ def my_turn(node, me, ev, red):
                 reasons.append("要修正が付いている（指摘対応は私）")
             elif node["reviewDecision"] == "APPROVED" and not req:
                 reasons.append("承認済みで依頼も残っていない（マージは私）")
-            elif not req and not node["isDraft"]:
+            elif unrequested(node, me):
                 # 誰にも渡していない PR は、渡すまで誰も動けない。ここを「待ち」に落とすと、
                 # 自分が止めている件が相手の番に見える
                 reasons.append("レビュー依頼が誰にも出ていない（依頼先を決めるのは私）")
@@ -492,6 +502,18 @@ def my_turn(node, me, ev, red):
             and not (is_pr and author == me):
         reasons.append("私が担当（assignee）")
     return reasons
+
+
+def requested_reviewers(node):
+    return [r["requestedReviewer"] for r in node["reviewRequests"]["nodes"] if r["requestedReviewer"]]
+
+
+def unrequested(node, me):
+    """自分の PR で、下書きでなく、誰にも依頼が出ておらず、要修正も承認も付いていない——渡すまで誰も
+    動けない状態。my_turn の理由と、render の依頼先の候補が同じ述語を見る（片方だけ直って条件がずれない）。"""
+    return (node["__typename"] == "PullRequest" and login_of(node["author"]) == me
+            and not node["isDraft"] and not requested_reviewers(node)
+            and node["reviewDecision"] not in ("CHANGES_REQUESTED", "APPROVED"))
 
 
 def waiting_on(node, me):
@@ -508,6 +530,249 @@ def waiting_on(node, me):
     elif author != me:
         return f"起票者 {author} 待ち"
     return "待っている相手は記録に無い"
+
+
+# ---- 積まれている先・依頼先の候補・私の痕跡以降に変わった file ----------------------
+#
+# どれも機械は事実だけ出す。取り込み先が既定ブランチでないこと、その枝に開いている PR、GitHub が
+# 提案する依頼先、基準の commit より後に作者側が触った file。判断（積み直すか・誰に頼むか・どこを
+# 読み直すか）は読む人か AI の側。
+
+STACKED_SHOWN = 3        # 「上に積む」で名前を出す数。gh pr list は +1 件取って「他にもある」を言う
+BASE_PRS_SHOWN = 3       # 取り込み先の枝の PR を出す数（GraphQL は新しい方から 5 件と総数を取る）
+SINCE_COMMIT_CAP = 20    # gh 経路で file を取る commit の上限（新しい方から）
+SINCE_FILE_CAP = 20      # 変わった file を並べる行数の上限
+GH_FILES_CAP = 300       # gh api の commits/{sha} が返す files の上限。ちょうど届いたら切れている
+# gh api の files[].status を git の 1 文字に寄せる。無い値は頭文字（大文字）で出す
+STATUS_LETTER = {"modified": "M", "added": "A", "removed": "D", "renamed": "R", "copied": "C",
+                 "changed": "T", "unchanged": "U"}
+COMMIT_FILES_JQ = ".files[]|[.status,.filename]|@tsv"
+# suggestedReviewers の根拠 (isCommenter, isAuthor) → 添える語
+SUGGESTED_WHY = {(True, True): "発言あり・commit 者", (True, False): "この PR に発言あり",
+                 (False, True): "変更 file の commit 者", (False, False): ""}
+
+
+def approval(decision):
+    """reviewDecision の日本語。知らない値は生のまま出す（API の値を隠さない）。"""
+    return APPROVAL.get(decision, str(decision))
+
+
+def me_or(who, me):
+    return "私" if who == me else who
+
+
+def base_lines(node, me):
+    """取り込み先が既定ブランチでない PR の、その枝と枝の PR の行。既定と同じなら空。既定が分からなければ
+    （baseRepository が無い）比べられないので空。fork からの同名の枝の PR（isCrossRepository）は
+    その枝の PR ではない。GraphQL は古い順なので新しい 5 件を取り、新しい順に並べる（長寿の枝は同名の
+    PR を何十件も持つ——最古の 5 件では今 open のものが窓に入らない。実測: release 枝で 748 件）。"""
+    base, default = node.get("baseRefName"), default_branch(node)
+    if not base or not default or base == default:
+        return []
+    ref = node.get("baseRef")
+    if ref is None:
+        # 枝が消えているので、その枝の PR は分からない（「無い」とは言えない）
+        return [f"  取り込み先: {base}（枝は消えている）"]
+    out = [f"  取り込み先: {base}（既定 {default} ではない）"]
+    assoc = ref.get("associatedPullRequests") or {}
+    fetched = assoc.get("nodes") or []
+    prs = [p for p in reversed(fetched) if not p.get("isCrossRepository")][:BASE_PRS_SHOWN]
+    total = assoc.get("totalCount") or len(fetched)
+    for p in prs:
+        out.append(f"  その枝の PR: #{p['number']} {p['state'].lower()}・{approval(p.get('reviewDecision'))}"
+                   f"・作者 {me_or(login_of(p.get('author')), me)}")
+    see = f"gh pr list --head {base} --state all で見る"
+    if not prs:
+        out.append("  その枝の PR: 無い" if not total else
+                   f"  その枝の PR: 新しい {len(fetched)} 件は fork の同名の枝の分（全 {total} 件。{see}）")
+    elif total > len(prs):
+        out.append(f"  （その枝の PR は他に {total - len(prs)} 件。fork の分も含む。{see}）")
+    return out
+
+
+def suggested_line(node):
+    """GitHub が提案する依頼先（suggestedReviewers）と、提案の根拠。決めるのは私で、機械は選ばない。"""
+    names = []
+    for sg in node.get("suggestedReviewers") or []:
+        why = SUGGESTED_WHY[(bool(sg.get("isCommenter")), bool(sg.get("isAuthor")))]
+        names.append(login_of(sg.get("reviewer")) + (f"（{why}）" if why else ""))
+    if not names:
+        return "  依頼先の候補（GitHub の提案）: なし"
+    return "  依頼先の候補（GitHub の提案。決めるのは私）: " + "、".join(names)
+
+
+def commit_window(node):
+    """allCommits の nodes（古い→新しい）と総数。last:100 なので、古い PR では nodes が総数より少ない。"""
+    cs = node.get("allCommits") or {}
+    nodes = [c["commit"] for c in cs.get("nodes", [])]
+    return nodes, cs.get("totalCount") or len(nodes)
+
+
+def since_base(anchor, node):
+    """「私の痕跡以降」の基準の commit。(oid, 近似か) か None。痕跡が commit を指していれば（レビュー・
+    スレッドの最初の発言・push）それを厳密に使う。本文コメントとスレッドへの返信には commit が無いので、
+    その時刻以前の最新の commit で置く（近似。rebase や merge で前後していればずれる）。発言が取った
+    commit の全部より前なら基準を置けない。"""
+    if anchor.get("oid"):
+        return anchor["oid"], False
+    before = [c for c in commit_window(node)[0] if ts(c["committedDate"]) <= anchor["t"]]
+    if not before:
+        return None
+    return before[-1]["oid"], True
+
+
+def since_commits(node, base_oid):
+    """基準より後ろの commit を allCommits の並び（古い→新しい）で切る。戻り値は (作者側の oid の列,
+    取り込みの数, 基準が nodes に無いか)。parents が 2 つ以上の commit は取り込み（base の merge 等）で、
+    file を取ると base 側の変更が全部混ざるので数だけ数える。基準が nodes に無いのは、履歴が書き換えられた
+    （rebase / amend）か、窓（last:100）より古いか——どちらかは呼び手が総数で見分ける。"""
+    cs, _ = commit_window(node)
+    idx = next((i for i, c in enumerate(cs) if c["oid"] == base_oid), None)
+    if idx is None:
+        return [], 0, True
+    after = cs[idx + 1:]
+    authored = [c["oid"] for c in after if (c.get("parents") or {}).get("totalCount", 1) < 2]
+    return authored, len(after) - len(authored), False
+
+
+def latest_status(rows):
+    """[(status の 1 文字, path)] を古い→新しいの順で重ね、path ごとに最後の status。並びは path 順。
+    手元の git 経路と gh 経路が同じ合成を通る。"""
+    files = {}
+    for st, path in rows:
+        files[path] = st
+    return sorted((st, path) for path, st in files.items())
+
+
+def local_range(owner, name, *oids):
+    """手元がこのリポジトリの checkout で、oids の commit を全部持っていればその根。無ければ None。
+    関数まるごとの diff（pr_function_diff）と痕跡以降の file（since_files_git）が同じ門を通る。"""
+    top = local_checkout(owner, name)
+    return top if top and all(changemap.has_commit(o, top) for o in oids) else None
+
+
+def since_files_git(owner, name, base, head):
+    """経路 1（手元）。基準と head の commit を持っていれば、作者側の commit（first-parent の非 merge）が
+    触った file を git log 1 回で。持っていなければ None（gh 経路へ）。"""
+    top = local_range(owner, name, base, head)
+    if not top:
+        return None
+    out = changemap.git("-c", "core.quotePath=false", "log", "--first-parent", "--no-merges",
+                        "--format=", "--name-status", f"{base}..{head}", cwd=top)
+    if out is None:
+        return None
+    rows = [(r.split("\t")[0][:1], r.split("\t")[-1]) for r in out.splitlines() if "\t" in r and r[:1]]
+    return latest_status(reversed(rows))  # log は新しい→古い
+
+
+def gh_file_rows(text):
+    """gh api commits/{sha} の TSV（status \t path）を [(status の 1 文字, path)] に。"""
+    return [(STATUS_LETTER.get(r[0], r[0][:1].upper()), r[-1])
+            for r in (row.split("\t") for row in text.splitlines() if "\t" in row)]
+
+
+def since_files_gh(oids, get):
+    """経路 2（gh）。commit ごとに get(sha)（gh api commits/{sha} の TSV。取れなければ None）を並列で呼び、
+    file を合成する。戻り値は ([(status, path)], 300 件で切れた commit が有るか, 取れなかった commit の数)。
+    oids は古い→新しい。"""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(len(oids), SINCE_COMMIT_CAP))) as ex:
+        texts = list(ex.map(get, oids))
+    rows, cap300, failed = [], False, 0
+    for text in texts:
+        if text is None:
+            failed += 1
+            continue
+        got = gh_file_rows(text)
+        cap300 = cap300 or len(got) >= GH_FILES_CAP
+        rows.extend(got)
+    return latest_status(rows), cap300, failed
+
+
+def collect_since(node, anchor, get_git, get_gh):
+    """「私の痕跡以降に変わった file」の材料。anchor は私の痕跡（find_anchor の mine）。get_git(base, head)
+    は手元の経路（無ければ None）、get_gh(sha) は gh の経路（1 commit の TSV か None）——検査で差し替える口。
+    基準を置けなければ None。戻り値の dict は render_since と since_unseen が読む。"""
+    nodes, total = commit_window(node)
+    truncated = total > len(nodes)
+    since = {"base": None, "approx": False, "rewritten": False, "outside": False,
+             "window": (len(nodes), total), "commits": 0, "merges": 0, "skipped": 0, "files": [],
+             "cap300": False, "failed": 0}
+    found = since_base(anchor, node)
+    if not found:
+        if not truncated:
+            return None  # 発言が最初の commit より前——全 file が対象で、材料として役に立たない
+        since["outside"] = True  # 窓の中に基準を置けない。古い側に有るかは取っていない
+        return since
+    base, approx = found
+    since.update(base=base[:7], approx=approx)
+    authored, merges, missing = since_commits(node, base)
+    if missing:
+        # 窓が切れていれば「取っていない」と「書き換え」を見分けられない。切れていなければ書き換え
+        since["outside" if truncated else "rewritten"] = True
+        return since
+    since.update(commits=len(authored), merges=merges)
+    if not authored:
+        return since
+    files = get_git(base, node.get("headRefOid"))
+    if files is None:
+        wanted = authored[-SINCE_COMMIT_CAP:]
+        since["skipped"] = len(authored) - len(wanted)
+        files, since["cap300"], since["failed"] = since_files_gh(wanted, get_gh)
+    since["files"] = files
+    return since
+
+
+def render_since(since):
+    """「私の痕跡以降に変わった file」の節。基準が窓の外か履歴に無ければ、その 1 行だけ。"""
+    out = []
+    w = out.append
+    if since["outside"] or since["rewritten"]:
+        w("## 私の痕跡以降に変わった file")
+        got, total = since["window"]
+        if since["outside"]:
+            w(f"  基準（{since['base'] or '私の痕跡の時点'}）は取った新しい {got} 本より前（commit {total} 本中）。"
+              "履歴の書き換えかどうかは分からず、古い方の commit は見ていない")
+        else:
+            w(f"  基準の commit {since['base']} は今の head の履歴に無い（履歴が書き換えられた）。"
+              "git range-diff で見る")
+        return out
+    files = since["files"]
+    w(f"## 私の痕跡以降に変わった file — {len(files)} 件（作者側の commit {since['commits']} 本。"
+      f"取り込み {since['merges']} 本の分は含めない）"
+      + ("（基準は commit の日付で置いた近似）" if since["approx"] else ""))
+    for st, path in files[:SINCE_FILE_CAP]:
+        w(f"  {st}  {path}")
+    if len(files) > SINCE_FILE_CAP:
+        w(f"  …ほか {len(files) - SINCE_FILE_CAP} file")
+    if not files:
+        w("  なし" + (f"（取り込み {since['merges']} 本だけ）" if since["merges"] else ""))
+    if since["failed"]:
+        w(f"  （commit {since['failed']} 本の file は取れなかった。gh api が失敗した）")
+    return out
+
+
+def since_unseen(since):
+    """「見ていないもの」に足す行（先頭の「  - 」は呼び手が付ける）。窓の外・書き換えは節の行が言う。"""
+    out = []
+    if since["outside"] or since["rewritten"]:
+        return out
+    if since["approx"]:
+        out.append("変わった file の基準は commit の日付で置いた近似。rebase や merge で前後していれば数件ずれる")
+    if since["skipped"]:
+        out.append(f"私の痕跡以降の古い方の commit {since['skipped']} 本の file（上限 {SINCE_COMMIT_CAP} 本）")
+    if since["cap300"]:
+        out.append(f"1 commit の file が {GH_FILES_CAP} 件で切れている")
+    return out
+
+
+def fetch_stacked(owner, name, node):
+    """この枝を base にする open PR（積まれている先）。fork の PR と既定ブランチの枝では探さない——
+    fork の枝は base リポジトリの --base に無く、既定ブランチを base にする PR は全部になる。取れなければ空。"""
+    if fork_of(node, owner, name) is not None or node.get("headRefName") == default_branch(node):
+        return ()
+    got = gh_try("pr", "list", "-R", f"{owner}/{name}", "--base", node["headRefName"],
+                 "--state", "open", "--limit", str(STACKED_SHOWN + 1), "--json", "number,title")
+    return tuple(json.loads(got)) if got else ()
 
 
 # ---- 出力 --------------------------------------------------------------------
@@ -566,15 +831,19 @@ def find_ask(ev, node, me, cutoff, own):
 
 
 def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
-           with_map=False, with_threads=False, with_ci=False, branch_lines=()):
-    """branch_lines は --switch の結果（見出しの URL の行の後ろに足す。無ければ何も足さない）。"""
+           with_map=False, with_threads=False, with_ci=False, branch_lines=(),
+           stacked=(), since=None):
+    """branch_lines は --switch の結果（見出しの URL の行の後ろに足す。無ければ何も足さない）。
+    stacked はこの枝を base にする open PR の列（main() が gh pr list で取る。取れなければ空）、
+    since は「私の痕跡以降に変わった file」（collect_since の戻り値。無ければ None）。ここは gh も
+    git も叩かない——取得は全部 main() で済ませ、材料だけ受け取る。"""
     is_pr = node["__typename"] == "PullRequest"
     author = login_of(node["author"])
     out = []
     w = out.append
 
     def name(who):
-        return "私" if who == me else who
+        return me_or(who, me)
 
     red, running, green = check_state(node) if is_pr else ([], 0, 0)
     reasons = my_turn(node, me, ev, red)
@@ -663,11 +932,18 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
             w(f"      {body}")
     w("")
 
+    if since is not None:
+        out.extend(render_since(since))
+        w("")
+
     state = []
     st = state.append
     if is_pr:
         st("  承認: " + APPROVAL.get(node["reviewDecision"], str(node["reviewDecision"]))
            + " ／ 取り込み: " + MERGEABLE.get(node["mergeable"], str(node["mergeable"])))
+        state.extend(base_lines(node, me))
+        if unrequested(node, me):
+            st(suggested_line(node))
         # チェックが 1 本も無い状態を「全 pass」と言うと、検査が無いことが緑に化ける
         if not (red or running or green):
             st("  CI: 報告なし")
@@ -706,10 +982,15 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         w("")
 
     linked = node.get("closingIssuesReferences", {}).get("nodes", []) if is_pr else []
-    if linked or refs:
+    if linked or refs or stacked:
         w("## つながっている先")
         for i in linked:
             w(f"  閉じる  #{i['number']} {i['state'].lower()}  {i['title']}")
+        for s in stacked[:STACKED_SHOWN]:
+            w(f"  上に積む  #{s['number']} {s['title']}")
+        if len(stacked) > STACKED_SHOWN:
+            # gh pr list は STACKED_SHOWN + 1 件までしか取っていないので、残りの数は言えない
+            w(f"  （上に積む PR は他にもある。gh pr list --base {node.get('headRefName')} で見る）")
         # 参照は新しい 3 件だけ。5 件出したら初見の読み手 3 人中 2 人が「読まなくてよかった」と言った。
         # 残すのは、この PR から分かれた後続の PR がここに出るため
         for r in refs[-3:]:
@@ -735,6 +1016,8 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
             w("  - スレッドの経緯（下の指摘は相手の最後の発言と、その行の前後だけ）")
         elif human:
             w("  - 未解決スレッドの中身（指摘 を付けて呼ぶと末尾に出る）")
+    if since is not None:
+        out.extend("  - " + ln for ln in since_unseen(since))
     # 本文は末尾の材料に出る。上限で切れた分だけ申告する
     cut = 0 if full else max(0, len(body_rows(node.get("body"))) - BODY_CAP)
     if cut:
@@ -958,7 +1241,7 @@ def render_map(node, owner, name):
     for ln in changemap.render_tree(entries, dict(sib) if sib else None, root_label=name):
         w(ln)
 
-    # diff は 1 本——手元に base と head があれば git diff -W（関数まるごと）、無ければ gh pr diff（文脈 3 行）。
+    # diff は手元に base と head があれば git（コードは関数まるごと、散文は 3 行）、無ければ gh pr diff（文脈 3 行）。
     # 先頭・骨組み・名前の言及は + の行しか見ないので、文脈の広さで変わらない
     text, note = pr_function_diff(owner, name, node,
                                   lambda: gh_try("pr", "diff", str(node["number"]), "-R", f"{owner}/{name}"))
@@ -996,7 +1279,8 @@ def render_map(node, owner, name):
     mod = [f for f in nodes if f["changeType"] != "ADDED"]
     if mod:
         frames = changemap.framed_diff(text)
-        w("  既存ファイルの変更（" + changemap.FRAME_NOTE + changemap.FRAME_CAP_NOTE
+        total = 0
+        w("  既存ファイルの変更（" + changemap.FRAME_NOTE + changemap.FRAME_CAP_NOTE + "。" + changemap.JUMP_NOTE
           + (f"。{note}" if note else "") + "）:")
         for f in mod:
             old = renames.get(f["path"])
@@ -1007,24 +1291,29 @@ def render_map(node, owner, name):
                 w("    （改名のみ。中身の変更なし）" if old and not (f["additions"] or f["deletions"])
                   else "    （中身が diff に無い。バイナリか空）")
                 continue
-            if changemap.is_prose(f["path"]):
-                w("    " + changemap.prose_skip(f["path"], "本文と先頭コメントで"))
+            rows = changemap.frame_lines(f["path"], info)
+            # 合計の上限（/what-am-i-doing と同じ）。地図だけ青天井だと、散文の多い PR で報告が
+            # 材料に埋もれる。先頭の file はそれ 1 本で超えても出す
+            if total and total + len(rows) > changemap.FRAME_TOTAL_CAP:
+                w(f"    （合計の上限 {changemap.FRAME_TOTAL_CAP} 行。--frame {f['path']} で出る）")
                 continue
-            out.extend(changemap.frame_lines(f["path"], info))
+            out.extend(rows)
+            total += len(rows)
     return "\n".join(out)
 
 
 def pr_function_diff(owner, name, node, get_text):
-    """PR の diff を関数まるごとの文脈で。手元がこのリポジトリの checkout で base と head の commit を
-    持っていれば git diff -W base...head。無ければ get_text()（gh pr diff。文脈 3 行）をそのまま使い、
-    理由を返す。戻り値は (diff の本文 or None, 見出しに添える断り。関数まるごとなら "")。"""
+    """PR の diff を枠の文脈で（コードは関数まるごと、散文は 3 行）。手元がこのリポジトリの checkout で
+    base と head の commit を持っていれば changemap.frame_diff(base...head)。無ければ get_text()
+    （gh pr diff。文脈 3 行）をそのまま使い、理由を返す。戻り値は (diff の本文 or None, 見出しに添える
+    断り。関数まるごとなら "")。"""
     top = local_checkout(owner, name)
     if not top:
         return get_text(), "文脈は 3 行——手元がこのリポジトリの checkout ではない"
     base, head = node.get("baseRefOid"), node.get("headRefOid")
-    if not all(changemap.has_commit(o, top) for o in (base, head)):
+    if not local_range(owner, name, base, head):
         return get_text(), "文脈は 3 行——手元に base と head の commit が無い。fetch すれば関数まるごとになる"
-    wide = changemap.function_diff(cwd=top, rev=f"{base}...{head}")
+    wide = changemap.frame_diff(cwd=top, rev=f"{base}...{head}")
     return (wide, "") if wide is not None else (get_text(), "文脈は 3 行——手元の git diff が失敗した")
 
 
@@ -1579,7 +1868,8 @@ def main(argv=None):
         info = changemap.framed_diff(wide).get(a.frame)
         if not info:
             sys.exit(f"{a.frame} はこの PR の変更に無い（改名だけの file も含む。path はリポジトリの根からの相対）")
-        print(f"    === {a.frame}" + ("（新規）" if info["new"] else "") + (f"（{note}）" if note else ""))
+        print(f"    === {a.frame}" + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")
+              + (f"（{note}）" if note else ""))
         print("\n".join(changemap.frame_lines(a.frame, info, cap=None)))
         return 0
     me = a.me or gh("api", "user", "--jq", ".login").strip()
@@ -1597,9 +1887,20 @@ def main(argv=None):
     with_map, with_threads, with_ci = pick_tails(
         is_pr, focus, bool(unresolved_threads(node, me)),
         bool(check_state(node)[0]) if is_pr else False)
+    # 積まれている先（gh 1 回）と私の痕跡以降に変わった file（git 1 回か gh 数回）は独立で、どちらも
+    # 本体の前に要る。直列だと足し算の待ちになるので、片方を裏で走らせる。私の痕跡が無い（渡された
+    # だけ・作成時）なら基準が無いので後者は無い
+    stacked, since = (), None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        job = ex.submit(fetch_stacked, owner, name, node) if is_pr else None
+        if is_pr and anchor_kind == "mine":
+            since = collect_since(
+                node, anchor, functools.partial(since_files_git, owner, name),
+                lambda sha: gh_try("api", f"repos/{owner}/{name}/commits/{sha}", "--jq", COMMIT_FILES_JQ))
+        stacked = job.result() if job else ()
     print(render(node, me, ev, refs, unlinked, anchor, anchor_kind, a.full, a.limit,
                  collect_caps(node), with_map=with_map, with_threads=with_threads,
-                 with_ci=with_ci, branch_lines=branch_lines))
+                 with_ci=with_ci, branch_lines=branch_lines, stacked=stacked, since=since))
     # 並びは、作者の言葉（本文。どの呼び方でも出る）→ 私が動く材料（指摘・CI）→ 読み直す材料（地図）
     # → GitHub に無い手元の状態
     tails = [render_body(node, a.full, lambda n: fetch_ref(owner, name, n))]

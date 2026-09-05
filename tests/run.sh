@@ -1244,6 +1244,30 @@ expect_output 0 "BODY_OK" \
 expect_output 0 "REFS_OK" \
     "catchup: 本文が # で指す番号の冒頭を 3 件まで出す（自分・閉じる issue・URL の fragment は除く。PR は PR と言う）" \
     "$PY_BIN" "$CU_CASE" body-refs
+expect_output 0 "STACKED_OK" \
+    "catchup: 取り込み先が既定ブランチでなければその枝と枝の PR（fork の同名は除く）を出し、上に積む open PR は 3 件＋「他にもある」" \
+    "$PY_BIN" "$CU_CASE" stacked
+expect_output 0 "STACKED_OK" \
+    "catchup: 取り込み先が既定ブランチなら取り込み先の行は出ない" \
+    "$PY_BIN" "$CU_CASE" stacked-default
+expect_output 0 "SUGGESTED_OK" \
+    "catchup: 依頼先の候補（GitHub の提案）は自分の PR で依頼が誰にも出ていないときだけ根拠つきで出し、空なら「なし」、依頼があれば出ない" \
+    "$PY_BIN" "$CU_CASE" suggested
+expect_output 0 "SINCE_OK" \
+    "catchup: 私の痕跡以降に変わった file——基準がレビューなら厳密、作者側の commit だけ file を取り取り込みは数だけ、status は git の 1 文字で最後の commit のもの" \
+    "$PY_BIN" "$CU_CASE" since-review
+expect_output 0 "SINCE_OK" \
+    "catchup: 基準が本文コメントなら commit の日付で置いた近似と断り、最初の commit より前なら節を出さない" \
+    "$PY_BIN" "$CU_CASE" since-approx
+expect_output 0 "SINCE_OK" \
+    "catchup: 基準の commit が履歴に無ければ（rebase / amend）その 1 行だけで、file は取りに行かない" \
+    "$PY_BIN" "$CU_CASE" since-rewritten
+expect_output 0 "SINCE_OK" \
+    "catchup: allCommits が 100 本で切れていて基準が窓に無ければ「書き換え」と断定せず、取っていないと言う" \
+    "$PY_BIN" "$CU_CASE" since-outside
+expect_output 0 "MAP_JUMPS_OK" \
+    "catchup: 地図の変更に、各枠の前の飛び先 path:行 と見出しの断り。散文（md）も枠、新規は path:1、削除 file だけ飛び先が無い" \
+    "$PY_BIN" "$CU_CASE" map-jumps
 # stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
 # UnicodeEncodeError になり、日本語の報告そのものが出せない＝道具が丸ごと使えなくなる。
 # GitHub Actions の windows-latest で実測して赤くなった)
@@ -1365,7 +1389,7 @@ expect_output 0 "TREE_OK" \
     "what-am-i-doing: 未コミットの変更を木で出す（周辺つき、新規は行頭 +、変更は ~）" \
     "$PY_BIN" "$WAI_CASE" dirty-tree
 expect_output 0 "FRAMES_OK" \
-    "what-am-i-doing: 未コミットの中身は今の姿に機械が帯を入れた枠（関数まるごと。前の行はコメント）。未追跡は先頭と骨組み。--frame は 1 file を全部" \
+    "what-am-i-doing: 未コミットの中身は今の姿に機械が帯を入れた枠（コードは関数まるごと・散文は文脈 3 行。前の行はコメント）。各枠の前に飛び先 path:行。改名は新規に化けない。未追跡は先頭と骨組み。--frame は 1 file を全部。git diff が失敗したら断る" \
     "$PY_BIN" "$WAI_CASE" frames
 expect_output 0 "TOPIC_OK" \
     "what-am-i-doing: --topic はその語が出た往復だけを出す（/catchup が会話の話題を追う背骨）" \
@@ -1386,6 +1410,40 @@ expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 111 件。時
     "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
+
+# ---- attention/scripts/figure-check: 絵（系の前後の図）の幅・行数・縦線・箱の検査 ----
+# gh にも git にも触らない。通る図は命令書の例（14 行）そのもの。合否は落ちる／通るだけでなく行と桁が出ることで見る
+FC_CASE="$ROOT/tests/figure-check-case.py"
+expect_output 0 "FIGURE_OK" "figure-check: 命令書の例（14 行）が通り、行数と最大桁が出る（file でも stdin でも同じ 1 行、exit 0）" \
+    "$PY_BIN" "$FC_CASE" pass
+expect_output 0 "FIGURE_OK" "figure-check: 60 桁を超える行は行番号と実際の幅で落ちる（東アジア幅は 2。縦線が揃っていれば幅の 1 件だけ）" \
+    "$PY_BIN" "$FC_CASE" width
+expect_output 0 "FIGURE_OK" "figure-check: 15 行目（空行でも）があれば行数で落ちる" \
+    "$PY_BIN" "$FC_CASE" lines
+expect_output 0 "FIGURE_OK" "figure-check: 縦線の列（2 行以上に立つ桁）以外の │ は行と桁で落ち、縦線の列が添う" \
+    "$PY_BIN" "$FC_CASE" bar
+expect_output 0 "FIGURE_OK" "figure-check: 縦線の列が 1 つも無ければ、その │ がずれとして出て列は「無い」" \
+    "$PY_BIN" "$FC_CASE" bar-lone
+expect_output 0 "FIGURE_OK" "figure-check: ┌┐ と └┘ の幅が違えば箱がずれ（行と桁と両辺の幅）。対の罫線が無い行もそう言う" \
+    "$PY_BIN" "$FC_CASE" box
+expect_output 0 "FIGURE_OK" "figure-check: 空の入力は「通った」と言わない" \
+    "$PY_BIN" "$FC_CASE" empty
+expect_exit 1 "figure-check: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$FC_CASE"
+
+# ---- attention の命令書と README: 機械の出力語を同じ綴りで持つ（絵の例が規則を通るかは figure-check の pass が命令書から読む） ----
+expect_output 0 "DOC_WORDS_OK" "命令書 2 本と README が、機械の出力行の語（飛び先・取り込み先・上に積む・依頼先の候補・私の痕跡以降に変わった file）を同じ綴りで持つ（写す規則なので綴り違いは AI が探せない）" \
+    "$PY_BIN" - "$ROOT" <<'PY'
+import sys, pathlib
+root = pathlib.Path(sys.argv[1])
+docs = {n: (root / n).read_text(encoding="utf-8") for n in
+        ["attention/commands/catchup.md", "attention/commands/what-am-i-doing.md", "attention/README.md"]}
+others = docs.keys() - {"attention/commands/what-am-i-doing.md"}  # /what-am-i-doing は PR の材料を持たない
+for word, files in [("飛び先", docs), ("figure-check.py", docs), ("取り込み先", others), ("上に積む", others),
+                    ("依頼先の候補", others), ("私の痕跡以降に変わった file", others)]:
+    for f in files:
+        assert word in docs[f], f"{f}: 「{word}」が無い"
+print("DOC_WORDS_OK")
+PY
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"

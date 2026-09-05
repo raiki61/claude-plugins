@@ -270,7 +270,8 @@ def _dirty_tree(tmp):
 @case("frames")
 def _frames(tmp):
     """未コミットの変更の中身は、今の姿に機械が帯を入れた枠で出る（関数まるごと、言語のコメント記法）。
-    未追跡の新規 file は diff に無いので先頭と骨組みだけ。--frame path は 1 file を上限なしで出す。"""
+    未追跡の新規 file は diff に無いので先頭と骨組みだけ。--frame path は 1 file を上限なしで出す。
+    各枠の前の「飛び先 path:行」は手元の file の行番号（-W なので関数の先頭。def f() は 1 行目）。"""
     import subprocess
     cwd = build(tmp, [ask("中身を見せて"), reply("はい")])
     git = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
@@ -281,13 +282,22 @@ def _frames(tmp):
     tail = "\n    a = 1\n    b = 2\n    c = 3\n    d = 4\n    return x\n"
     (cwd / "src" / "x.py").write_text("def f():\n    x = 1\n" + tail, encoding="utf-8")
     (cwd / "img.bin").write_bytes(b"\x00\x01")
+    (cwd / "src" / "old_name.py").write_text("def moved():\n    return 1\n" + tail, encoding="utf-8")
+    # 散文（md）も枠で出る。-W だと関数の境目が無く文脈が file 全体に広がるので、機械は 3 行で切る——
+    # 変更の 4 行下の「末尾」が枠に入らないことで、文脈 3 行が効いていることを見る
+    (cwd / "doc.md").write_text("# 見出し\n本文\nあ\nい\nう\nえ\n末尾\n", encoding="utf-8")
     subprocess.run([*git, "add", "."], cwd=cwd, check=True)
     subprocess.run([*git, "commit", "-q", "-m", "init"], cwd=cwd, check=True)
     (cwd / "src" / "x.py").write_text("def f():\n    x = 2\n    y = 3\n" + tail, encoding="utf-8")
     (cwd / "src" / "n.py").write_text('"""new one"""\ndef g():\n    pass\n', encoding="utf-8")
     (cwd / "src" / "s.py").write_text('"""staged"""\ndef h():\n    pass\n', encoding="utf-8")
+    (cwd / "doc.md").write_text("# 見出し\n足した行\n本文\nあ\nい\nう\nえ\n末尾\n", encoding="utf-8")
     subprocess.run([*git, "add", "src/s.py"], cwd=cwd, check=True)
     (cwd / "img.bin").write_bytes(b"\x00\x02")
+    # 改名 ＋ 中身の変更。git は変更 file を新側の path だけで挙げるので、それをそのまま pathspec に
+    # 渡すと対が作れず「新規」に化けて中身の変更が消える（実測。新旧を同じ pathspec に入れて防ぐ）
+    subprocess.run([*git, "mv", "src/old_name.py", "src/new_name.py"], cwd=cwd, check=True)
+    (cwd / "src" / "new_name.py").write_text("def moved():\n    return 99\n" + tail, encoding="utf-8")
     out = run()
     one = run(["--frame", "src/x.py"])
     try:
@@ -306,9 +316,25 @@ def _frames(tmp):
         "binary": "=== img.bin（中身が diff に無い" in out,
         "frame_option": "=== src/x.py" in one and "    | #│  x = 1" in one and "変更の中身" not in one,
         "frame_refuses_no_diff": "diff に無い" in refused,
+        "jump": "    飛び先 src/x.py:1\n    | def f():" in out and "    飛び先 src/x.py:1\n    | def f():" in one,
+        "jump_in_heading": "『飛び先 path:行』は head（手元）の行番号" in out,
+        "jump_for_new": "    飛び先 src/n.py:1" in out and "    飛び先 src/s.py:1" in out,
+        "prose_framed": "=== doc.md" in out and "    飛び先 doc.md:1" in out
+                        and "    | 足した行" in out and "    | <!-- ┏━━ 追加 " in out,
+        "prose_context_is_three_lines": "    | 末尾" not in out,
+        "renamed_is_not_new": "=== src/new_name.py\n    飛び先 src/new_name.py:1\n    | def moved():" in out
+                              and "    | #│  return 1" in out and "    |     return 99" in out,
     }
+    saved = wai.changemap.frame_diff
+    wai.changemap.frame_diff = lambda **kw: None
+    try:
+        failed = "\n".join(wai.render_frames(cwd, ["src/x.py"]))
+    finally:
+        wai.changemap.frame_diff = saved
+    want["diff_failure_is_not_a_verdict"] = (
+        failed == "  変更の中身: 出せない（手元の git diff が失敗した。木と件数だけが上の材料）")
     bad = [k for k, v in want.items() if not v]
-    return "FRAMES_OK" if not bad else "FRAMES_NG " + ",".join(bad) + "\n" + out + "\n---\n" + one
+    return "FRAMES_OK" if not bad else "FRAMES_NG " + ",".join(bad) + "\n" + out + "\n" + failed + "\n---\n" + one
 
 
 @case("pick-reference")

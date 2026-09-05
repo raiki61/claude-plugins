@@ -224,7 +224,9 @@ def call_refs(paths, hunks, hits_cap=6):
 # 変わっていない行の数を帯に書く（1 行ごとに枠 2 行を払うと枠の山になる——実測）。行番号・変更の断片は
 # 入れない（実測: 要らない、ごちゃつく）。
 # 単位は関数まるごと（git diff -W）。削るのは関数の数で、行ではない——関数の途中を省くと読む人は
-# そこで判断を止める（実測）。長い関数だけ、変わっていない区間を点線で畳む。
+# そこで判断を止める（実測）。長い関数だけ、変わっていない区間を点線で畳む。散文・設定（md・json 等）は
+# 関数が無く -W だと文脈が file 全体に広がるので、そこだけ文脈 3 行で取る——枠は出す（file の種類で
+# 地図の中身を出し分けない。出し分けると md が主のリポジトリでは木しか出ず、飛び先も消える。実測）。
 
 FRAME_WIDTH = 78   # 帯の全幅（字下げ込み。東アジア幅で数える）
 FRAME_GAP = 3      # 変わっていない行がこの数以内で隣り合う変更は 1 つの枠
@@ -242,9 +244,12 @@ COMMENT_BY_EXT = {
                  "proto", "json", "jsonc", "scss", "less", "sass"},
     ("--", ""): {"sql", "lua", "hs", "elm"},
     ("/*", " */"): {"css"},
-    ("<!--", " -->"): {"md", "html", "htm", "xml", "svg", "vue"},  # 散文・markup。AI は散文なら枠でなく文で言う
+    ("<!--", " -->"): {"md", "html", "htm", "xml", "svg", "vue"},  # 散文・markup
 }
-PROSE_EXT = {"md", "txt", "adoc", "rst", "html", "htm", "xml", "json", "jsonc", "csv", "lock"}
+# 関数の境目が無い file。-W は「行頭が字下げ無しの行」を関数の頭とみなすので、ここで -W を使うと
+# yaml の 1 行の変更が top-level key から 60 行の枠になり、飛び先も 28 行ずれる（実測）
+PROSE_EXT = {"md", "txt", "adoc", "rst", "html", "htm", "xml", "json", "jsonc", "csv", "lock",
+             "yml", "yaml", "toml", "ini", "cfg"}
 
 
 def comment_marks(path):
@@ -257,8 +262,8 @@ def comment_marks(path):
 
 
 def is_prose(path):
-    """散文・設定（md・txt・json など）。関数が無く git diff -W の文脈が file 全体に広がるので、既定の
-    出力では枠を出さず 1 行で済ませる（AI も散文は文で言う）。--frame なら出す。"""
+    """散文・設定（md・txt・json など）。関数が無く git diff -W の文脈が file 全体に広がるので、diff は
+    文脈 3 行で取る（frame_diff）。枠と飛び先はコードと同じに出す。"""
     return _ext(path) in PROSE_EXT
 
 
@@ -353,8 +358,14 @@ HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
 def framed_diff(text):
-    """git diff（-W 推奨）の全文を、path → {"new": 新規か, "blocks": [hunk ごとの枠の行], "gaps": [hunk の
-    間の行数]} にする。全行が + の file（新規）は帯を入れない——全部が追加で、印が何も伝えない。"""
+    """git diff（frame_diff 推奨）の全文を、path → {"new": 新規か, "blocks": [hunk ごとの枠の行],
+    "gaps": [hunk の間の行数], "starts": [hunk の新側の開始行。None は飛び先を置かない]} にする。全行が
+    + の file（新規）は帯を入れず 1 枠で、starts は [1]——印は何も伝えないが、開く場所は要る。飛び先が
+    無いのは file ごと削除（新側が 0 行）だけ——head にその file がもう無いので開けない。blocks と
+    starts は同じ hunk から同時に足すので長さが揃う。
+
+    starts は AI が箇所の見出し（path:行）と枠の上の注釈に写す飛び先。-W なら関数の先頭、文脈 3 行の
+    diff（gh pr diff）なら変更の 3 行前で、def の行とは限らない——それでも端末で開けば変更はすぐ下にある。"""
     files, _ = split_diff(text)
     out = {}
     for path, lines in files.items():
@@ -362,28 +373,35 @@ def framed_diff(text):
         if not body:
             continue
         if all(ln.startswith("+") for ln in body):
-            out[path] = {"new": True, "blocks": [[ln[1:] for ln in body]], "gaps": []}
+            out[path] = {"new": True, "blocks": [[ln[1:] for ln in body]], "gaps": [], "starts": [1]}
             continue
-        blocks, gaps, cur, prev_end = [], [], [], None
+        blocks, gaps, starts, cur, start, prev_end = [], [], [], [], None, None
         for ln in lines:
             m = HUNK_RE.match(ln)
             if m:
                 if cur:
                     blocks.append(cur)
+                    starts.append(start)
                 cur = []
-                start, count = int(m.group(1)), int(m.group(2) or 1)
+                head, count = int(m.group(1)), int(m.group(2) or 1)
+                # 新側が 0 行（file ごと削除）なら head に開く行が無い——飛び先は置かない
+                start = head if count else None
                 if prev_end is not None:
-                    gaps.append(max(start - prev_end, 0))
-                prev_end = start + count
+                    gaps.append(max(head - prev_end, 0))
+                prev_end = head + count
             elif (ln[:1] or " ") in "+- ":
                 cur.append(ln or " ")
         if cur:
             blocks.append(cur)
-        out[path] = {"new": False, "blocks": [frame_hunk(path, b) for b in blocks], "gaps": gaps}
+            starts.append(start)
+        out[path] = {"new": False, "blocks": [frame_hunk(path, b) for b in blocks], "gaps": gaps,
+                     "starts": starts}
     return out
 
 
 FRAME_CAP_NOTE = f"。1 file {FRAME_FILE_CAP} 行を超えたら関数の切れ目で止めて、続きは --frame path で"
+# 飛び先の断り。/catchup の地図と /what-am-i-doing の変更の中身が、見出しの括弧に同じ文で入れる
+JUMP_NOTE = "各枠の前の『飛び先 path:行』は head（手元）の行番号。AI は箇所の見出しと枠の上の注釈に写す"
 
 
 def frame_lines(path, info, cap=FRAME_FILE_CAP, indent="    "):
@@ -391,17 +409,11 @@ def frame_lines(path, info, cap=FRAME_FILE_CAP, indent="    "):
     return [indent + prefix + ln for prefix, ln in join_frames(path, info, cap)]
 
 
-def prose_skip(path, where):
-    """散文・設定の file に枠を出さないときの断り。where は「何を言うようになったか」を読む場所
-    （PR なら本文と先頭コメント、手元なら file）。"""
-    return f"（散文・設定。枠は出さない——何を言うようになったかは{where}。--frame {path} で枠は出る）"
-
-
 def head_and_outline(path, lines, more=""):
     """新規 file の材料——先頭コメント / docstring（作者の自己紹介）と骨組み。全行が新しいので枠は何も
     伝えない。返すのは join_frames と同じ (prefix, text) の列（"| " は貼る行、"" は機械の説明）。more は
-    先頭が切れたときに添える、続きを読む場所。"""
-    out = []
+    先頭が切れたときに添える、続きを読む場所。飛び先は先頭行（新規は 1 行目から読む）。"""
+    out = [("", f"飛び先 {path}:1")]
     head, cut = file_head(path, lines)
     out.extend(("| ", ln) for ln in head)
     if not head:
@@ -419,26 +431,84 @@ def head_and_outline(path, lines, more=""):
 
 def join_frames(path, info, cap=FRAME_FILE_CAP):
     """1 file の枠を、hunk の間に点線を挟んで 1 列にする。cap を超えるなら関数の切れ目で止め、残りを
-    申告する（関数の途中では切らない）。返すのは (prefix, text) の列。"| " は貼る行、"" は機械の説明。"""
+    申告する（関数の途中では切らない）。返すのは (prefix, text) の列。"| " は貼る行、"" は機械の説明。
+
+    各枠の前に「飛び先 path:行」を機械の説明として 1 行置く（枠の行には触らない）。行は framed_diff の
+    starts＝hunk の新側の開始行で、AI が箇所の見出しと枠の上の注釈に写す。head に行が無い枠（file ごと
+    削除）にだけ置かない。"""
     marks = comment_marks(path)
     out, total = [], 0
     for i, block in enumerate(info["blocks"]):
-        if cap and out and total + len(block) > cap:
+        # 先頭の枠も上限に掛ける——掛けないと、file 全体が 1 つの hunk になる書き換え（散文でよく起きる）が
+        # 上限ゼロで全部出る（実測: 1000 行の枠が 300 行の上限を素通りした）
+        if cap and total + len(block) > cap:
             rest = info["blocks"][i:]
-            out.append(("", f"（残り {len(rest)} 関数 {sum(len(b) for b in rest)} 行は --frame {path} で全部出る）"))
+            out.append(("", f"（残り {len(rest)} 枠 {sum(len(b) for b in rest)} 行は --frame {path} で全部出る）"))
             break
         if i:
             gap = info["gaps"][i - 1] if i - 1 < len(info["gaps"]) else 0
             out.append(("| ", band(marks, "", "┅", f"{gap} 行省略" if gap else "別の関数", "┅")))
+        if info["starts"][i] is not None:
+            out.append(("", f"飛び先 {path}:{info['starts'][i]}"))
         out.extend(("| ", ln) for ln in block)
         total += len(block)
     return out
 
 
-def function_diff(cwd=None, rev="HEAD", paths=()):
-    """関数まるごとを文脈にした diff（git diff -W）。rev は比べる元（手元なら HEAD、PR なら
-    base...head）。無い・失敗なら None。"""
-    return git("-c", "core.quotePath=false", "diff", "-W", rev, "--", *paths, cwd=cwd)
+# 読み手の git 設定で diff の形が変わるのを止める。color.ui=always は tty でなくても ANSI を出し、
+# diff.external と .gitattributes の diff driver は unified diff を出さず、textconv は行を書き換える。
+# 前の 2 つは split_diff の "diff --git " 一致を外して全 file が「中身が diff に無い」という嘘の断りになり、
+# textconv は嘘の行を枠に貼る（どれも実測）。他人の checkout（fork）は相手の .gitattributes を持つ
+DIFF_SANE = ("--no-color", "--no-ext-diff", "--no-textconv")
+# pathspec は既定で glob と magic を解釈する。`*` や `[` を含む file 名が別の file に当たり、先頭が `:` の
+# path は magic として読まれる。:(top,literal) で literal 固定・リポジトリの根からの相対にする
+# （cwd が下の階層でも、git が返す path はいつも根からなので）
+
+
+def pathspecs(names):
+    return [f":(top,literal){n}" for n in names]
+
+
+def changed_pairs(cwd=None, rev="HEAD"):
+    """rev と比べて変わった file を [(振り分けに使う path, git に渡す path の組)]。改名は新旧を 1 組で
+    返す——新側だけを pathspec に渡すと git が対を作れず、中身の変更が消えて全行 + の「新規」diff に
+    なる（実測）。-z なので path は引用形にならない。失敗なら None。"""
+    text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "--name-status", "-z", rev, "--", cwd=cwd)
+    if text is None:
+        return None
+    parts = [p for p in text.split("\0") if p]
+    out, i = [], 0
+    while i + 1 < len(parts):
+        if parts[i][:1] in ("R", "C"):     # R100\0旧\0新
+            out.append((parts[i + 2], (parts[i + 1], parts[i + 2])))
+            i += 3
+        else:
+            out.append((parts[i + 1], (parts[i + 1],)))
+            i += 2
+    return out
+
+
+def frame_diff(cwd=None, rev="HEAD", paths=()):
+    """枠のための diff。コードは関数まるごと（git diff -W）、散文・設定は文脈 3 行（-W は関数の境目を
+    探すので、境目の無い file では文脈が file 全体に広がる）。rev は比べる元（手元なら HEAD、PR なら
+    base...head）。paths を省くと rev の変更 file を git に聞いて振り分ける（改名は新旧を同じ側に入れる
+    ——割ると対が作れない）。どれか 1 本でも失敗したら None（半分の diff を返すと、落ちた側の file が
+    「変更なし」に見える）。"""
+    pairs = [(p, (p,)) for p in paths] if paths else changed_pairs(cwd=cwd, rev=rev)
+    if pairs is None:
+        return None
+    parts = []
+    for flag, group in ((("-W",), [g for key, g in pairs if not is_prose(key)]),
+                        ((), [g for key, g in pairs if is_prose(key)])):
+        names = [n for g in group for n in g]
+        if not names:
+            continue
+        text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, *flag, rev, "--",
+                   *pathspecs(names), cwd=cwd)
+        if text is None:
+            return None
+        parts.append(text)
+    return "".join(parts)
 
 
 # ---- 手元の git ------------------------------------------------------------------
@@ -679,7 +749,7 @@ def working_tree(cwd=None):
     # -uall: 未追跡の階層を中のファイルに展開する（既定は "newdir/" の 1 行で、木に名前の無い行が出る）
     porcelain = git("status", "--porcelain", "--untracked-files=all", cwd=cwd) or ""
     entries = entries_from_porcelain(
-        porcelain, parse_numstat(git("-c", "core.quotePath=false", "diff", "HEAD",
+        porcelain, parse_numstat(git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "HEAD",
                                      "--numstat", cwd=cwd)))
     if not entries:
         return [], []

@@ -46,6 +46,9 @@ def pr(**over):
         "body": "", "additions": 10, "deletions": 2, "changedFiles": 3,
         "mergeable": "MERGEABLE", "reviewDecision": "REVIEW_REQUIRED",
         "author": user("other"),
+        "baseRepository": {"defaultBranchRef": {"name": "main"}},
+        "baseRefName": "main", "isCrossRepository": False, "baseRef": None,
+        "suggestedReviewers": [],
         "assignees": conn([]),
         "reviewRequests": conn([]),
         "closingIssuesReferences": conn([]),
@@ -102,17 +105,19 @@ def cross_ref(t, number, title):
                        "title": title, "state": "OPEN", "url": ""}}
 
 
-def commit(t, oid, msg, login=None, name="", email=""):
-    # GitHub に結び付いていないメールで commit すると user が null になり、名前とメールだけ残る
+def commit(t, oid, msg, login=None, name="", email="", parents=1):
+    # GitHub に結び付いていないメールで commit すると user が null になり、名前とメールだけ残る。
+    # parents が 2 以上なら取り込み（merge）
     return {"commit": {"oid": oid, "committedDate": t, "messageHeadline": msg,
-                       "additions": 1, "deletions": 0,
+                       "additions": 1, "deletions": 0, "parents": {"totalCount": parents},
                        "author": {"user": {"login": login} if login else None,
                                   "name": name, "email": email}}}
 
 
-def render(node, full=False, my_email="", tails=False):
+def render(node, full=False, my_email="", tails=False, stacked=(), since=None):
     """tails=True なら main() と同じ経路（焦点なし）で末尾の材料の有無を決めて渡す。既定の False は
-    材料を 1 つも付けない呼び方で、焦点で外したときの文言を見る。"""
+    材料を 1 つも付けない呼び方で、焦点で外したときの文言を見る。stacked / since は main() が取る材料を
+    そのまま渡す口。"""
     ev, refs, unlinked = catchup.collect_events(node, ME, my_email)
     anchor, kind = catchup.find_anchor(ev, node, ME)
     flags = {}
@@ -122,7 +127,25 @@ def render(node, full=False, my_email="", tails=False):
                                      bool(catchup.check_state(node)[0]) if is_pr else False)
         flags = {"with_map": m, "with_threads": t, "with_ci": c}
     return catchup.render(node, ME, ev, refs, unlinked, anchor, kind, full, 12,
-                          catchup.collect_caps(node), **flags)
+                          catchup.collect_caps(node), stacked=stacked, since=since, **flags)
+
+
+def base_pr(number, cross, author="hanako", state="OPEN", decision="REVIEW_REQUIRED"):
+    return {"number": number, "title": "下の PR", "state": state, "reviewDecision": decision,
+            "isCrossRepository": cross, "author": user(author)}
+
+
+def assoc(*prs, total=None):
+    """baseRef.associatedPullRequests。GraphQL は古い順で、新しい 5 件を取る（last:5）。"""
+    return {"name": "feat/x", "associatedPullRequests": conn(list(prs), total=total)}
+
+
+def anchored(node, get_git=lambda base, head: None, get_gh=lambda sha: None):
+    """私の痕跡（find_anchor の mine）を基準に collect_since を回す。経路は差し替え可能。"""
+    ev, _, _ = catchup.collect_events(node, ME, "")
+    anchor, kind = catchup.find_anchor(ev, node, ME)
+    assert kind == "mine", kind
+    return catchup.collect_since(node, anchor, get_git, get_gh)
 
 
 CASES = {}
@@ -552,6 +575,268 @@ def _ci_material():
     }
     bad = [k for k, v in want.items() if not v]
     return "CI_OK" if not bad else "CI_NG " + ",".join(bad) + "\n" + out
+
+
+@case("stacked")
+def _stacked():
+    """取り込み先が既定ブランチでなければ、その枝と枝の PR（同じリポジトリのものだけ。fork の同名の枝は
+    出さない）を出す。この枝を base にする open PR（上に積む）は main() が取って渡す。4 件目があれば
+    「他にもある」と言う（数は分からない）。"""
+    node = pr(author=user(ME), baseRefName="feat/x",
+              baseRef=assoc(base_pr(1590, cross=False), base_pr(1591, cross=True, author="forker")))
+    out = render(node, stacked=[{"number": 1601, "title": "上の PR"}])
+    four = render(node, stacked=[{"number": n, "title": f"PR {n}"} for n in (1601, 1602, 1603, 1604)])
+    gone = render(pr(baseRefName="feat/x", baseRef=None))
+    none = render(pr(baseRefName="feat/x", baseRef=assoc()))
+    # 同じ枝の PR が 4 件（古い→新しい）。新しい順に 3 件で、私のものは「作者 私」。総数 9 なら残りを断る
+    many = render(pr(baseRefName="feat/x", baseRef=assoc(
+        base_pr(1580, cross=False), base_pr(1585, cross=False, author=ME, state="MERGED", decision=None),
+        base_pr(1590, cross=False), base_pr(1595, cross=False), total=9)))
+    forks = render(pr(baseRefName="feat/x", baseRef=assoc(base_pr(1591, cross=True), total=748)))
+    want = {
+        "base": "  取り込み先: feat/x（既定 main ではない）" in out,
+        "base_pr": "  その枝の PR: #1590 open・まだ承認されていない（REVIEW_REQUIRED）・作者 hanako" in out,
+        "fork_hidden": "#1591" not in out,
+        "stacked": "## つながっている先" in out and "  上に積む  #1601 上の PR" in out,
+        "fourth": "#1603" in four and "#1604" not in four and "上に積む PR は他にもある" in four,
+        "gone": "  取り込み先: feat/x（枝は消えている）" in gone and "その枝の PR" not in gone,
+        "none": "  その枝の PR: 無い" in none,
+        "newest_first": many.index("#1595") < many.index("#1590") < many.index("#1585"),
+        "cap": "#1580" not in many and "  （その枝の PR は他に 6 件。fork の分も含む。gh pr list --head feat/x --state all で見る）" in many,
+        "mine": "  その枝の PR: #1585 merged・レビューがまだ 1 件も無い・作者 私" in many,
+        "forks_only": "  その枝の PR: 新しい 1 件は fork の同名の枝の分（全 748 件。gh pr list --head feat/x --state all で見る）" in forks,
+        "no_section_without": "## つながっている先" not in render(node),
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "STACKED_OK" if not bad else "STACKED_NG " + ",".join(bad) + "\n" + out
+
+
+@case("stacked-default")
+def _stacked_default():
+    """取り込み先が既定ブランチなら、取り込み先の行は出ない。"""
+    out = render(pr(baseRefName="main", baseRef=dict(assoc(), name="main")))
+    return "STACKED_OK" if "取り込み先" not in out and "その枝の PR" not in out else "STACKED_NG\n" + out
+
+
+@case("suggested")
+def _suggested():
+    """依頼先の候補（GitHub の suggestedReviewers）は、自分の PR でレビュー依頼が誰にも出ていないときだけ
+    出す。根拠（発言あり・commit 者）を添え、空なら「なし」。依頼が出ていれば出さない。"""
+    sugg = [{"isAuthor": False, "isCommenter": True, "reviewer": user("enj")},
+            {"isAuthor": True, "isCommenter": False, "reviewer": user("pmengelbert")},
+            {"isAuthor": True, "isCommenter": True, "reviewer": user("both")},
+            {"isAuthor": False, "isCommenter": False, "reviewer": user("plain")}]
+    out = render(pr(author=user(ME), suggestedReviewers=sugg))
+    empty = render(pr(author=user(ME)))
+    hidden = [render(pr(**{"author": user(ME), "suggestedReviewers": sugg, **over})) for over in (
+        {"reviewRequests": conn([{"requestedReviewer": user("someone")}])},
+        {"isDraft": True}, {"reviewDecision": "CHANGES_REQUESTED"}, {"reviewDecision": "APPROVED"},
+        {"author": user("other")})]
+    want = {
+        "line": "  依頼先の候補（GitHub の提案。決めるのは私）: enj（この PR に発言あり）、"
+                "pmengelbert（変更 file の commit 者）、both（発言あり・commit 者）、plain" in out,
+        "reason": "レビュー依頼が誰にも出ていない（依頼先を決めるのは私）" in out,
+        "empty": "  依頼先の候補（GitHub の提案）: なし" in empty,
+        # 依頼あり・下書き・要修正・承認済み・他人の PR では、理由の行も候補の行も出ない
+        "hidden": all("依頼先の候補" not in h and "依頼先を決めるのは私" not in h for h in hidden),
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "SUGGESTED_OK" if not bad else "SUGGESTED_NG " + ",".join(bad) + "\n" + out
+
+
+_SINCE_COMMITS = conn([
+    commit(T1, "aaa1111", "最初", login="other"),
+    commit(T2, "bbb2222", "レビュー時点", login="other"),
+    commit(T3, "ccc3333", "指摘を直した", login="other"),
+    commit(T3, "ddd4444", "main を取り込み", login="other", parents=2),
+    commit(T4, "eee5555", "もう 1 つ", login="other"),
+])
+_SINCE_FILES = {
+    "ccc3333": "modified\t3\t1\tapp/main.py\nadded\t9\t0\tapp/new.py",
+    "eee5555": "removed\t0\t5\tapp/new.py\nrenamed\t0\t0\tapp/util2.py",
+}
+
+
+@case("since-review")
+def _since_review():
+    """基準がレビュー（commit 付き）なら厳密。その後の作者側の commit だけ file を取り、取り込みは数だけ。
+    同じ path は最後の status。gh 経路は commit ごとの TSV を合成し、status を git の 1 文字に寄せる。"""
+    node = pr(allCommits=_SINCE_COMMITS,
+              reviews=conn([{"submittedAt": T2, "state": "COMMENTED", "body": "見た", "author": user(ME),
+                             "commit": {"oid": "bbb2222"}}]))
+    asked = []
+
+    def get_gh(sha):
+        asked.append(sha)
+        return _SINCE_FILES.get(sha)
+
+    since = anchored(node, get_gh=get_gh)
+    out = render(node, since=since)
+    base, approx = catchup.since_base({"oid": "bbb2222", "t": catchup.ts(T2)}, node)
+    # 上限: 1 commit の file が 300 件・作者側 21 本（新しい 20 本だけ取る）・file 21 件（20 行＋ほか 1）
+    many = pr(allCommits=conn([commit(T1, "aaa1111", "最初", login="other")]
+                              + [commit(T3, f"c{i:07d}", f"c{i}", login="other") for i in range(21)]),
+              reviews=conn([{"submittedAt": T2, "state": "COMMENTED", "body": "見た", "author": user(ME),
+                             "commit": {"oid": "aaa1111"}}]))
+    asked_many = []
+    big = "\n".join(f"modified\tf{i}.py" for i in range(300))
+    capped = anchored(many, get_gh=lambda sha: asked_many.append(sha) or big)
+    capped_out = render(many, since=capped)
+    # スレッドの最初の発言と自分の push は厳密（commit 付き）。返信は元の commit を継ぐので近似に落とす
+    threaded = pr(allCommits=_SINCE_COMMITS, reviewThreads=conn([thread(
+        "app/main.py", False,
+        dict(comment(T2, ME, "ここ"), originalCommit={"oid": "bbb2222"}),
+        dict(comment(T3, "other", "直した"), originalCommit={"oid": "bbb2222"}),
+        dict(comment(T4, ME, "確認した"), originalCommit={"oid": "bbb2222"}))]))
+    pushed = pr(allCommits=conn([commit(T1, "aaa1111", "最初", login="other"),
+                                 commit(T2, "bbb2222", "私の push", login=ME),
+                                 commit(T3, "ccc3333", "続き", login="other")]))
+    want = {
+        "base": (base, approx) == ("bbb2222", False),
+        "commits": catchup.since_commits(node, "bbb2222") == (["ccc3333", "eee5555"], 1, False),
+        "asked": asked == ["ccc3333", "eee5555"],
+        "cap_commits": capped["skipped"] == 1 and len(asked_many) == 20 and "c0000000" not in asked_many
+        and "  - 私の痕跡以降の古い方の commit 1 本の file（上限 20 本）" in capped_out,
+        "cap300": capped["cap300"] and "  - 1 commit の file が 300 件で切れている" in capped_out,
+        "cap_files": "  …ほか 280 file" in capped_out and "  M  f20.py" not in capped_out
+        and "  M  f109.py" in capped_out,
+        "thread_reply_approx": anchored(threaded)["approx"] and anchored(threaded)["base"] == "eee5555",
+        "thread_first_exact": catchup.since_base({"oid": "bbb2222", "t": catchup.ts(T2)}, threaded) == ("bbb2222", False),
+        "push_exact": anchored(pushed)["base"] == "bbb2222" and not anchored(pushed)["approx"],
+        "heading": "## 私の痕跡以降に変わった file — 3 件（作者側の commit 2 本。取り込み 1 本の分は含めない）" in out
+        and "近似" not in out,
+        "files": "  M  app/main.py" in out and "  D  app/new.py" in out and "  R  app/util2.py" in out,
+        "position": out.index("## その後に起きたこと") < out.index("## 私の痕跡以降") < out.index("## いまの状態"),
+        "git_path": anchored(node, get_git=lambda b, h: [("M", "x.py")])["files"] == [("M", "x.py")],
+        "none": "  なし（取り込み 1 本だけ）" in render(node, since=dict(since, files=[], commits=0)),
+        "failed": "  （commit 1 本の file は取れなかった。gh api が失敗した）"
+        in render(node, since=anchored(node, get_gh=lambda sha: _SINCE_FILES.get(sha) if sha != "eee5555" else None)),
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+
+
+@case("since-approx")
+def _since_approx():
+    """基準が本文コメント（commit 無し）なら、その時刻以前の最新の commit で置く（近似）。見出しと
+    「見ていないもの」に近似の断り。発言が最初の commit より前なら基準を置けず、節は出ない。"""
+    node = pr(allCommits=_SINCE_COMMITS, comments=conn([comment(T2, ME, "ここまで見た")]))
+    since = anchored(node, get_gh=lambda sha: _SINCE_FILES.get(sha))
+    out = render(node, since=since)
+    early = pr(allCommits=_SINCE_COMMITS, comments=conn([comment("2026-09-01T00:30:00Z", ME, "先に一言")]))
+    want = {
+        "base": since["base"] == "bbb2222" and since["approx"],
+        "heading": "取り込み 1 本の分は含めない）（基準は commit の日付で置いた近似）" in out,
+        "unseen": "  - 変わった file の基準は commit の日付で置いた近似。rebase や merge で前後していれば数件ずれる" in out,
+        "too_early": anchored(early) is None,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+
+
+@case("since-rewritten")
+def _since_rewritten():
+    """基準の commit が allCommits に無ければ（rebase / amend）、その 1 行だけ。file は取りに行かない。"""
+    node = pr(allCommits=_SINCE_COMMITS, comments=conn([comment(T2, ME, "見た")]),
+              reviews=conn([{"submittedAt": T3, "state": "COMMENTED", "body": "再度", "author": user(ME),
+                             "commit": {"oid": "0ld0ld0ld"}}]))
+    asked = []
+    since = anchored(node, get_gh=lambda sha: asked.append(sha))
+    out = render(node, since=since)
+    sect = out.split("## 私の痕跡以降に変わった file")[1].split("\n\n")[0]
+    want = {
+        "rewritten": since["rewritten"] and not asked,
+        "line": sect.strip() == "基準の commit 0ld0ld0 は今の head の履歴に無い（履歴が書き換えられた）。git range-diff で見る",
+        "no_count": "件（作者側" not in out,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+
+
+@case("since-outside")
+def _since_outside():
+    """allCommits は新しい 100 本しか取らない。基準が窓に無いとき、窓が切れていれば「書き換え」と断定せず
+    「取った分より前」と言う（切れていなければ書き換え）。本文コメントが窓の先頭より前でも同じ。"""
+    window = conn([commit(T3, f"c{i:07d}", f"c{i}", login="other") for i in range(3)], total=150)
+    node = pr(allCommits=window,
+              reviews=conn([{"submittedAt": T2, "state": "COMMENTED", "body": "見た", "author": user(ME),
+                             "commit": {"oid": "0ld0ld0ld"}}]))
+    asked = []
+    since = anchored(node, get_gh=lambda sha: asked.append(sha))
+    out = render(node, since=since)
+    early = anchored(pr(allCommits=window, comments=conn([comment(T2, ME, "先に一言")])))
+    early_out = render(node, since=early)
+    want = {
+        "outside": since["outside"] and not since["rewritten"] and not asked,
+        "line": "  基準（0ld0ld0）は取った新しい 3 本より前（commit 150 本中）。履歴の書き換えかどうかは分からず、"
+                "古い方の commit は見ていない" in out,
+        "no_rewrite_word": "書き換えられた" not in out,
+        "early": early["outside"] and "  基準（私の痕跡の時点）は取った新しい 3 本より前（commit 150 本中）" in early_out,
+        "unseen_silent": "近似" not in out,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+
+
+_MAP_DIFF = """diff --git a/src/a.py b/src/a.py
+--- a/src/a.py
++++ b/src/a.py
+@@ -1,3 +1,4 @@
+ def f():
++    y = 2
+     return 1
+diff --git a/docs/guide.md b/docs/guide.md
+--- a/docs/guide.md
++++ b/docs/guide.md
+@@ -8,3 +8,4 @@
+ # 手順
++足した行
+ 本文
+diff --git a/src/n.py b/src/n.py
+new file mode 100644
+--- /dev/null
++++ b/src/n.py
+@@ -0,0 +1,2 @@
++\"\"\"new one\"\"\"
++def g():
+diff --git a/gone.py b/gone.py
+deleted file mode 100644
+--- a/gone.py
++++ /dev/null
+@@ -1,2 +0,0 @@
+-x = 1
+-y = 2
+"""
+
+
+@case("map-jumps")
+def _map_jumps():
+    """地図の既存ファイルの変更: 各枠の前に「飛び先 path:行」、見出しの括弧に断り。散文（md）も枠で出て、
+    新規は先頭の材料の頭に path:1。飛び先が無いのは file ごと削除された file だけ。
+    gh と手元の git は差し替えて呼ぶ。"""
+    node = pr(number=7, files=conn([
+        {"path": "src/a.py", "changeType": "MODIFIED", "additions": 1, "deletions": 0},
+        {"path": "docs/guide.md", "changeType": "MODIFIED", "additions": 1, "deletions": 0},
+        {"path": "src/n.py", "changeType": "ADDED", "additions": 2, "deletions": 0},
+        {"path": "gone.py", "changeType": "DELETED", "additions": 0, "deletions": 2}]))
+    saved = (catchup.pr_function_diff, catchup.sibling_dirs, catchup.merged_size_context)
+    catchup.pr_function_diff = lambda owner, name, node, get_text: (_MAP_DIFF, "")
+    catchup.sibling_dirs = lambda owner, name, paths: None
+    catchup.merged_size_context = lambda owner, name: None
+    try:
+        out = catchup.render_map(node, "o", "r")
+    finally:
+        catchup.pr_function_diff, catchup.sibling_dirs, catchup.merged_size_context = saved
+    want = {
+        "jump": "    飛び先 src/a.py:1\n    | def f():" in out,
+        "note": "各枠の前の『飛び先 path:行』は head（手元）の行番号" in out,
+        "prose_framed": "    飛び先 docs/guide.md:8\n" in out and "    | 足した行" in out
+                        and "枠は出さない" not in out,
+        "new_jump": "    飛び先 src/n.py:1\n" in out,
+        "deleted_no_jump": "飛び先 gone.py" not in out and "削除" in out,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "MAP_JUMPS_OK" if not bad else "MAP_JUMPS_NG " + ",".join(bad) + "\n" + out
 
 
 def main():

@@ -316,12 +316,13 @@ class Frame(unittest.TestCase):
         rows = cm.join_frames("src/a.py", self.fr["src/a.py"], cap=None)
         texts = [t for _, t in rows]
         self.assertTrue(any(t.startswith("# ┅┅┅ 30 行省略") for t in texts))  # hunk の間は点線
-        capped = cm.join_frames("src/a.py", self.fr["src/a.py"], cap=5)
+        capped = cm.join_frames("src/a.py", self.fr["src/a.py"], cap=15)
         self.assertEqual(capped[-1][0], "")                          # 関数の切れ目で止めて申告
         self.assertIn("--frame src/a.py", capped[-1][1])
-        self.assertTrue(all(p == "| " for p, _ in capped[:-1]))
-        self.assertEqual(capped[0][1], "def f():")                   # cap を超えても最初の関数は必ず出る
-        self.assertIn("残り 1 関数 6 行", capped[-1][1])                # 申告の数字は残りの関数数と行数
+        frames = [t for p, t in capped[:-1] if p == "| "]
+        self.assertEqual(len(frames), len(capped) - 2)              # 枠の行の他は飛び先 1 行だけ
+        self.assertEqual(frames[0], "def f():")                      # 上限に収まる分は関数まるごと
+        self.assertIn("残り 1 枠 6 行", capped[-1][1])                  # 申告の数字は残りの枠と行数
 
     def test_long_function_folds_unchanged_runs_and_caps_old_lines(self):
         body = [" line%d" % i for i in range(60)] + ["-o", "+n"] + [" tail%d" % i for i in range(60)]
@@ -341,6 +342,162 @@ class Frame(unittest.TestCase):
         self.assertIn("追加（変わっていない 3 行を挟む）", near[0])          # 挟まった行の数を帯に書く
         self.assertEqual(sum(1 for l in far if "┏" in l), 2)
         self.assertNotIn("挟む", far[0])
+
+
+class Jumps(unittest.TestCase):
+    """飛び先（path:行）: 各枠の head 側の先頭行。AI が箇所の見出しと枠の上の注釈に写す。"""
+
+    def setUp(self):
+        self.fr = cm.framed_diff(FRAME_DIFF)
+
+    def test_starts_match_new_side_of_hunk_headers(self):
+        self.assertEqual(self.fr["src/a.py"]["starts"], [1, 42])          # @@ -1,9 +1,11 @@ と @@ -40,3 +42,3 @@
+        self.assertEqual(self.fr["web/app.ts"]["starts"], [1])
+        self.assertEqual(len(self.fr["src/a.py"]["starts"]), len(self.fr["src/a.py"]["blocks"]))
+
+    def test_jump_line_precedes_each_block_and_frame_rows_are_untouched(self):
+        rows = cm.join_frames("src/a.py", self.fr["src/a.py"], cap=None)
+        blocks = self.fr["src/a.py"]["blocks"]
+        framed = [t for p, t in rows if p == "| " and "┅" not in t]
+        self.assertEqual(framed, blocks[0] + blocks[1])                  # 枠の行は block そのまま
+        self.assertEqual([t for p, t in rows if p == ""], ["飛び先 src/a.py:1", "飛び先 src/a.py:42"])
+        self.assertEqual(rows[0], ("", "飛び先 src/a.py:1"))
+        self.assertEqual(rows[1], ("| ", "def f():"))
+        i = rows.index(("", "飛び先 src/a.py:42"))
+        self.assertTrue(rows[i - 1][1].startswith("# ┅┅┅ 30 行省略"))   # 点線の帯の後ろ・枠の前
+        self.assertEqual(rows[i + 1], ("| ", "def h():"))
+        self.assertEqual(cm.frame_lines("src/a.py", self.fr["src/a.py"], cap=None),
+                         ["    " + p + t for p, t in rows])
+
+    def test_cap_keeps_jump_before_the_first_block_only(self):
+        capped = cm.join_frames("src/a.py", self.fr["src/a.py"], cap=15)
+        self.assertEqual(capped[0], ("", "飛び先 src/a.py:1"))
+        self.assertEqual(sum(1 for _, t in capped if t.startswith("飛び先 ")), 1)  # 止めた枠の飛び先は出ない
+        self.assertIn("--frame src/a.py", capped[-1][1])
+
+    def test_cap_also_applies_to_the_first_block(self):
+        """先頭の枠だけ素通しすると、file 全体が 1 つの hunk になる書き換え（散文でよく起きる）が
+        上限ゼロで全部出る。出さずに「残り N 枠 M 行は --frame」と申告する。"""
+        capped = cm.join_frames("src/a.py", self.fr["src/a.py"], cap=5)
+        self.assertEqual(capped, [("", "（残り 2 枠 21 行は --frame src/a.py で全部出る）")])
+
+    def test_new_file_jumps_to_its_first_line(self):
+        """新規は全行が追加で帯が何も伝えないが、開く場所は要る——飛び先は 1 行目。"""
+        new = self.fr["docs/new.md"]
+        self.assertEqual(new["starts"], [1])
+        rows = cm.join_frames("docs/new.md", new, cap=None)
+        self.assertEqual(rows, [("", "飛び先 docs/new.md:1"), ("| ", "# t"), ("| ", "body")])
+
+    def test_head_and_outline_starts_with_the_jump(self):
+        """新規 file の材料（先頭と骨組み）にも同じ飛び先を置く——地図の「新規ファイルの先頭と骨組み」と
+        /what-am-i-doing の未追跡 file は、枠でなくこちらを通る。"""
+        rows = cm.head_and_outline("src/n.py", ['"""new one"""', "def g():", "    return 1"])
+        self.assertEqual(rows[0], ("", "飛び先 src/n.py:1"))
+
+    def test_deleted_file_has_no_jump_line(self):
+        """file ごと削除の hunk は新側が 0 行（+0,0）。head に開く行が無いので飛び先は置かない（置くと
+        `gone.py:0` が見出しに写る）。削除の帯は今までどおり出る。"""
+        gone = cm.framed_diff("diff --git a/gone.py b/gone.py\ndeleted file mode 100644\n"
+                              "--- a/gone.py\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-x = 1\n-y = 2\n")["gone.py"]
+        self.assertEqual(gone["starts"], [None])
+        rows = cm.join_frames("gone.py", gone, cap=None)
+        self.assertFalse(any(p == "" for p, _ in rows))
+        self.assertTrue(rows[0][1].startswith("# ┏━━ 削除 ━━"))
+
+
+class FrameDiff(unittest.TestCase):
+    """枠のための diff の取り方: コードは -W（関数まるごと）、散文・設定は文脈 3 行。git は差し替える。"""
+
+    def setUp(self):
+        self.calls = []
+        self.saved = cm.git
+        cm.git = lambda *a, cwd=None: self.fake(a)
+
+    def tearDown(self):
+        cm.git = self.saved
+
+    def fake(self, args):
+        self.calls.append(args)
+        if "--name-status" in args:
+            return "M\0src/a.py\0M\0docs/b.md\0"
+        return "diff " + " ".join(args[-2:]) + "\n"
+
+    def test_code_uses_W_and_prose_uses_three_lines(self):
+        out = cm.frame_diff(cwd="/x", rev="HEAD", paths=("src/a.py", "docs/b.md"))
+        wide = [a for a in self.calls if "-W" in a]
+        narrow = [a for a in self.calls if "-W" not in a]
+        self.assertEqual([a[-1] for a in wide], [":(top,literal)src/a.py"])    # -W はコードだけ
+        self.assertEqual([a[-1] for a in narrow], [":(top,literal)docs/b.md"])  # 散文は文脈 3 行（既定）
+        self.assertEqual(out.count("diff "), 2)                     # 2 本を繋いだ 1 本
+
+    def test_reader_git_config_cannot_change_the_diff(self):
+        """color.ui=always は ANSI を、diff.external は unified でない何かを、textconv は書き換えた行を
+        返す。どれも split_diff を外して「中身が diff に無い」の嘘になる（実測）。"""
+        for args in self.calls or [cm.frame_diff(cwd="/x", paths=("src/a.py",)) or self.calls[0]]:
+            pass
+        cm.frame_diff(cwd="/x", paths=("src/a.py", "docs/b.md"))
+        for args in self.calls:
+            for flag in ("--no-color", "--no-ext-diff", "--no-textconv"):
+                self.assertIn(flag, args)
+
+    def test_paths_omitted_asks_git_which_files_changed(self):
+        cm.frame_diff(cwd="/x", rev="a...b")
+        self.assertEqual(self.calls[0][-4:], ("--name-status", "-z", "a...b", "--"))
+        self.assertEqual([a[-1] for a in self.calls[1:]],
+                         [":(top,literal)src/a.py", ":(top,literal)docs/b.md"])
+
+    def test_rename_keeps_old_and_new_in_the_same_pathspec(self):
+        """新側だけを pathspec に渡すと git が対を作れず、中身の変更が消えて全行 + の「新規」になる。"""
+        cm.git = lambda *a, cwd=None: ("R096\0src/old.py\0src/new.py\0" if "--name-status" in a
+                                       else "diff\n")
+        pairs = cm.changed_pairs(cwd="/x")
+        self.assertEqual(pairs, [("src/new.py", ("src/old.py", "src/new.py"))])
+
+    def test_rename_across_kinds_stays_in_one_group(self):
+        """py → md の改名で新旧が別の diff に割れると、どちらの側でも対が作れない。"""
+        self.calls = []
+        cm.git = lambda *a, cwd=None: (self.calls.append(a) or
+                                       ("R096\0src/old.py\0docs/new.md\0" if "--name-status" in a
+                                        else "diff\n"))
+        cm.frame_diff(cwd="/x")
+        diffs = [a for a in self.calls if "--name-status" not in a]
+        self.assertEqual(len(diffs), 1)                             # 1 本にまとまる
+        self.assertNotIn("-W", diffs[0])                            # 振り分けは新側（md）で決まる
+        self.assertEqual(diffs[0][-2:], (":(top,literal)src/old.py", ":(top,literal)docs/new.md"))
+
+    def test_one_group_only_runs_one_diff(self):
+        cm.frame_diff(cwd="/x", paths=("docs/b.md",))
+        self.assertEqual(len(self.calls), 1)
+        self.assertNotIn("-W", self.calls[0])
+
+    def test_any_failure_returns_none(self):
+        """半分の diff を返すと、落ちた側の file が「変更なし」に見える。"""
+        cm.git = lambda *a, cwd=None: None if "-W" in a else "diff\n"
+        self.assertIsNone(cm.frame_diff(cwd="/x", paths=("src/a.py", "docs/b.md")))
+        cm.git = lambda *a, cwd=None: None
+        self.assertIsNone(cm.frame_diff(cwd="/x"))
+
+
+class Prose(unittest.TestCase):
+    """散文・設定も枠で出す（file の種類で地図の中身を出し分けない）。文脈 3 行の diff から枠と飛び先。"""
+
+    def test_markdown_gets_frames_and_a_jump(self):
+        info = cm.framed_diff(
+            "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n"
+            "@@ -10,3 +10,4 @@\n # 見出し\n+足した行\n 本文\n 末尾\n")["README.md"]
+        rows = cm.join_frames("README.md", info)
+        self.assertEqual(rows[0], ("", "飛び先 README.md:10"))
+        self.assertIn("<!-- ┏━━ 追加 ", rows[2][1])          # 帯は md のコメント記法で入る
+        self.assertIn(("| ", "足した行"), rows)
+
+    def test_is_prose_is_only_about_how_the_diff_is_taken(self):
+        self.assertTrue(cm.is_prose("docs/a.md") and cm.is_prose("x.json"))
+        self.assertFalse(cm.is_prose("src/a.py") or cm.is_prose("run.sh"))
+
+    def test_config_files_take_the_three_line_context(self):
+        """yaml/toml は -W だと top-level key まで文脈が広がり、枠が 60 行・飛び先が 28 行ずれる（実測）。"""
+        for path in ("ci.yml", "a.yaml", "pyproject.toml", "setup.cfg", "tox.ini"):
+            self.assertTrue(cm.is_prose(path), path)
 
 
 if __name__ == "__main__":
