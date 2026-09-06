@@ -15,7 +15,9 @@ gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・�
 逃げ道は COLDREAD_SKIP=1 の 1 本(記録が残る)。読み役が起動できないときも
 deny + 逃げ道の案内にする(投稿不能にはならない)。連続 3 回 deny されたら、
 残る指摘の採否を判断して skip してよい旨を案内する(初見指摘は読み手ごとに揺れ、
-完全収束しないため。firstread-loop と同じ知見)。
+完全収束しないため。firstread-loop と同じ知見。2026-09-07 の試走: 画面を広げた後でも、
+3,693 字の実物の返信が 3 回とも別の詰まり 1〜2 件で止まり——4:27/7:40=58% を「計算が合わない」
+と読む等——10,179 字版は 3 回中 1 回通った。揺れは画面の広さでは消えない)。
 
 「補完」(読み手が推測で埋めた箇所)も止めずに申し送る。詰まりを数える設計では、
 読み手が自信を持って誤読した本文は詰まり 0 件で通ってしまうため、埋めた中身の側を
@@ -30,6 +32,31 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
 1,021 字 → 2,555 字に膨れて逃げ道で出た。短く戻した版も止まった)。
 画面に有るものを本文で説明している箇所は「冗長」として止めずに申し送る。
 
+画面が既知にするのは「何を指しているか」であって「どう書くか」ではない。相手の言い回し・
+業界外の横文字・比喩を本文が自分の地の文として使えば、画面に同じ語が有っても詰まり(相手の語を
+指して答えるのは既知)。画面をスレッドの語彙の辞書にすると、スレッドの癖のある書き方に読み手が
+引っ張られ、本文がその癖を写す向きに働く。写した箇所は「なぞり」として詰まりと同じく止める(直し方は
+説明を足すことではなく、自分の言葉に置き換える)。詰まりの条件文に「相手の語で書けば詰まり」と埋めた
+形は実物の読み手に 1 件も拾われなかったが、独立の欄として問うと 3 語とも拾い、引用して指す返信は
+拾わなかった(2026-09-07 に北極星・ニアバイ・クロージングで実測)。
+
+読み手に渡す画面は、参加者が実際に見ているものまで広げる: 題・番号・状態(open/merged/draft)・
+本文の全文・変更ファイルの一覧・これまでの返信(答える相手の直前のものは切らない)・本文と
+スレッドが参照する #番号 の題。2026-09-07 に PR 1429 で実測: 文脈ゼロの読み手(0.9.0 導入前に
+開始し 0.8.0 のまま走っていたセッション)が「#1231 #1581 #1283 が何か」「9/2 の提案とは」
+「相手の『ご依頼』とは」を詰まりに出し、6 回の deny で 5,455 字 → 10,179 字(用語集 19 語が
+全体の 25%)に膨れて逃げ道で出た。詰まりは全件、スレッドを見ていれば出ないものだった。旧上限
+(本文 800 字・1 コメント 1,500 字)では画面モードでも同じ——1429 の本文 10,150 字の 8%、相手の
+返信 4,698 字の 32% しか見せていなかった。
+
+連続 deny は書き手(session)と投稿先の組で数える。log は profile で共有なので、並行セッションの deny が
+自分の連続数を増やし、他所の skip が自分の案内を消す(同じ 2026-09-07 に実測: 7 回目の deny で
+案内が消えたのは、その 2 分前に別セッションが skip したため)。log の各行に session・版・投稿先を
+残すので、どの版のどのセッションがどこへ出したかを後から grep で引ける(今回は版の推定に列の
+形を数える必要があった)。cache に自分より新しい版が在れば検査の結果にその旨を 1 行添える——
+`${CLAUDE_PLUGIN_ROOT}` はセッション開始時に固定され、長く開いたセッションは更新後も古い版で
+検査し続ける(上の 1429 がそれ。16 時間 0.8.0 のままだった)。
+
 読み手は利用者の CLAUDE.md を読まない(--setting-sources を空にして起動する)。読ませると
 「初見が読んでもわかるように書く」等の書き手向けの規則を読み手が自分の指示として持ち、
 識別子を全部詰まりに出す側へ寄る(2026-09-06 に実測: 素の起動では利用者の CLAUDE.md の
@@ -39,7 +66,8 @@ gh でその「画面」を取り、読み手に既知として渡す(新規作�
   denies.log  allow / deny / skip の別(deny はタブ区切りで種別も。maxlen・parse-fail・
               blocked・reader-down・finding)。finding と allow には本文の長さと読み方
               (screen=画面を渡した / cold=文脈ゼロ)も付く——連続 deny の間に本文が
-              どれだけ膨れたかを書き手に示すため
+              どれだけ膨れたかを書き手に示すため。各行の末尾に sid=(session id の先頭 8 字)
+              v=(この門番の版) to=(投稿先。種別:repo:番号、新規作成はサブコマンド)
   skip.log    逃げ道を使った投稿のコマンド先頭 200 字
   misses.log  本文旗の綴りが在るのに候補も blocked も空だった素通し=網から落ちた疑い。
               「投稿でなかった」と区別が付かないと押し出しの量を測れないので分けて残す
@@ -615,11 +643,18 @@ def posting_bodies(command):
 # 取れなかったときは文脈ゼロに倒して検査は走らせ、その旨を書き手に伝える。
 # 画面の中身は他人の文章なので読み手への指示が混ざりうるが、読み手は道具を持たず(--tools "")、
 # 出力は詰まりの有無にしか効かない。
-SCREEN_MAX = 9000          # 画面全体の上限(字)。超えた分は末尾を落として断りを書く
-SCREEN_BODY_MAX = 1500     # 1 コメントの上限
-SCREEN_ITEM_BODY_MAX = 800  # PR/issue 本文の冒頭
+# 読み手(sonnet)は入力が 3〜4 万字でも所要はほぼ変わらない。旧上限(全体 9,000・本文 800・
+# 1 コメント 1,500)は #1429 の本文 10,150 字の 8%、相手の返信 4,698 字の 32% しか見せず、
+# 画面モードでも文脈ゼロと同じ詰まりが出る形だった(2026-09-07 に実測)
+SCREEN_MAX = 40000         # 画面全体の上限(字)。超えたら古いコメントから落とす(末尾=答える相手を残す)
+SCREEN_BODY_MAX = 6000     # 1 コメントの上限。最後の 1 件(答える相手)は切らない
+SCREEN_ITEM_BODY_MAX = 12000  # PR/issue 本文
 SCREEN_HUNK_LINES = 25     # 指摘が付いた行は hunk の末尾なので末尾側を残す
-SCREEN_COMMENTS = 3        # PR/issue の会話で見せる直近コメント数
+SCREEN_COMMENTS = 30       # PR/issue の会話で見せる直近コメント数の上限
+SCREEN_REFS = 8            # 本文とスレッドが参照する #番号 のうち、題を引く数(本文の分を先に)
+SCREEN_FILES = 100         # 変更ファイル一覧の上限
+SCREEN_BODY_KEEP = 1000    # 予算のために本文を切るとき、最低これだけは残す
+SCREEN_CLIP_NOTE = 60      # clip が付ける「以下略」の行ぶんの余白
 # gh api の path から投稿先の種別を読む。群 o/r が owner/repo、群 n が番号か ID。
 # review コメントへの返信は REST の正式形が pulls/N/comments/ID/replies(PR 番号入り)で、
 # 今日の投稿 16 件がこの形だった。PR 番号無しの形も記録に 5 件あるので両方受ける
@@ -640,6 +675,10 @@ PR_THREAD_SUBS = {("pr", "comment"), ("pr", "review"), ("pr", "close"), ("pr", "
 ISSUE_THREAD_SUBS = {("issue", "comment"), ("issue", "close"), ("issue", "reopen"), ("issue", "edit")}
 
 
+class BudgetExhausted(RuntimeError):
+    """画面取得の時間予算を使い切った。参照番号の題引きはこれで止め、有る分の画面で読ませる。"""
+
+
 class Screen:
     """1 回の画面取得。gh の呼び出しを合計の時間予算で縛る(超えたら例外→文脈ゼロへ倒す)。"""
 
@@ -651,7 +690,7 @@ class Screen:
         """gh を読み取りで呼び、stdout を返す。失敗は例外。"""
         left = self.deadline - time.time()
         if left <= 0:
-            raise RuntimeError("画面取得の時間予算 %ds を使い切った" % GH_BUDGET)
+            raise BudgetExhausted("画面取得の時間予算 %ds を使い切った" % GH_BUDGET)
         timeout = min(GH_TIMEOUT, left)
         override = os.environ.get("COLDREAD_GH_CMD")
         if override:
@@ -744,12 +783,12 @@ def destination(args, sub):
     return None
 
 
-def destination_of(command, body):
-    """読ませる本文を運んでいた gh 呼び出しの投稿先。見つからなければ None。"""
+def posting_target(command, body):
+    """読ませる本文を運んでいた gh 呼び出しの (サブコマンド, 投稿先)。見つからなければ (None, None)。"""
     norm, heredoc_bodies = prepare(command)
     tokens = tokenize(norm)
     if tokens is None:
-        return None
+        return None, None
     live = has_live_substitution(norm)
     for simple in simple_commands(tokens):
         args = gh_args(simple)
@@ -757,8 +796,17 @@ def destination_of(command, body):
             continue
         cands, _blocked = classify(args, heredoc_bodies, live)
         if body in cands:
-            return destination(args, subcommand(args))
-    return None
+            sub = subcommand(args)
+            return sub, destination(args, sub)
+    return None, None
+
+
+def target_label(sub, dest):
+    """log に残す投稿先の綴り。スレッドなら 種別:repo:番号、新規作成ならサブコマンド、不明なら -。"""
+    if dest:
+        kind, repo, ref = dest
+        return "%s:%s:%s" % (kind, repo or "cwd", ref or "current")
+    return ":".join(sub) if sub else "-"
 
 
 def clip(text, limit):
@@ -776,57 +824,140 @@ def _date(obj):
     return (obj.get("created_at") or obj.get("createdAt") or "")[:10]
 
 
-def screen_for(dest, cwd):
-    """投稿先の画面に既に見えているものを、読み手に渡す文章にして返す。取れなければ例外。"""
+REF_RE = re.compile(r"(?<![\w/])#(\d{1,7})\b")
+
+
+def referenced_numbers(texts, own):
+    """本文とスレッドが参照する #番号(自分の番号を除く。出た順で上限 SCREEN_REFS。本文の分を先に置く)。"""
+    out = []
+    for text in texts:
+        for m in REF_RE.finditer(text or ""):
+            n = m.group(1)
+            if n != str(own) and n not in out:
+                out.append(n)
+                if len(out) == SCREEN_REFS:
+                    return out
+    return out
+
+
+def item_state(obj):
+    """画面に出す状態の綴り。REST(issues/pulls: state・draft・merged・pull_request.merged_at)と
+    gh view(state=OPEN/MERGED/CLOSED・isDraft)の両方の形を読み、小文字に揃える。"""
+    if obj.get("merged") or (obj.get("pull_request") or {}).get("merged_at"):
+        return "merged"
+    if obj.get("draft") or obj.get("isDraft"):
+        return "draft"
+    return str(obj.get("state") or "?").lower()
+
+
+def files_lines(files):
+    files = [f for f in files if f][:SCREEN_FILES]
+    return ["[変更ファイル %d 件]" % len(files)] + files if files else []
+
+
+def comment_label(label, t):
+    return "[%s] %s(%s):" % (label, _login(t), _date(t))
+
+
+def comment_blocks(label, ts):
+    """コメントのブロック列(古い順)。最後の 1 件(答える相手)は切らない——書き手はそれに逐条で答えている。"""
+    return [[comment_label(label, t), clip(t.get("body"), SCREEN_MAX if i == len(ts) - 1 else SCREEN_BODY_MAX)]
+            for i, t in enumerate(ts)]
+
+
+def referenced_lines(g, repo, nums):
+    """参照されている番号の題と状態。1 件ずつ取り、取れない番号は飛ばす。予算切れなら有る分で止める。"""
+    lines = []
+    for n in nums:
+        try:
+            it = g.json(["api", "repos/%s/issues/%s" % (repo, n)])
+        except (BudgetExhausted, subprocess.TimeoutExpired):
+            break
+        except Exception:
+            continue
+        lines.append("#%s「%s」(%s)" % (n, it.get("title", ""), item_state(it)))
+    return ["[本文とスレッドが参照している番号]"] + lines if lines else []
+
+
+def assemble(head, body, comments, tail):
+    """画面を組む。head と body は必ず残す(body は PR/issue 本文か、review スレッドの元の指摘)。
+    comments は古い順のブロックで、予算を超えたら古い方から落とす(末尾=最新=答える相手を残す)。
+    それでも超えれば body を切り、最後に全体を切る。旧版は組んだ後に末尾を切っていて、本文を長く
+    見せるほど最新の返信が落ちる形だった。"""
+    dropped = 0
+
+    def text():
+        omitted = ["…(古いコメント %d 件は省略)" % dropped] if dropped else []
+        return "\n".join(head + [body] + omitted + [line for c in comments for line in c] + tail)
+
+    while len(text()) > SCREEN_MAX and len(comments) > 1:
+        comments, dropped = comments[1:], dropped + 1
+    over = len(text()) - SCREEN_MAX
+    if over > 0 and len(body) - over >= SCREEN_BODY_KEEP:
+        body = clip(body, len(body) - over - SCREEN_CLIP_NOTE)
+    return clip(text(), SCREEN_MAX)
+
+
+def screen_for(dest, cwd, body=""):
+    """投稿先の画面に既に見えているものを、読み手に渡す文章にして返す。取れなければ例外。
+    body は投稿する本文——その中の #番号 の題を引くために見る。"""
     kind, repo, ref = dest
     g = Screen(cwd)
-    lines = []
     if kind in ("review-reply", "review-edit"):
         c = g.json(["api", "repos/%s/pulls/comments/%s" % (repo, ref)])
-        root = c.get("in_reply_to_id") or c["id"]
+        root_id = c.get("in_reply_to_id") or c["id"]
         num = str(c["pull_request_url"]).rstrip("/").rsplit("/", 1)[-1]
         pr = g.json(["api", "repos/%s/pulls/%s" % (repo, num)])
         # 同じ根に連なるものだけ。一覧に根が無ければ(ページの外)、直接取った c を根として置く
         thread = [t for t in g.pages("repos/%s/pulls/%s/comments" % (repo, num))
-                  if t.get("id") == root or t.get("in_reply_to_id") == root]
-        if not any(t.get("id") == root for t in thread) and c["id"] == root:
+                  if t.get("id") == root_id or t.get("in_reply_to_id") == root_id]
+        if not any(t.get("id") == root_id for t in thread) and c["id"] == root_id:
             thread.insert(0, c)
         if kind == "review-edit":
             thread = [t for t in thread if t.get("id") != c["id"]]  # 直す当のコメントは新本文が置き換える
         thread.sort(key=lambda t: t.get("created_at", ""))
-        lines.append("PR #%s「%s」(%s)の file %s の %s 行目に付いた指摘のスレッド"
-                     % (num, pr.get("title", ""), repo, c.get("path"), c.get("line") or c.get("original_line")))
+        head = ["PR #%s「%s」(%s、%s)の file %s の %s 行目に付いた指摘のスレッド"
+                % (num, pr.get("title", ""), repo, item_state(pr), c.get("path"), c.get("line") or c.get("original_line"))]
         hunk = (c.get("diff_hunk") or "").splitlines()
         if hunk:
-            lines.append("[指摘が付いた差分の末尾]")
-            lines.extend(hunk[-SCREEN_HUNK_LINES:])
-        for i, t in enumerate(thread):
-            lines.append("[%s] %s(%s):" % ("元の指摘" if i == 0 else "これまでの返信", _login(t), _date(t)))
-            lines.append(clip(t.get("body"), SCREEN_BODY_MAX))
-    elif kind in ("item", "issue-comment-edit"):
+            head += ["[指摘が付いた差分の末尾]"] + hunk[-SCREEN_HUNK_LINES:]
+        # 根(元の指摘)は body の位置に置いて落とさず、返信だけを予算で落とす対象にする
+        root, replies = thread[:1], thread[1:]
+        root_text = ""
+        if root:
+            head.append(comment_label("元の指摘", root[0]))
+            root_text = clip(root[0].get("body"), SCREEN_BODY_MAX if replies else SCREEN_MAX)
+        nums = referenced_numbers([body] + [t.get("body") for t in thread], num)
+        return assemble(head, root_text, comment_blocks("これまでの返信", replies), referenced_lines(g, repo, nums))
+    if kind in ("item", "issue-comment-edit"):
         skip = None
         if kind == "issue-comment-edit":
             c = g.json(["api", "repos/%s/issues/comments/%s" % (repo, ref)])
             ref, skip = str(c["issue_url"]).rstrip("/").rsplit("/", 1)[-1], c["id"]
-        item = g.json(["api", "repos/%s/issues/%s" % (repo, ref)])  # PR も issues 経由で取れる
+        # PR も issues 経由で取れる(state・draft・pull_request.merged_at も載るので pulls/N は要らない)
+        item = g.json(["api", "repos/%s/issues/%s" % (repo, ref)])
         comments = [t for t in g.pages("repos/%s/issues/%s/comments" % (repo, ref)) if t.get("id") != skip]
-        lines.append("%s #%s「%s」(%s)" % ("PR" if item.get("pull_request") else "issue", ref, item.get("title", ""), repo))
-        lines.append("[本文の冒頭]")
-        lines.append(clip(item.get("body"), SCREEN_ITEM_BODY_MAX))
-        for t in comments[-SCREEN_COMMENTS:]:
-            lines.append("[これまでのコメント] %s(%s):" % (_login(t), _date(t)))
-            lines.append(clip(t.get("body"), SCREEN_BODY_MAX))
+        is_pr, where = bool(item.get("pull_request")), repo
+        files = ([f.get("filename") for f in
+                  g.json(["api", "repos/%s/pulls/%s/files?per_page=%d" % (repo, ref, SCREEN_FILES)])]
+                 if is_pr else [])
     else:  # 非 api の pr / issue。番号・URL・ブランチの解決は gh 自身に任せる
         argv = [kind, "view"] + ([ref] if ref else []) + (["-R", repo] if repo else [])
-        item = g.json(argv + ["--json", "number,title,body,comments,url"])
-        where = re.sub(r"^https?://[^/]+/", "", str(item.get("url") or "")).split("/pull/")[0].split("/issues/")[0] or "このリポジトリ"
-        lines.append("%s #%s「%s」(%s)" % ("PR" if kind == "pr" else "issue", item.get("number"), item.get("title", ""), where))
-        lines.append("[本文の冒頭]")
-        lines.append(clip(item.get("body"), SCREEN_ITEM_BODY_MAX))
-        for t in (item.get("comments") or [])[-SCREEN_COMMENTS:]:
-            lines.append("[これまでのコメント] %s(%s):" % (_login(t), _date(t)))
-            lines.append(clip(t.get("body"), SCREEN_BODY_MAX))
-    return clip("\n".join(lines), SCREEN_MAX)
+        fields = "number,title,body,comments,url,state" + (",isDraft,files" if kind == "pr" else "")
+        item = g.json(argv + ["--json", fields])
+        is_pr = kind == "pr"
+        # repo が取れなければ None——題は「このリポジトリ」で出し、参照番号の題は引かない
+        where = re.sub(r"^https?://[^/]+/", "", str(item.get("url") or "")).split("/pull/")[0].split("/issues/")[0] or None
+        files = [f.get("path") for f in (item.get("files") or [])]
+        comments = item.get("comments") or []
+        ref = item.get("number")
+    head = ["%s #%s「%s」(%s、%s)" % ("PR" if is_pr else "issue", ref, item.get("title", ""),
+                                  where or "このリポジトリ", item_state(item))]
+    head += files_lines(files) + ["[本文]"]
+    nums = referenced_numbers([body, item.get("body")] + [t.get("body") for t in comments], ref)
+    return assemble(head, clip(item.get("body"), SCREEN_ITEM_BODY_MAX),
+                    comment_blocks("これまでのコメント", comments[-SCREEN_COMMENTS:]),
+                    referenced_lines(g, where, nums) if where else [])
 
 
 # ---- 読み役 ----------------------------------------------------------------
@@ -857,6 +988,9 @@ COLD_PROMPT = """あなたはこの文章について何も知らない初見の
 """ + _FORMAT_COMMON + """- 詰まりも疑問も補完も 1 件も無いときだけ、他に何も書かず CLEAN とだけ出力
   (1 件でもあるなら CLEAN とは書かない)
 """ + _RULES
+# 読み手が画面で見ているものの列挙。依頼文(既知の範囲)と deny の直し方(説明しないもの)の両方がこれを使う
+SCREEN_ITEMS = ("PR/issue の題と番号と状態・リポジトリ・相手の名前・元の指摘の文言と印・file と行・"
+                "変更ファイルの一覧・これまでの返信の中身・参照されている番号の題")
 SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッドの参加者)です。手元の画面には次のものが既に表示されていて、新しい返信はその下に付きます。
 
 --- 画面に既に見えているもの ---
@@ -866,8 +1000,9 @@ SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッド
 以下の「本文」(新しい返信)を読み、理解を実際に妨げた事実だけを報告してください。
 
 前提:
-- 画面に見えているもの(PR/issue の題と番号・リポジトリ・相手の名前・元の指摘の文言と印・file と行・これまでの返信)は既知として読む。それらが本文で説明されていなくても詰まりにしない
-- 本文が、画面に見えているものを改めて説明している箇所(誰宛か・何番の PR か・相手の印や語の意味)は「冗長: 」として報告する(読み手は既に見ている)
+- 画面に見えているもの(""" + SCREEN_ITEMS + """)は「何を指しているか分かっている」ものとして読む。それらが本文で説明されていなくても詰まりにしない
+- 画面は語彙の辞書ではない。相手の言い回し・業界の外では通じない横文字・比喩(例: 北極星・ニアバイ・クロージング)を、本文が自分の地の文として使っている箇所は「なぞり: 」として報告する——画面に同じ語が有っても、画面を持たずにこのスレッドを後から読む人には解けない。定着した技術用語・製品名・file 名・相手が付けた印は含めない。相手の語を引用して指す(「reviewer_x さんの言う『ニアバイ』は」「[block] の 2 件目は」)のはなぞりではない
+- 本文が、画面に見えているものを改めて説明している箇所(誰宛か・何番の PR か・PR が何をするものか・相手の印や語の意味・相手が何を書いたか)は「冗長: 」として報告する(読み手は既に見ている)
 
 見る観点:
 (1) この返信があなたに求めていること(何を確認し・何を返せばよいか)が言えるか
@@ -876,9 +1011,10 @@ SCREEN_PROMPT = """あなたはこの返信を受け取る側の人(スレッド
 (4) 意味を推測で埋めた箇所と、埋めた推測の中身(特に時制・主体・範囲)
 (5) 読み終えて残った疑問は何か
 
-報告の形式(この 5 種類だけ。問題の無かった観点は一切書かない):
+報告の形式(この 6 種類だけ。問題の無かった観点は一切書かない):
 """ + _FORMAT_COMMON + """- 画面に有るものを本文で説明している箇所 → 1 行 1 件、行頭に「冗長: 」
-- 詰まりも疑問も補完も冗長も 1 件も無いときだけ、他に何も書かず CLEAN とだけ出力
+- 相手の言い回しを本文が地の文に写している箇所 → 1 行 1 件、行頭に「なぞり: 」(その語と、どの発言の語か)
+- 詰まりも疑問も補完も冗長もなぞりも 1 件も無いときだけ、他に何も書かず CLEAN とだけ出力
   (1 件でもあるなら CLEAN とは書かない)
 """ + _RULES
 
@@ -888,9 +1024,14 @@ def reader_prompt(screen):
     return SCREEN_PROMPT % screen if screen else COLD_PROMPT
 
 
-# 読み役の 4 つのラベル。依頼文が指示する綴りと 1 対 1 なので隣に置く——
-# 欄を増やすときに、指示と仕分けが同じ画面で目に入る形にしておく
-LABEL_RE = re.compile(r"(詰まり|疑問|補完|冗長)\s*[:：]")
+# 読み役のラベルと、投稿を止めるかどうか。依頼文が指示する綴りと 1 対 1 なので隣に置く——
+# 欄を増やすときに、指示と仕分けと止める/止めないが同じ画面で目に入る形にしておく。
+# 「なぞり」(相手の言い回しを地の文に写した箇所)は画面モードにだけ在り、詰まりと同じく投稿を止める——
+# 画面が既知にするのは指す先であって語彙ではない。詰まりの条件文の中に「相手の語で書けば詰まり」と
+# 埋めた形は、実物の読み手(sonnet)に 1 件も拾われなかった(2026-09-07 に実測: 北極星・ニアバイ・
+# クロージングを地の文に写した返信が詰まり 0 件)。独立の欄として問う
+LABELS = {"詰まり": True, "なぞり": True, "疑問": False, "補完": False, "冗長": False}
+LABEL_RE = re.compile("(%s)\\s*[:：]" % "|".join(LABELS))
 # ラベルの後ろが「無い」の意味だけの行は、その欄の 0 件であって 1 件ではない。依頼文で「行ごと省け」と
 # 言っても読み手は書く(2026-09-06 に実測: 画面モードの読み手が「詰まり: なし」と書き、837 字の
 # 返信が詰まり 1 件として止まった)。ここで落とさないと、無い欄が投稿を止める
@@ -912,7 +1053,7 @@ def deny(reason: str) -> None:
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
+            "permissionDecisionReason": "\n".join(filter(None, (reason, VERSION_NOTE))),
         }
     }, ensure_ascii=False))
     sys.exit(0)
@@ -927,14 +1068,20 @@ def log_line(path: str, text: str) -> None:
         pass
 
 
-def deny_streak():
-    """直近の連続 deny の (回数, その最初の本文の長さ)。長さは finding の記録に無ければ None。"""
+def deny_streak(session, target):
+    """同じ書き手(session)が同じ投稿先(target)で直近に連続して止められた (回数, その間の本文の長さの列・古い順)。
+
+    log は profile で共有なので、他の session の行は無いものとして飛ばす——数えると並行セッションの
+    deny が自分の連続数を増やし、他所の skip が自分の案内を消す(2026-09-07 に実測)。同じ書き手でも
+    別の投稿先の deny は数えない(長さの列が別の本文の混ざりになる)が、allow・skip は投稿先に関わらず
+    連続を切る。session の無い入力は、同じく session の無い行だけを数える。
+    """
     try:
         with open(DENY_LOG, encoding="utf-8") as f:
-            lines = f.readlines()[-40:]
+            lines = f.readlines()[-400:]
     except OSError:
-        return 0, None
-    n, first_len = 0, None
+        return 0, []
+    n, lens = 0, []
     now = time.time()
     for line in reversed(lines):
         parts = line.rstrip("\n").split("\t")
@@ -944,12 +1091,64 @@ def deny_streak():
             ts = time.mktime(time.strptime(parts[0], "%Y-%m-%d %H:%M:%S"))
         except ValueError:
             break
-        if now - ts > DENY_STREAK_WINDOW or parts[1] != "deny":
+        if now - ts > DENY_STREAK_WINDOW:
             break
+        cols = dict(p.split("=", 1) for p in parts[2:] if "=" in p)
+        if cols.get("sid", "") != session:
+            continue
+        if parts[1] != "deny":
+            break
+        if cols.get("to", "-") != target:
+            continue
         n += 1
         if len(parts) >= 4 and parts[3].isdigit():
-            first_len = int(parts[3])  # 逆順に辿るので、最後に代入したものが最古
-    return n, first_len
+            lens.append(int(parts[3]))  # 逆順に辿っているので後で戻す
+    lens.reverse()
+    return n, lens
+
+
+PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def plugin_version():
+    try:
+        with open(os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+            return str(json.load(f).get("version") or "?")
+    except (OSError, ValueError):
+        return "?"
+
+
+GATE_VERSION = plugin_version()
+
+
+def version_tuple(name):
+    return tuple(int(x) for x in name.split(".")) if re.fullmatch(r"\d+(?:\.\d+)*", name) else None
+
+
+def newer_installed():
+    """cache の兄弟(…/gates/<版>/)に自分より新しい版が在ればその版名。無ければ None。
+
+    ${CLAUDE_PLUGIN_ROOT} はセッション開始時に固定されるので、更新の後も開いたままのセッションは
+    古い版で検査し続ける(2026-09-07 に実測: 16 時間 0.8.0 のまま)。開発 checkout(兄弟が版名でない)では
+    None。半端に入った版を拾わないよう、フック本体が在るものだけを見る。
+    """
+    my = version_tuple(GATE_VERSION)
+    if my is None:
+        return None
+    parent = os.path.dirname(PLUGIN_DIR)
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return None
+    hook = os.path.join("hooks", os.path.basename(__file__))
+    found = [(v, n) for n in names for v in [version_tuple(n)]
+             if v and v > my and os.path.isfile(os.path.join(parent, n, hook))]
+    return max(found)[1] if found else None
+
+
+_NEWER = newer_installed()
+VERSION_NOTE = ("この検査は gates %s で走った(手元の cache には %s が在る。フックの版はセッション開始時に"
+                "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _NEWER)) if _NEWER else ""
 
 
 def keychain_service() -> str:
@@ -1066,6 +1265,13 @@ def main() -> None:
     except Exception:
         allow()
 
+    # log の各行に書き手(session)・版・投稿先を残す。連続 deny は session ごとに数える
+    sid = str(payload.get("session_id") or "")[:8]
+    target = "-"  # 投稿先が分かった時点で付け替える(record は呼んだ時の束縛を読む)
+
+    def record(text):
+        log_line(DENY_LOG, "%s\tsid=%s\tv=%s\tto=%s" % (text, sid, GATE_VERSION, target))
+
     # 読み役の中で自分がもう一度発火すると、読み役が読み役を起こす入れ子になる
     # (深さぶんの待ち時間になり、外側はフックのタイムアウトで無検査のまま通る)。
     # 読み役の道具を殺す --tools "" とは別の機構にしてある——あちらは「読み役が本文中の
@@ -1080,7 +1286,7 @@ def main() -> None:
 
     if wants_skip(command):
         log_line(SKIP_LOG, command[:200].replace("\n", " "))
-        log_line(DENY_LOG, "skip")
+        record("skip")
         allow()
 
     # 解析の失敗は例外の形でも起こりうる(壊れた JSON の再帰・想定外の入力)。
@@ -1088,7 +1294,7 @@ def main() -> None:
     # 捕まえるのは Exception 全体で、ValueError に狭めるな——狭めた瞬間に、それ以外の例外は
     # フックのクラッシュ(=PreToolUse は続行)になって無検査で通る。
     if len(command) > MAX_LEN:
-        log_line(DENY_LOG, "deny\tmaxlen")
+        record("deny\tmaxlen")
         deny(
             "外部投稿ゲート: このコマンドは長すぎて解析しない(%d 文字 > 上限 %d)。\n"
             % (len(command), MAX_LEN)
@@ -1105,7 +1311,7 @@ def main() -> None:
     else:
         parse_error = "引用が閉じていない等"
     if not parsed:
-        log_line(DENY_LOG, "deny\tparse-fail")
+        record("deny\tparse-fail")
         deny(
             "外部投稿ゲート: このコマンドは解析できない(%s)。" % parse_error
             + "gh を含むため、投稿かどうか確かめられないものは通せない。\n"
@@ -1115,7 +1321,7 @@ def main() -> None:
     # 「検査できない本文がある」は、別の本文が読めたかどうかと独立に止める。
     # ここを bodies の有無に従属させると、読める本文と同居した投稿が無検査で通る。
     if blocked:
-        log_line(DENY_LOG, "deny\tblocked")
+        record("deny\tblocked")
         deny(
             "外部投稿ゲート: この投稿は本文をコマンドから取り出せない形をしている(%s)。"
             "検査できないものは通せない。\n"
@@ -1146,13 +1352,14 @@ def main() -> None:
     # 投稿先の解釈で例外が出ても門番を落とさない(落ちるとフックのクラッシュ=無検査で通る)。
     # 解釈できないときは文脈ゼロ側(厳しい側)へ倒れる
     try:
-        dest = destination_of(command, body)
+        sub, dest = posting_target(command, body)
     except Exception:
-        dest = None
+        sub, dest = None, None
+    target = target_label(sub, dest)
     screen, screen_error = None, None
     if dest is not None:
         try:
-            screen = screen_for(dest, payload.get("cwd") or "")
+            screen = screen_for(dest, payload.get("cwd") or "", body)
         except Exception as exc:
             screen_error = str(exc)[:120]
     mode = "screen" if screen else "cold"
@@ -1165,7 +1372,7 @@ def main() -> None:
     try:
         out = run_reader(reader_prompt(screen) + body)
     except Exception as exc:
-        log_line(DENY_LOG, "deny\treader-down")
+        record("deny\treader-down")
         deny(
             "外部投稿ゲート: coldreader(文脈ゼロの読み手)の起動に失敗した(%s)。\n" % str(exc)[:150]
             + "手動で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
@@ -1174,22 +1381,24 @@ def main() -> None:
 
     # ラベルはコロンまで見る。行頭の語だけで拾うと「詰まりは無い」のような地の文が
     # 詰まりに数えられ、指摘ゼロの本文が deny になる(補完の追加で自由文の行が増えたため)。
-    found = {"詰まり": [], "疑問": [], "補完": [], "冗長": []}
+    found = {label: [] for label in LABELS}
     for line in out.splitlines():
         line = line.strip()
         m = LABEL_RE.match(line)
         if m and not NONE_RE.match(line[m.end():].strip()):
             found[m.group(1)].append(line)
-    blocking, questions, fills, redundant = found["詰まり"], found["疑問"], found["補完"], found["冗長"]
+    blocking, questions, fills, redundant, traced = (
+        found["詰まり"], found["疑問"], found["補完"], found["冗長"], found["なぞり"])
 
-    # 詰まりの有無だけで決める。以前は「最終行が CLEAN なら」も allow の条件だったが、
+    # 詰まりとなぞりの有無だけで決める。以前は「最終行が CLEAN なら」も allow の条件だったが、
     # それだと詰まりを列挙した後に CLEAN と書かれた出力が通ってしまう。読み役に本文の
     # 説明以外を書かせる欄(補完)を足したぶん、末尾が CLEAN で終わる形は出やすくなっている。
-    if not blocking:
-        log_line(DENY_LOG, "allow\t%d\t%s" % (len(body), mode))
+    if not any(found[label] for label, stops in LABELS.items() if stops):
+        record("allow\t%d\t%s" % (len(body), mode))
         extra = "\n".join(filter(None, (
             SCOPE_NOTE,
             screen_note,
+            VERSION_NOTE,
             section("coldreader が推測で埋めた箇所——意図と違うなら投稿を編集して直すこと:", fills),
             section("画面に有るものを本文で説明している箇所(削ってよい。投稿を編集して短くできる):", redundant),
             section("投稿は通したが、coldreader(初見の読み手)に残った疑問"
@@ -1205,9 +1414,10 @@ def main() -> None:
         }, ensure_ascii=False))
         sys.exit(0)
 
-    streak, first_len = deny_streak()
+    streak, lens = deny_streak(sid, target)
     streak += 1
-    log_line(DENY_LOG, "deny\tfinding\t%d\t%s" % (len(body), mode))
+    lens.append(len(body))
+    record("deny\tfinding\t%d\t%s" % (len(body), mode))
     role = ("この返信を受け取る相手として、スレッドの画面と本文を読んだ別プロセスの読み手"
             if mode == "screen" else "文脈ゼロの別プロセスの読み手")
     head = (
@@ -1216,19 +1426,22 @@ def main() -> None:
     )
     if streak >= 3:
         # 先頭に置く。末尾に置いた案内は 36 回無視された(PR 1583。詰まりの欄が「直せば通る」と
-        # 読める限り、書き手は次の 1 回を試す)。本文がどれだけ膨れたかも見せる——足すたびに
-        # 増えた本文が新しい詰まりを生む、という輪を書き手が自分の数字で見られるように
-        grown = ("。この連続の間に本文は %d 字 → %d 字に増えた" % (first_len, len(body))
-                 if first_len and len(body) > first_len else "")
+        # 読める限り、書き手は次の 1 回を試す)。本文がどれだけ膨れたかは 1 回ごとの数列で見せる——
+        # 足すたびに増えた本文が新しい詰まりを生む、という輪を書き手が自分の数字で見られるように。
+        # 出させるのは「今の本文」でなく「最初の本文」——旧文言は膨れた版を出せと読めた(1429 で実測)
+        grown = ("。この連続の間に本文は %s 字に増えた" % " → ".join("{:,}".format(n) for n in lens)
+                 if len(lens) >= 2 and lens[-1] > lens[0] else "")
         head = (
             "【%d 回連続で止まっている——ここから先は本文を足して直さない】coldreader の指摘は読み手ごとに"
-            "揺れ、足した文がまた新しい指摘を生む%s。残る指摘の採否を自分で決め、採らないなら "
-            "COLDREAD_SKIP=1 で今の本文を出す(記録が残る)。\n\n" % (streak, grown)
+            "揺れ、足した文がまた新しい指摘を生む%s。この連続の最初の本文に戻し、画面と本文を合わせても"
+            "解けない語の初出 1 か所に中身を添えるだけにする。残る指摘の採否は自分で決め、採らないなら "
+            "COLDREAD_SKIP=1 でその本文を出す(記録が残る)。\n\n" % (streak, grown)
         ) + head
     # 見出しで分ける。混ぜて並べると、直さなくてよい補完・疑問が過半を占めたまま
     # 「以下を直せ」と読め、直す量を過大に見せて逃げ道を引く方向に働く(実測で 8.9 行中 4.7 行)。
     detail = "\n\n".join(filter(None, (
         section("投稿を止めている詰まり(直せば通る):", blocking),
+        section("投稿を止めている、相手の言い回しを地の文に写した箇所(自分の言葉に直せば通る。説明を足すのではない):", traced),
         section("止めてはいないが coldreader が推測で埋めた箇所(意図と違うなら直す):", fills),
         section("画面に有るものを本文で説明している箇所(削ってよい):", redundant),
         section("残った疑問(反映するかは判断してよい):", questions),
@@ -1236,9 +1449,10 @@ def main() -> None:
     # 直し方は読み方で変える。画面モードで「同型を掃討」と言うと、画面に有るものの説明を
     # 本文全体に足す向きに働く(PR 1583 で実測: 宛先本人に本人の名前の説明が付いた)
     howto = (
-        "直し方: 足すより削る。読み手は PR/issue の題と番号・相手の名前・元の指摘の文言と印・"
-        "file と行・これまでの返信を画面で見ているので、それらを本文で説明しない(説明は「冗長」として返る)。"
-        "詰まりは画面と本文を合わせても解けないものだけなので、その語の初出 1 か所に中身を添える。"
+        "直し方: 足すより削る。読み手は " + SCREEN_ITEMS + " を画面で見ているので、それらを本文で"
+        "説明しない(説明は「冗長」として返る)。詰まりは画面と本文を合わせても解けないものだけなので、"
+        "その語の初出 1 か所に中身を添える。相手の語は指してよいが、相手の語で書かない(相手の言い回しを"
+        "地の文に写した箇所は、画面に同じ語が有っても「なぞり」として止まる。直し方は自分の言葉に置き換える)。"
         if mode == "screen" else
         "直し方: 指摘の類型を言語化してから、同型を本文全体で掃討する(指摘された 1 箇所だけ直さない)。"
     )

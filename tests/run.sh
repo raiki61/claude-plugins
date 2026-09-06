@@ -710,6 +710,12 @@ CR_STUB_CLEAN='cat >/dev/null; echo CLEAN'
 CR_STUB_BLOCK='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
 CR_STUB_QUEST='cat >/dev/null; printf "疑問: 期限はいつか\n"'
 CR_STUB_FAIL='cat >/dev/null; exit 1'
+# 門番を module として読む前置きと、deny 理由を取り出す前置き(-c の頭に付ける)
+CR_LOAD='import importlib.util,sys
+spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)'
+CR_REASON='import json,sys,subprocess
+out = subprocess.run(sys.argv[1:], capture_output=True, encoding="utf-8").stdout
+reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]'
 
 echo "coldread ゲート:"
 expect_output 0 "ALLOW_EMPTY" "投稿以外の長いコマンドは素通し" \
@@ -1080,6 +1086,20 @@ CR_STREAK_CFG="$WORK/coldread-cfg-streak"; mkdir -p "$CR_STREAK_CFG"
 "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "3 回連続で止まっている" "3 回連続 deny で skip の案内が出る(ちょうど 3 で発火)" \
     "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+# 連続 deny は書き手(session)ごと。log は profile 共有なので、並行セッションの deny を数えると
+# 1 回目の書き手に「3 回連続」の案内が出て、他所の skip が自分の案内を消す(2026-09-07 に PR 1429 で実測:
+# 7 回目の deny で案内が消えたのは、2 分前に別セッションが skip したため)
+CR_SID_CFG="$WORK/coldread-cfg-sid"; mkdir -p "$CR_SID_CFG"
+COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+expect_output 0 "SID_ISOLATED" "他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない" \
+    env COLDREAD_TEST_SESSION=bbbb2222 "$PY_BIN" -c "$CR_REASON"$'\n''print("SID_ISOLATED" if "回連続" not in reason else "BAD: " + reason[:120])' \
+    "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+COLDREAD_TEST_SESSION=bbbb2222 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 $CR_POST" >/dev/null 2>&1
+expect_output 0 "3 回連続で止まっている" "他セッションの skip を挟んでも、自分の 3 回目で案内が出る" \
+    env COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+expect_output 0 "to=issue:cwd:1" "log の各行に session・版・投稿先が残る(どの版のどのセッションがどこへ出したかを grep で引く)" \
+    grep -E $'deny\tfinding\t[0-9]+\tcold\tsid=aaaa1111\tv=[0-9.]+\tto=issue:cwd:1' "$CR_SID_CFG/coldread-gate/denies.log"
 
 # ---- coldread: 返信の読み手には画面(投稿先のスレッド)を渡す ----------------------------
 # 文脈ゼロで読ませると、画面に有るもの(相手の名前・PR 番号・相手の印・相手の語)が全部詰まりに出て、
@@ -1093,7 +1113,7 @@ case "$*" in
   "api repos/o/r/pulls/comments/78") printf '%s' '{"id":78,"in_reply_to_id":77,"path":"docs/a.adoc","line":32,"diff_hunk":"@@ -0,0 +1,3 @@\n+= 題\n+本文の行","body":"先の返信です","user":{"login":"author_y"},"created_at":"2026-09-05T00:00:00Z","pull_request_url":"https://api.github.com/repos/o/r/pulls/9"}' ;;
   "api repos/o/r/pulls/9") printf '%s' '{"number":9,"title":"docs: F3 の説明を足す","body":"PR の説明"}' ;;
   "api repos/o/r/pulls/9/comments?per_page=100&page=1") printf '%s' '[{"id":77,"in_reply_to_id":null,"body":"[block] F3 の行が抜けています。F3 は fixture 3 の略です。","user":{"login":"reviewer_x"},"created_at":"2026-09-04T11:21:40Z"},{"id":78,"in_reply_to_id":77,"body":"先の返信です","user":{"login":"author_y"},"created_at":"2026-09-05T00:00:00Z"},{"id":90,"in_reply_to_id":null,"body":"別スレッドの指摘","user":{"login":"reviewer_x"},"created_at":"2026-09-04T11:22:00Z"}]' ;;
-  "pr view 9 --json number,title,body,comments,url") printf '%s' '{"number":9,"title":"docs: F3 の説明を足す","body":"PR の説明","url":"https://github.com/o/r/pull/9","comments":[{"author":{"login":"reviewer_x"},"body":"レビューしました。F3 は fixture 3 の略です。","createdAt":"2026-09-04T11:19:54Z"}]}' ;;
+  "pr view 9 --json number,title,body,comments,url,state,isDraft,files") printf '%s' '{"number":9,"title":"docs: F3 の説明を足す","body":"PR の説明","url":"https://github.com/o/r/pull/9","state":"OPEN","isDraft":false,"files":[{"path":"docs/a.adoc"},{"path":"src/f3.py"}],"comments":[{"author":{"login":"reviewer_x"},"body":"レビューしました。F3 は fixture 3 の略です。","createdAt":"2026-09-04T11:19:54Z"}]}' ;;
   "api repos/o/r/issues/5") printf '%s' '{"number":5,"title":"issue 5 の題","body":"issue の本文"}' ;;
   "api repos/o/r/issues/5/comments?per_page=100&page=1") printf '%s' '[{"id":501,"body":"issue への先のコメント。F3 は fixture 3 の略です。","user":{"login":"reviewer_x"},"created_at":"2026-09-04T00:00:00Z"}]' ;;
   *) echo "ghstub: 知らない呼び方: $*" >&2; exit 1 ;;
@@ -1139,6 +1159,48 @@ expect_output 0 "取れなかった" "画面を取れないときは文脈ゼロ
     "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN" "$CR_REPLY" "exit 1"
 expect_output 0 "取れなかった" "画面を取れないときの deny にもその旨が載る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_REPLY" "exit 1"
+# 画面は参加者が実際に見ているものまで: 状態・変更ファイル・本文が参照する #番号 の題(2026-09-07 の
+# PR 1429 で、用語集 19 語を生んだ最初の詰まりは「#1231 #1581 #1283 が何か」だった)
+CR_STUB_SEES_STATE='if grep -q "、open)"; then echo CLEAN; else printf "詰まり: PR の状態が画面に無い\n"; fi'
+CR_STUB_SEES_FILES='if grep -q "src/f3.py"; then echo CLEAN; else printf "詰まり: 変更ファイルの一覧が画面に無い\n"; fi'
+CR_STUB_SEES_REF='if grep -q "issue 5 の題"; then echo CLEAN; else printf "詰まり: 本文が参照する #5 の題が画面に無い\n"; fi'
+expect_output 0 "検査を通過" "PR の状態(open/merged/draft)が画面に載る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_STATE" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "検査を通過" "PR の変更ファイルの一覧が画面に載る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_FILES" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "検査を通過" "本文が参照する #番号 の題を引いて画面に載せる" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_REF" "gh pr comment 9 --body '$CR_BODY #5 を閉じる $CR_PAD'" "$CR_GH"
+# 画面が既知にするのは「何を指しているか」で、「どう書くか」ではない。画面を語彙の辞書にすると、
+# スレッドの癖のある書き方に読み手が引っ張られ、本文がその癖を写す向きに働く
+CR_STUB_VOCAB='if grep -q "なぞり: 」"; then echo CLEAN; else printf "詰まり: 画面を語彙の辞書にしない規則(なぞりの欄)が依頼文に無い\n"; fi'
+expect_output 0 "検査を通過" "画面モードの依頼文は、画面を語彙の辞書にしない(相手の語を地の文で使えば「なぞり」)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_VOCAB" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+# なぞりは詰まりと同じく止める。詰まりの条件文に埋めた形は実物の読み手に 1 件も拾われなかった(2026-09-07 に実測)
+CR_STUB_TRACED='cat >/dev/null; printf "なぞり: 「ニアバイして」は reviewer_x の語をそのまま地の文に使っている\n"'
+expect_output 0 "自分の言葉に直せば通る" "相手の言い回しを地の文に写した箇所(なぞり)は投稿を止め、直し方は説明を足すことではないと言う" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_TRACED" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+CR_STUB_TRACED_NONE='cat >/dev/null; printf "なぞり: なし\n"'
+expect_output 0 "検査を通過" "「なぞり: なし」は 0 件として通る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_TRACED_NONE" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "相手の語で書かない" "返信の deny の直し方に「相手の語は指してよいが、相手の語で書かない」が在る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+# 予算を超えたら古いコメントから落とす。旧版は組んだ後に末尾を切り、本文を長く見せるほど最新の返信が落ちた
+expect_output 0 "ASSEMBLE_OK" "画面が予算を超えたら古いコメントから落とし、最後の 1 件(答える相手)と本文は残る" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''blocks=[["[c%d]"%i, "x"*g.SCREEN_BODY_MAX] for i in range(20)]
+out=g.assemble(["title","[本文]"], "b"*3000, blocks, ["tail"])
+ok = len(out)<=g.SCREEN_MAX and "[c19]" in out and "[c0]" not in out and "省略" in out and "tail" in out and "b"*3000 in out
+print("ASSEMBLE_OK" if ok else "BAD len=%d" % len(out))' "$ROOT/gates/hooks/coldread-gate.py"
+# 古い版で走り続けるセッションに、新しい版が cache に在ることを伝える(フックの版はセッション開始時に固定。
+# 2026-09-07 に実測: 0.9.0 導入前に開始したセッションが 16 時間 0.8.0 のまま検査していた)
+CR_VCACHE="$WORK/vcache/gates"
+mkdir -p "$CR_VCACHE/0.1.0/hooks" "$CR_VCACHE/0.1.0/.claude-plugin" "$CR_VCACHE/0.2.0/hooks" "$CR_VCACHE/0.10.0/hooks"
+cp "$ROOT/gates/hooks/coldread-gate.py" "$CR_VCACHE/0.1.0/hooks/"
+echo '{"name":"gates","version":"0.1.0"}' > "$CR_VCACHE/0.1.0/.claude-plugin/plugin.json"
+: > "$CR_VCACHE/0.2.0/hooks/coldread-gate.py"
+expect_output 0 "0.2.0 が在る" "cache に新しい版が在れば検査結果にその旨が載る(本体の無い 0.10.0 は入りかけなので拾わない)" \
+    env COLDREAD_GATE="$CR_VCACHE/0.1.0/hooks/coldread-gate.py" "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_POST"
+expect_output 0 "NO_NOTE" "開発 checkout(兄弟が版名でない)では版の注記を出さない" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''print("NO_NOTE" if g.VERSION_NOTE == "" else "BAD: " + g.VERSION_NOTE)' "$ROOT/gates/hooks/coldread-gate.py"
 # 冗長(画面に有るものの説明)は止めない申し送り。詰まりと同じ欄に混ぜると「直せ」と読まれる
 expect_output 0 "削ってよい" "冗長は止めずに申し送る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_REDUNDANT" "$CR_REPLY" "$CR_GH"
@@ -1158,9 +1220,7 @@ expect_output 0 "検査を通過" "「詰まり: なし」だけの出力は CLE
 # 読み役は利用者の CLAUDE.md を読まない(--setting-sources を空で起動)。2026-09-06 に実測: 無しだと
 # 利用者の CLAUDE.md の見出しをそのまま引用し、有りだと NONE。CI に claude は無いので起動引数で縛る
 expect_output 0 "READER_ARGV_OK" "読み役の起動引数に --setting-sources '' と --tools '' が在る" \
-    "$PY_BIN" -c 'import importlib.util,sys
-spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
-a=g.reader_argv("claude","x")
+    "$PY_BIN" -c "$CR_LOAD"$'\n''a=g.reader_argv("claude","x")
 ok = "--setting-sources" in a and a[a.index("--setting-sources")+1]=="" and "--tools" in a and a[a.index("--tools")+1]==""
 print("READER_ARGV_OK" if ok else "BAD %r" % a)' "$ROOT/gates/hooks/coldread-gate.py"
 # 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
@@ -1172,13 +1232,13 @@ $CR_BODY
 $CR_BODY
 $CR_PAD
 EOF"
-expect_output 0 "字に増えた" "3 回連続 deny で本文が増えていれば、その字数を案内に載せる" \
+expect_output 0 " → " "3 回連続 deny で本文が増えていれば、1 回ごとの字数の数列を案内に載せる" \
+    "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+# 出させるのは「今の本文」でなく「最初の本文」。旧文言は膨れた版を出せと読めた(1429: 5,455 字 → 10,179 字で skip)
+expect_output 0 "最初の本文に戻し" "3 回連続 deny の案内は、最初の本文に戻してから出せと言う" \
     "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
 expect_output 0 "HEAD_OK" "3 回連続 deny の案内は deny 理由の先頭に在る" \
-    "$PY_BIN" -c 'import json,sys,subprocess
-out = subprocess.run(sys.argv[1:], capture_output=True, encoding="utf-8").stdout
-reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
-print("HEAD_OK" if reason.startswith("【") and "足して直さない" in reason[:80] else "BAD: " + reason[:120])' \
+    "$PY_BIN" -c "$CR_REASON"$'\n''print("HEAD_OK" if reason.startswith("【") and "足して直さない" in reason[:80] else "BAD: " + reason[:120])' \
     "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
 
 # ---- destgate: 投稿先の許可一覧(coldread と独立の軸。一覧が無ければ眠る) ----
