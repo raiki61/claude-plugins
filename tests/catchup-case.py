@@ -855,8 +855,13 @@ def _no_target():
     （gh を呼んだら落ちるスタブで確かめる）。--frame と焦点の語はその旨を書く。"""
     cm = catchup.changemap
     saved = (catchup.current_pr_url, cm.current_branch, catchup.render_local, cm.working_tree,
-             cm.frames_section)
+             cm.frames_section, catchup.ahead_of_default)
     catchup.current_pr_url = lambda: ""            # 今のブランチに PR は無い（gh は通った）
+    # 既定ブランチより先の差は実物の git で見るので、このリポジトリの push 状態で結果が変わる。
+    # 手元の main が origin より 1 commit 進んでいると frames_section が paths と rev で呼ばれ、
+    # 下の未コミット用のスタブ（cwd, dirty, frame_cmd）が TypeError で落ちた（2026-09-06 実測）。
+    # この検査が見るのは未コミットの中身の出し方なので、先の差は無い状態に固定する
+    catchup.ahead_of_default = lambda cwd=None: []
     cm.current_branch = lambda cwd=None: "main"
     catchup.render_local = lambda **kw: "## 手元のブランチ main（" + kw["why"] + "）\n  未コミット 1 件"
     cm.working_tree = lambda cwd=None: (["src/a.py"], [" work/", "~  src/a.py  +1"])
@@ -869,7 +874,7 @@ def _no_target():
         out = catchup.render_no_target()
     finally:
         (catchup.current_pr_url, cm.current_branch, catchup.render_local, cm.working_tree,
-         cm.frames_section) = saved
+         cm.frames_section, catchup.ahead_of_default) = saved
     want = {
         "resolved": target == (None, None, None, "none"),
         "head": out.startswith("# 今のブランチ main（PR も、名前の番号も無い）"),
