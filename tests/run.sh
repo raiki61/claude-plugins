@@ -1081,6 +1081,106 @@ CR_STREAK_CFG="$WORK/coldread-cfg-streak"; mkdir -p "$CR_STREAK_CFG"
 expect_output 0 "3 回連続で止まっている" "3 回連続 deny で skip の案内が出る(ちょうど 3 で発火)" \
     "$CR_CASE" "$CR_STREAK_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 
+# ---- coldread: 返信の読み手には画面(投稿先のスレッド)を渡す ----------------------------
+# 文脈ゼロで読ませると、画面に有るもの(相手の名前・PR 番号・相手の印・相手の語)が全部詰まりに出て、
+# 書き手が宛先本人に本人の名前を説明する返信を書く(2026-09-06 に PR 1583 で実測、39 回 deny)。
+# gh は代役に差し替える(CI に gh も認証も無い)。引数列で応答を選び、知らない呼び方は失敗させる
+CR_GHSTUB="$WORK/ghstub.sh"
+cat > "$CR_GHSTUB" <<'SH'
+#!/bin/sh
+case "$*" in
+  "api repos/o/r/pulls/comments/77") printf '%s' '{"id":77,"in_reply_to_id":null,"path":"docs/a.adoc","line":32,"diff_hunk":"@@ -0,0 +1,3 @@\n+= 題\n+本文の行","body":"[block] F3 の行が抜けています。F3 は fixture 3 の略です。","user":{"login":"reviewer_x"},"created_at":"2026-09-04T11:21:40Z","pull_request_url":"https://api.github.com/repos/o/r/pulls/9"}' ;;
+  "api repos/o/r/pulls/comments/78") printf '%s' '{"id":78,"in_reply_to_id":77,"path":"docs/a.adoc","line":32,"diff_hunk":"@@ -0,0 +1,3 @@\n+= 題\n+本文の行","body":"先の返信です","user":{"login":"author_y"},"created_at":"2026-09-05T00:00:00Z","pull_request_url":"https://api.github.com/repos/o/r/pulls/9"}' ;;
+  "api repos/o/r/pulls/9") printf '%s' '{"number":9,"title":"docs: F3 の説明を足す","body":"PR の説明"}' ;;
+  "api repos/o/r/pulls/9/comments?per_page=100&page=1") printf '%s' '[{"id":77,"in_reply_to_id":null,"body":"[block] F3 の行が抜けています。F3 は fixture 3 の略です。","user":{"login":"reviewer_x"},"created_at":"2026-09-04T11:21:40Z"},{"id":78,"in_reply_to_id":77,"body":"先の返信です","user":{"login":"author_y"},"created_at":"2026-09-05T00:00:00Z"},{"id":90,"in_reply_to_id":null,"body":"別スレッドの指摘","user":{"login":"reviewer_x"},"created_at":"2026-09-04T11:22:00Z"}]' ;;
+  "pr view 9 --json number,title,body,comments,url") printf '%s' '{"number":9,"title":"docs: F3 の説明を足す","body":"PR の説明","url":"https://github.com/o/r/pull/9","comments":[{"author":{"login":"reviewer_x"},"body":"レビューしました。F3 は fixture 3 の略です。","createdAt":"2026-09-04T11:19:54Z"}]}' ;;
+  "api repos/o/r/issues/5") printf '%s' '{"number":5,"title":"issue 5 の題","body":"issue の本文"}' ;;
+  "api repos/o/r/issues/5/comments?per_page=100&page=1") printf '%s' '[{"id":501,"body":"issue への先のコメント。F3 は fixture 3 の略です。","user":{"login":"reviewer_x"},"created_at":"2026-09-04T00:00:00Z"}]' ;;
+  *) echo "ghstub: 知らない呼び方: $*" >&2; exit 1 ;;
+esac
+SH
+# sh で明示的に起動する(実行ビットと shebang の解釈に依らない——Windows の Git Bash でも同じ形で動く)
+CR_GH="sh $CR_GHSTUB \"\$@\""
+# REST の正式形(PR 番号入り)。2026-09-06 の実物の投稿 16 件がこの形で、PR 番号無しの形を
+# 前提にした版はこれを取りこぼして文脈ゼロに落ちていた(自分の変更の実測で発見)
+CR_REPLY="gh api repos/o/r/pulls/9/comments/77/replies -X POST --jq .html_url --input - <<'EOF'
+{\"body\": \"$CR_BODY $CR_PAD\"}
+EOF"
+# 読み役の代役が stdin(依頼文+本文)を見て、画面が渡ったかどうかで返す文言を変える
+CR_STUB_SEES_SCREEN='if grep -q "fixture 3 の略"; then echo CLEAN; else printf "詰まり: 画面(元の指摘)が読み手に渡っていない\n"; fi'
+CR_STUB_SEES_PRIOR='if grep -q "先の返信です"; then echo CLEAN; else printf "詰まり: これまでの返信が渡っていない\n"; fi'
+CR_STUB_OTHER_THREAD='if grep -q "別スレッドの指摘"; then printf "詰まり: 別スレッドの指摘まで渡された\n"; else echo CLEAN; fi'
+CR_STUB_NO_SCREEN='if grep -q "画面に既に見えているもの"; then printf "詰まり: 新規作成なのに画面が渡された\n"; else echo CLEAN; fi'
+CR_STUB_REDUNDANT='cat >/dev/null; printf "冗長: 冒頭で PR 番号とリポジトリ名を説明している\n"'
+expect_output 0 "検査を通過" "review スレッドへの返信では元の指摘と PR の題が読み手に渡る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "$CR_REPLY" "$CR_GH"
+expect_output 0 "検査を通過" "同じスレッドのこれまでの返信も渡る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_PRIOR" "$CR_REPLY" "$CR_GH"
+expect_output 0 "検査を通過" "PR 番号無しの replies の形も同じスレッドと読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "gh api repos/o/r/pulls/comments/77/replies -f body='$CR_BODY $CR_PAD'" "$CR_GH"
+# 読み役の代役は stdin を一度読んでから 2 条件を見る(grep を 2 回掛けると 2 回目の stdin は空)
+CR_STUB_EDIT='b=$(cat); case "$b" in *"fixture 3 の略"*) case "$b" in *"先の返信です"*) printf "詰まり: 直す当のコメントが画面に残った\n";; *) echo CLEAN;; esac;; *) printf "詰まり: 元の指摘が画面に無い\n";; esac'
+expect_output 0 "検査を通過" "編集(PATCH)では根の指摘は見え、直す当の返信は画面から除く" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_EDIT" "gh api repos/o/r/pulls/comments/78 -X PATCH -f body='$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "検査を通過" "旗が先でも後ろの番号を位置引数として読む" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "gh pr comment --body '$CR_BODY $CR_PAD' 9" "$CR_GH"
+expect_output 0 "検査を通過" "別スレッドの指摘は渡さない(画面に無いもの)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_OTHER_THREAD" "$CR_REPLY" "$CR_GH"
+expect_output 0 "検査を通過" "gh pr comment は PR の題と会話が読み手に渡る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "検査を通過" "gh api issues/N/comments は issue の題と会話が読み手に渡る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_SEES_SCREEN" "gh api repos/o/r/issues/5/comments -f body='$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "検査を通過" "issue の新規作成は文脈ゼロのまま(画面を渡さない)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NO_SCREEN" "gh issue create --title t --body '$CR_BODY $CR_PAD'" "$CR_GH"
+expect_output 0 "検査を通過" "gist の新規作成も文脈ゼロのまま" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NO_SCREEN" "$CR_GIST" "$CR_GH"
+# 画面を取れないときは止めずに文脈ゼロで読み、書き手には「画面に有るものへの詰まりは無視してよい」と伝える
+expect_output 0 "取れなかった" "画面を取れないときは文脈ゼロで読み、その旨を書き手に伝える(通過側)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN" "$CR_REPLY" "exit 1"
+expect_output 0 "取れなかった" "画面を取れないときの deny にもその旨が載る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_REPLY" "exit 1"
+# 冗長(画面に有るものの説明)は止めない申し送り。詰まりと同じ欄に混ぜると「直せ」と読まれる
+expect_output 0 "削ってよい" "冗長は止めずに申し送る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_REDUNDANT" "$CR_REPLY" "$CR_GH"
+# 直し方は読み方で変える。画面モードで「同型を掃討」と言うと、画面に有るものの説明を足す向きに働く
+expect_output 0 "足すより削る" "スレッドへの返信の deny は「足すより削る」と案内する" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "$CR_REPLY" "$CR_GH"
+expect_output 0 "掃討" "新規作成の deny は従来の「同型を掃討」の案内のまま" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_BLOCK" "gh issue create --title t --body '$CR_BODY $CR_PAD'" "$CR_GH"
+# 「詰まり: なし」は 0 件であって 1 件ではない。依頼文で省けと言っても読み手は書く(2026-09-06 に実測:
+# 画面モードの読み手が書き、837 字の返信が止まった)。落とさないと無い欄が投稿を止める
+CR_STUB_NONE='cat >/dev/null; printf "詰まり: なし\n補完: 無し。\n疑問: 期限はいつか\n"'
+expect_output 0 "検査を通過" "「詰まり: なし」は詰まりに数えない(疑問だけ残って通る)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NONE" "$CR_POST"
+CR_STUB_NONE_ONLY='cat >/dev/null; printf "詰まり: なし\n"'
+expect_output 0 "検査を通過" "「詰まり: なし」だけの出力は CLEAN と同じに通る" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_NONE_ONLY" "$CR_POST"
+# 読み役は利用者の CLAUDE.md を読まない(--setting-sources を空で起動)。2026-09-06 に実測: 無しだと
+# 利用者の CLAUDE.md の見出しをそのまま引用し、有りだと NONE。CI に claude は無いので起動引数で縛る
+expect_output 0 "READER_ARGV_OK" "読み役の起動引数に --setting-sources '' と --tools '' が在る" \
+    "$PY_BIN" -c 'import importlib.util,sys
+spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+a=g.reader_argv("claude","x")
+ok = "--setting-sources" in a and a[a.index("--setting-sources")+1]=="" and "--tools" in a and a[a.index("--tools")+1]==""
+print("READER_ARGV_OK" if ok else "BAD %r" % a)' "$ROOT/gates/hooks/coldread-gate.py"
+# 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
+CR_GROW_CFG="$WORK/coldread-cfg-grow"; mkdir -p "$CR_GROW_CFG"
+"$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+"$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
+CR_POST_LONGER="gh issue comment 1 --body-file - <<'EOF'
+$CR_BODY
+$CR_BODY
+$CR_PAD
+EOF"
+expect_output 0 "字に増えた" "3 回連続 deny で本文が増えていれば、その字数を案内に載せる" \
+    "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+expect_output 0 "HEAD_OK" "3 回連続 deny の案内は deny 理由の先頭に在る" \
+    "$PY_BIN" -c 'import json,sys,subprocess
+out = subprocess.run(sys.argv[1:], capture_output=True, encoding="utf-8").stdout
+reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
+print("HEAD_OK" if reason.startswith("【") and "足して直さない" in reason[:80] else "BAD: " + reason[:120])' \
+    "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
+
 # ---- destgate: 投稿先の許可一覧(coldread と独立の軸。一覧が無ければ眠る) ----
 DG_CASE="$ROOT/tests/destgate-case.sh"
 DG_CFG="$WORK/destgate-cfg"; mkdir -p "$DG_CFG/destgate"

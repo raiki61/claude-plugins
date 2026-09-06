@@ -10,6 +10,15 @@ coldreader(文脈ゼロの読み手。別プロセスの headless Claude)を走�
 理解を妨げる「詰まり」があれば、その指摘を deny 理由に載せて投稿を止める。
 「疑問」(理解はできたが答えが本文に無いもの)は止めずに申し送る。
 
+読み手が持つ文脈は投稿先で変える。既に在る PR/issue のスレッドへ付く返信・編集は、題・番号・
+file と行・元の指摘・これまでの返信が同じ画面に見えている状態で読まれるので、**フックが gh で
+その画面を取り、読み手に既知として渡す**。新規作成(issue/PR/release/gist/discussion の create)は
+読み手が何も持たないので文脈ゼロのまま。画面を渡さずに読ませると、@相手の名前・PR 番号・相手が
+付けた印・相手自身の語まで詰まりに出て、書き手がそれを直すと宛先本人に本人の名前と自分の指摘の
+意味を説明する返信になる(2026-09-06 に PR 1583 で実測: 1 本の返信が 39 回止まり、1,021 字 →
+2,555 字に膨れて逃げ道で出た。短く戻した版も止まった)。画面に有るものを本文で説明している箇所は
+「冗長」として止めずに申し送り、deny の直し方も返信では「足すより削る」になる。
+
 - 検査の実行を書き手の申告に頼らない——「検査した印だけ押して通す」穴が構造的に無い
 - 検査するのは通じやすさだけ——出してよい投稿か・名義・宛先は見ていない。**通過を承認と
   読み違えるな**(通過・差し戻しの文言でも毎回言う)。宛先は下の destgate が縛る
@@ -19,11 +28,18 @@ coldreader(文脈ゼロの読み手。別プロセスの headless Claude)を走�
   門番を締めたときにどれだけ裏口へ押し出したかを測れない
 - 400 文字未満の定型返信・読み取り系の gh コマンドには掛からない
 - coldreader が起動できない環境でも投稿不能にはならない(deny + 逃げ道の案内)
+- 画面を取れない(gh 無し・認証無し・オフライン)ときは文脈ゼロで読み、その旨を書き手に伝える(止めない)
+- coldreader は利用者の CLAUDE.md と settings を読まない(`--setting-sources ""` で起動)。書き手向けの
+  「初見でも分かるように書く」等の規則を読み手が自分の指示として持つと、識別子を全部詰まりに出す側へ
+  寄る(2026-09-06 に実測: 素の起動では利用者の CLAUDE.md の見出しを引用した)
+- 3 回連続で止まったら、案内を deny 理由の先頭に置き、その間に本文が何字から何字へ膨れたかを示す
+  (末尾に置いた案内は 36 回無視された)
 
 設定は環境変数(すべて任意): `COLDREAD_MODEL`(既定 sonnet)・`COLDREAD_EFFORT`(既定
 medium)・`COLDREAD_MIN_LEN`(これ未満のコマンドは素通し。既定 400)・`COLDREAD_MAX_LEN`
 (これを超えるコマンドは解析せず止める。既定 100000)・`COLDREAD_KEYCHAIN_SERVICE`(macOS で
-OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(coldreader の差し替え)。
+OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD_READER_CMD`(coldreader の差し替え)・
+`COLDREAD_GH_CMD`(画面を取る gh の差し替え。テスト用)。
 
 ## 網の射程(正直な限界)
 
@@ -62,6 +78,15 @@ OAuth トークンを Keychain から読むときのサービス名)・`COLDREAD
 - フックの起動行は POSIX シェル(bash)で評価される前提で書いてある(`command -v` と `$(...)` で
   `python3`/`python` を選ぶ)。bash が無い環境では本体がフック自体を起動できないので、
   起動行の書き方に関わらず門番は動かない
+- 画面を渡すのは投稿先が既に在るスレッドのときだけ: `gh api` の path が
+  `repos/o/r/pulls/N/comments/ID/replies`(PR 番号無しの形も)・`repos/o/r/pulls/comments/ID`・`repos/o/r/pulls/N/comments`・
+  `repos/o/r/pulls/N/reviews`・`repos/o/r/issues/N/comments`・`repos/o/r/issues/comments/ID`・
+  `repos/o/r/(issues|pulls)/N` のとき、または `gh pr comment/review/close/reopen/merge/revert/edit`・
+  `gh issue comment/close/reopen/edit`(番号・URL・ブランチの解決は gh 自身に任せる。番号を省いた
+  `gh pr comment` は今のブランチの PR)。review スレッドは同じ根に連なる返信だけを渡し、PR/issue の
+  会話は本文の冒頭と直近 3 件(一覧は 100 件ずつ最大 5 ページ)。画面取得の gh 呼び出しは合計 40 秒で
+  打ち切り、文脈ゼロへ倒す(フック自体が時間切れになると投稿が無検査で通るため)。`gh discussion` は
+  画面を取らない(文脈ゼロ)
 - 値が本文でないものは coldreader(外部プロセス)へ送らない: `gh secret set --body`・
   `gh variable set --body`(値は秘密そのもの)、`gh api --input` の JSON(`.body` を持つときだけ
   その中身を読ませ、持たない JSON は送らない)

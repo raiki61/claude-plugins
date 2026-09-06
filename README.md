@@ -7,7 +7,7 @@ raiki61 のプラグインマーケットプレイス。配るプラグインは
 | プラグイン | 何を配るか | 効き方 |
 |---|---|---|
 | **convergence-loops** | 収束するまで回す 4 つのループ（/review-loop・/research-loop・/doctor-loop・/firstread-loop） | 呼んだときに効く（コマンド） |
-| **gates** | 外に出る操作を、検査が通るまで止める門番。1 本目は coldread——gh の投稿本文(issue・PR・release notes・gist 等)を、文脈ゼロの読み手に初見で読ませて、詰まりが直るまで投稿を止める。2 本目は destgate——投稿の宛先を人が管理する許可一覧で縛る（既定で眠る） | 有効化した環境で常時効く（フック）→ [gates/README.md](gates/README.md) |
+| **gates** | 外に出る操作を、検査が通るまで止める門番。1 本目は coldread——gh の投稿本文(issue・PR・release notes・gist 等)を、別プロセスの読み手に初見で読ませて、詰まりが直るまで投稿を止める(新規作成は文脈ゼロで、既に在るスレッドへの返信は画面に見えているもの——題・元の指摘・これまでの返信——を渡して読ませる)。2 本目は destgate——投稿の宛先を人が管理する許可一覧で縛る（既定で眠る） | 有効化した環境で常時効く（フック）→ [gates/README.md](gates/README.md) |
 | **coldwrite** | 書かれる文書の門番(試作)。Write される散文の拡張子(md/mdx/adoc/asciidoc/rst/txt)を coldreader(文脈を持たない初見の読み手)が書き込み前に読み、詰まりが直るまで止める | 有効化した環境で常時効く（フック）→ [coldwrite/README.md](coldwrite/README.md) |
 | **attention** | 並行作業を見渡して戻るための道具 3 本。open 全件から誰の番かを出す /whose-turn、1 件の PR / issue に戻る /catchup（該当ブランチへ移る。手元に無ければ origin から取る。説明の後ろに系の前後の絵）、いま居るセッションが何のスレッドだったかを思い出す /what-am-i-doing | 呼んだときに効く（コマンド）→ [attention/README.md](attention/README.md) |
 
