@@ -257,6 +257,26 @@ def current_pr_url():
     sys.exit("gh pr view が失敗（今のブランチに PR が無いのとは別。理由: " + err + "）")
 
 
+RANGE_RE = re.compile(r"^(?P<a>[^.\s]+)(?P<sep>\.\.\.?)(?P<b>[^.\s]+)$")
+
+
+def resolve_range(token, cwd=None):
+    """`A..B` / `A...B` の両端が手元の commit に解ければ "oidA..oidB"（`...` は merge-base から）。違えば None。
+    会話の話題がこのセッションの commit 数件に結び付いているとき（「今の修正」）、AI が
+    `<一番古い sha>^..<一番新しい sha>` で呼ぶ口。"""
+    m = RANGE_RE.match(token)
+    if not m:
+        return None
+    a, b = changemap.commit_oid(m["a"], cwd), changemap.commit_oid(m["b"], cwd)
+    if not (a and b):
+        return None
+    if m["sep"] == "...":
+        a = (changemap.git("merge-base", a, b, cwd=cwd) or "").strip()
+        if not a:
+            return None
+    return f"{a}..{b}"
+
+
 def resolve_target(token, repo_opt):
     """番号・URL・this から (owner, name, number, 今のブランチとの関係) を決める。関係は None
     （番号や URL で呼んだ）／"pr"（今のブランチの PR）／"branch"（PR が無く、ブランチ名の番号を
@@ -277,6 +297,12 @@ def resolve_target(token, repo_opt):
             return None, None, None, "none"
         token, local = str(num), "branch"
     digits = token.lstrip("#").isdigit()
+    if ".." in token:
+        # 枝の名前に .. は使えない（git の禁則）ので、範囲としてだけ読む
+        rng = resolve_range(token)
+        if rng:
+            return None, None, rng, "range"
+        sys.exit(f"範囲 {token} の両端が手元の commit に解けない（A..B の A と B は sha・HEAD~n・タグ・ブランチ名）")
     if not digits and changemap.branch_exists(token):
         return None, None, token, "branchname"
     # 数字だけの語は番号が先。ただし 7 桁以上（PR / issue の番号はそこまで行かない）で手元の commit に
@@ -1929,6 +1955,56 @@ def render_commit(oid, cwd=None, frame=None, full=False):
     ])
 
 
+def render_range(rev, cwd=None, frame=None, full=False):
+    """commit の範囲 A..B の報告。1 commit と同じ形（commit の一覧 → 木 → 変更の中身の枠と飛び先）で、差は
+    A の版と B の版の間。会話の話題がこのセッションの commit 数件に結び付いているとき（「今の修正」）の口——
+    話題の形（型と手元だけ）では、全部 push 済みだと何も出ない（実測）。frame はその 1 file だけを上限なしで。"""
+    a, b = rev.split("..", 1)
+    sa, sb = a[:7], b[:7]
+    log = changemap.git("log", "--format=%h%x09%ad%x09%an%x09%s", "--date=short", rev, cwd=cwd) or ""
+    commits = [ln for ln in log.splitlines() if ln.strip()]
+    paths, tree = changemap.commit_tree(rev, cwd)
+    jump = (f"各枠の前の『飛び先 path:行』は commit {sb} の版の行番号（git show {sb}:path で開く）。"
+            "AI は箇所の見出しと枠の上の注釈に写す")
+    if frame:
+        text = changemap.frame_diff(cwd=cwd, rev=rev, paths=(frame,))
+        if text is None:
+            sys.exit("git diff が失敗した（枠は出せない）")
+        info = changemap.framed_diff(text).get(frame)
+        if not info:
+            sys.exit(f"{frame} はこの範囲の変更に無い（path はリポジトリの根からの相対）")
+        return f"    === {frame} （{jump}）{changemap.lang_tag(frame)}\n" + "\n".join(
+            changemap.frame_lines(frame, info, cap=None))
+    ends = ""
+    if commits:
+        first, last = commits[-1].split("\t", 1)[0], commits[0].split("\t", 1)[0]
+        ends = f"（{first} → {last}。{sa} は範囲の外）" if len(commits) > 1 else f"（{first}。{sa} は範囲の外）"
+    out = [f"# {sa}..{sb} commit {len(commits)} 件{ends}",
+           f"  {len(paths)} ファイル · 差は {sa} の版と {sb} の版の間",
+           "  GitHub 側は見ていない——手元の git の commit の範囲として出す"]
+    shown = commits if full else commits[:BODY_CAP]
+    out += ["", "## 範囲の commit（材料。古い順に sha・日付・作者・題。本文は git show <sha>）"]
+    for ln in reversed(shown):
+        h, d, an, s = (ln.split("\t", 3) + ["", "", ""])[:4]
+        out.append(f"  | {h}  {d}  {an}  {s}")
+    if len(commits) > len(shown):
+        out.append(f"  （commit はあと {len(commits) - len(shown)} 件。--full か git log {rev} で見る）")
+    if not paths:
+        return "\n".join(out + ["", "  変更なし（範囲が空か、mode だけの変更）"])
+    out += ["", "## 変更の地図（材料）",
+            "  変更ファイルの木（行頭 + が新規・~ が変更・- が削除。そのまま diff の枠に貼る）:"]
+    out += tree
+    out += changemap.frames_section(cwd, paths, rev=rev,
+                                    frame_cmd=f"catchup.py {sa}..{sb} --frame", new_from_file=False,
+                                    jump_note=jump)
+    return "\n".join(out + [
+        "", "見ていないもの:",
+        "  - GitHub の PR / issue（この範囲を含む PR があっても見ていない。番号か URL を渡せば出る）",
+        f"  - 範囲の外の commit（{sa} より前と {sb} より後）と、各 commit の本文（題だけ出した）",
+        "  - この範囲を誰かが取り込んだか、手元と origin のどちらが先か",
+    ])
+
+
 def ahead_of_default(cwd=None):
     """PR の無い枝で、既定ブランチ（origin/HEAD）より先の commit の変更を、木と枠で。ブランチ名で来た人が
     期待するのは枝全体の差で、未コミットや tip の 1 commit ではない（読み役の実測。仕様 11 節で決めた）。
@@ -2050,7 +2126,8 @@ def main(argv=None):
         description="1 件の PR / issue について、前回自分が触ってから何が起きたかを出す")
     p.add_argument("words", nargs="*", metavar="対象 [焦点]",
                    help="対象は番号か PR / issue の URL、または手元の commit（sha・HEAD~2・タグ・ブランチ名。"
-                        "GitHub は見ない）。無ければ（または this なら）今のブランチの "
+                        "GitHub は見ない）、または commit の範囲 A..B（2971ea2..HEAD・HEAD~4..HEAD。差は A の版と"
+                        " B の版の間）。無ければ（または this なら）今のブランチの "
                         "PR、それも無ければブランチ名の番号を引く。末尾の材料は有れば全部出る"
                         "（地図は PR なら常に、指摘は人が入っている未解決スレッドが有れば、CI は赤が"
                         "有れば）。焦点の語 指摘・地図・CI を後ろに付けると、その 1 つに絞る")
@@ -2095,6 +2172,16 @@ def main(argv=None):
                 print()
                 print(f"（移っていないので、枝 {num} の tip の commit として出した。枝全体の差は移ってから this で）")
                 return 0
+    if local == "range":
+        if a.switch:
+            print("ブランチ: commit の範囲には移る先が無い（--switch は何もしない）")
+            print()
+        print(render_range(num, frame=a.frame, full=a.full))
+        rest = focus_words(focus - {"map"})
+        if rest:
+            print()
+            print(f"（{rest} の材料は PR / issue のもの。commit には無い）")
+        return 0
     if local == "commit":
         if a.switch:
             print("ブランチ: commit には移る先が無い（--switch は何もしない）")

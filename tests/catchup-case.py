@@ -883,6 +883,70 @@ def _no_target():
     return "NO_TARGET_OK" if not bad else "NO_TARGET_NG " + ",".join(bad) + "\n" + out
 
 
+@case("range")
+def _range():
+    """commit の範囲 A..B（A...B は merge-base から）を渡すと、1 commit と同じ形で範囲の差を出す——commit の
+    一覧（古い順）・木・変更の中身（枠と飛び先は B の版）。--frame はその 1 file を上限なしで。"""
+    cm = catchup.changemap
+    saved = (catchup.gh_try, cm.commit_oid, cm.commit_tree, cm.frames_section, cm.git, cm.frame_diff,
+             cm.framed_diff, cm.frame_lines, cm.branch_exists)
+    catchup.gh_try = lambda *a, **k: (_ for _ in ()).throw(AssertionError("gh を呼んだ"))
+    cm.branch_exists = lambda token, cwd=None: False
+    oids = {"aaa": "aaaaaaa1", "bbb": "bbbbbbb2", "HEAD": "bbbbbbb2", "aaa^": "0000000a"}
+    cm.commit_oid = lambda token, cwd=None: oids.get(token)
+    cm.commit_tree = lambda rev, cwd=None: (["src/a.py", "docs/x.md"], [" work/", "~  src/a.py  +1", "~  docs/x.md  +2"])
+    calls = []
+
+    def git(*args, cwd=None):
+        calls.append(args)
+        if args[0] == "log":
+            return "bbbbbbb\t2026-09-06\traiki61\t新しい方\naaaaaaa\t2026-09-05\traiki61\t古い方\n"
+        if args[0] == "merge-base":
+            return "mmmmmmm3\n"
+        return ""
+    cm.git = git
+    seen = {}
+    cm.frames_section = lambda cwd, paths, rev="HEAD", frame_cmd="--frame", new_from_file=True, jump_note="": (
+        seen.update(rev=rev, cmd=frame_cmd, new_from_file=new_from_file, jump=jump_note)
+        or ["  変更の中身（…）:", "    === src/a.py （言語名 python）", "    飛び先 src/a.py:1", "    | def f():"])
+    cm.frame_diff = lambda cwd=None, rev="HEAD", paths=(): "diff"
+    cm.framed_diff = lambda text: {"src/a.py": {"new": False, "blocks": [["def f():"]], "gaps": [], "starts": [1]}}
+    cm.frame_lines = lambda path, info, cap=None, **kw: ["    | def f():"]
+    try:
+        target = catchup.resolve_target("aaa..bbb", None)
+        caret = catchup.resolve_target("aaa^..HEAD", None)
+        three = catchup.resolve_target("aaa...bbb", None)
+        try:
+            catchup.resolve_target("aaa..nope", None)
+            refused = ""
+        except SystemExit as e:
+            refused = str(e)
+        out = catchup.render_range("aaaaaaa1..bbbbbbb2")
+        one = catchup.render_range("aaaaaaa1..bbbbbbb2", frame="src/a.py")
+    finally:
+        (catchup.gh_try, cm.commit_oid, cm.commit_tree, cm.frames_section, cm.git, cm.frame_diff,
+         cm.framed_diff, cm.frame_lines, cm.branch_exists) = saved
+    want = {
+        "resolved": target == (None, None, "aaaaaaa1..bbbbbbb2", "range"),
+        "caret": caret == (None, None, "0000000a..bbbbbbb2", "range"),
+        "merge_base": three == (None, None, "mmmmmmm3..bbbbbbb2", "range"),
+        "refused": "両端が手元の commit に解けない" in refused,
+        "head": out.startswith("# aaaaaaa..bbbbbbb commit 2 件（aaaaaaa → bbbbbbb。aaaaaaa は範囲の外）\n  2 ファイル · 差は aaaaaaa の版と bbbbbbb の版の間"),
+        "no_github": "GitHub 側は見ていない" in out,
+        "commits_oldest_first": out.index("| aaaaaaa  2026-09-05  raiki61  古い方") < out.index("| bbbbbbb  2026-09-06  raiki61  新しい方"),
+        "tree": "~  docs/x.md  +2" in out,
+        "frames": "    飛び先 src/a.py:1" in out,
+        "range_and_cmd": seen == {"rev": "aaaaaaa1..bbbbbbb2", "cmd": "catchup.py aaaaaaa..bbbbbbb --frame",
+                                  "new_from_file": False, "jump": seen.get("jump")}
+        and "commit bbbbbbb の版の行番号（git show bbbbbbb:path で開く）" in seen.get("jump", ""),
+        "frame_one": one.startswith("    === src/a.py （") and "| def f():" in one and "）（言語名 python）\n" in one
+                     and "commit bbbbbbb の版" in one,
+        "unseen": "範囲の外の commit（aaaaaaa より前と bbbbbbb より後）" in out,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "RANGE_OK" if not bad else "RANGE_NG " + ",".join(bad) + "\n" + out
+
+
 @case("commit")
 def _commit():
     """commit（sha・HEAD~2・タグ・ブランチ名）を渡すと、GitHub に聞かずにその commit を出す——題と

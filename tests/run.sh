@@ -1281,6 +1281,10 @@ expect_output 0 "COMMIT_OK" \
     "catchup: commit（sha・HEAD~2・タグ）を渡すと GitHub に聞かず、題と本文・木・変更の中身（枠と飛び先）を出す。--frame は 1 file を全部" \
     "$PY_BIN" "$CU_CASE" commit
 
+expect_output 0 "RANGE_OK" \
+    "catchup: commit の範囲 A..B（A...B は merge-base から）を渡すと、commit の一覧（古い順）・木・変更の中身（枠と飛び先は B の版）を 1 commit と同じ形で出す。--frame は 1 file を全部" \
+    "$PY_BIN" "$CU_CASE" range
+
 expect_output 0 "NO_TARGET_OK" \
     "catchup: PR も番号も無いブランチ（main 等）でも止まらず、GitHub に聞かずに手元のブランチと未コミットの中身（枠と飛び先）を出す" \
     "$PY_BIN" "$CU_CASE" no-target

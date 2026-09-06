@@ -221,6 +221,10 @@ def _branch_name(tmp):
     # origin にだけ有る枝（main より 1 commit 先。a.txt を変えた）
     git(repo, "switch", "-q", "-c", "tmp-work")
     write(repo, "a.txt", "a\nb\n")
+    # 1 file の上限（300 行）を超える新規 file: 枠は「残り 1 枠」の案内だけになって何も伝えないので、
+    # 先頭と骨組みを出す（実測: 346 行の仕様書）
+    write(repo, "docs/big.md", "# 題\n\n" + "\n".join(f"## 節 {i}\n本文 {i}" for i in range(170)) + "\n")
+    git(repo, "add", "-A")
     git(repo, "commit", "-q", "-am", "ahead")
     new = git(repo, "rev-parse", "HEAD")
     git(repo, "push", "-q", "origin", f"{new}:refs/heads/only-origin")
@@ -250,6 +254,9 @@ def _branch_name(tmp):
         "made_upstream": upstream1 == "refs/remotes/origin/only-origin",
         "ahead": "## origin/main より先の commit 1 件の変更（材料。枝全体の差。未コミットは含まない）" in ahead
         and "a.txt" in ahead and "飛び先 a.txt:" in ahead and "git diff -W" in ahead,
+        "big_new_is_head_and_outline": "=== docs/big.md （新規。342 行。先頭と骨組みだけ——全文は git diff -W" in ahead
+        and "    飛び先 docs/big.md:1" in ahead and "    | ## 節 3" in ahead and "    | 本文 100" not in ahead
+        and "残り 1 枠" not in ahead,
         "already": lines2 == ["ブランチ only-origin: 既に居る"] and on2 is True,
         "local": f"ブランチ {HEAD_REF}: only-origin から移った" in "\n".join(lines3) and on3 is True
         and current(repo) == HEAD_REF,

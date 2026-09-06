@@ -934,6 +934,7 @@ def frames_section(cwd, paths, rev="HEAD", frame_cmd="--frame", new_from_file=Tr
         # 失敗を "" で飲むと、全 file を「中身が diff に無い」と嘘の断りで断定する（実測）
         return ["  変更の中身: 出せない（git diff が失敗した。木と件数だけが上の材料）"]
     frames = framed_diff(text)
+    hunks, _ = split_diff(text)
     dirty = paths
     tracked = tracked_set(cwd, dirty) if new_from_file else set(dirty)
     w("  変更の中身（" + FRAME_NOTE + cap_note(frame_cmd)
@@ -946,6 +947,14 @@ def frames_section(cwd, paths, rev="HEAD", frame_cmd="--frame", new_from_file=Tr
             continue
         if info is None or (info["new"] and new_from_file):
             out.extend(new_file_rows(cwd, path, "add 済みの新規" if info else "未追跡の新規", frame_cmd))
+            continue
+        if info["new"] and not new_from_file and sum(map(len, info["blocks"])) > FRAME_FILE_CAP:
+            # commit・範囲の新規 file が 1 file の上限を超えると、枠は「残り 1 枠 N 行」の案内だけになって何も
+            # 伝えない（実測: 346 行の仕様書）。PR の地図と同じく先頭と骨組みを出し、全文は frame_cmd で
+            added = added_lines(hunks.get(path, []))
+            w(f"    === {path} （新規。{len(added)} 行。先頭と骨組みだけ——全文は {frame_cmd} {path}）" + lang_tag(path))
+            out.extend("    " + prefix + ln for prefix, ln in
+                       head_and_outline(path, added, more=f"。続きは {frame_cmd} {path}"))
             continue
         rows = frame_lines(path, info, frame_cmd=frame_cmd)
         # 足してから判定する（足す前に見ると、最後の 1 file の分だけ上限を必ず超える）。先頭の file は
