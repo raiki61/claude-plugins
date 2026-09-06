@@ -255,8 +255,8 @@ PROSE_EXT = {"md", "txt", "adoc", "rst", "html", "htm", "xml", "json", "jsonc", 
 
 
 # 枠に付ける言語名（highlight.js の名前）。AI が ```<言語名> に写す。機械が決めるのは、AI に選ばせると
-# 命令書の例に無い .md を plaintext にして色が消えた（実走で実測）から。表に無い種類は plaintext——
-# 知らない名前を付けても色は付かない
+# 命令書の例に無い .md を plaintext にして色が消えた（実走で実測）から。表に無い種類は拡張子をそのまま出す——
+# highlight.js が知らなければ色が付かないだけで害は無く、別の描画器なら付く。plaintext は拡張子が無い file だけ
 FENCE_BY_EXT = {
     "python": {"py", "pyi"}, "markdown": {"md", "markdown"}, "bash": {"sh", "bash", "zsh", "bats"},
     "yaml": {"yml", "yaml"}, "json": {"json", "jsonc"}, "typescript": {"ts", "tsx"},
@@ -272,7 +272,7 @@ FENCE_BY_EXT = {
 
 
 def fence_lang(path):
-    """その file の枠に付ける言語名（highlight.js の名前）。表に無い種類・拡張子の無い file は plaintext。"""
+    """その file の枠に付ける言語名（highlight.js の名前）。表に無い種類は拡張子そのまま、拡張子の無い file は plaintext。"""
     base = path.rsplit("/", 1)[-1].lower()
     if base.startswith("dockerfile") or base.endswith(".dockerfile"):
         return "dockerfile"
@@ -282,7 +282,7 @@ def fence_lang(path):
     for lang, exts in FENCE_BY_EXT.items():
         if ext in exts:
             return lang
-    return "plaintext"
+    return ext if ext and ext not in ("txt", "text") else "plaintext"
 
 
 def lang_tag(path):

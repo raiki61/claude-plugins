@@ -116,11 +116,12 @@ class Outline(unittest.TestCase):
         self.assertEqual(cm.outline("z.unknown", ["a", "b"]), [])
 
     def test_fence_lang_is_a_highlightjs_name_or_plaintext(self):
-        """枠の言語名は機械が決める（AI に選ばせると .md を plaintext にした）。表に無い種類は plaintext。"""
+        """枠の言語名は機械が決める（AI に選ばせると .md を plaintext にした）。表に無い種類は拡張子そのまま
+        （知らない名前でも害は無い）。plaintext は拡張子が無い file と .txt だけ。"""
         for path, lang in [("a.py", "python"), ("docs/x.md", "markdown"), ("s.sh", "bash"), ("w.yml", "yaml"),
                            ("t.tsx", "typescript"), ("Dockerfile", "dockerfile"), ("build/Dockerfile.ci", "dockerfile"),
-                           ("Makefile", "makefile"), ("z.unknown", "plaintext"), ("LICENSE", "plaintext"),
-                           ("b.hcl", "plaintext")]:
+                           ("Makefile", "makefile"), ("z.unknown", "unknown"), ("LICENSE", "plaintext"),
+                           ("b.hcl", "hcl"), ("notes.txt", "plaintext")]:
             self.assertEqual(cm.fence_lang(path), lang, path)
         self.assertEqual(cm.lang_tag("a.py"), "（言語名 python）")
 
