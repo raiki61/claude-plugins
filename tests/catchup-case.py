@@ -839,6 +839,40 @@ def _map_jumps():
     return "MAP_JUMPS_OK" if not bad else "MAP_JUMPS_NG " + ",".join(bad) + "\n" + out
 
 
+@case("no-target")
+def _no_target():
+    """PR も番号も無いブランチ（main 等）でも止まらず、手元のブランチだけを出す。GitHub には聞かない
+    （gh を呼んだら落ちるスタブで確かめる）。--frame と焦点の語はその旨を書く。"""
+    cm = catchup.changemap
+    saved = (catchup.gh_try, cm.current_branch, catchup.render_local, cm.working_tree,
+             cm.uncommitted_frames)
+    catchup.gh_try = lambda *a, **k: None          # 今のブランチに PR は無い
+    cm.current_branch = lambda cwd=None: "main"
+    catchup.render_local = lambda **kw: "## 手元のブランチ main（" + kw["why"] + "）\n  未コミット 1 件"
+    cm.working_tree = lambda cwd=None: (["src/a.py"], [" work/", "~  src/a.py  +1"])
+    seen = {}
+    cm.uncommitted_frames = lambda cwd, dirty, frame_cmd="--frame": (
+        seen.update(dirty=dirty, cmd=frame_cmd) or ["  変更の中身（…）:", "    === src/a.py",
+                                                    "    飛び先 src/a.py:1", "    | def f():"])
+    try:
+        target = catchup.resolve_target("this", None)
+        out = catchup.render_no_target()
+    finally:
+        (catchup.gh_try, cm.current_branch, catchup.render_local, cm.working_tree,
+         cm.uncommitted_frames) = saved
+    want = {
+        "resolved": target == (None, None, None, "none"),
+        "head": out.startswith("# 今のブランチ main（PR も、名前の番号も無い）"),
+        "says_github_untouched": "GitHub 側は見ていない——この呼び方で出るのは手元の git だけ" in out,
+        "local": "## 手元のブランチ main（this で呼んだので出す）" in out,
+        "unseen": "番号か URL を渡せば出る" in out and "what-am-i-doing.py で出る" in out,
+        "frames": "    飛び先 src/a.py:1\n    | def f():" in out,   # 木だけでなく中身も出す
+        "frame_cmd": seen == {"dirty": ["src/a.py"], "cmd": "what-am-i-doing.py --frame"},
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "NO_TARGET_OK" if not bad else "NO_TARGET_NG " + ",".join(bad) + "\n" + out
+
+
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: catchup-case.py <" + "|".join(CASES) + ">")

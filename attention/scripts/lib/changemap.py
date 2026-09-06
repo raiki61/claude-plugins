@@ -14,6 +14,7 @@
 core.quotePath=false を付ける。"""
 
 import os
+import pathlib
 import re
 import shutil
 import subprocess
@@ -399,14 +400,19 @@ def framed_diff(text):
     return out
 
 
-FRAME_CAP_NOTE = f"。1 file {FRAME_FILE_CAP} 行を超えたら関数の切れ目で止めて、続きは --frame path で"
+def cap_note(frame_cmd="--frame"):
+    """1 file の上限の断り。frame_cmd は続きを出す呼び手のコマンド（呼び手ごとに違う）。"""
+    return f"。1 file {FRAME_FILE_CAP} 行を超えたら関数の切れ目で止めて、続きは {frame_cmd} path で"
+
+
+FRAME_CAP_NOTE = cap_note()
 # 飛び先の断り。/catchup の地図と /what-am-i-doing の変更の中身が、見出しの括弧に同じ文で入れる
 JUMP_NOTE = "各枠の前の『飛び先 path:行』は head（手元）の行番号。AI は箇所の見出しと枠の上の注釈に写す"
 
 
-def frame_lines(path, info, cap=FRAME_FILE_CAP, indent="    "):
+def frame_lines(path, info, cap=FRAME_FILE_CAP, indent="    ", frame_cmd="--frame"):
     """join_frames の列を、出力に貼る形（字下げ＋prefix＋行）にした文字列の列。"""
-    return [indent + prefix + ln for prefix, ln in join_frames(path, info, cap)]
+    return [indent + prefix + ln for prefix, ln in join_frames(path, info, cap, frame_cmd)]
 
 
 def head_and_outline(path, lines, more=""):
@@ -429,7 +435,7 @@ def head_and_outline(path, lines, more=""):
     return out
 
 
-def join_frames(path, info, cap=FRAME_FILE_CAP):
+def join_frames(path, info, cap=FRAME_FILE_CAP, frame_cmd="--frame"):
     """1 file の枠を、hunk の間に点線を挟んで 1 列にする。cap を超えるなら関数の切れ目で止め、残りを
     申告する（関数の途中では切らない）。返すのは (prefix, text) の列。"| " は貼る行、"" は機械の説明。
 
@@ -443,7 +449,8 @@ def join_frames(path, info, cap=FRAME_FILE_CAP):
         # 上限ゼロで全部出る（実測: 1000 行の枠が 300 行の上限を素通りした）
         if cap and total + len(block) > cap:
             rest = info["blocks"][i:]
-            out.append(("", f"（残り {len(rest)} 枠 {sum(len(b) for b in rest)} 行は --frame {path} で全部出る）"))
+            out.append(("", f"（残り {len(rest)} 枠 {sum(len(b) for b in rest)} 行は"
+                            f" {frame_cmd} {path} で全部出る）"))
             break
         if i:
             gap = info["gaps"][i - 1] if i - 1 < len(info["gaps"]) else 0
@@ -775,4 +782,65 @@ def parse_numstat(text):
             out[path] = (int(a), int(d))
         except ValueError:
             out[path] = (None, None)  # バイナリは "-"
+    return out
+
+
+def tracked_set(cwd, paths):
+    """paths のうち index が追跡しているもの。1 回の ls-files で（file ごとに聞くと N 回 spawn する）。
+    -z は path を引用形にしないため（日本語名が集合と一致する）。paths が空だと ls-files は全 file を
+    列挙するので、空集合を返す。"""
+    if not paths:
+        return set()
+    out = git("ls-files", "-z", "--", *paths, cwd=cwd) or ""
+    return set(filter(None, out.split("\0")))
+
+
+def new_file_rows(cwd, path, kind, frame_cmd="--frame"):
+    """新規 file（未追跡・add 済み）の見出しと、先頭コメント・骨組み。file が読めなければ []。"""
+    full = pathlib.Path(cwd) / path
+    if not full.is_file():
+        return []
+    try:
+        lines = full.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    rows = head_and_outline(path, lines, more=f"。続きは {frame_cmd} {path} か file を開く")
+    return [f"    === {path}（{kind}。{len(lines)} 行。先頭と骨組みだけ——全文は {frame_cmd} {path} か file を開く）"] \
+        + ["    " + prefix + ln for prefix, ln in rows]
+
+
+def uncommitted_frames(cwd, dirty, frame_cmd="--frame"):
+    """未コミットの変更の中身を枠で。/what-am-i-doing の「変更の中身」と、/catchup が
+    PR も番号も無いブランチで出す手元だけの報告が共用する（frame_cmd は続きを出す呼び手のコマンド）。
+    （コードは関数まるごと、散文・設定は文脈 3 行）。新規 file
+    （未追跡・add 済み）は先頭コメントと骨組みだけ——全文は --frame（frame_one）で出る。追跡 file で
+    diff に hunk が無ければ（バイナリ・mode・改名だけ）その旨。"""
+    out = []
+    w = out.append
+    text = frame_diff(cwd=cwd, rev="HEAD")
+    if text is None:
+        # 失敗を "" で飲むと、全 file を「中身が diff に無い」と嘘の断りで断定する（実測）
+        return ["  変更の中身: 出せない（手元の git diff が失敗した。木と件数だけが上の材料）"]
+    frames = framed_diff(text)
+    tracked = tracked_set(cwd, dirty)
+    w("  変更の中身（" + FRAME_NOTE + cap_note(frame_cmd)
+      + f"。合計は {FRAME_TOTAL_CAP} 行まで。" + JUMP_NOTE + "）:")
+    total = 0
+    for path in sorted(dirty):
+        info = frames.get(path)
+        if info is None and path in tracked:
+            w(f"    === {path}（中身が diff に無い。バイナリ・mode・改名だけ）")
+            continue
+        if info is None or info["new"]:
+            out.extend(new_file_rows(cwd, path, "add 済みの新規" if info else "未追跡の新規", frame_cmd))
+            continue
+        rows = frame_lines(path, info, frame_cmd=frame_cmd)
+        # 足してから判定する（足す前に見ると、最後の 1 file の分だけ上限を必ず超える）。先頭の file は
+        # それ 1 本で超えても出す——1 file も出さずに「上限」とだけ言う出力は材料にならない
+        if total and total + len(rows) > FRAME_TOTAL_CAP:
+            w(f"    === {path}（合計の上限。{frame_cmd} {path} で出る）")
+            continue
+        w(f"    === {path}")
+        out.extend(rows)
+        total += len(rows)
     return out

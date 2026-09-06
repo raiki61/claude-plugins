@@ -1268,6 +1268,10 @@ expect_output 0 "SINCE_OK" \
 expect_output 0 "MAP_JUMPS_OK" \
     "catchup: 地図の変更に、各枠の前の飛び先 path:行 と見出しの断り。散文（md）も枠、新規は path:1、削除 file だけ飛び先が無い" \
     "$PY_BIN" "$CU_CASE" map-jumps
+
+expect_output 0 "NO_TARGET_OK" \
+    "catchup: PR も番号も無いブランチ（main 等）でも止まらず、GitHub に聞かずに手元のブランチと未コミットの中身（枠と飛び先）を出す" \
+    "$PY_BIN" "$CU_CASE" no-target
 # stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
 # UnicodeEncodeError になり、日本語の報告そのものが出せない＝道具が丸ごと使えなくなる。
 # GitHub Actions の windows-latest で実測して赤くなった)

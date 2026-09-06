@@ -298,7 +298,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
         # 薄く並べるので、変更ファイルの名前だけより場所が読める。そのまま diff の枠に貼れる
         w("  木（行頭 + が新規・~ が変更・- が削除。そのまま diff の枠に貼る）:")
         out.extend(tree)
-        out.extend(render_frames(cwd, dirty))
+        out.extend(changemap.uncommitted_frames(cwd, dirty))
     else:
         w("  未コミットの変更なし")
     w("")
@@ -316,30 +316,6 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
     return "\n".join(out)
 
 
-def tracked_set(cwd, paths):
-    """paths のうち index が追跡しているもの。1 回の ls-files で（file ごとに聞くと N 回 spawn する）。
-    -z は path を引用形にしないため（日本語名が集合と一致する）。paths が空だと ls-files は全 file を
-    列挙するので、空集合を返す。"""
-    if not paths:
-        return set()
-    out = changemap.git("ls-files", "-z", "--", *paths, cwd=cwd) or ""
-    return set(filter(None, out.split("\0")))
-
-
-def new_file_rows(cwd, path, kind):
-    """新規 file（未追跡・add 済み）の見出しと、先頭コメント・骨組み。file が読めなければ []。"""
-    full = pathlib.Path(cwd) / path
-    if not full.is_file():
-        return []
-    try:
-        lines = full.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
-    rows = changemap.head_and_outline(path, lines, more=f"。続きは --frame {path} か file を開く")
-    return [f"    === {path}（{kind}。{len(lines)} 行。先頭と骨組みだけ——全文は --frame {path} か file を開く）"] \
-        + ["    " + prefix + ln for prefix, ln in rows]
-
-
 def frame_one(cwd, path):
     """--frame path: 1 file の未コミットの変更を枠で上限なしに（コードは関数まるごと、散文は文脈 3 行）。
     追跡 file で diff に中身が無ければ（変更なし・バイナリ・mode・改名だけ）止まる。未追跡の新規は先頭と
@@ -351,44 +327,9 @@ def frame_one(cwd, path):
     if info:
         return [f"    === {path}" + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")] \
             + changemap.frame_lines(path, info, cap=None)
-    if path in tracked_set(cwd, [path]):
+    if path in changemap.tracked_set(cwd, [path]):
         sys.exit(f"{path} は追跡 file で、未コミットの変更が diff に無い（変更なし・バイナリ・mode・改名だけ）")
-    return new_file_rows(cwd, path, "未追跡の新規")
-
-
-def render_frames(cwd, dirty):
-    """未コミットの変更の中身を枠で（コードは関数まるごと、散文・設定は文脈 3 行）。新規 file
-    （未追跡・add 済み）は先頭コメントと骨組みだけ——全文は --frame（frame_one）で出る。追跡 file で
-    diff に hunk が無ければ（バイナリ・mode・改名だけ）その旨。"""
-    out = []
-    w = out.append
-    text = changemap.frame_diff(cwd=cwd, rev="HEAD")
-    if text is None:
-        # 失敗を "" で飲むと、全 file を「中身が diff に無い」と嘘の断りで断定する（実測）
-        return ["  変更の中身: 出せない（手元の git diff が失敗した。木と件数だけが上の材料）"]
-    frames = changemap.framed_diff(text)
-    tracked = tracked_set(cwd, dirty)
-    w("  変更の中身（" + changemap.FRAME_NOTE + changemap.FRAME_CAP_NOTE
-      + f"。合計は {changemap.FRAME_TOTAL_CAP} 行まで。" + changemap.JUMP_NOTE + "）:")
-    total = 0
-    for path in sorted(dirty):
-        info = frames.get(path)
-        if info is None and path in tracked:
-            w(f"    === {path}（中身が diff に無い。バイナリ・mode・改名だけ）")
-            continue
-        if info is None or info["new"]:
-            out.extend(new_file_rows(cwd, path, "add 済みの新規" if info else "未追跡の新規"))
-            continue
-        rows = changemap.frame_lines(path, info)
-        # 足してから判定する（足す前に見ると、最後の 1 file の分だけ上限を必ず超える）。先頭の file は
-        # それ 1 本で超えても出す——1 file も出さずに「上限」とだけ言う出力は材料にならない
-        if total and total + len(rows) > changemap.FRAME_TOTAL_CAP:
-            w(f"    === {path}（合計の上限。--frame {path} で出る）")
-            continue
-        w(f"    === {path}")
-        out.extend(rows)
-        total += len(rows)
-    return out
+    return changemap.new_file_rows(cwd, path, "未追跡の新規")
 
 
 def main(argv=None):

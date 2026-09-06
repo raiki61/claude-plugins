@@ -234,7 +234,8 @@ def branch_number(branch):
 def resolve_target(token, repo_opt):
     """番号・URL・this から (owner, name, number, 今のブランチとの関係) を決める。関係は None
     （番号や URL で呼んだ）／"pr"（今のブランチの PR）／"branch"（PR が無く、ブランチ名の番号を
-    issue と見た。chore/1513-fold-remainders → #1513）。URL なら -R は要らない。"""
+    issue と見た。chore/1513-fold-remainders → #1513）／"none"（PR も番号も無い。GitHub 側の材料は
+    無く、手元のブランチだけを出す——止めると、main で書きかけの人に何も返らない）。URL なら -R は要らない。"""
     m = URL_RE.match(token)
     if m:
         return m.group(1), m.group(2), int(m.group(3)), None
@@ -247,8 +248,7 @@ def resolve_target(token, repo_opt):
         branch = changemap.current_branch() or ""
         num = branch_number(branch)
         if num is None:
-            sys.exit("今のブランチ" + (f"（{branch}）" if branch else "") + " に PR が無く、"
-                     "名前に番号も無い。番号か PR / issue の URL を渡す")
+            return None, None, None, "none"
         token, local = str(num), "branch"
     if not token.lstrip("#").isdigit():
         sys.exit(f"番号か PR / issue の URL を渡す（受け取った値: {token}。"
@@ -1768,11 +1768,35 @@ def switch_branch(owner, name, num, node, cwd=None):
     return stay([label + verb + refused, *("    " + n for n in git_notes(err, failed=True))])
 
 
-def render_local(derived=None, why="", pr_head=None, cwd=None):
+def render_no_target(cwd=None):
+    """PR も番号も無い this の出力。GitHub には何も聞かず、手元のブランチの節と、未コミットの変更の
+    中身（枠と飛び先）を出す。見出しで「GitHub 側は見ていない」と断る——断らないと、読む人は
+    「PR に動きが無い」と読む。中身まで出すのは、PR が無いときこそ木だけでは何をしていたか分からない
+    ため（file の一覧は「どこ」しか言わない）。"""
+    branch = changemap.current_branch(cwd) or ""
+    wt = changemap.working_tree(cwd)
+    frames = changemap.uncommitted_frames(cwd, wt[0], frame_cmd="what-am-i-doing.py --frame") if wt[0] else []
+    return "\n".join([
+        f"# 今のブランチ {branch or '（detached）'}（PR も、名前の番号も無い）",
+        "  GitHub 側は見ていない——この呼び方で出るのは手元の git だけ",
+        "",
+        render_local(why="this で呼んだので出す", cwd=cwd, wt=wt),
+        *frames,
+        "",
+        "見ていないもの:",
+        "  - GitHub の PR / issue（今のブランチに PR が無く、名前にも番号が無い。"
+        "番号か URL を渡せば出る）",
+        "  - 他のブランチ・他の worktree の状態",
+        "  - このセッションで何をしたか（what-am-i-doing.py で出る）",
+    ])
+
+
+def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None):
     """今のブランチに居るときに出す手元の状態（this で呼んだ、または --switch で移った・既に居た。why は
     その理由）。GitHub に無いものはここにしか出ない。derived は、PR が無くブランチ名の番号を issue と見た
     ときのその番号（申告用）。pr_head は PR の head の commit——手元がそれより後ろなら数えて出す（push して
-    いない commit だけ数えると、別の機械から push した後の古い手元が「同期済み」に読める）。"""
+    いない commit だけ数えると、別の機械から push した後の古い手元が「同期済み」に読める）。wt は
+    working_tree の戻り値——呼び手が既に取っていれば渡す（同じ git を 2 回叩かない）。"""
     out = []
     w = out.append
     branch = changemap.current_branch(cwd) or ""
@@ -1806,7 +1830,7 @@ def render_local(derived=None, why="", pr_head=None, cwd=None):
             w(f"  PR の head {pr_head[:7]} を手元に持っていない（fetch していない）")
         elif behind.strip() != "0":
             w(f"  PR の head {pr_head[:7]} より {behind.strip()} commit 後ろ（fetch / pull していない）")
-    dirty, tree = changemap.working_tree(cwd)
+    dirty, tree = wt if wt is not None else changemap.working_tree(cwd)
     if dirty:
         w(f"  未コミット {len(dirty)} 件。木（行頭 + が新規・~ が変更・- が削除。"
           "そのまま diff の枠に貼る）:")
@@ -1853,6 +1877,15 @@ def main(argv=None):
 
     target, focus = split_words(a.words)
     owner, name, num, local = resolve_target(target, a.repo)
+    if local == "none":
+        # PR も番号も無い。GitHub には聞かず、手元のブランチだけ出す（gh も走らせない）
+        if a.frame:
+            sys.exit("--frame は PR でだけ使える（今のブランチに PR が無い）")
+        print(render_no_target())
+        if focus:
+            print()
+            print(f"（{'・'.join(focus)} の材料は PR / issue のもの。今のブランチには PR が無い）")
+        return 0
     if a.frame:
         # 1 file の変更だけを関数まるごとの枠で。地図の 1 file の上限で切れた続きを見るための口。
         # 本体の報告は組まないので、gh は base と head の 2 値を取る 1 回（と手元に commit が無いときの

@@ -328,7 +328,7 @@ def _frames(tmp):
     saved = wai.changemap.frame_diff
     wai.changemap.frame_diff = lambda **kw: None
     try:
-        failed = "\n".join(wai.render_frames(cwd, ["src/x.py"]))
+        failed = "\n".join(wai.changemap.uncommitted_frames(cwd, ["src/x.py"]))
     finally:
         wai.changemap.frame_diff = saved
     want["diff_failure_is_not_a_verdict"] = (
