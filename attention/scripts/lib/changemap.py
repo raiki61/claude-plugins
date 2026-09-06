@@ -226,19 +226,20 @@ def call_refs(paths, hunks, hits_cap=6):
 # 入れない（実測: 要らない、ごちゃつく）。
 # 単位は関数まるごと（git diff -W）。削るのは関数の数で、行ではない——関数の途中を省くと読む人は
 # そこで判断を止める（実測）。長い関数だけ、変わっていない区間を点線で畳む。散文・設定（md・json 等）は
-# 関数が無く -W だと文脈が file 全体に広がるので、そこだけ文脈 3 行で取る——枠は出す（file の種類で
+# 関数が無く -W だと文脈が file 全体に広がるので、そこだけ行数の文脈（PROSE_CONTEXT）で取る——枠は出す（file の種類で
 # 地図の中身を出し分けない。出し分けると md が主のリポジトリでは木しか出ず、飛び先も消える。実測）。
 
 FRAME_WIDTH = 78   # 帯の全幅（字下げ込み。東アジア幅で数える）
 FRAME_GAP = 3      # 変わっていない行がこの数以内で隣り合う変更は 1 つの枠
-FRAME_WHOLE = 100  # hunk（-W なら関数まるごと）がこの行数以内なら畳まず全部出す
-FOLD_KEEP = 10     # 畳むとき、変更の前後に残す行数
+FRAME_WHOLE = 200  # hunk（-W なら関数まるごと）がこの行数以内なら畳まず全部出す（前後は長めに。仕様の原則 4）
+FOLD_KEEP = 30     # 畳むとき、変更の前後に残す行数
+PROSE_CONTEXT = 10  # 散文・設定（関数の境目が無い file）の文脈の行数。-W が使えないので行数で広げる
 OLD_CAP = 15       # 枠の中に残す前の行の上限。超えたら先頭 3 行と行数
 FRAME_FILE_CAP = 300  # 1 file の枠の行数の目安。超えたら関数の切れ目で止めて、残りは --frame で
 FRAME_TOTAL_CAP = 800  # 変更の中身の合計の目安。超えた file は名前だけ（大きい変更で報告が材料に埋もれない）
 FRAME_NOTE = ("今の姿に機械が帯を入れた。実線の枠 ┏…┗ が変わった所で、中の行頭が `#│`（コメント記号＋│）の"
               "行は前・色の行は今。間 3 行以内の変更は 1 枠で、挟まった変わっていない行の数は帯に書いてある。"
-              "点線 ┅ は畳んだ区間。`| ` の後ろをそのまま言語の枠に貼る")
+              "点線 ┅ は畳んだ区間。`| ` の後ろをそのまま、見出しの（言語名 X）を付けた枠に貼る")
 COMMENT_BY_EXT = {
     ("//", ""): {"ts", "tsx", "js", "jsx", "mjs", "go", "java", "kt", "kts", "c", "h", "cc", "cpp",
                  "hpp", "cs", "rs", "swift", "scala", "php", "hcl", "tf", "tfvars", "groovy", "dart",
@@ -253,6 +254,42 @@ PROSE_EXT = {"md", "txt", "adoc", "rst", "html", "htm", "xml", "json", "jsonc", 
              "yml", "yaml", "toml", "ini", "cfg"}
 
 
+# 枠に付ける言語名（highlight.js の名前）。AI が ```<言語名> に写す。機械が決めるのは、AI に選ばせると
+# 命令書の例に無い .md を plaintext にして色が消えた（実走で実測）から。表に無い種類は plaintext——
+# 知らない名前を付けても色は付かない
+FENCE_BY_EXT = {
+    "python": {"py", "pyi"}, "markdown": {"md", "markdown"}, "bash": {"sh", "bash", "zsh", "bats"},
+    "yaml": {"yml", "yaml"}, "json": {"json", "jsonc"}, "typescript": {"ts", "tsx"},
+    "javascript": {"js", "jsx", "mjs", "cjs"}, "go": {"go"}, "rust": {"rs"}, "java": {"java"},
+    "kotlin": {"kt", "kts"}, "ruby": {"rb"}, "c": {"c", "h"}, "cpp": {"cc", "cpp", "cxx", "hh", "hpp"},
+    "csharp": {"cs"}, "swift": {"swift"}, "scala": {"scala"}, "php": {"php"}, "sql": {"sql"},
+    "lua": {"lua"}, "dart": {"dart"}, "groovy": {"groovy"}, "gradle": {"gradle"}, "protobuf": {"proto"},
+    "html": {"html", "htm", "vue"}, "xml": {"xml", "svg", "plist"}, "css": {"css"}, "scss": {"scss"},
+    "less": {"less"}, "toml": {"toml"}, "ini": {"ini", "cfg"}, "diff": {"diff", "patch"},
+    "asciidoc": {"adoc"}, "makefile": {"mk"}, "powershell": {"ps1"}, "perl": {"pl", "pm"},
+    "r": {"r"}, "haskell": {"hs"}, "elm": {"elm"}, "elixir": {"ex", "exs"}, "graphql": {"graphql", "gql"},
+}
+
+
+def fence_lang(path):
+    """その file の枠に付ける言語名（highlight.js の名前）。表に無い種類・拡張子の無い file は plaintext。"""
+    base = path.rsplit("/", 1)[-1].lower()
+    if base.startswith("dockerfile") or base.endswith(".dockerfile"):
+        return "dockerfile"
+    if base in ("makefile", "gnumakefile"):
+        return "makefile"
+    ext = _ext(path)
+    for lang, exts in FENCE_BY_EXT.items():
+        if ext in exts:
+            return lang
+    return "plaintext"
+
+
+def lang_tag(path):
+    """枠の見出しの末尾に置く（言語名 X）。AI はこれを ```X に写す。"""
+    return f"（言語名 {fence_lang(path)}）"
+
+
 def comment_marks(path):
     """その file のコメントの (前, 後)。知らない種類は #。"""
     ext = _ext(path)
@@ -264,7 +301,7 @@ def comment_marks(path):
 
 def is_prose(path):
     """散文・設定（md・txt・json など）。関数が無く git diff -W の文脈が file 全体に広がるので、diff は
-    文脈 3 行で取る（frame_diff）。枠と飛び先はコードと同じに出す。"""
+    文脈 PROSE_CONTEXT 行で取る（frame_diff）。枠と飛び先はコードと同じに出す。"""
     return _ext(path) in PROSE_EXT
 
 
@@ -407,7 +444,8 @@ def cap_note(frame_cmd="--frame"):
 
 FRAME_CAP_NOTE = cap_note()
 # 飛び先の断り。/catchup の地図と /what-am-i-doing の変更の中身が、見出しの括弧に同じ文で入れる
-JUMP_NOTE = "各枠の前の『飛び先 path:行』は head（手元）の行番号。AI は箇所の見出しと枠の上の注釈に写す"
+JUMP_NOTE = ("各枠の前の『飛び先 path:行』は head（手元）の行番号。AI は箇所の見出しと枠の上の注釈に写す。"
+             "path の前後は半角スペースで離す（端末のクリックが隣の文字を巻き込む）")
 
 
 def frame_lines(path, info, cap=FRAME_FILE_CAP, indent="    ", frame_cmd="--frame"):
@@ -496,7 +534,7 @@ def changed_pairs(cwd=None, rev="HEAD"):
 
 
 def frame_diff(cwd=None, rev="HEAD", paths=()):
-    """枠のための diff。コードは関数まるごと（git diff -W）、散文・設定は文脈 3 行（-W は関数の境目を
+    """枠のための diff。コードは関数まるごと（git diff -W）、散文・設定は文脈 PROSE_CONTEXT 行（-W は関数の境目を
     探すので、境目の無い file では文脈が file 全体に広がる）。rev は比べる元（手元なら HEAD、PR なら
     base...head）。paths を省くと rev の変更 file を git に聞いて振り分ける（改名は新旧を同じ側に入れる
     ——割ると対が作れない）。どれか 1 本でも失敗したら None（半分の diff を返すと、落ちた側の file が
@@ -506,7 +544,7 @@ def frame_diff(cwd=None, rev="HEAD", paths=()):
         return None
     parts = []
     for flag, group in ((("-W",), [g for key, g in pairs if not is_prose(key)]),
-                        ((), [g for key, g in pairs if is_prose(key)])):
+                        ((f"-U{PROSE_CONTEXT}",), [g for key, g in pairs if is_prose(key)])):
         names = [n for g in group for n in g]
         if not names:
             continue
@@ -735,19 +773,24 @@ def entries_from_porcelain(porcelain, numstat=None):
             mark = "-"
         else:
             mark = "~"
-        a, d = numstat.get(path, (None, None))
-        if mark == "+" and a is None:
-            note = "新規（階層ごと。中は git status -uall で）" if whole_dir else "新規"
-        elif a is None:
-            note = ""
-        elif mark == "-":
-            note = f"-{d}"
-        else:
-            note = f"+{a}" if not d else f"+{a}/-{d}"
-        if " -> " in rest:
-            note = (note + "  " if note else "") + "旧: " + rest.split(" -> ", 1)[0]
+        note = change_note(mark, *numstat.get(path, (None, None)),
+                           whole_dir=whole_dir,
+                           old=rest.split(" -> ", 1)[0] if " -> " in rest else None)
         entries.append({"path": path, "mark": mark, "note": note})
     return entries
+
+
+def change_note(mark, a, d, whole_dir=False, old=None):
+    """木の行の右に出す ±行数（と改名の旧名）。手元の未コミットと commit の両方が使う。"""
+    if mark == "+" and a is None:
+        note = "新規（階層ごと。中は git status -uall で）" if whole_dir else "新規"
+    elif a is None:
+        note = ""
+    elif mark == "-":
+        note = f"-{d}"
+    else:
+        note = f"+{a}" if not d else f"+{a}/-{d}"
+    return (note + "  " if note else "") + "旧: " + old if old else note
 
 
 def working_tree(cwd=None):
@@ -764,6 +807,73 @@ def working_tree(cwd=None):
     sib = siblings_for(top, [e["path"] for e in entries]) if top else None
     label = os.path.basename(top) if top else "."
     return [e["path"] for e in entries], render_tree(entries, sib, root_label=label)
+
+
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git の空の木。最初の commit には親が無い
+
+
+def branch_exists(token, cwd=None):
+    """token が手元の枝か、origin にだけ有る枝か。枝なら「移る」対象（仕様の原則 1）で、commit より先に見る。
+    照合は show-ref の完全一致——rev-parse だと HEAD~1 が refs/remotes/origin/HEAD の親に解けて枝扱いになる（実走で実測。
+    仕様 3 節: HEAD~n は commit で、枝が勝つのは同じ語が枝の名前のときだけ）。HEAD は枝ではない（origin/HEAD は
+    symbolic ref で show-ref に通る）。"""
+    if token == "HEAD":
+        return False
+    for ref in (f"refs/heads/{token}", f"refs/remotes/origin/{token}"):
+        if git("show-ref", "--verify", "--quiet", ref, cwd=cwd) is not None:
+            return True
+    return False
+
+
+def default_branch_ref(cwd=None):
+    """既定ブランチの追跡 ref（origin/main など）。origin/HEAD が無ければ origin/main・origin/master を試す。"""
+    out = git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD", cwd=cwd)
+    if out and out.strip().startswith("refs/remotes/"):
+        return out.strip()[len("refs/remotes/"):]
+    for cand in ("origin/main", "origin/master"):
+        if git("rev-parse", "--verify", "--quiet", cand, cwd=cwd) is not None:
+            return cand
+    return None
+
+
+def commit_oid(token, cwd=None):
+    """token が指す commit の oid（sha・HEAD~2・タグ・ブランチ名も通る）。commit でなければ None。"""
+    out = git("rev-parse", "--verify", "--quiet", f"{token}^{{commit}}", cwd=cwd)
+    return (out or "").strip() or None
+
+
+def commit_range(oid, cwd=None):
+    """その commit 1 つ分の diff の範囲。親が無い（最初の commit）なら空の木と比べる。
+    merge commit は第 1 親との差（git show の既定と同じ）。"""
+    parent = git("rev-parse", "--verify", "--quiet", f"{oid}^", cwd=cwd)
+    return f"{(parent or '').strip() or EMPTY_TREE}..{oid}"
+
+
+def commit_tree(rev, cwd=None):
+    """commit（範囲）の変更を (パスの一覧, 木の行) で。working_tree の commit 版で、
+    出す形は同じ——読む人が「手元の木」と「commit の木」で読み方を変えなくていい。"""
+    text = git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "--name-status", "-z",
+               rev, "--", cwd=cwd)
+    if text is None:
+        return [], []
+    nums = parse_numstat(git("-c", "core.quotePath=false", "diff", *DIFF_SANE, "--numstat",
+                             rev, "--", cwd=cwd))
+    parts = [p for p in text.split("\0") if p]
+    entries, i = [], 0
+    while i + 1 < len(parts):
+        status = parts[i]
+        old = parts[i + 1] if status[:1] in ("R", "C") else None
+        path = parts[i + 2] if old else parts[i + 1]
+        i += 3 if old else 2
+        mark = {"A": "+", "D": "-"}.get(status[:1], "~")
+        entries.append({"path": path, "mark": mark,
+                        "note": change_note(mark, *nums.get(path, (None, None)), old=old)})
+    if not entries:
+        return [], []
+    top = repo_top(cwd)
+    sib = siblings_for(top, [e["path"] for e in entries]) if top else None
+    return ([e["path"] for e in entries],
+            render_tree(entries, sib, root_label=os.path.basename(top) if top else "."))
 
 
 def parse_numstat(text):
@@ -805,42 +915,45 @@ def new_file_rows(cwd, path, kind, frame_cmd="--frame"):
     except OSError:
         return []
     rows = head_and_outline(path, lines, more=f"。続きは {frame_cmd} {path} か file を開く")
-    return [f"    === {path}（{kind}。{len(lines)} 行。先頭と骨組みだけ——全文は {frame_cmd} {path} か file を開く）"] \
+    return [f"    === {path} （{kind}。{len(lines)} 行。先頭と骨組みだけ——全文は {frame_cmd} {path} か file を開く）"
+            + lang_tag(path)] \
         + ["    " + prefix + ln for prefix, ln in rows]
 
 
-def uncommitted_frames(cwd, dirty, frame_cmd="--frame"):
-    """未コミットの変更の中身を枠で。/what-am-i-doing の「変更の中身」と、/catchup が
-    PR も番号も無いブランチで出す手元だけの報告が共用する（frame_cmd は続きを出す呼び手のコマンド）。
-    （コードは関数まるごと、散文・設定は文脈 3 行）。新規 file
-    （未追跡・add 済み）は先頭コメントと骨組みだけ——全文は --frame（frame_one）で出る。追跡 file で
-    diff に hunk が無ければ（バイナリ・mode・改名だけ）その旨。"""
+def frames_section(cwd, paths, rev="HEAD", frame_cmd="--frame", new_from_file=True, jump_note=JUMP_NOTE):
+    """変更の中身を枠で（コードは関数まるごと、散文・設定は前後 PROSE_CONTEXT 行）。/what-am-i-doing の
+    「変更の中身」、/catchup の手元だけの報告、/catchup の commit が共用する。rev は比べる元
+    （手元なら HEAD、commit なら 親..その commit）、frame_cmd は続きを出す呼び手のコマンド。
+    new_from_file が真なら新規 file は手元の file から先頭と骨組みだけ（未コミットの新規は diff に
+    無いか全行 + で、枠が何も伝えない）。偽なら diff の中身をそのまま枠にする（commit の新規）。
+    追跡 file で diff に hunk が無ければ（バイナリ・mode・改名だけ）その旨。"""
     out = []
     w = out.append
-    text = frame_diff(cwd=cwd, rev="HEAD")
+    text = frame_diff(cwd=cwd, rev=rev)
     if text is None:
         # 失敗を "" で飲むと、全 file を「中身が diff に無い」と嘘の断りで断定する（実測）
-        return ["  変更の中身: 出せない（手元の git diff が失敗した。木と件数だけが上の材料）"]
+        return ["  変更の中身: 出せない（git diff が失敗した。木と件数だけが上の材料）"]
     frames = framed_diff(text)
-    tracked = tracked_set(cwd, dirty)
+    dirty = paths
+    tracked = tracked_set(cwd, dirty) if new_from_file else set(dirty)
     w("  変更の中身（" + FRAME_NOTE + cap_note(frame_cmd)
-      + f"。合計は {FRAME_TOTAL_CAP} 行まで。" + JUMP_NOTE + "）:")
+      + f"。合計は {FRAME_TOTAL_CAP} 行まで。" + jump_note + "）:")
     total = 0
     for path in sorted(dirty):
         info = frames.get(path)
         if info is None and path in tracked:
-            w(f"    === {path}（中身が diff に無い。バイナリ・mode・改名だけ）")
+            w(f"    === {path} （中身が diff に無い。バイナリ・mode・改名だけ）")
             continue
-        if info is None or info["new"]:
+        if info is None or (info["new"] and new_from_file):
             out.extend(new_file_rows(cwd, path, "add 済みの新規" if info else "未追跡の新規", frame_cmd))
             continue
         rows = frame_lines(path, info, frame_cmd=frame_cmd)
         # 足してから判定する（足す前に見ると、最後の 1 file の分だけ上限を必ず超える）。先頭の file は
         # それ 1 本で超えても出す——1 file も出さずに「上限」とだけ言う出力は材料にならない
         if total and total + len(rows) > FRAME_TOTAL_CAP:
-            w(f"    === {path}（合計の上限。{frame_cmd} {path} で出る）")
+            w(f"    === {path} （合計の上限。{frame_cmd} {path} で出る）")
             continue
-        w(f"    === {path}")
+        w(f"    === {path} {lang_tag(path)}")
         out.extend(rows)
         total += len(rows)
     return out

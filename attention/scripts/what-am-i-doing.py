@@ -298,7 +298,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
         # 薄く並べるので、変更ファイルの名前だけより場所が読める。そのまま diff の枠に貼れる
         w("  木（行頭 + が新規・~ が変更・- が削除。そのまま diff の枠に貼る）:")
         out.extend(tree)
-        out.extend(changemap.uncommitted_frames(cwd, dirty))
+        out.extend(changemap.frames_section(cwd, dirty))
     else:
         w("  未コミットの変更なし")
     w("")
@@ -317,7 +317,7 @@ def render(title, turns, started, touched, cwd, full, limit, topic=None):
 
 
 def frame_one(cwd, path):
-    """--frame path: 1 file の未コミットの変更を枠で上限なしに（コードは関数まるごと、散文は文脈 3 行）。
+    """--frame path: 1 file の未コミットの変更を枠で上限なしに（コードは関数まるごと、散文は前後 PROSE_CONTEXT 行）。
     追跡 file で diff に中身が無ければ（変更なし・バイナリ・mode・改名だけ）止まる。未追跡の新規は先頭と
     骨組み。file が無ければ []。"""
     text = changemap.frame_diff(cwd=cwd, rev="HEAD", paths=(path,))
@@ -325,7 +325,8 @@ def frame_one(cwd, path):
         sys.exit("手元の git diff が失敗した（枠は出せない）")
     info = changemap.framed_diff(text).get(path)
     if info:
-        return [f"    === {path}" + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")] \
+        return [f"    === {path} " + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")
+                + changemap.lang_tag(path)] \
             + changemap.frame_lines(path, info, cap=None)
     if path in changemap.tracked_set(cwd, [path]):
         sys.exit(f"{path} は追跡 file で、未コミットの変更が diff に無い（変更なし・バイナリ・mode・改名だけ）")

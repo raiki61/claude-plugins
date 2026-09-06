@@ -115,6 +115,15 @@ class Outline(unittest.TestCase):
         self.assertEqual(cm.outline("d.adoc", ["== 節", "本文", "=== 小節"]), ["== 節", "=== 小節"])
         self.assertEqual(cm.outline("z.unknown", ["a", "b"]), [])
 
+    def test_fence_lang_is_a_highlightjs_name_or_plaintext(self):
+        """枠の言語名は機械が決める（AI に選ばせると .md を plaintext にした）。表に無い種類は plaintext。"""
+        for path, lang in [("a.py", "python"), ("docs/x.md", "markdown"), ("s.sh", "bash"), ("w.yml", "yaml"),
+                           ("t.tsx", "typescript"), ("Dockerfile", "dockerfile"), ("build/Dockerfile.ci", "dockerfile"),
+                           ("Makefile", "makefile"), ("z.unknown", "plaintext"), ("LICENSE", "plaintext"),
+                           ("b.hcl", "plaintext")]:
+            self.assertEqual(cm.fence_lang(path), lang, path)
+        self.assertEqual(cm.lang_tag("a.py"), "（言語名 python）")
+
 
 class Refs(unittest.TestCase):
     def test_mentions_with_lines_and_action_dir_name(self):
@@ -325,12 +334,15 @@ class Frame(unittest.TestCase):
         self.assertIn("残り 1 枠 6 行", capped[-1][1])                  # 申告の数字は残りの枠と行数
 
     def test_long_function_folds_unchanged_runs_and_caps_old_lines(self):
-        body = [" line%d" % i for i in range(60)] + ["-o", "+n"] + [" tail%d" % i for i in range(60)]
+        body = [" line%d" % i for i in range(120)] + ["-o", "+n"] + [" tail%d" % i for i in range(120)]
         out = cm.frame_hunk("x.py", body)
         folds = [l for l in out if "行省略" in l]
-        self.assertEqual(len(folds), 2)                              # 前後の長い区間を畳む
-        self.assertIn("line59", "\n".join(out))                      # 変更の前 FOLD_KEEP 行は残る
-        self.assertNotIn("line20", "\n".join(out))
+        self.assertEqual(len(folds), 2)                              # 前後の長い区間を畳む（200 行超）
+        self.assertIn("line119", "\n".join(out))                     # 変更の前 FOLD_KEEP（30）行は残る
+        self.assertIn("line90", "\n".join(out))
+        self.assertNotIn("line50", "\n".join(out))                  # 畳んだ区間（先頭 30 と末尾 30 の間）
+        short = cm.frame_hunk("x.py", [" line%d" % i for i in range(90)] + ["-o", "+n"] + [" tail%d" % i for i in range(90)])
+        self.assertFalse(any("行省略" in l for l in short))         # 200 行以内は畳まない
         many = cm.frame_hunk("x.py", ["-o%d" % i for i in range(20)] + ["+n"])
         self.assertTrue(any("前の行 17 行省略" in l for l in many))
         self.assertEqual(sum(1 for l in many if l.startswith("#│ o")), 3)
@@ -406,7 +418,7 @@ class Jumps(unittest.TestCase):
 
 
 class FrameDiff(unittest.TestCase):
-    """枠のための diff の取り方: コードは -W（関数まるごと）、散文・設定は文脈 3 行。git は差し替える。"""
+    """枠のための diff の取り方: コードは -W（関数まるごと）、散文・設定は文脈 10 行（-U10）。git は差し替える。"""
 
     def setUp(self):
         self.calls = []
@@ -427,7 +439,8 @@ class FrameDiff(unittest.TestCase):
         wide = [a for a in self.calls if "-W" in a]
         narrow = [a for a in self.calls if "-W" not in a]
         self.assertEqual([a[-1] for a in wide], [":(top,literal)src/a.py"])    # -W はコードだけ
-        self.assertEqual([a[-1] for a in narrow], [":(top,literal)docs/b.md"])  # 散文は文脈 3 行（既定）
+        self.assertEqual([a[-1] for a in narrow], [":(top,literal)docs/b.md"])  # 散文は -U10
+        self.assertTrue(all("-U10" in a for a in narrow))
         self.assertEqual(out.count("diff "), 2)                     # 2 本を繋いだ 1 本
 
     def test_reader_git_config_cannot_change_the_diff(self):

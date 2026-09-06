@@ -1214,7 +1214,7 @@ expect_output 0 "ISSUE_UNSEEN_OK" \
     "$PY_BIN" "$CU_CASE" issue-not-seen
 expect_output 1 "使い方" \
     "catchup: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$CU_CASE"
-expect_output 1 "番号か PR / issue の URL を渡す" \
+expect_output 1 "番号か PR / issue の URL、手元の commit を渡す" \
     "catchup: 番号でも URL でもない引数は、gh を叩く前に落とす" \
     "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
 expect_output 1 "対象は 1 つだけ渡す" \
@@ -1269,6 +1269,18 @@ expect_output 0 "MAP_JUMPS_OK" \
     "catchup: 地図の変更に、各枠の前の飛び先 path:行 と見出しの断り。散文（md）も枠、新規は path:1、削除 file だけ飛び先が無い" \
     "$PY_BIN" "$CU_CASE" map-jumps
 
+expect_output 0 "OK" \
+    "catchup: ブランチ名で呼ぶと移る（手元の枝／origin にだけ有る枝は作って／既に居る／未コミットで移らない）。移った枝では既定ブランチより先の commit の変更が木と枠で出て、main では出ない" \
+    "$PY_BIN" "$ROOT/tests/catchup-switch-case.py" branch-name
+
+expect_output 0 "WIRING_OK" \
+    "catchup: main() の受け口の配線——焦点の断りは人の語（内部 key を出さない）、commit の 地図 は断らない、none の --frame は PR か commit に案内して止まる、commit の --switch は移る先が無いと言う" \
+    "$PY_BIN" "$CU_CASE" main-wiring
+
+expect_output 0 "COMMIT_OK" \
+    "catchup: commit（sha・HEAD~2・タグ）を渡すと GitHub に聞かず、題と本文・木・変更の中身（枠と飛び先）を出す。--frame は 1 file を全部" \
+    "$PY_BIN" "$CU_CASE" commit
+
 expect_output 0 "NO_TARGET_OK" \
     "catchup: PR も番号も無いブランチ（main 等）でも止まらず、GitHub に聞かずに手元のブランチと未コミットの中身（枠と飛び先）を出す" \
     "$PY_BIN" "$CU_CASE" no-target
@@ -1278,7 +1290,7 @@ expect_output 0 "NO_TARGET_OK" \
 expect_output 0 "○ 待ち" \
     "catchup: stdio を cp1252 に強制しても日本語の報告が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$CU_CASE" waiting
-expect_output 1 "番号か PR / issue の URL を渡す" \
+expect_output 1 "番号か PR / issue の URL、手元の commit を渡す" \
     "catchup: cp1252 強制下でも引数エラーの日本語が出る" \
     env PYTHONIOENCODING=cp1252 "$PY_BIN" "$ROOT/attention/scripts/catchup.py" abc
 
@@ -1435,19 +1447,40 @@ expect_output 0 "FIGURE_OK" "figure-check: 空の入力は「通った」と言�
 expect_exit 1 "figure-check: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$FC_CASE"
 
 # ---- attention の命令書と README: 機械の出力語を同じ綴りで持つ（絵の例が規則を通るかは figure-check の pass が命令書から読む） ----
-expect_output 0 "DOC_WORDS_OK" "命令書 2 本と README が、機械の出力行の語（飛び先・取り込み先・上に積む・依頼先の候補・私の痕跡以降に変わった file）を同じ綴りで持つ（写す規則なので綴り違いは AI が探せない）" \
+expect_output 0 "DOC_WORDS_OK" "命令書 2 本と README と仕様書が、機械の出力行の語（飛び先・取り込み先・上に積む・依頼先の候補・私の痕跡以降に変わった file）を同じ綴りで持つ（写す規則なので綴り違いは AI が探せない）" \
     "$PY_BIN" - "$ROOT" <<'PY'
 import sys, pathlib
 root = pathlib.Path(sys.argv[1])
 docs = {n: (root / n).read_text(encoding="utf-8") for n in
-        ["attention/commands/catchup.md", "attention/commands/what-am-i-doing.md", "attention/README.md"]}
+        ["attention/commands/catchup.md", "attention/commands/what-am-i-doing.md", "attention/README.md",
+         "attention/docs/catchup-spec.md"]}
 others = docs.keys() - {"attention/commands/what-am-i-doing.md"}  # /what-am-i-doing は PR の材料を持たない
-for word, files in [("飛び先", docs), ("figure-check.py", docs), ("取り込み先", others), ("上に積む", others),
+for word, files in [("飛び先", docs), ("figure-check.py", docs), ("（言語名 X）", docs), ("取り込み先", others), ("上に積む", others),
                     ("依頼先の候補", others), ("私の痕跡以降に変わった file", others)]:
     for f in files:
         assert word in docs[f], f"{f}: 「{word}」が無い"
 print("DOC_WORDS_OK")
 PY
+
+expect_output 0 "DOC_NUMBERS_OK" "仕様書 7 節の上限の表が、機械の定数と同じ数値を持つ（数値の正本は仕様書。ずれたら片方が古い）" \
+    "$PY_BIN" - "$ROOT" <<'PYNUM'
+import sys, pathlib, importlib.util
+root = pathlib.Path(sys.argv[1])
+spec = (root / "attention/docs/catchup-spec.md").read_text(encoding="utf-8")
+table = spec[spec.index("## 7."):spec.index("## 8.")]
+sys.path.insert(0, str(root / "attention/scripts"))
+def load(name, rel):
+    s = importlib.util.spec_from_file_location(name, root / rel); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+cm = load("changemap", "attention/scripts/lib/changemap.py")
+cu = load("catchup", "attention/scripts/catchup.py")
+for label, value in [("本文", f"{cu.BODY_CAP} 行"), ("冒頭", f"{cu.ISSUE_HEAD_LINES} 行"), ("件数", f"{cu.ISSUE_CAP} 件"),
+                     ("スレッド", f"{cu.THREAD_BODY_CAP} 行"), ("1 file", f"{cm.FRAME_FILE_CAP} 行"), ("合計", f"{cm.FRAME_TOTAL_CAP} 行"),
+                     ("指摘の件数", f"{cu.THREAD_CAP} 件"), ("帯", f"{cm.FRAME_WIDTH} 桁"), ("畳む", f"{cm.FRAME_WHOLE} 行"),
+                     ("残す", f"{cm.FOLD_KEEP} 行"), ("散文", f"前後 {cm.PROSE_CONTEXT} 行"), ("指摘の前後", f"前後 {cu.THREAD_CONTEXT} 行"),
+                     ("まとめる間", f"{cm.FRAME_GAP} 行")]:
+    assert value in table, f"仕様書 7 節に {label} の {value} が無い"
+print("DOC_NUMBERS_OK")
+PYNUM
 
 if [ "$ran" -lt "$EXPECTED_MIN" ]; then
     echo "検査が $ran 件しか走っていない（$EXPECTED_MIN 件以上を期待）——検証自体が空振りしている"

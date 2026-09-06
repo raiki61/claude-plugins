@@ -283,15 +283,16 @@ def _frames(tmp):
     (cwd / "src" / "x.py").write_text("def f():\n    x = 1\n" + tail, encoding="utf-8")
     (cwd / "img.bin").write_bytes(b"\x00\x01")
     (cwd / "src" / "old_name.py").write_text("def moved():\n    return 1\n" + tail, encoding="utf-8")
-    # 散文（md）も枠で出る。-W だと関数の境目が無く文脈が file 全体に広がるので、機械は 3 行で切る——
-    # 変更の 4 行下の「末尾」が枠に入らないことで、文脈 3 行が効いていることを見る
-    (cwd / "doc.md").write_text("# 見出し\n本文\nあ\nい\nう\nえ\n末尾\n", encoding="utf-8")
+    # 散文（md）も枠で出る。-W だと関数の境目が無く文脈が file 全体に広がるので、機械は 10 行で切る——
+    # 変更の 11 行下の「末尾」が枠に入らず、10 行下の「え」は入ることで、文脈 10 行が効いていることを見る
+    filler = "".join(f"行{i}\n" for i in range(1, 9))  # 本文 + 8 行で、え が変更の 10 行下・末尾が 11 行下
+    (cwd / "doc.md").write_text("# 見出し\n本文\n" + filler + "え\n末尾\n", encoding="utf-8")
     subprocess.run([*git, "add", "."], cwd=cwd, check=True)
     subprocess.run([*git, "commit", "-q", "-m", "init"], cwd=cwd, check=True)
     (cwd / "src" / "x.py").write_text("def f():\n    x = 2\n    y = 3\n" + tail, encoding="utf-8")
     (cwd / "src" / "n.py").write_text('"""new one"""\ndef g():\n    pass\n', encoding="utf-8")
     (cwd / "src" / "s.py").write_text('"""staged"""\ndef h():\n    pass\n', encoding="utf-8")
-    (cwd / "doc.md").write_text("# 見出し\n足した行\n本文\nあ\nい\nう\nえ\n末尾\n", encoding="utf-8")
+    (cwd / "doc.md").write_text("# 見出し\n足した行\n本文\n" + filler + "え\n末尾\n", encoding="utf-8")
     subprocess.run([*git, "add", "src/s.py"], cwd=cwd, check=True)
     (cwd / "img.bin").write_bytes(b"\x00\x02")
     # 改名 ＋ 中身の変更。git は変更 file を新側の path だけで挙げるので、それをそのまま pathspec に
@@ -311,9 +312,9 @@ def _frames(tmp):
         "old_is_marked": "    | #│  x = 1" in out,
         "new_lines": "    |     x = 2" in out and "    |     y = 3" in out,
         "whole_function": "    | def f():" in out and "    |     return x" in out,
-        "untracked": "=== src/n.py（未追跡の新規" in out and '    | """new one"""' in out and "    | def g():" in out,
-        "staged_new": "=== src/s.py（add 済みの新規" in out and "    | def h():" in out and "def h():" not in one,
-        "binary": "=== img.bin（中身が diff に無い" in out,
+        "untracked": "=== src/n.py （未追跡の新規" in out and '    | """new one"""' in out and "    | def g():" in out,
+        "staged_new": "=== src/s.py （add 済みの新規" in out and "    | def h():" in out and "def h():" not in one,
+        "binary": "=== img.bin （中身が diff に無い" in out,
         "frame_option": "=== src/x.py" in one and "    | #│  x = 1" in one and "変更の中身" not in one,
         "frame_refuses_no_diff": "diff に無い" in refused,
         "jump": "    飛び先 src/x.py:1\n    | def f():" in out and "    飛び先 src/x.py:1\n    | def f():" in one,
@@ -321,18 +322,21 @@ def _frames(tmp):
         "jump_for_new": "    飛び先 src/n.py:1" in out and "    飛び先 src/s.py:1" in out,
         "prose_framed": "=== doc.md" in out and "    飛び先 doc.md:1" in out
                         and "    | 足した行" in out and "    | <!-- ┏━━ 追加 " in out,
-        "prose_context_is_three_lines": "    | 末尾" not in out,
-        "renamed_is_not_new": "=== src/new_name.py\n    飛び先 src/new_name.py:1\n    | def moved():" in out
+        "prose_context_is_ten_lines": "    | 末尾" not in out and "    | え" in out,
+        "lang_in_heading": "=== src/x.py （言語名 python）" in out and "=== doc.md （言語名 markdown）" in out
+                           and "=== src/n.py （未追跡の新規" in out and "file を開く）（言語名 python）" in out
+                           and "（言語名 python）" in one,
+        "renamed_is_not_new": "=== src/new_name.py （言語名 python）\n    飛び先 src/new_name.py:1\n    | def moved():" in out
                               and "    | #│  return 1" in out and "    |     return 99" in out,
     }
     saved = wai.changemap.frame_diff
     wai.changemap.frame_diff = lambda **kw: None
     try:
-        failed = "\n".join(wai.changemap.uncommitted_frames(cwd, ["src/x.py"]))
+        failed = "\n".join(wai.changemap.frames_section(cwd, ["src/x.py"]))
     finally:
         wai.changemap.frame_diff = saved
     want["diff_failure_is_not_a_verdict"] = (
-        failed == "  変更の中身: 出せない（手元の git diff が失敗した。木と件数だけが上の材料）")
+        failed == "  変更の中身: 出せない（git diff が失敗した。木と件数だけが上の材料）")
     bad = [k for k, v in want.items() if not v]
     return "FRAMES_OK" if not bad else "FRAMES_NG " + ",".join(bad) + "\n" + out + "\n" + failed + "\n---\n" + one
 

@@ -361,6 +361,8 @@ def _body_material():
         {"number": 5, "title": "困りごと", "state": "OPEN", "url": "",
          "body": "\n".join(f"issue 行 {i}" for i in range(1, 21))},
         {"number": 6, "title": "空の issue", "state": "OPEN", "url": "", "body": ""},
+        {"number": 7, "title": "3 つ目", "state": "OPEN", "url": "", "body": "c"},
+        {"number": 8, "title": "4 つ目（上限の外）", "state": "OPEN", "url": "", "body": "d"},
     ])
     node = pr(author=user(ME), body=body, closingIssuesReferences=linked)
     out = catchup.render_body(node, full=False)
@@ -375,7 +377,11 @@ def _body_material():
         "full": "  | 本文 70" in full and "本文はあと" not in full,
         "issue_head": "=== 閉じる issue #5 困りごと（本文の冒頭 12 行／20 行）" in out
         and "  | issue 行 12" in out and "issue 行 13" not in out
-        and "（続きは gh issue view 5 で見る）" in out,
+        and "（続きは --full か gh issue view 5 で見る）" in out,
+        "issue_cap": "閉じる issue #8" not in out and "（閉じる issue は他に 1 件。--full で全部）" in out,
+        "issue_cap_full": "=== 閉じる issue #8 4 つ目（上限の外）" in full and "閉じる issue は他に" not in full,
+        "quotes_full": catchup.excerpt("> [!CAUTION]\n> 引用だけ", 0) == "（本文なし）"
+        and catchup.excerpt("> [!CAUTION]\n> 引用だけ", 0, keep_quotes=True) == "> [!CAUTION] > 引用だけ",
         "issue_empty": "=== 閉じる issue #6 空の issue（本文なし）" in out,
         "issue_full": "  | issue 行 20" in full and "続きは gh issue view" not in full,
         "empty": "=== issue の本文: （本文なし）" in empty,
@@ -409,10 +415,10 @@ def _body_refs():
         "order_and_cap": asked == [1078, 1105, 2000],
         "refs": catchup.body_refs(body, 1, {5}) == [1078, 1105, 2000, 2001],
         "issue": "=== 本文が指す issue #1078 困りごと（open。本文の冒頭 12 行／20 行）" in out
-        and "  | 行 12" in out and "行 13" not in out and "（続きは gh issue view 1078 で見る）" in out,
+        and "  | 行 12" in out and "行 13" not in out and "（続きは --full か gh issue view 1078 で見る）" in out,
         "pr": "=== 本文が指す PR #1105 権限（closed。本文の冒頭 2 行／2 行）" in out and "続きは gh pr view" not in out,
         "missing": "=== 本文が指す #2000: 取れなかった（gh issue view 2000 で見る）" in out,
-        "rest": "（本文が指す番号は他に 1 件）" in out,
+        "rest": "（本文が指す番号は他に 1 件。--full で全部）" in out,
         "no_fetch_without_hook": "本文が指す" not in catchup.render_body(node, full=False),
     }
     bad = [k for k, v in want.items() if not v]
@@ -487,7 +493,7 @@ def _threads_material():
     out = catchup.render_threads(node, ME, lambda p: files.get(p))
     want = {
         "theirs_turn": "=== 1/4 app/main.py:10  ← 私が最後に発言している（相手の番）" in out,
-        "my_turn": "=== 2/4 app/main.py:10  ← 私が返す番" in out,
+        "my_turn": "=== 2/4 app/main.py:10  ← 私が返す番 （言語名 python）" in out,
         "body": "[block] ここは握り潰し" in out and "引用は落とす" not in out,
         "window": "|    5 line 5" in out and "|   15 line 15" in out and "line 16" not in out,
         "gone": "=== 3/4 app/gone.py  ←" in out and "今の head に無い" in out,
@@ -570,7 +576,8 @@ def _ci_material():
         and "##[error]Process completed" in out and "L42" not in out,
         "prefix_dropped": "| L40" in out and "2026-09-02T" not in out,
         "tail": "L12" in out and "L11" not in out,
-        "external": "=== ext  https://ci.example.invalid/x" in out and "run ではない" in out,
+        "external": "=== ext  https://ci.example.invalid/x （言語名 plaintext）" in out and "run ではない" in out,
+        "lang": "=== lint  https://github.com/o/r/actions/runs/11/job/22 （言語名 plaintext）" in out,
         "green_hidden": "=== ok" not in out,
     }
     bad = [k for k, v in want.items() if not v]
@@ -834,6 +841,9 @@ def _map_jumps():
                         and "枠は出さない" not in out,
         "new_jump": "    飛び先 src/n.py:1\n" in out,
         "deleted_no_jump": "飛び先 gone.py" not in out and "削除" in out,
+        "lang": "=== src/a.py  (MODIFIED +1/-0) （言語名 python）" in out
+                and "=== docs/guide.md  (MODIFIED +1/-0) （言語名 markdown）" in out
+                and "=== src/n.py  (" in out and "行) （言語名 python）" in out,
     }
     bad = [k for k, v in want.items() if not v]
     return "MAP_JUMPS_OK" if not bad else "MAP_JUMPS_NG " + ",".join(bad) + "\n" + out
@@ -844,22 +854,22 @@ def _no_target():
     """PR も番号も無いブランチ（main 等）でも止まらず、手元のブランチだけを出す。GitHub には聞かない
     （gh を呼んだら落ちるスタブで確かめる）。--frame と焦点の語はその旨を書く。"""
     cm = catchup.changemap
-    saved = (catchup.gh_try, cm.current_branch, catchup.render_local, cm.working_tree,
-             cm.uncommitted_frames)
-    catchup.gh_try = lambda *a, **k: None          # 今のブランチに PR は無い
+    saved = (catchup.current_pr_url, cm.current_branch, catchup.render_local, cm.working_tree,
+             cm.frames_section)
+    catchup.current_pr_url = lambda: ""            # 今のブランチに PR は無い（gh は通った）
     cm.current_branch = lambda cwd=None: "main"
     catchup.render_local = lambda **kw: "## 手元のブランチ main（" + kw["why"] + "）\n  未コミット 1 件"
     cm.working_tree = lambda cwd=None: (["src/a.py"], [" work/", "~  src/a.py  +1"])
     seen = {}
-    cm.uncommitted_frames = lambda cwd, dirty, frame_cmd="--frame": (
+    cm.frames_section = lambda cwd, dirty, frame_cmd="--frame": (
         seen.update(dirty=dirty, cmd=frame_cmd) or ["  変更の中身（…）:", "    === src/a.py",
                                                     "    飛び先 src/a.py:1", "    | def f():"])
     try:
         target = catchup.resolve_target("this", None)
         out = catchup.render_no_target()
     finally:
-        (catchup.gh_try, cm.current_branch, catchup.render_local, cm.working_tree,
-         cm.uncommitted_frames) = saved
+        (catchup.current_pr_url, cm.current_branch, catchup.render_local, cm.working_tree,
+         cm.frames_section) = saved
     want = {
         "resolved": target == (None, None, None, "none"),
         "head": out.startswith("# 今のブランチ main（PR も、名前の番号も無い）"),
@@ -871,6 +881,106 @@ def _no_target():
     }
     bad = [k for k, v in want.items() if not v]
     return "NO_TARGET_OK" if not bad else "NO_TARGET_NG " + ",".join(bad) + "\n" + out
+
+
+@case("commit")
+def _commit():
+    """commit（sha・HEAD~2・タグ・ブランチ名）を渡すと、GitHub に聞かずにその commit を出す——題と
+    本文・変更ファイルの木・変更の中身（枠と飛び先）。--frame はその 1 file を上限なしで。"""
+    cm = catchup.changemap
+    saved = (catchup.gh_try, cm.commit_oid, cm.commit_range, cm.commit_tree, cm.frames_section,
+             cm.git, cm.frame_diff, cm.framed_diff, cm.frame_lines, cm.branch_exists)
+    catchup.gh_try = lambda *a, **k: (_ for _ in ()).throw(AssertionError("gh を呼んだ"))
+    cm.branch_exists = lambda token, cwd=None: token == "feat/x"
+    cm.commit_oid = lambda token, cwd=None: "2971ea2f" if token in ("2971ea2", "HEAD~2", "1234567") else None
+    cm.commit_range = lambda oid, cwd=None: f"parent..{oid}"
+    cm.commit_tree = lambda rev, cwd=None: (["src/a.py"], [" work/", "~  src/a.py  +1"])
+    seen = {}
+    cm.frames_section = lambda cwd, paths, rev="HEAD", frame_cmd="--frame", new_from_file=True, jump_note="": (
+        seen.update(rev=rev, cmd=frame_cmd, new_from_file=new_from_file, jump=jump_note)
+        or ["  変更の中身（…）:", "    === src/a.py", "    飛び先 src/a.py:1", "    | def f():"])
+    cm.git = lambda *a, cwd=None: "2971ea2\nraiki61\n2026-09-06\n題です\n本文 1 行目\n"
+    cm.frame_diff = lambda cwd=None, rev="HEAD", paths=(): "diff"
+    cm.framed_diff = lambda text: {"src/a.py": {"new": False, "blocks": [["def f():"]],
+                                                "gaps": [], "starts": [1]}}
+    cm.frame_lines = lambda path, info, cap=None, **kw: ["    | def f():"]
+    try:
+        target = catchup.resolve_target("2971ea2", None)
+        digits = catchup.resolve_target("1234567", None)   # 数字だけでも 7 桁以上で commit に解ければ commit
+        branch = catchup.resolve_target("feat/x", None)     # 枝の名前は commit より先に「移る」対象
+        out = catchup.render_commit("2971ea2f")
+        one = catchup.render_commit("2971ea2f", frame="src/a.py")
+    finally:
+        (catchup.gh_try, cm.commit_oid, cm.commit_range, cm.commit_tree, cm.frames_section,
+         cm.git, cm.frame_diff, cm.framed_diff, cm.frame_lines, cm.branch_exists) = saved
+    want = {
+        "resolved": target == (None, None, "2971ea2f", "commit"),
+        "digits_sha": digits == (None, None, "2971ea2f", "commit"),
+        "branch_name": branch == (None, None, "feat/x", "branchname"),
+        "func_span": catchup.func_span(["def f():"] + ["    x"] * 14 + ["def g():"], 5) == (1, 15, True)
+        and catchup.func_span(["    a", "    b", "    c"], 2) == (1, 3, False)     # 境目が無い
+        and catchup.func_span([f"k{i}: v" for i in range(30)], 15) == (10, 20, False)  # 平らな file は窓
+        and catchup.func_span(["x"] + ["    y"] * 300, 150)[2] is False,             # 長すぎる
+        "head": out.startswith("# 2971ea2 題です\n  raiki61 · 2026-09-06 · 1 ファイル"),
+        "no_github": "GitHub 側は見ていない——手元の git の commit として出す" in out,
+        "body": "  | 本文 1 行目" in out,
+        "tree": "~  src/a.py  +1" in out,
+        "frames": "    飛び先 src/a.py:1" in out,
+        "range_and_cmd": seen == {"rev": "parent..2971ea2f", "cmd": "catchup.py 2971ea2 --frame",
+                                  "new_from_file": False, "jump": seen.get("jump")}
+        and "commit 2971ea2 の版の行番号（git show 2971ea2:path で開く）" in seen.get("jump", ""),
+        "frame_jump": "commit 2971ea2 の版の行番号" in one and "head（手元）" not in one,
+        "unseen": "範囲は親との差 1 つだけ" in out,
+        "frame_one": one.startswith("    === src/a.py （") and "| def f():" in one
+                     and "変更の地図" not in one and "）（言語名 python）\n" in one,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "COMMIT_OK" if not bad else "COMMIT_NG " + ",".join(bad) + "\n" + out
+
+
+@case("main-wiring")
+def _main_wiring():
+    """main() の受け口の配線。commit・PR も番号も無い枝（none）で、焦点の断りは人の語（指摘・地図・CI）で
+    出て内部 key（threads / map / ci）は出ない、commit の 地図 は出ているので断らない、none の --frame は
+    PR か commit に案内して止まる、commit の --switch は移る先が無いと言う。描く関数は差し替えて、配線だけ見る。"""
+    import contextlib
+    import io
+    saved = (catchup.resolve_target, catchup.render_commit, catchup.render_no_target)
+    kind = {"local": "commit"}
+    catchup.resolve_target = lambda token, repo: (None, None, "oid", kind["local"])
+    catchup.render_commit = lambda oid, cwd=None, frame=None, full=False: f"COMMIT full={full} frame={frame}"
+    catchup.render_no_target = lambda cwd=None: "NONE"
+
+    def run(argv):
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = catchup.main(argv)
+        except SystemExit as e:
+            return None, str(e)
+        return rc, buf.getvalue()
+    try:
+        rc1, out1 = run(["HEAD", "指摘", "CI"])
+        rc2, out2 = run(["HEAD", "地図"])
+        rc3, out3 = run(["HEAD", "--switch", "--full"])
+        kind["local"] = "none"
+        rc4, out4 = run(["this", "地図"])
+        rc5, out5 = run(["this", "--frame", "x.py"])
+        rc6, out6 = run(["this", "--switch"])
+    finally:
+        catchup.resolve_target, catchup.render_commit, catchup.render_no_target = saved
+    want = {
+        "commit_note_in_ja": rc1 == 0 and "（指摘・CI の材料は PR / issue のもの。commit には無い）" in out1
+                             and "threads" not in out1 and "COMMIT" in out1,
+        "commit_map_no_note": rc2 == 0 and "材料は PR / issue のもの" not in out2,
+        "commit_switch_full": rc3 == 0 and "移る先が無い" in out3 and "full=True" in out3,
+        "none_note_in_ja": rc4 == 0 and "（地図 の材料は PR / issue のもの。今のブランチには PR が無い）" in out4
+                           and "map" not in out4 and "NONE" in out4,
+        "none_frame_stops": rc5 is None and "PR か commit" in out5 and "what-am-i-doing.py --frame" in out5,
+        "none_switch_note": rc6 == 0 and "ブランチ: this では移らない（今のブランチのまま）" in out6,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "WIRING_OK" if not bad else "WIRING_NG " + ",".join(bad) + "\n" + out1 + out4 + (out5 or "")
 
 
 def main():

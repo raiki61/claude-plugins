@@ -211,6 +211,12 @@ def split_words(words):
     return (rest[0] if rest else "this"), focus
 
 
+def focus_words(focus):
+    """焦点の内部 key（threads / map / ci）を人の語（指摘・地図・CI）に戻して「・」で繋ぐ。"""
+    back = {v: k for k, v in FOCUS.items()}
+    return "・".join(back[k] for k in ("threads", "map", "ci") if k in focus)
+
+
 def pick_tails(is_pr, focus, has_threads, has_red):
     """末尾に付ける材料 (地図, 指摘, CI) を決める。有れば出す——地図は PR なら常に、指摘は人が
     入っている未解決スレッドが有れば、CI は赤が有れば。作者が私かどうかは見ない（この道具を呼ぶこと
@@ -231,6 +237,26 @@ def branch_number(branch):
     return int(m.group(1)) if m else None
 
 
+def current_pr_url():
+    """今のブランチの PR の URL。無ければ ""。gh が無い・未認証・失敗は止まる——「PR が無い」に潰すと、
+    認証切れのときに「今のブランチに PR は無い」と断定した報告が出る（突合で実測）。GitHub の remote が
+    無いリポジトリだけは PR が有り得ないので「無い」と同じに扱う（手元だけの repo でも this が使える）。"""
+    exe = shutil.which("gh")
+    if not exe:
+        sys.exit("gh が見つからない（PATH に通す）")
+    r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はリテラルだけ
+        [exe, "pr", "view", "--json", "url", "-q", ".url"],
+        capture_output=True, encoding="utf-8", errors="replace")
+    if r.returncode == 0:
+        return r.stdout.strip()
+    err = r.stderr.strip()
+    # no git remotes found / none of the git remotes（remote 無し）、not on any branch（detached）は PR が有り得ない
+    if ("no pull requests found" in err or "git remotes" in err or "not on any branch" in err
+            or "could not determine current branch" in err):
+        return ""
+    sys.exit("gh pr view が失敗（今のブランチに PR が無いのとは別。理由: " + err + "）")
+
+
 def resolve_target(token, repo_opt):
     """番号・URL・this から (owner, name, number, 今のブランチとの関係) を決める。関係は None
     （番号や URL で呼んだ）／"pr"（今のブランチの PR）／"branch"（PR が無く、ブランチ名の番号を
@@ -241,8 +267,8 @@ def resolve_target(token, repo_opt):
         return m.group(1), m.group(2), int(m.group(3)), None
     local = None
     if token == "this":
-        url = gh_try("pr", "view", "--json", "url", "-q", ".url")
-        m = URL_RE.match((url or "").strip())
+        url = current_pr_url()
+        m = URL_RE.match(url)
         if m:
             return m.group(1), m.group(2), int(m.group(3)), "pr"
         branch = changemap.current_branch() or ""
@@ -250,8 +276,17 @@ def resolve_target(token, repo_opt):
         if num is None:
             return None, None, None, "none"
         token, local = str(num), "branch"
-    if not token.lstrip("#").isdigit():
-        sys.exit(f"番号か PR / issue の URL を渡す（受け取った値: {token}。"
+    digits = token.lstrip("#").isdigit()
+    if not digits and changemap.branch_exists(token):
+        return None, None, token, "branchname"
+    # 数字だけの語は番号が先。ただし 7 桁以上（PR / issue の番号はそこまで行かない）で手元の commit に
+    # 解けるなら短縮 sha（git log --oneline の 7 桁は 3 本に 1 本ほどが全数字。実測 113 本中 6 本）
+    if not digits or (len(token) >= 7 and not token.startswith("#")):
+        oid = changemap.commit_oid(token)
+        if oid:
+            return None, None, oid, "commit"
+    if not digits:
+        sys.exit(f"番号か PR / issue の URL、手元の commit を渡す（受け取った値: {token}。"
                  "引数なしか this なら今のブランチ、番号でない語は会話の話題として"
                  " what-am-i-doing.py --topic で追う）")
     slug = repo_opt or gh("repo", "view", "--json", "nameWithOwner",
@@ -285,9 +320,11 @@ def hhmm(t):
     return t.strftime("%m-%d %H:%M")
 
 
-def excerpt(body, limit):
-    """本文を 1 行に畳む。引用（>）は落とす——引用だけの返信が自分の発言に化けるため。"""
-    lines = [ln for ln in (body or "").splitlines() if not ln.lstrip().startswith(">")]
+def excerpt(body, limit, keep_quotes=False):
+    """本文を 1 行に畳む。引用（>）は落とす——引用だけの返信が自分の発言に化けるため。--full で出すときは
+    keep_quotes で残す（GitHub の alert 記法 `> [!CAUTION]` のように引用行だけの発言は、落とすと --full でも
+    「本文なし」になり、機械が約束した「発言の全文。--full で出る」が嘘になる。実走で実測）。"""
+    lines = [ln for ln in (body or "").splitlines() if keep_quotes or not ln.lstrip().startswith(">")]
     s = re.sub(r"\s+", " ", " ".join(lines)).strip()
     if limit and len(s) > limit:
         return s[:limit] + "…"
@@ -865,8 +902,12 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     w(f"# #{node['number']} {node['title']}")
     role = role_of(node, me, ev)
     # 理由が 1 つなら 1 行、複数なら箇条書き。／で繋ぐと 3 つで 100 字を超え、端末で折り返して
-    # 1 行目の役目（一目で手番と理由）を失う
-    if not reasons:
+    # 1 行目の役目（一目で手番と理由）を失う。閉じた件は誰の番でもない——merged の PR で「作者 待ち」と
+    # 出すと読む人が迷う（実走で実測）
+    if node["state"] != "OPEN":
+        w(f"  {role} · 済み — " + ("merge 済み。動くものは無い" if node["state"] == "MERGED"
+                                   else "close 済み。動くものは無い"))
+    elif not reasons:
         w(f"  {role} · ○ 待ち — " + waiting_on(node, me))
     elif len(reasons) == 1:
         w(f"  {role} · ● 私の番 — " + reasons[0])
@@ -891,7 +932,7 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
     w("## 私が最後にしたこと")
     if anchor_kind == "mine":
         w(f"  {hhmm(anchor['t'])}  {anchor['kind']}")
-        w("  " + excerpt(anchor["text"], 0 if full else 220))
+        w("  " + excerpt(anchor["text"], 0 if full else 220, keep_quotes=full))
     else:
         w("  この件で私はまだ何もしていない")
         if anchor_kind == "handover":
@@ -906,7 +947,7 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         w(f"  {hhmm(ask['t'])}  {name(ask['who'])} の {ask['kind']}{note}")
         # 依頼の抜粋だけ長めに取る。220 字だと結論の前で切れて用件が読めない（実測: 対象ファイルの
         # パスの途中で切れ、初見の読み手 2 人が「何を直せばよいか分からない」で止まった）
-        w("  " + excerpt(ask["text"], 0 if full else 400))
+        w("  " + excerpt(ask["text"], 0 if full else 400, keep_quotes=full))
         f = ask.get("followup")
         if f:
             w(f"  （その後 {hhmm(f['t'])} に {name(f['who'])} が {f['kind']} を出している）")
@@ -927,7 +968,7 @@ def render(node, me, ev, refs, unlinked, anchor, anchor_kind, full, limit, caps,
         who = f"{name(e['who'])} が " if e["who"] else ""
         tag = "[bot] " if e["bot"] else ""
         w(f"  {hhmm(e['t'])}  {tag}{who}{e['kind']}")
-        body = excerpt(e["text"], 0 if full else 110)
+        body = excerpt(e["text"], 0 if full else 110, keep_quotes=full)
         if body != "（本文なし）":
             w(f"      {body}")
     w("")
@@ -1100,7 +1141,7 @@ def render_body(node, full, get_ref=None):
         if len(shown) < len(rows):
             w(f"  （本文はあと {len(rows) - len(shown)} 行。--full か gh {kind.lower()} view で見る）")
     linked = node.get("closingIssuesReferences", {}).get("nodes", []) if is_pr else []
-    for i in linked[:ISSUE_CAP]:
+    for i in (linked if full else linked[:ISSUE_CAP]):
         irows = body_rows(i.get("body"))
         head = irows if full else irows[:ISSUE_HEAD_LINES]
         w(f"  === 閉じる issue #{i['number']} {i['title']}"
@@ -1108,11 +1149,11 @@ def render_body(node, full, get_ref=None):
         for ln in head:
             w("  | " + ln)
         if len(head) < len(irows):
-            w(f"  （続きは gh issue view {i['number']} で見る）")
-    if len(linked) > ISSUE_CAP:
-        w(f"  （閉じる issue は他に {len(linked) - ISSUE_CAP} 件）")
+            w(f"  （続きは --full か gh issue view {i['number']} で見る）")
+    if not full and len(linked) > ISSUE_CAP:
+        w(f"  （閉じる issue は他に {len(linked) - ISSUE_CAP} 件。--full で全部）")
     refs = body_refs(node.get("body"), node["number"], {i["number"] for i in linked}) if get_ref else []
-    for n in refs[:BODY_REF_CAP]:
+    for n in (refs if full else refs[:BODY_REF_CAP]):
         r = get_ref(n)
         if not r:
             w(f"  === 本文が指す #{n}: 取れなかった（gh issue view {n} で見る）")
@@ -1124,9 +1165,9 @@ def render_body(node, full, get_ref=None):
         for ln in head:
             w("  | " + ln)
         if len(head) < len(rrows):
-            w(f"  （続きは gh {'pr' if r['kind'] == 'PR' else 'issue'} view {n} で見る）")
-    if len(refs) > BODY_REF_CAP:
-        w(f"  （本文が指す番号は他に {len(refs) - BODY_REF_CAP} 件）")
+            w(f"  （続きは --full か gh {'pr' if r['kind'] == 'PR' else 'issue'} view {n} で見る）")
+    if not full and len(refs) > BODY_REF_CAP:
+        w(f"  （本文が指す番号は他に {len(refs) - BODY_REF_CAP} 件。--full で全部）")
     return "\n".join(out)
 
 
@@ -1241,7 +1282,7 @@ def render_map(node, owner, name):
     for ln in changemap.render_tree(entries, dict(sib) if sib else None, root_label=name):
         w(ln)
 
-    # diff は手元に base と head があれば git（コードは関数まるごと、散文は 3 行）、無ければ gh pr diff（文脈 3 行）。
+    # diff は手元に base と head があれば git（コードは関数まるごと、散文は前後 PROSE_CONTEXT 行）、無ければ gh pr diff（文脈 3 行）。
     # 先頭・骨組み・名前の言及は + の行しか見ないので、文脈の広さで変わらない
     text, note = pr_function_diff(owner, name, node,
                                   lambda: gh_try("pr", "diff", str(node["number"]), "-R", f"{owner}/{name}"))
@@ -1268,7 +1309,7 @@ def render_map(node, owner, name):
         w("  新規ファイルの先頭と骨組み:")
         for p in new:
             lines = added_lines(hunks.get(p, []))
-            w(f"    === {p}  ({len(lines)} 行)")
+            w(f"    === {p}  ({len(lines)} 行) {changemap.lang_tag(p)}")
             if not lines:
                 w("    | （中身が diff に無い。バイナリか空）")
                 continue
@@ -1285,7 +1326,8 @@ def render_map(node, owner, name):
         for f in mod:
             old = renames.get(f["path"])
             frm = f"  旧: {old}" if old else ""
-            w(f"    === {f['path']}  ({f['changeType']} +{f['additions']}/-{f['deletions']}){frm}")
+            w(f"    === {f['path']}  ({f['changeType']} +{f['additions']}/-{f['deletions']}){frm} "
+              + changemap.lang_tag(f['path']))
             info = frames.get(f["path"])
             if not info:
                 w("    （改名のみ。中身の変更なし）" if old and not (f["additions"] or f["deletions"])
@@ -1375,7 +1417,34 @@ def unresolved_threads(node, me):
     return out
 
 
-def render_threads(node, me, read_lines):
+FUNC_SPAN_CAP = 200   # 関数まるごとの上限。超えたら前後 THREAD_CONTEXT 行に戻す
+
+
+def func_span(lines, n, cap=FUNC_SPAN_CAP):
+    """指摘の行 n を含む関数の範囲 (lo, hi, 関数まるごとか)。境目は git diff -W の既定の funcname と同じく
+    「行頭が空白でない行」——言語を問わず使えて、-W の枠と同じ切り方になる。長すぎる（cap 超）・境目が
+    無い（散文）ときは前後 THREAD_CONTEXT 行（仕様の原則 4「前後は長めに」。指摘の行だけの数行では読む人が
+    file を開いて前後を確かめに行く）。"""
+    def top(i):
+        s = lines[i - 1]
+        return bool(s) and not s[0].isspace()
+    lo = n
+    while lo > 1 and not top(lo):
+        lo -= 1
+    hi = n + 1
+    while hi <= len(lines) and not top(hi):
+        hi += 1
+    hi -= 1
+    while hi > n and not lines[hi - 1].strip():
+        hi -= 1
+    # 境目が無い・長すぎる・関数が前後の窓より小さい（行頭に空白の無い file——yaml・md・平らな設定——は
+    # 1 行ごとが「関数」になる）ときは、前後 THREAD_CONTEXT 行の窓
+    if not top(lo) or hi - lo + 1 > cap or hi - lo < 2 * THREAD_CONTEXT:
+        return max(1, n - THREAD_CONTEXT), min(len(lines), n + THREAD_CONTEXT), False
+    return lo, hi, True
+
+
+def render_threads(node, me, read_lines, full=False):
     threads = unresolved_threads(node, me)
     out = []
     w = out.append
@@ -1384,10 +1453,10 @@ def render_threads(node, me, read_lines):
     if not threads:
         w("  人が入っている未解決スレッドは無い")
         return "\n".join(out)
-    for i, th in enumerate(threads[:THREAD_CAP], 1):
+    for i, th in enumerate(threads if full else threads[:THREAD_CAP], 1):
         where = th["path"] + (f":{th['line']}" if th["line"] else "")
         turn = "← 私が返す番" if th["my_turn"] else "← 私が最後に発言している（相手の番）"
-        w(f"  === {i}/{len(threads)} {where}  {turn}")
+        w(f"  === {i}/{len(threads)} {where}  {turn} {changemap.lang_tag(th['path'])}")
         c = th["last"]
         w(f"  {login_of(c['author'])}（{hhmm(ts(c['createdAt']))}）:")
         body = [ln for ln in (c["body"] or "").splitlines() if not ln.lstrip().startswith(">")]
@@ -1405,14 +1474,13 @@ def render_threads(node, me, read_lines):
         if th["line"] > len(lines):
             w(f"  行 {th['line']} は head のファイル（{len(lines)} 行）の外")
             continue
-        lo = max(1, th["line"] - THREAD_CONTEXT)
-        hi = min(len(lines), th["line"] + THREAD_CONTEXT)
-        w(f"  head の {lo}〜{hi} 行"
+        lo, hi, whole = func_span(lines, th["line"])
+        w(f"  head の {lo}〜{hi} 行" + ("（指摘の行を含む関数まるごと）" if whole else f"（指摘の行の前後 {THREAD_CONTEXT} 行）")
           + ("（指摘した時点から行がずれている。isOutdated）" if th["outdated"] else "") + ":")
         for n in range(lo, hi + 1):
             w(f"  | {n:4} {lines[n - 1]}")
-    if len(threads) > THREAD_CAP:
-        w(f"  （スレッドは他に {len(threads) - THREAD_CAP} 件）")
+    if not full and len(threads) > THREAD_CAP:
+        w(f"  （スレッドは他に {len(threads) - THREAD_CAP} 件。--full で全部）")
     return "\n".join(out)
 
 
@@ -1431,7 +1499,7 @@ def ci_excerpt(log, tail=CI_TAIL):
     return rows[max(0, end - tail):end]
 
 
-def render_ci(node, owner, name, run_log=None):
+def render_ci(node, owner, name, run_log=None, full=False):
     """赤いチェックごとに、失敗した step のログの末尾。run_log は検査用の差し替え口。"""
     red, _, _ = check_state(node)
     out = []
@@ -1440,8 +1508,8 @@ def render_ci(node, owner, name, run_log=None):
     if not red:
         w("  赤いチェックは無い")
         return "\n".join(out)
-    for cname, url in red[:3]:
-        w(f"  === {cname}  {url or '（URL なし）'}")
+    for cname, url in (red if full else red[:3]):
+        w(f"  === {cname}  {url or '（URL なし）'} （言語名 plaintext）")
         m = RUN_URL.search(url or "")
         if not m:
             w("  | （GitHub Actions の run ではないのでログを取れない。URL を開く）")
@@ -1454,8 +1522,8 @@ def render_ci(node, owner, name, run_log=None):
             continue
         for ln in ci_excerpt(log):
             w("  | " + ln)
-    if len(red) > 3:
-        w(f"  （赤は他に {len(red) - 3} 件）")
+    if not full and len(red) > 3:
+        w(f"  （赤は他に {len(red) - 3} 件。--full で全部）")
     return "\n".join(out)
 
 
@@ -1768,14 +1836,139 @@ def switch_branch(owner, name, num, node, cwd=None):
     return stay([label + verb + refused, *("    " + n for n in git_notes(err, failed=True))])
 
 
+def switch_to_branch(name, cwd=None):
+    """ブランチ名で呼ばれたとき、その枝へ git switch で移る（仕様の原則 1）。手元に無く origin にだけ有れば
+    origin/<name> を追跡する枝を作って移る。止まる条件は PR の枝と同じ（switch_blocker）。戻り値は
+    (見出しに足す行, 移った・既に居たか)。"""
+    top = changemap.repo_top(cwd)
+    branches, cur = local_branches(top) if top else (None, None)
+    if top and branches is None:
+        cur = changemap.current_branch(top)
+
+    def stay(text):
+        where = ("手元に git の checkout が無い" if not top
+                 else "手元の位置は読めない" if cur is None
+                 else f"手元は {cur or 'detached HEAD'} のまま")
+        return [text + f"（{where}）"], False
+    if not top:
+        return stay("ブランチ: 移らない")
+    if branches is None:
+        return stay("ブランチ: 手元のブランチ一覧が読めないので移らない")
+    label = f"ブランチ {name}: "
+    if cur == name:
+        return [label + "既に居る"], True
+    fresh = name not in branches
+    block, untracked = switch_blocker(top, name, branches.get(name), f"git switch {name}")
+    if block:
+        return stay(label + block)
+    args = ("--track", "-c", name, "--", f"origin/{name}") if fresh else ("--", name)
+    rc, _, err = changemap.run("switch", "--no-guess", "--no-overwrite-ignore", *args, cwd=top, timeout=None)
+    if changemap.current_branch(top) == name:
+        try:
+            os.getcwd()
+        except FileNotFoundError:
+            os.chdir(top)
+        made = f"手元に無かったので origin/{name} から作って " if fresh else ""
+        line = label + made + f"{cur or '（detached）'} から移った"
+        if untracked:
+            line += f"（未追跡 {untracked} 件は持ち越した）"
+        return [line, *("    " + n for n in git_notes(err))], True
+    if rc is None:
+        return stay(label + f"移れなかった（{err}）")
+    return stay(label + ("作れなかった（origin には有るが git switch -c が拒んだ）" if fresh
+                         else "移れなかった（git switch が拒んだ）"))
+
+
+def render_commit(oid, cwd=None, frame=None, full=False):
+    """手元の commit（push 済みでも）の報告。GitHub には何も聞かない——この repo のように PR を
+    立てずに main へ直接 commit する運用では、変更を読み直す口が他に無い。出す形は PR の地図と
+    同じ（木 → 変更の中身の枠と飛び先）——読む人が commit と PR で読み方を変えなくていい。
+    frame を渡すとその 1 file だけを上限なしで出す。"""
+    rev = changemap.commit_range(oid, cwd)
+    head = changemap.git("show", "-s", "--format=%h%n%an%n%ad%n%s%n%b", "--date=short", oid,
+                         cwd=cwd) or ""
+    short, author, date, subject, *body = head.split("\n")
+    paths, tree = changemap.commit_tree(rev, cwd)
+    # 飛び先の行番号は commit の版のもの——手元の file は先へ進んでいて別の行（実走で実測）
+    jump = (f"各枠の前の『飛び先 path:行』は commit {short} の版の行番号（git show {short}:path で開く）。"
+            "AI は箇所の見出しと枠の上の注釈に写す")
+    if frame:
+        text = changemap.frame_diff(cwd=cwd, rev=rev, paths=(frame,))
+        if text is None:
+            sys.exit("git diff が失敗した（枠は出せない）")
+        info = changemap.framed_diff(text).get(frame)
+        if not info:
+            sys.exit(f"{frame} はこの commit の変更に無い（path はリポジトリの根からの相対）")
+        return f"    === {frame} （{jump}）{changemap.lang_tag(frame)}\n" + "\n".join(
+            changemap.frame_lines(frame, info, cap=None))
+    out = [f"# {short} {subject}",
+           f"  {author} · {date} · {len(paths)} ファイル",
+           "  GitHub 側は見ていない——手元の git の commit として出す"]
+    lines = [ln.rstrip() for ln in body]
+    while lines and not lines[-1]:
+        lines.pop()
+    shown = lines if full else lines[:BODY_CAP]
+    if shown:
+        out += ["", "## 本文（材料。作者の言葉。1 文字も変えていない）"] + ["  | " + ln for ln in shown]
+    if len(lines) > len(shown):
+        out.append(f"  （本文はあと {len(lines) - len(shown)} 行。--full か git show {short} で見る）")
+    if not paths:
+        return "\n".join(out + ["", "  変更なし（空の commit か、mode だけの変更）"])
+    out += ["", "## 変更の地図（材料）",
+            "  変更ファイルの木（行頭 + が新規・~ が変更・- が削除。そのまま diff の枠に貼る）:"]
+    out += tree
+    # 見出しは frames_section が自分で出す（上限の案内をこの呼び方のコマンドで書くため）
+    out += changemap.frames_section(cwd, paths, rev=rev,
+                                    frame_cmd=f"catchup.py {short} --frame", new_from_file=False,
+                                    jump_note=jump)
+    return "\n".join(out + [
+        "", "見ていないもの:",
+        "  - GitHub の PR / issue（この commit を含む PR があっても見ていない。番号か URL を渡せば出る）",
+        "  - この commit の前後の commit（範囲は親との差 1 つだけ。merge は第 1 親との差）",
+        "  - この commit を誰かが取り込んだか、手元と origin のどちらが先か",
+    ])
+
+
+def ahead_of_default(cwd=None):
+    """PR の無い枝で、既定ブランチ（origin/HEAD）より先の commit の変更を、木と枠で。ブランチ名で来た人が
+    期待するのは枝全体の差で、未コミットや tip の 1 commit ではない（読み役の実測。仕様 11 節で決めた）。
+    既定ブランチに居る・先の commit が無い・origin が無いときは []。続きの口は git diff -W（この経路の
+    --frame は無い）。"""
+    base = changemap.default_branch_ref(cwd)
+    if not base:
+        return []
+    count = (changemap.git("rev-list", "--count", f"{base}..HEAD", cwd=cwd) or "0").strip()
+    if not count.isdigit() or int(count) == 0:
+        return []
+    mb = (changemap.git("merge-base", base, "HEAD", cwd=cwd) or "").strip()
+    if not mb:
+        return []
+    rev = f"{mb}..HEAD"
+    paths, tree = changemap.commit_tree(rev, cwd)
+    out = ["", f"## {base} より先の commit {count} 件の変更（材料。枝全体の差。未コミットは含まない）",
+           "  変更ファイルの木（行頭 + が新規・~ が変更・- が削除。そのまま diff の枠に貼る）:"]
+    if not paths:
+        return out + ["  変更なし"]
+    out += tree
+    out += changemap.frames_section(cwd, paths, rev=rev, new_from_file=False,
+                                    frame_cmd=f"git diff -W {mb[:7]}..HEAD --",
+                                    jump_note="各枠の前の『飛び先 path:行』は HEAD（手元の commit）の行番号。"
+                                              "AI は箇所の見出しと枠の上の注釈に写す")
+    return out
+
+
 def render_no_target(cwd=None):
     """PR も番号も無い this の出力。GitHub には何も聞かず、手元のブランチの節と、未コミットの変更の
     中身（枠と飛び先）を出す。見出しで「GitHub 側は見ていない」と断る——断らないと、読む人は
     「PR に動きが無い」と読む。中身まで出すのは、PR が無いときこそ木だけでは何をしていたか分からない
     ため（file の一覧は「どこ」しか言わない）。"""
+    # 新規 file の先頭は path（根からの相対）を cwd に繋いで読むので、根を渡す。渡さないと未追跡の
+    # 新規 file が 1 つでも有れば Path(None) で落ちて報告が一切出ない（実測）
+    cwd = cwd or changemap.repo_top() or os.getcwd()
     branch = changemap.current_branch(cwd) or ""
     wt = changemap.working_tree(cwd)
-    frames = changemap.uncommitted_frames(cwd, wt[0], frame_cmd="what-am-i-doing.py --frame") if wt[0] else []
+    frames = changemap.frames_section(cwd, wt[0], frame_cmd="what-am-i-doing.py --frame") if wt[0] else []
+    ahead = ahead_of_default(cwd)
     return "\n".join([
         f"# 今のブランチ {branch or '（detached）'}（PR も、名前の番号も無い）",
         "  GitHub 側は見ていない——この呼び方で出るのは手元の git だけ",
@@ -1787,11 +1980,12 @@ def render_no_target(cwd=None):
         "  - GitHub の PR / issue（今のブランチに PR が無く、名前にも番号が無い。"
         "番号か URL を渡せば出る）",
         "  - 他のブランチ・他の worktree の状態",
+        *ahead,
         "  - このセッションで何をしたか（what-am-i-doing.py で出る）",
     ])
 
 
-def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None):
+def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None, derived_kind="issue"):
     """今のブランチに居るときに出す手元の状態（this で呼んだ、または --switch で移った・既に居た。why は
     その理由）。GitHub に無いものはここにしか出ない。derived は、PR が無くブランチ名の番号を issue と見た
     ときのその番号（申告用）。pr_head は PR の head の commit——手元がそれより後ろなら数えて出す（push して
@@ -1802,7 +1996,8 @@ def render_local(derived=None, why="", pr_head=None, cwd=None, wt=None):
     branch = changemap.current_branch(cwd) or ""
     w(f"## 手元のブランチ {branch or '（detached）'}（{why}）")
     if derived:
-        w(f"  PR が無いので、ブランチ名の番号から #{derived} を issue と見た（違えば番号を渡す）")
+        w(f"  今のブランチに PR が無いので、ブランチ名の番号から #{derived} を引いた（{derived_kind} だった。"
+          "違えば番号を渡す）")
     # 「push していない」は origin の同名ブランチとの差で数える。@{upstream} だと、origin/main から
     # 切って -u 無しで push した枝は追跡先が origin/main のままで、push 済みの commit まで
     # 「push していない」に数える（実測）
@@ -1854,19 +2049,22 @@ def main(argv=None):
     p = argparse.ArgumentParser(
         description="1 件の PR / issue について、前回自分が触ってから何が起きたかを出す")
     p.add_argument("words", nargs="*", metavar="対象 [焦点]",
-                   help="対象は番号か PR / issue の URL。無ければ（または this なら）今のブランチの "
-                        "PR、それも無ければブランチ名の番号を issue と見る。末尾の材料は有れば全部出る"
+                   help="対象は番号か PR / issue の URL、または手元の commit（sha・HEAD~2・タグ・ブランチ名。"
+                        "GitHub は見ない）。無ければ（または this なら）今のブランチの "
+                        "PR、それも無ければブランチ名の番号を引く。末尾の材料は有れば全部出る"
                         "（地図は PR なら常に、指摘は人が入っている未解決スレッドが有れば、CI は赤が"
                         "有れば）。焦点の語 指摘・地図・CI を後ろに付けると、その 1 つに絞る")
     p.add_argument("-R", "--repo", help="owner/repo（URL を渡すときは不要）")
     p.add_argument("--me", help="基準にする login（既定は gh の認証ユーザ）。指定すると、"
                    "手元の git config の user.email による commit の照合はしない")
     p.add_argument("--full", action="store_true",
-                   help="発言と本文を全文で出す（本文の 60 行、閉じる issue の冒頭 12 行の上限も外す）")
+                   help="発言と本文を全文で出す（本文の 60 行、閉じる issue の冒頭 12 行、指摘 10 件、"
+                        "CI の赤 3 件の上限も外す）")
     p.add_argument("--limit", type=int, default=12,
                    help="その後に起きたことの表示件数（既定 12）")
     p.add_argument("--frame", metavar="path",
-                   help="地図の代わりに、この file の変更だけを関数まるごとの枠で全部出す（上限なし）")
+                   help="本体の報告を出さず、この file の変更だけを関数まるごとの枠で全部出す（上限なし。"
+                        "PR と commit で使える。手元の未コミットは what-am-i-doing.py --frame）")
     p.add_argument("--switch", action="store_true",
                    help="該当ブランチへ git switch で移る（PR は head のブランチ、issue は名前に番号を持つ"
                         "手元のブランチが 1 本のとき）。PR の枝が手元に無ければ origin からその 1 本だけ"
@@ -1877,14 +2075,50 @@ def main(argv=None):
 
     target, focus = split_words(a.words)
     owner, name, num, local = resolve_target(target, a.repo)
+    pre_lines = []  # ブランチ名で移った・移らなかったの行（見出しに足す）
+    if local == "branchname":
+        # 原則 1: 指定があればそこへ移ってから追いつく。移れたら this と同じに解く。移れなければ、その枝の
+        # PR が有れば PR として（手元の節は無し）、無ければ枝の tip の commit として出す
+        pre_lines, on = switch_to_branch(num) if a.switch else (
+            ["ブランチ: --switch を付けていないので移らない（今のブランチのまま）"], False)
+        if on:
+            owner, name, num, local = resolve_target("this", a.repo)
+        else:
+            url = gh_try("pr", "view", num, "--json", "url", "-q", ".url") or ""
+            m = URL_RE.match(url.strip())
+            if m:
+                owner, name, num, local = m.group(1), m.group(2), int(m.group(3)), None
+            else:
+                print("\n".join("  " + ln for ln in pre_lines))
+                print()
+                print(render_commit(changemap.commit_oid(num), frame=a.frame, full=a.full))
+                print()
+                print(f"（移っていないので、枝 {num} の tip の commit として出した。枝全体の差は移ってから this で）")
+                return 0
+    if local == "commit":
+        if a.switch:
+            print("ブランチ: commit には移る先が無い（--switch は何もしない）")
+            print()
+        print(render_commit(num, frame=a.frame, full=a.full))
+        # 地図は commit にも出る（上で出した）。指摘・CI だけが PR / issue の材料。語は人の語で
+        # （内部 key の threads / ci を出すと、命令書のどの語にも結び付かない。実測）
+        rest = focus_words(focus - {"map"})
+        if rest:
+            print()
+            print(f"（{rest} の材料は PR / issue のもの。commit には無い）")
+        return 0
     if local == "none":
         # PR も番号も無い。GitHub には聞かず、手元のブランチだけ出す（gh も走らせない）
         if a.frame:
-            sys.exit("--frame は PR でだけ使える（今のブランチに PR が無い）")
+            sys.exit("--frame は PR か commit でだけ使える（今のブランチに PR が無い。手元の未コミットの 1 file は"
+                     " what-am-i-doing.py --frame path で）")
+        if a.switch:
+            print("ブランチ: this では移らない（今のブランチのまま）")
+            print()
         print(render_no_target())
         if focus:
             print()
-            print(f"（{'・'.join(focus)} の材料は PR / issue のもの。今のブランチには PR が無い）")
+            print(f"（{focus_words(focus)} の材料は PR / issue のもの。今のブランチには PR が無い）")
         return 0
     if a.frame:
         # 1 file の変更だけを関数まるごとの枠で。地図の 1 file の上限で切れた続きを見るための口。
@@ -1901,8 +2135,8 @@ def main(argv=None):
         info = changemap.framed_diff(wide).get(a.frame)
         if not info:
             sys.exit(f"{a.frame} はこの PR の変更に無い（改名だけの file も含む。path はリポジトリの根からの相対）")
-        print(f"    === {a.frame}" + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")
-              + (f"（{note}）" if note else ""))
+        print(f"    === {a.frame} " + ("（新規）" if info["new"] else f"（{changemap.JUMP_NOTE}）")
+              + (f"（{note}）" if note else "") + changemap.lang_tag(a.frame))
         print("\n".join(changemap.frame_lines(a.frame, info, cap=None)))
         return 0
     me = a.me or gh("api", "user", "--jq", ".login").strip()
@@ -1912,9 +2146,13 @@ def main(argv=None):
     is_pr = node["__typename"] == "PullRequest"
     # 移るのは render より前——地図の「同じ階層の既存」は手元の HEAD から数えるので、移った後の枝で描く。
     # this で呼んだときは今のブランチが対象なので何もしない
-    branch_lines, on_branch = [], None
-    if a.switch and not local:
+    branch_lines, on_branch = list(pre_lines), None
+    if pre_lines:
+        pass  # ブランチ名で移った（または移れなかった）行を見出しに足す。PR の枝への switch は重ねない
+    elif a.switch and not local:
         branch_lines, on_branch = switch_branch(owner, name, num, node)
+    elif a.switch:
+        branch_lines = ["ブランチ: this では移らない（今のブランチのまま）"]
     ev, refs, unlinked = collect_events(node, me, my_email)
     anchor, anchor_kind = find_anchor(ev, node, me)
     with_map, with_threads, with_ci = pick_tails(
@@ -1939,16 +2177,16 @@ def main(argv=None):
     tails = [render_body(node, a.full, lambda n: fetch_ref(owner, name, n))]
     pr_head = head_oid(node)  # issue なら None
     if with_threads:
-        tails.append(render_threads(node, me, head_reader(owner, name, pr_head)))
+        tails.append(render_threads(node, me, head_reader(owner, name, pr_head), full=a.full))
     if with_ci:
-        tails.append(render_ci(node, owner, name))
+        tails.append(render_ci(node, owner, name, full=a.full))
     if with_map:
         tails.append(render_map(node, owner, name))
     if local or on_branch:
         tails.append(render_local(
             num if local == "branch" else None,
             "this で呼んだので出す" if local else "--switch でこの件のブランチに居るので出す",
-            pr_head=pr_head))
+            pr_head=pr_head, derived_kind="PR" if is_pr else "issue"))
     if not is_pr and focus:
         tails.append("（issue には地図・指摘・CI の材料は無い）")
     for t in tails:

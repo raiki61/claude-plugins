@@ -207,6 +207,57 @@ def _worktree(tmp):
                     "still": current(repo) == "main"}, out + "\n" + out2)
 
 
+@case("branch-name")
+def _branch_name(tmp):
+    """ブランチ名で呼ばれたときの switch_to_branch: 手元の枝へ移る／origin にだけ有る枝は origin/<名前> を追跡する
+    枝を作って移る／既に居ればその旨／追跡 file に未コミットがあれば移らず理由と今の位置。移った枝で
+    ahead_of_default が既定ブランチより先の commit の変更（木と枠）を出し、main では何も出さない。"""
+    repo = make_repo(tmp)
+    bare = make_origin(tmp, repo)
+    git(repo, "config", "branch.autoSetupMerge", "false")
+    old = git(repo, "rev-parse", "HEAD")
+    git(repo, "push", "-q", "origin", "main")
+    git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    # origin にだけ有る枝（main より 1 commit 先。a.txt を変えた）
+    git(repo, "switch", "-q", "-c", "tmp-work")
+    write(repo, "a.txt", "a\nb\n")
+    git(repo, "commit", "-q", "-am", "ahead")
+    new = git(repo, "rev-parse", "HEAD")
+    git(repo, "push", "-q", "origin", f"{new}:refs/heads/only-origin")
+    git(repo, "switch", "-q", "main")
+    git(repo, "branch", "-q", "-D", "tmp-work")
+    exists = catchup.changemap.branch_exists("only-origin", cwd=repo)
+    local_exists = catchup.changemap.branch_exists(HEAD_REF, cwd=repo)
+    none_exists = catchup.changemap.branch_exists("nope", cwd=repo)
+    git(repo, "remote", "set-head", "origin", "main")   # origin/HEAD が有っても HEAD・HEAD~1 は枝ではない
+    not_a_branch = not any(catchup.changemap.branch_exists(t, cwd=repo) for t in ("HEAD", "HEAD~1", "main~1"))
+    on_main = catchup.ahead_of_default(cwd=repo)
+    lines1, on1 = catchup.switch_to_branch("only-origin", cwd=repo)   # origin から作って移る
+    tip1 = git(repo, "rev-parse", "HEAD")
+    upstream1 = git(repo, "rev-parse", "--symbolic-full-name", "only-origin@{upstream}")
+    ahead = "\n".join(catchup.ahead_of_default(cwd=repo))
+    lines2, on2 = catchup.switch_to_branch("only-origin", cwd=repo)   # 既に居る
+    lines3, on3 = catchup.switch_to_branch(HEAD_REF, cwd=repo)        # 手元の枝へ
+    write(repo, "a.txt", "dirty\n")
+    lines4, on4 = catchup.switch_to_branch("only-origin", cwd=repo)   # 追跡 file が汚れている → 移らない
+    return verdict({
+        "exists": exists and local_exists and not none_exists,
+        "head_is_not_a_branch": not_a_branch,
+        "main_nothing": on_main == [],
+        "made_line": "ブランチ only-origin: 手元に無かったので origin/only-origin から作って main から移った" in "\n".join(lines1),
+        "made_on": on1 is True,
+        "made_tip": tip1 == new,
+        "made_upstream": upstream1 == "refs/remotes/origin/only-origin",
+        "ahead": "## origin/main より先の commit 1 件の変更（材料。枝全体の差。未コミットは含まない）" in ahead
+        and "a.txt" in ahead and "飛び先 a.txt:" in ahead and "git diff -W" in ahead,
+        "already": lines2 == ["ブランチ only-origin: 既に居る"] and on2 is True,
+        "local": f"ブランチ {HEAD_REF}: only-origin から移った" in "\n".join(lines3) and on3 is True
+        and current(repo) == HEAD_REF,
+        "dirty": on4 is False and "未コミット" in lines4[0] and f"（手元は {HEAD_REF} のまま）" in lines4[0]
+        and current(repo) == HEAD_REF,
+    }, "\n".join(lines1 + lines2 + lines3 + lines4) + "\n" + ahead)
+
+
 @case("remote-only")
 def _remote_only(tmp):
     """origin にだけある枝は、その 1 本を fetch して作り、移る（名前・追跡先は gh pr checkout と同じ）。手元の
