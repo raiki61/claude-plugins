@@ -1438,22 +1438,31 @@ def unresolved_threads(node, me):
         theirs = [c for c in cs if login_of(c["author"]) != me]
         if not theirs:
             continue
+        mine = [c for c in cs if login_of(c["author"]) == me]
         out.append({"path": th["path"], "line": th.get("line"), "outdated": th.get("isOutdated"),
-                    "last": theirs[-1], "my_turn": login_of(cs[-1]["author"]) != me})
+                    "last": theirs[-1], "my_turn": login_of(cs[-1]["author"]) != me,
+                    # 私の最後の発言の時刻。私が返す番で相手がその後に返していれば、「私の発言以降にその file が
+                    # どう変わったか」を出す基準になる（直したと言われた件で要るのは関数の今の姿でなく差分）
+                    "mine_t": ts(mine[-1]["createdAt"]) if mine else None})
     return out
 
 
 FUNC_SPAN_CAP = 200   # 関数まるごとの上限。超えたら前後 THREAD_CONTEXT 行に戻す
+THREAD_DIFF_CAP = 200  # 私の発言以降の変更の枠の行数の上限（1 スレッドあたり。--full で外す）
+
+
+DEF_RE = re.compile(r"^\s*(?:async\s+def|def|class)\s")  # 字下げのある def / class（Python のメソッド等）
 
 
 def func_span(lines, n, cap=FUNC_SPAN_CAP):
-    """指摘の行 n を含む関数の範囲 (lo, hi, 関数まるごとか)。境目は git diff -W の既定の funcname と同じく
-    「行頭が空白でない行」——言語を問わず使えて、-W の枠と同じ切り方になる。長すぎる（cap 超）・境目が
-    無い（散文）ときは前後 THREAD_CONTEXT 行（仕様の原則 4「前後は長めに」。指摘の行だけの数行では読む人が
-    file を開いて前後を確かめに行く）。"""
+    """指摘の行 n を含む関数の範囲 (lo, hi, 関数まるごとか)。境目は git diff -W の既定の funcname と同じ
+    「行頭が空白でない行」に、字下げのある def / class を足したもの（class の行まで遡ると Python のメソッドは
+    class 全体になり、200 行超で前後 5 行に落ちる。実測: 指摘の行 264 の関数 200〜282 行を AI が head から
+    足していた）。長すぎる（cap 超）・境目が無い（散文）ときは前後 THREAD_CONTEXT 行（仕様の原則 4「前後は
+    長めに」。指摘の行だけの数行では読む人が file を開いて前後を確かめに行く）。"""
     def top(i):
         s = lines[i - 1]
-        return bool(s) and not s[0].isspace()
+        return bool(s) and (not s[0].isspace() or bool(DEF_RE.match(s)))
     lo = n
     while lo > 1 and not top(lo):
         lo -= 1
@@ -1470,12 +1479,132 @@ def func_span(lines, n, cap=FUNC_SPAN_CAP):
     return lo, hi, True
 
 
-def render_threads(node, me, read_lines, full=False):
+def split_hunks(lines):
+    """split_diff が返す 1 file の行（@@ と +/-/空白の行）を hunk ごとに [(新側の開始行, 新側の行数, 行の列)] に。"""
+    out, cur = [], None
+    for ln in lines:
+        m = changemap.HUNK_RE.match(ln)
+        if m:
+            cur = (int(m.group(1)), int(m.group(2) or 1), [])
+            out.append(cur)
+        elif cur is not None:
+            cur[2].append(ln or " ")
+    return out
+
+
+def since_differ(owner, name, head):
+    """私の発言以降の変更の diff を取る関数 (path, base, head) → git diff -U0 の全文か None。手元の checkout が
+    このリポジトリのときだけ作る（commit を持っていなければ git が失敗して None）。文脈 0 行で取り、関数の
+    範囲は func_span（head の行）で決めて重ねる——-W の関数の境目は git の既定 funcname（行頭が空白でない行）
+    で、Python のメソッドは class 全体になる。"""
+    top = local_checkout(owner, name)
+    if not top or not head:
+        return None
+
+    def diff(path, base, head_oid):
+        return changemap.git("-c", "core.quotePath=false", "diff", *changemap.DIFF_SANE, "-U0",
+                             f"{base}..{head_oid}", "--", *changemap.pathspecs([path]), cwd=top)
+    return diff
+
+
+def hunk_overlaps(hunk, lo, hi):
+    """-U0 の hunk (新側の開始行, 行数, 行) が head の lo〜hi 行に掛かるか。行数 0（削除だけ）の hunk は
+    「開始行の直後」に消えた行が有った印で、lo〜hi の中か直後なら掛かる。"""
+    s, n, _ = hunk
+    return (s <= hi and s + n - 1 >= lo) if n else (lo <= s + 1 <= hi + 1)
+
+
+def framed_span(lines, lo, hi, hunks):
+    """head の lo〜hi 行に -U0 の hunk を重ねて、frame_hunk の入力（印つきの行）にする。+ の行は head の行
+    そのもの、- の行は消えた位置に前の行として挟む。範囲の外に掛かる分は落とす（単位は関数まるごと）。"""
+    added, gone = set(), {}
+    for s, n, body in hunks:
+        added.update(range(s, s + n))
+        gone.setdefault(s if n else s + 1, []).extend(ln[1:] for ln in body if ln.startswith("-"))
+    items = []
+    for k in range(lo, hi + 1):
+        items.extend(("-", t) for t in gone.get(k, []))
+        items.append(("+" if k in added else " ", lines[k - 1]))
+    items.extend(("-", t) for t in gone.get(hi + 1, []))
+    return items
+
+
+def merge_spans(spans):
+    out = []
+    for lo, hi in sorted(spans):
+        if out and lo <= out[-1][1] + 1:
+            out[-1] = (out[-1][0], max(out[-1][1], hi))
+        else:
+            out.append((lo, hi))
+    return out
+
+
+def render_since_thread(th, node, lines, lo, hi, diff_since, full):
+    """私が返す番で、私の発言の後に相手が返している件——私の発言以降にこの file がどう変わったかを、今の姿に
+    帯を入れた関数まるごとで出す（相手が「直した」と言う件で確かめるのは関数の今の姿でなく、私の発言以降の
+    差分。関数まるごとを head から写すと 1 行の修正に 83 行を読む——実測）。lo〜hi（指摘の行の関数）に掛かる
+    hunk だけ。行の無い指摘（file 全体）は、変わった所ごとにその関数。戻り値は (行の列, 枠を出したか)。出せない
+    理由も行で返す（黙って落とさない）。"""
+    out = []
+    w = out.append
+    when = f"私の発言（{hhmm(th['mine_t'])}）"
+    found = since_base({"t": th["mine_t"]}, node)
+    if not found:
+        w(f"  {when}以降の変更: 基準の commit を置けない（発言が取った commit の全部より前）")
+        return out, False
+    base, _ = found
+    authored, merges, missing = since_commits(node, base)
+    if missing:
+        w(f"  {when}以降の変更: 基準の commit {base[:7]} が今の head の履歴に無い（履歴の書き換えか、窓の外）")
+        return out, False
+    if not authored and not merges:
+        w(f"  {when}以降、commit は無い")
+        return out, False
+    tally = f"作者側の commit {len(authored)} 本" + (f"。取り込み {merges} 本の分も含む" if merges else "")
+    head = node.get("headRefOid")
+    text = diff_since(th["path"], base, head) if diff_since and head else None
+    if text is None:
+        w(f"  {when}以降の変更: 出せない（手元にこの PR の commit が無い。gh pr diff で見る）")
+        return out, False
+    hunks = split_hunks(changemap.split_diff(text)[0].get(th["path"], []))
+    if not hunks:
+        w(f"  {when}以降、この file は変わっていない（{tally}）")
+        return out, False
+    if lines is None:
+        w(f"  {when}以降の変更: 変わっている（{tally}）が、head の file が読めないので枠にできない。gh pr diff で見る")
+        return out, False
+    if lo is None:
+        spans = merge_spans(func_span(lines, min(max(s, 1), len(lines)))[:2] for s, _, _ in hunks)
+    else:
+        spans = [(lo, hi)]
+    picked = [(a, b, [h for h in hunks if hunk_overlaps(h, a, b)]) for a, b in spans]
+    picked = [p for p in picked if p[2]]
+    if not picked:
+        w(f"  {when}以降、この関数は変わっていない（file の他の所に {len(hunks)} 枠。{tally}）")
+        return out, False
+    w(f"  {when}以降のこの file の変更（{tally}）。今の姿に帯（前の行は #│、色の行は今。`| ` の後ろをそのまま写す）:")
+    total = 0
+    for i, (a, b, hs) in enumerate(picked):
+        items = framed_span(lines, a, b, hs)
+        prefix = changemap.common_indent([t for _, t in items])
+        frame = changemap.frame_hunk(th["path"], [m + t for m, t in zip((m for m, _ in items),
+                                                                        changemap.dedent([t for _, t in items], prefix))])
+        if not full and total + len(frame) > THREAD_DIFF_CAP:
+            w(f"  （残り {len(picked) - i} 枠は --full か gh pr diff で）")
+            break
+        w(f"  飛び先 {th['path']}:{a}（head の {a}〜{b} 行" + (f"。共通の字下げ {len(prefix)} 桁を落とした" if prefix else "") + "）")
+        for ln in frame:
+            w("  | " + ln)
+        total += len(frame)
+    return out, True
+
+
+def render_threads(node, me, read_lines, full=False, diff_since=None):
     threads = unresolved_threads(node, me)
     out = []
     w = out.append
     w("## 指摘（材料。未解決スレッドごとに、相手の最後の発言の全文と head のその行の前後）")
-    w("  `| ` の後ろは head の実物の行（行番号つき）。写すときはそのまま使う")
+    w("  `| ` の後ろは head の実物の行（行番号つき。共通の字下げは落としてある——字下げ分は戻さない）。写すときはそのまま使う")
     if not threads:
         w("  人が入っている未解決スレッドは無い")
         return "\n".join(out)
@@ -1490,21 +1619,32 @@ def render_threads(node, me, read_lines, full=False):
             w("    " + ln)
         if len(body) > THREAD_BODY_CAP:
             w(f"    （発言はあと {len(body) - THREAD_BODY_CAP} 行。gh api で見る）")
+        since_turn = th["my_turn"] and bool(th["mine_t"])
+        lines = read_lines(th["path"]) if th["line"] or since_turn else None
+        lo = hi = whole = None
+        if th["line"] and lines is not None and th["line"] <= len(lines):
+            lo, hi, whole = func_span(lines, th["line"])
+        if since_turn:
+            since_out, framed = render_since_thread(th, node, lines, lo, hi, diff_since, full)
+            out.extend(since_out)
+            if framed:
+                continue  # 変更に帯を入れた関数まるごとが出た。今の姿だけの行を重ねない
         if not th["line"]:
             w("  行: 今の head に無い（消えた行か、diff の外）")
             continue
-        lines = read_lines(th["path"])
         if lines is None:
             w("  行: 取れない（手元にその commit が無く、GitHub からも読めなかった）")
             continue
-        if th["line"] > len(lines):
+        if lo is None:
             w(f"  行 {th['line']} は head のファイル（{len(lines)} 行）の外")
             continue
-        lo, hi, whole = func_span(lines, th["line"])
+        span = lines[lo - 1:hi]
+        prefix = changemap.common_indent(span)
         w(f"  head の {lo}〜{hi} 行" + ("（指摘の行を含む関数まるごと）" if whole else f"（指摘の行の前後 {THREAD_CONTEXT} 行）")
+          + (f"（共通の字下げ {len(prefix)} 桁を落とした）" if prefix else "")
           + ("（指摘した時点から行がずれている。isOutdated）" if th["outdated"] else "") + ":")
-        for n in range(lo, hi + 1):
-            w(f"  | {n:4} {lines[n - 1]}")
+        for k, ln in changemap.fold_literals(changemap.dedent(span, prefix), th["path"]):
+            w(f"  | {lo + k:4} {ln}" if k is not None else f"  |      {ln}")
     if not full and len(threads) > THREAD_CAP:
         w(f"  （スレッドは他に {len(threads) - THREAD_CAP} 件。--full で全部）")
     return "\n".join(out)
@@ -2264,7 +2404,8 @@ def main(argv=None):
     tails = [render_body(node, a.full, lambda n: fetch_ref(owner, name, n))]
     pr_head = head_oid(node)  # issue なら None
     if with_threads:
-        tails.append(render_threads(node, me, head_reader(owner, name, pr_head), full=a.full))
+        tails.append(render_threads(node, me, head_reader(owner, name, pr_head), full=a.full,
+                                    diff_since=since_differ(owner, name, pr_head)))
     if with_ci:
         tails.append(render_ci(node, owner, name, full=a.full))
     if with_map:

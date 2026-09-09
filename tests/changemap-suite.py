@@ -514,5 +514,56 @@ class Prose(unittest.TestCase):
             self.assertTrue(cm.is_prose(path), path)
 
 
+class Literals(unittest.TestCase):
+    """複数行の文字列リテラルの畳みと、共通の字下げ。畳むのは代入・引数の後ろで始まるリテラルだけで、
+    docstring（行頭から始まる）と変更を含むリテラルは畳まない。"""
+    SQL = (["    async def save(self):", '        query = """', "        INSERT INTO t ("]
+           + [f"            c{i}," for i in range(12)] + ["        ) VALUES (%s)", '        """', "        row = 1"])
+
+    def test_fold_assigned_literal_keeps_head_and_tail(self):
+        self.assertEqual(cm.literal_ranges(self.SQL, "a.py"), [(1, 16)])
+        rows = cm.fold_literals(self.SQL, "a.py")
+        texts = [t for _, t in rows]
+        self.assertIn("            c1,", texts)                       # 中の先頭 3 行は残る
+        self.assertNotIn("            c5,", texts)                    # 真ん中は畳む
+        self.assertIn("        ) VALUES (%s)", texts)                 # 中の末尾 1 行は残る
+        fold = next(t for k, t in rows if k is None)
+        self.assertIn("文字列の中 10 行省略", fold)
+        self.assertEqual(cm.width(fold), 78)                          # 点線は帯と同じ幅
+        self.assertEqual([k for k, _ in rows if k is not None], [0, 1, 2, 3, 4, 15, 16, 17])
+
+    def test_docstring_short_and_unknown_ext_not_folded(self):
+        doc = ["def f():", '    """長い docstring'] + ["    説明"] * 12 + ['    """', "    return 1"]
+        self.assertEqual(cm.literal_ranges(doc, "a.py"), [])
+        self.assertEqual(cm.fold_literals(doc, "a.py"), list(enumerate(doc)))
+        self.assertEqual(cm.literal_ranges(['q = """', "a", "b", '"""'], "a.py"), [])   # 8 行以内
+        self.assertEqual(cm.literal_ranges(self.SQL, "a.md"), [])                     # 記号の無い種類
+        js = ["const q = `"] + ["  x"] * 10 + ["`;"]
+        self.assertEqual(cm.literal_ranges(js, "a.ts"), [(0, 11)])
+
+    def test_closing_line_is_not_a_new_opening(self):
+        texts = ['    """doc', "    x", '    """', '    q = """'] + ["    l"] * 10 + ['    """']
+        self.assertEqual(cm.literal_ranges(texts, "a.py"), [(3, 14)])
+
+    def test_frame_hunk_folds_unchanged_literal_only(self):
+        ctx = [" " + t for t in self.SQL]
+        out = cm.frame_hunk("a.py", ctx[:-1] + ["-        row = 1", "+        row = 2"])
+        self.assertTrue(any("文字列の中 10 行省略" in l for l in out))
+        self.assertIn("        row = 2", out)
+        changed = ([" " + t for t in self.SQL[:5]] + ["-            c2,", "+            c2_renamed,"]
+                   + [" " + t for t in self.SQL[6:]])
+        out2 = cm.frame_hunk("a.py", changed)
+        self.assertFalse(any("文字列の中" in l for l in out2))        # 変更を含むリテラルは畳まない
+        self.assertIn("            c2_renamed,", out2)
+
+    def test_common_indent_and_dedent(self):
+        texts = ["        a", "", "            b", "        c"]
+        self.assertEqual(cm.common_indent(texts), "        ")
+        self.assertEqual(cm.dedent(texts, "        "), ["a", "", "    b", "c"])
+        self.assertEqual(cm.common_indent(["x", "  y"]), "")
+        self.assertEqual(cm.common_indent([]), "")
+        self.assertEqual(cm.dedent(["  a"], ""), ["  a"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

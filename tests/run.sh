@@ -1392,6 +1392,9 @@ expect_output 0 "WORDING_OK" \
 expect_output 0 "THREADS_OK" \
     "catchup: 指摘の材料は相手の発言がある未解決スレッドだけ。相手の最後の発言と head の前後の行、file の外の行はそう言う" \
     "$PY_BIN" "$CU_CASE" threads-material
+expect_output 0 "SINCE_OK" \
+    "catchup: 私が返す番で相手が私の発言の後に返した件は、私の発言以降の変更を今の姿に帯で出す。共通の字下げは落とし、代入の文字列リテラルの中は畳む。字下げのある def も関数の境目" \
+    "$PY_BIN" "$CU_CASE" threads-since
 expect_output 0 "BRANCH_OK" \
     "catchup: ブランチ名の番号は区切りに挟まれた数字だけ（版の数字を番号にせず、1 桁は通す）" \
     "$PY_BIN" "$CU_CASE" branch-number

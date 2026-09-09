@@ -505,6 +505,71 @@ def _threads_material():
     return "THREADS_OK" if not bad else "THREADS_NG " + ",".join(bad) + "\n" + out
 
 
+@case("threads-since")
+def _threads_since():
+    """私が返す番で相手が私の発言の後に返している件は、私の発言以降のこの file の変更を今の姿に帯で出し（-U0 の
+    hunk を head の関数の範囲に重ねる）、今の姿だけの行は重ねない。file が変わっていない・関数が変わっていない・
+    diff が取れないはそれぞれそう言う。行の無い指摘は変わった所ごとにその関数。私が未発言の件は今の姿で、共通の
+    字下げを落として見出しに桁数を書き、代入の文字列リテラルの中は畳む。字下げのある def も関数の境目。"""
+    flat = [f"line {i}" for i in range(1, 30)]
+    files = {
+        "app/main.py": flat, "app/util.py": flat, "app/other.py": flat, "app/nogit.py": flat,
+        "app/deep.py": ["class A:", "    def f(self):"] + [f"        x{i} = {i}" for i in range(12)]
+                       + ["", "    def g(self):", "        pass"],
+        "app/sql.py": ["def q():", '    query = """', "    INSERT INTO t ("] + [f"        c{i}," for i in range(12)]
+                      + ["    ) VALUES (%s)", '    """', "    return query"],
+        "app/whole.py": ["def a():", "    return 1", "", "def b():", "    return 2"],
+    }
+
+    def diff(path, start, old, new):
+        return (f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n"
+                f"@@ -{start} +{start} @@\n-{old}\n+{new}\n")
+    diffs = {
+        "app/main.py": diff("app/main.py", 10, "old 10", "line 10"),
+        "app/util.py": "",                                              # 変わっていない
+        "app/other.py": diff("app/other.py", 25, "old 25", "line 25"),  # 関数（窓 5〜15）の外
+        "app/nogit.py": None,                                           # 手元に commit が無い
+        "app/whole.py": diff("app/whole.py", 2, "    return 0", "    return 1"),
+    }
+
+    def replied(path):
+        return thread(path, False, comment(T1, "other", "[block] 直して"), comment(T2, ME, "こう直す"),
+                      comment(T3, "other", "直しました"))
+    whole = replied("app/whole.py")
+    whole["line"] = None
+    deep = thread("app/deep.py", False, comment(T1, "other", "[nit] 字下げ"))
+    deep["line"] = 5
+    sql = thread("app/sql.py", False, comment(T1, "other", "[nit] SQL"))
+    sql["line"] = 5
+    node = pr(author=user("other"), headRefOid="bbb",
+              allCommits=conn([commit(T1, "aaa", "最初"), commit(T3, "bbb", "直した")]),
+              reviewThreads=conn([replied("app/main.py"), replied("app/util.py"), replied("app/other.py"),
+                                  replied("app/nogit.py"), whole, deep, sql]))
+    out = catchup.render_threads(node, ME, lambda p: files.get(p), diff_since=lambda p, b, h: diffs.get(p))
+    seg = {blk.split("\n", 1)[0].split()[0]: blk for blk in out.split("=== ")[1:]}   # "n/N" → 節
+    main, util, other, nogit, whole_s, deep_s, sql_s = (seg[f"{i}/7"] for i in range(1, 8))
+    want = {
+        "framed": f"私の発言（{catchup.hhmm(catchup.ts(T2))}）以降のこの file の変更（作者側の commit 1 本）" in main
+                  and "飛び先 app/main.py:5（head の 5〜15 行）" in main
+                  and "  | #│ old 10" in main and "  | line 10" in main and "┏━━ 変更" in main,
+        "no_plain_when_framed": "（指摘の行の前後 5 行）" not in main and "|   10 line 10" not in main,
+        "file_unchanged": "以降、この file は変わっていない（作者側の commit 1 本）" in util and "|   10 line 10" in util,
+        "func_unchanged": "この関数は変わっていない（file の他の所に 1 枠。作者側の commit 1 本）" in other
+                          and "|   10 line 10" in other,
+        "no_diff": "以降の変更: 出せない（手元にこの PR の commit が無い" in nogit and "|   10 line 10" in nogit,
+        # 2 行の関数は窓（前後 5 行）より小さいので file 全体（1〜5 行）が範囲。行の無い指摘は変わった所の関数
+        "file_level": "飛び先 app/whole.py:1（head の 1〜5 行）" in whole_s and "  | #│  return 0" in whole_s
+                      and "  |     return 1" in whole_s and "（指摘の行の前後 5 行）" not in whole_s,
+        "dedent": "head の 2〜14 行（指摘の行を含む関数まるごと）（共通の字下げ 4 桁を落とした）" in deep_s
+                  and "|    2 def f(self):" in deep_s and "|    5     x2 = 2" in deep_s and "class A:" not in deep_s,
+        "literal_fold": "文字列の中 10 行省略" in sql_s and "|    5         c1," in sql_s and "c5," not in sql_s
+                        and "|   16     ) VALUES (%s)" in sql_s and "|   18     return query" in sql_s,
+        "silent_me_no_since": "私の発言" not in deep_s and "私の発言" not in sql_s,
+    }
+    bad = [k for k, v in want.items() if not v]
+    return "SINCE_OK" if not bad else "SINCE_NG " + ",".join(bad) + "\n" + out
+
+
 @case("branch-number")
 def _branch_number():
     """ブランチ名の番号は区切りに挟まれた数字だけ。版の数字を番号にせず、1 桁は通す。"""

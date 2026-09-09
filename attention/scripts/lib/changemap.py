@@ -326,6 +326,88 @@ def _indent_of(text):
     return text[:len(text) - len(text.lstrip())]
 
 
+def common_indent(texts):
+    """空でない行に共通の字下げ（先頭の空白の共通接頭辞）。枠に写す前に落とす分——深い入れ子の関数は字下げだけで
+    1 行 60 桁の予算を食い、当の行が `…` で切れる（実測: 28 桁の字下げの行 `"thread_id": str(run.thread_id),` が
+    61 桁で、AI が 60 桁に切ると確かめたい `id),` が落ちた）。落とした桁数は呼び手が見出しに書く。"""
+    indents = [_indent_of(t) for t in texts if t.strip()]
+    return os.path.commonprefix(indents) if indents else ""
+
+
+def dedent(texts, prefix):
+    """共通の字下げ prefix を落とす。prefix で始まらない行（空行）はそのまま。"""
+    return [t[len(prefix):] if prefix and t.startswith(prefix) else t for t in texts]
+
+
+# 複数行の文字列リテラル（SQL・テンプレート）の中身は枠の行数を食うが、読む人が判断に使わない（実測: 候補 repository
+# の save() 70 行のうち 45 行が INSERT の列名の 2 度書き）。代入や引数の後ろで始まるもの（`query = """`・`(f"""`）
+# だけ畳み、行頭（字下げの直後）から始まるもの（docstring・裸の文字列）は作者の言葉なので畳まない
+LITERAL_FOLD_MIN = 8    # 中の行数（両端を除く）がこれを超えたら畳む
+LITERAL_KEEP_HEAD = 3   # 畳むとき、中の先頭に残す行数
+LITERAL_KEEP_TAIL = 1   # 畳むとき、中の末尾に残す行数
+LITERAL_DELIMS_BY_EXT = {
+    ('"""', "'''"): {"py", "pyi"},
+    ('"""',): {"kt", "kts", "scala", "java", "groovy"},
+    ("`",): {"ts", "tsx", "js", "jsx", "mjs", "go"},
+}
+
+
+def literal_delims(path):
+    ext = _ext(path)
+    return next((d for d, exts in LITERAL_DELIMS_BY_EXT.items() if ext in exts), ())
+
+
+def literal_ranges(texts, path):
+    """畳める文字列リテラルの位置 [(開く行の index, 閉じる行の index)]。中（両端を除く）が LITERAL_FOLD_MIN 行を
+    超えるものだけ。開く行で区切り記号が奇数回出れば開き（同じ行で閉じるものは対象外）。行頭から始まるものは
+    docstring とみて記録しないが、閉じる行を次の開きと読まないよう、中に居ることは追う。"""
+    delims = literal_delims(path)
+    if not delims:
+        return []
+    out, open_i, open_d, record = [], None, None, False
+    for i, t in enumerate(texts):
+        if open_i is None:
+            for d in delims:
+                if t.count(d) % 2 == 1:
+                    open_i, open_d, record = i, d, not t.lstrip().startswith(d)
+                    break
+            continue
+        if open_d in t:
+            if record and i - open_i - 1 > LITERAL_FOLD_MIN:
+                out.append((open_i, i))
+            open_i, open_d, record = None, None, False
+    return out
+
+
+def _fold_ranges(texts, path, ranges):
+    """ranges の中を畳んで [(元の index か None, 行)]。None は点線（畳んだ印。帯と同じ形で、文字列の中と行数を書く）。"""
+    marks = comment_marks(path)
+    rows, pos = [], 0
+    for o, c in ranges:
+        keep_to = o + 1 + LITERAL_KEEP_HEAD
+        rows.extend((k, texts[k]) for k in range(pos, keep_to))
+        rows.append((None, band(marks, _indent_of(texts[o + 1]), "┅",
+                                f"文字列の中 {c - keep_to - LITERAL_KEEP_TAIL} 行省略", "┅")))
+        pos = c - LITERAL_KEEP_TAIL
+    rows.extend((k, texts[k]) for k in range(pos, len(texts)))
+    return rows
+
+
+def fold_literals(texts, path):
+    """行の列の、畳める文字列リテラルの中を畳む。戻りは [(元の index か None, 行)]——呼び手が行番号を付け直せる。"""
+    return _fold_ranges(texts, path, literal_ranges(texts, path))
+
+
+def fold_literal_items(items, path):
+    """frame_hunk の items [(印, 行)] で、変わっていない行だけの文字列リテラルの中を畳む。変更を含むリテラルは
+    畳まない（変わった行を隠す）。点線は印 " "（変わっていない行）として後段に流す。"""
+    texts = [t for _, t in items]
+    ranges = [(o, c) for o, c in literal_ranges(texts, path) if all(m == " " for m, _ in items[o + 1:c])]
+    if not ranges:
+        return items
+    return [(items[k][0], t) if k is not None else (" ", t) for k, t in _fold_ranges(texts, path, ranges)]
+
+
 def _fold(run, marks, fold):
     """変わっていない行の列。畳むなら前後 FOLD_KEEP 行を残して点線。"""
     if not fold or len(run) <= FOLD_KEEP * 2 + 1:
@@ -372,6 +454,7 @@ def frame_hunk(path, lines):
     marks = comment_marks(path)
     # 空行は文脈（diff は空の文脈行を " " で出すが、"" で来ても変更に数えない）
     items = [((ln[:1] or " "), ln[1:]) for ln in lines if (ln[:1] or " ") in "+- "]
+    items = fold_literal_items(items, path)
     changed = [i for i, (m, _) in enumerate(items) if m != " "]
     if not changed:
         return [t for _, t in items]
