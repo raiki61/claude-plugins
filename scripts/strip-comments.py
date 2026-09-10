@@ -33,8 +33,11 @@ comment-ratio.sh（数える側）が Python と C 系に絞っているのは�
     python3 strip-comments.py --export <写しのルート> <ルートからの相対パス>...
         （cwd のリポジトリから写しを作ってから剥がす。<写しのルート> は無いか空であること）
 
-終了コード: 0 剥がせた / 2 剥がせなかった（構文エラー・読めない・引数違い）。
-`review-record.py` と同じく、計測不成立を 0 で返さない。
+終了コード: 0 走った / 2 走れなかった（引数違い・写し先が不正・写しの中身が作業ツリーと違う）。
+**触れなかったファイルは 0 のまま名前を stderr に出す**（対象外の拡張子・非 UTF-8・元から構文が
+壊れている・剥がすと構文が壊れる の 4 つ。理由は違っても読み手への帰結は同じで、コメントが
+付いたまま見える）。ここを経路ごとに 0 と 2 で分けていたときは、同じ「剥がせない」が片方は
+即死・無報告、片方は継続・報告になっていた。
 """
 
 import io
@@ -80,8 +83,23 @@ def fail(msg):
     sys.exit(2)
 
 
+def line_ending(line):
+    """行末の改行（無ければ空文字）。空にする側と残す側の両方が要る。"""
+    return line[len(line.rstrip("\r\n")):]
+
+
+def has_code(text):
+    """空白以外が残っているか——「コメントを消しても同じ行の実コードは消さない」の判定。
+
+    この不変条件は行ベースの剥がし（ブロックが閉じたあと）と tokenize ベースの剥がし
+    （docstring の前後）の両方に要る。**3 箇所に別々に書いていたら、3 回とも別のラウンドで
+    「片腕だけ塞いだ」として戻ってきた**ので、判定そのものに名前を付けて 1 箇所にする。
+    """
+    return bool(text.strip())
+
+
 def strip_python(src, path):
-    """コメントは開始桁から行末まで、docstring はその範囲だけを空にする。
+    """コメントは開始桁から行末まで、docstring はその範囲だけを空にする。元から構文が壊れていれば None。
 
     docstring を「行ごと」空にすると、docstring と同じ行に `;` で続くコードが
     写しから消える（strip_lines の 2 本の腕で塞いだのと同じ欠陥の 3 本目）。
@@ -94,25 +112,27 @@ def strip_python(src, path):
             if tok.type == tokenize.COMMENT:
                 row, col = tok.start
                 line = lines[row - 1]
-                eol = line[len(line.rstrip("\r\n")):]
-                lines[row - 1] = line[:col].rstrip() + eol
+                lines[row - 1] = line[:col].rstrip() + line_ending(line)
             elif tok.type == tokenize.STRING and prev in (
                 tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
             ):
                 (srow, scol), (erow, ecol) = tok.start, tok.end
                 for row in range(srow, erow + 1):
                     line = lines[row - 1]
-                    eol = line[len(line.rstrip("\r\n")):]
                     head = line[:scol] if row == srow else ""
                     tail = line[ecol:].rstrip("\r\n") if row == erow else ""
                     # docstring が文の区切りで終わっていると、消したあとに区切りだけが
                     # 先頭に残って構文が壊れる。区切りごと落として後続のコードを生かす。
-                    tail = tail.lstrip().lstrip(";").lstrip() if not head.strip() else tail
-                    lines[row - 1] = ((head + tail).rstrip() or "") + eol
+                    tail = tail if has_code(head) else tail.lstrip().lstrip(";").lstrip()
+                    lines[row - 1] = ((head + tail).rstrip() or "") + line_ending(line)
             if tok.type not in (tokenize.NL, tokenize.COMMENT):
                 prev = tok.type
     except (tokenize.TokenError, IndentationError, SyntaxError):
-        fail(f"{path} を解析できない（構文エラー）")
+        # ここで exit すると、それ以前に書き換えた分の写しが残ったまま、触れなかった
+        # ファイルの一覧（skipped / undecodable / broke）も出ずに落ちる。**同じ「剥がせない」が
+        # 経路によって「即死・無報告」と「継続・報告」に分かれていた。**元から壊れている
+        # ファイルは剥がしようが無いだけなので、他の 3 つと同じく名前を出して継続する。
+        return None
     return "".join(lines)
 
 
@@ -130,9 +150,12 @@ def parses(text, rel):
     1 つの判断で塞ぐ側に倒し、そのぶん判定手段は増やさない——Python は標準の compile、
     shell は bash があれば `bash -n`、それ以外の言語は判定しない。
 
-    判定手段が無い言語は今までどおり剥がす（過小側に倒す）。ただし **shell で bash が
-    無いときは剥がさない**——判定できない言語ではなく「判定できるはずが手段を欠いた」
-    場合なので、検査の空振りを合格に化けさせない。None は「判定しない」。
+    返すのは 3 値だけ: True 通る / False 通らない / None 判定しない。**「確かめられなかった」を
+    False に潰すな**——呼び出し側は `parses(src) is not False and parses(new) is False` で判定して
+    いて、左が False になった時点で短絡し、退避ごと飛ばして書き出す。実測: bash を引けない環境
+    （`PATH=/usr/bin`）で、構文の壊れた写しが「剥がした: 1 ファイル」・exit 0・stderr 空で
+    書き出された。道具を引けないときは例外を末尾の境界へ抜けさせ、この道具の契約どおり
+    exit 2（計測不成立を 0 で返さない）に倒す——同ファイルの `git()` が採っている形と同じ。
     """
     if rel.endswith(".py"):
         try:
@@ -141,11 +164,8 @@ def parses(text, rel):
         except SyntaxError:
             return False
     if rel.rsplit("/", 1)[-1].split(".")[-1] in ("sh", "bash", "zsh"):
-        try:
-            p = subprocess.run(["bash", "-n"], input=text.encode("utf-8"),
-                               capture_output=True, timeout=GIT_TIMEOUT_SEC)
-        except (OSError, subprocess.SubprocessError):
-            return False  # 手段を欠いた＝確かめられないので剥がさない（空振りを合格にしない）
+        p = subprocess.run(["bash", "-n"], input=text.encode("utf-8"),
+                           capture_output=True, timeout=GIT_TIMEOUT_SEC)
         return p.returncode == 0
     return None
 
@@ -155,12 +175,12 @@ def strip_lines(src, prefixes, blocks):
     out, closing = [], None
     for i, line in enumerate(src.splitlines(keepends=True)):
         s = line.strip()
-        eol = line[len(line.rstrip("\r\n")):]
+        eol = line_ending(line)
         if closing is not None:
             at = s.find(closing)
             # 閉じたあとにコードが残る行を空にすると、1 行で閉じた場合と同じく
             # 写しからコードが消える。過小側に倒す判断は両方の腕に掛ける。
-            if at >= 0 and s[at + len(closing):].strip():
+            if at >= 0 and has_code(s[at + len(closing):]):
                 out.append(line)
             else:
                 out.append(eol)
@@ -178,7 +198,7 @@ def strip_lines(src, prefixes, blocks):
             if at < 0:
                 out.append(eol)
                 closing = e
-            elif rest[at + len(e):].strip():
+            elif has_code(rest[at + len(e):]):
                 # 同じ行でブロックが閉じ、そのあとにコードが残る。行ごと空にすると
                 # 読み手に渡す写しからコードが消えるので触らない（docstring が宣言
                 # している「過小側に倒す」に揃える。剥がし漏れは読み手に見えるが、
@@ -302,7 +322,7 @@ def main():
         fail(f"{root}: ディレクトリでない")
     if do_export:
         verify_mirror(root, args[1:])
-    skipped, undecodable, broke, done = [], [], [], 0
+    skipped, undecodable, unparsable, broke, unverified, done = [], [], [], [], [], 0
     rr = root.resolve()
     for rel in args[1:]:
         p = root / rel
@@ -315,11 +335,8 @@ def main():
             fail(f"{p}: 無い（写しに載っていない。新規なら git add -N してから写せ。"
                  f"削除されたファイルは渡すな——git diff --name-only <BASE> --diff-filter=d で外せ）")
         syn = syntax_for(rel)
-        if rel.endswith(".py"):
-            strip = lambda s: strip_python(s, rel)
-        elif syn:
-            strip = lambda s, syn=syn: strip_lines(s, *syn)
-        else:
+        is_py = rel.endswith(".py")
+        if not is_py and not syn:
             skipped.append(rel)
             continue
         try:
@@ -329,21 +346,43 @@ def main():
             # 化けたまま保存される。読み手はそれをコード側の欠陥として報告する。
             undecodable.append(rel)
             continue
-        new = strip(src)
-        if parses(src, rel) is not False and parses(new, rel) is False:
+        new = strip_python(src, rel) if is_py else strip_lines(src, *syn)
+        if new is None:
+            unparsable.append(rel)
+            continue
+        # **剥がした側から先に判定する。** 逆順だと、剥がしても壊れない大多数のファイルで
+        # 元の側の検算まで走る（shell は 1 回が bash のプロセス起動で、実測 50 件で
+        # 100 回 0.700 秒 → 50 回 0.389 秒）。and は可換なので結果は同じ。
+        verdict = parses(new, rel)
+        if verdict is False and parses(src, rel) is not False:
             # 元は通るのに剥がすと通らない＝剥がしが構文を壊した。写しを渡す先は
             # 「読んで説明する」役なので、壊れた写しは偽の指摘に化ける。
             broke.append(rel)
             continue
+        if verdict is None:
+            # 剥がしたが検算していない。行ベースの剥がしは引用符を見ないので、複数行の
+            # 文字列（テンプレートリテラル・ヒアドキュメント・ブロックスカラー）の中の
+            # 行をコメントと誤認して中身を消しうる。**検算できた剥がしと同じ顔で渡すな**——
+            # 読み手が「ここで意味が取れない」と言ったとき、コードの欠陥なのか写しの破損なのかを
+            # 分ける材料になる（この道具が掲げる「黙って素通しにしない」を、唯一破っていた経路）。
+            unverified.append(rel)
         p.write_text(new, encoding="utf-8")
         done += 1
     print(f"剥がした: {done} ファイル")
-    if skipped:
-        print("触っていない（対象外の拡張子。読み手にはコメント付きのまま見える）: " + " ".join(skipped), file=sys.stderr)
-    if undecodable:
-        print("触っていない（UTF-8 として読めない。読み手にはコメント付きのまま見える）: " + " ".join(undecodable), file=sys.stderr)
-    if broke:
-        print("触っていない（剥がすと構文が壊れた。読み手にはコメント付きのまま見える）: " + " ".join(broke), file=sys.stderr)
+    # 触れなかった理由は 4 つあるが、読み手への帰結は 1 つ——コメントが付いたまま見える。
+    # **その名前を R1 の読み手に渡す一覧から外し、その分は未実測と書くこと**（渡すと、
+    # そこに書いてある目的で隔離が破れる。実測でそうなった）。
+    for why, files in (("対象外の拡張子", skipped),
+                       ("UTF-8 として読めない", undecodable),
+                       ("元から構文が壊れている", unparsable),
+                       ("剥がすと構文が壊れた", broke)):
+        if files:
+            print(f"触っていない（{why}。読み手にはコメント付きのまま見えるので、"
+                  f"R1 の一覧から外して未実測と書け）: " + " ".join(files), file=sys.stderr)
+    if unverified:
+        print("剥がしたが検算していない（この言語の構文を確かめる手段が無い。読み手が"
+              "「意味が取れない」と言ったら、コードでなくこの写しを疑え）: "
+              + " ".join(unverified), file=sys.stderr)
 
 
 if __name__ == "__main__":

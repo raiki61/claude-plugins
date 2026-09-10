@@ -130,11 +130,14 @@ STATUS_ONLY_FOR = {
 REVIEW_BLOCKING = ("redesign-needed", "not_run")
 # 収束を宣言せずユーザーに諮る値。阻害要因として数える（exit 1）が、見出しを分ける。
 REVIEW_TO_HUMAN = ("unverifiable", "premise-invalid")
-# 俯瞰（R1〜R4）で持ち越しの元になれる値。素材用の CARRYABLE を流用すると、
-# found / clean は俯瞰に存在しないので到達不能な条件になり、逆に unverifiable や
-# premise-invalid（判定は在り、人に諮る印）からの正直な持ち越しが
-# 「判定が無い」と言われて記録の不正（2）に倒れる。
-REVIEW_CARRYABLE = ("pass", "carried_over") + REVIEW_TO_HUMAN
+# 俯瞰（R1〜R4）で持ち越しの元になれる値。素材用の CARRYABLE を流用すると、found / clean は
+# 俯瞰に存在しないので到達不能な条件になる。**REVIEW_TO_HUMAN を入れるな**——blockers() は
+# その回の status しか見ないので、`unverifiable` を 1 度持ち越した時点で人に諮る義務が
+# 阻害要因から消え、2 ラウンド目に exit 0 が出る（実測: round 1 を unverifiable、round 2・3 を
+# carried_over(from_round=1) にした記録で「阻害要因は、今ラウンドにも前ラウンドにも無い」）。
+# 素材側が CARRYABLE から BLOCKING を外しているのと同じ対称性。諮る義務が続く限り、
+# 同じ値をそのラウンドにもう一度書けばよい（それが「今も諮っている」の正直な記録である）。
+REVIEW_CARRYABLE = ("pass", "carried_over")
 
 # nit / question / info は**意図的に**阻害要因にしない。ここを塞ぐと、受容して
 # 再修正を止めるという連鎖の断ち方が使えなくなる。
@@ -238,8 +241,12 @@ def validate(rec, path, hint=None):
                 f"{path}: {name} は {status} にできない（許されるのは {'/'.join(allowed)}）"
             )
         for field in REVIEW_STATUS[status]:
-            if not r.get(field):
+            # 素材側と同じ形にする。`not r.get(...)` だと from_round: 0 が「欄が無い」という
+            # 嘘の診断になり、writer が探す先を間違える。
+            if field not in r:
                 fail(f"{path}: {name} は status={status} なので '{field}' が要る")
+            if r[field] == "" or r[field] is None:
+                fail(f"{path}: {name} の '{field}' が空（何を見たかを書け）")
         if status == "carried_over":
             validate_carry(r, rec, path, name)
 
@@ -590,12 +597,16 @@ def main():
             print("前ラウンドの defer で今ラウンドの記録に無いキー（台帳には残る。最終報告に載せろ）:")
             for k in dropped:
                 print(f"  - {k}")
-        # [block] 側にも同じ報告が要る。無いと、未解消の [block] を記録から落とすだけで
-        # 阻害要因が 0 になり、収束の分岐に乗る（defer より重い方だけ黙る非対称だった）。
+        # **機械はこれを数えない。** 「消えた」は 2 ラウンド間の遷移で、終了コードは 1 ラウンドの
+        # 述語なので、遷移を述語に押し込むと壊れる——全ラウンドの和で数えると直したキーが永久に
+        # 残って二度と exit 0 にならず（実測: 同梱のテンプレート 3 本が緑にならなくなった）、
+        # 隣り合う 1 ラウンドだけで数えても、前ラウンドの評価は blockers(prev) で**再導出**される
+        # ので、1 ラウンド待てば会計から落ちて終了コードの並びは変わらない。だから一覧は
+        # **判定でなく P2 の judge への入力**にする（手順書 P2 の 8: 台帳と同じルーターに掛けろ）。
         gone = [k for k in sorted(prev_blocks or ()) if k not in here]
         if gone:
             print("過去のラウンドの [block] で今ラウンドの記録に無いキー"
-                  "（直ったのか、記録から落ちたのかは機械には見えない。確かめろ）:")
+                  "（直ったのか、記録から落ちたのかは機械には見えない。P2 の 8 でルーターに掛けろ）:")
             for k in gone:
                 print(f"  - {k}")
 
