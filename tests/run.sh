@@ -166,6 +166,19 @@ for name, mutate in {
     "stuck": lambda r: r["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"}),
     # defer のキーが今ラウンドの記録から消えた——台帳には残ることを出力で知らせる。
     "defer-dropped": lambda r: r["units"].remove(defer_unit(r)),
+    # 素材の「人の起動待ち」「やるべきだったが飛ばした」。このループが塞いだと主張する穴
+    # （無言の省略を「なし」と誤認する）の当の腕で、記録の実例が 1 件も無かった。
+    "material-awaiting": lambda r: r["materials"]["consistency"].update(
+        status="awaiting_human", reason="grader が権限エラーで起動できなかった"),
+    "material-not-run": lambda r: r["materials"]["hygiene"].update(
+        status="not_run", reason="時間切れで飛ばした"),
+    # 同じ key が 1 ラウンドに 2 つ在ると、履歴も台帳も後勝ちで潰れる。
+    "dup-key": lambda r: r["units"].append(json.loads(json.dumps(r["units"][0]))),
+    # 「見つけた」と書いた素材が在るのに units が空。
+    "found-no-units": lambda r: (
+        r["materials"]["local_review"].update(
+            status="found", count=3, detail="欠陥レビューが 3 件返した"),
+        r["units"].clear()),
 }.items():
     write(name, r3(mutate))
 
@@ -179,6 +192,11 @@ for name, mutate in {
     "ask-on-block": lambda r: defer_unit(r).update(disposition="do-now", ask_human="split", reason="目的の外"),
     "ask-bad-value": lambda r: defer_unit(r).update(ask_human="skip"),
     "ask-without-reason": lambda r: next(u for u in r["units"] if u["label"] == "nit").update(ask_human="rule"),
+    # do-now でなく **label が block** の腕。既存の ask-on-block は suggest/do-now しか
+    # 通さないので、設計が最も強く禁じた形に検査が 1 度も当たっていなかった。
+    "ask-on-real-block": lambda r: r["units"].append(
+        {"key": "src/api/limit.py:apply — 上限が効かない", "label": "block",
+         "ask_human": "split", "reason": "目的の外"}),
 }.items():
     rec = json.loads(json.dumps(templates["round-2"]))
     mutate(rec)
@@ -199,6 +217,27 @@ back = json.loads(json.dumps(templates["round-3"]))
 back["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "nit"})
 hist("hist-return", [templates["round-1"], templates["round-2"], back])
 
+# defer が 1 ラウンド記録から消えてから [block] で戻る。台帳が隣の 1 ラウンドしか見ないと
+# 新証拠なしで素通りし、しかも「（新規）」と事実に反する注記が付いていた。
+def r1_at(n, units):
+    r = json.loads(json.dumps(templates["round-1"]))
+    r["round"] = n
+    r["units"] = units
+    return r
+
+LK = "src/db/pool.py — 接続プールの上限を設定に出す"
+# 別のレビュー（基準点が違う）の記録が同じディレクトリに残っている。
+mixed = json.loads(json.dumps(templates["round-2"]))
+mixed["base"] = "f" * 40
+hist("mixed-base", [templates["round-1"], mixed])
+
+hist("ledger-gap", [
+    r1_at(1, [{"key": LK, "label": "suggest", "disposition": "defer",
+               "reason": "共有面を触るので別の変更で扱う"}]),
+    r1_at(2, []),
+    r1_at(3, [{"key": LK, "label": "block"}]),
+])
+
 # JSON として読めない記録と、深いネスト（json モジュールが JSONDecodeError 以外を投げる例）。
 (work / "truncated.json").write_text('{ "base": ', encoding="utf-8")
 (work / "deep.json").write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
@@ -212,7 +251,7 @@ R3="$ROOT/templates/round-3.example.json"
 # 変数に詰めて展開すると、python のパスにスペースがあるだけで壊れる（Windows で起きる）。
 RECORD="$ROOT/scripts/review-record.py"
 
-# 初回ラウンドの正しい呼び方（第 2 引数なし）。手順書がこの形を指示している。
+# 初回ラウンドの呼び方（第 2 引数なし）。
 # 阻害あり: block 2 件・do-now 1 件・前ラウンドの記録が無い
 expect_output 1 "前ラウンドの記録が無い" "初回は第 2 引数なしで走り、比較の欠落を阻害要因に数える" \
     "$PY_BIN" "$RECORD" "$R1"
@@ -286,19 +325,29 @@ done <<'CASES'
 1|unverifiable|収束を宣言せずユーザーに諮れ
 1|review-not-run|R4 が not_run
 0|defer-dropped|台帳には残る
+1|material-awaiting|素材 'consistency' が人の起動待ち
+1|material-not-run|素材 'hygiene' が未実施
+2|dup-key|突合の識別子なので 1 ラウンドに 1 つ
+1|found-no-units|素材が found なのに units が空
 CASES
-expect_output 1 "残存——前ラウンドにも在った。stuck の疑い" "同じ [block] キーが 2 ラウンド残れば stuck の疑いを出す" \
+expect_output 1 "残存——過去のラウンドにも在った。stuck の疑い" "同じ [block] キーが 2 ラウンド残れば stuck の疑いを出す" \
     "$PY_BIN" "$RECORD" "$WORK/stuck.json" "$WORK/stuck-prev.json"
 
 # ask_human と履歴。
-for m in ask-on-block ask-bad-value ask-without-reason; do
+for m in ask-on-block ask-on-real-block ask-bad-value ask-without-reason; do
     case $m in
-        ask-on-block) msg="ask_human を付けられない" ;;
+        ask-on-block|ask-on-real-block) msg="ask_human を付けられない" ;;
         ask-bad-value) msg="ask_human が不正" ;;
         ask-without-reason) msg="ask_human=rule に reason が無い" ;;
     esac
     expect_output 2 "$msg" "ask_human の印: $m" "$PY_BIN" "$RECORD" "$WORK/$m.json" "$R1"
 done
+# 前のレビューの記録が同じディレクトリに残っている形。手順書は消すなと言っているので、
+# 止まるだけでなく退避先を案内できていることまで縛る。
+expect_output 2 "別ディレクトリへ退避" "別レビューの記録が混ざったら、退避の案内を出して止まる" \
+    "$PY_BIN" "$RECORD" "$WORK/mixed-base"
+expect_output 2 "reopen_evidence が無い" "1 ラウンド記録から落としても、台帳は全ラウンドの和なので再審を止める" \
+    "$PY_BIN" "$RECORD" "$WORK/ledger-gap"
 expect_output 0 "履歴（round 1〜3" "ディレクトリを渡すと全ラウンドの履歴を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "人に聞く印" "ask_human の unit は阻害要因にせず、人に聞く印として出す" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "要対応（[block]＋do-now）の件数: 3 → 0 → 0" "要対応の件数の推移を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
@@ -674,6 +723,15 @@ expect_output 0 "ok" "行番号を保ち、docstring と行末コメントを落
     "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='x = 1\n\ndef f():\n\n\n    s = \"\"\"not doc\"\"\"\n    return s\n', repr(s); print('ok')" "$SW/src/a.py"
 expect_output 0 "ok" "C 系は行全体のコメントとブロックだけ落とし、行末コメントは残す" \
     "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='\nint x = 1; // keep\n\n\nint y;\n', repr(s); print('ok')" "$SW/src/b.c"
+printf '/* one */ int keep = 1;\n/* multi\n end */\nint y;\n' > "$SW/src/i.c"
+expect_output 0 "剥がした: 1 ファイル" "1 行で閉じたブロックの後ろにコードが残る行は触らない" \
+    "$PY_BIN" "$STRIP" "$SW" src/i.c
+expect_output 0 "ok" "読み手に渡す写しからコードが消えていない（複数行のブロックは今も落ちる）" \
+    "$PY_BIN" -c "
+import sys, pathlib
+got = pathlib.Path(sys.argv[1]).read_text()
+assert got == '/* one */ int keep = 1;\n\n\nint y;\n', repr(got)
+print('ok')" "$SW/src/i.c"
 expect_output 2 "構文エラー" "壊れた Python は 0 で返さない" "$PY_BIN" "$STRIP" "$SW" src/bad.py
 expect_output 2 "無い" "写しに無いファイルは 0 で返さない" "$PY_BIN" "$STRIP" "$SW" src/none.py
 expect_exit 2 "引数なしは 2" "$PY_BIN" "$STRIP"
@@ -700,6 +758,29 @@ assert (repo/'src/a.py').read_text() == '# changed comment\ny = 2  # tail\n'
 print('ok')" "$WORK/strip-copy" "$SREPO"
 expect_output 2 "空でない" "--export は空でないディレクトリに写さない（本物に当てる事故を塞ぐ）" \
     bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$SREPO' src/a.py"
+# 相対パスの位置に絶対パスを渡すと pathlib が写しのルートを捨てる。--export を正しく
+# 付けていても本物がその場で書き換わり、写しの側は無変更のまま exit 0 で返っていた。
+expect_output 2 "写しの外を指している" "相対パスの位置に絶対パスを渡しても本物に当てない" \
+    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$WORK/strip-abs' '$SREPO/src/a.py'"
+expect_output 0 "ok" "本物は無傷のまま（コメントが残っている）" \
+    "$PY_BIN" -c "
+import sys, pathlib
+got = pathlib.Path(sys.argv[1]).read_text()
+assert got == '# changed comment\ny = 2  # tail\n', repr(got)
+print('ok')" "$SREPO/src/a.py"
+# 写しがリポジトリの中だと git apply が Skipped patch を返して exit 0 のまま何もせず、
+# HEAD の姿だけの写しができる（このラウンドで直した内容が入らない）。
+expect_output 2 "リポジトリの中" "写しをリポジトリの中に作らせない（未コミット分が黙って落ちる）" \
+    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$SREPO/copy' src/a.py"
+
+# R1 の読み手の実測は、写しにリポジトリ全体が入るせいで目的が漏れうる。漏れても何も
+# 赤くならない fail-open を塞いだ規定が、手順書から落ちていないことを縛る。
+expect_output 0 "ok" "手順書が読み手に隔離の自己検査を返させる" "$PY_BIN" -c "
+import sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+assert 'どの役として呼ばれたかを推測できたか' in t, 'R1 の読み手に隔離の自己検査を求める指示が無い'
+assert 'reviews.R1' in t and 'not_run' in t, '推測できた場合の記録の書き方が無い'
+print('ok')" "$ROOT/commands/review-loop.md"
 
 echo "comment-ratio.sh"
 REPO="$WORK/repo"

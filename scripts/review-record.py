@@ -122,7 +122,7 @@ REVIEW_STATUS = {
 }
 # R1 / R2 は第 1 ラウンドで必ず走り、以降は再発火条件で回す（手順書 P4）。R3 / R4 は
 # P-R でのみ走る。どちらも「条件に当たらない」の意味が違うので、値の許可を役ごとに絞る。
-REVIEW_ONLY = {
+STATUS_ONLY_FOR = {
     "premise-invalid": ("R2",),
     "carried_over": ("R1", "R2"),
     "not_applicable": ("R3", "R4"),
@@ -179,13 +179,13 @@ def validate_carry(entry, rec, path, what):
         fail(f"{path}: {what} の from_round（{fr}）が今ラウンド（{rec['round']}）より前でない")
 
 
-def validate(rec, path):
+def validate(rec, path, hint=None):
     # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
     if not isinstance(rec, dict):
         fail(f"{path}: 記録の最上位が object でない")
     for key in ("base", "round", "materials", "units", "reviews"):
         if key not in rec:
-            fail(f"{path}: 必須の欄 '{key}' が無い")
+            fail(f"{path}: 必須の欄 '{key}' が無い" + (f"。{hint}" if hint else ""))
     if not is_int(rec["round"]):
         fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
     # 連番検査（`rec["round"] != prev["round"] + 1`）は間隔しか見ないので、基点を
@@ -225,7 +225,7 @@ def validate(rec, path):
             fail(
                 f"{path}: {name} の status が不正: {status!r}（{'/'.join(REVIEW_STATUS)}）"
             )
-        allowed = REVIEW_ONLY.get(status)
+        allowed = STATUS_ONLY_FOR.get(status)
         if allowed and name not in allowed:
             fail(
                 f"{path}: {name} は {status} にできない（許されるのは {'/'.join(allowed)}）"
@@ -236,11 +236,20 @@ def validate(rec, path):
         if status == "carried_over":
             validate_carry(r, rec, path, name)
 
+    seen_keys = {}
     for i, u in enumerate(rec["units"]):
         if not isinstance(u, dict):
             fail(f"{path}: units[{i}] が object でない")
         if not u.get("key"):
             fail(f"{path}: units[{i}] に key が無い（ラウンド間の突合に使う）")
+        # key は突合と台帳の識別子なので、同じラウンドに 2 つ在ると履歴も台帳も
+        # 後勝ちで潰れる（重い方が消え、受容していないものが受容扱いになる）。
+        if u["key"] in seen_keys:
+            fail(
+                f"{path}: units[{i}] の key が units[{seen_keys[u['key']]}] と同じ: "
+                f"{u['key']}（突合の識別子なので 1 ラウンドに 1 つ）"
+            )
+        seen_keys[u["key"]] = i
         if u.get("label") not in LABELS:
             fail(f"{path}: units[{i}] の label が不正: {u.get('label')!r}")
         if u["label"] == "suggest":
@@ -269,10 +278,14 @@ def is_open(u):
     )
 
 
-def validate_against(rec, prev):
+def validate_against(rec, prev, carried=None):
     """前ラウンドとの突合のうち、記録の不正（2）に倒すもの。"""
     if prev["base"] != rec["base"]:
-        fail("2 つの記録の base が違う（基準点を動かすな）")
+        fail(
+            "2 つの記録の base が違う（基準点を動かすな）。"
+            "別のレビューの記録が同じディレクトリに混ざっていないか——"
+            "混ざっているなら消さずに別ディレクトリへ退避してから始めろ"
+        )
     if rec["round"] != prev["round"] + 1:
         fail(f"ラウンドが連番でない: {prev['round']} の次が {rec['round']}")
 
@@ -301,14 +314,17 @@ def validate_against(rec, prev):
         else:
             fail(f"{what} は前ラウンドが {ps} なので持ち越せない（判定が無い）")
 
-    # defer 台帳。前ラウンドで defer と確定したキーが今ラウンドで再び [block] / do-now に
+    # defer 台帳。**前ラウンドまでに** defer と確定したキーが再び [block] / do-now に
     # 上がるのは、新しい根拠が付いたときだけ（手順書 P4）。根拠の欄が無い再出現は、judge が
     # 台帳を渡されていないか無視したかで、記録を直して（judge を台帳つきで回して）出し直す。
-    ledger = {
+    # carried は「それより前のラウンドまでの台帳」。隣の 1 ラウンドだけを見ると、
+    # 1 ラウンド記録から落とすだけで再審の縛りが外れる（受容済みの論点が新証拠なしに戻る）。
+    ledger = dict(carried or {})
+    ledger.update({
         u["key"]: u.get("reason")
         for u in prev["units"]
         if u["label"] == "suggest" and u.get("disposition") == "defer"
-    }
+    })
     for u in rec["units"]:
         if u["key"] in ledger and is_open(u) and not u.get("reopen_evidence"):
             fail(
@@ -318,20 +334,34 @@ def validate_against(rec, prev):
     return ledger
 
 
-def blockers(rec, prev=None, ledger=None):
-    """今ラウンドの阻害要因。prev を渡すと [block] / do-now の行に前ラウンド比の注記
-    （新規 / 残存 / 既受容の再審）を添える。判定そのものは prev に依存しない。"""
+def blockers(rec, prev=None, ledger=None, prev_blocks=None):
+    """今ラウンドの阻害要因。prev を渡すと **[block] の行に** 過去ラウンド比の注記
+    （新規 / 残存）を、台帳に在るキーには（既受容の再審）を添える。判定そのものは
+    prev に依存しない。prev_blocks を渡すとそれを「過去に [block] だったキー」として
+    使う（渡さなければ prev の 1 ラウンド分。ディレクトリ渡しでは全ラウンドの和）。"""
     out = []
     ledger = ledger or {}
-    prev_blocks = (
-        {u["key"] for u in prev["units"] if u["label"] == "block"} if prev else set()
-    )
+    if prev_blocks is None:
+        prev_blocks = (
+            {u["key"] for u in prev["units"] if u["label"] == "block"} if prev else set()
+        )
 
     for name in MATERIALS:
         m = rec["materials"][name]
         if m["status"] in BLOCKING:
             label = "人の起動待ち" if m["status"] == "awaiting_human" else "未実施"
             out.append(f"素材 '{name}' が{label}: {m['reason']}")
+
+    # 「見つけた」と書いた素材が 1 つでも在るのに units が空なら、judge が根本ユニットに
+    # 落としていないか、落とした結果が記録に載っていない。中身は解釈しないが、
+    # 「正直に見つけたと書いたのに 1 件も挙げていない」という形だけは数えられる。
+    if not rec["units"]:
+        got = [n for n in MATERIALS if rec["materials"][n]["status"] == "found"]
+        if got:
+            out.append(
+                f"素材が found なのに units が空: {', '.join(got)}"
+                "（見つけたものを根本ユニットに落としたか確かめろ）"
+            )
 
     for u in rec["units"]:
         if not is_open(u):
@@ -342,7 +372,7 @@ def blockers(rec, prev=None, ledger=None):
             if u["key"] in ledger:
                 note = f"（既受容 defer の再審。新証拠: {u['reopen_evidence']}）"
             elif u["label"] == "block" and u["key"] in prev_blocks:
-                note = "（残存——前ラウンドにも在った。stuck の疑い）"
+                note = "（残存——過去のラウンドにも在った。stuck の疑い）"
             elif u["label"] == "block":
                 note = "（新規）"
         out.append(f"{head}{note}: {u['key']}")
@@ -405,10 +435,15 @@ def load_dir(path):
     import re
 
     found = {}
-    for name in os.listdir(path):
+    for name in sorted(os.listdir(path)):
         m = re.fullmatch(r"round-(\d+)\.json", name)
         if m:
-            found[int(m.group(1))] = os.path.join(path, name)
+            n = int(m.group(1))
+            # ゼロ詰めの別名（round-01.json）は同じ番号に潰れ、片方が読まれもせずに
+            # 捨てられる。連番の穴は落とすのに重複が通ると、静かに別の記録を検証する。
+            if n in found:
+                fail(f"{path}: {name} と {os.path.basename(found[n])} が同じ番号 {n} を指している")
+            found[n] = os.path.join(path, name)
     if not found:
         fail(f"{path}: round-<N>.json が 1 つも無い")
     rounds = []
@@ -416,11 +451,25 @@ def load_dir(path):
         if n not in found:
             fail(f"{path}: round-{n}.json が無い（前ラウンド分を消すな。連番の穴は履歴を壊す）")
         rec = load(found[n])
-        validate(rec, found[n])
+        # 前のレビューの記録が残っていると、古い schema の欄不足か base の不一致で
+        # ここから先へ進めない。手順書は記録を消すなと言っているので、退避先を案内する。
+        validate(rec, found[n], hint="別のレビューの記録が混ざっていないか——"
+                                     "混ざっているなら消さずに別ディレクトリへ退避しろ")
         if rec["round"] != n:
             fail(f"{found[n]}: 'round' が {rec['round']}——ファイル名の番号と違う")
         rounds.append(rec)
     return rounds
+
+
+def reappeared_after_gap(seen):
+    """直したはずのキーが再出現した回数。judge に理由（コード／レビュアー／規約）を問わせる材料。
+
+    seen[i] は round i+1 の記録にそのキーが在ったか。初出は「戻った」ではないので、
+    それ以前に一度でも在ったことを条件に入れる。
+    """
+    return sum(
+        1 for i in range(1, len(seen)) if seen[i] and not seen[i - 1] and any(seen[:i - 1])
+    )
 
 
 def history(rounds):
@@ -443,11 +492,8 @@ def history(rounds):
         seq = " → ".join(
             f"r{r}:{by_round[r]}" if r in by_round else f"r{r}:—" for r in range(1, n + 1)
         )
-        # 「一度消えて戻った」= 直したはずが再出現。judge に理由を問わせる材料。
         seen = [r in by_round for r in range(1, n + 1)]
-        gaps = sum(
-            1 for i in range(1, n) if seen[i] and not seen[i - 1] and any(seen[:i - 1])
-        )
+        gaps = reappeared_after_gap(seen)
         note = f"（消えて {gaps} 回戻った）" if gaps else ""
         out.append(f"{key}\n      {seq}{note}")
     open_counts = [sum(1 for u in r["units"] if is_open(u)) for r in rounds]
@@ -475,8 +521,10 @@ def main():
         prev = rounds[-2] if len(rounds) > 1 else None
         ledger = {}
         # 連鎖と台帳は隣り合う全ての組で突合する（履歴の途中で壊れていても最新だけ見ると通る）。
+        # 台帳は**代入でなく累積**する。組ごとに置き換えると隣の 1 ラウンドしか残らず、
+        # 1 ラウンド記録から落とすだけで再審の縛りが消える（手順書は全ラウンドの和と書いている）。
         for a, b in zip(rounds, rounds[1:]):
-            ledger = validate_against(b, a)
+            ledger = validate_against(b, a, ledger)
     else:
         rec = load(sys.argv[1])
         # **突合より先に両方を検証する。** 逆順にすると、欄が欠けた記録で比較が KeyError を
@@ -515,7 +563,12 @@ def main():
             for line in lines:
                 print(f"  - {line}")
 
-    found = blockers(rec, prev, ledger)
+    prev_blocks = None
+    if rounds is not None:
+        prev_blocks = {
+            u["key"] for r in rounds[:-1] for u in r["units"] if u["label"] == "block"
+        }
+    found = blockers(rec, prev, ledger, prev_blocks)
     if prev is not None:
         dropped = [k for k in ledger if k not in {u["key"] for u in rec["units"]}]
         if dropped:

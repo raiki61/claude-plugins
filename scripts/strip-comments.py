@@ -119,10 +119,20 @@ def strip_lines(src, prefixes, blocks):
             continue
         start = next(((b, e) for b, e in blocks if s.startswith(b)), None)
         if start:
-            out.append(eol)
             b, e = start
-            if e not in s[len(b):]:
+            rest = s[len(b):]
+            at = rest.find(e)
+            if at < 0:
+                out.append(eol)
                 closing = e
+            elif rest[at + len(e):].strip():
+                # 同じ行でブロックが閉じ、そのあとにコードが残る。行ごと空にすると
+                # 読み手に渡す写しからコードが消えるので触らない（docstring が宣言
+                # している「過小側に倒す」に揃える。剥がし漏れは読み手に見えるが、
+                # 消えたコードは見えない）。
+                out.append(line)
+            else:
+                out.append(eol)
         elif any(s.startswith(p) for p in prefixes):
             out.append(eol)
         else:
@@ -162,17 +172,34 @@ def export(root):
 
     if root.exists() and any(root.iterdir()):
         fail(f"{root}: 空でない（写しは空のディレクトリか無いパスに作れ。本物に当てるな）")
+    # 写しがリポジトリの作業ツリーの中だと、下の git apply が patch の経路を頂点から
+    # 解決して「カレントの外」として Skipped patch を返し、**終了コード 0 のまま**
+    # HEAD の姿だけの写しができる。読み手はこのラウンドで直した内容が入っていない
+    # コードを精読することになるので、入口で塞ぐ。
+    top = Path(git("rev-parse", "--show-toplevel").decode("utf-8", "replace").strip()).resolve()
+    dest = root.resolve()
+    if dest == top or top in dest.parents:
+        fail(f"{root}: リポジトリの中（写しは作業ツリーの外に作れ。中に作ると未コミット分が当たらない）")
     root.mkdir(parents=True, exist_ok=True)
     import io
 
     with tarfile.open(fileobj=io.BytesIO(git("archive", "--format=tar", "HEAD"))) as tar:
-        tar.extractall(root)
+        # filter は 3.12 で導入され 3.14 で既定が data になった。明示しないと版で
+        # 挙動が変わり、絶対 symlink を含むリポジトリが版によって展開できない。
+        try:
+            tar.extractall(root, filter="data")
+        except TypeError:
+            tar.extractall(root)
     patch = git("diff", "HEAD", "--binary")
     if patch.strip():
         p = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], input=patch,
                            cwd=root, capture_output=True, timeout=GIT_TIMEOUT_SEC)
+        err = p.stderr.decode("utf-8", "replace").strip()
         if p.returncode != 0:
-            fail(f"未コミット分を写しに当てられない: {p.stderr.decode('utf-8', 'replace').strip()}")
+            fail(f"未コミット分を写しに当てられない: {err}")
+        if "Skipped patch" in err:
+            # 上の封じ込めを抜けた場合の fail-closed。0 が返っても当たっていない。
+            fail(f"未コミット分が写しに当たらなかった: {err}")
 
 
 def main():
@@ -188,11 +215,18 @@ def main():
         export(root)
     if not root.is_dir():
         fail(f"{root}: ディレクトリでない")
-    skipped, done = [], 0
+    skipped, undecodable, done = [], [], 0
+    rr = root.resolve()
     for rel in args[1:]:
         p = root / rel
+        # 相対パスの位置に絶対パスや .. を渡されると pathlib が root を捨て、
+        # 本物のファイルをその場で書き換えてしまう（元に戻す機能は無い）。
+        pr = p.resolve()
+        if pr != rr and rr not in pr.parents:
+            fail(f"{rel}: 写しの外を指している（相対パスで渡せ。本物に当てるな）")
         if not p.is_file():
-            fail(f"{p}: 無い（写しに載っていない。未追跡なら git add -N してから写せ）")
+            fail(f"{p}: 無い（写しに載っていない。新規なら git add -N してから写せ。"
+                 f"削除されたファイルは渡すな——git diff --name-only <BASE> --diff-filter=d で外せ）")
         syn = syntax_for(rel)
         if rel.endswith(".py"):
             strip = lambda s: strip_python(s, rel)
@@ -201,12 +235,20 @@ def main():
         else:
             skipped.append(rel)
             continue
-        src = p.read_text(encoding="utf-8", errors="replace")
+        try:
+            src = p.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # errors="replace" で読んで書き戻すと、非 UTF-8 の中身が U+FFFD に
+            # 化けたまま保存される。読み手はそれをコード側の欠陥として報告する。
+            undecodable.append(rel)
+            continue
         p.write_text(strip(src), encoding="utf-8")
         done += 1
     print(f"剥がした: {done} ファイル")
     if skipped:
         print("触っていない（対象外の拡張子。読み手にはコメント付きのまま見える）: " + " ".join(skipped), file=sys.stderr)
+    if undecodable:
+        print("触っていない（UTF-8 として読めない。読み手にはコメント付きのまま見える）: " + " ".join(undecodable), file=sys.stderr)
 
 
 if __name__ == "__main__":
