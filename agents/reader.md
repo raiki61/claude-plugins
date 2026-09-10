@@ -1,6 +1,6 @@
 ---
 name: reader
-description: 文脈を知らない読み役。用事か読む対象だけを渡され、リポジトリの入口から自分で探して読む。firstread-loop と review-loop の R1（コメントを剥がした写しの精読）が使う。
+description: 文書を知らない読み役。用事だけを渡され、リポジトリの入口から自分で探して読む。firstread-loop 専用。
 model: sonnet
 effort: medium
 tools: Read, Glob, Grep

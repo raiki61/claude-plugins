@@ -85,14 +85,14 @@ MATERIALS = (
 
 # 素材の状態と、その状態で追加に要求する欄。
 STATUS = {
-    "found": ("count", "detail"),  # 見つかった
+    "found": ("count", "detail"),
     "clean": ("checked",),  # 今ラウンドに見たが無かった（何を見たかを要求する）
     # 前ラウンドの判定を流用した。**`clean` と分ける**——`clean` は「今回見た」で、
     # 持ち越しを `clean` に入れると最後に実際に見たラウンドが誰にも見えなくなる
     # （実例: 持ち越しを `clean` で書いた記録が 3 素材あった）。`from_round` は実際に
     # 見たラウンドで、持ち越しが続いても動かない（連鎖は下の突合で検査する）。
     "carried_over": ("from_round", "reason"),
-    "not_applicable": ("reason",),  # 条件に当たらない
+    "not_applicable": ("reason",),
     "awaiting_human": ("reason",),  # 人の起動待ちで止まっている
     "not_run": ("reason",),  # やるべきだったが飛ばした
 }
@@ -179,7 +179,6 @@ def is_int(v):
 
 
 def validate_carry(entry, rec, path, what):
-    """持ち越しの from_round が、今ラウンドより前の実在しうるラウンドを指すか。"""
     fr = entry.get("from_round")
     if not is_int(fr) or fr < 1:
         fail(f"{path}: {what} の from_round が 1 以上の整数でない: {fr!r}")
@@ -286,7 +285,6 @@ def validate(rec, path, hint=None):
 
 
 def is_open(u):
-    """まだ手を付けるべきユニット（[block] か do-now）。"""
     return u["label"] == "block" or (
         u["label"] == "suggest" and u.get("disposition") == "do-now"
     )
@@ -597,12 +595,8 @@ def main():
             print("前ラウンドの defer で今ラウンドの記録に無いキー（台帳には残る。最終報告に載せろ）:")
             for k in dropped:
                 print(f"  - {k}")
-        # **機械はこれを数えない。** 「消えた」は 2 ラウンド間の遷移で、終了コードは 1 ラウンドの
-        # 述語なので、遷移を述語に押し込むと壊れる——全ラウンドの和で数えると直したキーが永久に
-        # 残って二度と exit 0 にならず（実測: 同梱のテンプレート 3 本が緑にならなくなった）、
-        # 隣り合う 1 ラウンドだけで数えても、前ラウンドの評価は blockers(prev) で**再導出**される
-        # ので、1 ラウンド待てば会計から落ちて終了コードの並びは変わらない。だから一覧は
-        # **判定でなく P2 の judge への入力**にする（手順書 P2 の 8: 台帳と同じルーターに掛けろ）。
+        # **機械はこれを数えない**——一覧は判定でなく P2 の judge への入力である（数えられない
+        # 理由の 2 通りの検討は手順書 P2 の 8 が持つ。ここに写すと片方が腐る）。
         gone = [k for k in sorted(prev_blocks or ()) if k not in here]
         if gone:
             print("過去のラウンドの [block] で今ラウンドの記録に無いキー"

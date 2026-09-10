@@ -204,8 +204,7 @@ for name, mutate in {
     "ask-on-block": lambda r: defer_unit(r).update(disposition="do-now", ask_human="split", reason="目的の外"),
     "ask-bad-value": lambda r: defer_unit(r).update(ask_human="skip"),
     "ask-without-reason": lambda r: next(u for u in r["units"] if u["label"] == "nit").update(ask_human="rule"),
-    # do-now でなく **label が block** の腕。既存の ask-on-block は suggest/do-now しか
-    # 通さないので、設計が最も強く禁じた形に検査が 1 度も当たっていなかった。
+    # do-now でなく **label が block** の腕。既存の ask-on-block は suggest/do-now しか通さない。
     "ask-on-real-block": lambda r: r["units"].append(
         {"key": "src/api/limit.py:apply — 上限が効かない", "label": "block",
          "ask_human": "split", "reason": "目的の外"}),
@@ -761,151 +760,6 @@ expect_output 0 "足す側に偏っている" "削除も移動も無い増加を
     "$PY_BIN" "$FR" "$WORK/fr-grew-only.json" "$WORK/fr-1.json"
 expect_exit 2 "引数なしは 1 と区別して落ちる（初読記録）" "$PY_BIN" "$FR"
 
-echo "strip-comments.py"
-STRIP="$ROOT/scripts/strip-comments.py"
-SW="$WORK/strip"
-mkdir -p "$SW/src"
-printf 'x = 1  # inline\n"""mod doc"""\ndef f():\n    """doc\n    two"""\n    s = """not doc"""  # c\n    return s\n' > "$SW/src/a.py"
-printf '// top\nint x = 1; // keep\n/* block\n   end */\nint y;\n' > "$SW/src/b.c"
-printf 'x\n' > "$SW/src/c.txt"
-printf '#!/usr/bin/env ruby\n# c\n=begin\nblock\n=end\nputs 1 # keep\n' > "$SW/src/d.rb"
-printf '#!/bin/sh\n# c\necho 1\n' > "$SW/src/e.sh"
-printf -- '-- c\n/* b\n */\nselect 1;\n' > "$SW/src/f.sql"
-printf '<!-- a\n b -->\n<p>x</p>\n' > "$SW/src/g.html"
-printf '# c\nkey: 1\n' > "$SW/src/h.yml"
-printf '# c\nFROM x\n' > "$SW/Dockerfile"
-printf 'def broken(:\n' > "$SW/src/bad.py"
-expect_output 0 "剥がした: 8 ファイル" "Python・C 系・#系・--系・HTML・Dockerfile を剥がし、対象外は名前を出して触らない" \
-    "$PY_BIN" "$STRIP" "$SW" src/a.py src/b.c src/c.txt src/d.rb src/e.sh src/f.sql src/g.html src/h.yml Dockerfile
-expect_output 0 "触っていない（対象外の拡張子" "対象外の拡張子を黙って素通しにしない" \
-    "$PY_BIN" "$STRIP" "$SW" src/c.txt
-expect_file "$SW/src/d.rb" $'#!/usr/bin/env ruby\n\n\n\n\nputs 1 # keep\n' \
-    "Ruby: shebang は残し、# 行と =begin/=end を落とし、行末コメントは残す"
-expect_file "$SW/src/e.sh" $'#!/bin/sh\n\necho 1\n' "Shell: shebang は残す"
-expect_file "$SW/src/f.sql" $'\n\n\nselect 1;\n' "SQL: -- と /* */ を落とす"
-expect_file "$SW/src/g.html" $'\n\n<p>x</p>\n' "HTML: 複数行の <!-- --> を落とす"
-expect_file "$SW/Dockerfile" $'\nFROM x\n' "拡張子の無い Dockerfile も落とす"
-expect_file "$SW/src/a.py" $'x = 1\n\ndef f():\n\n\n    s = """not doc"""\n    return s\n' \
-    "行番号を保ち、docstring と行末コメントを落とし、代入の文字列は残す"
-expect_file "$SW/src/b.c" $'\nint x = 1; // keep\n\n\nint y;\n' \
-    "C 系は行全体のコメントとブロックだけ落とし、行末コメントは残す"
-printf '/* one */ int keep = 1;\n/* multi\n end */\nint y;\n' > "$SW/src/i.c"
-expect_output 0 "剥がした: 1 ファイル" "1 行で閉じたブロックの後ろにコードが残る行は触らない" \
-    "$PY_BIN" "$STRIP" "$SW" src/i.c
-expect_file "$SW/src/i.c" $'/* one */ int keep = 1;\n\n\nint y;\n' \
-    "読み手に渡す写しからコードが消えていない（複数行のブロックは今も落ちる）"
-printf 'int a = 1;\n/* multi\n   line\n*/ int keepme = 2;\nint b = 3;\n' > "$SW/src/j.c"
-expect_output 0 "剥がした: 1 ファイル" "複数行ブロックの閉じ行にコードが残る場合も、その行は触らない" \
-    "$PY_BIN" "$STRIP" "$SW" src/j.c
-expect_file "$SW/src/j.c" $'int a = 1;\n\n\n*/ int keepme = 2;\nint b = 3;\n' \
-    "閉じ行のコードが写しから消えていない"
-# 検算手段が無い言語（Python と shell 以外）は剥がすが、**検算できた剥がしと同じ顔で
-# 渡さない**——引用符を見ない行ベースの剥がしは複数行の文字列の中の行を消しうるので、
-# 読み手が「意味が取れない」と言ったときにコードの欠陥と写しの破損を分ける材料が要る。
-printf 'const s = `\n// not a comment\n`;\nlet y = 1;\n' > "$SW/src/m.ts"
-expect_output 0 "剥がしたが検算していない" "検算手段の無い言語は、剥がしても名前を出す" \
-    "$PY_BIN" "$STRIP" "$SW" src/m.ts
-expect_output 0 "ok" "検算できる言語は、その一覧に載らない" "$PY_BIN" -c "
-import sys, subprocess
-r = subprocess.run([sys.executable, sys.argv[1], sys.argv[2], 'src/e.sh'], capture_output=True, text=True)
-assert r.returncode == 0, r
-assert '剥がしたが検算していない' not in (r.stdout + r.stderr), (r.stdout, r.stderr)
-print('ok')" "$STRIP" "$SW"
-# 行ベースの剥がしは字句解析をしないので、文字列やヒアドキュメントの中のシャープ行を
-# コメントと誤認する。剥がした結果が構文として壊れたら、その file は剥がさず名前を出す。
-printf '%s\n' 'echo "x\' '#y; echo z"' 'echo done' > "$SW/src/k.sh"
-expect_output 0 "剥がすと構文が壊れた" "剥がして構文が壊れる file は剥がさず名前を出す" \
-    "$PY_BIN" "$STRIP" "$SW" src/k.sh
-expect_output 0 "ok" "その file は元のまま（bash を通る）" \
-    "$PY_BIN" -c "
-import sys, pathlib, subprocess
-t = pathlib.Path(sys.argv[1]).read_bytes()
-assert b'#y' in t, '剥がされてしまっている'
-assert subprocess.run(['bash','-n',sys.argv[1]]).returncode == 0
-print('ok')" "$SW/src/k.sh"
-# docstring と同じ行に続くコードは残す（strip_lines の 2 本の腕と同じ判断の 3 本目）。
-printf 'def f():\n    """doc"""; return 1\n' > "$SW/src/l.py"
-expect_output 0 "剥がした: 1 ファイル" "docstring と同じ行のコードは残す" "$PY_BIN" "$STRIP" "$SW" src/l.py
-expect_output 0 "ok" "写しからコードが消えず、構文も通る" \
-    "$PY_BIN" -c "
-import sys, pathlib, ast
-got = pathlib.Path(sys.argv[1]).read_text()
-assert got == 'def f():\n    return 1\n', repr(got)
-ast.parse(got)
-print('ok')" "$SW/src/l.py"
-# 非 UTF-8 を errors="replace" で読んで書き戻すと、中身が U+FFFD に化けたまま保存され、
-# 読み手はそれをコード側の欠陥として報告する。触らずに名前を出す。
-"$PY_BIN" -c "
-import pathlib, sys
-pathlib.Path(sys.argv[1]).write_bytes('# \u6f22\u5b57\nx = 1\n'.encode('shift_jis'))" "$SW/src/sjis.py"
-expect_output 0 "UTF-8 として読めない" "非 UTF-8 の file は剥がさず名前を出す" \
-    "$PY_BIN" "$STRIP" "$SW" src/sjis.py
-expect_output 0 "ok" "その file の中身が化けていない" \
-    "$PY_BIN" -c "
-import sys, pathlib
-raw = pathlib.Path(sys.argv[1]).read_bytes()
-assert raw.decode('shift_jis') == '# \u6f22\u5b57\nx = 1\n', repr(raw)
-print('ok')" "$SW/src/sjis.py"
-# 元から壊れている Python は「剥がしようが無い」だけなので、他の 3 つの「触っていない」と
-# 同じ扱い（名前を出して継続）にする。ここだけ即死させていたときは、それ以前に書き換えた
-# 写しが残ったまま、触れなかった file の一覧も出さずに落ちていた。
-expect_output 0 "触っていない（元から構文が壊れている" "壊れた Python は、他の触れない file と同じく名前を出して継続する" \
-    "$PY_BIN" "$STRIP" "$SW" src/bad.py
-expect_file "$SW/src/bad.py" $'def broken(:\n' "壊れた Python が写しの中で書き換わっていない"
-expect_output 2 "無い" "写しに無いファイルは 0 で返さない" "$PY_BIN" "$STRIP" "$SW" src/none.py
-expect_exit 2 "引数なしは 2" "$PY_BIN" "$STRIP"
-# --export: HEAD＋未コミット（intent-to-add の新規ファイル込み）を写して剥がす。本物は触らない。
-SREPO="$WORK/strip-repo"
-mkdir -p "$SREPO/src" && (
-    cd "$SREPO" && git init -q && git config user.email t@e && git config user.name t
-    printf '# committed comment\nx = 1\n' > src/a.py
-    printf 'keep\n' > README.md
-    git add -A && git commit -qm init
-    printf '# changed comment\ny = 2  # tail\n' > src/a.py
-    printf '// new file\nint z;\n' > src/n.c && git add -N src/n.c
-)
-expect_output 0 "剥がした: 2 ファイル" "--export が写しを作って剥がす" \
-    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$WORK/strip-copy' src/a.py src/n.c"
-expect_output 0 "ok" "写しには未コミットの変更と intent-to-add の新規ファイルが剥がれて載り、本物は無傷" \
-    "$PY_BIN" -c "
-import sys, pathlib
-copy, repo = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-assert (copy/'src/a.py').read_text() == '\ny = 2\n', repr((copy/'src/a.py').read_text())
-assert (copy/'src/n.c').read_text() == '\nint z;\n', repr((copy/'src/n.c').read_text())
-assert (copy/'README.md').read_text() == 'keep\n'
-assert (repo/'src/a.py').read_text() == '# changed comment\ny = 2  # tail\n'
-print('ok')" "$WORK/strip-copy" "$SREPO"
-expect_output 2 "空でない" "--export は空でないディレクトリに写さない（本物に当てる事故を塞ぐ）" \
-    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$SREPO' src/a.py"
-# 相対パスの位置に絶対パスを渡すと pathlib が写しのルートを捨てる。--export を正しく
-# 付けていても本物がその場で書き換わり、写しの側は無変更のまま exit 0 で返っていた。
-expect_output 2 "写しの外を指している" "相対パスの位置に絶対パスを渡しても本物に当てない" \
-    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$WORK/strip-abs' '$SREPO/src/a.py'"
-expect_file "$SREPO/src/a.py" $'# changed comment\ny = 2  # tail\n' "本物は無傷のまま（コメントが残っている）"
-# 写しがリポジトリの中だと git apply が Skipped patch を返して exit 0 のまま何もせず、
-# HEAD の姿だけの写しができる（このラウンドで直した内容が入らない）。
-# **期待文字列は「そのガードだけが出す語」にする。** 「作業ツリー」だと verify_mirror の
-# 「写しの中身が作業ツリーと違う」にも一致し、封じ込めを外しても緑のまま通った（実測）。
-expect_output 2 "写しはどのリポジトリにも属さない" "写しをリポジトリの中に作らせない（未コミット分が黙って落ちる）" \
-    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$SREPO/copy' src/a.py"
-# --export を付けない入口にも同じ判定が要る。付けない剥がしはその場で上書きするので、
-# 写し先に本物のリポジトリを渡すと本物のコメントが消える（元に戻す機能は無い）。
-expect_output 2 "写しはどのリポジトリにも属さない" "--export を付けない剥がしも、本物のリポジトリには当てない" \
-    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' . src/a.py"
-expect_file "$SREPO/src/a.py" $'# changed comment\ny = 2  # tail\n' "本物は無傷（コメントが残っている）"
-# 写し先が **別の** リポジトリの中でも同じ。cwd のリポジトリとだけ比べると素通りし、
-# git apply がそちらを見つけて patch を無視する（rc=0・stderr 0 バイトで気づけない）。
-OTHER="$WORK/strip-other"
-mkdir -p "$OTHER" && (cd "$OTHER" && git init -q && git config user.email t@e && git config user.name t \
-    && printf 'z\n' > z.txt && git add -A && git commit -qm init)
-expect_output 2 "写しはどのリポジトリにも属さない" "別のリポジトリの中にも写しを作らせない" \
-    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$OTHER/mirror' src/a.py"
-
-# R1 の読み手の実測は、写しにリポジトリ全体が入るせいで目的が漏れうる。漏れても何も
-# 赤くならない fail-open を塞いだ規定が、手順書から落ちていないことを縛る。
-# 閉鎖の実証とゲートの赤の確認が「1 つ」で止まってよいと読める文面に戻っていないか。
-# 実測: この 2 つが「退行を 1 つ」「違反をわざと1つ」と書いていた間、入口 2 つのうち 1 つ・
-# 枝 3 本のうち 1 本しか塞がない修正が 3 回続けて出た。
 expect_output 0 "ok" "閉鎖の実証とゲートの赤の確認が、腕ごと・箇所ごとを要求している" "$PY_BIN" -c "
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
@@ -913,35 +767,27 @@ assert '不変条件を共有する箇所を先に全部挙げ' in t, '閉鎖の
 assert '条件の腕ごとに 1 つずつ' in t, 'ゲートの赤の確認が腕ごとを要求していない'
 assert '退行を 1 つ注入して' not in t, '古い「退行を 1 つ」の文面が残っている'
 print('ok')" "$ROOT/commands/review-loop.md"
-expect_output 0 "ok" "手順書が読み手に隔離の自己検査を返させる" "$PY_BIN" -c "
+# 人はラウンドの間ずっと別の作業をしていて、報告を読む時点で文脈を持っていない。内部の語彙で
+# 書かれた問いは決められないし、急ぎと後回しを混ぜて並べるとどれも決まらない。この規定が
+# 落ちると、聞く側は書けたつもりで出し、聞かれた側は初見で読めないまま放置になる。
+expect_output 0 "ok" "人に聞くところを、初見で決められる形にする規定が手順書に在る" "$PY_BIN" -c "
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-assert 'どの役として呼ばれたかを推測できたか' in t, 'R1 の読み手に隔離の自己検査を求める指示が無い'
-assert 'reviews.R1' in t and 'not_run' in t, '推測できた場合の記録の書き方が無い'
+assert 'ループを見ていない人が初見で読んで決められる形' in t, '初見で決められる形にする要求が無い'
+assert '急ぐものと後でよいものを分け、件数を先に言え' in t, '急ぎと後回しを分ける要求が無い'
+assert '内部の語彙を使わずに言えないなら、まだ問いになっていない' in t, '内部語彙の禁止が無い'
+assert 'cold-reader' in t and '人に聞くところの本文だけ' in t, '出す前に文脈ゼロの読み手に当てる検査が無い'
 print('ok')" "$ROOT/commands/review-loop.md"
-# 隔離が破れたラウンドで R1 の verdict まで not_run に倒すと、not_run は阻害要因なので
-# このリポジトリ自身のレビューが原理的に収束できなくなる（安全側に倒したつもりが
-# 収束不能という別の壊れ方になる）。実測でそうなったので、倒す形へ戻らないよう縛る。
-expect_output 0 "ok" "隔離が破れても R1 の verdict までは倒さず、読み手の実測だけを未成立にする" "$PY_BIN" -c "
+# R1 の前段は、既に依存に入っている comment-analyzer に寄せた。呼び出し時に足す 3 つが
+# 落ちると、削除の提案が意見のままになり（在り処を名指ししない）、迷ったときに残す側へ倒れる
+# （残す判断に義務が無い）。自作の剥がす仕掛けに戻っていないことも同時に縛る。
+expect_output 0 "ok" "R1 の前段が comment-analyzer に寄せてあり、足すべき 3 つが落ちていない" "$PY_BIN" -c "
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-assert 'verdict まで \`not_run\` に倒すな' in t, 'R1 の verdict を丸ごと倒す形に戻っている'
-assert '読み手の実測は未成立' in t, '読み手の実測だけを未成立にする書き方が無い'
-print('ok')" "$ROOT/commands/review-loop.md"
-# 写しに残ったコメントと、写しの名前そのものが、読み手への漏洩経路だった（実測）。
-expect_output 0 "ok" "写しの作り方が、剥がせなかった file と写しの名前からの漏洩を塞いでいる" "$PY_BIN" -c "
-import sys, pathlib
-t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-assert '読み手に渡す一覧から外し' in t, '剥がせなかった file を読み手に渡さない指示が無い'
-assert '段階が読める語を入れるな' in t, '写しの名前からの漏洩を塞ぐ指示が無い'
-print('ok')" "$ROOT/commands/review-loop.md"
-# 剥がしたが検算していない分の扱いが手順書から落ちると、読み手の「意味が取れない」が
-# コードの欠陥として上がってくる（写しの破損と区別が付かない）。
-expect_output 0 "ok" "手順書が、検算していない剥がしの扱いを読み手側に伝えている" "$PY_BIN" -c "
-import sys, pathlib
-t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-assert '剥がしたが検算していない' in t, '検算していない剥がしの一覧の扱いが手順書に無い'
-assert '写しの破損を先に疑え' in t, '読み手の詰まりを写しの破損と分ける指示が無い'
+assert 'comment-analyzer' in t, 'R1 の前段が既存の役に寄せられていない'
+assert '同じ内容がどこにあるかを名指しさせる' in t, '削除候補に在り処を名指しさせる要求が無い'
+assert '運んでいる事実を一文で言わせる' in t, '残す判断の側に義務が無い（残す側に倒れる）'
+assert 'strip-comments' not in t, '自作の剥がす仕掛けに戻っている'
 print('ok')" "$ROOT/commands/review-loop.md"
 # 「過去の [block] が記録から消えた」は機械が数えられない（和なら永久に残り、隣接なら 1
 # ラウンドで会計から落ちる。どちらも実測）。数えない代わりに judge に振り分けさせる義務が
@@ -961,11 +807,9 @@ assert '腕ごとにリポジトリの写しを作り、写しの上で壊して
 assert '並行起動した grader が全部返ったあとに行え' not in t, '順序の約束だけで塞ぐ古い文面が残っている'
 print('ok')" "$ROOT/commands/review-loop.md"
 
-# 数える側（comment-ratio.sh）と剥がす側（strip-comments.py）は、Python の docstring を
-# 同じ条件で見分けている。実行形態が違って共有できないので、ずれたら赤くなる検査で縛る。
-# **綴りでなく判定結果を突く。** 前はトークン名の集合が一致するかだけを正規表現で見ていて、
-# 直前トークンの更新規則やループの他の分岐が独立に変わっても検知しなかった——
-# 縛れていたのは「同じ 3 語が書いてあるか」であって「同じ判定をするか」ではなかった。
+# Python の docstring 判定を、綴りでなく**判定結果**で突く。以前は剥がす側（自作の
+# strip-comments.py）と条件が同じかを正規表現で見ていたが、剥がす側ごと落としたので、
+# 数える側の挙動そのものを固定する。
 DSREPO="$WORK/docstring-cross"
 mkdir -p "$DSREPO"
 (
@@ -980,17 +824,6 @@ DSBASE=$(git -C "$DSREPO" rev-parse HEAD)
 # 代入の右辺の文字列は注釈ではない。
 expect_output 0 "追加行 7 / 注釈 4 (57%)" "数える側の docstring 判定（代入の文字列は注釈にしない）" \
     bash -c "cd '$DSREPO' && bash '$ROOT/scripts/comment-ratio.sh' '$DSBASE'"
-# 剥がす側: 同じ file を剥がして、空になった行数が数える側の注釈行数と一致するか。
-cp "$DSREPO/d.py" "$SW/src/cross.py"
-"$PY_BIN" "$STRIP" "$SW" src/cross.py >/dev/null 2>&1
-expect_output 0 "ok" "剥がす側が空にした行数が、数える側の注釈行数（4）と一致する" "$PY_BIN" -c "
-import sys, pathlib
-orig = pathlib.Path(sys.argv[1]).read_text().splitlines()
-got = pathlib.Path(sys.argv[2]).read_text().splitlines()
-assert len(orig) == len(got), (len(orig), len(got))
-blanked = [i for i, (a, b) in enumerate(zip(orig, got), 1) if a.strip() and not b.strip()]
-assert blanked == [1, 3, 4, 7], blanked
-print('ok')" "$DSREPO/d.py" "$SW/src/cross.py"
 
 echo "comment-ratio.sh"
 REPO="$WORK/repo"
@@ -1189,7 +1022,14 @@ PY
 # strip-comments の 2 節を丸ごと削っても「357 件すべて緑」で exit 0 になった——91 件分の検査面が
 # 全部消えても鳴らなかった。数値はコミットを名指しできる形でだけ書く（前は「457 件」と書いてあり、
 # どのコミットでも再現しなかった）。
-EXPECTED_MIN=477
+# 477 → 440 に**下げた**。自作の剥がす仕掛け（strip-comments.py）と、それが要求していた隔離の
+# 規定を落としたので、その検査面が対象ごと消えた。内訳は削除 39 件（剥がす道具の節 34・手順書の
+# pin 4・数える側との突合 1）・追加 2 件で、純減 37。実測: 落とす前の HEAD を別ディレクトリに
+# 展開して走らせると 477 件、今の作業ツリーは 440 件。**下げるのは、検査面を捨てたときだけ**——
+# この柵は「削った本人が数字も一緒に下げれば無音で通る」形なので、下げた理由と内訳をここに残さないと、
+# 次に読む人が正当な引き下げと空振りを区別できない（内訳は数え直せる形で書くこと。前は
+# 「43 件と 4 件」と書いていて、実測の 37 件と合わなかった）。
+EXPECTED_MIN=440
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
