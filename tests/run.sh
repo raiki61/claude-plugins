@@ -174,6 +174,31 @@ r2 = json.loads(json.dumps(templates["round-2"]))
 r2["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"})
 write("stuck-prev", r2)
 
+# ask_human の印。[block] / do-now には付けられない（人に聞く前に直す義務が消える）。
+for name, mutate in {
+    "ask-on-block": lambda r: defer_unit(r).update(disposition="do-now", ask_human="split", reason="目的の外"),
+    "ask-bad-value": lambda r: defer_unit(r).update(ask_human="skip"),
+    "ask-without-reason": lambda r: next(u for u in r["units"] if u["label"] == "nit").update(ask_human="rule"),
+}.items():
+    rec = json.loads(json.dumps(templates["round-2"]))
+    mutate(rec)
+    write(name, rec)
+
+# ディレクトリ渡し（履歴）。round-1〜3 を揃えたもの、連番に穴があるもの、直したはずの
+# [block] が nit として戻ったもの、2 ラウンド目に初出しただけのもの（戻りではない）。
+def hist(name, recs):
+    d = work / name
+    d.mkdir()
+    for rec in recs:
+        (d / f"round-{rec['round']}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+
+full = [templates["round-1"], templates["round-2"], templates["round-3"]]
+hist("hist", full)
+hist("hist-gap", [templates["round-1"], templates["round-3"]])
+back = json.loads(json.dumps(templates["round-3"]))
+back["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "nit"})
+hist("hist-return", [templates["round-1"], templates["round-2"], back])
+
 # JSON として読めない記録と、深いネスト（json モジュールが JSONDecodeError 以外を投げる例）。
 (work / "truncated.json").write_text('{ "base": ', encoding="utf-8")
 (work / "deep.json").write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
@@ -264,6 +289,29 @@ done <<'CASES'
 CASES
 expect_output 1 "残存——前ラウンドにも在った。stuck の疑い" "同じ [block] キーが 2 ラウンド残れば stuck の疑いを出す" \
     "$PY_BIN" "$RECORD" "$WORK/stuck.json" "$WORK/stuck-prev.json"
+
+# ask_human と履歴。
+for m in ask-on-block ask-bad-value ask-without-reason; do
+    case $m in
+        ask-on-block) msg="ask_human を付けられない" ;;
+        ask-bad-value) msg="ask_human が不正" ;;
+        ask-without-reason) msg="ask_human=rule に reason が無い" ;;
+    esac
+    expect_output 2 "$msg" "ask_human の印: $m" "$PY_BIN" "$RECORD" "$WORK/$m.json" "$R1"
+done
+expect_output 0 "履歴（round 1〜3" "ディレクトリを渡すと全ラウンドの履歴を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 0 "人に聞く印" "ask_human の unit は阻害要因にせず、人に聞く印として出す" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 0 "要対応（[block]＋do-now）の件数: 3 → 0 → 0" "要対応の件数の推移を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 2 "round-2.json が無い" "連番に穴があれば履歴を出さずに落ちる" "$PY_BIN" "$RECORD" "$WORK/hist-gap"
+expect_output 0 "r1:block → r2:— → r3:nit（消えて 1 回戻った）" "直したはずのキーが戻れば履歴に印を付ける" \
+    "$PY_BIN" "$RECORD" "$WORK/hist-return"
+# 2 ラウンド目に初出しただけのキーは「戻った」ではない。
+if "$PY_BIN" "$RECORD" "$WORK/hist" 2>&1 | grep -q "r1:— → r2:suggest/defer → r3:suggest/defer（消えて"; then
+    echo "  FAIL 初出のキーを「戻った」と数えている"; fail=1
+else
+    echo "  ok   初出のキーを「戻った」と数えない"
+fi
+ran=$((ran + 1))
 
 # 記録に到達できない場合も 2（契約は冒頭 `review-record.py` の docstring が正本）。
 expect_output 2 "JSON として読めない" "壊れた JSON は 1 と区別して落ちる" \
@@ -593,6 +641,65 @@ expect_output 1 "新しい詰まり" "新規の詰まりは収束を妨げる" \
 expect_output 0 "足す側に偏っている" "削除も移動も無い増加を報せる（阻害要因にはしない）" \
     "$PY_BIN" "$FR" "$WORK/fr-grew-only.json" "$WORK/fr-1.json"
 expect_exit 2 "引数なしは 1 と区別して落ちる（初読記録）" "$PY_BIN" "$FR"
+
+echo "strip-comments.py"
+STRIP="$ROOT/scripts/strip-comments.py"
+SW="$WORK/strip"
+mkdir -p "$SW/src"
+printf 'x = 1  # inline\n"""mod doc"""\ndef f():\n    """doc\n    two"""\n    s = """not doc"""  # c\n    return s\n' > "$SW/src/a.py"
+printf '// top\nint x = 1; // keep\n/* block\n   end */\nint y;\n' > "$SW/src/b.c"
+printf 'x\n' > "$SW/src/c.txt"
+printf '#!/usr/bin/env ruby\n# c\n=begin\nblock\n=end\nputs 1 # keep\n' > "$SW/src/d.rb"
+printf '#!/bin/sh\n# c\necho 1\n' > "$SW/src/e.sh"
+printf -- '-- c\n/* b\n */\nselect 1;\n' > "$SW/src/f.sql"
+printf '<!-- a\n b -->\n<p>x</p>\n' > "$SW/src/g.html"
+printf '# c\nkey: 1\n' > "$SW/src/h.yml"
+printf '# c\nFROM x\n' > "$SW/Dockerfile"
+printf 'def broken(:\n' > "$SW/src/bad.py"
+expect_output 0 "剥がした: 8 ファイル" "Python・C 系・#系・--系・HTML・Dockerfile を剥がし、対象外は名前を出して触らない" \
+    "$PY_BIN" "$STRIP" "$SW" src/a.py src/b.c src/c.txt src/d.rb src/e.sh src/f.sql src/g.html src/h.yml Dockerfile
+expect_output 0 "触っていない（対象外の拡張子" "対象外の拡張子を黙って素通しにしない" \
+    "$PY_BIN" "$STRIP" "$SW" src/c.txt
+expect_output 0 "ok" "Ruby: shebang は残し、# 行と =begin/=end を落とし、行末コメントは残す" \
+    "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='#!/usr/bin/env ruby\n\n\n\n\nputs 1 # keep\n', repr(s); print('ok')" "$SW/src/d.rb"
+expect_output 0 "ok" "Shell: shebang は残す" \
+    "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='#!/bin/sh\n\necho 1\n', repr(s); print('ok')" "$SW/src/e.sh"
+expect_output 0 "ok" "SQL: -- と /* */ を落とす" \
+    "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='\n\n\nselect 1;\n', repr(s); print('ok')" "$SW/src/f.sql"
+expect_output 0 "ok" "HTML: 複数行の <!-- --> を落とす" \
+    "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='\n\n<p>x</p>\n', repr(s); print('ok')" "$SW/src/g.html"
+expect_output 0 "ok" "拡張子の無い Dockerfile も落とす" \
+    "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='\nFROM x\n', repr(s); print('ok')" "$SW/Dockerfile"
+expect_output 0 "ok" "行番号を保ち、docstring と行末コメントを落とし、代入の文字列は残す" \
+    "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='x = 1\n\ndef f():\n\n\n    s = \"\"\"not doc\"\"\"\n    return s\n', repr(s); print('ok')" "$SW/src/a.py"
+expect_output 0 "ok" "C 系は行全体のコメントとブロックだけ落とし、行末コメントは残す" \
+    "$PY_BIN" -c "import sys; s=open(sys.argv[1]).read(); assert s=='\nint x = 1; // keep\n\n\nint y;\n', repr(s); print('ok')" "$SW/src/b.c"
+expect_output 2 "構文エラー" "壊れた Python は 0 で返さない" "$PY_BIN" "$STRIP" "$SW" src/bad.py
+expect_output 2 "無い" "写しに無いファイルは 0 で返さない" "$PY_BIN" "$STRIP" "$SW" src/none.py
+expect_exit 2 "引数なしは 2" "$PY_BIN" "$STRIP"
+# --export: HEAD＋未コミット（intent-to-add の新規ファイル込み）を写して剥がす。本物は触らない。
+SREPO="$WORK/strip-repo"
+mkdir -p "$SREPO/src" && (
+    cd "$SREPO" && git init -q && git config user.email t@e && git config user.name t
+    printf '# committed comment\nx = 1\n' > src/a.py
+    printf 'keep\n' > README.md
+    git add -A && git commit -qm init
+    printf '# changed comment\ny = 2  # tail\n' > src/a.py
+    printf '// new file\nint z;\n' > src/n.c && git add -N src/n.c
+)
+expect_output 0 "剥がした: 2 ファイル" "--export が写しを作って剥がす" \
+    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$WORK/strip-copy' src/a.py src/n.c"
+expect_output 0 "ok" "写しには未コミットの変更と intent-to-add の新規ファイルが剥がれて載り、本物は無傷" \
+    "$PY_BIN" -c "
+import sys, pathlib
+copy, repo = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+assert (copy/'src/a.py').read_text() == '\ny = 2\n', repr((copy/'src/a.py').read_text())
+assert (copy/'src/n.c').read_text() == '\nint z;\n', repr((copy/'src/n.c').read_text())
+assert (copy/'README.md').read_text() == 'keep\n'
+assert (repo/'src/a.py').read_text() == '# changed comment\ny = 2  # tail\n'
+print('ok')" "$WORK/strip-copy" "$SREPO"
+expect_output 2 "空でない" "--export は空でないディレクトリに写さない（本物に当てる事故を塞ぐ）" \
+    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$SREPO' src/a.py"
 
 echo "comment-ratio.sh"
 REPO="$WORK/repo"

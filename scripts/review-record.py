@@ -10,12 +10,19 @@
 形にするのが目的。記録に載らない懸念の有無は今も人が見る。
 
 使い方:
+    python3 review-record.py <記録のディレクトリ>
     python3 review-record.py <今ラウンドの記録.json> [<前ラウンドの記録.json>]
 
-初回ラウンド（N=1）は前ラウンドの記録が存在しないので第 2 引数を省略しろ。省略すると
-「前ラウンドの記録が無い」が阻害要因として 1 件返る（収束は連続 2 ラウンドの比較を
-要するので、初回が 0 になることはない。初回に阻害が無ければ、2 ラウンド目で連続 2
-ラウンドが成立する）。
+ディレクトリを渡すと `round-<N>.json` を全部読み、最新を今ラウンドとして検証・突合した
+うえで、**全ラウンドの履歴**（キーごとの判定の推移・直したのに再出現した回数・
+`ask_human` の推移・scalar の推移）を出す。履歴は P2 の judge に渡す入力で、人には最終
+報告の冒頭で見せる——同じ指摘が毎回来る理由（コードか・レビュアーか・規約か）も、
+露呈の回収で目的の外へ膨らんでいることも、数周して初めて見える傾向で、隣のラウンドと
+だけ比べる形では誰にも見えなかった。
+
+初回ラウンド（N=1）は「前ラウンドの記録が無い」が阻害要因として 1 件返る（収束は連続
+2 ラウンドの比較を要するので、初回が 0 になることはない。初回に阻害が無ければ、2
+ラウンド目で連続 2 ラウンドが成立する）。
 
 終了コード:
     0  阻害要因なし——今ラウンドにも前ラウンドにも無い（連続 2 ラウンド。収束の宣言ではない）
@@ -128,6 +135,18 @@ REVIEW_TO_HUMAN = ("unverifiable", "premise-invalid")
 # 再修正を止めるという連鎖の断ち方が使えなくなる。
 LABELS = ("block", "suggest", "nit", "question", "info")
 
+# judge が「コードを直す」以外の出口を要るときに付ける印。ループは止めず、履歴に溜めて
+# 最終報告の冒頭で人にまとめて聞く（ラウンドごとに聞くと毎回止まる。数周して judge が
+# 引き戻せば自然に消える）。
+#   split — 修正が露呈させた既存の欠陥で、凍結した目的の外。別 PR に積むかを人が決める。
+#           露呈の回収は既定のまま（REVIEW.md「別 Issue への先送りを既定にするな」）で、
+#           これは例外の申請。目的の内側でないかは R1 が監査する。
+#   rule  — 同じ指摘が新証拠なく再燃し、原因がコードでなく観点の誤発火。REVIEW.md の
+#           どの観点かを reason に書く。剪定するかは人（「この規約の育て方」）。
+# **[block] と do-now には付けられない**——人に聞く前に直す義務が消えると逃げ道になる。
+# 付けるなら defer か nit / question / info に落とし、理由を書け。
+ASK_HUMAN = ("split", "rule")
+
 
 def fail(msg):
     print(f"記録が不正: {msg}", file=sys.stderr)
@@ -229,6 +248,18 @@ def validate(rec, path):
                 fail(f"{path}: units[{i}] は suggest なので disposition が要る")
             if u["disposition"] == "defer" and not u.get("reason"):
                 fail(f"{path}: units[{i}] の defer に構造的理由が無い")
+        ask = u.get("ask_human")
+        if ask is not None:
+            if ask not in ASK_HUMAN:
+                fail(f"{path}: units[{i}] の ask_human が不正: {ask!r}（{'/'.join(ASK_HUMAN)}）")
+            if is_open(u):
+                fail(
+                    f"{path}: units[{i}] は {u['label']}"
+                    f"{'/do-now' if u['label'] == 'suggest' else ''} なので ask_human を付けられない"
+                    "（人に聞く前に直す義務が消える。defer か nit に落として理由を書け）"
+                )
+            if not u.get("reason"):
+                fail(f"{path}: units[{i}] の ask_human={ask} に reason が無い")
 
 
 def is_open(u):
@@ -368,22 +399,96 @@ def scalar_changes(rec, prev):
     return out
 
 
+def load_dir(path):
+    """`round-<N>.json` を番号順に全部読む。連番の穴は記録の不正（消したか、番号を飛ばした）。"""
+    import os
+    import re
+
+    found = {}
+    for name in os.listdir(path):
+        m = re.fullmatch(r"round-(\d+)\.json", name)
+        if m:
+            found[int(m.group(1))] = os.path.join(path, name)
+    if not found:
+        fail(f"{path}: round-<N>.json が 1 つも無い")
+    rounds = []
+    for n in range(1, max(found) + 1):
+        if n not in found:
+            fail(f"{path}: round-{n}.json が無い（前ラウンド分を消すな。連番の穴は履歴を壊す）")
+        rec = load(found[n])
+        validate(rec, found[n])
+        if rec["round"] != n:
+            fail(f"{found[n]}: 'round' が {rec['round']}——ファイル名の番号と違う")
+        rounds.append(rec)
+    return rounds
+
+
+def history(rounds):
+    """全ラウンドの傾向。**機械は解釈しない**——judge が読んで、再燃の原因（コード／
+    レビュアー／規約）や目的の外への膨張を判断する材料にする。人には最終報告の冒頭。"""
+    if len(rounds) < 2:
+        return []
+    out = []
+    keys = {}
+    for rec in rounds:
+        for u in rec["units"]:
+            state = u["label"]
+            if u["label"] == "suggest":
+                state += "/" + u["disposition"]
+            if u.get("ask_human"):
+                state += f" ask:{u['ask_human']}"
+            keys.setdefault(u["key"], {})[rec["round"]] = state
+    n = rounds[-1]["round"]
+    for key, by_round in keys.items():
+        seq = " → ".join(
+            f"r{r}:{by_round[r]}" if r in by_round else f"r{r}:—" for r in range(1, n + 1)
+        )
+        # 「一度消えて戻った」= 直したはずが再出現。judge に理由を問わせる材料。
+        seen = [r in by_round for r in range(1, n + 1)]
+        gaps = sum(
+            1 for i in range(1, n) if seen[i] and not seen[i - 1] and any(seen[:i - 1])
+        )
+        note = f"（消えて {gaps} 回戻った）" if gaps else ""
+        out.append(f"{key}\n      {seq}{note}")
+    open_counts = [sum(1 for u in r["units"] if is_open(u)) for r in rounds]
+    ask_counts = [sum(1 for u in r["units"] if u.get("ask_human")) for r in rounds]
+    out.append("要対応（[block]＋do-now）の件数: " + " → ".join(map(str, open_counts)))
+    if any(ask_counts):
+        out.append("人に聞く印（split / rule）の件数: " + " → ".join(map(str, ask_counts)))
+    for name in sorted({k for r in rounds for k in (r.get("scalars") or {})}):
+        vals = [(r.get("scalars") or {}).get(name) for r in rounds]
+        out.append(f"scalar '{name}': " + " → ".join("—" if v is None else str(v) for v in vals))
+    return out
+
+
 def main():
     if not 2 <= len(sys.argv) <= 3:
         print(__doc__, file=sys.stderr)
         fail(f"引数は 1 個か 2 個（受け取った数: {len(sys.argv) - 1}）")
 
-    rec = load(sys.argv[1])
-    # **突合より先に両方を検証する。** 逆順にすると、欄が欠けた記録で比較が KeyError を
-    # 投げ、境界が 2 に倒すとはいえ「必須の欄が無い」より読みにくいメッセージになる。
-    validate(rec, sys.argv[1])
+    import os
 
-    prev = None
-    ledger = {}
-    if len(sys.argv) > 2:
-        prev = load(sys.argv[2])
-        validate(prev, sys.argv[2])
-        ledger = validate_against(rec, prev)
+    rounds = None
+    if len(sys.argv) == 2 and os.path.isdir(sys.argv[1]):
+        rounds = load_dir(sys.argv[1])
+        rec = rounds[-1]
+        prev = rounds[-2] if len(rounds) > 1 else None
+        ledger = {}
+        # 連鎖と台帳は隣り合う全ての組で突合する（履歴の途中で壊れていても最新だけ見ると通る）。
+        for a, b in zip(rounds, rounds[1:]):
+            ledger = validate_against(b, a)
+    else:
+        rec = load(sys.argv[1])
+        # **突合より先に両方を検証する。** 逆順にすると、欄が欠けた記録で比較が KeyError を
+        # 投げ、境界が 2 に倒すとはいえ「必須の欄が無い」より読みにくいメッセージになる。
+        validate(rec, sys.argv[1])
+
+        prev = None
+        ledger = {}
+        if len(sys.argv) > 2:
+            prev = load(sys.argv[2])
+            validate(prev, sys.argv[2])
+            ledger = validate_against(rec, prev)
 
     grew = scalar_changes(rec, prev)
     if grew:
@@ -396,6 +501,19 @@ def main():
         print("持ち越し（機械は中身を見ない。古いものほど、見直す理由が無いかを疑え）:")
         for line in carried:
             print(f"  - {line}")
+
+    asks = [u for u in rec["units"] if u.get("ask_human")]
+    if asks:
+        print("人に聞く印（ループは止めない。最終報告の冒頭にまとめろ。目的の内側でないかは R1 が監査）:")
+        for u in asks:
+            print(f"  - {u['ask_human']}: {u['key']} — {u['reason']}")
+
+    if rounds:
+        lines = history(rounds)
+        if lines:
+            print(f"履歴（round 1〜{rec['round']}。P2 の judge に渡せ。機械は解釈しない）:")
+            for line in lines:
+                print(f"  - {line}")
 
     found = blockers(rec, prev, ledger)
     if prev is not None:

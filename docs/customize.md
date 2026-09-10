@@ -46,7 +46,7 @@
 
 ## 記録の schema
 
-正本は `scripts/review-record.py` の `MATERIALS` / `STATUS`（素材）、`REVIEWS` / `REVIEW_STATUS`（P-R の R1〜R4）、`LABELS`。手順書は列挙を持たない（二重管理を避けるため）。実例は `templates/round-1.example.json`（`[block]` が残る初回）・`round-2.example.json`（解消した直後。連続 2 ラウンドの 1 ラウンド目）・`round-3.example.json`（連続 2 ラウンド成立。持ち越しの書き方）。
+正本は `scripts/review-record.py` の `MATERIALS` / `STATUS`（素材）、`REVIEWS` / `REVIEW_STATUS`（P-R の R1〜R4）、`LABELS`。手順書は列挙を持たない（二重管理を避けるため）。実例は `templates/round-1.example.json`（`[block]` が残る初回）・`round-2.example.json`（解消した直後。連続 2 ラウンドの 1 ラウンド目）・`round-3.example.json`（連続 2 ラウンド成立。持ち越しと `ask_human` の書き方）。
 
 素材は P1 の各観点に加え、**P0 の各段のうち他に検査経路を持たないもの**も含む（どれが該当するかは `MATERIALS` のコメントが正本。手順書側は各段が自分の素材名を名指しする）。writer の自己申告に留めず突合に載せるためで、素材を増やすと**それ以前に書いた記録は明示返答を欠いて `exit 2` になる**（全素材の返答が要るため）。
 
@@ -55,3 +55,9 @@
 R1〜R4 の verdict も同じ記録の `reviews` に載る。`pass` / `redesign-needed` / `unverifiable` / `premise-invalid`（R2 だけ）に、`carried_over`（R1 / R2 だけ。再発火条件に当たらない）と `not_applicable`（R3 / R4 だけ。P-R に到達していない）と `not_run` を足した形。`redesign-needed` と `not_run` は阻害要因、`unverifiable` と `premise-invalid` は「収束を宣言せずユーザーへ」の印として出る。阻害要因が他に無いのに R3 / R4 が `not_applicable` なら、P-R を飛ばしたとして阻害要因になる。
 
 連続 2 ラウンドは道具が数える。今ラウンドに阻害が無くても、前ラウンドに阻害があれば「1 ラウンド目」として exit 1 になる。初回に阻害が無ければ 2 ラウンド目で成立する。
+
+`review-record.py` には記録のディレクトリを渡す。全ラウンドを読んで最新を突合し、**履歴**（キーごとの判定の推移・直したはずの再出現・要対応の件数と scalar の推移・`ask_human` の推移）を出す。履歴は P2 の judge に「ラベル確定後に」渡す入力で、最終報告の冒頭にも貼る。機械は履歴を解釈しない。
+
+unit の `ask_human`（`split` / `rule`）は judge が「コードを直す」以外の出口を要るときに付ける印で、`[block]` と `do-now` には付けられない（人に聞く前に直す義務が消えると逃げ道になる）。ループは止めず、最終報告の冒頭で人にまとめて聞く。
+
+`strip-comments.py` は R1 の前段で、`--export` で今の作業ツリーの姿を空のディレクトリに写し（`git archive` ＋ 未コミット分の適用。worktree は使わない）、触れたファイルからコメントと docstring を落とす（行番号は保つ）。Python だけ字句解析で行末コメントまで落とし、他の言語（C 系・`#` 系・`--` 系・HTML・CSS。表は同スクリプトの `LANGS` が正本）は行全体のコメントとブロックだけ。表に無い拡張子は名前が出る。目的を知らない `reader` にその写しを精読させ、剥がしても正しく説明できたコメントは削る候補、説明がずれた箇所は構造か名前で直す。**本物の作業ツリーに当てないこと**（元に戻す機能は無い）。

@@ -77,6 +77,13 @@
     {
       "key": "src/ui/panel.tsx — 変数名 res を response に",
       "label": "nit"
+    },
+    {
+      "key": "src/api/legacy_export.py:export_csv — 文字コード指定が無く非 ASCII の顧客名が化ける",
+      "label": "suggest",
+      "disposition": "defer",
+      "ask_human": "split",
+      "reason": "リトライを組み込みに寄せた修正で呼び出し経路が露わになった既存の欠陥（BASE 時点で git log -S により実在を確認）。凍結した目的（検索の上限と i18n）の外なので、別 PR に積むかを人に諮る"
     }
   ],
   "scalars": {
