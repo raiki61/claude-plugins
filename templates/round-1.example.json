@@ -88,5 +88,23 @@
   "scalars": {
     "doc_lines": 120,
     "comment_ratio_pct": 18
+  },
+  "reviews": {
+    "R1": {
+      "status": "pass",
+      "reason": "累積差分は 4 コミット・+180 行。症状パッチの積み重ねは無く、重複はリトライ 1 件（do-now で回収予定）のみ"
+    },
+    "R2": {
+      "status": "pass",
+      "reason": "目的テキスト（PR 説明）から独立設計した理想解と累積差分を比較役が突合。検索条件の組み立てを 1 箇所に寄せる構造は一致、本質的な食い違いなし"
+    },
+    "R3": {
+      "status": "not_applicable",
+      "reason": "[block] 2 件が残り P-R に到達していない"
+    },
+    "R4": {
+      "status": "not_applicable",
+      "reason": "[block] 2 件が残り P-R に到達していない"
+    }
   }
 }

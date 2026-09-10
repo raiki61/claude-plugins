@@ -40,14 +40,18 @@
 
 既定は `.claude/review-rounds/round-<N>.json`。作業ファイルなので `.gitignore` に入れておく。
 
-**前ラウンド分を消さないこと**。連続 2 ラウンドの突合と、`defer` の台帳がこれで成立している。新しい context での再採点は前ラウンドの受容判断を知らないので、台帳が無いと同じ提案が毎ラウンド再燃して収束しない。
+**前ラウンド分を消さないこと**。連続 2 ラウンドの突合と、`defer` の台帳がこれで成立している。新しい context での再採点は前ラウンドの受容判断を知らないので、台帳を P2 の judge に渡さないと同じ提案が毎ラウンド再燃して収束しない（渡すのは judge だけ。P1 の探す役と R2 には渡さない——手順書 P2 の 5）。`review-record.py` は前ラウンドの `defer` キーが新証拠（`reopen_evidence`）無しに `[block]` / `do-now` へ戻った記録を不正として止める。
 
 チームで記録を証跡として残す方針ならコミットしてよい。記録には findings の要約が入るので、レビューの経緯が追える。
 
 ## 記録の schema
 
-正本は `scripts/review-record.py` の `MATERIALS` / `STATUS` / `LABELS`。手順書は列挙を持たない（二重管理を避けるため）。実例は `templates/round-1.example.json` と `templates/round-2.example.json`。
+正本は `scripts/review-record.py` の `MATERIALS` / `STATUS`（素材）、`REVIEWS` / `REVIEW_STATUS`（P-R の R1〜R4）、`LABELS`。手順書は列挙を持たない（二重管理を避けるため）。実例は `templates/round-1.example.json`（`[block]` が残る初回）・`round-2.example.json`（解消した直後。連続 2 ラウンドの 1 ラウンド目）・`round-3.example.json`（連続 2 ラウンド成立。持ち越しの書き方）。
 
 素材は P1 の各観点に加え、**P0 の各段のうち他に検査経路を持たないもの**も含む（どれが該当するかは `MATERIALS` のコメントが正本。手順書側は各段が自分の素材名を名指しする）。writer の自己申告に留めず突合に載せるためで、素材を増やすと**それ以前に書いた記録は明示返答を欠いて `exit 2` になる**（全素材の返答が要るため）。
 
-素材の状態は 5 値。**`not_applicable`（条件に当たらない）と `not_run`（やるべきだったが飛ばした）と `awaiting_human`（人の起動待ちで止まっている）を潰さない**のがこの schema の要点で、潰すと報告上で見分けられなくなる。`clean`（見たが無かった）には「何を見たか」を要求する——見た範囲が書けないものは、見たと言えない。
+素材の状態は 6 値。**`not_applicable`（条件に当たらない）と `not_run`（やるべきだったが飛ばした）と `awaiting_human`（人の起動待ちで止まっている）を潰さない**のがこの schema の要点で、潰すと報告上で見分けられなくなる。`clean`（今ラウンドに見たが無かった）には「何を見たか」を要求する——見た範囲が書けないものは、見たと言えない。`carried_over`（前ラウンドの判定を流用）には実際に見たラウンド `from_round` を要求し、持ち越しが続いてもその値が動かないこと（連鎖）を前ラウンドと突合する——`clean` に混ぜると、最後に見たのが何ラウンド前かが誰にも見えなくなる。
+
+R1〜R4 の verdict も同じ記録の `reviews` に載る。`pass` / `redesign-needed` / `unverifiable` / `premise-invalid`（R2 だけ）に、`carried_over`（R1 / R2 だけ。再発火条件に当たらない）と `not_applicable`（R3 / R4 だけ。P-R に到達していない）と `not_run` を足した形。`redesign-needed` と `not_run` は阻害要因、`unverifiable` と `premise-invalid` は「収束を宣言せずユーザーへ」の印として出る。阻害要因が他に無いのに R3 / R4 が `not_applicable` なら、P-R を飛ばしたとして阻害要因になる。
+
+連続 2 ラウンドは道具が数える。今ラウンドに阻害が無くても、前ラウンドに阻害があれば「1 ラウンド目」として exit 1 になる。初回に阻害が無ければ 2 ラウンド目で成立する。

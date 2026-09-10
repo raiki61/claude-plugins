@@ -62,7 +62,7 @@ import json, sys, pathlib
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 templates = {
     n: json.loads((root / f"templates/{n}.example.json").read_text(encoding="utf-8"))
-    for n in ("round-1", "round-2")
+    for n in ("round-1", "round-2", "round-3")
 }
 
 
@@ -70,7 +70,7 @@ def defer_unit(rec):
     return next(u for u in rec["units"] if u.get("disposition") == "defer")
 
 
-# 値を書き換えるだけの mutation。個別の欄の検査を発火させる。
+# 値を書き換えるだけの mutation（round-2 を壊し、round-1 と突合する）。個別の欄の検査を発火させる。
 VALUE = {
     "drop-material": lambda r: r["materials"].pop("hygiene"),
     "drop-defer-reason": lambda r: defer_unit(r).pop("reason"),
@@ -84,6 +84,19 @@ VALUE = {
     # ——[block] が黙って数えられなくなる、この道具の存在理由そのものの穴。
     "bad-label": lambda r: r["units"][0].update(label="blocker"),
     "drop-key": lambda r: r["units"][0].pop("key"),
+    # R1〜R4 の verdict。欄ごと無い・1 つ欠ける・語彙外・役に許されない値。
+    "drop-reviews": lambda r: r.pop("reviews"),
+    "drop-review-R3": lambda r: r["reviews"].pop("R3"),
+    "bad-review-status": lambda r: r["reviews"]["R1"].update(status="looks-fine"),
+    "review-only-R2": lambda r: r["reviews"]["R1"].update(status="premise-invalid"),
+    "review-only-R34": lambda r: r["reviews"]["R1"].update(status="not_applicable"),
+    "pass-without-reason": lambda r: r["reviews"]["R3"].pop("reason"),
+    # 持ち越し。from_round が無い・今ラウンド以降を指す・前ラウンドに判定が無い素材から持ち越す。
+    "carry-without-from": lambda r: r["materials"]["prior_decisions"].pop("from_round"),
+    "carry-from-future": lambda r: r["materials"]["prior_decisions"].update(from_round=2),
+    "carry-from-not-applicable": lambda r: r["materials"]["procedure_trace"].update(
+        status="carried_over", from_round=1, reason="前と同じ"
+    ),
 }
 # 「型が違う」系。値の書き換えだけでは個別の型検査が一度も発火しない。
 TYPE = {
@@ -93,6 +106,8 @@ TYPE = {
     "bad-materials-type": lambda r: r.update(materials=[]),
     "bad-units-type": lambda r: r.update(units={}),
     "bad-unit-type": lambda r: r["units"].__setitem__(0, "not-an-object"),
+    "bad-reviews-type": lambda r: r.update(reviews=[]),
+    "bad-from-round-type": lambda r: r["materials"]["prior_decisions"].update(from_round="1"),
 }
 # 個別の検査を通り抜け、末尾の例外境界だけが受け止めるもの。
 BOUNDARY = {
@@ -118,6 +133,47 @@ prev = json.loads(json.dumps(templates["round-1"]))
 prev["units"][0]["key"] = ["not", "a", "string"]
 write("unhashable-key", prev)
 
+# round-1 単独。初回に持ち越しは書けない（from_round が指せるラウンドが無い）。
+r1 = json.loads(json.dumps(templates["round-1"]))
+r1["reviews"]["R1"].update(status="carried_over", from_round=1, reason="前と同じ")
+write("r1-carry", r1)
+
+# round-3 を壊し、round-2 と突合する——連鎖・defer 台帳・P-R の飛ばし・停止条件は
+# 2 ラウンド目以降の記録でしか発火しない。
+def r3(mutate):
+    rec = json.loads(json.dumps(templates["round-3"]))
+    mutate(rec)
+    return rec
+
+deferred_key = defer_unit(templates["round-2"])["key"]
+for name, mutate in {
+    # 前ラウンドが round 1 から持ち越しているのに、今ラウンドが round 2 からと書く。
+    "carry-chain-broken": lambda r: r["materials"]["prior_decisions"].update(from_round=2),
+    "review-carry-chain-broken": lambda r: r["reviews"]["R1"].update(from_round=1),
+    # 前ラウンドで defer と確定したキーが、新証拠なしに [block] へ上がる。
+    "reopen-without-evidence": lambda r: defer_unit(r).update(label="block"),
+    # 新証拠つきの再審は記録として正しく、阻害要因（exit 1）として出る。
+    "reopen-with-evidence": lambda r: defer_unit(r).update(
+        label="block", reopen_evidence="本番ログで上限超過のクエリを 3 件観測"
+    ),
+    # 阻害要因ゼロなのに R3 が未実施——P-R を飛ばした形。
+    "skip-PR": lambda r: r["reviews"]["R3"].update(status="not_applicable", reason="到達せず"),
+    "redesign": lambda r: r["reviews"]["R2"].update(status="redesign-needed", reason="機構の規模が実態に対して大きい"),
+    "premise-invalid": lambda r: r["reviews"]["R2"].update(status="premise-invalid", reason="1 デプロイ 1 リポジトリなので記録する問いが無い"),
+    "unverifiable": lambda r: r["reviews"]["R2"].update(status="unverifiable", reason="目的テキストの出典が無い"),
+    "review-not-run": lambda r: r["reviews"]["R4"].update(status="not_run", reason="時間切れ"),
+    # 前ラウンドの [block] キーがそのまま残る（stuck）。
+    "stuck": lambda r: r["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"}),
+    # defer のキーが今ラウンドの記録から消えた——台帳には残ることを出力で知らせる。
+    "defer-dropped": lambda r: r["units"].remove(defer_unit(r)),
+}.items():
+    write(name, r3(mutate))
+
+# stuck は round-2 に同じ [block] が在ることが前提。round-2 側にも足した版を作る。
+r2 = json.loads(json.dumps(templates["round-2"]))
+r2["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"})
+write("stuck-prev", r2)
+
 # JSON として読めない記録と、深いネスト（json モジュールが JSONDecodeError 以外を投げる例）。
 (work / "truncated.json").write_text('{ "base": ', encoding="utf-8")
 (work / "deep.json").write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
@@ -127,6 +183,7 @@ PY
 echo "review-record.py"
 R1="$ROOT/templates/round-1.example.json"
 R2="$ROOT/templates/round-2.example.json"
+R3="$ROOT/templates/round-3.example.json"
 # 変数に詰めて展開すると、python のパスにスペースがあるだけで壊れる（Windows で起きる）。
 RECORD="$ROOT/scripts/review-record.py"
 
@@ -134,9 +191,14 @@ RECORD="$ROOT/scripts/review-record.py"
 # 阻害あり: block 2 件・do-now 1 件・前ラウンドの記録が無い
 expect_output 1 "前ラウンドの記録が無い" "初回は第 2 引数なしで走り、比較の欠落を阻害要因に数える" \
     "$PY_BIN" "$RECORD" "$R1"
-expect_exit 0 "解消済みの記録は阻害要因なし" "$PY_BIN" "$RECORD" "$R2" "$R1"
-expect_output 0 "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$R2" "$R1"
-expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$R2" "$R1"
+# 連続 2 ラウンドは道具が数える。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
+expect_output 1 "前ラウンドに阻害要因が 3 件あった" "解消した直後のラウンドは連続 2 ラウンドの 1 ラウンド目" \
+    "$PY_BIN" "$RECORD" "$R2" "$R1"
+expect_output 1 "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$R2" "$R1"
+expect_output 0 "連続 2 ラウンド" "2 ラウンド続けて阻害なしなら exit 0" "$PY_BIN" "$RECORD" "$R3" "$R2"
+expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$R3" "$R2"
+expect_output 0 "素材 prior_decisions: round 1 の判定を流用（2 ラウンド前）" "持ち越しは実際に見たラウンドと古さを見せる" \
+    "$PY_BIN" "$RECORD" "$R3" "$R2"
 
 write_broken_records || { echo "  FAIL 壊した記録を作れない"; fail=1; }
 
@@ -157,6 +219,15 @@ bad-status|status が不正
 clean-without-checked|'checked' が要る
 bad-label|label が不正
 drop-key|key が無い
+drop-reviews|必須の欄 'reviews' が無い
+drop-review-R3|R3 の verdict が無い
+bad-review-status|R1 の status が不正
+review-only-R2|R1 は premise-invalid にできない
+review-only-R34|R1 は not_applicable にできない
+pass-without-reason|R3 は status=pass なので 'reason' が要る
+carry-without-from|'from_round' が要る
+carry-from-future|今ラウンド（2）より前でない
+carry-from-not-applicable|前ラウンドが not_applicable なので持ち越せない
 not-object|記録の最上位が object でない
 bad-round-type|'round' が整数でない
 bad-round-bool|'round' が整数でない
@@ -164,12 +235,35 @@ round-below-one|'round' が 1 以上でない
 bad-materials-type|'materials' が object でない
 bad-units-type|'units' が配列でない
 bad-unit-type|units[0] が object でない
+bad-reviews-type|'reviews' が object でない
+bad-from-round-type|from_round が 1 以上の整数でない
 bad-scalars-type|想定外の例外（AttributeError）
 unhashable-status|想定外の例外（TypeError）
 CASES
 
 expect_output 2 "想定外の例外（TypeError）" "前ラウンドの key が unhashable でも 1 と区別して落ちる" \
     "$PY_BIN" "$RECORD" "$R2" "$WORK/unhashable-key.json"
+expect_output 2 "今ラウンド（1）より前でない" "初回ラウンドに持ち越しは書けない" \
+    "$PY_BIN" "$RECORD" "$WORK/r1-carry.json"
+
+# 2 ラウンド目以降でしか発火しない突合（round-3 を壊し round-2 と比べる）。
+while IFS='|' read -r code m msg; do
+    [ -n "$m" ] || continue
+    expect_output "$code" "$msg" "前ラウンドとの突合: $m" "$PY_BIN" "$RECORD" "$WORK/$m.json" "$R2"
+done <<'CASES'
+2|carry-chain-broken|持ち越しが連鎖していない
+2|review-carry-chain-broken|R1 の from_round（1）が前ラウンド（2）でない
+2|reopen-without-evidence|reopen_evidence が無い
+1|reopen-with-evidence|既受容 defer の再審。新証拠: 本番ログで上限超過のクエリを 3 件観測
+1|skip-PR|R3 が not_applicable だが、P-R への到達を妨げる阻害要因が記録に無い
+1|redesign|R2 が redesign-needed
+1|premise-invalid|収束を宣言せずユーザーに諮れ
+1|unverifiable|収束を宣言せずユーザーに諮れ
+1|review-not-run|R4 が not_run
+0|defer-dropped|台帳には残る
+CASES
+expect_output 1 "残存——前ラウンドにも在った。stuck の疑い" "同じ [block] キーが 2 ラウンド残れば stuck の疑いを出す" \
+    "$PY_BIN" "$RECORD" "$WORK/stuck.json" "$WORK/stuck-prev.json"
 
 # 記録に到達できない場合も 2（契約は冒頭 `review-record.py` の docstring が正本）。
 expect_output 2 "JSON として読めない" "壊れた JSON は 1 と区別して落ちる" \
@@ -595,6 +689,12 @@ bare_gh = [
     if re.search(r"`gh (pr list|pr view|pr diff)", line) and "-R " not in line
 ]
 assert not bare_gh, "gh の呼び出しに -R が無い行がある: " + " / ".join(bare_gh)
+
+# テンプレートは写される前提で読まれる。手順書 P0-5 が「恒真になる」と禁じた `gh repo view` の
+# 突き合わせが実例に載っていると、手順書側の禁止が無効になる（実際に載っていた）。
+for t in sorted((root/"templates").glob("round-*.example.json")):
+    assert "gh repo view" not in t.read_text(encoding="utf-8"), \
+        f"{t.name} が手順書の禁じ手（gh repo view で owner/repo を確認）を実例として見せている"
 PY
 
 expect_exit 0 "手順書が名指しする REVIEW.md のセクションが実在する" "$PY_BIN" - "$ROOT" <<'PY'

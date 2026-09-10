@@ -12,11 +12,12 @@
     },
     "parallel_pr": {
       "status": "clean",
-      "checked": "gh repo view の owner/repo が remote と一致することを確認。自分の PR を除いたオープン PR 3 件の変更ファイルと交差なし。"
+      "checked": "git remote get-url origin から owner/repo を導いた。gh pr list --limit 100 が 4 件（打ち切りなし）、HEAD の SHA と headRefOid が一致する自分の PR を除いた 3 件の変更ファイルと交差なし"
     },
     "prior_decisions": {
-      "status": "clean",
-      "checked": "決定記録に変更が無いため前ラウンドの突合を持ち越し。本ラウンドの処方も ADR-012 に触れない"
+      "status": "carried_over",
+      "from_round": 1,
+      "reason": "決定記録（ADR・棄却済み一覧）に変更が無い。本ラウンドの処方も ADR-012 に触れない"
     },
     "local_review": {
       "status": "clean",
@@ -47,16 +48,18 @@
       "reason": "対象差分は検証ゲートを新設・変更していない"
     },
     "test_double_fidelity": {
-      "status": "clean",
-      "checked": "前ラウンドから代役の形に変更なし（実 API 由来の 1 件との一致を維持）"
+      "status": "carried_over",
+      "from_round": 1,
+      "reason": "前ラウンドから代役の形に変更なし（実 API 由来の 1 件との一致を round 1 で確認済み）"
     },
     "main_path_observation": {
       "status": "clean",
       "checked": "i18n 経由に変えた表示経路を再度 1 回実行し、翻訳済みの文字列が描画されたことを観測"
     },
     "provenance": {
-      "status": "clean",
-      "checked": "前ラウンドから事実の主張に増減なし"
+      "status": "carried_over",
+      "from_round": 1,
+      "reason": "対象差分の事実の主張に増減なし"
     },
     "fix_closure": {
       "status": "clean",
@@ -78,5 +81,23 @@
   "scalars": {
     "doc_lines": 135,
     "comment_ratio_pct": 21
+  },
+  "reviews": {
+    "R1": {
+      "status": "pass",
+      "reason": "リトライを依存の組み込み設定へ寄せた（機構の置き換え）ため再発火。累積差分 +150 行、自作リトライ -60 行で相殺。他所から導ける記述なし"
+    },
+    "R2": {
+      "status": "pass",
+      "reason": "機構を置き換えたため再発火。理想解（組み込みリトライを使う）と累積差分を比較役が突合、食い違いなし"
+    },
+    "R3": {
+      "status": "pass",
+      "reason": "landing_timeout の命名・設定スキーマ・docs・テストが横断で揃っている"
+    },
+    "R4": {
+      "status": "pass",
+      "reason": "検索 API のレート制限は上流クライアントが持つ。PII の外部送信なし。BASE 能力インベントリ: 消えた能力なし（明示返答）"
+    }
   }
 }
