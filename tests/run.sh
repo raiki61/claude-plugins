@@ -231,6 +231,31 @@ mixed = json.loads(json.dumps(templates["round-2"]))
 mixed["base"] = "f" * 40
 hist("mixed-base", [templates["round-1"], mixed])
 
+# [block] が記録から消える形。俯瞰が「人に諮る」値からの持ち越しになる形。0 番。
+BK = "src/api/limit.py:apply — 上限が効かない"
+hist("block-dropped", [r1_at(1, [{"key": BK, "label": "block"}]), r1_at(2, [])])
+
+ch = r1_at(1, [])
+ch["reviews"]["R1"] = {"status": "unverifiable", "reason": "目的テキストの出典が取れない"}
+ch2 = r1_at(2, [])
+ch2["reviews"]["R1"] = {"status": "carried_over", "from_round": 1,
+                        "reason": "再発火条件に当たらないので round 1 の判定を流用"}
+hist("carry-from-human", [ch, ch2])
+
+hist("round-zero", [r1_at(1, [])])
+hist("round-dup", [r1_at(1, []), r1_at(2, [])])
+(work / "round-dup" / "round-01.json").write_text(
+    json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
+(work / "round-zero" / "round-0.json").write_text(
+    json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
+
+cz = json.loads(json.dumps(templates["round-1"]))
+cz["materials"]["local_review"] = {"status": "found", "count": 0, "detail": "0 件だった"}
+write("count-zero", cz)
+ce = json.loads(json.dumps(templates["round-1"]))
+ce["materials"]["consistency"] = {"status": "clean", "checked": ""}
+write("checked-empty", ce)
+
 hist("ledger-gap", [
     r1_at(1, [{"key": LK, "label": "suggest", "disposition": "defer",
                "reason": "共有面を触るので別の変更で扱う"}]),
@@ -330,7 +355,7 @@ done <<'CASES'
 2|dup-key|突合の識別子なので 1 ラウンドに 1 つ
 1|found-no-units|素材が found なのに units が空
 CASES
-expect_output 1 "残存——過去のラウンドにも在った。stuck の疑い" "同じ [block] キーが 2 ラウンド残れば stuck の疑いを出す" \
+expect_output 1 "残存——過去のラウンドにも在った" "同じ [block] キーが 2 ラウンド残れば残存の印を出す" \
     "$PY_BIN" "$RECORD" "$WORK/stuck.json" "$WORK/stuck-prev.json"
 
 # ask_human と履歴。
@@ -344,8 +369,31 @@ for m in ask-on-block ask-on-real-block ask-bad-value ask-without-reason; do
 done
 # 前のレビューの記録が同じディレクトリに残っている形。手順書は消すなと言っているので、
 # 止まるだけでなく退避先を案内できていることまで縛る。
-expect_output 2 "別ディレクトリへ退避" "別レビューの記録が混ざったら、退避の案内を出して止まる" \
+expect_output 2 "混ざっていないか" "別レビューの記録が混ざったら、退避の案内を出して止まる" \
     "$PY_BIN" "$RECORD" "$WORK/mixed-base"
+# 消えた [block] の報告。defer 側にだけ在って block 側に無いと、未解消の [block] を
+# 記録から落とすだけで阻害要因が 0 になり、収束の分岐に乗る。
+expect_output 1 "過去のラウンドの [block] で今ラウンドの記録に無いキー" \
+    "前ラウンドの [block] が記録から消えたら報告する（defer 側との非対称を消す）" \
+    "$PY_BIN" "$RECORD" "$WORK/block-dropped"
+# 俯瞰は「人に諮る」値からも持ち越せる。素材用の語彙を流用すると、判定が在るのに
+# 「判定が無い」と言われて記録の不正（2）に倒れ、writer に偽装を強いる。
+expect_output 1 "俯瞰 R1: round 1 の判定を流用" \
+    "unverifiable からの持ち越しは記録の不正にしない（判定は在る）" \
+    "$PY_BIN" "$RECORD" "$WORK/carry-from-human"
+# 0 番は range(1, ...) から外れて読まれも検証もされない。連番の穴は落とすのに
+# 0 番だけ黙って捨てるのは同じ形の取りこぼし。
+expect_output 2 "1 から始まる番号でない" "round-0.json を黙って捨てない" \
+    "$PY_BIN" "$RECORD" "$WORK/round-zero"
+# ゼロ詰めの別名は同じ番号に潰れ、片方が読まれもせずに捨てられる。連番の穴は落とすのに
+# 重複が通ると、静かに別の記録を検証する。
+expect_output 2 "同じ番号" "ゼロ詰めの別名が同じ番号に潰れるのを落とす" \
+    "$PY_BIN" "$RECORD" "$WORK/round-dup"
+# 0 と欠落を同一視すると、入れてある欄について「要る」と嘘の診断が出る。
+expect_output 1 "収束を妨げるもの" "count: 0 を「値が無い」と言わない" \
+    "$PY_BIN" "$RECORD" "$WORK/count-zero.json"
+expect_output 2 "が空（何を見たかを書け）" "空文字は欠落と分けて診断する" \
+    "$PY_BIN" "$RECORD" "$WORK/checked-empty.json"
 expect_output 2 "reopen_evidence が無い" "1 ラウンド記録から落としても、台帳は全ラウンドの和なので再審を止める" \
     "$PY_BIN" "$RECORD" "$WORK/ledger-gap"
 expect_output 0 "履歴（round 1〜3" "ディレクトリを渡すと全ラウンドの履歴を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
@@ -732,6 +780,50 @@ import sys, pathlib
 got = pathlib.Path(sys.argv[1]).read_text()
 assert got == '/* one */ int keep = 1;\n\n\nint y;\n', repr(got)
 print('ok')" "$SW/src/i.c"
+printf 'int a = 1;\n/* multi\n   line\n*/ int keepme = 2;\nint b = 3;\n' > "$SW/src/j.c"
+expect_output 0 "剥がした: 1 ファイル" "複数行ブロックの閉じ行にコードが残る場合も、その行は触らない" \
+    "$PY_BIN" "$STRIP" "$SW" src/j.c
+expect_output 0 "ok" "閉じ行のコードが写しから消えていない" \
+    "$PY_BIN" -c "
+import sys, pathlib
+got = pathlib.Path(sys.argv[1]).read_text()
+assert got == 'int a = 1;\n\n\n*/ int keepme = 2;\nint b = 3;\n', repr(got)
+print('ok')" "$SW/src/j.c"
+# 行ベースの剥がしは字句解析をしないので、文字列やヒアドキュメントの中のシャープ行を
+# コメントと誤認する。剥がした結果が構文として壊れたら、その file は剥がさず名前を出す。
+printf '%s\n' 'echo "x\' '#y; echo z"' 'echo done' > "$SW/src/k.sh"
+expect_output 0 "剥がすと構文が壊れた" "剥がして構文が壊れる file は剥がさず名前を出す" \
+    "$PY_BIN" "$STRIP" "$SW" src/k.sh
+expect_output 0 "ok" "その file は元のまま（bash を通る）" \
+    "$PY_BIN" -c "
+import sys, pathlib, subprocess
+t = pathlib.Path(sys.argv[1]).read_bytes()
+assert b'#y' in t, '剥がされてしまっている'
+assert subprocess.run(['bash','-n',sys.argv[1]]).returncode == 0
+print('ok')" "$SW/src/k.sh"
+# docstring と同じ行に続くコードは残す（strip_lines の 2 本の腕と同じ判断の 3 本目）。
+printf 'def f():\n    """doc"""; return 1\n' > "$SW/src/l.py"
+expect_output 0 "剥がした: 1 ファイル" "docstring と同じ行のコードは残す" "$PY_BIN" "$STRIP" "$SW" src/l.py
+expect_output 0 "ok" "写しからコードが消えず、構文も通る" \
+    "$PY_BIN" -c "
+import sys, pathlib, ast
+got = pathlib.Path(sys.argv[1]).read_text()
+assert got == 'def f():\n    return 1\n', repr(got)
+ast.parse(got)
+print('ok')" "$SW/src/l.py"
+# 非 UTF-8 を errors="replace" で読んで書き戻すと、中身が U+FFFD に化けたまま保存され、
+# 読み手はそれをコード側の欠陥として報告する。触らずに名前を出す。
+"$PY_BIN" -c "
+import pathlib, sys
+pathlib.Path(sys.argv[1]).write_bytes('# \u6f22\u5b57\nx = 1\n'.encode('shift_jis'))" "$SW/src/sjis.py"
+expect_output 0 "UTF-8 として読めない" "非 UTF-8 の file は剥がさず名前を出す" \
+    "$PY_BIN" "$STRIP" "$SW" src/sjis.py
+expect_output 0 "ok" "その file の中身が化けていない" \
+    "$PY_BIN" -c "
+import sys, pathlib
+raw = pathlib.Path(sys.argv[1]).read_bytes()
+assert raw.decode('shift_jis') == '# \u6f22\u5b57\nx = 1\n', repr(raw)
+print('ok')" "$SW/src/sjis.py"
 expect_output 2 "構文エラー" "壊れた Python は 0 で返さない" "$PY_BIN" "$STRIP" "$SW" src/bad.py
 expect_output 2 "無い" "写しに無いファイルは 0 で返さない" "$PY_BIN" "$STRIP" "$SW" src/none.py
 expect_exit 2 "引数なしは 2" "$PY_BIN" "$STRIP"
@@ -770,17 +862,58 @@ assert got == '# changed comment\ny = 2  # tail\n', repr(got)
 print('ok')" "$SREPO/src/a.py"
 # 写しがリポジトリの中だと git apply が Skipped patch を返して exit 0 のまま何もせず、
 # HEAD の姿だけの写しができる（このラウンドで直した内容が入らない）。
-expect_output 2 "リポジトリの中" "写しをリポジトリの中に作らせない（未コミット分が黙って落ちる）" \
+expect_output 2 "作業ツリー" "写しをリポジトリの中に作らせない（未コミット分が黙って落ちる）" \
     bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$SREPO/copy' src/a.py"
+# --export を付けない入口にも同じ判定が要る。付けない剥がしはその場で上書きするので、
+# 写し先に本物のリポジトリを渡すと本物のコメントが消える（元に戻す機能は無い）。
+expect_output 2 "作業ツリー" "--export を付けない剥がしも、本物のリポジトリには当てない" \
+    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' . src/a.py"
+expect_output 0 "ok" "本物は無傷（コメントが残っている）" \
+    "$PY_BIN" -c "
+import sys, pathlib
+got = pathlib.Path(sys.argv[1]).read_text()
+assert got == '# changed comment\ny = 2  # tail\n', repr(got)
+print('ok')" "$SREPO/src/a.py"
+# 写し先が **別の** リポジトリの中でも同じ。cwd のリポジトリとだけ比べると素通りし、
+# git apply がそちらを見つけて patch を無視する（rc=0・stderr 0 バイトで気づけない）。
+OTHER="$WORK/strip-other"
+mkdir -p "$OTHER" && (cd "$OTHER" && git init -q && git config user.email t@e && git config user.name t \
+    && printf 'z\n' > z.txt && git add -A && git commit -qm init)
+expect_output 2 "作業ツリー" "別のリポジトリの中にも写しを作らせない" \
+    bash -c "cd '$SREPO' && '$PY_BIN' '$STRIP' --export '$OTHER/mirror' src/a.py"
 
 # R1 の読み手の実測は、写しにリポジトリ全体が入るせいで目的が漏れうる。漏れても何も
 # 赤くならない fail-open を塞いだ規定が、手順書から落ちていないことを縛る。
+# 閉鎖の実証とゲートの赤の確認が「1 つ」で止まってよいと読める文面に戻っていないか。
+# 実測: この 2 つが「退行を 1 つ」「違反をわざと1つ」と書いていた間、入口 2 つのうち 1 つ・
+# 枝 3 本のうち 1 本しか塞がない修正が 3 回続けて出た。
+expect_output 0 "ok" "閉鎖の実証とゲートの赤の確認が、腕ごと・箇所ごとを要求している" "$PY_BIN" -c "
+import sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+assert '不変条件を共有する箇所を先に全部挙げ' in t, '閉鎖の実証が「1 つ」で止まってよい文面に戻っている'
+assert '条件の腕ごとに 1 つずつ' in t, 'ゲートの赤の確認が腕ごとを要求していない'
+assert '退行を 1 つ注入して' not in t, '古い「退行を 1 つ」の文面が残っている'
+print('ok')" "$ROOT/commands/review-loop.md"
 expect_output 0 "ok" "手順書が読み手に隔離の自己検査を返させる" "$PY_BIN" -c "
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
 assert 'どの役として呼ばれたかを推測できたか' in t, 'R1 の読み手に隔離の自己検査を求める指示が無い'
 assert 'reviews.R1' in t and 'not_run' in t, '推測できた場合の記録の書き方が無い'
 print('ok')" "$ROOT/commands/review-loop.md"
+
+# 数える側（comment-ratio.sh）と剥がす側（strip-comments.py）は、Python の docstring を
+# 同じ条件（文の位置に置かれた文字列＝直前が NEWLINE / INDENT / DEDENT）で見分けている。
+# 実行形態が違って共有できないので、条件がずれたら赤くなる検査で縛る。
+expect_output 0 "ok" "Python の docstring 判定が数える側と剥がす側で同じ条件のまま" "$PY_BIN" -c "
+import sys, re, pathlib
+def cond(path):
+    t = pathlib.Path(path).read_text(encoding='utf-8')
+    m = re.search(r'prev in \(([^)]*)\)', t, re.S)
+    assert m, f'{path}: docstring 判定の条件が見つからない'
+    return sorted(x.strip().split('.')[-1] for x in m.group(1).split(',') if x.strip())
+a, b = cond(sys.argv[1]), cond(sys.argv[2])
+assert a == b, f'条件がずれた: 数える側 {a} / 剥がす側 {b}'
+print('ok')" "$ROOT/scripts/comment-ratio.sh" "$ROOT/scripts/strip-comments.py"
 
 echo "comment-ratio.sh"
 REPO="$WORK/repo"
@@ -974,7 +1107,11 @@ PY
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
 # **これは下限で、総数の台帳ではない**——「意味のある検査を消して些末なものを足す」形の
 # 劣化は検知しない（それを見るのは人のレビュー）。件数を他所に書き写すな（腐る）。
-EXPECTED_MIN=225
+# **検査を足したらこの数も上げろ。**下限が実数から離れると、この柵自体が空振りする——
+# 実測: 225 のまま 457 件まで増えていたとき、review-record と strip-comments の 2 節を
+# 丸ごと削っても「357 件すべて緑」で exit 0 になった（この差分が足した検査面 91 件が
+# 全部消えても鳴らない状態だった）。
+EXPECTED_MIN=467
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

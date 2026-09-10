@@ -130,6 +130,11 @@ STATUS_ONLY_FOR = {
 REVIEW_BLOCKING = ("redesign-needed", "not_run")
 # 収束を宣言せずユーザーに諮る値。阻害要因として数える（exit 1）が、見出しを分ける。
 REVIEW_TO_HUMAN = ("unverifiable", "premise-invalid")
+# 俯瞰（R1〜R4）で持ち越しの元になれる値。素材用の CARRYABLE を流用すると、
+# found / clean は俯瞰に存在しないので到達不能な条件になり、逆に unverifiable や
+# premise-invalid（判定は在り、人に諮る印）からの正直な持ち越しが
+# 「判定が無い」と言われて記録の不正（2）に倒れる。
+REVIEW_CARRYABLE = ("pass", "carried_over") + REVIEW_TO_HUMAN
 
 # nit / question / info は**意図的に**阻害要因にしない。ここを塞ぐと、受容して
 # 再修正を止めるという連鎖の断ち方が使えなくなる。
@@ -209,10 +214,12 @@ def validate(rec, path, hint=None):
                 f"{path}: 素材 '{name}' の status が不正: {status!r}（{'/'.join(STATUS)}）"
             )
         for field in STATUS[status]:
-            if not m.get(field):
-                fail(
-                    f"{path}: 素材 '{name}' は status={status} なので '{field}' が要る"
-                )
+            # `not m.get(...)` だと 0 や "" を欠落と同じ扱いにし、入れてある欄について
+            # 「要る」と嘘の診断を出す。欠落と空を分けて、writer が探す先を間違えないようにする。
+            if field not in m:
+                fail(f"{path}: 素材 '{name}' は status={status} なので '{field}' が要る")
+            if m[field] == "" or m[field] is None:
+                fail(f"{path}: 素材 '{name}' の '{field}' が空（何を見たかを書け）")
         if status == "carried_over":
             validate_carry(m, rec, path, f"素材 '{name}'")
 
@@ -305,7 +312,7 @@ def validate_against(rec, prev, carried=None):
                     f"{what} の持ち越しが連鎖していない: 前ラウンドは round "
                     f"{before['from_round']} から、今ラウンドは round {now['from_round']} から"
                 )
-        elif ps in CARRYABLE or (what in REVIEWS and ps == "pass"):
+        elif ps in (REVIEW_CARRYABLE if what in REVIEWS else CARRYABLE):
             if now["from_round"] != prev["round"]:
                 fail(
                     f"{what} の from_round（{now['from_round']}）が前ラウンド"
@@ -372,7 +379,10 @@ def blockers(rec, prev=None, ledger=None, prev_blocks=None):
             if u["key"] in ledger:
                 note = f"（既受容 defer の再審。新証拠: {u['reopen_evidence']}）"
             elif u["label"] == "block" and u["key"] in prev_blocks:
-                note = "（残存——過去のラウンドにも在った。stuck の疑い）"
+                # 「stuck の疑い」とは書かない——手順書の stuck は 2 ラウンド連続で、
+                # 全ラウンドの和で見るこの印はそれより広く発火する（一度消えて別原因で
+                # 戻った場合にも付き、履歴側の「消えて N 回戻った」と矛盾する）。
+                note = "（残存——過去のラウンドにも在った）"
             elif u["label"] == "block":
                 note = "（新規）"
         out.append(f"{head}{note}: {u['key']}")
@@ -439,6 +449,10 @@ def load_dir(path):
         m = re.fullmatch(r"round-(\d+)\.json", name)
         if m:
             n = int(m.group(1))
+            # 0 番は下の range(1, ...) から外れ、読まれも検証もされずに捨てられる。
+            # 連番の穴は落とすのに 0 番だけ黙って消えるのは、同じ形の取りこぼし。
+            if n < 1:
+                fail(f"{path}: {name} は 1 から始まる番号でない（round-1.json から始めろ）")
             # ゼロ詰めの別名（round-01.json）は同じ番号に潰れ、片方が読まれもせずに
             # 捨てられる。連番の穴は落とすのに重複が通ると、静かに別の記録を検証する。
             if n in found:
@@ -570,10 +584,19 @@ def main():
         }
     found = blockers(rec, prev, ledger, prev_blocks)
     if prev is not None:
-        dropped = [k for k in ledger if k not in {u["key"] for u in rec["units"]}]
+        here = {u["key"] for u in rec["units"]}
+        dropped = [k for k in ledger if k not in here]
         if dropped:
             print("前ラウンドの defer で今ラウンドの記録に無いキー（台帳には残る。最終報告に載せろ）:")
             for k in dropped:
+                print(f"  - {k}")
+        # [block] 側にも同じ報告が要る。無いと、未解消の [block] を記録から落とすだけで
+        # 阻害要因が 0 になり、収束の分岐に乗る（defer より重い方だけ黙る非対称だった）。
+        gone = [k for k in sorted(prev_blocks or ()) if k not in here]
+        if gone:
+            print("過去のラウンドの [block] で今ラウンドの記録に無いキー"
+                  "（直ったのか、記録から落ちたのかは機械には見えない。確かめろ）:")
+            for k in gone:
                 print(f"  - {k}")
 
     # 連続 2 ラウンド。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。

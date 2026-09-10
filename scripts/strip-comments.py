@@ -14,12 +14,12 @@ git worktree は使わない——登録と remove の片付けが要り、途�
 
 落とし方:
   - Python: tokenize でコメント（行末も）と、文の位置に置かれた文字列（docstring）
-  - それ以外は字句解析をせず、**行全体がコメントの行と、行頭から始まるブロック**だけを
-    落とす（行末コメントは残る＝過小側。文字列中にブロック開始があると末尾まで汚染しうる）。
-    言語ごとの記法は LANGS が正本: C 系 `//` `/* */`、`#` 系（Shell・Ruby・Perl・YAML・
-    TOML・R・Elixir・Dockerfile・Makefile）、`--` 系（SQL・Lua・Haskell）、`<!-- -->`
-    （HTML・XML・Vue・Svelte）、CSS 系。1 行目の shebang は残す
+  - それ以外は字句解析をせず、行全体がコメントの行と、行の先頭から始まるブロックだけを
+    落とす（行末コメントは残る＝過小側。1 行目の shebang も残す）。
+    **拡張子ごとの記法は LANGS と BASENAMES が正本。ここに列挙を写すと腐る**——
+    実際、以前ここに置いた一覧は表からドリフトしていた
   - 表に無い拡張子は触らず、名前を stderr に列挙する（黙って素通しにしない）
+  - **剥がした結果が構文として壊れたら、そのファイルは剥がさず名前を出す**（`parses`）
 
 comment-ratio.sh（数える側）が Python と C 系に絞っているのは、拾えない言語で「注釈 0%」を
 自信ありげに出さないため。剥がす側は漏れてもコメントが読み手に見えるだけで、名前も出る
@@ -38,6 +38,8 @@ comment-ratio.sh（数える側）が Python と C 系に絞っているのは�
 """
 
 import io
+import subprocess
+import tarfile
 import sys
 import tokenize
 from pathlib import Path
@@ -49,13 +51,12 @@ for _stream in (sys.stdout, sys.stderr):
 # 言語ごとの記法: (行コメントの接頭辞の組, ブロックの (開始, 終了) の組)。
 C_STYLE = (("//",), (("/*", "*/"),))
 HASH = (("#",), ())
-DASH = (("--",), ())
 LANGS = {
     **{e: C_STYLE for e in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs",
                             ".java", ".kt", ".kts", ".cs", ".cpp", ".cc", ".c", ".h",
                             ".hpp", ".swift", ".scala", ".php", ".dart", ".m", ".mm",
                             ".groovy", ".gradle")},
-    **{e: HASH for e in (".sh", ".bash", ".zsh", ".fish", ".rb", ".rake", ".pl", ".pm",
+    **{e: HASH for e in (".sh", ".bash", ".zsh", ".fish", ".rake",
                          ".yml", ".yaml", ".toml", ".r", ".R", ".ex", ".exs", ".tf",
                          ".ini", ".cfg", ".conf", ".ps1")},
     ".rb": (("#",), (("=begin", "=end"),)),
@@ -80,7 +81,12 @@ def fail(msg):
 
 
 def strip_python(src, path):
-    """コメントは開始桁から行末まで、docstring は行ごと空にする。"""
+    """コメントは開始桁から行末まで、docstring はその範囲だけを空にする。
+
+    docstring を「行ごと」空にすると、docstring と同じ行に `;` で続くコードが
+    写しから消える（strip_lines の 2 本の腕で塞いだのと同じ欠陥の 3 本目）。
+    範囲だけを空にすれば、行数は変わらないまま前後のコードが残る。
+    """
     lines = src.splitlines(keepends=True)
     prev = tokenize.NEWLINE
     try:
@@ -93,14 +99,55 @@ def strip_python(src, path):
             elif tok.type == tokenize.STRING and prev in (
                 tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT,
             ):
-                for row in range(tok.start[0], tok.end[0] + 1):
+                (srow, scol), (erow, ecol) = tok.start, tok.end
+                for row in range(srow, erow + 1):
                     line = lines[row - 1]
-                    lines[row - 1] = line[len(line.rstrip("\r\n")):]
+                    eol = line[len(line.rstrip("\r\n")):]
+                    head = line[:scol] if row == srow else ""
+                    tail = line[ecol:].rstrip("\r\n") if row == erow else ""
+                    # docstring が文の区切りで終わっていると、消したあとに区切りだけが
+                    # 先頭に残って構文が壊れる。区切りごと落として後続のコードを生かす。
+                    tail = tail.lstrip().lstrip(";").lstrip() if not head.strip() else tail
+                    lines[row - 1] = ((head + tail).rstrip() or "") + eol
             if tok.type not in (tokenize.NL, tokenize.COMMENT):
                 prev = tok.type
     except (tokenize.TokenError, IndentationError, SyntaxError):
         fail(f"{path} を解析できない（構文エラー）")
     return "".join(lines)
+
+
+def parses(text, rel):
+    """剥がした結果が、その言語の構文として通るか。通らないなら剥がしてはいけない。
+
+    行ベースの剥がしは字句解析をしないので、文字列やヒアドキュメントの中の
+    シャープで始まる行をコメントと誤認する。実測: tests/run.sh で、行継続した
+    二重引用符の中身の行が空にされ、引用符が閉じず写しが bash の構文エラーに
+    なった。読み手はその壊れた写しを精読することになる。
+
+    **零処方（shell を LANGS から外す）を採らなかった理由**: 同じ壊れ方は shell に限らない。
+    Python でも docstring の後ろに続くコードの扱いで構文を壊しうる（実測で一度壊した）。
+    言語を 1 つ外しても、外していない言語の同じ穴は残る。ここは言語をまたいで
+    1 つの判断で塞ぐ側に倒し、そのぶん判定手段は増やさない——Python は標準の compile、
+    shell は bash があれば `bash -n`、それ以外の言語は判定しない。
+
+    判定手段が無い言語は今までどおり剥がす（過小側に倒す）。ただし **shell で bash が
+    無いときは剥がさない**——判定できない言語ではなく「判定できるはずが手段を欠いた」
+    場合なので、検査の空振りを合格に化けさせない。None は「判定しない」。
+    """
+    if rel.endswith(".py"):
+        try:
+            compile(text, rel, "exec")
+            return True
+        except SyntaxError:
+            return False
+    if rel.rsplit("/", 1)[-1].split(".")[-1] in ("sh", "bash", "zsh"):
+        try:
+            p = subprocess.run(["bash", "-n"], input=text.encode("utf-8"),
+                               capture_output=True, timeout=GIT_TIMEOUT_SEC)
+        except (OSError, subprocess.SubprocessError):
+            return False  # 手段を欠いた＝確かめられないので剥がさない（空振りを合格にしない）
+        return p.returncode == 0
+    return None
 
 
 def strip_lines(src, prefixes, blocks):
@@ -110,8 +157,14 @@ def strip_lines(src, prefixes, blocks):
         s = line.strip()
         eol = line[len(line.rstrip("\r\n")):]
         if closing is not None:
-            out.append(eol)
-            if closing in s:
+            at = s.find(closing)
+            # 閉じたあとにコードが残る行を空にすると、1 行で閉じた場合と同じく
+            # 写しからコードが消える。過小側に倒す判断は両方の腕に掛ける。
+            if at >= 0 and s[at + len(closing):].strip():
+                out.append(line)
+            else:
+                out.append(eol)
+            if at >= 0:
                 closing = None
             continue
         if i == 0 and s.startswith("#!"):
@@ -154,8 +207,6 @@ GIT_TIMEOUT_SEC = 120
 
 
 def git(*args, **kw):
-    import subprocess
-
     try:
         p = subprocess.run(["git", *args], capture_output=True, timeout=GIT_TIMEOUT_SEC, **kw)
     except subprocess.TimeoutExpired:
@@ -165,30 +216,46 @@ def git(*args, **kw):
     return p.stdout
 
 
+def require_outside_repo(root):
+    """写し先がどの git 作業ツリーにも属さないことを確かめる。
+
+    **両方の入口に掛ける。**片方だけだと同じ欠陥が残る腕から入れる:
+    - `--export` 側だけに掛けると、`--export` を付けずに本物のリポジトリを写し先として
+      渡された剥がしが、その場で本物のコメントを消す（元に戻す機能は無い）。
+    - cwd のリポジトリとだけ比べると、**別の**リポジトリの中に写しを作られたときに
+      素通りし、`git apply` がそのリポジトリを見つけて patch を無視する。
+
+    後者は「当てなかった」を返り値でも stderr でも伝えない——実測（git 2.50.1）で
+    returncode 0・stderr 0 バイト。だから git のメッセージを読む形の検査は成立しない。
+    """
+    probe = root if root.exists() else root.parent
+    p = subprocess.run(["git", "-C", str(probe), "rev-parse", "--show-toplevel"],
+                       capture_output=True, timeout=GIT_TIMEOUT_SEC)
+    if p.returncode == 0:
+        top = p.stdout.decode("utf-8", "replace").strip()
+        fail(f"{root}: git の作業ツリー（{top}）の中。"
+             "写しはどのリポジトリにも属さない場所に作れ——"
+             "中に作ると未コミット分が黙って当たらず、本物を渡すと本物が書き換わる")
+
+
 def export(root):
     """cwd のリポジトリの今の姿（HEAD＋未コミット）を root に展開する。"""
-    import subprocess
-    import tarfile
 
     if root.exists() and any(root.iterdir()):
         fail(f"{root}: 空でない（写しは空のディレクトリか無いパスに作れ。本物に当てるな）")
-    # 写しがリポジトリの作業ツリーの中だと、下の git apply が patch の経路を頂点から
-    # 解決して「カレントの外」として Skipped patch を返し、**終了コード 0 のまま**
-    # HEAD の姿だけの写しができる。読み手はこのラウンドで直した内容が入っていない
-    # コードを精読することになるので、入口で塞ぐ。
-    top = Path(git("rev-parse", "--show-toplevel").decode("utf-8", "replace").strip()).resolve()
-    dest = root.resolve()
-    if dest == top or top in dest.parents:
-        fail(f"{root}: リポジトリの中（写しは作業ツリーの外に作れ。中に作ると未コミット分が当たらない）")
+    require_outside_repo(root)
     root.mkdir(parents=True, exist_ok=True)
-    import io
-
     with tarfile.open(fileobj=io.BytesIO(git("archive", "--format=tar", "HEAD"))) as tar:
         # filter は 3.12 で導入され 3.14 で既定が data になった。明示しないと版で
         # 挙動が変わり、絶対 symlink を含むリポジトリが版によって展開できない。
-        try:
+        if hasattr(tarfile, "data_filter"):
             tar.extractall(root, filter="data")
-        except TypeError:
+        else:
+            # 例外の型で判定すると、展開中の別原因の TypeError でもここへ落ち、
+            # 原因を取り違えたままフィルタ無しで展開し直すことになる。公式は
+            # data_filter の有無で機能検出しろと書いており、落ちるときは黙るなとも書いている。
+            print("strip-comments: この python は tar の展開フィルタを持たない"
+                  "（3.12 未満）。写しの展開は無防備になる", file=sys.stderr)
             tar.extractall(root)
     patch = git("diff", "HEAD", "--binary")
     if patch.strip():
@@ -197,9 +264,23 @@ def export(root):
         err = p.stderr.decode("utf-8", "replace").strip()
         if p.returncode != 0:
             fail(f"未コミット分を写しに当てられない: {err}")
-        if "Skipped patch" in err:
-            # 上の封じ込めを抜けた場合の fail-closed。0 が返っても当たっていない。
-            fail(f"未コミット分が写しに当たらなかった: {err}")
+
+
+def verify_mirror(root, rels):
+    """写しの中身が今の作業ツリーと一致するか、**結果を見て**確かめる。
+
+    git の出力の文言を読む形（`"Skipped patch" in stderr`）は成立しない——当てなかった
+    ときに何も出力しない版が在り（実測: git 2.50.1 で stderr 0 バイト）、出力しても
+    gettext の翻訳対象なので非英語ロケールで一致しない。事後条件なら版にもロケールにも
+    依存せず、写し先がどこであっても同じ 1 つの検査で塞がる。
+    """
+    for rel in rels:
+        src, dst = Path(rel), root / rel
+        if not src.is_file() or not dst.is_file():
+            continue
+        if src.read_bytes() != dst.read_bytes():
+            fail(f"{rel}: 写しの中身が作業ツリーと違う"
+                 "（未コミット分が当たっていない。写しの場所を確かめろ）")
 
 
 def main():
@@ -213,9 +294,15 @@ def main():
     root = Path(args[0])
     if do_export:
         export(root)
+    else:
+        # 剥がしはその場で上書きし、元に戻す機能が無い。写し先が本物のリポジトリだと
+        # 本物のコメントが消えるので、--export を付けない入口にも同じ判定を掛ける。
+        require_outside_repo(root)
     if not root.is_dir():
         fail(f"{root}: ディレクトリでない")
-    skipped, undecodable, done = [], [], 0
+    if do_export:
+        verify_mirror(root, args[1:])
+    skipped, undecodable, broke, done = [], [], [], 0
     rr = root.resolve()
     for rel in args[1:]:
         p = root / rel
@@ -242,13 +329,21 @@ def main():
             # 化けたまま保存される。読み手はそれをコード側の欠陥として報告する。
             undecodable.append(rel)
             continue
-        p.write_text(strip(src), encoding="utf-8")
+        new = strip(src)
+        if parses(src, rel) is not False and parses(new, rel) is False:
+            # 元は通るのに剥がすと通らない＝剥がしが構文を壊した。写しを渡す先は
+            # 「読んで説明する」役なので、壊れた写しは偽の指摘に化ける。
+            broke.append(rel)
+            continue
+        p.write_text(new, encoding="utf-8")
         done += 1
     print(f"剥がした: {done} ファイル")
     if skipped:
         print("触っていない（対象外の拡張子。読み手にはコメント付きのまま見える）: " + " ".join(skipped), file=sys.stderr)
     if undecodable:
         print("触っていない（UTF-8 として読めない。読み手にはコメント付きのまま見える）: " + " ".join(undecodable), file=sys.stderr)
+    if broke:
+        print("触っていない（剥がすと構文が壊れた。読み手にはコメント付きのまま見える）: " + " ".join(broke), file=sys.stderr)
 
 
 if __name__ == "__main__":
