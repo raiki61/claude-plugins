@@ -86,6 +86,12 @@ esac
 write_broken_records() {
     "$PY_BIN" - "$ROOT" "$WORK" <<'PY'
 import json, sys, pathlib
+
+# 手書きの deep copy を 1 本に寄せる（同じ形が 16 箇所に散っていた）。JSON 往復に
+# するのは、JSON にできない値をここで落とすため（copy.deepcopy は落とさない）。
+def clone(x):
+    return json.loads(json.dumps(x))
+
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 templates = {
     n: json.loads((root / f"templates/{n}.example.json").read_text(encoding="utf-8"))
@@ -164,7 +170,7 @@ def write(name, rec, num=2, prevs=None):
 
 
 for name, mutate in {**VALUE, **TYPE, **BOUNDARY}.items():
-    rec = json.loads(json.dumps(templates["round-2"]))
+    rec = clone((templates["round-2"]))
     mutate(rec)
     write(name, rec)
 
@@ -172,19 +178,19 @@ for name, mutate in {**VALUE, **TYPE, **BOUNDARY}.items():
 write("not-object", ["not", "an", "object"], num=1)
 
 # 突合（集合演算）は prev だけを走査するので、前ラウンド側の記録を壊す必要がある。
-prev = json.loads(json.dumps(templates["round-1"]))
+prev = clone((templates["round-1"]))
 prev["units"][0]["key"] = ["not", "a", "string"]
 write("unhashable-key", templates["round-2"], prevs={1: prev})
 
 # round-1 単独。初回に持ち越しは書けない（from_round が指せるラウンドが無い）。
-r1 = json.loads(json.dumps(templates["round-1"]))
+r1 = clone((templates["round-1"]))
 r1["reviews"]["R1"].update(status="carried_over", from_round=1, reason="前と同じ")
 write("r1-carry", r1, num=1)
 
 # round-3 を壊し、round-2 と突合する——連鎖・defer 台帳・P-R の飛ばし・停止条件は
 # 2 ラウンド目以降の記録でしか発火しない。
 def r3(mutate):
-    rec = json.loads(json.dumps(templates["round-3"]))
+    rec = clone((templates["round-3"]))
     mutate(rec)
     return rec
 
@@ -227,7 +233,7 @@ for name, mutate in {
     "material-not-run": lambda r: r["materials"]["hygiene"].update(
         status="not_run", reason="時間切れで飛ばした"),
     # 同じ key が 1 ラウンドに 2 つ在ると、履歴も台帳も後勝ちで潰れる。
-    "dup-key": lambda r: r["units"].append(json.loads(json.dumps(r["units"][0]))),
+    "dup-key": lambda r: r["units"].append(clone((r["units"][0]))),
     # 「見つけた」と書いた素材が在るのに units が空。
     "found-no-units": lambda r: (
         r["materials"]["local_review"].update(
@@ -239,7 +245,7 @@ for name, mutate in {
         r["questions"].__setitem__(slice(None), [q for q in r["questions"] if q["kind"] != "split"])),
 }.items():
     # stuck は round-2 側にも同じ [block] が在ることが前提なので、そこだけ差し替える。
-    r2 = json.loads(json.dumps(templates["round-2"]))
+    r2 = clone((templates["round-2"]))
     r2["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"})
     write(name, r3(mutate), num=3, prevs={2: r2} if name == "stuck" else None)
 
@@ -326,7 +332,7 @@ for name, mutate in {
         add_q(r, key="主経路を誰がどこで動かすか", kind="awaiting", origin="main_path_observation",
               status="resolved", reason="起動できなかった", resolution="テスト用設定で起動できる")),
 }.items():
-    rec = json.loads(json.dumps(templates["round-2"]))
+    rec = clone((templates["round-2"]))
     mutate(rec)
     write(name, rec)
 
@@ -342,12 +348,12 @@ hist("tmpl-12", [templates["round-1"], templates["round-2"]])
 full = [templates["round-1"], templates["round-2"], templates["round-3"]]
 hist("hist", full)
 hist("hist-gap", [templates["round-1"], templates["round-3"]])
-back = json.loads(json.dumps(templates["round-3"]))
+back = clone((templates["round-3"]))
 back["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "nit"})
 hist("hist-return", [templates["round-1"], templates["round-2"], back])
 
 def r1_at(n, units):
-    r = json.loads(json.dumps(templates["round-1"]))
+    r = clone((templates["round-1"]))
     r["round"] = n
     r["units"] = units
     # 中立な土台にする。round-1 の実例が持つ「人の起動待ちの素材と、その問い」を外し、
@@ -362,12 +368,14 @@ def r1_at(n, units):
 
 LK = "src/db/pool.py — 接続プールの上限を設定に出す"
 # 別のレビュー（基準点が違う）の記録が同じディレクトリに残っている。
-mixed = json.loads(json.dumps(templates["round-2"]))
+mixed = clone((templates["round-2"]))
 mixed["base"] = "f" * 40
 hist("mixed-base", [templates["round-1"], mixed])
 
 hist("block-dropped", [r1_at(1, [{"key": BK, "label": "block"}]), r1_at(2, [])])
 
+# `human-repeat` と、下の問いの節の `q-review-attribution` は同一内容だった（定数 QU / RUQ も
+# 全欄一致）。実体が 1 つなので、1 つのディレクトリに腕を 2 本掛ける形に畳んである。
 QU = {"key": "元の目的をどこから取るか", "kind": "unverifiable", "origin": "R1",
       "status": "held", "reason": "出典①②③のどれも無い"}
 ch = r1_at(1, [])
@@ -476,18 +484,18 @@ nq2 = r1_at(2, [{"key": BK, "label": "block"}])
 nq2["questions"] = [FQ]
 nq2["reviews"]["R1"] = {"status": "carried_over", "from_round": 1, "reason": "機構の追加なし"}
 hist("q-new-r1-carried", [nq1, nq2])
-nq2b = json.loads(json.dumps(nq2))
+nq2b = clone((nq2))
 nq2b["reviews"]["R1"] = {"status": "pass", "reason": "台帳に問いが載ったので再発火。監査した"}
 hist("q-new-r1-ran", [nq1, nq2b])
-nq1c = json.loads(json.dumps(nq1)); nq1c["questions"] = [FQ]
+nq1c = clone((nq1)); nq1c["questions"] = [FQ]
 hist("q-carried-r1-carried", [nq1c, nq2])
 # 同じ key のまま kind / origin / options を総取り替えする（key の新規性では捕まらない形）。
-sw2 = json.loads(json.dumps(nq2))
+sw2 = clone((nq2))
 sw2["questions"] = [dict(FQ, kind="stuck", origin=BK)]
 sw2["questions"][0].pop("options")
 hist("q-swap-r1-carried", [nq1c, sw2])
 # ループが決めた問いが次の周に未決へ戻る（再燃。key は既出なので「新規」では捕まらない）。
-rp1 = json.loads(json.dumps(nq1))
+rp1 = clone((nq1))
 rp1["questions"] = [dict(FQ, status="resolved", resolution="入口に寄せると決めた")]
 hist("q-reopen-r1-carried", [rp1, nq2])
 
@@ -500,6 +508,23 @@ nu = work / "name-unidigit"; nu.mkdir()
 (nu / "round-\u0661.json").write_text(json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
 # 正規表現の軸（桁・英字の大小）では拾えない綴り。区切り・語・拡張子の軸から通る形で、
 # **最新ラウンドがこの形だと、記録が 1 つ短いまま「連続 2 ラウンド」の判定に乗る。**
+# from_round の下限。**外すと「素材を一度も見ずに連続 2 ラウンド成立」が exit 0 で通る**
+# （実測: 全素材と R1/R2 を from_round: 0 にした記録が「round 0 の判定を流用」で収束した）。
+# この道具が存在する理由そのものの穴なのに、塞いでいる 1 行に腕が無かった。
+fz = work / "from-round-zero"; fz.mkdir()
+fz1 = r1_at(1, []); fz2 = r1_at(2, [])
+fz2["materials"]["consistency"] = {"status": "carried_over", "from_round": 0, "reason": "流用"}
+(fz / "round-1.json").write_text(json.dumps(fz1, ensure_ascii=False), encoding="utf-8")
+(fz / "round-2.json").write_text(json.dumps(fz2, ensure_ascii=False), encoding="utf-8")
+# 3 周の窓の**幅**。連鎖が r2・r3 だけなので、窓が 3 周なら要求は立たない（exit 1）。
+# 窓を 2 周に狭めると要求が立って exit 2 になる＝この 1 本が幅を測る。「対照」と名乗っていた
+# stuck-two-rounds は記録が 2 件しか無く、range(2, len(rounds)) に一度も入らなかった。
+ww = [r1_at(1, []), r1_at(2, [{"key": BK, "label": "block"}]),
+      r1_at(3, [{"key": BK, "label": "block"}])]
+hist("stuck-window-width", ww)
+# UTF-8 として読めない記録（「開けない」「JSON でない」と別の診断になることを縛る）。
+(work / "badenc").mkdir()
+(work / "badenc" / "round-1.json").write_bytes(b'{"base": "\xff\xfe"}')
 nt = work / "name-tail"; nt.mkdir()
 (nt / "round-1.json").write_text(json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
 (nt / "round_2.json").write_text(json.dumps(r1_at(2, []), ensure_ascii=False), encoding="utf-8")
@@ -547,16 +572,16 @@ hist("round-dup", [r1_at(1, []), r1_at(2, [])])
 (work / "round-zero" / "round-0.json").write_text(
     json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
 
-cz = json.loads(json.dumps(templates["round-1"]))
+cz = clone((templates["round-1"]))
 cz["materials"]["local_review"] = {"status": "found", "count": 0, "detail": "0 件だった"}
 write("count-zero", cz, num=1)
-ce = json.loads(json.dumps(templates["round-1"]))
+ce = clone((templates["round-1"]))
 ce["materials"]["consistency"] = {"status": "clean", "checked": ""}
 write("checked-empty", ce, num=1)
-cf = json.loads(json.dumps(templates["round-1"]))
+cf = clone((templates["round-1"]))
 # **整数は別**——`count: 0` は「見たが 0 件」で正当（その腕は count-zero）。
 cf["materials"]["consistency"] = {"status": "clean", "checked": False}
-cn = json.loads(json.dumps(templates["round-1"]))
+cn = clone((templates["round-1"]))
 cn["materials"]["consistency"] = {"status": "clean", "checked": 0}
 write("checked-number", cn, num=1)
 write("checked-false", cf, num=1)
@@ -601,7 +626,12 @@ expect_output 1 "前ラウンドに阻害要因が 4 件あった" "解消した
 # 「聞く時」の行がどれも出ず、問いが指している阻害要因に「今ラウンドに立った問い」の印が付く。
 expect_output 1 "（今ラウンドに立った問い——再審は次の周）" \
     "問いが立った周には帰属せず、印だけが付く" "$PY_BIN" "$RECORD" "$WORK/tmpl-1"
-expect_output 1 "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$WORK/tmpl-12"
+# **節ごと、行数まで縛る。** 「scalar 'doc_lines': 120 → 135」という綴りは `scalar_changes` と
+# `history` の 2 経路から出るので、その 1 行だけを見る形は**どちらを殺しても緑**だった（実測:
+# scalar_changes を丸ごと無効化しても、`now > before` を `>=` や `!=` にしても全件緑）。節の
+# 見出しは片方しか出さず、直後の 2 行までを期待に含めれば「増えていないものが混ざる」退行も赤になる。
+expect_output 1 $'増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:\n  - scalar \'doc_lines\': 120 → 135\n  - scalar \'comment_ratio_pct\': 18 → 21\n持ち越し' \
+    "増えた scalar だけを、増えた scalar の節に出す" "$PY_BIN" "$RECORD" "$WORK/tmpl-12"
 expect_output 0 "連続 2 ラウンド" "2 ラウンド続けて阻害なしなら exit 0" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "素材 prior_decisions: round 1 の判定を流用（2 ラウンド前）" "持ち越しは実際に見たラウンドと古さを見せる" \
@@ -766,6 +796,9 @@ expect_output 1 "（保留の問いに帰属——答えを待っている）" "
     "$PY_BIN" "$RECORD" "$WORK/q-stuck-listed"
 expect_output 1 "帰属しない 1 件を先に直せ" "帰属しない阻害が残るうちは聞かない" \
     "$PY_BIN" "$RECORD" "$WORK/q-mixed"
+# do-now の見出しを縛る腕が 1 本も無く、[block] の見出しに潰しても全件緑だった。
+expect_output 1 "[suggest] do-now 未対応" "do-now の行は [block] と別の見出しで出る" \
+    "$PY_BIN" "$RECORD" "$WORK/tmpl-1"
 expect_output 1 "残る阻害要因は保留の問いに帰属するものだけ（2 件）" "depends に挙げたユニットの阻害も問いに帰属する" \
     "$PY_BIN" "$RECORD" "$WORK/q-depends"
 expect_output 1 "前提不成立が確定（escalate）" "premise の escalate は他の阻害の帰属を問わず「聞く時」" \
@@ -842,6 +875,14 @@ expect_output 1 "収束を妨げるもの" "count: 0 を「値が無い」と言
     "$PY_BIN" "$RECORD" "$WORK/count-zero"
 expect_output 2 "が空（何を見たかを書け）" "空文字は欠落と分けて診断する" \
     "$PY_BIN" "$RECORD" "$WORK/checked-empty"
+expect_output 2 "from_round が 1 以上でない" \
+    "存在しないラウンド 0 からの流用を落とす（外すと素材を一度も見ずに収束できる）" \
+    "$PY_BIN" "$RECORD" "$WORK/from-round-zero"
+expect_output 1 "（残存——過去のラウンドにも在った）" \
+    "連鎖が 2 周ぶんなら、3 周の窓では台帳への記載を要求しない（窓の幅を測る）" \
+    "$PY_BIN" "$RECORD" "$WORK/stuck-window-width"
+expect_output 2 "UTF-8 として読めない" "UTF-8 でない記録は「開けない」「JSON でない」と別の診断で落ちる" \
+    "$PY_BIN" "$RECORD" "$WORK/badenc"
 expect_output 2 "が空（何を見たかを書け）" "縮退値（false / [] / {}）で明示返答の欄を埋められない" \
     "$PY_BIN" "$RECORD" "$WORK/checked-false"
 # 免除を**型**（整数なら通す）で持っていたとき、文を要求する欄に 0 を書いて全部素通りした。
@@ -897,6 +938,11 @@ expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを
 # write_broken_records と同じ——検査はケースごとに分けたままにする）。
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した研究記録を作れない"; fail=1; }
 import json, sys, pathlib
+
+# 手書きの deep copy を 1 本に寄せる（同じ形が散っていた）。JSON 往復にするのは、
+# JSON にできない値をここで落とすため（copy.deepcopy は落とさない）。
+def clone(x):
+    return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 base = json.loads((root / "templates/research-record.example.json").read_text(encoding="utf-8"))
 
@@ -948,7 +994,7 @@ MUT = {
     ),
 }
 for name, mutate in MUT.items():
-    rec = json.loads(json.dumps(base))
+    rec = clone((base))
     mutate(rec)
     (work / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
 PY
@@ -1005,6 +1051,11 @@ expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを
 
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した診断記録を作れない"; fail=1; }
 import json, sys, pathlib
+
+# 手書きの deep copy を 1 本に寄せる（同じ形が散っていた）。JSON 往復にするのは、
+# JSON にできない値をここで落とすため（copy.deepcopy は落とさない）。
+def clone(x):
+    return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 base = json.loads((root / "templates/doctor-record.example.json").read_text(encoding="utf-8"))
 
@@ -1047,7 +1098,7 @@ MUT = {
     ),
 }
 for name, mutate in MUT.items():
-    rec = json.loads(json.dumps(base))
+    rec = clone((base))
     mutate(rec)
     (work / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
 PY
@@ -1092,6 +1143,11 @@ FR="$ROOT/scripts/firstread-record.py"
 # テンプレートは雛形であって実行可能な記録ではないので、ここで実在パスへ差し替える。
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した初読記録を作れない"; fail=1; }
 import json, sys, pathlib
+
+# 手書きの deep copy を 1 本に寄せる（同じ形が散っていた）。JSON 往復にするのは、
+# JSON にできない値をここで落とすため（copy.deepcopy は落とさない）。
+def clone(x):
+    return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 
 pre = work / "pre-answers.md"
@@ -1134,15 +1190,15 @@ MUT = {
     "fr-git-unchecked": lambda r: r.update(git_status_match=False),
 }
 for name, mutate in MUT.items():
-    rec = json.loads(json.dumps(r1))
+    rec = clone((r1))
     mutate(rec)
     (work / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
 
 # 周をまたぐ検査は 2 周目の側を壊す。
-same = json.loads(json.dumps(r1)); same["round"] = 2
+same = clone((r1)); same["round"] = 2
 (work / "fr-same-stuck.json").write_text(json.dumps(same, ensure_ascii=False), encoding="utf-8")
 
-new = json.loads(json.dumps(r2))
+new = clone((r2))
 new["materials"]["stopped"]["items"].append(
     {"key": "rollback/前提が逆順", "verbatim": "戻す手順が、出す手順を読んだ前提で書かれていた",
      "in_scope": True}
@@ -1150,7 +1206,7 @@ new["materials"]["stopped"]["items"].append(
 (work / "fr-new-stuck.json").write_text(json.dumps(new, ensure_ascii=False), encoding="utf-8")
 
 # 削除も移動も無いまま行数だけ増えた周。**阻害要因ではないが報せる。**
-grew = json.loads(json.dumps(r2))
+grew = clone((r2))
 grew["size"] = {"lines_before": 138, "lines_after": 150}
 grew["removed"] = []
 grew["moved"] = []
@@ -1326,7 +1382,8 @@ print('ok')" "$ROOT/commands/review-loop.md"
 expect_output 0 "ok" "ゲートの赤の確認が、本物でなく写しの上で壊すことを要求している" "$PY_BIN" -c "
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-assert '腕ごとにリポジトリの写しを作り、写しの上で壊して' in t, '写しの上で壊す指示が無い'
+assert '腕ごとにリポジトリの写しを' in t and 'の下に作り、写しの上で壊して' in t, '写しの上で壊す指示が無い'
+assert 'mktemp -d' in t, '写しの置き場所が指定されていない（リポジトリ内に作ると突合が汚れる）'
 assert '並行起動した grader が全部返ったあとに行え' not in t, '順序の約束だけで塞ぐ古い文面が残っている'
 print('ok')" "$ROOT/commands/review-loop.md"
 
@@ -1451,32 +1508,46 @@ for t in sorted((root/"templates").glob("round-*.example.json")):
         f"{t.name} が手順書の禁じ手（gh repo view で owner/repo を確認）を実例として見せている"
 PY
 
-expect_exit 0 "手順書が名指しする REVIEW.md のセクションが実在する" "$PY_BIN" - "$ROOT" <<'PY'
+# **番人を置く。** 隣の定数実在検査は出力（末尾の合図の語）まで見るのに、ここだけ終了コード
+# しか見ていなかった。**引用を拾う正規表現を絶対に一致しない形に変えても全件緑**になる（実測）
+# ——照合が 0 件なら missing は空で assert が通るため。拾った件数まで出させて縛る。
+expect_output 0 "DOC_HEADINGS_OK" "手順書が名指しする REVIEW.md のセクションが実在する" \
+    "$PY_BIN" - "$ROOT" <<'PYHEAD'
 import re, sys, pathlib
 root = pathlib.Path(sys.argv[1])
 review = (root/"REVIEW.md").read_text(encoding="utf-8")
 known = set(re.findall(r"^##+ (.+)$", review, re.M)) | set(re.findall(r"\*\*(.+?)\*\*", review))
-missing = set()
+# **「実在する」の定義が崩れていないことも見る。** 見出しと太字の集合を本文 1 個に潰すと、
+# 照合が本文への部分一致に戻って節を丸ごと削っても緑になる（今周それを 1 度やった）。
+# 入口を数えて 1 つずつ壊したとき、この入口だけ腕が無かった。下限は走らせた実測値。
+assert len(known) >= 72, f"見出し・太字を {len(known)} 個しか拾えていない（72 個以上を期待）"
+missing, found = set(), 0
 # **対象集合が狭いと、柵は緑のまま文書だけが消えた名前を指す。** 機械のコメントから
 # `REVIEW.md` の見出しを引く箇所が増えたのに対象が commands / agents だけで、実在しない
-# 見出し（「恒真なら片方を選べ」）を引いた行が 1 周素通りした。backtick も任意にする。
+# 見出しを引いた行が 1 周素通りした。backtick も任意にする。
 for f in [*(root/"commands").glob("*.md"), *(root/"agents").glob("*.md"),
           *(root/"scripts").glob("*.py"), root/"README.md", root/"docs"/"customize.md"]:
     body = f.read_text(encoding="utf-8")
-    # 内側の『』を含む引用（「…『機能している』と扱わない」）で途中で切れないように、
-    # 同じ種類の鉤で閉じるまでを 1 つの名前として取る。切れると存在しない見出しに見える。
-    for name in re.findall(r"`?REVIEW\.md`?\s*(?:の)?\s*「((?:[^「」]|『[^『』]*』)+)」", body):
-        # 入れ子のときは内側の鉤が『』に置き換わる（「…『機能している』と扱わない」）ので、
-        # 正本と引用側で鉤の種類が食い違う。比較の前に揃える——揃えないと、正しい引用が
-        # 「存在しない見出し」に見えて柵が誤発火する。
+    # 内側の『』で途中で切れないよう、同じ種類の鉤で閉じるまでを 1 つの名前として取る。
+    # **助詞を「の」に限るな**——`REVIEW.md`**が**「…」という引用が 1 件在って、**1 度も
+    # 走査されていなかった**（しかもその引用は正本と逐語一致しない＝走査されていれば赤く
+    # なる側だった）。覆いを軸ごとに足していくと、足していない軸から必ず漏れる。
+    for name in re.findall(r"`?REVIEW\.md`?\s*[のがにはをも]?\s*「((?:[^「」]|『[^『』]*』)+)」", body):
+        found += 1
+        # 入れ子のときは内側の鉤が『』に置き換わるので、比較の前に揃える。
         name = name.replace("『", "「").replace("』", "」")
-        # 見出しだけでなく **本文に逐語で在るか**も認める。README は節名でなく本文の一文を
-        # 引くことがあり、見出しの集合だけで照合すると正しい引用が「存在しない見出し」に
-        # 見えて柵が誤発火する。逆向き（実在しない文言）はどちらの集合にも無いので捕まる。
-        if not any(name in k for k in known) and name not in review:
+        # **本文への部分一致を合格に足すな。** 一度足したとき、`REVIEW.md` の節を見出しごと
+        # 8 行まるごと削っても全件緑になった（実測）——同じ語が散文に 1 度でも残っていれば
+        # 通るため。本文の一文を引いていた 2 箇所（README と review-record.py）は、節名・
+        # 太字の見出しで指す形に書き換えた。**柵の名乗りに覆いを揃える。**
+        if not any(name in k for k in known):
             missing.add(f"{f.name}: 「{name}」")
 assert not missing, "REVIEW.md に無いセクションを参照している: " + " / ".join(sorted(missing))
-PY
+# **拾った件数の下限。** 正規表現が壊れて 0 件になっても missing は空で通る（自分の空振りで
+# 合格になる形）。下限は走らせた実測値だけを書く。
+assert found >= 26, f"引用を {found} 件しか拾えていない（26 件以上を期待。走らせた実測値だけを書け）"
+print(f"DOC_HEADINGS_OK {found}")
+PYHEAD
 
 expect_exit 0 "役割 agent の定義と手順書の参照が整合する" "$PY_BIN" - "$ROOT" <<'PY'
 import re, sys, pathlib
@@ -1561,7 +1632,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=524
+EXPECTED_CHECKS=528
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2534,33 +2605,72 @@ root = pathlib.Path(sys.argv[1])
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
 EXTERNAL_PREFIX = ("CLAUDE_CODE_",)
 EXTERNAL_NAMES = {"HEAD", "SHA"}
-# **名指しする側は文書だけではない。** 今周、削除した定数を「正本」と呼ぶコメントが
-# `tests/run.sh` に、削除した柵を「今も効いている」と述べたコメントが `scripts/*.py` に
-# 残り、どちらもこの柵の外だった。**定義を持つ側も `scripts/*.py` だけではない**——検査
-# スイートの定数も shell スクリプトの定数も名指しされる。両側とも集め漏らすな。
+# **名指しする側は文書だけではない。** 削除した定数を「正本」と呼ぶコメントが `tests/run.sh` に、
+# 削除した柵を「今も効いている」と述べたコメントが `scripts/*.py` に残ったことがある。
+# **定義を持つ側も `scripts/*.py` だけではない**——検査スイートの定数も shell の定数も名指しされる。
 CODE = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob("*.sh")) + [
     root / "tests/run.sh"]
+# **この列挙は柵の覆いの上限である。** 名指しの置き場が増えた周に、ここを直し忘れると柵は
+# 黙って外れる（実測: 対象外の 2 ファイルに実在しない名前を書いても全件緑だった）。広げ方は
+# 設計の岐路として台帳に載せてあるので、ここに軸を足していく形にするな。
 NAMED_IN = (root / "commands/review-loop.md", root / "docs/customize.md",
             root / "README.md", root / "REVIEW.md", root / "tests/run.sh",
             *sorted((root / "scripts").glob("*.py")))
 # **アンダースコアを要求するな。** 要求していたとき、`MATERIALS` / `REVIEWS` / `LABELS` /
 # `STATUS` を同じ体裁で名指ししている箇所が 1 つも検査されなかった。
 TOKEN = r"`([A-Z][A-Z0-9_]{2,})`"
+# **ファイル名つきの名指しは、そのファイルに在ることを要求する。** 定義を全ファイル横断の
+# 平坦な集合で持っていたとき、`review-record.py` の `MATERIALS` を改名しても
+# `firstread-record.py` の同名定数で満たされて全件緑だった（実測。同名の定義は 10 個ある）。
+# `targets()` が今周採った「域を持ち回って組で照合する」と同じ形にする。
+# **行単位でなく隣接で取る**——同じ行に別のファイル名が在るだけで組にすると誤検出になる
+# （実測: `comment-ratio.sh` に触れた行の `EXPECTED_CHECKS` が「そのファイルに無い」と出た）。
+PAIR = r"`([A-Za-z0-9_.-]+\.(?:py|sh))`\s*(?:の)?\s*`([A-Z][A-Z0-9_]{2,})`"
 
-names = set()
+by_file = {}
 for p in CODE:
-    names |= set(re.findall(r"^([A-Z][A-Z0-9_]*)\s*=", p.read_text(encoding="utf-8"), re.M))
-named = {f: sorted(set(re.findall(TOKEN, f.read_text(encoding="utf-8")))) for f in NAMED_IN}
+    by_file[p.name] = set(re.findall(r"^([A-Z][A-Z0-9_]*)\s*=", p.read_text(encoding="utf-8"), re.M))
+names = set().union(*by_file.values())
 
-missing = [f"{f.name}: {t}" for f, toks in named.items() for t in toks
-           if not t.startswith(EXTERNAL_PREFIX) and t not in EXTERNAL_NAMES and t not in names]
-assert not missing, "名指しされた定数が scripts / tests に無い: " + ", ".join(missing)
-# **除外表の未使用項目を赤にする。** 抑制表は「実在しない名前を 1 つ足せば真の破れを
-# 黙らせられる」形で腐る。各項が「今も名指しされ、かつ定義が無い」ことを要求すれば、
-# 隠す使い方は次の実行で赤くなり、表が自己剪定になる。
-used = {t for toks in named.values() for t in toks}
+def wrong_pairs(pairs, label):
+    """名指しされたファイルにその定数が無い組を返す。**自己検査のために関数にしてある**
+    ——リポジトリには現に 1 件も無いので、外からは論理が効いているか測れない。"""
+    return [f"{label}: {tok}（{fn} に無い）" for fn, tok in pairs
+            if fn in by_file and tok not in by_file[fn]]
+
+# 自己検査: 実在する「他所にだけ在る」組（`REQUIRED` は doctor / research にだけ在る）を
+# 同じ関数に通し、必ず 1 件返ることを見る。平坦な集合なら通ってしまう組である。
+# **測れない残りを明記する**——上の呼び出しを消す退行は、リポジトリに実際に落ちる組が
+# 無い限りどんな腕でも捕まらない。捕まえられるのは抽出（下の件数の下限）と論理（ここ）。
+PROBE = ("review-record.py", "REQUIRED")
+assert PROBE[1] in names, "自己検査の前提が崩れた（この名前がどこにも定義されていない）"
+assert wrong_pairs([PROBE], "self"), "自己検査: 組の照合が効いていない"
+
+missing, used, paired = [], set(), 0
+for f in NAMED_IN:
+    body = f.read_text(encoding="utf-8")
+    pairs = re.findall(PAIR, body)
+    paired += len(pairs)
+    missing += wrong_pairs(pairs, f.name)
+    for tok in sorted(set(re.findall(TOKEN, body))):
+        used.add(tok)
+        if tok.startswith(EXTERNAL_PREFIX) or tok in EXTERNAL_NAMES or tok in names:
+            continue
+        missing.append(f"{f.name}: {tok}")
+assert not missing, "名指しされた定数が在るべき場所に無い: " + ", ".join(missing)
+# 組の下限。正規表現が壊れて 0 件になると、上の組の検査が黙って空振りする。
+assert paired >= 4, f"ファイル名つきの名指しを {paired} 件しか拾えていない（4 件以上を期待）"
+
+# **除外表の未使用項目を赤にする。** これは未使用項の剪定であって、**誤った抑制は検知しない**
+# ——表に「今も名指しされていて、かつ定義が無い名前」を 1 つ足せば、真の破れをそのまま
+# 恒久的に隠せる（実測）。隠す使い方を止める仕掛けではない、と読める形で書いておく。
 stale = sorted(n for n in EXTERNAL_NAMES if n not in used or n in names)
-assert not stale, "除外表に使われていない項目が在る（真の破れを隠せる）: " + ", ".join(stale)
+# 接頭辞は面で黙らせるので、**定義が在る名前を覆っていないか**も見る。`"MATERIAL"` を足せば
+# `MATERIALS` の破れをそのまま隠せた（実測。名前の表と同じ穴が接頭辞側に残っていた）。
+stale += [p for p in EXTERNAL_PREFIX if not any(t.startswith(p) for t in used)]
+stale += [f"{p}（定義の在る名前を覆っている）" for p in EXTERNAL_PREFIX
+          if any(t.startswith(p) and t in names for t in used)]
+assert not stale, "除外表に使われていない項目が在る: " + ", ".join(stale)
 print("DOC_SYMBOLS_OK")
 PYSYM
 expect_output 0 "DOC_SYMBOLS_OK" "文書が名指しする機械の定数が実在する（改名で片方だけ動かない）" \
