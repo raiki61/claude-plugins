@@ -481,6 +481,15 @@ nq2b["reviews"]["R1"] = {"status": "pass", "reason": "台帳に問いが載っ�
 hist("q-new-r1-ran", [nq1, nq2b])
 nq1c = json.loads(json.dumps(nq1)); nq1c["questions"] = [FQ]
 hist("q-carried-r1-carried", [nq1c, nq2])
+# 同じ key のまま kind / origin / options を総取り替えする（key の新規性では捕まらない形）。
+sw2 = json.loads(json.dumps(nq2))
+sw2["questions"] = [dict(FQ, kind="stuck", origin=BK)]
+sw2["questions"][0].pop("options")
+hist("q-swap-r1-carried", [nq1c, sw2])
+# ループが決めた問いが次の周に未決へ戻る（再燃。key は既出なので「新規」では捕まらない）。
+rp1 = json.loads(json.dumps(nq1))
+rp1["questions"] = [dict(FQ, status="resolved", resolution="入口に寄せると決めた")]
+hist("q-reopen-r1-carried", [rp1, nq2])
 
 nc = work / "name-case"; nc.mkdir()
 (nc / "round-1.json").write_text(json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
@@ -489,6 +498,16 @@ nc = work / "name-case"; nc.mkdir()
 # 黙って捨てられる側へ移るだけで、欠陥が入口を移動して残る。
 nu = work / "name-unidigit"; nu.mkdir()
 (nu / "round-\u0661.json").write_text(json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
+# 正規表現の軸（桁・英字の大小）では拾えない綴り。区切り・語・拡張子の軸から通る形で、
+# **最新ラウンドがこの形だと、記録が 1 つ短いまま「連続 2 ラウンド」の判定に乗る。**
+nt = work / "name-tail"; nt.mkdir()
+(nt / "round-1.json").write_text(json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
+(nt / "round_2.json").write_text(json.dumps(r1_at(2, []), ensure_ascii=False), encoding="utf-8")
+# 退避先のディレクトリとドットファイルは鳴らさない（下位は読まない規約・OS の成果物）。
+nok = work / "name-ok"; nok.mkdir()
+(nok / "round-1.json").write_text(json.dumps(r1_at(1, []), ensure_ascii=False), encoding="utf-8")
+(nok / "archive-deadbeef").mkdir()
+(nok / ".DS_Store").write_text("x", encoding="utf-8")
 
 th2 = r1_at(2, [{"key": BK, "label": "block"}])
 th2["questions"] = [{"key": "新規が出続ける", "kind": "thrash", "status": "held", "reason": "件数が落ちない"}]
@@ -537,6 +556,9 @@ write("checked-empty", ce, num=1)
 cf = json.loads(json.dumps(templates["round-1"]))
 # **整数は別**——`count: 0` は「見たが 0 件」で正当（その腕は count-zero）。
 cf["materials"]["consistency"] = {"status": "clean", "checked": False}
+cn = json.loads(json.dumps(templates["round-1"]))
+cn["materials"]["consistency"] = {"status": "clean", "checked": 0}
+write("checked-number", cn, num=1)
 write("checked-false", cf, num=1)
 
 # defer が 1 ラウンド記録から消えてから [block] で戻る。台帳が隣の 1 ラウンドしか見ないと
@@ -619,7 +641,7 @@ bad-materials-type|'materials' が object でない
 bad-units-type|'units' が配列でない
 bad-unit-type|units[0] が object でない
 bad-reviews-type|'reviews' が object でない
-bad-from-round-type|from_round が 1 以上の整数でない
+bad-from-round-type|'from_round' は数で書け
 bad-scalars-type|'scalars' が object でない
 null-scalars|'scalars' が object でない
 unhashable-status|想定外の例外（TypeError）
@@ -752,18 +774,30 @@ expect_output 2 "2 ラウンド連続の残存＝stuck）のに問いの台帳�
     "unit の key が R の名前と同じでも、別の域の問いはそのユニットを指したことにならない" \
     "$PY_BIN" "$RECORD" "$WORK/domain-separation"
 # 台帳を監査する経路は R1 しか無いので、問いが新しく載った周に R1 を持ち越すと監査が走らない。
-expect_output 2 "台帳に未決の問いが新しく載ったのに R1 が carried_over" \
+expect_output 2 "台帳の未決の問いが前ラウンドから変わったのに R1 が carried_over" \
     "問いが載った周に R1 を持ち越した記録は不正" "$PY_BIN" "$RECORD" "$WORK/q-new-r1-carried"
+# **key の新規性だけを見ていたとき素通りした 2 形。** どちらも台帳の中身は動いている。
+expect_output 2 "台帳の未決の問いが前ラウンドから変わったのに R1 が carried_over" \
+    "同じ key のまま中身を総取り替えした周も、R1 を持ち越せない" \
+    "$PY_BIN" "$RECORD" "$WORK/q-swap-r1-carried"
+expect_output 2 "台帳の未決の問いが前ラウンドから変わったのに R1 が carried_over" \
+    "ループが決めた問いが未決に戻った周も、R1 を持ち越せない" \
+    "$PY_BIN" "$RECORD" "$WORK/q-reopen-r1-carried"
 expect_output 1 "[block] 未解消" "同じ形でも R1 を走らせていれば通る（対照）" \
     "$PY_BIN" "$RECORD" "$WORK/q-new-r1-ran"
 expect_output 1 "[block] 未解消" "持ち越した問いだけの周は R1 も持ち越してよい（縛るのは新しく載った問い）" \
     "$PY_BIN" "$RECORD" "$WORK/q-carried-r1-carried"
-expect_output 2 "正規の綴りでない" "大小が違うだけのファイルを黙って捨てない" \
+expect_output 2 "は記録の名前でない" "大小が違うだけのファイルを黙って捨てない" \
     "$PY_BIN" "$RECORD" "$WORK/name-case"
 # 受理は厳しく（ASCII の桁だけ）、見逃しの検知は広く（Unicode の桁も拾う）。入口の片方を
 # 狭めただけだと、欠陥はもう片方の入口へ移動して残る。
-expect_output 2 "正規の綴りでない" "桁の異体字のファイル名も黙って受理せず、黙って捨てもしない" \
+expect_output 2 "は記録の名前でない" "桁の異体字のファイル名も黙って受理せず、黙って捨てもしない" \
     "$PY_BIN" "$RECORD" "$WORK/name-unidigit"
+# **最新ラウンドが消える形。** 欠番検査は 1..max しか見ないので、末尾の欠落は赤くならない。
+expect_output 2 "は記録の名前でない" "正規表現の軸に載らない綴りでも、最新ラウンドを黙って捨てない" \
+    "$PY_BIN" "$RECORD" "$WORK/name-tail"
+expect_output 1 "前ラウンドの記録が無い" "退避先のディレクトリと OS の成果物では鳴らさない（対照）" \
+    "$PY_BIN" "$RECORD" "$WORK/name-ok"
 # 「聞く時」の 3 分岐はどれも通らない周。台帳の数え直しが exit 1 側にも要る。
 expect_output 1 "台帳に未決の問いが 1 件（うち人へ 0 件）" \
     "出どころで手を止めない問いだけが残る周も、台帳が黙って終わらない" \
@@ -810,6 +844,10 @@ expect_output 2 "が空（何を見たかを書け）" "空文字は欠落と分
     "$PY_BIN" "$RECORD" "$WORK/checked-empty"
 expect_output 2 "が空（何を見たかを書け）" "縮退値（false / [] / {}）で明示返答の欄を埋められない" \
     "$PY_BIN" "$RECORD" "$WORK/checked-false"
+# 免除を**型**（整数なら通す）で持っていたとき、文を要求する欄に 0 を書いて全部素通りした。
+# 免除の単位は欄の名前（NUMERIC_FIELDS）で、count / from_round だけが数で埋まる。
+expect_output 2 "が空（何を見たかを書け）" "文を要求する欄に数を書いても「埋まっている」にならない" \
+    "$PY_BIN" "$RECORD" "$WORK/checked-number"
 expect_output 2 "reopen_evidence が無い" "1 ラウンド記録から落としても、台帳は全ラウンドの和なので再審を止める" \
     "$PY_BIN" "$RECORD" "$WORK/ledger-gap"
 expect_output 0 "履歴（round 1〜3" "ディレクトリを渡すと全ラウンドの履歴を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
@@ -1523,7 +1561,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=519
+EXPECTED_CHECKS=524
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

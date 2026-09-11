@@ -222,6 +222,10 @@ NO_OPEN_ORIGIN = ("split", "rule")
 # 台帳から作る集合は全てこれで絞る。「載っている」は「載っていて、かつ未決」でなければ
 # 意味を持たない——resolved を 1 件置くだけで stuck の振り分け要求が永久に黙った（実測）。
 ASKING = ("held", "escalate")
+# 数で埋める欄。**欄の名前で持つ**——「整数なら空でない」と型だけで免除すると、文を要求する
+# 欄に `0` を書けてしまい、`素材 'x' が未実施: 0` のような診断が出る（実測）。`count: 0` は
+# 「見たが 0 件」で正当、`from_round: 0` は範囲外で validate_carry が別の診断を出す。
+NUMERIC_FIELDS = ("count", "from_round")
 
 
 def fail(msg):
@@ -257,19 +261,26 @@ def require_fields(obj, fields, what, why, cond):
     for field in fields:
         if field not in obj:
             fail(f"{what} は {cond} なので '{field}' が要る")
-        # **縮退値（`False` / `[]` / `{}` / `""` / `None`）を「埋まっている」と扱わない。**
+        # **縮退値（`False` / `0` / `[]` / `{}` / `""` / `None`）を「埋まっている」と扱わない。**
         # docstring に「中身は機械が保証しない」と書くのは ④注記で、書いても構造は変わらない。
-        # **整数だけは別**——`from_round: 0` は空ではなく範囲外で、そちらは validate_carry が
-        # 「1 以上の整数でない」と正しく言う（ここで「空」と言うと書き手が探す先を間違える。
-        # 実際に起きた）。`count: 0` は「見たが 0 件」で正当な値なので、同じ理由で通す。
-        if not is_int(obj[field]) and not obj[field]:
+        # 免除は**欄の名前**で持つ（上の NUMERIC_FIELDS）。型で「整数なら通す」にしていたとき、
+        # 文を要求する欄に `0` を書けて全部素通りした（実測: `checked: 0` が通り、`reason: 0` で
+        # 「素材 'x' が未実施: 0」という診断が出た）。**免除の単位を型でなく欄にする。**
+        v = obj[field]
+        if field in NUMERIC_FIELDS:
+            if not is_int(v):
+                fail(f"{what} の '{field}' は数で書け: {v!r}")
+        elif not isinstance(v, (str, list)) or not v:
             fail(f"{what} の '{field}' が空（{why}）")
 
 
 def validate_carry(entry, rec, path, what):
-    fr = entry.get("from_round")
-    if not is_int(fr) or fr < 1:
-        fail(f"{path}: {what} の from_round が 1 以上の整数でない: {fr!r}")
+    # **型は見ない。** `from_round` は NUMERIC_FIELDS なので、ここに来る時点で
+    # require_fields が整数であることを保証している（2 箇所で見ると片方が恒真になる）。
+    # ここが持つのは範囲だけ——1 以上で、今ラウンドより前。
+    fr = entry["from_round"]
+    if fr < 1:
+        fail(f"{path}: {what} の from_round が 1 以上でない: {fr!r}")
     if fr >= rec["round"]:
         fail(f"{path}: {what} の from_round（{fr}）が今ラウンド（{rec['round']}）より前でない")
 
@@ -366,8 +377,8 @@ def validate(rec, path, hint=None):
 
 
 def targets(q):
-    """この問いが指す出どころ全部を (欄名, 値) で返す。**帰属・実在検査・開き禁止の 3 箇所が
-    必ず同じ集合を見る**ための 1 本。以前は 3 箇所が別々に走査していて、`depends` を足した
+    """この問いが指す出どころ全部を **(欄名, 域, 値)** で返す。**帰属・実在検査・開き禁止・
+    stuck の振り分けの 4 箇所が必ず同じ集合を見る**ための 1 本。以前は 3 箇所が別々に走査していて、`depends` を足した
     修正が 2 箇所にしか当たらず、残った 1 箇所（帰属）から同じ逃げ道がそのまま通った——
     しかもその修正は「不変条件を共有する箇所を先に全部挙げた」と書いていた（実測で再現）。
     入口が増えたときに 1 箇所だけ直し忘れる形を、走査を 1 本にして構造で消す。
@@ -499,9 +510,13 @@ def validate_against(rec, prev, carried=None):
     # 持ち越しの連鎖。from_round は「実際に見たラウンド」なので、前ラウンドも持ち越し
     # なら同じ値、前ラウンドで実際に見たなら前ラウンドの番号。未実施・条件外からは
     # 持ち越せない（持ち越しは判定の流用であって、無かった判定は流用できない）。
-    for what, now, before in (
-        *((f"素材 '{n}'", rec["materials"][n], prev["materials"][n]) for n in MATERIALS),
-        *((n, rec["reviews"][n], prev["reviews"][n]) for n in REVIEWS),
+    # **域を持ち回る。** 以前は `what`（診断に出す表示名）を `what in REVIEWS` で判別に使って
+    # いた——素材側だけ `素材 '…'` の接頭辞が付くので偶然当たっていただけで、**俯瞰側の表示を
+    # 整えた瞬間に判別が恒偽になり、全ての俯瞰が素材の規則で検査される**（例外も差分も出ない）。
+    # `targets()` で潰したのと同じ「平坦な文字列を域をまたいで比べる」形が、ここに残っていた。
+    for domain, what, now, before in (
+        *(("material", f"素材 '{n}'", rec["materials"][n], prev["materials"][n]) for n in MATERIALS),
+        *(("review", n, rec["reviews"][n], prev["reviews"][n]) for n in REVIEWS),
     ):
         if now["status"] != "carried_over":
             continue
@@ -512,7 +527,7 @@ def validate_against(rec, prev, carried=None):
                     f"{what} の持ち越しが連鎖していない: 前ラウンドは round "
                     f"{before['from_round']} から、今ラウンドは round {now['from_round']} から"
                 )
-        elif ps in (REVIEW_CARRYABLE if what in REVIEWS else CARRYABLE):
+        elif ps in (REVIEW_CARRYABLE if domain == "review" else CARRYABLE):
             if now["from_round"] != prev["round"]:
                 fail(
                     f"{what} の from_round（{now['from_round']}）が前ラウンド"
@@ -551,16 +566,28 @@ def validate_against(rec, prev, carried=None):
     # **台帳を監査する経路は R1 しか無い。** 再発火条件の正本は手順書 P-R の R1 で、そこに
     # 台帳の条件が無かった理由と実測もあちらが持つ。散文の条件に 1 行足しても読み落としは
     # 誰にも見えないので、機械の側からも縛る。
-    new_q = [
-        q["key"] for q in rec["questions"]
-        if q["status"] in ASKING and q["key"] not in {p["key"] for p in prev["questions"]}
-    ]
-    if new_q and rec["reviews"]["R1"]["status"] == "carried_over":
+    # 見るのは「行が増えたか」でなく「**監査対象が変わったか**」——同じ述語を、票の持ち越しを
+    # 決める定番（Gerrit の copyCondition は `changekind` で中身の変化を見る／GitHub の保護
+    # ブランチは差分を変える push で承認を stale にする）が使っている。key の新規性だけを
+    # 見ていたとき、**同じ key のまま kind / origin / options を総取り替えする周**と、
+    # **resolved を held に戻す周**が、どちらも監査を素通りした（実測）。`reason` は入れない
+    # ——書き足しただけで毎周再発火すると、持ち越しの意味が薄れる。
+    if ledger_shape(rec) != ledger_shape(prev) and rec["reviews"]["R1"]["status"] == "carried_over":
         fail(
-            f"round {rec['round']}: 台帳に未決の問いが新しく載ったのに R1 が carried_over: "
-            f"{'／'.join(new_q)}（台帳を監査するのは R1 だけ。問いが載った周は R1 を走らせろ）"
+            f"round {rec['round']}: 台帳の未決の問いが前ラウンドから変わったのに R1 が "
+            "carried_over（台帳を監査するのは R1 だけ。台帳が動いた周は R1 を走らせろ）"
         )
     return ledger
+
+
+def ledger_shape(rec):
+    """未決の問いの中身（`reason` を除く）。R1 の再発火条件に使う——**中身が同じ周だけが
+    監査を持ち越せる**。`reason` を外すのは、書き足しただけの周で毎回再発火させないため。"""
+    return {
+        (q["key"], q["kind"], q.get("origin"), tuple(q.get("depends", [])),
+         q["status"], tuple(q.get("options", [])))
+        for q in rec["questions"] if q["status"] in ASKING
+    }
 
 
 def question_origins_exist(rec, ledger):
@@ -721,12 +748,16 @@ def stuck_unlisted(rounds):
 def carry_summary(rec):
     """持ち越しの一覧。機械は中身を見ないので、何ラウンド前の判定かを見せるだけ。"""
     out = []
-    for what, entries in (("素材", rec["materials"]), ("俯瞰", rec["reviews"])):
-        for name in MATERIALS if what == "素材" else REVIEWS:
+    # 表示名から域を復元しない（上の validate_against と同じ理由）。名前の並びを域と一緒に持つ。
+    for label, entries, names in (
+        ("素材", rec["materials"], MATERIALS),
+        ("俯瞰", rec["reviews"], REVIEWS),
+    ):
+        for name in names:
             e = entries[name]
             if e["status"] == "carried_over":
                 age = rec["round"] - e["from_round"]
-                out.append(f"{what} {name}: round {e['from_round']} の判定を流用（{age} ラウンド前）")
+                out.append(f"{label} {name}: round {e['from_round']} の判定を流用（{age} ラウンド前）")
     return out
 
 
@@ -757,20 +788,21 @@ def load_dir(path):
     """`round-<N>.json` を番号順に全部読む。**入口をこれ 1 つにした理由は冒頭 docstring。**"""
     found = {}
     for name in sorted(os.listdir(path)):
-        # `\d` は Unicode の桁（`round-\u0661.json` 等）を拾い、`int()` もそれを解釈するので、
-        # **正規でない綴りが黙って受理される**。下の「正規に近い綴りが黙って捨てられる」と
-        # 鏡像の欠陥で、入口の片方だけ塞ぐと必ずもう片方から通る。ASCII の桁に限る。
+        # 受理は厳しく: `\d` は Unicode の桁（`round-\u0661.json` 等）を拾い `int()` も
+        # それを解釈するので、**正規でない綴りが黙って受理される**。ASCII の桁に限る。
         m = re.fullmatch(r"round-([0-9]+)\.json", name)
         if not m:
-            # 0 番とゼロ詰めは明示的に落としているのに、この形だけが素通りしていた
-            # （同じクラスの取りこぼし）。
-            # **受理は厳しく、見逃しの検知は広く。** ここは `\d`（Unicode の桁）のまま——
-            # 上の受理側を ASCII に狭めただけだと、桁の異体字が今度は「そもそも記録でない」
-            # として黙って捨てられる側に移るだけで、欠陥が入口を移動して残る。
-            if re.fullmatch(r"round-\d+\.json", name, re.IGNORECASE):
-                fail(f"{path}: {name} は正規の綴りでない（`round-<N>.json`。N は ASCII の数字。"
-                     "大小や桁の異体字が違うファイルは黙って捨てられ、1 ラウンド書かずに"
-                     "飛ばしたのと同じになる）")
+            # **検知は受理の補集合で持つ。** 「正規名に近い」を正規表現の軸（桁・英字の大小）
+            # で定義していたとき、桁の軸を塞いだら区切り・語・拡張子の軸から同じ逃げ道が
+            # 通った（実測: `round\u20111.json`〈非改行ハイフン〉・`\uff52ound-1.json`・
+            # `round-1.js\u03bfn`〈ギリシャ文字 o〉はどれも黙って捨てられた）。軸を足す形は
+            # 足すたびに残りの軸から通られるので、**受理しなかったものを全部鳴らす**。
+            # 除くのは 2 つだけ——ディレクトリは退避先（`archive-<BASE>`）で、下位は読まない
+            # 規約。ドットで始まるものは OS・道具の成果物で記録ではない。
+            if not os.path.isdir(os.path.join(path, name)) and not name.startswith("."):
+                fail(f"{path}: {name} は記録の名前でない（`round-<N>.json`。N は ASCII の数字）"
+                     "——綴り違いが黙って捨てられると、1 ラウンド書かずに飛ばしたのと同じに"
+                     "なる。記録でないファイルをこのディレクトリに置くな")
             continue
         n = int(m.group(1))
         # 0 番は下の range(1, ...) から外れ、読まれも検証もされずに捨てられる。
