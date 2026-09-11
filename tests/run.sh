@@ -184,17 +184,27 @@ for name, mutate in {
     # 阻害要因ゼロなのに R3 が未実施——P-R を飛ばした形。
     "skip-PR": lambda r: r["reviews"]["R3"].update(status="not_applicable", reason="到達せず"),
     "redesign": lambda r: r["reviews"]["R2"].update(status="redesign-needed", reason="機構の規模が実態に対して大きい"),
-    "premise-invalid": lambda r: r["reviews"]["R2"].update(status="premise-invalid", reason="1 デプロイ 1 リポジトリなので記録する問いが無い"),
-    "unverifiable": lambda r: r["reviews"]["R2"].update(status="unverifiable", reason="目的テキストの出典が無い"),
+    # 人に諮る verdict は台帳に問いとして載っていること（載っていない形は q-review-unlisted）。
+    "premise-invalid": lambda r: (r["reviews"]["R2"].update(status="premise-invalid", reason="1 デプロイ 1 リポジトリなので記録する問いが無い"),
+        r["questions"].append({"key": "解くべき問いが立っているか", "kind": "premise", "origin": "R2",
+                               "status": "held", "reason": "judge が仮定を検算中"})),
+    "unverifiable": lambda r: (r["reviews"]["R2"].update(status="unverifiable", reason="目的テキストの出典が無い"),
+        r["questions"].append({"key": "元の目的をどこから取るか", "kind": "unverifiable", "origin": "R2",
+                               "status": "held", "reason": "出典が無い"})),
     "review-not-run": lambda r: r["reviews"]["R4"].update(status="not_run", reason="時間切れ"),
-    # 前ラウンドの [block] キーがそのまま残る（stuck）。
-    "stuck": lambda r: r["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"}),
+    # 前ラウンドの [block] キーがそのまま残る（stuck）。3 周続くので台帳への記載も要る（無い形は q-stuck-unlisted）。
+    "stuck": lambda r: (r["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"}),
+        r["questions"].append({"key": "分岐の統合が 2 周直しても残る——処方の誤りか設計か", "kind": "stuck",
+                               "origin": templates["round-1"]["units"][0]["key"], "status": "held",
+                               "reason": "2 周連続で残った"})),
     # defer のキーが今ラウンドの記録から消えた——台帳には残ることを出力で知らせる。
     "defer-dropped": lambda r: r["units"].remove(defer_unit(r)),
     # 素材の「人の起動待ち」「やるべきだったが飛ばした」。このループが塞いだと主張する穴
     # （無言の省略を「なし」と誤認する）の当の腕で、記録の実例が 1 件も無かった。
-    "material-awaiting": lambda r: r["materials"]["consistency"].update(
+    "material-awaiting": lambda r: (r["materials"]["consistency"].update(
         status="awaiting_human", reason="grader が権限エラーで起動できなかった"),
+        r["questions"].append({"key": "整合性の grader を誰が起動するか", "kind": "awaiting",
+                               "origin": "consistency", "status": "held", "reason": "権限エラー"})),
     "material-not-run": lambda r: r["materials"]["hygiene"].update(
         status="not_run", reason="時間切れで飛ばした"),
     # 同じ key が 1 ラウンドに 2 つ在ると、履歴も台帳も後勝ちで潰れる。
@@ -203,22 +213,50 @@ for name, mutate in {
     "found-no-units": lambda r: (
         r["materials"]["local_review"].update(
             status="found", count=3, detail="欠陥レビューが 3 件返した"),
-        r["units"].clear()),
+        r["units"].clear(),
+        # units を空にすると、今ラウンドに初出の defer（split の origin）は台帳にも無くなる。
+        # 見たいのは「found なのに units が空」なので、その問いだけ外す（前ラウンドから
+        # 続く fork は defer 台帳に origin が在るので残せる）。
+        r["questions"].__setitem__(slice(None), [q for q in r["questions"] if q["kind"] != "split"])),
 }.items():
     # stuck は round-2 側にも同じ [block] が在ることが前提なので、そこだけ差し替える。
     r2 = json.loads(json.dumps(templates["round-2"]))
     r2["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"})
     write(name, r3(mutate), num=3, prevs={2: r2} if name == "stuck" else None)
 
-# ask_human の印。[block] / do-now には付けられない（人に聞く前に直す義務が消える）。
+# 問いの台帳。split / rule は [block] / do-now の origin に付けられない（人に聞く前に直す義務が
+# 消える）。欄の欠落・出どころの不在・逆向き（人の起動待ちの素材・人に諮る verdict が台帳に
+# 無い）・0.27 までの unit.ask_human も記録の不正。
+def add_q(r, **q):
+    r["questions"].append(q)
+NIT_KEY = next(u["key"] for u in templates["round-2"]["units"] if u["label"] == "nit")
+BK = "src/api/limit.py:apply — 上限が効かない"
 for name, mutate in {
-    "ask-on-block": lambda r: defer_unit(r).update(disposition="do-now", ask_human="split", reason="目的の外"),
-    "ask-bad-value": lambda r: defer_unit(r).update(ask_human="skip"),
-    "ask-without-reason": lambda r: next(u for u in r["units"] if u["label"] == "nit").update(ask_human="rule"),
-    # do-now でなく **label が block** の腕。既存の ask-on-block は suggest/do-now しか通さない。
-    "ask-on-real-block": lambda r: r["units"].append(
-        {"key": "src/api/limit.py:apply — 上限が効かない", "label": "block",
-         "ask_human": "split", "reason": "目的の外"}),
+    "q-split-on-do-now": lambda r: (add_q(r, key="別 PR に積むか", kind="split", origin=defer_unit(r)["key"],
+                                          status="held", reason="目的の外"),
+                                    defer_unit(r).update(disposition="do-now")),
+    # do-now でなく **label が block** の腕。上の q-split-on-do-now は suggest/do-now しか通さない。
+    "q-split-on-block": lambda r: (r["units"].append({"key": BK, "label": "block"}),
+        add_q(r, key="別 PR に積むか", kind="split", origin=BK, status="held", reason="目的の外")),
+    "q-bad-kind": lambda r: add_q(r, key="x", kind="skip", origin=NIT_KEY, status="held", reason="r"),
+    "q-bad-status": lambda r: add_q(r, key="x", kind="rule", origin=NIT_KEY, status="pending", reason="r"),
+    "q-without-reason": lambda r: add_q(r, key="x", kind="rule", origin=NIT_KEY, status="held"),
+    "q-fork-one-option": lambda r: add_q(r, key="x", kind="fork", origin=defer_unit(r)["key"],
+                                         status="held", reason="r", options=["(A) だけ"]),
+    "q-resolved-without-resolution": lambda r: add_q(r, key="x", kind="rule", origin=NIT_KEY,
+                                                     status="resolved", reason="r"),
+    "q-origin-missing": lambda r: add_q(r, key="x", kind="fork", origin="src/none.py — 無い",
+                                        status="held", reason="r", options=["(A) a", "(B) b"]),
+    "q-awaiting-unlisted": lambda r: (r["questions"].clear(),
+        r["materials"]["main_path_observation"].update(status="awaiting_human", reason="実機が要る")),
+    "q-awaiting-origin-clean": lambda r: add_q(r, key="x", kind="awaiting", origin="hygiene", status="held", reason="r"),
+    "q-review-unlisted": lambda r: r["reviews"]["R1"].update(status="unverifiable", reason="出典が無い"),
+    "q-premise-origin-mismatch": lambda r: add_q(r, key="x", kind="premise", origin="R2", status="held", reason="r"),
+    "q-dup-key": lambda r: (add_q(r, key="x", kind="rule", origin=NIT_KEY, status="held", reason="r"),
+                            add_q(r, key="x", kind="rule", origin=NIT_KEY, status="held", reason="r")),
+    "q-legacy-ask-human": lambda r: next(u for u in r["units"] if u["label"] == "nit").update(ask_human="rule", reason="r"),
+    "q-not-list": lambda r: r.update(questions={}),
+    "q-drop": lambda r: r.pop("questions"),
 }.items():
     rec = json.loads(json.dumps(templates["round-2"]))
     mutate(rec)
@@ -247,6 +285,9 @@ def r1_at(n, units):
     r = json.loads(json.dumps(templates["round-1"]))
     r["round"] = n
     r["units"] = units
+    # round-1 の実例が持つ「人の起動待ちの素材と、その問い」は外し、中立な土台にする。
+    r["materials"]["main_path_observation"] = {"status": "clean", "checked": "主経路を 1 回動かした"}
+    r["questions"] = []
     return r
 
 LK = "src/db/pool.py — 接続プールの上限を設定に出す"
@@ -259,8 +300,11 @@ hist("mixed-base", [templates["round-1"], mixed])
 BK = "src/api/limit.py:apply — 上限が効かない"
 hist("block-dropped", [r1_at(1, [{"key": BK, "label": "block"}]), r1_at(2, [])])
 
+QU = {"key": "元の目的をどこから取るか", "kind": "unverifiable", "origin": "R1",
+      "status": "held", "reason": "出典①②③のどれも無い"}
 ch = r1_at(1, [])
 ch["reviews"]["R1"] = {"status": "unverifiable", "reason": "目的テキストの出典が取れない"}
+ch["questions"] = [QU]
 ch2 = r1_at(2, [])
 ch2["reviews"]["R1"] = {"status": "carried_over", "from_round": 1,
                         "reason": "再発火条件に当たらないので round 1 の判定を流用"}
@@ -268,7 +312,35 @@ hist("carry-from-human", [ch, ch2])
 # 正直な書き方＝同じ値をもう一度書く。諮る義務が続いていることが毎ラウンド数えられる。
 ch3 = r1_at(2, [])
 ch3["reviews"]["R1"] = {"status": "unverifiable", "reason": "出典は今ラウンドも取れていない"}
+ch3["questions"] = [QU]
 hist("human-repeat", [ch, ch3])
+
+# 問いの台帳の周またぎ。保留が黙って消える／同じ [block] が 3 周続くのに台帳に無い／
+# 帰属で「聞く時」が出る（保留だけ・仕事が残る・従属・前提不成立の確定・決めた答えは仕事）。
+def with_q(rec, *qs):
+    rec["questions"] = list(qs)
+    return rec
+FQ = {"key": "上限をどこで掛けるか", "kind": "fork", "origin": BK, "status": "held",
+      "reason": "共有面に及ぶ", "options": ["(A) 入口 → 全経路に効く", "(B) 各経路 → 漏れる"]}
+BK2 = "src/api/sort.py:order — 並び順が指定を無視する"
+hist("q-dropped", [with_q(r1_at(1, [{"key": BK, "label": "block"}]), FQ),
+                   r1_at(2, [{"key": BK, "label": "block"}])])
+hist("q-stuck-unlisted", [r1_at(n, [{"key": BK, "label": "block"}]) for n in (1, 2, 3)])
+hist("q-stuck-listed", [r1_at(1, [{"key": BK, "label": "block"}]),
+                        r1_at(2, [{"key": BK, "label": "block"}]),
+                        with_q(r1_at(3, [{"key": BK, "label": "block"}]), FQ)])
+hist("q-mixed", [with_q(r1_at(1, [{"key": BK, "label": "block"}, {"key": BK2, "label": "block"}]), FQ)])
+hist("q-depends", [with_q(r1_at(1, [{"key": BK, "label": "block"}, {"key": BK2, "label": "block"}]),
+                          dict(FQ, depends=[BK2]))])
+pe = r1_at(1, [{"key": BK2, "label": "block"}])
+pe["reviews"]["R2"] = {"status": "premise-invalid", "reason": "1 デプロイ＝1 リポジトリなら識別子は要らない"}
+hist("q-premise-escalate", [with_q(pe, {"key": "解くべき問いが立っているか", "kind": "premise", "origin": "R2",
+                                        "status": "escalate", "reason": "judge が仮定を実態で確かめた——真"})])
+ra = r1_at(1, [])
+ra["materials"]["main_path_observation"] = {"status": "awaiting_human", "reason": "dev サーバが起動しない"}
+hist("q-resolved-is-work", [with_q(ra, {"key": "主経路を誰がどこで動かすか", "kind": "awaiting",
+                                        "origin": "main_path_observation", "status": "resolved",
+                                        "reason": "起動できなかった", "resolution": "テスト用設定で起動できる"})])
 
 hist("round-zero", [r1_at(1, [])])
 hist("round-dup", [r1_at(1, []), r1_at(2, [])])
@@ -314,8 +386,11 @@ write_broken_records || { echo "  FAIL 壊した記録を作れない"; fail=1; 
 expect_output 1 "前ラウンドの記録が無い" "round-1 だけの記録は、比較の欠落を阻害要因に数える" \
     "$PY_BIN" "$RECORD" "$WORK/tmpl-1"
 # 連続 2 ラウンドは道具が数える。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
-expect_output 1 "前ラウンドに阻害要因が 3 件あった" "解消した直後のラウンドは連続 2 ラウンドの 1 ラウンド目" \
+expect_output 1 "前ラウンドに阻害要因が 4 件あった" "解消した直後のラウンドは連続 2 ラウンドの 1 ラウンド目" \
     "$PY_BIN" "$RECORD" "$WORK/tmpl-12"
+# 人に聞く時は機械が帰属で決める。round-1 は [block] 2・do-now 1 が仕事で、人の起動待ちの素材 1 つが保留の問い。
+expect_output 1 "保留の問いに帰属する阻害要因 1 件は聞くのを待て——帰属しない 3 件を先に直せ" \
+    "仕事が残るうちは、保留の問いがあっても聞かない" "$PY_BIN" "$RECORD" "$WORK/tmpl-1"
 expect_output 1 "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$WORK/tmpl-12"
 expect_output 0 "連続 2 ラウンド" "2 ラウンド続けて阻害なしなら exit 0" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$WORK/hist"
@@ -382,6 +457,7 @@ done <<'CASES'
 1|unverifiable|収束を宣言せずユーザーに諮れ
 1|review-not-run|R4 が not_run
 0|defer-dropped|台帳には残る
+0|defer-dropped|[人へ] fork
 1|material-awaiting|素材 'consistency' が人の起動待ち
 1|material-not-run|素材 'hygiene' が未実施
 2|dup-key|突合の識別子なので 1 ラウンドに 1 つ
@@ -390,15 +466,49 @@ CASES
 expect_output 1 "残存——過去のラウンドにも在った" "同じ [block] キーが 2 ラウンド残れば残存の印を出す" \
     "$PY_BIN" "$RECORD" "$WORK/stuck"
 
-# ask_human と履歴。
-for m in ask-on-block ask-on-real-block ask-bad-value ask-without-reason; do
-    case $m in
-        ask-on-block|ask-on-real-block) msg="ask_human を付けられない" ;;
-        ask-bad-value) msg="ask_human が不正" ;;
-        ask-without-reason) msg="ask_human=rule に reason が無い" ;;
-    esac
-    expect_output 2 "$msg" "ask_human の印: $m" "$PY_BIN" "$RECORD" "$WORK/$m"
-done
+# 問いの台帳（1 ラウンド内）。
+while IFS='|' read -r m msg; do
+    [ -n "$m" ] || continue
+    expect_output 2 "$msg" "問いの台帳: $m" "$PY_BIN" "$RECORD" "$WORK/$m"
+done <<'CASES'
+q-split-on-do-now|split の origin が [block] / do-now
+q-split-on-block|split の origin が [block] / do-now
+q-bad-kind|kind が不正
+q-bad-status|status が不正
+q-without-reason|'reason' が要る
+q-fork-one-option|options は選択肢 2 つ以上の配列
+q-resolved-without-resolution|'resolution' が要る
+q-origin-missing|origin が今ラウンドの units にも defer 台帳にも無い
+q-awaiting-unlisted|素材 'main_path_observation' が awaiting_human なのに問いの台帳に無い
+q-awaiting-origin-clean|awaiting の origin 'hygiene' が awaiting_human でない
+q-review-unlisted|R1 が unverifiable なのに問いの台帳に無い
+q-premise-origin-mismatch|premise の origin R2 が premise-invalid でない
+q-dup-key|の key が重複: x
+q-legacy-ask-human|人に聞く候補は questions（問いの台帳）に
+q-not-list|'questions' が配列でない
+q-drop|必須の欄 'questions' が無い
+CASES
+# 問いの台帳（周またぎ）と、人に聞く時の判定。
+expect_output 2 "前ラウンドの問い（held）が今ラウンドの台帳に無い" "保留した問いは黙って落とせない" \
+    "$PY_BIN" "$RECORD" "$WORK/q-dropped"
+expect_output 2 "2 ラウンド連続の残存＝stuck）のに問いの台帳に無い" "同じ [block] が 3 周続けば台帳への記載を要求する" \
+    "$PY_BIN" "$RECORD" "$WORK/q-stuck-unlisted"
+expect_output 1 "残る阻害要因は保留の問いに帰属するものだけ（1 件）" "残る阻害が保留の問いだけなら「聞く時」を出す" \
+    "$PY_BIN" "$RECORD" "$WORK/q-stuck-listed"
+expect_output 1 "（保留の問いに帰属——答えを待っている）" "帰属する阻害要因の行に印が付く" \
+    "$PY_BIN" "$RECORD" "$WORK/q-stuck-listed"
+expect_output 1 "帰属しない 1 件を先に直せ" "帰属しない阻害が残るうちは聞かない" \
+    "$PY_BIN" "$RECORD" "$WORK/q-mixed"
+expect_output 1 "残る阻害要因は保留の問いに帰属するものだけ（2 件）" "depends に挙げたユニットの阻害も問いに帰属する" \
+    "$PY_BIN" "$RECORD" "$WORK/q-depends"
+expect_output 1 "前提不成立が再審で確定" "premise の escalate は他の阻害の帰属を問わず「聞く時」" \
+    "$PY_BIN" "$RECORD" "$WORK/q-premise-escalate"
+if "$PY_BIN" "$RECORD" "$WORK/q-resolved-is-work" 2>&1 | grep -q "ここで止めて聞け"; then
+    echo "  FAIL ループが決めた問い（resolved）の阻害要因を「聞く時」に数えている"; fail=1
+else
+    echo "  ok   ループが決めた問い（resolved）の阻害要因は仕事であって、聞く時ではない"
+fi
+ran=$((ran + 1))
 # 前のレビューの記録が同じディレクトリに残っている形。手順書は消すなと言っているので、
 # 止まるだけでなく退避先を案内できていることまで縛る。
 expect_output 2 "混ざっていないか" "別レビューの記録が混ざったら、退避の案内を出して止まる" \
@@ -435,7 +545,9 @@ expect_output 2 "が空（何を見たかを書け）" "空文字は欠落と分
 expect_output 2 "reopen_evidence が無い" "1 ラウンド記録から落としても、台帳は全ラウンドの和なので再審を止める" \
     "$PY_BIN" "$RECORD" "$WORK/ledger-gap"
 expect_output 0 "履歴（round 1〜3" "ディレクトリを渡すと全ラウンドの履歴を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
-expect_output 0 "人に聞く印" "ask_human の unit は阻害要因にせず、人に聞く印として出す" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 0 "問いの台帳（人に聞く候補。載せた周には聞かない" "台帳の問いは阻害要因にせず、人に聞く候補として出す" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 0 "r1:held(awaiting) → r2:resolved(awaiting) → r3:—" "問いの推移を履歴に出す（決めた問いは次の周から消えてよい）" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 0 "問いの台帳の件数（保留・人へ・ループが決めた）: 1・0・0 → 1・0・1 → 1・1・0" "台帳の件数の推移を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 0 "要対応（[block]＋do-now）の件数: 3 → 0 → 0" "要対応の件数の推移を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
 expect_output 2 "round-2.json が無い" "連番に穴があれば履歴を出さずに落ちる" "$PY_BIN" "$RECORD" "$WORK/hist-gap"
 expect_output 0 "r1:block → r2:— → r3:nit（消えて 1 回戻った）" "直したはずのキーが戻れば履歴に印を付ける" \
@@ -853,6 +965,28 @@ assert '急ぐものと後でよいものを分け、件数を先に言え' in t
 assert '内部の語彙を使わずに言えないなら、まだ問いになっていない' in t, '内部語彙の禁止が無い'
 assert 'cold-reader' in t and '人に聞くところの本文だけ' in t, '出す前に文脈ゼロの読み手に当てる検査が無い'
 print('ok')" "$ROOT/commands/review-loop.md"
+# 人に聞く候補を立った周に止めて聞くと、次の周の目が解けた問いで人を止める（実測: 前回の
+# レビューで岐路として立った 2 件は、どちらも後の周で選択肢の外の零処方で消えた）。台帳に
+# 載せて次の周の judge に再審させ、聞く時は機械の帰属で決める。この規定が落ちると、writer が
+# 「もう聞くしかない」と決めてループを止める形に戻る。
+expect_output 0 "ok" "人に聞く候補を立った周に聞かず、台帳に載せて次の周の judge に再審させる規定が手順書に在る" "$PY_BIN" -c "
+import sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+assert '問いの台帳の再審' in t, '保留した問いを次の周の judge が再審する段が無い'
+assert '答え無しに進める仕事' in t, '人に聞く時を機械の帰属で決める規定が無い'
+assert '決定を待て' not in t, '岐路で止めて決定を待つ古い文面が残っている'
+assert 'ユーザーに判断を仰げ' not in t, '停止条件が「立った周に聞く」形のまま'
+assert 'ループが自分で決めたこと' in t, 'ループが決めた問いを人が覆せる形で見せる規定が無い'
+assert '台帳全体を並べて枝同士を見ろ' in t, '問い同士のシナジー（横断の突合）を見る段が無い'
+assert 'ask_human' not in t, '0.27 までの unit.ask_human が手順書に残っている'
+print('ok')" "$ROOT/commands/review-loop.md"
+expect_output 0 "ok" "README と customize が、問いの台帳（立った周に聞かない）を説明している" "$PY_BIN" -c "
+import sys, pathlib
+for f in sys.argv[1:]:
+    t = pathlib.Path(f).read_text(encoding='utf-8')
+    assert '問いの台帳' in t, f + ' が問いの台帳を説明していない'
+    assert 'ask_human' not in t, f + ' に 0.27 までの ask_human が残っている'
+print('ok')" "$ROOT/README.md" "$ROOT/docs/customize.md"
 # R1 の前段は、既に依存に入っている comment-analyzer に寄せた。呼び出し時に足す 3 つが
 # 落ちると、削除の提案が意見のままになり（在り処を名指ししない）、迷ったときに残す側へ倒れる
 # （残す判断に義務が無い）。自作の剥がす仕掛けに戻っていないことも同時に縛る。
@@ -1104,7 +1238,9 @@ PY
 # この柵は「削った本人が数字も一緒に下げれば無音で通る」形なので、下げた理由と内訳をここに残さないと、
 # 次に読む人が正当な引き下げと空振りを区別できない（内訳は数え直せる形で書くこと。前は
 # 「43 件と 4 件」と書いていて、実測の 37 件と合わなかった）。
-EXPECTED_MIN=447
+# 447 → 473 に上げた。問いの台帳（questions）の検査面を足した分——1 ラウンド内 16 件・周またぎと
+# 帰属 8 件・雛形の履歴 3 件・手順書と README の柵 2 件・既存の期待の差し替えで差し引き +26。
+EXPECTED_MIN=473
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

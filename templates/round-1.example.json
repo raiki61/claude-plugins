@@ -58,8 +58,8 @@
       "checked": "外部 API のフェイク応答を、実 API から取った 1 件と突合。キー名・型・null の入り方が一致"
     },
     "main_path_observation": {
-      "status": "clean",
-      "checked": "ローカルの dev サーバで検索から結果表示までを 1 回実行し、レスポンス本文と描画された件数を観測（テストの緑ではない）"
+      "status": "awaiting_human",
+      "reason": "手元の dev サーバは社内の認証基盤に繋がないと起動せず、この環境からは繋げない。検索から結果表示までの経路を動かせていない（テストの緑は観測ではない）"
     },
     "provenance": {
       "status": "clean",
@@ -106,5 +106,14 @@
       "status": "not_applicable",
       "reason": "[block] 2 件が残り P-R に到達していない"
     }
-  }
+  },
+  "questions": [
+    {
+      "key": "検索から結果表示までの主経路を、誰がどこで動かすか（手元の dev サーバは社内の認証基盤に繋がず起動しない）",
+      "kind": "awaiting",
+      "origin": "main_path_observation",
+      "status": "held",
+      "reason": "P1 の主経路の実行観測で dev サーバが起動できなかった。載せた周には聞かず、次の周の judge が「動かす手段が本当に無いか」を再審する"
+    }
+  ]
 }

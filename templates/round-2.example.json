@@ -54,7 +54,7 @@
     },
     "main_path_observation": {
       "status": "clean",
-      "checked": "i18n 経由に変えた表示経路を再度 1 回実行し、翻訳済みの文字列が描画されたことを観測"
+      "checked": "round 1 で動かせなかった経路を、README にあった認証なしのテスト用設定（config/dev.local.example）で dev サーバを起動して 1 回実行し、i18n 経由に変えた表示経路で翻訳済みの文字列が描画されたことを観測"
     },
     "provenance": {
       "status": "carried_over",
@@ -71,7 +71,7 @@
       "key": "src/api/search.py — クエリ組み立てをキャッシュ層に寄せる",
       "label": "suggest",
       "disposition": "defer",
-      "reason": "未解決の設計判断——キャッシュ層の導入範囲が別 PR で検討中で、そちらの結論に依存する"
+      "reason": "未解決の設計判断——キャッシュ層の導入範囲が別 PR #230 で検討中で、そちらの結論に依存する（問いの台帳の fork）"
     },
     {
       "key": "src/ui/panel.tsx — 変数名 res を response に",
@@ -99,5 +99,26 @@
       "status": "pass",
       "reason": "検索 API のレート制限は上流クライアントが持つ。PII の外部送信なし。BASE 能力インベントリ: 消えた能力なし（明示返答）"
     }
-  }
+  },
+  "questions": [
+    {
+      "key": "検索から結果表示までの主経路を、誰がどこで動かすか（手元の dev サーバは社内の認証基盤に繋がず起動しない）",
+      "kind": "awaiting",
+      "origin": "main_path_observation",
+      "status": "resolved",
+      "reason": "round 1 の主経路の実行観測で dev サーバが起動できなかった",
+      "resolution": "新しい context の judge が README の開発手順に認証なしのテスト用設定（config/dev.local.example）を見つけた。writer がそれで dev サーバを起動し主経路を 1 回観測（素材 main_path_observation）。人に聞く必要は無かった"
+    },
+    {
+      "key": "クエリ組み立てをキャッシュ層に寄せるか（キャッシュ層の導入範囲は別 PR #230 で検討中）",
+      "kind": "fork",
+      "origin": "src/api/search.py — クエリ組み立てをキャッシュ層に寄せる",
+      "status": "held",
+      "reason": "処方が共有面（キャッシュ層）の拡大に及び、その範囲を別 PR #230 が検討中。零処方（寄せない）は #230 の結論次第で作り直しになるので落ちない",
+      "options": [
+        "(A) #230 の結論を待ち、本 PR は現状の組み立てのまま閉じる → 本 PR は今のまま収束できる。#230 が導入範囲を広げれば追従の小 PR が 1 本要る",
+        "(B) 本 PR で先にキャッシュ層へ寄せる → #230 と同じ関数を書き換えて merge 衝突になり、#230 の設計判断を本 PR が先取りする"
+      ]
+    }
+  ]
 }
