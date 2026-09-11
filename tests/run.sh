@@ -767,6 +767,34 @@ assert '不変条件を共有する箇所を先に全部挙げ' in t, '閉鎖の
 assert '条件の腕ごとに 1 つずつ' in t, 'ゲートの赤の確認が腕ごとを要求していない'
 assert '退行を 1 つ注入して' not in t, '古い「退行を 1 つ」の文面が残っている'
 print('ok')" "$ROOT/commands/review-loop.md"
+# 入口の説明（README）と手順書がずれると、読者はもう無い検証を信じたまま使う。実測: 手順書を
+# 差し替えたのに README だけ旧方式の現在形（「剥がした写しを精読させ、削る」）で残っていた——
+# 柵が手順書にしか掛かっておらず、README は素通りだった。
+expect_output 0 "ok" "README の入口の説明が、今の前段（名指しさせる形）と揃っている" "$PY_BIN" -c "
+import sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+assert '剥がした写しを精読' not in t, 'README が落とした仕掛けを現在形で説明している'
+assert '同じ内容がどこにあるかを名指しさせ' in t, 'README が今の前段を説明していない'
+print('ok')" "$ROOT/README.md"
+# 前段が取れないと R1 の verdict ごと not_run に倒す形は、not_run が阻害要因なので「安全側に
+# 倒したつもりが収束不能」になる（実測）。前段の仕掛けを差し替えたときにこの規定も一緒に落ちた——
+# 仕掛けが変わっても壊れ方は同じなので、一般の形で縛り直す。
+expect_output 0 "ok" "前段が取れなくても R1 の verdict までは倒さない規定が在る" "$PY_BIN" -c "
+import sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+assert 'verdict まで \`not_run\` に倒すな' in t, '前段の失敗で verdict ごと倒す形に戻っている'
+assert '収束できなかった' in t, '倒すと収束不能になる実測が落ちている'
+print('ok')" "$ROOT/commands/review-loop.md"
+# 「差分だけを見るな」は依頼者の逐語（「差分にしか触れないのはダメ」）に対する規定で、0.22.0 まで
+# R1 前段に在った。自作の仕掛けを消したときに一文ごと落ちた——**視野を狭めるなと書いた同じ差分で、
+# 視野を狭める削除をしていた**。落ちても何も赤くならなかったので、ここで縛る。
+expect_output 0 "ok" "対象差分が視野の線でないこと（差分だけを貼るな）が手順書に在る" "$PY_BIN" -c "
+import sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+assert '「どこまで見るか」の線ではない' in t, '対象差分を視野の線と読める状態に戻っている'
+assert '差分だけを貼って済ませるな' in t, 'リポジトリを読める役に差分だけを渡す禁止が無い'
+assert '理解に要る限り依存先・近傍・呼び元まで読ませろ' in t, '差分の外まで読ませる指示が無い'
+print('ok')" "$ROOT/commands/review-loop.md"
 # 集める側で範囲を切ると、切った外は判定役の目に一度も入らない。実測: 「import している依存に
 # 限れ」と書いていたため、自分で依存に宣言していた役が集合の外に落ち、3 ラウンド続けて
 # 「再発明は該当なし」が返った。柵を動かすのでなく、柵をやめて範囲の申告に替えたことを縛る。
@@ -1039,7 +1067,7 @@ PY
 # この柵は「削った本人が数字も一緒に下げれば無音で通る」形なので、下げた理由と内訳をここに残さないと、
 # 次に読む人が正当な引き下げと空振りを区別できない（内訳は数え直せる形で書くこと。前は
 # 「43 件と 4 件」と書いていて、実測の 37 件と合わなかった）。
-EXPECTED_MIN=441
+EXPECTED_MIN=444
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
