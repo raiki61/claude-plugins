@@ -72,6 +72,7 @@ git / python3 / bash だけ」「セットアップは要らない」と正面�
 あちらの検証をハーネスが持っているため。
 """
 
+import collections
 import json
 import os
 import re
@@ -89,6 +90,11 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError, OSError):
         pass
+
+def fail(msg):
+    print(f"記録が不正: {msg}", file=sys.stderr)
+    sys.exit(2)
+
 
 # 明示返答を要求する素材。ここが正本で、手順書は列挙を持たない。
 # **P1 の観点だけでなく、P0 の各段のうち他に検査経路を持たないものも含める**——
@@ -115,50 +121,66 @@ MATERIALS = (
 )
 
 # 素材の状態と、その状態で追加に要求する欄。
-STATUS = {
-    "found": ("count", "detail"),
-    "clean": ("checked",),  # 今ラウンドに見たが無かった（何を見たかを要求する）
+# **属性は行に持つ。** 以前は「収束を妨げるか」「持ち越しの元になれるか」「どの俯瞰で使えるか」を
+# 表の外の 5 本のリストで持っていた。**リストへの追記を忘れると、その状態は黙って緩む側に倒れる**
+# ——実測: 状態を 1 つ足して「妨げる」リストへの追記だけ忘れた版で、記録に「主経路は外部都合で
+# 動かせない」と書いてあるのに「阻害要因は無い」と出て exit 0 になり、検査 529 件も全部通った。
+# 行に持てば、**属性を書き忘れた時点で namedtuple の生成が落ちる**（起動時に必ず落ちるので、
+# 記録がその状態を使うまで待たない）。同じ形の直しは問いの種類の表で 1 度効いている。
+Rule = collections.namedtuple("Rule", "fields blocks carryable")
+
+
+def _rows(what, cls, rows):
+    """状態の表を組む。**属性の書き忘れをここで落とす。** 素の namedtuple で組むと、
+    書き忘れは TypeError になるが**末尾の例外境界より前（インポート時）**なので未処理例外の
+    exit 1 になり、「阻害要因あり」と区別が付かない——契約の 3 値が 1 つ潰れる。"""
+    out = {}
+    for name, args in rows.items():
+        try:
+            out[name] = cls(*args)
+        except TypeError as e:
+            fail(f"{what} の '{name}' の行が不完全（属性の書き忘れ）: {e}")
+    return out
+# 「やらなかった」を 3 値に割ってあるのが要点——散文だと awaiting_human（手順どおりの停止）と
+# not_run（逸脱）が同じ「未実施」に潰れ、さらに not_applicable にまで化ける。
+# not_applicable は持ち越しでなく not_applicable と書く（条件に当たらないのは今ラウンドの
+# 事実で、前ラウンドの判定の流用ではない）。
+STATUS = _rows("素材の状態", Rule, {
+    "found": (("count", "detail"), False, True),
+    # 今ラウンドに見たが無かった（何を見たかを要求する）。
+    "clean": (("checked",), False, True),
     # 前ラウンドの判定を流用した。**`clean` と分ける**——`clean` は「今回見た」で、
     # 持ち越しを `clean` に入れると最後に実際に見たラウンドが誰にも見えなくなる
-    # （実例: 持ち越しを `clean` で書いた記録が 3 素材あった）。`from_round` は実際に
-    # 見たラウンドで、持ち越しが続いても動かない（連鎖は下の突合で検査する）。
-    "carried_over": ("from_round", "reason"),
-    "not_applicable": ("reason",),
-    "awaiting_human": ("reason",),  # 人の起動待ちで止まっている
-    "not_run": ("reason",),  # やるべきだったが飛ばした
-}
+    # （実例: 持ち越しを `clean` で書いた記録が 3 素材あった）。
+    "carried_over": (("from_round", "reason"), False, True),
+    "not_applicable": (("reason",), False, False),
+    "awaiting_human": (("reason",), True, False),  # 人の起動待ちで止まっている
+    "not_run": (("reason",), True, False),  # やるべきだったが飛ばした
+})
 
-# 収束を妨げる状態。**「やらなかった」を 3 値に割ってあるのが要点**——散文だと
-# awaiting_human（手順どおりの停止）と not_run（逸脱）が同じ「未実施」に潰れ、
-# さらに not_applicable にまで化ける。潰すと報告上で見分けられなくなる。
-BLOCKING = ("awaiting_human", "not_run")
-
-# 持ち越しの元になれる状態。not_applicable は持ち越しでなく not_applicable と書く
-# （条件に当たらないのは今ラウンドの事実で、前ラウンドの判定の流用ではない）。
-CARRYABLE = ("found", "clean", "carried_over")
-
-# P-R の俯瞰。収束条件の半分（R1〜R4 が全て pass）がここに載る。以前は「人が見る」と
-# して記録の外に置いていたが、それは手順書自身が禁じる形——書いてあるだけの約束は
-# writer が省略しても誰も気づかない——だった。手順書の P-R が定義する語彙に、素材と
-# 同じ「やらなかった」の区別を足してある。
+# P-R の俯瞰。収束条件の半分がここに載る。以前は「人が見る」として記録の外に置いていたが、
+# それは手順書自身が禁じる形——書いてあるだけの約束は writer が省略しても誰も気づかない。
 REVIEWS = ("R1", "R2", "R3", "R4")
-REVIEW_STATUS = {
-    "pass": ("reason",),
-    "redesign-needed": ("reason",),
-    "unverifiable": ("reason",),  # 独立に確かめられない——収束でも再設計でもなく人へ
-    "premise-invalid": ("reason",),  # R2 だけ。解くべき問いが立っていない——judge が根拠を検算してから人へ
-    "carried_over": ("from_round", "reason"),  # R1 / R2 だけ。再発火条件に当たらない
-    "not_applicable": ("reason",),  # R3 / R4 だけ。[block] が残り P-R に到達していない
-    "not_run": ("reason",),  # やるべきだったが飛ばした
-}
-# R1 / R2 は第 1 ラウンドで必ず走り、以降は再発火条件で回す（手順書 P4）。R3 / R4 は
-# P-R でのみ走る。どちらも「条件に当たらない」の意味が違うので、値の許可を役ごとに絞る。
-STATUS_ONLY_FOR = {
-    "premise-invalid": ("R2",),
-    "carried_over": ("R1", "R2"),
-    "not_applicable": ("R3", "R4"),
-}
-REVIEW_BLOCKING = ("redesign-needed", "not_run")
+# `only_for` は「この判定を使える俯瞰」。R1 / R2 は第 1 ラウンドで必ず走り以降は再発火条件で
+# 回る、R3 / R4 は P-R でのみ走る——「条件に当たらない」の意味が役ごとに違うので値を絞る。
+RRule = collections.namedtuple("RRule", "fields blocks carryable only_for")
+# **`carryable` に `unverifiable` / `premise-invalid` を入れるな**——blockers() はその回の
+# status しか見ないので、1 度持ち越した時点で人に諮る義務が阻害要因から消え、2 ラウンド目に
+# exit 0 が出る（実測: round 1 を unverifiable、round 2・3 を carried_over(from_round=1) にした
+# 記録で「阻害要因は、今ラウンドにも前ラウンドにも無い」）。諮る義務が続く限り、同じ値を
+# そのラウンドにもう一度書けばよい（それが「今も諮っている」の正直な記録である）。
+REVIEW_STATUS = _rows("俯瞰の判定", RRule, {
+    "pass": (("reason",), False, True, REVIEWS),
+    "redesign-needed": (("reason",), True, False, REVIEWS),
+    # 独立に確かめられない——収束でも再設計でもなく人へ。
+    "unverifiable": (("reason",), True, False, REVIEWS),
+    # R2 だけ。解くべき問いが立っていない——judge が根拠を検算してから人へ。
+    "premise-invalid": (("reason",), True, False, ("R2",)),
+    "carried_over": (("from_round", "reason"), False, True, ("R1", "R2")),
+    # R3 / R4 だけ。[block] が残り P-R に到達していない。
+    "not_applicable": (("reason",), False, False, ("R3", "R4")),
+    "not_run": (("reason",), True, False, REVIEWS),  # やるべきだったが飛ばした
+})
 # 収束を宣言せずユーザーに諮る値 → それを載せる台帳の種類。同じ対応が集合・順方向・逆方向の
 # 3 表現に散っていると、逆向きだけ直し忘れたときに落ちない穴になる（表 1 つに畳む）。
 KIND_FOR_REVIEW_STATUS = {"unverifiable": "unverifiable", "premise-invalid": "premise"}
@@ -167,16 +189,11 @@ REVIEW_STATUS_FOR_KIND = {k: s for s, k in KIND_FOR_REVIEW_STATUS.items()}
 # 潰れた側の status は台帳の縛りから外れ、しかも何も鳴らない。生成の直後に長さで落とす。
 assert len(REVIEW_STATUS_FOR_KIND) == len(KIND_FOR_REVIEW_STATUS), \
     "KIND_FOR_REVIEW_STATUS の値が重複している（逆引きが後勝ちで潰れる）"
-# 阻害要因として数える（exit 1）が、見出しを分ける。
+# 阻害要因として数える（exit 1）が、見出しを分ける。上の表で blocks=True になっていることが
+# 前提で、両方が要る——blocks が行を出し、ここが見出しを選ぶ。
 REVIEW_TO_HUMAN = tuple(KIND_FOR_REVIEW_STATUS)
-# 俯瞰（R1〜R4）で持ち越しの元になれる値。素材用の CARRYABLE を流用すると、found / clean は
-# 俯瞰に存在しないので到達不能な条件になる。**REVIEW_TO_HUMAN を入れるな**——blockers() は
-# その回の status しか見ないので、`unverifiable` を 1 度持ち越した時点で人に諮る義務が
-# 阻害要因から消え、2 ラウンド目に exit 0 が出る（実測: round 1 を unverifiable、round 2・3 を
-# carried_over(from_round=1) にした記録で「阻害要因は、今ラウンドにも前ラウンドにも無い」）。
-# 素材側が CARRYABLE から BLOCKING を外しているのと同じ対称性。諮る義務が続く限り、
-# 同じ値をそのラウンドにもう一度書けばよい（それが「今も諮っている」の正直な記録である）。
-REVIEW_CARRYABLE = ("pass", "carried_over")
+assert all(REVIEW_STATUS[st].blocks for st in REVIEW_TO_HUMAN), \
+    "人に諮る値が blocks=False になっている（阻害要因の行が出ない）"
 
 # nit / question / info は**意図的に**阻害要因にしない。ここを塞ぐと、受容して
 # 再修正を止めるという連鎖の断ち方が使えなくなる。
@@ -256,11 +273,6 @@ TRACKED = ("held", "escalate", "decided")
 # 欄に `0` を書けてしまい、`素材 'x' が未実施: 0` のような診断が出る（実測）。`count: 0` は
 # 「見たが 0 件」で正当、`from_round: 0` は範囲外で validate_carry が別の診断を出す。
 NUMERIC_FIELDS = ("count", "from_round")
-
-
-def fail(msg):
-    print(f"記録が不正: {msg}", file=sys.stderr)
-    sys.exit(2)
 
 
 def load(path):
@@ -357,7 +369,7 @@ def validate(rec, path, hint=None):
             fail(
                 f"{path}: 素材 '{name}' の status が不正: {status!r}（{'/'.join(STATUS)}）"
             )
-        require_fields(m, STATUS[status], f"{path}: 素材 '{name}'",
+        require_fields(m, STATUS[status].fields, f"{path}: 素材 '{name}'",
                        "何を見たかを書け", f"status={status}")
         if status == "carried_over":
             validate_carry(m, rec, path, f"素材 '{name}'")
@@ -371,12 +383,12 @@ def validate(rec, path, hint=None):
             fail(
                 f"{path}: {name} の status が不正: {status!r}（{'/'.join(REVIEW_STATUS)}）"
             )
-        allowed = STATUS_ONLY_FOR.get(status)
-        if allowed and name not in allowed:
+        allowed = REVIEW_STATUS[status].only_for
+        if name not in allowed:
             fail(
                 f"{path}: {name} は {status} にできない（許されるのは {'/'.join(allowed)}）"
             )
-        require_fields(r, REVIEW_STATUS[status], f"{path}: {name}",
+        require_fields(r, REVIEW_STATUS[status].fields, f"{path}: {name}",
                        "何を見たかを書け", f"status={status}")
         if status == "carried_over":
             validate_carry(r, rec, path, name)
@@ -586,7 +598,7 @@ def validate_against(rec, prev, carried=None):
                     f"round {rec['round']}: {what} の持ち越しが連鎖していない: 前ラウンドは "
                     f"round {before['from_round']} から、今ラウンドは round {now['from_round']} から"
                 )
-        elif ps in (REVIEW_CARRYABLE if domain == "review" else CARRYABLE):
+        elif (REVIEW_STATUS[ps].carryable if domain == "review" else STATUS[ps].carryable):
             if now["from_round"] != prev["round"]:
                 fail(
                     f"round {rec['round']}: {what} の from_round（{now['from_round']}）が前ラウンド"
@@ -719,7 +731,7 @@ def blockers(rec, prev=None, ledger=None, prev_blocks=None):
 
     for name in MATERIALS:
         m = rec["materials"][name]
-        if m["status"] in BLOCKING:
+        if STATUS[m["status"]].blocks:
             label = "人の起動待ち" if m["status"] == "awaiting_human" else "未実施"
             out.append(_row(f"素材 '{name}' が{label}: {m['reason']}",
                             ("material", name), asked, fresh, note_fresh))
@@ -760,9 +772,11 @@ def blockers(rec, prev=None, ledger=None, prev_blocks=None):
 
     for name in REVIEWS:
         r = rec["reviews"][name]
-        if r["status"] in REVIEW_BLOCKING:
+        if not REVIEW_STATUS[r["status"]].blocks:
+            continue
+        if r["status"] not in REVIEW_TO_HUMAN:
             out.append((f"{name} が {r['status']}: {r['reason']}", False))
-        elif r["status"] in REVIEW_TO_HUMAN:
+        else:
             out.append(_row(
                 f"{name} が {r['status']}（収束を宣言せずユーザーに諮れ）: {r['reason']}",
                 ("review", name), asked, fresh, note_fresh,
