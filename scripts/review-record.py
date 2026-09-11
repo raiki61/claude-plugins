@@ -211,11 +211,21 @@ QUESTION_KINDS = {
     "awaiting": ("material", ()),
 }
 ORIGIN_DOMAINS = ("unit", "material", "review", "none")
+# **状態は 2 軸である**——「決着したか」と「出どころの欠陥がまだ記録に開いて残っているか」。
+# 1 つの平坦な値に潰していたとき、**判断も処方も付いた問いを「保留」と書き続けるほか無かった**
+# （下の stuck_unlisted が未決の記載を要求し、P3 は「見つけた周の記録は直していても判定どおり
+# 書け」と要求するので、同じ周に必ず衝突する）。その結果 `held` が帰属に乗り、決着済みしか
+# 残らない周に「答え無しに進める仕事は無い——ここで止めて聞け」が偽で出て、最終報告の冒頭
+# （人が決めること）にも決着済みが並んだ。**2 軸目は欄にせず記録から判定する**——書き手の
+# 自己申告にすると、また 1 つ書くだけで縛りが外れる。
 QUESTION_STATUS = {
-    "held": (),  # 保留——次の周の judge が再審する
-    # ループが決めた——最終報告に「ループが自分で決めたこと」として並び、人が覆せる。
-    # 機械が要求するのは resolution が空でないことだけ。何を根拠に決めてよいか（答えた材料か、
-    # 零処方が落ちない／目的の内側／実測で優越のいずれかの規律）は手順書 P2「履歴との突合」が正本。
+    "held": (),  # 未決——次の周の judge が再審する
+    # ループが決めたが、**出どころの欠陥がまだ開いている**。決着済みなので帰属にも
+    # 「人が決めること」にも乗らないが、台帳からは降りない（下の TRACKED）。
+    "decided": ("resolution",),
+    # ループが決め、**出どころも閉じた**。次の周の台帳から落としてよい。
+    # 何を根拠に決めてよいか（答えた材料か、零処方が落ちない／目的の内側／実測で優越のいずれかの
+    # 規律）は手順書 P2「履歴との突合」が正本。
     "resolved": ("resolution",),
     "escalate": (),  # 再審の結果、人でないと決められない（好み・方針・可逆性の低い合意・目的の書き換え）
 }
@@ -225,9 +235,13 @@ QUESTION_STATUS = {
 # **origin だけでなく depends にも当てる**——帰属の入口は 2 つで、片方だけ塞ぐと開いた [block]
 # を depends に書くだけで同じ逃げ道が通る（実測で再現した）。
 NO_OPEN_ORIGIN = ("split", "rule")
-# 台帳から作る集合は全てこれで絞る。「載っている」は「載っていて、かつ未決」でなければ
-# 意味を持たない——resolved を 1 件置くだけで stuck の振り分け要求が永久に黙った（実測）。
+# **まだ人に聞く気がある**（帰属・「聞く時」・最終報告の冒頭はこれで絞る）。`decided` を
+# 入れるな——決着済みが「あなたが決めること」として報告の冒頭に並ぶ。
 ASKING = ("held", "escalate")
+# **台帳から降りていない**（連続性・出どころの実在・stuck の振り分け・R1 の再発火はこれ）。
+# `resolved` を入れるな——1 件置くだけで stuck の振り分け要求が永久に黙った（実測）。
+# `decided` を入れないと、判断の付いた問いを `held` と書くほか無くなる（上の 2 軸）。
+TRACKED = ("held", "escalate", "decided")
 # 数で埋める欄。**欄の名前で持つ**——「整数なら空でない」と型だけで免除すると、文を要求する
 # 欄に `0` を書けてしまい、`素材 'x' が未実施: 0` のような診断が出る（実測）。`count: 0` は
 # 「見たが 0 件」で正当、`from_round: 0` は範囲外で validate_carry が別の診断を出す。
@@ -448,6 +462,17 @@ def validate_questions(rec, path, unit_index):
         if not isinstance(deps, list) or not all(isinstance(d, str) and d for d in deps):
             fail(f"{where} の depends は、この答え待ちで手を止めるユニットの key の配列")
         origin = q.get("origin")
+        # **2 軸目を記録から判定する。** 決着した問い（`decided` / `resolved`）は、出どころの
+        # 欠陥がまだ開いているかで書き分ける。書き手の申告に任せると、`resolved` を 1 件置いて
+        # stuck の振り分け要求を黙らせる形（実測で再現した穴）がそのまま戻る。
+        if status in ("decided", "resolved") and domain == "unit" and origin in unit_index:
+            still_open = is_open(rec["units"][unit_index[origin]])
+            if status == "resolved" and still_open:
+                fail(f"{where}: 出どころが [block] / do-now のまま resolved（決着したが欠陥が"
+                     "残っているなら decided。resolved は出どころも閉じた問いだけ）")
+            if status == "decided" and not still_open:
+                fail(f"{where}: 出どころが閉じているのに decided（欠陥が記録から消えたなら"
+                     "resolved にして、次の周の台帳から降ろせ）")
         # **開き禁止は域の枝の外に置く。** `NO_OPEN_ORIGIN` の 2 種類はどちらも域が unit なので
         # 中に置いても今は等価だが、非 unit 域の種類をこの表に足した瞬間に柵が黙って外れる
         # （`depends` は域に依らずユニットの key なので、その種類でも開いたユニットを指せる）。
@@ -578,7 +603,7 @@ def validate_against(rec, prev, carried=None):
     # 誰にも聞かれずに終わる。
     now_q = {q["key"] for q in rec["questions"]}
     for q in prev["questions"]:
-        if q["status"] in ASKING and q["key"] not in now_q:
+        if q["status"] in TRACKED and q["key"] not in now_q:
             fail(
                 f"round {rec['round']}: 前ラウンドの問い（{q['status']}）が今ラウンドの台帳に"
                 f"無い: {q['key']}（再審して held / resolved / escalate のどれかで書け）"
@@ -606,7 +631,7 @@ def ledger_shape(rec):
     return {
         (q["key"], q["kind"], q.get("origin"), tuple(q.get("depends", [])),
          q["status"], tuple(q.get("options", [])))
-        for q in rec["questions"] if q["status"] in ASKING
+        for q in rec["questions"] if q["status"] in TRACKED
     }
 
 
@@ -618,7 +643,7 @@ def question_origins_exist(rec, ledger):
 """
     known = {u["key"] for u in rec["units"]} | set(ledger)
     for i, q in enumerate(rec["questions"]):
-        if q["status"] not in ASKING:
+        if q["status"] not in TRACKED:
             continue
         for what, domain, key in targets(q):
             # 見るのは域が unit のものだけ（素材名・R 名は units に無くて当然）。`depends` は
@@ -748,8 +773,8 @@ def stuck_unlisted(rounds):
         chain = set.intersection(
             *({u["key"] for u in r["units"] if u["label"] == "block"} for r in rounds[i - 2:i + 1])
         )
-        # **未決の問いだけを数える**（「載っている」を所属だけで見ると黙る理由は ASKING の
-        # 定義。resolved を 1 件置くと永久に黙った——実測）。**種類（stuck / fork）では絞らない**
+        # **台帳から降りていない問いだけを数える**（`resolved` を 1 件置くと永久に黙った——実測。
+        # 一方 `decided` を外すと、判断の付いた問いを `held` と書くほか無くなる）。**種類（stuck / fork）では絞らない**
         # ——絞っているのは下の `what == "origin" and domain == "unit"`（域）である。`split` / `rule` は
         # 開いた出どころを持てない（NO_OPEN_ORIGIN）ので、連鎖のキー（必ず [block]＝開いている）を
         # origin に置けるのは結局 stuck と fork だけになり、種類の絞りは恒真だった。恒真な柵を
@@ -757,7 +782,7 @@ def stuck_unlisted(rounds):
         listed = {
             k
             for q in rounds[i]["questions"]
-            if q["status"] in ASKING
+            if q["status"] in TRACKED
             for what, domain, k in targets(q)
             if what == "origin" and domain == "unit"
         }
@@ -948,8 +973,9 @@ def main():
         print("問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。"
               "目的の内側でないかは R1 が監査）:")
         for q in rec["questions"]:
-            tag = {"held": "保留", "escalate": "人へ", "resolved": "ループが決めた"}[q["status"]]
-            tail = q["resolution"] if q["status"] == "resolved" else q["reason"]
+            tag = {"held": "未決", "escalate": "人へ", "decided": "ループが決めた（欠陥は残存）",
+                   "resolved": "ループが決めた"}[q["status"]]
+            tail = q["reason"] if q["status"] in ASKING else q["resolution"]
             print(f"  - [{tag}] {q['kind']}: {q['key']} — {tail}")
 
     # `if rounds:` は書かない——`load_dir` が空なら fail するので恒真だった。

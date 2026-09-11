@@ -410,7 +410,13 @@ hist("q-dropped-escalate", [
 hist("q-depends-missing", [
     with_q(r1_at(1, TWO), dict(FQ, depends=["src/api/typo.py — 存在しないキー"])),
     with_q(r1_at(2, TWO), dict(FQ, depends=["src/api/typo.py — 存在しないキー"]))])
-hist("q-stuck-resolved", [
+# 決着しても出どころが開いているうちは `decided`。**これは台帳から降りていないので要求を満たす**
+# （判断の付いた問いを「未決」と書かされる形が、2 軸に割ったことで消えた）。
+hist("q-stuck-decided", [
+    r1_at(1, STUCK3), r1_at(2, STUCK3),
+    with_q(r1_at(3, STUCK3), dict(FQ, status="decided", resolution="入口に寄せると決めた"))])
+# 出どころが開いたまま `resolved` と書くのは記録の不正（2 軸目は記録から判定する）。
+hist("q-resolved-while-open", [
     r1_at(1, STUCK3), r1_at(2, STUCK3),
     with_q(r1_at(3, STUCK3), dict(FQ, status="resolved", resolution="入口に寄せると決めた"))])
 hist("q-stuck-other-kind", [
@@ -468,7 +474,7 @@ RQ = {"key": "並び順をどう直すか", "kind": "fork", "origin": BK2,
       "reason": "候補が 2 つ", "options": ["(A) 入口", "(B) 各経路"]}
 hist("q-resolved-is-work", [
     with_q(r1_at(1, TWO), FQ, dict(RQ, status="held")),
-    with_q(r1_at(2, TWO), FQ, dict(RQ, status="resolved", resolution="入口に寄せると決めた")),
+    with_q(r1_at(2, TWO), FQ, dict(RQ, status="decided", resolution="入口に寄せると決めた")),
 ])
 
 # 出どころの域が違えば、値が文字列として同じでも別物である。unit の key をリテラル "R2" に
@@ -498,7 +504,7 @@ sw2["questions"][0].pop("options")
 hist("q-swap-r1-carried", [nq1c, sw2])
 # ループが決めた問いが次の周に未決へ戻る（再燃。key は既出なので「新規」では捕まらない）。
 rp1 = clone((nq1))
-rp1["questions"] = [dict(FQ, status="resolved", resolution="入口に寄せると決めた")]
+rp1["questions"] = [dict(FQ, status="decided", resolution="入口に寄せると決めた")]
 hist("q-reopen-r1-carried", [rp1, nq2])
 
 nc = work / "name-case"; nc.mkdir()
@@ -524,6 +530,8 @@ fz2["materials"]["consistency"] = {"status": "carried_over", "from_round": 0, "r
 ww = [r1_at(1, []), r1_at(2, [{"key": BK, "label": "block"}]),
       r1_at(3, [{"key": BK, "label": "block"}])]
 hist("stuck-window-width", ww)
+# 窓は滑る。同じ連鎖を 1 周のばすと、4 周目の組で初めて要求が立つ。
+hist("stuck-window-slide", ww + [r1_at(4, [{"key": BK, "label": "block"}])])
 # UTF-8 として読めない記録（「開けない」「JSON でない」と別の診断になることを縛る）。
 (work / "badenc").mkdir()
 (work / "badenc" / "round-1.json").write_bytes(b'{"base": "\xff\xfe"}')
@@ -544,11 +552,6 @@ sd = [r1_at(n, TWO) for n in (1, 2, 3)]
 sd[2]["questions"] = [dict(FQ, origin=BK2, depends=[BK])]
 hist("q-stuck-via-depends", sd)
 
-w4 = [r1_at(n, [{"key": BK, "label": "block"}]) for n in (1, 2, 3, 4)]
-w4[2]["questions"] = [dict(FQ, kind="stuck", status="held")]
-w4[2]["questions"][0].pop("options")
-w4[3]["questions"] = [dict(w4[2]["questions"][0], status="resolved", resolution="入口に寄せると決めた")]
-hist("q-stuck-window-slides", w4)
 hist("stuck-two-rounds", [r1_at(1, [{"key": BK, "label": "block"}]),
                           r1_at(2, [{"key": BK, "label": "block"}])])
 
@@ -558,7 +561,7 @@ rog["questions"] = [dict(FQ, origin="src/gone.py — 直って消えたキー", 
                          resolution="修正で形が変わり岐路が消えた")]
 hist("q-resolved-origin-gone", [rog])
 rso = r1_at(1, [{"key": BK, "label": "block"}])
-rso["questions"] = [{"key": "別 PR に積むか", "kind": "split", "origin": BK, "status": "resolved",
+rso["questions"] = [{"key": "別 PR に積むか", "kind": "split", "origin": BK, "status": "decided",
                      "reason": "目的の外に見えた", "resolution": "目的の内側と分かったので本 PR で直す"}]
 hist("q-resolved-split-open", [rso])
 
@@ -759,9 +762,12 @@ expect_output 2 "depends が今ラウンドの units にも defer 台帳にも�
 # 期待は長い文言で。「問いの台帳に無い」は「素材が awaiting_human なのに」「R が … なのに」の
 # 2 つの診断にも出るので、短いままだと別の理由で落ちても通る（実測: 中立化を止めた記録では、
 # stuck の検査を完全に殺しても exit 2 かつこの語を含んで検査が通った）。
-expect_output 2 "2 ラウンド連続の残存＝stuck）のに問いの台帳に無い" \
-    "閉じた問い（resolved）では stuck の振り分け要求が満たされない" \
-    "$PY_BIN" "$RECORD" "$WORK/q-stuck-resolved"
+expect_output 1 "[block] 未解消" \
+    "決着しても出どころが開いているうちは decided で、台帳から降りない（要求を満たす）" \
+    "$PY_BIN" "$RECORD" "$WORK/q-stuck-decided"
+expect_output 2 "出どころが [block] / do-now のまま resolved" \
+    "出どころが開いたまま resolved と書けない（1 件置いて要求を永久に黙らせる形を塞ぐ）" \
+    "$PY_BIN" "$RECORD" "$WORK/q-resolved-while-open"
 # この腕が落ちる理由は「kind が違う」ではなく「出どころを持たない種類は origin を書けない」。
 # **種類による絞りは機械にもう無い**——出どころの key 空間を分けたので恒真になり、削ってある。
 expect_output 2 "2 ラウンド連続の残存＝stuck）のに問いの台帳に無い" \
@@ -792,7 +798,7 @@ expect_output 1 "（今ラウンドに立った問い——再審は次の周）
     "同じ形でも、問いが立った周には帰属せず印だけが付く（立った周には聞かない）" \
     "$PY_BIN" "$RECORD" "$WORK/q-fresh"
 expect_output 1 "帰属しない 1 件を先に直せ" \
-    "ループが決めた問い（resolved）の阻害要因は仕事であって、聞く時ではない" \
+    "ループが決めた問い（decided）の阻害要因は仕事であって、聞く時ではない" \
     "$PY_BIN" "$RECORD" "$WORK/q-resolved-is-work"
 expect_output 1 "（保留の問いに帰属——答えを待っている）" "帰属する阻害要因の行に印が付く" \
     "$PY_BIN" "$RECORD" "$WORK/q-stuck-listed"
@@ -841,14 +847,14 @@ expect_output 2 "2 ラウンド連続の残存＝stuck）のに問いの台帳�
     "連鎖のキーを depends に並べても stuck の振り分け要求は満たされない（見るのは origin）" \
     "$PY_BIN" "$RECORD" "$WORK/q-stuck-via-depends"
 expect_output 2 "round 4: 同じ [block] が 3 ラウンドの記録に続けて在る" \
-    "3 周の窓は滑る（中間の周で振り分けても、最後の周で切れれば落ちる）" \
-    "$PY_BIN" "$RECORD" "$WORK/q-stuck-window-slides"
+    "3 周の窓は滑る（連鎖が 1 周のびると、次の組で要求が立つ）" \
+    "$PY_BIN" "$RECORD" "$WORK/stuck-window-slide"
 expect_output 1 "（残存——過去のラウンドにも在った）" \
     "2 周の残存では、まだ台帳への記載を要求しない（対照）" "$PY_BIN" "$RECORD" "$WORK/stuck-two-rounds"
 # 未決だけを縛る絞りを、緩める向きで 2 本。resolved はループが決めた跡なので、機械は縛らない。
 expect_output 1 "[block] 未解消" "ループが決めた問いの出どころは、記録から消えていてよい" \
     "$PY_BIN" "$RECORD" "$WORK/q-resolved-origin-gone"
-expect_output 1 "[block] 未解消" "ループが決めた split は、開いた [block] を指していてよい" \
+expect_output 1 "[block] 未解消" "ループが決めた split（decided）は、開いた [block] を指していてよい" \
     "$PY_BIN" "$RECORD" "$WORK/q-resolved-split-open"
 expect_output 2 "round 2: questions[0] の origin" "出どころの実在検査は中間のラウンドにも掛かる" \
     "$PY_BIN" "$RECORD" "$WORK/q-origin-missing-mid"
@@ -1521,11 +1527,13 @@ known = set(re.findall(r"^##+ (.+)$", review, re.M)) | set(re.findall(r"\*\*(.+?
 # 入口を数えて 1 つずつ壊したとき、この入口だけ腕が無かった。下限は走らせた実測値。
 assert len(known) >= 72, f"見出し・太字を {len(known)} 個しか拾えていない（72 個以上を期待）"
 missing, found = set(), 0
-# **対象集合が狭いと、柵は緑のまま文書だけが消えた名前を指す。** 機械のコメントから
-# `REVIEW.md` の見出しを引く箇所が増えたのに対象が commands / agents だけで、実在しない
-# 見出しを引いた行が 1 周素通りした。backtick も任意にする。
-for f in [*(root/"commands").glob("*.md"), *(root/"agents").glob("*.md"),
-          *(root/"scripts").glob("*.py"), root/"README.md", root/"docs"/"customize.md"]:
+# **手書きの列挙を持たない**（隣の定数検査と同じ理由）。対象集合が狭いと、柵は緑のまま
+# 文書だけが消えた名前を指す——機械のコメントから引く箇所が増えたのに対象が commands /
+# agents だけで、実在しない見出しを引いた行が 1 周素通りした。backtick も任意にする。
+SCAN = [f for f in sorted(root.rglob("*.md")) if ".git" not in f.parts] + \
+       sorted((root/"scripts").glob("*.py"))
+assert len(SCAN) >= 28, f"走査対象が {len(SCAN)} 件しかない（28 件以上を期待）"
+for f in SCAN:
     body = f.read_text(encoding="utf-8")
     # 内側の『』で途中で切れないよう、同じ種類の鉤で閉じるまでを 1 つの名前として取る。
     # **助詞を「の」に限るな**——`REVIEW.md`**が**「…」という引用が 1 件在って、**1 度も
@@ -1631,7 +1639,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=528
+EXPECTED_CHECKS=529
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2602,19 +2610,20 @@ import pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
 # **除外は明示の表で持つ**——表に無い名前を名指しした瞬間に赤くなるので、足し忘れは
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
-EXTERNAL_PREFIX = ("CLAUDE_CODE_",)
+EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_")
 EXTERNAL_NAMES = {"HEAD", "SHA"}
 # **名指しする側は文書だけではない。** 削除した定数を「正本」と呼ぶコメントが `tests/run.sh` に、
 # 削除した柵を「今も効いている」と述べたコメントが `scripts/*.py` に残ったことがある。
 # **定義を持つ側も `scripts/*.py` だけではない**——検査スイートの定数も shell の定数も名指しされる。
 CODE = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob("*.sh")) + [
     root / "tests/run.sh"]
-# **この列挙は柵の覆いの上限である。** 名指しの置き場が増えた周に、ここを直し忘れると柵は
-# 黙って外れる（実測: 対象外の 2 ファイルに実在しない名前を書いても全件緑だった）。広げ方は
-# 設計の岐路として台帳に載せてあるので、ここに軸を足していく形にするな。
-NAMED_IN = (root / "commands/review-loop.md", root / "docs/customize.md",
-            root / "README.md", root / "REVIEW.md", root / "tests/run.sh",
-            *sorted((root / "scripts").glob("*.py")))
+# **手書きの列挙を持たない。** 以前ここに 6 ファイルを並べていたとき、名指しの置き場が
+# 増えた周に柵が黙って外れた（実測: 列挙の外の 2 ファイルに実在しない名前を書いても全件緑）。
+# 対象は「文書とコメントが在る場所」全部から導く。除外は名前の表でなく**接頭辞**で持つので、
+# 別プラグインの環境変数（`COLDREAD_*` 7 個）が 1 項で収まる。
+NAMED_IN = tuple(
+    p for p in sorted(root.rglob("*.md")) if ".git" not in p.parts
+) + tuple(sorted((root / "scripts").glob("*.py"))) + (root / "tests/run.sh",)
 # **アンダースコアを要求するな。** 要求していたとき、`MATERIALS` / `REVIEWS` / `LABELS` /
 # `STATUS` を同じ体裁で名指ししている箇所が 1 つも検査されなかった。
 TOKEN = r"`([A-Z][A-Z0-9_]{2,})`"
@@ -2659,6 +2668,8 @@ for f in NAMED_IN:
 assert not missing, "名指しされた定数が在るべき場所に無い: " + ", ".join(missing)
 # 組の下限。正規表現が壊れて 0 件になると、上の組の検査が黙って空振りする。
 assert paired >= 4, f"ファイル名つきの名指しを {paired} 件しか拾えていない（4 件以上を期待）"
+# 走査対象の下限。rglob が 0 件を返しても missing は空で通る（自分の空振りで合格になる形）。
+assert len(NAMED_IN) >= 29, f"走査対象が {len(NAMED_IN)} 件しかない（29 件以上を期待）"
 
 # **除外表の未使用項目を赤にする。** これは未使用項の剪定であって、**誤った抑制は検知しない**
 # ——表に「今も名指しされていて、かつ定義が無い名前」を 1 つ足せば、真の破れをそのまま
