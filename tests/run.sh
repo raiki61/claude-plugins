@@ -12,6 +12,25 @@ trap 'rm -rf "$WORK"' EXIT
 
 PY_BIN=$(command -v python3 || command -v python || true)
 [ -n "$PY_BIN" ] || { echo "python3 / python が PATH に無い"; exit 2; }
+# **この中の Python 検査は判定を `assert` に載せている。** `PYTHONOPTIMIZE`（`python -O` 相当）が
+# 効いていると `assert` が 1 つ残らず消え、**全部が無条件に緑になる**。環境変数 1 つで検証が
+# 丸ごと空振りする形なので、外して、外れたことを確かめる。
+unset PYTHONOPTIMIZE
+# **番人自身に `assert` を使うな。** 最適化が効いていると `assert __debug__` ごと消えるので、
+# 番人が常に通る（実測: この形で書いたとき、最適化を効かせた写しが 529 件すべて緑になった）。
+# 検査したい当のものを、検査の道具に使わない——値を印字して外から見る。
+# 版も見る。Python 2 だと f-string が構文エラーになり、終了コード 1（＝「阻害要因あり」）で
+# 落ちて、壊れているのか未収束なのかが区別できない——契約の 3 値が 1 つ潰れる。
+"$PY_BIN" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 6) else 1)' 2>/dev/null || {
+    echo "$PY_BIN が Python 3.6 未満——この検査一式は f-string を使うので構文エラーになり、"
+    echo "終了コード 1（阻害要因あり）と区別が付かない。python3 を PATH に入れてから走らせろ"
+    exit 2
+}
+[ "$("$PY_BIN" -c 'print(__debug__)' 2>/dev/null)" = "True" ] || {
+    echo "assert が無効（PYTHONOPTIMIZE か -O）——この検査一式は判定を assert に載せているので、"
+    echo "このまま走らせると全件緑になる。無効化を外してから走らせろ"
+    exit 2
+}
 
 fail=0
 ran=0
@@ -424,13 +443,9 @@ hist("q-stuck-other-kind", [
     with_q(r1_at(3, STUCK3), {"key": "新規が出続ける", "kind": "thrash",
                               "status": "held", "reason": "件数が落ちない"})])
 # ここだけ検査がゼロだと、unverifiable だけが残る周が永久に聞かれない形を誰も止められない。
-ru1 = r1_at(1, [])
-ru1["reviews"]["R1"] = {"status": "unverifiable", "reason": "目的テキストの出典が取れない"}
-ru2 = r1_at(2, [])
-ru2["reviews"]["R1"] = {"status": "unverifiable", "reason": "出典は今ラウンドも取れていない"}
-RUQ = {"key": "元の目的をどこから取るか", "kind": "unverifiable", "origin": "R1",
-       "status": "held", "reason": "出典①②③のどれも無い"}
-hist("q-review-attribution", [with_q(ru1, RUQ), with_q(ru2, RUQ)])
+# `human-repeat` と同じ内容の固定具がここにもう 1 つ在った（定数まで全欄一致）。実体が
+# 1 つなので、1 つのディレクトリに腕を 2 本掛ける形に畳んである（片方だけ直しても検査が
+# 変わらない形を残さない）。
 # awaiting は雛形に実在する最も普通の問いなのに、ここだけ腕が無かった。
 am1 = r1_at(1, [])
 am1["materials"]["main_path_observation"] = {"status": "awaiting_human", "reason": "実機が要る"}
@@ -775,7 +790,7 @@ expect_output 2 "2 ラウンド連続の残存＝stuck）のに問いの台帳�
     "$PY_BIN" "$RECORD" "$WORK/q-stuck-other-kind"
 expect_output 1 "残る阻害要因は保留の問いに帰属するものだけ（1 件）" \
     "R1〜R4 の人に諮る verdict も保留の問いに帰属する" \
-    "$PY_BIN" "$RECORD" "$WORK/q-review-attribution"
+    "$PY_BIN" "$RECORD" "$WORK/human-repeat"
 expect_output 1 "（保留の問いに帰属——答えを待っている）" \
     "人の起動待ちの素材も保留の問いに帰属する" \
     "$PY_BIN" "$RECORD" "$WORK/q-material-attribution"
@@ -2611,7 +2626,7 @@ root = pathlib.Path(sys.argv[1])
 # **除外は明示の表で持つ**——表に無い名前を名指しした瞬間に赤くなるので、足し忘れは
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
 EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_")
-EXTERNAL_NAMES = {"HEAD", "SHA"}
+EXTERNAL_NAMES = {"HEAD", "SHA", "PYTHONOPTIMIZE"}
 # **名指しする側は文書だけではない。** 削除した定数を「正本」と呼ぶコメントが `tests/run.sh` に、
 # 削除した柵を「今も効いている」と述べたコメントが `scripts/*.py` に残ったことがある。
 # **定義を持つ側も `scripts/*.py` だけではない**——検査スイートの定数も shell の定数も名指しされる。

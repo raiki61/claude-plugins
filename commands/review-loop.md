@@ -141,7 +141,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 1. **writer**: CI を再実行（緑維持。赤なら P3 に戻って先に直せ）。
 2. **writer**: P1 を新しい context でやり直せ——局所レビューの再実行と、各 grader subagent の新規起動。**前ラウンドの grader 出力・修正の経緯を P1 / P2 の subagent に渡すな**（渡すと前ラウンドのフレームにアンカーされ、再採点が追認になる）。続けて P2 grader を新しい context で再起動し、根本ユニットを再採点させろ。
-3. **突合（機械）**: `python3` が無い環境では `python` に読み替えろ。
+3. **突合（機械）**: `python3` が無い環境では `python` に読み替えろ——**ただしそれが Python 3.6 以降であることを確かめてから**。この道具は f-string を使うので、Python 2 では構文エラーになって**終了コード 1**（＝「阻害要因あり」）で落ち、**壊れているのか未収束なのかが区別できない**。この機械が終了コードで 3 値を分けている、その要が破れる。
 
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review-record.py .claude/review-rounds/

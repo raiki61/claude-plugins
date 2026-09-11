@@ -163,6 +163,10 @@ REVIEW_BLOCKING = ("redesign-needed", "not_run")
 # 3 表現に散っていると、逆向きだけ直し忘れたときに落ちない穴になる（表 1 つに畳む）。
 KIND_FOR_REVIEW_STATUS = {"unverifiable": "unverifiable", "premise-invalid": "premise"}
 REVIEW_STATUS_FOR_KIND = {k: s for s, k in KIND_FOR_REVIEW_STATUS.items()}
+# 逆引きは値が重複すると**後勝ちで黙って 1 件に潰れる**。今は 1:1 なので壊れていないが、
+# 潰れた側の status は台帳の縛りから外れ、しかも何も鳴らない。生成の直後に長さで落とす。
+assert len(REVIEW_STATUS_FOR_KIND) == len(KIND_FOR_REVIEW_STATUS), \
+    "KIND_FOR_REVIEW_STATUS の値が重複している（逆引きが後勝ちで潰れる）"
 # 阻害要因として数える（exit 1）が、見出しを分ける。
 REVIEW_TO_HUMAN = tuple(KIND_FOR_REVIEW_STATUS)
 # 俯瞰（R1〜R4）で持ち越しの元になれる値。素材用の CARRYABLE を流用すると、found / clean は
@@ -211,6 +215,12 @@ QUESTION_KINDS = {
     "awaiting": ("material", ()),
 }
 ORIGIN_DOMAINS = ("unit", "material", "review", "none")
+# **書ける欄を閉じる。** `depends` を `depend` と書くと、帰属も実在検査も開き禁止も**全部
+# 黙って効かなくなる**（実測。exit 1 で素通りした）。`ask_human` だけを名指しで弾いていた
+# ので、読む人には「他の綴り違いも弾かれる」と見えるのも悪い。**知らない欄は落とす**——
+# 綴り違いが黙って無効になる側でなく、書いた本人に返る側へ倒す。
+QUESTION_FIELDS = ("key", "kind", "status", "reason", "resolution", "options", "depends", "origin")
+UNIT_FIELDS = ("key", "label", "disposition", "reason", "reopen_evidence")
 # **状態は 2 軸である**——「決着したか」と「出どころの欠陥がまだ記録に開いて残っているか」。
 # 1 つの平坦な値に潰していたとき、**判断も処方も付いた問いを「保留」と書き続けるほか無かった**
 # （下の stuck_unlisted が未決の記載を要求し、P3 は「見つけた周の記録は直していても判定どおり
@@ -384,6 +394,17 @@ def validate(rec, path, hint=None):
                 f"{u['key']}（突合の識別子なので 1 ラウンドに 1 つ）"
             )
         seen_keys[u["key"]] = i
+        # **移行の案内を先に出す。** 下の閉世界検査より前に置かないと、`ask_human` が
+        # 「知らない欄」に丸められて、移し先（問いの台帳）を書いた診断が読み手に届かない。
+        if "ask_human" in u:
+            fail(
+                f"{path}: units[{i}] に ask_human が在る——人に聞く候補は questions（問いの台帳）に"
+                f" kind={u['ask_human']} / origin=このユニットの key で載せろ"
+            )
+        unknown = sorted(set(u) - set(UNIT_FIELDS))
+        if unknown:
+            fail(f"{path}: units[{i}] に知らない欄が在る: {', '.join(unknown)}"
+                 f"（書けるのは {'/'.join(UNIT_FIELDS)}）")
         if u.get("label") not in LABELS:
             fail(f"{path}: units[{i}] の label が不正: {u.get('label')!r}")
         if u["label"] == "suggest":
@@ -391,13 +412,6 @@ def validate(rec, path, hint=None):
                 fail(f"{path}: units[{i}] は suggest なので disposition が要る")
             if u["disposition"] == "defer" and not u.get("reason"):
                 fail(f"{path}: units[{i}] の defer に構造的理由が無い")
-        # 0.27 までの印。台帳に移した——ユニットに付いた印は再審の跡を持てず、消えたことも
-        # 誰にも見えなかった。
-        if "ask_human" in u:
-            fail(
-                f"{path}: units[{i}] に ask_human が在る——人に聞く候補は questions（問いの台帳）に"
-                f" kind={u['ask_human']} / origin=このユニットの key で載せろ"
-            )
 
     validate_questions(rec, path, seen_keys)
 
@@ -441,6 +455,10 @@ def validate_questions(rec, path, unit_index):
         if q["key"] in seen:
             fail(f"{where} の key が重複: {q['key']}（突合の識別子なので 1 ラウンドに 1 つ）")
         seen.add(q["key"])
+        unknown = sorted(set(q) - set(QUESTION_FIELDS))
+        if unknown:
+            fail(f"{where} に知らない欄が在る: {', '.join(unknown)}"
+                 f"（書けるのは {'/'.join(QUESTION_FIELDS)}。綴り違いは黙って無効になる）")
         kind = q.get("kind")
         if kind not in QUESTION_KINDS:
             fail(f"{where} の kind が不正: {kind!r}（{'/'.join(QUESTION_KINDS)}）")
