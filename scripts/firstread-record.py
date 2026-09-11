@@ -56,6 +56,7 @@ exit 1 なので、**例外を素通しした時点でこの契約は破れる�
 直しの側へ通しただけである。
 """
 
+import collections
 import json
 import os
 import sys
@@ -66,6 +67,11 @@ import sys
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8")
+
+def fail(msg):
+    print(f"記録が不正: {msg}", file=sys.stderr)
+    sys.exit(2)
+
 
 # 詰まり。**範囲の内外を割り振るのはこの 4 つだけ**——疑問・着想・読み飛ばしは
 # 「今回の変更が作ったか」で切れる性質のものではない。
@@ -89,15 +95,33 @@ MATERIALS = (
 # **`none` に `asked` を要求するのが「無言の省略を『なし』と読まない」の実装。**
 # 聞いていないから出てこなかったのか、聞いた上で無かったのかは、記録の上では
 # 同じ「空」に見える。何を聞いたかを書かせて初めて区別が付く。
-STATUS = {
-    "found": ("items",),  # 出てきた
-    "none": ("asked",),  # 聞いたが無かった（何を聞いたかを要求する）
-    "not_asked": ("reason",),  # 聞くべきだったが聞かなかった
-}
+# **属性は行に持つ。** 「収束を妨げるか」を表の外のリストで持っていると、状態を足した人が
+# 追記を忘れたとき**黙って「妨げない」側に倒れる**。姉妹の道具（review-record.py）で実測した
+# ——状態を 1 つ足して追記だけ忘れた版が、記録に「動かせない」と書いてあるのに「阻害要因は
+# 無い」と出して exit 0 になり、検査一式も全部緑だった。行に持てば書き忘れがその場で落ちる。
+# **「聞かなかった」を潰さずに残すのが要点**——散文だと「無かった」と「聞いていない」が
+# 同じ空欄になり、後から見分けられない。
+Rule = collections.namedtuple("Rule", "fields blocks")
 
-# 収束を妨げる状態。**「聞かなかった」を潰さずに残すのが要点**——散文だと
-# 「無かった」と「聞いていない」が同じ空欄になり、後から見分けられない。
-BLOCKING = ("not_asked",)
+
+def _rows(what, cls, rows):
+    """状態の表を組む。**属性の書き忘れをここで落とす。** 素の namedtuple で組むと、
+    書き忘れは TypeError になるが**末尾の例外境界より前（インポート時）**なので未処理例外の
+    exit 1 になり、「阻害要因あり」と区別が付かない——契約の 3 値が 1 つ潰れる。"""
+    out = {}
+    for name, args in rows.items():
+        try:
+            out[name] = cls(*args)
+        except TypeError as e:
+            fail(f"{what} の '{name}' の行が不完全（属性の書き忘れ）: {e}")
+    return out
+
+
+STATUS = _rows("素材の状態", Rule, {
+    "found": (("items",), False),  # 出てきた
+    "none": (("asked",), False),  # 聞いたが無かった（何を聞いたかを要求する）
+    "not_asked": (("reason",), True),  # 聞くべきだったが聞かなかった
+})
 
 # 回収されなかった疑問の仕分け。**設計の穴は阻害要因にしない**——このループでは
 # 直せないものと決めてあり、ゲートにすると「直せないから収束できない」で
@@ -110,11 +134,6 @@ VERDICTS = ("missing_writeup", "design_gap")
 # 「省略（依頼者の指定）」は税をかけていない申告——依頼者が明示に指定したときだけ
 # 使える建前で、指定の中身は tax_reason に書かせる（本当に指定があったかは人が見る）。
 TAX_VERDICTS = ("通す", "置き場が違う", "根本が別にある", "作る詰まりの懸念", "省略（依頼者の指定）")
-
-
-def fail(msg):
-    print(f"記録が不正: {msg}", file=sys.stderr)
-    sys.exit(2)
 
 
 def load(path):
@@ -181,7 +200,7 @@ def validate(rec, path):
         status = m.get("status")
         if status not in STATUS:
             fail(f"{path}: 素材 '{name}' の status が不正: {status!r}（{'/'.join(STATUS)}）")
-        for field in STATUS[status]:
+        for field in STATUS[status].fields:
             if not m.get(field):
                 fail(f"{path}: 素材 '{name}' は status={status} なので '{field}' が要る")
         if status == "found":
@@ -346,7 +365,7 @@ def blockers(rec, prev):
 
     for name in MATERIALS:
         m = rec["materials"][name]
-        if m["status"] in BLOCKING:
+        if STATUS[m["status"]].blocks:
             out.append(f"素材 '{name}' を聞いていない: {m['reason']}")
 
     for e in rec["errands"]:
