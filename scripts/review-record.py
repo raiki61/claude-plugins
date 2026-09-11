@@ -7,7 +7,9 @@
 守備範囲は、明示返答を要求する欄が埋まっているか（素材・R1〜R4 の verdict）と、
 前ラウンドとの突合（連続 2 ラウンド・持ち越しの連鎖・defer 台帳・残存 [block]）。
 欄が空なら検証エラーで落ちる——約束を守ったかを、守ると書くのでなく確かめられる
-形にするのが目的。記録に載らない懸念の有無は今も人が見る。
+形にするのが目的。**確かめられるのは形だけで、中身は機械が保証しない**——`false` / `0` / `[]`
+のような縮退値も、`[nit]` 1 件だけの units も、欄としては埋まっている。中身を見る目は judge と
+R1 で、ここではない。記録に載らない懸念の有無も今も人が見る。
 
 使い方:
     python3 review-record.py <記録のディレクトリ>
@@ -25,11 +27,21 @@
 
 **問いの台帳**（`questions`）は人に聞く候補の置き場で、**載せた周には聞かない**。次の周の
 judge が、その周の材料と独立再導出（台帳を見ずに同じ欠陥を採点した目が、同じ岐路を立てたか）で
-再審し、答えた・自明・まだ・人でないと決められない、に振り分ける。機械が縛るのは 3 つ——
-前の周の保留（held / escalate）が黙って消えないこと、同じ [block] が 2 ラウンド連続で残ったら
-台帳に載っていること、阻害要因を「保留の問いに帰属する」と「しない」に分けて、帰属しない
-阻害が 0 なら「答え無しに進める仕事は無い——ここで止めて聞け」と出すこと。**人に聞く時を
-writer が数えない**ための道具で、writer が「もう聞くしかない」と決める経路を塞ぐ。
+再審し、答えた・自明・まだ・人でないと決められない、に振り分ける。機械が縛るのは——前の周の
+保留（held / escalate）が黙って消えないこと、保留の出どころ（origin と depends）が記録に実在
+すること、同じ [block] が 2 ラウンド連続で残ったら未決の stuck か fork で台帳に載っていること、
+人の起動待ちの素材と人に諮る verdict が台帳に載っていること、そして阻害要因を「保留の問いに
+帰属する」と「しない」に分けて、**前の周から持ち越した**保留にだけ帰属を認め、帰属する阻害が
+在って帰属しない阻害が 0 なら「答え無しに進める仕事は無い——ここで止めて聞け」と出すこと
+（前提不成立が escalate で確定したときだけは、件数に依らず先に出す）。**人に聞く時を writer が
+数えない**ための道具。
+
+**ただし機械が塞ぐのは 1 周で通る経路だけである。** 帰属の述語は記録の `origin` / `depends` と
+いう自己申告で、機械には writer と judge の区別が見えない——2 周かければ、1 周目に出どころを
+持たない問いを 1 件置いておくだけで帰属を作れる（実測で再現した）。2 周目以降の正しさを支えるのは
+**台帳を書くのが judge であることと、R1 が台帳を監査すること**の 2 枚であって、ここではない。
+この主張を広く書いていたとき、3 周にわたって「機械側の入口を 1 つずつ塞ぐ」処方が当てられ、
+毎周べつの入口から同じ逃げ道が通った。**塞ぐべきは入口ではなく主張の側だった。**
 
 初回ラウンド（N=1）は「前ラウンドの記録が無い」が阻害要因として 1 件返る（収束は連続
 2 ラウンドの比較を要するので、初回が 0 になることはない。初回に阻害が無ければ、2
@@ -141,8 +153,12 @@ STATUS_ONLY_FOR = {
     "not_applicable": ("R3", "R4"),
 }
 REVIEW_BLOCKING = ("redesign-needed", "not_run")
-# 収束を宣言せずユーザーに諮る値。阻害要因として数える（exit 1）が、見出しを分ける。
-REVIEW_TO_HUMAN = ("unverifiable", "premise-invalid")
+# 収束を宣言せずユーザーに諮る値 → それを載せる台帳の種類。同じ対応が集合・順方向・逆方向の
+# 3 表現に散っていると、逆向きだけ直し忘れたときに落ちない穴になる（表 1 つに畳む）。
+KIND_FOR_REVIEW_STATUS = {"unverifiable": "unverifiable", "premise-invalid": "premise"}
+REVIEW_STATUS_FOR_KIND = {k: s for s, k in KIND_FOR_REVIEW_STATUS.items()}
+# 阻害要因として数える（exit 1）が、見出しを分ける。
+REVIEW_TO_HUMAN = tuple(KIND_FOR_REVIEW_STATUS)
 # 俯瞰（R1〜R4）で持ち越しの元になれる値。素材用の CARRYABLE を流用すると、found / clean は
 # 俯瞰に存在しないので到達不能な条件になる。**REVIEW_TO_HUMAN を入れるな**——blockers() は
 # その回の status しか見ないので、`unverifiable` を 1 度持ち越した時点で人に諮る義務が
@@ -156,53 +172,55 @@ REVIEW_CARRYABLE = ("pass", "carried_over")
 # 再修正を止めるという連鎖の断ち方が使えなくなる。
 LABELS = ("block", "suggest", "nit", "question", "info")
 
-# 問いの台帳——人に聞く候補の置き場。**載せた周には聞かない**。次の周の judge が再審する
-# （ラウンドごとに聞くと毎回止まる。立った周の目にだけ難しかった問いは、次の周の材料と
-# 独立再導出で消える）。実測: 前回のレビューで岐路として立った 2 件——写しの範囲を絞るか・
-# 記録の入口をどちらにするか——は、どちらも後の周で選択肢の外の零処方（仕掛けごと落とす・
-# 片方の入口を消す）で消えた。立った周に人へ返していたら、その選択肢からは選ばれなかった。
-QUESTIONS = "questions"
-# 種類と、その種類で追加に要求する欄。
+# 種類 → (origin の域, その種類で追加に要求する欄)。**域を表の中に持つ**のが要点——
+# 以前は域を ORIGIN_UNIT / ORIGIN_MATERIAL / ORIGIN_REVIEW の 3 タプルに分けて if/elif で
+# 振り分けていたが、3 本が全種類を覆っているかを誰も検査しておらず、覆いが崩れたときの
+# 倒れ方が「制限なし」ではなく**全検査を素通り**（origin の型も実在も NO_OPEN_ORIGIN も
+# 一度に外れる）だった。実測: thrash が 3 本のどこにも属さず、origin に何を書いても通り、
+# 帰属と stuck の縛りを同時に外せた。表なら、種類を足して域を書き忘れた時点で下の検査が落ちる。
+# 域: unit=units の key ／ material=素材名 ／ review=R1〜R4 ／ none=出どころを持たない。
 QUESTION_KINDS = {
-    # 設計の岐路——処方が機構の新設・共有面の拡大に及び、候補が複数（手順書 P2 の 6）。
+    # 設計の岐路——処方が機構の新設・共有面の拡大に及び、候補が複数（手順書 P2「処方の列挙」）。
     # 選択肢は帰結まで書く。零処方（取り下げ・既存の機構 1 つ）が落ちる理由は reason に。
-    "fork": ("options",),
+    "fork": ("unit", ("options",)),
     # 修正が露呈させた既存の欠陥で、凍結した目的の外。別 PR に積むかを人が決める。
     # 露呈の回収は既定のまま（REVIEW.md「別 Issue への先送りを既定にするな」）で、
     # これは例外の申請。目的の内側でないかは R1 が監査する。
-    "split": (),
+    "split": ("unit", ()),
     # 同じ指摘が新証拠なく再燃し、原因がコードでなく観点の誤発火。REVIEW.md の
     # どの観点かを reason に書く。剪定するかは人（「この規約の育て方」）。
-    "rule": (),
-    # 同じ [block] が 2 ラウンド連続で残った（3 ラウンドの記録に続けて在る）。処方の誤りか
-    # 設計の問題か——下の main() が台帳への記載を要求する。
-    "stuck": (),
+    "rule": ("unit", ()),
+    # 処方の誤りか設計の問題か——下の stuck_unlisted が発火の条件と要求を持つ。
+    "stuck": ("unit", ()),
     # 新規 [block] が出続けて収束に向かわない。アプローチの誤りか。件数が落ちれば resolved。
-    "thrash": (),
+    # **出どころを持たない**——件数の推移で見えるもので、特定のユニットに紐づかない。
+    "thrash": ("none", ()),
     # R2 が premise-invalid。blind-judge は道具を持たないので、根拠に目的テキストの外の仮定が
     # 混じる——別 context の judge が仮定を実態で検算したかが再審の中身。
-    "premise": (),
+    "premise": ("review", ()),
     # 元の目的を独立に取れない（R が unverifiable）。
-    "unverifiable": (),
+    "unverifiable": ("review", ()),
     # 素材が awaiting_human（未観測・打ち切られた一覧・洗えなかった決定記録・走らせられない CI）。
     # 「打ち切られた」は上限を上げれば済むことが多く、人に聞く前に再審で消える。
-    "awaiting": (),
+    "awaiting": ("material", ()),
 }
+ORIGIN_DOMAINS = ("unit", "material", "review", "none")
 QUESTION_STATUS = {
     "held": (),  # 保留——次の周の judge が再審する
-    # ループが決めた——答えた材料か、決める規律（零処方が落ちない／目的の内側／実測で優越）を
-    # 要求する。最終報告に「ループが自分で決めたこと」として並び、人が覆せる。
+    # ループが決めた——最終報告に「ループが自分で決めたこと」として並び、人が覆せる。
+    # 機械が要求するのは resolution が空でないことだけ。何を根拠に決めてよいか（答えた材料か、
+    # 零処方が落ちない／目的の内側／実測で優越のいずれかの規律）は手順書 P2「履歴との突合」が正本。
     "resolved": ("resolution",),
     "escalate": (),  # 再審の結果、人でないと決められない（好み・方針・可逆性の低い合意・目的の書き換え）
 }
-# 問いの出どころ。阻害要因の帰属（blockers）はここから引く。
-ORIGIN_UNIT = ("fork", "split", "rule", "stuck")  # origin は units の key
-ORIGIN_MATERIAL = ("awaiting",)  # origin は素材名
-ORIGIN_REVIEW = ("premise", "unverifiable")  # origin は R1〜R4
 # split / rule は [block] と do-now のユニットに付けられない——人に聞く前に直す義務が消えると
 # 逃げ道になる。fork / stuck は [block] に付く。**問いは阻害要因を消さない**——当のユニットは
 # [block] のまま阻害要因に数え、「保留の問いに帰属」の印が付くだけ。答えが出るまで収束しない。
+# **origin だけでなく depends にも当てる**——帰属の入口は 2 つで、片方だけ塞ぐと開いた [block]
+# を depends に書くだけで同じ逃げ道が通る（実測で再現した）。
 NO_OPEN_ORIGIN = ("split", "rule")
+# 台帳から作る集合は全てこれで絞る。「載っている」は「載っていて、かつ未決」でなければ
+# 意味を持たない——resolved を 1 件置くだけで stuck の振り分け要求が永久に黙った（実測）。
 ASKING = ("held", "escalate")
 
 
@@ -228,6 +246,26 @@ def is_int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def require_fields(obj, fields, what, why, cond):
+    """`what` が `cond` なので `fields` が要る、を検査する。**欠落と空を別の診断に分ける**——
+    `not obj.get(...)` だと 0 や "" を欠落と同じ扱いにし、入れてある欄について「要る」と
+    嘘の診断を出して、書き手が探す先を間違える（`from_round: 0` で実際に起きた）。
+
+    素材・俯瞰・問いの台帳の 3 箇所が同じ骨格を持つので 1 本にしてある。3 つに写していた
+    とき、空の定義だけが 1 箇所で `in ("", None, [])` に分かれて、同じファイルの中に空の
+    意味が 2 つある状態になった。"""
+    for field in fields:
+        if field not in obj:
+            fail(f"{what} は {cond} なので '{field}' が要る")
+        # **縮退値（`False` / `[]` / `{}` / `""` / `None`）を「埋まっている」と扱わない。**
+        # docstring に「中身は機械が保証しない」と書くのは ④注記で、書いても構造は変わらない。
+        # **整数だけは別**——`from_round: 0` は空ではなく範囲外で、そちらは validate_carry が
+        # 「1 以上の整数でない」と正しく言う（ここで「空」と言うと書き手が探す先を間違える。
+        # 実際に起きた）。`count: 0` は「見たが 0 件」で正当な値なので、同じ理由で通す。
+        if not is_int(obj[field]) and not obj[field]:
+            fail(f"{what} の '{field}' が空（{why}）")
+
+
 def validate_carry(entry, rec, path, what):
     fr = entry.get("from_round")
     if not is_int(fr) or fr < 1:
@@ -237,16 +275,13 @@ def validate_carry(entry, rec, path, what):
 
 
 def validate(rec, path, hint=None):
-    # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
     if not isinstance(rec, dict):
         fail(f"{path}: 記録の最上位が object でない")
-    for key in ("base", "round", "materials", "units", "reviews", QUESTIONS):
+    for key in ("base", "round", "materials", "units", "reviews", "questions"):
         if key not in rec:
-            fail(
-                f"{path}: 必須の欄 '{key}' が無い"
-                + ("（0.28 で足した問いの台帳。人に聞く候補が無いなら空の配列を書け）" if key == QUESTIONS else "")
-                + (f"。{hint}" if hint else "")
-            )
+            extra = "（問いの台帳。人に聞く候補が無いなら空の配列を書け）" if key == "questions" else ""
+            fail(f"{path}: 必須の欄 '{key}' が無い{extra}"
+                 + (f"。旧世代の記録なら欄を足せ。{hint}" if hint else ""))
     if not is_int(rec["round"]):
         fail(f"{path}: 'round' が整数でない: {rec['round']!r}")
     # 連番検査（`rec["round"] != prev["round"] + 1`）は間隔しか見ないので、基点を
@@ -259,8 +294,12 @@ def validate(rec, path, hint=None):
         fail(f"{path}: 'units' が配列でない")
     if not isinstance(rec["reviews"], dict):
         fail(f"{path}: 'reviews' が object でない")
-    if not isinstance(rec[QUESTIONS], list):
+    if not isinstance(rec["questions"], list):
         fail(f"{path}: 'questions' が配列でない（人に聞く候補が無いなら空の配列）")
+    # `scalars` は任意の欄だが、**在るなら object**（無いと `"scalars": null` が「想定外の例外」
+    # になり、書き手に何を直せばよいかが伝わらない）。
+    if "scalars" in rec and not isinstance(rec["scalars"], dict):
+        fail(f"{path}: 'scalars' が object でない（規模指標の名前 → 数値。無いなら欄ごと省け）")
 
     for name in MATERIALS:
         m = rec["materials"].get(name)
@@ -271,13 +310,8 @@ def validate(rec, path, hint=None):
             fail(
                 f"{path}: 素材 '{name}' の status が不正: {status!r}（{'/'.join(STATUS)}）"
             )
-        for field in STATUS[status]:
-            # `not m.get(...)` だと 0 や "" を欠落と同じ扱いにし、入れてある欄について
-            # 「要る」と嘘の診断を出す。欠落と空を分けて、writer が探す先を間違えないようにする。
-            if field not in m:
-                fail(f"{path}: 素材 '{name}' は status={status} なので '{field}' が要る")
-            if m[field] == "" or m[field] is None:
-                fail(f"{path}: 素材 '{name}' の '{field}' が空（何を見たかを書け）")
+        require_fields(m, STATUS[status], f"{path}: 素材 '{name}'",
+                       "何を見たかを書け", f"status={status}")
         if status == "carried_over":
             validate_carry(m, rec, path, f"素材 '{name}'")
 
@@ -295,13 +329,8 @@ def validate(rec, path, hint=None):
             fail(
                 f"{path}: {name} は {status} にできない（許されるのは {'/'.join(allowed)}）"
             )
-        for field in REVIEW_STATUS[status]:
-            # 素材側と同じ形にする。`not r.get(...)` だと from_round: 0 が「欄が無い」という
-            # 嘘の診断になり、writer が探す先を間違える。
-            if field not in r:
-                fail(f"{path}: {name} は status={status} なので '{field}' が要る")
-            if r[field] == "" or r[field] is None:
-                fail(f"{path}: {name} の '{field}' が空（何を見たかを書け）")
+        require_fields(r, REVIEW_STATUS[status], f"{path}: {name}",
+                       "何を見たかを書け", f"status={status}")
         if status == "carried_over":
             validate_carry(r, rec, path, name)
 
@@ -311,8 +340,7 @@ def validate(rec, path, hint=None):
             fail(f"{path}: units[{i}] が object でない")
         if not u.get("key"):
             fail(f"{path}: units[{i}] に key が無い（ラウンド間の突合に使う）")
-        # key は突合と台帳の識別子なので、同じラウンドに 2 つ在ると履歴も台帳も
-        # 後勝ちで潰れる（重い方が消え、受容していないものが受容扱いになる）。
+        # 後勝ちで潰れると、重い方が消えて受容していないものが受容扱いになる。
         if u["key"] in seen_keys:
             fail(
                 f"{path}: units[{i}] の key が units[{seen_keys[u['key']]}] と同じ: "
@@ -337,12 +365,37 @@ def validate(rec, path, hint=None):
     validate_questions(rec, path, seen_keys)
 
 
+def targets(q):
+    """この問いが指す出どころ全部を (欄名, 値) で返す。**帰属・実在検査・開き禁止の 3 箇所が
+    必ず同じ集合を見る**ための 1 本。以前は 3 箇所が別々に走査していて、`depends` を足した
+    修正が 2 箇所にしか当たらず、残った 1 箇所（帰属）から同じ逃げ道がそのまま通った——
+    しかもその修正は「不変条件を共有する箇所を先に全部挙げた」と書いていた（実測で再現）。
+    入口が増えたときに 1 箇所だけ直し忘れる形を、走査を 1 本にして構造で消す。
+
+    **値だけでなく域を返す。** 出どころの名前空間は 4 つ（units の key ／素材名 ／R 名 ／
+    無し）在るのに、以前は平坦な文字列の集合で突き合わせていた。unit の key をリテラル
+    `"R2"` にすると、別の域の問いがそのユニットを指したことになり、3 ラウンド続いた [block]
+    の振り分け要求を黙らせられた。**名前を禁じるのでなく、域を持ち回って組で照合する**——
+    禁じる形は、禁じる集合（素材名・R 名）が増えるたびに過去の記録の意味が変わる。
+
+    消費者は 4 つで、**`stuck_unlisted` の `listed` だけは `origin` かつ域が unit のものに
+    絞る**——stuck の振り分けた跡は「その問いがそのユニットを出どころとして立っている」
+    ことで、`depends`（答え待ちで手が止まるユニット）では成立しないから。"""
+    domain = QUESTION_KINDS[q["kind"]][0]
+    out = [("origin", domain, q["origin"])] if "origin" in q else []
+    # **`depends` は域に依らずユニットの key**（手順書 P2「履歴との突合」が正本）。問いの
+    # key でも素材名でもない——ここを域と同じに扱うと、綴り違いが黙って無効になる。
+    out.extend(("depends", "unit", d) for d in q.get("depends", []))
+    return out
+
+
 def validate_questions(rec, path, unit_index):
-    """問いの台帳の 1 ラウンド内の整合。出どころが今ラウンドの記録に実在し、人の起動待ちの
-    素材・人に諮る verdict は必ず台帳に載っている（聞く候補が散文にだけ在って、台帳を
-    見た人が「無い」と読む形を塞ぐ）。"""
+    """問いの台帳の 1 ラウンド内の整合。素材・R 由来の出どころは実在と状態まで見る。
+    units 由来の出どころ（origin と depends）の実在は defer 台帳が要るので main() 側
+    （question_origins_exist）。人の起動待ちの素材・人に諮る verdict は必ず台帳に
+    載っている（聞く候補が散文にだけ在って、台帳を見た人が「無い」と読む形を塞ぐ）。"""
     seen = set()
-    for i, q in enumerate(rec[QUESTIONS]):
+    for i, q in enumerate(rec["questions"]):
         where = f"{path}: questions[{i}]"
         if not isinstance(q, dict):
             fail(f"{where} が object でない")
@@ -357,11 +410,9 @@ def validate_questions(rec, path, unit_index):
         status = q.get("status")
         if status not in QUESTION_STATUS:
             fail(f"{where} の status が不正: {status!r}（{'/'.join(QUESTION_STATUS)}）")
-        for field in ("reason",) + QUESTION_KINDS[kind] + QUESTION_STATUS[status]:
-            if field not in q:
-                fail(f"{where} は kind={kind} / status={status} なので '{field}' が要る")
-            if q[field] in ("", None, []):
-                fail(f"{where} の '{field}' が空（きっかけ・根拠を書け）")
+        domain, extra_fields = QUESTION_KINDS[kind]
+        require_fields(q, ("reason",) + extra_fields + QUESTION_STATUS[status], where,
+                       "きっかけ・根拠を書け", f"kind={kind} / status={status}")
         if kind == "fork":
             opts = q["options"]
             if (
@@ -374,21 +425,17 @@ def validate_questions(rec, path, unit_index):
         if not isinstance(deps, list) or not all(isinstance(d, str) and d for d in deps):
             fail(f"{where} の depends は、この答え待ちで手を止めるユニットの key の配列")
         origin = q.get("origin")
-        if kind in ORIGIN_UNIT:
+        if domain == "unit":
             if not origin:
                 fail(f"{where} は kind={kind} なので origin（units の key）が要る")
-            # origin の実在は defer 台帳込みで見るので main() 側（question_origins_exist）。
-            if (
-                status in ASKING
-                and kind in NO_OPEN_ORIGIN
-                and origin in unit_index
-                and is_open(rec["units"][unit_index[origin]])
-            ):
-                fail(
-                    f"{where}: {kind} の origin が [block] / do-now: {origin}"
-                    "（人に聞く前に直す義務が消える。defer か nit に落として理由を書け）"
-                )
-        elif kind in ORIGIN_MATERIAL:
+            if status in ASKING and kind in NO_OPEN_ORIGIN:
+                for _, _domain, k in targets(q):
+                    if k in unit_index and is_open(rec["units"][unit_index[k]]):
+                        fail(
+                            f"{where}: {kind} の origin / depends が [block] / do-now: {k}"
+                            "（人に聞く前に直す義務が消える。defer にして構造的理由を書け）"
+                        )
+        elif domain == "material":
             if origin not in MATERIALS:
                 fail(f"{where} は kind={kind} なので origin は素材名: {origin!r}")
             if status in ASKING and rec["materials"][origin]["status"] != "awaiting_human":
@@ -396,15 +443,28 @@ def validate_questions(rec, path, unit_index):
                     f"{where}: awaiting の origin '{origin}' が awaiting_human でない"
                     "（動かせた・確かめられたなら resolved にして根拠を書け）"
                 )
-        elif kind in ORIGIN_REVIEW:
+        elif domain == "review":
             if origin not in REVIEWS:
                 fail(f"{where} は kind={kind} なので origin は R1〜R4: {origin!r}")
-            want = "premise-invalid" if kind == "premise" else "unverifiable"
+            want = REVIEW_STATUS_FOR_KIND[kind]
             if status in ASKING and rec["reviews"][origin]["status"] != want:
                 fail(f"{where}: {kind} の origin {origin} が {want} でない（解けたなら resolved にしろ）")
-    # 逆向き。人の起動待ちの素材と人に諮る verdict は、台帳に問いとして載っていること——
+        elif domain == "none":
+            # **origin も depends も持てない。** origin だけ塞いでいたとき、同じ紐づけが
+            # depends から通って開いた [block] 全件に帰属が付いた（実測で再現）。
+            if targets(q):
+                fail(
+                    f"{where} は kind={kind} なので origin / depends を持てない（出どころを"
+                    "持たない種類。特定のユニットに紐づけると、帰属と stuck の縛りをそこから外せる）"
+                )
+        else:
+            # 種類を足して域を書き忘れたらここで落ちる（列挙の覆いを人の注意に頼らない）。
+            fail(f"{where}: kind={kind} の origin の域が不正: {domain!r}（{'/'.join(ORIGIN_DOMAINS)}）")
     # 載っていないと「聞く時」の判定（帰属）に乗らず、聞かれないまま暴走ガードまで回る。
-    origins = {(q["kind"], q.get("origin")) for q in rec[QUESTIONS]}
+    # **未決で**数えるのは、resolved を数えると素材が awaiting_human のままでも要求が満たされるから。
+    origins = {
+        (q["kind"], q.get("origin")) for q in rec["questions"] if q["status"] in ASKING
+    }
     for name in MATERIALS:
         if rec["materials"][name]["status"] == "awaiting_human" and ("awaiting", name) not in origins:
             fail(
@@ -414,7 +474,7 @@ def validate_questions(rec, path, unit_index):
     for name in REVIEWS:
         st = rec["reviews"][name]["status"]
         if st in REVIEW_TO_HUMAN:
-            kind = "premise" if st == "premise-invalid" else "unverifiable"
+            kind = KIND_FOR_REVIEW_STATUS[st]
             if (kind, name) not in origins:
                 fail(
                     f"{path}: {name} が {st} なのに問いの台帳に無い"
@@ -479,61 +539,109 @@ def validate_against(rec, prev, carried=None):
                 f"{u['key']}（前ラウンドの defer 理由: {ledger[u['key']]}）"
             )
 
-    # 問いの台帳の連続性。前ラウンドで保留（held / escalate）だった問いは、今ラウンドにも
-    # 載っていなければならない——held のまま・resolved・escalate のどれか。黙って落ちるのは
-    # 「消えた [block]」と同じ形で、聞くはずだった問いが誰にも聞かれずに終わる。
-    now_q = {q["key"] for q in rec[QUESTIONS]}
-    for q in prev[QUESTIONS]:
+    # 問いの台帳の連続性。黙って落ちるのは「消えた [block]」と同じ形で、聞くはずだった問いが
+    # 誰にも聞かれずに終わる。
+    now_q = {q["key"] for q in rec["questions"]}
+    for q in prev["questions"]:
         if q["status"] in ASKING and q["key"] not in now_q:
             fail(
                 f"前ラウンドの問い（{q['status']}）が今ラウンドの台帳に無い: {q['key']}"
                 "（再審して held / resolved / escalate のどれかで書け。黙って落とすな）"
             )
+    # **台帳を監査する経路は R1 しか無い。** 再発火条件の正本は手順書 P-R の R1 で、そこに
+    # 台帳の条件が無かった理由と実測もあちらが持つ。散文の条件に 1 行足しても読み落としは
+    # 誰にも見えないので、機械の側からも縛る。
+    new_q = [
+        q["key"] for q in rec["questions"]
+        if q["status"] in ASKING and q["key"] not in {p["key"] for p in prev["questions"]}
+    ]
+    if new_q and rec["reviews"]["R1"]["status"] == "carried_over":
+        fail(
+            f"round {rec['round']}: 台帳に未決の問いが新しく載ったのに R1 が carried_over: "
+            f"{'／'.join(new_q)}（台帳を監査するのは R1 だけ。問いが載った周は R1 を走らせろ）"
+        )
     return ledger
 
 
 def question_origins_exist(rec, ledger):
     """保留中の問いの出どころ（units の key）が、今ラウンドの units か defer 台帳に在ること。
     defer は受容が続く限り記録から落ちてよい（台帳が持つ）ので、units だけを見ると
-    正当な記録を弾く。どちらにも無ければ、欠陥は直ったのに問いだけが生き残っている。"""
-    here = {u["key"] for u in rec["units"]}
-    for i, q in enumerate(rec[QUESTIONS]):
-        if q["kind"] in ORIGIN_UNIT and q["status"] in ASKING and q["origin"] not in here | set(ledger):
-            fail(
-                f"round {rec['round']}: questions[{i}] の origin が今ラウンドの units にも defer 台帳にも無い: "
-                f"{q['origin']}（直ったなら resolved にして根拠を書け）"
-            )
+    正当な記録を弾く。どちらにも無ければ、欠陥は直ったのに問いだけが生き残っている。
+
+"""
+    known = {u["key"] for u in rec["units"]} | set(ledger)
+    for i, q in enumerate(rec["questions"]):
+        if q["status"] not in ASKING:
+            continue
+        for what, domain, key in targets(q):
+            # 見るのは域が unit のものだけ（素材名・R 名は units に無くて当然）。`depends` は
+            # 域に依らず unit なので、どの種類の問いでも実在を見る——ここを種類で絞っていた
+            # とき、綴り違いが黙って無効になり 1 文字で「聞く時」の結論が反転した（実測）。
+            if domain != "unit":
+                continue
+            if key not in known:
+                fail(
+                    f"round {rec['round']}: questions[{i}] の {what} が今ラウンドの units にも "
+                    f"defer 台帳にも無い: {key}（直ったなら resolved にして根拠を書け）"
+                )
+
+
+def _row(msg, target, asked, fresh, note_fresh):
+    """阻害要因の 1 行を (本文, 帰属) にする。`target` は `(域, 値)` の組で、**平坦な文字列に
+    しない**——unit の key がリテラル `"R2"` や素材名だと、別の域の問いがその行を掴む。
+    帰属しないが今ラウンドの問いが指しているものには、なぜ「仕事」のままなのかを本文に添える。"""
+    if target in asked:
+        return (msg, True)
+    return (msg + note_fresh if target in fresh else msg, False)
 
 
 def blockers(rec, prev=None, ledger=None, prev_blocks=None):
-    """今ラウンドの阻害要因を (本文, 帰属) の組で返す。帰属は、その阻害要因が保留中の問い
-    （held / escalate の origin か depends）に帰属するか——帰属する阻害は「答えを待っている」、
-    帰属しない阻害は「まだ仕事が在る」。人に聞く時はこの 2 つの数で決まり、writer は数えない。
+    """今ラウンドの阻害要因を (本文, 帰属) の組で返す。**帰属は真偽の 2 値だけ**——
+    帰属する阻害は「答えを待っている」、しない阻害は「まだ仕事が在る」。連続 2 ラウンドの
+    会計のような合成行は帰属の概念を持たないので、ここには混ぜない（main() が別に持つ）。
+
+    **帰属を認めるのは、前の周にも同じ key で保留だった問いが今ラウンドで指す出どころだけ。**
+    今ラウンドに初めて立った問いは、まだ再審を 1 周もくぐっていないので「答えを待っている」では
+    ない。縛っているのは**問いの key の同一性**であって出どころの固定ではない——再審で
+    `thrash` から `fork` へ振り替えて出どころを書き直すのは正当な記録なので、そこは弾かない。ここを今ラウンド
+    だけで見ていたとき、機械は問いが立ったその周に「ここで止めて聞け」と出していた——
+    「載せた周には聞かない」という当の設計が、同じ出力の中で破れていた（実測）。
+    prev が無い初回ラウンドでは帰属が空になり、原理的に聞かない（収束が次ラウンド以降なのと同じ既定）。
+
     prev を渡すと **[block] の行に** 過去ラウンド比の注記（新規 / 残存）を、台帳に在るキーには
-    （既受容の再審）を添える。判定そのものは prev に依存しない。prev_blocks を渡すとそれを
-    「過去に [block] だったキー」として使う（渡さなければ prev の 1 ラウンド分。ディレクトリ
-    渡しでは全ラウンドの和）。"""
+    （既受容の再審）を添える。prev_blocks は「過去に [block] だったキー」の集合（全ラウンドの和）。"""
     out = []
     ledger = ledger or {}
-    asked = set()
-    for q in rec[QUESTIONS]:
-        if q["status"] in ASKING:
-            asked.add(q.get("origin"))
-            asked.update(q.get("depends", ()))
-    if prev_blocks is None:
-        prev_blocks = (
-            {u["key"] for u in prev["units"] if u["label"] == "block"} if prev else set()
-        )
+    carried_q = (
+        {q["key"] for q in prev["questions"] if q["status"] in ASKING} if prev else set()
+    )
+    asked, fresh = set(), set()
+    for q in rec["questions"]:
+        if q["status"] not in ASKING:
+            continue
+        where = asked if q["key"] in carried_q else fresh
+        where.update((domain, k) for _, domain, k in targets(q))
+    # 今ラウンドに立った問いの出どころには、帰属でなくこの印を付ける。**印が要るのは、
+    # 問いが付いているのに「仕事」に数えられている理由が、これが無いと読み手に見えないから。**
+    # 肯定の文言なので、「立った周には聞かない」が効いていることを検査で positive に確かめられる。
+    note_fresh = "（今ラウンドに立った問い——再審は次の周）"
+    prev_blocks = prev_blocks or set()
 
     for name in MATERIALS:
         m = rec["materials"][name]
         if m["status"] in BLOCKING:
             label = "人の起動待ち" if m["status"] == "awaiting_human" else "未実施"
-            out.append((f"素材 '{name}' が{label}: {m['reason']}", name in asked))
+            out.append(_row(f"素材 '{name}' が{label}: {m['reason']}",
+                            ("material", name), asked, fresh, note_fresh))
 
     # 「見つけた」と書いた素材が 1 つでも在るのに units が空なら、judge が根本ユニットに
     # 落としていないか、落とした結果が記録に載っていない。中身は解釈しないが、
     # 「正直に見つけたと書いたのに 1 件も挙げていない」という形だけは数えられる。
+    # **[nit] を 1 件置けば形は満たせる。中身は機械が保証しない**——記録を弱く書けば黙るのは
+    # 「開いたユニットを記録から落とす」のと同じ族で、どちらも key と label が履歴と最終報告に
+    # 残るので人が見る。**「開いた unit が 0」に変えるな**——[nit] だけ・defer だけで終わる周は
+    # 正当な収束の形（defer は定義上この PR で直さない）なので、素材を found と正直に書いた
+    # 周に限って exit 0 が原理的に出なくなり、記録を偽る以外の収束経路が消える。
     if not rec["units"]:
         got = [n for n in MATERIALS if rec["materials"][n]["status"] == "found"]
         if got:
@@ -558,16 +666,16 @@ def blockers(rec, prev=None, ledger=None, prev_blocks=None):
                 note = "（残存——過去のラウンドにも在った）"
             elif u["label"] == "block":
                 note = "（新規）"
-        out.append((f"{head}{note}: {u['key']}", u["key"] in asked))
+        out.append(_row(f"{head}{note}: {u['key']}", ("unit", u["key"]), asked, fresh, note_fresh))
 
     for name in REVIEWS:
         r = rec["reviews"][name]
         if r["status"] in REVIEW_BLOCKING:
             out.append((f"{name} が {r['status']}: {r['reason']}", False))
         elif r["status"] in REVIEW_TO_HUMAN:
-            out.append((
+            out.append(_row(
                 f"{name} が {r['status']}（収束を宣言せずユーザーに諮れ）: {r['reason']}",
-                name in asked,
+                ("review", name), asked, fresh, note_fresh,
             ))
 
     # R3 / R4 の not_applicable は「P-R に到達していない」の意味なので、到達を妨げる
@@ -593,7 +701,19 @@ def stuck_unlisted(rounds):
         chain = set.intersection(
             *({u["key"] for u in r["units"] if u["label"] == "block"} for r in rounds[i - 2:i + 1])
         )
-        listed = {q.get("origin") for q in rounds[i][QUESTIONS]}
+        # **未決の問いだけを数える**（「載っている」を所属だけで見ると黙る理由は ASKING の
+        # 定義。resolved を 1 件置くと永久に黙った——実測）。**種類（stuck / fork）では絞らない**
+        # ——絞っているのは下の `what == "origin" and domain == "unit"`（域）である。`split` / `rule` は
+        # 開いた出どころを持てない（NO_OPEN_ORIGIN）ので、連鎖のキー（必ず [block]＝開いている）を
+        # origin に置けるのは結局 stuck と fork だけになり、種類の絞りは恒真だった。恒真な柵を
+        # 残すと読む人は 2 本で守られていると信じる（REVIEW.md「片方を選び、両方残すな」）。
+        listed = {
+            k
+            for q in rounds[i]["questions"]
+            if q["status"] in ASKING
+            for what, domain, k in targets(q)
+            if what == "origin" and domain == "unit"
+        }
         out.extend((rounds[i]["round"], k) for k in sorted(chain - listed))
     return out
 
@@ -619,8 +739,11 @@ def scalar_changes(rec, prev):
     if prev is None:
         return []
     out = []
-    for name, now in (rec.get("scalars") or {}).items():
-        before = (prev.get("scalars") or {}).get(name)
+    # `or {}` で正規化しない。**非 dict は末尾の例外境界で exit 2 に倒すのが正しい**——
+    # falsy を黙って空 dict に読み替えると、`"scalars": 0` のような壊れた記録が「scalar なし」
+    # として通る（冒頭 docstring の「検査を足すときは境界に頼れ」と同じ理由）。
+    for name, now in rec.get("scalars", {}).items():
+        before = prev.get("scalars", {}).get(name)
         if (
             isinstance(before, (int, float))
             and isinstance(now, (int, float))
@@ -631,21 +754,34 @@ def scalar_changes(rec, prev):
 
 
 def load_dir(path):
-    """`round-<N>.json` を番号順に全部読む。連番の穴は記録の不正（消したか、番号を飛ばした）。"""
+    """`round-<N>.json` を番号順に全部読む。**入口をこれ 1 つにした理由は冒頭 docstring。**"""
     found = {}
     for name in sorted(os.listdir(path)):
-        m = re.fullmatch(r"round-(\d+)\.json", name)
-        if m:
-            n = int(m.group(1))
-            # 0 番は下の range(1, ...) から外れ、読まれも検証もされずに捨てられる。
-            # 連番の穴は落とすのに 0 番だけ黙って消えるのは、同じ形の取りこぼし。
-            if n < 1:
-                fail(f"{path}: {name} は 1 から始まる番号でない（round-1.json から始めろ）")
-            # ゼロ詰めの別名（round-01.json）は同じ番号に潰れ、片方が読まれもせずに
-            # 捨てられる。連番の穴は落とすのに重複が通ると、静かに別の記録を検証する。
-            if n in found:
-                fail(f"{path}: {name} と {os.path.basename(found[n])} が同じ番号 {n} を指している")
-            found[n] = os.path.join(path, name)
+        # `\d` は Unicode の桁（`round-\u0661.json` 等）を拾い、`int()` もそれを解釈するので、
+        # **正規でない綴りが黙って受理される**。下の「正規に近い綴りが黙って捨てられる」と
+        # 鏡像の欠陥で、入口の片方だけ塞ぐと必ずもう片方から通る。ASCII の桁に限る。
+        m = re.fullmatch(r"round-([0-9]+)\.json", name)
+        if not m:
+            # 0 番とゼロ詰めは明示的に落としているのに、この形だけが素通りしていた
+            # （同じクラスの取りこぼし）。
+            # **受理は厳しく、見逃しの検知は広く。** ここは `\d`（Unicode の桁）のまま——
+            # 上の受理側を ASCII に狭めただけだと、桁の異体字が今度は「そもそも記録でない」
+            # として黙って捨てられる側に移るだけで、欠陥が入口を移動して残る。
+            if re.fullmatch(r"round-\d+\.json", name, re.IGNORECASE):
+                fail(f"{path}: {name} は正規の綴りでない（`round-<N>.json`。N は ASCII の数字。"
+                     "大小や桁の異体字が違うファイルは黙って捨てられ、1 ラウンド書かずに"
+                     "飛ばしたのと同じになる）")
+            continue
+        n = int(m.group(1))
+        # 0 番は下の range(1, ...) から外れ、読まれも検証もされずに捨てられる。
+        # 連番の穴は落とすのに 0 番だけ黙って消えるのは、同じ形の取りこぼし。
+        if n < 1:
+            fail(f"{path}: {name} は 1 から始まる番号でない（round-1.json から始めろ）")
+        # ゼロ詰めの別名（round-01.json）は同じ番号に潰れ、片方が読まれもせずに
+        # 捨てられる。連番の穴は落とすのに重複が通ると、静かに別の記録を検証する。
+        if n in found:
+            fail(f"{path}: {name} と {os.path.basename(found[n])} が同じ番号 {n} を指している")
+        found[n] = os.path.join(path, name)
     if not found:
         fail(f"{path}: round-<N>.json が 1 つも無い")
     rounds = []
@@ -674,6 +810,13 @@ def reappeared_after_gap(seen):
     )
 
 
+def timeline(by_round, n):
+    """キーごとの「r1:… → r2:…」の系列。ユニットと問いで同じ形を 2 度書かない。"""
+    return " → ".join(
+        f"r{r}:{by_round[r]}" if r in by_round else f"r{r}:—" for r in range(1, n + 1)
+    )
+
+
 def history(rounds):
     """全ラウンドの傾向。**機械は解釈しない**——judge が読んで、再燃の原因（コード／
     レビュアー／規約）や目的の外への膨張を判断する材料にする。人には最終報告の冒頭。"""
@@ -689,34 +832,28 @@ def history(rounds):
             keys.setdefault(u["key"], {})[rec["round"]] = state
     n = rounds[-1]["round"]
     for key, by_round in keys.items():
-        seq = " → ".join(
-            f"r{r}:{by_round[r]}" if r in by_round else f"r{r}:—" for r in range(1, n + 1)
-        )
         seen = [r in by_round for r in range(1, n + 1)]
         gaps = reappeared_after_gap(seen)
         note = f"（消えて {gaps} 回戻った）" if gaps else ""
-        out.append(f"{key}\n      {seq}{note}")
+        out.append(f"{key}\n      {timeline(by_round, n)}{note}")
     qkeys = {}
     for rec in rounds:
-        for q in rec[QUESTIONS]:
+        for q in rec["questions"]:
             qkeys.setdefault(q["key"], {})[rec["round"]] = f"{q['status']}({q['kind']})"
     for key, by_round in qkeys.items():
-        seq = " → ".join(
-            f"r{r}:{by_round[r]}" if r in by_round else f"r{r}:—" for r in range(1, n + 1)
-        )
-        out.append(f"問い: {key}\n      {seq}")
+        out.append(f"問い: {key}\n      {timeline(by_round, n)}")
     open_counts = [sum(1 for u in r["units"] if is_open(u)) for r in rounds]
     out.append("要対応（[block]＋do-now）の件数: " + " → ".join(map(str, open_counts)))
     if qkeys:
         out.append("問いの台帳の件数（保留・人へ・ループが決めた）: " + " → ".join(
             "・".join(
-                str(sum(1 for q in r[QUESTIONS] if q["status"] == s))
+                str(sum(1 for q in r["questions"] if q["status"] == s))
                 for s in ("held", "escalate", "resolved")
             )
             for r in rounds
         ))
-    for name in sorted({k for r in rounds for k in (r.get("scalars") or {})}):
-        vals = [(r.get("scalars") or {}).get(name) for r in rounds]
+    for name in sorted({k for r in rounds for k in r.get("scalars", {})}):
+        vals = [r.get("scalars", {}).get(name) for r in rounds]
         out.append(f"scalar '{name}': " + " → ".join("—" if v is None else str(v) for v in vals))
     return out
 
@@ -761,10 +898,10 @@ def main():
             f"問いの台帳に無い: {k}（処方の誤りか設計の問題かを judge に振り分けさせ、stuck か fork として載せろ）"
         )
 
-    if rec[QUESTIONS]:
+    if rec["questions"]:
         print("問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。"
               "目的の内側でないかは R1 が監査）:")
-        for q in rec[QUESTIONS]:
+        for q in rec["questions"]:
             tag = {"held": "保留", "escalate": "人へ", "resolved": "ループが決めた"}[q["status"]]
             tail = q["resolution"] if q["status"] == "resolved" else q["reason"]
             print(f"  - [{tag}] {q['kind']}: {q['key']} — {tail}")
@@ -776,11 +913,9 @@ def main():
             for line in lines:
                 print(f"  - {line}")
 
-    prev_blocks = None
-    if rounds is not None:
-        prev_blocks = {
-            u["key"] for r in rounds[:-1] for u in r["units"] if u["label"] == "block"
-        }
+    prev_blocks = {
+        u["key"] for r in rounds[:-1] for u in r["units"] if u["label"] == "block"
+    }
     found = blockers(rec, prev, ledger, prev_blocks)
     if prev is not None:
         here = {u["key"] for u in rec["units"]}
@@ -790,45 +925,63 @@ def main():
             for k in dropped:
                 print(f"  - {k}")
         # **機械はこれを数えない**——一覧は判定でなく P2 の judge への入力である（数えられない
-        # 理由の 2 通りの検討は手順書 P2 の 8 が持つ。ここに写すと片方が腐る）。
+        # 理由の 2 通りの検討は手順書 P2「履歴との突合」が持つ。ここに写すと片方が腐る）。
         gone = [k for k in sorted(prev_blocks or ()) if k not in here]
         if gone:
             print("過去のラウンドの [block] で今ラウンドの記録に無いキー"
-                  "（直ったのか、記録から落ちたのかは機械には見えない。P2 の 8 でルーターに掛けろ）:")
+                  "（直ったのか、記録から落ちたのかは機械には見えない。P2「履歴との突合」でルーターに掛けろ）:")
             for k in gone:
                 print(f"  - {k}")
 
-    # 連続 2 ラウンド。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
+    # 連続 2 ラウンドの会計。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
     # **これを writer に数えさせない**——採点を自己申告にしないのと同じ理由。
-    # 帰属は None——保留の問いへの帰属でも、仕事でもない（回せば消える）。
+    # これは今ラウンドの阻害ではなく帰属の概念を持たないので、blockers の戻り値に混ぜず
+    # ここで別に持つ（混ぜると呼び出し側が 3 値目を書かされ、表示は真偽・判定は 3 値という
+    # 2 通りの読み方が同じ欄に同居する）。回せば消えるので「仕事」にも数えない。
+    accounting = []
     if prev is None:
-        found.append(("前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）", None))
+        accounting.append("前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）")
     else:
         prev_found = blockers(prev)
         if prev_found:
-            found.append((
+            accounting.append(
                 f"前ラウンドに阻害要因が {len(prev_found)} 件あった"
-                "（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）",
-                None,
-            ))
+                "（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）"
+            )
 
-    if found:
-        print(f"収束を妨げるもの {len(found)} 件:")
+    if found or accounting:
+        print(f"収束を妨げるもの {len(found) + len(accounting)} 件:")
         for msg, asked in found:
             print(f"  - {msg}" + ("（保留の問いに帰属——答えを待っている）" if asked else ""))
+        for msg in accounting:
+            print(f"  - {msg}")
         # 人に聞く時。**writer が数えるな**——聞くのが早すぎると、次の周の目が解けた問いで
         # 人を止める。遅すぎることは無い（帰属しない阻害が 0 になった瞬間に出る）。
-        work = [m for m, a in found if a is False]
-        waiting = [m for m, a in found if a is True]
-        if any(q["kind"] == "premise" and q["status"] == "escalate" for q in rec[QUESTIONS]):
-            print("前提不成立が再審で確定——残る仕事は全てその答えに従属する。"
+        waiting = sum(1 for _, a in found if a)
+        work = len(found) - waiting
+        if any(q["kind"] == "premise" and q["status"] == "escalate" for q in rec["questions"]):
+            # 「再審で」と書くな——この短絡は持ち越しを条件にしないので、問いが立った
+            # その周にも発火する（手順書がそう設計している。premise だけの例外）。同じ出力に
+            # 「今ラウンドに立った問い——再審は次の周」と並ぶと、読み手には矛盾にしか見えない。
+            print("前提不成立が確定（escalate）——残る仕事は全てその答えに従属する。"
                   "ここで止めて聞け（最終報告の冒頭）。")
         elif waiting and not work:
-            print(f"残る阻害要因は保留の問いに帰属するものだけ（{len(waiting)} 件）——"
+            print(f"残る阻害要因は保留の問いに帰属するものだけ（{waiting} 件）——"
                   "答え無しに進める仕事は無い。ここで止めて聞け（最終報告の冒頭）。")
         elif waiting:
-            print(f"保留の問いに帰属する阻害要因 {len(waiting)} 件は聞くのを待て——"
-                  f"帰属しない {len(work)} 件を先に直せ（聞くのはまだ）。")
+            print(f"保留の問いに帰属する阻害要因 {waiting} 件は聞くのを待て——"
+                  f"帰属しない {work} 件を先に直せ（聞くのはまだ）。")
+    # 台帳に未決が残っていれば、人が決めることは残っている。**exit 0 と exit 1 の両方で言う**
+    # ——「聞く時」の 3 分岐は帰属する阻害が在るときにしか通らないので、`thrash` / `split` /
+    # `rule` のように出どころで手を止めない問いだけが残る周も、阻害要因が 0 の周も、台帳が
+    # 黙ったまま終わっていた（同梱の雛形 3 周がまさにその形だった）。数え直しを片側にだけ
+    # 置くと、同じ非対称がそのまま戻る。
+    open_q = [q for q in rec["questions"] if q["status"] in ASKING]
+    if open_q:
+        to_human = sum(1 for q in open_q if q["status"] == "escalate")
+        print(f"台帳に未決の問いが {len(open_q)} 件（うち人へ {to_human} 件）——"
+              "阻害要因の有無に依らず、最終報告の冒頭に載せろ。")
+    if found or accounting:
         sys.exit(1)
     print(
         "機械で見つけられる阻害要因は、今ラウンドにも前ラウンドにも無い（連続 2 ラウンド）。"
