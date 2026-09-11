@@ -267,11 +267,9 @@ def require_fields(obj, fields, what, why, cond):
     for field in fields:
         if field not in obj:
             fail(f"{what} は {cond} なので '{field}' が要る")
-        # **縮退値（`False` / `0` / `[]` / `{}` / `""` / `None`）を「埋まっている」と扱わない。**
-        # docstring に「中身は機械が保証しない」と書くのは ④注記で、書いても構造は変わらない。
-        # 免除は**欄の名前**で持つ（上の NUMERIC_FIELDS）。型で「整数なら通す」にしていたとき、
-        # 文を要求する欄に `0` を書けて全部素通りした（実測: `checked: 0` が通り、`reason: 0` で
-        # 「素材 'x' が未実施: 0」という診断が出た）。**免除の単位を型でなく欄にする。**
+        # **縮退値を「埋まっている」と扱わない。** 免除の単位は型でなく欄の名前（理由と実測は
+        # NUMERIC_FIELDS の定義）。docstring に「中身は機械が保証しない」と書くのは ④注記で、
+        # 書いても構造は変わらない。
         v = obj[field]
         if field in NUMERIC_FIELDS:
             if not is_int(v):

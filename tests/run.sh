@@ -87,8 +87,10 @@ write_broken_records() {
     "$PY_BIN" - "$ROOT" "$WORK" <<'PY'
 import json, sys, pathlib
 
-# 手書きの deep copy を 1 本に寄せる（同じ形が 16 箇所に散っていた）。JSON 往復に
-# するのは、JSON にできない値をここで落とすため（copy.deepcopy は落とさない）。
+# 手書きの deep copy を 1 本に寄せる（同じ形が 20 箇所に散っていた）。`copy.deepcopy` でなく
+# JSON 往復にするのは、**JSON にできない値をここで落とすためではなく、そこで失敗させるため**
+# ——固定具は記録として書き出されるので、JSON 化できない値が混ざったら複製の時点で
+# TypeError で止まる方がよい（deepcopy は通してしまい、書き出しの段で初めて落ちる）。
 def clone(x):
     return json.loads(json.dumps(x))
 
@@ -939,8 +941,7 @@ expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した研究記録を作れない"; fail=1; }
 import json, sys, pathlib
 
-# 手書きの deep copy を 1 本に寄せる（同じ形が散っていた）。JSON 往復にするのは、
-# JSON にできない値をここで落とすため（copy.deepcopy は落とさない）。
+# 手書きの deep copy を 1 本に寄せる（理由は上の `write_broken_records` の clone と同じ）。
 def clone(x):
     return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -1052,8 +1053,7 @@ expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した診断記録を作れない"; fail=1; }
 import json, sys, pathlib
 
-# 手書きの deep copy を 1 本に寄せる（同じ形が散っていた）。JSON 往復にするのは、
-# JSON にできない値をここで落とすため（copy.deepcopy は落とさない）。
+# 手書きの deep copy を 1 本に寄せる（理由は上の `write_broken_records` の clone と同じ）。
 def clone(x):
     return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -1144,8 +1144,7 @@ FR="$ROOT/scripts/firstread-record.py"
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した初読記録を作れない"; fail=1; }
 import json, sys, pathlib
 
-# 手書きの deep copy を 1 本に寄せる（同じ形が散っていた）。JSON 往復にするのは、
-# JSON にできない値をここで落とすため（copy.deepcopy は落とさない）。
+# 手書きの deep copy を 1 本に寄せる（理由は上の `write_broken_records` の clone と同じ）。
 def clone(x):
     return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
