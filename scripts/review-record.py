@@ -11,7 +11,10 @@
 
 使い方:
     python3 review-record.py <記録のディレクトリ>
-    python3 review-record.py <今ラウンドの記録.json> [<前ラウンドの記録.json>]
+
+**入口はこれ 1 つ。** 以前はファイル 1〜2 個を渡す入口も在ったが、隣り合う 1 ラウンドしか
+見ないので、**1 ラウンド書かずに飛ばすだけで defer 台帳と過去の [block] の縛りが外れた**。手順書は
+最初からディレクトリ渡ししか教えておらず、検査だけがその入口を生かしていた。
 
 ディレクトリを渡すと `round-<N>.json` を全部読み、最新を今ラウンドとして検証・突合した
 うえで、**全ラウンドの履歴**（キーごとの判定の推移・直したのに再出現した回数・
@@ -50,6 +53,8 @@ git / python3 / bash だけ」「セットアップは要らない」と正面�
 """
 
 import json
+import os
+import re
 import sys
 
 # Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。
@@ -298,9 +303,6 @@ def validate_against(rec, prev, carried=None):
             "別のレビューの記録が同じディレクトリに混ざっていないか——"
             "混ざっているなら消さずに別ディレクトリへ退避してから始めろ"
         )
-    if rec["round"] != prev["round"] + 1:
-        fail(f"ラウンドが連番でない: {prev['round']} の次が {rec['round']}")
-
     # 持ち越しの連鎖。from_round は「実際に見たラウンド」なので、前ラウンドも持ち越し
     # なら同じ値、前ラウンドで実際に見たなら前ラウンドの番号。未実施・条件外からは
     # 持ち越せない（持ち越しは判定の流用であって、無かった判定は流用できない）。
@@ -446,9 +448,6 @@ def scalar_changes(rec, prev):
 
 def load_dir(path):
     """`round-<N>.json` を番号順に全部読む。連番の穴は記録の不正（消したか、番号を飛ばした）。"""
-    import os
-    import re
-
     found = {}
     for name in sorted(os.listdir(path)):
         m = re.fullmatch(r"round-(\d+)\.json", name)
@@ -527,35 +526,24 @@ def history(rounds):
 
 
 def main():
-    if not 2 <= len(sys.argv) <= 3:
+    if len(sys.argv) != 2:
         print(__doc__, file=sys.stderr)
-        fail(f"引数は 1 個か 2 個（受け取った数: {len(sys.argv) - 1}）")
+        fail(f"引数は記録のディレクトリ 1 個（受け取った数: {len(sys.argv) - 1}）")
+    if not os.path.isdir(sys.argv[1]):
+        fail(f"{sys.argv[1]}: ディレクトリでない（記録は round-<N>.json をまとめた"
+             "ディレクトリごと渡せ。ファイル 1〜2 個を渡す入口は消した——"
+             "隣り合う 1 ラウンドしか見ないので、1 ラウンド書かずに飛ばすだけで"
+             "defer 台帳と過去の [block] の縛りが外れた）")
 
-    import os
-
-    rounds = None
-    if len(sys.argv) == 2 and os.path.isdir(sys.argv[1]):
-        rounds = load_dir(sys.argv[1])
-        rec = rounds[-1]
-        prev = rounds[-2] if len(rounds) > 1 else None
-        ledger = {}
-        # 連鎖と台帳は隣り合う全ての組で突合する（履歴の途中で壊れていても最新だけ見ると通る）。
-        # 台帳は**代入でなく累積**する。組ごとに置き換えると隣の 1 ラウンドしか残らず、
-        # 1 ラウンド記録から落とすだけで再審の縛りが消える（手順書は全ラウンドの和と書いている）。
-        for a, b in zip(rounds, rounds[1:]):
-            ledger = validate_against(b, a, ledger)
-    else:
-        rec = load(sys.argv[1])
-        # **突合より先に両方を検証する。** 逆順にすると、欄が欠けた記録で比較が KeyError を
-        # 投げ、境界が 2 に倒すとはいえ「必須の欄が無い」より読みにくいメッセージになる。
-        validate(rec, sys.argv[1])
-
-        prev = None
-        ledger = {}
-        if len(sys.argv) > 2:
-            prev = load(sys.argv[2])
-            validate(prev, sys.argv[2])
-            ledger = validate_against(rec, prev)
+    rounds = load_dir(sys.argv[1])
+    rec = rounds[-1]
+    prev = rounds[-2] if len(rounds) > 1 else None
+    ledger = {}
+    # 連鎖と台帳は隣り合う全ての組で突合する（履歴の途中で壊れていても最新だけ見ると通る）。
+    # 台帳は**代入でなく累積**する。組ごとに置き換えると隣の 1 ラウンドしか残らず、
+    # 1 ラウンド記録から落とすだけで再審の縛りが消える（手順書は全ラウンドの和と書いている）。
+    for a, b in zip(rounds, rounds[1:]):
+        ledger = validate_against(b, a, ledger)
 
     grew = scalar_changes(rec, prev)
     if grew:

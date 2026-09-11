@@ -128,8 +128,21 @@ BOUNDARY = {
 }
 
 
-def write(name, rec):
-    (work / f"{name}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+def write(name, rec, num=2, prevs=None):
+    """壊した記録を、記録のディレクトリ 1 つとして書き出す（入口はディレクトリだけ）。
+
+    前のラウンドを無傷のテンプレートで埋めるのは、突合（base の一致・持ち越しの連鎖・
+    defer 台帳・残存）を発火させる mutation があるため。`prevs` を渡すとその番号だけ差し替える。
+    round 欄そのものを壊した mutation も、ファイル名は round-<num> に置く——load_dir が
+    「ファイル名の番号と中身の round が違う」で落とす前に validate が走るので、狙った検査は
+    変わらず発火する。
+    """
+    d = work / name
+    d.mkdir(exist_ok=True)
+    for i in range(1, num):
+        r = (prevs or {}).get(i, templates[f"round-{i}"])
+        (d / f"round-{i}.json").write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")
+    (d / f"round-{num}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
 
 
 for name, mutate in {**VALUE, **TYPE, **BOUNDARY}.items():
@@ -138,17 +151,17 @@ for name, mutate in {**VALUE, **TYPE, **BOUNDARY}.items():
     write(name, rec)
 
 # 最上位が object でない記録は mutate 関数の形（rec を書き換える）に乗らないので別に書く。
-write("not-object", ["not", "an", "object"])
+write("not-object", ["not", "an", "object"], num=1)
 
 # 突合（集合演算）は prev だけを走査するので、前ラウンド側の記録を壊す必要がある。
 prev = json.loads(json.dumps(templates["round-1"]))
 prev["units"][0]["key"] = ["not", "a", "string"]
-write("unhashable-key", prev)
+write("unhashable-key", templates["round-2"], prevs={1: prev})
 
 # round-1 単独。初回に持ち越しは書けない（from_round が指せるラウンドが無い）。
 r1 = json.loads(json.dumps(templates["round-1"]))
 r1["reviews"]["R1"].update(status="carried_over", from_round=1, reason="前と同じ")
-write("r1-carry", r1)
+write("r1-carry", r1, num=1)
 
 # round-3 を壊し、round-2 と突合する——連鎖・defer 台帳・P-R の飛ばし・停止条件は
 # 2 ラウンド目以降の記録でしか発火しない。
@@ -192,12 +205,10 @@ for name, mutate in {
             status="found", count=3, detail="欠陥レビューが 3 件返した"),
         r["units"].clear()),
 }.items():
-    write(name, r3(mutate))
-
-# stuck は round-2 に同じ [block] が在ることが前提。round-2 側にも足した版を作る。
-r2 = json.loads(json.dumps(templates["round-2"]))
-r2["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"})
-write("stuck-prev", r2)
+    # stuck は round-2 側にも同じ [block] が在ることが前提なので、そこだけ差し替える。
+    r2 = json.loads(json.dumps(templates["round-2"]))
+    r2["units"].append({"key": templates["round-1"]["units"][0]["key"], "label": "block"})
+    write(name, r3(mutate), num=3, prevs={2: r2} if name == "stuck" else None)
 
 # ask_human の印。[block] / do-now には付けられない（人に聞く前に直す義務が消える）。
 for name, mutate in {
@@ -221,6 +232,8 @@ def hist(name, recs):
     for rec in recs:
         (d / f"round-{rec['round']}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
 
+hist("tmpl-1", [templates["round-1"]])
+hist("tmpl-12", [templates["round-1"], templates["round-2"]])
 full = [templates["round-1"], templates["round-2"], templates["round-3"]]
 hist("hist", full)
 hist("hist-gap", [templates["round-1"], templates["round-3"]])
@@ -266,10 +279,10 @@ hist("round-dup", [r1_at(1, []), r1_at(2, [])])
 
 cz = json.loads(json.dumps(templates["round-1"]))
 cz["materials"]["local_review"] = {"status": "found", "count": 0, "detail": "0 件だった"}
-write("count-zero", cz)
+write("count-zero", cz, num=1)
 ce = json.loads(json.dumps(templates["round-1"]))
 ce["materials"]["consistency"] = {"status": "clean", "checked": ""}
-write("checked-empty", ce)
+write("checked-empty", ce, num=1)
 
 hist("ledger-gap", [
     r1_at(1, [{"key": LK, "label": "suggest", "disposition": "defer",
@@ -279,8 +292,11 @@ hist("ledger-gap", [
 ])
 
 # JSON として読めない記録と、深いネスト（json モジュールが JSONDecodeError 以外を投げる例）。
-(work / "truncated.json").write_text('{ "base": ', encoding="utf-8")
-(work / "deep.json").write_text("[" * 100000 + "]" * 100000, encoding="utf-8")
+for nm, body in (("truncated", '{ "base": '), ("deep", "[" * 100000 + "]" * 100000)):
+    (work / nm).mkdir(exist_ok=True)
+    (work / nm / "round-1.json").write_text(body, encoding="utf-8")
+# 「開けない」の腕。round-1.json がディレクトリだと open が OSError を投げる。
+(work / "unreadable" / "round-1.json").mkdir(parents=True)
 PY
 }
 
@@ -291,34 +307,35 @@ R3="$ROOT/templates/round-3.example.json"
 # 変数に詰めて展開すると、python のパスにスペースがあるだけで壊れる（Windows で起きる）。
 RECORD="$ROOT/scripts/review-record.py"
 
-# 初回ラウンドの呼び方（第 2 引数なし）。
-# 阻害あり: block 2 件・do-now 1 件・前ラウンドの記録が無い
-expect_output 1 "前ラウンドの記録が無い" "初回は第 2 引数なしで走り、比較の欠落を阻害要因に数える" \
-    "$PY_BIN" "$RECORD" "$R1"
-# 連続 2 ラウンドは道具が数える。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
-expect_output 1 "前ラウンドに阻害要因が 3 件あった" "解消した直後のラウンドは連続 2 ラウンドの 1 ラウンド目" \
-    "$PY_BIN" "$RECORD" "$R2" "$R1"
-expect_output 1 "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$R2" "$R1"
-expect_output 0 "連続 2 ラウンド" "2 ラウンド続けて阻害なしなら exit 0" "$PY_BIN" "$RECORD" "$R3" "$R2"
-expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$R3" "$R2"
-expect_output 0 "素材 prior_decisions: round 1 の判定を流用（2 ラウンド前）" "持ち越しは実際に見たラウンドと古さを見せる" \
-    "$PY_BIN" "$RECORD" "$R3" "$R2"
 
 write_broken_records || { echo "  FAIL 壊した記録を作れない"; fail=1; }
+
+# 記録は round-1 だけ。前のラウンドが無いことを阻害要因に数える（収束は連続 2 ラウンドを要する）。
+expect_output 1 "前ラウンドの記録が無い" "round-1 だけの記録は、比較の欠落を阻害要因に数える" \
+    "$PY_BIN" "$RECORD" "$WORK/tmpl-1"
+# 連続 2 ラウンドは道具が数える。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
+expect_output 1 "前ラウンドに阻害要因が 3 件あった" "解消した直後のラウンドは連続 2 ラウンドの 1 ラウンド目" \
+    "$PY_BIN" "$RECORD" "$WORK/tmpl-12"
+expect_output 1 "scalar 'doc_lines': 120 → 135" "増えた scalar を R1 へ渡すため表示する" "$PY_BIN" "$RECORD" "$WORK/tmpl-12"
+expect_output 0 "連続 2 ラウンド" "2 ラウンド続けて阻害なしなら exit 0" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 0 "これは収束の宣言ではない" "阻害なしを収束と名乗らない" "$PY_BIN" "$RECORD" "$WORK/hist"
+expect_output 0 "素材 prior_decisions: round 1 の判定を流用（2 ラウンド前）" "持ち越しは実際に見たラウンドと古さを見せる" \
+    "$PY_BIN" "$RECORD" "$WORK/hist"
+
 
 # 記録が不正（exit 2）。1 と混ざると「非収束」と誤読され、収束を永久に宣言できなくなる。
 # **期待メッセージまで検査する。** 終了コードだけを見ると、末尾の例外境界が想定外の例外も
 # 2 に倒すため、個別の検査を 1 つ消しても緑のまま通る（検査が恒真になる）。
 while IFS='|' read -r m msg; do
     [ -n "$m" ] || continue
-    expect_output 2 "$msg" "不正な記録は 1 と区別して落ちる: $m" "$PY_BIN" "$RECORD" "$WORK/$m.json" "$R1"
+    expect_output 2 "$msg" "不正な記録は 1 と区別して落ちる: $m" "$PY_BIN" "$RECORD" "$WORK/$m"
 done <<'CASES'
 drop-material|素材 'hygiene' の返答が無い
 drop-defer-reason|defer に構造的理由が無い
 drop-base|必須の欄 'base' が無い
 drop-round|必須の欄 'round' が無い
 bad-base|base が違う
-bad-round|ラウンドが連番でない
+bad-round|ファイル名の番号と違う
 bad-status|status が不正
 clean-without-checked|'checked' が要る
 bad-label|label が不正
@@ -346,14 +363,14 @@ unhashable-status|想定外の例外（TypeError）
 CASES
 
 expect_output 2 "想定外の例外（TypeError）" "前ラウンドの key が unhashable でも 1 と区別して落ちる" \
-    "$PY_BIN" "$RECORD" "$R2" "$WORK/unhashable-key.json"
+    "$PY_BIN" "$RECORD" "$WORK/unhashable-key"
 expect_output 2 "今ラウンド（1）より前でない" "初回ラウンドに持ち越しは書けない" \
-    "$PY_BIN" "$RECORD" "$WORK/r1-carry.json"
+    "$PY_BIN" "$RECORD" "$WORK/r1-carry"
 
 # 2 ラウンド目以降でしか発火しない突合（round-3 を壊し round-2 と比べる）。
 while IFS='|' read -r code m msg; do
     [ -n "$m" ] || continue
-    expect_output "$code" "$msg" "前ラウンドとの突合: $m" "$PY_BIN" "$RECORD" "$WORK/$m.json" "$R2"
+    expect_output "$code" "$msg" "前ラウンドとの突合: $m" "$PY_BIN" "$RECORD" "$WORK/$m"
 done <<'CASES'
 2|carry-chain-broken|持ち越しが連鎖していない
 2|review-carry-chain-broken|R1 の from_round（1）が前ラウンド（2）でない
@@ -371,7 +388,7 @@ done <<'CASES'
 1|found-no-units|素材が found なのに units が空
 CASES
 expect_output 1 "残存——過去のラウンドにも在った" "同じ [block] キーが 2 ラウンド残れば残存の印を出す" \
-    "$PY_BIN" "$RECORD" "$WORK/stuck.json" "$WORK/stuck-prev.json"
+    "$PY_BIN" "$RECORD" "$WORK/stuck"
 
 # ask_human と履歴。
 for m in ask-on-block ask-on-real-block ask-bad-value ask-without-reason; do
@@ -380,7 +397,7 @@ for m in ask-on-block ask-on-real-block ask-bad-value ask-without-reason; do
         ask-bad-value) msg="ask_human が不正" ;;
         ask-without-reason) msg="ask_human=rule に reason が無い" ;;
     esac
-    expect_output 2 "$msg" "ask_human の印: $m" "$PY_BIN" "$RECORD" "$WORK/$m.json" "$R1"
+    expect_output 2 "$msg" "ask_human の印: $m" "$PY_BIN" "$RECORD" "$WORK/$m"
 done
 # 前のレビューの記録が同じディレクトリに残っている形。手順書は消すなと言っているので、
 # 止まるだけでなく退避先を案内できていることまで縛る。
@@ -412,9 +429,9 @@ expect_output 2 "同じ番号" "ゼロ詰めの別名が同じ番号に潰れる
     "$PY_BIN" "$RECORD" "$WORK/round-dup"
 # 0 と欠落を同一視すると、入れてある欄について「要る」と嘘の診断が出る。
 expect_output 1 "収束を妨げるもの" "count: 0 を「値が無い」と言わない" \
-    "$PY_BIN" "$RECORD" "$WORK/count-zero.json"
+    "$PY_BIN" "$RECORD" "$WORK/count-zero"
 expect_output 2 "が空（何を見たかを書け）" "空文字は欠落と分けて診断する" \
-    "$PY_BIN" "$RECORD" "$WORK/checked-empty.json"
+    "$PY_BIN" "$RECORD" "$WORK/checked-empty"
 expect_output 2 "reopen_evidence が無い" "1 ラウンド記録から落としても、台帳は全ラウンドの和なので再審を止める" \
     "$PY_BIN" "$RECORD" "$WORK/ledger-gap"
 expect_output 0 "履歴（round 1〜3" "ディレクトリを渡すと全ラウンドの履歴を出す" "$PY_BIN" "$RECORD" "$WORK/hist"
@@ -433,17 +450,19 @@ ran=$((ran + 1))
 
 # 記録に到達できない場合も 2（契約は冒頭 `review-record.py` の docstring が正本）。
 expect_output 2 "JSON として読めない" "壊れた JSON は 1 と区別して落ちる" \
-    "$PY_BIN" "$RECORD" "$WORK/truncated.json"
-expect_output 2 "開けない" "存在しない記録は 1 と区別して落ちる（初回に round-0.json を渡した場合）" \
-    "$PY_BIN" "$RECORD" "$WORK/does-not-exist.json"
+    "$PY_BIN" "$RECORD" "$WORK/truncated"
+expect_output 2 "ディレクトリでない" "記録のディレクトリでないものを渡したら 1 と区別して落ちる" \
+    "$PY_BIN" "$RECORD" "$WORK/does-not-exist"
+expect_output 2 "開けない" "読めない記録は 1 と区別して落ちる" \
+    "$PY_BIN" "$RECORD" "$WORK/unreadable"
 expect_exit 2 "引数なしは 1 と区別して落ちる" "$PY_BIN" "$RECORD"
-expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる" "$PY_BIN" "$RECORD" "$R2" "$R1" "$R1"
+expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる" "$PY_BIN" "$RECORD" "$WORK/tmpl-12" "$R1"
 # **ここは終了コードだけを見る。** どの経路で 2 になるかは環境で変わる——再帰上限に達すれば
 # 境界が受け、達しなければ最上位の型検査が受ける（macOS は 10 万段でも読み切る）。例外名を
 # 検査すると、緑が環境の性質を映すだけになる。境界そのものは上の bad-scalars-type /
 # unhashable-status が例外名まで検査している。
 expect_exit 2 "深いネストの JSON も 1 と区別して落ちる（経路は環境で変わる）" \
-    "$PY_BIN" "$RECORD" "$WORK/deep.json"
+    "$PY_BIN" "$RECORD" "$WORK/deep"
 
 echo "research-record.py"
 RR="$ROOT/scripts/research-record.py"
@@ -1085,7 +1104,7 @@ PY
 # この柵は「削った本人が数字も一緒に下げれば無音で通る」形なので、下げた理由と内訳をここに残さないと、
 # 次に読む人が正当な引き下げと空振りを区別できない（内訳は数え直せる形で書くこと。前は
 # 「43 件と 4 件」と書いていて、実測の 37 件と合わなかった）。
-EXPECTED_MIN=446
+EXPECTED_MIN=447
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
