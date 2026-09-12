@@ -114,14 +114,16 @@ def answers(run, scenario, rnd):
     """節ごとの返答。scenario と周で分岐する。"""
     base = run.base
     blocks_forever = scenario == "runaway"
-    unit_block = {"key": "src/a.py:f — 上限が効かない経路がある", "label": "block"}
-    unit_donow = {"key": "src/b.py:g — 定数の重複", "label": "suggest", "disposition": "do-now"}
+    # 今の周に直す単位は覆いの母数（class_query）を持つ——名指しの 1 site だけ塞ぐ閉じ方を機械が止める
+    CQ = lambda n=1: {"how": "grep -rn 'limit' src/ | wc -l", "total": n}
+    unit_block = {"key": "src/a.py:f — 上限が効かない経路がある", "label": "block", "class_query": CQ()}  # 母数 1（sites 1 と揃う）
+    unit_donow = {"key": "src/b.py:g — 定数の重複", "label": "suggest", "disposition": "do-now", "class_query": CQ(1)}
     rec = run.record()
     prev_q = run.state().get("loop", {}).get("prev_questions", [])
 
     def units_for(rnd):
         if blocks_forever:
-            return [{"key": f"src/a.py:f — 周 {rnd} に見つかった新しい欠陥", "label": "block"}]
+            return [{"key": f"src/a.py:f — 周 {rnd} に見つかった新しい欠陥", "label": "block", "class_query": CQ()}]
         if scenario == "deferjudge" and rnd == 1:  # judge が defer を返す筋（以前の台本は一度も返さず、rules の defer の腕が観測できなかった）
             return [unit_block, {**unit_donow, "disposition": "defer", "reason": "処方が共有面（キャッシュ層）に及ぶ（検査用）"}]
         return [unit_block, unit_donow] if rnd == 1 else []
@@ -151,7 +153,10 @@ def answers(run, scenario, rnd):
         return []
 
     def judge(rnd):
-        return {"units": units_for(rnd), "questions": questions_for(rnd), "framing": "根本は上限の欠落", "one_shot": "上限を 1 箇所に寄せる",
+        us = units_for(rnd)
+        return {"units": us, "questions": questions_for(rnd), "framing": "根本は上限の欠落", "one_shot": "上限を 1 箇所に寄せる",
+                # 一撃は反証可能に——閉じると見込む key を名指しし、次の周が測る問いを添える
+                "one_shot_closes": [u["key"] for u in us],
                 "materials_missing": [], "router": [{"key": unit_block["key"], "route": "②閉じた", "note": "grep で確認"}] if rnd > 1 else []}
 
     awaiting_mp = scenario == "awaiting" and rnd < 3
@@ -182,8 +187,18 @@ def answers(run, scenario, rnd):
         "p1.main_path_observation": lambda it: {"material": M("awaiting_human", reason="dev サーバが社内認証に繋がず起動しない") if awaiting_mp else CLEAN("人が用意した設定で 1 回動かし値を観測"), "observed": []},
         "p2.diagnose": lambda it: judge(rnd),
         "p2.history": lambda it: judge(rnd),
-        "p3.fix": lambda it: {"changes": [{"unit_key": u["key"], "what": "上限を 1 箇所に", "files": ["src/a.py"], "closure": {"mechanism": "分岐で上限が漏れる", "fix_mechanism": "共通経路に寄せた", "verified_how": "退行注入で赤→緑", "sites": [{"site": "src/a.py:f", "red_seen": True}]}} for u in rec["units"]],
-                              "not_done": [], "fix_closure": CLEAN("退行を注入して赤→復元して緑") if rec["units"] else M("not_applicable", reason="本ラウンドに修正なし"),
+        "p3.fix": lambda it: {"changes": [{"unit_key": u["key"], "what": "上限を 1 箇所に", "files": ["src/a.py"], "closure": {"mechanism": "分岐で上限が漏れる", "fix_mechanism": "共通経路に寄せた", "verified_how": "退行注入で赤→緑", "sites": [{"site": "src/a.py:f", "red_seen": True}]},
+                                                 "coverage": {"how": "grep -rn 'limit' src/ | wc -l", "total": 1},
+                                                 # 壊さないか・根本か・破れないか——修正が次の周の欠陥を作らないための 3 欄
+                                                 "root_or_symptom": {"kind": "root", "why": "上限の分散そのものを 1 箇所に寄せた"},
+                                                 "bypass_tried": "修正を残したまま limit=0 と limit=-1 と分岐の両側を通した——どれも上限が効いた",
+                                                 "breaks": {"how": "grep -rn 'min(' src/", "result": "同じ経路を使う 2 箇所とも既存の検査が緑"}} for u in rec["units"]],
+                              "not_done": [],
+                              # 2 つ以上の修正が触った面は機械が changes[].files から出す——書き落とすと拒まれる
+                              "interactions": ([{"surface": "src/a.py", "changes": [u["key"] for u in rec["units"]],
+                                                 "checked": "上限を寄せる修正と定数を寄せる修正は同じ関数を触るが、当てる順序で結果は変わらない（どちらも共通経路に足すだけ）"}]
+                                               if len(rec["units"]) >= 2 else []),
+                              "fix_closure": CLEAN("退行を注入して赤→復元して緑") if rec["units"] else M("not_applicable", reason="本ラウンドに修正なし"),
                               "mechanism_changed": scenario == "premise_resolved" and rnd == 2, "premise_drift": False, "deps_changed": False, "procedures_changed": False, "gates_changed": False,
                               "seams_changed": False, "path_changed": False, "claims_changed": False, "decision_records_changed": False},
         "p4.ci": lambda it: {"material": CLEAN("pytest 緑")},
@@ -209,7 +224,8 @@ def answers(run, scenario, rnd):
         table["p4.ci"] = lambda it: {"material": M("not_applicable", reason="この環境に CI が無い（検査用）")}
     if scenario == "liar":  # 申告したファイルに実際は触らない writer（drive は実在するファイルしか編集しない）
         real = table["p3.fix"]
-        table["p3.fix"] = lambda it: {**real(it), "changes": [{**c, "files": ["src/zzz.py"]} for c in real(it)["changes"]]}
+        table["p3.fix"] = lambda it: {**real(it), "changes": [{**c, "files": ["src/zzz.py"]} for c in real(it)["changes"]],
+                                      "interactions": [{**i, "surface": "src/zzz.py"} for i in real(it)["interactions"]]}
     if scenario == "cired":  # 阻害なしでも CI が毎周赤——converged 分岐の早期 return が暴走ガードを飛ばしていた（実測 2026-09-13: round 9 / max 5 で running）
         table["p0.local_checks"] = lambda it: {"material": M("found", count=1, detail="CI が赤（検査用）")}
         table["p4.ci"] = lambda it: {"material": M("found", count=1, detail="CI が赤のまま（検査用）")}
@@ -336,13 +352,18 @@ def test_converges():
     r1, r2, r3 = run.round_file(1), run.round_file(2), run.round_file(3)
     check(len(r1["materials"]) == 15 and all("status" in m for m in r1["materials"].values()), "周の記録に素材 15 欄が揃う")
     check(r1["materials"]["procedure_trace"]["status"] == "not_applicable" and r1["materials"]["fix_closure"]["status"] == "clean", "条件外は not_applicable、fix_closure は P3 の返答")
-    check(r2["materials"]["external_standards"]["status"] in ("carried_over", "clean", "found"), "再発火しない周の素材は carried_over（実際に見た周付き）")
+    check(r2["materials"]["parallel_pr"]["status"] == "carried_over" and r2["materials"]["parallel_pr"].get("from_round") == 1,
+          f"再発火条件を持たない once の節は carried_over（実際に見た周付き。{r2['materials']['parallel_pr']}）")
+    check(r2["materials"]["external_standards"]["status"] == "clean",
+          f"差分全体を見る素材は、前の周の P3 が触ったので走り直す（{r2['materials']['external_standards']['status']}）")
     # 前の周の P3 が触ったファイルを見る素材は持ち越さない（閉じた欠陥が次の周に生き返らない）
     check(r2["materials"]["provenance"]["status"] != "carried_over",
           f"前の周の P3 が src/a.py を直したので provenance は持ち越さず走り直す（{r2['materials']['provenance']['status']}）")
     carried = [n for n, m in r3["materials"].items() if m["status"] == "carried_over"]
     check(all("確認:" in r3["materials"][n]["reason"] for n in carried), f"持ち越しの理由は確かめた対象を書く（{len(carried)} 件）")
-    check(r1["reviews"]["R3"]["status"] == "not_applicable" and r2["reviews"]["R3"]["status"] == "pass", "[block] が残る周は R3/R4 not_applicable、0 の周に走る")
+    check(r1["reviews"]["R3"]["status"] == "not_applicable" and r2["reviews"]["R3"]["status"] == "pass",
+          f"R3/R4 は『前の周の P3 が触った周』にも走る——引き金（前の周の修正）と材料（P1 が写した差分）が同じ周で揃う。"
+          f"1 周目は前の修正が無いので走らない（r1={r1['reviews']['R3']['status']} / r2={r2['reviews']['R3']['status']}）")
     check(r2["reviews"]["R1"]["status"] == "carried_over" and r3["reviews"]["R1"]["from_round"] == 1, "R1 は再発火しない周に持ち越し、連鎖は round 1 を指す")
     v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "rounds")], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(v.returncode == 0, "検証器がディレクトリで exit 0（連続 2 ラウンド）")
@@ -485,6 +506,23 @@ def test_rejections():
     check(r.returncode == 1 and "型に合わない" in r.stderr, "judge の返答に知らない欄があれば exit 1（additionalProperties）")
     r = run.done(jd["id"], {**good, "units": [{**good["units"][0], "label": "suggest", "disposition": "defer"}]})
     check(r.returncode == 1 and "defer" in r.stderr, "defer に reason の無い judge の返答は exit 1（以前の台本は defer を一度も返さず、この腕を観測できなかった）")
+    # 覆いの母数——今の周に直す単位（[block] / do-now）は「同じ形を全部引ける機械の問い」を持て。
+    # 名指しの 1 site だけを塞ぐ閉じ方が 3 周続いた（実測 2026-09-13）
+    r = run.done(jd["id"], {**good, "one_shot_closes": []})
+    check(r.returncode == 1 and "one_shot_closes" in r.stderr, "一撃が閉じると見込む unit を名指ししない judge の返答は exit 1（効かなかったことを次の周が言えない）")
+    r = run.done(jd["id"], {**good, "one_shot_closes": ["存在しないユニット"]})
+    check(r.returncode == 1 and "units に無い key" in r.stderr, "one_shot_closes が今の周の units に無い key を指すと exit 1")
+    nocq = {k: v for k, v in good["units"][0].items() if k != "class_query"}
+    r = run.done(jd["id"], {**good, "units": [nocq]})
+    check(r.returncode == 1 and "class_query" in r.stderr, "[block] に class_query（母数の問い）が無い judge の返答は exit 1")
+    r = run.done(jd["id"], {**good, "units": [{**good["units"][0], "class_query": {"how": "grep ...", "total": True}}]})
+    check(r.returncode == 1 and "型に合わない" in r.stderr, "class_query.total が数でなければ exit 1")
+    # defer の単位には母数を求めない（今の周に直さないので問いが立たない）。**正しい返答で確かめると節が done になり
+    # 後続の腕が撃てない**ので、別の理由（key の重複）で赤くして「class_query では赤くなっていない」ことを見る
+    defer_only = {**nocq, "label": "suggest", "disposition": "defer", "reason": "共有面に及ぶ（検査用）"}
+    r = run.done(jd["id"], {**good, "units": [defer_only, defer_only], "questions": []})
+    check(r.returncode == 1 and "重複" in r.stderr and "class_query" not in r.stderr,
+          f"defer の単位には母数を求めない（赤の理由は key の重複だけ。{r.stderr.strip()[-80:]}）")
     # 置き場に古い返答が残っていても、標準入力で渡した新しい返答が勝つ（以前は置き場が先に読まれ、古い方が黙って記録に入った）
     pathlib.Path(jd["out_path"]).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(jd["out_path"]).write_text(json.dumps({**good, "framing": "STALE"}, ensure_ascii=False), encoding="utf-8")
@@ -492,7 +530,7 @@ def test_rejections():
     # PYTHONIOENCODING で cp1252 を強いて、3 OS のどこで走っても同じ入力で固定する（実測 2026-09-13: windows-latest だけ赤だった）
     r = run.cmd("done", "--node", jd["id"], "--stdin", "--agent-id", "judge-1", input=json.dumps({**good, "framing": "FRESH"}, ensure_ascii=False),
                 env={**os.environ, "PYTHONIOENCODING": "cp1252"})
-    check(r.returncode == 0 and "読んだ先: stdin" in r.stdout, f"正しい judge の返答は通り、どこから読んだかが返事に残る（stdin を cp1252 の環境で。{r.stdout.strip()[:70]}）")
+    check(r.returncode == 0 and "読んだ先: stdin" in r.stdout, f"正しい judge の返答は通り、どこから読んだかが返事に残る（stdin を cp1252 の環境で。rc={r.returncode} {(r.stdout + r.stderr).strip()[:160]}）")
     check(json.loads(pathlib.Path(jd["out_path"]).read_text(encoding="utf-8")).get("framing") == "FRESH", "標準入力の返答が置き場の古い返答より優先され、記録に入るのは新しい方")
     nx = run.next()
     fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
@@ -505,6 +543,37 @@ def test_rejections():
     check(bool(fix["changes"]) and r.returncode == 1 and "赤を一度も見ていない" in r.stderr, f"閉鎖の実証で赤を見ていないのに fix_closure=clean の返答は exit 1（rc={r.returncode}）")
     r = run.done(fx["id"], {**fix, "fix_closure": M("not_applicable", reason="条件に当たらない（検査用の嘘）")})
     check(r.returncode == 1 and "not_applicable" in r.stderr, "修正が在るのに fix_closure=not_applicable の返答は exit 1（changes が非空という機械の事実と食い違う）")
+    # 修正どうしの干渉——面の一覧は機械が changes[].files から出すので、書き落としは申告でなく突合で落ちる
+    r = run.done(fx["id"], {**fix, "interactions": []})
+    check(r.returncode == 1 and "interactions に無い" in r.stderr, "2 つ以上の修正が触った面を書き落とすと exit 1（機械が files から面を出す）")
+    r = run.done(fx["id"], {**fix, "interactions": [{**fix["interactions"][0], "changes": fix["interactions"][0]["changes"] + ["触っていない修正"]}]})
+    check(r.returncode == 1 and "触っていない修正" in r.stderr, "その面を触っていない修正を interactions に混ぜると exit 1")
+    r = run.done(fx["id"], {**fix, "interactions": [{**fix["interactions"][0], "checked": "なし"}]})
+    check(r.returncode == 1 and "checked が空同然" in r.stderr, "干渉を突き合わせた結果が空同然なら exit 1（bypass_tried と同じ空語検査）")
+    # 壊さないか・根本か・破れないか——「修正を外したら赤くなった」は不在の検知であって完全性の証拠にならない
+    r = run.done(fx["id"], {**fix, "changes": [{**c, "bypass_tried": "なし"} for c in fix["changes"]]})
+    check(r.returncode == 1 and "bypass_tried" in r.stderr, "修正を残したまま破りに行った形跡が無い返答は exit 1")
+    r = run.done(fx["id"], {**fix, "changes": [{**c, "breaks": {**c["breaks"], "result": "特になし"}} for c in fix["changes"]]})
+    check(r.returncode == 1 and "breaks.result" in r.stderr, "壊しうる面を確かめた結果が空同然なら exit 1")
+    r = run.done(fx["id"], {**fix, "changes": [{**c, "root_or_symptom": {"kind": "symptom", "why": "後で"}} for c in fix["changes"]]})
+    check(r.returncode == 1 and "症状" in r.stderr, "症状を塞ぐ修正に「なぜ今それで止めるか」が無ければ exit 1")
+    # 覆いの母数（coverage）——「1 か所直して終わり」を数字で見えるようにする。残すのは禁じないが黙って残すのは禁じる
+    nocov = {**fix, "changes": [{k: v for k, v in c.items() if k != "coverage"} for c in fix["changes"]]}
+    r = run.done(fx["id"], nocov)
+    check(r.returncode == 1 and "coverage" in r.stderr, "修正に coverage（母数の問いと件数）が無い返答は exit 1")
+    part = {**fix, "changes": [{**c, "coverage": {**c["coverage"], "total": 3}} for c in fix["changes"]]}
+    r = run.done(fx["id"], part)
+    check(r.returncode == 1 and "remaining" in r.stderr, "母数 3 のうち閉鎖を実証した site が 1 件で残りが在るのに remaining が無ければ exit 1")
+    over = {**fix, "changes": [{**c, "coverage": {**c["coverage"], "total": 0}} for c in fix["changes"]]}
+    r = run.done(fx["id"], over)
+    check(r.returncode == 1 and "母数を超えて" in r.stderr, "closure.sites が母数を超える返答は exit 1（問いが対象を取りこぼしている）")
+    # 残した理由を書けば部分的な覆いは通る。**正しい返答で確かめると節が done になり後続の腕が撃てない**ので、
+    # 別の理由（fix_closure=not_applicable）で赤くして「coverage では赤くなっていない」ことを見る
+    withrem = {**fix, "fix_closure": M("not_applicable", reason="検査用の嘘"),
+               "changes": [{**c, "coverage": {**c["coverage"], "total": 3, "remaining": "残り 2 件は fork の出どころ（検査用）"}} for c in fix["changes"]]}
+    r = run.done(fx["id"], withrem)
+    check(r.returncode == 1 and "not_applicable" in r.stderr and "remaining" not in r.stderr,
+          f"残した理由を書けば部分的な覆いは通る（赤の理由は fix_closure だけ。{r.stderr.strip()[-70:]}）")
     mixed = {**fix, "changes": [fix["changes"][0], {**fix["changes"][1], "closure": {**fix["changes"][1]["closure"], "sites": [{"site": "docs（赤を見られない）", "red_seen": False}]}}]}
     # 本番の主経路——運び手が out_path に書き、--output も --stdin も付けずに done（台本は --output しか通していなかった）
     pathlib.Path(fx["out_path"]).parent.mkdir(parents=True, exist_ok=True)
@@ -614,6 +683,65 @@ def test_claim_mismatch():
     rm(run.tmp)
 
 
+def test_proxy_to_source():
+    """判定に使う値が『代理』でなく『機械が既に持つ正本』であること——4 本とも、代理を見ていた頃は緑で通った退行。"""
+    print("否定検査: 代理でなく正本を見る（持ち越しの可否・走った事実・判定行・受理集合）")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
+    V = types.SimpleNamespace(STOP_PREMISE="前提不成立が確定（escalate）", STOP_WORK_EXHAUSTED="答え無しに進める仕事は無い")
+
+    # ① 前の周が awaiting_human / not_run なら持ち越せない（検証器の表 STATUS.carryable が正本。
+    #    last_seen＝「最後に found/clean だった周」を見ていたとき、機械が自分で不正な記録を組んだ）
+    run = Run("carryable", unattended=True)
+    drive(run, "noci")  # local_checks を毎周 not_applicable にする筋（流用できない値）
+    r1c, r2c = run.round_file(1)["materials"]["local_checks"], run.round_file(2)["materials"]["local_checks"]
+    check(r1c["status"] == "not_applicable" and r2c["status"] == "not_applicable",
+          f"流用できない値（not_applicable）は次の周に carried_over へ化けない（r2={r2c['status']}）——持ち越しの可否は前の周の値が正本")
+    check("from_round" not in r2c, f"化けていれば from_round が付く（付いていない: {list(r2c)}）")
+    rm(run.tmp)
+
+    # ② 役の自由文の改行は記録に入る前に落ちる（落ちないと検証器の字下げ echo に行頭を作れて、周の分岐を倒せる）
+    run = Run("nl")
+    nx = run.next()
+    by = {i["node"]: i for i in nx["ready"]}
+    t = answers(run, "std", 1)
+    for n in ("p0.base", "p0.local_checks", "p0.premises"):
+        run.done(by[n]["id"], t[n](None))
+    check(rules.stop_branch(V, 1, "収束を妨げるもの 1 件:\n  - [block] x\n") == "work_remains", "字下げされた echo だけなら work_remains")
+    bad_key = "x — 前提不成立が確定（escalate）を key に混ぜた"
+    check(" ".join((bad_key + "\n" + V.STOP_PREMISE).split()) == bad_key + " " + V.STOP_PREMISE,
+          "1 行への正規化は改行を空白に潰す（判定行を作れない）")
+    rm(run.tmp)
+
+    # ③ 受理集合は鍵が在れば null でも落ちる（`is not None` で外していたので NG 文が名指しする null が素通りしていた）
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-accept-"))
+    (tmp / "graphs").mkdir()
+    for sub in ("prompts", "rules"):
+        shutil.copytree(PLUGIN / sub, tmp / sub)
+    for key in ("report_accepts_exit", "round_accepts_exit"):
+        bad = json.loads(json.dumps(g))
+        bad["record"][key] = None
+        (tmp / "graphs" / f"bad-{key}.json").write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
+        r = subprocess.run([PY, str(PLUGIN / "scripts" / "graphcheck.py"), str(tmp / "graphs" / f"bad-{key}.json"), str(VALIDATOR)],
+                           capture_output=True, text=True, encoding="utf-8", timeout=600)
+        check(r.returncode == 1 and key in r.stdout, f"record.{key} が null の graph は落ちる（exit {r.returncode}）")
+    rm(tmp)
+
+    # ④ 走った節の not_applicable は applies_cond の有無に依らず拒む（持つ 4 節だけ見ていたとき、残り 11 節が素通りした）
+    run = Run("na")
+    nx = run.next()
+    by = {i["node"]: i for i in nx["ready"]}
+    check("applies_cond" not in g["nodes"]["p0.base"] and not g["nodes"]["p0.base"].get("na_self_ok"),
+          "p0.base は applies_cond も na_self_ok も持たない（この腕の前提）")
+    tn = answers(run, "std", 1)
+    r = run.done(by["p0.base"]["id"], {**tn["p0.base"](None), "material": M("not_applicable", reason="条件に当たらない（検査用の嘘）")})
+    check(r.returncode == 1 and "走ったのに not_applicable" in r.stderr,
+          f"applies_cond を持たない節が走って not_applicable を名乗ると exit 1（rc={r.returncode}: {r.stderr[-90:]}）")
+    rm(run.tmp)
+
+
 def test_stop_branch():
     print("周の分岐: 検証器の判定行だけを見る（台帳の echo に停止文言が載っても分岐が化けない）")
     sys.path.insert(0, str(PLUGIN))
@@ -708,25 +836,34 @@ def test_big_diff():
 
 
 def main():
-    test_rejections()
-    test_new_guards()
-    test_empty_text_reply()
-    test_converges()
-    test_premise()
-    test_awaiting()
-    test_runaway()
-    test_premise_resolved()
-    test_noci()
-    test_coldfail()
-    test_deferjudge()
-    test_gates_not_applicable()
-    test_narrowed()
-    test_claim_mismatch()
-    test_stop_branch()
-    test_ci_red_runaway()
-    test_non_utf8_file()
-    test_nopurpose()
-    test_big_diff()
+    # 一時ディレクトリ（git リポジトリを含む）は各検査の末尾で消すが、例外で抜けた周回はそこへ届かない。
+    # 走らせる側で後始末を保証する——確保は Run.__init__ の中で暗黙に起き、解放は呼び出し側の平文に在る非対称
+    import tempfile as _t
+    _before = set(pathlib.Path(_t.gettempdir()).glob('gl-*'))
+    try:
+        test_rejections()
+        test_new_guards()
+        test_empty_text_reply()
+        test_converges()
+        test_premise()
+        test_awaiting()
+        test_runaway()
+        test_premise_resolved()
+        test_noci()
+        test_coldfail()
+        test_deferjudge()
+        test_gates_not_applicable()
+        test_narrowed()
+        test_claim_mismatch()
+        test_proxy_to_source()
+        test_stop_branch()
+        test_ci_red_runaway()
+        test_non_utf8_file()
+        test_nopurpose()
+        test_big_diff()
+    finally:
+        for _d in set(pathlib.Path(_t.gettempdir()).glob('gl-*')) - _before:
+            rm(_d)
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤
         print("  - 検査が 1 件も走っていない")

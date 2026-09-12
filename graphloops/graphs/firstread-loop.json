@@ -2,7 +2,8 @@
  "loop": "firstread-loop",
  "plugin": "convergence-loops",
  "runners": [
-  "author"
+  "author",
+  "skill"
  ],
  "basis": "commands/firstread-loop.md と scripts/firstread-record.py（convergence-loops 0.18.1。origin/main 0.31.1 では検証器だけが変わり、素材の状態の表に『収束を妨げるか』の属性を行として持たせた——意味は同じ）から起こした現状の写し。既知の未決は docs/firstread-loop-remaining-findings.md（読み役が異常終了したときの扱い・道具の癖と文書の欠陥の切り分け・複数領域を 1 周に載せたときの引き金 4・4 つ目の問いの『文書』の範囲）。正本は手順書と検証器。役の道具は agents/<役>.md が正本なのでここに写さない。回す側は『author』（文書の作者）と書く——手順書は『あなた』と呼ぶ",
  "record": {

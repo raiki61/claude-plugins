@@ -2,7 +2,8 @@
  "loop": "research-loop",
  "plugin": "convergence-loops",
  "runners": [
-  "surveyor"
+  "surveyor",
+  "skill"
  ],
  "deliver": {
   "path_tools": [

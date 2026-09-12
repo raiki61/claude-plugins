@@ -12,7 +12,12 @@ def empty_round(n):
     return {"round": n, "done": {}, "na": {}, "skipped": {}, "empty": [], "instances": {}, "item_counts": {}}
 
 
-COND_OPS = ("eq", "ne", "gt", "lt", "nonempty", "empty", "in", "any_field_eq")  # cond の op。graphcheck はこれを import して照合する
+# cond の op → その op に**要る鍵**。op の一覧と必須鍵を別々に持っていたとき、any_field_eq の field 欠落と
+# in の value 欠落が graphcheck を 0 件で通り、実行時に素の KeyError か恒偽になった。1 本の表を engine が持ち、
+# eval_cond と graphcheck の check_cond が同じ物を読む（写しを作らない）
+COND_OP_KEYS = {"eq": ("value",), "ne": ("value",), "gt": ("value",), "lt": ("value",),
+                "nonempty": (), "empty": (), "in": ("value",), "any_field_eq": ("value", "field")}
+COND_OPS = tuple(COND_OP_KEYS)  # graphcheck はこれを import して照合する
 COND_KEYS = frozenset({"all", "any", "not", "builtin", "path", "op", "value", "default", "field"})  # eval_cond が読む鍵。graphcheck が import
 
 
@@ -51,9 +56,12 @@ class Board:
         """
         cur = read_json(self.dir / "state.json").get("rev", 0)
         if cur != self.seen_rev:
+            # **名乗る範囲は保護できる範囲まで。** 守っているのは盤面の 2 本（state.json / record.json）で、
+            # cmd_done はここへ来るまでに out/r<N>/<節>.json・save_text_as の本文・trace.jsonl を既に書いている
+            # ——「この呼び出しは何も書いていない」と書いていたとき、読み手には副作用が無いと読めた（実測 2026-09-13）
             die(f"盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
-                "同じ run を回している。この呼び出しは何も書いていない。1 つの盤面に 2 人で付くな"
-                "（続けるなら next からやり直せ）")
+                "同じ run を回している。**盤面（state.json / record.json）は書いていない**が、out/ と trace.jsonl には"
+                "この呼び出しの書き込みが残っている。1 つの盤面に 2 人で付くな（続けるなら next からやり直せ）")
         self.seen_rev += 1
         self.state["rev"] = self.seen_rev
         write_json(self.dir / "record.json", self.record)
@@ -81,7 +89,9 @@ class Board:
         return self.graph.get("thickness", {}).get("tiers") or []
 
     def is_runner(self, n):
-        return n["run_by"] in self.runners or n["run_by"] == "skill"
+        # 役の名前は engine に書かない——graph の runners が正本（util.py の宣言）。以前は "skill" をここで足していたので、
+        # 回す側の集合が engine（runners ∪ {skill}）と graphcheck（runners だけ）でずれ、柵の対象が 1 語ぶん狭かった
+        return n["run_by"] in self.runners
 
     # -- 周
     @property
@@ -161,8 +171,11 @@ class Board:
                     f"意図して未書き込みを見るなら cond に \"default\" を書け）")
             v = c["default"]
         op, want = c.get("op", "eq"), c.get("value")
-        if op not in COND_OPS:
+        if op not in COND_OP_KEYS:
             die(f"cond の op が不明: {op}（使えるのは {'/'.join(COND_OPS)}）")
+        missing = [k for k in COND_OP_KEYS[op] if k not in c]
+        if missing:
+            die(f"cond の op '{op}' に要る鍵が無い: {missing}（graphcheck が静的に落とすのと同じ表）")
         if op == "eq":
             return v == want
         if op == "ne":

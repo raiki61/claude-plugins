@@ -128,8 +128,10 @@ def cmd_done(a):
     if a.output:
         try:
             text, read_from = pathlib.Path(a.output).read_text(encoding="utf-8"), f"--output {a.output}"
-        except OSError as e:
-            die(f"{a.output}: 読めない（{e}）")
+        except (OSError, UnicodeDecodeError) as e:
+            # UnicodeDecodeError は ValueError 派生で OSError ではない——列挙から漏れると総括 except に落ち、
+            # 呼び直せば通る事故が exit 2（盤面が読めない）に化ける（実測 2026-09-13: UTF-16 の返答で再現）
+            raise Reject(f"{a.output}: 読めない（{e}）——UTF-8 で書き直して done し直せ")
     elif getattr(a, "stdin", False):
         # バイトで読んで UTF-8 に決める——テキストの stdin は OS 既定の文字コード（Windows は cp1252、日本語 Windows なら cp932）で復号され、
         # 日本語の返答が壊れて JSON にならない（実測 2026-09-13: CI の windows-latest で標準入力の done が落ちた）
@@ -146,8 +148,8 @@ def cmd_done(a):
     if text is None and inst.get("out_path") and pathlib.Path(inst["out_path"]).is_file():
         try:
             text, read_from = pathlib.Path(inst["out_path"]).read_text(encoding="utf-8"), f"out_path {inst['out_path']}"
-        except OSError as e:
-            die(f"{inst['out_path']}: 読めない（{e}）")
+        except (OSError, UnicodeDecodeError) as e:
+            raise Reject(f"{inst['out_path']}: 読めない（{e}）——UTF-8 で書き直して done し直せ")
     if text is None:
         raise Reject(f"返答が無い——--output か標準入力で渡すか、運び手に {inst.get('out_path')} へ書かせる")
     if inst.get("mode") == "cli" and a.agent_id:
@@ -206,9 +208,9 @@ def cmd_done(a):
             raise Reject(f"段を {b.state['thickness']} から {want} に下げようとしている。降格は依頼者の指定で init に渡す（回す側の自己判断による降格＝さぼり降格を禁ずる）")
         if b.tiers.index(want) > b.tiers.index(b.state["thickness"]):
             thicken(b, want, output.get(n.get("thickness_reason_from", ""), ""), by=nid)
-    # 節ごとの整合（型では書けない規則。rules が持つ）。**out を検査・補うだけで record は触らない**——
-    # 記録を書く経路は writes（WRITE_OPS）1 本。2 本あると『回す側が判定欄に書かない』柵（graphcheck は
-    # writes だけを見る）が片方を覆えない。今の graph に違反は無いが、契約として狭めておく
+    # 節ごとの整合（型では書けない規則。rules が持つ）。out を検査・補ってから writes を当てる。
+    # **record を書く post_check は例外として 2 つ在る**（review-loop の base_valid と r2_design——検査の結果で
+    # 初めて決まる値を書く）。それ以外は out だけを見る規約で、記録を書く経路は writes（WRITE_OPS）が主
     notes = []
     pc = n.get("post_check")
     if pc:

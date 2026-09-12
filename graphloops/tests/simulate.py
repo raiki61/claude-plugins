@@ -431,6 +431,11 @@ def test_graphcheck():
         r = subprocess.run([PY, str(GRAPHCHECK), str(pr), rv], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
     broken(lambda b: b["nodes"]["p1.checker"].__setitem__("run_by", "nobody"), "run_by", "回す側でも役でもない run_by は落ちる")
+    # cond の op ごとに要る鍵（engine の COND_OP_KEYS が正本）——欠けると実行時に KeyError か恒偽になる
+    broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", {"path": "loop.x", "op": "any_field_eq", "value": 1, "default": []}),
+           "要る鍵が無い", "any_field_eq で field を書き忘れた graph は落ちる（実行時の KeyError を静的に見る）")
+    broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", {"path": "loop.x", "op": "in", "default": None}),
+           "要る鍵が無い", "in で value を書き忘れた graph は落ちる（恒偽に倒れない）")
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（欄の名前だけ）")
     # 段名の正本は thickness.tiers——キーの集合から導かない
     broken(lambda b: b["thickness"].__setitem__("default", "超重厚"), "超重厚", "thickness.default が段に無い graph は落ちる")
@@ -438,6 +443,17 @@ def test_graphcheck():
     # 検証器の欄との突合は省略で通さない
     broken(lambda b: b["record"].__setitem__("validator_path", "scripts/no-such-record.py"), "見つからない", "検証器のパスが解決できない graph は落ちる（第 2 引数なし）", validator=None)
     broken(lambda b: None, "必須欄が 1 つも拾えない", "必須欄を持たないファイルを検証器として渡すと落ちる（0 個の突合を合格にしない）", validator=str(PLUGIN / "engine" / "util.py"))
+    # rules のフック名の綴り違い（engine は名前一致でしか探さないので、1 字違いは静かに『持たない』に倒れる）
+    # rules は graph のディレクトリからの相対で解決されるので、写しの graph（tmp/graphs/）を通す
+    bad_rules = (tmp / "rules" / "research-loop.py")
+    src = bad_rules.read_text(encoding="utf-8")
+    bad_rules.write_text(src.replace("def on_answer(", "def on_anwser("), encoding="utf-8")
+    ok_graph = tmp / "graphs" / "hookcheck.json"
+    ok_graph.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+    r = subprocess.run([PY, str(GRAPHCHECK), str(ok_graph), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
+    bad_rules.write_text(src, encoding="utf-8")
+    check(r.returncode == 1 and "綴り違い" in r.stdout,
+          f"rules のフック名の綴り違いは graphcheck が落とす（rc={r.returncode}: {r.stdout.strip()[-90:]}）")
     for other in ("review", "doctor", "firstread"):
         r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / f"{other}-loop.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 0, f"{other}-loop.json（写しだけ）は写しの形の検査だけで通る")
@@ -656,6 +672,54 @@ def test_isolated_launch():
     rm(run.tmp)
 
 
+def test_isolated_real_launch():
+    """遮断系を **argv どおりに実際に起こす**。代役が argv の形しか見ていないと、実物の失敗形（非 0 終了・空返答・
+    短い非 JSON）を一度も観測できない——REVIEW.md『動かして赤・失敗を一度も見ていない保護機構を機能していると扱わない』。
+
+    偽の claude は**この腕の env にだけ** PATH の先頭で渡す。run 全体の PATH に置くと、test_isolated_launch の
+    nopath の腕（shutil.which("claude") の親だけを外す作り）が本物を残したまま緑になる。
+    """
+    print("実起動: 遮断系を launch.argv どおりに起こし、返答と失敗形を観測する")
+    run = Run("reallaunch")
+    run.next()
+    run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
+    nx = run.next()
+    cli = [i for i in nx["ready"] if i.get("mode") == "cli"]
+    check(bool(cli), f"遮断系が cli で出る（{[i['node'] for i in cli]}）")
+    inst = cli[0]
+    bindir = run.tmp / "fakebin"
+    bindir.mkdir()
+    fake = bindir / "claude"
+    # 標準入力を読み切って JSON を返す偽物（本物と同じ argv・同じ stdin の受け方）
+    fake.write_text("#!/usr/bin/env python3\nimport sys, json\n"
+                    "body = sys.stdin.read()\n"
+                    "print(json.dumps({'seen_bytes': len(body.encode('utf-8')), 'argv': sys.argv[1:]}, ensure_ascii=False))\n",
+                    encoding="utf-8")
+    fake.chmod(0o755)
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    argv = list(inst["launch"]["argv"])
+    argv[0] = str(fake)  # engine は next の時点で PATH から解決済みなので、この腕では偽物を名指しする
+    with open(inst["launch"]["stdin"], "rb") as fh:
+        r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
+    check(r.returncode == 0, f"argv どおりに起こせて exit 0（{r.returncode}: {r.stderr[:120]}）")
+    got = json.loads(r.stdout)
+    want = len(pathlib.Path(inst["launch"]["stdin"]).read_bytes())
+    check(got["seen_bytes"] == want, f"標準入力が欠けずに届く（届いた {got['seen_bytes']} / 渡した {want} バイト）")
+    check("--setting-sources" in got["argv"] and got["argv"][got["argv"].index("--setting-sources") + 1] == "",
+          "起こされた側の argv にも遮断のフラグが入っている（形だけでなく実際に渡っている）")
+
+    # 実物の失敗形: 非 0 終了と短い非 JSON（1 周目の認証落ちがこの形だった）
+    fake.write_text("#!/usr/bin/env python3\nimport sys\nsys.stdin.read()\nprint('Invalid API key')\nsys.exit(1)\n", encoding="utf-8")
+    with open(inst["launch"]["stdin"], "rb") as fh:
+        r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
+    check(r.returncode != 0 and "Invalid API key" in r.stdout, f"失敗形（非 0・短い非 JSON）を観測できる（rc={r.returncode}）")
+    out = run.tmp / "bad.json"
+    out.write_text(r.stdout, encoding="utf-8")
+    d = run.cmd("done", "--node", inst["id"], "--output", str(out))
+    check(d.returncode == 1 and "JSON" in d.stderr, f"その返答を done に渡すと exit 1 で拒まれる（{d.returncode}: {d.stderr[-90:]}）")
+    rm(run.tmp)
+
+
 def test_isolated_not_truncated():
     """遮断系へ渡す本文は切らない——貼る先の上限は Agent ツールのプロンプトの性質で、標準入力には無い。
 
@@ -844,24 +908,33 @@ def test_parse_output():
 
 def main():
     os.environ.pop("CONVERGENCE_LOOPS_ROOT", None)
-    test_graphcheck()
-    test_rejections()
-    test_units()
-    test_bad_builtin()
-    test_arms()
-    test_converges()
-    test_unattended_stuck()
-    test_attended_stuck_answer()
-    test_light()
-    test_resolve_dir()
-    test_gate_arms()
-    test_isolated_launch()
-    test_isolated_not_truncated()
-    test_concurrent_save()
-    test_parse_output()
-    test_non_utf8_document()
-    test_plugin_path_ambiguity()
-    test_unresolved_role()
+    # 一時ディレクトリ（git リポジトリを含む）は各検査の末尾で消すが、例外で抜けた周回はそこへ届かない。
+    # 走らせる側で後始末を保証する——確保は Run.__init__ の中で暗黙に起き、解放は呼び出し側の平文に在る非対称
+    import tempfile as _t
+    _before = set(pathlib.Path(_t.gettempdir()).glob('gl-*'))
+    try:
+        test_graphcheck()
+        test_rejections()
+        test_units()
+        test_bad_builtin()
+        test_arms()
+        test_converges()
+        test_unattended_stuck()
+        test_attended_stuck_answer()
+        test_light()
+        test_resolve_dir()
+        test_gate_arms()
+        test_isolated_launch()
+        test_isolated_real_launch()
+        test_isolated_not_truncated()
+        test_concurrent_save()
+        test_parse_output()
+        test_non_utf8_document()
+        test_plugin_path_ambiguity()
+        test_unresolved_role()
+    finally:
+        for _d in set(pathlib.Path(_t.gettempdir()).glob('gl-*')) - _before:
+            rm(_d)
     check(DELIVERY_SEEN >= {"p1.checker", "p3.cold_reader"}, f"渡し方の検査は checker（agent/path）と cold_reader（cli/paste）の両方に実際に当たった（{sorted(DELIVERY_SEEN)}）")
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤

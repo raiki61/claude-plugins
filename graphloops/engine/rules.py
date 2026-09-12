@@ -7,7 +7,7 @@ import importlib.util
 import pathlib
 
 from .schema import validate_schema
-from .util import Reject, die, get_path, git, has_path, pick, porcelain, read_json, set_path, sha, write_json
+from .util import Reject, die, git, git_bytes, pick, porcelain, read_json, sha, write_json
 
 _VALIDATORS = {}
 
@@ -22,13 +22,21 @@ def validator_module(b):
     if path not in _VALIDATORS:
         spec = importlib.util.spec_from_file_location("graphloops_validator", path)
         mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        try:
+            spec.loader.exec_module(mod)
+        except KeyboardInterrupt:
+            raise
+        except BaseException as e:  # SystemExit は Exception 派生でない——検証器の import 時 sys.exit がそのまま終了コードになっていた
+            die(f"検証器 {path} が import できない（{type(e).__name__}: {e}）——engine は import を契約にしている", 2)
         _VALIDATORS[path] = mod
     return _VALIDATORS[path]
 
 
-INJECT = {"Reject": Reject, "pick": pick, "get_path": get_path, "set_path": set_path, "has_path": has_path,
-          "porcelain": porcelain, "read_json": read_json, "write_json": write_json, "git": git, "sha": sha,
+# rules に差し込む道具の正本。**消費者が 0 の鍵は置かない**——get_path / set_path / has_path は同梱の rules 2 本から
+# 一度も呼ばれておらず、『rules が記録の任意の場所を path で読み書きしてよい』と読める面だけを開いていた
+# （記録を書く経路を writes に寄せる方針と逆向き）。使う日に戻せる
+INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
+          "git": git, "git_bytes": git_bytes, "sha": sha,
           "validator_module": validator_module, "validate_schema": validate_schema}
 
 
@@ -44,7 +52,9 @@ def load_rules(graph_path, graph):
     mod.__dict__.update(INJECT)
     try:
         spec.loader.exec_module(mod)
-    except Exception as e:
+    except KeyboardInterrupt:
+        raise
+    except BaseException as e:  # SystemExit も捕まえる（rules が import 時に sys.exit すると終了コードがそのまま抜けた）
         die(f"rules {p} の読み込みで例外（{type(e).__name__}）: {e}")
     return mod
 
@@ -53,5 +63,12 @@ def registry(rules, name):
     return getattr(rules, name, {}) if rules else {}
 
 
+# engine が rules に探すフックの全部。**綴り違いと意図的な不在を分ける唯一の手掛かり**——getattr の名前一致だけ
+# だったとき、on_new_round を 1 字違えても静かに「このループは持たない」に倒れ、周をまたぐ持ち越しが消えないまま
+# 回り続けた。graphcheck がこの表を import して、rules の公開名のうち似て非なる物を落とす
+HOOKS = ("on_init", "on_new_round", "on_answer", "on_unattended", "on_thickness", "finalize", "check_record", "init_record", "add")
+
+
 def hook(rules, name):
+    assert name in HOOKS, f"engine が知らないフック名: {name}（HOOKS が正本）"
     return getattr(rules, name, None) if rules else None

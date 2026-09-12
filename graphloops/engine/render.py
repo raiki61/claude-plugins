@@ -171,10 +171,7 @@ class Renderer:
                 pass
             if not isinstance(target, str) or not target:
                 raise KeyError(path)
-            # file: と同じ上限に揃える。section: だけ素通りしていたとき、見出し 1 節が上限を超えると
-            # engine は切らず**貼る先が黙って切る**ので、記録の truncated にも残らなかった。
-            sec = section_of(pathlib.Path(target).read_text(encoding="utf-8", errors="replace"), heading.strip(), path)
-            return cap_bytes(sec, path, self.truncated, self.cap)
+            return section_of(pathlib.Path(target).read_text(encoding="utf-8", errors="replace"), heading.strip(), path)
         if path.startswith("file:"):
             target = path[5:].strip()
             try:
@@ -184,8 +181,7 @@ class Renderer:
             if not isinstance(target, str) or not target:
                 raise KeyError(path)
             # errors=replace: 非 UTF-8 の材料で復号の例外が render の『読めない』の腕（OSError）を迂回して総括例外で落ちた
-            text = pathlib.Path(target).read_text(encoding="utf-8", errors="replace")
-            return cap_bytes(text, target, self.truncated, self.cap)
+            return pathlib.Path(target).read_text(encoding="utf-8", errors="replace")
         return get_path(self.ctx, path)
 
     def render(self, template):
@@ -205,6 +201,8 @@ class Renderer:
                 raise KeyError(f"プロンプトの穴 {{{{{path}}}}} を埋められない（読めない: {e}）")
             if fields:
                 val = pick(val, [f.strip() for f in fields.split(",") if f.strip()])
-            return val if isinstance(val, str) else dump(val)
+            # **上限は穴 1 つぶんの出口 1 か所で掛ける**（pick と dump の後）。腕ごとに掛けていたとき、
+            # 読み込みを伴わない展開（ref: と記録の dump）が対象外になり、file: の穴を持たない節が上限の 4 倍超に育った
+            return cap_bytes(val if isinstance(val, str) else dump(val), path, self.truncated, self.cap)
 
         return TOKEN.sub(sub, template)

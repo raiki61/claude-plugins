@@ -2,7 +2,8 @@
  "loop": "review-loop",
  "plugin": "convergence-loops",
  "runners": [
-  "writer"
+  "writer",
+  "skill"
  ],
  "deliver": {
   "path_tools": [
@@ -233,7 +234,9 @@
    "post_check": "base_valid",
    "materials": [
     "base_determination"
-   ]
+   ],
+   "na_self_ok": false,
+   "na_reason_note": "正当な not_applicable は無い: 基準点は常に決まる（決められないなら awaiting_human）"
   },
   "p0.local_checks": {
    "stage": "P0",
@@ -304,7 +307,8 @@
    "once": true,
    "materials": [
     "local_checks"
-   ]
+   ],
+   "na_self_ok": "対象リポジトリに CI / lint の定義が無い場合がある（走らせる物が無い）"
   },
   "p0.premises": {
    "stage": "P0",
@@ -618,7 +622,9 @@
    "once": true,
    "materials": [
     "parallel_pr"
-   ]
+   ],
+   "na_self_ok": false,
+   "na_reason_note": "正当な not_applicable は無い: 並行 PR が無いのは『見たが無かった』＝clean"
   },
   "p0.prior_decisions": {
    "stage": "P0",
@@ -749,18 +755,27 @@
    "cond": {
     "any": [
      {
-      "path": "round",
-      "op": "eq",
-      "value": 1
+      "any": [
+       {
+        "path": "round",
+        "op": "eq",
+        "value": 1
+       },
+       {
+        "path": "prev.p3.fix.decision_records_changed",
+        "op": "eq",
+        "value": true,
+        "default": false
+       },
+       {
+        "builtin": "prev_fix_touched"
+       }
+      ]
      },
      {
-      "path": "prev.p3.fix.decision_records_changed",
-      "op": "eq",
-      "value": true,
-      "default": false
-     },
-     {
-      "builtin": "prev_fix_touched"
+      "path": "loop.escalated",
+      "op": "nonempty",
+      "default": null
      }
     ]
    },
@@ -771,7 +786,10 @@
    "materials": [
     "prior_decisions"
    ],
-   "carry_reason": "決定記録に変更が無い周は前の結果を持ち越す（ループ自身が issue・台帳を書き足した周は引き直す）"
+   "carry_reason": "決定記録に変更が無い周は前の結果を持ち越す（ループ自身が issue・台帳を書き足した周は引き直す）",
+   "escalate_note": "同じクラスが周をまたいで戻った run では条件に関わらず走る（rules の escalate_on_thrash。下げるのは人の手当てだけ）",
+   "na_self_ok": false,
+   "na_reason_note": "正当な not_applicable は無い: 決着済み論点が無いのは clean、洗えないなら awaiting_human"
   },
   "p1.worktree_before": {
    "stage": "P1",
@@ -931,7 +949,9 @@
    ],
    "materials": [
     "local_review"
-   ]
+   ],
+   "na_self_ok": false,
+   "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象"
   },
   "p1.consistency_bypass": {
    "stage": "P1",
@@ -1145,7 +1165,9 @@
     "consistency",
     "bypass"
    ],
-   "when": "または"
+   "when": "または",
+   "na_self_ok": false,
+   "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象"
   },
   "p1.hygiene": {
    "stage": "P1",
@@ -1225,7 +1247,9 @@
    "materials": [
     "hygiene"
    ],
-   "when": "または"
+   "when": "または",
+   "na_self_ok": false,
+   "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象"
   },
   "p1.external_standards": {
    "stage": "P1",
@@ -1393,7 +1417,9 @@
    "materials": [
     "external_standards"
    ],
-   "carry_reason": "体裁だけの周（テスト追加・リネーム・コメント）は前の判定を持ち越す。機構を足した／変えた周は引き直す"
+   "carry_reason": "体裁だけの周（テスト追加・リネーム・コメント）は前の判定を持ち越す。機構を足した／変えた周は引き直す",
+   "na_self_ok": false,
+   "na_reason_note": "正当な not_applicable は無い: 外部依存が無いのは『見たが無かった』＝clean"
   },
   "p1.procedure_trace": {
    "stage": "P1",
@@ -1527,36 +1553,46 @@
    "cond": {
     "any": [
      {
-      "all": [
+      "any": [
        {
-        "builtin": "touches_procedures"
-       },
-       {
-        "any": [
+        "all": [
          {
-          "path": "round",
-          "op": "eq",
-          "value": 1
+          "builtin": "touches_procedures"
          },
          {
-          "path": "prev.p3.fix.procedures_changed",
-          "op": "eq",
-          "value": true,
-          "default": false
+          "any": [
+           {
+            "path": "round",
+            "op": "eq",
+            "value": 1
+           },
+           {
+            "path": "prev.p3.fix.procedures_changed",
+            "op": "eq",
+            "value": true,
+            "default": false
+           }
+          ]
          }
         ]
+       },
+       {
+        "builtin": "prev_fix_touched"
        }
       ]
      },
      {
-      "builtin": "prev_fix_touched"
+      "path": "loop.escalated",
+      "op": "nonempty",
+      "default": null
      }
     ]
    },
    "materials": [
     "procedure_trace"
    ],
-   "carry_reason": "手順書・スクリプト・CI に変更が無い周は前の判定を持ち越す"
+   "carry_reason": "手順書・スクリプト・CI に変更が無い周は前の判定を持ち越す",
+   "escalate_note": "同じクラスが周をまたいで戻った run では条件に関わらず走る（rules の escalate_on_thrash。下げるのは人の手当てだけ）"
   },
   "p1.gate_efficacy": {
    "stage": "P1",
@@ -1688,41 +1724,50 @@
    "cond": {
     "any": [
      {
-      "all": [
+      "any": [
        {
-        "any": [
+        "all": [
          {
-          "path": "out.p0.base.touches_gates",
-          "op": "eq",
-          "value": true
+          "any": [
+           {
+            "path": "out.p0.base.touches_gates",
+            "op": "eq",
+            "value": true
+           },
+           {
+            "path": "prev.p3.fix.gates_changed",
+            "op": "eq",
+            "value": true,
+            "default": false
+           }
+          ]
          },
          {
-          "path": "prev.p3.fix.gates_changed",
-          "op": "eq",
-          "value": true,
-          "default": false
+          "any": [
+           {
+            "path": "round",
+            "op": "eq",
+            "value": 1
+           },
+           {
+            "path": "prev.p3.fix.gates_changed",
+            "op": "eq",
+            "value": true,
+            "default": false
+           }
+          ]
          }
         ]
        },
        {
-        "any": [
-         {
-          "path": "round",
-          "op": "eq",
-          "value": 1
-         },
-         {
-          "path": "prev.p3.fix.gates_changed",
-          "op": "eq",
-          "value": true,
-          "default": false
-         }
-        ]
+        "builtin": "prev_fix_touched"
        }
       ]
      },
      {
-      "builtin": "prev_fix_touched"
+      "path": "loop.escalated",
+      "op": "nonempty",
+      "default": null
      }
     ]
    },
@@ -1730,7 +1775,8 @@
     "gate_efficacy"
    ],
    "carry_reason": "当該ゲートを変更していない周は前の確認を持ち越す",
-   "post_check": "gate_arms_all_red"
+   "post_check": "gate_arms_all_red",
+   "escalate_note": "同じクラスが周をまたいで戻った run では条件に関わらず走る（rules の escalate_on_thrash。下げるのは人の手当てだけ）"
   },
   "p1.test_double_fidelity": {
    "stage": "P1",
@@ -1853,48 +1899,58 @@
    "cond": {
     "any": [
      {
-      "all": [
+      "any": [
        {
-        "any": [
+        "all": [
          {
-          "path": "out.p0.base.touches_external_seams",
-          "op": "eq",
-          "value": true
+          "any": [
+           {
+            "path": "out.p0.base.touches_external_seams",
+            "op": "eq",
+            "value": true
+           },
+           {
+            "path": "prev.p3.fix.seams_changed",
+            "op": "eq",
+            "value": true,
+            "default": false
+           }
+          ]
          },
          {
-          "path": "prev.p3.fix.seams_changed",
-          "op": "eq",
-          "value": true,
-          "default": false
+          "any": [
+           {
+            "path": "round",
+            "op": "eq",
+            "value": 1
+           },
+           {
+            "path": "prev.p3.fix.seams_changed",
+            "op": "eq",
+            "value": true,
+            "default": false
+           }
+          ]
          }
         ]
        },
        {
-        "any": [
-         {
-          "path": "round",
-          "op": "eq",
-          "value": 1
-         },
-         {
-          "path": "prev.p3.fix.seams_changed",
-          "op": "eq",
-          "value": true,
-          "default": false
-         }
-        ]
+        "builtin": "prev_fix_touched"
        }
       ]
      },
      {
-      "builtin": "prev_fix_touched"
+      "path": "loop.escalated",
+      "op": "nonempty",
+      "default": null
      }
     ]
    },
    "materials": [
     "test_double_fidelity"
    ],
-   "carry_reason": "代役の形に変更が無い周は前の確認を持ち越す"
+   "carry_reason": "代役の形に変更が無い周は前の確認を持ち越す",
+   "escalate_note": "同じクラスが周をまたいで戻った run では条件に関わらず走る（rules の escalate_on_thrash。下げるのは人の手当てだけ）"
   },
   "p1.main_path_observation": {
    "stage": "P1",
@@ -2172,7 +2228,9 @@
    "materials": [
     "provenance"
    ],
-   "carry_reason": "事実の主張に増減が無く、前の周の P3 がこの素材の見る対象を触っていない周は前の検査を持ち越す"
+   "carry_reason": "事実の主張に増減が無く、前の周の P3 がこの素材の見る対象を触っていない周は前の検査を持ち越す",
+   "na_self_ok": false,
+   "na_reason_note": "正当な not_applicable は無い: 事実の主張が無いのは『見たが無かった』＝clean"
   },
   "p1.worktree_after": {
    "stage": "P1",
@@ -2245,7 +2303,8 @@
     "inputs.review_md",
     "inputs.repo_review_md",
     "inputs.cwd",
-    "loop.defer_ledger"
+    "loop.defer_ledger",
+    "loop.escalated"
    ],
    "schema": {
     "type": "object",
@@ -2254,7 +2313,8 @@
      "questions",
      "framing",
      "one_shot",
-     "materials_missing"
+     "materials_missing",
+     "one_shot_closes"
     ],
     "additionalProperties": false,
     "properties": {
@@ -2312,6 +2372,28 @@
         },
         "closed_note": {
          "type": "string"
+        },
+        "class_query": {
+         "type": "object",
+         "required": [
+          "how",
+          "total"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "how": {
+           "type": "string",
+           "minLength": 1
+          },
+          "total": {
+           "type": "integer",
+           "minimum": 0
+          },
+          "note": {
+           "type": "string"
+          }
+         },
+         "note": "同じ形を全部引ける機械の問い（how＝そのまま走らせられるコマンド）と、そのとき出た件数（total）。1 site しか無いことの証明も total: 1 で書く"
         }
        }
       }
@@ -2439,6 +2521,13 @@
         }
        }
       }
+     },
+     "one_shot_closes": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "note": "その一撃が閉じると見込む unit の key（この周の units に在るもの）。次の周がこの一覧と実際の再発を突き合わせるので、「たぶん効く」でなく「これが消えるはず」と名指しで書く"
      }
     }
    },
@@ -2477,7 +2566,8 @@
      "pick": [
       "framing",
       "one_shot",
-      "units"
+      "units",
+      "one_shot_closes"
      ]
     }
    ],
@@ -2517,7 +2607,8 @@
     "out.p0.purpose.purpose_text",
     "record.units",
     "record.questions",
-    "loop.prev_rejudge"
+    "loop.prev_rejudge",
+    "loop.prev_one_shot"
    ],
    "schema": {
     "type": "object",
@@ -2526,7 +2617,8 @@
      "questions",
      "framing",
      "one_shot",
-     "materials_missing"
+     "materials_missing",
+     "one_shot_closes"
     ],
     "additionalProperties": false,
     "properties": {
@@ -2584,6 +2676,28 @@
         },
         "closed_note": {
          "type": "string"
+        },
+        "class_query": {
+         "type": "object",
+         "required": [
+          "how",
+          "total"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "how": {
+           "type": "string",
+           "minLength": 1
+          },
+          "total": {
+           "type": "integer",
+           "minimum": 0
+          },
+          "note": {
+           "type": "string"
+          }
+         },
+         "note": "同じ形を全部引ける機械の問い（how＝そのまま走らせられるコマンド）と、そのとき出た件数（total）。1 site しか無いことの証明も total: 1 で書く"
         }
        }
       }
@@ -2711,6 +2825,13 @@
         }
        }
       }
+     },
+     "one_shot_closes": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "note": "その一撃が閉じると見込む unit の key（この周の units に在るもの）。次の周がこの一覧と実際の再発を突き合わせるので、「たぶん効く」でなく「これが消えるはず」と名指しで書く"
      }
     }
    },
@@ -2785,17 +2906,18 @@
     "type": "object",
     "required": [
      "changes",
-     "not_done",
-     "fix_closure",
-     "mechanism_changed",
-     "premise_drift",
-     "deps_changed",
-     "procedures_changed",
-     "gates_changed",
-     "seams_changed",
-     "path_changed",
      "claims_changed",
-     "decision_records_changed"
+     "decision_records_changed",
+     "deps_changed",
+     "fix_closure",
+     "gates_changed",
+     "interactions",
+     "mechanism_changed",
+     "not_done",
+     "path_changed",
+     "premise_drift",
+     "procedures_changed",
+     "seams_changed"
     ],
     "additionalProperties": false,
     "properties": {
@@ -2804,8 +2926,12 @@
       "items": {
        "type": "object",
        "required": [
+        "breaks",
+        "bypass_tried",
         "closure",
+        "coverage",
         "files",
+        "root_or_symptom",
         "unit_key",
         "what"
        ],
@@ -2863,6 +2989,77 @@
          "items": {
           "type": "string"
          }
+        },
+        "coverage": {
+         "type": "object",
+         "required": [
+          "how",
+          "total"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "how": {
+           "type": "string",
+           "minLength": 1
+          },
+          "total": {
+           "type": "integer",
+           "minimum": 0
+          },
+          "remaining": {
+           "type": "string"
+          }
+         },
+         "note": "覆いの母数。how＝同じ形を全部引ける機械の問い（判定者の class_query を引き継ぐか、自分で作る）、total＝その問いが出した件数。**塞いだ数は closure.sites から機械が数える**（二度書かせない）。sites が total に届かないなら remaining に残した理由を書く"
+        },
+        "root_or_symptom": {
+         "type": "object",
+         "required": [
+          "kind",
+          "why"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "kind": {
+           "type": "string",
+           "enum": [
+            "root",
+            "symptom"
+           ]
+          },
+          "why": {
+           "type": "string",
+           "minLength": 1
+          }
+         },
+         "note": "判定者が名指した根に対して、この修正は根を塞いだのか症状を塞いだのか。symptom なら why に「なぜ今それで止めるか」（根に当てるのが設計作業だから等）"
+        },
+        "bypass_tried": {
+         "type": "string",
+         "minLength": 1,
+         "note": "**修正を残したまま**それを破りに行った入力と結果（自己反証）。『修正を外したら赤くなった』は不在の検知であって完全性の証拠にならない——実測 2026-09-13: 判定文の全文一致を『判定行だけ見る』に狭めた修正が、外すと赤くなる検査を持ちながら、改行 1 つで破れた"
+        },
+        "breaks": {
+         "type": "object",
+         "required": [
+          "how",
+          "result"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "how": {
+           "type": "string",
+           "minLength": 1
+          },
+          "result": {
+           "type": "string",
+           "minLength": 1
+          },
+          "accepted": {
+           "type": "string"
+          }
+         },
+         "note": "この修正が壊しうる面を機械で引いた問い（how＝同じ経路・同じ不変条件を共有する箇所を出すコマンド）と、壊れていないことの確認（result）。壊すと分かっていて通すなら accepted に理由——実測 2026-09-13: CI 未確認の収束を塞いだ修正が、同じ関数の暴走ガードを飛び越す分岐を足していた"
         }
        },
        "note": "files は、その修正で実際に触ったファイルのリポジトリ相対パス。持ち越し（carried_over）の再発火は役の自己申告 1 欄でなくこれで決める——前の周の P3 が素材の見る対象を直したのに再発火せず、閉じた欠陥が次の周に新規の [block] として生き返った（実測 2026-09-12: p1.provenance が carried_over のまま r1 の主張を運んだ）"
@@ -2956,6 +3153,39 @@
      },
      "rejudge_requested": {
       "type": "string"
+     },
+     "interactions": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "surface",
+        "changes",
+        "checked"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "surface": {
+         "type": "string",
+         "minLength": 1
+        },
+        "changes": {
+         "type": "array",
+         "minItems": 2,
+         "items": {
+          "type": "string"
+         }
+        },
+        "checked": {
+         "type": "string",
+         "minLength": 1
+        },
+        "combined_effect": {
+         "type": "string"
+        }
+       }
+      },
+      "note": "**2 つ以上の修正が触った面**ごとに 1 件。surface＝その面（ファイル・関数・不変条件）、changes＝触った unit_key、checked＝突き合わせて確かめたこと（一方が他方を不要にしないか・順序で結果が変わらないか・組み合わせて初めて生まれる状態が無いか）。**面の一覧は機械が changes[].files から出す**ので、書き落とすと拒まれる——修正どうしの干渉を『1 件ずつ見る』では捕れない（実測 2026-09-13: 非 UTF-8 を読めるようにした 1 つの修正が、同じ git ラッパーを共有する突合の側に穴を開けた）"
      }
     }
    },
@@ -2984,7 +3214,8 @@
    "materials": [
     "fix_closure"
    ],
-   "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes と loop.prev_rejudge に残り、次の周の p2.history が再審する。この周は判定どおり直す（post_check fix_covers_open_units）"
+   "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes と loop.prev_rejudge に残り、次の周の p2.history が再審する。この周は判定どおり直す（post_check fix_covers_open_units）",
+   "na_self_ok": "その周に修正が 0 件なら閉鎖の実証は対象が無い（fix_covers_open_units が changes 非空との食い違いを別に拒む）"
   },
   "p4.ci": {
    "stage": "P4",
@@ -3058,7 +3289,8 @@
    ],
    "materials": [
     "local_checks"
-   ]
+   ],
+   "na_self_ok": "同上——修正後に回す CI が存在しない場合がある"
   },
   "p4.scalars": {
    "stage": "P4",
@@ -3546,7 +3778,7 @@
    "stage": "P-R",
    "run_by": "inspector",
    "fresh_context": true,
-   "when": "[block] と do-now が 0",
+   "when": "阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周",
    "deps": [
     "p4.assemble"
    ],
@@ -3559,7 +3791,7 @@
    "outputs": [
     "reviews.R3"
    ],
-   "note": "到達しなかったラウンドは not_applicable と理由。阻害が他に無いのに not_applicable なら P-R を飛ばしたとして阻害",
+   "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、この節が受け取る差分（P1 が写した diff-r<N>.patch）にその修正が写っているから——同じ周の修正は写っていないので引き金にしない",
    "prompt_file": "../prompts/review-loop/r3.coherence.md",
    "reads": [
     "loop.diff_file",
@@ -3598,17 +3830,24 @@
     }
    ],
    "cond": {
-    "path": "loop.open_units",
-    "op": "eq",
-    "value": 0,
-    "default": 0
+    "any": [
+     {
+      "path": "loop.open_units",
+      "op": "eq",
+      "value": 0,
+      "default": 0
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
    }
   },
   "r4.hidden_scope": {
    "stage": "P-R",
    "run_by": "inspector",
    "fresh_context": true,
-   "when": "[block] と do-now が 0",
+   "when": "阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周",
    "deps": [
     "p4.assemble"
    ],
@@ -3724,12 +3963,20 @@
     }
    ],
    "cond": {
-    "path": "loop.open_units",
-    "op": "eq",
-    "value": 0,
-    "default": 0
+    "any": [
+     {
+      "path": "loop.open_units",
+      "op": "eq",
+      "value": 0,
+      "default": 0
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
    },
-   "post_check": "r4_inventory"
+   "post_check": "r4_inventory",
+   "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、この節が受け取る差分（P1 が写した diff-r<N>.patch）にその修正が写っているから——同じ周の修正は写っていないので引き金にしない"
   },
   "stop.premise_check": {
    "stage": "停止条件",

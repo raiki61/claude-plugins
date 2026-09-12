@@ -56,12 +56,12 @@ PLUGIN_ROOT = HERE.parent
 
 sys.path.insert(0, str(PLUGIN_ROOT))
 # 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
-from engine.board import COND_KEYS, COND_OPS, node_of  # noqa: E402
+from engine.board import COND_KEYS, COND_OP_KEYS, COND_OPS, node_of  # noqa: E402
 from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import unknown_keywords  # noqa: E402
 from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
-from engine.rules import load_rules as engine_load_rules, registry  # noqa: E402
+from engine.rules import HOOKS, load_rules as engine_load_rules, registry  # noqa: E402
 from engine.validator import agent_def, agent_tools, find_plugin_path  # noqa: E402
 from engine.util import read_json  # noqa: E402
 
@@ -81,16 +81,22 @@ def load_rules(gpath, g):
 
 
 
+_VALIDATORS = {}
+
+
 def load_validator(script_path):
     """検証器を import する（engine と同じ契約）。読めなければ NG（exit 2）——正規表現の後詰めで合格に倒さない。
     SystemExit も捕まえて診断を捨てない（検証器が import 時に sys.exit(2) すると except Exception を素通りし、
     redirect_stderr に捕られた診断文だけが消えて標準エラー 0 バイトで落ちた——実測 2026-09-13）。"""
+    if script_path in _VALIDATORS:  # 1 回の実行で 2 度 import しない（validator_vocab と record_fields が同じ物を読む）
+        return _VALIDATORS[script_path]
     buf = io.StringIO()
     try:
         spec = importlib.util.spec_from_file_location("_record_mod", script_path)
         mod = importlib.util.module_from_spec(spec)
         with redirect_stderr(buf):
             spec.loader.exec_module(mod)
+        _VALIDATORS[script_path] = mod
         return mod
     except KeyboardInterrupt:
         raise
@@ -156,9 +162,10 @@ def ancestors(nodes, nid, seen=None):
 
 
 def check_cond_paths(c, where, nodes, errs):
-    """cond の葉の path が out.<節>.<欄> なら、その節と欄（schema.properties）が実在すること。
+    """cond の葉の path が out.<節>.<欄> / prev.<節>.<欄> なら、その節と欄（schema.properties）が実在すること。
     綴り違いは実行時に黙って素通りし、走らなかった節の素材が『走らせる条件に当たらず』で埋まる（実測 2026-09-12:
-    default 付きの葉 23/39 が検査の外だった）。"""
+    default 付きの葉 23/39 が検査の外だった）。**loop. / record. の葉は今も見ていない**——葉の前置きを engine の
+    文脈のキーから引く形が要り、共有面に触るので台帳の fork。"""
     if not isinstance(c, dict):
         return
     for k in ("all", "any"):
@@ -199,8 +206,14 @@ def check_cond(c, where, errs, conds=frozenset()):
         if c["builtin"] not in conds:
             errs.append(f"{where}: cond.builtin '{c['builtin']}' が rules の CONDS に無い（{sorted(conds)}）")
     elif "path" in c:
-        if c.get("op", "eq") not in COND_OPS:
-            errs.append(f"{where}: cond.op '{c.get('op')}' を駆動器が知らない")
+        op = c.get("op", "eq")
+        if op not in COND_OP_KEYS:
+            errs.append(f"{where}: cond.op '{op}' を駆動器が知らない")
+        else:
+            # op ごとに要る鍵は engine の表（COND_OP_KEYS）が正本。欠けていると実行時に KeyError か恒偽になる
+            missing = [k for k in COND_OP_KEYS[op] if k not in c]
+            if missing:
+                errs.append(f"{where}: cond.op '{op}' に要る鍵が無い: {missing}")
     else:
         errs.append(f"{where}: cond の形が不明: {c}")
 
@@ -271,9 +284,14 @@ def main():
 
     # 3. 記録の欄 ⊆ outputs
     script = sys.argv[2] if len(sys.argv) == 3 else None
-    ae = g.get("record", {}).get("report_accepts_exit")
-    if ae is not None and not (isinstance(ae, list) and ae and all(isinstance(x, int) and not isinstance(x, bool) for x in ae)):
-        errs.append(f"record.report_accepts_exit は終了コード（整数）の空でない一覧: {ae!r}（null や文字列は engine が『受理集合に無い』と読んで報告を止める）")
+    # 受理集合は 2 つとも見る（docstring の検査 12 が両方を名乗るのに片方しか読んでいなかった）。**鍵が在れば null でも落とす**
+    # ——`is not None` で外していたので、NG 文が名指しする null そのものが素通りし、実行時は `exit not in None` の TypeError になった
+    for key in ("report_accepts_exit", "round_accepts_exit"):
+        if key not in g.get("record", {}):
+            continue
+        ae = g["record"][key]
+        if not (isinstance(ae, list) and ae and all(isinstance(x, int) and not isinstance(x, bool) for x in ae)):
+            errs.append(f"record.{key} は終了コード（整数）の空でない一覧: {ae!r}（null や文字列は engine / rules が『受理集合に無い』と読めず TypeError で落ちる）")
     vp = g.get("record", {}).get("validator_path")
     if not script and vp:
         script = find_plugin_path(vp, g.get("plugin"))  # engine と同じ探し方（明示 → <PLUGIN>_ROOT → 同じリポジトリ → キャッシュ）
@@ -393,6 +411,15 @@ def main():
     if isinstance(rules, str):
         errs.append(rules)
         rules = None
+    if rules is not None:
+        # フック名の綴り違いを落とす。engine は getattr の名前一致で探すので、1 字違いは「このループは持たない」に
+        # 静かに倒れる（意図的な不在と区別が付かない）。似て非なる公開名を NG にする
+        import difflib
+        public = {n for n in dir(rules) if n.startswith("on_") or n in ("finalize", "check_record", "init_record", "add")}
+        for n in sorted(public - set(HOOKS)):
+            near = difflib.get_close_matches(n, HOOKS, n=1, cutoff=0.8)
+            if near:
+                errs.append(f"rules の公開名 '{n}' は engine のフック '{near[0]}' の綴り違いに見える（engine は名前一致でしか探さないので静かに無視される）")
     reg = lambda name: set(registry(rules, name))  # 名前表の引き方は engine の registry（写しを持たない）
     write_ops = set(ENGINE_WRITE_OPS) | reg("WRITE_OPS")
     fan_builtins, node_builtins, post_checks, conds = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS"), reg("CONDS")
@@ -405,6 +432,10 @@ def main():
             errs.append(f"節 {k}: run_by '{rb}' が回す側でも役割 agent（{sorted(agents)}）でも driver / skill でもなく、agent_type の上書きも無い")
         if rb == "skill" and not v.get("skills"):
             errs.append(f"節 {k}: run_by が skill なのに skills（呼ぶ skill の一覧）が無い")
+        if rb in isolated and v.get("agent_type"):
+            # 遮断系の役は cli で起こす（emit_instance が mode=cli にする）。run_by に置いたうえで agent_type を
+            # 上書きすると起こし方が 2 つ宣言された状態になる——実行時の die を静的にも見る
+            errs.append(f"節 {k}: 遮断系（道具ゼロ）の役 '{rb}' を run_by に置きながら agent_type で上書きしている（起こし方が 2 つ）")
         same = v.get("same_context_as")
         if same and (same not in nodes or same not in ancestors(nodes, k)):
             errs.append(f"節 {k}: same_context_as '{same}' が前の節でない")

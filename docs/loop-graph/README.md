@@ -77,6 +77,8 @@ python3 graphloops/scripts/graphcheck.py graphloops/graphs/review-loop.json scri
 
 `graphcheck.py` は Python の標準ライブラリだけで、①`deps` の実在と循環（`graphlib.TopologicalSorter`。波も出す）②判定を出す節の `run_by` に回す側が無いこと ③検証器の `MATERIALS` / `REQUIRED` / 必須欄が `outputs` に現れること ④`fresh_context` で `forbidden_inputs` を持たない節の一覧 ⑤`active_in` が段名の中——を見る。件数は走らせた出力を見る（ここに写すと腐る）。2026-09-12 に 4 本とも通した。
 
-## 決めてもらうこと
+## 決めたこと・決めてもらうこと
+
+以下のうち「決めた」と付いた行は決着済みで、蒸し返すなら新証拠が要る（2026-09-13 の台帳の再審で、保留していた 9 件のうち 8 件がこの形で決着した——人にしか決められないものは 0 件だった）。残りが人の判断を待っている分。
 
 - **正本の宣言（決めた・2026-09-12）**: 散文版（`/review-loop` 等 4 本）の正本は `commands/<loop>.md` と `scripts/<loop>-record.py`。グラフ実行版（`/review-graph`・`/research-graph`）の正本は `graphloops/graphs/<loop>.json` で、engine と `graphcheck` が読む。両方を生かす間はズレうる——ズレは同じ対象で両方を回し、共通の検証器に通した記録の差で見る（受け入れ試験）。他の文書はこの宣言を参照して写さない。検証器が守らない規律（暴走ガードの上限・前ラウンドを渡さない・回す側は採点しない・回し直さない）は、グラフ実行版では engine が守る

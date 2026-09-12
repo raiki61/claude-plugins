@@ -2,7 +2,8 @@
  "loop": "doctor-loop",
  "plugin": "convergence-loops",
  "runners": [
-  "prospector"
+  "prospector",
+  "skill"
  ],
  "basis": "commands/doctor-loop.md と scripts/doctor-record.py（convergence-loops 0.18.1。origin/main 0.31.1 でもこの 2 ファイルは変わっていない——2026-09-12 に git diff で確認）から起こした現状の写し。既知の未決は docs/doctor-loop-v2-remaining-findings.md（昇格義務と P3-6 の衝突・子の無い生成節の入力仕様・棄却確定時の一撃・途中昇格の入力整備・レンズ未指定の既定・rescan の指示が手順書に無い）。正本は手順書と検証器。役の道具は agents/<役>.md が正本なのでここに写さない",
  "record": {
