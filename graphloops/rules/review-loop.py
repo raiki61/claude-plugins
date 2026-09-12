@@ -498,12 +498,13 @@ def fix_covers_open_units(b, nid, out, item):
     if missing:
         raise Reject("直していない [block] / do-now がある（writer の裁量で defer に覆せない。異議は新しい judge に再判定させる）: " + "; ".join(missing))
     # 閉鎖の実証は自己申告——機械が検算できるのは「赤を一度も見ていないのに clean を名乗る」形だけなので、そこは拒む
-    # （gate_arms_all_red と同じ形。以前は red_seen が全部 false・verified_how が「見ていない」でも clean が通った）
+    # （gate_arms_all_red と同じ形。以前は red_seen が全部 false・verified_how が「見ていない」でも clean が通った）。
+    # 見るのは周の全体——文書だけの修正は赤を見られないので、修正ごとに要求すると文書を触った周が全部 found になる。
+    # 修正ごとの赤の有無は sites にそのまま残り、judge が読む。
     if out["changes"] and out.get("fix_closure", {}).get("status") == "clean":
-        unred = [c["unit_key"] for c in out["changes"] if not any(s.get("red_seen") for s in c["closure"].get("sites", []))]
-        if unred:
-            raise Reject("閉鎖の実証で赤を一度も見ていない修正があるのに fix_closure=clean——found にして赤を見ていない site を書くか、"
-                         "退行を注入して赤を見てから出せ: " + "; ".join(unred))
+        if not any(s.get("red_seen") for c in out["changes"] for s in c["closure"].get("sites", [])):
+            raise Reject("閉鎖の実証で赤を一度も見ていないのに fix_closure=clean——found にして赤を見ていない site を書くか、"
+                         "退行を注入して赤を見てから出せ")
     if out.get("rejudge_requested"):
         b.loop_state["rejudge_requested"] = {"round": b.round, "text": out["rejudge_requested"]}
 
