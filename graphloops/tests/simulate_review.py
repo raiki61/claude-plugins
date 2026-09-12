@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 
 # Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
@@ -45,11 +46,11 @@ def rm(p):
 
 
 def sh(cwd, *args):
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8")
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=120)
 
 
 class Run:
-    def __init__(self, name, unattended=False, big=False):
+    def __init__(self, name, unattended=False, big=False, latin=False):
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-review-{name}-"))
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
@@ -66,6 +67,8 @@ class Run:
             (self.repo / "src" / "big.py").write_text("".join(f"ROW_{i:05d} = {i}  # generated padding line for a long single hunk\n" for i in range(BIG_ROWS)), encoding="utf-8")
             # 日本語主体のファイルも足す——字数で割ると同じ字数がおよそ 3 倍のバイトになり、貼る先の上限を超える
             (self.repo / "docs.md").write_text("".join(f"- {i:05d} 行目。ここは日本語の説明で、字数とバイト数が一致しない入力を主経路に与えるためにある。\n" for i in range(900)), encoding="utf-8")
+        if latin:  # UTF-8 でないテキスト（Latin-1 の é と単独の 0xFF）。git の出力と file: の読みが厳格な復号で落ちていた
+            (self.repo / "src" / "latin.py").write_bytes(b"# caf\xe9 \xff legacy encoding\nX = 1\n")
         g("add", "."); g("commit", "-q", "-m", "change under review")
         self.dir = self.tmp / "state"
         args = ["init", "--loop", "review-loop", "--request", "この変更をレビュー", "--dir", str(self.dir), "--validator", str(VALIDATOR)]
@@ -204,6 +207,12 @@ def answers(run, scenario, rnd):
     if scenario == "noci":  # CI を確かめていない周を緑と数えない（converge の腕）
         table["p0.local_checks"] = lambda it: {"material": M("not_applicable", reason="この環境に CI が無い（検査用）")}
         table["p4.ci"] = lambda it: {"material": M("not_applicable", reason="この環境に CI が無い（検査用）")}
+    if scenario == "liar":  # 申告したファイルに実際は触らない writer（drive は実在するファイルしか編集しない）
+        real = table["p3.fix"]
+        table["p3.fix"] = lambda it: {**real(it), "changes": [{**c, "files": ["src/zzz.py"]} for c in real(it)["changes"]]}
+    if scenario == "cired":  # 阻害なしでも CI が毎周赤——converged 分岐の早期 return が暴走ガードを飛ばしていた（実測 2026-09-13: round 9 / max 5 で running）
+        table["p0.local_checks"] = lambda it: {"material": M("found", count=1, detail="CI が赤（検査用）")}
+        table["p4.ci"] = lambda it: {"material": M("found", count=1, detail="CI が赤のまま（検査用）")}
     if scenario == "coldfail":  # 初見検査の非 pass は記録に残る（門ではない）
         table["report.cold_check"] = lambda it: {"verdict": "redesign-needed", "stops": ["2 段落目の『前提』が未定義"], "guessed": [], "decidable": False}
     return table
@@ -223,6 +232,13 @@ def drive(run, scenario, max_steps=120, hook=None):
             out = table[inst["node"]](inst["item"])
             if hook:
                 out = hook(run, inst, out) or out
+            if inst["node"] == "p3.fix" and isinstance(out, dict):
+                # 台本の writer は申告どおりに実際に手を入れる——前の周の P3 が触ったファイルは engine が diff の差から測り、
+                # 申告は照合の片側でしかない（申告だけで触らないと測定 0 件＝持ち越しになる）
+                for f in {f for c in out.get("changes", []) for f in c.get("files", [])}:
+                    p = run.repo / f
+                    if p.is_file():
+                        p.write_text(p.read_text(encoding="utf-8") + f"# fixed in round {nx['round']}\n", encoding="utf-8")
             r = run.done(inst["id"], out, agent_id="judge-1" if inst["node"] == "p2.diagnose" else None)
             if r.returncode != 0:
                 raise RuntimeError(f"done {inst['id']} が {r.returncode}: {r.stderr[-1200:]}")
@@ -281,8 +297,8 @@ def test_new_guards():
     run = Run("badcond")
     r = run.cmd("init", "--loop", "review-loop", "--graph", str(tmp / "graphs" / "badcond.json"),
                 "--request", "x", "--dir", str(run.tmp / "s2"), "--validator", str(VALIDATOR))
-    r2 = subprocess.run([PY, str(LOOP), "next", "--dir", str(run.tmp / "s2")], cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
-    nxt = subprocess.run([PY, str(LOOP), "next", "--dir", str(run.tmp / "s2")], cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
+    r2 = subprocess.run([PY, str(LOOP), "next", "--dir", str(run.tmp / "s2")], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    nxt = subprocess.run([PY, str(LOOP), "next", "--dir", str(run.tmp / "s2")], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode == 0 and ("解決できない" in r2.stderr + nxt.stderr or "解決できない" in r2.stdout), 
           f"解決できない cond の path は die（偽に倒さない）: {(r2.stderr + nxt.stderr)[-120:]}")
     rm(tmp); rm(run.tmp)
@@ -328,7 +344,7 @@ def test_converges():
     check(all("確認:" in r3["materials"][n]["reason"] for n in carried), f"持ち越しの理由は確かめた対象を書く（{len(carried)} 件）")
     check(r1["reviews"]["R3"]["status"] == "not_applicable" and r2["reviews"]["R3"]["status"] == "pass", "[block] が残る周は R3/R4 not_applicable、0 の周に走る")
     check(r2["reviews"]["R1"]["status"] == "carried_over" and r3["reviews"]["R1"]["from_round"] == 1, "R1 は再発火しない周に持ち越し、連鎖は round 1 を指す")
-    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "rounds")], capture_output=True, text=True, encoding="utf-8")
+    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "rounds")], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(v.returncode == 0, "検証器がディレクトリで exit 0（連続 2 ラウンド）")
     check((run.dir / "report.md").is_file(), "report.md が保存された")
     inst = st["rounds"][1]["instances"]
@@ -398,6 +414,10 @@ def test_rejections():
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
     check({"p1.local_review", "p1.consistency_bypass", "p1.hygiene", "p1.external_standards", "p1.provenance"} <= set(by), f"P1 の役が同じ波に並ぶ: {sorted(by)}")
+    # 今の周に走った節の素材が『前の周の流用』を名乗る——流用は走らなかった節に機械が書く（not_applicable の 1 値だけ
+    # 塞いでいたとき carried_over で同じ穴が通り、検証器 exit 0 で converged した。実測 2026-09-13）
+    r = run.done(by["p1.provenance"]["id"], {"material": M("carried_over", from_round=1, reason="確認: 前の周の流用（検査用の嘘）"), "claims": []})
+    check(r.returncode == 1 and "carried_over" in r.stderr, f"今の周に走った節の素材が carried_over を名乗ると exit 1（rc={r.returncode}）")
     hyg = next(i for i in nx["ready"] if i["node"] == "p1.hygiene")
     body = pathlib.Path(hyg["prompt_file"]).read_text(encoding="utf-8")
     check("## コード衛生観点" in body and "diff --git a/src/b.py" in body and "上限を付けて" not in body, "cold-reader には観点の節と差分本文だけが貼られ、目的は貼られない")
@@ -468,8 +488,11 @@ def test_rejections():
     # 置き場に古い返答が残っていても、標準入力で渡した新しい返答が勝つ（以前は置き場が先に読まれ、古い方が黙って記録に入った）
     pathlib.Path(jd["out_path"]).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(jd["out_path"]).write_text(json.dumps({**good, "framing": "STALE"}, ensure_ascii=False), encoding="utf-8")
-    r = run.cmd("done", "--node", jd["id"], "--stdin", "--agent-id", "judge-1", input=json.dumps({**good, "framing": "FRESH"}, ensure_ascii=False))
-    check(r.returncode == 0 and "読んだ先: stdin" in r.stdout, f"正しい judge の返答は通り、どこから読んだかが返事に残る（{r.stdout.strip()[:70]}）")
+    # 標準入力はバイトで読んで UTF-8 に決める——OS 既定の文字コード（Windows の cp1252）で復号すると日本語が JSON にならない。
+    # PYTHONIOENCODING で cp1252 を強いて、3 OS のどこで走っても同じ入力で固定する（実測 2026-09-13: windows-latest だけ赤だった）
+    r = run.cmd("done", "--node", jd["id"], "--stdin", "--agent-id", "judge-1", input=json.dumps({**good, "framing": "FRESH"}, ensure_ascii=False),
+                env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+    check(r.returncode == 0 and "読んだ先: stdin" in r.stdout, f"正しい judge の返答は通り、どこから読んだかが返事に残る（stdin を cp1252 の環境で。{r.stdout.strip()[:70]}）")
     check(json.loads(pathlib.Path(jd["out_path"]).read_text(encoding="utf-8")).get("framing") == "FRESH", "標準入力の返答が置き場の古い返答より優先され、記録に入るのは新しい方")
     nx = run.next()
     fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
@@ -483,8 +506,12 @@ def test_rejections():
     r = run.done(fx["id"], {**fix, "fix_closure": M("not_applicable", reason="条件に当たらない（検査用の嘘）")})
     check(r.returncode == 1 and "not_applicable" in r.stderr, "修正が在るのに fix_closure=not_applicable の返答は exit 1（changes が非空という機械の事実と食い違う）")
     mixed = {**fix, "changes": [fix["changes"][0], {**fix["changes"][1], "closure": {**fix["changes"][1]["closure"], "sites": [{"site": "docs（赤を見られない）", "red_seen": False}]}}]}
-    r = run.done(fx["id"], mixed)
-    check(len(fix["changes"]) >= 2 and r.returncode == 0, f"赤を見た修正と見ていない修正（文書）が混じる周の clean は通る——周の全体で見る（rc={r.returncode}: {r.stderr[-120:]}）")
+    # 本番の主経路——運び手が out_path に書き、--output も --stdin も付けずに done（台本は --output しか通していなかった）
+    pathlib.Path(fx["out_path"]).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(fx["out_path"]).write_text(json.dumps(mixed, ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("done", "--node", fx["id"])
+    check(len(fix["changes"]) >= 2 and r.returncode == 0 and "読んだ先: out_path" in r.stdout,
+          f"赤を見た修正と見ていない修正（文書）が混じる周の clean は通る——周の全体で見る。返答は out_path から読む（rc={r.returncode}: {(r.stdout + r.stderr).strip()[-120:]}）")
     rm(run.tmp)
 
 
@@ -549,6 +576,12 @@ def test_gates_not_applicable():
             r = run_.done(inst["id"], {"material": M("not_applicable", reason="検証ゲートを触っていない（検査用の嘘）"),
                                        "arms": [{"gate": "x", "arm": "y", "red_confirmed": True, "control_green": True}]})
             check(r.returncode == 1 and "applies_cond" in r.stderr, "applies_cond が真で走った gate_efficacy の not_applicable は exit 1（機械が持つ事実と食い違う）")
+            # 赤を見ていない腕が在るのに found 以外を名乗る——clean だけ見ていたとき carried_over は腕ゼロのまま通った（実測 2026-09-13）
+            unred = [{"gate": "x", "arm": "y", "red_confirmed": False, "control_green": True}]
+            r = run_.done(inst["id"], {"material": CLEAN("柵 1 本"), "arms": unred})
+            check(r.returncode == 1 and "赤を見ていない腕" in r.stderr, "赤を見ていない腕が在るのに clean は exit 1")
+            r = run_.done(inst["id"], {"material": M("carried_over", from_round=1, reason="確認: 流用（検査用の嘘）"), "arms": unred})
+            check(r.returncode == 1 and "赤を見ていない腕" in r.stderr, "赤を見ていない腕が在るのに carried_over も exit 1（status に依らず当てる）")
         return out
     drive(run, "gates", hook=hook)
     check("tried" in seen, "ゲートを触った台本で gate_efficacy が走った")
@@ -563,6 +596,59 @@ def test_narrowed():
     check(r1["reviews"].get("R2", {}).get("status") == "unverifiable", f"R2 は unverifiable（{r1['reviews'].get('R2')}）——狭められた目的で独立設計を回さない")
     check(any(q["kind"] == "unverifiable" and q["origin"] == "R2" for q in r1["questions"]), "台帳に R2 の unverifiable の行が立つ")
     check(run.record()["process"].get("purpose_review", {}).get("verdict") == "狭めている", "inspector の判定は記録の process.purpose_review に残る（以前は誰も読まなかった）")
+    # R2 を走らせない原因は 2 つ（目的不明／狭めている）——bool 1 つに畳んでいたとき、理由文が事実と逆（目的不明）になった
+    reason = r1["reviews"]["R2"].get("reason", "")
+    check("狭めている" in reason and "目的不明" not in reason, f"R2 の理由は実際の原因（狭めている）を書き、目的不明と混同しない（{reason[:50]}）")
+    rm(run.tmp)
+
+
+def test_claim_mismatch():
+    print("台本: P3 が触っていないファイルを申告しても、再発火は engine が測った差分で決まる（申告は照合の片側）")
+    run = Run("liar", unattended=True)
+    drive(run, "liar")
+    r2 = run.round_file(2)
+    check(r2["materials"]["provenance"]["status"] == "carried_over",
+          f"申告だけで実際に触っていなければ provenance は持ち越し（{r2['materials']['provenance']['status']}）——以前は申告の 1 語で全素材が再発火した")
+    mm = run.record()["process"].get("fix_claim_mismatch")
+    check(mm == [{"round": 1, "claimed_not_in_diff": ["src/zzz.py"]}], f"申告と差分の食い違いは記録の process に周付きで残る（{mm}）")
+    rm(run.tmp)
+
+
+def test_stop_branch():
+    print("周の分岐: 検証器の判定行だけを見る（台帳の echo に停止文言が載っても分岐が化けない）")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8")))
+    V = types.SimpleNamespace(STOP_PREMISE="前提不成立が確定（escalate）", STOP_WORK_EXHAUSTED="答え無しに進める仕事は無い")
+    echo = "収束を妨げるもの 1 件:\n  - [block] x — judge の key に『前提不成立が確定（escalate）』と書いた\n  - 台帳: 答え無しに進める仕事は無い、と書いた reason\n"
+    check(rules.stop_branch(V, 1, echo) == "work_remains", "字下げされた echo の行に停止文言が在っても work_remains（以前は全文の部分一致で premise_escalate に化けた）")
+    check(rules.stop_branch(V, 1, echo + V.STOP_PREMISE + "——残る仕事は全てその答えに従属する。\n") == "premise_escalate", "行頭の判定行なら premise_escalate")
+    check(rules.stop_branch(V, 1, echo + "残る阻害要因は保留の問いに帰属するものだけ（1 件）——" + V.STOP_WORK_EXHAUSTED + "。\n") == "work_exhausted", "行頭の判定行なら work_exhausted")
+    check(rules.stop_branch(V, 0, echo) == "converged", "exit 0 は出力に依らず converged")
+
+
+def test_ci_red_runaway():
+    print("台本: 阻害なしでも CI が毎周赤 → 上限 5 で停止（converged 分岐の早期 return が暴走ガードを飛ばさない）")
+    run = Run("cired", unattended=True)
+    last = drive(run, "cired")
+    check(last["status"] == "stopped" and run.state()["round"] == 5, f"CI が赤のままの run は 5 周で止まる（{last['status']} r{run.state()['round']}）")
+    check(run.state()["loop"].get("stop_reason") == "max_rounds", "停止の理由が上限")
+    rm(run.tmp)
+
+
+def test_non_utf8_file():
+    print("台本: 対象差分に UTF-8 でないファイルが在っても next は落ちない（git の出力と file: の読みは置換して読む）")
+    run = Run("latin", unattended=True, latin=True)
+    seen = {}
+
+    def hook(run_, inst, out):
+        if inst["node"] == "p1.hygiene" and "body" not in seen:
+            seen["body"] = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
+        return out
+
+    last = drive(run, "std", hook=hook)
+    check(last["status"] == "converged", f"UTF-8 でないファイルを含む差分でも収束まで通る（{last['status']}）——以前は 2 回目の next が UnicodeDecodeError で exit 2")
+    check("src/latin.py" in seen.get("body", "") and "�" in seen.get("body", ""), "UTF-8 でないファイルの差分も置換文字で役に渡る（欠けない）")
     rm(run.tmp)
 
 
@@ -594,7 +680,7 @@ def test_nopurpose():
 def test_big_diff():
     """大きな差分でも hygiene は 1 節のまま、全部を欠けずに受け取る。
 
-    以前はバイト上限で割っていて、**読み手の人数が差分の大きさで決まっていた**（750 KB ÷ 40,000 ≒ 23 人）。
+    以前はバイト上限で割っていて、**読み手の人数が差分の大きさで決まっていた**（実測: 750 KB の差分が hunk 境界で 23 片に割れた）。
     遮断系を標準入力で受ける CLI 起動に変えたので貼る上限が消え、割る理由も消えた。入り切らなければ
     API が落とすので、割りは安全柵でもない（静かに切る経路だけが事故だった）。
     """
@@ -635,6 +721,10 @@ def main():
     test_deferjudge()
     test_gates_not_applicable()
     test_narrowed()
+    test_claim_mismatch()
+    test_stop_branch()
+    test_ci_red_runaway()
+    test_non_utf8_file()
     test_nopurpose()
     test_big_diff()
     print(f"\n{ran} 件中 {len(fails)} 件失敗")

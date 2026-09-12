@@ -14,8 +14,8 @@ import re
 # 欠けずに 1 回で届いた（測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、契約ではない）。
 # 入り切らなければ API がエラーを返して**うるさく落ちる**ので、割りは安全柵でもなかった（静かに切る
 # 経路が事故だったのであって、落ちる経路は守るべき性質を既に満たしている）。
-# 落としたのは 23 片に割れていた実績があるから: 750 KB ÷ 40,000 バイト ≒ 23 で、**読み手の人数が
-# 差分の大きさで決まっていた**（誰も「衛生の検査には 23 人要る」と決めていない）。同じものを N 人に
+# 落としたのは 23 片に割れていた実績があるから: 750 KB の差分が hunk 境界で 23 片（平均 33 KB。上限 40,000 バイトの
+# 割り算ではなく実測）に割れ、**読み手の人数が差分の大きさで決まっていた**（誰も「衛生の検査には 23 人要る」と決めていない）。同じものを N 人に
 # 読ませて突き合わせたいなら、それは上限の副作用でなく graph の宣言として書くこと。
 
 
@@ -64,8 +64,18 @@ def on_new_round(b):
         ls["r2_refire_forced"] = True
     # 前の周の writer の異議（rejudge_requested）は次の周の p2.history が再審する
     ls["prev_rejudge"] = ls.pop("rejudge_requested", None)
-    # 前の周の P3 が実際に触ったファイル。持ち越しの再発火をこの実体から決める（役の申告 1 欄に頼らない）
-    ls["prev_fix_files"] = sorted({f for c in (b.outputs().get("p3.fix", {}) or {}).get("changes", []) for f in c.get("files", [])})
+    # 前の周の P3 が実際に触ったファイル——**engine が持つ事実**（前の周の P1 で写した diff と、今の diff の差）から作る。
+    # writer の申告（p3.fix の changes[].files）は照合の片側に降ろす（実測 2026-09-13: 実在しないファイル名の申告で全素材が
+    # 再発火し、実際に編集した周が 0 件扱いで持ち越された——申告だけを見ていた）
+    claimed = sorted({f for c in (b.outputs().get("p3.fix", {}) or {}).get("changes", []) for f in c.get("files", [])})
+    measured = _files_changed_since(b, b.round - 1)
+    ls["prev_fix_files"] = claimed if measured is None else measured
+    ls["prev_fix_source"] = "申告（前の周の diff の写しが無く測れない）" if measured is None else "実測（diff の差）"
+    if measured is not None and set(claimed) - set(measured):
+        # 申告したが差分に現れないファイル——盤面に置くだけでは誰も読まないので、記録の process に周付きで残す（判定者と報告が読める）
+        rec["process"].setdefault("fix_claim_mismatch", []).append({"round": b.round - 1, "claimed_not_in_diff": sorted(set(claimed) - set(measured))})
+    for k in ("purpose_known", "purpose_unusable"):
+        ls.pop(k, None)
 
 
 
@@ -126,6 +136,33 @@ WRITE_OPS = {"material_from_findings": material_from_findings, "premise_question
 
 
 # ---------------------------------------------------------------- 機械の節
+def _patch_sections(text):
+    """diff の本文をファイルごとの節に割る（diff --git の見出しで）。"""
+    out, cur, key = {}, [], None
+    for line in text.splitlines():
+        if line.startswith("diff --git "):
+            if key is not None:
+                out[key] = "\n".join(cur)
+            key, cur = line.split(" b/", 1)[1] if " b/" in line else line, []
+        cur.append(line)
+    if key is not None:
+        out[key] = "\n".join(cur)
+    return out
+
+
+def _files_changed_since(b, prev_round):
+    """前の周の P1 が写した diff（diff-r<N>.patch）と今の git diff <BASE> の差＝その間に作業ツリーで変わったファイル。
+    None = 測れない（前の周の写しが無い・git が取れない）——申告に落とす側は呼ぶ側で決める。"""
+    f = b.dir / f"diff-r{prev_round}.patch"
+    if not f.is_file() or not b.record.get("base"):
+        return None
+    now = git("diff", b.record["base"])
+    if now is None:
+        return None
+    before, after = _patch_sections(f.read_text(encoding="utf-8", errors="replace")), _patch_sections(now)
+    return sorted({k for k in set(before) | set(after) if before.get(k) != after.get(k)})
+
+
 def worktree_snapshot(b, nid):
     """P1 の前: 作業ツリーの写しと、対象差分（git diff <BASE>）を機械が取る。回す側に貼らせない。"""
     ls = b.loop_state
@@ -134,12 +171,17 @@ def worktree_snapshot(b, nid):
         return {"ok": False, "problems": ["BASE が無い（p0.base が先）"]}
     # git の失敗（None）は全部「測れない」で止める。`or ""` で空文字に潰すと『取れない』と『変化なし』が
     # 同じ値になり、保護も件数も黙って通る（util.git の契約は「None は分からない。合格に倒すな」）。
-    got = {k: git(*args) for k, args in (("diff", ("diff", base)), ("names", ("diff", "--name-only", base)),
-                                         ("stat", ("diff", "--shortstat", base)), ("stash", ("stash", "list")))}
+    # numstat 1 本で変更ファイルと行数の両方を取る（name-only と shortstat の 2 プロセスは冗長）
+    got = {k: git(*args) for k, args in (("diff", ("diff", base)), ("numstat", ("diff", "--numstat", base)), ("stash", ("stash", "list")))}
     missing = sorted(k for k, v in got.items() if v is None)
     if missing:
         return {"ok": False, "problems": [f"git が取れない（{', '.join(missing)}）——BASE={base} の対象差分と作業ツリーの保護が測れない場所からは回せない"]}
-    diff, names, stat = got["diff"], got["names"], got["stat"]
+    diff = got["diff"]
+    rows = [ln.split("\t") for ln in got["numstat"].splitlines() if ln.strip()]
+    names = "\n".join(r[2] for r in rows if len(r) == 3)
+    ins = sum(int(r[0]) for r in rows if len(r) == 3 and r[0].isdigit())
+    dels = sum(int(r[1]) for r in rows if len(r) == 3 and r[1].isdigit())
+    stat = f"{len(rows)} files changed, {ins} insertions(+), {dels} deletions(-)"
     # 対象差分が空なら止める。空を通すと、素材が毎周 not_run（理由は事実と逆）で埋まったまま上限まで回る
     # （実測: BASE=HEAD で 5 周・diff 0 バイト・stop_reason=max_rounds、原因は記録のどこにも出ない）。
     if not diff.strip():
@@ -159,7 +201,7 @@ def worktree_snapshot(b, nid):
     # diff 本文の sha も突合に入れる。porcelain は状態コードとパスだけなので、**既に ' M' のファイルの
     # 中身を差し替えても検知しない**——レビュー対象は定義上ぜんぶ変更済みなので、これが無いと保護は
     # 対象そのものに効かない（agents/investigator.md はこの突合を「担保」と名乗っている）。
-    ls["tree_before"] = {"porcelain": snap, "stash": got["stash"].strip(), "stat": stat.strip(), "diff_sha": sha(diff)}
+    ls["tree_before"] = {"porcelain": snap, "stash": got["stash"].strip(), "diff_sha": sha(diff)}
     return {"ok": True, "diff_file": ls["diff_file"], "changed_files": ls["changed_files"], "stat": ls["diff_stat"]}
 
 
@@ -180,7 +222,7 @@ def worktree_compare(b, nid):
     got = {k: git(*args) for k, args in (("stash", ("stash", "list")), ("diff", ("diff", b.record["base"])))}
     if snap is None or any(v is None for v in got.values()) or before.get("porcelain") is None:
         return {"ok": False, "problems": ["git status / git diff が取れない——作業ツリーの前後を突き合わせられない（一致とは言えない）"]}
-    now = {"porcelain": snap, "stash": got["stash"].strip(), "stat": before.get("stat"), "diff_sha": sha(got["diff"])}
+    now = {"porcelain": snap, "stash": got["stash"].strip(), "diff_sha": sha(got["diff"])}
     problems = []
     for k in ("porcelain", "stash", "diff_sha"):
         if before.get(k) != now[k]:
@@ -277,8 +319,12 @@ def assemble(b, nid):
     ls["r1_refire"] = ls["r2_refire"] or ls["ledger_changed"]
     # 目的が取れない（目的不明）のと、writer の要約を inspector が「狭めている」と判定したのは、R2 にとって同じ——
     # 独立の出典として使えない（以前は判定を誰も読まず、狭められた目的で R2 が回った。実測 2026-09-12）
+    src = b.outputs().get("p0.purpose", {}).get("source")
     narrowed = b.record.get("process", {}).get("purpose_review", {}).get("verdict") == "狭めている"
-    ls["purpose_known"] = (b.outputs().get("p0.purpose", {}).get("source") != "目的不明") and not narrowed
+    # 原因を運ぶ 1 値（None／目的不明／狭めている）——bool に畳むと record_round が定数文で説明するしかなく、理由が事実と逆になる
+    # （実測 2026-09-13: 狭めている周の R2 の reason が『P0-4 で目的不明』）
+    ls["purpose_unusable"] = "目的不明" if src == "目的不明" else ("狭めている" if narrowed else None)
+    ls["purpose_known"] = ls["purpose_unusable"] is None
     if fix.get("premise_drift"):
         ls.setdefault("drift_notes", []).append({"round": b.round, "text": fix.get("premise_drift_note", "")})
     return {"ok": True, "open_units": ls["open_units"], "r1_refire": ls["r1_refire"], "r2_refire": ls["r2_refire"],
@@ -290,6 +336,22 @@ def _prev_round_record(b):
     return read_json(p) if p.is_file() else None
 
 
+def stop_branch(V, exit_code, out):
+    """検証器の出力から周の分岐を決める。文言は検証器の定数を import して使う（写すと、文言を直した周に分岐が黙って
+    work_remains へ倒れる）。見るのは**行頭が空白でない行**（判定と見出し）だけ——台帳・履歴・阻害要因の echo は
+    「  - 」で字下げして印字されるので、judge が書いた key / reason に停止文言が含まれても分岐は化けない（全文への
+    部分一致だったとき、台帳の 1 行が premise_escalate を作れた）。検証器の書式（字下げ）に依る点は残る——機械用の
+    返り口を検証器に持たせる案は questions の fork（出力契約）の決着後。"""
+    if exit_code == 0:
+        return "converged"
+    lines = [ln for ln in out.splitlines() if ln and not ln[0].isspace()]
+    if any(V.STOP_PREMISE in ln for ln in lines):
+        return "premise_escalate"
+    if any(V.STOP_WORK_EXHAUSTED in ln for ln in lines):
+        return "work_exhausted"
+    return "work_remains"
+
+
 def record_round(b, nid):
     """周の記録 rounds/round-<N>.json を組み、検証器にディレクトリを渡す。R の欄も機械が埋める。"""
     V = validator_module(b)
@@ -298,7 +360,10 @@ def record_round(b, nid):
     last_review = ls.setdefault("last_review", {})
     reviews = rec["reviews"]
     if ls.get("purpose_known") is False and "R2" not in reviews:
-        reviews["R2"] = {"status": "unverifiable", "reason": "元の目的の出典が取れない（P0-4 で目的不明）"}
+        why = ls.get("purpose_unusable") or "目的不明"
+        reviews["R2"] = {"status": "unverifiable", "reason": {
+            "目的不明": "元の目的の出典が取れない（P0-4 で目的不明）",
+            "狭めている": "writer 自書の目的テキストを inspector が『狭めている』と判定（p0.purpose_review）——独立の出典として使えず、狭められた目的で独立設計を回さない"}[why]}
         # 検証器は同じ周に kind=unverifiable / origin=R2 の台帳の行を要求する。judge は既に done なので機械が書く（判定でなく機械的な帰結）
         if not any(x.get("kind") == "unverifiable" and x.get("origin") == "R2" for x in rec["questions"]):
             rec["questions"].append({"key": "元の目的を独立に取れない（R2 unverifiable）——目的の出典を人が示すか、未収束のまま報告するか",
@@ -338,9 +403,7 @@ def record_round(b, nid):
     # 終了コード）は「検査が成立しなかった」であって合格ではない——周を進めない。
     if v["exit"] not in b.graph.get("record", {}).get("round_accepts_exit", [0, 1]):
         return {"ok": False, "exit": v["exit"], "problems": [f"記録が検証器を通らない（exit {v['exit']}。役の返答か rules の欠陥、または検証器が動かない。直して next）: " + out[-1500:]]}
-    # 分岐の文言は検証器の定数を import して使う（写すと、文言を直した周に分岐が黙って work_remains へ倒れる）
-    branch = "converged" if v["exit"] == 0 else "premise_escalate" if V.STOP_PREMISE in out else \
-        "work_exhausted" if V.STOP_WORK_EXHAUSTED in out else "work_remains"
+    branch = stop_branch(V, v["exit"], out)
     for u in rec["units"]:
         if u["label"] == "suggest" and u.get("disposition") == "defer":
             ls.setdefault("defer_ledger", {})[u["key"]] = {"reason": u.get("reason"), "round": b.round}
@@ -353,11 +416,19 @@ def record_round(b, nid):
 
 
 def converge(b, nid):
+    V = validator_module(b)
     rec_out = b.outputs().get("p4.record", {})
     branch = rec_out.get("branch")
     ls = b.loop_state
     ci = b.record["materials"].get("local_checks", {})
-    asking = [q for q in b.record["questions"] if q["status"] in ("held", "escalate")]
+    asking = [q for q in b.record["questions"] if q["status"] in V.ASKING]
+    # 暴走ガードは全部の分岐に掛かる——converged/found の早期 return の後ろに置いていたとき、CI が赤のまま上限を越えて
+    # 回り続けた（実測 2026-09-13: round 9 / max 5 で running）。収束する周（阻害なし・CI 緑）だけは上限より優先して収束させる
+    will_converge = branch == "converged" and ci.get("status") == "clean"
+    if b.round >= b.state["max_rounds"] and not will_converge:
+        ls["outcome"] = "stopped"
+        ls["stop_reason"] = "max_rounds"
+        return {"decision": "stopped", "reason": f"暴走ガード: 総ラウンドが上限 {b.state['max_rounds']} に達した（収束せず。台帳の held / escalate をまとめて聞く）"}
     if branch == "converged":
         st = ci.get("status")
         if st == "found":
@@ -388,10 +459,6 @@ def converge(b, nid):
             "items": [f"[{q['status']}] {q['kind']}: {q['key']} — {q.get('reason', '')}" + (f" 選択肢: {q['options']}" if q.get("options") else "") for q in asking],
             "options": ["continue", "stop"],
         }}
-    if b.round >= b.state["max_rounds"]:
-        ls["outcome"] = "stopped"
-        ls["stop_reason"] = "max_rounds"
-        return {"decision": "stopped", "reason": f"暴走ガード: 総ラウンドが上限 {b.state['max_rounds']} に達した（収束せず。台帳の held / escalate をまとめて聞く）"}
     return {"decision": "next_round", "reason": "阻害要因が残る（検証器の出力を P2 の履歴に渡す）"}
 
 
@@ -399,7 +466,10 @@ BUILTINS = {"worktree_snapshot": worktree_snapshot, "worktree_compare": worktree
             "record_round": record_round, "converge": converge}
 
 
-# ---------------------------------------------------------------- 節ごとの整合（out を検査するだけ。record を書くのは WRITE_OPS）
+# ---------------------------------------------------------------- 節ごとの整合（post_check）
+# 多くは out を検査して Reject を投げるだけだが、例外が 2 つ在る: base_valid は record.base を、r2_design は
+# reviews.R2（premise-invalid）を書く。record の書き込みは本来 WRITE_OPS の仕事で、この 2 つは「検査の結果で
+# 初めて決まる値」なので post_check に置いている（見出しが「out を検査するだけ」と名乗っていたのは事実と違った）。
 def base_valid(b, nid, out, item):
     sha = out["base_sha"]
     if not re.fullmatch(r"[0-9a-f]{7,40}", sha) or git("cat-file", "-e", f"{sha}^{{commit}}") is None:
@@ -441,12 +511,15 @@ def judge_output(b, nid, out, item):
                 errs.append(f"questions[{i}]（{kind}/{status}）に '{f}' が要る")
         if kind == "fork" and not (isinstance(q.get("options"), list) and len(q["options"]) >= 2):
             errs.append(f"questions[{i}] の options は選択肢 2 つ以上（各項に帰結まで）")
-        if domain == "unit" and q.get("origin") not in keys | defer:
-            errs.append(f"questions[{i}] の origin '{q.get('origin')}' が units にも defer 台帳にも無い")
-        if domain == "material" and q.get("origin") not in V.MATERIALS:
-            errs.append(f"questions[{i}] の origin は素材名: {q.get('origin')}")
-        if domain == "review" and q.get("origin") not in V.REVIEWS:
-            errs.append(f"questions[{i}] の origin は R1〜R4: {q.get('origin')}")
+        # 出どころ（origin と depends）の走査は検証器の targets 1 本——3 走査を別々に書くと depends を足した修正が 2 か所にしか
+        # 当たらない（検証器自身の docstring に同じ事故が書いてある）
+        for fld, dom, val in V.targets(q):
+            if dom == "unit" and val not in keys | defer:
+                errs.append(f"questions[{i}] の {fld} '{val}' が units にも defer 台帳にも無い")
+            elif dom == "material" and val not in V.MATERIALS:
+                errs.append(f"questions[{i}] の {fld} は素材名: {val}")
+            elif dom == "review" and val not in V.REVIEWS:
+                errs.append(f"questions[{i}] の {fld} は R1〜R4: {val}")
         if domain == "none" and (q.get("origin") or q.get("depends")):
             errs.append(f"questions[{i}]（{kind}）は origin / depends を持てない")
         for d in q.get("depends", []) or []:
@@ -552,14 +625,12 @@ def gate_arms_all_red(b, nid, out, item):
     """
     arms = out.get("arms", [])
     st = out.get("material", {}).get("status")
-    # 節が走ったのは applies_cond が真だったから——機械が持つその事実と、役の書いた not_applicable は両立しない
-    # （実測: 真で走った周に not_applicable と書けば腕ゼロで通った）
-    ap = b.nodes[nid].get("applies_cond")
-    if st == "not_applicable" and ap is not None and b.eval_cond(ap):
-        raise Reject(f"{nid}: applies_cond が真（この差分は検証ゲートを新設・変更している）のに status=not_applicable——腕を書け")
+    # applies_cond が真で走った節の not_applicable は check_record の表（status × 機械の事実）が拒む——ここには写さない
     unred = [a["arm"] for a in arms if not a.get("red_confirmed")]
     nocontrol = [a["arm"] for a in arms if not a.get("control_green")]
-    if st == "clean" and (unred or nocontrol):
+    # 未赤の腕が在るのに found 以外（clean / carried_over / not_applicable …）を名乗る返答は拒む——clean だけ見ていたとき
+    # carried_over で腕ゼロのまま通った（実測 2026-09-13）
+    if st != "found" and (unred or nocontrol):
         raise Reject(f"{nid}: 赤を見ていない腕 {unred} / 壊していない写しで緑を確かめていない腕 {nocontrol} が在るのに status=clean"
                      "——未達は found（count と detail に腕を書く）")
 
@@ -574,14 +645,22 @@ def check_record(b, nid=None):
     真だったから走った）は矛盾。nid は今 done している節（まだ done の印が付いていないので名指しで渡る）。"""
     V = validator_module(b)
     errs = []
-    ran = {k for k in b.nodes if k == nid or b.node_state(k) == "done"}
+    # 「今の周に走った」＝今の周に instance が出て done（once の節は前の周の done を引き継ぐので node_state では見ない）
+    ran = {nid} | {i["node"] for i in b.rd["instances"].values() if i["status"] == "done"}
     for k, n in b.nodes.items():
-        ap = n.get("applies_cond")
-        if k not in ran or ap is None:
+        if k not in ran:
             continue
+        ap = n.get("applies_cond")
         for mat in n.get("materials", []):
             m = b.record["materials"].get(mat)
-            if m and m.get("status") == "not_applicable" and b.eval_cond(ap):
+            if not m:
+                continue
+            st = m.get("status")
+            # 素材の status（6 値）× 機械が持つ事実（この周に走った・applies_cond が真だった）の表。走った節の素材に
+            # 『流用』『条件外』は書けない——1 値（not_applicable）だけ塞いでいたとき carried_over で同じ穴が通った（実測 2026-09-13）
+            if st == "carried_over":
+                errs.append(f"素材 '{mat}'（節 {k}）は今の周に走ったのに carried_over——流用は走らなかった節に機械が書く。今の周の判定を書け")
+            if st == "not_applicable" and ap is not None and b.eval_cond(ap):
                 errs.append(f"素材 '{mat}'（節 {k}）は applies_cond が真で走ったのに not_applicable——機械が持つ事実と食い違う")
     for name, m in b.record["materials"].items():
         st = m.get("status")

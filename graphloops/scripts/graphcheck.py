@@ -20,6 +20,14 @@
      claims に merge する回す側の節は schema が additionalProperties: false で verdict / refuted を持たない
  10. writes.op・fan_out.builtin・builtin・post_check・cond.builtin が engine か rules の知っている名前だけ。
      cover・save_text_as・thickness_from・raw_for_report の指す欄と節が実在する
+ 11. schema が engine の読む語（engine/schema.py の KNOWN_KEYWORDS）だけで書かれている——読まない語は書いても効かない
+ 12. engine が実行に使う欄が宣言どおりの物を指す: writes.from が節の schema.properties に在る、cond / applies_cond の
+     out.<節>.<欄> と prev.<節>.<欄> がその節の schema に在る、same_context_as の役が一致し遮断系でない、
+     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated.argv の穴が engine の
+     埋める語（LAUNCH_HOLES）だけで model / effort は遮断系の役の定義に在る
+ 13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
+
+この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
 使い方:
     python3 graphloops/scripts/graphcheck.py graphloops/graphs/research-loop.json [scripts/research-record.py]
@@ -31,7 +39,6 @@
 import graphlib
 import importlib.util
 import io
-import json
 import pathlib
 import re
 import sys
@@ -49,20 +56,17 @@ PLUGIN_ROOT = HERE.parent
 
 sys.path.insert(0, str(PLUGIN_ROOT))
 # 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
-from engine.board import COND_OPS, node_of  # noqa: E402
-from engine.advance import ENGINE_PRE  # noqa: E402
+from engine.board import COND_KEYS, COND_OPS, node_of  # noqa: E402
+from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import unknown_keywords  # noqa: E402
 from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
 from engine.rules import load_rules as engine_load_rules, registry  # noqa: E402
-from engine.validator import agent_tools, find_plugin_path  # noqa: E402
+from engine.validator import agent_def, agent_tools, find_plugin_path  # noqa: E402
 from engine.util import read_json  # noqa: E402
 
 # JSON の読み込みは engine の read_json（読めなければ die＝exit 2）。写しを持っていたとき UnicodeDecodeError を
 # 落としていて、docstring が定める終了コード契約（2）を外れ exit 1＋Traceback になった（実測 2026-09-12）
-load_json = read_json
-
-
 def load_rules(gpath, g):
     """engine と同じ読み込み（同じ INJECT）。読めなければ NG の文を返す（engine は die するので、ここで受けて診断に変える）。"""
     if not g.get("rules"):
@@ -77,6 +81,39 @@ def load_rules(gpath, g):
 
 
 
+def load_validator(script_path):
+    """検証器を import する（engine と同じ契約）。読めなければ NG（exit 2）——正規表現の後詰めで合格に倒さない。
+    SystemExit も捕まえて診断を捨てない（検証器が import 時に sys.exit(2) すると except Exception を素通りし、
+    redirect_stderr に捕られた診断文だけが消えて標準エラー 0 バイトで落ちた——実測 2026-09-13）。"""
+    buf = io.StringIO()
+    try:
+        spec = importlib.util.spec_from_file_location("_record_mod", script_path)
+        mod = importlib.util.module_from_spec(spec)
+        with redirect_stderr(buf):
+            spec.loader.exec_module(mod)
+        return mod
+    except KeyboardInterrupt:
+        raise
+    except BaseException as e:
+        print(f"NG 検証器 {script_path} が import できない（engine は import を契約にしているので、読めない検証器は合格にできない）: "
+              f"{type(e).__name__}: {e} {buf.getvalue().strip()}", file=sys.stderr)
+        sys.exit(2)
+
+
+def validator_vocab(script_path):
+    """検証器の語彙——大文字名の tuple / list / dict（鍵）で要素が全部 str の物。graph の enum がここからはみ出せば写しがずれている。"""
+    mod = load_validator(script_path)
+    out = {}
+    for name in dir(mod):
+        if not name.isupper():
+            continue
+        v = getattr(mod, name)
+        vals = list(v.keys()) if isinstance(v, dict) else list(v) if isinstance(v, (tuple, list)) else None
+        if vals and all(isinstance(x, str) for x in vals):
+            out[name] = set(vals)
+    return out
+
+
 def record_fields(script_path):
     """検証器が要求する必須欄。**まず import して定数を読む**（engine と rules は既に同じ import をしている）。
 
@@ -84,15 +121,9 @@ def record_fields(script_path):
     import だけに頼ると 0 件になり、0 件は『省略』でなく NG（呼び出し側がそう倒す）。
     """
     names = set()
-    try:
-        spec = importlib.util.spec_from_file_location("_record_mod", script_path)
-        mod = importlib.util.module_from_spec(spec)
-        with redirect_stderr(io.StringIO()):
-            spec.loader.exec_module(mod)
-        for const in ("MATERIALS", "REQUIRED"):
-            names |= set(getattr(mod, const, ()) or ())
-    except Exception:
-        pass  # 実行できない検証器は正規表現で読む（下の後詰め）
+    mod = load_validator(script_path)
+    for const in ("MATERIALS", "REQUIRED"):
+        names |= set(getattr(mod, const, ()) or ())
     try:
         src = open(script_path, encoding="utf-8").read()
     except OSError as e:
@@ -122,7 +153,6 @@ def ancestors(nodes, nid, seen=None):
     return seen
 
 
-COND_KEYS = {"all", "any", "not", "builtin", "path", "op", "value", "default", "field"}  # engine の eval_cond が読む鍵
 
 
 def check_cond_paths(c, where, nodes, errs):
@@ -137,8 +167,10 @@ def check_cond_paths(c, where, nodes, errs):
     if "not" in c:
         check_cond_paths(c["not"], where, nodes, errs)
     path = c.get("path")
-    if isinstance(path, str) and path.startswith("out."):
-        rest = path[4:]
+    # out.<節>.<欄> も prev.<節>.<欄> も同じ節の schema を指す——out. だけ見ていたとき、review-loop の default 付きの葉の
+    # 多数派（prev. が 14）が素通りし、欄名を 1 字違えると再発火条件が恒偽のまま収束まで通った（実測 2026-09-13）
+    if isinstance(path, str) and (path.startswith("out.") or path.startswith("prev.")):
+        rest = path.split(".", 1)[1]
         nid = node_of(rest, nodes)
         if nid is None:
             errs.append(f"{where}: cond の path '{path}' の節が無い")
@@ -178,7 +210,7 @@ def main():
         print(__doc__, file=sys.stderr)
         sys.exit(2)
     gpath = pathlib.Path(sys.argv[1])
-    g = load_json(gpath)
+    g = read_json(gpath)
     nodes = g["nodes"]
     ok = True
     errs = []  # 実行の形の NG（末尾でまとめて印字）。関数の途中で作り直さない——先に溜めた分が捨てられる
@@ -249,6 +281,27 @@ def main():
             ok = False
             print(f"NG record.validator_path '{vp}' が見つからない（plugin {g.get('plugin')!r} の置き場に無い。第 2 引数で渡すか置き場を直す）——欄の突合を省略で通さない")
     if script:
+        # 13. graph の enum は検証器の語彙の写し——はみ出せば片方だけ変わっている（包含検査がどこにも無く exit 0 だった）
+        vocab = validator_vocab(script)
+
+        def walk_enum(s, where):
+            if not isinstance(s, dict):
+                return
+            e = s.get("enum")
+            if isinstance(e, list) and e and all(isinstance(x, str) for x in e):
+                es = set(e)
+                # 検証器の語彙のどれかと重なる enum は、そのどれかに丸ごと含まれること（素材の status と俯瞰の status のように
+                # 語を共有する表が複数在るので、重なる表の全部に含まれる必要は無い）
+                touching = {name: vs for name, vs in vocab.items() if es & vs}
+                if touching and not any(es <= vs for vs in touching.values()):
+                    errs.append(f"{where}: enum {sorted(es)} が検証器のどの語彙にも丸ごと含まれない（重なる表: {sorted(touching)}——写しがずれている）")
+            for k2, v2 in (s.get("properties") or {}).items():
+                walk_enum(v2, f"{where}.{k2}")
+            if isinstance(s.get("items"), dict):
+                walk_enum(s["items"], where + "[]")
+        for k, v in nodes.items():
+            if isinstance(v.get("schema"), dict):
+                walk_enum(v["schema"], f"節 {k}: schema")
         need = record_fields(script)
         if not need:
             ok = False
@@ -299,7 +352,7 @@ def main():
             print(f"ok  段名は thickness.tiers {tiers} の中（active_in・max_rounds_by_thickness・default）")
 
     if not g.get("exec"):
-        print("--  exec の無いグラフ（写しだけ）。実行の形の検査 6〜12 は省略")
+        print("--  exec の無いグラフ（写しだけ）。実行の形の検査 6〜13 は省略")
         sys.exit(0 if ok else 1)
 
     # 11. schema は engine が読む語だけで書く——読まない語（oneOf / not / format / 綴り違い）は validate_schema が黙って
@@ -308,7 +361,7 @@ def main():
         if isinstance(v.get("schema"), dict):
             for u in unknown_keywords(v["schema"]):
                 errs.append(f"節 {k}: schema に engine が読まない語 {u}（綴り違いか本家 JSON Schema の語——書いても効かない）")
-    # 6〜12. 実行の形
+    # 6〜13. 実行の形
     agents = agent_names(g)
     if agents is None:
         errs.append(f"役割 agent の定義（agents/）が見つからない: plugin {g.get('plugin')!r}——graph に plugin を書き、その plugin が同じリポジトリかキャッシュか <PLUGIN>_ROOT に在ること")
@@ -323,6 +376,19 @@ def main():
     if isolated and (used & set(isolated)) and not (g.get("launch", {}).get("isolated", {}).get("argv")):
         errs.append(f"道具ゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
                     "——Agent ツールで起こすと CLAUDE.md が注入され、遮断が成立しない")
+    spec = (g.get("launch") or {}).get("isolated") or {}
+    if isolated and (used & set(isolated)) and isinstance(spec.get("argv"), list):
+        # 起動の穴は engine の launch_cli が埋める語だけ（LAUNCH_HOLES）。知らない穴は format の KeyError、model / effort は役の
+        # 定義から埋めるので定義に無ければ die——どちらも実行時にしか出なかった遮断系の不変条件を静的に見る
+        holes = {m.group(1) for a in spec["argv"] if isinstance(a, str) for m in re.finditer(r"\{(\w+)\}", a)}
+        unknown = holes - set(LAUNCH_HOLES)
+        if unknown:
+            errs.append(f"launch.isolated.argv の穴 {sorted(unknown)} を engine は埋められない（埋めるのは {list(LAUNCH_HOLES)}）")
+        for r in sorted(used & set(isolated)):
+            d = agent_def(f"{g.get('plugin')}:{r}") or {}
+            for k in ("model", "effort"):
+                if k in holes and not d.get(k):
+                    errs.append(f"遮断系の役 {r} の定義に '{k}' が無いが launch.isolated.argv が {{{k}}} を使う（実行時の die を静的にも見る）")
     rules = load_rules(gpath, g)
     if isinstance(rules, str):
         errs.append(rules)

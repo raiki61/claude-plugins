@@ -173,7 +173,7 @@ class Renderer:
                 raise KeyError(path)
             # file: と同じ上限に揃える。section: だけ素通りしていたとき、見出し 1 節が上限を超えると
             # engine は切らず**貼る先が黙って切る**ので、記録の truncated にも残らなかった。
-            sec = section_of(pathlib.Path(target).read_text(encoding="utf-8"), heading.strip(), path)
+            sec = section_of(pathlib.Path(target).read_text(encoding="utf-8", errors="replace"), heading.strip(), path)
             return cap_bytes(sec, path, self.truncated, self.cap)
         if path.startswith("file:"):
             target = path[5:].strip()
@@ -183,7 +183,8 @@ class Renderer:
                 pass
             if not isinstance(target, str) or not target:
                 raise KeyError(path)
-            text = pathlib.Path(target).read_text(encoding="utf-8")
+            # errors=replace: 非 UTF-8 の材料で復号の例外が render の『読めない』の腕（OSError）を迂回して総括例外で落ちた
+            text = pathlib.Path(target).read_text(encoding="utf-8", errors="replace")
             return cap_bytes(text, target, self.truncated, self.cap)
         return get_path(self.ctx, path)
 
@@ -196,7 +197,7 @@ class Renderer:
                 if optional:
                     return ""
                 raise KeyError(f"プロンプトの穴 {{{{{path}}}}} を埋められない")
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 # 読めなかったことは optional でも痕跡に残す（『無い』と『壊れている・権限が無い』を同じ空にしない）
                 self.truncated.append(f"{path}: 読めない（{e}）")
                 if optional:

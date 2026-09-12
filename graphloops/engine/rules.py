@@ -6,6 +6,7 @@ rules は engine を import しない。差し込む道具は下の INJECT の�
 import importlib.util
 import pathlib
 
+from .schema import validate_schema
 from .util import Reject, die, get_path, git, has_path, pick, porcelain, read_json, set_path, sha, write_json
 
 _VALIDATORS = {}
@@ -28,7 +29,7 @@ def validator_module(b):
 
 INJECT = {"Reject": Reject, "pick": pick, "get_path": get_path, "set_path": set_path, "has_path": has_path,
           "porcelain": porcelain, "read_json": read_json, "write_json": write_json, "git": git, "sha": sha,
-          "validator_module": validator_module}
+          "validator_module": validator_module, "validate_schema": validate_schema}
 
 
 def load_rules(graph_path, graph):

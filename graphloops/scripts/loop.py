@@ -10,7 +10,7 @@
     loop.py answer --text <答え> [--note <本文>]         # 人に聞く番のとき（本文は次の周の再審に渡る）
     loop.py thicken --to <段> --reason <理由>           # 段の昇格（降格は不可。段名は graph の thickness.tiers）
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
-    loop.py patch  --path <record の欄> --file <json> --reason   # 記録の手当て（痕跡が残る最終手段）
+    loop.py patch  --path <record の欄 | state.<盤面の欄>> --file <json> --reason   # 記録（既定）か盤面の手当て（痕跡が残る最終手段）
     loop.py status [--dir] / loop.py record [--dir] / loop.py finalize [--dir]
 
 置き場（--dir 省略時）: `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外

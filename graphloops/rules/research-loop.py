@@ -365,12 +365,16 @@ POST_CHECKS = {"refuter_consistency": refuter_consistency, "cold_reader_consiste
 
 def check_record(b, nid=None):
     errs = []
+    V = validator_module(b)
     for c in b.record["claims"]:
         v = c.get("verdict")
         if v is None:
             continue
+        if v not in V.VERDICTS:  # 知らない判定語は「要求欄なし＝合格」に倒れていた（review 側と同じ形に）
+            errs.append(f"主張 '{c['id']}' の verdict が語彙に無い: {v!r}（{'/'.join(V.VERDICTS)}）")
+            continue
         # 検証器の表は判定 → 要る欄の組（tuple）。rules に在った写しは判定 → 欄 1 つの dict で、形が既にずれていた
-        for need in validator_module(b).VERDICT_FIELDS.get(v, ()):
+        for need in V.VERDICT_FIELDS.get(v, ()):
             if not (isinstance(c.get(need), str) and c[need].strip()):
                 errs.append(f"主張 '{c['id']}'（{v}）に '{need}' が無い")
         if v != "検証不能" and not (isinstance(c.get("sources"), list) and c["sources"] and all(isinstance(s, str) and s.strip() for s in c["sources"])):
@@ -443,14 +447,10 @@ def add(b, items, reason):
     # 化けて受理された（節経由は schema が縛るので、緩いのは人が JSON を手書きするこの口だけ）。
     if not (isinstance(items, list) and items):
         raise Reject("add の形: [{id, cluster, claim, load_bearing}] の配列（空でない）")
-    TYPES = {"id": str, "cluster": str, "claim": str, "load_bearing": bool}
-    for i, c in enumerate(items):
-        if not isinstance(c, dict):
-            raise Reject(f"add[{i}] が object でない")
-        for k, ty in TYPES.items():
-            if k not in c:
-                raise Reject(f"add[{i}] に '{k}' が無い（形: {{id, cluster, claim, load_bearing}}）")
-            if not isinstance(c[k], ty) or (ty is bool) != isinstance(c[k], bool):
-                raise Reject(f"add[{i}].{k} の型が {ty.__name__} でない: {c[k]!r}")
+    # 型検査は engine の validate_schema（INJECT）——同じ型語彙をここに写さない。真偽値と整数の区別も engine と同じ
+    errs = validate_schema(items, {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "cluster", "claim", "load_bearing"],
+                                   "properties": {"id": {"type": "string"}, "cluster": {"type": "string"}, "claim": {"type": "string"}, "load_bearing": {"type": "boolean"}}}})
+    if errs:
+        raise Reject("add の形が合わない（形: [{id, cluster, claim, load_bearing}]）: " + "; ".join(errs))
     add_claims(b, items, f"ループの外（{reason}）", "add")
     return f"主張 {len(items)} 件を足した（次の周の P1 で照合される。出どころ: {reason}）"

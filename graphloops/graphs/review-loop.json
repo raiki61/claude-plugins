@@ -246,8 +246,7 @@
    ],
    "prompt_file": "../prompts/review-loop/p0.local_checks.md",
    "reads": [
-    "inputs.cwd",
-    "record.process.human_answers"
+    "inputs.cwd"
    ],
    "schema": {
     "type": "object",

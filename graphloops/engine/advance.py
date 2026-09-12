@@ -1,6 +1,5 @@
 """進行——機械の節を走らせ、扇を広げ、回す側に渡す節（instance）を発行する。"""
 import pathlib
-import shutil
 
 from .render import FILE_CAP, Renderer
 from .rules import hook, registry
@@ -8,6 +7,9 @@ from .util import die, dump, now, porcelain, read_json, safe_name, sha, write_js
 from .validator import agent_def, finalize, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
+# launch.isolated.argv の穴。engine が埋められるのはこの 5 語だけ——graphcheck が import して知らない穴と、役の定義に無い
+# model / effort を静的に落とす（以前は launch_cli の die と format の KeyError でしか出なかった）
+LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path")
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（文字）。超える欄は items/ のファイルにだけ置く
 
 
@@ -30,8 +32,7 @@ def launch_cli(b, inst, d):
     role = b.dir / "roles" / (safe_name(inst["agent_type"]) + ".txt")
     role.parent.mkdir(parents=True, exist_ok=True)
     role.write_text(d["body"], encoding="utf-8")
-    sub = {"model": d.get("model") or "", "effort": d.get("effort") or "",
-           "role_file": str(role), "prompt_file": inst["prompt_file"], "out_path": inst["out_path"]}
+    sub = dict(zip(LAUNCH_HOLES, (d.get("model") or "", d.get("effort") or "", str(role), inst["prompt_file"], inst["out_path"])))
     for k, v in sub.items():
         if not v and any("{" + k + "}" in a for a in spec["argv"]):
             die(f"{inst['id']}: 起動に要る '{k}' が役の定義（{d['file']}）に無い")
@@ -40,6 +41,7 @@ def launch_cli(b, inst, d):
     # next は計画を出す所で、起こすのは回す側の環境である。ここで die にしたら、遮断系を一度も起こさない場
     # （台本の検査・別の機械での再開・記録を読むだけの用）まで動かなくなった（実測 2026-09-12: CI の 3 OS が
     # 全部赤。手元には claude が在るので緑だった）。実際に起こせないことは、回す側が走らせた瞬間に分かる。
+    import shutil  # 起動する節でだけ要る（全サブコマンドの起動に掛けない）
     resolved = shutil.which(argv[0])
     launch = {"argv": ([resolved] + argv[1:]) if resolved else argv, "stdin": inst["prompt_file"]}
     if not resolved:
@@ -63,16 +65,6 @@ def load_item(inst):
     if inst.get("item_file"):
         return read_json(inst["item_file"])
     return inst.get("item")
-
-
-def raw_outputs(b, node_ids):
-    """指定した節の全 instance・全周の出力（report に丸めずに渡すため）。"""
-    out = {}
-    for rd in b.state["rounds"]:
-        for iid, inst in rd["instances"].items():
-            if inst["status"] == "done" and inst["node"] in node_ids and inst.get("output_file"):
-                out[f"r{rd['round']}/{iid}"] = read_json(inst["output_file"])
-    return out
 
 
 def agent_type_of(b, n):
@@ -213,27 +205,33 @@ def run_driver_node(b, nid, n, notes):
         if not out["ok"]:
             notes.append(f"{nid}: " + "; ".join(out.get("problems", ["通らない"])))
             return False
-    b.rd["done"][nid] = {"at": now(), "builtin": n["builtin"]}
-    b.state["done_ever"][nid] = b.round
+    def mark_done():
+        b.rd["done"][nid] = {"at": now(), "builtin": n["builtin"]}
+        b.state["done_ever"][nid] = b.round
+
     if "decision" not in out:
+        mark_done()
         return True
     d = out["decision"]
     notes.append(f"{nid}: {d}——{out.get('reason', '')}")
+    if d == "ask" and not b.state["unattended"]:
+        # 人に聞く番——**done の印は付けない**（決着していない）。付けていたとき、次の next がこの節を再評価せず先へ
+        # 進み、入口のガードで同じ報告を複製する必要が生じた。答えが stop なら cmd_answer が印を付け、continue なら周が変わる
+        b.state["pending_human"] = {"node": nid, **out["ask"]}
+        return False
+    mark_done()
     if d == "next_round":
         b.new_round()
         fn2 = hook(b.rules, "on_new_round")
         if fn2:
             fn2(b)
-    elif d == "ask":
+    elif d == "ask":  # 無人実行（有人は上で止めている）
         b.state["pending_human"] = {"node": nid, **out["ask"]}
-        if b.state["unattended"]:
-            fn2 = hook(b.rules, "on_unattended")
-            reason = fn2(b, b.state["pending_human"]) if fn2 else "無人実行: 諮る事態に当たったので保守的に停止"
-            b.state.pop("pending_human")
-            b.state["status"] = "stopped"
-            notes.append(f"無人実行: 停止（{reason}）")
-        else:
-            return False  # 人に聞く番——ここで止まる（docstring の「三値にしない」どおり False で返す）
+        fn2 = hook(b.rules, "on_unattended")
+        reason = fn2(b, b.state["pending_human"]) if fn2 else "無人実行: 諮る事態に当たったので保守的に停止"
+        b.state.pop("pending_human")
+        b.state["status"] = "stopped"
+        notes.append(f"無人実行: 停止（{reason}）")
     elif d in ("converged", "stopped"):
         b.state["status"] = d
     elif d != "continue":

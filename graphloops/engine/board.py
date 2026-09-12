@@ -1,5 +1,6 @@
 """盤面——どの節が終わったか・何周目か・いま走らせてよいか。ディスク（state.json / record.json）が正本。"""
 import json
+import os
 import pathlib
 
 from .rules import load_rules, registry
@@ -12,6 +13,7 @@ def empty_round(n):
 
 
 COND_OPS = ("eq", "ne", "gt", "lt", "nonempty", "empty", "in", "any_field_eq")  # cond の op。graphcheck はこれを import して照合する
+COND_KEYS = frozenset({"all", "any", "not", "builtin", "path", "op", "value", "default", "field"})  # eval_cond が読む鍵。graphcheck が import
 
 
 def node_of(path, nodes):
@@ -196,8 +198,8 @@ class Board:
         """出力ファイルを 1 度だけ読む（同じ Board の間）。鍵は絶対パス——outputs は盤面からの相対、ref / instance は
         絶対で持つので、鍵を揃えないと memo を素通りする（実測 2026-09-12: 重複 314 回）。"""
         cache = self.__dict__.setdefault("_out_cache", {})
-        p = pathlib.Path(path)
-        key = str((p if p.is_absolute() else self.dir / p).resolve())
+        # resolve() は毎回 realpath を引く（実測: 1 回の next で 7,640 回）。盤面の下のファイルは記号リンクを跨がないので normpath で足りる
+        key = os.path.normpath(path if os.path.isabs(path) else os.path.join(str(self.dir), path))
         if key not in cache:
             cache[key] = read_json(key)
         return cache[key]

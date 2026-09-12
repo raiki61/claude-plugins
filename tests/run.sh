@@ -1681,8 +1681,9 @@ CR_STUB_FAIL='cat >/dev/null; exit 1'
 # 門番を module として読む前置きと、deny 理由を取り出す前置き(-c の頭に付ける)
 CR_LOAD='import importlib.util,sys
 spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)'
+# .sh を bash 経由で起こす——Windows は .sh を実行ファイルとして起動できず WinError 193 で落ちた（実測: CI の windows-latest）
 CR_REASON='import json,sys,subprocess
-out = subprocess.run(sys.argv[1:], capture_output=True, encoding="utf-8").stdout
+out = subprocess.run(["bash", *sys.argv[1:]], capture_output=True, encoding="utf-8").stdout
 reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]'
 
 echo "coldread ゲート:"

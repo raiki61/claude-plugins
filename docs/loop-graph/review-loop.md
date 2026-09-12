@@ -40,13 +40,16 @@ flowchart TB
   wa & pd & purp --> diag[p2.diagnose<br/>judge 1〜7]
   diag --> hist[p2.history<br/>同じ judge 8<br/>履歴と台帳はここで初めて]
   hist --> fix[p3.fix writer]
-  fix --> ci[p4.ci] & sc[p4.scalars] --> rec[p4.record<br/>review-record.py ディレクトリ]
-  rec --> cc[r1.comment_candidates<br/>comment-analyzer] --> r1[r1.minimality<br/>judge]
-  purp --> r2d[r2.design<br/>blind-judge] --> r2c[r2.compare<br/>blind-judge]
-  rec --> r2c
-  rec --> r3[r3.coherence<br/>inspector] & r4[r4.hidden_scope<br/>inspector]
-  r2d -- premise-invalid --> pc[stop.premise_check<br/>judge・立った周に]
-  rec & r1 & r2c & r3 & r4 & pc --> conv{converge<br/>機械の 3 分岐}
+  fix --> ci[p4.ci] & sc[p4.scalars] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
+  hist --> asm
+  asm --> cc[r1.comment_candidates<br/>comment-analyzer] --> r1[r1.minimality<br/>judge]
+  purp --> r1
+  purp --> prv[p0.purpose_review<br/>inspector] --> r2d[r2.design<br/>blind-judge] --> r2c[r2.compare<br/>blind-judge]
+  asm --> r2d & r2c
+  asm --> r3[r3.coherence<br/>inspector] & r4[r4.hidden_scope<br/>inspector]
+  r2d & r2c -- premise-invalid の周に --> pc[stop.premise_check<br/>judge]
+  asm & r1 & r2c & r3 & r4 & pc --> rec[p4.record<br/>review-record.py ディレクトリ]
+  rec --> conv{converge<br/>機械の 3 分岐}
   conv -- 連続2R 阻害なし --> done([converged])
   conv -- 帰属しない阻害あり --> next([次ラウンド P1])
   conv -- 帰属する阻害だけ / premise escalate / round>5 --> ask([止めて聞く])
@@ -82,8 +85,8 @@ flowchart TB
 
 ## 既知の未決・機械が守らないもの
 
-- 暴走ガード（5 ラウンド）は散文だけ。検証器にも上限の検査は無い
-- P1 前後の作業ツリー突合は記録の欄が無い（doctor の `mod_check`、firstread の `git_status_match` に相当するものが review には無い）
+- 暴走ガード（5 ラウンド）は散文版では散文だけで、検証器にも上限の検査は無い。実行版（graphloops）は rules の `converge` が先頭で `round >= max_rounds` を見て止める（全分岐に掛かる。以前は converged 分岐の早期 return が飛ばしていた）
+- P1 前後の作業ツリー突合は散文版には記録の欄が無い（doctor の `mod_check`、firstread の `git_status_match` に相当するものが無い）。実行版は機械の節 `p1.worktree_before` / `p1.worktree_after` が porcelain・stash・diff の sha を突き合わせ、違えば止める（記録の `process.git_mismatches`）
 - 並行 PR 衝突チェックの 6 段は、検証器は素材欄の有無しか見ない
 - 検証器が塞ぐ「聞く時」の帰属は 1 周で通る経路だけ。2 周かければ帰属を作れると検証器自身が書いている。守るのは「台帳を書くのが judge であること」と「R1 が台帳を監査すること」の 2 枚
 - 担当 PR へのコメント申し送り（`gh` の投稿）には、`gates` プラグインを入れている環境でその門番が掛かる

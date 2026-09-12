@@ -9,10 +9,42 @@ import sys
 from .advance import advance, emit_instance, load_item
 from .board import Board, empty_round
 from .record import apply_writes
+from .render import TOKEN
 from .rules import hook, load_rules, registry
 from .schema import validate_schema
 from .util import PLUGIN_ROOT, Reject, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
 from .validator import find_validator, finalize, run_validator, env_root
+
+
+def required_inputs_missing(g, graph_path, inputs):
+    """graph のプロンプトが必須の穴として読む inputs（{{file:inputs.X}} / {{inputs.X}} の optional でない物）が渡されているか。
+    ファイルなら在るか。engine は loop の語を持たないので、要る入力は graph のプロンプトから機械で導く
+    （実測 2026-09-13: research を --document 無しで init すると exit 0、2 回目の next で p0.claims の穴が埋まらず落ちた）。
+    rules の on_init が後から足す入力（review_md 等）は init の引数ではないので、ここでは見ない。"""
+    base = pathlib.Path(graph_path).parent
+    missing = []
+    for nid, n in g.get("nodes", {}).items():
+        pf = n.get("prompt_file")
+        if not pf:
+            continue
+        try:
+            tpl = (base / pf).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue  # 無い prompt_file は graphcheck の担当
+        for m in TOKEN.finditer(tpl):
+            optional, path = m.group(1) == "?", m.group(2).strip()
+            if optional:
+                continue
+            is_file = path.startswith("file:inputs.")
+            key = path[len("file:inputs."):] if is_file else (path[len("inputs."):] if path.startswith("inputs.") else None)
+            if not key or "." in key or key not in ("request", "document", "lang", "cwd") and key not in inputs:
+                continue  # rules が後から足す入力は init の引数ではない
+            val = inputs.get(key)
+            if val is None:
+                missing.append(f"--{key}（節 {nid} の穴 {{{{{path}}}}}）")
+            elif is_file and not pathlib.Path(val).is_file():
+                missing.append(f"--{key} の {val} が無い（節 {nid}）")
+    return sorted(set(missing))
 
 
 # ---------------------------------------------------------------- next
@@ -21,15 +53,12 @@ def cmd_next(a):
     if b.state["status"] in ("converged", "stopped") and all(b.node_state(n) != "pending" for n in b.nodes):
         print(dump({"status": b.state["status"], "round": b.round, "ready": [], "note": "全部の節が終わっている。record.json と report を見よ"}))
         return
-    if b.state.get("pending_human"):
+    if not b.state.get("pending_human"):
         # 人に聞いている間は進めない——先に advance すると答えの無いまま次の節（report.human_items 等）が出て、
         # 答えても既に出たプロンプトには入らない（実測 2026-09-12: stop と答えた後の報告に human_items が空）
-        print(dump({"status": "awaiting_human", "round": b.round, "ready": [], "ask": b.state["pending_human"],
-                    "how": "答えが決まったら loop.py answer --text <選択肢>。無人なら init --unattended で保守的な既定になる"}))
-        return
-    b.accept_tree_change = getattr(a, "accept_tree_change", None)  # 機械の作業ツリー突合（rules）が読む。done と同じ逃げ道
-    notes = advance(b)
-    b.save()
+        b.accept_tree_change = getattr(a, "accept_tree_change", None)  # 機械の作業ツリー突合（rules）が読む。done と同じ逃げ道
+        notes = advance(b)
+        b.save()
     if b.state.get("pending_human"):
         print(dump({"status": "awaiting_human", "round": b.round, "ready": [], "ask": b.state["pending_human"],
                     "how": "答えが決まったら loop.py answer --text <選択肢>。無人なら init --unattended で保守的な既定になる"}))
@@ -102,7 +131,7 @@ def cmd_done(a):
         except OSError as e:
             die(f"{a.output}: 読めない（{e}）")
     elif getattr(a, "stdin", False):
-        # バイトで読んで UTF-8 に決める——テキストの stdin は OS 既定の文字コード（Windows は cp1252）で復号され、
+        # バイトで読んで UTF-8 に決める——テキストの stdin は OS 既定の文字コード（Windows は cp1252、日本語 Windows なら cp932）で復号され、
         # 日本語の返答が壊れて JSON にならない（実測 2026-09-13: CI の windows-latest で標準入力の done が落ちた）
         raw = sys.stdin.buffer.read(STDIN_MAX * 4 + 1)
         try:
@@ -258,6 +287,9 @@ def cmd_answer(a):
     b.state.pop("pending_human")
     b.trace("answer", answer=ans, kinds=ph.get("kinds"))
     if ans == "stop":
+        # 聞いた節はここで決着——ask では done の印を付けないので、stop の答えが印を付ける（continue は周が変わる）
+        b.rd["done"][ph["node"]] = {"at": now(), "builtin": "answer:stop"}
+        b.state["done_ever"][ph["node"]] = b.round
         b.state["status"] = "stopped"
     else:
         if ans == "escalate":
@@ -383,8 +415,19 @@ def cmd_init(a):
         die(f"{graph}: 実行用の欄（exec: true）が無い——このグラフはまだ写しだけで、engine では回せない")
     rules = load_rules(graph, g)
     loop = g["loop"]
-    # 検証器は置き場を作る前に解決する——明示が無い等で die しても空の盤面を残さない
+    # 検証器と必須の入力は置き場を作る前に解決する——die しても空の盤面を残さない
     validator = find_validator(loop, g.get("plugin"), a.validator)
+    req = a.request
+    if req.startswith("@"):
+        req = pathlib.Path(req[1:]).read_text(encoding="utf-8")
+    inputs = {"request": req, "document": str(pathlib.Path(a.document).resolve()) if a.document else None,
+              "lang": a.lang or "依頼文の言語（利用者の言語）", "cwd": os.getcwd()}
+    for kv in a.input or []:
+        k, _, v = kv.partition("=")
+        inputs[k] = v
+    missing = required_inputs_missing(g, graph, inputs)
+    if missing:
+        die("この loop に要る入力が無い（init で止める——以前は 2 手先の穴埋めで初めて落ち、盤面を捨てるしかなかった）: " + "; ".join(missing))
     run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     if a.dir:
         d = pathlib.Path(a.dir)
@@ -400,9 +443,6 @@ def cmd_init(a):
             n += 1
         run_id = d.name
     d.mkdir(parents=True, exist_ok=False)
-    req = a.request
-    if req.startswith("@"):
-        req = pathlib.Path(req[1:]).read_text(encoding="utf-8")
     tcfg = g.get("thickness", {})
     tiers, default = tcfg.get("tiers") or [], tcfg.get("default")
     th = a.thickness or default
@@ -416,11 +456,6 @@ def cmd_init(a):
         die(f"{th} は依頼者が明示に指定した場合だけ——依頼者がそう言ったときに限り --decider {deciders.get('downgrade')} を添えて init する")
     fn = hook(rules, "init_record")
     record = fn(th, decider) if fn else {}
-    inputs = {"request": req, "document": str(pathlib.Path(a.document).resolve()) if a.document else None,
-              "lang": a.lang or "依頼文の言語（利用者の言語）", "cwd": os.getcwd()}
-    for kv in a.input or []:
-        k, _, v = kv.partition("=")
-        inputs[k] = v
     state = {
         "loop_name": loop, "run_id": run_id, "graph": str(pathlib.Path(graph).resolve()),
         "graph_sha": sha(pathlib.Path(graph).read_text(encoding="utf-8")),

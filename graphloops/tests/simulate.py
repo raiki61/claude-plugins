@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 
 # Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
@@ -54,12 +55,12 @@ class Run:
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-{name}-"))
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
-        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
-        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], cwd=self.repo, check=True)
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True, timeout=120)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], cwd=self.repo, check=True, timeout=120)
         self.doc = self.repo / "mitate.md"
         self.doc.write_text("# 見立て\n\n主張 A・B・C・D を含む見立て文書。\n", encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
-        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "doc"], cwd=self.repo, check=True)
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True, timeout=120)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "doc"], cwd=self.repo, check=True, timeout=120)
         self.dir = self.tmp / "state"
         args = ["init", "--loop", "research-loop", "--request", "この見立ては正しいか", "--document", str(self.doc),
                 "--dir", str(self.dir), "--validator", str(VALIDATOR)]
@@ -232,7 +233,7 @@ def test_converges():
     check(next(c for c in rec["claims"] if c["id"] == "A")["refuted"] is True, "荷重の確証 A は反証を経た")
     check([c["no"] for c in rec["corrections"]] == [1, 2], f"訂正の番号は機械が連番で振る: {[c['no'] for c in rec['corrections']]}")
     check((run.dir / "report.md").is_file(), "report.md が保存された")
-    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8")
+    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(v.returncode == 0, f"検証器が exit 0（{v.stdout.strip()[:60]}）")
     r1 = st["rounds"][0]
     check("p0.independence_review" in r1["na"], "独立出典だけなので independence_review は na")
@@ -289,6 +290,13 @@ def test_light():
 def test_rejections():
     print("否定検査: engine が受け付けないもの")
     run = Run("neg")
+    # graph が必須にしている入力（{{file:inputs.document}}）は入口で落とす——以前は init が exit 0 で、2 回目の next で
+    # p0.claims の穴が埋まらず初めて落ちた（実測 2026-09-13）。渡されたパスの実在も同じ場所で見る
+    nodoc = [PY, str(LOOP), "init", "--loop", "research-loop", "--request", "x", "--dir", str(run.tmp / "nodoc"), "--validator", str(VALIDATOR)]
+    r = subprocess.run(nodoc, cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode != 0 and "--document" in r.stderr and "p0.claims" in r.stderr, f"research を --document 無しで init すると入口で落ち、要る節と穴を名指しする（rc={r.returncode}: {r.stderr[-100:]}）")
+    r = subprocess.run(nodoc + ["--document", str(run.tmp / "no-such.md")], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode != 0 and "が無い" in r.stderr, "実在しない --document も入口で落ちる")
     nx = run.next()
     q = nx["ready"][0]
     check(q["node"] == "p0.question" and q["mode"] == "runner", "最初の節は p0.question（回す側）")
@@ -335,6 +343,8 @@ def test_rejections():
     check("A は X" in body and "C は Z" not in body and '"verdict":' not in body and "surveyor" not in body, "checker には自分の束の主張だけ、判定も見立ても貼られない")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "Z", "verdict": "確証", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
     check(r.returncode == 1 and "項目に無い" in r.stderr, "扇の被覆: 渡した項目に無い id を返すと exit 1（cover の腕）")
+    r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "A", "verdict": "たぶん", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
+    check(r.returncode == 1 and "型に合わない" in r.stderr, "語彙に無い判定語は節の schema（検証器の語彙の写し——graphcheck が包含を見る）で exit 1")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "A", "verdict": "確証", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
     check(r.returncode == 0 and "欠けた" in r.stdout and "p1.checker[c1]#2" in r.stdout, "判定が欠けた主張は欠けた分だけ出し直す")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": []})
@@ -352,13 +362,25 @@ def test_rejections():
     (run.tmp / "p.json").write_text('"x"', encoding="utf-8")
     r = run.cmd("patch", "--path", "process.note", "--file", str(run.tmp / "p.json"), "--reason", "試験")
     check(r.returncode == 0 and run.state()["patches"][0]["reason"] == "試験", "patch は痕跡付き")
+    # 記録の側の柵（check_record）は節の schema を通らない経路（patch）でも知らない判定語を拒む——以前は「要求欄なし＝合格」に倒れた
+    rec = run.record()
+    rec["claims"][0]["verdict"] = "たぶん"
+    (run.tmp / "c.json").write_text(json.dumps(rec["claims"], ensure_ascii=False), encoding="utf-8")
+    run.cmd("patch", "--path", "claims", "--file", str(run.tmp / "c.json"), "--reason", "試験（語彙外の判定語）")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+    rules = load_rules(PLUGIN / "graphs" / "research-loop.json", g)
+    board = types.SimpleNamespace(state={"validator": str(VALIDATOR)}, record=run.record())
+    errs = rules.check_record(board)
+    check(any("語彙に無い" in e for e in errs), f"check_record は語彙に無い verdict を拒む（{errs[:1]}）")
     rm(run.tmp)
 
 
 def test_graphcheck():
     print("graphcheck: 正しい graph は通り、壊した graph は腕ごとに NG の診断文を出して落ちる（例外で死なない）")
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
-    r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / "research-loop.json"), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / "research-loop.json"), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode == 0, "research-loop.json は通る")
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-gc-"))
     (tmp / "graphs").mkdir()
@@ -373,7 +395,7 @@ def test_graphcheck():
         n[0] += 1
         p = tmp / "graphs" / f"bad{n[0]}.json"
         p.write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
-        r = subprocess.run([PY, str(GRAPHCHECK), str(p), *([validator] if validator else [])], capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run([PY, str(GRAPHCHECK), str(p), *([validator] if validator else [])], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
 
     broken(lambda b: b["nodes"]["p2.integrate"]["writes"].append({"op": "set", "to": "gates.rederiver", "from": "root_causes"}), "判定の欄", "回す側が gates に書く graph は落ちる")
@@ -395,12 +417,18 @@ def test_graphcheck():
     rv = str(PLUGIN.parent / "scripts" / "review-record.py")
     for i, (mut, want, desc) in enumerate((
             (lambda b: b["nodes"]["p2.history"].__setitem__("run_by", "inspector"), "役が違う", "same_context_as の役と自分の役が違う graph は落ちる"),
-            (lambda b: (b["nodes"]["p2.history"].__setitem__("run_by", "blind-judge"), b["nodes"]["p2.diagnose"].__setitem__("run_by", "blind-judge")), "遮断系", "遮断系の役に same_context_as を書いた graph は落ちる（実行時の die を静的にも見る）"))):
+            (lambda b: (b["nodes"]["p2.history"].__setitem__("run_by", "blind-judge"), b["nodes"]["p2.diagnose"].__setitem__("run_by", "blind-judge")), "遮断系", "遮断系の役に same_context_as を書いた graph は落ちる（実行時の die を静的にも見る）"),
+            # cond の path は out. だけでなく prev.<節>.<欄> も節の schema と突き合わせる（review-loop の default 付きの葉は prev. が多数派）
+            (lambda b: b["nodes"]["p1.external_standards"].__setitem__("cond", {"path": "prev.p3.fix.changez", "op": "nonempty", "default": False}), "schema に無い", "cond の path が prev.<節>.<欄> で欄を綴り違えた graph は落ちる（再発火条件が恒偽のまま通らない）"),
+            # graph の enum は検証器の語彙の写し——はみ出せば片方だけ変わっている
+            (lambda b: b["nodes"]["p0.local_checks"]["schema"]["properties"]["material"]["properties"]["status"]["enum"].append("maybe"), "丸ごと含まれない", "素材の status の enum が検証器の語彙からはみ出す graph は落ちる（写しのずれ）"),
+            # 遮断系の起動の穴は engine が埋める語だけ——知らない穴は実行時の format で KeyError にしかならなかった
+            (lambda b: b["launch"]["isolated"]["argv"].append("{nope}"), "埋められない", "launch.isolated.argv に engine が埋められない穴を書いた graph は落ちる（遮断系の不変条件を die にだけ置かない）"))):
         badr = json.loads(json.dumps(rg))
         mut(badr)
         pr = tmp / "graphs" / f"badreview{i}.json"
         pr.write_text(json.dumps(badr, ensure_ascii=False), encoding="utf-8")
-        r = subprocess.run([PY, str(GRAPHCHECK), str(pr), rv], capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run([PY, str(GRAPHCHECK), str(pr), rv], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
     broken(lambda b: b["nodes"]["p1.checker"].__setitem__("run_by", "nobody"), "run_by", "回す側でも役でもない run_by は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（欄の名前だけ）")
@@ -411,7 +439,7 @@ def test_graphcheck():
     broken(lambda b: b["record"].__setitem__("validator_path", "scripts/no-such-record.py"), "見つからない", "検証器のパスが解決できない graph は落ちる（第 2 引数なし）", validator=None)
     broken(lambda b: None, "必須欄が 1 つも拾えない", "必須欄を持たないファイルを検証器として渡すと落ちる（0 個の突合を合格にしない）", validator=str(PLUGIN / "engine" / "util.py"))
     for other in ("review", "doctor", "firstread"):
-        r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / f"{other}-loop.json")], capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / f"{other}-loop.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 0, f"{other}-loop.json（写しだけ）は写しの形の検査だけで通る")
     rm(tmp)
 
@@ -432,10 +460,10 @@ def test_bad_builtin():
     d2 = run.tmp / "s2"
     init = subprocess.run([PY, str(LOOP), "init", "--loop", "research-loop", "--graph", str(tmp / "graphs" / "bad.json"),
                            "--request", "q", "--document", str(run.doc), "--dir", str(d2), "--validator", str(VALIDATOR)],
-                          cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
+                          cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
     seen = ""
     for _ in range(40):
-        nx = subprocess.run([PY, str(LOOP), "next", "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
+        nx = subprocess.run([PY, str(LOOP), "next", "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
         seen += nx.stderr
         if nx.returncode != 0 or not nx.stdout.strip():
             break
@@ -448,7 +476,7 @@ def test_bad_builtin():
             f = run.tmp / "o.json"
             f.write_text(json.dumps(o, ensure_ascii=False) if not isinstance(o, str) else o, encoding="utf-8")
             subprocess.run([PY, str(LOOP), "done", "--node", inst["id"], "--output", str(f), "--dir", str(d2)],
-                           cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
+                           cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(init.returncode == 0 and "でも" in seen and "shapeless" in seen, f"形の違う返りは die（合格に倒さない）: {seen[-140:]}")
     rm(tmp); rm(run.tmp)
 
@@ -533,13 +561,13 @@ def test_resolve_dir():
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-dir-"))
     repo = tmp / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], cwd=repo, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, timeout=120)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], cwd=repo, check=True, timeout=120)
     doc = repo / "m.md"
     doc.write_text("# 見立て\n", encoding="utf-8")
-    subprocess.run(["git", "add", "."], cwd=repo, check=True)
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "doc"], cwd=repo, check=True)
-    call = lambda *a: subprocess.run([PY, str(LOOP), *a], cwd=repo, capture_output=True, text=True, encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, timeout=120)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "doc"], cwd=repo, check=True, timeout=120)
+    call = lambda *a: subprocess.run([PY, str(LOOP), *a], cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
     r = call("init", "--loop", "research-loop", "--request", "q", "--document", str(doc), "--validator", str(VALIDATOR))
     # 区切り文字で見ない——Windows は \\ で返り、'/.git/…/' の部分一致は落ちた（実測: CI の windows-latest）
     d0 = pathlib.Path(json.loads(r.stdout)["dir"]) if r.returncode == 0 else pathlib.Path()
@@ -701,7 +729,7 @@ def test_plugin_path_ambiguity():
     env = {**os.environ, "CLAUDE_CONFIG_DIR": str(cfg)}
     run = Run("ambig")
     d2 = run.tmp / "s2"
-    call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", env=env)
+    call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
     r = call("init", "--loop", "research-loop", "--request", "q", "--document", str(run.doc), "--validator", str(VALIDATOR))
     check(r.returncode == 0, f"2 出所でも --validator の明示があれば init は通る（rc={r.returncode}: {r.stderr[-160:]}）")
     nx = call("next")
@@ -732,7 +760,7 @@ def test_unresolved_role():
         (tmp / "graphs" / "g.json").write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
         run = Run(name)
         d2 = run.tmp / "s2"
-        call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
+        call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
         call("init", "--loop", "research-loop", "--graph", str(tmp / "graphs" / "g.json"), "--request", "q", "--document", str(run.doc), "--validator", str(VALIDATOR))
         run.dir = d2  # 台本（base_answers）が読む盤面をこの run に向ける（Run() が作った盤面のままだと抜き取りの項目が食い違う）
         seen, insts, st = "", [], None
@@ -767,6 +795,31 @@ def test_unresolved_role():
     check("解決できない" not in seen and insts and all(i["mode"] == "agent" and i.get("deliver") == "paste" and i.get("role_def_missing") for i in insts),
           f"別 plugin の役は定義が無くても止めず、mode=agent・paste・role_def_missing 付きで出る（{len(insts)} 件: {seen[-120:]}）")
     check(bool(st) and any(x["agent_type"] == "other-plugin:someone" for x in st.get("role_def_missing", [])), "定義が無かった事実は state（→ process.role_def_missing）に残る")
+
+
+def test_non_utf8_document():
+    """file: の穴が指す文書（--document）が UTF-8 でない——render の read_text が厳格復号で UnicodeDecodeError を投げ、
+    next が『想定外の例外』で exit 2 になっていた（git の出力側は util.git の errors=replace が別に守る。この腕は render 側）。"""
+    print("台本: UTF-8 でない --document でも file: の穴は置換して埋まる（render 側の復号）")
+    run = Run("latin")
+    doc = run.repo / "latin.md"
+    doc.write_bytes(b"# caf\xe9 \xff\n\n\xe9 claims\n")
+    d2 = run.tmp / "s2"
+    r = subprocess.run([PY, str(LOOP), "init", "--loop", "research-loop", "--request", "q", "--document", str(doc), "--dir", str(d2), "--validator", str(VALIDATOR)],
+                       cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode == 0, f"UTF-8 でない文書でも init は通る（{r.stderr[-80:]}）")
+    call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    q = json.loads(call("next").stdout)["ready"][0]
+    f = run.tmp / "o.json"
+    f.write_text(json.dumps(base_answers(run, "std")["p0.question"](None, 1), ensure_ascii=False), encoding="utf-8")
+    call("done", "--node", q["id"], "--output", str(f))
+    r = call("next")
+    check(r.returncode == 0, f"文書を貼る節（p0.claims）を出す next が落ちない（rc={r.returncode}: {r.stderr[-100:]}）——以前は UnicodeDecodeError で exit 2")
+    ready = json.loads(r.stdout)["ready"] if r.returncode == 0 else []
+    claims = next((i for i in ready if i["node"] == "p0.claims"), None)
+    body = pathlib.Path(claims["prompt_file"]).read_text(encoding="utf-8") if claims else ""
+    check("�" in body and "claims" in body, "文書の本文は置換文字で欠けずに貼られる")
+    rm(run.tmp)
 
 
 def test_parse_output():
@@ -806,6 +859,7 @@ def main():
     test_isolated_not_truncated()
     test_concurrent_save()
     test_parse_output()
+    test_non_utf8_document()
     test_plugin_path_ambiguity()
     test_unresolved_role()
     check(DELIVERY_SEEN >= {"p1.checker", "p3.cold_reader"}, f"渡し方の検査は checker（agent/path）と cold_reader（cli/paste）の両方に実際に当たった（{sorted(DELIVERY_SEEN)}）")

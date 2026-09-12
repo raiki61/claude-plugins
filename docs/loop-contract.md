@@ -143,7 +143,7 @@
 
 **内容**: ループが対象リポジトリを汚さない。doctor は走査前後の `git status --porcelain` と `git stash list` の突合を最終報告の必須欄に。firstread は `git status` の 2 回目を**外に立てた役の判定が出揃った直後・自分が直しを当てる前**に取り、先に書いた答え・記録・写しを作業ツリーの外に置く。review 0.31.1 は P1 の前後で `git status --short`・`git stash list`・`git diff --shortstat <BASE>` を突き合わせ（道具名で列挙しない）、`git add -N` がこの手順の唯一の index への書き込みなので途中で終わったら `git reset -- <path>` で戻す。research は `investigator` の前後で突合。
 
-**今どこが守っているか**: doctor は**機械**（`mod_check`）、firstread は**機械**（`git_status_match`）＋**散文**（2 回目のタイミング）、review / research の散文版は**散文だけ**。graphloops＝**機械**（P1 の前後と investigator の instance の前後で `git status --porcelain`・`git stash list`・`git diff --shortstat`・diff の sha を突き合わせ、違えば止める。stash で退避しても stash の一覧が突合に入る。writer 自身の変更は `done` / `next` の `--accept-tree-change <理由>` で痕跡付きで通す——実測 2026-09-12: P1 の途中で engine を直したら次が 10 回同じ理由で止まった）。
+**今どこが守っているか**: doctor は**機械**（`mod_check`）、firstread は**機械**（`git_status_match`）＋**散文**（2 回目のタイミング）、review / research の散文版は**散文だけ**。graphloops＝**機械**（P1 の前後で `git status --porcelain`・`git stash list`・`git diff <BASE>` 本文の sha を突き合わせ、違えば止める——stash で退避しても stash の一覧が突合に入る。investigator の instance の前後は `git status --porcelain` だけを突き合わせる（stash と diff の sha は P1 の門だけ）。writer 自身の変更は `done` / `next` の `--accept-tree-change <理由>` で痕跡付きで通す——実測 2026-09-12: P1 の途中で engine を直したら次が 10 回同じ理由で止まった）。
 
 **どう確かめるか**: review / research にも記録の欄として足せる。
 
@@ -337,10 +337,10 @@
 
 ## 2026-09-13 の作業記録: windows-latest で残る赤の検査名
 
-`/review-graph` の 2 周目で、基準点 73fda8a から赤だった windows の CI を「別 PR に分ける」申請が取り下げられ（同じ差分が tests/ の 3 本を触っている）、内側として扱うことになった。最小の一歩は「HEAD で CI を回し、残る赤の検査名を記録する」。run 34706598635（9bc4424、2026-09-13）の windows-latest で赤なのは次の 10 件で、graphloops の検査は 3 OS とも緑:
+`/review-graph` の 2 周目で、基準点 73fda8a から赤だった windows の CI を「別 PR に分ける」申請が取り下げられ（同じ差分が tests/ の 3 本を触っている）、内側として扱うことになった。最小の一歩は「HEAD で CI を回し、残る赤の検査名を記録する」。以下は run 34708227003（d4b8def、2026-09-13）の windows-latest の FAIL 行を書き写したもので（再現: `gh run view 34708227003 --log-failed | grep FAIL`）、11 行。graphloops の検査は 3 OS とも緑:
 
-- convergence-loops の review-record 検査 3 件——「増えた scalar だけを、増えた scalar の節に出す」「初出のキーを『戻った』と数えない（注記が付かない）」×2。期待文と出力が見た目は同じで一致しない（改行の扱いの差と推定。未確定）
-- attention の catchup --switch 6 件——origin にだけある枝・fork の PR の枝・消えた枝の扱い。`git config --get branch.<枝>.remote` が非零で落ちる（Windows の git の挙動差と推定。未確定）
-- attention の deny 案内 2 件——hook の .py を直接起動して `WinError 193: %1 is not a valid Win32 application`（Windows は .py を実行ファイルとして起動できない。python を前に付ける必要）
+- convergence-loops の review-record 検査 2 行——「増えた scalar だけを、増えた scalar の節に出す」「初出のキーを『戻った』と数えない（注記が付かない）」。期待文と出力が見た目は同じで一致しない（改行の扱いの差と推定。未確定）
+- gates の coldread ゲート 3 行——「単一引用の中の改行は畳まず、本文が書かれたとおり読み役へ渡る」（読み役に『行継続が畳まれてしまった』が出る。未確定）と、連続 deny の案内 2 行「他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない」「3 回連続 deny の案内は deny 理由の先頭に在る」。後の 2 行は `Traceback`——検査の前置き（tests/run.sh の `CR_REASON`）が `coldread-case.sh` を python の subprocess から直接起動しており、Windows は .sh を実行ファイルとして起動できない（`WinError 193`）。**この 2 行は 3 周目に `bash` を前に付けた**（原因が確定していた分だけ。windows-latest で緑になるかは次の run が示す）
+- attention の catchup --switch 6 行——origin にだけある枝・手元に無い枝の guard・ignored の上書き・手元にも origin にも無い枝・fork の PR の枝・head が main の fork PR。`git config --get branch.<枝>.remote` が非零で落ちる（Windows の git の挙動差と推定。未確定）
 
-この差分（graphloops）が直した Windows の落ち方——一時ディレクトリの掃除・Python 3.10 の引数・子プロセスの文字コード・/dev/null・盤面のパスの区切り——とは別の落ち方なので、同じファイルで始めた修理の続きではない。次の周の判定者が検査名を名指しして申請を作り直す材料。
+この差分（graphloops）が直した Windows の落ち方——一時ディレクトリの掃除・Python 3.10 の引数・子プロセスの文字コード・/dev/null・盤面のパスの区切り——とは別の落ち方なので、同じファイルで始めた修理の続きではない。件数と内訳はログ行から書き写す（手で数えると合わない——2 周目の記録は 10 件と書いて 11 行を列挙し、×2 と書いた検査は 1 本だった）。

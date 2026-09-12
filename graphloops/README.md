@@ -2,7 +2,7 @@
 
 収束ループ（結果が動かなくなるまで回す手順）のグラフ実行版。同じリポジトリの convergence-loops が配る 4 本のコマンド（`/review-loop`・`/research-loop`・`/doctor-loop`・`/firstread-loop`）は、回す手順を散文の手順書に書き、それを LLM が読んで従う。graphloops は同じループを「節（工程）＋依存＋周回条件」の JSON に写し、機械（engine）が盤面を持って回す。回す側の LLM は、渡された節を実行して返すだけになる。
 
-実行版は `/research-graph`（`/research-loop` の実行版）と `/review-graph`（`/review-loop` の実行版）の 2 本。既存の 4 コマンドは役への渡し方の 1 行だけ触り（`commands/*.md` の allowed-tools と渡し方の文）、本体は隣に置く。記録の形と検証器（convergence-loops の `scripts/<loop>-record.py`）は共通で、これが新旧の橋——同じ対象で両方を回し、同じ検証器に通した記録を比べるのが受け入れ試験である。
+実行版は `/research-graph`（`/research-loop` の実行版）と `/review-graph`（`/review-loop` の実行版）の 2 本。既存の 4 コマンドのうち 3 本（`commands/doctor-loop.md`・`research-loop.md`・`review-loop.md`）を触った——Read を持つ役には本文を貼らず path を渡す旨の文（doctor 1 行・research 1 行・review 2 行）と、`review-loop.md` の基準点の決め方の 1 行。計 5 行の差し替えで、allowed-tools と `firstread-loop.md` は不変（`git diff <BASE> --stat -- commands/` で確かめられる。以前は「渡し方の 1 行だけ」と書いていて実差分と食い違い、目的監査がそれを根拠に R2 を止めた）。本体は隣に置く。記録の形と検証器（convergence-loops の `scripts/<loop>-record.py`）は共通で、これが新旧の橋——同じ対象で両方を回し、同じ検証器に通した記録を比べるのが受け入れ試験である。
 
 ## 3 層
 

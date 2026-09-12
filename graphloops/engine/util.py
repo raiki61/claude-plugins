@@ -56,7 +56,9 @@ GIT_TIMEOUT = 120  # 秒。近傍の scripts/comment-ratio.sh と同じ上限
 def git(*args):
     """成功なら stdout、失敗（git が無い・非 0・時間切れ）なら None。呼ぶ側は None を『分からない』として扱い、合格に倒さない。"""
     try:
-        r = subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8", timeout=GIT_TIMEOUT)
+        # errors=replace: 対象リポジトリに非 UTF-8 のテキストが 1 本でも在ると、復号の例外が『失敗なら None』の契約を
+        # 迂回して総括例外で落ちた（実測 2026-09-13: next が exit 2 でどの周にも進めない）。置換文字で読み、落とさない
+        r = subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout if r.returncode == 0 else None
