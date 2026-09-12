@@ -15,6 +15,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      # **README が宣言した最小版を 1 本固定して測る。** runner の既定に任せると、宣言した下限で
+      # 通るかを誰も測っていない状態になる（実測 2026-09-12: 必須要件が 3.8 のまま graphcheck.py が
+      # graphlib（3.9 追加）を import していたのに、版を固定していないので CI は緑のままだった）。
+      # 数値は README の「必須」の行と揃える——片方を上げたらもう片方も上げる。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
       # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。
       - name: tests/run.sh
         shell: bash

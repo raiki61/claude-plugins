@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=529
+EXPECTED_CHECKS=530
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2631,7 +2631,7 @@ EXTERNAL_NAMES = {"HEAD", "SHA", "PYTHONOPTIMIZE"}
 # 削除した柵を「今も効いている」と述べたコメントが `scripts/*.py` に残ったことがある。
 # **定義を持つ側も `scripts/*.py` だけではない**——検査スイートの定数も shell の定数も名指しされる。
 CODE = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob("*.sh")) + [
-    root / "tests/run.sh"]
+    root / "tests/run.sh"] + sorted((root / "graphloops").rglob("*.py"))  # graphloops の rules / engine も定義を持つ
 # **手書きの列挙を持たない。** 以前ここに 6 ファイルを並べていたとき、名指しの置き場が
 # 増えた周に柵が黙って外れた（実測: 列挙の外の 2 ファイルに実在しない名前を書いても全件緑）。
 # 対象は「文書とコメントが在る場所」全部から導く。除外は名前の表でなく**接頭辞**で持つので、
@@ -2704,6 +2704,13 @@ expect_output 0 "DOC_SYMBOLS_OK" "文書が名指しする機械の定数が実�
 # **`-ne` であること。** 以前は `-lt` で、下限を上げ忘れても下げ忘れても黙って通った（実測:
 # 実数 501 に対して下限が 491 のまま走り、検査を 10 件消しても「491 件すべて緑」で exit 0）。
 # 注記で「上げるときは実測値を書け」と書いてあっても、注記は赤くならない——③仕組みに置き換える。
+# ---- graphloops: graph の形と、台本で役を差し替えた模擬実行 ----
+# 期待文字列は「件すべて緑」——「0 件失敗」だと母数 0（台本が 1 本も走らない）でも同じ部分文字列に
+# 当たる。件数の突合（-ne）は graphloops/tests/run.sh が自分の EXPECTED_CHECKS で持ち、ここは
+# 終了コードとその 1 行だけを見る（件数の正本を 2 か所にしない）。
+expect_output 0 "件すべて緑" "graphloops: graphcheck 4 本と模擬実行（収束・停止・諮り・軽量・拒否・柵の腕）が通り、件数が期待どおり" \
+    bash "$ROOT/graphloops/tests/run.sh"
+
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"
     exit 2

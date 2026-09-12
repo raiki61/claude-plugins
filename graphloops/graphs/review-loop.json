@@ -1,0 +1,3978 @@
+{
+ "loop": "review-loop",
+ "plugin": "convergence-loops",
+ "runners": [
+  "writer"
+ ],
+ "deliver": {
+  "path_tools": [
+   "Read"
+  ]
+ },
+ "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
+ "record": {
+  "file": "<置き場>/rounds/round-<N>.json（engine の rules が周ごとに組む。回す側は直接編集しない。convergence-loops の .claude/review-rounds/ と同じ形）",
+  "validator": "python3 review-record.py <ディレクトリ>——入口はこれ 1 つ。全ラウンドを読み、最新を突合し、履歴（キーごとの推移・消えて戻った回数・問いの推移・要対応件数・scalar）を出す",
+  "validator_path": "scripts/review-record.py",
+  "top_level_fields": [
+   "base",
+   "round",
+   "materials",
+   "units",
+   "reviews",
+   "questions",
+   "scalars（任意）"
+  ],
+  "vocab_owner": "review-record.py の MATERIALS / STATUS / REVIEWS / REVIEW_STATUS / LABELS / UNIT_FIELDS / QUESTION_KINDS / QUESTION_STATUS / QUESTION_FIELDS（ここに写さない。手順書も列挙を持たない）",
+  "exit_codes": "0 = 今ラウンドにも前ラウンドにも阻害なし（連続 2 ラウンド。収束の宣言ではない）／1 = 阻害あり／2 = 記録が不正。1 と 2 を混ぜない——契約を担保するのは末尾の例外境界 1 つ",
+  "validator_arg": "dir",
+  "report_accepts_exit": [
+   0,
+   1
+  ],
+  "round_accepts_exit": [
+   0,
+   1
+  ],
+  "accepts_note": "周の途中（p4.record）と報告の前で受け付ける終了コード。集合の外（2＝記録が不正、None＝検証器が動かない・時間切れ、未知の値）は『検査が成立しなかった』であって合格ではない——engine も rules もこの宣言だけを読む（判定式を写さない）",
+  "validator_note": "graphcheck と engine は validator_path を plugin（convergence-loops）の置き場から探す（明示 → <PLUGIN>_ROOT → 同じリポジトリ → キャッシュ）。見つからなければ NG——欄の突合を省略で通さない"
+ },
+ "round": {
+  "unit": "P1→P4 を 1 周（P0 は once。R1/R2 は再発火条件で、R3/R4 は [block]＋do-now が 0 の周だけ）",
+  "max_rounds": 5,
+  "converge": {
+   "all_of": [
+    "review-record.py が阻害要因を返さない——今ラウンドにも前ラウンドにも（連続 2 ラウンド。前ラウンドに阻害があれば今ラウンドが阻害なしでも『1 ラウンド目』として阻害要因に数える）",
+    "CI が緑",
+    "記録の reviews に載った R1〜R4 に redesign-needed・unverifiable・premise-invalid・not_run が無い（R1 / R2 は再発火条件に当たらない周の carried_over を含む。阻害要因が他に無いのに R3 / R4 が not_applicable なら P-R を飛ばしたとして阻害）"
+   ],
+   "counted_by": "検証器（review-record.py がディレクトリを読んで連続 2 ラウンドと帰属を数える）と rules の converge（CI 緑・上限）。writer は数えない",
+   "note": "『阻害要因は無い』は収束の宣言ではない。記録に載らない懸念と、持ち越しが古すぎないかは人が見る。連鎖は [nit] を受容して再修正を止めることで断つ（検証は止めない）"
+  },
+  "stops": {
+   "converged": "正常終了。残った指摘は『意図的に受容した設計判断』として理由を明示",
+   "work_exhausted": "review-record.py が『残る阻害要因は保留の問いに帰属するものだけ——答え無しに進める仕事は無い』と出した → 止めて聞く（最終報告の冒頭）。帰属を認めるのは前の周から持ち越した保留（held / escalate）だけなので、問いが立った周には原理的に出ない",
+   "premise_escalate": "premise（R2 の premise-invalid）が立った周の judge の検算で escalate に確定 → 件数に依らず先に止めて聞く。『立った周には聞かない』の唯一の例外",
+   "max_rounds": "総ラウンドが 5 を超えた → 『収束せず』として停止し、台帳の held / escalate をまとめて聞く（打ち切りでなく非収束の検知）"
+  },
+  "ledger_kinds_not_stops": {
+   "note": "0.27 まで停止条件として並んでいたものは、0.28 から問いの台帳（questions）の種類になった。立った周には聞かず、次の周の judge が再審する。種類の正本は QUESTION_KINDS、状態は QUESTION_STATUS（held / decided / resolved / escalate の 2 軸——決着したか × 出どころの欠陥が残っているか）",
+   "stuck": "同じ [block] が 3 ラウンドの記録に続けて在る（2 ラウンド連続の残存）。機械が台帳への記載（stuck か fork）を要求する",
+   "thrash": "新規 [block] が出続ける。出どころを持たない種類（origin も depends も書けない）",
+   "fork": "設計の岐路——処方が機構の新設・共有面の拡大に及び候補が複数。options 2 つ以上。R2 の redesign-needed が再設計 1 回で解消しないゼロベース乖離もここ（origin は根本ユニットの key。R 名を書くと exit 2）",
+   "split": "修正が露呈させた既存の欠陥の回収が凍結した目的の外に出た。origin / depends に [block] / do-now を書けない（人に聞く前に直す義務が消えるため）",
+   "rule": "同じ指摘が新証拠なく再燃し、原因が REVIEW.md の観点の誤発火。split と同じ開き禁止",
+   "premise": "R2 が premise-invalid。立った周に judge が検算（stop.premise_check）",
+   "unverifiable": "R が unverifiable（元の目的を独立に取れない）",
+   "awaiting": "素材が awaiting_human（未観測・打ち切られた一覧・洗えなかった決定記録・走らせられない CI）。載せないと exit 2"
+  },
+  "in_loop_remedy": {
+   "premise_drift": "差分が P0-3 の制約の根拠を壊した → 事前登録の例外。制約を測り直し R1 と R2 を回し直す。目的そのものは動かさない。台帳には載せない（人に聞く候補ではない）"
+  },
+  "per_round_rules": [
+   "採点する側（p1.*・p2・R1〜R4）はラウンドごとに新しい context で起動する。前ラウンドの grader 出力・修正の経緯を P1 / P2 に渡さない",
+   "履歴と問いの台帳は P2 の judge にだけ、1〜7 の確定後に渡す。P1 の探す役と R2 には渡さない（受容の履歴を知った目は追認する）",
+   "同一ラウンドで採点する側を回し直して有利な判定を採らない（やり直しは次ラウンド）",
+   "見つけた周の記録は、その周に直していても判定どおり書く。直した周が阻害要因ありで終わるのは設計どおり（消えるのは次の周の採点）",
+   "前ラウンドの判定を流用した素材・R1 / R2 は carried_over と from_round（実際に見たラウンド）で書く。clean に混ぜない。持ち越せるのは前ラウンドに判定がある欄だけ。unverifiable / premise-invalid は持ち越せない（諮る義務が続く限り同じ値を毎ラウンド書く）",
+   "writer は verdict も台帳も要約し直さない——judge / R の返答をそのまま記録に写す",
+   "対象差分は起点であって線ではない。リポジトリを読める役に差分だけを貼って済ませない。探す役に『ここは見るな』の線を writer が引かない。見た範囲と見ていない範囲を返させ、素材の checked / detail に写す",
+   "記録は前ラウンド分を消さない。連番に穴があれば exit 2"
+  ]
+ },
+ "nodes": {
+  "p0.base": {
+   "stage": "P0",
+   "run_by": "writer",
+   "deps": [],
+   "source": "P0 ＞ 1. 基準点を固定",
+   "does": "BASE を決める（未コミットあり→HEAD／クリーン→上流との分岐点／取れなければ HEAD~1）。未追跡は git add -N で載せる——この手順が index を変える唯一の書き込みで、途中で終わったら git reset -- <path> で戻す",
+   "outputs": [
+    "base",
+    "materials.base_determination"
+   ],
+   "prompt_file": "../prompts/review-loop/p0.base.md",
+   "reads": [
+    "inputs.request",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "base_sha",
+     "method",
+     "commits",
+     "merge_commit",
+     "intent_to_add",
+     "touches_gates",
+     "touches_external_seams",
+     "touches_user_path",
+     "material"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "base_sha": {
+      "type": "string",
+      "minLength": 7
+     },
+     "method": {
+      "type": "string",
+      "enum": [
+       "1 未コミット変更あり→HEAD",
+       "2 上流との分岐点",
+       "3 HEAD~1"
+      ]
+     },
+     "commits": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "merge_commit": {
+      "type": "boolean"
+     },
+     "intent_to_add": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "touches_gates": {
+      "type": "boolean"
+     },
+     "touches_external_seams": {
+      "type": "boolean"
+     },
+     "touches_user_path": {
+      "type": "boolean"
+     },
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.base_determination",
+     "from": "material"
+    },
+    {
+     "op": "set",
+     "to": "process.base",
+     "from": "$",
+     "pick": [
+      "base_sha",
+      "method",
+      "commits",
+      "merge_commit",
+      "intent_to_add",
+      "touches_gates",
+      "touches_external_seams",
+      "touches_user_path"
+     ]
+    }
+   ],
+   "once": true,
+   "post_check": "base_valid",
+   "materials": [
+    "base_determination"
+   ]
+  },
+  "p0.local_checks": {
+   "stage": "P0",
+   "run_by": "writer",
+   "deps": [],
+   "source": "P0 ＞ 2. CI のテスト・lint をローカル実行",
+   "does": "CI のテスト・lint をローカル実行。実行できなければ awaiting_human（緑を仮定しない）",
+   "outputs": [
+    "materials.local_checks"
+   ],
+   "prompt_file": "../prompts/review-loop/p0.local_checks.md",
+   "reads": [
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.local_checks",
+     "from": "material"
+    }
+   ],
+   "once": true,
+   "materials": [
+    "local_checks"
+   ]
+  },
+  "p0.premises": {
+   "stage": "P0",
+   "run_by": "writer",
+   "deps": [],
+   "source": "P0 ＞ 3. 前提を実測しろ",
+   "does": "目的・制約に書く数値をこの作業ツリーで実測（R2 は制約の真偽を検査できない）",
+   "outputs": [
+    "process.constraints"
+   ],
+   "prompt_file": "../prompts/review-loop/p0.premises.md",
+   "reads": [
+    "inputs.request",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "constraints"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "constraints": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "text",
+        "measured_how",
+        "kind"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "text": {
+         "type": "string"
+        },
+        "measured_how": {
+         "type": "string"
+        },
+        "kind": {
+         "type": "string",
+         "enum": [
+          "実測",
+          "仮説"
+         ]
+        },
+        "measured_output": {
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "note": "kind=実測 は measured_output（実行したコマンドとその出力そのもの）が要る。rules の check_record が当てる——『実測』というラベルだけが検算なしで信頼値に昇格し、誤った事実が R2 に所与で渡った（実測: この差分の run で『CI の定義はリポジトリに無い』が実測として凍結され、.github/workflows/test.yml は実在した）"
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.constraints",
+     "from": "constraints"
+    }
+   ],
+   "once": true,
+   "post_check": "measured_needs_output"
+  },
+  "p0.purpose": {
+   "stage": "P0",
+   "run_by": "writer",
+   "deps": [
+    "p0.premises"
+   ],
+   "source": "P0 ＞ 4. 「元の目的」をテキスト化",
+   "does": "出典の優先順位 ①PR 説明 ②計画文書 ③writer の要約（最終手段→p0.purpose_review）。最初の修正の前に確定し以降変更しない",
+   "outputs": [
+    "process.purpose"
+   ],
+   "note": "R2 に渡す唯一の入力。P2 の judge にも渡す（split / fork / resolved の判定に要る——渡し忘れで 2 周空転した実測）",
+   "prompt_file": "../prompts/review-loop/p0.purpose.md",
+   "reads": [
+    "inputs.request",
+    "inputs.cwd",
+    "record.process.constraints"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "purpose_text",
+     "source",
+     "known_weaknesses"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "purpose_text": {
+      "type": "string",
+      "minLength": 1
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "①PR 説明",
+       "②計画・タスク記述",
+       "③writer の要約",
+       "目的不明"
+      ]
+     },
+     "known_weaknesses": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.purpose",
+     "from": "$"
+    }
+   ],
+   "once": true
+  },
+  "p0.purpose_review": {
+   "stage": "P0",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "optional": true,
+   "when": "目的テキストを writer が要約した（出典③）",
+   "deps": [
+    "p0.purpose"
+   ],
+   "source": "P0 ＞ 4（③のとき別 context の inspector にレビューさせる）",
+   "inputs": [
+    "目的テキスト"
+   ],
+   "does": "実装に都合よく狭めていないかをレビュー。合格分だけ R2 へ",
+   "outputs": [
+    "process.purpose_review"
+   ],
+   "prompt_file": "../prompts/review-loop/p0.purpose_review.md",
+   "reads": [
+    "out.p0.purpose.purpose_text",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "verdict",
+     "reason",
+     "findings"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "問題なし",
+       "狭めている"
+      ]
+     },
+     "reason": {
+      "type": "string"
+     },
+     "findings": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.purpose_review",
+     "from": "$"
+    }
+   ],
+   "once": true,
+   "cond": {
+    "path": "out.p0.purpose.source",
+    "op": "eq",
+    "value": "③writer の要約"
+   }
+  },
+  "p0.parallel_pr": {
+   "stage": "P0",
+   "run_by": "writer",
+   "deps": [
+    "p0.base"
+   ],
+   "source": "P0 ＞ 5. 並行 PR 衝突チェック（6 段）",
+   "does": "git remote get-url から owner/repo→自 PR を SHA で除外→打ち切り確認（--limit 100）→変更ファイル集合→各 PR の files→交差を担当 PR へ申し送り。gh は必ず -R",
+   "outputs": [
+    "materials.parallel_pr"
+   ],
+   "note": "担当 PR へのコメント申し送り（gh の投稿）には gates プラグインの門番が掛かる環境がある",
+   "prompt_file": "../prompts/review-loop/p0.parallel_pr.md",
+   "reads": [
+    "inputs.cwd",
+    "record.base"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "repo",
+     "listed",
+     "truncated",
+     "conflicts"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "repo": {
+      "type": "string"
+     },
+     "listed": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "truncated": {
+      "type": "boolean"
+     },
+     "conflicts": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "pr",
+        "files",
+        "handed_over"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "pr": {
+         "type": "string"
+        },
+        "files": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "handed_over": {
+         "type": "boolean"
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.parallel_pr",
+     "from": "material"
+    },
+    {
+     "op": "set",
+     "to": "process.parallel_pr",
+     "from": "$",
+     "pick": [
+      "repo",
+      "listed",
+      "truncated",
+      "conflicts"
+     ]
+    }
+   ],
+   "once": true,
+   "materials": [
+    "parallel_pr"
+   ]
+  },
+  "p0.prior_decisions": {
+   "stage": "P0",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "optional": true,
+   "deps": [
+    "p1.worktree_before"
+   ],
+   "source": "P0 ＞ 6. 先行議論の突合",
+   "does": "決定記録を洗い、決着済みの論点のリスト（決定・理由・再訪条件）を作る。ルーター①②③は P2 が使う。洗えなければ awaiting_human",
+   "outputs": [
+    "materials.prior_decisions"
+   ],
+   "note": "対象差分の変更ファイル一覧は機械（p1.worktree_before）が取るので、その後に走る",
+   "prompt_file": "../prompts/review-loop/p0.prior_decisions.md",
+   "reads": [
+    "inputs.cwd",
+    "record.base",
+    "loop.changed_files"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "checked",
+     "searched",
+     "settled"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "checked": {
+      "type": "boolean"
+     },
+     "searched": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "settled": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "topic",
+        "decision",
+        "reason",
+        "revisit"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "topic": {
+         "type": "string"
+        },
+        "decision": {
+         "type": "string"
+        },
+        "reason": {
+         "type": "string"
+        },
+        "revisit": {
+         "type": "string"
+        },
+        "where": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.prior_decisions",
+     "from": "material"
+    },
+    {
+     "op": "set",
+     "to": "process.prior_decisions",
+     "from": "$",
+     "pick": [
+      "checked",
+      "searched",
+      "settled"
+     ]
+    }
+   ],
+   "when": "初回か、ループ自身が issue・台帳を書き足した周、または前の周の P3 が何かを直した周",
+   "cond": {
+    "any": [
+     {
+      "path": "round",
+      "op": "eq",
+      "value": 1
+     },
+     {
+      "path": "prev.p3.fix.decision_records_changed",
+      "op": "eq",
+      "value": true,
+      "default": false
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
+   },
+   "forbidden_inputs": [
+    "局所の findings",
+    "他の grader の素材"
+   ],
+   "materials": [
+    "prior_decisions"
+   ],
+   "carry_reason": "決定記録に変更が無い周は前の結果を持ち越す（ループ自身が issue・台帳を書き足した周は引き直す）"
+  },
+  "p1.worktree_before": {
+   "stage": "P1",
+   "run_by": "driver",
+   "deps": [
+    "p0.base"
+   ],
+   "source": "P1 ＞ 局所（前後の作業ツリー突合）",
+   "does": "作業ツリーの写し（git status --short・stash list・diff --shortstat）と、対象差分 git diff <BASE> を機械が取る。回す側に貼らせない",
+   "outputs": [
+    "loop.diff_file",
+    "loop.changed_files"
+   ],
+   "builtin": "worktree_snapshot"
+  },
+  "p1.local_review": {
+   "stage": "P1",
+   "run_by": "skill",
+   "skills": [
+    "pr-review-toolkit:review-pr",
+    "/simplify（指摘だけ）",
+    "/security-review（該当時）",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:type-design-analyzer"
+   ],
+   "deps": [
+    "p1.worktree_before",
+    "p0.local_checks"
+   ],
+   "source": "P1 ＞ 局所（writer が main session で実行）",
+   "inputs": [
+    "対象差分",
+    "REVIEW.md「指摘の提出基準」（プロンプトに貼る——skill は REVIEW.md を読まない）"
+   ],
+   "does": "findings を機械的に集めるだけ。採点しない。受け取れなければ awaiting_human で P2 へ進まない",
+   "outputs": [
+    "materials.local_review"
+   ],
+   "note": "silent-failure-hunter と type-design-analyzer は review-pr の散文の振り分けでは起きない差分でも当たるクラスがあるので名指しで起こす（3 周起動されなかった実測）",
+   "prompt_file": "../prompts/review-loop/p1.local_review.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files_file",
+    "record.base",
+    "inputs.review_md",
+    "inputs.repo_review_md"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "findings",
+     "simplify_carried"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "simplify_carried": {
+      "type": "boolean"
+     },
+     "findings": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "skill",
+        "items"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "skill": {
+         "type": "string"
+        },
+        "items": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "required": [
+           "where",
+           "text"
+          ],
+          "additionalProperties": false,
+          "properties": {
+           "where": {
+            "type": "string"
+           },
+           "text": {
+            "type": "string"
+           },
+           "mechanism": {
+            "type": "string"
+           },
+           "measured": {
+            "type": "string"
+           },
+           "false_positive_if": {
+            "type": "string"
+           }
+          }
+         }
+        },
+        "failed": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.local_review",
+     "from": "material"
+    },
+    {
+     "op": "set",
+     "to": "process.local_findings",
+     "from": "findings"
+    }
+   ],
+   "materials": [
+    "local_review"
+   ]
+  },
+  "p1.consistency_bypass": {
+   "stage": "P1",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "deps": [
+    "p1.worktree_before",
+    "p0.local_checks",
+    "p0.parallel_pr",
+    "p0.purpose"
+   ],
+   "source": "P1 ＞ 整合性＋標準機構の迂回（findings 非共有の独立フレーム）",
+   "inputs": [
+    "対象差分の本文（入口）",
+    "変更ファイル一覧",
+    "REVIEW.md 整合性観点",
+    "REVIEW.md 指摘の提出基準"
+   ],
+   "forbidden_inputs": [
+    "局所の findings",
+    "固有規約の把握（前ラウンド）",
+    "決着済み論点"
+   ],
+   "does": "リポジトリ横断の整合性と、それとは独立に標準機構の迂回。依存先・近傍・呼び元まで読ませる（差分だけを貼らない）",
+   "outputs": [
+    "materials.consistency",
+    "materials.bypass"
+   ],
+   "prompt_file": "../prompts/review-loop/p1.consistency_bypass.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files",
+    "record.base",
+    "inputs.review_md",
+    "inputs.repo_review_md",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "consistency",
+     "bypass",
+     "findings",
+     "bypass_findings",
+     "seen",
+     "unseen"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "consistency": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "bypass": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "findings": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "text"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        },
+        "mechanism": {
+         "type": "string"
+        },
+        "measured": {
+         "type": "string"
+        },
+        "false_positive_if": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "bypass_findings": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "text"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        },
+        "mechanism": {
+         "type": "string"
+        },
+        "measured": {
+         "type": "string"
+        },
+        "false_positive_if": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "seen": {
+      "type": "string"
+     },
+     "unseen": {
+      "type": "string"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.consistency",
+     "from": "consistency"
+    },
+    {
+     "op": "set",
+     "to": "materials.bypass",
+     "from": "bypass"
+    },
+    {
+     "op": "set",
+     "to": "process.consistency_findings",
+     "from": "findings"
+    },
+    {
+     "op": "set",
+     "to": "process.bypass_findings",
+     "from": "bypass_findings"
+    }
+   ],
+   "materials": [
+    "consistency",
+    "bypass"
+   ],
+   "when": "または"
+  },
+  "p1.hygiene": {
+   "stage": "P1",
+   "run_by": "cold-reader",
+   "fresh_context": true,
+   "deps": [
+    "p1.worktree_before"
+   ],
+   "source": "P1 ＞ 文脈遮断（タスク文脈そのものを遮断。貼り切れない差分は貼る側を割る）",
+   "inputs": [
+    "対象差分の本文（貼る。貼り切れなければ貼る側を割って複数回起動し、割り方を素材に書く）",
+    "REVIEW.md コード衛生観点の本文（貼る）"
+   ],
+   "forbidden_inputs": [
+    "元の目的",
+    "機能名",
+    "タスクの説明",
+    "近傍コード"
+   ],
+   "does": "言語・フレームワーク一般の衛生違反を、用途を知らない目で拾う。道具を渡して解決しない（道具は path で縛れない）",
+   "outputs": [
+    "materials.hygiene"
+   ],
+   "prompt_file": "../prompts/review-loop/p1.hygiene.md",
+   "reads": [
+    "item.text",
+    "item.key",
+    "item.of",
+    "section:inputs.review_md#コード衛生観点"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "chunk",
+     "findings",
+     "seen"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "chunk": {
+      "type": "string"
+     },
+     "findings": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "text"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        },
+        "mechanism": {
+         "type": "string"
+        },
+        "measured": {
+         "type": "string"
+        },
+        "false_positive_if": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "seen": {
+      "type": "string"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "merge_material_chunks",
+     "to": "hygiene",
+     "from": "$"
+    }
+   ],
+   "fan_out": {
+    "builtin": "diff_chunks",
+    "as": "item"
+   },
+   "materials": [
+    "hygiene"
+   ],
+   "when": "または"
+  },
+  "p1.external_standards": {
+   "stage": "P1",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "deps": [
+    "p1.worktree_before",
+    "p0.purpose"
+   ],
+   "source": "P1 ＞ 外部標準照合（web で一次情報。手元の依存の使い残し）",
+   "inputs": [
+    "対象差分",
+    "変更ファイル一覧",
+    "元の目的テキスト",
+    "REVIEW.md 外部標準照合観点",
+    "自覚済み・受容済みの弱点リスト（無ければ『なし』）",
+    "REVIEW.md 指摘の提出基準"
+   ],
+   "forbidden_inputs": [
+    "局所の findings"
+   ],
+   "does": "問題クラスの抽出→web の一次情報で裏取り。手元の依存は差分が import するものから先に、宣言済みの依存（プラグイン・ツールの宣言を含む）まで。打ち切ったら見た範囲・見ていない範囲を返す",
+   "outputs": [
+    "materials.external_standards"
+   ],
+   "refire_when": [
+    "初回ラウンド",
+    "機構を足した／変えたラウンド（体裁だけのラウンドは carried_over）",
+    "依存の宣言ファイルが変わった"
+   ],
+   "prompt_file": "../prompts/review-loop/p1.external_standards.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files",
+    "record.base",
+    "inputs.review_md",
+    "out.p0.purpose.purpose_text",
+    "out.p0.purpose.known_weaknesses",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "findings",
+     "seen",
+     "unseen",
+     "web_refetched"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "findings": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "text"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        },
+        "mechanism": {
+         "type": "string"
+        },
+        "measured": {
+         "type": "string"
+        },
+        "false_positive_if": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "seen": {
+      "type": "string"
+     },
+     "unseen": {
+      "type": "string"
+     },
+     "web_refetched": {
+      "type": "boolean"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.external_standards",
+     "from": "material"
+    },
+    {
+     "op": "set",
+     "to": "process.external_findings",
+     "from": "findings"
+    }
+   ],
+   "when": "初回か、機構を足した／変えた周か、依存の宣言ファイルが変わった周、または前の周の P3 が何かを直した周",
+   "cond": {
+    "any": [
+     {
+      "path": "round",
+      "op": "eq",
+      "value": 1
+     },
+     {
+      "path": "prev.p3.fix.mechanism_changed",
+      "op": "eq",
+      "value": true,
+      "default": false
+     },
+     {
+      "path": "prev.p3.fix.deps_changed",
+      "op": "eq",
+      "value": true,
+      "default": false
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
+   },
+   "materials": [
+    "external_standards"
+   ],
+   "carry_reason": "体裁だけの周（テスト追加・リネーム・コメント）は前の判定を持ち越す。機構を足した／変えた周は引き直す"
+  },
+  "p1.procedure_trace": {
+   "stage": "P1",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "optional": true,
+   "when": "差分に手順書・スクリプト・CI 定義があり、初回かそれらを変えた周、または前の周の P3 が何かを直した周",
+   "deps": [
+    "p1.worktree_before",
+    "p0.local_checks"
+   ],
+   "source": "P1 ＞ 手順トレース（該当 PR のみ。読むより動かす）",
+   "inputs": [
+    "対象差分",
+    "変更ファイル一覧",
+    "REVIEW.md 手順トレース観点",
+    "変更された手順書・スクリプトの全文"
+   ],
+   "forbidden_inputs": [
+    "局所の findings"
+   ],
+   "does": "読まずに動かして確かめる。状態を変える実行は自らに禁じるので、確かめられなかった箇所は『未実測』の仮説として返す",
+   "outputs": [
+    "materials.procedure_trace"
+   ],
+   "prompt_file": "../prompts/review-loop/p1.procedure_trace.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files",
+    "inputs.review_md",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "findings",
+     "unmeasured"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "findings": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "text"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        },
+        "mechanism": {
+         "type": "string"
+        },
+        "measured": {
+         "type": "string"
+        },
+        "false_positive_if": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "unmeasured": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.procedure_trace",
+     "from": "material"
+    },
+    {
+     "op": "set",
+     "to": "process.procedure_findings",
+     "from": "findings"
+    }
+   ],
+   "applies_cond": {
+    "builtin": "touches_procedures"
+   },
+   "na_reason": "対象差分に手順書・スクリプト・CI 定義の変更が無い",
+   "cond": {
+    "any": [
+     {
+      "all": [
+       {
+        "builtin": "touches_procedures"
+       },
+       {
+        "any": [
+         {
+          "path": "round",
+          "op": "eq",
+          "value": 1
+         },
+         {
+          "path": "prev.p3.fix.procedures_changed",
+          "op": "eq",
+          "value": true,
+          "default": false
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
+   },
+   "materials": [
+    "procedure_trace"
+   ],
+   "carry_reason": "手順書・スクリプト・CI に変更が無い周は前の判定を持ち越す"
+  },
+  "p1.gate_efficacy": {
+   "stage": "P1",
+   "run_by": "writer",
+   "optional": true,
+   "when": "差分がゲートを新設・変更しており、初回かゲートを変えた周、または前の周の P3 が何かを直した周",
+   "deps": [
+    "p1.worktree_before",
+    "p0.local_checks"
+   ],
+   "source": "P1 ＞ ゲートの実効性確認（腕ごとに写しの上で赤を確認）",
+   "does": "条件の腕ごとに 1 つずつ退行を注入して赤を見る（検査をまるごと外して赤いことは証拠にならない）。壊していない写しでも 1 本走らせて緑（対照）を見る。本物の作業ツリーを壊さず mktemp -d の写しの上で（作業ツリー突合は前後 2 点の比較なので壊して戻すサイクルを検出できない）",
+   "outputs": [
+    "materials.gate_efficacy"
+   ],
+   "prompt_file": "../prompts/review-loop/p1.gate_efficacy.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files_file",
+    "record.base",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "arms"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "arms": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "gate",
+        "arm",
+        "red_confirmed",
+        "control_green"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "gate": {
+         "type": "string"
+        },
+        "arm": {
+         "type": "string"
+        },
+        "red_confirmed": {
+         "type": "boolean"
+        },
+        "control_green": {
+         "type": "boolean"
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      },
+      "minItems": 1
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.gate_efficacy",
+     "from": "material"
+    },
+    {
+     "op": "set",
+     "to": "process.gate_arms",
+     "from": "arms"
+    }
+   ],
+   "applies_cond": {
+    "any": [
+     {
+      "path": "out.p0.base.touches_gates",
+      "op": "eq",
+      "value": true
+     },
+     {
+      "path": "prev.p3.fix.gates_changed",
+      "op": "eq",
+      "value": true,
+      "default": false
+     }
+    ]
+   },
+   "na_reason": "対象差分は検証ゲート（CI ジョブ・assert・テスト・pre-commit）を新設・変更していない",
+   "cond": {
+    "any": [
+     {
+      "all": [
+       {
+        "any": [
+         {
+          "path": "out.p0.base.touches_gates",
+          "op": "eq",
+          "value": true
+         },
+         {
+          "path": "prev.p3.fix.gates_changed",
+          "op": "eq",
+          "value": true,
+          "default": false
+         }
+        ]
+       },
+       {
+        "any": [
+         {
+          "path": "round",
+          "op": "eq",
+          "value": 1
+         },
+         {
+          "path": "prev.p3.fix.gates_changed",
+          "op": "eq",
+          "value": true,
+          "default": false
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
+   },
+   "materials": [
+    "gate_efficacy"
+   ],
+   "carry_reason": "当該ゲートを変更していない周は前の確認を持ち越す",
+   "post_check": "gate_arms_all_red"
+  },
+  "p1.test_double_fidelity": {
+   "stage": "P1",
+   "run_by": "writer",
+   "optional": true,
+   "when": "差分が外部との継ぎ目に触れ、初回か代役を変えた周、または前の周の P3 が何かを直した周",
+   "deps": [
+    "p1.worktree_before",
+    "p0.local_checks"
+   ],
+   "source": "P1 ＞ 代役の忠実性（実物から取った値 1 件で確認）",
+   "does": "テストの代役の形が実物と一致するか、実物から取った値 1 件で確認",
+   "outputs": [
+    "materials.test_double_fidelity"
+   ],
+   "prompt_file": "../prompts/review-loop/p1.test_double_fidelity.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files_file",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "mismatches"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "mismatches": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "text"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        },
+        "mechanism": {
+         "type": "string"
+        },
+        "measured": {
+         "type": "string"
+        },
+        "false_positive_if": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.test_double_fidelity",
+     "from": "material"
+    }
+   ],
+   "applies_cond": {
+    "any": [
+     {
+      "path": "out.p0.base.touches_external_seams",
+      "op": "eq",
+      "value": true
+     },
+     {
+      "path": "prev.p3.fix.seams_changed",
+      "op": "eq",
+      "value": true,
+      "default": false
+     }
+    ]
+   },
+   "na_reason": "対象差分は外部との継ぎ目（別プロセス・別サービス・ブラウザ・外部 API・プロトコル）に触れていない",
+   "cond": {
+    "any": [
+     {
+      "all": [
+       {
+        "any": [
+         {
+          "path": "out.p0.base.touches_external_seams",
+          "op": "eq",
+          "value": true
+         },
+         {
+          "path": "prev.p3.fix.seams_changed",
+          "op": "eq",
+          "value": true,
+          "default": false
+         }
+        ]
+       },
+       {
+        "any": [
+         {
+          "path": "round",
+          "op": "eq",
+          "value": 1
+         },
+         {
+          "path": "prev.p3.fix.seams_changed",
+          "op": "eq",
+          "value": true,
+          "default": false
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
+   },
+   "materials": [
+    "test_double_fidelity"
+   ],
+   "carry_reason": "代役の形に変更が無い周は前の確認を持ち越す"
+  },
+  "p1.main_path_observation": {
+   "stage": "P1",
+   "run_by": "writer",
+   "deps": [
+    "p1.worktree_before",
+    "p0.local_checks"
+   ],
+   "source": "P1 ＞ 主経路の実行観測（テストの緑は観測ではない）",
+   "does": "主経路を実際に 1 回動かし、通った値を観測（テストの緑は観測ではない）。動かせなければ awaiting_human で台帳に awaiting として載せる",
+   "outputs": [
+    "materials.main_path_observation"
+   ],
+   "prompt_file": "../prompts/review-loop/p1.main_path_observation.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files_file",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "observed"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "observed": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "path",
+        "value"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "path": {
+         "type": "string"
+        },
+        "value": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.main_path_observation",
+     "from": "material"
+    }
+   ],
+   "applies_cond": {
+    "any": [
+     {
+      "path": "out.p0.base.touches_user_path",
+      "op": "eq",
+      "value": true
+     },
+     {
+      "path": "prev.p3.fix.path_changed",
+      "op": "eq",
+      "value": true,
+      "default": false
+     }
+    ]
+   },
+   "na_reason": "対象差分は利用者から見える経路・外部との継ぎ目を変えていない",
+   "when": "差分が利用者から見える経路を変え、初回か経路を変えた周。前の周に awaiting_human だった周も（動かす手段が見つかったか再挑戦）、または前の周の P3 が何かを直した周",
+   "cond": {
+    "any": [
+     {
+      "all": [
+       {
+        "any": [
+         {
+          "path": "out.p0.base.touches_user_path",
+          "op": "eq",
+          "value": true
+         },
+         {
+          "path": "prev.p3.fix.path_changed",
+          "op": "eq",
+          "value": true,
+          "default": false
+         }
+        ]
+       },
+       {
+        "any": [
+         {
+          "path": "round",
+          "op": "eq",
+          "value": 1
+         },
+         {
+          "path": "prev.p3.fix.path_changed",
+          "op": "eq",
+          "value": true,
+          "default": false
+         },
+         {
+          "path": "loop.last_material.main_path_observation.status",
+          "op": "eq",
+          "value": "awaiting_human",
+          "default": null
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
+   },
+   "materials": [
+    "main_path_observation"
+   ],
+   "carry_reason": "経路を変えていない周は前の観測を持ち越す"
+  },
+  "p1.provenance": {
+   "stage": "P1",
+   "run_by": "writer",
+   "deps": [
+    "p1.worktree_before"
+   ],
+   "source": "P1 ＞ 根拠の出所検査（差分が自ら足したものを根拠にする循環）",
+   "does": "差分が引く『正本は X』の X が差分の内側に無いか（根拠の循環）を BASE 時点で確かめる",
+   "outputs": [
+    "materials.provenance"
+   ],
+   "prompt_file": "../prompts/review-loop/p1.provenance.md",
+   "reads": [
+    "loop.diff_file",
+    "record.base",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material",
+     "claims"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "claims": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "claim",
+        "exists_at_base",
+        "evidence"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "claim": {
+         "type": "string"
+        },
+        "exists_at_base": {
+         "type": "boolean"
+        },
+        "evidence": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.provenance",
+     "from": "material"
+    }
+   ],
+   "when": "初回か、事実の主張が増減した周、または前の周の P3 が何かを直した周",
+   "cond": {
+    "any": [
+     {
+      "path": "round",
+      "op": "eq",
+      "value": 1
+     },
+     {
+      "path": "prev.p3.fix.claims_changed",
+      "op": "eq",
+      "value": true,
+      "default": false
+     },
+     {
+      "builtin": "prev_fix_touched"
+     }
+    ]
+   },
+   "materials": [
+    "provenance"
+   ],
+   "carry_reason": "事実の主張に増減が無く、前の周の P3 がこの素材の見る対象を触っていない周は前の検査を持ち越す"
+  },
+  "p1.worktree_after": {
+   "stage": "P1",
+   "run_by": "driver",
+   "deps": [
+    "p1.local_review",
+    "p1.consistency_bypass",
+    "p1.hygiene",
+    "p1.external_standards",
+    "p1.procedure_trace",
+    "p1.gate_efficacy",
+    "p1.test_double_fidelity",
+    "p1.main_path_observation",
+    "p1.provenance",
+    "p0.prior_decisions"
+   ],
+   "source": "P1 ＞ 局所（前後の作業ツリー突合）／P2 ＞ 素材は欄名で並べて渡せ",
+   "does": "作業ツリーが P1 の前後で変わっていないことを機械で突き合わせる。走らせなかった素材の欄（not_applicable／carried_over／not_run）もここで機械が埋め、judge には 15 欄そろえて渡す",
+   "outputs": [
+    "materials（15 欄）"
+   ],
+   "note": "記録の欄には無い（review / research は散文だけ。doctor は mod_check、firstread は git_status_match を欄で要求する）",
+   "builtin": "worktree_compare"
+  },
+  "p2.diagnose": {
+   "stage": "P2",
+   "run_by": "judge",
+   "fresh_context": true,
+   "deps": [
+    "p1.worktree_after",
+    "p0.purpose"
+   ],
+   "source": "P2: 診断 ＞ 1〜7（今ラウンドの材料だけで確定）",
+   "inputs": [
+    "P1 の生 findings と素材——観点名でなく review-record.py の欄名で並べ、起動しなかったものは『起動しなかった』と明示",
+    "決着済み論点リスト（prior_decisions）",
+    "凍結した元の目的テキスト",
+    "対象差分",
+    "REVIEW.md"
+   ],
+   "forbidden_inputs": [
+    "履歴",
+    "前ラウンドの台帳",
+    "前ラウンドの判定"
+   ],
+   "does": "各 finding を根とする木探索（反証→出自→上方展開 3 段→処方）で深め、全部の木を作ってから枝同士を並べる。1 クラスタリング 2 出自分析 3 上方展開＋P0-6 のルーター 4 一撃 5 ラベルと disposition（writer は覆せない）6 処方の列挙（零処方から。機構の新設に及ぶなら fork で台帳へ）7 安定キー（文字列の完全一致で突合するので台帳に在るキーはそのまま使う）",
+   "outputs": [
+    "units",
+    "questions"
+   ],
+   "prompt_file": "../prompts/review-loop/p2.diagnose.md",
+   "reads": [
+    "record.materials",
+    "record.process.local_findings",
+    "record.process.consistency_findings",
+    "record.process.bypass_findings",
+    "record.process.external_findings",
+    "record.process.procedure_findings",
+    "record.process.gate_arms",
+    "out.p1.test_double_fidelity",
+    "out.p1.main_path_observation",
+    "out.p1.provenance",
+    "out.p0.prior_decisions",
+    "out.p0.purpose.purpose_text",
+    "record.process.constraints",
+    "loop.diff_file",
+    "loop.changed_files",
+    "record.base",
+    "inputs.review_md",
+    "inputs.repo_review_md",
+    "inputs.cwd",
+    "loop.defer_ledger"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "units",
+     "questions",
+     "framing",
+     "one_shot",
+     "materials_missing"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "units": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "label"
+       ],
+       "additionalProperties": true,
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "label": {
+         "type": "string",
+         "enum": [
+          "block",
+          "suggest",
+          "nit",
+          "question",
+          "info"
+         ]
+        },
+        "disposition": {
+         "type": "string",
+         "enum": [
+          "do-now",
+          "defer"
+         ]
+        },
+        "reason": {
+         "type": "string"
+        },
+        "reopen_evidence": {
+         "type": "string"
+        },
+        "origin_analysis": {
+         "type": "string"
+        },
+        "why_chain": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "prescriptions": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "closed_note": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "questions": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "kind",
+        "status",
+        "reason"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "kind": {
+         "type": "string",
+         "enum": [
+          "fork",
+          "split",
+          "rule",
+          "stuck",
+          "thrash",
+          "premise",
+          "unverifiable",
+          "awaiting"
+         ]
+        },
+        "status": {
+         "type": "string",
+         "enum": [
+          "held",
+          "decided",
+          "resolved",
+          "escalate"
+         ]
+        },
+        "reason": {
+         "type": "string"
+        },
+        "resolution": {
+         "type": "string"
+        },
+        "options": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "depends": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "origin": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "framing": {
+      "type": "string"
+     },
+     "one_shot": {
+      "type": "string"
+     },
+     "materials_missing": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "router": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "route",
+        "note"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "route": {
+         "type": "string"
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "reburn_causes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "cause"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "cause": {
+         "type": "string",
+         "enum": [
+          "コード",
+          "レビュアー",
+          "規約"
+         ]
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "units",
+     "from": "units",
+     "pick": [
+      "key",
+      "label",
+      "disposition",
+      "reason",
+      "reopen_evidence"
+     ]
+    },
+    {
+     "op": "set",
+     "to": "questions",
+     "from": "questions",
+     "pick": [
+      "key",
+      "kind",
+      "status",
+      "reason",
+      "resolution",
+      "options",
+      "depends",
+      "origin"
+     ]
+    },
+    {
+     "op": "set",
+     "to": "process.diagnosis",
+     "from": "$",
+     "pick": [
+      "framing",
+      "one_shot",
+      "units"
+     ]
+    }
+   ],
+   "post_check": "judge_output",
+   "enforced_by": "post_check judge_output——materials_missing が空でない返答は done を拒む（当該 grader を再起動して明示返答を得てから、同じ判定を返させる）"
+  },
+  "p2.history": {
+   "stage": "P2",
+   "run_by": "judge",
+   "same_context_as": "p2.diagnose",
+   "optional": true,
+   "when": "2 ラウンド目以降",
+   "deps": [
+    "p2.diagnose"
+   ],
+   "source": "P2 ＞ 8. 履歴との突合（1〜7 の確定後に履歴を渡す）",
+   "inputs": [
+    "履歴（review-record.py にディレクトリを渡して出る全ラウンドの推移）",
+    "defer 台帳",
+    "問いの台帳（前ラウンドまでの held / escalate / decided）",
+    "『過去のラウンドの [block] で今ラウンドの記録に無いキー』の一覧"
+   ],
+   "does": "台帳のルーター（defer の再出現は reopen_evidence が要る）／過去 [block] の振り分け（残っている・閉じた・確かめられない——機械は数えないので judge の義務）／再燃の原因（コード・レビュアー・規約→rule）／目的の外への膨張（split）／問いの再審（resolved・decided・held・escalate。自明かの検査は独立再導出——台帳を見ずに同じ岐路を立てたか）→台帳全体を並べて枝同士を見る（束ねる・depends・矛盾・零処方 1 つで消えないか）",
+   "outputs": [
+    "units",
+    "questions（再審）"
+   ],
+   "note": "同じ judge を続ける（engine が agent_id を渡す。無ければ新しい context になり記録に残る）",
+   "prompt_file": "../prompts/review-loop/p2.history.md",
+   "reads": [
+    "prev.p4.record.out",
+    "loop.prev_questions",
+    "loop.prev_units",
+    "loop.prev_blocks",
+    "loop.defer_ledger",
+    "record.process.human_answers",
+    "out.p0.purpose.purpose_text",
+    "record.units",
+    "record.questions",
+    "loop.prev_rejudge"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "units",
+     "questions",
+     "framing",
+     "one_shot",
+     "materials_missing"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "units": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "label"
+       ],
+       "additionalProperties": true,
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "label": {
+         "type": "string",
+         "enum": [
+          "block",
+          "suggest",
+          "nit",
+          "question",
+          "info"
+         ]
+        },
+        "disposition": {
+         "type": "string",
+         "enum": [
+          "do-now",
+          "defer"
+         ]
+        },
+        "reason": {
+         "type": "string"
+        },
+        "reopen_evidence": {
+         "type": "string"
+        },
+        "origin_analysis": {
+         "type": "string"
+        },
+        "why_chain": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "prescriptions": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "closed_note": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "questions": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "kind",
+        "status",
+        "reason"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "kind": {
+         "type": "string",
+         "enum": [
+          "fork",
+          "split",
+          "rule",
+          "stuck",
+          "thrash",
+          "premise",
+          "unverifiable",
+          "awaiting"
+         ]
+        },
+        "status": {
+         "type": "string",
+         "enum": [
+          "held",
+          "decided",
+          "resolved",
+          "escalate"
+         ]
+        },
+        "reason": {
+         "type": "string"
+        },
+        "resolution": {
+         "type": "string"
+        },
+        "options": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "depends": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "origin": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "framing": {
+      "type": "string"
+     },
+     "one_shot": {
+      "type": "string"
+     },
+     "materials_missing": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "router": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "route",
+        "note"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "route": {
+         "type": "string"
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "reburn_causes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "cause"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "cause": {
+         "type": "string",
+         "enum": [
+          "コード",
+          "レビュアー",
+          "規約"
+         ]
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "units",
+     "from": "units",
+     "pick": [
+      "key",
+      "label",
+      "disposition",
+      "reason",
+      "reopen_evidence"
+     ]
+    },
+    {
+     "op": "set",
+     "to": "questions",
+     "from": "questions",
+     "pick": [
+      "key",
+      "kind",
+      "status",
+      "reason",
+      "resolution",
+      "options",
+      "depends",
+      "origin"
+     ]
+    },
+    {
+     "op": "set",
+     "to": "process.history_review",
+     "from": "$",
+     "pick": [
+      "router",
+      "reburn_causes",
+      "framing"
+     ]
+    }
+   ],
+   "cond": {
+    "path": "round",
+    "op": "gt",
+    "value": 1
+   },
+   "post_check": "judge_output"
+  },
+  "p3.fix": {
+   "stage": "P3",
+   "run_by": "writer",
+   "deps": [
+    "p2.history"
+   ],
+   "source": "P3: 修正（根本ユニット単位・閉鎖の実証・fork の出どころは待つ）",
+   "does": "[block] と do-now を根本ユニット単位で直す。導線の死を注記で直さない。fork の origin / depends に挙がったユニットはこの周に実装しない（待つのはループを止めることではない——他を直して次の周へ）。手を動かした結果が機構の新設に及んだと気づいたら止める。修正ごとに閉鎖を実証——不変条件を共有する箇所を先に全部挙げ、1 箇所ずつ赤→緑（『1 つ試して赤だった』で止めない）",
+   "outputs": [
+    "materials.fix_closure"
+   ],
+   "note": "見つけた周の記録は判定どおり書く（直したことは fix_closure に書く）",
+   "prompt_file": "../prompts/review-loop/p3.fix.md",
+   "reads": [
+    "record.units",
+    "record.questions",
+    "record.process.diagnosis",
+    "inputs.review_md",
+    "inputs.cwd",
+    "record.base"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "changes",
+     "not_done",
+     "fix_closure",
+     "mechanism_changed",
+     "premise_drift",
+     "deps_changed",
+     "procedures_changed",
+     "gates_changed",
+     "seams_changed",
+     "path_changed",
+     "claims_changed",
+     "decision_records_changed"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "changes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "closure",
+        "files",
+        "unit_key",
+        "what"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "unit_key": {
+         "type": "string"
+        },
+        "what": {
+         "type": "string"
+        },
+        "closure": {
+         "type": "object",
+         "required": [
+          "mechanism",
+          "fix_mechanism",
+          "verified_how",
+          "sites"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "mechanism": {
+           "type": "string"
+          },
+          "fix_mechanism": {
+           "type": "string"
+          },
+          "verified_how": {
+           "type": "string"
+          },
+          "sites": {
+           "type": "array",
+           "items": {
+            "type": "object",
+            "required": [
+             "site",
+             "red_seen"
+            ],
+            "additionalProperties": false,
+            "properties": {
+             "site": {
+              "type": "string"
+             },
+             "red_seen": {
+              "type": "boolean"
+             }
+            }
+           }
+          }
+         }
+        },
+        "files": {
+         "type": "array",
+         "minItems": 1,
+         "items": {
+          "type": "string"
+         }
+        }
+       },
+       "note": "files は、その修正で実際に触ったファイルのリポジトリ相対パス。持ち越し（carried_over）の再発火は役の自己申告 1 欄でなくこれで決める——前の周の P3 が素材の見る対象を直したのに再発火せず、閉じた欠陥が次の周に新規の [block] として生き返った（実測 2026-09-12: p1.provenance が carried_over のまま r1 の主張を運んだ）"
+      }
+     },
+     "not_done": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "unit_key",
+        "why"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "unit_key": {
+         "type": "string"
+        },
+        "why": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "fix_closure": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     },
+     "mechanism_changed": {
+      "type": "boolean"
+     },
+     "premise_drift": {
+      "type": "boolean"
+     },
+     "premise_drift_note": {
+      "type": "string"
+     },
+     "deps_changed": {
+      "type": "boolean"
+     },
+     "procedures_changed": {
+      "type": "boolean"
+     },
+     "gates_changed": {
+      "type": "boolean"
+     },
+     "seams_changed": {
+      "type": "boolean"
+     },
+     "path_changed": {
+      "type": "boolean"
+     },
+     "claims_changed": {
+      "type": "boolean"
+     },
+     "decision_records_changed": {
+      "type": "boolean"
+     },
+     "rejudge_requested": {
+      "type": "string"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.fix_closure",
+     "from": "fix_closure"
+    },
+    {
+     "op": "append",
+     "to": "process.fixes",
+     "from": "$",
+     "pick": [
+      "changes",
+      "not_done",
+      "mechanism_changed",
+      "premise_drift",
+      "premise_drift_note",
+      "rejudge_requested"
+     ],
+     "stamp_round": "round"
+    }
+   ],
+   "post_check": "fix_covers_open_units",
+   "materials": [
+    "fix_closure"
+   ],
+   "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes と loop.prev_rejudge に残り、次の周の p2.history が再審する。この周は判定どおり直す（post_check fix_covers_open_units）"
+  },
+  "p4.ci": {
+   "stage": "P4",
+   "run_by": "writer",
+   "deps": [
+    "p3.fix"
+   ],
+   "source": "P4 ＞ 1. CI を再実行",
+   "does": "CI を再実行。赤なら P3 に戻る",
+   "outputs": [
+    "materials.local_checks"
+   ],
+   "prompt_file": "../prompts/review-loop/p4.ci.md",
+   "reads": [
+    "inputs.cwd",
+    "record.base"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "material"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "material": {
+      "type": "object",
+      "required": [
+       "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "status": {
+        "type": "string",
+        "enum": [
+         "found",
+         "clean",
+         "carried_over",
+         "not_applicable",
+         "awaiting_human",
+         "not_run"
+        ]
+       },
+       "count": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer",
+        "minimum": 1
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "materials.local_checks",
+     "from": "material"
+    }
+   ],
+   "materials": [
+    "local_checks"
+   ]
+  },
+  "p4.scalars": {
+   "stage": "P4",
+   "run_by": "writer",
+   "deps": [
+    "p3.fix"
+   ],
+   "source": "P4 ＞ 5. scalar 記録（手で数え直すな）",
+   "does": "文書なら行数、コードなら comment-ratio.sh <BASE> の出力（手で数え直さない）。ゲートにしない——増分は R1 への入力",
+   "outputs": [
+    "scalars"
+   ],
+   "prompt_file": "../prompts/review-loop/p4.scalars.md",
+   "reads": [
+    "inputs.cwd",
+    "inputs.scripts_dir",
+    "record.base",
+    "loop.changed_files_file"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "scalars"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "scalars": {
+      "type": "object"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "scalars",
+     "from": "scalars"
+    }
+   ]
+  },
+  "p4.assemble": {
+   "run_by": "driver",
+   "builtin": "assemble",
+   "deps": [
+    "p4.ci",
+    "p4.scalars",
+    "p2.history"
+   ],
+   "stage": "P4",
+   "source": "P4 ＞ R1 / R2 の再発火条件／判定後の分岐",
+   "does": "開いたユニットの数・R1/R2 の再発火（機構の追加・置換／前提のドリフト／行数 1.5 倍／台帳の変化）・目的の出典の有無を機械が数える",
+   "outputs": [
+    "loop.open_units",
+    "loop.r1_refire",
+    "loop.r2_refire"
+   ]
+  },
+  "r1.comment_candidates": {
+   "stage": "P-R",
+   "run_by": "comment-analyzer",
+   "skills": [
+    "pr-review-toolkit:comment-analyzer"
+   ],
+   "deps": [
+    "p4.assemble"
+   ],
+   "source": "P-R ＞ R1 の前段（コメントの削除候補）",
+   "inputs": [
+    "累積差分が触れたファイル",
+    "追加の 3 指示: ①同じ内容の在り処を名指し ②残す判断にも運ぶ事実を一文 ③残す線は REVIEW.md「導線を作る手段の優先順位」"
+   ],
+   "does": "削除候補の一覧（コメントアウトされたコード・編集の実況・名前の言い直しを明示的に探す）。取れなくても R1 の verdict を not_run に倒さない",
+   "outputs": [
+    "process.comment_candidates"
+   ],
+   "prompt_file": "../prompts/review-loop/r1.comment_candidates.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files",
+    "record.base",
+    "inputs.review_md",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "candidates",
+     "kept"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "candidates": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "comment",
+        "same_content_at",
+        "reason"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "comment": {
+         "type": "string"
+        },
+        "same_content_at": {
+         "type": "string"
+        },
+        "reason": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "kept": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "fact"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "fact": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.comment_candidates",
+     "from": "$"
+    }
+   ],
+   "agent_type": "pr-review-toolkit:comment-analyzer",
+   "optional": true,
+   "fresh_context": true,
+   "when": "R1 が再発火する周",
+   "cond": {
+    "path": "loop.r1_refire",
+    "op": "eq",
+    "value": true,
+    "default": true
+   }
+  },
+  "r1.minimality": {
+   "stage": "P-R",
+   "run_by": "judge",
+   "fresh_context": true,
+   "deps": [
+    "r1.comment_candidates",
+    "p4.assemble",
+    "p0.purpose"
+   ],
+   "source": "P-R ＞ R1 冗長と最小性（台帳の監査を含む）",
+   "inputs": [
+    "コメント削除候補の一覧",
+    "目的テキスト",
+    "累積差分（git diff <BASE>。writer が貼る）",
+    "scalar の推移",
+    "問いの台帳（監査対象）"
+   ],
+   "does": "削除候補の裁定→問いの台帳の監査（split の origin が目的の内側なら redesign-needed。fork に零処方が列挙も棄却もされずに人へ回されていれば redesign-needed）→累積差分が最小か（場当たり累積・重複・処方の最小性の監査・do-now も対象・scalar の単調増の正当化）。順序は『必要な内容が在るか（冷たい読み手が再現できるか）』→『最小か』",
+   "outputs": [
+    "reviews.R1"
+   ],
+   "must_run_in_round_1": true,
+   "refire_when": [
+    "差分が機構を足した／置き換えた",
+    "前提のドリフト（P0-3 の制約が測られた対象を差分が削除・置換）",
+    "累積差分の行数が前回 R1 実行時から 1.5 倍",
+    "台帳の未決の問いが前ラウンドから変わった（R1 だけ。機械が縛る——問いが新しく載った周に R1 が carried_over なら exit 2）"
+   ],
+   "note": "[block] = 0 を待たない——欠陥が多いほど枠の検査が遠ざかる逆構造を避ける。台帳を監査する経路は R1 しか無い",
+   "prompt_file": "../prompts/review-loop/r1.minimality.md",
+   "reads": [
+    "out.r1.comment_candidates",
+    "out.p0.purpose.purpose_text",
+    "loop.diff_file",
+    "record.base",
+    "record.units",
+    "record.questions",
+    "record.scalars",
+    "loop.prev_scalars",
+    "loop.lines_ratio",
+    "inputs.review_md",
+    "inputs.cwd",
+    "record.process.fixes"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "status",
+     "reason",
+     "deletions",
+     "ledger_audit",
+     "increments"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "status": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed",
+       "unverifiable"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "deletions": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "why"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "why": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "ledger_audit": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "increments": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "candidates_note": {
+      "type": "string"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "reviews.R1",
+     "from": "$",
+     "pick": [
+      "status",
+      "reason"
+     ]
+    },
+    {
+     "op": "set",
+     "to": "process.r1",
+     "from": "$",
+     "pick": [
+      "deletions",
+      "ledger_audit",
+      "increments",
+      "candidates_note"
+     ]
+    }
+   ],
+   "when": "R1 の再発火条件に当たる周（初回は必ず）",
+   "cond": {
+    "path": "loop.r1_refire",
+    "op": "eq",
+    "value": true,
+    "default": true
+   }
+  },
+  "r2.design": {
+   "stage": "P-R",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "deps": [
+    "p0.purpose",
+    "p0.purpose_review",
+    "p4.assemble"
+   ],
+   "source": "P-R ＞ R2 ゼロベース再導出（独立設計の半分。完全隔離）",
+   "inputs": [
+    "purpose_text のみ"
+   ],
+   "forbidden_inputs": [
+    "実装",
+    "リポジトリ",
+    "コミット履歴",
+    "累積差分",
+    "決着済み論点"
+   ],
+   "does": "まず目的の実在を疑う（立っていなければ premise-invalid を直接返す）。立っていれば元の目的から理想解を独立設計——当事者が日常で回す動線まで含める。突合も verdict の確定もしない",
+   "outputs": [
+    "reviews.R2（premise-invalid のとき）"
+   ],
+   "must_run_in_round_1": true,
+   "refire_when": [
+    "差分が機構を足した／置き換えた",
+    "前提のドリフト",
+    "累積差分の行数が前回から 1.5 倍"
+   ],
+   "note": "入力が purpose_text だけなので序盤に先行起動できる——先行できるのは設計の半分だけで、比較（r2.compare）は累積差分が要る。P0 で目的が unverifiable なら R2 も unverifiable（持ち越せない——毎ラウンド同じ値を書く）",
+   "prompt_file": "../prompts/review-loop/r2.design.md",
+   "reads": [
+    "out.p0.purpose.purpose_text",
+    "record.process.constraints",
+    "loop.drift_notes"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "question_stands",
+     "reason",
+     "design"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "question_stands": {
+      "type": "boolean"
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "premise_invalid_reason": {
+      "type": "string"
+     },
+     "design": {
+      "type": "string"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.r2_design",
+     "from": "$"
+    }
+   ],
+   "when": "R2 の再発火条件に当たる周（初回は必ず）",
+   "cond": {
+    "path": "loop.r2_refire",
+    "op": "eq",
+    "value": true,
+    "default": true
+   },
+   "post_check": "r2_design"
+  },
+  "r2.compare": {
+   "stage": "P-R",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "deps": [
+    "r2.design",
+    "p4.assemble"
+   ],
+   "source": "P-R ＞ R2（比較役の半分。verdict を確定するのは比較役で writer ではない）",
+   "inputs": [
+    "独立設計（貼る）",
+    "累積差分の本文（貼る）"
+   ],
+   "forbidden_inputs": [
+    "調査の経緯",
+    "判定の一覧"
+   ],
+   "does": "本質的な食い違いの有無（構造）で verdict を確定。表現の違いは食い違いでない",
+   "outputs": [
+    "reviews.R2"
+   ],
+   "prompt_file": "../prompts/review-loop/r2.compare.md",
+   "reads": [
+    "out.r2.design.design",
+    "file:loop.diff_file",
+    "out.p0.purpose.purpose_text"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "status",
+     "reason",
+     "differences"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "status": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "differences": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "kind",
+        "text"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "kind": {
+         "type": "string",
+         "enum": [
+          "構造",
+          "表現"
+         ]
+        },
+        "text": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "reviews.R2",
+     "from": "$",
+     "pick": [
+      "status",
+      "reason"
+     ]
+    }
+   ],
+   "when": "R2 が再発火し、問いが立っていて、目的の出典が取れている",
+   "cond": {
+    "all": [
+     {
+      "path": "loop.r2_refire",
+      "op": "eq",
+      "value": true,
+      "default": true
+     },
+     {
+      "path": "out.r2.design.question_stands",
+      "op": "eq",
+      "value": true
+     },
+     {
+      "path": "loop.purpose_known",
+      "op": "eq",
+      "value": true,
+      "default": true
+     }
+    ]
+   }
+  },
+  "r3.coherence": {
+   "stage": "P-R",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "when": "[block] と do-now が 0",
+   "deps": [
+    "p4.assemble"
+   ],
+   "source": "P-R ＞ R3 全体整合",
+   "inputs": [
+    "累積差分（貼る）",
+    "変更ファイル一覧"
+   ],
+   "does": "diff が触れた範囲のファイル横断の整合（命名・規約・界面・docs 追従・既定と推奨の文書間一致）",
+   "outputs": [
+    "reviews.R3"
+   ],
+   "note": "到達しなかったラウンドは not_applicable と理由。阻害が他に無いのに not_applicable なら P-R を飛ばしたとして阻害",
+   "prompt_file": "../prompts/review-loop/r3.coherence.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files",
+    "record.base",
+    "inputs.review_md",
+    "inputs.repo_review_md",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "status",
+     "reason"
+    ],
+    "properties": {
+     "status": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed",
+       "unverifiable"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "reviews.R3",
+     "from": "$"
+    }
+   ],
+   "cond": {
+    "path": "loop.open_units",
+    "op": "eq",
+    "value": 0,
+    "default": 0
+   }
+  },
+  "r4.hidden_scope": {
+   "stage": "P-R",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "when": "[block] と do-now が 0",
+   "deps": [
+    "p4.assemble"
+   ],
+   "source": "P-R ＞ R4 見えてないスコープ（横断リスク・BASE 能力インベントリ）",
+   "inputs": [
+    "累積差分",
+    "REVIEW.md 横断リスク観点（Read させる）"
+   ],
+   "does": "diff が解こうとしている領域に潜む横断リスク（SRE・セキュリティ・データガバナンス）。移行退行の棚卸しは『消えた能力』の明示返答を要求。導入・露呈したものは redesign-needed、既存で無関係なら [suggest] で surface して pass",
+   "outputs": [
+    "reviews.R4"
+   ],
+   "prompt_file": "../prompts/review-loop/r4.hidden_scope.md",
+   "reads": [
+    "loop.diff_file",
+    "loop.changed_files",
+    "record.base",
+    "inputs.review_md",
+    "inputs.cwd",
+    "out.p0.purpose.purpose_text"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "status",
+     "reason",
+     "capability_inventory",
+     "surfaced"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "status": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed",
+       "unverifiable"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "capability_inventory": {
+      "type": "object",
+      "required": [
+       "fired"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "fired": {
+        "type": "boolean"
+       },
+       "lost": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "note": {
+        "type": "string"
+       }
+      }
+     },
+     "surfaced": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "text"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        },
+        "mechanism": {
+         "type": "string"
+        },
+        "measured": {
+         "type": "string"
+        },
+        "false_positive_if": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "reviews.R4",
+     "from": "$",
+     "pick": [
+      "status",
+      "reason"
+     ]
+    },
+    {
+     "op": "set",
+     "to": "process.r4",
+     "from": "$",
+     "pick": [
+      "capability_inventory",
+      "surfaced"
+     ]
+    }
+   ],
+   "cond": {
+    "path": "loop.open_units",
+    "op": "eq",
+    "value": 0,
+    "default": 0
+   },
+   "post_check": "r4_inventory"
+  },
+  "stop.premise_check": {
+   "stage": "停止条件",
+   "run_by": "judge",
+   "fresh_context": true,
+   "optional": true,
+   "when": "R2 が premise-invalid",
+   "deps": [
+    "r2.design",
+    "r2.compare"
+   ],
+   "source": "停止条件 ＞ 前提不成立（立った周に別 context の judge が根拠を検算）",
+   "inputs": [
+    "premise-invalid の根拠",
+    "リポジトリの実態"
+   ],
+   "does": "blind-judge の根拠に混じる目的テキストの外の仮定を実態で検算。偽と示せたら resolved（実測した事実を制約に足し、次の周で R2 を回し直す。この周の R2 は premise-invalid のまま書く）。真か反証できないなら escalate → 件数に依らず止めて聞く",
+   "outputs": [
+    "questions（premise）"
+   ],
+   "prompt_file": "../prompts/review-loop/stop.premise_check.md",
+   "reads": [
+    "out.r2.design",
+    "out.p0.purpose.purpose_text",
+    "record.process.constraints",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "key",
+     "assumption",
+     "assumption_false",
+     "evidence",
+     "verdict",
+     "reason"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "key": {
+      "type": "string",
+      "minLength": 1
+     },
+     "assumption": {
+      "type": "string"
+     },
+     "assumption_false": {
+      "type": "boolean"
+     },
+     "evidence": {
+      "type": "string"
+     },
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "resolved",
+       "escalate"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "resolution": {
+      "type": "string"
+     },
+     "facts_to_add": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "premise_question",
+     "from": "$"
+    }
+   ],
+   "cond": {
+    "path": "record.reviews.R2.status",
+    "op": "eq",
+    "value": "premise-invalid",
+    "default": null
+   }
+  },
+  "p4.record": {
+   "stage": "P4",
+   "run_by": "driver",
+   "deps": [
+    "p4.assemble",
+    "r1.minimality",
+    "r2.compare",
+    "r3.coherence",
+    "r4.hidden_scope",
+    "stop.premise_check"
+   ],
+   "source": "P4 ＞ 3. 突合（機械）／P-R ＞ verdict は記録の reviews に写せ",
+   "does": "周の記録 rounds/round-<N>.json を組む（走らせなかった R は carried_over／not_applicable を機械が書く）。検証器にディレクトリを渡し、出力（履歴・帰属・聞く時）を次の周の judge と converge に渡す",
+   "outputs": [
+    "rounds/round-<N>.json",
+    "reviews（R1〜R4 の穴埋め）",
+    "検証器の出力"
+   ],
+   "verdict_is_copy": true,
+   "note": "Python 3.6 未満だと f-string の構文エラーが exit 1（阻害あり）に化けるので版を確かめる。分岐: 新規／残存 [block] か未対応の do-now が残る→P3 へ戻り次の採点へ／[block] 0 かつ CI 緑→P-R へ",
+   "builtin": "record_round"
+  },
+  "converge": {
+   "stage": "P4",
+   "run_by": "driver",
+   "deps": [
+    "p4.record"
+   ],
+   "source": "停止条件",
+   "does": "検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）と CI 緑と上限 5 を読んで、converged / next_round / ask / stopped",
+   "outputs": [
+    "decision"
+   ],
+   "verdict_is_copy": true,
+   "builtin": "converge"
+  },
+  "report.human_items": {
+   "stage": "最終報告",
+   "run_by": "writer",
+   "deps": [
+    "converge"
+   ],
+   "source": "最終報告 ＞ 人に聞くところ（初見で読んで決められる形）",
+   "does": "冒頭 3 行は『人が決めること』だけ（台帳の held / escalate。無ければ『無い』と 1 行）。直後に『ループが自分で決めたこと』（resolved の resolution を根拠つきで）。急ぐ／後でよいを分け件数を先に。1 件ずつ独立に、内部の語彙を使わずに、選択肢と帰結を judge の options / reason だけから（writer が推さない）",
+   "outputs": [
+    "human_items（本文）"
+   ],
+   "prompt_file": "../prompts/review-loop/report.human_items.md",
+   "reads": [
+    "record.questions",
+    "record.units",
+    "record.process",
+    "loop",
+    "out.p4.record.out",
+    "inputs.lang"
+   ],
+   "text": true
+  },
+  "report.cold_check": {
+   "stage": "最終報告",
+   "run_by": "cold-reader",
+   "fresh_context": true,
+   "deps": [
+    "report.human_items"
+   ],
+   "source": "最終報告 ＞ 出す前に確かめろ（cold-reader に人に聞くところの本文だけ）",
+   "inputs": [
+    "人に聞くところの本文だけ（貼る）"
+   ],
+   "forbidden_inputs": [
+    "ラウンドの経緯",
+    "記録",
+    "差分"
+   ],
+   "does": "①どこで止まったか ②何を推測で埋めたか ③この本文だけで決められるか。詰まりが残るうちは出さない。別プラグインの投稿ゲートに頼らない（導入していない実行者では黙って飛ばされる）。自己評価で代用しない",
+   "outputs": [
+    "process.cold_check"
+   ],
+   "prompt_file": "../prompts/review-loop/report.cold_check.md",
+   "reads": [
+    "out.report.human_items.text"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "verdict",
+     "stops",
+     "guessed",
+     "decidable"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed"
+      ]
+     },
+     "stops": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "guessed": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "decidable": {
+      "type": "boolean"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.cold_check",
+     "from": "$"
+    }
+   ],
+   "post_check": "cold_check_gate"
+  },
+  "report": {
+   "stage": "最終報告",
+   "run_by": "writer",
+   "deps": [
+    "report.cold_check"
+   ],
+   "source": "最終報告",
+   "does": "利用者の言語で。履歴をそのまま貼る。各根本ユニットのラベルと対応／R1〜R4 の verdict と理由（記録から写す。持ち越しは実際に走らせたラウンドも）／問いの台帳の全推移と決めた根拠／defer 台帳の和集合／grader の生出力・再実行回数・目的の出典・BASE／主経路の実行観測／新設機構の棚卸し（判定抜き）",
+   "outputs": [
+    "final_report"
+   ],
+   "prompt_file": "../prompts/review-loop/report.md",
+   "reads": [
+    "record",
+    "raw",
+    "validation",
+    "loop",
+    "out.report.human_items.text",
+    "out.report.cold_check",
+    "inputs.lang"
+   ],
+   "text": true,
+   "pre": "finalize",
+   "save_text_as": "report.md"
+  }
+ },
+ "exec": true,
+ "rules": "../rules/review-loop.py",
+ "tree_guard_roles": [
+  "investigator"
+ ],
+ "raw_for_report": [
+  "p2.diagnose",
+  "p2.history",
+  "r1.minimality",
+  "r2.design",
+  "r2.compare",
+  "r3.coherence",
+  "r4.hidden_scope",
+  "stop.premise_check",
+  "report.cold_check",
+  "p1.hygiene",
+  "p1.consistency_bypass",
+  "p1.external_standards"
+ ],
+ "overview": "コード変更を、採点役と実装役を分けて収束まで回す。P0 で基準点・目的・前提・並行 PR・先行議論を固定し（once）、P1 で 9 系統の素材を新しい context の役が集め（機械が前後で作業ツリーを突き合わせ、走らせなかった欄も機械が埋める）、P2 で judge が根本ユニットとラベルと問いの台帳を確定し（2 周目以降は同じ judge に履歴と前の台帳を後から渡す）、P3 で writer が [block] と do-now を直して閉鎖を実証し、P4 で CI と scalar を取り、機械が R1/R2 の再発火と [block] 0 を数え、R1〜R4 の独立の目を回し、周の記録を組んで検証器（review-record.py）にディレクトリごと渡す。検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）を機械が読んで次の周か停止か人に聞く。上限 5 周。writer は判定を一切しない",
+ "cond_note": "cond の path は engine が解決する。解決できない path は die——綴り違いや欄の改名が「条件が成り立たない」に化けると、走らなかった節の素材に事実と逆の理由が書かれたまま収束まで通る。設計上まだ書かれていない欄を見る cond は default を明示する（下の各節）",
+ "verdict_paths": [
+  "reviews",
+  "units",
+  "questions"
+ ],
+ "verdict_fields": [
+  "label",
+  "disposition",
+  "status",
+  "verdict"
+ ],
+ "verdict_note": "回す側（runners）が書いてはいけない記録の場所と欄名。graphcheck が節の outputs と writes をこれで照合する（判定の語彙は loop ごとに違うので engine にも検査器にも写さない）"
+}

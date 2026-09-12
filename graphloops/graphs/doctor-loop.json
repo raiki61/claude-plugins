@@ -1,0 +1,716 @@
+{
+ "loop": "doctor-loop",
+ "plugin": "convergence-loops",
+ "runners": [
+  "prospector"
+ ],
+ "basis": "commands/doctor-loop.md と scripts/doctor-record.py（convergence-loops 0.18.1。origin/main 0.31.1 でもこの 2 ファイルは変わっていない——2026-09-12 に git diff で確認）から起こした現状の写し。既知の未決は docs/doctor-loop-v2-remaining-findings.md（昇格義務と P3-6 の衝突・子の無い生成節の入力仕様・棄却確定時の一撃・途中昇格の入力整備・レンズ未指定の既定・rescan の指示が手順書に無い）。正本は手順書と検証器。役の道具は agents/<役>.md が正本なのでここに写さない",
+ "record": {
+  "file": "1 実行 1 記録。必ず作業ツリーの外（一時ディレクトリ）——変更禁止の機械確認（git 突合）は作業ツリーを対象とするので、外への記録はそれに映らない。プラグインの実体ディレクトリにも書かない（更新でパスが変わる）",
+  "validator": "python3 doctor-record.py <記録.json>——最終報告の前に exit 0 になるまで直す",
+  "validator_path": "scripts/doctor-record.py",
+  "vocab_owner": "doctor-record.py の NODE_VERDICTS / VERDICT_FIELDS / CONFIDENCES / WEIGHTS / ESCALATION_WEIGHTS / THICKNESS / DECIDERS / GATE_VERDICTS / OUTCOMES / FEASIBILITY / REQUIRED（ここに写さない）",
+  "exit_codes": "0 = 発行を妨げるものなし／1 = 飽和を名乗りながら条件が揃っていない（未検証の節・抜き取り無しか覆り・cartographer 突合無しか未 pass・重厚で rederiver 未 pass・cold-reader 未 pass）／2 = 記録が不正。outcome=stopped は 1 にならない"
+ },
+ "read_only": "このループは提案のみで、リポジトリへの変更を一切適用しない。Bash は読み取り専用の計器としてだけ。例外は自分の汚しの復旧（mod.after）だけ。issue 起票もしない。成果物は最終報告だけ",
+ "thickness": {
+  "tiers": [
+   "軽量",
+   "標準",
+   "重厚"
+  ],
+  "default": "標準",
+  "deciders": {
+   "default": "既定",
+   "downgrade": "依頼者指定"
+  },
+  "rule": "面積の指定は厚みの指定ではない（『ここだけ見て』は P0-1 の範囲指定。狭い範囲を標準で走らせるのが既定）。軽量への降格は依頼者が厚みを名指しした場合のみ。昇格は自律で自由（依頼者指定の軽量からも）。昇格が義務になる条件（標準）: 一撃に選ばれた節が高さ 3 以上、または高さ 4 の節が生えた。軽量で、棄却理由が複数候補で同じ親を指した・構成変更級が出た・複数 scout の領域診断が同じ体制の形を報告した → その場で標準へ上げ 1 ラウンド打ち切りを解除。標準以上の段の変更は次ラウンドから。段・誰が決めたか・客観基準を記録に。省略した機構は報告に明示",
+  "軽量": "P0-1・P0-2（省略可）・P0-3（簡略可）・P0-4（必須）＋指定レンズの P1 と出た候補への P2。1 ラウンドで打ち切り。P3-1（節を張る）まで。P3-2〜6・P4・cartographer は走らせない（『この段では走らせていない』と明示）",
+  "標準": "P0〜P4 全部（計器→レンズ別 scout→検証と刈り込み→木の構築→飽和まで反復＋cartographer の突合）",
+  "重厚": "標準＋独立再導出（rederiver と比較係）＋模範照合。要約レビュアーも重厚のみ"
+ },
+ "data": {
+  "tree": "中心の成果物は候補の一覧でなく根本の木。節の欄: 安定キー・高さ（1 症状／2 機構／3 体制／4 方針。固定 4 段）・親キー（無根拠の親付け禁止）・レンズ・確度（確実／有力／仮説）・重さ（4 段。scout が根拠付きで付ける。prospector は上げてよいが下げるのは禁止。prospector 生成の親は空）・判定（初期値『未検証』は判定の不在）",
+  "lenses": "減らす／縛りの余地／構造を正す／時代に合わせる——ISO/IEC/IEEE 14764 の保守分類に係留（是正保守＝欠陥探しは守備範囲外）",
+  "verdict_vocab": "候補の判定（日本語）: 事実誤り・既決着（P2a）／推奨・条件付き・棄却・検証不能（P2b）／判定不一致（保留枝）。状態値: 未検証・通過。ゲートの verdict（英語）: pass / redesign-needed / unverifiable。2 系統を混ぜない",
+  "pruning": "刈るとは下と横を閉じて上だけ開けておくこと——木から外さない（外すと安定キーの突合から漏れて再燃する）。棄却理由から親候補を抽出して木に足す。検証不能は保留枝（上のみ展開）"
+ },
+ "round": {
+  "unit": "P1→P3 を 1 周",
+  "max_rounds": 6,
+  "max_rounds_note": "6 ラウンド目の完了時に飽和していなくても停止し『飽和せず』と残った観点・木の現状を報告。暴走ガードの総ラウンド数は面積の割り直しをまたいで継続計上。検証器は rounds_total の下限しか見ない",
+  "converge": {
+   "all_of": [
+    "生えない——連続 2 ラウンドで新しい節が生えなかった（葉も親も）。『新しい節』と数えるのは確定判定が推奨・条件付き・検証不能の節だけ（事実誤り・既決着・棄却の新規はカウンタを動かさない——価値の新規性で測る）",
+    "揺らがない——飽和の抜き取り検査で判定が 1 件も覆らない",
+    "欠けていない——cartographer の突合（比較係）が pass",
+    "重厚では rederiver の突合（比較係）も pass"
+   ],
+   "counter_reset": "抜き取りで判定が覆った・収束ゲートが redesign-needed を返した・thrash で面積を割り直した——いずれも連続カウントを 0 へ",
+   "counted_by": "記録の convergence（rounds_total・consecutive_zero）は prospector の申告。doctor-record.py は『飽和（saturated）を名乗る記録』に対してのみ、未検証の節・抜き取り・cartographer・rederiver・cold-reader を阻害にする",
+   "note": "飽和が宣言できるのは『この面積×レンズ×この目では、これ以上生えなかった』まで。機械に『リポジトリは健全』を宣言させない"
+  },
+  "exit_states": {
+   "saturated": "飽和。最終報告へ",
+   "max_rounds": "6 ラウンド目の完了で停止",
+   "stuck": "同じ節が『判定不一致』のまま 2 ラウンド残る → 昇格ではなく依頼者に諮る（無人では保留枝のまま続行し要人間判断へ）",
+   "thrash": "新しい節が出続ける → 面積の割り方かレンズの立て方の誤り。処理順は固定: ①P0-2 に戻って面積を割り直す（cartographer は再起動）→ ②続くなら重厚へ昇格 → ③それでも収束しなければ諮る",
+   "zero_base_divergence": "重厚のみ。rederiver の redesign-needed（構造差）を節として木に足して検証し、再ラウンド 1 回で解消しなければ諮る",
+   "unverifiable": "重厚のみ。rederiver が unverifiable（正典から目的・制約を独立に取れない）→ 飽和を宣言せず諮る",
+   "cartographer_unverifiable": "比較係が unverifiable（列挙と記録が対応づけられない）→ 飽和を宣言せず諮る",
+   "prior_decisions_unchecked": "P0-4 が『確認できなかった』のまま → 飽和を宣言せず諮る"
+  },
+  "unattended": "『依頼者に諮れ』で止まらない。stuck・thrash・ゲートの unverifiable・先行議論を洗えていない → 保守的な既定で続行し要人間判断へ。候補判定の『検証不能』は保留枝として続行する通常の運び（諮る対象ではない）。面積が未指定なら P0-5 のホットスポットで上位 1 モジュールを選び『依頼者確認を得ていない』旨を要人間判断へ（このとき P0-5 は省けない）。候補の採否は無人でも代行しない。扇形展開は前景の並列呼び出し",
+  "per_round_rules": [
+   "scout は毎ラウンド新しい context。前ラウンドの候補・経緯を渡さない。prospector 側で安定キーにより新規だけを拾う",
+   "P2 は新規の節だけに、毎回新しい context で（P3-3 由来の親と抜き取りを含む）",
+   "計器（P1 第 1 層）は決定的なので再実行不要",
+   "上方向の展開もラウンドの仕事——既存の節に新しい親が生えたらそのラウンドは新規ありと数える",
+   "同一ラウンドで checker・refuter・3 票・cartographer・rederiver・cold-reader のいずれも回し直さない（cold-reader だけは redesign-needed を受けて報告を直した後の再検査を例外とする——上限 2 回。それでも redesign-needed なら指摘を報告冒頭に転記して出す）。再判定は新しい根拠を添えたときだけ。食い違えば両論並記で判定不一致",
+   "増し掛け（事前に票数を決める）は回し直し（事後に票を買い足す）とは別物。重さの引き上げが P2b の判定後に生じたら増し掛けは次ラウンド（既知の未決）",
+   "検証の相乗り禁止——複数の節を 1 体の checker / refuter に束ねない。費用を下げる正しい手段は面積を絞ることと judge の例外駆動だけ",
+   "系譜を数えない——複数 scout の同じ事実は 1 つの事実の N 回の観測。節は 1 つに統合し、確度の根拠に『複数 scout が一致』を使わない"
+  ]
+ },
+ "nodes": {
+  "p0.thickness": {
+   "stage": "P0",
+   "run_by": "prospector",
+   "deps": [],
+   "source": "厚みの三段（最初に決める）",
+   "does": "段を P0 の冒頭で固定。どの段か・誰が決めたか・客観基準（面積の広さ・後戻りの高さ・参照される期間）を記録",
+   "outputs": [
+    "thickness",
+    "thickness_decider"
+   ]
+  },
+  "p0.area_lens": {
+   "stage": "P0",
+   "run_by": "prospector",
+   "deps": [
+    "p0.thickness"
+   ],
+   "source": "P0 ＞ 1. 範囲を「面積×レンズ」で固定しろ",
+   "does": "面積（コード・CI・ビルド・開発環境・文書）×レンズを固定。全体×全レンズは禁止。依頼者が指定しなければ候補範囲を挙げて確認を取る（人の入力。無人なら P0-5 で選ぶ）。全体なら 1 レンズ",
+   "outputs": [
+    "area"
+   ],
+   "asks_human": "面積・レンズが未指定のとき（有人）"
+  },
+  "p0.split": {
+   "stage": "P0",
+   "run_by": "prospector",
+   "deps": [
+    "p0.area_lens"
+   ],
+   "source": "P0 ＞ 2. 面積の分割",
+   "does": "1 つの scout が 1 コンテキストで実際に読み切れる単位まで割る。scout に候補数の上限を課さない（絞るのは P2 の仕事）",
+   "outputs": [
+    "scout_areas"
+   ]
+  },
+  "p0.domain_map": {
+   "stage": "P0",
+   "run_by": "prospector",
+   "deps": [
+    "p0.area_lens"
+   ],
+   "source": "P0 ＞ 3. ドメイン地図",
+   "does": "正典（README・docs・設計文書・ADR 索引）から『目的・制約』と『現行のモジュール構成』を分けて 3〜10 行。出典は正典に限る（実装の読み取り・記憶で埋めない）。正典から取れなければ『文書の欠落』候補を立て、重厚では rederiver を unverifiable 扱い",
+   "outputs": [
+    "purpose_constraints",
+    "current_structure"
+   ],
+   "note": "rederiver に渡すのは『目的・制約』だけ。現行構成は比較係だけが持つ"
+  },
+  "p0.map_review": {
+   "stage": "P0",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "optional": true,
+   "active_in": [
+    "重厚"
+   ],
+   "when": "正典から再構成しきれず補った箇所がある",
+   "deps": [
+    "p0.domain_map"
+   ],
+   "source": "P0 ＞ 3. ＞ 要約レビュアー",
+   "inputs": [
+    "要約と補った箇所"
+   ],
+   "does": "補った箇所をレビューし、合格分だけ rederiver へ",
+   "outputs": [
+    "purpose_constraints（合格分）"
+   ]
+  },
+  "p0.prior_and_dead": {
+   "stage": "P0",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "deps": [
+    "p0.area_lens"
+   ],
+   "source": "P0 ＞ 4. 先行議論の突合と、死んだ試みの探索",
+   "does": "ADR・open/closed issue・PR・作業ブランチ・決定の記録を洗う（open PR とブランチは『既に実装中か』の材料——P3-5 の票に貼る）。死んだ試み（検査の削除履歴・continue-on-error・基準線の放棄。git log -S）を必ず探す。決定の記録を残す器の所在——無ければその不在自体を候補（文書の欠落）に。洗えなければ『確認できなかった』（『重複なし』と書かない）",
+   "outputs": [
+    "prior_decisions",
+    "dead_attempts",
+    "in_progress_evidence",
+    "ledger_location"
+   ],
+   "note": "どの段でも省かない。検索作業なので P0 の他項目と並走"
+  },
+  "p0.hotspot": {
+   "stage": "P0",
+   "run_by": "prospector",
+   "optional": true,
+   "deps": [
+    "p0.area_lens"
+   ],
+   "source": "P0 ＞ 5. ホットスポット信号",
+   "does": "git log の変更頻度×変更規模で深読みの優先順位。判断が要る候補ほど熱い場所を優先、機械的に安全な候補は温度に関係なく全域",
+   "outputs": [
+    "hotspots"
+   ],
+   "note": "無条件に省いてよい唯一の項（ただし無人・面積未指定では省けない——既知の文言衝突）"
+  },
+  "mod.before": {
+   "stage": "P0",
+   "run_by": "prospector",
+   "deps": [],
+   "source": "変更禁止の機械確認",
+   "does": "走査を始める前に git status --porcelain と git stash list を記録",
+   "outputs": [
+    "worktree_snapshot_before"
+   ]
+  },
+  "p1.instruments": {
+   "stage": "P1",
+   "run_by": "prospector",
+   "deps": [
+    "p0.area_lens",
+    "mod.before"
+   ],
+   "source": "P1 ＞ 第 1 層（計器）",
+   "does": "既にある lint・型検査・テスト・未使用検出・重複検出・文書のリンク実在・git 履歴の信号を読み取り専用で当てる。導入されていない計器は痕跡を残さない方法（使い捨て実行・一時ディレクトリ・lock を更新しない）に限る。依存追加や lock 更新を要するものは『試せなかった計器』。出力は生データであって候補ではない",
+   "outputs": [
+    "instrument_output",
+    "rescan.instruments"
+   ],
+   "note": "面積の確定だけに依存する——レンズが未定でも回し始めてよく、P0-2〜5 の完了も待たない"
+  },
+  "p1.scouts": {
+   "stage": "P1",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "deps": [
+    "p0.split",
+    "p1.instruments",
+    "p0.hotspot"
+   ],
+   "source": "P1 ＞ 第 2 層（scout）",
+   "inputs": [
+    "担当の面積",
+    "レンズ 1 つ",
+    "計器の出力",
+    "確度の語彙（固定）と重さの表",
+    "読解の盲点の注意（動的な結び付き・環境の実態・並行は断定禁止）"
+   ],
+   "forbidden_inputs": [
+    "他の scout の出力",
+    "前ラウンドの候補・経緯",
+    "prospector の統合見立て"
+   ],
+   "does": "レンズ×分割面積ごとに並行起動。候補（根拠パス:行・期待効果・確度・重さ）＋領域診断（この面積でこの種の規律は何によって守られているか 2〜4 行）。『候補あり』か『見つからなかった』を必ず明示。内包知識は仮説の生成に使ってよいが判定の根拠にしない",
+   "outputs": [
+    "scouts[]（area・lens・candidates_returned・diagnosis_returned）",
+    "candidates",
+    "diagnoses"
+   ],
+   "note": "返ってきた候補から順に P2a へ流す——全 scout の返答を待ち合わせない（待ち合わせが要るのは P3 の木の構築だけ）"
+  },
+  "p1.reconcile": {
+   "stage": "P1",
+   "run_by": "prospector",
+   "deps": [
+    "p1.scouts"
+   ],
+   "source": "P1 ＞ 返答の突合と復旧／系譜を数えるな",
+   "does": "起動した scout 数と返答数を候補と領域診断の 2 点で突合。欠いた scout は同一面積×レンズで 1 度だけ再起動、それでも返らなければ『見ていない範囲』に列挙して飽和の宣言から除外（欠落を『見つからなかった』と読まない）。複数 scout の同じ事実は節 1 つに統合",
+   "outputs": [
+    "unseen"
+   ],
+   "retry": "返答を欠いた scout を同一面積×レンズで 1 度だけ再起動"
+  },
+  "p2a.checker": {
+   "stage": "P2a",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "deps": [
+    "p1.reconcile"
+   ],
+   "source": "P2 ＞ P2a 事実照合",
+   "inputs": [
+    "候補 1 件（本文・根拠）",
+    "P0-4 の決着済み・死んだ試み"
+   ],
+   "forbidden_inputs": [
+    "他の候補",
+    "prospector の統合見立て",
+    "前ラウンドの経緯"
+   ],
+   "does": "機械的な事実だけ: ①根拠が指すファイルに本当にそう書いてあるか ②同じ検査が既に別の場所で走っていないか ③決着済み・死んだ試みに当たらないか ④提案する道具・設定項目が実在するか ⑤重さの根拠。返り値は事実誤り（①④）／既決着（②③。P2b は省き棄却理由からの親抽出は行う）／通過印（⑤で重さの根拠が崩れていれば訂正後の重さと事実根拠）。価値判断はさせない。④のうち外部の道具は『外部実在・未確認』で返させる",
+   "outputs": [
+    "nodes[].verdict（事実誤り｜既決着｜通過）",
+    "nodes[].weight（訂正）"
+   ]
+  },
+  "p2a.external": {
+   "stage": "P2a",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "optional": true,
+   "when": "checker が『外部実在・未確認』を返した（配布元・公式ドキュメントでしか実在を確かめられない道具・設定項目）",
+   "deps": [
+    "p2a.checker"
+   ],
+   "source": "P2 ＞ P2a ＞ ④",
+   "does": "一次情報で実在を裏取り。実在しなければ事実誤りとして刈る。未確認を通過印にしない",
+   "outputs": [
+    "nodes[].verdict（事実誤り｜通過）"
+   ]
+  },
+  "p2b.refuter_primary": {
+   "stage": "P2b",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "deps": [
+    "p2a.checker",
+    "p2a.external"
+   ],
+   "source": "P2 ＞ P2b 敵対検証 ＞ 一次反証",
+   "inputs": [
+    "当該候補の本文・根拠・その根拠が指すファイルの内容だけ"
+   ],
+   "forbidden_inputs": [
+    "他の候補",
+    "prospector の統合見立て",
+    "前ラウンドの経緯",
+    "他レンズの所見"
+   ],
+   "does": "P2a を通過した候補と、根拠を持つ prospector 生成節に 1 体ずつ。『直す価値がない・壊れる・既に決定済み・読み違いだ』の側から反証。誤検出の見積もり（2 割超の機械チェック提案は棄却理由）。判定 4 語彙まで出す",
+   "outputs": [
+    "nodes[].verdict（推奨｜条件付き｜棄却｜検証不能）"
+   ]
+  },
+  "p2b.refuter_judge": {
+   "stage": "P2b",
+   "run_by": "judge",
+   "fresh_context": true,
+   "optional": true,
+   "when": "(1) 一次判定が推奨・条件付き (2) 重さがライブラリ級・構成変更級（一次を省き最初から観点を変えた独立 3 票——直す価値／副作用と既決着／読み違い。同一判定 2 票で確定、過半なしは判定不一致）",
+   "deps": [
+    "p2b.refuter_primary"
+   ],
+   "source": "P2 ＞ P2b ＞ 二次反証／増し掛け／親の節への入力仕様",
+   "inputs": [
+    "当該候補の本文・根拠・根拠ファイルの内容"
+   ],
+   "forbidden_inputs": [
+    "一次の判定・理由",
+    "他の候補",
+    "統合見立て",
+    "前ラウンドの経緯"
+   ],
+   "does": "例外駆動の高い針——誤りの損害が高い判定だけ。二次が走った節は二次の判定が確定。走らない節は一次の判定が確定（誤りは抜き取りと棄却付録の人の目が捕まえる）",
+   "outputs": [
+    "nodes[].verdict（確定）",
+    "nodes[].verdict（判定不一致）"
+   ]
+  },
+  "p2.library_check": {
+   "stage": "P2b",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "optional": true,
+   "when": "候補の重さがライブラリ級（依存の追加・置換）",
+   "deps": [
+    "p2a.checker"
+   ],
+   "source": "P2 ＞ ライブラリ級",
+   "does": "保守状況・互換性・ライセンスを一次情報で（出典の格は research-loop P1 の階層——公式一次まで）。死んだ試み（アーカイブ・撤回・事業転換）も。人気・採用実績を根拠に書かない",
+   "outputs": [
+    "nodes[].evidence（追加）"
+   ]
+  },
+  "p2.reconcile": {
+   "stage": "P2",
+   "run_by": "prospector",
+   "deps": [
+    "p2b.refuter_primary",
+    "p2b.refuter_judge",
+    "p2.library_check"
+   ],
+   "source": "P2 ＞ 件数突合／増し掛け",
+   "does": "各段に渡した候補数と返った判定数を突合。判定が返っていない候補は当該分だけ再起動して明示の判定を得る（欠落を『指摘なし』と読まない）。増し掛けの対象ゼロのラウンドはその旨と重さの根拠を記録（escalation_zero_reason）。判定不一致は保留枝",
+   "outputs": [
+    "process.escalation_zero_reason",
+    "process.rerolls"
+   ],
+   "retry": "判定を欠いた候補を当該分だけ再起動"
+  },
+  "p3.tree": {
+   "stage": "P3",
+   "run_by": "prospector",
+   "deps": [
+    "p2.reconcile",
+    "p0.prior_and_dead"
+   ],
+   "source": "P3 ＞ 1. 節を張る／2. 領域診断を突き合わせろ／3. 上へ展開しろ／手詰まりの手筋",
+   "does": "全候補（棄却・検証不能・事実誤りも）を節として木に置き、安定キーで全既出集合と突合。領域診断を並べて同じ形なら高さ『体制』以上の節。主要な節に『なぜ在るか』を問い親を生やす（遡り 3 段・高さ 4 以内。確度は仮説から）。手詰まりなら手筋（不在の逆算・逆転・極端化・抽象度の上下）。生やした親と手筋の節は同じラウンドの P2b へ（→ p2b.refuter_judge）。対抗仮説は確度『仮説』の節にして次ラウンドへ",
+   "outputs": [
+    "nodes[]（key・height・parent・confidence・weight・evidence）"
+   ],
+   "note": "待ち合わせ点——全 scout と P2 の返答が揃ってから"
+  },
+  "p3.parent_refute": {
+   "stage": "P3→P2b",
+   "run_by": "judge",
+   "fresh_context": true,
+   "optional": true,
+   "when": "prospector が親の節・手筋の節・対抗仮説を生やした（根拠ファイルを持つ節は先に p2a.checker を通す）",
+   "deps": [
+    "p3.tree"
+   ],
+   "source": "P3 ＞ 3. ＞ 同じラウンドの P2b に必ず掛けろ／P2 ＞ 親の節への入力仕様",
+   "inputs": [
+    "その節の子となる全節の本文と根拠（判定は伏せる——子の判定の並びにアンカーされる）",
+    "関係する領域診断"
+   ],
+   "forbidden_inputs": [
+    "子の判定",
+    "prospector の統合見立て",
+    "前ラウンドの経緯"
+   ],
+   "does": "『この親は子の共通原因として成立するか・別の親ではないか・そもそも実在する体制か』を反証。一次を省いて judge に直行（木の骨格に関わる）。手順書はこれを『同じラウンドの P2b』と書くが、依存の上では P3 の木の構築の後にしか走れないので別の節として置く",
+   "outputs": [
+    "nodes[].verdict（生やした親・生成節）"
+   ],
+   "note": "子を持たない生成節向けの入力仕様は未定義（既知の未決）"
+  },
+  "p3.oneshot": {
+   "stage": "P3",
+   "run_by": "prospector",
+   "deps": [
+    "p3.tree",
+    "p3.parent_refute"
+   ],
+   "source": "P3 ＞ 4. 一撃を計算しろ",
+   "does": "一撃＝直したとき消える子孫（推奨・条件付きのみ）の数が最大で実行可能性（高／中／低）の高い節。検証不能を含めた数も併記。木を数える（印象で選ばない）。選べるのは判定が推奨・条件付きの節だけ",
+   "outputs": [
+    "oneshot（key・descendants・descendants_with_unverifiable・feasibility）候補"
+   ]
+  },
+  "p3.votes": {
+   "stage": "P3",
+   "run_by": "judge",
+   "fresh_context": true,
+   "deps": [
+    "p3.oneshot",
+    "p0.prior_and_dead"
+   ],
+   "source": "P3 ＞ 5. 束ねと一撃は独立 3 票に通せ",
+   "inputs": [
+    "束ねた根本と一撃の候補",
+    "P0-4 で洗った実装中の痕跡（open PR・作業ブランチ・直近コミット）の抜粋——judge は shell を持たないので貼る"
+   ],
+   "forbidden_inputs": [
+    "他の票",
+    "prospector の統合の根拠"
+   ],
+   "does": "観点を変えた 3 体で『症状の寄せ集めでないか・別の親でないか・派生を指していないか・既に実装中でないか』を反証。同一判定 2 票で確定。判定不一致なら一撃を宣言しない（次点を繰り上げない）。prospector が自分の統合を自分で確定しない",
+   "outputs": [
+    "oneshot.votes（3 票）"
+   ],
+   "note": "棄却で確定した場合の運びは未定義（既知の未決）"
+  },
+  "p3.rearch": {
+   "stage": "P3",
+   "run_by": "prospector",
+   "optional": true,
+   "when": "一撃の内容が構成・方式の変更に達する",
+   "deps": [
+    "p3.votes",
+    "h.rederiver_compare"
+   ],
+   "source": "P3 ＞ 6. 構成変更級の一撃を宣言できる条件",
+   "does": "宣言できるのは (a) 束ねた根本が複数レンズにまたがる かつ (b) 重厚の独立再導出が同じ構造を指す、の両方。1 実行 1 件。確度は仮説。当否は本ループで判断せず research-loop へ委譲を提案（問い一文・番号付き制約と測り方・照合可能な主張・先行議論の結果の 4 点を揃える）",
+   "outputs": [
+    "rearch_declaration（任意）",
+    "research_handoff"
+   ],
+   "note": "標準段は (b) を満たせない——昇格するか『重厚での再走査を要する仮説』として報告する（昇格義務条項との衝突は既知の未決）"
+  },
+  "p4.sampling": {
+   "stage": "P4",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "optional": true,
+   "when": "連続 2 ラウンドで新しい節が生えなくなった（飽和の確認）",
+   "deps": [
+    "p3.tree"
+   ],
+   "source": "P4 ＞ 飽和の抜き取り検査",
+   "inputs": [
+    "節の本文と根拠、その根拠が指すファイルの内容だけ"
+   ],
+   "forbidden_inputs": [
+    "元の判定",
+    "理由",
+    "ラウンド"
+   ],
+   "does": "母集団は確定済みの全判定。無作為に 1〜2 割。事実で刈った判定は新しい checker（inspector）に、価値判断の判定は新しい refuter（judge）に引き直させる。覆ったか否かは prospector が安定キーで突合。1 件でも覆れば飽和ではない。結果は（重さ×確度）の層別で報告（覆り率ゼロが続く層は検証過剰、2 割超は検証不足）",
+   "outputs": [
+    "sampling（status・sampled_keys・overturned）"
+   ],
+   "note": "価値判断の引き直しは judge——run_by は 2 役。刈り込みが止める『以後の検証』の唯一の例外（検算であって回し直しではない）"
+  },
+  "p4.cartographer": {
+   "stage": "P4",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "deps": [
+    "p0.area_lens",
+    "p0.domain_map"
+   ],
+   "source": "P4 ＞ cartographer",
+   "inputs": [
+    "P0 の面積×レンズ",
+    "ドメイン要約"
+   ],
+   "forbidden_inputs": [
+    "scout の所見",
+    "木",
+    "候補"
+   ],
+   "does": "『この範囲を完全に走査するために要る観点・見るべき場所』の列挙だけを返す",
+   "outputs": [
+    "coverage_enumeration"
+   ],
+   "note": "入力が P0 だけなので序盤に先行起動してよい。thrash で面積を割り直したら再起動"
+  },
+  "p4.cartographer_compare": {
+   "stage": "P4",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "when": "収束確認の時点（連続 2 ラウンド新規ゼロ）。抜き取りと同時に",
+   "deps": [
+    "p4.cartographer",
+    "p3.tree"
+   ],
+   "source": "P4 ＞ cartographer ＞ 比較係",
+   "inputs": [
+    "cartographer の列挙",
+    "prospector が作った実走査範囲の記録（面積×レンズ×層）"
+   ],
+   "forbidden_inputs": [
+    "木",
+    "候補",
+    "scout の所見",
+    "cartographer の context"
+   ],
+   "does": "pass（差分なし）／redesign-needed（盲点が候補の有無を変えうる——観点に足して新ラウンドへ）／unverifiable（対応づけられない——諮る）。prospector が自分の被覆を自分で採点しない",
+   "outputs": [
+    "gates.cartographer_comparison（verdict・reason）",
+    "rescan.coverage"
+   ]
+  },
+  "h.rederiver": {
+   "stage": "重厚",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "optional": true,
+   "active_in": [
+    "重厚"
+   ],
+   "deps": [
+    "p0.domain_map",
+    "p0.map_review"
+   ],
+   "source": "重厚のみ ＞ rederiver",
+   "inputs": [
+    "目的と制約（P0-3 の要約の前半のみ）"
+   ],
+   "forbidden_inputs": [
+    "現行のモジュール構成",
+    "実装ファイル",
+    "コミット履歴",
+    "木",
+    "候補"
+   ],
+   "does": "『渡されていない現行構成を推測で再構成することを禁じる』の下で、あるべきモジュール構成と仕組みを独立導出。返すのは独立導出（と unverifiable の申告）だけ",
+   "outputs": [
+    "independent_design"
+   ],
+   "note": "隔離が要件なので P1 と並走できる"
+  },
+  "h.rederiver_compare": {
+   "stage": "重厚",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "optional": true,
+   "active_in": [
+    "重厚"
+   ],
+   "deps": [
+    "h.rederiver",
+    "p0.domain_map"
+   ],
+   "source": "重厚のみ ＞ rederiver ＞ 比較係",
+   "inputs": [
+    "独立導出",
+    "prospector が書いた現行構成の記述（P0-3 の後半）"
+   ],
+   "forbidden_inputs": [
+    "木",
+    "候補",
+    "scout の所見",
+    "rederiver の context"
+   ],
+   "does": "構造差の有無でゲートの 3 語彙を確定。構造差が候補の種。表現の違いは差でない。prospector が構造差を自分で確定しない",
+   "outputs": [
+    "gates.rederiver_comparison（verdict・reason）"
+   ]
+  },
+  "h.exemplar": {
+   "stage": "重厚",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "optional": true,
+   "active_in": [
+    "重厚"
+   ],
+   "deps": [
+    "p0.area_lens"
+   ],
+   "source": "重厚のみ ＞ 模範照合",
+   "inputs": [
+    "対象範囲",
+    "同種の成熟した一線級リポジトリ・製品 2〜3"
+   ],
+   "forbidden_inputs": [
+    "P1 の所見"
+   ],
+   "does": "対応する箇所の作りを読み、差をメカニズム＋適用条件で報告。『◯◯がやっているから』は禁止（彼らの制約がこちらで成立するかを添える）。参照した模範と読んだ箇所を報告",
+   "outputs": [
+    "exemplar_comparison"
+   ],
+   "note": "P1 と並走できる"
+  },
+  "converge": {
+   "stage": "P4",
+   "run_by": "prospector",
+   "deps": [
+    "p3.tree",
+    "p3.votes",
+    "p4.sampling",
+    "p4.cartographer_compare",
+    "h.rederiver_compare"
+   ],
+   "source": "P4: ラウンドと飽和（木版）",
+   "does": "round.converge の三条件（生えない・揺らがない・欠けていない＋重厚は rederiver）を評価。満たさなければ次ラウンド（scout を新しい context で）か exit_states。カウンタのリセット条件に従う。無人なら unattended の読み替え",
+   "outputs": [
+    "convergence（rounds_total・consecutive_zero・outcome・stopped_reason）",
+    "triage（discretion・verification_decides・human_only）",
+    "ledger_candidates",
+    "out_of_scope"
+   ],
+   "verdict_is_copy": true,
+   "note": "triage（消化の三分類）・決定記録への転記候補・守備範囲外の所見（欠陥）はここで記録に落とす"
+  },
+  "mod.after": {
+   "stage": "報告前",
+   "run_by": "prospector",
+   "deps": [
+    "converge",
+    "h.exemplar"
+   ],
+   "source": "変更禁止の機械確認",
+   "does": "報告の直前に git status --porcelain と stash list を再取得して mod.before と突合。差があれば自分が汚した分を元に戻し何をどう戻したかを書く。計器の生成物の削除・復旧も同じ。git が使えなければ確認手段が無い旨と代替",
+   "outputs": [
+    "mod_check（clean｜restored｜unavailable・note）"
+   ]
+  },
+  "rep.record": {
+   "stage": "最終報告",
+   "run_by": "prospector",
+   "deps": [
+    "mod.after"
+   ],
+   "source": "最終報告 ＞ 記録が先、散文が後",
+   "does": "実行記録の JSON を作業ツリーの外に書き、doctor-record.py が exit 0 になるまで直す。停止した走査は convergence を stopped にして理由を書けば出せる",
+   "outputs": [
+    "doctor-record.py の終了コード",
+    "rescan（coverage・instruments）"
+   ],
+   "note": "rescan 欄は検証器が必須要求するが手順書に書けという指示が無い（逆向きのズレ。既知）"
+  },
+  "rep.cold_reader": {
+   "stage": "最終報告",
+   "run_by": "cold-reader",
+   "fresh_context": true,
+   "deps": [
+    "rep.record"
+   ],
+   "source": "最終報告 ＞ 報告の初見検査",
+   "inputs": [
+    "報告の本文（貼る）"
+   ],
+   "forbidden_inputs": [
+    "経緯",
+    "記録",
+    "木の構築の過程"
+   ],
+   "does": "報告ゲート——収束の判定には関与しない（3 語彙を共有するだけ）。『本文だけから各候補の採否を判断できるか・前提が省かれていないか・内部語彙が未定義でないか・仮説が断定調でないか』。redesign-needed なら直してから出す（再検査は 2 回まで。上限後は指摘を冒頭に転記）。unverifiable は諮る",
+   "outputs": [
+    "gates.cold_reader.rounds[]（verdict・findings）"
+   ]
+  },
+  "report": {
+   "stage": "最終報告",
+   "run_by": "prospector",
+   "deps": [
+    "rep.cold_reader"
+   ],
+   "source": "最終報告（欠けたら未完成）",
+   "does": "利用者の言語で。散文にだけ残る義務: ①根本の木を字下げの木で（棄却・保留枝も）②refuter・checker・3 票・ゲートの生の判定の転記 ③平易版と凡例 ④棄却された節と理由の付録 ⑤省略した機構 ⑥消化の三分類は情報の価値順 ⑦新設する検査の提案に『違反例を 1 つ作って赤を確認してから信じる』を添える ⑧決定記録への転記候補はそのリポジトリの流儀の書式 ⑨件数を成果として書かない。執筆前の自己検査（数値の測定出所・工程の記録の隔離・未定義の内部語彙）",
+   "outputs": [
+    "final_report"
+   ]
+  },
+  "reflect": {
+   "stage": "ループの後",
+   "run_by": "prospector",
+   "deps": [
+    "report"
+   ],
+   "source": "型への還流",
+   "does": "前回までの実行で依頼者が却下した候補の理由が渡されている場合に限り、この skill 本文への追記案（却下基準・レンズ・反パターン）を差分の形で報告に含める。渡されていなければ『該当なし』。適用するのは依頼者（提案止まり）",
+   "outputs": [
+    "skill_diff_proposal（任意）"
+   ]
+  }
+ },
+ "verdict_paths": [
+  "candidates",
+  "tree",
+  "verdicts"
+ ],
+ "verdict_fields": [
+  "verdict",
+  "label",
+  "disposition"
+ ],
+ "verdict_note": "回す側（runners）が書いてはいけない記録の場所と欄名。graphcheck が節の outputs と writes をこれで照合する（判定の語彙は loop ごとに違うので engine にも検査器にも写さない）"
+}

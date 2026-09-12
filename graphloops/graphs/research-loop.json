@@ -1,0 +1,2118 @@
+{
+ "loop": "research-loop",
+ "plugin": "convergence-loops",
+ "runners": [
+  "surveyor"
+ ],
+ "deliver": {
+  "path_tools": [
+   "Read"
+  ]
+ },
+ "exec": true,
+ "basis": "convergence-loops の commands/research-loop.md と scripts/research-record.py（同じリポジトリ。版は .claude-plugin/plugin.json が正本で、ここに写さない）を、節（工程）＋依存＋周回条件のグラフに写し、各節に実行用の欄（prompt_file・schema・writes・fan_out・cond・reads）を足したもの。役の道具は agents/<役>.md が正本。記録の欄と語彙の正本は research-record.py",
+ "overview": "見立て文書の『外部に照合できる主張』を棚卸しし（P0）、一次情報で判定させ（P1: checker→相違と荷重確証だけ refuter）、訂正を統合し（P2）、新規の相違がゼロの周にだけ独立の目のゲート（P3: rederiver・cold-reader・重厚なら cartographer）を回し、連続 2 周ゼロ＋ゲート全 pass で収束（P4）、最後に自ドメインへ適応して 3 分類の決定を出す（P5）。回す側（surveyor）は棚卸し・統合・適応の判断作業だけをし、判定は一切しない。判定・件数・連続カウント・上限・止める条件は駆動器が持つ",
+ "record": {
+  "file": "<置き場>/record.json（駆動器が組み立てる。回す側は直接編集しない——手当ては loop.py patch で痕跡付き）",
+  "validator": "python3 research-record.py record.json——report の節に入る前に駆動器が回し、exit 0 でなければ report を出さない",
+  "validator_path": "scripts/research-record.py",
+  "vocab_owner": "research-record.py の VERDICTS / VERDICT_FIELDS / THICKNESS / DECIDERS / ORIGINS / GATE_VERDICTS / OUTCOMES / REQUIRED。この JSON の schema の enum はそれを写している（増やすときは検証器が先）",
+  "exit_codes": "0 = 発行を妨げるものなし／1 = 収束を名乗りながらゲート未 pass・覆り・未反証の相違／2 = 記録が不正。outcome=stopped の記録は 1 にならない"
+ },
+ "thickness": {
+  "tiers": [
+   "軽量",
+   "標準",
+   "重厚"
+  ],
+  "default": "標準",
+  "deciders": {
+   "default": "既定",
+   "downgrade": "依頼者指定"
+  },
+  "rule": "軽量への降格は依頼者が明示に指定した場合のみ（init --thickness 軽量 --decider 依頼者指定）。回す側の p0.question が init より低い段を返したら駆動器が拒む。昇格は自律で自由（loop.py thicken。相違が結論の芯に刺さった・stuck が出たら義務）。省略した機構は駆動器が process.skipped と gates の not_applicable に載せる",
+  "軽量": "P0-1/2/3 ＋ P1 一巡。ゲートなし・1 ラウンドで打ち切り（outcome は stopped で理由に軽量と書く。収束は名乗らない）",
+  "標準": "P0 全部 ＋ P1〜P4。ゲートは rederiver と cold-reader",
+  "重厚": "全機構——P0-7 の断面生成・cartographer・荷重確証の反証まで"
+ },
+ "round": {
+  "unit": "P1→P2 を 1 周（ゲート P3 は新規相違ゼロの周にだけ、P2 の後に同じ周で回す）",
+  "max_rounds": 4,
+  "max_rounds_note": "駆動器が数える。軽量は 1。上限に達したら outcome=stopped（収束せず）",
+  "converge": {
+   "all_of": [
+    "連続 2 ラウンドで新規の相違がゼロ（駆動器が claims の first_discrepant_round で数える）",
+    "その段のゲートが全て pass（標準＝rederiver・cold-reader、重厚＝cartographer の新規盲点ゼロを含む）",
+    "抜き取り検査を回した周なら判定が 1 件も覆っていない（覆りは駆動器が元の判定と比べて数える）"
+   ],
+   "counted_by": "駆動器（builtin converge）。回す側は数えない",
+   "note": "P3 は毎ラウンド回さない——cond gate_round（この周の新規相違ゼロ）"
+  },
+  "exit_states": {
+   "converged": "理論的飽和。P5 の適応と最終報告へ",
+   "max_rounds": "総ラウンドが上限に達した——『収束せず』として停止し報告",
+   "stuck": "再照合した相違がまた相違（前提側の誤りの疑い）→ 諮る",
+   "thrash": "3 周続けて新規相違が出る → 諮る",
+   "zero_base_divergence": "rederiver の redesign-needed が 2 周解消しない → 諮る",
+   "unverifiable": "rederiver が unverifiable → 諮る",
+   "prior_decisions_unchecked": "先行議論を洗えていない → 諮る"
+  },
+  "unattended": "init --unattended。諮る事態に当たったら保守的に停止し、諮りたかった内容を process.human_items に列挙（報告の冒頭に『要人間判断』として出す）。人の判断（decisions.human_only）は代行しない",
+  "per_round_rules": [
+   "2 ラウンド目以降の P1 は『判定の無い主張』と『recheck の付いた主張』だけ（駆動器の fan_out が選ぶ）。抜き取り検査だけが例外",
+   "同一ラウンドで checker / refuter / ゲートを回し直さない（done は 1 instance に 1 回。やり直しは次の周）",
+   "判定は checker と refuter の返答から駆動器が記録に写す。回す側の節の writes は verdict / refuted / gates / sampling / convergence に触れない（graphcheck が見る）",
+   "investigator の前後で駆動器が git status --porcelain を突き合わせる。差があれば done を拒む（--accept-tree-change 理由 で痕跡付きで通せる）",
+   "問い・制約（P0-1）は once——結果を見てから動かさない。制約の追加・緩和・削除が要るなら新しい run",
+   "各判定者の生の verdict と理由は out/ に残り、report の節に全部渡される（要約で丸めない）"
+  ],
+  "max_rounds_by_thickness": {
+   "軽量": 1
+  }
+ },
+ "nodes": {
+  "p0.question": {
+   "stage": "P0",
+   "run_by": "surveyor",
+   "once": true,
+   "deps": [],
+   "source": "P0 ＞ 1. 問いと制約の棚卸し／厚みの三段",
+   "does": "何を決めるための調査か一文で。制約を番号付きで固定し、各前提に『これが偽なら何が崩れるか』。段の選択と根拠",
+   "prompt_file": "../prompts/research-loop/p0.question.md",
+   "reads": [
+    "inputs.request",
+    "inputs.document",
+    "thickness",
+    "record.thickness_decider"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "question",
+     "domain",
+     "constraints",
+     "thickness",
+     "thickness_decider",
+     "thickness_reason"
+    ],
+    "properties": {
+     "question": {
+      "type": "string",
+      "minLength": 1
+     },
+     "domain": {
+      "type": "string",
+      "minLength": 1
+     },
+     "constraints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": [
+        "text",
+        "source",
+        "origin",
+        "breaks_if_false"
+       ],
+       "properties": {
+        "text": {
+         "type": "string",
+         "minLength": 1
+        },
+        "source": {
+         "type": "string",
+         "minLength": 1
+        },
+        "origin": {
+         "type": "string",
+         "enum": [
+          "独立出典",
+          "surveyor自書"
+         ]
+        },
+        "breaks_if_false": {
+         "type": "string",
+         "minLength": 1
+        },
+        "confidence_note": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "thickness": {
+      "type": "string",
+      "enum": [
+       "軽量",
+       "標準",
+       "重厚"
+      ]
+     },
+     "thickness_decider": {
+      "type": "string",
+      "enum": [
+       "依頼者指定",
+       "既定"
+      ]
+     },
+     "thickness_reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "open_questions": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "question",
+     "from": "question"
+    },
+    {
+     "op": "set",
+     "to": "constraints",
+     "from": "constraints"
+    },
+    {
+     "op": "set",
+     "to": "thickness",
+     "from": "thickness"
+    },
+    {
+     "op": "set",
+     "to": "thickness_decider",
+     "from": "thickness_decider"
+    },
+    {
+     "op": "set",
+     "to": "process.domain",
+     "from": "domain"
+    },
+    {
+     "op": "set",
+     "to": "process.thickness_reason",
+     "from": "thickness_reason"
+    }
+   ],
+   "outputs": [
+    "question",
+    "constraints",
+    "thickness",
+    "thickness_decider"
+   ],
+   "thickness_from": "thickness",
+   "thickness_reason_from": "thickness_reason"
+  },
+  "p0.claims": {
+   "stage": "P0",
+   "run_by": "surveyor",
+   "once": true,
+   "deps": [
+    "p0.question"
+   ],
+   "source": "P0 ＞ 2. 主張の棚卸し／P1 ＞ 武器の使い分け",
+   "does": "外部に照合可能な事実主張を全部抽出（判断と分ける。判断を事実のように書いた箇所は要修正）。主体単位に分解。開いた問いはループの外（deep-research）へ",
+   "prompt_file": "../prompts/research-loop/p0.claims.md",
+   "reads": [
+    "record.question",
+    "record.constraints",
+    "inputs.document",
+    "file:inputs.document",
+    "out.p0.question.open_questions"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "claims",
+     "judgments",
+     "judgments_as_facts",
+     "open_questions"
+    ],
+    "properties": {
+     "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": [
+        "id",
+        "claim",
+        "load_bearing"
+       ],
+       "properties": {
+        "id": {
+         "type": "string",
+         "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "claim": {
+         "type": "string",
+         "minLength": 1
+        },
+        "load_bearing": {
+         "type": "boolean"
+        },
+        "note": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": false
+      }
+     },
+     "judgments": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "text"
+       ],
+       "properties": {
+        "text": {
+         "type": "string"
+        },
+        "where": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "judgments_as_facts": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "text"
+       ],
+       "properties": {
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "open_questions": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "merge_by_id",
+     "to": "claims",
+     "from": "claims",
+     "allow_new": true,
+     "const": {
+      "kind": "事実"
+     }
+    },
+    {
+     "op": "set",
+     "to": "process.judgments",
+     "from": "judgments"
+    },
+    {
+     "op": "set",
+     "to": "process.judgments_as_facts",
+     "from": "judgments_as_facts"
+    },
+    {
+     "op": "set",
+     "to": "process.open_questions",
+     "from": "open_questions"
+    }
+   ],
+   "outputs": [
+    "claims（照合前）"
+   ],
+   "post_check": "open_questions_note"
+  },
+  "p0.clusters": {
+   "stage": "P0",
+   "run_by": "surveyor",
+   "once": true,
+   "deps": [
+    "p0.claims"
+   ],
+   "source": "P0 ＞ 3. クラスタ化",
+   "does": "同じ一次情報群で検証できる束に割る（1 クラスタ 3〜6）。件数は駆動器が claim_ids から数える",
+   "prompt_file": "../prompts/research-loop/p0.clusters.md",
+   "reads": [
+    "record.claims",
+    "record.question"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "clusters"
+    ],
+    "properties": {
+     "clusters": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "claim_ids"
+       ],
+       "properties": {
+        "key": {
+         "type": "string",
+         "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "claim_ids": {
+         "type": "array",
+         "minItems": 1,
+         "items": {
+          "type": "string"
+         }
+        },
+        "primary_sources_expected": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "load_zero_reason": {
+      "type": "string"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "clusters_from_ids",
+     "from": "clusters"
+    }
+   ],
+   "outputs": [
+    "clusters（claims_submitted）"
+   ],
+   "post_check": "load_zero_reason"
+  },
+  "p0.terms": {
+   "stage": "P0",
+   "run_by": "surveyor",
+   "once": true,
+   "deps": [
+    "p0.question"
+   ],
+   "source": "P0 ＞ 4. 社内語の仮止め",
+   "does": "社内でしか通じない語を列挙。標準語への対応は主張にして P1 へ（p0.claims に含める）",
+   "prompt_file": "../prompts/research-loop/p0.terms.md",
+   "reads": [
+    "record.question",
+    "file:inputs.document"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "terms"
+    ],
+    "properties": {
+     "terms": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "term",
+        "definition",
+        "status"
+       ],
+       "properties": {
+        "term": {
+         "type": "string",
+         "minLength": 1
+        },
+        "definition": {
+         "type": "string",
+         "minLength": 1
+        },
+        "status": {
+         "type": "string",
+         "enum": [
+          "確立語",
+          "社内造語",
+          "未確認"
+         ]
+        },
+        "nearest_standard": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "terms",
+     "from": "terms"
+    }
+   ],
+   "outputs": [
+    "terms"
+   ]
+  },
+  "p0.independence_review": {
+   "stage": "P0",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "once": true,
+   "optional": true,
+   "when": "問い・制約のどれかを surveyor が自書した",
+   "cond": {
+    "path": "record.constraints",
+    "op": "any_field_eq",
+    "field": "origin",
+    "value": "surveyor自書",
+    "default": []
+   },
+   "deps": [
+    "p0.question"
+   ],
+   "source": "P0 ＞ 5. 問いと制約の出典の独立性",
+   "prompt_file": "../prompts/research-loop/p0.independence_review.md",
+   "reads": [
+    "record.question",
+    "record.constraints"
+   ],
+   "forbidden_inputs": [
+    "見立て文書",
+    "調査結果"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "verdict",
+     "reason",
+     "findings"
+    ],
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "問題なし",
+       "狭めている"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "findings": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.independence_review",
+     "from": "$"
+    }
+   ],
+   "outputs": [
+    "process.independence_review"
+   ]
+  },
+  "p0.prior_decisions": {
+   "stage": "P0",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "once": true,
+   "active_in": [
+    "標準",
+    "重厚"
+   ],
+   "deps": [
+    "p0.question"
+   ],
+   "source": "P0 ＞ 6. 先行議論の突合",
+   "does": "issue・ADR・クローズ済み議論を洗う。洗えなければ checked=false（『重複なし』に丸めない）",
+   "prompt_file": "../prompts/research-loop/p0.prior_decisions.md",
+   "reads": [
+    "record.question",
+    "record.constraints",
+    "inputs.cwd"
+   ],
+   "forbidden_inputs": [
+    "見立て文書の本文（結論を先に見せない）"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "checked",
+     "searched",
+     "settled_points",
+     "overlaps",
+     "reopen_proposals"
+    ],
+    "properties": {
+     "checked": {
+      "type": "boolean"
+     },
+     "unchecked_reason": {
+      "type": "string"
+     },
+     "searched": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "settled_points": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "topic",
+        "where",
+        "decision"
+       ],
+       "properties": {
+        "topic": {
+         "type": "string"
+        },
+        "where": {
+         "type": "string"
+        },
+        "decision": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "overlaps": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "topic",
+        "where"
+       ],
+       "properties": {
+        "topic": {
+         "type": "string"
+        },
+        "where": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "reopen_proposals": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "topic",
+        "new_evidence"
+       ],
+       "properties": {
+        "topic": {
+         "type": "string"
+        },
+        "new_evidence": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.prior_decisions",
+     "from": "$"
+    }
+   ],
+   "outputs": [
+    "process.prior_decisions"
+   ]
+  },
+  "p0.generation": {
+   "stage": "P0",
+   "run_by": "surveyor",
+   "optional": true,
+   "active_in": [
+    "重厚"
+   ],
+   "when": "重厚なら初回に一度、それ以外は stuck の後だけ",
+   "cond": {
+    "any": [
+     {
+      "path": "round",
+      "op": "eq",
+      "value": 1
+     },
+     {
+      "path": "loop.stuck_hint",
+      "op": "eq",
+      "value": true,
+      "default": false
+     }
+    ]
+   },
+   "deps": [
+    "p0.clusters"
+   ],
+   "source": "P0 ＞ 7. 断面の生成",
+   "prompt_file": "../prompts/research-loop/p0.generation.md",
+   "reads": [
+    "record.question",
+    "record.constraints",
+    "record.claims",
+    "record.clusters"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "claims"
+    ],
+    "properties": {
+     "claims": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "id",
+        "cluster",
+        "claim",
+        "load_bearing",
+        "heuristic"
+       ],
+       "properties": {
+        "id": {
+         "type": "string",
+         "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "cluster": {
+         "type": "string",
+         "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "claim": {
+         "type": "string",
+         "minLength": 1
+        },
+        "load_bearing": {
+         "type": "boolean"
+        },
+        "heuristic": {
+         "type": "string",
+         "minLength": 1
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "add_claims",
+     "from": "claims"
+    }
+   ],
+   "outputs": [
+    "claims（追加）"
+   ],
+   "post_check": "clear_stuck_hint"
+  },
+  "p1.checker": {
+   "stage": "P1",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "deps": [
+    "p0.clusters",
+    "p0.terms",
+    "p0.generation"
+   ],
+   "fan_out": {
+    "builtin": "clusters_needing_check",
+    "as": "item",
+    "cover": {
+     "items_at": "item.claims",
+     "key": "id",
+     "answers_at": "findings"
+    }
+   },
+   "source": "P1 ＞ Fact-check 段／出典の格／生存者バイアスの点検／雪だるま式追跡",
+   "prompt_file": "../prompts/research-loop/p1.checker.md",
+   "reads": [
+    "item.key",
+    "item.claims"
+   ],
+   "forbidden_inputs": [
+    "前ラウンドの判定",
+    "surveyor の見立て",
+    "問いと制約"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "cluster",
+     "findings"
+    ],
+    "properties": {
+     "cluster": {
+      "type": "string"
+     },
+     "findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": [
+        "id",
+        "verdict",
+        "evidence",
+        "sources"
+       ],
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "verdict": {
+         "type": "string",
+         "enum": [
+          "確証",
+          "相違",
+          "留保",
+          "検証不能"
+         ]
+        },
+        "evidence": {
+         "type": "string",
+         "minLength": 1
+        },
+        "sources": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "conditions": {
+         "type": "string"
+        },
+        "correction": {
+         "type": "string"
+        },
+        "needs": {
+         "type": "string"
+        },
+        "source_grade": {
+         "type": "string"
+        },
+        "dead_attempts": {
+         "type": "string"
+        },
+        "snowball": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "merge_by_id",
+     "to": "claims",
+     "from": "findings",
+     "fields": [
+      "verdict",
+      "evidence",
+      "sources",
+      "conditions",
+      "correction",
+      "needs",
+      "source_grade"
+     ],
+     "const": {
+      "refuted": false,
+      "recheck": false
+     },
+     "stamp_round": "checked_round"
+    }
+   ],
+   "outputs": [
+    "claims[].verdict / evidence / sources / conditions / correction / needs"
+   ],
+   "note": "クラスタごとに 1 instance。判定が欠けた主張があれば駆動器が欠けた分だけ出し直す（無言の省略を『なし』と読まない）"
+  },
+  "p1.refuter": {
+   "stage": "P1",
+   "run_by": "judge",
+   "fresh_context": true,
+   "deps": [
+    "p1.checker"
+   ],
+   "instance_deps": [],
+   "fan_out": {
+    "builtin": "claims_needing_refute",
+    "as": "item"
+   },
+   "source": "P1 ＞ Verify 段／負荷確証の反証探索",
+   "prompt_file": "../prompts/research-loop/p1.refuter.md",
+   "reads": [
+    "item"
+   ],
+   "forbidden_inputs": [
+    "同じクラスタの他の判定",
+    "surveyor の見立て"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "id",
+     "mode",
+     "upheld",
+     "verdict",
+     "refuter_reasoning",
+     "sources"
+    ],
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "dispute",
+       "confirm"
+      ]
+     },
+     "upheld": {
+      "type": "boolean"
+     },
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "確証",
+       "相違",
+       "留保",
+       "検証不能"
+      ]
+     },
+     "refuter_reasoning": {
+      "type": "string",
+      "minLength": 1
+     },
+     "sources": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "correction": {
+      "type": "string"
+     },
+     "conditions": {
+      "type": "string"
+     },
+     "needs": {
+      "type": "string"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "merge_by_id",
+     "to": "claims",
+     "from": "$",
+     "fields": [
+      "verdict",
+      "correction",
+      "conditions",
+      "needs",
+      "refuter_reasoning",
+      "upheld"
+     ],
+     "const": {
+      "refuted": true
+     }
+    }
+   ],
+   "outputs": [
+    "claims[].refuted",
+    "claims[].verdict（反証後）"
+   ],
+   "note": "checker が返り次第その主張に走る（全クラスタを待ち合わせない）。既定 1 票。3 票の増し掛けは未実装（README の未実装）",
+   "post_check": "refuter_consistency"
+  },
+  "p1.record_check": {
+   "stage": "P1",
+   "run_by": "driver",
+   "builtin": "count_check",
+   "deps": [
+    "p1.checker",
+    "p1.refuter"
+   ],
+   "source": "P1 ＞ 件数突合",
+   "does": "クラスタ欄と判定数の等式・相違の反証・荷重確証の反証。この周の『新規の相違』をここで確定する",
+   "outputs": [
+    "new_discrepancies",
+    "claims[].first_discrepant_round"
+   ],
+   "verdict_is_copy": true
+  },
+  "p5.internal": {
+   "stage": "P5（先行）",
+   "run_by": "inspector",
+   "fresh_context": true,
+   "once": true,
+   "active_in": [
+    "標準",
+    "重厚"
+   ],
+   "deps": [
+    "p0.question"
+   ],
+   "source": "P5 ＞ 内部の突合は P5 を待つな",
+   "prompt_file": "../prompts/research-loop/p5.internal.md",
+   "reads": [
+    "record.question",
+    "record.constraints",
+    "inputs.document",
+    "inputs.cwd"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "facts",
+     "corrections"
+    ],
+    "properties": {
+     "facts": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "constraint_text",
+        "verified",
+        "actual",
+        "location"
+       ],
+       "properties": {
+        "constraint_text": {
+         "type": "string"
+        },
+        "verified": {
+         "type": "boolean"
+        },
+        "actual": {
+         "type": "string"
+        },
+        "location": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "corrections": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "text"
+       ],
+       "properties": {
+        "text": {
+         "type": "string",
+         "minLength": 1
+        },
+        "location": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.internal_facts",
+     "from": "facts"
+    },
+    {
+     "op": "append",
+     "to": "corrections",
+     "from": "corrections",
+     "number": "no",
+     "stamp_round": "round"
+    }
+   ],
+   "outputs": [
+    "corrections（機械確認による）"
+   ]
+  },
+  "p2.integrate": {
+   "stage": "P2",
+   "run_by": "surveyor",
+   "deps": [
+    "p1.record_check",
+    "p5.internal",
+    "p0.prior_decisions"
+   ],
+   "source": "P2: 統合",
+   "prompt_file": "../prompts/research-loop/p2.integrate.md",
+   "reads": [
+    "record",
+    "inputs.document",
+    "round",
+    "prev.p3.cold_reader",
+    "prev.p3.rederiver_compare",
+    "prev.p3.cartographer_compare",
+    "out.p5.internal",
+    "out.p0.prior_decisions"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "root_causes",
+     "corrections",
+     "applied",
+     "numbers",
+     "terms",
+     "new_claims",
+     "recheck_ids",
+     "claim_updates",
+     "document_changed"
+    ],
+    "properties": {
+     "root_causes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "premise",
+        "claim_ids"
+       ],
+       "properties": {
+        "premise": {
+         "type": "string"
+        },
+        "claim_ids": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     "corrections": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "text",
+        "claim_ids"
+       ],
+       "properties": {
+        "text": {
+         "type": "string",
+         "minLength": 1
+        },
+        "claim_ids": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     "applied": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "claim_id",
+        "stable_key",
+        "where"
+       ],
+       "properties": {
+        "claim_id": {
+         "type": "string"
+        },
+        "stable_key": {
+         "type": "string"
+        },
+        "where": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "numbers": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "value",
+        "source"
+       ],
+       "properties": {
+        "value": {
+         "type": "string",
+         "minLength": 1
+        },
+        "source": {
+         "type": "string",
+         "minLength": 1
+        }
+       }
+      }
+     },
+     "terms": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "term",
+        "definition"
+       ],
+       "properties": {
+        "term": {
+         "type": "string"
+        },
+        "definition": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "new_claims": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "id",
+        "cluster",
+        "claim",
+        "load_bearing",
+        "origin"
+       ],
+       "properties": {
+        "id": {
+         "type": "string",
+         "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "cluster": {
+         "type": "string",
+         "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "claim": {
+         "type": "string",
+         "minLength": 1
+        },
+        "load_bearing": {
+         "type": "boolean"
+        },
+        "origin": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "recheck_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "claim_updates": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "id",
+        "claim"
+       ],
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "claim": {
+         "type": "string",
+         "minLength": 1
+        }
+       }
+      }
+     },
+     "gate_responses": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "document_changed": {
+      "type": "boolean"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "append",
+     "to": "process.root_causes",
+     "from": "root_causes",
+     "stamp_round": "round"
+    },
+    {
+     "op": "append",
+     "to": "corrections",
+     "from": "corrections",
+     "number": "no",
+     "stamp_round": "round"
+    },
+    {
+     "op": "append",
+     "to": "process.applied",
+     "from": "applied",
+     "stamp_round": "round"
+    },
+    {
+     "op": "append",
+     "to": "numbers",
+     "from": "numbers"
+    },
+    {
+     "op": "append",
+     "to": "terms",
+     "from": "terms"
+    },
+    {
+     "op": "add_claims",
+     "from": "new_claims"
+    },
+    {
+     "op": "flag_recheck",
+     "from": "recheck_ids"
+    },
+    {
+     "op": "claim_updates",
+     "from": "claim_updates"
+    }
+   ],
+   "outputs": [
+    "corrections",
+    "numbers",
+    "claims（安定キー・recheck）"
+   ]
+  },
+  "p3.rederiver": {
+   "stage": "P3",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "once": true,
+   "active_in": [
+    "標準",
+    "重厚"
+   ],
+   "deps": [
+    "p0.question"
+   ],
+   "source": "P3 ＞ 1. rederiver（導出の半分。序盤に先行）",
+   "prompt_file": "../prompts/research-loop/p3.rederiver.md",
+   "reads": [
+    "record.question",
+    "record.constraints"
+   ],
+   "forbidden_inputs": [
+    "統合済み文書",
+    "調査結果",
+    "surveyor の見立て"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "question_stands",
+     "verdict",
+     "reason",
+     "derivation"
+    ],
+    "properties": {
+     "question_stands": {
+      "type": "boolean"
+     },
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed",
+       "unverifiable"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "derivation": {
+      "type": "string",
+      "minLength": 1
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "gates.rederiver",
+     "from": "$",
+     "pick": [
+      "verdict",
+      "reason"
+     ]
+    }
+   ],
+   "outputs": [
+    "gates.rederiver（暫定）"
+   ]
+  },
+  "p3.rederiver_compare": {
+   "stage": "P3",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "active_in": [
+    "標準",
+    "重厚"
+   ],
+   "when": "この周の新規相違がゼロ、かつ rederiver が問いは立っていると言った",
+   "cond": {
+    "all": [
+     {
+      "path": "rd.new_discrepancies",
+      "op": "eq",
+      "value": 0
+     },
+     {
+      "path": "out.p3.rederiver.verdict",
+      "op": "eq",
+      "value": "pass"
+     }
+    ]
+   },
+   "deps": [
+    "p3.rederiver",
+    "p2.integrate"
+   ],
+   "source": "P3 ＞ 1. rederiver（突合の半分。構造で比べる）",
+   "prompt_file": "../prompts/research-loop/p3.rederiver_compare.md",
+   "reads": [
+    "out.p3.rederiver.derivation",
+    "file:inputs.document"
+   ],
+   "forbidden_inputs": [
+    "調査の経緯",
+    "判定の一覧"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "verdict",
+     "reason",
+     "differences"
+    ],
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "differences": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "kind",
+        "text"
+       ],
+       "properties": {
+        "kind": {
+         "type": "string",
+         "enum": [
+          "構造",
+          "表現"
+         ]
+        },
+        "text": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "gates.rederiver",
+     "from": "$",
+     "pick": [
+      "verdict",
+      "reason"
+     ]
+    }
+   ],
+   "outputs": [
+    "gates.rederiver（verdict）"
+   ]
+  },
+  "p3.cartographer": {
+   "stage": "P3",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "once": true,
+   "active_in": [
+    "重厚"
+   ],
+   "deps": [
+    "p0.question"
+   ],
+   "source": "P3 ＞ 2. cartographer（地図の半分。序盤に先行）",
+   "prompt_file": "../prompts/research-loop/p3.cartographer.md",
+   "reads": [
+    "record.question",
+    "out.p0.question.domain"
+   ],
+   "forbidden_inputs": [
+    "統合済み文書",
+    "白地図"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "map"
+    ],
+    "properties": {
+     "map": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": [
+        "aspect",
+        "components",
+        "depends_on"
+       ],
+       "properties": {
+        "aspect": {
+         "type": "string"
+        },
+        "components": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "depends_on": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     "notes": {
+      "type": "string"
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.cartographer_map",
+     "from": "map"
+    }
+   ],
+   "outputs": [
+    "process.cartographer_map"
+   ]
+  },
+  "p3.cartographer_compare": {
+   "stage": "P3",
+   "run_by": "blind-judge",
+   "fresh_context": true,
+   "active_in": [
+    "重厚"
+   ],
+   "cond": {
+    "path": "rd.new_discrepancies",
+    "op": "eq",
+    "value": 0
+   },
+   "deps": [
+    "p3.cartographer",
+    "p2.integrate"
+   ],
+   "source": "P3 ＞ 2. cartographer（突合の半分）",
+   "prompt_file": "../prompts/research-loop/p3.cartographer_compare.md",
+   "reads": [
+    "out.p3.cartographer.map",
+    "file:inputs.document"
+   ],
+   "forbidden_inputs": [
+    "調査の経緯"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "verdict",
+     "reason",
+     "spots"
+    ],
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 1
+     },
+     "spots": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "aspect",
+        "affects_conclusion"
+       ],
+       "properties": {
+        "aspect": {
+         "type": "string"
+        },
+        "affects_conclusion": {
+         "type": "boolean"
+        },
+        "note": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "gates.cartographer",
+     "from": "$",
+     "pick": [
+      "verdict",
+      "reason",
+      "new_blind_spots"
+     ]
+    },
+    {
+     "op": "append",
+     "to": "process.blind_spots",
+     "from": "spots",
+     "stamp_round": "round"
+    }
+   ],
+   "outputs": [
+    "gates.cartographer（verdict・new_blind_spots）",
+    "白地図（追記）"
+   ],
+   "post_check": "cartographer_count"
+  },
+  "p3.cold_reader": {
+   "stage": "P3",
+   "run_by": "cold-reader",
+   "fresh_context": true,
+   "active_in": [
+    "標準",
+    "重厚"
+   ],
+   "cond": {
+    "path": "rd.new_discrepancies",
+    "op": "eq",
+    "value": 0
+   },
+   "deps": [
+    "p2.integrate"
+   ],
+   "source": "P3 ＞ 3. cold-reader",
+   "prompt_file": "../prompts/research-loop/p3.cold_reader.md",
+   "reads": [
+    "file:inputs.document"
+   ],
+   "forbidden_inputs": [
+    "タスクの経緯",
+    "会話の履歴",
+    "ラウンドの記録"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "verdict",
+     "findings"
+    ],
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "pass",
+       "redesign-needed"
+      ]
+     },
+     "findings": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "kind",
+        "where",
+        "text"
+       ],
+       "properties": {
+        "kind": {
+         "type": "string",
+         "enum": [
+          "再現不能",
+          "前提の省略",
+          "経緯の混入",
+          "断定調の仮説",
+          "冗長",
+          "未定義語"
+         ]
+        },
+        "where": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "cold_reader_round",
+     "from": "$"
+    }
+   ],
+   "outputs": [
+    "gates.cold_reader.rounds[]"
+   ],
+   "post_check": "cold_reader_consistency"
+  },
+  "p3.sampling": {
+   "stage": "P3",
+   "run_by": "investigator",
+   "fresh_context": true,
+   "when": "2 周目以降で、この周の P1 の照合対象が空集合だった",
+   "cond": {
+    "all": [
+     {
+      "path": "round",
+      "op": "gt",
+      "value": 1
+     },
+     {
+      "path": "rd.item_counts.p1.checker",
+      "op": "eq",
+      "value": 0
+     }
+    ]
+   },
+   "deps": [
+    "p2.integrate"
+   ],
+   "fan_out": {
+    "builtin": "sampling_pick",
+    "as": "item",
+    "cover": {
+     "items_at": "item.claims",
+     "key": "id",
+     "answers_at": "findings"
+    }
+   },
+   "source": "P4 ＞ 確認ラウンドの抜き取り検査",
+   "prompt_file": "../prompts/research-loop/p3.sampling.md",
+   "reads": [
+    "item.claims"
+   ],
+   "forbidden_inputs": [
+    "元の判定・理由"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "findings"
+    ],
+    "properties": {
+     "findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": [
+        "id",
+        "verdict",
+        "evidence",
+        "sources"
+       ],
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "verdict": {
+         "type": "string",
+         "enum": [
+          "確証",
+          "相違",
+          "留保",
+          "検証不能"
+         ]
+        },
+        "evidence": {
+         "type": "string",
+         "minLength": 1
+        },
+        "sources": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "conditions": {
+         "type": "string"
+        },
+        "correction": {
+         "type": "string"
+        },
+        "needs": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "sampling_overturn",
+     "from": "$"
+    }
+   ],
+   "outputs": [
+    "sampling（status・sampled_ids・overturned）"
+   ],
+   "note": "抜き取りの選定と覆りの数え上げは駆動器（無作為・元の判定との比較）。覆った主張は recheck が付き次の周の P1 へ"
+  },
+  "converge": {
+   "stage": "P4",
+   "run_by": "driver",
+   "builtin": "converge",
+   "deps": [
+    "p1.record_check",
+    "p2.integrate",
+    "p3.rederiver_compare",
+    "p3.cartographer_compare",
+    "p3.cold_reader",
+    "p3.sampling"
+   ],
+   "source": "P4: 収束判定",
+   "outputs": [
+    "convergence（rounds_total・consecutive_zero・outcome・stopped_reason）"
+   ],
+   "verdict_is_copy": true
+  },
+  "p5.adapt": {
+   "stage": "P5",
+   "run_by": "surveyor",
+   "deps": [
+    "converge"
+   ],
+   "source": "P5: ドメイン適応",
+   "prompt_file": "../prompts/research-loop/p5.adapt.md",
+   "reads": [
+    "record",
+    "inputs.document",
+    "out.p5.internal"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "decide_now",
+     "poc",
+     "human_only"
+    ],
+    "properties": {
+     "decide_now": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "text",
+        "basis",
+        "premortem",
+        "tripwire"
+       ],
+       "properties": {
+        "text": {
+         "type": "string",
+         "minLength": 1
+        },
+        "basis": {
+         "type": "string"
+        },
+        "premortem": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "tripwire": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "poc": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "text",
+        "measure",
+        "changes_decision"
+       ],
+       "properties": {
+        "text": {
+         "type": "string",
+         "minLength": 1
+        },
+        "measure": {
+         "type": "string"
+        },
+        "threshold_idea": {
+         "type": "string"
+        },
+        "changes_decision": {
+         "type": "boolean"
+        }
+       }
+      }
+     },
+     "human_only": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "text",
+        "options"
+       ],
+       "properties": {
+        "text": {
+         "type": "string",
+         "minLength": 1
+        },
+        "options": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "required": [
+           "option",
+           "consequence"
+          ],
+          "properties": {
+           "option": {
+            "type": "string"
+           },
+           "consequence": {
+            "type": "string"
+           }
+          }
+         }
+        },
+        "recommendation": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.decision_details",
+     "from": "$"
+    },
+    {
+     "op": "decisions_from_details",
+     "from": "$"
+    }
+   ],
+   "outputs": [
+    "decisions（decide_now・poc・human_only）"
+   ],
+   "note": "decisions の 3 配列（文字列）は駆動器が details の text から作る"
+  },
+  "report": {
+   "stage": "最終報告",
+   "run_by": "surveyor",
+   "deps": [
+    "p5.adapt"
+   ],
+   "pre": "finalize",
+   "text": true,
+   "source": "成果物の型／最終報告",
+   "prompt_file": "../prompts/research-loop/report.md",
+   "reads": [
+    "record",
+    "validation",
+    "raw",
+    "inputs.lang",
+    "inputs.document",
+    "thickness"
+   ],
+   "outputs": [
+    "final_report"
+   ],
+   "note": "駆動器が先に記録を仕上げて検証器を回す。exit 0 でなければこの節は出ない",
+   "save_text_as": "report.md"
+  },
+  "reflect": {
+   "stage": "ループの後",
+   "run_by": "surveyor",
+   "deps": [
+    "report"
+   ],
+   "source": "型への還流",
+   "prompt_file": "../prompts/research-loop/reflect.md",
+   "reads": [
+    "record.process",
+    "record.convergence"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "notes",
+     "proposed_changes"
+    ],
+    "properties": {
+     "notes": {
+      "type": "string",
+      "minLength": 1
+     },
+     "proposed_changes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "target",
+        "text"
+       ],
+       "properties": {
+        "target": {
+         "type": "string",
+         "enum": [
+          "graph",
+          "prompt",
+          "driver",
+          "validator",
+          "none"
+         ]
+        },
+        "text": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "writes": [
+    {
+     "op": "set",
+     "to": "process.reflect",
+     "from": "$"
+    }
+   ],
+   "outputs": [
+    "skill_diff（任意）"
+   ]
+  }
+ },
+ "rules": "../rules/research-loop.py",
+ "tree_guard_roles": [
+  "investigator"
+ ],
+ "raw_for_report": [
+  "p1.refuter",
+  "p3.rederiver",
+  "p3.rederiver_compare",
+  "p3.cartographer_compare",
+  "p3.cold_reader",
+  "p3.sampling",
+  "p0.independence_review"
+ ],
+ "cond_note": "cond の path は engine が解決する。解決できない path は die——綴り違いや欄の改名が「条件が成り立たない」に化けると、走らなかった節の素材に事実と逆の理由が書かれたまま収束まで通る。設計上まだ書かれていない欄を見る cond は default を明示する（下の各節）",
+ "verdict_paths": [
+  "gates",
+  "sampling",
+  "convergence",
+  "decisions"
+ ],
+ "verdict_fields": [
+  "verdict",
+  "refuted",
+  "upheld"
+ ],
+ "verdict_note": "回す側（runners）が書いてはいけない記録の場所と欄名。graphcheck が節の outputs と writes をこれで照合する（判定の語彙は loop ごとに違うので engine にも検査器にも写さない）"
+}
