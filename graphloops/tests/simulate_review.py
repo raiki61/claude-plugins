@@ -26,11 +26,7 @@ PLUGIN = HERE.parent
 LOOP = PLUGIN / "scripts" / "loop.py"
 VALIDATOR = PLUGIN.parent / "scripts" / "review-record.py"
 PY = sys.executable
-# 塊の上限は台本の側で小さく固定する。本番の既定（rules の FILE_CHUNK）は実測の縁（約 800 KB）に
-# 置いてあり、それで割りを踏ませるには数 MB の材料が要って台本が遅くなる。検査したいのは**割る処理**で
-# あって既定値ではないので、環境変数で下げて踏ませる（子プロセスに継がれる）。
-FILE_CHUNK = 40000
-os.environ["GRAPHLOOPS_FILE_CHUNK"] = str(FILE_CHUNK)
+BIG_ROWS = 3000  # 「1 ファイルが大きい」材料の行数（約 180 KB。旧実装ならここで 4 片以上に割れていた）
 fails, ran = [], 0
 
 
@@ -60,8 +56,8 @@ class Run:
         self.base = g("rev-parse", "HEAD").stdout.strip()
         (self.repo / "src" / "a.py").write_text("def f(x, limit=None):\n    return x if limit is None else min(x, limit)\n", encoding="utf-8")
         (self.repo / "src" / "b.py").write_text("def g(y):\n    return y * 2\n", encoding="utf-8")
-        if big:  # 1 ファイル・1 hunk で差分の塊の上限（FILE_CHUNK）を大きく超える（実走で 186 KB が 1 塊のまま返った形）
-            (self.repo / "src" / "big.py").write_text("".join(f"ROW_{i:05d} = {i}  # generated padding line for a long single hunk\n" for i in range(FILE_CHUNK // 60 * 4)), encoding="utf-8")
+        if big:  # 1 ファイル・1 hunk の大きな差分（実走で 186 KB が 1 塊のまま返った形）
+            (self.repo / "src" / "big.py").write_text("".join(f"ROW_{i:05d} = {i}  # generated padding line for a long single hunk\n" for i in range(BIG_ROWS)), encoding="utf-8")
             # 日本語主体のファイルも足す——字数で割ると同じ字数がおよそ 3 倍のバイトになり、貼る先の上限を超える
             (self.repo / "docs.md").write_text("".join(f"- {i:05d} 行目。ここは日本語の説明で、字数とバイト数が一致しない入力を主経路に与えるためにある。\n" for i in range(900)), encoding="utf-8")
         g("add", "."); g("commit", "-q", "-m", "change under review")
@@ -161,7 +157,7 @@ def answers(run, scenario, rnd):
         "p1.local_review": lambda it: {"material": M("found", count=1, detail="review-pr: 上限の分岐が片方だけ") if rnd == 1 and not blocks_forever else CLEAN("review-pr・/simplify 再実行。新規なし"),
                                        "findings": [{"skill": "review-pr", "items": [{"where": "src/a.py", "text": "上限が片方の分岐だけ"}]}] if rnd == 1 else [], "simplify_carried": rnd > 1},
         "p1.consistency_bypass": lambda it: {"consistency": CLEAN("命名と設定の追従を Grep で突合"), "bypass": CLEAN("翻訳関数・共有ユーティリティの迂回なし"), "findings": [], "bypass_findings": [], "seen": "src/ 全部", "unseen": "なし"},
-        "p1.hygiene": lambda it: {"chunk": it["key"], "findings": [], "seen": "差分の追加行すべて"},
+        "p1.hygiene": lambda it: {"findings": [], "seen": "差分の追加行すべて"},
         "p1.external_standards": lambda it: {"material": CLEAN("依存の組み込み機能と突合。再発明なし"), "findings": [], "seen": "import と宣言済み依存", "unseen": "なし", "web_refetched": True},
         "p1.procedure_trace": lambda it: {"material": CLEAN("手順書と実装の突合。宣言と実装の食い違いなし"), "findings": [], "unmeasured": []},
         "p1.gate_efficacy": lambda it: {"material": CLEAN("新設ゲートの腕ごとに写しの上で退行を注入して赤を確認"),
@@ -395,7 +391,7 @@ def test_rejections():
     for n in ("p1.local_review", "p1.consistency_bypass", "p1.external_standards", "p1.provenance"):
         r = run.done(by[n]["id"], t[n](None))
         assert r.returncode == 0, (n, r.stderr)
-    r = run.done(hyg["id"], t["p1.hygiene"](hyg["item"]))
+    r = run.done(hyg["id"], t["p1.hygiene"](None))
     assert r.returncode == 0, r.stderr
     # 既に ' M' のファイルの**中身の差し替え**も止める（porcelain は状態コードとパスしか見ないので diff の sha で見る）
     orig = (run.repo / "src" / "a.py").read_text(encoding="utf-8")
@@ -474,7 +470,13 @@ def test_nopurpose():
 
 
 def test_big_diff():
-    print("台本: 1 ファイルが上限を超える差分——hunk と行の境目で割り、instance に本文を抱えない")
+    """大きな差分でも hygiene は 1 節のまま、全部を欠けずに受け取る。
+
+    以前はバイト上限で割っていて、**読み手の人数が差分の大きさで決まっていた**（750 KB ÷ 40,000 ≒ 23 人）。
+    遮断系を標準入力で受ける CLI 起動に変えたので貼る上限が消え、割る理由も消えた。入り切らなければ
+    API が落とすので、割りは安全柵でもない（静かに切る経路だけが事故だった）。
+    """
+    print("台本: 1 ファイルが大きい差分——hygiene は割らず、全体を 1 人が受け取る")
     run = Run("big", big=True)
     nx = run.next()
     t = answers(run, "std", 1)
@@ -483,19 +485,15 @@ def test_big_diff():
         assert r.returncode == 0, (i["node"], r.stderr[-300:])
     nx = run.next()  # hygiene は差分だけに依存するので P0 の残りと同じ波に出る（pipeline）
     hyg = [i for i in nx["ready"] if i["node"] == "p1.hygiene"]
-    check(len(hyg) >= 3, f"差分は 3 塊以上に割れる（{len(hyg)}）")
-    check(all(len(i["item"].get("text", "")) <= 1000 for i in hyg) and all(i["item"].get("of") == len(hyg) for i in hyg), "next の出力と instance の item は長い本文を抱えない（1,000 字を超える text は items/ のファイルだけ）")
-    check(all(i["item"]["files"] for i in hyg), "割った塊にも diff --git の見出しが付き、files が空にならない（役が場所を言える）")
-    texts = [pathlib.Path(i["prompt_file"]).read_text(encoding="utf-8") for i in hyg]
-    check(max(len(t) for t in texts) < FILE_CHUNK + 20000, f"各塊のプロンプトは上限＋雛形の範囲（最大 {max(len(t) for t in texts)} 字）")
-    # **バイトで見る**。字数で割ると日本語の塊が 2〜3 倍のバイトになり、貼る先（Agent の prompt）の上限を超える
-    body = [len(t.split("返答はこの JSON Schema")[0].encode("utf-8")) for t in texts]
-    check(max(body) <= FILE_CHUNK + 20000, f"各塊の本文はバイトでも上限の範囲（最大 {max(body)} バイト）")
-    # hunk の途中から始まる断片は `@@` を持たない——engine が元の hunk と開始位置を注記で添えること。
-    # 以前は添えておらず、注記だけが「何行目かを言えるように」と主張していた（コードが持たない性質）。
-    check(all(("@@ " in t) or ("engine が hunk を割った続き" in t) for t in texts),
-          "どの塊にも位置の手掛かりが在る（@@ か、hunk を割った続きの注記）")
-    check(any("日本語" in t for t in texts), "日本語主体のファイルも塊に入っている（バイトと字数がずれる入力）")
+    check(len(hyg) == 1, f"hygiene は割れず 1 節のまま（{len(hyg)}）")
+    check(hyg[0]["mode"] == "cli" and hyg[0].get("launch"), "遮断系なので別プロセスの CLI で起こす")
+    body = pathlib.Path(hyg[0]["prompt_file"]).read_text(encoding="utf-8")
+    # 先頭と末尾の両方を見る。片方だけだと、切られた本文でも通る
+    check(f"ROW_{0:05d}" in body and f"ROW_{BIG_ROWS - 1:05d}" in body,
+          f"差分の先頭行と末尾行が両方入っている（切られていない。{len(body.encode('utf-8'))} バイト）")
+    check(len(body.encode("utf-8")) > 150_000, f"旧上限 40,000 バイトを大きく超える本文がそのまま渡る（{len(body.encode('utf-8'))} バイト）")
+    check("@@ " in body, "hunk の見出しが残る（役が何行目かを言える）")
+    check("日本語" in body, "日本語主体のファイルも入っている（字数とバイト数がずれる入力で切れない）")
     st_size = (run.dir / "state.json").stat().st_size
     check(st_size < 200000, f"state.json は差分を複製しない（{st_size} バイト）")
     shutil.rmtree(run.tmp)

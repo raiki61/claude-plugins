@@ -1153,7 +1153,7 @@
    "deps": [
     "p1.worktree_before"
    ],
-   "source": "P1 ＞ 文脈遮断（タスク文脈そのものを遮断。貼り切れない差分は貼る側を割る）",
+   "source": "P1 ＞ 文脈遮断（タスク文脈そのものを遮断）",
    "inputs": [
     "対象差分の本文（貼る。貼り切れなければ貼る側を割って複数回起動し、割り方を素材に書く）",
     "REVIEW.md コード衛生観点の本文（貼る）"
@@ -1164,29 +1164,23 @@
     "タスクの説明",
     "近傍コード"
    ],
-   "does": "言語・フレームワーク一般の衛生違反を、用途を知らない目で拾う。道具を渡して解決しない（道具は path で縛れない）",
+   "does": "言語・フレームワーク一般の衛生違反を、用途を知らない目で拾う。道具を渡して解決しない（道具は path で縛れない）。差分は割らずに全部渡す——遮断系は標準入力で受けるので貼る上限が無い",
    "outputs": [
     "materials.hygiene"
    ],
    "prompt_file": "../prompts/review-loop/p1.hygiene.md",
    "reads": [
-    "item.text",
-    "item.key",
-    "item.of",
+    "file:loop.diff_file",
     "section:inputs.review_md#コード衛生観点"
    ],
    "schema": {
     "type": "object",
     "required": [
-     "chunk",
      "findings",
      "seen"
     ],
     "additionalProperties": false,
     "properties": {
-     "chunk": {
-      "type": "string"
-     },
      "findings": {
       "type": "array",
       "items": {
@@ -1222,15 +1216,11 @@
    },
    "writes": [
     {
-     "op": "merge_material_chunks",
+     "op": "material_from_findings",
      "to": "hygiene",
      "from": "$"
     }
    ],
-   "fan_out": {
-    "builtin": "diff_chunks",
-    "as": "item"
-   },
    "materials": [
     "hygiene"
    ],

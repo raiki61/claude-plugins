@@ -6,23 +6,17 @@
 engine が差し込む道具は engine/rules.py の INJECT が正本（ここに写さない）。
 """
 import importlib.util
-import os
 import pathlib
 import re
 
-# 遮断系の役に渡す差分を割る単位。**バイトで測る**——字数で測ると日本語主体の差分が同じ字数で約 2 倍の
-# バイトになる。
-#
-# **もう「貼る先の上限」ではない。** 遮断系は別プロセスの CLI へ標準入力で流すので、貼る上限（実測
-# 約 50 KB）に当たらない。よって割るのは日常の機構ではなく、**溢れたときの受け皿**である。
-#
-# 値は実測の縁に置く: 2026-09-12 に 748,883 バイトを 1 回で流し、先頭と末尾の目印が両方返った
-# ＝そこまでは欠けずに届く。その先は測っていないので割る。**attention の推測で決めない**——
-# 「長い文脈は中間が使われにくい」（lost in the middle, Liu et al. arXiv:2307.03172）は 2023 年の
-# モデルでの測定で、緩和されている可能性が原論文の射程の外にある。測っていない現象を上限の根拠に
-# すると、モデルが良くなっても値が下がったまま残り、見せられる物を捨て続ける。
-# 上げるときは同じ形で測り直せ（材料の先頭と末尾に目印を置いて 1 回で流し、両方返るか見る）。
-FILE_CHUNK = int(os.environ.get("GRAPHLOOPS_FILE_CHUNK") or 800_000)
+# 差分を割って複数の cold-reader に配る扇（diff_chunks）は落とした。**割る理由が無くなったから**——
+# 遮断系は別プロセスの CLI へ標準入力で流すので、貼る上限（Agent ツールのプロンプトの性質。実測 約 50 KB）に
+# 当たらない。実測 2026-09-12: 748,883 バイトが先頭・末尾とも欠けずに 1 回で通った。
+# 入り切らなければ API がエラーを返して**うるさく落ちる**ので、割りは安全柵でもなかった（静かに切る
+# 経路が事故だったのであって、落ちる経路は守るべき性質を既に満たしている）。
+# 落としたのは 23 片に割れていた実績があるから: 750 KB ÷ 40,000 バイト ≒ 23 で、**読み手の人数が
+# 差分の大きさで決まっていた**（誰も「衛生の検査には 23 人要る」と決めていない）。同じものを N 人に
+# 読ませて突き合わせたいなら、それは上限の副作用でなく graph の宣言として書くこと。
 
 
 # ---------------------------------------------------------------- 検証器を正本として読む
@@ -87,82 +81,6 @@ def on_new_round(b):
     ls["prev_fix_files"] = sorted({f for c in (b.outputs().get("p3.fix", {}) or {}).get("changes", []) for f in c.get("files", [])})
 
 
-# ---------------------------------------------------------------- 扇: 差分を割る
-def diff_chunks(b, nid):
-    path = b.loop_state.get("diff_file")
-    if not path or not pathlib.Path(path).is_file():
-        return []
-    text = pathlib.Path(path).read_text(encoding="utf-8")
-    if not text.strip():
-        return []
-    files = re.split(r"(?m)^(?=diff --git )", text)
-    pieces = [p for f in files for p in _split_file(f)]  # 1 ファイルが上限を超えるなら hunk（さらに行）の境目で割る
-    chunks, cur = [], ""
-    for f in pieces:
-        if cur and _b(cur) + _b(f) > FILE_CHUNK:
-            chunks.append(cur)
-            cur = ""
-        cur += f
-    if cur:
-        chunks.append(cur)
-    return [{"key": f"chunk-{i + 1}", "text": c, "of": len(chunks),
-             "files": re.findall(r"(?m)^diff --git a/(\S+)", c)} for i, c in enumerate(chunks)]
-
-
-def _b(s):
-    """貼る先の上限はバイトで効く（日本語は 1 字 3 バイト）。長さの比較は全部これを通す。"""
-    return len(s.encode("utf-8"))
-
-
-def _cont(hunk_header, nth):
-    """hunk の途中から始まる断片に付ける道しるべ。
-
-    `@@` を数え直して付けるのでなく注記にするのは、作り直した hunk 見出しは役にも道具にも
-    「正しい差分」に見えてしまい、ずれた行番号を根拠に指摘が書かれるから。
-    """
-    return f"［engine が hunk を割った続き。元の hunk は {hunk_header}、この断片はその {nth} 行目から］\n"
-
-
-def _split_file(f):
-    """1 ファイルの diff が FILE_CHUNK を超えるとき、hunk の境目で割る。hunk 1 つが超えるなら行で割る。
-
-    行で割った 2 片目以降は `@@` の行を持たない——ファイル見出しを付け直しても**何行目かは言えない**ので、
-    元の hunk 見出しと開始位置を注記で添える。以前はこれが無く、下の注記だけが「何行目かを言えるように」と
-    書いていた（コードが持たない性質を注記が主張していた）。
-    """
-    if _b(f) <= FILE_CHUNK:
-        return [f]
-    header, *hunks = re.split(r"(?m)^(?=@@ )", f)  # 先頭は diff --git / --- / +++ の見出し
-    limit = FILE_CHUNK - _b(header)
-    out, cur = [], ""
-    for h in hunks:
-        if _b(h) > limit:
-            if cur:
-                out.append(cur)
-                cur = ""
-            lines = h.splitlines(keepends=True)
-            hh = lines[0].rstrip("\n") if lines else ""
-            piece, start = "", 0
-            for i, ln in enumerate(lines):
-                if piece and _b(piece) + _b(ln) > limit:
-                    out.append(piece if start == 0 else _cont(hh, start + 1) + piece)
-                    piece, start = "", i
-                piece += ln
-            if piece:
-                out.append(piece if start == 0 else _cont(hh, start + 1) + piece)
-            continue
-        if cur and _b(cur) + _b(h) > limit:
-            out.append(cur)
-            cur = ""
-        cur += h
-    if cur:
-        out.append(cur)
-    # 各塊にファイル見出しを付け直す——塊だけを渡された役がどのファイルかを言えるように（files の抽出もここから）。
-    # 何行目かは hunk 見出しが持ち、hunk の途中から始まる断片には _cont の注記がそれを補う。
-    return [header + p for p in out]
-
-
-FAN_OUT = {"diff_chunks": diff_chunks}
 
 PROCEDURE_PATTERNS = (r"README", r"\.md$", r"\.sh$", r"^scripts/", r"^\.github/workflows/", r"Makefile", r"Dockerfile",
                       r"\.ya?ml$", r"^commands/", r"^hooks/")
@@ -188,21 +106,18 @@ CONDS = {"touches_procedures": touches_procedures, "prev_fix_touched": prev_fix_
 
 
 # ---------------------------------------------------------------- 記録の形に固有の書き込み
-def merge_material_chunks(b, nid, src, w):
-    """割って回した cold-reader の返答を素材 1 つに畳む。割ったことと割り方を素材に書く。"""
-    m = b.record["materials"].setdefault(w["to"], {"status": "clean", "checked": "", "count": 0, "detail": ""})
+def material_from_findings(b, nid, src, w):
+    """役の返答（findings と seen）を素材 1 つに写す。
+
+    以前は割った塊ごとの返答を畳む形だった（merge_material_chunks）。扇を落としたので畳む相手が 1 つに
+    なり、「何片に割ったか」を素材に書く欄（split）も意味を失った。
+    """
     findings = src.get("findings", [])
-    seen = src.get("seen", "")
-    n_of = b.rd["item_counts"].get(nid) or 1
+    m = {"status": "found" if findings else "clean", "checked": src.get("seen", "")}
     if findings:
-        m["status"] = "found"
-        m["count"] = m.get("count", 0) + len(findings)
-        m["detail"] = (m.get("detail") or "") + " / ".join(f"{f.get('where', '')}: {f.get('text', '')}" for f in findings) + "\n"
-    m["checked"] = (m.get("checked") or "") + f"[{src.get('chunk', '?')}/{n_of}] {seen}\n"
-    if m["status"] == "clean":
-        m.pop("count", None)
-        m.pop("detail", None)
-    m["split"] = n_of
+        m["count"] = len(findings)
+        m["detail"] = " / ".join(f"{f.get('where', '')}: {f.get('text', '')}" for f in findings)
+    b.record["materials"][w["to"]] = m
 
 
 def premise_question(b, nid, src, w):
@@ -220,7 +135,7 @@ def premise_question(b, nid, src, w):
     b.record["questions"].append(q)
 
 
-WRITE_OPS = {"merge_material_chunks": merge_material_chunks, "premise_question": premise_question}
+WRITE_OPS = {"material_from_findings": material_from_findings, "premise_question": premise_question}
 
 
 # ---------------------------------------------------------------- 機械の節
