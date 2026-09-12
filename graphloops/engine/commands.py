@@ -100,7 +100,13 @@ def cmd_done(a):
         except OSError as e:
             die(f"{a.output}: 読めない（{e}）")
     elif not sys.stdin.isatty():
-        got = sys.stdin.read(STDIN_MAX + 1)
+        # バイトで読んで UTF-8 に決める——テキストの stdin は OS 既定の文字コード（Windows は cp1252）で復号され、
+        # 日本語の返答が壊れて JSON にならない（実測 2026-09-13: CI の windows-latest で標準入力の done が落ちた）
+        raw = sys.stdin.buffer.read(STDIN_MAX * 4 + 1)
+        try:
+            got = raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise Reject(f"標準入力が UTF-8 でない（{e}）——UTF-8 で渡すか --output でファイルを渡せ")
         if len(got) > STDIN_MAX:
             raise Reject(f"標準入力が {STDIN_MAX} 文字を超えている——--output でファイルを渡せ")
         if got.strip():
