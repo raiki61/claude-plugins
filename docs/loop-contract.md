@@ -334,3 +334,13 @@
 - **research の軽量は 1 ラウンド打ち切り**（上限を平坦に 4 と書いていた）。deep-research への委譲・生存者バイアス・雪だるま追跡・Workflow の null 落ちが無かった
 - **doctor / firstread のグラフが未作成**だった（今回作成。doctor は「生やした親を同じラウンドの P2b に」が循環になるので別の節に、firstread は author の分類を採点でない例外として印を付けた）
 - **LLM アプリ固有の性質**（R〜AB）はどこにも書かれていなかった
+
+## 2026-09-13 の作業記録: windows-latest で残る赤の検査名
+
+`/review-graph` の 2 周目で、基準点 73fda8a から赤だった windows の CI を「別 PR に分ける」申請が取り下げられ（同じ差分が tests/ の 3 本を触っている）、内側として扱うことになった。最小の一歩は「HEAD で CI を回し、残る赤の検査名を記録する」。run 34706598635（9bc4424、2026-09-13）の windows-latest で赤なのは次の 10 件で、graphloops の検査は 3 OS とも緑:
+
+- convergence-loops の review-record 検査 3 件——「増えた scalar だけを、増えた scalar の節に出す」「初出のキーを『戻った』と数えない（注記が付かない）」×2。期待文と出力が見た目は同じで一致しない（改行の扱いの差と推定。未確定）
+- attention の catchup --switch 6 件——origin にだけある枝・fork の PR の枝・消えた枝の扱い。`git config --get branch.<枝>.remote` が非零で落ちる（Windows の git の挙動差と推定。未確定）
+- attention の deny 案内 2 件——hook の .py を直接起動して `WinError 193: %1 is not a valid Win32 application`（Windows は .py を実行ファイルとして起動できない。python を前に付ける必要）
+
+この差分（graphloops）が直した Windows の落ち方——一時ディレクトリの掃除・Python 3.10 の引数・子プロセスの文字コード・/dev/null・盤面のパスの区切り——とは別の落ち方なので、同じファイルで始めた修理の続きではない。次の周の判定者が検査名を名指しして申請を作り直す材料。
