@@ -42,6 +42,12 @@ def check(cond, desc):
         fails.append(desc)
 
 
+def rm(p):
+    """作業場の掃除。Windows は git の object を読み取り専用で置き、素の rmtree が PermissionError で
+    落ちる（実測: CI の windows-latest）。掃除の失敗で検査本体を落とさない。"""
+    shutil.rmtree(p, ignore_errors=True)
+
+
 class Run:
     def __init__(self, name, thickness=None, decider=None, unattended=False):
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-{name}-"))
@@ -221,14 +227,14 @@ def test_converges():
     check(next(c for c in rec["claims"] if c["id"] == "A")["refuted"] is True, "荷重の確証 A は反証を経た")
     check([c["no"] for c in rec["corrections"]] == [1, 2], f"訂正の番号は機械が連番で振る: {[c['no'] for c in rec['corrections']]}")
     check((run.dir / "report.md").is_file(), "report.md が保存された")
-    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True)
+    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8")
     check(v.returncode == 0, f"検証器が exit 0（{v.stdout.strip()[:60]}）")
     r1 = st["rounds"][0]
     check("p0.independence_review" in r1["na"], "独立出典だけなので independence_review は na")
     check(any(i.startswith("p1.refuter[A]") for i in r1["instances"]) and any(i.startswith("p1.refuter[B]") for i in r1["instances"]), "refuter は A（荷重確証）と B（相違）に走った")
     check("p1.checker" in st["rounds"][2]["empty"], "3 周目の checker は項目ゼロ（empty）")
     check(len(rec["process"]["skipped"]) == 0, "省略なし")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_unattended_stuck():
@@ -240,7 +246,7 @@ def test_unattended_stuck():
     check(rec["convergence"]["outcome"] == "stopped" and "無人実行" in rec["convergence"]["stopped_reason"], f"stopped_reason: {rec['convergence'].get('stopped_reason', '')[:40]}")
     check(any("stuck" in str(x) for x in rec["process"]["human_items"]), "要人間判断に stuck が載る")
     check((run.dir / "report.md").is_file(), "停止でも報告は出る（検証器は stopped を通す）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_attended_stuck_answer():
@@ -255,14 +261,14 @@ def test_attended_stuck_answer():
     nx = run.next()
     check(any(i["node"] == "p0.generation" for i in nx["ready"]), "stuck 後の重厚では断面の生成が開く")
     check(any(i["node"] == "p3.cartographer" for i in nx["ready"]), "重厚に上がると cartographer が序盤に出る")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_light():
     print("台本: 軽量は 1 周で打ち切り")
     r = Run("light-bad", thickness="軽量")
     check(r.init.returncode == 2, "軽量は --decider 依頼者指定 が無いと init を拒む")
-    shutil.rmtree(r.tmp)
+    rm(r.tmp)
     run = Run("light", thickness="軽量", decider="依頼者指定")
     answers_patch = lambda run_, inst, out: ({**out, "thickness": "軽量", "thickness_decider": "依頼者指定"} if inst["node"] == "p0.question" else out)
     last = drive(run, "light", hook=answers_patch)
@@ -272,7 +278,7 @@ def test_light():
     st = run.state()
     check("p5.internal" in st["rounds"][0]["na"] and "p0.prior_decisions" in st["rounds"][0]["na"], "軽量では P0-6 と内部突合が na")
     check((run.dir / "report.md").is_file(), "軽量でも報告は出る")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_rejections():
@@ -341,13 +347,13 @@ def test_rejections():
     (run.tmp / "p.json").write_text('"x"', encoding="utf-8")
     r = run.cmd("patch", "--path", "process.note", "--file", str(run.tmp / "p.json"), "--reason", "試験")
     check(r.returncode == 0 and run.state()["patches"][0]["reason"] == "試験", "patch は痕跡付き")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_graphcheck():
     print("graphcheck: 正しい graph は通り、壊した graph は腕ごとに NG の診断文を出して落ちる（例外で死なない）")
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
-    r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / "research-loop.json"), str(VALIDATOR)], capture_output=True, text=True)
+    r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / "research-loop.json"), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8")
     check(r.returncode == 0, "research-loop.json は通る")
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-gc-"))
     (tmp / "graphs").mkdir()
@@ -362,7 +368,7 @@ def test_graphcheck():
         n[0] += 1
         p = tmp / "graphs" / f"bad{n[0]}.json"
         p.write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
-        r = subprocess.run([PY, str(GRAPHCHECK), str(p), *([validator] if validator else [])], capture_output=True, text=True)
+        r = subprocess.run([PY, str(GRAPHCHECK), str(p), *([validator] if validator else [])], capture_output=True, text=True, encoding="utf-8")
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
 
     broken(lambda b: b["nodes"]["p2.integrate"]["writes"].append({"op": "set", "to": "gates.rederiver", "from": "root_causes"}), "判定の欄", "回す側が gates に書く graph は落ちる")
@@ -383,9 +389,9 @@ def test_graphcheck():
     broken(lambda b: b["record"].__setitem__("validator_path", "scripts/no-such-record.py"), "見つからない", "検証器のパスが解決できない graph は落ちる（第 2 引数なし）", validator=None)
     broken(lambda b: None, "必須欄が 1 つも拾えない", "必須欄を持たないファイルを検証器として渡すと落ちる（0 個の突合を合格にしない）", validator=str(PLUGIN / "engine" / "util.py"))
     for other in ("review", "doctor", "firstread"):
-        r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / f"{other}-loop.json")], capture_output=True, text=True)
+        r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / f"{other}-loop.json")], capture_output=True, text=True, encoding="utf-8")
         check(r.returncode == 0, f"{other}-loop.json（写しだけ）は写しの形の検査だけで通る")
-    shutil.rmtree(tmp)
+    rm(tmp)
 
 
 def test_bad_builtin():
@@ -422,7 +428,7 @@ def test_bad_builtin():
             subprocess.run([PY, str(LOOP), "done", "--node", inst["id"], "--output", str(f), "--dir", str(d2)],
                            cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
     check(init.returncode == 0 and "でも" in seen and "shapeless" in seen, f"形の違う返りは die（合格に倒さない）: {seen[-140:]}")
-    shutil.rmtree(tmp); shutil.rmtree(run.tmp)
+    rm(tmp); rm(run.tmp)
 
 
 def test_units():
@@ -485,7 +491,7 @@ def test_arms():
     f.write_text(json.dumps(base_answers(run, "std")["p0.prior_decisions"](None, 1), ensure_ascii=False), encoding="utf-8")
     r = run.cmd("done", "--node", by["p0.prior_decisions"]["id"], "--output", str(f), env=nogit)
     check(r.returncode == 1 and "git status が取れない" in r.stderr, "git が無い場からの done は突合できないので exit 1")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
     # 検証器が無い run は report の前で止まる（無検査で報告に進めない）
     run = Run("noval")
     st = run.state()
@@ -497,7 +503,7 @@ def test_arms():
     except RuntimeError as e:
         check("検証器" in str(e) or "validator" in str(e).lower(), f"検証器の無い run は report の前で exit 1（{str(e)[:80]}）")
     check(not (run.dir / "report.md").is_file(), "report.md は作られない")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_resolve_dir():
@@ -522,7 +528,7 @@ def test_resolve_dir():
     check(r.returncode == 2 and "--dir で指せ" in r.stderr and "research-loop" in r.stderr and "review-loop" in r.stderr, "run が 2 本並ぶと --dir 無しは exit 2（新しい方を黙って選ばない）")
     d = json.loads(call("status", "--dir", str(next((repo / ".git" / "graphloops" / "research-loop").glob("2*")))).stdout)
     check(d["loop"] == "research-loop", "--dir で名指しすれば解決する")
-    shutil.rmtree(tmp)
+    rm(tmp)
 
 
 def test_gate_arms():
@@ -533,11 +539,11 @@ def test_gate_arms():
     check(last["status"] == "stopped" and "暴走ガード" in rec["convergence"]["stopped_reason"], f"cold_reader が pass しないまま上限で stopped（{rec['convergence'].get('stopped_reason', '')[:30]}）")
     check(rec["convergence"]["outcome"] == "stopped" and all(r["verdict"] == "redesign-needed" for r in rec["gates"]["cold_reader"]["rounds"]), "収束を名乗らず、ゲートの周ごとの verdict が残る")
     check(run.state()["round"] == run.state()["max_rounds"], f"止まった周は max_rounds（{run.state()['round']}）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
     run = Run("rederiver")
     last = drive(run, "rederiver_fail")
     check(last["status"] == "awaiting_human" and "zero_base_divergence" in last["ask"]["kinds"], f"rederiver の redesign-needed が 2 周解消しないと人に聞く（{last.get('ask', {}).get('kinds')}）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_isolated_launch():
@@ -571,7 +577,7 @@ def test_isolated_launch():
     role = after("--append-system-prompt-file")
     check(bool(role) and pathlib.Path(role).is_file() and pathlib.Path(role).read_text(encoding="utf-8").strip(),
           "役の定義の本文が盤面に書き出され、system prompt として渡る")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
     # **起こすコマンドが無い場でも next は止まらない。** 計画を出す所で落とすと、遮断系を一度も起こさない場
     # （この台本・別の機械での再開・記録を読むだけの用）まで全部死ぬ（実測 2026-09-12: ここを die にしたら
@@ -587,7 +593,7 @@ def test_isolated_launch():
     cli2 = [i for i in ready if i.get("mode") == "cli"]
     check(bool(cli2) and all(i["launch"].get("missing") for i in cli2),
           "起こせない旨が launch.missing に立つ（回す側と記録に見える）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_isolated_not_truncated():
@@ -616,7 +622,7 @@ def test_isolated_not_truncated():
     check(bool(withdoc), f"材料を渡される遮断系の節が在る（{sorted({n for n, _ in withdoc})}）")
     check(all(tail in p for _, p in withdoc),
           f"遮断系のプロンプトに材料の末尾が残る＝切られていない（欠けた節: {[n for n, p in withdoc if tail not in p]}）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_concurrent_save():

@@ -38,6 +38,12 @@ def check(cond, desc):
         fails.append(desc)
 
 
+def rm(p):
+    """作業場の掃除。Windows は git の object を読み取り専用で置き、素の rmtree が PermissionError で
+    落ちる（実測: CI の windows-latest）。掃除の失敗で検査本体を落とさない。"""
+    shutil.rmtree(p, ignore_errors=True)
+
+
 def sh(cwd, *args):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8")
 
@@ -224,7 +230,7 @@ def test_new_guards():
     check(r.returncode == 1 and "measured_output" in r.stderr, "kind=実測 に measured_output が無いと exit 1")
     r = run.done(by["p0.premises"]["id"], {"constraints": [{**bad["constraints"][0], "kind": "仮説"}]})
     check(r.returncode == 0, "仮説なら再現の形は要らない")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
     # 対象差分が空なら P1 の前で止まる（5 周まわして事実と逆の理由を書き続けない）
     run = Run("emptydiff")
@@ -237,7 +243,7 @@ def test_new_guards():
         run.done(by[n]["id"], t[n](None))
     nx = run.next()
     check(any("対象差分が空" in n for n in nx["notes"]) and not any(i["node"].startswith("p1.") for i in nx["ready"]), f"BASE=HEAD（差分ゼロ）は P1 の前で止まる: {nx.get('notes')}")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
     # git が取れない場では対象差分そのものが測れない——空文字に潰して「変化なし」にしない
     run = Run("nogit-snap")
@@ -250,7 +256,7 @@ def test_new_guards():
     r = run.cmd("next", env={**os.environ, "PATH": str(run.tmp / "empty-bin")})
     nx = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {"ready": ["?"], "notes": [r.stderr]}
     check(any("git が取れない" in n or "取れない" in n for n in nx["notes"]), f"git が無い場では対象差分の取得で止まる（空文字に潰さない）: {str(nx.get('notes'))[:100]}")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
     # cond の path が解決できない graph は next で die（偽に倒して『条件に当たらない』に化けさせない）
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-cond-"))
@@ -267,7 +273,7 @@ def test_new_guards():
     nxt = subprocess.run([PY, str(LOOP), "next", "--dir", str(run.tmp / "s2")], cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
     check(r.returncode == 0 and ("解決できない" in r2.stderr + nxt.stderr or "解決できない" in r2.stdout), 
           f"解決できない cond の path は die（偽に倒さない）: {(r2.stderr + nxt.stderr)[-120:]}")
-    shutil.rmtree(tmp); shutil.rmtree(run.tmp)
+    rm(tmp); rm(run.tmp)
 
 
 def test_empty_text_reply():
@@ -286,7 +292,7 @@ def test_empty_text_reply():
 
     drive(run, "std", hook=hook)
     check(len(seen) >= 1 and (run.dir / "report.md").read_text(encoding="utf-8").strip(), "正しい本文なら通り、report.md は空でない")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_converges():
@@ -308,7 +314,7 @@ def test_converges():
     check(all("確認:" in r3["materials"][n]["reason"] for n in carried), f"持ち越しの理由は確かめた対象を書く（{len(carried)} 件）")
     check(r1["reviews"]["R3"]["status"] == "not_applicable" and r2["reviews"]["R3"]["status"] == "pass", "[block] が残る周は R3/R4 not_applicable、0 の周に走る")
     check(r2["reviews"]["R1"]["status"] == "carried_over" and r3["reviews"]["R1"]["from_round"] == 1, "R1 は再発火しない周に持ち越し、連鎖は round 1 を指す")
-    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "rounds")], capture_output=True, text=True)
+    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "rounds")], capture_output=True, text=True, encoding="utf-8")
     check(v.returncode == 0, "検証器がディレクトリで exit 0（連続 2 ラウンド）")
     check((run.dir / "report.md").is_file(), "report.md が保存された")
     inst = st["rounds"][1]["instances"]
@@ -316,7 +322,7 @@ def test_converges():
     check(hist and hist.get("mode") == "agent_continue" and hist.get("agent_id") == "judge-1", "2 周目の履歴の突合は同じ judge を続ける（agent_continue）")
     check(st["rounds"][0]["na"].get("p2.history", "").startswith("cond"), "1 周目に履歴の突合は無い")
     check((run.dir / "diff-r1.patch").is_file() and "src/b.py" in (run.dir / "diff-r1.patch").read_text(encoding="utf-8"), "対象差分は機械が取って置く")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_premise():
@@ -331,7 +337,7 @@ def test_premise():
     check(r.returncode == 0, "stop で止める")
     last = drive(run, "premise")
     check(last["status"] == "stopped" and (run.dir / "report.md").is_file(), "止まった run でも報告は出る（検証器 exit 1 を受け付ける）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_awaiting():
@@ -348,7 +354,7 @@ def test_awaiting():
     r3 = run.round_file(3)
     check(r3["materials"]["main_path_observation"]["status"] == "clean" and any(q["status"] == "resolved" for q in r3["questions"]), "3 周目に観測して問いは resolved")
     check(any("config/dev.local.example" in (a.get("note") or "") for a in run.record()["process"]["human_answers"]), "人の答えが記録に残り次の周の judge に渡る")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_runaway():
@@ -357,7 +363,7 @@ def test_runaway():
     last = drive(run, "runaway")
     check(last["status"] == "stopped" and run.state()["round"] == 5, f"5 周で停止（{run.state()['round']}）")
     check("暴走ガード" in run.record()["process"].get("stop_reason", "") or run.state()["loop"].get("stop_reason") == "max_rounds", "停止の理由が上限")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_rejections():
@@ -435,7 +441,7 @@ def test_rejections():
     fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
     r = run.done(fx["id"], {**t["p3.fix"](None), "changes": [], "not_done": [{"unit_key": "src/a.py:f — 上限が効かない経路がある", "why": "面倒"}]})
     check(r.returncode == 1 and "直していない" in r.stderr, "[block] を直さない writer の返答は exit 1")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_premise_resolved():
@@ -450,7 +456,7 @@ def test_premise_resolved():
     check(any(q["kind"] == "premise" and q["status"] == "resolved" for q in r2["questions"]), "2 周目: judge が回し直した R2 を見て premise を resolved に確定")
     cons = run.record()["process"].get("constraints", [])
     check(any("上限を持たない" in c["text"] and c["kind"] == "実測" for c in cons), "検算の実測が制約に足されている（facts_to_add の行き先）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_nopurpose():
@@ -466,7 +472,7 @@ def test_nopurpose():
     check(last["status"] == "stopped" and (run.dir / "report.md").is_file(), "stop で止まり報告は出る")
     r = run.cmd("finalize")
     check(r.returncode == 0, f"止まった run の finalize は exit 0（受理集合 [0, 1] は graph の宣言。stderr: {r.stderr[-80:]}）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def test_big_diff():
@@ -496,7 +502,7 @@ def test_big_diff():
     check("日本語" in body, "日本語主体のファイルも入っている（字数とバイト数がずれる入力で切れない）")
     st_size = (run.dir / "state.json").stat().st_size
     check(st_size < 200000, f"state.json は差分を複製しない（{st_size} バイト）")
-    shutil.rmtree(run.tmp)
+    rm(run.tmp)
 
 
 def main():
