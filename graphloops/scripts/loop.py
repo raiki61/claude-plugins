@@ -5,7 +5,7 @@
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--dir <置き場>] [--validator <path>]
     loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
-    loop.py done   --node <節[鍵]> (--output <返答.json> | 標準入力) [--agent-id <id>] [--accept-tree-change 理由]
+    loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
     loop.py answer --text <答え> [--note <本文>]         # 人に聞く番のとき（本文は次の周の再審に渡る）
     loop.py thicken --to <段> --reason <理由>           # 段の昇格（降格は不可。段名は graph の thickness.tiers）
@@ -60,6 +60,7 @@ def main():
     s.add_argument("--dir")
     s.add_argument("--node", required=True)
     s.add_argument("--output")
+    s.add_argument("--stdin", action="store_true", help="返答を標準入力で渡す（明示したときだけ読む——閉じないパイプで止まらないため）")
     s.add_argument("--agent-id", help="役の agent の id（同じ agent を続ける節のために残す）")
     s.add_argument("--accept-tree-change")
     s.set_defaults(fn=c.cmd_done)

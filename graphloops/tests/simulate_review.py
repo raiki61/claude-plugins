@@ -468,7 +468,7 @@ def test_rejections():
     # 置き場に古い返答が残っていても、標準入力で渡した新しい返答が勝つ（以前は置き場が先に読まれ、古い方が黙って記録に入った）
     pathlib.Path(jd["out_path"]).parent.mkdir(parents=True, exist_ok=True)
     pathlib.Path(jd["out_path"]).write_text(json.dumps({**good, "framing": "STALE"}, ensure_ascii=False), encoding="utf-8")
-    r = run.cmd("done", "--node", jd["id"], "--agent-id", "judge-1", input=json.dumps({**good, "framing": "FRESH"}, ensure_ascii=False))
+    r = run.cmd("done", "--node", jd["id"], "--stdin", "--agent-id", "judge-1", input=json.dumps({**good, "framing": "FRESH"}, ensure_ascii=False))
     check(r.returncode == 0 and "読んだ先: stdin" in r.stdout, f"正しい judge の返答は通り、どこから読んだかが返事に残る（{r.stdout.strip()[:70]}）")
     check(json.loads(pathlib.Path(jd["out_path"]).read_text(encoding="utf-8")).get("framing") == "FRESH", "標準入力の返答が置き場の古い返答より優先され、記録に入るのは新しい方")
     nx = run.next()

@@ -90,8 +90,10 @@ def cmd_done(a):
         raise Reject(f"節 '{a.node}' は既に {inst['status']}")
     nid = inst["node"]
     n = b.nodes[nid]
-    # 読む順: --output の明示 → 標準入力（空でなければ）→ 置き場（out_path）。以前は置き場が標準入力より先で、拒まれた
-    # 前回分が置き場に残っていると新しい返答を標準入力で渡しても古い方が黙って記録に入った（実測 2026-09-12）。
+    # 読む順: --output の明示 → --stdin の明示 → 置き場（out_path）。以前は置き場が標準入力より先で、拒まれた前回分が
+    # 置き場に残っていると新しい返答を標準入力で渡しても古い方が黙って記録に入った（実測 2026-09-12）。
+    # 標準入力は**明示されたときだけ**読む——「端末でなければ読む」にしていたとき、呼び出し元の stdin が閉じない
+    # パイプだと read() が戻らず done が止まった（実測 2026-09-13: 回す側の shell で 120 秒超えて殺した）。
     # どこから読んだかは instance と返事に残す。
     text, read_from = None, None
     if a.output:
@@ -99,7 +101,7 @@ def cmd_done(a):
             text, read_from = pathlib.Path(a.output).read_text(encoding="utf-8"), f"--output {a.output}"
         except OSError as e:
             die(f"{a.output}: 読めない（{e}）")
-    elif not sys.stdin.isatty():
+    elif getattr(a, "stdin", False):
         # バイトで読んで UTF-8 に決める——テキストの stdin は OS 既定の文字コード（Windows は cp1252）で復号され、
         # 日本語の返答が壊れて JSON にならない（実測 2026-09-13: CI の windows-latest で標準入力の done が落ちた）
         raw = sys.stdin.buffer.read(STDIN_MAX * 4 + 1)
@@ -109,8 +111,9 @@ def cmd_done(a):
             raise Reject(f"標準入力が UTF-8 でない（{e}）——UTF-8 で渡すか --output でファイルを渡せ")
         if len(got) > STDIN_MAX:
             raise Reject(f"標準入力が {STDIN_MAX} 文字を超えている——--output でファイルを渡せ")
-        if got.strip():
-            text, read_from = got, "stdin"
+        if not got.strip():
+            raise Reject("--stdin なのに標準入力が空——返答を流すか、--output か置き場で渡せ")
+        text, read_from = got, "stdin"
     if text is None and inst.get("out_path") and pathlib.Path(inst["out_path"]).is_file():
         try:
             text, read_from = pathlib.Path(inst["out_path"]).read_text(encoding="utf-8"), f"out_path {inst['out_path']}"
