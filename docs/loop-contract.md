@@ -106,7 +106,7 @@
 
 **内容**: 総ラウンドが上限を超えたら「収束せず」として必ず停止し報告する。収束前の打ち切りでなく、非収束を検知する上限。連続 2 ラウンドと**同一カウンタ**。review 5・research 4（軽量は 1 で打ち切り）・doctor 6（6 ラウンド目の完了で停止）・firstread 上限なし（止め時は人が決める）。
 
-**今どこが守っているか**: **散文だけ**。0.31.1 でも review-record.py に上限の検査は無い（`round >= 1` のみ。2026-09-12 に全文を読んで確認）。research / doctor は `rounds_total` の下限のみ。
+**今どこが守っているか**: graphloops＝**機械**（engine の `max_rounds`——review 5・research 4——に達したら converge が stopped を返す。台本で検査済み）。散文の 4 本は**散文だけ**。0.31.1 でも review-record.py に上限の検査は無い（`round >= 1` のみ。2026-09-12 に全文を読んで確認）。research / doctor は `rounds_total` の下限のみ。
 
 **どう確かめるか**: テストを足せる——ラウンド番号は記録に既にあり、上限は定数 1 個。**最初に機械側へ移すべき規律**。
 
@@ -143,7 +143,7 @@
 
 **内容**: ループが対象リポジトリを汚さない。doctor は走査前後の `git status --porcelain` と `git stash list` の突合を最終報告の必須欄に。firstread は `git status` の 2 回目を**外に立てた役の判定が出揃った直後・自分が直しを当てる前**に取り、先に書いた答え・記録・写しを作業ツリーの外に置く。review 0.31.1 は P1 の前後で `git status --short`・`git stash list`・`git diff --shortstat <BASE>` を突き合わせ（道具名で列挙しない）、`git add -N` がこの手順の唯一の index への書き込みなので途中で終わったら `git reset -- <path>` で戻す。research は `investigator` の前後で突合。
 
-**今どこが守っているか**: doctor は**機械**（`mod_check`）、firstread は**機械**（`git_status_match`）＋**散文**（2 回目のタイミング）、review / research は**散文だけ**。
+**今どこが守っているか**: doctor は**機械**（`mod_check`）、firstread は**機械**（`git_status_match`）＋**散文**（2 回目のタイミング）、review / research の散文版は**散文だけ**。graphloops＝**機械**（P1 の前後と investigator の instance の前後で `git status --porcelain`・`git stash list`・`git diff --shortstat`・diff の sha を突き合わせ、違えば止める。stash で退避しても stash の一覧が突合に入る。writer 自身の変更は `done` / `next` の `--accept-tree-change <理由>` で痕跡付きで通す——実測 2026-09-12: P1 の途中で engine を直したら次が 10 回同じ理由で止まった）。
 
 **どう確かめるか**: review / research にも記録の欄として足せる。
 
@@ -214,6 +214,7 @@
 - **メインの system prompt も注入されない**（同ドキュメントが "not the Claude Code system prompt" と明記）。
 - **`--setting-sources ""` は CLAUDE.md ごと外す**。CLAUDE.md は settings.json と同じ setting source（`project` / `user` / `local`）の**中身そのもの**だから（`agent-sdk/claude-code-features` の表）。対照実験: フラグ無しではプロジェクトと利用者の両方の目印が見え、付けると両方消えた。
 - **外せない残り**: 組織管理（managed policy）の CLAUDE.md。よって「完全な遮断」とは名乗らない。
+- **標準入力の大きさの測定（再現の形）**: 2026-09-12、macOS・claude 2.1.269、`/review-graph` の p1.hygiene（cold-reader）。起動は graph の `launch.isolated.argv`（`claude -p --model sonnet --effort medium --tools "" --setting-sources "" --append-system-prompt-file <役の本文> --no-session-persistence --output-format text`）、入力は `wc -c prompts/r1/p1.hygiene.md` → `774021`（diff 769,188 バイト＋観点＋schema）を標準入力で。出力 4,605 バイト、`seen` は「貼られた diff 本文の全体（…）」で findings 3 件、先頭側（engine/schema.py）と末尾側（tests/run.sh）の両方に指摘が及んだ。同日の先行測定は 748,883 バイトで同じ結果。**2 点の観測であって上限の保証ではない**——入り切らなければ API がエラーを返し、`done` が非 JSON を拒む（fail-closed）。同じ日に見つかった落ち方: 子プロセスは親の環境を継ぐので、別プロファイル（`CLAUDE_CONFIG_DIR`）で回していると認証が子に効かず、`Failed to authenticate` の 1 行（73 バイト）が返った——どう扱うかは review-graph の問いの台帳（fork）に載せてあり未決。
 
 **どう確かめるか**: 目印を書いた `CLAUDE.md` を置いた空ディレクトリを cwd にして役を起こし、「その目印が文脈に在るか」を答えさせる。**対照（フラグ無し）を必ず同時に走らせろ**——目印が見えない結果は、遮断が効いた場合と検査が空振りした場合の両方で出る。
 
@@ -297,7 +298,7 @@
 
 上の A〜AB から、新しいコマンドで落ちやすい順に:
 
-1. **暴走ガードの上限**（I）——4 本とも散文だけ。機械に足すのが最も安い
+1. **暴走ガードの上限**（I）——散文の 4 本は散文だけ（graphloops は機械）。検証器に足すのが最も安い
 2. **連続 2 ラウンド**（H）——research / doctor は自己申告欄。review 0.31.1 と同じディレクトリ渡しに落とせる
 3. **前のラウンドを渡さない**（D）——機械では確かめられない。ランタイムが入力の要約を記録に書く形にしないと永久に散文
 4. **版とモデルが記録に無い**（Y）——4 本とも無し

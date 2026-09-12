@@ -28,7 +28,7 @@
     "--output-format",
     "text"
    ],
-   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層を注入し、止める設定が公式に存在しない（Explore と Plan だけが除外され、per-agent の設定は無い）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（実測: 748,883 バイトが先頭・末尾とも欠けずに通った）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。"
+   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層を注入し、止める設定が公式に存在しない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-12 取得: 『Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.』）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。"
   }
  },
  "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
@@ -108,7 +108,7 @@
    "run_by": "writer",
    "deps": [],
    "source": "P0 ＞ 1. 基準点を固定",
-   "does": "BASE を決める（未コミットあり→HEAD／クリーン→上流との分岐点／取れなければ HEAD~1）。未追跡は git add -N で載せる——この手順が index を変える唯一の書き込みで、途中で終わったら git reset -- <path> で戻す",
+   "does": "BASE を決める（依頼文が名指ししていればそれ／未コミットあり→HEAD／クリーン→上流との分岐点／取れなければ HEAD~1）。未追跡は git add -N で載せる——この手順が index を変える唯一の書き込みで、途中で終わったら git reset -- <path> で戻す",
    "outputs": [
     "base",
     "materials.base_determination"
@@ -142,7 +142,8 @@
       "enum": [
        "1 未コミット変更あり→HEAD",
        "2 上流との分岐点",
-       "3 HEAD~1"
+       "3 HEAD~1",
+       "4 依頼者の名指し"
       ]
      },
      "commits": {
@@ -1155,7 +1156,7 @@
    ],
    "source": "P1 ＞ 文脈遮断（タスク文脈そのものを遮断）",
    "inputs": [
-    "対象差分の本文（貼る。貼り切れなければ貼る側を割って複数回起動し、割り方を素材に書く）",
+    "対象差分の本文（標準入力で流す。割らない）",
     "REVIEW.md コード衛生観点の本文（貼る）"
    ],
    "forbidden_inputs": [
@@ -3877,7 +3878,7 @@
     "記録",
     "差分"
    ],
-   "does": "①どこで止まったか ②何を推測で埋めたか ③この本文だけで決められるか。詰まりが残るうちは出さない。別プラグインの投稿ゲートに頼らない（導入していない実行者では黙って飛ばされる）。自己評価で代用しない",
+   "does": "①どこで止まったか ②何を推測で埋めたか ③この本文だけで決められるか。詰まりは report の節に渡り、writer が直してから出す（直したかは機械では見ない——注記であって門ではない。verdict と件数は process.cold_check に残る）。別プラグインの投稿ゲートに頼らない（導入していない実行者では黙って飛ばされる）。自己評価で代用しない",
    "outputs": [
     "process.cold_check"
    ],
@@ -3926,7 +3927,7 @@
      "from": "$"
     }
    ],
-   "post_check": "cold_check_gate"
+   "post_check": "cold_check_note"
   },
   "report": {
    "stage": "最終報告",

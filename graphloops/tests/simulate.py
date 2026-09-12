@@ -180,6 +180,7 @@ def scenario_thickness(s):
 def drive(run, scenario, max_steps=60, hook=None):
     """next → 台本で done を、止まるか終わるまで。返り値は最後の next の出力。"""
     last = None
+    seen_delivery = set()  # 渡し方の検査は節ごとに初回だけ（P3 の遮断系は 1 周目に出ない——round == 1 の条件では一度も当たらなかった）
     for _ in range(max_steps):
         nx = run.next()
         last = nx
@@ -193,9 +194,11 @@ def drive(run, scenario, max_steps=60, hook=None):
             if hook is None and node == "p2.integrate":
                 ptxt = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
                 check("record.json" in ptxt and '"claims": [' not in ptxt, "統合の節には記録の本文でなく置き場と要約が渡る")
-            if hook is None and inst["mode"] == "agent" and nx["round"] == 1 and node in ("p1.checker", "p3.cold_reader"):
-                want = "path" if node == "p1.checker" else "paste"
-                check(inst.get("deliver") == want, f"{node} の渡し方は {want}（役の道具から決まる）")
+            if hook is None and node in ("p1.checker", "p3.cold_reader") and node not in seen_delivery:
+                seen_delivery.add(node)
+                # 遮断系は cli で出るので mode も見る（以前は mode == "agent" と round == 1 を条件にしていて cold_reader の腕が空振りしていた）
+                want_mode, want = ("agent", "path") if node == "p1.checker" else ("cli", "paste")
+                check(inst["mode"] == want_mode and inst.get("deliver") == want, f"{node} は mode={want_mode}・渡し方 {want}（役の道具から決まる）")
             out = answers[node](inst["item"], nx["round"])
             if hook:
                 out = hook(run, inst, out) or out
@@ -380,6 +383,7 @@ def test_graphcheck():
     broken(lambda b: b.__setitem__("agent_prefix", "x"), "agent_prefix", "廃止した agent_prefix を持つ graph は落ちる")
     broken(lambda b: b.__setitem__("plugin", "no-such-plugin"), "役割 agent の定義", "役の定義が見つからない plugin を指す graph は落ちる")
     broken(lambda b: b.pop("launch"), "launch.isolated.argv", "道具ゼロの役を使うのに起こし方を宣言しない graph は落ちる")
+    broken(lambda b: b["nodes"]["p1.checker"]["schema"].__setitem__("oneOf", []), "engine が読まない語", "schema に engine が読まない語（oneOf）を書いた graph は落ちる（書いても効かない語を黙って通さない）")
     broken(lambda b: b["nodes"]["p1.checker"].__setitem__("run_by", "nobody"), "run_by", "回す側でも役でもない run_by は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（欄の名前だけ）")
     # 段名の正本は thickness.tiers——キーの集合から導かない
@@ -519,7 +523,9 @@ def test_resolve_dir():
     subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "doc"], cwd=repo, check=True)
     call = lambda *a: subprocess.run([PY, str(LOOP), *a], cwd=repo, capture_output=True, text=True, encoding="utf-8")
     r = call("init", "--loop", "research-loop", "--request", "q", "--document", str(doc), "--validator", str(VALIDATOR))
-    check(r.returncode == 0 and "/.git/graphloops/research-loop/" in json.loads(r.stdout)["dir"], "--dir を省いた init は .git の下に盤面を作る")
+    # 区切り文字で見ない——Windows は \\ で返り、'/.git/…/' の部分一致は落ちた（実測: CI の windows-latest）
+    d0 = pathlib.Path(json.loads(r.stdout)["dir"]) if r.returncode == 0 else pathlib.Path()
+    check(r.returncode == 0 and d0.parts[-4:-1] == (".git", "graphloops", "research-loop"), f"--dir を省いた init は .git の下に盤面を作る（{d0}）")
     r = call("status")
     check(r.returncode == 0 and json.loads(r.stdout)["loop"] == "research-loop", "run が 1 本なら --dir 無しで解決する")
     r = call("init", "--loop", "review-loop", "--request", "r", "--validator", str(PLUGIN.parent / "scripts" / "review-record.py"))
@@ -654,6 +660,94 @@ def test_concurrent_save():
     check("書かれてはいけない欄" not in b.state, "A が握っていた古い state は書き戻されていない")
 
 
+def test_plugin_path_ambiguity():
+    """同名 plugin がキャッシュの 2 出所に在っても、明示（--validator）や同梱（同じリポジトリ）が先に見つかれば落ちない。
+    以前は候補を積んだ後に出所の判定が来て、明示が在っても init が exit 2 で落ち、案内した回避策がその場で効かなかった
+    （実測 2026-09-12）。"""
+    print("否定検査: キャッシュの曖昧さは、明示・同梱で解決できない時だけ落とす")
+    cfg = pathlib.Path(tempfile.mkdtemp(prefix="gl-cfg-"))
+    for market, ver in (("marketA", "1.0.0"), ("marketB", "2.0.0")):
+        d = cfg / "plugins" / "cache" / market / "convergence-loops" / ver
+        (d / "scripts").mkdir(parents=True)
+        shutil.copy(VALIDATOR, d / "scripts" / "research-record.py")
+        (d / "agents").mkdir()
+        shutil.copy(PLUGIN.parent / "agents" / "cold-reader.md", d / "agents" / "cold-reader.md")
+    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(cfg)}
+    run = Run("ambig")
+    d2 = run.tmp / "s2"
+    call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", env=env)
+    r = call("init", "--loop", "research-loop", "--request", "q", "--document", str(run.doc), "--validator", str(VALIDATOR))
+    check(r.returncode == 0, f"2 出所でも --validator の明示があれば init は通る（rc={r.returncode}: {r.stderr[-160:]}）")
+    nx = call("next")
+    ok = nx.returncode == 0 and nx.stdout.strip().startswith("{")
+    if ok:  # 最初の波（回す側の節）を返して、役割 agent が出る波まで進める——役の定義の解決もキャッシュの曖昧さを踏まない
+        o = run.tmp / "o.json"
+        o.write_text(json.dumps(base_answers(run, "std")["p0.question"](None, 1), ensure_ascii=False), encoding="utf-8")
+        call("done", "--node", "p0.question", "--output", str(o))
+        nx = call("next")
+        ok = nx.returncode == 0 and any(i["mode"] != "runner" for i in json.loads(nx.stdout)["ready"])
+    check(ok, f"役の定義は同梱（同じリポジトリ）が先に当たるので、役が出る波の next も通る（rc={nx.returncode}: {nx.stderr[-160:]}）")
+    rm(cfg); rm(run.tmp)
+
+
+def test_unresolved_role():
+    """役の定義（agents/<役>.md）が解決できない節は起こさない。以前は「定義なし」を「道具を持つ役」と同じ False に潰し、
+    遮断系が黙って Agent ツール経路（mode=agent）に倒れて CLAUDE.md 注入の経路が戻っていた（実測 2026-09-12）。"""
+    print("否定検査: 役の定義が解決できなければ next は die（Agent 経路に黙って倒れない）")
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-norole-"))
+    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
+    shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    (tmp / "graphs").mkdir()
+    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+    g["nodes"]["p3.cold_reader"]["run_by"] = "no-such-role"  # 遮断系の節を、定義の無い役に
+    (tmp / "graphs" / "norole.json").write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+    run = Run("norole")
+    d2 = run.tmp / "s2"
+    call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
+    call("init", "--loop", "research-loop", "--graph", str(tmp / "graphs" / "norole.json"), "--request", "q", "--document", str(run.doc), "--validator", str(VALIDATOR))
+    seen, modes = "", []
+    for _ in range(80):
+        nx = call("next")
+        seen += nx.stderr
+        if nx.returncode != 0 or not nx.stdout.strip():
+            break
+        out = json.loads(nx.stdout)
+        if not out["ready"]:
+            if out["status"] != "running":
+                break
+            continue
+        answers = base_answers(run, "std")
+        for inst in out["ready"]:
+            if inst["node"] == "p3.cold_reader":
+                modes.append(inst["mode"])
+            o = answers[inst["node"]](inst["item"], out["round"])
+            f = run.tmp / "o.json"
+            f.write_text(json.dumps(o, ensure_ascii=False) if not isinstance(o, str) else o, encoding="utf-8")
+            call("done", "--node", inst["id"], "--output", str(f))
+    check("解決できない" in seen and not modes, f"定義の無い役の節で next が die し、その節は一度も出ない（modes={modes}: {seen[-160:]}）")
+    rm(tmp); rm(run.tmp)
+
+
+def test_parse_output():
+    """done が読む返答の剥がし方。**素の JSON を先に読む**——先に囲いを探すと、本文の中の ``` を囲いと誤認して
+    中身を切り出し、正しい返答が『JSON として読めない』で拒まれる（実測 2026-09-12: 指摘文に ```json を書いた
+    runner の返答が落ちた。役の指摘がコードの囲いに触れるのはレビューでは普通に起きる）。"""
+    print("done の返答の読み方: 素の JSON → 本文中の囲い → { } の切り出し")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.commands import parse_output
+    from engine.util import Reject
+    inner = {"findings": [{"where": "x", "text": "実物は ```json … ``` で囲んで返す。正規表現 ```(?:json)?\\s*(.*?)``` は常に不一致"}]}
+    bare = json.dumps(inner, ensure_ascii=False)
+    check(parse_output(bare) == inner, "本文に ``` を含む素の JSON は、そのまま読める（囲いと誤認しない）")
+    check(parse_output("```json\n" + bare + "\n```") == inner, "全体を ```json で囲った返答は剥がして読める")
+    check(parse_output("以下が返答です。\n```\n" + bare + "\n```\n以上。") == inner, "前後に文が付いた囲いも読める")
+    try:
+        parse_output("これは JSON ではない")
+        check(False, "JSON の無い返答は Reject")
+    except Reject:
+        check(True, "JSON の無い返答は Reject")
+
+
 def main():
     os.environ.pop("CONVERGENCE_LOOPS_ROOT", None)
     test_graphcheck()
@@ -670,6 +764,9 @@ def main():
     test_isolated_launch()
     test_isolated_not_truncated()
     test_concurrent_save()
+    test_parse_output()
+    test_plugin_path_ambiguity()
+    test_unresolved_role()
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤
         print("  - 検査が 1 件も走っていない")

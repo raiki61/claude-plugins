@@ -11,7 +11,8 @@ import re
 
 # 差分を割って複数の cold-reader に配る扇（diff_chunks）は落とした。**割る理由が無くなったから**——
 # 遮断系は別プロセスの CLI へ標準入力で流すので、貼る上限（Agent ツールのプロンプトの性質。実測 約 50 KB）に
-# 当たらない。実測 2026-09-12: 748,883 バイトが先頭・末尾とも欠けずに 1 回で通った。
+# 当たらない。2026-09-12 にこの環境（macOS・claude 2.1.269）で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも
+# 欠けずに 1 回で届いた（測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、契約ではない）。
 # 入り切らなければ API がエラーを返して**うるさく落ちる**ので、割りは安全柵でもなかった（静かに切る
 # 経路が事故だったのであって、落ちる経路は守るべき性質を既に満たしている）。
 # 落としたのは 23 片に割れていた実績があるから: 750 KB ÷ 40,000 バイト ≒ 23 で、**読み手の人数が
@@ -60,7 +61,6 @@ def on_new_round(b):
     ls["prev_questions"] = rec["questions"]
     ls["prev_units"] = rec["units"]
     ls["prev_scalars"] = rec.get("scalars", {})
-    ls["prev_reviews"] = rec["reviews"]
     rec["round"] = b.round
     rec["materials"] = {}
     rec["units"] = []
@@ -199,8 +199,18 @@ def worktree_compare(b, nid):
         if before.get(k) != now[k]:
             problems.append(f"{k}: {before.get(k)!r} → {now[k]!r}")
     if problems:
-        b.state.setdefault("git_mismatches", []).append({"where": "P1", "round": b.round, "diff": problems})
-        return {"ok": False, "problems": ["P1 の前後で作業ツリーが変わっている（戻してから next）: " + "; ".join(problems)]}
+        # writer 自身の変更（engine をその場で直した等）は、done と同じく理由を添えて通せる——痕跡は
+        # process.git_mismatches に accepted として残る。通す道が無いと、engine を直しながら回す run は
+        # ここで永久に止まる（実測 2026-09-12: P1 の途中で done の読み取りを直したら next が 10 回同じ note を返した。
+        # stash で退避しても stash の一覧が突合に入っているので通らない）。受け付けたら基準を今の姿に置き直す。
+        accepted = getattr(b, "accept_tree_change", None)
+        entry = {"where": "P1", "round": b.round, "diff": problems, "accepted": accepted}
+        gm = b.state.setdefault("git_mismatches", [])
+        if not gm or gm[-1] != entry:  # 同じ止まり方で next を叩き直すたびに増やさない
+            gm.append(entry)
+        if not accepted:
+            return {"ok": False, "problems": ["P1 の前後で作業ツリーが変わっている（戻してから next。自分の変更なら next --accept-tree-change <理由>）: " + "; ".join(problems)]}
+        ls["tree_before"] = now
     fill_materials(b)
     return {"ok": True, "materials": sorted(b.record["materials"])}
 
@@ -271,7 +281,8 @@ def assemble(b, nid):
     mech = bool(fix.get("mechanism_changed"))
     drift = bool(fix.get("premise_drift"))
     grew = ratio is not None and ratio > 1.5
-    ls["r2_refire"] = b.round == 1 or mech or drift or grew or bool(ls.pop("r2_refire_forced", False))
+    forced = bool(ls.pop("r2_refire_forced", False))  # 先に消費する——式の最右に置くと短絡で pop に届かず、変化の無い次の周まで旗が効いた
+    ls["r2_refire"] = b.round == 1 or mech or drift or grew or forced
     ls["r1_refire"] = ls["r2_refire"] or ls["ledger_changed"]
     ls["purpose_known"] = (b.outputs().get("p0.purpose", {}).get("source") != "目的不明")
     if fix.get("premise_drift"):
@@ -354,10 +365,24 @@ def converge(b, nid):
     ci = b.record["materials"].get("local_checks", {})
     asking = [q for q in b.record["questions"] if q["status"] in ("held", "escalate")]
     if branch == "converged":
-        if ci.get("status") == "found":
+        st = ci.get("status")
+        if st == "found":
             return {"decision": "next_round", "reason": "検証器は阻害なしだが CI が赤（local_checks が found）——P3 で直してから"}
+        if st != "clean":
+            # 確かめていない CI を緑と数えない——素材は 6 値で、赤でないことは緑ではない（not_applicable / not_run /
+            # awaiting_human / carried_over / 欄なし）。プロンプトは「緑を仮定して進むな」と書くが機械が縛っていなかった
+            # （実測 2026-09-12: 台本の local_checks と p4.ci を not_applicable にすると 3 周で converged・検証器 exit 0）。
+            return {"decision": "ask", "reason": f"ci_unverified（local_checks が {st or '無し'}）", "ask": {
+                "kinds": ["ci_unverified"],
+                "question": (f"検証器は阻害なしだが CI を確かめていない（local_checks が {st or '無し'}: "
+                             f"{ci.get('reason') or ci.get('checked') or ci.get('detail') or ''}）。"
+                             "確かめてから続けるか（continue --note <何を走らせて何色だったか>）、未収束のまま報告に進むか（stop）"),
+                "items": [f"local_checks: {st or '無し'} — {ci.get('reason') or ci.get('checked') or ci.get('detail') or ''}"],
+                "options": ["continue", "stop"],
+            }}
         ls["outcome"] = "converged"
-        return {"decision": "converged", "reason": "検証器が連続 2 ラウンド阻害なし・CI 緑。残った指摘は意図的に受容した設計判断として理由を明示して終える"}
+        return {"decision": "converged", "reason": f"検証器が連続 2 ラウンド阻害なし・CI 緑（local_checks clean: {(ci.get('checked') or '')[:80]}）。"
+                                                  "残った指摘は意図的に受容した設計判断として理由を明示して終える"}
     if branch in ("premise_escalate", "work_exhausted"):
         ls["outcome"] = "stopped"
         ls["stop_reason"] = branch
@@ -472,6 +497,13 @@ def fix_covers_open_units(b, nid, out, item):
             missing.append(u["key"])
     if missing:
         raise Reject("直していない [block] / do-now がある（writer の裁量で defer に覆せない。異議は新しい judge に再判定させる）: " + "; ".join(missing))
+    # 閉鎖の実証は自己申告——機械が検算できるのは「赤を一度も見ていないのに clean を名乗る」形だけなので、そこは拒む
+    # （gate_arms_all_red と同じ形。以前は red_seen が全部 false・verified_how が「見ていない」でも clean が通った）
+    if out["changes"] and out.get("fix_closure", {}).get("status") == "clean":
+        unred = [c["unit_key"] for c in out["changes"] if not any(s.get("red_seen") for s in c["closure"].get("sites", []))]
+        if unred:
+            raise Reject("閉鎖の実証で赤を一度も見ていない修正があるのに fix_closure=clean——found にして赤を見ていない site を書くか、"
+                         "退行を注入して赤を見てから出せ: " + "; ".join(unred))
     if out.get("rejudge_requested"):
         b.loop_state["rejudge_requested"] = {"round": b.round, "text": out["rejudge_requested"]}
 
@@ -487,9 +519,15 @@ def r4_inventory(b, nid, out, item):
         raise Reject("R4: BASE 能力インベントリが発火する差分なのに『消えた能力』の明示返答（lost）が無い")
 
 
-def cold_check_gate(b, nid, out, item):
+def cold_check_note(b, nid, out, item):
+    """初見検査の結果を report の節に渡す**注記**——門ではない。cold-reader は report.human_items の本文を読み、その後の
+    report の節が詰まりを直す設計（graph の deps: human_items → cold_check → report）なので、非 pass をここで Reject
+    すると正直な判定を拒んで直す道が無くなる。直したかは機械では見ない（writer の申告）。verdict と stops は
+    process.cold_check に残し、報告と人が見られるようにする（以前は notes にしか無かった）。"""
+    b.loop_state["cold_check"] = {"round": b.round, "verdict": out["verdict"], "stops": len(out.get("stops", [])),
+                                  "guessed": len(out.get("guessed", []) or []), "decidable": out.get("decidable")}
     if out["verdict"] != "pass":
-        return f"初見検査で詰まりがある（{len(out.get('stops', []))} 箇所）。report の節で直してから出す"
+        return f"初見検査で詰まりがある（{len(out.get('stops', []))} 箇所）。report の節で直してから出す（直したかは機械では見ない）"
 
 
 def measured_needs_output(b, nid, out, item):
@@ -521,7 +559,7 @@ def gate_arms_all_red(b, nid, out, item):
 
 
 POST_CHECKS = {"gate_arms_all_red": gate_arms_all_red, "measured_needs_output": measured_needs_output, "base_valid": base_valid, "judge_output": judge_output, "fix_covers_open_units": fix_covers_open_units,
-               "r2_design": r2_design, "r4_inventory": r4_inventory, "cold_check_gate": cold_check_gate}
+               "r2_design": r2_design, "r4_inventory": r4_inventory, "cold_check_note": cold_check_note}
 
 
 def check_record(b):
@@ -564,6 +602,7 @@ def finalize(b):
     proc["validator_outputs"] = ls.get("validator_outputs", {})
     proc["drift_notes"] = ls.get("drift_notes", [])
     proc["context_lost"] = b.state.get("context_lost", [])
+    proc["cold_check"] = ls.get("cold_check")  # 初見検査の verdict と件数（非 pass でも報告は出る。直したかは writer の申告）
     proc["open_questions"] = [q for q in rec["questions"] if q.get("status") in V.ASKING]
     proc["resolved_questions"] = [q for q in rec["questions"] if q.get("status") in ("resolved", "decided")]
 

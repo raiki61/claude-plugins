@@ -13,11 +13,25 @@ engine（scripts/loop.py）が graph の名前で呼ぶ。ここにあるのは:
 engine が差し込む道具は engine/rules.py の INJECT が正本（rules は engine を import しない）。
 節名（p1.checker 等）はここには出ない——節の役割は graph が名前で指す。
 """
+import importlib.util
 import random
 
-VERDICTS = ("確証", "相違", "留保", "検証不能")
-VERDICT_FIELDS = {"確証": "conditions", "相違": "correction", "留保": "correction", "検証不能": "needs"}
 GATES = ("rederiver", "cold_reader", "cartographer")
+_VALIDATOR = {}
+
+
+def validator_module(b):
+    """検証器（research-record.py）を import して定数を読む——写さない。以前ここに在った VERDICTS / VERDICT_FIELDS は
+    graph が vocab_owner と宣言する検証器と同じ知識の写しで、片方だけ変えても赤くならなかった（review 側と同じ形に揃えた）。"""
+    path = b.state.get("validator")
+    if not path:
+        raise Reject("検証器（research-record.py）が見つからない。init --validator で渡せ")
+    if path not in _VALIDATOR:
+        spec = importlib.util.spec_from_file_location("research_record", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _VALIDATOR[path] = mod
+    return _VALIDATOR[path]
 
 
 # ---------------------------------------------------------------- 記録の初期形
@@ -167,8 +181,6 @@ def sampling_overturn(b, nid, src, w):
             c["sample_verdict"] = f["verdict"]
     b.record["sampling"] = {"status": "done", "sampled_ids": [x["id"] for x in item["claims"]], "overturned": len(overturned),
                             "overturned_ids": overturned, "round": b.round}
-    if overturned:
-        b.loop_state["sampling_note"] = f"抜き取りで {len(overturned)} 件覆った（{overturned}）——飽和ではない。次の周で再照合する"
 
 def decisions_from_details(b, nid, src, w):
     """3 分類の見出しを記録へ（writes の op。post_check は out を検査するだけで record を触らない）。"""
@@ -368,9 +380,10 @@ def check_record(b):
         v = c.get("verdict")
         if v is None:
             continue
-        need = VERDICT_FIELDS.get(v)
-        if need and not (isinstance(c.get(need), str) and c[need].strip()):
-            errs.append(f"主張 '{c['id']}'（{v}）に '{need}' が無い")
+        # 検証器の表は判定 → 要る欄の組（tuple）。rules に在った写しは判定 → 欄 1 つの dict で、形が既にずれていた
+        for need in validator_module(b).VERDICT_FIELDS.get(v, ()):
+            if not (isinstance(c.get(need), str) and c[need].strip()):
+                errs.append(f"主張 '{c['id']}'（{v}）に '{need}' が無い")
         if v != "検証不能" and not (isinstance(c.get("sources"), list) and c["sources"] and all(isinstance(s, str) and s.strip() for s in c["sources"])):
             errs.append(f"主張 '{c['id']}'（{v}）の sources が空——出典なしの判定は認めない")
     return errs

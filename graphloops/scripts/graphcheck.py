@@ -52,6 +52,7 @@ sys.path.insert(0, str(PLUGIN_ROOT))
 from engine.board import COND_OPS, node_of  # noqa: E402
 from engine.advance import ENGINE_PRE  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
+from engine.schema import unknown_keywords  # noqa: E402
 from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
 from engine.rules import load_rules as engine_load_rules  # noqa: E402
 from engine.validator import agent_tools, find_plugin_path  # noqa: E402
@@ -278,6 +279,12 @@ def main():
         print("--  exec の無いグラフ（写しだけ）。実行の形の検査 6〜10 は省略")
         sys.exit(0 if ok else 1)
 
+    # 11. schema は engine が読む語だけで書く——読まない語（oneOf / not / format / 綴り違い）は validate_schema が黙って
+    # 無視するので、書いても効かない schema が graph に入る（以前は docstring の注記だけで守っていた）
+    for k, v in nodes.items():
+        if isinstance(v.get("schema"), dict):
+            for u in unknown_keywords(v["schema"]):
+                errs.append(f"節 {k}: schema に engine が読まない語 {u}（綴り違いか本家 JSON Schema の語——書いても効かない）")
     # 6〜10. 実行の形
     agents = agent_names(g)
     if agents is None:

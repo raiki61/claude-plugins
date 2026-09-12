@@ -28,37 +28,43 @@ def _sibling_is(plugin):
 
 def find_plugin_path(rel, plugin, explicit=None, kind="file"):
     """plugin の中のファイルかディレクトリを順に探す: 明示 → <PLUGIN>_ROOT → 同じリポジトリに並ぶ plugin → インストール済みキャッシュの最新版。
-    plugin が無ければ明示だけ。"""
-    cands = []
-    if explicit:
-        cands.append(pathlib.Path(explicit))
-    if plugin:
-        env = os.environ.get(env_root(plugin))
-        if env:
-            cands.append(pathlib.Path(env) / rel)
-        if _sibling_is(plugin):
-            cands.append(PLUGIN_ROOT.parent / rel)
-        # キャッシュは**実行中のプロファイル 1 つ**だけ見る（CLAUDE_CONFIG_DIR、既定は ~/.claude）。
-        # 以前は ~/.claude* を横断していたので、別プロファイル・別マーケットプレイスの同名プラグインが
-        # 版の大小だけで選ばれ、動いている出所と無関係なコードが importlib でこのプロセスに読み込まれた。
-        cfg = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or (pathlib.Path.home() / ".claude"))
-        hits = glob.glob(str(cfg / "plugins" / "cache" / "*" / plugin / "*" / rel))
-        depth = len(pathlib.Path(rel).parts)
+    plugin が無ければ明示だけ。**先の候補で見つかれば後の候補は見ない**——キャッシュの曖昧さ（同名 plugin が複数の
+    出所に在る）で落とすのはキャッシュを実際に引くときだけ。以前は明示や同梱が在っても先に die して、案内した
+    --validator がその場で効かず、agents/<役>.md の経路には回避策自体が無かった（実測 2026-09-12: 2 出所を置くと
+    実在する --validator を渡しても exit 2）。"""
+    def ok(p):
+        return p.is_file() if kind == "file" else p.is_dir()
 
-        def _ver(p):
-            # 版ディレクトリ名。数値でない部分が混ざっても TypeError で落とさない（比較できる形に揃える）
-            name = pathlib.Path(p).parents[depth - 1].name
-            return [(0, int(x)) if x.isdigit() else (1, x) for x in re.split(r"[.\-]", name)]
+    if explicit and ok(pathlib.Path(explicit)):
+        return str(pathlib.Path(explicit).resolve())
+    if not plugin:
+        return None
+    env = os.environ.get(env_root(plugin))
+    if env and ok(pathlib.Path(env) / rel):
+        return str((pathlib.Path(env) / rel).resolve())
+    if _sibling_is(plugin) and ok(PLUGIN_ROOT.parent / rel):
+        return str((PLUGIN_ROOT.parent / rel).resolve())
+    # キャッシュは**実行中のプロファイル 1 つ**だけ見る（CLAUDE_CONFIG_DIR、既定は ~/.claude）。
+    # 以前は ~/.claude* を横断していたので、別プロファイル・別マーケットプレイスの同名プラグインが
+    # 版の大小だけで選ばれ、動いている出所と無関係なコードが importlib でこのプロセスに読み込まれた。
+    cfg = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or (pathlib.Path.home() / ".claude"))
+    hits = glob.glob(str(cfg / "plugins" / "cache" / "*" / plugin / "*" / rel))
+    depth = len(pathlib.Path(rel).parts)
 
-        hits.sort(key=_ver, reverse=True)
-        # 出所（マーケットプレイス）が複数に跨がったら選ばない——明示を求める
-        origins = {pathlib.Path(h).parents[depth].parent.name for h in hits}
-        if len(origins) > 1:
-            die(f"{plugin} の {rel} が複数の出所に在る（{sorted(origins)}）——どれを使うか --validator で明示しろ")
-        cands += [pathlib.Path(h) for h in hits]
-    for c in cands:
-        if c.is_file() if kind == "file" else c.is_dir():
-            return str(c.resolve())
+    def _ver(p):
+        # 版ディレクトリ名。数値でない部分が混ざっても TypeError で落とさない（比較できる形に揃える）
+        name = pathlib.Path(p).parents[depth - 1].name
+        return [(0, int(x)) if x.isdigit() else (1, x) for x in re.split(r"[.\-]", name)]
+
+    hits.sort(key=_ver, reverse=True)
+    # 出所（マーケットプレイス）が複数に跨がったら選ばない——明示を求める
+    origins = {pathlib.Path(h).parents[depth].parent.name for h in hits}
+    if len(origins) > 1:
+        die(f"{plugin} の {rel} が複数の出所に在る（{sorted(origins)}）——どれを使うか明示しろ"
+            f"（検証器は --validator。役の定義は同じリポジトリに並べるか {env_root(plugin)} で指す）")
+    for h in hits:
+        if ok(pathlib.Path(h)):
+            return str(pathlib.Path(h).resolve())
     return None
 
 
@@ -140,3 +146,6 @@ def finalize(b):
         proc["thickness_changes"] = b.state.get("thickness_changes", [])
         proc["patches"] = b.state.get("patches", [])
         proc["graph_changes"] = b.state.get("graph_changes", [])
+        # 起こせなかった遮断系（launch.missing）は state の instance にしか無く、記録にも報告にも出ていなかった
+        proc["launch_missing"] = [{"instance": i["id"], "round": r["round"], "missing": i["launch"]["missing"]}
+                                  for r in b.state["rounds"] for i in r["instances"].values() if (i.get("launch") or {}).get("missing")]

@@ -60,6 +60,26 @@ def validate_schema(value, schema, path="$"):
     return errs
 
 
+# engine が読む語の全部。これ以外（oneOf / not / format / uniqueItems、綴り違い）は validate_schema が黙って無視するので、
+# graph に書いても効かない。graphcheck がこの集合で節の schema を走査して落とす（注記で守るのをやめ、仕組みで守る）。
+# note / description は説明のための欄で、検査には使わないが書いてよい。
+KNOWN_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties", "additionalProperties", "items",
+                            "minItems", "maxItems", "minimum", "maximum", "minLength", "pattern", "note", "description"})
+
+
+def unknown_keywords(schema, path="$"):
+    """schema の中で engine が読まない語を列挙する（空なら全部効く語）。"""
+    out = []
+    if not isinstance(schema, dict):
+        return out
+    out += [f"{path}: '{k}'" for k in schema if k not in KNOWN_KEYWORDS]
+    for k, v in (schema.get("properties") or {}).items():
+        out += unknown_keywords(v, f"{path}.{k}")
+    if isinstance(schema.get("items"), dict):
+        out += unknown_keywords(schema["items"], f"{path}[]")
+    return out
+
+
 def _is_type(v, t):
     return {
         "object": isinstance(v, dict), "array": isinstance(v, list), "string": isinstance(v, str),

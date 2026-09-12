@@ -54,6 +54,7 @@ def main():
         s = sub.add_parser(name)
         s.add_argument("--dir")
         s.set_defaults(fn=fn)
+    sub.choices["next"].add_argument("--accept-tree-change", help="P1 の前後の作業ツリー突合が『変わっている』と止めたとき、自分の変更なら理由を添えて通す（痕跡は process.git_mismatches）")
 
     s = sub.add_parser("done")
     s.add_argument("--dir")

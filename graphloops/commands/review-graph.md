@@ -25,7 +25,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop review-loop --request "<何をレビューするか>"
    ```
 
-   返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 1）。名指しが既定の導線である。
+   返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 2）。名指しが既定の導線である。
 
    検証器は同じリポジトリの `scripts/review-record.py` か、インストール済みの convergence-loops から engine が探す（見つからなければ `--validator <path>`）。無人で走るなら `--unattended`。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
 
@@ -36,7 +36,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
    ```
 
    `ready` の各要素は 1 つの節で、`mode` が 4 種類ある:
-   - **cli** —— 道具ゼロの遮断系（`cold-reader` / `blind-judge`）。`launch.argv` を**そのまま**実行し、標準入力に `launch.stdin` のファイルを流して、標準出力を `out_path` に保存する（例: `"${launch.argv[@]}" < <launch.stdin> > <out_path>`）。**Agent ツールで起こすな**——ハーネスが subagent に CLAUDE.md 階層を注入し、それを止める設定が公式に存在しない（除外されるのは組み込みの Explore と Plan だけで、per-agent の設定は無い）。実測 2026-09-12: 道具ゼロの `cold-reader` が利用者の CLAUDE.md の 1 項目を逐語で引用した。`--setting-sources ""` は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は貼らず標準入力で渡るので、貼る上限に当たらない（実測: 748,883 バイトが先頭・末尾とも欠けずに通った）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。
+   - **cli** —— 道具ゼロの遮断系（`cold-reader` / `blind-judge`）。`launch.argv` を**そのまま**実行し、標準入力に `launch.stdin` のファイルを流して、標準出力を `out_path` に保存する（例: `"${launch.argv[@]}" < <launch.stdin> > <out_path>`）。**Agent ツールで起こすな**——ハーネスが subagent に CLAUDE.md 階層を注入し、それを止める設定が公式に存在しない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-12 取得: 『Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.』）。実測 2026-09-12: 道具ゼロの `cold-reader` が利用者の CLAUDE.md の 1 項目を逐語で引用した。`--setting-sources ""` は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は貼らず標準入力で渡るので、貼る上限に当たらない（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。
    - **agent** —— `subagent_type` に `agent_type` を渡して起動する。**起動は運び手に任せろ**——小さな汎用 agent（最小のモデルでよい）を「運び手: `<prompt_file>` を `deliver` の渡し方で `<agent_type>` に渡し、返答を一字も変えず `<out_path>` に書け。あなたには wrote とだけ返せ」の 1 文で立てる。役の返答はあなたの文脈を通らず、`done --node <id>` は `--output` 無しで置き場を読む。貼るのがあなたでも運び手でも写しの忠実さは同じで、違うのはあなたの文脈が減ることだけ。`deliver` が `path` なら運び手は「`<prompt_file>` を Read し、その指示にそのまま従え。返答は指示どおりの JSON だけ」の 1 文で役を起動し、`paste` なら本文をそのまま貼る。 どちらも**本文に足すな・削るな・言い換えるな**（貼ってよいものは engine がグラフの宣言に従って埋めてある。足した一言が遮断を壊す）。**`done` に `--agent-id <その agent の id>` を添えろ**——判定（`p2.diagnose`）と履歴の突合（`p2.history`）は同じ judge が続けるので、id が無いと新しい会話になる（engine が記録に残す）。
    - **agent_continue** —— `agent_id` の agent に SendMessage で続ける（渡し方は `deliver` のとおり）。
    - **runner** —— あなたの仕事。`prompt_file` の指示に従って自分でやり、返答の JSON（`report` と `report.human_items` は本文そのもの）を `out_path` に保存する。skill を回す節（局所レビュー）は、skill の本文をあなたが読まずに済むよう、汎用 agent に skill ごと任せて結果だけ `out_path` に書かせてよい。`skills` があればその skill を呼ぶ（局所レビュー）。記録や役の返答は本文でなく置き場のパスと 1 行の要約で渡される——要る所だけ Read で読む。
@@ -47,7 +47,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" done --node "<id>" --output <返答のファイル> [--agent-id <id>] --dir <DIR>
    ```
 
-   `done` が exit 1 で拒んだら理由を読んで直す。agent の節なら、理由を添えて**同じ役を起動し直して返させろ**——あなたが JSON を補ったり判定を書き換えたりしてはいけない。runner の節なら自分の返答を直す。`ready` が空で `status` が running なら、もう一度 `next`（機械の節——作業ツリー突合・素材の穴埋め・再発火の計算・周の記録・検証器——が進んで次の波が出る）。機械の節が「作業ツリーが変わっている」と言ったら、戻してから `next`。
+   `done` が exit 1 で拒んだら理由を読んで直す。agent の節なら、理由を添えて**同じ役を起動し直して返させろ**——あなたが JSON を補ったり判定を書き換えたりしてはいけない。runner の節なら自分の返答を直す。`ready` が空で `status` が running なら、もう一度 `next`（機械の節——作業ツリー突合・素材の穴埋め・再発火の計算・周の記録・検証器——が進んで次の波が出る）。機械の節が「作業ツリーが変わっている」と言ったら、戻してから `next`——自分の変更（engine をその場で直した等）なら `next --accept-tree-change "<理由>"` で痕跡付きで通す（stash で退避しても stash の一覧が突合に入るので通らない）。
 
 3. **人に聞く番**。`next` が `awaiting_human` を返したら、`ask` の中身（問いの台帳で保留のもの）を依頼者に見せて答えをもらい、返す。答えの本文は `--note` に入れる（次の周の judge の再審に渡る）:
 

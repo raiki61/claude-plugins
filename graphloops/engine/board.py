@@ -8,7 +8,7 @@ from .validator import run_validator
 
 
 def empty_round(n):
-    return {"round": n, "done": {}, "na": {}, "skipped": {}, "empty": [], "instances": {}, "item_counts": {}, "result": None}
+    return {"round": n, "done": {}, "na": {}, "skipped": {}, "empty": [], "instances": {}, "item_counts": {}}
 
 
 COND_OPS = ("eq", "ne", "gt", "lt", "nonempty", "empty", "in", "any_field_eq")  # cond の op。graphcheck はこれを import して照合する

@@ -79,4 +79,4 @@ python3 graphloops/scripts/graphcheck.py graphloops/graphs/review-loop.json scri
 
 ## 決めてもらうこと
 
-- 検証器が守らない規律（暴走ガードの上限・前ラウンドを渡さない・回す側は採点しない・回し直さない）は、グラフ実行版（`graphloops`）では engine が守る。research の実行版と散文の `/research-loop` のどちらを正本にするか（両方生かすとズレる）
+- **正本の宣言（決めた・2026-09-12）**: 散文版（`/review-loop` 等 4 本）の正本は `commands/<loop>.md` と `scripts/<loop>-record.py`。グラフ実行版（`/review-graph`・`/research-graph`）の正本は `graphloops/graphs/<loop>.json` で、engine と `graphcheck` が読む。両方を生かす間はズレうる——ズレは同じ対象で両方を回し、共通の検証器に通した記録の差で見る（受け入れ試験）。他の文書はこの宣言を参照して写さない。検証器が守らない規律（暴走ガードの上限・前ラウンドを渡さない・回す側は採点しない・回し直さない）は、グラフ実行版では engine が守る

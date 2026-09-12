@@ -21,6 +21,7 @@ def cmd_next(a):
     if b.state["status"] in ("converged", "stopped") and all(b.node_state(n) != "pending" for n in b.nodes):
         print(dump({"status": b.state["status"], "round": b.round, "ready": [], "note": "全部の節が終わっている。record.json と report を見よ"}))
         return
+    b.accept_tree_change = getattr(a, "accept_tree_change", None)  # 機械の作業ツリー突合（rules）が読む。done と同じ逃げ道
     notes = advance(b)
     b.save()
     if b.state.get("pending_human"):
@@ -46,20 +47,27 @@ def cmd_next(a):
 
 # ---------------------------------------------------------------- done
 def parse_output(text):
+    """役の返答を JSON に読む。**素の JSON を先に試す**——先に囲いを探すと、本文の中の ``` を囲いと誤認して
+    中身を切り出し、正しい返答を『読めない』で拒む（実測 2026-09-12: 指摘文に ```json を書いた返答が落ちた。
+    役の指摘がコードの囲いに触れるのはレビューでは普通に起きる）。"""
     text = text.strip()
+    for cand in _json_candidates(text):
+        try:
+            return json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+    raise Reject("返答が JSON として読めない（```json ... ``` か、JSON だけを返せ）")
+
+
+def _json_candidates(text):
+    """読める順に候補を出す: 全文そのまま → 本文中の ``` 囲いの中 → 最初の { から最後の } まで。"""
+    yield text
     m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
     if m:
-        text = m.group(1).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        s, e = text.find("{"), text.rfind("}")
-        if s != -1 and e > s:
-            try:
-                return json.loads(text[s:e + 1])
-            except json.JSONDecodeError:
-                pass
-    raise Reject("返答が JSON として読めない（```json ... ``` か、JSON だけを返せ）")
+        yield m.group(1).strip()
+    s, e = text.find("{"), text.rfind("}")
+    if s != -1 and e > s:
+        yield text[s:e + 1]
 
 
 STDIN_MAX = 20_000_000  # 文字

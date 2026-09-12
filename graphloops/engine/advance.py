@@ -14,8 +14,9 @@ ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の�
 def launch_cli(b, inst, d):
     """道具ゼロの役は Agent ツールで起こさない——別プロセスの CLI で起こす。
 
-    ハーネスは subagent に CLAUDE.md 階層を注入し、**それを止める設定が無い**（公式ドキュメント:
-    Explore と Plan だけが除外され、per-agent の設定は存在しない）。実測 2026-09-12: 道具ゼロの
+    ハーネスは subagent に CLAUDE.md 階層を注入し、**それを止める設定が無い**（公式文書 code.claude.com/docs/en/sub-agents、
+    2026-09-12 取得: "Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter
+    field or per-agent setting to change which agents skip them."）。実測 2026-09-12: 道具ゼロの
     cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した——つまり「道具の不在で遮断する」は
     Agent ツール経由では成立していない。setting source ごと外せるのは CLI だけ（同日の対照実験:
     フラグ無しでは目印が見え、--setting-sources "" を付けると消えた）。
@@ -102,7 +103,15 @@ def emit_instance(b, nid, item=None, suffix=""):
         ctx["raw"] = raw_outputs(b, b.graph.get("raw_for_report", []))
     # 道具ゼロの役は別プロセスの CLI へ標準入力で流すので、貼る先の上限が無い＝切らない（cap=None）。
     # 上限は「Agent ツールのプロンプトに貼る」経路の性質で、engine の都合でもモデルの都合でもない。
-    role_def = None if b.is_runner(n) else agent_def(agent_type_of(b, n))
+    atype = None if b.is_runner(n) else agent_type_of(b, n)
+    role_def = agent_def(atype) if atype else None
+    if atype and ":" in atype and role_def is None:
+        # 「定義が読めない」を「道具を持つ役」と同じ False に潰さない——遮断系かどうかが分からないまま Agent ツール
+        # 経路に倒すと、2f2c081 が閉じた CLAUDE.md 注入がそのまま戻る（launch.isolated.argv の不在は die するのに、
+        # 定義の不在だけが黙って落ちていた非対称。実測 2026-09-12: 空の CLAUDE_CONFIG_DIR で p1.hygiene が mode=agent に
+        # なり notes は空だった）。接頭の無い組み込み agent は従来どおり定義なしで進む。
+        die(f"{iid}: 役 '{atype}' の定義（agents/<役>.md）が解決できない——遮断系かどうかが決まらないので起こさない"
+            "（plugin の置き場・<PLUGIN>_ROOT・CLAUDE_CONFIG_DIR を確かめよ）")
     isolated = role_def is not None and role_def["tools"] == []
     r = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None if isolated else FILE_CAP)
     try:
@@ -141,6 +150,8 @@ def emit_instance(b, nid, item=None, suffix=""):
             inst["launch"] = launch_cli(b, inst, role_def)
     # 同じ agent を続ける節: 前の節の instance が返した agent の id を渡す（無ければ新しい context になる旨を残す）
     same = n.get("same_context_as")
+    if same and isolated:
+        die(f"{iid}: 遮断系（道具ゼロ）の役に same_context_as は使えない——別プロセスは返答と共に終わり、続ける文脈が無い（graph を直せ）")
     if same:
         prior = next((i for i in b.rd["instances"].values() if i["node"] == same and i["status"] == "done"), None)
         if prior and prior.get("agent_id"):

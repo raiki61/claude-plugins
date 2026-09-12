@@ -118,6 +118,8 @@ def answers(run, scenario, rnd):
     def units_for(rnd):
         if blocks_forever:
             return [{"key": f"src/a.py:f — 周 {rnd} に見つかった新しい欠陥", "label": "block"}]
+        if scenario == "deferjudge" and rnd == 1:  # judge が defer を返す筋（以前の台本は一度も返さず、rules の defer の腕が観測できなかった）
+            return [unit_block, {**unit_donow, "disposition": "defer", "reason": "処方が共有面（キャッシュ層）に及ぶ（検査用）"}]
         return [unit_block, unit_donow] if rnd == 1 else []
 
     def questions_for(rnd):
@@ -149,7 +151,7 @@ def answers(run, scenario, rnd):
                 "materials_missing": [], "router": [{"key": unit_block["key"], "route": "②閉じた", "note": "grep で確認"}] if rnd > 1 else []}
 
     awaiting_mp = scenario == "awaiting" and rnd < 3
-    return {
+    table = {
         "p0.base": lambda it: {"base_sha": base, "method": "3 HEAD~1", "commits": 1, "merge_commit": False, "intent_to_add": [],
                                "touches_gates": False, "touches_external_seams": False, "touches_user_path": scenario == "awaiting",
                                "material": CLEAN(f"HEAD~1 で決めた。BASE={base[:7]}。対象差分は 1 コミット分")},
@@ -175,7 +177,7 @@ def answers(run, scenario, rnd):
         "p2.history": lambda it: judge(rnd),
         "p3.fix": lambda it: {"changes": [{"unit_key": u["key"], "what": "上限を 1 箇所に", "files": ["src/a.py"], "closure": {"mechanism": "分岐で上限が漏れる", "fix_mechanism": "共通経路に寄せた", "verified_how": "退行注入で赤→緑", "sites": [{"site": "src/a.py:f", "red_seen": True}]}} for u in rec["units"]],
                               "not_done": [], "fix_closure": CLEAN("退行を注入して赤→復元して緑") if rec["units"] else M("not_applicable", reason="本ラウンドに修正なし"),
-                              "mechanism_changed": False, "premise_drift": False, "deps_changed": False, "procedures_changed": False, "gates_changed": False,
+                              "mechanism_changed": scenario == "premise_resolved" and rnd == 2, "premise_drift": False, "deps_changed": False, "procedures_changed": False, "gates_changed": False,
                               "seams_changed": False, "path_changed": False, "claims_changed": False, "decision_records_changed": False},
         "p4.ci": lambda it: {"material": CLEAN("pytest 緑")},
         "p4.scalars": lambda it: {"scalars": {"comment_ratio_pct": 10, "doc_lines": 1}},
@@ -195,6 +197,12 @@ def answers(run, scenario, rnd):
         "report.cold_check": lambda it: {"verdict": "pass", "stops": [], "guessed": [], "decidable": True},
         "report": lambda it: "# レビュー報告\n\n収束した。\n",
     }
+    if scenario == "noci":  # CI を確かめていない周を緑と数えない（converge の腕）
+        table["p0.local_checks"] = lambda it: {"material": M("not_applicable", reason="この環境に CI が無い（検査用）")}
+        table["p4.ci"] = lambda it: {"material": M("not_applicable", reason="この環境に CI が無い（検査用）")}
+    if scenario == "coldfail":  # 初見検査の非 pass は記録に残る（門ではない）
+        table["report.cold_check"] = lambda it: {"verdict": "redesign-needed", "stops": ["2 段落目の『前提』が未定義"], "guessed": [], "decidable": False}
+    return table
 
 
 def drive(run, scenario, max_steps=120, hook=None):
@@ -286,8 +294,10 @@ def test_empty_text_reply():
             seen[inst["node"]] = True
             r = run_.done(inst["id"], "   \n  ")
             check(r.returncode == 1 and "空" in r.stderr, f"{inst['node']}: 空白だけの返答は exit 1")
-            r = run_.cmd("done", "--node", inst["id"], "--output", "/dev/null")
-            check(r.returncode == 1, f"{inst['node']}: /dev/null も exit 1")
+            empty = run_.tmp / "empty.txt"  # /dev/null は Windows に無い（実測: CI の windows-latest で FileNotFoundError→exit 2）
+            empty.write_text("", encoding="utf-8")
+            r = run_.cmd("done", "--node", inst["id"], "--output", str(empty))
+            check(r.returncode == 1, f"{inst['node']}: 0 バイトのファイルも exit 1")
         return out
 
     drive(run, "std", hook=hook)
@@ -409,15 +419,27 @@ def test_rejections():
     (run.repo / "stray.txt").write_text("x", encoding="utf-8")
     nx = run.next()
     check(not nx["ready"] and any("作業ツリーが変わっている" in n for n in nx["notes"]), "P1 の前後で作業ツリーが変わると先へ進まない")
-    (run.repo / "stray.txt").unlink()
+    gm0 = len(run.state().get("git_mismatches", []))
+    run.next()  # 同じ止まり方でもう一度叩く
+    check(len(run.state().get("git_mismatches", [])) == gm0, "同じ止まり方で next を叩き直しても git_mismatches は増えない")
+    # stray.txt は残したまま——下で writer の変更として受け付ける
     # git が効かない場では突合そのものができない——『一致』に倒さず止まる
     (run.tmp / "empty-bin").mkdir()
     r = run.cmd("next", env={**os.environ, "PATH": str(run.tmp / "empty-bin")})
     nx = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {"ready": ["?"], "notes": [r.stderr]}
     check(not nx["ready"] and any("取れない" in n and "突き合わせられない" in n for n in nx["notes"]), "git が無い場では P1 の前後の突合が『測れない』で止まる（一致に倒さない）")
+    # writer 自身の変更（engine をその場で直した等）は、done と同じく理由を添えて通せる——痕跡は git_mismatches に
+    # accepted。stash で退避しても stash の一覧が突合に入るので通らない。通す道が無いと engine を直しながら回す
+    # run はここで永久に止まる（実測 2026-09-12: 同じ note を返す next が 10 回続いた）
+    r = run.cmd("next", "--accept-tree-change", "writer の変更（検査用）")
+    nx = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {"ready": [], "notes": [r.stderr]}
+    check(r.returncode == 0 and not any("作業ツリーが変わっている" in n for n in nx.get("notes", [])), f"自分の変更なら next --accept-tree-change で通る: {str(nx.get('notes'))[:120]}")
+    gm = run.state().get("git_mismatches", [])
+    check(bool(gm) and gm[-1].get("accepted") == "writer の変更（検査用）" and gm[-1].get("where") == "P1", "受け付けた理由が git_mismatches に残る")
+    (run.repo / "stray.txt").unlink()
     nx = run.next()
     jd = next(i for i in nx["ready"] if i["node"] == "p2.diagnose")
-    check(jd["mode"] == "agent" and "fix_closure" in json.dumps(run.record()["materials"]), "戻せば judge に進み、素材は 15 欄で渡る")
+    check(jd["mode"] == "agent" and "fix_closure" in json.dumps(run.record()["materials"]), "受け付ければ judge に進み、素材は 15 欄で渡る")
     bad = {**t["p2.diagnose"](None), "questions": [{"key": "q", "kind": "fork", "status": "held", "reason": "r", "origin": "無いユニット", "options": ["a", "b"]}]}
     r = run.done(jd["id"], bad)
     check(r.returncode == 1 and "units にも defer 台帳にも無い" in r.stderr, "台帳の出どころが無い judge の返答は exit 1")
@@ -435,12 +457,19 @@ def test_rejections():
     check(r.returncode == 1 and "型に合わない" in r.stderr, "台帳の status が語彙外なら exit 1")
     r = run.done(jd["id"], {**good, "verdict": "pass"})
     check(r.returncode == 1 and "型に合わない" in r.stderr, "judge の返答に知らない欄があれば exit 1（additionalProperties）")
+    r = run.done(jd["id"], {**good, "units": [{**good["units"][0], "label": "suggest", "disposition": "defer"}]})
+    check(r.returncode == 1 and "defer" in r.stderr, "defer に reason の無い judge の返答は exit 1（以前の台本は defer を一度も返さず、この腕を観測できなかった）")
     r = run.done(jd["id"], good, agent_id="judge-1")
     check(r.returncode == 0, "正しい judge の返答は通る")
     nx = run.next()
     fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
     r = run.done(fx["id"], {**t["p3.fix"](None), "changes": [], "not_done": [{"unit_key": "src/a.py:f — 上限が効かない経路がある", "why": "面倒"}]})
     check(r.returncode == 1 and "直していない" in r.stderr, "[block] を直さない writer の返答は exit 1")
+    # 閉鎖の実証は自己申告——「赤を一度も見ていないのに clean」だけは機械が検算できるので拒む
+    fix = answers(run, "std", nx["round"])["p3.fix"](None)
+    nored = {**fix, "changes": [{**c, "closure": {**c["closure"], "sites": [{"site": s["site"], "red_seen": False} for s in c["closure"]["sites"]]}} for c in fix["changes"]]}
+    r = run.done(fx["id"], nored)
+    check(bool(fix["changes"]) and r.returncode == 1 and "赤を一度も見ていない" in r.stderr, f"閉鎖の実証で赤を見ていないのに fix_closure=clean の返答は exit 1（rc={r.returncode}）")
     rm(run.tmp)
 
 
@@ -456,6 +485,46 @@ def test_premise_resolved():
     check(any(q["kind"] == "premise" and q["status"] == "resolved" for q in r2["questions"]), "2 周目: judge が回し直した R2 を見て premise を resolved に確定")
     cons = run.record()["process"].get("constraints", [])
     check(any("上限を持たない" in c["text"] and c["kind"] == "実測" for c in cons), "検算の実測が制約に足されている（facts_to_add の行き先）")
+    # 強制再発火の旗は使ったら消える——以前は条件式の最右に pop を置いていたので、周 2 で機構が変わる（左が真）と
+    # 短絡で pop に届かず、周 3（何も変わらない）でも R2 を回し直した
+    check("r2_refire_forced" not in st.get("loop", {}), "強制再発火の旗は周 2 で消費される（機構の変化で短絡しても残らない）")
+    r3 = run.round_file(3)
+    check(r3["reviews"]["R2"]["status"] == "carried_over", f"3 周目: 何も変わらないので R2 は持ち越し（{r3['reviews']['R2']['status']}）")
+    rm(run.tmp)
+
+
+def test_noci():
+    print("台本: CI を確かめていない周（local_checks が not_applicable）は収束を名乗らず諮る——無人なら停止")
+    run = Run("noci", unattended=True)
+    last = drive(run, "noci")
+    proc = run.record()["process"]
+    asked = [a for h in proc.get("human_items", []) for a in (h.get("asked") or [])]
+    check(last["status"] == "stopped" and any("local_checks" in a for a in asked), f"無人: converged でなく stopped、要人間判断に CI 未確認が載る（{last['status']}: {asked[:1]}）")
+    check(proc.get("outcome") != "converged", f"記録の outcome が converged でない（{proc.get('outcome')}）")
+    rm(run.tmp)
+    run = Run("noci-attended")
+    last = drive(run, "noci")
+    check(last["status"] == "awaiting_human" and "ci_unverified" in json.dumps(last.get("ask", {})), f"有人: awaiting_human で kinds に ci_unverified（{last['status']}）")
+    rm(run.tmp)
+
+
+def test_coldfail():
+    print("台本: 初見検査が非 pass でも報告は出る（門ではない）が、verdict と件数は記録の process.cold_check に残る")
+    run = Run("coldfail", unattended=True)
+    drive(run, "coldfail")
+    proc = run.record()["process"]
+    cc = proc.get("cold_check") or {}
+    check(cc.get("verdict") == "redesign-needed" and cc.get("stops") == 1, f"process.cold_check に非 pass と件数が残る（{cc}）")
+    check((run.dir / "report.md").is_file(), "報告は出る（詰まりを直したかは writer の申告——機械は見ない）")
+    rm(run.tmp)
+
+
+def test_deferjudge():
+    print("台本: judge が defer を返す筋——理由付きは通り、defer 台帳に載る")
+    run = Run("defer", unattended=True)
+    last = drive(run, "deferjudge")
+    proc = run.record()["process"]
+    check(last["status"] == "converged" and any("定数の重複" in k for k in proc.get("defer_ledger", {})), f"理由付きの defer は受理され defer_ledger に残る（{last['status']}: {list(proc.get('defer_ledger', {}))[:2]}）")
     rm(run.tmp)
 
 
@@ -514,6 +583,9 @@ def main():
     test_awaiting()
     test_runaway()
     test_premise_resolved()
+    test_noci()
+    test_coldfail()
+    test_deferjudge()
     test_nopurpose()
     test_big_diff()
     print(f"\n{ran} 件中 {len(fails)} 件失敗")

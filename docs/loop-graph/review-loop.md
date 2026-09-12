@@ -2,7 +2,7 @@
 
 ## 何の文書か
 
-`/review-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、実装したコード変更を、レビューと修正を繰り返して指摘が出なくなるまで回す。回す手順は手順書 `commands/review-loop.md` に散文で、記録の検査は検証器 `scripts/review-record.py`（Python）に書いてある。この 2 つが正本で、`graphloops/graphs/review-loop.json`（グラフ実行版プラグイン graphloops の側にある。1 本目の research は実行用の欄も持つ） はそれを「節（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。JSON の欄名の意味は同じディレクトリの `README.md` の凡例に書いてある。
+`/review-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、実装したコード変更を、レビューと修正を繰り返して指摘が出なくなるまで回す。回す手順は手順書 `commands/review-loop.md` に散文で、記録の検査は検証器 `scripts/review-record.py`（Python）に書いてある。この 2 つが散文版の正本で（グラフ実行版の正本は JSON——宣言は同じディレクトリの `README.md`「決めてもらうこと」）、`graphloops/graphs/review-loop.json`（グラフ実行版プラグイン graphloops の側にある。1 本目の research は実行用の欄も持つ） はそれを「節（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。JSON の欄名の意味は同じディレクトリの `README.md` の凡例に書いてある。
 
 用語:
 
