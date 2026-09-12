@@ -100,7 +100,8 @@ def emit_instance(b, nid, item=None, suffix=""):
             b.trace("validator_failed", exit=v["exit"], out=v["out"])
             die(f"{nid}: 記録が検証器を通らない（exit {v['exit']}）。engine か rules か節の出力の欠陥——record.json と trace.jsonl を見て直す（手当ては loop.py patch）:\n{v['out']}", 1)
         ctx["validation"] = v
-        ctx["raw"] = raw_outputs(b, b.graph.get("raw_for_report", []))
+        # 生出力は {{ref:raw}}（Board.ref）だけが渡す——ctx["raw"] は両 graph のどのプロンプトからも読まれておらず、
+        # 報告の next で同じ出力を 209 回読み直していた（実測 2026-09-12）
     # 道具ゼロの役は別プロセスの CLI へ標準入力で流すので、貼る先の上限が無い＝切らない（cap=None）。
     # 上限は「Agent ツールのプロンプトに貼る」経路の性質で、engine の都合でもモデルの都合でもない。
     atype = None if b.is_runner(n) else agent_type_of(b, n)
@@ -150,7 +151,8 @@ def emit_instance(b, nid, item=None, suffix=""):
     if n.get("skills"):
         inst["skills"] = n["skills"]
     if not runner:
-        inst["deliver"] = deliver_mode(inst["agent_type"], b.graph.get("deliver", {}).get("path_tools", []))  # path: 役が自分で読む／paste: 本文を貼る
+        inst["deliver"] = deliver_mode(inst["agent_type"], b.graph.get("deliver", {}).get("path_tools", []),
+                                       tools=role_def["tools"] if role_def else None)  # path: 役が自分で読む／paste: 本文を貼る。定義は上で 1 度読んだ物を使う
         if role_def_missing:
             inst["role_def_missing"] = role_def_missing
         if isolated:  # 道具ゼロ＝遮断系。Agent ツールでは CLAUDE.md を止められない
@@ -231,7 +233,7 @@ def run_driver_node(b, nid, n, notes):
             b.state["status"] = "stopped"
             notes.append(f"無人実行: 停止（{reason}）")
         else:
-            return None
+            return False  # 人に聞く番——ここで止まる（docstring の「三値にしない」どおり False で返す）
     elif d in ("converged", "stopped"):
         b.state["status"] = d
     elif d != "continue":
@@ -273,9 +275,7 @@ def advance(b):
                     continue
             if n["run_by"] == "driver":
                 r = run_driver_node(b, nid, n, notes)
-                if r is None:
-                    return notes
-                if not r:
+                if not r:  # 止まった（機械の節が通らない／人に聞く番）。二値——None の第 3 の値は持たない
                     return notes
                 progressed = True
                 continue

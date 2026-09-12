@@ -73,9 +73,10 @@ class Run:
             args.append("--unattended")
         self.init = self.cmd(*args)
 
-    def cmd(self, *args, env=None):
+    def cmd(self, *args, env=None, input=None):
         extra = [] if args[0] == "init" else ["--dir", str(self.dir)]
-        return subprocess.run([PY, str(LOOP), *args, *extra], cwd=self.repo, capture_output=True, text=True, encoding="utf-8", env=env)
+        # timeout: 無限ループの退行が入ると CI が赤でなく止まる（engine 側は git 120 秒・検証器 600 秒の上限を持つ）
+        return subprocess.run([PY, str(LOOP), *args, *extra], cwd=self.repo, capture_output=True, text=True, encoding="utf-8", env=env, input=input, timeout=600)
 
     def next(self):
         r = self.cmd("next")
@@ -153,13 +154,16 @@ def answers(run, scenario, rnd):
     awaiting_mp = scenario == "awaiting" and rnd < 3
     table = {
         "p0.base": lambda it: {"base_sha": base, "method": "3 HEAD~1", "commits": 1, "merge_commit": False, "intent_to_add": [],
-                               "touches_gates": False, "touches_external_seams": False, "touches_user_path": scenario == "awaiting",
+                               "touches_gates": scenario == "gates", "touches_external_seams": False, "touches_user_path": scenario == "awaiting",
                                "material": CLEAN(f"HEAD~1 で決めた。BASE={base[:7]}。対象差分は 1 コミット分")},
         "p0.local_checks": lambda it: {"material": CLEAN("python -m pytest（緑）")},
         "p0.premises": lambda it: {"constraints": [{"text": "呼び出し元は 1 箇所", "measured_how": "grep -c 'f(' src/",
                                                     "measured_output": "src/a.py:1", "kind": "実測"}]},
         "p0.purpose": lambda it: ({"purpose_text": "（PR 説明も計画も無く目的を取れない）", "source": "目的不明", "known_weaknesses": []} if scenario == "nopurpose" else
+                                  {"purpose_text": "f に上限を付ける（writer の要約）", "source": "③writer の要約", "known_weaknesses": []} if scenario == "narrowed" else
                                   {"purpose_text": "f に上限を付けて過大な値を抑える", "source": "①PR 説明", "known_weaknesses": []}),
+        "p0.purpose_review": lambda it: {"verdict": "狭めている" if scenario == "narrowed" else "問題なし",
+                                          "reason": "目的が実装した範囲に合わせて狭い（検査用）", "findings": ["呼び出し元の上限に触れていない"] if scenario == "narrowed" else []},
         "p0.parallel_pr": lambda it: {"material": CLEAN("gh pr list 0 件（打ち切りなし）"), "repo": "t/demo", "listed": 0, "truncated": False, "conflicts": []},
         "p0.prior_decisions": lambda it: {"material": CLEAN("docs/ と closed issue を洗った。決着済みなし"), "checked": True, "searched": ["docs/", "gh issue list --state all"], "settled": []},
         "p1.local_review": lambda it: {"material": M("found", count=1, detail="review-pr: 上限の分岐が片方だけ") if rnd == 1 and not blocks_forever else CLEAN("review-pr・/simplify 再実行。新規なし"),
@@ -407,6 +411,8 @@ def test_rejections():
     for n in ("p1.local_review", "p1.consistency_bypass", "p1.external_standards", "p1.provenance"):
         r = run.done(by[n]["id"], t[n](None))
         assert r.returncode == 0, (n, r.stderr)
+    r = run.done(hyg["id"], t["p1.hygiene"](None), agent_id="cli-has-no-agent")
+    check(r.returncode == 1 and "agent_id" in r.stderr, "cli で起こした遮断系の done に --agent-id を渡すと exit 1（別プロセスに続く context は無い）")
     r = run.done(hyg["id"], t["p1.hygiene"](None))
     assert r.returncode == 0, r.stderr
     # 既に ' M' のファイルの**中身の差し替え**も止める（porcelain は状態コードとパスしか見ないので diff の sha で見る）
@@ -459,8 +465,12 @@ def test_rejections():
     check(r.returncode == 1 and "型に合わない" in r.stderr, "judge の返答に知らない欄があれば exit 1（additionalProperties）")
     r = run.done(jd["id"], {**good, "units": [{**good["units"][0], "label": "suggest", "disposition": "defer"}]})
     check(r.returncode == 1 and "defer" in r.stderr, "defer に reason の無い judge の返答は exit 1（以前の台本は defer を一度も返さず、この腕を観測できなかった）")
-    r = run.done(jd["id"], good, agent_id="judge-1")
-    check(r.returncode == 0, "正しい judge の返答は通る")
+    # 置き場に古い返答が残っていても、標準入力で渡した新しい返答が勝つ（以前は置き場が先に読まれ、古い方が黙って記録に入った）
+    pathlib.Path(jd["out_path"]).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(jd["out_path"]).write_text(json.dumps({**good, "framing": "STALE"}, ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("done", "--node", jd["id"], "--agent-id", "judge-1", input=json.dumps({**good, "framing": "FRESH"}, ensure_ascii=False))
+    check(r.returncode == 0 and "読んだ先: stdin" in r.stdout, f"正しい judge の返答は通り、どこから読んだかが返事に残る（{r.stdout.strip()[:70]}）")
+    check(json.loads(pathlib.Path(jd["out_path"]).read_text(encoding="utf-8")).get("framing") == "FRESH", "標準入力の返答が置き場の古い返答より優先され、記録に入るのは新しい方")
     nx = run.next()
     fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
     r = run.done(fx["id"], {**t["p3.fix"](None), "changes": [], "not_done": [{"unit_key": "src/a.py:f — 上限が効かない経路がある", "why": "面倒"}]})
@@ -470,6 +480,11 @@ def test_rejections():
     nored = {**fix, "changes": [{**c, "closure": {**c["closure"], "sites": [{"site": s["site"], "red_seen": False} for s in c["closure"]["sites"]]}} for c in fix["changes"]]}
     r = run.done(fx["id"], nored)
     check(bool(fix["changes"]) and r.returncode == 1 and "赤を一度も見ていない" in r.stderr, f"閉鎖の実証で赤を見ていないのに fix_closure=clean の返答は exit 1（rc={r.returncode}）")
+    r = run.done(fx["id"], {**fix, "fix_closure": M("not_applicable", reason="条件に当たらない（検査用の嘘）")})
+    check(r.returncode == 1 and "not_applicable" in r.stderr, "修正が在るのに fix_closure=not_applicable の返答は exit 1（changes が非空という機械の事実と食い違う）")
+    mixed = {**fix, "changes": [fix["changes"][0], {**fix["changes"][1], "closure": {**fix["changes"][1]["closure"], "sites": [{"site": "docs（赤を見られない）", "red_seen": False}]}}]}
+    r = run.done(fx["id"], mixed)
+    check(len(fix["changes"]) >= 2 and r.returncode == 0, f"赤を見た修正と見ていない修正（文書）が混じる周の clean は通る——周の全体で見る（rc={r.returncode}: {r.stderr[-120:]}）")
     rm(run.tmp)
 
 
@@ -505,6 +520,10 @@ def test_noci():
     run = Run("noci-attended")
     last = drive(run, "noci")
     check(last["status"] == "awaiting_human" and "ci_unverified" in json.dumps(last.get("ask", {})), f"有人: awaiting_human で kinds に ci_unverified（{last['status']}）")
+    n0 = len(run.state()["rounds"][-1]["instances"])
+    run.next()
+    nx3 = run.next()
+    check(nx3["status"] == "awaiting_human" and len(run.state()["rounds"][-1]["instances"]) == n0, "人に聞いている間は next を叩いても先へ進まず、新しい節も出ない（以前は advance が先に走り report.human_items が出た）")
     rm(run.tmp)
 
 
@@ -516,6 +535,34 @@ def test_coldfail():
     cc = proc.get("cold_check") or {}
     check(cc.get("verdict") == "redesign-needed" and cc.get("stops") == 1, f"process.cold_check に非 pass と件数が残る（{cc}）")
     check((run.dir / "report.md").is_file(), "報告は出る（詰まりを直したかは writer の申告——機械は見ない）")
+    rm(run.tmp)
+
+
+def test_gates_not_applicable():
+    print("否定検査: ゲートを触った差分（applies_cond が真）で gate_efficacy が not_applicable を名乗ると exit 1")
+    run = Run("gates", unattended=True)
+    seen = {}
+
+    def hook(run_, inst, out):
+        if inst["node"] == "p1.gate_efficacy" and "tried" not in seen:
+            seen["tried"] = True
+            r = run_.done(inst["id"], {"material": M("not_applicable", reason="検証ゲートを触っていない（検査用の嘘）"),
+                                       "arms": [{"gate": "x", "arm": "y", "red_confirmed": True, "control_green": True}]})
+            check(r.returncode == 1 and "applies_cond" in r.stderr, "applies_cond が真で走った gate_efficacy の not_applicable は exit 1（機械が持つ事実と食い違う）")
+        return out
+    drive(run, "gates", hook=hook)
+    check("tried" in seen, "ゲートを触った台本で gate_efficacy が走った")
+    rm(run.tmp)
+
+
+def test_narrowed():
+    print("台本: writer 自書の目的を inspector が『狭めている』→ R2 は目的を使えない（unverifiable）→ 台帳に載る")
+    run = Run("narrowed", unattended=True)
+    drive(run, "narrowed")
+    r1 = run.round_file(1)
+    check(r1["reviews"].get("R2", {}).get("status") == "unverifiable", f"R2 は unverifiable（{r1['reviews'].get('R2')}）——狭められた目的で独立設計を回さない")
+    check(any(q["kind"] == "unverifiable" and q["origin"] == "R2" for q in r1["questions"]), "台帳に R2 の unverifiable の行が立つ")
+    check(run.record()["process"].get("purpose_review", {}).get("verdict") == "狭めている", "inspector の判定は記録の process.purpose_review に残る（以前は誰も読まなかった）")
     rm(run.tmp)
 
 
@@ -586,6 +633,8 @@ def main():
     test_noci()
     test_coldfail()
     test_deferjudge()
+    test_gates_not_applicable()
+    test_narrowed()
     test_nopurpose()
     test_big_diff()
     print(f"\n{ran} 件中 {len(fails)} 件失敗")

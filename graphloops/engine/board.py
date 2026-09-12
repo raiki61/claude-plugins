@@ -185,16 +185,22 @@ class Board:
         memo が無いと 1 回の next で同じ本文を何度も通る（実測 2026-09-12: 出力 29 件・463 KB の周で
         read_json が 1,404 回）。盤面はこのプロセスの中では engine しか書かないので、読み直す必要が無い。
         """
-        cache = self.__dict__.setdefault("_out_cache", {})
         out = {}
         for nid, info in self.state["outputs"].items():
             if before_round is not None and info["round"] >= before_round:
                 continue
-            key = info["file"]
-            if key not in cache:
-                cache[key] = read_json(self.dir / key)
-            out[nid] = cache[key]
+            out[nid] = self.read_out(info["file"])
         return out
+
+    def read_out(self, path):
+        """出力ファイルを 1 度だけ読む（同じ Board の間）。鍵は絶対パス——outputs は盤面からの相対、ref / instance は
+        絶対で持つので、鍵を揃えないと memo を素通りする（実測 2026-09-12: 重複 314 回）。"""
+        cache = self.__dict__.setdefault("_out_cache", {})
+        p = pathlib.Path(path)
+        key = str((p if p.is_absolute() else self.dir / p).resolve())
+        if key not in cache:
+            cache[key] = read_json(key)
+        return cache[key]
 
     def node_of(self, path):
         return node_of(path, self.nodes)
@@ -208,7 +214,7 @@ class Board:
             return [(path, str(self.dir / "record.json"), get_path({"record": self.record}, path))]
         if path == "raw":
             nodes = set(self.graph.get("raw_for_report", []))
-            return [(f"r{rd['round']}/{iid}", inst["output_file"], read_json(inst["output_file"]))
+            return [(f"r{rd['round']}/{iid}", inst["output_file"], self.read_out(inst["output_file"]))
                     for rd in self.state["rounds"] for iid, inst in rd["instances"].items()
                     if inst["status"] == "done" and inst["node"] in nodes and inst.get("output_file")]
         if path.startswith("out.") or path.startswith("prev."):
@@ -222,7 +228,7 @@ class Board:
             rounds = [rd for rd in self.state["rounds"] if rd["round"] < self.round] if prev else self.state["rounds"]
             ran = [rd for rd in rounds if any(i["status"] == "done" and i["node"] == nid for i in rd["instances"].values())]
             rounds = ran[-1:]
-            return [(f"r{rd['round']}/{iid}", inst["output_file"], read_json(inst["output_file"]))
+            return [(f"r{rd['round']}/{iid}", inst["output_file"], self.read_out(inst["output_file"]))
                     for rd in rounds for iid, inst in rd["instances"].items()
                     if inst["status"] == "done" and inst["node"] == nid and inst.get("output_file")]
         raise KeyError(f"{path}: ref: にできるのは record・out.<節>・prev.<節>・raw だけ")

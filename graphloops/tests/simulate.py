@@ -73,7 +73,7 @@ class Run:
 
     def cmd(self, *args, stdin=None, env=None):
         r = subprocess.run([PY, str(LOOP), *args, *([] if args[0] == "init" else ["--dir", str(self.dir)])],
-                           cwd=self.repo, capture_output=True, text=True, encoding="utf-8", input=stdin, env=env)
+                           cwd=self.repo, capture_output=True, text=True, encoding="utf-8", input=stdin, env=env, timeout=600)
         return r
 
     def next(self):
@@ -386,6 +386,22 @@ def test_graphcheck():
     broken(lambda b: b.__setitem__("plugin", "no-such-plugin"), "役割 agent の定義", "役の定義が見つからない plugin を指す graph は落ちる")
     broken(lambda b: b.pop("launch"), "launch.isolated.argv", "道具ゼロの役を使うのに起こし方を宣言しない graph は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["schema"].__setitem__("oneOf", []), "engine が読まない語", "schema に engine が読まない語（oneOf）を書いた graph は落ちる（書いても効かない語を黙って通さない）")
+    # engine が実行に使う欄の綴り違い（文書欄 outputs の照合は通っても、実行では黙って素通りしていた）
+    broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("from", "findingz"), "writes.from", "writes.from が schema に無い欄を指す graph は落ちる（記録に着地しない）")
+    broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", {"path": "out.p1.checker.findingz", "op": "nonempty", "default": False}), "schema に無い", "cond の path が節の schema に無い欄を指す graph は落ちる")
+    broken(lambda b: b["record"].__setitem__("report_accepts_exit", ["0"]), "report_accepts_exit", "report_accepts_exit に整数でない値を書いた graph は落ちる")
+    # 同じ context を継ぐ節: 役が一致し、遮断系でないこと（review graph で見る）
+    rg = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    rv = str(PLUGIN.parent / "scripts" / "review-record.py")
+    for i, (mut, want, desc) in enumerate((
+            (lambda b: b["nodes"]["p2.history"].__setitem__("run_by", "inspector"), "役が違う", "same_context_as の役と自分の役が違う graph は落ちる"),
+            (lambda b: (b["nodes"]["p2.history"].__setitem__("run_by", "blind-judge"), b["nodes"]["p2.diagnose"].__setitem__("run_by", "blind-judge")), "遮断系", "遮断系の役に same_context_as を書いた graph は落ちる（実行時の die を静的にも見る）"))):
+        badr = json.loads(json.dumps(rg))
+        mut(badr)
+        pr = tmp / "graphs" / f"badreview{i}.json"
+        pr.write_text(json.dumps(badr, ensure_ascii=False), encoding="utf-8")
+        r = subprocess.run([PY, str(GRAPHCHECK), str(pr), rv], capture_output=True, text=True, encoding="utf-8")
+        check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
     broken(lambda b: b["nodes"]["p1.checker"].__setitem__("run_by", "nobody"), "run_by", "回す側でも役でもない run_by は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（欄の名前だけ）")
     # 段名の正本は thickness.tiers——キーの集合から導かない
@@ -534,6 +550,14 @@ def test_resolve_dir():
     check(r.returncode == 0, "別のループも同じリポジトリに init できる")
     r = call("status")
     check(r.returncode == 2 and "--dir で指せ" in r.stderr and "research-loop" in r.stderr and "review-loop" in r.stderr, "run が 2 本並ぶと --dir 無しは exit 2（新しい方を黙って選ばない）")
+    r = call("init", "--loop", "research-loop", "--request", "q", "--document", str(doc), "--validator", "/nonexistent/x-record.py")
+    check(r.returncode == 2 and "明示された" in r.stderr, f"明示した検証器が無ければ init は die（黙って同梱の検証器に倒れない）（rc={r.returncode}: {r.stderr.strip()[-160:]}）")
+    check(len(list((repo / ".git" / "graphloops" / "research-loop").glob("2*"))) == 1, "die した init は空の盤面を残さない（検証器は置き場を作る前に解決する）")
+    # 同じ秒に 2 回 init しても run-id が衝突しない（以前は FileExistsError で exit 2）
+    r2a = call("init", "--loop", "research-loop", "--request", "q", "--document", str(doc), "--validator", str(VALIDATOR))
+    r2b = call("init", "--loop", "research-loop", "--request", "q", "--document", str(doc), "--validator", str(VALIDATOR))
+    d2a, d2b = (json.loads(x.stdout)["dir"] if x.returncode == 0 else None for x in (r2a, r2b))
+    check(r2a.returncode == 0 and r2b.returncode == 0 and d2a != d2b, f"同じ秒の 2 回の init は別の置き場になる（{d2a and d2a[-20:]} / {d2b and d2b[-20:]}）")
     d = json.loads(call("status", "--dir", str(next((repo / ".git" / "graphloops" / "research-loop").glob("2*")))).stdout)
     check(d["loop"] == "research-loop", "--dir で名指しすれば解決する")
     rm(tmp)

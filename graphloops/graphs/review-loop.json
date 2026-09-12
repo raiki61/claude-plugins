@@ -246,7 +246,8 @@
    ],
    "prompt_file": "../prompts/review-loop/p0.local_checks.md",
    "reads": [
-    "inputs.cwd"
+    "inputs.cwd",
+    "record.process.human_answers"
    ],
    "schema": {
     "type": "object",
@@ -2237,6 +2238,7 @@
     "out.p1.provenance",
     "out.p0.prior_decisions",
     "out.p0.purpose.purpose_text",
+    "record.process.purpose_review",
     "record.process.constraints",
     "loop.diff_file",
     "loop.changed_files",
@@ -2999,7 +3001,8 @@
    "prompt_file": "../prompts/review-loop/p4.ci.md",
    "reads": [
     "inputs.cwd",
-    "record.base"
+    "record.base",
+    "record.process.human_answers"
    ],
    "schema": {
     "type": "object",
@@ -3416,10 +3419,20 @@
    ],
    "when": "R2 の再発火条件に当たる周（初回は必ず）",
    "cond": {
-    "path": "loop.r2_refire",
-    "op": "eq",
-    "value": true,
-    "default": true
+    "all": [
+     {
+      "path": "loop.r2_refire",
+      "op": "eq",
+      "value": true,
+      "default": true
+     },
+     {
+      "path": "loop.purpose_known",
+      "op": "eq",
+      "value": true,
+      "default": true
+     }
+    ]
    },
    "post_check": "r2_design"
   },
@@ -3518,7 +3531,8 @@
      {
       "path": "out.r2.design.question_stands",
       "op": "eq",
-      "value": true
+      "value": true,
+      "default": false
      },
      {
       "path": "loop.purpose_known",
@@ -3961,6 +3975,7 @@
   "investigator"
  ],
  "raw_for_report": [
+  "p0.purpose_review",
   "p2.diagnose",
   "p2.history",
   "r1.minimality",

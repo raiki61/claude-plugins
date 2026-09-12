@@ -8,8 +8,27 @@ import pathlib
 
 from .util import Reject, die, get_path, git, has_path, pick, porcelain, read_json, set_path, sha, write_json
 
+_VALIDATORS = {}
+
+
+def validator_module(b):
+    """検証器（init --validator で決まった scripts/<loop>-record.py）を import して定数・述語を読む——rules は写さない。
+    以前は review / research の rules がそれぞれ同じ 4 手順を持っていた（差は文言だけ）。loop 名は盤面から来るので
+    engine に loop の語は入らない。"""
+    path = b.state.get("validator")
+    if not path:
+        raise Reject("検証器（scripts/<loop>-record.py）が見つからない。init --validator で渡せ")
+    if path not in _VALIDATORS:
+        spec = importlib.util.spec_from_file_location("graphloops_validator", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _VALIDATORS[path] = mod
+    return _VALIDATORS[path]
+
+
 INJECT = {"Reject": Reject, "pick": pick, "get_path": get_path, "set_path": set_path, "has_path": has_path,
-          "porcelain": porcelain, "read_json": read_json, "write_json": write_json, "git": git, "sha": sha}
+          "porcelain": porcelain, "read_json": read_json, "write_json": write_json, "git": git, "sha": sha,
+          "validator_module": validator_module}
 
 
 def load_rules(graph_path, graph):

@@ -4,7 +4,7 @@
 使い方（回す側が呼ぶ順）:
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--dir <置き場>] [--validator <path>]
-    loop.py next   [--dir]            # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい）
+    loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
     loop.py done   --node <節[鍵]> (--output <返答.json> | 標準入力) [--agent-id <id>] [--accept-tree-change 理由]
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
     loop.py answer --text <答え> [--note <本文>]         # 人に聞く番のとき（本文は次の周の再審に渡る）

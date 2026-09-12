@@ -54,8 +54,13 @@ from engine.advance import ENGINE_PRE  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import unknown_keywords  # noqa: E402
 from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
-from engine.rules import load_rules as engine_load_rules  # noqa: E402
+from engine.rules import load_rules as engine_load_rules, registry  # noqa: E402
 from engine.validator import agent_tools, find_plugin_path  # noqa: E402
+from engine.util import read_json  # noqa: E402
+
+# JSON の読み込みは engine の read_json（読めなければ die＝exit 2）。写しを持っていたとき UnicodeDecodeError を
+# 落としていて、docstring が定める終了コード契約（2）を外れ exit 1＋Traceback になった（実測 2026-09-12）
+load_json = read_json
 
 
 def load_rules(gpath, g):
@@ -70,15 +75,6 @@ def load_rules(gpath, g):
         return buf.getvalue().strip() or f"rules {g.get('rules')} が読めない"
 
 
-
-
-def load_json(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        print(f"読めない: {path}: {e}", file=sys.stderr)
-        sys.exit(2)
 
 
 def record_fields(script_path):
@@ -127,6 +123,30 @@ def ancestors(nodes, nid, seen=None):
 
 
 COND_KEYS = {"all", "any", "not", "builtin", "path", "op", "value", "default", "field"}  # engine の eval_cond が読む鍵
+
+
+def check_cond_paths(c, where, nodes, errs):
+    """cond の葉の path が out.<節>.<欄> なら、その節と欄（schema.properties）が実在すること。
+    綴り違いは実行時に黙って素通りし、走らなかった節の素材が『走らせる条件に当たらず』で埋まる（実測 2026-09-12:
+    default 付きの葉 23/39 が検査の外だった）。"""
+    if not isinstance(c, dict):
+        return
+    for k in ("all", "any"):
+        for x in c.get(k, []) or []:
+            check_cond_paths(x, where, nodes, errs)
+    if "not" in c:
+        check_cond_paths(c["not"], where, nodes, errs)
+    path = c.get("path")
+    if isinstance(path, str) and path.startswith("out."):
+        rest = path[4:]
+        nid = node_of(rest, nodes)
+        if nid is None:
+            errs.append(f"{where}: cond の path '{path}' の節が無い")
+            return
+        field = rest[len(nid) + 1:].split(".")[0] if len(rest) > len(nid) else ""
+        props = (nodes[nid].get("schema") or {}).get("properties")
+        if field and props and field not in props:
+            errs.append(f"{where}: cond の path '{path}' の欄 '{field}' が節 {nid} の schema に無い（綴り違いか、書いても効かない）")
 
 
 def check_cond(c, where, errs, conds=frozenset()):
@@ -219,6 +239,9 @@ def main():
 
     # 3. 記録の欄 ⊆ outputs
     script = sys.argv[2] if len(sys.argv) == 3 else None
+    ae = g.get("record", {}).get("report_accepts_exit")
+    if ae is not None and not (isinstance(ae, list) and ae and all(isinstance(x, int) and not isinstance(x, bool) for x in ae)):
+        errs.append(f"record.report_accepts_exit は終了コード（整数）の空でない一覧: {ae!r}（null や文字列は engine が『受理集合に無い』と読んで報告を止める）")
     vp = g.get("record", {}).get("validator_path")
     if not script and vp:
         script = find_plugin_path(vp, g.get("plugin"))  # engine と同じ探し方（明示 → <PLUGIN>_ROOT → 同じリポジトリ → キャッシュ）
@@ -276,7 +299,7 @@ def main():
             print(f"ok  段名は thickness.tiers {tiers} の中（active_in・max_rounds_by_thickness・default）")
 
     if not g.get("exec"):
-        print("--  exec の無いグラフ（写しだけ）。実行の形の検査 6〜10 は省略")
+        print("--  exec の無いグラフ（写しだけ）。実行の形の検査 6〜12 は省略")
         sys.exit(0 if ok else 1)
 
     # 11. schema は engine が読む語だけで書く——読まない語（oneOf / not / format / 綴り違い）は validate_schema が黙って
@@ -285,7 +308,7 @@ def main():
         if isinstance(v.get("schema"), dict):
             for u in unknown_keywords(v["schema"]):
                 errs.append(f"節 {k}: schema に engine が読まない語 {u}（綴り違いか本家 JSON Schema の語——書いても効かない）")
-    # 6〜10. 実行の形
+    # 6〜12. 実行の形
     agents = agent_names(g)
     if agents is None:
         errs.append(f"役割 agent の定義（agents/）が見つからない: plugin {g.get('plugin')!r}——graph に plugin を書き、その plugin が同じリポジトリかキャッシュか <PLUGIN>_ROOT に在ること")
@@ -304,7 +327,7 @@ def main():
     if isinstance(rules, str):
         errs.append(rules)
         rules = None
-    reg = lambda name: set(getattr(rules, name, {}) or {}) if rules else set()
+    reg = lambda name: set(registry(rules, name))  # 名前表の引き方は engine の registry（写しを持たない）
     write_ops = set(ENGINE_WRITE_OPS) | reg("WRITE_OPS")
     fan_builtins, node_builtins, post_checks, conds = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS"), reg("CONDS")
     for nid in g.get("raw_for_report", []):
@@ -399,6 +422,26 @@ def main():
             check_cond(v["cond"], f"節 {k}", errs, conds)
         if "applies_cond" in v:
             check_cond(v["applies_cond"], f"節 {k}.applies_cond", errs, conds)
+        # 12. engine が実行に使う欄（writes.from・cond の path・same_context_as の役）は、宣言どおりの物を指すこと。
+        # 文書欄（outputs）の照合は通っても、実行の欄の綴り違いは黙って素通りしていた（実測 2026-09-12: writes.from を
+        # 綴り違いにしても exit 0 で、台本は 5 周回って stopped）
+        props = set((v.get("schema") or {}).get("properties", {}))
+        if props:
+            for w in v.get("writes", []) or []:
+                frm = w.get("from")
+                if frm and frm != "$" and frm.split(".")[0] not in props:
+                    errs.append(f"節 {k}: writes.from '{frm}' が schema.properties に無い（返答に無い欄を写そうとしている——記録に着地しない）")
+        for c in (v.get("cond"), v.get("applies_cond")):
+            if c:
+                check_cond_paths(c, f"節 {k}", nodes, errs)
+        same = v.get("same_context_as")
+        if same and same in nodes:
+            me = v.get("agent_type") or v.get("run_by")
+            them = nodes[same].get("agent_type") or nodes[same].get("run_by")
+            if me != them:
+                errs.append(f"節 {k}: same_context_as '{same}' と役が違う（{them} → {me}）——同じ context を継げない")
+            if (me or "").rpartition(":")[2] in isolated:
+                errs.append(f"節 {k}: 遮断系（道具ゼロ）の役に same_context_as は使えない——別プロセスは返答と共に終わる（実行時の die を静的にも見る）")
         # pre は『報告の前に記録を仕上げて検証器を回す』唯一の門。綴り違いは検証器を通さずに報告を出す形になる
         if "pre" in v and v["pre"] not in ENGINE_PRE:
             errs.append(f"節 {k}: pre '{v['pre']}' を engine が知らない（使えるのは {'/'.join(ENGINE_PRE)}）")

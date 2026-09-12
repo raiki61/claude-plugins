@@ -5,7 +5,6 @@
 
 engine が差し込む道具は engine/rules.py の INJECT が正本（ここに写さない）。
 """
-import importlib.util
 import pathlib
 import re
 
@@ -21,19 +20,7 @@ import re
 
 
 # ---------------------------------------------------------------- 検証器を正本として読む
-_VALIDATOR = {}
-
-
-def validator_module(b):
-    path = b.state.get("validator")
-    if not path:
-        raise Reject("検証器（review-record.py）が見つからない。init --validator で渡せ")
-    if path not in _VALIDATOR:
-        spec = importlib.util.spec_from_file_location("review_record", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _VALIDATOR[path] = mod
-    return _VALIDATOR[path]
+# validator_module は engine（engine/rules.py の INJECT）が差し込む——ここに写しを置かない
 
 
 def review_md_path(b):
@@ -189,13 +176,13 @@ def worktree_compare(b, nid):
     ls = b.loop_state
     before = ls.get("tree_before") or {}
     snap = porcelain()
-    got = {k: git(*args) for k, args in (("stash", ("stash", "list")), ("stat", ("diff", "--shortstat", b.record["base"])),
-                                         ("diff", ("diff", b.record["base"])))}
+    # shortstat は diff 本文の sha に包含される（本文が同じなら行数も同じ）ので取り直さない——subprocess 1 本分
+    got = {k: git(*args) for k, args in (("stash", ("stash", "list")), ("diff", ("diff", b.record["base"])))}
     if snap is None or any(v is None for v in got.values()) or before.get("porcelain") is None:
         return {"ok": False, "problems": ["git status / git diff が取れない——作業ツリーの前後を突き合わせられない（一致とは言えない）"]}
-    now = {"porcelain": snap, "stash": got["stash"].strip(), "stat": got["stat"].strip(), "diff_sha": sha(got["diff"])}
+    now = {"porcelain": snap, "stash": got["stash"].strip(), "stat": before.get("stat"), "diff_sha": sha(got["diff"])}
     problems = []
-    for k in ("porcelain", "stash", "stat", "diff_sha"):
+    for k in ("porcelain", "stash", "diff_sha"):
         if before.get(k) != now[k]:
             problems.append(f"{k}: {before.get(k)!r} → {now[k]!r}")
     if problems:
@@ -257,6 +244,10 @@ def fill_materials(b):
             elif mat in last_mat and last_mat[mat].get("status") in ("awaiting_human", "not_run"):
                 prev = last_mat[mat]
                 mats[mat] = {"status": prev["status"], "reason": prev.get("reason", "") + "（前の周と同じ。流用できない値なので今も同じ状態として書く）"}
+            elif state == "done":
+                # 走ったのに素材が無い＝返答は受理されたが記録に着地していない（writes の from / to の欠陥）。
+                # 「走らせる条件に当たらず」と書くと理由が事実と逆になる（実測: writes を空にしても 5 周回って stopped）
+                mats[mat] = {"status": "not_run", "reason": f"節 {nid} は走ったが素材 '{mat}' が記録に着地していない（graph の writes の欠陥——from / to を確かめよ）"}
             else:
                 mats[mat] = {"status": "not_run", "reason": f"走らせる条件に当たらず、流用できる前の判定も無い（節 {nid}）"}
     if "fix_closure" not in mats:
@@ -284,7 +275,10 @@ def assemble(b, nid):
     forced = bool(ls.pop("r2_refire_forced", False))  # 先に消費する——式の最右に置くと短絡で pop に届かず、変化の無い次の周まで旗が効いた
     ls["r2_refire"] = b.round == 1 or mech or drift or grew or forced
     ls["r1_refire"] = ls["r2_refire"] or ls["ledger_changed"]
-    ls["purpose_known"] = (b.outputs().get("p0.purpose", {}).get("source") != "目的不明")
+    # 目的が取れない（目的不明）のと、writer の要約を inspector が「狭めている」と判定したのは、R2 にとって同じ——
+    # 独立の出典として使えない（以前は判定を誰も読まず、狭められた目的で R2 が回った。実測 2026-09-12）
+    narrowed = b.record.get("process", {}).get("purpose_review", {}).get("verdict") == "狭めている"
+    ls["purpose_known"] = (b.outputs().get("p0.purpose", {}).get("source") != "目的不明") and not narrowed
     if fix.get("premise_drift"):
         ls.setdefault("drift_notes", []).append({"round": b.round, "text": fix.get("premise_drift_note", "")})
     return {"ok": True, "open_units": ls["open_units"], "r1_refire": ls["r1_refire"], "r2_refire": ls["r2_refire"],
@@ -501,7 +495,13 @@ def fix_covers_open_units(b, nid, out, item):
     # （gate_arms_all_red と同じ形。以前は red_seen が全部 false・verified_how が「見ていない」でも clean が通った）。
     # 見るのは周の全体——文書だけの修正は赤を見られないので、修正ごとに要求すると文書を触った周が全部 found になる。
     # 修正ごとの赤の有無は sites にそのまま残り、judge が読む。
-    if out["changes"] and out.get("fix_closure", {}).get("status") == "clean":
+    st = out.get("fix_closure", {}).get("status")
+    if out["changes"] and st in ("not_applicable", "carried_over"):
+        # 修正が在る周の閉鎖の実証は今の周の修正に対して行う——「条件に当たらない」「前の周の流用」は
+        # 機械が持つ事実（changes が非空）と食い違う（実測: 全 site が red_seen=false でも not_applicable なら
+        # 受理され、3 周で converged した）
+        raise Reject(f"修正が {len(out['changes'])} 件在るのに fix_closure が {st}——閉鎖の実証は今の周の修正に対して行う（clean か found）")
+    if out["changes"] and st == "clean":
         if not any(s.get("red_seen") for c in out["changes"] for s in c["closure"].get("sites", [])):
             raise Reject("閉鎖の実証で赤を一度も見ていないのに fix_closure=clean——found にして赤を見ていない site を書くか、"
                          "退行を注入して赤を見てから出せ")
@@ -552,6 +552,11 @@ def gate_arms_all_red(b, nid, out, item):
     """
     arms = out.get("arms", [])
     st = out.get("material", {}).get("status")
+    # 節が走ったのは applies_cond が真だったから——機械が持つその事実と、役の書いた not_applicable は両立しない
+    # （実測: 真で走った周に not_applicable と書けば腕ゼロで通った）
+    ap = b.nodes[nid].get("applies_cond")
+    if st == "not_applicable" and ap is not None and b.eval_cond(ap):
+        raise Reject(f"{nid}: applies_cond が真（この差分は検証ゲートを新設・変更している）のに status=not_applicable——腕を書け")
     unred = [a["arm"] for a in arms if not a.get("red_confirmed")]
     nocontrol = [a["arm"] for a in arms if not a.get("control_green")]
     if st == "clean" and (unred or nocontrol):
@@ -563,10 +568,21 @@ POST_CHECKS = {"gate_arms_all_red": gate_arms_all_red, "measured_needs_output": 
                "r2_design": r2_design, "r4_inventory": r4_inventory, "cold_check_note": cold_check_note}
 
 
-def check_record(b):
-    """素材と俯瞰の欄を、検証器の表（STATUS / REVIEW_STATUS）で done の時点に見る（写さず import）。"""
+def check_record(b, nid=None):
+    """素材と俯瞰の欄を、検証器の表（STATUS / REVIEW_STATUS）で done の時点に見る（写さず import）。
+    あわせて役が書いた status を機械が既に持つ事実と突き合わせる——走った節の素材が not_applicable（applies_cond が
+    真だったから走った）は矛盾。nid は今 done している節（まだ done の印が付いていないので名指しで渡る）。"""
     V = validator_module(b)
     errs = []
+    ran = {k for k in b.nodes if k == nid or b.node_state(k) == "done"}
+    for k, n in b.nodes.items():
+        ap = n.get("applies_cond")
+        if k not in ran or ap is None:
+            continue
+        for mat in n.get("materials", []):
+            m = b.record["materials"].get(mat)
+            if m and m.get("status") == "not_applicable" and b.eval_cond(ap):
+                errs.append(f"素材 '{mat}'（節 {k}）は applies_cond が真で走ったのに not_applicable——機械が持つ事実と食い違う")
     for name, m in b.record["materials"].items():
         st = m.get("status")
         if st not in V.STATUS:
@@ -575,7 +591,7 @@ def check_record(b):
         for f in V.STATUS[st].fields:
             v = m.get(f)
             if f in V.NUMERIC_FIELDS:
-                if not isinstance(v, int) or isinstance(v, bool):
+                if not V.is_int(v):  # 数の判定は検証器の述語を使う（写しは 10 値で一致していても、変えたとき片方だけ動く）
                     errs.append(f"素材 '{name}'（{st}）の '{f}' は数で書け")
             elif not isinstance(v, (str, list)) or not v:
                 errs.append(f"素材 '{name}'（{st}）に '{f}' が要る（何を見たかを書け）")

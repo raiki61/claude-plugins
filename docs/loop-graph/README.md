@@ -15,7 +15,7 @@
 
 JSON は各ループを「節（工程）＋依存＋外側の周回条件」のグラフとして持ち、グラフ実行版プラグイン `graphloops`（`graphloops/README.md`）の `scripts/graphcheck.py` が機械で確かめる。research と review の JSON は実行用の欄（節ごとのプロンプト・返答の型・書き込み規則）も持ち、同じプラグインの engine で回せる。md は図と、図に落ちない説明（変わったこと・記録と検証器・既知の未決）を持つ。写しでも腐りにくい部分（節の名前・依存・役・記録の欄名）だけを持ち、腐りやすい部分（役の道具・観点の本文・行番号）は持たない。道具は `agents/<役>.md`、観点は `REVIEW.md`、出典は手順書の見出し（各節の `source`）で指す。
 
-4 本を横断して拾い上げた規律の一覧と、LLM（大規模言語モデル）を使うアプリとしての性質は、`docs/loop-contract.md` に置く。
+4 本を横断して拾い上げた規律の一覧と、LLM（大規模言語モデル）を使うアプリとしての性質は、`docs/loop-contract.md` に置く（graphloops と同じ変更で書いた**作業記録**であって、規律の権威ではない——各規律の根拠は、その節が引く手順書・検証器・実測の側にある）。
 
 ## 凡例
 
@@ -55,7 +55,7 @@ JSON の欄:
 - **D 前ラウンドを渡さない** → `fresh_context` と `forbidden_inputs`。review の「履歴と台帳は judge にだけ確定後に」は `p2.history` の `same_context_as` と `inputs` の順序
 - **E 記録の欄** → `outputs`（機械検査 3 で検証器の必須欄と突合）
 - **H 連続 2 ラウンド** → `round.converge.counted_by`（review / firstread は機械、research / doctor は申告）
-- **I 暴走ガード** → `round.max_rounds`（4 本とも散文だけ。firstread は null）
+- **I 暴走ガード** → `round.max_rounds`（グラフ実行版は engine が機械で守る。散文の 4 本は散文だけ。firstread は null）
 - **J 人に諮る条件** → review は `round.stops`（3 つ）と `ledger_kinds_not_stops`、他は `round.exit_states`
 - **K 無人実行** → `round.unattended` と `asks_human`
 - **L 並行の単位** → `deps`。波は機械検査 1 が出す。firstread の「1 周の中だけ」と doctor の「生やした親を同じラウンドの P2b に」は周回側の規律

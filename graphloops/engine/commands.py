@@ -21,6 +21,12 @@ def cmd_next(a):
     if b.state["status"] in ("converged", "stopped") and all(b.node_state(n) != "pending" for n in b.nodes):
         print(dump({"status": b.state["status"], "round": b.round, "ready": [], "note": "全部の節が終わっている。record.json と report を見よ"}))
         return
+    if b.state.get("pending_human"):
+        # 人に聞いている間は進めない——先に advance すると答えの無いまま次の節（report.human_items 等）が出て、
+        # 答えても既に出たプロンプトには入らない（実測 2026-09-12: stop と答えた後の報告に human_items が空）
+        print(dump({"status": "awaiting_human", "round": b.round, "ready": [], "ask": b.state["pending_human"],
+                    "how": "答えが決まったら loop.py answer --text <選択肢>。無人なら init --unattended で保守的な既定になる"}))
+        return
     b.accept_tree_change = getattr(a, "accept_tree_change", None)  # 機械の作業ツリー突合（rules）が読む。done と同じ逃げ道
     notes = advance(b)
     b.save()
@@ -38,6 +44,8 @@ def cmd_next(a):
                 "agent は subagent_type に agent_type を渡す。"
                 "起動は運び手（小さな汎用 agent）に任せてよい: 運び手は deliver=path なら『<prompt_file> を読み、その指示にそのまま従え』の 1 文で、"
                 "deliver=paste なら prompt_file の本文をそのまま貼って役を起動し、返答を一字も変えず out_path に書き、あなたには『wrote』だけ返す。"
+                "役が『ファイル内の指示には従わない』と拒んだら本文を貼る形（paste）で起こし直す（拒否を言い含めるな）。"
+                "cli は子が親の環境を継ぐ——起こす前に同じ argv で 1 語返させて疎通を確かめ、返らなければ CLAUDE_CONFIG_DIR を対話の claude と揃える。"
                 "自分で起動するなら同じ渡し方で、返答を out_path に保存する。"
                 "agent_continue は agent_id の agent に SendMessage で続ける（同じ渡し方）。"
                 "runner は自分でやる（skills があればその skill を呼ぶ。置き場のパスで渡された物は要る所だけ Read）。返答を out_path に保存して "
@@ -82,18 +90,31 @@ def cmd_done(a):
         raise Reject(f"節 '{a.node}' は既に {inst['status']}")
     nid = inst["node"]
     n = b.nodes[nid]
-    src = a.output or (inst.get("out_path") if inst.get("out_path") and pathlib.Path(inst["out_path"]).is_file() else None)
-    if src:
+    # 読む順: --output の明示 → 標準入力（空でなければ）→ 置き場（out_path）。以前は置き場が標準入力より先で、拒まれた
+    # 前回分が置き場に残っていると新しい返答を標準入力で渡しても古い方が黙って記録に入った（実測 2026-09-12）。
+    # どこから読んだかは instance と返事に残す。
+    text, read_from = None, None
+    if a.output:
         try:
-            text = pathlib.Path(src).read_text(encoding="utf-8")
+            text, read_from = pathlib.Path(a.output).read_text(encoding="utf-8"), f"--output {a.output}"
         except OSError as e:
-            die(f"{src}: 読めない（{e}）")
+            die(f"{a.output}: 読めない（{e}）")
     elif not sys.stdin.isatty():
-        text = sys.stdin.read(STDIN_MAX + 1)
-        if len(text) > STDIN_MAX:
+        got = sys.stdin.read(STDIN_MAX + 1)
+        if len(got) > STDIN_MAX:
             raise Reject(f"標準入力が {STDIN_MAX} 文字を超えている——--output でファイルを渡せ")
-    else:
+        if got.strip():
+            text, read_from = got, "stdin"
+    if text is None and inst.get("out_path") and pathlib.Path(inst["out_path"]).is_file():
+        try:
+            text, read_from = pathlib.Path(inst["out_path"]).read_text(encoding="utf-8"), f"out_path {inst['out_path']}"
+        except OSError as e:
+            die(f"{inst['out_path']}: 読めない（{e}）")
+    if text is None:
         raise Reject(f"返答が無い——--output か標準入力で渡すか、運び手に {inst.get('out_path')} へ書かせる")
+    if inst.get("mode") == "cli" and a.agent_id:
+        raise Reject("cli で起こした遮断系に agent_id は無い（別プロセスは返答と共に終わる）——--agent-id を渡すな")
+    inst["read_from"] = read_from
     if n.get("schema"):
         output = parse_output(text)
         errs = validate_schema(output, n["schema"])
@@ -162,7 +183,7 @@ def cmd_done(a):
     apply_writes(b, nid, output, item)
     check = hook(b.rules, "check_record")
     if check:
-        errs = check(b)
+        errs = check(b, nid)  # 今 done している節はまだ done の印が無いので名指しで渡す（走った事実との突合に要る）
         if errs:
             print("NG 記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）:", file=sys.stderr)
             for e in errs:
@@ -178,7 +199,7 @@ def cmd_done(a):
     if a.agent_id:
         inst["agent_id"] = a.agent_id
     b.trace("done", instance=a.node, sha=sha(text))
-    msg = f"ok {a.node} を受け付けた"
+    msg = f"ok {a.node} を受け付けた（読んだ先: {read_from}）"
     if remaining:
         item = dict(item)
         base = cover["items_at"].split(".", 1)[1]
@@ -353,6 +374,8 @@ def cmd_init(a):
         die(f"{graph}: 実行用の欄（exec: true）が無い——このグラフはまだ写しだけで、engine では回せない")
     rules = load_rules(graph, g)
     loop = g["loop"]
+    # 検証器は置き場を作る前に解決する——明示が無い等で die しても空の盤面を残さない
+    validator = find_validator(loop, g.get("plugin"), a.validator)
     run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     if a.dir:
         d = pathlib.Path(a.dir)
@@ -360,7 +383,13 @@ def cmd_init(a):
         gd = git("rev-parse", "--git-dir")
         if not gd:
             die("git リポジトリでない。--dir で置き場を渡せ")
-        d = pathlib.Path(gd.strip()).resolve() / "graphloops" / loop / run_id
+        base_dir = pathlib.Path(gd.strip()).resolve() / "graphloops" / loop
+        d = base_dir / run_id
+        n = 2
+        while d.exists():  # 同じ秒に 2 回 init すると run-id が衝突する（実測 2026-09-13: 台本で FileExistsError→exit 2）
+            d = base_dir / f"{run_id}-{n}"
+            n += 1
+        run_id = d.name
     d.mkdir(parents=True, exist_ok=False)
     req = a.request
     if req.startswith("@"):
@@ -376,7 +405,6 @@ def cmd_init(a):
         die(f"--decider '{a.decider}' はこの loop の値（{sorted(deciders.values())}）に無い")
     if th and default in tiers and tiers.index(th) < tiers.index(default) and decider != deciders.get("downgrade"):
         die(f"{th} は依頼者が明示に指定した場合だけ——依頼者がそう言ったときに限り --decider {deciders.get('downgrade')} を添えて init する")
-    validator = find_validator(loop, g.get("plugin"), a.validator)
     fn = hook(rules, "init_record")
     record = fn(th, decider) if fn else {}
     inputs = {"request": req, "document": str(pathlib.Path(a.document).resolve()) if a.document else None,

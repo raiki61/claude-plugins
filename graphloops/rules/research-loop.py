@@ -13,25 +13,11 @@ engine（scripts/loop.py）が graph の名前で呼ぶ。ここにあるのは:
 engine が差し込む道具は engine/rules.py の INJECT が正本（rules は engine を import しない）。
 節名（p1.checker 等）はここには出ない——節の役割は graph が名前で指す。
 """
-import importlib.util
 import random
 
 GATES = ("rederiver", "cold_reader", "cartographer")
-_VALIDATOR = {}
-
-
-def validator_module(b):
-    """検証器（research-record.py）を import して定数を読む——写さない。以前ここに在った VERDICTS / VERDICT_FIELDS は
-    graph が vocab_owner と宣言する検証器と同じ知識の写しで、片方だけ変えても赤くならなかった（review 側と同じ形に揃えた）。"""
-    path = b.state.get("validator")
-    if not path:
-        raise Reject("検証器（research-record.py）が見つからない。init --validator で渡せ")
-    if path not in _VALIDATOR:
-        spec = importlib.util.spec_from_file_location("research_record", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _VALIDATOR[path] = mod
-    return _VALIDATOR[path]
+# 検証器（research-record.py）の定数は validator_module(b) で読む——engine（engine/rules.py の INJECT）が差し込む。
+# 以前ここに在った VERDICTS / VERDICT_FIELDS は検証器と同じ知識の写しで、形が既にずれていた（判定→欄 1 つ vs 判定→欄の組）
 
 
 # ---------------------------------------------------------------- 記録の初期形
@@ -309,12 +295,15 @@ def converge(b, nid):
         asks.append(("prior_decisions_unchecked", "先行議論を洗えていない——決着済みの蒸し返しの可能性が残る。『重複なし』に丸めない"))
     if b.round >= st["max_rounds"]:
         return stop(b, f"暴走ガード: 総ラウンドが上限 {st['max_rounds']} に達した（収束せず）")
+    can_escalate = bool(b.tiers) and st.get("thickness") != b.tiers[-1]
     if asks:
         return {"decision": "ask", "reason": "; ".join(k for k, _ in asks), "ask": {
             "kinds": [k for k, _ in asks],
-            "question": "収束していない。次のどれにするか（continue: 次の周へ／stop: 未収束のまま報告へ／escalate: 重厚に上げて次の周へ）",
+            "question": "収束していない。次のどれにするか（continue: 次の周へ／stop: 未収束のまま報告へ"
+                        + ("／escalate: 重厚に上げて次の周へ" if can_escalate else "") + "）",
             "items": [f"{k}: {t}" for k, t in asks],
-            "options": ["continue", "stop", "escalate"],
+            # 最上段では escalate を出さない——出しても answer が『降格は許さない』で拒み、取れない選択肢になる
+            "options": ["continue", "stop"] + (["escalate"] if can_escalate else []),
         }}
     if new:
         why = f"新規相違 {new} 件"
@@ -374,7 +363,7 @@ POST_CHECKS = {"refuter_consistency": refuter_consistency, "cold_reader_consiste
                "open_questions_note": open_questions_note, "clear_stuck_hint": clear_stuck_hint}
 
 
-def check_record(b):
+def check_record(b, nid=None):
     errs = []
     for c in b.record["claims"]:
         v = c.get("verdict")

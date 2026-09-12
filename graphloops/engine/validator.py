@@ -20,9 +20,14 @@ def env_root(plugin):
 
 def _sibling_is(plugin):
     """この plugin と同じリポジトリに並ぶ plugin か（親の plugin.json の name で見る）。"""
+    p = PLUGIN_ROOT.parent / ".claude-plugin" / "plugin.json"
     try:
-        return json.loads((PLUGIN_ROOT.parent / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("name") == plugin
-    except (OSError, ValueError):
+        return json.loads(p.read_text(encoding="utf-8")).get("name") == plugin
+    except OSError:
+        return False  # 無い＝並んでいない
+    except ValueError as e:
+        # 壊れている≠無い。黙って False にすると同じリポジトリの検証器を飛ばしてキャッシュの別版を読む
+        print(f"警告: {p} が読めない（{e}）——同梱の plugin として扱えず、キャッシュから探す", file=sys.stderr)
         return False
 
 
@@ -35,8 +40,12 @@ def find_plugin_path(rel, plugin, explicit=None, kind="file"):
     def ok(p):
         return p.is_file() if kind == "file" else p.is_dir()
 
-    if explicit and ok(pathlib.Path(explicit)):
-        return str(pathlib.Path(explicit).resolve())
+    if explicit:
+        if ok(pathlib.Path(explicit)):
+            return str(pathlib.Path(explicit).resolve())
+        # 明示は「これを使え」であって候補の 1 つではない——無ければ黙って別の物に倒さない
+        # （実測 2026-09-12: --validator /nonexistent/x.py でも init は exit 0 で同梱の検証器に倒れ、警告も出なかった）
+        die(f"明示された {explicit} が無い（{kind}）——パスを確かめよ。明示を外せば同梱・キャッシュから探す")
     if not plugin:
         return None
     env = os.environ.get(env_root(plugin))
@@ -109,10 +118,11 @@ def agent_tools(agent_type):
     return None if d is None else d["tools"]
 
 
-def deliver_mode(agent_type, path_tools):
+def deliver_mode(agent_type, path_tools, tools=None):
     """プロンプトの渡し方: 役が path_tools（graph の deliver.path_tools——自分でファイルを読める道具）のどれかを持てば path、
-    持たなければ paste。定義が見つからなければ paste（安全側——貼れば必ず届く）。"""
-    tools = agent_tools(agent_type)
+    持たなければ paste。定義が見つからなければ paste（安全側——貼れば必ず届く）。tools を渡せば定義を読み直さない。"""
+    if tools is None:
+        tools = agent_tools(agent_type)
     if tools is None or not path_tools:
         return "paste"
     return "path" if ("*" in tools or any(t in tools for t in path_tools)) else "paste"
