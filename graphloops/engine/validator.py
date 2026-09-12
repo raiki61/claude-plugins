@@ -149,3 +149,4 @@ def finalize(b):
         # 起こせなかった遮断系（launch.missing）は state の instance にしか無く、記録にも報告にも出ていなかった
         proc["launch_missing"] = [{"instance": i["id"], "round": r["round"], "missing": i["launch"]["missing"]}
                                   for r in b.state["rounds"] for i in r["instances"].values() if (i.get("launch") or {}).get("missing")]
+        proc["role_def_missing"] = b.state.get("role_def_missing", [])  # 別 plugin の役で、定義がこの環境に無かったもの

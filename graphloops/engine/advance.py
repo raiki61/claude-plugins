@@ -105,13 +105,19 @@ def emit_instance(b, nid, item=None, suffix=""):
     # 上限は「Agent ツールのプロンプトに貼る」経路の性質で、engine の都合でもモデルの都合でもない。
     atype = None if b.is_runner(n) else agent_type_of(b, n)
     role_def = agent_def(atype) if atype else None
+    role_def_missing = None
     if atype and ":" in atype and role_def is None:
         # 「定義が読めない」を「道具を持つ役」と同じ False に潰さない——遮断系かどうかが分からないまま Agent ツール
         # 経路に倒すと、2f2c081 が閉じた CLAUDE.md 注入がそのまま戻る（launch.isolated.argv の不在は die するのに、
         # 定義の不在だけが黙って落ちていた非対称。実測 2026-09-12: 空の CLAUDE_CONFIG_DIR で p1.hygiene が mode=agent に
-        # なり notes は空だった）。接頭の無い組み込み agent は従来どおり定義なしで進む。
-        die(f"{iid}: 役 '{atype}' の定義（agents/<役>.md）が解決できない——遮断系かどうかが決まらないので起こさない"
-            "（plugin の置き場・<PLUGIN>_ROOT・CLAUDE_CONFIG_DIR を確かめよ）")
+        # なり notes は空だった）。graph 自身の plugin の役は定義が要る（遮断系はここにしか居ない）。別 plugin の役
+        # （pr-review-toolkit 等）はこの機械に入っていないことが普通にある（実測: CI には無い）——止めずに、定義が
+        # 無かった事実を instance と記録に残す（渡し方は paste＝貼れば必ず届く側）。接頭の無い組み込み agent は従来どおり。
+        if atype.rpartition(":")[0] == b.plugin:
+            die(f"{iid}: 役 '{atype}' の定義（agents/<役>.md）が解決できない——遮断系かどうかが決まらないので起こさない"
+                "（plugin の置き場・<PLUGIN>_ROOT・CLAUDE_CONFIG_DIR を確かめよ）")
+        role_def_missing = f"{atype} の定義がこの環境に無い（別 plugin）。道具は不明——遮断系としては扱わない。渡し方は paste"
+        b.state.setdefault("role_def_missing", []).append({"instance": iid, "round": b.round, "agent_type": atype})
     isolated = role_def is not None and role_def["tools"] == []
     r = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None if isolated else FILE_CAP)
     try:
@@ -145,6 +151,8 @@ def emit_instance(b, nid, item=None, suffix=""):
         inst["skills"] = n["skills"]
     if not runner:
         inst["deliver"] = deliver_mode(inst["agent_type"], b.graph.get("deliver", {}).get("path_tools", []))  # path: 役が自分で読む／paste: 本文を貼る
+        if role_def_missing:
+            inst["role_def_missing"] = role_def_missing
         if isolated:  # 道具ゼロ＝遮断系。Agent ツールでは CLAUDE.md を止められない
             inst["mode"] = "cli"
             inst["launch"] = launch_cli(b, inst, role_def)

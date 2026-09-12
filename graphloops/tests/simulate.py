@@ -693,39 +693,54 @@ def test_plugin_path_ambiguity():
 def test_unresolved_role():
     """役の定義（agents/<役>.md）が解決できない節は起こさない。以前は「定義なし」を「道具を持つ役」と同じ False に潰し、
     遮断系が黙って Agent ツール経路（mode=agent）に倒れて CLAUDE.md 注入の経路が戻っていた（実測 2026-09-12）。"""
-    print("否定検査: 役の定義が解決できなければ next は die（Agent 経路に黙って倒れない）")
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-norole-"))
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    (tmp / "graphs").mkdir()
-    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
-    g["nodes"]["p3.cold_reader"]["run_by"] = "no-such-role"  # 遮断系の節を、定義の無い役に
-    (tmp / "graphs" / "norole.json").write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
-    run = Run("norole")
-    d2 = run.tmp / "s2"
-    call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
-    call("init", "--loop", "research-loop", "--graph", str(tmp / "graphs" / "norole.json"), "--request", "q", "--document", str(run.doc), "--validator", str(VALIDATOR))
-    seen, modes = "", []
-    for _ in range(80):
-        nx = call("next")
-        seen += nx.stderr
-        if nx.returncode != 0 or not nx.stdout.strip():
-            break
-        out = json.loads(nx.stdout)
-        if not out["ready"]:
-            if out["status"] != "running":
+    print("否定検査: 役の定義が解決できなければ next は die（Agent 経路に黙って倒れない）——別 plugin の役は止めずに痕跡を残す")
+
+    def drive_graph(name, mutate, watch_node):
+        """graph を 1 か所変えて init し、台本で回す。watch_node の instance と stderr を返す。"""
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-{name}-"))
+        shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
+        shutil.copytree(PLUGIN / "rules", tmp / "rules")
+        (tmp / "graphs").mkdir()
+        g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+        mutate(g)
+        (tmp / "graphs" / "g.json").write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+        run = Run(name)
+        d2 = run.tmp / "s2"
+        call = lambda *a: subprocess.run([PY, str(LOOP), *a, "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8")
+        call("init", "--loop", "research-loop", "--graph", str(tmp / "graphs" / "g.json"), "--request", "q", "--document", str(run.doc), "--validator", str(VALIDATOR))
+        run.dir = d2  # 台本（base_answers）が読む盤面をこの run に向ける（Run() が作った盤面のままだと抜き取りの項目が食い違う）
+        seen, insts, st = "", [], None
+        for _ in range(80):
+            nx = call("next")
+            seen += nx.stderr
+            if nx.returncode != 0 or not nx.stdout.strip():
                 break
-            continue
-        answers = base_answers(run, "std")
-        for inst in out["ready"]:
-            if inst["node"] == "p3.cold_reader":
-                modes.append(inst["mode"])
-            o = answers[inst["node"]](inst["item"], out["round"])
-            f = run.tmp / "o.json"
-            f.write_text(json.dumps(o, ensure_ascii=False) if not isinstance(o, str) else o, encoding="utf-8")
-            call("done", "--node", inst["id"], "--output", str(f))
-    check("解決できない" in seen and not modes, f"定義の無い役の節で next が die し、その節は一度も出ない（modes={modes}: {seen[-160:]}）")
-    rm(tmp); rm(run.tmp)
+            out = json.loads(nx.stdout)
+            if not out["ready"]:
+                if out["status"] != "running":
+                    break
+                continue
+            answers = base_answers(run, "std")
+            for inst in out["ready"]:
+                if inst["node"] == watch_node:
+                    insts.append(inst)
+                o = answers[inst["node"]](inst["item"], out["round"])
+                f = run.tmp / "o.json"
+                f.write_text(json.dumps(o, ensure_ascii=False) if not isinstance(o, str) else o, encoding="utf-8")
+                call("done", "--node", inst["id"], "--output", str(f))
+        if (d2 / "state.json").is_file():
+            st = json.loads((d2 / "state.json").read_text(encoding="utf-8"))
+        rm(tmp); rm(run.tmp)
+        return seen, insts, st
+
+    # graph 自身の plugin の役（遮断系はここにしか居ない）: 定義が無ければ die
+    seen, insts, _ = drive_graph("norole", lambda g: g["nodes"]["p3.cold_reader"].__setitem__("run_by", "no-such-role"), "p3.cold_reader")
+    check("解決できない" in seen and not insts, f"定義の無い役の節で next が die し、その節は一度も出ない（modes={[i['mode'] for i in insts]}: {seen[-160:]}）")
+    # 別 plugin の役（pr-review-toolkit 等）はこの機械に無いことが普通にある（実測: CI）——止めず、痕跡を残して paste で出す
+    seen, insts, st = drive_graph("foreign", lambda g: g["nodes"]["p1.checker"].__setitem__("agent_type", "other-plugin:someone"), "p1.checker")
+    check("解決できない" not in seen and insts and all(i["mode"] == "agent" and i.get("deliver") == "paste" and i.get("role_def_missing") for i in insts),
+          f"別 plugin の役は定義が無くても止めず、mode=agent・paste・role_def_missing 付きで出る（{len(insts)} 件: {seen[-120:]}）")
+    check(bool(st) and any(x["agent_type"] == "other-plugin:someone" for x in st.get("role_def_missing", [])), "定義が無かった事実は state（→ process.role_def_missing）に残る")
 
 
 def test_parse_output():
