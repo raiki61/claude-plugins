@@ -30,6 +30,7 @@ PY = sys.executable
 
 fails = []
 ran = 0
+DELIVERY_SEEN = set()  # 渡し方の検査が実際に当たった節。腕が空振りしても件数が偶然同じなら件数の柵は見ない（実測）ので、名指しで見る
 
 
 def check(cond, desc):
@@ -196,6 +197,7 @@ def drive(run, scenario, max_steps=60, hook=None):
                 check("record.json" in ptxt and '"claims": [' not in ptxt, "統合の節には記録の本文でなく置き場と要約が渡る")
             if hook is None and node in ("p1.checker", "p3.cold_reader") and node not in seen_delivery:
                 seen_delivery.add(node)
+                DELIVERY_SEEN.add(node)
                 # 遮断系は cli で出るので mode も見る（以前は mode == "agent" と round == 1 を条件にしていて cold_reader の腕が空振りしていた）
                 want_mode, want = ("agent", "path") if node == "p1.checker" else ("cli", "paste")
                 check(inst["mode"] == want_mode and inst.get("deliver") == want, f"{node} は mode={want_mode}・渡し方 {want}（役の道具から決まる）")
@@ -782,6 +784,7 @@ def main():
     test_parse_output()
     test_plugin_path_ambiguity()
     test_unresolved_role()
+    check(DELIVERY_SEEN >= {"p1.checker", "p3.cold_reader"}, f"渡し方の検査は checker（agent/path）と cold_reader（cli/paste）の両方に実際に当たった（{sorted(DELIVERY_SEEN)}）")
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤
         print("  - 検査が 1 件も走っていない")
