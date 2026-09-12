@@ -15,11 +15,22 @@ import subprocess
 import sys
 import tempfile
 
+# Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 HERE = pathlib.Path(__file__).resolve().parent
 PLUGIN = HERE.parent
 LOOP = PLUGIN / "scripts" / "loop.py"
 VALIDATOR = PLUGIN.parent / "scripts" / "review-record.py"
 PY = sys.executable
+# 塊の上限は台本の側で小さく固定する。本番の既定（rules の FILE_CHUNK）は実測の縁（約 800 KB）に
+# 置いてあり、それで割りを踏ませるには数 MB の材料が要って台本が遅くなる。検査したいのは**割る処理**で
+# あって既定値ではないので、環境変数で下げて踏ませる（子プロセスに継がれる）。
+FILE_CHUNK = 40000
+os.environ["GRAPHLOOPS_FILE_CHUNK"] = str(FILE_CHUNK)
 fails, ran = [], 0
 
 
@@ -50,7 +61,7 @@ class Run:
         (self.repo / "src" / "a.py").write_text("def f(x, limit=None):\n    return x if limit is None else min(x, limit)\n", encoding="utf-8")
         (self.repo / "src" / "b.py").write_text("def g(y):\n    return y * 2\n", encoding="utf-8")
         if big:  # 1 ファイル・1 hunk で差分の塊の上限（FILE_CHUNK）を大きく超える（実走で 186 KB が 1 塊のまま返った形）
-            (self.repo / "src" / "big.py").write_text("".join(f"ROW_{i:05d} = {i}  # generated padding line for a long single hunk\n" for i in range(2500)), encoding="utf-8")
+            (self.repo / "src" / "big.py").write_text("".join(f"ROW_{i:05d} = {i}  # generated padding line for a long single hunk\n" for i in range(FILE_CHUNK // 60 * 4)), encoding="utf-8")
             # 日本語主体のファイルも足す——字数で割ると同じ字数がおよそ 3 倍のバイトになり、貼る先の上限を超える
             (self.repo / "docs.md").write_text("".join(f"- {i:05d} 行目。ここは日本語の説明で、字数とバイト数が一致しない入力を主経路に与えるためにある。\n" for i in range(900)), encoding="utf-8")
         g("add", "."); g("commit", "-q", "-m", "change under review")
@@ -476,10 +487,14 @@ def test_big_diff():
     check(all(len(i["item"].get("text", "")) <= 1000 for i in hyg) and all(i["item"].get("of") == len(hyg) for i in hyg), "next の出力と instance の item は長い本文を抱えない（1,000 字を超える text は items/ のファイルだけ）")
     check(all(i["item"]["files"] for i in hyg), "割った塊にも diff --git の見出しが付き、files が空にならない（役が場所を言える）")
     texts = [pathlib.Path(i["prompt_file"]).read_text(encoding="utf-8") for i in hyg]
-    check(max(len(t) for t in texts) < 40000 + 20000, f"各塊のプロンプトは上限＋雛形の範囲（最大 {max(len(t) for t in texts)} 字）")
+    check(max(len(t) for t in texts) < FILE_CHUNK + 20000, f"各塊のプロンプトは上限＋雛形の範囲（最大 {max(len(t) for t in texts)} 字）")
     # **バイトで見る**。字数で割ると日本語の塊が 2〜3 倍のバイトになり、貼る先（Agent の prompt）の上限を超える
     body = [len(t.split("返答はこの JSON Schema")[0].encode("utf-8")) for t in texts]
-    check(max(body) <= 40000 + 20000, f"各塊の本文はバイトでも上限の範囲（最大 {max(body)} バイト）")
+    check(max(body) <= FILE_CHUNK + 20000, f"各塊の本文はバイトでも上限の範囲（最大 {max(body)} バイト）")
+    # hunk の途中から始まる断片は `@@` を持たない——engine が元の hunk と開始位置を注記で添えること。
+    # 以前は添えておらず、注記だけが「何行目かを言えるように」と主張していた（コードが持たない性質）。
+    check(all(("@@ " in t) or ("engine が hunk を割った続き" in t) for t in texts),
+          "どの塊にも位置の手掛かりが在る（@@ か、hunk を割った続きの注記）")
     check(any("日本語" in t for t in texts), "日本語主体のファイルも塊に入っている（バイトと字数がずれる入力）")
     st_size = (run.dir / "state.json").stat().st_size
     check(st_size < 200000, f"state.json は差分を複製しない（{st_size} バイト）")

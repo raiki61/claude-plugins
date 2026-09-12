@@ -31,7 +31,7 @@
 **今どこが守っているか**: **機械**。`tests/run.sh` の agent 定義の検査が全 agent の `tools:` を読み、書く道具の不在（`WRITE_TOOLS`）・遮断系の `tools: []`・`model` の値を検査する。`general-purpose` の起動禁止、手順書へのモデル名の写し禁止、役名の付いていない起動の禁止、どの手順書からも使われない役（孤児）の検出も同じ検査群。
 `investigator` の書き換えだけは**散文＋機械の突合**——4 本とも「起動前後で `git status --porcelain` を突き合わせろ」と書き、doctor は記録の `mod_check` 欄を必須にし（`doctor-record.py` の `validate()`）、firstread は `git_status_match` が `True` でなければ阻害要因にする（`firstread-record.py` の `blockers()`）。review と research は**散文だけ**。review 0.31.1 は加えて、ゲートの赤の確認を「本物の作業ツリーを壊さず `mktemp -d` の写しの上で」と書く——作業ツリー突合は前後 2 点の比較なので、壊して戻すサイクルを原理的に検出できない（端点は必ず一致する）。
 
-**どう確かめるか**: 既存テストで足りる（agent の定義）。`investigator` の突合は review / research にも記録の欄として足せる。**道具で塞げるのは道具だけ**——ハーネスが注入する文脈は塞げない（→ T）。
+**どう確かめるか**: 既存テストで足りる（agent の定義）。`investigator` の突合は review / research にも記録の欄として足せる。**道具で塞げるのは道具だけ**——ハーネスが注入する文脈は塞げない（→ T）。**遮断は道具の不在だけでなく起こし方まで含めて初めて成立する**——Agent ツールで起こした時点で CLAUDE.md が入るので、道具ゼロの役は別プロセスで起こす（T の実測。graphloops は `mode: cli` で機械化した）。
 
 ## B. 回す側は採点しない
 
@@ -205,9 +205,17 @@
 
 **内容**: `tools: []` で塞げるのは道具の呼び出しであって、ハーネスが subagent の起動時に自動で入れるものは塞げない。firstread が実測で 3 つ挙げている——規約ファイル（`CLAUDE.md`）の自動読み込み、回す側のセッションを**始めた時点**のブランチ名・直近のコミット・未コミット変更（走行中の実態ではない。中立名に改名しても遅い）、読み役が自分で開ける `.git` 配下。8 人中 4 人が git の状態を踏み、2 人がブランチ名を検索語にして目的のファイルへ直行し、うち 1 人は申告しなかった。`gates` は別の解を採っている——読み役を別プロセス（`claude -p`）で立て、`--setting-sources ""` で利用者の規約ファイルを読ませない。
 
-**今どこが守っているか**: firstread は**散文**（塞げないと分かった上で報告に書け）。他 3 本の手順書には書かれていない——`fresh_context` は「前ラウンドを知らない」であって「文脈ゼロ」ではない。**未確認**: この Claude Code には会話をまたぐ記憶（memory）の機構があり、subagent にも注入されるかは確かめていない。注入されるなら、前の実行の記憶が「新しい目」に入る経路になる。
+**今どこが守っているか**: graphloops＝**機械**（engine が役の定義の `tools` が空なら `mode: cli` で出し、graph の `launch.isolated.argv`——`--tools "" --setting-sources ""` を含む——で別プロセスとして起こす。`graphcheck` は、道具ゼロの役を使う graph が `launch.isolated.argv` を宣言していなければ落とす）。firstread は**散文**（塞げないと分かった上で報告に書け）。legacy の 3 本の手順書には書かれていない——`fresh_context` は「前ラウンドを知らない」であって「文脈ゼロ」ではない。
 
-**どう確かめるか**: 新しいランタイムが subagent を別プロセスで立てるなら、設定の読み込み元を空にできる。同じプロセスの Agent で立てるなら塞げないので、firstread と同じく「塞げない一覧」を仕様に持ち、入口の所見は「測れなかった」と書く。
+**2026-09-12 に実測で確定した**（それまで「未確認」と書いていた所）:
+
+- **CLAUDE.md 階層は Agent ツールで起こした subagent に注入され、止める設定は無い**。公式ドキュメント（`code.claude.com/docs/en/sub-agents`）は「Explore and Plan are the **only** subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.」と書く。実測: 道具ゼロの `cold-reader` を Agent ツールで起こし「文脈に『並列セッション』が在るか」と聞いたら、利用者の `CLAUDE.md` の 1 項目を逐語で書き写して返した。
+- **会話をまたぐ自動記憶（auto memory）は注入されない**。注入されるのは `memory` フィールドを持つ subagent の `MEMORY.md`（先頭 200 行または 25KB）だけ。
+- **メインの system prompt も注入されない**（同ドキュメントが "not the Claude Code system prompt" と明記）。
+- **`--setting-sources ""` は CLAUDE.md ごと外す**。CLAUDE.md は settings.json と同じ setting source（`project` / `user` / `local`）の**中身そのもの**だから（`agent-sdk/claude-code-features` の表）。対照実験: フラグ無しではプロジェクトと利用者の両方の目印が見え、付けると両方消えた。
+- **外せない残り**: 組織管理（managed policy）の CLAUDE.md。よって「完全な遮断」とは名乗らない。
+
+**どう確かめるか**: 目印を書いた `CLAUDE.md` を置いた空ディレクトリを cwd にして役を起こし、「その目印が文脈に在るか」を答えさせる。**対照（フラグ無し）を必ず同時に走らせろ**——目印が見えない結果は、遮断が効いた場合と検査が空振りした場合の両方で出る。
 
 ## U. 実行者は検査を最小化する最適化者——検査される側に検査水準を決めさせない
 

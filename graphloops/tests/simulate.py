@@ -15,6 +15,12 @@ import subprocess
 import sys
 import tempfile
 
+# Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 HERE = pathlib.Path(__file__).resolve().parent
 PLUGIN = HERE.parent
 LOOP = PLUGIN / "scripts" / "loop.py"
@@ -367,6 +373,7 @@ def test_graphcheck():
     broken(lambda b: b.pop("runners"), "runners", "runners の無い graph は落ちる")
     broken(lambda b: b.__setitem__("agent_prefix", "x"), "agent_prefix", "廃止した agent_prefix を持つ graph は落ちる")
     broken(lambda b: b.__setitem__("plugin", "no-such-plugin"), "役割 agent の定義", "役の定義が見つからない plugin を指す graph は落ちる")
+    broken(lambda b: b.pop("launch"), "launch.isolated.argv", "道具ゼロの役を使うのに起こし方を宣言しない graph は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"].__setitem__("run_by", "nobody"), "run_by", "回す側でも役でもない run_by は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（欄の名前だけ）")
     # 段名の正本は thickness.tiers——キーの集合から導かない
@@ -533,6 +540,98 @@ def test_gate_arms():
     shutil.rmtree(run.tmp)
 
 
+def test_isolated_launch():
+    """道具ゼロの役は Agent ツールで起こさず、別プロセスの CLI で起こすこと。
+
+    ハーネスは subagent に CLAUDE.md 階層を注入し、止める設定が公式に無い（実測 2026-09-12: 道具ゼロの
+    cold-reader が利用者の CLAUDE.md を逐語で引用した）。setting source ごと外せるのは CLI だけなので、
+    「道具の不在で遮断する」は起こし方まで含めて初めて成立する。
+    """
+    print("否定検査: 道具ゼロの役は cli で起こす（Agent ツールでは CLAUDE.md を止められない）")
+    seen = {}
+
+    def watch(run, inst, out):
+        seen.setdefault(inst["mode"], []).append(inst)
+        return out
+
+    run = Run("isolated")
+    drive(run, "std", hook=watch)
+    cli, ag = seen.get("cli", []), seen.get("agent", [])
+    check(bool(cli), f"道具ゼロの役が cli で出る（{sorted({i['node'] for i in cli})}）")
+    check(bool(ag), f"道具を持つ役は agent のまま（{sorted({i['node'] for i in ag})}）")
+    L = cli[0].get("launch") if cli else {}
+    argv = L.get("argv") or []
+
+    def after(flag):
+        return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
+
+    check(L.get("stdin") == cli[0]["prompt_file"] if cli else False, "材料は stdin で渡す（貼る上限に当たらない）")
+    check(after("--setting-sources") == "", '起動に --setting-sources "" が入る（CLAUDE.md ごと外す）')
+    check(after("--tools") == "", '起動に --tools "" が入る（道具ゼロを CLI 側でも守る）')
+    role = after("--append-system-prompt-file")
+    check(bool(role) and pathlib.Path(role).is_file() and pathlib.Path(role).read_text(encoding="utf-8").strip(),
+          "役の定義の本文が盤面に書き出され、system prompt として渡る")
+    shutil.rmtree(run.tmp)
+
+
+def test_isolated_not_truncated():
+    """遮断系へ渡す本文は切らない——貼る先の上限は Agent ツールのプロンプトの性質で、標準入力には無い。
+
+    実測 2026-09-12: 748,883 バイトが先頭・末尾とも欠けずに CLI を通った。渡し方を変えたのに切り続けると、
+    見せられる物を捨てることになる（この run で R2 が『全体の 5.7% しか見ていない』と判定を拒否した）。
+    """
+    print("否定検査: 遮断系に渡す本文は切られない")
+    run = Run("nocap")
+    head, tail = "［先頭の目印 HEAD-NOCAP］", "［末尾の目印 TAIL-NOCAP］"
+    big = f"# 見立て\n\n{head}\n" + ("主張 A・B・C・D を含む長い見立て。" * 8000) + f"\n{tail}\n"
+    run.doc.write_text(big, encoding="utf-8")
+    check(len(big.encode("utf-8")) > 200_000, f"材料が旧上限 40,000 バイトを大きく超える（{len(big.encode('utf-8'))} バイト）")
+    seen = []
+
+    def watch(run, inst, out):
+        if inst["mode"] == "cli":
+            seen.append((inst["node"], pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")))
+        return out
+
+    drive(run, "std", hook=watch)
+    # 材料を渡された節だけを見る——先頭の目印で絞る。「見立て」のような本文中の語で絞ると、
+    # 文書を受け取らない節（問いの文に同じ語が在る p3.rederiver）まで拾って検査が嘘をつく。
+    withdoc = [(n, p) for n, p in seen if head in p]
+    check(bool(withdoc), f"材料を渡される遮断系の節が在る（{sorted({n for n, _ in withdoc})}）")
+    check(all(tail in p for _, p in withdoc),
+          f"遮断系のプロンプトに材料の末尾が残る＝切られていない（欠けた節: {[n for n, p in withdoc if tail not in p]}）")
+    shutil.rmtree(run.tmp)
+
+
+def test_concurrent_save():
+    """1 つの盤面に 2 人が付いたとき、後から書く側が先の完了を消さないこと。
+
+    ここだけ subprocess でなく engine を直に呼ぶ。競合は「A が読む → B が書く → A が書く」の順でしか
+    起きず、別プロセス越しにこの順を決定的に作れない（時刻に頼ると CI で揺れる）。B の側は本物の
+    engine コマンドにする——手で rev を書き足すと「engine が rev を上げていない」を見逃す。
+    """
+    print("否定検査: 1 つの盤面に 2 人が付くと、後から書く側が落ちる")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.board import Board
+
+    run = Run("concurrent")
+    a = Board(run.dir)  # A が読む（まだ書かない）
+    r = run.cmd("thicken", "--to", "重厚", "--reason", "別プロセスが盤面を進める")
+    check(r.returncode == 0, f"B（別プロセス）の書き込みは通る（rc={r.returncode}）")
+    before = (run.dir / "state.json").read_text(encoding="utf-8")
+    a.state["書かれてはいけない欄"] = True
+    code = None
+    try:
+        a.save()
+    except SystemExit as e:
+        code = e.code
+    check(code == 2, f"A の save は die（exit 2 を期待、実際 {code}）")
+    check((run.dir / "state.json").read_text(encoding="utf-8") == before,
+          "落ちた save は盤面を 1 バイトも変えていない（後勝ちで上書きしない）")
+    b = Board(run.dir)
+    check("書かれてはいけない欄" not in b.state, "A が握っていた古い state は書き戻されていない")
+
+
 def main():
     os.environ.pop("CONVERGENCE_LOOPS_ROOT", None)
     test_graphcheck()
@@ -546,6 +645,9 @@ def main():
     test_light()
     test_resolve_dir()
     test_gate_arms()
+    test_isolated_launch()
+    test_isolated_not_truncated()
+    test_concurrent_save()
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤
         print("  - 検査が 1 件も走っていない")

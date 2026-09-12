@@ -23,14 +23,17 @@ class ReadsViolation(Exception):
     """reads に宣言されていない穴。KeyError（穴が無い）と別の型——optional の空埋めに握り潰させない。"""
 
 
-def cap_bytes(text, label, truncated):
-    """FILE_CAP を UTF-8 のバイトで測って切る。切ったら truncated に残す（貼る先の上限がバイトだから）。"""
-    raw = text.encode("utf-8")
-    if len(raw) <= FILE_CAP:
+def cap_bytes(text, label, truncated, cap=FILE_CAP):
+    """上限を UTF-8 のバイトで測って切る。切ったら truncated に残す（貼る先の上限がバイトだから）。
+    cap=None は切らない——標準入力で流す節には貼る先の上限が無い。"""
+    if cap is None:
         return text
-    cut = raw[:FILE_CAP].decode("utf-8", "ignore")
-    truncated.append(f"{label}: {len(raw)} バイトを {FILE_CAP} バイトで切った")
-    return cut + f"\n\n［engine が {FILE_CAP} バイトで切った。全文は {len(raw)} バイト］"
+    raw = text.encode("utf-8")
+    if len(raw) <= cap:
+        return text
+    cut = raw[:cap].decode("utf-8", "ignore")
+    truncated.append(f"{label}: {len(raw)} バイトを {cap} バイトで切った")
+    return cut + f"\n\n［engine が {cap} バイトで切った。全文は {len(raw)} バイト］"
 
 
 def strip_prefix(path):
@@ -127,10 +130,14 @@ def digest(val):
 
 
 class Renderer:
-    def __init__(self, ctx, reads=None, ref=None):
+    def __init__(self, ctx, reads=None, ref=None, cap=FILE_CAP):
         self.ctx = ctx
         self.reads = reads  # None = 制限なし。list = 宣言された穴だけ埋める（遮断の機械版）
         self.ref = ref      # ref:<path> の解決（盤面が持つ。[(見出し, ファイル, 値)] を返す）
+        # cap=None = 切らない。上限は「Agent ツールのプロンプトに貼る」経路にだけ在るもので、
+        # 別プロセスの CLI に標準入力で流す節には無い（実測 2026-09-12: 748,883 バイトが
+        # 先頭・末尾とも欠けずに通った）。渡し方が変わったのに切り続けると、見せられる物を捨てる。
+        self.cap = cap
         self.truncated = []
 
     def allowed(self, path):
@@ -163,7 +170,10 @@ class Renderer:
                 pass
             if not isinstance(target, str) or not target:
                 raise KeyError(path)
-            return section_of(pathlib.Path(target).read_text(encoding="utf-8"), heading.strip(), path)
+            # file: と同じ上限に揃える。section: だけ素通りしていたとき、見出し 1 節が上限を超えると
+            # engine は切らず**貼る先が黙って切る**ので、記録の truncated にも残らなかった。
+            sec = section_of(pathlib.Path(target).read_text(encoding="utf-8"), heading.strip(), path)
+            return cap_bytes(sec, path, self.truncated, self.cap)
         if path.startswith("file:"):
             target = path[5:].strip()
             try:
@@ -173,7 +183,7 @@ class Renderer:
             if not isinstance(target, str) or not target:
                 raise KeyError(path)
             text = pathlib.Path(target).read_text(encoding="utf-8")
-            return cap_bytes(text, target, self.truncated)
+            return cap_bytes(text, target, self.truncated, self.cap)
         return get_path(self.ctx, path)
 
     def render(self, template):

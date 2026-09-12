@@ -28,6 +28,7 @@ class Board:
     def __init__(self, d):
         self.dir = pathlib.Path(d)
         self.state = read_json(self.dir / "state.json")
+        self.seen_rev = self.state.get("rev", 0)  # 読んだ時点の版。save がこれと突き合わせる
         self.record = read_json(self.dir / "record.json")
         self.graph = read_json(self.state["graph"])
         self.nodes = self.graph["nodes"]
@@ -35,8 +36,26 @@ class Board:
 
     # -- 保存と痕跡
     def save(self):
-        write_json(self.dir / "state.json", self.state)
+        """**読んでから書くまでに別のプロセスが盤面を進めていたら、上書きせず落とす。**
+
+        state も record も丸ごと読んで丸ごと書き戻すので、2 つの回す側が同じ run に付くと後勝ちで
+        先の完了が消える。実測: 3 本の done を同時に呼んだところ 3 本とも exit 0・「受け付けた」を
+        返しながら、1 本ぶんの instance が pending のまま・記録への書き込みも state.outputs の項目も
+        残らなかった。手順書は「ready の全部を同時に始めてよい」と書いていて done を直列にしろとは
+        書いていないので、塞ぐのは呼ぶ側の作法ではなくここ。
+
+        record を先に書くのは、版の繰り上げを commit の印にするため——先に state を書くと、記録の
+        書き込みが落ちた run を次のプロセスが「進んだ」と読む。
+        """
+        cur = read_json(self.dir / "state.json").get("rev", 0)
+        if cur != self.seen_rev:
+            die(f"盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
+                "同じ run を回している。この呼び出しは何も書いていない。1 つの盤面に 2 人で付くな"
+                "（続けるなら next からやり直せ）")
+        self.seen_rev += 1
+        self.state["rev"] = self.seen_rev
         write_json(self.dir / "record.json", self.record)
+        write_json(self.dir / "state.json", self.state)
 
     def run_validator(self, target=None):
         """検証器を回す（rules からも呼ぶ。INJECT の道具と同じ公開面に揃える——無名関数を属性に束ねない）。"""

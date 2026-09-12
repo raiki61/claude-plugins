@@ -9,6 +9,28 @@
    "Read"
   ]
  },
+ "launch": {
+  "isolated": {
+   "argv": [
+    "claude",
+    "-p",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--no-session-persistence",
+    "--output-format",
+    "text"
+   ],
+   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層を注入し、止める設定が公式に存在しない（Explore と Plan だけが除外され、per-agent の設定は無い）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（実測: 748,883 バイトが先頭・末尾とも欠けずに通った）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。"
+  }
+ },
  "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
  "record": {
   "file": "<置き場>/rounds/round-<N>.json（engine の rules が周ごとに組む。回す側は直接編集しない。convergence-loops の .claude/review-rounds/ と同じ形）",

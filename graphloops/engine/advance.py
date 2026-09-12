@@ -1,13 +1,45 @@
 """進行——機械の節を走らせ、扇を広げ、回す側に渡す節（instance）を発行する。"""
 import pathlib
+import shutil
 
-from .render import Renderer
+from .render import FILE_CAP, Renderer
 from .rules import hook, registry
 from .util import die, dump, now, porcelain, read_json, safe_name, sha, write_json
-from .validator import finalize, run_validator, deliver_mode
+from .validator import agent_def, finalize, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（文字）。超える欄は items/ のファイルにだけ置く
+
+
+def launch_cli(b, inst, d):
+    """道具ゼロの役は Agent ツールで起こさない——別プロセスの CLI で起こす。
+
+    ハーネスは subagent に CLAUDE.md 階層を注入し、**それを止める設定が無い**（公式ドキュメント:
+    Explore と Plan だけが除外され、per-agent の設定は存在しない）。実測 2026-09-12: 道具ゼロの
+    cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した——つまり「道具の不在で遮断する」は
+    Agent ツール経由では成立していない。setting source ごと外せるのは CLI だけ（同日の対照実験:
+    フラグ無しでは目印が見え、--setting-sources "" を付けると消えた）。
+
+    起動の語（コマンド名・フラグ）は graph が宣言する——engine はハーネスの語彙を持たない。
+    """
+    spec = b.graph.get("launch", {}).get("isolated")
+    if not spec:
+        die(f"{inst['id']}: 道具ゼロの役 '{inst['agent_type']}' を起こすのに graph の launch.isolated が無い"
+            "（Agent ツールで起こすと CLAUDE.md が注入され、遮断が名ばかりになる）")
+    role = b.dir / "roles" / (safe_name(inst["agent_type"]) + ".txt")
+    role.parent.mkdir(parents=True, exist_ok=True)
+    role.write_text(d["body"], encoding="utf-8")
+    sub = {"model": d.get("model") or "", "effort": d.get("effort") or "",
+           "role_file": str(role), "prompt_file": inst["prompt_file"], "out_path": inst["out_path"]}
+    for k, v in sub.items():
+        if not v and any("{" + k + "}" in a for a in spec["argv"]):
+            die(f"{inst['id']}: 起動に要る '{k}' が役の定義（{d['file']}）に無い")
+    argv = [a.format(**sub) for a in spec["argv"]]
+    # 起こせないことを、起こした後の空返答でなく**ここ**で言う。graph は PATH の通った名前を書くので、
+    # 環境によっては解決できない（実測: この手元では /Users/…/.local/bin/claude に在り PATH は通っていた）。
+    if not shutil.which(argv[0]):
+        die(f"{inst['id']}: 遮断系を起こす '{argv[0]}' が PATH に無い（graph の launch.isolated.argv）")
+    return {"argv": argv, "stdin": inst["prompt_file"]}
 
 
 def slim_item(item):
@@ -64,7 +96,11 @@ def emit_instance(b, nid, item=None, suffix=""):
             die(f"{nid}: 記録が検証器を通らない（exit {v['exit']}）。engine か rules か節の出力の欠陥——record.json と trace.jsonl を見て直す（手当ては loop.py patch）:\n{v['out']}", 1)
         ctx["validation"] = v
         ctx["raw"] = raw_outputs(b, b.graph.get("raw_for_report", []))
-    r = Renderer(ctx, n.get("reads"), ref=b.ref)
+    # 道具ゼロの役は別プロセスの CLI へ標準入力で流すので、貼る先の上限が無い＝切らない（cap=None）。
+    # 上限は「Agent ツールのプロンプトに貼る」経路の性質で、engine の都合でもモデルの都合でもない。
+    role_def = None if b.is_runner(n) else agent_def(agent_type_of(b, n))
+    isolated = role_def is not None and role_def["tools"] == []
+    r = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None if isolated else FILE_CAP)
     try:
         prompt = r.render(tpl)
     except KeyError as e:
@@ -96,6 +132,9 @@ def emit_instance(b, nid, item=None, suffix=""):
         inst["skills"] = n["skills"]
     if not runner:
         inst["deliver"] = deliver_mode(inst["agent_type"], b.graph.get("deliver", {}).get("path_tools", []))  # path: 役が自分で読む／paste: 本文を貼る
+        if isolated:  # 道具ゼロ＝遮断系。Agent ツールでは CLAUDE.md を止められない
+            inst["mode"] = "cli"
+            inst["launch"] = launch_cli(b, inst, role_def)
     # 同じ agent を続ける節: 前の節の instance が返した agent の id を渡す（無ければ新しい context になる旨を残す）
     same = n.get("same_context_as")
     if same:

@@ -9,6 +9,28 @@
    "Read"
   ]
  },
+ "launch": {
+  "isolated": {
+   "argv": [
+    "claude",
+    "-p",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--no-session-persistence",
+    "--output-format",
+    "text"
+   ],
+   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層を注入し、止める設定が公式に存在しない（Explore と Plan だけが除外され、per-agent の設定は無い）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（実測: 748,883 バイトが先頭・末尾とも欠けずに通った）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。"
+  }
+ },
  "exec": true,
  "basis": "convergence-loops の commands/research-loop.md と scripts/research-record.py（同じリポジトリ。版は .claude-plugin/plugin.json が正本で、ここに写さない）を、節（工程）＋依存＋周回条件のグラフに写し、各節に実行用の欄（prompt_file・schema・writes・fan_out・cond・reads）を足したもの。役の道具は agents/<役>.md が正本。記録の欄と語彙の正本は research-record.py",
  "overview": "見立て文書の『外部に照合できる主張』を棚卸しし（P0）、一次情報で判定させ（P1: checker→相違と荷重確証だけ refuter）、訂正を統合し（P2）、新規の相違がゼロの周にだけ独立の目のゲート（P3: rederiver・cold-reader・重厚なら cartographer）を回し、連続 2 周ゼロ＋ゲート全 pass で収束（P4）、最後に自ドメインへ適応して 3 分類の決定を出す（P5）。回す側（surveyor）は棚卸し・統合・適応の判断作業だけをし、判定は一切しない。判定・件数・連続カウント・上限・止める条件は駆動器が持つ",

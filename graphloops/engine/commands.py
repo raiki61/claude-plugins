@@ -31,7 +31,10 @@ def cmd_next(a):
     print(dump({
         "status": b.state["status"], "round": b.round, "thickness": b.state["thickness"], "dir": str(b.dir), "notes": notes,
         "ready": [{k: v for k, v in i.items() if k != "tree_before"} for i in ready],
-        "how": ("ready の全部を同時に始めてよい（同じ波）。agent は subagent_type に agent_type を渡す。"
+        "how": ("ready の全部を同時に始めてよい（同じ波）。"
+                "cli は launch.argv をそのまま実行し、標準入力に launch.stdin のファイルを流して、標準出力を out_path に保存する"
+                "（道具ゼロの遮断系。Agent ツールで起こすと CLAUDE.md が注入され、止める設定が無い）。"
+                "agent は subagent_type に agent_type を渡す。"
                 "起動は運び手（小さな汎用 agent）に任せてよい: 運び手は deliver=path なら『<prompt_file> を読み、その指示にそのまま従え』の 1 文で、"
                 "deliver=paste なら prompt_file の本文をそのまま貼って役を起動し、返答を一字も変えず out_path に書き、あなたには『wrote』だけ返す。"
                 "自分で起動するなら同じ渡し方で、返答を out_path に保存する。"

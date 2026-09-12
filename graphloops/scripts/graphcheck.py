@@ -37,6 +37,12 @@ import re
 import sys
 from contextlib import redirect_stderr
 
+# Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
 HERE = pathlib.Path(__file__).resolve().parent
 PLUGIN_ROOT = HERE.parent
 
@@ -48,7 +54,7 @@ from engine.advance import ENGINE_PRE  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
 from engine.rules import load_rules as engine_load_rules  # noqa: E402
-from engine.validator import find_plugin_path  # noqa: E402
+from engine.validator import agent_tools, find_plugin_path  # noqa: E402
 
 
 def load_rules(gpath, g):
@@ -280,6 +286,13 @@ def main():
     dl = g.get("deliver", {}).get("path_tools")
     if dl is not None and not (isinstance(dl, list) and all(isinstance(t, str) for t in dl)):
         errs.append("deliver.path_tools は道具の名前の一覧")
+    # 道具ゼロの役（遮断系）を使うなら、起こし方の宣言が要る。Agent ツールで起こすとハーネスが
+    # CLAUDE.md 階層を注入し、止める設定が公式に無い——遮断が名ばかりになる（実測 2026-09-12）。
+    isolated = sorted(r for r in agents if agent_tools(f"{g.get('plugin')}:{r}") == [])
+    used = {v.get("run_by") for v in nodes.values()} | {v.get("agent_type", "").rpartition(":")[2] for v in nodes.values()}
+    if isolated and (used & set(isolated)) and not (g.get("launch", {}).get("isolated", {}).get("argv")):
+        errs.append(f"道具ゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
+                    "——Agent ツールで起こすと CLAUDE.md が注入され、遮断が成立しない")
     rules = load_rules(gpath, g)
     if isinstance(rules, str):
         errs.append(rules)

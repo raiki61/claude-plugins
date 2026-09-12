@@ -68,21 +68,39 @@ def find_validator(loop, plugin, explicit=None):
     return find_plugin_path(f"scripts/{loop}-record.py", plugin, explicit=explicit)
 
 
-def agent_tools(agent_type):
-    """役割 agent の定義（<plugin>:<役> の agents/<役>.md の frontmatter）から持てる道具を読む。
-    None = 定義が見つからない（接頭の無い組み込み agent を含む）。tools の行が無い定義は全部を継承する（[] は道具なし）。"""
+def agent_def(agent_type):
+    """役割 agent の定義（<plugin>:<役> の agents/<役>.md）を読む——道具・モデル・effort と本文（役の指示）。
+
+    None = 定義が見つからない（接頭の無い組み込み agent を含む）。tools の行が無い定義は全部を継承する（[] は道具なし）。
+    本文が要るのは、道具ゼロの役を別プロセスの CLI で起こすときに system prompt として渡すため（launch_cli）。
+    """
     plugin, _, role = agent_type.rpartition(":")
     if not plugin:
         return None
     f = find_plugin_path(f"agents/{role}.md", plugin)
     if not f:
         return None
-    head = pathlib.Path(f).read_text(encoding="utf-8").split("---")
-    fm = head[1] if len(head) > 2 else ""
-    m = re.search(r"^tools:\s*(.*)$", fm, re.M)
-    if not m:
-        return ["*"]
-    return [t.strip() for t in m.group(1).strip("[] ").split(",") if t.strip()]
+    parts = pathlib.Path(f).read_text(encoding="utf-8").split("---")
+    fm = parts[1] if len(parts) > 2 else ""
+    body = "---".join(parts[2:]).strip() if len(parts) > 2 else ""
+
+    def field(name):
+        m = re.search(rf"^{name}:\s*(.*)$", fm, re.M)
+        return m.group(1).strip() if m else None
+
+    tools = field("tools")
+    return {
+        "file": str(f),
+        "tools": ["*"] if tools is None else [t.strip() for t in tools.strip("[] ").split(",") if t.strip()],
+        "model": field("model"),
+        "effort": field("effort"),
+        "body": body,
+    }
+
+
+def agent_tools(agent_type):
+    d = agent_def(agent_type)
+    return None if d is None else d["tools"]
 
 
 def deliver_mode(agent_type, path_tools):

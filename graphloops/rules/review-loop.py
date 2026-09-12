@@ -6,14 +6,23 @@
 engine が差し込む道具は engine/rules.py の INJECT が正本（ここに写さない）。
 """
 import importlib.util
+import os
 import pathlib
 import re
 
-# 道具なしの役に貼る差分を割る単位。**バイトで測る**——字数で測ると日本語主体の差分が同じ字数で約 2 倍の
-# バイトになり、貼る先の上限を超える（実走 2026-09-12: 40,000 字の塊が 80,008 バイトになり、貼れずに
-# 回す側が 29 片へ割り直した。85 KB・68 KB は途中で切れ 51 KB は通った＝実測の上限は約 50 KB）。
-# 既定は engine/render.py の FILE_CAP と同じ値に揃える（同じ「貼る先の上限」を測るものだから）。
-FILE_CHUNK = 40000
+# 遮断系の役に渡す差分を割る単位。**バイトで測る**——字数で測ると日本語主体の差分が同じ字数で約 2 倍の
+# バイトになる。
+#
+# **もう「貼る先の上限」ではない。** 遮断系は別プロセスの CLI へ標準入力で流すので、貼る上限（実測
+# 約 50 KB）に当たらない。よって割るのは日常の機構ではなく、**溢れたときの受け皿**である。
+#
+# 値は実測の縁に置く: 2026-09-12 に 748,883 バイトを 1 回で流し、先頭と末尾の目印が両方返った
+# ＝そこまでは欠けずに届く。その先は測っていないので割る。**attention の推測で決めない**——
+# 「長い文脈は中間が使われにくい」（lost in the middle, Liu et al. arXiv:2307.03172）は 2023 年の
+# モデルでの測定で、緩和されている可能性が原論文の射程の外にある。測っていない現象を上限の根拠に
+# すると、モデルが良くなっても値が下がったまま残り、見せられる物を捨て続ける。
+# 上げるときは同じ形で測り直せ（材料の先頭と末尾に目印を置いて 1 回で流し、両方返るか見る）。
+FILE_CHUNK = int(os.environ.get("GRAPHLOOPS_FILE_CHUNK") or 800_000)
 
 
 # ---------------------------------------------------------------- 検証器を正本として読む
@@ -105,8 +114,22 @@ def _b(s):
     return len(s.encode("utf-8"))
 
 
+def _cont(hunk_header, nth):
+    """hunk の途中から始まる断片に付ける道しるべ。
+
+    `@@` を数え直して付けるのでなく注記にするのは、作り直した hunk 見出しは役にも道具にも
+    「正しい差分」に見えてしまい、ずれた行番号を根拠に指摘が書かれるから。
+    """
+    return f"［engine が hunk を割った続き。元の hunk は {hunk_header}、この断片はその {nth} 行目から］\n"
+
+
 def _split_file(f):
-    """1 ファイルの diff が FILE_CHUNK を超えるとき、hunk の境目で割る。hunk 1 つが超えるなら行で割る（境目の無い塊を作らない）。"""
+    """1 ファイルの diff が FILE_CHUNK を超えるとき、hunk の境目で割る。hunk 1 つが超えるなら行で割る。
+
+    行で割った 2 片目以降は `@@` の行を持たない——ファイル見出しを付け直しても**何行目かは言えない**ので、
+    元の hunk 見出しと開始位置を注記で添える。以前はこれが無く、下の注記だけが「何行目かを言えるように」と
+    書いていた（コードが持たない性質を注記が主張していた）。
+    """
     if _b(f) <= FILE_CHUNK:
         return [f]
     header, *hunks = re.split(r"(?m)^(?=@@ )", f)  # 先頭は diff --git / --- / +++ の見出し
@@ -117,14 +140,16 @@ def _split_file(f):
             if cur:
                 out.append(cur)
                 cur = ""
-            piece = ""
-            for ln in h.splitlines(keepends=True):
+            lines = h.splitlines(keepends=True)
+            hh = lines[0].rstrip("\n") if lines else ""
+            piece, start = "", 0
+            for i, ln in enumerate(lines):
                 if piece and _b(piece) + _b(ln) > limit:
-                    out.append(piece)
-                    piece = ""
+                    out.append(piece if start == 0 else _cont(hh, start + 1) + piece)
+                    piece, start = "", i
                 piece += ln
             if piece:
-                out.append(piece)
+                out.append(piece if start == 0 else _cont(hh, start + 1) + piece)
             continue
         if cur and _b(cur) + _b(h) > limit:
             out.append(cur)
@@ -132,7 +157,8 @@ def _split_file(f):
         cur += h
     if cur:
         out.append(cur)
-    # 各塊に見出しを付け直す——塊だけを渡された役が、どのファイルの何行目かを言えるように（files の抽出もこの見出しから）
+    # 各塊にファイル見出しを付け直す——塊だけを渡された役がどのファイルかを言えるように（files の抽出もここから）。
+    # 何行目かは hunk 見出しが持ち、hunk の途中から始まる断片には _cont の注記がそれを補う。
     return [header + p for p in out]
 
 

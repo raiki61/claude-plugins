@@ -35,7 +35,8 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" next --dir <DIR>
    ```
 
-   `ready` の各要素は 1 つの節で、`mode` が 3 種類ある:
+   `ready` の各要素は 1 つの節で、`mode` が 4 種類ある:
+   - **cli** —— 道具ゼロの遮断系（`cold-reader` / `blind-judge`）。`launch.argv` を**そのまま**実行し、標準入力に `launch.stdin` のファイルを流して、標準出力を `out_path` に保存する（例: `"${launch.argv[@]}" < <launch.stdin> > <out_path>`）。**Agent ツールで起こすな**——ハーネスが subagent に CLAUDE.md 階層を注入し、それを止める設定が公式に存在しない（除外されるのは組み込みの Explore と Plan だけで、per-agent の設定は無い）。実測 2026-09-12: 道具ゼロの `cold-reader` が利用者の CLAUDE.md の 1 項目を逐語で引用した。`--setting-sources ""` は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は貼らず標準入力で渡るので、貼る上限に当たらない（実測: 748,883 バイトが先頭・末尾とも欠けずに通った）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。
    - **agent** —— `subagent_type` に `agent_type` を渡して起動する。**起動は運び手に任せろ**——小さな汎用 agent（最小のモデルでよい）を「運び手: `<prompt_file>` を `deliver` の渡し方で `<agent_type>` に渡し、返答を一字も変えず `<out_path>` に書け。あなたには wrote とだけ返せ」の 1 文で立てる。役の返答はあなたの文脈を通らず、`done --node <id>` は `--output` 無しで置き場を読む。貼るのがあなたでも運び手でも写しの忠実さは同じで、違うのはあなたの文脈が減ることだけ。`deliver` が `path` なら運び手は「`<prompt_file>` を Read し、その指示にそのまま従え。返答は指示どおりの JSON だけ」の 1 文で役を起動し、`paste` なら本文をそのまま貼る（貼り切れない大きさなら `diff --git` などの境目で割って複数回起動し、返答を 1 つに畳んで割り方を seen に書かせる）。 どちらも**本文に足すな・削るな・言い換えるな**（貼ってよいものは engine がグラフの宣言に従って埋めてある。足した一言が遮断を壊す）。**`done` に `--agent-id <その agent の id>` を添えろ**——判定（`p2.diagnose`）と履歴の突合（`p2.history`）は同じ judge が続けるので、id が無いと新しい会話になる（engine が記録に残す）。
    - **agent_continue** —— `agent_id` の agent に SendMessage で続ける（渡し方は `deliver` のとおり）。
    - **runner** —— あなたの仕事。`prompt_file` の指示に従って自分でやり、返答の JSON（`report` と `report.human_items` は本文そのもの）を `out_path` に保存する。skill を回す節（局所レビュー）は、skill の本文をあなたが読まずに済むよう、汎用 agent に skill ごと任せて結果だけ `out_path` に書かせてよい。`skills` があればその skill を呼ぶ（局所レビュー）。記録や役の返答は本文でなく置き場のパスと 1 行の要約で渡される——要る所だけ Read で読む。
