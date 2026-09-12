@@ -11,7 +11,8 @@ status --porcelain・for-each-ref）で見る。
 HEAD で描く）。数行なのでレビューで読む。run.sh は --help に --switch が出ることだけ固定する。
 status-none（git status が読めない）は git を決定的に失敗させる方法が無いので、純関数 tree_blocker で見る。
 
-Windows では作業場を消せないことがあるので ignore_cleanup_errors=True。cwd は変えず、path を渡す
+Windows では作業場を消せないことがあるので、片づけは自分で持って握り潰す（`TemporaryDirectory` の
+`ignore_cleanup_errors` は 3.10 からで、配布が名乗る下限は 3.9）。cwd は変えず、path を渡す
 （chdir を忘れた検査が run.sh からこのリポジトリ本体に git switch を打つのを防ぐ）。"""
 
 import importlib.util
@@ -669,12 +670,15 @@ def _behind(tmp):
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: catchup-switch-case.py <" + "|".join(CASES) + ">")
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+    tmp = tempfile.mkdtemp()
+    try:
         # 開発者の global / system の git 設定（core.hooksPath・status.showUntrackedFiles・commit.gpgsign）を
         # 読ませない。検査側の git も機械側（changemap.run は環境を継ぐ）も同じ空の設定で動く
         os.environ["GIT_CONFIG_GLOBAL"] = write(tmp, "gitconfig", "")
         os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
         print(CASES[sys.argv[1]](tmp))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     return 0
 
 

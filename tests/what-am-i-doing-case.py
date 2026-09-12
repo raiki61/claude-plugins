@@ -10,6 +10,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
 
@@ -357,13 +358,16 @@ def main():
     if len(sys.argv) != 2 or sys.argv[1] not in CASES:
         sys.exit("使い方: what-am-i-doing-case.py <" + "|".join(CASES) + ">")
     # ケースは作業場へ chdir する。戻さずに片づけると、Windows は使用中の
-    # ディレクトリを消せず PermissionError で落ちる（windows-latest で実測）
+    # ディレクトリを消せず PermissionError で落ちる（windows-latest で実測）。
+    # 片づけを自分で持つのは `TemporaryDirectory(ignore_cleanup_errors=)` が 3.10 からで、
+    # 配布が名乗る下限は 3.9 だから（README の「必須」の行）。
     origin = os.getcwd()
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        try:
-            print(CASES[sys.argv[1]](tmp))
-        finally:
-            os.chdir(origin)
+    tmp = tempfile.mkdtemp()
+    try:
+        print(CASES[sys.argv[1]](tmp))
+    finally:
+        os.chdir(origin)
+        shutil.rmtree(tmp, ignore_errors=True)
     return 0
 
 
