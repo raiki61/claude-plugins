@@ -35,11 +35,15 @@ def launch_cli(b, inst, d):
         if not v and any("{" + k + "}" in a for a in spec["argv"]):
             die(f"{inst['id']}: 起動に要る '{k}' が役の定義（{d['file']}）に無い")
     argv = [a.format(**sub) for a in spec["argv"]]
-    # 起こせないことを、起こした後の空返答でなく**ここ**で言う。graph は PATH の通った名前を書くので、
-    # 環境によっては解決できない（実測: この手元では /Users/…/.local/bin/claude に在り PATH は通っていた）。
-    if not shutil.which(argv[0]):
-        die(f"{inst['id']}: 遮断系を起こす '{argv[0]}' が PATH に無い（graph の launch.isolated.argv）")
-    return {"argv": argv, "stdin": inst["prompt_file"]}
+    # PATH を引いて絶対パスに替える（起こす時の曖昧さを 1 つ減らす）。**見つからなくても落とさない**——
+    # next は計画を出す所で、起こすのは回す側の環境である。ここで die にしたら、遮断系を一度も起こさない場
+    # （台本の検査・別の機械での再開・記録を読むだけの用）まで動かなくなった（実測 2026-09-12: CI の 3 OS が
+    # 全部赤。手元には claude が在るので緑だった）。実際に起こせないことは、回す側が走らせた瞬間に分かる。
+    resolved = shutil.which(argv[0])
+    launch = {"argv": ([resolved] + argv[1:]) if resolved else argv, "stdin": inst["prompt_file"]}
+    if not resolved:
+        launch["missing"] = argv[0]  # この環境では起こせない。回す側と記録に見えるようにしておく
+    return launch
 
 
 def slim_item(item):

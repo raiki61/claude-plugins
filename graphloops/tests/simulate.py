@@ -573,6 +573,22 @@ def test_isolated_launch():
           "役の定義の本文が盤面に書き出され、system prompt として渡る")
     shutil.rmtree(run.tmp)
 
+    # **起こすコマンドが無い場でも next は止まらない。** 計画を出す所で落とすと、遮断系を一度も起こさない場
+    # （この台本・別の機械での再開・記録を読むだけの用）まで全部死ぬ（実測 2026-09-12: ここを die にしたら
+    # CI の 3 OS が全部赤になった。手元には claude が在るので緑で、CI でしか出なかった）。
+    run = Run("nopath")
+    run.next()  # 最初の波は回す側の節だけ——遮断系が出る波まで 1 手進めてから見る
+    run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
+    cdir = os.path.dirname(shutil.which("claude") or "")
+    env = {**os.environ, "PATH": os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep) if p and p != cdir)}
+    r = run.cmd("next", env=env)
+    check(r.returncode == 0, f"起こすコマンドが PATH に無くても next は通る（rc={r.returncode}: {r.stderr[:120]}）")
+    ready = json.loads(r.stdout)["ready"] if r.returncode == 0 else []
+    cli2 = [i for i in ready if i.get("mode") == "cli"]
+    check(bool(cli2) and all(i["launch"].get("missing") for i in cli2),
+          "起こせない旨が launch.missing に立つ（回す側と記録に見える）")
+    shutil.rmtree(run.tmp)
+
 
 def test_isolated_not_truncated():
     """遮断系へ渡す本文は切らない——貼る先の上限は Agent ツールのプロンプトの性質で、標準入力には無い。
