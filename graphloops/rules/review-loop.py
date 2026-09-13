@@ -110,17 +110,34 @@ def escalate_on_thrash(b):
     ls = b.loop_state
     if ls.get("escalated"):
         return  # 一度上げたら run の残り全部で効く（ラチェット）
-    # **引き金は機械が持つ 2 値の交差だけ**——一度 info（閉じた）と判定されたキーが、後の周にまた [block] で
-    # 戻っている数。判定者の任意欄（reburn_causes）を読んでいたとき、上げられる側の自己申告で深さが決まり、
-    # 欄を埋めなければ永久に上がらなかった（この差分自身がその形で入り、判定で [block] になった）
+    # **引き金は機械が持つ 2 つ。どちらかで上がる。**
+    #
+    # (1) キーの再燃——一度 info（閉じた）と判定されたキーが、後の周にまた [block] で戻っている数。
+    #     判定者の任意欄（reburn_causes）を読んでいたとき、上げられる側の自己申告で深さが決まり、
+    #     欄を埋めなければ永久に上がらなかった（この差分自身がその形で入り、判定で [block] になった）。
+    # (2) **件数が落ちない**——[block] の件数が直近 STALL_ROUNDS 周にわたって 1 度も減っていない。
+    #
+    # (1) だけでは原理的に 0 件だった。**再燃は毎周ちがうキー文字列で来る**（判定者は同じクラスを別の site で
+    # 立て直すので、完全一致の集合演算に一度も当たらない）——実測 2026-09-13: 6 周とも発火せず、
+    # 台本を thrash|reburn|escalated|closed_keys で grep しても 0 件。
+    # 一方、判定者は履歴を見たうえで「4〜5 周続く再燃を毎周ちがう key 文字列で並べている」と書き、
+    # 機械の信号として**件数**を名指しした（「件数が落ちないことを機械が見ておらず…件数が落ちれば resolved にできる」）。
+    # (2) は**クラスを同定しない**——閉じる速さが開く速さを上回っていないことだけを測るので、
+    # 名前の付け方に依らない。実測の推移: r1=6 r2=9 r3=9 r4=13 r5=12 r6=16。
     reburn = sorted({u["key"] for u in ls.get("prev_units", []) if u.get("label") == "block"} & set(ls.get("closed_keys", [])))
-    if not reburn:
+    hist = [x["n"] for x in ls.get("block_counts", [])][-STALL_ROUNDS:]
+    stalled = len(hist) >= STALL_ROUNDS and all(hist[i] >= hist[i - 1] for i in range(1, len(hist)))
+    if not reburn and not stalled:
         return
     ls["escalated"] = {
         "round": b.round,
         # 前の周の判定文をここに入れない——p2.diagnose は履歴を渡さない節で、why に問いの key を入れると隔離が破れる
         "reburn_count": len(reburn),
-        "why": f"一度 info（閉じた）と判定されたキーが、後の周にまた [block] で戻っている（{len(reburn)} 件。機械が数えた）",
+        "block_counts": hist,
+        "why": (f"一度 info（閉じた）と判定されたキーが、後の周にまた [block] で戻っている（{len(reburn)} 件。機械が数えた）"
+                if reburn else
+                f"[block] の件数が直近 {STALL_ROUNDS} 周で 1 度も減っていない（{hist}。機械が数えた）"
+                "——閉じる速さが開く速さを上回っていない"),
         "effects": ["零処方の優先を外す（クラスを消す設計の処方を第一候補に並べさせる）",
                     "深さで切っている 4 節（p0.prior_decisions・p1.procedure_trace・p1.gate_efficacy・p1.test_double_fidelity）を条件に関わらず走らせる"],
     }
@@ -157,24 +174,74 @@ def purpose_sources_changed(b):
     できない本当の理由がこれだった）。引き金は役の自己申告でなく **P3 が実際に触ったファイル**にする
     ——判定が不利なときに回し直して有利な方を採る形を作らないため（引き金の定義が緩むと規律が壊れる）。
     """
-    srcs = (b.outputs().get("p0.purpose") or {}).get("source_files") or []
+    out = b.outputs().get("p0.purpose") or {}
+    if "source_files" not in out:
+        # **欄そのものが無いのは「触っていない」ではなく「決められない」。** p0.purpose は once なので
+        # 出力は 1 周目で凍る——後から schema にこの欄を足しても永久に現れない。ここを False に倒すと
+        # 目的監査の走り直しが静かに永久に止まる（実測 2026-09-13: この run は 6 周とも R2 が走らず、
+        # 収束できない本当の理由がこれだった）。**偽を返すのは同じでも、返した理由を残す**——
+        # engine の frozen_outputs_stale が節ごとの痕跡を持ち、ここは「この引き金が測れなかった」を持つ。
+        # **周ごとに 1 行だけ。** cond の葉は 1 回の next で何度も評価される（葉ごとに ctx を組み直すため）ので、
+        # 素で append すると同じ行が数百並び、記録が読めなくなる
+        seen = b.state.setdefault("unevaluable", [])
+        if not any(u["trigger"] == "purpose_sources_changed" and u["round"] == b.round for u in seen):
+            seen.append({"trigger": "purpose_sources_changed", "round": b.round,
+                         "why": "p0.purpose の出力に source_files が無い（once で凍った周の schema には無かった欄）"})
+        return False
+    srcs = out.get("source_files") or []
     if not srcs:
-        # 出典の一覧が無い周は「触った」と言えない。合格に倒さず、走り直しも起こさない
+        # 欄は在って空＝「出典ファイルを持たない目的」。これは測れた上での偽なので痕跡は要らない
         return False
     touched = set(b.loop_state.get("prev_fix_files") or [])
     return bool(touched & set(srcs))
 
 
-EMPTY = ("なし", "無し", "ない", "無い", "特になし", "n/a", "none", "-", "未確認", "不明")  # 「書いていない」と同じ扱いにする語
+EMPTY = ("なし", "無し", "ない", "無い", "特になし", "n/a", "none", "-", "未確認", "不明",
+         "todo", "未実施", "未測定", "後で")  # 「書いていない」と同じ扱いにする語
 
+# R が unverifiable を返した周に機械が立てる台帳の行の見出し。**R ごとに何が取れなかったかを書く**
+# ——定数 1 文にすると、原因が違う周にも同じ文が出て、converge がそれをそのまま人に見せる（実測 2026-09-13）
+ASK_KEYS = {
+    "R1": "累積差分の最小性を独立に測れない（R1 unverifiable）——測る材料を人が示すか、未収束のまま報告するか",
+    "R2": "元の目的を独立に取れない（R2 unverifiable）——目的の出典を人が示すか、未収束のまま報告するか",
+    "R3": "文書横断の整合を独立に確かめられない（R3 unverifiable）——確かめる材料を人が示すか、未収束のまま報告するか",
+    "R4": "横断リスクと消えた能力を独立に確かめられない（R4 unverifiable）——基準点の材料を人が示すか、未収束のまま報告するか",
+}
+
+
+def blank(s, min_len):
+    """役が埋める自由文が「空同然」か。**表と長さの両方で見る。**
+
+    以前は判定が 5 か所にインラインで散り、表も EMPTY / EMPTY_HIT の 2 本に割れていた。
+    実測 2026-09-13: 両表の最長語は 4 文字なので、`X in EMPTY or len(X) < 10` の**表の照合は
+    長さ検査に完全に包含されて一度も効いていなかった**（表が効くのは長さ検査を持たない 1 か所だけ）。
+    さらに 1 か所だけ `.lower()` が抜けており、`N/A`・`NONE`・`TODO`・`未実施` が素通りしていた。
+    表を 1 本に畳み、正規化をここに寄せる——閾値は欄ごとに違ってよいので引数で受ける。
+    """
+    t = (s or "").strip()
+    return t.lower() in EMPTY or len(t) < min_len
+
+STALL_ROUNDS = 3  # [block] の件数がこの周数だけ減らなければ、ラチェットが上がる（クラスを同定しない引き金）
 REJUDGE_MAX = 3  # 往復の上限。依頼者の指定（2026-09-13）: 2〜3 回まで許し、超えたら新しい別の目が会話に参加して判定する
 
 
 def _rejudge(b):
-    """今の周に回す側が出した異議と、その周の往復の回数。"""
+    """今の周に回す側が出した異議と、**その周の**往復の回数。
+
+    **異議と回数は同じ尺度で持つ。** 以前は異議だけを周で絞り、回数は run 全体の通し番号を素通しで返していた
+    （`rejudge_rounds` は rejudge_output が増やすだけで、on_new_round のリセットの一覧に入っていなかった）。
+    帰結: **どれか 1 周で上限まで往復すると、run の残り全部で p2.rejudge が 1 度も発火せず、新しい異議は
+    1 回目からいきなり第三の目へ行く**——rejudge_exhausted の注記は「第三の目は常設しない」と書くのに、
+    上限を超えた後は事実上の常設になる（実測 2026-09-13: 生きている盤面で述語を直接呼び、
+    rejudge_rounds=3 ＋ 今の周に初めての異議 → rejudge_open=False / rejudge_exhausted=True を確認）。
+    graph の `when` も述語の docstring も「その周」と名乗っていたので、**名乗りの側でなく実装を合わせる**。
+    """
     ls = b.loop_state
     r = ls.get("rejudge_requested") or {}
-    return (r if r.get("round") == b.round else {}), int(ls.get("rejudge_rounds") or 0)
+    n = ls.get("rejudge_rounds") or {}
+    if not isinstance(n, dict):  # 旧い盤面（整数で持っていた run）を読み替える
+        n = {"round": b.round, "n": int(n)}
+    return (r if r.get("round") == b.round else {}), (int(n.get("n") or 0) if n.get("round") == b.round else 0)
 
 
 def rejudge_open(b):
@@ -486,20 +553,21 @@ def record_round(b, nid):
         reviews["R2"] = {"status": "unverifiable", "reason": {
             "目的不明": "元の目的の出典が取れない（P0-4 で目的不明）",
             "狭めている": "writer 自書の目的テキストを inspector が『狭めている』と判定（p0.purpose_review）——独立の出典として使えず、狭められた目的で独立設計を回さない"}[why]}
-        # 検証器は同じ周に kind=unverifiable / origin=R2 の台帳の行を要求する。judge は既に done なので機械が書く（判定でなく機械的な帰結）
-        if not any(x.get("kind") == "unverifiable" and x.get("origin") == "R2" for x in rec["questions"]):
-            # 理由は reviews.R2 と同じ 1 値（purpose_unusable）から引く——定数文で書いていたとき、原因が
-            # 『狭めている』の周にも『目的不明』と表示され、converge がそれをそのまま人に見せた（実測 2026-09-13）
-            rec["questions"].append({"key": "元の目的を独立に取れない（R2 unverifiable）——目的の出典を人が示すか、未収束のまま報告するか",
-                                     "kind": "unverifiable", "origin": "R2", "status": "held",
-                                     "reason": reviews["R2"]["reason"]})
     for name in V.REVIEWS:
         if name in reviews:
             if reviews[name]["status"] not in ("carried_over", "not_applicable"):
                 last_review[name] = {"round": b.round, **reviews[name]}
             continue
         prev = last_review.get(name)
-        if name in ("R3", "R4"):
+        if prev and not V.REVIEW_STATUS[prev["status"]].carryable:
+            # **持ち越せない値を先に見る。** 以前は R3 / R4 だけがこの腕より前で prev を一切見ずに
+            # not_applicable を書いていた（R1 / R2 には下の腕が在った）。not_applicable は blocks=False なので、
+            # 前の周の redesign-needed / unverifiable が**痕跡なく消える**——検証器 :167-171 が明文で禁じている
+            # 「1 度持ち越した時点で人に諮る義務が阻害要因から消える」形そのもの（実測 2026-09-13: round 1 の
+            # R3=redesign-needed を round 2 で上書きすると、収束を妨げるものが 3 件 → 2 件に減り、警告も trace も出ない）。
+            # 再発火の条件に当たらない周でも、**据え置きは上書きより優先する**。
+            reviews[name] = {"status": prev["status"], "reason": prev["reason"] + f"（round {prev['round']} と同じ。持ち越せない値なので今も諮っている記録として書く）"}
+        elif name in ("R3", "R4"):
             reviews[name] = {"status": "not_applicable",
                              "reason": f"[block]＋do-now が {ls.get('open_units', '?')} 件残り、前の周の P3 も触っていない（どちらの再発火条件にも当たらない）"}
         elif prev and V.REVIEW_STATUS[prev["status"]].carryable:
@@ -508,8 +576,30 @@ def record_round(b, nid):
             reviews[name] = {"status": prev["status"], "reason": prev["reason"] + f"（round {prev['round']} と同じ。持ち越せない値なので今も諮っている記録として書く）"}
         else:
             reviews[name] = {"status": "not_run", "reason": "走らせるべき周に返答が無い"}
+    # **unverifiable を返した R 全部に、台帳の行を機械が立てる。** 検証器 :578-586 は「その R を origin に持つ
+    # kind=unverifiable の行が同じ周の questions に要る」と fail で要求するが、以前は R2 の腕でしか行を立てておらず、
+    # R1 / R3 / R4 が同じ値を返すと**誰も書けない行を要求されて run が止まった**——R の節は judge より後の波なので
+    # 台帳を書ける役は既に done、p4.record は driver なので done できず、optional でない節は skip も拒む。
+    # 出口が 1 つも無く、残るのは loop.py patch だけだった（実測 2026-09-13: 写しで r3.coherence に
+    # unverifiable を返させると ready が空のまま進まず、検証器単体でも R1 / R3 / R4 それぞれ exit 2）。
+    # unverifiable は 3 節とも schema の enum に在る正規の返答なので、**返せる値には受け口を用意する**。
+    # 行の中身は判定でなく機械的な帰結——理由は当の reviews[name] から引き、judge の再審に掛ける。
+    for name in V.REVIEWS:
+        if reviews.get(name, {}).get("status") != "unverifiable":
+            continue
+        if any(x.get("kind") == "unverifiable" and x.get("origin") == name for x in rec["questions"]):
+            continue
+        rec["questions"].append({
+            "key": (ASK_KEYS.get(name) or f"{name} が独立に確かめられない（unverifiable）——人が材料を示すか、未収束のまま報告するか"),
+            "kind": "unverifiable", "origin": name, "status": "held",
+            "reason": reviews[name]["reason"]})
     if ls.get("r1_refire") and "R1" in reviews and reviews["R1"]["status"] not in ("carried_over",):
         ls["lines_at_r1"] = ls.get("diff_lines", 0)
+    # [block] の件数の推移。**ラチェットの引き金 (2) の入力**——キーの完全一致では再燃を見つけられないので、
+    # クラスを同定せずに「閉じる速さが開く速さを上回っているか」だけを測る
+    counts = ls.setdefault("block_counts", [])
+    if not any(x["round"] == b.round for x in counts):
+        counts.append({"round": b.round, "n": sum(1 for u in rec["units"] if u.get("label") == "block")})
     for name, st in rec["materials"].items():
         if st.get("status") in ("found", "clean"):
             last[name] = b.round
@@ -555,7 +645,23 @@ def converge(b, nid):
     if b.round >= b.state["max_rounds"] and not will_converge:
         ls["outcome"] = "stopped"
         ls["stop_reason"] = "max_rounds"
-        return {"decision": "stopped", "reason": f"暴走ガード: 総ラウンドが上限 {b.state['max_rounds']} に達した（収束せず。台帳の held / escalate をまとめて聞く）"}
+        # **聞くと書いたら聞く口を返す。** 以前はここだけ decision=stopped を返しており、理由の文は
+        # 「台帳の held / escalate をまとめて聞く」と名乗るのに、answer の口（pending_human）が立たなかった
+        # ——依頼者が「続けろ」と答えても engine に受け口が無く、state を手当てするしか進む道が無い
+        # （実測 2026-09-13: 5 周で止めた run に 6 周目を頼まれ、loop.py patch --path state.* 以外の道が無かった）。
+        # 他の 2 つの停止分岐（premise_escalate / work_exhausted）は最初から ask を返していたので、
+        # **同じ「人に諮る」でありながら、上限だけが口を持たなかった**。
+        # continue の答えは on_answer が上限を 1 周ぶんだけ上げる——上限ごと外すのではなく、
+        # **余分な 1 周ごとに人が同意し直す**形にして、暴走ガードの目的（際限なく回らない）を保つ。
+        return {"decision": "ask", "reason": "max_rounds", "ask": {
+            "kinds": ["max_rounds"],
+            "question": (f"暴走ガード: 総ラウンドが上限 {b.state['max_rounds']} に達した（収束せず）。"
+                         "台帳の held / escalate に答えて 1 周だけ延ばすか（continue --note <答え>。"
+                         "上限は 1 周ぶんだけ上がり、次の周末にまた聞く）、未収束のまま報告に進むか（stop）"),
+            "items": [f"[{q['status']}] {q['kind']}: {q['key']} — {q.get('reason', '')}"
+                      + (f" 選択肢: {q['options']}" if q.get("options") else "") for q in asking],
+            "options": ["continue", "stop"],
+        }}
     if branch == "converged":
         st = ci.get("status")
         if st == "found":
@@ -753,8 +859,7 @@ def fix_covers_open_units(b, nid, out, item):
             extra = sorted(set(seen[f]["changes"]) - set(ks))
             if extra:
                 raise Reject(f"interactions[{f}] の changes に、その面を触っていない修正が在る: {extra}")
-            ck = (seen[f].get("checked") or "").strip()
-            if ck.lower() in EMPTY or len(ck) < 10:
+            if blank(seen[f].get("checked"), 10):
                 raise Reject(f"interactions[{f}] の checked が空同然——一方が他方を不要にしないか・順序で結果が変わらないか・"
                              "組み合わせて初めて生まれる状態が無いかを突き合わせた結果を書け")
     # 「破れない」「壊れない」の自己申告は、**探した形跡が無い一語**では受け取らない。機械が検算できるのは
@@ -764,12 +869,11 @@ def fix_covers_open_units(b, nid, out, item):
     judged = {u["key"]: (u.get("class_query") or {}).get("total")
               for u in ((b.record.get("process") or {}).get("diagnosis") or {}).get("units", [])}
     for c in out["changes"]:
-        bt = (c.get("bypass_tried") or "").strip()
-        if bt.lower() in EMPTY or len(bt) < 10:
+        if blank(c.get("bypass_tried"), 10):
             raise Reject(f"{c['unit_key'][:60]}: bypass_tried が空同然——**修正を残したまま**破りに行った入力と結果を書け"
                          "（『修正を外したら赤くなった』は不在の検知であって完全性の証拠にならない）")
         br = c.get("breaks") or {}
-        if (br.get("result") or "").strip().lower() in EMPTY:
+        if blank(br.get("result"), 1):
             raise Reject(f"{c['unit_key'][:60]}: breaks.result が空同然——壊しうる面を how で引いて、壊れていないことを確かめた結果を書け")
         ros = c.get("root_or_symptom") or {}
         if ros.get("kind") == "symptom" and len((ros.get("why") or "").strip()) < 10:
@@ -850,9 +954,7 @@ def gate_arms_all_red(b, nid, out, item):
     # 赤は「柵が無ければ落ちる」ことしか言わず、「この腕がその柵を通った」ことは別に測る必要がある。
     # 測り方は今周の gate_efficacy が実際に使った形をそのまま欄にする——分岐が書く値を一意の印に替え、
     # その印が出力か記録に現れることを見る（`hit_evidence` に何をどう確かめたか）。
-    EMPTY_HIT = {"", "-", "なし", "未実施", "未確認", "N/A", "n/a", "TODO"}
-    nohit = [a["arm"] for a in arms
-             if (a.get("hit_evidence") or "").strip() in EMPTY_HIT or len((a.get("hit_evidence") or "").strip()) < 10]
+    nohit = [a["arm"] for a in arms if blank(a.get("hit_evidence"), 10)]
     # 未赤の腕が在るのに found 以外（clean / carried_over / not_applicable …）を名乗る返答は拒む——clean だけ見ていたとき
     # carried_over で腕ゼロのまま通った（実測 2026-09-13）
     if st != "found" and (unred or nocontrol or nohit):
@@ -875,11 +977,15 @@ def rejudge_output(b, nid, out, item):
     「判定を都合よく使うな」に反する。回数は loop_state が持ち、cond（rejudge_open / rejudge_exhausted）が読む。
     """
     fact = (out.get("new_facts") or "").strip()
-    if len(fact) < 20 or fact in EMPTY:
+    if blank(fact, 20):
         raise Reject(f"{nid}: new_facts が空同然——回す側が出した事実を**自分で確かめた結果**を書け"
                      "（確かめずに採る／退けるのは、どちらも判定を都合よく使うことになる）")
     ls = b.loop_state
-    ls["rejudge_rounds"] = int(ls.get("rejudge_rounds") or 0) + 1
+    prev = ls.get("rejudge_rounds") or {}
+    if not isinstance(prev, dict):
+        prev = {"round": b.round, "n": int(prev)}
+    # 周が変わったら数え直す——回数は「その周の往復」なので、周をまたいで積むと上限が run 全体に掛かる
+    ls["rejudge_rounds"] = {"round": b.round, "n": (int(prev.get("n") or 0) if prev.get("round") == b.round else 0) + 1}
     # 決着したら異議を降ろす。決着しなければ次の往復（上限を超えれば第三の目）へ
     if out.get("verdict") in ("採る", "退ける"):
         ls.pop("rejudge_requested", None)
@@ -956,19 +1062,36 @@ def finalize(b):
     proc["validator_outputs"] = ls.get("validator_outputs", {})
     proc["drift_notes"] = ls.get("drift_notes", [])
     proc["context_lost"] = b.state.get("context_lost", [])
+    # 引き金そのものが測れなかった周。**「条件に当たらなかった」と「条件を測れなかった」を同じ偽にしない**
+    proc["unevaluable"] = b.state.get("unevaluable", [])
     proc["cold_check"] = ls.get("cold_check")  # 初見検査の verdict と件数（非 pass でも報告は出る。直したかは writer の申告）
     proc["open_questions"] = [q for q in rec["questions"] if q.get("status") in V.ASKING]
     proc["resolved_questions"] = [q for q in rec["questions"] if q.get("status") in ("resolved", "decided")]
 
 
 def on_answer(b, ph, ans):
-    b.record["process"]["human_items"].append({"round": b.round, "asked": ph["items"], "answer": ans, "note": ph.get("note", "")})
+    # **kinds を落とさない。** 以前は round / asked / answer / note だけを積んでいたので、
+    # 記録からは「何を聞かれて continue したか」が読めず、上限を延ばした周とそうでない周を区別できなかった
+    # （実測 2026-09-13: process.human_answers が {"round":5,"note":…,"asked":[]} で、延長が読み取れない。
+    # kinds が残るのは trace.jsonl だけだった——下の注記が「痕跡は process.human_answers に残る」と
+    # 名乗っていたのに、その前半が現物と食い違っていた）。
+    kinds = ph.get("kinds") or []
+    b.record["process"]["human_items"].append({"round": b.round, "kinds": kinds, "asked": ph["items"],
+                                               "answer": ans, "note": ph.get("note", "")})
     if ans == "continue":
-        b.record["process"]["human_answers"].append({"round": b.round, "note": ph.get("note", ""), "asked": ph["items"]})
+        entry = {"round": b.round, "kinds": kinds, "note": ph.get("note", ""), "asked": ph["items"]}
         b.loop_state.pop("outcome", None)
         b.loop_state.pop("stop_reason", None)
+        if "max_rounds" in kinds:
+            # **1 周ぶんだけ上げる。** 上限ごと外すと暴走ガードが二度と掛からない——延長の同意は
+            # 1 周に 1 回もらい直す。**上げた値も記録に書く**（state だけに置くと、status の印字が
+            # 6 と出るのにその出どころが自由文の note にしか無い形になる）。
+            entry["max_rounds"] = {"from": b.state["max_rounds"], "to": b.round + 1}
+            b.state["max_rounds"] = b.round + 1
+        b.record["process"]["human_answers"].append(entry)
 
 
 def on_unattended(b, ph):
-    b.record["process"]["human_items"].append({"round": b.round, "asked": ph["items"], "answer": None, "note": "無人実行で停止（答えは無い）"})
+    b.record["process"]["human_items"].append({"round": b.round, "kinds": ph.get("kinds") or [], "asked": ph["items"],
+                                               "answer": None, "note": "無人実行で停止（答えは無い）"})
     return "無人実行: " + ", ".join(ph["kinds"]) + "——保守的に停止。要人間判断は process.human_items"

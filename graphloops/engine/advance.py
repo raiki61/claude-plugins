@@ -3,6 +3,7 @@ import pathlib
 
 from .render import FILE_CAP, Renderer
 from .rules import hook, registry
+from .schema import validate_schema
 from .util import die, dump, now, porcelain, read_json, safe_name, sha, write_json
 from .validator import agent_def, finalize, run_validator, deliver_mode
 
@@ -260,10 +261,46 @@ def graph_changed(b, notes):
         notes.append(f"graph が init の後に変わっている（sha {cur}）。痕跡は process.graph_changes")
 
 
+def frozen_outputs_stale(b, notes):
+    """`once` の節の凍った出力を、**今の schema で測り直す**（止めはしない——痕跡を残して知らせる）。
+
+    `once` の出力は最初に走った周で凍る。あとから schema に必須の欄を足しても、その節はもう走らないので
+    **欄は永久に現れない**。欄を読む cond・述語は「無い＝偽」に倒れ、静かに、run の残り全周で偽のままになる。
+
+    実測 2026-09-13: `p0.purpose` に `source_files` を 5 周目に足したが、この節は 1 周目で凍っていたので
+    欄は現れず、それを読む `purpose_sources_changed` が 6 周とも偽だった。目的監査の走り直しが一度も
+    起きず、**R2（独立設計との突合）が 6 周とも走らなかった**——この run が収束できない本当の理由がこれ。
+    引き金・柵・述語が「自分が読む入力の存在を確かめずに入る」形の代表例で、**偽が正しい偽か、
+    読めなかった偽かを、誰も区別していなかった**。
+
+    **凍った出力が合っていたのは凍った時点の schema であって、今の schema ではない。** 周の頭で測り直す。
+    節ごとに 1 度だけ言う（周ごとに繰り返すと notes が同じ行で埋まる）。
+    """
+    seen = {s["node"] for s in b.state.get("stale_frozen", [])}
+    outs = None
+    for nid, n in b.nodes.items():
+        if nid in seen or not (n.get("once") and n.get("schema")) or nid not in b.state["done_ever"]:
+            continue
+        if outs is None:
+            outs = b.outputs()
+        if nid not in outs:
+            continue
+        errs = validate_schema(outs[nid], n["schema"])
+        if not errs:
+            continue
+        b.state.setdefault("stale_frozen", []).append(
+            {"node": nid, "round": b.round, "frozen_in": b.state["outputs"][nid]["round"],
+             "errors": errs, "at": now()})
+        b.trace("stale_frozen", node=nid, errors=len(errs))
+        notes.append(f"{nid} は once で凍った出力（round {b.state['outputs'][nid]['round']}）が今の schema に合わない"
+                     f"（{'; '.join(errs[:3])}）。**この欄を読む cond・述語は永久に偽になる**。痕跡は process.stale_frozen")
+
+
 def advance(b):
     """機械の節を走らせ、周の終わりなら次の周を開く。回す側に渡す節が出るまで（または止まるまで）進める。"""
     notes = []
     graph_changed(b, notes)
+    frozen_outputs_stale(b, notes)
     while True:
         progressed = False
         for nid, n in b.nodes.items():

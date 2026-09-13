@@ -241,7 +241,12 @@ def cmd_done(a):
         (b.dir / n["save_text_as"]).write_text(output["text"], encoding="utf-8")
         notes.append(f"本文は {b.dir / n['save_text_as']} に保存した")
     b.state["outputs"][nid] = {"file": str(f.relative_to(b.dir)), "round": b.round, "instance": a.node}
-    inst.update({"status": "done", "done_at": now(), "output_file": str(f)})
+    # **綴りは 1 つに決める。** 以前はこの 2 行が同じ f を 2 つの綴りで書いていた——outputs は盤面からの相対、
+    # instance は `--dir` をそのまま前に付けた綴り。後者は**記録されていない過去の作業ディレクトリ**に錨を持つので、
+    # 相対の `--dir` で回した run を別の作業ディレクトリから開くと読めない（実測 2026-09-13: 絶対 --dir で開いても
+    # cwd=/tmp から ref('raw') が SystemExit 2。最終報告の節でだけ露出した）。盤面からの相対に揃えると、
+    # 錨は「いまの呼び出しが渡した --dir」1 つになり、読む側に規約の知識が要らなくなる。
+    inst.update({"status": "done", "done_at": now(), "output_file": str(f.relative_to(b.dir))})
     if a.agent_id:
         inst["agent_id"] = a.agent_id
     b.trace("done", instance=a.node, sha=sha(text))

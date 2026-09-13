@@ -16,6 +16,8 @@ import sys
 import tempfile
 import types
 
+import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
+
 # Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
 for _s in (sys.stdout, sys.stderr):
@@ -32,11 +34,14 @@ fails, ran = [], 0
 
 
 def check(cond, desc):
+    # 件数と失敗一覧は台本をまたいで共有される。**`ran += 1` は不可分ではない**ので錠を掛ける
+    # ——素で並列にすると数え落とし、件数の柵（run.sh の EXPECTED_CHECKS）が走るたび違う値になる。
     global ran
-    ran += 1
-    print(("  ok   " if cond else "  FAIL ") + desc)
-    if not cond:
-        fails.append(desc)
+    with parallel.LOCK:
+        ran += 1
+        if not cond:
+            fails.append(desc)
+    parallel.line(("  ok   " if cond else "  FAIL ") + desc)
 
 
 def rm(p):
@@ -767,6 +772,100 @@ def test_proxy_to_source():
     rm(run.tmp)
 
 
+def test_purpose_trigger_unevaluable():
+    """**引き金が「測れなかった」のを「条件に当たらなかった」と同じ偽にしない。**
+
+    `p0.purpose` は once なので出力は 1 周目で凍る。`source_files` は 5 周目に schema へ足した欄なので、
+    凍った出力には無い。以前はここを `... or []` で受けて「触っていない」と同じ偽に畳んでいた
+    ——帰結: 目的監査の走り直しが静かに永久に止まり、**R2 が 6 周とも走らなかった**（実測 2026-09-13。
+    この run が収束できない本当の理由）。偽を返すのは同じでも、**測れなかったことを痕跡に残す**。
+
+    欄が在って空（出典ファイルを持たない目的）は測れた上での偽なので、痕跡を残さない——
+    ここを分けないと、正しい偽まで毎周 process.unevaluable に並んで、読む側が本物を見失う。
+    """
+    print("引き金の可評価性: 欄が無い（測れない）と、欄が空（測れた偽）を分ける")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
+    fn = rules.CONDS["purpose_sources_changed"]
+
+    def board(purpose, touched):
+        b = types.SimpleNamespace(round=3, state={}, loop_state={"prev_fix_files": touched})
+        b.outputs = lambda: {"p0.purpose": purpose}
+        return b
+
+    # 欄が無い＝測れない。偽だが痕跡が残る
+    b = board({"purpose_text": "x", "source": "③writer の要約"}, ["README.md"])
+    check(fn(b) is False, "欄が無い周は発火しない（合格に倒さない）")
+    un = b.state.get("unevaluable") or []
+    check(len(un) == 1 and un[0]["trigger"] == "purpose_sources_changed", f"測れなかったことが痕跡に残る（{un}）")
+    check("source_files" in un[0]["why"], f"何が無くて測れなかったかが書いてある（{un[0].get('why')}）")
+    # cond の葉は 1 回の next で何度も評価される——同じ周で行が増えない
+    fn(b), fn(b)
+    check(len(b.state["unevaluable"]) == 1, f"同じ周に同じ行を積まない（{len(b.state['unevaluable'])} 行）")
+
+    # 欄が在って空＝測れた上での偽。痕跡は残さない
+    b = board({"purpose_text": "x", "source_files": []}, ["README.md"])
+    check(fn(b) is False and not b.state.get("unevaluable"), "欄が在って空なら、測れた偽として痕跡を残さない")
+
+    # 欄が在って、前の周の P3 が触った＝発火
+    b = board({"purpose_text": "x", "source_files": ["docs/plan.md", "README.md"]}, ["README.md"])
+    check(fn(b) is True and not b.state.get("unevaluable"), "触ったファイルが出典に在れば発火する")
+    b = board({"purpose_text": "x", "source_files": ["docs/plan.md"]}, ["README.md"])
+    check(fn(b) is False and not b.state.get("unevaluable"), "触ったファイルが出典に無ければ発火しない")
+
+
+def test_escalate_ratchet():
+    """一方向のラチェットの引き金を、**2 つとも実際に踏む**。
+
+    以前は引き金が『一度 info と判定されたキーが後の周に [block] で戻る』の**完全一致**だけだった。
+    再燃は毎周ちがうキー文字列で来る（判定者は同じクラスを別の site で立て直す）ので、この集合演算は
+    原理的に 0 件——実測 2026-09-13: 6 周とも一度も発火せず、台本を thrash|reburn|escalated|closed_keys で
+    grep しても 0 件だった。**名乗り（『同じクラスが戻ったら上げる』）より実装の射程が狭い**形そのもの。
+    件数の引き金は**クラスを同定しない**ので、名前の付け方に依らない。
+    """
+    print("一方向のラチェット: キーの再燃と、件数が落ちないことの 2 つで上がる")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
+    esc = rules.escalate_on_thrash
+
+    def board(ls):
+        return types.SimpleNamespace(round=6, loop_state=ls, record={"process": {}})
+
+    b = board({})
+    esc(b)
+    check("escalated" not in b.loop_state, "引き金が無ければ上がらない")
+
+    # (1) キーの再燃——完全一致で当たる場合は今も上がる
+    b = board({"prev_units": [{"key": "X", "label": "block"}], "closed_keys": ["X"]})
+    esc(b)
+    check(b.loop_state.get("escalated", {}).get("reburn_count") == 1, "同じキーが info → block で戻ると上がる")
+
+    # (2) **キーが毎周ちがっても、件数が落ちなければ上がる**——ここが以前は 0 件だった面
+    stall = {"prev_units": [{"key": "別の site A", "label": "block"}], "closed_keys": ["別の site B"],
+             "block_counts": [{"round": 4, "n": 13}, {"round": 5, "n": 13}, {"round": 6, "n": 16}]}
+    b = board(stall)
+    esc(b)
+    e = b.loop_state.get("escalated") or {}
+    check(e.get("reburn_count") == 0 and e.get("block_counts") == [13, 13, 16],
+          f"キーが 1 件も重ならなくても、件数が {rules.STALL_ROUNDS} 周落ちなければ上がる")
+    check("件数が落ちていない" in e.get("why", "") or "減っていない" in e.get("why", ""),
+          "上がった理由に件数の推移が入る（自己申告でなく機械が数えた値）")
+
+    # 落ちていれば上がらない——「減らないこと」を見ているのであって「多いこと」ではない
+    b = board({"block_counts": [{"round": 4, "n": 13}, {"round": 5, "n": 13}, {"round": 6, "n": 9}]})
+    esc(b)
+    check("escalated" not in b.loop_state, "件数が 1 度でも落ちていれば上がらない")
+
+    # ラチェットは下がらない（一度上げたら run の残り全部で効く）
+    b = board({"escalated": {"round": 2}, "block_counts": [{"round": 4, "n": 1}, {"round": 5, "n": 1}, {"round": 6, "n": 0}]})
+    esc(b)
+    check(b.loop_state["escalated"]["round"] == 2, "一度上がったら、件数が落ちても下がらない（ラチェット）")
+
+
 def test_rejudge_edge():
     """同じ周の擦り合わせの辺: 異議が立つと開き、上限で第三の目へ移り、確かめずに採る返答は拒む。"""
     print("否定検査: 同じ周の擦り合わせ（往復の口・上限・新しい事実の要求）")
@@ -796,12 +895,24 @@ def test_rejudge_edge():
 
     # 決着しない返答（一部採る）は異議を降ろさず、往復だけ数える
     checks["rejudge_output"](b, "p2.rejudge", {"verdict": "一部採る", "new_facts": "該当行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る", "units": []}, None)
-    check(b.loop_state["rejudge_rounds"] == 1 and "rejudge_requested" in b.loop_state,
-          "決着しない返答は往復を 1 つ数え、異議は降りない")
+    check(b.loop_state["rejudge_rounds"] == {"round": 3, "n": 1} and "rejudge_requested" in b.loop_state,
+          "決着しない返答は往復を 1 つ数え、異議は降りない（回数は周とセットで持つ）")
     for _ in range(2):
         checks["rejudge_output"](b, "p2.rejudge", {"verdict": "一部採る", "new_facts": "同じく現物に当たったが、片方の根拠だけが確かめられ、争点は解けないまま残った", "units": []}, None)
     check(not conds["rejudge_open"](b) and conds["rejudge_exhausted"](b),
           f"上限（{rules.REJUDGE_MAX}）に達すると往復の節は閉じ、第三の目が開く（常設でなくここでだけ立つ）")
+
+    # **上限は run 全体でなく 1 周に掛かる。** 以前は回数が周をまたいで積まれたので、どこか 1 周で使い切ると
+    # run の残り全部で往復の節が開かず、新しい異議は 1 回目からいきなり第三の目に行った（＝常設しないという
+    # 名乗りが破れる）。**次の周に同じ盤面で異議を出すと、往復がまた開く**ことを見る
+    b.round = 4
+    b.loop_state["rejudge_requested"] = {"round": 4, "text": "次の周の新しい異議"}
+    check(conds["rejudge_open"](b) and not conds["rejudge_exhausted"](b),
+          "前の周で上限まで往復しても、次の周の異議では往復の節がまた開く（上限は周ごと）")
+    checks["rejudge_output"](b, "p2.rejudge", {"verdict": "一部採る", "new_facts": "次の周の争点について現物に当たり、片方だけ確かめられた", "units": []}, None)
+    check(b.loop_state["rejudge_rounds"] == {"round": 4, "n": 1}, "周が変わると往復の回数は 1 から数え直す")
+    b.round, b.loop_state["rejudge_requested"] = 3, {"round": 3, "text": "今の周の異議"}
+    b.loop_state["rejudge_rounds"] = {"round": 3, "n": rules.REJUDGE_MAX}
 
     # 決着する返答は異議を降ろす
     b2 = types.SimpleNamespace(round=3, loop_state={"rejudge_requested": {"round": 3, "text": "x"}})
@@ -914,28 +1025,13 @@ def main():
     # **消すのは自分が作った作業場だけ。** 接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
     # 作業場が差分に入り、そのプロセスの盤面が走行中に消えた（実測 2026-09-13: 退行注入と baseline が
     # 互いを殺し、落ちた台本が毎回違った）。Run が自分の tmp を持っているので、それを集めて消す
+    # **台本は名前で集めて同時に走らせる。** 手で並べると足した台本の呼び忘れに誰も気づかない
+    # （呼ばれない台本は件数を増やさないので件数の柵をすり抜ける）。同時に走らせてよいのは、
+    # 台本どうしが自分の作業場しか触らないから——時間はほぼ全部が子プロセスの終了待ちだった
+    # （実測 2026-09-13: 94.7 秒のうち 93.8 秒が子プロセス 1,561 回ぶん）。
+    # 直列に戻すのは GL_TEST_WORKERS=1——並列でだけ落ちる台本を切り分けるときに使う。
     try:
-        test_rejections()
-        test_new_guards()
-        test_empty_text_reply()
-        test_converges()
-        test_premise()
-        test_awaiting()
-        test_runaway()
-        test_premise_resolved()
-        test_noci()
-        test_coldfail()
-        test_deferjudge()
-        test_gates_not_applicable()
-        test_narrowed()
-        test_claim_mismatch()
-        test_proxy_to_source()
-        test_rejudge_edge()
-        test_stop_branch()
-        test_ci_red_runaway()
-        test_non_utf8_file()
-        test_nopurpose()
-        test_big_diff()
+        parallel.run_all(parallel.collect(globals()))
     finally:
         for _d in sorted(MADE):
             rm(_d)

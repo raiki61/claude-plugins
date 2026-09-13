@@ -1,0 +1,92 @@
+"""台本を同時に走らせる土台。**検査の中身は何も変えない。**
+
+なぜ要るか: 検査の時間はほぼ全部が子プロセスの起動待ちで、判定そのものはゼロに近い
+（実測 2026-09-13: simulate_review.py は 94.7 秒のうち 93.8 秒が子プロセス 1,561 回ぶんの起動待ち。
+内訳は loop.py done が 934 回 53.9 秒・loop.py next が 442 回 35.3 秒・git が 151 回 2.8 秒）。
+**待ちなので同時に走らせれば素直に縮む**——engine を実物の CLI 越しに叩く形は保つ。
+中で呼ぶのをやめて速くする道もあるが、それは「何を検査しているか」を静かに狭める。
+
+入れてよい前提（入れる前に確かめた・崩れたら直列に戻せ）:
+- 各台本は `tempfile.mkdtemp` で自分の作業場を作り、他の台本の作業場を触らない
+- `os.chdir` を呼ばない（子プロセスの cwd は毎回明示で渡している）
+- `os.environ[...] = ...` を書かない（読むだけ。`main` 冒頭の pop は起動前に 1 度）
+
+直列に戻す: `GL_TEST_WORKERS=1 python3 simulate.py`（並列でだけ落ちる台本を切り分けるときに使う）
+"""
+import concurrent.futures
+import os
+import threading
+import traceback
+
+# 件数（ran）と失敗一覧の共有更新を守る。**`ran += 1` は不可分ではない**——素で並列にすると
+# 数え落とし、件数の柵（run.sh の EXPECTED_CHECKS）が走るたび違う値で赤くなる（＝柵が信用できなくなる）。
+LOCK = threading.Lock()
+
+_buf = threading.local()
+
+
+def line(text):
+    """1 行を、その台本のまとまりに溜める。直列（溜め先が無い）ときは素通しで出す。"""
+    buf = getattr(_buf, "lines", None)
+    if buf is None:
+        print(text)
+    else:
+        buf.append(text)
+
+
+def collect(ns):
+    """モジュールに在る `test_*` を**定義順に全部**集める。`parallel.collect(globals())` で呼ぶ。
+
+    **手で並べない。** 並べていたとき、台本を足して呼び出しを書き忘れると誰も気づかなかった
+    ——呼ばれない台本は件数を増やさないので、件数の柵（EXPECTED_CHECKS）は期待値と一致したまま緑になる。
+    graph を名前で並べていて 5 本目が誰にも検査されなかったのと同じ穴（2026-09-13 に同種を 2 か所で潰した）。
+
+    件数の柵は捨てない——こちらは「足した台本が走らない」を、柵は「台本や検査が消えた」を見る。
+    見ている向きが逆なので両方要る。
+    """
+    return [v for k, v in ns.items()
+            if k.startswith("test_") and callable(v) and getattr(v, "__module__", None) == ns.get("__name__")]
+
+
+def workers(n_tests):
+    """同時に走らせる本数。子プロセスの終了待ちなので CPU 数まで上げてよい。"""
+    env = os.environ.get("GL_TEST_WORKERS")
+    if env:
+        return max(1, int(env))
+    return max(1, min(n_tests, os.cpu_count() or 4))
+
+
+def run_all(tests):
+    """台本を同時に走らせ、**出力は台本ごとにまとめて、渡された順で**出す。
+
+    素で並列に print すると 20 本ぶんの ok / FAIL が混ざり、どの台本が落ちたのか読めなくなる
+    ——検査は落ちたときに読む物なので、そこを壊すと速くした意味が無い。
+
+    例外は握り潰さない。溜めた行を全部出してから最初の 1 本を投げ直す。直列版と違うのは、
+    例外が出ても残りの台本が走りきる点——落ちた 1 本で他が全部見えなくなるのを避ける
+    （途中で止まった台本のぶん件数は足りなくなるので、件数の柵がどちらにせよ赤くする）。
+    """
+    n = workers(len(tests))
+    if n == 1:
+        for fn in tests:
+            fn()
+        return
+
+    def one(fn):
+        _buf.lines = []
+        try:
+            fn()
+            return _buf.lines, None
+        except BaseException as e:  # 出力を出しきってから投げ直す。ここで止めない
+            _buf.lines.append(f"  FAIL {fn.__name__} が例外で抜けた: {traceback.format_exc().strip().splitlines()[-1]}")
+            return _buf.lines, e
+
+    first = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n) as ex:
+        for lines, err in ex.map(one, tests):
+            for ln in lines:
+                print(ln)
+            if err is not None and first is None:
+                first = err
+    if first is not None:
+        raise first

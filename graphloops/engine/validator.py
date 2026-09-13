@@ -156,6 +156,9 @@ def finalize(b):
         proc["thickness_changes"] = b.state.get("thickness_changes", [])
         proc["patches"] = b.state.get("patches", [])
         proc["graph_changes"] = b.state.get("graph_changes", [])
+        # once で凍った出力が今の schema に合わない節。**これを読む cond・述語は永久に偽**なので、
+        # 記録にも報告にも出さないと「走らなかった」が「走らせる条件に当たらなかった」に見える
+        proc["stale_frozen"] = b.state.get("stale_frozen", [])
         # 起こせなかった遮断系（launch.missing）は state の instance にしか無く、記録にも報告にも出ていなかった
         proc["launch_missing"] = [{"instance": i["id"], "round": r["round"], "missing": i["launch"]["missing"]}
                                   for r in b.state["rounds"] for i in r["instances"].values() if (i.get("launch") or {}).get("missing")]

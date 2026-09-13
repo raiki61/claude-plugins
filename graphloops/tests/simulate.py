@@ -16,6 +16,8 @@ import sys
 import tempfile
 import types
 
+import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
+
 # Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
 for _s in (sys.stdout, sys.stderr):
@@ -35,13 +37,14 @@ DELIVERY_SEEN = set()  # 渡し方の検査が実際に当たった節。腕が�
 
 
 def check(cond, desc):
+    # 件数と失敗一覧は台本をまたいで共有される。**`ran += 1` は不可分ではない**ので錠を掛ける
+    # ——素で並列にすると数え落とし、件数の柵（run.sh の EXPECTED_CHECKS）が走るたび違う値になる。
     global ran
-    ran += 1
-    if cond:
-        print(f"  ok   {desc}")
-    else:
-        print(f"  FAIL {desc}")
-        fails.append(desc)
+    with parallel.LOCK:
+        ran += 1
+        if not cond:
+            fails.append(desc)
+    parallel.line(f"  ok   {desc}" if cond else f"  FAIL {desc}")
 
 
 def rm(p):
@@ -54,7 +57,9 @@ MADE = set()  # この プロセスが作った作業場だけを後始末する
 
 
 class Run:
-    def __init__(self, name, thickness=None, decider=None, unattended=False):
+    def __init__(self, name, thickness=None, decider=None, unattended=False, graph=None):
+        # graph=<path>: 同梱でなくその写しで回す。**回した後に graph を締める腕**（once の節の凍った出力を
+        # 今の schema で測り直す）に要る——同梱を書き換えると、他の台本と本物のリポジトリを壊す
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-{name}-"))
         MADE.add(self.tmp)
         self.repo = self.tmp / "repo"
@@ -74,6 +79,8 @@ class Run:
             args += ["--decider", decider]
         if unattended:
             args.append("--unattended")
+        if graph:
+            args += ["--graph", str(graph)]
         self.init = self.cmd(*args)
 
     def cmd(self, *args, stdin=None, env=None):
@@ -338,7 +345,8 @@ def test_rejections():
     # 穴の宣言: プロンプトに reads に無い穴があると engine が止まる（graph を壊して確かめる）
     prompts = pathlib.Path(by["p0.claims"]["prompt_file"]).read_text(encoding="utf-8")
     check("主張 A・B・C・D" in prompts and "見立て文書" in prompts, "プロンプトに文書本文が貼られている（file: の穴）")
-    check("open_questions" not in prompts or "[]" in prompts, "前の節の出力の穴が埋まっている")
+    check("open_questions" not in prompts or "[]" in prompts or "この周には無い" in prompts,
+          "前の節の出力の穴が埋まっている（空でなく値か『無い』の語）")
     for node in ("p0.claims", "p0.terms", "p5.internal", "p3.rederiver"):
         run.done(by[node]["id"], base_answers(run, "std")[node](None, 1))
     nx = run.next()
@@ -527,7 +535,7 @@ def test_units():
     """engine の部品を直に呼ぶ検査（盤面を回さずに柵の腕へ入力を与える）。"""
     print("否定検査: 型検査と遮断の腕（部品を直に呼ぶ）")
     sys.path.insert(0, str(PLUGIN))
-    from engine.render import Renderer, ReadsViolation, cap_bytes, FILE_CAP
+    from engine.render import Renderer, ReadsViolation, cap_bytes, FILE_CAP, ABSENT
     from engine.schema import validate_schema
     # 遮断: reads に無い穴は optional（{{?…}}）でも空で通さない
     r = Renderer({"a": {"b": 1}, "secret": "x"}, reads=["a"])
@@ -537,7 +545,11 @@ def test_units():
         check(False, "reads に無い穴が {{?…}} で空埋めされた（遮断が ? 一文字で外れる）")
     except ReadsViolation:
         check(True, "reads に無い穴は optional でも ReadsViolation（KeyError と別の型）")
-    check(r.render("{{?a.nope}}") == "", "reads の中の『無い』穴は optional なら空でよい")
+    # **『無い』は空でなく語で埋める。** 空に潰すと、文の途中に在る穴が判定不能の文になり、
+    # しかも「この周には無い」と「engine が渡し損ねた」が同じ値になる（実測 2026-09-13: p2.diagnose.md の
+    # {{?loop.escalated}} が空に潰れ、「深い側に上がっているなら順序を反転しろ: が在る周は」という文になった）
+    check(r.render("{{?a.nope}}") == ABSENT, "reads の中の『無い』穴は optional なら語で埋まる（空にしない）")
+    check(r.render("前は {{?a.nope}} だった") == f"前は {ABSENT} だった", "文の途中でも語が残る（読む側が真偽を決められる）")
     # 貼る上限はバイト（日本語は 1 字 3 バイト——字数で測ると 2〜3 倍のバイトが通る）
     tr = []
     ja = "あ" * (FILE_CAP // 2)
@@ -769,6 +781,118 @@ def test_isolated_real_launch():
     rm(run.tmp)
 
 
+def test_relative_dir():
+    """**`--dir` を相対で渡した run が、全周の生出力を読む節まで通る。**
+
+    盤面は出力ファイルの綴りを 1 つに決める（盤面からの相対）。以前は同じ 1 行が 2 つの綴りで書いており
+    （`state["outputs"]["file"]` は盤面からの相対、instance の `output_file` は `--dir` をそのまま前に付けた綴り）、
+    後者は**記録されていない過去の作業ディレクトリ**に錨を持っていた。帰結: 相対の `--dir` で回すと
+    `ref:raw` / `ref:out.<節>` が `<dir>/<dir>/…` を読みに行って exit 2（実測 2026-09-13: 5 周・33 節のうち
+    `ref:raw` を使う節が最終報告の 1 本だけだったので、run の最後の節まで現れなかった）。
+    この腕は**その 1 本が通る所まで**回す——綴りが割れると必ず赤くなる。
+    """
+    print("相対 --dir: 盤面の綴りが 1 つで、全周の生出力を読む節まで通る")
+    run = Run("reldir")
+    # 同じ盤面を相対の --dir で開き直す（init は絶対で作られている）
+    rel = os.path.relpath(run.dir, run.repo)
+    check(not os.path.isabs(rel), f"相対の --dir を作れた（{rel}）")
+    drive(run, "std")
+    rec = run.record()
+    check(rec.get("convergence") or rec.get("process", {}).get("outcome"), "相対の準備でも run は最後まで進む")
+    # 盤面が持つ綴りが 1 つであること——ここが割れると ref: の解決が cwd に依る
+    st = run.state()
+    stored = [i["output_file"] for rd in st["rounds"] for i in rd["instances"].values() if i.get("output_file")]
+    check(stored and not any(os.path.isabs(x) or x.startswith(str(run.dir)) for x in stored),
+          f"instance の output_file は盤面からの相対 1 つの綴り（{stored[:1]}）")
+    # 相対の --dir で ref: を解決させる——engine を別 cwd から呼び、全周の生出力を読む経路を通す
+    r = subprocess.run([PY, str(LOOP), "status", "--dir", rel], cwd=run.repo,
+                       capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode == 0, f"相対の --dir で盤面を開ける（{r.returncode}: {r.stderr[-160:]}）")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.board import Board
+    b = Board(run.dir)
+    got = b.ref("raw")
+    check(bool(got), "ref:raw が全周の生出力を返す（1 件以上）")
+    for _, f, _ in got:
+        check(pathlib.Path(f).is_file(), f"ref:raw が指す置き場が実在する（{f}）")
+        break
+    rm(run.tmp)
+
+
+def test_frozen_schema_drift():
+    """**`once` で凍った出力を、今の schema で測り直す。**
+
+    `once` の出力は最初に走った周で凍る。あとから schema に必須の欄を足しても、その節はもう走らないので
+    **欄は永久に現れない**。欄を読む cond・述語は「無い＝偽」に倒れ、run の残り全周で偽のままになる
+    ——しかも痕跡が無いので、「条件に当たらなかった」と区別できない。
+
+    実測 2026-09-13: review-loop の `p0.purpose` に `source_files` を 5 周目に足したが、この節は 1 周目で
+    凍っていた。欄を読む `purpose_sources_changed` は 6 周とも偽で、目的監査の走り直しが一度も起きず、
+    **R2（独立設計との突合）が 6 周とも走らなかった**。run が収束できない本当の理由がこれだった。
+
+    この腕は control（締める前は鳴らない）と本番（締めたら鳴る）を対で見る——常に鳴る仕掛けは、
+    鳴ったことが証拠にならない。
+    """
+    print("否定検査: once の節の凍った出力を、今の schema で測り直す")
+    # graph の綴りは同梱からの相対（`../prompts/…`）で、rules も graph の隣から引く。写しは同じ形に置く
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-frozen-graph-"))
+    MADE.add(tmp)
+    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
+    shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    (tmp / "graphs").mkdir()
+    gp = tmp / "graphs" / "research-loop.json"
+    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+    run = Run("frozen", graph=gp)
+    node = "p0.question"  # once の節。1 周目で凍る
+    # **走り切らせない。** 締めたあとに実物の `next` を通すので、盤面が動く途中で止める
+    for _ in range(12):
+        nx = run.next()
+        if not nx["ready"]:
+            break
+        answers = base_answers(run, "std")
+        for inst in nx["ready"]:
+            run.done(inst["id"], answers[inst["node"]](inst["item"], nx["round"]))
+        if node in run.state()["done_ever"]:
+            break
+    sys.path.insert(0, str(PLUGIN))
+    from engine.advance import frozen_outputs_stale
+    from engine.board import Board
+
+    b = Board(run.dir)
+    check(b.nodes[node].get("once") and node in b.state["done_ever"], f"{node} は once で、もう出さない集合に載っている")
+    notes = []
+    frozen_outputs_stale(b, notes)
+    check(not notes and not b.state.get("stale_frozen"), f"control: graph を締める前は鳴らない（{notes[:1]}）")
+
+    # 凍った出力が持ちえない欄を、その節の schema に足す（5 周目に source_files を足したのと同じ形）
+    sch = g["nodes"][node]["schema"]
+    sch["required"] = list(sch.get("required", [])) + ["source_files"]
+    sch.setdefault("properties", {})["source_files"] = {"type": "array", "items": {"type": "string"}}
+    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+
+    b2 = Board(run.dir)
+    notes2 = []
+    frozen_outputs_stale(b2, notes2)
+    stale = b2.state.get("stale_frozen") or []
+    check(len(stale) == 1 and stale[0]["node"] == node, f"締めたら鳴る（{[s.get('node') for s in stale]}）")
+    check(any("source_files" in e for e in (stale[0].get("errors") or [])), f"足した欄が理由に出る（{stale[0].get('errors')}）")
+    check(stale[0].get("frozen_in") == 1, f"どの周で凍ったかが残る（{stale[0].get('frozen_in')}）")
+    check(notes2 and node in notes2[0], f"回す側にも知らせる（{notes2[:1]}）")
+    # 節ごとに 1 度だけ——周ごとに繰り返すと notes が同じ行で埋まる
+    notes3 = []
+    frozen_outputs_stale(b2, notes3)
+    check(not notes3 and len(b2.state.get("stale_frozen") or []) == 1, "同じ節は 2 度言わない")
+    # **実物の `next` でも鳴ること。** 上の 3 つは部品を直に呼んでいるので、`advance` から呼び出しを
+    # 外しても全部緑のままだった（実測: この腕を足す前、3 か所のうち配線だけが覆われていなかった）
+    nx = run.next()
+    st = run.state()
+    check(any(s["node"] == node for s in st.get("stale_frozen", [])), f"実物の next でも盤面に残る（{st.get('stale_frozen')}）")
+    check(any(node in t for t in nx.get("notes", [])), f"実物の next が回す側に知らせる（notes: {nx.get('notes')}）")
+    rm(tmp)
+    rm(run.tmp)
+
+
 def test_isolated_not_truncated():
     """遮断系へ渡す本文は切らない——貼る先の上限は Agent ツールのプロンプトの性質で、標準入力には無い。
 
@@ -963,26 +1087,12 @@ def main():
     # **消すのは自分が作った作業場だけ。** 接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
     # 作業場が差分に入り、そのプロセスの盤面が走行中に消えた（実測 2026-09-13: 退行注入と baseline が
     # 互いを殺し、落ちた台本が毎回違った）。Run が自分の tmp を持っているので、それを集めて消す
+    # **台本は名前で集めて同時に走らせる。** 手で並べると足した台本の呼び忘れに誰も気づかない
+    # （呼ばれない台本は件数を増やさないので件数の柵をすり抜ける）。同時に走らせてよいのは、
+    # 台本どうしが自分の作業場しか触らないから——時間はほぼ全部が子プロセスの終了待ちだった。
+    # 直列に戻すのは GL_TEST_WORKERS=1——並列でだけ落ちる台本を切り分けるときに使う。
     try:
-        test_graphcheck()
-        test_rejections()
-        test_units()
-        test_bad_builtin()
-        test_arms()
-        test_converges()
-        test_unattended_stuck()
-        test_attended_stuck_answer()
-        test_light()
-        test_resolve_dir()
-        test_gate_arms()
-        test_isolated_launch()
-        test_isolated_real_launch()
-        test_isolated_not_truncated()
-        test_concurrent_save()
-        test_parse_output()
-        test_non_utf8_document()
-        test_plugin_path_ambiguity()
-        test_unresolved_role()
+        parallel.run_all(parallel.collect(globals()))
     finally:
         for _d in sorted(MADE):
             rm(_d)

@@ -218,6 +218,20 @@ class Board:
             out[nid] = self.read_out(info["file"], board_relative=True)
         return out
 
+    def _out_path(self, stored):
+        """instance の `output_file` を実パスに直す。**推し量らず、古い綴りを名指しで見分ける。**
+
+        いまは書く側（commands.py / advance.py）が盤面からの相対で書く。**この run より前に作られた盤面は
+        `--dir` をそのまま前に付けた綴りで持っている**ので、そのまま前置きすると `<dir>/<dir>/…` に繋がる
+        （実測 2026-09-13: 最終報告の ref:raw がその形で exit 2）。移行の下駄なので、
+        **古い綴りは「盤面の綴りで始まる」か「絶対」でしか現れない**——形から推し量る余地を残さない。
+        既存の run が全部終わったら消してよい（消す条件: この関数が 1 度も else 以外に落ちないこと）。
+        """
+        p = pathlib.Path(stored)
+        if p.is_absolute() or str(p).startswith(str(self.dir)):
+            return str(p)
+        return str(self.dir / p)
+
     def read_out(self, path, *, board_relative=False):
         """出力ファイルを 1 度だけ読む（同じ Board の間）。
 
@@ -233,8 +247,8 @@ class Board:
         resolve() は毎回 realpath を引くので使わない（実測: 1 回の next で 7,640 回）。
         """
         cache = self.__dict__.setdefault("_out_cache", {})
-        if board_relative and not os.path.isabs(path):
-            path = os.path.join(str(self.dir), path)
+        if board_relative:
+            path = self._out_path(path)
         key = os.path.normpath(os.path.abspath(path))
         if key not in cache:
             cache[key] = read_json(key)
@@ -252,7 +266,7 @@ class Board:
             return [(path, str(self.dir / "record.json"), get_path({"record": self.record}, path))]
         if path == "raw":
             nodes = set(self.graph.get("raw_for_report", []))
-            return [(f"r{rd['round']}/{iid}", inst["output_file"], self.read_out(inst["output_file"]))
+            return [(f"r{rd['round']}/{iid}", self._out_path(inst["output_file"]), self.read_out(inst["output_file"], board_relative=True))
                     for rd in self.state["rounds"] for iid, inst in rd["instances"].items()
                     if inst["status"] == "done" and inst["node"] in nodes and inst.get("output_file")]
         if path.startswith("out.") or path.startswith("prev."):
@@ -266,7 +280,7 @@ class Board:
             rounds = [rd for rd in self.state["rounds"] if rd["round"] < self.round] if prev else self.state["rounds"]
             ran = [rd for rd in rounds if any(i["status"] == "done" and i["node"] == nid for i in rd["instances"].values())]
             rounds = ran[-1:]
-            return [(f"r{rd['round']}/{iid}", inst["output_file"], self.read_out(inst["output_file"]))
+            return [(f"r{rd['round']}/{iid}", self._out_path(inst["output_file"]), self.read_out(inst["output_file"], board_relative=True))
                     for rd in rounds for iid, inst in rd["instances"].items()
                     if inst["status"] == "done" and inst["node"] == nid and inst.get("output_file")]
         raise KeyError(f"{path}: ref: にできるのは record・out.<節>・prev.<節>・raw だけ")

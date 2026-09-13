@@ -13,6 +13,11 @@ import re
 from .util import dump, get_path, pick
 
 TOKEN = re.compile(r"\{\{\s*(\??)\s*([^}|]+?)\s*(?:\|\s*pick\s+([\w, ]+))?\s*\}\}")
+
+# 省略可の穴（`{{?…}}`）が解決できない／中身が空のときに埋める語。**空文字では埋めない**——
+# 文の途中に在る穴が空に潰れると、読む側が真偽を決められない文になり、しかも『この周には無い』と
+# 『engine が渡し損ねた』が同じ値になる（実測 2026-09-13: `{{?loop.escalated}}` の穴で発生）。
+ABSENT = "（この周には無い）"
 # 道具なしの役に貼る本文の上限。**バイトで測る**——字数で測ると日本語主体の本文が同じ字数でおよそ 2 倍の
 # バイトになり、貼る先（Agent の prompt）の上限を主経路で超える（実測 2026-09-12: 塊 40,000 字が 80,008 バイトに
 # なり、85 KB・68 KB は途中で切れ、51 KB は通った）。超えたら切って、切ったことを記録に残す。
@@ -205,13 +210,19 @@ class Renderer:
                 val = self.resolve(path)
             except KeyError:
                 if optional:
-                    return ""
+                    # **『無い』を空で埋めない。** 空にすると、文の途中に埋まった穴が判定不能の文を作る
+                    # （実測 2026-09-13: p2.diagnose.md の `{{?loop.escalated}}` が空に潰れ、
+                    # 「この周が深い側に上がっているなら順序を反転しろ: が在る周は」という、
+                    # 役が真偽を決められない指示になった。読む側は空を『上がっていない』と読むしかなく、
+                    # 『渡し損ねた』と区別できない）。**無いことを語で運ぶ**——役も次の周の判定者も、
+                    # 空欄と不在を読み分けられる。
+                    return ABSENT
                 raise KeyError(f"プロンプトの穴 {{{{{path}}}}} を埋められない")
             except (OSError, UnicodeDecodeError) as e:
                 # 読めなかったことは optional でも痕跡に残す（『無い』と『壊れている・権限が無い』を同じ空にしない）
                 self.truncated.append(f"{path}: 読めない（{e}）")
                 if optional:
-                    return ""
+                    return f"（読めない: {e}）"
                 raise KeyError(f"プロンプトの穴 {{{{{path}}}}} を埋められない（読めない: {e}）")
             if fields:
                 val = pick(val, [f.strip() for f in fields.split(",") if f.strip()])
