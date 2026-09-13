@@ -49,9 +49,13 @@ def sh(cwd, *args):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=120)
 
 
+MADE = set()  # この プロセスが作った作業場だけを後始末する（接頭辞の列挙は他プロセスの盤面を巻き込む）
+
+
 class Run:
     def __init__(self, name, unattended=False, big=False, latin=False):
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-review-{name}-"))
+        MADE.add(self.tmp)
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         g = lambda *a: sh(self.repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", *a)
@@ -898,7 +902,9 @@ def main():
     # 一時ディレクトリ（git リポジトリを含む）は各検査の末尾で消すが、例外で抜けた周回はそこへ届かない。
     # 走らせる側で後始末を保証する——確保は Run.__init__ の中で暗黙に起き、解放は呼び出し側の平文に在る非対称
     import tempfile as _t
-    _before = set(pathlib.Path(_t.gettempdir()).glob('gl-*'))
+    # **消すのは自分が作った作業場だけ。** 接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
+    # 作業場が差分に入り、そのプロセスの盤面が走行中に消えた（実測 2026-09-13: 退行注入と baseline が
+    # 互いを殺し、落ちた台本が毎回違った）。Run が自分の tmp を持っているので、それを集めて消す
     try:
         test_rejections()
         test_new_guards()
@@ -922,7 +928,7 @@ def main():
         test_nopurpose()
         test_big_diff()
     finally:
-        for _d in set(pathlib.Path(_t.gettempdir()).glob('gl-*')) - _before:
+        for _d in sorted(MADE):
             rm(_d)
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤

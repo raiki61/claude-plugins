@@ -439,6 +439,10 @@ def main():
         same = v.get("same_context_as")
         if same and (same not in nodes or same not in ancestors(nodes, k)):
             errs.append(f"節 {k}: same_context_as '{same}' が前の節でない")
+        # 遮断系（道具ゼロの役）は別プロセスで起こすので context を継げない。**実行時の die だけに置かない**
+        # ——回した周にしか出ないので、静的に無いことが痛みとして現れにくい（engine/advance.py の die と同じ不変条件）
+        if same and rb in isolated:
+            errs.append(f"節 {k}: 遮断系（道具ゼロ）の役 '{rb}' に same_context_as——別プロセスで起こすので context は継げない")
         if rb == "driver":
             if v.get("builtin") not in node_builtins:
                 errs.append(f"節 {k}: builtin '{v.get('builtin')}' が rules の BUILTINS に無い")

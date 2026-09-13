@@ -386,9 +386,21 @@ def check_record(b, nid=None):
 def finalize(b):
     rec, th, ls = b.record, b.state["thickness"], b.loop_state
     g = rec["gates"]
+    stopped = ls.get("outcome") == "stopped"
     for k in ("rederiver", "cold_reader"):
-        if g[k].get("status") == "not_applicable" and th == "軽量":
+        if g[k].get("status") != "not_applicable":
+            continue
+        if th == "軽量":
             g[k]["reason"] = "軽量段では走らせない（厚みの三段の表が正本）"
+        elif stopped:
+            # **収束せず停止した run は報告できなければならない。** 以前はここが軽量段しか触らず status も動かさなかったので、
+            # 非収束で止まった標準／重厚段は検証器が exit 2 を返し続け（軽量でない段で not_applicable のゲートは fail）、
+            # report_accepts_exit の既定 [0] の外なので engine が die し、**report の節が永久に出なかった**
+            # （到達経路は max_rounds・thrash・stuck・unverifiable の 4 つで、どれも設計上『停止して報告する』筋）。
+            # 受理集合を広げる処方は採らない——exit 2 は「記録が不正」であって、広げると本当の不正も通る
+            g[k]["status"] = "not_run"
+            g[k]["reason"] = ("収束せず停止したので走らせる周が来なかった（このゲートは新規相違ゼロの周にだけ走る）"
+                              "——飛ばした事実として記録に残す。緑と数えない")
     if g["cartographer"].get("status") == "not_applicable" and th != "重厚":
         g["cartographer"]["reason"] = f"{th} 段では走らせない（重厚だけ。厚みの三段の表が正本）"
     if rec["sampling"].get("status") == "not_applicable":

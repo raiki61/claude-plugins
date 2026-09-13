@@ -50,9 +50,13 @@ def rm(p):
     shutil.rmtree(p, ignore_errors=True)
 
 
+MADE = set()  # この プロセスが作った作業場だけを後始末する（接頭辞の列挙は他プロセスの盤面を巻き込む）
+
+
 class Run:
     def __init__(self, name, thickness=None, decider=None, unattended=False):
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-{name}-"))
+        MADE.add(self.tmp)
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True, timeout=120)
@@ -934,7 +938,9 @@ def main():
     # 一時ディレクトリ（git リポジトリを含む）は各検査の末尾で消すが、例外で抜けた周回はそこへ届かない。
     # 走らせる側で後始末を保証する——確保は Run.__init__ の中で暗黙に起き、解放は呼び出し側の平文に在る非対称
     import tempfile as _t
-    _before = set(pathlib.Path(_t.gettempdir()).glob('gl-*'))
+    # **消すのは自分が作った作業場だけ。** 接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
+    # 作業場が差分に入り、そのプロセスの盤面が走行中に消えた（実測 2026-09-13: 退行注入と baseline が
+    # 互いを殺し、落ちた台本が毎回違った）。Run が自分の tmp を持っているので、それを集めて消す
     try:
         test_graphcheck()
         test_rejections()
@@ -956,7 +962,7 @@ def main():
         test_plugin_path_ambiguity()
         test_unresolved_role()
     finally:
-        for _d in set(pathlib.Path(_t.gettempdir()).glob('gl-*')) - _before:
+        for _d in sorted(MADE):
             rm(_d)
     check(DELIVERY_SEEN >= {"p1.checker", "p3.cold_reader"}, f"渡し方の検査は checker（agent/path）と cold_reader（cli/paste）の両方に実際に当たった（{sorted(DELIVERY_SEEN)}）")
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
