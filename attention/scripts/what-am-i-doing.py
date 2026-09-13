@@ -75,7 +75,10 @@ def gh(cwd, *args):
     空文字を返して呼び出し側で節ごと落とす（材料が減るだけで、判定は壊れない）。"""
     try:
         r = subprocess.run(  # noqa: S603 — 引数はこのファイル内のリテラルと数字だけ
-            ["gh", *args], cwd=cwd, capture_output=True, text=True, timeout=20)
+            # encoding を明示する——Windows の既定は cp1252 で、日本語を含む子の出力が
+            # UnicodeDecodeError で落ちる（実測 2026-09-13: CI の windows-latest）
+            ["gh", *args], cwd=cwd, capture_output=True, text=True, timeout=20,
+            encoding="utf-8", errors="replace")
         return r.stdout.strip() if r.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):
         return ""

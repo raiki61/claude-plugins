@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=533
+EXPECTED_CHECKS=534
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2807,14 +2807,16 @@ cat > "$WORK/doc-cli.py" <<'DOCCLI'
 import re, subprocess, sys, pathlib
 root = pathlib.Path(sys.argv[1])
 loop = root / "graphloops/scripts/loop.py"
-top = subprocess.run([sys.executable, str(loop), "--help"], capture_output=True, text=True)
+top = subprocess.run([sys.executable, str(loop), "--help"], capture_output=True, text=True,
+                     encoding="utf-8", errors="replace")
 m = re.search(r"\{([a-z,]+)\}", top.stdout)
 if not m:
     print("NG loop.py --help からサブコマンドの一覧が読めない")
     sys.exit(1)
 real = {}
 for s in m.group(1).split(","):
-    h = subprocess.run([sys.executable, str(loop), s, "--help"], capture_output=True, text=True)
+    h = subprocess.run([sys.executable, str(loop), s, "--help"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     real[s] = set(re.findall(r"(--[a-z][a-z-]+)", h.stdout))
 docs = sorted((root / "commands").glob("*.md")) + sorted((root / "graphloops/commands").glob("*.md"))
 if not docs:
@@ -2838,6 +2840,37 @@ print(f"DOC_CLI_OK（手順書 {len(docs)} 本）")
 DOCCLI
 expect_output 0 "DOC_CLI_OK" "手順書が案内する loop.py の呼び出しが実物に在る（engine を動かした周に案内だけ古くならない）" \
     "$PY_BIN" "$WORK/doc-cli.py" "$ROOT"
+
+# **子の出力を文字で読むなら encoding を明示しろ。** Windows の既定は cp1252（日本語 Windows なら cp932）で、
+# このリポジトリの子プロセスはほぼ日本語を出す——`text=True` だけ付けると UnicodeDecodeError で落ちる。
+# 同じ欠陥をこのリポジトリは既に 2 度直しており（出力ストリームの reconfigure、検査の subprocess）、
+# **3 度目を新しい柵自身がやった**（実測 2026-09-13: 今日足した doc-cli.py が windows-latest だけで落ちた。
+# 知識はリポジトリに在ったのに、新しい場所に適用されなかった）。母数を機械で持つ。
+# バイトで読む呼び（text= を付けない）は対象外——復号が起きないので既定コーデックに依らない。
+cat > "$WORK/sub-encoding.py" <<'SUBENC'
+import re, sys, pathlib
+root = pathlib.Path(sys.argv[1])
+CALL = re.compile(r"subprocess\.(?:run|check_output|Popen)\((?:[^()]|\([^()]*\))*\)", re.S)
+bad = []
+files = [p for p in list(root.rglob("*.py")) + list(root.rglob("*.sh"))
+         if ".git/" not in str(p) and "node_modules" not in str(p)]
+if not files:
+    print("NG 走査対象が 0 件（母数が取れていない）")
+    sys.exit(1)
+for p in files:
+    t = p.read_text(encoding="utf-8", errors="replace")
+    for m in CALL.finditer(t):
+        s = m.group(0)
+        if ("text=True" in s or "universal_newlines=True" in s) and "encoding=" not in s:
+            bad.append(f"{p.relative_to(root)}:{t[:m.start()].count(chr(10)) + 1}")
+if bad:
+    for b in bad:
+        print(f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
+    sys.exit(1)
+print(f"SUB_ENCODING_OK（{len(files)} ファイル）")
+SUBENC
+expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encoding を明示している（Windows の既定コーデックに依らない）" \
+    "$PY_BIN" "$WORK/sub-encoding.py" "$ROOT"
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"

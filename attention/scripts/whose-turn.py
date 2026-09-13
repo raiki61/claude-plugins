@@ -190,7 +190,9 @@ def gh(*args):
     # GraphQL の 504 は過負荷時に単発で出る（実測）。1 回だけ再試行し、2 回目も落ちたら赤で止める
     for attempt in (1, 2):
         r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はこのファイル内のリテラルと GraphQL のカーソルだけ
-            [exe, *args], capture_output=True, text=True
+            # encoding を明示する——Windows の既定は cp1252 で、日本語を含む子の出力が
+            # UnicodeDecodeError で落ちる（実測 2026-09-13: CI の windows-latest）
+            [exe, *args], capture_output=True, text=True, encoding="utf-8", errors="replace"
         )
         if r.returncode == 0:
             return r.stdout
