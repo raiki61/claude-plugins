@@ -1683,7 +1683,7 @@ CR_LOAD='import importlib.util,sys
 spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)'
 # .sh を bash 経由で起こす——Windows は .sh を実行ファイルとして起動できず WinError 193 で落ちた（実測: CI の windows-latest）
 CR_REASON='import json,sys,subprocess
-out = subprocess.run(["bash", *sys.argv[1:]], capture_output=True, encoding="utf-8").stdout
+out = subprocess.run(["bash", *sys.argv[1:]], capture_output=True, encoding="utf-8", timeout=60).stdout
 reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]'
 
 echo "coldread ゲート:"
@@ -2919,6 +2919,7 @@ root = pathlib.Path(sys.argv[1])
 # AST で 68 件・正規表現で 67 件。落ちた 1 件は graphloops/tests/simulate.py の `Run.cmd` で、
 # **柵が防ぐと名乗った当の事故（台本の全 engine 呼びを通す 1 行）が母数の外**だった）。
 # 同じ差分の table-copies.py は同種の走査を ast で解いている——定番解はこの中に在った。
+RUNNERS = ("run", "check_output", "Popen")
 bad = []
 files = [p for p in root.rglob("*.py") if ".git/" not in str(p) and "node_modules" not in str(p)]
 if not files:
@@ -2931,13 +2932,27 @@ for p in files:
         tree = ast.parse(src)
     except SyntaxError:
         continue
+    # **module の綴りを決め打ちしない。** `mod != "subprocess"` で見ていたとき、
+    # `import subprocess as sp` → `sp.run(...)` が母数から静かに落ちた（実測 2026-09-14: 修正を
+    # 残したまま破りに行って見つけた——柵が名乗るのは「子の出力を文字で読む呼び」であって
+    # 「subprocess と綴られた呼び」ではない）。import の別名を先に集める
+    mods, funcs = set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            mods |= {(a.asname or a.name) for a in node.names if a.name == "subprocess"}
+        elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+            funcs |= {(a.asname or a.name) for a in node.names if a.name in RUNNERS}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         f = node.func
-        name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
-        mod = getattr(getattr(f, "value", None), "id", "")
-        if name not in ("run", "check_output", "Popen") or mod != "subprocess":
+        if isinstance(f, ast.Attribute):
+            if f.attr not in RUNNERS or getattr(f.value, "id", "") not in mods:
+                continue
+        elif isinstance(f, ast.Name):
+            if f.id not in funcs:
+                continue
+        else:
             continue
         calls += 1
         kw = {k.arg: k.value for k in node.keywords if k.arg}
