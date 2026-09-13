@@ -3079,6 +3079,11 @@ def members(node):
     if isinstance(node, ast.Dict):
         k = [x.value for x in node.keys if isinstance(x, ast.Constant) and isinstance(x.value, str)]
         return set(k) if node.keys and len(k) == len(node.keys) else None
+    if isinstance(node, ast.Lambda):
+        # **包む関数の中まで見る。** 表を `_tables("…", lambda: {…})` の形で例外境界の中へ入れた周に、
+        # この柵から 2 つの表が黙って落ちた（実測 2026-09-14: 母数 51 → 49。柵の母数が狭くなった側は
+        # 自分では赤くならないので、退行注入で気づいた）——同じ周の別の修正が、この柵の面を削っていた
+        return members(node.body)
     if isinstance(node, ast.Call):
         for a in node.args:
             m = members(a)
