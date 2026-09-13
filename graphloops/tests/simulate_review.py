@@ -897,6 +897,56 @@ def test_rejudge_path():
     rm(run.tmp)
 
 
+def test_silent_status_derived():
+    """**「黙って通る値」の集合を、検証器の表から引く（rules に写さない）。**
+
+    役の自己申告を機械が持つ事実と突き合わせる柵が、素材の 6 値のうち 2 値（`not_applicable` /
+    `carried_over`）を手で並べていた。値を足した周にその 1 値だけ柵の外に落ちるし、**同じ 2 語が
+    rules の 2 か所に写されていた**。集合の定義は表が持つ——「自分で見たと主張せず（observed=False）、
+    阻害要因にも出ない（blocks=False）」が『黙って通る値』の定義で、`not_run` / `awaiting_human` は
+    blocks=True なので黙らない（人に出る）から、ここでは塞がない。
+    """
+    print("自己申告の突合: 塞ぐ値の集合は検証器の表から引く")
+    sys.path.insert(0, str(PLUGIN))
+    import importlib.util
+    from engine.rules import Reject, load_rules
+    spec = importlib.util.spec_from_file_location("vrec2", str(VALIDATOR))
+    V = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(V)
+    check(set(V.SILENT_STATUS) == {k for k, r in V.STATUS.items() if not r.observed and not r.blocks},
+          f"集合は表から導かれる（{sorted(V.SILENT_STATUS)}）")
+    check(all(V.STATUS[k].blocks for k in V.STATUS if not V.STATUS[k].observed and k not in V.SILENT_STATUS),
+          "見ていない値のうち、黙って通らないものは必ず阻害要因に出る（blocks=True）")
+
+    gp = PLUGIN / "graphs" / "review-loop.json"
+    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    chk = rules.POST_CHECKS["fix_covers_open_units"]
+    ch = [{"unit_key": "k", "key": "k", "files": ["a.py"], "sites": [{"site": "a.py:1", "red_seen": True}],
+           "root_or_symptom": {"kind": "root", "reason": "根に当たる"},
+           "coverage": {"how": "grep -rn x .", "total": 1, "closed": 1},
+           "closure": {"sites": [{"site": "a.py:1", "red_seen": True, "verified_how": "退行を注入して赤、戻して緑"}]},
+           "bypass_tried": "修正を残したまま境界値 3 種で破りに行った。いずれも赤のまま破れなかった",
+           "breaks": {"how": "grep -rn x .", "result": "同じ不変条件の 1 箇所が今も動くことを確認"}}]
+
+    def board():
+        return types.SimpleNamespace(
+            round=2, loop_state={"open_units": []},
+            record={"units": [], "process": {}, "questions": [], "materials": {}},
+            state={"validator": str(VALIDATOR)}, rd={"instances": {}}, nodes={}, dir=PLUGIN)
+
+    def try_status(st):
+        try:
+            chk(board(), "p3.fix", {"changes": ch, "fix_closure": {"status": st, "reason": "理由"}}, None)
+            return None
+        except Reject as e:
+            return str(e)
+
+    for st in V.SILENT_STATUS:
+        msg = try_status(st)
+        check(msg and st in msg, f"修正が在る周に '{st}' は拒む（黙って通る値）——{(msg or '通った')[:60]}")
+    check(try_status("clean") is None, f"今の周に見た値（clean）は通る——{try_status('clean')}")
+
+
 def test_r_nonpass():
     """**R の非 pass を端から端までの経路で通す。** 台本は 6 周ぶん pass しか返していなかった。
 

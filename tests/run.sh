@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=532
+EXPECTED_CHECKS=533
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2797,6 +2797,47 @@ print("RATCHET_OK")
 RATCHET
 expect_output 0 "RATCHET_OK" "ラチェット（件数・語彙の到達）の突合が等値で、緩められていない" \
     "$PY_BIN" "$WORK/ratchet.py" "$ROOT"
+
+# **手順書が案内する呼び出しが、実物の CLI に在ること。** 同じ事実（サブコマンドとフラグ）が engine と
+# 手順書に分かれて宣言されており、engine 側を動かした周に手順書だけが古くなる——そして手順書は回す側が
+# 読む唯一の導線なので、**案内どおりに打つと落ちる**状態が誰にも赤くならないまま残る。doc-symbols.py が
+# 文書の名指しする定数の実在を見ているのと同型で、こちらは「打てる形か」を見る。
+# 走査対象は commands/*.md をファイル集合から導く——名前を並べると、足した手順書だけ誰も見ない。
+cat > "$WORK/doc-cli.py" <<'DOCCLI'
+import re, subprocess, sys, pathlib
+root = pathlib.Path(sys.argv[1])
+loop = root / "graphloops/scripts/loop.py"
+top = subprocess.run([sys.executable, str(loop), "--help"], capture_output=True, text=True)
+m = re.search(r"\{([a-z,]+)\}", top.stdout)
+if not m:
+    print("NG loop.py --help からサブコマンドの一覧が読めない")
+    sys.exit(1)
+real = {}
+for s in m.group(1).split(","):
+    h = subprocess.run([sys.executable, str(loop), s, "--help"], capture_output=True, text=True)
+    real[s] = set(re.findall(r"(--[a-z][a-z-]+)", h.stdout))
+docs = sorted((root / "commands").glob("*.md")) + sorted((root / "graphloops/commands").glob("*.md"))
+if not docs:
+    print("NG 手順書が 1 本も見つからない（走査の母数が 0）")
+    sys.exit(1)
+bad = 0
+for d in docs:
+    for mm in re.finditer(r"loop\.py\s+([a-z]+)((?:\s+(?:--[a-z-]+|[^\s`|]+))*)", d.read_text(encoding="utf-8")):
+        sub, rest = mm.group(1), mm.group(2)
+        if sub not in real:
+            print(f"NG {d.relative_to(root)}: loop.py に '{sub}' というサブコマンドは無い（{sorted(real)}）")
+            bad = 1
+            continue
+        for f in re.findall(r"(--[a-z][a-z-]+)", rest):
+            if f not in real[sub]:
+                print(f"NG {d.relative_to(root)}: loop.py {sub} に {f} は無い（案内どおりに打つと落ちる）")
+                bad = 1
+if bad:
+    sys.exit(1)
+print(f"DOC_CLI_OK（手順書 {len(docs)} 本）")
+DOCCLI
+expect_output 0 "DOC_CLI_OK" "手順書が案内する loop.py の呼び出しが実物に在る（engine を動かした周に案内だけ古くならない）" \
+    "$PY_BIN" "$WORK/doc-cli.py" "$ROOT"
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"

@@ -834,7 +834,10 @@ def fix_covers_open_units(b, nid, out, item):
     # 見るのは周の全体——文書だけの修正は赤を見られないので、修正ごとに要求すると文書を触った周が全部 found になる。
     # 修正ごとの赤の有無は sites にそのまま残り、judge が読む。
     st = out.get("fix_closure", {}).get("status")
-    if out["changes"] and st in ("not_applicable", "carried_over"):
+    # **「黙って通る値」の集合は検証器の表から引く**（SILENT_STATUS＝自分で見たと主張せず、阻害要因にも出ない値）。
+    # 2 語を手で写していたとき、値を足した周にその 1 値だけ柵の外に落ちる形だった——同じ欠陥を
+    # check_record も持っていた（実測 2026-09-13: 6 値のうち柵が当たるのは 2 値だけ）。
+    if out["changes"] and st in V.SILENT_STATUS:
         # 修正が在る周の閉鎖の実証は今の周の修正に対して行う——「条件に当たらない」「前の周の流用」は
         # 機械が持つ事実（changes が非空）と食い違う（実測: 全 site が red_seen=false でも not_applicable なら
         # 受理され、3 周で converged した）
@@ -1016,8 +1019,11 @@ def check_record(b, nid=None):
             st = m.get("status")
             # 素材の status（6 値）× 機械が持つ事実（この周に走った・applies_cond が真だった）の表。走った節の素材に
             # 『流用』『条件外』は書けない——1 値（not_applicable）だけ塞いでいたとき carried_over で同じ穴が通った（実測 2026-09-13）
-            if st == "carried_over":
-                errs.append(f"素材 '{mat}'（節 {k}）は今の周に走ったのに carried_over——流用は走らなかった節に機械が書く。今の周の判定を書け")
+            # 『流用』は走らなかった節に機械が書くもの。走った節に書けるのは今の周の判定。
+            # **carried_over 1 語を名指ししない**——検証器の表から「黙って通る値」を引く（not_applicable は
+            # 下の腕が na_self_ok の宣言と突き合わせるので、ここでは除く）
+            if st in V.SILENT_STATUS and st != "not_applicable":
+                errs.append(f"素材 '{mat}'（節 {k}）は今の周に走ったのに {st}——自分で見たと主張しない値は走らなかった節に機械が書く。今の周の判定を書け")
             # 走った節の『条件に当たらない』は、機械が持つ事実（applies_cond が真）と食い違うなら拒む。
             # applies_cond を持たない節は機械に照らす事実が無いので、**正当に名乗れる節を graph が宣言する**
             # （na_self_ok）——`ap is not None` で絞っていたとき、宣言の無い 11 節（うち回す側が 6）まで自己申告で

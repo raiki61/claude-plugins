@@ -127,7 +127,10 @@ MATERIALS = (
 # 動かせない」と書いてあるのに「阻害要因は無い」と出て exit 0 になり、検査 529 件も全部通った。
 # 行に持てば、**属性を書き忘れた時点で namedtuple の生成が落ちる**（起動時に必ず落ちるので、
 # 記録がその状態を使うまで待たない）。同じ形の直しは問いの種類の表で 1 度効いている。
-Rule = collections.namedtuple("Rule", "fields blocks carryable")
+# `observed` = **その値が「今の周に自分で見た」と主張しているか。** 以前は無く、「見ていないのに
+# 黙って通る値」の集合を読む側が手で並べていた（`("not_applicable", "carried_over")` の 2 語）。
+# 表に無い性質を読む側が持つと、値を足した周にその 1 値だけ柵の外に落ちる——**値の性質は表が持つ。**
+Rule = collections.namedtuple("Rule", "fields blocks carryable observed")
 
 
 def _rows(what, cls, rows):
@@ -146,16 +149,16 @@ def _rows(what, cls, rows):
 # not_applicable は持ち越しでなく not_applicable と書く（条件に当たらないのは今ラウンドの
 # 事実で、前ラウンドの判定の流用ではない）。
 STATUS = _rows("素材の状態", Rule, {
-    "found": (("count", "detail"), False, True),
+    "found": (("count", "detail"), False, True, True),
     # 今ラウンドに見たが無かった（何を見たかを要求する）。
-    "clean": (("checked",), False, True),
+    "clean": (("checked",), False, True, True),
     # 前ラウンドの判定を流用した。**`clean` と分ける**——`clean` は「今回見た」で、
     # 持ち越しを `clean` に入れると最後に実際に見たラウンドが誰にも見えなくなる
     # （実例: 持ち越しを `clean` で書いた記録が 3 素材あった）。
-    "carried_over": (("from_round", "reason"), False, True),
-    "not_applicable": (("reason",), False, False),
-    "awaiting_human": (("reason",), True, False),  # 人の起動待ちで止まっている
-    "not_run": (("reason",), True, False),  # やるべきだったが飛ばした
+    "carried_over": (("from_round", "reason"), False, True, False),
+    "not_applicable": (("reason",), False, False, False),
+    "awaiting_human": (("reason",), True, False, False),  # 人の起動待ちで止まっている（blocks=True なので黙らない）
+    "not_run": (("reason",), True, False, False),  # やるべきだったが飛ばした（blocks=True なので黙らない）
 })
 
 # P-R の俯瞰。収束条件の半分がここに載る。以前は「人が見る」として記録の外に置いていたが、
@@ -258,6 +261,11 @@ ORIGIN_NOTE = {"unit": "origin は当該ユニットの key", "material": "origi
 # 黙って効かなくなる**（実測。exit 1 で素通りした）。`ask_human` だけを名指しで弾いていた
 # ので、読む人には「他の綴り違いも弾かれる」と見えるのも悪い。**知らない欄は落とす**——
 # 綴り違いが黙って無効になる側でなく、書いた本人に返る側へ倒す。
+# **見てもいないのに黙って通る値**＝自分で見たと主張せず（observed=False）、阻害要因にも出ない（blocks=False）。
+# 機械が「今の周に走った／修正が在る」と知っている所にこれが書かれていたら、役の申告と事実が食い違う。
+# 読む側（rules）はこの集合を import する——2 語を手で並べていたとき、値を足した周にその 1 値だけ外に落ちた。
+SILENT_STATUS = tuple(k for k, r in STATUS.items() if not r.observed and not r.blocks)
+
 QUESTION_FIELDS = ("key", "kind", "status", "reason", "resolution", "options", "depends", "origin")
 UNIT_FIELDS = ("key", "label", "disposition", "reason", "reopen_evidence")
 
