@@ -786,7 +786,8 @@
    "prompt_file": "../prompts/research-loop/p1.checker.md",
    "reads": [
     "item.key",
-    "item.claims"
+    "item.claims",
+    "validator"
    ],
    "forbidden_inputs": [
     "前ラウンドの判定",
@@ -905,7 +906,8 @@
    "source": "P1 ＞ Verify 段／負荷確証の反証探索",
    "prompt_file": "../prompts/research-loop/p1.refuter.md",
    "reads": [
-    "item"
+    "item",
+    "validator"
    ],
    "forbidden_inputs": [
     "同じクラスタの他の判定",
@@ -1804,7 +1806,8 @@
    "source": "P4 ＞ 確認ラウンドの抜き取り検査",
    "prompt_file": "../prompts/research-loop/p3.sampling.md",
    "reads": [
-    "item.claims"
+    "item.claims",
+    "validator"
    ],
    "forbidden_inputs": [
     "元の判定・理由"

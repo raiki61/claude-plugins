@@ -37,6 +37,7 @@ exit 2 になる。中身の質は保証しない（「該当なし」は書け�
 衝突する。
 """
 
+import collections
 import json
 import sys
 
@@ -52,22 +53,56 @@ VERDICTS = ("確証", "相違", "留保", "検証不能")
 CHECKED_VERDICTS = tuple(v for v in VERDICTS if v != "検証不能")
 # 判定ごとに追加で要求する欄。適用条件のない確証・訂正のない相違/留保・
 # 「何が確認できれば判定できるか」のない検証不能は、いずれも不完全な判定。
-VERDICT_FIELDS = {
-    "確証": ("conditions",),
-    "相違": ("correction",),
-    "留保": ("correction",),
-    "検証不能": ("needs",),
-}
+# **note は飾りではなく、役に貼る本文の正本**（PROMPT_TABLES が組み立てる）。判定語の意味が散文の
+# コメントにしか無かったとき、貼る側（p1.checker.md ほか 5 本）が手で写していた——実測 2026-09-13:
+# 6 本の prompt が検証器の名前表を 13 か所で並べ直していた。review 側で同じ形を閉じた直後に、
+# research 側は手つかずで残っていた（**知見が片側にしか適用されない**）。
+def _rows(what, cls, rows):
+    """状態の表を組む。**属性の書き忘れをここで落とす。** 素の namedtuple で組むと、書き忘れは TypeError に
+    なるが**末尾の例外境界より前（インポート時）**なので未処理例外の exit 1 になり、「阻害要因あり」と
+    区別が付かない——契約の 3 値が 1 つ潰れる。
+
+    review-record.py にも同じ物が在る。**検証器は 1 本ずつ配る前提で共有モジュールを持たない**ので、
+    この重複は構造上のもの（写しが「狭くなる」種類のものではない——表の中身でなく組み立て方）。
+    """
+    out = {}
+    for name, args in rows.items():
+        try:
+            out[name] = cls(*args)
+        except TypeError as e:
+            fail(f"{what} の '{name}' の行が不完全（属性の書き忘れ）: {e}")
+    return out
+
+
+Verdict = collections.namedtuple("Verdict", "fields note")
+VERDICT_FIELDS = _rows("判定語", Verdict, {
+    "確証": (("conditions",), "一次情報が主張どおり。conditions に適用条件・限界を必ず書く"
+                          "（適用条件のない確証は不完全で、後段の適応で使えない）"),
+    "相違": (("correction",), "一次情報と食い違う。correction に文書へ書くべき正しい記述"),
+    "留保": (("correction",), "概ね正しいが重要な限定・精密化が要る。correction に限定を書く"),
+    "検証不能": (("needs",), "一次情報に到達できない。needs に「何が確認できれば判定できるか」"),
+})
 THICKNESS = ("軽量", "標準", "重厚")
 # **収束ゲート（rederiver / cold-reader）を走らせる段。** 「軽量でない」を読む側が 2 語で並べていたので、
 # 段を足した周にその 1 段だけゲートを課されないまま緑になる。厚みの三段の表がここの正本。
 GATED_THICKNESS = tuple(t for t in THICKNESS if t != "軽量")
-DECIDERS = ("依頼者指定", "既定")
-# 制約の出典の独立性（P0-1/P0-5）。surveyor 自書は rederiver の扱いが変わるため、
+DECIDERS = ("依頼者指定", "既定")# 制約の出典の独立性（P0-1/P0-5）。surveyor 自書は rederiver の扱いが変わるため、
 # 自由文字列でなく二値で申告させる。
 ORIGINS = ("独立出典", "surveyor自書")
 GATE_VERDICTS = ("pass", "redesign-needed", "unverifiable")
 OUTCOMES = ("converged", "stopped")
+
+# **プロンプトに貼る語彙は、ここが組み立てて engine が渡す。** 役に渡す散文へ表を手で写すと、正本を
+# 直した周に写しだけが古くなり、しかも役は写しの方を読む（実測 2026-09-13: research の prompt 6 本が
+# 検証器の名前表を 13 か所で並べ直していた——review 側で同じ形を閉じた直後に、こちらは手つかずだった）。
+# **engine はこの dict の中身を知らない**——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
+PROMPT_TABLES = {
+    "verdicts": "／".join(f"{k}（{v.fields[0]} が要る）: {v.note}" for k, v in VERDICT_FIELDS.items()),
+    "checked_verdicts": "／".join(CHECKED_VERDICTS),
+    "gate_verdicts": "／".join(GATE_VERDICTS),
+    "origins": "／".join(ORIGINS),
+    "thickness": "／".join(THICKNESS),
+}
 # 記録の必須欄。terms（語彙定義）・numbers（数値と出所の組）が空配列でも欄自体は要る——
 # 「定義すべき語・出所を書くべき数値は無かった」の明示と、欄ごと忘れた欠落を区別するため。
 REQUIRED = (
@@ -185,7 +220,7 @@ def validate(rec, path):
         verdict = cl.get("verdict")
         if verdict not in VERDICTS:
             fail(f"{path}: 主張 '{cid}' の verdict が不正: {verdict!r}（{'/'.join(VERDICTS)}）")
-        for field in VERDICT_FIELDS[verdict]:
+        for field in VERDICT_FIELDS[verdict].fields:
             require_str(cl, field, f"{path}: 主張 '{cid}'（verdict={verdict}）")
         for flag in ("load_bearing", "refuted"):
             if not isinstance(cl.get(flag), bool):

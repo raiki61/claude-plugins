@@ -376,7 +376,7 @@ def check_record(b, nid=None):
             errs.append(f"主張 '{c['id']}' の verdict が語彙に無い: {v!r}（{'/'.join(V.VERDICTS)}）")
             continue
         # 検証器の表は判定 → 要る欄の組（tuple）。rules に在った写しは判定 → 欄 1 つの dict で、形が既にずれていた
-        for need in V.VERDICT_FIELDS.get(v, ()):
+        for need in (V.VERDICT_FIELDS[v].fields if v in V.VERDICT_FIELDS else ()):
             if not (isinstance(c.get(need), str) and c[need].strip()):
                 errs.append(f"主張 '{c['id']}'（{v}）に '{need}' が無い")
         if v != "検証不能" and not (isinstance(c.get("sources"), list) and c["sources"] and all(isinstance(s, str) and s.strip() for s in c["sources"])):

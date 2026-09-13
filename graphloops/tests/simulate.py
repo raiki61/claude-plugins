@@ -834,6 +834,38 @@ def test_relative_dir():
     rm(run.tmp)
 
 
+def test_research_vocab_not_copied():
+    """**research 側の語彙も検証器 1 か所から渡す。** review 側で閉じた形が、こちらには手つかずで残っていた。
+
+    実測 2026-09-13: research の prompt 6 本が検証器の名前表を 13 か所で並べ直していた——review の
+    `p2.diagnose.md` で同じ形を閉じた当日に、こちらは 1 か所も直っていない。**知見が片側にしか
+    適用されない**のが、この周の一撃（宣言している面が消費している面より狭い）の別の顔。
+    """
+    print("否定検査: research の判定語彙も検証器が組み立てて渡す")
+    sys.path.insert(0, str(PLUGIN))
+    import importlib.util
+    from engine.render import Renderer
+    spec = importlib.util.spec_from_file_location("rvrec", str(VALIDATOR))
+    V = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(V)
+    check(hasattr(V, "PROMPT_TABLES"), "検証器が貼る用の表を宣言している")
+    for name in ("p1.checker", "p1.refuter", "p3.sampling"):
+        tpl = (PLUGIN / "prompts" / "research-loop" / f"{name}.md").read_text(encoding="utf-8")
+        check("{{validator." in tpl, f"{name}: 語彙を穴で受ける")
+        # 節の他の穴（item.* 等）は reads の外なので、語彙の穴だけを取り出して埋める
+        holes = "\n".join(ln for ln in tpl.splitlines() if "{{validator." in ln)
+        got = Renderer({"validator": V.PROMPT_TABLES}, ["validator"]).render(holes)
+        missing = [v for v in V.VERDICTS if v not in got]
+        check(not missing, f"{name}: 検証器が知る判定語が 1 つ残らず届く（届かない: {missing}）")
+    # **生成されている証拠**: 検証器に判定語を足すと、プロンプトを触らずに届く
+    grown = dict(V.PROMPT_TABLES)
+    grown["verdicts"] = V.PROMPT_TABLES["verdicts"] + "／架空の判定（台本が足した）"
+    tpl = (PLUGIN / "prompts" / "research-loop" / "p1.checker.md").read_text(encoding="utf-8")
+    holes = "\n".join(ln for ln in tpl.splitlines() if "{{validator." in ln)
+    check("架空の判定" in Renderer({"validator": grown}, ["validator"]).render(holes),
+          "検証器に足した語が、プロンプトを触らずに役へ届く（写しなら届かない）")
+
+
 def test_porcelain_memo():
     """**作業ツリーの写しは 1 プロセスに 1 回。** 前後の突合は別プロセスなので混ざらない。
 
