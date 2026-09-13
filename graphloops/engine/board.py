@@ -215,15 +215,27 @@ class Board:
         for nid, info in self.state["outputs"].items():
             if before_round is not None and info["round"] >= before_round:
                 continue
-            out[nid] = self.read_out(info["file"])
+            out[nid] = self.read_out(info["file"], board_relative=True)
         return out
 
-    def read_out(self, path):
-        """出力ファイルを 1 度だけ読む（同じ Board の間）。鍵は絶対パス——outputs は盤面からの相対、ref / instance は
-        絶対で持つので、鍵を揃えないと memo を素通りする（実測 2026-09-12: 重複 314 回）。"""
+    def read_out(self, path, *, board_relative=False):
+        """出力ファイルを 1 度だけ読む（同じ Board の間）。
+
+        **どちらの綴りで持っているかは、渡す側が知っている**——`state["outputs"]["file"]` は盤面からの相対
+        （commands.py が `f.relative_to(b.dir)` で書く）、instance の `output_file` は `--dir` をそのまま
+        前に付けた綴り（同じ行の `str(f)`）。ここで `is_absolute` を見て「絶対でなければ盤面からの相対」と
+        推し量ると、`--dir` を相対で渡した run では output_file が盤面の下にもう一度繋がる
+        （実測 2026-09-13: 最終報告の `ref:raw` が `<dir>/<dir>/out/r1/p1.hygiene.json` を読みに行って exit 2。
+        5 周のうち ref:raw を使う節がこの 1 本だけだったので、最後の節まで出なかった）。
+        **綴りの正本は書いた側にしか無いので、引数で受け取る。**
+
+        鍵は abspath——綴りが違っても同じファイルなら memo を共有する（実測 2026-09-12: 揃えないと重複 314 回）。
+        resolve() は毎回 realpath を引くので使わない（実測: 1 回の next で 7,640 回）。
+        """
         cache = self.__dict__.setdefault("_out_cache", {})
-        # resolve() は毎回 realpath を引く（実測: 1 回の next で 7,640 回）。盤面の下のファイルは記号リンクを跨がないので normpath で足りる
-        key = os.path.normpath(path if os.path.isabs(path) else os.path.join(str(self.dir), path))
+        if board_relative and not os.path.isabs(path):
+            path = os.path.join(str(self.dir), path)
+        key = os.path.normpath(os.path.abspath(path))
         if key not in cache:
             cache[key] = read_json(key)
         return cache[key]

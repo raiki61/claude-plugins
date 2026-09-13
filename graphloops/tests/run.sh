@@ -20,7 +20,8 @@ ran=0
 for gf in "$ROOT"/graphloops/graphs/*.json; do
     g="$(basename "$gf" .json)"; g="${g%-loop}"
     v="$ROOT/scripts/$g-record.py"
-    # 4 本とも検証器つきで回す。落ちたら理由（NG 行）を出す——検証器なしで回し直して緑にする分岐は
+    # 在る graph を全部、検証器つきで回す（本数は上の for が graphs/ から導く——ここに数を書くと、
+    # graph を足し引きした周に散文だけが古くなる）。落ちたら理由（NG 行）を出す——検証器なしで回し直して緑にする分岐は
     # 置かない（以前あった review 専用のフォールバックは、欄の突合が落ちた理由を見ずに飲んでいた）。
     if "$PY_BIN" "$ROOT/graphloops/scripts/graphcheck.py" "$ROOT/graphloops/graphs/$g-loop.json" "$v" >/dev/null 2>&1; then
         echo "  ok   graphcheck $g-loop.json"

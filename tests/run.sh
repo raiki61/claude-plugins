@@ -2709,7 +2709,7 @@ expect_output 0 "DOC_SYMBOLS_OK" "文書が名指しする機械の定数が実�
 # 期待文字列は「件すべて緑」——「0 件失敗」だと母数 0（台本が 1 本も走らない）でも同じ部分文字列に
 # 当たる。件数の突合（-ne）は graphloops/tests/run.sh が自分の EXPECTED_CHECKS で持ち、ここは
 # 終了コードとその 1 行だけを見る（件数の正本を 2 か所にしない）。
-expect_output 0 "件すべて緑" "graphloops: graphcheck 4 本と模擬実行（収束・停止・諮り・軽量・拒否・柵の腕）が通り、件数が期待どおり" \
+expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部）と模擬実行（収束・停止・諮り・軽量・拒否・柵の腕）が通り、件数が期待どおり" \
     bash "$ROOT/graphloops/tests/run.sh"
 
 # **宣言した下限と、CI が測る版を機械で突き合わせる。** 版を固定した周に、固定と宣言を結ぶ検査を足さなかった
@@ -2730,23 +2730,13 @@ if not want:
     print("NG README.md に「**必須**」の行が無い（宣言した下限が読めない）"); sys.exit(1)
 if f"**{ci} 以降**" not in want[0]:
     print(f"NG CI が測る版 {ci} と README の宣言が食い違う: {want[0][:120]}"); sys.exit(1)
-# **宣言を読み手が写している箇所も突き合わせる。** 下限を 3.9 → 3.12 に動かした周に、README の「必須」の行を
-# 明示的に参照した注記 3 本（tests/*-case.py）が 3.9 のまま取り残された（実測 2026-09-13: 判定者が grep で発見）。
-# 宣言と CI だけを突き合わせても、宣言を写した側は追従しない——母数は「この下限を名乗る箇所すべて」。
-import re as _re
-stale = []
-for f in sorted(root.rglob("*.py")) + sorted(root.rglob("*.md")) + sorted(root.rglob("*.sh")):
-    if ".git/" in str(f) or "/node_modules/" in str(f):
-        continue
-    for i, ln in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-        for m in _re.finditer(r"名乗る下限[はが]?\s*([0-9]+\.[0-9]+)", ln):
-            if m.group(1) != ci:
-                stale.append(f"{f.relative_to(root)}:{i} 名乗る下限 {m.group(1)}（CI が測るのは {ci}）")
-if stale:
-    print("NG 下限の名乗りが CI と食い違う箇所が在る（宣言を写した側が追従していない）:")
-    for x in stale:
-        print("  " + x)
-    sys.exit(1)
+# **写した側まで数える柵は、ここには置かない。** 一度置いたが、**発火しえない形だった**——語（「名乗る下限」）で
+# 母数を取る走査を足した同じ周に、その語を含む注記の側を書き替えてしまい、母数が 0 になった。にもかかわらず
+# コメントは「母数はこの下限を名乗る箇所すべて」と名乗っていた（実測 2026-09-13: 判定者が、語の出現が
+# run.sh 自身の 2 行だけであることを grep で示した）。**発火しえない柵は、無い柵より悪い**——守られていると
+# 誤認させる。母数を「実装より広い範囲を名乗る箇所の一覧」で取る形は、その一覧を誰がどう作るかが未決なので
+# （台帳の held）、決まるまで柵を置かない。今そこに残る 3.9 の言及はいずれも過去形の経緯（「下限が 3.9 だった頃」）で、
+# 宣言ではない。
 print("PY_FLOOR_OK")
 PYFLOOR
 expect_output 0 "PY_FLOOR_OK" "README が宣言した Python の下限と、CI が測る python-version が一致する（片方だけ動かすと赤）" \
