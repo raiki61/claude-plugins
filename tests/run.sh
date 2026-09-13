@@ -2623,6 +2623,14 @@ PYNUM
 # 文書だけが消えた名前を指したまま残り、読む人はそこへ探しに行って何も見つけられない。
 cat > "$WORK/doc-symbols.py" <<'PYSYM'
 import pathlib, re, sys
+import sys
+# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
+# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
+# しかも落ちたのは合格の行を print するところ）。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 # **除外は明示の表で持つ**——表に無い名前を名指しした瞬間に赤くなるので、足し忘れは
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
@@ -2718,6 +2726,14 @@ expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部�
 # 同型の突合（文書の名指しする定数の実在）を既に持っており、そこに揃える。
 cat > "$WORK/py-floor.py" <<'PYFLOOR'
 import re, sys, pathlib
+import sys
+# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
+# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
+# しかも落ちたのは合格の行を print するところ）。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 wf = (root / ".github/workflows/test.yml").read_text(encoding="utf-8")
 m = re.search(r'python-version:\s*"([0-9.]+)"', wf)
@@ -2754,6 +2770,14 @@ expect_output 0 "PY_FLOOR_OK" "README が宣言した Python の下限と、CI �
 # 「491 件すべて緑」だった）。**注記は赤くならないので、仕組みで見る。**
 cat > "$WORK/ratchet.py" <<'RATCHET'
 import re, sys, pathlib
+import sys
+# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
+# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
+# しかも落ちたのは合格の行を print するところ）。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 # 表を足すときは「定数の宣言」と「突合の現物（その 1 行まるごと）」の両方を書く。
 # **部分一致では足りない。** 最初に `reached == VOCAB_REACHED` の存在だけを見ていたが、
@@ -2811,6 +2835,14 @@ expect_output 0 "RATCHET_OK" "ラチェット（件数・語彙の到達）の�
 # 走査対象は commands/*.md をファイル集合から導く——名前を並べると、足した手順書だけ誰も見ない。
 cat > "$WORK/doc-cli.py" <<'DOCCLI'
 import re, subprocess, sys, pathlib
+import sys
+# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
+# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
+# しかも落ちたのは合格の行を print するところ）。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 loop = root / "graphloops/scripts/loop.py"
 top = subprocess.run([sys.executable, str(loop), "--help"], capture_output=True, text=True,
@@ -2855,6 +2887,14 @@ expect_output 0 "DOC_CLI_OK" "手順書が案内する loop.py の呼び出し�
 # バイトで読む呼び（text= を付けない）は対象外——復号が起きないので既定コーデックに依らない。
 cat > "$WORK/sub-encoding.py" <<'SUBENC'
 import re, sys, pathlib
+import sys
+# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
+# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
+# しかも落ちたのは合格の行を print するところ）。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 CALL = re.compile(r"subprocess\.(?:run|check_output|Popen)\((?:[^()]|\([^()]*\))*\)", re.S)
 bad = []
@@ -2869,11 +2909,23 @@ for p in files:
         s = m.group(0)
         if ("text=True" in s or "universal_newlines=True" in s) and "encoding=" not in s:
             bad.append(f"{p.relative_to(root)}:{t[:m.start()].count(chr(10)) + 1}")
+# **書く側も見る。** 読む側だけを見ていたので、今日足した柵 4 本が「合格の行に日本語を print する」
+# ところで windows-latest だけ落ちた（実測 2026-09-13）——**柵の名乗り（encoding を明示している）が、
+# 測る面（読む側だけ）より広かった**。埋め込みの script は自分で標準出力を直せるので、そこを要求する。
+here = re.findall(r"cat > \"\$WORK/([\w.-]+)\" <<'(\w+)'\n(.*?)\n\2\n",
+                  (root / "tests/run.sh").read_text(encoding="utf-8"), re.S)
+if not here:
+    print("NG tests/run.sh に埋め込みの script が 1 本も無い（走査が壊れている）")
+    sys.exit(1)
+for name, _tag, body in here:
+    if "reconfigure" not in body:
+        bad.append(f"tests/run.sh の {name}: 標準出力の encoding を直していない"
+                   "（Windows の既定 cp1252 で、日本語を print した時点で落ちる）")
 if bad:
     for b in bad:
-        print(f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
+        print(f"NG {b}" if b.startswith("tests/run.sh") else f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
     sys.exit(1)
-print(f"SUB_ENCODING_OK（{len(files)} ファイル）")
+print(f"SUB_ENCODING_OK（読む側 {len(files)} ファイル・書く側 {len(here)} script）")
 SUBENC
 expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encoding を明示している（Windows の既定コーデックに依らない）" \
     "$PY_BIN" "$WORK/sub-encoding.py" "$ROOT"
@@ -2886,6 +2938,14 @@ expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encod
 # 広いことを名乗る**形になるので、今日それを 3 回直した当の周に作らない。
 cat > "$WORK/table-copies.py" <<'TBLCOPY'
 import ast, pathlib, sys
+import sys
+# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
+# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
+# しかも落ちたのは合格の行を print するところ）。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 MIN = 2  # 1 語の一致は普通の参照。2 語以上そろって初めて「並べ直し」と見なす
 
@@ -2955,6 +3015,14 @@ expect_output 0 "TABLE_COPIES_OK" "名前表の要素を読む側が文字列で
 # 今は穴ではない。危ないのは「後から行頭で読み始めたのに、その検証器に口が無い」形なので、その組を落とす。
 cat > "$WORK/stdout-shape.py" <<'STDOUTSHAPE'
 import pathlib, re, sys
+import sys
+# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
+# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
+# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
+# しかも落ちたのは合格の行を print するところ）。
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 # 行頭で読む印（engine 側の書き方に依らず、`ln[0].isspace()` で判定行を絞る形を探す）
 READS_LINE_HEAD = re.compile(r"\[0\]\.isspace\(\)")
