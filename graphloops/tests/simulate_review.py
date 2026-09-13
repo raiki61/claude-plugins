@@ -7,6 +7,7 @@ convergence-loops の検証器（scripts/review-record.py。ディレクトリ�
 
 使い方: python3 simulate_review.py
 """
+import collections
 import json
 import os
 import pathlib
@@ -56,6 +57,61 @@ def sh(cwd, *args):
 
 MADE = set()  # この プロセスが作った作業場だけを後始末する（接頭辞の列挙は他プロセスの盤面を巻き込む）
 
+# 台本が実際に返した判定語彙（(節, 欄) → 値の集合）。**「台本が 1 値固定」を件数でなく到達で測る。**
+# 台本の本数も検査の件数も増え続けていたのに、役が返す値は筋書きに依らず 1 値のままで、直した分岐・
+# 非 pass の値・有人の ask を端から端までの経路が 1 度も通っていなかった（実測 2026-09-13: graph の
+# 判定語彙 185 値のうち到達は 63 値。p2.rejudge / p2.rejudge_third は 1 値も返っておらず、
+# R1 / R3 / R4 の redesign-needed と unverifiable も 1 度も出ていなかった——**その値のための機構を
+# 同じ周に足していた**）。件数の柵は「検査が消えた」を見るが、この柵は「筋書きが痩せた」を見る。
+VOCAB_SEEN = collections.defaultdict(set)
+# 到達した語彙の数。**`!=` で見る**——下限（`<`）だと筋書きを増やしても数が動かず、増やしたつもりの
+# 周に誰も気づかない。上げるときは実測値を書く（減らすのは、語彙そのものを graph から消したときだけ）。
+VOCAB_REACHED = 72
+
+
+def record_vocab(node, output):
+    """台本が返した値を集める。**既存の検査に相乗りするので、この測定のために 1 回も余計に回さない。**"""
+    if not isinstance(output, dict):
+        return
+    nid = node.split("[")[0]
+
+    def walk(v, p=""):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                walk(x, f"{p}.{k}" if p else k)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x, p + "[]")
+        elif isinstance(v, (str, bool)):
+            with parallel.LOCK:
+                VOCAB_SEEN[(nid, p)].add(v)
+
+    walk(output)
+
+
+def vocab_coverage():
+    """graph が宣言する判定語彙のうち、台本が返したものの数と、返していないものの一覧。"""
+    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    enums = {}
+
+    def walk_schema(nid, sch, path=""):
+        if not isinstance(sch, dict):
+            return
+        if "enum" in sch:
+            enums[(nid, path)] = set(sch["enum"])
+        for k, v in (sch.get("properties") or {}).items():
+            walk_schema(nid, v, f"{path}.{k}" if path else k)
+        if "items" in sch:
+            walk_schema(nid, sch["items"], path + "[]")
+
+    for nid, n in g["nodes"].items():
+        if n.get("schema"):
+            walk_schema(nid, n["schema"])
+    total = sum(len(v) for v in enums.values())
+    reached = sum(len(v & VOCAB_SEEN.get(k, set())) for k, v in enums.items())
+    unreached = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs - VOCAB_SEEN.get(k, set())))
+    return reached, total, unreached
+
 
 class Run:
     def __init__(self, name, unattended=False, big=False, latin=False):
@@ -97,6 +153,7 @@ class Run:
         return json.loads(r.stdout)
 
     def done(self, node, output, agent_id=None):
+        record_vocab(node, output)
         f = self.tmp / "out.txt"
         f.write_text(output if isinstance(output, str) else json.dumps(output, ensure_ascii=False), encoding="utf-8")
         return self.cmd("done", "--node", node, "--output", str(f), *(["--agent-id", agent_id] if agent_id else []))
@@ -221,17 +278,39 @@ def answers(run, scenario, rnd):
         "p4.ci": lambda it: {"material": CLEAN("pytest 緑")},
         "p4.scalars": lambda it: {"scalars": {"comment_ratio_pct": 10, "doc_lines": 1}},
         "r1.comment_candidates": lambda it: {"candidates": [], "kept": []},
-        "r1.minimality": lambda it: {"status": "pass", "reason": "累積差分は最小。台帳に逃げ道なし", "deletions": [], "ledger_audit": [], "increments": []},
+        # **R の非 pass は筋書きで出す。** 1 値固定にしていたとき、pass しか返らないので持ち越し・台帳の
+        # 自動起票・諮りの腕が端から端までの経路で 1 度も通らなかった（実測 2026-09-13: 判定語彙 185 値中
+        # 到達 63 値。redesign-needed と unverifiable は R1/R3/R4 とも 0 回）——**その値のための機構を
+        # 同じ周に足していた**。R ごとに別の非 pass を返すのは、腕ごとに帰結が違うため（持ち越せる／諮る）。
+        "r1.minimality": lambda it: ({"status": "redesign-needed", "reason": "台帳に逃げ道がある（検査用）", "deletions": [], "ledger_audit": [], "increments": []}
+                                     if scenario == "rnonpass" else
+                                     {"status": "pass", "reason": "累積差分は最小。台帳に逃げ道なし", "deletions": [], "ledger_audit": [], "increments": []}),
         "r2.design": lambda it: ({"question_stands": False, "reason": "既存機構で自明", "premise_invalid_reason": "呼び出し元が既に上限を持つ", "design": ""} if (scenario == "premise" or (scenario == "premise_resolved" and rnd == 1)) else
                                  {"question_stands": True, "reason": "問いは立っている", "design": "上限は入口 1 箇所で掛ける"}),
-        "r2.compare": lambda it: {"status": "pass", "reason": "構造は一致", "differences": []},
-        "r3.coherence": lambda it: {"status": "pass", "reason": "横断で揃っている"},
-        "r4.hidden_scope": lambda it: {"status": "pass", "reason": "導入・露呈した横断リスクなし", "capability_inventory": {"fired": False}, "surfaced": []},
+        "r2.compare": lambda it: ({"status": "redesign-needed", "reason": "独立設計と継ぎ目の置き方が違う（検査用）",
+                                   "differences": [{"kind": "構造", "text": "上限を入口でなく各呼び出し元に置いている"},
+                                                   {"kind": "表現", "text": "語が違うだけの差"}]}
+                                  if scenario == "rnonpass" else
+                                  {"status": "pass", "reason": "構造は一致", "differences": []}),
+        "r3.coherence": lambda it: ({"status": "unverifiable", "reason": "横断の材料が取れない（検査用）"}
+                                    if scenario == "rnonpass" else
+                                    {"status": "pass", "reason": "横断で揃っている"}),
+        "r4.hidden_scope": lambda it: ({"status": "unverifiable", "reason": "基準点の材料が取れない（検査用）", "capability_inventory": {"fired": False}, "surfaced": []}
+                                       if scenario == "rnonpass" else
+                                       {"status": "pass", "reason": "導入・露呈した横断リスクなし", "capability_inventory": {"fired": False}, "surfaced": []}),
         "stop.premise_check": lambda it: ({"key": "f の上限は既存機構で自明に満たされているか", "assumption": "呼び出し元が上限を持つ", "assumption_false": True, "evidence": "grep f( で 3 箇所中 2 箇所は上限を持たない",
                                            "verdict": "resolved", "reason": "仮定は実態で偽", "resolution": "呼び出し元 3 箇所中 2 箇所は上限を持たない（実測）",
                                            "facts_to_add": ["f の呼び出し元 3 箇所のうち 2 箇所は上限を持たない"]} if scenario == "premise_resolved" else
                                           {"key": "f の上限は既存機構で自明に満たされているか", "assumption": "呼び出し元が上限を持つ", "assumption_false": False, "evidence": "実態では持っていない箇所もあるが目的テキストの内側で閉じている",
                                            "verdict": "escalate", "reason": "人でないと決められない"}),
+        # 同じ周の往復。**台本は 1 度も通していなかった**（p2.rejudge / p2.rejudge_third の判定語彙は
+        # 12 値とも到達 0 回）——異議は engine の外の会話で起きていて、盤面を通る経路が検査されていなかった
+        "p2.rejudge": lambda it: {"verdict": "一部採る", "new_facts": "回す側が挙げた行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る",
+                                  "reason": "片方は現物に当たって確かめた（検査用）",
+                                  "units": [{"key": "f に上限が無い", "label": "block", "disposition": "do-now"}]},
+        "p2.rejudge_third": lambda it: {"verdict": "退ける", "new_facts": "往復の材料を読み直したが、回す側が挙げた事実は現物で再現しなかった",
+                                        "reason": "第三の目として判定した（検査用）",
+                                        "units": [{"key": "f に上限が無い", "label": "suggest", "disposition": "defer"}]},
         "report.human_items": lambda it: "## 人が決めること\n\n無し。\n",
         "report.cold_check": lambda it: {"verdict": "pass", "stops": [], "guessed": [], "decidable": True},
         "report": lambda it: "# レビュー報告\n\n収束した。\n",
@@ -772,6 +851,75 @@ def test_proxy_to_source():
     rm(run.tmp)
 
 
+def test_rejudge_path():
+    """**同じ周の往復を、盤面を通る経路で 1 度通す。**
+
+    `p2.rejudge` / `p2.rejudge_third` は graph に在るのに、台本が 1 度も発行していなかった
+    （実測 2026-09-13: この 2 節の判定語彙 12 値は到達 0 回）。異議は実運用では engine の外の会話で
+    起きており、**盤面を通る経路そのものが誰にも踏まれていなかった**——往復が記録に残ることを
+    この節が担っているのに、その担いを検査していない状態だった。
+    """
+    print("同じ周の往復: 異議 → p2.rejudge が発行され、判定が記録に残る")
+    run = Run("rejudge")
+    fired = seen = False
+    for _ in range(120):
+        nx = run.next()
+        if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in ("converged", "stopped")):
+            break
+        if not nx["ready"]:
+            raise RuntimeError("ready が空のまま進まない")
+        table = answers(run, "std", nx["round"])
+        for inst in nx["ready"]:
+            out = table[inst["node"]](inst["item"])
+            if inst["node"] == "p3.fix" and isinstance(out, dict):
+                for f in {f for c in out.get("changes", []) for f in c.get("files", [])}:
+                    q = run.repo / f
+                    if q.is_file():
+                        q.write_text(q.read_text(encoding="utf-8") + f"# fixed in round {nx['round']}\n", encoding="utf-8")
+            if inst["node"] in ("p2.rejudge", "p2.rejudge_third"):
+                seen = True
+            r = run.done(inst["id"], out, agent_id="judge-1" if inst["node"] == "p2.diagnose" else None)
+            if r.returncode != 0:
+                raise RuntimeError(f"done {inst['id']} が {r.returncode}: {r.stderr[-800:]}")
+            if inst["node"] == "p3.fix" and not fired:
+                # 回す側が今の周に異議を出す（実運用は loop.py patch。手当ての痕跡は state.patches に残る）
+                f = run.tmp / "obj.json"
+                f.write_text(json.dumps({"round": nx["round"], "text": "この修正は入口を 1 つしか塞いでいない"},
+                                        ensure_ascii=False), encoding="utf-8")
+                pr = run.cmd("patch", "--path", "state.loop.rejudge_requested", "--file", str(f), "--reason", "台本の異議")
+                check(pr.returncode == 0, f"異議を盤面に置ける（{pr.returncode}: {pr.stderr[-120:]}）")
+                fired = True
+    check(seen, "異議を出した周に p2.rejudge が発行される（cond が発火する）")
+    st = run.state()
+    check(any(p["path"] == "state.loop.rejudge_requested" for p in st.get("patches", [])), "往復の起点が痕跡に残る")
+    rj = (run.record().get("process") or {}).get("rejudge")
+    check(rj, f"往復の判定が記録に残る（{str(rj)[:80]}）")
+    rm(run.tmp)
+
+
+def test_r_nonpass():
+    """**R の非 pass を端から端までの経路で通す。** 台本は 6 周ぶん pass しか返していなかった。
+
+    帰結: R が非 pass のときだけ動く機構——持ち越せない値の据え置き・unverifiable の台帳の自動起票・
+    諮りの腕——が、部品を直に呼ぶ腕でしか踏まれていなかった（実測 2026-09-13: 判定語彙 185 値のうち
+    到達 63 値で、redesign-needed と unverifiable は R1/R3/R4 とも 0 回）。**その値のための機構を
+    同じ周に足していた。**
+    """
+    print("R の非 pass: redesign-needed と unverifiable を実物の経路で通す")
+    run = Run("rnonpass")
+    drive(run, "rnonpass")
+    rec = run.record()
+    rv = rec.get("reviews") or {}
+    check(rv.get("R1", {}).get("status") == "redesign-needed", f"R1 の非 pass が記録に着く（{rv.get('R1', {}).get('status')}）")
+    check(rv.get("R3", {}).get("status") == "unverifiable", f"R3 の unverifiable が記録に着く（{rv.get('R3', {}).get('status')}）")
+    check(rv.get("R4", {}).get("status") == "unverifiable", f"R4 の unverifiable が記録に着く（{rv.get('R4', {}).get('status')}）")
+    # unverifiable は「確かめられなかった」——**人に諮る行が機械の側から立つ**（役の申告を待たない）
+    qs = [q for q in rec.get("questions", []) if q.get("kind") == "unverifiable"]
+    check(qs, f"unverifiable の R には台帳の行が自動で立つ（{len(qs)} 件）")
+    check({q.get("origin") for q in qs} >= {"R3", "R4"}, f"どの R が取れなかったかが行に残る（{sorted({q.get('origin') for q in qs})}）")
+    rm(run.tmp)
+
+
 def test_vocab_not_copied():
     """**役に渡す語彙の表は、検証器が組み立てて engine が渡す。プロンプトに写さない。**
 
@@ -1075,6 +1223,10 @@ def main():
     finally:
         for _d in sorted(MADE):
             rm(_d)
+    reached, total, unreached = vocab_coverage()
+    check(reached == VOCAB_REACHED,
+          f"判定語彙の到達 {reached}/{total}（記録は {VOCAB_REACHED}）——筋書きを増やしたら数を上げろ。"
+          f"未到達の頭: {unreached[:3]}")
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤
         print("  - 検査が 1 件も走っていない")

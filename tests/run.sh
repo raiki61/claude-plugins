@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=531
+EXPECTED_CHECKS=532
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2741,6 +2741,62 @@ print("PY_FLOOR_OK")
 PYFLOOR
 expect_output 0 "PY_FLOOR_OK" "README が宣言した Python の下限と、CI が測る python-version が一致する（片方だけ動かすと赤）" \
     "$PY_BIN" "$WORK/py-floor.py" "$ROOT"
+
+# **ラチェットの突合が等値であること。** これが外から要るのは、**緩めた側は自分では赤くならない**から
+# ——検査は自分の断言が緩んだことを検知できない（実測 2026-09-13: 台本の到達数の突合を `>= 0 or` に
+# 緩める退行を注入したら、その台本は全件緑のまま exit 0 だった）。下限（`-lt` / `>=`）にすると、
+# 上げ忘れも下げ忘れも黙って通る（実測: 実数 501 に対して下限が 491 のままで、検査を 10 件消しても
+# 「491 件すべて緑」だった）。**注記は赤くならないので、仕組みで見る。**
+cat > "$WORK/ratchet.py" <<'RATCHET'
+import re, sys, pathlib
+root = pathlib.Path(sys.argv[1])
+# 表を足すときは「定数の宣言」と「突合の現物（その 1 行まるごと）」の両方を書く。
+# **部分一致では足りない。** 最初に `reached == VOCAB_REACHED` の存在だけを見ていたが、
+# `reached >= 0 or reached == VOCAB_REACHED` に緩める退行はその部分文字列を残したまま通った
+# （実測 2026-09-13: この柵を足した当日、自分で注入して緑だった）——**柵が、自分が測るものより
+# 広いことを名乗っていた**形そのもの。突合の式ぜんぶを固定し、加えて緩い比較の同居を禁ずる。
+RATCHETS = [
+    ("tests/run.sh", "EXPECTED_CHECKS", 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then'),
+    ("graphloops/tests/run.sh", "EXPECTED_CHECKS", 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then'),
+    ("graphloops/tests/simulate_review.py", "VOCAB_REACHED", "    check(reached == VOCAB_REACHED,"),
+]
+LOOSE = ("-lt", "-gt", "-le", "-ge", ">=", "<=", " > ", " < ")
+
+
+def source(rel):
+    """突合を数える対象の本文。**この柵は自分の表を数えない。**
+
+    柵は tests/run.sh の中に在り、表に突合の文字列そのものを持つ。素で数えると自分の 2 行を
+    「別の突合」と数えて常に赤くなる（実測 2026-09-13: 無傷の木で control が「3 か所」で NG）。
+    """
+    t = (root / rel).read_text(encoding="utf-8")
+    if rel == "tests/run.sh":
+        t = re.sub(r"cat > \"\$WORK/ratchet\.py\" <<'RATCHET'\n.*?\nRATCHET\n", "", t, flags=re.S)
+    return t
+
+
+bad = 0
+for rel, const, exact in RATCHETS:
+    t = source(rel)
+    if not re.search(rf'^{const}\s*=', t, re.M):
+        print(f"NG {rel}: ラチェットの定数 {const} の宣言が無い（改名したら、この表も直せ）")
+        bad = 1
+        continue
+    n = t.count(exact)
+    if n != 1:
+        print(f"NG {rel}: {const} の突合がこの形で 1 か所でない（{n} か所）: {exact}"
+              "——下限に緩めると、上げ忘れも下げ忘れも黙って通る")
+        bad = 1
+    for ln in t.splitlines():
+        if const in ln and not ln.lstrip().startswith("#") and any(op in ln for op in LOOSE):
+            print(f"NG {rel}: {const} が緩い比較と同居している（等値の行を残したまま横に足せる）: {ln.strip()[:100]}")
+            bad = 1
+if bad:
+    sys.exit(1)
+print("RATCHET_OK")
+RATCHET
+expect_output 0 "RATCHET_OK" "ラチェット（件数・語彙の到達）の突合が等値で、緩められていない" \
+    "$PY_BIN" "$WORK/ratchet.py" "$ROOT"
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"
