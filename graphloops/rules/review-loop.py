@@ -441,7 +441,8 @@ def fill_materials(b):
     last_mat = ls.setdefault("last_material", {})
     mats = b.record["materials"]
     for name, st in mats.items():
-        if st.get("status") in ("found", "clean"):
+        # 「最後に見たのはいつか」を数えるのは、自分で見たと主張している値だけ（検証器の表が正本）
+        if st.get("status") in V.OBSERVED_STATUS:
             last[name] = b.round
         if st.get("status") != "carried_over":
             last_mat[name] = st
@@ -557,7 +558,9 @@ def record_round(b, nid):
             "狭めている": "writer 自書の目的テキストを inspector が『狭めている』と判定（p0.purpose_review）——独立の出典として使えず、狭められた目的で独立設計を回さない"}[why]}
     for name in V.REVIEWS:
         if name in reviews:
-            if reviews[name]["status"] not in ("carried_over", "not_applicable"):
+            # **最後の「本物の判定」だけを覚える。** 機械が埋めた値（走らなかった節の持ち越し・条件外）で
+            # 上書きすると、前の周の諮る義務が静かに消える。2 語を手で並べていた——値を足した周に漏れる
+            if not V.REVIEW_STATUS[reviews[name]["status"]].machine_written:
                 last_review[name] = {"round": b.round, **reviews[name]}
             continue
         prev = last_review.get(name)
@@ -569,7 +572,7 @@ def record_round(b, nid):
             # R3=redesign-needed を round 2 で上書きすると、収束を妨げるものが 3 件 → 2 件に減り、警告も trace も出ない）。
             # 再発火の条件に当たらない周でも、**据え置きは上書きより優先する**。
             reviews[name] = {"status": prev["status"], "reason": prev["reason"] + f"（round {prev['round']} と同じ。持ち越せない値なので今も諮っている記録として書く）"}
-        elif name in ("R3", "R4"):
+        elif name in V.REVIEW_STATUS["not_applicable"].only_for:  # 条件外を名乗れる R だけ（表が正本）
             reviews[name] = {"status": "not_applicable",
                              "reason": f"[block]＋do-now が {ls.get('open_units', '?')} 件残り、前の周の P3 も触っていない（どちらの再発火条件にも当たらない）"}
         elif prev and V.REVIEW_STATUS[prev["status"]].carryable:
@@ -603,7 +606,8 @@ def record_round(b, nid):
     if not any(x["round"] == b.round for x in counts):
         counts.append({"round": b.round, "n": sum(1 for u in rec["units"] if u.get("label") == "block")})
     for name, st in rec["materials"].items():
-        if st.get("status") in ("found", "clean"):
+        # 「最後に見たのはいつか」を数えるのは、自分で見たと主張している値だけ（検証器の表が正本）
+        if st.get("status") in V.OBSERVED_STATUS:
             last[name] = b.round
         if st.get("status") != "carried_over":
             ls.setdefault("last_material", {})[name] = st
@@ -1074,7 +1078,7 @@ def finalize(b):
     proc["unevaluable"] = b.state.get("unevaluable", [])
     proc["cold_check"] = ls.get("cold_check")  # 初見検査の verdict と件数（非 pass でも報告は出る。直したかは writer の申告）
     proc["open_questions"] = [q for q in rec["questions"] if q.get("status") in V.ASKING]
-    proc["resolved_questions"] = [q for q in rec["questions"] if q.get("status") in ("resolved", "decided")]
+    proc["resolved_questions"] = [q for q in rec["questions"] if q.get("status") in V.DECIDED_STATUS]
 
 
 def on_answer(b, ph, ans):

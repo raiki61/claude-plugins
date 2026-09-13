@@ -4,7 +4,7 @@ import pathlib
 from .render import FILE_CAP, Renderer
 from .rules import hook, registry
 from .schema import validate_schema
-from .util import die, dump, now, porcelain, read_json, safe_name, sha, write_json
+from .util import TERMINAL_STATUS, die, dump, now, porcelain, read_json, safe_name, sha, write_json
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -270,7 +270,7 @@ def run_driver_node(b, nid, n, notes):
         b.state.pop("pending_human")
         b.state["status"] = "stopped"
         notes.append(f"無人実行: 停止（{reason}）")
-    elif d in ("converged", "stopped"):
+    elif d in TERMINAL_STATUS:
         b.state["status"] = d
     elif d != "continue":
         die(f"{nid}: decision '{d}' が不明")

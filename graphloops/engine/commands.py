@@ -12,7 +12,7 @@ from .record import apply_writes
 from .render import TOKEN
 from .rules import hook, load_rules, registry
 from .schema import validate_schema
-from .util import PLUGIN_ROOT, Reject, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
+from .util import PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
 from .validator import find_validator, finalize, report_accepts, run_validator, env_root
 
 
@@ -50,7 +50,7 @@ def required_inputs_missing(g, graph_path, inputs):
 # ---------------------------------------------------------------- next
 def cmd_next(a):
     b = Board(resolve_dir(a))
-    if b.state["status"] in ("converged", "stopped") and all(b.node_state(n) != "pending" for n in b.nodes):
+    if b.state["status"] in TERMINAL_STATUS and all(b.node_state(n) != "pending" for n in b.nodes):
         print(dump({"status": b.state["status"], "round": b.round, "ready": [], "note": "全部の節が終わっている。record.json と report を見よ"}))
         return
     if not b.state.get("pending_human"):

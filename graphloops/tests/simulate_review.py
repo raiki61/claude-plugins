@@ -17,7 +17,13 @@ import sys
 import tempfile
 import types
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from engine.util import TERMINAL_STATUS  # 終端の status は engine が正本（台本で並べ直さない）
+
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from engine.util import TERMINAL_STATUS  # noqa: E402 — 終端の status は engine が正本（台本で並べ直さない）
 
 # Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。リポジトリの他の出力スクリプトと同じ型に揃える。
@@ -335,7 +341,7 @@ def drive(run, scenario, max_steps=120, hook=None):
     for _ in range(max_steps):
         nx = run.next()
         last = nx
-        if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in ("converged", "stopped")):
+        if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in TERMINAL_STATUS):
             return nx
         if not nx["ready"]:
             raise RuntimeError("ready が空のまま進まない: " + json.dumps(nx, ensure_ascii=False)[:800])
@@ -864,7 +870,7 @@ def test_rejudge_path():
     fired = seen = False
     for _ in range(120):
         nx = run.next()
-        if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in ("converged", "stopped")):
+        if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in TERMINAL_STATUS):
             break
         if not nx["ready"]:
             raise RuntimeError("ready が空のまま進まない")

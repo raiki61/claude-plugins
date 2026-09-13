@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=534
+EXPECTED_CHECKS=535
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2871,6 +2871,75 @@ print(f"SUB_ENCODING_OK（{len(files)} ファイル）")
 SUBENC
 expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encoding を明示している（Windows の既定コーデックに依らない）" \
     "$PY_BIN" "$WORK/sub-encoding.py" "$ROOT"
+
+# **名前表の要素を、読む側が文字列で並べ直していないこと。** 6 周目に閉じた塊のうち 4 つが同じ形だった
+# ——engine か検証器が正本の集合を持つのに、読む側がその要素を手で並べ、**並べた側が本家より狭い**まま
+# 誰も気づかない（値を足した周に、その 1 値だけ静かに腕の外へ落ちる）。1 件ずつ人が見つけていたので母数を機械で取る。
+# **見るのは所属の判定（`x in (…)` / `not in`）だけ。** 素朴に「本家の部分集合である文字列の並び」を全部
+# 落とすと 80 件出て、ほぼ全部が検査の中の普通のデータだった（実測 2026-09-13）——**柵が自分の測るものより
+# 広いことを名乗る**形になるので、今日それを 3 回直した当の周に作らない。
+cat > "$WORK/table-copies.py" <<'TBLCOPY'
+import ast, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+MIN = 2  # 1 語の一致は普通の参照。2 語以上そろって初めて「並べ直し」と見なす
+
+
+def members(node):
+    """その節から文字列の集合を取れるなら取る（tuple / list / set / dict の鍵 / 包む呼び出しの引数）。"""
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        v = [e.value for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        return set(v) if node.elts and len(v) == len(node.elts) else None
+    if isinstance(node, ast.Dict):
+        k = [x.value for x in node.keys if isinstance(x, ast.Constant) and isinstance(x.value, str)]
+        return set(k) if node.keys and len(k) == len(node.keys) else None
+    if isinstance(node, ast.Call):
+        for a in node.args:
+            m = members(a)
+            if m:
+                return m
+    return None
+
+
+def pick(globs):
+    out = []
+    for g in globs:
+        out += [p for p in root.glob(g) if p.is_file()]
+    return sorted(set(out))
+
+
+owners = {}  # 正本を持つ側: engine と検証器の module 直下の大文字の名前表
+for p in pick(["graphloops/engine/*.py", "scripts/*-record.py"]):
+    for n in ast.parse(p.read_text(encoding="utf-8")).body:
+        if (isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)
+                and n.targets[0].id.isupper()):
+            m = members(n.value)
+            if m and len(m) >= MIN:
+                owners[n.targets[0].id] = (p, m)
+if not owners:
+    print("NG 名前表が 1 つも取れない（母数が 0——走査が壊れている）")
+    sys.exit(1)
+bad = []
+for p in pick(["graphloops/**/*.py", "scripts/*.py", "tests/*.py"]):
+    src = p.read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.Compare) or not any(isinstance(o, (ast.In, ast.NotIn)) for o in node.ops):
+            continue
+        for comp in node.comparators:
+            m = members(comp)
+            if not m or len(m) < MIN:
+                continue
+            for name, (op, om) in owners.items():
+                if op != p and m <= om:
+                    bad.append(f"{p.relative_to(root)}:{node.lineno}: {name}（{op.name} の {len(om)} 語）"
+                               f"のうち {sorted(m)} を並べ直している——表から導け")
+if bad:
+    for b in sorted(set(bad)):
+        print("NG " + b)
+    sys.exit(1)
+print(f"TABLE_COPIES_OK（名前表 {len(owners)} 個）")
+TBLCOPY
+expect_output 0 "TABLE_COPIES_OK" "名前表の要素を読む側が文字列で並べ直していない（並べた側だけ狭くなる形）" \
+    "$PY_BIN" "$WORK/table-copies.py" "$ROOT"
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"

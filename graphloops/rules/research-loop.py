@@ -63,13 +63,14 @@ def claims_needing_refute(b, nid):
 
 def sampling_pick(b, nid):
     """無作為に 1〜2 割（run と周で決まる種）。回す側の裁量を挟まない。周の中で選び直さない。"""
+    V = validator_module(b)
     ls = b.loop_state
     key = f"sampled_r{b.round}"
     claims = b.record["claims"]
     if key in ls:
         chosen = [c for c in claims if c["id"] in ls[key]]
     else:
-        pool = [c for c in claims if c.get("verdict") in ("確証", "相違", "留保") and not c.get("recheck")]
+        pool = [c for c in claims if c.get("verdict") in V.CHECKED_VERDICTS and not c.get("recheck")]
         if not pool:
             return []
         rng = random.Random(f"{b.state['run_id']}:{b.round}")
@@ -215,10 +216,11 @@ def count_check(b, nid):
 
 
 def gate_failures(b):
+    V = validator_module(b)
     rec, th = b.record, b.state["thickness"]
     g = rec["gates"]
     fails = []
-    if th in ("標準", "重厚"):
+    if th in V.GATED_THICKNESS:
         v = g["rederiver"]
         if v.get("status") == "not_applicable" or v.get("verdict") != "pass":
             fails.append(f"rederiver: {v.get('verdict', '未実行')}")

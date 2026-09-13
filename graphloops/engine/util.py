@@ -50,6 +50,10 @@ def dump(obj):
     return json.dumps(obj, ensure_ascii=False, indent=1)
 
 
+# run が終わった状態。**2 語を engine の 2 か所に手で並べていた**——どちらかに値を足すと、
+# もう一方だけが古いまま黙って通る（進行が止まらない／終わった run に次の節を出す）。
+TERMINAL_STATUS = ("converged", "stopped")
+
 GIT_TIMEOUT = 120  # 秒。近傍の scripts/comment-ratio.sh と同じ上限
 
 

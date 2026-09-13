@@ -166,23 +166,26 @@ STATUS = _rows("素材の状態", Rule, {
 REVIEWS = ("R1", "R2", "R3", "R4")
 # `only_for` は「この判定を使える俯瞰」。R1 / R2 は第 1 ラウンドで必ず走り以降は再発火条件で
 # 回る、R3 / R4 は P-R でのみ走る——「条件に当たらない」の意味が役ごとに違うので値を絞る。
-RRule = collections.namedtuple("RRule", "fields blocks carryable only_for")
+# `machine_written` = **役が返した判定ではなく、走らなかった節に機械が埋めた値。** 「最後の本物の判定」を
+# 覚える側はこれを除く——2 語（carried_over / not_applicable）を手で並べていたので、値を足した周に
+# その 1 値だけ「本物の判定」として記録され、前の周の諮る義務を静かに上書きする形だった。
+RRule = collections.namedtuple("RRule", "fields blocks carryable only_for machine_written")
 # **`carryable` に `unverifiable` / `premise-invalid` を入れるな**——blockers() はその回の
 # status しか見ないので、1 度持ち越した時点で人に諮る義務が阻害要因から消え、2 ラウンド目に
 # exit 0 が出る（実測: round 1 を unverifiable、round 2・3 を carried_over(from_round=1) にした
 # 記録で「阻害要因は、今ラウンドにも前ラウンドにも無い」）。諮る義務が続く限り、同じ値を
 # そのラウンドにもう一度書けばよい（それが「今も諮っている」の正直な記録である）。
 REVIEW_STATUS = _rows("俯瞰の判定", RRule, {
-    "pass": (("reason",), False, True, REVIEWS),
-    "redesign-needed": (("reason",), True, False, REVIEWS),
+    "pass": (("reason",), False, True, REVIEWS, False),
+    "redesign-needed": (("reason",), True, False, REVIEWS, False),
     # 独立に確かめられない——収束でも再設計でもなく人へ。
-    "unverifiable": (("reason",), True, False, REVIEWS),
+    "unverifiable": (("reason",), True, False, REVIEWS, False),
     # R2 だけ。解くべき問いが立っていない——judge が根拠を検算してから人へ。
-    "premise-invalid": (("reason",), True, False, ("R2",)),
-    "carried_over": (("from_round", "reason"), False, True, ("R1", "R2")),
+    "premise-invalid": (("reason",), True, False, ("R2",), False),
+    "carried_over": (("from_round", "reason"), False, True, ("R1", "R2"), True),
     # R3 / R4 だけ。[block] が残り P-R に到達していない。
-    "not_applicable": (("reason",), False, False, ("R3", "R4")),
-    "not_run": (("reason",), True, False, REVIEWS),  # やるべきだったが飛ばした
+    "not_applicable": (("reason",), False, False, ("R3", "R4"), True),
+    "not_run": (("reason",), True, False, REVIEWS, False),  # やるべきだったが飛ばした
 })
 # 収束を宣言せずユーザーに諮る値 → それを載せる台帳の種類。同じ対応が集合・順方向・逆方向の
 # 3 表現に散っていると、逆向きだけ直し忘れたときに落ちない穴になる（表 1 つに畳む）。
@@ -265,6 +268,8 @@ ORIGIN_NOTE = {"unit": "origin は当該ユニットの key", "material": "origi
 # 機械が「今の周に走った／修正が在る」と知っている所にこれが書かれていたら、役の申告と事実が食い違う。
 # 読む側（rules）はこの集合を import する——2 語を手で並べていたとき、値を足した周にその 1 値だけ外に落ちた。
 SILENT_STATUS = tuple(k for k, r in STATUS.items() if not r.observed and not r.blocks)
+# 今の周に自分で見たと主張している値。**「最後に見たのはいつか」を数えるのはこの集合だけ。**
+OBSERVED_STATUS = tuple(k for k, r in STATUS.items() if r.observed)
 
 QUESTION_FIELDS = ("key", "kind", "status", "reason", "resolution", "options", "depends", "origin")
 UNIT_FIELDS = ("key", "label", "disposition", "reason", "reopen_evidence")
@@ -300,6 +305,10 @@ QUESTION_STATUS = {
     "resolved": ("resolution",),
     "escalate": (),  # 再審の結果、人でないと決められない（好み・方針・可逆性の低い合意・目的の書き換え）
 }
+
+# 決着した状態＝ `resolution`（何をどう決めたか）を要求する状態。**2 語を手で並べない**
+# ——状態を足した周に、その 1 値だけ「決着した問い」の一覧から静かに漏れる。
+DECIDED_STATUS = tuple(k for k, extra in QUESTION_STATUS.items() if "resolution" in extra)
 # split / rule は [block] と do-now のユニットに付けられない——人に聞く前に直す義務が消えると
 # 逃げ道になる。fork / stuck は [block] に付く。**問いは阻害要因を消さない**——当のユニットは
 # [block] のまま阻害要因に数え、「保留の問いに帰属」の印が付くだけ。答えが出るまで収束しない。
