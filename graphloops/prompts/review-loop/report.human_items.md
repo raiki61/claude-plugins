@@ -1,6 +1,6 @@
 # 最終報告の冒頭——人が決めること（writer の仕事。まず本文だけを書く）
 
-問いの台帳: {{record.questions | pick key,kind,status,question,options,reason,resolution,origin}}
+問いの台帳: {{record.questions | pick key,kind,status,reason,resolution,options,depends,origin}}
 根本ユニット: {{record.units | pick key,label,disposition}}
 記録の process（**置き場と 1 行要約**。要る所だけ Read で読め）: {{ref:record.process}}
 盤面: {{loop | pick round,outcome,stop_reason,escalated,open_units,purpose_known,purpose_unusable}}

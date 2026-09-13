@@ -1,4 +1,5 @@
 """進行——機械の節を走らせ、扇を広げ、回す側に渡す節（instance）を発行する。"""
+import os
 import pathlib
 
 from .render import FILE_CAP, Renderer
@@ -17,7 +18,14 @@ ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の�
 # report.human_items が record.process と loop を丸ごと読み、6 周目で 1,120 KB。上限の無い経路
 # （回す側・遮断系・path 渡し）なので truncated にも出ず、記録にも報告にも痕跡が 1 つも無かった）。
 # この線より下は倍率が跳ねても言わない——小さい節の 1 KB → 2 KB は育ちではなく普通の揺れ。
-PROMPT_NOTICE = 100_000
+# 台本が差し替えられるようにする（環境変数）。**実物の next を通す腕が要る**——部品を直に呼ぶ腕だけの
+# とき、痕跡を積む配線（`if grew:`）を殺しても全件緑だった（実測 2026-09-14: 判定役が退行を注入して確認）。
+# 写しの graph を作って 100 KB の穴を育てるより、線を下げて実物の run を 1 本通す方が安い。
+PROMPT_NOTICE = int(os.environ.get("GL_PROMPT_NOTICE") or 100_000)
+# 育ったと呼ぶ倍率。**線と一緒に差し替えられる**——台本の穴は周をまたいでも 1.05 倍までしか育たない
+# （実測 2026-09-14: 標準の筋書きで p2.integrate が 6,737 → 7,055 バイト）ので、線だけ下げても配線を通らない。
+# 2 つとも下げて初めて、実物の next が痕跡を積む分岐を踏む。既定は本番の値で、環境変数は台本だけが使う。
+PROMPT_GROWTH_RATIO = float(os.environ.get("GL_PROMPT_GROWTH_RATIO") or 1.5)
 
 
 def launch_cli(b, inst, d):
@@ -91,7 +99,7 @@ def prompt_growth(b, nid, prompt_bytes):
     """
     prev = [i["prompt_bytes"] for rd in b.state["rounds"] if rd["round"] < b.round
             for i in rd["instances"].values() if i["node"] == nid and i.get("prompt_bytes")]
-    if not prev or prompt_bytes <= PROMPT_NOTICE or prompt_bytes <= max(prev) * 1.5:
+    if not prev or prompt_bytes <= PROMPT_NOTICE or prompt_bytes <= max(prev) * PROMPT_GROWTH_RATIO:
         return None
     return {"node": nid, "round": b.round, "bytes": prompt_bytes, "was": max(prev)}
 

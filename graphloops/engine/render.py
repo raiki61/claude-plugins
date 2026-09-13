@@ -2,7 +2,7 @@
 
 穴の形: `{{record.claims}}` `{{item.key}}` `{{out.p0.question.question}}`（前の節の出力）
 `{{prev.p3.cold_reader}}`（前の周の出力） `{{file:inputs.document}}`（ファイル本文）
-`{{?out.p3.cold_reader}}`（無ければ空） `{{record.claims | pick id,claim}}`（欄を絞る）
+`{{?out.p3.cold_reader}}`（無ければ ABSENT の語。空では埋めない） `{{record.claims | pick id,claim}}`（欄を絞る）
 `{{section:inputs.review_md#コード衛生観点}}`（markdown の見出し 1 節だけ貼る）
 `{{ref:record}}` `{{ref:out.p5.internal}}` `{{ref:prev.p3.cold_reader}}` `{{ref:raw}}`（本文でなく置き場のパスと 1 行の要約。
 回す側が既に受け取った返答を、回す側の節にもう一度貼らないため——回す側の文脈を通る本文は読む・貼るで 2 回数える）
@@ -14,7 +14,9 @@ from .util import dump, get_path, pick
 
 TOKEN = re.compile(r"\{\{\s*(\??)\s*([^}|]+?)\s*(?:\|\s*pick\s+([\w, ]+))?\s*\}\}")
 
-# 省略可の穴（`{{?…}}`）が解決できない／中身が空のときに埋める語。**空文字では埋めない**——
+# 省略可の穴（`{{?…}}`）が**解決できない**ときに埋める語。**空文字では埋めない**——
+# （**中身が空の値はそのまま空で貼る**。埋めるのは『穴を解決できなかった』側だけで、
+#  空配列・空文字は役が書いた値なので、engine が語に置き換えると役の申告を書き換えることになる）
 # 文の途中に在る穴が空に潰れると、読む側が真偽を決められない文になり、しかも『この周には無い』と
 # 『engine が渡し損ねた』が同じ値になる（実測 2026-09-13: `{{?loop.escalated}}` の穴で発生）。
 ABSENT = "（この周には無い）"

@@ -726,7 +726,13 @@ def test_gate_arms():
     run = Run("coldfail", unattended=True)
     last = drive(run, "coldfail")
     rec = run.record()
-    check(last["status"] == "stopped" and "暴走ガード" in rec["convergence"]["stopped_reason"], f"cold_reader が pass しないまま上限で stopped（{rec['convergence'].get('stopped_reason', '')[:30]}）")
+    # **上限でも諮る（review 側と同じ形）。** 以前は `stop` に倒して直前に組み立てた asks を捨てていたので、
+    # 依頼者が「続けろ」と答える受け口が無かった。無人実行はその ask を保守的に停止へ畳むので、
+    # 停止理由は「暴走ガード」でなく「諮るべき事態（…max_rounds…）」になる——**何を聞かれたかが残る側**
+    sr = rec["convergence"]["stopped_reason"]
+    check(last["status"] == "stopped" and "max_rounds" in sr, f"cold_reader が pass しないまま上限で stopped（{sr[:40]}）")
+    hi = rec["process"]["human_items"]
+    check(hi and "max_rounds" in (hi[-1].get("kinds") or []), f"何を聞かれて止まったかが記録に残る（{hi[-1].get('kinds') if hi else None}）")
     check(rec["convergence"]["outcome"] == "stopped" and all(r["verdict"] == "redesign-needed" for r in rec["gates"]["cold_reader"]["rounds"]), "収束を名乗らず、ゲートの周ごとの verdict が残る")
     check(run.state()["round"] == run.state()["max_rounds"], f"止まった周は max_rounds（{run.state()['round']}）")
     rm(run.tmp)
@@ -1201,6 +1207,30 @@ def test_prompt_growth():
     check(sizes and all(isinstance(x, int) and x > 0 for x in sizes),
           f"実物の next が節ごとの大きさを残す（{len(sizes)} 節・欠けは {sum(1 for x in sizes if not x)} 件）")
     rm(run.tmp)
+
+    # **実物の next を通す。** 上は部品を直に呼ぶ腕と材料（prompt_bytes）の有無しか見ておらず、
+    # **痕跡を積む配線（`if grew:`）を殺しても全件緑だった**（実測 2026-09-14: 判定役が退行を注入して確認）。
+    # 写しの graph で 100 KB の穴を育てるより、線を下げて実物の run を 1 本通す方が安い。
+    r2 = Run("grow2")
+    # 線と倍率の両方を下げる——台本の穴は周をまたいでも 1.05 倍までしか育たない（実測: p2.integrate が
+    # 6,737 → 7,055 バイト）ので、線だけ下げても配線を通らない。2 つとも下げて初めて実物の next が踏む
+    env = dict(os.environ, GL_PROMPT_NOTICE="1", GL_PROMPT_GROWTH_RATIO="1.0")
+    for _ in range(60):
+        nx = r2.next()
+        if not nx["ready"]:
+            break
+        answers = base_answers(r2, "std")
+        for inst in nx["ready"]:
+            r2.done(inst["id"], answers[inst["node"]](inst["item"], nx["round"]))
+        # 2 周目以降の next は線を下げて通す（同じ節の穴が育っていれば growing_prompts に行が立つ）
+        if r2.state()["round"] >= 2:
+            r2.cmd("next", env=env)
+    grew = r2.state().get("growing_prompts") or []
+    check(grew, f"実物の next で育ちが盤面に残る（{[g.get('node') for g in grew][:3]}）")
+    check(all({"node", "round", "bytes", "was"} <= set(g) for g in grew), f"行に節・周・前後の大きさが揃う（{grew[:1]}）")
+    rec = r2.record()
+    check("growing_prompts" in (rec.get("process") or {}), "記録（process.growing_prompts）にも着地する")
+    rm(r2.tmp)
 
 
 def test_frozen_schema_drift():

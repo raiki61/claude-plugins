@@ -300,7 +300,18 @@ def converge(b, nid):
     if zero and isinstance(pd, dict) and pd.get("checked") is False:
         asks.append(("prior_decisions_unchecked", "先行議論を洗えていない——決着済みの蒸し返しの可能性が残る。『重複なし』に丸めない"))
     if b.round >= st["max_rounds"]:
-        return stop(b, f"暴走ガード: 総ラウンドが上限 {st['max_rounds']} に達した（収束せず）")
+        # **上限でも諮る。** 以前はここで `stop` に倒しており、直前に組み立てた `asks` を捨てていた
+        # ——依頼者が「続けろ」と答える受け口が無く、`loop.py patch --path state.*` しか道が残らない。
+        # 何を聞かれて続行したかも記録に残らなかった（実測 2026-09-14: review 側は同じ欠陥を直したのに
+        # research 側だけ残っていた＝**知見が片側にしか当たっていない**）。延長は 1 周だけ（on_answer が上げる）。
+        asks.append(("max_rounds", f"総ラウンドが上限 {st['max_rounds']} に達した（収束せず）"
+                                   "——上限を 1 周だけ延ばして続けるか、未収束のまま報告へ進むか"))
+        return {"decision": "ask", "reason": "; ".join(k for k, _ in asks), "ask": {
+            "kinds": [k for k, _ in asks],
+            "question": f"上限 {st['max_rounds']} 周に達した。次のどれにするか"
+                        "（continue: 上限を 1 周だけ延ばして次の周へ／stop: 未収束のまま報告へ）",
+            "items": [f"{k}: {t}" for k, t in asks],
+            "options": ["continue", "stop"]}}
     can_escalate = bool(b.tiers) and st.get("thickness") != b.tiers[-1]
     if asks:
         return {"decision": "ask", "reason": "; ".join(k for k, _ in asks), "ask": {
@@ -445,18 +456,29 @@ def finalize(b):
 
 
 def on_answer(b, ph, ans):
-    b.record["process"]["human_items"].append({"round": b.round, "asked": ph["items"], "answer": ans})
+    # **kinds を落とさない。** 以前は round / asked / answer だけを積んでおり、記録からは
+    # 「何を聞かれて続行したか」が読めなかった（kinds が残るのは trace.jsonl だけ）。review 側は
+    # 同じ欠陥を直したのに research 側だけ残っていた（実測 2026-09-14）。
+    kinds = ph.get("kinds") or []
+    b.record["process"]["human_items"].append(
+        {"round": b.round, "kinds": kinds, "asked": ph["items"], "answer": ans})
     if ans == "stop":
-        stop(b, "依頼者の判断で停止: " + ", ".join(ph["kinds"]))
+        stop(b, "依頼者の判断で停止: " + ", ".join(kinds))
     else:
-        if "stuck" in ph["kinds"]:
+        if "stuck" in kinds:
             b.loop_state["stuck_hint"] = True  # 重厚なら次の周で断面の生成（手詰まり時の手筋）が開く
         b.loop_state["stuck_ids"] = []
+        if "max_rounds" in kinds:
+            # **上限は 1 周だけ延ばす。** 延ばした事実は記録に残る（human_items の kinds と下の欄）
+            was = b.state["max_rounds"]
+            b.state["max_rounds"] = was + 1
+            b.record["process"].setdefault("max_rounds_extended", []).append(
+                {"round": b.round, "from": was, "to": was + 1, "note": ph.get("note", "")})
 
 
 def on_unattended(b, ph):
     # 有人（on_answer）と同じ形で積む——無人だけ文字列にすると、報告の穴埋めと読み手が 2 つの型を見る
-    b.record["process"]["human_items"].append({"round": b.round, "asked": ph["items"], "answer": "（無人実行で保守的に停止。答えは無い）"})
+    b.record["process"]["human_items"].append({"round": b.round, "kinds": ph.get("kinds") or [], "asked": ph["items"], "answer": "（無人実行で保守的に停止。答えは無い）"})
     reason = "無人実行: 諮るべき事態（" + ", ".join(ph["kinds"]) + "）に当たったので保守的に停止。要人間判断は process.human_items"
     stop(b, reason)
     return reason

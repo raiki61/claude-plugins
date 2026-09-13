@@ -57,13 +57,24 @@ CHECKED_VERDICTS = tuple(v for v in VERDICTS if v != "検証不能")
 # コメントにしか無かったとき、貼る側（p1.checker.md ほか 5 本）が手で写していた——実測 2026-09-13:
 # 6 本の prompt が検証器の名前表を 13 か所で並べ直していた。review 側で同じ形を閉じた直後に、
 # research 側は手つかずで残っていた（**知見が片側にしか適用されない**）。
+# **`fail` は `_rows` より前に置く。** `_rows` は import 時に `VERDICT_FIELDS = _rows(...)` で呼ばれるので、
+# 属性の書き忘れで except に入った瞬間に `fail` が未束縛だと NameError → **未処理例外の exit 1** になる
+# ——`_rows` の docstring が名乗る当の壊れ方そのもの（実測 2026-09-14: review 側は fail が先なので同じ注入で
+# exit 2、research 側だけ exit 1 だった）。**写しは中身でなく順序で割れていた**ので、
+# docstring の「この重複は構造上のもの（写しが狭くなる種類ではない）」という申し立ても外れていた。
+def fail(msg):
+    print(f"記録が不正: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
 def _rows(what, cls, rows):
     """状態の表を組む。**属性の書き忘れをここで落とす。** 素の namedtuple で組むと、書き忘れは TypeError に
     なるが**末尾の例外境界より前（インポート時）**なので未処理例外の exit 1 になり、「阻害要因あり」と
     区別が付かない——契約の 3 値が 1 つ潰れる。
 
     review-record.py にも同じ物が在る。**検証器は 1 本ずつ配る前提で共有モジュールを持たない**ので、
-    この重複は構造上のもの（写しが「狭くなる」種類のものではない——表の中身でなく組み立て方）。
+    この重複は構造上のもの（表の中身でなく組み立て方）。**ただし『だから安全』とは言えない**——
+    実測 2026-09-14: 写した先だけ `fail` より前に在り、契約の 3 値が 1 つ潰れていた。順序は下の注記が縛る。
     """
     out = {}
     for name, args in rows.items():
@@ -86,7 +97,8 @@ THICKNESS = ("軽量", "標準", "重厚")
 # **収束ゲート（rederiver / cold-reader）を走らせる段。** 「軽量でない」を読む側が 2 語で並べていたので、
 # 段を足した周にその 1 段だけゲートを課されないまま緑になる。厚みの三段の表がここの正本。
 GATED_THICKNESS = tuple(t for t in THICKNESS if t != "軽量")
-DECIDERS = ("依頼者指定", "既定")# 制約の出典の独立性（P0-1/P0-5）。surveyor 自書は rederiver の扱いが変わるため、
+DECIDERS = ("依頼者指定", "既定")
+# 制約の出典の独立性（P0-1/P0-5）。surveyor 自書は rederiver の扱いが変わるため、
 # 自由文字列でなく二値で申告させる。
 ORIGINS = ("独立出典", "surveyor自書")
 GATE_VERDICTS = ("pass", "redesign-needed", "unverifiable")
@@ -123,9 +135,6 @@ REQUIRED = (
 )
 
 
-def fail(msg):
-    print(f"記録が不正: {msg}", file=sys.stderr)
-    sys.exit(2)
 
 
 def load(path):

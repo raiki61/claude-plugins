@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=536
+EXPECTED_CHECKS=537
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2623,7 +2623,6 @@ PYNUM
 # 文書だけが消えた名前を指したまま残り、読む人はそこへ探しに行って何も見つけられない。
 cat > "$WORK/doc-symbols.py" <<'PYSYM'
 import pathlib, re, sys
-import sys
 # **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
 # 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
@@ -2726,7 +2725,6 @@ expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部�
 # 同型の突合（文書の名指しする定数の実在）を既に持っており、そこに揃える。
 cat > "$WORK/py-floor.py" <<'PYFLOOR'
 import re, sys, pathlib
-import sys
 # **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
 # 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
@@ -2770,7 +2768,6 @@ expect_output 0 "PY_FLOOR_OK" "README が宣言した Python の下限と、CI �
 # 「491 件すべて緑」だった）。**注記は赤くならないので、仕組みで見る。**
 cat > "$WORK/ratchet.py" <<'RATCHET'
 import re, sys, pathlib
-import sys
 # **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
 # 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
@@ -2784,12 +2781,24 @@ root = pathlib.Path(sys.argv[1])
 # `reached >= 0 or reached == VOCAB_REACHED` に緩める退行はその部分文字列を残したまま通った
 # （実測 2026-09-13: この柵を足した当日、自分で注入して緑だった）——**柵が、自分が測るものより
 # 広いことを名乗っていた**形そのもの。突合の式ぜんぶを固定し、加えて緩い比較の同居を禁ずる。
-RATCHETS = [
-    ("tests/run.sh", "EXPECTED_CHECKS", 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then'),
-    ("graphloops/tests/run.sh", "EXPECTED_CHECKS", 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then'),
-    ("graphloops/tests/simulate_review.py", "VOCAB_REACHED", "    check(reached == VOCAB_REACHED,"),
-    ("graphloops/tests/simulate.py", "VOCAB_REACHED", "    check(reached == VOCAB_REACHED,"),
-]
+# **走査対象は宣言から導く。** 4 行を手で並べていたので、新しいラチェット定数を足した周にその 1 本だけ
+# 表の外へ静かに落ちた（今日時点の漏れは 0 だが、形は『走査対象のファイルを手で列挙している』そのもの）。
+# 表が持つのは**定数ごとに要求する突合の式**だけで、どのファイルを見るかは宣言（`^名前 =` / `^名前=`）を探す。
+FORMS = {
+    "EXPECTED_CHECKS": 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then',
+    "VOCAB_REACHED": "    check(reached == VOCAB_REACHED,",
+}
+RATCHETS = []
+for f in sorted(root.rglob("*.py")) + sorted(root.rglob("*.sh")):
+    if ".git/" in str(f) or "node_modules" in str(f):
+        continue
+    body = f.read_text(encoding="utf-8", errors="replace")
+    for const, form in FORMS.items():
+        if re.search(rf"^{const}\s*=", body, re.M):
+            RATCHETS.append((str(f.relative_to(root)), const, form))
+if not RATCHETS:
+    print("NG ラチェットの定数を宣言しているファイルが 1 つも無い（走査が空回り）")
+    sys.exit(1)
 LOOSE = ("-lt", "-gt", "-le", "-ge", ">=", "<=", " > ", " < ")
 
 
@@ -2835,7 +2844,6 @@ expect_output 0 "RATCHET_OK" "ラチェット（件数・語彙の到達）の�
 # 走査対象は commands/*.md をファイル集合から導く——名前を並べると、足した手順書だけ誰も見ない。
 cat > "$WORK/doc-cli.py" <<'DOCCLI'
 import re, subprocess, sys, pathlib
-import sys
 # **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
 # 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
@@ -2845,8 +2853,10 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 loop = root / "graphloops/scripts/loop.py"
+# timeout: 決着済みの規約（issue #5「無制限ハングを塞ぐ」）が今日の新設に当たっていなかった。
+# `--help` は即返るので近傍の 600 より短くてよい
 top = subprocess.run([sys.executable, str(loop), "--help"], capture_output=True, text=True,
-                     encoding="utf-8", errors="replace")
+                     encoding="utf-8", errors="replace", timeout=60)
 m = re.search(r"\{([a-z,]+)\}", top.stdout)
 if not m:
     print("NG loop.py --help からサブコマンドの一覧が読めない")
@@ -2854,13 +2864,17 @@ if not m:
 real = {}
 for s in m.group(1).split(","):
     h = subprocess.run([sys.executable, str(loop), s, "--help"], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", timeout=60)
     real[s] = set(re.findall(r"(--[a-z][a-z-]+)", h.stdout))
 docs = sorted((root / "commands").glob("*.md")) + sorted((root / "graphloops/commands").glob("*.md"))
 if not docs:
     print("NG 手順書が 1 本も見つからない（走査の母数が 0）")
     sys.exit(1)
 bad = 0
+# **数えるのは容れ物でなく当たり。** 手順書の本数だけを見ていたとき、手順書から loop.py の綴りを
+# 全部消しても `DOC_CLI_OK（手順書 6 本）` で通った（実測 2026-09-13）——走査が空回りしても合格の顔になる。
+# REVIEW.md コード衛生観点③②『検査対象が空・縮退したとき合格と区別できるか』。
+matched = 0
 for d in docs:
     for mm in re.finditer(r"loop\.py\s+([a-z]+)((?:\s+(?:--[a-z-]+|[^\s`|]+))*)", d.read_text(encoding="utf-8")):
         sub, rest = mm.group(1), mm.group(2)
@@ -2868,13 +2882,18 @@ for d in docs:
             print(f"NG {d.relative_to(root)}: loop.py に '{sub}' というサブコマンドは無い（{sorted(real)}）")
             bad = 1
             continue
+        matched += 1
         for f in re.findall(r"(--[a-z][a-z-]+)", rest):
             if f not in real[sub]:
                 print(f"NG {d.relative_to(root)}: loop.py {sub} に {f} は無い（案内どおりに打つと落ちる）")
                 bad = 1
 if bad:
     sys.exit(1)
-print(f"DOC_CLI_OK（手順書 {len(docs)} 本）")
+if not matched:
+    print(f"NG 手順書 {len(docs)} 本のどれも loop.py の呼び出しを書いていない"
+          "（照合が 0 件——この柵は何も測っていない）")
+    sys.exit(1)
+print(f"DOC_CLI_OK（照合した呼び出し {matched} 件／手順書 {len(docs)} 本）")
 DOCCLI
 expect_output 0 "DOC_CLI_OK" "手順書が案内する loop.py の呼び出しが実物に在る（engine を動かした周に案内だけ古くならない）" \
     "$PY_BIN" "$WORK/doc-cli.py" "$ROOT"
@@ -2886,8 +2905,7 @@ expect_output 0 "DOC_CLI_OK" "手順書が案内する loop.py の呼び出し�
 # 知識はリポジトリに在ったのに、新しい場所に適用されなかった）。母数を機械で持つ。
 # バイトで読む呼び（text= を付けない）は対象外——復号が起きないので既定コーデックに依らない。
 cat > "$WORK/sub-encoding.py" <<'SUBENC'
-import re, sys, pathlib
-import sys
+import ast, re, sys, pathlib
 # **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
 # 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
@@ -2896,19 +2914,40 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
-CALL = re.compile(r"subprocess\.(?:run|check_output|Popen)\((?:[^()]|\([^()]*\))*\)", re.S)
+# **構文は ast で見る。** 自作の正規表現で `subprocess.…(…)` を拾っていたとき、括弧の入れ子を 1 段しか
+# 許さず、`str(pathlib.Path(x).resolve())` を含む呼びが母数から静かに落ちた（実測 2026-09-13:
+# AST で 68 件・正規表現で 67 件。落ちた 1 件は graphloops/tests/simulate.py の `Run.cmd` で、
+# **柵が防ぐと名乗った当の事故（台本の全 engine 呼びを通す 1 行）が母数の外**だった）。
+# 同じ差分の table-copies.py は同種の走査を ast で解いている——定番解はこの中に在った。
 bad = []
-files = [p for p in list(root.rglob("*.py")) + list(root.rglob("*.sh"))
-         if ".git/" not in str(p) and "node_modules" not in str(p)]
+files = [p for p in root.rglob("*.py") if ".git/" not in str(p) and "node_modules" not in str(p)]
 if not files:
     print("NG 走査対象が 0 件（母数が取れていない）")
     sys.exit(1)
+calls = 0
 for p in files:
-    t = p.read_text(encoding="utf-8", errors="replace")
-    for m in CALL.finditer(t):
-        s = m.group(0)
-        if ("text=True" in s or "universal_newlines=True" in s) and "encoding=" not in s:
-            bad.append(f"{p.relative_to(root)}:{t[:m.start()].count(chr(10)) + 1}")
+    src = p.read_text(encoding="utf-8", errors="replace")
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        continue
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
+        mod = getattr(getattr(f, "value", None), "id", "")
+        if name not in ("run", "check_output", "Popen") or mod != "subprocess":
+            continue
+        calls += 1
+        kw = {k.arg: k.value for k in node.keywords if k.arg}
+        textish = any(isinstance(kw.get(a), ast.Constant) and kw[a].value is True
+                      for a in ("text", "universal_newlines"))
+        if textish and "encoding" not in kw:
+            bad.append(f"{p.relative_to(root)}:{node.lineno}")
+if not calls:
+    print("NG subprocess の呼びが 1 件も見つからない（走査が空回り）")
+    sys.exit(1)
 # **書く側も見る。** 読む側だけを見ていたので、今日足した柵 4 本が「合格の行に日本語を print する」
 # ところで windows-latest だけ落ちた（実測 2026-09-13）——**柵の名乗り（encoding を明示している）が、
 # 測る面（読む側だけ）より広かった**。埋め込みの script は自分で標準出力を直せるので、そこを要求する。
@@ -2918,14 +2957,17 @@ if not here:
     print("NG tests/run.sh に埋め込みの script が 1 本も無い（走査が壊れている）")
     sys.exit(1)
 for name, _tag, body in here:
-    if "reconfigure" not in body:
-        bad.append(f"tests/run.sh の {name}: 標準出力の encoding を直していない"
-                   "（Windows の既定 cp1252 で、日本語を print した時点で落ちる）")
+    # **平坦な部分一致で見ない。** `"reconfigure" not in body` で見ていたとき、実コードを消して
+    # コメントに語だけ残す退行が通った（実測 2026-09-13）——**呼びの形まで見る**。
+    # 同じ commit が stdout-shape.py で潰した `"def bullet" not in t` と同型の穴だった。
+    if not re.search(r"^\s*_s\.reconfigure\(encoding=", body, re.M):
+        bad.append(f"tests/run.sh の {name}: 標準出力の encoding を直す呼びが無い"
+                   "（Windows の既定 cp1252 で、日本語を print した時点で落ちる。語がコメントに在るだけでは足りない）")
 if bad:
     for b in bad:
         print(f"NG {b}" if b.startswith("tests/run.sh") else f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
     sys.exit(1)
-print(f"SUB_ENCODING_OK（読む側 {len(files)} ファイル・書く側 {len(here)} script）")
+print(f"SUB_ENCODING_OK（読む側 {calls} 呼び／{len(files)} ファイル・書く側 {len(here)} script）")
 SUBENC
 expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encoding を明示している（Windows の既定コーデックに依らない）" \
     "$PY_BIN" "$WORK/sub-encoding.py" "$ROOT"
@@ -2938,7 +2980,6 @@ expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encod
 # 広いことを名乗る**形になるので、今日それを 3 回直した当の周に作らない。
 cat > "$WORK/table-copies.py" <<'TBLCOPY'
 import ast, pathlib, sys
-import sys
 # **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
 # 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
@@ -2985,11 +3026,13 @@ if not owners:
     print("NG 名前表が 1 つも取れない（母数が 0——走査が壊れている）")
     sys.exit(1)
 bad = []
+scanned = 0  # **数えるのは容れ物でなく当たり**——走査が空回りしても合格の顔にならないように
 for p in pick(["graphloops/**/*.py", "scripts/*.py", "tests/*.py"]):
     src = p.read_text(encoding="utf-8")
     for node in ast.walk(ast.parse(src)):
         if not isinstance(node, ast.Compare) or not any(isinstance(o, (ast.In, ast.NotIn)) for o in node.ops):
             continue
+        scanned += 1
         for comp in node.comparators:
             m = members(comp)
             if not m or len(m) < MIN:
@@ -3002,7 +3045,10 @@ if bad:
     for b in sorted(set(bad)):
         print("NG " + b)
     sys.exit(1)
-print(f"TABLE_COPIES_OK（名前表 {len(owners)} 個）")
+if not scanned:
+    print("NG 走査したファイルが 0 件（この柵は何も測っていない）")
+    sys.exit(1)
+print(f"TABLE_COPIES_OK（名前表 {len(owners)} 個・走査した所属の判定 {scanned} か所）")
 TBLCOPY
 expect_output 0 "TABLE_COPIES_OK" "名前表の要素を読む側が文字列で並べ直していない（並べた側だけ狭くなる形）" \
     "$PY_BIN" "$WORK/table-copies.py" "$ROOT"
@@ -3015,7 +3061,6 @@ expect_output 0 "TABLE_COPIES_OK" "名前表の要素を読む側が文字列で
 # 今は穴ではない。危ないのは「後から行頭で読み始めたのに、その検証器に口が無い」形なので、その組を落とす。
 cat > "$WORK/stdout-shape.py" <<'STDOUTSHAPE'
 import pathlib, re, sys
-import sys
 # **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
 # 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
@@ -3031,6 +3076,7 @@ if not rules:
     print("NG rules が 1 本も無い（走査の母数が 0）")
     sys.exit(1)
 bad = 0
+checked = 0
 for r in rules:
     if not READS_LINE_HEAD.search(r.read_text(encoding="utf-8")):
         continue
@@ -3042,16 +3088,72 @@ for r in rules:
         continue
     # **部分一致で見ない。** 最初は `"def bullet" not in …` で見ており、`def bullet_removed` に改名する
     # 退行がその部分文字列を残して通った（実測 2026-09-13: 今日 3 度目の同じ形）——名前の境界まで見る
-    if not re.search(r"^def bullet\(", v.read_text(encoding="utf-8"), re.M):
+    vt = v.read_text(encoding="utf-8")
+    if not re.search(r"^def bullet\(", vt, re.M):
         print(f"NG {r.relative_to(root)} は検証器の出力を行頭で読むのに、{v.relative_to(root)} に "
               "行頭の偽造を塞ぐ印字口（bullet）が無い——役の自由文の改行 1 文字で判定行を作れる")
         bad = 1
+        continue
+    # **存在だけでは足りない——通っていることを見る。** `def bullet` が在るかだけを見ていたとき、
+    # 呼び 7 か所を全部外して def を残す退行が通った（実測 2026-09-13）。守ると名乗っているのは
+    # 印字口の存在でなく『役の自由文が行頭を作らない』ことで、1 か所素通しになれば周の分岐を倒せる。
+    used = len(re.findall(r"(?<!def )\bbullet\(", vt))
+    if used < 1:
+        print(f"NG {v.relative_to(root)}: bullet() の呼びが 1 か所も無い（定義だけ在って通っていない）")
+        bad = 1
+        continue
+    checked += used
 if bad:
     sys.exit(1)
-print(f"STDOUT_SHAPE_OK（rules {len(rules)} 本）")
+if not checked:
+    print("NG 行頭で読む rules が 1 本も見つからない（走査が空回り——この柵は何も測っていない）")
+    sys.exit(1)
+print(f"STDOUT_SHAPE_OK（行頭で読む rules を突合・bullet の呼び {checked} か所／rules {len(rules)} 本）")
 STDOUTSHAPE
 expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループは、その検証器に行頭の偽造を塞ぐ印字口を持つ" \
     "$PY_BIN" "$WORK/stdout-shape.py" "$ROOT"
+
+# **検証器の同型部分は、順序まで揃っていること。** 検証器は 1 本ずつ配る前提で共有モジュールを持たないので
+# `_rows`（表の組み立て）と `fail`（exit 2 で落とす口）が各本に写される。**写しは中身でなく順序で割れた**
+# ——`_rows` は import 時に呼ばれるので `fail` が後ろに在ると、属性の書き忘れが NameError → 未処理例外の
+# exit 1 になり、`_rows` の docstring が名乗る当の壊れ方になる（実測 2026-09-14: research 側だけ exit 1、
+# review 側は exit 2）。注記は赤くならないので順序を機械で縛る。
+cat > "$WORK/validator-order.py" <<'VORDER'
+import re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root = pathlib.Path(sys.argv[1])
+vals = sorted((root / "scripts").glob("*-record.py"))
+if not vals:
+    print("NG 検証器が 1 本も無い（走査の母数が 0）")
+    sys.exit(1)
+checked = 0
+bad = 0
+for v in vals:
+    t = v.read_text(encoding="utf-8")
+    rows = re.search(r"^def _rows\(", t, re.M)
+    if not rows:
+        continue  # `_rows` を持たない検証器はこの不変条件の外
+    checked += 1
+    f = re.search(r"^def fail\(", t, re.M)
+    if not f:
+        print(f"NG {v.relative_to(root)}: `_rows` が在るのに `fail` が無い（表の組み立ての失敗を exit 2 で落とせない）")
+        bad = 1
+    elif f.start() > rows.start():
+        print(f"NG {v.relative_to(root)}: `fail`（{t[:f.start()].count(chr(10)) + 1} 行目）が "
+              f"`_rows`（{t[:rows.start()].count(chr(10)) + 1} 行目）より後ろ——`_rows` は import 時に呼ばれるので、"
+              "属性の書き忘れが NameError の exit 1 になり、記録の不正（exit 2）と区別が付かない")
+        bad = 1
+if bad:
+    sys.exit(1)
+if not checked:
+    print("NG `_rows` を持つ検証器が 1 本も無い（走査が空回り——この柵は何も測っていない）")
+    sys.exit(1)
+print(f"VALIDATOR_ORDER_OK（`_rows` を持つ検証器 {checked} 本／全 {len(vals)} 本）")
+VORDER
+expect_output 0 "VALIDATOR_ORDER_OK" "検証器の `fail` が `_rows` より前に在る（表の組み立ての失敗が exit 2 で落ちる）" \
+    "$PY_BIN" "$WORK/validator-order.py" "$ROOT"
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"

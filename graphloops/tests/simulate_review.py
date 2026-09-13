@@ -17,9 +17,6 @@ import sys
 import tempfile
 import types
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from engine.util import TERMINAL_STATUS  # 終端の status は engine が正本（台本で並べ直さない）
-
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -122,7 +119,17 @@ def vocab_coverage():
         if "items" in sch:
             walk_schema(nid, sch["items"], path + "[]")
 
+    # **無作為に引く扇の節は数えない**——引く物が run ごとに変わるので、そこから返る値は台本の性質ではない。
+    # research 側で作った正本（rules の RANDOM_FAN）を review 側の測定器も読む。review graph に今 fan_out は
+    # 無いので現状の数は変わらないが、扇を足した周に**片側だけラチェットが乱数で揺れる**のを止める
+    # （実測 2026-09-14: RANDOM_FAN は research 側 2 か所にしか無く、review 側は 0 件だった）
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
+    random_fan = set(getattr(rules, "RANDOM_FAN", ()) or ())
     for nid, n in g["nodes"].items():
+        if (n.get("fan_out") or {}).get("builtin") in random_fan:
+            continue
         if n.get("schema"):
             walk_schema(nid, n["schema"])
     total = sum(len(v) for v in enums.values())
