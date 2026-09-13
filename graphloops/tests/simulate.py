@@ -819,6 +819,47 @@ def test_relative_dir():
     rm(run.tmp)
 
 
+def test_stopped_gates_all_thicknesses():
+    """**収束せず停止した run は、どの段でも報告できなければならない。**
+
+    停止の到達経路は max_rounds・thrash・stuck・独立検証不能の 4 つで、どれも設計上「停止して報告する」筋。
+    ところがゲートが `not_applicable` のまま残ると検証器が落ち、`report_accepts_exit` の既定 [0] の外なので
+    engine が die して **report の節が永久に出ない**。
+
+    前の周にこれを直したが、**直したのは 3 本のうち 2 本だけだった**——`cartographer` が漏れ、重厚段で
+    停止した run は同じ理由で報告が出ないまま残っていた（実測 2026-09-13: 部品を直に呼び、重厚でだけ
+    理由の付かない not_applicable が残ることを確認）。**1 本直して赤が消えたところで止めた形。**
+    この腕は段を 3 つとも踏む——1 段だけ見ていると同じ漏れがまた通る。
+    """
+    print("否定検査: 停止した run のゲートは、どの段でも『飛ばした』と名乗る")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    gp = PLUGIN / "graphs" / "research-loop.json"
+    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    gates = ("rederiver", "cold_reader", "cartographer")
+
+    def stopped_record(th):
+        rec = {"gates": {k: {"status": "not_applicable"} for k in gates},
+               "sampling": {"status": "not_applicable"}, "claims": [], "clusters": [], "process": {}}
+        b = types.SimpleNamespace(record=rec, state={"thickness": th}, loop_state={"outcome": "stopped"}, round=3)
+        rules.finalize(b)
+        return rec["gates"]
+
+    for th, want in (("軽量", ()), ("標準", ("rederiver", "cold_reader")), ("重厚", gates)):
+        g = stopped_record(th)
+        for k in want:
+            check(g[k].get("status") == "not_run",
+                  f"{th}: {k} は『飛ばした』として残る（緑と数えない）——{g[k].get('status')}")
+        for k in gates:
+            check(bool(g[k].get("reason")), f"{th}: {k} に理由が付く（無言の not_applicable を残さない）")
+            if k not in want:
+                # **その段で必須でないゲートを『飛ばした』と名乗らせない。** not_run は「走らせる筋だったのに
+                # 走らなかった」で、「この段では走らせない」とは別の事実——混ぜると、段を下げただけの run が
+                # 検査を飛ばしたように読める（実測: 重厚の絞りを外す退行を注入したとき、この腕が無くて緑だった）
+                check(g[k].get("status") == "not_applicable",
+                      f"{th}: {k} はこの段では走らせない（飛ばしたと名乗らない）——{g[k].get('status')}")
+
+
 def test_graphcheck_sets_derived():
     """**柵が見る鍵の一覧を、engine と rules から組む（手で並べない）。**
 

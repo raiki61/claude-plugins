@@ -387,9 +387,16 @@ def finalize(b):
     rec, th, ls = b.record, b.state["thickness"], b.loop_state
     g = rec["gates"]
     stopped = ls.get("outcome") == "stopped"
-    for k in ("rederiver", "cold_reader"):
+    # **段ごとに必須のゲート全部を見る。** 以前は rederiver と cold_reader の 2 本だけを回しており、
+    # **同じ不変条件の 3 本目（cartographer）が漏れていた**——重厚段で停止した run は cartographer が
+    # not_applicable のまま理由も付かず、検証器 :241 が「重厚段で cartographer を省略している」で落ちる。
+    # 帰結は前と同じで、**report の節が永久に出ない**（実測 2026-09-13: 部品を直に呼んで、重厚だけ
+    # 理由の付かない not_applicable が残ることを確認）。**1 本直して赤が消えたところで止めていた形。**
+    for k in ("rederiver", "cold_reader", "cartographer"):
         if g[k].get("status") != "not_applicable":
             continue
+        if k == "cartographer" and th != "重厚":
+            continue  # 重厚だけ必須。下の腕が「この段では走らせない」の理由を付ける
         if th == "軽量":
             g[k]["reason"] = "軽量段では走らせない（厚みの三段の表が正本）"
         elif stopped:
