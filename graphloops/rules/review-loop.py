@@ -334,6 +334,23 @@ def _files_changed_since(b, prev_round):
     return sorted({k for k in set(before) | set(after) if before.get(k) != after.get(k)})
 
 
+def numstat_totals(text):
+    """`git diff --numstat` の出力から（ファイル名の並び・追加行・削除行）を取る。
+
+    **バイナリの行は `-\t-\tfile` で来る**ので、数として足す前に数字かを見る（`int('-')` で落ちる）。
+    欄が 3 つ揃わない行（壊れた出力・空行）も数えない。
+
+    切り出した理由: 同じ式を検査が写して持っていて、**実装を変えても検査が落ちなかった**
+    （実測 2026-09-13: `and` を `or` に変える退行を注入しても全件緑——検査が自分のコピーを測っていた）。
+    """
+    rows = [ln.split("\t") for ln in text.splitlines() if ln.strip()]
+    full = [r for r in rows if len(r) == 3]
+    names = "\n".join(r[2] for r in full)
+    ins = sum(int(r[0]) for r in full if r[0].isdigit())
+    dels = sum(int(r[1]) for r in full if r[1].isdigit())
+    return names, ins, dels, len(rows)
+
+
 def worktree_snapshot(b, nid):
     """P1 の前: 作業ツリーの写しと、対象差分（git diff <BASE>）を機械が取る。回す側に貼らせない。"""
     ls = b.loop_state
@@ -352,11 +369,8 @@ def worktree_snapshot(b, nid):
     if missing:
         return {"ok": False, "problems": [f"git が取れない（{', '.join(missing)}）——BASE={base} の対象差分と作業ツリーの保護が測れない場所からは回せない"]}
     raw_diff = got["diff"]
-    rows = [ln.split("\t") for ln in got["numstat"].splitlines() if ln.strip()]
-    names = "\n".join(r[2] for r in rows if len(r) == 3)
-    ins = sum(int(r[0]) for r in rows if len(r) == 3 and r[0].isdigit())
-    dels = sum(int(r[1]) for r in rows if len(r) == 3 and r[1].isdigit())
-    stat = f"{len(rows)} files changed, {ins} insertions(+), {dels} deletions(-)"
+    names, ins, dels, nfiles = numstat_totals(got["numstat"])
+    stat = f"{nfiles} files changed, {ins} insertions(+), {dels} deletions(-)"
     # 対象差分が空なら止める。空を通すと、素材が毎周 not_run（理由は事実と逆）で埋まったまま上限まで回る
     # （実測: BASE=HEAD で 5 周・diff 0 バイト・stop_reason=max_rounds、原因は記録のどこにも出ない）。
     if not raw_diff.strip():
@@ -719,6 +733,17 @@ def base_valid(b, nid, out, item):
 ONE_LINE_FIELDS = ("key", "reason")
 
 
+def open_unit(u):
+    """**この周に直す単位か。** [block] と、do-now に振られた [suggest]。
+
+    同じ式が 2 か所に書かれていた（`class_query` を要求する側と、一撃の名指しを要求する側）——
+    片方だけ直すと、要求する母数と数える母数が静かにずれる。**式は 1 つにする。**
+    退行注入で残っていた形でもある（実測 2026-09-13: `label == "block"` を `!=` に反転しても台本が全件緑
+    ＝「何を直すべきか」の判定を検査が一度も確かめていなかった）。
+    """
+    return u.get("label") == "block" or (u.get("label") == "suggest" and u.get("disposition") == "do-now")
+
+
 def judge_output(b, nid, out, item):
     """judge の返答を、検証器の語彙（写さず import）で先に見る。落ちるなら judge に返させ直す。
     あわせて 1 行の欄を 1 行に正規化する（out を補うだけ。記録を書くのは writes）。"""
@@ -747,14 +772,14 @@ def judge_output(b, nid, out, item):
         # 今の周に直す単位は、同じ形を**全部**引ける機械の問いを持て。名指しの 1 site だけを塞ぐ閉じ方が 3 周続き、
         # 同じ不変条件の別の入口が毎周ちがう顔で出た（実測 2026-09-13: 判定者自身が『覆いの母数を誰も持たない』と書いた）。
         # 問い（how）と件数（total）が在れば、次の周の判定者が同じコマンドを走らせて母数を検算できる。
-        if u["label"] == "block" or (u["label"] == "suggest" and u.get("disposition") == "do-now"):
+        if open_unit(u):
             cq = u.get("class_query") or {}
             if not (cq.get("how") or "").strip() or not isinstance(cq.get("total"), int) or isinstance(cq.get("total"), bool):
                 errs.append(f"units[{i}]（今の周に直す単位）に class_query（how＝同じ形を全部引ける機械の問い・total＝その件数）が無い"
                             "——1 site しか無いなら total: 1 でそう示せ")
     # 一撃は反証可能に——「何が消えるはずか」を名指しし、次の周が測る問いを添える。名指しが無いと、
     # 効かなかったことを誰も言えないまま次の周が同じ根を選び直す（実測 2026-09-13: 3 周とも同じ根）
-    open_units = [u for u in out["units"] if u["label"] == "block" or (u["label"] == "suggest" and u.get("disposition") == "do-now")]
+    open_units = [u for u in out["units"] if open_unit(u)]
     closes = out.get("one_shot_closes") or []
     if open_units:
         if not closes:

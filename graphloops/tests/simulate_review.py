@@ -903,6 +903,108 @@ def test_rejudge_path():
     rm(run.tmp)
 
 
+def test_surviving_branches():
+    """**退行注入で生き残った残りの分岐に腕を当てる**（どれも反転しても台本が全件緑だった腕）。
+
+    ①差分の行数の数え方——`len(r) == 3 and r[1].isdigit()` の `and` を `or` にしても緑。バイナリの行は
+    numstat が `-` を返すので、`isdigit` を外すと `int('-')` で落ちるか、行の形が違う入力を数えてしまう。
+    ②前提の問いの差し替え——古い行を外す条件を反転しても緑。反転すると**外すべきでない問いを全部消す**。
+    ③素材の必須欄の型検査——`or` を `and` にしても緑。空文字が「在る」として通る。
+    """
+    print("生存した分岐: 行数の数え方・前提の問いの差し替え・必須欄の型検査")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    gp = PLUGIN / "graphs" / "review-loop.json"
+    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+
+    # ① numstat の数え方——**実装を呼ぶ。** 最初は同じ式を検査側に写していて、実装を壊しても
+    # 全件緑だった（実測: `and`→`or` と `isdigit` 外しの 2 つとも生き残った）。**落ちようのない検査**で、
+    # この周が狩っている「名乗りより射程が狭い」の、検査側の形そのものだった
+    names, ins, dels, nfiles = rules.numstat_totals("3\t1\ta.py\n-\t-\tlogo.png\n2\t0\tb.py\nbroken")
+    check((ins, dels) == (5, 1), f"バイナリ（-）と壊れた行を数えない（ins={ins} dels={dels}、期待 5/1）")
+    check(names.splitlines() == ["a.py", "logo.png", "b.py"], f"欄が 3 つ揃った行の名前だけ並ぶ（{names.splitlines()}）")
+    check(nfiles == 4, f"行数は壊れた行も数える（変更ファイル数の申告は git の行数）——{nfiles}")
+
+    # ② 前提の問いの差し替え——外すのは kind=premise かつ origin=R2 の行だけ
+    keep = [{"key": "他の問い", "kind": "fork", "origin": "u1", "status": "held", "reason": "x", "options": ["a", "b"]},
+            {"key": "別の前提", "kind": "premise", "origin": "R1", "status": "held", "reason": "y"}]
+    b = types.SimpleNamespace(round=2, loop_state={},
+                              record={"questions": [dict(q) for q in keep]
+                                      + [{"key": "古い前提", "kind": "premise", "origin": "R2", "status": "held", "reason": "z"}]})
+    rules.premise_question(b, "stop.premise_check",
+                           {"key": "新しい前提", "verdict": "resolved", "reason": "検算した", "resolution": "仮定は偽", "facts_to_add": []}, None)
+    got = {q["key"] for q in b.record["questions"]}
+    check("古い前提" not in got, f"kind=premise かつ origin=R2 の古い行は外れる（{sorted(got)}）")
+    check({q["key"] for q in keep} <= got, f"他の問いは残る（{sorted(got)}）")
+
+    # ③ 素材の必須欄——空文字・型違いのどちらも落とす
+    def errs_for(value):
+        bb = types.SimpleNamespace(
+            round=1, nodes={}, rd={"instances": {}},
+            state={"validator": str(VALIDATOR)},
+            record={"materials": {"m": {"status": "found", "count": 1, "detail": value}}, "reviews": {}, "units": [], "questions": []})
+        return [e for e in rules.check_record(bb) if "'detail'" in e]
+
+    check(errs_for(""), "必須欄が空文字なら落とす（在ることと中身が在ることは別）")
+    check(errs_for(5), "必須欄の型が違えば落とす")
+    check(not errs_for("何を見たかを書いた"), f"中身が在れば通る（{errs_for('何を見たかを書いた')}）")
+
+
+def test_open_unit_and_hit_arm():
+    """**退行注入で生き残った 2 つの分岐に腕を当てる。**
+
+    ①「この周に直す単位か」（`open_unit`）——`label == "block"` を反転しても台本が全件緑だった
+    （実測 2026-09-13）。つまり **run 全体の「何を直すべきか」の判定を、検査が一度も確かめていない**。
+    ここがずれると、直す義務も一撃の名指しの母数も一緒にずれる。
+
+    ②`gate_arms_all_red` の「status に依らず当てる腕」——`nohit and not (unred or nocontrol)` の
+    `or` を `and` に変えても緑だった。この腕は**赤も control 緑も見た腕だけ**に当てるもので、まだ赤を
+    見ていない腕は手前の腕が扱う。`and` にすると手前の腕の担当まで二重に拒み、理由が事実と食い違う。
+    """
+    print("生存した分岐: 直す単位の判定と、覆いの腕の切り分け")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import Reject, load_rules
+    gp = PLUGIN / "graphs" / "review-loop.json"
+    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+
+    # ① 直す単位の判定——4 通りを全部踏む
+    for u, want in (({"label": "block"}, True),
+                    ({"label": "block", "disposition": "defer"}, True),
+                    ({"label": "suggest", "disposition": "do-now"}, True),
+                    ({"label": "suggest", "disposition": "defer"}, False),
+                    ({"label": "suggest"}, False),
+                    ({"label": "nit", "disposition": "do-now"}, False),
+                    ({"label": "info"}, False)):
+        got = rules.open_unit(u)
+        check(got is want, f"直す単位の判定: {u} → {got}（期待 {want}）")
+
+    # ② 覆いの腕の切り分け——st=found で手前の腕は黙る。この腕は「赤も緑も見た腕」にだけ当たる
+    chk = rules.POST_CHECKS["gate_arms_all_red"]
+    b = types.SimpleNamespace(round=2, loop_state={}, record={}, state={}, dir=PLUGIN)
+
+    def arms_out(rows, st="found"):
+        return {"arms": rows, "material": {"status": st, "count": 1, "detail": "x"}}
+
+    def run(rows, st="found"):
+        try:
+            chk(b, "p1.gate_efficacy", arms_out(rows, st), None)
+            return None
+        except Reject as e:
+            return str(e)
+
+    both = {"arm": "A", "red_confirmed": True, "control_green": True, "hit_evidence": ""}
+    check(run([both]), "赤も control 緑も見た腕が hit_evidence を持たないなら拒む")
+    ok = {"arm": "A", "red_confirmed": True, "control_green": True, "hit_evidence": "分岐が書く値を印に替え、記録に現れた"}
+    check(run([ok]) is None, f"3 つそろった腕は通る——{run([ok])}")
+    # **まだ赤を見ていない腕は手前の腕の担当。** ここで二重に拒むと理由が事実と食い違う
+    # （`or` を `and` に変えた退行がここで赤くなる）
+    unred = {"arm": "B", "red_confirmed": False, "control_green": True, "hit_evidence": ""}
+    check(run([unred]) is None, f"赤を見ていない腕は found なら通る（手前の腕の担当）——{run([unred])}")
+    nocontrol = {"arm": "C", "red_confirmed": True, "control_green": False, "hit_evidence": ""}
+    check(run([nocontrol]) is None, f"control の緑を見ていない腕も found なら通る——{run([nocontrol])}")
+    check(run([unred], st="clean"), "found でなければ手前の腕が拒む")
+
+
 def test_silent_status_derived():
     """**「黙って通る値」の集合を、検証器の表から引く（rules に写さない）。**
 
@@ -1048,6 +1150,10 @@ def test_purpose_trigger_unevaluable():
     # cond の葉は 1 回の next で何度も評価される——同じ周で行が増えない
     fn(b), fn(b)
     check(len(b.state["unevaluable"]) == 1, f"同じ周に同じ行を積まない（{len(b.state['unevaluable'])} 行）")
+    # **周が変われば積む。** 引き金と周の両方で見ないと、次の周に同じ引き金が測れなかったことが記録から消える
+    b.round = 4
+    fn(b)
+    check(len(b.state["unevaluable"]) == 2, f"周が変われば新しい行を積む（{[u['round'] for u in b.state['unevaluable']]}）")
 
     # 欄が在って空＝測れた上での偽。痕跡は残さない
     b = board({"purpose_text": "x", "source_files": []}, ["README.md"])
