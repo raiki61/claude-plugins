@@ -58,6 +58,18 @@ def rm(p):
 
 MADE = set()  # この プロセスが作った作業場だけを後始末する（接頭辞の列挙は他プロセスの盤面を巻き込む）
 
+# **落ちた回も後始末する。** 後始末は main の finally に在るが、main に届かない落ち方（import 時の例外・
+# 台本が engine を壊して全体が落ちる・退行注入の試走）では作業場が残る。溜まった実測: 502 個・148 MB
+# （正常終了する回は 1 個も漏らさない——漏れるのは落ちた回だけ）。atexit なら finally の外も覆う。
+# **消すのは自分が作った物だけ**（MADE）——接頭辞で列挙すると、同時に走る他プロセスの盤面を巻き込む。
+import atexit as _atexit  # noqa: E402
+
+
+@_atexit.register
+def _sweep_made():
+    for _d in list(MADE):
+        shutil.rmtree(_d, ignore_errors=True)
+
 
 class Run:
     def __init__(self, name, thickness=None, decider=None, unattended=False, graph=None):

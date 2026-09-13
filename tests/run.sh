@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=535
+EXPECTED_CHECKS=536
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2728,6 +2728,11 @@ readme = (root / "README.md").read_text(encoding="utf-8")
 want = [ln for ln in readme.splitlines() if "**必須**" in ln]
 if not want:
     print("NG README.md に「**必須**」の行が無い（宣言した下限が読めない）"); sys.exit(1)
+# **一致箇所が 1 つであることまで見る。** `want[0]` だけを見ていたので、宣言が 2 行に増えた周は
+# 2 行目が誰にも測られないまま食い違える——「最初の一致だけを見る」は母数を 1 に決め打つのと同じ。
+if len(want) != 1:
+    print(f"NG README.md の「**必須**」の行が {len(want)} 行ある（宣言は 1 か所に。"
+          f"どれが正本か決まらないまま片方だけ測ることになる）: {[w[:60] for w in want]}"); sys.exit(1)
 if f"**{ci} 以降**" not in want[0]:
     print(f"NG CI が測る版 {ci} と README の宣言が食い違う: {want[0][:120]}"); sys.exit(1)
 # **写した側まで数える柵は、ここには置かない。** 一度置いたが、**発火しえない形だった**——語（「名乗る下限」）で
@@ -2940,6 +2945,44 @@ print(f"TABLE_COPIES_OK（名前表 {len(owners)} 個）")
 TBLCOPY
 expect_output 0 "TABLE_COPIES_OK" "名前表の要素を読む側が文字列で並べ直していない（並べた側だけ狭くなる形）" \
     "$PY_BIN" "$WORK/table-copies.py" "$ROOT"
+
+# **検証器の標準出力を行頭で読むループは、その検証器に行頭の偽造を塞ぐ印字口が要る。** review の rules は
+# 「行頭が空白でない行」だけを判定行として読む（stop_branch）。その成立条件は「印字に埋まる役の自由文が
+# 行頭を作らないこと」で、満たす場所は検証器の `bullet()` 1 か所——**改行 1 文字で周の分岐を倒せる**
+# （実測 2026-09-13: 書く側の覆いは judge の 2 節だけで、4 つの入口が外に在った）。
+# 4 本の検証器のうち `bullet` を持つのは review だけだが、**他の 3 本は行頭で読む消費者を持たない**ので
+# 今は穴ではない。危ないのは「後から行頭で読み始めたのに、その検証器に口が無い」形なので、その組を落とす。
+cat > "$WORK/stdout-shape.py" <<'STDOUTSHAPE'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+# 行頭で読む印（engine 側の書き方に依らず、`ln[0].isspace()` で判定行を絞る形を探す）
+READS_LINE_HEAD = re.compile(r"\[0\]\.isspace\(\)")
+rules = sorted((root / "graphloops/rules").glob("*.py"))
+if not rules:
+    print("NG rules が 1 本も無い（走査の母数が 0）")
+    sys.exit(1)
+bad = 0
+for r in rules:
+    if not READS_LINE_HEAD.search(r.read_text(encoding="utf-8")):
+        continue
+    loop = r.stem[:-5] if r.stem.endswith("-loop") else r.stem
+    v = root / "scripts" / f"{loop}-record.py"
+    if not v.is_file():
+        print(f"NG {r.relative_to(root)} は検証器の出力を行頭で読むのに、{v.relative_to(root)} が無い")
+        bad = 1
+        continue
+    # **部分一致で見ない。** 最初は `"def bullet" not in …` で見ており、`def bullet_removed` に改名する
+    # 退行がその部分文字列を残して通った（実測 2026-09-13: 今日 3 度目の同じ形）——名前の境界まで見る
+    if not re.search(r"^def bullet\(", v.read_text(encoding="utf-8"), re.M):
+        print(f"NG {r.relative_to(root)} は検証器の出力を行頭で読むのに、{v.relative_to(root)} に "
+              "行頭の偽造を塞ぐ印字口（bullet）が無い——役の自由文の改行 1 文字で判定行を作れる")
+        bad = 1
+if bad:
+    sys.exit(1)
+print(f"STDOUT_SHAPE_OK（rules {len(rules)} 本）")
+STDOUTSHAPE
+expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループは、その検証器に行頭の偽造を塞ぐ印字口を持つ" \
+    "$PY_BIN" "$WORK/stdout-shape.py" "$ROOT"
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——検証の空振りか、件数の更新漏れ"
