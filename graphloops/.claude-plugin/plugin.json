@@ -1,6 +1,6 @@
 {
   "name": "graphloops",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "収束ループのグラフ実行版。convergence-loops の 4 ループを「節＋依存＋周回条件」の JSON に写し、機械（engine）が盤面・波・遮断・件数・連続カウント・上限を持ち、回す側の LLM は渡された節を実行して返すだけにする。実行版は /research-graph（/research-loop の実行版）と /review-graph（/review-loop の実行版）の 2 本。既存のコマンドは残し、本体は隣に置く。",
   "dependencies": [
     {
