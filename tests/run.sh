@@ -2790,12 +2790,17 @@ FORMS = {
 }
 RATCHETS = []
 for f in sorted(root.rglob("*.py")) + sorted(root.rglob("*.sh")):
-    if ".git/" in str(f) or "node_modules" in str(f):
+    # **区切りは `/` に正規化する。** `str(f)` は Windows で `tests\\run.sh` になるので、
+    # `".git/" in str(f)` は .git の中を除外できず、下の `rel == "tests/run.sh"`（自分の表を
+    # 数えない口）も一致しない——**柵が自分の表を別の突合と数えて windows-latest だけ赤くなった**
+    # （実測 2026-09-14: CI が「2 か所」で NG。macOS と Linux は緑だったので手元では見えない）
+    rel = f.relative_to(root).as_posix()
+    if ".git" in f.relative_to(root).parts or "node_modules" in f.relative_to(root).parts:
         continue
     body = f.read_text(encoding="utf-8", errors="replace")
     for const, form in FORMS.items():
         if re.search(rf"^{const}\s*=", body, re.M):
-            RATCHETS.append((str(f.relative_to(root)), const, form))
+            RATCHETS.append((rel, const, form))
 if not RATCHETS:
     print("NG ラチェットの定数を宣言しているファイルが 1 つも無い（走査が空回り）")
     sys.exit(1)
@@ -2921,7 +2926,15 @@ root = pathlib.Path(sys.argv[1])
 # 同じ差分の table-copies.py は同種の走査を ast で解いている——定番解はこの中に在った。
 RUNNERS = ("run", "check_output", "Popen")
 bad = []
-files = [p for p in root.rglob("*.py") if ".git/" not in str(p) and "node_modules" not in str(p)]
+# **区切りは `/` に正規化する。** `str(p)` は Windows で `\\` になるので `".git/" in str(p)` が
+# 一致せず、除外したはずの .git の中まで走査に入る（実測 2026-09-14: 同じ形が ratchet.py で
+# windows-latest だけ赤くした。除外が効かない側は静かに母数が広がるので、緑のまま気づかない）
+def skip(p):
+    parts = p.relative_to(root).parts
+    return ".git" in parts or "node_modules" in parts
+
+
+files = [p for p in root.rglob("*.py") if not skip(p)]
 if not files:
     print("NG 走査対象が 0 件（母数が取れていない）")
     sys.exit(1)
