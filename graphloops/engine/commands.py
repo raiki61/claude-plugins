@@ -13,7 +13,7 @@ from .render import TOKEN
 from .rules import hook, load_rules, registry
 from .schema import validate_schema
 from .util import PLUGIN_ROOT, Reject, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
-from .validator import find_validator, finalize, run_validator, env_root
+from .validator import find_validator, finalize, report_accepts, run_validator, env_root
 
 
 def required_inputs_missing(g, graph_path, inputs):
@@ -380,7 +380,7 @@ def cmd_finalize(a):
     b.save()
     v = run_validator(b)
     print(dump({"validator": v, "record": str(b.dir / "record.json")}))
-    accepts = b.graph.get("record", {}).get("report_accepts_exit", [0])  # 受理集合の正本は graph（advance の report の節と同じ）
+    accepts = report_accepts(b)  # 受理集合の正本は graph。鍵の綴りと既定は engine の 1 か所（validator.report_accepts）
     if v["exit"] not in accepts:  # None（検証器が無い・動かない）も不合格
         sys.exit(1)
 

@@ -263,6 +263,8 @@ def rejudge_exhausted(b):
     return bool(r) and n >= REJUDGE_MAX
 
 
+ACCEPT_KEYS = ("round_accepts_exit",)  # このループが読む受理集合の鍵（graphcheck が engine の分と合わせて形を見る）
+
 CONDS = {"touches_procedures": touches_procedures, "prev_fix_touched": prev_fix_touched,
          "purpose_sources_changed": purpose_sources_changed,
          "rejudge_open": rejudge_open, "rejudge_exhausted": rejudge_exhausted}

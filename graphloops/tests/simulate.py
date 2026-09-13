@@ -819,6 +819,66 @@ def test_relative_dir():
     rm(run.tmp)
 
 
+def test_graphcheck_sets_derived():
+    """**柵が見る鍵の一覧を、engine と rules から組む（手で並べない）。**
+
+    受理集合（検証器の終了コードのうち先へ進んでよいもの）の鍵を graphcheck が 2 語で手書きしていた。
+    engine か rules が鍵を増やしても柵は増えないので、**増えた鍵だけ形を誰も検査しないまま通る**。
+    この腕は「rules が宣言した鍵が実際に見られること」と「宣言しなければ見られないこと」を対で見る
+    ——宣言が母数だという性質そのものを踏む。
+    """
+    print("否定検査: 受理集合の鍵は engine と rules の宣言から組む")
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-acck-"))
+    MADE.add(tmp)
+    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
+    shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    (tmp / "graphs").mkdir()
+    gp = tmp / "graphs" / "research-loop.json"
+    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+    g.setdefault("record", {})["smoke_accepts_exit"] = None  # 形が壊れた受理集合（null）
+    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+    rp = tmp / "rules" / "research-loop.py"
+    base = rp.read_text(encoding="utf-8")
+
+    def gcheck():
+        r = subprocess.run([PY, str(GRAPHCHECK), str(gp), str(VALIDATOR)], capture_output=True, text=True,
+                           encoding="utf-8", timeout=600)
+        return r.returncode, [ln for ln in (r.stdout + r.stderr).splitlines() if ln.startswith("NG") and "smoke_accepts_exit" in ln]
+
+    code, ng = gcheck()
+    check(not ng, f"control: rules が宣言しない鍵は見ない（宣言が母数）: {ng[:1]}")
+    rp.write_text(base + '\n\nACCEPT_KEYS = ("smoke_accepts_exit",)\n', encoding="utf-8")
+    code, ng = gcheck()
+    check(code != 0 and ng, f"rules が宣言した鍵は形を検査される（{ng[:1]}）")
+    # engine 側の鍵は宣言に依らず常に見る（graph が持てば必ず形を測る）
+    rp.write_text(base, encoding="utf-8")
+    g2 = json.loads(gp.read_text(encoding="utf-8"))
+    g2["record"].pop("smoke_accepts_exit", None)
+    g2["record"]["report_accepts_exit"] = "0"
+    gp.write_text(json.dumps(g2, ensure_ascii=False), encoding="utf-8")
+    code, _ = gcheck()
+    r = subprocess.run([PY, str(GRAPHCHECK), str(gp), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode != 0 and any("report_accepts_exit" in ln for ln in r.stdout.splitlines() if ln.startswith("NG")),
+          "engine の鍵は rules の宣言に依らず常に形を検査される")
+
+    # **フック名の綴り違いも、母数を手で並べない。** 以前は `on_` で始まる名前と手書きの 4 語だけを
+    # 見ていたので、`finalize` を `finalise` と書いても母数に入らず 1 件も出なかった（実測 2026-09-13:
+    # 直す前の柵に同じ綴り違いを注入したら exit 0 だった）。engine に非 `on_` のフックが増えた周も同じ。
+    g3 = json.loads(gp.read_text(encoding="utf-8"))
+    g3["record"].pop("report_accepts_exit", None)
+    gp.write_text(json.dumps(g3, ensure_ascii=False), encoding="utf-8")
+    for bad, near in (("finalise", "finalize"), ("on_new_rounds", "on_new_round")):
+        rp.write_text(base + f"\n\ndef {bad}(b):\n    return None\n", encoding="utf-8")
+        r = subprocess.run([PY, str(GRAPHCHECK), str(gp), str(VALIDATOR)], capture_output=True, text=True,
+                           encoding="utf-8", timeout=600)
+        hit = [ln for ln in (r.stdout + r.stderr).splitlines() if ln.startswith("NG") and bad in ln and near in ln]
+        check(r.returncode != 0 and hit, f"フック '{near}' の綴り違い '{bad}' を落とす（{hit[:1]}）")
+    rp.write_text(base, encoding="utf-8")
+    r = subprocess.run([PY, str(GRAPHCHECK), str(gp), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode == 0, f"control: 綴りが正しければ通る（{r.returncode}）")
+    rm(tmp)
+
+
 def test_prompt_growth():
     """**周をまたいで育つ穴を測る。** 上限が無い経路でも、育っていることは言う。
 

@@ -5,7 +5,7 @@ from .render import FILE_CAP, Renderer
 from .rules import hook, registry
 from .schema import validate_schema
 from .util import die, dump, now, porcelain, read_json, safe_name, sha, write_json
-from .validator import agent_def, finalize, run_validator, deliver_mode
+from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
 # launch.isolated.argv の穴。engine が埋められるのはこの 5 語だけ——graphcheck が import して知らない穴と、役の定義に無い
@@ -110,7 +110,7 @@ def emit_instance(b, nid, item=None, suffix=""):
         finalize(b)
         b.save()
         v = run_validator(b)
-        accepts = b.graph.get("record", {}).get("report_accepts_exit", [0])
+        accepts = report_accepts(b)
         if v["exit"] not in accepts:  # None（検証器が無い・動かない）も不合格——検査できない run を無検査で報告に進めない
             b.trace("validator_failed", exit=v["exit"], out=v["out"])
             die(f"{nid}: 記録が検証器を通らない（exit {v['exit']}）。engine か rules か節の出力の欠陥——record.json と trace.jsonl を見て直す（手当ては loop.py patch）:\n{v['out']}", 1)

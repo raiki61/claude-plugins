@@ -12,6 +12,17 @@ from .util import PLUGIN_ROOT, die
 
 VALIDATOR_TIMEOUT = 600  # 秒
 
+# engine が読む「受理集合」の鍵。**鍵の綴りを engine が持ち、graphcheck は import する**——
+# 以前は柵の側が鍵の名前を手で並べており、engine か rules が鍵を増やした周に、その鍵だけ
+# 形（整数の空でない一覧）を誰も検査しないまま通った。ループ固有の鍵は rules が ACCEPT_KEYS で宣言する。
+REPORT_ACCEPTS = "report_accepts_exit"
+ENGINE_ACCEPT_KEYS = (REPORT_ACCEPTS,)
+
+
+def report_accepts(b):
+    """報告に進んでよい検証器の終了コード（正本は graph）。**読む側が 2 か所に散っていたので口を 1 つにする。**"""
+    return b.graph.get("record", {}).get(REPORT_ACCEPTS, [0])
+
 
 def env_root(plugin):
     """plugin の置き場を指す環境変数の名前（convergence-loops → CONVERGENCE_LOOPS_ROOT）。"""

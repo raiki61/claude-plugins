@@ -62,7 +62,7 @@ from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import unknown_keywords  # noqa: E402
 from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
 from engine.rules import HOOKS, load_rules as engine_load_rules, registry  # noqa: E402
-from engine.validator import agent_def, agent_tools, find_plugin_path  # noqa: E402
+from engine.validator import ENGINE_ACCEPT_KEYS, agent_def, agent_tools, find_plugin_path  # noqa: E402
 from engine.util import read_json  # noqa: E402
 
 # JSON の読み込みは engine の read_json（読めなければ die＝exit 2）。写しを持っていたとき UnicodeDecodeError を
@@ -284,14 +284,6 @@ def main():
 
     # 3. 記録の欄 ⊆ outputs
     script = sys.argv[2] if len(sys.argv) == 3 else None
-    # 受理集合は 2 つとも見る（docstring の検査 12 が両方を名乗るのに片方しか読んでいなかった）。**鍵が在れば null でも落とす**
-    # ——`is not None` で外していたので、NG 文が名指しする null そのものが素通りし、実行時は `exit not in None` の TypeError になった
-    for key in ("report_accepts_exit", "round_accepts_exit"):
-        if key not in g.get("record", {}):
-            continue
-        ae = g["record"][key]
-        if not (isinstance(ae, list) and ae and all(isinstance(x, int) and not isinstance(x, bool) for x in ae)):
-            errs.append(f"record.{key} は終了コード（整数）の空でない一覧: {ae!r}（null や文字列は engine / rules が『受理集合に無い』と読めず TypeError で落ちる）")
     vp = g.get("record", {}).get("validator_path")
     if not script and vp:
         script = find_plugin_path(vp, g.get("plugin"))  # engine と同じ探し方（明示 → <PLUGIN>_ROOT → 同じリポジトリ → キャッシュ）
@@ -415,12 +407,30 @@ def main():
         # フック名の綴り違いを落とす。engine は getattr の名前一致で探すので、1 字違いは「このループは持たない」に
         # 静かに倒れる（意図的な不在と区別が付かない）。似て非なる公開名を NG にする
         import difflib
-        public = {n for n in dir(rules) if n.startswith("on_") or n in ("finalize", "check_record", "init_record", "add")}
+        # **母数は「この rules が定義した公開の関数」全部。** 以前は `on_` で始まる名前と、
+        # 非 `on_` のフック名を**手で並べた 4 語**だけを見ていた——engine の HOOKS はその 4 語を
+        # 持つので今は一致するが、綴り違いはその表に載らないので、`finalize` を `finalise` と書いても
+        # 母数に入らず 1 件も出なかった（実測 2026-09-13: 柵は「フック名の綴り違いを落とす」と
+        # 名乗るのに、落とせるのは `on_` で始まるものだけだった）。**engine に非 `on_` のフックが
+        # 増えた周も、ここは黙って狭いまま。** 定義元で絞るので、import した名前は母数に入らない。
+        public = {n for n in dir(rules)
+                  if not n.startswith("_") and callable(getattr(rules, n, None))
+                  and getattr(getattr(rules, n, None), "__module__", None) == getattr(rules, "__name__", None)}
         for n in sorted(public - set(HOOKS)):
             near = difflib.get_close_matches(n, HOOKS, n=1, cutoff=0.8)
             if near:
                 errs.append(f"rules の公開名 '{n}' は engine のフック '{near[0]}' の綴り違いに見える（engine は名前一致でしか探さないので静かに無視される）")
     reg = lambda name: set(registry(rules, name))  # 名前表の引き方は engine の registry（写しを持たない）
+    # 受理集合の形。**鍵の一覧は engine と rules から組む**——手で 2 語並べていたとき、どちらかが鍵を
+    # 増やしてもこの柵は増えず、増えた鍵だけ形（整数の空でない一覧）を誰も検査しないまま通った。
+    # **鍵が在れば null でも落とす**——`is not None` で外していたので、NG 文が名指しする null そのものが
+    # 素通りし、実行時は `exit not in None` の TypeError になった。
+    for key in sorted(set(ENGINE_ACCEPT_KEYS) | reg("ACCEPT_KEYS")):
+        if key not in g.get("record", {}):
+            continue
+        ae = g["record"][key]
+        if not (isinstance(ae, list) and ae and all(isinstance(x, int) and not isinstance(x, bool) for x in ae)):
+            errs.append(f"record.{key} は終了コード（整数）の空でない一覧: {ae!r}（null や文字列は engine / rules が『受理集合に無い』と読めず TypeError で落ちる）")
     write_ops = set(ENGINE_WRITE_OPS) | reg("WRITE_OPS")
     fan_builtins, node_builtins, post_checks, conds = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS"), reg("CONDS")
     for nid in g.get("raw_for_report", []):
