@@ -719,10 +719,13 @@ def test_isolated_real_launch():
     inst = cli[0]
     bindir = run.tmp / "fakebin"
     bindir.mkdir()
+    # **標準入力はバイトで読む。** 実物の claude と同じで、text で読むと Windows は OS 既定（cp1252）で復号し、
+    # 日本語のプロンプトが UnicodeDecodeError になる（実測 2026-09-13: .bat で起動できるようにした直後の CI）。
+    # engine 側の cmd_done が同じ理由で既にバイト読みに直してある——代役だけが実物と違う形に残っていた
     fake = _fake_claude(bindir,
                         "import sys, json\n"
-                        "body = sys.stdin.read()\n"
-                        "print(json.dumps({'seen_bytes': len(body.encode('utf-8')), 'argv': sys.argv[1:]}, ensure_ascii=False))\n")
+                        "raw = sys.stdin.buffer.read()\n"
+                        "sys.stdout.write(json.dumps({'seen_bytes': len(raw), 'argv': sys.argv[1:]}) + '\\n')\n")
     env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
     argv = list(inst["launch"]["argv"])
     argv[0] = str(fake)  # engine は next の時点で PATH から解決済みなので、この腕では偽物を名指しする
@@ -736,7 +739,7 @@ def test_isolated_real_launch():
           "起こされた側の argv にも遮断のフラグが入っている（形だけでなく実際に渡っている）")
 
     # 実物の失敗形: 非 0 終了と短い非 JSON（1 周目の認証落ちがこの形だった）
-    fake = _fake_claude(bindir, "import sys\nsys.stdin.read()\nprint('Invalid API key')\nsys.exit(1)\n")
+    fake = _fake_claude(bindir, "import sys\nsys.stdin.buffer.read()\nsys.stdout.write('Invalid API key\\n')\nsys.exit(1)\n")
     with open(inst["launch"]["stdin"], "rb") as fh:
         r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
     check(r.returncode != 0 and "Invalid API key" in r.stdout, f"失敗形（非 0・短い非 JSON）を観測できる（rc={r.returncode}）")
