@@ -359,15 +359,14 @@ def main():
         sys.exit("使い方: what-am-i-doing-case.py <" + "|".join(CASES) + ">")
     # ケースは作業場へ chdir する。戻さずに片づけると、Windows は使用中の
     # ディレクトリを消せず PermissionError で落ちる（windows-latest で実測）。
-    # 片づけを自分で持つのは `TemporaryDirectory(ignore_cleanup_errors=)` が 3.10 からで、
-    # 配布が名乗る下限は 3.9 だから（README の「必須」の行）。
+    # 握り潰しは ignore_cleanup_errors に任せる（手で mkdtemp + try/finally を書いていたのは、この引数が
+    # 3.10 からで配布の下限が 3.9 だったため——下限を 3.12 に上げた周に不要になった）。chdir だけは自分で戻す
     origin = os.getcwd()
-    tmp = tempfile.mkdtemp()
     try:
-        print(CASES[sys.argv[1]](tmp))
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            print(CASES[sys.argv[1]](tmp))
     finally:
         os.chdir(origin)
-        shutil.rmtree(tmp, ignore_errors=True)
     return 0
 
 

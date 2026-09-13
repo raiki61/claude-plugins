@@ -69,16 +69,13 @@ def case(name):
 def _pass():
     """通る例は 14 行・最大 48 桁で通る。file でも標準入力でも同じ 1 行で exit 0。"""
     code, lines = fc.report(GOOD)
-    # 作業場は自分で片づける——`TemporaryDirectory(ignore_cleanup_errors=)` は 3.10 からで、配布が
-    # 名乗る下限は 3.9（README の「必須」の行）。Windows は使用中の作業場を消せないので握り潰す。
-    tmp = tempfile.mkdtemp()
-    try:
+    # Windows は使用中の作業場を消せないので握り潰す（ignore_cleanup_errors）。手で mkdtemp + try/finally を
+    # 書いていたのは、この引数が 3.10 からで当時の必須版がそれより古かったため——必須版を上げた周に不要になった
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         path = os.path.join(tmp, "fig.txt")
         with open(path, "w", encoding="utf-8") as f:
             f.write(GOOD)
         file_code, file_out = run_cli([path], "")
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
     stdin_code, stdin_out = run_cli([], GOOD)
     out = "\n".join(lines)
     return verdict({"exit": code == 0,

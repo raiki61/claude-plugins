@@ -2730,6 +2730,23 @@ if not want:
     print("NG README.md に「**必須**」の行が無い（宣言した下限が読めない）"); sys.exit(1)
 if f"**{ci} 以降**" not in want[0]:
     print(f"NG CI が測る版 {ci} と README の宣言が食い違う: {want[0][:120]}"); sys.exit(1)
+# **宣言を読み手が写している箇所も突き合わせる。** 下限を 3.9 → 3.12 に動かした周に、README の「必須」の行を
+# 明示的に参照した注記 3 本（tests/*-case.py）が 3.9 のまま取り残された（実測 2026-09-13: 判定者が grep で発見）。
+# 宣言と CI だけを突き合わせても、宣言を写した側は追従しない——母数は「この下限を名乗る箇所すべて」。
+import re as _re
+stale = []
+for f in sorted(root.rglob("*.py")) + sorted(root.rglob("*.md")) + sorted(root.rglob("*.sh")):
+    if ".git/" in str(f) or "/node_modules/" in str(f):
+        continue
+    for i, ln in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        for m in _re.finditer(r"名乗る下限[はが]?\s*([0-9]+\.[0-9]+)", ln):
+            if m.group(1) != ci:
+                stale.append(f"{f.relative_to(root)}:{i} 名乗る下限 {m.group(1)}（CI が測るのは {ci}）")
+if stale:
+    print("NG 下限の名乗りが CI と食い違う箇所が在る（宣言を写した側が追従していない）:")
+    for x in stale:
+        print("  " + x)
+    sys.exit(1)
 print("PY_FLOOR_OK")
 PYFLOOR
 expect_output 0 "PY_FLOOR_OK" "README が宣言した Python の下限と、CI が測る python-version が一致する（片方だけ動かすと赤）" \

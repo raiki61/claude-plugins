@@ -93,6 +93,14 @@ class Run:
         return self.cmd("done", "--node", node, "--output", str(f))
 
     def record(self):
+        # **記録は盤面のファイルを直読みする。** loop.py record は record.json の丸写しなのに、CLI 経由だと
+        # 1 回ごとに python の起動と engine の import を払う（実測 2026-09-13: 2 本の台本で計 567 回・30.4 秒、
+        # 直読みに替えると検査一式が 161 秒 → 132 秒で件数と失敗数は不変）。record サブコマンド自体の煙テストは
+        # record_cli() に 1 か所だけ残す——全部を直読みにすると、そのコマンドが壊れても誰も気づかない
+        return json.loads((self.dir / "record.json").read_text(encoding="utf-8"))
+
+    def record_cli(self):
+        """loop.py record が record.json の丸写しを返すことの煙テスト（呼ぶのは 1 か所だけ）。"""
         return json.loads(self.cmd("record").stdout)
 
     def status(self):
@@ -458,6 +466,17 @@ def test_graphcheck():
     bad_rules.write_text(src, encoding="utf-8")
     check(r.returncode == 1 and "綴り違い" in r.stdout,
           f"rules のフック名の綴り違いは graphcheck が落とす（rc={r.returncode}: {r.stdout.strip()[-90:]}）")
+
+    # 遮断系（道具ゼロの役）は別プロセスで起こすので context を継げない。**実行時の die だけに置かない**
+    iso = json.loads(json.dumps(g))
+    tgt = next(k for k, v in iso["nodes"].items() if v.get("run_by") in ("cold-reader", "blind-judge"))
+    dep = (iso["nodes"][tgt].get("deps") or ["p0.question"])[0]
+    iso["nodes"][tgt]["same_context_as"] = dep
+    bad_iso = tmp / "graphs" / "iso.json"
+    bad_iso.write_text(json.dumps(iso, ensure_ascii=False), encoding="utf-8")
+    r = subprocess.run([PY, str(GRAPHCHECK), str(bad_iso), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode == 1 and "context は継げない" in r.stdout,
+          f"遮断系の役に same_context_as を書いた graph は落ちる（rc={r.returncode}: {r.stdout.strip()[-90:]}）")
     # **対象は graphs/ の実体から導く**（名前を手で並べると、足した graph も落とした graph も検査の側が追えない）
     for gf in sorted((PLUGIN / "graphs").glob("*.json")):
         if gf.name == "research-loop.json":

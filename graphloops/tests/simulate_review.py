@@ -97,6 +97,14 @@ class Run:
         return self.cmd("done", "--node", node, "--output", str(f), *(["--agent-id", agent_id] if agent_id else []))
 
     def record(self):
+        # **記録は盤面のファイルを直読みする。** loop.py record は record.json の丸写しなのに、CLI 経由だと
+        # 1 回ごとに python の起動と engine の import を払う（実測 2026-09-13: 2 本の台本で計 567 回・30.4 秒、
+        # 直読みに替えると検査一式が 161 秒 → 132 秒で件数と失敗数は不変）。record サブコマンド自体の煙テストは
+        # record_cli() に 1 か所だけ残す——全部を直読みにすると、そのコマンドが壊れても誰も気づかない
+        return json.loads((self.dir / "record.json").read_text(encoding="utf-8"))
+
+    def record_cli(self):
+        """loop.py record が record.json の丸写しを返すことの煙テスト（呼ぶのは 1 か所だけ）。"""
         return json.loads(self.cmd("record").stdout)
 
     def state(self):
@@ -434,6 +442,7 @@ def test_rejections():
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
     check("p0.prior_decisions" in by and "p1.worktree_before" not in by, "機械の節（作業ツリーの写し）は ready に出ない")
+    check(run.record_cli() == run.record(), "loop.py record は record.json の丸写し（直読みと同じ値。CLI の煙テストはここ 1 か所）")
     for n in ("p0.purpose", "p0.parallel_pr", "p0.prior_decisions"):
         run.done(by[n]["id"], t[n](None))
     nx = run.next()
