@@ -40,7 +40,11 @@
   "validator": "python3 research-record.py record.json——report の節に入る前に駆動器が回し、exit 0 でなければ report を出さない",
   "validator_path": "scripts/research-record.py",
   "vocab_owner": "research-record.py の VERDICTS / VERDICT_FIELDS / THICKNESS / DECIDERS / ORIGINS / GATE_VERDICTS / OUTCOMES / REQUIRED。この JSON の schema の enum はそれを写している（増やすときは検証器が先）",
-  "exit_codes": "0 = 発行を妨げるものなし／1 = 収束を名乗りながらゲート未 pass・覆り・未反証の相違／2 = 記録が不正。outcome=stopped の記録は 1 にならない"
+  "exit_codes": "0 = 発行を妨げるものなし／1 = 収束を名乗りながらゲート未 pass・覆り・未反証の相違／2 = 記録が不正。outcome=stopped の記録は 1 にならない",
+  "report_accepts_exit": [
+   0
+  ],
+  "accepts_note": "報告の前で受け付ける終了コード。**既定と同じ [0] を明示して書く**——書かないと 「既定でよいと判断した」と「誰も考えなかった」が同じ無宣言になり、graphcheck の形の検査にも入らない。広げる処方は採らない: exit 2 は「記録が不正」であって、広げると本当の不正も通る（非収束で停止した run が報告できないのは rules の finalize がゲートを not_run で申告して解く）"
  },
  "thickness": {
   "tiers": [

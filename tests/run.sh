@@ -2764,6 +2764,7 @@ RATCHETS = [
     ("tests/run.sh", "EXPECTED_CHECKS", 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then'),
     ("graphloops/tests/run.sh", "EXPECTED_CHECKS", 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then'),
     ("graphloops/tests/simulate_review.py", "VOCAB_REACHED", "    check(reached == VOCAB_REACHED,"),
+    ("graphloops/tests/simulate.py", "VOCAB_REACHED", "    check(reached == VOCAB_REACHED,"),
 ]
 LOOSE = ("-lt", "-gt", "-le", "-ge", ">=", "<=", " > ", " < ")
 

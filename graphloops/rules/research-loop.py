@@ -80,6 +80,10 @@ def sampling_pick(b, nid):
 
 
 FAN_OUT = {"clusters_needing_check": clusters_needing_check, "claims_needing_refute": claims_needing_refute, "sampling_pick": sampling_pick}
+# **無作為に項目を引く扇。** 引く物が run ごとに変わるので、そこから返る値は台本の性質ではない
+# ——覆いの測定（判定語彙の到達）はこの扇の節を数えない。数えていたとき、同じ台本で到達が
+# 24 と 25 のあいだで揺れた（実測 2026-09-13: 種が run_id＝時刻）。**揺れる柵は無い柵より悪い。**
+RANDOM_FAN = ("sampling_pick",)
 CONDS = {}
 
 

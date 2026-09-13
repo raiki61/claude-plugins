@@ -7,6 +7,7 @@
 
 使い方: python3 simulate.py            # 全部の台本と否定検査を回す。失敗があれば exit 1
 """
+import collections
 import json
 import os
 import pathlib
@@ -57,6 +58,65 @@ def rm(p):
 
 
 MADE = set()  # この プロセスが作った作業場だけを後始末する（接頭辞の列挙は他プロセスの盤面を巻き込む）
+
+# 台本が実際に返した判定語彙（(節, 欄) → 値の集合）。**「台本が 1 値固定」を件数でなく到達で測る。**
+# review 側に同じラチェットを置いた当日、research 側には無かった——**知見が片側にしか適用されない**形。
+VOCAB_SEEN = collections.defaultdict(set)
+# 到達した語彙の数。**`!=` で見る**——下限だと筋書きを増やしても数が動かず、増やしたつもりの周に誰も気づかない。
+VOCAB_REACHED = 22
+
+
+def record_vocab(node, output):
+    """台本が返した値を集める。**既存の検査に相乗りするので、この測定のために 1 回も余計に回さない。**"""
+    if not isinstance(output, dict):
+        return
+    nid = node.split("[")[0]
+
+    def walk(v, p=""):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                walk(x, f"{p}.{k}" if p else k)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x, p + "[]")
+        elif isinstance(v, (str, bool)):
+            with parallel.LOCK:
+                VOCAB_SEEN[(nid, p)].add(v)
+
+    walk(output)
+
+
+def vocab_coverage():
+    """graph が宣言する判定語彙のうち、台本が返したものの数と、返していないものの一覧。"""
+    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+    enums = {}
+
+    def walk_schema(nid, sch, path=""):
+        if not isinstance(sch, dict):
+            return
+        if "enum" in sch:
+            enums[(nid, path)] = set(sch["enum"])
+        for k, v in (sch.get("properties") or {}).items():
+            walk_schema(nid, v, f"{path}.{k}" if path else k)
+        if "items" in sch:
+            walk_schema(nid, sch["items"], path + "[]")
+
+    # **無作為に項目を引く扇の節は数えない**——引く物が run ごとに変わるので、そこから返る値は
+    # 台本の性質ではない（実測: 数えていたとき到達が 24 と 25 で揺れた）。除外は rules が宣言する
+    # `RANDOM_FAN` から導く——測る側で節の名前を手で並べると、扇を足した周にまた揺れる
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    rules = load_rules(PLUGIN / "graphs" / "research-loop.json", g)
+    random_fan = set(getattr(rules, "RANDOM_FAN", ()) or ())
+    for nid, n in g["nodes"].items():
+        if (n.get("fan_out") or {}).get("builtin") in random_fan:
+            continue
+        if n.get("schema"):
+            walk_schema(nid, n["schema"])
+    total = sum(len(v) for v in enums.values())
+    reached = sum(len(v & VOCAB_SEEN.get(k, set())) for k, v in enums.items())
+    unreached = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs - VOCAB_SEEN.get(k, set())))
+    return reached, total, unreached
 
 # **落ちた回も後始末する。** 後始末は main の finally に在るが、main に届かない落ち方（import 時の例外・
 # 台本が engine を壊して全体が落ちる・退行注入の試走）では作業場が残る。溜まった実測: 502 個・148 MB
@@ -110,6 +170,7 @@ class Run:
         return json.loads(r.stdout)
 
     def done(self, node, output):
+        record_vocab(node, output)
         f = self.tmp / "out.json"
         f.write_text(json.dumps(output, ensure_ascii=False), encoding="utf-8")
         return self.cmd("done", "--node", node, "--output", str(f))
@@ -1420,6 +1481,10 @@ def main():
         for _d in sorted(MADE):
             rm(_d)
     check(DELIVERY_SEEN >= {"p1.checker", "p3.cold_reader"}, f"渡し方の検査は checker（agent/path）と cold_reader（cli/paste）の両方に実際に当たった（{sorted(DELIVERY_SEEN)}）")
+    reached, total, unreached = vocab_coverage()
+    check(reached == VOCAB_REACHED,
+          f"判定語彙の到達 {reached}/{total}（記録は {VOCAB_REACHED}）——筋書きを増やしたら数を上げろ。"
+          f"未到達の頭: {unreached[:3]}")
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤
         print("  - 検査が 1 件も走っていない")
