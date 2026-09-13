@@ -147,7 +147,58 @@ def prev_fix_touched(b):
     return bool(b.loop_state.get("prev_fix_files"))
 
 
-CONDS = {"touches_procedures": touches_procedures, "prev_fix_touched": prev_fix_touched}
+def purpose_sources_changed(b):
+    """目的テキストの出典文書を、前の周の P3 が触ったか（cond の builtin）。
+
+    **目的テキストそのものは動かさない（凍結の規律）。動かすのは「目的監査をもう一度走らせるか」だけ。**
+    以前は p0.purpose_review が once で、その判定（狭めている／妥当）は record.process に着地し、
+    on_new_round は process をリセットしないので、**実態をどう直しても round 1 の判定が run の残り全周を
+    縛った**（実測 2026-09-13: 名乗りの 4 出典は既に直っているのに R2 が 5 周とも走らず、この run が収束
+    できない本当の理由がこれだった）。引き金は役の自己申告でなく **P3 が実際に触ったファイル**にする
+    ——判定が不利なときに回し直して有利な方を採る形を作らないため（引き金の定義が緩むと規律が壊れる）。
+    """
+    srcs = (b.outputs().get("p0.purpose") or {}).get("source_files") or []
+    if not srcs:
+        # 出典の一覧が無い周は「触った」と言えない。合格に倒さず、走り直しも起こさない
+        return False
+    touched = set(b.loop_state.get("prev_fix_files") or [])
+    return bool(touched & set(srcs))
+
+
+EMPTY = ("なし", "無し", "ない", "無い", "特になし", "n/a", "none", "-", "未確認", "不明")  # 「書いていない」と同じ扱いにする語
+
+REJUDGE_MAX = 3  # 往復の上限。依頼者の指定（2026-09-13）: 2〜3 回まで許し、超えたら新しい別の目が会話に参加して判定する
+
+
+def _rejudge(b):
+    """今の周に回す側が出した異議と、その周の往復の回数。"""
+    ls = b.loop_state
+    r = ls.get("rejudge_requested") or {}
+    return (r if r.get("round") == b.round else {}), int(ls.get("rejudge_rounds") or 0)
+
+
+def rejudge_open(b):
+    """回す側が今の周に異議を出し、往復が上限未満か（cond の builtin）。
+
+    **異議を次の周へ送らない口。** 以前は rejudge_requested を次の周の p2.history が読む形しか無く、
+    同じ周に閉じる辺が graph に 0 本だった——実運用では engine の外の会話で往復が起き、記録にも trace にも
+    残らなかった（実測 2026-09-13: この run で往復が 5 回起き、残ったのは loop.py patch を通した 1 件だけ。
+    そのうち 2 回は engine のコードが判定の最中に変わる重さだったのに、盤面は何も止めなかった）。
+    依頼者の指定の 4 条件のうち、ここが担うのは「往復が記録に残る」——done が trace.jsonl と state に残す。
+    """
+    r, n = _rejudge(b)
+    return bool(r) and n < REJUDGE_MAX
+
+
+def rejudge_exhausted(b):
+    """往復が上限に達しても決着しない周か（cond の builtin）。**第三の目は常設しない**——ここでだけ立つ。"""
+    r, n = _rejudge(b)
+    return bool(r) and n >= REJUDGE_MAX
+
+
+CONDS = {"touches_procedures": touches_procedures, "prev_fix_touched": prev_fix_touched,
+         "purpose_sources_changed": purpose_sources_changed,
+         "rejudge_open": rejudge_open, "rejudge_exhausted": rejudge_exhausted}
 
 
 # ---------------------------------------------------------------- 記録の形に固有の書き込み
@@ -280,12 +331,12 @@ def worktree_compare(b, nid):
     before = ls.get("tree_before") or {}
     snap = porcelain()
     # shortstat は diff 本文の sha に包含される（本文が同じなら行数も同じ）ので取り直さない——subprocess 1 本分
-    got = {k: git(*args) for k, args in (("stash", ("stash", "list")), ("diff", ("diff", b.record["base"])))}
+    # diff は**生バイトで 1 度だけ**引く。以前は text 版も引いていたが、その値は None 検査にしか使われず、
+    # 突合の sha は生バイトから作っていた——927 KB を読む subprocess 1 本が誰にも渡らず捨てられていた
+    got = {"stash": git("stash", "list"), "diff": git_bytes("diff", b.record["base"])}
     if snap is None or any(v is None for v in got.values()) or before.get("porcelain") is None:
         return {"ok": False, "problems": ["git status / git diff が取れない——作業ツリーの前後を突き合わせられない（一致とは言えない）"]}
-    raw = git_bytes("diff", b.record["base"])
-    if raw is None:
-        return {"ok": False, "problems": ["git diff（生バイト）が取れない——作業ツリーの前後を突き合わせられない（一致とは言えない）"]}
+    raw = got["diff"]
     now = {"porcelain": snap, "stash": got["stash"].strip(), "diff_sha": sha(raw.decode("latin-1"))}
     problems = []
     for k in ("porcelain", "stash", "diff_sha"):
@@ -681,7 +732,6 @@ def fix_covers_open_units(b, nid, out, item):
     # 覆いの母数——「1 か所直して終わり」を数字で見えるようにする。closed < total は禁じない（残すのは判断）が、
     # 残したこと自体を書かせる。ここで検算できるのは数の整合だけで、問い（how）が正しいかは次の周の判定者が同じ
     # コマンドを走らせて見る（kind=実測 に measured_output を要求するのと同じ形）
-    EMPTY = ("なし", "無し", "ない", "無い", "特になし", "n/a", "none", "-", "未確認", "不明")
     # 修正どうしの干渉。**面は「同じファイルを触った修正どうし」**（changes[].files の交差）で、面の一覧は機械が出す。
     # 別ファイルにまたがる干渉（非 UTF-8 の修正が同じ git ラッパーを共有する突合に穴を開けた形）はこの粒度では
     # 捕れない——そちらは breaks.how（同じ経路・同じ不変条件を引くコマンド）の担当。名乗りをその線に留める
@@ -815,7 +865,25 @@ def gate_arms_all_red(b, nid, out, item):
                      "分岐が書く値を一意の印に替え、その印が出力か記録に現れることを確かめて hit_evidence に書け")
 
 
-POST_CHECKS = {"gate_arms_all_red": gate_arms_all_red, "measured_needs_output": measured_needs_output, "base_valid": base_valid, "judge_output": judge_output, "fix_covers_open_units": fix_covers_open_units,
+def rejudge_output(b, nid, out, item):
+    """擦り合わせの返答: **新しい事実を自分で確かめたこと**を要求し、往復の回数を数える。
+
+    依頼者の指定の条件 1（反論は新しい事実を伴うときだけ通す）と 3（判定を確定する権限は移らない）を機械で持つ。
+    確かめた結果を書かずに採る／退けるのは、回す側の異議をそのまま飲む／握り潰すのと同じで、どちらも
+    「判定を都合よく使うな」に反する。回数は loop_state が持ち、cond（rejudge_open / rejudge_exhausted）が読む。
+    """
+    fact = (out.get("new_facts") or "").strip()
+    if len(fact) < 20 or fact in EMPTY:
+        raise Reject(f"{nid}: new_facts が空同然——回す側が出した事実を**自分で確かめた結果**を書け"
+                     "（確かめずに採る／退けるのは、どちらも判定を都合よく使うことになる）")
+    ls = b.loop_state
+    ls["rejudge_rounds"] = int(ls.get("rejudge_rounds") or 0) + 1
+    # 決着したら異議を降ろす。決着しなければ次の往復（上限を超えれば第三の目）へ
+    if out.get("verdict") in ("採る", "退ける"):
+        ls.pop("rejudge_requested", None)
+
+
+POST_CHECKS = {"gate_arms_all_red": gate_arms_all_red, "rejudge_output": rejudge_output, "measured_needs_output": measured_needs_output, "base_valid": base_valid, "judge_output": judge_output, "fix_covers_open_units": fix_covers_open_units,
                "r2_design": r2_design, "r4_inventory": r4_inventory, "cold_check_note": cold_check_note}
 
 

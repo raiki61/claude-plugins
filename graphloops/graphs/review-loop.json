@@ -398,7 +398,8 @@
     "required": [
      "purpose_text",
      "source",
-     "known_weaknesses"
+     "known_weaknesses",
+     "source_files"
     ],
     "additionalProperties": false,
     "properties": {
@@ -420,6 +421,13 @@
       "items": {
        "type": "string"
       }
+     },
+     "source_files": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "note": "目的テキストの出典にしたファイル（リポジトリ相対）。前の周の P3 がここを触った周だけ、目的監査が走り直す（目的テキストは動かさない）"
      }
     }
    },
@@ -437,7 +445,7 @@
    "run_by": "inspector",
    "fresh_context": true,
    "optional": true,
-   "when": "目的テキストを writer が要約した（出典③）",
+   "when": "目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す",
    "deps": [
     "p0.purpose"
    ],
@@ -488,11 +496,26 @@
      "from": "$"
     }
    ],
-   "once": true,
    "cond": {
-    "path": "out.p0.purpose.source",
-    "op": "eq",
-    "value": "③writer の要約"
+    "all": [
+     {
+      "path": "out.p0.purpose.source",
+      "op": "eq",
+      "value": "③writer の要約"
+     },
+     {
+      "any": [
+       {
+        "path": "round",
+        "op": "eq",
+        "value": 1
+       },
+       {
+        "builtin": "purpose_sources_changed"
+       }
+      ]
+     }
+    ]
    }
   },
   "p0.parallel_pr": {
@@ -2310,7 +2333,10 @@
     "inputs.repo_review_md",
     "inputs.cwd",
     "loop.defer_ledger",
-    "loop.escalated"
+    "loop.escalated",
+    "prev.r1.minimality",
+    "prev.r3.coherence",
+    "prev.r4.hidden_scope"
    ],
    "schema": {
     "type": "object",
@@ -2906,7 +2932,9 @@
     "record.process.diagnosis",
     "inputs.review_md",
     "inputs.cwd",
-    "record.base"
+    "record.base",
+    "prev.r1.minimality",
+    "prev.r4.hidden_scope"
    ],
    "schema": {
     "type": "object",
@@ -3227,7 +3255,9 @@
    "stage": "P4",
    "run_by": "writer",
    "deps": [
-    "p3.fix"
+    "p3.fix",
+    "p2.rejudge",
+    "p2.rejudge_third"
    ],
    "source": "P4 ＞ 1. CI を再実行",
    "does": "CI を再実行。赤なら P3 に戻る",
@@ -3302,7 +3332,9 @@
    "stage": "P4",
    "run_by": "writer",
    "deps": [
-    "p3.fix"
+    "p3.fix",
+    "p2.rejudge",
+    "p2.rejudge_third"
    ],
    "source": "P4 ＞ 5. scalar 記録（手で数え直すな）",
    "does": "文書なら行数、コードなら comment-ratio.sh <BASE> の出力（手で数え直さない）。ゲートにしない——増分は R1 への入力",
@@ -4228,6 +4260,320 @@
    "text": true,
    "pre": "finalize",
    "save_text_as": "report.md"
+  },
+  "p2.rejudge": {
+   "stage": "P2",
+   "run_by": "judge",
+   "optional": true,
+   "deps": [
+    "p3.fix"
+   ],
+   "source": "P2 ＞ 9. 同じ周の擦り合わせ（回す側の異議を次の周に送らない）",
+   "inputs": [
+    "回す側の異議（rejudge_requested）と、それが伴う新しい事実",
+    "今の周の units と questions"
+   ],
+   "does": "回す側が出した新しい事実を自分で確かめ、判定を採る／退ける／一部採る。units を書き換えるのは judge の側で、回す側に権限は移らない",
+   "outputs": [
+    "units（更新）"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "verdict",
+     "new_facts",
+     "units"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "採る",
+       "退ける",
+       "一部採る"
+      ]
+     },
+     "new_facts": {
+      "type": "string",
+      "minLength": 20,
+      "note": "回す側が出した新しい事実を、自分で確かめた結果。確かめずに採るな・退けるな"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "units": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "label"
+       ],
+       "additionalProperties": true,
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "label": {
+         "type": "string",
+         "enum": [
+          "block",
+          "suggest",
+          "nit",
+          "question",
+          "info"
+         ]
+        },
+        "disposition": {
+         "type": "string",
+         "enum": [
+          "do-now",
+          "defer"
+         ]
+        },
+        "reason": {
+         "type": "string"
+        },
+        "reopen_evidence": {
+         "type": "string"
+        },
+        "origin_analysis": {
+         "type": "string"
+        },
+        "why_chain": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "prescriptions": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "closed_note": {
+         "type": "string"
+        },
+        "class_query": {
+         "type": "object",
+         "required": [
+          "how",
+          "total"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "how": {
+           "type": "string",
+           "minLength": 1
+          },
+          "total": {
+           "type": "integer",
+           "minimum": 0
+          },
+          "note": {
+           "type": "string"
+          }
+         },
+         "note": "同じ形を全部引ける機械の問い（how＝そのまま走らせられるコマンド）と、そのとき出た件数（total）。1 site しか無いことの証明も total: 1 で書く"
+        }
+       }
+      }
+     }
+    }
+   },
+   "reads": [
+    "loop.rejudge_open",
+    "record.units",
+    "record.questions",
+    "record.process.diagnosis"
+   ],
+   "writes": [
+    {
+     "op": "set",
+     "to": "units",
+     "from": "units",
+     "pick": [
+      "key",
+      "label",
+      "disposition",
+      "reason",
+      "reopen_evidence"
+     ]
+    },
+    {
+     "op": "append",
+     "to": "process.rejudge",
+     "from": "$"
+    }
+   ],
+   "post_check": "rejudge_output",
+   "same_context_as": "p2.diagnose",
+   "when": "回す側が今の周に異議を出し、往復が上限（3）未満の周",
+   "cond": {
+    "builtin": "rejudge_open"
+   },
+   "prompt_file": "../prompts/review-loop/p2.rejudge.md",
+   "note": "同じ judge を続ける（engine が agent_id を渡す）。往復の回数は loop_state が数え、done が trace に残す——会話でやると記録に残らない"
+  },
+  "p2.rejudge_third": {
+   "stage": "P2",
+   "run_by": "judge",
+   "optional": true,
+   "deps": [
+    "p3.fix"
+   ],
+   "source": "P2 ＞ 9. 同じ周の擦り合わせ（回す側の異議を次の周に送らない）",
+   "inputs": [
+    "回す側の異議（rejudge_requested）と、それが伴う新しい事実",
+    "今の周の units と questions"
+   ],
+   "does": "回す側が出した新しい事実を自分で確かめ、判定を採る／退ける／一部採る。units を書き換えるのは judge の側で、回す側に権限は移らない",
+   "outputs": [
+    "units（更新）"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "verdict",
+     "new_facts",
+     "units"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "採る",
+       "退ける",
+       "一部採る"
+      ]
+     },
+     "new_facts": {
+      "type": "string",
+      "minLength": 20,
+      "note": "回す側が出した新しい事実を、自分で確かめた結果。確かめずに採るな・退けるな"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "units": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "label"
+       ],
+       "additionalProperties": true,
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "label": {
+         "type": "string",
+         "enum": [
+          "block",
+          "suggest",
+          "nit",
+          "question",
+          "info"
+         ]
+        },
+        "disposition": {
+         "type": "string",
+         "enum": [
+          "do-now",
+          "defer"
+         ]
+        },
+        "reason": {
+         "type": "string"
+        },
+        "reopen_evidence": {
+         "type": "string"
+        },
+        "origin_analysis": {
+         "type": "string"
+        },
+        "why_chain": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "prescriptions": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "closed_note": {
+         "type": "string"
+        },
+        "class_query": {
+         "type": "object",
+         "required": [
+          "how",
+          "total"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "how": {
+           "type": "string",
+           "minLength": 1
+          },
+          "total": {
+           "type": "integer",
+           "minimum": 0
+          },
+          "note": {
+           "type": "string"
+          }
+         },
+         "note": "同じ形を全部引ける機械の問い（how＝そのまま走らせられるコマンド）と、そのとき出た件数（total）。1 site しか無いことの証明も total: 1 で書く"
+        }
+       }
+      }
+     }
+    }
+   },
+   "reads": [
+    "loop.rejudge_open",
+    "record.units",
+    "record.questions",
+    "record.process.rejudge"
+   ],
+   "writes": [
+    {
+     "op": "set",
+     "to": "units",
+     "from": "units",
+     "pick": [
+      "key",
+      "label",
+      "disposition",
+      "reason",
+      "reopen_evidence"
+     ]
+    },
+    {
+     "op": "append",
+     "to": "process.rejudge",
+     "from": "$"
+    }
+   ],
+   "post_check": "rejudge_output",
+   "fresh_context": true,
+   "when": "往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する",
+   "cond": {
+    "builtin": "rejudge_exhausted"
+   },
+   "prompt_file": "../prompts/review-loop/p2.rejudge_third.md",
+   "note": "**第三の目は常設しない**——上限を超えた周にだけ立つ。見るのは元の材料でなく往復そのもの（何で食い違ったか）"
   }
  },
  "exec": true,

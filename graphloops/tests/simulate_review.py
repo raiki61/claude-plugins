@@ -167,9 +167,9 @@ def answers(run, scenario, rnd):
         "p0.local_checks": lambda it: {"material": CLEAN("python -m pytest（緑）")},
         "p0.premises": lambda it: {"constraints": [{"text": "呼び出し元は 1 箇所", "measured_how": "grep -c 'f(' src/",
                                                     "measured_output": "src/a.py:1", "kind": "実測"}]},
-        "p0.purpose": lambda it: ({"purpose_text": "（PR 説明も計画も無く目的を取れない）", "source": "目的不明", "known_weaknesses": []} if scenario == "nopurpose" else
-                                  {"purpose_text": "f に上限を付ける（writer の要約）", "source": "③writer の要約", "known_weaknesses": []} if scenario == "narrowed" else
-                                  {"purpose_text": "f に上限を付けて過大な値を抑える", "source": "①PR 説明", "known_weaknesses": []}),
+        "p0.purpose": lambda it: ({"purpose_text": "（PR 説明も計画も無く目的を取れない）", "source": "目的不明", "known_weaknesses": [], "source_files": []} if scenario == "nopurpose" else
+                                  {"purpose_text": "f に上限を付ける（writer の要約）", "source": "③writer の要約", "known_weaknesses": [], "source_files": ["README.md"]} if scenario == "narrowed" else
+                                  {"purpose_text": "f に上限を付けて過大な値を抑える", "source": "①PR 説明", "known_weaknesses": [], "source_files": ["README.md"]}),
         "p0.purpose_review": lambda it: {"verdict": "狭めている" if scenario == "narrowed" else "問題なし",
                                           "reason": "目的が実装した範囲に合わせて狭い（検査用）", "findings": ["呼び出し元の上限に触れていない"] if scenario == "narrowed" else []},
         "p0.parallel_pr": lambda it: {"material": CLEAN("gh pr list 0 件（打ち切りなし）"), "repo": "t/demo", "listed": 0, "truncated": False, "conflicts": []},
@@ -754,6 +754,49 @@ def test_proxy_to_source():
     rm(run.tmp)
 
 
+def test_rejudge_edge():
+    """同じ周の擦り合わせの辺: 異議が立つと開き、上限で第三の目へ移り、確かめずに採る返答は拒む。"""
+    print("否定検査: 同じ周の擦り合わせ（往復の口・上限・新しい事実の要求）")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
+    conds, checks = rules.CONDS, rules.POST_CHECKS
+
+    b = types.SimpleNamespace(round=3, loop_state={})
+    check(not conds["rejudge_open"](b) and not conds["rejudge_exhausted"](b),
+          "異議が無ければ往復の節は開かない（常設しない）")
+    b.loop_state["rejudge_requested"] = {"round": 2, "text": "前の周の異議"}
+    check(not conds["rejudge_open"](b), "**前の周の**異議では開かない（同じ周の口であって持ち越しではない）")
+    b.loop_state["rejudge_requested"] = {"round": 3, "text": "今の周の異議"}
+    check(conds["rejudge_open"](b) and not conds["rejudge_exhausted"](b), "今の周の異議で往復の節が開く")
+
+    # 確かめずに採る／退ける返答は拒む（依頼者の条件 1: 反論は新しい事実を伴うときだけ）
+    for bad in ("", "なし", "確認した"):
+        try:
+            checks["rejudge_output"](b, "p2.rejudge", {"verdict": "採る", "new_facts": bad, "units": []}, None)
+            check(False, f"new_facts が空同然（{bad!r}）でも通った")
+        except Exception as e:  # rules に差し込まれた Reject は別の module 実体になりうる——型名で見る
+            check(type(e).__name__ == "Reject" and "new_facts" in str(e),
+                  f"new_facts が空同然（{bad!r}）なら拒む（{type(e).__name__}）")
+    check(int(b.loop_state.get("rejudge_rounds") or 0) == 0, "拒まれた返答は往復に数えない")
+
+    # 決着しない返答（一部採る）は異議を降ろさず、往復だけ数える
+    checks["rejudge_output"](b, "p2.rejudge", {"verdict": "一部採る", "new_facts": "該当行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る", "units": []}, None)
+    check(b.loop_state["rejudge_rounds"] == 1 and "rejudge_requested" in b.loop_state,
+          "決着しない返答は往復を 1 つ数え、異議は降りない")
+    for _ in range(2):
+        checks["rejudge_output"](b, "p2.rejudge", {"verdict": "一部採る", "new_facts": "同じく現物に当たったが、片方の根拠だけが確かめられ、争点は解けないまま残った", "units": []}, None)
+    check(not conds["rejudge_open"](b) and conds["rejudge_exhausted"](b),
+          f"上限（{rules.REJUDGE_MAX}）に達すると往復の節は閉じ、第三の目が開く（常設でなくここでだけ立つ）")
+
+    # 決着する返答は異議を降ろす
+    b2 = types.SimpleNamespace(round=3, loop_state={"rejudge_requested": {"round": 3, "text": "x"}})
+    checks["rejudge_output"](b2, "p2.rejudge", {"verdict": "退ける", "new_facts": "現物に当たって再現を試みたが、回す側が挙げた事実は再現しなかったので退ける", "units": []}, None)
+    check("rejudge_requested" not in b2.loop_state and not conds["rejudge_open"](b2),
+          "採る／退けるで決着すれば異議は降り、往復の節は閉じる")
+
+
 def test_stop_branch():
     print("周の分岐: 検証器の判定行だけを見る（台帳の echo に停止文言が載っても分岐が化けない）")
     sys.path.insert(0, str(PLUGIN))
@@ -872,6 +915,7 @@ def main():
         test_narrowed()
         test_claim_mismatch()
         test_proxy_to_source()
+        test_rejudge_edge()
         test_stop_branch()
         test_ci_red_runaway()
         test_non_utf8_file()

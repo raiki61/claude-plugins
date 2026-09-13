@@ -10,7 +10,7 @@ PY_BIN=$(command -v python3 || command -v python || true)
 # 走った検査の件数。root の tests/run.sh の EXPECTED_CHECKS と同じ理由で `-ne`——下限（-lt）だと
 # 台本を 1 本消しても「0 件失敗」のまま緑で通る（実測: simulate.py から test_light を消しても exit 0）。
 # 上げるときも下げるときも実測値を書く。
-EXPECTED_CHECKS=318
+EXPECTED_CHECKS=328
 
 fail=0
 ran=0
