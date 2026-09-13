@@ -822,6 +822,108 @@ def test_relative_dir():
     rm(run.tmp)
 
 
+def test_optional_writes_declared():
+    """**任意の欄を写す write は、任意だと宣言してあること。** engine は欄が無い返答を黙って読み飛ばす。
+
+    `has_path` が偽なら `continue` なので、役が省いた周は**その write だけ音も無く消える**——
+    「意図した省略」と「綴り違い・欄の消失」が同じ無音になる。宣言で分け、実際に飛んだ周は記録に残す。
+    """
+    print("否定検査: 任意の欄を写す write は宣言が要る／飛んだら痕跡が残る")
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-optw-"))
+    MADE.add(tmp)
+    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
+    shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    (tmp / "graphs").mkdir()
+    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+    nid = next(k for k, v in g["nodes"].items()
+               if v.get("schema", {}).get("required") and v.get("writes"))
+    n = g["nodes"][nid]
+    opt = "smoke_optional"
+    n["schema"].setdefault("properties", {})[opt] = {"type": "string"}
+    n["writes"].append({"op": "set", "to": "process.smoke", "from": opt})
+    gp = tmp / "graphs" / "research-loop.json"
+    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+
+    def gcheck():
+        r = subprocess.run([PY, str(GRAPHCHECK), str(gp), str(VALIDATOR)], capture_output=True, text=True,
+                           encoding="utf-8", timeout=600)
+        return r.returncode, [ln for ln in (r.stdout + r.stderr).splitlines() if ln.startswith("NG") and opt in ln]
+
+    code, ng = gcheck()
+    check(code != 0 and ng, f"required に無い欄を写すのに宣言が無ければ落とす（{ng[:1]}）")
+    n["writes"][-1]["optional"] = True
+    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+    code, ng = gcheck()
+    check(code == 0 and not ng, f"optional を宣言すれば通る（{code}: {ng[:1]}）")
+    # **実際に飛んだ周は痕跡に残る。** 宣言の要求は静的な側で、役が毎周省いていることは記録にしか出ない
+    # （この腕を足す前、痕跡を残す行を消しても全件緑だった）
+    run = Run("optw", graph=gp)
+    drive(run, "std")
+    sk = run.state().get("writes_skipped") or []
+    check(any(s["node"] == nid and s["from"] == opt for s in sk),
+          f"役が省いた欄の write が飛んだことが盤面に残る（{sk[:2]}）")
+    check((run.dir / "record.json").is_file() and opt not in json.loads((run.dir / "record.json").read_text(encoding="utf-8")).get("process", {}),
+          "飛んだ write の着地先は書かれない（無音で消えるのを痕跡で見えるようにしただけ）")
+    rm(run.tmp)
+    rm(tmp)
+
+
+def test_answer_vocabulary():
+    """**人の答えの語は engine が表で持つ。** 知らない語が「続ける」側に落ちない。
+
+    以前は `ans == "stop"` だけを見て、それ以外は全部 else（新しい周を開く）だった。rules が諮りの
+    選択肢に綴り違いや engine の知らない語を入れると、**その語が「続ける」として通る**——諮った意味が消える。
+    諮りの口は「止める／続ける」の分岐なので、**既定を「続ける」にしてはいけない。**
+    """
+    print("否定検査: 人の答えの語は engine の表に在るものだけ")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.util import ANSWER_ACTIONS
+    check(set(ANSWER_ACTIONS) == {"continue", "stop", "escalate"}, f"engine が動ける語（{ANSWER_ACTIONS}）")
+    run = Run("answers")
+    drive(run, "stuck")
+    # 諮っている盤面を作り、選択肢に engine の知らない語を混ぜて next を通す（立てる側で落ちる）
+    st = run.state()
+    st["status"] = "running"
+    st["pending_human"] = {"node": "converge", "kinds": ["stuck"], "items": ["x"], "options": ["continue", "halt"]}
+    (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("answer", "--text", "halt")
+    check(r.returncode != 0 and "動けない語" in (r.stdout + r.stderr),
+          f"engine が動けない語は答えられない（{r.returncode}: {(r.stdout + r.stderr)[-140:]}）")
+    r = run.cmd("answer", "--text", "nope")
+    check(r.returncode != 0, "選択肢に無い語も拒む（元からの腕）")
+    # **立てる側も通す。** 上は盤面を手で書いて答える側だけを踏んでいるので、`advance` から諮りの腕を
+    # 外しても緑のままだった（実測: この腕を足す前、2 か所のうち片方しか覆えていなかった）。
+    # rules の converge に engine の知らない語を返させ、実物の next で落ちることを見る
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-ansopt-"))
+    MADE.add(tmp)
+    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
+    shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    (tmp / "graphs").mkdir()
+    rp = tmp / "rules" / "research-loop.py"
+    rp.write_text(rp.read_text(encoding="utf-8").replace(
+        '"options": ["continue", "stop"]', '"options": ["continue", "halt"]'), encoding="utf-8")
+    gp = tmp / "graphs" / "research-loop.json"
+    gp.write_text((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"), encoding="utf-8")
+    r2 = Run("ansopt", graph=gp)
+    seen = ""
+    for _ in range(60):
+        nx = r2.cmd("next")
+        seen += nx.stderr
+        if nx.returncode != 0 or not nx.stdout.strip():
+            break
+        out = json.loads(nx.stdout)
+        if not out["ready"]:
+            break
+        tbl = base_answers(r2, "stuck")
+        for inst in out["ready"]:
+            r2.done(inst["id"], tbl[inst["node"]](inst["item"], out["round"]))
+    check("動けない語" in seen or "halt" in seen,
+          f"諮りの選択肢に engine の知らない語が在れば、立てる側で落ちる（{seen[-160:]}）")
+    rm(tmp)
+    rm(r2.tmp)
+    rm(run.tmp)
+
+
 def test_stopped_gates_all_thicknesses():
     """**収束せず停止した run は、どの段でも報告できなければならない。**
 

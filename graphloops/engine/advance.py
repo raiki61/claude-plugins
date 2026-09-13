@@ -4,7 +4,7 @@ import pathlib
 from .render import FILE_CAP, Renderer
 from .rules import hook, registry
 from .schema import validate_schema
-from .util import TERMINAL_STATUS, die, dump, now, porcelain, read_json, safe_name, sha, write_json
+from .util import ANSWER_ACTIONS, TERMINAL_STATUS, die, dump, now, porcelain, read_json, safe_name, sha, write_json
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -252,6 +252,12 @@ def run_driver_node(b, nid, n, notes):
         return True
     d = out["decision"]
     notes.append(f"{nid}: {d}——{out.get('reason', '')}")
+    if d == "ask":
+        # **諮る選択肢は engine が動ける語だけ。** 表が無かったとき、知らない語は答えられた瞬間に
+        # 「続ける」側へ落ちて周が開いた——諮った意味が消える。立てる側で落とす（答える人を待たない）
+        unknown = [o for o in (out["ask"].get("options") or []) if o not in ANSWER_ACTIONS]
+        if unknown:
+            die(f"{nid}: 人に聞く選択肢 {unknown} は engine が動けない語（動けるのは {list(ANSWER_ACTIONS)}）")
     if d == "ask" and not b.state["unattended"]:
         # 人に聞く番——**done の印は付けない**（決着していない）。付けていたとき、次の next がこの節を再評価せず先へ
         # 進み、入口のガードで同じ報告を複製する必要が生じた。答えが stop なら cmd_answer が印を付け、continue なら周が変わる

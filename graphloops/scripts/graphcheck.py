@@ -544,11 +544,21 @@ def main():
         # 文書欄（outputs）の照合は通っても、実行の欄の綴り違いは黙って素通りしていた（実測 2026-09-12: writes.from を
         # 綴り違いにしても exit 0 で、台本は 5 周回って stopped）
         props = set((v.get("schema") or {}).get("properties", {}))
+        req = set((v.get("schema") or {}).get("required", []))
         if props:
             for w in v.get("writes", []) or []:
                 frm = w.get("from")
-                if frm and frm != "$" and frm.split(".")[0] not in props:
+                if not frm or frm == "$":
+                    continue
+                head = frm.split(".")[0]
+                if head not in props:
                     errs.append(f"節 {k}: writes.from '{frm}' が schema.properties に無い（返答に無い欄を写そうとしている——記録に着地しない）")
+                elif head not in req and not w.get("optional"):
+                    # **任意の欄を写すなら、任意だと宣言しろ。** engine は欄が無い返答を黙って読み飛ばす
+                    # （`has_path` が偽なら continue）ので、役が省いた周は**その write だけ音も無く消える**。
+                    # 「意図した省略」と「綴り違い・欄の消失」がここで同じ無音になる——宣言で分ける。
+                    errs.append(f"節 {k}: writes.from '{frm}' は schema.required に無い（任意の欄）のに optional の宣言が無い"
+                                "——役が省いた周はこの write が無音で消える。意図した省略なら writes に optional: true を書け")
         for c in (v.get("cond"), v.get("applies_cond")):
             if c:
                 check_cond_paths(c, f"節 {k}", nodes, errs)

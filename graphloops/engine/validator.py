@@ -172,6 +172,8 @@ def finalize(b):
         proc["stale_frozen"] = b.state.get("stale_frozen", [])
         # 周をまたいで育った穴。切られていないので truncated_inputs には出ない
         proc["growing_prompts"] = b.state.get("growing_prompts", [])
+        # 役が欄を省いたので起きなかった write。**起きなかったことは、起きたことと同じだけ記録に要る**
+        proc["writes_skipped"] = b.state.get("writes_skipped", [])
         # 起こせなかった遮断系（launch.missing）は state の instance にしか無く、記録にも報告にも出ていなかった
         proc["launch_missing"] = [{"instance": i["id"], "round": r["round"], "missing": i["launch"]["missing"]}
                                   for r in b.state["rounds"] for i in r["instances"].values() if (i.get("launch") or {}).get("missing")]

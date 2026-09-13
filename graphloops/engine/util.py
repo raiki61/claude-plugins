@@ -53,6 +53,11 @@ def dump(obj):
 # run が終わった状態。**2 語を engine の 2 か所に手で並べていた**——どちらかに値を足すと、
 # もう一方だけが古いまま黙って通る（進行が止まらない／終わった run に次の節を出す）。
 TERMINAL_STATUS = ("converged", "stopped")
+# 人の答えとして engine が**実際に動ける語**。`continue` は次の周、`stop` は終端、`escalate` は最上段へ。
+# 表が無かったとき、`ans == "stop"` 以外は全部 else（新しい周を開く）に落ちていた——rules が options に
+# 綴り違いや engine の知らない語を入れると、**その語が「続ける」として通る**（諮った意味が消える）。
+# 知らない語は落とす側に倒す: 諮りの口は「止める／続ける」の分岐なので、既定を「続ける」にしてはいけない。
+ANSWER_ACTIONS = ("continue", "stop", "escalate")
 
 GIT_TIMEOUT = 120  # 秒。近傍の scripts/comment-ratio.sh と同じ上限
 

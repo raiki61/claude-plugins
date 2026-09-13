@@ -21,6 +21,9 @@ def apply_writes(b, nid, output, item):
         op = w["op"]
         frm = w.get("from", "$")
         if not has_path(output, frm):
+            # 欄が無い＝その write は起きない。**起きなかったことを残す**——graphcheck が optional の宣言を
+            # 要求するのは静的な側で、実際に飛んだ周は記録にしか出ない（役が毎周省いていても誰も気づかない形だった）
+            b.state.setdefault("writes_skipped", []).append({"node": nid, "round": b.round, "from": frm, "to": w.get("to")})
             continue
         src = output if frm == "$" else get_path(output, frm)
         if "pick" in w:

@@ -12,7 +12,7 @@ from .record import apply_writes
 from .render import TOKEN
 from .rules import hook, load_rules, registry
 from .schema import validate_schema
-from .util import PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
+from .util import ANSWER_ACTIONS, PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
 from .validator import find_validator, finalize, report_accepts, run_validator, env_root
 
 
@@ -293,6 +293,8 @@ def cmd_answer(a):
     ans = a.text.strip()
     if ans not in ph["options"]:
         raise Reject(f"答えは {ph['options']} のどれか")
+    if ans not in ANSWER_ACTIONS:  # 立てる側でも落としているが、盤面を手当てして通った経路にもここで当てる
+        raise Reject(f"答え '{ans}' は engine が動けない語（動けるのは {list(ANSWER_ACTIONS)}）——諮りの選択肢の側が壊れている")
     ph["note"] = a.note or ""
     fn = hook(b.rules, "on_answer")
     if fn:
