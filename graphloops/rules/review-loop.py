@@ -225,7 +225,9 @@ def premise_question(b, nid, src, w):
         # 行は held のまま実測を理由に書き、facts_to_add を制約に足して次の周で R2 を回し直す。resolved に確定するのは
         # 次の周の judge（p2.history の再審）——回し直した R2 の結果を見てから。
         q["status"] = "held"
-        q["reason"] = f"{src['reason']}——検算で仮定は偽: {src.get("resolution", "（resolution が無い返答）")}。実測を制約に足し次の周で R2 を回し直す（resolved の確定はその周の judge）"
+        # resolution は schema の任意欄——添字で読むと、judge が省いた周に素の KeyError が exit 2（盤面が読めない側）に化ける
+        res = src.get("resolution") or "（resolution が無い返答）"
+        q["reason"] = f"{src['reason']}——検算で仮定は偽: {res}。実測を制約に足し次の周で R2 を回し直す（resolved の確定はその周の judge）"
         b.loop_state.setdefault("facts_to_add", []).extend(src.get("facts_to_add", []))
     b.record["questions"] = [x for x in b.record["questions"] if not (x.get("kind") == "premise" and x.get("origin") == "R2")]
     b.record["questions"].append(q)

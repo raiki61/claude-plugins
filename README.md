@@ -153,7 +153,7 @@ marketplace を確認。公式スキーマ `https://anthropic.com/claude-code/ma
 
 ## 依存
 
-**必須**: `git` / `python3` または `python`（**3.9 以降**。graphloops の `graphcheck.py` が使う `graphlib` が 3.9 追加。3.8 でも動く部分は在るが、3.8 で通した実測が無いので約束しない。CI は最小版を 1 本固定して測る）/ `bash`
+**必須**: `git` / `python3` または `python`（**3.12 以降**。CI は最小版を 1 本固定して測る——測っていない下限は宣言しない。以前は 3.9 と書いていたが、手元の python が新しいと 3.9 でだけ落ちる構文が全件緑をすり抜けて CI の 3 OS を赤にした〈実測 2026-09-13〉。`graphcheck.py` が使う `graphlib` は 3.9 追加なので下限の理由はそこではなく、**開発者の手元と CI が同じ構文を読めること**にある）/ `bash`
 
 **`/review-loop` が呼ぶもの**:
 
