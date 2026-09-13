@@ -434,12 +434,21 @@ def worktree_compare(b, nid):
         # stash で退避しても stash の一覧が突合に入っているので通らない）。受け付けたら基準を今の姿に置き直す。
         accepted = getattr(b, "accept_tree_change", None)
         entry = {"where": "P1", "round": b.round, "diff": problems, "accepted": accepted}
+        if accepted:
+            # **受理したら審査対象を取り直す。** tree_before だけ今の姿に置き直して diff-r<N>.patch と
+            # changed-r<N>.txt を P1 前のままにすると、P2 に渡る写しと現物が割れる——同じ周の素材 2 つが
+            # 同じ行について逆の結論を出した（実測 2026-09-14: 写しを読んだ procedure_trace は「重複が
+            # 残っている」、現物を読んだ bypass は「解消済み」。judge は現物を読み直して後者を採った）。
+            # 取り直しは snapshot をもう一度呼ぶ形で行う——同じ 3 行を 2 か所に置くと、片方だけ直る
+            again = worktree_snapshot(b, nid)
+            if not again["ok"]:
+                return again
+            entry["retaken"] = {"stat": ls.get("diff_stat"), "files": len(ls.get("changed_files") or [])}
         gm = b.state.setdefault("git_mismatches", [])
         if not gm or gm[-1] != entry:  # 同じ止まり方で next を叩き直すたびに増やさない
             gm.append(entry)
         if not accepted:
             return {"ok": False, "problems": ["P1 の前後で作業ツリーが変わっている（戻してから next。自分の変更なら next --accept-tree-change <理由>）: " + "; ".join(problems)]}
-        ls["tree_before"] = now
     fill_materials(b)
     return {"ok": True, "materials": sorted(b.record["materials"])}
 

@@ -14,7 +14,6 @@ import pathlib
 import shutil
 import subprocess
 import sys
-import tempfile
 import types
 
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
@@ -58,19 +57,7 @@ def sh(cwd, *args):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=120)
 
 
-MADE = set()  # この プロセスが作った作業場だけを後始末する（接頭辞の列挙は他プロセスの盤面を巻き込む）
 
-# **落ちた回も後始末する。** 後始末は main の finally に在るが、main に届かない落ち方（import 時の例外・
-# 台本が engine を壊して全体が落ちる・退行注入の試走）では作業場が残る。溜まった実測: 502 個・148 MB
-# （正常終了する回は 1 個も漏らさない——漏れるのは落ちた回だけ）。atexit なら finally の外も覆う。
-# **消すのは自分が作った物だけ**（MADE）——接頭辞で列挙すると、同時に走る他プロセスの盤面を巻き込む。
-import atexit as _atexit  # noqa: E402
-
-
-@_atexit.register
-def _sweep_made():
-    for _d in list(MADE):
-        shutil.rmtree(_d, ignore_errors=True)
 
 # 台本が実際に返した判定語彙（(節, 欄) → 値の集合）。**「台本が 1 値固定」を件数でなく到達で測る。**
 # 台本の本数も検査の件数も増え続けていたのに、役が返す値は筋書きに依らず 1 値のままで、直した分岐・
@@ -140,8 +127,7 @@ def vocab_coverage():
 
 class Run:
     def __init__(self, name, unattended=False, big=False, latin=False):
-        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-review-{name}-"))
-        MADE.add(self.tmp)
+        self._td, self.tmp = parallel.workspace(f"gl-review-{name}-")
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         g = lambda *a: sh(self.repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", *a)
@@ -424,7 +410,7 @@ def test_new_guards():
     rm(run.tmp)
 
     # cond の path が解決できない graph は next で die（偽に倒して『条件に当たらない』に化けさせない）
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-cond-"))
+    _td_tmp, tmp = parallel.workspace("gl-cond-")
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     g["nodes"]["p0.local_checks"]["cond"] = {"path": "loop.no_such_key", "op": "eq", "value": 1}  # 最初の波で評価される節に置く
     (tmp / "graphs").mkdir()
@@ -850,7 +836,7 @@ def test_proxy_to_source():
     rm(run.tmp)
 
     # ③ 受理集合は鍵が在れば null でも落ちる（`is not None` で外していたので NG 文が名指しする null が素通りしていた）
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-accept-"))
+    _td_tmp, tmp = parallel.workspace("gl-accept-")
     (tmp / "graphs").mkdir()
     for sub in ("prompts", "rules"):
         shutil.copytree(PLUGIN / sub, tmp / sub)
@@ -936,6 +922,8 @@ def test_worktree_guard_fires():
     print("作業ツリーの柵: 前後で変わったら止まり、理由を添えれば通る")
     run = Run("treeguard")
     stray = run.repo / "stray.txt"
+    tracked = run.repo / "src" / "a.py"  # BASE から既に変わっているファイル（＝審査対象の内側）
+    MARK = "# 受理の後に足した行（写しの取り直しの目印）"
     # **触るのは、P1 の節が全部 done になった後・突合が走る前。** 手前には instance ごとの柵
     # （investigator の前後）が在り、そこで止まると P1 の前後の突合まで届かない
     # ——**2 つの柵が別物であることも、この腕を書いて初めて分かった。**
@@ -957,13 +945,22 @@ def test_worktree_guard_fires():
         ever = set(run.state()["done_ever"])
         if "p1.worktree_before" in ever and "p1.worktree_after" not in ever and not stray.exists():
             stray.write_text("役が触っていない変更\n", encoding="utf-8")
+            # **追跡下のファイルも触る。** stray は未追跡なので porcelain にしか出ず、git diff <BASE>（＝審査対象）
+            # は動かない。受理後に写しを取り直しているかは、対象差分が動く変更でないと見えない
+            tracked.write_text(tracked.read_text(encoding="utf-8") + MARK + "\n", encoding="utf-8")
     check("作業ツリーが変わっている" in stopped, f"P1 の前後が変われば止まる（{stopped[:160]}）")
     gm = run.state().get("git_mismatches") or []
     check(any(g.get("where") == "P1" and not g.get("accepted") for g in gm), f"止まった事実が痕跡に残る（{gm[:1]}）")
+    patch = run.dir / "diff-r1.patch"
+    check(MARK not in patch.read_text(encoding="utf-8"), "止めた時点の写しには受理前の姿しか無い（この腕の前提）")
     r = run.cmd("next", "--accept-tree-change", "台本が作業ツリーを触った（検査用）")
     check(r.returncode == 0, f"理由を添えれば通る（{r.returncode}: {r.stderr[-160:]}）")
     gm = run.state().get("git_mismatches") or []
     check(any(g.get("accepted") for g in gm), f"通した理由が痕跡に残る（{[g.get('accepted') for g in gm]}）")
+    # **受理したら審査対象の写しを取り直す。** tree_before だけ置き直していたとき、P2 に渡る写しは P1 前のままで、
+    # 写しを読む役と現物を読む役が同じ行に逆の結論を出した（実測 2026-09-14）
+    check(MARK in patch.read_text(encoding="utf-8"), "受理後は diff-r1.patch が取り直されている（写しと現物が割れない）")
+    check(any(g.get("retaken") for g in gm), f"取り直した事実が痕跡に残る（{[g.get('retaken') for g in gm]}）")
     rm(run.tmp)
 
 
@@ -1433,22 +1430,18 @@ def main():
     # simulate.py と同じ 1 行。find_plugin_path は <PLUGIN>_ROOT を同梱より先に見るので、この環境変数が
     # 立っている機械では、落としていない側の台本だけが別の場所の検証器・役定義を掴む（片方だけ揃っていた）
     os.environ.pop("CONVERGENCE_LOOPS_ROOT", None)
-    # 一時ディレクトリ（git リポジトリを含む）は各検査の末尾で消すが、例外で抜けた周回はそこへ届かない。
-    # 走らせる側で後始末を保証する——確保は Run.__init__ の中で暗黙に起き、解放は呼び出し側の平文に在る非対称
-    import tempfile as _t
-    # **消すのは自分が作った作業場だけ。** 接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
+    # 一時ディレクトリ（git リポジトリを含む）の後始末は `parallel.workspace`（TemporaryDirectory）が持つ。
+    # **消すのは自分が作った作業場だけ**——接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
     # 作業場が差分に入り、そのプロセスの盤面が走行中に消えた（実測 2026-09-13: 退行注入と baseline が
-    # 互いを殺し、落ちた台本が毎回違った）。Run が自分の tmp を持っているので、それを集めて消す
+    # 互いを殺し、落ちた台本が毎回違った）。持ち手を Run が握るので、台本を抜けた時点で消える
+    # （main に届かない落ち方——import 時の例外・engine を壊して全体が落ちる・退行注入の試走——も
+    # weakref.finalize がプロセス終了時に覆う。自作の集合 ＋ atexit はこれの再実装だった）。
     # **台本は名前で集めて同時に走らせる。** 手で並べると足した台本の呼び忘れに誰も気づかない
     # （呼ばれない台本は件数を増やさないので件数の柵をすり抜ける）。同時に走らせてよいのは、
     # 台本どうしが自分の作業場しか触らないから——時間はほぼ全部が子プロセスの終了待ちだった
     # （実測 2026-09-13: 94.7 秒のうち 93.8 秒が子プロセス 1,561 回ぶん）。
     # 直列に戻すのは GL_TEST_WORKERS=1——並列でだけ落ちる台本を切り分けるときに使う。
-    try:
-        parallel.run_all(parallel.collect(globals()))
-    finally:
-        for _d in sorted(MADE):
-            rm(_d)
+    parallel.run_all(parallel.collect(globals()))
     reached, total, unreached = vocab_coverage()
     check(reached == VOCAB_REACHED,
           f"判定語彙の到達 {reached}/{total}（記録は {VOCAB_REACHED}）——筋書きを増やしたら数を上げろ。"

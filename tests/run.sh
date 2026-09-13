@@ -3060,7 +3060,7 @@ expect_output 0 "TABLE_COPIES_OK" "名前表の要素を読む側が文字列で
 # 4 本の検証器のうち `bullet` を持つのは review だけだが、**他の 3 本は行頭で読む消費者を持たない**ので
 # 今は穴ではない。危ないのは「後から行頭で読み始めたのに、その検証器に口が無い」形なので、その組を落とす。
 cat > "$WORK/stdout-shape.py" <<'STDOUTSHAPE'
-import pathlib, re, sys
+import ast, pathlib, re, sys
 # **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
 # UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
 # 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
@@ -3071,6 +3071,25 @@ for _s in (sys.stdout, sys.stderr):
 root = pathlib.Path(sys.argv[1])
 # 行頭で読む印（engine 側の書き方に依らず、`ln[0].isspace()` で判定行を絞る形を探す）
 READS_LINE_HEAD = re.compile(r"\[0\]\.isspace\(\)")
+
+
+def defs_and_calls(text, name):
+    """**Python の構造は ast で見る。** 定義の数と呼びの数を返す。
+
+    正規表現（`^def bullet\\(` と `(?<!def )\\bbullet\\(`）でも今日の木は読めたが、**行頭に無い定義**
+    （class の中・条件つきの定義）と、**文字列やコメントの中の綴り**を取り違える向きが逆に開く。
+    同じ差分の table-copies.py は既に ast で解いており、定番解はこのファイルの内側に在った。
+    """
+    tree = ast.parse(text)
+    # **定義は module の直下だけ数える。** ast.walk で木ぜんぶを見ると、class の中の同名メソッドが
+    # 「印字口が在る」に化ける——消費する側（`bullet(...)` の素の呼び）から見えない定義なので、
+    # 名乗りより広い側へ外れる（実測 2026-09-14: 定義を class へ隠す注入が緑で通った）。
+    # 呼びの側は入れ子の深さに意味が無いので木ぜんぶを見る
+    defined = sum(1 for n in tree.body
+                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name)
+    called = sum(1 for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name)
+    return defined, called
 rules = sorted((root / "graphloops/rules").glob("*.py"))
 if not rules:
     print("NG rules が 1 本も無い（走査の母数が 0）")
@@ -3089,7 +3108,8 @@ for r in rules:
     # **部分一致で見ない。** 最初は `"def bullet" not in …` で見ており、`def bullet_removed` に改名する
     # 退行がその部分文字列を残して通った（実測 2026-09-13: 今日 3 度目の同じ形）——名前の境界まで見る
     vt = v.read_text(encoding="utf-8")
-    if not re.search(r"^def bullet\(", vt, re.M):
+    defined, used = defs_and_calls(vt, "bullet")
+    if not defined:
         print(f"NG {r.relative_to(root)} は検証器の出力を行頭で読むのに、{v.relative_to(root)} に "
               "行頭の偽造を塞ぐ印字口（bullet）が無い——役の自由文の改行 1 文字で判定行を作れる")
         bad = 1
@@ -3097,7 +3117,6 @@ for r in rules:
     # **存在だけでは足りない——通っていることを見る。** `def bullet` が在るかだけを見ていたとき、
     # 呼び 7 か所を全部外して def を残す退行が通った（実測 2026-09-13）。守ると名乗っているのは
     # 印字口の存在でなく『役の自由文が行頭を作らない』ことで、1 か所素通しになれば周の分岐を倒せる。
-    used = len(re.findall(r"(?<!def )\bbullet\(", vt))
     if used < 1:
         print(f"NG {v.relative_to(root)}: bullet() の呼びが 1 か所も無い（定義だけ在って通っていない）")
         bad = 1
@@ -3119,7 +3138,7 @@ expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループ
 # exit 1 になり、`_rows` の docstring が名乗る当の壊れ方になる（実測 2026-09-14: research 側だけ exit 1、
 # review 側は exit 2）。注記は赤くならないので順序を機械で縛る。
 cat > "$WORK/validator-order.py" <<'VORDER'
-import re, sys, pathlib
+import ast, sys, pathlib
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -3131,28 +3150,33 @@ if not vals:
 checked = 0
 bad = 0
 for v in vals:
-    t = v.read_text(encoding="utf-8")
-    rows = re.search(r"^def _rows\(", t, re.M)
-    if not rows:
-        continue  # `_rows` を持たない検証器はこの不変条件の外
+    # **Python の構造は ast で見る。** 行頭の正規表現（`^def fail\(`）では、条件つきの定義や
+    # class の中の定義を見落とし、文字列・コメントの中の綴りを拾う。位置も lineno で直に取れる
+    tree = ast.parse(v.read_text(encoding="utf-8"))
+    at = {n.name: n.lineno for n in tree.body
+          if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if "_rows" not in at:
+        continue  # _rows を持たない検証器はこの不変条件の外
     checked += 1
-    f = re.search(r"^def fail\(", t, re.M)
-    if not f:
-        print(f"NG {v.relative_to(root)}: `_rows` が在るのに `fail` が無い（表の組み立ての失敗を exit 2 で落とせない）")
+    if "fail" not in at:
+        print(f"NG {v.relative_to(root)}: _rows が在るのに fail が無い（表の組み立ての失敗を exit 2 で落とせない）")
         bad = 1
-    elif f.start() > rows.start():
-        print(f"NG {v.relative_to(root)}: `fail`（{t[:f.start()].count(chr(10)) + 1} 行目）が "
-              f"`_rows`（{t[:rows.start()].count(chr(10)) + 1} 行目）より後ろ——`_rows` は import 時に呼ばれるので、"
+    elif at["fail"] > at["_rows"]:
+        print(f"NG {v.relative_to(root)}: fail（{at['fail']} 行目）が "
+              f"_rows（{at['_rows']} 行目）より後ろ——_rows は import 時に呼ばれるので、"
               "属性の書き忘れが NameError の exit 1 になり、記録の不正（exit 2）と区別が付かない")
         bad = 1
 if bad:
     sys.exit(1)
 if not checked:
-    print("NG `_rows` を持つ検証器が 1 本も無い（走査が空回り——この柵は何も測っていない）")
+    print("NG _rows を持つ検証器が 1 本も無い（走査が空回り——この柵は何も測っていない）")
     sys.exit(1)
-print(f"VALIDATOR_ORDER_OK（`_rows` を持つ検証器 {checked} 本／全 {len(vals)} 本）")
+print(f"VALIDATOR_ORDER_OK（_rows を持つ検証器 {checked} 本／全 {len(vals)} 本）")
 VORDER
-expect_output 0 "VALIDATOR_ORDER_OK" "検証器の `fail` が `_rows` より前に在る（表の組み立ての失敗が exit 2 で落ちる）" \
+# 説明文に ` を書くな——ここはシェルの二重引用符の中なので、`fail` がコマンド置換として**実行される**
+# （実測 2026-09-14: 説明が「検証器の  が  より前に在る」と穴あきで出て、stderr に `fail: command not found`
+# と `_rows: command not found` の 2 行が出た。検査自体は緑のままなので、印字を読まないと気づかない）
+expect_output 0 "VALIDATOR_ORDER_OK" "検証器の fail() が _rows() より前に在る（表の組み立ての失敗が exit 2 で落ちる）" \
     "$PY_BIN" "$WORK/validator-order.py" "$ROOT"
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then

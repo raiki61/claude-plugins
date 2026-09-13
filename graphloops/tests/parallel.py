@@ -7,7 +7,7 @@
 中で呼ぶのをやめて速くする道もあるが、それは「何を検査しているか」を静かに狭める。
 
 入れてよい前提（入れる前に確かめた・崩れたら直列に戻せ）:
-- 各台本は `tempfile.mkdtemp` で自分の作業場を作り、他の台本の作業場を触らない
+- 各台本は `workspace()` で自分の作業場を作り、他の台本の作業場を触らない
 - `os.chdir` を呼ばない（子プロセスの cwd は毎回明示で渡している）
 - `os.environ[...] = ...` を書かない（読むだけ。`main` 冒頭の pop は起動前に 1 度）
 
@@ -15,6 +15,8 @@
 """
 import concurrent.futures
 import os
+import pathlib
+import tempfile
 import threading
 import traceback
 
@@ -46,6 +48,23 @@ def collect(ns):
     """
     return [v for k, v in ns.items()
             if k.startswith("test_") and callable(v) and getattr(v, "__module__", None) == ns.get("__name__")]
+
+
+def workspace(prefix):
+    """作業場を 1 つ作り、`(持ち手, パス)` を返す。**後始末は標準ライブラリに任せる。**
+
+    以前は `mkdtemp` ＋ モジュール変数の集合（MADE）＋ `atexit` で「落ちた回も消す」を自作していた。
+    それは `tempfile.TemporaryDirectory` の再実装で（`weakref.finalize` が、正常終了・未捕捉例外・
+    `SystemExit` のいずれでもプロセス終了時に消す）、しかも**後から並列化を足したときに自作の集合だけ
+    排他の外に残った**——件数と失敗一覧には LOCK が在るのに、集合の add には無かった。
+
+    `ignore_cleanup_errors=True` は Windows 対策でもある: git が object を読み取り専用で置くので、
+    素の rmtree は PermissionError で落ちる（実測: CI の windows-latest）。掃除の失敗で検査を落とさない。
+
+    **持ち手（第 1 要素）を捨てると、その場で作業場が消える**——呼ぶ側は検査の間だけ生きる変数に受けろ。
+    """
+    td = tempfile.TemporaryDirectory(prefix=prefix, ignore_cleanup_errors=True)
+    return td, pathlib.Path(td.name)
 
 
 def workers(n_tests):

@@ -14,7 +14,6 @@ import pathlib
 import shutil
 import subprocess
 import sys
-import tempfile
 import types
 
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
@@ -57,7 +56,6 @@ def rm(p):
     shutil.rmtree(p, ignore_errors=True)
 
 
-MADE = set()  # この プロセスが作った作業場だけを後始末する（接頭辞の列挙は他プロセスの盤面を巻き込む）
 
 # 台本が実際に返した判定語彙（(節, 欄) → 値の集合）。**「台本が 1 値固定」を件数でなく到達で測る。**
 # review 側に同じラチェットを置いた当日、research 側には無かった——**知見が片側にしか適用されない**形。
@@ -118,25 +116,13 @@ def vocab_coverage():
     unreached = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs - VOCAB_SEEN.get(k, set())))
     return reached, total, unreached
 
-# **落ちた回も後始末する。** 後始末は main の finally に在るが、main に届かない落ち方（import 時の例外・
-# 台本が engine を壊して全体が落ちる・退行注入の試走）では作業場が残る。溜まった実測: 502 個・148 MB
-# （正常終了する回は 1 個も漏らさない——漏れるのは落ちた回だけ）。atexit なら finally の外も覆う。
-# **消すのは自分が作った物だけ**（MADE）——接頭辞で列挙すると、同時に走る他プロセスの盤面を巻き込む。
-import atexit as _atexit  # noqa: E402
-
-
-@_atexit.register
-def _sweep_made():
-    for _d in list(MADE):
-        shutil.rmtree(_d, ignore_errors=True)
 
 
 class Run:
     def __init__(self, name, thickness=None, decider=None, unattended=False, graph=None):
         # graph=<path>: 同梱でなくその写しで回す。**回した後に graph を締める腕**（once の節の凍った出力を
         # 今の schema で測り直す）に要る——同梱を書き換えると、他の台本と本物のリポジトリを壊す
-        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-{name}-"))
-        MADE.add(self.tmp)
+        self._td, self.tmp = parallel.workspace(f"gl-{name}-")
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True, timeout=120)
@@ -478,7 +464,7 @@ def test_graphcheck():
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / "research-loop.json"), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode == 0, "research-loop.json は通る")
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-gc-"))
+    _td_tmp, tmp = parallel.workspace("gl-gc-")
     (tmp / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
@@ -572,7 +558,7 @@ def test_graphcheck():
 
 def test_bad_builtin():
     print("否定検査: 機械の節の返りが {ok: 真偽値} でも {decision: …} でもなければ die")
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-bb-"))
+    _td_tmp, tmp = parallel.workspace("gl-bb-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
     (tmp / "graphs").mkdir()
@@ -688,7 +674,7 @@ def test_arms():
 
 def test_resolve_dir():
     print("否定検査: --dir を省いた呼び出しは、同じリポジトリに別のループの run が並ぶと取り違えずに拒む")
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-dir-"))
+    _td_tmp, tmp = parallel.workspace("gl-dir-")
     repo = tmp / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True, timeout=120)
@@ -976,8 +962,7 @@ def test_optional_writes_declared():
     「意図した省略」と「綴り違い・欄の消失」が同じ無音になる。宣言で分け、実際に飛んだ周は記録に残す。
     """
     print("否定検査: 任意の欄を写す write は宣言が要る／飛んだら痕跡が残る")
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-optw-"))
-    MADE.add(tmp)
+    _td_tmp, tmp = parallel.workspace("gl-optw-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
     (tmp / "graphs").mkdir()
@@ -1041,8 +1026,7 @@ def test_answer_vocabulary():
     # **立てる側も通す。** 上は盤面を手で書いて答える側だけを踏んでいるので、`advance` から諮りの腕を
     # 外しても緑のままだった（実測: この腕を足す前、2 か所のうち片方しか覆えていなかった）。
     # rules の converge に engine の知らない語を返させ、実物の next で落ちることを見る
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-ansopt-"))
-    MADE.add(tmp)
+    _td_tmp, tmp = parallel.workspace("gl-ansopt-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
     (tmp / "graphs").mkdir()
@@ -1121,8 +1105,7 @@ def test_graphcheck_sets_derived():
     ——宣言が母数だという性質そのものを踏む。
     """
     print("否定検査: 受理集合の鍵は engine と rules の宣言から組む")
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-acck-"))
-    MADE.add(tmp)
+    _td_tmp, tmp = parallel.workspace("gl-acck-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
     (tmp / "graphs").mkdir()
@@ -1249,8 +1232,7 @@ def test_frozen_schema_drift():
     """
     print("否定検査: once の節の凍った出力を、今の schema で測り直す")
     # graph の綴りは同梱からの相対（`../prompts/…`）で、rules も graph の隣から引く。写しは同じ形に置く
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="gl-frozen-graph-"))
-    MADE.add(tmp)
+    _td_tmp, tmp = parallel.workspace("gl-frozen-graph-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
     (tmp / "graphs").mkdir()
@@ -1370,7 +1352,7 @@ def test_plugin_path_ambiguity():
     以前は候補を積んだ後に出所の判定が来て、明示が在っても init が exit 2 で落ち、案内した回避策がその場で効かなかった
     （実測 2026-09-12）。"""
     print("否定検査: キャッシュの曖昧さは、明示・同梱で解決できない時だけ落とす")
-    cfg = pathlib.Path(tempfile.mkdtemp(prefix="gl-cfg-"))
+    _td_cfg, cfg = parallel.workspace("gl-cfg-")
     for market, ver in (("marketA", "1.0.0"), ("marketB", "2.0.0")):
         d = cfg / "plugins" / "cache" / market / "convergence-loops" / ver
         (d / "scripts").mkdir(parents=True)
@@ -1402,7 +1384,7 @@ def test_unresolved_role():
 
     def drive_graph(name, mutate, watch_node):
         """graph を 1 か所変えて init し、台本で回す。watch_node の instance と stderr を返す。"""
-        tmp = pathlib.Path(tempfile.mkdtemp(prefix=f"gl-{name}-"))
+        _td_tmp, tmp = parallel.workspace(f"gl-{name}-")
         shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
         shutil.copytree(PLUGIN / "rules", tmp / "rules")
         (tmp / "graphs").mkdir()
@@ -1493,23 +1475,40 @@ def test_parse_output():
         check(True, "JSON の無い返答は Reject")
 
 
+def test_workspace_cleanup():
+    """**作業場は、落ちた回でも消える。** 台本の作業場（git リポジトリを含む）は 1 本あたり数百 KB で、
+    残ると溜まる（実測 2026-09-13: 502 個・148 MB。正常終了する回は 1 個も漏らさず、漏れるのは落ちた回だけ）。
+
+    以前は `mkdtemp` ＋ モジュール変数の集合 ＋ `atexit` で自作していた——`tempfile.TemporaryDirectory`
+    （`weakref.finalize`）の再実装で、しかも後から並列化を足したとき**自作の集合だけ排他の外に残った**。
+    要件（落ちた回でも消える）を検査した腕は 1 本も無く、標準に寄せた後も無ければ同じことになる。
+    """
+    print("作業場の後始末: 持ち手を捨てたとき・プロセスが落ちたときの両方で消える")
+    _td, tmp = parallel.workspace("gl-ws-")
+    (tmp / "x.txt").write_text("x", encoding="utf-8")
+    check(tmp.exists(), "作業場ができる")
+    del _td
+    check(not tmp.exists(), f"持ち手を捨てたらその場で消える（{tmp}）")
+    # **落ち方は子プロセスでしか作れない**——この台本自身を落とすと残りの検査が走らない
+    src = "import sys, pathlib; sys.path.insert(0, %r); import parallel\ntd, p = parallel.workspace('gl-ws-die-')\nprint(p)\nraise SystemExit(3)\n" % str(HERE)
+    r = subprocess.run([PY, "-c", src], capture_output=True, text=True, encoding="utf-8", timeout=120)
+    check(r.returncode == 3 and not pathlib.Path(r.stdout.strip()).exists(),
+          f"落ちた回（SystemExit）でも消える（exit {r.returncode}: {r.stdout.strip()}）")
+
+
 def main():
     os.environ.pop("CONVERGENCE_LOOPS_ROOT", None)
-    # 一時ディレクトリ（git リポジトリを含む）は各検査の末尾で消すが、例外で抜けた周回はそこへ届かない。
-    # 走らせる側で後始末を保証する——確保は Run.__init__ の中で暗黙に起き、解放は呼び出し側の平文に在る非対称
-    import tempfile as _t
-    # **消すのは自分が作った作業場だけ。** 接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
+    # 一時ディレクトリ（git リポジトリを含む）の後始末は `parallel.workspace`（TemporaryDirectory）が持つ。
+    # **消すのは自分が作った作業場だけ**——接頭辞で列挙して差分を消していたとき、実行中に他プロセスが作った
     # 作業場が差分に入り、そのプロセスの盤面が走行中に消えた（実測 2026-09-13: 退行注入と baseline が
-    # 互いを殺し、落ちた台本が毎回違った）。Run が自分の tmp を持っているので、それを集めて消す
+    # 互いを殺し、落ちた台本が毎回違った）。持ち手を Run が握るので、台本を抜けた時点で消える
+    # （main に届かない落ち方——import 時の例外・engine を壊して全体が落ちる・退行注入の試走——も
+    # weakref.finalize がプロセス終了時に覆う。自作の集合 ＋ atexit はこれの再実装だった）。
     # **台本は名前で集めて同時に走らせる。** 手で並べると足した台本の呼び忘れに誰も気づかない
     # （呼ばれない台本は件数を増やさないので件数の柵をすり抜ける）。同時に走らせてよいのは、
     # 台本どうしが自分の作業場しか触らないから——時間はほぼ全部が子プロセスの終了待ちだった。
     # 直列に戻すのは GL_TEST_WORKERS=1——並列でだけ落ちる台本を切り分けるときに使う。
-    try:
-        parallel.run_all(parallel.collect(globals()))
-    finally:
-        for _d in sorted(MADE):
-            rm(_d)
+    parallel.run_all(parallel.collect(globals()))
     check(DELIVERY_SEEN >= {"p1.checker", "p3.cold_reader"}, f"渡し方の検査は checker（agent/path）と cold_reader（cli/paste）の両方に実際に当たった（{sorted(DELIVERY_SEEN)}）")
     reached, total, unreached = vocab_coverage()
     check(reached == VOCAB_REACHED,
