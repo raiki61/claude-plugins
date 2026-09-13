@@ -819,6 +819,43 @@ def test_relative_dir():
     rm(run.tmp)
 
 
+def test_prompt_growth():
+    """**周をまたいで育つ穴を測る。** 上限が無い経路でも、育っていることは言う。
+
+    実測 2026-09-13: `report.human_items` が `record.process` と `loop` を丸ごと読み、6 周目で 1,120 KB。
+    回す側の節なので上限が無く（`cap=None`）、切られないから `truncated_inputs` にも出ず、記録にも
+    報告にも痕跡が 1 つも無かった。**上限の不在は「いくらでも貼ってよい」ではない。**
+
+    見るのは大きさでなく育ち方——差分を丸ごと貼る節（912 KB）は大きくて正しい。大きさで線を引くと
+    正しく大きい節が毎周鳴り、育っている節がその中に紛れる。
+    """
+    print("否定検査: 周をまたいで育つ穴（上限が無い経路でも測る）")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.advance import PROMPT_NOTICE, prompt_growth
+
+    def fake(rounds, rnd=2):
+        return types.SimpleNamespace(round=rnd, state={"rounds": rounds})
+
+    r1 = [{"round": 1, "instances": {"a": {"node": "n", "prompt_bytes": 100_000}}}]
+    check(prompt_growth(fake([]), "n", 10 ** 7) is None, "前の周が無ければ言わない（比べる相手が無い）")
+    # **線の腕は、倍率の腕が同時に成り立たない値で踏む。** 同じ値で両方が真になる入力だと、線を
+    # 外しても倍率が拾って緑のまま（実測: PROMPT_NOTICE を 0 に替えても赤くならなかった）
+    small = [{"round": 1, "instances": {"a": {"node": "n", "prompt_bytes": 1_000}}}]
+    check(prompt_growth(fake(small), "n", 50_000) is None, "線より下は倍率が 50 倍でも言わない（小さい節の揺れ）")
+    check(prompt_growth(fake(r1), "n", 140_000) is None, "1.5 倍以下は育ちと呼ばない")
+    g = prompt_growth(fake(r1), "n", 160_000)
+    check(g and g["was"] == 100_000 and g["bytes"] == 160_000, f"線を超えて 1.5 倍を超えたら言う（{g}）")
+    check(prompt_growth(fake(r1), "other", 10 ** 7) is None, "別の節の大きさとは比べない")
+    # **比べる材料が残っていること。** prompt_bytes が instance に無いと、育ちは原理的に測れない
+    run = Run("grow")
+    drive(run, "std")
+    st = run.state()
+    sizes = [i.get("prompt_bytes") for rd in st["rounds"] for i in rd["instances"].values()]
+    check(sizes and all(isinstance(x, int) and x > 0 for x in sizes),
+          f"実物の next が節ごとの大きさを残す（{len(sizes)} 節・欠けは {sum(1 for x in sizes if not x)} 件）")
+    rm(run.tmp)
+
+
 def test_frozen_schema_drift():
     """**`once` で凍った出力を、今の schema で測り直す。**
 

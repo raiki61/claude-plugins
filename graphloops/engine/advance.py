@@ -12,6 +12,12 @@ ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphch
 # model / effort を静的に落とす（以前は launch_cli の die と format の KeyError でしか出なかった）
 LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path")
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（文字）。超える欄は items/ のファイルにだけ置く
+# 「育った」と言い始める絶対量の下限。**切らないことは『いくらでも貼ってよい』ではない**
+# ——回す側の文脈は有限で、周ごとに単調増加する穴は誰にも見えないまま育つ（実測 2026-09-13:
+# report.human_items が record.process と loop を丸ごと読み、6 周目で 1,120 KB。上限の無い経路
+# （回す側・遮断系・path 渡し）なので truncated にも出ず、記録にも報告にも痕跡が 1 つも無かった）。
+# この線より下は倍率が跳ねても言わない——小さい節の 1 KB → 2 KB は育ちではなく普通の揺れ。
+PROMPT_NOTICE = 100_000
 
 
 def launch_cli(b, inst, d):
@@ -72,6 +78,22 @@ def agent_type_of(b, n):
     if n.get("agent_type"):
         return n["agent_type"]  # 別プラグインの agent（接頭ごと書く）
     return (b.plugin + ":" + n["run_by"]) if b.plugin else n["run_by"]
+
+
+def prompt_growth(b, nid, prompt_bytes):
+    """前の周の同じ節と比べて『育った』か。育っていれば記録に残す 1 行、そうでなければ None。
+
+    **切らない経路でも大きさは測る。** ただし見るのは大きさそのものではなく**育ち方**——差分を丸ごと
+    貼る節（p1.hygiene の 912 KB）は大きくて正しく、周ごとに増える節（report.human_items）は小さくても
+    間違っている。大きさで線を引くと、正しく大きい節が毎周鳴って、育っている節がその中に紛れる。
+
+    比べる相手は**同じ節の前の周**だけ。節をまたいで比べると、扇の項目ごとに大きさが違う節が常に鳴る。
+    """
+    prev = [i["prompt_bytes"] for rd in b.state["rounds"] if rd["round"] < b.round
+            for i in rd["instances"].values() if i["node"] == nid and i.get("prompt_bytes")]
+    if not prev or prompt_bytes <= PROMPT_NOTICE or prompt_bytes <= max(prev) * 1.5:
+        return None
+    return {"node": nid, "round": b.round, "bytes": prompt_bytes, "was": max(prev)}
 
 
 def emit_instance(b, nid, item=None, suffix=""):
@@ -138,8 +160,12 @@ def emit_instance(b, nid, item=None, suffix=""):
     pfile = b.dir / "prompts" / f"r{b.round}" / (safe_name(iid) + ".md")
     pfile.parent.mkdir(parents=True, exist_ok=True)
     pfile.write_text(prompt, encoding="utf-8")
+    prompt_bytes = len(prompt.encode("utf-8"))
+    grew = prompt_growth(b, nid, prompt_bytes)
+    if grew:
+        b.state.setdefault("growing_prompts", []).append({"instance": iid, "capped": r.cap is not None, **grew})
     inst = {
-        "id": iid, "node": nid, "run_by": n["run_by"],
+        "id": iid, "node": nid, "run_by": n["run_by"], "prompt_bytes": prompt_bytes,
         "mode": "runner" if runner else "agent",
         "agent_type": None if runner else agent_type_of(b, n),
         "prompt_file": str(pfile), "prompt_sha": sha(prompt), "item": item, "status": "pending", "emitted_at": now(),

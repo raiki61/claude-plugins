@@ -1,7 +1,9 @@
 # 最終報告の冒頭——人が決めること（writer の仕事。まず本文だけを書く）
 
-問いの台帳: {{record.questions}}　根本ユニット: {{record.units}}
-記録の process: {{record.process}}　盤面: {{loop}}
+問いの台帳: {{record.questions | pick key,kind,status,question,options,reason,resolution,origin}}
+根本ユニット: {{record.units | pick key,label,disposition}}
+記録の process（**置き場と 1 行要約**。要る所だけ Read で読め）: {{ref:record.process}}
+盤面: {{loop | pick round,outcome,stop_reason,escalated,open_units,purpose_known,purpose_unusable}}
 最後の周の検証器の出力（履歴）: {{?out.p4.record.out}}
 言語: {{inputs.lang}}
 

@@ -772,6 +772,46 @@ def test_proxy_to_source():
     rm(run.tmp)
 
 
+def test_vocab_not_copied():
+    """**役に渡す語彙の表は、検証器が組み立てて engine が渡す。プロンプトに写さない。**
+
+    graph は `vocab_owner` で「ここに写さない。手順書も列挙を持たない」と宣言しているのに、
+    p2.diagnose.md が問いの種類の表を手で写していた——しかも写しは既にずれていて、
+    premise / stuck / rule の origin の要求が落ちていた（実測 2026-09-13）。役は写しの方を読む。
+
+    この腕は**生成されていること**を見る——検証器に種類を足せば、プロンプトに何も書かなくても
+    役に届く。写しに戻すと、足した種類が届かないので赤くなる。
+    """
+    print("語彙の正本: 問いの種類の表は検証器が組み立て、プロンプトは穴で受ける")
+    sys.path.insert(0, str(PLUGIN))
+    import importlib.util
+    from engine.render import Renderer
+    spec = importlib.util.spec_from_file_location("vrec", str(VALIDATOR))
+    V = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(V)
+    tpl = (PLUGIN / "prompts" / "review-loop" / "p2.diagnose.md").read_text(encoding="utf-8")
+    check("{{validator.question_kinds}}" in tpl, "プロンプトは種類の表を穴で受ける")
+    check("{{validator.question_fields}}" in tpl, "書ける欄の一覧も穴で受ける")
+
+    def render(tables):
+        return Renderer({"validator": tables}, ["validator"]).render(tpl[tpl.index("問いの台帳（questions）"):])
+
+    got = render(V.PROMPT_TABLES)
+    missing = [k for k in V.QUESTION_KINDS if k not in got]
+    check(not missing, f"検証器が知る種類が 1 つ残らず役に届く（届かない: {missing}）")
+    for k, v in V.QUESTION_KINDS.items():
+        if v.domain == "review":
+            check("R1〜R4" in got, f"{k} の origin の要求（R 名）が届く")
+            break
+    # **生成されている証拠**: 検証器に種類を 1 つ足すと、プロンプトを触らずに届く
+    extra = dict(V.QUESTION_KINDS)
+    extra["ficticious"] = V.Kind("none", (), "台本が足した架空の種類")
+    grown = dict(V.PROMPT_TABLES)
+    grown["question_kinds"] = "／".join(
+        f"{k}（{V.ORIGIN_NOTE[x.domain]}）: {x.note}" for k, x in extra.items())
+    check("ficticious" in render(grown), "検証器に足した種類が、プロンプトを触らずに役へ届く（写しなら届かない）")
+
+
 def test_purpose_trigger_unevaluable():
     """**引き金が「測れなかった」のを「条件に当たらなかった」と同じ偽にしない。**
 

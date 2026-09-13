@@ -2336,7 +2336,8 @@
     "loop.escalated",
     "prev.r1.minimality",
     "prev.r3.coherence",
-    "prev.r4.hidden_scope"
+    "prev.r4.hidden_scope",
+    "validator"
    ],
    "schema": {
     "type": "object",

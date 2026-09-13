@@ -228,38 +228,52 @@ def bullet(s):
     """
     return "  - " + "\n    ".join(str(s).splitlines() or [""])
 
-QUESTION_KINDS = {
-    # 設計の岐路——処方が機構の新設・共有面の拡大に及び、候補が複数（手順書 P2「処方の列挙」）。
-    # 選択肢は帰結まで書く。零処方（取り下げ・既存の機構 1 つ）が落ちる理由は reason に。
-    "fork": ("unit", ("options",)),
-    # 修正が露呈させた既存の欠陥で、凍結した目的の外。別 PR に積むかを人が決める。
-    # 露呈の回収は既定のまま（REVIEW.md「別 Issue への先送りを既定にするな」）で、
-    # これは例外の申請。目的の内側でないかは R1 が監査する。
-    "split": ("unit", ()),
-    # 同じ指摘が新証拠なく再燃し、原因がコードでなく観点の誤発火。REVIEW.md の
-    # どの観点かを reason に書く。剪定するかは人（「この規約の育て方」）。
-    "rule": ("unit", ()),
-    # 処方の誤りか設計の問題か——下の stuck_unlisted が発火の条件と要求を持つ。
-    "stuck": ("unit", ()),
-    # 新規 [block] が出続けて収束に向かわない。アプローチの誤りか。件数が落ちれば resolved。
-    # **出どころを持たない**——件数の推移で見えるもので、特定のユニットに紐づかない。
-    "thrash": ("none", ()),
-    # R2 が premise-invalid。blind-judge は道具を持たないので、根拠に目的テキストの外の仮定が
-    # 混じる——別 context の judge が仮定を実態で検算したかが再審の中身。
-    "premise": ("review", ()),
-    # 元の目的を独立に取れない（R が unverifiable）。
-    "unverifiable": ("review", ()),
-    # 素材が awaiting_human（未観測・打ち切られた一覧・洗えなかった決定記録・走らせられない CI）。
-    # 「打ち切られた」は上限を上げれば済むことが多く、人に聞く前に再審で消える。
-    "awaiting": ("material", ()),
-}
+# **note は飾りではなく、プロンプトに貼る本文の正本**（PROMPT_TABLES が組み立てる）。
+# 以前は種類の意味が散文のコメントにしか無く、貼る側（p2.diagnose.md）が手で写していた
+# ——graph が「ここに写さない。手順書も列挙を持たない」と宣言している先で写していて、
+# しかも写しは既にずれていた（premise / stuck / rule の origin の要求が落ちていた。実測 2026-09-13）。
+Kind = collections.namedtuple("Kind", "domain fields note")
+QUESTION_KINDS = _rows("問いの種類", Kind, {
+    "fork": ("unit", ("options",),
+             "設計の岐路——処方が機構の新設・共有面の拡大に及び、候補が複数（手順書 P2「処方の列挙」）。"
+             "選択肢は帰結まで書く。零処方（取り下げ・既存の機構 1 つ）が落ちる理由は reason に"),
+    "split": ("unit", (),
+              "修正が露呈させた既存の欠陥で、凍結した目的の外。別 PR に積むかを人が決める。"
+              "露呈の回収は既定のまま（REVIEW.md「別 Issue への先送りを既定にするな」）で、これは例外の申請"),
+    "rule": ("unit", (),
+             "同じ指摘が新証拠なく再燃し、原因がコードでなく観点の誤発火。REVIEW.md のどの観点かを reason に書く"),
+    "stuck": ("unit", (), "処方の誤りか設計の問題か（発火の条件と要求は stuck_unlisted が持つ）"),
+    "thrash": ("none", (),
+               "新規 [block] が出続けて収束に向かわない。件数の推移で見えるもので、特定のユニットに紐づかない"),
+    "premise": ("review", (),
+                "R2 が premise-invalid。別 context の judge が仮定を実態で検算したかが再審の中身"),
+    "unverifiable": ("review", (), "R が独立に確かめる材料を取れない"),
+    "awaiting": ("material", (),
+                 "素材が awaiting_human（未観測・打ち切られた一覧・洗えなかった決定記録・走らせられない CI）"),
+})
 ORIGIN_DOMAINS = ("unit", "material", "review", "none")
+ORIGIN_NOTE = {"unit": "origin は当該ユニットの key", "material": "origin は素材名",
+               "review": "origin は R1〜R4", "none": "origin も depends も持てない"}
 # **書ける欄を閉じる。** `depends` を `depend` と書くと、帰属も実在検査も開き禁止も**全部
 # 黙って効かなくなる**（実測。exit 1 で素通りした）。`ask_human` だけを名指しで弾いていた
 # ので、読む人には「他の綴り違いも弾かれる」と見えるのも悪い。**知らない欄は落とす**——
 # 綴り違いが黙って無効になる側でなく、書いた本人に返る側へ倒す。
 QUESTION_FIELDS = ("key", "kind", "status", "reason", "resolution", "options", "depends", "origin")
 UNIT_FIELDS = ("key", "label", "disposition", "reason", "reopen_evidence")
+
+# **プロンプトに貼る語彙は、ここが組み立てて engine が渡す。** 役に渡す散文へ表を手で写すと、
+# 正本を直した周に写しだけが古くなり、しかも役は写しの方を読む（実測 2026-09-13: p2.diagnose.md の
+# 写しから premise / stuck / rule の origin の要求が落ちていた。graph は同じ表について
+# 「ここに写さない。手順書も列挙を持たない」と宣言していた）。**engine はこの dict の中身を知らない**
+# ——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
+PROMPT_TABLES = {
+    "question_kinds": "／".join(
+        f"{k}（{ORIGIN_NOTE[v.domain]}" + ("".join(f"・{f} が要る" for f in v.fields)) + f"）: {v.note}"
+        for k, v in QUESTION_KINDS.items()),
+    "question_fields": "／".join(QUESTION_FIELDS),
+    "unit_fields": "／".join(UNIT_FIELDS),
+    "labels": "／".join(LABELS),
+}
 # **状態は 2 軸である**——「決着したか」と「出どころの欠陥がまだ記録に開いて残っているか」。
 # 1 つの平坦な値に潰していたとき、**判断も処方も付いた問いを「保留」と書き続けるほか無かった**
 # （下の stuck_unlisted が未決の記載を要求し、P3 は「見つけた周の記録は直していても判定どおり
@@ -466,7 +480,7 @@ def targets(q):
     消費者は 4 つで、**`stuck_unlisted` の `listed` だけは `origin` かつ域が unit のものに
     絞る**——stuck の振り分けた跡は「その問いがそのユニットを出どころとして立っている」
     ことで、`depends`（答え待ちで手が止まるユニット）では成立しないから。"""
-    domain = QUESTION_KINDS[q["kind"]][0]
+    domain = QUESTION_KINDS[q["kind"]].domain
     out = [("origin", domain, q["origin"])] if "origin" in q else []
     # **`depends` は域に依らずユニットの key**（手順書 P2「履歴との突合」が正本）。問いの
     # key でも素材名でもない——ここを域と同じに扱うと、綴り違いが黙って無効になる。
@@ -499,7 +513,7 @@ def validate_questions(rec, path, unit_index):
         status = q.get("status")
         if status not in QUESTION_STATUS:
             fail(f"{where} の status が不正: {status!r}（{'/'.join(QUESTION_STATUS)}）")
-        domain, extra_fields = QUESTION_KINDS[kind]
+        domain, extra_fields = QUESTION_KINDS[kind].domain, QUESTION_KINDS[kind].fields
         require_fields(q, ("reason",) + extra_fields + QUESTION_STATUS[status], where,
                        "きっかけ・根拠を書け", f"kind={kind} / status={status}")
         if kind == "fork":

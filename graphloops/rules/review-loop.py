@@ -768,7 +768,7 @@ def judge_output(b, nid, out, item):
         if status not in V.QUESTION_STATUS:
             errs.append(f"questions[{i}] の status が不正: {status}")
             continue
-        domain, extra = V.QUESTION_KINDS[kind]
+        domain, extra = V.QUESTION_KINDS[kind].domain, V.QUESTION_KINDS[kind].fields
         for f in ("reason",) + extra + V.QUESTION_STATUS[status]:
             if not q.get(f):
                 errs.append(f"questions[{i}]（{kind}/{status}）に '{f}' が要る")

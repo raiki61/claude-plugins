@@ -291,4 +291,26 @@ class Board:
             "prev": self.outputs(before_round=self.round),
             "thickness": self.state["thickness"], "round": self.round, "rd": self.rd, "loop": self.loop_state,
             "run": {"id": self.state["run_id"], "dir": str(self.dir), "loop": self.state["loop_name"]},
+            "validator": self.validator_tables(),
         }
+
+    def validator_tables(self):
+        """検証器が「プロンプトに貼る用」として宣言した表（`PROMPT_TABLES`）。**写させないための口。**
+
+        役に渡す散文へ語彙の表を手で写すと、正本を直した周に写しだけが古くなり、しかも役は写しの方を読む
+        （実測 2026-09-13: p2.diagnose.md の写しから問いの種類 3 つの origin の要求が落ちていた。graph は
+        同じ表について「ここに写さない。手順書も列挙を持たない」と宣言していた面）。
+
+        **engine は中身を知らない**——検証器が名前を決め、プロンプトが `{{validator.<名前>}}` で引く。
+        検証器が無い／宣言していない run では空の dict——貼れないことは穴埋めの KeyError で分かる
+        （静かに空文字で埋めない）。
+        """
+        cache = self.__dict__.get("_vtables")
+        if cache is None:
+            from .rules import Reject, validator_module
+            try:
+                cache = dict(getattr(validator_module(self), "PROMPT_TABLES", {}) or {})
+            except (Reject, OSError, ImportError):
+                cache = {}
+            self.__dict__["_vtables"] = cache
+        return cache
