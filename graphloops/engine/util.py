@@ -53,8 +53,24 @@ def dump(obj):
 GIT_TIMEOUT = 120  # 秒。近傍の scripts/comment-ratio.sh と同じ上限
 
 
+GIT_CWD = None  # 対象リポジトリ。init が記録した inputs.cwd を engine が 1 度だけ入れる（下の _repo_args を見よ）
+
+
+def _repo_args():
+    """git に渡す -C。**run は自分の対象リポジトリを値で持つ。**
+
+    以前は git をプロセスの cwd で実行していたので、`--dir` を明示した run は対象リポジトリとの結び付きが
+    外れた——resolve_dir は `--dir` が無いときだけ cwd の .git から run を探すので、`--dir` を渡すとその
+    暗黙の錨だけが唯一の結び付きだった（実測 2026-09-13: 別のリポジトリの cwd から done を実行したら
+    record.base が別リポジトリの HEAD になり、exit 0 で受理された）。inputs.cwd は init 時に記録されるのに
+    突合にも実行にも使われていなかった。
+    """
+    return ["-C", GIT_CWD] if GIT_CWD else []
+
+
 def git(*args):
     """成功なら stdout、失敗（git が無い・非 0・時間切れ）なら None。呼ぶ側は None を『分からない』として扱い、合格に倒さない。"""
+    args = (*_repo_args(), *args)
     try:
         # errors=replace: 対象リポジトリに非 UTF-8 のテキストが 1 本でも在ると、復号の例外が『失敗なら None』の契約を
         # 迂回して総括例外で落ちた（実測 2026-09-13: next が exit 2 でどの周にも進めない）。置換文字で読み、落とさない
@@ -68,6 +84,7 @@ def git_bytes(*args):
     """成功なら stdout の**生バイト**、失敗なら None。突合（sha）に使う——git() の errors=replace は復号できない
     バイトを種類に依らず U+FFFD 1 文字に写すので、等長の非 UTF-8 書き換えが同じ文字列＝同じ sha になる
     （実測 2026-09-13: b"caf\xe9 \xff" と b"caf\xc3 \xfe" が一致）。貼る用は落としてよい／突合用は落としてはいけない。"""
+    args = (*_repo_args(), *args)
     try:
         r = subprocess.run(["git", *args], capture_output=True, timeout=GIT_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired):

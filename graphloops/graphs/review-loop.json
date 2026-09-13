@@ -803,7 +803,8 @@
     "loop.diff_file",
     "loop.changed_files"
    ],
-   "builtin": "worktree_snapshot"
+   "builtin": "worktree_snapshot",
+   "reads": []
   },
   "p1.local_review": {
    "stage": "P1",
@@ -1668,7 +1669,8 @@
         "gate",
         "arm",
         "red_confirmed",
-        "control_green"
+        "control_green",
+        "hit_evidence"
        ],
        "additionalProperties": false,
        "properties": {
@@ -1685,6 +1687,9 @@
          "type": "boolean"
         },
         "note": {
+         "type": "string"
+        },
+        "hit_evidence": {
          "type": "string"
         }
        }
@@ -2253,7 +2258,8 @@
     "materials（15 欄）"
    ],
    "note": "記録の欄には無い（review / research は散文だけ。doctor は mod_check、firstread は git_status_match を欄で要求する）",
-   "builtin": "worktree_compare"
+   "builtin": "worktree_compare",
+   "reads": []
   },
   "p2.diagnose": {
    "stage": "P2",
@@ -3345,6 +3351,13 @@
     "loop.open_units",
     "loop.r1_refire",
     "loop.r2_refire"
+   ],
+   "reads": [
+    "record.units",
+    "loop.diff_lines",
+    "out.p3.fix",
+    "out.p0.purpose.source",
+    "record.process.purpose_review.verdict"
    ]
   },
   "r1.comment_candidates": {
@@ -4084,7 +4097,8 @@
    ],
    "verdict_is_copy": true,
    "note": "Python 3.6 未満だと f-string の構文エラーが exit 1（阻害あり）に化けるので版を確かめる。分岐: 新規／残存 [block] か未対応の do-now が残る→P3 へ戻り次の採点へ／[block] 0 かつ CI 緑→P-R へ",
-   "builtin": "record_round"
+   "builtin": "record_round",
+   "reads": []
   },
   "converge": {
    "stage": "P4",
@@ -4098,7 +4112,8 @@
     "decision"
    ],
    "verdict_is_copy": true,
-   "builtin": "converge"
+   "builtin": "converge",
+   "reads": []
   },
   "report.human_items": {
    "stage": "最終報告",

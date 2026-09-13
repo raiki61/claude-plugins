@@ -211,6 +211,23 @@ LABELS = ("block", "suggest", "nit", "question", "info")
 STOP_PREMISE = "前提不成立が確定（escalate）"
 STOP_WORK_EXHAUSTED = "答え無しに進める仕事は無い"
 
+
+def bullet(s):
+    """1 項目を `  - ` の行として組む。**役の自由文が何行でも、2 行目以降は字下げして続ける。**
+
+    読む側（graphloops の rules の stop_branch）は「行頭が空白でない行」だけを判定行として読む。
+    その成立条件は「印字に埋まる自由文が行頭を作らないこと」で、**条件を満たす場所はここ 1 か所**
+    ——書く側（記録に文字列を置く 19 の節）を 1 つずつ覆う形では、覆いの外が残る（実測 2026-09-13:
+    書く側の覆いは judge の 2 節だけで、materials[].reason・reviews[].reason・questions[].resolution・
+    stop.premise_check の key / reason の 4 入口が外に在り、改行 1 文字で周の分岐を倒せた）。
+    ここで潰せば、将来 print を足しても bullet を通す限り同じ穴は開かない。
+
+    **切る位置は splitlines が正本**——読む側も splitlines で行に割るので、\\n だけを置換すると
+    \\r・\\x0b・\\x1c・\\u2028 等が素通りして、同じ穴が別の文字で開く（母数は「改行文字」でなく
+    「splitlines が行と見なす文字」）。
+    """
+    return "  - " + "\n    ".join(str(s).splitlines() or [""])
+
 QUESTION_KINDS = {
     # 設計の岐路——処方が機構の新設・共有面の拡大に及び、候補が複数（手順書 P2「処方の列挙」）。
     # 選択肢は帰結まで書く。零処方（取り下げ・既存の機構 1 つ）が落ちる理由は reason に。
@@ -998,13 +1015,13 @@ def main():
     if grew:
         print("増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:")
         for line in grew:
-            print(f"  - {line}")
+            print(bullet(line))
 
     carried = carry_summary(rec)
     if carried:
         print("持ち越し（機械は中身を見ない。古いものほど、見直す理由が無いかを疑え）:")
         for line in carried:
-            print(f"  - {line}")
+            print(bullet(line))
 
     if rec["questions"]:
         print("問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。"
@@ -1013,14 +1030,14 @@ def main():
             tag = {"held": "未決", "escalate": "人へ", "decided": "ループが決めた（欠陥は残存）",
                    "resolved": "ループが決めた"}[q["status"]]
             tail = q["reason"] if q["status"] in ASKING else q["resolution"]
-            print(f"  - [{tag}] {q['kind']}: {q['key']} — {tail}")
+            print(bullet(f"[{tag}] {q['kind']}: {q['key']} — {tail}"))
 
     # `if rounds:` は書かない——`load_dir` が空なら fail するので恒真だった。
     lines = history(rounds)
     if lines:
         print(f"履歴（round 1〜{rec['round']}。P2 の judge に渡せ。機械は解釈しない）:")
         for line in lines:
-            print(f"  - {line}")
+            print(bullet(line))
 
     # **落とすのは、直すのに要るものを出し切ってから。** 他の exit 2 の経路は印字より前に在るが、
     # この 1 本だけは「どのキーが 3 周続いたか」を履歴で見ないと直しようがない。印字の前に
@@ -1041,7 +1058,7 @@ def main():
         if dropped:
             print("前ラウンドの defer で今ラウンドの記録に無いキー（台帳には残る。最終報告に載せろ）:")
             for k in dropped:
-                print(f"  - {k}")
+                print(bullet(k))
         # **機械はこれを数えない**——一覧は判定でなく P2 の judge への入力である（数えられない
         # 理由の 2 通りの検討は手順書 P2「履歴との突合」が持つ。ここに写すと片方が腐る）。
         gone = [k for k in sorted(prev_blocks) if k not in here]
@@ -1049,7 +1066,7 @@ def main():
             print("過去のラウンドの [block] で今ラウンドの記録に無いキー"
                   "（直ったのか、記録から落ちたのかは機械には見えない。P2「履歴との突合」でルーターに掛けろ）:")
             for k in gone:
-                print(f"  - {k}")
+                print(bullet(k))
 
     # 連続 2 ラウンドの会計。今ラウンドが阻害なしでも、前ラウンドに阻害があれば 1 ラウンド目。
     # **これを writer に数えさせない**——採点を自己申告にしないのと同じ理由。
@@ -1070,9 +1087,9 @@ def main():
     if found or accounting:
         print(f"収束を妨げるもの {len(found) + len(accounting)} 件:")
         for msg, asked in found:
-            print(f"  - {msg}" + ("（保留の問いに帰属——答えを待っている）" if asked else ""))
+            print(bullet(msg + ("（保留の問いに帰属——答えを待っている）" if asked else "")))
         for msg in accounting:
-            print(f"  - {msg}")
+            print(bullet(msg))
         # 人に聞く時。**writer が数えるな**——聞くのが早すぎると、次の周の目が解けた問いで
         # 人を止める。遅すぎることは無い（帰属しない阻害が 0 になった瞬間に出る）。
         waiting = sum(1 for _, a in found if a)

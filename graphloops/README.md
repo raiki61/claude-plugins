@@ -2,7 +2,7 @@
 
 収束ループ（結果が動かなくなるまで回す手順）のグラフ実行版。同じリポジトリの convergence-loops が配る 4 本のコマンド（`/review-loop`・`/research-loop`・`/doctor-loop`・`/firstread-loop`）は、回す手順を散文の手順書に書き、それを LLM が読んで従う。graphloops は同じループを「節（工程）＋依存＋周回条件」の JSON に写し、機械（engine）が盤面を持って回す。回す側の LLM は、渡された節を実行して返すだけになる。
 
-実行版は `/research-graph`（`/research-loop` の実行版）と `/review-graph`（`/review-loop` の実行版）の 2 本。既存の 4 コマンドのうち 3 本（`commands/doctor-loop.md`・`research-loop.md`・`review-loop.md`）を触った——Read を持つ役には本文を貼らず path を渡す旨の文（doctor 1 行・research 1 行・review 2 行）と、`review-loop.md` の基準点の決め方の 1 行。計 5 行の差し替えで、allowed-tools と `firstread-loop.md` は不変（`git diff <BASE> --stat -- commands/` で確かめられる。以前は「渡し方の 1 行だけ」と書いていて実差分と食い違い、目的監査がそれを根拠に R2 を止めた）。本体は隣に置く。記録の形と検証器（convergence-loops の `scripts/<loop>-record.py`）は共通で、これが新旧の橋——同じ対象で両方を回し、同じ検証器に通した記録を比べるのが受け入れ試験である。
+実行版は `/research-graph`（`/research-loop` の実行版）と `/review-graph`（`/review-loop` の実行版）の 2 本。既存の 4 コマンドのうち 3 本（`commands/doctor-loop.md`・`research-loop.md`・`review-loop.md`（リポジトリのルート基準。プラグインとして入れた実体には無いので、clone か GitHub で見る: https://github.com/raiki61/claude-plugins））を触った——Read を持つ役には本文を貼らず path を渡す旨の文（doctor 1 行・research 1 行・review 2 行）と、`review-loop.md` の基準点の決め方の 1 行。計 5 行の差し替えで、allowed-tools と `firstread-loop.md` は不変（`git diff <BASE> --stat -- commands/` で確かめられる。以前は「渡し方の 1 行だけ」と書いていて実差分と食い違い、目的監査がそれを根拠に R2 を止めた）。本体は隣に置く。記録の形と検証器（convergence-loops の `scripts/<loop>-record.py`）は共通で、これが新旧の橋——同じ対象で両方を回し、同じ検証器に通した記録を比べるのが受け入れ試験である。
 
 ## 3 層
 
@@ -20,9 +20,9 @@ engine はループの節名も記録の欄名も持たない。graph が名前�
 
 `init` で盤面（`$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外）を作り、`next` が「いま走らせてよい節」をプロンプトごと JSON で返す。回す側は役割 agent の節を Agent で並列に起動し、自分の節は自分でやり、返答を `done` で返す。engine は返答を型で検査し、記録に写し、扇の被覆（返した答えが項目を全部覆っているか）を数え、機械の節（件数突合・収束判定）を走らせ、次の周を開くか、止めるか、人に聞く。最後の `report` の前に記録を仕上げて検証器を回し、通らなければ `report` を出さない。
 
-散文の手順書より機械が守れるようになるもの: 依存と波、渡してはいけないもの、役の指定、上限、連続カウント、無言の省略（被覆の突合）、圧縮後の再開（盤面はディスク）、回す側の降格の禁止、作業ツリーの前後突合。
+散文の手順書より機械が守れるようになるもの: 依存と波、渡してはいけないもの、役の指定、上限、連続カウント、無言の省略（被覆の突合）、圧縮後の再開（盤面はディスク）、作業ツリーの前後突合（**射程は 2 軸で狭い**——git が映す範囲だけ〈.git/ 配下・ignore 対象・リポジトリ外は見えない〉と、P1 の前後という時点だけ〈判定や修正の最中の書き換えは見ない。実測 2026-09-13: この run の判定の最中に engine が 1 か所書き換わり、盤面は何も止めなかった〉）。**『回す側の降格の禁止』はここに入らない**——機械が縛るのは graphcheck の検査 2（節の run_by が判定の欄に触れない）までで、回す側が段を下げる・役を起こさずに自分で答える・役の返答を書き換える経路を engine は見ていない（BASE の `docs/loop-contract.md` の規律 U も同じ項目を『散文だけのもの』と書いている。25 行目の受容と食い違っていた）。
 
-守れないまま残るもの: 回す側が engine を飛ばす・プロンプトを書き換える（trace と prompt の hash は残るので検出はできる。塞ぐなら Agent の PreToolUse hook で hash を照合する——未実装）。**同じ受容に含まれるもの**: 実行の正本をレビュー対象の木と環境変数から取ること（graph の `launch.isolated.argv` に allowlist は無く、rules の相対パスは graph のディレクトリ配下に封じ込めていない。`<PLUGIN>_ROOT` / `CLAUDE_CONFIG_DIR` が exec 対象・役定義・scripts の置き場を切り替える。観点の `REVIEW.md` は BASE でなく作業ツリーから取る）——自己レビューでは回す側が自分を回す graph / rules / 観点を編集できる立場に在る。**盤面の保存経路**: 版の突合は後勝ちを止めるが、読んでから書くまでの窓と state.json / record.json の 2 ファイル確定の非アトミック性は残る（並行実行は運用で禁じる）。役の判断の質そのもの。
+守れないまま残るもの: **遮断系（道具ゼロの役）の文脈遮断は完全ではない**——`--setting-sources ""` が外せるのは user / project / local の 3 つだけで、組織管理（managed-settings.json・MDM・コンソール）由来の設定は外せない。とくに SessionStart / UserPromptSubmit のフックの標準出力は、道具を 1 つも持たない役にもプレーンテキストとして文脈へ足される（公式の hooks の仕様。道具の呼び出しに紐付かないので `--tools ""` でも止まらない）。`--bare` は同じ目的の単発フラグだが、認証を API キー経由に限定し OAuth と keychain を読まないので単純な置き換えにならず、採っていない。／回す側が engine を飛ばす・プロンプトを書き換える（trace と prompt の hash は残るので検出はできる。塞ぐなら Agent の PreToolUse hook で hash を照合する——未実装）。**同じ受容に含まれるもの**: 実行の正本をレビュー対象の木と環境変数から取ること（graph の `launch.isolated.argv` に allowlist は無く、rules の相対パスは graph のディレクトリ配下に封じ込めていない。`<PLUGIN>_ROOT` / `CLAUDE_CONFIG_DIR` が exec 対象・役定義・scripts の置き場を切り替える。観点の `REVIEW.md` は BASE でなく作業ツリーから取る）——自己レビューでは回す側が自分を回す graph / rules / 観点を編集できる立場に在る。**盤面の保存経路**: 版の突合は後勝ちを止めるが、読んでから書くまでの窓と state.json / record.json の 2 ファイル確定の非アトミック性は残る（並行実行は運用で禁じる）。役の判断の質そのもの。
 
 ## 検査
 
@@ -41,7 +41,7 @@ bash graphloops/tests/run.sh
 4. `tests/simulate.py` に台本を足す。
 5. `commands/<loop>-graph.md` は engine の呼び方だけ。
 
-残りの 2 本（doctor・firstread）の graph は `graphs/` にあるが写しだけで、まだ回せない。
+残りの 2 本（doctor・firstread）の graph はこの差分に**入れていない**。写しだけのグラフを先に積むと、engine の実行経路に乗らない 1,123 行が凍結した目的の外に残る——実行版を作る周に、回せる形で一緒に入れる（追跡は別 issue）。
 
 ## 未実装
 

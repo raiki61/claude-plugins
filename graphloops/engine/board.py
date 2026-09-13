@@ -4,6 +4,7 @@ import os
 import pathlib
 
 from .rules import load_rules, registry
+from . import util
 from .util import die, get_path, read_json, write_json, now
 from .validator import run_validator
 
@@ -17,7 +18,7 @@ def empty_round(n):
 # eval_cond と graphcheck の check_cond が同じ物を読む（写しを作らない）
 COND_OP_KEYS = {"eq": ("value",), "ne": ("value",), "gt": ("value",), "lt": ("value",),
                 "nonempty": (), "empty": (), "in": ("value",), "any_field_eq": ("value", "field")}
-COND_OPS = tuple(COND_OP_KEYS)  # graphcheck はこれを import して照合する
+COND_OPS = tuple(COND_OP_KEYS)  # 使える op の一覧（die の文面で「使えるのは」を出すため。照合は COND_OP_KEYS 側）
 COND_KEYS = frozenset({"all", "any", "not", "builtin", "path", "op", "value", "default", "field"})  # eval_cond が読む鍵。graphcheck が import
 
 
@@ -35,6 +36,10 @@ class Board:
     def __init__(self, d):
         self.dir = pathlib.Path(d)
         self.state = read_json(self.dir / "state.json")
+        # **この run の対象リポジトリを git に固定する。** init が記録した inputs.cwd を使う——以前は git を
+        # プロセスの cwd で実行していたので、`--dir` を明示すると run と対象リポジトリの結び付きが外れた
+        # （実測 2026-09-13: 別リポジトリの cwd から done を実行して record.base が別リポジトリの HEAD になった）
+        util.GIT_CWD = (self.state.get("inputs") or {}).get("cwd")
         self.seen_rev = self.state.get("rev", 0)  # 読んだ時点の版。save がこれと突き合わせる
         self.record = read_json(self.dir / "record.json")
         self.graph = read_json(self.state["graph"])
@@ -190,7 +195,13 @@ class Board:
             return not v
         if op == "in":
             return v in (want or [])
-        return isinstance(v, list) and any(isinstance(x, dict) and x.get(c["field"]) == want for x in v)  # any_field_eq
+        if op == "any_field_eq":
+            return isinstance(v, list) and any(isinstance(x, dict) and x.get(c["field"]) == want for x in v)
+        # **最後の腕に op 名を書く。** 無印の return を受け皿にしていたとき、表（COND_OP_KEYS）に op を足して
+        # この連鎖に足し忘れると、例外でなく any_field_eq の意味で静かに評価された（表は 8 個・連鎖は 7 個を
+        # 明示）。:162-165 が path の解決失敗を偽でなく die にしたのと同じ理由——「知らない」を「成り立たない」に
+        # 倒すと、綴り違いが条件の不成立に化けて収束まで通る。表と連鎖のずれは、ここで初めて音が出る
+        die(f"cond の op '{op}' は表（COND_OP_KEYS）に在るが eval_cond の分岐に無い——engine の表と実装がずれている")
 
     # -- プロンプトと条件の文脈
     def outputs(self, before_round=None):

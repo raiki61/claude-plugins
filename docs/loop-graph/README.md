@@ -10,10 +10,10 @@
 |---|---|---|---|
 | review | `review-loop.json` | `review-loop.md` | `/review-graph` |
 | research | `research-loop.json` | `research-loop.md` | `/research-graph` |
-| doctor | `doctor-loop.json` | `doctor-loop.md` | 写しだけ |
-| firstread | `firstread-loop.json` | `firstread-loop.md` | 写しだけ |
+| doctor | （まだ無い） | `doctor-loop.md` | 写しだけ |
+| firstread | （まだ無い） | `firstread-loop.md` | 写しだけ |
 
-JSON は各ループを「節（工程）＋依存＋外側の周回条件」のグラフとして持ち、グラフ実行版プラグイン `graphloops`（`graphloops/README.md`）の `scripts/graphcheck.py` が機械で確かめる。research と review の JSON は実行用の欄（節ごとのプロンプト・返答の型・書き込み規則）も持ち、同じプラグインの engine で回せる。md は図と、図に落ちない説明（変わったこと・記録と検証器・既知の未決）を持つ。写しでも腐りにくい部分（節の名前・依存・役・記録の欄名）だけを持ち、腐りやすい部分（役の道具・観点の本文・行番号）は持たない。道具は `agents/<役>.md`、観点は `REVIEW.md`、出典は手順書の見出し（各節の `source`）で指す。
+JSON は各ループを「節（工程）＋依存＋外側の周回条件」のグラフとして持ち、グラフ実行版プラグイン `graphloops`（`graphloops/README.md`）の `scripts/graphcheck.py` が機械で確かめる。research と review の JSON は実行用の欄（節ごとのプロンプト・返答の型・書き込み規則）も持ち、同じプラグインの engine で回せる。**doctor と firstread の JSON はこの差分から取り下げた**——engine の実行経路に乗らない写し 1,123 行が、凍結した目的（review と research の 2 本）の外に積まれていた。別 issue に落として、実行版を作る周に一緒に入れる（『既存かつこの変更と無関係』でないので split でなく取り下げが正しい形。実測 2026-09-13: BASE に無い本差分の増分で、本差分の `graphloops/tests/run.sh` が検査面に入れていた）。md は図と、図に落ちない説明（変わったこと・記録と検証器・既知の未決）を持つ。写しでも腐りにくい部分（節の名前・依存・役・記録の欄名）だけを持ち、腐りやすい部分（役の道具・観点の本文・行番号）は持たない。道具は `agents/<役>.md`、観点は `REVIEW.md`、出典は手順書の見出し（各節の `source`）で指す。
 
 4 本を横断して拾い上げた規律の一覧と、LLM（大規模言語モデル）を使うアプリとしての性質は、`docs/loop-contract.md` に置く（graphloops と同じ変更で書いた**作業記録**であって、規律の権威ではない——各規律の根拠は、その節が引く手順書・検証器・実測の側にある）。
 

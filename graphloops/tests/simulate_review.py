@@ -181,7 +181,7 @@ def answers(run, scenario, rnd):
         "p1.external_standards": lambda it: {"material": CLEAN("依存の組み込み機能と突合。再発明なし"), "findings": [], "seen": "import と宣言済み依存", "unseen": "なし", "web_refetched": True},
         "p1.procedure_trace": lambda it: {"material": CLEAN("手順書と実装の突合。宣言と実装の食い違いなし"), "findings": [], "unmeasured": []},
         "p1.gate_efficacy": lambda it: {"material": CLEAN("新設ゲートの腕ごとに写しの上で退行を注入して赤を確認"),
-                                        "arms": [{"gate": "上限の検査", "arm": "limit=None の経路", "red_confirmed": True, "control_green": True}]},
+                                        "arms": [{"gate": "上限の検査", "arm": "limit=None の経路", "red_confirmed": True, "control_green": True, "hit_evidence": "分岐が書く理由文字列を一意の印に替えた写しで、印が記録に出ることを確認した"}]},
         "p1.test_double_fidelity": lambda it: {"material": M("not_applicable", reason="外部との継ぎ目に触れていない"), "mismatches": []},
         "p1.provenance": lambda it: {"material": CLEAN("事実の主張なし"), "claims": []},
         "p1.main_path_observation": lambda it: {"material": M("awaiting_human", reason="dev サーバが社内認証に繋がず起動しない") if awaiting_mp else CLEAN("人が用意した設定で 1 回動かし値を観測"), "observed": []},
@@ -451,11 +451,13 @@ def test_rejections():
     (run.repo / "stray.txt").unlink()
     for n in ("p1.local_review", "p1.consistency_bypass", "p1.external_standards", "p1.provenance"):
         r = run.done(by[n]["id"], t[n](None))
-        assert r.returncode == 0, (n, r.stderr)
+        if r.returncode != 0:  # assert は -O で消える（台本の前提が黙って外れる）
+            raise SystemExit(f"台本の前提が崩れた: {n} の done が {r.returncode}: {r.stderr[-200:]}")
     r = run.done(hyg["id"], t["p1.hygiene"](None), agent_id="cli-has-no-agent")
     check(r.returncode == 1 and "agent_id" in r.stderr, "cli で起こした遮断系の done に --agent-id を渡すと exit 1（別プロセスに続く context は無い）")
     r = run.done(hyg["id"], t["p1.hygiene"](None))
-    assert r.returncode == 0, r.stderr
+    if r.returncode != 0:
+        raise SystemExit(f"台本の前提が崩れた: done が {r.returncode}: {r.stderr[-200:]}")
     # 既に ' M' のファイルの**中身の差し替え**も止める（porcelain は状態コードとパスしか見ないので diff の sha で見る）
     orig = (run.repo / "src" / "a.py").read_text(encoding="utf-8")
     (run.repo / "src" / "a.py").write_text(orig + "# 役が書き換えた\n", encoding="utf-8")
@@ -643,14 +645,24 @@ def test_gates_not_applicable():
         if inst["node"] == "p1.gate_efficacy" and "tried" not in seen:
             seen["tried"] = True
             r = run_.done(inst["id"], {"material": M("not_applicable", reason="検証ゲートを触っていない（検査用の嘘）"),
-                                       "arms": [{"gate": "x", "arm": "y", "red_confirmed": True, "control_green": True}]})
+                                       "arms": [{"gate": "x", "arm": "y", "red_confirmed": True, "control_green": True, "hit_evidence": "分岐が書く理由文字列を一意の印に替えた写しで、印が記録に出ることを確認した"}]})
             check(r.returncode == 1 and "applies_cond" in r.stderr, "applies_cond が真で走った gate_efficacy の not_applicable は exit 1（機械が持つ事実と食い違う）")
             # 赤を見ていない腕が在るのに found 以外を名乗る——clean だけ見ていたとき carried_over は腕ゼロのまま通った（実測 2026-09-13）
-            unred = [{"gate": "x", "arm": "y", "red_confirmed": False, "control_green": True}]
+            unred = [{"gate": "x", "arm": "y", "red_confirmed": False, "control_green": True, "hit_evidence": "分岐が書く理由文字列を一意の印に替えた写しで、印が記録に出ることを確認した"}]
             r = run_.done(inst["id"], {"material": CLEAN("柵 1 本"), "arms": unred})
             check(r.returncode == 1 and "赤を見ていない腕" in r.stderr, "赤を見ていない腕が在るのに clean は exit 1")
             r = run_.done(inst["id"], {"material": M("carried_over", from_round=1, reason="確認: 流用（検査用の嘘）"), "arms": unred})
             check(r.returncode == 1 and "赤を見ていない腕" in r.stderr, "赤を見ていない腕が在るのに carried_over も exit 1（status に依らず当てる）")
+            # **赤は「柵が無ければ落ちる」ことしか言わない。** その腕がその柵を通ったことは別に測る（実測 2026-09-13:
+            # 持ち越しの可否の柵は退行を注入しても検査が緑のままで、分岐が書く理由を一意の印に替えても記録に印が出なかった
+            # ＝筋書きがその行を通っていない）。赤と control の緑がそろっていても、通った証拠が無ければ覆いに数えない
+            nohit = [{"gate": "x", "arm": "y", "red_confirmed": True, "control_green": True, "hit_evidence": "—"}]
+            r = run_.done(inst["id"], {"material": CLEAN("柵 1 本"), "arms": nohit})
+            check(r.returncode == 1 and "守る行を通ったこと" in r.stderr,
+                  f"赤も control の緑も見た腕が、守る行を通ったことを測っていなければ exit 1（rc={r.returncode}）")
+            r = run_.done(inst["id"], {"material": M("found", count=1, detail="柵 1 本（検査用）"), "arms": nohit})
+            check(r.returncode == 1 and "守る行を通ったこと" in r.stderr,
+                  "found でも同じ——覆いの証拠にならない腕は status に依らず拒む")
         return out
     drive(run, "gates", hook=hook)
     check("tried" in seen, "ゲートを触った台本で gate_efficacy が走った")
@@ -818,7 +830,8 @@ def test_big_diff():
     t = answers(run, "std", 1)
     for i in nx["ready"]:
         r = run.done(i["id"], t[i["node"]](i["item"]))
-        assert r.returncode == 0, (i["node"], r.stderr[-300:])
+        if r.returncode != 0:
+            raise SystemExit(f"台本の前提が崩れた: {i['node']} の done が {r.returncode}: {r.stderr[-300:]}")
     nx = run.next()  # hygiene は差分だけに依存するので P0 の残りと同じ波に出る（pipeline）
     hyg = [i for i in nx["ready"] if i["node"] == "p1.hygiene"]
     check(len(hyg) == 1, f"hygiene は割れず 1 節のまま（{len(hyg)}）")
@@ -836,6 +849,9 @@ def test_big_diff():
 
 
 def main():
+    # simulate.py と同じ 1 行。find_plugin_path は <PLUGIN>_ROOT を同梱より先に見るので、この環境変数が
+    # 立っている機械では、落としていない側の台本だけが別の場所の検証器・役定義を掴む（片方だけ揃っていた）
+    os.environ.pop("CONVERGENCE_LOOPS_ROOT", None)
     # 一時ディレクトリ（git リポジトリを含む）は各検査の末尾で消すが、例外で抜けた周回はそこへ届かない。
     # 走らせる側で後始末を保証する——確保は Run.__init__ の中で暗黙に起き、解放は呼び出し側の平文に在る非対称
     import tempfile as _t

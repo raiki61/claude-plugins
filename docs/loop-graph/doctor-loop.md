@@ -2,7 +2,7 @@
 
 ## 何の文書か
 
-`/doctor-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、リポジトリの現状そのもの（コード・文書・CI・開発環境）を読み取り専用で診て、改善候補を敵対検証で刈り込みながら根本の木を組み、生き残った候補と一撃（最も梃子の効く根本）を提案として報告する。変更は一切適用しない。回す手順は手順書 `commands/doctor-loop.md` に散文で、記録の検査は検証器 `scripts/doctor-record.py`（Python）に書いてある。この 2 つが正本で、`graphloops/graphs/doctor-loop.json`（グラフ実行版プラグイン graphloops の側にある。1 本目の research は実行用の欄も持つ） はそれを「節（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。
+`/doctor-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、リポジトリの現状そのもの（コード・文書・CI・開発環境）を読み取り専用で診て、改善候補を敵対検証で刈り込みながら根本の木を組み、生き残った候補と一撃（最も梃子の効く根本）を提案として報告する。変更は一切適用しない。回す手順は手順書 `commands/doctor-loop.md` に散文で、記録の検査は検証器 `scripts/doctor-record.py`（Python）に書いてある。この 2 つが正本で、`graphloops/graphs/doctor-loop.json`（グラフ実行版プラグイン graphloops の側にある。research と review は実行用の欄も持ち engine で回せる。doctor / firstread は写しだけ） はそれを「節（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。
 
 用語:
 

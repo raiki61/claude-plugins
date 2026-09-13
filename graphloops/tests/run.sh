@@ -10,11 +10,15 @@ PY_BIN=$(command -v python3 || command -v python || true)
 # 走った検査の件数。root の tests/run.sh の EXPECTED_CHECKS と同じ理由で `-ne`——下限（-lt）だと
 # 台本を 1 本消しても「0 件失敗」のまま緑で通る（実測: simulate.py から test_light を消しても exit 0）。
 # 上げるときも下げるときも実測値を書く。
-EXPECTED_CHECKS=320
+EXPECTED_CHECKS=318
 
 fail=0
 ran=0
-for g in research review doctor firstread; do
+# **走査対象はファイル集合から導く。** 名前を手で並べていたとき、5 本目の graph を足してもその 1 本は
+# 誰も検査せず、for が回る回数が変わらないので件数の柵（EXPECTED_CHECKS）も発火しなかった
+# （実測 2026-09-13: 壊した graph を 5 本目に置いて exit 0・全件緑）。
+for gf in "$ROOT"/graphloops/graphs/*.json; do
+    g="$(basename "$gf" .json)"; g="${g%-loop}"
     v="$ROOT/scripts/$g-record.py"
     # 4 本とも検証器つきで回す。落ちたら理由（NG 行）を出す——検証器なしで回し直して緑にする分岐は
     # 置かない（以前あった review 専用のフォールバックは、欄の突合が落ちた理由を見ずに飲んでいた）。

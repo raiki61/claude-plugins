@@ -454,9 +454,12 @@ def test_graphcheck():
     bad_rules.write_text(src, encoding="utf-8")
     check(r.returncode == 1 and "綴り違い" in r.stdout,
           f"rules のフック名の綴り違いは graphcheck が落とす（rc={r.returncode}: {r.stdout.strip()[-90:]}）")
-    for other in ("review", "doctor", "firstread"):
-        r = subprocess.run([PY, str(GRAPHCHECK), str(PLUGIN / "graphs" / f"{other}-loop.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
-        check(r.returncode == 0, f"{other}-loop.json（写しだけ）は写しの形の検査だけで通る")
+    # **対象は graphs/ の実体から導く**（名前を手で並べると、足した graph も落とした graph も検査の側が追えない）
+    for gf in sorted((PLUGIN / "graphs").glob("*.json")):
+        if gf.name == "research-loop.json":
+            continue  # 上でフックの腕に使っている
+        r = subprocess.run([PY, str(GRAPHCHECK), str(gf)], capture_output=True, text=True, encoding="utf-8", timeout=600)
+        check(r.returncode == 0, f"{gf.name} は第 2 引数なし（検証器を渡さない）でも形の検査だけで通る")
     rm(tmp)
 
 
@@ -672,6 +675,29 @@ def test_isolated_launch():
     rm(run.tmp)
 
 
+
+def _fake_claude(bindir, body):
+    """代役の claude を、**実物と同じ実行形式**で置く。返り値は argv[0] に渡すパス。
+
+    実物（/usr/local/bin/claude 等）は OS が直接起こせる実行体で、shebang 付きのテキストは POSIX でしか
+    起こせない。代役だけを shebang のスクリプトにしていたとき、Windows の CreateProcess は shebang を
+    解釈しないので **代役だけが起動できず**、この腕が OSError（WinError 193）で模擬実行ごと止めた
+    （実測 2026-09-13: HEAD c73fd6e の CI で windows-latest が 320 件中 139 件で停止）。腕の目的は
+    「engine が組んだ argv をそのまま実行する」ことなので、argv を書き換えず実行形式の側を実物に寄せる。
+    """
+    impl = bindir / "fake_claude_impl.py"
+    impl.write_text(body, encoding="utf-8")
+    if os.name == "nt":
+        # CreateProcess は .bat / .cmd を cmd.exe 経由で起こせる（shebang は解さない）
+        fake = bindir / "claude.bat"
+        fake.write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
+        return fake
+    fake = bindir / "claude"
+    fake.write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
+    fake.chmod(0o755)
+    return fake
+
+
 def test_isolated_real_launch():
     """遮断系を **argv どおりに実際に起こす**。代役が argv の形しか見ていないと、実物の失敗形（非 0 終了・空返答・
     短い非 JSON）を一度も観測できない——REVIEW.md『動かして赤・失敗を一度も見ていない保護機構を機能していると扱わない』。
@@ -689,13 +715,10 @@ def test_isolated_real_launch():
     inst = cli[0]
     bindir = run.tmp / "fakebin"
     bindir.mkdir()
-    fake = bindir / "claude"
-    # 標準入力を読み切って JSON を返す偽物（本物と同じ argv・同じ stdin の受け方）
-    fake.write_text("#!/usr/bin/env python3\nimport sys, json\n"
-                    "body = sys.stdin.read()\n"
-                    "print(json.dumps({'seen_bytes': len(body.encode('utf-8')), 'argv': sys.argv[1:]}, ensure_ascii=False))\n",
-                    encoding="utf-8")
-    fake.chmod(0o755)
+    fake = _fake_claude(bindir,
+                        "import sys, json\n"
+                        "body = sys.stdin.read()\n"
+                        "print(json.dumps({'seen_bytes': len(body.encode('utf-8')), 'argv': sys.argv[1:]}, ensure_ascii=False))\n")
     env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
     argv = list(inst["launch"]["argv"])
     argv[0] = str(fake)  # engine は next の時点で PATH から解決済みなので、この腕では偽物を名指しする
@@ -709,7 +732,7 @@ def test_isolated_real_launch():
           "起こされた側の argv にも遮断のフラグが入っている（形だけでなく実際に渡っている）")
 
     # 実物の失敗形: 非 0 終了と短い非 JSON（1 周目の認証落ちがこの形だった）
-    fake.write_text("#!/usr/bin/env python3\nimport sys\nsys.stdin.read()\nprint('Invalid API key')\nsys.exit(1)\n", encoding="utf-8")
+    fake = _fake_claude(bindir, "import sys\nsys.stdin.read()\nprint('Invalid API key')\nsys.exit(1)\n")
     with open(inst["launch"]["stdin"], "rb") as fh:
         r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
     check(r.returncode != 0 and "Invalid API key" in r.stdout, f"失敗形（非 0・短い非 JSON）を観測できる（rc={r.returncode}）")

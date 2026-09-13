@@ -174,7 +174,7 @@ def premise_question(b, nid, src, w):
         # 行は held のまま実測を理由に書き、facts_to_add を制約に足して次の周で R2 を回し直す。resolved に確定するのは
         # 次の周の judge（p2.history の再審）——回し直した R2 の結果を見てから。
         q["status"] = "held"
-        q["reason"] = f"{src['reason']}——検算で仮定は偽: {src['resolution']}。実測を制約に足し次の周で R2 を回し直す（resolved の確定はその周の judge）"
+        q["reason"] = f"{src['reason']}——検算で仮定は偽: {src.get("resolution", "（resolution が無い返答）")}。実測を制約に足し次の周で R2 を回し直す（resolved の確定はその周の judge）"
         b.loop_state.setdefault("facts_to_add", []).extend(src.get("facts_to_add", []))
     b.record["questions"] = [x for x in b.record["questions"] if not (x.get("kind") == "premise" and x.get("origin") == "R2")]
     b.record["questions"].append(q)
@@ -221,11 +221,15 @@ def worktree_snapshot(b, nid):
     # git の失敗（None）は全部「測れない」で止める。`or ""` で空文字に潰すと『取れない』と『変化なし』が
     # 同じ値になり、保護も件数も黙って通る（util.git の契約は「None は分からない。合格に倒すな」）。
     # numstat 1 本で変更ファイルと行数の両方を取る（name-only と shortstat の 2 プロセスは冗長）
-    got = {k: git(*args) for k, args in (("diff", ("diff", base)), ("numstat", ("diff", "--numstat", base)), ("stash", ("stash", "list")))}
+    # 対象差分は**生バイトで 1 度だけ**引く（写し・突合の sha・空の検査の 3 つが同じ値を使う）。以前は
+    # 復号した text 版も別に引いていたが、その値は空の検査にしか使われず、927 KB を読む subprocess 1 本が
+    # 捨てられていた（実測 2026-09-13）。
+    got = {k: git(*args) for k, args in (("numstat", ("diff", "--numstat", base)), ("stash", ("stash", "list")))}
+    got["diff"] = git_bytes("diff", base)
     missing = sorted(k for k, v in got.items() if v is None)
     if missing:
         return {"ok": False, "problems": [f"git が取れない（{', '.join(missing)}）——BASE={base} の対象差分と作業ツリーの保護が測れない場所からは回せない"]}
-    diff = got["diff"]
+    raw_diff = got["diff"]
     rows = [ln.split("\t") for ln in got["numstat"].splitlines() if ln.strip()]
     names = "\n".join(r[2] for r in rows if len(r) == 3)
     ins = sum(int(r[0]) for r in rows if len(r) == 3 and r[0].isdigit())
@@ -233,36 +237,35 @@ def worktree_snapshot(b, nid):
     stat = f"{len(rows)} files changed, {ins} insertions(+), {dels} deletions(-)"
     # 対象差分が空なら止める。空を通すと、素材が毎周 not_run（理由は事実と逆）で埋まったまま上限まで回る
     # （実測: BASE=HEAD で 5 周・diff 0 バイト・stop_reason=max_rounds、原因は記録のどこにも出ない）。
-    if not diff.strip():
+    if not raw_diff.strip():
         return {"ok": False, "problems": [f"対象差分が空（git diff {base} が 0 バイト）——BASE を確かめよ（p0.base の base_sha）"]}
     snap = porcelain()
     if snap is None:
         return {"ok": False, "problems": ["git status が取れない——作業ツリーの保護（前後の突合）ができない場所からは回せない"]}
     f = b.dir / f"diff-r{b.round}.patch"
-    f.write_text(diff, encoding="utf-8")
+    # **写しは生バイトで書く。** 復号した str を UTF-8 で書き戻すと、復号できないバイトが U+FFFD（UTF-8 で 3 バイト）
+    # に化けるので、生バイトで読み直す側（_files_changed_since）と永久に一致しない——誰も触っていない周でも
+    # 「変わった」と出て prev_fix_touched が恒真になり、再発火の条件分けが効かず prev_fix_source だけが
+    # 「実測」と名乗り続けた（実測 2026-09-13）。突合の sha（下の tree_before）は既に生バイトに揃えてあり、
+    # 揃っていないのは書く側のこの 1 か所だけだった。**貼る用の本文は復号済みの diff をそのまま使う**——
+    # 切り分けは「貼るか突き合わせるか」で、同じファイルが両方に使われるなら正本は突合の側（生バイト）。
+    f.write_bytes(raw_diff)
     ls["diff_file"] = str(f)
     ls["changed_files"] = [x for x in names.splitlines() if x.strip()]
     cf = b.dir / f"changed-r{b.round}.txt"
     cf.write_text("\n".join(ls["changed_files"]) + "\n", encoding="utf-8")
     ls["changed_files_file"] = str(cf)  # 回す側の節には一覧でなくこのパスを渡す（一覧を 4 本のプロンプトに複製しない）
     ls["diff_stat"] = stat.strip()
-    ls["diff_lines"] = _lines_of(stat)
+    ls["diff_lines"] = ins + dels  # 2 行上で numstat から数えた整数をそのまま使う（stat 文字列に組んでから正規表現で読み直していた）
     # diff 本文の sha も突合に入れる。porcelain は状態コードとパスだけなので、**既に ' M' のファイルの
     # 中身を差し替えても検知しない**——レビュー対象は定義上ぜんぶ変更済みなので、これが無いと保護は
     # 対象そのものに効かない（agents/investigator.md はこの突合を「担保」と名乗っている）。
     # 突合の sha は**生バイト**から取る（貼る用の diff は replace 復号でよい）——replace は復号できないバイトを
     # 種類に依らず U+FFFD 1 文字に写すので、等長の非 UTF-8 書き換えが同じ sha になり、この腕が porcelain と
     # 同じ盲点に戻っていた（実測 2026-09-13）。生バイトが取れない場（git 不在）は None で「測れない」側に倒れる
-    raw = git_bytes("diff", base)
     ls["tree_before"] = {"porcelain": snap, "stash": got["stash"].strip(),
-                         "diff_sha": sha(raw.decode("latin-1")) if raw is not None else None}
+                         "diff_sha": sha(raw_diff.decode("latin-1"))}  # 写しと同じ生バイトから取る（上で 1 度だけ引いた）
     return {"ok": True, "diff_file": ls["diff_file"], "changed_files": ls["changed_files"], "stat": ls["diff_stat"]}
-
-
-def _lines_of(stat):
-    m = re.search(r"(\d+) insertion", stat or "")
-    n = re.search(r"(\d+) deletion", stat or "")
-    return (int(m.group(1)) if m else 0) + (int(n.group(1)) if n else 0)
 
 
 def worktree_compare(b, nid):
@@ -404,7 +407,7 @@ def _prev_round_record(b):
 def stop_branch(V, exit_code, out):
     """検証器の出力から周の分岐を決める。文言は検証器の定数を import して使う（写すと、文言を直した周に分岐が黙って
     work_remains へ倒れる）。見るのは**行頭が空白でない行**（判定と見出し）だけ——台帳・履歴・阻害要因の echo は
-    「  - 」で字下げして印字されるので、judge が書いた key / reason に停止文言が含まれても分岐は化けない。
+    「  - 」で字下げして印字され、**検証器の bullet() が 2 行目以降も字下げする**（splitlines が行と見なす文字をすべて潰す）ので、役が書いた自由文に停止文言や改行が含まれても行頭は作れない。以前は書く側（judge の key / reason）だけを 1 行に正規化していたが、覆いは 19 節中 2 節で、素材の reason・レビューの reason・台帳の resolution が外に残っていた。
     **これが成り立つのは judge_output が 1 行の欄から改行を落としているからで、行頭規則だけでは成り立たない**
     （実測 2026-09-13: 改行 1 文字で新しい行頭を作れた）。検証器の書式（字下げ）に依る点は残る——機械用の返り口を
     検証器に持たせる案は台帳の fork で decided（採らない。零処方で閉じるため）。"""
@@ -789,11 +792,27 @@ def gate_arms_all_red(b, nid, out, item):
     # applies_cond が真で走った節の not_applicable は check_record の表（status × 機械の事実）が拒む——ここには写さない
     unred = [a["arm"] for a in arms if not a.get("red_confirmed")]
     nocontrol = [a["arm"] for a in arms if not a.get("control_green")]
+    # **赤が出たことは、その赤が守りたい行から出た証拠にならない。** 腕が守る行を一度も通らないまま緑で
+    # 素通りする形が実測で出た（2026-09-13: 持ち越しの可否の柵に退行を注入しても検査は緑のままで、その分岐が
+    # 書く理由文字列を一意の印に差し替えても記録に印が現れなかった＝筋書きがその行を通っていない）。
+    # 赤は「柵が無ければ落ちる」ことしか言わず、「この腕がその柵を通った」ことは別に測る必要がある。
+    # 測り方は今周の gate_efficacy が実際に使った形をそのまま欄にする——分岐が書く値を一意の印に替え、
+    # その印が出力か記録に現れることを見る（`hit_evidence` に何をどう確かめたか）。
+    EMPTY_HIT = {"", "-", "なし", "未実施", "未確認", "N/A", "n/a", "TODO"}
+    nohit = [a["arm"] for a in arms
+             if (a.get("hit_evidence") or "").strip() in EMPTY_HIT or len((a.get("hit_evidence") or "").strip()) < 10]
     # 未赤の腕が在るのに found 以外（clean / carried_over / not_applicable …）を名乗る返答は拒む——clean だけ見ていたとき
     # carried_over で腕ゼロのまま通った（実測 2026-09-13）
-    if st != "found" and (unred or nocontrol):
-        raise Reject(f"{nid}: 赤を見ていない腕 {unred} / 壊していない写しで緑を確かめていない腕 {nocontrol} が在るのに status=clean"
+    if st != "found" and (unred or nocontrol or nohit):
+        raise Reject(f"{nid}: 赤を見ていない腕 {unred} / 壊していない写しで緑を確かめていない腕 {nocontrol} / "
+                     f"守る行を通ったことを測っていない腕 {nohit} が在るのに status=clean"
                      "——未達は found（count と detail に腕を書く）")
+    # **status に依らず当てる腕**: 赤も control 緑も見た腕が、守る行を通ったことを測っていないなら、
+    # その腕は「覆いの証拠」として数えられない。found でも同じなので、ここは status の外で拒む。
+    if nohit and not (unred or nocontrol):
+        raise Reject(f"{nid}: 腕 {nohit} は赤も control の緑も見ているが、**その腕が守る行を通ったこと**を測っていない"
+                     "（hit_evidence）——赤は柵の不在の検知であって、この腕がその柵に当たった証拠にならない。"
+                     "分岐が書く値を一意の印に替え、その印が出力か記録に現れることを確かめて hit_evidence に書け")
 
 
 POST_CHECKS = {"gate_arms_all_red": gate_arms_all_red, "measured_needs_output": measured_needs_output, "base_valid": base_valid, "judge_output": judge_output, "fix_covers_open_units": fix_covers_open_units,

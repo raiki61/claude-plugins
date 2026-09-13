@@ -56,7 +56,7 @@ PLUGIN_ROOT = HERE.parent
 
 sys.path.insert(0, str(PLUGIN_ROOT))
 # 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
-from engine.board import COND_KEYS, COND_OP_KEYS, COND_OPS, node_of  # noqa: E402
+from engine.board import COND_KEYS, COND_OP_KEYS, node_of  # noqa: E402
 from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import unknown_keywords  # noqa: E402
@@ -442,6 +442,13 @@ def main():
         if rb == "driver":
             if v.get("builtin") not in node_builtins:
                 errs.append(f"節 {k}: builtin '{v.get('builtin')}' が rules の BUILTINS に無い")
+            # **driver 節にもデータの契約を要求する。** ここで抜けさせていたとき、driver 節は reads を 1 つも持てず
+            # deps が「順序」と「要る値」の 2 つの意味を 1 本で担い、どちらの意味で載っているかを機械にも読み手にも
+            # 区別させなかった（実測 2026-09-13: p4.assemble は p4.ci / p4.scalars を読まないのに deps に持ち、
+            # 読まないから外せるように見えた——実際はその 2 本が記録に着地する順序を保証する唯一の辺だった）。
+            # engine は driver の reads を穴埋めに使わないので挙動は変わらない。宣言として要る
+            if v.get("reads") is None:
+                errs.append(f"節 {k}: reads が無い（driver も宣言しろ——deps のどれが値でどれが順序かが読めない）")
             continue
         pf = v.get("prompt_file")
         if not pf or not (gpath.parent / pf).is_file():

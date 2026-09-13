@@ -444,7 +444,9 @@ def cmd_init(a):
             d = base_dir / f"{run_id}-{n}"
             n += 1
         run_id = d.name
-    d.mkdir(parents=True, exist_ok=False)
+    # **段と decider の検査は置き場を作る前に。** 後ろに置いていたとき、die しても中身ゼロの run ディレクトリが
+    # 残った（実測 2026-09-13: --thickness を decider 無しで渡すたびに -2 / -3 が積まれた）——同じ関数の頭の
+    # 注記が「die しても空の盤面を残さない」と名乗っているので、名乗りの側でなく実装の側を合わせる
     tcfg = g.get("thickness", {})
     tiers, default = tcfg.get("tiers") or [], tcfg.get("default")
     th = a.thickness or default
@@ -456,6 +458,7 @@ def cmd_init(a):
         die(f"--decider '{a.decider}' はこの loop の値（{sorted(deciders.values())}）に無い")
     if th and default in tiers and tiers.index(th) < tiers.index(default) and decider != deciders.get("downgrade"):
         die(f"{th} は依頼者が明示に指定した場合だけ——依頼者がそう言ったときに限り --decider {deciders.get('downgrade')} を添えて init する")
+    d.mkdir(parents=True, exist_ok=False)
     fn = hook(rules, "init_record")
     record = fn(th, decider) if fn else {}
     state = {
@@ -467,7 +470,10 @@ def cmd_init(a):
     }
     write_json(d / "state.json", state)
     write_json(d / "record.json", record)
-    (d.parent / "current").write_text(str(d) + "\n", encoding="utf-8")
+    # current は resolve_dir が `<git-dir>/graphloops/*/current` を走査して拾う印なので、**--dir を明示した run では書かない**
+    # ——走査範囲の外に書いても誰も読まず、--dir をリポジトリの中に向けると run 自身が作業ツリーを汚す（?? current が立つ）
+    if not a.dir:
+        (d.parent / "current").write_text(str(d) + "\n", encoding="utf-8")
     with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"t": now(), "op": "init", "thickness": th, "decider": decider}, ensure_ascii=False) + "\n")
     fn = hook(rules, "on_init")

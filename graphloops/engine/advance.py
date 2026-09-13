@@ -112,7 +112,20 @@ def emit_instance(b, nid, item=None, suffix=""):
         role_def_missing = f"{atype} の定義がこの環境に無い（別 plugin）。道具は不明——遮断系としては扱わない。渡し方は paste"
         b.state.setdefault("role_def_missing", []).append({"instance": iid, "round": b.round, "agent_type": atype})
     isolated = role_def is not None and role_def["tools"] == []
-    r = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None if isolated else FILE_CAP)
+    runner = b.is_runner(n)
+    # **上限を外す条件は「貼るか（deliver）」で、道具ゼロか（isolated）ではない。** 以前は isolated を見ていたが、
+    # それは正本と相関するだけの代理だった——貼る先の上限は「Agent ツールのプロンプトに本文を貼る」経路の性質なので、
+    # 役が自分でファイルを読む deliver=path と、自分の節を自分でやる runner には当たらない。代理を見ていたとき、
+    # Read を持つ judge の入力だけが切られた（実測 2026-09-13: r1.minimality が 119,284→40,000、p2.diagnose が
+    # 78,672→40,000、p2.history が 43,393→40,000。遮断系は 1 件も切られていない）。切られた側は自分が何を失ったか
+    # 分からない（全文の置き場が本文に無い）ので、判定の質が落ちても誰も観測できなかった。
+    deliver = None if runner else deliver_mode(atype, b.graph.get("deliver", {}).get("path_tools", []),
+                                               tools=role_def["tools"] if role_def else None)
+    # 貼る経路は「回す側でなく・遮断系でなく・deliver が paste」の 1 通りだけ。isolated を条件から落とすと、
+    # 遮断系は deliver_mode が paste を返す（道具ゼロなので path_tools を持たない）ため切られる側に回る
+    # ——最初にこの 3 つ目を落として台本が 2 件赤くなった（実測 2026-09-13: 45,118 バイトの本文が切られた）
+    r = Renderer(ctx, n.get("reads"), ref=b.ref,
+                 cap=None if (runner or isolated or deliver == "path") else FILE_CAP)
     try:
         prompt = r.render(tpl)
     except KeyError as e:
@@ -124,7 +137,6 @@ def emit_instance(b, nid, item=None, suffix=""):
     pfile = b.dir / "prompts" / f"r{b.round}" / (safe_name(iid) + ".md")
     pfile.parent.mkdir(parents=True, exist_ok=True)
     pfile.write_text(prompt, encoding="utf-8")
-    runner = b.is_runner(n)
     inst = {
         "id": iid, "node": nid, "run_by": n["run_by"],
         "mode": "runner" if runner else "agent",
@@ -143,8 +155,7 @@ def emit_instance(b, nid, item=None, suffix=""):
     if n.get("skills"):
         inst["skills"] = n["skills"]
     if not runner:
-        inst["deliver"] = deliver_mode(inst["agent_type"], b.graph.get("deliver", {}).get("path_tools", []),
-                                       tools=role_def["tools"] if role_def else None)  # path: 役が自分で読む／paste: 本文を貼る。定義は上で 1 度読んだ物を使う
+        inst["deliver"] = deliver  # path: 役が自分で読む／paste: 本文を貼る。上限を決める前に 1 度だけ引いた物を使う
         if role_def_missing:
             inst["role_def_missing"] = role_def_missing
         if isolated:  # 道具ゼロ＝遮断系。Agent ツールでは CLAUDE.md を止められない

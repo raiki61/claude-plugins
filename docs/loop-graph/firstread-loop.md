@@ -2,7 +2,7 @@
 
 ## 何の文書か
 
-`/firstread-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、書いた文書が書いていない人に通じるかを確かめる。文書を知らない読み役を毎回新しく立て、用事だけを渡してリポジトリの入口から探させ、どこで止まったか・何を推測で埋めたか・読んだ後に何を誤解したか・どんな疑問が湧いたかを集めて直す。回す手順は手順書 `commands/firstread-loop.md` に散文で、記録の検査は検証器 `scripts/firstread-record.py`（Python）に書いてある。この 2 つが正本で、`graphloops/graphs/firstread-loop.json`（グラフ実行版プラグイン graphloops の側にある。1 本目の research は実行用の欄も持つ） はそれを「節（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。JSON の欄名の意味は同じディレクトリの `README.md` の凡例に書いてある。
+`/firstread-loop` は、このリポジトリが配る Claude Code のプラグイン（AI 開発支援ツール Claude Code に足す拡張）`convergence-loops` の 4 本のコマンドの 1 つで、書いた文書が書いていない人に通じるかを確かめる。文書を知らない読み役を毎回新しく立て、用事だけを渡してリポジトリの入口から探させ、どこで止まったか・何を推測で埋めたか・読んだ後に何を誤解したか・どんな疑問が湧いたかを集めて直す。回す手順は手順書 `commands/firstread-loop.md` に散文で、記録の検査は検証器 `scripts/firstread-record.py`（Python）に書いてある。この 2 つが正本で、`graphloops/graphs/firstread-loop.json`（グラフ実行版プラグイン graphloops の側にある。research と review は実行用の欄も持ち engine で回せる。doctor / firstread は写しだけ） はそれを「節（工程）＋依存＋周回条件」のグラフに写した機械が読む側、この文書はその図と、図に落ちない説明を持つ人が読む側である。JSON の欄名の意味は同じディレクトリの `README.md` の凡例に書いてある。
 
 用語:
 

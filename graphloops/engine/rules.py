@@ -70,5 +70,9 @@ HOOKS = ("on_init", "on_new_round", "on_answer", "on_unattended", "on_thickness"
 
 
 def hook(rules, name):
-    assert name in HOOKS, f"engine が知らないフック名: {name}（HOOKS が正本）"
+    # assert で書くと -O / PYTHONOPTIMIZE で検査ごと消える——直前の注記が「綴り違いと意図的な不在を分ける
+    # 唯一の手掛かり」と名乗るので、その手掛かりが最適化で消える形にしない（同じ検査を静的に行う
+    # graphcheck は if 文＋errs.append で書かれており、同じ差分の中で書き方が割れていた）
+    if name not in HOOKS:
+        die(f"engine が知らないフック名: {name}（HOOKS が正本）")
     return getattr(rules, name, None) if rules else None

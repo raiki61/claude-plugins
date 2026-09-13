@@ -1005,7 +1005,8 @@
     "new_discrepancies",
     "claims[].first_discrepant_round"
    ],
-   "verdict_is_copy": true
+   "verdict_is_copy": true,
+   "reads": []
   },
   "p5.internal": {
    "stage": "P5（先行）",
@@ -1890,7 +1891,8 @@
    "outputs": [
     "convergence（rounds_total・consecutive_zero・outcome・stopped_reason）"
    ],
-   "verdict_is_copy": true
+   "verdict_is_copy": true,
+   "reads": []
   },
   "p5.adapt": {
    "stage": "P5",
