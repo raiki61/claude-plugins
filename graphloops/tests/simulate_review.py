@@ -1014,9 +1014,11 @@ def test_surviving_branches():
 def test_open_unit_and_hit_arm():
     """**退行注入で生き残った 2 つの分岐に腕を当てる。**
 
-    ①「この周に直す単位か」（`open_unit`）——`label == "block"` を反転しても台本が全件緑だった
+    ①「この周に直す単位か」（検証器の `is_open`）——`label == "block"` を反転しても台本が全件緑だった
     （実測 2026-09-13）。つまり **run 全体の「何を直すべきか」の判定を、検査が一度も確かめていない**。
     ここがずれると、直す義務も一撃の名指しの母数も一緒にずれる。
+    **当てる先は検証器の正本。** rules 側に同じ式の写しが在ったので、写しに腕を当てても正本の
+    ずれは捕まらなかった（実測 2026-09-14: rules の写しを削って V.is_open 1 本に寄せた）。
 
     ②`gate_arms_all_red` の「status に依らず当てる腕」——`nohit and not (unred or nocontrol)` の
     `or` を `and` に変えても緑だった。この腕は**赤も control 緑も見た腕だけ**に当てるもので、まだ赤を
@@ -1024,9 +1026,13 @@ def test_open_unit_and_hit_arm():
     """
     print("生存した分岐: 直す単位の判定と、覆いの腕の切り分け")
     sys.path.insert(0, str(PLUGIN))
+    import importlib.util
     from engine.rules import Reject, load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    spec = importlib.util.spec_from_file_location("vrec3", str(VALIDATOR))
+    V = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(V)
 
     # ① 直す単位の判定——4 通りを全部踏む
     for u, want in (({"label": "block"}, True),
@@ -1036,7 +1042,7 @@ def test_open_unit_and_hit_arm():
                     ({"label": "suggest"}, False),
                     ({"label": "nit", "disposition": "do-now"}, False),
                     ({"label": "info"}, False)):
-        got = rules.open_unit(u)
+        got = V.is_open(u)
         check(got is want, f"直す単位の判定: {u} → {got}（期待 {want}）")
 
     # ② 覆いの腕の切り分け——st=found で手前の腕は黙る。この腕は「赤も緑も見た腕」にだけ当たる
@@ -1390,8 +1396,16 @@ def test_nopurpose():
     r = run.cmd("answer", "--text", "stop")
     last = drive(run, "nopurpose")
     check(last["status"] == "stopped" and (run.dir / "report.md").is_file(), "stop で止まり報告は出る")
+    # **痕跡の欄は、鳴ったら人に見える。** 以前は finalize が process へ写すだけで読む側が 1 つも無く、
+    # 「測れなかった周」も静かに終われた（実測 2026-09-14: 検証器 4 本とも process を参照していない）
+    sp = run.dir / "state.json"
+    st = json.loads(sp.read_text(encoding="utf-8"))
+    st["writes_skipped"] = [{"node": "p3.fix", "field": "units"}]
+    sp.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     r = run.cmd("finalize")
     check(r.returncode == 0, f"止まった run の finalize は exit 0（受理集合 [0, 1] は graph の宣言。stderr: {r.stderr[-80:]}）")
+    tr = json.loads(r.stdout).get("traces") or {}
+    check(tr.get("writes_skipped") == 1, f"非空の痕跡が finalize の出力に件数で出る（{tr}）")
     rm(run.tmp)
 
 

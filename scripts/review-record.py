@@ -144,6 +144,20 @@ def _rows(what, cls, rows):
         except TypeError as e:
             fail(f"{what} の '{name}' の行が不完全（属性の書き忘れ）: {e}")
     return out
+
+
+def _tables(what, build):
+    """プロンプトに貼る表を組む。**組み立ての失敗をここで落とす。**
+
+    module 直下で素に組むと、`v.fields[0]` の IndexError や `ORIGIN_NOTE[…]` の KeyError が
+    **末尾の例外境界より前（インポート時）**に起き、未処理例外の exit 1 になる——契約の 3 値
+    （0 収束・1 阻害要因あり・2 記録が不正）のうち exit 2 が潰れ、「記録が不正」と「阻害要因あり」の
+    区別が付かない。`_rows` が表の行について既にやっていることを、表の**組み立て**にも当てる。
+    """
+    try:
+        return build()
+    except (IndexError, KeyError, TypeError) as e:
+        fail(f"{what} の組み立てに失敗（正本の表と写しが割れている）: {e!r}")
 # 「やらなかった」を 3 値に割ってあるのが要点——散文だと awaiting_human（手順どおりの停止）と
 # not_run（逸脱）が同じ「未実施」に潰れ、さらに not_applicable にまで化ける。
 # not_applicable は持ち越しでなく not_applicable と書く（条件に当たらないのは今ラウンドの
@@ -279,14 +293,14 @@ UNIT_FIELDS = ("key", "label", "disposition", "reason", "reopen_evidence")
 # 写しから premise / stuck / rule の origin の要求が落ちていた。graph は同じ表について
 # 「ここに写さない。手順書も列挙を持たない」と宣言していた）。**engine はこの dict の中身を知らない**
 # ——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
-PROMPT_TABLES = {
-    "question_kinds": "／".join(
-        f"{k}（{ORIGIN_NOTE[v.domain]}" + ("".join(f"・{f} が要る" for f in v.fields)) + f"）: {v.note}"
-        for k, v in QUESTION_KINDS.items()),
-    "question_fields": "／".join(QUESTION_FIELDS),
-    "unit_fields": "／".join(UNIT_FIELDS),
-    "labels": "／".join(LABELS),
-}
+PROMPT_TABLES = _tables("プロンプトの表", lambda: {
+        "question_kinds": "／".join(
+            f"{k}（{ORIGIN_NOTE[v.domain]}" + ("".join(f"・{f} が要る" for f in v.fields)) + f"）: {v.note}"
+            for k, v in QUESTION_KINDS.items()),
+        "question_fields": "／".join(QUESTION_FIELDS),
+        "unit_fields": "／".join(UNIT_FIELDS),
+        "labels": "／".join(LABELS),
+})
 # **状態は 2 軸である**——「決着したか」と「出どころの欠陥がまだ記録に開いて残っているか」。
 # 1 つの平坦な値に潰していたとき、**判断も処方も付いた問いを「保留」と書き続けるほか無かった**
 # （下の stuck_unlisted が未決の記載を要求し、P3 は「見つけた周の記録は直していても判定どおり

@@ -219,18 +219,26 @@ class Board:
         return out
 
     def _out_path(self, stored):
-        """instance の `output_file` を実パスに直す。**推し量らず、古い綴りを名指しで見分ける。**
+        """instance の `output_file` を実パスに直す。**推し量らず、実在する方を採る。**
 
         いまは書く側（commands.py / advance.py）が盤面からの相対で書く。**この run より前に作られた盤面は
         `--dir` をそのまま前に付けた綴りで持っている**ので、そのまま前置きすると `<dir>/<dir>/…` に繋がる
-        （実測 2026-09-13: 最終報告の ref:raw がその形で exit 2）。移行の下駄なので、
-        **古い綴りは「盤面の綴りで始まる」か「絶対」でしか現れない**——形から推し量る余地を残さない。
-        既存の run が全部終わったら消してよい（消す条件: この関数が 1 度も else 以外に落ちないこと）。
+        （実測 2026-09-13: 最終報告の ref:raw がその形で exit 2）。
+
+        **見分けを文字列の前方一致でやらない。** `str(p).startswith(str(self.dir))` は区切りを見ないので
+        `o` と `outputs`・`run1` と `run10` を取り違えるうえ、**絶対の `--dir` で旧盤面を開くと旧い相対の
+        綴りが前方一致にも絶対にも当たらず、当の `<dir>/<dir>/…` に戻る**（実測 2026-09-14: 旧盤面
+        20260912-214912 の output_file は `.git/graphloops/…` の相対で、絶対の --dir で開くと二重になる）。
+        移行の下駄は推測でなく**実在**で決められる——どちらの綴りで置かれているかはディスクが知っている。
+        既存の run が全部終わったら消してよい（消す条件: 下の 2 通り目が 1 度も選ばれないこと）。
         """
         p = pathlib.Path(stored)
-        if p.is_absolute() or str(p).startswith(str(self.dir)):
+        if p.is_absolute():
             return str(p)
-        return str(self.dir / p)
+        joined = self.dir / p            # いまの綴り: 盤面からの相対
+        if joined.exists() or not p.exists():
+            return str(joined)           # 無い時も盤面の下として返し、読む側に「無い」と言わせる
+        return str(p)                    # 旧い綴り: --dir をそのまま前に付けた形
 
     def read_out(self, path, *, board_relative=False):
         """出力ファイルを 1 度だけ読む（同じ Board の間）。

@@ -13,7 +13,7 @@ from .render import TOKEN
 from .rules import hook, load_rules, registry
 from .schema import validate_schema
 from .util import ANSWER_ACTIONS, PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
-from .validator import find_validator, finalize, report_accepts, run_validator, env_root
+from .validator import find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
 def required_inputs_missing(g, graph_path, inputs):
@@ -381,7 +381,10 @@ def cmd_finalize(a):
     finalize(b)
     b.save()
     v = run_validator(b)
-    print(dump({"validator": v, "record": str(b.dir / "record.json")}))
+    # **痕跡の欄を人に見せる口。** finalize が process へ写すだけで、検証器も報告も 1 度も読まない欄が
+    # 在った——鳴っても何も起きないので、測れなかった周も静かに終われた（実測 2026-09-14）。
+    # 赤にはしない（収束の意味が変わる）。**見えるようにする**のがここの仕事
+    print(dump({"validator": v, "record": str(b.dir / "record.json"), "traces": traces(b.record)}))
     accepts = report_accepts(b)  # 受理集合の正本は graph。鍵の綴りと既定は engine の 1 か所（validator.report_accepts）
     if v["exit"] not in accepts:  # None（検証器が無い・動かない）も不合格
         sys.exit(1)

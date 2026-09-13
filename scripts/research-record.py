@@ -85,6 +85,20 @@ def _rows(what, cls, rows):
     return out
 
 
+def _tables(what, build):
+    """プロンプトに貼る表を組む。**組み立ての失敗をここで落とす。**
+
+    module 直下で素に組むと、`v.fields[0]` の IndexError や `ORIGIN_NOTE[…]` の KeyError が
+    **末尾の例外境界より前（インポート時）**に起き、未処理例外の exit 1 になる——契約の 3 値
+    （0 収束・1 阻害要因あり・2 記録が不正）のうち exit 2 が潰れ、「記録が不正」と「阻害要因あり」の
+    区別が付かない。`_rows` が表の行について既にやっていることを、表の**組み立て**にも当てる。
+    """
+    try:
+        return build()
+    except (IndexError, KeyError, TypeError) as e:
+        fail(f"{what} の組み立てに失敗（正本の表と写しが割れている）: {e!r}")
+
+
 Verdict = collections.namedtuple("Verdict", "fields note")
 VERDICT_FIELDS = _rows("判定語", Verdict, {
     "確証": (("conditions",), "一次情報が主張どおり。conditions に適用条件・限界を必ず書く"
@@ -108,13 +122,16 @@ OUTCOMES = ("converged", "stopped")
 # 直した周に写しだけが古くなり、しかも役は写しの方を読む（実測 2026-09-13: research の prompt 6 本が
 # 検証器の名前表を 13 か所で並べ直していた——review 側で同じ形を閉じた直後に、こちらは手つかずだった）。
 # **engine はこの dict の中身を知らない**——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
-PROMPT_TABLES = {
-    "verdicts": "／".join(f"{k}（{v.fields[0]} が要る）: {v.note}" for k, v in VERDICT_FIELDS.items()),
-    "checked_verdicts": "／".join(CHECKED_VERDICTS),
-    "gate_verdicts": "／".join(GATE_VERDICTS),
-    "origins": "／".join(ORIGINS),
-    "thickness": "／".join(THICKNESS),
-}
+PROMPT_TABLES = _tables("プロンプトの表", lambda: {
+        # **必須欄は全部並べる。** 先頭 1 つだけを貼っていたので、判定語に 2 つ目の必須欄を足しても
+    # 役に渡る本文には現れなかった（review 側は同じ表を全要素で並べており、写しどうしが割れていた）
+    "verdicts": "／".join(f"{k}（" + "・".join(f"{f} が要る" for f in v.fields) + f"）: {v.note}"
+                         for k, v in VERDICT_FIELDS.items()),
+        "checked_verdicts": "／".join(CHECKED_VERDICTS),
+        "gate_verdicts": "／".join(GATE_VERDICTS),
+        "origins": "／".join(ORIGINS),
+        "thickness": "／".join(THICKNESS),
+})
 # 記録の必須欄。terms（語彙定義）・numbers（数値と出所の組）が空配列でも欄自体は要る——
 # 「定義すべき語・出所を書くべき数値は無かった」の明示と、欄ごと忘れた欠落を区別するため。
 REQUIRED = (

@@ -161,6 +161,10 @@ query($owner:String!,$name:String!,$num:Int!){
 
 # ---- 取得 ------------------------------------------------------------------
 
+# 外部コマンドを無制限に待たない（決着済みの規約 issue #5。隣の what-am-i-doing.py と同じ形）
+GH_TIMEOUT_SEC = 60
+GIT_TIMEOUT_SEC = 20
+
 
 def gh(*args):
     exe = shutil.which("gh")
@@ -168,11 +172,18 @@ def gh(*args):
         sys.exit("gh が見つからない（PATH に通す）")
     # GraphQL の 504 は過負荷時に単発で出る。1 回だけ再試行し、2 回目も落ちたら赤で止める
     for attempt in (1, 2):
-        # 復号を UTF-8 に固定する。text=True だけだと Windows では locale の code page で復号し、
-        # 日本語のタイトルや本文が化けるか UnicodeDecodeError で落ちる
-        r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はこのファイル内のリテラルと番号だけ
-            [exe, *args], capture_output=True, encoding="utf-8", errors="replace"
-        )
+        try:
+            # 復号を UTF-8 に固定する。text=True だけだと Windows では locale の code page で復号し、
+            # 日本語のタイトルや本文が化けるか UnicodeDecodeError で落ちる
+            r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はこのファイル内のリテラルと番号だけ
+                [exe, *args], capture_output=True, encoding="utf-8", errors="replace",
+                timeout=GH_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            # 504 と同じ「単発の過負荷」として、再試行の腕に相乗りさせる
+            if attempt == 2:
+                sys.exit(f"gh {' '.join(args[:2])} が {GH_TIMEOUT_SEC} 秒で返らない")
+            continue
         if r.returncode == 0:
             return r.stdout
         if "504" not in r.stderr or attempt == 2:
@@ -186,8 +197,12 @@ def local_email():
     exe = shutil.which("git")
     if not exe:
         return ""
-    r = subprocess.run([exe, "config", "--get", "user.email"],  # noqa: S603 — git は which で解決
-                       capture_output=True, encoding="utf-8", errors="replace")
+    try:
+        r = subprocess.run([exe, "config", "--get", "user.email"],  # noqa: S603 — git は which で解決
+                           capture_output=True, encoding="utf-8", errors="replace",
+                           timeout=GIT_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        return ""   # 照合しないだけ。本体の報告は成り立つ
     return r.stdout.strip().lower() if r.returncode == 0 else ""
 
 
@@ -244,9 +259,12 @@ def current_pr_url():
     exe = shutil.which("gh")
     if not exe:
         sys.exit("gh が見つからない（PATH に通す）")
-    r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はリテラルだけ
-        [exe, "pr", "view", "--json", "url", "-q", ".url"],
-        capture_output=True, encoding="utf-8", errors="replace")
+    try:
+        r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はリテラルだけ
+            [exe, "pr", "view", "--json", "url", "-q", ".url"],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=GH_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        sys.exit(f"gh pr view が {GH_TIMEOUT_SEC} 秒で返らない")
     if r.returncode == 0:
         return r.stdout.strip()
     err = r.stderr.strip()
@@ -1226,9 +1244,13 @@ def gh_try(*args):
     exe = shutil.which("gh")
     if not exe:
         return None
-    r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はこのファイル内のリテラルと番号だけ
-        [exe, *args], capture_output=True, encoding="utf-8", errors="replace"
-    )
+    try:
+        r = subprocess.run(  # noqa: S603 — gh は which で解決。引数はこのファイル内のリテラルと番号だけ
+            [exe, *args], capture_output=True, encoding="utf-8", errors="replace",
+            timeout=GH_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        return None     # 地図の材料は無くても本体の報告は成り立つ
     return r.stdout if r.returncode == 0 else None
 
 

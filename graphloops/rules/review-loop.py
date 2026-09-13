@@ -434,19 +434,22 @@ def worktree_compare(b, nid):
         # stash で退避しても stash の一覧が突合に入っているので通らない）。受け付けたら基準を今の姿に置き直す。
         accepted = getattr(b, "accept_tree_change", None)
         entry = {"where": "P1", "round": b.round, "diff": problems, "accepted": accepted}
-        if accepted:
-            # **受理したら審査対象を取り直す。** tree_before だけ今の姿に置き直して diff-r<N>.patch と
-            # changed-r<N>.txt を P1 前のままにすると、P2 に渡る写しと現物が割れる——同じ周の素材 2 つが
-            # 同じ行について逆の結論を出した（実測 2026-09-14: 写しを読んだ procedure_trace は「重複が
-            # 残っている」、現物を読んだ bypass は「解消済み」。judge は現物を読み直して後者を採った）。
-            # 取り直しは snapshot をもう一度呼ぶ形で行う——同じ 3 行を 2 か所に置くと、片方だけ直る
-            again = worktree_snapshot(b, nid)
-            if not again["ok"]:
-                return again
-            entry["retaken"] = {"stat": ls.get("diff_stat"), "files": len(ls.get("changed_files") or [])}
+        # **痕跡は取り直しより先に積む。** 取り直しが失敗した回だけ「作業ツリーが変わって受理した」事実が
+        # 記録から消えていた（下の return が append より前に在った）。entry は参照で持つので、後から追記できる
         gm = b.state.setdefault("git_mismatches", [])
         if not gm or gm[-1] != entry:  # 同じ止まり方で next を叩き直すたびに増やさない
             gm.append(entry)
+        if accepted:
+            # **受理したら審査対象を取り直す。** tree_before だけ今の姿に置き直して diff-r<N>.patch と
+            # changed-r<N>.txt を P1 前のままにすると、P2 に渡る写しと現物が割れる——**同じ周の素材 2 つが
+            # 同じ行について逆の結論を出せる**（写しを読む役は受理前の姿を、現物を読む役は受理後の姿を見る）。
+            # 腕は graphloops/tests/simulate_review.py:test_worktree_guard_fires が持つ。
+            # 取り直しは snapshot をもう一度呼ぶ形で行う——同じ 3 行を 2 か所に置くと、片方だけ直る
+            again = worktree_snapshot(b, nid)
+            if not again["ok"]:
+                entry["retake_failed"] = again.get("problems") or True
+                return again
+            entry["retaken"] = {"stat": ls.get("diff_stat"), "files": len(ls.get("changed_files") or [])}
         if not accepted:
             return {"ok": False, "problems": ["P1 の前後で作業ツリーが変わっている（戻してから next。自分の変更なら next --accept-tree-change <理由>）: " + "; ".join(problems)]}
     fill_materials(b)
@@ -598,10 +601,11 @@ def record_round(b, nid):
         elif name in V.REVIEW_STATUS["not_applicable"].only_for:  # 条件外を名乗れる R だけ（表が正本）
             reviews[name] = {"status": "not_applicable",
                              "reason": f"[block]＋do-now が {ls.get('open_units', '?')} 件残り、前の周の P3 も触っていない（どちらの再発火条件にも当たらない）"}
-        elif prev and V.REVIEW_STATUS[prev["status"]].carryable:
-            reviews[name] = {"status": "carried_over", "from_round": prev["round"], "reason": "再発火の条件（機構の追加・置換／前提のドリフト／行数 1.5 倍／台帳の変化）に当たらない"}
         elif prev:
-            reviews[name] = {"status": prev["status"], "reason": prev["reason"] + f"（round {prev['round']} と同じ。持ち越せない値なので今も諮っている記録として書く）"}
+            # ここに来る prev は carryable だけ——持ち越せない値は上の 1 本目が全部取る。
+            # **到達しない腕を残さない。** 1 本目を前に置いた周に `elif prev:`（同じ本文の写し）が
+            # 到達不能のまま残り、読む人が生きている腕と死んだ腕を区別できなくなっていた
+            reviews[name] = {"status": "carried_over", "from_round": prev["round"], "reason": "再発火の条件（機構の追加・置換／前提のドリフト／行数 1.5 倍／台帳の変化）に当たらない"}
         else:
             reviews[name] = {"status": "not_run", "reason": "走らせるべき周に返答が無い"}
     # **unverifiable を返した R 全部に、台帳の行を機械が立てる。** 検証器 :578-586 は「その R を origin に持つ
@@ -742,17 +746,6 @@ def base_valid(b, nid, out, item):
 ONE_LINE_FIELDS = ("key", "reason")
 
 
-def open_unit(u):
-    """**この周に直す単位か。** [block] と、do-now に振られた [suggest]。
-
-    同じ式が 2 か所に書かれていた（`class_query` を要求する側と、一撃の名指しを要求する側）——
-    片方だけ直すと、要求する母数と数える母数が静かにずれる。**式は 1 つにする。**
-    退行注入で残っていた形でもある（実測 2026-09-13: `label == "block"` を `!=` に反転しても台本が全件緑
-    ＝「何を直すべきか」の判定を検査が一度も確かめていなかった）。
-    """
-    return u.get("label") == "block" or (u.get("label") == "suggest" and u.get("disposition") == "do-now")
-
-
 def judge_output(b, nid, out, item):
     """judge の返答を、検証器の語彙（写さず import）で先に見る。落ちるなら judge に返させ直す。
     あわせて 1 行の欄を 1 行に正規化する（out を補うだけ。記録を書くのは writes）。"""
@@ -781,14 +774,17 @@ def judge_output(b, nid, out, item):
         # 今の周に直す単位は、同じ形を**全部**引ける機械の問いを持て。名指しの 1 site だけを塞ぐ閉じ方が 3 周続き、
         # 同じ不変条件の別の入口が毎周ちがう顔で出た（実測 2026-09-13: 判定者自身が『覆いの母数を誰も持たない』と書いた）。
         # 問い（how）と件数（total）が在れば、次の周の判定者が同じコマンドを走らせて母数を検算できる。
-        if open_unit(u):
+        # **「この周に直す単位か」の正本は検証器の is_open。** rules 側に同じ式の写しを持っていたので、
+        # 要求する母数（class_query を課す側）と数える母数（検証器）が片方だけ動けば静かにずれる形だった。
+        # 同じファイルの :521 / :834 / :858 は既に V.is_open を通している——写しだけが外に在った。
+        if V.is_open(u):
             cq = u.get("class_query") or {}
             if not (cq.get("how") or "").strip() or not isinstance(cq.get("total"), int) or isinstance(cq.get("total"), bool):
                 errs.append(f"units[{i}]（今の周に直す単位）に class_query（how＝同じ形を全部引ける機械の問い・total＝その件数）が無い"
                             "——1 site しか無いなら total: 1 でそう示せ")
     # 一撃は反証可能に——「何が消えるはずか」を名指しし、次の周が測る問いを添える。名指しが無いと、
     # 効かなかったことを誰も言えないまま次の周が同じ根を選び直す（実測 2026-09-13: 3 周とも同じ根）
-    open_units = [u for u in out["units"] if open_unit(u)]
+    open_units = [u for u in out["units"] if V.is_open(u)]
     closes = out.get("one_shot_closes") or []
     if open_units:
         if not closes:

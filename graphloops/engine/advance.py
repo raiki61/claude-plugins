@@ -5,7 +5,7 @@ import pathlib
 from .render import FILE_CAP, Renderer
 from .rules import hook, registry
 from .schema import validate_schema
-from .util import ANSWER_ACTIONS, TERMINAL_STATUS, die, dump, now, porcelain, read_json, safe_name, sha, write_json
+from .util import ANSWER_ACTIONS, TERMINAL_STATUS, die, dump, now, read_json, safe_name, sha, write_json
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -19,7 +19,8 @@ ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の�
 # （回す側・遮断系・path 渡し）なので truncated にも出ず、記録にも報告にも痕跡が 1 つも無かった）。
 # この線より下は倍率が跳ねても言わない——小さい節の 1 KB → 2 KB は育ちではなく普通の揺れ。
 # 台本が差し替えられるようにする（環境変数）。**実物の next を通す腕が要る**——部品を直に呼ぶ腕だけの
-# とき、痕跡を積む配線（`if grew:`）を殺しても全件緑だった（実測 2026-09-14: 判定役が退行を注入して確認）。
+# とき、痕跡を積む配線（`if grew:`）を殺しても全件緑だった（実測 2026-09-14。その腕は
+# graphloops/tests/simulate.py:test_prompt_growth の後半——実物の next を 1 本通す側に在る）。
 # 写しの graph を作って 100 KB の穴を育てるより、線を下げて実物の run を 1 本通す方が安い。
 PROMPT_NOTICE = int(os.environ.get("GL_PROMPT_NOTICE") or 100_000)
 # 育ったと呼ぶ倍率。**線と一緒に差し替えられる**——台本の穴は周をまたいでも 1.05 倍までしか育たない

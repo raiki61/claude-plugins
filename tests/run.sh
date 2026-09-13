@@ -2788,12 +2788,23 @@ FORMS = {
     "EXPECTED_CHECKS": 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then',
     "VOCAB_REACHED": "    check(reached == VOCAB_REACHED,",
 }
+# **母数は宣言から取り、表に無い名前には理由を要求する。** FORMS に名前を 2 つ手で並べていたので、
+# 新しいラチェットを足した周にその 1 本が黙って表の外へ落ちる形だった。検査の置き場に在る整数の定数を
+# 全部数え、FORMS でも NOT_RATCHET でもない名前が 1 つでも在れば赤——**残すなら理由を書く**。
+NOT_RATCHET = {
+    "BIG_ROWS": "材料の大きさ（分割の挙動を出すための寸法で、周ごとに上げ下げしない）",
+    "COLDREAD_SKIP": "子へ渡す環境変数の既定値",
+    "MIN": "table-copies.py が『並べ直し』と見なす語数の閾値",
+    "NUM": "catchup の分岐表の期待値（switch-case の網羅で、件数のラチェットではない）",
+}
+DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []
+universe = {}
 for f in sorted(root.rglob("*.py")) + sorted(root.rglob("*.sh")):
     # **区切りは `/` に正規化する。** `str(f)` は Windows で `tests\\run.sh` になるので、
     # `".git/" in str(f)` は .git の中を除外できず、下の `rel == "tests/run.sh"`（自分の表を
     # 数えない口）も一致しない——**柵が自分の表を別の突合と数えて windows-latest だけ赤くなった**
-    # （実測 2026-09-14: CI が「2 か所」で NG。macOS と Linux は緑だったので手元では見えない）
+    # （実測 2026-09-14: commit b64936d の windows-latest が「2 か所」で NG。macOS と Linux は緑で手元では見えない）
     rel = f.relative_to(root).as_posix()
     if ".git" in f.relative_to(root).parts or "node_modules" in f.relative_to(root).parts:
         continue
@@ -2801,8 +2812,21 @@ for f in sorted(root.rglob("*.py")) + sorted(root.rglob("*.sh")):
     for const, form in FORMS.items():
         if re.search(rf"^{const}\s*=", body, re.M):
             RATCHETS.append((rel, const, form))
+    if "tests" in f.relative_to(root).parts:
+        for name in DECLARED.findall(body):
+            universe.setdefault(name, []).append(rel)
 if not RATCHETS:
     print("NG ラチェットの定数を宣言しているファイルが 1 つも無い（走査が空回り）")
+    sys.exit(1)
+unclaimed = {n: w for n, w in universe.items() if n not in FORMS and n not in NOT_RATCHET}
+if unclaimed:
+    for n, w in sorted(unclaimed.items()):
+        print(f"NG {n}（{', '.join(w)}）が FORMS にも NOT_RATCHET にも無い"
+              "——ラチェットなら突合の式を、違うなら理由を書け")
+    sys.exit(1)
+stale = sorted(set(NOT_RATCHET) - set(universe))
+if stale:
+    print(f"NG NOT_RATCHET に、もう宣言が無い名前が残っている（{stale}）——消したら表からも消せ")
     sys.exit(1)
 LOOSE = ("-lt", "-gt", "-le", "-ge", ">=", "<=", " > ", " < ")
 
@@ -2837,7 +2861,8 @@ for rel, const, exact in RATCHETS:
             bad = 1
 if bad:
     sys.exit(1)
-print("RATCHET_OK")
+print(f"RATCHET_OK（検査の置き場の整数の定数 {len(universe)} 名・突合を要求 {len(FORMS)} 名"
+      f"・理由つきで対象外 {len(NOT_RATCHET)} 名・突合した宣言 {len(RATCHETS)} 件）")
 RATCHET
 expect_output 0 "RATCHET_OK" "ラチェット（件数・語彙の到達）の突合が等値で、緩められていない" \
     "$PY_BIN" "$WORK/ratchet.py" "$ROOT"
@@ -2879,9 +2904,30 @@ bad = 0
 # **数えるのは容れ物でなく当たり。** 手順書の本数だけを見ていたとき、手順書から loop.py の綴りを
 # 全部消しても `DOC_CLI_OK（手順書 6 本）` で通った（実測 2026-09-13）——走査が空回りしても合格の顔になる。
 # REVIEW.md コード衛生観点③②『検査対象が空・縮退したとき合格と区別できるか』。
-matched = 0
+# **当たりの数だけでは、まだ合格の顔をする。** 照合 8 件を印字して緑だったとき、手順書に在る綴りは
+# 20 件で、**12 件が母数の外に居た**（実測 2026-09-14: 手順書は `python3 "…/loop.py" init` と
+# 引用符を閉じてから書くのに、正規表現が `loop\.py\s+` と閉じ引用符を許さなかった。存在しない
+# サブコマンドを同じ引用符付きの形で足しても緑のまま）。**母数と当たりの差を出し、差の全部に
+# 理由の欄（下の BARE）が要る。** 理由の無い残りが 1 件でも在れば赤。
+ALL = re.compile(r"(?<![-\w])loop\.py")            # 母数（`review-loop.py` 等の別ファイルは除く）
+CALL = re.compile(r"""(?<![-\w])loop\.py["'`]?\s+([a-z][a-z-]*)((?:\s+(?:--[a-z-]+|[^\s`|]+))*)""")
+BARE = re.compile(r"""["'`]?(?:[）)、。,]|\s|$)""")  # 残してよい残り: 引数を伴わない綴りだけの言及
+universe = matched = bare = 0
 for d in docs:
-    for mm in re.finditer(r"loop\.py\s+([a-z]+)((?:\s+(?:--[a-z-]+|[^\s`|]+))*)", d.read_text(encoding="utf-8")):
+    text = d.read_text(encoding="utf-8")
+    hit = {mm.start() for mm in CALL.finditer(text)}
+    for occ in ALL.finditer(text):
+        universe += 1
+        if occ.start() in hit:
+            continue
+        if BARE.match(text[occ.end():]):
+            bare += 1
+            continue
+        print(f"NG {d.relative_to(root)}:{text.count(chr(10), 0, occ.start()) + 1}: "
+              "loop.py の綴りが照合にも『綴りだけの言及』にも当たらない"
+              f"（母数の外に落ちている）: {text[occ.start():occ.end() + 30]!r}")
+        bad = 1
+    for mm in CALL.finditer(text):
         sub, rest = mm.group(1), mm.group(2)
         if sub not in real:
             print(f"NG {d.relative_to(root)}: loop.py に '{sub}' というサブコマンドは無い（{sorted(real)}）")
@@ -2898,7 +2944,8 @@ if not matched:
     print(f"NG 手順書 {len(docs)} 本のどれも loop.py の呼び出しを書いていない"
           "（照合が 0 件——この柵は何も測っていない）")
     sys.exit(1)
-print(f"DOC_CLI_OK（照合した呼び出し {matched} 件／手順書 {len(docs)} 本）")
+print(f"DOC_CLI_OK（母数 {universe} 件・照合 {matched} 件・綴りだけの言及 {bare} 件"
+      f"／手順書 {len(docs)} 本）")
 DOCCLI
 expect_output 0 "DOC_CLI_OK" "手順書が案内する loop.py の呼び出しが実物に在る（engine を動かした周に案内だけ古くならない）" \
     "$PY_BIN" "$WORK/doc-cli.py" "$ROOT"
@@ -2939,6 +2986,7 @@ if not files:
     print("NG 走査対象が 0 件（母数が取れていない）")
     sys.exit(1)
 calls = 0
+textual = 0
 for p in files:
     src = p.read_text(encoding="utf-8", errors="replace")
     try:
@@ -2971,6 +3019,9 @@ for p in files:
         kw = {k.arg: k.value for k in node.keywords if k.arg}
         textish = any(isinstance(kw.get(a), ast.Constant) and kw[a].value is True
                       for a in ("text", "universal_newlines"))
+        # **母数と当たりの差を印字する。** 呼びの総数だけを出していたので、そのうち何件が
+        # この不変条件の当たる面（文字で読む呼び）かが緑の顔からは見えなかった
+        textual += 1 if textish else 0
         if textish and "encoding" not in kw:
             bad.append(f"{p.relative_to(root)}:{node.lineno}")
 if not calls:
@@ -2995,7 +3046,8 @@ if bad:
     for b in bad:
         print(f"NG {b}" if b.startswith("tests/run.sh") else f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
     sys.exit(1)
-print(f"SUB_ENCODING_OK（読む側 {calls} 呼び／{len(files)} ファイル・書く側 {len(here)} script）")
+print(f"SUB_ENCODING_OK（走査した呼び {calls} 件のうち文字で読む {textual} 件を突合／対象外 {calls - textual} 件: バイトで読むので既定コーデックに依らない"
+      f"・{len(files)} ファイル・書く側 {len(here)} script）")
 SUBENC
 expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encoding を明示している（Windows の既定コーデックに依らない）" \
     "$PY_BIN" "$WORK/sub-encoding.py" "$ROOT"
@@ -3043,15 +3095,24 @@ def pick(globs):
 
 
 owners = {}  # 正本を持つ側: engine と検証器の module 直下の大文字の名前表
+declared = 0
 for p in pick(["graphloops/engine/*.py", "scripts/*-record.py"]):
     for n in ast.parse(p.read_text(encoding="utf-8")).body:
         if (isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)
                 and n.targets[0].id.isupper()):
             m = members(n.value)
             if m and len(m) >= MIN:
-                owners[n.targets[0].id] = (p, m)
+                declared += 1
+                # **鍵はファイルと名前の組。** 名前だけを鍵にしていたとき、検証器 4 本が同じ名前の表を
+                # 持つので後勝ちで潰れ、宣言 51 個のうち 10 個（VERDICT_FIELDS ほか）が黙って母数の外に
+                # 落ちていた（実測 2026-09-14）——**柵が名乗った面より狭い**形そのもの。
+                owners[(p, n.targets[0].id)] = m
 if not owners:
     print("NG 名前表が 1 つも取れない（母数が 0——走査が壊れている）")
+    sys.exit(1)
+if len(owners) != declared:
+    print(f"NG 名前表の宣言 {declared} 個に対し、表に載ったのは {len(owners)} 個"
+          "（鍵が潰れて母数が狭くなっている）")
     sys.exit(1)
 bad = []
 scanned = 0  # **数えるのは容れ物でなく当たり**——走査が空回りしても合格の顔にならないように
@@ -3065,7 +3126,7 @@ for p in pick(["graphloops/**/*.py", "scripts/*.py", "tests/*.py"]):
             m = members(comp)
             if not m or len(m) < MIN:
                 continue
-            for name, (op, om) in owners.items():
+            for (op, name), om in owners.items():
                 if op != p and m <= om:
                     bad.append(f"{p.relative_to(root)}:{node.lineno}: {name}（{op.name} の {len(om)} 語）"
                                f"のうち {sorted(m)} を並べ直している——表から導け")
@@ -3076,7 +3137,8 @@ if bad:
 if not scanned:
     print("NG 走査したファイルが 0 件（この柵は何も測っていない）")
     sys.exit(1)
-print(f"TABLE_COPIES_OK（名前表 {len(owners)} 個・走査した所属の判定 {scanned} か所）")
+print(f"TABLE_COPIES_OK（名前表の宣言 {declared} 個・表に載った {len(owners)} 個"
+      f"・走査した所属の判定 {scanned} か所）")
 TBLCOPY
 expect_output 0 "TABLE_COPIES_OK" "名前表の要素を読む側が文字列で並べ直していない（並べた側だけ狭くなる形）" \
     "$PY_BIN" "$WORK/table-copies.py" "$ROOT"
@@ -3124,9 +3186,13 @@ if not rules:
     sys.exit(1)
 bad = 0
 checked = 0
+reads = []   # 行頭で読む rules（この不変条件が当たる側）
+skipped = []  # 当たらない側。**母数と当たりの差は理由つきで印字する**——差が見えないと狭さが緑で残る
 for r in rules:
     if not READS_LINE_HEAD.search(r.read_text(encoding="utf-8")):
+        skipped.append(r.stem)
         continue
+    reads.append(r.stem)
     loop = r.stem[:-5] if r.stem.endswith("-loop") else r.stem
     v = root / "scripts" / f"{loop}-record.py"
     if not v.is_file():
@@ -3155,7 +3221,8 @@ if bad:
 if not checked:
     print("NG 行頭で読む rules が 1 本も見つからない（走査が空回り——この柵は何も測っていない）")
     sys.exit(1)
-print(f"STDOUT_SHAPE_OK（行頭で読む rules を突合・bullet の呼び {checked} か所／rules {len(rules)} 本）")
+print(f"STDOUT_SHAPE_OK（rules {len(rules)} 本のうち行頭で読む {len(reads)} 本を突合"
+      f"・bullet の呼び {checked} か所／対象外 {len(skipped)} 本={skipped}: 行頭で読む消費者が無い）")
 STDOUTSHAPE
 expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループは、その検証器に行頭の偽造を塞ぐ印字口を持つ" \
     "$PY_BIN" "$WORK/stdout-shape.py" "$ROOT"
@@ -3177,6 +3244,7 @@ if not vals:
     sys.exit(1)
 checked = 0
 bad = 0
+outside = []  # **母数と当たりの差は理由つきで印字する**——差が見えないと狭さが緑のまま残る
 for v in vals:
     # **Python の構造は ast で見る。** 行頭の正規表現（`^def fail\(`）では、条件つきの定義や
     # class の中の定義を見落とし、文字列・コメントの中の綴りを拾う。位置も lineno で直に取れる
@@ -3184,7 +3252,8 @@ for v in vals:
     at = {n.name: n.lineno for n in tree.body
           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     if "_rows" not in at:
-        continue  # _rows を持たない検証器はこの不変条件の外
+        outside.append(v.stem)  # _rows を持たない検証器はこの不変条件の外
+        continue
     checked += 1
     if "fail" not in at:
         print(f"NG {v.relative_to(root)}: _rows が在るのに fail が無い（表の組み立ての失敗を exit 2 で落とせない）")
@@ -3199,7 +3268,8 @@ if bad:
 if not checked:
     print("NG _rows を持つ検証器が 1 本も無い（走査が空回り——この柵は何も測っていない）")
     sys.exit(1)
-print(f"VALIDATOR_ORDER_OK（_rows を持つ検証器 {checked} 本／全 {len(vals)} 本）")
+print(f"VALIDATOR_ORDER_OK（検証器 {len(vals)} 本のうち _rows を持つ {checked} 本を突合"
+      f"／対象外 {len(outside)} 本={outside}: 表の組み立てを持たない）")
 VORDER
 # 説明文に ` を書くな——ここはシェルの二重引用符の中なので、`fail` がコマンド置換として**実行される**
 # （実測 2026-09-14: 説明が「検証器の  が  より前に在る」と穴あきで出て、stderr に `fail: command not found`

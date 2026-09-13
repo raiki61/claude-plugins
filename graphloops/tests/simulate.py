@@ -278,8 +278,9 @@ def drive(run, scenario, max_steps=60, hook=None):
                 ptxt = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
                 check("record.json" in ptxt and '"claims": [' not in ptxt, "統合の節には記録の本文でなく置き場と要約が渡る")
             if hook is None and node in ("p1.checker", "p3.cold_reader") and node not in seen_delivery:
-                seen_delivery.add(node)
-                DELIVERY_SEEN.add(node)
+                seen_delivery.add(node)      # 台本ごとの集合（この台本しか触らない）
+                with parallel.LOCK:          # 台本をまたぐ集合は排他の中で触る（check と同じ規律）
+                    DELIVERY_SEEN.add(node)
                 # 遮断系は cli で出るので mode も見る（以前は mode == "agent" と round == 1 を条件にしていて cold_reader の腕が空振りしていた）
                 want_mode, want = ("agent", "path") if node == "p1.checker" else ("cli", "paste")
                 check(inst["mode"] == want_mode and inst.get("deliver") == want, f"{node} は mode={want_mode}・渡し方 {want}（役の道具から決まる）")
@@ -870,7 +871,7 @@ def test_relative_dir():
     # 盤面が持つ綴りが 1 つであること——ここが割れると ref: の解決が cwd に依る
     st = run.state()
     stored = [i["output_file"] for rd in st["rounds"] for i in rd["instances"].values() if i.get("output_file")]
-    check(stored and not any(os.path.isabs(x) or x.startswith(str(run.dir)) for x in stored),
+    check(stored and all(not os.path.isabs(x) and (run.dir / x).is_file() for x in stored),
           f"instance の output_file は盤面からの相対 1 つの綴り（{stored[:1]}）")
     # 相対の --dir で ref: を解決させる——engine を別 cwd から呼び、全周の生出力を読む経路を通す
     r = subprocess.run([PY, str(LOOP), "status", "--dir", rel], cwd=run.repo,
@@ -884,6 +885,19 @@ def test_relative_dir():
     for _, f, _ in got:
         check(pathlib.Path(f).is_file(), f"ref:raw が指す置き場が実在する（{f}）")
         break
+    # **旧い綴り（--dir をそのまま前に付けた形）を、絶対の --dir で開いても二重にしない。**
+    # 文字列の前方一致で見分けていたとき、絶対の --dir では旧い相対の綴りが前方一致にも絶対にも
+    # 当たらず `<dir>/<dir>/…` に戻った（実測 2026-09-14: 旧盤面 20260912-214912 がその形）
+    # 旧い綴りは cwd に対する相対なので、cwd を持つ子プロセスで見る（台本は並列に走るので chdir は使えない）
+    old = os.path.relpath(next(f for _, f, _ in got), run.repo)
+    probe = ("import pathlib,sys;sys.path.insert(0,sys.argv[1]);from engine.board import Board;"
+             "b=Board(pathlib.Path(sys.argv[2]));"
+             "print(pathlib.Path(b._out_path(sys.argv[3])).is_file(),"
+             "b._out_path('out/r1/nope.json')==str(pathlib.Path(sys.argv[2])/'out/r1/nope.json'))")
+    r = subprocess.run([PY, "-c", probe, str(PLUGIN), str(run.dir), old], cwd=run.repo,
+                       capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.stdout.split() == ["True", "True"],
+          f"旧い綴りを絶対の --dir で開いても二重に繋がず、実在しない綴りは盤面の下として返す（{r.stdout.strip()} {r.stderr[-120:]}）")
     rm(run.tmp)
 
 
@@ -1192,7 +1206,8 @@ def test_prompt_growth():
     rm(run.tmp)
 
     # **実物の next を通す。** 上は部品を直に呼ぶ腕と材料（prompt_bytes）の有無しか見ておらず、
-    # **痕跡を積む配線（`if grew:`）を殺しても全件緑だった**（実測 2026-09-14: 判定役が退行を注入して確認）。
+    # **痕跡を積む配線（`if grew:`）を殺しても全件緑だった**（実測 2026-09-14。下の r2 の腕を足す前の話で、
+    # 足した後は同じ注入が赤くなる——`grew = None` にして この台本を走らせれば再現する）。
     # 写しの graph で 100 KB の穴を育てるより、線を下げて実物の run を 1 本通す方が安い。
     r2 = Run("grow2")
     # 線と倍率の両方を下げる——台本の穴は周をまたいでも 1.05 倍までしか育たない（実測: p2.integrate が
