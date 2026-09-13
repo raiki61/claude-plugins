@@ -903,6 +903,51 @@ def test_rejudge_path():
     rm(run.tmp)
 
 
+def test_worktree_guard_fires():
+    """**P1 の前後で作業ツリーが変わったら止まる。** この柵は検査で 1 度も踏まれていなかった。
+
+    実測 2026-09-13: `porcelain()` を 1 プロセス 1 回に memo 化する「最適化」を注入すると、前後の写しが
+    必ず一致して**この柵は常に緑**になる——にもかかわらず検査 457 件は全件緑だった。柵の本体（前後が
+    違えば止まる・理由を添えれば通る・通した痕跡が残る）をどの腕も踏んでいない。
+
+    速さのために前後の写しを共有する処方は採らない（実測: `git status --porcelain` は 1 回 15 ミリ秒で、
+    1 周に 1 回ぶんしか浮かない）——**15 ミリ秒のために柵を常時緑にする**取引になる。
+    この腕は、その取引を誰かが後でやったら赤くなる位置に置く。
+    """
+    print("作業ツリーの柵: 前後で変わったら止まり、理由を添えれば通る")
+    run = Run("treeguard")
+    stray = run.repo / "stray.txt"
+    # **触るのは、P1 の節が全部 done になった後・突合が走る前。** 手前には instance ごとの柵
+    # （investigator の前後）が在り、そこで止まると P1 の前後の突合まで届かない
+    # ——**2 つの柵が別物であることも、この腕を書いて初めて分かった。**
+    stopped = ""
+    for _ in range(120):
+        nx = run.next()
+        if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in TERMINAL_STATUS):
+            break
+        if not nx["ready"]:
+            stopped = json.dumps(nx.get("notes"), ensure_ascii=False)
+            break
+        table = answers(run, "std", nx["round"])
+        for inst in nx["ready"]:
+            r = run.done(inst["id"], table[inst["node"]](inst["item"]))
+            if r.returncode != 0:
+                raise RuntimeError(f"done {inst['id']}: {r.stderr[-300:]}")
+        # 前の写しは取れたが、後の突合はまだ——ここが「P1 の前後」のあいだ。deps を数えると、
+        # 条件外（na）になった節が done_ever に入らないので永久に揃わない（実測: 4 節が na）
+        ever = set(run.state()["done_ever"])
+        if "p1.worktree_before" in ever and "p1.worktree_after" not in ever and not stray.exists():
+            stray.write_text("役が触っていない変更\n", encoding="utf-8")
+    check("作業ツリーが変わっている" in stopped, f"P1 の前後が変われば止まる（{stopped[:160]}）")
+    gm = run.state().get("git_mismatches") or []
+    check(any(g.get("where") == "P1" and not g.get("accepted") for g in gm), f"止まった事実が痕跡に残る（{gm[:1]}）")
+    r = run.cmd("next", "--accept-tree-change", "台本が作業ツリーを触った（検査用）")
+    check(r.returncode == 0, f"理由を添えれば通る（{r.returncode}: {r.stderr[-160:]}）")
+    gm = run.state().get("git_mismatches") or []
+    check(any(g.get("accepted") for g in gm), f"通した理由が痕跡に残る（{[g.get('accepted') for g in gm]}）")
+    rm(run.tmp)
+
+
 def test_surviving_branches():
     """**退行注入で生き残った残りの分岐に腕を当てる**（どれも反転しても台本が全件緑だった腕）。
 

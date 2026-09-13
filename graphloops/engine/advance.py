@@ -202,11 +202,8 @@ def emit_instance(b, nid, item=None, suffix=""):
             inst["context_lost"] = f"{same} の agent id が無い（done に --agent-id を渡していない）。新しい context で走る"
             b.state.setdefault("context_lost", []).append({"instance": iid, "round": b.round, "reason": inst["context_lost"]})
     if n["run_by"] in b.graph.get("tree_guard_roles", []):
-        # 1 回の next の中では取り直さない（扇の節では項目数ぶん同じ写しを取っていた）。
-        # engine は盤面のディレクトリにしか書かないので、同じ走査の中で結果は変わらない。
-        snap = b.__dict__.get("_porcelain_once")
-        if snap is None:
-            snap = b.__dict__["_porcelain_once"] = porcelain()
+        # 1 回の next の中では取り直さない（扇の節では項目数ぶん同じ写しを取っていた）——memo は盤面が持つ。
+        snap = b.porcelain()
         if snap is None:
             die(f"{iid}: git status が取れない——{n['run_by']} の作業ツリー保護（前後の突合）ができない場所からは回せない（リポジトリの中で next を呼べ）")
         inst["tree_before"] = snap

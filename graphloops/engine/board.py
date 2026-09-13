@@ -294,6 +294,20 @@ class Board:
             "validator": self.validator_tables(),
         }
 
+    def porcelain(self):
+        """作業ツリーの写し（**この盤面＝この 1 プロセスの中では 1 回だけ取る**）。
+
+        `next` と `done` は別プロセスなので、P1 の前後の突合は元から別の写しを見る——memo は前後を
+        混ぜない。混ぜるのは同じ next の中で何度も引く経路（周の頭の基準と、守る役の instance ごと）だけで、
+        engine は盤面の下にしか書かないので同じ走査の中で結果は変わらない。
+        以前は engine が `emit_instance` の中だけで memo を持ち、rules は素の `porcelain()` を呼んでいた
+        ——周が変わる next で同じ `git status` が 2 回走っていた（実測 2026-09-13: 1 回 15 ミリ秒）。
+        """
+        if "_porcelain" not in self.__dict__:
+            from .util import porcelain as _p
+            self.__dict__["_porcelain"] = _p()
+        return self.__dict__["_porcelain"]
+
     def validator_tables(self):
         """検証器が「プロンプトに貼る用」として宣言した表（`PROMPT_TABLES`）。**写させないための口。**
 

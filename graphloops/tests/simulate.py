@@ -822,6 +822,42 @@ def test_relative_dir():
     rm(run.tmp)
 
 
+def test_porcelain_memo():
+    """**作業ツリーの写しは 1 プロセスに 1 回。** 前後の突合は別プロセスなので混ざらない。
+
+    以前は engine が `emit_instance` の中だけで memo を持ち、rules は素の `porcelain()` を呼んでいたので、
+    周が変わる next で同じ `git status` が 2 回走っていた（1 回 15 ミリ秒）。**memo は盤面が持つ。**
+
+    `next` と `done` は別プロセスなので、P1 の前後（`worktree_before` / `worktree_after`）が同じ写しを
+    見ることはない——混ざる心配をしたが、実測で別プロセスだと確かめた。前後の柵そのものの腕は
+    simulate_review の `test_worktree_guard_fires` が持つ。
+    """
+    print("否定検査: 作業ツリーの写しは 1 プロセス 1 回（前後は別プロセスなので混ざらない）")
+    sys.path.insert(0, str(PLUGIN))
+    import engine.util as U
+    from engine.board import Board
+    run = Run("porcmemo")
+    b = Board(run.dir)
+    calls = []
+    real = U.porcelain
+    U.porcelain = lambda: (calls.append(1), real())[1]
+    try:
+        a1, a2, a3 = b.porcelain(), b.porcelain(), b.porcelain()
+    finally:
+        U.porcelain = real
+    check(len(calls) == 1, f"同じ盤面では 1 回しか引かない（{len(calls)} 回）")
+    check(a1 == a2 == a3, "同じ値を返す")
+    b2 = Board(run.dir)
+    calls.clear()
+    U.porcelain = lambda: (calls.append(1), real())[1]
+    try:
+        b2.porcelain()
+    finally:
+        U.porcelain = real
+    check(len(calls) == 1, "盤面を開き直せば取り直す（別プロセス＝別の時点）")
+    rm(run.tmp)
+
+
 def test_optional_writes_declared():
     """**任意の欄を写す write は、任意だと宣言してあること。** engine は欄が無い返答を黙って読み飛ばす。
 

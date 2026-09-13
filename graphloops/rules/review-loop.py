@@ -375,7 +375,7 @@ def worktree_snapshot(b, nid):
     # （実測: BASE=HEAD で 5 周・diff 0 バイト・stop_reason=max_rounds、原因は記録のどこにも出ない）。
     if not raw_diff.strip():
         return {"ok": False, "problems": [f"対象差分が空（git diff {base} が 0 バイト）——BASE を確かめよ（p0.base の base_sha）"]}
-    snap = porcelain()
+    snap = b.porcelain()
     if snap is None:
         return {"ok": False, "problems": ["git status が取れない——作業ツリーの保護（前後の突合）ができない場所からは回せない"]}
     f = b.dir / f"diff-r{b.round}.patch"
@@ -414,7 +414,7 @@ def worktree_compare(b, nid):
     走らせるべきだったのに無い＝not_run）。judge に渡る素材は必ず 15 欄そろう。"""
     ls = b.loop_state
     before = ls.get("tree_before") or {}
-    snap = porcelain()
+    snap = b.porcelain()
     # shortstat は diff 本文の sha に包含される（本文が同じなら行数も同じ）ので取り直さない——subprocess 1 本分
     # diff は**生バイトで 1 度だけ**引く。以前は text 版も引いていたが、その値は None 検査にしか使われず、
     # 突合の sha は生バイトから作っていた——927 KB を読む subprocess 1 本が誰にも渡らず捨てられていた
