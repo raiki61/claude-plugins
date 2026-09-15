@@ -1667,6 +1667,24 @@ def test_parse_output():
         check(False, "JSON の無い返答は Reject")
     except Reject:
         check(True, "JSON の無い返答は Reject")
+    # **拒否の理由は、折れた原因を名指しする。** 囲いは正しいのに中身が壊れている返答に対して
+    # 「```json ... ``` か、JSON だけを返せ」とだけ言うと、読んだ人は囲いを直しに行き、原因の
+    # 側（文字列値の中の生の "）は誰も見ない（実測 2026-09-15: 実走 1 本目の cold-reader がこれで落ち、
+    # 指摘 3 件が記録に入らないまま、拒否の文だけが囲いを指していた）。
+    broken = '{"findings": [{"where": "配列（"/code-review high" 等）", "text": "x"}]}'
+    try:
+        parse_output("```json\n" + broken + "\n```")
+        check(False, "囲いの中の壊れた JSON は Reject")
+    except Reject as e:
+        msg = str(e)
+        check("折れた所" in msg and "[ここ]" in msg, "拒否の文が折れた位置を前後ごと見せる")
+        check("/code-review high" in msg, "折れた所として、実際に壊れている値が出る")
+        check("囲いの付け方ではなく中身" in msg, "囲いのせいにせず、直す先を中身だと言う")
+    try:
+        parse_output("Failed to authenticate")
+        check(False, "JSON で始まらない返答は Reject")
+    except Reject as e:
+        check("JSON で始まっていない" in str(e), "頭から JSON でない返答は、囲い/中身でなく先頭を指す")
 
 
 def test_workspace_cleanup():

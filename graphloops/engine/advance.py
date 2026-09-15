@@ -175,7 +175,12 @@ def emit_instance(b, nid, item=None, suffix=""):
     except KeyError as e:
         die(f"{nid}: {e}")
     if n.get("schema"):
-        prompt += "\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）:\n" + dump(n["schema"])
+        # **引用符の断りを 1 行入れる。** 役の指摘はコード片や設定値をそのまま引くので、文字列値の中に
+        # 生の " が入りやすい（実測 2026-09-15: cold-reader の初回の返答が `（"/code-review high" 等）` で
+        # 折れ、60 秒ぶんの指摘 3 件が 1 件も記録に入らなかった）。落ちる先は done なので、役に言うのが一番安い。
+        prompt += ("\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）。"
+                   '文字列値の中の " は必ず \\" にエスケープしろ——生のまま入れると返答まるごとが'
+                   "読めずに捨てられる:\n" + dump(n["schema"]))
     if r.truncated:
         b.state.setdefault("truncated", []).extend(f"{iid}: {t}" for t in r.truncated)
     pfile = b.dir / "prompts" / f"r{b.round}" / (safe_name(iid) + ".md")

@@ -191,12 +191,34 @@ def parse_output(text):
     中身を切り出し、正しい返答を『読めない』で拒む（実測 2026-09-12: 指摘文に ```json を書いた返答が落ちた。
     役の指摘がコードの囲いに触れるのはレビューでは普通に起きる）。"""
     text = text.strip()
+    best = None
     for cand in _json_candidates(text):
         try:
             return json.loads(cand)
-        except json.JSONDecodeError:
-            continue
-    raise Reject("返答が JSON として読めない（```json ... ``` か、JSON だけを返せ）")
+        except json.JSONDecodeError as e:
+            # **一番深くまで読めた候補の折れた所を残す。** どれで落ちたかを捨てると、拒否の理由が
+            # 「囲いの付け方」しか言えなくなる（実測 2026-09-15: 囲いは正しく、文字列値の中の
+            # エスケープしていない " で折れた返答に対して『```json ... ``` か、JSON だけを返せ』と
+            # 出た。読んだ人は囲いを直しに行き、原因の側は誰も見ない）。
+            if best is None or e.pos > best[1].pos:
+                best = (cand, e)
+    if best is None:
+        raise Reject("返答が空——JSON だけを返せ")
+    cand, e = best
+    if e.pos == 0:
+        raise Reject("返答が JSON で始まっていない（```json ... ``` か、JSON だけを返せ）"
+                     f"。先頭: {cand[:120]!r}")
+    raise Reject(f"返答が JSON として読めない: {e.msg}（{e.lineno} 行 {e.colno} 桁）"
+                 f"。折れた所: {_around(cand, e.pos)}"
+                 "——囲いは外して読んだうえで折れているので、直すのは囲いの付け方ではなく中身。"
+                 '多いのは文字列値の中のエスケープしていない " と、末尾のカンマ')
+
+
+def _around(text, pos, before=70, after=30):
+    """折れた位置の前後を 1 行に畳んで返す。読む人が『どの値か』を目で見つけられる幅だけ。"""
+    head = text[max(0, pos - before):pos].replace("\n", " ")
+    tail = text[pos:pos + after].replace("\n", " ")
+    return f"...{head}[ここ]{tail}..."
 
 
 def _json_candidates(text):
