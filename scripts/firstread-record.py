@@ -61,16 +61,18 @@ import json
 import os
 import sys
 
+# 検証器 4 本が共有する土台（隣の record_common）。**`sys.path[0]` に頼らない**——
+# importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
+import pathlib  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
+from record_common import _rows, fail, load  # noqa: E402
+
 # Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。
 # 落ちると終了コードが 1 になり「阻害要因あり」と区別が付かないため、収束を永久に
 # 宣言できなくなる。出力を UTF-8 に固定して塞ぐ。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8")
-
-def fail(msg):
-    print(f"記録が不正: {msg}", file=sys.stderr)
-    sys.exit(2)
 
 
 # 詰まり。**範囲の内外を割り振るのはこの 4 つだけ**——疑問・着想・読み飛ばしは
@@ -104,19 +106,6 @@ MATERIALS = (
 Rule = collections.namedtuple("Rule", "fields blocks")
 
 
-def _rows(what, cls, rows):
-    """状態の表を組む。**属性の書き忘れをここで落とす。** 素の namedtuple で組むと、
-    書き忘れは TypeError になるが**末尾の例外境界より前（インポート時）**なので未処理例外の
-    exit 1 になり、「阻害要因あり」と区別が付かない——契約の 3 値が 1 つ潰れる。"""
-    out = {}
-    for name, args in rows.items():
-        try:
-            out[name] = cls(*args)
-        except TypeError as e:
-            fail(f"{what} の '{name}' の行が不完全（属性の書き忘れ）: {e}")
-    return out
-
-
 STATUS = _rows("素材の状態", Rule, {
     "found": (("items",), False),  # 出てきた
     "none": (("asked",), False),  # 聞いたが無かった（何を聞いたかを要求する）
@@ -134,19 +123,6 @@ VERDICTS = ("missing_writeup", "design_gap")
 # 「省略（依頼者の指定）」は税をかけていない申告——依頼者が明示に指定したときだけ
 # 使える建前で、指定の中身は tax_reason に書かせる（本当に指定があったかは人が見る）。
 TAX_VERDICTS = ("通す", "置き場が違う", "根本が別にある", "作る詰まりの懸念", "省略（依頼者の指定）")
-
-
-def load(path):
-    """記録を読む。**読めないことは記録の不正（2）で、非収束（1）ではない。**"""
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except OSError as e:
-        fail(f"{path}: 開けない（{e.strerror}）")
-    except json.JSONDecodeError as e:
-        fail(f"{path}: JSON として読めない（{e}）")
-    except UnicodeDecodeError as e:
-        fail(f"{path}: UTF-8 として読めない（{e}）")
 
 
 def validate(rec, path):

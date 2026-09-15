@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=537
+EXPECTED_CHECKS=540
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2148,6 +2148,12 @@ expect_output 0 "検査を通過" "画面モードの依頼文は、画面を語
 CR_STUB_TRACED='cat >/dev/null; printf "なぞり: 「ニアバイして」は reviewer_x の語をそのまま地の文に使っている\n"'
 expect_output 0 "自分の言葉に直せば通る" "相手の言い回しを地の文に写した箇所(なぞり)は投稿を止め、直し方は説明を足すことではないと言う" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_TRACED" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+CR_STUB_AUTHFAIL='cat >/dev/null; printf "Failed to authenticate: OAuth session expired and could not be refreshed\n"'
+expect_output 0 "報告の形" "認証切れの 1 行(終了コード 0・ラベル無し)は allow にせず止める(実測 2026-09-15 の形)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_AUTHFAIL" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
+CR_STUB_CLEAN_ONLY='cat >/dev/null; printf "CLEAN\n"'
+expect_output 0 "検査を通過" "報告が CLEAN の 1 語だけでも通る(柵は正しい形まで巻き込まない)" \
+    "$CR_CASE" "$CR_CFG" "$CR_STUB_CLEAN_ONLY" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
 CR_STUB_TRACED_NONE='cat >/dev/null; printf "なぞり: なし\n"'
 expect_output 0 "検査を通過" "「なぞり: なし」は 0 件として通る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_TRACED_NONE" "gh pr comment 9 --body '$CR_BODY $CR_PAD'" "$CR_GH"
@@ -2163,7 +2169,8 @@ print("ASSEMBLE_OK" if ok else "BAD len=%d" % len(out))' "$ROOT/gates/hooks/cold
 # 2026-09-07 に実測: 0.9.0 導入前に開始したセッションが 16 時間 0.8.0 のまま検査していた)
 CR_VCACHE="$WORK/vcache/gates"
 mkdir -p "$CR_VCACHE/0.1.0/hooks" "$CR_VCACHE/0.1.0/.claude-plugin" "$CR_VCACHE/0.2.0/hooks" "$CR_VCACHE/0.10.0/hooks"
-cp "$ROOT/gates/hooks/coldread-gate.py" "$CR_VCACHE/0.1.0/hooks/"
+# 本体と、その隣の共有の本文(認証の段)を置く。配られるのは hooks/ ごとなので、ここも同じ形にする
+cp "$ROOT/gates/hooks/coldread-gate.py" "$ROOT/gates/hooks/claude_auth.py" "$CR_VCACHE/0.1.0/hooks/"
 echo '{"name":"gates","version":"0.1.0"}' > "$CR_VCACHE/0.1.0/.claude-plugin/plugin.json"
 : > "$CR_VCACHE/0.2.0/hooks/coldread-gate.py"
 expect_output 0 "0.2.0 が在る" "cache に新しい版が在れば検査結果にその旨が載る(本体の無い 0.10.0 は入りかけなので拾わない)" \
@@ -2634,7 +2641,10 @@ root = pathlib.Path(sys.argv[1])
 # **除外は明示の表で持つ**——表に無い名前を名指しした瞬間に赤くなるので、足し忘れは
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
 EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_")
-EXTERNAL_NAMES = {"HEAD", "SHA", "PYTHONOPTIMIZE", "CLAUDE_CONFIG_DIR"}  # CLAUDE_CONFIG_DIR はホストの環境変数（loop-contract.md T 節が名指す）
+EXTERNAL_NAMES = {"HEAD", "SHA", "PYTHONOPTIMIZE", "CLAUDE_CONFIG_DIR", "CLAUDE_KEYCHAIN_SERVICE"}
+# CLAUDE_CONFIG_DIR はホストの環境変数（loop-contract.md T 節が名指す）。CLAUDE_KEYCHAIN_SERVICE は
+# このリポジトリが定める環境変数で、モジュールの定数ではない（os.environ から読む）——COLDREAD_* が
+# 接頭辞で外れているのと同じ理由で、接頭辞を持たないぶん名前で外す
 # **名指しする側は文書だけではない。** 削除した定数を「正本」と呼ぶコメントが `tests/run.sh` に、
 # 削除した柵を「今も効いている」と述べたコメントが `scripts/*.py` に残ったことがある。
 # **定義を持つ側も `scripts/*.py` だけではない**——検査スイートの定数も shell の定数も名指しされる。
@@ -3232,6 +3242,15 @@ STDOUTSHAPE
 expect_output 0 "STDOUT_SHAPE_OK" "検証器の出力を行頭で読むループは、その検証器に行頭の偽造を塞ぐ印字口を持つ" \
     "$PY_BIN" "$WORK/stdout-shape.py" "$ROOT"
 
+# **プラグインに写した本文は、バイトまで同一であること。** プラグインは 1 つずつ配られ、インストール後の
+# 実体は自分のサブディレクトリだけになる(実測 2026-09-15: `~/.claude/plugins/cache/raiki61/gates/<版>/` に
+# 在るのは `hooks/ README.md skills/` だけで、リポジトリの他の場所は無い)。だから共有の本文——今は
+# 認証の段(claude_auth.py)——は**実行時に共有できず、写して配るしかない**。写しは黙って割れるので機械で縛る。
+# **確かめる口と配る口は同じ 1 本**（scripts/shared-copies.py --sync で配る）——柵をここに写すと、
+# 直す側と見る側が別々に古くなる。走査対象は印から導く（名前を手で並べない）。
+expect_output 0 "SHARED_COPIES_OK" "プラグインへ写した共有の本文(認証の段)が、写し先を持ちバイト単位で同一" \
+    "$PY_BIN" "$ROOT/scripts/shared-copies.py"
+
 # **検証器の同型部分は、順序まで揃っていること。** 検証器は 1 本ずつ配る前提で共有モジュールを持たないので
 # `_rows`（表の組み立て）と `fail`（exit 2 で落とす口）が各本に写される。**写しは中身でなく順序で割れた**
 # ——`_rows` は import 時に呼ばれるので `fail` が後ろに在ると、属性の書き忘れが NameError → 未処理例外の
@@ -3243,7 +3262,9 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
-vals = sorted((root / "scripts").glob("*-record.py"))
+# **同型部分は record_common.py に寄せた**（2026-09-15）。順序の不変条件はそこに 1 回だけ在るので、
+# 走査は scripts/*.py 全部から導く——検証器側に写しが戻ってきた周も、この柵が拾う。
+vals = sorted((root / "scripts").glob("*.py"))
 if not vals:
     print("NG 検証器が 1 本も無い（走査の母数が 0）")
     sys.exit(1)

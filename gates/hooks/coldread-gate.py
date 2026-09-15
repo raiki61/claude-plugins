@@ -105,6 +105,11 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
+# 認証の段は隣の共有の本文が持つ(複数のプラグインに写しで在り、同一性は tests/run.sh の柵が見る)。
+# **`sys.path[0]` に頼らない**——検査は importlib でパスから読み込むので、自分の在り処から明示で足す。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import claude_auth  # noqa: E402
+
 CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 STATE_DIR = os.path.join(CONFIG_DIR, "coldread-gate")
 SKIP_LOG = os.path.join(STATE_DIR, "skip.log")
@@ -1156,16 +1161,6 @@ VERSION_NOTE = ("この検査は gates %s で走った(手元の cache には %s
                 "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _NEWER)) if _NEWER else ""
 
 
-def keychain_service() -> str:
-    svc = os.environ.get("COLDREAD_KEYCHAIN_SERVICE")
-    if svc:
-        return svc
-    # 利用者のシェルラッパーの命名慣行から推定: ~/.claude → -default, ~/.claude-p1 → -p1
-    base = os.path.basename(CONFIG_DIR.rstrip("/"))
-    suffix = "default" if base == ".claude" else base.replace(".claude-", "")
-    return "claude-code-oauth-" + suffix
-
-
 def reader_argv(claude_bin, prompt):
     """読み役(headless claude)の起動引数。テストから読めるように関数にしてある。"""
     return [claude_bin, "-p", prompt,
@@ -1184,6 +1179,7 @@ def reader_argv(claude_bin, prompt):
 def run_reader(prompt: str):
     """読み役を起動して出力文字列を返す。prompt は依頼文+本文。失敗は例外。"""
     override = os.environ.get("COLDREAD_READER_CMD")
+    note = None  # 採った認証の段。差し替えの枝では認証に触らないので None のまま
     if override:
         # POSIX シェル文字列として sh -c で実行する。shell=True だと Windows では
         # cmd.exe に渡ってしまい、/dev/null 等が解決できない(GitHub Actions windows-latest で実測)。
@@ -1194,21 +1190,11 @@ def run_reader(prompt: str):
             capture_output=True, encoding="utf-8", timeout=READER_TIMEOUT,
         )
     else:
-        # 認証: トークンを Keychain から読み、形式を検査して環境変数で渡す(ディスクにもログにも書かない)。
-        # 取れなくても claude 自身の保存済み認証で動く場合があるため、失敗は握って進む。
-        env = dict(os.environ)
-        env.setdefault("CLAUDE_CONFIG_DIR", CONFIG_DIR)
+        # 認証(段の中身と理由は claude_auth の冒頭)。トークンはディスクにもログにも書かない。
+        # 取れなくても claude 自身の保存済み認証で動く場合があるため、足せなくても進む。
+        env, note = claude_auth.auth_env(
+            os.environ, service=os.environ.get("COLDREAD_KEYCHAIN_SERVICE"))
         env["COLDREAD_IN_READER"] = "1"
-        if "CLAUDE_CODE_OAUTH_TOKEN" not in env and sys.platform == "darwin":
-            try:
-                tok = subprocess.run(
-                    ["security", "find-generic-password", "-s", keychain_service(), "-w"],
-                    capture_output=True, encoding="utf-8", timeout=10,
-                ).stdout.strip()
-                if tok.startswith("sk-ant-oat01-"):
-                    env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
-            except Exception:
-                pass
         claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
         os.makedirs(STATE_DIR, exist_ok=True)
         proc = subprocess.run(
@@ -1218,7 +1204,8 @@ def run_reader(prompt: str):
         )
     out = (proc.stdout or "").strip()
     if proc.returncode != 0 or not out:
-        raise RuntimeError((proc.stderr or "empty output")[:200])
+        why = (proc.stderr or "empty output")[:200]
+        raise RuntimeError(why if note is None else "%s(認証: %s)" % (why, note))
     return out
 
 
@@ -1381,6 +1368,19 @@ def main() -> None:
         deny(
             "外部投稿ゲート: coldreader(文脈ゼロの読み手)の起動に失敗した(%s)。\n" % str(exc)[:150]
             + "手動で検査するなら skill『coldread』の手順で coldreader を立てること。\n"
+            + ESCAPE_NOTE
+        )
+
+    # **報告の形をしていない出力を「詰まりゼロ」と読まない。** 認証落ちは例外にならない——
+    # 実測 2026-09-15: 素で起こした claude は『Failed to authenticate: OAuth session expired and
+    # could not be refreshed』の 1 行を**標準出力に・終了コード 0 で**返した。rc も空出力も踏まないので
+    # ここまで素通りし、ラベルが 1 つも無いまま allow に落ちていた(＝検査せずに投稿が出る fail-open)。
+    # 依頼文が許す出力は CLEAN かラベル行の 2 種類だけなので、どちらでもなければ「検査できない」として止める。
+    if "CLEAN" not in out and not any(LABEL_RE.match(line.strip()) for line in out.splitlines()):
+        record("deny\treader-shape")
+        deny(
+            "外部投稿ゲート: coldreader の出力が報告の形(CLEAN かラベル行)をしていない: %r\n" % out[:150]
+            + "検査できていないので止める(認証切れはこの形で出る——読み役の標準エラーを見よ)。\n"
             + ESCAPE_NOTE
         )
 

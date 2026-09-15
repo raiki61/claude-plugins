@@ -5,6 +5,7 @@
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--dir <置き場>] [--validator <path>]
     loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
+    loop.py launch [--node <節>] [--dir]                # 遮断系（道具ゼロの役）を engine が起こし、返答を置き場へ。回す側の Bash に子の claude を出さない
     loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
     loop.py answer --text <答え> [--note <本文>]         # 人に聞く番のとき（本文は次の周の再審に渡る）
@@ -55,6 +56,11 @@ def main():
         s.add_argument("--dir")
         s.set_defaults(fn=fn)
     sub.choices["next"].add_argument("--accept-tree-change", help="P1 の前後の作業ツリー突合が『変わっている』と止めたとき、自分の変更なら理由を添えて通す（痕跡は process.git_mismatches）")
+
+    s = sub.add_parser("launch")
+    s.add_argument("--dir")
+    s.add_argument("--node", help="1 節だけ起こす（省くと、いま起こせる遮断系を全部並列に起こす）")
+    s.set_defaults(fn=c.cmd_launch)
 
     s = sub.add_parser("done")
     s.add_argument("--dir")

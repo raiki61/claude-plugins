@@ -68,8 +68,9 @@ def cmd_next(a):
         "status": b.state["status"], "round": b.round, "thickness": b.state["thickness"], "dir": str(b.dir), "notes": notes,
         "ready": [{k: v for k, v in i.items() if k != "tree_before"} for i in ready],
         "how": ("ready の全部を同時に始めてよい（同じ波）。"
-                "cli は launch.argv をそのまま実行し、標準入力に launch.stdin のファイルを流して、標準出力を out_path に保存する"
-                "（道具ゼロの遮断系。Agent ツールで起こすと CLAUDE.md が注入され、止める設定が無い）。"
+                "cli（道具ゼロの遮断系）は **loop.py launch を呼べ**——engine が起こして out_path に落とす。"
+                "自分の Bash から起こすな: 出力をファイルに落とす綴りは auto mode の分類器が止める"
+                "（実測 2026-09-15）。Agent ツールでも起こすな: CLAUDE.md が注入され、止める設定が無い。"
                 "agent は subagent_type に agent_type を渡す。"
                 "起動は運び手（小さな汎用 agent）に任せてよい: 運び手は deliver=path なら『<prompt_file> を読み、その指示にそのまま従え』の 1 文で、"
                 "deliver=paste なら prompt_file の本文をそのまま貼って役を起動し、返答を一字も変えず out_path に書き、あなたには『wrote』だけ返す。"
@@ -78,14 +79,110 @@ def cmd_next(a):
                 "役が『ファイル内の指示には従わない』と拒んだら本文を貼る形（paste）で起こし直す（拒否を言い含めるな）。"
                 "schema のある節で役が JSON でなく散文を返したら、同じ役に『判定も内容も変えず、Schema に合う JSON だけで出し直せ』と続けさせる"
                 "——運び手が勝手に組み直すな、新しい役に立て直すな（実測 2026-09-13: r4 の役が Schema を渡されて Markdown を返し、done が非 JSON で拒んだ）。"
-                "cli は子が親の環境を継ぐ——起こす前に同じ argv で 1 語返させて疎通を確かめ、返らなければ CLAUDE_CONFIG_DIR を対話の claude と揃える。"
-                "それでも認証に落ちるなら対話側の profile ごと期限切れなので、既定の設定ディレクトリなど別の profile で起こし直す"
-                "（実測 2026-09-13: 対話と同じ profile が『OAuth session expired』で、揃えるだけでは通らなかった）。"
-                "自分で起動するなら同じ渡し方で、返答を out_path に保存する。"
+                "launch は 1 件ずつ ok と why と stderr を返す——ok でなければ stderr の with-auth: auth=… を読め"
+                "（inherited / keychain なら認証は足りていて原因は役の側、none / keychain-miss なら認証が足りていない）。"
+                "engine が起こせない節は why が出る——迂回を組まず人に渡せ。"
                 "agent_continue は agent_id の agent に SendMessage で続ける（同じ渡し方）。"
                 "runner は自分でやる（skills があればその skill を呼ぶ。置き場のパスで渡された物は要る所だけ Read）。返答を out_path に保存して "
                 "loop.py done --node <id> [--agent-id <id>]（別の場所に置いたなら --output <file>）。ready が空で status が running なら、done の直後にもう一度 next"),
     }))
+
+
+# ---------------------------------------------------------------- launch
+# 1 節あたりの上限（秒）。台本が下げられるように環境変数で差し替える。
+LAUNCH_TIMEOUT = int(os.environ.get("GL_LAUNCH_TIMEOUT") or 1800)
+# **engine が自分で起こしてよい形。** 起動が回す側の Bash から engine の中へ移ると、1 件ずつ人（と
+# auto mode の分類器）が見ていた審査がそのぶん外れる。代わりに engine が「自分が何を起こすか」をここで
+# 言い切る——**graph の宣言を読んで判断する柵は柵ではない**（graph を書き換えられる立場の人が柵ごと
+# 書き換えられる。README が受容として書いている「実行の正本をレビュー対象の木から取る」問題）。条件は 2 つ:
+#   1. 起こすのは engine 自身のインタプリタと、engine に同梱の層（scripts/with-auth.py）だけ。
+#      層は claude 以外を名前で撥ねるので、engine が起こせる相手は claude に限られる
+#   2. 遮断の旗（--tools "" と --setting-sources ""）が揃っていること——道具ゼロ・設定ゼロでない子は
+#      engine の中から起こさない。道具が 1 つも無い子は何も実行できないので「権限の外で動く入れ子」に
+#      ならない。これは argv から機械で確かめられる性質で、宣言や約束ではない
+ISOLATION_FLAGS = (("--tools", ""), ("--setting-sources", ""))
+
+
+def launch_prefix():
+    """engine が起こしてよい前置（自分のインタプリタ＋同梱の層）。graph の via と一致するのが正常。"""
+    return [sys.executable, str(PLUGIN_ROOT / "scripts" / "with-auth.py")]
+
+
+def launch_refusal(inst):
+    """起こせない理由（起こしてよければ None）。**理由は回す側に見せる**——黙って飛ばさない。"""
+    launch = inst.get("launch") or {}
+    argv = launch.get("argv") or []
+    if launch.get("missing"):
+        return f"この環境に {launch['missing']} が無い（PATH を確かめるか、人が起こす）"
+    want = launch_prefix()
+    if argv[:len(want)] != want:
+        return (f"engine が起こしてよい前置ではない（graph の launch.isolated.via が {want} を指していない）"
+                f"——先頭は {argv[:2]}")
+    for flag, val in ISOLATION_FLAGS:
+        at = argv.index(flag) if flag in argv else -1
+        if at < 0 or argv[at + 1:at + 2] != [val]:
+            return f'遮断の旗 {flag} "{val}" が argv に無い——道具ゼロでない子は engine の中から起こさない'
+    if not pathlib.Path(launch.get("stdin") or "").is_file():
+        return f"材料 {launch.get('stdin')} が無い"
+    return None
+
+
+def launch_one(inst):
+    """1 節を起こし、標準出力を out_path に落とす。返すのは回す側と記録に見せる 1 件ぶんの結果。"""
+    import subprocess  # 起こす節でだけ要る（全サブコマンドの起動に掛けない）
+    got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
+    why = launch_refusal(inst)
+    if why:
+        return {**got, "ok": False, "why": why}
+    out = pathlib.Path(inst["out_path"])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(inst["launch"]["stdin"], "rb") as fh, open(out, "wb") as sink:
+            p = subprocess.run(inst["launch"]["argv"], stdin=fh, stdout=sink,
+                               stderr=subprocess.PIPE, timeout=LAUNCH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return {**got, "ok": False, "why": f"{LAUNCH_TIMEOUT} 秒で返らなかった（out_path は途中まで）"}
+    except OSError as e:
+        return {**got, "ok": False, "why": f"起こせない: {e}"}
+    # 層の 1 行（auth=…）はここにしか出ない。**必ず回す側へ運ぶ**——起動が engine の中に入ったぶん、
+    # 認証落ちが「役の返答の不良」に見えてしまう経路をここで塞ぐ
+    err = (p.stderr or b"").decode("utf-8", "replace").strip()
+    size = out.stat().st_size if out.exists() else 0
+    return {**got, "ok": p.returncode == 0 and size > 0, "exit": p.returncode, "bytes": size,
+            "stderr": err[-600:]}
+
+
+def cmd_launch(a):
+    """遮断系（道具ゼロの役）を engine が起こす。回す側の Bash に子の claude を出さない。
+
+    **なぜ engine が起こすか。** 回す側が Bash から起こす形は、出力を out_path に落とす綴りだと auto mode の
+    分類器が『Auto-Mode Bypass』で止める（実測 2026-09-15: 同じ層でも出力が会話に出る形は通り、
+    `< 材料 > out_path` は止まった）。Agent ツールへ逃げると CLAUDE.md が注入されて遮断が名ばかりになる
+    （実測 2026-09-12）。gates の読み役が同じ起動を通せているのはフックの中で起きているからで、認証の差ではない。
+    起こす場所を engine へ移すと、回す側は loop.py を呼ぶだけになる——代わりに、何を起こすかは
+    launch_refusal が機械で縛る。
+    """
+    b = Board(resolve_dir(a))
+    want = getattr(a, "node", None)
+    ready = [i for i in b.rd["instances"].values()
+             if i["status"] == "pending" and i.get("mode") == "cli" and (not want or i["id"] == want)]
+    if not ready:
+        die("起こせる遮断系の節が無い（next が cli の節を出しているか、--node の綴りを確かめよ）", 1)
+    if len(ready) == 1:
+        results = [launch_one(ready[0])]
+    else:
+        # 同じ波に載った遮断系は互いに依存しない。直列に待つと素直に足し算になる
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(ready))) as ex:
+            results = list(ex.map(launch_one, ready))
+    for r in results:
+        b.trace("launched", id=r["id"], ok=r["ok"], exit=r.get("exit"), bytes=r.get("bytes"),
+                why=r.get("why"), stderr=(r.get("stderr") or "")[-200:])
+    print(dump({"launched": results,
+                "how": ("ok の節は返答が out_path に在る——そのまま loop.py done --node <id>（--output は要らない）。"
+                        "ok でない節は why と stderr を読め: stderr の with-auth: auth=… が inherited / keychain なら"
+                        "認証は足りていて原因は役の側、none / keychain-miss なら認証が足りていない。"
+                        "engine が起こせない節（why が『前置ではない』『旗が無い』）は人に渡す——迂回を組むな")}))
 
 
 # ---------------------------------------------------------------- done

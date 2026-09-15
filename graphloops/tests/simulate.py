@@ -490,6 +490,10 @@ def test_graphcheck():
     broken(lambda b: b.__setitem__("agent_prefix", "x"), "agent_prefix", "廃止した agent_prefix を持つ graph は落ちる")
     broken(lambda b: b.__setitem__("plugin", "no-such-plugin"), "役割 agent の定義", "役の定義が見つからない plugin を指す graph は落ちる")
     broken(lambda b: b.pop("launch"), "launch.isolated.argv", "道具ゼロの役を使うのに起こし方を宣言しない graph は落ちる")
+    # 前置（via）は起こした瞬間にしか落ちない——python が「そんなファイルは無い」で止まり、返答が空のまま done が拒む
+    broken(lambda b: b["launch"]["isolated"].__setitem__("via", ["{python}", "{plugin_root}/scripts/no-such.py"]),
+           "同梱されていない", "via が同梱していない実体を指す graph は落ちる（実行時にしか出ない落ち方を静的に見る）")
+    broken(lambda b: b["launch"]["isolated"].__setitem__("via", "scripts/with-auth.py"), "文字列の配列", "via が配列でない graph は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["schema"].__setitem__("oneOf", []), "engine が読まない語", "schema に engine が読まない語（oneOf）を書いた graph は落ちる（書いても効かない語を黙って通さない）")
     # engine が実行に使う欄の綴り違い（文書欄 outputs の照合は通っても、実行では黙って素通りしていた）
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("from", "findingz"), "writes.from", "writes.from が schema に無い欄を指す graph は落ちる（記録に着地しない）")
@@ -828,10 +832,17 @@ def test_isolated_real_launch():
                         "sys.stdout.write(json.dumps({'seen_bytes': len(raw), 'argv': sys.argv[1:]}) + '\\n')\n")
     env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
     argv = list(inst["launch"]["argv"])
-    argv[0] = str(fake)  # engine は next の時点で PATH から解決済みなので、この腕では偽物を名指しする
+    # **差し替えるのは claude の 1 語だけ。** argv[0] を偽物にしていたとき、前置（launch.isolated.via の
+    # with-auth）を丸ごと飛び越えて起こしていて、層が在ろうと無かろうとこの腕は緑だった（2026-09-15 に
+    # 前置を足した周で発覚）。engine は next の時点で PATH から解決済みなので、解決後の綴りで名指しする。
+    target = shutil.which("claude") or "claude"
+    check(target in argv, f"engine が組んだ argv に起こす対象が 1 語で在る（{target}）")
+    argv[argv.index(target)] = str(fake)
     with open(inst["launch"]["stdin"], "rb") as fh:
         r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
     check(r.returncode == 0, f"argv どおりに起こせて exit 0（{r.returncode}: {r.stderr[:120]}）")
+    check("with-auth: auth=" in r.stderr, f"前置の層を通って起きている（標準エラーに 1 行。{r.stderr[:80]!r}）")
+    check(r.stdout.strip().startswith("{"), "層の語が標準出力に混ざらない（out_path に落とすのは子の返答だけ）")
     got = json.loads(r.stdout)
     want = len(pathlib.Path(inst["launch"]["stdin"]).read_bytes())
     check(got["seen_bytes"] == want, f"標準入力が欠けずに届く（届いた {got['seen_bytes']} / 渡した {want} バイト）")
@@ -843,10 +854,178 @@ def test_isolated_real_launch():
     with open(inst["launch"]["stdin"], "rb") as fh:
         r = subprocess.run(argv, stdin=fh, capture_output=True, text=True, encoding="utf-8", env=env, timeout=600)
     check(r.returncode != 0 and "Invalid API key" in r.stdout, f"失敗形（非 0・短い非 JSON）を観測できる（rc={r.returncode}）")
+    check("rc=1" in r.stderr, f"前置の層が非 0 を見て、どの段で起こしたかを添える（{r.stderr[-90:]!r}）")
     out = run.tmp / "bad.json"
     out.write_text(r.stdout, encoding="utf-8")
     d = run.cmd("done", "--node", inst["id"], "--output", str(out))
     check(d.returncode == 1 and "JSON" in d.stderr, f"その返答を done に渡すと exit 1 で拒まれる（{d.returncode}: {d.stderr[-90:]}）")
+    rm(run.tmp)
+
+
+def _load_claude_auth():
+    """scripts/claude_auth.py（認証の段。プラグインに写して配る共有の本文）をパスから読み込む。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("claude_auth_under_test", PLUGIN / "scripts" / "claude_auth.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_with_auth():
+    """遮断系を起こす前に**認証だけ**を足す層（launch.isolated.via）。
+
+    子は対話の claude の認証を継がない（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、
+    done が非 JSON として拒んだ）。段は 3 つで、**Keychain は mac だけの追加段**——この腕の半分は
+    「Keychain の無い環境で何も壊さない」側を見る（gates の同じ分岐には腕が 1 本も無く、3 OS の CI でも
+    一度も踏まれていなかった。写すときに腕ごと足す）。
+    """
+    print("認証の層: 段の選び方と、Keychain の無い環境での素通し")
+    wa = _load_claude_auth()
+    calls = []
+
+    def runner(out="", boom=None):
+        def run(argv, **kw):
+            calls.append(argv)
+            if boom:
+                raise boom
+            return types.SimpleNamespace(stdout=out, returncode=0)
+        return run
+
+    mac = dict(platform="darwin")
+    # 1. 親の環境に認証が在れば触らない——**足す側に倒すと、利用者が選んだ経路を黙って別の口に差し替える**
+    for k in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK"):
+        calls.clear()
+        env, note = wa.auth_env({k: "x", "CLAUDE_CONFIG_DIR": "/tmp/.claude-p1"}, runner=runner("sk-ant-oat01-kc"), **mac)
+        check(note == f"inherited({k})" and not calls, f"親の {k} が在れば Keychain を引かない（{note}、引いた回数 {len(calls)}）")
+    # 2. mac 以外は Keychain を引かない（security が無い環境でここを通ると毎回 1 プロセス無駄に起こす）
+    calls.clear()
+    env, note = wa.auth_env({"CLAUDE_CONFIG_DIR": "/tmp/.claude-p1"}, platform="linux", runner=runner("sk-ant-oat01-kc"))
+    check(note == "none" and not calls, f"mac 以外は Keychain を引かない（{note}、引いた回数 {len(calls)}）")
+    check(env["CLAUDE_CONFIG_DIR"] == "/tmp/.claude-p1" and "CLAUDE_CODE_OAUTH_TOKEN" not in env,
+          "それでも CLAUDE_CONFIG_DIR は子に渡る（mac 以外はこの段だけが効く）")
+    # 3. mac で取れたら渡す。サービス名は CLAUDE_CONFIG_DIR から導く（プロファイルごとに別項目）
+    for cfg, svc in (("/x/.claude", "claude-code-oauth-default"), ("/x/.claude-p1", "claude-code-oauth-p1"), ("/x/.claude-p2", "claude-code-oauth-p2")):
+        calls.clear()
+        env, note = wa.auth_env({"CLAUDE_CONFIG_DIR": cfg}, runner=runner("sk-ant-oat01-kc"), **mac)
+        check(env.get("CLAUDE_CODE_OAUTH_TOKEN") == "sk-ant-oat01-kc" and calls and svc in calls[0],
+              f"{cfg} → {svc} から読んで子に渡す（{note}）")
+    env, note = wa.auth_env({"CLAUDE_CONFIG_DIR": "/x/.claude-p1", "CLAUDE_KEYCHAIN_SERVICE": "共通の名前"},
+                            runner=runner("sk-ant-oat01-kc"), **mac)
+    check("共通の名前" in note, f"サービス名は共通の環境変数で上書きできる（{note}）")
+    # 呼ぶ側は自分の環境変数（gates の COLDREAD_KEYCHAIN_SERVICE / graphloops の GL_KEYCHAIN_SERVICE）で
+    # 上書きしたい——**共有の本文は呼ぶ側の綴りを知らない**ので、引数で受けて共通の名前より先に見る
+    env, note = wa.auth_env({"CLAUDE_CONFIG_DIR": "/x/.claude-p1", "CLAUDE_KEYCHAIN_SERVICE": "共通の名前"},
+                            runner=runner("sk-ant-oat01-kc"), service="呼ぶ側の名前", **mac)
+    check("呼ぶ側の名前" in note, f"呼ぶ側の明示は共通の環境変数より先（{note}）")
+    # 旗は値まで見る——`=0` は「使わない」の意味で、在るだけで認証が在ることにはならない
+    calls.clear()
+    env, note = wa.auth_env({"CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CONFIG_DIR": "/x/.claude"},
+                            runner=runner("sk-ant-oat01-kc"), **mac)
+    check(note.startswith("keychain(") and env.get("CLAUDE_CODE_OAUTH_TOKEN") == "sk-ant-oat01-kc",
+          f"Bedrock / Vertex の旗が 0 なら「認証が在る」と読まない（{note}）")
+    check("sk-ant-oat01-kc" not in note, "採った段の名前にトークンそのものは出ない（この 1 行は標準エラーに出す）")
+    env, note = wa.auth_env({}, runner=runner("sk-ant-oat01-kc"), **mac)
+    check(env["CLAUDE_CONFIG_DIR"].endswith(".claude") and "default" in note,
+          f"CLAUDE_CONFIG_DIR 未設定なら既定を明示して子に渡す（{env['CLAUDE_CONFIG_DIR']}、{note}）")
+    # 4. 取れない・壊れている・security が落ちる——**どれも例外にせず、足さずに進む**。
+    #    ここで落とすと、子の保存済み認証で普通に動く場（mac 以外・別経路で認証済み）まで起こせなくなる
+    for kind, run, want in (("空振り", runner(""), "keychain-miss"),
+                            ("壊れた値", runner("junk"), "keychain-malformed"),
+                            ("security が落ちる", runner(boom=OSError("no security")), "keychain-error")):
+        env, note = wa.auth_env({"CLAUDE_CONFIG_DIR": "/x/.claude"}, runner=run, **mac)
+        check(note.startswith(want) and "CLAUDE_CODE_OAUTH_TOKEN" not in env,
+              f"Keychain が{kind}でも足さずに進む（{note}）")
+
+    # 5. 実起動——層を通しても標準入力は欠けず、標準出力は子の返答だけ、終了コードはそのまま返る
+    td, tmp = parallel.workspace("gl-withauth-")
+    # **代役は `claude` の名前で置く。** 層は名前で起こす相手を縛っている（許可ルールを広げないため）ので、
+    # 別名のスクリプトで検査すると、実物と違う枝（名前で撥ねる側）を通ってしまう
+    bindir = tmp / "bin"
+    bindir.mkdir()
+    fake = _fake_claude(bindir,
+                        "import os, sys\n"
+                        "raw = sys.stdin.buffer.read()\n"
+                        "sys.stdout.write('%d %s\\n' % (len(raw), os.environ.get('CLAUDE_CONFIG_DIR', '')))\n"
+                        "sys.exit(int(sys.argv[1]))\n")
+    cfg = str(tmp / ".claude-p9")
+    # 親の認証は落として起こす。**在る機械と無い機械で結果が変わらない腕にする**——CI（mac 以外）でも
+    # 手元（mac・Keychain 在り）でも、無い名前の項目を指せば「足さずに進む」側を通る
+    env = {k: v for k, v in os.environ.items() if k not in wa.INHERITED}
+    env.update({"CLAUDE_CONFIG_DIR": cfg, "GL_KEYCHAIN_SERVICE": "graphloops-test-no-such-service"})
+    wrap = [PY, str(PLUGIN / "scripts" / "with-auth.py")]
+    body = b"\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e" * 1000  # 日本語のバイト列（Windows で text 読みだと壊れる形）
+    r = subprocess.run(wrap + [str(fake), "0"], input=body, capture_output=True, env=env, timeout=600)
+    out, err = r.stdout.decode("utf-8"), r.stderr.decode("utf-8")
+    check(r.returncode == 0 and out.split()[0] == str(len(body)), f"標準入力が欠けずに子へ届く（{out.strip()[:40]}）")
+    check(out.split()[1] == cfg, f"CLAUDE_CONFIG_DIR が子の環境に入る（{out.split()[1]}）")
+    check(err.startswith("with-auth: auth=") and "sk-ant" not in err, f"採った段を標準エラーの 1 行目に出す（トークンは出さない。{err.strip()[:70]}）")
+    # **認証落ちは rc では捕まらない**（実測 2026-09-15: 層無しの claude は『Failed to authenticate…』を
+    # 標準出力に・exit 0 で返した）。足せなかった回だけ、起こす前に言う
+    check("終了コード 0 のまま" in err, f"認証を足せなかった回は、静かな落ち方の注意が付く（{err.strip()[-60:]}）")
+    r2 = subprocess.run(wrap + [str(fake), "0"], input=body, capture_output=True, timeout=600,
+                        env={**env, "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-parent"})
+    err2 = r2.stderr.decode("utf-8")
+    check("inherited(" in err2 and "終了コード 0 のまま" not in err2 and "sk-ant" not in err2,
+          f"認証が在る回は注意を付けない（毎回出すと読まれなくなる。{err2.strip()[:60]}）")
+    r = subprocess.run(wrap + [str(fake), "3"], input=body, capture_output=True, env=env, timeout=600)
+    check(r.returncode == 3 and "rc=3" in r.stderr.decode("utf-8"), f"子の終了コードをそのまま返し、落ちた理由の当たりを添える（{r.returncode}）")
+    r = subprocess.run(wrap, capture_output=True, env=env, timeout=600)
+    check(r.returncode == 2, f"コマンドを渡さなければ exit 2（{r.returncode}）")
+    r = subprocess.run(wrap + [str(tmp / "nobin" / "claude")], capture_output=True, env=env, timeout=600)
+    check(r.returncode == 127, f"起こせない（在りもしない）claude は exit 127 で、その旨を言う（{r.returncode}）")
+    # **許可ルールを広げないための縛り。** 回す側の環境はこの層を名指しして許可することになるので、
+    # 何でも exec できる層だと、その 1 本が「何でも起こしてよい」の意味になる
+    r = subprocess.run(wrap + [PY, "-c", "print(1)"], capture_output=True, env=env, timeout=600)
+    check(r.returncode == 2 and "専用" in r.stderr.decode("utf-8"),
+          f"claude 以外は名前で撥ねる（{r.returncode}: {r.stderr.decode('utf-8').strip()[:60]}）")
+    del td
+
+
+def test_engine_launch():
+    """遮断系は **engine が起こす**（`loop.py launch`）。回す側の Bash に子の claude を出さない。
+
+    回す側が Bash から起こす形は、出力を out_path に落とす綴りだと auto mode の分類器が止める
+    （実測 2026-09-15）。Agent ツールへ逃げると CLAUDE.md が注入されて遮断が名ばかりになる（実測 2026-09-12）。
+    起こす場所を engine へ移すぶん、**何を起こすかは engine が機械で縛る**——この腕の後半はその柵。
+    """
+    from engine.commands import launch_prefix, launch_refusal  # 起こしてよい形は engine が正本
+    print("engine 起動: 遮断系を loop.py launch で起こし、起こしてよい形を柵で縛る")
+    run = Run("englaunch")
+    run.next()
+    run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
+    bindir = run.tmp / "fakebin"
+    bindir.mkdir()
+    fake = _fake_claude(bindir,
+                        "import sys, json\n"
+                        "raw = sys.stdin.buffer.read()\n"
+                        "sys.stdout.write(json.dumps({'seen_bytes': len(raw)}) + '\\n')\n")
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    nx = json.loads(run.cmd("next", env=env).stdout)
+    cli = [i for i in nx["ready"] if i.get("mode") == "cli"]
+    check(bool(cli), f"遮断系が cli で出る（{[i['node'] for i in cli]}）")
+    r = run.cmd("launch", env=env)
+    got = json.loads(r.stdout)["launched"] if r.returncode == 0 else []
+    check(r.returncode == 0 and got and all(g["ok"] for g in got),
+          f"engine が起こして ok（rc={r.returncode}: {[g.get('why') for g in got] or r.stderr[:120]}）")
+    one = got[0] if got else {}
+    # 層の 1 行は engine の中にしか出ない。運ばないと、認証落ちが「役の返答の不良」に見える
+    check("with-auth: auth=" in (one.get("stderr") or ""),
+          f"層の標準エラーが結果に運ばれる（{(one.get('stderr') or '')[:60]}）")
+    out = pathlib.Path(one["out_path"]) if one else None
+    check(bool(out) and out.is_file() and json.loads(out.read_text(encoding="utf-8"))["seen_bytes"] > 0,
+          "返答が out_path に落ち、材料が子へ届いている")
+
+    # **柵は graph の宣言を読まない。** graph を書き換えられる立場の人が柵ごと書き換えられるので、
+    # engine は「自分の前置」と「遮断の旗」だけを見る
+    good = {"launch": {"argv": launch_prefix() + ["claude", "--tools", "", "--setting-sources", ""],
+                       "stdin": str(fake)}}
+    check(launch_refusal(good) is None, f"前置と旗が揃っていれば起こす（{launch_refusal(good)}）")
+    for mut, want in ((lambda a: a[:1] + a[2:], "前置"),                    # 同梱の層を外す
+                      (lambda a: [x for x in a if x != "--tools"], "旗")):  # 遮断の旗を落とす
+        why = launch_refusal({"launch": {"argv": mut(good["launch"]["argv"]), "stdin": str(fake)}}) or ""
+        check(want in why, f"{want} が違えば engine は起こさない（{why[:70]}）")
+    why = launch_refusal({"launch": {**good["launch"], "missing": "claude"}}) or ""
+    check("この環境に" in why, f"claude の無い環境では起こさず、その旨を返す（{why[:50]}）")
     rm(run.tmp)
 
 

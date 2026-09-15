@@ -41,6 +41,12 @@ import collections
 import json
 import sys
 
+# 検証器 4 本が共有する土台（隣の record_common）。**`sys.path[0]` に頼らない**——
+# importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
+import pathlib  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
+from record_common import _rows, _tables, fail, load, not_applicable, require_int, require_str  # noqa: E402
+
 # Windows の既定コンソール（cp932 等）対策。review-record.py と同じ理由。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -62,41 +68,6 @@ CHECKED_VERDICTS = tuple(v for v in VERDICTS if v != "検証不能")
 # ——`_rows` の docstring が名乗る当の壊れ方そのもの（実測 2026-09-14: review 側は fail が先なので同じ注入で
 # exit 2、research 側だけ exit 1 だった）。**写しは中身でなく順序で割れていた**ので、
 # docstring の「この重複は構造上のもの（写しが狭くなる種類ではない）」という申し立ても外れていた。
-def fail(msg):
-    print(f"記録が不正: {msg}", file=sys.stderr)
-    sys.exit(2)
-
-
-def _rows(what, cls, rows):
-    """状態の表を組む。**属性の書き忘れをここで落とす。** 素の namedtuple で組むと、書き忘れは TypeError に
-    なるが**末尾の例外境界より前（インポート時）**なので未処理例外の exit 1 になり、「阻害要因あり」と
-    区別が付かない——契約の 3 値が 1 つ潰れる。
-
-    review-record.py にも同じ物が在る。**検証器は 1 本ずつ配る前提で共有モジュールを持たない**ので、
-    この重複は構造上のもの（表の中身でなく組み立て方）。**ただし『だから安全』とは言えない**——
-    実測 2026-09-14: 写した先だけ `fail` より前に在り、契約の 3 値が 1 つ潰れていた。順序は下の注記が縛る。
-    """
-    out = {}
-    for name, args in rows.items():
-        try:
-            out[name] = cls(*args)
-        except TypeError as e:
-            fail(f"{what} の '{name}' の行が不完全（属性の書き忘れ）: {e}")
-    return out
-
-
-def _tables(what, build):
-    """プロンプトに貼る表を組む。**組み立ての失敗をここで落とす。**
-
-    module 直下で素に組むと、`v.fields[0]` の IndexError や `ORIGIN_NOTE[…]` の KeyError が
-    **末尾の例外境界より前（インポート時）**に起き、未処理例外の exit 1 になる——契約の 3 値
-    （0 収束・1 阻害要因あり・2 記録が不正）のうち exit 2 が潰れ、「記録が不正」と「阻害要因あり」の
-    区別が付かない。`_rows` が表の行について既にやっていることを、表の**組み立て**にも当てる。
-    """
-    try:
-        return build()
-    except (IndexError, KeyError, TypeError) as e:
-        fail(f"{what} の組み立てに失敗（正本の表と写しが割れている）: {e!r}")
 
 
 Verdict = collections.namedtuple("Verdict", "fields note")
@@ -150,45 +121,6 @@ REQUIRED = (
     "process",
     "decisions",
 )
-
-
-
-
-def load(path):
-    """記録を読む。**読めないことは記録の不正（2）で、発行阻害（1）ではない。**"""
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except OSError as e:
-        fail(f"{path}: 開けない（{e.strerror}）")
-    except json.JSONDecodeError as e:
-        fail(f"{path}: JSON として読めない（{e}）")
-    except UnicodeDecodeError as e:
-        fail(f"{path}: UTF-8 として読めない（{e}）")
-
-
-def require_str(rec, key, where):
-    v = rec.get(key)
-    if not isinstance(v, str) or not v.strip():
-        fail(f"{where}: '{key}' が空か文字列でない")
-    return v
-
-
-def require_int(rec, key, where, minimum=0):
-    v = rec.get(key)
-    if not isinstance(v, int) or isinstance(v, bool) or v < minimum:
-        fail(f"{where}: '{key}' が {minimum} 以上の整数でない")
-    return v
-
-
-def not_applicable(v):
-    """「該当なし」の共通形。理由なしの該当なしは認めない。"""
-    return (
-        isinstance(v, dict)
-        and v.get("status") == "not_applicable"
-        and isinstance(v.get("reason"), str)
-        and v["reason"].strip()
-    )
 
 
 def validate(rec, path):

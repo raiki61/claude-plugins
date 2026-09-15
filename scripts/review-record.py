@@ -78,6 +78,12 @@ import os
 import re
 import sys
 
+# 検証器 4 本が共有する土台（隣の record_common）。**`sys.path[0]` に頼らない**——
+# importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
+import pathlib  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
+from record_common import _rows, _tables, fail, load  # noqa: E402
+
 # Windows の既定コンソールは cp932 等で、本文の記号（—）を encode できずに落ちる。
 # 落ちると終了コードが 1 になり「阻害要因あり」と区別が付かないため、収束を永久に
 # 宣言できなくなる。出力を UTF-8 に固定して塞ぐ。
@@ -90,10 +96,6 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError, OSError):
         pass
-
-def fail(msg):
-    print(f"記録が不正: {msg}", file=sys.stderr)
-    sys.exit(2)
 
 
 # 明示返答を要求する素材。ここが正本で、手順書は列挙を持たない。
@@ -131,33 +133,6 @@ MATERIALS = (
 # 黙って通る値」の集合を読む側が手で並べていた（`("not_applicable", "carried_over")` の 2 語）。
 # 表に無い性質を読む側が持つと、値を足した周にその 1 値だけ柵の外に落ちる——**値の性質は表が持つ。**
 Rule = collections.namedtuple("Rule", "fields blocks carryable observed")
-
-
-def _rows(what, cls, rows):
-    """状態の表を組む。**属性の書き忘れをここで落とす。** 素の namedtuple で組むと、
-    書き忘れは TypeError になるが**末尾の例外境界より前（インポート時）**なので未処理例外の
-    exit 1 になり、「阻害要因あり」と区別が付かない——契約の 3 値が 1 つ潰れる。"""
-    out = {}
-    for name, args in rows.items():
-        try:
-            out[name] = cls(*args)
-        except TypeError as e:
-            fail(f"{what} の '{name}' の行が不完全（属性の書き忘れ）: {e}")
-    return out
-
-
-def _tables(what, build):
-    """プロンプトに貼る表を組む。**組み立ての失敗をここで落とす。**
-
-    module 直下で素に組むと、`v.fields[0]` の IndexError や `ORIGIN_NOTE[…]` の KeyError が
-    **末尾の例外境界より前（インポート時）**に起き、未処理例外の exit 1 になる——契約の 3 値
-    （0 収束・1 阻害要因あり・2 記録が不正）のうち exit 2 が潰れ、「記録が不正」と「阻害要因あり」の
-    区別が付かない。`_rows` が表の行について既にやっていることを、表の**組み立て**にも当てる。
-    """
-    try:
-        return build()
-    except (IndexError, KeyError, TypeError) as e:
-        fail(f"{what} の組み立てに失敗（正本の表と写しが割れている）: {e!r}")
 # 「やらなかった」を 3 値に割ってあるのが要点——散文だと awaiting_human（手順どおりの停止）と
 # not_run（逸脱）が同じ「未実施」に潰れ、さらに not_applicable にまで化ける。
 # not_applicable は持ち越しでなく not_applicable と書く（条件に当たらないのは今ラウンドの
@@ -340,19 +315,6 @@ TRACKED = ("held", "escalate", "decided")
 # 欄に `0` を書けてしまい、`素材 'x' が未実施: 0` のような診断が出る（実測）。`count: 0` は
 # 「見たが 0 件」で正当、`from_round: 0` は範囲外で validate_carry が別の診断を出す。
 NUMERIC_FIELDS = ("count", "from_round")
-
-
-def load(path):
-    """記録を読む。**読めないことは記録の不正（2）で、非収束（1）ではない。**"""
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except OSError as e:
-        fail(f"{path}: 開けない（{e.strerror}）")
-    except json.JSONDecodeError as e:
-        fail(f"{path}: JSON として読めない（{e}）")
-    except UnicodeDecodeError as e:
-        fail(f"{path}: UTF-8 として読めない（{e}）")
 
 
 def is_int(v):

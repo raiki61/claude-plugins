@@ -23,8 +23,8 @@
  11. schema が engine の読む語（engine/schema.py の KNOWN_KEYWORDS）だけで書かれている——読まない語は書いても効かない
  12. engine が実行に使う欄が宣言どおりの物を指す: writes.from が節の schema.properties に在る、cond / applies_cond の
      out.<節>.<欄> と prev.<節>.<欄> がその節の schema に在る、same_context_as の役が一致し遮断系でない、
-     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated.argv の穴が engine の
-     埋める語（LAUNCH_HOLES）だけで model / effort は遮断系の役の定義に在る
+     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated の argv / via の穴が
+     engine の埋める語（LAUNCH_HOLES）だけで model / effort は遮断系の役の定義に在り、via が指す実体が同梱されている
  13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
 
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
@@ -387,13 +387,25 @@ def main():
         errs.append(f"道具ゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
                     "——Agent ツールで起こすと CLAUDE.md が注入され、遮断が成立しない")
     spec = (g.get("launch") or {}).get("isolated") or {}
+    via = spec.get("via")
+    if via is not None and not (isinstance(via, list) and all(isinstance(a, str) for a in via)):
+        errs.append("launch.isolated.via は解決した argv の前に置く語の一覧（文字列の配列）")
+        via = None
+    for a in via or []:
+        # via が指す実体が同梱されているか。**実行時にしか出ない落ち方**——回す側が起こした瞬間に
+        # python が「そんなファイルは無い」で落ち、遮断系の返答が空のまま done が拒むだけになる。
+        # plugin_root しか穴が無い語は検査の時点で埋まる（他の穴を含む語は実行時にしか決まらないので触らない）
+        if "{plugin_root}" in a and "{" not in a.replace("{plugin_root}", ""):
+            p = pathlib.Path(a.format(plugin_root=PLUGIN_ROOT))
+            if not p.is_file():
+                errs.append(f"launch.isolated.via が指す {p} が無い（プラグインに同梱されていない）")
     if isolated and (used & set(isolated)) and isinstance(spec.get("argv"), list):
         # 起動の穴は engine の launch_cli が埋める語だけ（LAUNCH_HOLES）。知らない穴は format の KeyError、model / effort は役の
         # 定義から埋めるので定義に無ければ die——どちらも実行時にしか出なかった遮断系の不変条件を静的に見る
-        holes = {m.group(1) for a in spec["argv"] if isinstance(a, str) for m in re.finditer(r"\{(\w+)\}", a)}
+        holes = {m.group(1) for a in list(spec["argv"]) + list(via or []) if isinstance(a, str) for m in re.finditer(r"\{(\w+)\}", a)}
         unknown = holes - set(LAUNCH_HOLES)
         if unknown:
-            errs.append(f"launch.isolated.argv の穴 {sorted(unknown)} を engine は埋められない（埋めるのは {list(LAUNCH_HOLES)}）")
+            errs.append(f"launch.isolated の argv / via の穴 {sorted(unknown)} を engine は埋められない（埋めるのは {list(LAUNCH_HOLES)}）")
         for r in sorted(used & set(isolated)):
             d = agent_def(f"{g.get('plugin')}:{r}") or {}
             for k in ("model", "effort"):

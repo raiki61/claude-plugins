@@ -1,6 +1,7 @@
 """進行——機械の節を走らせ、扇を広げ、回す側に渡す節（instance）を発行する。"""
 import os
 import pathlib
+import sys
 
 from .render import FILE_CAP, Renderer
 from .rules import hook, registry
@@ -9,9 +10,12 @@ from .util import ANSWER_ACTIONS, TERMINAL_STATUS, die, dump, now, read_json, sa
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
-# launch.isolated.argv の穴。engine が埋められるのはこの 5 語だけ——graphcheck が import して知らない穴と、役の定義に無い
-# model / effort を静的に落とす（以前は launch_cli の die と format の KeyError でしか出なかった）
-LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path")
+# launch.isolated の argv / via の穴。engine が埋められるのはこの 7 語だけ——graphcheck が import して知らない穴と、
+# 役の定義に無い model / effort を静的に落とす（以前は launch_cli の die と format の KeyError でしか出なかった）。
+# python / plugin_root は役でも graph でもなく **engine 自身しか知らない事実**（自分を走らせているインタプリタと、
+# 自分が入っている場所）。「起動の語は graph が宣言する」線は動かさない——graph が使うと書いたときだけ埋まる。
+LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path", "python", "plugin_root")
+PLUGIN_ROOT = pathlib.Path(__file__).resolve().parents[1]  # engine/ の親＝プラグインの根（scripts/ の隣）
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（文字）。超える欄は items/ のファイルにだけ置く
 # 「育った」と言い始める絶対量の下限。**切らないことは『いくらでも貼ってよい』ではない**
 # ——回す側の文脈は有限で、周ごとに単調増加する穴は誰にも見えないまま育つ（実測 2026-09-13:
@@ -40,6 +44,11 @@ def launch_cli(b, inst, d):
     フラグ無しでは目印が見え、--setting-sources "" を付けると消えた）。
 
     起動の語（コマンド名・フラグ）は graph が宣言する——engine はハーネスの語彙を持たない。
+
+    `launch.isolated.via` は、解決した argv の**前に**置く語（既定は空）。子は対話の claude の認証を継がない
+    ので、graph はここに薄い層（scripts/with-auth.py）を宣言して認証だけを足す。**argv の中に混ぜず前置に
+    分けてある**のは、`argv[0]` の PATH 解決と `missing` の報せを前置が隠さないため——混ぜると argv[0] が
+    python になり、claude がこの環境に無いことを next が言えなくなる。
     """
     spec = b.graph.get("launch", {}).get("isolated")
     if not spec:
@@ -48,9 +57,11 @@ def launch_cli(b, inst, d):
     role = b.dir / "roles" / (safe_name(inst["agent_type"]) + ".txt")
     role.parent.mkdir(parents=True, exist_ok=True)
     role.write_text(d["body"], encoding="utf-8")
-    sub = dict(zip(LAUNCH_HOLES, (d.get("model") or "", d.get("effort") or "", str(role), inst["prompt_file"], inst["out_path"])))
+    sub = dict(zip(LAUNCH_HOLES, (d.get("model") or "", d.get("effort") or "", str(role), inst["prompt_file"],
+                                  inst["out_path"], sys.executable, str(PLUGIN_ROOT))))
+    words = list(spec["argv"]) + list(spec.get("via") or [])
     for k, v in sub.items():
-        if not v and any("{" + k + "}" in a for a in spec["argv"]):
+        if not v and any("{" + k + "}" in a for a in words):
             die(f"{inst['id']}: 起動に要る '{k}' が役の定義（{d['file']}）に無い")
     argv = [a.format(**sub) for a in spec["argv"]]
     # PATH を引いて絶対パスに替える（起こす時の曖昧さを 1 つ減らす）。**見つからなくても落とさない**——
@@ -59,7 +70,8 @@ def launch_cli(b, inst, d):
     # 全部赤。手元には claude が在るので緑だった）。実際に起こせないことは、回す側が走らせた瞬間に分かる。
     import shutil  # 起動する節でだけ要る（全サブコマンドの起動に掛けない）
     resolved = shutil.which(argv[0])
-    launch = {"argv": ([resolved] + argv[1:]) if resolved else argv, "stdin": inst["prompt_file"]}
+    via = [a.format(**sub) for a in (spec.get("via") or [])]
+    launch = {"argv": via + (([resolved] + argv[1:]) if resolved else argv), "stdin": inst["prompt_file"]}
     if not resolved:
         launch["missing"] = argv[0]  # この環境では起こせない。回す側と記録に見えるようにしておく
     return launch

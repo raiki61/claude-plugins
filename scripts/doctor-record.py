@@ -29,6 +29,12 @@
 import json
 import sys
 
+# 検証器 4 本が共有する土台（隣の record_common）。**`sys.path[0]` に頼らない**——
+# importlib でパスから読み込まれる場でも効くように、自分の在り処から明示で足す。
+import pathlib  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # noqa: E402
+from record_common import fail, load, not_applicable, require_int, require_str  # noqa: E402
+
 # Windows の既定コンソール（cp932 等）対策。兄弟と同じ理由。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -77,53 +83,11 @@ REQUIRED = (
 )
 
 
-def fail(msg):
-    print(f"記録が不正: {msg}", file=sys.stderr)
-    sys.exit(2)
-
-
-def load(path):
-    """記録を読む。**読めないことは記録の不正（2）で、発行阻害（1）ではない。**"""
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except OSError as e:
-        fail(f"{path}: 開けない（{e.strerror}）")
-    except json.JSONDecodeError as e:
-        fail(f"{path}: JSON として読めない（{e}）")
-    except UnicodeDecodeError as e:
-        fail(f"{path}: UTF-8 として読めない（{e}）")
-
-
-def require_str(rec, key, where):
-    v = rec.get(key)
-    if not isinstance(v, str) or not v.strip():
-        fail(f"{where}: '{key}' が空か文字列でない")
-    return v
-
-
-def require_int(rec, key, where, minimum=0):
-    v = rec.get(key)
-    if not isinstance(v, int) or isinstance(v, bool) or v < minimum:
-        fail(f"{where}: '{key}' が {minimum} 以上の整数でない")
-    return v
-
-
 def require_bool(rec, key, where):
     v = rec.get(key)
     if not isinstance(v, bool):
         fail(f"{where}: '{key}' が bool でない")
     return v
-
-
-def not_applicable(v):
-    """「該当なし」の共通形。理由なしの該当なしは認めない。"""
-    return (
-        isinstance(v, dict)
-        and v.get("status") == "not_applicable"
-        and isinstance(v.get("reason"), str)
-        and v["reason"].strip()
-    )
 
 
 def validate(rec, path):
