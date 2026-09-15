@@ -27,7 +27,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
    返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 2）。名指しが既定の導線である。
 
-   検証器は同じリポジトリの `scripts/review-record.py` か、インストール済みの convergence-loops から engine が探す（見つからなければ `--validator <path>`）。無人で走るなら `--unattended`。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
+   検証器は同じリポジトリの `scripts/review-record.py` か、インストール済みの convergence-loops から engine が探す（見つからなければ `--validator <path>`）。**`--validator` で外のファイルを指すときは、隣に `record_common.py` も置け**——検証器 4 本が共有する土台を自分の隣から import するので、検証器 1 本だけ写すと `ModuleNotFoundError` で落ちる（実測 2026-09-15）。無人で走るなら `--unattended`。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
 
 2. **回す**。`next` を呼び、返った `ready` を全部こなし、`done` で返す。`status` が converged か stopped になって `ready` が空になるまで繰り返す:
 
