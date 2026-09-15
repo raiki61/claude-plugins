@@ -126,6 +126,11 @@ def emit_instance(b, nid, item=None, suffix=""):
     except OSError as e:
         die(f"{nid}: prompt_file が読めない: {e}")
     ctx = b.ctx(item)
+    # 節そのものの宣言をプロンプトから引けるようにする（{{node.skills}}）。**正本を 1 か所にするための口**
+    # ——レンズの一覧を散文へ手で写すと、正本を直した周に写しだけが古くなり、しかも役は写しの方を読む
+    # （実測 2026-09-15: skills 配列に 3 本足したのにプロンプト側は 2 本しか名指ししていなかった）。
+    # 渡すのは skills だけ——節の宣言を丸ごと開くと、schema も deps も役の目に入って指示と資料の境が消える。
+    ctx["node"] = {"skills": n.get("skills", [])}
     if n.get("pre") == "finalize":
         # 報告の前に記録を仕上げて検証器を回す。通らなければこの節は出さない（fail loud）
         finalize(b)

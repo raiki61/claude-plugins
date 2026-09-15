@@ -150,6 +150,47 @@ def agent_names(g):
     return {p.stem for p in pathlib.Path(d).glob("*.md")} if d else None
 
 
+SKILL_KEYS = {"skill", "args", "note", "required"}
+
+
+def skills_shape(nid, skills):
+    """`skills` の 1 要素は {skill, args, note, required} の dict。**名前を独立の欄にするための型。**
+
+    以前は「/simplify（指摘だけ）」のような名前＋条件の散文 1 本で、宣言と返答を突き合わせるには
+    誰も決めていない正規化規則が要り、その規則自体が新しい未定義物になっていた（実測 2026-09-15:
+    宣言 `/simplify（指摘だけ）` に対し返答の綴りは 4 本に分裂した）。欄を割れば照合の両側が
+    同じ文字列になる——engine は `{{node.skills}}` で正典をそのまま役へ渡し、post_check は
+    同じ配列の `skill` を数える。条件は `note`、効力段のような引数は `args` へ分ける。
+    """
+    if skills is None:
+        return []
+    if not isinstance(skills, list) or not skills:
+        return [f"節 {nid}: skills は空でない配列"]
+    errs, seen = [], set()
+    for i, e in enumerate(skills):
+        if not isinstance(e, dict):
+            errs.append(f"節 {nid}: skills[{i}] は {{skill, args, note, required}} の object（散文 1 本は不可——名前を独立の欄にする型）: {e!r}")
+            continue
+        extra = sorted(set(e) - SKILL_KEYS)
+        if extra:
+            errs.append(f"節 {nid}: skills[{i}] に知らない欄: {extra}（使えるのは {sorted(SKILL_KEYS)}）")
+        name = e.get("skill")
+        if not isinstance(name, str) or not name.strip():
+            errs.append(f"節 {nid}: skills[{i}] に skill（名前）が無い")
+            continue
+        if name != name.strip():
+            errs.append(f"節 {nid}: skills[{i}].skill の前後に空白: {name!r}（照合の両側が同じ文字列でなくなる）")
+        if name in seen:
+            errs.append(f"節 {nid}: skills に同じ skill が 2 回: {name}（1 本につき findings の行 1 本を数えるので重複は数えられない）")
+        seen.add(name)
+        for f in ("args", "note"):
+            if f in e and not isinstance(e[f], str):
+                errs.append(f"節 {nid}: skills[{i}].{f} は文字列")
+        if "required" in e and not isinstance(e["required"], bool):
+            errs.append(f"節 {nid}: skills[{i}].required は真偽値")
+    return errs
+
+
 def ancestors(nodes, nid, seen=None):
     seen = seen if seen is not None else set()
     for d in nodes[nid].get("deps", []) + nodes[nid].get("instance_deps", []):
@@ -454,6 +495,7 @@ def main():
             errs.append(f"節 {k}: run_by '{rb}' が回す側でも役割 agent（{sorted(agents)}）でも driver / skill でもなく、agent_type の上書きも無い")
         if rb == "skill" and not v.get("skills"):
             errs.append(f"節 {k}: run_by が skill なのに skills（呼ぶ skill の一覧）が無い")
+        errs += skills_shape(k, v.get("skills"))
         if rb in isolated and v.get("agent_type"):
             # 遮断系の役は cli で起こす（emit_instance が mode=cli にする）。run_by に置いたうえで agent_type を
             # 上書きすると起こし方が 2 つ宣言された状態になる——実行時の die を静的にも見る

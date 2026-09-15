@@ -159,7 +159,7 @@ marketplace を確認。公式スキーマ `https://anthropic.com/claude-code/ma
 
 | 依存 | 用途 | 無いとき |
 |---|---|---|
-| `pr-review-toolkit` プラグイン | `/review-loop` はまとめ役 `review-pr`。`/review-graph` はレンズを 1 本ずつ名指し（一覧の正本は `graphloops/graphs/review-loop.json` の `p1.local_review.skills`） | 上の「依存と入手経路」が正本 |
+| `pr-review-toolkit` プラグイン | `/review-loop` はまとめ役 `review-pr`。`/review-graph` はレンズを 1 本ずつ名指し（一覧の正本は `graphloops/graphs/review-loop.json` の `p1.local_review.skills`。宣言 1 本につき記録の行 1 本を機械が要求する） | 上の「依存と入手経路」が正本 |
 | 組み込み `/code-review` | 欠陥の局所レビュー（`/review-graph` の P1。`/review-loop` は `review-pr` のまま） | Claude Code 本体に同梱。同名のプラグインが別に在るので、入れている環境では綴りが衝突しうる |
 | 組み込み `/simplify` | 品質（reuse・簡素化・効率）の局所レビュー | Claude Code 本体に同梱 |
 | 組み込み `/security-review` | 認証・データ取扱い・外部 I/O に触れるとき | 同上 |

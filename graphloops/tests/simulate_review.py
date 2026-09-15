@@ -195,6 +195,31 @@ def M(status, **kw):
 CLEAN = lambda what: M("clean", checked=what)
 
 
+# 宣言したレンズ 7 本の綴り。**graph から引かずに手で書く**——引けば写しは自明に一致し、
+# 宣言を増やした周に台本が黙って追従して、「1 本につき 1 行」を数える post_check が空振りする。
+# graph の skills を触ったら、ここが赤くなって人が見る。
+DECLARED_LENSES = ("/code-review", "pr-review-toolkit:code-reviewer", "/simplify", "/security-review",
+                   "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:type-design-analyzer",
+                   "pr-review-toolkit:pr-test-analyzer")
+
+
+def local_findings(rnd, drop=(), blank=()):
+    """P1 の findings を宣言 7 本ぶん組む。drop の名前は行ごと落とし、blank の名前は items も failed も空にする。"""
+    rows = []
+    for name in DECLARED_LENSES:
+        if name in drop:
+            continue
+        if name in blank:
+            rows.append({"skill": name, "items": []})
+        elif name == "/code-review" and rnd == 1:
+            rows.append({"skill": name, "items": [{"where": "src/a.py", "text": "上限が片方の分岐だけ"}]})
+        elif name == "/security-review":
+            rows.append({"skill": name, "items": [], "failed": "認証・データ取扱い・外部 I/O に触れない差分（非該当）"})
+        else:
+            rows.append({"skill": name, "items": [], "failed": "起こしたが所見なし（差分の追加行すべてを見た）"})
+    return rows
+
+
 def answers(run, scenario, rnd):
     """節ごとの返答。scenario と周で分岐する。"""
     base = run.base
@@ -260,7 +285,7 @@ def answers(run, scenario, rnd):
         "p0.parallel_pr": lambda it: {"material": CLEAN("gh pr list 0 件（打ち切りなし）"), "repo": "t/demo", "listed": 0, "truncated": False, "conflicts": []},
         "p0.prior_decisions": lambda it: {"material": CLEAN("docs/ と closed issue を洗った。決着済みなし"), "checked": True, "searched": ["docs/", "gh issue list --state all"], "settled": []},
         "p1.local_review": lambda it: {"material": M("found", count=1, detail="/code-review: 上限の分岐が片方だけ") if rnd == 1 and not blocks_forever else CLEAN("/code-review・/simplify 再実行。新規なし"),
-                                       "findings": [{"skill": "/code-review", "items": [{"where": "src/a.py", "text": "上限が片方の分岐だけ"}]}] if rnd == 1 else [], "simplify_carried": rnd > 1},
+                                       "findings": local_findings(rnd), "simplify_carried": rnd > 1},
         "p1.consistency_bypass": lambda it: {"consistency": CLEAN("命名と設定の追従を Grep で突合"), "bypass": CLEAN("翻訳関数・共有ユーティリティの迂回なし"), "findings": [], "bypass_findings": [], "seen": "src/ 全部", "unseen": "なし"},
         "p1.hygiene": lambda it: {"findings": [], "seen": "差分の追加行すべて"},
         "p1.external_standards": lambda it: {"material": CLEAN("依存の組み込み機能と突合。再発明なし"), "findings": [], "seen": "import と宣言済み依存", "unseen": "なし", "web_refetched": True},
@@ -524,6 +549,53 @@ def test_runaway():
     check(last["status"] == "stopped" and run.state()["round"] == 5, f"5 周で停止（{run.state()['round']}）")
     check("暴走ガード" in run.record()["process"].get("stop_reason", "") or run.state()["loop"].get("stop_reason") == "max_rounds", "停止の理由が上限")
     rm(run.tmp)
+
+
+def test_local_review_lens_rows():
+    """宣言したレンズ 1 本につき findings の行 1 本。**沈黙では通らない。**
+
+    直した面: 未起動が「見たが所見なし」と同じ形で受理され、3 周続けて型設計のレンズが起動されないまま
+    記録のどこにも赤が出なかった（実測 2026-09-15）。あわせて、役に渡す一覧が正本そのものであること
+    （プロンプトに写しを持たない）をここで見る——写しだけが古くなる面だった。
+    """
+    print("P1: 宣言したレンズと findings の行の 1 対 1")
+    run = Run("lens")
+    nx = run.next()
+    by = {i["node"]: i for i in nx["ready"]}
+    t = answers(run, "std", 1)
+    for n in ("p0.base", "p0.local_checks", "p0.premises"):
+        run.done(by[n]["id"], t[n](None))
+    nx = run.next()
+    by = {i["node"]: i for i in nx["ready"]}
+    for n in ("p0.purpose", "p0.parallel_pr", "p0.prior_decisions"):
+        run.done(by[n]["id"], t[n](None))
+    nx = run.next()
+    by = {i["node"]: i for i in nx["ready"]}
+    lr = by["p1.local_review"]
+    body = pathlib.Path(lr["prompt_file"]).read_text(encoding="utf-8")
+    # 条件 1（正本を 1 か所に）——役が読む本文に正典の綴りが全部在り、かつ本数を焼き込んだ写しではない
+    for name in DECLARED_LENSES:
+        check(name in body, f"プロンプトに正典の綴りが埋まる: {name}")
+    check('"required": false' in body, "条件付きのレンズは required で渡る（散文の『（該当時）』ではない）")
+    check("pr-review-toolkit:review-pr" in body, "まとめ役を挟むなという禁止は残る")
+    base = t["p1.local_review"](None)
+    # 腕 1: 宣言した 1 本の行を落とす
+    r = run.done(lr["id"], {**base, "findings": local_findings(1, drop=("pr-review-toolkit:type-design-analyzer",))})
+    check(r.returncode == 1 and "type-design-analyzer" in r.stderr and "行が findings に無い" in r.stderr,
+          f"宣言したレンズの行を落とすと exit 1（rc={r.returncode}）")
+    # 腕 2: 行は在るが items も failed も空——「起こして 0 件」と「起こしていない」が区別できない
+    r = run.done(lr["id"], {**base, "findings": local_findings(1, blank=("pr-review-toolkit:pr-test-analyzer",))})
+    check(r.returncode == 1 and "items も failed も持たない" in r.stderr,
+          f"items も failed も無い行は exit 1（rc={r.returncode}）")
+    # 腕 3: 宣言に無い名前を役が足す——正本は graph の側
+    r = run.done(lr["id"], {**base, "findings": local_findings(1) + [{"skill": "pr-review-toolkit:review-pr", "items": []}]})
+    check(r.returncode == 1 and "宣言に無い" in r.stderr, f"宣言に無い skill 名は exit 1（rc={r.returncode}）")
+    # 腕 4: 同じレンズを 2 行に割る——1 本につき 1 行でないと数えられない
+    r = run.done(lr["id"], {**base, "findings": local_findings(1) + [{"skill": "/simplify", "items": []}]})
+    check(r.returncode == 1 and "2 本" in r.stderr, f"同じ skill が 2 行あると exit 1（rc={r.returncode}）")
+    # 対照: 7 本そろえば通る（非該当の 1 本も failed の行で在る）
+    r = run.done(lr["id"], base)
+    check(r.returncode == 0, f"宣言 7 本ぶんの行がそろえば通る（rc={r.returncode}: {r.stderr[-200:]})")
 
 
 def test_rejections():

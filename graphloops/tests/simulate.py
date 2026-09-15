@@ -498,6 +498,17 @@ def test_graphcheck():
     broken(lambda b: b["launch"]["isolated"].__setitem__("via", ["{python}", "{plugin_root}/scripts/no-such.py"]),
            "同梱されていない", "via が同梱していない実体を指す graph は落ちる（実行時にしか出ない落ち方を静的に見る）")
     broken(lambda b: b["launch"]["isolated"].__setitem__("via", "scripts/with-auth.py"), "文字列の配列", "via が配列でない graph は落ちる")
+    # skills は {skill, args, note, required} の object。名前を独立の欄にしておかないと、宣言と返答の
+    # 突合に誰も決めていない正規化規則が要る（実測 2026-09-15: 宣言『/simplify（指摘だけ）』に対し返答の綴りが 4 本に分裂した）
+    def skills(v):
+        return lambda b: b["nodes"]["p1.refuter"].__setitem__("skills", v)
+    broken(skills(["pr-review-toolkit:code-reviewer"]), "object", "skills の要素が散文 1 本の graph は落ちる")
+    broken(skills([]), "空でない配列", "skills が空配列の graph は落ちる")
+    broken(skills([{"skill": "a"}, {"skill": "a"}]), "2 回", "同じ skill を 2 回宣言する graph は落ちる（1 本につき 1 行を数えられない）")
+    broken(skills([{"skill": "a", "effort": "high"}]), "知らない欄", "skills に知らない欄がある graph は落ちる")
+    broken(skills([{"skill": "  a"}]), "前後に空白", "skill 名の前後に空白がある graph は落ちる（照合の両側が同じ文字列でなくなる）")
+    broken(skills([{"skill": "a", "required": "yes"}]), "真偽値", "required が真偽値でない graph は落ちる")
+    broken(skills([{"args": "high"}]), "skill（名前）が無い", "名前の欄が無い skills の graph は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["schema"].__setitem__("oneOf", []), "engine が読まない語", "schema に engine が読まない語（oneOf）を書いた graph は落ちる（書いても効かない語を黙って通さない）")
     # engine が実行に使う欄の綴り違い（文書欄 outputs の照合は通っても、実行では黙って素通りしていた）
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("from", "findingz"), "writes.from", "writes.from が schema に無い欄を指す graph は落ちる（記録に着地しない）")

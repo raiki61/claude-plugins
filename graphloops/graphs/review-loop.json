@@ -837,13 +837,41 @@
    "stage": "P1",
    "run_by": "skill",
    "skills": [
-    "/code-review high",
-    "pr-review-toolkit:code-reviewer",
-    "/simplify（指摘だけ）",
-    "/security-review（該当時）",
-    "pr-review-toolkit:silent-failure-hunter",
-    "pr-review-toolkit:type-design-analyzer",
-    "pr-review-toolkit:pr-test-analyzer"
+    {
+     "skill": "/code-review",
+     "args": "high",
+     "required": true,
+     "note": "Claude Code 本体に同梱の組み込み。入手経路は README の依存表が正本（同名のプラグインが別に在る）。対象は BASE...HEAD の ref 範囲で渡す——受けるのはファイルパス・PR 番号・ブランチ名・ref 範囲の 4 種で、置き場の .patch はレビュー対象のパスではない。--comment も --fix も付けるな（投稿は R1、当てるのは P3）"
+    },
+    {
+     "skill": "pr-review-toolkit:code-reviewer",
+     "required": true,
+     "note": "規約準拠の専任ではなく、準拠とバグ検出の両方を担う汎用レンズ。落とすな——実測 2026-09-15: この節の 1 周目でこの 1 本だけが『宣言済み依存から、どこにも宣言されていない裸名へ主検出器を移した』を挙げた"
+    },
+    {
+     "skill": "/simplify",
+     "required": true,
+     "note": "指摘だけ返す形で呼べ。4 観点（再利用・単純化・効率・高度）を修正を禁じたプロンプトでそれぞれ起こす（当てるのは P3）。**実物は既定で作業ツリーを書き換える**——実測 2026-09-16: 同じ差分に 3 回当てて 3 回とも Edit が出て m.py が M になった。この節は作業ツリーを変えてはいけない側なので、修正の禁止は任意でなく必須"
+    },
+    {
+     "skill": "/security-review",
+     "required": false,
+     "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に非該当の理由）——行ごと省ける形にすると、実測された穴（起動しなかったことが所見ゼロと同じ形で通る）がそのまま戻る。実測 2026-09-16: headless（-p）では rc=0・標準出力空・ツール呼び出しゼロで返ったので、走ったかどうかは外から言えない"
+    },
+    {
+     "skill": "pr-review-toolkit:silent-failure-hunter",
+     "required": true
+    },
+    {
+     "skill": "pr-review-toolkit:type-design-analyzer",
+     "required": true,
+     "note": "実測: 3 周続けてこのレンズが起動されなかった。散文の振り分けでは当たらないクラス（不変条件を平坦な値で持つ設計）を見る"
+    },
+    {
+     "skill": "pr-review-toolkit:pr-test-analyzer",
+     "required": true,
+     "note": "振る舞い網羅のレンズで、他のどの節も見ていない"
+    }
    ],
    "deps": [
     "p1.worktree_before",
@@ -858,14 +886,16 @@
    "outputs": [
     "materials.local_review"
    ],
-   "note": "まとめ役（review-pr）は挟まず、レンズを全部名指しで起こす——散文の振り分けでは起きない差分でも当たるクラスがあるため（3 周起動されなかった実測）。/code-review は組み込み skill を指し、入手経路は README の依存表が正本（同名のプラグインが別に在る）。裏取りの verdict は findings に置き場が無いのでこの節では受け取らない（台帳で決着待ち）。pr-test-analyzer は振る舞い網羅のレンズで、他のどの節も見ていない",
+   "note": "まとめ役（review-pr）は挟まず、レンズを全部名指しで起こす——散文の振り分けでは起きない差分でも当たるクラスがあるため（3 周起動されなかった実測）。**レンズの正本はこの skills 配列 1 か所**で、プロンプトは {{node.skills}} で同じ物を読む（手で写さない——写しだけが古くなる面だった）。post_check の local_review_covers_lenses が、宣言 1 本につき findings の行 1 本を要求する: 起こして 0 件と起こしていないが記録の上で別物になり、沈黙では通らない。**嘘は機械で捕まらない**——この検査が変えるのは、未起動を沈黙で通せた形を明示の虚偽を経由しないと通せない形にするところまで。pr-review-toolkit:code-simplifier は指摘でなく修正を当てる agent なので呼ぶな。裏取りの verdict は findings に置き場が無いのでこの節では受け取らない（台帳で決着待ち）",
    "prompt_file": "../prompts/review-loop/p1.local_review.md",
+   "post_check": "local_review_covers_lenses",
    "reads": [
     "loop.diff_file",
     "loop.changed_files_file",
     "record.base",
     "inputs.review_md",
-    "inputs.repo_review_md"
+    "inputs.repo_review_md",
+    "node.skills"
    ],
    "schema": {
     "type": "object",
@@ -3403,7 +3433,10 @@
    "stage": "P-R",
    "run_by": "comment-analyzer",
    "skills": [
-    "pr-review-toolkit:comment-analyzer"
+    {
+     "skill": "pr-review-toolkit:comment-analyzer",
+     "required": true
+    }
    ],
    "deps": [
     "p4.assemble"

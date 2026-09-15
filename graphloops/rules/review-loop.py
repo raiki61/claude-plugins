@@ -1077,8 +1077,49 @@ def rejudge_output(b, nid, out, item):
         ls.pop("rejudge_requested", None)
 
 
+def local_review_covers_lenses(b, nid, out, item):
+    """宣言したレンズ 1 本につき findings の行を 1 本、**例外なく**要求する（台帳の (a)+(c)、2026-09-16 の裁定）。
+
+    直したのは「未起動が所見ゼロと同じ形で受理される」面。実測 2026-09-15: 架空のレンズ名も findings 空も
+    どちらも通り、3 周にわたって型設計のレンズが起動されないまま記録のどこにも赤が出なかった。
+    行を必須にすると、起こさなかったことは沈黙では通らず `failed` に書くしかなくなる。
+
+    **この検査は嘘を捕まえない**——起こしていないのに items を書けば通る。変わるのは、未起動を
+    「黙って」通せた形が「明示の虚偽」を経由しないと通せない形になるところまで。
+
+    条件付きのレンズ（required: false の /security-review）も行は必須にする。条件外のとき行ごと省ける
+    設計にすると、まさに直した穴がそのまま戻る——非該当は `failed` に理由を書いて表す。
+
+    照合の両側は同じ文字列: engine が `{{node.skills}}` で正典をそのまま役へ渡し、ここは同じ配列の
+    `skill` を読む。綴りの正規化という段は存在しない（在れば、その規則自体が誰も決めていない未定義物になる）。
+    """
+    declared = [e["skill"] for e in b.graph["nodes"][nid].get("skills", [])]
+    rows = out.get("findings") or []
+    seen, errs = {}, []
+    for i, row in enumerate(rows):
+        name = row.get("skill", "")
+        if name in seen:
+            errs.append(f"findings に同じ skill の行が 2 本: {name}（1 本のレンズは 1 行にまとめろ）")
+        seen[name] = row
+        if name not in declared:
+            errs.append(f"findings[{i}] の skill '{name}' は宣言に無い——正本は graph の skills（{declared}）。"
+                        "名指しを増やしたいなら graph を直せ（役が勝手に増やした名前は数えられない）")
+    for name in declared:
+        row = seen.get(name)
+        if row is None:
+            errs.append(f"宣言した '{name}' の行が findings に無い——起こしたなら items を、起こしていない・"
+                        "非該当なら items を空にして failed に理由を書け。**行を省くな**（省けるなら、"
+                        "未起動が所見ゼロと同じ形で通っていた元の穴に戻る）")
+        elif not row.get("items") and not (row.get("failed") or "").strip():
+            errs.append(f"'{name}' の行が items も failed も持たない——『起こして 0 件』なら failed に"
+                        "『起こしたが所見なし』と何を見たかを書け。空の行は『起こしていない』と区別できない")
+    if errs:
+        raise Reject("宣言したレンズと findings の行が合わない:\n" + "\n".join("  - " + e for e in errs))
+
+
 POST_CHECKS = {"gate_arms_all_red": gate_arms_all_red, "rejudge_output": rejudge_output, "measured_needs_output": measured_needs_output, "base_valid": base_valid, "judge_output": judge_output, "fix_covers_open_units": fix_covers_open_units,
-               "r2_design": r2_design, "r4_inventory": r4_inventory, "cold_check_note": cold_check_note}
+               "r2_design": r2_design, "r4_inventory": r4_inventory, "cold_check_note": cold_check_note,
+               "local_review_covers_lenses": local_review_covers_lenses}
 
 
 def check_record(b, nid=None):
