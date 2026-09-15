@@ -837,11 +837,13 @@
    "stage": "P1",
    "run_by": "skill",
    "skills": [
-    "pr-review-toolkit:review-pr",
+    "/code-review high",
+    "pr-review-toolkit:code-reviewer",
     "/simplify（指摘だけ）",
     "/security-review（該当時）",
     "pr-review-toolkit:silent-failure-hunter",
-    "pr-review-toolkit:type-design-analyzer"
+    "pr-review-toolkit:type-design-analyzer",
+    "pr-review-toolkit:pr-test-analyzer"
    ],
    "deps": [
     "p1.worktree_before",
@@ -856,7 +858,7 @@
    "outputs": [
     "materials.local_review"
    ],
-   "note": "silent-failure-hunter と type-design-analyzer は review-pr の散文の振り分けでは起きない差分でも当たるクラスがあるので名指しで起こす（3 周起動されなかった実測）",
+   "note": "まとめ役（review-pr）は挟まず、レンズを全部名指しで起こす——散文の振り分けでは起きない差分でも当たるクラスがあるため（3 周起動されなかった実測）。/code-review は指摘に裏取り（CONFIRMED / PLAUSIBLE）を付けて返す唯一の検出器で、ここだけが誤検出を落とす工程を内蔵する。pr-test-analyzer は振る舞い網羅のレンズで、他のどの節も見ていない",
    "prompt_file": "../prompts/review-loop/p1.local_review.md",
    "reads": [
     "loop.diff_file",
