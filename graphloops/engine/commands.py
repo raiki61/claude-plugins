@@ -191,45 +191,56 @@ def parse_output(text):
     中身を切り出し、正しい返答を『読めない』で拒む（実測 2026-09-12: 指摘文に ```json を書いた返答が落ちた。
     役の指摘がコードの囲いに触れるのはレビューでは普通に起きる）。"""
     text = text.strip()
-    best = None
-    for cand in _json_candidates(text):
+    # 空は候補を出す前に落とす。候補は無条件に全文を 1 本出すので、後ろで「候補が 0 本」を
+    # 見ようとしても到達しない（実測 2026-09-15: そう書いた枝が到達不能で、空の返答は
+    # 囲いを名指しする側に落ちていた）。
+    if not text:
+        raise Reject("返答が空——out_path に 1 バイトも書かれていない。JSON だけを返せ")
+    errs = []
+    for label, cand in _json_candidates(text):
         try:
             return json.loads(cand)
         except json.JSONDecodeError as e:
-            # **一番深くまで読めた候補の折れた所を残す。** どれで落ちたかを捨てると、拒否の理由が
-            # 「囲いの付け方」しか言えなくなる（実測 2026-09-15: 囲いは正しく、文字列値の中の
-            # エスケープしていない " で折れた返答に対して『```json ... ``` か、JSON だけを返せ』と
-            # 出た。読んだ人は囲いを直しに行き、原因の側は誰も見ない）。
-            if best is None or e.pos > best[1].pos:
-                best = (cand, e)
-    if best is None:
-        raise Reject("返答が空——JSON だけを返せ")
-    cand, e = best
-    if e.pos == 0:
-        raise Reject("返答が JSON で始まっていない（```json ... ``` か、JSON だけを返せ）"
-                     f"。先頭: {cand[:120]!r}")
-    raise Reject(f"返答が JSON として読めない: {e.msg}（{e.lineno} 行 {e.colno} 桁）"
-                 f"。折れた所: {_around(cand, e.pos)}"
-                 "——囲いは外して読んだうえで折れているので、直すのは囲いの付け方ではなく中身。"
-                 '多いのは文字列値の中のエスケープしていない " と、末尾のカンマ')
+            errs.append((label, cand, e))
+    # **どれが原因かを engine が断定しない。** 候補は素の str で、元テキストのどこから切ったかを
+    # 運ばないので、pos を候補間で比べても「どこまで読めたか」にならず、行・桁も読む人が開く
+    # out_path の座標にならない（実測 2026-09-15: 散文に波括弧が混じると切り出した断片の pos が
+    # 全文の pos 0 に勝ち、JSON を 1 文字も返していない返答に『直すのは中身』と出た。素の JSON の
+    # 後ろに文が付いた形＝Extra data では、旧文言『JSON だけを返せ』の方が正しかった）。
+    # 候補ごとに何が起きたかを並べ、直す先は読む人に選ばせる。
+    lines = [f"返答が JSON として読めない（候補 {len(errs)} 本すべてで失敗）"]
+    for label, cand, e in errs:
+        lines.append(f"  - {label}: {e.msg} / {_around(cand, e.pos)}")
+    lines.append('よくある原因: 文字列値の中のエスケープしていない " ／ 末尾のカンマ ／ '
+                 "JSON の前後に付いた地の文 ／ 囲い（```）が閉じていない")
+    raise Reject("\n".join(lines))
 
 
-def _around(text, pos, before=70, after=30):
-    """折れた位置の前後を 1 行に畳んで返す。読む人が『どの値か』を目で見つけられる幅だけ。"""
-    head = text[max(0, pos - before):pos].replace("\n", " ")
-    tail = text[pos:pos + after].replace("\n", " ")
-    return f"...{head}[ここ]{tail}..."
+def _around(text, pos):
+    """折れた位置の前後を 1 行に畳んで返す。読む人が『どの値か』を目で見つけられる幅だけ。
+
+    端では省略記号を付けない——前が無いのに ... を出すと「まだ前がある」と読めてしまう。
+    """
+    head = text[max(0, pos - 70):pos].replace("\n", " ")
+    tail = text[pos:pos + 30].replace("\n", " ")
+    lead = "..." if pos > 70 else ""
+    trail = "..." if pos + 30 < len(text) else ""
+    return f"{lead}{head}[ここ]{tail}{trail}"
 
 
 def _json_candidates(text):
-    """読める順に候補を出す: 全文そのまま → 本文中の ``` 囲いの中 → 最初の { から最後の } まで。"""
-    yield text
+    """読める順に (名前, 候補) を出す: 全文そのまま → 本文中の ``` 囲いの中 → 最初の { から最後の } まで。
+
+    名前を添えるのは拒否の文のため——どの切り方で何が起きたかを並べないと、engine が
+    原因を 1 つに決めつけることになる。
+    """
+    yield "全文そのまま", text
     m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
     if m:
-        yield m.group(1).strip()
+        yield "``` 囲いの中", m.group(1).strip()
     s, e = text.find("{"), text.rfind("}")
     if s != -1 and e > s:
-        yield text[s:e + 1]
+        yield "{ から } まで", text[s:e + 1]
 
 
 STDIN_MAX = 20_000_000  # 文字

@@ -858,7 +858,7 @@
    "outputs": [
     "materials.local_review"
    ],
-   "note": "まとめ役（review-pr）は挟まず、レンズを全部名指しで起こす——散文の振り分けでは起きない差分でも当たるクラスがあるため（3 周起動されなかった実測）。/code-review は指摘に裏取り（CONFIRMED / PLAUSIBLE）を付けて返す唯一の検出器で、ここだけが誤検出を落とす工程を内蔵する。pr-test-analyzer は振る舞い網羅のレンズで、他のどの節も見ていない",
+   "note": "まとめ役（review-pr）は挟まず、レンズを全部名指しで起こす——散文の振り分けでは起きない差分でも当たるクラスがあるため（3 周起動されなかった実測）。/code-review は組み込み skill を指し、入手経路は README の依存表が正本（同名のプラグインは別物で、終端が PR への投稿）。裏取りの verdict は findings に置き場が無いのでこの節では受け取らない（台帳で決着待ち）。pr-test-analyzer は振る舞い網羅のレンズで、他のどの節も見ていない",
    "prompt_file": "../prompts/review-loop/p1.local_review.md",
    "reads": [
     "loop.diff_file",

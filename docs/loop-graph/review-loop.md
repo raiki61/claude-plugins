@@ -69,7 +69,7 @@ flowchart TB
 - 人に聞く候補は止めずに**問いの台帳**（記録の `questions` 欄）へ載せ、次の周の judge が再審する。止めて聞くのは、機械が「残る阻害は保留の問いに帰属するものだけ」と言ったときと、前提不成立が確定したときと、上限（5 ラウンド）の 3 つだけ。stuck・thrash・設計の岐路・目的の外・観点の誤発火・未観測・独立検証不能は台帳の**種類**になった
 - R1〜R4 の verdict は記録の `reviews` 欄に載り、再発火条件に当たらない周は `carried_over`（実際に見たラウンド付き）で持ち越す。連続 2 ラウンドと持ち越しの連鎖は検証器が数える
 - 検証器の入口はディレクトリ渡しの 1 つ。全ラウンドを読み、履歴（キーごとの推移・消えて戻った回数・問いの推移）を出す
-- 局所レビューに `/security-review`・`silent-failure-hunter`・`type-design-analyzer` を名指しで足し、`/simplify` は指摘だけ返す形で呼ぶ
+- 局所レビューはまとめ役（`review-pr`）を挟まず、レンズを 1 本ずつ名指しで起こす——組み込み `/code-review`・`pr-review-toolkit:code-reviewer`・`silent-failure-hunter`・`type-design-analyzer`・`pr-test-analyzer`・`/security-review`（該当時）の 6 本と、`/simplify` を指摘だけ返す形で。**散文版（`/review-loop`）は `review-pr` のままで、ここが 2 つの版の唯一の実質差**（散文版の道具選定はこのグラフの担当範囲の外なので揃えていない）
 - R1 の前段に `comment-analyzer` によるコメント削除候補の取得。ゲートの赤の確認は腕ごとに、写し（`mktemp -d`）の上で、対照の緑も見る
 - 探す役に「ここは見るな」の線を writer が引かない。見た範囲と見ていない範囲を返させる
 

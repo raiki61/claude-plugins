@@ -424,6 +424,10 @@ def test_rejections():
     check(set(ch) == {"c1", "c2"}, "checker はクラスタごとに並ぶ")
     body = pathlib.Path(ch["c1"]["prompt_file"]).read_text(encoding="utf-8").split("返答はこの JSON Schema")[0]
     check("A は X" in body and "C は Z" not in body and '"verdict":' not in body and "surveyor" not in body, "checker には自分の束の主張だけ、判定も見立ても貼られない")
+    tail = pathlib.Path(ch["c1"]["prompt_file"]).read_text(encoding="utf-8").split("返答はこの JSON Schema")[1]
+    # 予防側（役に引用符をエスケープさせる断り）は、上の body が捨てる側に落ちる。ここで尾を見る
+    # ——診断側だけを覆う検査は、直しの半分を文言ごと消しても色が変わらない（実測 2026-09-15）。
+    check('\\"' in tail and "エスケープ" in tail, "役へ渡す schema の断りに、引用符をエスケープしろの 1 行が付く")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "Z", "verdict": "確証", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
     check(r.returncode == 1 and "項目に無い" in r.stderr, "扇の被覆: 渡した項目に無い id を返すと exit 1（cover の腕）")
     r = run.done(ch["c1"]["id"], {"cluster": "c1", "findings": [{"id": "A", "verdict": "たぶん", "evidence": "e", "sources": ["https://x"], "conditions": "c"}]})
@@ -1667,24 +1671,35 @@ def test_parse_output():
         check(False, "JSON の無い返答は Reject")
     except Reject:
         check(True, "JSON の無い返答は Reject")
-    # **拒否の理由は、折れた原因を名指しする。** 囲いは正しいのに中身が壊れている返答に対して
-    # 「```json ... ``` か、JSON だけを返せ」とだけ言うと、読んだ人は囲いを直しに行き、原因の
-    # 側（文字列値の中の生の "）は誰も見ない（実測 2026-09-15: 実走 1 本目の cold-reader がこれで落ち、
-    # 指摘 3 件が記録に入らないまま、拒否の文だけが囲いを指していた）。
+    # **拒否の文は原因を 1 つに断定しない。** 候補は素の str で元テキストのどこから切ったかを
+    # 運ばないので、pos を候補間で比べても「どこまで読めたか」にならない（実測 2026-09-15:
+    # 断定する形で書いたら、散文に波括弧が混じった返答＝JSON を 1 文字も返していない返答に
+    # 『直すのは中身』と出た。素の JSON の後ろに文が付いた形では旧文言の方が正しかった）。
     broken = '{"findings": [{"where": "配列（"/code-review high" 等）", "text": "x"}]}'
     try:
         parse_output("```json\n" + broken + "\n```")
         check(False, "囲いの中の壊れた JSON は Reject")
     except Reject as e:
         msg = str(e)
-        check("折れた所" in msg and "[ここ]" in msg, "拒否の文が折れた位置を前後ごと見せる")
-        check("/code-review high" in msg, "折れた所として、実際に壊れている値が出る")
-        check("囲いの付け方ではなく中身" in msg, "囲いのせいにせず、直す先を中身だと言う")
+        check("候補 3 本すべてで失敗" in msg, "拒否の文が、試した候補の本数を言う")
+        check("``` 囲いの中" in msg and "全文そのまま" in msg, "候補ごとに、どの切り方で何が起きたかを並べる")
+        check("/code-review high" in msg and "[ここ]" in msg, "折れた所として、実際に壊れている値が前後ごと出る")
+        check("直すのは囲いの付け方ではなく中身" not in msg, "原因を 1 つに断定しない（囲いのせいにも中身のせいにもしない）")
     try:
-        parse_output("Failed to authenticate")
-        check(False, "JSON で始まらない返答は Reject")
+        parse_output("これは JSON を返しません。{ここは例です}")
+        check(False, "散文に波括弧が混じる返答は Reject")
     except Reject as e:
-        check("JSON で始まっていない" in str(e), "頭から JSON でない返答は、囲い/中身でなく先頭を指す")
+        check("全文そのまま: Expecting value" in str(e),
+              "JSON を 1 文字も返していない返答では、全文候補が頭から落ちたことが見える")
+    # 空は候補を出す前に落とす。候補は無条件に全文を 1 本出すので、後ろで「候補が 0 本」を
+    # 見る枝は到達しない（実測 2026-09-15: そう書いた枝が死んでいた）。
+    for empty in ("", "   ", "\n\n"):
+        try:
+            parse_output(empty)
+            check(False, "空の返答は Reject")
+        except Reject as e:
+            check("1 バイトも書かれていない" in str(e) and "候補" not in str(e),
+                  f"空の返答は候補の話をせず、書かれていないことだけを言う（{empty!r}）")
 
 
 def test_workspace_cleanup():

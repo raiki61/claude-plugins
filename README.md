@@ -160,6 +160,7 @@ marketplace を確認。公式スキーマ `https://anthropic.com/claude-code/ma
 | 依存 | 用途 | 無いとき |
 |---|---|---|
 | `pr-review-toolkit` プラグイン | 欠陥の局所レビュー（`review-pr`） | 上の「依存と入手経路」が正本 |
+| 組み込み `/code-review` | 欠陥の局所レビュー（`/review-graph` の P1。`/review-loop` は `review-pr` のまま） | Claude Code 本体に同梱。**同名のプラグイン `code-review@claude-plugins-official` とは別物**——そちらは引数を読まず、終端が `gh` での PR コメント投稿なので、入れている環境では綴りが衝突する |
 | 組み込み `/simplify` | 品質（reuse・簡素化・効率）の局所レビュー | Claude Code 本体に同梱 |
 | 組み込み `/security-review` | 認証・データ取扱い・外部 I/O に触れるとき | 同上 |
 | `gh` CLI | 並行 PR との衝突チェック | 他ホストでは同等コマンドに読み替え。読み替えられないなら「確認できなかった」と報告させる |
