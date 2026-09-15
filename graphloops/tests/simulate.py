@@ -1681,10 +1681,34 @@ def test_parse_output():
         check(False, "囲いの中の壊れた JSON は Reject")
     except Reject as e:
         msg = str(e)
-        check("候補 3 本すべてで失敗" in msg, "拒否の文が、試した候補の本数を言う")
+        check("候補 2 本すべてで失敗" in msg, "拒否の文が、試した相異なる候補の本数を言う")
         check("``` 囲いの中" in msg and "全文そのまま" in msg, "候補ごとに、どの切り方で何が起きたかを並べる")
         check("/code-review high" in msg and "[ここ]" in msg, "折れた所として、実際に壊れている値が前後ごと出る")
-        check("直すのは囲いの付け方ではなく中身" not in msg, "原因を 1 つに断定しない（囲いのせいにも中身のせいにもしない）")
+        # **『断定しない』は綴りの不在で測れない。** 以前ここは「直すのは囲いの付け方ではなく中身」
+        # という 1 綴りの不在だけを見ていたが、その文字列は当の検査にしか無く条件は常に真だった
+        # ——同じ趣旨を別の言い回しで書き戻しても赤にならない（実測 2026-09-16: 別綴りの断定文を
+        # 注入した写しが全件緑）。名乗った範囲を測れる形＝診断行が候補の数だけ並ぶ構造で見る。
+        diag = [l for l in msg.splitlines() if l.startswith("  - ")]
+        check(len(diag) == 2, f"診断行が、試した候補と同じ本数だけ並ぶ（原因を 1 本に畳まない。実際 {len(diag)}）")
+        check(len(set(diag)) == len(diag), "同じ中身の候補を 2 回試さない（同一の診断行が並ばない）")
+        check("よくある原因:" in msg and "囲い（```）が閉じていない" in msg,
+              "助言行が付く（役に直し方を教える側——診断だけ出して直し方を出さない形にしない）")
+    # 省略記号は「まだ前後がある」の印。端で無条件に付けると、無いものが在るように読める。
+    broken2 = '{"a": "x（"y"）"}'          # 折れる位置が先頭近くで、後ろも短い
+    try:
+        parse_output(broken2)
+        check(False, "短い壊れた JSON は Reject")
+    except Reject as e:
+        line = [l for l in str(e).splitlines() if l.startswith("  - ")][0]
+        check("...[ここ]" not in line, "折れた所が先頭寄りなら、前側に省略記号を付けない")
+        check(not line.rstrip().endswith("..."), "折れた所の後ろが尽きているなら、後側に省略記号を付けない")
+    # 3 本目の候補（{ から } まで）は、囲いの外に波括弧が在る形でだけ相異なる中身になる。
+    # ラベルを書き換えても赤くならないままだと、どの切り方で落ちたかの名前が信用できない。
+    try:
+        parse_output("前置き { \"a\": } 後書き")
+        check(False, "囲い無しで波括弧を含む壊れた返答は Reject")
+    except Reject as e:
+        check("{ から } まで" in str(e), "3 本目の候補のラベルが、実際にその切り方で落ちたときに出る")
     try:
         parse_output("これは JSON を返しません。{ここは例です}")
         check(False, "散文に波括弧が混じる返答は Reject")
@@ -1698,8 +1722,25 @@ def test_parse_output():
             parse_output(empty)
             check(False, "空の返答は Reject")
         except Reject as e:
-            check("1 バイトも書かれていない" in str(e) and "候補" not in str(e),
-                  f"空の返答は候補の話をせず、書かれていないことだけを言う（{empty!r}）")
+            msg = str(e)
+            # **読み元を名指しさせない。** cmd_done は --output / --stdin / out_path の 3 入口で
+            # text を作り、parse_output には text しか渡らない。1 つに決め打つと、既定の導線
+            # （手順書が案内する --output）で誤った場所を直しに行かせる。
+            check("空か空白だけ" in msg and "候補" not in msg,
+                  f"空の返答は候補の話をせず、中身が無いことだけを言う（{empty!r}）")
+            check("out_path" not in msg and "--stdin" not in msg,
+                  f"空の返答の拒否文が、3 入口のどれか 1 つを読み元と決め打たない（{empty!r}）")
+    # 閉じ ``` が無い返答は、入力長に対して線形で落ちる。以前ここは正規表現の貪欲な空白 +
+    # lazy な本文で、後戻り地点 × 舐め直しの二次になっていた（実測 2026-09-16: 空白 80,000 文字
+    # で 21.8 秒）。**時間を測る検査は環境差で揺れるので、閾値は桁で置く。**
+    import time as _t
+    _s = _t.time()
+    try:
+        parse_output("```json" + " " * 80000 + "x")
+        check(False, "閉じない囲いは Reject")
+    except Reject:
+        pass
+    check(_t.time() - _s < 1.0, "閉じ ``` が無い返答が、入力長に対して線形で落ちる（1 秒未満）")
 
 
 def test_workspace_cleanup():

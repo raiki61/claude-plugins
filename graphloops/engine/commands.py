@@ -3,7 +3,6 @@ import datetime
 import json
 import os
 import pathlib
-import re
 import sys
 
 from .advance import advance, emit_instance, load_item
@@ -193,11 +192,20 @@ def parse_output(text):
     text = text.strip()
     # 空は候補を出す前に落とす。候補は無条件に全文を 1 本出すので、後ろで「候補が 0 本」を
     # 見ようとしても到達しない（実測 2026-09-15: そう書いた枝が到達不能で、空の返答は
-    # 囲いを名指しする側に落ちていた）。
+    # 囲いを名指しする側に落ちていた）。**読み元は名指しできない**——cmd_done は --output /
+    # --stdin / out_path の 3 入口で text を作り、ここへは text しか渡らない。1 つに決め打つと、
+    # 既定の導線（--output）で誤った場所を直しに行かせる。
     if not text:
-        raise Reject("返答が空——out_path に 1 バイトも書かれていない。JSON だけを返せ")
-    errs = []
+        raise Reject("返答が中身を持たない（空か空白だけ）——役が何も返していないか、"
+                     "渡した返答が空。JSON だけを返せ")
+    errs, tried = [], set()
     for label, cand in _json_candidates(text):
+        # 同じ中身の候補を 2 回 loads しない。囲いの外に波括弧が無い通常形では
+        # 「``` 囲いの中」と「{ から } まで」が同一文字列になり、拒否文にバイト単位で
+        # 同じ行が 2 本並んで「相異なる候補を 3 本試した」と読めてしまう。
+        if cand in tried:
+            continue
+        tried.add(cand)
         try:
             return json.loads(cand)
         except json.JSONDecodeError as e:
@@ -235,9 +243,18 @@ def _json_candidates(text):
     原因を 1 つに決めつけることになる。
     """
     yield "全文そのまま", text
-    m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
-    if m:
-        yield "``` 囲いの中", m.group(1).strip()
+    # **正規表現を使わない。** 貪欲な空白 + lazy な本文の組み合わせは、閉じ ``` が無い返答で
+    # 後戻り地点が空白の数だけ生まれ、その各点で残り全文を舐め直す（実測 2026-09-16:
+    # 閉じない囲い + 空白 80,000 文字で 21.8 秒。文字列探索へ替えた後は 0 ms）。
+    # 役の返答は engine が読む唯一の外部入力なので、入力長に対して線形でない読み方をしない。
+    fence = text.find("```")
+    if fence != -1:
+        body = text[fence + 3:]
+        if body[:4].lower() == "json":
+            body = body[4:]
+        close = body.find("```")
+        if close != -1:
+            yield "``` 囲いの中", body[:close].strip()
     s, e = text.find("{"), text.rfind("}")
     if s != -1 and e > s:
         yield "{ から } まで", text[s:e + 1]

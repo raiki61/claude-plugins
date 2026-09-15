@@ -155,12 +155,12 @@ marketplace を確認。公式スキーマ `https://anthropic.com/claude-code/ma
 
 **必須**: `git` / `python3` または `python`（**3.12 以降**。CI は最小版を 1 本固定して測る——測っていない下限は宣言しない。以前は 3.9 と書いていたが、手元の python が新しいと 3.9 でだけ落ちる構文が全件緑をすり抜けて CI の 3 OS を赤にした〈実測 2026-09-13〉。`graphcheck.py` が使う `graphlib` は 3.9 追加なので下限の理由はそこではなく、**開発者の手元と CI が同じ構文を読めること**にある）/ `bash`
 
-**`/review-loop` が呼ぶもの**:
+**局所レビューが呼ぶもの**（`/review-loop` と `/review-graph` の両方。どちらが呼ぶかは用途欄）:
 
 | 依存 | 用途 | 無いとき |
 |---|---|---|
-| `pr-review-toolkit` プラグイン | 欠陥の局所レビュー（`review-pr`） | 上の「依存と入手経路」が正本 |
-| 組み込み `/code-review` | 欠陥の局所レビュー（`/review-graph` の P1。`/review-loop` は `review-pr` のまま） | Claude Code 本体に同梱。**同名のプラグイン `code-review@claude-plugins-official` とは別物**——そちらは引数を読まず、終端が `gh` での PR コメント投稿なので、入れている環境では綴りが衝突する |
+| `pr-review-toolkit` プラグイン | `/review-loop` はまとめ役 `review-pr`。`/review-graph` はレンズを 1 本ずつ名指し（一覧の正本は `graphloops/graphs/review-loop.json` の `p1.local_review.skills`） | 上の「依存と入手経路」が正本 |
+| 組み込み `/code-review` | 欠陥の局所レビュー（`/review-graph` の P1。`/review-loop` は `review-pr` のまま） | Claude Code 本体に同梱。同名のプラグインが別に在るので、入れている環境では綴りが衝突しうる |
 | 組み込み `/simplify` | 品質（reuse・簡素化・効率）の局所レビュー | Claude Code 本体に同梱 |
 | 組み込み `/security-review` | 認証・データ取扱い・外部 I/O に触れるとき | 同上 |
 | `gh` CLI | 並行 PR との衝突チェック | 他ホストでは同等コマンドに読み替え。読み替えられないなら「確認できなかった」と報告させる |
