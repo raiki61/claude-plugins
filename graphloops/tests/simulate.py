@@ -1653,6 +1653,30 @@ def test_non_utf8_document():
     rm(run.tmp)
 
 
+def test_set_path():
+    """**手当ての口は、読める綴りだけを受けて、当たらないなら落ちる。** set_path は get_path が読む
+    `a.2.b` を解さず、辞書の setdefault だけで辿っていた。`questions[1]` を渡すと配列の要素ではなく
+    その名前の鍵が新設され、patch は ok を返す——**当たっていない手当てが成功と報告される**
+    （実測 2026-09-16: 台帳への手当て 2 回がどちらも入らず、検証器が別の理由で落ちて初めて分かった）。
+    倒れる向きが危ない側なので、書けない綴りは黙って別の場所を作らず落とす。"""
+    print("手当ての口（set_path）: 配列の要素に当たる／当たらない綴りは落ちる")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.util import set_path, get_path
+    d = {"questions": [{"k": 0}, {"k": 1}], "a": {"b": {"c": 1}}}
+    set_path(d, "questions.1", {"k": "書けた"})
+    check(d["questions"][1] == {"k": "書けた"}, "配列の要素を点の添字で書き換えられる")
+    set_path(d, "questions.0.k", "深い所")
+    check(d["questions"][0]["k"] == "深い所", "配列の中の鍵まで辿って書ける")
+    check(get_path(d, "questions.0.k") == "深い所", "書いた所を get_path が同じ綴りで読める（読み書きの綴りが揃う）")
+    for bad in ("questions[1]", "questions.9", "questions.1.k.deep"):
+        try:
+            set_path(d, bad, "x")
+            check(False, f"書けない綴り {bad} は落ちる")
+        except KeyError:
+            check(True, f"書けない綴り {bad} は落ちる（黙って別の場所を作らない）")
+    check("questions[1]" not in d, "角括弧の綴りが、その名前の鍵として新設されていない")
+
+
 def test_parse_output():
     """done が読む返答の剥がし方。**素の JSON を先に読む**——先に囲いを探すと、本文の中の ``` を囲いと誤認して
     中身を切り出し、正しい返答が『JSON として読めない』で拒まれる（実測 2026-09-12: 指摘文に ```json を書いた

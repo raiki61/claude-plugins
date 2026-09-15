@@ -516,8 +516,55 @@ def fill_materials(b):
             mats[name] = {"status": "not_run", "reason": "どの節も返していない（graph の欠陥）"}
 
 
+def _retake_for_reviews(b):
+    """P3 の後の姿を、R1〜R4 に渡すためだけに写し直す。
+
+    **周の基準点（diff-r<N>.patch）は上書きしない。** あれは周をまたぐ比較の基準でもあり
+    （_files_changed_since が『前の周の P1 の写し』と今を比べて、前の周の P3 が触ったファイルを
+    出す）、上書きすると次の周の持ち越しの無効化が効かなくなる——修正した所を見た素材が
+    carried_over のまま前の周の主張を運ぶ。腕は台本が持つ（『前の周の P3 が触ったので走り直す』）。
+
+    なので別のファイルに写し、R の節にはそちらを渡す。P1 の頭で凍結した姿しか渡さないと、
+    R は**修正前の姿しか見られない**（実測 2026-09-16: 2 周とも R1 の judge が『渡された写しは
+    古い』と自分で気づいて作業ツリーを直接読み、そのおかげで 1 周目の回帰を捕まえた。仕組みが
+    そうさせたのではなく、気づかなかった 2 件は次の周の P1 が捕まえた＝同じ周で収まらなかった）。
+    """
+    ls = b.loop_state
+    base = b.record.get("base")
+    if not base:
+        return False
+    raw = git_bytes("diff", base)
+    names = git("diff", "--numstat", base)
+    if raw is None or names is None:
+        return False
+    f = b.dir / f"diff-r{b.round}-after-fix.patch"
+    f.write_bytes(raw)
+    files, ins, dels, nfiles = numstat_totals(names)
+    cf = b.dir / f"changed-r{b.round}-after-fix.txt"
+    changed = [x for x in files.splitlines() if x.strip()]
+    cf.write_text("\n".join(changed) + "\n", encoding="utf-8")
+    # R の節が読む口だけを差し替える。P1 の節はもう走り終えているので、同じ鍵を使い回してよい
+    ls["diff_file"] = str(f)
+    ls["changed_files"] = changed
+    ls["changed_files_file"] = str(cf)
+    ls["diff_stat"] = f"{nfiles} files changed, {ins} insertions(+), {dels} deletions(-)"
+    ls["diff_lines"] = ins + dels
+    ls["retaken_for_reviews"] = {"file": str(f), "stat": ls["diff_stat"]}
+    return True
+
+
 def assemble(b, nid):
-    """P3 の後: 開いたユニットの数・R1/R2 の再発火・行数の伸び・台帳の変化を機械が数える。"""
+    """P3 の後: 開いたユニットの数・R1/R2 の再発火・行数の伸び・台帳の変化を機械が数える。
+
+    **最初に審査対象を取り直す。** P3 は必ず作業ツリーを変える段なので、P1 の頭で凍結した
+    diff-r<N>.patch のままだと、この後に走る R1〜R4 は**修正前の姿しか見られない**
+    （実測 2026-09-16: 2 周とも R1 の judge が『渡された写しは古い』と自分で気づいて作業ツリーを
+    直接読み、そのおかげで 1 周目の回帰を捕まえた。仕組みがそうさせたのではない。気づかなかった
+    2 件は次の周の P1 が捕まえた＝同じ周で収まらなかった）。worktree_compare が変更を受理したときに
+    取り直すのと同じ理屈で、同じ関数を呼ぶ——同じ 3 行を 2 か所に置くと片方だけ直る。
+    """
+    if not _retake_for_reviews(b):
+        return {"ok": False, "problems": ["P3 の後の写しが取れない——R1〜R4 に渡す対象が古いままになる"]}
     V = validator_module(b)
     rec, ls = b.record, b.loop_state
     fix = b.outputs().get("p3.fix", {})

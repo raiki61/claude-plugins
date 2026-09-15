@@ -341,11 +341,13 @@ def answers(run, scenario, rnd):
     return table
 
 
-def drive(run, scenario, max_steps=120, hook=None):
+def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
     last = None
     for _ in range(max_steps):
         nx = run.next()
         last = nx
+        if stop_at and nx["ready"] and stop_at(nx):  # 途中の波を掴みたい腕のため（既定は最後まで回す）
+            return nx
         if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in TERMINAL_STATUS):
             return nx
         if not nx["ready"]:
@@ -1406,6 +1408,42 @@ def test_nopurpose():
     check(r.returncode == 0, f"止まった run の finalize は exit 0（受理集合 [0, 1] は graph の宣言。stderr: {r.stderr[-80:]}）")
     tr = json.loads(r.stdout).get("traces") or {}
     check(tr.get("writes_skipped") == 1, f"非空の痕跡が finalize の出力に件数で出る（{tr}）")
+    rm(run.tmp)
+
+
+def test_reviews_see_the_fix():
+    """**R1〜R4 は、P3 が直した後の姿を渡される。**
+
+    差分の写しは P1 の頭で凍結される。P3 は必ず作業ツリーを変える段なので、凍結したままだと
+    R は修正前の姿しか見られない——**同じ周で捕まえられるはずの回帰が、次の周まで漏れる**
+    （実測 2026-09-16: 2 周とも R1 の judge が『渡された写しは古い』と自分で気づいて作業ツリーを
+    直接読み、そのおかげで 1 周目の回帰を捕まえた。仕組みがそうさせたのではない。気づかなかった
+    2 件は次の周の P1 が捕まえた）。
+
+    同時に、**周の基準点（diff-r<N>.patch）は上書きしない**——あれは周をまたぐ比較の基準でもあり、
+    上書きすると次の周の持ち越しの無効化が効かなくなる（その腕は test_std の carried_over が持つ）。
+    """
+    print("台本: P3 の後に写しを取り直す——R には修正後、周の基準点は修正前のまま")
+    run = Run("retake")
+    nx = drive(run, "std", stop_at=lambda nx: any(i["node"] == "r2.compare" for i in nx["ready"]))
+    # **測るのは遮断系の側。** r2.compare は blind-judge（道具ゼロ）で、`file:loop.diff_file` として
+    # 差分の本文ごと貼られる——古ければ逃げ道が無い。道具を持つ役（r1.minimality の judge）は
+    # 自力で作業ツリーを読みに行けてしまうので、前後の差が出にくい（別セッションの実測 2026-09-16:
+    # 同じ run で judge は自力で読んで修正後の行を挙げ、blind-judge は「中身が渡されていないので
+    # 判定に数えていない。中身を渡して再判定されたい」と書いた）。
+    r2 = [i for i in nx["ready"] if i["node"] == "r2.compare"][0]
+    body = pathlib.Path(r2["prompt_file"]).read_text(encoding="utf-8")
+    check("# fixed in round 1" in body,
+          "遮断系（blind-judge）に貼られる本文に、P3 が実際に書いた行が入っている")
+    ls = json.loads((run.dir / "state.json").read_text(encoding="utf-8"))["loop"]
+    after = pathlib.Path(ls["diff_file"]).read_text(encoding="utf-8")
+    check("after-fix" in ls["diff_file"], f"R に渡る写しが P3 の後のもの（{pathlib.Path(ls['diff_file']).name}）")
+    check("# fixed in round 1" in after, "取り直した写しに、P3 が実際に書いた行が入っている")
+    check(ls.get("retaken_for_reviews"), "取り直したことが盤面に残る（痕跡なしで差し替えない）")
+    base = run.dir / "diff-r1.patch"
+    check(base.is_file() and "# fixed in round 1" not in base.read_text(encoding="utf-8"),
+          "周の基準点（diff-r1.patch）は上書きされていない（次の周の持ち越しの無効化がこれを読む）")
+    check(str(base) != ls["diff_file"], "基準点と R 用の写しが別のファイル")
     rm(run.tmp)
 
 

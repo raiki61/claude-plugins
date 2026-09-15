@@ -131,11 +131,46 @@ def get_path(obj, path):
 
 
 def set_path(obj, path, value):
+    """`a.b.c` と `a.2.b` で辿って書く。**get_path と同じ綴りを受ける**——読める形に書けないと、
+    手当ての口が黙って別の場所を作る（実測 2026-09-16: `questions[1]` を渡すと配列の要素ではなく
+    その名前の鍵が新設され、patch は ok を返した。当たっていない手当てが 2 回成功と報告され、
+    検証器が別の理由で落ちて初めて分かった）。
+
+    存在しない鍵は途中まで作る（辞書のみ）。リストの添字は**既に在る要素だけ**を指せる——
+    リストを伸ばす手当ては、順序の意味を回す側が決めることになるので受けない。
+    """
+    # **角括弧は受けない。** `questions[1]` は get_path が読めない綴りで、黙って通すと
+    # その名前の鍵が新設される（今回の事故そのもの）。書けない綴りはここで落とす。
+    if "[" in path or "]" in path:
+        raise KeyError(f"{path}: 添字は角括弧でなく点で書く（questions.1）——get_path が読める綴りだけを受ける")
     parts = path.split(".")
     cur = obj
-    for p in parts[:-1]:
-        cur = cur.setdefault(p, {})
-    cur[parts[-1]] = value
+    i = 0
+    while i < len(parts) - 1:
+        if isinstance(cur, dict):
+            for j in range(len(parts) - 1, i, -1):  # 鍵は最長一致で食う（節名に点が入る）
+                key = ".".join(parts[i:j])
+                if key in cur:
+                    cur = cur[key]
+                    i = j
+                    break
+            else:
+                cur = cur.setdefault(parts[i], {})
+                i += 1
+        elif isinstance(cur, list) and parts[i].isdigit() and int(parts[i]) < len(cur):
+            cur = cur[int(parts[i])]
+            i += 1
+        else:
+            raise KeyError(path)
+    last = parts[-1]
+    if isinstance(cur, list):
+        if not (last.isdigit() and int(last) < len(cur)):
+            raise KeyError(path)
+        cur[int(last)] = value
+    elif isinstance(cur, dict):
+        cur[last] = value
+    else:
+        raise KeyError(path)
 
 
 def has_path(obj, path):
