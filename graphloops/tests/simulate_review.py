@@ -646,6 +646,14 @@ def test_carried_r1_counted():
     # 対照: 1 件を unit に上げれば通る
     r = run.done(jd["id"], good, agent_id="judge-1")
     check(r.returncode == 0, f"前の周の削除候補を unit に上げれば通る（rc={r.returncode}: {r.stderr[-200:]})")
+    # **同じ post_check を共有する隣の節が巻き添えにならないこと。** judge_output は p2.diagnose と
+    # p2.history の 2 節が使うが、carried_r1 を schema に持つのは前者だけ。節を見ずに当てていたとき、
+    # 前の周の R1 が削除候補を 1 件でも挙げた周は p2.history が必ず落ち、しかも additionalProperties: false
+    # なので役には直す術が無かった（P2 が二度と通らない＝周が進まない。実測 2026-09-16）
+    nx = run.next()
+    hs = next(i for i in nx["ready"] if i["node"] == "p2.history")
+    r = run.done(hs["id"], t["p2.history"](None), agent_id="judge-1")
+    check(r.returncode == 0, f"carried_r1 を持たない隣の節（p2.history）は巻き添えで落ちない（rc={r.returncode}: {r.stderr[-200:]})")
 
 
 def test_held_fork_stops_exempting():

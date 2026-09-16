@@ -930,7 +930,12 @@ def judge_output(b, nid, out, item):
         errs.append(f"素材 '{name}' が awaiting_human なのに台帳に kind=awaiting で無い")
     if out.get("materials_missing"):
         errs.append("judge が素材の欠落を報告した（P2 を止めて当該 grader を再起動しろ）: " + ", ".join(out["materials_missing"]))
-    errs += _carried_r1_accounted(b, out)
+    # **義務を負うのは、その欄を持つ節だけ。** judge_output は p2.diagnose と p2.history の 2 節が共有するが、
+    # carried_r1 を schema に持つのは前者だけ。節を見ずに当てていたとき、前の周の R1 が削除候補を 1 件でも
+    # 挙げた周は p2.history が必ず落ち、しかも schema が additionalProperties: false なので役には直す術が
+    # 無かった（P2 が二度と通らない＝周が進まない。実測 2026-09-16、push した後に気づいた）。
+    if "carried_r1" in (b.graph["nodes"][nid].get("schema", {}).get("properties") or {}):
+        errs += _carried_r1_accounted(b, out)
     if errs:
         raise Reject("judge の返答が記録の語彙に合わない（judge に返させ直す）: " + "; ".join(errs))
 
