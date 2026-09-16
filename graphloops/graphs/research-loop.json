@@ -2053,7 +2053,6 @@
     "validation",
     "raw",
     "inputs.lang",
-    "inputs.document",
     "thickness"
    ],
    "outputs": [

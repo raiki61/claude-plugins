@@ -509,6 +509,11 @@ def test_graphcheck():
     broken(skills([{"skill": "  a"}]), "前後に空白", "skill 名の前後に空白がある graph は落ちる（照合の両側が同じ文字列でなくなる）")
     broken(skills([{"skill": "a", "required": "yes"}]), "真偽値", "required が真偽値でない graph は落ちる")
     broken(skills([{"args": "high"}]), "skill（名前）が無い", "名前の欄が無い skills の graph は落ちる")
+    # reads は「貼ってよい物の許可表」であって配り口ではない。穴が無ければ役に届かないので、
+    # 宣言だけ在る欄は静的に落とす（実測 2026-09-16: 届いていない reads が 6 件在り、そのうち
+    # prev.r1.minimality に「逐語で写せ」と課す柵を足したせいで 2 周目の P2 が永久に通らなくなるところだった）
+    broken(lambda b: b["nodes"]["p1.refuter"]["reads"].append("round"), "使う穴が prompt_file に無い",
+           "宣言だけ在って穴がどのプロンプトにも無い reads を持つ graph は落ちる")
     broken(lambda b: b["nodes"]["p1.checker"]["schema"].__setitem__("oneOf", []), "engine が読まない語", "schema に engine が読まない語（oneOf）を書いた graph は落ちる（書いても効かない語を黙って通さない）")
     # engine が実行に使う欄の綴り違い（文書欄 outputs の照合は通っても、実行では黙って素通りしていた）
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("from", "findingz"), "writes.from", "writes.from が schema に無い欄を指す graph は落ちる（記録に着地しない）")
@@ -1704,6 +1709,38 @@ def test_set_path():
     except KeyError as e:
         check("葉 1 つ" in str(e), "2 段以上の新設は落ちる（どちらの読みも成り立つ綴りを機械が選ばない）")
     check("p2" not in d["outputs"], "落ちた綴りが途中まで書き込まれていない")
+
+
+def test_carried_r1_only_previous_round():
+    """`前の周の R1` は `最後に走った R1` ではない。走らなかった周を挟んだら要求しない。
+
+    outputs は節ごとに最新の 1 件しか持たず、R1 は再発火条件付き（cond: loop.r1_refire）なので、
+    走らなかった周を挟むと数周前の出力が返る——処理済みの削除候補が次の周にも同じ顔で要求され、
+    judge には直す術が無い（実測 2026-09-16: judge がこの形を名指しした）。
+    """
+    print("carried_r1: 直前の周に走った R1 の削除候補だけを要求する")
+    sys.path.insert(0, str(PLUGIN))
+    import json as _json
+    from engine.rules import load_rules
+    gp = str(PLUGIN / "graphs" / "review-loop.json")
+    graph = _json.loads(pathlib.Path(gp).read_text(encoding="utf-8"))
+    m = load_rules(gp, graph)
+
+    class B:
+        pass
+
+    def board(ran_in_round):
+        b = B()
+        b.graph, b.round = graph, 3
+        b.state = {"outputs": {"r1.minimality": {"round": ran_in_round}}}
+        b.outputs = lambda before_round=None: {"r1.minimality": {"deletions": [{"where": "src/a.py:1 の注記", "why": "写し"}]}}
+        return b
+
+    out = {"units": [], "carried_r1": []}
+    errs = m._carried_r1_accounted(board(2), out)
+    check(errs and "carried_r1 に無い" in errs[0], "直前の周（round-1）に走った R1 の候補は要求する")
+    errs = m._carried_r1_accounted(board(1), out)
+    check(errs == [], "2 周前の R1 の候補は要求しない（走らなかった周を挟んだら黙って持ち越さない）")
 
 
 def test_parse_output():

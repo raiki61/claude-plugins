@@ -240,9 +240,16 @@ def answers(run, scenario, rnd):
             return [{"key": f"src/a.py:f — 周 {rnd} に見つかった新しい欠陥", "label": "block", "class_query": CQ()}]
         if scenario == "deferjudge" and rnd == 1:  # judge が defer を返す筋（以前の台本は一度も返さず、rules の defer の腕が観測できなかった）
             return [unit_block, {**unit_donow, "disposition": "defer", "reason": "処方が共有面（キャッシュ層）に及ぶ（検査用）"}]
+        if scenario in ("forkhold", "forkesc"):
+            return [unit_block]          # 同じ出どころを毎周開けたまま置く（免除の期限を見る筋書き）
         return [unit_block, unit_donow] if rnd == 1 else []
 
     def questions_for(rnd):
+        if scenario in ("forkhold", "forkesc"):
+            # 同じ問いを毎周立て続ける。forkesc は 2 周目で escalate（人に届く形）へ上げる
+            st = "escalate" if (scenario == "forkesc" and rnd > 1) else "held"
+            return [{"key": "どちらに倒すか（検査用）", "kind": "fork", "status": st,
+                     "reason": "人が決める分岐（検査用）", "origin": unit_block["key"], "options": ["a", "b"]}]
         if scenario == "premise_resolved":
             # 立った周は機械が held で載せる（検証器の要求）。次の周の judge が、回し直した R2 を見て resolved に確定する
             q = next((x for x in prev_q if x.get("kind") == "premise" and x.get("status") == "held"), None)
@@ -657,43 +664,42 @@ def test_carried_r1_counted():
 
 
 def test_held_fork_stops_exempting():
-    """held の fork は出どころの [block] を 1 周だけ免除する。2 周目からは escalate だけが免除を持つ。
+    """fork が出どころの [block] を免除するのは 1 周だけ。2 周目からは escalate（人に実際に届く形）に上げる。
 
     直した面: fork の出どころと depends は fix_covers_open_units が無条件に免除していたので、
-    held のまま持ち越せば [block] を何周でも未着手にできた（実測 2026-09-16、別リポジトリの run:
-    出どころを自分の depends にも挙げた held の fork が、今すぐやる作業を何周も保持した）。
-    held は「判定者がまだ考えている」で人には届いていない——届く形（escalate）に上げれば免除は続く。
+    held のまま持ち越せば [block] を何周でも未着手にできた（実測 2026-09-16、別リポジトリの run）。
+
+    **柵は judge の手前に置く。** 最初これを P3 に置いたが、writer には questions を書く権限が無く、
+    同じ周の p2 は既に done で再実行できず、p3.fix は optional でないので skip もできない——正本の
+    プロンプトが「fork の出どころは実装するな」と言う所で機械が「実装しろ」と言い、writer の手が
+    無くなった（実測 2026-09-16: judge が [block] として名指しした）。義務は動ける役の手前に置く。
+
+    **持ち越しは機械（on_new_round）に作らせる。** 手で prev_questions を patch していたとき、それを
+    書く経路を 1 度も通っておらず、その 1 行を消す退行が緑で通った（実測 2026-09-16）。
     """
     print("台本: held の fork の免除は 1 周で切れる（escalate なら続く）")
-    run = Run("forkhold")
     at = lambda node, rnd: (lambda nx: nx["round"] == rnd and any(i["node"] == node for i in nx["ready"]))
-    drive(run, "std", stop_at=at("p3.fix", 1))
-    rec = run.record()
-    key = next(u["key"] for u in rec["units"] if u["label"] == "block")
-    # 前の周にも同じ問いが held で在った状態を作る（持ち越しの実物と同じ形）
-    q = {"key": "どちらに倒すか", "kind": "fork", "status": "held", "reason": "人が決める", "origin": key, "options": ["a", "b"]}
-
-    def put(qs):
-        f = run.tmp / "q.json"
-        f.write_text(json.dumps(qs, ensure_ascii=False), encoding="utf-8")
-        for path in ("questions", "state.loop.prev_questions"):
-            r = run.cmd("patch", "--path", path, "--file", str(f), "--reason", "検査: 持ち越した fork を作る")
-            if r.returncode != 0:
-                raise SystemExit(f"台本の前提が崩れた: patch {path} が {r.returncode}: {r.stderr[-200:]}")
-    put([q])
+    # forkhold は毎周 held、forkesc は 2 周目に escalate へ上げる。どちらも出どころは同じ unit
+    run = Run("forkhold")
+    drive(run, "forkhold", stop_at=at("p2.diagnose", 2))
+    ls = run.state()["loop"]
+    check(any(x.get("kind") == "fork" for x in (ls.get("prev_questions") or [])),
+          "持ち越しは機械（on_new_round）が写した——台本が手で置いたのではない")
     nx = run.next()
-    fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
-    t = answers(run, "std", run.state()["round"])
-    empty = {**t["p3.fix"](None), "changes": [], "not_done": [], "interactions": [],
-             "fix_closure": {"status": "not_applicable", "reason": "直していない（検査用）"}}
-    r = run.done(fx["id"], empty)
-    check(r.returncode == 1 and "held のまま 2 周目" in r.stderr,
-          f"held のまま持ち越した fork は出どころを免除しない（rc={r.returncode}）")
-    # 対照: 同じ問いを escalate に上げれば免除は続く
-    put([{**q, "status": "escalate"}])
-    r = run.done(fx["id"], empty)
-    check(r.returncode == 0 or "held のまま 2 周目" not in r.stderr,
-          "escalate（人に届く形）に上げれば免除は続く")
+    jd = next(i for i in nx["ready"] if i["node"] == "p2.diagnose")
+    t = answers(run, "forkhold", 2)
+    r = run.done(jd["id"], t["p2.diagnose"](None), agent_id="judge-1")
+    check(r.returncode == 1 and "前の周も fork で免除されていた" in r.stderr,
+          f"held のまま 2 周目に入った fork は judge に返させ直す（rc={r.returncode}: {r.stderr[-200:]})")
+    # 対照: 同じ出どころでも escalate（人に実際に届く形）なら通る。**rc だけを要求する**
+    # ——以前は否定の連言（rc==0 or 文言が無い）で書いていたので、別の理由で落ちても緑だった
+    run2 = Run("forkesc")
+    drive(run2, "forkesc", stop_at=at("p2.diagnose", 2))
+    nx2 = run2.next()
+    jd2 = next(i for i in nx2["ready"] if i["node"] == "p2.diagnose")
+    t2 = answers(run2, "forkesc", 2)
+    r = run2.done(jd2["id"], t2["p2.diagnose"](None), agent_id="judge-1")
+    check(r.returncode == 0, f"escalate に上げれば通る（rc={r.returncode}: {r.stderr[-200:]})")
 
 
 def test_rejections():

@@ -150,6 +150,24 @@ def agent_names(g):
     return {p.stem for p in pathlib.Path(d).glob("*.md")} if d else None
 
 
+def unused_reads(nid, node, holes):
+    """`reads` に在るのに、その節のプロンプトのどの穴も使っていない欄を落とす。
+
+    **`reads` は貼ってよい物の許可表であって、配り口ではない。** 穴が無ければ値は役に届かない。
+    以前は「穴 ⊆ reads」の片方向しか見ていなかったので、宣言だけ在って誰にも届いていない欄が
+    静的にも実行時にも赤くならなかった（実測 2026-09-16: prev.r1.minimality・prev.r3.coherence・
+    prev.r4.hidden_scope の 6 件。前の周の独立の目の判定は、次の周の判定者にも直す手にも
+    1 度も渡っていなかった。そこへ「前の周の R1 の where を逐語で写せ」と課す柵を足したので、
+    削除候補が 1 件でも出た run は 2 周目の P2 が永久に通らなくなるところだった）。
+    """
+    errs = []
+    for r in node.get("reads") or []:
+        if not any(h == r or h.startswith(r + ".") or h.split(":")[-1].startswith(r) for h in holes):
+            errs.append(f"節 {nid}: reads の '{r}' を使う穴が prompt_file に無い——"
+                        "reads は許可表であって配り口ではないので、この欄は役に届かない（穴を書くか reads から落とせ）")
+    return errs
+
+
 SKILL_KEYS = {"skill", "args", "note", "required"}
 
 
@@ -542,6 +560,8 @@ def main():
             errs.append(f"節 {k}: fresh_context なのに record 全体を読む（判定と見立てが丸ごと渡る）")
         anc = ancestors(nodes, k)
         tpl = (gpath.parent / pf).read_text(encoding="utf-8")
+        # **逆向きも見る。** 穴 ⊆ reads だけでは、宣言だけ在って誰にも届いていない欄が赤くならない
+        errs += unused_reads(k, v, {m.group(2).strip() for m in TOKEN.finditer(tpl)})
         for m in TOKEN.finditer(tpl):
             path = m.group(2).strip()
             core = strip_prefix(path)

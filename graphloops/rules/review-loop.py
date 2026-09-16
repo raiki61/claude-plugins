@@ -343,7 +343,33 @@ def numstat_totals(text):
     切り出した理由: 同じ式を検査が写して持っていて、**実装を変えても検査が落ちなかった**
     （実測 2026-09-13: `and` を `or` に変える退行を注入しても全件緑——検査が自分のコピーを測っていた）。
     """
-    rows = [ln.split("\t") for ln in text.splitlines() if ln.strip()]
+    if "\0" in text:
+        # **`-z` で引いた出力。** 既定の出力は非 ASCII のパスを C クオート（"\346\227\245…"）で、改名を
+        # `old => new` で出す——どちらもファイルとして開けない綴りで、この一覧は今や /code-review に渡す
+        # 対象そのものなので、レンズは開けないパスを渡されて「見たが所見なし」と同じ形の返答をする
+        # （実測 2026-09-16: git 2.50.1 既定で `"\346\227\245…"` と `a.txt => b.txt` の両方を再現）。
+        # `-z` はクオートせず、改名を NUL で 2 本の名前に割る。**改名は新しい側を採る**（レビュー対象は今の姿）。
+        rows, i = [], 0
+        parts = text.split("\0")
+        while i < len(parts):
+            head = parts[i]
+            if not head.strip():
+                i += 1
+                continue
+            cols = head.split("\t")
+            if len(cols) == 3 and cols[2] == "":      # 改名: ins \t dels \t "" \0 old \0 new
+                if i + 2 >= len(parts):
+                    break
+                rows.append([cols[0], cols[1], parts[i + 2]])
+                i += 3
+            elif len(cols) == 3:
+                rows.append(cols)
+                i += 1
+            else:
+                rows.append(cols)
+                i += 1
+    else:
+        rows = [ln.split("\t") for ln in text.splitlines() if ln.strip()]
     full = [r for r in rows if len(r) == 3]
     names = "\n".join(r[2] for r in full)
     ins = sum(int(r[0]) for r in full if r[0].isdigit())
@@ -374,14 +400,16 @@ def _take_diff(b, suffix=""):
     # numstat 1 本で変更ファイルと行数の両方を取る（name-only と shortstat の 2 プロセスは冗長）。
     # 対象差分は**生バイトで 1 度だけ**引く（写し・突合の sha・空の検査の 3 つが同じ値を使う）。
     raw_diff = git_bytes("diff", base)
-    numstat = git("diff", "--numstat", base)
+    numstat = git("diff", "--numstat", "-z", base)  # -z: クオートせず、改名を 2 本の名前に割る（開けない綴りを一覧に入れない）
     missing = sorted(k for k, v in (("diff", raw_diff), ("numstat", numstat)) if v is None)
     if missing:
         return {"ok": False, "problems": [f"git が取れない（{', '.join(missing)}）——BASE={base} の対象差分が測れない場所からは回せない"]}
     # 対象差分が空なら止める。空を通すと、素材が毎周 not_run（理由は事実と逆）で埋まったまま上限まで回る
     # （実測: BASE=HEAD で 5 周・diff 0 バイト・stop_reason=max_rounds、原因は記録のどこにも出ない）。
     if not raw_diff.strip():
-        return {"ok": False, "problems": [f"対象差分が空（git diff {base} が 0 バイト）——BASE を確かめよ（p0.base の base_sha）"]}
+        why = ("BASE を確かめよ（p0.base の base_sha）" if not suffix else
+               "P3 の修正が差分を全部戻した可能性がある（零処方『欠陥を持ち込んだ変更ごと取り下げる』）——BASE ではなく修正の内容を見よ")
+        return {"ok": False, "problems": [f"対象差分が空（git diff {base} が 0 バイト）——{why}"]}
     names, ins, dels, nfiles = numstat_totals(numstat)
     f = b.dir / f"diff-r{b.round}{suffix}.patch"
     # **写しは生バイトで書く。** 復号した str を UTF-8 で書き戻すと、復号できないバイトが U+FFFD（UTF-8 で 3 バイト）
@@ -406,12 +434,16 @@ def worktree_snapshot(b, nid):
     stash = git("stash", "list")
     if stash is None:
         return {"ok": False, "problems": ["git stash list が取れない——作業ツリーの保護（前後の突合）が測れない場所からは回せない"]}
-    d = _take_diff(b)
-    if not d["ok"]:
-        return d
+    # **写しを書く前に柵を全部通す。** 統合前はこの順だった——後ろに回すと、git status が取れずに
+    # ok:False を返す回でも .patch と changed-*.txt が既に在り、loop_state の 5 鍵も更新済みになる
+    # （今は worktree_compare が porcelain の None で fail-closed に倒れるので黙る穴には届いていないが、
+    # 統合で失われた順序である。実測 2026-09-16・静的）
     snap = b.porcelain()
     if snap is None:
         return {"ok": False, "problems": ["git status が取れない——作業ツリーの保護（前後の突合）ができない場所からは回せない"]}
+    d = _take_diff(b)
+    if not d["ok"]:
+        return d
     # diff 本文の sha も突合に入れる。porcelain は状態コードとパスだけなので、**既に ' M' のファイルの
     # 中身を差し替えても検知しない**——レビュー対象は定義上ぜんぶ変更済みなので、これが無いと保護は
     # 対象そのものに効かない（agents/investigator.md はこの突合を「担保」と名乗っている）。
@@ -815,6 +847,13 @@ def _carried_r1_accounted(b, out):
     数え方は宣言レンズと同じ形にしてある——**照合の両側が同じ文字列**（judge は where を逐語で写す）。
     綴りを寄せる正規化の段は置かない。置けば、その規則自体が誰も決めていない未定義物になる。
     """
+    # **「前の周の R1」は「最後に走った R1」ではない。** outputs は節ごとに最新の 1 件しか持たず、
+    # R1 は再発火条件付き（cond: loop.r1_refire）なので、走らなかった周を挟むと数周前の出力が返る
+    # ——処理済みの削除候補が次の周にも同じ顔で要求される（実測 2026-09-16・静的。嘘の緑ではなく
+    # 要求が過剰に出る向きだが、役には直す術が無い形なので同じく止まる）。直前の周のものだけを見る。
+    info = (b.state.get("outputs") or {}).get("r1.minimality") or {}
+    if info.get("round") != b.round - 1:
+        return []
     prev = b.outputs(before_round=b.round).get("r1.minimality") or {}
     want = [d["where"] for d in prev.get("deletions", []) if isinstance(d, dict) and d.get("where")]
     rows = out.get("carried_r1") or []
@@ -838,6 +877,39 @@ def _carried_r1_accounted(b, out):
         if w not in seen:
             errs.append(f"前の周の R1 が挙げた '{w}' の行が carried_r1 に無い——unit に上げるか、落とす理由を書け。"
                         "**行を省くな**（省けるなら、読んだ上で黙って落とせていた元の穴に戻る）")
+    return errs
+
+
+def _fork_moves_forward(b, out):
+    """fork が出どころの [block] を免除するのは 1 周だけ。2 周目からは escalate（人に実際に届く形）に上げろ。
+
+    **義務は動ける役の手前に置く。** 最初この柵を P3（fix_covers_open_units）に置いたが、writer には
+    questions を書く権限が無く、同じ周の p2 は既に done で再実行できず、p3.fix は optional でないので
+    skip もできない——正本のプロンプトが「fork の出どころは実装するな」と言う所で機械が「実装しろ」と
+    言い、writer の手が無くなった（実測 2026-09-16: judge が [block] として名指しした）。
+    questions を書けるのは p2 の節なので、ここで返させ直す。
+
+    突き合わせるのは問いの key でなく**免除される対象**（origin と depends）。key は自然文で毎周
+    judge が書き直すので、少し言い換えるだけで「新しい fork」になり免除が更新される——しかも記録に
+    痕跡が残らない。対象は unit の key なので綴りが安定している。
+    """
+    V = validator_module(b)
+    prev_exempt = set()
+    for q in (b.loop_state.get("prev_questions") or []):
+        if q.get("kind") == "fork" and q.get("status") in V.ASKING:
+            prev_exempt |= {q.get("origin")} | set(q.get("depends", []) or [])
+    prev_exempt.discard(None)
+    if not prev_exempt:
+        return []
+    errs = []
+    for i, q in enumerate(out.get("questions", [])):
+        if q.get("kind") != "fork" or q.get("status") != "held":
+            continue
+        again = ({q.get("origin")} | set(q.get("depends", []) or [])) & prev_exempt
+        if again:
+            errs.append(f"questions[{i}]（fork）の出どころ {sorted(again)} は前の周も fork で免除されていた——"
+                        "held のまま 2 周目に入ると、人には何も届かないまま [block] が未着手で通り続ける。"
+                        "escalate に上げて人に聞くか、decided / resolved に倒せ")
     return errs
 
 
@@ -934,8 +1006,19 @@ def judge_output(b, nid, out, item):
     # carried_r1 を schema に持つのは前者だけ。節を見ずに当てていたとき、前の周の R1 が削除候補を 1 件でも
     # 挙げた周は p2.history が必ず落ち、しかも schema が additionalProperties: false なので役には直す術が
     # 無かった（P2 が二度と通らない＝周が進まない。実測 2026-09-16、push した後に気づいた）。
-    if "carried_r1" in (b.graph["nodes"][nid].get("schema", {}).get("properties") or {}):
-        errs += _carried_r1_accounted(b, out)
+    # **義務は入力に従う（fail-closed）。** 前の周の R1 を読む節は carried_r1 を持たなければならない。
+    # 「schema に在れば数える」だけだと、欄を落とすだけで柵が黙って消える——engine は graphcheck を
+    # 一度も呼ばないので（init --graph <任意のパス> は静的検査を通さない graph も受ける）、
+    # 同じ差分の local_review_covers_lenses が fail-closed を選んだ理由がこちらにもそのまま当たる。
+    errs += _fork_moves_forward(b, out)
+    nd = b.graph["nodes"][nid]
+    declares = "carried_r1" in (nd.get("schema", {}).get("properties") or {})
+    if "prev.r1.minimality" in (nd.get("reads") or []):
+        if not declares:
+            errs.append(f"{nid} は prev.r1.minimality を読むのに schema に carried_r1 が無い——"
+                        "前の周の削除候補を数える口が消える（graph を直せ）")
+        else:
+            errs += _carried_r1_accounted(b, out)
     if errs:
         raise Reject("judge の返答が記録の語彙に合わない（judge に返させ直す）: " + "; ".join(errs))
 
@@ -943,24 +1026,16 @@ def judge_output(b, nid, out, item):
 def fix_covers_open_units(b, nid, out, item):
     """[block] と do-now は必ず直す。fork の出どころ・depends だけは待ってよい。"""
     V = validator_module(b)
-    fork_targets, lapsed = set(), {}
-    # **免除は 1 周だけ。** fork は「どちらに倒すかを人が決める」問いなので、その答えが出るまで出どころの
-    # [block] を待たせてよい——ただし待ちが前に進んでいる間だけ。status=held は「判定者がまだ考えている」で、
-    # escalate（人に実際に聞く形。awaiting_human で表に出る）とは違う。held のまま次の周に持ち越された fork は、
-    # 人に届かないまま出どころを免除し続ける形になる（実測 2026-09-16、別リポジトリの run: 出どころを自分の
-    # depends にも挙げた held の fork が、今すぐやる作業を何周も未着手のまま保持した）。
-    # 2 周目からは escalate だけが免除を持つ——判定者が「人でないと決められない」と確定させれば、
-    # 人に届き、答えが返る道が在る。
-    prev_asking = {q.get("key") for q in (b.loop_state.get("prev_questions") or []) if q.get("status") in V.ASKING}
+    fork_targets = set()
+    # **fork の出どころは待ってよい。** 待ちが前に進んでいるかを見るのは judge の側（_fork_moves_forward）
+    # ——ここで止めると、正本のプロンプト（p3.fix.md「fork の origin か depends に挙がったユニットは実装するな」）
+    # と機械が逆を言い、しかも writer には questions を書く権限が無く、同じ周の p2 は既に done で再実行できず、
+    # p3.fix は optional でないので skip もできない＝周が詰む（実測 2026-09-16: judge が [block] として名指しした）。
+    # 義務は、動ける役の手前に置く。
     for q in b.record["questions"]:
-        if q.get("kind") != "fork" or q.get("status") not in V.ASKING:
-            continue
-        targets = {q.get("origin")} | set(q.get("depends", []) or [])
-        if q.get("key") in prev_asking and q.get("status") != "escalate":
-            for t in targets:
-                lapsed[t] = q.get("key")
-            continue
-        fork_targets |= targets
+        if q.get("kind") == "fork" and q.get("status") in V.ASKING:
+            fork_targets.add(q.get("origin"))
+            fork_targets.update(q.get("depends", []) or [])
     changed = {c["unit_key"] for c in out["changes"]}
     waiting = {c["unit_key"]: c["why"] for c in out.get("not_done", [])}
     missing = []
@@ -970,11 +1045,6 @@ def fix_covers_open_units(b, nid, out, item):
         if u["key"] in changed:
             continue
         if u["key"] in fork_targets:
-            continue
-        if u["key"] in lapsed and u["key"] not in changed:
-            missing.append(f"{u['key']}——出どころの fork『{lapsed[u['key']]}』が held のまま 2 周目に入った。"
-                           "held は判定者がまだ考えている状態で、人には届いていない。"
-                           "直すか、その問いを escalate に上げて人に聞け（escalate なら免除は続く）")
             continue
         if u["key"] in waiting:
             missing.append(f"{u['key']}（理由: {waiting[u['key']]}）——fork の出どころでないなら直す義務がある")

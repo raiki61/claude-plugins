@@ -1345,7 +1345,6 @@
    "reads": [
     "loop.diff_file",
     "loop.changed_files",
-    "record.base",
     "inputs.review_md",
     "out.p0.purpose.purpose_text",
     "out.p0.purpose.known_weaknesses",
@@ -2663,6 +2662,12 @@
     },
     {
      "op": "set",
+     "to": "process.carried_r1",
+     "from": "carried_r1",
+     "note": "前の周の R1 の削除候補をどう始末したか。out/ にしか残らないと、検証器も最終報告も次の周の fresh な judge も読めず、decline の理由が誰にも監査されないまま同じ候補が毎周ゼロから再審される（実測 2026-09-16・静的）"
+    },
+    {
+     "op": "set",
      "to": "process.diagnosis",
      "from": "$",
      "pick": [
@@ -3643,7 +3648,9 @@
        "additionalProperties": false,
        "properties": {
         "where": {
-         "type": "string"
+         "type": "string",
+         "minLength": 1,
+         "note": "照合される側（p2.diagnose.carried_r1[].where）は minLength を持つのに、正本のこちらが持たないと、空文字が schema を通ったうえで数える口から黙って落ち、次の周の judge はその候補について 1 行も書かなくてよくなる（実測 2026-09-16・静的）"
         },
         "why": {
          "type": "string"
