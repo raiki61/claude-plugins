@@ -107,6 +107,16 @@ def launch_prefix():
     return [sys.executable, str(PLUGIN_ROOT / "scripts" / "with-auth.py")]
 
 
+def _same_path(got, want):
+    r"""同じ物を指す綴りか。graph の via は `{plugin_root}/scripts/with-auth.py` と書かれているので、
+    Windows では埋めた後に区切りが混ざる（`D:\a\...\graphloops/scripts/with-auth.py`）。文字列の等値で
+    見ると、同梱の層そのものを指していても撥ねる（実測 2026-09-16: windows-latest だけで engine の
+    起動 3 件が赤かった）。**柵は緩まない**——normcase / normpath が揃えるのは区切りと大小だけで、
+    `..` を挟んで外へ出た綴りは揃えても別物のまま。ファイルシステムは見ない（symlink や
+    hardlink で「同じ物」に化ける経路を柵の中に入れない）。"""
+    return os.path.normcase(os.path.normpath(got)) == os.path.normcase(os.path.normpath(want))
+
+
 def launch_refusal(inst):
     """起こせない理由（起こしてよければ None）。**理由は回す側に見せる**——黙って飛ばさない。"""
     launch = inst.get("launch") or {}
@@ -114,7 +124,7 @@ def launch_refusal(inst):
     if launch.get("missing"):
         return f"この環境に {launch['missing']} が無い（PATH を確かめるか、人が起こす）"
     want = launch_prefix()
-    if argv[:len(want)] != want:
+    if len(argv) < len(want) or not all(_same_path(g, w) for g, w in zip(argv, want)):
         return (f"engine が起こしてよい前置ではない（graph の launch.isolated.via が {want} を指していない）"
                 f"——先頭は {argv[:2]}")
     for flag, val in ISOLATION_FLAGS:

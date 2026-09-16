@@ -62,6 +62,13 @@ expect_output() {
     local got
     got=$("$@" 2>&1)
     local got_exit=$?
+    # **CRLF は差ではない。** Windows の Python は標準出力の \n を \r\n にして出すので、複数行の
+    # 期待文字列（$'…\n…'）がどれも一致しなくなる（実測 2026-09-16: windows-latest だけで記録レンズの
+    # 2 件が赤かった——中身は同じで、見えない \r が行末に付いていただけ）。CR を全部落とすのではなく
+    # CRLF だけを畳む: 行の中に \r が残ること自体を見ている腕（CRLF で届く本文の検査）を消さない。
+    # 末尾の 1 つは別に見る——$() が改行を落とした後なので、そこに \r だけが残る。
+    got=${got//$'\r'$'\n'/$'\n'}
+    got=${got%$'\r'}
     ran=$((ran + 1))
     if [ "$got_exit" != "$want_exit" ]; then
         echo "  FAIL $desc — exit $want_exit を期待したが $got_exit: $got"
@@ -1681,10 +1688,27 @@ CR_STUB_FAIL='cat >/dev/null; exit 1'
 # 門番を module として読む前置きと、deny 理由を取り出す前置き(-c の頭に付ける)
 CR_LOAD='import importlib.util,sys
 spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)'
-# .sh を bash 経由で起こす——Windows は .sh を実行ファイルとして起動できず WinError 193 で落ちた（実測: CI の windows-latest）
-CR_REASON='import json,sys,subprocess
-out = subprocess.run(["bash", *sys.argv[1:]], capture_output=True, encoding="utf-8", timeout=60).stdout
-reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]'
+# deny 理由そのものを読む検査の口。ケースの stdout（フックの JSON）をパイプで受ける。
+# **Python から bash を起こして引数で渡すな。** 改行を含む引数（ヒアドキュメントの投稿）は
+# Windows で切り落とされ、ゲートは本文の無いコマンドを見て「投稿でない」と素通しにする
+# （実測 2026-09-16: windows-latest だけでこの口を使う 2 件が赤く、同じケースを直に起こす
+# 隣の検査は緑だった。JSON でなく ALLOW_EMPTY が返っていた）。
+# 読めなかったときは生の出力を添えて落ちる——JSON の例外だけでは、素通しなのか壊れたのかが分からない。
+CR_REASON='import json,sys
+raw = sys.stdin.read()
+try:
+    reason = json.loads(raw)["hookSpecificOutput"]["permissionDecisionReason"]
+except Exception as e:
+    sys.exit("deny の JSON が読めない(%s): %r" % (e, raw[:200]))'
+
+# 使い方: cr_reason <session|-> <判定の python 1 行> <ケースの起動...>
+# 本体（()）を副シェルにして、session の環境変数を後続の検査に残さない。
+cr_reason() (
+    sid=$1 check=$2
+    shift 2
+    [ "$sid" = "-" ] || export COLDREAD_TEST_SESSION="$sid"
+    "$@" | "$PY_BIN" -c "$CR_REASON"$'\n'"$check"
+)
 
 echo "coldread ゲート:"
 expect_output 0 "ALLOW_EMPTY" "投稿以外の長いコマンドは素通し" \
@@ -2062,7 +2086,7 @@ CR_SID_CFG="$WORK/coldread-cfg-sid"; mkdir -p "$CR_SID_CFG"
 COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "SID_ISOLATED" "他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない" \
-    env COLDREAD_TEST_SESSION=bbbb2222 "$PY_BIN" -c "$CR_REASON"$'\n''print("SID_ISOLATED" if "回連続" not in reason else "BAD: " + reason[:120])' \
+    cr_reason bbbb2222 'print("SID_ISOLATED" if "回連続" not in reason else "BAD: " + reason[:120])' \
     "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 COLDREAD_TEST_SESSION=bbbb2222 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 $CR_POST" >/dev/null 2>&1
 expect_output 0 "3 回連続で止まっている" "他セッションの skip を挟んでも、自分の 3 回目で案内が出る" \
@@ -2214,7 +2238,7 @@ expect_output 0 " → " "3 回連続 deny で本文が増えていれば、1 回
 expect_output 0 "最初の本文に戻し" "3 回連続 deny の案内は、最初の本文に戻してから出せと言う" \
     "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
 expect_output 0 "HEAD_OK" "3 回連続 deny の案内は deny 理由の先頭に在る" \
-    "$PY_BIN" -c "$CR_REASON"$'\n''print("HEAD_OK" if reason.startswith("【") and "足して直さない" in reason[:80] else "BAD: " + reason[:120])' \
+    cr_reason - 'print("HEAD_OK" if reason.startswith("【") and "足して直さない" in reason[:80] else "BAD: " + reason[:120])' \
     "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
 
 # ---- destgate: 投稿先の許可一覧(coldread と独立の軸。一覧が無ければ眠る) ----

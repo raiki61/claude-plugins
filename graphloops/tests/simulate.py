@@ -1046,6 +1046,17 @@ def test_engine_launch():
         check(want in why, f"{want} が違えば engine は起こさない（{why[:70]}）")
     why = launch_refusal({"launch": {**good["launch"], "missing": "claude"}}) or ""
     check("この環境に" in why, f"claude の無い環境では起こさず、その旨を返す（{why[:50]}）")
+    # **綴りの違いは別物ではない。** graph の via は `{plugin_root}/scripts/with-auth.py` と書かれている
+    # ので、埋めた後の argv は区切りが混ざる（Windows では `D:\a\…\graphloops/scripts/with-auth.py`）。
+    # 文字列の等値で見ていたので、同梱の層そのものを指していても撥ねていた（実測 2026-09-16:
+    # windows-latest だけで起動の 3 件が赤かった）。**どの OS でも赤くなる形で固定する**——`.` を挟んだ
+    # 綴りは同じ層、`..` で外へ出た綴りは別物（柵が緩んでいないことを対で見る）
+    for spelling, same in ((os.path.join(str(PLUGIN), "scripts", ".", "with-auth.py"), True),
+                           (os.path.join(str(PLUGIN), "scripts", "..", "..", "evil.py"), False)):
+        argv = [launch_prefix()[0], spelling, "claude", "--tools", "", "--setting-sources", ""]
+        why = launch_refusal({"launch": {"argv": argv, "stdin": str(fake)}})
+        check((why is None) == same,
+              f"{'同じ層を指す綴りなら起こす' if same else '外へ出た綴りは撥ねる'}（{why or 'ok'}）")
     rm(run.tmp)
 
 

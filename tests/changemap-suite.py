@@ -3,7 +3,8 @@
 
 固定するのは「材料 → 出力」の規則だけ: diff の分解（引用形の日本語 path・改名・' b/' を含む path・
 削除・バイナリ）、先頭コメント / docstring の取り方と切れの申告、骨組みの正規表現、名前の言及、
-変更の枠（今の姿に帯）、木の描画と周辺の選び方、git status --porcelain の読み方。
+変更の枠（今の姿に帯）、木の描画と周辺の選び方、git status --porcelain の読み方、remote URL の
+末尾（owner/name）の読み方と差し替え。
 """
 
 import importlib.util
@@ -563,6 +564,33 @@ class Literals(unittest.TestCase):
         self.assertEqual(cm.common_indent(["x", "  y"]), "")
         self.assertEqual(cm.common_indent([]), "")
         self.assertEqual(cm.dedent(["  a"], ""), ["  a"])
+
+
+class Remote(unittest.TestCase):
+    r"""remote URL の末尾（owner/name）。**区切りは `/` だけではない。** Windows の checkout では
+    remote が `C:\...\o\r.git` の形で来るので、`/` 固定だと末尾が取れず、origin が当のリポジトリでも
+    「別のリポジトリ」と読まれて /catchup --switch が何もしない（実測 2026-09-16: windows-latest だけで
+    6 件が赤かった）。どの OS でも赤くなるように、区切りの字を材料に持つ純関数で固定する。"""
+
+    WIN = r"C:\Users\RUNNER~1\AppData\Local\Temp\tmp1\o\r.git"
+
+    def test_origin_is_reads_both_separators(self):
+        for url in ("https://github.com/o/r.git", "git@github.com:o/r.git",
+                    "https://github.com/o/r/", "ssh://git@github.com/o/r", self.WIN):
+            self.assertTrue(cm.origin_is(url, "O", "R"), url)   # 大小は無視する
+        # 部分一致で拾わない（org/platform-docs を org/platform と読むと別リポジトリが混ざる）
+        self.assertFalse(cm.origin_is("https://github.com/org/platform-docs", "org", "platform"))
+        self.assertFalse(cm.origin_is(self.WIN, "tmp1", "o"))
+
+    def test_swap_repo_keeps_the_separator_it_found(self):
+        # scheme・host・.git はそのまま。`\` の path に `/` を混ぜない（混ぜると、書いた追跡先が
+        # gh pr checkout の値と 1 字違いになる）
+        self.assertEqual(cm.swap_repo("https://github.com/o/r.git", "other/r"),
+                         "https://github.com/other/r.git")
+        self.assertEqual(cm.swap_repo("git@github.com:o/r.git", "other/r"),
+                         "git@github.com:other/r.git")
+        self.assertEqual(cm.swap_repo(self.WIN, "other/r"),
+                         self.WIN.replace(r"\o\r.git", r"\other\r.git"))
 
 
 if __name__ == "__main__":

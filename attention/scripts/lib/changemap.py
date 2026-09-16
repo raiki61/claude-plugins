@@ -691,22 +691,28 @@ def origin_url(top):
 
 
 # remote URL の末尾「<区切り><owner>/<name>[.git]」。読む（origin_is）のと差し替える（swap_repo）のとで
-# 同じ形を 2 度書かないための 1 本——ssh の : ・.git・末尾 / の扱いが、片方だけ直る余地を無くす
-REPO_TAIL = re.compile(r"([:/])([^/:]+)/([^/]+?)(\.git)?/?$")
+# 同じ形を 2 度書かないための 1 本——ssh の : ・.git・末尾 / の扱いが、片方だけ直る余地を無くす。
+# **区切りに `\` も数える。** Windows の checkout では remote が `C:\...\o\r.git` の形で来るので、
+# `/` 固定だと末尾が取れず、origin が当のリポジトリでも「手元の origin が o/r でない」と読んで
+# --switch が何もしない（実測 2026-09-16: windows-latest だけで catchup --switch の 6 件が赤かった）。
+# owner と name の間の区切りは group に取り、swap_repo が同じ字で書き戻す（`\` の path に `/` を混ぜない）
+REPO_TAIL = re.compile(r"([:/\\])([^/\\:]+)([/\\])([^/\\]+?)(\.git)?[/\\]?$")
 
 
 def origin_is(url, owner, name):
     """url が owner/name か。末尾 2 セグメントの等値で見る——部分一致だと org/platform-docs の
     checkout を org/platform と誤認し、別リポジトリの名前が「同じ階層の既存」に混ざる（実測）。"""
     m = REPO_TAIL.search(url.strip())
-    return bool(m) and (m.group(2).lower(), m.group(3).lower()) == (owner.lower(), name.lower())
+    return bool(m) and (m.group(2).lower(), m.group(4).lower()) == (owner.lower(), name.lower())
 
 
 def swap_repo(url, repo):
     """remote URL の owner/name を repo（"owner/name"）に差し替える。scheme・host・.git はそのまま
     （/catchup が origin の URL から fork の URL を作る。API の url を使わないのは、origin と同じ
     scheme・認証を引き継ぐため）。"""
-    return REPO_TAIL.sub(lambda m: m.group(1) + repo + (m.group(4) or ""), url.strip())
+    owner, _, name = repo.partition("/")
+    return REPO_TAIL.sub(
+        lambda m: m.group(1) + owner + m.group(3) + name + (m.group(5) or ""), url.strip())
 
 
 def origin_matches(top, owner, name):

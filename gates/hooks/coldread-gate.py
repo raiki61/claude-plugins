@@ -1176,6 +1176,17 @@ def reader_argv(claude_bin, prompt):
             "--setting-sources", ""]
 
 
+def _child_text(raw, strict=True):
+    r"""子の出力を UTF-8 で読み、改行を \n に揃える。
+
+    復号を strict に保つのは、errors="replace" だと壊れた読み役出力で「詰まり」の行頭一致が
+    崩れ、deny が無音 allow に化けるから——読めない出力は例外→deny(検査できないものは通さない)。
+    診断のためだけに読む標準エラーは strict=False で読む(そちらで落とすと、読める本文の
+    判定まで一緒に失う)。
+    """
+    return (raw or b"").decode("utf-8", "strict" if strict else "replace").replace("\r\n", "\n")
+
+
 def run_reader(prompt: str):
     """読み役を起動して出力文字列を返す。prompt は依頼文+本文。失敗は例外。"""
     override = os.environ.get("COLDREAD_READER_CMD")
@@ -1183,11 +1194,13 @@ def run_reader(prompt: str):
     if override:
         # POSIX シェル文字列として sh -c で実行する。shell=True だと Windows では
         # cmd.exe に渡ってしまい、/dev/null 等が解決できない(GitHub Actions windows-latest で実測)。
-        # 復号は strict に保つ——errors="replace" だと壊れた読み役出力で「詰まり」の行頭一致が
-        # 崩れ、deny が無音 allow に化ける。読めない出力は例外→deny(検査できないものは通さない)。
+        # **本文は bytes で渡す。** encoding= を付けて str を渡すと、text mode の改行変換が働いて
+        # 本文の \n が Windows で \r\n に化け、「書かれたとおり」読み役へ渡らない(subprocess には
+        # newline を指定する口が無い。実測 2026-09-16: windows-latest だけで、単一引用の中の改行を
+        # 保つ 1 件が赤かった——読み役には行末に \r が付いた本文が届いていた)。
         proc = subprocess.run(
-            ["sh", "-c", override], input=prompt,
-            capture_output=True, encoding="utf-8", timeout=READER_TIMEOUT,
+            ["sh", "-c", override], input=prompt.encode("utf-8"),
+            capture_output=True, timeout=READER_TIMEOUT,
         )
     else:
         # 認証(段の中身と理由は claude_auth の冒頭)。トークンはディスクにもログにも書かない。
@@ -1199,12 +1212,12 @@ def run_reader(prompt: str):
         os.makedirs(STATE_DIR, exist_ok=True)
         proc = subprocess.run(
             reader_argv(claude_bin, prompt),
-            capture_output=True, encoding="utf-8", timeout=READER_TIMEOUT,
+            capture_output=True, timeout=READER_TIMEOUT,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )
-    out = (proc.stdout or "").strip()
+    out = _child_text(proc.stdout).strip()
     if proc.returncode != 0 or not out:
-        why = (proc.stderr or "empty output")[:200]
+        why = (_child_text(proc.stderr, strict=False) or "empty output")[:200]
         raise RuntimeError(why if note is None else "%s(認証: %s)" % (why, note))
     return out
 
