@@ -340,7 +340,25 @@
 `/review-graph` の 2 周目で、基準点 73fda8a から赤だった windows の CI を「別 PR に分ける」申請が取り下げられ（同じ差分が tests/ の 3 本を触っている）、内側として扱うことになった。最小の一歩は「HEAD で CI を回し、残る赤の検査名を記録する」。以下は run 34708227003（d4b8def、2026-09-13）の windows-latest の FAIL 行を書き写したもので（再現: `gh run view 34708227003 --log-failed | grep FAIL`）、11 行。graphloops の検査は 3 OS とも緑:
 
 - convergence-loops の review-record 検査 2 行——「増えた scalar だけを、増えた scalar の節に出す」「初出のキーを『戻った』と数えない（注記が付かない）」。期待文と出力が見た目は同じで一致しない（改行の扱いの差と推定。未確定）
-- gates の coldread ゲート 3 行——「単一引用の中の改行は畳まず、本文が書かれたとおり読み役へ渡る」（読み役に『行継続が畳まれてしまった』が出る。未確定）と、連続 deny の案内 2 行「他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない」「3 回連続 deny の案内は deny 理由の先頭に在る」。後の 2 行は `Traceback`——検査の前置き（tests/run.sh の `CR_REASON`）が `coldread-case.sh` を python の subprocess から直接起動しており、Windows は .sh を実行ファイルとして起動できない（`WinError 193`）。**この 2 行に 3 周目で `bash` を前に付けたが、緑にならなかった**——HEAD（1a94b72、run 34711979580）でも FAIL は 11 行のままで、落ち方が `WinError 193`（.py を実行ファイルとして起動できない）から `JSONDecodeError`（出力が空）に変わっただけ。**『原因は確定している』という見立てを撤回する**（bash が WSL 側に解決されて Windows のパスを見ていない疑いが在るが、これも未確定）。再現: `gh run view <id> --log-failed | grep FAIL`
+- gates の coldread ゲート 3 行——「単一引用の中の改行は畳まず、本文が書かれたとおり読み役へ渡る」（読み役に『行継続が畳まれてしまった』が出る。未確定）と、連続 deny の案内 2 行「他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない」「3 回連続 deny の案内は deny 理由の先頭に在る」。後の 2 行は `Traceback`——検査の前置き（当時の tests/run.sh の deny 理由の読み口。今は `cr-reason.py` と `cr_reason`）が `coldread-case.sh` を python の subprocess から直接起動しており、Windows は .sh を実行ファイルとして起動できない（`WinError 193`）。**この 2 行に 3 周目で `bash` を前に付けたが、緑にならなかった**——HEAD（1a94b72、run 34711979580）でも FAIL は 11 行のままで、落ち方が `WinError 193`（.py を実行ファイルとして起動できない）から `JSONDecodeError`（出力が空）に変わっただけ。**『原因は確定している』という見立てを撤回する**（bash が WSL 側に解決されて Windows のパスを見ていない疑いが在るが、これも未確定）。再現: `gh run view <id> --log-failed | grep FAIL`
 - attention の catchup --switch 6 行——origin にだけある枝・手元に無い枝の guard・ignored の上書き・手元にも origin にも無い枝・fork の PR の枝・head が main の fork PR。`git config --get branch.<枝>.remote` が非零で落ちる（Windows の git の挙動差と推定。未確定）
 
 この差分（graphloops）が直した Windows の落ち方——一時ディレクトリの掃除・Python 3.10 の引数・子プロセスの文字コード・/dev/null・盤面のパスの区切り——とは別の落ち方なので、同じファイルで始めた修理の続きではない。件数と内訳はログ行から書き写す（手で数えると合わない——2 周目の記録は 10 件と書いて 11 行を列挙し、×2 と書いた検査は 1 本だった）。
+
+## 2026-09-16 の作業記録: windows-latest の赤 15 件のうち 13 件を塞いだ
+
+run 35052256573（1646b4e）の windows-latest は FAIL 15 行で、macOS / ubuntu は緑だった。原因は 5 つ:
+
+1. **remote URL の末尾を `/` 固定で読んでいた**（catchup --switch の 6 行）。Windows の checkout は remote が `C:\...\o\r.git` の形で来るので末尾が取れず、origin が当のリポジトリでも「手元の origin が o/r でない」と読んで --switch が何もしなかった。`changemap.py` の `REPO_TAIL` の区切りに `\` を数え、owner と name の間の区切りは group に取って `swap_repo` が同じ字で書き戻す。回帰は OS に依らない純関数の腕（tests/changemap-suite.py の Remote）
+2. **engine の起動の柵が綴りの等値で見ていた**（graphloops の 3 行）。graph の via は `{plugin_root}/scripts/with-auth.py` と書かれているので、埋めた後の argv は Windows で区切りが混ざり、同梱の層そのものを指していても撥ねていた。`_same_path`（normcase / normpath）で比べる——揃うのは区切りと大小だけなので `..` で外へ出た綴りは別物のまま。回帰は `.` を挟んだ綴りと `..` の綴りの対（graphloops/tests/simulate.py）
+3. **読み役へ本文を str で渡していた**（gates の 1 行のうち、少なくとも 1 面）。`input=` に str を渡すと text mode の改行変換が働き、Windows では本文の `\n` が `\r\n` に化ける（subprocess には newline を指定する口が無い）。bytes で渡し、受けも bytes にして UTF-8 strict で読む（`_child_text`）
+4. **deny 理由を読む検査が Python から bash を起こしていた**（gates の 2 行）。改行を含む引数（ヒアドキュメントの投稿）が Windows で切り落とされ、ゲートは本文の無いコマンドを見て「投稿でない」と素通しにしていた（JSON でなく ALLOW_EMPTY）。ケースを直に起こしてパイプで渡す（`cr_reason`）
+5. **出力比較が CRLF を差と見ていた**（review-record 検査の 2 行）。Windows の Python は標準出力の `\n` を `\r\n` にして出すので、複数行の期待文字列がどれも一致しない。`expect_output` で CRLF だけを畳む（行の中の `\r` を見ている腕を消さないため、CR を全部落とすことはしない）
+
+残る赤 2 行（run 35054092894、e997521）は **未確定**。どちらも「windows だけで、期待と違う物が届いている」ことしか分かっていない:
+
+- 「単一引用の中の改行は畳まず、本文が書かれたとおり読み役へ渡る」——読み役に『行継続が畳まれてしまった』が出る。3 の直しでは緑にならなかったので、**改行変換とは別の面が在る**（畳まれたのか、行末に `\r` が付いたのかが分かれていない）
+- 「3 回連続 deny の案内は deny 理由の先頭に在る」——4 の直しで JSON は読めるようになったが、案内の照合が空振りする。deny 理由が 49 字（121 バイト）で届いており、macOS の 632 字と違う。**理由が短いのか、照合の語が届いていないのかが分かれていない**
+
+この 2 行には**切り分けの材料を印字させる腕を入れた**（`fold-stub.py` は届いたバイト数と印の周りの生の姿を、`cr-reason.py` は理由の長さと先頭・末尾を ascii() で出す）。次の run のログでどちらの面かが決まる。原因の断定はそれまで保留する。
+

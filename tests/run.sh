@@ -1689,25 +1689,57 @@ CR_STUB_FAIL='cat >/dev/null; exit 1'
 CR_LOAD='import importlib.util,sys
 spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)'
 # deny 理由そのものを読む検査の口。ケースの stdout（フックの JSON）をパイプで受ける。
+#
 # **Python から bash を起こして引数で渡すな。** 改行を含む引数（ヒアドキュメントの投稿）は
 # Windows で切り落とされ、ゲートは本文の無いコマンドを見て「投稿でない」と素通しにする
 # （実測 2026-09-16: windows-latest だけでこの口を使う 2 件が赤く、同じケースを直に起こす
 # 隣の検査は緑だった。JSON でなく ALLOW_EMPTY が返っていた）。
-# 読めなかったときは生の出力を添えて落ちる——JSON の例外だけでは、素通しなのか壊れたのかが分からない。
-CR_REASON='import json,sys
-raw = sys.stdin.read()
-try:
-    reason = json.loads(raw)["hookSpecificOutput"]["permissionDecisionReason"]
-except Exception as e:
-    sys.exit("deny の JSON が読めない(%s): %r" % (e, raw[:200]))'
+#
+# **判定は file に置き、argv は ASCII だけにする。** 印字も ascii() で ASCII に落とす——Windows の
+# stdio は locale 既定の code page（cp1252 を実測）で、日本語をそのまま印字すると化けるか落ちる。
+# **落ちるときは長さを添える**: 語が見つからないのか理由そのものが短いのかは、長さを見ないと
+# 切り分けられない（実測 2026-09-16: 理由が 49 字で届いていたのに『HEAD_OK が無い』しか出ず、
+# 切り分けに CI を 1 周余計に使った）。
+cat > "$WORK/cr-reason.py" <<'PY'
+import json
+import sys
 
-# 使い方: cr_reason <session|-> <判定の python 1 行> <ケースの起動...>
+# 埋め込みの script は自分で標準出力を直す（Windows の既定は cp1252。印字は ascii() で
+# ASCII に落としているが、例外の文言は日本語なので、直さないと落ち方が化ける）
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
+RAW = sys.stdin.buffer.read()
+try:
+    # 化けても落とさずに印字できる形で読む（backslashreplace）。復号で落とすと、
+    # 「JSON が来ていない」のか「文字が化けた」のかが分からない
+    reason = json.loads(RAW.decode("utf-8", "backslashreplace"))[
+        "hookSpecificOutput"]["permissionDecisionReason"]
+except Exception as exc:
+    sys.exit("deny の JSON が読めない(%s): bytes=%d %s" % (exc, len(RAW), ascii(RAW[:200])))
+
+CHECKS = {
+    # 連続の案内は書き手（session）ごと。他のセッションの deny は自分の 1 回目に出さない
+    "no-streak": ("SID_ISOLATED", lambda r: "回連続" not in r),
+    # 連続の案内は deny 理由の先頭に在る（末尾に置いた案内は 36 回無視された）
+    "streak-head": ("HEAD_OK", lambda r: r.startswith("【") and "足して直さない" in r[:80]),
+}
+mode = sys.argv[1]
+if mode not in CHECKS:
+    sys.exit("知らない mode: %s（在るのは %s）" % (mode, "/".join(CHECKS)))
+mark, ok = CHECKS[mode]
+print(mark if ok(reason) else "BAD: mode=%s bytes=%d chars=%d head=%s tail=%s"
+      % (mode, len(RAW), len(reason), ascii(reason[:80]), ascii(reason[-40:])))
+PY
+
+# 使い方: cr_reason <session|-> <mode> <ケースの起動...>
 # 本体（()）を副シェルにして、session の環境変数を後続の検査に残さない。
 cr_reason() (
-    sid=$1 check=$2
+    sid=$1 mode=$2
     shift 2
     [ "$sid" = "-" ] || export COLDREAD_TEST_SESSION="$sid"
-    "$@" | "$PY_BIN" -c "$CR_REASON"$'\n'"$check"
+    "$@" | "$PY_BIN" "$WORK/cr-reason.py" "$mode"
 )
 
 echo "coldread ゲート:"
@@ -1777,8 +1809,34 @@ expect_output 0 "詰まり" "行継続: CRLF で届いても網に入る" \
 # 単一引用の中の `\`+改行 は行継続ではない(シェルが畳まない)。畳んでしまうと本文が
 # 書かれたとおりに読み役へ渡らないので、こちらは保つ側を張る。
 # 期待を「詰まり」にすると畳んでも緑になる(どちらでも読み役は走る)ので、読み役の側で
-# 本文を実際に見て、畳まれたかどうかで返す文言を変える
-CR_STUB_FOLD='if grep -q "まえ\\\\$"; then printf "詰まり: 行継続が畳まれずに届いた\n"; else printf "詰まり: 行継続が畳まれてしまった\n"; fi'
+# 本文を実際に見て、畳まれたかどうかで返す文言を変える。
+#
+# **読み役の代役は file に置く（日本語を argv に載せない）。** grep の綴りを sh の引数で渡すと、
+# 引用の層が 3 つ（run.sh → ケース → sh -c）重なった上に OS ごとの引数の受け渡しが混ざり、
+# 空振りしても「畳まれてしまった」としか分からない。**何が届いたかを印字させる**——届いた
+# バイト数と印の周りの生の姿を添える（実測 2026-09-16: windows-latest だけ赤く、畳まれたのか
+# 行末に \r が付いたのかが分からず、切り分けに CI を 1 周余計に使った）。
+cat > "$WORK/fold-stub.py" <<'PY'
+import sys
+
+# 埋め込みの script は自分で標準出力を直す（Windows の既定は cp1252。印字は ascii() で
+# ASCII に落としているが、例外の文言は日本語なので、直さないと落ち方が化ける）
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
+RAW = sys.stdin.buffer.read()          # 依頼文＋本文（読み役に届くものそのまま）
+MARK = "まえ".encode("utf-8")
+at = RAW.find(MARK)
+# 畳まずに届いたなら、印の直後は `\` と改行がそのまま在る（\r が挟まっていれば畳まれていない
+# が「書かれたとおり」でもないので、こちらも落とす側に数える）
+kept = at >= 0 and RAW[at + len(MARK):at + len(MARK) + 2] == b"\\\n"
+near = ascii(RAW[at:at + 16].decode("utf-8", "backslashreplace")) if at >= 0 else "印が無い"
+# 出力は UTF-8 の bytes で書く（stdout の code page に依らせない。ゲートは UTF-8 strict で読む）
+sys.stdout.buffer.write(("詰まり: 行継続が畳まれ%s [%d バイト届いた・印の周り %s]\n"
+                         % ("ずに届いた" if kept else "てしまった", len(RAW), near)).encode("utf-8"))
+PY
+CR_STUB_FOLD="'$PY_BIN' '$WORK/fold-stub.py'"
 expect_output 0 "畳まれずに届いた" "単一引用の中の改行は畳まず、本文が書かれたとおり読み役へ渡る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_FOLD" "gh issue comment 1 --body 'まえ\\
 うしろ $CR_BODY $CR_PAD'"
@@ -2086,7 +2144,7 @@ CR_SID_CFG="$WORK/coldread-cfg-sid"; mkdir -p "$CR_SID_CFG"
 COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 COLDREAD_TEST_SESSION=aaaa1111 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
 expect_output 0 "SID_ISOLATED" "他セッションの deny 2 回の後でも、自分の 1 回目に連続の案内は出ない" \
-    cr_reason bbbb2222 'print("SID_ISOLATED" if "回連続" not in reason else "BAD: " + reason[:120])' \
+    cr_reason bbbb2222 no-streak \
     "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_BLOCK" "$CR_POST"
 COLDREAD_TEST_SESSION=bbbb2222 "$CR_CASE" "$CR_SID_CFG" "$CR_STUB_FAIL" "COLDREAD_SKIP=1 $CR_POST" >/dev/null 2>&1
 expect_output 0 "3 回連続で止まっている" "他セッションの skip を挟んでも、自分の 3 回目で案内が出る" \
@@ -2238,7 +2296,7 @@ expect_output 0 " → " "3 回連続 deny で本文が増えていれば、1 回
 expect_output 0 "最初の本文に戻し" "3 回連続 deny の案内は、最初の本文に戻してから出せと言う" \
     "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
 expect_output 0 "HEAD_OK" "3 回連続 deny の案内は deny 理由の先頭に在る" \
-    cr_reason - 'print("HEAD_OK" if reason.startswith("【") and "足して直さない" in reason[:80] else "BAD: " + reason[:120])' \
+    cr_reason - streak-head \
     "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST_LONGER"
 
 # ---- destgate: 投稿先の許可一覧(coldread と独立の軸。一覧が無ければ眠る) ----
@@ -2730,8 +2788,12 @@ EXTERNAL_NAMES = {"HEAD", "SHA", "PYTHONOPTIMIZE", "CLAUDE_CONFIG_DIR", "CLAUDE_
 # **名指しする側は文書だけではない。** 削除した定数を「正本」と呼ぶコメントが `tests/run.sh` に、
 # 削除した柵を「今も効いている」と述べたコメントが `scripts/*.py` に残ったことがある。
 # **定義を持つ側も `scripts/*.py` だけではない**——検査スイートの定数も shell の定数も名指しされる。
+# **定義の置き場を「どのプラグインか」で絞らない。** graphloops だけを足していたので、
+# attention の `REPO_TAIL` を文書が名指しした周に「在るべき場所に無い」と出た（実測 2026-09-16）——
+# 名指しは正しく、定義も在り、柵の見る面だけが狭かった。プラグインの python は全部見る。
 CODE = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob("*.sh")) + [
-    root / "tests/run.sh"] + sorted((root / "graphloops").rglob("*.py"))  # graphloops の rules / engine も定義を持つ
+    root / "tests/run.sh"] + [q for d in ("graphloops", "attention", "gates", "coldwrite")
+                              for q in sorted((root / d).rglob("*.py"))]
 # **手書きの列挙を持たない。** 以前ここに 6 ファイルを並べていたとき、名指しの置き場が
 # 増えた周に柵が黙って外れた（実測: 列挙の外の 2 ファイルに実在しない名前を書いても全件緑）。
 # 対象は「文書とコメントが在る場所」全部から導く。除外は名前の表でなく**接頭辞**で持つので、
