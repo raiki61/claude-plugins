@@ -46,13 +46,18 @@ def patterns():
 
 
 def owner_repo(value):
-    """-R の値や URL から owner/repo を取り出す。取れなければ None。
+    r"""-R の値や URL から owner/repo を取り出す。取れなければ None。
 
     gh は OWNER/REPO・HOST/OWNER/REPO・完全 URL(https/ssh)のどれも受けるので、
     末尾 2 セグメントを取り .git を落とす。ssh の別名ホスト(github.com-xxx:o/r)も
     : 以降がパスなので同じ規則で拾える。
+
+    **区切りは `/` だけではない。** Windows の checkout では origin が `C:\...\o\r.git` の形で
+    来るので、`/` 固定だと末尾 2 セグメントが取れず、宛先を特定できないまま deny になる(投稿は
+    止まるが、正しく書いた投稿が「宛先不明」で止まる)。同じ規則の姉妹は attention の
+    changemap.py の REPO_TAIL——2026-09-16 にそちらだけ直して、この写しが `/` 固定で残った。
     """
-    v = value.strip().rstrip("/")
+    v = value.strip().replace("\\", "/").rstrip("/")
     v = re.sub(r"^[a-z+]+://", "", v)
     v = v.split(":", 1)[-1] if ":" in v and "/" not in v.split(":", 1)[0] else v
     parts = [p for p in v.split("/") if p]

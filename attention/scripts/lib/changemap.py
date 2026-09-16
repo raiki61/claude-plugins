@@ -710,9 +710,8 @@ def swap_repo(url, repo):
     """remote URL の owner/name を repo（"owner/name"）に差し替える。scheme・host・.git はそのまま
     （/catchup が origin の URL から fork の URL を作る。API の url を使わないのは、origin と同じ
     scheme・認証を引き継ぐため）。"""
-    owner, _, name = repo.partition("/")
     return REPO_TAIL.sub(
-        lambda m: m.group(1) + owner + m.group(3) + name + (m.group(5) or ""), url.strip())
+        lambda m: m.group(1) + repo.replace("/", m.group(3)) + (m.group(5) or ""), url.strip())
 
 
 def origin_matches(top, owner, name):

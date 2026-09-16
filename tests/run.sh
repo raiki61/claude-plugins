@@ -62,13 +62,17 @@ expect_output() {
     local got
     got=$("$@" 2>&1)
     local got_exit=$?
-    # **CRLF は差ではない。** Windows の Python は標準出力の \n を \r\n にして出すので、複数行の
-    # 期待文字列（$'…\n…'）がどれも一致しなくなる（実測 2026-09-16: windows-latest だけで記録レンズの
-    # 2 件が赤かった——中身は同じで、見えない \r が行末に付いていただけ）。CR を全部落とすのではなく
-    # CRLF だけを畳む: 行の中に \r が残ること自体を見ている腕（CRLF で届く本文の検査）を消さない。
-    # 末尾の 1 つは別に見る——$() が改行を落とした後なので、そこに \r だけが残る。
+    # **CRLF は差ではない。** 複数行の期待文字列（$'…\n…'）が windows でだけ 1 件も一致しなくなる
+    # ので、CRLF を畳んでから比べる（実測 2026-09-16: これで記録レンズの 2 件が緑になった。中身は
+    # 同じで、見えない \r が行末に付いていた）。**なぜ \r が付くかは未確定**——「Windows の Python は
+    # 標準出力の \n を \r\n にする」だけでは、同じ python の出力を行末アンカーの sed で拾っている
+    # graphloops/tests/run.sh が windows で緑なことを説明できない。CR を全部落とすのではなく CRLF
+    # だけを畳むのは、行の中に \r が残ること自体を見ている腕（CRLF で届く本文の検査）を消さないため。
+    # 末尾の 1 つは別に見る（$() が改行を落とした後なので \r だけが残る）。**後置パターン除去
+    # `${got%…}` は使わない**——bash では文字列長の 2 乗で効き、出力の大きい 1 ケースだけで 200ms
+    # 使っていた（実測: 35,803 字で 201ms → 0.5ms）。
     got=${got//$'\r'$'\n'/$'\n'}
-    got=${got%$'\r'}
+    case $got in *$'\r') got=${got:0:${#got} - 1};; esac
     ran=$((ran + 1))
     if [ "$got_exit" != "$want_exit" ]; then
         echo "  FAIL $desc — exit $want_exit を期待したが $got_exit: $got"
@@ -1661,7 +1665,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=541
+EXPECTED_CHECKS=542
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -1685,7 +1689,7 @@ CR_STUB_CLEAN='cat >/dev/null; echo CLEAN'
 CR_STUB_BLOCK='cat >/dev/null; printf "詰まり: F3 が何か本文で解決できない\n疑問: 期限はいつか\n"'
 CR_STUB_QUEST='cat >/dev/null; printf "疑問: 期限はいつか\n"'
 CR_STUB_FAIL='cat >/dev/null; exit 1'
-# 門番を module として読む前置きと、deny 理由を取り出す前置き(-c の頭に付ける)
+# 門番を module として読む前置き(-c の頭に付ける)
 CR_LOAD='import importlib.util,sys
 spec=importlib.util.spec_from_file_location("g", sys.argv[1]); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g)'
 # deny 理由そのものを読む検査の口。ケースの stdout（フックの JSON）をパイプで受ける。
@@ -1819,8 +1823,8 @@ expect_output 0 "詰まり" "行継続: CRLF で届いても網に入る" \
 cat > "$WORK/fold-stub.py" <<'PY'
 import sys
 
-# 埋め込みの script は自分で標準出力を直す（Windows の既定は cp1252。印字は ascii() で
-# ASCII に落としているが、例外の文言は日本語なので、直さないと落ち方が化ける）
+# 埋め込みの script は自分で標準出力を直す（報告は UTF-8 の bytes で書くが、例外の文言は
+# 日本語なので、Windows の既定 cp1252 のままだと落ち方が化ける）
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -2333,6 +2337,14 @@ expect_output 0 "ALLOW_EMPTY" "destgate: -R 無しは git remote を宛先にす
     "$DG_CASE" "$DG_CFG" "$DG_REPO_OK" "gh issue comment 1 --body 'テストの本文です'"
 expect_output 0 "許可一覧に無い" "destgate: -R 無しの git remote が一覧外なら deny" \
     "$DG_CASE" "$DG_CFG" "$DG_REPO_NG" "gh issue comment 1 --body 'テストの本文です'"
+# `\` 区切りの remote（Windows の checkout の形）。`/` 固定で末尾 2 セグメントを取っていたので、
+# 宛先が読めず「宛先不明」で deny していた——止まる側なので気づきにくい。同じ規則の姉妹は
+# attention の changemap.py の REPO_TAIL で、そちらだけ直して写しが残っていた（2026-09-16）。
+# **どの OS でも赤くなる形で固定する**: git は remote の URL を検査しないので、この綴りは mac でも置ける
+DG_REPO_WIN="$WORK/dg-repo-win"; git init -q "$DG_REPO_WIN"
+git -C "$DG_REPO_WIN" remote add origin 'C:\src\good\things.git'
+expect_output 0 "ALLOW_EMPTY" "destgate: \ 区切りの remote でも宛先を読む（Windows の checkout の形）" \
+    "$DG_CASE" "$DG_CFG" "$DG_REPO_WIN" "gh issue comment 1 --body 'テストの本文です'"
 
 # ---- attention/catchup: 1 件の PR / issue の「前回から何が起きたか」 ----
 # 取得(gh / GraphQL)は網の外。ここで検査するのは材料 → 出力の規則だけで、取得をモックすると
@@ -2791,9 +2803,11 @@ EXTERNAL_NAMES = {"HEAD", "SHA", "PYTHONOPTIMIZE", "CLAUDE_CONFIG_DIR", "CLAUDE_
 # **定義の置き場を「どのプラグインか」で絞らない。** graphloops だけを足していたので、
 # attention の `REPO_TAIL` を文書が名指しした周に「在るべき場所に無い」と出た（実測 2026-09-16）——
 # 名指しは正しく、定義も在り、柵の見る面だけが狭かった。プラグインの python は全部見る。
+# **名前を並べない**（下の「手書きの列挙を持たない」と同じ理由）——プラグインの在り処は
+# `*/.claude-plugin` が持っているので、そこから導く。1 つ足した周に黙って外れない。
 CODE = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob("*.sh")) + [
-    root / "tests/run.sh"] + [q for d in ("graphloops", "attention", "gates", "coldwrite")
-                              for q in sorted((root / d).rglob("*.py"))]
+    root / "tests/run.sh"] + [q for d in sorted(m.parent for m in root.glob("*/.claude-plugin"))
+                              for q in sorted(d.rglob("*.py"))]
 # **手書きの列挙を持たない。** 以前ここに 6 ファイルを並べていたとき、名指しの置き場が
 # 増えた周に柵が黙って外れた（実測: 列挙の外の 2 ファイルに実在しない名前を書いても全件緑）。
 # 対象は「文書とコメントが在る場所」全部から導く。除外は名前の表でなく**接頭辞**で持つので、
