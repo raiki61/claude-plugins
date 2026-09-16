@@ -1161,9 +1161,19 @@ VERSION_NOTE = ("この検査は gates %s で走った(手元の cache には %s
                 "固定されるので、新しいセッションから反映される)" % (GATE_VERSION, _NEWER)) if _NEWER else ""
 
 
-def reader_argv(claude_bin, prompt):
-    """読み役(headless claude)の起動引数。テストから読めるように関数にしてある。"""
-    return [claude_bin, "-p", prompt,
+def reader_argv(claude_bin):
+    """読み役(headless claude)の起動引数。テストから読めるように関数にしてある。
+
+    **本文は argv に載せない**(依頼文+本文は stdin で渡す)。載せていた頃は 2 つ問題が在った:
+    Windows のコマンドラインは 32,767 字が上限で、画面つきの依頼文(本文だけで最大 SCREEN_MAX 字)
+    が超えると起動そのものが落ち、ゲートは「読み役の起動に失敗」で投稿を全部止める(理由は面を
+    教えない)。もう 1 つは、差し替えの枝(COLDREAD_READER_CMD。CI が唯一叩く枝)だけが stdin で
+    渡していたので、テストが実運用の渡し方を覆っていなかった。
+    stdin で足りることは実測済み: 2026-09-16 にこの環境(macOS・claude 2.1.273)で、同じ旗と
+    claude_auth の認証のまま `-p` を引数なしで起こし、stdin の依頼に返答が返った。大きさの先例は
+    graphloops の graph(774,021 バイトを stdin で通した実測。docs/loop-contract.md の T 節)。
+    """
+    return [claude_bin, "-p",
             "--model", os.environ.get("COLDREAD_MODEL", "sonnet"),
             "--effort", os.environ.get("COLDREAD_EFFORT", "medium"),
             # 読み役は本文を読んで報告するだけで道具は要らない。検査対象の文章そのものを
@@ -1194,10 +1204,10 @@ def run_reader(prompt: str):
     if override:
         # POSIX シェル文字列として sh -c で実行する。shell=True だと Windows では
         # cmd.exe に渡ってしまい、/dev/null 等が解決できない(GitHub Actions windows-latest で実測)。
-        # **本文は bytes で渡す。** encoding= を付けて str を渡すと、text mode の改行変換が働いて
-        # 本文の \n が Windows で \r\n に化け、「書かれたとおり」読み役へ渡らない(subprocess には
-        # newline を指定する口が無い。実測 2026-09-16: windows-latest だけで、単一引用の中の改行を
-        # 保つ 1 件が赤かった——読み役には行末に \r が付いた本文が届いていた)。
+        # **本文は bytes で渡す**(下の実運用の枝も同じ)。encoding= を付けて str を渡すと、text mode の
+        # 改行変換が働いて本文の \n が Windows で \r\n に化け、「書かれたとおり」読み役へ渡らない
+        # (subprocess には newline を指定する口が無い。実測 2026-09-16: windows-latest だけで、
+        # 単一引用の中の改行を保つ 1 件が赤かった——読み役には行末に \r が付いた本文が届いていた)。
         proc = subprocess.run(
             ["sh", "-c", override], input=prompt.encode("utf-8"),
             capture_output=True, timeout=READER_TIMEOUT,
@@ -1211,7 +1221,7 @@ def run_reader(prompt: str):
         claude_bin = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
         os.makedirs(STATE_DIR, exist_ok=True)
         proc = subprocess.run(
-            reader_argv(claude_bin, prompt),
+            reader_argv(claude_bin), input=prompt.encode("utf-8"),
             capture_output=True, timeout=READER_TIMEOUT,
             cwd=STATE_DIR, env=env,  # cwd を state 側にしてプロジェクト設定を子に読ませない
         )

@@ -2280,11 +2280,16 @@ CR_STUB_NONE_ONLY='cat >/dev/null; printf "詰まり: なし\n"'
 expect_output 0 "検査を通過" "「詰まり: なし」だけの出力は CLEAN と同じに通る" \
     "$CR_CASE" "$CR_CFG" "$CR_STUB_NONE_ONLY" "$CR_POST"
 # 読み役は利用者の CLAUDE.md を読まない(--setting-sources を空で起動)。2026-09-06 に実測: 無しだと
-# 利用者の CLAUDE.md の見出しをそのまま引用し、有りだと NONE。CI に claude は無いので起動引数で縛る
-expect_output 0 "READER_ARGV_OK" "読み役の起動引数に --setting-sources '' と --tools '' が在る" \
-    "$PY_BIN" -c "$CR_LOAD"$'\n''a=g.reader_argv("claude","x")
-ok = "--setting-sources" in a and a[a.index("--setting-sources")+1]=="" and "--tools" in a and a[a.index("--tools")+1]==""
-print("READER_ARGV_OK" if ok else "BAD %r" % a)' "$ROOT/gates/hooks/coldread-gate.py"
+# 利用者の CLAUDE.md の見出しをそのまま引用し、有りだと NONE。CI に claude は無いので起動引数で縛る。
+# **本文が argv に戻らないことも形で見る**——Windows のコマンドラインは 32,767 字が上限で、超えると
+# 起動ごと落ちて投稿が全部止まる。reader_argv が受け取るのは起こす相手だけ(本文は stdin)。
+# -c に渡す script は ASCII だけにする(日本語の argv は windows で届かなかった面が未確定のまま)
+expect_output 0 "READER_ARGV_OK" "読み役の起動引数は遮断の旗を持ち、本文は argv に載らない" \
+    "$PY_BIN" -c "$CR_LOAD"$'\n''import inspect
+a = g.reader_argv("claude")
+flags = all(f in a and a[a.index(f) + 1] == "" for f in ("--setting-sources", "--tools"))
+body_free = list(inspect.signature(g.reader_argv).parameters) == ["claude_bin"]
+print("READER_ARGV_OK" if flags and body_free else "BAD %r body_free=%r" % (a, body_free))' "$ROOT/gates/hooks/coldread-gate.py"
 # 連続 deny の案内は先頭に置き、本文の膨れ方を数字で示す(末尾の案内は 36 回無視された)
 CR_GROW_CFG="$WORK/coldread-cfg-grow"; mkdir -p "$CR_GROW_CFG"
 "$CR_CASE" "$CR_GROW_CFG" "$CR_STUB_BLOCK" "$CR_POST" >/dev/null 2>&1
