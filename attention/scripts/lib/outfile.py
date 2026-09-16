@@ -13,7 +13,6 @@ Claude Code の Bash は 1 回あたりの出力に上限（約 30,000 バイト
 
 import contextlib
 import datetime as dt
-import os
 import tempfile
 
 HELP = (
@@ -58,10 +57,13 @@ def run_to_file(run, stem, stop=None):
     戻り値は run の戻り値。節の行番号を添えるのは、取得と読み込みを切り離すため——全部
     取っておいて、context に載せるのは要る節だけにできる（Read は offset と limit を取る）。
     """
-    path = os.path.join(
-        tempfile.gettempdir(), f"{stem}-{dt.datetime.now():%Y%m%d-%H%M%S}.txt"
+    # mkstemp は 0600 で一意な名前を作る。open() で作ると umask 任せ（既定 0022）で 0644 になり、
+    # Linux の gettempdir()（= /tmp。macOS は利用者ごとの private なので影響しない）では同じ機の
+    # 別の利用者が PR / issue の中身を読める。一意なので、同じ秒に 2 回走らせても上書きしない
+    fd, path = tempfile.mkstemp(
+        prefix=f"{stem}-{dt.datetime.now():%Y%m%d-%H%M%S}-", suffix=".txt"
     )
-    with open(path, "w", encoding="utf-8") as f, contextlib.redirect_stdout(f):
+    with open(fd, "w", encoding="utf-8") as f, contextlib.redirect_stdout(f):
         code = run()
     with open(path, encoding="utf-8") as f:
         text = f.read()

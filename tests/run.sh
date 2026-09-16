@@ -2571,7 +2571,7 @@ expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義�
     "$PY_BIN" "$WT" --help
 # --out に値を取らせると `<位置引数> --out` の並びで位置引数を吸う。3 本とも並びごと固定する
 expect_output 0 "OUT_FLAG_OK" \
-    "attention 3 本: --out は値を取らず位置引数を吸わない。節の行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \
+    "attention 3 本: --out は値を取らず位置引数を吸わない。一時ファイルは 0600。節の行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \
     "$PY_BIN" - "$ROOT" <<'PY'
 import importlib.util, pathlib, sys
 root = pathlib.Path(sys.argv[1])
@@ -2610,6 +2610,21 @@ assert outfile.index(body) == ["2 経過", "4 いま手元", "6 人の本文が�
 assert outfile.index(body, stop=("==== 印", "材料")) == ["2 経過", "4 いま手元", "5 材料"], \
     outfile.index(body, stop=("==== 印", "材料"))
 assert outfile.label("## " + "あ" * 30).endswith("…"), "長い見出しが畳まれない"
+
+# 一時ファイルは 0600。open() で作ると umask 任せ（既定 0022）で 0644 になり、Linux の
+# gettempdir()（= /tmp）では同じ機の別の利用者が PR / issue の中身を読める
+import contextlib, io, os, re, stat  # noqa: E402
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    outfile.run_to_file(lambda: print("# 題\n## 節"), "検査")
+out = buf.getvalue()
+m = re.search(r"報告は (\S+) に書いた", out)
+assert m, out
+if os.name == "posix":
+    mode = stat.S_IMODE(os.stat(m.group(1)).st_mode)
+    assert mode == 0o600, f"一時ファイルが {oct(mode)}（/tmp では他の利用者が読める）"
+assert "節（Read の offset）: 2 節" in out, out
+os.unlink(m.group(1))
 print("OUT_FLAG_OK")
 PY
 
