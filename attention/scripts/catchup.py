@@ -64,6 +64,7 @@ from urllib.parse import quote
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import changemap  # noqa: E402 — 変更の地図と手元の木の部品。/what-am-i-doing と共用
 from stance import stance  # noqa: E402 — 立場の判定。/what-am-i-doing と共用
+import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/whose-turn と共用
 
 # Windows では stdio が locale 既定の code page になり(GitHub Actions windows-latest で
 # cp1252 を実測。日本語 Windows なら cp932)、日本語の出力が UnicodeEncodeError で落ちる。
@@ -2283,7 +2284,7 @@ def collect_caps(node):
     return caps
 
 
-def main(argv=None):
+def parser():
     p = argparse.ArgumentParser(
         description="1 件の PR / issue について、前回自分が触ってから何が起きたかを出す")
     p.add_argument("words", nargs="*", metavar="対象 [焦点]",
@@ -2310,8 +2311,19 @@ def main(argv=None):
                         " fetch して作る（名前と追跡先は gh pr checkout と同じ）。追跡ファイルに未コミットが"
                         "あれば移らない。手元にある枝は動かさない（pull・stash・gh pr checkout はしない）。"
                         "this では何もしない")
-    a = p.parse_args(argv)
+    outfile.add_flag(p)
+    return p
 
+
+def main(argv=None):
+    a = parser().parse_args(argv)
+
+    if not a.out:
+        return report(a)
+    return outfile.run_to_file(lambda: report(a), "catchup")
+
+
+def report(a):
     target, focus = split_words(a.words)
     owner, name, num, local = resolve_target(target, a.repo)
     pre_lines = []  # ブランチ名で移った・移らなかったの行（見出しに足す）

@@ -1654,7 +1654,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=540
+EXPECTED_CHECKS=541
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2569,6 +2569,49 @@ expect_output 0 "OK" "whose-turn: 判定規則の回帰（unittest 111 件。時
     "$PY_BIN" "$ROOT/tests/whose-turn-suite.py"
 expect_output 0 "見ていないもの" "whose-turn: --help に判定の定義と見ていないものが出る" \
     "$PY_BIN" "$WT" --help
+# --out に値を取らせると `<位置引数> --out` の並びで位置引数を吸う。3 本とも並びごと固定する
+expect_output 0 "OUT_FLAG_OK" \
+    "attention 3 本: --out は値を取らず位置引数を吸わない。節の行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \
+    "$PY_BIN" - "$ROOT" <<'PY'
+import importlib.util, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+
+
+def load(stem):
+    spec = importlib.util.spec_from_file_location(stem, root / f"attention/scripts/{stem}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# (script, 並び, 吸われては困る欄と期待値, 手順書, 手順書に在るべき呼び)
+cases = [
+    ("whose-turn", ["--materials", "taro", "--out"], "login", "taro",
+     "whose-turn.md", "--materials $ARGUMENTS --out"),
+    ("catchup", ["--switch", "1569", "指摘", "--out"], "words", ["1569", "指摘"],
+     "catchup.md", "`catchup.py --switch <それ> --out`"),
+    ("what-am-i-doing", ["--topic", "今の修正", "--out"], "topic", ["今の修正"],
+     "what-am-i-doing.md", "what-am-i-doing.py --out"),
+]
+for stem, argv, field, want, doc, call in cases:
+    a = load(stem).parser().parse_args(argv)
+    assert a.out is True, f"{stem}: --out が立たない"
+    assert getattr(a, field) == want, f"{stem}: {field} を吸われた（{getattr(a, field)!r}）"
+    text = (root / "attention/commands" / doc).read_text(encoding="utf-8")
+    assert "allowed-tools: Bash, Read" in text, f"{doc}: 読み戻しの Read が allowed-tools に無い"
+    assert call in text, f"{doc}: 手順書の呼びが {call} になっていない"
+
+# 節の行番号は Read の offset に直接使う。材料の本文は行頭に ## を持つことがあるので、
+# 印を渡した script はそこで止める（実測: issue の本文が `## 評価方法` で始まっていた）
+sys.path.insert(0, str(root / "attention/scripts/lib"))
+import outfile  # noqa: E402
+body = "# 題\n## 経過（依頼と）\n本文\n## いま手元\n==== 印 ====\n## 人の本文が持つ見出し"
+assert outfile.index(body) == ["2 経過", "4 いま手元", "6 人の本文が持つ見出し"], outfile.index(body)
+assert outfile.index(body, stop=("==== 印", "材料")) == ["2 経過", "4 いま手元", "5 材料"], \
+    outfile.index(body, stop=("==== 印", "材料"))
+assert outfile.label("## " + "あ" * 30).endswith("…"), "長い見出しが畳まれない"
+print("OUT_FLAG_OK")
+PY
 
 # ---- attention/scripts/figure-check: 絵（系の前後の図）の幅・行数・縦線・箱の検査 ----
 # gh にも git にも触らない。通る図は命令書の例（14 行）そのもの。合否は落ちる／通るだけでなく行と桁が出ることで見る

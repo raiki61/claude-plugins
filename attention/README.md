@@ -65,7 +65,7 @@
 ### 同梱スクリプト
 
 ```
-python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] [--all] [--materials]
+python3 scripts/whose-turn.py [login] [--repo OWNER/NAME] [--all] [--materials] [--out]
 ```
 
 判定の定義と見ていないものは `--help` にある。判定は純粋関数で、`tests/whose-turn-suite.py` が規則を
@@ -140,7 +140,7 @@ file ごとの骨組み（PR なら常に）。作者が自分かどうかでは
 スクリプトを直接叩いてもよい。
 
 ```
-python3 scripts/catchup.py [1505|URL|this|<commit>] [指摘] [地図] [CI] [--switch] [-R owner/repo] [--full] [--limit 12] [--me <login>] [--frame path]
+python3 scripts/catchup.py [1505|URL|this|<commit>] [指摘] [地図] [CI] [--switch] [-R owner/repo] [--full] [--limit 12] [--me <login>] [--frame path] [--out]
 ```
 
 `--switch` を付けたときだけ手元のブランチを変える（既定では読むだけ）。`this` では何もしない。
@@ -399,7 +399,7 @@ pass したが、本人は「読む気が失せる」と言った。
 ### 同梱スクリプトは材料であって出力ではない
 
 ```
-python3 scripts/what-am-i-doing.py [--full] [--limit 25] [--topic 語句] [--frame path]
+python3 scripts/what-am-i-doing.py [--full] [--limit 25] [--topic 語句] [--frame path] [--out]
 ```
 
 出すのは**依頼と、それに対して何をしたかの対**。片方だけでは追いつけない——「何を頼まれたか」の

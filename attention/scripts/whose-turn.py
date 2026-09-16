@@ -47,17 +47,28 @@ GitHub から取れる範囲で全部、決定的に集める。判断（返信�
 〈材料〉--materials は呼びかけの全文に加え、返す番があるスレッドの最後の発言も全文で出す。
 数だけでは「相手が直した報告（見て resolve するだけ）」と「相手が問いを返した（答えないと
 止まる）」が区別できず、読む側が段の言い直ししか書けなくなる。
+
+〈出力先〉材料を付けた出力は Claude Code の Bash の 1 回あたりの上限（約 30,000 バイト）を
+越える。門はバイトで測るので、日本語はおよそ 1 万文字で当たる（実測 2026-09-16: 21,870 文字
+＝39,375 バイトが退避された）。越えても中身は欠けずツール側がファイルへ退避してパスを返すが、
+走らせてから気づく形になり、gh の呼び出しごと 2 回走る。--out は最初からファイルへ書いて
+パスだけ返すので、実行が 1 回で済む。読み戻しは Read で行う——cat で読むと同じ量が再び
+Bash の出力に乗って、また退避される。
 """
 
 import argparse
 import concurrent.futures
 import datetime as dt
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import unicodedata
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -1085,7 +1096,7 @@ def cut(s, w):
     return out
 
 
-def main(argv=None):
+def parser():
     ap = argparse.ArgumentParser(
         description=__doc__ + "\n" + NOT_SEEN.format(teams="", unverified=""),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1100,8 +1111,21 @@ def main(argv=None):
         action="store_true",
         help="末尾に、呼びかけの投稿と、返す番があるスレッドの最後の発言の全文を判定の材料として付ける（印より下は貼らない前提。gh で読み直さずに済む）",
     )
-    a = ap.parse_args(argv)
+    outfile.add_flag(ap)
+    return ap
 
+
+def main(argv=None):
+    a = parser().parse_args(argv)
+
+    if not a.out:
+        return report(a)
+    return outfile.run_to_file(
+        lambda: report(a), "whose-turn", stop=(MATERIALS_MARK, "材料")
+    )
+
+
+def report(a):
     repo = (
         a.repo
         or gh(

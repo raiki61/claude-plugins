@@ -29,6 +29,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import changemap  # noqa: E402 — 変更ファイルの木。/catchup と共用
 from stance import stance  # noqa: E402 — 立場の判定。/catchup と共用
+import outfile  # noqa: E402 — 報告をファイルへ逃がす共通部。/catchup と共用
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -336,7 +337,7 @@ def frame_one(cwd, path):
     return changemap.new_file_rows(cwd, path, "未追跡の新規")
 
 
-def main(argv=None):
+def parser():
     p = argparse.ArgumentParser(
         description="このセッションで何が起きたかを、追いつける形で並べる")
     p.add_argument("--frame", metavar="path",
@@ -349,7 +350,19 @@ def main(argv=None):
     p.add_argument("--topic", nargs="+", metavar="語",
                    help="この語句が出た往復だけを出す（/catchup が番号でない語で呼ばれたとき）。"
                         "複数の語は 1 つの語句として続けて当てる")
-    a = p.parse_args(argv)
+    outfile.add_flag(p)
+    return p
+
+
+def main(argv=None):
+    a = parser().parse_args(argv)
+
+    if not a.out:
+        return report(a)
+    return outfile.run_to_file(lambda: report(a), "what-am-i-doing")
+
+
+def report(a):
     topic = " ".join(a.topic).strip() if a.topic else None
     if a.topic and not topic:
         sys.exit("--topic には話題の語句を渡す（空だった）")
