@@ -2384,6 +2384,7 @@
      "framing",
      "one_shot",
      "materials_missing",
+     "carried_r1",
      "one_shot_closes"
     ],
     "additionalProperties": false,
@@ -2540,6 +2541,37 @@
       "type": "array",
       "items": {
        "type": "string"
+      }
+     },
+     "carried_r1": {
+      "type": "array",
+      "note": "前の周の R1 最小性が挙げた削除候補（prev.r1.minimality.deletions）1 件につき 1 行。where は逐語で写す（post_check が 1 対 1 で数える）。unit に昇格させるなら disposition=promote と unit_key、落とすなら disposition=decline と why。値は検証器の語彙と重ならない綴りにしてある（重なると graphcheck が『写しがずれている』と読む）。前の周の R1 が無い周は空配列",
+      "items": {
+       "type": "object",
+       "required": [
+        "where",
+        "disposition"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "where": {
+         "type": "string",
+         "minLength": 1
+        },
+        "disposition": {
+         "type": "string",
+         "enum": [
+          "promote",
+          "decline"
+         ]
+        },
+        "unit_key": {
+         "type": "string"
+        },
+        "why": {
+         "type": "string"
+        }
+       }
       }
      },
      "router": {

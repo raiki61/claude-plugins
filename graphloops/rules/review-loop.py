@@ -803,6 +803,44 @@ def base_valid(b, nid, out, item):
 ONE_LINE_FIELDS = ("key", "reason")
 
 
+def _carried_r1_accounted(b, out):
+    """前の周の R1 最小性が挙げた削除候補を、judge が 1 件につき 1 行で処理したか。
+
+    **直したのは「渡してはいるが誰も数えていない」面。** 配線は前から在る——p2.diagnose も p3.fix も
+    reads に prev.r1.minimality を持ち、前の周の削除候補は judge にも writer にも届いていた。
+    届いた上で落とせたのは、直す義務が record["units"] にしか掛からないからで（fix_covers_open_units）、
+    判定者が unit に昇格させなければ誰も赤くならなかった。実測（別リポジトリの run、2026-09-16）:
+    1 周目の最小性が挙げた 14 件が 2 周目の修正対象に 1 件も入らず、2 周目の最小性でそのまま再掲された。
+
+    数え方は宣言レンズと同じ形にしてある——**照合の両側が同じ文字列**（judge は where を逐語で写す）。
+    綴りを寄せる正規化の段は置かない。置けば、その規則自体が誰も決めていない未定義物になる。
+    """
+    prev = b.outputs(before_round=b.round).get("r1.minimality") or {}
+    want = [d["where"] for d in prev.get("deletions", []) if isinstance(d, dict) and d.get("where")]
+    rows = out.get("carried_r1") or []
+    errs, seen = [], {}
+    for i, r in enumerate(rows):
+        w = r.get("where", "")
+        if w in seen:
+            errs.append(f"carried_r1 に同じ where の行が 2 本: {w}")
+        seen[w] = r
+        if w not in want:
+            errs.append(f"carried_r1[{i}] の where '{w}' は前の周の R1 の削除候補に無い（正本は prev.r1.minimality.deletions。逐語で写せ）")
+        elif r["disposition"] == "promote" and not (r.get("unit_key") or "").strip():
+            errs.append(f"carried_r1[{i}]（{w}）が disposition=promote なのに unit_key が無い")
+        elif r["disposition"] == "decline" and not (r.get("why") or "").strip():
+            errs.append(f"carried_r1[{i}]（{w}）が disposition=decline なのに why が無い——落とす判断にも理由が要る")
+    keys = {u["key"] for u in out.get("units", [])}
+    for r in rows:
+        if r.get("disposition") == "promote" and r.get("unit_key") and r["unit_key"] not in keys:
+            errs.append(f"carried_r1 の unit_key '{r['unit_key']}' が units に無い")
+    for w in want:
+        if w not in seen:
+            errs.append(f"前の周の R1 が挙げた '{w}' の行が carried_r1 に無い——unit に上げるか、落とす理由を書け。"
+                        "**行を省くな**（省けるなら、読んだ上で黙って落とせていた元の穴に戻る）")
+    return errs
+
+
 def judge_output(b, nid, out, item):
     """judge の返答を、検証器の語彙（写さず import）で先に見る。落ちるなら judge に返させ直す。
     あわせて 1 行の欄を 1 行に正規化する（out を補うだけ。記録を書くのは writes）。"""
@@ -892,6 +930,7 @@ def judge_output(b, nid, out, item):
         errs.append(f"素材 '{name}' が awaiting_human なのに台帳に kind=awaiting で無い")
     if out.get("materials_missing"):
         errs.append("judge が素材の欠落を報告した（P2 を止めて当該 grader を再起動しろ）: " + ", ".join(out["materials_missing"]))
+    errs += _carried_r1_accounted(b, out)
     if errs:
         raise Reject("judge の返答が記録の語彙に合わない（judge に返させ直す）: " + "; ".join(errs))
 
@@ -899,11 +938,24 @@ def judge_output(b, nid, out, item):
 def fix_covers_open_units(b, nid, out, item):
     """[block] と do-now は必ず直す。fork の出どころ・depends だけは待ってよい。"""
     V = validator_module(b)
-    fork_targets = set()
+    fork_targets, lapsed = set(), {}
+    # **免除は 1 周だけ。** fork は「どちらに倒すかを人が決める」問いなので、その答えが出るまで出どころの
+    # [block] を待たせてよい——ただし待ちが前に進んでいる間だけ。status=held は「判定者がまだ考えている」で、
+    # escalate（人に実際に聞く形。awaiting_human で表に出る）とは違う。held のまま次の周に持ち越された fork は、
+    # 人に届かないまま出どころを免除し続ける形になる（実測 2026-09-16、別リポジトリの run: 出どころを自分の
+    # depends にも挙げた held の fork が、今すぐやる作業を何周も未着手のまま保持した）。
+    # 2 周目からは escalate だけが免除を持つ——判定者が「人でないと決められない」と確定させれば、
+    # 人に届き、答えが返る道が在る。
+    prev_asking = {q.get("key") for q in (b.loop_state.get("prev_questions") or []) if q.get("status") in V.ASKING}
     for q in b.record["questions"]:
-        if q.get("kind") == "fork" and q.get("status") in V.ASKING:
-            fork_targets.add(q.get("origin"))
-            fork_targets.update(q.get("depends", []) or [])
+        if q.get("kind") != "fork" or q.get("status") not in V.ASKING:
+            continue
+        targets = {q.get("origin")} | set(q.get("depends", []) or [])
+        if q.get("key") in prev_asking and q.get("status") != "escalate":
+            for t in targets:
+                lapsed[t] = q.get("key")
+            continue
+        fork_targets |= targets
     changed = {c["unit_key"] for c in out["changes"]}
     waiting = {c["unit_key"]: c["why"] for c in out.get("not_done", [])}
     missing = []
@@ -913,6 +965,11 @@ def fix_covers_open_units(b, nid, out, item):
         if u["key"] in changed:
             continue
         if u["key"] in fork_targets:
+            continue
+        if u["key"] in lapsed and u["key"] not in changed:
+            missing.append(f"{u['key']}——出どころの fork『{lapsed[u['key']]}』が held のまま 2 周目に入った。"
+                           "held は判定者がまだ考えている状態で、人には届いていない。"
+                           "直すか、その問いを escalate に上げて人に聞け（escalate なら免除は続く）")
             continue
         if u["key"] in waiting:
             missing.append(f"{u['key']}（理由: {waiting[u['key']]}）——fork の出どころでないなら直す義務がある")

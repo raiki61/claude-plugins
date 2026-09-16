@@ -68,7 +68,7 @@ def sh(cwd, *args):
 VOCAB_SEEN = collections.defaultdict(set)
 # 到達した語彙の数。**`!=` で見る**——下限（`<`）だと筋書きを増やしても数が動かず、増やしたつもりの
 # 周に誰も気づかない。上げるときは実測値を書く（減らすのは、語彙そのものを graph から消したときだけ）。
-VOCAB_REACHED = 72
+VOCAB_REACHED = 74
 
 
 def record_vocab(node, output):
@@ -203,6 +203,10 @@ DECLARED_LENSES = ("/code-review", "pr-review-toolkit:code-reviewer", "/simplify
                    "pr-review-toolkit:pr-test-analyzer")
 
 
+# 前の周の R1 最小性が挙げる削除候補の綴り。**judge は逐語で写す**——照合の両側が同じ文字列になる形の台本
+R1_DELETION = "src/a.py:12-13 の注記（models.py の docstring と同じ事実）"
+
+
 def local_findings(rnd, drop=(), blank=()):
     """P1 の findings を宣言 7 本ぶん組む。drop の名前は行ごと落とし、blank の名前は items も failed も空にする。"""
     rows = []
@@ -267,7 +271,13 @@ def answers(run, scenario, rnd):
         return {"units": us, "questions": questions_for(rnd), "framing": "根本は上限の欠落", "one_shot": "上限を 1 箇所に寄せる",
                 # 一撃は反証可能に——閉じると見込む key を名指しし、次の周が測る問いを添える
                 "one_shot_closes": [u["key"] for u in us],
-                "materials_missing": [], "router": [{"key": unit_block["key"], "route": "②閉じた", "note": "grep で確認"}] if rnd > 1 else []}
+                "materials_missing": [],
+                # 前の周の R1 が挙げた削除候補は 1 件につき 1 行。台本の R1 は既定で deletions 空なので、
+                # 既定の周は空配列——非空にするのは carryr1 の筋書きだけ（数える口が空振りしないよう分ける）
+                "carried_r1": ([{"where": R1_DELETION, "disposition": "promote", "unit_key": us[0]["key"]} if us else
+                                {"where": R1_DELETION, "disposition": "decline", "why": "同じ注記は今周の修正で既に消えた"}]
+                               if (scenario == "carryr1" and rnd > 1) else []),
+                "router": [{"key": unit_block["key"], "route": "②閉じた", "note": "grep で確認"}] if rnd > 1 else []}
 
     awaiting_mp = scenario == "awaiting" and rnd < 3
     table = {
@@ -296,7 +306,8 @@ def answers(run, scenario, rnd):
         "p1.provenance": lambda it: {"material": CLEAN("事実の主張なし"), "claims": []},
         "p1.main_path_observation": lambda it: {"material": M("awaiting_human", reason="dev サーバが社内認証に繋がず起動しない") if awaiting_mp else CLEAN("人が用意した設定で 1 回動かし値を観測"), "observed": []},
         "p2.diagnose": lambda it: judge(rnd),
-        "p2.history": lambda it: judge(rnd),
+        # 履歴の突合は同じ judge が続けるが節の schema は別——carried_r1 は p2.diagnose だけが持つ欄
+        "p2.history": lambda it: {k: v for k, v in judge(rnd).items() if k != "carried_r1"},
         "p3.fix": lambda it: {"changes": [{"unit_key": u["key"], "what": "上限を 1 箇所に", "files": ["src/a.py"], "closure": {"mechanism": "分岐で上限が漏れる", "fix_mechanism": "共通経路に寄せた", "verified_how": "退行注入で赤→緑", "sites": [{"site": "src/a.py:f", "red_seen": True}]},
                                                  "coverage": {"how": "grep -rn 'limit' src/ | wc -l", "total": 1},
                                                  # 壊さないか・根本か・破れないか——修正が次の周の欠陥を作らないための 3 欄
@@ -318,7 +329,11 @@ def answers(run, scenario, rnd):
         # 自動起票・諮りの腕が端から端までの経路で 1 度も通らなかった（実測 2026-09-13: 判定語彙 185 値中
         # 到達 63 値。redesign-needed と unverifiable は R1/R3/R4 とも 0 回）——**その値のための機構を
         # 同じ周に足していた**。R ごとに別の非 pass を返すのは、腕ごとに帰結が違うため（持ち越せる／諮る）。
-        "r1.minimality": lambda it: ({"status": "redesign-needed", "reason": "台帳に逃げ道がある（検査用）", "deletions": [], "ledger_audit": [], "increments": []}
+        "r1.minimality": lambda it: ({"status": "redesign-needed", "reason": "増えた注記が既存の正本の写し（検査用）",
+                                      "deletions": [{"where": R1_DELETION, "why": "同じ事実が models.py の docstring に在る"}],
+                                      "ledger_audit": [], "increments": []}
+                                     if scenario == "carryr1" else
+                                     {"status": "redesign-needed", "reason": "台帳に逃げ道がある（検査用）", "deletions": [], "ledger_audit": [], "increments": []}
                                      if scenario == "rnonpass" else
                                      {"status": "pass", "reason": "累積差分は最小。台帳に逃げ道なし", "deletions": [], "ledger_audit": [], "increments": []}),
         "r2.design": lambda it: ({"question_stands": False, "reason": "既存機構で自明", "premise_invalid_reason": "呼び出し元が既に上限を持つ", "design": ""} if (scenario == "premise" or (scenario == "premise_resolved" and rnd == 1)) else
@@ -596,6 +611,81 @@ def test_local_review_lens_rows():
     # 対照: 7 本そろえば通る（非該当の 1 本も failed の行で在る）
     r = run.done(lr["id"], base)
     check(r.returncode == 0, f"宣言 7 本ぶんの行がそろえば通る（rc={r.returncode}: {r.stderr[-200:]})")
+
+
+def test_carried_r1_counted():
+    """前の周の R1 最小性が挙げた削除候補を、次の周の judge が 1 件につき 1 行で処理する。
+
+    直した面: 配線（p2.diagnose と p3.fix の reads の prev.r1.minimality）は前から在り、**届いた上で
+    黙って落とせた**——直す義務は record["units"] にしか掛からないので、judge が unit に上げなければ
+    誰も赤くならない。実測 2026-09-16（別リポジトリの run）: 1 周目の最小性が挙げた 14 件が 2 周目の
+    修正対象に 1 件も入らず、2 周目の最小性でそのまま再掲された。
+    """
+    print("台本: 前の周の R1 の削除候補を judge が 1 件 1 行で処理する")
+    run = Run("carryr1")
+    at = lambda node, rnd: (lambda nx: nx["round"] == rnd and any(i["node"] == node for i in nx["ready"]))
+    drive(run, "carryr1", stop_at=at("p2.diagnose", 2))
+    nx = run.next()
+    jd = next(i for i in nx["ready"] if i["node"] == "p2.diagnose")
+    t = answers(run, "carryr1", 2)
+    good = t["p2.diagnose"](None)
+    check(len(good["carried_r1"]) == 1, "台本の前提: 2 周目の judge は前の周の削除候補 1 件を持つ")
+    dis = good["carried_r1"][0]["disposition"]
+    # 腕 1: 行ごと落とす——「読んだ上で黙って落とす」形
+    r = run.done(jd["id"], {**good, "carried_r1": []}, agent_id="judge-1")
+    check(r.returncode == 1 and "carried_r1 に無い" in r.stderr, f"前の周の R1 の行を落とすと exit 1（rc={r.returncode}）")
+    # 腕 2: 落とすなら理由が要る
+    r = run.done(jd["id"], {**good, "carried_r1": [{"where": R1_DELETION, "disposition": "decline"}]}, agent_id="judge-1")
+    check(r.returncode == 1 and "why が無い" in r.stderr, "decline に理由が無いと exit 1")
+    # 腕 3: unit に上げると言いながら実在しない key を指す
+    r = run.done(jd["id"], {**good, "carried_r1": [{"where": R1_DELETION, "disposition": "promote", "unit_key": "無い"}]}, agent_id="judge-1")
+    check(r.returncode == 1 and ("units に無い" in r.stderr or "unit_key が無い" in r.stderr), "promote の unit_key が units に無いと exit 1")
+    # 腕 4: 前の周に無い where を足す（正本は prev.r1.minimality の側）
+    r = run.done(jd["id"], {**good, "carried_r1": good["carried_r1"] + [{"where": "でっちあげ", "disposition": "decline", "why": "x"}]}, agent_id="judge-1")
+    check(r.returncode == 1 and "削除候補に無い" in r.stderr, "前の周の R1 に無い where を足すと exit 1")
+    # 対照: 1 件を unit に上げれば通る
+    r = run.done(jd["id"], good, agent_id="judge-1")
+    check(r.returncode == 0, f"前の周の削除候補を unit に上げれば通る（rc={r.returncode}: {r.stderr[-200:]})")
+
+
+def test_held_fork_stops_exempting():
+    """held の fork は出どころの [block] を 1 周だけ免除する。2 周目からは escalate だけが免除を持つ。
+
+    直した面: fork の出どころと depends は fix_covers_open_units が無条件に免除していたので、
+    held のまま持ち越せば [block] を何周でも未着手にできた（実測 2026-09-16、別リポジトリの run:
+    出どころを自分の depends にも挙げた held の fork が、今すぐやる作業を何周も保持した）。
+    held は「判定者がまだ考えている」で人には届いていない——届く形（escalate）に上げれば免除は続く。
+    """
+    print("台本: held の fork の免除は 1 周で切れる（escalate なら続く）")
+    run = Run("forkhold")
+    at = lambda node, rnd: (lambda nx: nx["round"] == rnd and any(i["node"] == node for i in nx["ready"]))
+    drive(run, "std", stop_at=at("p3.fix", 1))
+    rec = run.record()
+    key = next(u["key"] for u in rec["units"] if u["label"] == "block")
+    # 前の周にも同じ問いが held で在った状態を作る（持ち越しの実物と同じ形）
+    q = {"key": "どちらに倒すか", "kind": "fork", "status": "held", "reason": "人が決める", "origin": key, "options": ["a", "b"]}
+
+    def put(qs):
+        f = run.tmp / "q.json"
+        f.write_text(json.dumps(qs, ensure_ascii=False), encoding="utf-8")
+        for path in ("questions", "state.loop.prev_questions"):
+            r = run.cmd("patch", "--path", path, "--file", str(f), "--reason", "検査: 持ち越した fork を作る")
+            if r.returncode != 0:
+                raise SystemExit(f"台本の前提が崩れた: patch {path} が {r.returncode}: {r.stderr[-200:]}")
+    put([q])
+    nx = run.next()
+    fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
+    t = answers(run, "std", run.state()["round"])
+    empty = {**t["p3.fix"](None), "changes": [], "not_done": [], "interactions": [],
+             "fix_closure": {"status": "not_applicable", "reason": "直していない（検査用）"}}
+    r = run.done(fx["id"], empty)
+    check(r.returncode == 1 and "held のまま 2 周目" in r.stderr,
+          f"held のまま持ち越した fork は出どころを免除しない（rc={r.returncode}）")
+    # 対照: 同じ問いを escalate に上げれば免除は続く
+    put([{**q, "status": "escalate"}])
+    r = run.done(fx["id"], empty)
+    check(r.returncode == 0 or "held のまま 2 周目" not in r.stderr,
+          "escalate（人に届く形）に上げれば免除は続く")
 
 
 def test_rejections():
