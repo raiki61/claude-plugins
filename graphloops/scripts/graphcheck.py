@@ -186,7 +186,12 @@ def skills_shape(nid, skills):
         for f in ("args", "note"):
             if f in e and not isinstance(e[f], str):
                 errs.append(f"節 {nid}: skills[{i}].{f} は文字列")
-        if "required" in e and not isinstance(e["required"], bool):
+        # **required は省けない。** 「在るときの型」だけ見ていたので、欄を省いた要素が静的にも実行時にも
+        # 通り、既定値は graph・graphcheck・prompt・docs のどこにも宣言されていなかった——真偽値の
+        # 2 値のうちどちらでもない 3 つ目の状態が表現できていた（実測 2026-09-16）。
+        if "required" not in e:
+            errs.append(f"節 {nid}: skills[{i}]（{name}）に required が無い——既定値はどこにも宣言されていないので省けない")
+        elif not isinstance(e["required"], bool):
             errs.append(f"節 {nid}: skills[{i}].required は真偽値")
     return errs
 

@@ -1686,6 +1686,24 @@ def test_set_path():
         except KeyError:
             check(True, f"書けない綴り {bad} は落ちる（黙って別の場所を作らない）")
     check("questions[1]" not in d, "角括弧の綴りが、その名前の鍵として新設されていない")
+    # **葉の新設（作成枝）。** ここに腕が無かったので、作成枝を丸ごと KeyError に差し替える 1 行の退行が
+    # 検査一式を緑のまま通った（実測 2026-09-16: 判定役が名指しした 5 つの 1 行退行のうち、この 1 本だけが緑）。
+    set_path(d, "materials.local_review", {"status": "clean"})
+    check(get_path(d, "materials.local_review") == {"status": "clean"}, "既存の辞書の下に葉を 1 つ新設できる")
+    # **点を含む鍵が最後に来る綴り。** 走査が最後の区切りを候補から外していたので、既存の
+    # `outputs["p1.local_review"]` を指す綴りが `outputs["p1"]["local_review"]` を黙って新設し、
+    # get_path は元の場所を読み続けた——patch は ok を印字しながら手当てが当たらない（実測 2026-09-16）
+    d["outputs"] = {"p1.local_review": {"round": 1}}
+    set_path(d, "outputs.p1.local_review", {"round": 2})
+    check(d["outputs"] == {"p1.local_review": {"round": 2}}, "点を含む鍵を最長一致で食い、隣に入れ子を作らない")
+    check(get_path(d, "outputs.p1.local_review") == {"round": 2}, "書いた所を get_path が同じ綴りで読める（点入りの鍵）")
+    # 2 段以上の新設は「点を含む 1 つの鍵」と区別が付かないので受けない（黙ってどちらかを選ばない）
+    try:
+        set_path(d, "outputs.p2.nope.deep", "x")
+        check(False, "2 段以上の新設は落ちる")
+    except KeyError as e:
+        check("葉 1 つ" in str(e), "2 段以上の新設は落ちる（どちらの読みも成り立つ綴りを機械が選ばない）")
+    check("p2" not in d["outputs"], "落ちた綴りが途中まで書き込まれていない")
 
 
 def test_parse_output():

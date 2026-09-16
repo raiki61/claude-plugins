@@ -351,57 +351,76 @@ def numstat_totals(text):
     return names, ins, dels, len(rows)
 
 
-def worktree_snapshot(b, nid):
-    """P1 の前: 作業ツリーの写しと、対象差分（git diff <BASE>）を機械が取る。回す側に貼らせない。"""
+def _take_diff(b, suffix=""):
+    """BASE との差分を取り、写しに落とし、loop_state の 5 鍵を更新する。**取り方はこの 1 本だけ。**
+
+    P1 の頭（worktree_snapshot）と P3 の後（_retake_for_reviews）で同じ物を取る。以前は後者が
+    前者の後半を書き直した写しで、**原本が実測付きで持つ空差分の柵と、どの git が取れなかったかを
+    名指しする problems が写しの側に無かった**（実測 2026-09-16: 同じ BASE で原本が ok:false を返す
+    条件下で写しは True を返し、0 バイトの .patch を書いた。r2.compare は本文ごと貼る遮断系なので、
+    役は『差分が無い』と『渡し損ねた』を区別できない）。同じ 3 行を 2 か所に置くと片方だけ直る、と
+    書いた注記の隣で、まさにそれが起きていた。
+
+    `suffix` は写しの名前だけを変える——**周の基準点（diff-r<N>.patch）は P1 の頭が書いた 1 本きり**で、
+    _files_changed_since が次の周の持ち越しの無効化に使う。上書きすると、修正した所を見た素材が
+    carried_over のまま前の周の主張を運ぶ。
+    """
     ls = b.loop_state
     base = b.record.get("base")
     if not base:
         return {"ok": False, "problems": ["BASE が無い（p0.base が先）"]}
     # git の失敗（None）は全部「測れない」で止める。`or ""` で空文字に潰すと『取れない』と『変化なし』が
     # 同じ値になり、保護も件数も黙って通る（util.git の契約は「None は分からない。合格に倒すな」）。
-    # numstat 1 本で変更ファイルと行数の両方を取る（name-only と shortstat の 2 プロセスは冗長）
-    # 対象差分は**生バイトで 1 度だけ**引く（写し・突合の sha・空の検査の 3 つが同じ値を使う）。以前は
-    # 復号した text 版も別に引いていたが、その値は空の検査にしか使われず、927 KB を読む subprocess 1 本が
-    # 捨てられていた（実測 2026-09-13）。
-    got = {k: git(*args) for k, args in (("numstat", ("diff", "--numstat", base)), ("stash", ("stash", "list")))}
-    got["diff"] = git_bytes("diff", base)
-    missing = sorted(k for k, v in got.items() if v is None)
+    # numstat 1 本で変更ファイルと行数の両方を取る（name-only と shortstat の 2 プロセスは冗長）。
+    # 対象差分は**生バイトで 1 度だけ**引く（写し・突合の sha・空の検査の 3 つが同じ値を使う）。
+    raw_diff = git_bytes("diff", base)
+    numstat = git("diff", "--numstat", base)
+    missing = sorted(k for k, v in (("diff", raw_diff), ("numstat", numstat)) if v is None)
     if missing:
-        return {"ok": False, "problems": [f"git が取れない（{', '.join(missing)}）——BASE={base} の対象差分と作業ツリーの保護が測れない場所からは回せない"]}
-    raw_diff = got["diff"]
-    names, ins, dels, nfiles = numstat_totals(got["numstat"])
-    stat = f"{nfiles} files changed, {ins} insertions(+), {dels} deletions(-)"
+        return {"ok": False, "problems": [f"git が取れない（{', '.join(missing)}）——BASE={base} の対象差分が測れない場所からは回せない"]}
     # 対象差分が空なら止める。空を通すと、素材が毎周 not_run（理由は事実と逆）で埋まったまま上限まで回る
     # （実測: BASE=HEAD で 5 周・diff 0 バイト・stop_reason=max_rounds、原因は記録のどこにも出ない）。
     if not raw_diff.strip():
         return {"ok": False, "problems": [f"対象差分が空（git diff {base} が 0 バイト）——BASE を確かめよ（p0.base の base_sha）"]}
-    snap = b.porcelain()
-    if snap is None:
-        return {"ok": False, "problems": ["git status が取れない——作業ツリーの保護（前後の突合）ができない場所からは回せない"]}
-    f = b.dir / f"diff-r{b.round}.patch"
+    names, ins, dels, nfiles = numstat_totals(numstat)
+    f = b.dir / f"diff-r{b.round}{suffix}.patch"
     # **写しは生バイトで書く。** 復号した str を UTF-8 で書き戻すと、復号できないバイトが U+FFFD（UTF-8 で 3 バイト）
     # に化けるので、生バイトで読み直す側（_files_changed_since）と永久に一致しない——誰も触っていない周でも
     # 「変わった」と出て prev_fix_touched が恒真になり、再発火の条件分けが効かず prev_fix_source だけが
-    # 「実測」と名乗り続けた（実測 2026-09-13）。突合の sha（下の tree_before）は既に生バイトに揃えてあり、
-    # 揃っていないのは書く側のこの 1 か所だけだった。**貼る用の本文は復号済みの diff をそのまま使う**——
-    # 切り分けは「貼るか突き合わせるか」で、同じファイルが両方に使われるなら正本は突合の側（生バイト）。
+    # 「実測」と名乗り続けた（実測 2026-09-13）。
     f.write_bytes(raw_diff)
+    changed = [x for x in names.splitlines() if x.strip()]
+    cf = b.dir / f"changed-r{b.round}{suffix}.txt"
+    cf.write_text("\n".join(changed) + "\n", encoding="utf-8")
     ls["diff_file"] = str(f)
-    ls["changed_files"] = [x for x in names.splitlines() if x.strip()]
-    cf = b.dir / f"changed-r{b.round}.txt"
-    cf.write_text("\n".join(ls["changed_files"]) + "\n", encoding="utf-8")
+    ls["changed_files"] = changed
     ls["changed_files_file"] = str(cf)  # 回す側の節には一覧でなくこのパスを渡す（一覧を 4 本のプロンプトに複製しない）
-    ls["diff_stat"] = stat.strip()
-    ls["diff_lines"] = ins + dels  # 2 行上で numstat から数えた整数をそのまま使う（stat 文字列に組んでから正規表現で読み直していた）
+    ls["diff_stat"] = f"{nfiles} files changed, {ins} insertions(+), {dels} deletions(-)"
+    ls["diff_lines"] = ins + dels  # numstat から数えた整数をそのまま使う（stat 文字列に組んでから正規表現で読み直していた）
+    return {"ok": True, "raw": raw_diff, "diff_file": str(f), "changed_files": changed, "stat": ls["diff_stat"]}
+
+
+def worktree_snapshot(b, nid):
+    """P1 の前: 作業ツリーの写しと、対象差分（git diff <BASE>）を機械が取る。回す側に貼らせない。"""
+    ls = b.loop_state
+    stash = git("stash", "list")
+    if stash is None:
+        return {"ok": False, "problems": ["git stash list が取れない——作業ツリーの保護（前後の突合）が測れない場所からは回せない"]}
+    d = _take_diff(b)
+    if not d["ok"]:
+        return d
+    snap = b.porcelain()
+    if snap is None:
+        return {"ok": False, "problems": ["git status が取れない——作業ツリーの保護（前後の突合）ができない場所からは回せない"]}
     # diff 本文の sha も突合に入れる。porcelain は状態コードとパスだけなので、**既に ' M' のファイルの
     # 中身を差し替えても検知しない**——レビュー対象は定義上ぜんぶ変更済みなので、これが無いと保護は
     # 対象そのものに効かない（agents/investigator.md はこの突合を「担保」と名乗っている）。
     # 突合の sha は**生バイト**から取る（貼る用の diff は replace 復号でよい）——replace は復号できないバイトを
     # 種類に依らず U+FFFD 1 文字に写すので、等長の非 UTF-8 書き換えが同じ sha になり、この腕が porcelain と
     # 同じ盲点に戻っていた（実測 2026-09-13）。生バイトが取れない場（git 不在）は None で「測れない」側に倒れる
-    ls["tree_before"] = {"porcelain": snap, "stash": got["stash"].strip(),
-                         "diff_sha": sha(raw_diff.decode("latin-1"))}  # 写しと同じ生バイトから取る（上で 1 度だけ引いた）
-    return {"ok": True, "diff_file": ls["diff_file"], "changed_files": ls["changed_files"], "stat": ls["diff_stat"]}
+    ls["tree_before"] = {"porcelain": snap, "stash": stash.strip(),
+                         "diff_sha": sha(d["raw"].decode("latin-1"))}
+    return {"ok": True, "diff_file": d["diff_file"], "changed_files": d["changed_files"], "stat": d["stat"]}
 
 
 def worktree_compare(b, nid):
@@ -517,40 +536,26 @@ def fill_materials(b):
 
 
 def _retake_for_reviews(b):
-    """P3 の後の姿を、R1〜R4 に渡すためだけに写し直す。
+    """P3 の後の姿を、R1〜R4 に渡すためだけに写し直す。**取り方は _take_diff＝P1 の頭と同じ 1 本。**
 
     **周の基準点（diff-r<N>.patch）は上書きしない。** あれは周をまたぐ比較の基準でもあり
     （_files_changed_since が『前の周の P1 の写し』と今を比べて、前の周の P3 が触ったファイルを
     出す）、上書きすると次の周の持ち越しの無効化が効かなくなる——修正した所を見た素材が
     carried_over のまま前の周の主張を運ぶ。腕は台本が持つ（『前の周の P3 が触ったので走り直す』）。
 
-    なので別のファイルに写し、R の節にはそちらを渡す。P1 の頭で凍結した姿しか渡さないと、
+    なので別の名前（-after-fix）に写し、R の節にはそちらを渡す。P1 の頭で凍結した姿しか渡さないと、
     R は**修正前の姿しか見られない**（実測 2026-09-16: 2 周とも R1 の judge が『渡された写しは
     古い』と自分で気づいて作業ツリーを直接読み、そのおかげで 1 周目の回帰を捕まえた。仕組みが
     そうさせたのではなく、気づかなかった 2 件は次の周の P1 が捕まえた＝同じ周で収まらなかった）。
+
+    返りは _take_diff のまま（ok と problems）——**失敗の理由を握り潰さない**。以前はこの関数が
+    独自に真偽値を返し、空差分の柵も problems も持っていなかったので、0 バイトの写しを ok として
+    R へ渡せた（実測 2026-09-16）。
     """
-    ls = b.loop_state
-    base = b.record.get("base")
-    if not base:
-        return False
-    raw = git_bytes("diff", base)
-    names = git("diff", "--numstat", base)
-    if raw is None or names is None:
-        return False
-    f = b.dir / f"diff-r{b.round}-after-fix.patch"
-    f.write_bytes(raw)
-    files, ins, dels, nfiles = numstat_totals(names)
-    cf = b.dir / f"changed-r{b.round}-after-fix.txt"
-    changed = [x for x in files.splitlines() if x.strip()]
-    cf.write_text("\n".join(changed) + "\n", encoding="utf-8")
-    # R の節が読む口だけを差し替える。P1 の節はもう走り終えているので、同じ鍵を使い回してよい
-    ls["diff_file"] = str(f)
-    ls["changed_files"] = changed
-    ls["changed_files_file"] = str(cf)
-    ls["diff_stat"] = f"{nfiles} files changed, {ins} insertions(+), {dels} deletions(-)"
-    ls["diff_lines"] = ins + dels
-    ls["retaken_for_reviews"] = {"file": str(f), "stat": ls["diff_stat"]}
-    return True
+    d = _take_diff(b, "-after-fix")
+    if d["ok"]:
+        b.loop_state["retaken_for_reviews"] = {"file": d["diff_file"]}  # stat は ls["diff_stat"] に在る（値を 2 組持たない）
+    return d
 
 
 def assemble(b, nid):
@@ -561,10 +566,15 @@ def assemble(b, nid):
     （実測 2026-09-16: 2 周とも R1 の judge が『渡された写しは古い』と自分で気づいて作業ツリーを
     直接読み、そのおかげで 1 周目の回帰を捕まえた。仕組みがそうさせたのではない。気づかなかった
     2 件は次の周の P1 が捕まえた＝同じ周で収まらなかった）。worktree_compare が変更を受理したときに
-    取り直すのと同じ理屈で、同じ関数を呼ぶ——同じ 3 行を 2 か所に置くと片方だけ直る。
+    取り直すのと**同じ 1 本（_take_diff）を呼ぶ**——同じ 3 行を 2 か所に置くと片方だけ直る
+    （実測 2026-09-16: この注記が『同じ関数を呼ぶ』と書いていた時点で、写しの側は原本の空差分の柵を
+    持たない別実装だった。注記が事実と逆を教えていた）。
     """
-    if not _retake_for_reviews(b):
-        return {"ok": False, "problems": ["P3 の後の写しが取れない——R1〜R4 に渡す対象が古いままになる"]}
+    taken = _retake_for_reviews(b)
+    if not taken["ok"]:
+        # **理由をそのまま前に出す。** 1 行に潰すと、BASE が無いのか git が死んだのか差分が空なのかが
+        # 記録から読めない（R へ渡すのは本文ごと貼る遮断系なので、役は『差分が無い』と『渡し損ね』を区別できない）
+        return {"ok": False, "problems": ["P3 の後の写しが取れない——R1〜R4 に渡す対象が古いままになる"] + taken["problems"]}
     V = validator_module(b)
     rec, ls = b.record, b.loop_state
     fix = b.outputs().get("p3.fix", {})
@@ -1093,7 +1103,14 @@ def local_review_covers_lenses(b, nid, out, item):
     照合の両側は同じ文字列: engine が `{{node.skills}}` で正典をそのまま役へ渡し、ここは同じ配列の
     `skill` を読む。綴りの正規化という段は存在しない（在れば、その規則自体が誰も決めていない未定義物になる）。
     """
-    declared = [e["skill"] for e in b.graph["nodes"][nid].get("skills", [])]
+    skills = b.graph["nodes"][nid].get("skills") or []
+    if not skills:
+        # **空なら落とす（fail-closed）。** 空リストだと 1 周も回らず全件合格になり、非空であることの
+        # 保証は別ファイルの graphcheck が別の欄（run_by == skill）を根拠に持っていた。engine は
+        # graphcheck を一度も呼ばない（import は 0 件）ので、`init --graph <任意のパス>` は静的検査を
+        # 通していない graph も受ける——柵の前提を柵の中で確かめる（実測 2026-09-16: 壊れてはおらず、壊れる余地）
+        raise Reject(f"{nid} の skills が空——数える対象が無い柵は全件合格になる。graph に宣言を書け")
+    declared = [e["skill"] for e in skills]
     rows = out.get("findings") or []
     seen, errs = {}, []
     for i, row in enumerate(rows):

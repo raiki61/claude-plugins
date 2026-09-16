@@ -107,26 +107,35 @@ def porcelain():
     return None if out is None else sorted(out.splitlines())
 
 
+def _step(cur, parts, i, upto):
+    """`cur` の中で `parts[i:upto]` の先頭に最長一致する鍵を探し、`(次の cur, 次の i)` を返す。無ければ None。
+
+    **読む側（get_path）と書く側（set_path）はこの 1 本を共有する。** 以前は同じ走査が 2 本在り、
+    書く側だけ最後の区切りを候補から外していた——`outputs.p1.local_review` のように**点を含む鍵が
+    最後に来る綴り**が最長一致に当たらず、`cur.setdefault("p1", {})` へ落ちて新しい入れ子が生まれた。
+    読む側は元の場所を読み続けるので、`patch` は ok を印字しながら手当てが当たらない（実測 2026-09-16:
+    独立した 4 レンズが同じ所を指し、2 本は実走の盤面で ok が返ることまで測った）。
+    """
+    if isinstance(cur, dict):
+        for j in range(upto, i, -1):
+            key = ".".join(parts[i:j])
+            if key in cur:
+                return cur[key], j
+    elif isinstance(cur, list) and parts[i].isdigit() and int(parts[i]) < len(cur):
+        return cur[int(parts[i])], i + 1
+    return None
+
+
 def get_path(obj, path):
     """`a.b.c` で辿る。節名に点が入る（out.p0.question.x）ので、辞書の鍵は最長一致で食う。"""
     parts = path.split(".")
     cur = obj
     i = 0
     while i < len(parts):
-        if isinstance(cur, dict):
-            for j in range(len(parts), i, -1):
-                key = ".".join(parts[i:j])
-                if key in cur:
-                    cur = cur[key]
-                    i = j
-                    break
-            else:
-                raise KeyError(path)
-        elif isinstance(cur, list) and parts[i].isdigit() and int(parts[i]) < len(cur):
-            cur = cur[int(parts[i])]
-            i += 1
-        else:
+        nxt = _step(cur, parts, i, len(parts))
+        if nxt is None:
             raise KeyError(path)
+        cur, i = nxt
     return cur
 
 
@@ -136,8 +145,10 @@ def set_path(obj, path, value):
     その名前の鍵が新設され、patch は ok を返した。当たっていない手当てが 2 回成功と報告され、
     検証器が別の理由で落ちて初めて分かった）。
 
-    存在しない鍵は途中まで作る（辞書のみ）。リストの添字は**既に在る要素だけ**を指せる——
-    リストを伸ばす手当ては、順序の意味を回す側が決めることになるので受けない。
+    辿り方は `_step`＝get_path と同じ 1 本。**作ってよいのは葉 1 つだけ**——親が辿れない綴りは
+    落とす。以前は途中の辞書を何段でも作ったので、点を含む鍵を指す綴りが「既存の鍵の隣に
+    新しい入れ子」を黙って生やす形だった（どちらの読みも成り立つ綴りで、機械が片方を勝手に選んでいた）。
+    リストの添字は**既に在る要素だけ**を指せる——リストを伸ばす手当ては、順序の意味を回す側が決める。
     """
     # **角括弧は受けない。** `questions[1]` は get_path が読めない綴りで、黙って通すと
     # その名前の鍵が新設される（今回の事故そのもの）。書けない綴りはここで落とす。
@@ -147,21 +158,26 @@ def set_path(obj, path, value):
     cur = obj
     i = 0
     while i < len(parts) - 1:
-        if isinstance(cur, dict):
-            for j in range(len(parts) - 1, i, -1):  # 鍵は最長一致で食う（節名に点が入る）
-                key = ".".join(parts[i:j])
-                if key in cur:
-                    cur = cur[key]
-                    i = j
-                    break
-            else:
-                cur = cur.setdefault(parts[i], {})
-                i += 1
-        elif isinstance(cur, list) and parts[i].isdigit() and int(parts[i]) < len(cur):
-            cur = cur[int(parts[i])]
-            i += 1
-        else:
+        # 残り全部が 1 つの鍵（点を含む鍵）なら、ここが親。**この枝が無かったのが今回の欠陥**
+        # ——`outputs.p1.local_review` は最後の区切りを候補から外す走査に当たらず、`p1` の入れ子を
+        # 新設していた。get_path は元の場所を読み続けるので、当たらない手当てが ok を返した。
+        rest = ".".join(parts[i:])
+        if isinstance(cur, dict) and rest in cur:
+            cur[rest] = value
+            return
+        nxt = _step(cur, parts, i, len(parts) - 1)
+        if nxt is not None:
+            cur, i = nxt
+            continue
+        if not isinstance(cur, dict):
             raise KeyError(path)
+        if i != len(parts) - 2:
+            # 作るのは葉 1 つまで。2 段以上の新設は「点を含む 1 つの鍵」との区別が付かない
+            raise KeyError(f"{path}: '{'.'.join(parts[:i + 1])}' から先が辿れない——"
+                           f"作ってよいのは葉 1 つだけ（親を先に作るか、既に在る綴りを指せ）。"
+                           f"2 段以上を黙って作ると、点を含む 1 つの鍵と区別が付かない")
+        cur = cur.setdefault(parts[i], {})
+        i += 1
     last = parts[-1]
     if isinstance(cur, list):
         if not (last.isdigit() and int(last) < len(cur)):
