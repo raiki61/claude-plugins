@@ -614,56 +614,59 @@ def test_rejections():
 
 
 def test_hook_evidence():
-    """**読んだ事実を、読んだ瞬間に自分の形式で取る（フックの一次情報）。**
+    """**読んだ事実を、読んだ瞬間に盤面の隣へ残す（フックの一次情報）。**
 
     これまで柵は、会話の記録（転写 JSONL）を engine が後から開いて痕跡を探していた。
-    公式文書が内部形式と明記するものを自前で解析する形で、壊れるたびに守りを足してきた
-    （形が変わった疑いの分岐・辞書でない行・外出し tool-results/ の見分け）。
-
-    フックは PostToolUse で発火し、公式文書（code.claude.com/docs/en/hooks、2026-09-21 取得）が
-    `tool_response` を "the full tool output (not truncated for hooks)" と書き、subagent の中でも
-    発火して `agent_id` が載ると書いている。後から漁る必要も外出しの見分けも要らない。
+    公式文書が内部形式と明記するものを自前で解析する形で、壊れるたびに守りを足してきた。
 
     **ハーネス側は実物で測った**（2026-09-22、macOS。この検査では測れない——フックは session の
     開始時に読み込まれるので、子の claude を `--settings` 付きで起こして確かめた）: Read のたびに
     発火し（tool_use_id が `toolu_01HsNpjr…`）、offset 付きは partial で残り、**subagent の中でも
-    発火して agent_id が載る**（Explore に読ませた回は agent_id あり、親自身の読みは null）。
-    ここで測れるのは engine と記録の契約までで、**ハーネスがフックを呼ぶことは検査では覆えない**。
+    発火して agent_id が載る**。ここで測れるのは engine と記録の契約までで、
+    **ハーネスがフックを呼ぶことは検査では覆えない**。
 
-    **ここで測るのは 4 つの出方と、`read` 以外では判定を下さないこと**——射程は Read だけで、
-    cat / sed の読みは記録に残らないので、`read` 以外は呼ぶ側が転写の走査へ落とす。
+    **書く先は盤面の隣で、回っている run が在るときだけ**——ここが一番の不変条件。
+    最初は利用者ごとの置き場へ session 単位で永久に書く形で、graphloops を使っていない session の
+    読み取り履歴まで寿命なしで溜めていた。盤面の隣なら run の寿命で消える。
     """
-    print("読了の柵（フック）: 読んだ瞬間の記録から全文読みを探し、4 通りに分ける（read / none / absent / partial / stale）")
+    print("読了の柵（フック）: 回っている run の盤面の隣にだけ書き、5 通りに分ける（read / none / absent / partial / stale）")
     _td, tmp = parallel.workspace("gl-hookev-")
+    repo = tmp / "repo"; (repo / ".git" / "graphloops" / "research-loop").mkdir(parents=True)
+    board = tmp / "board"; board.mkdir()
     doc = tmp / "doc.md"
     doc.write_text("aaa" + chr(10) + "bbb" + chr(10) + "ccc" + chr(10), encoding="utf-8")
-    cfg = tmp / "cfg"
     hook = PLUGIN / "hooks" / "record-read.py"
-    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(cfg), "CLAUDE_CODE_SESSION_ID": "sess-t"}
 
-    def fire(path, **ti):
+    # **利用者ごとの置き場を一時の場所へ向け、そこに何も出来ないことを見る。**
+    # 盤面に何も出来ないことだけ見ていたとき、別の場所へ溜める形に戻す注入が赤にならなかった
+    # （実測 r10: 腕 h6 が緑）——「どこにも書かない」は、書きうる場所を渡して初めて測れる
+    cfg = tmp / "cfg"; cfg.mkdir()
+    fire_env = {**os.environ, "CLAUDE_CONFIG_DIR": str(cfg), "HOME": str(tmp / "home")}
+
+    def fire(path, cwd=None, **ti):
         payload = {"hook_event_name": "PostToolUse", "session_id": "sess-t", "tool_name": "Read",
-                   "tool_use_id": "toolu_t", "agent_id": "agent-t",
+                   "tool_use_id": "toolu_t", "agent_id": "agent-t", "cwd": str(cwd or repo),
                    "tool_input": {"file_path": str(path), **ti}, "tool_response": "x"}
         r = subprocess.run([PY, str(hook)], input=json.dumps(payload), capture_output=True,
-                           text=True, encoding="utf-8", env=env, timeout=60)
+                           text=True, encoding="utf-8", timeout=60, env=fire_env)
         return r.returncode
 
     def ask():
-        old = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_SESSION_ID")}
-        os.environ.update({"CLAUDE_CONFIG_DIR": str(cfg), "CLAUDE_CODE_SESSION_ID": "sess-t"})
-        try:
-            return RESEARCH_RULES.hook_evidence(str(doc))
-        finally:
-            for k, v in old.items():
-                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        return RESEARCH_RULES.hook_evidence(types.SimpleNamespace(dir=board), str(doc))
 
-    check(ask()[0] == "none", "記録そのものが無い session は none（フックが入っていない環境で柵を切らない）")
+    # **回っている run が無ければ 1 バイトも書かない。** ここが寿命の設計そのもの
+    check(fire(doc) == 0, "run が無くてもフックは道具を止めない（終了コード 0）")
+    check(not (board / "reads.jsonl").exists(), "**run が無い回は盤面に書かない**")
+    strays = sorted(x for x in (list(cfg.rglob("*")) + list((tmp / "home").rglob("*"))) if x.is_file())
+    check(not strays, f"**run が無い回はどこにも書かない**（利用者ごとの置き場にも: {strays[:2]}）")
+    check(ask()[0] == "none", "記録が無ければ none（フックが入っていない環境で柵を切らない）")
+
+    (repo / ".git" / "graphloops" / "research-loop" / "current").write_text(str(board), encoding="utf-8")
     other = tmp / "other.md"; other.write_text("zzz" + chr(10), encoding="utf-8")
-    check(fire(other) == 0, "フックは道具を止めない（終了コード 0）")
+    check(fire(other) == 0 and (board / "reads.jsonl").is_file(), "run が在れば盤面の隣に書く")
     check(ask()[0] == "absent", "記録は在るがこの文書の読みが無ければ absent")
-    check(fire(doc, offset=2) == 0, "部分読みも記録はされる")
-    check(ask()[0] == "partial", "**部分読みは全文の証拠にしない**（offset / limit が付いた読み）")
+    check(fire(doc, offset=2) == 0 and ask()[0] == "partial",
+          "**部分読みは全文の証拠にしない**（offset / limit が付いた読み）")
     check(fire(doc) == 0, "全文読みを記録する")
     got, why = ask()
     check(got == "read", f"全文読みが在れば read（{why[:60]}）")
@@ -672,8 +675,10 @@ def test_hook_evidence():
     check(ask()[0] == "stale", "**読んだ後に文書が変われば stale**（中身は記録に残さず sha で突き合わせる）")
     check(fire(doc) == 0 and ask()[0] == "read", "読み直せば read に戻る")
     # **記録に本文を写さない。** 文書の中身をこちらのディスクへ置く形にしない
-    log = (cfg / "graphloops" / "reads" / "sess-t.jsonl").read_text(encoding="utf-8")
+    log = (board / "reads.jsonl").read_text(encoding="utf-8")
     check("CHANGED" not in log and "aaa" not in log, "記録に文書の本文は入らない（sha と大きさだけ）")
+    strays = sorted(x for x in (list(cfg.rglob("*")) + list((tmp / "home").rglob("*"))) if x.is_file())
+    check(not strays, f"**run が在る回も、利用者ごとの置き場には 1 バイトも書かない**（{strays[:2]}）")
     rm(tmp)
 
 
@@ -692,6 +697,7 @@ def test_hook_evidence_passes_gate_without_transcript():
     doc.write_text("".join(f"{i:02d} 行目: この文書のためだけの一意の一文である。" + chr(10)
                            for i in range(30)), encoding="utf-8")
     repo = tmp / "repo"; repo.mkdir()
+
     def g(*a):
         subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *a],
                        cwd=repo, check=True, capture_output=True, timeout=120)
@@ -722,11 +728,13 @@ def test_hook_evidence_passes_gate_without_transcript():
     check(r.returncode == 0 and "確かめられなかった" in r.stdout,
           "フックの記録が無ければ、転写も無いので**不成立**（柵を切らず痕跡を残す）")
 
-    subprocess.run([PY, str(PLUGIN / "hooks" / "record-read.py")], env=env, timeout=60,
+    # **run が在るので、フックは盤面の隣へ書く**（cwd がリポジトリなら current から辿れる）
+    subprocess.run([PY, str(PLUGIN / "hooks" / "record-read.py")], timeout=60,
                    input=json.dumps({"hook_event_name": "PostToolUse", "session_id": "gate-t",
-                                     "tool_name": "Read", "tool_use_id": "toolu_g",
+                                     "tool_name": "Read", "tool_use_id": "toolu_g", "cwd": str(repo),
                                      "tool_input": {"file_path": str(doc)}, "tool_response": "..."}),
                    capture_output=True, text=True, encoding="utf-8")
+    check((d / "reads.jsonl").is_file(), "記録は盤面の隣に落ちる（利用者ごとの置き場に溜めない）")
     loop("next")
     (d / "out" / "r1" / "p0.terms.json").write_text(json.dumps(
         {"terms": [{"term": "t", "definition": "d", "status": "社内造語"}]}, ensure_ascii=False), encoding="utf-8")

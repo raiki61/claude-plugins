@@ -592,26 +592,26 @@ def read_through_unchecked(b, nid, why):
     return f"読了は確かめられなかった（記録に残す）: {why}"
 
 
-def hook_evidence(doc):
-    """フックが残した読了の記録から、この文書の全文読みを探す ——（結果, 説明）。
+def hook_evidence(b, doc):
+    """フックが盤面の隣に残した読了の記録から、この文書の全文読みを探す ——（結果, 説明）。
 
     結果は 4 つ: `"read"`（全文を読んだ記録が在る）／`"none"`（記録そのものが無い＝フックが
-    入っていない session）／`"stale"`（読んだ後に文書が変わった）／`"absent"`（記録は在るが
-    この文書の全文読みが無い）。
+    入っていない、または入れる前に始めた session）／`"stale"`（読んだ後に文書が変わった）／
+    `"absent"`（記録は在るがこの文書の全文読みが無い）。
 
     **これは「在れば強い」証拠であって、唯一の証拠ではない。** 射程は Read だけで、cat / sed で
     読んだ回は記録に残らない（bash のコマンド行からパスを取り出すのは綴りの数だけ穴が開く）。
     だから `read` 以外は**判定を下さず**、呼ぶ側が転写の走査へ落とす。ここで拒むと、
     フックを入れていない環境と別の読み方が、柵を切る以外の出口を持たなくなる。
 
+    **読む先は盤面の隣 1 か所。** 以前は環境変数の session id から利用者ごとの置き場を引いていたが、
+    そちらはフックが**全 session の読み取り履歴を寿命なしで溜める**形だった。盤面の隣なら
+    run の寿命で消え、engine は自分の置き場を既に知っているので、探す段が丸ごと要らない。
+
     突き合わせるのは**読んだ時のファイルの sha と、今の sha**。中身そのものは記録に残さない
     （文書の本文をこちらのディスクへ写さないため）ので、一致しなければ読み直しを求める側に倒れる。
     """
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if not sid:
-        return "none", "CLAUDE_CODE_SESSION_ID が無い"
-    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
-    log = pathlib.Path(cfg) / "graphloops" / "reads" / f"{sid}.jsonl"
+    log = b.dir / "reads.jsonl"
     if not log.is_file():
         return "none", f"{log} が無い（フックが入っていないか、入れる前に始めた session）"
     try:
@@ -632,10 +632,10 @@ def hook_evidence(doc):
         if r.get("partial"):
             saw_partial = True
             continue
-        saw_stale = True                      # 全文読みだが sha が合わない（下で一致すれば return 済み）
         if r.get("file_sha") == want:
             return "read", (f"フックの記録に全文読みが在る（{log.name} / sha {want[:12]}"
                             + (f" / agent {r['agent_id']}" if r.get("agent_id") else "") + "）")
+        saw_stale = True                      # 全文読みだが sha が合わない
     if not seen_path:
         return "absent", f"フックの記録（{log.name}・{len(lines)} 行）に {doc} の読みが 1 件も無い"
     # **stale を partial より先に名乗る。** 部分読みと、古い版の全文読みが両方在るとき、
@@ -675,7 +675,7 @@ def claims_intake(b, nid, out, item):
     # フックの記録が出来ても（＝文書を読んでも）、2 節目は写しの「確かめられなかった」を読み続けた
     # ——拒否を写すと再提出が塞がるのと同じ形で、**読んだ次の手が通らない**（実測 r10）。
     # hook_evidence は小さいファイルを 1 本読むだけなので、鍵に入れても費用は増えない
-    hook, hook_why = hook_evidence(doc) if doc else ("none", "見立て文書の入力が無い")
+    hook, hook_why = hook_evidence(b, doc) if doc else ("none", "見立て文書の入力が無い")
     memo = b.dir / "read-through.json"
     scope = [b.round, doc, size, str(tp), hook]
     try:

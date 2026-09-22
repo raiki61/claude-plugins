@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""読んだ事実を、読んだその瞬間に自分の形式で 1 行残す（PostToolUse:Read）。
+"""読んだ事実を、読んだその瞬間に盤面の隣へ 1 行残す（PostToolUse:Read）。
 
 **なぜフックなのか。** 読了の柵はこれまで、会話の記録（転写 JSONL）を engine が後から開いて
 本文の痕跡を探していた。公式文書は転写を内部形式と明記しており、engine が自前で glob して
@@ -20,6 +20,14 @@
 この 3 点目が、転写の走査では原理的に取れなかったもの——親の転写に subagent の読みは残らないので、
 engine は「どこまで読みに行くか」を未決のまま抱えていた。
 
+**書く先は盤面の隣で、回っている run が在るときだけ。** 最初は利用者ごとの置き場
+（`$CLAUDE_CONFIG_DIR/graphloops/reads/<session>.jsonl`）へ session 単位で永久に書く形にしたが、
+それは **graphloops を使っていない session の読み取り履歴まで、寿命を決めずに溜める**形だった。
+参照した実装（spotify/portal-ai-plugins の shunt、Apache-2.0）のフックは**ディスクに 1 バイトも
+書かず**、一時ファイルを使う所は `trap … EXIT` で必ず消し、README にも「何も残らない」と明記している。
+盤面の隣に書けば寿命は run の寿命になり、保持期限も削除処理も上限も要らなくなる——**溜めないので、
+消す仕掛けが要らない**。run が無ければ何も書かない。
+
 **残す証拠は「その時のファイルの sha」と「部分読みか」。** 読んだ中身そのものを残さないのは、
 文書の本文をこちらのディスクへ写すことになるため。engine は後から同じファイルの sha を取って
 突き合わせるので、**読んだ後に文書が変わっていれば一致しない**（読み直しを求める側に倒れる）。
@@ -35,7 +43,39 @@ import pathlib
 import sys
 import time
 
-MAX_BYTES = 8_000_000   # 1 session ぶんの記録の上限。超えたら足さない（黙って消さない）
+
+def boards(cwd):
+    """cwd の在るリポジトリで**いま回っている run** の盤面（0 個以上）。
+
+    `git` は呼ばない——Read のたびに走るので、子プロセス 1 つぶんの遅さを毎回払わない。
+    `.git` を上へ辿るだけで足りる（worktree の `.git` がファイルの配置は gitdir: を読む）。
+    """
+    try:
+        here = pathlib.Path(cwd).resolve()
+    except (OSError, ValueError):
+        return []
+    for d in (here, *here.parents):
+        g = d / ".git"
+        if not g.exists():
+            continue
+        if g.is_file():                         # linked worktree: `gitdir: <path>` の 1 行
+            try:
+                line = g.read_text(encoding="utf-8", errors="replace").strip()
+            except OSError:
+                return []
+            if not line.startswith("gitdir:"):
+                return []
+            g = pathlib.Path(line.split(":", 1)[1].strip())
+        out = []
+        try:
+            for cur in sorted((g / "graphloops").glob("*/current")):
+                b = pathlib.Path(cur.read_text(encoding="utf-8").strip())
+                if b.is_dir():
+                    out.append(b)
+        except OSError:
+            return []
+        return out
+    return []
 
 
 def main():
@@ -47,18 +87,20 @@ def main():
         return 0
     ti = d.get("tool_input") if isinstance(d.get("tool_input"), dict) else {}
     path = ti.get("file_path")
-    sid = d.get("session_id")
-    if not path or not sid:
+    if not path:
         return 0
+    dirs = boards(d.get("cwd") or os.getcwd())
+    if not dirs:
+        return 0                                  # **回っている run が無い回は 1 バイトも書かない**
     try:
         real = os.path.realpath(path)
         raw = pathlib.Path(real).read_bytes()
     except OSError:
         return 0                                  # 読めたはずのものが読めない——記録しないだけ
     resp = d.get("tool_response")
-    row = {
+    row = json.dumps({
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "session_id": sid,
+        "session_id": d.get("session_id"),
         "agent_id": d.get("agent_id"),            # subagent の中なら誰が読んだかが入る
         "path": real,
         "file_sha": hashlib.sha256(raw).hexdigest(),
@@ -68,17 +110,13 @@ def main():
         "partial": ti.get("offset") is not None or ti.get("limit") is not None,
         "resp_bytes": len(resp) if isinstance(resp, str) else None,
         "tool_use_id": d.get("tool_use_id"),      # ハーネスが振る。回す側には予測できない
-    }
-    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
-    out = pathlib.Path(cfg) / "graphloops" / "reads" / f"{sid}.jsonl"
-    try:
-        out.parent.mkdir(parents=True, exist_ok=True)
-        if out.is_file() and out.stat().st_size > MAX_BYTES:
-            return 0
-        with open(out, "a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    except OSError:
-        return 0                                  # 書けなくても道具は止めない
+    }, ensure_ascii=False)
+    for b in dirs:
+        try:
+            with open(b / "reads.jsonl", "a", encoding="utf-8") as f:
+                f.write(row + "\n")
+        except OSError:
+            pass                                  # 書けなくても道具は止めない
     return 0
 
 
