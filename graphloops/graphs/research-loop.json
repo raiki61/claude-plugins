@@ -1,5 +1,13 @@
 {
  "loop": "research-loop",
+ "inputs": {
+  "document": {
+   "kind": "file"
+  },
+  "cwd": {
+   "kind": "dir"
+  }
+ },
  "plugin": "convergence-loops",
  "runners": [
   "surveyor",
@@ -255,7 +263,6 @@
     "record.question",
     "record.constraints",
     "inputs.document",
-    "file:inputs.document",
     "out.p0.question.open_questions"
    ],
    "schema": {
@@ -369,7 +376,7 @@
    "outputs": [
     "claims（照合前）"
    ],
-   "post_check": "open_questions_note"
+   "post_check": "claims_intake"
   },
   "p0.clusters": {
    "stage": "P0",
@@ -447,7 +454,7 @@
    "prompt_file": "../prompts/research-loop/p0.terms.md",
    "reads": [
     "record.question",
-    "file:inputs.document"
+    "inputs.document"
    ],
    "schema": {
     "type": "object",
@@ -499,7 +506,8 @@
    ],
    "outputs": [
     "terms"
-   ]
+   ],
+   "post_check": "claims_intake"
   },
   "p0.independence_review": {
    "stage": "P0",

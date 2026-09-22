@@ -1,5 +1,31 @@
 {
  "loop": "review-loop",
+ "inputs": {
+  "cwd": {
+   "kind": "dir"
+  },
+  "review_md": {
+   "kind": "file",
+   "by": "rules"
+  },
+  "repo_review_md": {
+   "kind": "file",
+   "by": "rules",
+   "optional": true
+  },
+  "scripts_dir": {
+   "kind": "dir",
+   "by": "rules"
+  },
+  "rounds_dir": {
+   "kind": "dir",
+   "by": "rules"
+  },
+  "review_rev": {
+   "kind": "rev",
+   "by": "rules"
+  }
+ },
  "plugin": "convergence-loops",
  "runners": [
   "writer",
@@ -451,7 +477,8 @@
    "optional": true,
    "when": "目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す",
    "deps": [
-    "p0.purpose"
+    "p0.purpose",
+    "p1.worktree_before"
    ],
    "source": "P0 ＞ 4（③のとき別 context の inspector にレビューさせる）",
    "inputs": [
@@ -464,6 +491,7 @@
    "prompt_file": "../prompts/review-loop/p0.purpose_review.md",
    "reads": [
     "out.p0.purpose.purpose_text",
+    "inputs.review_rev",
     "inputs.cwd"
    ],
    "schema": {
@@ -488,8 +516,31 @@
      "findings": {
       "type": "array",
       "items": {
-       "type": "string"
-      }
+       "type": "object",
+       "required": [
+        "text",
+        "cite",
+        "hits"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "text": {
+         "type": "string",
+         "minLength": 1
+        },
+        "cite": {
+         "type": "string",
+         "minLength": 1,
+         "note": "この指摘の根拠になる、作業ツリーで引ける字列（git grep の検索語）。engine が同じ語を数え直す"
+        },
+        "hits": {
+         "type": "integer",
+         "minimum": 0,
+         "note": "cite が作業ツリーに現れる件数の申告。engine の数え直しと食い違えば done が拒む"
+        }
+       }
+      },
+      "note": "**指摘は、機械で引ける根拠を連れて来る。** 文字列だけだったとき、リポジトリに 1 件も無い字列を根拠にした指摘が 5 周にわたって再燃し、毎周ちがう判定者が現物を数え直して棄却していた（実測 r3〜r7: document_tail は 0 件）。"
      }
     }
    },
@@ -516,11 +567,15 @@
        },
        {
         "builtin": "purpose_sources_changed"
+       },
+       {
+        "builtin": "purpose_review_unvetted"
        }
       ]
      }
     ]
-   }
+   },
+   "post_check": "purpose_findings_cited"
   },
   "p0.parallel_pr": {
    "stage": "P0",
@@ -1048,6 +1103,7 @@
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
+    "inputs.review_rev",
     "inputs.cwd"
    ],
    "schema": {
@@ -2367,6 +2423,7 @@
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
+    "inputs.review_rev",
     "inputs.cwd",
     "loop.defer_ledger",
     "loop.escalated",
@@ -3494,6 +3551,7 @@
     "loop.changed_files",
     "record.base",
     "inputs.review_md",
+    "inputs.review_rev",
     "inputs.cwd"
    ],
    "schema": {
@@ -3611,6 +3669,7 @@
     "loop.prev_scalars",
     "loop.lines_ratio",
     "inputs.review_md",
+    "inputs.review_rev",
     "inputs.cwd",
     "record.process.fixes"
    ],
@@ -3740,7 +3799,8 @@
    "reads": [
     "out.p0.purpose.purpose_text",
     "record.process.constraints",
-    "loop.drift_notes"
+    "loop.drift_notes",
+    "loop.purpose_review_stale"
    ],
    "schema": {
     "type": "object",
@@ -3924,6 +3984,7 @@
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
+    "inputs.review_rev",
     "inputs.cwd"
    ],
    "schema": {
@@ -3991,6 +4052,7 @@
     "loop.changed_files",
     "record.base",
     "inputs.review_md",
+    "inputs.review_rev",
     "inputs.cwd",
     "out.p0.purpose.purpose_text"
    ],
@@ -4244,7 +4306,7 @@
     "record.units",
     "record.process",
     "loop",
-      "round",
+    "round",
     "out.p4.record.out",
     "inputs.lang"
    ],

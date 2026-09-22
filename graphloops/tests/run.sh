@@ -10,10 +10,15 @@ PY_BIN=$(command -v python3 || command -v python || true)
 # 走った検査の件数。root の tests/run.sh の EXPECTED_CHECKS と同じ理由で `-ne`——下限（-lt）だと
 # 台本を 1 本消しても「0 件失敗」のまま緑で通る（実測: simulate.py から test_light を消しても exit 0）。
 # 上げるときも下げるときも実測値を書く。
-EXPECTED_CHECKS=598
+EXPECTED_CHECKS=827
+# **台本の本数も別に数える。** 件数だけだと、腕を消した編集が『組み替えたため』の説明とともに
+# 下がった値で通る（実測 2026-09-19: 読了の台本 1 本が領域の置き換えで消え、645 → 642 の減少が
+# 通って覆いが 4 本消えた。次の周の全腕注入で 1 周遅れて露見した）。関数の消滅は件数と別の信号にする
+EXPECTED_TESTS=94
 
 fail=0
 ran=0
+tests=0   # 走った台本の本数（各模擬実行が自分で数えて出す値を足す）
 # **走査対象はファイル集合から導く。** 名前を手で並べていたとき、5 本目の graph を足してもその 1 本は
 # 誰も検査せず、for が回る回数が変わらないので件数の柵（EXPECTED_CHECKS）も発火しなかった
 # （実測 2026-09-13: 壊した graph を 5 本目に置いて exit 0・全件緑）。
@@ -41,13 +46,25 @@ run_sim() {
     printf '%s\n' "$out"
     n=$(printf '%s\n' "$out" | sed -n 's/^\([0-9][0-9]*\) 件中 [0-9]* 件失敗$/\1/p' | tail -1)
     ran=$((ran + ${n:-0}))
+    # **台本の本数も、走った側が数えた値を読む**（grep '^def test_' は字面しか見ないので、
+    # インデントした・改名した台本が消えても数が合ったままになる）。出力が無ければ 0＝下で赤
+    k=$(printf '%s\n' "$out" | sed -n 's/^台本 \([0-9][0-9]*\) 本$/\1/p' | tail -1)
+    tests=$((tests + ${k:-0}))
     [ "$code" -eq 0 ] || fail=1
 }
-run_sim "$ROOT/graphloops/tests/simulate.py"
-run_sim "$ROOT/graphloops/tests/simulate_review.py"
+# 台本の一覧は 1 か所。**名前を 2 度並べない**——手で並べた一覧は、足した 1 本が片方から黙って落ちる。
+# **配列で持ち、展開は引用する**（この事故の正本は root の tests/run.sh の SHELL_QUOTE_OK の注記）
+SIMS=("$ROOT/graphloops/tests/simulate.py" "$ROOT/graphloops/tests/simulate_review.py")
+for sim in "${SIMS[@]}"; do run_sim "$sim"; done
 
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "graphloops: 検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——台本の空振りか、件数の更新漏れ"
+    exit 2
+fi
+# 台本（def test_*）の本数。**外部コマンドを増やさない**（bc は Windows の CI に無く、空の値で比較が落ちて柵が黙る——
+# それはこの差分自身が塞いだ「空振りが見えない柵」そのものだった）。足し算は上の件数と同じ $((…))
+if [ "$tests" -ne "$EXPECTED_TESTS" ]; then
+    echo "graphloops: 台本が $tests 本（$EXPECTED_TESTS 本を期待）——台本の削除か、本数の更新漏れ"
     exit 2
 fi
 [ "$fail" -eq 0 ] || exit 1

@@ -25,6 +25,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # **shell の静的検査は定番解（shellcheck）で。** 自作の正規表現は for の位置しか見なかった。
+      # ubuntu の runner には既定で入っているので、3 OS のうち 1 本だけで回す（同じ .sh を 3 回見ても
+      # 指摘は変わらない）。深さは tests/run.sh の手元の検査と同じ -S warning——片方だけ深くすると、
+      # 手元で緑・CI で赤（またはその逆）になって、どちらが正本か分からなくなる。
+      - name: shellcheck
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning
       # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。
       - name: tests/run.sh
         shell: bash

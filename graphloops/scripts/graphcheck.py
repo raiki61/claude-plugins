@@ -15,7 +15,9 @@
   6. run_by が回す側（graph の runners）・役割 agent（graph の plugin の agents/*.md）・driver のどれか。rules（graph の rules）が読める
   7. 回す側と役割 agent の節は prompt_file が実在し、schema か text: true を持つ
   8. プロンプトの穴（{{...}}）が全部 reads に宣言されている（遮断の機械版——宣言に無いものは貼れない）。
-     out.<節> は自分より前（deps の推移閉包）の節だけ、prev.<節> は前の周の出力。fresh_context の節は record 全体を読めない
+     out.<節> は自分より前（deps の推移閉包）の節だけ、prev.<節> は前の周の出力。fresh_context の節は record 全体を読めない。
+     回す側の節には本文を貼る穴（file: / section:）を書けない——回す側はファイルを読めるので、渡すのはパス
+     （見るのは run_by が runners の節だけ。Read を持つ役割 agent の節は対象外）
   9. 回す側の節の writes が判定の欄（claims の verdict / refuted、gates、sampling、convergence）に触れない。
      claims に merge する回す側の節は schema が additionalProperties: false で verdict / refuted を持たない
  10. writes.op・fan_out.builtin・builtin・post_check・cond.builtin が engine か rules の知っている名前だけ。
@@ -60,6 +62,7 @@ from engine.board import COND_KEYS, COND_OP_KEYS, node_of  # noqa: E402
 from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import unknown_keywords  # noqa: E402
+from engine.commands import CLI_FLAGS, INPUT_KINDS  # noqa: E402 — 入力の語彙は engine が正本（写さない）
 from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
 from engine.rules import HOOKS, load_rules as engine_load_rules, registry  # noqa: E402
 from engine.validator import ENGINE_ACCEPT_KEYS, agent_def, agent_tools, find_plugin_path  # noqa: E402
@@ -282,11 +285,14 @@ def check_cond(c, where, errs, conds=frozenset()):
         errs.append(f"{where}: cond の形が不明: {c}")
 
 
-def main():
-    if len(sys.argv) not in (2, 3):
-        print(__doc__, file=sys.stderr)
-        sys.exit(2)
-    gpath = pathlib.Path(sys.argv[1])
+def check(gpath, script=None, emit=print):
+    """graph を静的に検査して ok を返す（graphcheck の本体。engine の init もここを呼ぶ）。
+
+    **入口を 2 つにしても実装は 1 つ。** 以前は検査が CLI にしか無く、engine は init で graph を
+    受け取っても何も確かめなかった——同梱のグラフだけが守られ、--graph で渡した任意のグラフは
+    素通りした。呼ぶ側が増えても正本を増やさないよう、CLI も engine もこの関数を呼ぶ。
+    """
+    gpath = pathlib.Path(gpath)
     g = read_json(gpath)
     nodes = g["nodes"]
     ok = True
@@ -297,22 +303,22 @@ def main():
     if unknown:
         ok = False
         for k, d in unknown:
-            print(f"NG 節 {k} の deps に無い節: {d}")
+            emit(f"NG 節 {k} の deps に無い節: {d}")
     ts = graphlib.TopologicalSorter({k: set(v.get("deps", [])) for k, v in nodes.items()})
     try:
         ts.prepare()
     except graphlib.CycleError as e:
         ok = False
-        print(f"NG 循環: {e}")
+        emit(f"NG 循環: {e}")
     else:
         waves = []
         while ts.is_active():
             ready = sorted(ts.get_ready())
             waves.append(ready)
             ts.done(*ready)
-        print(f"ok  {g['loop']}: 節 {len(nodes)}・波 {len(waves)}（同じ波は同時に走らせてよい）")
+        emit(f"ok  {g['loop']}: 節 {len(nodes)}・波 {len(waves)}（同じ波は同時に走らせてよい）")
         for i, w in enumerate(waves, 1):
-            print(f"    波{i}: {', '.join(w)}")
+            emit(f"    波{i}: {', '.join(w)}")
 
     # 2. 回す側が判定を出していないか（回す側の run_by は graph の runners が正本）
     runners = g.get("runners")
@@ -321,6 +327,51 @@ def main():
         runners = []
     if g.get("agent_prefix"):
         errs.append("agent_prefix は廃止——plugin（役割 agent と検証器を持つ plugin の名前）を書く")
+    # **入力の宣言は graph が正本、kind の語彙は engine が正本。** 写しを置かず import で縛る
+    # （engine に名前の表を持たせていたとき、loop を足す人が engine を書き換える形になっていた）。
+    # 知らない kind は黙って「パスでない」に倒れる＝実在検査から静かに外れるので、ここで止める。
+    declared = g.get("inputs")
+    if declared is None:
+        errs.append("inputs（どの入力がパスかの宣言）が無い——engine は loop の入力名を持たないので graph が宣言する")
+        declared = {}
+    elif not isinstance(declared, dict):
+        errs.append("inputs は 名前 → {kind: …} の辞書")
+        declared = {}
+    for key, decl in declared.items():
+        kind = (decl or {}).get("kind") if isinstance(decl, dict) else None
+        if kind not in INPUT_KINDS:
+            errs.append(f"inputs.{key} の kind '{kind}' を engine が知らない（使えるのは {'/'.join(INPUT_KINDS)}）"
+                        "——知らない kind は実在検査から黙って外れる")
+    # **貼る穴に渡る入力は、必ず kind を宣言する。** 実在検査の発火条件を『file: の接頭』から
+    # 『inputs の宣言』へ移したので、宣言を書き忘れた入力は file: の穴に渡っていても実在検査から
+    # 黙って外れる——init が素通りし、2 手先の next で初めて落ちる（この差分自身が塞いだはずの形）。
+    pasted = set()
+    for nid, n in nodes.items():
+        pf = n.get("prompt_file")
+        if not pf:
+            continue
+        try:
+            tpl = (gpath.parent / pf).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        # **穴の抽出と接頭の剥がしは engine の正本（render の TOKEN / strip_prefix）を使う。**
+        # 手書きの正規表現を持っていたとき、`[^}]+` が pick 付きの穴（`| pick …`）を丸ごと拾って
+        # 偽の NG を出し、しかも check_graph は init から呼ばれるので init が止まった。
+        # **射程も広げる**: 見るのは file: / section: の穴だけでなく、裸の `{{inputs.X}}` も含む
+        # ——同じ差分の別の柵が回す側に接頭を禁じたので、回す側だけが読むパス入力は裸でしか書けず、
+        # 接頭だけを見る柵は走査の外に出ていた（実測 r9: init --input spec=/no/such が exit 0）。
+        for m in TOKEN.finditer(tpl):
+            core = strip_prefix(m.group(2).strip()).split("#", 1)[0].strip()
+            if core.startswith("inputs."):
+                key = core[len("inputs."):].strip()
+                if key and "." not in key:
+                    pasted.add((key, nid))
+    for key, nid in sorted(pasted):
+        # 旗で渡る入力（--request / --lang / --document）はパスとは限らないので kind を持たない。
+        # 除外の一覧は engine の CLI_FLAGS が正本（写さず import する）
+        if key not in declared and key not in CLI_FLAGS:
+            errs.append(f"節 {nid}: 穴が inputs.{key} を読むのに、graph の inputs に {key} の宣言が無い"
+                        "——宣言が無い入力は実在検査に当たらないので、存在しないパスが init を素通りする")
     # 判定の語彙は **graph が宣言する**（loop ごとに違う——firstread の questions は読み役の疑問で判定ではない）。
     # engine にも graphcheck にも写しを置かない: 写すと engine だけ変えたとき柵が緩み、engine に持たせると
     # 「engine は loop の語を持たない」に反する。
@@ -339,21 +390,21 @@ def main():
         if v.get("run_by") not in runners or not judges or v.get("verdict_is_copy"):
             continue
         if v.get("runner_judgment_by_design"):
-            print(f"ok  節 {k}: 回す側が判定するのは設計どおり——{v['runner_judgment_by_design']}")
+            emit(f"ok  節 {k}: 回す側が判定するのは設計どおり——{v['runner_judgment_by_design']}")
             continue
         ok, bad2 = False, True
-        print(f"NG 節 {k}: 回す側（{v['run_by']}）が判定を出している: {judges}")
+        emit(f"NG 節 {k}: 回す側（{v['run_by']}）が判定を出している: {judges}")
     if not bad2:
-        print("ok  判定を出す節に回す側が無い（verdict_is_copy は写すだけ、runner_judgment_by_design は手順書が定めた例外）")
+        emit("ok  判定を出す節に回す側が無い（verdict_is_copy は写すだけ、runner_judgment_by_design は手順書が定めた例外）")
 
     # 3. 記録の欄 ⊆ outputs
-    script = sys.argv[2] if len(sys.argv) == 3 else None
+    # 検証器の綴りは呼ぶ側から（CLI は第 2 引数、engine は --validator）
     vp = g.get("record", {}).get("validator_path")
     if not script and vp:
         script = find_plugin_path(vp, g.get("plugin"))  # engine と同じ探し方（明示 → <PLUGIN>_ROOT → 同じリポジトリ → キャッシュ）
         if not script:
             ok = False
-            print(f"NG record.validator_path '{vp}' が見つからない（plugin {g.get('plugin')!r} の置き場に無い。第 2 引数で渡すか置き場を直す）——欄の突合を省略で通さない")
+            emit(f"NG record.validator_path '{vp}' が見つからない（plugin {g.get('plugin')!r} の置き場に無い。第 2 引数で渡すか置き場を直す）——欄の突合を省略で通さない")
     if script:
         # 13. graph の enum は検証器の語彙の写し——はみ出せば片方だけ変わっている（包含検査がどこにも無く exit 0 だった）
         vocab = validator_vocab(script)
@@ -379,22 +430,22 @@ def main():
         need = record_fields(script)
         if not need:
             ok = False
-            print(f"NG 検証器 {script} から必須欄が 1 つも拾えない（書式が変わったか、検証器でない）——0 個の突合を合格にしない")
+            emit(f"NG 検証器 {script} から必須欄が 1 つも拾えない（書式が変わったか、検証器でない）——0 個の突合を合格にしない")
         else:
             have = " ".join(o for v in nodes.values() for o in v.get("outputs", []))
             missing = sorted(n for n in need if not re.search(rf"\b{re.escape(n)}\b", have))
             if missing:
                 ok = False
-                print(f"NG 検証器の欄で outputs に無いもの: {', '.join(missing)}")
+                emit(f"NG 検証器の欄で outputs に無いもの: {', '.join(missing)}")
             else:
-                print(f"ok  検証器の必須欄 {len(need)} 個すべてがどれかの節の outputs に現れる")
+                emit(f"ok  検証器の必須欄 {len(need)} 個すべてがどれかの節の outputs に現れる")
     elif not vp:
-        print("--  検証器の欄との突合は省略（graph に record.validator_path が無く、第 2 引数も無い）")
+        emit("--  検証器の欄との突合は省略（graph に record.validator_path が無く、第 2 引数も無い）")
 
     # 4. fresh_context と forbidden_inputs
     fresh = [k for k, v in nodes.items() if v.get("fresh_context")]
     bare = [k for k in fresh if not nodes[k].get("forbidden_inputs")]
-    print(f"ok  fresh_context {len(fresh)} 節、うち固有の遮断（forbidden_inputs）を持たないのは "
+    emit(f"ok  fresh_context {len(fresh)} 節、うち固有の遮断（forbidden_inputs）を持たないのは "
           f"{len(bare)}（ラウンド規律だけが効く）: {', '.join(bare) or 'なし'}")
 
     # 5. 段名の正本は thickness.tiers（低い順の配列）。キーの集合から導かない——tiers / deciders / rule が段名として通る
@@ -404,30 +455,42 @@ def main():
     bad5 = False
     if not isinstance(tiers, list) or not all(isinstance(t, str) for t in tiers):
         ok, bad5 = False, True
-        print("NG thickness.tiers は段名の配列（低い順）")
+        emit("NG thickness.tiers は段名の配列（低い順）")
         tiers = []
     if uses_tiers and not tiers:
         ok, bad5 = False, True
-        print("NG 段（active_in / thickness_from / max_rounds_by_thickness）を使うのに thickness.tiers（低い順）が無い")
+        emit("NG 段（active_in / thickness_from / max_rounds_by_thickness）を使うのに thickness.tiers（低い順）が無い")
     if tiers:
         for k, v in nodes.items():
             bad = [t for t in v.get("active_in", []) if t not in tiers]
             if bad:
                 ok, bad5 = False, True
-                print(f"NG 節 {k} の active_in に無い段: {bad}（段は {tiers}）")
+                emit(f"NG 節 {k} の active_in に無い段: {bad}（段は {tiers}）")
         for t in g.get("round", {}).get("max_rounds_by_thickness", {}):
             if t not in tiers:
                 ok, bad5 = False, True
-                print(f"NG max_rounds_by_thickness の段 '{t}' が thickness.tiers に無い")
+                emit(f"NG max_rounds_by_thickness の段 '{t}' が thickness.tiers に無い")
         if th.get("default") not in tiers:
             ok, bad5 = False, True
-            print(f"NG thickness.default '{th.get('default')}' が tiers に無い")
+            emit(f"NG thickness.default '{th.get('default')}' が tiers に無い")
         if not bad5:
-            print(f"ok  段名は thickness.tiers {tiers} の中（active_in・max_rounds_by_thickness・default）")
+            emit(f"ok  段名は thickness.tiers {tiers} の中（active_in・max_rounds_by_thickness・default）")
+
+    def flush(head):
+        """**溜めた NG の出口はここ 1 つ。** 早い return の手前で吐かずに戻っていたとき、
+        exec を持たないグラフでは inputs 宣言の欠けごと ok で通った（実測 r10）——
+        溜める所と吐く所が離れていると、間に出口が増えるたびに同じ穴が開く。"""
+        if errs:
+            for e in errs:
+                emit("NG " + e)
+            return False
+        emit(head)
+        return True
 
     if not g.get("exec"):
-        print("--  exec の無いグラフ（写しだけ）。実行の形の検査 6〜13 は省略")
-        sys.exit(0 if ok else 1)
+        # 実行の形の検査は省くが、**ここまでに溜めた NG（inputs 宣言・schema の語など）は吐く**
+        ok = flush("ok  宣言の形（inputs・schema の語）。exec が無いので実行の形の検査 6〜13 は省略") and ok
+        return ok
 
     # 11. schema は engine が読む語だけで書く——読まない語（oneOf / not / format / 綴り違い）は validate_schema が黙って
     # 無視するので、書いても効かない schema が graph に入る（以前は docstring の注記だけで守っていた）
@@ -568,6 +631,20 @@ def main():
             if path.startswith("ref:") and not (core == "record" or core.startswith("record.") or core == "raw"
                                                 or core.startswith("out.") or core.startswith("prev.")):
                 errs.append(f"節 {k}: {{{{{path}}}}} は ref: にできない（record・out.<節>・prev.<節>・raw だけ）")
+            # **回す側の節に本文を貼らない（パスで渡す）。** runner のプロンプトは回す側が Read するので、
+            # 貼った本文はそのまま回す側の文脈に入る——しかも runner には上限が無い（advance.py の
+            # cap=None。切ると「文書はこれだ」と言って途中で切った物を渡すことになるので、切れない形である）。
+            # 同じ波の 2 節が同じ文書を貼れば 2 部入る（実測 2026-09-18: 29,886 バイトの見立て文書で
+            # p0.claims 33,478 B ＋ p0.terms 31,771 B ＝ 1 波で 65 KB が回す側の文脈へ）。
+            # 回す側はファイルを読めるのだから、渡すのはパスで足りる——どこまで読むかの判断を engine が奪わない。
+            # 貼る形に意味が在るのは、自分で読めない相手（標準入力で流す遮断系・本文を貼って渡す agent）だけ。
+            # 貼る接頭の綴りは写さない——core（strip_prefix の結果）が path と違えば何らかの接頭が付いており、
+            # そのうち ref: だけが本文でなく置き場の要約を渡す。engine が貼る接頭を増やした周に、
+            # ここだけ古い一覧のまま緩む（素通りする）のを防ぐ
+            if rb in runners and core != path and not path.startswith("ref:"):
+                errs.append(f"節 {k}: {{{{{path}}}}} は回す側（{rb}）の節に書けない——"
+                            "本文でなくパスを渡し、どこまで読むかは回す側に決めさせろ"
+                            "（**この柵が見るのは回す側の節だけ**。Read を持つ役割 agent の節には当たらない）")
             # 許可の判定は engine の Renderer を呼ぶ（式を写すと engine だけ変えたとき検査が黙って緩む）
             if not Renderer({}, reads).allowed(path):
                 errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} が reads に無い")
@@ -652,13 +729,15 @@ def main():
         # pre は『報告の前に記録を仕上げて検証器を回す』唯一の門。綴り違いは検証器を通さずに報告を出す形になる
         if "pre" in v and v["pre"] not in ENGINE_PRE:
             errs.append(f"節 {k}: pre '{v['pre']}' を engine が知らない（使えるのは {'/'.join(ENGINE_PRE)}）")
-    if errs:
-        ok = False
-        for e in errs:
-            print("NG " + e)
-    else:
-        print("ok  実行の形: run_by・prompt_file・schema・reads（穴の宣言と前の節だけ）・回す側は判定欄に書かない・名前は engine か rules にある")
-    sys.exit(0 if ok else 1)
+    ok = flush("ok  実行の形: run_by・prompt_file・schema・reads（穴の宣言と前の節だけ）・回す側は判定欄に書かない・名前は engine か rules にある") and ok
+    return ok
+
+
+def main():
+    if len(sys.argv) not in (2, 3):
+        print(__doc__, file=sys.stderr)
+        sys.exit(2)
+    sys.exit(0 if check(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else None) else 1)
 
 
 if __name__ == "__main__":

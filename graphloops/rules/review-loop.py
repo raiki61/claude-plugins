@@ -7,6 +7,8 @@ engine が差し込む道具は engine/rules.py の INJECT が正本（ここに
 """
 import pathlib
 import re
+import shutil
+import tempfile
 
 # 差分を割って複数の cold-reader に配る扇（diff_chunks）は落とした。**割る理由が無くなったから**——
 # 遮断系は別プロセスの CLI へ標準入力で流すので、貼る上限（Agent ツールのプロンプトの性質。実測 約 50 KB）に
@@ -164,6 +166,39 @@ def prev_fix_touched(b):
     return bool(b.loop_state.get("prev_fix_files"))
 
 
+def purpose_findings_vetted(b):
+    """記録に残る目的監査の findings が、**裏取りの柵を通った形**か（cite を持つか）。
+
+    **式はここ 1 か所。** 同じ式を assemble と cond の両方が持っていると、柵を締めた周に片方だけ
+    古くなり、「材料としては使わないが走り直しもしない」という半端な状態で固まる。
+    """
+    rows = ((b.record.get("process", {}).get("purpose_review", {}) or {}).get("findings")) or []
+    return all(isinstance(r, dict) and r.get("cite") for r in rows) if rows else False
+
+
+def purpose_review_unvetted(b):
+    """記録の目的監査が、裏取りの柵より前の形で凍っているか（cond の builtin）。
+
+    監査は 1 周目にしか走らないので、**柵が後から入った周でも判定は作り直されない**——旧形の
+    findings 5 件が 9 周にわたって材料に載り、うち 4 件は現物に 0 件の字列を根拠にしていた（実測 r9）。
+    assemble はそれを「材料として使わない」ところまでやったが、**走り直しの引き金が無い**ので
+    記録はいつまでも古いままだった（実測 r10: 素の文字列 5 件が減らない）。
+
+    引き金を『柵を通っていない判定が記録に在る』にしてあるのは、**通った判定は二度と走らない**ため
+    ——不利な判定を引くたびに回し直す形にはならない（purpose_sources_changed と同じ規律）。
+    """
+    pr = b.record.get("process", {}).get("purpose_review", {}) or {}
+    if not pr.get("verdict"):
+        return False                      # まだ一度も走っていない。round==1 の側が拾う
+    rows = pr.get("findings") or []
+    if not rows:
+        # **指摘 0 件は「柵を通っていない」ではない。** 『問題なし』は根拠を連れて来る必要が無いので、
+        # 裏取り済みかの判定（空なら False）をそのまま引き金にすると**毎周走り直して止まらない**
+        # （実測 r10: この形で検査が赤くなった）。空の『狭めている』を拒むのは purpose_findings_cited の仕事
+        return False
+    return not purpose_findings_vetted(b)
+
+
 def purpose_sources_changed(b):
     """目的テキストの出典文書を、前の周の P3 が触ったか（cond の builtin）。
 
@@ -267,6 +302,7 @@ ACCEPT_KEYS = ("round_accepts_exit",)  # このループが読む受理集合の
 
 CONDS = {"touches_procedures": touches_procedures, "prev_fix_touched": prev_fix_touched,
          "purpose_sources_changed": purpose_sources_changed,
+         "purpose_review_unvetted": purpose_review_unvetted,
          "rejudge_open": rejudge_open, "rejudge_exhausted": rejudge_exhausted}
 
 
@@ -425,7 +461,61 @@ def _take_diff(b, suffix=""):
     ls["changed_files_file"] = str(cf)  # 回す側の節には一覧でなくこのパスを渡す（一覧を 4 本のプロンプトに複製しない）
     ls["diff_stat"] = f"{nfiles} files changed, {ins} insertions(+), {dels} deletions(-)"
     ls["diff_lines"] = ins + dels  # numstat から数えた整数をそのまま使う（stat 文字列に組んでから正規表現で読み直していた）
+    # **版も一緒に取り直す。** 以前は接尾辞が空のとき（周の頭）だけ固定していたので、P3 の後に
+    # 差分だけ撮り直すと、R1〜R4 が『修正後の差分』と『修正前の版』を同時に渡された（実測 r8）
+    _freeze_revision(b)
     return {"ok": True, "raw": raw_diff, "diff_file": str(f), "changed_files": changed, "stat": ls["diff_stat"]}
+
+
+def _freeze_revision(b):
+    """**その周に採点する版を、リビジョン 1 つに固定する。**
+
+    採点役が生きた作業ツリーを読んでいたとき、同じ周のうちに writer が直すと判定の行番号と母数が
+    途中で腐り、次の周は『赤だったのか記録が古かったのか』を見分けられなかった（実測 r6）。
+    世の中のコードレビューが commit を見て作業ツリーを見ないのと同じ理由である。
+
+    **渡すのは写しでなくリビジョン。** 一度は git archive で展開した写しを渡したが、写しは .git を
+    持たないので**役は渡された場所で git を打てず**、engine の数え直しだけが生きた木を見るという
+    割れ方をした（実測 r8: 採点役 7 枚が git の実行を前提に書かれていた）。リビジョンなら役も engine も
+    `git -C <repo> … <rev>` で同じ版を読める——**見る物と測る物を割らない**というのがこの節の不変条件で、
+    写しの寿命（掃除）も無くなる。
+
+    固定できない場合は止める。倒れ方が fail-closed なのは正しいが、そのときに出る文が
+    『プロンプトの穴が埋まらない』では回す側は原因にたどり着けないので、ここで理由を名乗る。
+    """
+    # **git の「分からない」を「綺麗」と同じ値に潰さない。** どの段でも None は失敗であって
+    # 「変更が無い」ではない——潰すと、その周の作業を 1 行も含まない版に黙って倒れる。
+    # 採点役 7 枚も根拠の数え直しもその版を読むので、**レビュー対象を 1 行も見ないまま通る**。
+    # util.git の契約（失敗なら None。分からないとして扱い、合格に倒さない）を、ここでも守る。
+    # **一時 index の上で組み立てる。** 以前は git stash create を使っていたが、この経路は
+    # **このループの主経路で必ず落ちる**——p0.base が未追跡の新規ファイルに `git add -N` を指示しており、
+    # intent-to-add の index では stash create も write-tree も非 0 で返る（実測 r10: 新規 2 ファイルを
+    # 載せた周で P1 の頭が止まった）。本物の index を避けて一時 index に `add -A` すれば、
+    # intent-to-add は普通の追加として materialize され、**未追跡の新規ファイルも版に載る**
+    # ——stash create は未追跡を既定で落とすので、参照だけが差分に載って本体が載らない形になっていた（同 r10）。
+    # 分岐を残さず 1 本にしてあるのは、「どちらの道を通ったか」で版の中身が変わる形を作らないため。
+    tmp = tempfile.mkdtemp(prefix="graphloops-index-")
+    env = {"GIT_INDEX_FILE": str(pathlib.Path(tmp) / "index")}
+    try:
+        if git("add", "-A", env=env) is None:
+            raise Reject("この周に採点する版を固定できない（一時 index への git add -A が失敗した）"
+                         "——git が動くか、作業ツリーが読めるかを確かめよ")
+        tree = git("write-tree", env=env)
+        if tree is None or not tree.strip():
+            raise Reject("この周に採点する版を固定できない（git write-tree が木を返さない）")
+        # HEAD が無い（commit が 1 つも無い）リポジトリでは親を付けない。**None と空を混ぜない**
+        # ——失敗を「親が無い」に潰すと、履歴の在るリポジトリで根なしの版を採点することになる
+        head = git("rev-parse", "HEAD")
+        parent = ["-p", head.strip()] if head and head.strip() else []
+        snap = git("commit-tree", tree.strip(), *parent, "-m", f"graphloops review r{b.round}")
+        if snap is None or not snap.strip():
+            raise Reject("この周に採点する版を固定できない（git commit-tree が版を返さない）"
+                         "——commit-tree は author の設定を要る。user.name / user.email を確かめよ")
+        snap = snap.strip()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    b.loop_state["reviewed_revision"] = snap
+    b.state["inputs"]["review_rev"] = snap
 
 
 def worktree_snapshot(b, nid):
@@ -626,7 +716,17 @@ def assemble(b, nid):
     # 目的が取れない（目的不明）のと、writer の要約を inspector が「狭めている」と判定したのは、R2 にとって同じ——
     # 独立の出典として使えない（以前は判定を誰も読まず、狭められた目的で R2 が回った。実測 2026-09-12）
     src = b.outputs().get("p0.purpose", {}).get("source")
-    narrowed = b.record.get("process", {}).get("purpose_review", {}).get("verdict") == "狭めている"
+    # **裏取りを通っていない判定は使わない。** 監査は 1 周目にしか走らない（cond）ので、裏取りの柵が入る前に
+    # 書かれた判定は**一度も数え直されないまま毎周の判定材料に載り続ける**（実測 r9: findings が素の文字列 5 件で、
+    # うち 4 件は現物に 0 件の字列を根拠にしていた——r2 から 6 周同じ指摘が再燃した原因がここ）。
+    # 根拠が今の形（text / cite / hits）で書かれた判定だけを使い、旧形は『判定なし』として扱う。
+    pr = b.record.get("process", {}).get("purpose_review", {}) or {}
+    vetted = purpose_findings_vetted(b)   # 式の正本は 1 か所（cond の builtin と同じものを呼ぶ）
+    narrowed = pr.get("verdict") == "狭めている" and vetted
+    if pr.get("verdict") == "狭めている" and not vetted:
+        ls.setdefault("purpose_review_stale", []).append(
+            {"round": b.round, "why": "裏取りを通っていない形の findings（旧形の素の文字列、または cite 無し）"
+                                      "に乗った『狭めている』なので、R2 を止める根拠には使わない"})
     # 原因を運ぶ 1 値（None／目的不明／狭めている）——bool に畳むと record_round が定数文で説明するしかなく、理由が事実と逆になる
     # （実測 2026-09-13: 狭めている周の R2 の reason が『P0-4 で目的不明』）
     ls["purpose_unusable"] = "目的不明" if src == "目的不明" else ("狭めている" if narrowed else None)
@@ -722,7 +822,6 @@ def record_round(b, nid):
     if not any(x["round"] == b.round for x in counts):
         counts.append({"round": b.round, "n": sum(1 for u in rec["units"] if u.get("label") == "block")})
     for name, st in rec["materials"].items():
-        # 「最後に見たのはいつか」を数えるのは、自分で見たと主張している値だけ（検証器の表が正本）
         if st.get("status") in V.OBSERVED_STATUS:
             last[name] = b.round
         if st.get("status") != "carried_over":
@@ -1239,8 +1338,9 @@ def local_review_covers_lenses(b, nid, out, item):
     if not skills:
         # **空なら落とす（fail-closed）。** 空リストだと 1 周も回らず全件合格になり、非空であることの
         # 保証は別ファイルの graphcheck が別の欄（run_by == skill）を根拠に持っていた。engine は
-        # graphcheck を一度も呼ばない（import は 0 件）ので、`init --graph <任意のパス>` は静的検査を
-        # 通していない graph も受ける——柵の前提を柵の中で確かめる（実測 2026-09-16: 壊れてはおらず、壊れる余地）
+        # かつて graphcheck を一度も呼ばず、`init --graph <任意のパス>` は静的検査を素通りした。
+        # 今は init が同じ検査を呼ぶ（engine/commands.py の check_graph）——入口で 1 度見たものを
+        # 実行時にもう 1 度見るのは重複ではない: graph は init の後で書き換えられる（実測: 台本 drive_graph）
         raise Reject(f"{nid} の skills が空——数える対象が無い柵は全件合格になる。graph に宣言を書け")
     declared = [e["skill"] for e in skills]
     rows = out.get("findings") or []
@@ -1266,7 +1366,64 @@ def local_review_covers_lenses(b, nid, out, item):
         raise Reject("宣言したレンズと findings の行が合わない:\n" + "\n".join("  - " + e for e in errs))
 
 
-POST_CHECKS = {"gate_arms_all_red": gate_arms_all_red, "rejudge_output": rejudge_output, "measured_needs_output": measured_needs_output, "base_valid": base_valid, "judge_output": judge_output, "fix_covers_open_units": fix_covers_open_units,
+def purpose_findings_cited(b, nid, out, item):
+    """**指摘は、作業ツリーで引ける根拠を連れて来る**（境界で検査する。信じて後で棄却しない）。
+
+    目的の監査の指摘が素の文字列だったとき、**リポジトリに 1 件も無い字列を根拠にした指摘が 5 周
+    再燃した**——毎周ちがう判定者が自分で grep して 0 件を確かめ、棄却し、次の周にまた同じ指摘が出た
+    （実測 r3〜r7: document_tail と TAIL_MIN はどちらも 0 件）。棄却は判定者の手間としてだけ残り、
+    出す側には何も返らないので止まらない。ここで数え直して、合わない指摘を受け取らない。
+
+    数えるのは engine ではなく git（作業ツリーの現物が正本）。git が使えない環境では**申告を信じず、
+    確かめられなかったことを理由に拒む**——「検査できないから通す」は、この差分が繰り返し塞いだ形である。
+    """
+    rows = out.get("findings") or []
+    # **根拠 0 件の『狭めている』を通さない。** findings が空だと 0 回ループして合格していた——
+    # 裏取りの柵を入れた意味が、いちばん効くべき場合（根拠を書かずに判定だけ出す回）で消える。
+    if out.get("verdict") == "狭めている" and not rows:
+        raise Reject(f"{nid}: 『狭めている』のに findings が空——**判定には作業ツリーで引ける根拠を 1 件以上付けろ**"
+                     "（欠落を指摘したいなら、欠けている場所の周辺に実在する字列を cite にして、"
+                     "そこに在るべき物が無いことを text に書く）")
+    errs = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errs.append(f"findings[{i}]: 素の文字列は受け取らない（text / cite / hits の形で出せ）——"
+                        "裏取りの柵が入る前の形が、数え直されないまま毎周の判定材料に載り続けていた")
+            continue
+        cite = (row.get("cite") or "").strip()
+        if not cite:
+            errs.append(f"findings[{i}]: cite（作業ツリーで引ける字列）が空")
+            continue
+        # **-F（字面として渡す）が要る。** 既定の git grep は基本正規表現として解釈するので、
+        # ドット・角括弧・アスタリスクを含む現物のコード片は**別の物を数える**——現物に在る引用が
+        # 当たらずに拒まれ、現物に無い字列が偶然一致して通る、という両方向の壊れ方をした（実測 r8）。
+        # **数えるのは固定した版**（採点役が読むのと同じ版。生きた木を数えると、周の途中の書き換えで
+        # 役が自分では制御できない理由で拒まれる）。
+        rev = b.loop_state.get("reviewed_revision")
+        # 並びは `grep [旗] -e <語> [<版>] --`。**-e で語だと明示する**——`-- <語>` の位置に置くと
+        # git は版を検索語・語を path として読み、0 件が返る（実測 2026-09-21: 台本が全件赤になった）
+        got = git("grep", "-F", "-cI", "-e", cite, *([rev] if rev else []), "--")
+        if got is None:
+            # None は「0 件」か「git が動かない」か「版が解決できない」のどれか。
+            # **取り違えると拒否文が事実と逆になる**（『現物に 1 件も無い』は、数えられなかった回には偽）。
+            # git そのものと、数える版の両方が使えることを確かめてから 0 件と決める。
+            if git("rev-parse", "--is-inside-work-tree") is None:
+                raise Reject(f"{nid}: 指摘の根拠を数え直せない（git が動かない）——確かめられないものを合格にはしない")
+            if rev and git("rev-parse", "--verify", f"{rev}^{{commit}}") is None:
+                raise Reject(f"{nid}: 指摘の根拠を数え直せない（採点する版 {rev[:12]} を解決できない）"
+                             "——版が消えた run では、数えた結果も『現物に無い』も言えない")
+            got = ""
+        hits = sum(int(l.rpartition(":")[2]) for l in got.splitlines() if l.rpartition(":")[2].isdigit())
+        if hits == 0:
+            errs.append(f"findings[{i}]: 根拠の字列 '{cite[:40]}' が作業ツリーに 1 件も無い"
+                        "——現物に無いものを根拠にした指摘は受け取らない（別の根拠で出し直せ）")
+        elif row.get("hits") != hits:
+            errs.append(f"findings[{i}]: '{cite[:40]}' の件数の申告 {row.get('hits')} が数え直し {hits} と違う")
+    if errs:
+        raise Reject(f"{nid}: 指摘の根拠が作業ツリーで裏取りできない: " + "; ".join(errs))
+
+
+POST_CHECKS = {"purpose_findings_cited": purpose_findings_cited, "gate_arms_all_red": gate_arms_all_red, "rejudge_output": rejudge_output, "measured_needs_output": measured_needs_output, "base_valid": base_valid, "judge_output": judge_output, "fix_covers_open_units": fix_covers_open_units,
                "r2_design": r2_design, "r4_inventory": r4_inventory, "cold_check_note": cold_check_note,
                "local_review_covers_lenses": local_review_covers_lenses}
 
@@ -1340,6 +1497,10 @@ def finalize(b):
     proc["defer_ledger"] = ls.get("defer_ledger", {})
     proc["validator_outputs"] = ls.get("validator_outputs", {})
     proc["drift_notes"] = ls.get("drift_notes", [])
+    # **書く欄には読み手を付ける。** 付けずに置いていたとき、この欄は 2 周ぶん書かれたまま
+    # リポジトリのどこからも読まれず、R2 は「なぜ目的が使えないのか」を知らずに回った（実測 r10）。
+    # 運び方は隣の drift_notes と同じ 3 点（記録へ写す・プロンプトの穴・graph の reads）で揃える
+    proc["purpose_review_stale"] = ls.get("purpose_review_stale", [])
     proc["context_lost"] = b.state.get("context_lost", [])
     # 引き金そのものが測れなかった周。**「条件に当たらなかった」と「条件を測れなかった」を同じ偽にしない**
     proc["unevaluable"] = b.state.get("unevaluable", [])

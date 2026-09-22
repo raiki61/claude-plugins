@@ -11,14 +11,17 @@ import collections
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import types
 
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+from engine.advance import load_item  # noqa: E402 — 項目の正本（items/ のファイル）の読み方は engine が持つ
 from engine.util import TERMINAL_STATUS  # noqa: E402 — 終端の status は engine が正本（台本で並べ直さない）
 
 # Windows の既定の標準出力は cp1252（日本語 Windows なら cp932）で、日本語を print すると
@@ -297,8 +300,11 @@ def answers(run, scenario, rnd):
         "p0.purpose": lambda it: ({"purpose_text": "（PR 説明も計画も無く目的を取れない）", "source": "目的不明", "known_weaknesses": [], "source_files": []} if scenario == "nopurpose" else
                                   {"purpose_text": "f に上限を付ける（writer の要約）", "source": "③writer の要約", "known_weaknesses": [], "source_files": ["README.md"]} if scenario == "narrowed" else
                                   {"purpose_text": "f に上限を付けて過大な値を抑える", "source": "①PR 説明", "known_weaknesses": [], "source_files": ["README.md"]}),
+        # **指摘は作業ツリーで引ける根拠を連れて来る**（cite を engine が数え直す）。この台本の repo に
+        # 実在する字列（src/a.py の limit）を使う——実在しない字列を使う腕は test_purpose_cite が別に測る
         "p0.purpose_review": lambda it: {"verdict": "狭めている" if scenario == "narrowed" else "問題なし",
-                                          "reason": "目的が実装した範囲に合わせて狭い（検査用）", "findings": ["呼び出し元の上限に触れていない"] if scenario == "narrowed" else []},
+                                          "reason": "目的が実装した範囲に合わせて狭い（検査用）",
+                                          "findings": [{"text": "呼び出し元の上限に触れていない", "cite": "min(x, limit)", "hits": 1}] if scenario == "narrowed" else []},
         "p0.parallel_pr": lambda it: {"material": CLEAN("gh pr list 0 件（打ち切りなし）"), "repo": "t/demo", "listed": 0, "truncated": False, "conflicts": []},
         "p0.prior_decisions": lambda it: {"material": CLEAN("docs/ と closed issue を洗った。決着済みなし"), "checked": True, "searched": ["docs/", "gh issue list --state all"], "settled": []},
         "p1.local_review": lambda it: {"material": M("found", count=1, detail="/code-review: 上限の分岐が片方だけ") if rnd == 1 and not blocks_forever else CLEAN("/code-review・/simplify 再実行。新規なし"),
@@ -401,7 +407,7 @@ def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
             raise RuntimeError("ready が空のまま進まない: " + json.dumps(nx, ensure_ascii=False)[:800])
         table = answers(run, scenario, nx["round"])
         for inst in nx["ready"]:
-            out = table[inst["node"]](inst["item"])
+            out = table[inst["node"]](load_item(inst))
             if hook:
                 out = hook(run, inst, out) or out
             if inst["node"] == "p3.fix" and isinstance(out, dict):
@@ -418,6 +424,26 @@ def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
 
 
 # ---------------------------------------------------------------- 検査
+def test_init_resolves_dir():
+    """**盤面の綴りは入口で 1 度だけ解決する。** init だけが未解決の綴りで Board を作っていたとき、
+    on_init が盤面から組み立てる値（rounds_dir）は相対のまま state に入り、別の cwd から読むと外れる。
+    他の全コマンドは resolve_dir を通っているので、この形は init を相対で呼んだ run にしか出ない。"""
+    print("入口の綴り: 相対の --dir で init しても、盤面から組み立てた値は絶対で入る")
+    run = Run("initresolve")
+    d2 = run.tmp / "s-rel"
+    rel = os.path.relpath(d2, run.repo)
+    check(not os.path.isabs(rel), f"相対の --dir を作れた（{rel}）")
+    r = subprocess.run([PY, str(LOOP), "init", "--loop", "review-loop", "--request", "q",
+                        "--dir", rel, "--validator", str(VALIDATOR)],
+                       cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode == 0, f"相対の --dir で init できる（{r.returncode}: {r.stderr[-160:]}）")
+    st = json.loads((d2 / "state.json").read_text(encoding="utf-8"))
+    built = {k: v for k, v in st["inputs"].items() if k in ("rounds_dir", "cwd") and v}
+    check(built and all(os.path.isabs(v) for v in built.values()),
+          f"on_init が盤面から組み立てた値は絶対（{built}）")
+    rm(run.tmp)
+
+
 def test_new_guards():
     print("否定検査: 2 周目に塞いだ柵（実測の再現・cond の path・空返答・空差分・受理集合）")
     run = Run("guards")
@@ -955,6 +981,520 @@ def test_gates_not_applicable():
     rm(run.tmp)
 
 
+def test_frozen_review_revision():
+    """**その周に採点する版をリビジョンで固定する。** 採点役が生きた作業ツリーを読んでいたとき、
+    同じ周のうちに writer が直すと判定の行番号と母数が途中で腐った（実測 r6）。
+    一度は写しを展開して渡したが、写しは .git を持たないので役が git を打てず、engine の数え直しだけが
+    生きた木を見るという割れ方をした（実測 r8）——渡すのはリビジョン 1 つにする。"""
+    print("台本: 周の頭と P3 の後に版を固定し、採点役には写しでなくリビジョンを渡す")
+    run = Run("frozen", unattended=True)
+    src = run.repo / "src" / "a.py"
+    before = src.read_text(encoding="utf-8")
+    for _ in range(20):                                   # 版が固まる所まで台本で進める
+        nx = run.next()
+        if not nx.get("ready"):
+            break
+        if run.state()["loop"].get("reviewed_revision"):
+            break
+        for inst in nx["ready"]:
+            a = answers(run, "std", nx["round"])[inst["node"]]
+            run.done(inst["id"], a(inst))
+    rev = run.state()["loop"].get("reviewed_revision")
+    check(rev and len(rev) == 40, f"周の頭で版が固まる（{rev}）")
+    check(run.state()["inputs"].get("review_rev") == rev, "固定した版が役へ渡る入力に載る")
+    show = lambda r: subprocess.run(["git", "show", f"{r}:src/a.py"], cwd=run.repo,
+                                    capture_output=True, text=True, encoding="utf-8", timeout=120)
+    check(show(rev).stdout == before, "固定した版は周の頭の中身を持つ（BASE でも HEAD でもない）")
+    # **周の途中で writer が直しても、採点役が見る版は動かない**——これがこの節の目的
+    src.write_text(before + "\n# 周の途中で writer が直した行\n", encoding="utf-8")
+    check(show(rev).stdout == before, "周の途中の書き換えは固定した版に入らない（採点の足場が動かない）")
+    check(src.read_text(encoding="utf-8") != before, "生きた作業ツリーの側はちゃんと変わっている（対照）")
+    # **役は渡された場所で git を打てる**（写しを渡していた頃は .git が無くて打てなかった）
+    r = subprocess.run(["git", "-C", str(run.repo), "grep", "-F", "-c", "--", "min(x, limit)", rev],
+                       capture_output=True, text=True, encoding="utf-8", timeout=120)
+    check(r.returncode == 0 and ":1" in r.stdout, f"固定した版に対して git grep が打てる（{r.stdout.strip()[:40]}）")
+    src.write_text(before, encoding="utf-8")
+    # **P3 の後にも取り直す。** 周の頭だけで固定していたとき、R1〜R4 は『修正後の差分』と
+    # 『修正前の版』を同時に渡された（実測 r8: 局所レビューが現物で見つけた）
+    first = rev
+    src.write_text(before + "\n# P3 の修正に見立てた行\n", encoding="utf-8")
+    # 取り直しは rules の _take_diff が呼ぶ——部品を直に呼んで、接尾辞に依らず固定が走ることを見る
+    import importlib.util  # noqa: E402
+    spec = importlib.util.spec_from_file_location("gl_rv2", PLUGIN / "rules" / "review-loop.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    calls = []
+    # **手で組んだ値を置かない。** 代役は実物の git をそのまま通す（呼ばれた綴りだけ記録する）
+    # ——決め打ちの 40 桁を置いていたとき、実装が一時 index の経路へ移っても代役は気づかず、
+    # 呼ばれない綴りに答え続けた（実測 r10）。実物を通せば、綴りが変われば代役ごと壊れて見える
+    def _passthrough(*a, **k):
+        calls.append(a)
+        env = {**os.environ, **k["env"]} if k.get("env") else None
+        q = subprocess.run(["git", "-C", str(run.repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
+        return q.stdout if q.returncode == 0 else None
+    mod.git = _passthrough
+    class _B:
+        loop_state, state, round, dir = {}, {"inputs": {}}, 1, run.tmp
+    mod._freeze_revision(_B())
+    check(_B.state["inputs"].get("review_rev"), "_freeze_revision は版を入力に載せる")
+    src_rules = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
+    check("if not suffix:\n        _freeze_revision" not in src_rules,
+          "版の固定は接尾辞で分岐しない（P3 の後の取り直しでも走る）")
+    # **git の返り値を 1 組で済ませない。** 腕が『全部失敗』1 通りだけだったとき、
+    # 失敗（None）と『変更が無い』（空文字）を同じ値に潰す実装が素通りした（実測 r9）——
+    # このループの主経路（p0.base が git add -N を打つ）で必ず起きる形だった。
+    # 実際に起きうる組を並べて、**どれが来ても「その周の作業を含まない版」に倒れない**ことを見る
+    mod.Reject = RuntimeError
+
+    def _git(spec):
+        return lambda *a: spec.get(a[0] if a else "", spec.get("*"))
+
+    # **腕が食わせる値は実物の git から取る。** 手で組んでいたとき『2 つとも成功して空を返した』
+    # という実物には在りえない組を食わせ、実物が通る枝でなく別の枝を通って緑になっていた（実測 r10）。
+    # ここでは本物のリポジトリを 3 状態作って、各副コマンドの終了コードを実測し、
+    # util.git の契約（非 0 → None）に写してから腕に食わせる。
+    def _real(state):
+        """本物の git を 3 状態で打ち、{副コマンド: util.git が返す値} を作る。"""
+        r = pathlib.Path(tempfile.mkdtemp(prefix="gl-real-"))
+        sh(r, "git", "init", "-q", ".")
+        sh(r, "git", "config", "user.email", "t@example.com")
+        sh(r, "git", "config", "user.name", "t")
+        if state != "no-commit":
+            (r / "f.txt").write_text("a\n", encoding="utf-8")
+            sh(r, "git", "add", "-A"); sh(r, "git", "commit", "-qm", "base")
+        if state == "intent-to-add":
+            (r / "n.txt").write_text("new\n", encoding="utf-8")
+            sh(r, "git", "add", "-N", "n.txt")
+        out, idx = {}, pathlib.Path(tempfile.mkdtemp(prefix="gl-idx-")) / "index"
+        env = {**os.environ, "GIT_INDEX_FILE": str(idx)}
+        for name, argv, use_env in (("add", ["add", "-A"], True), ("write-tree", ["write-tree"], True),
+                                    ("rev-parse", ["rev-parse", "HEAD"], False)):
+            q = subprocess.run(["git", "-C", str(r), *argv], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", env=env if use_env else None)
+            out[name] = q.stdout if q.returncode == 0 else None
+        tree = (out.get("write-tree") or "").strip()
+        if tree:
+            head = (out.get("rev-parse") or "").strip()
+            argv = ["commit-tree", tree] + (["-p", head] if head else []) + ["-m", "x"]
+            q = subprocess.run(["git", "-C", str(r), *argv], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+            out["commit-tree"] = q.stdout if q.returncode == 0 else None
+        else:
+            out["commit-tree"] = None
+        rm(r)
+        return out
+
+    def _git(spec):
+        return lambda *a, **k: spec.get(a[0] if a else "", spec.get("*"))
+
+    real = {st: _real(st) for st in ("no-commit", "clean", "intent-to-add")}
+    # **実物が返す形をそのまま記録に残す**（次に実装が変わった周、腕が古いことがここで分かる）
+    check(real["intent-to-add"]["write-tree"] is not None,
+          "実物: intent-to-add の index でも、一時 index への add -A → write-tree は木を返す")
+    check(real["no-commit"]["rev-parse"] is None,
+          "実物: commit が 1 つも無いと rev-parse HEAD は非 0（util.git は None）")
+    cases = [
+        ("commit が 1 つも無い（実物の値）", real["no-commit"], "親なしの版"),
+        ("変更が無い（実物の値）", real["clean"], "版"),
+        ("intent-to-add が在る（実物の値。主経路で必ず起きる）", real["intent-to-add"], "版"),
+        ("git そのものが動かない", {"*": None}, "止まる"),
+        ("一時 index への add が失敗", {**real["clean"], "add": None}, "止まる"),
+        ("write-tree が木を返さない", {**real["clean"], "write-tree": None}, "止まる"),
+        ("commit-tree が版を返さない", {**real["clean"], "commit-tree": None}, "止まる"),
+    ]
+    for name, spec, want in cases:
+        mod.git = _git(spec)
+        bb = type("_BB", (), {"loop_state": {}, "state": {"inputs": {}}, "round": 1, "dir": run.tmp})()
+        try:
+            mod._freeze_revision(bb)
+            got = bb.state["inputs"].get("review_rev")
+        except RuntimeError as e:
+            got = "止まった: " + str(e)
+        if want == "止まる":
+            check(str(got).startswith("止まった") and "版を固定できない" in str(got),
+                  f"{name} は理由を名乗って止まる（{str(got)[:60]}）")
+        else:
+            check(got and not str(got).startswith("止まった") and len(str(got)) == 40,
+                  f"{name} は 40 桁の版を採る（{str(got)[:60]}）")
+    src.write_text(before, encoding="utf-8")
+    rev = first
+    # 採点役のプロンプトが、生きた木のパスと読む版の両方を渡す
+    nx = run.next()
+    seen = [pathlib.Path(i["prompt_file"]).read_text(encoding="utf-8") for i in nx.get("ready") or []
+            if i["node"] in ("p1.consistency_bypass", "p2.diagnose", "r3.coherence", "r4.hidden_scope")]
+    if seen:
+        check(all(rev in s and str(run.repo) in s for s in seen),
+              f"採点役のプロンプトはリポジトリのパスと読む版の両方を渡す（{len(seen)} 件）")
+    rm(run.tmp)
+
+def test_purpose_review_reruns_when_unvetted():
+    """**裏取りの柵より前に書かれた目的監査は、走り直す。**
+
+    監査は 1 周目にしか走らないので、柵が後から入っても判定は作り直されない——旧形の findings が
+    9 周にわたって材料に載り続けた（実測 r9-r10: 素の文字列 5 件が減らない）。assemble は
+    「材料として使わない」ところまでやっていたが、**走り直しの引き金が無かった**。
+
+    引き金は『柵を通っていない判定が記録に在る』——通った判定は二度と走らないので、
+    不利な判定を引くたびに回し直す形にはならない。
+    """
+    print("目的監査: 裏取りの柵より前の形で凍った判定は走り直す（通った判定は走り直さない）")
+    import importlib.util  # noqa: E402
+    spec = importlib.util.spec_from_file_location("gl_unvetted", PLUGIN / "rules" / "review-loop.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    check("purpose_review_unvetted" in mod.CONDS, "cond の builtin として登録されている")
+
+    def b(findings, verdict="狭めている"):
+        pr = {"verdict": verdict}
+        if findings is not None:
+            pr["findings"] = findings
+        return type("_B", (), {"record": {"process": {"purpose_review": pr}}})()
+
+    f = mod.CONDS["purpose_review_unvetted"]
+    check(f(b(["素の文字列の指摘", "もう 1 件"])), "旧形（素の文字列）の判定は走り直す")
+    check(f(b([{"text": "x", "hits": 1}])), "dict でも cite が無ければ走り直す")
+    check(f(b([{"text": "x", "cite": "a"}, {"text": "y", "hits": 2}])), "1 件でも柵を通っていなければ走り直す")
+    check(not f(b([{"text": "x", "cite": "a", "hits": 1}])), "**柵を通った判定は走り直さない**（不利な判定の引き直しを作らない）")
+    check(not f(b(None, verdict=None)), "まだ一度も走っていないなら、この引き金では走らせない（round==1 の側が拾う）")
+    check(not f(b([], verdict="問題なし")), "findings が空の『問題なし』は走り直さない")
+    # **式の正本は 1 か所**——assemble が別の式を持っていると、柵を締めた周に片方だけ古くなる
+    src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
+    check(src.count('r.get("cite") for r in rows') == 1,
+          f"裏取り済みかを判定する式は 1 か所（{src.count('r.get(\"cite\") for r in rows')} か所）")
+
+
+def test_loop_state_notes_have_readers():
+    """**loop_state に溜める注記の欄には、記録へ写す行が在る。**
+
+    書く所だけ在って読む所が無い欄は、書かれたまま誰の目にも入らない
+    （実測 r10: purpose_review_stale が 2 周ぶん書かれ、リポジトリのどこからも読まれていなかった）。
+    1 件を直すのでなく**クラスで見る**——次に同じ形の欄を足した周に、ここが赤くなる。
+
+    射程は `ls.setdefault("<名前>", []).append(` の形に絞る（注記を溜める欄だけ）。
+    単発の `ls["x"] = …` は返り値や cond から読まれる形が多く、同じ規則では縛れない。
+    """
+    print("loop_state: 注記を溜める欄には、記録へ写す行が在る（書いて誰も読まない欄を作らない）")
+    src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
+    names = sorted(set(re.findall(r'ls\.setdefault\(\s*"([a-z_]+)"\s*,\s*\[\]\s*\)\.append\(', src)))
+    check(len(names) >= 2, f"注記を溜める欄が {len(names)} 件（{names}）")
+    for n in names:
+        check(f'proc["{n}"]' in src, f"{n} は記録へ写される（proc[\"{n}\"] が在る）")
+
+
+def test_freeze_revision_on_real_intent_to_add():
+    """**実物の git で、intent-to-add の index でも版が固定でき、新規ファイルがその版に載る。**
+
+    代役を食わせる腕だけだったとき、本物の index を使う形に戻しても腕は全部緑のままだった
+    （実測 r10: 一時 index の指定を落とす注入が赤にならない）——代役は env を見ないので、
+    **どの index の上で組むかという肝心の違いが観測できない**。ここだけは実物の git を打つ。
+
+    覆うのはこのループの主経路そのもの: p0.base が未追跡の新規ファイルに `git add -N` を指示し、
+    その index では stash create も write-tree も非 0 で返る。
+    """
+    print("版の固定（実物の git）: intent-to-add の index でも止まらず、新規ファイルが版に載る")
+    run = Run("freeze-real")
+    g = lambda *a: sh(run.repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", *a)
+    (run.repo / "src" / "new.py").write_text("NEW_MARKER = 1" + chr(10), encoding="utf-8")
+    g("add", "-N", "src/new.py")
+    check(sh(run.repo, "git", "stash", "create").returncode != 0,
+          "実物: intent-to-add の index では git stash create が非 0（この経路が使えない理由）")
+
+    import importlib.util  # noqa: E402
+    spec = importlib.util.spec_from_file_location("gl_freeze_real", PLUGIN / "rules" / "review-loop.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.Reject = RuntimeError
+
+    def real_git(*a, **k):
+        env = {**os.environ, **k["env"]} if k.get("env") else None
+        q = subprocess.run(["git", "-C", str(run.repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
+        return q.stdout if q.returncode == 0 else None
+    mod.git = real_git
+    before_status = sh(run.repo, "git", "status", "--porcelain").stdout
+    bb = type("_BB", (), {"loop_state": {}, "state": {"inputs": {}}, "round": 1, "dir": run.tmp})()
+    mod._freeze_revision(bb)
+    rev = bb.state["inputs"].get("review_rev")
+    check(rev and len(rev) == 40, f"intent-to-add でも 40 桁の版を返す（{rev}）")
+    listed = sh(run.repo, "git", "ls-tree", "-r", "--name-only", rev).stdout.split()
+    check("src/new.py" in listed, f"**未追跡だった新規ファイルがその版に載る**（{listed}）")
+    got = sh(run.repo, "git", "grep", "-F", "-cI", "-e", "NEW_MARKER", rev, "--")
+    check(got.returncode == 0 and ":1" in got.stdout, f"その版に対して git grep が打てる（{got.stdout.strip()[:40]}）")
+    # **利用者の index を書き換えない。** 一時 index の指定を落としても版の固定自体は成功する
+    # （本物の index への `add -A` が intent-to-add を普通の追加に変えてしまうため）ので、
+    # 「止まらないこと」だけ見ていた腕は緑のままだった（実測 r10）。**害は成否でなく副作用の側に在る**
+    # ——採点するだけの節が利用者の index を書き換え、その周の突合も p0.base の申告も狂う
+    check(sh(run.repo, "git", "status", "--porcelain").stdout == before_status,
+          "**版を固定しても利用者の index は動かない**（採点は読むだけ）")
+    rm(run.tmp)
+
+
+def test_engine_provenance_recorded():
+    """**どの engine がこの周を回したかを、盤面が毎周持つ。**
+
+    graph は sha で追っているのに engine は誰も見ていなかった。盤面はリポジトリの中に在るので
+    「対象を直しながら回す」形になるが、回っているのはインストール済みの版で、作業ツリーの直しは
+    次にインストールするまで一度も走らない——『新機構が実走で動いていない』という指摘が 3 周
+    出続け、原因（engine が別物）にたどり着くのに 9 周かかった（実測 r10）。
+    """
+    print("engine の痕跡: どの置き場・どの版の engine が回したかを盤面が持ち、次の周に知らせる")
+    run = Run("gl-engine-prov-")
+    nx = run.next()
+    st = json.loads((run.dir / "state.json").read_text(encoding="utf-8"))
+    eng = st.get("engine") or {}
+    check(eng.get("root") == str(PLUGIN), f"盤面が engine の置き場を持つ（{eng.get('root')}）")
+    check(eng.get("version"), f"盤面が engine の版を持つ（{eng.get('version')!r}）")
+    check(any("この周を回した engine" in n for n in (nx.get("notes") or [])),
+          "初回は notes で知らせる（記録を開かなくても分かる）")
+    # **変わった周だけ痕跡を足す**（毎周足すと、読む側は差分を自分で取ることになる）
+    st2 = json.loads((run.dir / "state.json").read_text(encoding="utf-8"))
+    check(len(st2.get("engine_changes") or []) == 1,
+          f"痕跡は変わった周だけ（{len(st2.get('engine_changes') or [])} 件）")
+    nx2 = run.next()
+    check(not any("この周を回した engine" in n for n in (nx2.get("notes") or [])),
+          "同じ engine で続く周は黙る")
+    rm(run.tmp)
+
+
+def test_review_rev_paragraph_is_uniform():
+    """**固定した版を読む節は、生きた木のパスを名乗るとき必ず同じ綴りで版を添える。**
+
+    同じ段落を 7 枚へ手で貼っており、揃っているかを見る所が無かった（実測 r10）——
+    1 枚だけ版の無い形に戻っても、残りが正しいので誰も気づかない。
+
+    **射程は graph から導く**（手で並べた一覧にすると、節が増えた周に一覧だけ古くなる）。
+    縛るのは `inputs.review_rev` を reads に持つ節だけ——修正・CI・規模の節は
+    **生きた木を見るのが正しい**ので、同じ縛りを当てると直すべきでない所が赤くなる
+    （最初に全プロンプトへ当てて 5 枚が赤くなった）。
+    逐語でなく不変条件で見るのは、節ごとに違ってよい前後（観点の正本・差分の置き場）を固定しないため。
+    """
+    print("読む版: 固定した版を読む節は、生きた木のパスに必ず版を添える（射程は graph の reads から導く）")
+    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    tail, hole = "（読む版: `{{inputs.review_rev}}`）", "{{inputs.cwd}}"
+    nodes = [(k, v) for k, v in g["nodes"].items() if "inputs.review_rev" in (v.get("reads") or [])]
+    check(len(nodes) >= 7, f"固定した版を読む節が {len(nodes)} 件（graph の reads から数えた）")
+    for nid, v in sorted(nodes):
+        md = (PLUGIN / "graphs" / v["prompt_file"]).resolve()
+        text = md.read_text(encoding="utf-8")
+        check(hole in text, f"{nid}: プロンプトが生きた木のパスを名乗る")
+        at, n = 0, 0
+        while (k := text.find(hole, at)) >= 0:
+            at = k + len(hole); n += 1
+            check(text[at:at + len(tail)] == tail,
+                  f"{nid}: {hole} の直後に読む版が添う（{text[at:at + 24]!r}）")
+        check(n == 1, f"{nid}: 生きた木のパスを名乗るのは 1 か所（{n} か所）")
+
+
+def test_purpose_findings_cited():
+    """**指摘は作業ツリーで引ける根拠を連れて来る。** 素の文字列だったとき、リポジトリに 1 件も無い字列を
+    根拠にした指摘が 5 周再燃し、毎周ちがう判定者が 0 件を数えて棄却していた（棄却は出す側に返らないので止まらない）。
+    境界で数え直し、合わない指摘を受け取らない。"""
+    print("台本: 目的の監査の指摘は、作業ツリーで引ける根拠（cite）を連れて来る")
+    run = Run("cite", unattended=True)
+    target = None
+    for _ in range(20):                                          # 監査の節が出る波まで台本で進める
+        nx = run.next()
+        if not nx.get("ready"):
+            break
+        for inst in nx["ready"]:
+            if inst["node"] == "p0.purpose_review":
+                target = inst["id"]
+                break
+            a = answers(run, "narrowed", nx["round"])[inst["node"]]
+            run.done(inst["id"], a(inst))
+        if target:
+            break
+    check(target is not None, "目的の監査の節が出る")
+    base = {"verdict": "狭めている", "reason": "目的が実装した範囲に合わせて狭い（検査用）"}
+    # ① 実在しない字列は受け取らない（棄却を判定者の手間として毎周繰り返さない）
+    r = run.done(target, {**base, "findings": [
+        {"text": "document_tail の自己申告が残っている", "cite": "document_tail", "hits": 4}]})
+    check(r.returncode == 1 and "1 件も無い" in r.stderr,
+          f"作業ツリーに 1 件も無い字列を根拠にした指摘は拒まれる（rc={r.returncode}: {r.stderr[-90:]}）")
+    # ② 件数の申告が数え直しと違えば拒む（根拠は在るが、量の主張が現物と合わない）
+    r = run.done(target, {**base, "findings": [
+        {"text": "上限に触れていない", "cite": "min(x, limit)", "hits": 9}]})
+    check(r.returncode == 1 and "数え直し" in r.stderr,
+          f"件数の申告が数え直しと違えば拒まれる（rc={r.returncode}: {r.stderr[-90:]}）")
+    # ④ **引用は字面として数える。** 既定の git grep は基本正規表現なので、-F を落とすと
+    # メタ文字を含む引用が別の物に当たる——現物に在る引用が拒まれ、現物に無い字列が通る
+    # （実測 2026-09-21: この腕を足す前は、メタ文字の解釈差が出ない標本しか踏んでいなかった）。
+    # 'src/a.py' は現物に 0 件だが、`.` を任意の 1 字として読むと 'src.a.py' 等に当たりうる形
+    r = run.done(target, {**base, "findings": [
+        {"text": "正規表現として読むと当たる字列", "cite": "def f.x, limit=None.:", "hits": 1}]})
+    check(r.returncode == 1 and "1 件も無い" in r.stderr,
+          f"メタ文字を含む引用は字面として数える（正規表現なら当たる形が拒まれる。rc={r.returncode}: {r.stderr[-80:]}）")
+    # ⑤ 角括弧が不均衡でも、git が落ちて『現物に無い』と逆の拒否文になったりしない
+    r = run.done(target, {**base, "findings": [
+        {"text": "角括弧が不均衡な引用", "cite": "limit[", "hits": 1}]})
+    check(r.returncode == 1 and "Traceback" not in r.stderr,
+          f"不均衡な角括弧の引用でも素の例外にならない（rc={r.returncode}: {r.stderr[-80:]}）")
+    # ③ 合っていれば通る
+    r = run.done(target, {**base, "findings": [
+        {"text": "上限に触れていない", "cite": "min(x, limit)", "hits": 1}]})
+    check(r.returncode == 0, f"現物と合う根拠なら通る（rc={r.returncode}: {r.stderr[-90:]}）")
+    rm(run.tmp)
+
+
+def test_purpose_cite_counts_frozen_revision():
+    """**数えるのは採点役が読むのと同じ固定リビジョン**（生きた作業ツリーではない）。
+
+    生きた木を数えると、周の途中で writer が直した瞬間に、役は自分では制御できない理由で
+    返答ごと拒まれる——『行番号も件数も周の終わりまで有効』という名乗りが、まさに拒否の判定に使う
+    件数について偽になる（実測 r8: 判定役が [block] として名指しした）。
+    """
+    print("台本: 根拠の数え直しは、生きた木でなく固定した版を数える")
+    run = Run("cite-rev", unattended=True)
+    target = None
+    for _ in range(20):
+        nx = run.next()
+        if not nx.get("ready"):
+            break
+        for inst in nx["ready"]:
+            if inst["node"] == "p0.purpose_review":
+                target = inst["id"]
+                break
+            a = answers(run, "narrowed", nx["round"])[inst["node"]]
+            run.done(inst["id"], a(inst))
+        if target:
+            break
+    check(target is not None and run.state()["loop"].get("reviewed_revision"), "監査の節が出て、版が固まっている")
+    # **周の途中で現物から引用を消す**——固定した版には残っているので、数え直しは通るはず
+    src = run.repo / "src" / "a.py"
+    src.write_text("def f(x):\n    return x\n", encoding="utf-8")
+    live = subprocess.run(["git", "-C", str(run.repo), "grep", "-F", "-c", "--", "min(x, limit)"],
+                          capture_output=True, text=True, encoding="utf-8", timeout=120)
+    check(live.returncode != 0, f"生きた木からは引用が消えている（対照。rc={live.returncode}）")
+    r = run.done(target, {"verdict": "狭めている", "reason": "検査用",
+                          "findings": [{"text": "上限に触れていない", "cite": "min(x, limit)", "hits": 1}]})
+    check(r.returncode == 0,
+          f"固定した版に在る引用は、生きた木から消えていても通る（rc={r.returncode}: {r.stderr[-90:]}）")
+    rm(run.tmp)
+
+
+def test_purpose_verdict_needs_vetted_evidence():
+    """**裏取りを通っていない判定は、R2 を止める根拠に使わない。**
+
+    監査は 1 周目にしか走らない（cond）ので、裏取りの柵が入る前に書かれた判定は一度も数え直されないまま
+    毎周の判定材料に載り続ける（実測 r9: findings が素の文字列 5 件、うち 4 件は現物に 0 件の字列に乗っていた）。
+    あわせて、**根拠 0 件の『狭めている』**が柵を 0 回通って素通りしていた形も塞ぐ。
+    """
+    print("台本: 裏取りを通っていない『狭めている』は R2 を止めない／根拠 0 件の判定は受け取らない")
+    import importlib.util  # noqa: E402 — rules の関数を直に呼ぶ腕
+    spec = importlib.util.spec_from_file_location("gl_rv4", PLUGIN / "rules" / "review-loop.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.Reject = RuntimeError
+    mod.git = lambda *a: "src/a.py:1\n"
+
+    class _B:
+        loop_state = {"reviewed_revision": "deadbeef"}
+        state, round, dir = {"inputs": {}}, 1, pathlib.Path(".")
+
+    # ① 根拠 0 件の『狭めている』は受け取らない
+    try:
+        mod.purpose_findings_cited(_B(), "p0.purpose_review", {"verdict": "狭めている", "findings": []}, None)
+        got = "通った"
+    except RuntimeError as e:
+        got = str(e)
+    check("findings が空" in got, f"根拠 0 件の『狭めている』は拒まれる（{got[:60]}）")
+    # ② 旧形（素の文字列）の findings も受け取らない
+    try:
+        mod.purpose_findings_cited(_B(), "p0.purpose_review",
+                                   {"verdict": "狭めている", "findings": ["document_tail が残っている"]}, None)
+        got = "通った"
+    except RuntimeError as e:
+        got = str(e)
+    check("素の文字列は受け取らない" in got, f"旧形の findings は拒まれる（{got[:60]}）")
+    # ③ **rules に実際に判定させる**（台本側で判定を再現していたとき、rules の分岐を消しても緑だった
+    #    ——実測 r9: 腕 i5。今周の判定 4 件目『腕が engine の返す値でなく手で組んだ 1 組を食わせる』そのもの）
+    # **判定は本物のループに下させる**（台本側で再現していたとき、rules の分岐を消しても緑だった
+    #  ——実測 r9: 腕 i5。今周の判定 4 件目『腕が engine の返す値でなく手で組んだ 1 組を食わせる』そのもの）。
+    # 記録を古い形（裏取りを通っていない findings）に手当てしてから assemble を走らせる
+    for rows, want in (([{"text": "上限に触れていない", "cite": "min(x, limit)", "hits": 1}], "狭めている"),
+                       (["document_tail が残っている"], None)):
+        run2 = Run("vetted", unattended=True)
+        target = None
+        for _ in range(30):
+            nx = run2.next()
+            if not nx.get("ready"):
+                break
+            target = next((i for i in nx["ready"] if i["node"] == "p3.fix"), None)
+            if target:
+                break
+            for inst in nx["ready"]:
+                a = answers(run2, "narrowed", nx["round"])[inst["node"]]
+                run2.done(inst["id"], a(inst))
+        check(target is not None, "p3.fix が出る所まで回る（この腕の前提）")
+        # 記録の側を古い形に差し替える（engine の手当ての口を使う——痕跡が残る）
+        f = run2.tmp / "pr.json"
+        f.write_text(json.dumps({"verdict": "狭めている", "findings": rows}, ensure_ascii=False), encoding="utf-8")
+        run2.cmd("patch", "--path", "process.purpose_review", "--file", str(f),
+                 "--reason", "裏取りの有無で R2 の扱いが変わるかを測る（検査用）")
+        run2.done(target["id"], answers(run2, "narrowed", run2.state()["round"])["p3.fix"](target))
+        got = "（確定せず）"
+        for _ in range(12):                    # assemble は p3.fix の後の波で走る
+            nx = run2.next()
+            st = run2.state()["loop"]
+            if st.get("purpose_known") is not None:
+                got = st.get("purpose_unusable")
+                break
+            if nx.get("status") == "awaiting_human" or not nx.get("ready"):
+                break
+            for inst in nx["ready"]:
+                run2.done(inst["id"], answers(run2, "narrowed", nx["round"])[inst["node"]](inst))
+        check(got == want,
+              f"裏取りの有無で R2 を止めるかが本物の assemble で変わる（{str(rows)[:30]} → {got}、期待 {want}）")
+        rm(run2.tmp)
+
+
+def test_purpose_cite_git_unusable():
+    """**git が動かない回を『現物に無い』と取り違えない。** 数え直しは失敗と 0 件を同じ None で受け取るので、
+    取り違えると拒否文が事実と逆（『現物に 1 件も無い』）になる——確かめられないものは合格にもしない。"""
+    print("台本: 数え直しで git が動かない回は、事実と逆の拒否文を出さない")
+    import importlib.util  # noqa: E402 — rules の関数を直に呼ぶ腕
+    spec = importlib.util.spec_from_file_location("gl_rv3", PLUGIN / "rules" / "review-loop.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.Reject = RuntimeError
+
+    class _B:
+        loop_state = {"reviewed_revision": "deadbeef"}
+        state, round, dir = {"inputs": {}}, 1, pathlib.Path(".")
+
+    out = {"findings": [{"text": "x", "cite": "abc", "hits": 1}]}
+    mod.git = lambda *a: None                      # grep も rev-parse も動かない＝git が使えない
+    try:
+        mod.purpose_findings_cited(_B(), "p0.purpose_review", out, None)
+        got = "止まらなかった"
+    except RuntimeError as e:
+        got = str(e)
+    check("確かめられない" in got or "git が動かない" in got,
+          f"git が動かない回は『確かめられない』として拒む（{got[:60]}）")
+    check("1 件も無い" not in got, f"事実と逆（現物に無い）とは言わない（{got[:60]}）")
+    mod.git = lambda *a: None if a[:1] == ("grep",) else "true\n"   # git は動くが 0 件
+    try:
+        mod.purpose_findings_cited(_B(), "p0.purpose_review", out, None)
+        got = "止まらなかった"
+    except RuntimeError as e:
+        got = str(e)
+    check("1 件も無い" in got, f"git は動くが 0 件の回は『現物に 1 件も無い』で拒む（{got[:60]}）")
+    # **版が解決できない回を 0 件と取り違えない。** git は動くが、数える版が消えている run では
+    # 『現物に 1 件も無い』は偽になる（数えられなかっただけ）——腕が『全部失敗』1 通りだけだったとき、
+    # この分岐を消しても緑のまま通った（実測 r9: 腕 i2）
+    mod.git = lambda *a: (None if a[:1] == ("grep",)
+                          else (None if a[:2] == ("rev-parse", "--verify") else "true\n"))
+    try:
+        mod.purpose_findings_cited(_B(), "p0.purpose_review", out, None)
+        got = "止まらなかった"
+    except RuntimeError as e:
+        got = str(e)
+    check("採点する版" in got and "解決できない" in got,
+          f"版が解決できない回は『現物に無い』でなく『数え直せない』で拒む（{got[:70]}）")
+    check("1 件も無い" not in got, f"事実と逆のことは言わない（{got[:70]}）")
+
+
 def test_narrowed():
     print("台本: writer 自書の目的を inspector が『狭めている』→ R2 は目的を使えない（unverifiable）→ 台帳に載る")
     run = Run("narrowed", unattended=True)
@@ -1025,6 +1565,29 @@ def test_proxy_to_source():
         r = subprocess.run([PY, str(PLUGIN / "scripts" / "graphcheck.py"), str(tmp / "graphs" / f"bad-{key}.json"), str(VALIDATOR)],
                            capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 1 and key in r.stdout, f"record.{key} が null の graph は落ちる（exit {r.returncode}）")
+    # **入力の宣言の 3 分岐にも腕を置く。** 検査を書いただけでは覆いの証拠にならない——
+    # 同じ周の測定で『書いただけの検査が空振りする』が 3 件出ている（f5・f8・f10 が最初は緑）
+    for key, mutate, want in (
+        ("inputs-missing", lambda b: b.pop("inputs", None), "inputs（どの入力がパスかの宣言）が無い"),
+        ("inputs-not-dict", lambda b: b.__setitem__("inputs", ["document"]), "名前 → {kind: …} の辞書"),
+        ("inputs-bad-kind", lambda b: b.__setitem__("inputs", {"document": {"kind": "知らない種類"}}),
+         "を engine が知らない（使えるのは"),
+        # **貼る穴に渡る入力は宣言を持つ**——実在検査の発火条件を『file: の接頭』から『宣言』へ
+        # 移したので、宣言を書き忘れた入力は file: の穴に渡っていても実在検査から黙って外れる
+        ("inputs-undeclared", lambda b: b["inputs"].pop("review_md", None),
+         "の宣言が無い——宣言が無い入力は実在検査に当たらない"),
+        # **裸の {{inputs.X}} も見る**——回す側の節は file: 接頭を書けない（別の柵）ので、
+        # 接頭だけを見ていたとき、回す側だけが読むパス入力は宣言が無くても init を素通りした
+        ("inputs-undeclared-bare", lambda b: b["inputs"].pop("scripts_dir", None),
+         "の宣言が無い——宣言が無い入力は実在検査に当たらない"),
+    ):
+        bad = json.loads(json.dumps(g))
+        mutate(bad)
+        (tmp / "graphs" / f"bad-{key}.json").write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
+        r = subprocess.run([PY, str(PLUGIN / "scripts" / "graphcheck.py"), str(tmp / "graphs" / f"bad-{key}.json"), str(VALIDATOR)],
+                           capture_output=True, text=True, encoding="utf-8", timeout=600)
+        check(r.returncode == 1 and want in r.stdout,
+              f"入力の宣言が壊れた graph は落ち、理由を名指しする（{key}: exit {r.returncode} / {r.stdout[-90:].strip()}）")
     rm(tmp)
 
     # ④ 走った節の not_applicable は applies_cond の有無に依らず拒む（持つ 4 節だけ見ていたとき、残り 11 節が素通りした）
@@ -1059,7 +1622,7 @@ def test_rejudge_path():
             raise RuntimeError("ready が空のまま進まない")
         table = answers(run, "std", nx["round"])
         for inst in nx["ready"]:
-            out = table[inst["node"]](inst["item"])
+            out = table[inst["node"]](load_item(inst))
             if inst["node"] == "p3.fix" and isinstance(out, dict):
                 for f in {f for c in out.get("changes", []) for f in c.get("files", [])}:
                     q = run.repo / f
@@ -1115,7 +1678,7 @@ def test_worktree_guard_fires():
             break
         table = answers(run, "std", nx["round"])
         for inst in nx["ready"]:
-            r = run.done(inst["id"], table[inst["node"]](inst["item"]))
+            r = run.done(inst["id"], table[inst["node"]](load_item(inst)))
             if r.returncode != 0:
                 raise RuntimeError(f"done {inst['id']}: {r.stderr[-300:]}")
         # 前の写しは取れたが、後の突合はまだ——ここが「P1 の前後」のあいだ。deps を数えると、
@@ -1635,7 +2198,7 @@ def test_big_diff():
     nx = run.next()
     t = answers(run, "std", 1)
     for i in nx["ready"]:
-        r = run.done(i["id"], t[i["node"]](i["item"]))
+        r = run.done(i["id"], t[i["node"]](load_item(i)))
         if r.returncode != 0:
             raise SystemExit(f"台本の前提が崩れた: {i['node']} の done が {r.returncode}: {r.stderr[-300:]}")
     nx = run.next()  # hygiene は差分だけに依存するので P0 の残りと同じ波に出る（pipeline）
@@ -1669,11 +2232,15 @@ def main():
     # 台本どうしが自分の作業場しか触らないから——時間はほぼ全部が子プロセスの終了待ちだった
     # （実測 2026-09-13: 94.7 秒のうち 93.8 秒が子プロセス 1,561 回ぶん）。
     # 直列に戻すのは GL_TEST_WORKERS=1——並列でだけ落ちる台本を切り分けるときに使う。
-    parallel.run_all(parallel.collect(globals()))
+    tests = parallel.collect(globals())
+    parallel.run_all(tests)
     reached, total, unreached = vocab_coverage()
     check(reached == VOCAB_REACHED,
           f"判定語彙の到達 {reached}/{total}（記録は {VOCAB_REACHED}）——筋書きを増やしたら数を上げろ。"
           f"未到達の頭: {unreached[:3]}")
+    # **本数は「実際に集めて走らせた関数」を数える**（run.sh の grep ではなく）。text を grep すると、
+    # 字面だけ変えた（インデントした・改名した）台本が消えても数が合ったままになる
+    print(f"台本 {len(tests)} 本")
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤
         print("  - 検査が 1 件も走っていない")

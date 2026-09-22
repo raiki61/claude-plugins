@@ -8,19 +8,60 @@ import sys
 from .advance import advance, emit_instance, load_item
 from .board import Board, empty_round
 from .record import apply_writes
-from .render import TOKEN
+from .render import TOKEN, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import validate_schema
 from .util import ANSWER_ACTIONS, PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
 from .validator import find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
+# **どの入力がパスかは graph が宣言し、engine は「どう確かめるか」だけを持つ。**
+# 以前は名前の表（document・cwd）を engine が持っていた——engine は loop を知らない建前なのに、
+# loop の入力名を 2 語だけ知っている形で、loop を足す人は engine を書き換える必要があった。
+# 宣言（何がパスか）と手続き（実在の見方）を分けると、写しは 0 になる: graph の inputs が正本で、
+# ここに在るのは kind の名前 → 見方の対応だけ（graphcheck が、知らない kind を静的に弾く）。
+# rev は「この版を読め」と役に渡す git のリビジョンで、パスではない——実在の見方を持たない
+# （engine は git を知らない。版が取れるかは rules が固定するときに確かめる）
+INPUT_KINDS = {"file": ("ファイル", pathlib.Path.is_file), "dir": ("ディレクトリ", pathlib.Path.is_dir),
+               "rev": ("リビジョン", None)}
+
+
+def path_inputs(g):
+    """この graph が「パス」と宣言した入力（名前 → (人に見せる語, 実在の見方)）。
+
+    宣言が無い graph では空——**空は「検査しない」であって「通す」ではない**（名前が無ければ
+    そもそも実在検査の対象にならない。表に無い名前が素通りしていた以前と同じ射程で、狭くなってはいない）。
+    """
+    out = {}
+    for key, decl in (g.get("inputs") or {}).items():
+        decl = decl or {}
+        kind = decl.get("kind")
+        # **rules が後から作る入力は init の引数ではない。** 宣言はするが（静的検査が
+        # 『貼る穴に渡る入力は宣言を持つ』を見るため）、init の実在検査と正規化の対象からは外す
+        if decl.get("by") == "rules":
+            continue
+        if kind in INPUT_KINDS and INPUT_KINDS[kind][1] is not None:
+            out[key] = INPUT_KINDS[kind]
+    return out
+
+
+# 欠けを人に言うときの書き方。**旗を持たない鍵に -- を付けない**——付けていたとき、cwd の欠けの診断が
+# `--cwd` と名乗り、そのまま打つと argparse が知らない旗で落ちた（init が持つ旗は下の 3 つと --input だけ）
+CLI_FLAGS = ("request", "document", "lang")
+
+
+def flag(key):
+    return f"--{key}" if key in CLI_FLAGS else f"--input {key}=…"
+
+
 def required_inputs_missing(g, graph_path, inputs):
-    """graph のプロンプトが必須の穴として読む inputs（{{file:inputs.X}} / {{inputs.X}} の optional でない物）が渡されているか。
-    ファイルなら在るか。engine は loop の語を持たないので、要る入力は graph のプロンプトから機械で導く
+    """graph のプロンプトが必須の穴として読む inputs（接頭を剥がして inputs.X になる、optional でない物）が渡されているか。
+    ファイルなら在るか。要る入力は graph のプロンプトから機械で導く——ただし**どれがパスかは graph が
+    宣言する**（graph の inputs が正本。engine は kind → 見方の対応だけを持つ）
     （実測 2026-09-13: research を --document 無しで init すると exit 0、2 回目の next で p0.claims の穴が埋まらず落ちた）。
     rules の on_init が後から足す入力（review_md 等）は init の引数ではないので、ここでは見ない。"""
     base = pathlib.Path(graph_path).parent
+    paths = path_inputs(g)
     missing = []
     for nid, n in g.get("nodes", {}).items():
         pf = n.get("prompt_file")
@@ -34,16 +75,51 @@ def required_inputs_missing(g, graph_path, inputs):
             optional, path = m.group(1) == "?", m.group(2).strip()
             if optional:
                 continue
-            is_file = path.startswith("file:inputs.")
-            key = path[len("file:inputs."):] if is_file else (path[len("inputs."):] if path.startswith("inputs.") else None)
-            if not key or "." in key or key not in ("request", "document", "lang", "cwd") and key not in inputs:
+            # **接頭（file: / section: / ref:）の剥がし方は render が正本**。ここで手で知っていたとき、
+            # section:inputs.X#見出し の穴だけを持つ節は鍵が取れず、実在検査にも欠け検査にも当たらなかった
+            core = strip_prefix(path)
+            key = core[len("inputs."):] if core.startswith("inputs.") else None
+            # engine が名前で知る入力は、init の旗（CLI_FLAGS）と graph が宣言したパス（inputs）の和
+            if not key or "." in key or key not in set(CLI_FLAGS) | set(paths) and key not in inputs:
                 continue  # rules が後から足す入力は init の引数ではない
             val = inputs.get(key)
-            if val is None:
-                missing.append(f"--{key}（節 {nid} の穴 {{{{{path}}}}}）")
-            elif is_file and not pathlib.Path(val).is_file():
-                missing.append(f"--{key} の {val} が無い（節 {nid}）")
+            # **空文字を「在る」側に倒さない。** pathlib.Path("") は "." になるので、--input cwd= は
+            # 実在検査を素通りして空のまま盤面に入り、cwd を読む側（git の -C 等）が黙って別の場所を見る
+            if val == "" and key in paths:
+                missing.append(f"{flag(key)} が空（節 {nid}）")
+            elif val is None:
+                missing.append(f"{flag(key)}（節 {nid} の穴 {{{{{path}}}}}）")
+            # **実在の検査を、貼る穴の接頭（file:）に相乗りさせない。** file: は「本文を貼る」ための綴りで、
+            # 渡された物が在るかとは別の話である。回す側の節がパス渡しに寄ると（{{inputs.document}} だけの graph）
+            # この分岐を通らず、存在しないパスが init を素通りする。
+            # どれがパスかは graph の inputs が正本。宣言に無い名前の入力はどの実在検査にも当たらない
+            elif key in paths:
+                what, ok = paths[key]
+                if not ok(pathlib.Path(val)):
+                    missing.append(f"{flag(key)} の {val} という{what}が無い（節 {nid}）")
     return sorted(set(missing))
+
+
+def check_graph(graph, validator):
+    """**外から来た graph は、入口で静的検査を通す**（init が唯一の入口）。
+
+    以前は静的検査が CLI にしかなく、engine は `init --graph <任意>` を何も確かめずに受け取った
+    ——同梱のグラフだけが守られ、持ち込みのグラフは柵の外だった。実装は写さず、CLI と同じ関数を呼ぶ
+    （検査の正本は scripts/graphcheck.py の check）。**取り込みは呼ぶ時に行う**: graphcheck は engine を
+    読むので、頭で取り込むと輪になる。検査そのものが動かせない環境（取り込みに失敗する）では
+    **黙って通さず die する**——「検査できないから通す」は、この差分が繰り返し塞いできた形である。
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("graphloops_graphcheck", PLUGIN_ROOT / "scripts" / "graphcheck.py")
+    try:
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:                      # noqa: BLE001 — 何で落ちても「検査できない」は同じ扱い
+        die(f"graph の静的検査を動かせない（{type(e).__name__}: {e}）——検査を飛ばして init はしない")
+    lines = []
+    if not mod.check(graph, validator, emit=lines.append):
+        die(f"{graph}: graph の静的検査が通らない（init で止める。直してから回せ）\n"
+            + "\n".join(l for l in lines if str(l).startswith("NG")))
 
 
 # ---------------------------------------------------------------- next
@@ -64,7 +140,10 @@ def cmd_next(a):
         return
     ready = [i for i in b.rd["instances"].values() if i["status"] == "pending"]
     print(dump({
-        "status": b.state["status"], "round": b.round, "thickness": b.state["thickness"], "dir": str(b.dir), "notes": notes,
+        # **run_id は直列化で綴りが変わらない印**（読了の柵が「この転写は回す側のものか」を見るのに使う。
+        # パスは json.dumps が Windows の区切りを二重化するので印にできない）
+        "status": b.state["status"], "round": b.round, "thickness": b.state["thickness"],
+        "dir": str(b.dir), "run_id": b.state.get("run_id"), "notes": notes,
         "ready": [{k: v for k, v in i.items() if k != "tree_before"} for i in ready],
         "how": ("ready の全部を同時に始めてよい（同じ波）。"
                 "cli（道具ゼロの遮断系）は **loop.py launch を呼べ**——engine が起こして out_path に落とす。"
@@ -334,7 +413,7 @@ def cmd_done(a):
         if not text.strip():
             raise Reject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、運び手が {inst.get('out_path')} に書けていない）")
         output = {"text": text}
-    item = load_item(inst)
+    item = load_item(inst, b.dir)
     # 作業ツリーの前後突合（書き換えを塞ぐのは定義でも自制でもなくこの突合）
     if "tree_before" in inst:
         after = porcelain()
@@ -421,7 +500,8 @@ def cmd_done(a):
         b.rd["done"][nid] = {"at": now(), "instance": a.node}
         b.state["done_ever"][nid] = b.round
     b.save()
-    print("。".join([msg, *notes]) + "。続きは loop.py next")
+    # done の 1 行にも run_id を載せる——done だけを打った session でも印が転写に載る（読了の柵が読む）
+    print("。".join([msg, *notes]) + f"。続きは loop.py next（run {b.state.get('run_id')}）")
 
 
 # ---------------------------------------------------------------- skip / answer / thicken / add / patch
@@ -553,7 +633,7 @@ def cmd_status(a):
     b = Board(resolve_dir(a))
     st = b.state
     print(dump({
-        "dir": str(b.dir), "loop": st["loop_name"], "status": st["status"], "round": b.round, "thickness": st["thickness"],
+        "dir": str(b.dir), "run_id": st.get("run_id"), "loop": st["loop_name"], "status": st["status"], "round": b.round, "thickness": st["thickness"],
         "max_rounds": st["max_rounds"], "unattended": st["unattended"],
         "this_round": {"done": sorted(b.rd["done"]), "na": b.rd["na"], "skipped": b.rd["skipped"], "empty": b.rd["empty"],
                        "pending_instances": [i["id"] for i in b.rd["instances"].values() if i["status"] == "pending"]},
@@ -567,8 +647,11 @@ def cmd_record(a):
 
 # ---------------------------------------------------------------- init
 def resolve_dir(a):
+    # **綴りは絶対に揃える。** 相対の --dir で作った run は instance の item_file にも相対の綴りが残り、
+    # 別の cwd から開き直した回に load_item が読めずに落ちる（扇の重複排除が正本を読むようになって
+    # next も同じ経路を通る）。盤面の外から渡る唯一の入口がここなので、ここで 1 度だけ解決する
     if getattr(a, "dir", None):
-        return a.dir
+        return str(pathlib.Path(a.dir).resolve())
     gd = git("rev-parse", "--git-dir")
     if gd:
         base = pathlib.Path(gd.strip()).resolve() / "graphloops"
@@ -594,20 +677,26 @@ def cmd_init(a):
     loop = g["loop"]
     # 検証器と必須の入力は置き場を作る前に解決する——die しても空の盤面を残さない
     validator = find_validator(loop, g.get("plugin"), a.validator)
+    check_graph(graph, validator)
     req = a.request
     if req.startswith("@"):
         req = pathlib.Path(req[1:]).read_text(encoding="utf-8")
-    inputs = {"request": req, "document": str(pathlib.Path(a.document).resolve()) if a.document else None,
+    inputs = {"request": req, "document": a.document,
               "lang": a.lang or "依頼文の言語（利用者の言語）", "cwd": os.getcwd()}
     for kv in a.input or []:
         k, _, v = kv.partition("=")
         inputs[k] = v
+    # **パスの入力は、既定でも --input の上書きでも同じ正規化を通す**（どれがパスかは graph の inputs が正本）。
+    # 片方だけ絶対化していたとき、同じ鍵に 2 つの正本（絶対と相対）ができて実在検査が別の場所を見た
+    for k in path_inputs(g):
+        if inputs.get(k):
+            inputs[k] = str(pathlib.Path(inputs[k]).resolve())
     missing = required_inputs_missing(g, graph, inputs)
     if missing:
         die("この loop に要る入力が無い（init で止める——以前は 2 手先の穴埋めで初めて落ち、盤面を捨てるしかなかった）: " + "; ".join(missing))
     run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     if a.dir:
-        d = pathlib.Path(a.dir)
+        d = pathlib.Path(a.dir).resolve()   # 盤面の綴りは入口で 1 度だけ解決する（resolve_dir と同じ規律）
     else:
         gd = git("rev-parse", "--git-dir")
         if not gd:
@@ -656,6 +745,6 @@ def cmd_init(a):
         b = Board(d)
         fn(b, a)
         b.save()
-    print(dump({"dir": str(d), "loop": loop, "thickness": th, "thickness_decider": decider, "max_rounds": state["max_rounds"],
+    print(dump({"dir": str(d), "run_id": run_id, "loop": loop, "thickness": th, "thickness_decider": decider, "max_rounds": state["max_rounds"],
                 "validator": validator or ("見つからない（report の前に init --validator で渡すか " + (env_root(g["plugin"]) if g.get("plugin") else "graph の plugin") + "）"),
                 "overview": g.get("overview", ""), "next": f"python3 {PLUGIN_ROOT / 'scripts' / 'loop.py'} next --dir {d}"}))

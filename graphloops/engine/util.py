@@ -77,13 +77,20 @@ def _repo_args():
     return ["-C", GIT_CWD] if GIT_CWD else []
 
 
-def git(*args):
-    """成功なら stdout、失敗（git が無い・非 0・時間切れ）なら None。呼ぶ側は None を『分からない』として扱い、合格に倒さない。"""
+def git(*args, env=None):
+    """成功なら stdout、失敗（git が無い・非 0・時間切れ）なら None。呼ぶ側は None を『分からない』として扱い、合格に倒さない。
+
+    `env` は**足す**（置き換えない）。GIT_INDEX_FILE を渡して一時 index の上で組み立てる呼びが 1 つ在る
+    ——intent-to-add の index では stash create も write-tree も非 0 で返るので、本物の index を避ける道が要る。
+    置き換えにすると PATH も HOME も消えて git ごと動かなくなるので、os.environ の写しに足す形で固定する。
+    """
     args = (*_repo_args(), *args)
+    run_env = {**os.environ, **env} if env else None
     try:
         # errors=replace: 対象リポジトリに非 UTF-8 のテキストが 1 本でも在ると、復号の例外が『失敗なら None』の契約を
         # 迂回して総括例外で落ちた（実測 2026-09-13: next が exit 2 でどの周にも進めない）。置換文字で読み、落とさない
-        r = subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT)
+        r = subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=GIT_TIMEOUT, env=run_env)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout if r.returncode == 0 else None

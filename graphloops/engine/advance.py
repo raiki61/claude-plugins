@@ -1,5 +1,6 @@
 """進行——機械の節を走らせ、扇を広げ、回す側に渡す節（instance）を発行する。"""
 import os
+import json
 import pathlib
 import sys
 
@@ -16,7 +17,10 @@ ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphch
 # 自分が入っている場所）。「起動の語は graph が宣言する」線は動かさない——graph が使うと書いたときだけ埋まる。
 LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path", "python", "plugin_root")
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parents[1]  # engine/ の親＝プラグインの根（scripts/ の隣）
-ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（文字）。超える欄は items/ のファイルにだけ置く
+ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（直列化した UTF-8 のバイト）。
+# 超える欄は items/ のファイルにだけ置く。**バイトで測る**——実測 2026-09-18: 1 束 1,716 バイト＝
+# 約 570 字の材料が、字数の 1000 を超えず 5 束とも素通りした（バイトで持つ上限の先例は render.py の FILE_CAP）
+
 # 「育った」と言い始める絶対量の下限。**切らないことは『いくらでも貼ってよい』ではない**
 # ——回す側の文脈は有限で、周ごとに単調増加する穴は誰にも見えないまま育つ（実測 2026-09-13:
 # report.human_items が record.process と loop を丸ごと読み、6 周目で 1,120 KB。上限の無い経路
@@ -78,21 +82,58 @@ def launch_cli(b, inst, d):
 
 
 def slim_item(item):
-    """instance に残す項目——長い欄（貼る本文など）を落とした写しと、落とした欄の名前。"""
-    slim, omitted = {}, []
-    for k, v in item.items():
-        if isinstance(v, str) and len(v) > ITEM_INLINE:
-            omitted.append(k)
-        else:
-            slim[k] = v
+    """instance に残す項目——長い欄（貼る本文など）を落とした写しと、落とした欄の名前。
+
+    **長さはその欄が instance に載る形で、UTF-8 のバイトで測る**（文字列はそのまま、それ以外は直列化して。
+    字数では測らない）。文字列の欄だけ見ていたとき、配列・辞書の欄は何件あっても素通りし、扇の材料が
+    next の出力に丸ごと出ていた（実測 2026-09-18: research-loop の p1.checker の材料は
+    {"key": …, "claims": [ …主張… ]} で、25 主張・5 クラスタの波の next が 15,904 バイト。通常の波は約 4 KB）。
+    しかも落ちた欄が無いので item_omitted も空のまま——外から見ると『削る仕組みが働いて、削る物が無かった』と
+    区別が付かない。**空振りしていることが見えない柵は、無い柵より悪い。**
+    材料の正本は items/ のファイルで、役に渡るプロンプトはそこから埋まる（load_item）ので、ここで落として
+    減るのは回す側の文脈だけである。
+
+    **縛るのは写し全体の合計 1 段だけ。** 塞ぎたい害（next の出力量）は総量の話なので、柵の
+    不変条件も総量で言う。欄ごとの上限と合計の 2 段にしていたとき、欄ごとの側は倒しても
+    検査の色が変わらなかった——同じことを合計の側が既に言っていたからで、2 段目は柵でなく写しだった。
+    落とすのは大きい欄から。**key だけは長さに関わらず残す**——扇の重複排除（emit_instance の
+    呼び出し側）と台本が item["key"] を添字で読むので、落とすと診断文でなく traceback になる。
+    """
+    slim, omitted = dict(item), []
+    while len(dump(slim).encode("utf-8")) > ITEM_INLINE:
+        rest = [k for k in slim if k != "key"]
+        if not rest:
+            break  # key だけで超える材料は、落とす先が無いのでそのまま残す（下流が添字で読む）
+        big = max(rest, key=lambda k: len(dump(slim[k]).encode("utf-8")))
+        del slim[big]
+        omitted.append(big)
     return slim, omitted
 
 
-def load_item(inst):
-    """instance の項目の全部（items/ のファイルが正本。無ければ instance の item）。"""
-    if inst.get("item_file"):
-        return read_json(inst["item_file"])
-    return inst.get("item")
+def load_item(inst, board_dir=None):
+    """instance の項目の全部（items/ のファイルが正本。無ければ instance の item）。
+
+    **保存済みの相対の綴りも開ける。** 置き場の綴りを入口で絶対化する前に作られた盤面は item_file に
+    相対を持つので、別の cwd から開くと read_json が die する——新規の盤面だけ直して移行を置かないと、
+    走っている run が次の next で止まる（実測 r3: cmd_done は元から正本読みで、その破れが next にも広がった）。
+    board_dir を基準に開き直して救う。**救えたことは黙らない**: 綴りを絶対に直して盤面に書き戻し、
+    次からは基準無しでも開ける（救い続ける経路を残さない）。
+    """
+    f = inst.get("item_file")
+    if not f:
+        return inst.get("item")
+    p = pathlib.Path(f)
+    if not p.is_file() and board_dir and "items" in p.parts:
+        # **盤面の綴りを頭に足さない。** engine は `str(b.dir / "items" / …)` と書くので、保存された綴りは
+        # 盤面の綴りを**含んでいる**——頭に足すと盤面の名前が二重になり、救済は必ず外れた
+        # （実測 r9: 台本だけが engine の書かない綴り（盤面の根からの相対）を食わせて緑になっていた）。
+        # 盤面の下の `items/…` を組み直す: 保存された綴りのうち items 以降だけを使う。
+        tail = p.parts[p.parts.index("items"):]
+        alt = pathlib.Path(board_dir).joinpath(*tail)
+        if alt.is_file():
+            inst["item_file"] = str(alt.resolve())
+            return read_json(inst["item_file"])
+    return read_json(f)
 
 
 def agent_type_of(b, n):
@@ -208,8 +249,9 @@ def emit_instance(b, nid, item=None, suffix=""):
         write_json(ifile, item)
         inst["item"], omitted = slim_item(item)
         inst["item_file"] = str(ifile)
-        if omitted:
-            inst["item_omitted"] = omitted
+        # **空でも常に書く。** 鍵ごと省くと『落ちる欄が無かった』と『逃がす仕組みを持たない engine が
+        # 出した instance』が同じ形になり、逃がしが働いたかを盤面から機械で見る足場が無くなる
+        inst["item_omitted"] = omitted
     if n.get("skills"):
         inst["skills"] = n["skills"]
     if not runner:
@@ -321,6 +363,30 @@ def graph_changed(b, notes):
         notes.append(f"graph が init の後に変わっている（sha {cur}）。痕跡は process.graph_changes")
 
 
+def engine_changed(b, notes):
+    """**どの engine がこの周を回したか**を記録に残す（止めはしない——痕跡を残して知らせる）。
+
+    graph は sha で追っているのに engine は誰も見ていなかった。盤面はリポジトリの中に在るので
+    「対象を直しながら回す」形になるが、**回している engine はインストール済みの版**で、
+    作業ツリーの直しは次にインストールするまで一度も走らない——そのため
+    「新機構が実走で動いていない」という指摘が 3 周にわたって出続け、原因（engine が別物）に
+    たどり着くのに 9 周かかった（実測 r10）。置き場と版を毎周書けば、記録を読むだけで分かる。
+    """
+    here = pathlib.Path(__file__).resolve().parent.parent          # <plugin>/engine/.. = <plugin>
+    ver = ""
+    try:
+        ver = json.loads((here / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("version", "")
+    except (OSError, ValueError):
+        ver = ""                                                    # 版が読めなくても置き場は残す
+    cur = {"root": str(here), "version": ver}
+    if cur != b.state.get("engine"):
+        b.state.setdefault("engine_changes", []).append({"round": b.round, "from": b.state.get("engine"), "to": cur, "at": now()})
+        b.state["engine"] = cur
+        b.trace("engine_changed", root=cur["root"], version=cur["version"])
+        notes.append(f"この周を回した engine: {cur['root']}（{cur['version'] or '版が読めない'}）"
+                     "——レビュー対象の作業ツリーと別の置き場なら、作業ツリー側の直しはこの run では走っていない")
+
+
 def frozen_outputs_stale(b, notes):
     """`once` の節の凍った出力を、**今の schema で測り直す**（止めはしない——痕跡を残して知らせる）。
 
@@ -360,6 +426,7 @@ def advance(b):
     """機械の節を走らせ、周の終わりなら次の周を開く。回す側に渡す節が出るまで（または止まるまで）進める。"""
     notes = []
     graph_changed(b, notes)
+    engine_changed(b, notes)
     frozen_outputs_stale(b, notes)
     while True:
         progressed = False
@@ -391,7 +458,9 @@ def advance(b):
                     b.rd["item_counts"][nid] = len(items)  # いま分かっている項目の数（先出しの節は増えていく）
                 mine = [i for i in b.rd["instances"].values() if i["node"] == nid]
                 pending = [i for i in mine if i["status"] == "pending"]
-                existing = {i["item"]["key"] for i in mine if i["status"] in ("pending", "done")}
+                # 項目は正本（items/ のファイル）から読む——instance の item は欄を落とした写しで、
+                # key を落とさない例外に支えて直読みしていると、写しの作り方を変えた周に静かに壊れる
+                existing = {load_item(i, b.dir)["key"] for i in mine if i["status"] in ("pending", "done")}
                 new_items = [it for it in items if it["key"] not in existing]
                 for it in new_items:
                     emit_instance(b, nid, it)

@@ -640,9 +640,7 @@ PY
 }
 
 echo "review-record.py"
-R1="$ROOT/templates/round-1.example.json"
-R2="$ROOT/templates/round-2.example.json"
-R3="$ROOT/templates/round-3.example.json"
+R1="$ROOT/templates/round-1.example.json"   # 下の「引数が多すぎる」の腕で 2 つ目の引数に使う
 # 変数に詰めて展開すると、python のパスにスペースがあるだけで壊れる（Windows で起きる）。
 RECORD="$ROOT/scripts/review-record.py"
 
@@ -1085,7 +1083,6 @@ expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した診断記録を作れない"; fail=1; }
 import json, sys, pathlib
 
-# 手書きの deep copy を 1 本に寄せる（理由は上の `write_broken_records` の clone と同じ）。
 def clone(x):
     return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -1176,7 +1173,6 @@ FR="$ROOT/scripts/firstread-record.py"
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した初読記録を作れない"; fail=1; }
 import json, sys, pathlib
 
-# 手書きの deep copy を 1 本に寄せる（理由は上の `write_broken_records` の clone と同じ）。
 def clone(x):
     return json.loads(json.dumps(x))
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -1503,6 +1499,27 @@ pl = json.loads((root/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
 for key in ("name", "version", "description"):
     assert key in pl, f"plugin.json に {key} が無い"
 
+# **同梱プラグインも版を宣言する。** 利用者が『手元の実体と配布の実体が同じか』を見分ける手段は
+# version だけで、docs/loop-graph/README.md はその見分け方を読者に約束している。宣言が欠けると
+# 見分けようがない（挙動を変えたのに版を上げ忘れる形は、この検査だけでは止められない——
+# 止めるには merge-base との比較が要り、それは CI の仕事。ここで見るのは宣言の実在まで）。
+import re as _re
+def _bad_version(d):
+    """版の宣言として受け取れない理由（無ければ None）。**柵の射程を標本で示す**ためにここに切り出す。"""
+    if not d.get("version"):
+        return "version が無い"
+    if not _re.fullmatch(r"\d+\.\d+\.\d+", d["version"]):
+        return f"version が x.y.z でない: {d['version']!r}"
+    return None
+# **柵そのものを標本で測る**（違反が今 0 件でも、柵が生きていることを毎回踏む）
+assert _bad_version({}) and _bad_version({"version": ""}) and _bad_version({"version": "1.2"}) \
+    and _bad_version({"version": "v1.2.3"}), "版の柵が、宣言の欠けや形の違いを拾えていない"
+assert _bad_version({"version": "0.15.0"}) is None, "版の柵が、正しい宣言まで拾っている"
+for sub in sorted(p2.parent.parent for p2 in root.glob("*/.claude-plugin/plugin.json")):
+    d = json.loads((sub/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+    why = _bad_version(d)
+    assert why is None, f"{sub.name}/.claude-plugin/plugin.json: {why}"
+
 # 局所レビューの依存は公式の宣言機構で入れる。宣言が消えると pr-review-toolkit が
 # 入らないまま「欠陥の観点が 1 つ静かに欠けたレビュー」が通るので、宣言の実在を検査する。
 deps = [d for d in (pl.get("dependencies") or []) if isinstance(d, dict)]
@@ -1665,7 +1682,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=542
+EXPECTED_CHECKS=544
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2526,7 +2543,6 @@ expect_output 0 "RANGE_OK" \
 expect_output 0 "NO_TARGET_OK" \
     "catchup: PR も番号も無いブランチ（main 等）でも止まらず、GitHub に聞かずに手元のブランチと未コミットの中身（枠と飛び先）を出す" \
     "$PY_BIN" "$CU_CASE" no-target
-# stdio の UTF-8 固定を OS 非依存で検査する(reconfigure が消えると cp1252 強制下で
 # UnicodeEncodeError になり、日本語の報告そのものが出せない＝道具が丸ごと使えなくなる。
 # GitHub Actions の windows-latest で実測して赤くなった)
 expect_output 0 "○ 待ち" \
@@ -2746,6 +2762,48 @@ expect_output 0 "FIGURE_OK" "figure-check: 空の入力は「通った」と言�
     "$PY_BIN" "$FC_CASE" empty
 expect_exit 1 "figure-check: 知らないケース名は落ちる（検査自体の空振りを防ぐ）" "$PY_BIN" "$FC_CASE"
 
+# ---- shell の静的検査（shellcheck） ----
+# **定番解を入れて、自作の regex を落とした。** 自作の柵は for の位置しか見ず、同じ問題クラス
+# （SC2086 系の無引用展開）の他の位置は誰も見ていなかった——「射程が狭い」と注記で断る零処方を
+# 3 周続けた結果、同じ断り書きが 3 か所に増えただけで母数は 1 件も減らなかった。
+# **配布の必須依存は増えない**: shellcheck は利用者が入れる物ではなく、CI と開発者の手元で動く道具である
+# （README の「必須」は git / python3 / bash のまま）。
+# 手元に在れば回す。無ければ回さないが、**黙って消えない**——下の CI_LINT_OK が「CI が回す設定か」を見る。
+if command -v shellcheck >/dev/null 2>&1; then
+    sc_bad=0
+    while IFS= read -r f; do
+        shellcheck -S warning "$f" || sc_bad=1
+    done < <(find "$ROOT" -name "*.sh" -not -path "*/.git/*" | sort)
+    if [ "$sc_bad" -eq 0 ]; then
+        echo "  ok   SHELLCHECK_OK リポジトリの .sh が shellcheck -S warning を通る"
+    else
+        echo "  FAIL shellcheck が指摘を出した"
+        fail=1
+    fi
+    ran=$((ran + 1))
+else
+    echo "  --   shellcheck が手元に無いので回していない（CI が回す。下の CI_LINT_OK がその設定を見る）"
+fi
+
+# **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
+# 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）" \
+    "$PY_BIN" - "$ROOT" <<'PYCI'
+import pathlib, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+wf = pathlib.Path(sys.argv[1]) / ".github" / "workflows" / "test.yml"
+txt = wf.read_text(encoding="utf-8")
+# **語が在るかでなく、回す段が在るかを見る。** 語だけを見ていたとき、段を消しても**注記に残った同じ語**で
+# 柵が通った（実測 2026-09-21: 腕 f5 が緑のまま素通りした）。実際に走る行（run:）だけを対象にする
+runs = [l.split("run:", 1)[1] for l in txt.splitlines() if l.strip().startswith("run:")]
+hits = [r for r in runs if "shellcheck" in r]
+assert hits, f"{wf}: shellcheck を実際に回す run: の段が無い（注記に語が在るだけでは通さない）"
+assert all("-S warning" in r for r in hits), f"{wf}: shellcheck の深さ（-S warning）が手元の検査と揃っていない: {hits}"
+print("CI_LINT_OK")
+PYCI
+
 # ---- attention の命令書と README: 機械の出力語を同じ綴りで持つ（絵の例が規則を通るかは figure-check の pass が命令書から読む） ----
 expect_output 0 "DOC_WORDS_OK" "命令書 2 本と README と仕様書が、機械の出力行の語（飛び先・取り込み先・上に積む・依頼先の候補・私の痕跡以降に変わった file）を同じ綴りで持つ（写す規則なので綴り違いは AI が探せない）" \
     "$PY_BIN" - "$ROOT" <<'PY'
@@ -2898,10 +2956,6 @@ expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部�
 # 同型の突合（文書の名指しする定数の実在）を既に持っており、そこに揃える。
 cat > "$WORK/py-floor.py" <<'PYFLOOR'
 import re, sys, pathlib
-# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
-# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
-# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
-# しかも落ちたのは合格の行を print するところ）。
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -2941,10 +2995,6 @@ expect_output 0 "PY_FLOOR_OK" "README が宣言した Python の下限と、CI �
 # 「491 件すべて緑」だった）。**注記は赤くならないので、仕組みで見る。**
 cat > "$WORK/ratchet.py" <<'RATCHET'
 import re, sys, pathlib
-# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
-# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
-# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
-# しかも落ちたのは合格の行を print するところ）。
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -2960,6 +3010,7 @@ root = pathlib.Path(sys.argv[1])
 FORMS = {
     "EXPECTED_CHECKS": 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then',
     "VOCAB_REACHED": "    check(reached == VOCAB_REACHED,",
+    "EXPECTED_TESTS": 'if [ "$tests" -ne "$EXPECTED_TESTS" ]; then',
 }
 # **母数は宣言から取り、表に無い名前には理由を要求する。** FORMS に名前を 2 つ手で並べていたので、
 # 新しいラチェットを足した周にその 1 本が黙って表の外へ落ちる形だった。検査の置き場に在る整数の定数を
@@ -3047,10 +3098,6 @@ expect_output 0 "RATCHET_OK" "ラチェット（件数・語彙の到達）の�
 # 走査対象は commands/*.md をファイル集合から導く——名前を並べると、足した手順書だけ誰も見ない。
 cat > "$WORK/doc-cli.py" <<'DOCCLI'
 import re, subprocess, sys, pathlib
-# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
-# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
-# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
-# しかも落ちたのは合格の行を print するところ）。
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -3131,10 +3178,6 @@ expect_output 0 "DOC_CLI_OK" "手順書が案内する loop.py の呼び出し�
 # バイトで読む呼び（text= を付けない）は対象外——復号が起きないので既定コーデックに依らない。
 cat > "$WORK/sub-encoding.py" <<'SUBENC'
 import ast, re, sys, pathlib
-# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
-# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
-# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
-# しかも落ちたのは合格の行を print するところ）。
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -3233,10 +3276,6 @@ expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encod
 # 広いことを名乗る**形になるので、今日それを 3 回直した当の周に作らない。
 cat > "$WORK/table-copies.py" <<'TBLCOPY'
 import ast, pathlib, sys
-# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
-# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
-# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
-# しかも落ちたのは合格の行を print するところ）。
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -3329,10 +3368,6 @@ expect_output 0 "TABLE_COPIES_OK" "名前表の要素を読む側が文字列で
 # 今は穴ではない。危ないのは「後から行頭で読み始めたのに、その検証器に口が無い」形なので、その組を落とす。
 cat > "$WORK/stdout-shape.py" <<'STDOUTSHAPE'
 import ast, pathlib, re, sys
-# **Windows の既定の標準出力は cp1252**（日本語 Windows なら cp932）で、日本語を print すると
-# UnicodeEncodeError で落ちる。このリポジトリの検証器は同じ 3 行を既に持っている——**読む側だけ直して
-# 書く側を直していなかった**（実測 2026-09-13: 今日足した柵 4 本が windows-latest だけで落ちた。
-# しかも落ちたのは合格の行を print するところ）。
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")

@@ -180,7 +180,10 @@ def traces(rec):
     proc = rec.get("process")
     if not isinstance(proc, dict):
         return {}
-    names = [f for f, _ in TRACES] + ["skipped", "launch_missing", "unevaluable", "context_lost"]
+    # rules が積む欄（loop 固有）もここに並べる——engine の TRACES に足すと、その欄を持たない
+    # loop の記録にまで空の欄が生える。写すのは rules の finalize、見せる口はここ 1 つ
+    names = [f for f, _ in TRACES] + ["skipped", "launch_missing", "unevaluable", "context_lost",
+                                      "read_through_unchecked"]
     return {f: len(proc[f]) for f in names if isinstance(proc.get(f), list) and proc[f]}
 
 
