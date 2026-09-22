@@ -1,0 +1,18 @@
+{
+  "description": "読んだ事実を、読んだその瞬間に記録する（読了の柵の一次情報）",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PY=$(command -v python3 || command -v python); \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/record-read.py\"",
+            "shell": "bash",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
