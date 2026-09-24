@@ -46,8 +46,18 @@ def collect(ns):
     件数の柵は捨てない——こちらは「足した台本が走らない」を、柵は「台本や検査が消えた」を見る。
     見ている向きが逆なので両方要る。
     """
-    return [v for k, v in ns.items()
-            if k.startswith("test_") and callable(v) and getattr(v, "__module__", None) == ns.get("__name__")]
+    tests = [v for k, v in ns.items()
+             if k.startswith("test_") and callable(v) and getattr(v, "__module__", None) == ns.get("__name__")]
+    # **GL_TEST_ONLY=名前,名前 で台本を絞る**（変異の腕を撃つ実行器 tests/mutate.py が、腕に関係する台本だけを
+    # 走らせるため）。絞った回は件数の柵が合わないので run.sh を通さずに呼ぶ
+    only = os.environ.get("GL_TEST_ONLY")
+    if only:
+        want = set(only.split(","))
+        tests = [v for v in tests if v.__name__ in want]
+        if not tests:   # 当たらない名前を 0 本のまま緑にしない（全台本の検査を外した回は母数 0 の柵が効かない）
+            print(f"  FAIL GL_TEST_ONLY（{only}）に当たる台本が 1 本も無い")
+            raise SystemExit(1)
+    return tests
 
 
 def workspace(prefix):
@@ -88,7 +98,11 @@ def run_all(tests):
     n = workers(len(tests))
     if n == 1:
         for fn in tests:
-            fn()
+            try:
+                fn()
+            except BaseException:   # 並列の枝と同じ 1 行を残してから投げ直す（1 本に絞った回も例外を FAIL として読める）
+                print(f"  FAIL {fn.__name__} が例外で抜けた: {traceback.format_exc().strip().splitlines()[-1]}", flush=True)
+                raise
         return
 
     def one(fn):

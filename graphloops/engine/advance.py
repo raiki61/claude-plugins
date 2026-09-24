@@ -210,6 +210,7 @@ def emit_instance(b, nid, item=None, suffix=""):
     # 78,672→40,000、p2.history が 43,393→40,000。遮断系は 1 件も切られていない）。切られた側は自分が何を失ったか
     # 分からない（全文の置き場が本文に無い）ので、判定の質が落ちても誰も観測できなかった。
     deliver = None if runner else deliver_mode(atype, b.graph.get("deliver", {}).get("path_tools", []),
+                                               paste_roles=b.graph.get("deliver", {}).get("paste_roles", []),
                                                tools=role_def["tools"] if role_def else None)
     # 貼る経路は「回す側でなく・遮断系でなく・deliver が paste」の 1 通りだけ。isolated を条件から落とすと、
     # 遮断系は deliver_mode が paste を返す（道具ゼロなので path_tools を持たない）ため切られる側に回る
@@ -241,8 +242,13 @@ def emit_instance(b, nid, item=None, suffix=""):
         "mode": "runner" if runner else "agent",
         "agent_type": None if runner else agent_type_of(b, n),
         "prompt_file": str(pfile), "prompt_sha": sha(prompt), "item": item, "status": "pending", "emitted_at": now(),
-        "out_path": str(b.dir / "out" / f"r{b.round}" / (safe_name(iid) + ".json")),  # 返答の置き場（運び手がここへ書けば done は --output 無しで読む）
+        # 返答の置き場（運び手がここへ書けば done は --output 無しで読む）。**本文を返す節（text）は .md**——
+        # 拡張子が .json だと、Markdown を返す節で運び手が別名に書き、初回の done が『返答が無い』で必ず落ちた
+        "out_path": str(b.dir / "out" / f"r{b.round}" / (safe_name(iid) + (".md" if n.get("text") else ".json"))),
     }
+    # **返答の置き場のディレクトリも engine が作る**——プロンプトの置き場だけ作っていたとき、運び手が
+    # シェルのリダイレクトや mkdir をしない書き方で書くと、最初の done が『返答が無い』で必ず落ちた（実走の申し送り 2026-09-24）
+    pathlib.Path(inst["out_path"]).parent.mkdir(parents=True, exist_ok=True)
     if item:
         # 項目の正本は items/ のファイル 1 つ。貼る本文はプロンプトに埋めた後なので、盤面と next の出力には長い欄を残さない
         ifile = b.dir / "items" / f"r{b.round}" / (safe_name(iid) + ".json")
@@ -254,6 +260,10 @@ def emit_instance(b, nid, item=None, suffix=""):
         inst["item_omitted"] = omitted
     if n.get("skills"):
         inst["skills"] = n["skills"]
+    if runner and n.get("delegate"):
+        # 回す側の節のうち、自分の文脈で抱えずに小さな役へ任せてよいもの（graph の宣言をそのまま渡す。engine は起こさない——
+        # 起こすのは回す側で、手順書が渡し方を書く）
+        inst["delegate"] = n["delegate"]
     if not runner:
         inst["deliver"] = deliver  # path: 役が自分で読む／paste: 本文を貼る。上限を決める前に 1 度だけ引いた物を使う
         if role_def_missing:
@@ -312,6 +322,16 @@ def run_driver_node(b, nid, n, notes):
             die(f"builtin '{n['builtin']}' の返りが {{'ok': 真偽値}} でも {{'decision': …}} でもない: {sorted(out)}")
         if not out["ok"]:
             notes.append(f"{nid}: " + "; ".join(out.get("problems", ["通らない"])))
+            # **待ちに戻した節が在るなら、止まらずに先へ進める**（戻した節を同じ next で出す）。戻した節が今
+            # 待ちになっていないのに rewound を名乗る返りは、同じ機械の節を回し続ける形なので落とす
+            back = out.get("rewound") or []
+            if not (isinstance(back, list) and all(isinstance(x, str) and x in b.nodes for x in back)):
+                die(f"builtin '{n['builtin']}' の rewound は節の名前の一覧で返せ（{back!r}）——文字列を返すと 1 文字ずつ節と読まれる")
+            if back:
+                if any(b.node_state(x) != "pending" for x in back) or b.deps_ok(nid):
+                    die(f"builtin '{n['builtin']}' が {back} を待ちに戻したと言うが、戻っていない（rules の欠陥）")
+                b.trace("rewound", node=nid, nodes=back)
+                return True
             return False
     def mark_done():
         b.rd["done"][nid] = {"at": now(), "builtin": n["builtin"]}
@@ -436,7 +456,7 @@ def advance(b):
             node_deps = b.deps_ok(nid)
             # 扇の節は instance_deps が揃えば項目を先に出してよい（pipeline——全部の checker を待たない）。
             # cond / once は節の deps が揃ってから見る。active_in だけは先に見る
-            early = (not node_deps and "fan_out" in n and "instance_deps" in n and b.deps_ok(nid, "instance_deps")
+            early = (not node_deps and b.deps_met(nid)
                      and not (n.get("active_in") and b.state["thickness"] not in n["active_in"]))
             if not node_deps and not early:
                 continue

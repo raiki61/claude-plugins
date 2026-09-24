@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# checkout して台本を走らせるだけなので、GITHUB_TOKEN は読むだけにする
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:

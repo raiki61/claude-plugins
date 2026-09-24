@@ -1,0 +1,36 @@
+name: mutation
+
+# 変異の腕（tests/mutations.json）を全部撃つ。手元の撃ち直しは --reuse で前回の結果を持ち越し、腕の定義・壊すファイル・
+# 台本一式が変わった腕だけを撃つので、ほかのファイルの変更で結果が変わる腕は手元では拾えない（StrykerJS の incremental と
+# 同じ割り切り: https://stryker-mutator.io/docs/stryker-js/incremental/）。その取りこぼしを週 1 回の全腕で拾う——ただし拾えるのは
+# schedule が動いている間だけ。60 日間リポジトリに活動が無いと GitHub が schedule を止め（public のリポジトリ）、誰にも通知されない。
+# 戻すのは手で: gh workflow enable mutation.yml。止まっている間の取りこぼしは、手元の全腕（--reuse を付けない tests/mutate.py）でしか拾えない
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+# checkout と成果物の upload だけなので、GITHUB_TOKEN は読むだけにする
+permissions:
+  contents: read
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    # 手元（24 コア・-j 6）で全腕 21〜35 分。4 コアの runner で数倍かかる見込みに余裕を足した値（未実測）
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v5
+      # test.yml と同じ版を測る（README が宣言した下限）
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: tests/mutate.py
+        shell: bash
+        run: python3 tests/mutate.py -j 4 --out mutation-report.json
+      - name: 結果を残す（次の撃ち直しの --reuse に使える）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: mutation-report.json

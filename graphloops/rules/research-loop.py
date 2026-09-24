@@ -13,7 +13,6 @@ engine（scripts/loop.py）が graph の名前で呼ぶ。ここにあるのは:
 engine が差し込む道具は engine/rules.py の INJECT が正本（rules は engine を import しない）。
 節名（p1.checker 等）はここには出ない——節の役割は graph が名前で指す。
 """
-import hashlib
 import json
 import os
 import pathlib
@@ -188,6 +187,9 @@ def decisions_from_details(b, nid, src, w):
 
 WRITE_OPS = {"sampling_overturn": sampling_overturn, "decisions_from_details": decisions_from_details, "clusters_from_ids": clusters_from_ids, "add_claims": add_claims_op, "flag_recheck": flag_recheck,
              "claim_updates": claim_updates, "cold_reader_round": cold_reader_round}
+# research の記録に素材（materials）は無い——どの op も to を素材の名前として読まない（graphcheck が op ごとの名乗りを求める）
+for _op in WRITE_OPS.values():
+    _op.writes_material = False
 
 
 # ---------------------------------------------------------------- 機械の節
@@ -592,58 +594,6 @@ def read_through_unchecked(b, nid, why):
     return f"読了は確かめられなかった（記録に残す）: {why}"
 
 
-def hook_evidence(b, doc):
-    """フックが盤面の隣に残した読了の記録から、この文書の全文読みを探す ——（結果, 説明）。
-
-    結果は 4 つ: `"read"`（全文を読んだ記録が在る）／`"none"`（記録そのものが無い＝フックが
-    入っていない、または入れる前に始めた session）／`"stale"`（読んだ後に文書が変わった）／
-    `"absent"`（記録は在るがこの文書の全文読みが無い）。
-
-    **これは「在れば強い」証拠であって、唯一の証拠ではない。** 射程は Read だけで、cat / sed で
-    読んだ回は記録に残らない（bash のコマンド行からパスを取り出すのは綴りの数だけ穴が開く）。
-    だから `read` 以外は**判定を下さず**、呼ぶ側が転写の走査へ落とす。ここで拒むと、
-    フックを入れていない環境と別の読み方が、柵を切る以外の出口を持たなくなる。
-
-    **読む先は盤面の隣 1 か所。** 以前は環境変数の session id から利用者ごとの置き場を引いていたが、
-    そちらはフックが**全 session の読み取り履歴を寿命なしで溜める**形だった。盤面の隣なら
-    run の寿命で消え、engine は自分の置き場を既に知っているので、探す段が丸ごと要らない。
-
-    突き合わせるのは**読んだ時のファイルの sha と、今の sha**。中身そのものは記録に残さない
-    （文書の本文をこちらのディスクへ写さないため）ので、一致しなければ読み直しを求める側に倒れる。
-    """
-    log = b.dir / "reads.jsonl"
-    if not log.is_file():
-        return "none", f"{log} が無い（フックが入っていないか、入れる前に始めた session）"
-    try:
-        want = hashlib.sha256(pathlib.Path(doc).read_bytes()).hexdigest()
-        real = os.path.realpath(doc)
-        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError as e:
-        return "none", f"{log} または {doc} を読めない（{e}）"
-    seen_path, saw_partial, saw_stale = False, False, False
-    for ln in lines:
-        try:
-            r = json.loads(ln)
-        except ValueError:
-            continue
-        if not isinstance(r, dict) or r.get("path") != real:
-            continue
-        seen_path = True
-        if r.get("partial"):
-            saw_partial = True
-            continue
-        if r.get("file_sha") == want:
-            return "read", (f"フックの記録に全文読みが在る（{log.name} / sha {want[:12]}"
-                            + (f" / agent {r['agent_id']}" if r.get("agent_id") else "") + "）")
-        saw_stale = True                      # 全文読みだが sha が合わない
-    if not seen_path:
-        return "absent", f"フックの記録（{log.name}・{len(lines)} 行）に {doc} の読みが 1 件も無い"
-    # **stale を partial より先に名乗る。** 部分読みと、古い版の全文読みが両方在るとき、
-    # 回す側に要るのは「読み直せ」であって「全部読め」ではない——後者は既にやっている
-    if saw_stale:
-        return "stale", f"フックの記録の全文読みは今の {doc}（sha {want[:12]}）と一致しない——読んだ後に文書が変わった"
-    return "partial", "フックの記録に在るのは部分読み（offset / limit 付き）だけ——全文の証拠にならない"
-
 
 def claims_intake(b, nid, out, item):
     """棚卸しの受け取り: 文書の本文が会話に入った印を転写で探し、開いた問いがあれば回す側に渡す。
@@ -674,8 +624,7 @@ def claims_intake(b, nid, out, item):
     # **フックの状態も鍵に入れる。** 入れていなかったとき、不成立を写した後に同じ周で
     # フックの記録が出来ても（＝文書を読んでも）、2 節目は写しの「確かめられなかった」を読み続けた
     # ——拒否を写すと再提出が塞がるのと同じ形で、**読んだ次の手が通らない**（実測 r10）。
-    # hook_evidence は小さいファイルを 1 本読むだけなので、鍵に入れても費用は増えない
-    hook, hook_why = hook_evidence(b, doc) if doc else ("none", "見立て文書の入力が無い")
+    hook, hook_why = hook_evidence(b.dir, doc) if doc else ("none", "見立て文書の入力が無い")
     memo = b.dir / "read-through.json"
     scope = [b.round, doc, size, str(tp), hook]
     try:

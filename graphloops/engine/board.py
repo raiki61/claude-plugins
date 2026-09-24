@@ -6,6 +6,7 @@ import pathlib
 from .rules import load_rules, registry
 from . import util
 from .util import die, get_path, read_json, write_json, now
+from .schema import load_graph
 from .validator import run_validator
 
 
@@ -42,7 +43,9 @@ class Board:
         util.GIT_CWD = (self.state.get("inputs") or {}).get("cwd")
         self.seen_rev = self.state.get("rev", 0)  # 読んだ時点の版。save がこれと突き合わせる
         self.record = read_json(self.dir / "record.json")
-        self.graph = read_json(self.state["graph"])
+        self.graph, why = load_graph(self.state["graph"])
+        if why:
+            die(why)
         self.nodes = self.graph["nodes"]
         self.rules = load_rules(self.state["graph"], self.graph)
 
@@ -117,6 +120,50 @@ class Board:
         self.state["rounds"].append(empty_round(self.state["round"]))
 
     # -- 節の状態
+    def rewind(self, nids, by):
+        """節を今の周の待ちに戻す（rules が『この節の出力はもう古い』と決めたときの engine の口）——{節: {記録の欄: 外した値}}。
+
+        節の状態の持ち方は engine だけが知るので、戻し方はここ 1 か所に置く。**外すのは今の周にその節が出した物だけ**:
+        instance と返答の置き場（同じ iid・同じ out_path で出直すので、残すと新しい返答を書かずに打った done が古い返答で
+        通る。消さずに .stale-r<周> へ退ける）・今の周の出力の指し（out.<節>）・set の writes が書いた記録の欄。append・
+        merge_by_id と rules の独自の op が書いた物は外さない（前の周の分も積んでいるか、意味を engine が知らない）——外さなかった
+        事実を痕跡に残す。条件外（na）の節は印だけを外して条件を測り直させ、前の周の出力には触らない。once の節は done_ever も外す。
+        **機械の節（driver）は戻さない**"""
+        rd, removed = self.rd, {}
+        for nid in nids:
+            n = self.nodes[nid]
+            if n.get("run_by") == "driver":
+                die(f"rewind: 機械の節 {nid} は戻せない（rules の欠陥）")
+            ran = nid in rd["done"] or nid in rd["skipped"] or nid in rd["empty"]
+            for box in ("done", "na", "skipped"):
+                rd[box].pop(nid, None)
+            if nid in rd["empty"]:
+                rd["empty"].remove(nid)
+            if n.get("once"):
+                self.state["done_ever"].pop(nid, None)
+            got, kept = {}, []
+            if ran:
+                for iid in [i for i, x in rd["instances"].items() if x["node"] == nid]:
+                    op = pathlib.Path(rd["instances"].pop(iid).get("out_path") or "")
+                    if op.name and op.is_file():
+                        op.replace(op.with_name(op.name + f".stale-r{self.round}"))
+                if (self.state["outputs"].get(nid) or {}).get("round") == self.round:
+                    self.state["outputs"].pop(nid)
+                for w in n.get("writes", []):
+                    if w.get("op") != "set" or not w.get("to"):
+                        kept.append(f"{w.get('op')}:{w.get('to', '')}")
+                        continue
+                    head, _, key = w["to"].rpartition(".")
+                    try:
+                        parent = get_path(self.record, head) if head else self.record
+                    except KeyError:
+                        continue   # まだ書かれていない欄
+                    if isinstance(parent, dict) and key in parent:
+                        got[w["to"]] = parent.pop(key)
+            removed[nid] = got
+            self.trace("rewind", node=nid, by=by, ran=ran, removed=sorted(got), kept=kept)
+        return removed
+
     def node_state(self, nid):
         """done / skipped / empty / na は依存を満たす。pending は満たさない。
 
@@ -140,6 +187,13 @@ class Board:
     def deps_ok(self, nid, which="deps"):
         deps = self.nodes[nid].get(which, self.nodes[nid].get("deps", []))
         return all(self.node_state(d) != "pending" for d in deps)
+
+    def deps_met(self, nid):
+        """節の項目を出してよい依存が揃っているか——節の deps か、扇の節なら instance_deps（項目を先に出す pipeline。
+        全部の checker を待たない）。**出す時（advance）と受け付ける時（done）が同じ 1 本を使う**——出した後に graph が変わっても、
+        今の graph で出せない返答は受け付けない。扇の項目が節の deps より先に通るのは、今の graph でも先に出す設計どおり"""
+        n = self.nodes[nid]
+        return self.deps_ok(nid) or ("fan_out" in n and "instance_deps" in n and self.deps_ok(nid, "instance_deps"))
 
     def applicable(self, nid):
         """依存が揃った節に、この周で走らせるかを聞く。走らせないなら理由を返す。"""
@@ -204,6 +258,22 @@ class Board:
         die(f"cond の op '{op}' は表（COND_OP_KEYS）に在るが eval_cond の分岐に無い——engine の表と実装がずれている")
 
     # -- プロンプトと条件の文脈
+    def output_of_round(self, nid, rnd):
+        """節 nid の、周 rnd に出した出力（その周に出していなければ None）。
+
+        outputs() は周を落として各節の最新を返すので、optional の節を省いた周に前の周の値を『この周の値』と読む。
+        """
+        info = self.state["outputs"].get(nid)
+        if not info or info.get("round") != rnd:
+            return None
+        return self.read_out(info["file"], board_relative=True)
+
+    def latest_output(self, nid):
+        """節 nid の最新の出力（周を問わない）。once の節のように、前の周の値を読むのが正しい所だけで使う
+        ——今の周の値を読むなら output_of_round"""
+        info = self.state["outputs"].get(nid)
+        return self.read_out(info["file"], board_relative=True) if info else None
+
     def outputs(self, before_round=None):
         """節ごとの最新の出力。before_round を渡すと、それより前の周の出力だけ（prev）。
 

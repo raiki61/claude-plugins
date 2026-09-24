@@ -39,8 +39,11 @@ flowchart TB
   wb --> lr & cb & hy & es & pt & ge & td & mp & pv --> wa[p1.worktree_after]
   wa & pd & purp --> diag[p2.diagnose<br/>judge 1〜7]
   diag --> hist[p2.history<br/>同じ judge 8<br/>履歴と台帳はここで初めて]
-  hist --> fix[p3.fix writer]
-  fix --> ci[p4.ci] & sc[p4.scalars] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
+  hist --> plan[p2.fix_plan<br/>writer: 書く前の案] --> prv2[p2.plan_review<br/>別の judge: 穴の予測]
+  prv2 --> fix[p3.fix writer<br/>予測された穴に答える]
+  fix --> fd[p3.fix_delta<br/>機械: この周の修正だけの差分] --> dr[p3.delta_review<br/>inspector: 穴と、塞いだと言う穴の検算] --> df[p3.delta_fix<br/>writer: 穴が在る周だけ]
+  df --> fd2[p3.fix_delta2<br/>機械: 手直しだけの差分] --> dr2[p3.delta_review2<br/>inspector: 2 回目] --> df2[p3.delta_fix2<br/>writer: 次の周の判定者が検算]
+  df2 --> ci[p4.ci] & sc[p4.scalars] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
   hist --> asm
   asm --> cc[r1.comment_candidates<br/>comment-analyzer] --> r1[r1.minimality<br/>judge]
   purp --> r1
@@ -57,6 +60,8 @@ flowchart TB
 ```
 
 ## 図から読めること
+
+- **修正を見る目は直す前と直した直後にも在る。** 以前は修正の良し悪しを見る段が全部『直した後』（P3 の自己申告・R1〜R4・次の周の全体レビュー）に在り、修正が作った写し・塞がない入口・契約のずれは次の周に新しい指摘として挙がった（実測 2026-09-24: 3 周目の指摘のうち 8 件が 2 周目の修正の産物）。今は writer が書く前の案（`p2.fix_plan`）を別の judge（`p2.plan_review`、判定をした judge と別の context）が叩き、P3 は予測された穴と別案に key ごとに答える（`plan_faces`。答えない key は機械が拒む）。書いた直後は、周の頭に固めた版から修正後の姿までの差分（`p3.fix_delta`。修正後も同じ手続きで固める）を inspector が 3 点（写し・入口・宣言と実装のずれ）だけ見て、修正が塞いだと言う事前審査の穴を 1 件ずつ検算し（`checks`）、挙がった穴を同じ周で直す（`p3.delta_fix`）。手直しにはもう 1 回だけ同じレビューを当て（`p3.delta_review2`）、その手直し（`p3.delta_fix2`）と、直さずに残すと宣言した穴は、次の周の `p2.history` が 1 件ずつ振り分ける（`declared_routed`。振り分け漏れは機械が拒む）——記録に残るだけの穴を作らない。効いたかは次の周の `faces_created_by_prev_fix` で測る
 
 - **P1 の 9 節は互いに依存が無い**。同時に走らせてよく、待ち合わせは `p1.worktree_after`（作業ツリーが変わっていないことの機械突合）の 1 点
 - **R2 は 2 体**。独立設計（`r2.design`）は目的テキストだけに依存するので P1 と同じ波で先行起動できるが、比較役（`r2.compare`）は累積差分が要るので記録の後。手順書の「R2 は先行してよい」は設計の半分にだけ当てはまる
@@ -75,6 +80,8 @@ flowchart TB
 - 局所レビューはまとめ役（`review-pr`）を挟まず、レンズを 1 本ずつ名指しで起こす。**名指しの正本は `graphs/review-loop.json` の `p1.local_review.skills` 1 か所**で、要素は `{skill, args, note, required}`——engine が `{{node.skills}}` でそのまま役へ渡すので、プロンプトにも手順書にも写しを置かない（写した周に写しだけが取り残され、しかも役は写しの方を読む）。post_check `local_review_covers_lenses` が**宣言 1 本につき findings の行 1 本**を要求する: 起こして 0 件は `failed` に「起こしたが所見なし」、起こしていない・非該当も `failed` に理由で、`required: false` の 1 本も行は省けない。これで「起動しなかった」が「見たが所見なし」と同じ形では通らなくなる（実測 2026-09-15: 3 周続けて型設計のレンズが起動されず、記録のどこにも赤が出なかった）。**嘘は捕まらない**——変わるのは、沈黙で通せた形が明示の虚偽を経由しないと通せない形になるところまで。`/simplify` は指摘だけ返す形で呼ぶ。**散文版（`/review-loop`）とは道具構成が割れている**——散文版はまとめ役 `review-pr` を使い、`pr-test-analyzer` は 1 度も呼ばない。散文版の道具選定はこのグラフの担当範囲の外なので揃えていない
 - R1 の前段に `comment-analyzer` によるコメント削除候補の取得。ゲートの赤の確認は腕ごとに、写し（`mktemp -d`）の上で、対照の緑も見る
 - 探す役に「ここは見るな」の線を writer が引かない。見た範囲と見ていない範囲を返させる
+- **世界の解（先行例）を処方の梯子に置く**（REVIEW.md「処方の最小性」）。実行版は、判定役に直す単位と人へ回す問いごとの先行例の行（`precedents`。出典つき。人へ回す問いには「世界の解を当たっても決まらない理由」）を、修正役に修正ごとの先行例（`precedent`）を、外部標準照合に一次情報の順位と差分が乗る位置（`rankings`）を必須にする。世界の解で決まる問いは人に回さない
+- 人が実地で確かめるまで決まらない問いは台帳の種類 `field`（出どころを持たない）。`awaiting` の出どころは今 `awaiting_human` の素材だけで、実行版は素材を書く全部の節の done で同じ規則を当てる（検証器は周の最後の 1 回しか見ないので、CI を再実行する P4 が人待ちの欄を上書きすると毎周弾かれていた）
 
 ## 記録と検証器
 
@@ -88,8 +95,10 @@ flowchart TB
 
 ## 既知の未決・機械が守らないもの
 
+実走から上がった残存所見の正本は `docs/feedback/review-loop-remaining-findings.md`（doctor / firstread の同名文書が `docs/` 直下に在るのと同じ役割。受け取った申し送りを溜める棚として`docs/feedback/` を新しく立てており、既存 2 本を移すかは未決）。以下はこの図から直接見えるもの。
+
 - 暴走ガード（5 ラウンド）は散文版では散文だけで、検証器にも上限の検査は無い。実行版（graphloops）は rules の `converge` が先頭で `round >= max_rounds` を見て止める（全分岐に掛かる。以前は converged 分岐の早期 return が飛ばしていた）
-- P1 前後の作業ツリー突合は散文版には記録の欄が無い（doctor の `mod_check`、firstread の `git_status_match` に相当するものが無い）。実行版は機械の節 `p1.worktree_before` / `p1.worktree_after` が porcelain・stash・diff の sha を突き合わせ、違えば止める（記録の `process.git_mismatches`）
+- P1 前後の作業ツリー突合は散文版には記録の欄が無い（doctor の `mod_check`、firstread の `git_status_match` に相当するものが無い）。実行版は機械の節 `p1.worktree_before` / `p1.worktree_after` が porcelain・stash・diff の sha を突き合わせ、違えば止める（記録の `process.git_mismatches`）。writer が自分の変更として受理したら、審査対象の写しを取り直し、変更前の姿を見て書き終えた材料の節を待ちに戻して撃ち直す
 - 並行 PR 衝突チェックの 6 段は、検証器は素材欄の有無しか見ない
 - 検証器が塞ぐ「聞く時」の帰属は 1 周で通る経路だけ。2 周かければ帰属を作れると検証器自身が書いている。守るのは「台帳を書くのが judge であること」と「R1 が台帳を監査すること」の 2 枚
 - 担当 PR へのコメント申し送り（`gh` の投稿）には、`gates` プラグインを入れている環境でその門番が掛かる

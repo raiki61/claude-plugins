@@ -216,8 +216,12 @@ def main():
                 "（`git add -N` で載せてから測れ）: " + " ".join(missed)
             )
         print(f"対象言語（{' '.join(EXTS)}）のファイルに追加行なし")
+        print("scalars: added_lines=0 comment_lines=0")
         return
     print(f"追加行 {total} / 注釈 {annotated} ({annotated * 100 // total}%)")
+    # **規模の数値の名前もここが決める。** 名前を出さなかった頃は、写す側が周ごとにその場で名付け、同じ量が
+    # 3 回改名されて周の間の推移が作れなかった（実走の申し送り）。写す側はこの行の名前と値をそのまま使う
+    print(f"scalars: added_lines={total} comment_lines={annotated} comment_ratio_pct={annotated * 100 // total}")
     if missed:
         # 数えられているので止めない。ただし黙るな——この列挙が無いと、漏れのある数字と
         # 完全な数字が同じ出力になる（ラウンド間で比べる値なので差が意味を持つ）。

@@ -7,7 +7,7 @@ import importlib.util
 import pathlib
 
 from .schema import validate_schema
-from .util import Reject, die, git, git_bytes, pick, porcelain, read_json, sha, write_json
+from .util import READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, pick, read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, write_json
 
 _VALIDATORS = {}
 
@@ -36,7 +36,7 @@ def validator_module(b):
 # 一度も呼ばれておらず、『rules が記録の任意の場所を path で読み書きしてよい』と読める面だけを開いていた
 # （記録を書く経路を writes に寄せる方針と逆向き）。使う日に戻せる
 INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
-          "git": git, "git_bytes": git_bytes, "sha": sha,
+          "git": git, "git_bytes": git_bytes, "sha": sha, "hook_evidence": hook_evidence, "read_capped": read_capped, "READ_CAP": READ_CAP, "repo_root": repo_root, "grep": _grep, "run_count": run_count, "sum_counts": sum_counts,
           "validator_module": validator_module, "validate_schema": validate_schema}
 
 

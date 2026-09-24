@@ -41,6 +41,7 @@
 import graphlib
 import importlib.util
 import io
+import json
 import pathlib
 import re
 import sys
@@ -61,12 +62,22 @@ sys.path.insert(0, str(PLUGIN_ROOT))
 from engine.board import COND_KEYS, COND_OP_KEYS, node_of  # noqa: E402
 from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
-from engine.schema import unknown_keywords  # noqa: E402
+from engine.schema import end_anchored, load_graph, unknown_keywords, walk_schema  # noqa: E402
+DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この graph が任せ先に書ける名前: Claude Code の subagent の model の別名
+# （https://code.claude.com/docs/en/sub-agents）。完全な model ID も Agent ツールは受けるが、版が変わると古くなるので graph には書かない
 from engine.commands import CLI_FLAGS, INPUT_KINDS  # noqa: E402 — 入力の語彙は engine が正本（写さない）
 from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
 from engine.rules import HOOKS, load_rules as engine_load_rules, registry  # noqa: E402
 from engine.validator import ENGINE_ACCEPT_KEYS, agent_def, agent_tools, find_plugin_path  # noqa: E402
 from engine.util import read_json  # noqa: E402
+
+
+def schema_patterns(schema):
+    """schema の中の正規表現（pattern の値と patternProperties の鍵）を全部——木の走査は engine の walk_schema 1 本"""
+    return [x for _, s in walk_schema(schema) for x in ([s["pattern"]] if isinstance(s.get("pattern"), str) else [])
+            + list((s.get("patternProperties") or {}))]
+
+
 
 # JSON の読み込みは engine の read_json（読めなければ die＝exit 2）。写しを持っていたとき UnicodeDecodeError を
 # 落としていて、docstring が定める終了コード契約（2）を外れ exit 1＋Traceback になった（実測 2026-09-12）
@@ -293,7 +304,10 @@ def check(gpath, script=None, emit=print):
     素通りした。呼ぶ側が増えても正本を増やさないよう、CLI も engine もこの関数を呼ぶ。
     """
     gpath = pathlib.Path(gpath)
-    g = read_json(gpath)
+    g, why = load_graph(gpath)
+    if why:
+        emit(f"NG {why}")
+        return False
     nodes = g["nodes"]
     ok = True
     errs = []  # 実行の形の NG（末尾でまとめて印字）。関数の途中で作り直さない——先に溜めた分が捨てられる
@@ -498,6 +512,11 @@ def check(gpath, script=None, emit=print):
         if isinstance(v.get("schema"), dict):
             for u in unknown_keywords(v["schema"]):
                 errs.append(f"節 {k}: schema に engine が読まない語 {u}（綴り違いか本家 JSON Schema の語——書いても効かない）")
+            for pat in schema_patterns(v["schema"]):
+                try:
+                    end_anchored(pat)   # 検査と同じ読み替えを通した物をコンパイルする（読み替えた後が壊れる形も拾う）
+                except re.error as e:
+                    errs.append(f"節 {k}: schema の正規表現 {pat!r} が壊れている（{e}）——型検査の時点で例外になる")
     # 6〜13. 実行の形
     agents = agent_names(g)
     if agents is None:
@@ -506,6 +525,23 @@ def check(gpath, script=None, emit=print):
     dl = g.get("deliver", {}).get("path_tools")
     if dl is not None and not (isinstance(dl, list) and all(isinstance(t, str) for t in dl)):
         errs.append("deliver.path_tools は道具の名前の一覧")
+    # 回す側の節の任せ先（delegate）: 回す側の節にだけ・モデルの名前は表のどれか・理由を書く
+    for k, v in nodes.items():
+        dg = v.get("delegate")
+        if dg is None:
+            continue
+        if v.get("run_by") not in set(g.get("runners", [])):
+            errs.append(f"節 {k}: delegate は回す側の節（runners）にだけ書ける——役の節の model は役の定義が正本")
+        elif not (isinstance(dg, dict) and dg.get("model") in DELEGATE_MODELS and isinstance(dg.get("why"), str) and dg["why"].strip()):
+            errs.append(f"節 {k}: delegate は {{model: {'/'.join(DELEGATE_MODELS)}, why: 任せてよい理由}}")
+    pr = g.get("deliver", {}).get("paste_roles")
+    if pr is not None and not (isinstance(pr, list) and all(isinstance(t, str) and ":" in t for t in pr)):
+        errs.append("deliver.paste_roles は役の名前（<plugin>:<役>）の一覧")
+    for t in pr if isinstance(pr, list) else []:
+        # 同じ plugin の役は定義が在ることまで見る（綴りを違えると deliver_mode が path を返し、防ぎたかった往復が黙って戻る）
+        plug, _, role = t.rpartition(":")
+        if plug == g.get("plugin") and agents and role not in agents:
+            errs.append(f"deliver.paste_roles の役 {t!r} が {plug} の agents/ に無い（綴り違いは黙って path に倒れる）")
     # 道具ゼロの役（遮断系）を使うなら、起こし方の宣言が要る。Agent ツールで起こすとハーネスが
     # CLAUDE.md 階層を注入し、止める設定が公式に無い——遮断が名ばかりになる（実測 2026-09-12）。
     isolated = sorted(r for r in agents if agent_tools(f"{g.get('plugin')}:{r}") == [])
@@ -571,6 +607,22 @@ def check(gpath, script=None, emit=print):
         if not (isinstance(ae, list) and ae and all(isinstance(x, int) and not isinstance(x, bool) for x in ae)):
             errs.append(f"record.{key} は終了コード（整数）の空でない一覧: {ae!r}（null や文字列は engine / rules が『受理集合に無い』と読めず TypeError で落ちる）")
     write_ops = set(ENGINE_WRITE_OPS) | reg("WRITE_OPS")
+    # 素材の書き先と宣言を揃える。節の materials は『この節がどの素材を出すか』の正本で、判定の後の人待ちの柵
+    # （check_record の awaiting の出どころ）や巻き戻しはこの宣言しか見ない——書き先だけに在る素材は柵をすり抜け、
+    # 宣言だけに在る素材は誰も書かないのに在る前提で読まれる。to を素材名として読むかは rules の op ごとに writes_material で名乗る
+    # （op の意味を知るのは rules だけ——ここに op の名前を写さない。名乗りの無い op は落とす）。素材を丸ごと書く to（materials）は宣言と照合できないので落とす
+    rops = registry(rules, "WRITE_OPS")
+    errs += [f"rules の WRITE_OPS の op '{k}' が writes_material（to を素材の名前として読むか）を真偽で名乗らない"
+             for k, fn in rops.items() if not isinstance(getattr(fn, "writes_material", None), bool)]
+    mat_ops = {k for k, fn in rops.items() if getattr(fn, "writes_material", False) is True}
+    for k, v in nodes.items():
+        ws = [w for w in v.get("writes") or [] if isinstance(w, dict) and isinstance(w.get("to"), str)]
+        if any(w["to"] == "materials" for w in ws):
+            errs.append(f"節 {k}: writes の to が materials そのもの——素材は 1 つずつ（materials.<名前>）書け（宣言と照合できない）")
+        wrote = {w["to"].removeprefix("materials.") for w in ws if w["to"].startswith("materials.") or w.get("op") in mat_ops}
+        declared = set(v.get("materials") or [])
+        if wrote != declared:
+            errs.append(f"節 {k}: materials の宣言 {sorted(declared)} と writes の素材の書き先 {sorted(wrote)} が揃わない")
     fan_builtins, node_builtins, post_checks, conds = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS"), reg("CONDS")
     for nid in g.get("raw_for_report", []):
         if nid not in nodes:

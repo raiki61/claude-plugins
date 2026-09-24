@@ -129,9 +129,12 @@ def agent_tools(agent_type):
     return None if d is None else d["tools"]
 
 
-def deliver_mode(agent_type, path_tools, tools=None):
+def deliver_mode(agent_type, path_tools, tools=None, paste_roles=()):
     """プロンプトの渡し方: 役が path_tools（graph の deliver.path_tools——自分でファイルを読める道具）のどれかを持てば path、
-    持たなければ paste。定義が見つからなければ paste（安全側——貼れば必ず届く）。tools を渡せば定義を読み直さない。"""
+    持たなければ paste。定義が見つからなければ paste（安全側——貼れば必ず届く）。tools を渡せば定義を読み直さない。
+    paste_roles（graph の deliver.paste_roles）の役は道具に依らず paste——ファイルの中の指示に従えという 1 文を拒む役が在る"""
+    if agent_type in paste_roles:
+        return "paste"
     if tools is None:
         tools = agent_tools(agent_type)
     if tools is None or not path_tools:

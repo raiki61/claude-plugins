@@ -10,7 +10,7 @@ from .board import Board, empty_round
 from .record import apply_writes
 from .render import TOKEN, strip_prefix
 from .rules import hook, load_rules, registry
-from .schema import validate_schema
+from .schema import load_graph, validate_schema
 from .util import ANSWER_ACTIONS, PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
 from .validator import find_validator, finalize, report_accepts, run_validator, env_root, traces
 
@@ -363,6 +363,11 @@ def cmd_done(a):
         raise Reject(f"節 '{a.node}' は既に {inst['status']}")
     nid = inst["node"]
     n = b.nodes[nid]
+    # **出した後に graph が変わり、deps が増えた節は、増えた deps を待つ。** 出した時点で揃っていた deps だけを信じると、
+    # run の途中で足した前段（例: 修正の前の事前審査）を飛ばした返答を受け付ける（実測 2026-09-24: 回す側が手で待たせた）
+    if not b.deps_met(nid):
+        wait = [d for d in n.get("deps", []) if b.node_state(d) == "pending"]
+        raise Reject(f"節 '{a.node}' の deps {wait} がまだ済んでいない（出した後に graph が変わった）——先にそちらを回せ（loop.py next）")
     # 読む順: --output の明示 → --stdin の明示 → 置き場（out_path）。以前は置き場が標準入力より先で、拒まれた前回分が
     # 置き場に残っていると新しい返答を標準入力で渡しても古い方が黙って記録に入った（実測 2026-09-12）。
     # 標準入力は**明示されたときだけ**読む——「端末でなければ読む」にしていたとき、呼び出し元の stdin が閉じない
@@ -670,7 +675,9 @@ def resolve_dir(a):
 
 def cmd_init(a):
     graph = a.graph or str(PLUGIN_ROOT / "graphs" / f"{a.loop}.json")
-    g = read_json(graph)
+    g, why = load_graph(graph)
+    if why:
+        die(why)
     if not g.get("exec"):
         die(f"{graph}: 実行用の欄（exec: true）が無い——このグラフはまだ写しだけで、engine では回せない")
     rules = load_rules(graph, g)

@@ -1448,11 +1448,15 @@ mkdir -p "$REPO"
 BASE=$(git -C "$REPO" rev-parse HEAD)
 expect_output 0 "追加行 4 / 注釈 3 (75%)" "Python と C 系の注釈を数える" \
     bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' '$BASE'"
+expect_output 0 "scalars: added_lines=4 comment_lines=3 comment_ratio_pct=75" "規模の数値を名前つきで出す（写す側が名付けない）" \
+    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' '$BASE'"
 
 # 対象言語の追加行が無い正常系。**$ROOT でなく使い捨てリポジトリで測る**——$ROOT だと
 # 開発中の未コミット変更の有無で結果が変わり、検査が環境依存になる。
 git -C "$REPO" commit -qm change >/dev/null 2>&1
 expect_output 0 "追加行なし" "対象言語の追加行が無ければそう言う" \
+    bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
+expect_output 0 "scalars: added_lines=0 comment_lines=0" "追加行が無い回も規模の数値を名前つきで出す（比は定義できないので出さない）" \
     bash -c "cd '$REPO' && bash '$ROOT/scripts/comment-ratio.sh' HEAD"
 
 # 未追跡の対象言語ファイルは計測漏れ。**止めるのは「計測漏れの 0」と「本当に 0」が
@@ -1682,7 +1686,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=544
+EXPECTED_CHECKS=569
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2950,6 +2954,218 @@ expect_output 0 "DOC_SYMBOLS_OK" "文書が名指しする機械の定数が実�
 expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部）と模擬実行（収束・停止・諮り・軽量・拒否・柵の腕）が通り、件数が期待どおり" \
     bash "$ROOT/graphloops/tests/run.sh"
 
+# **変異の腕の字列が、今の版に 1 か所ずつ在る。** 腕の一覧（tests/mutations.json）はリポジトリに置き、柵を直す差分が
+# 同じ変更で腕も直す（経緯は tests/mutate.py の docstring）。撃つのは重いので台本では走らせず、字列と証拠の口
+# （expect か marker）の在る・無いだけを見る（撃つのは review-loop の gate_efficacy が tests/mutate.py で行う）
+expect_output 0 "字列か証拠の口の無い腕 0・id の重複 0" "変異の腕の字列と証拠の口が今の版に在る（tests/mutate.py --check）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check
+printf '%s' '{"arms": [{"id": "x1", "title": "消えた字列", "file": "tests/mutate.py", "suite": "root", "old": "この字列はどこにも無い-7f3a", "new": "", "expect": "x"}]}' > "$WORK/arms-gone.json"
+expect_output 1 "NG 腕 x1: old が 0 か所" "字列の消えた腕は --check で赤（黙って外れない）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-gone.json"
+printf '%s' '{"arms": [{"id": "x2", "title": "a", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "", "expect": "x"}, {"id": "x2", "title": "b", "file": "tests/mutate.py", "suite": "root", "old": "def marker_run(", "new": "", "expect": "x"}]}' > "$WORK/arms-dup.json"
+expect_output 1 "NG 腕の id x2 が重複" "id の重複も --check で赤（結果を腕へ結べなくなる）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-dup.json"
+printf '%s' '{"arms": [{"id": "x3", "title": "証拠の口なし", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": ""}]}' > "$WORK/arms-noev.json"
+expect_output 1 "NG 腕 x3: expect も marker も無い" "expect も marker も持たない腕は --check で赤（赤が狙いの検査から出たかを見られない）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-noev.json"
+printf '%s' '{"arms": [{"id": "x4", "title": "json の消えた値", "file": "tests/mutations.json", "suite": "root", "json": {"path": ["arms"], "remove": "この値はどこにも無い-7f3a"}, "expect": "x"}, {"id": "x5", "title": "json の消えた鍵", "file": "tests/mutations.json", "suite": "root", "json": {"path": [], "del": "この鍵はどこにも無い-7f3a"}, "expect": "x"}]}' > "$WORK/arms-json.json"
+expect_output 1 "NG 腕 x5: json の 頂点 に鍵" "json の腕も、消す値・鍵が無ければ --check で赤" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-json.json"
+expect_output 1 "NG 腕 x4: json の arms に" "json の腕の値の消失も --check で赤" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-json.json"
+expect_output 1 "撃つ腕が 0 本" "絞りに当たる腕が 0 本なら撃たずに赤（0 本を合格と言わない）" \
+    "$PY_BIN" -c "import sys; sys.path.insert(0, sys.argv[1]); import mutate; print(len(mutate.pick(mutate.load(), only='no-such-arm')))" "$ROOT/tests"
+expect_output 0 "rc=no-test" "絞った名前が台本に無い腕は赤と数えない（壊した行と無関係の exit 1 を、撃てないと言う）" \
+    "$PY_BIN" -c "import sys; sys.path.insert(0, sys.argv[1]); import mutate; print('rc=' + str(mutate.run_selected(mutate.ROOT, {'graphloops/tests/simulate.py': ['no_such_test']})['rc']))" "$ROOT/tests"
+# expect は JSON の \u 書き（☃）で渡す——字面のまま書くと、この行そのものが台本の本文に在って恒真になる
+printf '%s' '{"arms": [{"id": "x6", "title": "古い expect", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "", "expect": "\u2603\u2603\u2603\u2603 消えた検査"}]}' > "$WORK/arms-stale.json"
+expect_output 1 "NG 腕 x6: expect の頭" "expect の頭が台本の本文に無い腕は --check で赤（検査の文言が変わった・消えた宣言を、撃つ前に拾う）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-stale.json"
+# 頭 8 字は台本に在るが 16 字は無い expect——8 字で見ていた頃は、別の検査名と頭を共有するだけで通った
+printf '%s' '{"arms": [{"id": "x8", "title": "頭だけ一致", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "", "expect": "走らせない: 知\u2603\u2603\u2603\u2603\u2603\u2603\u2603\u2603"}]}' > "$WORK/arms-head.json"
+expect_output 1 "NG 腕 x8: expect の頭" "expect の頭は 16 字で見る（頭 8 字だけが別の検査名と同じ宣言を拾う）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-head.json"
+printf '%s' '{"arms": [{"id": "x7", "title": "撃てない腕だけ", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "def anchor_problem_x(", "expect": "expect も marker も持たない腕は --check で赤", "python_max": "3.0"}]}' > "$WORK/arms-ignored.json"
+expect_output 1 "撃てる腕が 0 本" "撃てる腕が 0 本（全部 python_max より新しい Python）なら、写しを走らせずに赤（0 本を合格と言わない）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --arms-file "$WORK/arms-ignored.json"
+# 当たりの証拠: expect を宣言した腕は、実際に落ちた検査（killedBy）に expect が在ることだけが証拠（印では代えない）
+cat > "$WORK/mut-eval.py" <<'PYEVAL'
+import sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+arms = [{"id": "a", "expect": "狙いの検査"}, {"id": "b", "expect": "狙いの検査"}, {"id": "c"}, {"id": "d"}, {"id": "e"}]
+res = {"arms": [{"id": "a", "status": "Killed", "own": True},
+                {"id": "b", "status": "Killed", "own": False},
+                {"id": "c", "status": "Killed", "own": False},
+                {"id": "d", "status": "Survived", "own": False},
+                {"id": "e", "status": "Killed", "own": False}],
+       "marker": {"placed": ["b", "c", "d"], "seen": ["b", "c"], "rc": 0}, "control": {"root": {"rc": 0}}}
+s = mutate.evaluate(res, arms)
+st = {r["id"]: (r["status"], bool(r["evidence"])) for r in res["arms"]}
+print("no_evidence=" + ",".join(s["no_evidence"]), "d=" + st["d"][0], "a=" + str(st["a"][1]), "c=" + str(st["c"][1]))
+PYEVAL
+expect_output 0 "no_evidence=b,e d=NoCoverage a=True c=True" "expect を宣言した腕は別の検査の赤と印では証拠にならず、宣言しない腕は印で証拠になり、印を通らない生存は NoCoverage" \
+    "$PY_BIN" "$WORK/mut-eval.py" "$ROOT/tests"
+# 時間切れの腕は赤でなく『走り切らない』（壊した行と無関係の打ち切りを赤と数えない）
+cat > "$WORK/mut-timeout.py" <<'PYTO'
+import pathlib, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+d = pathlib.Path(tempfile.mkdtemp()); (d / "repo" / "t").mkdir(parents=True); (d / "repo" / "t" / "f.py").write_text("x = 1\n")
+mutate.copy = lambda tag: (d / "repo", d)
+mutate.run_group = lambda *a, **k: ("timeout", "")
+r = mutate.one({"id": "t1", "title": "t", "file": "t/f.py", "suite": "root", "old": "x = 1", "new": "x = 2"})
+print(f"status={r['status']} killed={r['status'] == 'Killed'} unrunnable={r.get('unrunnable')}")
+PYTO
+expect_output 0 "status=Timeout killed=False unrunnable=時間切れ" "時間切れの腕は赤でなく走り切らない（Timeout）" \
+    "$PY_BIN" "$WORK/mut-timeout.py" "$ROOT/tests"
+# 版から変わったファイルには、未追跡の新しいファイルも入る（git diff は未追跡を出さない）
+mkdir -p "$WORK/chg" && git -C "$WORK/chg" init -q && printf 'a\n' > "$WORK/chg/a.txt" && git -C "$WORK/chg" add -A \
+    && git -C "$WORK/chg" -c user.name=t -c user.email=t@t commit -qm x && printf 'n\n' > "$WORK/chg/new.txt"
+expect_output 0 "['new.txt']" "--changed-since は未追跡の新しいファイルも拾う" \
+    "$PY_BIN" -c "import sys, pathlib; sys.path.insert(0, sys.argv[1]); import mutate; print(sorted(mutate.changed_since('HEAD', pathlib.Path(sys.argv[2]))))" "$ROOT/tests" "$WORK/chg"
+# 持ち越し: 前回の結果から、赤で当たりの証拠つき・control 緑の回の腕だけを、指紋が同じときに持ち越す
+cat > "$WORK/mut-reuse.py" <<'PYRU'
+import json, pathlib, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+d = pathlib.Path(tempfile.mkdtemp()); (d / "f.py").write_text("x = 1\n")
+a = {"id": "r1", "file": "f.py", "suite": "root", "old": "x = 1", "new": "x = 2"}
+fp = mutate.fingerprint(d, a)
+prev = d / "prev.json"
+prev.write_text(json.dumps({"summary": {"control_ok": True}, "marker": {"rc": 0}, "arms": [
+    {"id": "r1", "status": "Killed", "evidence": "印", "fingerprint": fp},
+    {"id": "r2", "status": "Survived", "evidence": "", "fingerprint": fp},
+    {"id": "r3", "status": "Killed", "evidence": "", "fingerprint": fp}]}))
+ok = sorted(mutate.reusable(prev))
+(d / "f.py").write_text("x = 3\n")
+moved = mutate.fingerprint(d, a) != fp
+fp2 = mutate.fingerprint(d, a)
+(d / "tests").mkdir(); (d / "tests" / "run.sh").write_text("echo changed\n")
+moved = moved and mutate.fingerprint(d, a) != fp2   # 台本一式（DRIVERS）が変わっても撃ち直す
+prev.write_text(json.dumps({"summary": {"control_ok": False}, "marker": {"rc": 0}, "arms": [{"id": "r1", "status": "Killed", "evidence": "印", "fingerprint": fp}]}))
+red_ctrl = sorted(mutate.reusable(prev))
+prev.write_text(json.dumps({"summary": {"control_ok": True}, "marker": {"rc": 1}, "arms": [{"id": "r1", "status": "Killed", "evidence": "印", "fingerprint": fp}]}))
+print(f"reusable={ok} moved={moved} ctrl_red={red_ctrl} marker_red={sorted(mutate.reusable(prev))}")
+PYRU
+expect_output 0 "reusable=['r1'] moved=True ctrl_red=[] marker_red=[]" "持ち越すのは赤で証拠つきの腕だけ・壊すファイルが変われば指紋が変わる・control か印の写しが赤の回は何も持ち越さない" \
+    "$PY_BIN" "$WORK/mut-reuse.py" "$ROOT/tests"
+# gate_efficacy の返答を --out の結果から組む（回す側が周ごとに使い捨ての台本を書かない）
+printf '%s' '{"summary": {"control_ok": true}, "marker": {"rc": 0}, "arms": [{"id": "g1", "title": "t1", "file": "a.py", "status": "Killed", "evidence": "印 g1 が写しの出力に現れた"}, {"id": "g2", "title": "t2", "file": "a.py", "status": "Survived", "evidence": ""}]}' > "$WORK/mut-out.json"
+expect_output 0 '"status": "found"' "--gate-efficacy は赤・control 緑・証拠のそろわない腕を found に数える" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --gate-efficacy "$WORK/mut-out.json"
+# 終了コード・--gate-efficacy・--reuse は同じ判定（proven と healthy）を使う——印の写しが赤の回・腕 0 本・撃てない腕だけの回
+cat > "$WORK/mut-gate.py" <<'PYGATE'
+import sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+ok = {"id": "g1", "title": "t", "file": "a.py", "status": "Killed", "evidence": "印"}
+ign = {"id": "g9", "title": "t", "file": "a.py", "status": "Ignored", "evidence": ""}
+st = lambda res: mutate.gate_efficacy(res)["material"]["status"]
+base = {"summary": {"control_ok": True}, "marker": {"rc": 0}}
+print("marker_red=" + st({**base, "marker": {"rc": 1}, "arms": [ok]}), "empty=" + st({**base, "arms": []}),
+      "only_ignored=" + st({**base, "arms": [ign]}), "with_ignored=" + st({**base, "arms": [ok, ign]}),
+      "rows=" + str(len(mutate.gate_efficacy({**base, "arms": [ok, ign]})["arms"])),
+      "ctrl_row=" + str(mutate.gate_efficacy({**base, "marker": {"rc": 1}, "arms": [ok]})["arms"][0]["control_green"]))
+PYGATE
+expect_output 0 "marker_red=found empty=not_run only_ignored=not_run with_ignored=clean rows=1 ctrl_row=False" "--gate-efficacy は印の写しが赤の回を found・撃てた腕 0 本を not_run にし、撃てない腕は行に入れない（終了コードと同じ判定）" \
+    "$PY_BIN" "$WORK/mut-gate.py" "$ROOT/tests"
+# 返させる形の揃いは 1 本の台本で縛る——mutate.py の出力（found / clean / 撃てた腕 0 本で本体が書いた --out からの not_run）を、
+# engine の型検査で graph の p1.gate_efficacy の schema に通す。形が mutate.py・graph・プロンプトで別々に決まり、0 本の not_run が
+# 型（minItems: 1）で落ちていた（2026-09-24 の review-graph 3 周目）。0 本の --out は本体の main を通して作る（書かずに抜けていた）
+"$PY_BIN" "$ROOT/tests/mutate.py" --only no-such-arm-7f3a --out "$WORK/mut-empty.json" >/dev/null 2>&1
+cat > "$WORK/mut-gate-schema.py" <<'PYGS'
+import json, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
+import mutate
+from engine.schema import load_graph, validate_schema
+g, why = load_graph(sys.argv[3])
+sch = g["nodes"]["p1.gate_efficacy"]["schema"]
+ok = {"id": "g1", "title": "t", "file": "a.py", "status": "Killed", "evidence": "印"}
+bad = {"id": "g2", "title": "t", "file": "a.py", "status": "Survived", "evidence": ""}
+base = {"summary": {"control_ok": True}, "marker": {"rc": 0}}
+outs = {"found": mutate.gate_efficacy({**base, "arms": [ok, bad]}), "clean": mutate.gate_efficacy({**base, "arms": [ok]}),
+        "not_run": mutate.gate_efficacy(json.loads(open(sys.argv[4], encoding="utf-8").read()))}
+print(" ".join(f"{k}={v['material']['status']}:{len(validate_schema(v, sch))}" for k, v in outs.items()), [validate_schema(v, sch)[:1] for v in outs.values()])
+PYGS
+expect_output 0 "found=found:0 clean=clean:0 not_run=not_run:0" "--gate-efficacy の出力は found・clean・撃てた腕 0 本の not_run とも graph の p1.gate_efficacy の型を通る（0 本の回も本体が --out を書く）" \
+    "$PY_BIN" "$WORK/mut-gate-schema.py" "$ROOT/tests" "$ROOT/graphloops" "$ROOT/graphloops/graphs/review-loop.json" "$WORK/mut-empty.json"
+# 自動の腕（--auto）: 差分が足した Python の文と式から ast の 1 本の規則で作り、位置で当てる。作った変異も印の包みも構文が壊れない
+cat > "$WORK/mut-auto.py" <<'PYAUTO'
+import pathlib, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+src = "def f(x, y, errs):\n    if x > 1 and y:\n        raise ValueError('x')\n    errs.append(x)\n    errs += [1]\n    z = 1 if x else 2\n    if x: raise KeyError\n"
+arms = mutate.auto_arms_for("graphloops/engine/x.py", src, {2, 3, 4, 5, 6, 7})
+kinds = sorted({a["title"].split(":")[0] for a in arms})
+ok = 0
+for a in arms:
+    x = a["auto"]
+    compile(src[:x["start"]] + x["new"] + src[x["end"]:], "m", "exec")
+    ok += 1
+ins = [i for a in arms for i in mutate.auto_marker(src, a, pathlib.Path("/tmp/h"))]
+t = src
+for pos, _, _, s in sorted(ins, key=lambda x: (-x[0], x[1], x[2])):
+    t = t[:pos] + s + t[pos:]
+compile(t, "mk", "exec")
+line2 = t.splitlines()[1]
+outer = line2.index(":2:7:cond") < line2.index(":2:7:and")
+mid = [a["id"] for a in arms if not mutate.auto_marker(src, a, pathlib.Path("/tmp/h"))]
+sd = mutate.scratch_dir(arms[0]["id"])  # 撃つ段の作業場: id の / と : で mkdtemp が落ちない
+scratch = sd.is_dir() and sd.parent.resolve() == pathlib.Path(mutate.tempfile.gettempdir()).resolve()
+sd.rmdir()
+print("kinds=" + ",".join(kinds), f"compiled={ok}/{len(arms)}", f"outer_first={outer}", "unmarked=" + ",".join(i.split(":", 2)[2] for i in mid),
+      "anchor=" + repr(mutate.anchor_problem(mutate.ROOT, arms[0])), f"scratch={scratch}")
+PYAUTO
+expect_output 0 "kinds=and,cond,ifexp,stmt compiled=9/9 outer_first=True unmarked=7:10:stmt anchor='' scratch=True" "--auto: 条件・and の項・条件式・文から腕を作り、変異も印の包みも構文を壊さず、同じ位置では外側の式の印が外に来る（行の途中の文には印を差さない）。撃つ段の作業場も id から作れる" \
+    "$PY_BIN" "$WORK/mut-auto.py" "$ROOT/tests"
+# 腕の写しは版に入るファイルだけで、写しの腕の一覧は空（写しの --check が壊した字列で赤になり、生き残りを Killed と書かない）
+cat > "$WORK/mut-copy.py" <<'PYCOPY'
+import json, pathlib, subprocess, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+# 写しの元は自前の小さなリポジトリ（腕の一覧が空でない）——本物を元にすると、外側の実行器が既に空にした一覧を写して見分けられない
+src = pathlib.Path(tempfile.mkdtemp()) / "src"
+(src / "tests").mkdir(parents=True)
+(src / "tests" / "mutations.json").write_text('{"arms": [{"id": "z1"}]}\n', encoding="utf-8")
+(src / "tests" / "mutate.py").write_text("def anchor_problem(): pass\n", encoding="utf-8")
+(src / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+(src / "ignored.txt").write_text("x\n", encoding="utf-8")
+subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)
+mutate.ROOT = src
+seen = {}
+def fake_suite(repo, suite):
+    seen["arms"] = json.loads((repo / "tests" / "mutations.json").read_text(encoding="utf-8"))["arms"]
+    seen["git"] = (repo / ".git").is_dir() and not (repo / "ignored.txt").exists()
+    return {"rc": 1, "failed": ["x"], "tail": []}
+mutate.run_suite = fake_suite
+r = mutate.one({"id": "c1", "title": "t", "file": "tests/mutate.py", "suite": "root", "old": "def anchor_problem(", "new": "def anchor_problem_x("})
+print(f"arms_in_copy={len(seen['arms'])} git={seen['git']} status={r['status']}")
+PYCOPY
+expect_output 0 "arms_in_copy=0 git=True status=Killed" "腕の写しは腕の一覧を空にして台本を走らせ、.gitignore に当たる物は写さない（写しの --check で赤を作らない）" \
+    "$PY_BIN" "$WORK/mut-copy.py" "$ROOT/tests"
+
 # **宣言した下限と、CI が測る版を機械で突き合わせる。** 版を固定した周に、固定と宣言を結ぶ検査を足さなかった
 # ——README を上げれば CI は古い版を測り続け、workflow だけ上げれば宣言した下限を誰も測らなくなる。どちらも
 # 赤くならない（実測 2026-09-13: tests/run.sh に python-version を照合する行が 0 件）。近傍の doc-symbols.py が
@@ -2976,6 +3192,19 @@ if len(want) != 1:
           f"どれが正本か決まらないまま片方だけ測ることになる）: {[w[:60] for w in want]}"); sys.exit(1)
 if f"**{ci} 以降**" not in want[0]:
     print(f"NG CI が測る版 {ci} と README の宣言が食い違う: {want[0][:120]}"); sys.exit(1)
+# **workflow は全部見る。** test.yml だけを見ていた頃、週 1 回の全腕（mutation.yml）の版を上げ下げしても赤くならなかった。
+# 版の書き方は引用符の有無・単引用符・一覧（[..]）のどれでも拾い、setup-python を使うのに版を読めない workflow は赤にする
+# （二重引用符の形だけを拾っていた頃は、ほかの書き方の workflow を黙って飛ばした）
+for f in sorted(list((root / ".github/workflows").glob("*.yml")) + list((root / ".github/workflows").glob("*.yaml"))):
+    body = f.read_text(encoding="utf-8")
+    vals = []
+    for raw in re.findall(r"python-version:\s*(.+)", body):
+        vals += re.findall(r"[0-9]+(?:\.[0-9]+)+", raw) or ["<読めない: " + raw.strip()[:30] + ">"]
+    if "setup-python" in body and not vals:
+        print(f"NG {f.name} は setup-python を使うのに python-version を読めない"); sys.exit(1)
+    for v in vals:
+        if v != ci:
+            print(f"NG {f.name} の python-version {v} が test.yml（README の宣言）の {ci} と違う"); sys.exit(1)
 # **写した側まで数える柵は、ここには置かない。** 一度置いたが、**発火しえない形だった**——語（「名乗る下限」）で
 # 母数を取る走査を足した同じ周に、その語を含む注記の側を書き替えてしまい、母数が 0 になった。にもかかわらず
 # コメントは「母数はこの下限を名乗る箇所すべて」と名乗っていた（実測 2026-09-13: 判定者が、語の出現が
@@ -2987,6 +3216,17 @@ print("PY_FLOOR_OK")
 PYFLOOR
 expect_output 0 "PY_FLOOR_OK" "README が宣言した Python の下限と、CI が測る python-version が一致する（片方だけ動かすと赤）" \
     "$PY_BIN" "$WORK/py-floor.py" "$ROOT"
+mkdir -p "$WORK/pyf/.github/workflows" && cp "$ROOT/README.md" "$WORK/pyf/" && cp "$ROOT/.github/workflows/test.yml" "$WORK/pyf/.github/workflows/" \
+    && printf 'jobs:\n  m:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: "3.11"\n' > "$WORK/pyf/.github/workflows/other.yml"
+expect_output 1 "NG other.yml の python-version 3.11" "test.yml 以外の workflow の python-version も README の下限と突き合わせる" \
+    "$PY_BIN" "$WORK/py-floor.py" "$WORK/pyf"
+printf 'jobs:\n  m:\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: 3.11\n' > "$WORK/pyf/.github/workflows/other.yml"
+expect_output 1 "NG other.yml の python-version 3.11" "引用符の無い python-version も拾う" \
+    "$PY_BIN" "$WORK/py-floor.py" "$WORK/pyf"
+rm "$WORK/pyf/.github/workflows/other.yml"
+printf 'jobs:\n  m:\n    strategy:\n      matrix:\n        py: [x]\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: ${{ matrix.py }}\n' > "$WORK/pyf/.github/workflows/m.yaml"
+expect_output 1 "NG m.yaml の python-version" "版を読めない workflow（.yaml・matrix の式）は黙って飛ばさず赤" \
+    "$PY_BIN" "$WORK/py-floor.py" "$WORK/pyf"
 
 # **ラチェットの突合が等値であること。** これが外から要るのは、**緩めた側は自分では赤くならない**から
 # ——検査は自分の断言が緩んだことを検知できない（実測 2026-09-13: 台本の到達数の突合を `>= 0 or` に
@@ -3020,6 +3260,8 @@ NOT_RATCHET = {
     "COLDREAD_SKIP": "子へ渡す環境変数の既定値",
     "MIN": "table-copies.py が『並べ直し』と見なす語数の閾値",
     "NUM": "catchup の分岐表の期待値（switch-case の網羅で、件数のラチェットではない）",
+    "TIMEOUT": "tests/mutate.py が写しで台本一式を走らせる時間切れ（秒）。件数の突合ではない",
+    "EXPECT_HEAD": "tests/mutate.py が expect の頭を台本の本文に探す字数。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []

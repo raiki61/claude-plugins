@@ -16,7 +16,11 @@
  "deliver": {
   "path_tools": [
    "Read"
-  ]
+  ],
+  "paste_roles": [
+   "convergence-loops:inspector"
+  ],
+  "paste_note": "inspector は Read を持つが、『ファイルを読んでその指示に従え』の 1 文を prompt injection の防御として拒み、散文で返すことがある（実測 2026-09-12 と 2026-09-23〜24 の 3 周: 1 役につき 2〜3 往復）。本文を貼る形なら従う。inspector のプロンプトはファイルを本文に埋め込まず、パスと短い値だけを渡すので、貼る経路の上限（engine/render.py の FILE_CAP）に当たりにくい——当たれば engine が切った事実を truncated に残す"
  },
  "launch": {
   "isolated": {

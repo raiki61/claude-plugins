@@ -106,15 +106,13 @@ def vocab_coverage():
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     enums = {}
 
-    def walk_schema(nid, sch, path=""):
-        if not isinstance(sch, dict):
-            return
-        if "enum" in sch:
-            enums[(nid, path)] = set(sch["enum"])
-        for k, v in (sch.get("properties") or {}).items():
-            walk_schema(nid, v, f"{path}.{k}" if path else k)
-        if "items" in sch:
-            walk_schema(nid, sch["items"], path + "[]")
+    sys.path.insert(0, str(PLUGIN))
+    from engine.schema import walk_schema as engine_walk  # noqa: E402 — schema の走査は engine の 1 本（patternProperties の下にも降りる）
+
+    def walk_schema(nid, sch):
+        for p, s in engine_walk(sch):
+            if "enum" in s:
+                enums[(nid, p.removeprefix("$").removeprefix("."))] = set(s["enum"])
 
     # **無作為に項目を引く扇の節は数えない**——引く物が run ごとに変わるので、そこから返る値は
     # 台本の性質ではない（実測: 数えていたとき到達が 24 と 25 で揺れた）。除外は rules が宣言する
@@ -646,13 +644,15 @@ def test_hook_evidence():
     def fire(path, cwd=None, **ti):
         payload = {"hook_event_name": "PostToolUse", "session_id": "sess-t", "tool_name": "Read",
                    "tool_use_id": "toolu_t", "agent_id": "agent-t", "cwd": str(cwd or repo),
-                   "tool_input": {"file_path": str(path), **ti}, "tool_response": "x"}
+                   # **実物と同じ形で渡す。** 実物のハーネスの tool_response は文字列でなく構造を持つ
+                   "tool_input": {"file_path": str(path), **ti},
+                   "tool_response": {"type": "text", "file": {"filePath": str(path)}}}
         r = subprocess.run([PY, str(hook)], input=json.dumps(payload), capture_output=True,
                            text=True, encoding="utf-8", timeout=60, env=fire_env)
         return r.returncode
 
     def ask():
-        return RESEARCH_RULES.hook_evidence(types.SimpleNamespace(dir=board), str(doc))
+        return RESEARCH_RULES.hook_evidence(board, str(doc))
 
     # **回っている run が無ければ 1 バイトも書かない。** ここが寿命の設計そのもの
     check(fire(doc) == 0, "run が無くてもフックは道具を止めない（終了コード 0）")
@@ -665,20 +665,231 @@ def test_hook_evidence():
     other = tmp / "other.md"; other.write_text("zzz" + chr(10), encoding="utf-8")
     check(fire(other) == 0 and (board / "reads.jsonl").is_file(), "run が在れば盤面の隣に書く")
     check(ask()[0] == "absent", "記録は在るがこの文書の読みが無ければ absent")
-    check(fire(doc, offset=2) == 0 and ask()[0] == "partial",
-          "**部分読みは全文の証拠にしない**（offset / limit が付いた読み）")
+    check(fire(doc, offset=2) == 0 and ask()[0] == "partial" and "offset / limit 付き" in ask()[1],
+          "**部分読みは全文の証拠にしない**（offset / limit が付いた読み。説明もその理由を言う）")
     check(fire(doc) == 0, "全文読みを記録する")
     got, why = ask()
     check(got == "read", f"全文読みが在れば read（{why[:60]}）")
     check("agent" in why, "誰が読んだか（agent_id）を説明に載せる——subagent の中でも発火する")
     doc.write_text("aaa" + chr(10) + "bbb" + chr(10) + "CHANGED" + chr(10), encoding="utf-8")
     check(ask()[0] == "stale", "**読んだ後に文書が変われば stale**（中身は記録に残さず sha で突き合わせる）")
+    import engine.util as _u  # noqa: E402
+    _cap = _u.READ_CAP
+    try:
+        _u.READ_CAP = 1
+        got, why = ask()
+        check(got == "none" and "大きすぎて" in why, f"上限を超える文書は sha を取らず none（{why[:60]}）")
+    finally:
+        _u.READ_CAP = _cap
     check(fire(doc) == 0 and ask()[0] == "read", "読み直せば read に戻る")
+    # **読めない文書は none に倒す**（例外を上げない）。記録は在るのに文書が消えた回に、
+    # except OSError を外すと呼び元の done ごと落ちる
+    got, why = RESEARCH_RULES.hook_evidence(board, str(tmp / "vanished.md"))
+    check(got == "none" and "読めない" in why, f"読めない文書は例外でなく none（{why[:60]}）")
+    # **フック側の上限は engine 側の写しで、2 つの値が揃っている。** フックは engine を import しないので
+    # 値を写しで持つ——ずれると、読む側が捨てる sha を書く側が取り続ける（または逆）
+    import importlib.util as _iu  # noqa: E402
+    _spec = _iu.spec_from_file_location("gl_hook_cap", hook)
+    _hk = _iu.module_from_spec(_spec); _spec.loader.exec_module(_hk)
+    check(_hk.READ_CAP == _u.READ_CAP,
+          f"フックの READ_CAP（{_hk.READ_CAP}）は engine の値（{_u.READ_CAP}）の写しで、揃っている")
+    big = tmp / "big.bin"
+    with open(big, "wb") as f:
+        f.truncate(_u.READ_CAP + 2)   # 疎なファイルで大きさだけを作る（+2: 読めた長さ CAP+1 と stat の大きさを見分ける）
+    check(fire(big) == 0, "上限を超える文書を読んでもフックは道具を止めない")
+    rows = [json.loads(l) for l in (board / "reads.jsonl").read_text(encoding="utf-8").splitlines()]
+    last = next(r for r in reversed(rows) if r.get("path") == str(big.resolve()))
+    check(last.get("file_sha") is None and last.get("bytes") == _u.READ_CAP + 2,
+          f"上限を超える文書は sha を取らず、大きさだけ残す（file_sha={last.get('file_sha')} bytes={last.get('bytes')}）")
+    # **ちょうど上限の文書は測る**（境界を < に変えると、上限ちょうどの文書が事実と違う stale / none になる）
+    edge = tmp / "edge.bin"
+    with open(edge, "wb") as f:
+        f.truncate(_u.READ_CAP)
+    check(fire(edge) == 0, "上限ちょうどの文書を読んでもフックは道具を止めない")
+    rows = [json.loads(l) for l in (board / "reads.jsonl").read_text(encoding="utf-8").splitlines()]
+    last = next(r for r in reversed(rows) if r.get("path") == str(edge.resolve()))
+    check(last.get("file_sha") is not None and last.get("partial") is True,
+          f"上限ちょうどの文書は、フックが sha を取る。ハーネスが切りうる大きさなので partial で残す（{str(last.get('file_sha'))[:12]} / {last.get('partial')}）")
+    # 読む側の境界は、全文読みの行を足して見る（フックはこの大きさを partial に倒すので、実物の行では read に届かない）
+    with open(board / "reads.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({**last, "partial": False, "tool_use_id": "edge-full"}) + chr(10))
+    got, why = RESEARCH_RULES.hook_evidence(board, str(edge))
+    check(got == "read", f"上限ちょうどの文書は、読む側も測って read を返す（{got}: {why[:50]}）")
+    for name, body in (("lines.md", ("x" + chr(10)) * 2001), ("bytes.md", "y" * 25_001), ("l2000.md", ("x" + chr(10)) * 2000)):
+        pth = tmp / name; pth.write_text(body, encoding="utf-8")
+        check(fire(pth) == 0, f"{name} を読む")
+    small = tmp / "small.md"; small.write_text("s" + chr(10), encoding="utf-8"); fire(small)
+    rows = {json.loads(l)["path"]: json.loads(l) for l in (board / "reads.jsonl").read_text(encoding="utf-8").splitlines()}
+    R = lambda n: rows[str((tmp / n).resolve())]
+    check(R("lines.md")["partial_why"] == "size" and R("bytes.md")["partial_why"] == "size"
+          and not rows[str(small.resolve())]["partial"] and not R("l2000.md")["partial"],
+          "offset / limit 無しでも、2000 行を超えるか 25,000 バイト超の文書は partial（理由 size。ちょうど 2000 行と小さい文書は全文）")
+    got, why = RESEARCH_RULES.hook_evidence(board, str(tmp / "bytes.md"))
+    check(got == "partial" and "切りうる大きさ" in why and "読み直しても変わらない" in why and "offset" not in why,
+          f"大きさで倒した partial は、offset を付けたとは言わない（読み直しても変わらない。{why[:60]}）")
+    # **大きさを申告しない物（FIFO）は開かない。** stat の大きさで上限を見てから読み切っていた頃は、
+    # 書き手が流し続ける FIFO を丸ごと読んだ。書き手の居ない FIFO は開くだけで止まる
+    if hasattr(os, "mkfifo"):
+        import threading  # noqa: E402
+        fifo = tmp / "pipe"
+        os.mkfifo(fifo)
+
+        def feed():
+            # 書き手を 1 つ立てる（読み手が開けば数バイト流して閉じる）。開かなければ待ったまま——daemon なので
+            # 台本の終わりを止めない。書き手が居るので、柵を外した写しでは開いて読み、記録に行が増える
+            def w():
+                with open(fifo, "wb") as f:
+                    f.write(b"fifo-bytes")
+            threading.Thread(target=w, daemon=True).start()
+        n = len((board / "reads.jsonl").read_text(encoding="utf-8").splitlines())
+        feed()
+        check(fire(fifo) == 0 and len((board / "reads.jsonl").read_text(encoding="utf-8").splitlines()) == n,
+              "FIFO を読んだ回はフックが記録しない（開かずに道具へ返す）")
+        feed()
+        got, why = RESEARCH_RULES.hook_evidence(board, str(fifo))
+        check(got == "none" and "通常のファイルでない" in why, f"FIFO は開かずに none（{why[:50]}）")
+    else:
+        check(True, "FIFO を読んだ回はフックが記録しない（この OS には FIFO が無い）")
+        check(True, "FIFO は開かずに none（この OS には FIFO が無い）")
+    # **sha を持たない行（書いた側の上限超え）は大きさの部分読みとして扱い、一致の証拠にも不一致の証拠にもしない**——
+    # 不一致と数えていた頃は、2 つの上限の写しがずれた日に、小さい文書が『読んだ後に変わった』と名乗られた
+    nosha = tmp / "nosha.md"; nosha.write_text("n" + chr(10), encoding="utf-8")
+    with open(board / "reads.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": "t", "session_id": "s", "agent_id": None, "path": str(nosha.resolve()),
+                            "file_sha": None, "bytes": 2, "partial": False, "tool_use_id": "x"}) + chr(10))
+    got, why = RESEARCH_RULES.hook_evidence(board, str(nosha))
+    check(got == "partial" and "切りうる大きさ" in why, f"sha を持たない行だけなら stale と名乗らず、大きさの partial（{got}: {why[:50]}）")
+    # **sha の無い行と、今の sha と違う行が両方在るなら stale を名乗る**（読み直せば済む。none に倒すと理由が消える）
+    with open(board / "reads.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": "t", "session_id": "s", "agent_id": None, "path": str(nosha.resolve()),
+                            "file_sha": "0" * 64, "bytes": 2, "partial": False, "tool_use_id": "y"}) + chr(10))
+    got, why = RESEARCH_RULES.hook_evidence(board, str(nosha))
+    check(got == "stale" and "一致しない" in why, f"sha の無い行と古い sha の行が両方なら stale（{got}: {why[:50]}）")
+    # **呼び元が渡したバイト列にも上限を当てる**（読み終えたバイト列を渡す経路で、上限の外の物の sha を取らない）
+    got, why = RESEARCH_RULES.hook_evidence(board, str(nosha), data=b"n" * (RESEARCH_RULES.READ_CAP + 1))
+    check(got == "none" and "大きすぎて測らない" in why, f"渡されたバイト列が上限を超えれば none（{got}: {why[:50]}）")
+    got, why = RESEARCH_RULES.hook_evidence(tmp / "no-board", str(nosha))
+    check(got == "none" and "reads.jsonl が無い" in why, f"記録の無い置き場は none（{got}: {why[:50]}）")
+    # **記録は 1 回の検査で 1 度だけ読む**（cache を渡した呼び元）。申告の数だけ記録を読み直していた頃は、
+    # 行数に上限の無い記録を 1 行ごとに全部読んで解析した。渡した cache の中身が次の問いで使われることを見る
+    fresh = tmp / "fresh.md"; fresh.write_text("fresh" + chr(10), encoding="utf-8")
+    memo = {}
+    first = RESEARCH_RULES.hook_evidence(board, str(fresh), cache=memo)[0]
+    check(fire(fresh) == 0, "cache の後に記録へ 1 行足す")
+    again = RESEARCH_RULES.hook_evidence(board, str(fresh), cache=memo)[0]
+    now = RESEARCH_RULES.hook_evidence(board, str(fresh))[0]
+    check(first == "absent" and again == "absent" and now == "read",
+          f"cache を渡した呼び元は記録を読み直さない（1 度目 {first} / 同じ cache {again} / cache なし {now}）")
     # **記録に本文を写さない。** 文書の中身をこちらのディスクへ置く形にしない
     log = (board / "reads.jsonl").read_text(encoding="utf-8")
-    check("CHANGED" not in log and "aaa" not in log, "記録に文書の本文は入らない（sha と大きさだけ）")
+    # sha の 16 進は a〜f を含む（本文の "aaa" と偶然一致しうる）ので、sha の欄を落としてから探す
+    bare = "\n".join(json.dumps({k: v for k, v in json.loads(l).items() if k != "file_sha"}, ensure_ascii=False) for l in log.splitlines())
+    check("CHANGED" not in bare and "aaa" not in bare, "記録に文書の本文は入らない（sha と大きさだけ）")
     strays = sorted(x for x in (list(cfg.rglob("*")) + list((tmp / "home").rglob("*"))) if x.is_file())
     check(not strays, f"**run が在る回も、利用者ごとの置き場には 1 バイトも書かない**（{strays[:2]}）")
+    rm(tmp)
+
+
+def test_schema_pattern_properties():
+    """型検査の patternProperties: 型で決めた名前の外は、名前の形に合うものだけを受ける（OpenAPI の x- 拡張と同じ口）"""
+    print("型検査: patternProperties")
+    from engine.schema import validate_schema, unknown_keywords  # noqa: E402
+    s = {"type": "object", "additionalProperties": False, "properties": {"a": {"type": "integer"}},
+         "patternProperties": {"^x_[a-z0-9_]+$": {"type": "number"}}}
+    check(validate_schema({"a": 1, "x_n": 2.5}, s) == [], "patternProperties: 形に合う名前は受ける")
+    check(any("知らない欄 'y'" in e for e in validate_schema({"y": 1}, s)), "patternProperties: 形に合わない名前は additionalProperties で拒む")
+    check(any("x_n" in e for e in validate_schema({"x_n": "1"}, s)), "patternProperties: 形に合う名前も値の型は見る")
+    check(unknown_keywords({"patternProperties": {"^x_": {"typo": 1}}}) != [], "patternProperties: 中の語も engine の読む語かを見る")
+
+
+def test_run_count():
+    """数える問い（how）は欄で受け、argv は engine が決まった形で組む。腕は柵ごとに置き、拒否理由を**その柵に固有の語**で見る
+    ——共通の一語で見ていた頃は、柵を 1 つ消しても別の拒否文に当たって緑のままだった（2026-09-23 の gate_efficacy）。"""
+    print("数える問い: 欄から argv を組み、読めなかった問いを 0 件にしない")
+    import engine.util as _u  # noqa: E402
+    _td, tmp = parallel.workspace("gl-count-")
+    (tmp / "a.txt").write_text("x1\nx2\ny\n", encoding="utf-8"); (tmp / "b.txt").write_text("x3\n", encoding="utf-8")
+    (tmp / "d").mkdir(); (tmp / "d" / "c.txt").write_text("x4\n", encoding="utf-8")
+    (tmp / ".gitignore").write_text("ignored.*\n", encoding="utf-8")
+    for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"]):
+        subprocess.run(["git", *c], cwd=tmp, capture_output=True)
+    (tmp / "untracked.txt").write_text("x9\n", encoding="utf-8"); (tmp / "ignored.txt").write_text("x8\n", encoding="utf-8")
+    # 数える版は役の欄でなく engine の引数（rev）。表では書きやすさのため欄に書き、ここで引数へ移す
+    rc = lambda h, **k: (_u.run_count({x: v for x, v in h.items() if x != "rev"}, str(tmp), rev=h.get("rev"), **k)
+                         if isinstance(h, dict) else _u.run_count(h, str(tmp), **k))
+    H = lambda **k: {"patterns": ["x"], "paths": ["a.txt"], "count": "lines", **k}
+    for label, how, want in (("数える: 一致した行の数", H(), 2), ("数える: パスと語を複数", H(patterns=["x1", "x3"], paths=["a.txt", "b.txt"]), 2),
+                             ("数える: 一致したファイルの本数", H(paths=["."], count="files"), 3), ("数える: リポジトリ全体", H(paths=["."]), 4),
+                             ("数える: 版を指定", H(rev="HEAD"), 2), ("数える: 版を指定してファイルの本数", H(rev="HEAD", paths=["."], count="files"), 3),
+                             ("数える: 未追跡も数える", H(untracked=True, paths=["untracked.txt"]), 1),
+                             ("数える: 固定文字列の正規表現記号", H(patterns=["(x;"], fixed=True), 0), ("数える: 固定文字列の #", H(patterns=["issue#12"], fixed=True), 0),
+                             ("数える: 一致なしは 0", H(patterns=["nothing"]), 0), ("数える: 大文字小文字を無視", H(patterns=["X"], ignore_case=True), 2),
+                             ("数える: 語の単位", H(word=True), 0), ("数える: - で始まる検索語は語のまま", H(patterns=["--output=c.txt"]), 0),
+                             ("数える: 版を渡せば未追跡の旗は落とす", H(rev="HEAD", untracked=True), 2)):
+        got = rc(how)
+        check(got == (want, ""), f"{label} → {want}（{got}）")
+    for label, bad, why in (("走らせない: 1 行のコマンド", "git grep -c x -- a.txt", "欄（patterns"), ("走らせない: 知らない欄", H(argv=["rm"]), "知らない欄"),
+                            ("走らせない: 空の検索語の配列", H(patterns=[]), "how.patterns: 要素が 1 個未満"), ("走らせない: 改行を含む検索語", H(patterns=["x\ny"]), "how.patterns[0]: 形が合わない"),
+                            ("走らせない: CR を含む検索語", H(patterns=["x\ry"]), "how.patterns[0]: 形が合わない"),
+                            ("走らせない: NUL を含むパス", H(paths=["a\x00b"]), "how.paths[0]: 形が合わない"),
+                            ("走らせない: パスの欠落", {"patterns": ["x"], "count": "lines"}, "必須の欄 'paths' が無い"),
+                            ("走らせない: 数え方", H(count="wc"), "how.count: 値 'wc' が語彙"), ("走らせない: 真偽値でない旗", H(fixed="yes"), "how.fixed: 型が boolean でない"),
+                            ("走らせない: - で始まる版", H(rev="--output=c.txt"), "数える版は版の名前"), ("走らせない: 空白を含む版", H(rev="HEAD x"), "数える版は版の名前"),
+                            ("走らせない: 解決できない版", H(rev="no-such-rev"), "版として解決できない"),
+                            ("走らせない: 当たらないパス", H(paths=["nope/"]), "'nope/' が数える世界（追跡中のファイル）"),
+                            ("走らせない: 未追跡を旗なしで", H(paths=["untracked.txt"]), "'untracked.txt' が数える世界"),
+                            ("走らせない: .gitignore に当たる未追跡", H(untracked=True, paths=["ignored.txt"]), "'ignored.txt' が数える世界"),
+                            ("走らせない: リポジトリの外", H(paths=["/etc/passwd"]), "'/etc/passwd' を確かめられない"),
+                            ("走らせない: 親ディレクトリ", H(paths=["../a.txt"]), "'../a.txt' を確かめられない"),
+                            ("走らせない: .git の中", H(paths=[".git/config"]), "'.git/config' が数える世界"),
+                            ("走らせない: 版に無いパス", H(rev="HEAD", paths=["untracked.txt"]), "版 HEAD"),
+                            ("走らせない: - で始まるパスは pathspec のまま", H(paths=["--output=c.txt"]), "が数える世界"),
+                            ("走らせない: 壊れた正規表現", H(patterns=["(x"]), "標準エラーに書いた")):
+        got = rc(bad)
+        check(got[0] is None and why in got[1], f"{label}（{got[1][:70]}）")
+    got = _u.run_count(H(rev="HEAD"), str(tmp))
+    check(got[0] is None and "知らない欄" in got[1], f"走らせない: 問いに版を書く（数える版は engine が決める。{got[1][:60]}）")
+    argv, _ = _u.count_argv(H(patterns=["a", "b"], paths=["p", "q"], fixed=True, ignore_case=True, word=True, count="files"), "HEAD")
+    check(argv == ["git", "grep", "-I", "--no-color", "-l", "-F", "-i", "-w", "-e", "a", "-e", "b", "HEAD", "--", "p", "q"],
+          f"argv は決まった形（旗・語ごとの -e・版・-- の後ろにパス。{argv}）")
+    # **読めなかった問いを 0 件にしない**——git grep が黙って非 0 を返す・時間切れ・上限超えは実物で作れないので、走らせる口を差し替えて撃つ
+    _rcp = _u._run_capped
+    try:
+        _u._run_capped = lambda argv, *a: (2, b"", "", False, False) if "-c" in argv else _rcp(argv, *a)
+        got = rc(H())
+        _u._run_capped = lambda argv, *a: (1, b"", "", False, False) if "-c" in argv else _rcp(argv, *a)
+        got1 = rc(H())
+        _u._run_capped = lambda argv, *a: (0, b"", "", False, True) if "-c" in argv else _rcp(argv, *a)
+        late = rc(H())
+        _u._run_capped = lambda argv, *a: (0, b"", "", True, False) if "-c" in argv else _rcp(argv, *a)
+        over = rc(H())
+        _u._run_capped = lambda argv, *a: (0, b"a.txt:3", "warning: 一部を読めなかった", False, False) if "-c" in argv else _rcp(argv, *a)
+        warned = rc(H())
+    finally:
+        _u._run_capped = _rcp
+    check(got[0] is None and "exit 2" in got[1], f"走らせない: 黙った非 0（{got}）")
+    check(got1 == (0, ""), f"数える: exit 1（標準エラー無し）は 0 件（{got1}）")
+    check(late[0] is None and "秒で終わらない" in late[1], f"走らせない: 時間切れ（{late}）")
+    check(over[0] is None and "上限" in over[1], f"走らせない: 出力の上限超え（{over}）")
+    check(warned[0] is None and "標準エラーに書いた" in warned[1], f"走らせない: 終了コード 0 でも標準エラーに書いた（{warned}）")
+    r = _u._run_capped([sys.executable, "-c", "import time; time.sleep(30)"], str(tmp), 1, 100)
+    check(r[4] is True, f"時間切れの子は殺して late を返す（{r[:1]} / late={r[4]}）")
+    r = _u._run_capped(["cat", "--", "a.txt"], str(tmp), 10, 3)
+    check(r[3] is True, f"上限を超える出力は読み切らずに over を返す（{r[3]}）")
+    # **engine の標準入力を子に継がせない**——閉じない管を標準入力にした子のプロセスで、ファイルを持たない cat を起こし、
+    # 時間切れより前に返ることを見る
+    code = (f"import sys; sys.path.insert(0, {str(PLUGIN)!r}); import engine.util as u; "
+            f"print(u._run_capped(['cat'], {str(tmp)!r}, 3, 100)[4])")
+    p = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+    try:
+        out = p.stdout.read(); p.wait(timeout=20)
+    finally:
+        p.stdin.close()
+    check(out.strip() == "False", f"標準入力は DEVNULL（閉じない管を渡しても、読みに行かずに返る。late={out.strip()!r}）")
+    check(_u.sum_counts("a:1" + chr(10) + "b:2") == 3 and _u.sum_counts("a:1" + chr(10) + "本文 b") is None,
+          "`…:数` の合計は、数でない行が 1 行でも在れば None（黙って飛ばさない）")
+    check((tmp / "a.txt").is_file() and not (tmp / "c.txt").exists() and not (tmp / "--output=c.txt").exists(),
+          "拒んだ問いも数えた問いも、何も消さず何も書かない")
     rm(tmp)
 
 
@@ -732,7 +943,8 @@ def test_hook_evidence_passes_gate_without_transcript():
     subprocess.run([PY, str(PLUGIN / "hooks" / "record-read.py")], timeout=60,
                    input=json.dumps({"hook_event_name": "PostToolUse", "session_id": "gate-t",
                                      "tool_name": "Read", "tool_use_id": "toolu_g", "cwd": str(repo),
-                                     "tool_input": {"file_path": str(doc)}, "tool_response": "..."}),
+                                     "tool_input": {"file_path": str(doc)},
+                                     "tool_response": {"type": "text", "file": {"filePath": str(doc)}}}),
                    capture_output=True, text=True, encoding="utf-8")
     check((d / "reads.jsonl").is_file(), "記録は盤面の隣に落ちる（利用者ごとの置き場に溜めない）")
     loop("next")
@@ -960,6 +1172,9 @@ def test_units():
     check(not validate_schema(1, {"enum": [0, 1]}), "enum: 1 は通る")
     check(validate_schema(True, {"const": 1}), "const: True は 1 でない")
     check(validate_schema("   ", {"type": "string", "minLength": 1}), "minLength: 空白だけは空と数える")
+    check(validate_schema("xxx", {"type": "string", "maxLength": 2}), "maxLength: 上限を超えた字列は落とす")
+    check(not validate_schema("xx", {"type": "string", "maxLength": 2}), "maxLength: ちょうどは通る")
+    check(validate_schema(" x ", {"type": "string", "maxLength": 2}), "maxLength: 前後の空白も数える（削って測らない）")
 
 
 def test_arms():
@@ -3036,11 +3251,13 @@ def main():
     # 直列に戻すのは GL_TEST_WORKERS=1——並列でだけ落ちる台本を切り分けるときに使う。
     tests = parallel.collect(globals())
     parallel.run_all(tests)
-    check(DELIVERY_SEEN >= {"p1.checker", "p3.cold_reader"}, f"渡し方の検査は checker（agent/path）と cold_reader（cli/paste）の両方に実際に当たった（{sorted(DELIVERY_SEEN)}）")
+    only = bool(os.environ.get("GL_TEST_ONLY"))
+    check(only or DELIVERY_SEEN >= {"p1.checker", "p3.cold_reader"}, f"渡し方の検査は checker（agent/path）と cold_reader（cli/paste）の両方に実際に当たった（{sorted(DELIVERY_SEEN)}）")
     reached, total, unreached = vocab_coverage()
-    check(reached == VOCAB_REACHED,
-          f"判定語彙の到達 {reached}/{total}（記録は {VOCAB_REACHED}）——筋書きを増やしたら数を上げろ。"
-          f"未到達の頭: {unreached[:3]}")
+    if not only:   # 台本を絞った回は、全台本の到達を見る検査を当てない
+        check(reached == VOCAB_REACHED,
+              f"判定語彙の到達 {reached}/{total}（記録は {VOCAB_REACHED}）——筋書きを増やしたら数を上げろ。"
+              f"未到達の頭: {unreached[:3]}")
     # **本数は「実際に集めて走らせた関数」を数える**（run.sh の grep ではなく）。text を grep すると、
     # 字面だけ変えた（インデントした・改名した）台本が消えても数が合ったままになる
     print(f"台本 {len(tests)} 本")

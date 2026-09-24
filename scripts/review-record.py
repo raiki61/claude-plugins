@@ -230,8 +230,9 @@ def bullet(s):
 Kind = collections.namedtuple("Kind", "domain fields note")
 QUESTION_KINDS = _rows("問いの種類", Kind, {
     "fork": ("unit", ("options",),
-             "設計の岐路——処方が機構の新設・共有面の拡大に及び、候補が複数（手順書 P2「処方の列挙」）。"
-             "選択肢は帰結まで書く。零処方（取り下げ・既存の機構 1 つ）が落ちる理由は reason に"),
+             "設計の岐路——処方が機構の新設・共有面の拡大に及び、候補が複数で、世界の解（標準仕様・著名 OSS の定番）を当たっても"
+             "決まらない（手順書 P2「処方の列挙」・REVIEW.md「処方の最小性」）。世界の解で決まるなら岐路ではなく処方として採る。"
+             "選択肢は 2 つ以上、帰結まで書く。零処方（取り下げ・既存の機構 1 つ）が落ちる理由は reason に"),
     "split": ("unit", (),
               "修正が露呈させた既存の欠陥で、凍結した目的の外。別 PR に積むかを人が決める。"
               "露呈の回収は既定のまま（REVIEW.md「別 Issue への先送りを既定にするな」）で、これは例外の申請"),
@@ -245,6 +246,13 @@ QUESTION_KINDS = _rows("問いの種類", Kind, {
     "unverifiable": ("review", (), "R が独立に確かめる材料を取れない"),
     "awaiting": ("material", (),
                  "素材が awaiting_human（未観測・打ち切られた一覧・洗えなかった決定記録・走らせられない CI）"),
+    # **素材を出どころにしない人の確かめ**。awaiting しか無かった頃、判定者は「Windows の実機で試していない」の
+    # 出どころに近い素材（CI の欄）を借り、CI を再実行する後の工程が毎周その欄を clean で上書きして、周の最後の
+    # 検証で弾かれた（実走の申し送り: 5 周で 8 回の手の書き戻し）。人の承認を機械の検査と別の欄で持つのは
+    # GitHub Actions の environment の required reviewers（status check と別の保護規則）と同じ形
+    "field": ("none", (),
+              "人が実地で確かめるまで決まらない（実機・外部の環境・権限の要る操作）で、どの素材も awaiting_human でない。"
+              "素材の欄を借りるな——CI の欄を借りると、CI を再実行する工程が毎周上書きする。周を止めず、最終報告の冒頭に載る"),
 })
 ORIGIN_DOMAINS = ("unit", "material", "review", "none")
 ORIGIN_NOTE = {"unit": "origin は当該ユニットの key", "material": "origin は素材名",
@@ -261,21 +269,18 @@ SILENT_STATUS = tuple(k for k, r in STATUS.items() if not r.observed and not r.b
 OBSERVED_STATUS = tuple(k for k, r in STATUS.items() if r.observed)
 
 QUESTION_FIELDS = ("key", "kind", "status", "reason", "resolution", "options", "depends", "origin")
+
+
+def origin_not_awaiting(q, materials):
+    """未決の問いの出どころが素材なのに、その素材が今 awaiting_human でないか（**規則の正本**。graphloops の rules も
+    欄を書いた時点でこの 1 本を呼ぶ——写しを持つと片方だけ変わる）"""
+    k = QUESTION_KINDS.get(q.get("kind"))
+    if not k or k.domain != "material" or q.get("status") not in ASKING:
+        return False
+    m = materials.get(q.get("origin"))
+    return bool(m) and m.get("status") != "awaiting_human"
 UNIT_FIELDS = ("key", "label", "disposition", "reason", "reopen_evidence")
 
-# **プロンプトに貼る語彙は、ここが組み立てて engine が渡す。** 役に渡す散文へ表を手で写すと、
-# 正本を直した周に写しだけが古くなり、しかも役は写しの方を読む（実測 2026-09-13: p2.diagnose.md の
-# 写しから premise / stuck / rule の origin の要求が落ちていた。graph は同じ表について
-# 「ここに写さない。手順書も列挙を持たない」と宣言していた）。**engine はこの dict の中身を知らない**
-# ——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
-PROMPT_TABLES = _tables("プロンプトの表", lambda: {
-        "question_kinds": "／".join(
-            f"{k}（{ORIGIN_NOTE[v.domain]}" + ("".join(f"・{f} が要る" for f in v.fields)) + f"）: {v.note}"
-            for k, v in QUESTION_KINDS.items()),
-        "question_fields": "／".join(QUESTION_FIELDS),
-        "unit_fields": "／".join(UNIT_FIELDS),
-        "labels": "／".join(LABELS),
-})
 # **状態は 2 軸である**——「決着したか」と「出どころの欠陥がまだ記録に開いて残っているか」。
 # 1 つの平坦な値に潰していたとき、**判断も処方も付いた問いを「保留」と書き続けるほか無かった**
 # （下の stuck_unlisted が未決の記載を要求し、P3 は「見つけた周の記録は直していても判定どおり
@@ -284,15 +289,21 @@ PROMPT_TABLES = _tables("プロンプトの表", lambda: {
 # （人が決めること）にも決着済みが並んだ。**2 軸目は欄にせず記録から判定する**——書き手の
 # 自己申告にすると、また 1 つ書くだけで縛りが外れる。
 QUESTION_STATUS = {
-    "held": (),  # 未決——次の周の judge が再審する
-    # ループが決めたが、**出どころの欠陥がまだ開いている**。決着済みなので帰属にも
-    # 「人が決めること」にも乗らないが、台帳からは降りない（下の TRACKED）。
+    "held": (),
+    # 決着済みなので帰属にも「人が決めること」にも乗らないが、台帳からは降りない（下の TRACKED）。
     "decided": ("resolution",),
-    # ループが決め、**出どころも閉じた**。次の周の台帳から落としてよい。
     # 何を根拠に決めてよいか（答えた材料か、零処方が落ちない／目的の内側／実測で優越のいずれかの
     # 規律）は手順書 P2「履歴との突合」が正本。
     "resolved": ("resolution",),
-    "escalate": (),  # 再審の結果、人でないと決められない（好み・方針・可逆性の低い合意・目的の書き換え）
+    "escalate": (),
+}
+
+# 状態の意味（**正本**。プロンプトに貼る表もここから組む。鍵は QUESTION_STATUS と同じ——足し忘れると表の組み立てが KeyError で落ちる）
+QUESTION_STATUS_NOTE = {
+    "held": "未決——次の周の judge が再審する（fork で出どころの [block] を待たせられるのは 1 周だけ）",
+    "decided": "ループが決めたが、出どころの欠陥がまだ開いている",
+    "resolved": "ループが決め、出どころも閉じた——次の周の台帳から落としてよい",
+    "escalate": "再審の結果、人でないと決められない（好み・方針・可逆性の低い合意・目的の書き換え）",
 }
 
 # 決着した状態＝ `resolution`（何をどう決めたか）を要求する状態。**2 語を手で並べない**
@@ -304,6 +315,27 @@ DECIDED_STATUS = tuple(k for k, extra in QUESTION_STATUS.items() if "resolution"
 # **origin だけでなく depends にも当てる**——帰属の入口は 2 つで、片方だけ塞ぐと開いた [block]
 # を depends に書くだけで同じ逃げ道が通る（実測で再現した）。
 NO_OPEN_ORIGIN = ("split", "rule")
+# **プロンプトに貼る語彙は、ここが組み立てて engine が渡す。** 役に渡す散文へ表を手で写すと、
+# 正本を直した周に写しだけが古くなり、しかも役は写しの方を読む（実測 2026-09-13: p2.diagnose.md の
+# 写しから premise / stuck / rule の origin の要求が落ちていた。graph は同じ表について
+# 「ここに写さない。手順書も列挙を持たない」と宣言していた）。**engine はこの dict の中身を知らない**
+# ——名前で引いて貼るだけなので、ループの語彙は engine に入らない。
+# 上の表から組む。**使う表の後ろに置く**——組み立ては読み込みの時点で走る
+PROMPT_TABLES = _tables("プロンプトの表", lambda: {
+        "question_kinds": "／".join(
+            f"{k}（{ORIGIN_NOTE[v.domain]}" + ("".join(f"・{f} が要る" for f in v.fields)) + f"）: {v.note}"
+            for k, v in QUESTION_KINDS.items()),
+        # **状態ごとに要る欄と、開いたユニットを出どころにできない種類**——判定役がこれを知らずに書き、done の
+        # 差し戻しで初めて知る往復が 10 周で 6 回あった（実走の申し送り）。散文に一部だけ写すと片方だけ古くなる
+        "question_status": "／".join(
+            f"{k}" + ("".join(f"（{f} が要る）" for f in v)) + f": {QUESTION_STATUS_NOTE[k]}"
+            for k, v in QUESTION_STATUS.items()),
+        "no_open_origin": "・".join(NO_OPEN_ORIGIN) + " は [block]・do-now のユニットを origin にも depends にもできない"
+                          "（人に聞く前に直す義務が消える。defer にして構造的理由を書け）",
+        "question_fields": "／".join(QUESTION_FIELDS),
+        "unit_fields": "／".join(UNIT_FIELDS),
+        "labels": "／".join(LABELS),
+})
 # **まだ人に聞く気がある**（帰属・「聞く時」・最終報告の冒頭はこれで絞る）。`decided` を
 # 入れるな——決着済みが「あなたが決めること」として報告の冒頭に並ぶ。
 ASKING = ("held", "escalate")
@@ -549,7 +581,7 @@ def validate_questions(rec, path, unit_index):
         elif domain == "material":
             if origin not in MATERIALS:
                 fail(f"{where} は kind={kind} なので origin は素材名: {origin!r}")
-            if status in ASKING and rec["materials"][origin]["status"] != "awaiting_human":
+            if origin_not_awaiting(q, rec["materials"]):
                 fail(
                     f"{where}: awaiting の origin '{origin}' が awaiting_human でない"
                     "（動かせた・確かめられたなら resolved にして根拠を書け）"
