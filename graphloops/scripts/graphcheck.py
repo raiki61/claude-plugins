@@ -28,6 +28,8 @@
      report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated の argv / via の穴が
      engine の埋める語（LAUNCH_HOLES）だけで model / effort は遮断系の役の定義に在り、via が指す実体が同梱されている
  13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
+ 14. 回す側の任せ先（delegate）と期限: delegate は回す側の節にだけ・skills を持つ節には書けない（入れ子の委任）。
+     deadline_minutes（最上位と節）は 1 以上の整数で、{{node.deadline_at}} を貼る節には期限が在る
 
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
@@ -534,6 +536,14 @@ def check(gpath, script=None, emit=print):
             errs.append(f"節 {k}: delegate は回す側の節（runners）にだけ書ける——役の節の model は役の定義が正本")
         elif not (isinstance(dg, dict) and dg.get("model") in DELEGATE_MODELS and isinstance(dg.get("why"), str) and dg["why"].strip()):
             errs.append(f"節 {k}: delegate は {{model: {'/'.join(DELEGATE_MODELS)}, why: 任せてよい理由}}")
+        if v.get("skills"):
+            # skill（/simplify・/code-review）は中でさらに役を背景で起こす。任せ先の役越しに呼ぶと、孫の完了の知らせが
+            # 任せ先に届かないまま待ち続けた（実測 2026-09-25: 局所レビューの任せ先が 7 時間以上戻らなかった）
+            errs.append(f"節 {k}: skills を持つ節に delegate は書けない——skill は回す側（最上位のセッション）が自分で呼ぶ（入れ子の委任は完了の知らせが届かない）")
+    # 期限（deadline_minutes）: 値はループ固有なので graph だけが持つ。最上位が既定、節が上書き。engine は値を持たない
+    for where, val in [("最上位", g.get("deadline_minutes", None))] + [(f"節 {k}", v.get("deadline_minutes")) for k, v in nodes.items()]:
+        if val is not None and not (isinstance(val, int) and not isinstance(val, bool) and val >= 1):
+            errs.append(f"{where}: deadline_minutes は 1 以上の整数（分）")
     pr = g.get("deliver", {}).get("paste_roles")
     if pr is not None and not (isinstance(pr, list) and all(isinstance(t, str) and ":" in t for t in pr)):
         errs.append("deliver.paste_roles は役の名前（<plugin>:<役>）の一覧")
@@ -706,6 +716,8 @@ def check(gpath, script=None, emit=print):
                     errs.append(f"節 {k}: {core} を読むが、その節は前の節（deps の推移閉包）でない（前の周の出力なら prev.<節>）")
             if core.startswith("prev.") and node_of(core[5:], nodes) is None:
                 errs.append(f"節 {k}: {core} の節が無い")
+            if core == "node.deadline_at" and v.get("deadline_minutes", g.get("deadline_minutes")) is None:
+                errs.append(f"節 {k}: {{{{node.deadline_at}}}} を貼るが、期限（deadline_minutes）が節にも graph の最上位にも無い——埋められずに init で止まる")
         for r in reads:
             if r.startswith("out."):
                 src = node_of(r[4:], nodes)

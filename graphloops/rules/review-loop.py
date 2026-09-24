@@ -9,6 +9,7 @@ import pathlib
 import re
 import shutil
 import tempfile
+from typing import NamedTuple
 
 # 差分を割って複数の cold-reader に配る扇（diff_chunks）は落とした。**割る理由が無くなったから**——
 # 遮断系は別プロセスの CLI へ標準入力で流すので、貼る上限（Agent ツールのプロンプトの性質。実測 約 50 KB）に
@@ -51,10 +52,10 @@ def _declared_faces(b, rnd):
     直したと言う行も、それを見る 3 回目は無い）"""
     fix = b.output_of_round("p3.fix", rnd) or {}
     rows = [{"key": r["key"], "from": "p2.plan_review", "how": r["how"]} for r in fix.get("plan_faces") or [] if r["handled"] == "declared"]
-    for nid in ("p3.delta_fix", "p3.delta_fix2"):
-        for r in (b.output_of_round(nid, rnd) or {}).get("handled") or []:
-            if r["handled"] == "declared" or nid == "p3.delta_fix2":
-                rows.append({"key": r["key"], "from": nid, "how": r["how"], **({"unverified": True} if r["handled"] == "fixed" else {})})
+    for p in DELTA_PASSES.values():
+        for r in (b.output_of_round(p.fix, rnd) or {}).get("handled") or []:
+            if r["handled"] == "declared" or p.last:
+                rows.append({"key": r["key"], "from": p.fix, "how": r["how"], **({"unverified": True} if r["handled"] == "fixed" else {})})
     return rows
 
 
@@ -103,13 +104,12 @@ def on_new_round(b):
         ls["prev_one_shot"] = {"round": b.round - 1, "text": None, "closes": [], "check": "", "totals": {},
                                "absent": f"round {b.round - 1} の判定に one_shot が無い（この周は検算する対象が無い——"
                                          "『届かなかった』ではない。届かない形なら engine が止める）"}
-    # 前の周の P3 が実際に触ったファイル——**engine が持つ事実**（前の周の P1 で写した diff と、今の diff の差）から作る。
+    # 前の周の P3 が実際に触ったファイル——**engine が持つ事実**（前の周の頭に固めた版 head_revs と今の版の木の差）から作る。
     # writer の申告（p3.fix の changes[].files）は照合の片側に降ろす（実測 2026-09-13: 実在しないファイル名の申告で全素材が
     # 再発火し、実際に編集した周が 0 件扱いで持ち越された——申告だけを見ていた）
     claimed = sorted({f for c in (b.output_of_round("p3.fix", b.round - 1) or {}).get("changes", []) for f in c.get("files", [])})
     measured = _files_changed_since(b, b.round - 1)
     ls["prev_fix_files"] = claimed if measured is None else measured
-    ls["prev_fix_source"] = "申告（前の周の diff の写しが無く測れない）" if measured is None else "実測（diff の差）"
     if measured is not None and set(claimed) - set(measured):
         # 申告したが差分に現れないファイル——盤面に置くだけでは誰も読まないので、記録の process に周付きで残す（判定者と報告が読める）
         rec["process"].setdefault("fix_claim_mismatch", []).append({"round": b.round - 1, "claimed_not_in_diff": sorted(set(claimed) - set(measured))})
@@ -315,26 +315,57 @@ def units_open(b):
     return any(V.is_open(u) for u in b.record.get("units") or [])
 
 
-# 修正差分の 2 回の往復: 1 回目は修正（p3.fix）の差分、2 回目は手直し（p3.delta_fix）の差分。3 回目は無い——2 回目の手直しは
-# 次の周の判定者へ渡す（_declared_faces）。節の名前 → (差分の鍵, 差分を見る節, 手直しの節)
-DELTA_PASSES = {1: ("fix_delta", "p3.delta_review", "p3.delta_fix"), 2: ("fix_delta2", "p3.delta_review2", "p3.delta_fix2")}
-DELTA_PASS_OF = {n: k for k, v in DELTA_PASSES.items() for n in v[1:]} | {"p3.fix_delta": 1, "p3.fix_delta2": 2}
+class DeltaPass(NamedTuple):
+    """修正差分の往復 1 回ぶんの構造。**節の名前の対応はこの表だけが持ち**、ほかは全部ここから引く"""
+    state_key: str   # loop_state の鍵（その回の差分 {round, file, files, rev}）
+    cut: str         # 差分を切り出す節（driver）
+    review: str      # 差分を見る節
+    owed: str        # 手直しが答える義務を組む節（driver）
+    owed_key: str    # 義務の loop 値の鍵——手直しの節はこの値をそのまま貼り、答え合わせも同じ値で行う
+    fix: str         # 手直しの節
+    last: bool       # 最終の回か（ここで直した物は、次の周の判定者が検算する）
+
+
+# 回 → DeltaPass。1 回目は修正（p3.fix）の差分、2 回目は手直しの差分。3 回目は無い
+DELTA_PASSES = {1: DeltaPass("fix_delta", "p3.fix_delta", "p3.delta_review", "p3.delta_owed", "delta_owed", "p3.delta_fix", False),
+                2: DeltaPass("fix_delta2", "p3.fix_delta2", "p3.delta_review2", "p3.delta_owed2", "delta_owed2", "p3.delta_fix2", True)}
+DELTA_PASS_OF = {nid: n for n, p in DELTA_PASSES.items() for nid in (p.cut, p.review, p.owed, p.fix)}
 
 
 def _delta_of(b, n):
     """n 回目の修正差分（{round, file, files, rev}）——今の周に書いた物だけ。前の周の値は None。
     **状態は周に属し、読む側で周を照らす**（Gerrit の票が patch set に属し、新しい patch set で読み直すのと同じ形）。
     周の頭で消す形は、消し忘れた鍵や同じ周の撃ち直しに効かない"""
-    d = b.loop_state.get(DELTA_PASSES[n][0]) or {}
+    d = b.loop_state.get(DELTA_PASSES[n].state_key) or {}
     return d if d.get("round") == b.round else None
 
 
+def _owed_rows(b, n):
+    """n 回目の手直しが答える義務——[{key, from, text}]。差分レビューの穴・塞がっていない検算（closed=false）・1 回目だけ修正差分の腕で
+    証拠にならない物。**計算はここ 1 本**で、盤面に置くのは delta_owed（driver）だけ"""
+    p = DELTA_PASSES[n]
+    rv = b.output_of_round(p.review, b.round) or {}
+    rows = [{"key": f["key"], "from": p.review, "text": f"{f['kind']} {f['where']}:「{f['cite']}」——{f['why']}"} for f in rv.get("faces") or []]
+    rows += [{"key": c["key"], "from": f"{p.review}.checks", "text": f"塞いだと言われたが、差分で塞がっていない——{c['why']}"}
+             for c in rv.get("checks") or [] if c["closed"] is False]
+    return rows + (_gate_gaps(b) if n == 1 else [])
+
+
+def delta_owed(b, nid):
+    """手直しの前: 答える義務を 1 本の loop 値（DeltaPass.owed_key）に組んで盤面に置く（driver の builtin）。
+    **手直しの役に見せる値と、手直しを起こす条件・答え合わせが引く値を同じ物にする**——義務を rules が、見せる物を graph の reads と
+    プロンプトが別々に持っていたとき、4 周目に義務へ足した成分（塞がっていない検算）が役に 1 度も見えず、答えるべき key を知る道が無かった"""
+    n = DELTA_PASS_OF[nid]
+    rows = _owed_rows(b, n)
+    b.loop_state[DELTA_PASSES[n].owed_key] = {"round": b.round, "rows": rows}
+    return {"ok": True, "owed": len(rows)}
+
+
 def _delta_owed(b, n):
-    """n 回目の手直しが答える義務の key——差分レビューの穴・塞がっていない検算（closed=false）・1 回目だけ修正差分の腕で証拠にならない物。
+    """n 回目の手直しが答える義務の key——delta_owed が今の周に置いた値だけ（前の周の値は読まない）。
     手直しを起こす条件（delta_faces_open）・手直しの答え合わせ（delta_fix_output）がここから引き、答えは _declared_faces で次の周へ渡る"""
-    rv = b.output_of_round(DELTA_PASSES[n][1], b.round) or {}
-    owed = {f["key"] for f in rv.get("faces") or []} | {c["key"] for c in rv.get("checks") or [] if c["closed"] is False}
-    return owed | (_gate_gaps(b) if n == 1 else set())
+    v = b.loop_state.get(DELTA_PASSES[n].owed_key) or {}
+    return {r["key"] for r in v.get("rows") or []} if v.get("round") == b.round else set()
 
 
 def fix_delta_nonempty(b):
@@ -354,12 +385,17 @@ def delta_review2_due(b):
 
 
 def _gate_gaps(b):
-    """修正差分の腕（p3.delta_gates）のうち覆いの証拠にならないもの（赤を見ていない・対照の緑が無い・当たりの証拠が無い）の key。
+    """修正差分の腕（p3.delta_gates）のうち覆いの証拠にならないもの（赤を見ていない・対照の緑が無い・当たりの証拠が無い）——義務の行（key は arm:<腕>）。
     手直しの節は、修正差分のレビューの穴と同じくこの key ごとに答える——読み役の目では『新しい分岐に腕が在るか』を拾えなかった
     （実測 2026-09-24: 4 周目の判定が、前の周の修正前後の目の 3 分岐に腕が無いのを block で挙げた。差分レビューは 3 点しか見ない）"""
     out = b.output_of_round("p3.delta_gates", b.round) or {}
-    return {f"arm:{a['arm']}" for a in out.get("arms") or []
-            if not (a["red_confirmed"] and a["control_green"] and not blank(a.get("hit_evidence"), 10))}
+    rows = []
+    for a in out.get("arms") or []:
+        lack = [w for w, ok in (("赤", a["red_confirmed"]), ("対照の緑", a["control_green"]),
+                                ("当たりの証拠", not blank(a.get("hit_evidence"), 10))) if not ok]
+        if lack:
+            rows.append({"key": f"arm:{a['arm']}", "from": "p3.delta_gates", "text": f"{'・'.join(lack)}が無い" + (f"（{a['note']}）" if a.get("note") else "")})
+    return rows
 
 
 def delta_faces_open(b):
@@ -374,7 +410,7 @@ def delta2_faces_open(b):
 
 def delta_fixed(b):
     """修正差分の穴を今の周に直したか（cond の builtin）——直した手直しにだけ、もう 1 回差分レビューを当てる"""
-    return any(r["handled"] == "fixed" for r in (b.output_of_round("p3.delta_fix", b.round) or {}).get("handled") or [])
+    return any(r["handled"] == "fixed" for r in (b.output_of_round(DELTA_PASSES[1].fix, b.round) or {}).get("handled") or [])
 
 
 def rejudge_exhausted(b):
@@ -501,9 +537,9 @@ def _take_diff(b, suffix=""):
     役は『差分が無い』と『渡し損ねた』を区別できない）。同じ 3 行を 2 か所に置くと片方だけ直る、と
     書いた注記の隣で、まさにそれが起きていた。
 
-    `suffix` は写しの名前だけを変える——**周の基準点（diff-r<N>.patch）は P1 の頭が書いた 1 本きり**で、
-    _files_changed_since が次の周の持ち越しの無効化に使う。上書きすると、修正した所を見た素材が
-    carried_over のまま前の周の主張を運ぶ。
+    `suffix` は写しの名前だけを変える——**周の頭の版（head_revs[N]）を記録するのは接尾辞の無い回だけ**で、
+    _files_changed_since が次の周の持ち越しの無効化に使う（前の周の頭の版と今の木の差）。-after-fix の回がそれを
+    書き換えると、修正した所を見た素材が carried_over のまま前の周の主張を運ぶ。
     """
     ls = b.loop_state
     base = b.record.get("base")
@@ -512,9 +548,9 @@ def _take_diff(b, suffix=""):
     # git の失敗（None）は全部「測れない」で止める。`or ""` で空文字に潰すと『取れない』と『変化なし』が
     # 同じ値になり、保護も件数も黙って通る（util.git の契約は「None は分からない。合格に倒すな」）。
     # numstat 1 本で変更ファイルと行数の両方を取る（name-only と shortstat の 2 プロセスは冗長）。
-    # 対象差分は**生バイトで 1 度だけ**引く（写し・突合の sha・空の検査の 3 つが同じ値を使う）。
+    # 対象差分は**生バイトで 1 度だけ**引く（写しと空の検査が同じ値を使う。前後の突合は版の木の id で見る）。
     # **版を先に固め、差分は BASE → 版で取る。** 作業ツリーとの diff は未追跡の新規ファイルを落とすので、採点する版
-    # （一時 index に add -A）と写しの世界が割れ、新設のプロンプト 6 本が P1 の役に 1 本も渡らなかった（実測 2026-09-24 の 4 周目）。
+    # （本物の index の写しに add -A）と写しの世界が割れ、新設のプロンプト 6 本が P1 の役に 1 本も渡らなかった（実測 2026-09-24 の 4 周目）。
     # 写し・作業ツリーの前後の突合・周をまたぐ変更の検出は、全部この 1 つの版から引く
     try:
         snap = _freeze_revision(b)
@@ -533,10 +569,8 @@ def _take_diff(b, suffix=""):
         return {"ok": False, "problems": [f"対象差分が空（git diff {base} が 0 バイト）——{why}"]}
     names, ins, dels, nfiles = numstat_totals(numstat)
     f = b.dir / f"diff-r{b.round}{suffix}.patch"
-    # **写しは生バイトで書く。** 復号した str を UTF-8 で書き戻すと、復号できないバイトが U+FFFD（UTF-8 で 3 バイト）
-    # に化けるので、生バイトで読み直す側（_files_changed_since）と永久に一致しない——誰も触っていない周でも
-    # 「変わった」と出て prev_fix_touched が恒真になり、再発火の条件分けが効かず prev_fix_source だけが
-    # 「実測」と名乗り続けた（実測 2026-09-13）。
+    # **写しは生バイトで書く。** 役が読む写しを git の出力と 1 バイトも違えない（復号した str を UTF-8 で書き戻すと、
+    # 復号できないバイトが U+FFFD に化ける）。周をまたぐ変更の検出はもう写しを読み直さず、固めた版どうしの木の差で見る
     f.write_bytes(raw_diff)
     changed = [x for x in names.splitlines() if x.strip()]
     cf = b.dir / f"changed-r{b.round}{suffix}.txt"
@@ -577,7 +611,7 @@ def _freeze_revision(b):
     # **一時 index の上で組み立てる。** 以前は git stash create を使っていたが、この経路は
     # **このループの主経路で必ず落ちる**——p0.base が未追跡の新規ファイルに `git add -N` を指示しており、
     # intent-to-add の index では stash create も write-tree も非 0 で返る（実測 r10: 新規 2 ファイルを
-    # 載せた周で P1 の頭が止まった）。本物の index を避けて一時 index に `add -A` すれば、
+    # 載せた周で P1 の頭が止まった）。本物の index を一時 index に写してから `add -A` すれば、
     # intent-to-add は普通の追加として materialize され、**未追跡の新規ファイルも版に載る**
     # ——stash create は未追跡を既定で落とすので、参照だけが差分に載って本体が載らない形になっていた（同 r10）。
     # 分岐を残さず 1 本にしてあるのは、「どちらの道を通ったか」で版の中身が変わる形を作らないため。
@@ -588,13 +622,30 @@ def _freeze_revision(b):
 
 
 def _worktree_tree():
-    """作業ツリーの今の姿の木の id（未追跡の新規ファイルも含め、.gitignore の対象は除く）。固められなければ Reject。
-    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む"""
+    """作業ツリーの今の姿の木の id（未追跡の新規ファイルも含め、追跡していない .gitignore の対象は除く）。固められなければ Reject。
+    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。
+
+    **本物の index を一時 index に写してから** `add -A` する。空の一時 index から始めていたとき、追跡中だが .gitignore に
+    当たるファイルは `add -A` に拾われず、版から落ちて『削除』に見えた（実測 2026-09-25: 別のリポジトリの run で、判定役が
+    これを根拠に誤った [block] を出した）。写しは stat の情報も持つので、`add -A` は変わったファイルだけをハッシュする。
+    写しの上で `--really-refresh` を打つのは assume-unchanged の印を外すため——印を持ったままだと、git はそのファイルを
+    見ずに古い中身で版を作る。本物の index は読むだけで書かない"""
     tmp = tempfile.mkdtemp(prefix="graphloops-index-")
-    env = {"GIT_INDEX_FILE": str(pathlib.Path(tmp) / "index")}
+    idx = pathlib.Path(tmp) / "index"
+    env = {"GIT_INDEX_FILE": str(idx)}
     try:
-        if git("add", "-A", env=env) is None:
-            raise Reject("この周に採点する版を固定できない（一時 index への git add -A が失敗した）"
+        real = git("rev-parse", "--path-format=absolute", "--git-path", "index")
+        if real is None or not real.strip():
+            raise Reject("この周に採点する版を固定できない（本物の index の場所を git rev-parse --git-path で引けない）"
+                         "——git 2.31 以上か、リポジトリの中で呼んでいるかを確かめよ")
+        try:
+            shutil.copy2(real.strip(), idx)   # 時刻ごと写す——index の時刻が新しくなると、同じ秒に書き換えたファイル（racy git）を綺麗と見誤る
+        except FileNotFoundError:
+            pass   # index がまだ無い（init の直後で 1 度も add していない）＝追跡中のファイルが無いので、空から始めて落ちる物が無い
+        except OSError as e:
+            raise Reject(f"この周に採点する版を固定できない（本物の index を写せない: {e}）")
+        if git("update-index", "-q", "--really-refresh", env=env) is None or git("add", "-A", env=env) is None:
+            raise Reject("この周に採点する版を固定できない（一時 index への git update-index / add -A が失敗した）"
                          "——git が動くか、作業ツリーが読めるかを確かめよ")
         tree = git("write-tree", env=env)
         if tree is None or not tree.strip():
@@ -605,7 +656,7 @@ def _worktree_tree():
 
 
 def _snapshot(msg):
-    """作業ツリーの今の姿（未追跡の新規ファイルも含め、.gitignore の対象は除く）を commit 1 つに固めて返す。固められなければ Reject"""
+    """作業ツリーの今の姿（未追跡の新規ファイルも含め、追跡していない .gitignore の対象は除く）を commit 1 つに固めて返す。固められなければ Reject"""
     tree = _worktree_tree()
     # HEAD が無い（commit が 1 つも無い）リポジトリでは親を付けない。**None と空を混ぜない**
     # ——失敗を「親が無い」に潰すと、履歴の在るリポジトリで根なしの版を採点することになる
@@ -627,8 +678,9 @@ def fix_delta(b, nid):
     修正後の姿は採点する版と同じ手続き（_snapshot）で固める——未追跡の新規ファイルも載り、比べる 2 つの版の世界が揃う。
     """
     # 1 回目は周の頭に固めた版から、2 回目（手直しの差分）は 1 回目に固めた修正後の姿から
-    key = DELTA_PASSES[DELTA_PASS_OF[nid]][0]
-    rev = b.loop_state.get("reviewed_revision") if key == "fix_delta" else (_delta_of(b, 1) or {}).get("rev")
+    n = DELTA_PASS_OF[nid]
+    key = DELTA_PASSES[n].state_key
+    rev = b.loop_state.get("reviewed_revision") if n == 1 else (_delta_of(b, n - 1) or {}).get("rev")
     if not rev:
         return {"ok": False, "problems": [f"{nid}: 差分の起点の版が無い（1 回目は P1 の頭で、2 回目は p3.fix_delta で固める）"]}
     try:
@@ -647,7 +699,7 @@ def fix_delta(b, nid):
 
 
 def worktree_snapshot(b, nid):
-    """P1 の前: 作業ツリーの写しと、対象差分（git diff <BASE>）を機械が取る。回す側に貼らせない。"""
+    """P1 の前: この周に採点する版を固め、対象差分（BASE → 版）と、前後の突合の基準（porcelain・stash・版の木の id）を機械が取る。回す側に貼らせない。"""
     ls = b.loop_state
     stash = git("stash", "list")
     if stash is None:
@@ -662,23 +714,25 @@ def worktree_snapshot(b, nid):
     d = _take_diff(b)
     if not d["ok"]:
         return d
-    # diff 本文の sha も突合に入れる。porcelain は状態コードとパスだけなので、**既に ' M' のファイルの
+    # 固めた版の木の id も突合に入れる。porcelain は状態コードとパスだけなので、**既に ' M' のファイルの
     # 中身を差し替えても検知しない**——レビュー対象は定義上ぜんぶ変更済みなので、これが無いと保護は
-    # 対象そのものに効かない（agents/investigator.md はこの突合を「担保」と名乗っている）。
-    # 突合の sha は**生バイト**から取る（貼る用の diff は replace 復号でよい）——replace は復号できないバイトを
-    # 種類に依らず U+FFFD 1 文字に写すので、等長の非 UTF-8 書き換えが同じ sha になり、この腕が porcelain と
-    # 同じ盲点に戻っていた（実測 2026-09-13）。生バイトが取れない場（git 不在）は None で「測れない」側に倒れる
+    # 対象そのものに効かない（agents/investigator.md はこの突合を「担保」と名乗っている）。木の id は中身のハッシュなので、バイト単位の書き換えも拾う
     tree = git("rev-parse", f"{d['rev']}^{{tree}}")
     if tree is None:
         return {"ok": False, "problems": ["固めた版の木の id が取れない——作業ツリーの保護（前後の突合）ができない場所からは回せない"]}
     ls["tree_before"] = {"porcelain": snap, "stash": stash.strip(), "tree": tree.strip()}
+    # ゲートの実効性の自動の腕の起点は前の周の頭の版——前の周の修正と、1 回目・2 回目の手直しが足した分岐を次の周の頭で全部撃つ
+    # （2 回目の手直しは同じ周に撃たれないので、起点が周の頭のままだと、どの周の自動の腕にも入らなかった）。
+    # **引数は組んだまま渡す**——値の有無で撃ち方を変える判断を役の散文に残すと、不在の語がそのまま引数に貼られる
+    prev = (ls.get("head_revs") or {}).get(str(b.round - 1))
+    ls["gate_auto_args"] = f"--auto {prev}" if prev else ""
     return {"ok": True, "diff_file": d["diff_file"], "changed_files": d["changed_files"], "stat": d["stat"]}
 
 
 def worktree_compare(b, nid):
     """P1 の後: 作業ツリーが変わっていないこと（どの道具が汚したかを当てるのでなく機械で突き合わせる）。
 
-    **射程は git が映す範囲だけ**——porcelain・stash・diff の sha はいずれも .git/ 配下・.gitignore 対象・
+    **射程は git が映す範囲だけ**——porcelain・stash・版の木の id はいずれも .git/ 配下・追跡していない .gitignore 対象・
     リポジトリの外（$HOME 等）を映さない。役が .git/hooks/ や ~/.claude/settings.json を書いても緑で通る。
     これは**事故の検知**であって権限の強制ではない（この run 自身の生成物 .git/graphloops/… も射程の外）。
     走らせなかった素材の欄も、ここで機械が埋める（条件外＝not_applicable／持ち越し＝carried_over／
@@ -686,9 +740,6 @@ def worktree_compare(b, nid):
     ls = b.loop_state
     before = ls.get("tree_before") or {}
     snap = b.porcelain()
-    # shortstat は diff 本文の sha に包含される（本文が同じなら行数も同じ）ので取り直さない——subprocess 1 本分
-    # diff は**生バイトで 1 度だけ**引く。以前は text 版も引いていたが、その値は None 検査にしか使われず、
-    # 突合の sha は生バイトから作っていた——927 KB を読む subprocess 1 本が誰にも渡らず捨てられていた
     # 中身は採点する版と同じ手続きで固めた木の id で比べる（作業ツリーとの diff は未追跡を落とし、版の世界と割れる）
     try:
         tree = _worktree_tree()
@@ -820,10 +871,10 @@ def fill_materials(b):
 def _retake_for_reviews(b):
     """P3 の後の姿を、R1〜R4 に渡すためだけに写し直す。**取り方は _take_diff＝P1 の頭と同じ 1 本。**
 
-    **周の基準点（diff-r<N>.patch）は上書きしない。** あれは周をまたぐ比較の基準でもあり
-    （_files_changed_since が『前の周の P1 の写し』と今を比べて、前の周の P3 が触ったファイルを
-    出す）、上書きすると次の周の持ち越しの無効化が効かなくなる——修正した所を見た素材が
-    carried_over のまま前の周の主張を運ぶ。腕は台本が持つ（『前の周の P3 が触ったので走り直す』）。
+    **周の頭の版（head_revs[N]）は書き換えない**（_take_diff は接尾辞の在る回に head_revs を触らない）。あれは周をまたぐ
+    比較の基準で（_files_changed_since が前の周の頭の版と今の木を比べて、前の周の P3 が触ったファイルを出す）、
+    書き換えると次の周の持ち越しの無効化が効かなくなる——修正した所を見た素材が carried_over のまま前の周の主張を運ぶ。
+    腕は台本が持つ（『前の周の P3 が触ったので走り直す』）。
 
     なので別の名前（-after-fix）に写し、R の節にはそちらを渡す。P1 の頭で凍結した姿しか渡さないと、
     R は**修正前の姿しか見られない**（実測 2026-09-16: 2 周とも R1 の judge が『渡された写しは
@@ -891,6 +942,18 @@ def assemble(b, nid):
         ls.setdefault("drift_notes", []).append({"round": b.round, "text": fix.get("premise_drift_note", "")})
     return {"ok": True, "open_units": ls["open_units"], "r1_refire": ls["r1_refire"], "r2_refire": ls["r2_refire"],
             "lines_ratio": ratio, "ledger_changed": ls["ledger_changed"], "purpose_known": ls["purpose_known"]}
+
+
+def _stuck_unrouted(b, V, out):
+    """履歴を読む判定の節（reads に loop.prev_blocks）で、同じ [block] が 3 周続けて在るのに振り分けた跡の無いユニットを拒む。
+    式は検証器の stuck_unlisted を import して前の 2 周の記録とこの返答に当てる（写さない）。以前は周の記録の段（p4.record）で
+    初めて落ち、その周の判定の節は done 済みで返させ直せなかった（実測 2026-09-24 の 4 周目。判定のプロンプトにも規則が無かった）"""
+    prev = [read_json(p) for p in (b.dir / "rounds" / f"round-{n}.json" for n in (b.round - 2, b.round - 1)) if p.is_file()]
+    if len(prev) < 2:
+        return []
+    cand = {"round": b.round, "units": out.get("units") or [], "questions": out.get("questions") or []}
+    return [f"同じ [block] '{k[:60]}' が 3 周続けて在る（2 周連続の残存＝stuck）——処方の誤りか設計の問題かを振り分け、"
+            "このユニットを origin に持つ未決の問い（stuck か fork）を questions に載せよ" for _, k in V.stuck_unlisted(prev + [cand])]
 
 
 def _prev_round_record(b):
@@ -1080,6 +1143,7 @@ def converge(b, nid):
 
 
 BUILTINS = {"worktree_snapshot": worktree_snapshot, "worktree_compare": worktree_compare, "assemble": assemble, "fix_delta": fix_delta,
+            "delta_owed": delta_owed,
             "record_round": record_round, "converge": converge}
 
 
@@ -1368,6 +1432,8 @@ def judge_output(b, nid, out, item):
                         "前の周の削除候補を数える口が消える（graph を直せ）")
         else:
             errs += _carried_r1_accounted(b, out)
+    if "loop.prev_blocks" in (nd.get("reads") or []):
+        errs += _stuck_unrouted(b, V, out)
     if errs:
         raise Reject("judge の返答が記録の語彙に合わない（judge に返させ直す）: " + "; ".join(errs))
     # engine が 0 件と数えた単位（在るべき物が無い型か、問いの取りこぼし）を、修正の側が読める値で残す——note の文だけだと、
@@ -1837,7 +1903,7 @@ def _claimed_closed(b, n):
     """n 回目の差分レビューが検算する『塞いだ』と言われた穴の key——1 回目は修正が absorbed と答えた事前審査の穴、2 回目は手直しが fixed と答えた穴"""
     if n == 1:
         return {r["key"] for r in (b.output_of_round("p3.fix", b.round) or {}).get("plan_faces") or [] if r["handled"] == "absorbed"}
-    return {r["key"] for r in (b.output_of_round("p3.delta_fix", b.round) or {}).get("handled") or [] if r["handled"] == "fixed"}
+    return {r["key"] for r in (b.output_of_round(DELTA_PASSES[n - 1].fix, b.round) or {}).get("handled") or [] if r["handled"] == "fixed"}
 
 
 def delta_review_output(b, nid, out, item):
@@ -2054,9 +2120,9 @@ def _grep_count(cite, rev):
     **-e で語だと明示する**——`-- <語>` の位置に置くと git は版を検索語・語を path として読み、0 件が返る
     （実測 2026-09-21: 台本が全件赤になった）。
 
-    **`:(top)` でリポジトリのルート基準にする。** engine は `git -C <init した場所>` で打つので、pathspec を
-    持たない grep はサブディレクトリから起こした run では起点の配下しか数えない——修正側はルート基準なので、
-    指摘側だけが狭い世界を数えていた。版は周の頭に必ず固まる（_freeze_revision）ので、版の無い枝は持たない。
+    **ルート基準にするのは、ルート（_repo_root）で走らせること**（修正側と同じ世界を数える）。argv の `:(top)` は、
+    ルートで走らせる今は効かない——cwd がルートでなくなったときの二重の備えとして残す（tests/mutations.json の dropped と
+    同じ決定）。版は周の頭に必ず固まる（_freeze_revision）ので、版の無い枝は持たない。
 
     **走らせ方は engine の grep（数え直しの問いと同じ 1 本）**——時間切れ・出力の上限・標準エラーへの書き込み・
     1 でない非 0 を『読めなかった』として理由付きで返し、一致なしの exit 1 だけを 0 件にする。git() の None は
@@ -2079,9 +2145,9 @@ def _in_version(rels):
     受理すると、柵が塞ごうとした『指し先の無い案内板』を柵自身が合格にした（再現: simulate_review.py の主経路の腕
     『.gitignore に当たる指し先は『版に入らない』で拒む』——数える世界を広げると rc=0 になる）。
 
-    `--cached --others --exclude-standard` は本物の index＋.gitignore に当たらない未追跡で、周の頭に固める版（空の一時
-    index への add -A）とは 2 点で違う: index に残る消したファイル（呼び元が作業ツリーの通常ファイルも要求して落とす）と、
-    force-add した .gitignore の対象（こちらは在ると言うが、固める版には入らない——まだ塞いでいない）。`--full-name` は git の cwd がサブディレクトリでも
+    `--cached --others --exclude-standard` は本物の index＋.gitignore に当たらない未追跡で、周の頭に固める版（本物の index の
+    写しへの add -A）とは 1 点で違う: index に残る消したファイル（呼び元が作業ツリーの通常ファイルも要求して落とす）。
+    force-add した .gitignore の対象は、どちらの世界にも入る（_worktree_tree が本物の index を写すので）。`--full-name` は git の cwd がサブディレクトリでも
     ルート相対で返させるため、`--eol` の `w/-text` がバイナリの印。申告の数に依らず子プロセスは 1 本。
     """
     got = git("ls-files", "-z", "--full-name", "--cached", "--others", "--exclude-standard", "--eol",

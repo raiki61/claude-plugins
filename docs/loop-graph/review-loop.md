@@ -98,7 +98,7 @@ flowchart TB
 実走から上がった残存所見の正本は `docs/feedback/review-loop-remaining-findings.md`（doctor / firstread の同名文書が `docs/` 直下に在るのと同じ役割。受け取った申し送りを溜める棚として`docs/feedback/` を新しく立てており、既存 2 本を移すかは未決）。以下はこの図から直接見えるもの。
 
 - 暴走ガード（5 ラウンド）は散文版では散文だけで、検証器にも上限の検査は無い。実行版（graphloops）は rules の `converge` が先頭で `round >= max_rounds` を見て止める（全分岐に掛かる。以前は converged 分岐の早期 return が飛ばしていた）
-- P1 前後の作業ツリー突合は散文版には記録の欄が無い（doctor の `mod_check`、firstread の `git_status_match` に相当するものが無い）。実行版は機械の節 `p1.worktree_before` / `p1.worktree_after` が porcelain・stash・diff の sha を突き合わせ、違えば止める（記録の `process.git_mismatches`）。writer が自分の変更として受理したら、審査対象の写しを取り直し、変更前の姿を見て書き終えた材料の節を待ちに戻して撃ち直す
+- P1 前後の作業ツリー突合は散文版には記録の欄が無い（doctor の `mod_check`、firstread の `git_status_match` に相当するものが無い）。実行版は機械の節 `p1.worktree_before` / `p1.worktree_after` が porcelain・stash・固めた版の木の id を突き合わせ、違えば止める（記録の `process.git_mismatches`）。writer が自分の変更として受理したら、審査対象の写しを取り直し、変更前の姿を見て書き終えた材料の節を待ちに戻して撃ち直す
 - 並行 PR 衝突チェックの 6 段は、検証器は素材欄の有無しか見ない
 - 検証器が塞ぐ「聞く時」の帰属は 1 周で通る経路だけ。2 周かければ帰属を作れると検証器自身が書いている。守るのは「台帳を書くのが judge であること」と「R1 が台帳を監査すること」の 2 枚
 - 担当 PR へのコメント申し送り（`gh` の投稿）には、`gates` プラグインを入れている環境でその門番が掛かる

@@ -31,6 +31,8 @@
   "writer",
   "skill"
  ],
+ "deadline_minutes": 30,
+ "deadline_note": "instance の期限（分）の既定。節の deadline_minutes が上書きする。値はループ固有なので graph だけが持ち、engine は emitted_at に足して deadline_at を出す（next・status の overdue、loop.py wait の exit 3）。値は実測で決めていない目安: 全腕を撃つ 2 節は、全腕を台本一式で撃つと 24 コアでも 1 時間を超えた（tests/mutate.py の注記）ので、--reuse の持ち越しを前提に 120。局所レビュー（レンズ 7 本）は 60。期限で撃てずに残った腕は証拠にならない行で返る——実走の所要時間と残りの数を測って直す",
  "deliver": {
   "path_tools": [
    "Read"
@@ -1267,7 +1269,7 @@
     "p0.base"
    ],
    "source": "P1 ＞ 局所（前後の作業ツリー突合）",
-   "does": "作業ツリーの写し（git status --short・stash list・diff --shortstat）と、対象差分 git diff <BASE> を機械が取る。回す側に貼らせない",
+   "does": "この周に採点する版を固め、対象差分（BASE → 版）と前後の突合の基準（git status --porcelain・stash list・版の木の id）を機械が取る。回す側に貼らせない",
    "outputs": [
     "loop.diff_file",
     "loop.changed_files"
@@ -1455,10 +1457,7 @@
    ],
    "na_self_ok": false,
    "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象",
-   "delegate": {
-    "model": "sonnet",
-    "why": "レンズ 7 本を起こして所見を集めるだけで、採点はしない。所見の本文を回す側の文脈に入れない"
-   }
+   "deadline_minutes": 60
   },
   "p1.consistency_bypass": {
    "stage": "P1",
@@ -2173,7 +2172,9 @@
     "loop.diff_file",
     "loop.changed_files_file",
     "record.base",
-    "inputs.cwd"
+    "inputs.cwd",
+    "node.deadline_at",
+    "loop.gate_auto_args"
    ],
    "schema": {
     "$ref": "#/$defs/gate_reply"
@@ -2265,7 +2266,8 @@
    "delegate": {
     "model": "haiku",
     "why": "tests/mutate.py で撃ち、--gate-efficacy の出力をそのまま返すだけ（撃つのに 30 分かかる）"
-   }
+   },
+   "deadline_minutes": 120
   },
   "p1.test_double_fidelity": {
    "stage": "P1",
@@ -4133,7 +4135,8 @@
     "loop.fix_delta.file",
     "loop.fix_delta.files",
     "inputs.cwd",
-    "inputs.review_rev"
+    "inputs.review_rev",
+    "node.deadline_at"
    ],
    "writes": [
     {
@@ -4145,14 +4148,29 @@
    "post_check": "gate_arms_all_red",
    "schema": {
     "$ref": "#/$defs/gate_reply"
-   }
+   },
+   "deadline_minutes": 120
+  },
+  "p3.delta_owed": {
+   "stage": "P3",
+   "run_by": "driver",
+   "builtin": "delta_owed",
+   "deps": [
+    "p3.delta_review",
+    "p3.delta_gates"
+   ],
+   "source": "P3 ＞ 修正差分の手直しが答える義務を組む",
+   "does": "差分レビューの穴・塞がっていない検算（closed=false）・証拠にならない修正差分の腕を 1 本の値（loop.delta_owed）に組む。p3.delta_fix はこの値だけを貼り、答え合わせも同じ値で行う",
+   "outputs": [
+    "loop.delta_owed"
+   ],
+   "reads": []
   },
   "p3.delta_fix": {
    "stage": "P3",
    "run_by": "writer",
    "deps": [
-    "p3.delta_review",
-    "p3.delta_gates"
+    "p3.delta_owed"
    ],
    "cond": {
     "builtin": "delta_faces_open"
@@ -4165,10 +4183,9 @@
    ],
    "prompt_file": "../prompts/review-loop/p3.delta_fix.md",
    "reads": [
-    "out.p3.delta_review.faces",
+    "loop.delta_owed",
     "loop.fix_delta.file",
-    "inputs.cwd",
-    "out.p3.delta_gates.arms"
+    "inputs.cwd"
    ],
    "writes": [
     {
@@ -4240,11 +4257,25 @@
     "$ref": "#/$defs/delta_review_reply"
    }
   },
+  "p3.delta_owed2": {
+   "stage": "P3",
+   "run_by": "driver",
+   "builtin": "delta_owed",
+   "deps": [
+    "p3.delta_review2"
+   ],
+   "source": "P3 ＞ 手直し差分の手直しが答える義務を組む",
+   "does": "差分レビューの穴・塞がっていない検算（closed=false）を 1 本の値（loop.delta_owed2）に組む。p3.delta_fix2 はこの値だけを貼り、答え合わせも同じ値で行う",
+   "outputs": [
+    "loop.delta_owed2"
+   ],
+   "reads": []
+  },
   "p3.delta_fix2": {
    "stage": "P3",
    "run_by": "writer",
    "deps": [
-    "p3.delta_review2"
+    "p3.delta_owed2"
    ],
    "cond": {
     "builtin": "delta2_faces_open"
@@ -4257,7 +4288,7 @@
    ],
    "prompt_file": "../prompts/review-loop/p3.delta_fix2.md",
    "reads": [
-    "out.p3.delta_review2.faces",
+    "loop.delta_owed2",
     "loop.fix_delta2.file",
     "inputs.cwd"
    ],

@@ -21,6 +21,25 @@ def now():
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def deadline_of(graph, node, emitted_at):
+    """instance の期限（ISO 時刻）——節の deadline_minutes、無ければ graph の最上位の既定。どちらも無ければ None（期限なし）。
+    **値はループ固有なので graph だけが持つ**（engine は足し算しかしない。Temporal の Start-To-Close Timeout を活動の側で宣言するのと同じ）"""
+    minutes = node.get("deadline_minutes", graph.get("deadline_minutes"))
+    if not minutes:
+        return None
+    return (datetime.datetime.fromisoformat(emitted_at) + datetime.timedelta(minutes=minutes)).isoformat(timespec="seconds")
+
+
+def waiting(inst, at=None):
+    """待っている instance の経過と期限——{elapsed_min, deadline_at, overdue, attempts}。**その場で計算し、盤面には書かない**"""
+    t = datetime.datetime.fromisoformat(at or now())
+    got = {"elapsed_min": int((t - datetime.datetime.fromisoformat(inst["emitted_at"])).total_seconds() // 60),
+           "attempts": inst.get("attempts", 1)}
+    if inst.get("deadline_at"):
+        got |= {"deadline_at": inst["deadline_at"], "overdue": t >= datetime.datetime.fromisoformat(inst["deadline_at"])}
+    return got
+
+
 def sha(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 

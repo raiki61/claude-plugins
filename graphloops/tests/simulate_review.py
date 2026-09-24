@@ -16,7 +16,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import types
 
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
@@ -72,7 +71,7 @@ def sh(cwd, *args):
 VOCAB_SEEN = collections.defaultdict(set)
 # 到達した語彙の数。**`!=` で見る**——下限（`<`）だと筋書きを増やしても数が動かず、増やしたつもりの
 # 周に誰も気づかない。上げるときは実測値を書く（減らすのは、語彙そのものを graph から消したときだけ）。
-VOCAB_REACHED = 113
+VOCAB_REACHED = 115
 
 
 def record_vocab(node, output):
@@ -305,7 +304,8 @@ def answers(run, scenario, rnd):
     faced = scenario == "planfaces"
     plan_rv = (rec["process"].get("plan_review") or {}) if opened else {}   # 走らなかった周の記録には前の周の値が残る
     # 事前審査の別案は残すと宣言する（planfaces）——次の周の p2.history が振り分ける経路を通すため
-    face_how = lambda k: ("declared", "別案は次の周に回す（検査用。定数の寄せは別の単位で扱う）") if k.startswith("別案") else \
+    # 入口の穴（no_add 付き）も宣言して次の周へ回す——absorbed に数えると差分レビューの検算の筋書きが 2 件に割れる
+    face_how = lambda k: ("declared", "別案は次の周に回す（検査用。定数の寄せは別の単位で扱う）") if k.startswith(("別案", "入口: 呼び元が上限を迂回")) else \
         ("absorbed", "上限の値を定数 1 つにし、入口だけが引く形で書いた（検査用）")
     now_fix = [f for f in rec["process"].get("fixes") or [] if f.get("round") == rnd]
     absorbed = [r["key"] for r in (now_fix[-1].get("plan_faces") if now_fix else []) or [] if r["handled"] == "absorbed"]
@@ -368,7 +368,10 @@ def answers(run, scenario, rnd):
                                              "removes": ["呼び元の上限の分岐"],
                                              "shrink_first": "呼び元の分岐を消すだけでは上限が掛からない経路が残るので、入口 1 か所に寄せる（検査用）"}]},
         "p2.plan_review": lambda it: ({"faces": [{"key": "写し: 上限の値を 2 か所に", "unit_keys": opened[:1], "kind": "copy", "where": "src/a.py",
-                                                  "why": "上限の値を入口と呼び元の両方に書くと、片方だけ変わる（検査用）", "severity": "block"}],
+                                                  "why": "上限の値を入口と呼び元の両方に書くと、片方だけ変わる（検査用）", "severity": "block"},
+                                                 {"key": "入口: 呼び元が上限を迂回する", "unit_keys": opened[:1], "kind": "entrance", "where": "src/a.py",
+                                                  "why": "呼び元の分岐が入口を通らずに値を渡せる（検査用）", "severity": "suggest",
+                                                  "no_add": "呼び元の分岐を消して入口 1 本にする（柵は足さない。検査用）"}],
                                        "shrink": [{"key": "別案: 定数を 1 つに", "unit_keys": opened[:1], "alternative": "上限の値を定数 1 つにして両方から引く（検査用）",
                                                    "why": "値の写しそのものが消え、柵を足さずに閉じる（検査用）"}],
                                        "reason": "案の adds 1 件のうち写しになりうる物が 1 件（検査用）"} if faced else
@@ -382,7 +385,9 @@ def answers(run, scenario, rnd):
                                                        "why": "手直しが上限の値を呼び元にもう一度書いた（検査用）"}]} if faced else
                                            {"faces": [], "faces_none": "手直しの差分の src/a.py を読み、写し・入口・ずれは無い（検査用）"}),
                                         "checks": [{"key": k, "closed": True, "why": "手直しの差分で呼び元の分岐が消えている（検査用）"} for k in fixed_now]},
-        "p3.delta_fix2": lambda it: {"handled": [{"key": "手直しの穴（検査用）", "handled": "fixed", "how": "手直しが呼び元に書いた上限の値を消し、定数だけを引く形に戻した（検査用）", "files": ["src/a.py"]}]},
+        "p3.delta_fix2": lambda it: {"handled": [{"key": "手直しの穴（検査用）", "handled": "fixed", "how": "手直しが呼び元に書いた上限の値を消し、定数だけを引く形に戻した（検査用）", "files": ["src/a.py"]}]
+                                     + [{"key": c["key"], "handled": "declared", "how": "手直しで塞がっていなかった穴は次の周の判定に回す（検査用）"}
+                                        for c in (rec["process"].get("delta_review2") or {}).get("checks") or [] if c["closed"] is False]},
         "p3.delta_fix": lambda it: {"handled": [{"key": "入口: 呼び元の上限が残る", "handled": "fixed", "how": "呼び元の分岐を消し、入口の上限だけにした（検査用）",
                                                  "files": ["src/a.py"]}]
                                     + ([{"key": "arm:上限の分岐（腕が無い）", "handled": "fixed", "how": "上限の分岐に退行を注入する腕を足し、赤を見た（検査用）",
@@ -959,6 +964,17 @@ def test_held_fork_stops_exempting():
     t2 = answers(run2, "forkesc", 2)
     r = run2.done(jd2["id"], t2["p2.diagnose"](None), agent_id="judge-1")
     check(r.returncode == 0, f"escalate に上げれば通る（rc={r.returncode}: {r.stderr[-200:]})")
+    # 履歴の再審の節は、同じ [block] が前の 2 周の記録に続けて在るのに振り分けの跡（その unit を origin に持つ問い）を落とした返答を
+    # 判定の時点で拒む（周の記録の段まで持ち越さない）。筋書きは 3 周目まで回らないので、2 周目の前に 0 周目の記録を置いて 3 周続く形にする
+    nx2 = drive(run2, "forkesc", stop_at=at("p2.history", 2))
+    hs = next(i for i in nx2["ready"] if i["node"] == "p2.history")
+    r1 = json.loads((run2.dir / "rounds" / "round-1.json").read_text(encoding="utf-8"))
+    r0 = run2.dir / "rounds" / "round-0.json"
+    r0.write_text(json.dumps({**r1, "round": 0}, ensure_ascii=False), encoding="utf-8")
+    good = answers(run2, "forkesc", 2)["p2.history"](load_item(hs))
+    r = run2.done(hs["id"], {**good, "questions": []}, agent_id="judge-1")
+    r0.unlink()
+    check(r.returncode == 1 and "3 周続けて在る" in r.stderr, f"3 周続く [block] の振り分けを落とした履歴の再審は拒む（{r.stderr.strip()[-120:]}）")
 
 
 def test_rejections():
@@ -1128,6 +1144,9 @@ def test_rejections():
     cq1 = stored["units"][1]["class_query"]
     check(cq1["total"] == 1 and "0 件" in cq1.get("note", "") and "置き換えなかった" in r.stdout,
           f"engine が 0 件を数えた単位は置き換えず、0 だったことが note と返事に残る（{cq1} / {r.stdout.strip()[-120:]}）")
+    ez = run.state().get("loop", {}).get("engine_zero") or {}
+    check(ez.get("keys") == [good["units"][1]["key"]] and ez.get("round") == 1,
+          f"engine が 0 件を数えた単位の key は、修正の側が読める値（engine_zero）にも残る（{ez}）")
     nx = run.next()
     for node in ("p2.fix_plan", "p2.plan_review"):   # 修正の前に、案とその事前審査が立つ
         it = next(i for i in nx["ready"] if i["node"] == node)
@@ -1137,7 +1156,8 @@ def test_rejections():
         nx = run.next()
     fx = next(i for i in nx["ready"] if i["node"] == "p3.fix")
     r = run.done(fx["id"], {**t["p3.fix"](None), "changes": [], "not_done": [{"unit_key": "src/a.py:f — 上限が効かない経路がある", "why": "面倒"}]})
-    check(r.returncode == 1 and "直していない" in r.stderr, "[block] を直さない writer の返答は exit 1")
+    check(r.returncode == 1 and "直していない" in r.stderr and "理由: 面倒" in r.stderr,
+          f"[block] を直さない writer の返答は exit 1 で、残した理由を拒否文に併記する（{r.stderr.strip()[-90:]}）")
     # 閉鎖の実証は自己申告——「赤を一度も見ていないのに clean」だけは機械が検算できるので拒む
     fix = answers(run, "std", nx["round"])["p3.fix"](None)
     nored = {**fix, "changes": [{**c, "closure": {**c["closure"], "sites": [{"site": s["site"], "red_seen": False} for s in c["closure"]["sites"]]}} for c in fix["changes"]]}
@@ -1417,7 +1437,7 @@ def test_fix_counts_by_engine():
     for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"]):
         subprocess.run(["git", *c], cwd=tmp, capture_output=True)
     (tmp / "u.py").write_text("BAD = 2\n", encoding="utf-8")   # 未追跡の欠陥（固定した版には入る）
-    idx = tmp.parent / (tmp.name + "-idx")
+    idx = tmp / ".git" / "gl-idx"   # 作業ツリーの外（add -A に拾われない）で、作業場と一緒に消える
     env = {**os.environ, "GIT_INDEX_FILE": str(idx)}
     subprocess.run(["git", "add", "-A"], cwd=tmp, env=env, capture_output=True)
     tree = subprocess.run(["git", "write-tree"], cwd=tmp, env=env, capture_output=True, text=True, encoding="utf-8").stdout.strip()
@@ -1428,7 +1448,7 @@ def test_fix_counts_by_engine():
     from engine.util import Reject  # noqa: E402
     how = {"patterns": ["BAD"], "paths": ["."], "count": "lines"}
     unit = {"key": "k", "label": "block"}
-    board = tmp.parent / (tmp.name + "-board")
+    board = tmp / ".git" / "gl-board"   # 本物の run と同じく git dir の下（作業ツリーの外）——作業場と一緒に消える
     board.mkdir()
     b = types.SimpleNamespace(round=1, loop_state={}, dir=board, rd={"instances": {}}, nodes={}, output_of_round=lambda n, r: None,
                               state={"validator": str(VALIDATOR), "inputs": {"review_rev": snap}},
@@ -1458,6 +1478,31 @@ def test_fix_counts_by_engine():
     after = (b.loop_state.get("coverage_after") or {}).get("items") or [{}]
     check(got is None and after[0].get("total") == 2 and after[0].get("after") == 0 and after[0].get("counts") == "defects",
           f"修正の件数: 両方直せば通り、修正前の母数は固定した版で数えた 2・向きは判定者の defects（{got} / {after[0]}）")
+    # 母数の一部だけ閉鎖を実証した修正は、残した理由（remaining）が在れば通る——黙って残すのだけを拒む
+    got = run({**change, "closure": {"sites": [{"site": "t.py:1", "red_seen": True}]},
+               "coverage": {**change["coverage"], "remaining": "u.py の側は別の単位で直す（検査用）"}})
+    check(got is None, f"修正の件数: 母数 2 のうち 1 site だけ実証しても、残した理由が在れば通る（{(got or '通った')[:80]}）")
+    # 判定者の問いを engine が 0 件と数えた単位（engine_zero）は、判定者の書いた数を母数の下限にしない。今の周の記録だけが効く
+    b.record["process"]["diagnosis"]["units"] = [{**unit, "class_query": {"how": how, "counts": "defects", "total": 5}}]
+    got = run(change)
+    check(got and "判定者が数えた母数は 5" in got, f"修正の件数: 判定者の母数より狭い問いは、理由が無ければ拒む（{(got or '通った')[:80]}）")
+    b.loop_state["engine_zero"] = {"round": 1, "keys": ["k"]}
+    got = run(change)
+    check(got is None, f"修正の件数: engine が判定時に 0 件と数えた単位は、判定者の数で狭めたと言わない（{(got or '通った')[:80]}）")
+    b.loop_state["engine_zero"] = {"round": 0, "keys": ["k"]}
+    got = run(change)
+    check(got and "判定者が数えた母数は 5" in got, f"修正の件数: 前の周の engine_zero は今の周に効かない（{(got or '通った')[:80]}）")
+    b.loop_state.pop("engine_zero")
+    b.record["process"]["diagnosis"]["units"] = [{**unit, "class_query": {"how": how, "counts": "defects", "total": 2}}]
+    # 修正前の数を engine が取れない回は、その理由で止める（数えられない件数で柵を通さない）
+    real = rules._run_query
+    for side in ("修正前", "修正後"):
+        rules._run_query = lambda bb, where, *a, **k: (None, f"検査用: {side}を数えられない") if side in where else real(bb, where, *a, **k)
+        try:
+            got = run(change)
+        finally:
+            rules._run_query = real
+        check(got == f"検査用: {side}を数えられない", f"修正の件数: {side}を数えられない回は、その理由で拒む（{(got or '通った')[:80]}）")
     # 削除で解く修正: 数える問いが名指ししたファイルを消しても、修正後の数え直しは下調べで拒まない（正当な 0 件）
     (tmp / "u.py").unlink()
     got = run({**change, "coverage": {"how": {**how, "paths": ["u.py", "t.py"]}},
@@ -1494,6 +1539,12 @@ def test_graphcheck_review_shapes():
     broken(lambda b: b["nodes"]["p4.ci"]["delegate"].__setitem__("model", "hiku"), "delegate は", "graphcheck: 任せ先のモデルの綴り違い")
     broken(lambda b: b["nodes"]["p2.diagnose"].__setitem__("delegate", {"model": "haiku", "why": "検査用"}), "回す側の節（runners）にだけ",
            "graphcheck: 役の節に任せ先は書けない")
+    broken(lambda b: b["nodes"]["p1.local_review"].__setitem__("delegate", {"model": "sonnet", "why": "検査用"}), "skills を持つ節に delegate は書けない",
+           "graphcheck: skill を呼ぶ節を任せ先に渡せない（入れ子の委任は完了の知らせが届かない）")
+    broken(lambda b: b["nodes"]["p1.gate_efficacy"].__setitem__("deadline_minutes", 0), "deadline_minutes は 1 以上の整数",
+           "graphcheck: 期限は 1 以上の整数（分）")
+    broken(lambda b: b.pop("deadline_minutes") and b["nodes"]["p3.delta_gates"].pop("deadline_minutes"), "期限（deadline_minutes）が節にも",
+           "graphcheck: {{node.deadline_at}} を貼る節に期限が無い")
     broken(lambda b: cq(b, "p2.rejudge").__setitem__("how", {"$ref": "engine#/count_how", "type": "string"}), "他の語が並んでいる",
            "graphcheck: 定義を上書きする $ref")
     broken(lambda b: b["$defs"].__setitem__("loop", {"type": "object", "properties": {"x": {"$ref": "#/$defs/loop"}}})
@@ -2189,16 +2240,14 @@ def test_frozen_review_revision():
     # 実際に起きうる組を並べて、**どれが来ても「その周の作業を含まない版」に倒れない**ことを見る
     mod.Reject = RuntimeError
 
-    def _git(spec):
-        return lambda *a: spec.get(a[0] if a else "", spec.get("*"))
-
     # **腕が食わせる値は実物の git から取る。** 手で組んでいたとき『2 つとも成功して空を返した』
     # という実物には在りえない組を食わせ、実物が通る枝でなく別の枝を通って緑になっていた（実測 r10）。
     # ここでは本物のリポジトリを 3 状態作って、各副コマンドの終了コードを実測し、
     # util.git の契約（非 0 → None）に写してから腕に食わせる。
     def _real(state):
-        """本物の git を 3 状態で打ち、{副コマンド: util.git が返す値} を作る。"""
-        r = pathlib.Path(tempfile.mkdtemp(prefix="gl-real-"))
+        """本物の git を 3 状態で打ち、{副コマンド: util.git が返す値} を作る。手順は _worktree_tree と同じ
+        （本物の index の場所を引き、一時 index に写し、refresh・add -A・write-tree）。"""
+        _td, r = parallel.workspace("gl-real-")   # 持ち手が例外の経路でも消す（関数の終わりまで _td を握る）
         sh(r, "git", "init", "-q", ".")
         sh(r, "git", "config", "user.email", "t@example.com")
         sh(r, "git", "config", "user.name", "t")
@@ -2208,9 +2257,17 @@ def test_frozen_review_revision():
         if state == "intent-to-add":
             (r / "n.txt").write_text("new\n", encoding="utf-8")
             sh(r, "git", "add", "-N", "n.txt")
-        out, idx = {}, pathlib.Path(tempfile.mkdtemp(prefix="gl-idx-")) / "index"
+        out = {}
+        idx = r / ".git" / "gl-idx" / "index"   # 作業ツリーの外（add -A に拾われない）で、持ち手と一緒に消える
+        idx.parent.mkdir()
         env = {**os.environ, "GIT_INDEX_FILE": str(idx)}
-        for name, argv, use_env in (("add", ["add", "-A"], True), ("write-tree", ["write-tree"], True),
+        q = subprocess.run(["git", "-C", str(r), "rev-parse", "--path-format=absolute", "--git-path", "index"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        out["git-path"] = q.stdout if q.returncode == 0 else None
+        if pathlib.Path((out["git-path"] or "").strip()).is_file():
+            shutil.copyfile(out["git-path"].strip(), idx)
+        for name, argv, use_env in (("update-index", ["update-index", "-q", "--really-refresh"], True),
+                                    ("add", ["add", "-A"], True), ("write-tree", ["write-tree"], True),
                                     ("rev-parse", ["rev-parse", "HEAD"], False)):
             q = subprocess.run(["git", "-C", str(r), *argv], capture_output=True, text=True,
                                encoding="utf-8", errors="replace", env=env if use_env else None)
@@ -2224,11 +2281,11 @@ def test_frozen_review_revision():
             out["commit-tree"] = q.stdout if q.returncode == 0 else None
         else:
             out["commit-tree"] = None
-        rm(r)
         return out
 
     def _git(spec):
-        return lambda *a, **k: spec.get(a[0] if a else "", spec.get("*"))
+        # rev-parse は 2 つの問い（index の場所と HEAD）に使われるので、index の場所だけ別の鍵で答える
+        return lambda *a, **k: spec.get("git-path" if "--git-path" in a else (a[0] if a else ""), spec.get("*"))
 
     real = {st: _real(st) for st in ("no-commit", "clean", "intent-to-add")}
     # **実物が返す形をそのまま記録に残す**（次に実装が変わった周、腕が古いことがここで分かる）
@@ -2242,6 +2299,9 @@ def test_frozen_review_revision():
         ("intent-to-add が在る（実物の値。主経路で必ず起きる）", real["intent-to-add"], "版"),
         ("git そのものが動かない", {"*": None}, "止まる"),
         ("一時 index への add が失敗", {**real["clean"], "add": None}, "止まる"),
+        ("本物の index の場所が引けない", {**real["clean"], "git-path": None}, "止まる"),
+        ("本物の index の場所が空で返る", {**real["clean"], "git-path": "\n"}, "止まる"),
+        ("一時 index の refresh が失敗", {**real["clean"], "update-index": None}, "止まる"),
         ("write-tree が木を返さない", {**real["clean"], "write-tree": None}, "止まる"),
         ("commit-tree が版を返さない", {**real["clean"], "commit-tree": None}, "止まる"),
     ]
@@ -2363,6 +2423,9 @@ def test_freeze_revision_on_real_intent_to_add():
     check("src/new.py" in listed, f"**未追跡だった新規ファイルがその版に載る**（{listed}）")
     got = sh(run.repo, "git", "grep", "-F", "-cI", "-e", "NEW_MARKER", rev, "--")
     check(got.returncode == 0 and ":1" in got.stdout, f"その版に対して git grep が打てる（{got.stdout.strip()[:40]}）")
+    blob = sh(run.repo, "git", "rev-parse", f"{rev}:src/new.py").stdout.strip()
+    check(blob == sh(run.repo, "git", "hash-object", "src/new.py").stdout.strip(),
+          "intent-to-add のファイルは作業ツリーの今の中身で版に載る（本物の index を写しても i-t-a の扱いは変わらない）")
     # **利用者の index を書き換えない。** 一時 index の指定を落としても版の固定自体は成功する
     # （本物の index への `add -A` が intent-to-add を普通の追加に変えてしまうため）ので、
     # 「止まらないこと」だけ見ていた腕は緑のままだった（実測 r10）。**害は成否でなく副作用の側に在る**
@@ -2371,6 +2434,71 @@ def test_freeze_revision_on_real_intent_to_add():
           "**版を固定しても利用者の index は動かない**（採点は読むだけ）")
     rm(run.tmp)
 
+
+
+def test_freeze_revision_keeps_tracked_ignored():
+    """**追跡中だが .gitignore に当たるファイルは、採点する版から落ちない。**
+
+    空の一時 index に `add -A` していたとき、`git add -f` で追跡したファイルは `add -A` に拾われず、版から落ちて
+    『削除』に見えた（実測 2026-09-25: 別のリポジトリの run で、判定役がこれを根拠に誤った [block] を出した）。
+    本物の index を一時 index に写してから `add -A` する形を、実物の git で見る。写したことで生まれる経路
+    （assume-unchanged の印の引き継ぎ・index の無いリポジトリ）も同じ台本で見る。
+    """
+    print("版の固定（実物の git）: 追跡中の .gitignore 対象は版に載り、利用者の index は動かない")
+    import importlib.util  # noqa: E402
+    spec = importlib.util.spec_from_file_location("gl_freeze_ign", PLUGIN / "rules" / "review-loop.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.Reject = RuntimeError
+    _td, r = parallel.workspace("gl-ign-")
+    g = lambda *a: sh(r, "git", "-c", "user.email=t@t", "-c", "user.name=t", *a)
+
+    def real_git(*a, **k):
+        env = {**os.environ, **k["env"]} if k.get("env") else None
+        q = subprocess.run(["git", "-C", str(r), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
+        return q.stdout if q.returncode == 0 else None
+    mod.git = real_git
+    g("init", "-q", ".")
+    # **index がまだ無いリポジトリでも固まる**（写す物が無ければ空から始める——追跡中のファイルが無いので落ちる物も無い）
+    (r / "first.txt").write_text("first\n", encoding="utf-8")
+    check(not (r / ".git" / "index").exists(), "前提: init の直後は index が無い")
+    t0 = mod._worktree_tree()
+    check("first.txt" in sh(r, "git", "ls-tree", "--name-only", t0).stdout, "index の無いリポジトリでも未追跡の新規ファイルが木に載る")
+    (r / ".gitignore").write_text("secret*\n", encoding="utf-8")
+    (r / "secret.cfg").write_text("old\n", encoding="utf-8")
+    (r / "keep.txt").write_text("keep\n", encoding="utf-8")
+    (r / "gone.txt").write_text("gone\n", encoding="utf-8")
+    (r / "au.txt").write_text("au-old\n", encoding="utf-8")
+    g("add", "first.txt", ".gitignore", "keep.txt", "gone.txt", "au.txt")
+    g("add", "-f", "secret.cfg")
+    g("commit", "-qm", "base")
+    (r / "secret.cfg").write_text("new\n", encoding="utf-8")           # 追跡中の .gitignore 対象を書き換える
+    (r / "untracked.txt").write_text("u\n", encoding="utf-8")          # 未追跡の新規
+    (r / "secret-local.tmp").write_text("x\n", encoding="utf-8")       # 追跡していない .gitignore 対象
+    (r / "gone.txt").unlink()                                          # 追跡中を消す
+    g("update-index", "--assume-unchanged", "au.txt")
+    (r / "au.txt").write_text("au-new-longer\n", encoding="utf-8")     # 印の付いた追跡中のファイルを書き換える（大きさを変え、同じ秒の racy git と切り分ける）
+    idx_before = (r / ".git" / "index").read_bytes()
+    status_before = sh(r, "git", "status", "--porcelain").stdout
+    bb = type("_BB", (), {"loop_state": {}, "state": {"inputs": {}}, "round": 1, "dir": r / ".git"})()
+    mod._freeze_revision(bb)
+    rev = bb.state["inputs"].get("review_rev")
+    names = sh(r, "git", "ls-tree", "-r", "--name-only", rev).stdout.split()
+    blob = lambda path: sh(r, "git", "rev-parse", f"{rev}:{path}").stdout.strip()
+    now = lambda path: sh(r, "git", "hash-object", path).stdout.strip()
+    check("secret.cfg" in names and blob("secret.cfg") == now("secret.cfg"),
+          f"**追跡中の .gitignore 対象は版に今の中身で載る**（削除に見えない。{names}）")
+    check("untracked.txt" in names, "未追跡の新規ファイルは版に載り続ける")
+    check("secret-local.tmp" not in names, "追跡していない .gitignore 対象は版に載らない")
+    check("gone.txt" not in names, "追跡中を消したファイルは版から消える")
+    check(blob("au.txt") == now("au.txt"), "assume-unchanged の印を付けたファイルも、書き換えた今の中身で版に載る（写しの印を外す）")
+    check((r / ".git" / "index").read_bytes() == idx_before and sh(r, "git", "status", "--porcelain").stdout == status_before,
+          "**版を固定しても利用者の index は 1 バイトも動かない**（写しの上だけで組む）")
+    # 突合の側も同じ手続きを通る: 追跡中の .gitignore 対象だけを書き換えると、木の id が変わる
+    t1 = mod._worktree_tree()
+    (r / "secret.cfg").write_text("changed during P1\n", encoding="utf-8")
+    check(mod._worktree_tree() != t1, "追跡中の .gitignore 対象だけの書き換えでも、前後の突合の木が変わる（見逃さない）")
 
 def test_engine_provenance_recorded():
     """**どの engine がこの周を回したかを、盤面が毎周持つ。**
@@ -3088,6 +3216,129 @@ def test_silent_status_derived():
     rm(board_dir)
 
 
+def test_delta_conditions():
+    """修正差分の段の条件と、git の失敗の倒れ方を盤面を手で組んで直に見る。筋書き（planfaces）は条件が全部真になる 1 本しか
+    通らないので、片方だけ真の形・前の周の値・git が失敗する形はここで見る（実測 2026-09-24: 4 周目の修正差分の自動の腕が、
+    この段の or / and の項と git の失敗の分岐を 1 本も殺せなかった）"""
+    print("修正差分の条件: 差分と『塞いだ』申告の片方だけでも差分レビューを起こし、腕の証拠の欠けは 1 つずつ義務になり、git の失敗で止まる")
+    _td, tmp = parallel.workspace("gl-delta-")
+    (tmp / "a.py").write_text("A = 1\n", encoding="utf-8")
+    # 版の固定（commit-tree）は author を要る——CI の git には既定の名前が無いので、この repo に置く
+    for c in (["init", "-q"], ["config", "user.name", "t"], ["config", "user.email", "t@t"], ["add", "-A"], ["commit", "-qm", "x"]):
+        subprocess.run(["git", *c], cwd=tmp, capture_output=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
+    rules = load_review_rules(tmp)
+    from engine.util import Reject  # noqa: E402
+    board = tmp / ".git" / "gl-board"   # 本物の run と同じく git dir の下（作業ツリーの外）——作業場と一緒に消える
+    board.mkdir()
+    outs = {}
+    b = types.SimpleNamespace(round=2, loop_state={}, dir=board, state={"validator": str(VALIDATOR), "inputs": {}},
+                              record={"units": [], "questions": []}, porcelain=lambda: "",
+                              output_of_round=lambda n, r: outs.get(n) if r == 2 else None)
+
+    def at(ls, o=None):
+        b.loop_state = ls
+        outs.clear()
+        outs.update(o or {})
+        return b
+    check(rules.delta_review_due(at({"fix_delta": {"round": 2, "files": ["a.py"]}})),
+          "修正差分: 差分が在れば、『塞いだ』申告が無くても 1 回目の差分レビューを起こす")
+    check(rules.delta_review_due(at({"fix_delta": {"round": 2, "files": []}}, {"p3.fix": {"plan_faces": [{"key": "k1", "handled": "absorbed"}]}})),
+          "修正差分: 差分が空でも、『塞いだ』申告が在れば 1 回目の差分レビューを起こす（申告を誰も検算しない形を作らない）")
+    check(not rules.delta_review_due(at({})) and not rules.fix_delta_nonempty(at({"fix_delta": {"round": 1, "files": ["a.py"]}})),
+          "修正差分: 差分も申告も無い周・前の周の差分しか無い周は起こさない")
+    check(rules.delta_review2_due(at({"fix_delta2": {"round": 2, "files": ["a.py"]}})),
+          "修正差分: 手直しの差分が在れば 2 回目を起こす")
+    check(rules.delta_review2_due(at({}, {"p3.delta_fix": {"handled": [{"key": "k1", "handled": "fixed"}]}})),
+          "修正差分: 手直しの差分が無くても、手直しが直したと言う穴が在れば 2 回目を起こす")
+    arm = lambda n, **k: {"gate": "a.py", "arm": n, "red_confirmed": True, "control_green": True, "hit_evidence": "印が出力に現れた（検査用）", **k}
+    gaps = {r["key"] for r in rules._gate_gaps(at({}, {"p3.delta_gates": {"arms": [arm("full"), arm("nored", red_confirmed=False),
+                                                                arm("nocontrol", control_green=False), arm("noevidence", hit_evidence="")]}}))}
+    check(gaps == {"arm:nored", "arm:nocontrol", "arm:noevidence"},
+          f"修正差分の腕: 赤・対照の緑・当たりの証拠のどれか 1 つでも欠けた腕だけが義務になる（{sorted(gaps)}）")
+    # 周をまたぐ変更の検出: 前の周の頭の版が無ければ測れない（None）、在れば今の木との差（未追跡も入る）
+    check(rules._files_changed_since(at({}), 1) is None, "周をまたぐ変更: 前の周の頭の版が無い周は『測れない』（None）")
+    (tmp / "b.py").write_text("B = 1\n", encoding="utf-8")
+    got = rules._files_changed_since(at({"head_revs": {"1": head}}), 1)
+    check(got == ["b.py"], f"周をまたぐ変更: 前の周の頭の版と今の木の差に、未追跡の新規ファイルも入る（{got}）")
+    real = rules.git
+    try:
+        rules.git = lambda *a, **k: None if a[0] == "diff" else real(*a, **k)
+        got = rules._files_changed_since(at({"head_revs": {"1": head}}), 1)
+        check(got is None, f"周をまたぐ変更: git diff が取れない回は『測れない』（None。空の一覧に潰さない。{got}）")
+        rules.git = lambda *a, **k: "" if a[0] == "commit-tree" else real(*a, **k)
+        try:
+            rules._snapshot("検査用")
+            got = "通った"
+        except Reject as e:
+            got = str(e)
+        check("commit-tree が版を返さない" in got, f"版の固定: commit-tree が空を返す回は止める（{got[:70]}）")
+    finally:
+        rules.git = real
+    snap = rules._snapshot("検査用")
+    parent = subprocess.run(["git", "rev-parse", f"{snap}^"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
+    check(parent == head, f"版の固定: 履歴の在るリポジトリでは HEAD を親にする（根なしの版を採点しない。{parent[:10]} / {head[:10]}）")
+    r = rules.fix_delta(at({}), "p3.fix_delta2")
+    check(not r["ok"] and "差分の起点の版が無い" in " ".join(r["problems"]),
+          f"修正差分: 1 回目の版が無い周の 2 回目は、起点が無いと名乗って止まる（{r}）")
+    real_take = rules._take_diff
+    try:
+        rules._take_diff = lambda bb, suffix="": {"ok": True, "rev": "0" * 40, "raw": b"x", "diff_file": "", "changed_files": [], "stat": ""}
+        r = rules.worktree_snapshot(at({}), "p1.worktree_before")
+    finally:
+        rules._take_diff = real_take
+    check(not r["ok"] and "木の id が取れない" in " ".join(r["problems"]), f"作業ツリーの保護: 固めた版の木の id が取れない回は止める（{r}）")
+    # ゲートの実効性の自動の腕の起点: 前の周の頭の版が在る周は、組んだ引数（--auto <版>）を役へ渡す。無い周（1 周目）は空
+    try:
+        rules._take_diff = lambda bb, suffix="": {"ok": True, "rev": snap, "raw": b"x", "diff_file": "", "changed_files": [], "stat": ""}
+        bb = at({"head_revs": {"1": head}})
+        r = rules.worktree_snapshot(bb, "p1.worktree_before")
+        got2 = bb.loop_state.get("gate_auto_args")
+        bb.round = 1
+        rules.worktree_snapshot(at({}), "p1.worktree_before")
+        got1 = b.loop_state.get("gate_auto_args")
+    finally:
+        rules._take_diff = real_take
+        b.round = 2
+    check(r["ok"] and got2 == f"--auto {head}", f"ゲートの実効性: 2 周目の頭は前の周の頭の版から自動の腕を撃つ引数を組む（{got2!r}）")
+    check(got1 == "", f"ゲートの実効性: 前の周の頭の版が無い周は引数を空にする（不在の語を引数に貼らない。{got1!r}）")
+    V = rules.validator_module(b)
+    b.record = {"units": [{"key": u, "label": "block"} for u in ("u1", "u2", "u3")],
+                "questions": [{"key": "q", "kind": "fork", "status": V.ASKING[0], "origin": "u1", "depends": ["u2"]}]}
+    got = rules._owed_units(at({}))
+    check(got == {"u3"}, f"直す義務: 人待ちの fork の出どころと depends は待ってよい（{sorted(got)}）")
+    try:
+        rules.POST_CHECKS["delta_review_output"](at({}), "p3.delta_review2",
+                                                 {"faces": [], "checks": [], "faces_none": "差分が無く、検算する申告も無い（検査用の空の返答）"}, None)
+        got = "通った"
+    except Reject as e:
+        got = str(e)
+    check(got == "通った", f"修正差分のレビュー: 差分の記録が無い回も、空の返答は落ちずに受ける（{got[:70]}）")
+    rm(tmp)
+
+
+def test_stuck_routed_at_judge():
+    """同じ [block] が 3 周続けて在るのに振り分けた跡（そのユニットを origin に持つ未決の stuck / fork）の無い履歴の再審は、
+    判定の節で拒む——周の記録の段（p4.record）で初めて落ちると、その周の判定の節は done 済みで返させ直せない（実測 2026-09-24 の 4 周目）"""
+    print("stuck の振り分け: 3 周続く [block] は履歴の再審の返答で振り分けを求める")
+    _td, tmp = parallel.workspace("gl-stuck-")
+    rules = load_review_rules(tmp)
+    (tmp / "rounds").mkdir()
+    blk = {"key": "a.py: 入口が残る（検査用）", "label": "block"}
+    for n in (2, 3):
+        (tmp / "rounds" / f"round-{n}.json").write_text(json.dumps({"round": n, "units": [blk], "questions": []}, ensure_ascii=False), encoding="utf-8")
+    b = types.SimpleNamespace(round=4, dir=tmp, state={"validator": str(VALIDATOR)})
+    V = rules.validator_module(b)
+    got = rules._stuck_unrouted(b, V, {"units": [blk], "questions": []})
+    check(len(got) == 1 and "stuck" in got[0], f"stuck の振り分け: 跡の無い 3 周目の [block] は拒む（{got}）")
+    q = {"key": "処方か設計か（検査用）", "kind": "stuck", "status": "held", "reason": "検査用", "origin": blk["key"]}
+    got = rules._stuck_unrouted(b, V, {"units": [blk], "questions": [q]})
+    check(got == [], f"stuck の振り分け: そのユニットを origin に持つ未決の問いが在れば通る（{got}）")
+    got = rules._stuck_unrouted(types.SimpleNamespace(round=3, dir=tmp, state=b.state), V, {"units": [blk], "questions": []})
+    check(got == [], f"stuck の振り分け: 前の 2 周の記録が揃わない周は求めない（{got}）")
+    rm(tmp)
+
+
 def test_fix_plan_review():
     """**修正を書く前に案を別の目に叩かせ、書いた直後に修正だけの差分を見る。** 修正の良し悪しを見る段が全部『直した後』に
     在ったとき、修正が作った穴は次の周に新しい指摘として挙がった（実測 2026-09-24: 3 周目の指摘のうち 8 件が 2 周目の修正の産物）"""
@@ -3135,6 +3386,13 @@ def test_fix_plan_review():
     good = answers(run, "planfaces", nx["round"])["p3.delta_review"](load_item(item))
     r = run.done(item["id"], {**good, "checks": [{**good["checks"][0], "closed": False, "why": "差分で上限の値がまだ 2 か所に在る（検査用）"}]})
     check(r.returncode == 0, f"修正差分のレビュー: 塞がっていない検算は faces に書き直さずに通る（{r.stderr.strip()[-80:]}）")
+    # **義務は描画された本文で役に届く**（台本が key を知っている前提で答えると、見せる道が無くても緑になる）。
+    # 1 回目: 穴・塞がっていない検算・証拠にならない腕の 3 成分が、手直しの役のプロンプトに全部載る
+    nx = drive(run, "planfaces", stop_at=at("p3.delta_fix"))
+    item = next(i for i in nx["ready"] if i["node"] == "p3.delta_fix")
+    body = pathlib.Path(item["prompt_file"]).read_text(encoding="utf-8")
+    for k in ("入口: 呼び元の上限が残る", "写し: 上限の値を 2 か所に", "arm:上限の分岐（腕が無い）"):
+        check(k in body, f"手直しの義務: 1 回目の手直しのプロンプトに key『{k}』が載る（穴・塞がっていない検算・腕の 3 成分）")
     refused("p3.delta_fix", lambda o: {"handled": [h for h in o["handled"] if h["key"] != "写し: 上限の値を 2 か所に"]},
             "写し: 上限の値を 2 か所に", "修正差分の穴: 塞がっていない検算に答えない手直しは拒む")
     refused("p3.delta_fix", lambda o: {"handled": o["handled"][:1]},
@@ -3145,6 +3403,21 @@ def test_fix_plan_review():
             "に応答が無い", "修正差分の穴: 挙がった穴に答えない応答は拒む")
     refused("p3.delta_review2", lambda o: {**o, "checks": []},
             "に検算が無い", "手直しの差分のレビュー: 手直しが直したと言う穴を 1 件ずつ検算しない返答は拒む")
+    # **義務は描画された本文で役に届く** 2 回目: 手直しの差分のレビューが塞がっていないと言った検算も、2 回目の手直しのプロンプトに載り、答えないと拒む
+    nx = drive(run, "planfaces", stop_at=at("p3.delta_review2"))
+    item = next(i for i in nx["ready"] if i["node"] == "p3.delta_review2")
+    good = answers(run, "planfaces", nx["round"])["p3.delta_review2"](load_item(item))
+    open_key = good["checks"][0]["key"]
+    r = run.done(item["id"], {**good, "checks": [{**good["checks"][0], "closed": False, "why": "手直しの差分でも呼び元の分岐が残っている（検査用）"}]
+                                                + good["checks"][1:]})
+    check(r.returncode == 0, f"手直しの差分のレビュー: 塞がっていない検算は faces に書き直さずに通る（{r.stderr.strip()[-80:]}）")
+    nx = drive(run, "planfaces", stop_at=at("p3.delta_fix2"))
+    item = next(i for i in nx["ready"] if i["node"] == "p3.delta_fix2")
+    body = pathlib.Path(item["prompt_file"]).read_text(encoding="utf-8")
+    check(open_key in body and "手直しの穴（検査用）" in body,
+          f"手直しの義務: 2 回目の手直しのプロンプトに、穴と塞がっていない検算の key が載る（{open_key}）")
+    refused("p3.delta_fix2", lambda o: {"handled": [h for h in o["handled"] if h["key"] != open_key]},
+            open_key[:20], "2 回目の手直し: 塞がっていない検算に答えない応答は拒む")
     refused("p2.history", lambda o: {**o, "declared_routed": []},
             "を振り分けていない", "次の周の判定: 前の周に残すと宣言された穴を振り分けない判定は拒む")
     refused("p2.history", lambda o: {**o, "declared_routed": [{**o["declared_routed"][0], "route": "to_unit", "unit_key": "今の周に無い単位（検査用）"}]
@@ -3155,18 +3428,27 @@ def test_fix_plan_review():
     h2 = json.loads((run.dir / "out" / "r2" / "p2.history.json").read_text(encoding="utf-8"))   # process は最後の周の値に上書きされる
     routed = [r["key"] for r in h2.get("declared_routed") or []]
     check("写し: 上限の値を 2 か所に" in routed, f"1 回目の手直しが残すと宣言した穴も、次の周の判定者が振り分ける（{routed}）")
+    check("入口: 呼び元が上限を迂回する" in routed, f"修正が残すと宣言した入口の穴（no_add 付き）も、次の周の判定者が振り分ける（{routed}）")
     fd2 = run.dir / "fix-delta2-r1.patch"
     body2 = fd2.read_text(encoding="utf-8") if fd2.is_file() else ""
     added2 = [l for l in body2.splitlines() if l.startswith("+") and not l.startswith("+++")]   # 文脈の行は数えない
     check(any("p3.delta_fix in round 1" in l for l in added2) and not any("fixed in round 1" in l for l in added2),
           f"2 回目の差分は手直しだけ（1 回目の修正後に固めた版からの差）を持つ（{body2[:80]!r}）")
     check("手直しの穴（検査用）" in routed, f"2 回目の手直しは直したと言っても検算されないので、次の周の判定者が振り分ける（{routed}）")
+    # **検算していない手直しには旗が付く**——p2.history はこの旗で、直したと言うだけの行を現物で確かめさせる。旗が落ちると
+    # 検算していない fixed が declared と同じ扱いになるのに、key の出入りだけを見る検査は緑のままだった（5 周目の判定）
+    hp = (run.dir / "prompts" / "r2" / "p2.history.md").read_text(encoding="utf-8")   # 次の周の判定者に実際に貼られた値で見る
+    at_decl = hp.index("無ければ []）: ") + len("無ければ []）: ")
+    decl = {r["key"]: r for r in json.JSONDecoder().raw_decode(hp[at_decl:])[0]}
+    check(decl.get("手直しの穴（検査用）", {}).get("unverified") is True, f"2 回目の手直しが fixed と言った行は unverified の旗を持つ（{decl.get('手直しの穴（検査用）')}）")
+    check("unverified" not in decl.get("写し: 上限の値を 2 か所に", {"unverified": 1}),
+          "declared の行（残すと宣言した穴）は旗を持たない（旗は検算していない fixed だけ）")
     check(pr.get("delta_review2") is not None and "別案: 定数を 1 つに" in routed,
           f"手直しにもう 1 回差分レビューが当たり、残すと宣言した穴は次の周の判定者が振り分ける（{h2.get('declared_routed')}）")   # process は周の記録（rounds/）に入らず、record.json に残る
     check(pr.get("fix_plan") and pr.get("plan_review", {}).get("faces") and pr.get("delta_fix"),
           f"1 周目の記録に修正案・事前審査の穴・修正差分の穴への応答が残る（{sorted(k for k in pr if k in ('fix_plan', 'plan_review', 'delta_review', 'delta_fix'))}）")
     fixes = [f for f in pr.get("fixes") or [] if f.get("round") == 1]
-    check(fixes and len(fixes[-1].get("plan_faces") or []) == 2, f"修正の記録に事前審査への応答が 2 件（穴と別案）残る（{fixes[-1].get('plan_faces') if fixes else None}）")
+    check(fixes and len(fixes[-1].get("plan_faces") or []) == 3, f"修正の記録に事前審査への応答が 3 件（穴 2 と別案）残る（{fixes[-1].get('plan_faces') if fixes else None}）")
     fd = run.dir / "fix-delta-r1.patch"   # 最後の周の loop.fix_delta は修正の無い周の空になる——1 周目の写しを見る
     body = fd.read_text(encoding="utf-8") if fd.is_file() else ""
     # 審査対象の変更（src/b.py の新設と f の引数）は周の頭の版に既に在る——累積差分なら載る行が載らない

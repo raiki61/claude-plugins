@@ -143,7 +143,7 @@
 
 **内容**: ループが対象リポジトリを汚さない。doctor は走査前後の `git status --porcelain` と `git stash list` の突合を最終報告の必須欄に。firstread は `git status` の 2 回目を**外に立てた役の判定が出揃った直後・自分が直しを当てる前**に取り、先に書いた答え・記録・写しを作業ツリーの外に置く。review 0.31.1 は P1 の前後で `git status --short`・`git stash list`・`git diff --shortstat <BASE>` を突き合わせ（道具名で列挙しない）、`git add -N` がこの手順の唯一の index への書き込みなので途中で終わったら `git reset -- <path>` で戻す。research は `investigator` の前後で突合。
 
-**今どこが守っているか**: doctor は**機械**（`mod_check`）、firstread は**機械**（`git_status_match`）＋**散文**（2 回目のタイミング）、review / research の散文版は**散文だけ**。graphloops＝**機械**（P1 の前後で `git status --porcelain`・`git stash list`・`git diff <BASE>` 本文の sha を突き合わせ、違えば止める——stash で退避しても stash の一覧が突合に入る。investigator の instance の前後は `git status --porcelain` だけを突き合わせる（stash と diff の sha は P1 の門だけ）。writer 自身の変更は `done` / `next` の `--accept-tree-change <理由>` で痕跡付きで通す——実測 2026-09-12: P1 の途中で engine を直したら次が 10 回同じ理由で止まった）。
+**今どこが守っているか**: doctor は**機械**（`mod_check`）、firstread は**機械**（`git_status_match`）＋**散文**（2 回目のタイミング）、review / research の散文版は**散文だけ**。graphloops＝**機械**（P1 の前後で `git status --porcelain`・`git stash list`・その周に固めた版の木の id（本物の index を写した一時 index に `add -A` した木）を突き合わせ、違えば止める——stash で退避しても stash の一覧が突合に入る。investigator の instance の前後は `git status --porcelain` だけを突き合わせる（stash と木の id は P1 の門だけ）。writer 自身の変更は `done` / `next` の `--accept-tree-change <理由>` で痕跡付きで通す——実測 2026-09-12: P1 の途中で engine を直したら次が 10 回同じ理由で止まった）。
 
 **どう確かめるか**: review / research にも記録の欄として足せる。
 

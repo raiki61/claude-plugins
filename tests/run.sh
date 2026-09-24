@@ -1686,7 +1686,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=569
+EXPECTED_CHECKS=572
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2974,7 +2974,7 @@ expect_output 1 "NG 腕 x5: json の 頂点 に鍵" "json の腕も、消す値�
 expect_output 1 "NG 腕 x4: json の arms に" "json の腕の値の消失も --check で赤" \
     "$PY_BIN" "$ROOT/tests/mutate.py" --check --arms-file "$WORK/arms-json.json"
 expect_output 1 "撃つ腕が 0 本" "絞りに当たる腕が 0 本なら撃たずに赤（0 本を合格と言わない）" \
-    "$PY_BIN" -c "import sys; sys.path.insert(0, sys.argv[1]); import mutate; print(len(mutate.pick(mutate.load(), only='no-such-arm')))" "$ROOT/tests"
+    "$PY_BIN" "$ROOT/tests/mutate.py" --only no-such-arm
 expect_output 0 "rc=no-test" "絞った名前が台本に無い腕は赤と数えない（壊した行と無関係の exit 1 を、撃てないと言う）" \
     "$PY_BIN" -c "import sys; sys.path.insert(0, sys.argv[1]); import mutate; print('rc=' + str(mutate.run_selected(mutate.ROOT, {'graphloops/tests/simulate.py': ['no_such_test']})['rc']))" "$ROOT/tests"
 # expect は JSON の \u 書き（☃）で渡す——字面のまま書くと、この行そのものが台本の本文に在って恒真になる
@@ -3113,8 +3113,13 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 sys.path.insert(0, sys.argv[1])
 import mutate
-src = "def f(x, y, errs):\n    if x > 1 and y:\n        raise ValueError('x')\n    errs.append(x)\n    errs += [1]\n    z = 1 if x else 2\n    if x: raise KeyError\n"
-arms = mutate.auto_arms_for("graphloops/engine/x.py", src, {2, 3, 4, 5, 6, 7})
+src = "def f(x, y, errs):\n    if x > 1 and y:\n        raise ValueError('x')\n    errs.append(x)\n    errs += [1]\n    z = 1 if x else 2\n    if x: raise KeyError\n    w = x or y\n"
+arms = mutate.auto_arms_for("graphloops/engine/x.py", src, {2, 3, 4, 5, 6, 7, 8})
+# graphloops/tests/ でない graphloops 配下の相対パスなら suite は graphloops のはず（graphloops/tests/run.sh を撃つ側）
+assert all(a["suite"] == "graphloops" for a in arms), "graphloops 配下の相対パスから作った腕の suite が graphloops になっていない"
+# or/and の項は種類のラベルだけでなく、置く値（and は True・or は False）も種類ごとに正しいはず
+and_news = sorted({a["auto"]["new"] for a in arms if a["title"].startswith("and:")})
+or_news = sorted({a["auto"]["new"] for a in arms if a["title"].startswith("or:")})
 kinds = sorted({a["title"].split(":")[0] for a in arms})
 ok = 0
 for a in arms:
@@ -3133,9 +3138,10 @@ sd = mutate.scratch_dir(arms[0]["id"])  # 撃つ段の作業場: id の / と : 
 scratch = sd.is_dir() and sd.parent.resolve() == pathlib.Path(mutate.tempfile.gettempdir()).resolve()
 sd.rmdir()
 print("kinds=" + ",".join(kinds), f"compiled={ok}/{len(arms)}", f"outer_first={outer}", "unmarked=" + ",".join(i.split(":", 2)[2] for i in mid),
-      "anchor=" + repr(mutate.anchor_problem(mutate.ROOT, arms[0])), f"scratch={scratch}")
+      "anchor=" + repr(mutate.anchor_problem(mutate.ROOT, arms[0])), f"scratch={scratch}",
+      f"and_new={and_news} or_new={or_news}")
 PYAUTO
-expect_output 0 "kinds=and,cond,ifexp,stmt compiled=9/9 outer_first=True unmarked=7:10:stmt anchor='' scratch=True" "--auto: 条件・and の項・条件式・文から腕を作り、変異も印の包みも構文を壊さず、同じ位置では外側の式の印が外に来る（行の途中の文には印を差さない）。撃つ段の作業場も id から作れる" \
+expect_output 0 "kinds=and,cond,ifexp,or,stmt compiled=11/11 outer_first=True unmarked=7:10:stmt anchor='' scratch=True and_new=['True'] or_new=['False']" "--auto: 条件・and/or の項・条件式・文から腕を作り、変異も印の包みも構文を壊さず、同じ位置では外側の式の印が外に来る（行の途中の文には印を差さない）。graphloops 配下の相対パスは suite も graphloops。撃つ段の作業場も id から作れる" \
     "$PY_BIN" "$WORK/mut-auto.py" "$ROOT/tests"
 # 腕の写しは版に入るファイルだけで、写しの腕の一覧は空（写しの --check が壊した字列で赤になり、生き残りを Killed と書かない）
 cat > "$WORK/mut-copy.py" <<'PYCOPY'
@@ -3165,6 +3171,470 @@ print(f"arms_in_copy={len(seen['arms'])} git={seen['git']} status={r['status']}"
 PYCOPY
 expect_output 0 "arms_in_copy=0 git=True status=Killed" "腕の写しは腕の一覧を空にして台本を走らせ、.gitignore に当たる物は写さない（写しの --check で赤を作らない）" \
     "$PY_BIN" "$WORK/mut-copy.py" "$ROOT/tests"
+
+# auto_targets の差分読み: git そのものを差し替えて、数え無し／数え有りの @@ 見出し・削除だけの見出し・
+# +++ /dev/null（cur 無し）の後の見出し・diff には出るがディスクに無いファイル・未追跡の新しい .py は全行・
+# tests/ 配下の除外（tests/mutate.py だけは例外）・空白だけの名前・git 自体の失敗（None を返す）を 1 本で見る。
+# 実物の git repo でなく subprocess.run を差し替えるのは、実物の git では作れない組み合わせ
+# （+++ /dev/null の直後に件数を騙る見出し）まで狙って直に投げるため。
+cat > "$WORK/mut-auto-targets.py" <<'PYAT'
+import pathlib, sys, tempfile
+from types import SimpleNamespace
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+
+root = pathlib.Path(tempfile.mkdtemp())
+(root / "one.py").write_text("x = 1\ny = 2\n", encoding="utf-8")
+(root / "many.py").write_text("a=1\nb=2\nc=3\nd=4\ne=5\n", encoding="utf-8")
+(root / "whole.py").write_text("p=1\nq=2\np2=3\n", encoding="utf-8")
+(root / "empty_add.py").write_text("x = 1\n", encoding="utf-8")
+(root / "tests").mkdir()
+(root / "tests" / "skip.py").write_text("q = 1\n", encoding="utf-8")
+(root / "tests" / "mutate.py").write_text("# dummy\n", encoding="utf-8")
+(root / "   ").write_text("blank name\n", encoding="utf-8")   # 空白だけの行を strip すると空になる名前
+
+DIFF = """diff --git a/one.py b/one.py
+--- a/one.py
++++ b/one.py
+@@ -1,0 +2 @@ x = 1
++y = 2
+diff --git a/many.py b/many.py
+--- a/many.py
++++ b/many.py
+@@ -3,0 +4,2 @@ c = 3
++d = 4
++e = 5
+diff --git a/empty_add.py b/empty_add.py
+--- a/empty_add.py
++++ b/empty_add.py
+@@ -3,1 +3,0 @@
+-old line
+diff --git a/phantom.py b/phantom.py
+--- a/phantom.py
++++ b/phantom.py
+@@ -1,0 +2 @@
++z = 1
+diff --git a/tests/mutate.py b/tests/mutate.py
+--- a/tests/mutate.py
++++ b/tests/mutate.py
+@@ -10,0 +11,2 @@ def x():
++p = 1
++q = 2
+diff --git a/gone.py b/gone.py
+deleted file mode 100644
+--- a/gone.py
++++ /dev/null
+@@ -1 +5,3 @@
+-z = 1
+"""
+
+
+def fake_run(argv, **kw):
+    if argv[5] == "diff":
+        return SimpleNamespace(returncode=0, stdout=DIFF)
+    if argv[5] == "ls-files":
+        return SimpleNamespace(returncode=0, stdout="whole.py\ntests/skip.py\nghost.py\n   \n")
+    raise AssertionError(f"想定外の git 呼び出し: {argv}")
+
+
+mutate.subprocess.run = fake_run
+tg = mutate.auto_targets("HEAD", root=root)
+whole_n = (root / "whole.py").read_text(encoding="utf-8").count("\n") + 1
+assert tg["one.py"] == {2}, f"数え無しの @@ 見出しが 1 行だけを拾えていない: {tg.get('one.py')}"
+assert tg["many.py"] == {4, 5}, f"数え有りの @@ 見出しが複数行を拾えていない: {tg.get('many.py')}"
+assert tg["tests/mutate.py"] == {11, 12}, f"tests/mutate.py 自身は tests/ の除外の例外のはずが: {tg.get('tests/mutate.py')}"
+assert "gone.py" not in tg, "+++ /dev/null（cur 無し）の後の見出しの件数を、消えたファイルの行として拾ってしまった"
+assert "empty_add.py" not in tg, "足す行が 0 本の見出し（削除だけ）を腕の対象に残してしまった"
+assert "phantom.py" not in tg, "diff には出るがディスクに無いファイルを対象に残してしまった（is_file の柵）"
+assert tg["whole.py"] == set(range(1, whole_n + 1)), f"未追跡の新しい .py は全行のはずが: {tg.get('whole.py')}"
+assert "tests/skip.py" not in tg, "tests/ 配下の未追跡 .py が対象から除外されていない"
+assert "ghost.py" not in tg, "ls-files には出るがディスクに無い未追跡ファイルを対象に残してしまった（is_file の柵）"
+assert "   " not in tg, "空白だけの名前（strip すると空）を対象に残してしまった"
+
+
+def fail_diff(argv, **kw):
+    if argv[5] == "diff":
+        return SimpleNamespace(returncode=1, stdout="")
+    return SimpleNamespace(returncode=0, stdout="")
+
+
+mutate.subprocess.run = fail_diff
+assert mutate.auto_targets("HEAD", root=root) is None, "git diff が失敗した回で None を返さない"
+
+
+def fail_ls(argv, **kw):
+    if argv[5] == "diff":
+        return SimpleNamespace(returncode=0, stdout="")
+    return SimpleNamespace(returncode=1, stdout="")
+
+
+mutate.subprocess.run = fail_ls
+assert mutate.auto_targets("HEAD", root=root) is None, "git ls-files が失敗した回で None を返さない"
+print("AUTO_TARGETS_OK")
+PYAT
+expect_output 0 "AUTO_TARGETS_OK" "auto_targets: 数え無し・数え有りの @@ 見出し、削除だけの見出しは対象外、+++ /dev/null の後の見出しも対象外、diff には出るがディスクに無いファイルも対象外、未追跡の新しい .py は全行、tests/ 配下は未追跡でも対象外（tests/mutate.py だけ例外）、git 自体が失敗すれば None" \
+    "$PY_BIN" "$WORK/mut-auto-targets.py" "$ROOT/tests"
+
+# run_group: 時間切れでグループごと殺す・標準出力が先に閉じても子の終了を待つ（p.wait）・failfast は
+# 最初の「  FAIL 」の行だけで止めて rc を 1 にする（NO_TEST を含む行は対象外）・failfast=False では
+# 止めない・timer.cancel が効いて通常終了の後に時間切れの kill を撃たない、を実物の子プロセスで見る。
+cat > "$WORK/mut-rungroup.py" <<'PYRG'
+import os, sys, tempfile, time
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+
+if os.name != "posix":
+    print("RUNGROUP_OK（posix でないので run_group の腕は見送り）")
+    sys.exit(0)
+
+root = tempfile.mkdtemp()
+
+# 時間切れ: TIMEOUT を小さく差し替え、5 秒眠る子をグループごと殺して ("timeout", "") を返す
+mutate.TIMEOUT = 0.15
+t0 = time.time()
+rc, out = mutate.run_group([sys.executable, "-c", "import time; time.sleep(5)"], cwd=root)
+dt = time.time() - t0
+assert (rc, out) == ("timeout", ""), f"時間切れが (\"timeout\", \"\") でない: {(rc, out)!r}"
+assert dt < 2, f"時間切れの判定が遅すぎる（{dt:.2f}s）——TIMEOUT の差し替えが効いていない疑い"
+# 以降は小さい値にしておく——timer.cancel が抜けていると、この後の各回が作る Timer が
+# 本物の TIMEOUT（1500 秒）のまま生き残り、走らせ切るまでこの検査ごとハングする
+# （実測: 2026-09-24 の腕撃ちでこの行が「時間切れ」を返したのはこれが理由）
+mutate.TIMEOUT = 2
+
+# p.wait(): 標準出力を先に閉じても、子が本当に終わるまで待って終了コードを取る
+child_close = "import sys, os, time\nsys.stdout.write('hi\\n'); sys.stdout.flush(); os.close(1)\ntime.sleep(0.3)\nsys.exit(7)\n"
+t0 = time.time()
+rc, out = mutate.run_group([sys.executable, "-c", child_close], cwd=root)
+dt = time.time() - t0
+assert rc == 7, f"標準出力が先に閉じた子の終了コードを取れていない（p.wait が抜けている疑い）: rc={rc!r}"
+assert dt >= 0.25, f"子の終了を待たずに返った（p.wait が抜けている疑い）: {dt:.2f}s"
+
+# failfast: 最初の「  FAIL 」の行だけを見てグループごと止め、rc は子の終了コードでなく 1
+child_fail = "print('  FAIL real')\nprint('should not appear')\nimport sys; sys.exit(3)\n"
+rc, out = mutate.run_group([sys.executable, "-c", child_fail], cwd=root, failfast=True)
+assert rc == 1, f"failfast で止めた回の rc は 1 のはずが: {rc!r}（子の終了コードをそのまま返している疑い）"
+assert "should not appear" not in out, "failfast が最初の FAIL 行で止まっていない（後の行まで読んでいる）"
+assert "  FAIL real" in out, "failfast で止める前に、当の FAIL 行自体を読み損ねている"
+
+# failfast=False なら「  FAIL 」の行が在っても止めず、子の終了コードをそのまま返す
+child_nofail = "print('  FAIL not stopped')\nprint('more output')\nimport sys; sys.exit(4)\n"
+rc, out = mutate.run_group([sys.executable, "-c", child_nofail], cwd=root, failfast=False)
+assert rc == 4, f"failfast=False なのに rc が子の終了コードでない: {rc!r}"
+assert "more output" in out, "failfast=False なのに FAIL 行で止まった（failfast の判定に懸かっていない）"
+
+# NO_TEST を含む「  FAIL 」行は「壊した行と無関係の拒否」なので failfast の対象にしない
+child_notest = f"print('  FAIL ' + {mutate.NO_TEST!r})\nprint('second line')\nimport sys; sys.exit(0)\n"
+rc, out = mutate.run_group([sys.executable, "-c", child_notest], cwd=root, failfast=True)
+assert rc == 0, f"NO_TEST を含む FAIL 行で誤って止めた（rc が子の終了コードでない）: rc={rc!r}"
+assert "second line" in out, "NO_TEST を含む FAIL 行で誤って早期に止めた（後の行を読んでいない）"
+
+# timer.cancel(): 通常終了のあとに、時間切れ用の Timer が生き残って後から kill を撃たない
+calls = []
+mutate.os.killpg = lambda *a, **k: calls.append(a)
+mutate.TIMEOUT = 0.1
+rc, out = mutate.run_group([sys.executable, "-c", "print('quick')"], cwd=root)
+assert rc == 0, f"通常終了の rc が 0 でない: {rc!r}"
+time.sleep(0.3)
+assert not calls, f"timer.cancel() が効かず、通常終了の後で時間切れの kill が発火した: {calls}"
+
+print("RUNGROUP_OK")
+PYRG
+expect_output 0 "RUNGROUP_OK" "run_group: 時間切れでグループごと殺す・標準出力が先に閉じても子の終了を待つ・failfast は最初の FAIL 行だけで rc を 1 にする（NO_TEST を含む行や failfast=False では止めない）・timer.cancel が通常終了後の時間切れ kill を防ぐ" \
+    "$PY_BIN" "$WORK/mut-rungroup.py" "$ROOT/tests"
+
+# 自動の腕（--auto）の本命: 使い捨ての小さな git repo を tests/mutate.py の写しごと作り、base から
+# 見て「if を割ると検査が拾う行」「if を割っても誰も拾わない行」「誰も通らない行」「未追跡の新しい
+# .py」を足して撃つ。一覧の通常の腕（expect 持ち・marker 持ち）も同じ回で --files / --only /
+# --changed-since を通す。差分 0 本・存在しない rev・--gate-efficacy も同じ写しの上で見る。
+cat > "$WORK/mut-auto-e2e.py" <<'PYE2E'
+import json, pathlib, subprocess, sys, tempfile
+
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+
+REAL_TESTS = pathlib.Path(sys.argv[1])
+PY = sys.executable
+
+mini = pathlib.Path(tempfile.mkdtemp()) / "mini"
+mini.mkdir()
+(mini / "tests").mkdir()
+
+
+def git(*args, check=True):
+    r = subprocess.run(["git", "-C", str(mini), *args], capture_output=True, text=True, encoding="utf-8")
+    if check and r.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)} が失敗: {r.stderr}")
+    return r
+
+
+def w(rel, text):
+    p = mini / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8")
+
+
+# --- BASE 状態: calc.py はしきい値と classify だけ。run.sh は classify の検査だけ ---
+w("calc.py", "THRESHOLD = 0\n\n\ndef classify(n):\n    if n > THRESHOLD:\n        return \"pos\"\n    return \"non-pos\"\n")
+w("tests/mutate.py", (REAL_TESTS / "mutate.py").read_text(encoding="utf-8"))
+w("tests/mutations.json", json.dumps({"arms": [
+    {"id": "norm1", "title": "しきい値を壊す", "file": "calc.py", "suite": "root",
+     "old": "THRESHOLD = 0", "new": "THRESHOLD = 999", "expect": "classify は閾値超えで pos"},
+    # expect でなく marker で証拠を持つ通常の腕（marker_run の通常腕の分岐 = auto でない a.get("marker") の側を通す）
+    {"id": "norm2", "title": "pos の値をすり替える", "file": "calc.py", "suite": "root",
+     "old": 'return "pos"', "new": 'return "WRONG"', "marker": {"where": "before"}},
+]}, ensure_ascii=False))
+w("tests/check_classify.py",
+  "import sys, pathlib\n"
+  "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+  "import calc\n"
+  "sys.exit(0 if calc.classify(5) == \"pos\" else 1)\n")
+
+
+def run_sh(checks):
+    body = "#!/usr/bin/env bash\nset -uo pipefail\nROOT=\"$(cd \"$(dirname \"$0\")/..\" && pwd)\"\n" \
+           f"PY={PY!r}\nfail=0; ran=0\n" \
+           "check() {\n  local desc=\"$1\"; shift\n  \"$@\" >/dev/null 2>&1\n  local rc=$?\n" \
+           "  ran=$((ran+1))\n  if [ \"$rc\" = 0 ]; then\n    echo \"  ok   $desc\"\n  else\n" \
+           "    echo \"  FAIL $desc\"\n    fail=1\n  fi\n}\n"
+    for desc, script in checks:
+        body += f'check "{desc}" "$PY" "$ROOT/tests/{script}"\n'
+    body += 'if [ "$fail" = 0 ]; then\n  echo "$ran 件すべて緑"\nelse\n  echo "$ran 件のうち失敗あり"\nfi\nexit "$fail"\n'
+    return body
+
+
+w("tests/run.sh", run_sh([("classify は閾値超えで pos", "check_classify.py")]))
+
+git("init", "-q")
+git("-c", "user.name=m", "-c", "user.email=m@m", "add", "-A")
+git("-c", "user.name=m", "-c", "user.email=m@m", "commit", "-qm", "base")
+BASE = git("rev-parse", "HEAD").stdout.strip()
+
+MUT = str(mini / "tests" / "mutate.py")
+
+
+def run_mutate(*args, out=None):
+    cmd = [PY, MUT, *args]
+    if out:
+        cmd += ["--out", str(out)]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", cwd=mini, timeout=120)
+    return r
+
+
+# --- (2) 絞りに当たる一覧の腕も、--auto <rev> の Python の差分も 0 本 ---
+empty_out = mini / "empty.json"
+r = run_mutate("--only", "no-such-arm-7f3a", "--auto", BASE, out=empty_out)
+assert r.returncode == 1, f"差分 0 本のはずが exit {r.returncode}: {r.stdout}{r.stderr}"
+assert "撃つ腕が 0 本" in r.stderr, f"0 本の理由がエラーに出ていない: {r.stderr!r}"
+empty_doc = json.loads(empty_out.read_text(encoding="utf-8"))
+assert empty_doc["arms"] == [] and "empty" in empty_doc, f"--out に空の結果が書かれていない: {empty_doc}"
+
+# 絞り（--only）を添えると、同じ「差分 0 本」の rev でも auto 専用の「0 本」判定はバイパスされ、
+# 絞りが選んだ通常の腕（norm1）だけで撃つ（filtered が立っているときは autos の空を理由に止めない）
+r = run_mutate("--only", "norm1", "--auto", BASE)
+assert r.returncode == 0, f"絞りが在るのに auto の 0 本判定に止められた: exit {r.returncode}: {r.stdout}{r.stderr}"
+assert "撃つ腕が 0 本" not in r.stderr, f"絞りが在るのに auto の 0 本エラーが出た: {r.stderr!r}"
+
+# --- (3) --auto に存在しない rev ---
+r = run_mutate("--auto", "not-a-real-rev-zzz999")
+assert r.returncode == 2, f"存在しない rev のはずが exit {r.returncode}: {r.stdout}{r.stderr}"
+assert "git diff が取れない" in r.stderr, f"取れない理由がエラーに出ていない: {r.stderr!r}"
+
+# --- ここから差分を足す（BASE から見て未コミット）: if の生き死にが割れる 3 本 + 未追跡の 1 ファイル ---
+calc_ext = (
+    "\n\n"
+    "def guard(n):\n"
+    "    if n < 0:\n"
+    "        raise ValueError(\"negative\")\n"
+    "    return n\n"
+    "\n\n"
+    "def loud_but_uncaught(n):\n"
+    "    if n > 100:\n"
+    "        return \"big\"\n"
+    "    return \"small\"\n"
+    "\n\n"
+    "def dead_code(n):\n"
+    "    \"\"\"誰も呼ばない（裸の式の文は腕にしない）\"\"\"\n"
+    "    if n == 42:\n"
+    "        return \"meaning\"\n"
+    "    return \"none\"\n"
+    "\n\n"
+    "def seven(n):\n"
+    "    if n == 7: raise ValueError(\"seven\")\n"
+    "    return n\n"
+)
+with (mini / "calc.py").open("a", encoding="utf-8") as f:
+    f.write(calc_ext)
+w("extra.py", "def add_one(n):\n    if n is None:\n        raise ValueError(\"n required\")\n    return n + 1\n")
+w("tests/check_guard1.py",
+  "import sys, pathlib\n"
+  "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+  "import calc\n"
+  "try:\n    calc.guard(-1)\nexcept ValueError:\n    sys.exit(0)\nsys.exit(1)\n")
+w("tests/check_guard2.py",
+  "import sys, pathlib\n"
+  "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+  "import calc\n"
+  "try:\n    calc.guard(-2)\nexcept ValueError:\n    sys.exit(0)\nsys.exit(1)\n")
+w("tests/check_loud.py",
+  "import sys, pathlib\n"
+  "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+  "import calc\n"
+  "calc.loud_but_uncaught(200)\n"
+  "sys.exit(0)\n")
+w("tests/check_extra.py",
+  "import sys, pathlib\n"
+  "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+  "import extra\n"
+  "try:\n    extra.add_one(None)\nexcept ValueError:\n    sys.exit(0)\nsys.exit(1)\n")
+w("tests/check_seven.py",
+  "import sys, pathlib\n"
+  "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+  "import calc\n"
+  "try:\n    calc.seven(7)\nexcept ValueError:\n    sys.exit(0)\nsys.exit(1)\n")
+w("tests/run.sh", run_sh([
+    ("classify は閾値超えで pos", "check_classify.py"),
+    ("seven(7) は例外", "check_seven.py"),
+    ("guard(-1) は例外", "check_guard1.py"),
+    ("guard(-2) は例外", "check_guard2.py"),
+    ("loud_but_uncaught は落ちない", "check_loud.py"),
+    ("add_one(None) は例外", "check_extra.py"),
+]))
+
+# --- (1) 本命: --files で通常の腕（norm1）も選び、--auto で足した行から機械の腕も作って、まとめて 1 回で撃つ ---
+r_out = mini / "r.json"
+r = run_mutate("-j", "2", "--files", "calc.py", "--auto", BASE, out=r_out)
+res = json.loads(r_out.read_text(encoding="utf-8"))
+by_title = {(a["file"], a["title"]): a for a in res["arms"]}
+
+
+def find(file, title_prefix):
+    hits = [a for (f, t), a in by_title.items() if f == file and t.startswith(title_prefix)]
+    assert len(hits) == 1, f"{file} の {title_prefix!r} に当たる腕が {len(hits)} 本: {list(by_title)}"
+    return hits[0]
+
+
+norm1 = next(a for a in res["arms"] if a["id"] == "norm1")
+norm2 = next(a for a in res["arms"] if a["id"] == "norm2")
+guard_cond = find("calc.py", "cond: n < 0")
+guard_stmt = find("calc.py", "stmt: raise ValueError(\"negative\")")
+loud_cond = find("calc.py", "cond: n > 100")
+dead_cond = find("calc.py", "cond: n == 42")
+extra_cond = find("extra.py", "cond: n is None")
+extra_stmt = find("extra.py", "stmt: raise ValueError")
+seven_stmt = find("calc.py", "stmt: raise ValueError(\"seven\")")
+
+assert r.returncode == 1, f"生存・未到達を含む撃ちの exit は 1 のはずが {r.returncode}"
+assert norm1["status"] == "Killed" and norm1["own"], f"norm1 は Killed・own のはずが: {norm1['status']}, own={norm1.get('own')}"
+# norm2 は expect でなく marker だけを持つ——own は False だが、印が写しの出力に現れたことが証拠になる
+assert norm2["status"] == "Killed" and not norm2["own"], f"norm2 は Killed・own=False のはずが: {norm2['status']}, own={norm2.get('own')}"
+assert norm2["evidence"] == "印 norm2 が写しの出力に現れた", f"norm2 の証拠が印によるものになっていない: {norm2.get('evidence')!r}"
+assert guard_cond["status"] == "Killed", f"guard の cond は Killed のはずが: {guard_cond['status']}"
+assert guard_stmt["status"] == "Killed", f"guard の raise は Killed のはずが: {guard_stmt['status']}"
+assert extra_cond["status"] == "Killed", f"extra の cond は Killed のはずが: {extra_cond['status']}"
+assert extra_stmt["status"] == "Killed", f"extra の raise は Killed のはずが: {extra_stmt['status']}"
+assert loud_cond["status"] == "Survived", f"loud_but_uncaught の cond は Survived のはずが: {loud_cond['status']}"
+assert dead_cond["status"] == "NoCoverage", f"dead_code の cond は NoCoverage のはずが: {dead_cond['status']}"
+# 行の途中から始まる文（if x: raise …）には印を差せない——印が無いのは『通らない』ではないので撃つ
+assert seven_stmt["status"] == "Killed" and seven_stmt["rc"] is not None, f"印の無い行途中の文も撃つはずが: {seven_stmt['status']} rc={seven_stmt['rc']!r}"
+assert not any(t.startswith("stmt: \"\"\"") for (_, t) in by_title), f"docstring（裸の式の文）が腕になった: {list(by_title)}"
+assert dead_cond["rc"] is None, f"到達しない腕は撃たずに済ませるはずが rc={dead_cond['rc']!r}（一度動かしてしまった）"
+assert "撃たずに生き残り" in " ".join(dead_cond["tail"]), f"未到達の理由が tail に無い: {dead_cond['tail']}"
+assert len(guard_cond["killedBy"]) == 1, f"failfast で最初の FAIL だけのはずが: {guard_cond['killedBy']}"
+assert guard_cond["killedBy"] == ["guard(-1) は例外"], f"failfast が止めた場所が違う: {guard_cond['killedBy']}"
+# 印の写しが実物の結果（5 本通った・6 本差した）を持つこと——素通りの既定値（0/0）にすり替わっていないか
+assert "自動の腕: 印の写しで通った 7 本を撃つ・通らない 1 本は撃たない" in r.stdout, f"自動の腕の通過数の行が無いか数が違う: {r.stdout}"
+assert "印: 7 / 8 本が通った" in r.stdout, f"印の写しの通過数（seen/placed。norm2 の通常 marker も数えるはず）が出ていないか違う: {r.stdout}"
+
+# --files/--only を付けずに --auto だけで撃つと、一覧の腕（全部）と自動の腕の和を 1 回で撃つ（次の周の頭のゲートの実効性の撃ち方）
+r_out2 = mini / "r2.json"
+r2 = run_mutate("-j", "2", "--auto", BASE, out=r_out2)
+assert "撃つ腕が 0 本" not in r2.stderr, f"autos が非 0 なのに 0 本判定に止められた: {r2.stderr!r}"
+res2 = json.loads(r_out2.read_text(encoding="utf-8"))
+ids2 = {a["id"] for a in res2["arms"]}
+assert {"norm1", "norm2"} <= ids2, f"--auto だけの回に、一覧の腕が入っていない: {ids2}"
+assert len(ids2) == 10, f"--auto だけの回は 10 本（一覧 2・自動の発火 7・未到達 1）のはずが: {ids2}"
+
+# 絞りに当たる一覧の腕が 0 本でも、自動の腕が在れば撃つ（0 本の判定は和の後の 1 か所）——一覧に腕の無いファイルだけを
+# 直した周に、自動の腕が撃たれずに抜けていた
+r_out5 = mini / "r5.json"
+r5 = run_mutate("-j", "2", "--files", "extra.py", "--auto", BASE, out=r_out5)
+assert "撃つ腕が 0 本" not in r5.stderr, f"一覧が 0 本・自動の腕ありなのに 0 本判定に止められた: {r5.stderr!r}"
+ids5 = {a["id"] for a in json.loads(r_out5.read_text(encoding="utf-8"))["arms"]}
+assert ids5 and not ids5 & {"norm1", "norm2"}, f"一覧 0 本の回に自動の腕が撃たれていない（または一覧の腕が紛れた）: {ids5}"
+
+# --- 期限（--deadline-at）: 期限を過ぎていれば新しい腕を始めず、残りを pending にして --out を書き、exit 1 ---
+dl_out = mini / "dl.json"
+r = run_mutate("--only", "norm1,norm2", "--deadline-at", "2000-01-01T00:00:00+00:00", out=dl_out)
+dl = json.loads(dl_out.read_text(encoding="utf-8"))
+assert r.returncode == 1 and dl["arms"] == [] and {x["id"] for x in dl.get("pending") or []} == {"norm1", "norm2"}, \
+    f"期限切れの回は腕を始めず、全部を pending にして書くはずが: exit {r.returncode} {dl}"
+assert "期限で撃たずに残った腕 2 本" in r.stdout, f"残った腕を名乗っていない: {r.stdout}"
+g = json.loads(subprocess.run([PY, MUT, "--gate-efficacy", str(dl_out)], capture_output=True, text=True, encoding="utf-8", timeout=30).stdout)
+assert g["material"]["status"] == "found" and len(g["arms"]) == 2 and all(not x["red_confirmed"] and "期限" in x.get("note", "") for x in g["arms"]), \
+    f"--gate-efficacy は期限で残った腕を証拠にならない行にし、clean にしない: {g}"
+# 途中まで撃った結果を --reuse に渡すと、撃てた腕を持ち越し、残りだけ撃つ
+full_out = mini / "full.json"
+run_mutate("--only", "norm1,norm2", out=full_out)
+part = json.loads(full_out.read_text(encoding="utf-8"))
+n2row = next(x for x in part["arms"] if x["id"] == "norm2")
+part["arms"] = [x for x in part["arms"] if x["id"] != "norm2"]
+part["pending"] = [{"id": "norm2", "title": n2row["title"], "file": n2row["file"], "status": "Pending"}]
+part_out = mini / "part.json"
+part_out.write_text(json.dumps(part, ensure_ascii=False), encoding="utf-8")
+r = run_mutate("--only", "norm1,norm2", "--reuse", str(part_out), out=mini / "cont.json")
+assert r.returncode == 0 and "撃つ腕 1 本" in r.stdout and "持ち越し 1 本" in r.stdout, \
+    f"pending を持つ結果から続きを撃つはずが: exit {r.returncode} {r.stdout}"
+# **腕 1 本ごとに --out を書き直す**——撃つ途中で殺しても、撃てた腕と残りの腕が読める形で残る
+mid_out = mini / "mid.json"
+proc = subprocess.Popen([PY, MUT, "-j", "1", "--only", "norm1,norm2", "--out", str(mid_out)], cwd=mini,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+import time
+seen_mid = None
+for _ in range(1200):
+    time.sleep(0.1)
+    try:
+        doc = json.loads(mid_out.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        continue
+    if doc.get("partial") and doc.get("arms"):
+        seen_mid = doc
+        break
+    if proc.poll() is not None:
+        break
+proc.kill()
+proc.wait()
+assert seen_mid and len(seen_mid["arms"]) == 1 and len(seen_mid["pending"]) == 1, \
+    f"撃つ途中の --out に、撃てた腕 1 本と残り 1 本が載っていない: {seen_mid}"
+
+# --auto を付けない回は、印の写しを撃つのと同じ波で回し、その結果を証拠に使う（自動の腕の先回りの印は無い）
+r_out4 = mini / "r4.json"
+run_mutate("--only", "norm2", out=r_out4)
+n2 = next(a for a in json.loads(r_out4.read_text(encoding="utf-8"))["arms"] if a["id"] == "norm2")
+assert n2.get("evidence") == "印 norm2 が写しの出力に現れた", f"--auto の無い回で印の写しの結果が証拠に届かない: {n2.get('evidence')!r}"
+
+# --changed-since も filtered を立てる側（or の 3 本目）——calc.py はコミット後に書き換えたので「変わった」側に入る
+r3 = run_mutate("--changed-since", BASE, "--auto", BASE)
+assert "撃つ腕が 0 本" not in r3.stderr, f"--changed-since で絞れているのに auto の 0 本判定に止められた: {r3.stderr!r}"
+assert "norm1" in r3.stdout or "norm2" in r3.stdout, f"--changed-since が一覧の通常の腕を選べていない: {r3.stdout}"
+
+# --- --gate-efficacy: found（生存・未到達が混ざる回）・行数は撃てた腕の数 ---
+r = subprocess.run([PY, MUT, "--gate-efficacy", str(r_out)], capture_output=True, text=True, encoding="utf-8", timeout=30)
+assert r.returncode == 0, f"--gate-efficacy 自体は exit 0 のはずが {r.returncode}: {r.stderr}"
+gate = json.loads(r.stdout)
+assert gate["material"]["status"] == "found", f"生存・未到達が混ざる回は found のはずが: {gate['material']}"
+assert len(gate["arms"]) == len(res["arms"]), f"gate の行数が撃てた腕の数と合わない: {len(gate['arms'])} vs {len(res['arms'])}"
+
+print("E2E_AUTO_OK")
+PYE2E
+expect_output 0 "E2E_AUTO_OK" "自動の腕の本命: 使い捨ての git repo で if の生死が割れる行・誰も通らない行・未追跡の新ファイルを足して撃ち、Killed/Survived/NoCoverage・failfast・未到達を撃たない・--files/--only/--changed-since・差分 0 本・存在しない rev・--gate-efficacy を通して見る" \
+    "$PY_BIN" "$WORK/mut-auto-e2e.py" "$ROOT/tests"
 
 # **宣言した下限と、CI が測る版を機械で突き合わせる。** 版を固定した周に、固定と宣言を結ぶ検査を足さなかった
 # ——README を上げれば CI は古い版を測り続け、workflow だけ上げれば宣言した下限を誰も測らなくなる。どちらも
@@ -3262,6 +3732,7 @@ NOT_RATCHET = {
     "NUM": "catchup の分岐表の期待値（switch-case の網羅で、件数のラチェットではない）",
     "TIMEOUT": "tests/mutate.py が写しで台本一式を走らせる時間切れ（秒）。件数の突合ではない",
     "EXPECT_HEAD": "tests/mutate.py が expect の頭を台本の本文に探す字数。件数の突合ではない",
+    "TAIL": "tests/mutate.py が --deadline-at の期限の手前に残す幅（秒）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []

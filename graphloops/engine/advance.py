@@ -7,7 +7,7 @@ import sys
 from .render import FILE_CAP, Renderer
 from .rules import hook, registry
 from .schema import validate_schema
-from .util import ANSWER_ACTIONS, TERMINAL_STATUS, die, dump, now, read_json, safe_name, sha, write_json
+from .util import ANSWER_ACTIONS, TERMINAL_STATUS, deadline_of, die, dump, now, read_json, safe_name, sha, write_json
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -158,9 +158,11 @@ def prompt_growth(b, nid, prompt_bytes):
     return {"node": nid, "round": b.round, "bytes": prompt_bytes, "was": max(prev)}
 
 
-def emit_instance(b, nid, item=None, suffix=""):
+def emit_instance(b, nid, item=None, suffix="", attempt=1):
     n = b.nodes[nid]
     iid = nid + (f"[{item['key']}]" if item else "") + suffix
+    emitted = now()
+    deadline = deadline_of(b.graph, n, emitted)
     prompt_path = pathlib.Path(b.state["graph"]).parent / n["prompt_file"]
     try:
         tpl = prompt_path.read_text(encoding="utf-8")
@@ -171,7 +173,7 @@ def emit_instance(b, nid, item=None, suffix=""):
     # ——レンズの一覧を散文へ手で写すと、正本を直した周に写しだけが古くなり、しかも役は写しの方を読む
     # （実測 2026-09-15: skills 配列に 3 本足したのにプロンプト側は 2 本しか名指ししていなかった）。
     # 渡すのは skills だけ——節の宣言を丸ごと開くと、schema も deps も役の目に入って指示と資料の境が消える。
-    ctx["node"] = {"skills": n.get("skills", [])}
+    ctx["node"] = {"skills": n.get("skills", []), **({"deadline_at": deadline} if deadline else {})}
     if n.get("pre") == "finalize":
         # 報告の前に記録を仕上げて検証器を回す。通らなければこの節は出さない（fail loud）
         finalize(b)
@@ -241,10 +243,15 @@ def emit_instance(b, nid, item=None, suffix=""):
         "id": iid, "node": nid, "run_by": n["run_by"], "prompt_bytes": prompt_bytes,
         "mode": "runner" if runner else "agent",
         "agent_type": None if runner else agent_type_of(b, n),
-        "prompt_file": str(pfile), "prompt_sha": sha(prompt), "item": item, "status": "pending", "emitted_at": now(),
+        "prompt_file": str(pfile), "prompt_sha": sha(prompt), "item": item, "status": "pending", "emitted_at": emitted,
         # 返答の置き場（運び手がここへ書けば done は --output 無しで読む）。**本文を返す節（text）は .md**——
-        # 拡張子が .json だと、Markdown を返す節で運び手が別名に書き、初回の done が『返答が無い』で必ず落ちた
-        "out_path": str(b.dir / "out" / f"r{b.round}" / (safe_name(iid) + (".md" if n.get("text") else ".json"))),
+        # 拡張子が .json だと、Markdown を返す節で運び手が別名に書き、初回の done が『返答が無い』で必ず落ちた。
+        # **起こし直した試行は置き場を分ける**（.a<試行>）——前の試行が遅れて書いても別のファイルに落ち、記録に入らない
+        # （Temporal の task token が試行ごとに一意で、古い試行の完了の報告を受け付けないのと同じ締め出し）
+        "out_path": str(b.dir / "out" / f"r{b.round}" / (safe_name(iid) + (f".a{attempt}" if attempt > 1 else "")
+                                                         + (".md" if n.get("text") else ".json"))),
+        "attempts": attempt,
+        **({"deadline_at": deadline} if deadline else {}),
     }
     # **返答の置き場のディレクトリも engine が作る**——プロンプトの置き場だけ作っていたとき、運び手が
     # シェルのリダイレクトや mkdir をしない書き方で書くと、最初の done が『返答が無い』で必ず落ちた（実走の申し送り 2026-09-24）

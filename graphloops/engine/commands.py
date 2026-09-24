@@ -11,7 +11,7 @@ from .record import apply_writes
 from .render import TOKEN, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import load_graph, validate_schema
-from .util import ANSWER_ACTIONS, PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, write_json
+from .util import ANSWER_ACTIONS, PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, waiting, write_json
 from .validator import find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
@@ -144,7 +144,7 @@ def cmd_next(a):
         # パスは json.dumps が Windows の区切りを二重化するので印にできない）
         "status": b.state["status"], "round": b.round, "thickness": b.state["thickness"],
         "dir": str(b.dir), "run_id": b.state.get("run_id"), "notes": notes,
-        "ready": [{k: v for k, v in i.items() if k != "tree_before"} for i in ready],
+        "ready": [{**{k: v for k, v in i.items() if k != "tree_before"}, **waiting(i)} for i in ready],
         "how": ("ready の全部を同時に始めてよい（同じ波）。"
                 "cli（道具ゼロの遮断系）は **loop.py launch を呼べ**——engine が起こして out_path に落とす。"
                 "自分の Bash から起こすな: 出力をファイルに落とす綴りは auto mode の分類器が止める"
@@ -162,7 +162,12 @@ def cmd_next(a):
                 "engine が起こせない節は why が出る——迂回を組まず人に渡せ。"
                 "agent_continue は agent_id の agent に SendMessage で続ける（同じ渡し方）。"
                 "runner は自分でやる（skills があればその skill を呼ぶ。置き場のパスで渡された物は要る所だけ Read）。返答を out_path に保存して "
-                "loop.py done --node <id> [--agent-id <id>]（別の場所に置いたなら --output <file>）。ready が空で status が running なら、done の直後にもう一度 next"),
+                "loop.py done --node <id> [--agent-id <id>]（別の場所に置いたなら --output <file>）。ready が空で status が running なら、done の直後にもう一度 next。"
+                "**期限（deadline_at）を持つ instance を背景の役・任せ先に渡したら、同じ手番で loop.py wait --node <id> を Bash の背景実行で立てよ**"
+                "——役の完了の知らせは入れ子や上限落ちで消えるが、wait の終了はプロセスの終了としてハーネスが必ず知らせる。"
+                "exit 0 なら done、exit 3（期限切れ）で out_path が空なら loop.py relaunch --node <id> --reason <理由> で起こし直す"
+                "（新しい out_path と deadline_at が返る。前の試行が遅れて書いても別のファイルに落ち、記録に入らない）。"
+                "期限を持たない instance に wait は使えない（期限の無い待ちを作らない）"),
     }))
 
 
@@ -641,9 +646,68 @@ def cmd_status(a):
         "dir": str(b.dir), "run_id": st.get("run_id"), "loop": st["loop_name"], "status": st["status"], "round": b.round, "thickness": st["thickness"],
         "max_rounds": st["max_rounds"], "unattended": st["unattended"],
         "this_round": {"done": sorted(b.rd["done"]), "na": b.rd["na"], "skipped": b.rd["skipped"], "empty": b.rd["empty"],
-                       "pending_instances": [i["id"] for i in b.rd["instances"].values() if i["status"] == "pending"]},
+                       "pending_instances": [{"id": i["id"], **waiting(i)} for i in b.rd["instances"].values() if i["status"] == "pending"]},
         "pending_human": st.get("pending_human"), "validator": st.get("validator"),
     }))
+
+
+WAIT_POLL = float(os.environ.get("GL_WAIT_POLL") or 15)   # wait が盤面を見に行く間隔（秒）。台本が縮められるように環境変数で差し替える
+
+
+def cmd_wait(a):
+    """背景の役・任せ先の返答を、期限まで待つ（回す側が Bash の背景実行で立て、その終了で起きる）。
+
+    **盤面は読むだけで書かない**（回す側が同時に next / done を打っても競合しない）。返るのは 3 通り: 返答が置き場に在る・
+    instance が済んだ（exit 0）、期限を過ぎた（exit 3。次の手を印字）。期限を持たない instance は拒む——期限の無い wait は、
+    任せ先が書かずに落ちたとき永久に返らず、塞ぎたい『黙って止まる』をそのまま作る"""
+    import time  # 待つ口でだけ要る
+    d = pathlib.Path(resolve_dir(a))
+    while True:
+        st = read_json(d / "state.json")
+        inst = st["rounds"][-1]["instances"].get(a.node)
+        if inst is None:
+            raise Reject(f"今の周に instance '{a.node}' が無い（id は next の ready の id）")
+        if not inst.get("deadline_at"):
+            raise Reject(f"'{a.node}' は期限（deadline_at）を持たない——graph の deadline_minutes が無い節に wait は使えない")
+        out = pathlib.Path(inst.get("out_path") or "")
+        if inst["status"] != "pending" or (out.name and out.is_file() and out.stat().st_size > 0):
+            print(dump({"id": a.node, "written": True, "status": inst["status"], "out_path": str(out), **waiting(inst)}))
+            return
+        w = waiting(inst)
+        if w["overdue"]:
+            print(dump({"id": a.node, "written": False, **w,
+                        "how": f"期限を過ぎても {out} に返答が無い。役が生きていないなら loop.py relaunch --node {a.node} --reason <理由> で起こし直せ"}))
+            sys.exit(3)
+        left = (datetime.datetime.fromisoformat(inst["deadline_at"]) - datetime.datetime.fromisoformat(now())).total_seconds()
+        time.sleep(max(0.1, min(WAIT_POLL, left)))
+
+
+def cmd_relaunch(a):
+    """待っている instance を起こし直す——同じ節・同じ項目で出し直し、試行の回数と理由を盤面と trace に刻む。
+
+    **前の試行を締め出す**: 新しい試行は別の out_path（.a<試行>）を持ち、前の置き場に在った物は .stale-a<試行> へ退ける。
+    前の試行が遅れて書いても、done と wait は今の試行の置き場しか読まない（Temporal の task token が試行ごとに一意なのと同じ）。
+    作業ツリーの基準点（tree_before）は前の試行の物を引き継ぐ——取り直すと、前の試行が書き換えた作業ツリーが基準に入り、突合を素通りする"""
+    b = Board(resolve_dir(a))
+    prev = b.rd["instances"].get(a.node)
+    if prev is None or prev["status"] != "pending":
+        raise Reject(f"'{a.node}' は今の周の待っている instance でない（起こし直せるのは pending だけ）")
+    item = load_item(prev, b.dir) if prev.get("item_file") else None
+    nid = prev["node"]
+    suffix = a.node[len(nid + (f"[{item['key']}]" if item else "")):]
+    n = prev.get("attempts", 1)
+    old = pathlib.Path(prev.get("out_path") or "")
+    if old.name and old.is_file():
+        old.replace(old.with_name(old.name + f".stale-a{n}"))
+    new = emit_instance(b, nid, item, suffix=suffix, attempt=n + 1)
+    if "tree_before" in prev:
+        new["tree_before"] = prev["tree_before"]
+    new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": a.reason,
+                                                             "prev_emitted_at": prev["emitted_at"], "prev_out_path": str(old)}]
+    b.trace("relaunched", instance=a.node, attempt=n + 1, reason=a.reason)
+    b.save()
+    print(dump({"relaunched": {k: v for k, v in new.items() if k != "tree_before"},
+                "how": "新しい out_path に書かせて起こし直せ（prompt_file は描き直した。前の試行の置き場は読まれない）"}))
 
 
 def cmd_record(a):

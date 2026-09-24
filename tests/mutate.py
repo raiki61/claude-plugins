@@ -15,6 +15,18 @@ src/mutmut/configuration.py・README）。cosmic-ray も Python の AST だけ�
 JS / TS / C# / Scala の AST の演算子（https://stryker-mutator.io/docs/mutation-testing-elements/supported-mutators/）。どれも任意の
 字列置換の腕と、検査ごとの突合を持たない——報告の形だけを Stryker ほかの共通形式に寄せる（下）。
 
+自動の腕（--auto: auto_targets・auto_arms_for・auto_marker）は Python の AST で壊すので、上の理由は当たらない。cosmic-ray には
+差分の行に絞る cr-filter-git と、全変異に共通のテストのコマンドが在り、そこは同じ機能である。それでも使わない理由は 3 つ
+（2026-09-25 に一次情報で確かめた）。(1) 作業ツリーをその場で書き換える: 変異は src/cosmic_ray/mutating.py の
+MutationVisitor.mutate_path が対象ファイルを開いて上書きし、util.py の restore_contents が finally で書き戻す。写しを作る仕組みは無く、
+分散実行で衝突しないのは各 worker が別に用意した複製を持つ前提（公式 tutorials/distributed）。review-loop は P1 の前後で作業ツリーを
+突き合わせ、書き換えを止めるので、写しは結局こちらで作ることになる。(2) 通らない行を撃つ前に外す口が無い: 公式の filter は
+cr-filter-pragma・cr-filter-operators・cr-filter-git だけで（how-tos/filters）、被覆で未到達の変異を除く物は無い。自動の腕は印の写し
+1 回で通らない行を外し（NoCoverage）、撃つ数を減らす。(3) どの検査が落ちたかを残さない: src/cosmic_ray/work_item.py の WorkResult が
+持つのは test_outcome・worker_outcome・生の output・diff で、落ちた検査の名前（killedBy）を持たない。自動の腕も一覧の腕と同じ --out に
+入り、--gate-efficacy と --reuse を 1 本で通す。依存を足さない配布方針（issue #6）は配布する実行時の決定で、開発用の CI までは縛らない
+——だから理由に数えない。
+
 以前はこの工程を、回す側（LLM）が周ごとに使い捨てのスクリプトで書いていた。置換対象の字列がコードの書き換えで消えた腕は
 黙って外れ（2026-09-23 のレビューでは 1 周目に 25 本、2 周目に 18 本）、印の差し込みで写しを構文エラーにする
 誤りも 2 度起きた。一覧をリポジトリに置き、`--check` を台本（tests/run.sh）から毎回走らせるので、消えた字列はその変更の
@@ -26,16 +38,21 @@ JS / TS / C# / Scala の AST の演算子（https://stryker-mutator.io/docs/muta
     python3 tests/mutate.py --changed-since <rev>      # その版から変わったファイルを狙う腕だけ撃つ
     python3 tests/mutate.py --files a.py,b.py / --only d01,K1a
     python3 tests/mutate.py --reuse prev.json          # 前回の --out から、腕も指紋も変わっていない腕の結果を持ち越す
+    python3 tests/mutate.py --auto <rev>               # 一覧の腕に加えて、<rev> からの差分が足した Python の文と式の腕も撃つ
+    python3 tests/mutate.py --deadline-at <ISO 時刻>   # その時刻までに書き終える（残った腕は pending。--reuse で続きから）
     python3 tests/mutate.py --gate-efficacy r.json     # --out の結果を review-loop の p1.gate_efficacy の返答の形で印字
 
 --out の形は変異テストの報告の共通形式（mutation-testing-report-schema。Stryker ほかが使う）に寄せる: 腕ごとに
-status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と、実際に落ちた検査 killedBy。
+status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と、実際に落ちた検査 killedBy。共通形式の外の欄は
+empty（撃てた腕 0 本の理由）・partial（撃つ途中の版。腕 1 本ごとに書き直す）・pending（期限で撃たずに残った腕）の 3 つ。
 
 終了コード: 0 = 撃った腕（1 本以上）が全部、赤・当たりの証拠つきで control が緑（--check なら全腕の字列と証拠の口が在る）
 / 1 = そうでない / 2 = 一覧が読めない。時間切れ・台本が 1 本も当たらなかった腕は赤でなく『走り切らない』
 """
 import argparse
 import concurrent.futures as cf
+import copy as copymod
+import datetime
 import hashlib
 import json
 import os
@@ -54,6 +71,8 @@ SUITES = {"graphloops": ["bash", "graphloops/tests/run.sh"], "root": ["bash", "t
 # CPU で約 8 分かかり、全腕では 24 コアでも 1 時間を超えた。関数 1 本なら秒の単位で済む
 SCRIPTS = ("graphloops/tests/simulate.py", "graphloops/tests/simulate_review.py")
 TIMEOUT = 1500
+# --deadline-at の期限の手前に残す幅（秒）。最後の腕が終わってから、任せ先が --gate-efficacy を組んで返答を書くまでの分
+TAIL = 300
 NO_TEST = "に当たる台本が 1 本も無い"   # graphloops/tests/parallel.py の collect が出す拒否文
 # 持ち越しの指紋に入れる台本（腕の結果を決める検査の側）。壊す側のファイルは腕ごとに足す
 DRIVERS = ("tests/run.sh", "graphloops/tests/run.sh", "graphloops/tests/parallel.py") + SCRIPTS
@@ -252,9 +271,17 @@ def run_group(argv, cwd, env=None, failfast=False):
                          encoding="utf-8", errors="replace", start_new_session=True)
     late = {"v": False}
 
+    def killpg():
+        # グループが先に自然終了していると ProcessLookupError（pgid を使い回されていれば PermissionError）が飛ぶ。
+        # 握り潰さないと腕 1 本の競合で実行器ごと落ち、--out を書く前に全部の結果を失う（実測 2026-09-24、failfast の直後）
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
     def kill():
         late["v"] = True
-        os.killpg(p.pid, signal.SIGKILL)
+        killpg()
     timer = threading.Timer(TIMEOUT, kill)
     timer.start()
     out, stopped = [], False
@@ -263,7 +290,7 @@ def run_group(argv, cwd, env=None, failfast=False):
             out.append(line)
             if failfast and line.startswith("  FAIL ") and NO_TEST not in line:
                 stopped = True
-                os.killpg(p.pid, signal.SIGKILL)
+                killpg()
                 break
         p.wait()
     finally:
@@ -437,15 +464,26 @@ def changed_since(rev, root=ROOT):
     return got
 
 
+def write_out(out, res):
+    """--out を書く口はこの 1 本。一時ファイルに書いてから置き換える（途中で殺されても、読める前の版か新しい版のどちらかが残る）。
+    撃つ途中でも腕 1 本ごとに書く——最後に 1 度だけ書いていたとき、期限で切ると結果が 1 本も残らず、それが『期限を付けるな』の
+    理由になっていた（実測 2026-09-24）。途中の版は partial と未撃ちの pending を持ち、--reuse はそこからも続けられる"""
+    if not out:
+        return
+    p = pathlib.Path(out)
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps(res, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, p)
+
+
 def write_empty(out, why):
     """撃てた腕が 0 本の回も --out を書く——--gate-efficacy がそこから not_run（理由つき）を組める。終了コードは 1 のまま
     （0 本を合格と言わない）。書かずに抜けていた頃は、任せ先が --gate-efficacy を打つと読み込みで落ち、返す形が何も無かった"""
-    if out:
-        pathlib.Path(out).write_text(json.dumps({"schemaVersion": "1", "arms": [], "empty": why}, ensure_ascii=False, indent=1) + "\n",
-                                     encoding="utf-8")
+    write_out(out, {"schemaVersion": "1", "arms": [], "empty": why})
 
 
-def pick(arms, only=None, files=None, since=None, out=None):
+def pick(arms, only=None, files=None, since=None):
+    """一覧の腕を絞る（絞りが無ければ全部）。0 本の判定は呼び元が自動の腕と合わせた後の 1 か所で行う"""
     sel = arms
     if only:
         sel = [x for x in sel if x["id"] in set(only.split(","))]
@@ -454,11 +492,6 @@ def pick(arms, only=None, files=None, since=None, out=None):
     if since:
         ch = changed_since(since)
         sel = [x for x in sel if x["file"] in ch]
-    if not sel:
-        why = "撃つ腕が 0 本（絞りの条件に当たる腕が無い。0 本を合格と言わない）"
-        write_empty(out, why)
-        print(f"NG {why}", file=sys.stderr)
-        sys.exit(1)
     return sel
 
 
@@ -533,7 +566,8 @@ def gate_efficacy(res):
     """--out の結果を p1.gate_efficacy の返答（material と arms）に組む。判定は proven と healthy だけで、終了コードと同じ。
     この Python では撃てない腕（Ignored）は腕の行に入れず、名前を material に書く（終了コードも Ignored では落とさない）"""
     ok = healthy(res)
-    shot = [r for r in res["arms"] if r.get("status") != "Ignored"]
+    # 期限で撃たずに残った腕は、撃てた腕と同じ行にして証拠にならない側に数える（黙って落とすと、残りを撃たないまま clean になる）
+    shot = [r for r in res["arms"] if r.get("status") != "Ignored"] + list(res.get("pending") or [])
     ign = [f"{r['id']}" for r in res["arms"] if r.get("status") == "Ignored"]
     arms = [{"gate": r.get("file", ""), "arm": f"{r['id']} {r['title']}", "red_confirmed": r.get("status") == "Killed",
              "control_green": ok, "hit_evidence": r.get("evidence") or "",
@@ -560,7 +594,9 @@ def main():
     ap.add_argument("--changed-since")
     ap.add_argument("--out")
     ap.add_argument("--auto", metavar="REV", help="REV からの差分が足した Python の文と式から腕を機械で作って撃つ（if の条件・or/and の項・"
-                    "条件式・raise・式の呼び出し・累算代入）。腕の一覧に宣言していない入口を生き残りとして出す。--only 等の絞りと併せれば一覧の腕も撃つ")
+                    "条件式・raise・式の呼び出し・累算代入）。腕の一覧に宣言していない入口を生き残りとして出す。一覧の腕（絞りがあれば絞った物）と併せて撃つ")
+    ap.add_argument("--deadline-at", metavar="ISO", help="この時刻（ISO 8601。時差つき）までに結果を書き終える。新しい腕を始めるのは"
+                    "期限の TIMEOUT＋TAIL 秒前まで。撃たずに残った腕は --out の pending に入り、同じ --out を --reuse に渡すと続きから撃てる")
     ap.add_argument("--reuse", help="前回の --out。腕の定義・壊すファイル・台本一式が同じで、赤と当たりの証拠が在った腕を撃たずに持ち越す")
     ap.add_argument("--gate-efficacy", help="--out の結果を p1.gate_efficacy の返答の形で印字する")
     ap.add_argument("--arms-file", help="腕の一覧の置き場（既定は tests/mutations.json。台本が壊した一覧で --check の赤を見るため）")
@@ -598,13 +634,15 @@ def main():
         for rel, lines in sorted(tg.items()):
             autos += auto_arms_for(rel, (ROOT / rel).read_text(encoding="utf-8"), lines)
         ids += [x["id"] for x in autos]
-    filtered = a.only or a.files or a.changed_since
-    if a.auto and not filtered and not autos:
-        why = f"撃つ腕が 0 本（--auto {a.auto} からの差分が足した Python の文が無い）"
+    # **一覧の腕（絞りがあれば絞った物）と自動の腕の和を撃ち、0 本の判定は和の後の 1 か所で行う。** 絞りの中で 0 本を判定して
+    # いたとき、一覧に腕の無いファイルだけを直した周は、自動の腕が在っても撃つ前に抜けた。--auto だけのときに一覧の腕を
+    # 捨てていたので、次の周の頭で一覧と前の周の差分の自動の腕を 1 回で撃てなかった
+    sel = pick(arms, a.only, a.files, a.changed_since) + autos
+    if not sel:
+        why = "撃つ腕が 0 本（絞りの条件に当たる腕も、--auto の差分が足した Python の文も無い。0 本を合格と言わない）"
         write_empty(a.out, why)
         print(f"NG {why}", file=sys.stderr)
         sys.exit(1)
-    sel = (pick(arms, a.only, a.files, a.changed_since, out=a.out) if filtered or not a.auto else []) + autos
     srcs = {s: suite_source(ROOT, s) for s in {x["suite"] for x in sel}}
     bad = [(x["id"], why) for x in sel if (why := anchor_problem(ROOT, x, srcs[x["suite"]]))]
     if bad:
@@ -621,10 +659,17 @@ def main():
         write_empty(a.out, why)
         print(f"NG {why}", file=sys.stderr)
         sys.exit(1)
+    # **期限: 新しい仕事（印の写し・腕）を始めてよいのは cutoff まで。** 始めた仕事は TIMEOUT のうちに終わるので、結果は期限の
+    # TAIL 秒前までに書き終わる（control は最初に始めるので、同じ TIMEOUT に収まる）
+    cutoff = (datetime.datetime.fromisoformat(a.deadline_at) - datetime.timedelta(seconds=TIMEOUT + TAIL)) if a.deadline_at else None
+    late = lambda: cutoff is not None and datetime.datetime.now(cutoff.tzinfo) >= cutoff
     print(f"撃つ腕 {len(fire)} 本（全 {len(arms)} 本" + (f"・持ち越し {len(carried)} 本" if carried else "") + "）", flush=True)
     res = {"schemaVersion": "1", "arms": [{**prev[x["id"]], "carried": True} for x in carried]}
-    pre_marker, unreached = None, []
-    if any("auto" in x for x in fire):
+    pend = lambda xs: [{"id": x["id"], "title": x["title"], "file": x["file"], "status": "Pending",
+                        "unrunnable": "期限で撃たずに残った（同じ --out を --reuse に渡して続きを撃て）"} for x in xs]
+    write_out(a.out, {**res, "partial": True, "pending": pend(fire)})
+    pre_marker, unreached, res_pre, skipped_late = None, [], [], []
+    if any("auto" in x for x in fire) and not late():
         # **自動の腕は、印の写しで一度も通らない行を撃たない**——壊しても台本が気づけない行なので、撃つまでもなく生き残り
         # （NoCoverage。腕の無い入口）。撃つのは通った行の腕だけ（全部を台本一式で撃つと 1 周の修正で 2 時間を超えた）
         pre_marker = marker_run(fire)
@@ -635,6 +680,8 @@ def main():
                     "tail": ["印の写しで一度も通らない行（撃たずに生き残りと数える）"], "file": x["file"], "fingerprint": fps[x["id"]]}
                    for x in unreached]
         print(f"自動の腕: 印の写しで通った {len([x for x in fire if 'auto' in x])} 本を撃つ・通らない {len(unreached)} 本は撃たない", flush=True)
+    if late():
+        skipped_late, fire = fire, []
     with cf.ThreadPoolExecutor(max(1, a.j)) as ex:
         union = {}
         for x in fire:
@@ -644,15 +691,44 @@ def main():
         fc = ex.submit(control, {x["suite"] for x in fire} | {"root"}, {s: sorted(v) for s, v in union.items()}) if fire else None
         fm = None if pre_marker else (ex.submit(marker_run, fire) if fire else None)   # 全部持ち越しの回は印の写しを走らせない（差す腕が無い）
         fa = {ex.submit(one, x): x for x in fire}
-        for f in cf.as_completed(fa):
+        empty_marker = {"rc": 0, "failed": [], "tail": [], "placed": [], "seen": [], "skipped": {}}
+
+        def snapshot():
+            """途中の版: 撃った腕・未撃ちの腕・（終わっていれば）control と印の写し。両方そろっていれば証拠まで付けて、--reuse が読める形にする"""
+            done_ids = {r["id"] for r in res["arms"]}
+            snap = {**copymod.deepcopy(res), "arms": copymod.deepcopy(res["arms"]) + copymod.deepcopy(res_pre), "partial": True,
+                    "pending": pend([x for x in fire + skipped_late if x["id"] not in done_ids])}
+            if (fc is None or fc.done()) and (pre_marker or fm is None or fm.done()):
+                snap["control"] = fc.result() if fc else {"carried": {"rc": 0}}
+                snap["marker"] = pre_marker or (fm.result() if fm else empty_marker)
+                evaluate(snap, sel)
+            return snap
+
+        def take(f):
             r = {**f.result(), "file": fa[f]["file"], "fingerprint": fps[fa[f]["id"]]}
             res["arms"].append(r)
             killed = r.get("status") == "Killed"
             mark = "red  " if killed else "GREEN" if r.get("status") in SURVIVED else "skip "
             print(f"  {mark} {r['id']} {r['title']}" + ("" if r["own"] or not killed else "（赤は別の検査から）"), flush=True)
+            write_out(a.out, snapshot())
+        try:
+            wait = None if cutoff is None else max(0.0, (cutoff - datetime.datetime.now(cutoff.tzinfo)).total_seconds())
+            for f in cf.as_completed(fa, timeout=wait):
+                take(f)
+        except cf.TimeoutError:
+            # 期限: まだ始まっていない腕を取り消す（走っている腕は TIMEOUT のうちに終わるので待つ）
+            for f, x in fa.items():
+                if f.cancel():
+                    skipped_late.append(x)
+            for f in cf.as_completed([f for f in fa if not f.cancelled() and fa[f]["id"] not in {r["id"] for r in res["arms"]}]):
+                take(f)
         res["control"] = fc.result() if fc else {"carried": {"rc": 0}}
-        res["marker"] = pre_marker or (fm.result() if fm else {"rc": 0, "failed": [], "tail": [], "placed": [], "seen": [], "skipped": {}})
-        res["arms"] += res_pre if pre_marker else []
+        res["marker"] = pre_marker or (fm.result() if fm else empty_marker)
+        res["arms"] += res_pre
+    if skipped_late:
+        res["pending"] = pend(skipped_late)
+        print(f"期限で撃たずに残った腕 {len(skipped_late)} 本: {' '.join(x['id'] for x in skipped_late)}"
+              "（同じ --out を --reuse に渡して続きを撃て）", flush=True)
     res["arms"].sort(key=lambda r: ids.index(r["id"]))
     s = evaluate(res, sel)
     m, green, skipped, unrun, unhit, noev, ctrl_ok = (res["marker"], s["green"], s["skipped"], s["unrunnable"], s["unhit"],
@@ -668,11 +744,9 @@ def main():
     if noev:
         print(f"赤だが当たりの証拠が無い腕（expect を宣言した腕は、落ちた検査に expect が無い）: {' '.join(noev)}")
     res["summary"]["carried"] = [x["id"] for x in carried]
-    if a.out:
-        pathlib.Path(a.out).write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_out(a.out, res)
     shot = [r for r in res["arms"] if r.get("status") != "Ignored"]
-    sys.exit(0 if shot and healthy(res) and all(proven(r) for r in shot) else 1)
-
+    sys.exit(0 if shot and not skipped_late and healthy(res) and all(proven(r) for r in shot) else 1)
 
 if __name__ == "__main__":
     main()

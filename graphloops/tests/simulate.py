@@ -802,6 +802,46 @@ def test_schema_pattern_properties():
     check(unknown_keywords({"patternProperties": {"^x_": {"typo": 1}}}) != [], "patternProperties: 中の語も engine の読む語かを見る")
 
 
+def test_schema_end_anchored():
+    """型検査の pattern の `$` は ECMA-262 の意味（入力の末尾だけ）。エスケープした `\\$` と文字クラスの中の `$` は字のまま"""
+    print("型検査: pattern の $ は末尾だけ")
+    from engine.schema import end_anchored  # noqa: E402
+    m = lambda pat, s: bool(end_anchored(pat).search(s))
+    check(m("^a$", "a") and not m("^a$", "a\n"), "pattern: $ は末尾の改行の手前で一致しない（Python の $ と違う）")
+    check(m("^a\\$$", "a$") and not m("^a\\$$", "a"), "pattern: \\$ はエスケープした字のまま（\\Z に読み替えない）")
+    check(m("^[$]$", "$") and not m("^[$]$", "a"), "pattern: 文字クラスの中の $ は字のまま")
+    check(m("^[ab$]$", "$"), "pattern: 文字クラスは ] まで続く（2 字目以降の後の $ もクラスの中）")
+    check(m("^[]$]+$", "]$") and not m("^[]$]+$", "]$\n"), "pattern: [ の直後の ] は文字クラスの中の字で、その後の $ もクラスの中")
+    check(m("^[a]$", "a") and not m("^[a]$", "a\n"), "pattern: 文字クラスを閉じた後の $ は末尾")
+    # **クラスの閉じは位置で決める**（Python の re の文書: ] が字になるのは [ か [^ の直後だけ）。直前の 1 字で見ていたとき、
+    # エスケープした \[ の直後の ] を字と読み、クラスを閉じ損ねて後ろの $ を素通しした
+    check(m("^[\\[]a$", "[a") and not m("^[\\[]a$", "[a\n"), "pattern: エスケープした [ の直後の ] はクラスを閉じ、後ろの $ は末尾")
+    check(m("^[^]$]$", "a") and not m("^[^]$]$", "$") and not m("^[^]$]$", "a\n"),
+          "pattern: [^ の直後の ] はクラスの中の字（コンパイルでき、$ もクラスの中）")
+    check(m("^[^]a]$", "b") and not m("^[^]a]$", "b\n"), "pattern: [^] の後のクラスを閉じた $ は末尾")
+
+
+def test_schema_refs_fail_closed():
+    """**展開されていない $ref は型検査が拒み、引ける綴りは docstring の名乗り（#/$defs/<名前> と engine#/<名前>）だけ。**
+    知らない語として無視していたとき、未展開の {"$ref": …} は何でも合格にした。engine#/$defs/<名前> は演算子の優先順位で
+    受け付けていた（読み手の読みが割れた）"""
+    print("型検査: 未展開の $ref は拒み、引ける綴りは 2 つだけ")
+    from engine.schema import validate_schema, expand_refs  # noqa: E402
+    from engine.util import ENGINE_DEFS  # noqa: E402
+    check(any("展開されていない" in e for e in validate_schema({"x": 1}, {"$ref": "#/$defs/a"})), "未展開の $ref は何でも通すのでなく拒む")
+    name = sorted(ENGINE_DEFS)[0]
+    ok = lambda ref: expand_refs({"$defs": {"a": {"type": "string"}}, "nodes": {"n": {"schema": {"$ref": ref}}}})
+    check(ok(f"engine#/{name}")["nodes"]["n"]["schema"] == ENGINE_DEFS[name], "engine#/<名前> は引ける")
+    check(ok("#/$defs/a")["nodes"]["n"]["schema"] == {"type": "string"}, "#/$defs/<名前> は引ける")
+    for bad in (f"engine#/$defs/{name}", "#/a", "other#/a"):
+        try:
+            ok(bad)
+            got = "通った"
+        except ValueError as e:
+            got = str(e)
+        check("引けない" in got, f"{bad} は名乗りの外なので拒む（{got[:40]}）")
+
+
 def test_run_count():
     """数える問い（how）は欄で受け、argv は engine が決まった形で組む。腕は柵ごとに置き、拒否理由を**その柵に固有の語**で見る
     ——共通の一語で見ていた頃は、柵を 1 つ消しても別の拒否文に当たって緑のままだった（2026-09-23 の gate_efficacy）。"""
@@ -1978,6 +2018,73 @@ def test_prompt_growth():
     check("growing_prompts" in (rec.get("process") or {}), "記録（process.growing_prompts）にも着地する")
     rm(r2.tmp)
 
+
+def test_deadline_wait_relaunch():
+    """**待ちには期限があり、起こし直しは盤面に刻まれ、前の試行は締め出される。**
+
+    完了の知らせだけで待たせていたとき、入れ子や上限落ちで知らせが消えると、回す側も engine も何も言わずに止まった
+    （実測 2026-09-25: 局所レビューの節が 7 時間以上戻らなかった）。起こし直しも盤面に残らず、emitted_at は最初の起動のまま
+    だった（同日: 週の上限で P1 の 8 節が落ち、別のセッションが起こし直した）。期限の値は graph が持つ（Temporal の
+    Start-To-Close Timeout）。起こし直した試行は置き場を分ける（Temporal の task token が試行ごとに一意なのと同じ）。
+    """
+    print("期限と起こし直し: next・status が期限と経過を出し、wait は期限で返り、relaunch は試行を刻んで前の置き場を締め出す")
+    _td_tmp, tmp = parallel.workspace("gl-deadline-graph-")
+    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
+    shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    (tmp / "graphs").mkdir()
+    gp = tmp / "graphs" / "research-loop.json"
+    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+    g["deadline_minutes"] = 60
+    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+    run = Run("deadline", graph=gp)
+    nx = run.next()
+    inst = nx["ready"][0]
+    iid = inst["id"]
+    check(inst.get("deadline_at") and inst.get("overdue") is False and inst.get("attempts") == 1 and inst.get("elapsed_min") == 0,
+          f"next: 期限（emitted_at＋graph の分）・経過・試行の回数を出す（{ {k: inst.get(k) for k in ('deadline_at', 'overdue', 'attempts')} }）")
+    pend = run.status()["this_round"]["pending_instances"]
+    check(any(p["id"] == iid and p.get("overdue") is False for p in pend), f"status: 待っている instance ごとに期限と経過を出す（{pend[:1]}）")
+    # 期限を過ぎた形を盤面に作る（時計を待たない）
+    st = run.state()
+    st["rounds"][-1]["instances"][iid]["deadline_at"] = "2000-01-01T00:00:00+00:00"
+    st["rounds"][-1]["instances"][iid]["tree_before"] = ["?? 前の試行の基準点（検査用）"]
+    (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    check(any(p["id"] == iid and p.get("overdue") is True for p in run.status()["this_round"]["pending_instances"]),
+          "status: 期限を過ぎた instance は overdue")
+    before = (run.dir / "state.json").read_bytes()
+    r = run.cmd("wait", "--node", iid)
+    check(r.returncode == 3 and "relaunch" in r.stdout, f"wait: 期限を過ぎて返答が無ければ exit 3 で次の手を言う（{r.returncode} {r.stdout[-80:]}）")
+    check((run.dir / "state.json").read_bytes() == before, "wait: 盤面を 1 バイトも書かない")
+    old = pathlib.Path(st["rounds"][-1]["instances"][iid]["out_path"])
+    old.write_text("前の試行の途中の返答（検査用）", encoding="utf-8")
+    r = run.cmd("relaunch", "--node", iid, "--reason", "期限を過ぎても返らない（検査用）")
+    check(r.returncode == 0, f"relaunch: 待っている instance は起こし直せる（{r.stderr.strip()[-80:]}）")
+    new = run.state()["rounds"][-1]["instances"][iid]
+    check(new.get("attempts") == 2 and len(new.get("attempt_log") or []) == 1 and "検査用" in new["attempt_log"][0]["reason"],
+          f"relaunch: 試行の回数と理由を盤面に刻む（{new.get('attempts')} {new.get('attempt_log')}）")
+    check(new["deadline_at"] > "2001", f"relaunch: 期限を新しい試行の分に取り直す（{new['deadline_at']}）")
+    check(new["out_path"] != str(old) and ".a2." in new["out_path"], f"relaunch: 新しい試行は別の置き場に書く（{new['out_path']}）")
+    check(not old.exists() and old.with_name(old.name + ".stale-a1").is_file(), "relaunch: 前の試行の置き場に在った物は .stale-a1 へ退ける")
+    check(new.get("tree_before") == ["?? 前の試行の基準点（検査用）"], "relaunch: 作業ツリーの基準点は前の試行の物を引き継ぐ（取り直さない）")
+    trace = (run.dir / "trace.jsonl").read_text(encoding="utf-8")
+    check('"relaunched"' in trace, "relaunch: trace に relaunched を残す")
+    # 前の試行が遅れて書いても、done は今の試行の置き場しか読まない
+    old.write_text("遅れて届いた前の試行の返答（検査用）", encoding="utf-8")
+    r = run.cmd("done", "--node", iid)
+    check(r.returncode != 0 and "返答が無い" in r.stderr, f"done: 前の試行の置き場は読まない（{r.stderr.strip()[-80:]}）")
+    pathlib.Path(new["out_path"]).write_text("{}", encoding="utf-8")
+    r = run.cmd("wait", "--node", iid)
+    check(r.returncode == 0 and '"written": true' in r.stdout, f"wait: 今の試行の置き場に返答が在れば exit 0（{r.returncode}）")
+    r = run.cmd("relaunch", "--node", "無い節（検査用）", "--reason", "x")
+    check(r.returncode != 0 and "pending だけ" in r.stderr, "relaunch: 待っていない instance は拒む")
+    # 期限を宣言しない graph の instance には wait を使わせない（期限の無い待ちは、書かずに落ちた役を永久に待つ）
+    r2 = Run("nodeadline")
+    iid2 = r2.next()["ready"][0]["id"]
+    r = r2.cmd("wait", "--node", iid2)
+    check(r.returncode != 0 and "期限" in r.stderr and "deadline_at" not in r2.state()["rounds"][-1]["instances"][iid2],
+          f"wait: 期限を持たない instance は拒む（{r.stderr.strip()[-80:]}）")
+    rm(run.tmp)
+    rm(r2.tmp)
 
 def test_frozen_schema_drift():
     """**`once` で凍った出力を、今の schema で測り直す。**

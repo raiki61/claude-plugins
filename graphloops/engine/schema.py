@@ -2,7 +2,7 @@
 
 pip 依存を持たない配布方針（issue #6）で jsonschema を使わない。見る語は type / enum / const /
 required / properties / patternProperties / additionalProperties / items / minItems / maxItems / minimum / maximum /
-minLength / maxLength / pattern だけで、これ以外は無視する。本家と意味が違う点を明記する:
+minLength / maxLength / pattern だけで、これ以外は無視する（展開されていない $ref だけは無視せず拒む）。本家と意味が違う点を明記する:
   - enum / const は値だけでなく真偽値かどうかも見る（True を [0, 1] に一致させない）
   - minLength は**前後の空白を除いた長さ**（空白だけの返答を「在る」と数えないため）
   - maxLength は**素の長さ**（空白も数える）——上限は「役が作れる大きさ」を縛るもので、
@@ -24,22 +24,21 @@ def end_anchored(pat):
     Python の `$` は末尾の改行の手前でも一致するので、`^[^\\n]+$` が改行 1 つで終わる値を通し、その値が git grep の -e で
     空の検索語に割れて全行に一致した（実測 2026-09-24: run_count が 2910 を返し、改行が無ければ 0）。ECMA-262 の `$` は入力の末尾だけ。
     検査（validate_schema）と graph の検査（graphcheck）は、同じこの関数を通した物を使う"""
-    out, esc, cls = [], False, False
+    # 文字クラスの状態は「クラスの最初の字の位置」で持つ（Python の re の文書: `]` がクラスの中の字になるのは先頭に
+    # 置いたときだけ——`[` の直後か、否定の `[^` の直後）。直前の 1 字で見ていたとき、エスケープした `\\[` の直後の `]` を
+    # 字と読んでクラスを閉じ損ね、後ろの `$` を読み替えずに素通しした（`[\\[]a$`）
+    out, esc, first = [], False, None   # first: クラスの中なら、その最初の字の位置。外なら None
     for i, ch in enumerate(pat):
+        out.append("\\Z" if first is None and not esc and ch == "$" else ch)
         if esc:
-            out.append(ch)
             esc = False
         elif ch == "\\":
-            out.append(ch)
             esc = True
-        elif cls:
-            out.append(ch)
-            cls = not (ch == "]" and pat[i - 1] != "[")   # [] の直後の ] は文字クラスの中の字
-        elif ch == "[":
-            out.append(ch)
-            cls = True
-        else:
-            out.append("\\Z" if ch == "$" else ch)
+        elif first is None:
+            if ch == "[":
+                first = i + 2 if pat[i + 1:i + 2] == "^" else i + 1
+        elif ch == "]" and i != first:
+            first = None
     return re.compile("".join(out))
 
 
@@ -49,6 +48,9 @@ def _same(a, b):
 
 
 def validate_schema(value, schema, path="$"):
+    if "$ref" in schema:
+        # 展開されていない参照を「知らない語」として無視すると、その欄の型検査が丸ごと消えて何でも通る
+        return [f"{path}: schema の $ref {schema['$ref']!r} が展開されていない（graph は load_graph を通して読め）"]
     errs = []
     types = schema.get("type")
     if types:
@@ -118,10 +120,14 @@ def expand_refs(graph):
             if set(x) - {"$ref", "note", "description"}:
                 raise ValueError(f"$ref {ref!r} に他の語が並んでいる（展開した定義を上書きしない。足すなら定義の側に）")
             src, _, name = ref.partition("#/")
-            table = {"": local, "engine": ENGINE_DEFS}.get(src)
-            if table is None or not name.startswith("$defs/") and src == "" or name.replace("$defs/", "", 1) not in (table or {}):
+            if src == "" and name.startswith("$defs/"):
+                table, key = local, name[len("$defs/"):]
+            elif src == "engine" and not name.startswith("$defs/"):
+                table, key = ENGINE_DEFS, name
+            else:
+                table, key = {}, None
+            if key not in table:
                 raise ValueError(f"$ref {ref!r} が引けない（引けるのは #/$defs/<名前> と engine#/<名前>）")
-            key = name.replace("$defs/", "", 1)
             if (src, key) in seen:
                 raise ValueError(f"$ref {ref!r} が自分を引いている")
             return walk(copy.deepcopy(table[key]), seen | {(src, key)})
