@@ -22,7 +22,8 @@
 8. 社内語→標準語 対応表。
 9. 訂正の記録（corrections をそのまま。append-only）。
 10. 残る決定事項（human_only）と PoC 行き（poc）。
-11. 省略した機構（process.skipped・gates の not_applicable・thickness_decider）。先行議論を洗えなかった場合はその旨。
+11. 省略した機構（process.skipped・gates の not_applicable・thickness_decider）と、飛ばしたゲート（gates の not_run と理由。止まった run で走らなかった物で、緑と数えない——not_applicable と別の行に並べる）。先行議論を洗えなかった場合はその旨。
 12. process・convergence の展開は結論の節に混ぜず専用の節に隔離。
+13. 未解決の開いた問い（P0 で挙がった物。記録の process.open_questions: {{?record.process.open_questions}}）。1 件も省かずに、結論の節の直後に独立の節として並べる。問いごとに、ループの外で扱って持ち帰った事実の主張があるか（claims の added_by が「ループの外（…）」の物。それらは P1 で照合済み）と、それでも答えが出ていない部分を書く。持ち帰りの無い問いは「このループでは調べていない」と書く。1 件以上あれば、冒頭の平易版の近くで「このループが回したのは閉じた主張の検証だけで、開いた問いへの答えまでは出していない（調べ尽くしてはいない）」と明示する。0 件なら節ごと省く。
 
 出す前に cold-reader の問いを自分に当てろ——仮説の断定調・経緯の混入・未定義語。返答は報告の本文そのもの（Markdown）。JSON は要らない。

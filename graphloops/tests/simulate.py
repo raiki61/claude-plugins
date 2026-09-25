@@ -20,7 +20,7 @@ import sys
 import time
 import types
 
-import fakeclaude  # 同じディレクトリ。--output-format json の包みを返す代役の claude
+import fakeclaude  # 同じディレクトリ。代役の claude（既定は --output-format json の包みを返す）
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -81,7 +81,7 @@ def rm(p):
 # review 側に同じラチェットを置いた当日、research 側には無かった——**知見が片側にしか適用されない**形。
 VOCAB_SEEN = collections.defaultdict(set)
 # 到達した語彙の数。**`!=` で見る**——下限だと筋書きを増やしても数が動かず、増やしたつもりの周に誰も気づかない。
-VOCAB_REACHED = 22
+VOCAB_REACHED = 23
 
 
 def record_vocab(node, output):
@@ -385,6 +385,9 @@ def test_converges():
     check(next(c for c in rec["claims"] if c["id"] == "A")["refuted"] is True, "荷重の確証 A は反証を経た")
     check([c["no"] for c in rec["corrections"]] == [1, 2], f"訂正の番号は機械が連番で振る: {[c['no'] for c in rec['corrections']]}")
     check((run.dir / "report.md").is_file(), "report.md が保存された")
+    # 開いた問いが 0 件の run の収束の文言は、分けた文言を足す前と 1 字も変わらない（回帰）
+    check(converge_reasons(run)[-1] == "連続 2 周で新規相違ゼロ、標準 段のゲートは全部 pass",
+          f"開いた問いの無い収束の文言は元のまま: {converge_reasons(run)[-1:]}")
     v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(v.returncode == 0, f"検証器が exit 0（{v.stdout.strip()[:60]}）")
     r1 = st["rounds"][0]
@@ -1697,7 +1700,7 @@ def test_role_run():
           "out_path には包みの本文（result）だけを書き、返り値は本文を持たない")
     rows = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()]
     check([x.get("kind") for x in rows] == ["first", "resume"] and all(x.get("op") == "role_run" and x.get("instance") == "x" for x in rows)
-          and rows[1].get("permission_denials") == ["WebFetch"],
+          and rows[1].get("permission_denials") == ["WebFetch"] and all(x.get("envelope") is True for x in rows),
           f"1 起動 1 行の要約（op=role_run・添えた値・権限で拒まれた道具）を JSON Lines で足す（{[(x.get('kind'), x.get('permission_denials')) for x in rows]}）")
     # 上限まで拒まれ続けたら止める（続けない）
     r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=lambda _t: "いつも拒む", resume_argv=resume, max_resumes=1, env=env)
@@ -1711,6 +1714,51 @@ def test_role_run():
           f"受け付けの検査が例外で落ちたら、続きを頼まずに理由を返す（{len(r['runs'])} 起動: {r['why']}）")
     r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=accept, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "error"})
     check(not r["ok"] and len(r["runs"]) == 1 and "誤りで終わった" in (r["why"] or ""), f"誤りの包みは受け付けに回さない（{r['why']}）")
+    # result の無い誤りの包み（公式の SDKResultMessage: 誤りの subtype は result でなく errors を持つ）
+    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=accept, env={**env, "FAKE_MODE": "error_noresult"})
+    one = r["runs"][0] if r["runs"] else {}
+    check(not r["ok"] and "誤りで終わった（error_max_turns: Reached maximum number of turns" in (r["why"] or "")
+          and one.get("session_id") == "sess-9" and one.get("total_cost_usd") == 0.002 and one.get("num_turns") == 9
+          and '"error_max_turns"' in (one.get("stdout_head") or ""),
+          f"result の無い誤りの包みは subtype と errors を理由に出し、要約と標準出力の頭を残す（{r['why']} / {one.get('session_id')}）")
+    # 包まずに本文だけが出た回（--output-format text の語で起こした古い graph の run）: 全文を本文として受け付けに回す。
+    # 受け付けは engine の本物（commands.parse_output）。3 形（素の JSON・``` 囲い・後ろに文）の読み分けは
+    # graphloops/tests/py/test_role_run_unwrap.py が見るので、ここは子プロセスを通す 1 形だけ
+    from engine.commands import parse_output
+    from engine.util import AnswerReject
+
+    def parse(text):
+        try:
+            parse_output(text)
+        except AnswerReject as e:
+            return str(e)
+        return None
+    out2 = tmp / "out-text.json"
+    body = '{"findings": []}\n\n以上が判定です。'
+    ans.write_text(body, encoding="utf-8")
+    r = role_run.run_role(argv, prompt, out2, timeout_s=60, accept=parse, resume_argv=resume, max_resumes=2,
+                          log_path=log, env={**env, "FAKE_MODE": "text"})
+    one = r["runs"][0] if r["runs"] else {}
+    check(r["ok"] and len(r["runs"]) == 1 and out2.read_text(encoding="utf-8") == body and one.get("envelope") is False
+          and r["session_id"] is None and not any(k in one for k in role_run.SUMMARY_KEYS),
+          f"包みでない出力は全文を本文として受け付けまで通し、要約は envelope=false だけ（{r['why']}）")
+    # 包みでない出力が拒まれたら、会話の番号が無いので続きを頼まずに 1 起動で止まる
+    ans.write_text("判定は次のとおりです（散文）", encoding="utf-8")
+    r = role_run.run_role(argv, prompt, out2, timeout_s=60, accept=parse, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "text"})
+    check(not r["ok"] and len(r["runs"]) == 1 and r["accepted"] is False and "JSON として読めない" in (r["why"] or ""),
+          f"包みでない出力が拒まれたら、同じ会話に続きを頼めないので 1 起動で止まる（{len(r['runs'])} 起動）")
+    # 包みでない出力が exit 0 以外と重なった回: 受け付けにも out_path にも回らないので、何が返ったかは標準出力の頭にだけ残る
+    before = out2.read_text(encoding="utf-8")
+    r = role_run.run_role(argv, prompt, out2, timeout_s=60, accept=parse, env={**env, "FAKE_MODE": "text", "FAKE_EXIT": "3"})
+    one = r["runs"][0] if r["runs"] else {}
+    check(not r["ok"] and "exit 3" in (r["why"] or "") and one.get("stdout_head") == "判定は次のとおりです（散文）"
+          and out2.read_text(encoding="utf-8") == before,
+          f"包みでない出力が exit 0 以外で終わった回は、受け付けに回さず標準出力の頭を要約に残す（{r['why']} / {one.get('stdout_head')!r}）")
+    ans.write_text("", encoding="utf-8")
+    r = role_run.run_role(argv, prompt, out2, timeout_s=60, accept=parse, env={**env, "FAKE_MODE": "text"})
+    check(not r["ok"] and "標準出力が空" in (r["why"] or "") and r["accepted"] is None,
+          f"空の標準出力は受け付けに回さない（{r['why']}）")
+    ans.write_text('{"ok": 1}', encoding="utf-8")
     if os.name == "posix":
         pidf = tmp / "grandchild.pid"
         t0 = time.monotonic()
@@ -2029,10 +2077,13 @@ def test_stopped_gates_all_thicknesses():
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
     gates = ("rederiver", "cold_reader", "cartographer")
 
-    def stopped_record(th):
+    def stopped_record(th, outcome="stopped"):
+        # 止まった事実は record.convergence.outcome だけに置く（rules の stop() が書く場所）。loop_state は空——
+        # 以前は loop_state に鍵を差し込んでいて、research-loop の rules が一度も書かない鍵を finalize が読む形を見なかった
         rec = {"gates": {k: {"status": "not_applicable"} for k in gates},
-               "sampling": {"status": "not_applicable"}, "claims": [], "clusters": [], "process": {}}
-        b = types.SimpleNamespace(record=rec, state={"thickness": th}, loop_state={"outcome": "stopped"}, round=3)
+               "sampling": {"status": "not_applicable"}, "claims": [], "clusters": [], "process": {},
+               "convergence": {"outcome": outcome}}
+        b = types.SimpleNamespace(record=rec, state={"thickness": th}, loop_state={}, round=3)
         rules.finalize(b)
         return rec["gates"]
 
@@ -2049,7 +2100,57 @@ def test_stopped_gates_all_thicknesses():
                 # 検査を飛ばしたように読める（実測: 重厚の絞りを外す退行を注入したとき、この腕が無くて緑だった）
                 check(g[k].get("status") == "not_applicable",
                       f"{th}: {k} はこの段では走らせない（飛ばしたと名乗らない）——{g[k].get('status')}")
+    # 対の腕: 収束した記録では finalize が『飛ばした』を書かない（止まった事実の読み違いで収束を汚さない）
+    g = stopped_record("標準", outcome="converged")
+    check(all(g[k].get("status") != "not_run" for k in gates),
+          f"収束した記録のゲートを『飛ばした』と書かない——{[g[k].get('status') for k in gates]}")
 
+
+def test_stopped_before_gates_reports():
+    """**ゲートが一度も走らずに止まった標準・重厚の run が、報告まで届く。**
+
+    部品（finalize）を直に呼ぶ否定検査は、止まった事実を誰が書くかを見ない。書き手（rules の stop()）→ finalize →
+    検証器 → report の一本道を、engine の CLI だけで通す。上限を 1 周にし、1 周目（新規相違があるのでゲートは
+    走らない）で止める——標準は人が stop と答え、重厚は無人の保守的な停止。
+    """
+    print("台本: ゲートが走る前に止まった標準・重厚の run も report まで届く")
+    for th, unattended in (("標準", False), ("重厚", True)):
+        run = Run(f"stop-early-{th}", thickness=th, unattended=unattended)
+        one = run.tmp / "one.json"
+        one.write_text("1", encoding="utf-8")
+        r = run.cmd("patch", "--path", "state.max_rounds", "--file", str(one), "--reason", "1 周目で止める筋を作る")
+        check(r.returncode == 0, f"{th}: 上限を 1 周にできる（{r.stderr.strip()[-120:]}）")
+        scenario = "heavy" if th == "重厚" else "std"
+
+        def drive_to_end():
+            # report の前で検証器に落とされると next が exit 1 になる——例外で台本ごと抜けず、赤の 1 件として数える
+            try:
+                return drive(run, scenario)
+            except RuntimeError as e:
+                return {"status": f"落ちた: {str(e)[-200:]}"}
+        last = drive_to_end()
+        if not unattended:
+            check(last["status"] == "awaiting_human" and "max_rounds" in last["ask"]["kinds"], f"{th}: 上限で人に聞く（{last.get('ask', {}).get('kinds')}）")
+            r = run.cmd("answer", "--text", "stop")
+            check(r.returncode == 0, f"{th}: stop と答えられる")
+            last = drive_to_end()
+        rec = run.record()
+        check(last["status"] == "stopped" and rec["convergence"]["outcome"] == "stopped", f"{th}: 止まった run として終わる（{last['status']}）")
+        check((run.dir / "report.md").is_file(), f"{th}: ゲートが走る前に止まっても report.md が出る")
+        v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
+        check(v.returncode == 0 and "停止（未収束）の申告つき" in v.stdout, f"{th}: 検証器が止まった記録として通す（exit {v.returncode}: {(v.stdout + v.stderr).strip()[-120:]}）")
+        g = rec["gates"]
+        skipped = ("cold_reader", "cartographer") if th == "重厚" else ("cold_reader",)
+        for k in skipped:
+            check(g[k].get("status") == "not_run" and bool(g[k].get("reason")), f"{th}: {k} は『飛ばした』と理由つきで残る——{g[k]}")
+        if th == "標準":
+            check(g["cartographer"].get("status") == "not_applicable" and bool(g["cartographer"].get("reason")),
+                  f"標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']}")
+        # rederiver の導出は毎周の序盤に走り暫定の判定を置くので、止まった周にも判定が残る（比較の半分は走っていない）。
+        # その暫定の pass の扱いはこの台本の範囲外——ここでは『飛ばした』に化けないことだけを見る（語の妥当は上の検証器が見る）
+        check(g["rederiver"].get("status") is None and bool(g["rederiver"].get("verdict")),
+              f"{th}: rederiver は導出の暫定の判定が残る——{g['rederiver']}")
+        rm(run.tmp)
 
 def test_graphcheck_sets_derived():
     """**柵が見る鍵の一覧を、engine と rules から組む（手で並べない）。**
@@ -3048,6 +3149,33 @@ def test_open_questions_note():
     r = run.cmd("done", "--node", ids["p0.terms"], "--output", str(terms), env=noenv)
     check(r.returncode == 0 and "読了は確かめられなかった" in r.stdout,
           f"読了の不成立も同じ 1 行に出る（rc={r.returncode}: {r.stdout.strip()[:90]}）")
+    rm(run.tmp)
+
+
+def converge_reasons(run):
+    """節 converge の返りの reason を周の順に（engine が trace の builtin の行に残す物を読む。収集の経路を新設しない）。"""
+    rows = [json.loads(x) for x in (run.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    return [r["result"].get("reason", "") for r in rows if r.get("op") == "builtin" and r.get("node") == "converge"]
+
+
+def test_open_questions_unresolved():
+    """**開いた問いを残した収束を『調べ尽くした』と読ませない。** 開いた問いは収束を止めない（待たない設計）が、
+    以前は収束の文言が『連続 N 周で新規相違ゼロ』とだけ言い、報告の指示書にも開いた問いを並べる義務が無かった
+    ——記録の process.open_questions は書かれるだけで、依頼者に届く口のどこにも出なかった。"""
+    print("台本: 開いた問いを残して収束した run は、収束の文言が分かれ、報告の指示書に問いが並ぶ")
+    run = Run("openq-conv")
+    last = drive(run, "open")
+    rec = run.record()
+    q = base_answers(run, "open")["p0.claims"](None, 1)["open_questions"]
+    check(last["status"] == "converged" and rec["process"].get("open_questions") == q,
+          f"開いた問いが残っても収束は止まらない（{last['status']}・{rec['process'].get('open_questions')}）")
+    why = (converge_reasons(run) or [""])[-1]
+    check("閉じた主張の検証は収束した" in why and f"開いた問い {len(q)} 件" in why and "未解決" in why and q[0] in why,
+          f"収束の文言が『閉じた主張の検証は収束』と『開いた問いは未解決』を分けて言う: {why[:120]}")
+    prompts = sorted(run.dir.glob("prompts/r*/report.md"))
+    body = prompts[-1].read_text(encoding="utf-8") if prompts else ""
+    check("未解決の開いた問い" in body and q[0] in body,
+          f"報告の指示書が未解決の開いた問いを本文ごと並べさせる（{len(body)} バイト）")
     rm(run.tmp)
 
 

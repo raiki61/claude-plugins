@@ -18,7 +18,7 @@ import subprocess
 import sys
 import types
 
-import fakeclaude  # 同じディレクトリ。--output-format json の包みを返す代役の claude
+import fakeclaude  # 同じディレクトリ。代役の claude（既定は --output-format json の包みを返す）
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))

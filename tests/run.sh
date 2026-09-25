@@ -977,6 +977,9 @@ def clone(x):
 root, work = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 base = json.loads((root / "templates/research-record.example.json").read_text(encoding="utf-8"))
 
+NOT_RUN = {"status": "not_run", "reason": "収束しないまま報告の仕上げに来た"}
+
+
 def all_unloaded(r):
     for c in r["claims"]:
         c["load_bearing"] = False
@@ -1023,6 +1026,30 @@ MUT = {
             outcome="stopped", stopped_reason="独立出典が取れず rederiver が unverifiable"
         ),
     ),
+    # 一度も走らずに止まった必須のゲートは not_run と理由で書ける（exit 0）。受けるのは止まった記録の必須のゲートだけ
+    "rr-stopped-not-run-ok": lambda r: (
+        r["gates"].update(cold_reader=dict(NOT_RUN)),
+        r["convergence"].update(outcome="stopped", stopped_reason="上限に達した"),
+    ),
+    "rr-converged-not-run": lambda r: r["gates"].update(cold_reader=dict(NOT_RUN)),
+    "rr-not-run-without-reason": lambda r: (
+        r["gates"].update(cold_reader={"status": "not_run"}),
+        r["convergence"].update(outcome="stopped", stopped_reason="上限に達した"),
+    ),
+    "rr-not-run-unrequired": lambda r: (
+        r["gates"].update(cartographer=dict(NOT_RUN)),
+        r["convergence"].update(outcome="stopped", stopped_reason="上限に達した"),
+    ),
+    # outcome の語彙は not_run の腕より先に確かめる（語彙外の outcome を「収束を名乗る」と読み違えない）
+    "rr-outcome-unknown-with-not-run": lambda r: (
+        r["gates"].update(cold_reader=dict(NOT_RUN)),
+        r["convergence"].update(outcome="done"),
+    ),
+    # convergence とゲートの形の検査。形が崩れた記録を末尾の例外境界（想定外の例外）に落とさず、名指しで落とす
+    "rr-convergence-not-object": lambda r: r.update(convergence=[]),
+    "rr-rounds-total-zero": lambda r: r["convergence"].update(rounds_total=0),
+    "rr-consecutive-zero-missing": lambda r: r["convergence"].pop("consecutive_zero"),
+    "rr-gate-not-object": lambda r: r["gates"].update(rederiver="pass"),
 }
 for name, mutate in MUT.items():
     rec = clone((base))
@@ -1050,6 +1077,14 @@ rr-stopped-without-reason|'stopped_reason' が空か文字列でない
 rr-load-zero-undeclared|'load_zero_reason' が空か文字列でない
 rr-decisions-empty|3 分類に仕分けろ
 rr-unhashable-declared|想定外の例外（TypeError）
+rr-converged-not-run|収束を名乗りながらゲート 'cold_reader' を飛ばしている
+rr-not-run-without-reason|'reason' が空か文字列でない
+rr-not-run-unrequired|走らせないゲート 'cartographer' を飛ばしたと名乗っている
+rr-outcome-unknown-with-not-run|convergence.outcome が不正
+rr-convergence-not-object|'convergence' が object でない
+rr-rounds-total-zero|convergence: 'rounds_total' が 1 以上の整数でない
+rr-consecutive-zero-missing|convergence: 'consecutive_zero' が 0 以上の整数でない
+rr-gate-not-object|gates.rederiver が object でない
 CASES
 
 # 発行の阻害（exit 1）。記録の不正（2）と混ぜない——直すべき対象が違う。
@@ -1065,6 +1100,8 @@ CASES
 
 expect_output 0 "停止（未収束）の申告つきで発行できる" "非収束の停止は記録を偽らずに出せる" \
     "$PY_BIN" "$RR" "$WORK/rr-stopped-ok.json"
+expect_output 0 "停止（未収束）の申告つきで発行できる" "止まった記録は走らなかった必須のゲートを not_run と理由で出せる" \
+    "$PY_BIN" "$RR" "$WORK/rr-stopped-not-run-ok.json"
 
 expect_exit 2 "引数なしは 1 と区別して落ちる" "$PY_BIN" "$RR"
 expect_exit 2 "引数が多すぎる場合も 1 と区別して落ちる（研究記録）" "$PY_BIN" "$RR" "$RR_EX" "$RR_EX"
@@ -1686,7 +1723,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=572
+EXPECTED_CHECKS=581
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

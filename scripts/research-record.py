@@ -12,7 +12,8 @@ exit 2 になる。中身の質は保証しない（「該当なし」は書け�
 
 収束せずに停止した実行（rederiver の unverifiable・stuck・thrash・暴走ガード）も
 発行できる——`convergence.outcome` を "stopped" にして理由を書けば、ゲートの未 pass や
-覆りは「未収束の申告」であって阻害ではない。**阻害になるのは「収束した」と名乗り
+覆りは「未収束の申告」であって阻害ではない（一度も走らなかった必須のゲートは status=not_run と
+reason で書く。not_applicable は「この段では走らせない」に取っておく）。**阻害になるのは「収束した」と名乗り
 ながらゲートが通っていない記録だけ**（収束の偽装を塞ぐのが目的で、停止の正直な報告を
 塞ぐのは目的でない）。
 
@@ -225,6 +226,16 @@ def validate(rec, path):
             for k in fields:
                 require_str(item, k, f"{path}: {name}[{i}]")
 
+    conv = rec["convergence"]
+    if not isinstance(conv, dict):
+        fail(f"{path}: 'convergence' が object でない")
+    require_int(conv, "rounds_total", f"{path}: convergence", 1)
+    require_int(conv, "consecutive_zero", f"{path}: convergence")
+    if conv.get("outcome") not in OUTCOMES:
+        fail(f"{path}: convergence.outcome が不正（{'/'.join(OUTCOMES)}）")
+    if conv["outcome"] == "stopped":
+        require_str(conv, "stopped_reason", f"{path}: convergence（outcome=stopped）")
+
     gates = rec["gates"]
     if not isinstance(gates, dict):
         fail(f"{path}: 'gates' が object でない")
@@ -232,13 +243,23 @@ def validate(rec, path):
         if g not in gates:
             fail(f"{path}: gates に '{g}' が無い")
         v = gates[g]
+        # ゲートの省略が許される段は「厚みの三段」の表が正本:
+        # rederiver / cold-reader は標準以上で必須、cartographer は重厚のみ必須。
+        required = rec["thickness"] == "重厚" if g == "cartographer" else rec["thickness"] in GATED_THICKNESS
         if not_applicable(v):
-            # ゲートの省略が許される段は「厚みの三段」の表が正本:
-            # rederiver / cold-reader は標準以上で必須、cartographer は重厚のみ必須。
-            if g in ("rederiver", "cold_reader") and rec["thickness"] != "軽量":
-                fail(f"{path}: {rec['thickness']} 段でゲート '{g}' を省略している")
-            if g == "cartographer" and rec["thickness"] == "重厚":
-                fail(f"{path}: 重厚段で cartographer を省略している——これ無しで盲点ゼロを名乗るな")
+            if required:
+                what = ("重厚段で cartographer を省略している——これ無しで盲点ゼロを名乗るな" if g == "cartographer"
+                        else f"{rec['thickness']} 段でゲート '{g}' を省略している")
+                fail(f"{path}: {what}（止まった run で走らなかったなら status=not_run と reason）")
+            continue
+        # **飛ばした（not_run）は「この段では走らせない」（not_applicable）と別の値。** 止まった run の必須の
+        # ゲートにだけ許す——収束を名乗る記録で受けると、走らなかったゲートが緑と区別できなくなる
+        if isinstance(v, dict) and v.get("status") == "not_run":
+            require_str(v, "reason", f"{path}: gates.{g}（not_run）")
+            if conv["outcome"] != "stopped":
+                fail(f"{path}: 収束を名乗りながらゲート '{g}' を飛ばしている（not_run は outcome=stopped の記録でだけ受ける）")
+            if not required:
+                fail(f"{path}: {rec['thickness']} 段で走らせないゲート '{g}' を飛ばしたと名乗っている（not_applicable と reason で書け）")
             continue
         if not isinstance(v, dict):
             fail(f"{path}: gates.{g} が object でない")
@@ -270,16 +291,6 @@ def validate(rec, path):
         require_int(smp, "overturned", f"{path}: sampling")
     else:
         fail(f"{path}: 'sampling' は status=done か「該当なし+理由」のどちらかの形")
-
-    conv = rec["convergence"]
-    if not isinstance(conv, dict):
-        fail(f"{path}: 'convergence' が object でない")
-    require_int(conv, "rounds_total", f"{path}: convergence", 1)
-    require_int(conv, "consecutive_zero", f"{path}: convergence")
-    if conv.get("outcome") not in OUTCOMES:
-        fail(f"{path}: convergence.outcome が不正（{'/'.join(OUTCOMES)}）")
-    if conv["outcome"] == "stopped":
-        require_str(conv, "stopped_reason", f"{path}: convergence（outcome=stopped）")
 
     proc = rec["process"]
     if not isinstance(proc, dict):

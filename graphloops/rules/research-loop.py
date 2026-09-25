@@ -292,7 +292,15 @@ def converge(b, nid):
     if zero and not fails and not unchecked and conv["consecutive_zero"] >= 2 and not overturned and not pending:
         conv["outcome"] = "converged"
         conv.pop("stopped_reason", None)
-        return {"decision": "converged", "reason": f"連続 {conv['consecutive_zero']} 周で新規相違ゼロ、{th} 段のゲートは全部 pass"}
+        why = f"連続 {conv['consecutive_zero']} 周で新規相違ゼロ、{th} 段のゲートは全部 pass"
+        # 開いた問いは収束を止めない（待たない設計）が、『収束』の一語で依頼者に調べ尽くしたと読ませない。
+        # 記録が知っているのは P0 で挙がったことだけなので、ループの外で扱ったかまでは言わない
+        oq = rec["process"].get("open_questions") or []
+        if oq:
+            why = (f"閉じた主張の検証は収束した（{why}）。開いた問い {len(oq)} 件はこの run の記録の上では未解決"
+                   "——閉じた主張の検証の対象外で、この収束はその答えを意味しない（ループの外で扱ったかは記録に無い。"
+                   "報告に並べる）: " + " / ".join(oq))
+        return {"decision": "converged", "reason": why}
 
     asks = []
     if ls.get("stuck_ids"):
@@ -751,7 +759,9 @@ def check_record(b, nid=None):
 def finalize(b):
     rec, th, ls = b.record, b.state["thickness"], b.loop_state
     g = rec["gates"]
-    stopped = ls.get("outcome") == "stopped"
+    # 止まった事実の正本は record.convergence.outcome（stop() が書き、検証器が読む）。loop_state.outcome は
+    # review-loop の rules だけが書く鍵で、ここで読むと止まった run を一度も見分けられなかった
+    stopped = rec["convergence"].get("outcome") == "stopped"
     # **段ごとに必須のゲート全部を見る。** 以前は rederiver と cold_reader の 2 本だけを回しており、
     # **同じ不変条件の 3 本目（cartographer）が漏れていた**——重厚段で停止した run は cartographer が
     # not_applicable のまま理由も付かず、検証器 :241 が「重厚段で cartographer を省略している」で落ちる。
@@ -771,7 +781,7 @@ def finalize(b):
             # （到達経路は max_rounds・thrash・stuck・unverifiable の 4 つで、どれも設計上『停止して報告する』筋）。
             # 受理集合を広げる処方は採らない——exit 2 は「記録が不正」であって、広げると本当の不正も通る
             g[k]["status"] = "not_run"
-            g[k]["reason"] = ("収束せず停止したので走らせる周が来なかった（このゲートは新規相違ゼロの周にだけ走る）"
+            g[k]["reason"] = ("収束しないまま報告の仕上げに来たので走らせる周が来なかった（このゲートは新規相違ゼロの周にだけ走る）"
                               "——飛ばした事実として記録に残す。緑と数えない")
     if g["cartographer"].get("status") == "not_applicable" and th != "重厚":
         g["cartographer"]["reason"] = f"{th} 段では走らせない（重厚だけ。厚みの三段の表が正本）"

@@ -11,8 +11,9 @@
      消えた（実測 2026-09-24〜25: 局所レビューの入れ子の起動で知らせが届かず 7 時間止まった）。期限を過ぎたら
      子をプロセスグループごと止め、期限切れとして返す（前置の層 with-auth.py が子の claude を孫として起こすので、
      層だけを止めると claude が孤児で走り続ける）。
-  3. `--output-format json` の包み（result・session_id・num_turns・duration_ms・total_cost_usd・usage）を解き、
-     返答の本文だけを out_path に書く。要約は log_path（engine は盤面の trace.jsonl）に JSON Lines で 1 起動 1 行残す。
+  3. 標準出力が `--output-format json` の包み（result・session_id・num_turns・duration_ms・total_cost_usd・usage）なら
+     解いて返答の本文だけを、包みでなければ標準出力の全文を本文として out_path に書く（unwrap）。要約は log_path
+     （engine は盤面の trace.jsonl）に JSON Lines で 1 起動 1 行残す。
   4. accept(本文) で受け付けを検査する。拒まれたら、理由を添えて**同じ会話**に続きを頼む（resume_argv の
      {session_id} を埋めて起こし、理由の文を標準入力で渡す）。新しい会話で起こし直すと、役は前の返答を
      覚えておらず、同じ判定を出し直す保証が無い。
@@ -128,20 +129,36 @@ def _spawn(argv, stdin_bytes, timeout_s, cwd=None, env=None):
 
 
 def unwrap(stdout):
-    """--output-format json の包みを解く。返すのは (本文, 要約, 読めない理由)。包みでなければ理由を返す。"""
+    """標準出力を解く。返すのは (本文, 要約, 読めない理由)。
+
+    **包みかどうかは出力の形で見る**（起こした語の --output-format は見ない）: type が result の object だけが
+    `--output-format json` の包み（公式の headless 文書・SDKResultMessage）。盤面は init の時の graph の語で役を
+    起こすので、古い版の graph で始めた run では --output-format text の素の本文が返る（実測 2026-09-25: 包みしか
+    読まなかった版が、exit 0 で返った所見を 3 回捨てた）。包みでなければ全文を本文にして受け付け
+    （commands.parse_output の 3 候補）に任せる。そのときの要約は envelope=false だけで、会話の番号・往復数・
+    所要時間・費用・トークンは取れない——会話の番号が無いので、拒まれても同じ会話に続きを頼まない。
+
+    包みでは **subtype を result より先に見る**——誤りの種類（error_max_turns・error_during_execution 等）は result を
+    持たず errors を持つ。result の有無を先に見ると、誤りで終わった回が『result が無い』に潰れて種類が消える。"""
     text = stdout.decode("utf-8", "replace").strip()
+    if not text:
+        return None, {}, "標準出力が空（包みも本文も無い）"
     try:
         env = json.loads(text)
     except ValueError:
-        return None, {}, f"--output-format json の包みとして読めない（先頭 {text[:80]!r}）"
-    if not isinstance(env, dict) or "result" not in env:
-        return None, {}, "包みに result が無い"
-    summary = {k: env[k] for k in SUMMARY_KEYS if k in env}
+        env = None
+    if not (isinstance(env, dict) and env.get("type") == "result"):
+        return text, {"envelope": False}, None
+    summary = {"envelope": True, **{k: env[k] for k in SUMMARY_KEYS if k in env}}
     denied = env.get("permission_denials") or []
     if denied:
         summary["permission_denials"] = [str((d or {}).get("tool_name")) for d in denied if isinstance(d, dict)]
-    if env.get("is_error"):
-        return None, summary, f"役が誤りで終わった（{env.get('subtype')}: {str(env.get('result'))[:160]}）"
+    if env.get("is_error") or env.get("subtype", "success") != "success":
+        errors = env.get("errors")
+        said = "; ".join(map(str, errors)) if isinstance(errors, list) and errors else env.get("result", "result も errors も無し")
+        return None, summary, f"役が誤りで終わった（{env.get('subtype')}: {str(said)[:160]}）"
+    if "result" not in env:
+        return None, summary, f"包みに result が無い（subtype={env.get('subtype')}）"
     return env["result"] if isinstance(env["result"], str) else json.dumps(env["result"], ensure_ascii=False), summary, None
 
 
@@ -180,6 +197,10 @@ def run_role(argv, prompt_file, out_path, *, timeout_s, accept=None, resume_argv
         run = {"turn": turn + 1, "kind": "first" if turn == 0 else "resume", "exit": rc, "expired": expired,
                "wall_s": round(time.time() - started, 1), **summary,
                "stderr": err.decode("utf-8", "replace").strip()[-600:]}
+        if bad or rc not in (0, None):
+            # 受け付けに回らなかった回（解けなかった・子が exit 0 以外で終わった）は、何が返ったかを後から読めるように
+            # 標準出力の頭を残す。包みでない出力が exit 0 以外と重なる回は、ここにしか残らない（out_path に書かず why にも載らない）
+            run["stdout_head"] = out.decode("utf-8", "replace").strip()[:600]
         stop = True
         if expired:
             got.update(expired=True, why=f"期限（{timeout_s:.0f} 秒）を過ぎたので子を木ごと止めた")
