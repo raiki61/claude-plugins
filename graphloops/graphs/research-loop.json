@@ -6,6 +6,12 @@
   },
   "cwd": {
    "kind": "dir"
+  },
+  "policy_md": {
+   "kind": "file",
+   "by": "rules",
+   "optional": true,
+   "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める——既定は対象リポジトリの <git の共有の置き場>/graphloops/policy.md（作業ツリーの外なので採点する版・差分・作業ツリーの突合に入らず、同じリポジトリの worktree の全部の run が読む）、init --input policy_md=<パス> で名指しもできる。役には節を出す時点の本文を prompts/policy.md の段落が貼る（run の途中の人の書き足しも後の節に届く）"
   }
  },
  "plugin": "convergence-loops",
@@ -202,7 +208,8 @@
     "inputs.request",
     "inputs.document",
     "thickness",
-    "record.thickness_decider"
+    "record.thickness_decider",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -327,7 +334,11 @@
     "thickness_decider"
    ],
    "thickness_from": "thickness",
-   "thickness_reason_from": "thickness_reason"
+   "thickness_reason_from": "thickness_reason",
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
   },
   "p0.claims": {
    "stage": "P0",
@@ -981,7 +992,8 @@
    "prompt_file": "../prompts/research-loop/p1.refuter.md",
    "reads": [
     "item",
-    "validator"
+    "validator",
+    "inputs.policy_md"
    ],
    "forbidden_inputs": [
     "同じクラスタの他の判定",
@@ -1065,7 +1077,11 @@
     "claims[].verdict（反証後）"
    ],
    "note": "checker が返り次第その主張に走る（全クラスタを待ち合わせない）。既定 1 票。3 票の増し掛けは未実装（README の未実装）",
-   "post_check": "refuter_consistency"
+   "post_check": "refuter_consistency",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "p1.record_check": {
    "stage": "P1",
@@ -1102,7 +1118,8 @@
     "record.question",
     "record.constraints",
     "inputs.document",
-    "inputs.cwd"
+    "inputs.cwd",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -1174,6 +1191,10 @@
    ],
    "outputs": [
     "corrections（機械確認による）"
+   ],
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
    ]
   },
   "p2.integrate": {
@@ -1194,7 +1215,8 @@
     "prev.p3.rederiver_compare",
     "prev.p3.cartographer_compare",
     "out.p5.internal",
-    "out.p0.prior_decisions"
+    "out.p0.prior_decisions",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -1430,6 +1452,10 @@
     "corrections",
     "numbers",
     "claims（安定キー・recheck）"
+   ],
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
    ]
   },
   "p3.rederiver": {
@@ -1946,7 +1972,8 @@
    "reads": [
     "record",
     "inputs.document",
-    "out.p5.internal"
+    "out.p5.internal",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -2066,7 +2093,11 @@
    "outputs": [
     "decisions（decide_now・poc・human_only）"
    ],
-   "note": "decisions の 3 配列（文字列）は駆動器が details の text から作る"
+   "note": "decisions の 3 配列（文字列）は駆動器が details の text から作る",
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
   },
   "report": {
    "stage": "最終報告",

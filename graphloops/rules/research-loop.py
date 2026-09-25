@@ -8,15 +8,21 @@ engine（scripts/loop.py）が graph の名前で呼ぶ。ここにあるのは:
   POST_CHECKS   節ごとの整合（型では書けない規則）。out を検査・補うだけで record は触らない（記録を書くのは WRITE_OPS）
   check_record  判定ごとの必須欄と出典（検証器と同じ規則を done の時点で当てる）
   finalize      報告の前の仕上げ（段ごとの『走らせない』理由・未反証の荷重の申告・未照合の主張の退避）
+  on_init       人の方針の文書の置き場を inputs.policy_md に（置き場の決め方は rules/policy_input.py が review-loop と共有）
   on_answer / on_unattended / on_thickness / add   人に聞いた後・無人・昇格・外から足す
 
 engine が差し込む道具は engine/rules.py の INJECT が正本（rules は engine を import しない）。
 節名（p1.checker 等）はここには出ない——節の役割は graph が名前で指す。
 """
+import importlib.util
 import json
 import os
 import pathlib
 import random
+
+_pspec = importlib.util.spec_from_file_location("graphloops_rules_policy_input", pathlib.Path(__file__).with_name("policy_input.py"))
+policy_input = importlib.util.module_from_spec(_pspec)
+_pspec.loader.exec_module(policy_input)
 
 GATES = ("rederiver", "cold_reader", "cartographer")
 # 検証器（research-record.py）の定数は validator_module(b) で読む——engine（engine/rules.py の INJECT）が差し込む。
@@ -34,6 +40,12 @@ def init_record(thickness, decider):
         "process": {"rerolls": 0, "unrefuted_load_bearing": [], "human_items": []},
         "decisions": {"decide_now": [], "poc": [], "human_only": []},
     }
+
+
+def on_init(b, args):
+    """人の方針の文書を inputs.policy_md に（役には節を出す時点の本文が貼られる）。文書が init の後に変わったかの照らしは
+    review-loop の関所（human_gate）だけが持つ——この loop には周の途中で人に聞く関所が無い（残した隙間）"""
+    policy_input.resolve(b, git, Reject)
 
 
 # ---------------------------------------------------------------- 扇の項目

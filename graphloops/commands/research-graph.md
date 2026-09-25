@@ -60,6 +60,10 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
 5. **終わり**。最後の節 `report` の前に engine が記録を仕上げて検証器を回す。通らなければ `report` は出ない（record.json と trace.jsonl を見て直す。手当ては `loop.py patch`——痕跡が残る最終手段）。`report` の本文は盤面の置き場の `report.md` に保存される。それを依頼者の言語でそのまま出せ。`reflect` の提案（グラフ・プロンプト・engine・検証器のどこを直すべきか）は run の中で書き換えず、依頼者に見せる。
 
+## 人の方針
+
+人が決めた、どの run にも効く決まりは、対象リポジトリの共有の git ディレクトリ（`git rev-parse --git-common-dir` が指す所）の下の `graphloops/policy.md` に置けば、`init` が拾う（別の文書なら `init --input policy_md=<パス>`）。問いの確定・反証・統合・内部照合・適用の節に、役には本文が、回す側には置き場が届く。置き場の決め方と文書の変化の扱いは [review-graph の「人の方針」](review-graph.md#人の方針) と同じ——ただしこの loop には周の途中の関所が無いので、文書が init の後に変わっても人に聞かない。
+
 ## 守ること
 
 - **run の途中でプラグインの版を上げても、走っている run の graph は init の時の版のまま**: 盤面は init の時の graph を、その置き場（インストールされた版のディレクトリ）の絶対パスで持ち、graph・指示書・rules・検証器をそこから読み続ける。置き場のファイルそのものが書き換わる形（`--plugin-dir` などでその場から読み込んだプラグイン）では graph も変わり、変わった周は `next` の `notes` と `process.graph_changes` に出る。engine（`loop.py`）は今インストールされている版で動き、役の定義（convergence-loops の `agents/<役>.md` の道具・モデル・effort・system prompt に足す本文）は節を描くたび（`next` が節を出すとき）に今見つかる版から読む——どの engine が周を回したかは、替わった周の `next` の `notes` に出る。新しい版の graph や指示書の動きが要るなら、走っている run を仕上げてから新しい run を始めよ。盤面を別の版の graph へ付け替える手順は用意していない（`loop.py patch` で state を書き換えれば変わるが、それは手当ての口で、この用途には案内しない）。更新で置き換わった古い版のディレクトリは後で掃除されることがあり（公式の plugins の読み込みの文書『Cleanup of previous versions』）、消えるとその run は開けなくなる。古い版の graph が役を `--output-format text` で起こしても、engine は包みでない標準出力を本文として読むので、返答は受け付けまで届く。

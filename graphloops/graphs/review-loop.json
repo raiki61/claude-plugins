@@ -24,6 +24,12 @@
   "review_rev": {
    "kind": "rev",
    "by": "rules"
+  },
+  "policy_md": {
+   "kind": "file",
+   "by": "rules",
+   "optional": true,
+   "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める——既定は対象リポジトリの <git の共有の置き場>/graphloops/policy.md（作業ツリーの外なので採点する版・差分・作業ツリーの突合に入らず、同じリポジトリの worktree の全部の run が読む）、init --input policy_md=<パス> で名指しもできる。役には節を出す時点の本文を prompts/policy.md の段落が貼る（run の途中の人の書き足しも後の節に届く）"
   }
  },
  "plugin": "convergence-loops",
@@ -311,9 +317,11 @@
     "entrance",
     "contract_drift",
     "dead_path",
-    "scope_creep"
+    "scope_creep",
+    "regression",
+    "policy"
    ],
-   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く"
+   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。このうち人に聞く語（regression＝BASE にあった能力が消える・狭まる、policy＝人の方針とぶつかる）の一覧の正本は rules の HUMAN_FACE_KINDS で、事前審査だけが使い p2.human_gate が人に聞く——修正差分のレビューは削除を cite できず、手直しの義務に入ると人より先に修正役が決めるので受け付けで拒み、修正の後の後退は R4 の棚卸しと r4.human_gate が受ける"
   },
   "delta_review_reply": {
    "type": "object",
@@ -2665,7 +2673,8 @@
     "prev.r4.hidden_scope",
     "validator",
     "loop.wrote_refs_reads",
-    "loop.coverage_after"
+    "loop.coverage_after",
+    "inputs.policy_md"
    ],
    "pointers": [
     {
@@ -2912,7 +2921,11 @@
     }
    ],
    "post_check": "judge_output",
-   "enforced_by": "post_check judge_output——materials_missing が空でない返答は done を拒む（当該 grader を再起動して明示返答を得てから、同じ判定を返させる）"
+   "enforced_by": "post_check judge_output——materials_missing が空でない返答は done を拒む（当該 grader を再起動して明示返答を得てから、同じ判定を返させる）",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "p2.history": {
    "stage": "P2",
@@ -2950,7 +2963,8 @@
     "loop.prev_one_shot",
     "loop.wrote_refs_reads",
     "loop.coverage_after",
-    "loop.prev_declared_faces"
+    "loop.prev_declared_faces",
+    "inputs.policy_md"
    ],
    "pointers": [
     {
@@ -3207,7 +3221,11 @@
     }
    ],
    "cond": "after_first_round",
-   "post_check": "judge_output"
+   "post_check": "judge_output",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "p2.fix_plan": {
    "stage": "P2",
@@ -3217,7 +3235,7 @@
    ],
    "cond": "units_open",
    "source": "P2 ＞ 10. 修正案（書く前に出す）",
-   "does": "直す単位を全部どれかの案に入れ、案ごとに新しく生まれる物（関数・欄・柵・文・口・腕）と正本の在りか・消す物・足さずに閉じる形を先に考えた結果を書く。まだ手を動かさない",
+   "does": "直す単位を全部どれかの案に入れ、案ごとに新しく生まれる物（関数・欄・柵・文・口・腕）と正本の在りか・消す物・BASE から狭める能力・足さずに閉じる形を先に考えた結果を書く。まだ手を動かさない",
    "outputs": [
     "process.fix_plan"
    ],
@@ -3229,7 +3247,10 @@
     "record.process.precedents",
     "inputs.cwd",
     "inputs.review_rev",
-    "record.questions"
+    "record.questions",
+    "inputs.policy_md",
+    "record.base",
+    "inputs.review_md"
    ],
    "pointers": [
     {
@@ -3265,7 +3286,8 @@
         "approach",
         "adds",
         "removes",
-        "shrink_first"
+        "shrink_first",
+        "narrows"
        ],
        "properties": {
         "unit_keys": {
@@ -3327,12 +3349,38 @@
         "shrink_first": {
          "type": "string",
          "minLength": 20
+        },
+        "narrows": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+           "what",
+           "why"
+          ],
+          "properties": {
+           "what": {
+            "type": "string",
+            "minLength": 4
+           },
+           "why": {
+            "type": "string",
+            "minLength": 10
+           }
+          }
+         },
+         "note": "この案で BASE にあった能力が消える・狭まるもの（無ければ空配列）。1 件でもあれば p2.human_gate が人に聞く——役は代償として決めない"
         }
        }
       }
      }
     }
-   }
+   },
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
   },
   "p2.plan_review": {
    "stage": "P2",
@@ -3343,11 +3391,11 @@
    ],
    "cond": "units_open",
    "source": "P2 ＞ 11. 修正案の事前審査（判定をした judge と別の目）",
-   "does": "案が書かれた後に作る穴（写し・塞がない入口・契約のずれ・死んだ道・範囲の膨張）を書く前に予測し、全部を小さく閉じる別案を挙げる",
+   "does": "案が書かれた後に作る穴（写し・塞がない入口・契約のずれ・死んだ道・範囲の膨張）と、BASE からの後退・人の方針とのぶつかりを書く前に予測し、全部を小さく閉じる別案を挙げる",
    "outputs": [
     "process.plan_review"
    ],
-   "note": "判定をした judge は自分の一撃に肩入れしうるので別の context で見る。予測した穴には P3 が key ごとに答える（fix_covers_open_units が揃いを見る）",
+   "note": "判定をした judge は自分の一撃に肩入れしうるので別の context で見る。予測した穴には P3 が key ごとに答える（fix_covers_open_units が揃いを見る）。後退（regression）と方針とのぶつかり（policy）の穴は、修正役が答える前に p2.human_gate が人に聞く",
    "prompt_file": "../prompts/review-loop/p2.plan_review.md",
    "reads": [
     "out.p2.fix_plan.plan",
@@ -3356,7 +3404,9 @@
     "record.process.precedents",
     "inputs.cwd",
     "inputs.review_rev",
-    "inputs.review_md"
+    "inputs.review_md",
+    "inputs.policy_md",
+    "record.base"
    ],
    "pointers": [
     {
@@ -3484,7 +3534,25 @@
       "minLength": 20
      }
     }
-   }
+   },
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
+  },
+  "p2.human_gate": {
+   "stage": "P2",
+   "run_by": "driver",
+   "builtin": "human_gate",
+   "deps": [
+    "p2.plan_review"
+   ],
+   "source": "人の決定権の関所 ＞ 修正の前",
+   "does": "この周の修正案の narrows と、事前審査の穴のうち regression / policy の物、方針の文書の init の後の変化が 1 件でも在れば、修正の前に人に聞く（周の途中の問い。continue で同じ周のまま修正へ、stop で run を止める。無人では止まる）",
+   "outputs": [
+    "process.human_items"
+   ],
+   "reads": []
   },
   "p3.lane_merge": {
    "stage": "P3",
@@ -3507,7 +3575,8 @@
    "deps": [
     "p2.history",
     "p2.plan_review",
-    "p3.lane_merge"
+    "p3.lane_merge",
+    "p2.human_gate"
    ],
    "source": "P3: 修正（根本ユニット単位・閉鎖の実証・fork の出どころは待つ）",
    "does": "[block] と do-now を根本ユニット単位で直す。導線の死を注記で直さない。fork の origin / depends に挙がったユニットはこの周に実装しない（待つのはループを止めることではない——他を直して次の周へ）。手を動かした結果が機構の新設に及んだと気づいたら止める。修正ごとに閉鎖を実証——不変条件を共有する箇所を先に全部挙げ、1 箇所ずつ赤→緑（『1 つ試して赤だった』で止めない）",
@@ -3526,7 +3595,9 @@
     "prev.r1.minimality",
     "prev.r4.hidden_scope",
     "out.p2.plan_review",
-    "loop.lane_merge"
+    "loop.lane_merge",
+    "inputs.policy_md",
+    "record.process.human_items"
    ],
    "pointers": [
     {
@@ -3976,7 +4047,11 @@
     "fix_closure"
    ],
    "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes と loop.prev_rejudge に残り、次の周の p2.history が再審する。この周は判定どおり直す（post_check fix_covers_open_units）",
-   "na_self_ok": "その周に修正が 0 件なら閉鎖の実証は対象が無い（fix_covers_open_units が changes 非空との食い違いを別に拒む）"
+   "na_self_ok": "その周に修正が 0 件なら閉鎖の実証は対象が無い（fix_covers_open_units が changes 非空との食い違いを別に拒む）",
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
   },
   "p3.fix_delta": {
    "stage": "P3",
@@ -4016,7 +4091,8 @@
     "loop.fix_delta.files",
     "inputs.cwd",
     "out.p2.plan_review",
-    "out.p3.fix.plan_faces"
+    "out.p3.fix.plan_faces",
+    "inputs.policy_md"
    ],
    "pointers": [
     {
@@ -4036,7 +4112,11 @@
    "post_check": "delta_review_output",
    "schema": {
     "$ref": "#/$defs/delta_review_reply"
-   }
+   },
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "p3.delta_owed": {
    "stage": "P3",
@@ -4068,7 +4148,8 @@
    "reads": [
     "loop.delta_owed",
     "loop.fix_delta.file",
-    "inputs.cwd"
+    "inputs.cwd",
+    "inputs.policy_md"
    ],
    "pointers": [
     {
@@ -4088,7 +4169,11 @@
    "post_check": "delta_fix_output",
    "schema": {
     "$ref": "#/$defs/delta_fix_reply"
-   }
+   },
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
   },
   "p3.fix_delta2": {
    "stage": "P3",
@@ -4128,7 +4213,8 @@
     "loop.fix_delta2.file",
     "loop.fix_delta2.files",
     "inputs.cwd",
-    "out.p3.delta_fix.handled"
+    "out.p3.delta_fix.handled",
+    "inputs.policy_md"
    ],
    "pointers": [
     {
@@ -4148,7 +4234,11 @@
    "post_check": "delta_review_output",
    "schema": {
     "$ref": "#/$defs/delta_review_reply"
-   }
+   },
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "p3.delta_owed2": {
    "stage": "P3",
@@ -4180,7 +4270,8 @@
    "reads": [
     "loop.delta_owed2",
     "loop.fix_delta2.file",
-    "inputs.cwd"
+    "inputs.cwd",
+    "inputs.policy_md"
    ],
    "pointers": [
     {
@@ -4200,7 +4291,11 @@
    "post_check": "delta_fix_output",
    "schema": {
     "$ref": "#/$defs/delta_fix_reply"
-   }
+   },
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
   },
   "p3.gates_cut": {
    "stage": "P3",
@@ -4548,7 +4643,8 @@
     "inputs.review_md",
     "inputs.review_rev",
     "inputs.cwd",
-    "record.process.fixes"
+    "record.process.fixes",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -4633,7 +4729,11 @@
      ]
     }
    ],
-   "cond": "r1_refire"
+   "cond": "r1_refire",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "r2.design": {
    "stage": "P-R",
@@ -4646,7 +4746,7 @@
    ],
    "source": "P-R ＞ R2 ゼロベース再導出（独立設計の半分。完全隔離）",
    "inputs": [
-    "purpose_text のみ"
+    "purpose_text（と、目的の外から効く前提——実測した制約と人の方針の本文）"
    ],
    "forbidden_inputs": [
     "実装",
@@ -4666,13 +4766,14 @@
     "累積差分の行数が前回から 1.5 倍",
     "累積差分の行数が前のラウンドの 2/3 以下（処方の向きが足す→消す・畳むに変わった周）"
    ],
-   "note": "入力が purpose_text だけなので序盤に先行起動できる——先行できるのは設計の半分だけで、比較（r2.compare）は累積差分が要る。P0 で目的が unverifiable なら R2 も unverifiable（持ち越せない——毎ラウンド同じ値を書く）",
+   "note": "入力が purpose_text だけなので序盤に先行起動できる——先行できるのは設計の半分だけで、比較（r2.compare）は累積差分が要る。P0 で目的が unverifiable なら R2 も unverifiable（持ち越せない——毎ラウンド同じ値を書く）。人の方針は決着済み論点（この変更をめぐる議論の決着）とは別物で、run をまたいで人が決めた前提なので、実測した制約と同じく入力に入る（実測 2026-09-25: 方針を知らない R2 が方針とぶつかる案を出した）",
    "prompt_file": "../prompts/review-loop/r2.design.md",
    "reads": [
     "out.p0.purpose.purpose_text",
     "record.process.constraints",
     "loop.drift_notes",
-    "loop.purpose_review_stale"
+    "loop.purpose_review_stale",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -4706,7 +4807,11 @@
     }
    ],
    "cond": "r2_design_due",
-   "post_check": "r2_design"
+   "post_check": "r2_design",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "r2.compare": {
    "stage": "P-R",
@@ -4818,7 +4923,8 @@
     "inputs.review_md",
     "inputs.repo_review_md",
     "inputs.review_rev",
-    "inputs.cwd"
+    "inputs.cwd",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -4848,7 +4954,11 @@
      "from": "$"
     }
    ],
-   "cond": "overview_due"
+   "cond": "overview_due",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "r4.hidden_scope": {
    "stage": "P-R",
@@ -4862,7 +4972,7 @@
     "累積差分",
     "REVIEW.md 横断リスク観点（Read させる）"
    ],
-   "does": "diff が解こうとしている領域に潜む横断リスク（SRE・セキュリティ・データガバナンス）。移行退行の棚卸しは『消えた能力』の明示返答を要求。導入・露呈したものは redesign-needed、既存で無関係なら [suggest] で surface して pass",
+   "does": "diff が解こうとしている領域に潜む横断リスク（SRE・セキュリティ・データガバナンス）。移行退行の棚卸しは『消えた能力』の明示返答を要求。導入・露呈したものは redesign-needed、既存で無関係なら [suggest] で surface して pass。消えた能力は周の記録の前に r4.human_gate が人に聞く",
    "outputs": [
     "reviews.R4"
    ],
@@ -4874,7 +4984,8 @@
     "inputs.review_md",
     "inputs.review_rev",
     "inputs.cwd",
-    "out.p0.purpose.purpose_text"
+    "out.p0.purpose.purpose_text",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -4971,7 +5082,25 @@
    ],
    "cond": "overview_due",
    "post_check": "r4_inventory",
-   "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、この節が受け取る差分（P1 が写した diff-r<N>.patch）にその修正が写っているから——同じ周の修正は写っていないので引き金にしない"
+   "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、この節が受け取る差分（P1 が写した diff-r<N>.patch）にその修正が写っているから——同じ周の修正は写っていないので引き金にしない",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
+  },
+  "r4.human_gate": {
+   "stage": "P-R",
+   "run_by": "driver",
+   "builtin": "human_gate",
+   "deps": [
+    "r4.hidden_scope"
+   ],
+   "source": "人の決定権の関所 ＞ 修正の後",
+   "does": "この周の R4 が BASE から消えたと見た能力（capability_inventory.lost）のうち人が前に通していない物と、方針の文書の init の後の変化が 1 件でも在れば、周の記録の前に人に聞く（周の途中の問い）",
+   "outputs": [
+    "process.human_items"
+   ],
+   "reads": []
   },
   "stop.premise_check": {
    "stage": "停止条件",
@@ -5062,7 +5191,8 @@
     "r2.compare",
     "r3.coherence",
     "r4.hidden_scope",
-    "stop.premise_check"
+    "stop.premise_check",
+    "r4.human_gate"
    ],
    "source": "P4 ＞ 3. 突合（機械）／P-R ＞ verdict は記録の reviews に写せ",
    "does": "周の記録 rounds/round-<N>.json を組む（走らせなかった R は carried_over／not_applicable を機械が書く）。検証器にディレクトリを渡し、出力（履歴・帰属・聞く時）を次の周の judge と converge に渡す",
@@ -5343,7 +5473,8 @@
     "loop.rejudge_requested",
     "record.units",
     "record.questions",
-    "record.process.diagnosis"
+    "record.process.diagnosis",
+    "inputs.policy_md"
    ],
    "writes": [
     {
@@ -5368,7 +5499,11 @@
    "same_context_as": "p2.diagnose",
    "cond": "rejudge_open",
    "prompt_file": "../prompts/review-loop/p2.rejudge.md",
-   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復の回数は loop_state が数え、done が trace に残す——会話でやると記録に残らない"
+   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復の回数は loop_state が数え、done が trace に残す——会話でやると記録に残らない",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "p2.rejudge_third": {
    "stage": "P2",
@@ -5478,7 +5613,8 @@
     "loop.rejudge_requested",
     "record.units",
     "record.questions",
-    "record.process.rejudge"
+    "record.process.rejudge",
+    "inputs.policy_md"
    ],
    "writes": [
     {
@@ -5503,7 +5639,11 @@
    "fresh_context": true,
    "cond": "rejudge_exhausted",
    "prompt_file": "../prompts/review-loop/p2.rejudge_third.md",
-   "note": "**第三の目は常設しない**——上限を超えた周にだけ立つ。見るのは元の材料でなく往復そのもの（何で食い違ったか）"
+   "note": "**第三の目は常設しない**——上限を超えた周にだけ立つ。見るのは元の材料でなく往復そのもの（何で食い違ったか）",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "spec.write": {
    "stage": "P0",
@@ -5884,7 +6024,7 @@
   "p1.consistency_bypass",
   "p1.external_standards"
  ],
- "overview": "コード変更を、採点役と実装役を分けて収束まで回す。P0 で基準点・目的・前提・並行 PR・先行議論を固定し（once）、P1 で 9 系統の素材を新しい context の役が集め（機械が前後で作業ツリーを突き合わせ、走らせなかった欄も機械が埋める）、P2 で judge が根本ユニットとラベルと問いの台帳を確定し（2 周目以降は同じ judge に履歴と前の台帳を後から渡す）、P2 の後に writer が修正案を出して別の judge が書く前に穴を予測し、P3 で writer が [block] と do-now を直して閉鎖を実証し（予測された穴には key ごとに答える）、直後にこの周の修正だけの差分を inspector が見て（塞いだと言う穴の検算も）、挙がった穴を同じ周で直し、手直しにもう 1 回だけ同じレビューを当て、残した穴は次の周の判定者が 1 件ずつ振り分け、修正と手直しが済んだ版で変異の検算とテストの書き足しを並行の線として背景で立て（周の締めは待たない。線の結果は書き終えた後の周の頭と修正の前に合流する）、P4 で CI と scalar を取り、機械が R1/R2 の再発火と [block] 0 を数え、R1〜R4 の独立の目を回し、周の記録を組んで検証器（review-record.py）にディレクトリごと渡す。検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）を機械が読んで次の周か停止か人に聞く。収束を言う前に、最終のコードで変異の検算を撃ち直し、見逃しが全部等価でテスト一式が緑のときだけ収束する。上限 5 周。writer は判定を一切しない",
+ "overview": "コード変更を、採点役と実装役を分けて収束まで回す。P0 で基準点・目的・前提・並行 PR・先行議論を固定し（once）、P1 で 9 系統の素材を新しい context の役が集め（機械が前後で作業ツリーを突き合わせ、走らせなかった欄も機械が埋める）、P2 で judge が根本ユニットとラベルと問いの台帳を確定し（2 周目以降は同じ judge に履歴と前の台帳を後から渡す）、P2 の後に writer が修正案を出して別の judge が書く前に穴を予測し、P3 で writer が [block] と do-now を直して閉鎖を実証し（予測された穴には key ごとに答える）、直後にこの周の修正だけの差分を inspector が見て（塞いだと言う穴の検算も）、挙がった穴を同じ周で直し、手直しにもう 1 回だけ同じレビューを当て、残した穴は次の周の判定者が 1 件ずつ振り分け、修正と手直しが済んだ版で変異の検算とテストの書き足しを並行の線として背景で立て（周の締めは待たない。線の結果は書き終えた後の周の頭と修正の前に合流する）、P4 で CI と scalar を取り、機械が R1/R2 の再発火と [block] 0 を数え、R1〜R4 の独立の目を回し、周の記録を組んで検証器（review-record.py）にディレクトリごと渡す。検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）を機械が読んで次の周か停止か人に聞く。収束を言う前に、最終のコードで変異の検算を撃ち直し、見逃しが全部等価でテスト一式が緑のときだけ収束する。今ある能力を減らす・狭める変更と人の方針（run をまたいで効く人の決まり。在れば各節に届く）とぶつかる変更は、修正の前と周の記録の前の関所で人に聞く（役は代償として決めない）。上限 5 周。writer は判定を一切しない",
  "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop の鍵（rules の LOOP_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
  "verdict_paths": [
   "reviews",

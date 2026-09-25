@@ -16,7 +16,8 @@
    "deps": [
     "p2.history",
     "p2.plan_review",
-    "p3.lane_merge"
+    "p3.lane_merge",
+    "p2.human_gate"
    ],
    "source": "P3（TDD）＞ テストを書く前の版を固める",
    "does": "テストだけを書く段が触ったファイルをこの版からの差で測るために作業ツリーの今の姿を版に固め、テスト一式を 1 回走らせて元の結末を取る（『ほかは緑のまま』は元の結末で通っていたテストに当てる。元から落ちていたテストは問わない）",
@@ -72,7 +73,8 @@
     "p2.history",
     "p2.plan_review",
     "p3.lane_merge",
-    "p3.tdd_red"
+    "p3.tdd_red",
+    "p2.human_gate"
    ],
    "reads": [
     "record.units",
@@ -86,10 +88,14 @@
     "out.p2.plan_review",
     "loop.lane_merge",
     "out.p3.tdd_tests",
-    "loop.tdd"
+    "loop.tdd",
+    "inputs.policy_md",
+    "record.process.human_items"
    ],
    "prompt_append": [
-    "../prompts/review-loop/tdd/p3.fix.md"
+    "../prompts/review-loop/tdd/p3.fix.md",
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
    ]
   },
   "p3.tdd_green": {
@@ -120,10 +126,13 @@
     "inputs.cwd",
     "out.p2.plan_review",
     "out.p3.fix.plan_faces",
-    "out.p3.tdd_tests"
+    "out.p3.tdd_tests",
+    "inputs.policy_md"
    ],
    "prompt_append": [
-    "../prompts/review-loop/tdd/p3.delta_review.md"
+    "../prompts/review-loop/tdd/p3.delta_review.md",
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
    ]
   }
  },

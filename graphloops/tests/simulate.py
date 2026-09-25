@@ -138,7 +138,7 @@ def vocab_coverage():
 
 
 class Run:
-    def __init__(self, name, thickness=None, decider=None, unattended=False, graph=None, rel_dir=False):
+    def __init__(self, name, thickness=None, decider=None, unattended=False, graph=None, rel_dir=False, before_init=None):
         # graph=<path>: 同梱でなくその写しで回す。**回した後に graph を締める腕**（once の節の凍った出力を
         # 今の schema で測り直す）に要る——同梱を書き換えると、他の台本と本物のリポジトリを壊す
         self._td, self.tmp = parallel.workspace(f"gl-{name}-")
@@ -180,6 +180,8 @@ class Run:
             args.append("--unattended")
         if graph:
             args += ["--graph", str(graph)]
+        if before_init:   # init より前に置く物（人の方針の文書など）
+            before_init(self)
         self.init = self.cmd(*args)
         # **engine を回せば、その出力が道具の結果として転写に載る**——本番と同じ形を代役にも作る。
         # 以前は文書の本文だけを転写に置いており、印（run_id）が一度も立たない転写で回していた。
@@ -398,6 +400,28 @@ def test_converges():
     check(any(i.startswith("p1.refuter[A]") for i in r1["instances"]) and any(i.startswith("p1.refuter[B]") for i in r1["instances"]), "refuter は A（荷重確証）と B（相違）に走った")
     check("p1.checker" in st["rounds"][2]["empty"], "3 周目の checker は項目ゼロ（empty）")
     check(len(rec["process"]["skipped"]) == 0, "省略なし")
+    rm(run.tmp)
+
+
+def test_policy_reaches_research_roles():
+    """**人の方針の文書**（既定の置き場 <git の共有の置き場>/graphloops/policy.md）は research-loop にも届く——反証役・内部照合役には
+    本文が貼られ、回す側の節（問いの確定）には置き場が渡る"""
+    print("台本: 人の方針が research の役に貼られ、回す側には置き場が渡る")
+    mark = "RESEARCH-POLICY-4c1（検査用の人の方針）"
+    pol = lambda r: (r.repo / ".git" / "graphloops").mkdir(parents=True, exist_ok=True) or (r.repo / ".git" / "graphloops" / "policy.md").write_text(mark + "\n", encoding="utf-8")
+    run = Run("policy", before_init=pol)
+    check(run.init.returncode == 0, f"人の方針: research の init が通る（{run.init.stderr[-160:]}）")
+    seen = {}
+
+    def hook(run_, inst, out):
+        seen.setdefault(inst["node"], pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8"))
+        return None
+    drive(run, "std", hook=hook)
+    path = str((run.repo / ".git" / "graphloops" / "policy.md").resolve())
+    check(mark in seen.get("p1.refuter", "") and mark in seen.get("p5.internal", ""),
+          f"人の方針: 反証役と内部照合役のプロンプトに本文が貼られる（{sorted(k for k, v in seen.items() if mark in v)}）")
+    check(path in seen.get("p0.question", "") and mark not in seen.get("p0.question", ""),
+          "人の方針: 回す側の節（問いの確定）には本文でなく置き場が渡る")
     rm(run.tmp)
 
 

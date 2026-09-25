@@ -5,12 +5,18 @@
 
 engine が差し込む道具は engine/rules.py の INJECT が正本（ここに写さない）。
 """
+import importlib.util
 import json
 import pathlib
 import re
 import shutil
 import tempfile
 from typing import NamedTuple
+
+# 人の方針の文書の置き場を決める 1 本（research-loop の rules と共有。engine が差し込む道具は引数で渡す）
+_pspec = importlib.util.spec_from_file_location("graphloops_rules_policy_input", pathlib.Path(__file__).with_name("policy_input.py"))
+policy_input = importlib.util.module_from_spec(_pspec)
+_pspec.loader.exec_module(policy_input)
 
 # 差分を割って複数の cold-reader に配る扇（diff_chunks）は落とした。**割る理由が無くなったから**——
 # 遮断系は別プロセスの CLI へ標準入力で流すので、貼る上限（Agent ツールのプロンプトの性質。実測 約 50 KB）に
@@ -54,6 +60,8 @@ def on_init(b, args):
         b.loop_state["flow"] = inputs["flow"]
     if inputs.get("gates") is not None:
         b.loop_state["gates"] = inputs["gates"]
+    # 人の方針の文書: init の時点の sha を固定し、関所（human_gate）が変わっていないかを照らす
+    b.record["process"]["policy"] = {**policy_input.resolve(b, git, Reject), "amendments": []}
 
 
 def check_inputs(inputs):
@@ -2834,6 +2842,10 @@ def delta_review_output(b, nid, out, item):
     faces = out.get("faces") or []
     errs = _keys_once(faces, "faces")
     for i, f in enumerate(faces):
+        if f["kind"] in HUMAN_FACE_KINDS:
+            # 手直しの義務に入ると、人より先に修正役が残すか戻すかを決める。修正の後の後退は R4 の棚卸しが BASE と比べて人に上がる
+            errs.append(f"faces[{i}] の kind '{f['kind']}' は事前審査だけの語——修正の後の後退・方針とのぶつかりは R4 と関所（r4.human_gate）が人に聞く")
+            continue
         if f["where"] not in files:
             errs.append(f"faces[{i}] の where '{f['where'][:60]}' はこの周の修正が触ったファイルでない（{sorted(files)[:5]}）")
             continue
@@ -3584,6 +3596,8 @@ def on_answer_in_round(b, ph, ans):
     CI への指示として読まれる process.human_answers には積まない"""
     b.loop_state.setdefault("in_round_answers", []).append(
         {"round": b.round, "node": ph["node"], "kinds": ph.get("kinds") or [], "answer": ans, "note": ph.get("note", "")})
+    if ph["node"] in HUMAN_GATES:
+        human_gate_answered(b, ph, ans)
     if ans == "continue" and "spec_changed" in (ph.get("kinds") or []):
         spec = b.record["process"]["spec"]
         for ch in b.loop_state.pop("spec_changed", []):
@@ -3657,3 +3671,79 @@ CONDS.update({"spec_flow": spec_flow, "spec_revise_due": spec_revise_due})
 BUILTINS.update({"spec_approve": spec_approve, "spec_freeze": spec_freeze, "spec_check": spec_check})
 POST_CHECKS.update({"spec_write_output": spec_write_output, "spec_review_output": spec_review_output,
                     "spec_revise_output": spec_revise_output})
+
+
+# ---------------------------------------------------------------- 人の決定権の関所（能力の後退・人の方針）
+# 今ある能力を減らす取捨と、人の方針にぶつかる案は、役（判定役・審査役・修正役）が代償として決めない——並んだら必ず人に聞く。
+# 機械は「目的や依頼が名指しした削除か」を判定しない（それも取捨の判断なので人に回す）。聞き方は仕様の道の承認と同じ周の途中の問い
+# （ask.in_round。continue は同じ周のまま先へ、stop は run をその場で止める。無人では止まる）。
+# 修正の前（p2.human_gate）は修正案の narrows と事前審査の regression / policy の穴を、修正の後（r4.human_gate）は R4 の棚卸しが
+# BASE と比べて消えたと見た能力（capability_inventory.lost）を聞く。修正差分の審査は削除を cite できず、手直しの義務に入ると人より先に
+# 修正役が決めるので、修正の後の後退は累積差分を BASE と比べる R4 が受ける。どちらの関所も、方針の文書が init の後に変わっていれば聞く
+# 事前審査の穴のうち人に聞く語の一覧の正本（graph の $defs.face_kind の enum の部分集合。graph の note はここを指すだけで写さない。
+# 部分集合であることは pytest の test_policy_gate が見る）
+HUMAN_FACE_KINDS = ("regression", "policy")
+
+
+def _policy_change(b):
+    """方針の文書が固定した版から変わったか——{from, to, path}（変わっていなければ None）。作られた・消えたも変化"""
+    pol = b.record["process"].get("policy") or {}
+    path = policy_input.locate(b, git)
+    now = policy_input.file_sha(path)
+    if now == pol.get("sha256"):
+        return None
+    return {"path": path, "from": pol.get("sha256"), "to": now}
+
+
+def _plan_gate_items(b):
+    """修正の前に人に聞く行: 修正案が自分で書いた狭め（narrows）と、事前審査が挙げた後退・方針の穴——この周の出力だけ"""
+    items = []
+    for i, p in enumerate((b.output_of_round("p2.fix_plan", b.round) or {}).get("plan") or []):
+        items += [("regression", f"修正案 {i + 1} が狭める能力: {n['what']}——{n['why']}") for n in p.get("narrows") or []]
+    items += [(f["kind"], f"事前審査の穴 [{f['kind']}] {f['key']}: {f['why']}")
+              for f in (b.output_of_round("p2.plan_review", b.round) or {}).get("faces") or [] if f["kind"] in HUMAN_FACE_KINDS]
+    return items
+
+
+def _r4_gate_items(b):
+    """修正の後に人に聞く行: R4 が BASE から消えたと見た能力のうち、人が前に continue で通していない物（同じ文の行は聞き直さない）"""
+    passed = {a for h in b.record["process"]["human_items"] if h.get("answer") == "continue" for a in h.get("asked") or []}
+    lost = ((b.output_of_round("r4.hidden_scope", b.round) or {}).get("capability_inventory") or {}).get("lost") or []
+    return [("regression", row) for row in (f"R4 が BASE から消えたと見た能力: {x}" for x in lost) if row not in passed]
+
+
+HUMAN_GATES = {"p2.human_gate": _plan_gate_items, "r4.human_gate": _r4_gate_items}
+
+
+def human_gate(b, nid):
+    """能力の後退・方針とのぶつかり・方針の文書の変化が 1 件でも在れば、人に聞く（周の途中の問い）。無ければ素通り"""
+    rows = HUMAN_GATES[nid](b)
+    ch = _policy_change(b)
+    if ch:
+        b.loop_state["policy_change"] = ch
+        rows.append(("policy_changed", f"人の方針の文書 {ch['path'] or '（無い）'} が init の後に変わった: sha256 "
+                                       f"{str(ch['from'])[:12]} → {str(ch['to'])[:12] if ch['to'] else '消えた'}"))
+    if not rows:
+        return {"ok": True}
+    kinds = sorted({k for k, _ in rows})
+    return {"decision": "ask", "reason": "human_gate", "ask": {
+        "kinds": kinds, "in_round": True,
+        "question": ("今ある能力を減らす・狭める変更、人の方針とぶつかる変更、または方針の文書そのものの変更が挙がった。役は代償として決めない"
+                     "——人が決める。通すなら continue --note <通す範囲と条件>（答えは記録の process.human_items に残り、修正役に届く。"
+                     "方針の文書の変更を通すと、その版を固定し直す）。通さないなら stop（run をここで止める。直す向きを決めてから新しい run で）"),
+        "items": [r for _, r in rows], "options": ["continue", "stop"]}}
+
+
+def human_gate_answered(b, ph, ans):
+    """関所への答えを人の答えの台帳（process.human_items）に残す。方針の文書の変更を通したら、新しい版を固定し直す"""
+    b.record["process"]["human_items"].append({"round": b.round, "kinds": ph.get("kinds") or [], "asked": ph["items"],
+                                               "answer": ans, "note": ph.get("note", ""), "node": ph["node"]})
+    ch = b.loop_state.pop("policy_change", None)
+    if ans == "continue" and ch and "policy_changed" in (ph.get("kinds") or []):
+        pol = b.record["process"]["policy"]
+        pol.setdefault("amendments", []).append({**ch, "round": b.round, "note": ph.get("note", "")})
+        pol["path"], pol["sha256"] = ch["path"], ch["to"]
+        b.state["inputs"]["policy_md"] = ch["path"] if ch["to"] else None
+
+
+BUILTINS.update({"human_gate": human_gate})

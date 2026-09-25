@@ -88,7 +88,7 @@ def sh(cwd, *args):
 VOCAB_SEEN = collections.defaultdict(set)
 # 到達した語彙の数。**`!=` で見る**——下限（`<`）だと筋書きを増やしても数が動かず、増やしたつもりの
 # 周に誰も気づかない。上げるときは実測値を書く（減らすのは、語彙そのものを graph から消したときだけ）。
-VOCAB_REACHED = 118
+VOCAB_REACHED = 120
 
 
 def record_vocab(node, output):
@@ -150,7 +150,7 @@ CHECKS_OK = [{"name": "suite", "argv": [PY, "-c", "print('1 passed')"]}]   # 台
 
 class Run:
     def __init__(self, name, unattended=False, big=False, latin=False, loop="review-loop", inputs=(), init_args=(), graph=None,
-                 checks=CHECKS_OK):
+                 checks=CHECKS_OK, before_init=None):
         """checks: 台本のリポジトリのルートに置く走らせる語の宣言（.review-checks.json の suite）。既定は緑の 1 段を置いて人の承認まで
         済ませる（p0.local_checks・p4.ci は engine が走らせる）。None なら宣言を置かない——任せ先の節として出て、台本の表が返答を書く"""
         self._td, self.tmp = parallel.workspace(f"gl-review-{name}-")
@@ -177,6 +177,8 @@ class Run:
         if latin:  # UTF-8 でないテキスト（Latin-1 の é と単独の 0xFF）。git の出力と file: の読みが厳格な復号で落ちていた
             (self.repo / "src" / "latin.py").write_bytes(b"# caf\xe9 \xff legacy encoding\nX = 1\n")
         g("add", "."); g("commit", "-q", "-m", "change under review")
+        if before_init:   # init より前に置く物（人の方針の文書など）
+            before_init(self)
         self.dir = self.tmp / "state"
         args = ["init", "--loop", loop, "--request", "この変更をレビュー", "--dir", str(self.dir), "--validator", str(VALIDATOR)]
         for kv in inputs:
@@ -426,7 +428,8 @@ def answers(run, scenario, rnd):
         "p2.fix_plan": lambda it: {"plan": [{"unit_keys": opened, "approach": "上限を入口の関数 f の 1 か所で掛け、呼び元の分岐を消す（検査用）",
                                              "adds": [{"kind": "guard", "name": "f の上限", "canonical": "src/a.py の f が正本（新設。呼び元には写さない）"}],
                                              "removes": ["呼び元の上限の分岐"],
-                                             "shrink_first": "呼び元の分岐を消すだけでは上限が掛からない経路が残るので、入口 1 か所に寄せる（検査用）"}]},
+                                             "shrink_first": "呼び元の分岐を消すだけでは上限が掛からない経路が残るので、入口 1 か所に寄せる（検査用）",
+                                             "narrows": []}]},
         "p2.plan_review": lambda it: ({"faces": [{"key": "写し: 上限の値を 2 か所に", "unit_keys": opened[:1], "kind": "copy", "where": "src/a.py",
                                                   "why": "上限の値を入口と呼び元の両方に書くと、片方だけ変わる（検査用）", "severity": "block"},
                                                  {"key": "入口: 呼び元が上限を迂回する", "unit_keys": opened[:1], "kind": "entrance", "where": "src/a.py",
@@ -5422,6 +5425,142 @@ def test_spec_default_unchanged():
     for r_ in runs.values():
         rm(r_.tmp)
     shutil.rmtree(gtmp, ignore_errors=True)
+
+
+# ---------------------------------------------------------------- 人の方針と人の決定権の関所
+POLICY_MARK = "POLICY-MARK-7f3（検査用の人の方針: 今ある能力を減らさない）"
+
+
+def policy_default(run):
+    """既定の置き場（<git の共有の置き場>/graphloops/policy.md）"""
+    return run.repo / ".git" / "graphloops" / "policy.md"
+
+
+def put_policy(run, text=POLICY_MARK):
+    f = policy_default(run)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text + "\n", encoding="utf-8")
+
+
+def test_policy_reaches_roles():
+    """**人の方針の文書**: 既定の置き場（作業ツリーの外）に在れば init が拾って sha を固定し、判定・審査・R には本文が貼られ、
+    回す側の節（修正）には置き場が渡る。変わらなければ関所は聞かずに収束する。名指しした文書が無ければ init で止める"""
+    print("人の方針: 既定の置き場の文書が判定・審査・R2 に貼られ、修正には置き場が渡る")
+    run = Run("policy", before_init=put_policy)
+    check(run.init.returncode == 0, f"人の方針: init が通る（{run.init.stderr[-200:]}）")
+    seen = {}
+
+    def hook(run_, inst, out):
+        if inst["node"] in ("p2.diagnose", "p2.plan_review", "r2.design", "r4.hidden_scope", "p3.fix") and inst["node"] not in seen:
+            seen[inst["node"]] = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
+        return None
+    last = drive(run, "std", hook=hook)
+    pol = run.record()["process"].get("policy") or {}
+    check(pol.get("path") == str(policy_default(run).resolve()) and len(pol.get("sha256") or "") == 64 and pol.get("amendments") == [],
+          f"人の方針: init が既定の置き場の文書を拾い、sha を記録に固定する（{pol}）")
+    pasted = [k for k in ("p2.diagnose", "p2.plan_review", "r2.design", "r4.hidden_scope") if POLICY_MARK in seen.get(k, "")]
+    check(pasted == ["p2.diagnose", "p2.plan_review", "r2.design", "r4.hidden_scope"],
+          f"人の方針: 判定・事前審査・R2（道具ゼロ）・R4 のプロンプトに本文が貼られる（貼られた節 {pasted}）")
+    fixp = seen.get("p3.fix", "")
+    check(str(policy_default(run).resolve()) in fixp and POLICY_MARK not in fixp,
+          "人の方針: 回す側の節（修正）には本文でなく置き場が渡る")
+    check(last["status"] == "converged" and not run.record()["process"]["human_items"],
+          f"人の方針: 文書が変わらず後退も並ばない run は、関所で聞かずに収束する（{last['status']}）")
+    rm(run.tmp)
+
+    run = Run("policy-missing", init_args=("--input", "policy_md=no/such/policy.md"))
+    check(run.init.returncode != 0 and "policy_md" in run.init.stderr,
+          f"人の方針: init で名指しした文書が無ければ止める（{run.init.stderr[-160:]}）")
+    rm(run.tmp)
+
+
+def test_human_gate():
+    """**人の決定権の関所**: 修正案の狭め（narrows）・事前審査の後退の穴・R4 が BASE から消えたと見た能力・方針の文書の変更は、
+    役が決めずに周の途中で人に聞く。continue の note は修正役に届き、同じ文の lost は聞き直さない。stop と無人は止まる。
+    修正差分の審査は後退の語を使えない"""
+    print("人の決定権の関所: 狭め・後退・方針の文書の変更を人に聞き、答えを修正役に届ける")
+    run = Run("gate")
+    seen = {}
+
+    def hook(run_, inst, out):
+        rnd = run_.state()["round"]
+        if inst["node"] == "p2.diagnose" and "diagnose" not in seen:
+            seen["diagnose"] = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
+        if inst["node"] == "p2.fix_plan" and rnd == 1:
+            return {"plan": [{**out["plan"][0], "narrows": [{"what": "呼び元が上限なしで呼べる経路（検査用 NARROW-1）",
+                                                              "why": "上限を入口 1 か所に寄せると呼び元の分岐が消える（検査用）"}]}]}
+        if inst["node"] == "p3.fix" and rnd == 1:
+            seen["fix"] = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
+            put_policy(run_, "修正役が書いた方針（検査用 WRITER-POLICY）")   # 役が方針の文書を書き換える形
+        if inst["node"] == "p3.delta_review" and "delta" not in seen:
+            bad = {**out, "faces": [{"key": "後退: 呼び元の経路", "kind": "regression", "where": "src/a.py", "cite": "limit",
+                                     "why": "呼び元の上限なしの経路が消えた（検査用）"}]}
+            r = run_.done(inst["id"], bad)
+            seen["delta"] = (r.returncode, r.stderr)
+        if inst["node"] == "r4.hidden_scope":
+            return {**out, "capability_inventory": {"fired": True, "lost": ["呼び元の上限なしの経路（検査用 LOST-1）"]}}
+        return None
+
+    last = drive(run, "std", hook=hook)
+    check(last["status"] == "awaiting_human" and last["ask"].get("in_round") and last["ask"]["kinds"] == ["regression"]
+          and "NARROW-1" in "".join(last["ask"]["items"]),
+          f"関所: 修正案の narrows が 1 件でもあれば、修正の前に人に聞く（{last.get('ask', {}).get('kinds')}）")
+    st = run.state()
+    check(not any(i["node"] == "p3.fix" for i in st["rounds"][0]["instances"].values()), "関所: 人が答えるまで修正の節は出ない")
+    check(run.record()["process"]["policy"]["path"] is None and "人の方針" in seen.get("diagnose", ""),
+          "関所: 方針の文書が無い run では、固定する版は無く、判定のプロンプトには方針の段落だけが出る")
+    r = run.cmd("answer", "--text", "continue", "--note", "呼び元の経路は残せ（検査用 KEEP-NOTE）")
+    check(r.returncode == 0, f"関所: continue を返す（{r.stderr[-160:]}）")
+    hi = run.record()["process"]["human_items"]
+    check(len(hi) == 1 and hi[0]["node"] == "p2.human_gate" and hi[0]["answer"] == "continue" and "KEEP-NOTE" in hi[0]["note"],
+          f"関所: 答えは人の答えの台帳（process.human_items）に残る（{hi}）")
+    last = drive(run, "std", hook=hook)
+    check("KEEP-NOTE" in seen.get("fix", ""), "関所: 人の答えの note が同じ周の修正役のプロンプトに届く")
+    check(seen.get("delta", (0,))[0] == 1 and "事前審査だけ" in seen["delta"][1],
+          f"関所: 修正差分の審査は後退の語を使えない（手直しの義務に入れて役に決めさせない。{seen.get('delta', ('', ''))[1][-120:]}）")
+    check(last["status"] == "awaiting_human" and last["ask"]["kinds"] == ["policy_changed"],
+          f"関所: 方針の文書が init の後に変わった（役が書いた）なら、修正の後の関所で人に聞く（{last.get('ask', {}).get('kinds')}）")
+    run.cmd("answer", "--text", "continue", "--note", "確かめた（検査用）")
+    pol = run.record()["process"]["policy"]
+    check(len(pol["amendments"]) == 1 and pol["path"] == str(policy_default(run).resolve()) and len(pol["sha256"] or "") == 64
+          and run.state()["inputs"]["policy_md"] == pol["path"],
+          "関所: 通した方針の文書の変更は新しい版を固定し直し、以後の節に届く（履歴は amendments）")
+    asked_lost = 0
+    for _ in range(6):
+        last = drive(run, "std", hook=hook)
+        if last["status"] != "awaiting_human":
+            break
+        asked_lost += "LOST-1" in "".join(last["ask"]["items"])
+        run.cmd("answer", "--text", "continue", "--note", "消えてよい（検査用）")
+    check(asked_lost == 1, f"関所: R4 の lost は人に聞き、同じ文の行は通した後に聞き直さない（聞いた回数 {asked_lost}）")
+    check(last["status"] == "converged", f"関所: 人が通した後は収束まで進む（{last['status']}）")
+    rm(run.tmp)
+
+    run = Run("gate-stop")
+
+    def face(run_, inst, out):
+        if inst["node"] == "p2.plan_review":
+            return {**out, "faces": [{"key": "後退: 上限なしで呼べる経路が消える", "unit_keys": out["faces"][0]["unit_keys"] if out.get("faces") else [1],
+                                      "kind": "regression", "where": "src/a.py", "why": "案が呼び元の分岐を消すと、上限なしの呼び出しができなくなる（検査用）",
+                                      "severity": "block"}]}
+        return None
+    last = drive(run, "std", hook=face)
+    check(last["status"] == "awaiting_human" and last["ask"]["kinds"] == ["regression"] and "事前審査の穴 [regression]" in "".join(last["ask"]["items"]),
+          f"関所: 事前審査が後退の穴を挙げたら、修正の前に人に聞く（{last.get('ask', {}).get('kinds')}）")
+    run.cmd("answer", "--text", "stop", "--note", "削らない向きで出し直す")
+    last = run.next()
+    check(last["status"] == "stopped" and last.get("halted", {}).get("node") == "p2.human_gate" and not last["ready"],
+          f"関所: stop で run がその場で止まり、修正を出さない（{last.get('halted')}）")
+    rm(run.tmp)
+
+    run = Run("gate-unattended", unattended=True)
+    last = drive(run, "std", hook=lambda r_, i, o: {"plan": [{**o["plan"][0], "narrows": [{"what": "検査用の狭め", "why": "無人で止まるか（検査用）"}]}]}
+                 if i["node"] == "p2.fix_plan" else None)
+    st = run.state()
+    check(last["status"] == "stopped" and (st.get("halted") or {}).get("by") == "unattended"
+          and not any(i["node"] == "p3.fix" for i in st["rounds"][0]["instances"].values()),
+          f"関所: 無人では狭めの問いで止まり、修正を出さない（{st.get('halted')}）")
+    rm(run.tmp)
 
 
 def main():
