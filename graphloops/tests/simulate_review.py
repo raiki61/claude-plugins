@@ -80,6 +80,14 @@ def check(cond, desc):
     parallel.line(("  ok   " if cond else "  FAIL ") + desc)
 
 
+def skip(desc, reason):
+    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
+    global ran
+    with parallel.LOCK:
+        ran += 1
+    parallel.line(parallel.skip_line(desc, reason))
+
+
 def rm(p):
     """作業場の掃除。Windows は git の object を読み取り専用で置き、素の rmtree が PermissionError で
     落ちる（実測: CI の windows-latest）。掃除の失敗で検査本体を落とさない。"""
@@ -751,6 +759,121 @@ def test_launch_tooled_session():
     rm(run.tmp)
 
 
+def test_launch_delegate_fenced():
+    """任せ先（delegate）を engine が sandbox の形で起こす: 作業ディレクトリは本物の写しで、終わったら消え、本物の作業ツリーも
+    .git も変わらない。sandbox の名指しは起こす瞬間に git から組み直して突き合わせ、next の後に作業ツリーが足されたら起こさない。
+    配布先で Agent ツールの任せ先が本物の作業ツリーで git reset --hard を打った事故（2026-09-25）への直し"""
+    print("任せ先の柵: engine が写しの上で sandbox の形で起こし、名指しがずれたら起こさない")
+    run = Run("delegate")
+    g = lambda *a: sh(run.repo, "git", *a).stdout
+    nx = run.next()
+    inst = next(i for i in nx["ready"] if i["node"] == "p0.local_checks")
+    argv = (inst.get("launch") or {}).get("argv") or []
+    after = lambda flag: argv[argv.index(flag) + 1] if flag in argv else None
+    deny = (json.loads(after("--settings") or "{}").get("sandbox") or {}).get("filesystem", {}).get("denyWrite") or []
+    real = lambda p: os.path.realpath(p)
+    check(inst["launch"].get("kind") == "delegate" and after("--permission-mode") == "default" and after("--permission-prompts") == "none"
+          and after("--setting-sources") == "" and "Bash" in (after("--tools") or "").split(",")
+          and "Bash" not in (after("--allowedTools") or "").split(",")
+          and not {"Write", "Edit"} & set((after("--tools") or "").split(","))
+          and all(real(p) in deny for p in (run.repo, run.repo / ".git", run.dir)),
+          f"任せ先は launch を持ち、sandbox が本物の作業ツリー・.git・盤面を名指しし、Bash は先に許さず、書く道具を持たない（{argv[2:12]}）")
+    bindir = run.tmp / "fakebin"
+    bindir.mkdir()
+    fakeclaude.install(bindir)
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 代役の claude に向ける", env=env)
+    check(r.returncode == 0, f"relaunch できる（{r.stderr[-120:]}）")
+    sh(run.repo, "git", "worktree", "add", "-q", str(run.tmp / "late"), "-b", "late")
+    ans, log = run.tmp / "lc.json", run.tmp / "fake.log"
+    ans.write_text(json.dumps({"material": CLEAN("python -m pytest（緑）")}, ensure_ascii=False), encoding="utf-8")
+    fenv = {**env, "FAKE_OUT": str(ans), "FAKE_LOG": str(log)}
+    r = run.cmd("launch", "--node", inst["id"], env=fenv)
+    one = (json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}])[0]
+    check(not one.get("ok") and "--settings" in (one.get("why") or "") and not log.exists(),
+          f"next の後に作業ツリーが足されたら、sandbox の名指しが今の守る場所と揃わないので起こさない（{(one.get('why') or r.stderr)[-120:]}）")
+    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 名指しを組み直す", env=env)
+    (run.repo / "src" / "a.py").write_text("def f(x):\n    return x  # 未コミット\n", encoding="utf-8")
+    (run.repo / "src" / "new.py").write_text("N = 1\n", encoding="utf-8")
+    before = g("status", "--porcelain"), g("worktree", "list", "--porcelain"), g("rev-parse", "HEAD")
+    r = run.cmd("launch", "--node", inst["id"], env=fenv)
+    one = (json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}])[0]
+    seen = json.loads(log.read_text(encoding="utf-8").splitlines()[-1]) if log.exists() else {}
+    cwd = pathlib.Path(seen.get("cwd") or "/nonexistent")
+    check(one.get("ok") and seen and real(cwd) != real(run.repo) and not real(cwd).startswith(real(run.repo) + os.sep)
+          and {"src", "README.md", ".git"} <= set(seen.get("cwd_files") or [])
+          and real(seen.get("tmpdir") or "/").startswith(real(cwd.parent)),
+          f"任せ先は本物の外の写しを作業ディレクトリにし、TMPDIR も同じ置き場に向けて起こす（{one.get('why')} {seen.get('cwd')}）")
+    check(not cwd.parent.exists(), f"終わった任せ先の置き場（写しと TMPDIR）は消える（{cwd.parent}）")
+    check((g("status", "--porcelain"), g("worktree", "list", "--porcelain"), g("rev-parse", "HEAD")) == before,
+          "任せ先を起こしても本物の作業ツリー・index・worktree の登録・HEAD は変わらない")
+    st = run.state()
+    me = next((i for i in st["rounds"][0]["instances"].values() if i["node"] == "p0.local_checks" and i["status"] == "done"), {})
+    check(me.get("status") == "done", "任せ先の返答は engine が受け付けまで済ませる（回す側の done は要らない）")
+    rm(run.tmp)
+
+
+def test_launch_delegate_background_lane():
+    """背景の任せ先（p3.delta_gates）は受領を done した後にだけ、名指しで 1 回だけ起こせ、子の返答は engine が線の置き場に置く"""
+    print("背景の任せ先: 受領の後に名指しで 1 回だけ起こし、返答は engine が線の置き場に置く")
+    run = Run("delegatebg")
+    nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p3.delta_gates" for i in n["ready"]))
+    inst = next(i for i in nx["ready"] if i["node"] == "p3.delta_gates")
+    cut = run.state()["loop"]["gates_cut"]
+    check(inst["launch"].get("background") and inst["launch"].get("result_path") == cut["result"],
+          f"背景の任せ先は launch に線の置き場を持つ（{inst['launch'].get('result_path')}）")
+    bindir = run.tmp / "fakebin"
+    bindir.mkdir()
+    fakeclaude.install(bindir)
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 代役の claude に向ける", env=env)
+    r = run.cmd("launch", "--node", inst["id"], env=env)
+    check(r.returncode == 1 and "受領を done してから" in r.stderr, f"受領の前には起こさない（{r.stderr.strip()[-120:]}）")
+    r = run.done(inst["id"], {"lane": cut["result"]})
+    check(r.returncode == 0, f"受領は done で通る（{r.stderr[-120:]}）")
+    lane = {"rev": cut["rev"], "arms": [PROVEN_ARM], "handled": [], "patch": "", "suite": {"command": "pytest（検査用）", "exit": 0}}
+    ans = run.tmp / "lane.json"
+    ans.write_text("```json\n" + json.dumps(lane, ensure_ascii=False) + "\n```", encoding="utf-8")   # 囲い付きの返答も解いて置く
+    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_OUT": str(ans), "FAKE_KEEP": "lane.patch"})
+    one = (json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}])[0]
+    placed = pathlib.Path(cut["result"])
+    kept = pathlib.Path(one.get("kept") or "/nonexistent")
+    check(one.get("ok") and placed.is_file() and json.loads(placed.read_text(encoding="utf-8")) == lane
+          and not pathlib.Path(cut["result"] + ".tmp").exists(),
+          f"子の返答は engine が線の置き場に置く（書きかけは残さない。{one.get('why') or r.stderr[-120:]}）")
+    check((kept / "lane.patch").is_file() and not (kept.parent / "work").exists() and not (kept.parent / "tmp").exists(),
+          f"任せ先が GRAPHLOOPS_KEEP に置いた物だけ残り、写しと TMPDIR は消える（{kept}）")
+    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_OUT": str(ans)})
+    two = (json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}])[0]
+    check(not two.get("ok") and "起こし済み" in (two.get("why") or ""), f"同じ線は 2 度起こさない（{two.get('why')}）")
+    rm(kept.parent)
+    rm(run.tmp)
+
+
+def test_unfenced_delegates_only_when_named():
+    """柵を外すのは人が init --unfenced-delegates で明示した run だけ。外した事実は盤面と next の notes に残る"""
+    print("柵を外す口: init --unfenced-delegates の run だけ任せ先が launch を持たず、外した事実と理由が盤面と notes に出る")
+    run = Run("unfenced")
+    d2 = run.tmp / "s-unfenced"
+    r = subprocess.run([PY, str(LOOP), "init", "--loop", "review-loop", "--request", "q", "--dir", str(d2),
+                        "--validator", str(VALIDATOR), "--unfenced-delegates", "docker を使う CI（検査用）"],
+                       cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(r.returncode == 0, f"柵を外した run を init できる（{r.stderr[-120:]}）")
+    r = subprocess.run([PY, str(LOOP), "next", "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    nx = json.loads(r.stdout) if r.returncode == 0 else {"ready": [], "notes": []}
+    inst = next((i for i in nx["ready"] if i["node"] == "p0.local_checks"), {})
+    st = json.loads((d2 / "state.json").read_text(encoding="utf-8"))
+    trace = (d2 / "trace.jsonl").read_text(encoding="utf-8")
+    check(not inst.get("launch") and (inst.get("unfenced") or {}).get("reason") == "docker を使う CI（検査用）"
+          and st.get("unfenced_delegates", {}).get("reason") == "docker を使う CI（検査用）" and "unfenced_delegates" in trace
+          and any("柵" in n for n in nx.get("notes") or []),
+          f"外した run の任せ先は launch を持たず unfenced を持ち、外した事実が state・trace・notes に残る（{inst.get('launch')}）")
+    base = next(i for i in run.next()["ready"] if i["node"] == "p0.local_checks")
+    check(base.get("launch", {}).get("kind") == "delegate" and "unfenced" not in base,
+          "明示の無い run の任せ先は柵の形（launch）で起こす")
+    rm(run.tmp)
+
+
 def test_init_resolves_dir():
     """**盤面の綴りは入口で 1 度だけ解決する。** init だけが未解決の綴りで Board を作っていたとき、
     on_init が盤面から組み立てる値（rounds_dir）は相対のまま state に入り、別の cwd から読むと外れる。
@@ -796,6 +919,33 @@ def test_new_guards():
         settle(run, by[n], t[n])
     nx = run.next()
     check(any("対象差分が空" in n for n in nx["notes"]) and not any(i["node"].startswith("p1.") for i in nx["ready"]), f"BASE=HEAD（差分ゼロ）は P1 の前で止まる: {nx.get('notes')}")
+    # 止まった地点から入口へ行ける: 拒否文が --dir つきの add を案内し、案内どおりに打つと判定から入る
+    check(any("loop.py add --file" in n and "--dir <DIR>" in n for n in nx["notes"]),
+          f"空差分の拒否文は、1 周目の P1 の前なら判定から入る add を案内する: {nx.get('notes')}")
+    f = run.tmp / "req.json"
+    f.write_text(json.dumps([{"where": "src/a.py:f", "text": "人の依頼（検査用）"}], ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("add", "--file", str(f), "--reason", "利用者の依頼（検査用）")
+    nx = run.next()
+    check(r.returncode == 0 and run.record()["process"].get("request_entry") and not any("対象差分が空" in n for n in nx["notes"])
+          and not any(i["node"].startswith("p1.") for i in nx["ready"]),
+          f"案内どおりの add で入口が開き、空差分で止まらずに進む（{r.stdout[-160:]}{r.stderr[-160:]} / {nx.get('notes')}）")
+    rm(run.tmp)
+
+    # add しても入口が開かない所では案内しない（型の崩れた印が在る run——案内どおりに打っても P1 はいつもどおり走る）
+    run = Run("emptydiff-noentry")
+    f = run.tmp / "bad-entry.json"
+    f.write_text(json.dumps("patch（検査）", ensure_ascii=False), encoding="utf-8")
+    run.cmd("patch", "--path", "process.request_entry", "--file", str(f), "--reason", "検査")
+    nx = run.next()
+    by = {i["node"]: i for i in nx["ready"]}
+    t = answers(run, "std", 1)
+    head = sh(run.repo, "git", "rev-parse", "HEAD").stdout.strip()
+    run.done(by["p0.base"]["id"], {**t["p0.base"](None), "base_sha": head})
+    for n in ("p0.local_checks", "p0.premises"):
+        run.done(by[n]["id"], t[n](None))
+    nx = run.next()
+    check(any("対象差分が空" in n for n in nx["notes"]) and not any("loop.py add" in n for n in nx["notes"]),
+          f"add で入口が開かない所の空差分の拒否文は add を案内しない: {nx.get('notes')}")
     rm(run.tmp)
 
     # git が取れない場では対象差分そのものが測れない——空文字に潰して「変化なし」にしない
@@ -1713,6 +1863,14 @@ def test_md_links():
     (tmp / "docs" / "more.md").write_text("[r8]: 無い8.md\n\n[ok][] と [空白](<a b.md>)\n\n[ok]: a.md\n\n[^1]: 脚注の文\n\n配列は x[0][1] と書く\n",
                                           encoding="utf-8")
     subprocess.run(["git", "add", "-N", "docs/more.md"], cwd=tmp, capture_output=True)
+    # symlink のディレクトリを経由するリンクは実体で引いて届く（書かれた綴りのまま照合するのは symlink でない部品だけ）
+    try:
+        (tmp / "lnk").symlink_to("docs", target_is_directory=True)
+        via_symlink = True
+    except OSError:   # Windows は既定で symlink を作る権限を持たない
+        via_symlink = False
+    (tmp / "viasym.md").write_text("[symlink 経由](lnk/a.md#数える問いf1)\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-N", "viasym.md"], cwd=tmp, capture_output=True)
     rules = load_review_rules(tmp)
     errs = rules._md_link_errors(base, str(tmp))
     joined = " / ".join(errs)
@@ -1738,6 +1896,10 @@ def test_md_links():
     check("docs/日本語.md:2" in joined and "#無い2" in joined, f"リンク: 日本語のファイル名の文書の追加行も拾う（{errs}）")
     check(not any(x in joined for x in ("nope.md", "nope2.md", "img.png", "example.invalid", "#表題", "同じ見出し-1")),
           "リンク: コードスパン・フェンス・画像・URL の scheme は拾わず、同じ文書の見出しと重複見出しの -1 は届く")
+    if via_symlink:
+        check("viasym.md" not in joined, f"リンク: symlink のディレクトリを経由するリンクは実体で引いて届く（{errs}）")
+    else:
+        skip("リンク: symlink のディレクトリを経由するリンクは実体で引いて届く", "この環境では symlink を作れない（Windows は既定で権限を持たない）")
     rm(tmp)
 
 
@@ -1888,6 +2050,11 @@ def test_graphcheck_review_shapes():
            "graphcheck: 役の節に任せ先は書けない")
     broken(lambda b: b["nodes"]["p1.local_review"].__setitem__("delegate", {"model": "sonnet", "why": "検査用"}), "skills を持つ節に delegate は書けない",
            "graphcheck: skill を呼ぶ節を任せ先に渡せない（入れ子の委任は完了の知らせが届かない）")
+    broken(lambda b: b["launch"].pop("delegate"), "launch.delegate.argv が無い", "graphcheck: 任せ先を縛って起こす語が無い graph は落ちる")
+    broken(lambda b: b["nodes"]["p3.delta_gates"]["delegate"].pop("result_to"), "delegate.result_to",
+           "graphcheck: 背景の任せ先が返答の置き場を名指ししない")
+    broken(lambda b: b["launch"]["delegate"]["argv"].append("{sandbox_json}"), "を engine は埋められない",
+           "graphcheck: 任せ先の起動の語の知らない穴")
     broken(lambda b: b["nodes"]["p3.delta_gates"]["delegate"].__setitem__("background", "yes"), "delegate.background は真偽",
            "graphcheck: 背景の任せ先の旗が真偽でない")
     broken(lambda b: b["nodes"]["p4.ci"]["deps"].append("p3.delta_gates"), "背景の節（delegate.background）を",
@@ -2368,7 +2535,7 @@ def test_wrote_refs_direct_arms():
             locked.chmod(0o644)
         check(len(errs) == 1 and "作業ツリーで数えられない" in errs[0], f"開けない指し先は『数えられない』で拒む（例外にしない。{errs}）")
     else:
-        check(True, "開けない指し先の腕は root / windows では撃てない（権限で読みを止められない）")
+        skip("開けない指し先は『数えられない』で拒む", "root か Windows では権限で読みを止められない")
     # **指し先が FIFO に置き換わっても、開いて止まらない**（上限付きの読みは通常のファイルだけを開く）。書き手を
     # 立てておくので、柵が外れた写しでは開いて読み、止まらずに別の文（中に無い）で赤になる
     if hasattr(os, "mkfifo"):
@@ -2383,7 +2550,7 @@ def test_wrote_refs_direct_arms():
         errs, _ = mod._cite_errors(b, "p3.fix", [{"kind": "text", "cite": "# pipe", "target": "pipe.md", "where": "src/a.py"}], None, "wrote_refs")
         check(len(errs) == 1 and "通常のファイルでない" in errs[0], f"FIFO に置き換わった指し先は開かずに拒む（{errs}）")
     else:
-        check(True, "FIFO に置き換わった指し先は開かずに拒む（この OS には FIFO が無い）")
+        skip("FIFO に置き換わった指し先は開かずに拒む", "この OS には FIFO（os.mkfifo）が無い")
     # **symlink の輪を含む指し先を、例外にせず拒む**（3.12 以前の resolve は輪を RuntimeError で投げる）
     try:
         (run.repo / "loopa").symlink_to("loopb"); (run.repo / "loopb").symlink_to("loopa")
@@ -2672,7 +2839,7 @@ def test_frozen_review_revision():
             head = (out.get("rev-parse") or "").strip()
             argv = ["commit-tree", tree] + (["-p", head] if head else []) + ["-m", "x"]
             q = subprocess.run(["git", "-C", str(r), *argv], capture_output=True, text=True,
-                               encoding="utf-8", errors="replace")
+                               encoding="utf-8", errors="replace", env={**os.environ, **mod.SNAPSHOT_FALLBACK_IDENT})
             out["commit-tree"] = q.stdout if q.returncode == 0 else None
         else:
             out["commit-tree"] = None
@@ -2722,7 +2889,7 @@ def test_frozen_review_revision():
     seen = [pathlib.Path(i["prompt_file"]).read_text(encoding="utf-8") for i in nx.get("ready") or []
             if i["node"] in ("p1.consistency_bypass", "p2.diagnose", "r3.coherence", "r4.hidden_scope")]
     if seen:
-        check(all(rev in s and str(run.repo) in s for s in seen),
+        check(all(rev in s and str(run.repo.resolve()) in s for s in seen),
               f"採点役のプロンプトはリポジトリのパスと読む版の両方を渡す（{len(seen)} 件）")
     rm(run.tmp)
 
@@ -3960,7 +4127,7 @@ def test_delta_conditions():
     print("修正差分の条件: 差分と『塞いだ』申告の片方だけでも差分レビューを起こし、腕の証拠の欠けは 1 つずつ義務になり、git の失敗で止まる")
     _td, tmp = parallel.workspace("gl-delta-")
     (tmp / "a.py").write_text("A = 1\n", encoding="utf-8")
-    # 版の固定（commit-tree）は author を要る——CI の git には既定の名前が無いので、この repo に置く
+    # 土台の commit は author を要る——CI の git には既定の名前が無いので、この repo に置く（engine の版の固定は自分の名前を渡す）
     for c in (["init", "-q"], ["config", "user.name", "t"], ["config", "user.email", "t@t"], ["add", "-A"], ["commit", "-qm", "x"]):
         subprocess.run(["git", *c], cwd=tmp, capture_output=True)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
@@ -4015,6 +4182,59 @@ def test_delta_conditions():
     snap = rules._snapshot("検査用")
     parent = subprocess.run(["git", "rev-parse", f"{snap}^"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
     check(parent == head, f"版の固定: 履歴の在るリポジトリでは HEAD を親にする（根なしの版を採点しない。{parent[:10]} / {head[:10]}）")
+    # **版の作者は利用者の git が決め、決められない時だけ engine の名前で固める**（CI・新しい機械・コンテナ）。
+    # git の設定と環境変数は、差し替えた git の子にだけ渡す——os.environ は並列の台本が共有するので書かない（parallel.py の前提）。
+    # 走らせる機械の GIT_AUTHOR_* / EMAIL / 利用者の設定に左右されないよう、子の環境から外してから足す
+    _td2, bare = parallel.workspace("gl-noident-")
+    (bare / "a.py").write_text("A = 1\n", encoding="utf-8")
+    for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"]):
+        subprocess.run(["git", *c], cwd=bare, capture_output=True)
+    empty_cfg = bare / ".git" / "empty-global-config"
+    empty_cfg.write_text("", encoding="utf-8")
+    clean = {k: v for k, v in os.environ.items()
+             if not k.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_", "GIT_CONFIG")) and k != "EMAIL"}
+    clean.update({"GIT_CONFIG_GLOBAL": str(empty_cfg), "GIT_CONFIG_NOSYSTEM": "1"})
+
+    def ident_git(extra, cfg):
+        """cfg（git の設定の組）と extra（環境変数）だけを持つ git。rules の env と why も実物と同じに扱う"""
+        base = {**clean, **extra, "GIT_CONFIG_COUNT": str(len(cfg))}
+        for i, (k, v) in enumerate(cfg):
+            base.update({f"GIT_CONFIG_KEY_{i}": k, f"GIT_CONFIG_VALUE_{i}": v})
+
+        def g(*a, env=None, why=None):
+            q = subprocess.run(["git", "-C", str(bare), *a], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               env={**base, **(env or {})})
+            if q.returncode != 0 and why is not None:
+                why.append(q.stderr.strip())
+            return q.stdout if q.returncode == 0 else None
+        return g
+    brules = load_review_rules(bare)
+    no_ident = [("user.useConfigOnly", "true")]
+
+    def ident_of(g):
+        brules.git = g
+        try:
+            return (g("log", "-1", "--format=%an|%ae|%cn|%ce", brules._snapshot("検査用")) or "").strip()
+        except Exception as e:   # noqa: BLE001 — 止まった回は Reject の文を失敗の説明に出す
+            return str(e)
+    got = ident_of(ident_git({}, no_ident))
+    check(got == "graphloops|graphloops@localhost|graphloops|graphloops@localhost",
+          f"版の固定: 利用者の git に名前とメールが無くても、engine の名前で版を固める（{got[:70]}）")
+    got = ident_of(ident_git({}, no_ident + [("user.name", "設定の人"), ("user.email", "set@example.invalid")]))
+    check(got == "設定の人|set@example.invalid|設定の人|set@example.invalid",
+          f"版の固定: 名前とメールを設定済みの利用者の版は、利用者の名前とメールでできる（engine の名前で上書きしない。{got[:70]}）")
+    # user.useConfigOnly は EMAIL も拒むので外す（git の推し量りの順に git 自身が EMAIL を入れる形を見る）
+    got = ident_of(ident_git({"EMAIL": "env@example.invalid"}, [("user.name", "設定の人")]))
+    check(got == "設定の人|env@example.invalid|設定の人|env@example.invalid",
+          f"版の固定: メールを環境変数 EMAIL で与えた利用者も、git が決めるとおりの作者でできる（{got[:70]}）")
+    got = ident_of(ident_git({"GIT_COMMITTER_DATE": "日付でない"}, no_ident + [("user.name", "u"), ("user.email", "u@u")]))
+    check("版を固定できない" in got and "git commit-tree" in got and "date" in got,
+          f"版の固定: commit-tree が止まった回は、git が言った理由（標準エラー）を文に添える（{got[:160]}）")
+    from engine import util as _util  # noqa: E402
+    said = []
+    none = _util.git("-C", str(bare), "rev-parse", "--verify", "無い版^{commit}", why=said)
+    check(none is None and len(said) == 1 and "fatal" in said[0],
+          f"util.git: 失敗の回は None のまま、why に git の標準エラーの末尾を足す（{said}）")
     r = rules.fix_delta(at({}), "p3.fix_delta2")
     check(not r["ok"] and "差分の起点の版が無い" in " ".join(r["problems"]),
           f"修正差分: 1 回目の版が無い周の 2 回目は、起点が無いと名乗って止まる（{r}）")
@@ -4232,8 +4452,9 @@ def test_lane_end_to_end():
     def hook(run_, inst, out):
         st = run_.state()
         if inst["node"] == "p2.history" and st["round"] == 2 and not seen["lane_written"]:
-            # 1 周目の線は 2 周目の判定の頃に書き終えた——結果と patch を置き場に書く（線の役の代わり）
+            # 1 周目の線は 2 周目の判定の頃に書き終えた——patch は線の写しの側に、結果は置き場に書く（線の役と engine の代わり）
             lane = next(x for x in st["loop"]["lanes"].values() if x["round"] == 1)
+            lane["patch"] = str(pathlib.Path(lane["result"]).with_suffix(".patch"))
             pathlib.Path(lane["patch"]).write_text(LANE_PATCH, encoding="utf-8")
             res = {"rev": lane["rev"], "arms": [PROVEN_ARM, _lane_arm("線の見逃し", red_confirmed=False), _lane_arm("線の欠陥", red_confirmed=False),
                                                 _lane_arm("線のテスト不足", red_confirmed=False)],

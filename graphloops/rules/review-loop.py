@@ -137,8 +137,8 @@ def add(b, items, reason):
     if why:
         raise Reject(f"記録の依頼の欄の型が崩れている（{why}）——loop.py patch で直してから足せ")
     proc = b.record["process"]
+    opened = entry_opens(b)
     proc["request_findings"] = cur + [batch]
-    opened = b.round == 1 and b.node_state("p1.worktree_before") == "pending" and "request_entry" not in proc
     if opened:
         proc["request_entry"] = {"origin": reason}
     wheres = request_wheres(b)
@@ -167,6 +167,11 @@ def add(b, items, reason):
 def _entry_marked(v):
     """入口の印（process.request_entry）が型どおりに在るか。印を読む唯一の式（request_entry と entry_first_fix が呼ぶ）"""
     return not validate_schema(v("record.process.request_entry", None), ENTRY_SCHEMA)  # 欄が無い（None）も型違いとして偽
+
+
+def entry_opens(b):
+    """いま add すれば入口の印が立つか（1 周目の P1 より前で、印がまだ無い）。add と空差分の拒否文の案内が同じこの 1 本を読む"""
+    return b.round == 1 and b.node_state("p1.worktree_before") == "pending" and "request_entry" not in b.record["process"]
 
 
 @cond_reads("record.process.request_entry", "loop.request_fixed_at")
@@ -698,8 +703,9 @@ def gates_cut(b, nid):
     d.mkdir(exist_ok=True)
     tag = f"r{b.round}-{snap[:12]}"
     # 置き場は版で鍵付けする（周の番号も添えるのは読む人のため）。結果の型は graph が正本で、線の役にはここから貼る
-    cut = {"round": b.round, "from": frm, "rev": snap, "files": files,
-           "result": str(d / f"{tag}.json"), "patch": str(d / f"{tag}.patch")}
+    # 足したテストの patch の置き場はここで決めない——任せ先は sandbox の中で盤面に書けないので、自分の写しの側に置いて
+    # 結果の patch の欄で名指しする（lane_merge はその欄を読む）。結果そのものは engine が置き場へ置く（launch の result_to）
+    cut = {"round": b.round, "from": frm, "rev": snap, "files": files, "result": str(d / f"{tag}.json")}
     ls["gates_cut"] = {**cut, "reply_schema": _lane_schema(b)}
     if files and ls.get("gates") != GATES_MERGE:   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）
         ls.setdefault("lanes", {})[snap] = {**{k: v for k, v in cut.items() if k != "files"}, "state": "running"}
@@ -847,7 +853,7 @@ def lane_merge(b, nid):
             lane["state"] = "merged"
             continue
         if git("apply", "--check", patch) is None:
-            lane.update(state="conflict", why="git apply の試し当てが通らない")
+            lane.update(state="conflict", why="git apply の試し当てが通らない", patch=patch)
             conflicts.append({"rev": rev, "round": lane["round"], "patch": patch})
             continue
         if git("apply", patch) is None:
@@ -1338,8 +1344,13 @@ def _take_diff(b, suffix=""):
     # 例外は判定から入る run の周だけ——人の依頼は既存のコードに向くので空が普通で、素材は入口の理由で埋まる
     # （実測 2026-09-25: 入口の無い特別周が BASE=HEAD でここに止まった）。依頼を全部却下した run もここを通って報告まで届く
     if not raw_diff.strip() and not b.cond(ENTRY_BUILTIN)[0]:
-        why = ("BASE を確かめよ（p0.base の base_sha）" if not suffix else
-               "P3 の修正が差分を全部戻した可能性がある（零処方『欠陥を持ち込んだ変更ごと取り下げる』）——BASE ではなく修正の内容を見よ")
+        if suffix:
+            why = "P3 の修正が差分を全部戻した可能性がある（零処方『欠陥を持ち込んだ変更ごと取り下げる』）——BASE ではなく修正の内容を見よ"
+        else:
+            why = "BASE を確かめよ（p0.base の base_sha）"
+            if entry_opens(b):
+                why += ("。人の修正依頼から始める run なら、BASE はこのままで loop.py add --file <依頼.json> --reason <出どころ> --dir <DIR> で"
+                        "依頼を置けば判定から入る（手順書の「判定から入る（人の修正依頼）」）")
         return {"ok": False, "problems": [f"対象差分が空（git diff {base} が 0 バイト）——{why}"]}
     names, ins, dels, nfiles = numstat_totals(numstat)
     f = b.dir / f"diff-r{b.round}{suffix}.patch"
@@ -1408,26 +1419,41 @@ def _worktree_tree():
     tmp = tempfile.mkdtemp(prefix="graphloops-index-")
     idx = pathlib.Path(tmp) / "index"
     env = {"GIT_INDEX_FILE": str(idx)}
+    why = []   # git が言った失敗の理由（util.git の why）。止める文に添える
     try:
-        real = git("rev-parse", "--path-format=absolute", "--git-path", "index")
+        real = git("rev-parse", "--path-format=absolute", "--git-path", "index", why=why)
         if real is None or not real.strip():
-            raise Reject("この周に採点する版を固定できない（本物の index の場所を git rev-parse --git-path で引けない）"
-                         "——git 2.31 以上か、リポジトリの中で呼んでいるかを確かめよ")
+            raise _unfrozen("本物の index の場所を git rev-parse --git-path で引けない", why,
+                            "git 2.31 以上か、リポジトリの中で呼んでいるかを確かめよ")
         try:
             shutil.copy2(real.strip(), idx)   # 時刻ごと写す——index の時刻が新しくなると、同じ秒に書き換えたファイル（racy git）を綺麗と見誤る
         except FileNotFoundError:
             pass   # index がまだ無い（init の直後で 1 度も add していない）＝追跡中のファイルが無いので、空から始めて落ちる物が無い
         except OSError as e:
             raise Reject(f"この周に採点する版を固定できない（本物の index を写せない: {e}）")
-        if git("update-index", "-q", "--really-refresh", env=env) is None or git("add", "-A", env=env) is None:
-            raise Reject("この周に採点する版を固定できない（一時 index への git update-index / add -A が失敗した）"
-                         "——git が動くか、作業ツリーが読めるかを確かめよ")
-        tree = git("write-tree", env=env)
+        if git("update-index", "-q", "--really-refresh", env=env, why=why) is None or git("add", "-A", env=env, why=why) is None:
+            raise _unfrozen("一時 index への git update-index / add -A が失敗した", why)
+        tree = git("write-tree", env=env, why=why)
         if tree is None or not tree.strip():
-            raise Reject("この周に採点する版を固定できない（git write-tree が木を返さない）")
+            raise _unfrozen("git write-tree が木を返さない", why)
         return tree.strip()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _unfrozen(what, why, hint=None):
+    """版を固定できない回の Reject。**git が言った理由を必ず添える**——添えなかったとき、止まった利用者は原因
+    （壊れた object・書けない置き場・git の版）を文から読めず、git を手で打ち直すしかなかった"""
+    said = " / ".join(w for w in why if w) or "git は理由を返さなかった"
+    return Reject(f"この周に採点する版を固定できない（{what}。git の言い分: {said}）" + (f"——{hint}" if hint else ""))
+
+
+# 周に固める版（push しない engine の内部の commit）の作者の**代わりの名前**。まず利用者の git が決める作者で固め
+# （設定・環境変数・推し量りの順は git 自身が持つ——写すと EMAIL のような欄が落ちる）、それが止まったときだけこれで
+# 固め直す。名前とメールの無い環境（CI・新しい機械・コンテナ）で周の頭が止まらないため。与えられていない時だけ
+# 代わりを使う形は git の ident.c の prepare_fallback_ident と同じ。環境変数は git の設定より優先される（git(1)）
+SNAPSHOT_FALLBACK_IDENT = {"GIT_AUTHOR_NAME": "graphloops", "GIT_AUTHOR_EMAIL": "graphloops@localhost",
+                           "GIT_COMMITTER_NAME": "graphloops", "GIT_COMMITTER_EMAIL": "graphloops@localhost"}
 
 
 def _snapshot(msg):
@@ -1437,10 +1463,13 @@ def _snapshot(msg):
     # ——失敗を「親が無い」に潰すと、履歴の在るリポジトリで根なしの版を採点することになる
     head = git("rev-parse", "HEAD")
     parent = ["-p", head.strip()] if head and head.strip() else []
-    snap = git("commit-tree", tree, *parent, "-m", msg)
+    why = []
+    for ident in (None, SNAPSHOT_FALLBACK_IDENT):
+        snap = git("commit-tree", tree, *parent, "-m", msg, env=ident, why=why)
+        if snap is not None:
+            break
     if snap is None or not snap.strip():
-        raise Reject("この周に採点する版を固定できない（git commit-tree が版を返さない）"
-                     "——commit-tree は author の設定を要る。user.name / user.email を確かめよ")
+        raise _unfrozen("git commit-tree が版を返さない", why)
     return snap.strip()
 
 
@@ -2697,6 +2726,25 @@ def _added_md_links(base, root):
     return links
 
 
+def _walk_as_written(start, rel):
+    """start から rel を 1 部品ずつたどる。**symlink の部品だけ実体へ解き、ほかの部品は書かれた綴りのまま残す**。
+
+    丸ごと resolve していたとき、Windows では実在するファイルの綴りがディスク上の大小に直り（Python 公式文書の
+    os.path.realpath: "The returned path uses the case reported by the operating system"）、綴りの大小違いのリンクが
+    版の一覧に当たって通った（macOS・Linux は直さないので赤）。字面だけで畳むと、symlink のディレクトリを経由する
+    リンクを通さなくなる（今ある能力の後退。人の決定 2026-09-25: 狭めずに直す）。`..` は symlink を解いた後の
+    実体の親をたどるので、resolve と同じ意味になる"""
+    cur = start
+    for part in pathlib.PurePosixPath(rel).parts:
+        if part == "..":
+            cur = cur.parent
+        elif part not in ("", ".", "/"):
+            cur = cur / part
+            if cur.is_symlink():
+                cur = cur.resolve()
+    return cur
+
+
 def _md_link_errors(base, root):
     """足されたリンクが、指し先のファイル（リポジトリの中）と見出しに届くか。届かない件の文の一覧"""
     from urllib.parse import unquote
@@ -2709,7 +2757,7 @@ def _md_link_errors(base, root):
         path = tgt.partition("#")[0]
         # / で始まるリンクはリポジトリのルート基準（GitHub の文書の相対リンクの規則）
         base_dir = rootp if path.startswith("/") else (rootp / rel).parent
-        return (base_dir / unquote(path.lstrip("/"))).resolve() if path else (rootp / rel).resolve()
+        return _walk_as_written(base_dir, unquote(path.lstrip("/"))) if path else _walk_as_written(rootp, rel)
     inside = {dest_of(r, g).relative_to(rootp).as_posix() for r, _, g, u in links
               if not u and rootp in dest_of(r, g).parents}
     # ディレクトリは、版に入るファイルを 1 本以上含むこと（FS の is_dir だけだと、空のディレクトリや無視対象だけの

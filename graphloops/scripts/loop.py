@@ -4,8 +4,9 @@
 使い方（回す側が呼ぶ順）:
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--stop-after-round N] [--dir <置き場>] [--validator <path>]
+                   [--unfenced-delegates <理由>]   # 任せ先を sandbox で縛らない（人が明示したときだけ）
     loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
-    loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（背景実行に回し、手番を終えずに前景で出力を見に行く）
+    loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・任せ先・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（背景実行に回し、手番を終えずに前景で出力を見に行く。任せ先は sandbox の中）
     loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
     loop.py answer --text <答え> [--note <本文>]         # 人に聞く番のとき（本文は次の周の再審に渡る）
@@ -52,6 +53,8 @@ def main():
     s.add_argument("--dir")
     s.add_argument("--validator")
     s.add_argument("--lang")
+    s.add_argument("--unfenced-delegates", metavar="REASON",
+                   help="任せ先（delegate）を sandbox で縛らず、回す側が Agent ツールで起こす（人が run ごとに明示したときだけ。理由は盤面に残る）")
     s.set_defaults(fn=c.cmd_init)
 
     for name, fn in (("next", c.cmd_next), ("status", c.cmd_status), ("record", c.cmd_record), ("finalize", c.cmd_finalize)):

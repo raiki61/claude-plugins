@@ -71,6 +71,14 @@ def check(cond, desc):
     parallel.line(f"  ok   {desc}" if cond else f"  FAIL {desc}")
 
 
+def skip(desc, reason):
+    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
+    global ran
+    with parallel.LOCK:
+        ran += 1
+    parallel.line(parallel.skip_line(desc, reason))
+
+
 def rm(p):
     """作業場の掃除。Windows は git の object を読み取り専用で置き、素の rmtree が PermissionError で
     落ちる（実測: CI の windows-latest）。掃除の失敗で検査本体を落とさない。"""
@@ -509,9 +517,11 @@ def test_rejections():
     prompts = pathlib.Path(by["p0.claims"]["prompt_file"]).read_text(encoding="utf-8")
     # **回す側の節には本文でなくパスが渡る。** 静的にも同じことを見る（graphcheck.py の main の
     # 「回す側（{rb}）の節に書けない」の柵——回す側の節に file: / section: の穴を書けない）
-    check(str(run.doc) in prompts and "主張 A・B・C・D" not in prompts, "回す側の節には文書のパスが渡り、本文は貼られない")
+    # パスは engine の契約（init が resolve した綴り）で探す——生の綴りだと Windows の 8.3 短縮名（RUNNER~1）で外れる
+    doc = str(run.doc.resolve())
+    check(doc in prompts and "主張 A・B・C・D" not in prompts, "回す側の節には文書のパスが渡り、本文は貼られない")
     terms = pathlib.Path(by["p0.terms"]["prompt_file"]).read_text(encoding="utf-8")
-    check(str(run.doc) in terms and "主張 A・B・C・D" not in terms, "同じ波の 2 節目（p0.terms）も本文を貼らない")
+    check(doc in terms and "主張 A・B・C・D" not in terms, "同じ波の 2 節目（p0.terms）も本文を貼らない")
     check("open_questions" not in prompts or "[]" in prompts or "この周には無い" in prompts,
           "前の節の出力の穴が埋まっている（空でなく値か『無い』の語）")
     for node in ("p0.claims", "p0.terms", "p5.internal", "p3.rederiver"):
@@ -782,8 +792,8 @@ def test_hook_evidence():
         got, why = RESEARCH_RULES.hook_evidence(board, str(fifo))
         check(got == "none" and "通常のファイルでない" in why, f"FIFO は開かずに none（{why[:50]}）")
     else:
-        check(True, "FIFO を読んだ回はフックが記録しない（この OS には FIFO が無い）")
-        check(True, "FIFO は開かずに none（この OS には FIFO が無い）")
+        skip("FIFO を読んだ回はフックが記録しない", "この OS には FIFO（os.mkfifo）が無い")
+        skip("FIFO は開かずに none", "この OS には FIFO（os.mkfifo）が無い")
     # **sha を持たない行（書いた側の上限超え）は大きさの部分読みとして扱い、一致の証拠にも不一致の証拠にもしない**——
     # 不一致と数えていた頃は、2 つの上限の写しがずれた日に、小さい文書が『読んだ後に変わった』と名乗られた
     nosha = tmp / "nosha.md"; nosha.write_text("n" + chr(10), encoding="utf-8")
@@ -1691,7 +1701,8 @@ def test_engine_launch():
     bindir = run.tmp / "fakebin"
     bindir.mkdir()
     fake = fakeclaude.install(bindir)
-    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    # engine と代役の標準出力を Windows のパイプの既定（ANSI コードページ）に強いる（test_role_run と同じ理由）
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", ""), "PYTHONIOENCODING": "cp1252"}
     nx = json.loads(run.cmd("next", env=env).stdout)
     cli = [i for i in nx["ready"] if i.get("mode") == "cli"]
     check(bool(cli), f"遮断系が cli で出る（{[i['node'] for i in cli]}）")
@@ -1792,7 +1803,9 @@ def test_role_run():
     ans = tmp / "ans.json"
     ans.write_text('{"ok": 1}', encoding="utf-8")
     log, flog = tmp / "trace.jsonl", tmp / "fake.log"
-    env = {**os.environ, "FAKE_OUT": str(ans), "FAKE_LOG": str(flog), "FAKE_MODE": "bad_then_answer", "FAKE_SESSION": "sess-9"}
+    # 子の標準出力を Windows のパイプの既定（ANSI コードページ）に強いる——代役が日本語を書けないと、どの OS でも赤になる
+    env = {**os.environ, "FAKE_OUT": str(ans), "FAKE_LOG": str(flog), "FAKE_MODE": "bad_then_answer", "FAKE_SESSION": "sess-9",
+           "PYTHONIOENCODING": "cp1252"}
     seen = []
 
     def accept(text):

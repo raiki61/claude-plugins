@@ -109,12 +109,18 @@ def _repo_args():
     return ["-C", GIT_CWD] if GIT_CWD else []
 
 
-def git(*args, env=None):
+GIT_WHY_CAP = 300  # 失敗の理由として運ぶ git の標準エラーの末尾の字数
+
+
+def git(*args, env=None, why=None):
     """成功なら stdout、失敗（git が無い・非 0・時間切れ）なら None。呼ぶ側は None を『分からない』として扱い、合格に倒さない。
 
     `env` は**足す**（置き換えない）。GIT_INDEX_FILE を渡して一時 index の上で組み立てる呼びが 1 つ在る
     ——intent-to-add の index では stash create も write-tree も非 0 で返るので、本物の index を避ける道が要る。
     置き換えにすると PATH も HOME も消えて git ごと動かなくなるので、os.environ の写しに足す形で固定する。
+
+    `why` にリストを渡すと、失敗の回だけ git が言った理由（標準エラーの末尾）をそこに足す——止める側が利用者に
+    原因を見せるため（subprocess.CalledProcessError が stderr を運ぶのと同じ役）。戻り値の契約は変えない。
     """
     args = (*_repo_args(), *args)
     run_env = {**os.environ, **env} if env else None
@@ -123,9 +129,15 @@ def git(*args, env=None):
         # 迂回して総括例外で落ちた（実測 2026-09-13: next が exit 2 でどの周にも進めない）。置換文字で読み、落とさない
         r = subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=GIT_TIMEOUT, env=run_env)
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as e:
+        if why is not None:
+            why.append(f"{type(e).__name__}: {e}"[-GIT_WHY_CAP:])
         return None
-    return r.stdout if r.returncode == 0 else None
+    if r.returncode == 0:
+        return r.stdout
+    if why is not None:
+        why.append(r.stderr.strip()[-GIT_WHY_CAP:] or f"exit {r.returncode}（標準エラーは空）")
+    return None
 
 
 def git_bytes(*args):
@@ -403,6 +415,72 @@ def repo_root(git_fn=None):
     """対象リポジトリのルート（引けなければ None）。engine と rules が同じ 1 本を使う——rules は差し込まれた git（台本が
     対象リポジトリに固定して撃つ）を git_fn に渡す"""
     return ((git_fn or git)("rev-parse", "--show-toplevel") or "").strip() or None
+
+
+# 任せ先に書かせない、利用者の手元の置き場（作業ツリーの外から本物の git と engine に入る道）。git の設定は core.hooksPath・
+# core.fsmonitor・alias を持てるので、書き換えられると sandbox の外で回す側と engine が打つ git がそれを走らせる。シェルの起動ファイルも
+# 同じく外で走る。engine 自身（プラグインの置き場）と Claude Code の設定は柵そのもの。sandbox の組み込みの保護は作業ディレクトリの
+# 中のこれらしか守らない（公式の sandboxing 文書の Protected paths）ので、任せ先の作業ディレクトリを外に置く形では名指しが要る
+HOME_PROTECTED = (".gitconfig", ".config/git", ".bashrc", ".bash_profile", ".profile", ".zshrc", ".zprofile", ".zshenv")
+
+
+def protected_paths(extra=()):
+    """任せ先（delegate）の sandbox が書き込みを拒む場所の一覧（並びは決まった順）。引けなければ None——柵を組めないので起こさない。
+    extra は呼び元が足す場所（盤面の置き場。--dir で作業ツリーの外に置いた盤面は git からは引けない）。
+
+    **正本は git** で、engine は値を持たない: 作業ツリーのルート（--show-toplevel）・この作業ツリーの gitdir の実体
+    （--absolute-git-dir。linked worktree なら本体の .git/worktrees/<名前>）・共通の .git（--git-common-dir）・同じリポジトリの
+    全部の作業ツリー（worktree list）。既定の盤面（gitdir の下）もこれで覆われる。綴りと実体（realpath）を両方入れる——macOS の
+    /var と /private/var のように、同じ場所を 2 つの綴りで指せるので、片方だけだと別の綴りで書かれる"""
+    top = git("rev-parse", "--show-toplevel")
+    gd = git("rev-parse", "--absolute-git-dir")
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    wl = git("worktree", "list", "--porcelain")
+    if not all(x and x.strip() for x in (top, gd, common)) or wl is None:
+        return None
+    got = [top.strip(), gd.strip(), common.strip()]
+    got += [line[len("worktree "):] for line in wl.splitlines() if line.startswith("worktree ")]
+    home = pathlib.Path.home()
+    got += [str(home / x) for x in HOME_PROTECTED]
+    got += [str(PLUGIN_ROOT), os.environ.get("CLAUDE_CONFIG_DIR") or str(home / ".claude"), *map(str, extra)]
+    return sorted({q for p in got for q in (os.path.abspath(p), os.path.realpath(p))})
+
+
+def copy_worktree(dst):
+    """対象リポジトリの作業ツリーの今の姿を dst に写す（任せ先の作業ディレクトリ）。写せなければ Reject。
+
+    写しは本物の .git を共有しない独立の clone（--shared は本物の object を読むだけで、新しい object は写しの側に書く）で、
+    HEAD は本物と同じ commit、作業ツリーは本物の今の姿——未コミットの変更と未追跡の新規ファイルを載せ、作業ツリーで消した
+    ファイルは消す。index は HEAD のままなので、写しの git diff / git status は本物と同じ変更を映す。.gitignore の対象
+    （依存の置き場・ビルドの出力）は写さない——CI の checkout と同じ姿で、要るなら任せ先が写しの上で入れ直す"""
+    top = repo_root()
+    if not top:
+        raise Reject("作業ツリーのルートを引けない——任せ先の写しを作れない")
+    dst = pathlib.Path(dst)
+    try:
+        subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", top, str(dst)], check=True,
+                       capture_output=True, timeout=GIT_TIMEOUT)
+        head = git("rev-parse", "--verify", "-q", "HEAD")
+        if head and head.strip():
+            subprocess.run(["git", "-C", str(dst), "checkout", "-q", "--detach", head.strip()], check=True,
+                           capture_output=True, timeout=GIT_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise Reject(f"任せ先の写しを作れない（git clone / checkout: {e}）") from e
+    changed = git("diff", "--name-only", "-z", "HEAD") if head and head.strip() else git("ls-files", "-z")
+    untracked = git("ls-files", "-z", "-o", "--exclude-standard")
+    if changed is None or untracked is None:
+        raise Reject("作業ツリーの変更を引けない（git diff / ls-files）——任せ先の写しを作れない")
+    import shutil  # 写す節でだけ要る
+    for rel in {x for x in (changed + untracked).split("\0") if x}:
+        src, to = pathlib.Path(top) / rel, dst / rel
+        if src.is_symlink() or src.is_file():
+            to.parent.mkdir(parents=True, exist_ok=True)
+            if to.is_symlink() or to.exists():
+                to.unlink()
+            shutil.copy2(src, to, follow_symlinks=False)
+        elif not src.exists() and (to.is_symlink() or to.is_file()):
+            to.unlink()
+    return str(dst)
 
 
 def run_count(how, cwd, timeout=60, rev=None, probe=True):

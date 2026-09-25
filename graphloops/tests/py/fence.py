@@ -1,6 +1,11 @@
 """pytest の柵 2 つ。bash の台本の EXPECTED_CHECKS と同じ意図——黙って走らなかったテストに気づく。
 置き場の conftest.py が pytest_configure で install(config, 置き場, 件数の定数) を呼んで載せる。
 
+bash の台本は、環境に道具や OS の機能が無くて走らない検査を「# SKIP <理由>」の印つきの行で出して件数に入れ、root の
+tests/run.sh が合格と別に一覧にする（TAP 14 の SKIP 指示子。FAIL_ON_SKIP=1 で失敗に数える）。
+ここで飛ばしを常に失敗に数えるのは、この置き場のテストが環境で分かれず 3 つの OS で全部走る前提だから——ここでの飛ばしは
+環境の見送りでなく、テストが黙って消えた印になる。環境で分かれるテストを足すなら、この柵ごと見直す。
+
 1. **飛ばしは失敗。** テスト単位の skip・skipif・xfail（pytest_runtest_logreport）と、モジュール丸ごとの
    skip(allow_module_level=True)・importorskip（pytest_collectreport）の両方を拾う。後者を見ないと、import できない
    モジュールがテストごと消えても緑になる。xfail も「走らせたが結果を見ない」ので飛ばしに数える。

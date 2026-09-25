@@ -3,11 +3,12 @@
 振る舞いは環境変数で選ぶ（起こされた子は起こした側の環境を継ぐ——前置の層 with-auth.py も継がせる）:
   FAKE_MODE   answer（既定。FAKE_OUT の中身を返す）／bad_then_answer（--resume の無い初回は散文、--resume なら FAKE_OUT）／
               error（is_error の包み）／error_noresult（result の無い誤りの包み。subtype は error_max_turns で errors を持つ）／
-              text（包まずに FAKE_OUT の中身だけを書く——--output-format text の形）／sleep（孫を立てて眠る。孫の pid を FAKE_PID に書く）／
+              text（包まずに FAKE_OUT の中身だけを書く——--output-format text の形）／sleep（SIGTERM を 1 秒遅れて処理する孫を立てて眠る。孫の pid を FAKE_PID に書く）／
               seen（届いた材料のバイト数と argv）
   FAKE_OUT    返答の本文のファイル
   FAKE_EXIT   書き終えた後の終了コード（既定 0）
-  FAKE_LOG    起こされるたびに argv と標準入力の頭と作業ディレクトリ（cwd）を 1 行ずつ足すファイル
+  FAKE_KEEP   在れば、engine が渡す GRAPHLOOPS_KEEP の置き場にこの名前のファイルを書く（任せ先が残す物）
+  FAKE_LOG    起こされるたびに argv・標準入力の頭・作業ディレクトリとその中身・TMPDIR を 1 行ずつ足すファイル
 会話の番号は --resume に渡された値、無ければ FAKE_SESSION（既定 sess-1）。
 """
 import os
@@ -15,15 +16,21 @@ import sys
 
 BODY = r'''
 import json, os, subprocess, sys, time
+# 実物の claude -p と同じく UTF-8 で書く（Windows のパイプの既定は ANSI コードページで、日本語の答えが書けずに空の標準出力になった）
+sys.stdout.reconfigure(encoding="utf-8")
 raw = sys.stdin.buffer.read()
 argv = sys.argv[1:]
 log = os.environ.get("FAKE_LOG")
 if log:
     with open(log, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"argv": argv, "stdin": raw.decode("utf-8", "replace")[:4000], "cwd": os.getcwd()}, ensure_ascii=False) + "\n")
+        f.write(json.dumps({"argv": argv, "stdin": raw.decode("utf-8", "replace")[:4000], "cwd": os.getcwd(),
+                            "tmpdir": os.environ.get("TMPDIR"), "cwd_files": sorted(os.listdir("."))}, ensure_ascii=False) + "\n")
 resumed = "--resume" in argv
 sid = argv[argv.index("--resume") + 1] if resumed else os.environ.get("FAKE_SESSION", "sess-1")
 mode = os.environ.get("FAKE_MODE", "answer")
+if os.environ.get("FAKE_KEEP") and os.environ.get("GRAPHLOOPS_KEEP"):   # 任せ先が残す物を置く（engine が残す置き場）
+    with open(os.path.join(os.environ["GRAPHLOOPS_KEEP"], os.environ["FAKE_KEEP"]), "w", encoding="utf-8") as f:
+        f.write("kept\n")
 
 def out(result, **kw):
     env = {"type": "result", "subtype": "success", "is_error": False, "result": result, "session_id": sid,
@@ -46,7 +53,13 @@ elif mode == "error_noresult":
 elif mode == "text":
     sys.stdout.write(answer())
 elif mode == "sleep":
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    # 孫は出力の管を継がず、SIGTERM を受けてから 1 秒後に終わる（前置の層の先の claude が自分の子を片付けてから終わる形）。
+    # 管を継がないので engine の読み終わりは孫を待たない——直下の子の終了だけで『止めた』と数える engine を、負荷に依らず赤にする
+    grand = ("import signal, sys, time\n"
+             "signal.signal(signal.SIGTERM, lambda *a: (time.sleep(1), sys.exit(0)))\n"
+             "time.sleep(120)\n")
+    child = subprocess.Popen([sys.executable, "-c", grand], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with open(os.environ["FAKE_PID"], "w", encoding="utf-8") as f:
         f.write(str(child.pid))
     time.sleep(120)

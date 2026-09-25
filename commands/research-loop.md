@@ -1,5 +1,5 @@
 ---
-description: 設計・手法・技術選定の見立てを、業界/学界の一次情報で校正してからドメイン最適化する調査ループ。設計文書の論拠固め・技術選定・方式検討で使用する。コード変更のレビューには使わない（それは review-loop）。
+description: 設計・手法・技術選定の見立てを、業界/学界の一次情報で校正してからドメイン最適化する調査ループ。起動するのは、人が /research-loop と打ったときか「工程に回して」と言ったときだけ——AI は自分から起動せず、設計文書の論拠固め・技術選定・方式検討に当たったら人に提案する。コード変更のレビューには使わない（それは review-loop）。
 allowed-tools: Bash, Agent, Workflow, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 ---
 

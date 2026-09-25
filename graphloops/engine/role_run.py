@@ -162,6 +162,39 @@ def tooled_permission(tools, cwd=None, board_dir=None):
             "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True)}
 
 
+# 任せ先（graph の delegate を持つ回す側の節）に渡す道具。ファイルを書く道具（WRITE_TOOLS）は渡さない——任せ先が書くのは
+# 作業ディレクトリの外に作る写しで、Edit(./**) のように作業ディレクトリに縛った書く道具はそこへ届かない。書くのは Bash だけで、
+# Bash は OS の sandbox の中でだけ走る（delegate_settings）
+DELEGATE_TOOLS = ("Bash", "Read", "Glob", "Grep", "WebFetch", "WebSearch")
+
+
+def delegate_permission():
+    """任せ先の権限の形 (permission_mode, allowed_tools)。起こす側（advance.delegate_launch_spec）と柵（commands.launch_refusal）が
+    同じここを引く。**Bash は先に許さない**——sandbox の中で走るコマンドは sandbox の自動の許し（autoAllowBashIfSandboxed）で
+    通り、sandbox の外に落ちるコマンドは聞く先が無い（--permission-prompts none）ので拒まれる。実測 2026-09-25・haiku: この形で
+    sandbox の中の python3・git status・作業ディレクトリへの書き込みは通り、sandbox を切った設定（enabled: false。管理者の設定が
+    切った場を写した）では Bash が全部拒まれた。dontAsk は sandbox の中のコマンドまで拒むので採らない（同日の実測）"""
+    return "default", [t for t in DELEGATE_TOOLS if t not in COMMAND_TOOLS]
+
+
+def delegate_settings(protected):
+    """任せ先の sandbox の設定（--settings に渡す JSON の文字列。並びを固定して、柵が起こす瞬間に組み直して突き合わせる）。
+
+    - denyWrite: protected（util.protected_paths——本物の作業ツリー・gitdir の実体・共通の .git・他の作業ツリー・盤面・
+      git とシェルの設定・engine 自身）。allowWrite より優先される（公式の設定の説明: 'takes precedence over allowWrite'）
+    - allowWrite ['/']: 名指しした場所の外は今までどおり書ける——依存の置き場（~/.cache 等）・写し。狭めると、今の任せ先が
+      できていた依存の導入が落ちる（実測 2026-09-25: 既定の範囲では uv が ~/.cache/uv を開けなかった）
+    - allowUnsandboxedCommands: false と failIfUnavailable: true——sandbox の外で走る道と、sandbox が立たない場で黙って素通しになる道を閉じる
+    - network.allowedDomains ['*']・enableWeakerNetworkIsolation・allowLocalBinding: 網（依存の導入・gh の読み）と手元のサーバを
+      今までどおり使う（実測 2026-09-25・macOS: gh は enableWeakerNetworkIsolation が無いと TLS の検証で落ち、localhost の bind は
+      allowLocalBinding で通った）"""
+    return json.dumps({"sandbox": {
+        "enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
+        "enableWeakerNetworkIsolation": True,
+        "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
+        "filesystem": {"allowWrite": ["/"], "denyWrite": list(protected)}}}, sort_keys=True, separators=(",", ":"))
+
+
 def kill_all():
     """生きている子を全部木ごと止める（loop.py が SIGTERM・SIGHUP・SIGINT を受けたとき。install_stop_handlers）。
     止め切れなかった木は理由を標準エラーに出す（黙って止めたことにしない）"""

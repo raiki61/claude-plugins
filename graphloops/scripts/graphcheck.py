@@ -27,7 +27,7 @@
  12. engine が実行に使う欄が宣言どおりの物を指す: writes.from が節の schema.properties に在る、cond / applies_cond の
      関数が宣言した読む欄（cond_reads）と節の reads・outputs の loop.<鍵> が実在する（out./prev./cur. は節の schema、loop. は
      rules の LOOP_KEYS、rd. は周の鍵、record. は記録を書く宣言）、same_context_as の役が一致し遮断系でない、
-     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated / launch.tooled の argv・resume・via の
+     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated / launch.tooled / launch.delegate の argv・resume・via の
      穴が engine の埋める語（LAUNCH_HOLES）だけで、resume は {session_id} を持ち、model / effort は遮断系の役の定義に在り、
      via が指す実体が同梱されている、resume_on_reject が 0 以上の整数
  13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
@@ -35,6 +35,7 @@
      走らせるだけの節（engine_run）は回す側の節にだけ・名前が rules の ENGINE_RUNS に在り plan と reply を持つ。
      background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景の節をほかの節が待たない（deps・instance_deps）。
      {{node.<欄>}} は engine が埋める欄（skills）だけ
+     背景の節は delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つ節が在れば launch.delegate.argv が在る。
 
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
@@ -606,10 +607,17 @@ def check(gpath, script=None, emit=print):
                 waiters = sorted(w for w, x in nodes.items() if k in (x.get("deps") or []) + (x.get("instance_deps") or []))
                 if waiters:
                     errs.append(f"節 {k}: 背景の節（delegate.background）を {waiters} が待っている——背景の節の done は受領で、結果は置き場から読む")
+                # 背景の任せ先の返答は engine が置き場へ置く（子は sandbox の中で盤面に書けない）——置き場は節が読む材料の 1 つ
+                if dg.get("result_to") not in (v.get("reads") or []):
+                    errs.append(f"節 {k}: 背景の任せ先は delegate.result_to に返答の置き場（この節の reads のどれか）を名指しする"
+                                "——engine が子の返答をそこへ置く")
         if v.get("skills"):
             # skill（/simplify・/code-review）は中でさらに役を背景で起こす。任せ先の役越しに呼ぶと、孫の完了の知らせが
             # 任せ先に届かないまま待ち続けた（実測 2026-09-25: 局所レビューの任せ先が 7 時間以上戻らなかった）
             errs.append(f"節 {k}: skills を持つ節に delegate は書けない——skill は回す側（最上位のセッション）が自分で呼ぶ（入れ子の委任は完了の知らせが届かない）")
+    if any(isinstance(v.get("delegate"), dict) for v in nodes.values()) and not (g.get("launch", {}).get("delegate") or {}).get("argv"):
+        errs.append("任せ先（delegate）を持つ節が在るのに launch.delegate.argv が無い——任せ先を sandbox で縛って起こせない"
+                    "（Agent ツールで起こすと本物の作業ツリーと .git に書ける）")
     pr = g.get("deliver", {}).get("paste_roles")
     if pr is not None and not (isinstance(pr, list) and all(isinstance(t, str) and ":" in t for t in pr)):
         errs.append("deliver.paste_roles は役の名前（<plugin>:<役>）の一覧")
@@ -626,7 +634,7 @@ def check(gpath, script=None, emit=print):
         errs.append(f"道具ゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
                     "——Agent ツールで起こすと CLAUDE.md が注入され、遮断が成立しない")
     launch = g.get("launch") or {}
-    for kind in ("isolated", "tooled"):
+    for kind in ("isolated", "tooled", "delegate"):
         spec = launch.get(kind) or {}
         if not spec:
             continue

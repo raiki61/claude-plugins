@@ -16,8 +16,8 @@ from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
-from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, waiting, write_json
-from .role_run import SUPERSEDED, WRITE_TOOLS, Superseded, kill_all, pgid_path, probe_group, run_role, run_steps, stop_group, tooled_permission
+from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, safe_name, set_path, sha, waiting, write_json
+from .role_run import DELEGATE_TOOLS, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path, probe_group, run_role, run_steps, stop_group, tooled_permission
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
@@ -149,6 +149,9 @@ def cmd_next(a):
                     "how": "答えが決まったら loop.py answer --text <選択肢>。無人なら init --unattended で保守的な既定になる"}))
         return
     ready = [i for i in b.rd["instances"].values() if i["status"] == "pending"]
+    if b.state.get("unfenced_delegates"):
+        u = b.state["unfenced_delegates"]
+        notes = [*notes, f"任せ先の柵（sandbox）を外した run（{u['at']}・理由: {u['reason']}）——任せ先は回す側が Agent で起こし、本物の作業ツリーと .git に書ける"]
     print(dump({
         # **run_id は直列化で綴りが変わらない印**（読了の柵が「この転写は回す側のものか」を見るのに使う。
         # パスは json.dumps が Windows の区切りを二重化するので印にできない）
@@ -174,11 +177,16 @@ def cmd_next(a):
                 "『定義が読めない』『claude が無い』）は迂回を組まず人に渡せ。"
                 "launch を持たない agent の節（役の定義がこの環境に無い・道具の一覧を持たない・ファイルを書く道具を持つ役）は、手順書の agent の節の"
                 "とおりに subagent_type に agent_type を渡して起こし、返答を out_path に書いて done --node <id> --agent-id <id>（agent_continue なら agent_id に SendMessage）。"
-                "runner は自分でやる（skills があればその skill を呼ぶ。置き場のパスで渡された物は要る所だけ Read）。返答を out_path に保存して "
+                "**任せ先（delegate）を持つ runner の節も launch を持つ**——engine が sandbox の中で起こす（作業ディレクトリは本物の写し、"
+                "本物の作業ツリーと .git には書けない）。自分でやるな・Agent で起こすな。背景の任せ先（delegate.background）は受領を out_path に書いて "
+                "done してから loop.py launch --node <id> を Bash の背景実行で立てよ（待たない）。任せ先の節が launch も unfenced も持たないなら、"
+                "柵を組めない（graph に launch.delegate が無い）——迂回せず人に渡せ。unfenced を持つ（人が init --unfenced-delegates で柵を外した run）なら、"
+                "delegate.model の汎用 agent を Agent ツールで立てて prompt_file を読ませよ。"
+                "ほかの runner は自分でやる（skills があればその skill を呼ぶ。置き場のパスで渡された物は要る所だけ Read）。返答を out_path に保存して "
                 "loop.py done --node <id>（別の場所に置いたなら --output <file>）。ready が空で status が running なら、done の直後にもう一度 next。"
-                "**delegate の付いた節（background でない物）は、任せ先を Agent ツールの前景で起こせ**——その呼び出しの返りが任せ先の終了で、"
-                "背景の完了の知らせ（入れ子や上限落ちで消える）に頼らない。任せ先が書かずに返ったら、loop.py relaunch --node <id> --reason <理由> で"
-                "新しい置き場を作って起こし直す（前の試行が遅れて書いても別のファイルに落ち、記録に入らない）。"
+                "柵を外した run で delegate の付いた節（background でない物）を Agent ツールで起こすときは**前景で**起こせ——その呼び出しの返りが"
+                "任せ先の終了で、背景の完了の知らせ（入れ子や上限落ちで消える）に頼らない。任せ先が書かずに返った・落ちたら、"
+                "loop.py relaunch --node <id> --reason <理由> で新しい置き場を作って起こし直す（前の試行が遅れて書いても別のファイルに落ち、記録に入らない）。"
                 "delegate.background が真の節は待たない（受領を書いてすぐ done）"),
     }))
 
@@ -203,6 +211,8 @@ def cmd_next(a):
 ISOLATED_FLAGS = ("-p", "--resume", "--model", "--effort", "--tools", "--setting-sources", "--append-system-prompt-file",
                   "--output-format")
 TOOLED_FLAGS = ISOLATED_FLAGS + ("--allowedTools", "--permission-mode", "--permission-prompts", "--settings")
+# 任せ先（delegate）の旗: 道具つきの役の旗から --effort を除いた物（任せ先はモデルだけを graph の delegate.model で名指す）
+DELEGATE_FLAGS = tuple(f for f in TOOLED_FLAGS if f != "--effort")
 BARE_FLAGS = ("-p",)          # 値を取らない旗
 OPTIONAL_FLAGS = ("--resume",)  # 無くてよい旗（続ける会話の無い起動）
 # 起こす役に依らない値
@@ -337,6 +347,8 @@ def launch_refusal(inst, cwd=None, board_dir=None):
     argv = launch.get("argv") or []
     if launch.get("missing"):
         return f"この環境に {launch['missing']} が無い（PATH を確かめるか、人が起こす）"
+    if launch.get("kind") == "delegate":
+        return _delegate_refusal(inst, launch, board_dir)
     d = agent_def(inst.get("agent_type") or "")
     if d is None:
         return f"役 {inst.get('agent_type')!r} の定義が読めない——道具の形が決まらないので engine は起こさない"
@@ -346,6 +358,45 @@ def launch_refusal(inst, cwd=None, board_dir=None):
             why = _argv_refusal(words, inst, d, perm, resume)
             if why:
                 return why
+    if not pathlib.Path(launch.get("stdin") or "").is_file():
+        return f"材料 {launch.get('stdin')} が無い"
+    return None
+
+
+def _delegate_refusal(inst, launch, board):
+    """任せ先（kind=delegate）を起こしてよい形か（よければ None）。**sandbox の設定は起こす瞬間に git から組み直して突き合わせる**
+    ——next の後に作業ツリーが足された・盤面の argv が書き換えられた、どちらでも名指しが今の守る場所と揃わなければ起こさない。
+    旗は役の節と同じ許可表で見る（_parse_flags——表に無い語・別名・2 度目の旗を拒む）。値は engine の値（role_run の
+    delegate_permission・delegate_settings、モデルは graph の delegate.model）と一致を見る。graph の宣言は柵の根拠にしない"""
+    protected = protected_paths([board] if board else [])
+    if board is None or protected is None or launch.get("unprotected"):
+        return "守る場所（作業ツリー・gitdir・共通の .git）を git から引けない——任せ先を sandbox で縛れないので起こさない"
+    mode, allowed = delegate_permission()
+    want = {**FIXED_VALUES, "--model": (inst.get("delegate") or {}).get("model") or "", "--tools": ",".join(DELEGATE_TOOLS),
+            "--allowedTools": ",".join(allowed), "--permission-mode": mode}
+    head = launch_prefix()
+    for words, resume in ((launch.get("argv"), False), (launch.get("resume_argv"), True)):
+        if not words:
+            continue
+        if [_norm(a) for a in words[:len(head)]] != [_norm(w) for w in head]:
+            return f"engine が起こしてよい前置ではない（graph の launch の via が {head} を指していない）——先頭は {words[:2]}"
+        got, why = _parse_flags(words[len(head) + 1:], DELEGATE_FLAGS)
+        if why:
+            return f"任せ先の argv: {why}"
+        for flag, val in got.items():
+            if flag in BARE_FLAGS or flag == "--append-system-prompt-file":
+                continue   # 前置きの文（graph の preamble）は権限を運ばない
+            if flag == "--settings":
+                why = _settings_refusal(val, delegate_settings(protected))
+            elif flag == "--resume":
+                sid = inst.get("session_id")
+                ok = {"{session_id}", sid} - {None} if resume else {sid} - {None}
+                why = None if val in ok else f"--resume が {val!r}——engine が続ける会話は {sorted(ok)}"
+            else:
+                why = None if val == want[flag] else f"{flag} が {val!r}——engine が任せ先に決めた値は {want[flag]!r}"
+            if why:
+                return (f"任せ先の {why}（sandbox の名指し・道具・権限の形は起こす瞬間に git と role_run から組み直す。"
+                        "next の後に作業ツリーが足されたなら relaunch で出し直せ）")
     if not pathlib.Path(launch.get("stdin") or "").is_file():
         return f"材料 {launch.get('stdin')} が無い"
     return None
@@ -532,20 +583,58 @@ def launch_one(d, inst, max_resumes, cwd=None):
     why = launch_refusal(inst, cwd, d)
     if why:
         return {**got, "ok": False, "why": why}
-    accept = _accept_for_launch(d, inst["id"], inst["out_path"])
+    launch = inst["launch"]
+    background = bool(launch.get("background"))
+    accept = None if background else _accept_for_launch(d, inst["id"], inst["out_path"])
     still_mine = _still_mine(d, inst)
-
-    r = run_role(inst["launch"]["argv"], inst["launch"]["stdin"], inst["out_path"],
-                 accept=accept, resume_argv=inst["launch"].get("resume_argv"), max_resumes=max_resumes,
-                 log_path=pathlib.Path(d) / "trace.jsonl", still_mine=still_mine, cwd=_isolated_cwd(d, inst) or cwd,
-                 meta={"instance": inst["id"], "node": inst["node"], "agent_type": inst.get("agent_type"),
-                       "attempt": inst.get("attempts", 1), "form": inst["launch"].get("form")})
+    # 背景の線は誰も待たない（周の締めも次の周も線を待たない）。時間の上限はどの節にも付けない
+    out_path = launch["result_path"] + ".tmp" if background else inst["out_path"]
+    run_cwd, env, work = _isolated_cwd(d, inst) or cwd, None, None
+    if launch.get("kind") == "delegate":
+        # 任せ先の作業ディレクトリは本物の外に作る写し。TMPDIR も同じ置き場の下に向けるので、任せ先が mktemp -d で作る写しも
+        # ここに溜まり、終わったら消える。返答が名指しして後で読まれるファイル（背景の線の patch 等）は GRAPHLOOPS_KEEP の下に
+        # 置かせ、そこだけ残す（中身が無ければ置き場ごと消す）——写しと TMPDIR は大きく、線は周ごとに立つので溜めない
+        import tempfile
+        work = pathlib.Path(tempfile.mkdtemp(prefix="graphloops-delegate-"))
+        (work / "tmp").mkdir()
+        (work / "keep").mkdir()
+        try:
+            run_cwd = copy_worktree(work / "work")
+        except Reject as e:
+            import shutil
+            shutil.rmtree(work, ignore_errors=True)
+            return {**got, "ok": False, "why": str(e)}
+        env = {**os.environ, "TMPDIR": str(work / "tmp"), "GRAPHLOOPS_KEEP": str(work / "keep")}
+    try:
+        r = run_role(launch["argv"], launch["stdin"], out_path,
+                     accept=accept, resume_argv=launch.get("resume_argv"), max_resumes=0 if background else max_resumes,
+                     log_path=pathlib.Path(d) / "trace.jsonl", still_mine=still_mine, cwd=run_cwd, env=env,
+                     meta={"instance": inst["id"], "node": inst["node"], "agent_type": inst.get("agent_type"),
+                           "attempt": inst.get("attempts", 1), "form": launch.get("form")})
+    finally:
+        if work:
+            import shutil
+            for part in ("work", "tmp"):
+                shutil.rmtree(work / part, ignore_errors=True)
+            if not any((work / "keep").iterdir()):
+                shutil.rmtree(work, ignore_errors=True)
+    if background and r["ok"]:
+        # 線の結果は書き終えた物だけが置き場に在る（読む側は .tmp を読まない）。返答は役の返答と同じ読み方（parse_output——
+        # 囲いの ```json も解く）で JSON に直してから置く。読めなければ本文のまま置き、読む側（rules）が使えない結果として扱う
+        try:
+            body = parse_output(pathlib.Path(out_path).read_text(encoding="utf-8"))
+            pathlib.Path(out_path).write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        except (AnswerReject, OSError, UnicodeDecodeError):
+            pass
+        os.replace(out_path, launch["result_path"])
     last = r["runs"][-1] if r["runs"] else {}
-    if accept.conflict:
+    if accept is not None and accept.conflict:
         # 盤面の保存が別のプロセスと当て直しの回数まで競って負けた（BoardConflict）。返答は置き場に在るので、done で受け付けられる
         r["why"] += f"——返答は {inst['out_path']} に在る。loop.py done --node {inst['id']} で受け付けよ"
+    if work and work.exists():
+        got["kept"] = str(work / "keep")   # 任せ先が残した物（返答が名指しするファイル）の置き場
     return {**got, "ok": r["ok"], "why": r["why"], "session_id": r["session_id"], "superseded": r["superseded"],
-            "resumes": len(r["runs"]) - 1, "rejections": r["rejections"], "done": accept.msg,
+            "resumes": len(r["runs"]) - 1, "rejections": r["rejections"], "done": accept.msg if accept else None,
             # total_cost_usd は会話の累計（続きを頼むたびに増える。実測 2026-09-25・haiku: 0.0137 → 0.0166 → 0.0198）——足さずに最大を取る
             "cost_usd": max((x.get("total_cost_usd") or 0 for x in r["runs"]), default=0) or None,
             "permission_denials": sum(len(x.get("permission_denials") or []) for x in r["runs"]),
@@ -567,10 +656,14 @@ def cmd_launch(a):
 
     def mark(b):
         picked.clear()   # 版の衝突で当て直すたびに組み直す（盤面の外の一覧に行を重ねない）
+        # 背景の任せ先は受領を done した後に起こす（名指しのときだけ。1 試行 1 回の柵は下の launched_at が同じく当たる）
         ready = [i for i in b.rd["instances"].values()
-                 if i["status"] == "pending" and i.get("launch") and (not want or i["id"] == want)]
+                 if i.get("launch") and (not want or i["id"] == want)
+                 and (i["status"] == "pending" and not i["launch"].get("background")
+                      or want and i["status"] == "done" and i["launch"].get("background"))]
         if not ready:
             raise Reject("engine が起こせる節が無い（next の ready に launch を持つ節が在るか、--node の綴りを確かめよ。"
+                         "背景の任せ先は受領を done してから --node で名指しして起こす。"
                          "launch を持たない役の節は回す側が Agent で起こす）")
         at = now()
         for i in ready:
@@ -1274,10 +1367,16 @@ def cmd_init(a):
         **({"stop_after_round": a.stop_after_round} if a.stop_after_round is not None else {}),
         "inputs": inputs, "validator": validator, "outputs": {}, "done_ever": {}, "loop": {},
     }
+    if getattr(a, "unfenced_delegates", None):
+        # 人が run ごとに明示したときだけ、任せ先を sandbox で縛らずに回す側が Agent で起こす（人の決定 2026-09-25）。
+        # 外した事実と理由は盤面（state と trace）に残り、next の notes と任せ先の instance（unfenced）に毎回出る
+        state["unfenced_delegates"] = {"at": now(), "reason": a.unfenced_delegates}
     write_json(d / "state.json", state)
     write_json(d / "record.json", record)
     with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"t": now(), "op": "init", "thickness": th, "decider": decider}, ensure_ascii=False) + "\n")
+        f.write(json.dumps({"t": now(), "op": "init", "thickness": th, "decider": decider,
+                            **({"unfenced_delegates": state["unfenced_delegates"]} if state.get("unfenced_delegates") else {})},
+                           ensure_ascii=False) + "\n")
     fn = hook(rules, "on_init")
     if fn:
         # rules の入口が拒んだ（入力の値の検査など）ら、作った置き場を消してから抜ける——この関数の頭の『die しても空の盤面を

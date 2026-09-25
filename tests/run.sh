@@ -37,6 +37,30 @@ unset PYTHONOPTIMIZE
 
 fail=0
 ran=0
+# **環境で走れなかった検査（見送り）は合格と別に数える。** 各台本は見送りを 1 行ずつ「  ok   <検査> # SKIP <理由>」
+# （TAP 14 の SKIP 指示子。Python の側の正本は graphloops/tests/parallel.py の skip_line）で出すだけで、拾う・数える・
+# 一覧にする・FAIL_ON_SKIP=1 で失敗に数えるのはここ 1 か所——層ごとに一覧を作ると同じ見送りを二重に数える。
+# 合格と同じ「ok」だけで出していたとき、道具や OS の機能の無い CI は走らないまま緑になり、止める口が無かった
+SKIP_MARK=' # SKIP'
+SKIPS=()
+note_skips() {
+    [[ "$1" == *"$SKIP_MARK"* ]] || return 0
+    local l
+    while IFS= read -r l; do
+        l=${l%$'\r'}   # Windows の Python の出力の CRLF（expect_output を通らない呼びもここに来る）
+        [[ "$l" == "  ok   "*"$SKIP_MARK"* ]] && SKIPS+=("${l#  ok   }")
+    done <<< "$1"
+}
+# どの OS で見送りを許すかは実装側で決めない——CI の定義か人が FAIL_ON_SKIP=1 を渡したときだけ失敗に数える
+report_skips() {
+    [ "${#SKIPS[@]}" -gt 0 ] || return 0
+    echo "見送り ${#SKIPS[@]} 件（この環境で走らなかった検査。FAIL_ON_SKIP=1 で失敗に数える）:"
+    printf '  - %s\n' "${SKIPS[@]}"
+    if [ "${FAIL_ON_SKIP:-}" = 1 ]; then
+        echo "見送りを失敗に数えた: ${#SKIPS[@]} 件（FAIL_ON_SKIP=1）"
+        fail=1
+    fi
+}
 
 # 出力と終了コードの**両方**を検査する。終了コードを見ないと、対象が異常終了しても
 # そのエラーメッセージが期待文字列を偶然含んでいれば ok になる（fail-open）。
@@ -77,6 +101,7 @@ expect_output() {
     got=${got//$'\r'$'\n'/$'\n'}
     case $got in *$'\r') got=${got:0:${#got} - 1};; esac
     ran=$((ran + 1))
+    note_skips "$got"
     if [ "$got_exit" != "$want_exit" ]; then
         echo "  FAIL $desc — exit $want_exit を期待したが $got_exit: $got"
         fail=1
@@ -109,6 +134,34 @@ case "$guard_probe" in
         echo "  FAIL 期待メッセージが空の呼び出しが赤にならない: $guard_probe"
         fail=1 ;;
 esac
+
+# **見送りの拾い手自身の腕。** 行頭が「  ok   」で印を含む行だけを拾い（理由の無い印も拾う——拾い損ねは合格に化ける）、
+# 行の途中の印は拾わない。既定では fail を立てず、FAIL_ON_SKIP=1 のときだけ立てる。副シェルで本体を汚さない
+skip_probe() {
+    ( SKIPS=(); fail=0; ran=0; FAIL_ON_SKIP=$1
+      expect_output 0 "終わり" "見送りの拾い手の腕" printf '  ok   甲 # SKIP 理由\n  ok   乙\nx  ok   丙 # SKIP 理由\n  ok   丁 # SKIP\n終わり\n' >/dev/null
+      report_skips >/dev/null
+      printf '|n=%s|fail=%s|%s' "${#SKIPS[@]}" "$fail" "${SKIPS[*]}" )
+}
+skip_off=$(skip_probe ""); skip_on=$(skip_probe 1)
+ran=$((ran + 1))
+if [ "$skip_off" = "|n=2|fail=0|甲 # SKIP 理由 丁 # SKIP" ] && [ "$skip_on" = "|n=2|fail=1|甲 # SKIP 理由 丁 # SKIP" ]; then
+    echo "  ok   見送りの行は行頭の印で拾われ、既定では失敗にせず、FAIL_ON_SKIP=1 のときだけ失敗に数える"
+else
+    echo "  FAIL 見送りの拾い手が期待と違う: 既定 $skip_off / FAIL_ON_SKIP=1 $skip_on"
+    fail=1
+fi
+# Python の台本の見送りの行（graphloops/tests/parallel.py の skip_line）が、ここの拾い手の印に当たる——片方だけ変えると
+# 見送りが一覧から黙って消え、合格に化ける
+skip_py=$( SKIPS=(); note_skips "$(PYTHONIOENCODING=utf-8 "$PY_BIN" -c 'import sys; sys.path.insert(0, sys.argv[1]); import parallel; print(parallel.skip_line("検査", "理由"))' "$ROOT/graphloops/tests" 2>&1)"
+           printf '|n=%s|%s' "${#SKIPS[@]}" "${SKIPS[*]}" )
+ran=$((ran + 1))
+if [ "$skip_py" = "|n=1|検査 # SKIP 理由" ]; then
+    echo "  ok   Python の台本の見送りの行（parallel.skip_line）を、root の拾い手が 1 件として拾う"
+else
+    echo "  FAIL Python の台本の見送りの行を root の拾い手が拾えない: $skip_py"
+    fail=1
+fi
 
 # 記録の一部を壊した JSON を**まとめて 1 プロセスで**書き出す。「壊すと落ちる」ことまで
 # 確かめないと、検証が空振りしても合格になる（fail-open）。
@@ -1643,6 +1696,45 @@ assert found >= 26, f"引用を {found} 件しか拾えていない（26 件以�
 print(f"DOC_HEADINGS_OK {found}")
 PYHEAD
 
+# **呼ぶ前に見える面が、手順書の入口の節を名指しする。** コマンドを選ぶときに見えるのは frontmatter の description
+# だけで、本文は呼んだ後にしか読まれない（公式: code.claude.com/docs/en/skills）。判定から入る入口が本文の節にしか
+# 無かった版では、別のリポジトリの AI が入口に気づかなかった（人の報告 2026-09-25）。見出しを改名しても description が
+# 古い名前のままなら赤。
+expect_output 0 "ENTRY_SURFACE_OK" "review-graph の description が判定から入る入口の節を名指しする" \
+    "$PY_BIN" - "$ROOT" <<'PYENTRY'
+import re, sys, pathlib
+p = pathlib.Path(sys.argv[1]) / "graphloops/commands/review-graph.md"
+m = re.match(r"---\n(.*?)\n---\n(.*)", p.read_text(encoding="utf-8"), re.S)
+assert m, "review-graph.md: frontmatter が無い"
+desc = re.search(r"^description:[ \t]*(.*)$", m.group(1), re.M)
+assert desc and desc.group(1).strip(), "review-graph.md: description が無い"
+heads = re.findall(r"^## (判定から入る.*?)\s*$", m.group(2), re.M)
+assert len(heads) == 1, f"review-graph.md: 判定から入る入口の見出しが 1 つでない（{heads}）"
+assert f"「{heads[0]}」" in desc.group(1), f"description が入口の節「{heads[0]}」を名指ししていない"
+print(f"ENTRY_SURFACE_OK {heads[0]}")
+PYENTRY
+
+# **重い工程のコマンドは人の指示のときだけ起動する**（人の決定 2026-09-25。トークンをかなり使うので人が決めたときだけ
+# 回す）。AI が起動前に見るのは description だけなので、決定は description に書く（本文には写さない——写しの正本を
+# 1 つにする）。走査の母数は convergence-loops（commands/）と graphloops（graphloops/commands/）のファイル集合から導く。
+# 見るのは条件の文が在ることだけで、自分から起動する合図の句（「…に使用する」等）が無いことは語が揺れるので縛らない。
+expect_output 0 "HUMAN_ONLY_OK" "重い工程のコマンドの description が、起動は人の指示のときだけと言う" \
+    "$PY_BIN" - "$ROOT" <<'PYHUMAN'
+import re, sys, pathlib
+cmds = []
+for d in ("commands", "graphloops/commands"):
+    found = sorted((pathlib.Path(sys.argv[1]) / d).glob("*.md"))
+    assert found, f"{d} に手順書が無い（走査の母数が 0）"
+    cmds += found
+for p in cmds:
+    m = re.match(r"---\n(.*?)\n---\n", p.read_text(encoding="utf-8"), re.S)
+    desc = re.search(r"^description:[ \t]*(.*)$", m.group(1), re.M) if m else None
+    assert desc, f"{p.name}: description が無い"
+    assert f"人が /{p.stem} と打ったときか「工程に回して」と言ったときだけ" in desc.group(1) and "AI は自分から起動せず" in desc.group(1), \
+        f"{p.name}: description が『起動は人の指示のときだけ・AI は自分から起動しない』を言っていない"
+print(f"HUMAN_ONLY_OK {len(cmds)}")
+PYHUMAN
+
 expect_exit 0 "役割 agent の定義と手順書の参照が整合する" "$PY_BIN" - "$ROOT" <<'PY'
 import re, sys, pathlib
 root = pathlib.Path(sys.argv[1])
@@ -1786,7 +1878,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=581
+EXPECTED_CHECKS=585
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -2842,6 +2934,8 @@ assert m, out
 if os.name == "posix":
     mode = stat.S_IMODE(os.stat(m.group(1)).st_mode)
     assert mode == 0o600, f"一時ファイルが {oct(mode)}（/tmp では他の利用者が読める）"
+else:
+    print("  ok   outfile の一時ファイルは 0600 # SKIP posix でない OS はファイルの mode を持たない")
 assert "節（Read の offset）: 2 節" in out, out
 os.unlink(m.group(1))
 print("OUT_FLAG_OK")
@@ -2884,10 +2978,13 @@ if command -v shellcheck >/dev/null 2>&1; then
         echo "  FAIL shellcheck が指摘を出した"
         fail=1
     fi
-    ran=$((ran + 1))
 else
-    echo "  --   shellcheck が手元に無いので回していない（CI が回す。下の CI_LINT_OK がその設定を見る）"
+    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck が手元に無い（CI の ubuntu の段が回し、下の CI_LINT_OK がその設定を見る）"
+    echo "$sc_skip"
+    note_skips "$sc_skip"
 fi
+# 見送りも計画の件数に入れる——回した枝でだけ数えていたとき、道具の無い環境で件数の柵が割れた。合格とは別の印で出し、末尾の一覧に載る
+ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
@@ -3405,7 +3502,8 @@ sys.path.insert(0, sys.argv[1])
 import mutate
 
 if os.name != "posix":
-    print("RUNGROUP_OK（posix でないので run_group の腕は見送り）")
+    print("  ok   run_group の腕 # SKIP run_group は posix のプロセスグループ（start_new_session・killpg）に頼る")
+    print("RUNGROUP_OK")
     sys.exit(0)
 
 root = tempfile.mkdtemp()
@@ -3475,12 +3573,17 @@ rc, out = mutate.run_group([sys.executable, "-c", child_notest], cwd=root, failf
 assert rc == 0, f"NO_TEST を含む FAIL 行で誤って止めた（rc が子の終了コードでない）: rc={rc!r}"
 assert "second line" in out, "NO_TEST を含む FAIL 行で誤って早期に止めた（後の行を読んでいない）"
 
-# timer.cancel(): 通常終了で返る前に時間切れの Timer を取り消す（取り消さないと、後から kill を撃つ Timer が生き残る）
-del timers[:]
-rc, out = mutate.run_group([sys.executable, "-c", "print('quick')"], cwd=root)
+# timer.cancel(): 通常終了のあとに、時間切れ用の Timer を取り消す（生き残ると後から kill を撃つ）。
+# **時間の源を差し替えて見る**（unittest.mock.patch）——本物の Timer と短い窓で見ていたとき、負荷の高い機械では子の
+# 起動が窓より遅れて Timer が先に撃ち、通常終了が timeout に倒れて赤になった（実測 2026-09-25: 負荷 88〜102 で 8 回中 6 回）
+import threading
+from unittest import mock
+with mock.patch.object(threading, "Timer") as timer_cls:
+    rc, out = mutate.run_group([sys.executable, "-c", "print('quick')"], cwd=root)
 assert rc == 0, f"通常終了の rc が 0 でない: {rc!r}"
-assert len(timers) == 1 and timers[0].started, f"run_group が時間切れの Timer を 1 つ起こしていない: {len(timers)}"
-assert timers[0].cancelled, "timer.cancel() が呼ばれず、通常終了の後で時間切れの kill を撃つ Timer が生き残る"
+timer = timer_cls.return_value
+assert timer.start.called, "時間切れ用の Timer を起動していない（差し替えが run_group に届いていない疑い）"
+assert timer.cancel.called, "timer.cancel() が呼ばれず、通常終了の後に時間切れの kill が撃てる形で残る"
 
 print("RUNGROUP_OK")
 PYRG
@@ -4162,12 +4265,35 @@ for name, _tag, body in here:
     if not re.search(r"^\s*_s\.reconfigure\(encoding=", body, re.M):
         bad.append(f"tests/run.sh の {name}: 標準出力の encoding を直す呼びが無い"
                    "（Windows の既定 cp1252 で、日本語を print した時点で落ちる。語がコメントに在るだけでは足りない）")
+# **起動の口を持つ .py も書く側に入れる。** 埋め込みの script だけを見ていたとき、単体の入口（tests/mutate.py）が
+# 日本語を print して windows-latest だけで落ちた（実測: 25d6338 以降の Windows の run すべて）。母数は
+# `if __name__ == "__main__"` を持ち、print か sys.stdout / sys.stderr に触れるファイル。呼びの形は ast で見る
+entries = 0
+for p in files:
+    try:
+        tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        continue
+    if not any(isinstance(n, ast.If) and "__main__" in ast.unparse(n.test) for n in tree.body):
+        continue
+    writes = any((isinstance(n, ast.Call) and getattr(n.func, "id", "") == "print")
+                 or (isinstance(n, ast.Attribute) and n.attr in ("stdout", "stderr") and getattr(n.value, "id", "") == "sys")
+                 for n in ast.walk(tree))
+    if not writes:
+        continue
+    entries += 1
+    if not any(isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "reconfigure"
+               and any(k.arg == "encoding" for k in n.keywords) for n in ast.walk(tree)):
+        bad.append(f"{p.relative_to(root).as_posix()}: 起動の口を持ち標準出力に書くのに、encoding を直す呼び（reconfigure）が無い")
+if not entries:
+    print("NG 起動の口を持つ .py が 1 本も見つからない（走査が空回り）")
+    sys.exit(1)
 if bad:
     for b in bad:
-        print(f"NG {b}" if b.startswith("tests/run.sh") else f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
+        print(f"NG {b}" if b.startswith("tests/run.sh") or "起動の口" in b else f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
     sys.exit(1)
 print(f"SUB_ENCODING_OK（走査した呼び {calls} 件のうち文字で読む {textual} 件を突合／対象外 {calls - textual} 件: バイトで読むので既定コーデックに依らない"
-      f"・{len(files)} ファイル・書く側 {len(here)} script）")
+      f"・{len(files)} ファイル・書く側 {len(here)} script と起動の口 {entries} 本）")
 SUBENC
 expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encoding を明示している（Windows の既定コーデックに依らない）" \
     "$PY_BIN" "$WORK/sub-encoding.py" "$ROOT"
@@ -4411,8 +4537,9 @@ if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
 fi
 
 echo
+report_skips
 if [ "$fail" = 0 ]; then
-    echo "$ran 件すべて緑"
+    echo "$ran 件すべて緑${SKIPS[0]+（見送り ${#SKIPS[@]} 件は上の一覧）}"
 else
     echo "$ran 件のうち失敗あり"
 fi

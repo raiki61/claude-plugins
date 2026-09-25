@@ -754,4 +754,8 @@ def main():
     sys.exit(0 if shot and not skipped_late and healthy(res) and all(proven(r) for r in shot) else 1)
 
 if __name__ == "__main__":
+    # 起動の口でだけ直す（台本が import mutate して使うので、取り込んだ側の標準出力は書き換えない）
+    for _s in (sys.stdout, sys.stderr):
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     main()

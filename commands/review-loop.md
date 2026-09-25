@@ -1,5 +1,5 @@
 ---
-description: コード変更後の自動レビュー・修正サイクル。実装完了時、リファクタリング後、バグ修正後に使用する。
+description: コード変更後の自動レビュー・修正サイクル。起動するのは、人が /review-loop と打ったときか「工程に回して」と言ったときだけ——AI は自分から起動せず、実装完了時・リファクタリング後・バグ修正後に当たったら人に提案する。
 allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 ---
 
