@@ -1,4 +1,4 @@
-"""回す側が呼ぶコマンド。init / next / done / skip / answer / thicken / add / patch / finalize / status / record。"""
+"""回す側が呼ぶコマンド。init / next / done / skip / answer / stop / thicken / add / patch / finalize / status / record。"""
 import datetime
 import json
 import os
@@ -433,8 +433,9 @@ CONFLICT_RETRIES = 3
 def _retry_on_conflict(d, step, allow_halted=False):
     """盤面を読み直して step(b) を当て直す枠——別のプロセスと版が衝突したら（Board.save の BoardConflict）、読み直して
     CONFLICT_RETRIES 回まで当て直す（Kubernetes client-go の retry.RetryOnConflict と同じ形）。保存は step の中でも後でもよい
-    （_board_update は後で、launch の受け付けは accept_output の中で）。step は盤面の外に書かないか、書いても同じ中身の上書きに
-    留める。trace の行は保存まで控えるので、当て直しても重ならない。BOARD_LOCK はスレッドの錠で、プロセスをまたいでは効かない。
+    （_board_update は後で、launch の受け付けは accept_output の中で）。launch の印付けと締め、relaunch、stop はどれも
+    別のプロセスと同じ盤面を書きうる。step は盤面の外に書かないか、書くなら（stop の on_stop が周の記録を書く）当て直すたびに
+    読み直した盤面から組み直して上書きし、済んだかは盤面の事実で決める（負けた試行が外に残した物を『済んだ』と読まない）。trace の行は保存まで控えるので、当て直しても重ならない。BOARD_LOCK はスレッドの錠で、プロセスをまたいでは効かない。
     allow_halted は止めた run の盤面に書いてよい帳簿の書き込み（launch の締め）の印——Board.save が見る"""
     with BOARD_LOCK:
         for n in range(CONFLICT_RETRIES):
@@ -450,7 +451,7 @@ def _retry_on_conflict(d, step, allow_halted=False):
 
 def _board_update(d, fn, allow_halted=False):
     """錠の下で盤面を開き直し、fn(b) を当てて保存する（当て直しは _retry_on_conflict）。fn の返り値を返す。launch の印付けと締め、
-    relaunch はどれも別のプロセスと同じ盤面を書きうる（止められた古い launch の締めと、relaunch・次の launch）"""
+    relaunch・stop はどれも別のプロセスと同じ盤面を書きうる（止められた古い launch の締めと、relaunch・stop・次の launch）"""
     def step(b):
         got = fn(b)
         b.save()
@@ -511,7 +512,8 @@ def _still_mine(d, inst):
             cur = read_json(pathlib.Path(d) / "state.json")["rounds"][-1]["instances"].get(inst["id"]) or {}
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             return True   # 読めない回は止めない（止める向きの誤りは、健全な役を殺す）
-        return cur.get("out_path") == inst["out_path"]
+        # 人が止めた（loop.py stop）試行も自分の物でない——止めた後に続きの往復の子を起こさない
+        return cur.get("out_path") == inst["out_path"] and cur.get("status", "pending") == "pending"
     return still_mine
 
 
@@ -741,6 +743,9 @@ def cmd_launch(a):
             i = b.rd["instances"].get(r["id"])
             if r.get("fell_back"):
                 continue   # 任せ先の節として出し直した（新しい試行は _engine_fallback が書いた）——why はそのまま返す
+            if i is not None and i.get("status") == "stopped":
+                r.update(why=f"{STOPPED_BY}——この試行の返答は受け付けない。次の手は要らない", stopped=True)
+                continue
             if i is None or i.get("out_path") != r["out_path"]:
                 # 起こし直された（試行が進んだ）——古い試行の結果を新しい試行に書かない。回す側に返す行も言い換える:
                 # relaunch に止められた子は『子が落ちた』に見え、それに従って relaunch すると生きている新しい試行を止める
@@ -776,7 +781,7 @@ def cmd_launch(a):
                 "how": ("ok の節は受け付けまで済んでいる（done は要らない）——次は loop.py next。"
                         "ok でない節は why を読め: 受け付けの拒否が続いた・子が落ちた、なら "
                         "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（前の試行の子は relaunch が止める）。"
-                        "why が『起こし直された古い試行』の行は次の手が要らない（新しい試行の launch を待て）。"
+                        "why が『起こし直された古い試行』の行は次の手が要らない（起こし直しなら新しい試行の launch を待て。人が止めた試行なら次は next）。"
                         "stderr の with-auth: auth=… が none / keychain-miss なら認証が足りていない（inherited / keychain なら役の側）。"
                         "返答は out_path に在る（読むのは要る所だけ）。engine が起こせない節（why が『前置ではない』『旗が無い』"
                         "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ。"
@@ -1122,6 +1127,97 @@ def cmd_answer(a):
     print(f"ok 答え '{ans}' を記録した。続きは loop.py next")
 
 
+STOPPED_BY = "人が止めた（loop.py stop）"
+
+
+def stop_descendants(nodes, root):
+    """root の下流の節（deps・instance_deps を辿る。root は含まない）——止めた後も走らせる後始末の節"""
+    down, grew = set(), True
+    while grew:
+        grew = False
+        for k, n in nodes.items():
+            deps = set(n.get("deps", [])) | set(n.get("instance_deps", []))
+            if k not in down and (root in deps or deps & down):
+                down.add(k)
+                grew = True
+    return down
+
+
+def cmd_stop(a):
+    """走っている run を人がその時点で止める（人に聞いていない時点でも）。Temporal の cancel（理由を履歴に残し、workflow が
+    後始末する）と Argo の stop（exit handler は走る）の形。
+
+    - 理由は必須で、盤面の state.stop・trace と、rules の on_stop が記録に書く（engine はループの語を持たない）
+    - graph の最上位の stop.node（止めた後に『済んだ』と見なす節）の下流だけを残し、それ以外の待ちの節は rd.stopped
+      （省いた skipped と別の印）にする。下流が報告の節なので、次の next は報告の節だけを出す——今の answer stop が
+      converge から報告へ届く筋と同じ道。宣言の無い graph（init の版が古い run）と、on_stop が報告を出せないと
+      返した run は halted（by=stop）にして後の節を出さない
+    - engine が起こし中の役の子は、relaunch と同じ手順（probe_group → stop_group）で木ごと止める。確かめられなければ
+      盤面を変えない。Agent・任せ先で起こした試行は engine が持たないので、出力で名指しする
+    今の止め方（answer stop・init --stop-after-round・next を打たずに再開）はそのまま残る"""
+    reason = (a.reason or "").strip()
+    if not reason:
+        raise Reject("止める理由が空——--reason に、なぜ止めるかを書け（記録と報告に残る）")
+    d = resolve_dir(a)
+
+    def refuse_if_over(b):
+        if b.state.get("halted"):
+            raise Reject(f"もう止まっている（halted: {b.state['halted'].get('by')}）——止める物が無い")
+        if b.state["status"] in TERMINAL_STATUS:
+            raise Reject(f"run は既に {b.state['status']}——止める物が無い（報告の節が残っているなら next で続けよ）")
+
+    b0 = Board(d)
+    refuse_if_over(b0)
+    marks = [m for i in b0.rd["instances"].values() if i["status"] == "pending" and i.get("launched_at") for m in attempt_marks(i)]
+    probe_marks(marks, "起こし中の役の子を確かめられない", "止めていない")
+
+    def apply(b):
+        refuse_if_over(b)
+        root = (b.graph.get("stop") or {}).get("node")
+        keep = stop_descendants(b.nodes, root) if root else set()
+        info = {"by": "stop", "reason": reason, "round": b.round, "at": now(), "node": root, "report": bool(root)}
+        ph = b.state.pop("pending_human", None)
+        if ph:
+            info["unanswered"] = {k: ph[k] for k in ("node", "kinds", "question", "items", "in_round") if k in ph}
+        rd = b.rd
+        rd.setdefault("stopped", {})
+        for nid in b.nodes:
+            if nid != root and nid not in keep and b.node_state(nid) == "pending":
+                rd["stopped"][nid] = f"{STOPPED_BY}: {reason}"
+        handed = []
+        for i in rd["instances"].values():
+            if i["status"] != "pending" or i["node"] in keep:
+                continue
+            i["status"] = "stopped"
+            i["stopped_by"] = reason
+            n = b.nodes[i["node"]]
+            if not i.get("launch") and (not b.is_runner(n) or n.get("delegate")):
+                handed.append(i["id"])
+        fn = hook(b.rules, "on_stop")
+        no_report = fn(b, info) if fn else None
+        if root and not no_report:
+            rd["done"][root] = {"at": now(), "builtin": "stop"}
+            b.state["done_ever"][root] = b.round
+        else:
+            info["report"] = False
+            info["no_report"] = no_report or "graph に stop の宣言（止めた後に走らせる節）が無い——init の版の graph が古い"
+            b.state["halted"] = {"node": root, "round": b.round, "by": "stop", "reason": reason}
+        b.state["status"] = "stopped"
+        b.state["stop"] = info
+        b.trace("stop", reason=reason, round=b.round, report=info["report"], stopped=sorted(rd["stopped"]))
+        return info, handed
+
+    info, handed = _board_update(d, apply)
+    whys = stop_marks(marks)
+    print(dump({"stopped": info, "handed_not_stopped": handed,
+                "how": ("止めた。" + ("次は loop.py next——止めた後の後始末（報告）の節だけが出る"
+                                     if info["report"] else f"報告の節は出ない（{info['no_report']}）。記録の検証は loop.py finalize")
+                        + ("。engine が起こしていない試行（Agent・任せ先）は止めていない——回す側が止めよ: " + ", ".join(handed) if handed else "")
+                        + ("。起こし中の子を止め切れなかった: " + "; ".join(whys) if whys else ""))}))
+    if whys:
+        sys.exit(1)
+
+
 def thicken(b, to, reason, by):
     cur = b.state["thickness"]
     if not b.tiers or to not in b.tiers:
@@ -1215,8 +1311,8 @@ def cmd_status(a):
     print(dump({
         "dir": str(b.dir), "run_id": st.get("run_id"), "loop": st["loop_name"], "status": st["status"], "round": b.round, "thickness": st["thickness"],
         "max_rounds": st["max_rounds"], "stop_after_round": st.get("stop_after_round"), "unattended": st["unattended"],
-        "halted": st.get("halted"),
-        "this_round": {"done": sorted(b.rd["done"]), "na": b.rd["na"], "skipped": b.rd["skipped"], "empty": b.rd["empty"],
+        "halted": st.get("halted"), "stop": st.get("stop"),
+        "this_round": {"done": sorted(b.rd["done"]), "na": b.rd["na"], "skipped": b.rd["skipped"], "stopped": b.rd.get("stopped", {}), "empty": b.rd["empty"],
                        "pending_instances": [{"id": i["id"], **waiting(i)} for i in b.rd["instances"].values() if i["status"] == "pending"]},
         "pending_human": st.get("pending_human"), "validator": st.get("validator"),
     }))
@@ -1250,12 +1346,8 @@ def cmd_relaunch(a):
 
     prev0 = handed_prev(Board(d))
     old = pathlib.Path(prev0["out_path"])
-    # 止めるのは今の試行と、それより前の試行の印（前の relaunch が止め切れずに残した子を、次の relaunch が止め直す口）
-    marks = [pgid_path(old)] + [pgid_path(x["prev_out_path"]) for x in prev0.get("attempt_log") or [] if x.get("prev_out_path")]
-    for m in marks:
-        _pgid, why = probe_group(m)
-        if why:
-            raise Reject(f"前の試行の子を確かめられない（{why}）——新しい試行は作っていない")
+    marks = attempt_marks(prev0)
+    probe_marks(marks, "前の試行の子を確かめられない", "新しい試行は作っていない")
 
     def bump(b):
         prev = handed_prev(b)
@@ -1267,13 +1359,32 @@ def cmd_relaunch(a):
 
     new, n = _board_update(d, bump)
     retire_out(old, n)
-    whys = [w for w in (stop_group(m) for m in marks) if w]
+    whys = stop_marks(marks)
     if whys:
         die(f"新しい試行（{new['out_path']}）は作ったが、前の試行の子を止められない（{'; '.join(whys)}）——止まるまで launch するな"
             f"（もう一度 relaunch --node {new['id']} すれば、前の試行の印も止め直す）")
     print(dump({"relaunched": {k: v for k, v in new.items() if k != "tree_before"},
                 "how": ("新しい out_path に書かせて起こし直せ（prompt_file は描き直した。前の試行の置き場は読まれない）。"
                         "engine が起こした前の試行の子は止めた。Agent で起こした前の試行は engine が止められないので、回す側が止めてから起こせ")}))
+
+
+def attempt_marks(inst):
+    """試行の子のグループの印——今の試行と、それより前の試行の印（前の relaunch が止め切れずに残した子を、次に止め直す口）"""
+    return [pgid_path(inst["out_path"])] + [pgid_path(x["prev_out_path"]) for x in inst.get("attempt_log") or [] if x.get("prev_out_path")]
+
+
+def probe_marks(marks, what, untouched):
+    """印を信号を送らずに確かめる（relaunch と stop が盤面を書く前に呼ぶ）。確かめられなければ盤面を変えずに拒む"""
+    for m in marks:
+        _pgid, why = probe_group(m)
+        if why:
+            raise Reject(f"{what}（{why}）——{untouched}")
+
+
+def stop_marks(marks):
+    """印の子を木ごと止める。返すのは止め切れなかった理由の一覧"""
+    whys = [w for w in (stop_group(m) for m in marks) if w]
+    return whys
 
 
 def reissue(b, prev, reason):

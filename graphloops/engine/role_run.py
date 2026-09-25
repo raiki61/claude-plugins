@@ -11,7 +11,7 @@
      消えた（実測 2026-09-24〜25: 局所レビューの入れ子の起動で知らせが届かず 7 時間止まった）。**時間の上限は付けない**
      ——所要時間を実測で決めていない値が上限を兼ねると、長く考える役を途中で打ち切る（2026-09-25 に外した。理由は
      docs/graphloops-rearchitecture.md の「期限を外した」）。子を起こすたびに、そのプロセスグループの番号を返答の置き場の
-     隣（pgid_path）に書き、子が終わったら消す——別のプロセス（loop.py relaunch）が古い試行を木ごと止める口
+     隣（pgid_path）に書き、子が終わったら消す——別のプロセスが試行を木ごと止める口
      （前置の層 with-auth.py が子の claude を孫として起こすので、層だけを止めると claude が孤児で走り続ける）。
   3. 標準出力が `--output-format json` の包み（result・session_id・num_turns・duration_ms・total_cost_usd・usage）なら
      解いて返答の本文だけを、包みでなければ標準出力の全文を本文として out_path に書く（unwrap）。要約は log_path
@@ -41,7 +41,7 @@ RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why
                "どちらも、最初の指示が求めた形の返答だけを出し直せ（前後に文を付けない）。")
 KILL_GRACE = 5  # 止める信号の間の猶予（秒）
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGKILL) if os.name == "posix" else ()  # 試行の木を止める信号の列（_kill と stop_group）
-SUPERSEDED = "起こし直された古い試行——次の手は要らない（新しい試行は relaunch が作った物）"
+SUPERSEDED = "起こし直された古い試行か、人が止めた試行——次の手は要らない（起こし直しなら新しい試行は relaunch が作った物で、その launch を待つ。人が止めたなら次は next）"
 # engine の中から起こす子に持たせない道具（ファイルを書く道具）。道具つきの役の**能力の上限**——道具ゼロの役が
 # 「何も実行できない」と言えるのと同じく、engine が起こす子は「ファイルを書く道具を持たない」と言える形にする。
 # 役の定義にこれが在れば engine は起こさない（回す側が Agent で起こす）。値は graph でなく engine が持つ——graph の書き換えで
@@ -237,7 +237,7 @@ SUMMARY_KEYS = ("session_id", "num_turns", "duration_ms", "duration_api_ms", "to
 
 
 def pgid_path(out_path):
-    """試行の子のグループの番号の印の置き場（<out_path>.pgid）。書く run_role と、読んで止める relaunch が同じここを引く"""
+    """試行の子のグループの番号の印の置き場（<out_path>.pgid）"""
     return str(out_path) + ".pgid"
 
 
@@ -339,7 +339,7 @@ def run_tree(argv, *, cwd, timeout, shell=False):
 
 
 class Superseded(Exception):
-    """起こした直後に、この試行が起こし直されていた（still_mine が偽を返した）。子は木ごと止めてある。"""
+    """起こした直後に、この試行がもう自分の物でなかった（still_mine が偽——起こし直された・人が止めた）。子は木ごと止めてある。"""
 
 
 def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=None):
@@ -349,8 +349,8 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
     木ごと止める。子は別のプロセスグループに切り離してあるので、親のグループに届く信号はもう子に届かない。
 
     pgid_file を渡されたら、起こした直後に子のグループの番号を書き、子が終わったら消す。**書いてから still_mine を
-    聞く**——relaunch は新しい試行を盤面に書いてから、この印を読んで止める。どちらの順で交わっても、古い試行の子は
-    どちらか一方が止める（印を書いたのが先なら relaunch が、盤面が先に進んでいたら still_mine が）。"""
+    聞く**——止める側（起こし直し・人が止める口）は盤面を先に書いてから、この印を読んで止める。どちらの順で交わっても、
+    試行の子はどちらか一方が止める（印を書いたのが先なら止める側が、盤面が先に進んでいたら still_mine が）。"""
     p = _popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env)
     ended = False
     try:
@@ -460,7 +460,7 @@ def probe_group(pgid_file):
 
 
 def stop_group(pgid_file):
-    """別のプロセスから、試行の子を木ごと止める（loop.py relaunch が使う）。返すのは止め切れなかった理由（None なら止まった・
+    """別のプロセスから、試行の子を木ごと止める（loop.py relaunch と loop.py stop が使う）。返すのは止め切れなかった理由（None なら止まった・
     居なかった）。確かめ方は probe_group、止め方は _kill と同じ _stop_tree（Popen を持たないので長の回収はしない）。
     印は子が終わると launch の側が消すので、印が無ければ止める物は無い。"""
     pgid, why = probe_group(pgid_file)
@@ -517,11 +517,11 @@ def _tail(data):
 
 def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
     """走らせる節（launch の kind=engine_run）の語を 1 本ずつ起こし、終わりを待つ。**役と同じ _spawn** で起こす——別の
-    プロセスグループ・期限なし・どの道で抜けても木ごと止める・pgid の印で relaunch が止める、を写さずに使う。
+    プロセスグループ・期限なし・どの道で抜けても木ごと止める・pgid の印で別のプロセスが止める、を写さずに使う。
 
     shell を通さない（argv をそのまま）。標準入力は空。標準出力と標準エラーは log_dir に丸ごと置き、返り値には末尾だけ載せる。
     返すのは段ごとの {name, argv, exit, wall_s, out, err, tail}（exit が None なら起こせなかった——error に理由）。
-    起こし直されていれば（still_mine が偽）Superseded を上げる。"""
+    もう自分の物でなければ（still_mine が偽——起こし直された・人が止めた）Superseded を上げる。"""
     log_dir = pathlib.Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     runs = []
@@ -555,7 +555,7 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
     log_path    実行の要約を JSON Lines で足す先（1 起動 1 行・op は role_run。engine は盤面の trace.jsonl を渡す）
     meta        要約の各行に添える値（instance・周など。呼び出し側の語彙で、この関数は読まない）
     cwd / env   子の作業ディレクトリと環境（None なら呼び出し側のもの）
-    still_mine  still_mine() -> bool。子を起こすたびに聞き、偽なら（起こし直された）その子を止めて返る。None なら聞かない
+    still_mine  still_mine() -> bool。子を起こすたびに聞き、偽なら（起こし直された・人が止めた）その子を止めて返る。None なら聞かない
 
     返り値: {"ok", "why", "session_id", "superseded", "accepted", "runs": [要約…], "rejections": [理由…]}
     """

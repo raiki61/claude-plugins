@@ -185,7 +185,7 @@ def traces(rec):
         return {}
     # rules が積む欄（loop 固有）もここに並べる——engine の TRACES に足すと、その欄を持たない
     # loop の記録にまで空の欄が生える。写すのは rules の finalize、見せる口はここ 1 つ
-    names = [f for f, _ in TRACES] + ["skipped", "launch_missing", "unevaluable", "context_lost",
+    names = [f for f, _ in TRACES] + ["skipped", "stopped_nodes", "launch_missing", "unevaluable", "context_lost",
                                       "read_through_unchecked"]
     return {f: len(proc[f]) for f in names if isinstance(proc.get(f), list) and proc[f]}
 
@@ -198,6 +198,8 @@ def finalize(b):
     proc = b.record.setdefault("process", {})
     if isinstance(proc, dict):
         proc["skipped"] = [{"node": k, "reason": v} for r in b.state["rounds"] for k, v in r["skipped"].items()]
+        # 人が止めて走らせなかった節（loop.py stop）。省いた機構（skipped）と混ぜない
+        proc["stopped_nodes"] = [{"node": k, "round": r["round"], "reason": v} for r in b.state["rounds"] for k, v in (r.get("stopped") or {}).items()]
         for field, key in TRACES:
             proc[field] = b.state.get(key, [])
         # 起こせなかった遮断系（launch.missing）は state の instance にしか無く、記録にも報告にも出ていなかった

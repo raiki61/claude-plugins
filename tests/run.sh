@@ -1101,6 +1101,11 @@ MUT = {
         r["gates"].update(cold_reader=dict(NOT_RUN)),
         r["convergence"].update(outcome="done"),
     ),
+    # 結末が未決の記録（走っている run の途中の仕上げ。主張もクラスタも作りかけ）は、作りかけの欄より先に未決で落ちる
+    "rr-outcome-undecided-midway": lambda r: (
+        r.update(claims=[], clusters=[]),
+        r["convergence"].update(outcome=None),
+    ),
     # convergence とゲートの形の検査。形が崩れた記録を末尾の例外境界（想定外の例外）に落とさず、名指しで落とす
     "rr-convergence-not-object": lambda r: r.update(convergence=[]),
     "rr-rounds-total-zero": lambda r: r["convergence"].update(rounds_total=0),
@@ -1137,6 +1142,7 @@ rr-converged-not-run|収束を名乗りながらゲート 'cold_reader' を飛�
 rr-not-run-without-reason|'reason' が空か文字列でない
 rr-not-run-unrequired|走らせないゲート 'cartographer' を飛ばしたと名乗っている
 rr-outcome-unknown-with-not-run|convergence.outcome が不正
+rr-outcome-undecided-midway|convergence.outcome が未決
 rr-convergence-not-object|'convergence' が object でない
 rr-rounds-total-zero|convergence: 'rounds_total' が 1 以上の整数でない
 rr-consecutive-zero-missing|convergence: 'consecutive_zero' が 0 以上の整数でない

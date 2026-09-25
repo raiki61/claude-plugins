@@ -579,6 +579,20 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         ok = flush("ok  宣言の形（inputs・schema の語）。exec が無いので実行の形の検査 6〜13 は省略") and ok
         return ok
 
+    # 14. 止めた後に走らせる節の宣言（loop.py stop が読む）。stop.node は周を締める機械の節で、その下流に報告の節
+    # （pre=finalize）が在ること——下流に報告が無い宣言だと、止めた run は『全部の節が終わっている』と言いながら報告が出ない
+    decl = g.get("stop")
+    if decl is not None:
+        sn = decl.get("node") if isinstance(decl, dict) else None
+        if sn not in nodes:
+            errs.append(f"stop.node '{sn}' が節に無い（止めた後に『済んだ』と見なす節を名指す）")
+        elif nodes[sn].get("run_by") != "driver":
+            errs.append(f"stop.node '{sn}' は機械の節（run_by=driver）でない——役や回す側の節を済んだことにすると、その返答が記録に無いまま進む")
+        else:
+            from engine.commands import stop_descendants
+            if not any(nodes[k].get("pre") == "finalize" for k in stop_descendants(nodes, sn)):
+                errs.append(f"stop.node '{sn}' の下流に報告の節（pre=finalize）が無い——止めた run の報告が出ない")
+
     # 11. schema は engine が読む語だけで書く——読まない語（oneOf / not / format / 綴り違い）は validate_schema が黙って
     # 無視するので、書いても効かない schema が graph に入る（以前は docstring の注記だけで守っていた）
     for k, v in nodes.items():

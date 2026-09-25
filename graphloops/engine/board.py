@@ -12,7 +12,7 @@ from .render import Renderer
 
 
 def empty_round(n):
-    return {"round": n, "done": {}, "na": {}, "skipped": {}, "empty": [], "instances": {}, "item_counts": {}}
+    return {"round": n, "done": {}, "na": {}, "skipped": {}, "stopped": {}, "empty": [], "instances": {}, "item_counts": {}}
 
 
 # 節の条件（cond）は rules の名前付きの関数（CONDS）で、graph には名前だけを書く。関数は読む欄を宣言し（cond_reads）、
@@ -270,7 +270,8 @@ class Board:
         return removed
 
     def node_state(self, nid):
-        """done / skipped / empty / na は依存を満たす。pending は満たさない。
+        """done / skipped / stopped / empty / na は依存を満たす。pending は満たさない。
+        stopped は人が止めた（loop.py stop）ので走らせない節——省いた（skipped）と別の印で持つ（報告の『省略した機構』に混ぜない）。
 
         **once の節は done_ever に載っていれば done を返す**——done_ever は『もう出さない節』の集合で、
         終わり方（done か skipped か）は持たない。周をまたぐと done と skipped の区別は消える（素材の
@@ -283,6 +284,8 @@ class Board:
             return "na"
         if nid in rd["skipped"]:
             return "skipped"
+        if nid in rd.get("stopped", {}):   # 止める口より前に作った周は欄を持たない
+            return "stopped"
         if nid in rd["empty"]:
             return "empty"
         if self.nodes[nid].get("once") and nid in self.state["done_ever"]:

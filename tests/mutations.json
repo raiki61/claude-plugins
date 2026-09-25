@@ -5574,8 +5574,8 @@
    "title": "前の試行の印も止め直す",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "    marks = [pgid_path(old)] + [pgid_path(x[\"prev_out_path\"]) for x in prev0.get(\"attempt_log\") or [] if x.get(\"prev_out_path\")]",
-   "new": "    marks = [pgid_path(old)]",
+   "old": "    return [pgid_path(inst[\"out_path\"])] + [pgid_path(x[\"prev_out_path\"]) for x in inst.get(\"attempt_log\") or [] if x.get(\"prev_out_path\")]",
+   "new": "    return [pgid_path(inst[\"out_path\"])]",
    "expect": "relaunch: 前の relaunch が止め切れなかった",
    "tests": {
     "graphloops/tests/simulate.py": [

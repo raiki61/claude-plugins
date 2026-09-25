@@ -1255,9 +1255,9 @@ LOOP_KEYS = frozenset({
     "rejudge_rounds", "request_fixed_at", "request_wheres", "retaken_for_reviews", "reviewed_revision", "spec_changed",
     "spec_pending", "stop_reason", "tree_before", "validator_outputs", "wrote_refs_reads",
 }) | {k for p in DELTA_PASSES.values() for k in (p.state_key, p.owed_key)}
-# 記録の欄のうち rules が writes の外で書く物（add が書く入口の印・依頼の一覧）——条件が record.<欄> を読むとき、完全一致で照らす
+# 記録の欄のうち rules が writes の外で書く物（add が書く入口の印・依頼の一覧・止める口 on_stop が書く止めた所と理由）——条件が record.<欄> を読むとき、完全一致で照らす
 RECORD_KEYS = ("process.request_entry", "process.request_findings", "process.request_history", "process.checks",
-               "process.scalars_unmeasured")
+               "process.scalars_unmeasured", "process.halted")
 ENTRY_OFF = {"record.process.request_entry": None}   # 入口の印を外す重ね書き（_entry_skipped）——印が無い文脈は _entry_marked が偽
 
 
@@ -1726,6 +1726,9 @@ def fill_materials(b):
             if state == "skipped":
                 mats[mat] = {"status": "not_run", "reason": f"回す側が省いた: {b.rd['skipped'].get(nid, '')}"}
                 continue
+            if state == "stopped":   # 人が止めた（loop.py stop）——省いた（回す側の判断）とは別の事実として書く
+                mats[mat] = {"status": "not_run", "reason": f"{b.rd['stopped'][nid]}——この周に節 {nid} は走っていない"}
+                continue
             applies = n.get("applies_cond")
             ap_ok, ap_why = b.cond(applies) if applies is not None else (True, "")
             if not ap_ok:
@@ -1896,8 +1899,9 @@ def stop_branch(V, exit_code, out):
     return "work_remains"
 
 
-def record_round(b, nid):
-    """周の記録 rounds/round-<N>.json を組み、検証器にディレクトリを渡す。R の欄も機械が埋める。"""
+def record_round(b, nid, stopped_reason=None):
+    """周の記録 rounds/round-<N>.json を組み、検証器にディレクトリを渡す。R の欄も機械が埋める。
+    stopped_reason は人が止めた周（on_stop）——走らなかった R を条件外・持ち越しでなく、止めた事実の not_run で書く"""
     V = validator_module(b)
     rec, ls = b.record, b.loop_state
     last = ls.setdefault("last_seen", {})
@@ -1924,6 +1928,8 @@ def record_round(b, nid):
             # R3=redesign-needed を round 2 で上書きすると、収束を妨げるものが 3 件 → 2 件に減り、警告も trace も出ない）。
             # 再発火の条件に当たらない周でも、**据え置きは上書きより優先する**。
             reviews[name] = {"status": prev["status"], "reason": prev["reason"] + f"（round {prev['round']} と同じ。持ち越せない値なので今も諮っている記録として書く）"}
+        elif stopped_reason:
+            reviews[name] = {"status": "not_run", "reason": f"{stopped_reason}——この周の {name} は走っていない"}
         elif name in V.REVIEW_STATUS["not_applicable"].only_for:  # 条件外を名乗れる R だけ（表が正本）
             reviews[name] = {"status": "not_applicable",
                              "reason": f"[block]＋do-now が {ls.get('open_units', '?')} 件残り、前の周の P3 も触っていない（どちらの再発火条件にも当たらない）"}
@@ -3672,9 +3678,13 @@ def finalize(b):
     V = validator_module(b)
     rec, ls = b.record, b.loop_state
     proc = rec["process"]
-    proc["outcome"] = ls.get("outcome", "stopped")
+    # 結末は決まったときだけ書く（GitHub Checks の conclusion と同じ）。loop に結末が無いまま仕上げに来た run は、盤面が止まって
+    # いれば stopped、走っているなら running（loop.py finalize を途中で打った）——未決を stopped と名乗らせない
+    proc["outcome"] = ls.get("outcome") or ("stopped" if b.state.get("status") == "stopped" else "running")
     # init --stop-after-round で止めた run は converge が next_round を返した後なので loop に理由が無い——止めた口（halted）の理由を写す
     proc["stop_reason"] = ls.get("stop_reason") or (b.state.get("halted") or {}).get("by")
+    # 止めた所と理由の本文（halted は後の節を出さない止め方、stop は loop.py stop の記録）。by だけでは人の理由が落ちる
+    proc["halted"] = b.state.get("halted") or b.state.get("stop")
     proc["defer_ledger"] = ls.get("defer_ledger", {})
     proc["validator_outputs"] = ls.get("validator_outputs", {})
     proc["drift_notes"] = ls.get("drift_notes", [])
@@ -3732,6 +3742,51 @@ def on_unattended(b, ph):
     b.record["process"]["human_items"].append({"round": b.round, "kinds": ph.get("kinds") or [], "asked": ph["items"],
                                                "answer": None, "note": "無人実行で停止（答えは無い）"})
     return "無人実行: " + ", ".join(ph["kinds"]) + "——保守的に停止。要人間判断は process.human_items"
+
+
+def on_stop(b, info):
+    """人が loop.py stop で止めた（engine の cmd_stop が呼ぶ）。止めた事実を今すぐ記録に書き（報告の節が読む）、報告の前の
+    検証器が読む周の記録を揃える。返すのは報告を出せない理由（None なら出せる）——engine はそのとき後の節を出さずに止める。
+
+    engine は盤面の保存が衝突すると読み直した盤面にこれを当て直す。周の記録のファイルは盤面の外なので、周の締めが済んだかは
+    ファイルの有無でなく盤面（周の記録を組む節が済んだか）で決め、済んでいなければ当て直すたびに今の盤面から組み直して上書きする
+    ——負けた試行が残したファイルを『済んだ』と読むと、記録と周の記録が割れる"""
+    rec, ls = b.record, b.loop_state
+    ls["outcome"], ls["stop_reason"] = "stopped", "stop"
+    rec["process"]["halted"] = info
+    if info.get("unanswered"):
+        ua = info["unanswered"]
+        rec["process"]["human_items"].append({"round": b.round, "kinds": ua.get("kinds") or [], "asked": ua.get("items") or [],
+                                              "answer": None, "note": f"答えないまま人が止めた（loop.py stop）: {info['reason']}"})
+    if any(n.get("builtin") == "record_round" and nid in b.rd["done"] for nid, n in b.nodes.items()):
+        return None   # 周の記録は済んでいる（周の締めの後で止めた）
+    if b.round > 1 and b.output_of_round("p2.diagnose", b.round) is None:
+        # 判定より前に止めた 2 周目以降: 周の頭で空にした台帳と単位を前の周の姿に戻す（報告は record を読む）。周の記録は前の周まで
+        rec["units"], rec["questions"] = ls.get("prev_units") or [], ls.get("prev_questions") or []
+        return None
+    return _stopped_round_record(b, f"人が止めた（loop.py stop）: {info['reason']}")
+
+
+def _stopped_round_record(b, reason):
+    """止めた周の記録を組む（record_round と fill_materials をそのまま使う）。**写しの上で組み、検証器を通ったときだけ盤面に残す**
+    ——通らなければ記録・loop の欄・周の記録のファイルを組む前に戻し、報告を出せない理由を返す"""
+    import copy
+    rec0, ls0 = copy.deepcopy(b.record), copy.deepcopy(b.loop_state)
+    # 止めた節の素材に機械が先に置いた仮の値（P1 の時点の fix_closure など）は、止めた事実で書き直す——同じ素材を書く節が
+    # この周に済んでいれば（p0.local_checks と p4.ci の local_checks）その値を残す
+    ran = {m for nid, n in b.nodes.items() if nid in b.rd["done"] for m in n.get("materials", [])}
+    for nid in b.rd.get("stopped", {}):
+        for mat in b.nodes[nid].get("materials", []):
+            if mat not in ran:
+                b.record["materials"].pop(mat, None)
+    fill_materials(b)
+    out = record_round(b, None, stopped_reason=reason)
+    if out.get("ok"):
+        return None
+    b.record = rec0
+    b.state["loop"] = ls0
+    (b.dir / "rounds" / f"round-{b.round}.json").unlink(missing_ok=True)
+    return "止めた周の記録が検証器を通らない: " + "; ".join(out.get("problems") or [])[-800:]
 
 
 # ---------------------------------------------------------------- 仕様の道（選んだときだけ）

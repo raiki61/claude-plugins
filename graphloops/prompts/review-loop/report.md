@@ -7,7 +7,7 @@
 人が決めることの本文（前の節）: {{out.report.human_items.text}}
 初見検査の結果（詰まりが残っていれば直してから出す）: {{out.report.cold_check}}
 判定者の生の返答（judge・R1〜R4・比較役・隔離フレーム。要約で丸めず、根本ユニットのキー集合と verdict と理由はそのまま転記する）:
-{{ref:raw}}
+{{?ref:raw}}
 
 報告は {{inputs.lang}} で書く。subagent の出力が違う言語でも揃える（コード識別子・パス・エラー文はそのまま）。
 

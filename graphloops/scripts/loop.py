@@ -10,6 +10,7 @@
     loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
     loop.py answer --text <答え> [--note <本文>]         # 人に聞く番のとき（本文は次の周の再審に渡る）
+    loop.py stop   --reason <理由>                       # 走っている run を人がその時点で止める（理由は記録に残り、graph が宣言する後始末の節——報告——だけが走る）
     loop.py thicken --to <段> --reason <理由>           # 段の昇格（降格は不可。段名は graph の thickness.tiers）
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
     loop.py patch  --path <record の欄 | state.<盤面の欄>> --file <json> --reason   # 記録（既定）か盤面の手当て（痕跡が残る最終手段）
@@ -96,6 +97,11 @@ def main():
     s.add_argument("--text", required=True)
     s.add_argument("--note", help="人の答えの本文（次の周の再審に渡る）")
     s.set_defaults(fn=c.cmd_answer)
+
+    s = sub.add_parser("stop", help="走っている run を人がその時点で止める（人に聞いていない時点でも。理由は必須で記録に残る。起こし中の役の子は木ごと止める）")
+    s.add_argument("--dir")
+    s.add_argument("--reason", required=True)
+    s.set_defaults(fn=c.cmd_stop)
 
     s = sub.add_parser("thicken")
     s.add_argument("--dir")

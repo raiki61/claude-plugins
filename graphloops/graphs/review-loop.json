@@ -744,6 +744,10 @@
    }
   }
  },
+ "stop": {
+  "node": "converge",
+  "why": "loop.py stop で人が run を止めたとき、この節を『済んだ』と見なし、その下流（report.human_items → report.cold_check → report）だけを走らせる——今の answer stop が converge で止めて報告へ届く筋と同じ道（Argo の exit handler の形）。下流でない待ちの節は止めた印（rd.stopped）になる。止めた周の記録が無いときは rules の on_stop が止めた事実から周の記録を組む"
+ },
  "nodes": {
   "p0.base": {
    "stage": "P0",

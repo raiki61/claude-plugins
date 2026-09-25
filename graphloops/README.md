@@ -18,7 +18,7 @@ engine はループの節名も記録の欄名も持たない。graph が名前�
 
 ## 回すとどうなるか
 
-`init` で盤面（`$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外）を作り、`next` が「いま走らせてよい節」をプロンプトごと JSON で返す。回す側は役の節と任せ先の付いた節（`launch` を持つ節）を `loop.py launch` で engine に起こさせ（engine が子の終了を直接待ち、返答を書き、受け付けまで済ませる。拒まれたら同じ会話に出し直させる。時間の上限は付けない）、自分の節は自分でやり、返答を `done` で返す。**任せ先は OS の sandbox の中で起こす**——作業ディレクトリは本物の写しで、本物の作業ツリー・gitdir の実体・共通の `.git`・他の作業ツリー・盤面には書けない（Agent ツールで起こした任せ先が本物の作業ツリーで `git reset --hard` を打ち、回す側の未コミットの修正を消した事故への直し。2026-09-25）。docker を使うなど柵の中でできない仕事が要る run だけ、人が `init --unfenced-delegates "<理由>"` で柵を外せる（外した事実は盤面と `next` の notes に残る）。その run の任せ先は回す側が Agent ツールの前景で起こし、その返りを終了として待つ（背景の任せ先は待たない）。落ちた試行は `loop.py relaunch` で起こし直す——新しい試行を書いてから engine が起こした前の試行の子を木ごと止め、試行の回数と理由が盤面と trace に残る。engine は返答を型で検査し、記録に写し、扇の被覆（返した答えが項目を全部覆っているか）を数え、機械の節（件数突合・収束判定）を走らせ、次の周を開くか、止めるか、人に聞く。最後の `report` の前に記録を仕上げて検証器を回し、通らなければ `report` を出さない。
+`init` で盤面（`$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外）を作り、`next` が「いま走らせてよい節」をプロンプトごと JSON で返す。回す側は役の節と任せ先の付いた節（`launch` を持つ節）を `loop.py launch` で engine に起こさせ（engine が子の終了を直接待ち、返答を書き、受け付けまで済ませる。拒まれたら同じ会話に出し直させる。時間の上限は付けない）、自分の節は自分でやり、返答を `done` で返す。**任せ先は OS の sandbox の中で起こす**——作業ディレクトリは本物の写しで、本物の作業ツリー・gitdir の実体・共通の `.git`・他の作業ツリー・盤面には書けない（Agent ツールで起こした任せ先が本物の作業ツリーで `git reset --hard` を打ち、回す側の未コミットの修正を消した事故への直し。2026-09-25）。docker を使うなど柵の中でできない仕事が要る run だけ、人が `init --unfenced-delegates "<理由>"` で柵を外せる（外した事実は盤面と `next` の notes に残る）。その run の任せ先は回す側が Agent ツールの前景で起こし、その返りを終了として待つ（背景の任せ先は待たない）。人が途中で止めるなら `loop.py stop --reason` で、止めた理由が記録に残り報告の節だけが走る。落ちた試行は `loop.py relaunch` で起こし直す——新しい試行を書いてから engine が起こした前の試行の子を木ごと止め、試行の回数と理由が盤面と trace に残る。engine は返答を型で検査し、記録に写し、扇の被覆（返した答えが項目を全部覆っているか）を数え、機械の節（件数突合・収束判定）を走らせ、次の周を開くか、止めるか、人に聞く。最後の `report` の前に記録を仕上げて検証器を回し、通らなければ `report` を出さない。
 
 散文の手順書より機械が守れるようになるもの: 依存と波、渡してはいけないもの、役の指定、上限、連続カウント、無言の省略（被覆の突合）、圧縮後の再開（盤面はディスク）、作業ツリーの前後突合（**射程は 2 軸で狭い**——git が映す範囲だけ〈.git/ 配下・ignore 対象・リポジトリ外は見えない〉と、P1 の前後という時点だけ〈判定や修正の最中の書き換えは見ない。実測 2026-09-13: この run の判定の最中に engine が 1 か所書き換わり、盤面は何も止めなかった〉）。**『回す側の降格の禁止』はここに入らない**——機械が縛るのは graphcheck の検査 2（節の run_by が判定の欄に触れない）までで、回す側が段を下げる・役を起こさずに自分で答える・役の返答を書き換える経路を engine は見ていない（BASE の `docs/loop-contract.md` の規律 U も同じ項目を『散文だけのもの』と書いている。この README の次の段落「守れないまま残るもの」が並べる受容と食い違っていた）。
 
@@ -75,7 +75,7 @@ cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest m
 
 1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。
 2. `prompts/<loop>/` に節ごとのプロンプト。散文の手順書の「なぜ」を前書きに残す（指示だけに削ると、規律は守られても判断の質が落ちる）。
-3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_thickness`・`add`（要るものだけ）。
+3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_stop`・`on_thickness`・`add`（要るものだけ）。人が途中で止める口（`loop.py stop`）で報告まで届かせるなら、graph の最上位に `stop`（止めた後に『済んだ』と見なす機械の節。下流に報告の節が要る——graphcheck が見る）を書く。
 4. `tests/simulate.py` に台本を足す（盤面を回す台本の土台はまだそこにしか無い。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。
 5. `commands/<loop>-graph.md` は engine の呼び方だけ。
 

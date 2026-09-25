@@ -36,7 +36,9 @@ def init_record(thickness, decider):
         "corrections": [], "terms": [], "numbers": [],
         "gates": {k: {"status": "not_applicable", "reason": "未実行"} for k in GATES},
         "sampling": {"status": "not_applicable", "reason": "未実行"},
-        "convergence": {"rounds_total": 1, "consecutive_zero": 0, "outcome": "stopped", "stopped_reason": "実行中"},
+        # 結末（outcome）は決まったときだけ書く——初期形に置かない（未決の run を止まった記録として通さない。
+        # 決めるのは stop()・収束の判定と、止まった盤面を畳む仕上げの _settle_outcome。GitHub Checks の conclusion と同じ形）
+        "convergence": {"rounds_total": 1, "consecutive_zero": 0, "outcome": None},
         "process": {"rerolls": 0, "unrefuted_load_bearing": [], "human_items": []},
         "decisions": {"decide_now": [], "poc": [], "human_only": []},
     }
@@ -126,6 +128,13 @@ def no_new_discrepancies(v):
     return n == 0, f"この周の新規相違は {n} 件"
 
 
+def compare_confirms(verdict):
+    """導出の判定のうち、文書との突合が後で確定させる物（突合が来る判定）。突合を走らせる条件（rederiver_compare_due）と、
+    導出の判定を暫定として書く op（rederiver_first_verdict）が同じここを読む——op 側だけ狭めると、突合の前に止まった run で
+    確定していない pass が緑になる（条件側だけ狭めると、突合の来ない暫定が not_run のまま収束を塞ぐ）"""
+    return verdict == "pass"
+
+
 @cond_reads("rd.new_discrepancies", "out.p3.rederiver.verdict")
 def rederiver_compare_due(v):
     """この周の新規相違がゼロ、かつ rederiver が問いは立っていると言った"""
@@ -133,7 +142,7 @@ def rederiver_compare_due(v):
     if not ok:
         return ok, why
     verdict = v("out.p3.rederiver.verdict")
-    return verdict == "pass", f"{why}・rederiver の判定は {verdict}"
+    return compare_confirms(verdict), f"{why}・rederiver の判定は {verdict}"
 
 
 @cond_reads("round", "rd.item_counts")
@@ -241,6 +250,22 @@ def sampling_overturn(b, nid, src, w):
     b.record["sampling"] = {"status": "done", "sampled_ids": [x["id"] for x in item["claims"]], "overturned": len(overturned),
                             "overturned_ids": overturned, "round": b.round}
 
+def rederiver_first_verdict(b, nid, src, w):
+    """暫定か確定かを記録の欄が持つので、仕上げは周をまたぐ履歴から推さない（突合の前に止まった run は、この形のまま
+    not_run として残る）"""
+    was = {"verdict": src.get("verdict"), "reason": src.get("reason")}
+    *up, key = w["to"].split(".")
+    parent = b.record
+    for k in up:
+        parent = parent[k]
+    if not compare_confirms(was["verdict"]):
+        parent[key] = was
+        return
+    parent[key] = {"status": "not_run", "provisional": was, "reason": (
+        f"導出（{nid}）の判定は暫定——文書との突合が確定させるまで緑と数えない（突合が走らないまま止まった run ではこのまま残る）。"
+        f"暫定の判定: {was['verdict']}（{was['reason']}）")}
+
+
 def decisions_from_details(b, nid, src, w):
     """3 分類の見出しを記録へ（writes の op。post_check は out を検査するだけで record を触らない）。"""
     dec = b.record["decisions"]
@@ -251,7 +276,7 @@ def decisions_from_details(b, nid, src, w):
 
 
 WRITE_OPS = {"sampling_overturn": sampling_overturn, "decisions_from_details": decisions_from_details, "clusters_from_ids": clusters_from_ids, "add_claims": add_claims_op, "flag_recheck": flag_recheck,
-             "claim_updates": claim_updates, "cold_reader_round": cold_reader_round}
+             "claim_updates": claim_updates, "cold_reader_round": cold_reader_round, "rederiver_first_verdict": rederiver_first_verdict}
 # research の記録に素材（materials）は無い——どの op も to を素材の名前として読まない（graphcheck が op ごとの名乗りを求める）
 for _op in WRITE_OPS.values():
     _op.writes_material = False
@@ -298,7 +323,8 @@ def gate_failures(b):
     if th in V.GATED_THICKNESS:
         v = g["rederiver"]
         if v.get("status") == "not_applicable" or v.get("verdict") != "pass":
-            fails.append(f"rederiver: {v.get('verdict', '未実行')}")
+            pv = (v.get("provisional") or {}).get("verdict")
+            fails.append(f"rederiver: {v.get('verdict') or (f'突合が確定させていない暫定の {pv}' if pv else '未実行')}")
         cr = g["cold_reader"]
         # 直近 1 周でなく「最後に再設計を求めた周より後に pass が在るか」を見る。直近だけだと、
         # 再設計要求のあとに 1 回 pass が返れば過去の要求が消える（本文を直していなくても消える）。
@@ -821,9 +847,34 @@ def check_record(b, nid=None):
 
 
 # ---------------------------------------------------------------- 仕上げと人の答え
+def _settle_outcome(b):
+    """結末をまだ決めていない記録を、盤面の止まった事実から畳む（畳む場所はここ 1 か所）。止めた口（halted・loop.py stop）が
+    在ればその理由で stopped。盤面が走っている（止める口も収束の判定も通っていない）なら書かない——結末は未決のまま（None）で、
+    検証器が未決として落とす"""
+    conv = b.record["convergence"]
+    if conv.get("outcome") is not None:
+        return
+    h = b.state.get("halted") or b.state.get("stop")
+    if h:
+        conv["outcome"] = "stopped"
+        conv["stopped_reason"] = f"止めた口 {h.get('by')}: {h.get('reason') or '理由の記録なし'}"
+    elif b.state.get("status") == "stopped":
+        conv["outcome"] = "stopped"
+        conv["stopped_reason"] = "盤面は stopped だが、止めた口の記録が無い"
+
+
 def finalize(b):
     rec, th, ls = b.record, b.state["thickness"], b.loop_state
     g = rec["gates"]
+    _settle_outcome(b)
+    # 読了の柵が成立しなかった周は、成立しなかったことを人に見せる（engine の traces() が拾う欄名）。盤面の写しなので途中でも写す
+    rec["process"]["read_through_unchecked"] = b.state.get("read_through_unchecked", [])
+    if rec["convergence"].get("outcome") is None:
+        # 走っている run の途中の仕上げ（loop.py finalize）は、盤面の写し（上の痕跡と engine が写す痕跡）のほかは記録を書き換えない
+        # ——照合前の主張を外す・理由を書く等を走っている記録に当てると、run はその縮んだ記録の上で続く。結末が未決の記録は
+        # 検証器が落とす（finalize は exit 1）
+        return
+    rec["process"]["halted"] = b.state.get("halted") or b.state.get("stop")
     # 止まった事実の正本は record.convergence.outcome（stop() が書き、検証器が読む）。loop_state.outcome は
     # review-loop の rules だけが書く鍵で、ここで読むと止まった run を一度も見分けられなかった
     stopped = rec["convergence"].get("outcome") == "stopped"
@@ -861,8 +912,6 @@ def finalize(b):
         for cl in rec["clusters"]:
             cl["claims_submitted"] = sum(1 for c in rec["claims"] if c.get("cluster") == cl["key"])
         rec["clusters"] = [cl for cl in rec["clusters"] if cl["claims_submitted"] > 0]
-    # 読了の柵が成立しなかった周は、成立しなかったことを人に見せる（engine の traces() が拾う欄名）
-    proc["read_through_unchecked"] = b.state.get("read_through_unchecked", [])
     proc["stale_verdicts"] = [c["id"] for c in rec["claims"] if c.get("recheck")]
     unref = [c["id"] for c in rec["claims"] if c.get("load_bearing") and not c.get("refuted")]
     proc["unrefuted_load_bearing"] = unref
@@ -884,6 +933,18 @@ def finalize(b):
         proc["policy_change"] = ch
     else:
         proc.pop("policy_change", None)
+    # 止まった run で、作る工程より前に止まったので空のままの欄。検証器はこの欄に理由の在る欄だけを、止まった記録に限って空で受ける
+    # （受理集合は広げない——収束を名乗る記録では空を今までどおり落とす）
+    gaps = {}
+    if stopped:
+        why = f"止まった run（{rec['convergence'].get('stopped_reason')}）で、この欄を作る工程より前に止まった——作った物として数えない"
+        empty = {"question": not rec.get("question"), "constraints": not rec["constraints"], "clusters": not rec["clusters"],
+                 "claims": not rec["claims"], "decisions": not any(rec["decisions"].get(x) for x in ("decide_now", "poc", "human_only"))}
+        gaps = {k: why for k, e in empty.items() if e}
+    if gaps:
+        proc["stopped_gaps"] = gaps
+    else:
+        proc.pop("stopped_gaps", None)
 
 
 def on_answer(b, ph, ans):
@@ -913,6 +974,18 @@ def on_unattended(b, ph):
     reason = "無人実行: 諮るべき事態（" + ", ".join(ph["kinds"]) + "）に当たったので保守的に停止。要人間判断は process.human_items"
     stop(b, reason)
     return reason
+
+
+def on_stop(b, info):
+    """人が loop.py stop で止めた（engine の cmd_stop が呼ぶ）。止めた事実と理由を今すぐ記録の convergence と process に書く。
+    報告は止めた後の後始末の節（p5.adapt → report）が出す——止めた時点で欠けている欄は仕上げが stopped_gaps に理由を書く"""
+    stop(b, f"人が止めた（loop.py stop）: {info['reason']}")
+    b.record["process"]["halted"] = info
+    ua = info.get("unanswered")
+    if ua:
+        b.record["process"]["human_items"].append({"round": b.round, "kinds": ua.get("kinds") or [], "asked": ua.get("items") or [],
+                                                   "answer": f"（答えないまま人が止めた: {info['reason']}）"})
+    return None
 
 
 def on_thickness(b, to):

@@ -3841,6 +3841,82 @@ def test_request_entry():
     rm(run.tmp)
 
 
+def test_stop_midround():
+    """**人が途中で止める**（loop.py stop）。人に聞いていない時点でも止められ、止めた理由が記録に残り、報告の節だけが走って
+    報告まで届く。止めた周の記録は、走らなかった R と素材を止めた事実（not_run と理由）で書く。宣言の無い graph は報告を出さずに止まる"""
+    print("途中で止める: 修正案の前で止めて報告まで届く・理由が記録と周の記録に残る・宣言の無い graph は halted")
+    run = Run("stop-mid")
+    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p2.fix_plan" for i in nx["ready"]))
+    r = run.cmd("stop", "--reason", " ")
+    check(r.returncode == 1 and "理由が空" in r.stderr, f"止める: 理由の空は拒む（{r.stderr[-120:]}）")
+    r = run.cmd("stop", "--reason", "検査: 修正案の前で止める")
+    got = json.loads(r.stdout) if r.returncode == 0 else {}
+    st = run.state()
+    check(r.returncode == 0 and got["stopped"]["report"] is True and st["status"] == "stopped" and "halted" not in st,
+          f"止める: 宣言の在る graph では halted にせず報告へ進む（{r.stdout[-200:]}{r.stderr[-200:]}）")
+    rd = st["rounds"][-1]
+    check("p2.fix_plan" in rd["stopped"] and rd["instances"]["p2.fix_plan"]["status"] == "stopped" and "p2.fix_plan" not in rd["skipped"],
+          f"止める: 待ちの節は止めた印（省いた印と別）になる（{sorted(rd['stopped'])[:5]}）")
+    rf = run.round_file(1)
+    check(all(rf["reviews"][k]["status"] == "not_run" and "人が止めた" in rf["reviews"][k]["reason"] for k in ("R1", "R2", "R3", "R4"))
+          and rf["materials"]["fix_closure"]["status"] == "not_run" and "人が止めた" in rf["materials"]["fix_closure"]["reason"],
+          f"止める: 止めた周の記録は、走らなかった R と素材を止めた事実で書く（{ {k: v['status'] for k, v in rf['reviews'].items()} }）")
+    check(rf["units"] and run.record()["process"]["halted"]["reason"] == "検査: 修正案の前で止める",
+          "止める: 止めた時点で記録に理由が入る（報告の節が読む）")
+    f = run.tmp / "late.json"
+    f.write_text("{}", encoding="utf-8")
+    r = run.cmd("done", "--node", "p2.fix_plan", "--output", str(f))
+    check(r.returncode == 1 and "stopped" in r.stderr, f"止める: 止めた節の返答は受け付けない（{r.stderr[-120:]}）")
+    r = run.cmd("stop", "--reason", "二度目")
+    check(r.returncode == 1 and "止める物が無い" in r.stderr, f"止める: 止まった run は二度止めない（{r.stderr[-120:]}）")
+    nx = run.next()
+    check([i["node"] for i in nx["ready"]] == ["report.human_items"], f"止める: 次の next は報告の節だけを出す（{[i['node'] for i in nx['ready']]}）")
+    last = drive(run, "std")
+    proc = run.record()["process"]
+    check(last["status"] == "stopped" and (run.dir / "report.md").is_file() and proc["stop_reason"] == "stop" and proc["outcome"] == "stopped"
+          and any(x["node"] == "p2.fix_plan" for x in proc["stopped_nodes"]) and not any(x["node"] == "p2.fix_plan" for x in proc["skipped"]),
+          f"止める: 報告まで届き、仕上げた記録に止めた口と止めた節が残る（{proc.get('stop_reason')}・{proc.get('outcome')}）")
+    rm(run.tmp)
+
+    run = Run("stop-stale")
+    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p2.fix_plan" for i in nx["ready"]))
+    (run.dir / "rounds").mkdir(exist_ok=True)
+    (run.dir / "rounds" / "round-1.json").write_text('{"stale": true}', encoding="utf-8")
+    r = run.cmd("stop", "--reason", "検査: 負けた試行の残したファイルの上で止める")
+    rf, rec = run.round_file(1), run.record()
+    check(r.returncode == 0 and "stale" not in rf and rf["reviews"] == rec["reviews"]
+          and all(rec["reviews"][k]["status"] == "not_run" for k in ("R1", "R2", "R3", "R4")),
+          f"止める: 残ったファイルを済んだと読まず、盤面から周の記録を組み直す（{r.stderr[-160:]}{sorted(rf)[:4]}）")
+    rm(run.tmp)
+
+    # 2 周目の判定より前に止める: 周の頭で空にした台帳と単位を前の周の姿に戻す（報告は record を読む）。周の記録は前の周まで
+    run = Run("stop-r2")
+    drive(run, "std", stop_at=lambda nx: nx["round"] == 2)
+    prev = run.round_file(1)
+    r = run.cmd("stop", "--reason", "検査: 2 周目の頭で止める")
+    rec = run.record()
+    check(r.returncode == 0 and rec["units"] == prev["units"] and rec["questions"] == prev["questions"]
+          and not (run.dir / "rounds" / "round-2.json").is_file(),
+          f"止める: 2 周目の判定より前なら前の周の単位と台帳を報告に残す（{r.stderr[-160:]}）")
+    rm(run.tmp)
+
+    # 宣言の無い graph（init の版が古い run）: 報告を出さずに止め、そう言う
+    _td, gtmp = parallel.workspace("gl-review-nostop-")
+    for sub in ("prompts", "rules", "graphs"):
+        shutil.copytree(PLUGIN / sub, gtmp / sub)
+    gp = gtmp / "graphs" / "review-loop.json"
+    g = json.loads(gp.read_text(encoding="utf-8"))
+    g.pop("stop")
+    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+    run = Run("stop-nodecl", graph=gp)
+    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p2.fix_plan" for i in nx["ready"]))
+    r = run.cmd("stop", "--reason", "検査: 宣言の無い graph")
+    nx = run.next()
+    check(r.returncode == 0 and "報告の節は出ない" in r.stdout and nx["halted"]["by"] == "stop" and not nx["ready"],
+          f"止める: 宣言の無い graph は halted（by=stop）で後の節を出さない（{r.stdout[-160:]}）")
+    rm(run.tmp)
+
+
 def test_stop_after_round():
     """**N 周目で止める**（init --stop-after-round N）。周の締め（記録・検証器・収束の判定）までは済ませ、次の周を開かない。
     止めたことは盤面（status・halted）と status の出力に出る。人の答えで周を開く口（answer continue）でも同じく止まる"""

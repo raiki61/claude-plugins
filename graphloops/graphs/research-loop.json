@@ -195,6 +195,10 @@
    "軽量": 1
   }
  },
+ "stop": {
+  "node": "converge",
+  "why": "loop.py stop で人が run を止めたとき、この節を『済んだ』と見なし、その下流（p5.adapt → report → reflect）だけを走らせる——今の answer stop が converge で止めて報告へ届く筋と同じ道（Argo の exit handler の形）。下流でない待ちの節は止めた印（rd.stopped）になり、rules の on_stop が記録の convergence に止めた理由を書く"
+ },
  "nodes": {
   "p0.question": {
    "stage": "P0",
@@ -1514,7 +1518,7 @@
    },
    "writes": [
     {
-     "op": "set",
+     "op": "rederiver_first_verdict",
      "to": "gates.rederiver",
      "from": "$",
      "pick": [
@@ -1524,7 +1528,7 @@
     }
    ],
    "outputs": [
-    "gates.rederiver（暫定）"
+    "gates.rederiver（突合が確定させる判定は not_run と暫定の判定 provisional で、突合の来ない判定は確定で）"
    ]
   },
   "p3.rederiver_compare": {
