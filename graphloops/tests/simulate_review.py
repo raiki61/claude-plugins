@@ -89,9 +89,8 @@ def skip(desc, reason):
 
 
 def rm(p):
-    """作業場の掃除。Windows は git の object を読み取り専用で置き、素の rmtree が PermissionError で
-    落ちる（実測: CI の windows-latest）。掃除の失敗で検査本体を落とさない。"""
-    shutil.rmtree(p, ignore_errors=True)
+    """作業場の掃除。消してよいのは一時の置き場より深いパスだけ（外を指したら例外）——正本は parallel.rm"""
+    parallel.rm(p)
 
 
 def sh(cwd, *args):
@@ -859,7 +858,8 @@ def test_launch_delegate_background_lane():
     r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_OUT": str(ans)})
     two = (json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}])[0]
     check(not two.get("ok") and "起こし済み" in (two.get("why") or ""), f"同じ線は 2 度起こさない（{two.get('why')}）")
-    rm(kept.parent)
+    if one.get("kept"):   # 置き場が返った回だけ（返らない回の既定値の親を消さない）
+        rm(kept.parent)
     rm(run.tmp)
 
 
@@ -5882,7 +5882,7 @@ def test_spec_stop_and_changes():
     run = Run("init-die", graph=gtmp / "graphs" / "review-loop.json")
     check(run.init.returncode == 2 and not run.dir.exists(), f"init: rules の入口が die で抜けても置き場を残さない（rc={run.init.returncode} {run.dir.exists()}）")
     rm(run.tmp)
-    shutil.rmtree(gtmp, ignore_errors=True)
+    rm(gtmp)
 
     run = Run("spec-unattended", unattended=True, init_args=("--input", "flow=spec"))
     last = drive(run, "spec")
@@ -5940,7 +5940,7 @@ def test_spec_stop_and_changes():
     check("escalate" in got and "動けない語" in got and "pending_human" not in run.state(),
           f"仕様の道: 周の途中の問いの選択肢に escalate を載せた rules は、問いを立てる時点で落ちる（{got[-160:]}）")
     rm(run.tmp)
-    shutil.rmtree(gtmp, ignore_errors=True)
+    rm(gtmp)
 
     # 固定の検査が拒んだ回は盤面を変えない: 依頼の欄が型崩れのまま承認すると spec.freeze が拒み、patch で直して next すれば進む
     run = Run("spec-freeze-retry", init_args=("--input", "flow=spec"))
@@ -6059,7 +6059,7 @@ def test_spec_default_unchanged():
           "選ばない run: 仕様の道の節は条件外（na）として盤面に残るだけ")
     for r_ in runs.values():
         rm(r_.tmp)
-    shutil.rmtree(gtmp, ignore_errors=True)
+    rm(gtmp)
 
 
 # ---------------------------------------------------------------- 人の方針と人の決定権の関所

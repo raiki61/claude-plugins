@@ -17,6 +17,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -80,9 +81,8 @@ def skip(desc, reason):
 
 
 def rm(p):
-    """作業場の掃除。Windows は git の object を読み取り専用で置き、素の rmtree が PermissionError で
-    落ちる（実測: CI の windows-latest）。掃除の失敗で検査本体を落とさない。"""
-    shutil.rmtree(p, ignore_errors=True)
+    """作業場の掃除。消してよいのは一時の置き場より深いパスだけ（外を指したら例外）——正本は parallel.rm"""
+    parallel.rm(p)
 
 
 
@@ -4375,6 +4375,18 @@ def test_workspace_cleanup():
     r = subprocess.run([PY, "-c", src], capture_output=True, text=True, encoding="utf-8", timeout=120)
     check(r.returncode == 3 and not pathlib.Path(r.stdout.strip()).exists(),
           f"落ちた回（SystemExit）でも消える（exit {r.returncode}: {r.stdout.strip()}）")
+    # 消す口は一時の置き場より深いパスだけを消す——計算した親や既定値のパス（/・ホーム・置き場そのもの）は例外で止める
+    refused = []
+    for bad in ("/", os.path.expanduser("~"), tempfile.gettempdir(), "/nonexistent"):
+        try:
+            parallel.rm(bad)
+        except ValueError:
+            refused.append(bad)
+    _td2, tmp2 = parallel.workspace("gl-ws-rm-")
+    (tmp2 / "sub").mkdir()
+    parallel.rm(tmp2 / "sub")
+    check(len(refused) == 4 and not (tmp2 / "sub").exists(),
+          f"rm は / やホームや一時の置き場そのものを消さずに例外にし、置き場より深い作業場だけを消す（拒んだ {refused}）")
 
 
 
