@@ -46,6 +46,38 @@ def test_sha_ignores_layout_but_not_content():
     assert declared.steps_sha(a) == declared.steps_sha(b) != declared.steps_sha(c)
 
 
+MUT = {"argv": ["runner"], "arms": "arms.json"}
+
+
+@pytest.mark.parametrize("mutation,want", [
+    ({"argv": ["runner"]}, "mutation は"),
+    ({"argv": [], "arms": "arms.json"}, "mutation.argv は"),
+    ({"argv": "runner --x", "arms": "arms.json"}, "mutation.argv は"),
+    ({"argv": ["runner"], "arms": "/abs/arms.json"}, "相対パス"),
+    ({"argv": ["runner"], "arms": "../arms.json"}, "相対パス"),
+    ({"argv": ["runner"], "arms": "missing.json"}, "リポジトリに無い"),
+])
+def test_mutation_section_errors_do_not_disable_the_suite(tmp_path, mutation, want):
+    """mutation の段の書き損じは、その段の誤りとして返し、engine が走らせる suite は読めたまま（sha も変わらない）"""
+    root = repo(tmp_path)
+    (root / "arms.json").write_text("{}", encoding="utf-8")
+    (root / declared.DECL_NAME).write_text(json.dumps({"suite": OK, "mutation": mutation}), encoding="utf-8")
+    d = declared.read(root)
+    assert d["steps"] == OK and d["sha"] == declared.steps_sha(OK) and "mutation" not in d and want in d["mutation_error"]
+
+
+def test_mutation_section_is_read_without_touching_the_suite_sha(tmp_path):
+    root = repo(tmp_path)
+    (root / "arms.json").write_text("{}", encoding="utf-8")
+    (root / declared.DECL_NAME).write_text(json.dumps({"suite": OK, "mutation": MUT}), encoding="utf-8")
+    d = declared.read(root)
+    assert d["mutation"] == MUT and d["sha"] == declared.steps_sha(OK) and "mutation_error" not in d
+    # suite の無い宣言（mutation だけ）は今までどおり読めない——engine が走らせる段が無い
+    assert "最上位は" in declared.parse(json.dumps({"mutation": MUT}))[1]
+    inst = {"launch": {"kind": "engine_run", "steps": OK, "sha": declared.steps_sha(OK)}}
+    assert engine_run_refusal(inst, root) is None   # mutation の段を足し書きしても走っている run の突き合わせは外れない
+
+
 def test_refusal_runs_declared_steps_without_approval(tmp_path):
     """人の承認は要らない——ルートの宣言と一致する語はそのまま走らせてよい"""
     root = repo(tmp_path)

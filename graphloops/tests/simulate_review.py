@@ -3902,6 +3902,19 @@ def test_gates_merge():
     check((run.dir / "report.md").is_file() and "gates_deferred" in hi and "gates=merge 無しの run で回し" in hi,
           "止まった run も報告まで届き、報告の冒頭の指示書が止めた理由と残る義務（合流した版で関門を撃つ）を渡す")
     rm(run.tmp)
+    # ゲートを触った差分でも P1 のゲートの検算は撃たず、素材は理由つきの not_applicable（not_run だと検証器が止め、gates_deferred に届かない）
+    run = Run("gmerge-gates", inputs=["gates=merge"])
+    seen = set()
+    last = drive(run, "gates", hook=hook)
+    proc = run.record()["process"]
+    ge = run.record()["materials"].get("gate_efficacy") or {}
+    check("p1.gate_efficacy" not in seen and last["status"] == "stopped" and proc.get("stop_reason") == "gates_deferred",
+          f"ゲートを触った差分でも p1.gate_efficacy の instance は出ず、gates_deferred で止まる（{last['status']}・{proc.get('stop_reason')}）")
+    check(ge.get("status") == "not_applicable" and "gates=merge" in ge.get("reason", "") and "P1 のゲートの検算" in ge.get("reason", ""),
+          f"撃たなかった素材は合流でまとめる理由と残る義務を運ぶ not_applicable（{ge}）")
+    hi = next((run.dir / "prompts").glob("r*/report.human_items.md")).read_text(encoding="utf-8")
+    check("P1 のゲートの検算" in hi, "報告の冒頭の指示書は、合流した run に移った P1 のゲートの検算も残る義務に挙げさせる")
+    rm(run.tmp)
     for kv in ("gates=all", "flow=other"):
         run = Run(f"gbad-{kv.split('=')[0]}", inputs=[kv])
         check(run.init.returncode == 1 and "知らない値" in run.init.stderr and not run.dir.exists(),
@@ -3911,6 +3924,25 @@ def test_gates_merge():
     check(run.init.returncode == 1 and "綴り違い" in run.init.stderr and not run.dir.exists(),
           f"鍵の綴り違い（gate=merge）は既定に倒さず、init が盤面を作る前に拒む（{run.init.stderr[-160:]}）")
     rm(run.tmp)
+    # 近くない綴りの鍵は拒まず（受け付けていた呼びを壊さない）、効かないことを init の返り・stderr・盤面の notes に出す
+    for kv in ("GATES=merge", "gates_mode=merge"):
+        run = Run(f"gfar-{kv.split('=')[0]}", inputs=[kv, "gates=merge"])
+        key = kv.split("=")[0]
+        notes = run.state().get("notes") or [] if run.init.returncode == 0 else []
+        out = json.loads(run.init.stdout) if run.init.returncode == 0 else {}
+        check(run.init.returncode == 0 and f"--input {key}=" in run.init.stderr and "効かない" in run.init.stderr
+              and any(key in n for n in notes) and any(key in n for n in out.get("notes") or []),
+              f"宣言に無い鍵 {key} は受け付け、効かないことを stderr・init の返り・盤面の notes に出す（rc={run.init.returncode}・{run.init.stderr[-160:]}）")
+        check(not any("gates=" in n for n in notes), f"宣言済みの鍵（gates）は知らせに載らない（{notes}）")
+        rm(run.tmp)
+    # 選べる値の正本は graph の inputs の values、意味は rules の定数——2 つが割れると、engine が受けた値を rules が既定に倒す
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    gp = PLUGIN / "graphs" / "review-loop.json"
+    gj = json.loads(gp.read_text(encoding="utf-8"))
+    rules = load_rules(gp, gj)
+    check(gj["inputs"]["gates"]["values"] == [rules.GATES_MERGE] and gj["inputs"]["flow"]["values"] == [rules.SPEC_FLOW],
+          f"graph の choice の values と rules の定数が一致する（{gj['inputs']['gates']['values']}・{gj['inputs']['flow']['values']}）")
 
 
 def test_launch_wait_wording():
@@ -4379,6 +4411,44 @@ def test_lane_rules():
     check(any("patch が当たらない" in x["key"] for x in rows), f"合流: 当たらなかった patch は次の周の判定にも渡る（{[x['key'] for x in rows]}）")
     r = rules.lane_merge(b, "p3.lane_merge")
     check(r["ok"] and b.loop_state["lane_merge"]["merged"] == [], "合流: 1 度重ねた線は重ね直さない")
+    # 止めた線（回す側が loop.py patch で abandoned と理由 why を書く）: 後から届いた結果を重ねず・判定へ渡さず・要約は abandoned。
+    # patch は rules を通らないので、形の崩れた行（丸ごと書き換えて round が消えた・why が無い）は読まずに判定へ 1 度だけ渡す
+    (board / "lanes" / "late.json").write_text(json.dumps(good("c" * 40, handled=added, patch=str(board / "lanes" / "ok.patch"))), encoding="utf-8")
+    b.loop_state = {"lanes": {"c" * 40: {**lane("late"), "rev": "c" * 40, "state": "abandoned", "why": "回す側が止めた（検査用）"},
+                              "b" * 40: {"state": "abandoned", "why": "丸ごと書いた（検査用）"},
+                              "a" * 40: {**lane("x"), "state": "abandoned"}}}
+    r = rules.lane_merge(b, "p3.lane_merge")
+    check(r["ok"] and b.loop_state["lane_merge"]["merged"] == [] and b.loop_state["lanes"]["c" * 40]["state"] == "abandoned",
+          f"止めた線: 後から届いた結果も重ねない（{b.loop_state['lane_merge']}）")
+    rows = rules._lane_faces(b)
+    check(sorted(x["key"][:13] for x in rows) == sorted(["線 @" + "a" * 10, "線 @" + "b" * 10]) and all("読めない" in x["key"] for x in rows),
+          f"止めた線: 止めた線は判定へ渡さず、形の崩れた行（欄が無い・why が無い）だけを渡す（{[x['key'] for x in rows]}）")
+    check(rules._lane_faces(b) == [], "止めた線: 形の崩れた行は 1 度だけ渡す")
+    s = {x["rev"]: x for x in rules.lane_summary(b)}
+    check(s["c" * 40]["state"] == "abandoned" and s["c" * 40]["why"] and s["c" * 40]["arms"] is None
+          and s["a" * 40]["state"] == s["b" * 40]["state"] == "unreadable",
+          f"止めた線: 要約は running と書かず abandoned と理由を、崩れた行は unreadable を書く（{ {k[:4]: v['state'] for k, v in s.items()} }）")
+    # 撃てた腕 0 本: 宣言に変異の実行器が在るときだけ判定へ渡す（見逃し 0 本と区別する）。要約には本数を書く
+    (board / "lanes" / "zero.json").write_text(json.dumps(good(head, arms=[], handled=[])), encoding="utf-8")
+    for declared_mut, want in ((True, 1), (False, 0)):
+        b.loop_state = {"lanes": {head: lane("zero")}, "mutation_decl": {"declared": declared_mut, "text": "検査用"}}
+        rows = rules._lane_faces(b)
+        check(len(rows) == want and all("0 本" in x["key"] for x in rows),
+              f"撃てた腕 0 本: 宣言に実行器が{'在る' if declared_mut else '無い'}なら判定へ {want} 行（{[x['key'] for x in rows]}）")
+    check(rules.lane_summary(b)[0]["arms"] == 0, "撃てた腕 0 本: 要約に撃てた腕の本数 0 を書く（見逃し 0 本と読み分ける）")
+    # 変異の実行器の名指し: 宣言の mutation の段が在ればその値、無い・読めなければ対象リポジトリの側を探させる
+    (tmp / "arms.json").write_text("{}", encoding="utf-8")
+    for decl, want_declared, want in (
+            ({"suite": [{"name": "s", "argv": ["x"]}], "mutation": {"argv": ["runner-gl"], "arms": "arms.json"}}, True, "runner-gl"),
+            ({"suite": [{"name": "s", "argv": ["x"]}], "mutation": {"argv": ["runner-gl"], "arms": "no-such.json"}}, False, "読めない"),
+            (None, False, "mutation の段が無い")):
+        (tmp / ".review-checks.json").unlink(missing_ok=True)
+        if decl:
+            (tmp / ".review-checks.json").write_text(json.dumps(decl), encoding="utf-8")
+        rules.mutation_decl(b)
+        md = b.loop_state["mutation_decl"]
+        check(md["declared"] is want_declared and want in md["text"], f"実行器の名指し: {want}（{md}）")
+    (tmp / "arms.json").unlink()
     # 最後の関門: この周の最終の版を撃ち、見逃しが全部等価で、撃った後に作業ツリーが変わっていないときだけ通る
     subprocess.run(["git", "add", "-A"], cwd=tmp, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "y"], cwd=tmp, capture_output=True)
@@ -5307,7 +5377,11 @@ def test_cond_truth_tables():
         "gate_efficacy_due": [(c(base={"touches_gates": True}), True), (c(base={"touches_gates": False}), False),
                               (c(2, base={"touches_gates": True}), False), (c(2, base={"touches_gates": False}, fix={"gates_changed": True}), False),
                               (c(entry=True, base={"touches_gates": True}), False), (c(entry=True, loop={"escalated": {"round": 1}}), True),
-                              (c(), "die"), (c(entry=True), False), (c(base={"touches_gates": 1}), True)],
+                              (c(), "die"), (c(entry=True), False), (c(base={"touches_gates": 1}), True),
+                              # 合流でまとめる run（gates=merge）は、ゲートを触った初回の周・前の周の P3 が触った周・昇格した周のどれでも撃たない
+                              (c(base={"touches_gates": True}, loop={"gates": "merge"}), False),
+                              (c(2, loop={**touched, "gates": "merge"}), False),
+                              (c(entry=True, loop={"escalated": {"round": 1}, "gates": "merge"}), False)],
         "test_double_fidelity_due": [(c(base={"touches_external_seams": True}), True), (c(base={"touches_external_seams": False}), False),
                                      (c(2, base={"touches_external_seams": False}, fix={"seams_changed": True}), False),
                                      (c(entry=True, base={"touches_external_seams": True}), False),

@@ -60,6 +60,7 @@ def on_init(b, args):
         b.loop_state["flow"] = inputs["flow"]
     if inputs.get("gates") is not None:
         b.loop_state["gates"] = inputs["gates"]
+    mutation_decl(b)
     # 人の方針の文書: init の時点の sha を固定し、関所（human_gate）が変わっていないかを照らす
     b.record["process"]["policy"] = {**policy_input.resolve(b, git, Reject), "amendments": []}
 
@@ -242,6 +243,7 @@ def on_new_round(b):
     ls["prev_units"] = rec["units"]
     ls["prev_scalars"] = rec.get("scalars", {})
     rec["round"] = b.round
+    mutation_decl(b)   # 周の修正が宣言を書き換えた周も、次の周の役は今の宣言を読む
     rec["materials"] = {}
     rec["units"] = []
     rec["scalars"] = {}
@@ -667,10 +669,15 @@ def rejudge_exhausted(v):
 # 版ごとに読む。途中の版で撃った結果は、その版の結果でしかない——収束の前に最終のコードで撃ち直す（p4.final_gates）
 LANE_HANDLED = ("tests_added", "equivalent", "needs_test", "defect")   # 見逃しへの答え。schema（$defs.lane_reply）の enum と同じ語
 LANE_OPEN = ("needs_test", "defect")   # 線の中で閉じなかった答え——次の周の判定へ渡す（needs_test は線がテストを書けなかった物）
+# 線の台帳の状態。abandoned は回す側が止めた線（Temporal の Cancelled と同じく running と別の閉じた状態）——engine は線を追わないので、
+# 止めた回す側が loop.py patch で state と理由 why を書く。止めた後に届いた結果は重ねない
+LANE_STATES = ("running", "merged", "conflict", "unusable", "abandoned")
+LANE_ROW = ("round", "result", "patch", "state")
 # **変異の検算を合流でまとめる run**（init --input gates=merge）。並べた run がそれぞれ撃つと、合流した版での撃ち直しと
-# 負荷を食い合う（実測 2026-09-25: 4 本が各自撃って負荷 99）。選んだ run は線（p3.delta_gates）も最後の関門（p4.final_gates）も
-# 条件外で閉じ、収束の手前で止まる（converge の gates_deferred）——関門は消さず、合流した版を gates=merge 無しの run で回して撃つ
-# （GitHub の merge queue と同じ形: 重い検査はまとめた版に対して走らせる）。P1 のゲートの検算（p1.gate_efficacy）はこの選択の外
+# 負荷を食い合う（実測 2026-09-25: 4 本が各自撃って負荷 99）。選んだ run は P1 のゲートの検算（p1.gate_efficacy）も線
+# （p3.delta_gates）も最後の関門（p4.final_gates）も条件外で閉じ、収束の手前で止まる（converge の gates_deferred）——検算は消さず、
+# 合流した版を gates=merge 無しの run で回して撃つ（GitHub の merge queue と同じ形: 重い検査はまとめた版に対して走らせる）。
+# P1 の検算も外すのは人の決定（2026-09-25『変異テストは並べた run の中では撃たず、合流した版でまとめて撃つ』）
 GATES_MERGE = "merge"   # inputs.gates の値。これ以外の値は init で拒む（check_inputs）
 GATES_MERGE_WHY = "変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
 
@@ -712,6 +719,27 @@ def gates_cut(b, nid):
     return {"ok": True, "rev": snap, "files": files}
 
 
+MUTATION_UNDECLARED = ("対象リポジトリの宣言（{decl}）に mutation の段が無い——在りかと呼び方は対象リポジトリの側（README・CONTRIBUTING・"
+                       "CI 定義・対象リポジトリの REVIEW.md など）が名指しする物を探せ（このプロンプトは道具の名前と引数の綴りを持たない）")
+
+
+def mutation_decl(b):
+    """変異の実行器と腕の一覧の名指しを、役に貼る 1 段落にして loop.mutation_decl に置く（init と周の頭）。宣言の mutation の段が在れば
+    その値、無い・読めなければ対象リポジトリの側を探させる散文（宣言の無いリポジトリの道）。3 本の指示書はこの穴で受ける"""
+    root = _repo_root()
+    d = declared_checks(root) if root else None
+    m = (d or {}).get("mutation")
+    if m:
+        text = (f"対象リポジトリの宣言 {DECL_NAME} の mutation の段——実行器の呼び方の頭 {json.dumps(m['argv'], ensure_ascii=False)}・"
+                f"腕の一覧 {m['arms']}（口の綴りは実行器の --help が正本）")
+    else:
+        text = MUTATION_UNDECLARED.format(decl=DECL_NAME)
+        err = (d or {}).get("mutation_error") or (d or {}).get("error")
+        if err:
+            text += f"（宣言は在るが mutation の段を読めない: {err}）"
+    b.loop_state["mutation_decl"] = {"declared": bool(m), "text": text}
+
+
 def _lane_schema(b):
     """線の結果の型——graph の p3.delta_gates の result_schema（$defs.lane_reply を展開した物）。受領の型（schema）と別に持つ:
     受領は線を立てた事実で、結果は線が後で置き場に書く物"""
@@ -733,7 +761,7 @@ def gates_cut_nonempty(v):
 
 @cond_reads("loop.gates")
 def gates_merge(v):
-    """変異の検算を合流でまとめる run か（条件の部品。lane_due・final_gate_due が読む）"""
+    """変異の検算を合流でまとめる run か（条件の部品。lane_due・final_gate_due・gate_efficacy_due が読む）"""
     got = v("loop.gates", None)
     return got == GATES_MERGE, (GATES_MERGE_WHY if got == GATES_MERGE else "変異の検算をこの run で撃つ（init --input gates=merge が無い）")
 
@@ -806,13 +834,39 @@ def _route_lane_defects(b, rows):
     return True
 
 
+def _lanes(b):
+    """線の台帳を読む口 ——（[(版, 行)] 周の順, [(版, 誤り)]）。台帳を読む所は全部ここを通る。止めた線は回す側が loop.py patch で
+    書く（rules を通らない）ので、_requests と同じく読む側で行の形を当て、崩れた行は読まずに誤りとして返す"""
+    good, bad = [], []
+    for rev, lane in (b.loop_state.get("lanes") or {}).items():
+        row = lane if isinstance(lane, dict) else {}
+        miss = [k for k in LANE_ROW if k not in row]
+        if miss:
+            bad.append((rev, f"欄 {miss} が無い"))
+        elif not isinstance(row["round"], int) or row["state"] not in LANE_STATES:
+            bad.append((rev, f"round が整数でないか、state {row['state']!r} が {LANE_STATES} に無い"))
+        elif row["state"] == "abandoned" and blank(row.get("why"), 4):
+            bad.append((rev, "止めた線（abandoned）に理由 why が無い"))
+        else:
+            good.append((rev, row))
+    return sorted(good, key=lambda kv: kv[1]["round"]), bad
+
+
 def _lane_faces(b):
     """線の結果のうち、まだ判定へ渡していない物を宣言の穴の行にする（{key, from, how}）。渡した線に印を付ける（1 度だけ）。
     線の中で閉じなかった見逃し（needs_test・defect）・読めない／型に合わない結果・合流で当たらなかった patch が行になる。
     走っている線は渡さない（次の周の頭でもう一度見る）"""
     rows = []
-    for rev, lane in sorted((b.loop_state.get("lanes") or {}).items(), key=lambda kv: kv[1]["round"]):
-        if lane.get("delivered"):
+    good, bad = _lanes(b)
+    told = b.loop_state.setdefault("lanes_bad_delivered", [])
+    for rev, why in bad:
+        if rev not in told:
+            told.append(rev)
+            rows.append({"key": f"線 @{str(rev)[:12]}: 台帳の行が読めない", "from": "p3.delta_gates",
+                         "how": f"{why}——線の台帳（loop.lanes）の手当て（loop.py patch）を確かめよ。この行は合流も要約もしない"})
+    declared_mut = (b.loop_state.get("mutation_decl") or {}).get("declared")
+    for rev, lane in good:
+        if lane.get("delivered") or lane["state"] == "abandoned":
             continue
         tag = f"線 r{lane['round']}@{rev[:12]}"
         if lane["state"] == "conflict":
@@ -827,6 +881,11 @@ def _lane_faces(b):
         if errs:
             rows.append({"key": f"{tag}: 結果が使えない", "from": "p3.delta_gates", "how": "; ".join(errs)[:600]})
             continue
+        if not out.get("arms") and declared_mut:
+            # 撃てた腕 0 本を見逃し 0 本と同じ形で運ばない。宣言の無いリポジトリの 0 本は記録（process.lanes の arms）にだけ残す
+            rows.append({"key": f"{tag}: 撃てた腕が 0 本", "from": "p3.delta_gates",
+                         "how": "対象リポジトリの宣言に変異の実行器が在るのに、線は腕を 1 本も撃っていない——見逃し 0 本とは違う。"
+                                "最後の関門が最終の版で撃ち直す"})
         rows += [{"key": f"{tag}: {r['key']}", "from": "p3.delta_gates", "how": f"{r['handled']}: {r['how']}",
                   **({LANE_DEFECT: True} if r["handled"] == "defect" else {})}
                  for r in out["handled"] if r["handled"] in LANE_OPEN]
@@ -839,8 +898,8 @@ def lane_merge(b, nid):
     当たらない patch は重ねず、p3.fix に見せ（loop.lane_merge.conflicts）、次の周の判定へも渡す。結果の使えない線は重ねない"""
     ls = b.loop_state
     merged, conflicts = [], []
-    for rev, lane in sorted((ls.get("lanes") or {}).items(), key=lambda kv: kv[1]["round"]):
-        if lane["state"] != "running":
+    for rev, lane in _lanes(b)[0]:
+        if lane["state"] != "running":   # 止めた線（abandoned）に後から届いた結果も重ねない
             continue
         out, errs = _lane_result(b, lane)
         if out is None and not errs:
@@ -867,12 +926,16 @@ def lane_merge(b, nid):
 def lane_summary(b):
     """線の台帳の要約（記録の process.lanes へ）——止めた run の報告からも、走り終えていない線と閉じなかった見逃しが見えるように"""
     rows = []
-    for rev, lane in sorted((b.loop_state.get("lanes") or {}).items(), key=lambda kv: kv[1]["round"]):
-        out, errs = _lane_result(b, lane)
-        rows.append({"round": lane["round"], "rev": rev, "state": lane["state"] if (out or errs) else "running",
-                     **({"arms": len(out.get("arms") or [])} if out and not errs else {}),   # 0 本は『撃っていない』（見逃し 0 本と読ませない）
+    good, bad = _lanes(b)
+    for rev, lane in good:
+        out, errs = (None, []) if lane["state"] == "abandoned" else _lane_result(b, lane)
+        # arms＝撃てた腕の本数（結果がまだ無い・使えない・止めた線は None）——0 本と見逃し 0 本を分ける
+        rows.append({"round": lane["round"], "rev": rev, "state": lane["state"],
+                     "arms": len(out.get("arms") or []) if out and not errs else None,
                      "open": [r["key"] for r in (out or {}).get("handled") or [] if r["handled"] in LANE_OPEN] if not errs else [],
+                     **({"why": lane["why"]} if lane["state"] == "abandoned" else {}),
                      **({"errors": errs[:3]} if errs else {})})
+    rows += [{"rev": rev, "state": "unreadable", "errors": [why]} for rev, why in bad]
     return rows
 
 
@@ -1049,11 +1112,17 @@ def _deep(v, touched, when, extra=None):
     return _because(ok, when, f"round={v('round')}・{twhy}・{prev_fix_touched(v)[1]}")
 
 
-def _deep_due(name, touched, when, noun):
+def _deep_due(name, touched, when, noun, merge_off=False):
     """P1 の深さの節（手順の追跡・ゲートの検算・代役の忠実さ）の条件の工場: 判定から入る run の周でなければ _deep で決め、
-    偽でも昇格した周（loop.escalated）なら起こす。入口の周は外すが、昇格した周は入口より勝つ。3 節の分岐の正本はここ 1 つ"""
-    @cond_reads(*dict.fromkeys((*request_entry.reads, *_TOUCH, *touched.reads, "loop.escalated")))
+    偽でも昇格した周（loop.escalated）なら起こす。入口の周は外すが、昇格した周は入口より勝つ。3 節の分岐の正本はここ 1 つ。
+    merge_off の節（変異の実行器を撃つ節）は、合流でまとめる run（gates_merge）なら入口・昇格より先に外す——人の決定が昇格にも勝つ"""
+    extra = gates_merge.reads if merge_off else ()
+    @cond_reads(*dict.fromkeys((*extra, *request_entry.reads, *_TOUCH, *touched.reads, "loop.escalated")))
     def fn(v):
+        if merge_off:
+            merged, mwhy = gates_merge(v)
+            if merged:
+                return False, mwhy
         entry, why = request_entry(v)
         if not entry:
             ok, rwhy = _deep(v, touched, when)
@@ -1069,7 +1138,8 @@ def _deep_due(name, touched, when, noun):
 procedure_trace_due = _deep_due("procedure_trace_due", touches_procedures,
                                 "差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周", "手順の追跡")
 gate_efficacy_due = _deep_due("gate_efficacy_due", gates_touched,
-                              "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周", "ゲートの検算")
+                              "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周", "ゲートの検算",
+                              merge_off=True)
 test_double_fidelity_due = _deep_due("test_double_fidelity_due", seams_touched,
                                      "差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周", "代役の忠実さの確かめ")
 
@@ -1173,8 +1243,8 @@ def r2_premise_invalid(v):
 LOOP_KEYS = frozenset({
     "block_counts", "changed_files", "changed_files_file", "closed_keys", "cold_check", "coverage_after", "defer_ledger",
     "diff_file", "diff_lines", "diff_lines_by_round", "diff_stat", "drift_notes", "engine_zero", "escalated", "facts_to_add",
-    "final_gate_empty_ok", "flow", "gates", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "last_material", "last_review", "last_seen",
-    "ledger_changed", "lines_at_r1", "lines_ratio", "open_units", "outcome", "prev_blocks", "prev_declared_faces",
+    "final_gate_empty_ok", "flow", "gates", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "lanes_bad_delivered", "last_material", "last_review", "last_seen",
+    "ledger_changed", "lines_at_r1", "lines_ratio", "mutation_decl", "open_units", "outcome", "prev_blocks", "prev_declared_faces",
     "prev_fix_files", "prev_one_shot", "prev_questions", "prev_rejudge", "prev_scalars", "prev_units", "purpose_known",
     "purpose_review_stale", "purpose_unusable", "r1_refire", "r2_refire", "r2_refire_forced", "rejudge_requested",
     "rejudge_rounds", "request_fixed_at", "request_wheres", "retaken_for_reviews", "reviewed_revision", "spec_changed",
@@ -1648,6 +1718,12 @@ def fill_materials(b):
             ap_ok, ap_why = b.cond(applies) if applies is not None else (True, "")
             if not ap_ok:
                 mats[mat] = {"status": "not_applicable", "reason": f"{n.get('na_reason', '条件に当たらない')}（{ap_why}）"}
+            elif state == "na" and n.get("cond") == "gate_efficacy_due" and b.loop_state.get("gates") == GATES_MERGE:
+                # 撃たなかった事実・理由・残る義務を見せる。not_run（阻害）にすると検証器が止め、gates_deferred に届かず上限まで回る。
+                # 同じ run の線と最後の関門（条件外で閉じる）と同じ扱いで、義務は converge の gates_deferred と報告が運ぶ
+                mats[mat] = {"status": "not_applicable",
+                             "reason": f"{GATES_MERGE_WHY}——差分はゲートに触れているが、この run では撃たない。"
+                                       "合流した版を gates=merge 無しの run で回し、そこの P1 のゲートの検算が撃つ"}
             elif mat in last_mat and not V.STATUS[last_mat[mat]["status"]].carryable:
                 # **持ち越せるかは「前の周の値」が決める（検証器の表 STATUS.carryable が正本）**。以前は last_seen
                 # ＝「最後に found/clean だった周」という代理を先に見ていたので、r1=clean・r2=awaiting_human・

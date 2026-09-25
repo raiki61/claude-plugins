@@ -4214,8 +4214,8 @@
    "title": "線の見逃しは 1 度だけ判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "        if lane.get(\"delivered\"):\n            continue",
-   "new": "        if False:\n            continue",
+   "old": "        if lane.get(\"delivered\") or lane[\"state\"] == \"abandoned\":\n            continue",
+   "new": "        if lane[\"state\"] == \"abandoned\":\n            continue",
    "expect": "判定への渡し方: 同じ線の見逃しは 1 度だけ渡す",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -5337,7 +5337,7 @@
    "title": "gates_deferred の run の報告に残る義務を書かせる",
    "file": "graphloops/prompts/review-loop/report.human_items.md",
    "suite": "graphloops",
-   "old": "「合流した版を gates=merge 無しの run で回し、最後の関門（最終のコードで変異の検算を撃ち直す）を通す——収束と言えるのはその run だけ」",
+   "old": "「合流した版を gates=merge 無しの run で回し、最後の関門（最終のコードで変異の検算を撃ち直す）を通す——収束と言えるのはその run だけ。差分がゲートに触れていたなら、P1 のゲートの検算もその run で撃つ」",
    "new": "「」",
    "expect": "止まった run も報告まで届き、報告の冒頭の指示書が",
    "tests": {
@@ -5747,8 +5747,8 @@
    "title": "0 本の線は要約で arms 0",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "                     **({\"arms\": len(out.get(\"arms\") or [])} if out and not errs else {}),",
-   "new": "",
+   "old": "                     \"arms\": len(out.get(\"arms\") or []) if out and not errs else None,",
+   "new": "                     \"arms\": None,",
    "expect": "線の要約: 0 本の線は arms 0",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -5767,6 +5767,48 @@
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_end_to_end"
+    ]
+   }
+  },
+  {
+   "id": "LN20",
+   "title": "止めた線（abandoned）を判定へ渡さない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if lane.get(\"delivered\") or lane[\"state\"] == \"abandoned\":",
+   "new": "        if lane.get(\"delivered\"):",
+   "expect": "止めた線: 止めた線は判定へ渡さず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "LN21",
+   "title": "理由の無い止めた線を形の崩れた行として読む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        elif row[\"state\"] == \"abandoned\" and blank(row.get(\"why\"), 4):",
+   "new": "        elif False:",
+   "expect": "止めた線: 止めた線は判定へ渡さず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "LN22",
+   "title": "宣言に実行器が在るのに撃てた腕 0 本の線を判定へ渡す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if not out.get(\"arms\") and declared_mut:",
+   "new": "        if False:",
+   "expect": "撃てた腕 0 本: 宣言に実行器が",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
     ]
    }
   },
@@ -5824,6 +5866,66 @@
    "old": "——AI は自分から起動せず、実装完了時",
    "new": "——実装完了時",
    "expect": "重い工程のコマンドの description が、起動は人の指示のときだけと言う"
+  },
+  {
+   "id": "GM1",
+   "title": "gates=merge の run では P1 のゲートの検算も撃たない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if merge_off:\n            merged, mwhy = gates_merge(v)",
+   "new": "        if False:\n            merged, mwhy = gates_merge(v)",
+   "expect": "ゲートを触った差分でも p1.gate_efficacy の instance は出ず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "GM2",
+   "title": "合流に回した P1 のゲートの検算を理由つきの not_applicable で残す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            elif state == \"na\" and n.get(\"cond\") == \"gate_efficacy_due\" and b.loop_state.get(\"gates\") == GATES_MERGE:",
+   "new": "            elif False:",
+   "expect": "撃たなかった素材は合流でまとめる理由と残る義務",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "IN1",
+   "title": "graph に宣言の無い --input の鍵を効かないと知らせる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        print(f\"注意: {n}\", file=sys.stderr)",
+   "new": "        pass",
+   "expect": "宣言に無い鍵",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "FN1",
+   "title": "道具名の柵が宣言の --with の語を禁止語に導く",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "            elif prev == \"--with\":",
+   "new": "            elif False:",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "FN2",
+   "title": "道具名の柵が名前と引数をつないだ綴りを拾う",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "END = rf\"(?![{A}]|-(?!-))\"",
+   "new": "END = rf\"(?![{A}-])\"",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
   }
  ],
  "dropped": [

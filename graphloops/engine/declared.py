@@ -1,5 +1,8 @@
 """対象リポジトリが宣言した走らせる語（ルートの .review-checks.json）。
 
+任意の mutation の段は変異の実行器と腕の一覧の名指しで、engine は走らせない——役（ゲートの検算・変異の検算の線・最後の関門）が
+読む（rules の mutation_decl が貼る）。engine が撃つ段は、撃って確かめられる run に残した。
+
 **人の承認は要らない。** engine は宣言の語を、走らせる直前に作業ツリーのルートの宣言を読み直して一致を確かめてから、shell を
 通さずに走らせる（engine/commands.py の engine_run_refusal）。以前は direnv の `direnv allow` の形で、人が宣言の中身の sha256 を
 `loop.py allow-checks` で承認するまで走らせなかった。人が寝ている間の run がそこで人を待って止まり、人はその手間を不要と
@@ -24,8 +27,10 @@ import pathlib
 
 
 DECL_NAME = ".review-checks.json"
-DECL_KEYS = ("suite",)   # 宣言の最上位の鍵。知らない鍵は拒む（効かない鍵を書いても黙って無視しない）
+DECL_KEYS = ("suite",)   # 宣言の最上位の必須の鍵。知らない鍵は拒む（効かない鍵を書いても黙って無視しない）
+OPTIONAL_KEYS = ("mutation",)   # 任意の鍵。engine は走らせず、役が読む名指し（変異の実行器と腕の一覧）
 STEP_KEYS = ("name", "argv")
+MUTATION_KEYS = ("argv", "arms")   # argv＝実行器の呼び方の頭（口の旗は付けない——口の綴りは実行器の --help）・arms＝腕の一覧のパス
 
 
 def canonical(steps):
@@ -43,8 +48,9 @@ def parse(text):
         d = json.loads(text)
     except ValueError as e:
         return None, f"JSON として読めない（{e}）"
-    if not isinstance(d, dict) or set(d) != set(DECL_KEYS):
-        return None, f"最上位は {{{', '.join(DECL_KEYS)}}} だけ（在る鍵: {sorted(d) if isinstance(d, dict) else type(d).__name__}）"
+    if not isinstance(d, dict) or not set(DECL_KEYS) <= set(d) <= set(DECL_KEYS + OPTIONAL_KEYS):
+        return None, (f"最上位は {{{', '.join(DECL_KEYS)}}}（必須）と {{{', '.join(OPTIONAL_KEYS)}}}（任意）だけ"
+                      f"（在る鍵: {sorted(d) if isinstance(d, dict) else type(d).__name__}）")
     suite = d["suite"]
     if not isinstance(suite, list) or not suite:
         return None, "suite は 1 段以上の配列"
@@ -61,8 +67,26 @@ def parse(text):
     return [{"name": s["name"], "argv": list(s["argv"])} for s in suite], None
 
 
+def parse_mutation(m, root=None):
+    """宣言の mutation の段を読む ——（{argv, arms}, 誤り）。段が無ければ（None, None）。root を渡せば腕の一覧が在るかも見る。
+    **誤りは suite を止めない**——engine が走らせない段の書き損じで、走らせる段（テスト一式）まで読めなくしない"""
+    if m is None:
+        return None, None
+    if not isinstance(m, dict) or set(m) != set(MUTATION_KEYS):
+        return None, f"mutation は {{{', '.join(MUTATION_KEYS)}}} だけ（在る鍵: {sorted(m) if isinstance(m, dict) else type(m).__name__}）"
+    if not isinstance(m["argv"], list) or not m["argv"] or not all(isinstance(a, str) and a for a in m["argv"]):
+        return None, "mutation.argv は 1 語以上の空でない文字列の配列（shell を通さない実行器の呼び方の頭）"
+    arms = m["arms"]
+    if not isinstance(arms, str) or not arms or pathlib.PurePosixPath(arms).is_absolute() or ".." in pathlib.PurePosixPath(arms).parts:
+        return None, "mutation.arms はリポジトリのルートからの相対パス（空・絶対・.. を含むパスは読まない）"
+    if root is not None and not (pathlib.Path(root) / arms).is_file():
+        return None, f"mutation.arms の {arms} がリポジトリに無い"
+    return {"argv": list(m["argv"]), "arms": arms}, None
+
+
 def read(root):
-    """ルートの宣言を読む。無ければ None、在れば {steps, sha} か {error}"""
+    """ルートの宣言を読む。無ければ None、在れば {steps, sha[, mutation | mutation_error]} か {error}。
+    sha は suite の段だけで結ぶ——mutation の段を足し書きしても、走っている run の engine_run の突き合わせは外れない"""
     p = pathlib.Path(root) / DECL_NAME
     if not p.is_file():
         return None
@@ -73,4 +97,10 @@ def read(root):
     steps, err = parse(text)
     if err:
         return {"error": f"{DECL_NAME}: {err}"}
-    return {"steps": steps, "sha": steps_sha(steps)}
+    out = {"steps": steps, "sha": steps_sha(steps)}
+    mut, merr = parse_mutation(json.loads(text).get("mutation"), root)
+    if merr:
+        out["mutation_error"] = f"{DECL_NAME}: {merr}"
+    elif mut:
+        out["mutation"] = mut
+    return out

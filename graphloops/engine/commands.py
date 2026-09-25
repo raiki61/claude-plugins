@@ -27,9 +27,27 @@ from .validator import agent_def, find_validator, finalize, report_accepts, run_
 # 宣言（何がパスか）と手続き（実在の見方）を分けると、写しは 0 になる: graph の inputs が正本で、
 # ここに在るのは kind の名前 → 見方の対応だけ（graphcheck が、知らない kind を静的に弾く）。
 # rev は「この版を読め」と役に渡す git のリビジョンで、パスではない——実在の見方を持たない
-# （engine は git を知らない。版が取れるかは rules が固定するときに確かめる）
+# （engine は git を知らない。版が取れるかは rules が固定するときに確かめる）。choice は値の集合（宣言の values）から
+# 選ぶ入力で、init が値を確かめる（値の意味は rules が持つ）
 INPUT_KINDS = {"file": ("ファイル", pathlib.Path.is_file), "dir": ("ディレクトリ", pathlib.Path.is_dir),
-               "rev": ("リビジョン", None)}
+               "rev": ("リビジョン", None), "choice": ("選択", None)}
+
+
+def undeclared_inputs(g, inputs):
+    """init の --input のうち、graph の inputs にも init の旗（CLI_FLAGS）にも無い鍵——どの節の穴も rules も読まないので効かない。
+    拒まずに知らせる（受け付けていた呼びを壊さない）。黙って受けると、綴りを違えた選択が既定の流れに倒れても誰も気づかない"""
+    known = set(g.get("inputs") or {}) | set(CLI_FLAGS) | {"cwd"}
+    return sorted(k for k in inputs if k not in known)
+
+
+def choice_input_errors(g, inputs):
+    """kind が choice の入力に、宣言の values に無い値が渡されたか（誤りの文の一覧）"""
+    errs = []
+    for key, decl in (g.get("inputs") or {}).items():
+        if isinstance(decl, dict) and decl.get("kind") == "choice" and inputs.get(key) is not None:
+            if inputs[key] not in (decl.get("values") or []):
+                errs.append(f"--input {key}={inputs[key]!r} は知らない値（使えるのは {decl.get('values')}。既定の流れなら {key} を渡さない）")
+    return errs
 
 
 def path_inputs(g):
@@ -1344,6 +1362,14 @@ def cmd_init(a):
     fn = hook(rules, "check_inputs")
     if fn:
         fn(inputs)   # ループ固有の入力の値（flow・gates 等）は置き場を作る前に確かめる——拒んでも空の盤面を残さない
+    bad = choice_input_errors(g, inputs)
+    if bad:
+        die("; ".join(bad))
+    ignored = undeclared_inputs(g, [kv.partition("=")[0] for kv in a.input or []])
+    notes = [f"--input {k}=… は graph の inputs に宣言が無く、どの節も rules も読まない（効かない）——綴りを確かめよ"
+             f"（宣言済みの入力: {', '.join(sorted(g.get('inputs') or {}))}）" for k in ignored]
+    for n in notes:
+        print(f"注意: {n}", file=sys.stderr)
     d.mkdir(parents=True, exist_ok=False)
     fn = hook(rules, "init_record")
     record = fn(th, decider) if fn else {}
@@ -1354,6 +1380,7 @@ def cmd_init(a):
         "thickness": th, "max_rounds": max_rounds_for(g, th), "unattended": bool(a.unattended),
         **({"stop_after_round": a.stop_after_round} if a.stop_after_round is not None else {}),
         "inputs": inputs, "validator": validator, "outputs": {}, "done_ever": {}, "loop": {},
+        **({"notes": notes} if notes else {}),
     }
     if getattr(a, "unfenced_delegates", None):
         # 人が run ごとに明示したときだけ、任せ先を sandbox で縛らずに回す側が Agent で起こす（人の決定 2026-09-25）。
@@ -1383,4 +1410,5 @@ def cmd_init(a):
         (d.parent / "current").write_text(str(d) + "\n", encoding="utf-8")
     print(dump({"dir": str(d), "run_id": run_id, "loop": loop, "thickness": th, "thickness_decider": decider, "max_rounds": state["max_rounds"],
                 "validator": validator or ("見つからない（report の前に init --validator で渡すか " + (env_root(g["plugin"]) if g.get("plugin") else "graph の plugin") + "）"),
-                "overview": g.get("overview", ""), "next": f"python3 {PLUGIN_ROOT / 'scripts' / 'loop.py'} next --dir {d}"}))
+                "overview": g.get("overview", ""), **({"notes": notes} if notes else {}),
+                "next": f"python3 {PLUGIN_ROOT / 'scripts' / 'loop.py'} next --dir {d}"}))

@@ -1813,7 +1813,7 @@ assert not orphans, "どの手順書からも使われない役割がある: " +
 PY
 
 expect_exit 0 "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
-import ast, re, subprocess, sys, pathlib
+import ast, json, re, subprocess, sys, pathlib
 root = pathlib.Path(sys.argv[1])
 # 特定プロジェクト由来の名前が観点側に残ると、そのリポジトリでしか意味を持たない写しになる。
 banned = re.compile(r"FastAPI|next-intl|config_kit|DeepAgents|asyncio_mode|guided-resolver")
@@ -1825,22 +1825,57 @@ for f in [root/"REVIEW.md", root/"README.md", *(root/"commands").glob("*.md"), *
 # **このリポジトリの検証の道具（README の「review-loop が読む検証の道具」の節）を、役が読む配布物に書かない。**
 # ほかのリポジトリでは無い道具を呼べと指示し、このリポジトリでも道具を足した周に指示の側だけが古くなる
 # （pytest の土台を足した周に、指示書のテスト一式から漏れた）。語は手で並べず導く——手で持った一覧は道具の追加に遅れる:
-# 引数は実行器自身の --help から、件数の柵は定数の接頭辞で、道具のパスは tests/ の成分と、その下に在るファイルの名前で当てる。
-# 境界は ASCII で切る——`\w` は日本語も語に数えるので、『は--reuse』のように和文に接した綴りを見逃す。
-helptext = subprocess.run([sys.executable, str(root / "tests" / "mutate.py"), "--help"],
-                          capture_output=True, text=True, encoding="utf-8").stdout
+# 道具の語はルートの宣言（.review-checks.json の suite と mutation。ruff の banned-api と同じく禁止の正本を設定に置く）から、
+# 引数は宣言が名指す実行器自身の --help から、件数の柵は定数の接頭辞で、道具のパスは tests/ の成分と、その下に在るファイルの名前で当てる。
+# 宣言に無い道具（graphloops/README の手で回す変異の道具）だけ手で持つ。
+# 境界は ASCII で切る——`\w` は日本語も語に数えるので、『は--reuse』のように和文に接した綴りを見逃す。名前と引数をつないだ
+# 綴り（名前の直後の --）も拾う——1 つの - でつないだ語（pre-commit）は別の語として外す。
+def derive(decl):
+    """宣言の語: argv のうちパスの形の語（/ か拡張子を持つ）・-m の後のモジュール・--with の後のパッケージと、腕の一覧のパス"""
+    argvs = [s["argv"] for s in decl["suite"]] + ([decl["mutation"]["argv"]] if "mutation" in decl else [])
+    paths, mods = set(), set()
+    for argv in argvs:
+        for prev, a in zip([None, *argv], argv):
+            if prev == "-m":
+                mods.add(a)
+            elif prev == "--with":
+                mods.add(re.split(r"[=<>!~\[]", a, maxsplit=1)[0])
+            elif "/" in a or re.search(r"\.[a-z]{1,4}$", a):
+                paths.add(a)
+    if "mutation" in decl:
+        paths.add(decl["mutation"]["arms"])
+    return paths, mods
+decl = json.loads((root / ".review-checks.json").read_text(encoding="utf-8"))
+decl_paths, decl_mods = derive(decl)
+assert decl_paths and decl_mods and "mutation" in decl, \
+    f"宣言から道具の語が取れない（パス {decl_paths}・モジュール {decl_mods}・mutation の段 {'mutation' in decl}）——走査が空回りする"
+# 導き方の入口ごとの検算: tests/ の外のパス・-m と --with の語・腕の一覧（宣言を差し替えても同じ道で拾う）
+probe_paths, probe_mods = derive({"suite": [{"argv": ["bash", "scripts/check.sh"]}, {"argv": ["uv", "run", "--with", "gl-probe>=1", "python", "-m", "gl_mod"]}],
+                                  "mutation": {"argv": ["runner"], "arms": "conf/arms.json"}})
+assert probe_paths == {"scripts/check.sh", "conf/arms.json"} and probe_mods == {"gl-probe", "gl_mod"}, \
+    f"宣言から語を導く道が壊れた（{probe_paths}・{probe_mods}）"
+margv = decl["mutation"]["argv"]
+runner = [sys.executable if re.fullmatch(r"python3?(\.exe)?", margv[0]) else margv[0], *margv[1:]]
+helptext = subprocess.run([*runner, "--help"], cwd=root, capture_output=True, text=True, encoding="utf-8").stdout
 flags = sorted(set(re.findall(r"--[a-z][a-z0-9-]*", helptext)) - {"--help"})
 assert len(flags) >= 5, f"実行器の --help から引数が取れない（{flags}）——走査が空回りする"
 names = sorted({f.name for d in [root/"tests", *root.glob("*/tests")] for f in d.iterdir()
                 if f.is_file() and f.suffix in (".py", ".sh", ".json")})
 assert "mutate.py" in names, f"テストの置き場のファイルの名前が取れない（{names}）——走査が空回りする"
 A = r"A-Za-z0-9_"
+END = rf"(?![{A}]|-(?!-))"   # 語の終わり: 英数字が続かず、1 つの - でつないだ語でもない（-- でつないだ引数は拾う）
 tool = re.compile(
     rf"(?<![{A}./-])(?:[{A}.-]+/)*tests/[{A}./-]*"
     rf"|(?<![{A}])(?:EXPECTED|VOCAB)_[A-Z_]*"
-    rf"|(?<![{A}])(?:pytest|mutmut)(?![{A}])"
+    rf"|(?<![{A}])mutmut(?![{A}])"
+    + "".join(rf"|(?<![{A}]){re.escape(m)}(?![{A}])" for m in sorted(decl_mods))
+    + "".join(rf"|(?<![{A}./-]){re.escape(p)}{END}" for p in sorted(decl_paths))
     + "".join(rf"|(?<![{A}-]){re.escape(f)}(?![{A}-])" for f in flags)
-    + "".join(rf"|(?<![{A}./-]){re.escape(n)}(?![{A}-])" for n in names))
+    + "".join(rf"|(?<![{A}./-]){re.escape(n)}{END}" for n in names))
+for probe in ("は mutate.py--reuse で撃つ", "は--reuse で", "python -m pytest で回す", "腕は mutations.json に", "tests/run.sh を"):
+    assert tool.search(probe), f"柵が {probe!r} を拾わない——境界か導く元が壊れた"
+for probe in ("pre-commit の hook", "x-mutate.py-y", "a-reuse"):
+    assert not tool.search(probe), f"柵が道具名でない {probe!r} を拾う（{tool.search(probe).group(0)}）"
 texts = [root/"REVIEW.md", *sorted((root/"commands").glob("*.md")), *sorted((root/"agents").glob("*.md"))]
 for d in ("graphloops/prompts", "graphloops/graphs", "graphloops/commands"):
     texts += [f for f in sorted((root/d).rglob("*")) if f.is_file()]

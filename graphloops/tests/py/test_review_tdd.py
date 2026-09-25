@@ -288,10 +288,18 @@ def test_tdd_effect_counts_only_clean_lane_results(tmp_path, monkeypatch):
     (tmp_path / "rounds" / "round-2.json").write_text(json.dumps({"scalars": {"faces_created_by_prev_fix": 4}}), encoding="utf-8")
     (tmp_path / "rounds" / "round-3.json").write_text(json.dumps({"round": 3}), encoding="utf-8")   # scalars の無い周の記録
     rows = {"1": {}, "2": {}, "3": {}}
-    RULES.tdd_effect(board({"tdd": {"rounds": rows}}, {"lanes": {f"r{i}": {"round": i} for i in (1, 2, 3)}}))
-    assert rows == {"1": {"lane_missed": 1, "faces_created_by_this_fix": 4},
-                    "2": {"lane_missed": None, "faces_created_by_this_fix": None},
-                    "3": {"lane_missed": None, "faces_created_by_this_fix": None}}
+    lane = lambda i, state="running", **kw: {"round": i, "result": f"r{i}.json", "patch": "", "state": state, **kw}
+    RULES.tdd_effect(board({"tdd": {"rounds": rows}}, {"lanes": {f"r{i}": lane(i) for i in (1, 2, 3)}}))
+    # 腕の欄が無い結果は測れていない（lane_missed None）で、lane_arms 0 が撃てた腕 0 本を言う
+    assert rows == {"1": {"lane_missed": 1, "lane_arms": 1, "lane_state": "running", "faces_created_by_this_fix": 4},
+                    "2": {"lane_missed": None, "lane_arms": None, "lane_state": "running", "faces_created_by_this_fix": None},
+                    "3": {"lane_missed": None, "lane_arms": 0, "lane_state": "running", "faces_created_by_this_fix": None}}
+    # 止めた線は結果を読まない（止めた後に届いた結果を数えない）。形の崩れた行（patch で丸ごと書き換えた）は線が無い扱い
+    rows = {"1": {}, "2": {}}
+    RULES.tdd_effect(board({"tdd": {"rounds": rows}}, {"lanes": {"r1": lane(1, "abandoned", why="回す側が止めた（検査用）"),
+                                                                "r2": {"state": "abandoned", "why": "丸ごと書いた"}}}))
+    assert rows["1"]["lane_state"] == "abandoned" and rows["1"]["lane_missed"] is None and rows["2"]["lane_state"] is None
+
 
 
 def test_green_names_a_failing_named_test_once():

@@ -334,14 +334,19 @@ def on_new_round(b):
 def tdd_effect(b):
     """TDD を使った周ごとに、比べる 2 つの量を記録へ（record.process.tdd.rounds）。数え方は今の rules のまま（写さない）:
     lane_missed＝その周の修正差分への変異の見逃しの本数（線の結果の腕を _unproven で数える。線が書き終えるまで None）／
+    lane_arms・lane_state＝撃てた腕の本数と線の状態（0 本の lane_missed 0 を見逃し 0 と読まない・止めた線を見分ける）／
     faces_created_by_this_fix＝その周の修正が作った指摘の件数（次の周の周の記録の scalars.faces_created_by_prev_fix。まだなら None）"""
     rows = (b.record["process"].get("tdd") or {}).get("rounds") or {}
-    lanes = {l["round"]: l for l in (b.loop_state.get("lanes") or {}).values()}
+    if not rows:
+        return
+    lanes = {l["round"]: l for _, l in base._lanes(b)[0]}
     for rnd, row in rows.items():
         lane = lanes.get(int(rnd))
-        res, errs = base._lane_result(b, lane) if lane else (None, [])
-        # 腕を 1 本も撃っていない線は『見逃し 0 本』でなく測れていない（None）
+        res, errs = base._lane_result(b, lane) if lane and lane["state"] != "abandoned" else (None, [])
+        # 腕を 1 本も撃っていない線は『見逃し 0 本』でなく測れていない（None）。撃てた腕の本数と線の状態も並べて読み分ける
         row["lane_missed"] = len(base._unproven(res["arms"])) if res and not errs and res.get("arms") else None
+        row["lane_arms"] = len(res.get("arms") or []) if res and not errs else None
+        row["lane_state"] = lane["state"] if lane else None
         nxt = b.dir / "rounds" / f"round-{int(rnd) + 1}.json"
         row["faces_created_by_this_fix"] = ((read_json(nxt).get("scalars") or {}) if nxt.is_file() else {}).get("faces_created_by_prev_fix")
 

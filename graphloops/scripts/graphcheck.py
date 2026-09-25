@@ -422,6 +422,9 @@ def check(gpath, script=None, emit=print):
         if kind not in INPUT_KINDS:
             errs.append(f"inputs.{key} の kind '{kind}' を engine が知らない（使えるのは {'/'.join(INPUT_KINDS)}）"
                         "——知らない kind は実在検査から黙って外れる")
+        vals = decl.get("values") if isinstance(decl, dict) else None
+        if kind == "choice" and not (isinstance(vals, list) and vals and all(isinstance(v, str) and v for v in vals)):
+            errs.append(f"inputs.{key} は choice なのに values（選べる値の空でない文字列の配列）が無い——init が値を確かめられない")
     # **貼る穴に渡る入力は、必ず kind を宣言する。** 実在検査の発火条件を『file: の接頭』から
     # 『inputs の宣言』へ移したので、宣言を書き忘れた入力は file: の穴に渡っていても実在検査から
     # 黙って外れる——init が素通りし、2 手先の next で初めて落ちる（この差分自身が塞いだはずの形）。

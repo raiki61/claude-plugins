@@ -4,6 +4,22 @@
   "cwd": {
    "kind": "dir"
   },
+  "gates": {
+   "kind": "choice",
+   "values": [
+    "merge"
+   ],
+   "optional": true,
+   "note": "変異の検算を合流でまとめる（init --input gates=merge）。値の意味は rules の GATES_MERGE（check_inputs が値の一致を見る）"
+  },
+  "flow": {
+   "kind": "choice",
+   "values": [
+    "spec"
+   ],
+   "optional": true,
+   "note": "仕様から入る（init --input flow=spec）。値の意味は rules の SPEC_FLOW（check_inputs が値の一致を見る）"
+  },
   "review_md": {
    "kind": "file",
    "by": "rules"
@@ -2298,7 +2314,8 @@
     "loop.diff_file",
     "loop.changed_files_file",
     "record.base",
-    "inputs.cwd"
+    "inputs.cwd",
+    "loop.mutation_decl.text"
    ],
    "schema": {
     "$ref": "#/$defs/gate_reply"
@@ -4386,7 +4403,8 @@
     "loop.gates_cut.files",
     "loop.gates_cut.result",
     "loop.gates_cut.reply_schema",
-    "inputs.cwd"
+    "inputs.cwd",
+    "loop.mutation_decl.text"
    ],
    "post_check": "lane_receipt",
    "schema": {
@@ -5270,7 +5288,8 @@
    "reads": [
     "loop.gates_cut.rev",
     "record.base",
-    "inputs.cwd"
+    "inputs.cwd",
+    "loop.mutation_decl.text"
    ],
    "post_check": "final_gates_output",
    "schema": {
