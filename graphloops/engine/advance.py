@@ -21,7 +21,7 @@ ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphch
 # session_id は同じ会話を続ける語（--resume）の穴で、続ける会話が決まるまでは '{session_id}' のまま残す（role_run が埋める）。
 LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path", "python", "plugin_root",
                 "tools", "allowed_tools", "permission_mode", "session_id")
-LAUNCH_MAY_BE_EMPTY = ("allowed_tools", "session_id")  # 空でも起こせる穴（道具が全部分類器に掛かる役・続ける会話がまだ無い）
+LAUNCH_MAY_BE_EMPTY = ("session_id",)  # 空でも起こせる穴（続ける会話がまだ無い）
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parents[1]  # engine/ の親＝プラグインの根（scripts/ の隣）
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（直列化した UTF-8 のバイト）。
 # 超える欄は items/ のファイルにだけ置く。**バイトで測る**——実測 2026-09-18: 1 束 1,716 バイト＝

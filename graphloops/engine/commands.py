@@ -420,9 +420,11 @@ def launch_engine_run(d, inst):
     return {**got, "ok": True, "why": None, "done": msg, "runs": runs_short}
 
 
-def launch_one(d, inst, max_resumes):
+def launch_one(d, inst, max_resumes, cwd=None):
     """1 節を起こして受け付けまで済ませる（run_role）。返すのは回す側と記録に見せる 1 件ぶんの要約だけ——役の返答の
-    本文は回す側の会話に流さない。"""
+    本文は回す側の会話に流さない。cwd は子の作業ディレクトリ（レビュー対象の作業ツリー）——dontAsk の子は作業ディレクトリの
+    外の git を拒まれる（role_run.tooled_permission の実測）ので、launch を呼んだ場所でなく盤面の inputs.cwd で起こす。
+    走らせる節（engine_run）は宣言の cwd（launch.cwd）で走るので、この cwd は使わない。"""
     if (inst.get("launch") or {}).get("kind") == "engine_run":
         return launch_engine_run(d, inst)
     got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
@@ -434,7 +436,7 @@ def launch_one(d, inst, max_resumes):
 
     r = run_role(inst["launch"]["argv"], inst["launch"]["stdin"], inst["out_path"],
                  accept=accept, resume_argv=inst["launch"].get("resume_argv"), max_resumes=max_resumes,
-                 log_path=pathlib.Path(d) / "trace.jsonl", still_mine=still_mine,
+                 log_path=pathlib.Path(d) / "trace.jsonl", still_mine=still_mine, cwd=cwd,
                  meta={"instance": inst["id"], "node": inst["node"], "agent_type": inst.get("agent_type"),
                        "attempt": inst.get("attempts", 1)})
     last = r["runs"][-1] if r["runs"] else {}
@@ -483,7 +485,9 @@ def cmd_launch(a):
         return [dict(i) for i in ready if i.get("launched_at") == at and i.get("launch_state") == "running"]
 
     todo = _board_update(d, mark)
-    max_resumes = int(Board(d).graph.get("launch", {}).get("resume_on_reject") or 0)
+    b0 = Board(d)
+    max_resumes = int(b0.graph.get("launch", {}).get("resume_on_reject") or 0)
+    cwd = (b0.state.get("inputs") or {}).get("cwd") or None  # 無い場所なら起こす時に OSError で落ち、why に出る
     # **launch 自身が止められても子を残さない**: 子は別のプロセスグループに切り離してあるので、launch に届いた
     # 信号は子に届かない。止められたら生きている子を木ごと止めてから抜ける（role_run.kill_all）
     import signal
@@ -497,12 +501,12 @@ def cmd_launch(a):
             signal.signal(getattr(signal, sig), stop)
     try:
         if len(todo) == 1:
-            results = [launch_one(d, todo[0], max_resumes)]
+            results = [launch_one(d, todo[0], max_resumes, cwd)]
         elif todo:
             # 同じ波に載った役は互いに依存しない。直列に待つと素直に足し算になる
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(todo))) as ex:
-                results = list(ex.map(lambda i: launch_one(d, i, max_resumes), todo))
+                results = list(ex.map(lambda i: launch_one(d, i, max_resumes, cwd), todo))
         else:
             results = []
     finally:

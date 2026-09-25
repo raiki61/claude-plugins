@@ -707,11 +707,18 @@ def test_launch_tooled_session():
     check(r.returncode == 0, f"relaunch できる（{r.stderr[-120:]}）")
     ans = run.tmp / "diag.json"
     ans.write_text(json.dumps(answers(run, "std", 2)["p2.diagnose"](None), ensure_ascii=False), encoding="utf-8")
-    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_MODE": "bad_then_answer", "FAKE_OUT": str(ans), "FAKE_SESSION": "sess-judge"})
+    # launch はレビュー対象の外（盤面の親）から呼ぶ——子は呼んだ場所でなく盤面の inputs.cwd で起きる
+    flog = run.tmp / "fake.log"
+    r = subprocess.run([PY, str(LOOP), "launch", "--node", inst["id"], "--dir", str(run.dir)], cwd=run.tmp,
+                       capture_output=True, text=True, encoding="utf-8", timeout=600,
+                       env={**env, "FAKE_MODE": "bad_then_answer", "FAKE_OUT": str(ans), "FAKE_SESSION": "sess-judge", "FAKE_LOG": str(flog)})
     got = json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}]
     one = next((g for g in got if g.get("node") == "p2.diagnose"), {})
     check(one.get("ok") and one.get("resumes") == 1 and one.get("session_id") == "sess-judge",
           f"散文を返した judge に同じ会話で出し直させ、受け付けまで済ませる（{one.get('why') or r.stderr[-200:]}）")
+    cwds = {os.path.realpath(json.loads(x)["cwd"]) for x in flog.read_text(encoding="utf-8").splitlines()} if flog.is_file() else set()
+    check(cwds == {os.path.realpath(run.repo)},
+          f"子はレビュー対象の作業ツリー（inputs.cwd）で起きる——launch を呼んだ場所ではない（{cwds}）")
     st = run.state()
     me = next((i for i in st["rounds"][1]["instances"].values() if i["node"] == "p2.diagnose" and i["status"] == "done"), {})
     check(me.get("session_id") == "sess-judge" and [x.get("kind") for x in me.get("attempt_log", []) if x.get("kind")] == ["resume"],

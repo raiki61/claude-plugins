@@ -45,8 +45,15 @@ SUPERSEDED = "起こし直された古い試行——次の手は要らない（
 # 役の定義にこれが在れば engine は起こさない（回す側が Agent で起こす）。値は graph でなく engine が持つ——graph の書き換えで
 # 起こせる物が広がらないように（commands.launch_refusal の注記）
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
-# コマンドを走らせる道具。これを持つ役は分類器（auto）に掛け、先に許す一覧（--allowedTools）から外す
+# コマンドを走らせる道具。これを持つ役には、道具ごとでなくコマンドの形ごとに許す（READ_COMMANDS）
 COMMAND_TOOLS = ("Bash",)
+# コマンドを走らせる役に先に許す、読むだけのコマンドの前置。**書く旗を持たないサブコマンドだけ**を入れる——前置の許可は
+# 後ろの引数を縛れない。gh api は入れない（引数を付けると既定が POST になり、-X で任意のメソッドを指せる。gh の公式マニュアル）。
+# git remote get-url は組み込みの読むだけの git に入らず拒まれた（実測 2026-09-25）ので名指しする（gh の -R をそこから導く）。
+# 値は graph でなく engine が持つ——graph の書き換えで許すコマンドが広がらないように。前置にカンマを入れない（柵が --allowedTools を
+# カンマで割って比べる）
+READ_COMMANDS = ("gh issue list", "gh issue view", "gh pr list", "gh pr view", "gh pr diff", "gh search", "gh repo view",
+                 "git remote get-url")
 LIVE = set()  # いま生きている子（Popen）。launch のプロセスが止められたとき kill_all が木ごと止める
 _LIVE_LOCK = threading.Lock()
 
@@ -54,13 +61,21 @@ _LIVE_LOCK = threading.Lock()
 def tooled_permission(tools):
     """道具つきの役の権限の形 (permission_mode, allowed_tools)。**起こす側（launch_spec）と柵（launch_refusal）が同じここを引く**。
 
-    -p の開始の権限は起こした側の設定を継ぐ（回す側が bypassPermissions なら子も）ので、必ず明示する。
-    既定は先に許した道具だけが通る dontAsk（Read・Glob・Grep は許さなくても通り、WebFetch・WebSearch は許さないと拒まれる。
-    実測 2026-09-25・haiku）。コマンドを走らせる道具を持つ役は auto にして、その道具を先に許す一覧から外し、分類器に掛ける
-    （実測 2026-09-25・haiku: auto と --permission-prompts none で git log は通り、touch・gh issue list・curl -X POST は拒まれた）。"""
-    if any(t in COMMAND_TOOLS for t in tools):
-        return "auto", [t for t in tools if t not in COMMAND_TOOLS]
-    return "dontAsk", list(tools)
+    -p の開始の権限は起こした側の設定を継ぐ（回す側が bypassPermissions なら子も）ので、必ず明示する。形は先に許した物だけが
+    通る dontAsk の 1 つ（Read・Glob・Grep は許さなくても通り、WebFetch・WebSearch は許さないと拒まれる。実測 2026-09-25・haiku）。
+    コマンドを走らせる道具（Bash）を持つ役は、道具を丸ごと許さず READ_COMMANDS の前置だけを Bash(<前置>:*) で許す。分類器（auto）に
+    掛けていたときは gh issue list まで拒まれた（実測 2026-09-25）。この形の実測（2026-09-25・haiku・claude 2.1.282・
+    --permission-prompts none）: 通った——gh issue list・gh pr view・gh repo view・gh search issues・gh pr diff | head・
+    引数の無い gh issue list・git remote get-url（許可に足した後）・組み込みの git log・git diff・git show・git rev-parse。
+    permission_denials に載り実行されなかった——gh issue create・gh pr merge・gh api -X POST・読むだけの gh api・bash -c・
+    python3 -c・git diff --output=・git log --output=・読むだけの gh に > を付けた物・&& / ; でつないだ物・$(…) を挟んだ物・
+    git -C <別の場所>・cd <別の場所> && git log。
+    代償: 既にある計器（テスト・スクリプト）の実行は拒まれる。作業ディレクトリの外の git も拒まれるので、子は対象の作業ツリーで
+    起こす（commands.launch_one）。"""
+    allowed = [t for t in tools if t not in COMMAND_TOOLS]
+    if len(allowed) < len(tools):
+        allowed += [f"Bash({c}:*)" for c in READ_COMMANDS]
+    return "dontAsk", allowed
 
 
 def kill_all():
@@ -72,8 +87,8 @@ def kill_all():
 # 包みの欄のうち要約に残すもの（--output-format json の result の行）。本文（result）は残さない
 SUMMARY_KEYS = ("session_id", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
                 "subtype", "is_error", "stop_reason")
-# 権限で拒まれた道具の呼び出し。件数と道具の名前だけ残す——auto が使えない場では黙って聞く形に落ち、聞く先が無いので
-# 全部拒まれたまま exit 0 で返る（公式の permission-modes 文書）。効いた権限は包みに無いので、拒まれた数で見えるようにする
+# 権限で拒まれた道具の呼び出し。件数と道具の名前だけ残す——dontAsk で許していない呼び出しは聞かずに拒まれ、
+# exit 0 で返る（公式の permission-modes 文書）。効いた権限は包みに無いので、拒まれた数で見えるようにする
 
 
 def pgid_path(out_path):

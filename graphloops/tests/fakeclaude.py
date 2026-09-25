@@ -7,7 +7,7 @@
               seen（届いた材料のバイト数と argv）
   FAKE_OUT    返答の本文のファイル
   FAKE_EXIT   書き終えた後の終了コード（既定 0）
-  FAKE_LOG    起こされるたびに argv と標準入力の頭を 1 行ずつ足すファイル
+  FAKE_LOG    起こされるたびに argv と標準入力の頭と作業ディレクトリ（cwd）を 1 行ずつ足すファイル
 会話の番号は --resume に渡された値、無ければ FAKE_SESSION（既定 sess-1）。
 """
 import os
@@ -20,7 +20,7 @@ argv = sys.argv[1:]
 log = os.environ.get("FAKE_LOG")
 if log:
     with open(log, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"argv": argv, "stdin": raw.decode("utf-8", "replace")[:4000]}, ensure_ascii=False) + "\n")
+        f.write(json.dumps({"argv": argv, "stdin": raw.decode("utf-8", "replace")[:4000], "cwd": os.getcwd()}, ensure_ascii=False) + "\n")
 resumed = "--resume" in argv
 sid = argv[argv.index("--resume") + 1] if resumed else os.environ.get("FAKE_SESSION", "sess-1")
 mode = os.environ.get("FAKE_MODE", "answer")

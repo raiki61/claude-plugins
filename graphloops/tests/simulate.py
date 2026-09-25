@@ -297,7 +297,7 @@ def base_answers(run, scenario):
         "p0.clusters": lambda it, r: {"clusters": [{"key": "c1", "claim_ids": ["A", "B"]}, {"key": "c2", "claim_ids": ["C", "D"]}]},
         "p0.terms": lambda it, r: {"terms": [{"term": "見立て", "definition": "設計の仮説", "status": "社内造語"}],
                                    },
-        "p0.prior_decisions": lambda it, r: {"checked": True, "searched": ["gh issue list"], "settled_points": [], "overlaps": [], "reopen_proposals": []},
+        "p0.prior_decisions": lambda it, r: {"checked": True, "searched": ["GitHub の issue・PR（gh）", "docs/", "git log"], "settled_points": [], "overlaps": [], "reopen_proposals": []},
         "p0.independence_review": lambda it, r: {"verdict": "問題なし", "reason": "狭めていない", "findings": []},
         "p0.generation": lambda it, r: {"claims": [{"id": "G1", "cluster": "c1", "claim": "生成した主張", "load_bearing": False, "heuristic": "逆転"}]},
         "p5.internal": lambda it, r: {"facts": [{"constraint_text": "対象は 1 リポジトリ", "verified": True, "actual": "1 つ", "location": ".git"}],
@@ -354,7 +354,9 @@ def drive(run, scenario, max_steps=60, hook=None):
                     DELIVERY_SEEN.add(node)
                 # 遮断系は cli で出るので mode も見る（以前は mode == "agent" と round == 1 を条件にしていて cold_reader の腕が空振りしていた）
                 want_mode, want = ("agent", "path") if node == "p1.checker" else ("cli", "paste")
-                check(inst["mode"] == want_mode and inst.get("deliver") == want, f"{node} は mode={want_mode}・渡し方 {want}（役の道具から決まる）")
+                # 役の節は engine が起こし、材料は標準入力で流れる。deliver は launch が無いときに Agent で起こす受け皿の渡し方
+                check(inst["mode"] == want_mode and inst.get("deliver") == want and (inst.get("launch") or {}).get("stdin") == inst["prompt_file"],
+                      f"{node} は mode={want_mode}・engine が起こして材料は stdin（受け皿の渡し方は {want}。役の道具から決まる）")
             out = answers[node](load_item(inst), nx["round"])
             if hook:
                 out = hook(run, inst, out) or out
@@ -1373,7 +1375,7 @@ def test_isolated_launch():
     drive(run, "std", hook=watch)
     cli, ag = seen.get("cli", []), seen.get("agent", [])
     check(bool(cli), f"道具ゼロの役が cli で出る（{sorted({i['node'] for i in cli})}）")
-    check(bool(ag), f"道具を持つ役は agent のまま（{sorted({i['node'] for i in ag})}）")
+    check(bool(ag), f"道具を持つ役は cli でなく agent の mode で出る（起こし方は test_research_tooled_launch）（{sorted({i['node'] for i in ag})}）")
     L = cli[0].get("launch") if cli else {}
     argv = L.get("argv") or []
 
@@ -1404,6 +1406,53 @@ def test_isolated_launch():
           "起こせない旨が launch.missing に立つ（回す側と記録に見える）")
     rm(run.tmp)
 
+
+
+def test_research_tooled_launch():
+    """道具つきの役（investigator・inspector・judge）も engine が起こすこと（graph の launch.tooled）。
+
+    宣言が無いと launch_spec は黙って None を返し、節は Agent ツールの経路に落ちる——research-loop だけが
+    その形で取り残されていた（2026-09-25）。旗は argv から直に読む: 柵の launch_refusal は claude が PATH に
+    無い場（CI）で必ず『claude が無い』を返すので、ここで当てると CI でだけ赤になる（柵の腕は test_tooled_launch_fence）。
+    """
+    from engine.role_run import tooled_permission
+    from engine.validator import agent_def
+    print("道具つきの役も engine が起こす: 標準の筋書きで出る役の節は全部 launch を持ち、道具つきの役は tooled の形")
+    seen = []
+
+    def watch(run, inst, out):
+        seen.append(inst)
+        return out
+
+    run = Run("tooled")
+    drive(run, "std", hook=watch)
+    ag = [i for i in seen if i["mode"] == "agent"]
+    check(not [i["node"] for i in ag if not i.get("launch")],
+          f"役の節は全部 engine が起こす——Agent ツールの経路に落ちる節が無い（{sorted({i['node'] for i in ag if not i.get('launch')})}）")
+    roles = sorted({i["agent_type"] for i in ag})
+    check(roles == ["convergence-loops:inspector", "convergence-loops:investigator", "convergence-loops:judge"],
+          f"道具つきの 3 役が標準の筋書きに出る（{roles}）")
+    for role in roles:
+        inst = next(i for i in ag if i["agent_type"] == role)
+        L = inst.get("launch") or {}
+        argv = L.get("argv") or []
+
+        def after(flag):
+            return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
+
+        tools = agent_def(role)["tools"]
+        mode, allowed = tooled_permission(tools)
+        check(L.get("kind") == "tooled" and after("--tools") == ",".join(tools) and after("--allowedTools") == ",".join(allowed)
+              and after("--permission-mode") == mode and after("--permission-prompts") == "none" and after("--setting-sources") == ""
+              and "--agents" not in argv and L.get("stdin") == inst["prompt_file"],
+              f"{inst['node']}（{role}）は tooled の形: 定義の道具・engine が決めた権限・聞く先無し・設定を読まない・材料は stdin（{argv[2:]}）")
+    rm(run.tmp)
+    # 起こす語は review-loop の graph と同じ（理由の正本は review-loop の why。語がずれたら片方だけが古い）
+    here = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))["launch"]
+    there = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))["launch"]
+    for kind in ("isolated", "tooled"):
+        for k in ("argv", "resume", "via"):
+            check(here.get(kind, {}).get(k) == there.get(kind, {}).get(k), f"launch.{kind}.{k} は review-loop の graph と同じ語")
 
 
 def _fake_claude(bindir, body):
@@ -1935,7 +1984,11 @@ def test_tooled_launch_fence():
     mode, allowed = tooled_permission(tools)
     check(mode == "dontAsk" and allowed == tools, f"コマンドを走らせない役は dontAsk で、道具を全部先に許す（{mode} {allowed}）")
     m2, a2 = tooled_permission(["Read", "Bash", "WebFetch"])
-    check(m2 == "auto" and a2 == ["Read", "WebFetch"], f"Bash を持つ役は auto にし、Bash を先に許す一覧から外す（{m2} {a2}）")
+    # 許すコマンドは字面で持つ——期待を tooled_permission から導くと、定数に gh api を足しても起こす側・柵・検査が揃って変わり緑のまま
+    read_rules = ["Bash(gh issue list:*)", "Bash(gh issue view:*)", "Bash(gh pr list:*)", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
+                  "Bash(gh search:*)", "Bash(gh repo view:*)", "Bash(git remote get-url:*)"]
+    check(m2 == "dontAsk" and a2 == ["Read", "WebFetch"] + read_rules,
+          f"Bash を持つ役も dontAsk にし、Bash を丸ごと許さず読むだけのコマンドの前置だけを許す（gh api は許さない）（{m2} {a2}）")
     body = ["claude", "-p", "--model", "opus", "--effort", "high", "--tools", ",".join(tools), "--allowedTools", ",".join(allowed),
             "--permission-mode", mode, "--permission-prompts", "none", "--setting-sources", "", "--output-format", "json"]
     good = {"agent_type": "convergence-loops:judge", "launch": {"argv": launch_prefix() + body, "stdin": str(stdin)}}
@@ -1957,6 +2010,19 @@ def test_tooled_launch_fence():
                             (lambda a: a + ["--tools", "Bash"], "--tools", "柵: 旗を重ねて後勝ちを狙う子は起こさない")):
         why = launch_refusal({**good, "launch": {"argv": mut(good["launch"]["argv"]), "stdin": str(stdin)}}) or ""
         check(want in why, f"{desc}（{why[:70]}）")
+    # コマンドを走らせる役（investigator）: 揃った形は起こし、先に許すコマンドを広げた形は撥ねる
+    itools = ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"]  # agents/investigator.md の道具
+    imode, iallowed = tooled_permission(itools)
+    ibody = list(body)
+    ibody[ibody.index("--tools") + 1] = ",".join(itools)
+    ibody[ibody.index("--allowedTools") + 1] = ",".join(iallowed)
+    ibody[ibody.index("--permission-mode") + 1] = imode
+    igood = {"agent_type": "convergence-loops:investigator", "launch": {"argv": launch_prefix() + ibody, "stdin": str(stdin)}}
+    check(launch_refusal(igood) is None, f"Bash を持つ役の揃った形は起こす（{launch_refusal(igood)}）")
+    for extra, desc in (("Bash(gh api:*)", "柵: 書ける gh api を先に許した子は起こさない"), ("Bash", "柵: Bash を丸ごと先に許した子は起こさない")):
+        why = launch_refusal({**igood, "launch": {"argv": swap("--allowedTools", ",".join(iallowed + [extra]))(igood["launch"]["argv"]),
+                                                  "stdin": str(stdin)}}) or ""
+        check("--allowedTools" in why, f"{desc}（{why[:70]}）")
     from engine.advance import tooled_launchable
     for d, desc in (({"tools": ["Read", "Write"], "model": "opus", "effort": "high"}, "ファイルを書く道具を持つ役は engine が起こさない"),
                     ({"tools": ["*"], "model": "opus", "effort": "high"}, "道具の一覧を持たない役は engine が起こさない"),

@@ -3888,6 +3888,20 @@
    }
   },
   {
+   "id": "TF7",
+   "title": "コマンドを走らせる役に書ける gh api を許さない",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "\"git remote get-url\")",
+   "new": "\"git remote get-url\", \"gh api\")",
+   "expect": "Bash を持つ役も dontAsk にし、Bash を丸ごと許さず読むだけのコマンドの前置だけを許す",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
    "id": "RR1",
    "title": "launch が止められたら子を木ごと止める",
    "file": "graphloops/engine/role_run.py",
@@ -3965,6 +3979,20 @@
    "old": "            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get(\"session_id\"))",
    "new": "            spec = launch_spec(b, inst, role_def, resume_sid=None)",
    "expect": "履歴の突合は、同じ周の判定を起こした会話の番号で",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_launch_tooled_session"
+    ]
+   }
+  },
+  {
+   "id": "LA5",
+   "title": "子はレビュー対象の作業ツリーで起こす",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "still_mine=still_mine, cwd=cwd,",
+   "new": "still_mine=still_mine,",
+   "expect": "子はレビュー対象の作業ツリー（inputs.cwd）で起きる",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_launch_tooled_session"
