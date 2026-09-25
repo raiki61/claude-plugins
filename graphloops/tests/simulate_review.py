@@ -5003,9 +5003,9 @@ def test_cond_truth_tables():
         "lane_due": [(c(2, loop={"gates_cut": {"round": 2, "files": ["a.py"]}}), True),
                      (c(2, loop={"gates": "merge", "gates_cut": {"round": 2, "files": ["a.py"]}}), False),
                      (c(2, loop={"gates_cut": {"round": 2, "files": []}}), False)],
-        "final_gate_due": [(c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}}), True),
+        "final_gate_due": [(c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}, **ENG(2)}), True),
                            (c(2, loop={"gates": "merge"}, cur={"p4.record": {"branch": "converged"}},
-                              record={"materials": {"local_checks": {"status": "clean"}}}), False),
+                              record={"materials": {"local_checks": {"status": "clean"}}, **ENG(2)}), False),
                            (c(2, cur={"p4.record": {"branch": "next_round"}}, record={"materials": {"local_checks": {"status": "clean"}}}), False)],
         "units_open": [(c(record={"units": []}), False), (c(record={"units": [{"label": "block"}]}), True),
                        (c(record={"units": [{"label": "suggest", "disposition": "defer"}]}), False),
@@ -5368,7 +5368,7 @@ def test_spec_stop_and_changes():
 
 def test_spec_default_unchanged():
     """**仕様の道を選ばない run は、仕様の道を足す前の graph と同じに回る**——節の並び（周ごとに出た instance）・
-    役に渡るプロンプト・周の記録・報告が、正規化（一時ディレクトリ・sha・時刻）の後で 1 字も違わない。
+    役に渡るプロンプト・周の記録・報告が、正規化（一時ディレクトリ・sha・時刻・engine が走らせた段の所要時間）の後で 1 字も違わない。
     比べる相手は、今の graph から spec.* の節と、それを待つ依存 2 語を抜いた写し（台本の中で作る）"""
     print("仕様の道を選ばない run: 足す前の graph と、並び・プロンプト・記録・報告が同じ")
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
@@ -5391,6 +5391,9 @@ def test_spec_default_unchanged():
         for p_ in sorted({str(run_.tmp), str(run_.tmp.resolve())}, key=len, reverse=True):   # 長い綴り（/private/var…）から
             text = text.replace(p_, "<TMP>")
         text = re.sub(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+\-Z0-9:.]*", "<T>", text)
+        # engine が走らせた段（engine_run）の所要時間は実測で、負荷で 0.0 と 0.1 に割れる
+        text = re.sub(r"（\d+(?:\.\d+)? 秒）", "（<S> 秒）", text)
+        text = re.sub(r'"wall_s": \d+(?:\.\d+)?', '"wall_s": <S>', text)
         return re.sub(r"\b[0-9a-f]{7,64}\b", "<H>", text)
 
     def shape(run_):
