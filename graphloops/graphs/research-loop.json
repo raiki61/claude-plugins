@@ -538,14 +538,7 @@
    "fresh_context": true,
    "once": true,
    "optional": true,
-   "when": "問い・制約のどれかを surveyor が自書した",
-   "cond": {
-    "path": "record.constraints",
-    "op": "any_field_eq",
-    "field": "origin",
-    "value": "surveyor自書",
-    "default": []
-   },
+   "cond": "constraints_self_written",
    "deps": [
     "p0.question"
    ],
@@ -722,22 +715,7 @@
    "active_in": [
     "重厚"
    ],
-   "when": "重厚なら初回に一度、それ以外は stuck の後だけ",
-   "cond": {
-    "any": [
-     {
-      "path": "round",
-      "op": "eq",
-      "value": 1
-     },
-     {
-      "path": "loop.stuck_hint",
-      "op": "eq",
-      "value": true,
-      "default": false
-     }
-    ]
-   },
+   "cond": "generation_due",
    "deps": [
     "p0.clusters"
    ],
@@ -1474,21 +1452,7 @@
     "標準",
     "重厚"
    ],
-   "when": "この周の新規相違がゼロ、かつ rederiver が問いは立っていると言った",
-   "cond": {
-    "all": [
-     {
-      "path": "rd.new_discrepancies",
-      "op": "eq",
-      "value": 0
-     },
-     {
-      "path": "out.p3.rederiver.verdict",
-      "op": "eq",
-      "value": "pass"
-     }
-    ]
-   },
+   "cond": "rederiver_compare_due",
    "deps": [
     "p3.rederiver",
     "p2.integrate"
@@ -1642,11 +1606,7 @@
    "active_in": [
     "重厚"
    ],
-   "cond": {
-    "path": "rd.new_discrepancies",
-    "op": "eq",
-    "value": 0
-   },
+   "cond": "no_new_discrepancies",
    "deps": [
     "p3.cartographer",
     "p2.integrate"
@@ -1735,11 +1695,7 @@
     "標準",
     "重厚"
    ],
-   "cond": {
-    "path": "rd.new_discrepancies",
-    "op": "eq",
-    "value": 0
-   },
+   "cond": "no_new_discrepancies",
    "deps": [
     "p2.integrate"
    ],
@@ -1815,21 +1771,7 @@
    "stage": "P3",
    "run_by": "investigator",
    "fresh_context": true,
-   "when": "2 周目以降で、この周の P1 の照合対象が空集合だった",
-   "cond": {
-    "all": [
-     {
-      "path": "round",
-      "op": "gt",
-      "value": 1
-     },
-     {
-      "path": "rd.item_counts.p1.checker",
-      "op": "eq",
-      "value": 0
-     }
-    ]
-   },
+   "cond": "sampling_due",
    "deps": [
     "p2.integrate"
    ],
@@ -2168,7 +2110,7 @@
   "p3.sampling",
   "p0.independence_review"
  ],
- "cond_note": "cond の path は engine が解決する。解決できない path は die——綴り違いや欄の改名が「条件が成り立たない」に化けると、走らなかった節の素材に事実と逆の理由が書かれたまま収束まで通る。設計上まだ書かれていない欄を見る cond は default を明示する（下の各節）",
+ "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop / 周の鍵（rules の LOOP_KEYS / ROUND_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
  "verdict_paths": [
   "gates",
   "sampling",

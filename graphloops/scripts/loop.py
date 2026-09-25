@@ -62,12 +62,7 @@ def main():
     s.add_argument("--node", help="1 節だけ起こす（省くと、いま起こせる launch を持つ節を全部並列に起こす）")
     s.set_defaults(fn=c.cmd_launch)
 
-    s = sub.add_parser("wait", help="背景の役の返答を期限まで待つ（exit 0 = 書かれた・済んだ / 3 = 期限切れ）")
-    s.add_argument("--dir")
-    s.add_argument("--node", required=True)
-    s.set_defaults(fn=c.cmd_wait)
-
-    s = sub.add_parser("relaunch", help="待っている instance を起こし直す（試行の回数と理由を盤面と trace に残す）")
+    s = sub.add_parser("relaunch", help="待っている instance を起こし直す（engine が起こした前の試行の子を木ごと止めてから。試行の回数と理由を盤面と trace に残す）")
     s.add_argument("--dir")
     s.add_argument("--node", required=True)
     s.add_argument("--reason", required=True)

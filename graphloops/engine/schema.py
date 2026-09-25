@@ -15,6 +15,7 @@ minLength / maxLength / pattern だけで、これ以外は無視する（展開
 """
 import copy
 import functools
+import pathlib
 import re
 
 
@@ -105,6 +106,7 @@ def validate_schema(value, schema, path="$"):
 def expand_refs(graph):
     """graph の schema の中の `"$ref"` を展開した写しを返す（JSON Schema の $defs / $ref と同じ形）。引けるのは
     `#/$defs/<名前>`（graph の最上位の $defs）と `engine#/<名前>`（engine が持つ定義。engine/util.py の ENGINE_DEFS）だけ。
+    節の pointers（番号で指す欄。engine/pointers.py）の型の広げもここで行う。
     **展開は graph を読む入口（盤面・init・graphcheck）で 1 度だけ行い、型検査は展開後の形だけを見る**。
     引けない $ref は ValueError（黙って空の schema にすると、その欄の型検査が消える）"""
     from .util import ENGINE_DEFS
@@ -134,15 +136,71 @@ def expand_refs(graph):
         return {k: walk(v, seen) for k, v in x.items()}
     out = {k: v for k, v in graph.items() if k != "$defs"}
     out["nodes"] = walk(graph.get("nodes", {}), frozenset())
+    # 番号で指す欄（pointers）の型も同じ入口で広げる——graph に型を手で書かせず、宣言の誤りはここで ValueError
+    from .pointers import widen
+    widen(out["nodes"])
     return out
 
 
+def merge_patch(target, patch):
+    """RFC 7396（JSON Merge Patch）で target に patch を重ねた写し: object は鍵ごとに重ね、null は鍵を消し、それ以外（配列も）は置き換える"""
+    if not isinstance(patch, dict):
+        return copy.deepcopy(patch)
+    out = copy.deepcopy(target) if isinstance(target, dict) else {}
+    for k, v in patch.items():
+        if v is None:
+            out.pop(k, None)
+        else:
+            out[k] = merge_patch(out.get(k), v)
+    return out
+
+
+def extends_path(path, g):
+    """差し替えの版（最上位に "extends": "<元の graph のファイル名>"）なら元の graph のパス、でなければ None。
+    **元は同じ置き場のファイルだけ**——継いだ節の prompt_file・rules の相対パスは、差し替えの版の置き場を基準に読まれる"""
+    ref = g.get("extends")
+    if ref is None:
+        return None
+    if not isinstance(ref, str) or not ref or pathlib.PurePath(ref).name != ref:
+        raise ValueError(f"extends {ref!r} は同じ置き場の graph のファイル名だけ（継いだ節の相対パスが別の置き場を指さないため）")
+    base = pathlib.Path(path).parent / ref
+    if base.resolve() == pathlib.Path(path).resolve():
+        raise ValueError(f"extends {ref!r} が自分を指している")
+    if not base.is_file():
+        raise ValueError(f"extends {ref!r} が無い（{base}）")
+    return base
+
+
+def resolve_extends(path, read):
+    """graph の差し替えの版を元の graph に重ねた姿（extends の無い graph はそのまま）。重ねは 1 段だけ。
+    配列は置き換えなので、足すなら元の要素も書く（落としていないかは graphcheck が見る）"""
+    g = read(path)
+    base = extends_path(path, g)
+    if base is None:
+        return g
+    b = read(base)
+    if "extends" in b:
+        raise ValueError(f"extends の先 {base.name} がまた extends を持つ——重ねは 1 段だけ")
+    return merge_patch(b, {k: v for k, v in g.items() if k != "extends"})
+
+
+def graph_text(path):
+    """graph の本文（差し替えの版なら元の graph の本文も続ける）——init の後に graph が変わったかを sha で見るため"""
+    from .util import read_json
+    text = pathlib.Path(path).read_text(encoding="utf-8")
+    try:
+        base = extends_path(path, read_json(path))
+    except ValueError:
+        return text
+    return text if base is None else text + "\n" + base.read_text(encoding="utf-8")
+
+
 def load_graph(path):
-    """graph を読んで $ref を展開する ——（graph, ""）か（None, 理由）。graph を読む入口（盤面・init・graphcheck）はこの 1 本を通し、
+    """graph を読んで（差し替えの版なら元の graph に重ねて）$ref を展開する ——（graph, ""）か（None, 理由）。graph を読む入口（盤面・init・graphcheck）はこの 1 本を通し、
     理由をどう伝えるか（die か NG の印字か）だけを呼び元が決める"""
     from .util import read_json
     try:
-        return expand_refs(read_json(path)), ""
+        return expand_refs(resolve_extends(path, read_json)), ""
     except ValueError as e:
         return None, f"{path}: {e}"
 

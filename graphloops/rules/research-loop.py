@@ -87,7 +87,60 @@ FAN_OUT = {"clusters_needing_check": clusters_needing_check, "claims_needing_ref
 # ——覆いの測定（判定語彙の到達）はこの扇の節を数えない。数えていたとき、同じ台本で到達が
 # 24 と 25 のあいだで揺れた（実測 2026-09-13: 種が run_id＝時刻）。**揺れる柵は無い柵より悪い。**
 RANDOM_FAN = ("sampling_pick",)
-CONDS = {}
+
+
+# ---------------------------------------------------------------- 節の条件（graph の cond が名前で指す）
+# 関数は読む欄を cond_reads で宣言し、engine が宣言した欄だけの入れ物 v を渡す。返りは（真偽, 理由の文）。
+# default の無い欄（rd.new_discrepancies 等）は、評価の順で届いたときに解決できなければ落ちる（以前の JSON の条件と同じ）
+@cond_reads("record.constraints")
+def constraints_self_written(v):
+    """問い・制約のどれかを surveyor が自書した"""
+    rows = v("record.constraints", [])
+    n = sum(1 for x in rows if isinstance(x, dict) and x.get("origin") == "surveyor自書") if isinstance(rows, list) else 0
+    return bool(n), f"surveyor が自書した問い・制約は {n} 件"
+
+
+@cond_reads("round", "loop.stuck_hint")
+def generation_due(v):
+    """重厚なら初回に一度、それ以外は stuck の後だけ（段は active_in が絞る）"""
+    if v("round") == 1:
+        return True, "初回"
+    ok = v("loop.stuck_hint", False) == True  # noqa: E712 — 以前の JSON の eq と同じ比較
+    return ok, "手詰まり（stuck）の後の周" if ok else "初回でなく、手詰まり（stuck）の後でもない"
+
+
+@cond_reads("rd.new_discrepancies")
+def no_new_discrepancies(v):
+    """この周の新規相違がゼロ"""
+    n = v("rd.new_discrepancies")
+    return n == 0, f"この周の新規相違は {n} 件"
+
+
+@cond_reads("rd.new_discrepancies", "out.p3.rederiver.verdict")
+def rederiver_compare_due(v):
+    """この周の新規相違がゼロ、かつ rederiver が問いは立っていると言った"""
+    ok, why = no_new_discrepancies(v)
+    if not ok:
+        return ok, why
+    verdict = v("out.p3.rederiver.verdict")
+    return verdict == "pass", f"{why}・rederiver の判定は {verdict}"
+
+
+@cond_reads("round", "rd.item_counts")
+def sampling_due(v):
+    """2 周目以降で、この周の P1 の照合対象が空集合だった"""
+    r = v("round")
+    if not (isinstance(r, (int, float)) and r > 1):
+        return False, f"round={r}（2 周目以降だけ）"
+    n = v("rd.item_counts.p1.checker")
+    return n == 0, f"この周の P1 の照合対象は {n} 件"
+
+
+CONDS = {"constraints_self_written": constraints_self_written, "generation_due": generation_due,
+         "no_new_discrepancies": no_new_discrepancies, "rederiver_compare_due": rederiver_compare_due, "sampling_due": sampling_due}
+# rules が盤面の loop（b.loop_state）と周（b.rd）に持つ鍵のうち、条件が読んでよい物（graphcheck が cond_reads と突き合わせる）
+LOOP_KEYS = frozenset({"stuck_hint"})
+ROUND_KEYS = frozenset({"new_discrepancies"})
 
 
 # ---------------------------------------------------------------- 記録の形に固有の書き込み

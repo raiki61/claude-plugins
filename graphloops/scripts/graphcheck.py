@@ -17,21 +17,23 @@
   8. プロンプトの穴（{{...}}）が全部 reads に宣言されている（遮断の機械版——宣言に無いものは貼れない）。
      out.<節> は自分より前（deps の推移閉包）の節だけ、prev.<節> は前の周の出力。fresh_context の節は record 全体を読めない。
      回す側の節には本文を貼る穴（file: / section:）を書けない——回す側はファイルを読めるので、渡すのはパス
-     （見るのは run_by が runners の節だけ。Read を持つ役割 agent の節は対象外）
+     （見るのは run_by が runners の節だけ。Read を持つ役割 agent の節は対象外）。record.<欄> の穴は、12 の条件の読みと
+     同じく記録を書く宣言に在ること（rules が読めない回は照らさない）
   9. 回す側の節の writes が判定の欄（claims の verdict / refuted、gates、sampling、convergence）に触れない。
      claims に merge する回す側の節は schema が additionalProperties: false で verdict / refuted を持たない
- 10. writes.op・fan_out.builtin・builtin・post_check・cond.builtin が engine か rules の知っている名前だけ。
+ 10. writes.op・fan_out.builtin・builtin・post_check・cond / applies_cond が engine か rules の知っている名前だけ。
      cover・save_text_as・thickness_from・raw_for_report の指す欄と節が実在する
  11. schema が engine の読む語（engine/schema.py の KNOWN_KEYWORDS）だけで書かれている——読まない語は書いても効かない
  12. engine が実行に使う欄が宣言どおりの物を指す: writes.from が節の schema.properties に在る、cond / applies_cond の
-     out.<節>.<欄> と prev.<節>.<欄> がその節の schema に在る、same_context_as の役が一致し遮断系でない、
+     関数が宣言した読む欄（cond_reads）と節の reads・outputs の loop.<鍵> が実在する（out./prev./cur. は節の schema、loop. は
+     rules の LOOP_KEYS、rd. は周の鍵、record. は記録を書く宣言）、same_context_as の役が一致し遮断系でない、
      report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated / launch.tooled の argv・resume・via の
      穴が engine の埋める語（LAUNCH_HOLES）だけで、resume は {session_id} を持ち、model / effort は遮断系の役の定義に在り、
      via が指す実体が同梱されている、resume_on_reject が 0 以上の整数
  13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
- 14. 回す側の任せ先（delegate）と期限: delegate は回す側の節にだけ・skills を持つ節には書けない（入れ子の委任）。
+ 14. 回す側の任せ先（delegate）: delegate は回す側の節にだけ・skills を持つ節には書けない（入れ子の委任）。
      background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景の節をほかの節が待たない（deps・instance_deps）。
-     deadline_minutes（最上位と節）は 1 以上の整数で、{{node.deadline_at}} を貼る節には期限が付く（期限が在り、回す側の節なら任せ先が在る）
+     {{node.<欄>}} は engine が埋める欄（skills）だけ
 
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
@@ -63,14 +65,14 @@ PLUGIN_ROOT = HERE.parent
 
 sys.path.insert(0, str(PLUGIN_ROOT))
 # 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
-from engine.board import COND_KEYS, COND_OP_KEYS, node_of  # noqa: E402
+from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of  # noqa: E402
 from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
-from engine.schema import end_anchored, load_graph, unknown_keywords, walk_schema  # noqa: E402
+from engine.schema import extends_path, end_anchored, load_graph, unknown_keywords, walk_schema  # noqa: E402
 DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この graph が任せ先に書ける名前: Claude Code の subagent の model の別名
 # （https://code.claude.com/docs/en/sub-agents）。完全な model ID も Agent ツールは受けるが、版が変わると古くなるので graph には書かない
 from engine.commands import CLI_FLAGS, INPUT_KINDS  # noqa: E402 — 入力の語彙は engine が正本（写さない）
-from engine.render import TOKEN, Renderer, strip_prefix  # noqa: E402
+from engine.render import TOKEN, Renderer, node_prompt, strip_prefix  # noqa: E402
 from engine.rules import HOOKS, load_rules as engine_load_rules, registry  # noqa: E402
 from engine.validator import ENGINE_ACCEPT_KEYS, agent_def, agent_tools, find_plugin_path  # noqa: E402
 from engine.util import read_json  # noqa: E402
@@ -243,61 +245,105 @@ def ancestors(nodes, nid, seen=None):
 
 
 
-def check_cond_paths(c, where, nodes, errs):
-    """cond の葉の path が out.<節>.<欄> / prev.<節>.<欄> なら、その節と欄（schema.properties）が実在すること。
-    綴り違いは実行時に黙って素通りし、走らなかった節の素材が『走らせる条件に当たらず』で埋まる（実測 2026-09-12:
-    default 付きの葉 23/39 が検査の外だった）。**loop. / record. の葉は今も見ていない**——葉の前置きを engine の
-    文脈のキーから引く形が要り、共有面に触るので台帳の fork。"""
-    if not isinstance(c, dict):
-        return
-    for k in ("all", "any"):
-        for x in c.get(k, []) or []:
-            check_cond_paths(x, where, nodes, errs)
-    if "not" in c:
-        check_cond_paths(c["not"], where, nodes, errs)
-    path = c.get("path")
-    # out.<節>.<欄> も prev.<節>.<欄> も同じ節の schema を指す——out. だけ見ていたとき、review-loop の default 付きの葉の
-    # 多数派（prev. が 14）が素通りし、欄名を 1 字違えると再発火条件が恒偽のまま収束まで通った（実測 2026-09-13）
-    if isinstance(path, str) and (path.startswith("out.") or path.startswith("prev.")):
-        rest = path.split(".", 1)[1]
-        nid = node_of(rest, nodes)
-        if nid is None:
-            errs.append(f"{where}: cond の path '{path}' の節が無い")
+def _record_ok(rest, g, rules):
+    """記録の欄 rest（record. を剥いだ path）を、記録を書く宣言で照らす。**前方一致で丸ごと通さない**:
+    - init_record の欄（入れ子も）・rules の RECORD_KEYS（writes の外で書く欄）は完全一致か、その親（入れ物）を読むときだけ
+    - 節の writes.to の下を読むなら、下の最初の欄がその write の pick に在るか、from が指す schema の properties に在ること
+    以前の JSON の条件の検査は record. の葉を見ておらず、record.reviews.R2.stauts のような綴り違いは回すまで分からなかった"""
+    exact = set()
+
+    def walk(obj, pre):
+        for k, v in obj.items():
+            exact.add(pre + k)
+            if isinstance(v, dict):
+                walk(v, pre + k + ".")
+    init = getattr(rules, "init_record", None)
+    if callable(init):
+        try:
+            walk(init(None, None) or {}, "")
+        except Exception:  # noqa: BLE001 — 段の既定値を要る init_record は候補を出さない（writes.to と RECORD_KEYS が残る）
+            pass
+    exact |= set(getattr(rules, "RECORD_KEYS", ()) or ())
+    for n in g["nodes"].values():
+        for w in n.get("writes") or []:
+            if not (isinstance(w, dict) and isinstance(w.get("to"), str)):
+                continue
+            to = w["to"]
+            exact.add(to)
+            if not rest.startswith(to + "."):
+                continue
+            first = rest[len(to) + 1:].split(".")[0]
+            if w.get("pick"):
+                if first in w["pick"]:
+                    return True
+                continue
+            sch = n.get("schema") or {}
+            frm = w.get("from")
+            if frm and frm != "$":
+                sch = (sch.get("properties") or {}).get(frm.split(".")[0]) or {}
+            if first in (sch.get("properties") or {}):
+                return True
+    return any(rest == c or c.startswith(rest + ".") for c in exact)
+
+
+def check_read_path(path, where, g, rules, errs, before=None):
+    """条件（と節の reads）が読む欄 path を、実行の前に照らす。out.<節>.<欄>・prev.<節>.<欄>・cur.<節>.<欄> は節と欄
+    （schema.properties）が実在し、before（条件を持つ節の deps の推移閉包）が在れば out.・cur. はその中の節だけ。loop.<鍵> は
+    rules の LOOP_KEYS、rd.<鍵> は engine の周の鍵か rules の ROUND_KEYS、record.<欄> は記録を書く宣言（_record_ok）"""
+    nodes = g["nodes"]
+    head, _, rest = path.partition(".")
+    if head not in COND_HEADS:
+        errs.append(f"{where}: 読む欄 '{path}' の頭が条件の文脈に無い（使えるのは {'/'.join(COND_HEADS)}）")
+    elif head in COND_NODE_HEADS:
+        ref = node_of(rest, nodes)
+        if ref is None:
+            errs.append(f"{where}: 読む欄 '{path}' の節が無い")
             return
-        field = rest[len(nid) + 1:].split(".")[0] if len(rest) > len(nid) else ""
-        props = (nodes[nid].get("schema") or {}).get("properties")
+        field = rest[len(ref) + 1:].split(".")[0] if len(rest) > len(ref) else ""
+        props = (nodes[ref].get("schema") or {}).get("properties")
         if field and props and field not in props:
-            errs.append(f"{where}: cond の path '{path}' の欄 '{field}' が節 {nid} の schema に無い（綴り違いか、書いても効かない）")
+            errs.append(f"{where}: 読む欄 '{path}' の欄 '{field}' が節 {ref} の schema に無い（綴り違いか、書いても効かない）")
+        if head != "prev" and before is not None and ref not in before:
+            errs.append(f"{where}: {head}.{ref} を読むが、{ref} はこの節の前（deps の推移閉包）に無い——評価の時点で今の周の出力が在る保証が無い")
+    elif head == "loop":
+        keys = getattr(rules, "LOOP_KEYS", None)
+        if keys is None:
+            errs.append(f"{where}: loop.{rest} を読むが、rules が LOOP_KEYS（盤面の loop の鍵の宣言）を持たない")
+        elif rest.split(".")[0] not in keys:
+            errs.append(f"{where}: 読む欄 '{path}' の鍵が rules の LOOP_KEYS に無い（綴り違いか、誰も書かない鍵）")
+    elif head == "rd":
+        if rest.split(".")[0] not in set(empty_round(0)) | set(getattr(rules, "ROUND_KEYS", ()) or ()):
+            errs.append(f"{where}: 読む欄 '{path}' の鍵が周の鍵（engine の empty_round と rules の ROUND_KEYS）に無い")
+    elif head == "record":
+        if not rest or not _record_ok(rest, g, rules):
+            errs.append(f"{where}: 読む欄 '{path}' を書く宣言が無い（init_record・節の writes.to と pick / schema・rules の RECORD_KEYS）")
+    elif rest:
+        errs.append(f"{where}: 読む欄 '{path}'——{head} は値そのもの（下に欄を持たない）")
 
 
-def check_cond(c, where, errs, conds=frozenset()):
-    if not isinstance(c, dict):
-        errs.append(f"{where}: cond が object でない")
+def check_declared_reads(fn, name, where, g, rules, errs, nid=None):
+    """条件の関数が宣言した読む欄（cond_reads）を 1 本ずつ check_read_path で照らす"""
+    reads = getattr(fn, "reads", None)
+    if not isinstance(reads, tuple) or not all(isinstance(r, str) and r for r in reads):
+        errs.append(f"{where}: cond '{name}' が読む欄を宣言していない（rules で cond_reads(...) を付けよ）")
         return
-    # 葉の未知キーは NG——書いても効かない宣言（綴り違い含む）が黙って無視されると、書き手は条件を宣言した
-    # つもりで節が毎周走る／走らない側に固定される（実測: cond の default を engine が読まなかった）
-    unknown = set(c) - COND_KEYS
-    if unknown:
-        errs.append(f"{where}: cond の葉に engine が読まない鍵: {sorted(unknown)}（綴り違いか、書いても効かない宣言）")
-    if "all" in c or "any" in c:
-        for x in c.get("all", []) + c.get("any", []):
-            check_cond(x, where, errs, conds)
-    elif "not" in c:
-        check_cond(c["not"], where, errs, conds)
-    elif "builtin" in c:
-        if c["builtin"] not in conds:
-            errs.append(f"{where}: cond.builtin '{c['builtin']}' が rules の CONDS に無い（{sorted(conds)}）")
-    elif "path" in c:
-        op = c.get("op", "eq")
-        if op not in COND_OP_KEYS:
-            errs.append(f"{where}: cond.op '{op}' を駆動器が知らない")
-        else:
-            # op ごとに要る鍵は engine の表（COND_OP_KEYS）が正本。欠けていると実行時に KeyError か恒偽になる
-            missing = [k for k in COND_OP_KEYS[op] if k not in c]
-            if missing:
-                errs.append(f"{where}: cond.op '{op}' に要る鍵が無い: {missing}")
-    else:
-        errs.append(f"{where}: cond の形が不明: {c}")
+    before = ancestors(g["nodes"], nid) if nid else None
+    for path in reads:
+        check_read_path(path, f"{where}（cond '{name}'）", g, rules, errs, before)
+
+
+def dropped(base, merged, path=""):
+    """base に在って merged に無い物（object の鍵・配列の要素）を入れ子まで辿って列挙する。値（文字列・数・真偽）の差し替えは数えない"""
+    if isinstance(base, dict):
+        if not isinstance(merged, dict):
+            return [f"{path or '節'} を object でない値に差し替えた"]
+        return [w for k, v in base.items()
+                for w in ([f"{path + '.' if path else ''}{k} を消した"] if k not in merged else dropped(v, merged[k], f"{path + '.' if path else ''}{k}"))]
+    if isinstance(base, list):
+        got = merged if isinstance(merged, list) else []
+        lost = [x for x in base if x not in got]
+        return [f"{path} を落とした: {lost}"] if lost else []
+    return []
 
 
 def check(gpath, script=None, emit=print):
@@ -315,6 +361,14 @@ def check(gpath, script=None, emit=print):
     nodes = g["nodes"]
     ok = True
     errs = []  # 実行の形の NG（末尾でまとめて印字）。関数の途中で作り直さない——先に溜めた分が捨てられる
+    # **差し替えの版（extends）は、元の節から何も落とさない**——足すか、値（文字列・数・真偽）を差し替えるだけ。重ね方
+    # （RFC 7396）は配列を置き換え、null で鍵を消し、入れ子の object を上書きできるので、元の graph に後から足した依存・読む欄・
+    # 書き先・schema の必須の欄が、差し替えの版の古い一覧で黙って消える。節と、節の中の入れ子の全部を辿って見る
+    # 見るのは節の下だけでなく graph の全体（最上位の配列・$defs の schema の required・inputs の宣言も、同じ重ね方で消えうる）
+    base_path = extends_path(gpath, read_json(gpath))
+    if base_path is not None:
+        base_g, _ = load_graph(base_path)
+        errs += [f"差し替えの版が元の {base_path.name} の {w}"[:300] for w in dropped(base_g or {}, g)]
 
     # 1. 依存の実在と波
     unknown = [(k, d) for k, v in nodes.items() for d in v.get("deps", []) + v.get("instance_deps", []) if d not in nodes]
@@ -365,11 +419,10 @@ def check(gpath, script=None, emit=print):
     # 黙って外れる——init が素通りし、2 手先の next で初めて落ちる（この差分自身が塞いだはずの形）。
     pasted = set()
     for nid, n in nodes.items():
-        pf = n.get("prompt_file")
-        if not pf:
+        if not n.get("prompt_file"):
             continue
         try:
-            tpl = (gpath.parent / pf).read_text(encoding="utf-8", errors="replace")
+            tpl = node_prompt(gpath, n, errors="replace")
         except OSError:
             continue
         # **穴の抽出と接頭の剥がしは engine の正本（render の TOKEN / strip_prefix）を使う。**
@@ -550,10 +603,6 @@ def check(gpath, script=None, emit=print):
             # skill（/simplify・/code-review）は中でさらに役を背景で起こす。任せ先の役越しに呼ぶと、孫の完了の知らせが
             # 任せ先に届かないまま待ち続けた（実測 2026-09-25: 局所レビューの任せ先が 7 時間以上戻らなかった）
             errs.append(f"節 {k}: skills を持つ節に delegate は書けない——skill は回す側（最上位のセッション）が自分で呼ぶ（入れ子の委任は完了の知らせが届かない）")
-    # 期限（deadline_minutes）: 値はループ固有なので graph だけが持つ。最上位が既定、節が上書き。engine は値を持たない
-    for where, val in [("最上位", g.get("deadline_minutes", None))] + [(f"節 {k}", v.get("deadline_minutes")) for k, v in nodes.items()]:
-        if val is not None and not (isinstance(val, int) and not isinstance(val, bool) and val >= 1):
-            errs.append(f"{where}: deadline_minutes は 1 以上の整数（分）")
     pr = g.get("deliver", {}).get("paste_roles")
     if pr is not None and not (isinstance(pr, list) and all(isinstance(t, str) and ":" in t for t in pr)):
         errs.append("deliver.paste_roles は役の名前（<plugin>:<役>）の一覧")
@@ -611,7 +660,8 @@ def check(gpath, script=None, emit=print):
     if not (isinstance(ror, int) and not isinstance(ror, bool) and ror >= 0):
         errs.append(f"launch.resume_on_reject は 0 以上の整数（{ror!r}）")
     rules = load_rules(gpath, g)
-    if isinstance(rules, str):
+    rules_unreadable = isinstance(rules, str)
+    if rules_unreadable:
         errs.append(rules)
         rules = None
     if rules is not None:
@@ -659,10 +709,29 @@ def check(gpath, script=None, emit=print):
         declared = set(v.get("materials") or [])
         if wrote != declared:
             errs.append(f"節 {k}: materials の宣言 {sorted(declared)} と writes の素材の書き先 {sorted(wrote)} が揃わない")
-    fan_builtins, node_builtins, post_checks, conds = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS"), reg("CONDS")
+    fan_builtins, node_builtins, post_checks = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS")
+    conds = dict(registry(rules, "CONDS"))
     for nid in g.get("raw_for_report", []):
         if nid not in nodes:
             errs.append(f"raw_for_report に無い節: {nid}")
+    def check_conds(k, v):
+        """節の条件（cond・applies_cond）の名前と読む欄、節の reads・outputs が名指す loop.<鍵> を照らす（driver の節も同じ）"""
+        for key in ("cond", "applies_cond"):
+            if key not in v:
+                continue
+            c = v[key]
+            if not isinstance(c, str) or c not in conds:
+                errs.append(f"節 {k}: {key} '{c}' が rules の CONDS の名前でない（graph には条件の関数の名前だけを書く。CONDS: {sorted(conds)}）")
+                continue
+            check_declared_reads(conds[c], c, f"節 {k}.{key}", g, rules, errs, nid=k)
+        # 節の reads と outputs が名指す loop.<鍵> も、条件と同じ宣言（LOOP_KEYS）で照らす——穴（{{?loop.X}}）の綴り違いは
+        # ABSENT で黙って埋まり、outputs の loop.<鍵> は宣言の 2 本目として別にずれうる
+        if rules is not None and getattr(rules, "LOOP_KEYS", None) is not None:
+            for key in ("reads", "outputs"):
+                for r in v.get(key) or []:
+                    if isinstance(r, str) and r.startswith("loop."):
+                        check_read_path(r.split()[0].rstrip("（(:"), f"節 {k}.{key}", g, rules, errs)
+
     for k, v in nodes.items():
         rb = v.get("run_by")
         if rb not in runners and rb not in agents and rb not in ("driver", "skill") and not v.get("agent_type"):
@@ -691,10 +760,15 @@ def check(gpath, script=None, emit=print):
             # engine は driver の reads を穴埋めに使わないので挙動は変わらない。宣言として要る
             if v.get("reads") is None:
                 errs.append(f"節 {k}: reads が無い（driver も宣言しろ——deps のどれが値でどれが順序かが読めない）")
+            check_conds(k, v)
             continue
         pf = v.get("prompt_file")
         if not pf or not (gpath.parent / pf).is_file():
             errs.append(f"節 {k}: prompt_file が無い（{pf}）")
+            continue
+        gone = [p for p in v.get("prompt_append") or [] if not (gpath.parent / p).is_file()]
+        if gone:
+            errs.append(f"節 {k}: prompt_append のファイルが無い（{gone}）")
             continue
         if not v.get("schema") and not v.get("text"):
             errs.append(f"節 {k}: schema も text: true も無い（返答の形が決まらない）")
@@ -710,7 +784,7 @@ def check(gpath, script=None, emit=print):
         if v.get("fresh_context") and "record" in reads:
             errs.append(f"節 {k}: fresh_context なのに record 全体を読む（判定と見立てが丸ごと渡る）")
         anc = ancestors(nodes, k)
-        tpl = (gpath.parent / pf).read_text(encoding="utf-8")
+        tpl = node_prompt(gpath, v)
         # **逆向きも見る。** 穴 ⊆ reads だけでは、宣言だけ在って誰にも届いていない欄が赤くならない
         errs += unused_reads(k, v, {m.group(2).strip() for m in TOKEN.finditer(tpl)})
         for m in TOKEN.finditer(tpl):
@@ -736,16 +810,19 @@ def check(gpath, script=None, emit=print):
             # 許可の判定は engine の Renderer を呼ぶ（式を写すと engine だけ変えたとき検査が黙って緩む）
             if not Renderer({}, reads).allowed(path):
                 errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} が reads に無い")
+            # record.<欄> の穴も条件の読みと同じ照らし（記録を書く宣言）に通す——省略可の穴（{{?record.…}}）の綴り違いは
+            # 実行時に『（この周には無い）』で黙って埋まる。rules が在るのに読めなかった回は照らさない（init_record を
+            # 引けず、全部の穴が偽の NG になって本当の原因——rules が読めない——が埋もれる）
+            if core.startswith("record.") and not rules_unreadable:
+                check_read_path(core, f"節 {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
             if core.startswith("out."):
                 src = node_of(core[4:], nodes)
                 if src is None or src not in anc:
                     errs.append(f"節 {k}: {core} を読むが、その節は前の節（deps の推移閉包）でない（前の周の出力なら prev.<節>）")
             if core.startswith("prev.") and node_of(core[5:], nodes) is None:
                 errs.append(f"節 {k}: {core} の節が無い")
-            if core == "node.deadline_at" and (v.get("deadline_minutes", g.get("deadline_minutes")) is None
-                                               or rb in runners and not v.get("delegate")):
-                errs.append(f"節 {k}: {{{{node.deadline_at}}}} を貼るが、期限が付かない——期限（deadline_minutes）が節にも graph の最上位にも無いか、"
-                            "任せ先（delegate）の無い回す側の節（自分でやる節に engine は期限を付けない）。埋められずに next で止まる")
+            if core.startswith("node.") and core != "node.skills":
+                errs.append(f"節 {k}: {{{{{core}}}}} は engine が埋めない（埋める node の欄は skills だけ）。埋められずに next で止まる")
         for r in reads:
             if r.startswith("out."):
                 src = node_of(r[4:], nodes)
@@ -784,11 +861,8 @@ def check(gpath, script=None, emit=print):
             errs.append(f"節 {k}: instance_deps と cond は同時に持てない（項目を先に出すとき cond を評価できない）")
         if v.get("post_check") and v["post_check"] not in post_checks:
             errs.append(f"節 {k}: post_check '{v['post_check']}' が rules の POST_CHECKS に無い")
-        if "cond" in v:
-            check_cond(v["cond"], f"節 {k}", errs, conds)
-        if "applies_cond" in v:
-            check_cond(v["applies_cond"], f"節 {k}.applies_cond", errs, conds)
-        # 12. engine が実行に使う欄（writes.from・cond の path・same_context_as の役）は、宣言どおりの物を指すこと。
+        check_conds(k, v)
+        # 12. engine が実行に使う欄（writes.from・条件の読む欄・same_context_as の役）は、宣言どおりの物を指すこと。
         # 文書欄（outputs）の照合は通っても、実行の欄の綴り違いは黙って素通りしていた（実測 2026-09-12: writes.from を
         # 綴り違いにしても exit 0 で、台本は 5 周回って stopped）
         props = set((v.get("schema") or {}).get("properties", {}))
@@ -807,9 +881,6 @@ def check(gpath, script=None, emit=print):
                     # 「意図した省略」と「綴り違い・欄の消失」がここで同じ無音になる——宣言で分ける。
                     errs.append(f"節 {k}: writes.from '{frm}' は schema.required に無い（任意の欄）のに optional の宣言が無い"
                                 "——役が省いた周はこの write が無音で消える。意図した省略なら writes に optional: true を書け")
-        for c in (v.get("cond"), v.get("applies_cond")):
-            if c:
-                check_cond_paths(c, f"節 {k}", nodes, errs)
         same = v.get("same_context_as")
         if same and same in nodes:
             me = v.get("agent_type") or v.get("run_by")

@@ -4,10 +4,11 @@ import json
 import pathlib
 import sys
 
-from .render import FILE_CAP, Renderer
+from . import pointers
+from .render import FILE_CAP, Renderer, node_prompt
 from .rules import hook, registry
-from .schema import validate_schema
-from .util import ANSWER_ACTIONS, TERMINAL_STATUS, deadline_of, die, dump, now, read_json, safe_name, sha, write_json
+from .schema import graph_text, validate_schema
+from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, die, dump, now, read_json, safe_name, sha, write_json
 from .role_run import WRITE_TOOLS, tooled_permission
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
@@ -207,12 +208,8 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
     n = b.nodes[nid]
     iid = nid + (f"[{item['key']}]" if item else "") + suffix
     emitted = now()
-    # **期限は、回す側が他へ渡して待つ instance だけに付ける**（役・遮断系・任せ先の付いた回す側の節）。回す側が自分で手を動かす節に
-    # 付けると、長い修正のたびに overdue が立ち、圧縮後に読み直した回す側が自分の作業を relaunch で締め出す道が開く
-    deadline = deadline_of(b.graph, n, emitted) if not b.is_runner(n) or n.get("delegate") else None
-    prompt_path = pathlib.Path(b.state["graph"]).parent / n["prompt_file"]
     try:
-        tpl = prompt_path.read_text(encoding="utf-8")
+        tpl = node_prompt(b.state["graph"], n)
     except OSError as e:
         die(f"{nid}: prompt_file が読めない: {e}")
     ctx = b.ctx(item)
@@ -220,7 +217,7 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
     # ——レンズの一覧を散文へ手で写すと、正本を直した周に写しだけが古くなり、しかも役は写しの方を読む
     # （実測 2026-09-15: skills 配列に 3 本足したのにプロンプト側は 2 本しか名指ししていなかった）。
     # 渡すのは skills だけ——節の宣言を丸ごと開くと、schema も deps も役の目に入って指示と資料の境が消える。
-    ctx["node"] = {"skills": n.get("skills", []), **({"deadline_at": deadline} if deadline else {})}
+    ctx["node"] = {"skills": n.get("skills", [])}
     if n.get("pre") == "finalize":
         # 報告の前に記録を仕上げて検証器を回す。通らなければこの節は出さない（fail loud）
         finalize(b)
@@ -267,12 +264,16 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
     # 貼る経路は「回す側でなく・遮断系でなく・deliver が paste」の 1 通りだけ。isolated を条件から落とすと、
     # 遮断系は deliver_mode が paste を返す（道具ゼロなので path_tools を持たない）ため切られる側に回る
     # ——最初にこの 3 つ目を落として台本が 2 件赤くなった（実測 2026-09-13: 45,118 バイトの本文が切られた）
+    snap, offsets = pointers.snapshot(ctx, n.get("pointers"))
     r = Renderer(ctx, n.get("reads"), ref=b.ref,
-                 cap=None if (runner or launchable or deliver == "path") else FILE_CAP)
+                 cap=None if (runner or launchable or deliver == "path") else FILE_CAP, numbered=offsets)
     try:
         prompt = r.render(tpl)
     except KeyError as e:
         die(f"{nid}: {e}")
+    unseen = sorted(set(offsets) - r.numbered_seen)
+    if unseen:
+        die(f"{nid}: pointers の from {unseen} を貼る穴がプロンプトに無い——番号が役に見えない（穴はその一覧のパスそのもので書け）")
     if n.get("schema"):
         # **引用符の断りを 1 行入れる。** 役の指摘はコード片や設定値をそのまま引くので、文字列値の中に
         # 生の " が入りやすい（実測 2026-09-15: cold-reader の初回の返答が `（"/code-review high" 等）` で
@@ -301,7 +302,8 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
         "out_path": str(b.dir / "out" / f"r{b.round}" / (safe_name(iid) + (f".a{attempt}" if attempt > 1 else "")
                                                          + (".md" if n.get("text") else ".json"))),
         "attempts": attempt,
-        **({"deadline_at": deadline} if deadline else {}),
+        # 役が番号で指す一覧の名前の列（emit の時点で固める。done が番号を名前に戻すときに読む唯一の値）
+        **({"pointers": snap} if snap else {}),
     }
     # **返答の置き場のディレクトリも engine が作る**——プロンプトの置き場だけ作っていたとき、運び手が
     # シェルのリダイレクトや mkdir をしない書き方で書くと、最初の done が『返答が無い』で必ず落ちた（実走の申し送り 2026-09-24）
@@ -411,9 +413,11 @@ def run_driver_node(b, nid, n, notes):
     if d == "ask":
         # **諮る選択肢は engine が動ける語だけ。** 表が無かったとき、知らない語は答えられた瞬間に
         # 「続ける」側へ落ちて周が開いた——諮った意味が消える。立てる側で落とす（答える人を待たない）
-        unknown = [o for o in (out["ask"].get("options") or []) if o not in ANSWER_ACTIONS]
+        # 周の途中の問い（in_round）は周を動かさないので、使える語がさらに狭い（IN_ROUND_ACTIONS。答える側の cmd_answer と同じ表）
+        can = IN_ROUND_ACTIONS if out["ask"].get("in_round") else ANSWER_ACTIONS
+        unknown = [o for o in (out["ask"].get("options") or []) if o not in can]
         if unknown:
-            die(f"{nid}: 人に聞く選択肢 {unknown} は engine が動けない語（動けるのは {list(ANSWER_ACTIONS)}）")
+            die(f"{nid}: 人に聞く選択肢 {unknown} は engine が動けない語（動けるのは {list(can)}）")
     if d == "ask" and not b.state["unattended"]:
         # 人に聞く番——**done の印は付けない**（決着していない）。付けていたとき、次の next がこの節を再評価せず先へ
         # 進み、入口のガードで同じ報告を複製する必要が生じた。答えが stop なら cmd_answer が印を付け、continue なら周が変わる
@@ -432,6 +436,10 @@ def run_driver_node(b, nid, n, notes):
         b.state.pop("pending_human")
         b.state["status"] = "stopped"
         notes.append(f"無人実行: 停止（{reason}）")
+        if out["ask"].get("in_round"):
+            # 周の途中の問いを無人で止めたら、後の節を出さない（出すと、答えの無い問いの先の工程が走る）
+            b.state["halted"] = {"node": nid, "round": b.round, "by": "unattended", "reason": reason}
+            return False
     elif d in TERMINAL_STATUS:
         b.state["status"] = d
     elif d != "continue":
@@ -441,7 +449,7 @@ def run_driver_node(b, nid, n, notes):
 
 def graph_changed(b, notes):
     """init の後に graph が編集されていたら、痕跡を残して知らせる（止めはしない——止めると直せない）。"""
-    cur = sha(pathlib.Path(b.state["graph"]).read_text(encoding="utf-8"))
+    cur = sha(graph_text(b.state["graph"]))
     if cur != b.state.get("graph_sha"):
         b.state.setdefault("graph_changes", []).append({"round": b.round, "from": b.state.get("graph_sha"), "to": cur, "at": now()})
         b.state["graph_sha"] = cur

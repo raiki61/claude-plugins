@@ -31,8 +31,6 @@
   "writer",
   "skill"
  ],
- "deadline_minutes": 30,
- "deadline_note": "instance の期限（分）の既定。節の deadline_minutes が上書きする。値はループ固有なので graph だけが持ち、engine は emitted_at に足して deadline_at を出す（next・status の overdue、loop.py wait の exit 3）。値は実測で決めていない目安: 全腕を撃つ節は、全腕を台本一式で撃つと 24 コアでも 1 時間を超えた（tests/mutate.py の注記）ので、--reuse の持ち越しを前提に 120（最後の関門は BASE からの変更全部を撃つので 240）。局所レビュー（レンズ 7 本）は 60。期限で撃てずに残った腕は証拠にならない行で返る——実走の所要時間と残りの数を測って直す",
  "deliver": {
   "path_tools": [
    "Read"
@@ -484,7 +482,7 @@
      "items": {
       "$ref": "#/$defs/gate_arm"
      },
-     "note": "腕ごとに 1 行。0 行で書けるのは、見たと名乗らない status（検証器の STATUS 表で observed でない値）だけ——見たと名乗る status を 0 行で書くと拒む（post_check gate_arms_all_red）。撃てた腕が無いなら not_run（tests/mutate.py --gate-efficacy が組む）"
+     "note": "腕ごとに 1 行。0 行で書けるのは、見たと名乗らない status（検証器の STATUS 表で observed でない値）だけ——見たと名乗る status を 0 行で書くと拒む（post_check gate_arms_all_red）。撃てた腕が無いなら not_run（実行器が返答の形を組む口を持つなら、その口が組む）"
     }
    }
   },
@@ -603,7 +601,7 @@
      "items": {
       "$ref": "#/$defs/gate_arm"
      },
-     "note": "実行器の --gate-efficacy が組んだ腕の行をそのまま。赤・対照の緑・当たりの証拠のどれかが欠けた腕が見逃し"
+     "note": "実行器の返答の形を組む口が組んだ腕の行をそのまま。赤・対照の緑・当たりの証拠のどれかが欠けた腕が見逃し"
     },
     "handled": {
      "type": "array",
@@ -1016,7 +1014,6 @@
    "run_by": "inspector",
    "fresh_context": true,
    "optional": true,
-   "when": "目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す",
    "deps": [
     "p0.purpose",
     "p1.worktree_before"
@@ -1092,48 +1089,28 @@
      "from": "$"
     }
    ],
-   "cond": {
-    "all": [
-     {
-      "path": "out.p0.purpose.source",
-      "op": "eq",
-      "value": "③writer の要約"
-     },
-     {
-      "any": [
-       {
-        "path": "round",
-        "op": "eq",
-        "value": 1
-       },
-       {
-        "builtin": "purpose_sources_changed"
-       },
-       {
-        "builtin": "purpose_review_unvetted"
-       }
-      ]
-     }
-    ]
-   },
+   "cond": "purpose_review_due",
    "post_check": "purpose_findings_cited"
   },
   "p0.parallel_pr": {
    "stage": "P0",
    "run_by": "writer",
    "deps": [
-    "p0.base"
+    "p0.base",
+    "p1.worktree_before"
    ],
    "source": "P0 ＞ 5. 並行 PR 衝突チェック（6 段）",
    "does": "git remote get-url から owner/repo→自 PR を SHA で除外→打ち切り確認（--limit 100）→変更ファイル集合→各 PR の files→交差を担当 PR へ申し送り。gh は必ず -R",
    "outputs": [
     "materials.parallel_pr"
    ],
-   "note": "担当 PR へのコメント申し送り（gh の投稿）には gates プラグインの門番が掛かる環境がある",
+   "note": "担当 PR へのコメント申し送り（gh の投稿）には gates プラグインの門番が掛かる環境がある。対象差分の変更ファイル一覧は機械（p1.worktree_before）が取るので、その後に走る",
    "prompt_file": "../prompts/review-loop/p0.parallel_pr.md",
    "reads": [
     "inputs.cwd",
-    "record.base"
+    "record.base",
+    "loop.changed_files_file",
+    "loop.request_wheres"
    ],
    "schema": {
     "type": "object",
@@ -1242,7 +1219,7 @@
      ]
     }
    ],
-   "once": true,
+   "cond": "parallel_pr_due",
    "materials": [
     "parallel_pr"
    ],
@@ -1251,7 +1228,8 @@
    "delegate": {
     "model": "haiku",
     "why": "gh の一覧を引いて交差を数えるだけで、判断が要らない"
-   }
+   },
+   "carry_reason": "並行 PR の交差は 1 周目（判定から入る run では最初に修正が入った次の周も）に見た結果を持ち越す"
   },
   "p0.prior_decisions": {
    "stage": "P0",
@@ -1271,7 +1249,8 @@
    "reads": [
     "inputs.cwd",
     "record.base",
-    "loop.changed_files"
+    "loop.changed_files",
+    "loop.request_wheres"
    ],
    "schema": {
     "type": "object",
@@ -1378,34 +1357,7 @@
      ]
     }
    ],
-   "when": "初回か、ループ自身が issue・台帳を書き足した周、または前の周の P3 が何かを直した周",
-   "cond": {
-    "any": [
-     {
-      "any": [
-       {
-        "path": "round",
-        "op": "eq",
-        "value": 1
-       },
-       {
-        "path": "prev.p3.fix.decision_records_changed",
-        "op": "eq",
-        "value": true,
-        "default": false
-       },
-       {
-        "builtin": "prev_fix_touched"
-       }
-      ]
-     },
-     {
-      "path": "loop.escalated",
-      "op": "nonempty",
-      "default": null
-     }
-    ]
-   },
+   "cond": "prior_decisions_due",
    "forbidden_inputs": [
     "局所の findings",
     "他の grader の素材"
@@ -1422,7 +1374,8 @@
    "stage": "P1",
    "run_by": "driver",
    "deps": [
-    "p0.base"
+    "p0.base",
+    "spec.freeze"
    ],
    "source": "P1 ＞ 局所（前後の作業ツリー突合）",
    "does": "この周に採点する版を固め、対象差分（BASE → 版）と前後の突合の基準（git status --porcelain・stash list・版の木の id）を機械が取る。回す側に貼らせない",
@@ -1613,13 +1566,7 @@
    ],
    "na_self_ok": false,
    "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象",
-   "deadline_minutes": 60,
-   "cond": {
-    "not": {
-     "builtin": "request_entry"
-    }
-   },
-   "when": "判定から入る run の周でない（1 周目の P1 より前に add で依頼を置いて始めた run は、修正が入るまで P1 の役を起こさない。途中の周の add では外れない）"
+   "cond": "not_request_entry"
   },
   "p1.consistency_bypass": {
    "stage": "P1",
@@ -1834,14 +1781,9 @@
     "consistency",
     "bypass"
    ],
-   "when": "判定から入る run の周でなく、または",
    "na_self_ok": false,
    "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象",
-   "cond": {
-    "not": {
-     "builtin": "request_entry"
-    }
-   }
+   "cond": "not_request_entry"
   },
   "p1.hygiene": {
    "stage": "P1",
@@ -1921,14 +1863,9 @@
    "materials": [
     "hygiene"
    ],
-   "when": "判定から入る run の周でなく、または",
    "na_self_ok": false,
    "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象",
-   "cond": {
-    "not": {
-     "builtin": "request_entry"
-    }
-   }
+   "cond": "not_request_entry"
   },
   "p1.external_standards": {
    "stage": "P1",
@@ -2119,40 +2056,7 @@
      "from": "rankings"
     }
    ],
-   "when": "判定から入る run の周でなく、初回か、機構を足した／変えた周か、依存の宣言ファイルが変わった周、または前の周の P3 が何かを直した周",
-   "cond": {
-    "all": [
-     {
-      "not": {
-       "builtin": "request_entry"
-      }
-     },
-     {
-      "any": [
-       {
-        "path": "round",
-        "op": "eq",
-        "value": 1
-       },
-       {
-        "path": "prev.p3.fix.mechanism_changed",
-        "op": "eq",
-        "value": true,
-        "default": false
-       },
-       {
-        "path": "prev.p3.fix.deps_changed",
-        "op": "eq",
-        "value": true,
-        "default": false
-       },
-       {
-        "builtin": "prev_fix_touched"
-       }
-      ]
-     }
-    ]
-   },
+   "cond": "external_standards_due",
    "materials": [
     "external_standards"
    ],
@@ -2166,7 +2070,6 @@
    "run_by": "investigator",
    "fresh_context": true,
    "optional": true,
-   "when": "差分に手順書・スクリプト・CI 定義があり、初回かそれらを変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る）",
    "deps": [
     "p1.worktree_before",
     "p0.local_checks"
@@ -2286,57 +2189,9 @@
      "from": "findings"
     }
    ],
-   "applies_cond": {
-    "builtin": "touches_procedures"
-   },
+   "applies_cond": "touches_procedures",
    "na_reason": "対象差分に手順書・スクリプト・CI 定義の変更が無い",
-   "cond": {
-    "any": [
-     {
-      "all": [
-       {
-        "not": {
-         "builtin": "request_entry"
-        }
-       },
-       {
-        "any": [
-         {
-          "all": [
-           {
-            "builtin": "touches_procedures"
-           },
-           {
-            "any": [
-             {
-              "path": "round",
-              "op": "eq",
-              "value": 1
-             },
-             {
-              "path": "prev.p3.fix.procedures_changed",
-              "op": "eq",
-              "value": true,
-              "default": false
-             }
-            ]
-           }
-          ]
-         },
-         {
-          "builtin": "prev_fix_touched"
-         }
-        ]
-       }
-      ]
-     },
-     {
-      "path": "loop.escalated",
-      "op": "nonempty",
-      "default": null
-     }
-    ]
-   },
+   "cond": "procedure_trace_due",
    "materials": [
     "procedure_trace"
    ],
@@ -2347,7 +2202,6 @@
    "stage": "P1",
    "run_by": "writer",
    "optional": true,
-   "when": "差分がゲートを新設・変更しており、初回かゲートを変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る）",
    "deps": [
     "p1.worktree_before",
     "p0.local_checks"
@@ -2362,8 +2216,7 @@
     "loop.diff_file",
     "loop.changed_files_file",
     "record.base",
-    "inputs.cwd",
-    "node.deadline_at"
+    "inputs.cwd"
    ],
    "schema": {
     "$ref": "#/$defs/gate_reply"
@@ -2380,81 +2233,9 @@
      "from": "arms"
     }
    ],
-   "applies_cond": {
-    "any": [
-     {
-      "path": "out.p0.base.touches_gates",
-      "op": "eq",
-      "value": true
-     },
-     {
-      "path": "prev.p3.fix.gates_changed",
-      "op": "eq",
-      "value": true,
-      "default": false
-     }
-    ]
-   },
+   "applies_cond": "gates_touched",
    "na_reason": "対象差分は検証ゲート（CI ジョブ・assert・テスト・pre-commit）を新設・変更していない",
-   "cond": {
-    "any": [
-     {
-      "all": [
-       {
-        "not": {
-         "builtin": "request_entry"
-        }
-       },
-       {
-        "any": [
-         {
-          "all": [
-           {
-            "any": [
-             {
-              "path": "out.p0.base.touches_gates",
-              "op": "eq",
-              "value": true
-             },
-             {
-              "path": "prev.p3.fix.gates_changed",
-              "op": "eq",
-              "value": true,
-              "default": false
-             }
-            ]
-           },
-           {
-            "any": [
-             {
-              "path": "round",
-              "op": "eq",
-              "value": 1
-             },
-             {
-              "path": "prev.p3.fix.gates_changed",
-              "op": "eq",
-              "value": true,
-              "default": false
-             }
-            ]
-           }
-          ]
-         },
-         {
-          "builtin": "prev_fix_touched"
-         }
-        ]
-       }
-      ]
-     },
-     {
-      "path": "loop.escalated",
-      "op": "nonempty",
-      "default": null
-     }
-    ]
-   },
+   "cond": "gate_efficacy_due",
    "materials": [
     "gate_efficacy"
    ],
@@ -2462,16 +2243,14 @@
    "post_check": "gate_arms_all_red",
    "escalate_note": "同じクラスが周をまたいで戻った run では条件に関わらず走る（rules の escalate_on_thrash。下げるのは人の手当てだけ）",
    "delegate": {
-    "model": "haiku",
-    "why": "tests/mutate.py で撃ち、--gate-efficacy の出力をそのまま返すだけ（撃つのに 30 分かかる）"
-   },
-   "deadline_minutes": 120
+    "model": "sonnet",
+    "why": "対象リポジトリの変異の実行器を走らせて結果を返答の形に組む作業で、修正の判断は要らない（撃つのに 30 分かかる）。実行器を持たないリポジトリでは写しの上で腕を手で作り当たりの証拠まで見る読みの判断が要るので、haiku でなく sonnet（p3.delta_gates と同じ）"
+   }
   },
   "p1.test_double_fidelity": {
    "stage": "P1",
    "run_by": "writer",
    "optional": true,
-   "when": "差分が外部との継ぎ目に触れ、初回か代役を変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る）",
    "deps": [
     "p1.worktree_before",
     "p0.local_checks"
@@ -2569,81 +2348,9 @@
      "from": "material"
     }
    ],
-   "applies_cond": {
-    "any": [
-     {
-      "path": "out.p0.base.touches_external_seams",
-      "op": "eq",
-      "value": true
-     },
-     {
-      "path": "prev.p3.fix.seams_changed",
-      "op": "eq",
-      "value": true,
-      "default": false
-     }
-    ]
-   },
+   "applies_cond": "seams_touched",
    "na_reason": "対象差分は外部との継ぎ目（別プロセス・別サービス・ブラウザ・外部 API・プロトコル）に触れていない",
-   "cond": {
-    "any": [
-     {
-      "all": [
-       {
-        "not": {
-         "builtin": "request_entry"
-        }
-       },
-       {
-        "any": [
-         {
-          "all": [
-           {
-            "any": [
-             {
-              "path": "out.p0.base.touches_external_seams",
-              "op": "eq",
-              "value": true
-             },
-             {
-              "path": "prev.p3.fix.seams_changed",
-              "op": "eq",
-              "value": true,
-              "default": false
-             }
-            ]
-           },
-           {
-            "any": [
-             {
-              "path": "round",
-              "op": "eq",
-              "value": 1
-             },
-             {
-              "path": "prev.p3.fix.seams_changed",
-              "op": "eq",
-              "value": true,
-              "default": false
-             }
-            ]
-           }
-          ]
-         },
-         {
-          "builtin": "prev_fix_touched"
-         }
-        ]
-       }
-      ]
-     },
-     {
-      "path": "loop.escalated",
-      "op": "nonempty",
-      "default": null
-     }
-    ]
-   },
+   "cond": "test_double_fidelity_due",
    "materials": [
     "test_double_fidelity"
    ],
@@ -2747,79 +2454,9 @@
      "from": "material"
     }
    ],
-   "applies_cond": {
-    "any": [
-     {
-      "path": "out.p0.base.touches_user_path",
-      "op": "eq",
-      "value": true
-     },
-     {
-      "path": "prev.p3.fix.path_changed",
-      "op": "eq",
-      "value": true,
-      "default": false
-     }
-    ]
-   },
+   "applies_cond": "user_path_touched",
    "na_reason": "対象差分は利用者から見える経路・外部との継ぎ目を変えていない",
-   "when": "判定から入る run の周でなく、差分が利用者から見える経路を変え、初回か経路を変えた周。前の周に awaiting_human だった周も（動かす手段が見つかったか再挑戦）、または前の周の P3 が何かを直した周",
-   "cond": {
-    "all": [
-     {
-      "not": {
-       "builtin": "request_entry"
-      }
-     },
-     {
-      "any": [
-       {
-        "all": [
-         {
-          "any": [
-           {
-            "path": "out.p0.base.touches_user_path",
-            "op": "eq",
-            "value": true
-           },
-           {
-            "path": "prev.p3.fix.path_changed",
-            "op": "eq",
-            "value": true,
-            "default": false
-           }
-          ]
-         },
-         {
-          "any": [
-           {
-            "path": "round",
-            "op": "eq",
-            "value": 1
-           },
-           {
-            "path": "prev.p3.fix.path_changed",
-            "op": "eq",
-            "value": true,
-            "default": false
-           },
-           {
-            "path": "loop.last_material.main_path_observation.status",
-            "op": "eq",
-            "value": "awaiting_human",
-            "default": null
-           }
-          ]
-         }
-        ]
-       },
-       {
-        "builtin": "prev_fix_touched"
-       }
-      ]
-     }
-    ]
-   },
+   "cond": "main_path_observation_due",
    "materials": [
     "main_path_observation"
    ],
@@ -2924,34 +2561,7 @@
      "from": "material"
     }
    ],
-   "when": "判定から入る run の周でなく、初回か、事実の主張が増減した周、または前の周の P3 が何かを直した周",
-   "cond": {
-    "all": [
-     {
-      "not": {
-       "builtin": "request_entry"
-      }
-     },
-     {
-      "any": [
-       {
-        "path": "round",
-        "op": "eq",
-        "value": 1
-       },
-       {
-        "path": "prev.p3.fix.claims_changed",
-        "op": "eq",
-        "value": true,
-        "default": false
-       },
-       {
-        "builtin": "prev_fix_touched"
-       }
-      ]
-     }
-    ]
-   },
+   "cond": "provenance_due",
    "materials": [
     "provenance"
    ],
@@ -3046,6 +2656,15 @@
     "loop.wrote_refs_reads",
     "loop.coverage_after"
    ],
+   "pointers": [
+    {
+     "at": "carried_r1[].where",
+     "from": [
+      "prev.r1.minimality.deletions"
+     ],
+     "field": "where"
+    }
+   ],
    "schema": {
     "type": "object",
     "required": [
@@ -3138,7 +2757,7 @@
      },
      "carried_r1": {
       "type": "array",
-      "note": "前の周の R1 最小性が挙げた削除候補（prev.r1.minimality.deletions）1 件につき 1 行。where は逐語で写す（post_check が 1 対 1 で数える）。unit に昇格させるなら disposition=promote と unit_key、落とすなら disposition=decline と why。値は検証器の語彙と重ならない綴りにしてある（重なると graphcheck が『写しがずれている』と読む）。前の周の R1 が無い周は空配列",
+      "note": "前の周の R1 最小性が挙げた削除候補（prev.r1.minimality.deletions）1 件につき 1 行。where は貼られた行の no で指す（engine が where に戻し、post_check が 1 対 1 で数える）。unit に昇格させるなら disposition=promote と unit_key、落とすなら disposition=decline と why。値は検証器の語彙と重ならない綴りにしてある（重なると graphcheck が『写しがずれている』と読む）。前の周の R1 が無い周は空配列",
       "items": {
        "type": "object",
        "required": [
@@ -3289,7 +2908,6 @@
    "run_by": "judge",
    "same_context_as": "p2.diagnose",
    "optional": true,
-   "when": "2 ラウンド目以降",
    "deps": [
     "p2.diagnose"
    ],
@@ -3322,6 +2940,14 @@
     "loop.wrote_refs_reads",
     "loop.coverage_after",
     "loop.prev_declared_faces"
+   ],
+   "pointers": [
+    {
+     "at": "declared_routed[].key",
+     "from": [
+      "loop.prev_declared_faces"
+     ]
+    }
    ],
    "schema": {
     "type": "object",
@@ -3569,11 +3195,7 @@
      "note": "最新の判定を正本にする——p2.diagnose だけが書いていた頃、履歴の再審で開き直した単位の class_query を修正役も母数の突合も読まなかった"
     }
    ],
-   "cond": {
-    "path": "round",
-    "op": "gt",
-    "value": 1
-   },
+   "cond": "after_first_round",
    "post_check": "judge_output"
   },
   "p2.fix_plan": {
@@ -3582,10 +3204,7 @@
    "deps": [
     "p2.history"
    ],
-   "cond": {
-    "builtin": "units_open"
-   },
-   "when": "今の周に直す単位（[block]・do-now）が在る周",
+   "cond": "units_open",
    "source": "P2 ＞ 10. 修正案（書く前に出す）",
    "does": "直す単位を全部どれかの案に入れ、案ごとに新しく生まれる物（関数・欄・柵・文・口・腕）と正本の在りか・消す物・足さずに閉じる形を先に考えた結果を書く。まだ手を動かさない",
    "outputs": [
@@ -3600,6 +3219,14 @@
     "inputs.cwd",
     "inputs.review_rev",
     "record.questions"
+   ],
+   "pointers": [
+    {
+     "at": "plan[].unit_keys[]",
+     "from": [
+      "record.units"
+     ]
+    }
    ],
    "writes": [
     {
@@ -3703,10 +3330,7 @@
    "deps": [
     "p2.fix_plan"
    ],
-   "cond": {
-    "builtin": "units_open"
-   },
-   "when": "今の周に直す単位が在る周（修正案が出た周）",
+   "cond": "units_open",
    "source": "P2 ＞ 11. 修正案の事前審査（判定をした judge と別の目）",
    "does": "案が書かれた後に作る穴（写し・塞がない入口・契約のずれ・死んだ道・範囲の膨張）を書く前に予測し、全部を小さく閉じる別案を挙げる",
    "outputs": [
@@ -3722,6 +3346,20 @@
     "inputs.cwd",
     "inputs.review_rev",
     "inputs.review_md"
+   ],
+   "pointers": [
+    {
+     "at": "faces[].unit_keys[]",
+     "from": [
+      "record.units"
+     ]
+    },
+    {
+     "at": "shrink[].unit_keys[]",
+     "from": [
+      "record.units"
+     ]
+    }
    ],
    "writes": [
     {
@@ -3878,6 +3516,27 @@
     "prev.r4.hidden_scope",
     "out.p2.plan_review",
     "loop.lane_merge"
+   ],
+   "pointers": [
+    {
+     "at": "plan_faces[].key",
+     "from": [
+      "out.p2.plan_review.faces",
+      "out.p2.plan_review.shrink"
+     ]
+    },
+    {
+     "at": "changes[].unit_key",
+     "from": [
+      "record.units"
+     ]
+    },
+    {
+     "at": "not_done[].unit_key",
+     "from": [
+      "record.units"
+     ]
+    }
    ],
    "schema": {
     "type": "object",
@@ -4319,10 +3978,7 @@
    "deps": [
     "p3.fix_delta"
    ],
-   "cond": {
-    "builtin": "delta_review_due"
-   },
-   "when": "この周の修正が差分を作った周、または修正が塞いだと言う事前審査の穴が在る周",
+   "cond": "delta_review_due",
    "source": "P3 ＞ 修正差分の即時レビュー（同じ周のうちに）",
    "inputs": [
     "この周の修正だけの差分（パス）",
@@ -4340,6 +3996,14 @@
     "inputs.cwd",
     "out.p2.plan_review",
     "out.p3.fix.plan_faces"
+   ],
+   "pointers": [
+    {
+     "at": "checks[].key",
+     "from": [
+      "out.p3.fix.plan_faces"
+     ]
+    }
    ],
    "writes": [
     {
@@ -4373,10 +4037,7 @@
    "deps": [
     "p3.delta_owed"
    ],
-   "cond": {
-    "builtin": "delta_faces_open"
-   },
-   "when": "修正差分のレビューが穴を挙げた周",
+   "cond": "delta_faces_open",
    "source": "P3 ＞ 修正差分の穴を同じ周で直す",
    "does": "修正差分のレビューが挙げた穴を 1 件ずつ直す（fixed）か、残す理由を書く（declared）",
    "outputs": [
@@ -4387,6 +4048,14 @@
     "loop.delta_owed",
     "loop.fix_delta.file",
     "inputs.cwd"
+   ],
+   "pointers": [
+    {
+     "at": "handled[].key",
+     "from": [
+      "loop.delta_owed.rows"
+     ]
+    }
    ],
    "writes": [
     {
@@ -4407,10 +4076,7 @@
    "deps": [
     "p3.delta_fix"
    ],
-   "cond": {
-    "builtin": "delta_fixed"
-   },
-   "when": "修正差分の穴を手直しで直した周",
+   "cond": "delta_fixed",
    "source": "P3 ＞ 手直しの差分の切り出し",
    "does": "1 回目に固めた修正後の姿から手直し後の姿（同じ手続きで固める）までの差分——手直しだけ——を写しに落とす",
    "outputs": [
@@ -4425,10 +4091,7 @@
    "deps": [
     "p3.fix_delta2"
    ],
-   "cond": {
-    "builtin": "delta_review2_due"
-   },
-   "when": "手直しが差分を作った周、または手直しが直したと言う穴が在る周",
+   "cond": "delta_review2_due",
    "source": "P3 ＞ 手直しの差分の即時レビュー（2 回目。3 回目は無い）",
    "inputs": [
     "手直しだけの差分（パス）",
@@ -4445,6 +4108,14 @@
     "loop.fix_delta2.files",
     "inputs.cwd",
     "out.p3.delta_fix.handled"
+   ],
+   "pointers": [
+    {
+     "at": "checks[].key",
+     "from": [
+      "out.p3.delta_fix.handled"
+     ]
+    }
    ],
    "writes": [
     {
@@ -4478,10 +4149,7 @@
    "deps": [
     "p3.delta_owed2"
    ],
-   "cond": {
-    "builtin": "delta2_faces_open"
-   },
-   "when": "手直しの差分のレビューが穴を挙げた周",
+   "cond": "delta2_faces_open",
    "source": "P3 ＞ 手直しの差分の穴を同じ周で直す（2 回目。この直しは次の周の判定者が検算する）",
    "does": "修正差分のレビューが挙げた穴を 1 件ずつ直す（fixed）か、残す理由を書く（declared）",
    "outputs": [
@@ -4492,6 +4160,14 @@
     "loop.delta_owed2",
     "loop.fix_delta2.file",
     "inputs.cwd"
+   ],
+   "pointers": [
+    {
+     "at": "handled[].key",
+     "from": [
+      "loop.delta_owed2.rows"
+     ]
+    }
    ],
    "writes": [
     {
@@ -4530,10 +4206,7 @@
    "deps": [
     "p3.gates_cut"
    ],
-   "cond": {
-    "builtin": "gates_cut_nonempty"
-   },
-   "when": "この周のコードが周の頭から変わった周",
+   "cond": "gates_cut_nonempty",
    "source": "P3 ＞ 変異の検算と見逃しへの答え（並行の線。周の締めを止めない）",
    "does": "この周の変更（周の頭 → 周の終わり）を、別の git worktree の上で変異の検算にかけ、見逃した腕ごとにテストを足す（tests_added）・振る舞いの変わらない変異と宣言する（equivalent）・テストでは閉じないと申告する（defect）。結果は置き場に書き、engine の記録には書かない",
    "outputs": [
@@ -4736,7 +4409,8 @@
    "deps": [
     "p4.ci",
     "p4.scalars",
-    "p2.history"
+    "p2.history",
+    "spec.check"
    ],
    "stage": "P4",
    "source": "P4 ＞ R1 / R2 の再発火条件／判定後の分岐",
@@ -4850,13 +4524,7 @@
    "agent_type": "pr-review-toolkit:comment-analyzer",
    "optional": true,
    "fresh_context": true,
-   "when": "R1 が再発火する周",
-   "cond": {
-    "path": "loop.r1_refire",
-    "op": "eq",
-    "value": true,
-    "default": true
-   }
+   "cond": "r1_refire"
   },
   "r1.minimality": {
    "stage": "P-R",
@@ -4987,13 +4655,7 @@
      ]
     }
    ],
-   "when": "R1 の再発火条件に当たる周（初回は必ず）",
-   "cond": {
-    "path": "loop.r1_refire",
-    "op": "eq",
-    "value": true,
-    "default": true
-   }
+   "cond": "r1_refire"
   },
   "r2.design": {
    "stage": "P-R",
@@ -5065,23 +4727,7 @@
      "from": "$"
     }
    ],
-   "when": "R2 の再発火条件に当たる周（初回は必ず）",
-   "cond": {
-    "all": [
-     {
-      "path": "loop.r2_refire",
-      "op": "eq",
-      "value": true,
-      "default": true
-     },
-     {
-      "path": "loop.purpose_known",
-      "op": "eq",
-      "value": true,
-      "default": true
-     }
-    ]
-   },
+   "cond": "r2_design_due",
    "post_check": "r2_design"
   },
   "r2.compare": {
@@ -5167,35 +4813,12 @@
      ]
     }
    ],
-   "when": "R2 が再発火し、問いが立っていて、目的の出典が取れている",
-   "cond": {
-    "all": [
-     {
-      "path": "loop.r2_refire",
-      "op": "eq",
-      "value": true,
-      "default": true
-     },
-     {
-      "path": "out.r2.design.question_stands",
-      "op": "eq",
-      "value": true,
-      "default": false
-     },
-     {
-      "path": "loop.purpose_known",
-      "op": "eq",
-      "value": true,
-      "default": true
-     }
-    ]
-   }
+   "cond": "r2_compare_due"
   },
   "r3.coherence": {
    "stage": "P-R",
    "run_by": "inspector",
    "fresh_context": true,
-   "when": "阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周",
    "deps": [
     "p4.assemble"
    ],
@@ -5247,25 +4870,12 @@
      "from": "$"
     }
    ],
-   "cond": {
-    "any": [
-     {
-      "path": "loop.open_units",
-      "op": "eq",
-      "value": 0,
-      "default": 0
-     },
-     {
-      "builtin": "prev_fix_touched"
-     }
-    ]
-   }
+   "cond": "overview_due"
   },
   "r4.hidden_scope": {
    "stage": "P-R",
    "run_by": "inspector",
    "fresh_context": true,
-   "when": "阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周",
    "deps": [
     "p4.assemble"
    ],
@@ -5381,19 +4991,7 @@
      ]
     }
    ],
-   "cond": {
-    "any": [
-     {
-      "path": "loop.open_units",
-      "op": "eq",
-      "value": 0,
-      "default": 0
-     },
-     {
-      "builtin": "prev_fix_touched"
-     }
-    ]
-   },
+   "cond": "overview_due",
    "post_check": "r4_inventory",
    "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、この節が受け取る差分（P1 が写した diff-r<N>.patch）にその修正が写っているから——同じ周の修正は写っていないので引き金にしない"
   },
@@ -5402,7 +5000,6 @@
    "run_by": "judge",
    "fresh_context": true,
    "optional": true,
-   "when": "R2 が premise-invalid",
    "deps": [
     "r2.design",
     "r2.compare"
@@ -5476,12 +5073,7 @@
      "from": "$"
     }
    ],
-   "cond": {
-    "path": "record.reviews.R2.status",
-    "op": "eq",
-    "value": "premise-invalid",
-    "default": null
-   }
+   "cond": "r2_premise_invalid"
   },
   "p4.record": {
    "stage": "P4",
@@ -5512,10 +5104,7 @@
    "deps": [
     "p4.record"
    ],
-   "cond": {
-    "builtin": "would_converge"
-   },
-   "when": "検証器が阻害なしで CI が緑の周（収束を言う前）",
+   "cond": "would_converge",
    "source": "P4 ＞ 最後の関門（最終のコードで変異の検算を撃ち直す）",
    "does": "BASE からの変更全部を、この周に固めた最終の版で撃ち直し、見逃した腕ごとに equivalent（振る舞いの変わらない変異）・needs_test・defect で答える。作業ツリーには書かない。converge は、見逃しが全部 equivalent で、テスト一式が緑で、撃った版の後に作業ツリーが変わっていないときだけ収束と言う",
    "outputs": [
@@ -5530,14 +5119,12 @@
    "reads": [
     "loop.gates_cut.rev",
     "record.base",
-    "inputs.cwd",
-    "node.deadline_at"
+    "inputs.cwd"
    ],
    "post_check": "final_gates_output",
    "schema": {
     "$ref": "#/$defs/lane_reply"
-   },
-   "deadline_minutes": 240
+   }
   },
   "converge": {
    "stage": "P4",
@@ -5801,10 +5388,7 @@
    ],
    "post_check": "rejudge_output",
    "same_context_as": "p2.diagnose",
-   "when": "回す側が今の周に異議を出し、往復が上限（3）未満の周",
-   "cond": {
-    "builtin": "rejudge_open"
-   },
+   "cond": "rejudge_open",
    "prompt_file": "../prompts/review-loop/p2.rejudge.md",
    "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復の回数は loop_state が数え、done が trace に残す——会話でやると記録に残らない"
   },
@@ -5939,12 +5523,367 @@
    ],
    "post_check": "rejudge_output",
    "fresh_context": true,
-   "when": "往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する",
-   "cond": {
-    "builtin": "rejudge_exhausted"
-   },
+   "cond": "rejudge_exhausted",
    "prompt_file": "../prompts/review-loop/p2.rejudge_third.md",
    "note": "**第三の目は常設しない**——上限を超えた周にだけ立つ。見るのは元の材料でなく往復そのもの（何で食い違ったか）"
+  },
+  "spec.write": {
+   "stage": "P0",
+   "run_by": "writer",
+   "deps": [
+    "p0.base",
+    "p0.local_checks"
+   ],
+   "cond": "spec_flow",
+   "source": "仕様の道 ＞ 1. 要件と受け入れ条件を書く",
+   "does": "依頼が完成と言える要件を 1 件ずつ書き、要件ごとに受け入れ条件を実行できるテスト（Given/When/Then）として対象リポジトリに書く。返答は要件と、テストの置き場・呼び方だけ",
+   "outputs": [],
+   "note": "CI の基準（p0.local_checks）を取った後に書く——先に書くと、赤い受け入れ条件のテストが P0 の CI に混ざる",
+   "prompt_file": "../prompts/review-loop/spec.write.md",
+   "reads": [
+    "inputs.request",
+    "inputs.cwd",
+    "record.process.request_findings"
+   ],
+   "post_check": "spec_write_output",
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "requirements",
+     "acceptance",
+     "out_of_scope"
+    ],
+    "properties": {
+     "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "key",
+        "text"
+       ],
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "text": {
+         "type": "string",
+         "minLength": 4
+        }
+       }
+      }
+     },
+     "acceptance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "key",
+        "requirement",
+        "file",
+        "name",
+        "run"
+       ],
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "requirement": {
+         "type": "string",
+         "minLength": 1
+        },
+        "file": {
+         "type": "string",
+         "minLength": 1
+        },
+        "name": {
+         "type": "string",
+         "minLength": 1
+        },
+        "run": {
+         "type": "string",
+         "minLength": 1
+        }
+       }
+      },
+      "note": "受け入れ条件は実行できるテスト。本文（Given/When/Then）はテストのファイルが正本で、ここは置き場と呼び方だけ（写さない）"
+     },
+     "out_of_scope": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "once": true
+  },
+  "spec.review": {
+   "stage": "P0",
+   "run_by": "judge",
+   "fresh_context": true,
+   "deps": [
+    "spec.write"
+   ],
+   "cond": "spec_flow",
+   "source": "仕様の道 ＞ 2. 仕様の審査（書いた writer と別の目）",
+   "does": "抜けている条件・曖昧さ・範囲の外を、案より前に挙げる",
+   "outputs": [],
+   "note": "書いた writer は修正も書くので、自分の案に都合のよい条件だけを書きうる",
+   "prompt_file": "../prompts/review-loop/spec.review.md",
+   "reads": [
+    "inputs.request",
+    "record.process.request_findings",
+    "out.spec.write",
+    "inputs.cwd"
+   ],
+   "post_check": "spec_review_output",
+   "once": true,
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "faces",
+     "reason"
+    ],
+    "properties": {
+     "faces": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "key",
+        "kind",
+        "where",
+        "why"
+       ],
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 2
+        },
+        "kind": {
+         "type": "string",
+         "enum": [
+          "missing",
+          "ambiguous",
+          "out_of_scope"
+         ]
+        },
+        "where": {
+         "type": "string",
+         "minLength": 1
+        },
+        "why": {
+         "type": "string",
+         "minLength": 20
+        }
+       }
+      }
+     },
+     "faces_none": {
+      "type": "string",
+      "note": "穴が無いときに、何を確かめて無いと言えるか"
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 20
+     }
+    }
+   }
+  },
+  "spec.revise": {
+   "stage": "P0",
+   "run_by": "writer",
+   "deps": [
+    "spec.review"
+   ],
+   "cond": "spec_revise_due",
+   "source": "仕様の道 ＞ 3. 審査の穴に答えて仕様を直す",
+   "does": "審査の穴に key ごとに absorbed / declared で答え、直した仕様の全体を返す",
+   "outputs": [],
+   "prompt_file": "../prompts/review-loop/spec.revise.md",
+   "reads": [
+    "out.spec.write",
+    "out.spec.review",
+    "inputs.request",
+    "inputs.cwd"
+   ],
+   "post_check": "spec_revise_output",
+   "once": true,
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "spec",
+     "handled"
+    ],
+    "properties": {
+     "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "requirements",
+       "acceptance",
+       "out_of_scope"
+      ],
+      "properties": {
+       "requirements": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "key",
+          "text"
+         ],
+         "properties": {
+          "key": {
+           "type": "string",
+           "minLength": 1
+          },
+          "text": {
+           "type": "string",
+           "minLength": 4
+          }
+         }
+        }
+       },
+       "acceptance": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": [
+          "key",
+          "requirement",
+          "file",
+          "name",
+          "run"
+         ],
+         "properties": {
+          "key": {
+           "type": "string",
+           "minLength": 1
+          },
+          "requirement": {
+           "type": "string",
+           "minLength": 1
+          },
+          "file": {
+           "type": "string",
+           "minLength": 1
+          },
+          "name": {
+           "type": "string",
+           "minLength": 1
+          },
+          "run": {
+           "type": "string",
+           "minLength": 1
+          }
+         }
+        },
+        "note": "受け入れ条件は実行できるテスト。本文（Given/When/Then）はテストのファイルが正本で、ここは置き場と呼び方だけ（写さない）"
+       },
+       "out_of_scope": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "handled": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+        "key",
+        "handled",
+        "how"
+       ],
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 2
+        },
+        "handled": {
+         "type": "string",
+         "enum": [
+          "absorbed",
+          "declared"
+         ]
+        },
+        "how": {
+         "type": "string",
+         "minLength": 20
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "spec.approve": {
+   "stage": "P0",
+   "run_by": "driver",
+   "builtin": "spec_approve",
+   "deps": [
+    "spec.revise"
+   ],
+   "cond": "spec_flow",
+   "source": "仕様の道 ＞ 4. 人の承認（周の途中の問い）",
+   "does": "仕様・審査の穴・答え・各受け入れ条件の run のコマンドの字面を人に諮る（run は承認の前に走らせない）。continue で同じ周のまま先へ、stop で run を止める",
+   "outputs": [
+    "decision"
+   ],
+   "verdict_is_copy": true,
+   "reads": [],
+   "once": true
+  },
+  "spec.freeze": {
+   "stage": "P0",
+   "run_by": "driver",
+   "builtin": "spec_freeze",
+   "deps": [
+    "spec.approve"
+   ],
+   "cond": "spec_flow",
+   "source": "仕様の道 ＞ 5. 受け入れ条件を記録に固定",
+   "does": "承認済みの仕様の各受け入れ条件の run を走らせて承認の時点の終了コードを取り、record.process.spec に固定し、受け入れ条件をその周の判定に人の依頼のバッチとして 1 度だけ積む",
+   "outputs": [
+    "process.spec",
+    "process.request_findings"
+   ],
+   "reads": [],
+   "once": true
+  },
+  "spec.check": {
+   "stage": "P3",
+   "run_by": "driver",
+   "builtin": "spec_check",
+   "deps": [
+    "p3.gates_cut"
+   ],
+   "cond": "spec_flow",
+   "source": "仕様の道 ＞ 6. 承認済みのテストの改変の検知（毎周、修正の後）",
+   "does": "受け入れ条件のテストのファイルの sha を承認の時点と突き合わせ、変わっていれば人に諮る（周の途中の問い）",
+   "outputs": [
+    "process.spec"
+   ],
+   "reads": []
   }
  },
  "exec": true,
@@ -5968,7 +5907,7 @@
   "p1.external_standards"
  ],
  "overview": "コード変更を、採点役と実装役を分けて収束まで回す。P0 で基準点・目的・前提・並行 PR・先行議論を固定し（once）、P1 で 9 系統の素材を新しい context の役が集め（機械が前後で作業ツリーを突き合わせ、走らせなかった欄も機械が埋める）、P2 で judge が根本ユニットとラベルと問いの台帳を確定し（2 周目以降は同じ judge に履歴と前の台帳を後から渡す）、P2 の後に writer が修正案を出して別の judge が書く前に穴を予測し、P3 で writer が [block] と do-now を直して閉鎖を実証し（予測された穴には key ごとに答える）、直後にこの周の修正だけの差分を inspector が見て（塞いだと言う穴の検算も）、挙がった穴を同じ周で直し、手直しにもう 1 回だけ同じレビューを当て、残した穴は次の周の判定者が 1 件ずつ振り分け、修正と手直しが済んだ版で変異の検算とテストの書き足しを並行の線として背景で立て（周の締めは待たない。線の結果は書き終えた後の周の頭と修正の前に合流する）、P4 で CI と scalar を取り、機械が R1/R2 の再発火と [block] 0 を数え、R1〜R4 の独立の目を回し、周の記録を組んで検証器（review-record.py）にディレクトリごと渡す。検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）を機械が読んで次の周か停止か人に聞く。収束を言う前に、最終のコードで変異の検算を撃ち直し、見逃しが全部等価でテスト一式が緑のときだけ収束する。上限 5 周。writer は判定を一切しない",
- "cond_note": "cond の path は engine が解決する。解決できない path は die——綴り違いや欄の改名が「条件が成り立たない」に化けると、走らなかった節の素材に事実と逆の理由が書かれたまま収束まで通る。設計上まだ書かれていない欄を見る cond は default を明示する（下の各節）",
+ "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop の鍵（rules の LOOP_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
  "verdict_paths": [
   "reviews",
   "units",

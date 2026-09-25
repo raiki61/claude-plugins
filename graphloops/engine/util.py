@@ -23,27 +23,21 @@ class AnswerReject(Reject):
     作業ツリーが変わった・前段が済んでいない）は役に返しても直らないので、続きを頼まずに回す側へ上げる。"""
 
 
+class BoardConflict(SystemExit):
+    """盤面を読んだ後に別のプロセスが盤面を進めていた（Board.save）。die と同じく exit 2 で終わる——SystemExit の派生なので、
+    die を捕まえる既存の口はそのまま効く。別の型にしたのは、読み直して当て直してよい失敗（版の衝突）を、ほかの die
+    （記録の書き込みの失敗など）と見分けるため（commands._board_update）"""
+
+
 def now():
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def deadline_of(graph, node, emitted_at):
-    """instance の期限（ISO 時刻）——節の deadline_minutes、無ければ graph の最上位の既定。どちらも無ければ None（期限なし）。
-    **値はループ固有なので graph だけが持つ**（engine は足し算しかしない。Temporal の Start-To-Close Timeout を活動の側で宣言するのと同じ）"""
-    minutes = node.get("deadline_minutes", graph.get("deadline_minutes"))
-    if not minutes:
-        return None
-    return (datetime.datetime.fromisoformat(emitted_at) + datetime.timedelta(minutes=minutes)).isoformat(timespec="seconds")
-
-
 def waiting(inst):
-    """待っている instance の経過と期限——{elapsed_min, deadline_at, overdue, attempts}。**その場で計算し、盤面には書かない**"""
+    """待っている instance の経過と試行の回数——{elapsed_min, attempts}。**その場で計算し、盤面には書かない**"""
     t = datetime.datetime.fromisoformat(now())
-    got = {"elapsed_min": int((t - datetime.datetime.fromisoformat(inst["emitted_at"])).total_seconds() // 60),
-           "attempts": inst.get("attempts", 1)}
-    if inst.get("deadline_at"):
-        got |= {"deadline_at": inst["deadline_at"], "overdue": t >= datetime.datetime.fromisoformat(inst["deadline_at"])}
-    return got
+    return {"elapsed_min": int((t - datetime.datetime.fromisoformat(inst["emitted_at"])).total_seconds() // 60),
+            "attempts": inst.get("attempts", 1)}
 
 
 def sha(text):
@@ -84,6 +78,10 @@ TERMINAL_STATUS = ("converged", "stopped")
 # 綴り違いや engine の知らない語を入れると、**その語が「続ける」として通る**（諮った意味が消える）。
 # 知らない語は落とす側に倒す: 諮りの口は「止める／続ける」の分岐なので、既定を「続ける」にしてはいけない。
 ANSWER_ACTIONS = ("continue", "stop", "escalate")
+# **周の途中の問い（ask の in_round が真）**で engine が動ける語。continue は問うた節を済ませて同じ周のまま先へ、
+# stop は run をその場で止める（halted。後の節は 1 つも出さない）。escalate は周を進める語なので持たない——
+# 周の途中の問いは、周の中の工程（仕様の承認・承認後のテストの変更）で人の答えを待つ口で、周の終わりの判定ではない
+IN_ROUND_ACTIONS = ("continue", "stop")
 
 GIT_TIMEOUT = 120  # 秒。近傍の scripts/comment-ratio.sh と同じ上限
 

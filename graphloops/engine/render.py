@@ -10,6 +10,7 @@
 import pathlib
 import re
 
+from .pointers import number
 from .util import dump, get_path, pick
 
 TOKEN = re.compile(r"\{\{\s*(\??)\s*([^}|]+?)\s*(?:\|\s*pick\s+([\w, ]+))?\s*\}\}")
@@ -24,6 +25,16 @@ ABSENT = "（この周には無い）"
 # バイトになり、貼る先（Agent の prompt）の上限を主経路で超える（実測 2026-09-12: 塊 40,000 字が 80,008 バイトに
 # なり、85 KB・68 KB は途中で切れ、51 KB は通った）。超えたら切って、切ったことを記録に残す。
 FILE_CAP = 40000
+
+
+def node_prompt(graph_path, n, errors="strict"):
+    """節の指示書の本文——prompt_file に、prompt_append の各ファイルを順に続けた物（graph の置き場からの相対パス）。
+    prompt_append は差し替えの版（graph の extends）が、元の指示書を写さずに段落を足す口。指示書を読む所（役に渡す本文・
+    必須の入力の導出・graphcheck の穴の検査）は全部この 1 本を通す——1 か所だけ足し忘れると、足した段落の穴が
+    検査に掛からないか、役に届かない。読めなければ OSError"""
+    base = pathlib.Path(graph_path).parent
+    parts = [n["prompt_file"], *(n.get("prompt_append") or [])]
+    return "\n".join((base / p).read_text(encoding="utf-8", errors=errors) for p in parts)
 
 
 class ReadsViolation(Exception):
@@ -151,8 +162,12 @@ def _as_material(text):
 
 
 class Renderer:
-    def __init__(self, ctx, reads=None, ref=None, cap=FILE_CAP):
+    def __init__(self, ctx, reads=None, ref=None, cap=FILE_CAP, numbered=None):
         self.ctx = ctx
+        # 番号を振って貼る一覧（{パス: 番号の起点}。engine/pointers.py）。貼ったパスは numbered_seen に残し、
+        # 宣言した一覧を貼る穴がプロンプトに無い（役に番号が見えない）ことを emit で落とす
+        self.numbered = numbered or {}
+        self.numbered_seen = set()
         self.reads = reads  # None = 制限なし。list = 宣言された穴だけ埋める（遮断の機械版）
         self.ref = ref      # ref:<path> の解決（盤面が持つ。[(見出し, ファイル, 値)] を返す）
         # cap=None = 切らない。上限は「Agent ツールのプロンプトに貼る」経路にだけ在るもので、
@@ -208,6 +223,8 @@ class Renderer:
     def render(self, template):
         def sub(m):
             optional, path, fields = m.group(1) == "?", m.group(2).strip(), m.group(3)
+            if path in self.numbered:
+                self.numbered_seen.add(path)   # 解けない（この周には無い）穴も、一覧を貼る穴が在ったことに数える
             try:
                 val = self.resolve(path)
             except KeyError:
@@ -228,6 +245,9 @@ class Renderer:
                 raise KeyError(f"プロンプトの穴 {{{{{path}}}}} を埋められない（読めない: {e}）")
             if fields:
                 val = pick(val, [f.strip() for f in fields.split(",") if f.strip()])
+            if path in self.numbered:
+                if isinstance(val, list):
+                    val = number(val, self.numbered[path])   # pick の後に足す——pick が no を落とさない
             # **上限は穴 1 つぶんの出口 1 か所で掛ける**（pick と dump の後）。腕ごとに掛けていたとき、
             # 読み込みを伴わない展開（ref: と記録の dump）が対象外になり、file: の穴を持たない節が上限の 4 倍超に育った
             return cap_bytes(val if isinstance(val, str) else dump(val), path, self.truncated, self.cap)

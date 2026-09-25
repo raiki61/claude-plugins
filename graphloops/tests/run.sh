@@ -10,11 +10,11 @@ PY_BIN=$(command -v python3 || command -v python || true)
 # 走った検査の件数。root の tests/run.sh の EXPECTED_CHECKS と同じ理由で `-ne`——下限（-lt）だと
 # 台本を 1 本消しても「0 件失敗」のまま緑で通る（実測: simulate.py から test_light を消しても exit 0）。
 # 上げるときも下げるときも実測値を書く。
-EXPECTED_CHECKS=1356
+EXPECTED_CHECKS=1635
 # **台本の本数も別に数える。** 件数だけだと、腕を消した編集が『組み替えたため』の説明とともに
 # 下がった値で通る（実測 2026-09-19: 読了の台本 1 本が領域の置き換えで消え、645 → 642 の減少が
 # 通って覆いが 4 本消えた。次の周の全腕注入で 1 周遅れて露見した）。関数の消滅は件数と別の信号にする
-EXPECTED_TESTS=130
+EXPECTED_TESTS=140
 
 fail=0
 ran=0
@@ -23,16 +23,17 @@ tests=0   # 走った台本の本数（各模擬実行が自分で数えて出�
 # 誰も検査せず、for が回る回数が変わらないので件数の柵（EXPECTED_CHECKS）も発火しなかった
 # （実測 2026-09-13: 壊した graph を 5 本目に置いて exit 0・全件緑）。
 for gf in "$ROOT"/graphloops/graphs/*.json; do
-    g="$(basename "$gf" .json)"; g="${g%-loop}"
+    # 検証器は名前の -loop より前で引く（差し替えの版 review-loop-tdd.json も元と同じ review-record.py を使う）
+    name="$(basename "$gf")"; g="${name%%-loop*}"
     v="$ROOT/scripts/$g-record.py"
     # 在る graph を全部、検証器つきで回す（本数は上の for が graphs/ から導く——ここに数を書くと、
     # graph を足し引きした周に散文だけが古くなる）。落ちたら理由（NG 行）を出す——検証器なしで回し直して緑にする分岐は
     # 置かない（以前あった review 専用のフォールバックは、欄の突合が落ちた理由を見ずに飲んでいた）。
-    if "$PY_BIN" "$ROOT/graphloops/scripts/graphcheck.py" "$ROOT/graphloops/graphs/$g-loop.json" "$v" >/dev/null 2>&1; then
-        echo "  ok   graphcheck $g-loop.json"
+    if "$PY_BIN" "$ROOT/graphloops/scripts/graphcheck.py" "$gf" "$v" >/dev/null 2>&1; then
+        echo "  ok   graphcheck $name"
     else
-        echo "  FAIL graphcheck $g-loop.json"
-        "$PY_BIN" "$ROOT/graphloops/scripts/graphcheck.py" "$ROOT/graphloops/graphs/$g-loop.json" "$v" 2>&1 | grep '^NG' | head -5
+        echo "  FAIL graphcheck $name"
+        "$PY_BIN" "$ROOT/graphloops/scripts/graphcheck.py" "$gf" "$v" 2>&1 | grep '^NG' | head -5
         fail=1
     fi
     ran=$((ran + 1))

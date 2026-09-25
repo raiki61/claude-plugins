@@ -1699,8 +1699,8 @@ orphans = set(agents) - referenced
 assert not orphans, "どの手順書からも使われない役割がある: " + ", ".join(sorted(orphans))
 PY
 
-expect_exit 0 "配布物に固有の技術名が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
-import re, sys, pathlib
+expect_exit 0 "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
+import ast, re, subprocess, sys, pathlib
 root = pathlib.Path(sys.argv[1])
 # 特定プロジェクト由来の名前が観点側に残ると、そのリポジトリでしか意味を持たない写しになる。
 banned = re.compile(r"FastAPI|next-intl|config_kit|DeepAgents|asyncio_mode|guided-resolver")
@@ -1709,7 +1709,49 @@ for f in [root/"REVIEW.md", root/"README.md", *(root/"commands").glob("*.md"), *
     for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
         if banned.search(line):
             hits.append(f"{f.name}:{i}")
-assert not hits, "固有の技術名が残っている: " + " / ".join(hits)
+# **このリポジトリの検証の道具（README の「review-loop が読む検証の道具」の節）を、役が読む配布物に書かない。**
+# ほかのリポジトリでは無い道具を呼べと指示し、このリポジトリでも道具を足した周に指示の側だけが古くなる
+# （pytest の土台を足した周に、指示書のテスト一式から漏れた）。語は手で並べず導く——手で持った一覧は道具の追加に遅れる:
+# 引数は実行器自身の --help から、件数の柵は定数の接頭辞で、道具のパスは tests/ の成分と、その下に在るファイルの名前で当てる。
+# 境界は ASCII で切る——`\w` は日本語も語に数えるので、『は--reuse』のように和文に接した綴りを見逃す。
+helptext = subprocess.run([sys.executable, str(root / "tests" / "mutate.py"), "--help"],
+                          capture_output=True, text=True, encoding="utf-8").stdout
+flags = sorted(set(re.findall(r"--[a-z][a-z0-9-]*", helptext)) - {"--help"})
+assert len(flags) >= 5, f"実行器の --help から引数が取れない（{flags}）——走査が空回りする"
+names = sorted({f.name for d in [root/"tests", *root.glob("*/tests")] for f in d.iterdir()
+                if f.is_file() and f.suffix in (".py", ".sh", ".json")})
+assert "mutate.py" in names, f"テストの置き場のファイルの名前が取れない（{names}）——走査が空回りする"
+A = r"A-Za-z0-9_"
+tool = re.compile(
+    rf"(?<![{A}./-])(?:[{A}.-]+/)*tests/[{A}./-]*"
+    rf"|(?<![{A}])(?:EXPECTED|VOCAB)_[A-Z_]*"
+    rf"|(?<![{A}])(?:pytest|mutmut)(?![{A}])"
+    + "".join(rf"|(?<![{A}-]){re.escape(f)}(?![{A}-])" for f in flags)
+    + "".join(rf"|(?<![{A}./-]){re.escape(n)}(?![{A}-])" for n in names))
+texts = [root/"REVIEW.md", *sorted((root/"commands").glob("*.md")), *sorted((root/"agents").glob("*.md"))]
+for d in ("graphloops/prompts", "graphloops/graphs", "graphloops/commands"):
+    texts += [f for f in sorted((root/d).rglob("*")) if f.is_file()]
+# engine が組んで役へ渡す値も同じ面——文字列の定数を見る（注記と docstring は役に渡らないので外す）
+codes = [f for d in ("graphloops/rules", "graphloops/engine", "graphloops/scripts") for f in sorted((root/d).glob("*.py"))]
+assert len(texts) > 10 and codes, f"走査の対象が空（文 {len(texts)}・コード {len(codes)}）"
+def literals(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docs = {id(n.body[0].value) for n in ast.walk(tree)
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and n.body and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+    # git 自身へ渡す引数（`git("apply", "--check", …)`）も外す——役に渡らず、綴りは git の物で実行器の口と同名なだけ
+    docs |= {id(a) for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("git", "git_bytes")
+             for a in n.args}
+    return [(n.lineno, n.value) for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs]
+for f in texts:
+    for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+        hits += [f"{f.relative_to(root).as_posix()}:{i}: {m.group(0)}" for m in tool.finditer(line)]
+for f in codes:
+    for i, s in literals(f):
+        hits += [f"{f.relative_to(root).as_posix()}:{i}: {m.group(0)}" for m in tool.finditer(s)]
+assert not hits, "固有の技術名・このリポジトリの検証の道具の名前が残っている: " + " / ".join(hits)
 PY
 
 # 検査が空振りした場合を「合格」と区別する（対象が空でも緑になる穴を塞ぐ）。
@@ -2911,7 +2953,7 @@ EXTERNAL_NAMES = {"HEAD", "SHA", "PYTHONOPTIMIZE", "CLAUDE_CONFIG_DIR", "CLAUDE_
 # `*/.claude-plugin` が持っているので、そこから導く。1 つ足した周に黙って外れない。
 CODE = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob("*.sh")) + [
     root / "tests/run.sh"] + [q for d in sorted(m.parent for m in root.glob("*/.claude-plugin"))
-                              for q in sorted(d.rglob("*.py"))]
+                              for q in sorted(d.rglob("*.py")) + sorted(d.rglob("*.sh"))]
 # **手書きの列挙を持たない。** 以前ここに 6 ファイルを並べていたとき、名指しの置き場が
 # 増えた周に柵が黙って外れた（実測: 列挙の外の 2 ファイルに実在しない名前を書いても全件緑）。
 # 対象は「文書とコメントが在る場所」全部から導く。除外は名前の表でなく**接頭辞**で持つので、
@@ -2932,7 +2974,8 @@ PAIR = r"`([A-Za-z0-9_.-]+\.(?:py|sh))`\s*(?:の)?\s*`([A-Z][A-Z0-9_]{2,})`"
 
 by_file = {}
 for p in CODE:
-    by_file[p.name] = set(re.findall(r"^([A-Z][A-Z0-9_]*)\s*=", p.read_text(encoding="utf-8"), re.M))
+    # 同じ名前のファイル（tests/run.sh と graphloops/tests/run.sh）は和で持つ——上書きすると先に読んだ方の定数が消える
+    by_file.setdefault(p.name, set()).update(re.findall(r"^([A-Z][A-Z0-9_]*)\s*=", p.read_text(encoding="utf-8"), re.M))
 names = set().union(*by_file.values())
 
 def wrong_pairs(pairs, label):
@@ -3332,19 +3375,45 @@ if os.name != "posix":
 
 root = tempfile.mkdtemp()
 
-# 時間切れ: TIMEOUT を小さく差し替え、5 秒眠る子をグループごと殺して ("timeout", "") を返す
-mutate.TIMEOUT = 0.15
+# **時計に頼らない。** 本物の threading.Timer と固定の短い上限（0.1〜2 秒）で見ていたとき、機械の負荷で子の起動が
+# 遅れると上限を越えて赤くなった（実測 2026-09-25: load average 60〜112 の下で、この台本だけが差分と無関係に赤）。
+# 時間切れの仕掛けは偽の Timer に差し替え、発火は台本が決める（run_group は関数の中で import threading するので、
+# モジュールの属性を差し替えれば効く）。偽物は本物の Timer を作らないので、timer.cancel が抜けた写しでも
+# 生き残った Timer が検査を止めることも、古い pid に killpg を撃つことも無い
+import threading
+timers = []
+
+
+class FakeTimer:
+    """start と cancel を記録する。fire=True なら start の直後に別スレッドで一度だけ発火する（子は起こした後）"""
+    fire = False
+
+    def __init__(self, interval, fn):
+        self.fn, self.cancelled, self.started = fn, False, False
+        timers.append(self)
+
+    def start(self):
+        self.started = True
+        if FakeTimer.fire:
+            threading.Thread(target=self.fn, daemon=True).start()
+
+    def cancel(self):
+        self.cancelled = True
+
+
+threading.Timer = FakeTimer
+
+# 時間切れ: 発火する偽の Timer で、60 秒眠る子をグループごと殺して ("timeout", "") を返す。殺せていなければ
+# p.wait が子の自然終了（60 秒）まで返らないので、その半分より十分早く返ったことで殺したと言える
+FakeTimer.fire = True
 t0 = time.time()
-rc, out = mutate.run_group([sys.executable, "-c", "import time; time.sleep(5)"], cwd=root)
+rc, out = mutate.run_group([sys.executable, "-c", "import time; time.sleep(60)"], cwd=root)
 dt = time.time() - t0
 assert (rc, out) == ("timeout", ""), f"時間切れが (\"timeout\", \"\") でない: {(rc, out)!r}"
-assert dt < 2, f"時間切れの判定が遅すぎる（{dt:.2f}s）——TIMEOUT の差し替えが効いていない疑い"
-# 以降は小さい値にしておく——timer.cancel が抜けていると、この後の各回が作る Timer が
-# 本物の TIMEOUT（1500 秒）のまま生き残り、走らせ切るまでこの検査ごとハングする
-# （実測: 2026-09-24 の腕撃ちでこの行が「時間切れ」を返したのはこれが理由）
-mutate.TIMEOUT = 2
+assert dt < 30, f"時間切れの後に子の自然終了まで待った（{dt:.2f}s）——グループを殺せていない疑い"
+FakeTimer.fire = False
 
-# p.wait(): 標準出力を先に閉じても、子が本当に終わるまで待って終了コードを取る
+# p.wait(): 標準出力を先に閉じても、子が本当に終わるまで待って終了コードを取る（下限だけを見るので負荷では落ちない）
 child_close = "import sys, os, time\nsys.stdout.write('hi\\n'); sys.stdout.flush(); os.close(1)\ntime.sleep(0.3)\nsys.exit(7)\n"
 t0 = time.time()
 rc, out = mutate.run_group([sys.executable, "-c", child_close], cwd=root)
@@ -3371,14 +3440,12 @@ rc, out = mutate.run_group([sys.executable, "-c", child_notest], cwd=root, failf
 assert rc == 0, f"NO_TEST を含む FAIL 行で誤って止めた（rc が子の終了コードでない）: rc={rc!r}"
 assert "second line" in out, "NO_TEST を含む FAIL 行で誤って早期に止めた（後の行を読んでいない）"
 
-# timer.cancel(): 通常終了のあとに、時間切れ用の Timer が生き残って後から kill を撃たない
-calls = []
-mutate.os.killpg = lambda *a, **k: calls.append(a)
-mutate.TIMEOUT = 0.1
+# timer.cancel(): 通常終了で返る前に時間切れの Timer を取り消す（取り消さないと、後から kill を撃つ Timer が生き残る）
+del timers[:]
 rc, out = mutate.run_group([sys.executable, "-c", "print('quick')"], cwd=root)
 assert rc == 0, f"通常終了の rc が 0 でない: {rc!r}"
-time.sleep(0.3)
-assert not calls, f"timer.cancel() が効かず、通常終了の後で時間切れの kill が発火した: {calls}"
+assert len(timers) == 1 and timers[0].started, f"run_group が時間切れの Timer を 1 つ起こしていない: {len(timers)}"
+assert timers[0].cancelled, "timer.cancel() が呼ばれず、通常終了の後で時間切れの kill を撃つ Timer が生き残る"
 
 print("RUNGROUP_OK")
 PYRG
@@ -3629,20 +3696,34 @@ r = run_mutate("--only", "norm1,norm2", "--reuse", str(part_out), out=mini / "co
 assert r.returncode == 0 and "撃つ腕 1 本" in r.stdout and "持ち越し 1 本" in r.stdout, \
     f"pending を持つ結果から続きを撃つはずが: exit {r.returncode} {r.stdout}"
 # **撃つ途中で期限が来る**: 期限の手前（TIMEOUT＋TAIL 秒前）を過ぎたら、まだ始まっていない腕を取り消して pending にし、走っている腕は
-# 待って結果に入れる。-j 1 で [速い腕・12 秒眠る腕・速い腕] を撃ち、切り替わりを 8 秒後に置く（眠る腕が走っている間に来る）。
+# 待って結果に入れる。-j 1 で [速い腕・止めておく腕・速い腕] を撃つ。止めておく腕は始まったら印を置き、解放のファイルが在るまで
+# 待つ——台本は切り替わりの時刻を過ぎてから解放するので、切り替わりは必ずその腕の最中に来る（眠る秒数と切り替わりの秒数の
+# 競りにしない。以前は 12 秒眠らせて 8 秒後に切り替えていて、負荷の下で速い腕まで間に合わずに赤くなった）。
 # 選んだ腕は、撃った腕か pending のどちらかにちょうど 1 度ずつ載る（取り消した腕を結果として読む・撃った腕を 2 度載せる・
 # 走っていた腕を落とす、のどれでも崩れる）
 sys.path.insert(0, str(REAL_TESTS))
 import datetime, mutate as _M
+held, release = mini / "slow-started", mini / "slow-release"
 slow_doc = json.loads((mini / "tests" / "mutations.json").read_text(encoding="utf-8"))
 slow_doc["arms"] = [slow_doc["arms"][0],
-                    {"id": "slow1", "title": "台本を 12 秒眠らせる", "file": "tests/run.sh", "suite": "root",
-                     "old": "set -uo pipefail", "new": "set -uo pipefail\nsleep 12", "expect": "classify は閾値超えで pos"},
+                    {"id": "slow1", "title": "台本を解放まで止めておく", "file": "tests/run.sh", "suite": "root",
+                     "old": "set -uo pipefail",
+                     "new": f"set -uo pipefail\ntouch '{held.as_posix()}'\nwhile [ ! -e '{release.as_posix()}' ]; do sleep 0.1; done",
+                     "expect": "classify は閾値超えで pos"},
                     slow_doc["arms"][1]]
 (mini / "slow-arms.json").write_text(json.dumps(slow_doc, ensure_ascii=False), encoding="utf-8")
-cut = datetime.datetime.now().astimezone() + datetime.timedelta(seconds=_M.TIMEOUT + _M.TAIL + 8)
+lead = 30   # 切り替わりまでの秒数——速い腕（と control・印の写し）が負荷の下でも済む幅。台本はこの秒数だけ長くなる
+cut = datetime.datetime.now().astimezone() + datetime.timedelta(seconds=_M.TIMEOUT + _M.TAIL + lead)
+switch = cut - datetime.timedelta(seconds=_M.TIMEOUT + _M.TAIL)
 sl_out = mini / "slow.json"
-r = run_mutate("-j", "1", "--arms-file", str(mini / "slow-arms.json"), "--deadline-at", cut.isoformat(), out=sl_out)
+proc = subprocess.Popen([PY, MUT, "-j", "1", "--arms-file", str(mini / "slow-arms.json"), "--deadline-at", cut.isoformat(), "--out", str(sl_out)],
+                        cwd=mini, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+import time
+while proc.poll() is None and not (held.exists() and datetime.datetime.now().astimezone() > switch + datetime.timedelta(seconds=1)):
+    time.sleep(0.1)
+release.touch()
+out_, err_ = proc.communicate(timeout=120)
+r = subprocess.CompletedProcess(proc.args, proc.returncode, out_, err_)
 sl = json.loads(sl_out.read_text(encoding="utf-8"))
 shot_ids = [x["id"] for x in sl["arms"]]
 pend_ids = [x["id"] for x in sl.get("pending") or []]
@@ -3654,7 +3735,6 @@ assert "norm2" in pend_ids and "norm1" in shot_ids, f"期限の後に始まる�
 mid_out = mini / "mid.json"
 proc = subprocess.Popen([PY, MUT, "-j", "1", "--only", "norm1,norm2", "--out", str(mid_out)], cwd=mini,
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-import time
 seen_mid = None
 for _ in range(1200):
     time.sleep(0.1)
@@ -3859,6 +3939,20 @@ for rel, const, exact in RATCHETS:
             print(f"NG {rel}: {const} が緩い比較と同居している（等値の行を残したまま横に足せる）: {ln.strip()[:100]}")
             bad = 1
 if bad:
+    sys.exit(1)
+# **README の宣言（review-loop が読む検証の道具）の「件数の柵」の行は、この表が導いた名前と両方向で一致する。**
+# 宣言は役が読む写しなので、ラチェットを足した・消した周に宣言だけが古くなる形を赤にする。置き場は宣言に書かない（ここが導く）
+readme = (root / "README.md").read_text(encoding="utf-8")
+sec = re.search(r"^### review-loop が読む検証の道具（このリポジトリの宣言）\n(.*?)(?=^#{1,3} |\Z)", readme, re.M | re.S)
+fence = re.search(r"^- \*\*件数の柵\*\*:(.*)$", sec.group(1), re.M) if sec else None
+if not fence:
+    print("NG README に「review-loop が読む検証の道具」の節か、その「件数の柵」の行が無い（宣言の見出しを変えたら、この柵も直せ）")
+    sys.exit(1)
+declared = set(re.findall(r"`([A-Z][A-Z0-9_]+)`", fence.group(1)))
+derived = {c for _, c, _ in RATCHETS}
+if declared != derived:
+    print(f"NG README の宣言の件数の柵がラチェットの表とずれている（宣言にだけ在る {sorted(declared - derived)}"
+          f"・表にだけ在る {sorted(derived - declared)}）")
     sys.exit(1)
 print(f"RATCHET_OK（検査の置き場の整数の定数 {len(universe)} 名・突合を要求 {len(FORMS)} 名"
       f"・理由つきで対象外 {len(NOT_RATCHET)} 名・突合した宣言 {len(RATCHETS)} 件）")

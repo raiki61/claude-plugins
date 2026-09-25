@@ -83,6 +83,37 @@ Gerrit の形（直したら同じ変更の中で interdiff を見直し、票�
 human_answers の scope）と 3 周目の実測（修正が作った穴が次の周に 8 件）で足した——R9。D2 が退けた『同じ周に取り直す段』のうち、
 修正差分の分だけを覆した形で、R の判定そのものを同じ周に取り直すことは今もしない。
 
+### D3. REVIEW.md のコード衛生観点に「待ちの生存」を 1 項目足した（2026-09-25。採用試験は 2 回中 1 回の発火）
+
+世界の解: AWS Well-Architected REL05-BP05 はタイムアウトを「any call across processes」に掛けよと言う
+（https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_mitigate_interaction_failure_client_timeouts.html ）。
+Temporal は完了待ちの生存を、期限（Start-To-Close）・進みの合図（Heartbeat）・試行の数の記録・Heartbeat 経由の取り消しの 4 つで組む
+（https://docs.temporal.io/encyclopedia/detecting-activity-failures ）。項目の括弧書きはこの 4 つを観点の問いの形に写したもの。
+
+決めたこと: 置き場は横断リスク観点ではなくコード衛生観点（「外部 I/O の無防備」の直後）。待ちは差分自身が足すものなので、
+差分の外を見る R4 の担当ではなく、文脈を遮った衛生の目（`p1.hygiene` は節まるごとを貼る）に届く所に置く。
+「入れ子の起動で完了の知らせの届け先が迷う」は Claude Code の Agent に固有の一回性なので項目名に入れず、「知らせが来ない」に含めた。
+衛生違反を括弧で並べた写し（`commands/review-loop.md` の出自分析・`graphloops/prompts/review-loop/p2.diagnose.md`）は、
+既に項目名と字面が揃っていない言い換えで、衛生の目の所見はその列挙に依らず判定へ渡るので、追従させていない。
+
+採用試験（REVIEW.md「この規約の育て方」の「剪定と採用試験」）:
+
+- 教材: 盤面 20260924-081523 の 5 周目の修正差分から、コードの 7 ファイル（engine の advance.py・commands.py・util.py、
+  graphs/review-loop.json、scripts/loop.py、prompts/review-loop/p1.gate_efficacy.md、tests/mutate.py）の hunk を抜いた物。
+  目的を明かす文書（README・手順書・この台帳）の hunk は外した。その周の R4 が、起こし直しが古い試行の起動した tests/mutate.py を止めない、
+  と挙げた差分で、修正の前後の審査はこれを拾わなかった
+- 腕: `p1.hygiene` の課題文に今のコード衛生観点の節を貼った物（対照）と、同じ課題文に新項目入りの節を貼った物。道具を Read 1 回
+  （プロンプトのファイルだけ）に絞った文脈遮断の読み手で、各 2 回
+- 発火の基準（撃つ前に固定）: 起こし直し・期限切れの扱いを指して、(a) 前の試行の処理を止めない・二重に走りうる、
+  (b) 期限切れを生死を確かめずに死とみなす、のどちらかを言うこと
+- 結果: 新項目入りは 2 回中 1 回発火（(a)。「前の試行を動かしていたプロセスを止める処理が無く、書き込み先を変えただけで解放したことにしている」）。
+  対照は 2 回とも不発（同じ関数の rename と save の間のロールバック漏れは挙げたが、古い試行の停止には触れなかった）。教材の作り直しは 0 回
+- 規則（撃つ前に固定）: 新項目入りが 1 回以上で対照が 0 回なら新設、対照が発火すれば「資源・状態の対称性」の例示に足す統合、どちらも不発なら棄却。これに従って新設にした
+
+残ること: 発火は 2 回中 1 回で、差は小さい。採用後は実レビューの発火実績で剪定する（同じ節の規定）。依頼が挙げたもう 1 件の見逃し
+（入れ子の起動の完了通知を 7 時間待った件）は運用の出来事で差分の教材が無く、試験していない。修正の前後の審査（`p2.plan_review`・
+`p3.delta_review`）は観点の節を読まないので、この項目はそこには届かない（届かせるかは別の依頼）。
+
 ### H1. `_cite_errors` は割らない
 
 共有しているのは行の事前検査と拒否の形だけで、数え方は呼び元で分かれている。割る得は実測できていない（割った後に片方だけ
@@ -207,6 +238,8 @@ https://code.claude.com/docs/en/sub-agents）——任せ先の宣言はこれ�
 `--out` を書き直し、`--deadline-at` の手前で新しい腕を始めずに残りを `pending` にして書き終える形にした。期限の値は graph の
 `deadline_minutes`、engine は `deadline_at`・経過・試行の回数を出し、`loop.py wait`（期限で exit 3）と `loop.py relaunch`
 （試行ごとに置き場を分け、前の試行の返答を締め出す）を足した。局所レビューの任せ先（skill の入れ子）は外し、graphcheck が禁じる。
+（後日: 2026-09-25 に graph の期限・`loop.py wait`・期限で子を止める動作は外した。`relaunch` は前の試行の子を止めてから起こし直す形で残した。
+理由は [docs/graphloops-rearchitecture.md](../graphloops-rearchitecture.md#期限を外した)）
 
 世界の解（2026-09-24 に読み役で調べた）。調べて変えた点: Gerrit の票が patch set に属する形（config-labels.html）を採り、修正差分の状態を
 周に結び付けて読む側で照らす形（_delta_of）に直した（4 周目の判定が、前の周の差分を今の周の物として読む穴を挙げた）:
@@ -250,7 +283,7 @@ P1 の頭の機械の節（`p1.worktree_before`）が「対象差分が空——
 
 **足した入口（2026-09-25）。** `loop.py add --file <依頼.json> --reason <出どころ>` を init の直後に打つと、依頼が記録の
 `process.request_findings`（`origin` と `findings`）に載り、P1 の役の 9 節は graph の cond（`not request_entry`）で外れる。
-engine は触っていない（既存の add フックと cond と素材の穴埋めを、rules の述語 1 本に結んだ）。飛ばした素材は入口の理由つきの
+engine は触っていない（既存の add フックと cond と素材の穴埋めを、rules の述語 1 本に結んだ。同日の後の run で、cond は rules の条件の関数の名前に移った）。飛ばした素材は入口の理由つきの
 not_applicable、周の頭の空の差分でも止まらない。入口が効くのは修正が入るまでで、次の周からは P1 が修正差分を見る——
 修正前の事前審査が挙げた「述語が run 全体で真だと、修正差分が 1 度も P1 を通らずに収束する」穴を、述語を狭めて閉じた。
 使い方と使い分けの線は graphloops/commands/review-graph.md の「判定から入る」節。この入口を作った run の判定役は、

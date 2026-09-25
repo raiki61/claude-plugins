@@ -1,0 +1,222 @@
+{
+ "extends": "review-loop.json",
+ "rules": "../rules/review-loop-tdd.py",
+ "inputs": {
+  "tdd_suite": {
+   "kind": "file",
+   "note": "テスト一式を走らせる実行ファイル。JUnit XML の書き先を第 1 引数に受け、リポジトリのルートで走る（init --input tdd_suite=<パス>）。無ければ init が止まる"
+  }
+ },
+ "overview": "review-loop（graphs/review-loop.json の overview）と同じループで、P3 の修正だけを TDD の流れに差し替えた版。修正を 2 段に割る: 直す単位ごとに、使う側の呼び口で今は落ちるテストだけを書き（書きにくさ——準備が重い・内部に手を入れる・名前から意図が読めない——を単位ごとに記録する）、engine が一式を回して名指しのテストが狙いどおりの失敗で赤・ほかは緑であることを確かめ（赤の確認）、同じ writer が実装してテストを通し、engine が名指しもほかも緑で、テストのファイルを書き換えていないことを確かめる（緑の確認）。先にテストを書けない単位（文書・指示書・注記だけの直し）は理由をつけて今の修正の流れに回す。テスト一式のコマンドは init --input tdd_suite='…{junit}…' で渡す（JUnit XML を書く物）。TDD を使った周ごとに、修正差分への変異の見逃しの本数と、その周の修正が作った指摘の件数を record.process.tdd に残す",
+ "nodes": {
+  "p3.tdd_start": {
+   "stage": "P3",
+   "run_by": "driver",
+   "builtin": "tdd_start",
+   "deps": [
+    "p2.history",
+    "p2.plan_review",
+    "p3.lane_merge"
+   ],
+   "source": "P3（TDD）＞ テストを書く前の版を固める",
+   "does": "テストだけを書く段が触ったファイルをこの版からの差で測るために作業ツリーの今の姿を版に固め、テスト一式を 1 回走らせて元の結末を取る（『ほかは緑のまま』は元の結末で通っていたテストに当てる。元から落ちていたテストは問わない）",
+   "outputs": [
+    "loop.tdd"
+   ],
+   "reads": []
+  },
+  "p3.tdd_tests": {
+   "stage": "P3",
+   "run_by": "writer",
+   "deps": [
+    "p3.tdd_start"
+   ],
+   "cond": "units_open",
+   "source": "P3（TDD）＞ テストだけを書く",
+   "does": "直す単位ごとに、使う側の呼び口で今は落ちるテストだけを書き、名指しする。書きにくさを単位ごとに記録する。先にテストを書けない単位は理由をつけて今の修正の流れ（direct）に回す。実装のファイルには触れない",
+   "outputs": [
+    "out.p3.tdd_tests"
+   ],
+   "prompt_file": "../prompts/review-loop/tdd/p3.tdd_tests.md",
+   "reads": [
+    "record.units",
+    "record.questions",
+    "record.process.diagnosis",
+    "out.p2.plan_review",
+    "inputs.cwd",
+    "inputs.tdd_suite",
+    "loop.tdd"
+   ],
+   "post_check": "tdd_tests_output",
+   "schema": {
+    "$ref": "#/$defs/tdd_tests_reply"
+   }
+  },
+  "p3.tdd_red": {
+   "stage": "P3",
+   "run_by": "driver",
+   "builtin": "tdd_red",
+   "deps": [
+    "p3.tdd_tests"
+   ],
+   "cond": "tdd_named",
+   "source": "P3（TDD）＞ 赤の確認（機械）",
+   "does": "テスト一式を 1 回走らせ、JUnit XML で、名指しのテストが全部 failure で落ち（error・一式に居ない・もう通る・飛ばされたは失格）、元の結末で通っていたテストとこの周に足した名指しの外のテストは通ることを確かめる。テストだけを書く段が申告したテストのファイルの外に触れていないことも確かめる。通らなければテストだけを書く段を差し戻す。3 回通らなければ TDD を諦めて今の流れで進め、理由を記録と次の周の判定役に渡す",
+   "outputs": [
+    "loop.tdd"
+   ],
+   "reads": []
+  },
+  "p3.fix": {
+   "deps": [
+    "p2.history",
+    "p2.plan_review",
+    "p3.lane_merge",
+    "p3.tdd_red"
+   ],
+   "reads": [
+    "record.units",
+    "record.questions",
+    "record.process.diagnosis",
+    "inputs.review_md",
+    "inputs.cwd",
+    "record.base",
+    "prev.r1.minimality",
+    "prev.r4.hidden_scope",
+    "out.p2.plan_review",
+    "loop.lane_merge",
+    "out.p3.tdd_tests",
+    "loop.tdd"
+   ],
+   "prompt_append": [
+    "../prompts/review-loop/tdd/p3.fix.md"
+   ]
+  },
+  "p3.tdd_green": {
+   "stage": "P3",
+   "run_by": "driver",
+   "builtin": "tdd_green",
+   "deps": [
+    "p3.fix"
+   ],
+   "cond": "tdd_red_passed",
+   "source": "P3（TDD）＞ 緑の確認（機械）",
+   "does": "テスト一式を 1 回走らせ、名指しのテストと、元の結末で通っていたテストが全部通り（元の一式が 0 で終わっていたなら一式も 0 で終わる）、実装の段が申告したテストのファイルを赤の確認の版から書き換えていないことを確かめる。通らなければ実装（p3.fix）を差し戻す。3 回通らなければ諦めて進め、理由を記録と次の周の判定役に渡す",
+   "outputs": [
+    "loop.tdd"
+   ],
+   "reads": []
+  },
+  "p3.fix_delta": {
+   "deps": [
+    "p3.fix",
+    "p3.tdd_green"
+   ]
+  },
+  "p3.delta_review": {
+   "reads": [
+    "loop.fix_delta.file",
+    "loop.fix_delta.files",
+    "inputs.cwd",
+    "out.p2.plan_review",
+    "out.p3.fix.plan_faces",
+    "out.p3.tdd_tests"
+   ],
+   "prompt_append": [
+    "../prompts/review-loop/tdd/p3.delta_review.md"
+   ]
+  }
+ },
+ "$defs": {
+  "tdd_tests_reply": {
+   "type": "object",
+   "required": [
+    "units",
+    "test_files"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "units": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "unit_key",
+       "route"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "unit_key": {
+        "type": "string",
+        "minLength": 1
+       },
+       "route": {
+        "type": "string",
+        "enum": [
+         "tdd",
+         "direct"
+        ],
+        "note": "tdd＝先に落ちるテストを書いた／direct＝先にテストを書けない（文書・指示書・注記だけの直し等）ので今の修正の流れで直す"
+       },
+       "tests": {
+        "type": "array",
+        "items": {
+         "type": "string",
+         "minLength": 1
+        },
+        "note": "名指しのテストの識別子（実行器の書き方: path/test_x.py::test_y）。tdd の道で 1 件以上"
+       },
+       "surface": {
+        "type": "string",
+        "note": "テストが叩いた使う側の呼び口（公開の関数・CLI・ファイルの形）"
+       },
+       "friction": {
+        "type": "object",
+        "required": [
+         "setup_heavy",
+         "reaches_internals",
+         "name_unclear"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "setup_heavy": {
+          "type": "boolean",
+          "note": "準備が重い（盤面・リポジトリ・大きな入力を組まないと呼べない）"
+         },
+         "reaches_internals": {
+          "type": "boolean",
+          "note": "内部の関数・欄を直に叩くか差し替えないと確かめられない"
+         },
+         "name_unclear": {
+          "type": "boolean",
+          "note": "呼び口の名前から意図が読めず、テスト名で補った"
+         },
+         "note": {
+          "type": "string",
+          "note": "旗を 1 つでも立てたら、何が書きにくかったか"
+         }
+        }
+       },
+       "surface_change": {
+        "type": "string",
+        "note": "書きにくさを消すために、実装の前に呼び口・名前をどう直すかの案（実装の段と審査の目に渡る）"
+       },
+       "why": {
+        "type": "string",
+        "note": "direct の道に回す理由"
+       }
+      }
+     }
+    },
+    "test_files": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "minLength": 1
+     },
+     "note": "この段で書いた・書き足したテストのファイル（リポジトリ相対）。赤の確認はこの外に触れていないかを見て、緑の確認は実装の段がここを書き換えていないかを見る"
+    }
+   }
+  }
+ }
+}

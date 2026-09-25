@@ -25,6 +25,13 @@ flowchart TB
     lc[p0.local_checks]
   end
   base --> wb[p1.worktree_before]
+  subgraph SPEC[仕様の道 init --input flow=spec のときだけ]
+    sw[spec.write<br/>writer: 要件と受け入れ条件のテスト] --> sr[spec.review<br/>judge: 抜け・曖昧さ・範囲の外] --> sv[spec.revise<br/>writer: 穴に答える] --> sa{spec.approve<br/>機械: 赤を実測して人に聞く}
+    sa -- continue 同じ周のまま --> sf[spec.freeze<br/>機械: 記録に固定]
+    sa -- stop --> halt([その場で止める])
+  end
+  base & lc --> sw
+  sf --> wb
   subgraph P1[P1 並列]
     lr[local_review<br/>skill を名指しで]
     cb[consistency_bypass<br/>inspector]
@@ -44,6 +51,7 @@ flowchart TB
   fix --> fd[p3.fix_delta<br/>機械: この周の修正だけの差分] --> dr[p3.delta_review<br/>inspector: 穴と、塞いだと言う穴の検算] --> df[p3.delta_fix<br/>writer: 穴が在る周だけ]
   df --> fd2[p3.fix_delta2<br/>機械: 手直しだけの差分] --> dr2[p3.delta_review2<br/>inspector: 2 回目] --> df2[p3.delta_fix2<br/>writer: 次の周の判定者が検算]
   df2 --> ci[p4.ci] & sc[p4.scalars] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
+  df2 --> sck{spec.check<br/>仕様の道だけ: テストの改変を人に聞く} --> asm
   hist --> asm
   asm --> cc[r1.comment_candidates<br/>comment-analyzer] --> r1[r1.minimality<br/>judge]
   purp --> r1
@@ -108,6 +116,8 @@ flowchart TB
 このグラフは 2026-09-12 に実行用の欄（節ごとの prompt_file・schema・reads・writes・cond）を足され、graphloops の engine（`graphloops/scripts/loop.py`）で回せる。手順書は `graphloops/commands/review-graph.md`、ループの算術は `graphloops/rules/review-loop.py`（検証器の定数を写さず import する）。写しの側と違う点が 3 つある: P4 の記録の節は機械の節 2 つ（`p4.assemble` が [block] の数と R1/R2 の再発火を数え、`p4.record` が周の記録を組んで検証器にディレクトリを渡す）に割れ、P1 の前後の作業ツリー突合と走らせなかった素材の欄の穴埋めも機械の節が持つ。R2 の独立設計と比較役は別の節で、premise-invalid は設計の節が返す。判定・履歴の突合は同じ judge を続ける形（engine が agent の id を持ち回る）。
 
 **判定から入る run（人の修正依頼）。** `loop.py add` は人の依頼（findings の型）を、その周の判定役が起きる前なら何周目でも何度でも、記録の `process.request_findings` に周と出どころつきで積む（前の周の分は周の頭で `process.request_history` に移る）。1 周目の P1 より前の最初の `add` だけが入口の印 `process.request_entry` を立て、その run は P1 の役の 9 節を起こさずに判定から始まる（2026-09-25 に足した。背景は docs/feedback/review-loop-remaining-findings.md の R12）。節を外すのは graph の cond（`not request_entry`）で、飛ばした素材は入口の理由つきの not_applicable、空の差分でも周の頭で止まらない。入口が効くのは修正が入るまでで、次の周からは通常の run と同じく P1 が修正差分を見る。途中の周の `add` は P1 を外さない。述語は rules の `request_entry` 1 本（印だけを見る）で、engine には run の種類を持ち込んでいない。
+
+**仕様の道（選んだときだけ）。** `init --input flow=spec` を渡した run だけが、判定の前に仕様の節を通る（2026-09-25 に足した。設計の正本は docs/graphloops-rearchitecture.md の「開発手法の候補」の仕様駆動の項）。writer が要件と受け入れ条件を書き、受け入れ条件は対象リポジトリの実行できるテスト（Given/When/Then をテストの中に書く）として置く——記録が持つのは置き場・sha・承認の時点の終了コードだけで、本文は写さない（同じテストが TDD の「先に書く赤いテスト」になる）。別の judge が抜け・曖昧さ・範囲の外を挙げ、writer が key ごとに答え、engine が各テストの `run` のコマンドの字面を添えて人に諮り、承認の後に走らせて承認の時点の終了コードを記録する（承認の前には走らせない）。この問いは**周の途中の問い**（ask の `in_round`）で、continue は周を進めずに同じ周のまま先へ、stop は run をその場で止め（`halted`）、後の節を 1 つも出さない。承認した仕様は `record.process.spec` に固定され、受け入れ条件は `process.request_findings` のバッチとして 1 周目の判定に 1 度だけ届く（今の流れの指示書は変えない）。2 周目以降に受け入れ条件の緑を engine が確かめる節は無く（緑を収束の条件にするかは選べる流れの選び方の決着で決める）、承認の後のテストの改変は毎周の修正の後の `spec.check` が人に諮り直す。flow を渡さない run では spec.* の節は条件外（na）になり、節の並び・プロンプト・記録・報告は仕様の道を足す前と変わらない（台本 `test_spec_default_unchanged` が比べる）。
 
 ## 機械検査
 

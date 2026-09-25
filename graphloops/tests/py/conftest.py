@@ -21,7 +21,7 @@ if REPO is None:
 pytest_plugins = ("pytester",)
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 76
+EXPECTED_ITEMS = 114
 
 
 def pytest_configure(config):

@@ -9,8 +9,8 @@
 | 層 | 場所 | 持つもの |
 |---|---|---|
 | engine | `scripts/loop.py` | 盤面・波・扇・条件・穴埋め・型検査・汎用の書き込み・被覆・作業ツリー突合・人に聞く・昇格・痕跡 |
-| graph | `graphs/<loop>.json` | 節・依存・役・prompt_file・schema・writes・cond・reads。最上位に plugin（役割 agent と検証器を持つ plugin）・runners（回す側の run_by）・thickness.tiers / default / deciders（段）・deliver.path_tools（自分で読める道具） |
-| rules | `rules/<loop>.py` | 記録の初期形・扇の項目の選び方・機械の節・整合の後検査・仕上げ |
+| graph | `graphs/<loop>.json` | 節・依存・役・prompt_file・schema・writes・cond（条件の関数の名前）・reads。最上位に plugin（役割 agent と検証器を持つ plugin）・runners（回す側の run_by）・thickness.tiers / default / deciders（段）・deliver.path_tools（自分で読める道具） |
+| rules | `rules/<loop>.py` | 記録の初期形・扇の項目の選び方・節の条件（CONDS。読む欄を宣言した関数）・機械の節・整合の後検査・仕上げ |
 
 engine はループの節名も記録の欄名も持たない。graph が名前で指し、engine が名前で rules を呼ぶ。JSON に書けないのは算術（件数の等式・連続カウント・無作為の抜き取り・記録の形に固有の書き込み）だけで、それが rules にある。
 
@@ -18,7 +18,7 @@ engine はループの節名も記録の欄名も持たない。graph が名前�
 
 ## 回すとどうなるか
 
-`init` で盤面（`$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外）を作り、`next` が「いま走らせてよい節」をプロンプトごと JSON で返す。回す側は役の節（`launch` を持つ節）を `loop.py launch` で engine に起こさせ（engine が子の終了を直接待ち、返答を書き、受け付けまで済ませる。拒まれたら同じ会話に出し直させ、期限を過ぎたら子を木ごと止める）、自分の節は自分でやり、返答を `done` で返す。背景の任せ先の返答は `loop.py wait` で graph が宣言した期限（`deadline_minutes`）まで待ち、期限切れなら `loop.py relaunch` で起こし直す（試行の回数と理由が盤面と trace に残る）。engine は返答を型で検査し、記録に写し、扇の被覆（返した答えが項目を全部覆っているか）を数え、機械の節（件数突合・収束判定）を走らせ、次の周を開くか、止めるか、人に聞く。最後の `report` の前に記録を仕上げて検証器を回し、通らなければ `report` を出さない。
+`init` で盤面（`$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外）を作り、`next` が「いま走らせてよい節」をプロンプトごと JSON で返す。回す側は役の節（`launch` を持つ節）を `loop.py launch` で engine に起こさせ（engine が子の終了を直接待ち、返答を書き、受け付けまで済ませる。拒まれたら同じ会話に出し直させる。時間の上限は付けない）、自分の節は自分でやり、返答を `done` で返す。任せ先（delegate）は回す側が Agent ツールの前景で起こし、その返りを終了として待つ。落ちた試行は `loop.py relaunch` で起こし直す——新しい試行を書いてから engine が起こした前の試行の子を木ごと止め、試行の回数と理由が盤面と trace に残る。engine は返答を型で検査し、記録に写し、扇の被覆（返した答えが項目を全部覆っているか）を数え、機械の節（件数突合・収束判定）を走らせ、次の周を開くか、止めるか、人に聞く。最後の `report` の前に記録を仕上げて検証器を回し、通らなければ `report` を出さない。
 
 散文の手順書より機械が守れるようになるもの: 依存と波、渡してはいけないもの、役の指定、上限、連続カウント、無言の省略（被覆の突合）、圧縮後の再開（盤面はディスク）、作業ツリーの前後突合（**射程は 2 軸で狭い**——git が映す範囲だけ〈.git/ 配下・ignore 対象・リポジトリ外は見えない〉と、P1 の前後という時点だけ〈判定や修正の最中の書き換えは見ない。実測 2026-09-13: この run の判定の最中に engine が 1 か所書き換わり、盤面は何も止めなかった〉）。**『回す側の降格の禁止』はここに入らない**——機械が縛るのは graphcheck の検査 2（節の run_by が判定の欄に触れない）までで、回す側が段を下げる・役を起こさずに自分で答える・役の返答を書き換える経路を engine は見ていない（BASE の `docs/loop-contract.md` の規律 U も同じ項目を『散文だけのもの』と書いている。この README の次の段落「守れないまま残るもの」が並べる受容と食い違っていた）。
 
@@ -41,7 +41,7 @@ bash graphloops/tests/run.sh
 uv run --no-project --with pytest python -m pytest graphloops/tests/py
 ```
 
-**置き場の方針**: 単体の検査（関数を直に呼ぶ物）は、新しく書くなら、また既存の物を触るなら pytest に書く。bash の側から pytest へ移し終えた検査は、同じ変更で bash の側を消し、両方の件数の定数（bash の台本の `EXPECTED_CHECKS` ほかと、`graphloops/tests/py/conftest.py` の `EXPECTED_ITEMS`）と、その検査を当てにする変異の腕（`tests/mutations.json` の `tests`）を同じ変更で直す——ただし腕の実行器 `tests/mutate.py` はまだ bash の台本しか回せない（撃つ台本の表は `tests/run.sh` と `graphloops/tests/run.sh` の 2 本）ので、bash 側を消す最初の変更で実行器に pytest の口を足す。それまでは腕が pytest の写しでも落ちることを手で確かめる（今の `engine/schema.py` の腕 11 本は 2026-09-25 に全部落ちた）。盤面を端から端まで回す台本（`tests/simulate.py`・`tests/simulate_review.py`）は、台本の土台がまだ pytest に無いので、土台を移すまでは今の置き場に足す。今の pytest 側の中身は `engine/schema.py` の検査と `engine/role_run.py` の `unwrap`（役の標準出力を解く）の検査で、そのうち `test_schema.py`・`test_schema_graphcheck.py` は bash 側の同じ検査の写し（bash 側はまだ消していない。移し終えるまでは片方を直したらもう片方も直す——ずれを見る柵は無い）。
+**置き場の方針**: 単体の検査（関数を直に呼ぶ物）は、新しく書くなら、また既存の物を触るなら pytest に書く。bash の側から pytest へ移し終えた検査は、同じ変更で bash の側を消し、両方の件数の定数（bash の台本の `EXPECTED_CHECKS` ほかと、`graphloops/tests/py/conftest.py` の `EXPECTED_ITEMS`）と、その検査を当てにする変異の腕（`tests/mutations.json` の `tests`）を同じ変更で直す——ただし腕の実行器 `tests/mutate.py` はまだ bash の台本しか回せない（撃つ台本の表は `tests/run.sh` と `graphloops/tests/run.sh` の 2 本）ので、bash 側を消す最初の変更で実行器に pytest の口を足す。それまでは腕が pytest の写しでも落ちることを手で確かめる（今の `engine/schema.py` の腕 11 本は 2026-09-25 に全部落ちた）。盤面を端から端まで回す台本（`tests/simulate.py`・`tests/simulate_review.py`）は、台本の土台がまだ pytest に無いので、土台を移すまでは今の置き場に足す。今の pytest 側の中身は `engine/schema.py` の検査（差し替えの版の重ね方 `test_graph_extends.py` を含む）と、`engine/role_run.py` の `unwrap`（役の標準出力を解く）の検査と、TDD の流れの赤・緑の判定（`test_review_tdd.py`）で、そのうち `test_schema.py`・`test_schema_graphcheck.py` は bash 側の同じ検査の写し（bash 側はまだ消していない。移し終えるまでは片方を直したらもう片方も直す——ずれを見る柵は無い）。
 
 **柵**（`graphloops/tests/py/fence.py`）: 飛ばしは失敗にする（テスト単位の skip・xfail と、モジュール丸ごとの skip・importorskip の両方）。集めたテストの数を `EXPECTED_ITEMS` と `!=` で突き合わせる——置き場のテストのファイルを全部集めた回だけで、パス・node id・`--ignore` などでファイルを絞った回は柵を外して、外した旨を 1 行出す（`-k` は集めた後で選ぶので柵は付いたまま）。CI は置き場を丸ごと回す。
 
@@ -67,6 +67,16 @@ cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest m
 3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_thickness`・`add`（要るものだけ）。
 4. `tests/simulate.py` に台本を足す（盤面を回す台本の土台はまだそこにしか無い。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。
 5. `commands/<loop>-graph.md` は engine の呼び方だけ。
+
+## 流れの一部を差し替えた版を足すには
+
+同じループの一部の節だけを別の流れに差し替える版（例: 修正を TDD の流れにした `graphs/review-loop-tdd.json`）は、元の graph を写さずに差分だけを書く。最上位に `"extends": "<元の graph のファイル名>"` を書くと、engine（`engine/schema.py` の `load_graph`）が元の graph に RFC 7396（JSON Merge Patch）で重ねる: object は鍵ごとに重なり、`null` は鍵を消し、配列は置き換わる。
+
+- 元は同じ置き場（`graphs/`）のファイルだけで、重ねは 1 段だけ。継いだ節の `prompt_file`・`rules` の相対パスが同じ置き場を基準に読まれるため。
+- 差し替えた節の `deps`・`reads` は元の要素も書く（配列は置き換わる）。元の要素を落とすと graphcheck が止める——元の graph に後から足した依存が、差し替えの版で黙って消えないように。
+- 元の指示書に段落を足すなら、節の `prompt_append`（指示書の後ろに続けるファイルの一覧）に書く。元の指示書は写さない。
+- rules を足すなら別のファイルに置き、元の rules を読み込んで表（`CONDS`・`BUILTINS`・`POST_CHECKS`）に足した写しを出す（`rules/review-loop-tdd.py` の頭の形）。元の rules は触らない。
+- どの版で回すかは `init --loop <版の名前>` で選ぶ。元の graph で回す run は、差し替えの版があってもなくても同じに動く。
 
 残りの 2 本（doctor・firstread）の graph はこの差分に**入れていない**。写しだけのグラフを先に積むと、engine の実行経路に乗らない 1,123 行が凍結した目的の外に残る——実行版を作る周に、回せる形で一緒に入れる（追跡は別 issue）。
 
