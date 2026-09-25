@@ -3,6 +3,7 @@ TDD の流れ（graphs/review-loop-tdd.json）はこの口で今の流れ（grap
 import importlib.util
 import json
 import shutil
+import types
 
 import pytest
 
@@ -57,6 +58,7 @@ def test_extends_refs_resolve_against_the_merged_defs(tmp_path):
     pytest.param("sub/base.json", "同じ置き場", id="other-directory"),
     pytest.param("over.json", "自分", id="self"),
     pytest.param("mid.json", "1 段", id="two-levels"),
+    pytest.param("missing.json", "が無い", id="missing-base"),
 ])
 def test_extends_rejects(tmp_path, ref, words):
     (tmp_path / "sub").mkdir()
@@ -129,6 +131,9 @@ def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patc
     pytest.param("p3.fix_delta2", {"cond": "delta_fixd"}, "CONDS の名前でない", id="driver-cond-typo"),
     pytest.param("spec.approve", {"cond": "spec_flw"}, "CONDS の名前でない", id="driver-cond-typo-spec"),
     pytest.param("p3.fix", {"prompt_append": ["../prompts/review-loop/tdd/no-such.md"]}, "prompt_append のファイルが無い", id="prompt-append-missing"),
+    pytest.param("p2.history", {"engine_run": {"builtin": "declared_checks", "why": "検査用"}}, "engine_run は回す側の節",
+                 id="engine-run-on-a-role-node"),
+    pytest.param("p4.ci", {"engine_run": {"builtin": "declared_checks"}}, "engine_run は {builtin", id="engine-run-without-why"),
 ])
 def test_graphcheck_rejects_broken_nodes(tmp_path, node, patch, words):
     """足した静的検査は、赤くなる例を 1 つずつ持つ（driver の節の条件名・prompt_append・読む欄の節）"""
@@ -155,3 +160,31 @@ def test_graphcheck_rejects_a_cond_reading_an_unknown_node(tmp_path):
     lines = []
     ok = graphcheck.check(tmp_path / "graphs" / "review-loop.json", REPO / "scripts" / "review-record.py", emit=lines.append)
     assert not ok and any("読む欄 'out.p9.nowhere' の節が無い" in l for l in lines), lines[-5:]
+
+
+def test_dropped_names_where_an_object_became_a_value():
+    assert graphcheck.dropped({"a": {"b": 1}}, {"a": 5}) == ["a を object でない値に差し替えた"]
+    assert graphcheck.dropped({"a": 1}, 5) == ["節 を object でない値に差し替えた"]
+
+
+def test_read_path_needs_loop_keys_and_defaults_round_keys():
+    """loop.<鍵> は rules の LOOP_KEYS が無ければ落とす。rd.<鍵> は rules が ROUND_KEYS を持たなくても engine の周の鍵で照らす"""
+    errs = []
+    graphcheck.check_read_path("loop.x", "w", {"nodes": {}}, types.SimpleNamespace(), errs)
+    graphcheck.check_read_path(f"rd.{next(iter(graphcheck.empty_round(0)))}", "w", {"nodes": {}}, types.SimpleNamespace(), errs)
+    assert len(errs) == 1 and "LOOP_KEYS" in errs[0], errs
+
+
+@pytest.mark.parametrize("write,schema,ok", [
+    pytest.param({"to": "x"}, {"properties": {"f": {}}}, True, id="node-schema"),
+    pytest.param({"to": "x", "from": "$"}, {"properties": {"f": {}}}, True, id="from-root"),
+    pytest.param({"to": "x", "from": "sub.y"}, {"properties": {"sub": {"properties": {"f": {}}}}}, True, id="from-field"),
+    pytest.param({"to": "x", "from": "gone"}, {"properties": {"sub": {}}}, False, id="from-missing-field"),
+    pytest.param({"to": "x", "from": "sub"}, {"type": "object"}, False, id="from-without-properties"),
+    pytest.param({"to": "x"}, {"type": "object"}, False, id="schema-without-properties"),
+    pytest.param({"to": "x"}, None, False, id="no-schema"),
+])
+def test_record_path_under_writes_to_follows_the_written_schema(write, schema, ok):
+    """record.<writes.to>.<欄> は、書く節の schema（from が在ればその欄の schema）の properties に在る欄だけ通す"""
+    node = {"writes": [write], **({} if schema is None else {"schema": schema})}
+    assert graphcheck._record_ok("x.f", {"nodes": {"n": node}}, types.SimpleNamespace()) is ok

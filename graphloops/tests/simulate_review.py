@@ -814,6 +814,30 @@ def test_new_guards():
     rm(tmp); rm(run.tmp)
 
 
+
+def test_pointer_hole_dropped_after_init():
+    """**番号を振る一覧の穴が指示書から消えたら、その節を役に出さずに止める。** graphcheck は init で『reads の欄を使う穴が在る』を
+    見るが、init の後に指示書が書き換わる（run の途中の手直し）と、番号を振るはずの一覧が役に見えないまま出る——役は番号で
+    指せず、受け付けは番号を名前に戻せない。engine は描いた時点で、貼った穴が pointers の from を覆うかを確かめる"""
+    print("pointers の from を貼る穴が init の後に指示書から消えたら、その節を出す next で止まる")
+    _td_tmp, tmp = parallel.workspace("gl-ptrhole-")
+    for sub in ("graphs", "prompts", "rules"):
+        shutil.copytree(PLUGIN / sub, tmp / sub)
+    run = Run("ptrhole", graph=tmp / "graphs" / "review-loop.json")
+    check(run.init.returncode == 0, f"写した graph で init が通る: {run.init.stderr[-200:]}")
+    p = tmp / "prompts" / "review-loop" / "p2.diagnose.md"
+    text = p.read_text(encoding="utf-8")
+    check("{{?prev.r1.minimality.deletions}}" in text, "p2.diagnose の指示書に削除候補の一覧を貼る穴が在る（台本の前提）")
+    p.write_text(text.replace("{{?prev.r1.minimality.deletions}}", ""), encoding="utf-8")
+    try:
+        drive(run, "std")
+        err = ""
+    except RuntimeError as e:
+        err = str(e)
+    check("p2.diagnose: pointers の from ['prev.r1.minimality.deletions'] を貼る穴がプロンプトに無い" in err,
+          f"穴の消えた p2.diagnose は出さずに止める: {err[-300:]}")
+    rm(tmp); rm(run.tmp)
+
 def test_prev_fix_faces_scalar():
     """**前の周の修正が作った面を、規模の数値として周ごとに残す。** 判定役が再燃の原因に『前の周の修正』を選んだ
     件数を機械が数える——散文の note に逃がしていた頃は、収束をいちばんよく表す数が記録に残らなかった。"""

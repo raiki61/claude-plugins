@@ -1,14 +1,17 @@
 """走らせるだけの節（graph の engine_run）の部品——宣言の読み手（engine/declared.py）・承認・走らせてよい語の柵
 （commands.engine_run_refusal）・語を走らせる関数（role_run.run_steps）。関数を直に呼ぶ検査。盤面を回す端から端までの台本は
 simulate_review.py の test_engine_run_checks・test_engine_run_parallel_pr"""
+import importlib.util
 import json
 import subprocess
 import sys
+import types
 
 import pytest
 
-from engine import declared
-from engine.advance import helper_argv
+from conftest import PLUGIN
+from engine import declared, util
+from engine.advance import helper_argv, engine_run_entry, plan_engine_run
 from engine.commands import engine_run_refusal
 from engine.role_run import run_steps
 
@@ -29,6 +32,7 @@ def repo(tmp_path, steps=OK):
     ('{"suite": [{"name": "a", "argv": []}]}', "1 語以上"),
     ('{"suite": [{"name": "a", "argv": "bash run.sh"}]}', "1 語以上"),
     ('{"suite": [{"name": "a", "argv": ["x"]}, {"name": "a", "argv": ["y"]}]}', "重ならない"),
+    ('{"sweet": []}', "在る鍵: ['sweet']"),   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
 ])
 def test_parse_rejects_shapes_it_cannot_run(text, want):
     steps, err = declared.parse(text)
@@ -74,6 +78,48 @@ def test_refusal_exempts_only_the_bundled_helper_by_argv(tmp_path):
     fake = {"launch": {**ok["launch"], "steps": [{"name": "parallel-pr.py", "argv": [sys.executable, str(tmp_path / "parallel-pr.py")]}]}}
     assert "人の承認に無い" in engine_run_refusal(fake)
     assert "形が" in engine_run_refusal({"launch": {"steps": [{"name": "x", "argv": "bash"}]}})
+
+
+def test_refusal_without_cwd_checks_approval_where_steps_run(tmp_path, monkeypatch):
+    """launch.cwd の無い語は、run_steps が cwd=None で走らせる所（呼んだ場所）の承認で決める"""
+    root = repo(tmp_path)
+    declared.allow(root, "検査")
+    monkeypatch.setattr(util, "GIT_CWD", None)
+    monkeypatch.chdir(root)
+    inst = {"launch": {"kind": "engine_run", "steps": OK, "sha": declared.steps_sha(OK)}}
+    assert engine_run_refusal(inst) is None
+
+
+def _board_with(plan):
+    return types.SimpleNamespace(rules=types.SimpleNamespace(ENGINE_RUNS={"x": {"plan": plan, "reply": None}}))
+
+
+def test_engine_run_entry_refuses_unknown_builtin(capsys):
+    with pytest.raises(SystemExit):
+        engine_run_entry(_board_with(lambda b, nid: {}), {"engine_run": {"builtin": "nope"}})
+    assert "ENGINE_RUNS に無い" in capsys.readouterr().err
+
+
+def test_plan_runs_only_bundled_helpers(capsys):
+    """同梱の語（ENGINE_HELPERS）だけを承認なしで走らせる。args の無い計画は引数なしの argv になる"""
+    n = {"engine_run": {"builtin": "x"}}
+    inst = {}
+    plan_engine_run(_board_with(lambda b, nid: {"helper": "parallel-pr.py"}), "p0.x", n, inst)
+    assert inst["mode"] == "engine_run" and inst["launch"]["steps"] == [{"name": "parallel-pr.py", "argv": helper_argv("parallel-pr.py")}]
+    with pytest.raises(SystemExit):
+        plan_engine_run(_board_with(lambda b, nid: {"helper": "evil.sh"}), "p0.x", n, {})
+    assert "ENGINE_HELPERS に無い" in capsys.readouterr().err
+
+
+def test_parallel_pr_stops_when_gh_fails(monkeypatch, capsys):
+    """gh が非 0 なら、標準出力が JSON に見えても使わず、理由を標準エラーに書いて exit 1"""
+    spec = importlib.util.spec_from_file_location("parallel_pr", PLUGIN / "scripts" / "parallel-pr.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "GH", sys.executable)
+    with pytest.raises(SystemExit) as e:
+        mod.gh("-c", "import sys; sys.stdout.write('[]'); sys.stderr.write('boom'); sys.exit(3)")
+    assert e.value.code == 1 and "が exit 3: boom" in capsys.readouterr().err
 
 
 def test_run_steps_waits_and_keeps_output(tmp_path):

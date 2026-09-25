@@ -1,5 +1,6 @@
 """TDD の流れ（graphs/review-loop-tdd.json）の赤・緑の確認——rules/review-loop-tdd.py が JUnit XML をテスト 1 件ごとに読んで決める。
 関数を直に呼ぶ検査。盤面を回す端から端までの台本は simulate_review.py の test_tdd_flow"""
+import json
 import types
 
 import pytest
@@ -30,6 +31,18 @@ def cases(**over):
 def test_parse_junit_reads_each_outcome():
     got = {c["name"]: c["outcome"] for c in RULES.parse_junit(JUNIT)}
     assert got == {"test_new_red": "failure", "test_old_green": "passed", "test_param[x]": "error", "test_skipped": "skipped"}
+
+
+def test_parse_junit_fills_missing_attributes_with_empty_text():
+    """classname・name の無い行も文字列で持つ（match_case・_key が文字列として切る）"""
+    assert RULES.parse_junit("<testsuite><testcase/></testsuite>") == [{"classname": "", "name": "", "outcome": "passed"}]
+
+
+def test_run_suite_without_the_suite_input_reports_a_problem(tmp_path, monkeypatch):
+    """実行ファイルの入力が無い盤面でも、例外で落ちずに『走らせられない』を返す"""
+    monkeypatch.setattr(RULES, "repo_root", lambda git: str(tmp_path))
+    cases_, code, why = RULES.run_suite(types.SimpleNamespace(state={"inputs": {}}))
+    assert cases_ is None and code is None and "走らせられない" in why[0]
 
 
 @pytest.mark.parametrize("test_id,name", [
@@ -76,6 +89,15 @@ def test_red_rejects_other_tests_broken():
 def test_red_rejects_exit_zero():
     probs = RULES.red_problems(["test_a.py::test_new_red"], cases(**{"test_param[x]": "passed"}), 0)
     assert any("exit 0" in p for p in probs)
+
+
+def test_green_rejects_named_test_missing_or_skipped():
+    """名指しのテストが一式に居ない・飛ばされた——failure・error でないので『ほか』の行は拾わない。名指しの行だけが止める"""
+    others = {"test_param[x]": "passed"}
+    probs = RULES.green_problems(["test_a.py::test_never_collected"], cases(test_new_red="passed", **others), 0)
+    assert probs == ["test_a.py::test_never_collected: 一式の結末に居ない——名指しのテストが緑でない"]
+    probs = RULES.green_problems(["test_a.py::test_skipped"], cases(test_new_red="passed", **others), 0)
+    assert probs == ["test_a.py::test_skipped: skipped——名指しのテストが緑でない"]
 
 
 def test_green_passes_only_when_everything_passes():
@@ -141,6 +163,9 @@ def check_reply(units):
 
 def test_tests_reply_accepts_every_unit_routed_once():
     assert check_reply([tdd_row(), direct_row()]) == ""
+    # 書きにくさの旗を立てても、何が書きにくいか（note）を書けば通る
+    noted = {**OK_FRICTION, "setup_heavy": True, "note": "盤面を組むのに git の版が 2 つ要る"}
+    assert check_reply([tdd_row(friction=noted), direct_row()]) == ""
 
 
 @pytest.mark.parametrize("units,words", [
@@ -149,6 +174,7 @@ def test_tests_reply_accepts_every_unit_routed_once():
     pytest.param([tdd_row(), direct_row(why="")], "理由", id="direct-without-why"),
     pytest.param([tdd_row(friction={**OK_FRICTION, "setup_heavy": True}), direct_row()], "note", id="friction-without-note"),
     pytest.param([tdd_row(), direct_row(), direct_row()], "u-donow", id="unit-twice"),
+    pytest.param(None, "どちらの道にも振っていない", id="no-units"),
 ])
 def test_tests_reply_rejects(units, words):
     assert words in check_reply(units)
@@ -164,6 +190,8 @@ def test_tdd_conds_truth_table():
     named = {"p3.tdd_tests": {"units": [{"route": "tdd", "tests": ["t::a"]}, {"route": "direct", "tests": ["t::b"]}]}}
     direct = {"p3.tdd_tests": {"units": [{"route": "direct", "tests": ["t::b"]}]}}
     assert ev("tdd_named", named) and not ev("tdd_named", direct) and not ev("tdd_named")
+    assert not ev("tdd_named", {"p3.tdd_tests": {"units": [{"route": "tdd"}]}})   # tests の欄の無い行は 0 件と数える
+    assert not ev("tdd_red_passed", named)   # 盤面にまだ loop.tdd が無い
     assert ev("tdd_red_passed", named, {"tdd": {"round": 2, "red": "passed"}})
     assert not ev("tdd_red_passed", named, {"tdd": {"round": 2, "red": "failed"}})
     assert not ev("tdd_red_passed", named, {"tdd": {"round": 2}})
@@ -210,3 +238,57 @@ def test_green_rejects_a_new_test_outside_the_baseline_that_fails():
     baseline = {"test_a::test_old_green": "passed", "test_a::test_skipped": "skipped"}
     probs = RULES.green_problems(["test_a.py::test_new_red"], cases(test_new_red="passed"), 1, baseline, baseline_exit=1)
     assert any("test_param[x]" in p for p in probs)
+
+
+# --- 赤・緑の確認の節（tdd_red・tdd_green）: 版と差分と一式を差し替えて直に呼ぶ（git と実行器を使わない）
+NAMED_REPLY = {"units": [{"unit_key": "u-block", "route": "tdd", "tests": ["test_a.py::test_new_red"]}], "test_files": ["test_a.py"]}
+
+
+def check_board(monkeypatch, out, changed, cases_, code):
+    monkeypatch.setattr(RULES, "_snap", lambda: "rev")
+    monkeypatch.setattr(RULES, "_diff_names", lambda frm, to: changed)
+    monkeypatch.setattr(RULES, "run_suite", lambda b: (cases_, code, []))
+    return types.SimpleNamespace(round=2, loop_state={}, record={"process": {}}, state={"inputs": {}},
+                                 output_of_round=lambda nid, rnd: out, rewind=lambda nodes, by: None)
+
+
+@pytest.mark.parametrize("out,changed,words", [
+    pytest.param(None, [], "名指しのテストが無い", id="no-reply"),
+    pytest.param(NAMED_REPLY, None, "テストを書く前の版からの差が取れない", id="no-diff"),
+])
+def test_red_check_rewinds_instead_of_crashing(monkeypatch, out, changed, words):
+    b = check_board(monkeypatch, out, changed, cases(**{"test_param[x]": "passed"}), 1)
+    got = RULES.tdd_red(b, "p3.tdd_red")
+    assert got["ok"] is False and words in got["problems"], got
+
+
+def test_green_check_without_reply_or_named_passes_on_a_green_suite(monkeypatch):
+    """返答も赤の確認の名指しも無い盤面で、一式が緑なら通す（読めない欄で落ちない）"""
+    b = check_board(monkeypatch, None, [], cases(test_new_red="passed", **{"test_param[x]": "passed"}), 0)
+    assert RULES.tdd_green(b, "p3.tdd_green") == {"ok": True}
+
+
+def test_green_check_rejects_when_the_diff_is_unknown(monkeypatch):
+    b = check_board(monkeypatch, NAMED_REPLY, None, cases(test_new_red="passed", **{"test_param[x]": "passed"}), 0)
+    got = RULES.tdd_green(b, "p3.tdd_green")
+    assert got["ok"] is False and "赤を確かめた版からテストのファイルの差が取れない" in got["problems"], got
+
+
+# --- 効き目の記録（tdd_effect）: 線の結果と次の周の記録を置き場に置いて直に呼ぶ
+def test_tdd_effect_counts_only_clean_lane_results(tmp_path, monkeypatch):
+    def board(process, loop_state=None):
+        return types.SimpleNamespace(record={"process": process}, loop_state=loop_state or {}, dir=tmp_path)
+    RULES.tdd_effect(board({}))                      # TDD の記録がまだ無い run（finalize が呼ぶ）
+    RULES.tdd_effect(board({"tdd": {"suite": "s"}}))  # 周の行がまだ無い
+    results = {1: ({"arms": [{"arm": "a1"}]}, []),                     # 証拠の欠けた腕が 1 本
+               2: ({"arms": [{"arm": "a2"}]}, ["schema に合わない"]),  # 誤りのある結果は数えない
+               3: ({"lane": "no arms"}, [])}                           # 腕の欄が無い結果は 0 本
+    monkeypatch.setattr(RULES.base, "_lane_result", lambda b, lane: results[lane["round"]])
+    (tmp_path / "rounds").mkdir()
+    (tmp_path / "rounds" / "round-2.json").write_text(json.dumps({"scalars": {"faces_created_by_prev_fix": 4}}), encoding="utf-8")
+    (tmp_path / "rounds" / "round-3.json").write_text(json.dumps({"round": 3}), encoding="utf-8")   # scalars の無い周の記録
+    rows = {"1": {}, "2": {}, "3": {}}
+    RULES.tdd_effect(board({"tdd": {"rounds": rows}}, {"lanes": {f"r{i}": {"round": i} for i in (1, 2, 3)}}))
+    assert rows == {"1": {"lane_missed": 1, "faces_created_by_this_fix": 4},
+                    "2": {"lane_missed": None, "faces_created_by_this_fix": None},
+                    "3": {"lane_missed": 0, "faces_created_by_this_fix": None}}
