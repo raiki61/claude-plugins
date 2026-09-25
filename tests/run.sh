@@ -1672,6 +1672,24 @@ for n in sorted(BLIND):
     assert n in agents, f"遮断系の役 {n} が無い"
     assert agents[n] == [], f"{n} は道具を持ってはいけない: {agents[n]}"
 
+# 外のサービスへ問い合わせを出せる役は、検索語の規律を役の定義の本文に持つ。どの起こし方（engine の
+# role_file・Agent の subagent）でも役に届く面は定義の本文だけなので、規律はここに置き、写しは字面で揃える。
+# 選ぶのは道具の名前でなく「外へ出せるか」——Bash からも curl で外を引ける
+OUTBOUND = {"Bash", "WebSearch", "WebFetch"}
+WEB_RULE = "- **検索語に対象の名前を載せるな。**"
+rule_blocks = {}
+for f in sorted((root / "agents").glob("*.md")):
+    if not OUTBOUND & set(agents[f.stem]):
+        continue
+    lines = f.read_text(encoding="utf-8").splitlines()
+    head = [i for i, line in enumerate(lines) if line.startswith(WEB_RULE)]
+    assert len(head) == 1, f"{f.name}: 外へ問い合わせを出せる役なのに、検索語の規律（{WEB_RULE}）が 1 項だけ無い（{len(head)} 項）"
+    end = next((j for j in range(head[0] + 1, len(lines)) if lines[j].startswith("- ")), len(lines))
+    rule_blocks[f.name] = "\n".join(lines[head[0]:end]).rstrip()
+# 下限は走らせた実測値（investigator・judge）。選び方が壊れて 0 本になっても上の assert は空振りする
+assert len(rule_blocks) >= 2, f"外へ問い合わせを出せる役を {len(rule_blocks)} 本しか拾えていない（2 本以上を期待）"
+assert len(set(rule_blocks.values())) == 1, "検索語の規律の字面が役ごとに割れている: " + ", ".join(sorted(rule_blocks))
+
 # 存在検査は手順書と文書のどこに識別子が出ても効かせる。使用検査（孤児の検出）は手順書だけ——
 # README は全役の一覧表を持つので、含めると孤児が原理的に出なくなる。手順書側の語彙宣言行
 # （「以降 `X` と書いたものは…」）も全役を列挙するので、同じ理由で使用に数えない。

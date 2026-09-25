@@ -149,6 +149,6 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop review-loop --reques
 - 探す役に「ここは見るな」の線を引かない（プロンプトを書き換えない）。削るのは judge の仕事である。
 - 会話が圧縮されて場所を見失ったら `loop.py status --dir <DIR>` → `loop.py next --dir <DIR>`。盤面はディスクにある。
 - 数える問い（判定者の `class_query`・修正の `coverage` の `how`）は engine が数える——判定者の件数は周に固定した版で、修正の前後は p3.fix の done で。回す側が数える口は置いていない（置いていた数えるサブコマンドは、engine の数え方と揃わない入口として 4 回繕われ、使う側が無かったので消した）。
-- **Web を読む調べ（先行例・一次情報の確かめ）は自分でやるな**——読み役（`convergence-loops:investigator`）を起こして任せ、返った結論と出典だけを受け取れ。ページの本文があなたの文脈に入ると、周を回す文脈が先に尽きる。
+- **Web を読む調べ（先行例・一次情報の確かめ）は自分でやるな**——読み役（`convergence-loops:investigator`）を起こして任せ、返った結論と出典だけを受け取れ。ページの本文があなたの文脈に入ると、周を回す文脈が先に尽きる。外へ送る検索語に対象の名前を載せない規律は、役の定義（convergence-loops の `agents/investigator.md` と `agents/judge.md`）が持つ。
 - 盤面の置き場は `git rev-parse --git-dir` の下（作業ツリーの外）。investigator の前後と P1 の前後で engine が作業ツリーを突き合わせる。自分の変更なら `--accept-tree-change "<理由>"` で痕跡付きで通す——investigator の instance の突合で止まったなら `done` に、P1 後の機械の節で止まったなら `next` に付ける（そのとき pending の instance は無いので `done` では通せない）。
 - 報告は依頼者の言語で書く。この手順書が日本語なのは理由にならない。

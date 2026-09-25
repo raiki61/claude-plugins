@@ -5177,6 +5177,33 @@
      "test_gates_merge"
     ]
    }
+  },
+  {
+   "id": "WP1",
+   "title": "外へ問い合わせを出せる役は検索語の規律を持つ",
+   "file": "agents/judge.md",
+   "suite": "root",
+   "expect": "役割 agent の定義と手順書の参照が整合する",
+   "old": "- **検索語に対象の名前を載せるな。**",
+   "new": "- **検索語について。**"
+  },
+  {
+   "id": "WP2",
+   "title": "検索語の規律の字面は役ごとに割れない",
+   "file": "agents/investigator.md",
+   "suite": "root",
+   "expect": "役割 agent の定義と手順書の参照が整合する",
+   "old": "どちらか見分けられない名前は持ち主の名前として扱う。",
+   "new": "どちらか見分けられない名前は第三者の名前として扱う。"
+  },
+  {
+   "id": "WP3",
+   "title": "外へ出せる役の選び方が空振りしない",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "expect": "役割 agent の定義と手順書の参照が整合する",
+   "old": "    if not OUTBOUND & set(agents[f.stem]):",
+   "new": "    if not set() & set(agents[f.stem]):"
   }
  ],
  "dropped": [
