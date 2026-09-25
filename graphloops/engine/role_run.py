@@ -21,6 +21,8 @@
      覚えておらず、同じ判定を出し直す保証が無い。
 
 返り値は呼び出し側が盤面に写す値だけ（本文は含めない——回す側の会話に役の返答を流し込まないため）。
+
+役でなく**コマンドを走らせるだけの節**（対象リポジトリが宣言したテスト一式など）も同じ起こし方で走らせる（run_steps）。
 """
 import datetime
 import json
@@ -324,6 +326,41 @@ def unwrap(stdout):
     if "result" not in env:
         return None, summary, f"包みに result が無い（subtype={env.get('subtype')}）"
     return env["result"] if isinstance(env["result"], str) else json.dumps(env["result"], ensure_ascii=False), summary, None
+
+
+TAIL_LINES = 20      # 走らせた語の出力のうち、返答に写す末尾の行数（全体は置き場のファイルに残す）
+TAIL_BYTES = 2000    # その上限（バイト）。1 行が長い出力で返答が膨らまないように
+
+
+def _tail(data):
+    text = data.decode("utf-8", "replace").rstrip()
+    return "\n".join(text.splitlines()[-TAIL_LINES:])[-TAIL_BYTES:]
+
+
+def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
+    """走らせる節（launch の kind=engine_run）の語を 1 本ずつ起こし、終わりを待つ。**役と同じ _spawn** で起こす——別の
+    プロセスグループ・期限なし・どの道で抜けても木ごと止める・pgid の印で relaunch が止める、を写さずに使う。
+
+    shell を通さない（argv をそのまま）。標準入力は空。標準出力と標準エラーは log_dir に丸ごと置き、返り値には末尾だけ載せる。
+    返すのは段ごとの {name, argv, exit, wall_s, out, err, tail}（exit が None なら起こせなかった——error に理由）。
+    起こし直されていれば（still_mine が偽）Superseded を上げる。"""
+    log_dir = pathlib.Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    runs = []
+    for i, s in enumerate(steps):
+        started = time.time()
+        base = log_dir / f"{i + 1}"
+        row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
+        try:
+            rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, pgid_file=pgid_file, still_mine=still_mine)
+        except OSError as e:
+            rc, out, err = None, b"", str(e).encode("utf-8")
+            row["error"] = str(e)
+        pathlib.Path(row["out"]).write_bytes(out)
+        pathlib.Path(row["err"]).write_bytes(err)
+        row.update(exit=rc, wall_s=round(time.time() - started, 1), tail=_tail(out + b"\n" + err))
+        runs.append(row)
+    return runs
 
 
 def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_resumes=0,

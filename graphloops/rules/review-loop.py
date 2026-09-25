@@ -723,7 +723,7 @@ def lane_due(v):
 
 def _lane_errors(b, out, rev, final):
     """線（final=False）・最後の関門（final=True）の返答の整合——型の後に当てる。見逃した腕に全部 1 度だけ答え、
-    撃った版が名乗りどおりで、テスト一式が緑。最後の関門は作業ツリーに書かない（tests_added と patch を持たない）"""
+    撃った版が名乗りどおり。最後の関門は作業ツリーに書かない（tests_added と patch を持たない）"""
     errs = []
     if out.get("rev") != rev:
         errs.append(f"撃った版 {str(out.get('rev'))[:12]} が名指しの版 {rev[:12]} と違う")
@@ -742,8 +742,8 @@ def _lane_errors(b, out, rev, final):
         errs.append(f"最後の関門は作業ツリーに書かない——テストが要る見逃しは needs_test で返せ（tests_added: {added[:3]}）")
     if not final and added and not (out.get("patch") and pathlib.Path(out["patch"]).is_file()):
         errs.append(f"tests_added の行 {added[:3]} が在るのに、足したテストの patch（{out.get('patch')!r}）が無い")
-    if out["suite"]["exit"] != 0:
-        errs.append(f"テスト一式が緑でない（{out['suite']['command'][:80]} が exit {out['suite']['exit']}）")
+    # テスト一式の緑は役の申告（suite）で受けない——最後の関門の版の一式は同じ周の p4.ci を engine が走らせた結果
+    # （_converge_ready）、線が足したテストは合流した周の p4.ci が走らせる
     return errs
 
 
@@ -832,22 +832,32 @@ def lane_summary(b):
     return rows
 
 
-def _converge_ready(record_out, local_checks):
-    """検証器が阻害なし（p4.record の branch が converged）で、この周の CI が緑。最後の関門の条件と converge が同じ 1 本を読む
-    （record_out はこの周の p4.record の出力、local_checks は local_checks の素材の status を返す引き手——短絡で後に読む）"""
-    return (record_out or {}).get("branch") == "converged" and local_checks() == "clean"
+def _ci_by_engine(checks, rnd):
+    """この周の CI（p4.ci）の結果を engine が走らせて得たか。任せ先の周（宣言の無いリポジトリ）の clean は自己申告で、
+    走り切る前に読んだ clean と見分けられない（実測 2026-09-25: 572 件の途中の 537 件で clean）"""
+    c = (checks or {}).get("p4.ci") or {}
+    return c.get("round") == rnd and c.get("by") == "engine"
+
+
+def _converge_ready(record_out, local_checks, by_engine):
+    """検証器が阻害なし（p4.record の branch が converged）で、この周の CI が緑で、その緑を engine が走らせて得た。最後の関門の
+    条件と converge が同じ 1 本を読む（record_out はこの周の p4.record の出力、local_checks は local_checks の素材の status を
+    返す引き手、by_engine は _ci_by_engine を返す引き手——短絡で後に読む）"""
+    return (record_out or {}).get("branch") == "converged" and local_checks() == "clean" and by_engine()
 
 
 def _would_converge(b):
     return _converge_ready(b.output_of_round("p4.record", b.round),
-                           lambda: b.record["materials"].get("local_checks", {}).get("status"))
+                           lambda: b.record["materials"].get("local_checks", {}).get("status"),
+                           lambda: _ci_by_engine(b.record["process"].get("checks"), b.round))
 
 
-@cond_reads("cur.p4.record", "record.materials")
+@cond_reads("cur.p4.record", "record.materials", "record.process.checks", "round")
 def would_converge(v):
     """関門の他が全部そろった周か（条件の部品）——撃つのは最終のコードに対してだけ"""
-    ok = _converge_ready(v("cur.p4.record", None), lambda: v("record.materials").get("local_checks", {}).get("status"))
-    return ok, "検証器が阻害なしで、この周の CI が緑" if ok else "検証器の阻害なしか、この周の CI の緑が欠ける"
+    ok = _converge_ready(v("cur.p4.record", None), lambda: v("record.materials").get("local_checks", {}).get("status"),
+                         lambda: _ci_by_engine(v("record.process.checks", None), v("round")))
+    return ok, "検証器が阻害なしで、この周の CI を engine が走らせて緑" if ok else "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
 
 
 @cond_reads(*gates_merge.reads, *would_converge.reads)
@@ -859,7 +869,8 @@ def final_gate_due(v):
 
 def _final_gate_problems(b):
     """最後の関門が通らない理由（空なら通る）。関門は、この周に固めた最終の版を撃った結果が在り、見逃しが全部
-    振る舞いの変わらない変異（equivalent）で、テスト一式が緑で、撃った後に作業ツリーが変わっていないこと。
+    振る舞いの変わらない変異（equivalent）で、撃った後に作業ツリーが変わっていないこと（テスト一式の緑は、関門を撃つ条件の
+    _converge_ready が同じ版の p4.ci——engine が走らせた物——で見る）。
     **途中の版の線の結果は数えない**——撃った版が今のコードでなければ古い"""
     cut = _gates_cut(b)
     out = b.output_of_round("p4.final_gates", b.round)
@@ -1088,7 +1099,8 @@ LOOP_KEYS = frozenset({
     "spec_pending", "stop_reason", "tree_before", "validator_outputs", "wrote_refs_reads",
 }) | {k for p in DELTA_PASSES.values() for k in (p.state_key, p.owed_key)}
 # 記録の欄のうち rules が writes の外で書く物（add が書く入口の印・依頼の一覧）——条件が record.<欄> を読むとき、完全一致で照らす
-RECORD_KEYS = ("process.request_entry", "process.request_findings", "process.request_history")
+RECORD_KEYS = ("process.request_entry", "process.request_findings", "process.request_history", "process.checks",
+               "process.scalars_unmeasured")
 ENTRY_OFF = {"record.process.request_entry": None}   # 入口の印を外す重ね書き（_entry_skipped）——印が無い文脈は _entry_marked が偽
 
 
@@ -1824,6 +1836,16 @@ def converge(b, nid):
         st = ci.get("status")
         if st == "found":
             return {"decision": "next_round", "reason": "検証器は阻害なしだが CI が赤（local_checks が found）——P3 で直してから"}
+        if st == "clean" and not _ci_by_engine(b.record["process"].get("checks"), b.round):
+            why = ((b.record["process"].get("checks") or {}).get("p4.ci") or {}).get("why") or "この周の p4.ci を engine が走らせていない"
+            return {"decision": "ask", "reason": "ci_unverified（local_checks の clean は任せ先の自己申告）", "ask": {
+                "kinds": ["ci_unverified"],
+                "question": (f"検証器は阻害なしで CI は clean と書かれたが、engine が走らせた結果ではない（{why}）。"
+                             f"走らせる語を宣言 {DECL_NAME} に書き、人が loop.py allow-checks で承認すれば次の周から engine が走らせる。"
+                             "確かめてから続けるか（continue --note <何を走らせて何色だったか>）、未収束のまま報告に進むか（stop）"),
+                "items": [f"local_checks: clean（任せ先の申告）— {ci.get('checked') or ''}"],
+                "options": ["continue", "stop"],
+            }}
         if st != "clean":
             # 確かめていない CI を緑と数えない——素材は 6 値で、赤でないことは緑ではない（not_applicable / not_run /
             # awaiting_human / carried_over / 欄なし）。プロンプトは「緑を仮定して進むな」と書くが機械が縛っていなかった
@@ -1850,9 +1872,194 @@ def converge(b, nid):
     return {"decision": "next_round", "reason": "阻害要因が残る（検証器の出力を P2 の履歴に渡す）"}
 
 
+# ---------------------------------------------------------------- 規模の数値（p4.scalars）
+SCALARS_FIXED = ("added_lines", "comment_lines", "comment_ratio_pct")   # comment-ratio.sh が印字する名前（doc_lines は numstat）
+
+
+def _comment_ratio(b, base, rev):
+    """comment-ratio.sh <BASE> <版> の最後の scalars: 行 ——（名前 → 数, 測れなかった理由）。印字を読むだけで数え直さない"""
+    import subprocess
+    script = pathlib.Path(b.state["inputs"].get("scripts_dir") or "") / "comment-ratio.sh"
+    try:
+        r = subprocess.run(["bash", str(script), base, rev], cwd=_repo_root() or None, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
+    except OSError as e:
+        return {}, f"comment-ratio.sh を起こせない（{e}）"
+    if r.returncode != 0:
+        return {}, f"comment-ratio.sh が exit {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}"
+    line = next((ln for ln in reversed(r.stdout.splitlines()) if ln.startswith("scalars:")), None)
+    if line is None:
+        return {}, "comment-ratio.sh の出力に scalars: 行が無い"
+    got = {}
+    for kv in line[len("scalars:"):].split():
+        k, _, v = kv.partition("=")
+        if k in SCALARS_FIXED and v.isdigit():
+            got[k] = int(v)
+    return got, None
+
+
+def scalars(b, nid):
+    """規模の数値を engine が数える（任せ先が写していた頃、added_lines 0（実測 457）・1957（実測 9）・全部 0 と写し違えた）。
+    数える版は p3.gates_cut が固めたこの周の最後の版 1 つ（線・最後の関門と同じ版）。コードの 3 つは comment-ratio.sh の印字、
+    doc_lines は `git diff --numstat BASE <版> -- '*.md'` の追加行の合計（added_lines と同じ物差し。判定から入る run で周の頭の
+    変更一覧が空でも差分から数える）。その場で足す x_ の数値は p3.fix の返答の x_scalars から。
+    **測れなかった値は書かない**（0 にしない）が、**周も止めない**——scalar はゲートでない（増分は R1 への入力）。
+    測れなかった理由は process.scalars_unmeasured に周ごとに残す"""
+    cut = _gates_cut(b)
+    base = b.record.get("base")
+    got, why = {}, []
+    if not cut or not base:
+        why.append("この周の最後の版（p3.gates_cut）か BASE が無い")
+    else:
+        got, err = _comment_ratio(b, base, cut["rev"])
+        if err:
+            why.append(err)
+        ns = git("diff", "--numstat", "-z", base, cut["rev"], "--", "*.md")
+        if ns is None:
+            why.append(f"git diff --numstat {base[:12]} {cut['rev'][:12]} が取れない（doc_lines）")
+        else:
+            got["doc_lines"] = numstat_totals(ns)[1]
+    x = (b.output_of_round("p3.fix", b.round) or {}).get("x_scalars") or {}
+    b.record["scalars"] = {**got, **x}
+    if why:
+        b.record["process"].setdefault("scalars_unmeasured", {})[str(b.round)] = "; ".join(why)
+    return {"ok": True, "scalars": b.record["scalars"], **({"unmeasured": why} if why else {})}
+
+
 BUILTINS = {"worktree_snapshot": worktree_snapshot, "worktree_compare": worktree_compare, "assemble": assemble, "fix_delta": fix_delta,
             "delta_owed": delta_owed, "gates_cut": gates_cut, "lane_merge": lane_merge,
-            "record_round": record_round, "converge": converge}
+            "record_round": record_round, "converge": converge, "scalars": scalars}
+
+
+# ---------------------------------------------------------------- 走らせるだけの節（graph の engine_run）
+# 走らせて写すだけの節を任せ先（haiku）に渡していた頃、走り切る前に読む・写し違える・一部を飛ばすが 1 周目で止めた run の
+# 全部で出た（実測 2026-09-25: テスト 572 件の途中の 537 件で clean、CI の 2 系統のうち 1 系統だけ）。engine が走らせ、
+# 終了コードから返答を組む。何を走らせるかは対象リポジトリの宣言（engine/declared.py）で、人の承認が要る。
+# 宣言の無いリポジトリだけ任せ先に落とし、その周の CI を engine が確かめていないことを process.checks に残す
+# ——converge はそれを『CI を確かめていない』として人に諮る（_ci_by_engine）。
+
+
+def _checks_note(b, nid, **kw):
+    b.record["process"].setdefault("checks", {})[nid] = {"round": b.round, **kw}
+
+
+def checks_plan(b, nid):
+    root = _repo_root()
+    if not root:
+        return {"fallback": "リポジトリのルートが引けない"}
+    d = declared_checks(root)
+    if d is None:
+        return {"fallback": f"対象リポジトリに走らせる語の宣言 {DECL_NAME} が無い——任せ先が CI の定義から走らせる（engine は終了コードを見ていない）"}
+    if "error" in d:
+        return {"blocked": d["error"], "cwd": root}
+    if not checks_allowed(root, d["sha"]):
+        return {"blocked": (f"宣言 {DECL_NAME}（sha {d['sha'][:12]}）を人が承認していない——人が宣言を見て loop.py allow-checks を"
+                            "打つまで engine は走らせない（宣言を変えたら承認し直す）"), "cwd": root}
+    return {"steps": d["steps"], "sha": d["sha"], "cwd": root}
+
+
+def checks_fallback(b, nid, reason):
+    _checks_note(b, nid, by="role", why=reason)
+
+
+def checks_reply(b, nid, launch, runs):
+    """走らせた結果から local_checks の素材を組む。走らせられないときは、判定の前（p0）なら awaiting_human、判定の後（p4.ci）
+    なら not_run（人待ちを新しく立てない規則）。p4.ci は台帳に local_checks を出どころにする未決の人待ちが在れば、走らせた
+    結果を reason に入れて awaiting_human のまま組む——その判定は check_record と同じ _awaiting_origins を通す（写さない）"""
+    after_judge = nid == "p4.ci"
+    cant = "not_run" if after_judge else "awaiting_human"
+    if launch.get("blocked"):
+        m = {"status": cant, "reason": launch["blocked"]}
+        _checks_note(b, nid, by="engine", blocked=launch["blocked"])
+    else:
+        summary = "; ".join(f"{r['name']}: exit {r['exit']}（{r['wall_s']} 秒）" for r in runs)
+        broken = [r for r in runs if r["exit"] is None]
+        red = [r for r in runs if r["exit"] not in (0, None)]
+        if broken:
+            m = {"status": cant, "reason": "宣言の語を起こせない: " + "; ".join(f"{r['name']}: {r.get('error')}" for r in broken)}
+        elif red:
+            m = {"status": "found", "count": len(red),
+                 "detail": f"engine が宣言 {DECL_NAME} を走らせた: {summary} ／ " + " ／ ".join(f"{r['name']} の末尾: {r['tail'][-600:]}" for r in red)}
+        else:
+            m = {"status": "clean", "checked": f"engine が宣言 {DECL_NAME}（sha {launch['sha'][:12]}）の {len(runs)} 段を走らせた: {summary}"}
+        _checks_note(b, nid, by="engine", sha=launch.get("sha"),
+                     runs=[{k: r.get(k) for k in ("name", "argv", "exit", "wall_s", "out", "err")} for r in runs])
+    if after_judge and m["status"] != "awaiting_human":
+        V = validator_module(b)
+        if _awaiting_origins(V, b.record["questions"], {**b.record["materials"], "local_checks": m}, "questions"):
+            m = {"status": "awaiting_human", "reason": ("台帳に local_checks を出どころにする人待ちの問いが在る（閉じるのは次の周の判定者）——"
+                                                       f"engine が走らせた結果: {m.get('checked') or m.get('detail') or m.get('reason')}")[:1500]}
+    return {"reply": {"material": m}}
+
+
+GITHUB_REMOTE = re.compile(r"^(?:https?://github\.com/|ssh://git@github\.com[^/]*/|git@github\.com[^:]*:)([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+
+
+def _github_repo():
+    """並行 PR を引く owner/repo ——（値, 引けない理由）。upstream の remote を先に、無ければ origin（p0.parallel_pr.md の 1 段）"""
+    up = git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    remote = up.strip().split("/", 1)[0] if up and up.strip() else "origin"
+    url = git("remote", "get-url", remote)
+    if url is None:
+        return None, f"remote '{remote}' の URL が引けない"
+    m = GITHUB_REMOTE.match(url.strip())
+    if not m:
+        return None, f"remote '{remote}' が GitHub でない（{url.strip()[:80]}）——同等のコマンドへの読み替えは役"
+    return f"{m.group(1)}/{m.group(2)}", None
+
+
+def _pr_files(b):
+    """交差を取る変更ファイルの集合。差分が空（判定から入る run）なら、依頼の where の文字列に含まれる、追跡中のパス"""
+    f = b.loop_state.get("changed_files_file")
+    files = [ln.strip() for ln in pathlib.Path(f).read_text(encoding="utf-8").splitlines() if ln.strip()] if f and pathlib.Path(f).is_file() else []
+    if files:
+        return files
+    wheres = request_wheres(b)
+    tracked = (git("ls-files", "-z") or "").split("\0")
+    return sorted({t for t in tracked if t and any(t in w for w in wheres)})
+
+
+def parallel_pr_plan(b, nid):
+    repo, why = _github_repo()
+    if not repo:
+        return {"fallback": why}
+    if not shutil.which("gh"):
+        return {"fallback": "gh がこの環境に無い"}
+    root = _repo_root()
+    files = _pr_files(b)
+    if not files:
+        return {"blocked": "交差を取る変更ファイルの集合が空（差分も、依頼の where が名指す追跡中のパスも無い）——空の集合との交差は何も確かめない",
+                "cwd": root}
+    head = (git("rev-parse", "HEAD") or "").strip()
+    f = b.dir / "runs" / f"r{b.round}" / "parallel_pr-files.txt"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("\n".join(files) + "\n", encoding="utf-8")
+    return {"helper": "parallel-pr.py", "args": ["--repo", repo, "--head", head, "--changed", str(f)], "cwd": root}
+
+
+def parallel_pr_reply(b, nid, launch, runs):
+    """同梱の parallel-pr.py の印字から返答を組む。交差が在れば 6 段（hunk を読んで担当の PR に申し送る）が要るので任せ先に回す"""
+    empty = {"repo": "", "listed": 0, "truncated": False, "conflicts": []}
+    if launch.get("blocked"):
+        return {"reply": {"material": {"status": "not_run", "reason": launch["blocked"]}, **empty}}
+    r = runs[0]
+    if r["exit"] != 0:
+        return {"reply": {"material": {"status": "awaiting_human", "reason": f"parallel-pr.py が exit {r['exit']}（確かめられなかった）: {(r.get('error') or r['tail'])[-600:]}"}, **empty}}
+    try:
+        got = json.loads(pathlib.Path(r["out"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return {"reply": {"material": {"status": "awaiting_human", "reason": f"parallel-pr.py の印字が読めない（{e}）"}, **empty}}
+    rest = {k: got.get(k) for k in ("repo", "listed", "truncated")}
+    if got.get("conflicts"):
+        return {"fallback": f"並行 PR と {len(got['conflicts'])} 件交差した（{[c['pr'] for c in got['conflicts']][:10]}）——交差した hunk を読んで担当の PR に申し送る 6 段は役"}
+    if got.get("truncated"):
+        return {"reply": {"material": {"status": "awaiting_human", "reason": f"gh pr list が上限 {got.get('listed')} 件で打ち切られた——打ち切られた一覧で衝突なしと書かない"}, **rest, "conflicts": []}}
+    return {"reply": {"material": {"status": "clean", "checked": (f"engine が gh -R {got['repo']} で open な PR {got['listed']} 件を引き、自分の PR（headRefOid が HEAD）を除いて、"
+                                                            f"変更ファイルの集合と交差 0 件（打ち切りなし）")}, **rest, "conflicts": []}}
+
+
+ENGINE_RUNS = {"declared_checks": {"plan": checks_plan, "reply": checks_reply, "fallback": checks_fallback},
+               "parallel_pr": {"plan": parallel_pr_plan, "reply": parallel_pr_reply}}
 
 
 # ---------------------------------------------------------------- 節ごとの整合（post_check）
@@ -3097,7 +3304,7 @@ def lane_receipt(b, nid, out, item):
 
 
 def final_gates_output(b, nid, out, item):
-    """最後の関門の返答の整合: この周に固めた最終の版を撃ち、見逃しに全部 1 度だけ答え、作業ツリーに書かず、テスト一式が緑"""
+    """最後の関門の返答の整合: この周に固めた最終の版を撃ち、見逃しに全部 1 度だけ答え、作業ツリーに書かない"""
     errs = _lane_errors(b, out, (_gates_cut(b) or {}).get("rev") or "", final=True)
     if errs:
         raise Reject(f"{nid}: " + "; ".join(errs))

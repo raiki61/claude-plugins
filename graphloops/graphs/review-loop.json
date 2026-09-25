@@ -586,8 +586,7 @@
     "rev",
     "arms",
     "handled",
-    "patch",
-    "suite"
+    "patch"
    ],
    "additionalProperties": false,
    "properties": {
@@ -657,7 +656,7 @@
        "type": "integer"
       }
      },
-     "note": "テストを足した後（足さなければ撃った版そのまま）でテスト一式を回したコマンドと終了コード。0 でなければ通らない"
+     "note": "読まない欄（取り下げた）。テスト一式の緑は役の申告で受けない——線の足したテストは合流した周の p4.ci、最後の関門の版は同じ周の p4.ci を engine が走らせる。書いてある古い線の結果を型で落とさないために欄だけ残す"
     }
    }
   }
@@ -875,8 +874,12 @@
    ],
    "na_self_ok": "対象リポジトリに CI / lint の定義が無い場合がある（走らせる物が無い）",
    "delegate": {
-    "model": "haiku",
-    "why": "コマンドを走らせて結果を欄に写すだけで、判断が要らない。回す側の文脈にテストの出力を入れない"
+    "model": "sonnet",
+    "why": "宣言（.review-checks.json）の無いリポジトリでだけ出る: CI の定義から何を走らせるかを読む判断が要る（haiku は走り切る前に読み、一部を飛ばした——実測 2026-09-25）。この周の CI を engine が確かめていないことは process.checks に残り、converge が人に諮る"
+   },
+   "engine_run": {
+    "builtin": "declared_checks",
+    "why": "何を走らせるかは対象リポジトリの宣言（ルートの .review-checks.json）が正本で、走らせて終了コードを読むのに判断は要らない——任せ先（haiku）が写していた頃、走り切る前に読む・写し違える・一式の一部を飛ばす、が 1 周目で止めた run の全部で出た（実測 2026-09-25: テスト 572 件の途中の 537 件で clean・CI の 2 系統のうち 1 系統だけ）。宣言が在り人が承認していれば engine が走らせ、在るのに未承認なら走らせずに engine が返答を組む（任せ先に落とさない）"
    }
   },
   "p0.premises": {
@@ -1226,10 +1229,14 @@
    "na_self_ok": false,
    "na_reason_note": "正当な not_applicable は無い: 並行 PR が無いのは『見たが無かった』＝clean",
    "delegate": {
-    "model": "haiku",
-    "why": "gh の一覧を引いて交差を数えるだけで、判断が要らない"
+    "model": "sonnet",
+    "why": "GitHub でない remote・gh の無い環境・交差した PR が在る周にだけ出る: 同等のコマンドへの読み替えと、交差した hunk を読んで担当の PR に申し送る 6 段は判断が要る"
    },
-   "carry_reason": "並行 PR の交差は 1 周目（判定から入る run では最初に修正が入った次の周も）に見た結果を持ち越す"
+   "carry_reason": "並行 PR の交差は 1 周目（判定から入る run では最初に修正が入った次の周も）に見た結果を持ち越す",
+   "engine_run": {
+    "builtin": "parallel_pr",
+    "why": "1〜5 段（owner/repo の解決・自分の PR の除外・打ち切り・変更ファイルの交差）は gh の一覧を引いて数えるだけ——engine が同梱の scripts/parallel-pr.py で走らせる（交差が 0 なら役は要らない）"
+   }
   },
   "p0.prior_decisions": {
    "stage": "P0",
@@ -3924,6 +3931,16 @@
        }
       },
       "note": "事前審査（p2.plan_review）の faces と shrink の key ごとに 1 行。absorbed はどう取り込んだか、declared は残す理由。事前審査が走らなかった周は空"
+     },
+     "x_scalars": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+       "^x_[a-z0-9_]+$": {
+        "type": "number"
+       }
+      },
+      "note": "その場で足す規模の数値（x_ で始まる名前 → 数。OpenAPI の Specification Extensions の x- と同じ形）。固定の 4 つ（added_lines・comment_lines・comment_ratio_pct・doc_lines）は engine が数える（p4.scalars）——ここに書くのは x_ だけ。周をまたいで同じ名前を使え"
      }
     }
    },
@@ -4328,80 +4345,37 @@
    ],
    "na_self_ok": "同上——修正後に回す CI が存在しない場合がある",
    "delegate": {
-    "model": "haiku",
-    "why": "コマンドを走らせて結果を欄に写すだけで、判断が要らない。回す側の文脈にテストの出力を入れない"
+    "model": "sonnet",
+    "why": "宣言（.review-checks.json）の無いリポジトリでだけ出る: CI の定義から何を走らせるかを読む判断が要る（haiku は走り切る前に読み、一部を飛ばした——実測 2026-09-25）。この周の CI を engine が確かめていないことは process.checks に残り、converge が人に諮る"
+   },
+   "engine_run": {
+    "builtin": "declared_checks",
+    "why": "何を走らせるかは対象リポジトリの宣言（ルートの .review-checks.json）が正本で、走らせて終了コードを読むのに判断は要らない——任せ先（haiku）が写していた頃、走り切る前に読む・写し違える・一式の一部を飛ばす、が 1 周目で止めた run の全部で出た（実測 2026-09-25: テスト 572 件の途中の 537 件で clean・CI の 2 系統のうち 1 系統だけ）。宣言が在り人が承認していれば engine が走らせ、在るのに未承認なら走らせずに engine が返答を組む（任せ先に落とさない）"
    }
   },
   "p4.scalars": {
    "stage": "P4",
-   "run_by": "writer",
+   "run_by": "driver",
+   "builtin": "scalars",
    "deps": [
     "p3.fix",
     "p2.rejudge",
     "p2.rejudge_third",
     "p3.delta_fix",
-    "p3.delta_fix2"
+    "p3.delta_fix2",
+    "p3.gates_cut"
    ],
    "source": "P4 ＞ 5. scalar 記録（手で数え直すな）",
-   "does": "文書なら行数、コードなら comment-ratio.sh <BASE> の出力（手で数え直さない）。ゲートにしない——増分は R1 への入力",
+   "does": "規模の数値を engine が数える: p3.gates_cut が固めたこの周の最後の版で comment-ratio.sh <BASE> <版> の印字（added_lines・comment_lines・comment_ratio_pct）と git diff --numstat <BASE> <版> -- '*.md' の追加行（doc_lines）。その場で足す x_ の数値は p3.fix の返答の x_scalars から。測れなかった値は書かず（0 にしない）理由を process.scalars_unmeasured に残す。ゲートにしない——増分は R1 への入力",
    "outputs": [
     "scalars"
    ],
-   "prompt_file": "../prompts/review-loop/p4.scalars.md",
+   "note": "以前は任せ先（haiku）が写していて、added_lines 0（実測 457・320）・1957（実測 9）・全部 0 を書いた（実測 2026-09-25）。数える版を p3.gates_cut と共有するのは、線・最後の関門・規模の数値が同じ版を見るため",
    "reads": [
-    "inputs.cwd",
     "inputs.scripts_dir",
     "record.base",
-    "loop.changed_files_file"
-   ],
-   "schema": {
-    "type": "object",
-    "required": [
-     "scalars"
-    ],
-    "additionalProperties": false,
-    "properties": {
-     "scalars": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-       "added_lines": {
-        "type": "integer",
-        "minimum": 0
-       },
-       "comment_lines": {
-        "type": "integer",
-        "minimum": 0
-       },
-       "comment_ratio_pct": {
-        "type": "integer",
-        "minimum": 0
-       },
-       "doc_lines": {
-        "type": "integer",
-        "minimum": 0
-       }
-      },
-      "note": "固定の 4 つは型で決める（comment-ratio.sh が印字する 3 つと、文書の行数の doc_lines）。写す側が周ごとに名付けると推移が作れなかった。その場で足す数値は x_ で始まる名前にする（OpenAPI の Specification Extensions の x- と同じ形）——周をまたいで同じ名前を使え。追加行 0 の周は comment_ratio_pct が無い（比が定義できない）",
-      "patternProperties": {
-       "^x_[a-z0-9_]+$": {
-        "type": "number"
-       }
-      }
-     }
-    }
-   },
-   "writes": [
-    {
-     "op": "set",
-     "to": "scalars",
-     "from": "scalars"
-    }
-   ],
-   "delegate": {
-    "model": "haiku",
-    "why": "comment-ratio.sh の出力と文書の行数を写すだけ"
-   }
+    "loop.gates_cut"
+   ]
   },
   "p4.assemble": {
    "run_by": "driver",
@@ -5106,7 +5080,7 @@
    ],
    "cond": "final_gate_due",
    "source": "P4 ＞ 最後の関門（最終のコードで変異の検算を撃ち直す）",
-   "does": "BASE からの変更全部を、この周に固めた最終の版で撃ち直し、見逃した腕ごとに equivalent（振る舞いの変わらない変異）・needs_test・defect で答える。作業ツリーには書かない。converge は、見逃しが全部 equivalent で、テスト一式が緑で、撃った版の後に作業ツリーが変わっていないときだけ収束と言う",
+   "does": "BASE からの変更全部を、この周に固めた最終の版で撃ち直し、見逃した腕ごとに equivalent（振る舞いの変わらない変異）・needs_test・defect で答える。作業ツリーには書かない。converge は、見逃しが全部 equivalent で、テスト一式が緑（同じ版の p4.ci を engine が走らせた結果）で、撃った版の後に作業ツリーが変わっていないときだけ収束と言う",
    "outputs": [
     "converge が読む（記録には書かない）"
    ],

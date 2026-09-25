@@ -1262,16 +1262,16 @@
   },
   {
    "id": "A16",
-   "title": "規模の数値の名前は型で固定する（未知の名前を拒む）",
+   "title": "その場で足す規模の数値の名前は型で固定する（未知の名前を拒む）",
    "file": "graphloops/graphs/review-loop.json",
    "suite": "graphloops",
    "json": {
     "path": [
      "nodes",
-     "p4.scalars",
+     "p3.fix",
      "schema",
      "properties",
-     "scalars"
+     "x_scalars"
     ],
     "del": "additionalProperties"
    },
@@ -1279,6 +1279,34 @@
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_scalar_names_fixed"
+    ]
+   }
+  },
+  {
+   "id": "EG1",
+   "title": "engine が走らせる節の結果を done で書かせない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if inst.get(\"mode\") == \"engine_run\":\n        raise Reject(",
+   "new": "    if False:\n        raise Reject(",
+   "expect": "engine が走らせる節の結果を回す側が",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
+    ]
+   }
+  },
+  {
+   "id": "EG2",
+   "title": "任せ先の申告の clean で収束しない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if st == \"clean\" and not _ci_by_engine(",
+   "new": "        if False and not _ci_by_engine(",
+   "expect": "任せ先が clean と書いた CI では",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
     ]
    }
   },
@@ -3972,20 +4000,6 @@
    }
   },
   {
-   "id": "LN3",
-   "title": "線の結果: テスト一式が緑",
-   "file": "graphloops/rules/review-loop.py",
-   "suite": "graphloops",
-   "old": "    if out[\"suite\"][\"exit\"] != 0:",
-   "new": "    if False:",
-   "expect": "テスト一式が赤の結果",
-   "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_lane_rules"
-    ]
-   }
-  },
-  {
    "id": "LN4",
    "title": "判定へ渡すのは線の中で閉じなかった見逃しだけ",
    "file": "graphloops/rules/review-loop.py",
@@ -5250,6 +5264,10 @@
   {
    "id": "DL7",
    "why": "消した: graph の期限の値の検査ごと外した（2026-09-25、人の依頼）"
+  },
+  {
+   "id": "LN3",
+   "why": "柵ごと取り下げた: 線と最後の関門の返答の suite（テスト一式の自己申告）を読まない——一式の緑は engine が走らせた p4.ci が正本（2026-09-25、手順 3b）"
   }
  ]
 }

@@ -37,7 +37,7 @@ def self_ref(g):
 
 
 def typo_under_pattern_properties(g):
-    pp = g["nodes"]["p4.scalars"]["schema"]["properties"]["scalars"]["patternProperties"]
+    pp = g["nodes"]["p3.fix"]["schema"]["properties"]["x_scalars"]["patternProperties"]
     pp["^x_[a-z0-9_]+$"]["minimun"] = 0
 
 

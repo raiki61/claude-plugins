@@ -145,9 +145,16 @@ def vocab_coverage():
     return reached, total, unreached
 
 
+CHECKS_OK = [{"name": "suite", "argv": [PY, "-c", "print('1 passed')"]}]   # 台本のリポジトリが宣言する走らせる語（緑）
+
+
 class Run:
-    def __init__(self, name, unattended=False, big=False, latin=False, loop="review-loop", inputs=(), init_args=(), graph=None):
+    def __init__(self, name, unattended=False, big=False, latin=False, loop="review-loop", inputs=(), init_args=(), graph=None,
+                 checks=CHECKS_OK):
+        """checks: 台本のリポジトリのルートに置く走らせる語の宣言（.review-checks.json の suite）。既定は緑の 1 段を置いて人の承認まで
+        済ませる（p0.local_checks・p4.ci は engine が走らせる）。None なら宣言を置かない——任せ先の節として出て、台本の表が返答を書く"""
         self._td, self.tmp = parallel.workspace(f"gl-review-{name}-")
+        self.env = None   # 全部の呼び出しに渡す環境（代役の gh を PATH の先頭に置く台本が使う）
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
         g = lambda *a: sh(self.repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", *a)
@@ -155,7 +162,11 @@ class Run:
         (self.repo / "src").mkdir()
         (self.repo / "src" / "a.py").write_text("def f(x):\n    return x\n", encoding="utf-8")
         (self.repo / "README.md").write_text("# demo\n", encoding="utf-8")
+        if checks is not None:
+            (self.repo / ".review-checks.json").write_text(json.dumps({"suite": checks}), encoding="utf-8")
         g("add", "."); g("commit", "-q", "-m", "base")
+        if checks is not None:
+            self.allow_checks()
         self.base = g("rev-parse", "HEAD").stdout.strip()
         (self.repo / "src" / "a.py").write_text("def f(x, limit=None):\n    return x if limit is None else min(x, limit)\n", encoding="utf-8")
         (self.repo / "src" / "b.py").write_text("def g(y):\n    return y * 2\n", encoding="utf-8")
@@ -175,10 +186,24 @@ class Run:
         args += [*(["--graph", str(graph)] if graph else []), *init_args]
         self.init = self.cmd(*args)
 
+    def allow_checks(self):
+        """人の承認（loop.py allow-checks）。台本は人の代わりに打つ"""
+        r = subprocess.run([PY, str(LOOP), "allow-checks", "--note", "台本"], cwd=self.repo, capture_output=True, text=True, encoding="utf-8", timeout=120)
+        if r.returncode != 0:
+            raise RuntimeError(f"allow-checks が {r.returncode}: {r.stderr[-400:]}")
+        return json.loads(r.stdout)
+
+    def launch(self, node):
+        """engine が走らせる節（mode=engine_run）を launch で走らせる。返りは launch の 1 件の要約"""
+        r = self.cmd("launch", "--node", node)
+        if r.returncode != 0:
+            raise RuntimeError(f"launch {node} が {r.returncode}: {r.stderr[-800:]}")
+        return json.loads(r.stdout)["launched"][0]
+
     def cmd(self, *args, env=None, input=None):
         extra = [] if args[0] == "init" else ["--dir", str(self.dir)]
         # timeout: 無限ループの退行が入ると CI が赤でなく止まる（engine 側は git 120 秒・検証器 600 秒の上限を持つ）
-        return subprocess.run([PY, str(LOOP), *args, *extra], cwd=self.repo, capture_output=True, text=True, encoding="utf-8", env=env, input=input, timeout=600)
+        return subprocess.run([PY, str(LOOP), *args, *extra], cwd=self.repo, capture_output=True, text=True, encoding="utf-8", env=env or self.env, input=input, timeout=600)
 
     def next(self):
         r = self.cmd("next")
@@ -187,6 +212,15 @@ class Run:
         return json.loads(r.stdout)
 
     def done(self, node, output, agent_id=None):
+        """台本の返答を done で渡す。**engine が走らせる節（mode=engine_run）は done を拒むので launch に回す**——台本の返答は
+        使わない（その節の結果は宣言の語の終了コードから engine が組む）。台本が節ごとに書いた駆動の輪をそのまま使えるように"""
+        inst = self.state()["rounds"][-1]["instances"].get(node) or {}
+        if inst.get("mode") == "engine_run" and inst.get("status") == "pending":
+            r = self.cmd("launch", "--node", node)
+            got = json.loads(r.stdout)["launched"][0] if r.returncode == 0 else {"ok": False, "why": r.stderr}
+            if got["ok"]:
+                record_vocab(node, json.loads(pathlib.Path(inst["out_path"]).read_text(encoding="utf-8")))
+            return subprocess.CompletedProcess(r.args, 0 if got["ok"] else 1, r.stdout, r.stderr + ("" if got["ok"] else str(got.get("why"))))
         record_vocab(node, output)
         f = self.tmp / "out.txt"
         f.write_text(output if isinstance(output, str) else json.dumps(output, ensure_ascii=False), encoding="utf-8")
@@ -482,14 +516,21 @@ def answers(run, scenario, rnd):
         real = table["p3.fix"]
         table["p3.fix"] = lambda it: {**real(it), "changes": [{**c, "files": ["src/zzz.py"]} for c in real(it)["changes"]],
                                       "interactions": [{**i, "surface": "src/zzz.py"} for i in real(it)["interactions"]]}
-    if scenario == "cired":  # 阻害なしでも CI が毎周赤——converged 分岐の早期 return が暴走ガードを飛ばしていた（実測 2026-09-13: round 9 / max 5 で running）
-        table["p0.local_checks"] = lambda it: {"material": M("found", count=1, detail="CI が赤（検査用）")}
-        table["p4.ci"] = lambda it: {"material": M("found", count=1, detail="CI が赤のまま（検査用）")}
     if scenario.startswith("spec"):  # 仕様の道（init --input flow=spec）の節。選ばない筋書きでは出ない
         table.update(spec_table(run, scenario))
     if scenario == "coldfail":  # 初見検査の非 pass は記録に残る（門ではない）
         table["report.cold_check"] = lambda it: {"verdict": "redesign-needed", "stops": ["2 段落目の『前提』が未定義"], "guessed": [], "decidable": False}
     return table
+
+
+def settle(run, inst, make):
+    """ready の 1 件を済ませる: engine が走らせる節（mode=engine_run）は launch、そうでなければ台本の返答を done"""
+    if inst.get("mode") == "engine_run":
+        got = run.launch(inst["id"])
+        if not got["ok"]:
+            raise RuntimeError(f"launch {inst['id']} が ok でない: {got.get('why')}")
+        return got
+    return run.done(inst["id"], make(load_item(inst)))
 
 
 def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
@@ -505,6 +546,13 @@ def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
             raise RuntimeError("ready が空のまま進まない: " + json.dumps(nx, ensure_ascii=False)[:800])
         table = answers(run, scenario, nx["round"])
         for inst in nx["ready"]:
+            if inst.get("mode") == "engine_run":
+                got = run.launch(inst["id"])
+                if got["ok"]:
+                    record_vocab(inst["node"], json.loads(pathlib.Path(inst["out_path"]).read_text(encoding="utf-8")))
+                elif not got.get("fell_back"):   # 任せ先に回した節は次の next に任せ先の節として出る
+                    raise RuntimeError(f"launch {inst['id']} が ok でない: {got.get('why')}")
+                continue
             out = table[inst["node"]](load_item(inst))
             if hook:
                 out = hook(run, inst, out) or out
@@ -528,6 +576,111 @@ def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
 
 
 # ---------------------------------------------------------------- 検査
+def test_engine_run_checks():
+    """**走らせて写すだけの節は engine が走らせる。** 任せ先（haiku）が写していた頃、テスト 572 件の途中の 537 件で clean と書く・
+    CI の 2 系統のうち 1 系統だけ走らせる、が 1 周目で止めた run の全部で出た（実測 2026-09-25）。宣言（.review-checks.json）を人が
+    承認していれば engine が語を走らせて終了コードから返答を組み、回す側の done は拒む。"""
+    print("走らせるだけの節: 宣言と承認があれば engine が走らせ、done は拒み、未承認・起こせない語・赤は engine が書き分ける")
+    run = Run("engrun")
+    nx = run.next()
+    inst = next(i for i in nx["ready"] if i["node"] == "p0.local_checks")
+    r = run.cmd("done", "--node", inst["id"], "--output", str(run.tmp / "x.json"))
+    check(r.returncode == 1 and "engine が走らせる節" in r.stderr, f"engine が走らせる節の結果を回す側が done で書くと拒む（rc={r.returncode}: {r.stderr.strip()[-80:]}）")
+    got = run.launch(inst["id"])
+    rec = run.record()
+    c = rec["process"]["checks"]["p0.local_checks"]
+    m = rec["materials"]["local_checks"]
+    check(got["ok"] and m["status"] == "clean" and "engine が宣言" in m.get("checked", "") and c["by"] == "engine"
+          and c["runs"][0]["exit"] == 0 and pathlib.Path(c["runs"][0]["out"]).read_text(encoding="utf-8").strip() == "1 passed",
+          f"launch が宣言の語を走らせ、終了コードで clean を書き、記録に by=engine と段ごとの終了コード・出力の置き場が残る（{m} / {c.get('by')}）")
+    rm(run.tmp)
+
+    # 宣言を承認の後に書き換えた——sha が外れるので走らせず、P0 は人待ちで『承認していない』と書く（任せ先に落とさない）
+    run = Run("engrun-unapproved")
+    (run.repo / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "suite", "argv": [PY, "-c", "print('changed')"]}]}), encoding="utf-8")
+    inst = next(i for i in run.next()["ready"] if i["node"] == "p0.local_checks")
+    got = run.launch(inst["id"])
+    m = run.record()["materials"]["local_checks"]
+    check(inst["mode"] == "engine_run" and inst["launch"]["steps"] == [] and got["ok"] and m["status"] == "awaiting_human"
+          and "承認していない" in m.get("reason", ""),
+          f"承認の後に宣言を書き換えると走らせず、P0 は awaiting_human で承認が無いと書く（{inst['mode']} / {m}）")
+    rm(run.tmp)
+
+    # 赤の段: 終了コードが 0 でない段を found で数え、出力の末尾を detail に載せる
+    run = Run("engrun-red", checks=[CHECKS_OK[0], {"name": "red", "argv": [PY, "-c", "import sys; print('2 failed'); sys.exit(3)"]}])
+    inst = next(i for i in run.next()["ready"] if i["node"] == "p0.local_checks")
+    run.launch(inst["id"])
+    m = run.record()["materials"]["local_checks"]
+    check(m["status"] == "found" and m.get("count") == 1 and "red: exit 3" in m.get("detail", "") and "2 failed" in m.get("detail", ""),
+          f"赤の段は found で数え、段の名前・終了コード・出力の末尾を detail に書く（{m}）")
+    rm(run.tmp)
+
+    # 起こせない語: P4 の再実行は人待ちを新しく立てず not_run（判定の後の規則）。起こし直しは今の宣言で計画し直す
+    run = Run("engrun-p4")
+    nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p4.ci" for i in n["ready"]))
+    inst = next(i for i in nx["ready"] if i["node"] == "p4.ci")
+    (run.repo / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "suite", "argv": ["no-such-command-gl-test"]}]}), encoding="utf-8")
+    run.allow_checks()
+    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 宣言を差し替えた")
+    new = json.loads(r.stdout)["relaunched"]
+    got = run.launch(new["id"])
+    m = run.record()["materials"]["local_checks"]
+    check(got["ok"] and m["status"] == "not_run" and "起こせない" in m.get("reason", ""),
+          f"起こせない語は P4 では not_run（人待ちを新しく立てない）で理由を書く（{m}）")
+    rm(run.tmp)
+
+    # 宣言の無いリポジトリの clean は任せ先の自己申告——収束を名乗らず人に諮る（有人）。記録に by=role と理由が残る
+    run = Run("engrun-role", checks=None)
+    last = drive(run, "std")
+    c = run.record()["process"]["checks"].get("p4.ci") or {}
+    check(last["status"] == "awaiting_human" and "ci_unverified" in last["ask"]["kinds"] and "任せ先" in last["ask"]["question"]
+          and c.get("by") == "role" and "が無い" in c.get("why", ""),
+          f"任せ先が clean と書いた CI では収束せず ci_unverified で諮る（{last['status']} / {c}）")
+    rm(run.tmp)
+
+
+def test_engine_run_parallel_pr():
+    """並行 PR の 1〜5 段は engine が同梱の parallel-pr.py で走らせる（gh -R・自分の PR の除外・打ち切り・交差）。
+    交差が在れば 6 段（hunk を読んで申し送る）が要るので任せ先の節に回す。代役の gh で撃つ"""
+    print("並行 PR: GitHub の remote と gh が在れば engine が交差を数え、交差 0 は clean、交差があれば任せ先に回す")
+    for conflict in (False, True):
+        run = Run("engpr-" + ("hit" if conflict else "none"))
+        sh(run.repo, "git", "remote", "add", "origin", "git@github.com:t/demo.git")
+        bindir = run.tmp / "fakegh"
+        bindir.mkdir()
+        body = ("import json, sys\n"
+                "a = sys.argv[1:]\n"
+                "if a[:2] == ['pr', 'list']:\n"
+                "    assert a[a.index('-R') + 1] == 't/demo'\n"
+                "    print(json.dumps([{'number': 7, 'headRefName': 'x', 'headRefOid': 'f' * 40}]))\n"
+                "elif a[:2] == ['pr', 'view']:\n"
+                f"    print({'src/a.py' if conflict else 'other.txt'!r})\n"
+                "else:\n"
+                "    sys.exit(9)\n")
+        impl = bindir / "fake_gh.py"
+        impl.write_text(body, encoding="utf-8")
+        if os.name == "nt":
+            (bindir / "gh.bat").write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
+        else:
+            (bindir / "gh").write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
+            (bindir / "gh").chmod(0o755)
+        run.env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+        nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p0.parallel_pr" for i in n["ready"]))
+        inst = next(i for i in nx["ready"] if i["node"] == "p0.parallel_pr")
+        got = run.launch(inst["id"])
+        if not conflict:
+            m = run.record()["materials"]["parallel_pr"]
+            pp = run.record()["process"].get("parallel_pr") or {}
+            check(inst["mode"] == "engine_run" and got["ok"] and m["status"] == "clean" and pp.get("repo") == "t/demo" and pp.get("listed") == 1,
+                  f"交差 0: engine が gh -R t/demo で 1 件引き、clean を書く（{inst['mode']} / {m} / {pp}）")
+        else:
+            again = next(i for i in run.next()["ready"] if i["node"] == "p0.parallel_pr")
+            check(not got["ok"] and got.get("fell_back") and again["mode"] == "runner" and again.get("delegate", {}).get("model") == "sonnet"
+                  and "交差" in (again.get("engine_fallback") or ""),
+                  f"交差あり: 6 段の申し送りは役——同じ節を理由つきの任せ先の節として出し直す（{got.get('why')} / {again['mode']}）")
+        rm(run.tmp)
+
+
 def test_launch_tooled_session():
     """道具つきの役（judge）を engine が起こし、受け付けまで済ませ、同じ役を続ける節（p2.history）がその会話の番号で
     --resume すること。拒まれたら同じ会話に出し直させ、起こし直しの理由が盤面に残ること。"""
@@ -615,7 +768,7 @@ def test_new_guards():
     head = sh(run.repo, "git", "rev-parse", "HEAD").stdout.strip()
     run.done(by["p0.base"]["id"], {**t["p0.base"](None), "base_sha": head})
     for n in ("p0.local_checks", "p0.premises"):
-        run.done(by[n]["id"], t[n](None))
+        settle(run, by[n], t[n])
     nx = run.next()
     check(any("対象差分が空" in n for n in nx["notes"]) and not any(i["node"].startswith("p1.") for i in nx["ready"]), f"BASE=HEAD（差分ゼロ）は P1 の前で止まる: {nx.get('notes')}")
     rm(run.tmp)
@@ -626,7 +779,7 @@ def test_new_guards():
     by = {i["node"]: i for i in nx["ready"]}
     t = answers(run, "std", 1)
     for n in ("p0.base", "p0.local_checks", "p0.premises"):
-        run.done(by[n]["id"], t[n](None))
+        settle(run, by[n], t[n])
     (run.tmp / "empty-bin").mkdir()
     r = run.cmd("next", env={**os.environ, "PATH": str(run.tmp / "empty-bin")})
     nx = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {"ready": ["?"], "notes": [r.stderr]}
@@ -709,18 +862,48 @@ def test_prev_fix_faces_scalar():
 
 
 def test_scalar_names_fixed():
-    """**規模の数値の名前は型で固定する。** 写す側への『そのまま写せ』だけに頼っていた頃は、改名した名前でも型を通った
-    ——周ごとに同じ量が別の名前になり、推移が作れなかった（実走の申し送り: 3 回改名）。"""
-    print("規模の数値: 名前は型で固定され、未知の名前は拒まれる")
+    """**規模の数値は engine が数え、その場で足す数値の名前は型で固定する。** 写す側が数えていた頃は、added_lines 0（実測 457）・
+    1957（実測 9）・全部 0 と写し違えた（実測 2026-09-25）。写す側への『そのまま写せ』だけに頼っていた頃は、改名した名前でも
+    型を通った（実走の申し送り: 3 回改名）。"""
+    print("規模の数値: 固定の 4 つは engine が数え、p3.fix が足す x_ の名前は型で固定され、未知の名前は拒まれる")
     run = Run("scalarnames")
-    nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p4.scalars" for i in n["ready"]))
-    inst = next(i for i in nx["ready"] if i["node"] == "p4.scalars")
-    r = run.done(inst["id"], {"scalars": {"lines_added": 4, "cmt_pct": 10}})
+    nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p3.fix" for i in n["ready"]))
+    inst = next(i for i in nx["ready"] if i["node"] == "p3.fix")
+    good = answers(run, "std", 1)["p3.fix"](load_item(inst))
+    r = run.done(inst["id"], {**good, "x_scalars": {"lines_added": 4}})
     check(r.returncode == 1 and "lines_added" in r.stderr, f"未知の名前（lines_added）は型で拒む（rc={r.returncode}: {r.stderr.strip()[-90:]}）")
-    r = run.done(inst["id"], {"scalars": {"added_lines": 0, "x_arms_fired": "12"}})
+    r = run.done(inst["id"], {**good, "x_scalars": {"x_arms_fired": "12"}})
     check(r.returncode == 1 and "x_arms_fired" in r.stderr, f"x_ の名前も値は数（文字列は型で拒む。rc={r.returncode}: {r.stderr.strip()[-90:]}）")
-    r = run.done(inst["id"], {"scalars": {"added_lines": 0, "comment_lines": 0, "doc_lines": 3, "x_arms_fired": 12}})
-    check(r.returncode == 0, f"決まった名前と x_ で始まる名前なら通る（その場で足す数値の口。追加行 0 の周は comment_ratio_pct が無くてよい。rc={r.returncode}: {r.stderr.strip()[-90:]}）")
+    for f in {f for c in good["changes"] for f in c.get("files", [])}:   # drive と同じく申告どおりに手を入れる
+        (run.repo / f).write_text((run.repo / f).read_text(encoding="utf-8") + "# fixed in round 1\n", encoding="utf-8")
+    # 修正の一部として文書にも足す——doc_lines は BASE からの .md の追加行（ファイル全体の行数ではない）
+    (run.repo / "README.md").write_text("# demo\n\n追加 1\n追加 2\n", encoding="utf-8")
+    r = run.done(inst["id"], {**good, "x_scalars": {"x_arms_fired": 12}})
+    check(r.returncode == 0, f"x_ で始まる名前なら通る（その場で足す数値の口。rc={r.returncode}: {r.stderr.strip()[-90:]}）")
+    drive(run, "std", stop_at=lambda n: n["round"] == 2)
+    sc = run.round_file(1).get("scalars") or {}
+    base = run.base
+    want = sh(run.repo, "git", "diff", "--numstat", base, run.state()["loop"]["gates_cut"]["rev"], "--", "*.md").stdout.split()
+    check(sc.get("x_arms_fired") == 12 and isinstance(sc.get("added_lines"), int) and sc["added_lines"] > 0
+          and sc.get("doc_lines") == int(want[0]) == 3,
+          f"固定の数値は engine が数え（added_lines・doc_lines=.md の追加行 3）、x_ は p3.fix の値が載る（{sc}）")
+    rm(run.tmp)
+
+    # comment-ratio.sh が落ちても周は止めない（scalar はゲートでない）——値を書かず、理由を残す
+    run = Run("scalarbroken")
+    drive(run, "std", stop_at=lambda n: any(i["node"] == "p3.fix" for i in n["ready"]))
+    empty = run.tmp / "no-scripts"
+    empty.mkdir()
+    f = run.tmp / "sd.json"
+    f.write_text(json.dumps(str(empty)), encoding="utf-8")
+    r = run.cmd("patch", "--path", "state.inputs.scripts_dir", "--file", str(f), "--reason", "検査: comment-ratio.sh の無い置き場")
+    check(r.returncode == 0, f"検査の前提: scripts_dir を差し替えられる（{r.stderr[-120:]}）")
+    drive(run, "std", stop_at=lambda n: n["round"] == 2)
+    rec = run.record()
+    sc = run.round_file(1).get("scalars") or {}
+    check(run.state()["round"] == 2 and "added_lines" not in sc and "doc_lines" in sc
+          and "comment-ratio.sh" in (rec["process"].get("scalars_unmeasured") or {}).get("1", ""),
+          f"測れなかった数値は書かず（0 にしない）、理由を process.scalars_unmeasured に残し、周は進む（{sc} / {rec['process'].get('scalars_unmeasured')}）")
     rm(run.tmp)
 
 
@@ -858,7 +1041,7 @@ def test_awaiting_origin_guards():
     **素材を書いた時点**（後の工程が人待ちの欄を上書きする入口）の両方で当てる。検証器は周の最後の 1 回しか見ず、
     実走では 5 周で 8 回、回す側が patch で書き戻した。人が実地で確かめるまで決まらない問いは field（出どころを持たない）"""
     print("人待ちの問いの出どころ: 判定の時点と書いた時点で拒み、実地の問いは field で立つ")
-    run = Run("awaitorigin")
+    run = Run("awaitorigin", checks=None)   # 任せ先の返答で人待ちの規則を撃つ（engine が組む側は test_engine_run_checks）
     seen = {}
     field = {"key": "Windows の実機で動かしたか", "kind": "field", "status": "held", "reason": "手元にも CI にも Windows の実機が無い（検査用）"}
     wait_ci = {"key": "CI をどこで走らせるか", "kind": "awaiting", "origin": "local_checks", "status": "held", "reason": "手元で CI を走らせられない（検査用）"}
@@ -924,11 +1107,11 @@ def test_local_review_lens_rows():
     by = {i["node"]: i for i in nx["ready"]}
     t = answers(run, "std", 1)
     for n in ("p0.base", "p0.local_checks", "p0.premises"):
-        run.done(by[n]["id"], t[n](None))
+        settle(run, by[n], t[n])
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
     for n in ("p0.purpose", "p0.parallel_pr", "p0.prior_decisions"):
-        run.done(by[n]["id"], t[n](None))
+        settle(run, by[n], t[n])
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
     lr = by["p1.local_review"]
@@ -1061,19 +1244,26 @@ def test_rejections():
     by = {i["node"]: i for i in nx["ready"]}
     check(all(pathlib.Path(i["out_path"]).parent.is_dir() for i in nx["ready"]),
           "返答の置き場のディレクトリは engine が作る（最初の波の節も、運び手が mkdir せずに書ける）")
-    check(by["p0.local_checks"].get("delegate", {}).get("model") == "haiku" and "delegate" not in by["p0.base"],
-          f"任せ先: graph が delegate を宣言した回す側の節は ready に任せ先が載り、宣言の無い節には載らない（{by['p0.local_checks'].get('delegate')}）")
+    check(by["p0.local_checks"]["mode"] == "engine_run" and "delegate" not in by["p0.local_checks"],
+          f"宣言と承認の在るリポジトリでは、走らせるだけの節は engine が走らせる節（mode=engine_run）で出て、任せ先は載らない（{by['p0.local_checks']['mode']}）")
+    nodecl = Run("neg-nodecl", checks=None)
+    by0 = {i["node"]: i for i in nodecl.next()["ready"]}
+    check(by0["p0.local_checks"].get("delegate", {}).get("model") == "sonnet" and "delegate" not in by0["p0.base"]
+          and "が無い" in (by0["p0.local_checks"].get("engine_fallback") or ""),
+          f"任せ先: graph が delegate を宣言した回す側の節は ready に任せ先が載り、宣言の無い節には載らない（宣言の無いリポジトリの走らせる節は"
+          f"理由つきで任せ先に落ちる。{by0['p0.local_checks'].get('delegate')} / {by0['p0.local_checks'].get('engine_fallback')}）")
+    rm(nodecl.tmp)
     t = answers(run, "std", 1)
     r = run.done(by["p0.base"]["id"], {**t["p0.base"](None), "base_sha": "deadbeef"})
     check(r.returncode == 1 and "コミットでない" in r.stderr, "実在しない BASE は exit 1")
     for n in ("p0.base", "p0.local_checks", "p0.premises"):
-        run.done(by[n]["id"], t[n](None))
+        settle(run, by[n], t[n])
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
     check("p0.prior_decisions" in by and "p1.worktree_before" not in by, "機械の節（作業ツリーの写し）は ready に出ない")
     check(run.record_cli() == run.record(), "loop.py record は record.json の丸写し（直読みと同じ値。CLI の煙テストはここ 1 か所）")
     for n in ("p0.purpose", "p0.parallel_pr", "p0.prior_decisions"):
-        run.done(by[n]["id"], t[n](None))
+        settle(run, by[n], t[n])
     nx = run.next()
     by = {i["node"]: i for i in nx["ready"]}
     check({"p1.local_review", "p1.consistency_bypass", "p1.hygiene", "p1.external_standards", "p1.provenance"} <= set(by), f"P1 の役が同じ波に並ぶ: {sorted(by)}")
@@ -1609,7 +1799,7 @@ def test_graphcheck_review_shapes():
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1。{r.stdout.strip()[-80:]}）")
     cq = lambda b, nid: b["$defs"]["class_query"]["properties"]   # 数える問いの外側の型は $defs の 1 定義（nid は使わない）
     broken(lambda b: b["deliver"].__setitem__("paste_roles", ["convergence-loops:inspecter"]), "agents/ に無い", "graphcheck: 貼る渡し方の役名の綴り違い")
-    broken(lambda b: b["nodes"]["p4.scalars"]["schema"]["properties"]["scalars"].__setitem__("patternProperties", {"^x_[a-z0-9_+$": {"type": "number"}}),
+    broken(lambda b: b["nodes"]["p3.fix"]["schema"]["properties"]["x_scalars"].__setitem__("patternProperties", {"^x_[a-z0-9_+$": {"type": "number"}}),
            "正規表現", "graphcheck: 壊れた patternProperties の正規表現")
     # 数える問いの型は engine の 1 つの定義を $ref で引く——写しは無いので、崩れうるのは参照の側だけ
     broken(lambda b: cq(b, "p2.rejudge").__setitem__("how", {"$ref": "engine#/count_hwo"}), "が引けない", "graphcheck: 引けない $ref")
@@ -1635,7 +1825,7 @@ def test_graphcheck_review_shapes():
            or b["nodes"]["p4.ci"]["schema"]["properties"].__setitem__("x", {"$ref": "#/$defs/loop"}), "自分を引いている",
            "graphcheck: 自分を引く $ref（展開が止まらない）")
     # 語の検査は patternProperties の値の schema の中まで降りる（走査は engine の walk_schema 1 本）
-    broken(lambda b: b["nodes"]["p4.scalars"]["schema"]["properties"]["scalars"]["patternProperties"]["^x_[a-z0-9_]+$"].__setitem__("minimun", 0),
+    broken(lambda b: b["nodes"]["p3.fix"]["schema"]["properties"]["x_scalars"]["patternProperties"]["^x_[a-z0-9_]+$"].__setitem__("minimun", 0),
            "'minimun'", "graphcheck: patternProperties の値の中の綴り違いの語")
     # 素材の宣言と書き先: 片方だけに在る素材を両向きで撃つ（書き先だけ＝柵をすり抜ける／宣言だけ＝誰も書かない）
     broken(lambda b: b["nodes"]["p4.ci"].__setitem__("materials", []), "が揃わない", "graphcheck: 書き先に在って宣言に無い素材")
@@ -1803,7 +1993,7 @@ def test_no_new_awaiting_after_judge():
     （検証器は周の最後に落とすだけで、書いた節に返らなかった。2026-09-24: 任せ先の p4.ci が、緑の CI を field の問いを
     理由に awaiting_human と書いた）"""
     print("判定の後の人待ち: 問いの無い awaiting_human は書いた時点で拒む")
-    run = Run("noawait")
+    run = Run("noawait", checks=None)
     seen = {}
 
     def hook(run, inst, out):
@@ -2241,14 +2431,14 @@ def test_premise_resolved():
 
 def test_noci():
     print("台本: CI を確かめていない周（local_checks が not_applicable）は収束を名乗らず諮る——無人なら停止")
-    run = Run("noci", unattended=True)
+    run = Run("noci", unattended=True, checks=None)   # 宣言の無いリポジトリ（任せ先が not_applicable を返す）
     last = drive(run, "noci")
     proc = run.record()["process"]
     asked = [a for h in proc.get("human_items", []) for a in (h.get("asked") or [])]
     check(last["status"] == "stopped" and any("local_checks" in a for a in asked), f"無人: converged でなく stopped、要人間判断に CI 未確認が載る（{last['status']}: {asked[:1]}）")
     check(proc.get("outcome") != "converged", f"記録の outcome が converged でない（{proc.get('outcome')}）")
     rm(run.tmp)
-    run = Run("noci-attended")
+    run = Run("noci-attended", checks=None)
     last = drive(run, "noci")
     check(last["status"] == "awaiting_human" and "ci_unverified" in json.dumps(last.get("ask", {})), f"有人: awaiting_human で kinds に ci_unverified（{last['status']}）")
     n0 = len(run.state()["rounds"][-1]["instances"])
@@ -2951,7 +3141,7 @@ def test_proxy_to_source():
 
     # ① 前の周が awaiting_human / not_run なら持ち越せない（検証器の表 STATUS.carryable が正本。
     #    last_seen＝「最後に found/clean だった周」を見ていたとき、機械が自分で不正な記録を組んだ）
-    run = Run("carryable", unattended=True)
+    run = Run("carryable", unattended=True, checks=None)
     drive(run, "noci")  # local_checks を毎周 not_applicable にする筋（流用できない値）
     r1c, r2c = run.round_file(1)["materials"]["local_checks"], run.round_file(2)["materials"]["local_checks"]
     check(r1c["status"] == "not_applicable" and r2c["status"] == "not_applicable",
@@ -2965,7 +3155,7 @@ def test_proxy_to_source():
     by = {i["node"]: i for i in nx["ready"]}
     t = answers(run, "std", 1)
     for n in ("p0.base", "p0.local_checks", "p0.premises"):
-        run.done(by[n]["id"], t[n](None))
+        settle(run, by[n], t[n])
     check(rules.stop_branch(V, 1, "収束を妨げるもの 1 件:\n  - [block] x\n") == "work_remains", "字下げされた echo だけなら work_remains")
     bad_key = "x — 前提不成立が確定（escalate）を key に混ぜた"
     check(" ".join((bad_key + "\n" + V.STOP_PREMISE).split()) == bad_key + " " + V.STOP_PREMISE,
@@ -2997,7 +3187,7 @@ def test_proxy_to_source():
          "の宣言が無い——宣言が無い入力は実在検査に当たらない"),
         # **裸の {{inputs.X}} も見る**——回す側の節は file: 接頭を書けない（別の柵）ので、
         # 接頭だけを見ていたとき、回す側だけが読むパス入力は宣言が無くても init を素通りした
-        ("inputs-undeclared-bare", lambda b: b["inputs"].pop("scripts_dir", None),
+        ("inputs-undeclared-bare", lambda b: b["inputs"].pop("cwd", None),
          "の宣言が無い——宣言が無い入力は実在検査に当たらない"),
     ):
         bad = json.loads(json.dumps(g))
@@ -3850,12 +4040,14 @@ def test_lane_rules():
                              "patch": "", "suite": {"command": "bash run.sh", "exit": 0}, **k}
     E = lambda out, final=False: rules._lane_errors(b, out, head, final)
     check(E(good(head)) == [], f"線の結果: 見逃しに全部答えた結果は通る（{E(good(head))}）")
+    # テスト一式の緑は役の申告で受けない（p4.ci を engine が走らせた結果が正本）——suite は読まない欄
+    check(E(good(head, suite={"command": "bash run.sh", "exit": 1})) == [] and E({k: v for k, v in good(head).items() if k != "suite"}) == [],
+          "線の結果: テスト一式の申告（suite）は読まない——赤と書いても、書かなくても、それで結果を捨てない")
     for bad, want, desc in [
             (good(head, handled=[]), "に答えが無い", "見逃した腕に答えの無い結果"),
             (good(head, handled=good(head)["handled"] + [{"key": "arm:ok", "handled": "equivalent", "how": "見逃していない腕（検査用）"}]),
              "見逃した腕に無い", "見逃していない腕に答えた結果"),
             ({**good(head), "rev": "0" * 40}, "名指しの版", "名指しと違う版を撃った結果"),
-            (good(head, suite={"command": "bash run.sh", "exit": 1}), "緑でない", "テスト一式が赤の結果"),
             (good(head, handled=[{"key": "arm:miss", "handled": "tests_added", "how": "テストを足した（検査用）"}]), "patch", "テストを足したのに patch が無い結果"),
             (good(head, arms=[_lane_arm("nohit", hit_evidence="")], handled=[]), "arm:nohit", "当たりの証拠の無い腕を見逃しと数えない結果")]:
         got = "; ".join(E(bad))
@@ -4583,7 +4775,7 @@ def test_stop_branch():
 
 def test_ci_red_runaway():
     print("台本: 阻害なしでも CI が毎周赤 → 上限 5 で停止（converged 分岐の早期 return が暴走ガードを飛ばさない）")
-    run = Run("cired", unattended=True)
+    run = Run("cired", unattended=True, checks=[{"name": "suite", "argv": [PY, "-c", "import sys; print('1 failed'); sys.exit(1)"]}])   # engine が走らせて毎周赤
     last = drive(run, "cired")
     check(last["status"] == "stopped" and run.state()["round"] == 5, f"CI が赤のままの run は 5 周で止まる（{last['status']} r{run.state()['round']}）")
     check(run.state()["loop"].get("stop_reason") == "max_rounds", "停止の理由が上限")
@@ -4748,6 +4940,7 @@ def test_cond_truth_tables():
             ctx[k] = v
         return ctx
     touched = {"prev_fix_files": ["a.py"]}
+    ENG = lambda rnd: {"process": {"checks": {"p4.ci": {"round": rnd, "by": "engine"}}}}   # その周の CI を engine が走らせた
     T = {
         "request_entry": [(c(), False), (c(entry=True), True), (c(entry=True, loop={"request_fixed_at": 1}), False),
                           ({"record": {"process": {"request_entry": "文字列"}}}, False)],
@@ -4790,7 +4983,11 @@ def test_cond_truth_tables():
         "gates_cut_nonempty": [(c(2, loop={"gates_cut": {"round": 2, "files": ["a.py"]}}), True),
                                (c(2, loop={"gates_cut": {"round": 1, "files": ["a.py"]}}), False),
                                (c(2, loop={"gates_cut": {"round": 2, "files": []}}), False), (c(2), False)],
-        "would_converge": [(c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}}), True),
+        "would_converge": [(c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}, **ENG(2)}), True),
+                           (c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}}), False),
+                           (c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}},
+                                                                                    "process": {"checks": {"p4.ci": {"round": 2, "by": "role"}}}}), False),
+                           (c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}, **ENG(1)}), False),
                            (c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "found"}}}), False),
                            (c(2, cur={"p4.record": {"branch": "next_round"}}, record={"materials": {"local_checks": {"status": "clean"}}}), False),
                            (c(2, record={"materials": {"local_checks": {"status": "clean"}}}), False),

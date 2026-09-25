@@ -50,7 +50,7 @@ flowchart TB
   prv2 --> fix[p3.fix writer<br/>予測された穴に答える]
   fix --> fd[p3.fix_delta<br/>機械: この周の修正だけの差分] --> dr[p3.delta_review<br/>inspector: 穴と、塞いだと言う穴の検算] --> df[p3.delta_fix<br/>writer: 穴が在る周だけ]
   df --> fd2[p3.fix_delta2<br/>機械: 手直しだけの差分] --> dr2[p3.delta_review2<br/>inspector: 2 回目] --> df2[p3.delta_fix2<br/>writer: 次の周の判定者が検算]
-  df2 --> ci[p4.ci] & sc[p4.scalars] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
+  df2 --> ci[p4.ci<br/>宣言が在れば engine が走らせる] & sc[p4.scalars<br/>機械: 規模の数値] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
   df2 --> sck{spec.check<br/>仕様の道だけ: テストの改変を人に聞く} --> asm
   hist --> asm
   asm --> cc[r1.comment_candidates<br/>comment-analyzer] --> r1[r1.minimality<br/>judge]

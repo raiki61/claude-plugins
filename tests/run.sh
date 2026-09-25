@@ -2870,7 +2870,7 @@ fi
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -2884,6 +2884,20 @@ runs = [l.split("run:", 1)[1] for l in txt.splitlines() if l.strip().startswith(
 hits = [r for r in runs if "shellcheck" in r]
 assert hits, f"{wf}: shellcheck を実際に回す run: の段が無い（注記に語が在るだけでは通さない）"
 assert all("-S warning" in r for r in hits), f"{wf}: shellcheck の深さ（-S warning）が手元の検査と揃っていない: {hits}"
+# **engine が走らせる宣言は CI の段の写し**（手元は pytest を uv で入れ、CI は pip で入れるので語は揃わない）。名前だけ突き合わせる
+# ——宣言に在って CI に無い段は、CI が回していない物を engine だけが回している。逆向き（CI の段を宣言が持たない）は許す:
+# shellcheck は CI だけが段として回し、手元では tests/run.sh が在れば回す任意の道具
+import json
+named, last = set(), None
+for l in txt.splitlines():
+    t = l.strip()
+    if t.startswith("- name:"):
+        last = t.split(":", 1)[1].strip()
+    elif t.startswith("run:") and last:
+        named.add(last)
+decl = json.loads((pathlib.Path(sys.argv[1]) / ".review-checks.json").read_text(encoding="utf-8"))
+missing = sorted({s["name"] for s in decl["suite"]} - named)
+assert not missing, f".review-checks.json の段 {missing} が {wf} の run を持つ段（{sorted(named)}）に無い"
 print("CI_LINT_OK")
 PYCI
 
@@ -3976,7 +3990,7 @@ loop = root / "graphloops/scripts/loop.py"
 # `--help` は即返るので近傍の 600 より短くてよい
 top = subprocess.run([sys.executable, str(loop), "--help"], capture_output=True, text=True,
                      encoding="utf-8", errors="replace", timeout=60)
-m = re.search(r"\{([a-z,]+)\}", top.stdout)
+m = re.search(r"\{([a-z,-]+)\}", top.stdout)
 if not m:
     print("NG loop.py --help からサブコマンドの一覧が読めない")
     sys.exit(1)

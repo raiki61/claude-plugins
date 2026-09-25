@@ -8,14 +8,15 @@ import sys
 import threading
 
 from . import pointers
-from .advance import advance, emit_instance, load_item, open_next_round
+from . import declared
+from .advance import ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, load_item, open_next_round
 from .board import Board, empty_round
 from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
 from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, waiting, write_json
-from .role_run import SUPERSEDED, WRITE_TOOLS, kill_all, pgid_path, probe_group, run_role, stop_group, tooled_permission
+from .role_run import SUPERSEDED, WRITE_TOOLS, Superseded, kill_all, pgid_path, probe_group, run_role, run_steps, stop_group, tooled_permission
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
@@ -155,8 +156,9 @@ def cmd_next(a):
         **({"halted": b.state["halted"]} if b.state.get("halted") else {}),
         "ready": [{**{k: v for k, v in i.items() if k != "tree_before"}, **waiting(i)} for i in ready],
         "how": ("ready の全部を同時に始めてよい（同じ波）。"
-                "**launch を持つ節（遮断系の cli・道具つきの agent・同じ役を続ける agent_continue）は loop.py launch を呼べ**"
-                "——engine が役を claude -p で起こし、子の終了を直接待ち、返答を out_path に書き、受け付け（done）まで済ませる。"
+                "**launch を持つ節（遮断系の cli・道具つきの agent・同じ役を続ける agent_continue・走らせるだけの engine_run）は loop.py launch を呼べ**"
+                "——engine が役を claude -p で起こし（engine_run なら宣言のコマンドを走らせ）、子の終了を直接待ち、返答を out_path に書き、受け付け（done）まで済ませる。"
+                "engine_run の結果は engine が終了コードから組む——done は拒まれる。"
                 "拒まれたら同じ会話（--resume）に続きを頼む。時間の上限は無い。"
                 "launch は役が終わるまで戻らず、前景だと Bash の上限（10 分）で切られるので Bash の背景実行に回す——**回したら手番を終えるな**。"
                 "背景の出力のファイル（ハーネスが返す置き場。自分でリダイレクトしない）に launch の要約（\"launched\"）が出るまで、"
@@ -328,15 +330,7 @@ def _accept_for_launch(d, iid, out_path):
     return accept
 
 
-def launch_one(d, inst, max_resumes):
-    """1 節を起こして受け付けまで済ませる（run_role）。返すのは回す側と記録に見せる 1 件ぶんの要約だけ——役の返答の
-    本文は回す側の会話に流さない。"""
-    got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
-    why = launch_refusal(inst)
-    if why:
-        return {**got, "ok": False, "why": why}
-    accept = _accept_for_launch(d, inst["id"], inst["out_path"])
-
+def _still_mine(d, inst):
     def still_mine():
         # 盤面を読むだけ（書かない）——途中で盤面に書く口を増やすと、別のプロセスとの競りで波ごと落ちる
         try:
@@ -344,6 +338,99 @@ def launch_one(d, inst, max_resumes):
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             return True   # 読めない回は止めない（止める向きの誤りは、健全な役を殺す）
         return cur.get("out_path") == inst["out_path"]
+    return still_mine
+
+
+def engine_run_refusal(inst):
+    """走らせる節（kind=engine_run）の語が走らせてよい形か（よければ None）。**instance の申告でなく argv そのもので決める**
+    ——同梱の語（ENGINE_HELPERS）は argv の頭が engine 自身のインタプリタと engine の置き場の scripts/<名前> に一致するときだけ
+    承認を免れ、それ以外の語は全部、対象リポジトリの宣言として人の承認（declared.allowed）を走らせる直前に確かめ直す。
+    盤面（loop.py patch）や graph を書き換えても、承認の無い語は engine の手で走らない"""
+    launch = inst.get("launch") or {}
+    steps = launch.get("steps")
+    if not isinstance(steps, list) or not all(isinstance(s, dict) and isinstance(s.get("name"), str) and isinstance(s.get("argv"), list)
+                                              and s["argv"] and all(isinstance(a, str) for a in s["argv"]) for s in steps):
+        return "走らせる語（launch.steps）の形が [{name, argv}] でない"
+    heads = [[_norm(a) for a in helper_argv(h)] for h in ENGINE_HELPERS]
+    theirs = [s for s in steps if [_norm(a) for a in s["argv"][:2]] not in heads]
+    if theirs:
+        root = launch.get("cwd") or "."
+        sha = declared.steps_sha(theirs)
+        if sha != launch.get("sha") or not declared.allowed(root, sha):
+            return (f"走らせる語（{[s['name'] for s in theirs]}）が人の承認に無い（sha {sha[:12]}）——宣言 {declared.DECL_NAME} を"
+                    "人が見て loop.py allow-checks で承認してから、loop.py relaunch で出し直せ")
+    return None
+
+
+def _engine_fallback(d, iid, reason):
+    """engine の組んだ返答を使えないときに、同じ節を任せ先の節として出し直す（新しい試行。理由は instance と記録に残る）。
+    拒まれた返答を同じ語で走らせ直しても同じ拒否になるので、出口を任せ先に作る"""
+    def fall(b):
+        prev = pending_instance(b, iid)
+        new = emit_instance(b, prev["node"], None, attempt=prev.get("attempts", 1) + 1, engine_fallback=reason)
+        new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason,
+                                                                  "prev_emitted_at": prev["emitted_at"], "prev_out_path": prev["out_path"]}]
+        b.trace("engine_fallback", instance=iid, reason=reason)
+        return new["id"]
+    return _board_update(d, fall)
+
+
+def launch_engine_run(d, inst):
+    """走らせる節（kind=engine_run）を 1 つ走らせ、終了コードから engine が返答を組み、受け付け（accept_output）まで済ませる。
+    返答を組むのは rules の ENGINE_RUNS[builtin].reply で、任せ先が要る結果（役の判断が要る・受け付けが拒んだ）なら
+    同じ節を任せ先の節として出し直す（_engine_fallback）。回す側は結果を書かない（done は engine_run を拒む）"""
+    got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
+    why = engine_run_refusal(inst)
+    if why:
+        return {**got, "ok": False, "why": why}
+    launch = inst["launch"]
+    log_dir = pathlib.Path(d) / "runs" / pathlib.Path(inst["out_path"]).parent.name / safe_name(inst["id"] + f".a{inst.get('attempts', 1)}")
+    try:
+        runs = run_steps(launch["steps"], launch.get("cwd"), log_dir, pgid_file=pgid_path(inst["out_path"]),
+                         still_mine=_still_mine(d, inst))
+    except Superseded:
+        return {**got, "ok": False, "why": SUPERSEDED, "superseded": True}
+    with open(pathlib.Path(d) / "trace.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"t": now(), "op": "engine_run", "instance": inst["id"], "node": inst["node"],
+                            "runs": [{k: r.get(k) for k in ("name", "exit", "wall_s", "error")} for r in runs]}, ensure_ascii=False) + "\n")
+    fallback = None
+    runs_short = [{k: r.get(k) for k in ("name", "exit", "wall_s")} for r in runs]
+    with BOARD_LOCK:
+        try:
+            b = Board(d)
+            cur = pending_instance(b, inst["id"])
+            if cur.get("out_path") != inst["out_path"]:
+                return {**got, "ok": False, "why": SUPERSEDED, "superseded": True}
+            reply = engine_run_entry(b, b.nodes[inst["node"]])["reply"](b, inst["node"], launch, runs)
+            if "fallback" in reply:
+                fallback = reply["fallback"]
+            else:
+                text = json.dumps(reply["reply"], ensure_ascii=False)
+                pathlib.Path(inst["out_path"]).write_text(text, encoding="utf-8")
+                try:
+                    msg = accept_output(b, inst["id"], text, f"launch {inst['out_path']}")
+                except AnswerReject as e:
+                    fallback = f"engine が組んだ返答を受け付けが拒んだ（{str(e)[:400]}）"
+        except (Reject, SystemExit) as e:   # 節が待っていない・盤面の競り——返答を組み直しても直らない。同じ波の兄弟を道連れにしない
+            return {**got, "ok": False, "why": f"受け付けまで進めない（{type(e).__name__}: {e}）", "runs": runs_short}
+    if fallback:
+        new = _engine_fallback(d, inst["id"], fallback)
+        return {**got, "ok": False, "fell_back": True, "why": f"任せ先の節に回した（{new}。next の ready に任せ先の節として出る）: {fallback}",
+                "runs": runs_short}
+    return {**got, "ok": True, "why": None, "done": msg, "runs": runs_short}
+
+
+def launch_one(d, inst, max_resumes):
+    """1 節を起こして受け付けまで済ませる（run_role）。返すのは回す側と記録に見せる 1 件ぶんの要約だけ——役の返答の
+    本文は回す側の会話に流さない。"""
+    if (inst.get("launch") or {}).get("kind") == "engine_run":
+        return launch_engine_run(d, inst)
+    got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
+    why = launch_refusal(inst)
+    if why:
+        return {**got, "ok": False, "why": why}
+    accept = _accept_for_launch(d, inst["id"], inst["out_path"])
+    still_mine = _still_mine(d, inst)
 
     r = run_role(inst["launch"]["argv"], inst["launch"]["stdin"], inst["out_path"],
                  accept=accept, resume_argv=inst["launch"].get("resume_argv"), max_resumes=max_resumes,
@@ -424,6 +511,8 @@ def cmd_launch(a):
     def settle(b):
         for r in results:
             i = b.rd["instances"].get(r["id"])
+            if r.get("fell_back"):
+                continue   # 任せ先の節として出し直した（新しい試行は _engine_fallback が書いた）——why はそのまま返す
             if i is None or i.get("out_path") != r["out_path"]:
                 # 起こし直された（試行が進んだ）——古い試行の結果を新しい試行に書かない。回す側に返す行も言い換える:
                 # relaunch に止められた子は『子が落ちた』に見え、それに従って relaunch すると生きている新しい試行を止める
@@ -455,7 +544,9 @@ def cmd_launch(a):
                         "why が『起こし直された古い試行』の行は次の手が要らない（新しい試行の launch を待て）。"
                         "stderr の with-auth: auth=… が none / keychain-miss なら認証が足りていない（inherited / keychain なら役の側）。"
                         "返答は out_path に在る（読むのは要る所だけ）。engine が起こせない節（why が『前置ではない』『旗が無い』"
-                        "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ")}))
+                        "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ。"
+                        "走らせる節（engine_run）の why が『任せ先の節に回した』なら次の手は next（任せ先の節として出る）。"
+                        "『人の承認に無い』なら宣言を人に見せ、人が loop.py allow-checks を打ってから relaunch——承認を回す側が打つな")}))
 
 
 # ---------------------------------------------------------------- done
@@ -540,6 +631,9 @@ STDIN_MAX = 20_000_000  # 文字
 def cmd_done(a):
     b = Board(resolve_dir(a))
     inst = pending_instance(b, a.node)
+    if inst.get("mode") == "engine_run":
+        raise Reject(f"'{a.node}' は engine が走らせる節（mode=engine_run）——結果は engine が終了コードから組む。loop.py launch を呼べ"
+                     "（回す側や任せ先が書いた結果は受け付けない。任せ先に回すのは engine が決める）")
     # 読む順: --output の明示 → --stdin の明示 → 置き場（out_path）。以前は置き場が標準入力より先で、拒まれた前回分が
     # 置き場に残っていると新しい返答を標準入力で渡しても古い方が黙って記録に入った（実測 2026-09-12）。
     # 標準入力は**明示されたときだけ**読む——「端末でなければ読む」にしていたとき、呼び出し元の stdin が閉じない
@@ -957,6 +1051,20 @@ def retire_out(old, n):
     old = pathlib.Path(old)
     if old.is_file():
         old.replace(old.with_name(old.name + f".stale-a{n}"))
+
+
+def cmd_allow_checks(a):
+    """対象リポジトリの宣言（.review-checks.json）を人が見て承認する（direnv allow と同じ形。承認は中身の sha に結ぶ）。
+    **人が打つ口**——回す側が打たないことは手順書が縛る。承認が及ぶのは宣言の中身（走らせる語の列）だけで、語が呼ぶ
+    スクリプトの中身は含まない（engine/declared.py の注記）"""
+    root = git("rev-parse", "--show-toplevel")
+    if root is None or not root.strip():
+        raise Reject("リポジトリの中で呼べ（git rev-parse --show-toplevel が引けない）")
+    got, err = declared.allow(root.strip(), a.note)
+    if err:
+        raise Reject(err)
+    print(dump({"allowed": got["sha"], "steps": got["steps"], "file": got["file"],
+                "how": "engine はこの sha の宣言だけを走らせる。宣言を 1 字でも変えたら承認し直す"}))
 
 
 def cmd_record(a):

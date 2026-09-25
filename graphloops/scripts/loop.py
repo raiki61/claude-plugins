@@ -5,7 +5,7 @@
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--stop-after-round N] [--dir <置き場>] [--validator <path>]
     loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
-    loop.py launch [--node <節>] [--dir]                # launch を持つ役の節を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（背景実行に回し、手番を終えずに前景で出力を見に行く）
+    loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（背景実行に回し、手番を終えずに前景で出力を見に行く）
     loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
     loop.py answer --text <答え> [--note <本文>]         # 人に聞く番のとき（本文は次の周の再審に渡る）
@@ -13,6 +13,7 @@
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
     loop.py patch  --path <record の欄 | state.<盤面の欄>> --file <json> --reason   # 記録（既定）か盤面の手当て（痕跡が残る最終手段）
     loop.py status [--dir] / loop.py record [--dir] / loop.py finalize [--dir]
+    loop.py allow-checks [--note <誰が何を見て承認したか>]   # 人が打つ: 対象リポジトリの宣言（.review-checks.json）を承認する
 
 置き場（--dir 省略時）: `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外
 （`git status --porcelain` に映らない）で、リポジトリごとに残る。`current` がいちばん新しい run を指す。
@@ -108,6 +109,10 @@ def main():
     s.add_argument("--file", required=True)
     s.add_argument("--reason", required=True)
     s.set_defaults(fn=c.cmd_patch)
+
+    s = sub.add_parser("allow-checks", help="人が打つ: リポジトリのルートの .review-checks.json の中身を承認する（engine は承認した中身の語だけを走らせる）")
+    s.add_argument("--note", default="", help="誰が何を見て承認したか（承認の一覧に残る）")
+    s.set_defaults(fn=c.cmd_allow_checks)
 
     a = p.parse_args()
     a.fn(a)

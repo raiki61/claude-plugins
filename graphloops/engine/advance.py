@@ -204,7 +204,50 @@ def prompt_growth(b, nid, prompt_bytes):
     return {"node": nid, "round": b.round, "bytes": prompt_bytes, "was": max(prev)}
 
 
-def emit_instance(b, nid, item=None, suffix="", attempt=1):
+ENGINE_HELPERS = ("parallel-pr.py",)   # engine に同梱の走らせる語（scripts/ の下）。承認なしで走らせてよいのはこれだけ
+
+
+def helper_argv(name, args=()):
+    """同梱の語の argv——engine 自身のインタプリタと、engine の置き場の scripts/<name>"""
+    return [sys.executable, str(PLUGIN_ROOT / "scripts" / name), *args]
+
+
+def engine_run_entry(b, n):
+    fn = registry(b.rules, "ENGINE_RUNS").get(n["engine_run"]["builtin"])
+    if not fn:
+        die(f"engine_run.builtin '{n['engine_run']['builtin']}' が rules の ENGINE_RUNS に無い")
+    return fn
+
+
+def plan_engine_run(b, nid, n, inst, fallback=None):
+    """走らせるだけの節（graph の engine_run）を、engine が走らせる instance（mode=engine_run）にするか、任せ先の節のまま
+    出すかを決める。決めるのは rules の ENGINE_RUNS[builtin].plan で、返りは 4 つの形のどれか:
+      {"steps": [{name, argv}], "sha": …}   対象リポジトリの宣言の語（launch が人の承認を確かめ直してから走らせる）
+      {"helper": 名前, "args": […]}          engine に同梱の語（ENGINE_HELPERS。承認は要らない）
+      {"blocked": 理由}                      走らせないが、engine が返答を組む（例: 宣言は在るが未承認）
+      {"fallback": 理由}                     任せ先の節として出す（理由は instance と、rules の fallback が記録に残す）
+    fallback を渡されたら計画を立てずに任せ先へ落とす（engine の組んだ返答が拒まれた・役の判断が要る結果が出た）。
+    **走らせる語は emit の時点で instance に固める**——launch は固めた語だけを走らせ、読んだ時と走らせる時のずれを作らない"""
+    er = engine_run_entry(b, n)
+    plan = {"fallback": fallback} if fallback else er["plan"](b, nid)
+    if "fallback" in plan:
+        inst["engine_fallback"] = plan["fallback"]
+        if er.get("fallback"):
+            er["fallback"](b, nid, plan["fallback"])
+        return
+    if "helper" in plan:
+        if plan["helper"] not in ENGINE_HELPERS:
+            die(f"{nid}: 同梱の語 '{plan['helper']}' は ENGINE_HELPERS に無い")
+        steps = [{"name": plan["helper"], "argv": helper_argv(plan["helper"], plan.get("args") or [])}]
+    else:
+        steps = plan.get("steps") or []
+    inst.pop("delegate", None)
+    inst["mode"] = "engine_run"
+    inst["launch"] = {"kind": "engine_run", "builtin": n["engine_run"]["builtin"], "steps": steps,
+                      "sha": plan.get("sha"), "blocked": plan.get("blocked"), "cwd": plan.get("cwd")}
+
+
+def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None):
     n = b.nodes[nid]
     iid = nid + (f"[{item['key']}]" if item else "") + suffix
     emitted = now()
@@ -323,6 +366,8 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
         # 回す側の節のうち、自分の文脈で抱えずに小さな役へ任せてよいもの（graph の宣言をそのまま渡す。engine は起こさない——
         # 起こすのは回す側で、手順書が渡し方を書く）
         inst["delegate"] = n["delegate"]
+    if runner and n.get("engine_run"):
+        plan_engine_run(b, nid, n, inst, engine_fallback)
     same = n.get("same_context_as")
     if same and isolated:
         die(f"{iid}: 遮断系（道具ゼロ）の役に same_context_as は使えない——前の節の文脈を持ち込むと、渡された物しか知らない読み手という遮断が崩れる（graph を直せ）")

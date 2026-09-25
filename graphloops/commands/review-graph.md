@@ -13,7 +13,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 この手順書は、あなたが engine をどう呼ぶかだけを書く。`${CLAUDE_PLUGIN_ROOT}` は Claude Code がこのプラグインの置き場に展開する変数である。
 
-このループを回す session が **writer（実装者）**で、それはあなたである。あなたがするのは、基準点・目的・前提の固定、局所レビューの skill の実行、機械が返す節の起動、修正必須の指摘（[block]）と今直すと判定された提案（do-now）の修正と閉鎖の実証、CI と規模指標の取得、最終報告の執筆。**ラベル確定・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
+このループを回す session が **writer（実装者）**で、それはあなたである。あなたがするのは、基準点・目的・前提の固定、局所レビューの skill の実行、機械が返す節の起動、修正必須の指摘（[block]）と今直すと判定された提案（do-now）の修正と閉鎖の実証（CI の再実行と規模指標は engine が走らせる——宣言の無いリポジトリの CI だけ任せ先）、最終報告の執筆。**ラベル確定・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
 
 役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。engine が起こせない役だけ、`agent_type` をそのまま Agent の `subagent_type` に渡す。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
 
@@ -35,7 +35,9 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" next --dir <DIR>
    ```
 
-   `ready` の各要素は 1 つの節で、`mode` が 4 種類ある（cli・agent・agent_continue・runner）。**役の節（runner 以外）は、`launch` を持っていれば engine が起こす**:
+   `ready` の各要素は 1 つの節で、`mode` が 5 種類ある（cli・agent・agent_continue・engine_run・runner）。**役の節（runner 以外）は、`launch` を持っていれば engine が起こす**:
+
+   - **`engine_run`（走らせるだけの節）** —— CI の再実行（`p0.local_checks`・`p4.ci`）と並行 PR の交差（`p0.parallel_pr`）。engine が語を走らせ、終了コードから返答を組んで受け付けまで済ませる。**これも `loop.py launch` で走らせ、役と同じく背景実行で立てて終了を待て**（一式は数分〜30 分かかる。期限は無い）。**`done` は拒まれる**——結果を回す側や任せ先が書く道を閉じてある（任せ先が写していた頃、走り切る前の件数で clean と書く・一部の系統を飛ばす・数値を写し違える、が 1 周目で止めた run の全部で出た。実測 2026-09-25）。何を走らせるかは対象リポジトリのルートの宣言 `.review-checks.json` で、**人の承認が要る**: 人が宣言の中身を見て `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" allow-checks --note "<誰が何を見たか>"` を打つ（direnv の allow と同じ形。承認は中身の sha256 に結び、1 字でも変えたら外れる。承認が及ぶのは宣言の中身だけで、語が呼ぶスクリプトの中身は含まない）。**承認を回す側が打つな**——Claude Code の許可の仕組みを通らずにコマンドが走る関門で、人に宣言を見せて人が打つ（機械では縛れないので、この手順書が縛る）。宣言が在るのに未承認なら engine は走らせずに『承認が無い』と書く（P0 は人待ち、P4 は not_run）。宣言が無いリポジトリ・GitHub でない remote・並行 PR と交差した周は、`engine_fallback` に理由を付けた任せ先の節（runner）として出る——宣言の無いリポジトリの CI は engine が確かめていない自己申告として記録（`process.checks`）に残り、収束の前に人に諮られる。launch の `why` が『任せ先の節に回した』なら次は `next`。
 
    - **`launch` を持つ節（cli・agent・agent_continue）** —— **`loop.py launch` を呼べ**。engine が役を `claude -p` の子プロセスとして起こし（`--node` で 1 節だけ、省くと同じ波の `launch` を持つ節を全部並列に）、**子の終了を直接待ち**、返答を `out_path` に書き、受け付け（`done` の中身）まで済ませる。受け付けが返答の形を拒んだら、同じ会話（`--resume <会話の番号>`）に理由を渡して出し直させる（回数の上限は graph の `launch.resume_on_reject`）。**時間の上限は付けない**——役が終わるまで待つ（外した理由は [docs/graphloops-rearchitecture.md](../../docs/graphloops-rearchitecture.md#期限を外した)）。同じ役を続ける節（agent_continue）は、前の節の会話の番号（`session_id`）で再開する。起こし直しの回数と理由は盤面の instance の `attempt_log` に、1 起動ごとの要約（会話の番号・往復数・所要時間・費用・トークン・権限で拒まれた道具）は盤面の `trace.jsonl` に `op` が `role_run` の行で残る。
      ```bash

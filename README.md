@@ -200,9 +200,9 @@ uv run --no-project --with pytest python -m pytest graphloops/tests/py   # pytes
 
 ### review-loop が読む検証の道具（このリポジトリの宣言）
 
-`/review-loop`・`/review-graph` の手順書・グラフ・プロンプトは、テスト一式・件数の柵・変異テストの実行器を能力の言葉（期限を受ける口・前の結果を持ち越す口など）でしか書かない。どの道具でそれをするかは対象リポジトリの側が名指しし、役は `REVIEW.md` の「固有規約の把握」の読む先から拾う。このリポジトリの宣言はこの節である——`REVIEW.md` は convergence-loops の配布物としてほかのリポジトリでも観点の正本として読まれるので、そこには書かない。
+`/review-loop`・`/review-graph` の手順書・グラフ・プロンプトは、テスト一式・件数の柵・変異テストの実行器を能力の言葉（期限を受ける口・前の結果を持ち越す口など）でしか書かない。どの道具でそれをするかは対象リポジトリの側が名指しし、役は `REVIEW.md` の「固有規約の把握」の読む先から拾う。テスト一式だけは機械が読む書式の宣言を持つ（engine が走らせるため）。このリポジトリの宣言はこの節である——`REVIEW.md` は convergence-loops の配布物としてほかのリポジトリでも観点の正本として読まれるので、そこには書かない。
 
-- **テスト一式**: CI 定義 `.github/workflows/test.yml` が正本で、ここに写さない（写すと道具を足した周に一覧が漏れる）
+- **テスト一式**: ルートの `.review-checks.json`（`{"suite": [{"name": …, "argv": […]}]}`）。`/review-graph` の engine は、人が承認したこの宣言の語を shell を通さずに走らせ、終了コードから CI の欄（`p0.local_checks`・`p4.ci`）を書く。承認は人が `python3 graphloops/scripts/loop.py allow-checks` で打つ（中身の sha256 に結ぶ。1 字でも変えたら承認し直す。承認の置き場は git の共通ディレクトリの `graphloops/allowed-checks.json` で、worktree の間で共有する）。**承認が及ぶのは宣言の中身だけ**で、語が呼ぶスクリプト（`tests/run.sh` の本文など）は含まない——前の経路（任せ先の Bash を Claude Code の分類器が見る）も `bash tests/run.sh` という語しか見ていなかった。宣言が無いリポジトリでは任せ先が CI の定義から走らせ、その周の CI は engine が確かめていない自己申告として、収束の前に人に諮られる。宣言は CI の定義 `.github/workflows/test.yml` の段の写しで（手元は pytest を uv で入れ、CI は pip で入れるので語は揃えない）、宣言の段の名前が CI の run を持つ段に在ることを `tests/run.sh` の CI の設定の検査（CI_LINT_OK の行）が見る。shellcheck は CI だけが段として回す（手元では `tests/run.sh` が在れば回す）
 - **件数の柵**: `EXPECTED_CHECKS`・`EXPECTED_TESTS`・`VOCAB_REACHED`・`EXPECTED_ITEMS`。置き場と突合の式は `tests/run.sh` のラチェットの表が導く。検査を足した・消した差分は、同じ差分で実測に合わせる。この行の名前がラチェットの表とずれると `tests/run.sh` が赤くなる
 - **変異テスト**: 腕の一覧は `tests/mutations.json`、実行器は `tests/mutate.py`。口（変わったファイルの腕だけ撃つ・起点の版から機械で腕を作る・期限を受ける・前の結果を持ち越す・返答の形を組む）の綴りは `python3 tests/mutate.py --help` が正本。腕の字列が今の版に在るかは `tests/run.sh` が毎回見る
 

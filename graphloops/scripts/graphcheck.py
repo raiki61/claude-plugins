@@ -32,6 +32,7 @@
      via が指す実体が同梱されている、resume_on_reject が 0 以上の整数
  13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
  14. 回す側の任せ先（delegate）: delegate は回す側の節にだけ・skills を持つ節には書けない（入れ子の委任）。
+     走らせるだけの節（engine_run）は回す側の節にだけ・名前が rules の ENGINE_RUNS に在り plan と reply を持つ。
      background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景の節をほかの節が待たない（deps・instance_deps）。
      {{node.<欄>}} は engine が埋める欄（skills）だけ
 
@@ -750,6 +751,17 @@ def check(gpath, script=None, emit=print):
         # ——回した周にしか出ないので、静的に無いことが痛みとして現れにくい（engine/advance.py の die と同じ不変条件）
         if same and rb in isolated:
             errs.append(f"節 {k}: 遮断系（道具ゼロ）の役 '{rb}' に same_context_as——前の節の文脈を持ち込むと遮断が崩れる")
+        er = v.get("engine_run")
+        if er is not None:
+            # 走らせるだけの節: 回す側の節にだけ（任せ先に落ちたときに回す側の節として出る）・名前が rules の ENGINE_RUNS に在り、
+            # 計画（plan）と返答を組む関数（reply）の両方を持つ・理由を書く
+            entry = registry(rules, "ENGINE_RUNS").get(er.get("builtin")) if isinstance(er, dict) else None
+            if rb not in runners:
+                errs.append(f"節 {k}: engine_run は回す側の節（runners）にだけ書ける——宣言が無いときは回す側の節として出る")
+            elif not (isinstance(er, dict) and set(er) == {"builtin", "why"} and isinstance(er.get("why"), str) and er["why"].strip()):
+                errs.append(f"節 {k}: engine_run は {{builtin: rules の ENGINE_RUNS の名前, why: engine が走らせてよい理由}}")
+            elif not (isinstance(entry, dict) and callable(entry.get("plan")) and callable(entry.get("reply"))):
+                errs.append(f"節 {k}: engine_run.builtin '{er.get('builtin')}' が rules の ENGINE_RUNS に無いか、plan と reply を持たない")
         if rb == "driver":
             if v.get("builtin") not in node_builtins:
                 errs.append(f"節 {k}: builtin '{v.get('builtin')}' が rules の BUILTINS に無い")

@@ -1,0 +1,6 @@
+{
+  "suite": [
+    {"name": "tests/run.sh", "argv": ["bash", "tests/run.sh"]},
+    {"name": "pytest", "argv": ["uv", "run", "--no-project", "--with", "pytest==9.1.1", "python", "-m", "pytest", "graphloops/tests/py"]}
+  ]
+}
