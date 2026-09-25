@@ -8,7 +8,7 @@ import sys
 import threading
 
 from . import pointers
-from .advance import advance, emit_instance, load_item
+from .advance import advance, emit_instance, load_item, open_next_round
 from .board import Board, empty_round
 from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
@@ -128,9 +128,10 @@ def check_graph(graph, validator):
 def cmd_next(a):
     b = Board(resolve_dir(a))
     if b.state.get("halted"):
-        # 周の途中の問いで止めた run——後の節は 1 つも出さない（報告も書かない。止めた所と理由は halted に在る）
+        # 止めた run（周の途中の問い・無人の問い・init --stop-after-round）——後の節は 1 つも出さない（報告も書かない。
+        # 止めた所と理由は halted に在る）
         print(dump({"status": b.state["status"], "round": b.round, "ready": [], "halted": b.state["halted"],
-                    "note": "周の途中の問いで止めた（halted）。後の節は出さない"}))
+                    "note": f"止めた run（halted: {b.state['halted'].get('by')}）。後の節は出さない"}))
         return
     if b.state["status"] in TERMINAL_STATUS and all(b.node_state(n) != "pending" for n in b.nodes):
         print(dump({"status": b.state["status"], "round": b.round, "ready": [], "note": "全部の節が終わっている。record.json と report を見よ"}))
@@ -151,12 +152,16 @@ def cmd_next(a):
         # パスは json.dumps が Windows の区切りを二重化するので印にできない）
         "status": b.state["status"], "round": b.round, "thickness": b.state["thickness"],
         "dir": str(b.dir), "run_id": b.state.get("run_id"), "notes": notes,
+        **({"halted": b.state["halted"]} if b.state.get("halted") else {}),
         "ready": [{**{k: v for k, v in i.items() if k != "tree_before"}, **waiting(i)} for i in ready],
         "how": ("ready の全部を同時に始めてよい（同じ波）。"
                 "**launch を持つ節（遮断系の cli・道具つきの agent・同じ役を続ける agent_continue）は loop.py launch を呼べ**"
                 "——engine が役を claude -p で起こし、子の終了を直接待ち、返答を out_path に書き、受け付け（done）まで済ませる。"
                 "拒まれたら同じ会話（--resume）に続きを頼む。時間の上限は無い。"
-                "launch は役が終わるまで戻らないので **Bash の背景実行で立て、プロセスの終了の知らせを待て**（前景だと Bash の上限で切られる）。"
+                "launch は役が終わるまで戻らず、前景だと Bash の上限（10 分）で切られるので Bash の背景実行に回す——**回したら手番を終えるな**。"
+                "背景の出力のファイル（ハーネスが返す置き場。自分でリダイレクトしない）に launch の要約（\"launched\"）が出るまで、"
+                "前景で 1 回 10 分未満の見に行くコマンドを繰り返せ（例: for i in $(seq 1 54); do grep -q '\"launched\"' <出力のファイル> && break; sleep 10; done）。"
+                "完了の知らせを待たない（知らせで起こされずに止まった。実測 2026-09-25）。先頭が sleep のコマンドは Bash が拒み、上限の無い until ループは止まらないので使わない。"
                 "返るのは 1 件 1 行の要約だけで、役の返答の本文は回す側に流れない。"
                 "自分の Bash から claude を起こすな（出力をファイルに落とす綴りは auto mode の分類器が止める。実測 2026-09-15）。"
                 "Agent ツールで起こすな（CLAUDE.md が注入され、止める設定が無い。返答の本文が回す側に入る）。"
@@ -767,10 +772,12 @@ def cmd_answer(a):
             if not b.tiers:
                 raise Reject("この loop に段（thickness.tiers）が無いので escalate できない")
             thicken(b, b.tiers[-1], "依頼者の判断（諮った結果）", by="answer")
-        b.new_round()
-        fn2 = hook(b.rules, "on_new_round")
-        if fn2:
-            fn2(b)
+        if not open_next_round(b, ph["node"]):
+            b.rd["done"][ph["node"]] = {"at": now(), "builtin": f"answer:{ans}"}
+            b.state["done_ever"][ph["node"]] = b.round
+            b.save()
+            print(f"ok 答え '{ans}' を記録した。init --stop-after-round {b.state['stop_after_round']} の指定で、次の周は開かずに止めた（halted）")
+            return
     b.save()
     print(f"ok 答え '{ans}' を記録した。続きは loop.py next")
 
@@ -802,14 +809,29 @@ def cmd_thicken(a):
 
 
 def cmd_add(a):
+    """rules の add に渡し、返りが名指す instance（積んだ欄を読む、まだ起こしていない instance）を描き直す。
+    返りは文か {msg, redraw: [instance の id]}——プロンプトは instance を出した時点で固まるので、描き直さないと
+    積んだ物が起こす前の役に届かない（黙って落ちる）"""
     b = Board(resolve_dir(a))
     fn = hook(b.rules, "add")
     if not fn:
         raise Reject("このループの rules は add を受け付けない")
-    msg = fn(b, read_json(a.file), a.reason)
+    got = fn(b, read_json(a.file), a.reason)
+    msg, redraw = (got, []) if isinstance(got, str) else (got["msg"], got.get("redraw") or [])
+    bad = [x for x in redraw if (b.rd["instances"].get(x) or {}).get("status") != "pending"]
+    if bad:
+        die(f"rules の add が描き直せと言う {bad} は、今の周の待っている instance でない（rules の欠陥）")
+    lines = []
+    for iid in redraw:
+        prev = b.rd["instances"][iid]
+        new = reissue(b, prev, f"add で積んだ物を届けるため描き直した（{a.reason}）")
+        retire_out(prev["out_path"], prev.get("attempts", 1))
+        b.trace("redrawn", instance=iid, attempt=new["attempts"], reason=a.reason)
+        lines.append(f"{iid} を試行 {new['attempts']} として描き直した（prompt_file {new['prompt_file']}・out_path {new['out_path']}）"
+                     + ("" if new.get("launch") else "——engine が起こさない節なので、前の試行を起こしていたら止めて、新しい prompt_file で起こせ"))
     b.trace("add", reason=a.reason)
     b.save()
-    print(f"ok {msg}")
+    print("ok " + msg + "".join("。" + x for x in lines))
 
 
 def cmd_patch(a):
@@ -850,7 +872,8 @@ def cmd_status(a):
     st = b.state
     print(dump({
         "dir": str(b.dir), "run_id": st.get("run_id"), "loop": st["loop_name"], "status": st["status"], "round": b.round, "thickness": st["thickness"],
-        "max_rounds": st["max_rounds"], "unattended": st["unattended"],
+        "max_rounds": st["max_rounds"], "stop_after_round": st.get("stop_after_round"), "unattended": st["unattended"],
+        "halted": st.get("halted"),
         "this_round": {"done": sorted(b.rd["done"]), "na": b.rd["na"], "skipped": b.rd["skipped"], "empty": b.rd["empty"],
                        "pending_instances": [{"id": i["id"], **waiting(i)} for i in b.rd["instances"].values() if i["status"] == "pending"]},
         "pending_human": st.get("pending_human"), "validator": st.get("validator"),
@@ -896,21 +919,12 @@ def cmd_relaunch(a):
         prev = handed_prev(b)
         if prev["out_path"] != str(old):
             raise Reject(f"'{a.node}' は読んでいる間に別の relaunch で起こし直された（今の置き場は {prev['out_path']}）——新しい試行は作っていない")
-        item = load_item(prev, b.dir)
-        nid = prev["node"]
-        suffix = a.node[len(nid + (f"[{item['key']}]" if item else "")):]
-        n = prev.get("attempts", 1)
-        new = emit_instance(b, nid, item, suffix=suffix, attempt=n + 1)
-        if "tree_before" in prev:
-            new["tree_before"] = prev["tree_before"]
-        new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": a.reason,
-                                                                 "prev_emitted_at": prev["emitted_at"], "prev_out_path": str(old)}]
-        b.trace("relaunched", instance=a.node, attempt=n + 1, reason=a.reason)
-        return dict(new), n
+        new = reissue(b, prev, a.reason)
+        b.trace("relaunched", instance=a.node, attempt=new["attempts"], reason=a.reason)
+        return dict(new), prev.get("attempts", 1)
 
     new, n = _board_update(d, bump)
-    if old.is_file():
-        old.replace(old.with_name(old.name + f".stale-a{n}"))
+    retire_out(old, n)
     whys = [w for w in (stop_group(m) for m in marks) if w]
     if whys:
         die(f"新しい試行（{new['out_path']}）は作ったが、前の試行の子を止められない（{'; '.join(whys)}）——止まるまで launch するな"
@@ -918,6 +932,31 @@ def cmd_relaunch(a):
     print(dump({"relaunched": {k: v for k, v in new.items() if k != "tree_before"},
                 "how": ("新しい out_path に書かせて起こし直せ（prompt_file は描き直した。前の試行の置き場は読まれない）。"
                         "engine が起こした前の試行の子は止めた。Agent で起こした前の試行は engine が止められないので、回す側が止めてから起こせ")}))
+
+
+def reissue(b, prev, reason):
+    """待っている instance を、同じ節・同じ項目の新しい試行として出し直す（プロンプトを今の盤面で描き直す）——新しい instance を返す。
+    relaunch（起こし直し）と add（起こす前の判定役に積んだ依頼を届ける）が呼ぶ。新しい試行は別の out_path（.a<試行>）を持つ。
+    作業ツリーの基準点（tree_before）は前の試行の物を引き継ぐ。**盤面の外には書かない**（relaunch が _board_update の当て直しの
+    中から呼ぶ）——前の置き場に在った物を .stale-a<試行> へ退けるのは、呼び出し側が retire_out で"""
+    old = pathlib.Path(prev["out_path"])
+    item = load_item(prev, b.dir)
+    nid = prev["node"]
+    suffix = prev["id"][len(nid + (f"[{item['key']}]" if item else "")):]
+    n = prev.get("attempts", 1)
+    new = emit_instance(b, nid, item, suffix=suffix, attempt=n + 1)
+    if "tree_before" in prev:
+        new["tree_before"] = prev["tree_before"]
+    new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason,
+                                                             "prev_emitted_at": prev["emitted_at"], "prev_out_path": str(old)}]
+    return new
+
+
+def retire_out(old, n):
+    """前の試行の置き場に在った物を .stale-a<試行> へ退ける（done は今の試行の置き場しか読まない）"""
+    old = pathlib.Path(old)
+    if old.is_file():
+        old.replace(old.with_name(old.name + f".stale-a{n}"))
 
 
 def cmd_record(a):
@@ -1003,6 +1042,11 @@ def cmd_init(a):
         die(f"--decider '{a.decider}' はこの loop の値（{sorted(deciders.values())}）に無い")
     if th and default in tiers and tiers.index(th) < tiers.index(default) and decider != deciders.get("downgrade"):
         die(f"{th} は依頼者が明示に指定した場合だけ——依頼者がそう言ったときに限り --decider {deciders.get('downgrade')} を添えて init する")
+    if a.stop_after_round is not None and a.stop_after_round < 1:
+        die(f"--stop-after-round は 1 以上（{a.stop_after_round}）——止める周の番号で、その周の締めの後で止まる")
+    fn = hook(rules, "check_inputs")
+    if fn:
+        fn(inputs)   # ループ固有の入力の値（flow・gates 等）は置き場を作る前に確かめる——拒んでも空の盤面を残さない
     d.mkdir(parents=True, exist_ok=False)
     fn = hook(rules, "init_record")
     record = fn(th, decider) if fn else {}
@@ -1011,6 +1055,7 @@ def cmd_init(a):
         "graph_sha": sha(graph_text(graph)),
         "created": now(), "status": "running", "round": 1, "rounds": [empty_round(1)],
         "thickness": th, "max_rounds": max_rounds_for(g, th), "unattended": bool(a.unattended),
+        **({"stop_after_round": a.stop_after_round} if a.stop_after_round is not None else {}),
         "inputs": inputs, "validator": validator, "outputs": {}, "done_ever": {}, "loop": {},
     }
     write_json(d / "state.json", state)

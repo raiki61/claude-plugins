@@ -3281,7 +3281,7 @@
    "title": "add はその周の判定役が起きる前だけ受ける",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if b.node_state(\"p2.diagnose\") != \"pending\" or any(i[\"node\"] == \"p2.diagnose\" for i in b.rd[\"instances\"].values()):",
+   "old": "    if _diagnose_started(b):",
    "new": "    if False:",
    "expect": "入口: 判定役が起きた後の add は拒み",
    "tests": {
@@ -4359,15 +4359,15 @@
   },
   {
    "id": "q05",
-   "title": "P0 の後の add は範囲に入らないと言う",
+   "title": "P0 の後の add は、起こす前の節を描き直して範囲に入れる",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if b.cond(ENTRY_BUILTIN)[0] and any(i[\"node\"] in SCOPED_P0 for i in b.rd[\"instances\"].values()):",
-   "new": "    if False:",
+   "old": "    redraw = [i[\"id\"] for i in readers if not own(i) and not _started(b, i)]",
+   "new": "    redraw = []",
    "marker": {
     "where": "after"
    },
-   "expect": "入口: P0 の節が出た後の add",
+   "expect": "入口: 起こす前の P0 の節は描き直し",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
@@ -4712,10 +4712,10 @@
   },
   {
    "id": "SP7",
-   "title": "知らない flow を init で拒む",
+   "title": "知らない flow・gates を init で拒む",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if v is not None and v != SPEC_FLOW:",
+   "old": "        if v is not None and v != want:",
    "new": "    if False:",
    "expect": "仕様の道: 知らない flow は init で拒む",
    "tests": {
@@ -5049,6 +5049,90 @@
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "RC1",
+   "title": "--stop-after-round の周の締めの後で次の周を開かない",
+   "file": "graphloops/engine/advance.py",
+   "suite": "graphloops",
+   "old": "    if n and b.round >= n:",
+   "new": "    if False:",
+   "expect": "1 周目の締めの後の next が stopped と halted",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_stop_after_round"
+    ]
+   }
+  },
+  {
+   "id": "RC2",
+   "title": "gates=merge の run は線を台帳に載せない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if files and ls.get(\"gates\") != GATES_MERGE:   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）",
+   "new": "    if files:",
+   "expect": "線と関門の instance は出ず、線の台帳は空",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "RC3",
+   "title": "gates=merge の run は収束を名乗らず gates_deferred で止まる",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if _would_converge(b) and ls.get(\"gates\") == GATES_MERGE:",
+   "new": "    if False:",
+   "expect": "収束する筋書きでも converge は収束を名乗らず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "RC4",
+   "title": "add の後に起こす前の instance を描き直す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    for iid in redraw:",
+   "new": "    for iid in []:",
+   "expect": "入口: 判定役の instance が出ていても起こす前の add は受け",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_request_entry"
+    ]
+   }
+  },
+  {
+   "id": "RC5",
+   "title": "--input の鍵の綴り違いを init で拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        near = difflib.get_close_matches(k, chosen, n=1, cutoff=0.75) if k not in chosen else []",
+   "new": "        near = []",
+   "expect": "鍵の綴り違い（gate=merge）は既定に倒さず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "RC6",
+   "title": "gates_deferred の run の報告に残る義務を書かせる",
+   "file": "graphloops/prompts/review-loop/report.human_items.md",
+   "suite": "graphloops",
+   "old": "「合流した版を gates=merge 無しの run で回し、最後の関門（最終のコードで変異の検算を撃ち直す）を通す——収束と言えるのはその run だけ」",
+   "new": "「」",
+   "expect": "止まった run も報告まで届き、報告の冒頭の指示書が",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
     ]
    }
   }

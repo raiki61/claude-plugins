@@ -76,7 +76,8 @@ def registry(rules, name):
 # engine が rules に探すフックの全部。**綴り違いと意図的な不在を分ける唯一の手掛かり**——getattr の名前一致だけ
 # だったとき、on_new_round を 1 字違えても静かに「このループは持たない」に倒れ、周をまたぐ持ち越しが消えないまま
 # 回り続けた。graphcheck がこの表を import して、rules の公開名のうち似て非なる物を落とす
-HOOKS = ("on_init", "on_new_round", "on_answer", "on_answer_in_round", "on_unattended", "on_thickness", "finalize", "check_record", "init_record", "add")
+HOOKS = ("on_init", "on_new_round", "on_answer", "on_answer_in_round", "on_unattended", "on_thickness", "finalize", "check_record", "init_record", "add",
+         "check_inputs")
 
 
 def hook(rules, name):

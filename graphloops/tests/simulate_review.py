@@ -3187,7 +3187,12 @@ def test_request_entry():
             if inst["node"] == "p0.base":
                 return {**out, "base_sha": head, "method": "4 依頼者の名指し", "commits": 0}
             if inst["node"] == "p2.diagnose" and rnd == 1:
-                # 判定役が起きた後の add は拒む（その周の判定に届かない依頼を黙って積まない）
+                # 判定役の instance が出ていても、起こす前（launch していない・返答の置き場が空）の add は受け、プロンプトを描き直す
+                f4 = run.tmp / "req4.json"
+                f4.write_text(json.dumps([{"where": "src/a.py:f", "text": "起こす前の依頼（検査用の目印 REQ-4d1）"}], ensure_ascii=False), encoding="utf-8")
+                late["before_launch"] = run.cmd("add", "--file", str(f4), "--reason", "判定役を起こす前（検査用）")
+            if rnd == 1 and "after_judge" not in late and "p2.diagnose" in run.state()["rounds"][0]["done"]:
+                # 判定役が済んだ後の add は拒む（その周の判定に届かない依頼を黙って積まない）
                 late["after_judge"] = run.cmd("add", "--file", str(f2), "--reason", "判定の後")
             if rnd == 2 and "r2" not in late:
                 # 2 周目の頭（判定の前）の add は受ける——途中の周の依頼の口。入口が続く周は最初に出るのが判定そのもので、そこでは拒まれる
@@ -3216,6 +3221,12 @@ def test_request_entry():
         prompt = (run.dir / "prompts" / "r1" / "p2.diagnose.md").read_text(encoding="utf-8")
         check(all(x in prompt for x in ("REQ-7f3", "利用者の依頼（検査用）", "REQ-2b9", "2 回目の依頼（検査用）")),
               f"入口: 判定のプロンプトに同じ周の 2 つのバッチが出どころつきで届く（{scenario}）")
+        bl = late.get("before_launch")
+        st1 = run.state()["rounds"][0]["instances"]["p2.diagnose"]
+        check(bl is not None and bl.returncode == 0 and "描き直した" in bl.stdout and "REQ-4d1" in prompt
+              and st1["attempts"] == 2 and ".a2." in st1["out_path"] and "add で積んだ物" in st1["attempt_log"][-1]["reason"],
+              f"入口: 判定役の instance が出ていても起こす前の add は受け、新しい試行として描き直したプロンプトに依頼が載る"
+              f"（{(bl.stdout[-200:] + bl.stderr[-200:]) if bl else '呼ばれていない'}）（{scenario}）")
         ab = late.get("after_judge")
         check(ab is not None and ab.returncode == 1 and "既に起きている" in ab.stderr and "新しい run" in ab.stderr,
               f"入口: 判定役が起きた後の add は拒み、次の周が来ないときの行き先も言う（{(ab.stderr[-200:] if ab else '呼ばれていない')}）（{scenario}）")
@@ -3224,7 +3235,8 @@ def test_request_entry():
               f"入口: 印は 1 周目の P1 前の最初の add の出どころで立ち、手順トレースの欄を借りない（{proc.get('request_entry')}）（{scenario}）")
         batches = proc.get("request_history", []) + proc.get("request_findings", [])
         check(sorted((x["round"], x["origin"]) for x in batches) == sorted(
-                  [(1, "利用者の依頼（検査用）"), (1, "2 回目の依頼（検査用）")] + ([(2, "途中の周の依頼（検査用）")] if "r2" in late and late["r2"].returncode == 0 else [])),
+                  [(1, "利用者の依頼（検査用）"), (1, "2 回目の依頼（検査用）"), (1, "判定役を起こす前（検査用）")]
+              + ([(2, "途中の周の依頼（検査用）")] if "r2" in late and late["r2"].returncode == 0 else [])),
               f"入口: どの周のバッチも周と出どころつきで記録に残る（{[(x['round'], x['origin']) for x in batches]}）（{scenario}）")
         # P0 の範囲: 差分が空の入口の周は、依頼の where を範囲として P0 の 2 節に渡す（差分が空だから対象外、と返させない）
         pd = (run.dir / "prompts" / "r1" / "p0.prior_decisions.md").read_text(encoding="utf-8")
@@ -3339,15 +3351,42 @@ def test_request_entry():
           and not fix1({"request_entry": {"origin": "人"}}, {"request_fixed_at": 1}, 3)
           and not fix1({"request_entry": {"origin": "人"}}, {}, 2) and not fix1({}, {"request_fixed_at": 1}, 2),
           "入口: 最初に修正が入った次の周だけ真（その後の周・修正の無い run・印の無い run は偽）")
-    # P0 の節が出た後の add は、その周の P0 の範囲に入らないことを言う（黙って範囲外のまま clean を返させない）
+    # P0 の節が出た後の add: 起こす前の節は描き直して依頼の where を範囲に入れ、起きた節は入らないと言う（黙って範囲外のまま clean を返させない）
     run = Run("entry-p0late")
     add_req(run)
-    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p0.prior_decisions" for i in nx["ready"]))
+    nx = drive(run, "std", stop_at=lambda nx: any(i["node"] == "p0.prior_decisions" for i in nx["ready"]))
     f = run.tmp / "req-late.json"
     f.write_text(json.dumps([{"where": "src/b.py:g", "text": "遅い依頼（検査用）"}], ensure_ascii=False), encoding="utf-8")
     r = run.cmd("add", "--file", str(f), "--reason", "P0 の後の依頼")
-    check(r.returncode == 0 and "範囲に入らない" in r.stdout, f"入口: P0 の節が出た後の add は、その範囲に入らないと言う（{r.stdout[-160:]}{r.stderr[-160:]}）")
+    pd = (run.dir / "prompts" / "r1" / "p0.prior_decisions.md").read_text(encoding="utf-8")
+    check(r.returncode == 0 and "p0.prior_decisions を試行 2 として描き直した" in r.stdout and '"src/b.py:g"' in pd,
+          f"入口: 起こす前の P0 の節は描き直し、遅い依頼の where が範囲に入る（{r.stdout[-200:]}{r.stderr[-160:]}）")
+    # 起きた節（ここでは返答の置き場にファイルが在る）は描き直さず、依頼が入っていないと言う
+    inst = run.state()["rounds"][0]["instances"]["p0.prior_decisions"]
+    pathlib.Path(inst["out_path"]).write_text("{}", encoding="utf-8")
+    f.write_text(json.dumps([{"where": "src/c.py:h", "text": "もっと遅い依頼（検査用）"}], ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("add", "--file", str(f), "--reason", "起きた後の依頼")
+    check(r.returncode == 0 and "p0.prior_decisions" in r.stdout and "入っていない" in r.stdout
+          and run.state()["rounds"][0]["instances"]["p0.prior_decisions"]["attempts"] == 2,
+          f"入口: 起きた後の P0 の節は描き直さず、その範囲に依頼が入っていないと言う（{r.stdout[-200:]}{r.stderr[-160:]}）")
     rm(run.tmp)
+    # 判定役を起こした後（launched_at が在る）・返答の置き場にファイルが在る間は、instance が待ちでも add を拒む
+    for how in ("launched", "out_file"):
+        run = Run(f"entry-started-{how}")
+        add_req(run)
+        drive(run, "std", stop_at=lambda nx: any(i["node"] == "p2.diagnose" for i in nx["ready"]))
+        sp = run.dir / "state.json"
+        st = json.loads(sp.read_text(encoding="utf-8"))
+        inst = st["rounds"][0]["instances"]["p2.diagnose"]
+        if how == "launched":
+            inst.update(launched_at="2026-09-25T00:00:00+09:00", launch_state="running")
+            sp.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        else:
+            pathlib.Path(inst["out_path"]).write_text("{}", encoding="utf-8")
+        r = run.cmd("add", "--file", str(run.tmp / "req.json"), "--reason", "起きた後")
+        check(r.returncode == 1 and "既に起きている" in r.stderr,
+              f"入口: 判定役が起きた後（{how}）の add は、instance が待ちのままでも拒む（{r.stdout[-120:]}{r.stderr[-160:]}）")
+        rm(run.tmp)
     # 型の崩れた依頼の一覧は読まない（patch は型を通らずに書けるので、読む口 1 か所で当てる）
     lst, why = rules._requests(types.SimpleNamespace(record={"process": {"request_findings": {"origin": "旧い形", "findings": req}}}), "request_findings")
     check(lst == [] and why and "request_findings" in why, f"入口: 型の崩れた依頼の一覧は読まずに理由を返す（{why}）")
@@ -3372,6 +3411,97 @@ def test_request_entry():
           f"入口: P1 が走った後でも判定の前の add は受け、P1 はいつもどおりと言う（{(r.stdout[-160:] + r.stderr[-160:]) if r else '呼ばれていない'}）")
     check("request_entry" not in run.record()["process"] and "p1.local_review" in seen1,
           f"入口: P1 が走った後の add は入口の印を立てない（出た {sorted(seen1 & roles)}）")
+    rm(run.tmp)
+
+
+def test_stop_after_round():
+    """**N 周目で止める**（init --stop-after-round N）。周の締め（記録・検証器・収束の判定）までは済ませ、次の周を開かない。
+    止めたことは盤面（status・halted）と status の出力に出る。人の答えで周を開く口（answer continue）でも同じく止まる"""
+    print("N 周で止める: 1 周目の締めの後で止まり、2 周目の節を 1 つも出さない・answer continue の口でも止まる")
+    run = Run("stop1", init_args=["--stop-after-round", "1"])
+    check(run.init.returncode == 0, f"init が --stop-after-round を受ける（{run.init.stderr[-200:]}）")
+    last = drive(run, "std")
+    st = run.state()
+    check(last["status"] == "stopped" and (last.get("halted") or {}).get("by") == "stop_after_round" and not last["ready"],
+          f"1 周目の締めの後の next が stopped と halted（by=stop_after_round）を返す（{last.get('status')}・{last.get('halted')}）")
+    check(st["round"] == 1 and len(st["rounds"]) == 1 and "converge" in st["rounds"][0]["done"] and (run.dir / "rounds" / "round-1.json").is_file(),
+          f"周の締め（周の記録・converge）は済み、2 周目は開いていない（round {st['round']}・周 {len(st['rounds'])}）")
+    nx = run.next()
+    check(nx["status"] == "stopped" and not nx["ready"] and nx["halted"]["by"] == "stop_after_round" and "stop_after_round" in nx["note"],
+          f"止めた後の next は節を出さず、止めた口を言う（{nx.get('note')}）")
+    s = json.loads(run.cmd("status").stdout)
+    check(s["halted"]["by"] == "stop_after_round" and s["stop_after_round"] == 1 and s["status"] == "stopped",
+          f"status に halted と stop_after_round が出る（{s.get('halted')}・{s.get('stop_after_round')}）")
+    run.cmd("finalize")
+    proc = run.record()["process"]
+    check(proc.get("outcome") == "stopped" and proc.get("stop_reason") == "stop_after_round",
+          f"仕上げた記録に止めた理由が残る（{proc.get('outcome')}・{proc.get('stop_reason')}）")
+    rm(run.tmp)
+    # 人に聞く番の continue（周を開くもう 1 つの口）でも止まる
+    run = Run("stop1-answer", init_args=["--stop-after-round", "1"])
+    last = drive(run, "premise")
+    r = run.cmd("answer", "--text", "continue", "--note", "続けて（検査用）")
+    st = run.state()
+    check(last["status"] == "awaiting_human" and r.returncode == 0 and "halted" in r.stdout and st["status"] == "stopped"
+          and st["halted"]["by"] == "stop_after_round" and len(st["rounds"]) == 1,
+          f"answer continue でも次の周を開かずに止まる（{r.stdout[-160:]}{r.stderr[-160:]}・周 {len(st['rounds'])}）")
+    rm(run.tmp)
+    # 0 以下は置き場を作る前に拒む
+    run = Run("stop0", init_args=["--stop-after-round", "0"])
+    check(run.init.returncode == 2 and "1 以上" in run.init.stderr and not run.dir.exists(),
+          f"--stop-after-round 0 は init が拒み、盤面を残さない（{run.init.stderr[-160:]}）")
+    rm(run.tmp)
+
+
+def test_gates_merge():
+    """**変異の検算を合流でまとめる**（init --input gates=merge）。線と最後の関門は理由つきの条件外で閉じ、線は台帳に載らず、
+    収束する筋書きでも converge は収束を名乗らずに止まる（stop_reason=gates_deferred）。知らない値は盤面を作る前に拒む"""
+    print("合流でまとめる: 線と関門が理由つきの条件外・線の台帳が空・収束の手前で gates_deferred で止まる")
+    run = Run("gmerge", inputs=["gates=merge"])
+    check(run.init.returncode == 0, f"init が gates=merge を受ける（{run.init.stderr[-200:]}）")
+    seen = set()
+
+    def hook(run_, inst, out):
+        seen.add(inst["node"])
+        return None
+    last = drive(run, "std", hook=hook)
+    st = run.state()
+    proc = run.record()["process"]
+    check(last["status"] == "stopped" and proc.get("stop_reason") == "gates_deferred" and proc.get("outcome") == "stopped",
+          f"収束する筋書きでも converge は収束を名乗らず gates_deferred で止まる（{last['status']}・{proc.get('stop_reason')}）")
+    check(not {"p3.delta_gates", "p4.final_gates"} & seen and not st["loop"].get("lanes") and st["loop"].get("gates") == "merge",
+          f"線と関門の instance は出ず、線の台帳は空（出た {sorted({'p3.delta_gates', 'p4.final_gates'} & seen)}・lanes {st['loop'].get('lanes')}）")
+    na = [r["na"] for r in st["rounds"]]
+    check(all("gates=merge" in n.get("p3.delta_gates", "") for n in na) and "gates=merge" in na[-1].get("p4.final_gates", ""),
+          f"線と関門の na は合流でまとめる理由を運ぶ（{[n.get('p3.delta_gates', '')[:60] for n in na]}・{na[-1].get('p4.final_gates', '')[:60]}）")
+    hi = next((run.dir / "prompts").glob("r*/report.human_items.md")).read_text(encoding="utf-8")
+    check((run.dir / "report.md").is_file() and "gates_deferred" in hi and "gates=merge 無しの run で回し" in hi,
+          "止まった run も報告まで届き、報告の冒頭の指示書が止めた理由と残る義務（合流した版で関門を撃つ）を渡す")
+    rm(run.tmp)
+    for kv in ("gates=all", "flow=other"):
+        run = Run(f"gbad-{kv.split('=')[0]}", inputs=[kv])
+        check(run.init.returncode == 1 and "知らない値" in run.init.stderr and not run.dir.exists(),
+              f"--input {kv} は init が盤面を作る前に拒む（{run.init.stderr[-160:]}）")
+        rm(run.tmp)
+    run = Run("gbad-key", inputs=["gate=merge"])
+    check(run.init.returncode == 1 and "綴り違い" in run.init.stderr and not run.dir.exists(),
+          f"鍵の綴り違い（gate=merge）は既定に倒さず、init が盤面を作る前に拒む（{run.init.stderr[-160:]}）")
+    rm(run.tmp)
+
+
+def test_launch_wait_wording():
+    """**launch の待ち方の案内**が完了の知らせに頼らせない（next の how・手順書 2 本・loop.py の使い方の 4 か所）。
+    知らせを待った回す側が起こされずに止まった（実測 2026-09-25）。1 か所が戻ると回す側はそちらを読む"""
+    print("launch の待ち方: 4 か所とも『手番を終えるな』で、完了の知らせを待てと書かない")
+    run = Run("waitword")
+    how = run.next()["how"]
+    texts = {"next の how": how,
+             "review-graph.md": (PLUGIN / "commands" / "review-graph.md").read_text(encoding="utf-8"),
+             "research-graph.md": (PLUGIN / "commands" / "research-graph.md").read_text(encoding="utf-8"),
+             "loop.py": (PLUGIN / "scripts" / "loop.py").read_text(encoding="utf-8")}
+    for name, x in texts.items():
+        check("手番を終え" in x and "知らせを待て" not in x and "必ず知らせる" not in x,
+              f"{name}: launch を立てたら手番を終えずに見に行けと書き、完了の知らせを待てとは書かない")
     rm(run.tmp)
 
 
@@ -3692,8 +3822,8 @@ def test_lane_graph_shape():
     check(waiting == [], f"並行の線: 締めの節は線を待たない（待っている節: {waiting}）")
     check(nodes["p3.delta_gates"]["delegate"].get("background") is True and "p3.gates_cut" in nodes["p3.delta_gates"]["deps"],
           "並行の線: 線は修正と手直しが済んだ版（p3.gates_cut）の後に、背景の任せ先で立てる")
-    check("p4.final_gates" in nodes["converge"]["deps"] and nodes["p4.final_gates"]["cond"] == "would_converge",
-          "最後の関門: converge は関門を待ち、関門は収束しうる周にだけ撃つ")
+    check("p4.final_gates" in nodes["converge"]["deps"] and nodes["p4.final_gates"]["cond"] == "final_gate_due",
+          "最後の関門: converge は関門を待ち、関門は収束しうる周にだけ撃つ（合流でまとめる run は撃たない）")
     check("p3.lane_merge" in nodes["p3.fix"]["deps"], "合流: 線が足したテストは修正の前に重なる（この周の修正差分に載る）")
 
 
@@ -4665,6 +4795,14 @@ def test_cond_truth_tables():
                            (c(2, cur={"p4.record": {"branch": "next_round"}}, record={"materials": {"local_checks": {"status": "clean"}}}), False),
                            (c(2, record={"materials": {"local_checks": {"status": "clean"}}}), False),
                            (c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {}}), False)],
+        "gates_merge": [(c(), False), (c(loop={"gates": "merge"}), True), (c(loop={"gates": "other"}), False)],
+        "lane_due": [(c(2, loop={"gates_cut": {"round": 2, "files": ["a.py"]}}), True),
+                     (c(2, loop={"gates": "merge", "gates_cut": {"round": 2, "files": ["a.py"]}}), False),
+                     (c(2, loop={"gates_cut": {"round": 2, "files": []}}), False)],
+        "final_gate_due": [(c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}}), True),
+                           (c(2, loop={"gates": "merge"}, cur={"p4.record": {"branch": "converged"}},
+                              record={"materials": {"local_checks": {"status": "clean"}}}), False),
+                           (c(2, cur={"p4.record": {"branch": "next_round"}}, record={"materials": {"local_checks": {"status": "clean"}}}), False)],
         "units_open": [(c(record={"units": []}), False), (c(record={"units": [{"label": "block"}]}), True),
                        (c(record={"units": [{"label": "suggest", "disposition": "defer"}]}), False),
                        (c(record={"units": [{"label": "suggest", "disposition": "do-now"}]}), True)],

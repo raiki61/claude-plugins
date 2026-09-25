@@ -27,7 +27,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
    返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 2）。名指しが既定の導線である。
 
-   検証器は同じリポジトリの `scripts/review-record.py` か、インストール済みの convergence-loops から engine が探す（見つからなければ `--validator <path>`）。**`--validator` で外のファイルを指すときは、隣に `record_common.py` も置け**——検証器 4 本が共有する土台を自分の隣から import するので、検証器 1 本だけ写すと `ModuleNotFoundError` で落ちる（実測 2026-09-15）。無人で走るなら `--unattended`。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
+   検証器は同じリポジトリの `scripts/review-record.py` か、インストール済みの convergence-loops から engine が探す（見つからなければ `--validator <path>`）。**`--validator` で外のファイルを指すときは、隣に `record_common.py` も置け**——検証器 4 本が共有する土台を自分の隣から import するので、検証器 1 本だけ写すと `ModuleNotFoundError` で落ちる（実測 2026-09-15）。無人で走るなら `--unattended`。**N 周目で止める**なら `--stop-after-round N`——N 周目の締め（周の記録・検証器・収束の判定）まで済ませ、次の周を開かずに止まる（`status` が stopped、盤面と `status` の `halted` が `by: stop_after_round`。止めた後の `next` は節を出さず、報告も書かない）。並べた run を 1 周で止めて合流させるとき・プログラムが周の数を決めて回すときに使う。収束・人に聞く番（上限・前提不成立）はそれより先に来る。返ってきた `overview` を読め——ループ全体の形はここだけで渡す。
 
 2. **回す**。`next` を呼び、返った `ready` を全部こなし、`done` で返す。`status` が converged か stopped になって `ready` が空になるまで繰り返す:
 
@@ -41,7 +41,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
      ```bash
      python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" launch --dir <DIR>
      ```
-     **Bash の背景実行（run_in_background）で立て、プロセスの終了の知らせを待て**——`launch` は役が終わるまで戻らず、前景では Bash の上限で切られる。プロセスの終了はハーネスが必ず知らせるので、役の完了の通知が迷って止まる形にならない。返るのは 1 件 1 行の要約（`ok`・`why`・`session_id`・続きを頼んだ回数・費用）だけで、**役の返答の本文はあなたの文脈に入らない**。`ok` の節は受け付け済みなので `done` は要らない——そのまま `next`。
+     `launch` は役が終わるまで戻らず、前景では Bash の上限（10 分）で切られるので、Bash の背景実行（run_in_background）に回す——**回したら手番を終えるな**。背景の出力のファイル（ハーネスが返す置き場。自分でリダイレクトしない）に `launch` の要約（`"launched"` の JSON）が出るまで、前景で 1 回 10 分未満の見に行くコマンドを繰り返せ（例: `for i in $(seq 1 54); do grep -q '"launched"' <出力のファイル> && break; sleep 10; done`）。完了の知らせは待たない——engine と役の間は子の終了を直接待つ形にしたが、回す側と `launch` の間の知らせは届かないことがある（実測 2026-09-25: 判定役は盤面で済んでいたのに、知らせを待った回す側が 25 分止まった）。先頭が `sleep` のコマンドは Bash が拒み、上限の無い `until` ループは背景に回ると止まらないので使わない。返るのは 1 件 1 行の要約（`ok`・`why`・`session_id`・続きを頼んだ回数・費用）だけで、**役の返答の本文はあなたの文脈に入らない**。`ok` の節は受け付け済みなので `done` は要らない——そのまま `next`。
      - **ok でなければ `why` を読め**: 拒否が上限まで続いた・子が落ちた、なら `loop.py relaunch --node <id> --reason <理由>` で起こし直してから `launch`。relaunch は新しい試行を書いてから前の試行の子（とその孫の木）を止める（書く前に前の試行の印を確かめ、確かめられなければ新しい試行を作らない）——役が戻らないまま止めたいときも、`launch` の背景プロセスでなく relaunch で止めよ（`launch` を止めると同じ波の兄弟の役まで止まる）。`why` が『起こし直された古い試行』の行は次の手が要らない（止めたのは relaunch で、新しい試行の `launch` を待つ）。`stderr` の `with-auth: auth=…` が `none` / `keychain-miss(…)` なら認証が足りていない（`keychain(…)` / `inherited(…)` なら役の側）。作業ツリーの突合で止まった（investigator が作業ツリーを変えた等）なら、返答は `out_path` に在るので、戻してから `done --node <id>`（自分の変更なら `--accept-tree-change`）。包みを解けなかった回（『誤りで終わった』『result が無い』『標準出力が空』）と子が exit 0 以外で終わった回は、何が返ったかが盤面の `trace.jsonl` の `op` が `role_run` の行（`stdout_head`・`subtype`）に在る。包みでない出力を本文として読んだ回はその行の `envelope` が false で、会話の番号・費用などの要約が無く、拒まれても同じ会話に続きを頼まない。engine が起こせない節（`why` が『前置ではない』『旗が無い』『権限の形』『定義が読めない』『claude が無い』）は、迂回を組まず人に渡せ。
      - **自分の Bash から `claude` を起こすな**: 出力をファイルに落とす綴りは auto mode の分類器が『Auto-Mode Bypass』で止める（実測 2026-09-15）。止められても別の綴りを探すな。**Agent ツールで起こすな**——ハーネスが subagent に CLAUDE.md 階層を注入し、それを止める設定が公式に存在しない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-12 取得: 『Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.』）。役の返答の本文もあなたの文脈に入る。
      - **engine がどう起こすか**（何を起こすかは engine の柵 `launch_refusal` が argv から機械で縛る。graph の宣言は柵の根拠にしない）: 前置は認証だけを足す層（`scripts/with-auth.py`。**子は対話の claude の認証を継がない**——実測 2026-09-12: 『Failed to authenticate…』の 1 行・73 バイトが返った）。**道具ゼロの役**（`cold-reader` / `blind-judge`）は `--tools ""` と `--setting-sources ""` で起こす（実測 2026-09-12: Agent ツールで起こした道具ゼロの `cold-reader` が利用者の CLAUDE.md の 1 項目を逐語で引用した。`--setting-sources ""` を付けると消えた）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。**道具つきの役**（judge・inspector・investigator）も同じ綴りで起こす: 役の定義（`agents/<役>.md`）の本文を system prompt に足し、道具・モデル・effort を定義どおりに argv に並べ、権限を engine が道具から決めて明示する——既定は先に許した道具だけの `dontAsk`、コマンドを走らせる道具（Bash）を持つ役は分類器に掛ける `auto`、どちらも聞く先を持たない（`--permission-prompts none`）。分類器は外への書き込みを拒むが、読むだけの `gh` も拒む（実測 2026-09-25）ので、investigator は子では GitHub を WebFetch で読む。定義が道具の一覧を持たない役（comment-analyzer）・ファイルを書く道具を持つ役は engine が起こさない（下の「`launch` を持たない agent」）。道具つきの役にも **CLAUDE.md は読ませない**（`--setting-sources ""`）。理由は graph の `launch.tooled.why`: 役が見る物は graph の `reads` が宣言した物だけにする（観点の REVIEW.md は `reads` で渡している）／利用者の CLAUDE.md は回す側に向けた出力の作法で、JSON だけを返す契約とぶつかる（実測 2026-09-25）／利用者とプラグインのフックが子で発火しないので、読了の記録（`reads.jsonl`）が回す側の読みだけになる。材料は標準入力で渡るので、貼る上限に当たらない（2026-09-12 にこの環境——macOS・claude 2.1.269——で 748,883 バイトと 774,021 バイトの入力が欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。リポジトリのルート基準で、プラグインとして入れた実体には無いので clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
@@ -89,9 +89,19 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 3. あとは上の手順 2 と同じに回す。判定のプロンプトには依頼が「人の修正依頼」として役の観察と分けて載り、飛ばした P1 の素材は「判定から入る run のため、P1 の役を起こしていない」の理由つきで条件外（not_applicable）になる。
 
-**途中の周で依頼や観点を足す**: `add` は、その周の判定役（`p2.diagnose`）が起きる前なら、どの周でも何度でも受ける（入口の run でも通常の run でも）。積んだ依頼はその周の判定役にだけ届き、次の周の頭で `process.request_history` に移る（前の周の依頼の扱いは、単位と台帳を通して履歴の突合が運ぶ）。途中の周の `add` は P1 を外さない——P1 を外すのは、上の手順 2 の位置で始めた run だけである。判定役が起きた後の `add` は拒まれる: 次の周が来るならその判定の前に足し、来ない（収束した・終わった）なら、新しい run を判定から始めよ。
+**途中の周で依頼や観点を足す**: `add` は、その周の判定役（`p2.diagnose`）が起きる前なら、どの周でも何度でも受ける（入口の run でも通常の run でも）。`next` が判定役の節を出していても、起こす前（`launch` していない・返答の置き場が空）なら受け、積んだ依頼を読む節のうち起きていない物を engine が新しい試行として描き直す（`add` の返りが描き直した `prompt_file` と `out_path` を言う。engine が起こさない節は、前の試行を起こしていたら止めてから新しい `prompt_file` で起こせ）。依頼は `add` で積め——`loop.py patch` で積んだ依頼は描き直されず、出たまま起こしていない判定役のプロンプトに入らない。積んだ依頼はその周の判定役にだけ届き、次の周の頭で `process.request_history` に移る（前の周の依頼の扱いは、単位と台帳を通して履歴の突合が運ぶ）。途中の周の `add` は P1 を外さない——P1 を外すのは、上の手順 2 の位置で始めた run だけである。判定役が起きた後（起こした・返答が在る・済んだ）の `add` は拒まれる: 次の周が来るならその判定の前に足し、来ない（収束した・終わった）なら、新しい run を判定から始めよ。
 
 **代償**: 依頼の外を見る目（衛生・手順トレース・外部標準・ゲートの検算など）はその周に無い。依頼の周りの別の欠陥を拾えるのは判定役と修正前後の審査だけである。入口が効くのは修正が入るまでで、修正が 1 ファイルでも入った次の周からは、通常の run と同じく P1 が修正差分を見る（修正が 0 行のまま周が進めば、次の周も P1 は外れたままで、1 周目の依頼もその周の判定役に届き続ける。判定が依頼を全部却下すれば、P1 を起こさないまま収束して報告まで届く）。報告の冒頭には判定から入った run であることと、どの周に何件の依頼が積まれたかが載る。`loop.py patch` は手当ての口として、依頼の欄（`process.request_findings`）も入口の印（`process.request_entry`）も書ける（痕跡は `state.patches` に残る）。型の検査は add と rules の読む口（依頼の一覧は移し替え・素材の理由の件数・次の add、印は入口の判定）にだけ在る——依頼の一覧は型が崩れていれば移し替えにも件数にも使わず次の add も拒み、印は型が崩れていれば入口にならない。判定のプロンプトは欄をそのまま載せるので、patch で依頼を置くなら add と同じ型（`[{round, origin, findings}]`）にせよ。
+
+## 変異の検算を合流でまとめる（選んだときだけ）
+
+並べた run を後で 1 つの版に合流させるとき、各 run が自分で変異の検算を撃つと、合流した版での撃ち直しと負荷を食い合う（実測 2026-09-25: 4 本が各自撃って負荷 99）。選ぶのは `init` の指定 1 か所だけで、既定（指定しない run）は今のまま撃つ:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop review-loop --request "<依頼>" --input gates=merge
+```
+
+`gates` に `merge` 以外の値を渡すと init が盤面を作る前に拒む。選んだ run では、変異の検算の並行の線（`p3.delta_gates`）と最後の関門（`p4.final_gates`）が理由つきの条件外（na）で閉じ、線は立たない（盤面の線の台帳に載らない）。関門は消えていない——検証器が阻害なしで CI が緑の周に来ても収束を名乗らず、`converge` が `stopped`（記録の `process.stop_reason` が `gates_deferred`）で止まる。**残る義務**: 合流した版を `gates=merge` 無しの run で回し、そこで最後の関門を撃つ。収束と言えるのはその run だけである。P1 のゲートの検算（`p1.gate_efficacy`。差分がゲートに触れた周に同じ実行器を撃つ）はこの選択の外で、各 run で撃つ。TDD の流れ（下）と一緒に選ぶと、線が立たないので周ごとの効き目の `lane_missed` は埋まらない（撃っていない）。
 
 ## TDD の流れで回す（選んだときだけ）
 

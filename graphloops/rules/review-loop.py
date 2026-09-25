@@ -45,7 +45,32 @@ def on_init(b, args):
     b.state["inputs"]["repo_review_md"] = str(repo_md) if repo_md.is_file() else None
     b.state["inputs"]["scripts_dir"] = str(pathlib.Path(b.state["validator"]).parent) if b.state.get("validator") else None
     b.state["inputs"]["rounds_dir"] = str(b.dir / "rounds")
-    spec_input_check(b)   # 仕様の道の切り替え（flow）の値——知らない値を今の流れに倒さない
+    # 条件の関数は inputs を読めない（条件の文脈は record・out・prev・cur・round・rd・loop だけ）ので、選んだ流れを loop に写す。
+    # 値は init の後に変わらない（inputs は init で固まる）。値は check_inputs が置き場を作る前に確かめてある
+    # flow の写しは、選べる流れの選び方を 1 つに揃える問い（問いの台帳の fork: 仕様の道を extends の版にするか）の決着で、
+    # flow の入力ごと消える
+    inputs = b.state["inputs"]
+    if inputs.get("flow") is not None:
+        b.loop_state["flow"] = inputs["flow"]
+    if inputs.get("gates") is not None:
+        b.loop_state["gates"] = inputs["gates"]
+
+
+def check_inputs(inputs):
+    """init の入口（置き場を作る前）で、選ぶ入力の鍵と値を確かめる——綴り違いの鍵や知らない値を既定（今の流れ）に倒さない。
+    仕様の道（flow=spec）と、変異の検算を合流でまとめる選択（gates=merge）"""
+    import difflib
+    chosen = {"flow": SPEC_FLOW, "gates": GATES_MERGE}
+    for k in inputs:
+        # 鍵の綴り違い（gate=merge）は、黙って既定（撃つ）に倒れると選んだつもりの害がそのまま起きる。似て非なる鍵を落とす
+        # （graphcheck がフック名の綴り違いを落とすのと同じ形）
+        near = difflib.get_close_matches(k, chosen, n=1, cutoff=0.75) if k not in chosen else []
+        if near:
+            raise Reject(f"--input {k}=… は鍵 {near[0]} の綴り違いに見える（知らない鍵は既定の流れに倒れる）——{near[0]}={chosen[near[0]]} と書け")
+    for k, want in chosen.items():
+        v = inputs.get(k)
+        if v is not None and v != want:
+            raise Reject(f"--input {k}={v!r} は知らない値（使えるのは {k}={want}。今の流れなら {k} を渡さない）")
 
 
 # ---------------------------------------------------------------- 人の修正依頼と、判定から入る入口（R12）
@@ -76,13 +101,26 @@ def _requests(b, field):
     return ([], f"process.{field}: " + "; ".join(errs)) if errs else (v, None)
 
 
+def _started(b, inst):
+    """instance の役がもう入力を読んだか（読んだかもしれないか）: 起こした（launched_at）・返答の置き場にファイルが在る・待ちでない。
+    プロンプトは instance を出した時点で固まるので、読む前なら描き直せば後から積んだ物が届く"""
+    return inst["status"] != "pending" or bool(inst.get("launched_at")) or pathlib.Path(inst["out_path"]).is_file()
+
+
+def _diagnose_started(b):
+    """その周の判定役（p2.diagnose）が起きたか——add の締めの唯一の式。節が済んだか、instance のどれかが起きた"""
+    return b.node_state("p2.diagnose") != "pending" or any(
+        i["node"] == "p2.diagnose" and _started(b, i) for i in b.rd["instances"].values())
+
+
 def add(b, items, reason):
     """人の修正依頼を、この周の判定役に渡すバッチとして record.process.request_findings に積む（loop.py add）。
-    その周の判定役（p2.diagnose）が起きる前なら、どの周でも何度でも受ける。1 周目の P1 より前の最初の add だけが
-    入口の印（request_entry）を立てる——その run は修正が入るまで P1 の役を起こさない"""
-    if b.node_state("p2.diagnose") != "pending" or any(i["node"] == "p2.diagnose" for i in b.rd["instances"].values()):
-        raise Reject(f"round {b.round} の判定役は既に起きている——依頼はその周の判定の前にだけ足せる。次の周が来るならその判定の前に足せ。"
-                     "次の周が来ない（収束した・終わった）run なら、新しい run を init し、最初の next の前に add して判定から始めよ")
+    その周の判定役（p2.diagnose）が起きる前なら——instance が出ていても、起こす前（出力が無い間）なら——どの周でも何度でも受ける。
+    1 周目の P1 より前の最初の add だけが入口の印（request_entry）を立てる——その run は修正が入るまで P1 の役を起こさない。
+    返りの redraw は、積んだ欄を読む（graph の reads）まだ起きていない他へ渡した instance——engine がプロンプトを描き直す"""
+    if _diagnose_started(b):
+        raise Reject(f"round {b.round} の判定役は既に起きている（起こした・返答が在る・済んだ）——依頼はその周の判定役を起こす前にだけ足せる。"
+                     "次の周が来るならその判定の前に足せ。次の周が来ない（収束した・終わった）run なら、新しい run を init し、最初の next の前に add して判定から始めよ")
     batch = {"round": b.round, "origin": reason, "findings": items}
     errs = validate_schema([batch], REQUEST_SCHEMA)
     if errs:
@@ -95,14 +133,27 @@ def add(b, items, reason):
     opened = b.round == 1 and b.node_state("p1.worktree_before") == "pending" and "request_entry" not in proc
     if opened:
         proc["request_entry"] = {"origin": reason}
-    b.loop_state["request_wheres"] = request_wheres(b)   # P0 の範囲の読み口も積んだ時点で引き直す（worktree_before の後の add を落とさない）
+    wheres = request_wheres(b)
+    wrote = ["record.process.request_findings", *(["record.process.request_entry"] if opened else []),
+             *(["loop.request_wheres"] if wheres != b.loop_state.get("request_wheres") else [])]
+    b.loop_state["request_wheres"] = wheres   # P0 の範囲の読み口も積んだ時点で引き直す（worktree_before の後の add を落とさない）
+    # 積んだ欄を読む節（正本は graph の reads）の、待っている instance。起きていない他へ渡した物は描き直し、起きた物・回す側の節は言う
+    near = lambda r, w: r == w or w.startswith(r + ".") or r.startswith(w + ".")
+    readers = [i for i in b.rd["instances"].values()
+               if i["status"] == "pending" and any(near(r, w) for r in b.nodes[i["node"]].get("reads", []) for w in wrote)]
+    own = lambda i: b.is_runner(b.nodes[i["node"]]) and not b.nodes[i["node"]].get("delegate")
+    redraw = [i["id"] for i in readers if not own(i) and not _started(b, i)]
+    stale = [i["id"] for i in readers if i["id"] not in redraw]
     msg = f"人の依頼 {len(items)} 件を round {b.round} の判定に積んだ（出どころ: {reason}）"
-    if b.cond(ENTRY_BUILTIN)[0] and any(i["node"] in SCOPED_P0 for i in b.rd["instances"].values()):
-        msg += f"。この周の {'・'.join(SCOPED_P0)} は既に出ているので、この依頼の where はその範囲に入らない（範囲に入れるなら最初の next の前に積め）"
+    if stale:
+        msg += (f"。{'・'.join(stale)} は起きた後か回す側の節なので描き直していない——この依頼はそのプロンプトに入っていない"
+                "（回す側の節なら、描き直した盤面の値で答えよ。範囲に入れるなら最初の next の前に積め）")
     if opened:
-        return msg + "。判定から入る run として始まる——修正が入るまで P1 の役は起こさない"
-    return msg + ("。この run は判定から入る run で、修正が入るまで P1 の役は起こさない" if b.cond(ENTRY_BUILTIN)[0]
-                  else "。P1 の役はいつもどおり走る（入口の印を立てるのは、1 周目の P1 より前の add だけ）")
+        msg += "。判定から入る run として始まる——修正が入るまで P1 の役は起こさない"
+    else:
+        msg += ("。この run は判定から入る run で、修正が入るまで P1 の役は起こさない" if b.cond(ENTRY_BUILTIN)[0]
+                else "。P1 の役はいつもどおり走る（入口の印を立てるのは、1 周目の P1 より前の add だけ）")
+    return {"msg": msg, "redraw": redraw}
 
 
 def _entry_marked(v):
@@ -136,12 +187,9 @@ def entry_first_fix(v):
     return at == rnd - 1, f"判定から入る run で、最初に修正が入った周は {at}（今は {rnd} 周目）"
 
 
-# 範囲を差分から取る P0 の節。判定から入る run の周は差分が空なので、依頼の where（loop.request_wheres）を範囲にする
-SCOPED_P0 = ("p0.prior_decisions", "p0.parallel_pr")
-
-
 def request_wheres(b):
-    """判定から入る run の周に、この周の判定に届く依頼の where の一覧（P0 の節の範囲の読み口）。そうでない周は []——
+    """判定から入る run の周に、この周の判定に届く依頼の where の一覧（範囲を差分から取る P0 の節——先行議論・並行 PR——の
+    範囲の読み口。判定から入る run の周は差分が空なので、依頼の where を範囲にする）。そうでない周は []——
     差分が在る周の範囲は差分で、依頼の where を足さない。正本は process.request_findings（_requests が型を当てる）"""
     if not b.cond(ENTRY_BUILTIN)[0]:
         return []
@@ -596,6 +644,12 @@ def rejudge_exhausted(v):
 # 版ごとに読む。途中の版で撃った結果は、その版の結果でしかない——収束の前に最終のコードで撃ち直す（p4.final_gates）
 LANE_HANDLED = ("tests_added", "equivalent", "needs_test", "defect")   # 見逃しへの答え。schema（$defs.lane_reply）の enum と同じ語
 LANE_OPEN = ("needs_test", "defect")   # 線の中で閉じなかった答え——次の周の判定へ渡す（needs_test は線がテストを書けなかった物）
+# **変異の検算を合流でまとめる run**（init --input gates=merge）。並べた run がそれぞれ撃つと、合流した版での撃ち直しと
+# 負荷を食い合う（実測 2026-09-25: 4 本が各自撃って負荷 99）。選んだ run は線（p3.delta_gates）も最後の関門（p4.final_gates）も
+# 条件外で閉じ、収束の手前で止まる（converge の gates_deferred）——関門は消さず、合流した版を gates=merge 無しの run で回して撃つ
+# （GitHub の merge queue と同じ形: 重い検査はまとめた版に対して走らせる）。P1 のゲートの検算（p1.gate_efficacy）はこの選択の外
+GATES_MERGE = "merge"   # inputs.gates の値。これ以外の値は init で拒む（check_inputs）
+GATES_MERGE_WHY = "変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
 
 
 def _unproven(arms):
@@ -629,7 +683,7 @@ def gates_cut(b, nid):
     cut = {"round": b.round, "from": frm, "rev": snap, "files": files,
            "result": str(d / f"{tag}.json"), "patch": str(d / f"{tag}.patch")}
     ls["gates_cut"] = {**cut, "reply_schema": _lane_schema(b)}
-    if files:
+    if files and ls.get("gates") != GATES_MERGE:   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）
         ls.setdefault("lanes", {})[snap] = {**{k: v for k, v in cut.items() if k != "files"}, "state": "running"}
     return {"ok": True, "rev": snap, "files": files}
 
@@ -651,6 +705,20 @@ def gates_cut_nonempty(v):
     """線を立てるか（条件の関数）: この周のコードが周の頭から変わったか"""
     n = len((_in_round(v("loop.gates_cut", None), v("round")) or {}).get("files") or [])
     return bool(n), f"この周のコードは周の頭から {n} ファイル変わった"
+
+
+@cond_reads("loop.gates")
+def gates_merge(v):
+    """変異の検算を合流でまとめる run か（条件の部品。lane_due・final_gate_due が読む）"""
+    got = v("loop.gates", None)
+    return got == GATES_MERGE, (GATES_MERGE_WHY if got == GATES_MERGE else "変異の検算をこの run で撃つ（init --input gates=merge が無い）")
+
+
+@cond_reads(*gates_merge.reads, *gates_cut_nonempty.reads)
+def lane_due(v):
+    """線を立てるか（p3.delta_gates の条件）: 合流でまとめる run でなく、この周のコードが周の頭から変わったとき"""
+    merged, why = gates_merge(v)
+    return (False, why) if merged else gates_cut_nonempty(v)
 
 
 def _lane_errors(b, out, rev, final):
@@ -777,9 +845,16 @@ def _would_converge(b):
 
 @cond_reads("cur.p4.record", "record.materials")
 def would_converge(v):
-    """最後の関門を撃つか（条件の関数）: 関門の他が全部そろった周だけ——撃つのは最終のコードに対してだけ"""
+    """関門の他が全部そろった周か（条件の部品）——撃つのは最終のコードに対してだけ"""
     ok = _converge_ready(v("cur.p4.record", None), lambda: v("record.materials").get("local_checks", {}).get("status"))
     return ok, "検証器が阻害なしで、この周の CI が緑" if ok else "検証器の阻害なしか、この周の CI の緑が欠ける"
+
+
+@cond_reads(*gates_merge.reads, *would_converge.reads)
+def final_gate_due(v):
+    """最後の関門を撃つか（p4.final_gates の条件）: 合流でまとめる run でなく、関門の他が全部そろった周"""
+    merged, why = gates_merge(v)
+    return (False, why) if merged else would_converge(v)
 
 
 def _final_gate_problems(b):
@@ -1005,7 +1080,7 @@ def r2_premise_invalid(v):
 LOOP_KEYS = frozenset({
     "block_counts", "changed_files", "changed_files_file", "closed_keys", "cold_check", "coverage_after", "defer_ledger",
     "diff_file", "diff_lines", "diff_lines_by_round", "diff_stat", "drift_notes", "engine_zero", "escalated", "facts_to_add",
-    "flow", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "last_material", "last_review", "last_seen",
+    "flow", "gates", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "last_material", "last_review", "last_seen",
     "ledger_changed", "lines_at_r1", "lines_ratio", "open_units", "outcome", "prev_blocks", "prev_declared_faces",
     "prev_fix_files", "prev_one_shot", "prev_questions", "prev_rejudge", "prev_scalars", "prev_units", "purpose_known",
     "purpose_review_stale", "purpose_unusable", "r1_refire", "r2_refire", "r2_refire_forced", "rejudge_requested",
@@ -1030,6 +1105,7 @@ CONDS = {
     "overview_due": overview_due, "r2_premise_invalid": r2_premise_invalid,
     "rejudge_open": rejudge_open, "rejudge_exhausted": rejudge_exhausted,
     "gates_cut_nonempty": gates_cut_nonempty, "would_converge": would_converge,
+    "gates_merge": gates_merge, "lane_due": lane_due, "final_gate_due": final_gate_due,
     # 素材の applies_cond（走った節が『条件に当たらない』を名乗れるか）が指す部品
     "touches_procedures": touches_procedures, "gates_touched": gates_touched, "seams_touched": seams_touched,
     "user_path_touched": user_path_touched,
@@ -1707,6 +1783,13 @@ def converge(b, nid):
     # 回り続けた（実測 2026-09-13: round 9 / max 5 で running）。収束する周（阻害なし・CI 緑・最後の関門が通る）だけは上限より優先して収束させる。
     # **converged を返す道はこの 1 本の条件だけが開く**——関門の条件を読む場所を 1 か所にする（上限の柵と収束の分岐が別々に
     # branch と CI を見直していると、片方に足した条件をもう片方が飛ばす）
+    if _would_converge(b) and ls.get("gates") == GATES_MERGE:
+        # 関門の他が全部そろったが、関門は合流した版で撃つ run——収束を名乗らずに止める（上限の柵より先に。関門を撃たない
+        # まま next_round にすると、関門が撃っていないことを理由に上限まで回る）
+        ls["outcome"] = "stopped"
+        ls["stop_reason"] = "gates_deferred"
+        return {"decision": "stopped", "reason": f"検証器は阻害なし・CI 緑だが、{GATES_MERGE_WHY}——収束を言うのは、"
+                                                "合流した版を gates=merge 無しの run で回し、最後の関門が通った時だけ"}
     gate = _final_gate_problems(b) if _would_converge(b) else None
     will_converge = gate == []
     if b.round >= b.state["max_rounds"] and not will_converge:
@@ -3105,7 +3188,8 @@ def finalize(b):
     rec, ls = b.record, b.loop_state
     proc = rec["process"]
     proc["outcome"] = ls.get("outcome", "stopped")
-    proc["stop_reason"] = ls.get("stop_reason")
+    # init --stop-after-round で止めた run は converge が next_round を返した後なので loop に理由が無い——止めた口（halted）の理由を写す
+    proc["stop_reason"] = ls.get("stop_reason") or (b.state.get("halted") or {}).get("by")
     proc["defer_ledger"] = ls.get("defer_ledger", {})
     proc["validator_outputs"] = ls.get("validator_outputs", {})
     proc["drift_notes"] = ls.get("drift_notes", [])
@@ -3152,7 +3236,7 @@ def on_unattended(b, ph):
 # ---------------------------------------------------------------- 仕様の道（選んだときだけ）
 # 新しい仕組みを作る依頼で、受け入れ条件を先に固めてから判定に入る道。init の `--input flow=spec` だけが選び、
 # 既定（flow を渡さない）は今の流れのまま——spec.* の節は cond（spec_flow）が偽で na になり、ここの builtin と post_check は
-# 呼ばれない（呼ばれるのは init の spec_input_check と、条件の評価の spec_flow・spec_revise_due だけ）。
+# 呼ばれない（呼ばれるのは init の check_inputs・on_init と、条件の評価の spec_flow・spec_revise_due だけ）。
 # 今の流れの関数からここは呼ばない（将来のブロック分割で『仕様ブロック』へ移す単位）。受け入れ条件の本文
 # （Given/When/Then）の正本は対象リポジトリのテストのファイルで、記録はその置き場・sha・承認の時点の終了コードだけを持つ
 # （写さない）。同じテストが TDD の『先に書く赤いテスト』になる——record.process.spec.acceptance[].run がその呼び方。
@@ -3163,19 +3247,6 @@ SPEC_ORIGIN = "仕様（人が承認した受け入れ条件。テストの本�
 SPEC_PROVENANCE = "【仕様の受け入れ条件——テストの本文は writer が書き、人は承認しただけ。役の観察と同じく反証の対象】"
 SPEC_RUN_TIMEOUT = 600      # 受け入れ条件 1 件の run の上限（秒）
 GWT = ("Given", "When", "Then")
-
-
-def spec_input_check(b):
-    """init の入口で flow の値を確かめる（on_init が呼ぶ）。知らない値を既定（今の流れ）に倒さない"""
-    v = b.state["inputs"].get("flow")
-    if v is not None and v != SPEC_FLOW:
-        raise Reject(f"--input flow={v!r} は知らない値（使えるのは flow={SPEC_FLOW}。今の流れなら flow を渡さない）")
-    # 条件の関数は inputs を読めない（条件の文脈は record・out・prev・cur・round・rd・loop だけ）ので、選んだ流れを loop に写す。
-    # 値は init の後に変わらない（inputs は init で固まる）——spec_flow は inputs.flow を読むのと同じ真偽になる。
-    # この写しは、選べる流れの選び方を 1 つに揃える問い（問いの台帳の fork: 仕様の道を extends の版にするか）の決着で、
-    # flow の入力ごと消える。拒んだ run は engine の init が置き場ごと消す（盤面も current も残らない）
-    if v is not None:
-        b.loop_state["flow"] = v
 
 
 @cond_reads("loop.flow")

@@ -4206,7 +4206,7 @@
    "deps": [
     "p3.gates_cut"
    ],
-   "cond": "gates_cut_nonempty",
+   "cond": "lane_due",
    "source": "P3 ＞ 変異の検算と見逃しへの答え（並行の線。周の締めを止めない）",
    "does": "この周の変更（周の頭 → 周の終わり）を、別の git worktree の上で変異の検算にかけ、見逃した腕ごとにテストを足す（tests_added）・振る舞いの変わらない変異と宣言する（equivalent）・テストでは閉じないと申告する（defect）。結果は置き場に書き、engine の記録には書かない",
    "outputs": [
@@ -5104,7 +5104,7 @@
    "deps": [
     "p4.record"
    ],
-   "cond": "would_converge",
+   "cond": "final_gate_due",
    "source": "P4 ＞ 最後の関門（最終のコードで変異の検算を撃ち直す）",
    "does": "BASE からの変更全部を、この周に固めた最終の版で撃ち直し、見逃した腕ごとに equivalent（振る舞いの変わらない変異）・needs_test・defect で答える。作業ツリーには書かない。converge は、見逃しが全部 equivalent で、テスト一式が緑で、撃った版の後に作業ツリーが変わっていないときだけ収束と言う",
    "outputs": [

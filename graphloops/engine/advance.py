@@ -425,10 +425,9 @@ def run_driver_node(b, nid, n, notes):
         return False
     mark_done()
     if d == "next_round":
-        b.new_round()
-        fn2 = hook(b.rules, "on_new_round")
-        if fn2:
-            fn2(b)
+        if not open_next_round(b, nid):
+            notes.append(f"{nid}: init --stop-after-round {b.state['stop_after_round']} の指定で、{b.round} 周目の締めの後に止めた（次の周は開かない）")
+            return False
     elif d == "ask":  # 無人実行（有人は上で止めている）
         b.state["pending_human"] = {"node": nid, **out["ask"]}
         fn2 = hook(b.rules, "on_unattended")
@@ -514,6 +513,26 @@ def frozen_outputs_stale(b, notes):
         b.trace("stale_frozen", node=nid, errors=len(errs))
         notes.append(f"{nid} は once で凍った出力（round {b.state['outputs'][nid]['round']}）が今の schema に合わない"
                      f"（{'; '.join(errs[:3])}）。**この欄を読む cond・述語は永久に偽になる**。痕跡は process.stale_frozen")
+
+
+def open_next_round(b, nid):
+    """次の周を開く唯一の口（周の締めの next_round と、人の答えの continue / escalate が呼ぶ）。
+    init --stop-after-round N の run は、N 周目の締めの後で開かずに止める——偽を返し、盤面は stopped と halted
+    （by=stop_after_round）になる。止めた後の next は halted の分岐が後の節を出さない。並べた run を 1 周で止めて
+    合流させる運用と、プログラムが回す形のために、周の数を run の外が決める口（実測 2026-09-25: 止める口が無く、
+    R の後の next 1 回で次の周の P1 まで開いた）"""
+    n = b.state.get("stop_after_round")
+    if n and b.round >= n:
+        b.state["status"] = "stopped"
+        b.state["halted"] = {"node": nid, "round": b.round, "by": "stop_after_round",
+                             "reason": f"init --stop-after-round {n}: {b.round} 周目の締め（記録・収束の判定）の後で止めた——次の周は開いていない"}
+        b.trace("halted", by="stop_after_round", round=b.round)
+        return False
+    b.new_round()
+    fn = hook(b.rules, "on_new_round")
+    if fn:
+        fn(b)
+    return True
 
 
 def advance(b):
