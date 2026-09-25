@@ -1441,11 +1441,14 @@ def test_research_tooled_launch():
             return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
 
         tools = agent_def(role)["tools"]
-        mode, allowed = tooled_permission(tools)
-        check(L.get("kind") == "tooled" and after("--tools") == ",".join(tools) and after("--allowedTools") == ",".join(allowed)
-              and after("--permission-mode") == mode and after("--permission-prompts") == "none" and after("--setting-sources") == ""
+        perm = tooled_permission(tools)
+        # 形（sandbox / read_only）は起こす環境で決まるので、ここでは Bash を持つかどうかで分かれることだけを見る
+        forms = ("sandbox", "read_only") if "Bash" in tools else ("plain",)
+        check(L.get("kind") == "tooled" and after("--tools") == ",".join(tools) and after("--allowedTools") == ",".join(perm["allowed_tools"])
+              and after("--permission-mode") == perm["permission_mode"] and after("--permission-prompts") == "none"
+              and after("--setting-sources") == "" and L.get("form") in forms and (after("--settings") == "{}") == (L.get("form") != "sandbox")
               and "--agents" not in argv and L.get("stdin") == inst["prompt_file"],
-              f"{inst['node']}（{role}）は tooled の形: 定義の道具・engine が決めた権限・聞く先無し・設定を読まない・材料は stdin（{argv[2:]}）")
+              f"{inst['node']}（{role}）は tooled の形: 定義の道具・engine が決めた権限と設定・聞く先無し・設定を読まない・材料は stdin（{L.get('form')} {argv[2:]}）")
     rm(run.tmp)
     # 起こす語は review-loop の graph と同じ（理由の正本は review-loop の why。語がずれたら片方だけが古い）
     here = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))["launch"]
@@ -1721,8 +1724,14 @@ def test_engine_launch():
 
     # **柵は graph の宣言を読まない。** graph を書き換えられる立場の人が柵ごと書き換えられるので、
     # engine は「自分の前置」と「遮断の旗」だけを見る
+    from engine.validator import agent_def
+    cold = agent_def("convergence-loops:cold-reader")
+    role_file = run.tmp / "cold-reader.txt"
+    role_file.write_text(cold["body"], encoding="utf-8")
     good = {"agent_type": "convergence-loops:cold-reader",
-            "launch": {"argv": launch_prefix() + ["claude", "--tools", "", "--setting-sources", ""], "stdin": str(fake)}}
+            "launch": {"argv": launch_prefix() + ["claude", "-p", "--model", cold["model"], "--effort", cold["effort"], "--tools", "",
+                                                  "--setting-sources", "", "--append-system-prompt-file", str(role_file),
+                                                  "--output-format", "json"], "stdin": str(fake)}}
     check(launch_refusal(good) is None, f"前置と旗が揃っていれば起こす（{launch_refusal(good)}）")
     for mut, want in ((lambda a: a[:1] + a[2:], "前置"),                    # 同梱の層を外す
                       (lambda a: [x for x in a if x != "--tools"], "旗")):  # 遮断の旗を落とす
@@ -1973,65 +1982,169 @@ def test_relaunch_live_launch():
 
 
 def test_tooled_launch_fence():
-    """道具つきの役を engine が起こしてよい形（launch_refusal の 2 形目）。**入口ごとに 1 本ずつ倒して撥ねることを見る**。"""
+    """道具つきの役を engine が起こしてよい形（launch_refusal の 2 形目）。**入口ごとに 1 本ずつ倒して撥ねることを見る**。
+    柵は許可表なので、倒し方は「値を変える」「要る旗を落とす」「知らない語を足す」の 3 系統を全部撃つ。"""
+    from engine import role_run
     from engine.commands import launch_prefix, launch_refusal
-    from engine.role_run import tooled_permission
-    print("道具つきの柵: 設定を読まない・聞く先が無い・権限の形と道具は役の定義から engine が決めた値だけ")
+    from engine.role_run import protected_paths, tooled_permission
+    from engine.validator import agent_def
+    print("道具つきの柵: 許可表の旗だけ・設定を読まない・聞く先が無い・権限の形と道具と sandbox の設定は engine が決めた値だけ")
     _td, tmp = parallel.workspace("gl-tooledfence-")
     stdin = tmp / "p.md"
     stdin.write_text("x", encoding="utf-8")
+    # 子が起きる作業ツリー（linked worktree を 1 本持つ）と盤面の置き場
+    repo, other, board = tmp / "repo", tmp / "wt2", tmp / "board"
+    board.mkdir()
+    for args in (["init", "-q", str(repo)], ["-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                                                  "--allow-empty", "-m", "x"], ["-C", str(repo), "worktree", "add", "-q", str(other)]):
+        subprocess.run(["git", *args], capture_output=True, check=True)
+    real = os.path.realpath
     tools = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]  # agents/judge.md の道具
-    mode, allowed = tooled_permission(tools)
-    check(mode == "dontAsk" and allowed == tools, f"コマンドを走らせない役は dontAsk で、道具を全部先に許す（{mode} {allowed}）")
-    m2, a2 = tooled_permission(["Read", "Bash", "WebFetch"])
+    perm = tooled_permission(tools)
+    check(perm == {"form": "plain", "permission_mode": "dontAsk", "allowed_tools": tools, "settings": "{}"},
+          f"コマンドを走らせない役は dontAsk で、道具を全部先に許し、設定は空（{perm}）")
     # 許すコマンドは字面で持つ——期待を tooled_permission から導くと、定数に gh api を足しても起こす側・柵・検査が揃って変わり緑のまま
     read_rules = ["Bash(gh issue list:*)", "Bash(gh issue view:*)", "Bash(gh pr list:*)", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
                   "Bash(gh search:*)", "Bash(gh repo view:*)", "Bash(git remote get-url:*)"]
-    check(m2 == "dontAsk" and a2 == ["Read", "WebFetch"] + read_rules,
-          f"Bash を持つ役も dontAsk にし、Bash を丸ごと許さず読むだけのコマンドの前置だけを許す（gh api は許さない）（{m2} {a2}）")
-    body = ["claude", "-p", "--model", "opus", "--effort", "high", "--tools", ",".join(tools), "--allowedTools", ",".join(allowed),
-            "--permission-mode", mode, "--permission-prompts", "none", "--setting-sources", "", "--output-format", "json"]
-    good = {"agent_type": "convergence-loops:judge", "launch": {"argv": launch_prefix() + body, "stdin": str(stdin)}}
-    check(launch_refusal(good) is None, f"揃った形は起こす（{launch_refusal(good)}）")
+    saved = role_run.sandbox_available
+    try:
+        role_run.sandbox_available = lambda: False
+        p2 = tooled_permission(["Read", "Bash", "WebFetch"], repo, board)
+        check(p2 == {"form": "read_only", "permission_mode": "dontAsk", "allowed_tools": ["Read", "WebFetch"] + read_rules, "settings": "{}"},
+              f"sandbox を使えない環境では Bash を持つ役も dontAsk にし、Bash を丸ごと許さず読むだけのコマンドの前置だけを許す（gh api は許さない）（{p2}）")
+        role_run.sandbox_available = lambda: True
+        p3 = tooled_permission(["Read", "Bash", "WebFetch"], repo, board)
+        box = json.loads(p3["settings"]).get("sandbox") or {}
+        want_deny = sorted({real(repo), real(repo / ".git"), real(other), real(board)})
+        check(p3["form"] == "sandbox" and p3["permission_mode"] == "dontAsk" and p3["allowed_tools"] == ["Read", "WebFetch"] + read_rules,
+              f"sandbox を使える環境では Bash を持つ役を sandbox の形で起こし、gh は読むだけの前置で縛ったまま（{p3['form']} {p3['allowed_tools']}）")
+        check(box.get("enabled") is True and box.get("allowUnsandboxedCommands") is False and box.get("failIfUnavailable") is True
+              and box.get("autoAllowBashIfSandboxed") is True and box.get("excludedCommands") == ["gh:*"]
+              and box.get("network") == {"allowedDomains": [], "strictAllowlist": True},
+              f"sandbox の形: 外へ出る口を閉じ、起きなければ起動で落ち、gh だけ外で権限に掛け、中からの通信は無し（{box}）")
+        check((box.get("filesystem") or {}).get("denyWrite") == want_deny,
+              f"書き込みを止める場所は、自分を含む作業ツリーの根の全部・共有の .git・盤面の置き場（{(box.get('filesystem') or {}).get('denyWrite')}）")
+        plain_dir = tmp / "plain"
+        plain_dir.mkdir()
+        check(protected_paths(plain_dir, board) == sorted({real(plain_dir), real(board)}),
+              f"git の作業ツリーでない場所では cwd と盤面だけを守る（{protected_paths(plain_dir, board)}）")
 
-    def swap(flag, val):
-        return lambda a: [val if i > 0 and a[i - 1] == flag else x for i, x in enumerate(a)]
+        def body_of(role):
+            d = agent_def(role)
+            rf = tmp / (role.replace(":", "__") + ".txt")
+            rf.write_text(d["body"], encoding="utf-8")
+            return d, rf
 
-    def drop(flag):
-        return lambda a: [x for i, x in enumerate(a) if x != flag and not (i > 0 and a[i - 1] == flag)]
+        def argv_for(role, p, resume=None):
+            d, rf = body_of(role)
+            words = ["claude", "-p"] + (["--resume", resume] if resume else []) + [
+                "--model", d["model"], "--effort", d["effort"], "--tools", ",".join(d["tools"]),
+                "--allowedTools", ",".join(p["allowed_tools"]), "--permission-mode", p["permission_mode"],
+                "--settings", p["settings"], "--permission-prompts", "none", "--setting-sources", "",
+                "--append-system-prompt-file", str(rf), "--output-format", "json"]
+            return launch_prefix() + words
 
-    # 入口ごとの腕（tests/mutations.json の TF*）が名指しで落とせるよう、検査の名前は字面で書く
-    for mut, want, desc in ((drop("--setting-sources"), "旗", "柵: 利用者の設定を読む子は起こさない"),
-                            (drop("--permission-prompts"), "旗", "柵: 聞く先を持つ子は起こさない"),
-                            (lambda a: a + ["--dangerously-skip-permissions"], "権限を外す旗", "柵: 権限を外す旗を持つ子は起こさない"),
-                            (swap("--permission-mode", "bypassPermissions"), "--permission-mode", "柵: 権限の形を広げた子は起こさない"),
-                            (swap("--tools", ",".join(tools + ["Write"])), "--tools", "柵: 役の定義に無い道具を持つ子は起こさない"),
-                            (swap("--allowedTools", ",".join(allowed + ["Bash"])), "--allowedTools", "柵: 先に許す道具を広げた子は起こさない"),
-                            (lambda a: a + ["--tools", "Bash"], "--tools", "柵: 旗を重ねて後勝ちを狙う子は起こさない")):
-        why = launch_refusal({**good, "launch": {"argv": mut(good["launch"]["argv"]), "stdin": str(stdin)}}) or ""
-        check(want in why, f"{desc}（{why[:70]}）")
-    # コマンドを走らせる役（investigator）: 揃った形は起こし、先に許すコマンドを広げた形は撥ねる
-    itools = ["Read", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"]  # agents/investigator.md の道具
-    imode, iallowed = tooled_permission(itools)
-    ibody = list(body)
-    ibody[ibody.index("--tools") + 1] = ",".join(itools)
-    ibody[ibody.index("--allowedTools") + 1] = ",".join(iallowed)
-    ibody[ibody.index("--permission-mode") + 1] = imode
-    igood = {"agent_type": "convergence-loops:investigator", "launch": {"argv": launch_prefix() + ibody, "stdin": str(stdin)}}
-    check(launch_refusal(igood) is None, f"Bash を持つ役の揃った形は起こす（{launch_refusal(igood)}）")
-    for extra, desc in (("Bash(gh api:*)", "柵: 書ける gh api を先に許した子は起こさない"), ("Bash", "柵: Bash を丸ごと先に許した子は起こさない")):
-        why = launch_refusal({**igood, "launch": {"argv": swap("--allowedTools", ",".join(iallowed + [extra]))(igood["launch"]["argv"]),
-                                                  "stdin": str(stdin)}}) or ""
-        check("--allowedTools" in why, f"{desc}（{why[:70]}）")
+        def refuse(inst):
+            return launch_refusal(inst, repo, board)
+
+        good = {"agent_type": "convergence-loops:judge", "launch": {"argv": argv_for("convergence-loops:judge", perm), "stdin": str(stdin)}}
+        check(refuse(good) is None, f"揃った形は起こす（{refuse(good)}）")
+
+        def swap(flag, val):
+            return lambda a: [val if i > 0 and a[i - 1] == flag else x for i, x in enumerate(a)]
+
+        def drop(flag):
+            return lambda a: [x for i, x in enumerate(a) if x != flag and not (i > 0 and a[i - 1] == flag)]
+
+        def with_argv(inst, argv):
+            return {**inst, "launch": {**inst["launch"], "argv": argv}}
+
+        other_file = tmp / "other.txt"
+        other_file.write_text("別の本文", encoding="utf-8")
+        # 入口ごとの腕（tests/mutations.json の TF*）が名指しで落とせるよう、検査の名前は字面で書く
+        for mut, want, desc in ((swap("--setting-sources", "user"), "--setting-sources", "柵: 利用者の設定を読む子は起こさない"),
+                                (swap("--permission-prompts", "ask"), "--permission-prompts", "柵: 聞く先を持つ子は起こさない"),
+                                (drop("--setting-sources"), "argv に無い", "柵: 要る旗を落とした子は起こさない"),
+                                (lambda a: a + ["--dangerously-skip-permissions"], "許可表に無い", "柵: 権限を外す旗を持つ子は起こさない"),
+                                (lambda a: a + ["--allowed-tools", "Bash"], "許可表に無い", "柵: 別名の旗で道具を足した子は起こさない"),
+                                (lambda a: a + ["--allowedTools=Bash"], "許可表に無い", "柵: = 綴りの旗で道具を足した子は起こさない"),
+                                (lambda a: a + ["--add-dir", "/"], "許可表に無い", "柵: 作業ディレクトリを足した子は起こさない"),
+                                (lambda a: a + ["--mcp-config", str(stdin)], "許可表に無い", "柵: MCP の設定を足した子は起こさない"),
+                                (lambda a: a + ["--agents", "{}"], "許可表に無い", "柵: 役の定義を差し込んだ子は起こさない"),
+                                (lambda a: a + ["余分"], "許可表に無い", "柵: 余分な位置引数を持つ子は起こさない"),
+                                (swap("--permission-mode", "bypassPermissions"), "--permission-mode", "柵: 権限の形を広げた子は起こさない"),
+                                (swap("--tools", ",".join(tools + ["Write"])), "--tools", "柵: 役の定義に無い道具を持つ子は起こさない"),
+                                (swap("--allowedTools", ",".join(tools + ["Bash"])), "--allowedTools", "柵: 先に許す道具を広げた子は起こさない"),
+                                (swap("--model", "haiku-other"), "--model", "柵: 役の定義と違うモデルの子は起こさない"),
+                                (swap("--output-format", "stream-json"), "--output-format", "柵: 返答の包みを変えた子は起こさない"),
+                                (swap("--append-system-prompt-file", str(other_file)), "--append-system-prompt-file",
+                                 "柵: 役の定義でない本文を system prompt に足した子は起こさない"),
+                                (swap("--settings", '{"permissions": {"allow": ["Bash"]}}'), "--settings", "柵: 設定で権限を配る子は起こさない"),
+                                (lambda a: a + ["--tools", "Bash"], "--tools", "柵: 旗を重ねて後勝ちを狙う子は起こさない"),
+                                (lambda a: a + ["--tools", ",".join(tools)], "2 度", "柵: 同じ旗を 2 度渡す子は起こさない（同じ値でも）")):
+            why = refuse(with_argv(good, mut(good["launch"]["argv"]))) or ""
+            check(want in why, f"{desc}（{why[:70]}）")
+        # 続きの語（--resume）は engine が決めた会話だけ: 続きを頼む語は穴の字面、起こす語は instance の会話の番号
+        check(refuse({**good, "launch": {**good["launch"], "resume_argv": argv_for("convergence-loops:judge", perm, "{session_id}")}}) is None,
+              "続きを頼む語の --resume は穴の字面なら起こす")
+        why = refuse(with_argv(good, argv_for("convergence-loops:judge", perm, "someone-else"))) or ""
+        check("--resume" in why, f"柵: engine が決めていない会話を続ける子は起こさない（{why[:70]}）")
+        check(refuse({**with_argv(good, argv_for("convergence-loops:judge", perm, "sess-1")), "session_id": "sess-1"}) is None,
+              "前の節の会話（instance の session_id）を続ける語は起こす")
+        bad_resume = {**good, "launch": {**good["launch"], "resume_argv": drop("--permission-prompts")(good["launch"]["argv"])}}
+        check("argv に無い" in (refuse(bad_resume) or ""), "続きを頼む語にも同じ柵が当たる")
+
+        # コマンドを走らせる役（investigator）の sandbox の形: 揃った形は起こし、設定の 1 か所でも緩めた形は撥ねる
+        itools = agent_def("convergence-loops:investigator")["tools"]
+        iperm = tooled_permission(itools, repo, board)
+        igood = {"agent_type": "convergence-loops:investigator",
+                 "launch": {"argv": argv_for("convergence-loops:investigator", iperm), "stdin": str(stdin)}}
+        check(iperm["form"] == "sandbox" and refuse(igood) is None, f"Bash を持つ役の sandbox の形は起こす（{iperm['form']} {refuse(igood)}）")
+        for extra, desc in (("Bash(gh api:*)", "柵: 書ける gh api を先に許した子は起こさない"), ("Bash", "柵: Bash を丸ごと先に許した子は起こさない")):
+            why = refuse(with_argv(igood, swap("--allowedTools", ",".join(iperm["allowed_tools"] + [extra]))(igood["launch"]["argv"]))) or ""
+            check("--allowedTools" in why, f"{desc}（{why[:70]}）")
+
+        def loosen(fn):
+            s = json.loads(iperm["settings"])
+            fn(s["sandbox"])
+            return json.dumps(s, ensure_ascii=False)
+
+        wt_deny = [x for x in want_deny if x != real(other)]
+        for fn, want, desc in ((lambda s: s.update(enabled=False), "sandbox が", "柵: sandbox を切った子は起こさない"),
+                               (lambda s: s.update(allowUnsandboxedCommands=True), "sandbox が", "柵: sandbox の外へ出る口を開けた子は起こさない"),
+                               (lambda s: s.update(failIfUnavailable=False), "sandbox が", "柵: sandbox が起きなくても走る子は起こさない"),
+                               (lambda s: s["network"].update(allowedDomains=["api.github.com"]), "sandbox が", "柵: 通信の宛先を足した子は起こさない"),
+                               (lambda s: s.update(excludedCommands=["gh:*", "python3:*"]), "sandbox が", "柵: sandbox の外で走るコマンドを足した子は起こさない"),
+                               (lambda s: s["filesystem"].update(allowWrite=["/"]), "sandbox が", "柵: 書ける場所を足した子は起こさない"),
+                               (lambda s: s["filesystem"].update(denyWrite=wt_deny), "denyWrite", "柵: 守る作業ツリーを欠いた子は起こさない")):
+            why = refuse(with_argv(igood, swap("--settings", loosen(fn))(igood["launch"]["argv"]))) or ""
+            check(want in why, f"{desc}（{why[:70]}）")
+        s = json.loads(iperm["settings"])
+        s["hooks"] = {}
+        why = refuse(with_argv(igood, swap("--settings", json.dumps(s))(igood["launch"]["argv"]))) or ""
+        check("--settings のキー" in why, f"柵: sandbox の外のキー（hooks）を混ぜた子は起こさない（{why[:70]}）")
+        why = refuse(with_argv(igood, drop("--settings")(igood["launch"]["argv"]))) or ""
+        check("argv に無い" in why, f"柵: sandbox の設定を落とした子は起こさない（{why[:70]}）")
+        more = loosen(lambda s: s["filesystem"].update(denyWrite=s["filesystem"]["denyWrite"] + [str(tmp / "gone")]))
+        check(refuse(with_argv(igood, swap("--settings", more)(igood["launch"]["argv"]))) is None,
+              "起こした後に消えた作業ツリーを守る場所に残した子は起こす（守る場所の包含で見る）")
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(tmp / "wt3")], capture_output=True, check=True)
+        why = refuse(igood) or ""
+        check("relaunch" in why, f"柵: 起こした後に増えた作業ツリーを守らない子は起こさず、引き直しを促す（{why[:70]}）")
+        # sandbox を使えない環境: 読むだけの形の語は起こし、sandbox の設定を持つ語は撥ねる（形は起こす時に engine が決め直す）
+        role_run.sandbox_available = lambda: False
+        rperm = tooled_permission(itools, repo, board)
+        rgood = {**igood, "launch": {**igood["launch"], "argv": argv_for("convergence-loops:investigator", rperm)}}
+        check(rperm["form"] == "read_only" and refuse(rgood) is None, f"sandbox を使えない環境では読むだけの形で起こす（{refuse(rgood)}）")
+        check("--settings のキー" in (refuse(igood) or ""), "sandbox を使えない環境では sandbox の設定を持つ語を起こさない")
+    finally:
+        role_run.sandbox_available = saved
     from engine.advance import tooled_launchable
     for d, desc in (({"tools": ["Read", "Write"], "model": "opus", "effort": "high"}, "ファイルを書く道具を持つ役は engine が起こさない"),
                     ({"tools": ["*"], "model": "opus", "effort": "high"}, "道具の一覧を持たない役は engine が起こさない"),
                     ({"tools": ["Read"], "model": "inherit", "effort": "high"}, "モデルを名指ししない役は engine が起こさない")):
         check(not tooled_launchable(d), desc)
     check(tooled_launchable({"tools": ["Read"], "model": "sonnet", "effort": "medium"}), "道具を名指しした読むだけの役は engine が起こす")
-    # 続きの語（--resume）にも同じ柵が当たる
-    bad_resume = {**good, "launch": {**good["launch"], "resume_argv": drop("--permission-prompts")(good["launch"]["argv"])}}
-    check("旗" in (launch_refusal(bad_resume) or ""), "続きを頼む語にも同じ柵が当たる")
     # 役の定義が読めない役は、形が決まらないので起こさない
     check("定義が読めない" in (launch_refusal({**good, "agent_type": "no-such-plugin:nobody"}) or ""), "定義の読めない役は起こさない")
     rm(tmp)

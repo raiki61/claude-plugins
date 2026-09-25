@@ -28,8 +28,10 @@ import datetime
 import json
 import os
 import pathlib
+import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 
@@ -54,28 +56,109 @@ COMMAND_TOOLS = ("Bash",)
 # カンマで割って比べる）
 READ_COMMANDS = ("gh issue list", "gh issue view", "gh pr list", "gh pr view", "gh pr diff", "gh search", "gh repo view",
                  "git remote get-url")
+# sandbox の形の設定のうち、起こす場所に依らない値。書き込みを止める場所（filesystem.denyWrite）は protected_paths が起こす時に足す。
+# - autoAllowBashIfSandboxed: sandbox の中のコマンドは dontAsk の下でも聞かずに通す（計器を前置で列挙しても任意のコードを許すのと
+#   同じなので、守りは OS の境界に置く）
+# - allowUnsandboxedCommands false・failIfUnavailable true: sandbox の外へ出る口を閉じ、sandbox が起きなければ起動時に誤りで終わる
+#   （既定の false では警告だけ出して sandbox の外で走る——claude 2.1.282 の設定の説明文）
+# - excludedCommands に gh: gh は sandbox の外で走り、権限の流れ（dontAsk ＋ READ_COMMANDS）に落ちるので書く gh は拒まれる。
+#   つないだ gh（gh pr diff | head・cd x && gh …）は除外に当たらず sandbox の中で走り、通信が無いので止まる
+# - 通信の許可は空・strictAllowlist: sandbox の中のコードは既定でディスク全体を読める（~/.config/gh の token も）ので、GitHub の宛先を
+#   許すと READ_COMMANDS を迂回して書く gh が打てる。gh は sandbox の外に出したので、中に GitHub への通信は要らない
+SANDBOX_BASE = {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
+                "excludedCommands": ["gh:*"], "network": {"allowedDomains": [], "strictAllowlist": True}}
 LIVE = set()  # いま生きている子（Popen）。launch のプロセスが止められたとき kill_all が木ごと止める
 _LIVE_LOCK = threading.Lock()
 
 
-def tooled_permission(tools):
-    """道具つきの役の権限の形 (permission_mode, allowed_tools)。**起こす側（launch_spec）と柵（launch_refusal）が同じここを引く**。
+def sandbox_available():
+    """この環境で claude の sandbox が起きるか。macOS は sandbox-exec が在るとき。Linux（WSL2 を含む）は bwrap と socat が在り、
+    bwrap が実際に名前空間を作れるとき——PATH に在るだけでは足りない（Ubuntu 24.04 以降の既定の AppArmor は bwrap に名前空間を
+    作らせず、sandbox を選ぶと failIfUnavailable で役が 1 本も起きなくなる）。ほか（Windows）は偽。偽なら読むだけの形に落ちる。"""
+    if sys.platform == "darwin":
+        return bool(shutil.which("sandbox-exec"))
+    if not sys.platform.startswith("linux") or not (shutil.which("bwrap") and shutil.which("socat")):
+        return False
+    try:
+        r = subprocess.run(["bwrap", "--ro-bind", "/", "/", "--unshare-user", "--unshare-net", "true"],
+                           capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def _git(cwd, *args):
+    """cwd で git を走らせる。返すのは (成功か, 行, 標準エラー)。git が無い・時間切れは (False, [], 理由)。
+    role_run は盤面も graph も import しないので、engine の util.git を使わない。"""
+    try:
+        r = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, [], str(e)
+    return r.returncode == 0, r.stdout.splitlines(), r.stderr
+
+
+def protected_paths(cwd, board_dir=None):
+    """sandbox の中の書き込みを止める場所（filesystem.denyWrite）。**cwd 自身を含む**作業ツリーの根の全部（git worktree list）・
+    共有の .git の実体（git rev-parse --git-common-dir。linked worktree の gitdir と既定の盤面の置き場を含む）・盤面の置き場。
+    書けるのは sandbox の既定の TMPDIR だけになる——cwd を書ける場所に残すと、役が計器を動かしてレビュー対象の未コミットの変更を
+    壊せ、前後の作業ツリーの突合は事故の検知で中身を戻さない（.gitignore の対象は突合にも映らない）。祖先の作業ツリー
+    （<repo>/.claude/worktrees/<名前> の本体）も根ごと名指しできる。git の作業ツリーでない cwd は cwd と盤面だけ。
+    git が読めない（git が無い・時間切れ）なら None——守る場所が決まらないので sandbox の形を選ばない。"""
+    cwd = os.path.realpath(cwd or os.getcwd())
+    paths = {cwd} | ({os.path.realpath(board_dir)} if board_dir else set())
+    ok, common, err = _git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if not ok:
+        return sorted(paths) if "not a git repository" in err else None
+    ok, trees, _err = _git(cwd, "worktree", "list", "--porcelain")
+    if not ok or not common:
+        return None
+    paths.add(os.path.realpath(common[0]))
+    paths |= {os.path.realpath(x[len("worktree "):]) for x in trees if x.startswith("worktree ")}
+    return sorted(paths)
+
+
+def tooled_permission(tools, cwd=None, board_dir=None):
+    """道具つきの役を起こす形——{form, permission_mode, allowed_tools, settings}。**起こす側（launch_spec）と柵（launch_refusal）が
+    同じここを引く**。graph は穴（{permission_mode}・{allowed_tools}・{settings}）を持つだけで、値は役の定義の道具から engine が決める。
 
     -p の開始の権限は起こした側の設定を継ぐ（回す側が bypassPermissions なら子も）ので、必ず明示する。形は先に許した物だけが
     通る dontAsk の 1 つ（Read・Glob・Grep は許さなくても通り、WebFetch・WebSearch は許さないと拒まれる。実測 2026-09-25・haiku）。
-    コマンドを走らせる道具（Bash）を持つ役は、道具を丸ごと許さず READ_COMMANDS の前置だけを Bash(<前置>:*) で許す。分類器（auto）に
-    掛けていたときは gh issue list まで拒まれた（実測 2026-09-25）。この形の実測（2026-09-25・haiku・claude 2.1.282・
-    --permission-prompts none）: 通った——gh issue list・gh pr view・gh repo view・gh search issues・gh pr diff | head・
-    引数の無い gh issue list・git remote get-url（許可に足した後）・組み込みの git log・git diff・git show・git rev-parse。
-    permission_denials に載り実行されなかった——gh issue create・gh pr merge・gh api -X POST・読むだけの gh api・bash -c・
-    python3 -c・git diff --output=・git log --output=・読むだけの gh に > を付けた物・&& / ; でつないだ物・$(…) を挟んだ物・
-    git -C <別の場所>・cd <別の場所> && git log。
-    代償: 既にある計器（テスト・スクリプト）の実行は拒まれる。作業ディレクトリの外の git も拒まれるので、子は対象の作業ツリーで
-    起こす（commands.launch_one）。"""
+    分類器（auto）に掛けていたときは読むだけの gh issue list まで拒まれた（実測 2026-09-25）。
+
+    form は 3 つ:
+    - plain: Bash を持たない役。settings は {}。
+    - sandbox: Bash を持ち、sandbox_available() が真で、protected_paths が決まった役。Bash を丸ごと許さず READ_COMMANDS の前置だけを
+      Bash(<前置>:*) で許し（sandbox の外で走る gh の関門）、sandbox の中のコマンド（テスト一式・計器の台本）は OS の境界の中で
+      聞かずに通す（SANDBOX_BASE）。前置の一覧だけで計器を許さなかったのは、pytest を許すと conftest.py から任意のコードが走り、
+      git diff --output= も作業ディレクトリの外や .git に書けたから（実測 2026-09-25・haiku・claude 2.1.282）。
+    - read_only: Bash を持つが sandbox を使えない環境。READ_COMMANDS の前置だけを許し、settings は {}（今の読むだけの形。計器の実行は
+      権限で拒まれる）。
+
+    read_only の形の実測（2026-09-25・haiku・claude 2.1.282・--permission-prompts none）: 通った——gh issue list・gh pr view・
+    gh repo view・gh search issues・gh pr diff | head・引数の無い gh issue list・git remote get-url（許可に足した後）・組み込みの
+    git log・git diff・git show・git rev-parse。permission_denials に載り実行されなかった——gh issue create・gh pr merge・
+    gh api -X POST・読むだけの gh api・bash -c・python3 -c・git diff --output=・git log --output=・読むだけの gh に > を付けた物・
+    && / ; でつないだ物・$(…) を挟んだ物・git -C <別の場所>・cd <別の場所> && git log。
+    sandbox の形の実測（2026-09-25・haiku・claude 2.1.282・macOS 26.6.2。使い捨ての clone の linked worktree を cwd にし、もう 1 本の
+    worktree・clone の本体・盤面の置き場を名指し）: 通った——python3 -m pytest graphloops/tests/py（102 件緑）・bash tests/run.sh と
+    bash graphloops/tests/run.sh（下の 1 件のほか緑）・git status・git log・単独の gh issue list と gh pr view（sandbox の外）・WebFetch。
+    止まった——cwd・共有の .git・もう 1 本の worktree・clone の本体・盤面への touch（Operation not permitted）・curl で example.com と
+    api.github.com（deny network-outbound）・テストの中からの .git への書き込みと urlopen・gh pr diff | head と cd /tmp && gh issue create
+    （除外に当たらず sandbox の中で通信が無い）・uv run --with（~/.cache/uv に書けない）・macOS の型なし mktemp -d（TMPDIR を見ず
+    /var/folders に作る。tests/run.sh は型を渡す）・別のプロセスグループへの信号（simulate.py の stop_group の台本 1 件が EPERM）。
+    permission_denials に載った——gh issue create・python3 -c・git diff --output=・git commit。前後で git status は変わらなかった。
+    作業ディレクトリの外の git は dontAsk が拒むので、子は対象の作業ツリーで起こす（commands.launch_one）。"""
     allowed = [t for t in tools if t not in COMMAND_TOOLS]
-    if len(allowed) < len(tools):
-        allowed += [f"Bash({c}:*)" for c in READ_COMMANDS]
-    return "dontAsk", allowed
+    if len(allowed) == len(tools):
+        return {"form": "plain", "permission_mode": "dontAsk", "allowed_tools": allowed, "settings": "{}"}
+    allowed += [f"Bash({c}:*)" for c in READ_COMMANDS]
+    deny = protected_paths(cwd, board_dir) if sandbox_available() else None
+    if deny is None:
+        return {"form": "read_only", "permission_mode": "dontAsk", "allowed_tools": allowed, "settings": "{}"}
+    settings = {"sandbox": {**SANDBOX_BASE, "filesystem": {"denyWrite": deny}}}
+    return {"form": "sandbox", "permission_mode": "dontAsk", "allowed_tools": allowed,
+            "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True)}
 
 
 def kill_all():

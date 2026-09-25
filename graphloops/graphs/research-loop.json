@@ -78,6 +78,8 @@
     "{allowed_tools}",
     "--permission-mode",
     "{permission_mode}",
+    "--settings",
+    "{settings}",
     "--permission-prompts",
     "none",
     "--setting-sources",
@@ -102,6 +104,8 @@
     "{allowed_tools}",
     "--permission-mode",
     "{permission_mode}",
+    "--settings",
+    "{settings}",
     "--permission-prompts",
     "none",
     "--setting-sources",
@@ -115,7 +119,7 @@
     "{python}",
     "{plugin_root}/scripts/with-auth.py"
    ],
-   "why": "道具つきの役（investigator・inspector・judge）も engine が claude -p で起こす（loop.py launch）。argv・resume・via は review-loop.json の launch.tooled と同じ語で、理由の正本もそちらの why（中継の AI を挟んだときの事故の実測・--agents の定義ファイルを採らない理由・権限は engine が役の定義の道具から決める・CLAUDE.md を読ませない理由・コマンドを走らせる役に読むだけの gh を明示で許す形）——理由をここに写すと片方だけが古くなるので写さない。2 つの graph の launch の語が揃っていることは、このリポジトリの検査が突き合わせる。"
+   "why": "道具つきの役（investigator・inspector・judge）も engine が claude -p で起こす（loop.py launch）。argv・resume・via は review-loop.json の launch.tooled と同じ語で、理由の正本もそちらの why（中継の AI を挟んだときの事故の実測・--agents の定義ファイルを採らない理由・権限は engine が役の定義の道具から決める・CLAUDE.md を読ませない理由・コマンドを走らせる役に読むだけの gh を明示で許す形・計器を OS の sandbox の中でだけ動かす形と sandbox を使えない環境で落とす先）——理由をここに写すと片方だけが古くなるので写さない。2 つの graph の launch の語が揃っていることは、このリポジトリの検査が突き合わせる。"
   },
   "resume_on_reject": 2,
   "resume_note": "受け付けの検査（done の中身）が返答を拒んだとき、同じ会話に理由を渡して出し直させる回数の上限。続きを頼むのは役に返せば直る拒否（読めない・型に合わない・記録の整合・項目の過不足）だけで、作業ツリーが変わった・前段が済んでいない等は続きを頼まずに回す側へ上げる"

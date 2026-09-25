@@ -3808,8 +3808,8 @@
    "title": "道具つきの子は利用者の設定を読まない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "TOOLED_FLAGS = ((\"--setting-sources\", \"\"), (\"--permission-prompts\", \"none\"))",
-   "new": "TOOLED_FLAGS = ((\"--permission-prompts\", \"none\"),)",
+   "old": "        if flag in BARE_FLAGS:\n            continue\n",
+   "new": "        if flag in BARE_FLAGS or flag == \"--setting-sources\":\n            continue\n",
    "expect": "柵: 利用者の設定を読む子は起こさない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3822,8 +3822,8 @@
    "title": "道具つきの子は聞く先を持たない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "TOOLED_FLAGS = ((\"--setting-sources\", \"\"), (\"--permission-prompts\", \"none\"))",
-   "new": "TOOLED_FLAGS = ((\"--setting-sources\", \"\"),)",
+   "old": "        if flag in BARE_FLAGS:\n            continue\n",
+   "new": "        if flag in BARE_FLAGS or flag == \"--permission-prompts\":\n            continue\n",
    "expect": "柵: 聞く先を持つ子は起こさない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3833,11 +3833,11 @@
   },
   {
    "id": "TF3",
-   "title": "権限を外す旗を持つ子は起こさない",
+   "title": "許可表に無い語（権限を外す旗・別名・=綴り）を持つ子は起こさない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "    bad = [f for f in UNSAFE_FLAGS if f in argv]",
-   "new": "    bad = []",
+   "old": "        if w not in table:\n",
+   "new": "        if w not in table and w in ():\n",
    "expect": "柵: 権限を外す旗を持つ子は起こさない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3850,8 +3850,8 @@
    "title": "道具と権限の形は engine が決めた値だけ",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "        if got[flag] is None or sorted(got[flag].split(\",\")) != sorted(want[flag].split(\",\")):",
-   "new": "        if got[flag] is None:",
+   "old": "            why = None if val == want[flag] else f\"{flag} が {val!r}——engine が決めた値は {want[flag]!r}\"",
+   "new": "            why = None",
    "expect": "柵: 権限の形を広げた子は起こさない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3864,8 +3864,8 @@
    "title": "続きを頼む語にも柵を当てる",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "    for words in (argv, launch.get(\"resume_argv\")):",
-   "new": "    for words in (argv,):",
+   "old": "    for words, resume in ((argv, False), (launch.get(\"resume_argv\"), True)):",
+   "new": "    for words, resume in ((argv, False),):",
    "expect": "続きを頼む語にも同じ柵が当たる",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3895,6 +3895,146 @@
    "old": "\"git remote get-url\")",
    "new": "\"git remote get-url\", \"gh api\")",
    "expect": "Bash を持つ役も dontAsk にし、Bash を丸ごと許さず読むだけのコマンドの前置だけを許す",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF8",
+   "title": "同じ旗を 2 度渡す子は起こさない（CLI が和を取るか後勝ちかに依らない）",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        if w in got:\n",
+   "new": "        if w in got and got[w] != words[i + 1]:\n",
+   "expect": "柵: 同じ旗を 2 度渡す子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF9",
+   "title": "要る旗を落とした子は起こさない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    missing = [f for f in table if f not in got and f not in OPTIONAL_FLAGS]",
+   "new": "    missing = []",
+   "expect": "柵: 要る旗を落とした子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF10",
+   "title": "設定のトップのキーは engine の値と同じだけ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if not isinstance(got, dict) or set(got) != set(want):",
+   "new": "    if not isinstance(got, dict) or not set(want) <= set(got):",
+   "expect": "柵: sandbox の外のキー（hooks）を混ぜた子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF11",
+   "title": "sandbox の設定は engine の値と同じ意味",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if rest != wrest:",
+   "new": "    if False:",
+   "expect": "柵: sandbox を切った子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF12",
+   "title": "守る場所は起こす時に引き直した集合を全部含む",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if lack:",
+   "new": "    if False:",
+   "expect": "柵: 守る作業ツリーを欠いた子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF13",
+   "title": "続ける会話は engine が決めた物だけ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            why = None if val in want[\"--resume\"] else",
+   "new": "            why = None if True else",
+   "expect": "柵: engine が決めていない会話を続ける子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF14",
+   "title": "system prompt の本文は役の定義だけ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            why = None if same else f\"--append-system-prompt-file",
+   "new": "            why = None if True else f\"--append-system-prompt-file",
+   "expect": "柵: 役の定義でない本文を system prompt に足した子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF15",
+   "title": "sandbox の書き込みを止める場所に cwd 自身を含める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    paths = {cwd} | (",
+   "new": "    paths = set() | (",
+   "expect": "書き込みを止める場所は、自分を含む作業ツリーの根の全部",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF16",
+   "title": "sandbox の外へ出る口を閉じる",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "\"allowUnsandboxedCommands\": False, \"failIfUnavailable\": True,",
+   "new": "\"allowUnsandboxedCommands\": True, \"failIfUnavailable\": True,",
+   "expect": "sandbox の形: 外へ出る口を閉じ",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF17",
+   "title": "sandbox を使えない環境では読むだけの形に落とす",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    deny = protected_paths(cwd, board_dir) if sandbox_available() else None",
+   "new": "    deny = protected_paths(cwd, board_dir)",
+   "expect": "sandbox を使えない環境では Bash を持つ役も dontAsk にし",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_tooled_launch_fence"

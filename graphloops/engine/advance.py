@@ -17,10 +17,10 @@ ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphch
 # 役の定義に無い model / effort を静的に落とす（以前は起こす関数の die と format の KeyError でしか出なかった）。
 # python / plugin_root は役でも graph でもなく **engine 自身しか知らない事実**（自分を走らせているインタプリタと、
 # 自分が入っている場所）。「起動の語は graph が宣言する」線は動かさない——graph が使うと書いたときだけ埋まる。
-# tools / allowed_tools / permission_mode は道具つきの役の分（役の定義の道具と、engine の role_run.tooled_permission から埋める）。
+# tools / allowed_tools / permission_mode / settings は道具つきの役の分（役の定義の道具と、engine の role_run.tooled_permission から埋める）。
 # session_id は同じ会話を続ける語（--resume）の穴で、続ける会話が決まるまでは '{session_id}' のまま残す（role_run が埋める）。
 LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path", "python", "plugin_root",
-                "tools", "allowed_tools", "permission_mode", "session_id")
+                "tools", "allowed_tools", "permission_mode", "settings", "session_id")
 LAUNCH_MAY_BE_EMPTY = ("session_id",)  # 空でも起こせる穴（続ける会話がまだ無い）
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parents[1]  # engine/ の親＝プラグインの根（scripts/ の隣）
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（直列化した UTF-8 のバイト）。
@@ -49,6 +49,12 @@ def tooled_launchable(d):
     何でもできる子を engine の中から起こさない（能力の上限は role_run.WRITE_TOOLS の注記）。"""
     return ("*" not in d["tools"] and not any(x in WRITE_TOOLS for x in d["tools"])
             and d.get("model") not in (None, "", "inherit") and bool(d.get("effort")))
+
+
+def launch_cwd(b):
+    """役の子が起きる場所——盤面の inputs.cwd（無ければ呼んだ場所）。起こす側（commands.launch_one）と、守る場所を引く側
+    （launch_spec・柵）が同じここを引く。"""
+    return (b.state.get("inputs") or {}).get("cwd") or os.getcwd()
 
 
 def launch_spec(b, inst, d, resume_sid=None):
@@ -94,13 +100,16 @@ def launch_spec(b, inst, d, resume_sid=None):
     role_file = rdir / (role + ".txt")
     role_file.write_text(d["body"], encoding="utf-8")
     sub["role_file"] = str(role_file)
-    tools = []
+    tools, form = [], None
     if not isolated:
         if not tooled_launchable(d):
             return None
         tools = list(d["tools"])
-        mode, allowed = tooled_permission(tools)
-        sub.update(tools=",".join(tools), allowed_tools=",".join(allowed), permission_mode=mode)
+        # 守る場所（sandbox の denyWrite）は子が起きる場所で引く——launch は盤面の inputs.cwd で子を起こす（commands.launch_one）
+        perm = tooled_permission(tools, launch_cwd(b), b.dir)
+        form = perm["form"]
+        sub.update(tools=",".join(tools), allowed_tools=",".join(perm["allowed_tools"]),
+                   permission_mode=perm["permission_mode"], settings=perm["settings"])
     words = list(spec["argv"]) + list(spec.get("resume") or []) + list(spec.get("via") or [])
     for k, v in sub.items():
         if not v and k not in LAUNCH_MAY_BE_EMPTY and any("{" + k + "}" in a for a in words):
@@ -122,6 +131,7 @@ def launch_spec(b, inst, d, resume_sid=None):
               "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None}
     if tools:
         launch["tools"] = tools
+        launch["form"] = form  # sandbox / read_only / plain（role_run.tooled_permission）。trace の role_run 行にも写る
     if not found:
         launch["missing"] = argv[len(via)]  # この環境では起こせない。回す側と記録に見えるようにしておく
     return launch

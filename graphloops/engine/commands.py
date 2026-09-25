@@ -9,7 +9,7 @@ import threading
 
 from . import pointers
 from . import declared
-from .advance import ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, load_item, open_next_round
+from .advance import ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, open_next_round
 from .board import Board, empty_round
 from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
@@ -190,15 +190,22 @@ def cmd_next(a):
 # 起こしてよい形は役の定義（agent_def。起こす時に読み直す）で 2 つに分かれ、どちらも argv から機械で確かめる:
 #   共通: 起こすのは engine 自身のインタプリタと、engine に同梱の層（scripts/with-auth.py）だけ。
 #         層は claude 以外を名前で撥ねるので、engine が起こせる相手は claude に限られる
-#   道具ゼロの役: 遮断の旗（--tools "" と --setting-sources ""）が揃っていること——道具が 1 つも無い子は
-#         何も実行できないので「権限の外で動く入れ子」にならない
+#   **旗は許可表で見る**（OWASP の Input Validation Cheat Sheet の allowlist——許す物だけを定め、ほかは全部拒む）。claude の後ろの
+#         語を (旗, 値) に読み、形ごとの表に無い語（公式の別名 --allowed-tools・--flag=value の綴り・--add-dir・--mcp-config・
+#         --plugin-dir・--agents・権限を外す旗・余分な位置引数）を拒む。各旗は 1 度きりで、--resume のほかは必須。値は engine が
+#         決めた物と一致すること（_want_values）。以前の拒否リスト（名指しの旗の在否と 2 語の危ない旗）は、別名 1 語で抜けられた
+#   道具ゼロの役: --tools "" と --setting-sources ""——道具が 1 つも無い子は何も実行できないので「権限の外で動く入れ子」にならない
 #   道具つきの役: --setting-sources ""（利用者の設定・CLAUDE.md・プラグインのフックを読まない）・聞く先が無い
-#         （--permission-prompts none）・権限を外す旗が無い・渡す道具（--tools）が役の定義の道具と一致し、ファイルを書く
-#         道具を含まない・権限の形（--permission-mode）と先に許す道具（--allowedTools）が engine の決めた値
+#         （--permission-prompts none）・渡す道具（--tools）が役の定義の道具と一致し、ファイルを書く道具を含まない・権限の形
+#         （--permission-mode）と先に許す道具（--allowedTools）と設定（--settings。sandbox の形）が engine の決めた値
 #         （role_run.tooled_permission）と一致する。graph は権限を配れない——graph の書き換えで起こせる物が広がらない
-ISOLATION_FLAGS = (("--tools", ""), ("--setting-sources", ""))
-TOOLED_FLAGS = (("--setting-sources", ""), ("--permission-prompts", "none"))
-UNSAFE_FLAGS = ("--dangerously-skip-permissions", "--allow-dangerously-skip-permissions")
+ISOLATED_FLAGS = ("-p", "--resume", "--model", "--effort", "--tools", "--setting-sources", "--append-system-prompt-file",
+                  "--output-format")
+TOOLED_FLAGS = ISOLATED_FLAGS + ("--allowedTools", "--permission-mode", "--permission-prompts", "--settings")
+BARE_FLAGS = ("-p",)          # 値を取らない旗
+OPTIONAL_FLAGS = ("--resume",)  # 無くてよい旗（続ける会話の無い起動）
+# 起こす役に依らない値
+FIXED_VALUES = {"--setting-sources": "", "--permission-prompts": "none", "--output-format": "json"}
 
 
 def launch_prefix():
@@ -218,48 +225,113 @@ def _norm(path):
     return os.path.normcase(os.path.normpath(path))
 
 
-def _flag(argv, flag):
-    """旗の直後の値（旗が無ければ None）。同じ旗が 2 度あれば後の方が効く CLI が普通なので、2 度目を見たら ''
-    ではなく '重複' を返して柵に落とす。"""
-    at = [i for i, x in enumerate(argv) if x == flag]
-    if not at:
-        return None
-    if len(at) > 1:
-        return "\0重複"
-    return argv[at[0] + 1] if at[0] + 1 < len(argv) else "\0値が無い"
+def _parse_flags(words, table):
+    """claude の後ろの語を {旗: 値} に読む（-p の値は True）。返すのは (読んだ物, 拒む理由)。"""
+    got = {}
+    i = 0
+    while i < len(words):
+        w = words[i]
+        if w not in table:
+            return None, f"許可表に無い語 {w!r}——別名・=綴り・知らない旗・位置引数の子は engine の中から起こさない"
+        if w in got:
+            return None, f"旗 {w} が 2 度在る——後勝ちで値を差し替える子は engine の中から起こさない"
+        if w in BARE_FLAGS:
+            got[w] = True
+            i += 1
+            continue
+        if i + 1 >= len(words):
+            return None, f"旗 {w} に値が無い"
+        got[w] = words[i + 1]
+        i += 2
+    missing = [f for f in table if f not in got and f not in OPTIONAL_FLAGS]
+    if missing:
+        return None, f"旗 {missing} が argv に無い——利用者の設定を読む子・聞く先を持つ子・形の決まらない子は engine の中から起こさない"
+    return got, None
 
 
-def _argv_refusal(argv, role_tools):
-    """1 本の argv が起こしてよい形か（よければ None）。role_tools は役の定義の道具（[] は道具ゼロ、['*'] は全部）。"""
-    want = launch_prefix()
-    if [_norm(a) for a in argv[:len(want)]] != [_norm(w) for w in want]:
-        return (f"engine が起こしてよい前置ではない（graph の launch の via が {want} を指していない）"
-                f"——先頭は {argv[:2]}")
-    if role_tools == []:
-        for flag, val in ISOLATION_FLAGS:
-            if _flag(argv, flag) != val:
-                return f'遮断の旗 {flag} "{val}" が argv に無い——道具ゼロでない子は engine の中から起こさない'
+def _settings_refusal(value, want):
+    """--settings の値が engine の値と同じ意味か（よければ None）。トップのキーは engine の値と同じ（sandbox だけか、空）で、
+    permissions・hooks・env などを混ぜた子は起こさない。**denyWrite だけは包含で見る**——守る場所は起こす時に引き直した集合で、
+    next と launch の間に作業ツリーが消えても通し、増えたら拒む（増えた回は relaunch で引き直す）。"""
+    try:
+        got = json.loads(value)
+    except ValueError:
+        return f"--settings が JSON として読めない（{value[:60]!r}）"
+    want = json.loads(want)
+    if not isinstance(got, dict) or set(got) != set(want):
+        return f"--settings のキーが {sorted(got) if isinstance(got, dict) else value[:60]!r}——engine が決めた値は {sorted(want)}"
+    if not want:
         return None
-    for flag, val in TOOLED_FLAGS:
-        if _flag(argv, flag) != val:
-            return f'道具つきの役の旗 {flag} "{val}" が argv に無い——利用者の設定を読む子・聞く先を持つ子は engine の中から起こさない'
-    bad = [f for f in UNSAFE_FLAGS if f in argv]
-    if bad or "*" in role_tools or any(x in WRITE_TOOLS for x in role_tools):
-        return f"権限を外す旗 {bad} か、全部の道具・ファイルを書く道具を持つ役（{role_tools}）——engine の中からは起こさない"
-    mode, allowed = tooled_permission(role_tools)
-    got = {"--tools": _flag(argv, "--tools"), "--allowedTools": _flag(argv, "--allowedTools"),
-           "--permission-mode": _flag(argv, "--permission-mode")}
-    want = {"--tools": ",".join(role_tools), "--allowedTools": ",".join(allowed), "--permission-mode": mode}
-    for flag in want:
-        if got[flag] is None or sorted(got[flag].split(",")) != sorted(want[flag].split(",")):
-            return f"{flag} が {got[flag]!r}——役の定義から engine が決めた値は {want[flag]!r}（権限の形は graph でなく engine が決める）"
+    gs, ws = got.get("sandbox"), want["sandbox"]
+    fs = gs.get("filesystem") if isinstance(gs, dict) else None
+    deny = fs.get("denyWrite") if isinstance(fs, dict) else None
+    if not isinstance(deny, list) or not all(isinstance(x, str) for x in deny):
+        return f"--settings の sandbox.filesystem.denyWrite が文字列の一覧でない（{str(gs)[:80]}）"
+    rest = {**gs, "filesystem": {k: v for k, v in fs.items() if k != "denyWrite"}}
+    wrest = {**ws, "filesystem": {k: v for k, v in ws["filesystem"].items() if k != "denyWrite"}}
+    if rest != wrest:
+        return f"--settings の sandbox が {json.dumps(rest, ensure_ascii=False)[:160]}——engine が決めた値は {json.dumps(wrest, ensure_ascii=False)[:160]}"
+    lack = sorted(set(ws["filesystem"]["denyWrite"]) - set(deny))
+    if lack:
+        return f"--settings の denyWrite に守る場所 {lack} が無い（起こした後に作業ツリーが増えたなら relaunch で引き直せ）"
     return None
 
 
-def launch_refusal(inst):
+def _want_values(inst, d, perm, resume):
+    """旗ごとの engine が決めた値。perm は role_run.tooled_permission（道具ゼロなら None）。resume は続きを頼む語か。"""
+    want = {**FIXED_VALUES, "--model": d.get("model"), "--effort": d.get("effort")}
+    if perm is None:
+        want["--tools"] = ""
+    else:
+        want.update({"--tools": ",".join(d["tools"]), "--allowedTools": ",".join(perm["allowed_tools"]),
+                     "--permission-mode": perm["permission_mode"]})
+    # 続ける会話は engine が決めた物だけ——graph に任意の会話の番号を書いて、engine が起こしていない会話を開けない
+    sid = inst.get("session_id")
+    want["--resume"] = {"{session_id}", sid} - {None} if resume else {sid} - {None}
+    return want
+
+
+def _argv_refusal(argv, inst, d, perm, resume=False):
+    """1 本の argv が起こしてよい形か（よければ None）。d は起こす時に読み直した役の定義、perm は engine が決めた権限の形。"""
+    want_prefix = launch_prefix()
+    if [_norm(a) for a in argv[:len(want_prefix)]] != [_norm(w) for w in want_prefix]:
+        return (f"engine が起こしてよい前置ではない（graph の launch の via が {want_prefix} を指していない）"
+                f"——先頭は {argv[:2]}")
+    role_tools = d["tools"]
+    if role_tools and ("*" in role_tools or any(x in WRITE_TOOLS for x in role_tools)):
+        return f"全部の道具・ファイルを書く道具を持つ役（{role_tools}）——engine の中からは起こさない"
+    got, why = _parse_flags(argv[len(want_prefix) + 1:], TOOLED_FLAGS if role_tools else ISOLATED_FLAGS)
+    if why:
+        return why
+    want = _want_values(inst, d, perm, resume)
+    for flag, val in got.items():
+        if flag in BARE_FLAGS:
+            continue
+        if flag == "--settings":
+            why = _settings_refusal(val, perm["settings"])
+        elif flag == "--append-system-prompt-file":
+            try:
+                same = pathlib.Path(val).read_text(encoding="utf-8") == d["body"]
+            except (OSError, UnicodeDecodeError):
+                same = False
+            why = None if same else f"--append-system-prompt-file {val!r} の中身が役の定義の本文でない"
+        elif flag == "--resume":
+            why = None if val in want["--resume"] else f"--resume が {val!r}——engine が続ける会話は {sorted(want['--resume'])}"
+        elif flag in ("--tools", "--allowedTools"):
+            same = sorted(val.split(",")) == sorted(want[flag].split(",")) if want[flag] else val == ""
+            why = None if same else f"{flag} が {val!r}——役の定義から engine が決めた値は {want[flag]!r}（権限の形は graph でなく engine が決める）"
+        else:
+            why = None if val == want[flag] else f"{flag} が {val!r}——engine が決めた値は {want[flag]!r}"
+        if why:
+            return why
+    return None
+
+
+def launch_refusal(inst, cwd=None, board_dir=None):
     """起こせない理由（起こしてよければ None）。**理由は回す側に見せる**——黙って飛ばさない。
 
-    形は instance の自己申告（launch.kind）でなく、**起こす時に読み直した役の定義**で決める。"""
+    形は instance の自己申告（launch.kind）でなく、**起こす時に読み直した役の定義**と、起こす時に engine が決め直した権限の形
+    （role_run.tooled_permission。守る場所は子が起きる cwd と盤面の置き場から引く）で決める。"""
     launch = inst.get("launch") or {}
     argv = launch.get("argv") or []
     if launch.get("missing"):
@@ -267,9 +339,10 @@ def launch_refusal(inst):
     d = agent_def(inst.get("agent_type") or "")
     if d is None:
         return f"役 {inst.get('agent_type')!r} の定義が読めない——道具の形が決まらないので engine は起こさない"
-    for words in (argv, launch.get("resume_argv")):
+    perm = tooled_permission(d["tools"], cwd, board_dir) if d["tools"] else None
+    for words, resume in ((argv, False), (launch.get("resume_argv"), True)):
         if words:
-            why = _argv_refusal(words, d["tools"])
+            why = _argv_refusal(words, inst, d, perm, resume)
             if why:
                 return why
     if not pathlib.Path(launch.get("stdin") or "").is_file():
@@ -428,7 +501,7 @@ def launch_one(d, inst, max_resumes, cwd=None):
     if (inst.get("launch") or {}).get("kind") == "engine_run":
         return launch_engine_run(d, inst)
     got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
-    why = launch_refusal(inst)
+    why = launch_refusal(inst, cwd, d)
     if why:
         return {**got, "ok": False, "why": why}
     accept = _accept_for_launch(d, inst["id"], inst["out_path"])
@@ -438,7 +511,7 @@ def launch_one(d, inst, max_resumes, cwd=None):
                  accept=accept, resume_argv=inst["launch"].get("resume_argv"), max_resumes=max_resumes,
                  log_path=pathlib.Path(d) / "trace.jsonl", still_mine=still_mine, cwd=cwd,
                  meta={"instance": inst["id"], "node": inst["node"], "agent_type": inst.get("agent_type"),
-                       "attempt": inst.get("attempts", 1)})
+                       "attempt": inst.get("attempts", 1), "form": inst["launch"].get("form")})
     last = r["runs"][-1] if r["runs"] else {}
     if r["why"] and "SystemExit" in r["why"]:
         # 盤面の保存が別のプロセスと競って負けた（Board.save の die）。返答は置き場に在るので、done で受け付けられる
@@ -487,7 +560,7 @@ def cmd_launch(a):
     todo = _board_update(d, mark)
     b0 = Board(d)
     max_resumes = int(b0.graph.get("launch", {}).get("resume_on_reject") or 0)
-    cwd = (b0.state.get("inputs") or {}).get("cwd") or None  # 無い場所なら起こす時に OSError で落ち、why に出る
+    cwd = launch_cwd(b0)  # 無い場所なら起こす時に OSError で落ち、why に出る
     # **launch 自身が止められても子を残さない**: 子は別のプロセスグループに切り離してあるので、launch に届いた
     # 信号は子に届かない。止められたら生きている子を木ごと止めてから抜ける（role_run.kill_all）
     import signal

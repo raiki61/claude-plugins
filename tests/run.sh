@@ -7,7 +7,10 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WORK="$(mktemp -d)"
+# 置き場は TMPDIR から明示で取る——macOS の mktemp -d（型なし）は TMPDIR を見ずに利用者の一時ディレクトリ（/var/folders/…）へ
+# 作る（実測 2026-09-25・macOS 26.6.2）。engine が sandbox の中で起こす役（investigator）が書けるのは TMPDIR だけなので、
+# 型なしのままだとこの台本が mkdtemp の Operation not permitted で崩れる
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/run.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 PY_BIN=$(command -v python3 || command -v python || true)
