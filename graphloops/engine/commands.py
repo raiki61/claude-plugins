@@ -10,6 +10,7 @@ import threading
 
 from . import pointers
 from . import declared
+from . import intake
 from .advance import ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, open_next_round
 from .board import Board, empty_round
 from .record import apply_writes
@@ -664,6 +665,20 @@ def launch_one(d, inst, max_resumes, cwd=None):
             "stderr": "" if r["ok"] else (last.get("stderr") or "")}
 
 
+def launch_cause(r, kind):
+    """ok でない launch の行の落ち方と、それを決めた関数（記録器の鍵に入る）。why の本文はパスが混ざり揺れるので使わず、
+    行の形で分ける——同じ節の別々の落ち方を 1 つの鍵にまとめない。"""
+    if kind == "engine_run":
+        return ("launch_engine_run_accept", "commands.launch_engine_run") if "runs" in r else ("launch_refused", "commands.engine_run_refusal")
+    if "rejections" not in r:
+        return "launch_refused", "commands.launch_refusal"
+    if r["rejections"]:
+        return "launch_rejected", "role_run.run_role"
+    if "with-auth: auth=none" in (r.get("stderr") or "") or "with-auth: auth=keychain-miss" in (r.get("stderr") or ""):
+        return "launch_auth", "role_run.run_role"
+    return "launch_child_failed", "role_run.run_role"
+
+
 def cmd_launch(a):
     """engine が役を起こし、返答を置き場に書き、受け付け（done）まで済ませる。回す側は役の返答の本文に触れない。
 
@@ -750,6 +765,13 @@ def cmd_launch(a):
             # 盤面を別のプロセスと競って書けなかった。結果の一覧は回す側に必ず返す（trace にも行は在る）
             for r in results:
                 r["settle"] = "盤面に起こし直しの記録を書けなかった（別のプロセスと競った）"
+    # 役が落ちた・拒否が上限まで続いた行は launch 自身が exit 0 で返すので、最上段の口を通らない——ここで同じ記録器に渡す
+    kinds = {i["id"]: (i.get("launch") or {}).get("kind") for i in todo}
+    for r in results:
+        if not r["ok"] and not r.get("superseded") and not r.get("fell_back"):
+            exc, func = launch_cause(r, kinds.get(r["id"]))
+            intake.record("auto", intake.where_of(["launch", "--node", r["id"]]), exc=exc, func=func,
+                          state=b0.state, detail=r.get("why"))
     print(dump({"launched": picked + results,
                 "how": ("ok の節は受け付けまで済んでいる（done は要らない）——次は loop.py next。"
                         "ok でない節は why を読め: 受け付けの拒否が続いた・子が落ちた、なら "
@@ -1002,7 +1024,9 @@ def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=No
     f = b.dir / "out" / f"r{b.round}" / (safe_name(node) + ".json")
     write_json(f, output)
     if n.get("save_text_as"):
-        (b.dir / n["save_text_as"]).write_text(output["text"], encoding="utf-8")
+        # 1 行目に来歴（版・run の番号・周）を engine が刻む——報告は人が貼って運ぶ物で、writer の写しに任せると落ちる
+        stamp = intake.stamp_line(b.state)
+        (b.dir / n["save_text_as"]).write_text(f"{stamp}\n\n{output['text']}" if stamp else output["text"], encoding="utf-8")
         notes.append(f"本文は {b.dir / n['save_text_as']} に保存した")
     b.state["outputs"][nid] = {"file": str(f.relative_to(b.dir)), "round": b.round, "instance": node}
     # **綴りは 1 つに決める。** 以前はこの 2 行が同じ f を 2 つの綴りで書いていた——outputs は盤面からの相対、
@@ -1282,6 +1306,53 @@ def cmd_record(a):
 
 
 # ---------------------------------------------------------------- init
+def cmd_intake(a):
+    """手の口: 1 行を残す（--what）・まだ手渡していない行を書き出す（--export）・届け先へ送る（--send）・届け先を決める（--set-url）。"""
+    d = intake.data_dir(a.data_dir)
+    if d is None:
+        raise Reject("残す置き場が決まらない——手順書の本文から --data-dir \"${CLAUDE_PLUGIN_DATA}\" を渡せ"
+                     "（プラグインとして入れていない engine を直に呼んだ回）")
+    derived = intake.data_dir()
+    if derived and derived != d:
+        # 自動の行（最上段の口）は導いた置き場に書くので、渡された置き場と違えば export は自動の行を拾わない
+        print(f"注意: 自動の記録の置き場 {derived} と、渡された置き場 {d} が違う——自動の行は {derived} に在る")
+    if a.what is not None:
+        if not a.what.strip():
+            raise Reject("--what が空——何を踏んだかを 1 行で書け")
+        state = intake.read_state(resolve_dir(a)) if a.dir else None
+        f = intake.record("manual", "loop.py intake", what=a.what, state=state, given_dir=str(d))
+        if f is None:
+            raise Reject(f"{d} に書けなかった")
+        print(f"ok 1 行を {f} に残した")
+        return
+    if a.set_url is not None:
+        if a.set_url and not a.set_url.startswith(("https://", "http://")):
+            raise Reject(f"届け先は http(s) の URL: {a.set_url!r}")
+        intake.set_url(d, a.set_url)
+        print(f"ok 届け先を {'設定した' if a.set_url else '消した（手元に残すだけ）'}（{d / intake.CONFIG}）")
+        return
+    rows, total = intake.pending(d, everything=a.all, with_detail=a.with_stderr)
+    if a.export:
+        out = pathlib.Path(a.export)
+        out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        intake.handed(d, total)
+        print(f"ok {len(rows)} 件を {out} に書き出した（手渡した所を {total} 行目まで進めた）")
+        return
+    url = intake.url_of(d)
+    if not url:
+        print(f"ok 届け先が未設定——{len(rows)} 件は手元（{d / intake.LOG}）に残した。送るなら loop.py intake --set-url <URL>")
+        return
+    if not rows:
+        print("ok 送る行が無い（全部手渡し済み）")
+        return
+    try:
+        status = intake.post(url, rows)
+    except OSError as e:
+        raise Reject(f"届け先に送れなかった（{type(e).__name__}: {e}）——{len(rows)} 件は手元に残した") from e
+    intake.handed(d, total)
+    print(f"ok {len(rows)} 件を送った（HTTP {status}）")
+
+
 def resolve_dir(a):
     # **綴りは絶対に揃える。** 相対の --dir で作った run は instance の item_file にも相対の綴りが残り、
     # 別の cwd から開き直した回に load_item が読めずに落ちる（扇の重複排除が正本を読むようになって

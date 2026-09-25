@@ -1,10 +1,9 @@
 """進行——機械の節を走らせ、扇を広げ、回す側に渡す節（instance）を発行する。"""
 import os
-import json
 import pathlib
 import sys
 
-from . import pointers
+from . import intake, pointers
 from .render import FILE_CAP, Renderer, node_prompt
 from .rules import hook, registry
 from .schema import graph_text, validate_schema
@@ -588,12 +587,7 @@ def engine_changed(b, notes):
     たどり着くのに 9 周かかった（実測 r10）。置き場と版を毎周書けば、記録を読むだけで分かる。
     """
     here = pathlib.Path(__file__).resolve().parent.parent          # <plugin>/engine/.. = <plugin>
-    ver = ""
-    try:
-        ver = json.loads((here / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("version", "")
-    except (OSError, ValueError):
-        ver = ""                                                    # 版が読めなくても置き場は残す
-    cur = {"root": str(here), "version": ver}
+    cur = {"root": str(here), "version": intake.plugin_meta(here)[1]}   # 版が読めなくても置き場は残す
     if cur != b.state.get("engine"):
         b.state.setdefault("engine_changes", []).append({"round": b.round, "from": b.state.get("engine"), "to": cur, "at": now()})
         b.state["engine"] = cur

@@ -52,7 +52,12 @@ def sha(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
+LAST_DIE = None   # 最後に die した文面（loop.py の最上段が非 0 の終わりに記録器へ渡す。行に残すのは利用者が環境変数で選んだときだけ）
+
+
 def die(msg, code=2):
+    global LAST_DIE
+    LAST_DIE = msg
     print(f"NG {msg}", file=sys.stderr)
     sys.exit(code)
 

@@ -14,6 +14,8 @@
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
     loop.py patch  --path <record の欄 | state.<盤面の欄>> --file <json> --reason   # 記録（既定）か盤面の手当て（痕跡が残る最終手段）
     loop.py status [--dir] / loop.py record [--dir] / loop.py finalize [--dir]
+    loop.py intake (--what <1 行> [--dir] | --export <file> [--all] [--with-stderr] | --send | --set-url <URL>) [--data-dir]
+                                                     # 踏んだ問題を利用者の環境に残す手の口（非 0 の終わりは engine が自動で残す）
 
 置き場（--dir 省略時）: `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外
 （`git status --porcelain` に映らない）で、リポジトリごとに残る。`current` がいちばん新しい run を指す。
@@ -31,6 +33,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 from engine import commands as c  # noqa: E402
+from engine import intake, util  # noqa: E402
 from engine.role_run import StopSignal, install_stop_handlers  # noqa: E402
 from engine.util import BoardConflict, Reject, die  # noqa: E402
 
@@ -113,21 +116,41 @@ def main():
     s.add_argument("--reason", required=True)
     s.set_defaults(fn=c.cmd_patch)
 
+    s = sub.add_parser("intake", help="踏んだ問題を利用者の環境に 1 行残す・まとめて書き出す・届け先へ送る（commands/intake.md）")
+    s.add_argument("--data-dir", help="残す置き場（手順書の本文が ${CLAUDE_PLUGIN_DATA} を渡す。無ければ engine の置き場から導く）")
+    m = s.add_mutually_exclusive_group(required=True)
+    m.add_argument("--what", help="手で残す 1 行の説明（500 字で切る）")
+    m.add_argument("--export", metavar="FILE", help="まだ手渡していない行を 1 ファイル（JSONL）に書き出す")
+    m.add_argument("--send", action="store_true", help="まだ手渡していない行を届け先へ送る（届け先が無ければ手元に残すだけ）")
+    m.add_argument("--set-url", metavar="URL", help="届け先を設定する（空で消す）")
+    s.add_argument("--dir", help="--what に run の番号・周を添える盤面")
+    s.add_argument("--all", action="store_true", help="--export で、手渡した行も含めて全部を書き出す")
+    s.add_argument("--with-stderr", action="store_true", help="--export で標準エラーの頭（残していれば）も書き出す")
+    s.set_defaults(fn=c.cmd_intake)
+
     a = p.parse_args()
     install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす
     a.fn(a)
 
 
 if __name__ == "__main__":
+    # 非 0 で終わる呼び出しは、終わる前に利用者の環境へ 1 行残す（engine/intake.py。残す処理は何が起きても終了コードと
+    # 標準エラーを変えない）。exit 1 の日常の拒否も残す——同じ鍵の件数が「どの拒否が多いか」になる
     try:
         main()
     except Reject as e:
+        intake.failed(sys.argv[1:], 1, e, e.__traceback__, str(e))
         die(str(e), 1)
     except BoardConflict as e:
+        intake.failed(sys.argv[1:], 2, e, e.__traceback__, e.msg)
         die(e.msg, 2)
     except StopSignal as e:
+        intake.failed(sys.argv[1:], 128 + e.signum, e, e.__traceback__, f"止める信号 {e.signum} を受けた")
         sys.exit(128 + e.signum)   # 生きている子は信号の口（kill_all）が止めてある
-    except SystemExit:
+    except SystemExit as e:
+        if e.code not in (0, None):
+            intake.failed(sys.argv[1:], e.code, e, e.__traceback__, util.LAST_DIE)
         raise
     except Exception as e:  # 契約: 想定外は 2（盤面が読めない側）に倒す
+        intake.failed(sys.argv[1:], 2, e, e.__traceback__, str(e))
         die(f"想定外の例外（{type(e).__name__}）: {e}")

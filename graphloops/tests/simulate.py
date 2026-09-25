@@ -1726,8 +1726,15 @@ def test_engine_launch():
     log = run.tmp / "fake.log"
     # 役が誤りで終わった回: 受け付けに回さず、層の 1 行（with-auth: auth=…）を運び、起こし直しの記録を残す
     # ——層の行を運ばないと、認証落ちが「役の返答の不良」に見える
-    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_MODE": "error"})
+    data = run.tmp / "plugin-data"
+    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_MODE": "error", "CLAUDE_PLUGIN_DATA": str(data)})
     bad = (json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}])[0]
+    rows = [json.loads(x) for x in (data / "intake.jsonl").read_text(encoding="utf-8").splitlines()] if (data / "intake.jsonl").is_file() else []
+    check(r.returncode == 0 and [(x["where"], x["exc"], x["func"], x.get("run", {}).get("run_id")) for x in rows]
+          in ([(f"loop.py launch --node {inst['node']}", exc, "role_run.run_role", json.loads((run.dir / "state.json").read_text(encoding="utf-8"))["run_id"])]
+              for exc in ("launch_child_failed", "launch_auth"))
+          and "stderr" not in rows[0],
+          f"launch は exit 0 のまま、落ちた役の行を利用者の置き場に 1 行残す（標準エラーは既定で残さない。{rows}）")
     st = json.loads((run.dir / "state.json").read_text(encoding="utf-8"))
     me = st["rounds"][-1]["instances"].get(inst["id"], {})
     check(not bad.get("ok") and "誤りで終わった" in (bad.get("why") or "") and "with-auth: auth=" in (bad.get("stderr") or ""),

@@ -1181,6 +1181,9 @@ def test_converges():
     v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "rounds")], capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(v.returncode == 0, "検証器がディレクトリで exit 0（連続 2 ラウンド）")
     check((run.dir / "report.md").is_file(), "report.md が保存された")
+    head = (run.dir / "report.md").read_text(encoding="utf-8").splitlines()[0]
+    check(re.fullmatch(r"graphloops \S+( \([0-9a-f]+\))? / review-loop run " + re.escape(st["run_id"]) + r" / round " + str(st["round"]) + r" / graph [0-9a-f]+", head),
+          f"報告の 1 行目に engine が来歴（版・run の番号・周）を刻む——writer の本文に依らない（{head}）")
     check(run.record()["process"].get("baseline_checks", {}).get("status") == "clean",
           "修正前の CI の結果（P0）は process.baseline_checks に残る——素材の local_checks は P4 の再実行で書き直す")
     hist = json.loads((run.dir / "out" / "r3" / "p2.history.json").read_text(encoding="utf-8"))
@@ -5949,6 +5952,8 @@ def test_spec_default_unchanged():
         # engine が走らせた段（engine_run）の所要時間は実測で、負荷で 0.0 と 0.1 に割れる
         text = re.sub(r"（\d+(?:\.\d+)? 秒）", "（<S> 秒）", text)
         text = re.sub(r'"wall_s": \d+(?:\.\d+)?', '"wall_s": <S>', text)
+        # 報告の 1 行目の来歴は run の番号（init の時刻）を持ち、2 つの run で秒が違う
+        text = re.sub(r"run \d{8}-\d{6}(?:-\d+)?", "run <RUN>", text)
         return re.sub(r"\b[0-9a-f]{7,64}\b", "<H>", text)
 
     def shape(run_):

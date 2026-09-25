@@ -5677,7 +5677,7 @@
    "title": "入口は版の衝突の文を出して exit 2",
    "file": "graphloops/scripts/loop.py",
    "suite": "graphloops",
-   "old": "    except BoardConflict as e:\n        die(e.msg, 2)",
+   "old": "    except BoardConflict as e:\n        intake.failed(sys.argv[1:], 2, e, e.__traceback__, e.msg)\n        die(e.msg, 2)",
    "new": "    except KeyboardInterrupt as e:\n        die(str(e), 2)",
    "expect": "loop.py の入口は版の衝突の文を最後に 1 度出して",
    "tests": {
