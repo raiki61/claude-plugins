@@ -3624,9 +3624,6 @@
     "type": "object",
     "required": [
      "changes",
-     "claims_changed",
-     "decision_records_changed",
-     "deps_changed",
      "fix_closure",
      "gates_changed",
      "interactions",
@@ -3635,7 +3632,6 @@
      "path_changed",
      "plan_faces",
      "premise_drift",
-     "procedures_changed",
      "seams_changed",
      "wrote_refs"
     ],
@@ -3649,7 +3645,6 @@
         "breaks",
         "bypass_tried",
         "closure",
-        "coverage",
         "files",
         "root_or_symptom",
         "unit_key",
@@ -3713,9 +3708,6 @@
         },
         "coverage": {
          "type": "object",
-         "required": [
-          "how"
-         ],
          "additionalProperties": false,
          "properties": {
           "how": {
@@ -3728,7 +3720,7 @@
            "type": "string"
           }
          },
-         "note": "覆いの母数。how＝同じ形を全部引ける機械の問い（判定者の class_query の how を引き継ぐか、取りこぼしていれば作り直す）。**修正の前後の件数は engine が数える**——修正前は判定者が読んだのと同じ固定の版で、修正後は同じ世界（未追跡も含め、.gitignore に当たる物は外す）で。向き（counts）は判定者の値を使い、判定者が class_query を持たない単位だけこの欄の counts を使う。件数（total）は書かない——engine が数える。**塞いだ数は closure.sites から機械が数える**。sites が母数に届かないなら remaining に残した理由を書く"
+         "note": "覆いの母数。how＝同じ形を全部引ける機械の問い。**判定者が class_query を持つ単位は how を書かなくてよい**——書かなければ engine が判定者の how を補い、取りこぼしていると思うときだけ作り直した how を書く。判定者が class_query を持たない単位だけ how と counts を書く。**修正の前後の件数は engine が数える**——修正前は判定者が読んだのと同じ固定の版で、修正後は同じ世界（未追跡も含め、.gitignore に当たる物は外す）で。向き（counts）は判定者の値を使い、判定者が class_query を持たない単位だけこの欄の counts を使う。件数（total）は書かない——engine が数える。**塞いだ数は closure.sites から機械が数える**。sites が母数に届かないなら remaining に残した理由を書く（how を書かずに remaining だけでもよい）"
         },
         "root_or_symptom": {
          "type": "object",
@@ -3878,12 +3870,6 @@
      "premise_drift_note": {
       "type": "string"
      },
-     "deps_changed": {
-      "type": "boolean"
-     },
-     "procedures_changed": {
-      "type": "boolean"
-     },
      "gates_changed": {
       "type": "boolean"
      },
@@ -3891,9 +3877,6 @@
       "type": "boolean"
      },
      "path_changed": {
-      "type": "boolean"
-     },
-     "claims_changed": {
       "type": "boolean"
      },
      "decision_records_changed": {
@@ -3908,7 +3891,6 @@
        "type": "object",
        "required": [
         "surface",
-        "changes",
         "checked"
        ],
        "additionalProperties": false,
@@ -3916,13 +3898,6 @@
         "surface": {
          "type": "string",
          "minLength": 1
-        },
-        "changes": {
-         "type": "array",
-         "minItems": 2,
-         "items": {
-          "type": "string"
-         }
         },
         "checked": {
          "type": "string",
@@ -3933,7 +3908,7 @@
         }
        }
       },
-      "note": "**2 つ以上の修正が触った面**ごとに 1 件。surface＝その面（ファイル・関数・不変条件）、changes＝触った unit_key、checked＝突き合わせて確かめたこと（一方が他方を不要にしないか・順序で結果が変わらないか・組み合わせて初めて生まれる状態が無いか）。**面の一覧は機械が changes[].files から出す**ので、書き落とすと拒まれる——修正どうしの干渉を『1 件ずつ見る』では捕れない（実測 2026-09-13: 非 UTF-8 を読めるようにした 1 つの修正が、同じ git ラッパーを共有する突合の側に穴を開けた）"
+      "note": "**2 つ以上の修正が触った面**ごとに 1 件。surface＝その面（ファイル・関数・不変条件）、checked＝突き合わせて確かめたこと（一方が他方を不要にしないか・順序で結果が変わらないか・組み合わせて初めて生まれる状態が無いか）。**面の一覧と、面ごとにどの修正が触ったかは機械が changes[].files から出す**ので、面を書き落とすと拒まれる（触った修正の一覧は書かない）——修正どうしの干渉を『1 件ずつ見る』では捕れない（実測 2026-09-13: 非 UTF-8 を読めるようにした 1 つの修正が、同じ git ラッパーを共有する突合の側に穴を開けた）"
      },
      "wrote_refs": {
       "type": "array",

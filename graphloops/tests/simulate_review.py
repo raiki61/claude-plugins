@@ -414,13 +414,14 @@ def answers(run, scenario, rnd):
                                                  "bypass_tried": "修正を残したまま limit=0 と limit=-1 と分岐の両側を通した——どれも上限が効いた",
                                                  "breaks": {"how": "grep -rn 'min(' src/", "result": "同じ経路を使う 2 箇所とも既存の検査が緑"}} for u in rec["units"]],
                               "not_done": [],
-                              # 2 つ以上の修正が触った面は機械が changes[].files から出す——書き落とすと拒まれる
-                              "interactions": ([{"surface": "src/a.py", "changes": [u["key"] for u in rec["units"]],
+                              # 2 つ以上の修正が触った面と、面ごとの修正は機械が changes[].files から出す——面を書き落とすと拒まれる
+                              "interactions": ([{"surface": "src/a.py",
                                                  "checked": "上限を寄せる修正と定数を寄せる修正は同じ関数を触るが、当てる順序で結果は変わらない（どちらも共通経路に足すだけ）"}]
                                                if len(rec["units"]) >= 2 else []),
                               "fix_closure": CLEAN("退行を注入して赤→復元して緑") if rec["units"] else M("not_applicable", reason="本ラウンドに修正なし"),
-                              "mechanism_changed": scenario == "premise_resolved" and rnd == 2, "premise_drift": False, "deps_changed": False, "procedures_changed": False, "gates_changed": False,
-                              "seams_changed": False, "path_changed": False, "claims_changed": False, "decision_records_changed": False,
+                              # decision_records_changed は任意（リポジトリの外に書いた周だけ）——書かない返答が通ることをここで踏む
+                              "mechanism_changed": scenario == "premise_resolved" and rnd == 2, "premise_drift": False, "gates_changed": False,
+                              "seams_changed": False, "path_changed": False,
                               "wrote_refs": [],
                               # 事前審査の穴と別案に key ごとに 1 行（事前審査が走らなかった周は空）
                               "plan_faces": [{"key": f["key"], "handled": face_how(f["key"])[0], "how": face_how(f["key"])[1]}
@@ -1445,8 +1446,8 @@ def test_rejections():
     # 修正どうしの干渉——面の一覧は機械が changes[].files から出すので、書き落としは申告でなく突合で落ちる
     r = run.done(fx["id"], {**fix, "interactions": []})
     check(r.returncode == 1 and "interactions に無い" in r.stderr, "2 つ以上の修正が触った面を書き落とすと exit 1（機械が files から面を出す）")
-    r = run.done(fx["id"], {**fix, "interactions": [{**fix["interactions"][0], "changes": fix["interactions"][0]["changes"] + ["触っていない修正"]}]})
-    check(r.returncode == 1 and "触っていない修正" in r.stderr, "その面を触っていない修正を interactions に混ぜると exit 1")
+    r = run.done(fx["id"], {**fix, "interactions": [{**fix["interactions"][0], "changes": [c["unit_key"] for c in fix["changes"]]}]})
+    check(r.returncode == 1 and "型に合わない" in r.stderr, "面ごとの修正の一覧（changes）は役に書かせない——書けば型で拒む（写しの入口を残さない）")
     r = run.done(fx["id"], {**fix, "interactions": [{**fix["interactions"][0], "checked": "なし"}]})
     check(r.returncode == 1 and "checked が空同然" in r.stderr, "干渉を突き合わせた結果が空同然なら exit 1（bypass_tried と同じ空語検査）")
     # 壊さないか・根本か・破れないか——「修正を外したら赤くなった」は不在の検知であって完全性の証拠にならない
@@ -1457,9 +1458,20 @@ def test_rejections():
     r = run.done(fx["id"], {**fix, "changes": [{**c, "root_or_symptom": {"kind": "symptom", "why": "後で"}} for c in fix["changes"]]})
     check(r.returncode == 1 and "症状" in r.stderr, "症状を塞ぐ修正に「なぜ今それで止めるか」が無ければ exit 1")
     # 覆いの母数（coverage）——「1 か所直して終わり」を数字で見えるようにする。残すのは禁じないが黙って残すのは禁じる
-    nocov = {**fix, "changes": [{k: v for k, v in c.items() if k != "coverage"} for c in fix["changes"]]}
+    # 判定者が class_query を持つ単位は coverage を書かなくてよい（engine が判定者の how を補う）。**正しい返答で確かめると
+    # 節が done になり後続の腕が撃てない**ので、後ろに在る拒否（wrote_refs の数え）で赤くして、coverage で赤くならないことを見る。
+    # 補った値そのものは test_fix_counts_by_engine が post_check を直に呼んで見る
+    nocov = {**fix, "wrote_refs": [{"kind": "text", "cite": "検査用に無い字列", "target": "README.md", "where": "src/a.py"}],
+             # 省くのは判定者の how が台本の how と同じ単位だけ（もう 1 つの単位の判定者の how は engine が 0 件と数える問い）
+             "changes": [{k: v for k, v in fix["changes"][0].items() if k != "coverage"}] + fix["changes"][1:]}
     r = run.done(fx["id"], nocov)
-    check(r.returncode == 1 and "coverage" in r.stderr, "修正に coverage（母数の問いと件数）が無い返答は exit 1")
+    check(r.returncode == 1 and "の中に無い" in r.stderr and "coverage" not in r.stderr,
+          f"判定者が class_query を持つ単位は coverage を省いても coverage では拒まない（赤の理由は wrote_refs だけ。{r.stderr.strip()[-70:]}）")
+    # how を書かずに remaining だけを書く返答も型で拒まない（coverage の中に必須の欄を残すと、残した理由を書く周に how の写しが戻る）
+    remonly = {**nocov, "changes": [{**nocov["changes"][0], "coverage": {"remaining": "検査用に残した理由を書いた"}}] + nocov["changes"][1:]}
+    r = run.done(fx["id"], remonly)
+    check(r.returncode == 1 and "の中に無い" in r.stderr and "coverage" not in r.stderr,
+          f"coverage に remaining だけを書いた返答も coverage では拒まない（赤の理由は wrote_refs だけ。{r.stderr.strip()[-70:]}）")
     # 母数は engine が修正前の版で数える（修正役の total は使わない）——src に def は 2 行（a.py の f・b.py の g）
     part = {**fix, "changes": [{**c, "coverage": {**c["coverage"], "how": {"patterns": ["def"], "paths": ["src"], "count": "lines"}}} for c in fix["changes"]]}
     r = run.done(fx["id"], part)
@@ -1755,6 +1767,21 @@ def test_fix_counts_by_engine():
     after = (b.loop_state.get("coverage_after") or {}).get("items") or [{}]
     check(got is None and after[0].get("total") == 2 and after[0].get("after") == 0 and after[0].get("counts") == "defects",
           f"修正の件数: 両方直せば通り、修正前の母数は固定した版で数えた 2・向きは判定者の defects（{got} / {after[0]}）")
+    # **判定者の how は写させない**: coverage を省いても、remaining だけを書いても、判定者の how が補われて out に残る
+    # （out は post_check の後に保存され、process.fixes と R1 が読む値は今までと同じ how になる）
+    for cov in (None, {"remaining": "検査用に残した理由を書いた"}):
+        ch = {k: v for k, v in change.items() if k != "coverage"}
+        if cov is not None:
+            ch["coverage"] = dict(cov)
+        got = run(ch)
+        filled = ch.get("coverage") or {}
+        check(got is None and filled.get("how") == how and filled.get("remaining") == (cov or {}).get("remaining"),
+              f"修正の件数: coverage.how を書かなければ判定者の how を補って返答に書き戻す（{sorted(cov or {})}。{got} / {filled}）")
+    b.record["process"]["diagnosis"]["units"] = [unit]   # 判定者が class_query を持たない単位では補う物が無い
+    got = run({k: v for k, v in change.items() if k != "coverage"})
+    check(got and "class_query が無い単位なのに coverage.how" in got,
+          f"修正の件数: 判定者の class_query が無い単位で how を省けば拒む（{(got or '通った')[:80]}）")
+    b.record["process"]["diagnosis"]["units"] = [{**unit, "class_query": {"how": how, "counts": "defects", "total": 2}}]
     # 母数の一部だけ閉鎖を実証した修正は、残した理由（remaining）が在れば通る——黙って残すのだけを拒む
     got = run({**change, "closure": {"sites": [{"site": "t.py:1", "red_seen": True}]},
                "coverage": {**change["coverage"], "remaining": "u.py の側は別の単位で直す（検査用）"}})
@@ -4951,6 +4978,9 @@ def test_cond_truth_tables():
         return ctx
     touched = {"prev_fix_files": ["a.py"]}
     ENG = lambda rnd: {"process": {"checks": {"p4.ci": {"round": rnd, "by": "engine"}}}}   # その周の CI を engine が走らせた
+    # **前の周の P3 の旗（deps・claims・procedures・gates・seams・path）だけでは起こさない**——旗が真の周は P3 がファイルを
+    # 触った周で、prev_fix_touched（touched）が拾う。旗だけが真でファイルが空の行が False なのは、旗が死んだ入力として
+    # 条件から外れたことの固定。例外は decision_records_changed（リポジトリの外に書いた周はファイルが空のまま真になりうる）
     T = {
         "request_entry": [(c(), False), (c(entry=True), True), (c(entry=True, loop={"request_fixed_at": 1}), False),
                           ({"record": {"process": {"request_entry": "文字列"}}}, False)],
@@ -4963,18 +4993,18 @@ def test_cond_truth_tables():
         "prior_decisions_due": [(c(), True), (c(2), False), (c(2, fix={"decision_records_changed": True}), True),
                                 (c(2, loop=touched), True), (c(2, loop={"escalated": {"round": 2}}), True), (c(2, loop={"escalated": []}), False)],
         "external_standards_due": [(c(), True), (c(entry=True), False), (c(2), False), (c(2, fix={"mechanism_changed": True}), True),
-                                   (c(2, fix={"deps_changed": True}), True), (c(2, loop=touched), True), (c(2, entry=True, loop={**touched, "request_fixed_at": 1}), True)],
+                                   (c(2, fix={"deps_changed": True}), False), (c(2, loop=touched), True), (c(2, entry=True, loop={**touched, "request_fixed_at": 1}), True)],
         "procedure_trace_due": [(c(loop={"changed_files": ["README.md"]}), True), (c(loop={"changed_files": ["a.py"]}), False),
                                 (c(2, loop={"changed_files": ["README.md"]}), False),
-                                (c(2, loop={"changed_files": ["README.md"]}, fix={"procedures_changed": True}), True),
+                                (c(2, loop={"changed_files": ["README.md"]}, fix={"procedures_changed": True}), False),
                                 (c(entry=True, loop={"changed_files": ["README.md"]}), False),
                                 (c(entry=True, loop={"escalated": {"round": 1}}), True), (c(2, loop=touched), True)],
         "gate_efficacy_due": [(c(base={"touches_gates": True}), True), (c(base={"touches_gates": False}), False),
-                              (c(2, base={"touches_gates": True}), False), (c(2, base={"touches_gates": False}, fix={"gates_changed": True}), True),
+                              (c(2, base={"touches_gates": True}), False), (c(2, base={"touches_gates": False}, fix={"gates_changed": True}), False),
                               (c(entry=True, base={"touches_gates": True}), False), (c(entry=True, loop={"escalated": {"round": 1}}), True),
                               (c(), "die"), (c(entry=True), False), (c(base={"touches_gates": 1}), True)],
         "test_double_fidelity_due": [(c(base={"touches_external_seams": True}), True), (c(base={"touches_external_seams": False}), False),
-                                     (c(2, base={"touches_external_seams": False}, fix={"seams_changed": True}), True),
+                                     (c(2, base={"touches_external_seams": False}, fix={"seams_changed": True}), False),
                                      (c(entry=True, base={"touches_external_seams": True}), False),
                                      (c(entry=True, loop={"escalated": {"round": 1}}), True)],
         "main_path_observation_due": [(c(base={"touches_user_path": True}), True), (c(2, base={"touches_user_path": True}), False),
@@ -4982,7 +5012,7 @@ def test_cond_truth_tables():
                                       (c(2, base={"touches_user_path": True}, loop={"last_material": {"main_path_observation": {"status": "clean"}}}), False),
                                       (c(2, base={"touches_user_path": False}, loop=touched), True),
                                       (c(entry=True, base={"touches_user_path": True}, loop={"escalated": {"round": 1}}), False)],
-        "provenance_due": [(c(), True), (c(entry=True), False), (c(2), False), (c(2, fix={"claims_changed": True}), True), (c(2, loop=touched), True)],
+        "provenance_due": [(c(), True), (c(entry=True), False), (c(2), False), (c(2, fix={"claims_changed": True}), False), (c(2, loop=touched), True)],
         "after_first_round": [(c(), False), (c(2), True)],
         "parallel_pr_due": [(c(), True), (c(2), False), (c(2, entry=True, loop={"request_fixed_at": 1}), True),
                             (c(3, entry=True, loop={"request_fixed_at": 1}), False), (c(2, loop={"request_fixed_at": 1}), False)],

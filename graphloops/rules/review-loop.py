@@ -364,7 +364,7 @@ def prev_fix_touched(v):
     """前の周の P3 が 1 ファイルでも触ったか（条件の部品）。
 
     差分全体を見る素材（衛生・整合・出典・外部標準・手順の追跡など）の再発火を、役の自己申告 1 欄
-    （claims_changed 等）でなく **P3 が実際に触ったファイル**から決める。申告に依っていたとき、前の周の P3 が
+    でなく **P3 が実際に触ったファイル**から決める。申告に依っていたとき、前の周の P3 が
     直した対象を見た素材が carried_over のまま前の周の主張を運び、閉じた欠陥が次の周に新規の [block] として
     生き返った（実測 2026-09-12: p1.provenance が r1 の主張を運び、判定者が取り下げるまで気づかれなかった）。
     """
@@ -946,42 +946,43 @@ def not_request_entry(v):
     return (not entry), (f"{why}のため、P1 の役を起こさない" if entry else why)
 
 
-@cond_reads(*request_entry.reads, *_TOUCH, "prev.p3.fix.mechanism_changed", "prev.p3.fix.deps_changed")
+@cond_reads(*request_entry.reads, *_TOUCH, "prev.p3.fix.mechanism_changed")
 def external_standards_due(v):
-    """判定から入る run の周でなく、初回か、機構を足した／変えた周か、依存の宣言ファイルが変わった周、または前の周の P3 が何かを直した周"""
+    """判定から入る run の周でなく、初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周（依存の宣言ファイルを変えた周も後者に入る）"""
     entry, why = request_entry(v)
     if entry:
         return False, f"{why}のため、外部標準の照合を起こさない"
-    ok = _first(v) or _fix_says(v, "mechanism_changed") or _fix_says(v, "deps_changed") or prev_fix_touched(v)[0]
-    return _because(ok, "初回か、機構を足した／変えた周か、依存の宣言ファイルが変わった周、または前の周の P3 が何かを直した周",
+    ok = _first(v) or _fix_says(v, "mechanism_changed") or prev_fix_touched(v)[0]
+    return _because(ok, "初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周",
                     f"round={v('round')}・{prev_fix_touched(v)[1]}")
 
 
-@cond_reads(*request_entry.reads, *_TOUCH, "prev.p3.fix.claims_changed")
+@cond_reads(*request_entry.reads, *_TOUCH)
 def provenance_due(v):
-    """判定から入る run の周でなく、初回か、事実の主張が増減した周、または前の周の P3 が何かを直した周"""
+    """判定から入る run の周でなく、初回か、前の周の P3 が何かを直した周（事実の主張を増減した周も後者に入る）"""
     entry, why = request_entry(v)
     if entry:
         return False, f"{why}のため、出典の確かめを起こさない"
-    ok = _first(v) or _fix_says(v, "claims_changed") or prev_fix_touched(v)[0]
-    return _because(ok, "初回か、事実の主張が増減した周、または前の周の P3 が何かを直した周", f"round={v('round')}・{prev_fix_touched(v)[1]}")
+    ok = _first(v) or prev_fix_touched(v)[0]
+    return _because(ok, "初回か、前の周の P3 が何かを直した周", f"round={v('round')}・{prev_fix_touched(v)[1]}")
 
 
-def _deep(v, touched, fix_field, when, extra=None):
-    """P1 の深さの節の、入口を見た後の残り: (touched and (初回 or 前の周に変えた[ or extra が人待ち])) or 前の周の P3 が触った"""
+def _deep(v, touched, when, extra=None):
+    """P1 の深さの節の、入口を見た後の残り: (touched and (初回[ or extra が人待ち])) or 前の周の P3 が触った。
+    前の周の P3 が申告する『変えた』の旗は項に持たない——旗が真の周は P3 がファイルを触った周で、後ろの or が必ず真になる"""
     t, twhy = touched(v)
-    ok = (t and (_first(v) or _fix_says(v, fix_field) or (extra is not None and v(extra, None) == "awaiting_human"))) or prev_fix_touched(v)[0]
+    ok = (t and (_first(v) or (extra is not None and v(extra, None) == "awaiting_human"))) or prev_fix_touched(v)[0]
     return _because(ok, when, f"round={v('round')}・{twhy}・{prev_fix_touched(v)[1]}")
 
 
-def _deep_due(name, touched, fix_field, when, noun):
+def _deep_due(name, touched, when, noun):
     """P1 の深さの節（手順の追跡・ゲートの検算・代役の忠実さ）の条件の工場: 判定から入る run の周でなければ _deep で決め、
     偽でも昇格した周（loop.escalated）なら起こす。入口の周は外すが、昇格した周は入口より勝つ。3 節の分岐の正本はここ 1 つ"""
-    @cond_reads(*dict.fromkeys((*request_entry.reads, *_TOUCH, *touched.reads, f"prev.p3.fix.{fix_field}", "loop.escalated")))
+    @cond_reads(*dict.fromkeys((*request_entry.reads, *_TOUCH, *touched.reads, "loop.escalated")))
     def fn(v):
         entry, why = request_entry(v)
         if not entry:
-            ok, rwhy = _deep(v, touched, fix_field, when)
+            ok, rwhy = _deep(v, touched, when)
             return (True, f"{rwhy}・昇格した周") if not ok and _escalated(v) else (ok, rwhy)
         if _escalated(v):
             return True, f"判定から入る run の周だが、昇格した周なので{noun}を起こす"
@@ -991,30 +992,32 @@ def _deep_due(name, touched, fix_field, when, noun):
     return fn
 
 
-procedure_trace_due = _deep_due("procedure_trace_due", touches_procedures, "procedures_changed",
-                                "差分に手順書・スクリプト・CI 定義があり、初回かそれらを変えた周、または前の周の P3 が何かを直した周", "手順の追跡")
-gate_efficacy_due = _deep_due("gate_efficacy_due", gates_touched, "gates_changed",
-                              "差分がゲートを新設・変更しており、初回かゲートを変えた周、または前の周の P3 が何かを直した周", "ゲートの検算")
-test_double_fidelity_due = _deep_due("test_double_fidelity_due", seams_touched, "seams_changed",
-                                     "差分が外部との継ぎ目に触れ、初回か代役を変えた周、または前の周の P3 が何かを直した周", "代役の忠実さの確かめ")
+procedure_trace_due = _deep_due("procedure_trace_due", touches_procedures,
+                                "差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周", "手順の追跡")
+gate_efficacy_due = _deep_due("gate_efficacy_due", gates_touched,
+                              "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周", "ゲートの検算")
+test_double_fidelity_due = _deep_due("test_double_fidelity_due", seams_touched,
+                                     "差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周", "代役の忠実さの確かめ")
 
 
 @cond_reads(*request_entry.reads, *_TOUCH, *user_path_touched.reads, "loop.last_material.main_path_observation.status")
 def main_path_observation_due(v):
-    """判定から入る run の周でなく、差分が利用者から見える経路を変え、初回か経路を変えた周か前の周に人待ちだった周
+    """判定から入る run の周でなく、差分が利用者から見える経路を変え、初回か前の周に人待ちだった周
     （動かす手段が見つかったか再挑戦）、または前の周の P3 が何かを直した周"""
     entry, why = request_entry(v)
     if entry:
         return False, f"{why}のため、主経路の観察を起こさない"
-    return _deep(v, user_path_touched, "path_changed", "差分が利用者から見える経路を変え、初回か経路を変えた周か前の周に人待ちだった周、"
+    return _deep(v, user_path_touched, "差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、"
                  "または前の周の P3 が何かを直した周", extra="loop.last_material.main_path_observation.status")
 
 
 @cond_reads("round", "prev.p3.fix.decision_records_changed", "loop.escalated", *prev_fix_touched.reads)
 def prior_decisions_due(v):
-    """初回か、ループ自身が issue・台帳を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）"""
+    """初回か、前の周の P3 がリポジトリの外に issue などの決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）。
+    decision_records_changed は p3.fix の任意の欄で、ファイルを 1 つも触らずに外へ書いた周だけ、この旗が条件を変える
+    （リポジトリの中の台帳を書き足した周は prev_fix_touched が拾う）"""
     ok = _first(v) or _fix_says(v, "decision_records_changed") or prev_fix_touched(v)[0] or _escalated(v)
-    return _because(ok, "初回か、ループ自身が issue・台帳を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）",
+    return _because(ok, "初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）",
                     f"round={v('round')}・{prev_fix_touched(v)[1]}")
 
 
@@ -2424,10 +2427,8 @@ def fix_covers_open_units(b, nid, out, item):
             raise Reject(f"2 つ以上の修正が触った面が interactions に無い: {missing}"
                          "——面の一覧は機械が changes[].files から出す。一方が他方を不要にしないか・順序で結果が変わらないか・"
                          "組み合わせて初めて生まれる状態が無いかを突き合わせて書け")
+        # 面ごとにどの修正が触ったかは shared[f] として機械が持つ——役に写させない（以前の interactions[].changes）
         for f, ks in shared.items():
-            extra = sorted(set(seen[f]["changes"]) - set(ks))
-            if extra:
-                raise Reject(f"interactions[{f}] の changes に、その面を触っていない修正が在る: {extra}")
             if blank(seen[f].get("checked"), 10):
                 raise Reject(f"interactions[{f}] の checked が空同然——一方が他方を不要にしないか・順序で結果が変わらないか・"
                              "組み合わせて初めて生まれる状態が無いかを突き合わせた結果を書け")
@@ -2456,14 +2457,19 @@ def fix_covers_open_units(b, nid, out, item):
         ros = c.get("root_or_symptom") or {}
         if ros.get("kind") == "symptom" and len((ros.get("why") or "").strip()) < 10:
             raise Reject(f"{c['unit_key'][:60]}: 症状を塞ぐ修正なのに、なぜ今それで止めるかが無い（根に当てるのが設計作業なら、そう書いて questions に fork を立てろ）")
+        # **判定者の how は役に写させない**——役が how を書かなければ判定者の class_query の how を補い、out に書き戻す
+        # （process.fixes と R1 には今までと同じ how が残る）。役が書いた how は作り直しとして採る（狭めれば下の柵が remaining を求める）
+        jq = judged.get(c["unit_key"]) or {}
         cov = c.get("coverage") or {}
+        if not cov.get("how") and jq.get("how"):
+            cov = c["coverage"] = {**cov, "how": jq["how"]}
         if not cov.get("how"):
-            raise Reject(f"{c['unit_key'][:60]}: coverage.how（同じ形を全部引ける機械の問い）が無い——名指しの 1 site だけを塞いでいないことは母数でしか示せない")
+            raise Reject(f"{c['unit_key'][:60]}: 判定者の class_query が無い単位なのに coverage.how（同じ形を全部引ける機械の問い）が無い"
+                         "——名指しの 1 site だけを塞いでいないことは母数でしか示せない")
         # **修正の前後の件数は engine が数える。向きは判定者が決める**——修正役が書く total と counts を入力にしていた頃は、
         # 検査される側の申告で柵が外れた（counts を population に書き換えると修正後の件数の拒否が消え、修正後だけ未追跡を
         # 外して数えるので、判定時 2・修正後 1 の数え違いで defects の柵をすり抜けた。2026-09-24 の review-graph 1 周目）。
         # 修正前は判定者が読んだのと同じ固定の版、修正後はそれと同じ世界（未追跡も含め、.gitignore に当たる物は外す）
-        jq = judged.get(c["unit_key"]) or {}
         counts = jq.get("counts") or cov.get("counts")
         if counts not in ("defects", "population"):
             raise Reject(f"{c['unit_key'][:60]}: 数えるものの向きが決まらない——判定者の class_query が無い単位は coverage.counts（defects / population）を書け")
