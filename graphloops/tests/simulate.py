@@ -1743,6 +1743,10 @@ def test_engine_launch():
     seen = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()] if log.is_file() else []
     check(seen and seen[0]["stdin"] == pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")[:4000],
           "材料（指示書）は標準入力で子へ届く")
+    cwd = seen[0].get("cwd") if seen else None
+    in_git = cwd is not None and subprocess.run(["git", "-C", cwd, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, encoding="utf-8").stdout.strip() == "true"
+    check(cwd is not None and not in_git and not pathlib.Path(cwd).resolve().is_relative_to(run.repo.resolve()),
+          f"道具ゼロの役は Git リポジトリの外の一時ディレクトリで起こす（git status の写しを注入させない。cwd {cwd}）")
     r2 = run.cmd("launch", "--node", inst["id"], env=env)
     check(r2.returncode == 1 and "起こせる節が無い" in r2.stderr, f"済んだ節は起こし直さない（{r2.returncode}: {r2.stderr[-80:]}）")
 
@@ -1877,12 +1881,18 @@ def test_role_run():
           and role_run.parse_cim("alive:") is None and role_run.parse_cim("") is None,
           "Windows: 居ない・開始時刻・読めない（確かめられない＝止めずに拒む）を分ける")
     if os.name == "posix":
-        def gone(pid):
-            try:
-                os.kill(pid, 0)
-                return False
-            except OSError:
-                return True
+        def gone(pid, within=10):
+            """pid が居なくなるまで期限つきで問い直す——止めた孫は親が居なくなってから init が回収するので、1 回だけ見ると
+            回収前のゾンビを『生きている』と数えて時々赤くなる"""
+            t0 = time.monotonic()
+            while True:
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    return True
+                if time.monotonic() - t0 > within:
+                    return False
+                time.sleep(0.05)
 
         def sleeper(extra):
             """眠る子（孫も立てる）を run_role で起こし、印（<out>.pgid）と孫の pid が出るまで待つ。返すのは (スレッド, 結果, 孫の pid)"""
@@ -1957,6 +1967,15 @@ def test_role_run():
             got = "TimeoutExpired"
         gp = int(gpid.read_text(encoding="utf-8")) if gpid.is_file() else None
         check(got == "TimeoutExpired" and gp is not None and gone(gp), f"run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる（{got} pid {gp}）")
+        # SIGTERM を無視する孫も止まる——長（sh）が先に終わっても、グループが消えるまで待って SIGKILL を送る
+        gpid2 = tmp / "tree-deaf.pid"
+        try:
+            role_run.run_tree(["sh", "-c", f"(trap '' TERM; echo $$ > /dev/null; exec sh -c 'trap \"\" TERM; echo $$ > {gpid2}; while :; do sleep 1; done') & wait"],
+                              cwd=tmp, timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+        gp2 = int(gpid2.read_text(encoding="utf-8")) if gpid2.is_file() and gpid2.read_text(encoding="utf-8").strip() else None
+        check(gp2 is not None and gone(gp2), f"run_tree: SIGTERM を無視する孫も、グループが消えるまで待って SIGKILL で止める（pid {gp2}）")
         r = role_run.run_tree(["sh", "-c", "read x; echo \"got:$x\"; echo err >&2"], cwd=tmp, timeout=30)
         check(r.returncode == 0 and r.stdout == "got:\n" and r.stderr == "err\n",
               f"run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す（{r.returncode} {r.stdout!r} {r.stderr!r}）")
@@ -2002,6 +2021,236 @@ def test_relaunch_live_launch():
           f"古い launch の行は『起こし直された古い試行』に言い換わる（rc={lp.returncode} {rows[:1]} {err.strip()[-120:]}）")
     check(me.get("status") == "pending" and not me.get("launched_at") and me["out_path"] != inst["out_path"],
           "新しい試行は待ったまま（古い launch の締めが新しい試行に書かない）")
+    rm(run.tmp)
+
+
+CONFLICT_PROBE = r"""
+import io, json, pathlib, sys, types
+from contextlib import redirect_stderr, redirect_stdout
+sys.path.insert(0, sys.argv[1])
+from engine import commands as C
+from engine.board import Board
+from engine.util import BoardConflict
+d = sys.argv[2]
+run_dir = pathlib.Path(d)
+got = {}
+
+def bump_rev():
+    st = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+    st["rev"] = st.get("rev", 0) + 1
+    (run_dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+
+calls = []
+def fn(b):
+    calls.append(1)
+    b.trace("conflict_probe", n=len(calls))
+    if len(calls) == 1:
+        bump_rev()
+    return len(calls)
+buf = io.StringIO()
+with redirect_stderr(buf):
+    got["retry"] = C._board_update(d, fn)
+got["retry_stderr"] = buf.getvalue()
+got["probe_rows"] = [json.loads(x)["n"] for x in (run_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"conflict_probe"' in x]
+
+def always(b):
+    bump_rev()
+try:
+    C._board_update(d, always)
+    got["lose"] = None
+except BoardConflict as e:
+    got["lose"] = [e.code, e.msg, str(e)]
+
+st = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+iid = next(k for k, i in st["rounds"][-1]["instances"].items() if i["status"] == "pending")
+st["rounds"][-1]["instances"][iid].update(launch={"argv": ["x"], "stdin": "x"}, launched_at="2026-09-25T00:00:00+09:00", launch_state="ended")
+(run_dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+orig_save, hit = Board.save, []
+def flaky_save(self):
+    if not hit:
+        hit.append(1)
+        self.seen_rev = -1
+    return orig_save(self)
+Board.save = flaky_save
+out = io.StringIO()
+with redirect_stdout(out):
+    C.cmd_launch(types.SimpleNamespace(dir=d, node=None))
+Board.save = orig_save
+got["mark_hit"] = bool(hit)
+got["launched"] = [x["id"] for x in json.loads(out.getvalue())["launched"]]
+got["iid"] = iid
+
+def losing(*_a, **_k):
+    raise BoardConflict("検査用の衝突")
+C.accept_output = losing
+inst = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))["rounds"][-1]["instances"][iid]
+pathlib.Path(inst["out_path"]).parent.mkdir(parents=True, exist_ok=True)
+pathlib.Path(inst["out_path"]).write_text("{}", encoding="utf-8")
+acc = C._accept_for_launch(d, iid, inst["out_path"])
+try:
+    acc("")
+    got["accept"] = "受け付けた"
+except BoardConflict:
+    got["accept"] = "BoardConflict"
+got["accept_flag"] = acc.conflict
+
+# 1 回負けてから通る受け付け: 当て直しの 2 回目で本物の受け付けに届く
+calls = []
+def once(*a, **k):
+    calls.append(1)
+    if len(calls) == 1:
+        raise BoardConflict("検査用の 1 回目の衝突")
+    return "受け付けた（検査用）"
+C.accept_output = once
+acc = C._accept_for_launch(d, iid, inst["out_path"])
+got["accept_retry"] = [acc(""), acc.msg, acc.conflict, len(calls)]
+
+# launch_one は受け付けの負け（conflict の印）に done の案内を足す
+C.accept_output = losing
+C.launch_refusal = lambda _inst: None
+def fake_run_role(argv, prompt, out, accept=None, **kw):
+    try:
+        accept("")
+        why = None
+    except (Exception, SystemExit) as e:
+        why = f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
+    return {"ok": False, "why": why, "session_id": None, "superseded": False, "accepted": None, "runs": [], "rejections": []}
+C.run_role = fake_run_role
+row = C.launch_one(d, {**inst, "launch": {"argv": ["x"], "stdin": inst["out_path"]}}, 0)
+got["launch_hint"] = row.get("why")
+print(json.dumps(got, ensure_ascii=False))
+"""
+
+
+CLI_CONFLICT_PROBE = r"""
+import os, runpy, sys
+sys.path.insert(0, sys.argv[1])
+from engine.board import Board
+from engine.util import BoardConflict
+def always(self):
+    raise BoardConflict("検査用の衝突の文（loop.py の入口が出す）")
+Board.save = always
+sys.argv = ["loop.py", "next", "--dir", sys.argv[2]]
+runpy.run_path(os.environ["GL_LOOP"], run_name="__main__")
+"""
+
+
+RELAUNCH_RACE_PROBE = r"""
+import json, pathlib, sys, types
+sys.path.insert(0, sys.argv[1])
+from engine import commands as C
+from engine.util import Reject
+d, iid = sys.argv[2], sys.argv[3]
+state = pathlib.Path(d) / "state.json"
+
+def racing_probe(_mark):
+    # 印を確かめている間に、別の relaunch が同じ instance を起こし直した（置き場が変わった）
+    st = json.loads(state.read_text(encoding="utf-8"))
+    st["rounds"][-1]["instances"][iid]["out_path"] += ".a9.json"
+    state.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    C.probe_group = lambda _m: (None, None)
+    return None, None
+C.probe_group = racing_probe
+try:
+    C.cmd_relaunch(types.SimpleNamespace(dir=d, node=iid, reason="検査用"))
+    print("通った")
+except Reject as e:
+    print(str(e))
+"""
+
+
+def test_relaunch_race():
+    """読んでいる間に別の relaunch が同じ instance を起こし直したら、新しい試行を重ねずに拒む（別のプロセスで差し替えて起こす）"""
+    print("起こし直しの競り: 読んでいる間に置き場が変わったら拒む")
+    run = Run("relaunch-race")
+    run.next()
+    run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
+    nx = run.next()
+    inst = next(i for i in nx["ready"] if i.get("launch") or i.get("mode") == "cli")
+    r = subprocess.run([PY, "-c", RELAUNCH_RACE_PROBE, str(PLUGIN), str(run.dir), inst["id"]], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    me = run.state()["rounds"][-1]["instances"][inst["id"]]
+    check("別の relaunch" in r.stdout and me.get("attempts", 1) == 1,
+          f"relaunch: 読んでいる間に別の relaunch が起こし直していたら、新しい試行を作らない（{r.stdout.strip()[-120:]} {r.stderr[-120:]} attempts={me.get('attempts')}）")
+    rm(run.tmp)
+
+
+SIGNAL_PROBE = r"""
+import json, os, subprocess, sys, time
+sys.path.insert(0, sys.argv[1])
+from engine import role_run as R
+got = {}
+# 錠を持つ最中の同じスレッドに信号の口が割り込んでも止まらない（再入できる錠）
+with R._LIVE_LOCK:
+    R.kill_all()
+    got["reentrant"] = True
+# 止める信号の後に起こした子は、すぐ止めて StopSignal を上げる（止め始めた後に子を増やさない）
+R._STOPPING.set()
+try:
+    R.run_tree(["sh", "-c", "sleep 30"], cwd=".", timeout=60)
+    got["stopping"] = "起こした"
+except R.StopSignal:
+    got["stopping"] = "StopSignal"
+got["live_after"] = len(R.LIVE)
+R._STOPPING.clear()
+# 止め切れなかった木の理由は、時間切れの例外に添えて呼び元へ運ぶ
+orig = R._stop_tree
+R._stop_tree = lambda pgid, leader=None: "検査用の止め切れない理由"
+try:
+    R.run_tree(["sh", "-c", "sleep 3"], cwd=".", timeout=0.3)
+    got["tree_left"] = None
+except subprocess.TimeoutExpired as e:
+    got["tree_left"] = getattr(e, "tree_left", None)
+R._stop_tree = orig
+print(json.dumps(got, ensure_ascii=False))
+"""
+
+
+def test_stop_signal_guards():
+    """止める信号の口の守り: 再入できる錠・止め始めた後の起動の拒否・止め切れなかった理由の運び（engine の大域を差し替えるので
+    別のプロセスで走らせる）"""
+    if os.name != "posix":
+        return
+    print("止める信号の口: 錠の再入・止め始めた後の起動を拒む・止め切れない理由を運ぶ")
+    r = subprocess.run([PY, "-c", SIGNAL_PROBE, str(PLUGIN)], capture_output=True, text=True, encoding="utf-8", timeout=120)
+    try:
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        got = {}
+    check(got.get("reentrant") is True, f"信号の口（kill_all）は錠を持つ最中の同じスレッドでも止まらない（{r.stderr[-160:]}）")
+    check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
+          f"止める信号の後に起こした子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
+    check(got.get("tree_left") == "検査用の止め切れない理由", f"止め切れなかった木の理由は時間切れの例外に添えて運ぶ（{got.get('tree_left')}）")
+
+
+def test_board_conflict():
+    """**版の衝突の消費側**: _board_update は読み直して当て直し、成功した回は失敗の文も重なった trace も残さない。launch の
+    印付け（mark）は当て直しで行を重ねない。受け付けが当て直しの回数まで負けたら、launch は done の案内を足せる印を立てる。
+    engine の関数を差し替えて起こすので、別のプロセスで走らせる（台本は同じプロセスで並列に走る——差し替えが他の台本に漏れる）"""
+    print("版の衝突: 読み直して当て直す・成功した回は文も trace も重ねない・mark は行を重ねない・受け付けの負けは印で運ぶ")
+    run = Run("conflict")
+    run.next()
+    r = subprocess.run([PY, "-c", CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    try:
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        got = {}
+    check(got.get("retry") == 2 and got.get("retry_stderr") == "" and got.get("probe_rows") == [2],
+          f"_board_update: 衝突したら読み直して当て直し、成功した回は失敗の文も控えた trace も出さない（{got.get('retry')} {got.get('retry_stderr')!r} {got.get('probe_rows')} {r.stderr[-200:]}）")
+    lose = got.get("lose") or [None, "", ""]
+    check(lose[0] == 2 and "盤面が読んだ後に進んでいる" in lose[1] and lose[2] == lose[1],
+          f"_board_update: 当て直しの回数まで負けたら BoardConflict（exit 2・文は呼び手が出す）を上げる（{lose}）")
+    check(got.get("mark_hit") and got.get("launched") == [got.get("iid")],
+          f"cmd_launch の mark: 当て直しても『起こし済み』の行を重ねない（{got.get('launched')}）")
+    check(got.get("accept") == "BoardConflict" and got.get("accept_flag") is True,
+          f"受け付けの衝突は当て直しの後に印（conflict）を立てて上げる（{got.get('accept')} {got.get('accept_flag')}）")
+    check(got.get("accept_retry") == [None, "受け付けた（検査用）", False, 2],
+          f"受け付けは 1 回負けても当て直しで通る（{got.get('accept_retry')}）")
+    check("done --node" in (got.get("launch_hint") or "") and "返答は" in (got.get("launch_hint") or ""),
+          f"launch は受け付けの負けに done の案内を足す（{(got.get('launch_hint') or '')[-120:]}）")
+    r = subprocess.run([PY, "-c", CLI_CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8",
+                       env={**os.environ, "GL_LOOP": str(LOOP)}, timeout=300)
+    check(r.returncode == 2 and "NG 検査用の衝突の文" in r.stderr,
+          f"loop.py の入口は版の衝突の文を最後に 1 度出して exit 2（rc={r.returncode} {r.stderr.strip()[-120:]}）")
     rm(run.tmp)
 
 
@@ -2623,7 +2872,7 @@ def test_prompt_growth():
 
 
 def test_relaunch():
-    """**起こし直しは前の試行の子を止めてから新しい試行を作り、盤面に刻み、前の置き場を締め出す。時間の上限は無い。**
+    """**起こし直しは新しい試行を盤面に刻んでから前の試行の子を止め、前の置き場を締め出す。時間の上限は無い。**
 
     起こし直しが盤面に残らず、emitted_at は最初の起動のままだった（実測 2026-09-25: 週の上限で P1 の 8 節が落ち、別の
     セッションが起こし直した）。起こし直した試行は置き場を分ける（Temporal の task token が試行ごとに一意なのと同じ）。
@@ -2698,19 +2947,31 @@ def test_relaunch():
     old.write_text("遅れて届いた前の試行の返答（検査用）", encoding="utf-8")
     r = run.cmd("done", "--node", iid)
     check(r.returncode != 0 and "返答が無い" in r.stderr, f"done: 前の試行の置き場は読まない（{r.stderr.strip()[-80:]}）")
-    # 止められない印（読めない）なら新しい試行を作らない
     bad = pathlib.Path(new["out_path"] + ".pgid")
     bad.write_text("読めない印（検査用）", encoding="utf-8")
     r = run.cmd("relaunch", "--node", iid, "--reason", "止められない（検査用）")
     check(r.returncode == 1 and "確かめられない" in r.stderr and run.state()["rounds"][-1]["instances"][iid].get("attempts") == 2,
           f"relaunch: 前の試行の子を確かめられなければ新しい試行を作らない（{r.returncode} {r.stderr.strip()[-80:]}）")
     bad.unlink()
+    # 前の relaunch が止め切れずに残した子（1 回目の試行の置き場の印）も、次の relaunch が止め直す（attempt_log の前の置き場）
+    stale_child = None
+    if os.name == "posix":
+        stale_child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True)
+        stale_reaper = threading.Thread(target=stale_child.wait)
+        stale_reaper.start()
+        pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": stale_child.pid}), encoding="utf-8")
     # 置き場に何も無いまま 2 回目の起こし直し: 退ける物が無くても起こし直せ、試行の記録は積み増す
     r = run.cmd("relaunch", "--node", iid, "--reason", "2 回目（検査用）")
+    if stale_child is not None:
+        stale_reaper.join(15)
+        stopped = not stale_reaper.is_alive()
+        if not stopped:
+            stale_child.kill()
+            stale_reaper.join()
+        check(stopped, "relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す")
     new3 = run.state()["rounds"][-1]["instances"][iid]
     check(r.returncode == 0 and new3.get("attempts") == 3 and len(new3.get("attempt_log") or []) == 2,
           f"relaunch: 前の置き場が空でも起こし直せ、attempt_log は積み増す（{r.returncode} {new3.get('attempt_log')}）")
-    # 済んだ instance は起こし直さない
     st = run.state()
     st["rounds"][-1]["instances"][iid]["tree_before"] = real_base   # 検査用の基準点を本物に戻す（done の突合に通す）
     (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")

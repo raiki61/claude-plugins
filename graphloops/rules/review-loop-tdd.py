@@ -33,7 +33,7 @@ globals().update({k: v for k, v in vars(base).items() if not k.startswith("__") 
 
 SUITE_INPUT = "tdd_suite"   # init --input tdd_suite=<実行ファイル>。JUnit XML の書き先を第 1 引数に受け、リポジトリのルートで走る
 SUITE_TIMEOUT = 1800        # 一式 1 回の上限（秒）。超えたら結末が決まらない＝確認は通らない
-RETRY_MAX = 3               # 赤・緑の確認が同じ周に差し戻す上限。越えたら TDD を諦めて今の流れで進め、次の周の判定役に渡す
+RETRY_MAX = 3               # 赤・緑の確認が同じ周に落ちてよい回数。RETRY_MAX 回目の失敗で TDD を諦めて今の流れで進め（差し戻しは RETRY_MAX-1 回）、次の周の判定役に渡す
 FRICTION_FLAGS = ("setup_heavy", "reaches_internals", "name_unclear")
 
 
@@ -79,7 +79,8 @@ def run_suite(b):
             # 時間切れは木ごと止める（engine の run_tree）——実行器の子や孫が作業ツリーに書き続けない
             r = run_tree([*argv, str(junit)], cwd=repo_root(git), timeout=SUITE_TIMEOUT)
         except (OSError, subprocess.TimeoutExpired) as e:
-            return None, None, [f"テスト一式を走らせられない（{type(e).__name__}: {e}）"]
+            left = getattr(e, "tree_left", None)   # 時間切れで止め切れなかった木（作業ツリーに書き続けうる）
+            return None, None, [f"テスト一式を走らせられない（{type(e).__name__}: {e}）" + (f"——止め切れない木が残った: {left}" if left else "")]
         if not junit.is_file():
             return None, r.returncode, [f"テスト一式が JUnit XML を書かなかった（exit {r.returncode}）: {(r.stdout + r.stderr)[-600:]}"]
         try:
@@ -96,6 +97,11 @@ def _must_pass(c, baseline):
     """名指しの外で通っていなければならないテストか——元の結末で通っていた物と、元に無かった物（この周に足した名指しの外）。
     元から落ちていた・飛ばされていた物は問わない（周の頭で赤い一式でも、TDD の確認が必ず落ちる形にしない）"""
     return baseline is None or baseline.get(_key(c), "passed") == "passed"
+
+
+def _broken_others(cases, baseline, hit):
+    """名指しの外（hit に無い）で落ちた、通っていなければならないテスト（_must_pass）——赤と緑の確認が同じ 1 本を読む"""
+    return [c for c in cases if id(c) not in hit and c["outcome"] in ("failure", "error") and _must_pass(c, baseline)]
 
 
 def red_problems(named, cases, exit_code, baseline=None):
@@ -119,7 +125,7 @@ def red_problems(named, cases, exit_code, baseline=None):
         elif c["outcome"] == "skipped":
             probs.append(f"{t}: 飛ばされた——赤でも緑でもない")
     probs += [f"名指しの外の {_key(c)} が {c['outcome']}——テストだけを書く段がほかを壊した（元は通っていた・この周に足した物は緑のまま）"
-              for c in cases if id(c) not in hit and c["outcome"] in ("failure", "error") and _must_pass(c, baseline)]
+              for c in _broken_others(cases, baseline, hit)]
     return probs
 
 
@@ -128,12 +134,15 @@ def green_problems(named, cases, exit_code, baseline=None, baseline_exit=0):
     （JUnit に載らない失敗——件数の柵など——も拾う）。元の一式が 0 で終わっていなかったなら終了コードは問わない"""
     probs = [] if exit_code == 0 or baseline_exit != 0 else [
         f"テスト一式が exit {exit_code} で終わった——JUnit の結末が全部通っていても、一式としては緑でない"]
+    hit = set()
     for t in named:
         c = match_case(t, cases)
+        if c is not None:
+            hit.add(id(c))
         if c is None or c["outcome"] != "passed":
             probs.append(f"{t}: {'一式の結末に居ない' if c is None else c['outcome']}——名指しのテストが緑でない")
     probs += [f"{_key(c)} が {c['outcome']}——ほかのテストが緑でない（元は通っていた・この周に足した物）"
-              for c in cases if c["outcome"] in ("failure", "error") and _must_pass(c, baseline)]
+              for c in _broken_others(cases, baseline, hit)]
     return probs
 
 
@@ -155,7 +164,6 @@ def _snap():
 
 
 def _diff_names(frm, to):
-    """版 frm から版 to までに変わったファイル。取れなければ None"""
     names = git("diff", "--name-only", "-z", frm, to) if frm and to else None
     return None if names is None else [x for x in names.split("\0") if x]
 
@@ -332,7 +340,8 @@ def tdd_effect(b):
     for rnd, row in rows.items():
         lane = lanes.get(int(rnd))
         res, errs = base._lane_result(b, lane) if lane else (None, [])
-        row["lane_missed"] = len(base._unproven(res.get("arms") or [])) if res and not errs else None
+        # 腕を 1 本も撃っていない線は『見逃し 0 本』でなく測れていない（None）
+        row["lane_missed"] = len(base._unproven(res["arms"])) if res and not errs and res.get("arms") else None
         nxt = b.dir / "rounds" / f"round-{int(rnd) + 1}.json"
         row["faces_created_by_this_fix"] = ((read_json(nxt).get("scalars") or {}) if nxt.is_file() else {}).get("faces_created_by_prev_fix")
 

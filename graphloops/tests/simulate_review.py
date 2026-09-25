@@ -14,8 +14,10 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import time
 import types
 
 import fakeclaude  # 同じディレクトリ。代役の claude（既定は --output-format json の包みを返す）
@@ -46,6 +48,17 @@ def _inject():
     sys.path.insert(0, str(PLUGIN))
     from engine.rules import INJECT
     return INJECT
+
+
+def _fresh_rules(name):
+    """review-loop の rules を新しい module として読む（台本が属性を差し替えても他の台本に漏れない）。条件の宣言（cond_reads）は
+    読み込みの時点で要るので、engine と同じ道具を先に差し込む。git を repo に固定したいなら load_review_rules を使う"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, PLUGIN / "rules" / "review-loop.py")
+    mod = importlib.util.module_from_spec(spec)
+    mod.__dict__.update(_inject())
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def cond_call(fn, ctx=None, validator=None, state=None, overlay=None):
@@ -1873,7 +1886,7 @@ def test_graphcheck_review_shapes():
            "graphcheck: 背景の任せ先の旗が真偽でない")
     broken(lambda b: b["nodes"]["p4.ci"]["deps"].append("p3.delta_gates"), "背景の節（delegate.background）を",
            "graphcheck: 背景の節（受領しか返さない線）を締めの節が待つ")
-    # engine が埋める node の欄は skills だけ（期限の deadline_at は 2026-09-25 に外した）——他の欄の穴は next で埋められずに止まる
+    # engine が埋める node の欄は skills だけ——他の欄の穴は next で埋められずに止まる
     (tmp / "prompts" / "review-loop" / "x-node-hole.md").write_text("{{node.deadline_at}}\n", encoding="utf-8")
 
     def node_hole(b):
@@ -2591,11 +2604,7 @@ def test_frozen_review_revision():
     first = rev
     src.write_text(before + "\n# P3 の修正に見立てた行\n", encoding="utf-8")
     # 取り直しは rules の _take_diff が呼ぶ——部品を直に呼んで、接尾辞に依らず固定が走ることを見る
-    import importlib.util  # noqa: E402
-    spec = importlib.util.spec_from_file_location("gl_rv2", PLUGIN / "rules" / "review-loop.py")
-    mod = importlib.util.module_from_spec(spec)
-    mod.__dict__.update(_inject())  # 条件の宣言（cond_reads）は読み込みの時点で要る——engine と同じ道具を先に差し込む
-    spec.loader.exec_module(mod)
+    mod = _fresh_rules("gl_rv2")
     calls = []
     # **手で組んだ値を置かない。** 代役は実物の git をそのまま通す（呼ばれた綴りだけ記録する）
     # ——決め打ちの 40 桁を置いていたとき、実装が一時 index の経路へ移っても代役は気づかず、
@@ -2722,11 +2731,7 @@ def test_purpose_review_reruns_when_unvetted():
     不利な判定を引くたびに回し直す形にはならない。
     """
     print("目的監査: 裏取りの柵より前の形で凍った判定は走り直す（通った判定は走り直さない）")
-    import importlib.util  # noqa: E402
-    spec = importlib.util.spec_from_file_location("gl_unvetted", PLUGIN / "rules" / "review-loop.py")
-    mod = importlib.util.module_from_spec(spec)
-    mod.__dict__.update(_inject())  # 条件の宣言（cond_reads）は読み込みの時点で要る——engine と同じ道具を先に差し込む
-    spec.loader.exec_module(mod)
+    mod = _fresh_rules("gl_unvetted")
     check("purpose_review_unvetted" in mod.purpose_review_due.reads or set(mod.purpose_review_unvetted.reads) <= set(mod.purpose_review_due.reads),
           "目的監査の条件（purpose_review_due）がこの部品の読む欄を宣言している")
 
@@ -2785,11 +2790,7 @@ def test_freeze_revision_on_real_intent_to_add():
     check(sh(run.repo, "git", "stash", "create").returncode != 0,
           "実物: intent-to-add の index では git stash create が非 0（この経路が使えない理由）")
 
-    import importlib.util  # noqa: E402
-    spec = importlib.util.spec_from_file_location("gl_freeze_real", PLUGIN / "rules" / "review-loop.py")
-    mod = importlib.util.module_from_spec(spec)
-    mod.__dict__.update(_inject())  # 条件の宣言（cond_reads）は読み込みの時点で要る——engine と同じ道具を先に差し込む
-    spec.loader.exec_module(mod)
+    mod = _fresh_rules("gl_freeze_real")
     mod.Reject = RuntimeError
 
     def real_git(*a, **k):
@@ -2829,11 +2830,7 @@ def test_freeze_revision_keeps_tracked_ignored():
     （assume-unchanged の印の引き継ぎ・index の無いリポジトリ）も同じ台本で見る。
     """
     print("版の固定（実物の git）: 追跡中の .gitignore 対象は版に載り、利用者の index は動かない")
-    import importlib.util  # noqa: E402
-    spec = importlib.util.spec_from_file_location("gl_freeze_ign", PLUGIN / "rules" / "review-loop.py")
-    mod = importlib.util.module_from_spec(spec)
-    mod.__dict__.update(_inject())  # 条件の宣言（cond_reads）は読み込みの時点で要る——engine と同じ道具を先に差し込む
-    spec.loader.exec_module(mod)
+    mod = _fresh_rules("gl_freeze_ign")
     mod.Reject = RuntimeError
     _td, r = parallel.workspace("gl-ign-")
     g = lambda *a: sh(r, "git", "-c", "user.email=t@t", "-c", "user.name=t", *a)
@@ -3036,11 +3033,7 @@ def test_purpose_verdict_needs_vetted_evidence():
     あわせて、**根拠 0 件の『狭めている』**が柵を 0 回通って素通りしていた形も塞ぐ。
     """
     print("台本: 裏取りを通っていない『狭めている』は R2 を止めない／根拠 0 件の判定は受け取らない")
-    import importlib.util  # noqa: E402 — rules の関数を直に呼ぶ腕
-    spec = importlib.util.spec_from_file_location("gl_rv4", PLUGIN / "rules" / "review-loop.py")
-    mod = importlib.util.module_from_spec(spec)
-    mod.__dict__.update(_inject())  # 条件の宣言（cond_reads）は読み込みの時点で要る——engine と同じ道具を先に差し込む
-    spec.loader.exec_module(mod)
+    mod = _fresh_rules("gl_rv4")
     mod.Reject = RuntimeError
     mod.git = lambda *a: "src/a.py:1\n"
 
@@ -3109,11 +3102,7 @@ def test_purpose_cite_git_unusable():
     """**git が動かない回を『現物に無い』と取り違えない。** 読めなかった数え直しを 0 件と取り違えると、
     拒否文が事実と逆（『現物に 1 件も無い』）になる——確かめられないものは合格にもしない。"""
     print("台本: 数え直しで git が動かない回は、事実と逆の拒否文を出さない")
-    import importlib.util  # noqa: E402 — rules の関数を直に呼ぶ腕
-    spec = importlib.util.spec_from_file_location("gl_rv3", PLUGIN / "rules" / "review-loop.py")
-    mod = importlib.util.module_from_spec(spec)
-    mod.__dict__.update(_inject())  # 条件の宣言（cond_reads）は読み込みの時点で要る——engine と同じ道具を先に差し込む
-    spec.loader.exec_module(mod)
+    mod = _fresh_rules("gl_rv3")
     mod.Reject = RuntimeError
     sys.path.insert(0, str(PLUGIN))
     from engine.util import repo_root as _rr, sum_counts as _sc  # noqa: E402 — engine が差し込む道具のうち、この腕が通るもの
@@ -3985,7 +3974,6 @@ def test_delta_conditions():
         return b
 
     def holds(fn, ls, o=None):
-        """条件の関数を、engine と同じ入れ物で呼ぶ（今の周の出力は cur.<節>）"""
         return cond_call(fn, {"round": 2, "loop": ls, "cur": dict(o or {})})[0]
     check(holds(rules.delta_review_due, {"fix_delta": {"round": 2, "files": ["a.py"]}}),
           "修正差分: 差分が在れば、『塞いだ』申告が無くても 1 回目の差分レビューを起こす")
@@ -4115,9 +4103,8 @@ def test_lane_rules():
         check(want in got, f"線の結果: {desc}は使わない（{got[:90]}）")
     got = "; ".join(E(good(head, handled=[{"key": "arm:miss", "handled": "tests_added", "how": "テストを足した（検査用）"}], patch="x.patch"), final=True))
     check("作業ツリーに書かない" in got, f"最後の関門: テストを足した（tests_added）と言う関門の返答は拒む（{got[:80]}）")
-    got = "; ".join(E(good(head, arms=[], handled=[]), final=True))
-    check("0 本" in got and E(good(head, arms=[], handled=[])) == [],
-          f"最後の関門: 撃った腕が 0 本の返答は拒む（線は拒まない——回す側が理由つきで閉じる運用がある。{got[:80]}）")
+    check(E(good(head, arms=[], handled=[]), final=True) == [] and E(good(head, arms=[], handled=[])) == [],
+          "撃った腕が 0 本の返答は型と整合では拒まない（関門を通すかは _final_gate_problems が人に諮る形で決める）")
     # 判定への渡し方: 閉じなかった見逃し（defect・needs_test）だけ、線ごとに 1 度だけ。走っている線は渡さない
     lane = lambda tag, st="running": {"round": 1, "rev": head, "from": head, "result": str(board / "lanes" / f"{tag}.json"),
                                       "patch": str(board / "lanes" / f"{tag}.patch"), "state": st}
@@ -4171,6 +4158,35 @@ def test_lane_rules():
     check("古い" in P(), f"最後の関門: 撃った版の後にコードが変われば、関門の結果は古い（{P()[:80]}）")
     b.loop_state = {"gates_cut": {"round": 1, "rev": snap, "files": []}}
     check("撃っていない" in P(), "最後の関門: 前の周に固めた版の結果は数えない")
+    # 撃てた腕が 0 本の関門は通さず人に諮る（converge が聞く）。人が continue した同じ木なら通る
+    (tmp / "a.py").write_text("A = 1\n", encoding="utf-8")
+    b.loop_state = {"gates_cut": {"round": 2, "rev": snap, "files": []}}
+    outs["p4.final_gates"] = good(snap, arms=[], handled=[])
+    check(P() == rules.FINAL_GATE_EMPTY, f"最後の関門: 撃てた腕が 0 本なら通さず、人に諮る印だけを返す（{P()[:80]}）")
+    tree = subprocess.run(["git", "rev-parse", f"{snap}^{{tree}}"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
+    b.loop_state["final_gate_empty_ok"] = tree
+    check(P() == "", f"最後の関門: 人が 0 本で収束してよいと答えた木なら通る（{P()[:80]}）")
+    b.loop_state["final_gate_empty_ok"] = "0" * 40
+    check(P() == rules.FINAL_GATE_EMPTY, "最後の関門: 答えた木と違う木なら聞き直す")
+    (tmp / "a.py").write_text("A = 2\n", encoding="utf-8")   # 下の線の範囲の台本が見る作業ツリーに戻す
+    # 撃てた腕が 0 本の線は、線の要約で『撃っていない』（arms 0）と見える——見逃し 0 本（open が空）と区別できる
+    (board / "lanes" / "empty.json").write_text(json.dumps(good(head, arms=[], handled=[]), ensure_ascii=False), encoding="utf-8")
+    b.loop_state = {"lanes": {head: lane("empty")}}
+    rows = rules.lane_summary(b)
+    check(rows and rows[0].get("arms") == 0 and rows[0]["open"] == [], f"線の要約: 0 本の線は arms 0 を載せる（{rows}）")
+    # 線の defect は次の周の判定に人の依頼の入口で届く（出どころは線）。依頼の欄が崩れていれば宣言の穴に落とす
+    b.record = {"units": [], "questions": [], "materials": {}, "process": {}}
+    b.loop_state = {}
+    row = {"key": "線 r1@abc: arm:x", "from": "p3.delta_gates", "how": "defect: 変異した方が仕様に合う（検査用）", rules.LANE_DEFECT: True}
+    rules._route_lane_defects(b, [row])
+    batch = (b.record["process"].get("request_findings") or [{}])[-1]
+    check(batch.get("origin") == rules.LANE_ORIGIN and batch["findings"][0]["where"] == row["key"]
+          and batch["findings"][0]["text"].startswith(rules.LANE_PROVENANCE) and not b.loop_state.get("prev_declared_faces"),
+          f"線の defect は人の依頼の入口（request_findings）に出どころつきで積む（{batch}）")
+    b.record["process"]["request_findings"] = "型崩れ"
+    rules._route_lane_defects(b, [row])
+    check(b.record["process"]["request_findings"] == "型崩れ" and not b.loop_state.get("prev_declared_faces"),
+          "依頼の欄が崩れていて積めない回は触らずに戻る（同じ行は on_new_round が宣言の穴に載せてある）")
     # 受領: 名乗る置き場がこの周の線の置き場と違えば拒む（別の置き場に書いた線は誰も読まない）
     from engine.util import Reject  # noqa: E402
     b.loop_state = {"gates_cut": {"round": 2, "result": str(board / "lanes" / "r2.json")}}
@@ -4213,9 +4229,11 @@ def test_lane_end_to_end():
             # 1 周目の線は 2 周目の判定の頃に書き終えた——結果と patch を置き場に書く（線の役の代わり）
             lane = next(x for x in st["loop"]["lanes"].values() if x["round"] == 1)
             pathlib.Path(lane["patch"]).write_text(LANE_PATCH, encoding="utf-8")
-            res = {"rev": lane["rev"], "arms": [PROVEN_ARM, _lane_arm("線の見逃し", red_confirmed=False), _lane_arm("線の欠陥", red_confirmed=False)],
+            res = {"rev": lane["rev"], "arms": [PROVEN_ARM, _lane_arm("線の見逃し", red_confirmed=False), _lane_arm("線の欠陥", red_confirmed=False),
+                                                _lane_arm("線のテスト不足", red_confirmed=False)],
                    "handled": [{"key": "arm:線の見逃し", "handled": "tests_added", "how": "テストを足してその腕の赤を見た（検査用）"},
-                               {"key": "arm:線の欠陥", "handled": "defect", "how": "変異した方が仕様に合う（検査用）"}],
+                               {"key": "arm:線の欠陥", "handled": "defect", "how": "変異した方が仕様に合う（検査用）"},
+                               {"key": "arm:線のテスト不足", "handled": "needs_test", "how": "テストの足場が無い（検査用）"}],
                    "patch": lane["patch"], "suite": {"command": "pytest（検査用）", "exit": 0}}
             pathlib.Path(lane["result"]).write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
             seen["lane_written"] = True
@@ -4239,16 +4257,34 @@ def test_lane_end_to_end():
           "合流: 線が足したテストは 2 周目の修正の前に重なり、2 周目の修正差分に載る（差分レビューの目に入る）")
     h3 = json.loads((run.dir / "out" / "r3" / "p2.history.json").read_text(encoding="utf-8"))
     routed = [r["key"] for r in h3.get("declared_routed") or []]
-    check(any("arm:線の欠陥" in k for k in routed) and not any("arm:線の見逃し" in k for k in routed),
-          f"合流: 線がテストで閉じられなかった見逃し（defect）だけが、書き終えた後の周の判定に届く（{routed}）")
+    pr = run.record()["process"]
+    lane_batches = [x for x in (pr.get("request_history") or []) + (pr.get("request_findings") or []) if x.get("origin") == rules_lane_origin()]
+    in_batch = [f["where"] for x in lane_batches for f in x["findings"]]
+    check(any("arm:線の欠陥" in k for k in in_batch) and all(x["round"] == 3 for x in lane_batches)
+          and not any("arm:線のテスト不足" in k or "arm:線の見逃し" in k for k in in_batch),
+          f"合流: 線がテストで閉じられなかった見逃し（defect）だけが、書き終えた後の周の判定に依頼の入口（出どころは線）でも届く（{in_batch}）")
+    check(any("arm:線のテスト不足" in k for k in routed) and any("arm:線の欠陥" in k for k in routed) and not any("arm:線の見逃し" in k for k in routed),
+          f"合流: 閉じなかった見逃し（needs_test・defect）は宣言の穴として 1 件ずつ振り分けられる（{routed}）")
+    hp = (run.dir / "prompts" / "r3" / "p2.history.md").read_text(encoding="utf-8")
+    same = rules_lane_same_item()
+    check(hp.count(same) == 1 and same in hp[hp.index("arm:線の欠陥"):],
+          "合流: 依頼の入口にも積んだ defect は、宣言の穴の行に『同じ 1 件』と書かれて判定に届く（2 つの入口から別の単位を立てない）")
     last_r = st["round"]
     hl = json.loads((run.dir / "out" / f"r{last_r}" / "p2.history.json").read_text(encoding="utf-8"))
     check(any("最後の関門" in r["key"] for r in hl.get("declared_routed") or []),
           f"最後の関門: 関門が見つけた、テストの要る見逃しは次の周の判定に届く（{[r['key'] for r in hl.get('declared_routed') or []]}）")
     lanes = run.record()["process"].get("lanes") or []
-    check(lanes and lanes[0]["state"] == "merged" and lanes[0]["open"] == ["arm:線の欠陥"],
+    check(lanes and lanes[0]["state"] == "merged" and lanes[0]["open"] == ["arm:線の欠陥", "arm:線のテスト不足"],
           f"記録: 線の台帳の要約（合流したか・閉じなかった見逃し）が process.lanes に残る（{lanes[:2]}）")
     rm(run.tmp)
+
+
+def rules_lane_origin():
+    return load_review_rules(PLUGIN).LANE_ORIGIN
+
+
+def rules_lane_same_item():
+    return load_review_rules(PLUGIN).LANE_SAME_ITEM
 
 
 TINYJUNIT = HERE / "tinyjunit.py"
@@ -4281,6 +4317,10 @@ def test_tdd_flow():
                 seen["red_why"] = (run_.state()["loop"].get("tdd") or {}).get("problems") or []
                 test_file.write_text(TDD_RED, encoding="utf-8")
                 impl.write_text(seen["impl"], encoding="utf-8")
+                # 2 回目は単位を番号で指す（pointers）——プロンプトに貼られた no を読んで使う
+                nos = {json.loads(f'"{s}"'): int(n) for n, s in NO_ROW.findall(pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8"))}
+                out = {**out, "units": [{**u, "unit_key": nos.get(u["unit_key"], u["unit_key"])} for u in out["units"]]}
+                seen["by_number"] = all(isinstance(u["unit_key"], int) for u in out["units"])
         if inst["node"] == "p3.fix" and run_.state()["round"] == 1:   # 2 周目からは直す単位が無く、TDD の段は走らない
             seen["fix"] += 1
             if seen["fix"] == 1:     # 実装の段がテストを弱める——緑の確認が拒む
@@ -4291,6 +4331,9 @@ def test_tdd_flow():
         return out
     last = drive(run, "std", hook=hook)
     check(last["status"] == "converged", f"TDD の流れでも収束まで届く（{last['status']}）")
+    check(seen.get("by_number"), "テストだけを書く段も、単位を貼られた no で指せる（pointers）")
+    na2 = run.state()["rounds"][1].get("na") or {}
+    check("p3.tdd_start" in na2, f"直す単位が無い周は、テスト一式を走らせる p3.tdd_start も条件外（{sorted(k for k in na2 if k.startswith('p3.tdd'))}）")
     check(seen["tests"] == 2 and any("一式の結末に居ない" in w for w in seen["red_why"]),
           f"赤の確認: 読み込みで落ちたテストは赤と認めず、テストだけを書く段を差し戻す（{seen['tests']} 回・{seen['red_why'][:2]}）")
     check(any("申告したテストのファイルの外に触れた" in w and "src/b.py" in w for w in seen["red_why"]),
@@ -4686,7 +4729,6 @@ def test_purpose_trigger_unevaluable():
         return types.SimpleNamespace(round=3, state={"round": 3}, loop_state={"prev_fix_files": touched}, purpose=purpose)
 
     def fn(b):
-        """engine と同じ入れ物で呼ぶ（痕跡は b.state に積む）"""
         b.state["round"] = b.round
         return cond_call(part, {"round": b.round, "out": {"p0.purpose": b.purpose}, "loop": b.loop_state}, state=b.state)[0]
 
@@ -4775,7 +4817,7 @@ def test_rejudge_edge():
     conds, checks = rules.CONDS, rules.POST_CHECKS
 
     b = types.SimpleNamespace(round=3, loop_state={})
-    held = lambda name, b: cond_call(conds[name], {"round": b.round, "loop": b.loop_state})[0]  # engine と同じ入れ物で呼ぶ
+    held = lambda name, b: cond_call(conds[name], {"round": b.round, "loop": b.loop_state})[0]
     check(not held("rejudge_open", b) and not held("rejudge_exhausted", b),
           "異議が無ければ往復の節は開かない（常設しない）")
     b.loop_state["rejudge_requested"] = {"round": 2, "text": "前の周の異議"}
@@ -5158,6 +5200,44 @@ def test_cond_truth_tables():
     check(cond_call(rules.CONDS["after_first_round"], c(2), validator=no_validator)[0], "検証器の無い run: 検証器を読まない条件は評価できる")
 
 
+def test_final_gate_empty_asks_human():
+    """最後の関門が撃てた腕 0 本を返したら、収束を言わずに人に諮る。continue の答えで次の周の同じ木の関門が通り、収束する"""
+    print("最後の関門の 0 本: 人に諮り、continue なら同じ木で収束する")
+    run = Run("gate-empty")
+
+    def empty(run_, inst, out):
+        if inst["node"] == "p4.final_gates":
+            return {**out, "arms": [], "handled": []}
+        return None
+    last = drive(run, "std", hook=empty)
+    check(last["status"] == "awaiting_human" and (last.get("ask") or {}).get("kinds") == ["final_gate_empty"],
+          f"撃てた腕が 0 本の関門で収束を言わず人に諮る（{last['status']} {(last.get('ask') or {}).get('kinds')}）")
+    check(run.state()["loop"].get("stop_reason") == "final_gate_empty",
+          f"諮る前に止めた理由（stop_reason）を立てる——stop や無人の停止でも理由が残る（{run.state()['loop'].get('stop_reason')}）")
+    asked_round = run.state()["round"]
+    r = run.cmd("answer", "--text", "continue", "--note", "文書だけの差分と確かめた（検査用）")
+    check(r.returncode == 0, f"continue を返す（{r.stderr[-160:]}）")
+    last = drive(run, "std", hook=empty)
+    check(last["status"] == "converged", f"人が認めた木なら、次の周の 0 本の関門で収束する（{last['status']}）")
+    rm(run.tmp)
+    # 上限の周で 0 本になった: continue は上限を 1 周だけ延ばし、同じ木の関門を撃つ次の周で収束する
+    run = Run("gate-empty-max")
+    mx = run.tmp / "max.json"
+    mx.write_text(json.dumps(asked_round), encoding="utf-8")
+    run.cmd("patch", "--path", "state.max_rounds", "--file", str(mx), "--reason", "台本: 上限の周で 0 本にする")
+    last = drive(run, "std", hook=empty)
+    check(last["status"] == "awaiting_human" and (last.get("ask") or {}).get("kinds") == ["final_gate_empty"],
+          f"上限の周でも 0 本の関門は人に諮る（{(last.get('ask') or {}).get('kinds')}）")
+    run.cmd("answer", "--text", "continue", "--note", "確かめた（検査用）")
+    st = run.state()
+    ans = (run.record()["process"].get("human_answers") or [{}])[-1]
+    check(st["max_rounds"] == asked_round + 1 and ans.get("max_rounds") == {"from": asked_round, "to": asked_round + 1},
+          f"上限の周の continue は上限を 1 周だけ延ばし、答えの記録に延ばした値を書く（{st['max_rounds']} {ans.get('max_rounds')}）")
+    last = drive(run, "std", hook=empty)
+    check(last["status"] == "converged", f"延ばした次の周で、同じ木の 0 本の関門が通って収束する（{last['status']}）")
+    rm(run.tmp)
+
+
 def test_relaunch_delegate():
     """任せ先の付いた節（delegate）は回す側の runner でも起こし直せる——任せ先が書かずに返った・落ちた回の出口。
     任せ先の無い runner（回す側の判断そのもの）は起こし直さない"""
@@ -5343,7 +5423,42 @@ def test_spec_stop_and_changes():
           f"仕様の道: stop で run がその場で止まり、後の節を出さない（{last.get('halted')}）")
     check("p1.worktree_before" not in st["rounds"][0]["done"] and "spec" not in run.record()["process"],
           "仕様の道: 承認されていない仕様は固定されず、P1 は始まらない")
+    req = run.tmp / "halted-req.json"
+    req.write_text(json.dumps([{"where": "src/a.py", "text": "止めた run への依頼（検査用）"}], ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("launch")
+    check(r.returncode == 1, f"仕様の道: stop で止めた run の launch は拒む（{r.stderr.strip()[-100:]}）")
+    for args, desc in ((("done", "--node", "p0.base"), "done"), (("add", "--file", str(req), "--reason", "検査用"), "add"),
+                       (("skip", "--node", "p1.gate_efficacy", "--reason", "検査用"), "skip")):
+        r = run.cmd(*args)
+        check(r.returncode == 1 and "halted" in r.stderr, f"仕様の道: stop で止めた run の {desc} は拒む（{r.stderr.strip()[-100:]}）")
+    fix = run.tmp / "halted-note.json"
+    fix.write_text(json.dumps("手当て（検査用）", ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("patch", "--path", "process.halted_note", "--file", str(fix), "--reason", "検査用")
+    check(r.returncode == 0 and run.record()["process"].get("halted_note") == "手当て（検査用）",
+          f"仕様の道: stop で止めた run でも手当て（patch）は通る（{r.stderr.strip()[-100:]}）")
     rm(run.tmp)
+
+    # 承認の直後に走らせて既に緑の受け入れ条件は、赤を見ていないと判定役へ渡る
+    run = Run("spec-green", init_args=("--input", "flow=spec"))
+    drive(run, "spec")
+    a_py = run.repo / "src" / "a.py"
+    a_py.write_text(a_py.read_text(encoding="utf-8") + "# fixed（検査用: 承認の時点で緑）\n", encoding="utf-8")
+    run.cmd("answer", "--text", "continue")
+    run.next()
+    texts = [f["text"] for x in run.record()["process"].get("request_findings") or [] for f in x["findings"]]
+    check(texts and all("赤を見ていない" in s for s in texts), f"仕様の道: 承認の時点で緑の受け入れ条件は『赤を見ていない』と判定役へ渡る（{[s[-60:] for s in texts]}）")
+    rm(run.tmp)
+
+    # rules の入口が die（SystemExit）で抜けても、init は置き場を残さない
+    _td3, gtmp = parallel.workspace("gl-review-initdie-")
+    for sub in ("prompts", "rules", "graphs"):
+        shutil.copytree(PLUGIN / sub, gtmp / sub)
+    rp = gtmp / "rules" / "review-loop.py"
+    rp.write_text(rp.read_text(encoding="utf-8").replace("    spec_input_check(b)   #", "    raise SystemExit(2)  #", 1), encoding="utf-8")
+    run = Run("init-die", graph=gtmp / "graphs" / "review-loop.json")
+    check(run.init.returncode == 2 and not run.dir.exists(), f"init: rules の入口が die で抜けても置き場を残さない（rc={run.init.returncode} {run.dir.exists()}）")
+    rm(run.tmp)
+    shutil.rmtree(gtmp, ignore_errors=True)
 
     run = Run("spec-unattended", unattended=True, init_args=("--input", "flow=spec"))
     last = drive(run, "spec")
@@ -5420,6 +5535,46 @@ def test_spec_stop_and_changes():
     r = run.cmd("next")
     check(r.returncode == 0 and "spec" in run.record()["process"] and "spec_pending" not in run.state()["loop"],
           f"仕様の道: 直してから next すれば固定まで進む（{r.stderr[-200:]}）")
+    rm(run.tmp)
+
+
+def test_stop_signal_stops_test_runner_tree():
+    """**loop.py が止める信号を受けたら、builtin が起こしたテストの実行器の木も止める**（全コマンドの信号の口）。
+    仕様の固定（spec.freeze）が受け入れ条件を走らせている next に SIGTERM を送り、孫まで止まって exit 143 で抜けることを見る"""
+    if os.name != "posix":
+        return
+    print("止める信号: next の中で走るテストの実行器の木を孫まで止め、128+信号で抜ける")
+    run = Run("spec-signal", init_args=("--input", "flow=spec"))
+    drive(run, "spec")
+    pidf = run.tmp / "runner-grandchild.pid"
+    f = run.repo / SPEC_TESTS["AC1"][0]
+    f.write_text(f.read_text(encoding="utf-8").replace("import pathlib, sys\n",
+                 f"import pathlib, subprocess, sys, time\nc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+                 f"open({str(pidf)!r}, 'w').write(str(c.pid))\ntime.sleep(120)\n", 1), encoding="utf-8")
+    run.cmd("answer", "--text", "continue")
+    proc = subprocess.Popen([PY, str(LOOP), "next", "--dir", str(run.dir)], cwd=run.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    t0 = time.monotonic()
+    while not (pidf.is_file() and pidf.read_text(encoding="utf-8").strip()) and proc.poll() is None and time.monotonic() - t0 < 60:
+        time.sleep(0.05)
+    gp = int(pidf.read_text(encoding="utf-8")) if pidf.is_file() and pidf.read_text(encoding="utf-8").strip() else None
+    proc.send_signal(signal.SIGTERM)
+    try:
+        proc.wait(60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+    def gone(pid):
+        t1 = time.monotonic()
+        while time.monotonic() - t1 < 15:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return True
+            time.sleep(0.05)
+        return False
+    check(gp is not None and proc.returncode == 128 + signal.SIGTERM and gone(gp),
+          f"止める信号: next が止められたら、受け入れ条件の実行器の孫まで止めて 143 で抜ける（rc={proc.returncode} pid {gp}）")
     rm(run.tmp)
 
 

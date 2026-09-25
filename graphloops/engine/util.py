@@ -24,9 +24,17 @@ class AnswerReject(Reject):
 
 
 class BoardConflict(SystemExit):
-    """盤面を読んだ後に別のプロセスが盤面を進めていた（Board.save）。die と同じく exit 2 で終わる——SystemExit の派生なので、
-    die を捕まえる既存の口はそのまま効く。別の型にしたのは、読み直して当て直してよい失敗（版の衝突）を、ほかの die
-    （記録の書き込みの失敗など）と見分けるため（commands._board_update）"""
+    """盤面を読んだ後に別のプロセスが盤面を進めていた（Board.save）。die と同じく exit 2 で終わる。別の型にしたのは、
+    読み直して当て直してよい失敗（版の衝突）を、ほかの die（記録の書き込みの失敗など）と見分けるため（commands._board_update・
+    launch の受け付け）。**文はここで出さない**——当て直して成功した回に失敗の文を残さないよう、最後に負けた回だけ
+    入口（loop.py の main）が msg を出す"""
+
+    def __init__(self, msg):
+        super().__init__(2)
+        self.msg = msg
+
+    def __str__(self):   # 捕まえて理由の文に載せる口（run_role の受け付けの検査）でも本文が読めるように——code は 2 のまま
+        return self.msg
 
 
 def now():

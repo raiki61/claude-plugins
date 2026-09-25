@@ -148,7 +148,7 @@ def test_launch_without_recorded_cwd_uses_callers_cwd(tmp_path, monkeypatch, sta
     """盤面に対象の場所（inputs.cwd）が無い・空なら、役は launch を呼んだ場所で起こす（advance.launch_cwd が os.getcwd に倒す）"""
     monkeypatch.chdir(tmp_path)
     inst = {"id": "p1.x", "node": "p1.x", "out_path": "o", "launch": {"kind": "cli"}}
-    monkeypatch.setattr(commands, "_board_update", lambda d, fn: [inst] if fn.__name__ == "mark" else None)
+    monkeypatch.setattr(commands, "_board_update", lambda d, fn, **k: [inst] if fn.__name__ == "mark" else None)
     monkeypatch.setattr(commands, "Board", lambda d: FakeBoard(state=state))
     monkeypatch.setattr(commands, "kill_all", lambda: None)
     monkeypatch.setattr(signal, "signal", lambda *a: None)

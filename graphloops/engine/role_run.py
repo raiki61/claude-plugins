@@ -67,8 +67,9 @@ READ_COMMANDS = ("gh issue list", "gh issue view", "gh pr list", "gh pr view", "
 #   許すと READ_COMMANDS を迂回して書く gh が打てる。gh は sandbox の外に出したので、中に GitHub への通信は要らない
 SANDBOX_BASE = {"enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
                 "excludedCommands": ["gh:*"], "network": {"allowedDomains": [], "strictAllowlist": True}}
-LIVE = set()  # いま生きている子（Popen）。launch のプロセスが止められたとき kill_all が木ごと止める
-_LIVE_LOCK = threading.Lock()
+LIVE = set()  # いま生きている子（Popen）。loop.py が止める信号を受けたとき kill_all が木ごと止める
+_LIVE_LOCK = threading.RLock()   # 信号の口（kill_all）が、錠を持つ最中の同じスレッドに割り込んでも止まらないよう再入可能に
+_STOPPING = threading.Event()     # 止める信号を受けた——以後に起こした子はすぐ止める（止め始めた後に子を増やさない）
 
 
 def sandbox_available():
@@ -162,16 +163,44 @@ def tooled_permission(tools, cwd=None, board_dir=None):
 
 
 def kill_all():
-    """生きている子を全部木ごと止める（launch のプロセスが SIGTERM・SIGHUP・SIGINT を受けたとき）。"""
+    """生きている子を全部木ごと止める（loop.py が SIGTERM・SIGHUP・SIGINT を受けたとき。install_stop_handlers）。
+    止め切れなかった木は理由を標準エラーに出す（黙って止めたことにしない）"""
     with _LIVE_LOCK:
         live = list(LIVE)
     for p in live:
-        _kill(p)
+        why = _kill(p)
+        if why:
+            print(f"NG 子の木を止め切れない（pid {p.pid}）: {why}", file=sys.stderr)
+
+
+class StopSignal(KeyboardInterrupt):
+    """loop.py が止める信号を受けた（生きている子は kill_all で止めてある）。KeyboardInterrupt の派生にするのは、
+    engine の中で SystemExit・Exception を捕まえる口（rules・検証器の読み込み、受け付けの検査、盤面の締め）に飲まれず、
+    入口（loop.py の main）まで抜けるため"""
+
+    def __init__(self, signum):
+        super().__init__(signum)
+        self.signum = signum
+
+
+def install_stop_handlers():
+    """止める信号（SIGTERM・SIGHUP・SIGINT）を受けたら、生きている子を木ごと止めてから StopSignal を上げる。loop.py の main が
+    全コマンドの前に 1 度だけ呼ぶ——子は別のプロセスグループに切り離してあるので、loop.py に届いた信号は子に届かず、
+    next・done の中の builtin が run_tree で起こしたテスト一式も launch の役の子も、ここで止めないと作業ツリーに書き続ける"""
+    import signal as _signal
+
+    def stop(signum, _frame):
+        _STOPPING.set()
+        kill_all()
+        raise StopSignal(signum)
+    for name in ("SIGTERM", "SIGHUP", "SIGINT"):
+        if hasattr(_signal, name):
+            _signal.signal(getattr(_signal, name), stop)
+
+
 # 包みの欄のうち要約に残すもの（--output-format json の result の行）。本文（result）は残さない
 SUMMARY_KEYS = ("session_id", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
                 "subtype", "is_error", "stop_reason")
-# 権限で拒まれた道具の呼び出し。件数と道具の名前だけ残す——dontAsk で許していない呼び出しは聞かずに拒まれ、
-# exit 0 で返る（公式の permission-modes 文書）。効いた権限は包みに無いので、拒まれた数で見えるようにする
 
 
 def pgid_path(out_path):
@@ -179,50 +208,100 @@ def pgid_path(out_path):
     return str(out_path) + ".pgid"
 
 
-def _kill(p):
-    """子を**木ごと**止める。前置の層（with-auth.py）は claude を subprocess.run で起こす殻なので、直下の子だけを
-    殺すと孫の claude が out の fd を継いだまま走り続ける（Python 公式: run の timeout は直下の子だけを kill する。
-    同じ形の事故の先例と解き方はリポジトリの tests/mutate.py の run_group）。
+def _popen(argv, **kw):
+    """子を新しいプロセスグループで起こし、生きている子の集合（LIVE）に載せる。木ごと止めるため（_kill・stop_group）。
+    外すのは _forget（待ち終えた後）"""
+    grp = ({"start_new_session": True} if os.name == "posix"
+           else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
+    p = subprocess.Popen(argv, **kw, **grp)
+    with _LIVE_LOCK:
+        LIVE.add(p)
+    if _STOPPING.is_set():   # 止める信号の後に起こした子（並列の launch の続きの往復など）——kill_all はもう走った
+        _kill(p)
+        _forget(p)
+        raise StopSignal(0)
+    return p
 
-    POSIX はプロセスグループに STOP_SIGNALS を順に、猶予（KILL_GRACE）を挟んで送る（coreutils の timeout -k と同じ形。
-    stop_group も同じ列を送る）。SIGTERM を先に送るのは、claude -p が SIGTERM で自分の子（Bash の木）を止めて終わるため。
-    Windows はグループへの信号が無いので taskkill /T /F。"""
-    try:
-        if os.name == "posix":
-            for sig in STOP_SIGNALS:
-                os.killpg(p.pid, sig)
-                try:
-                    p.wait(KILL_GRACE)
-                    return
-                except subprocess.TimeoutExpired:
-                    continue
-        else:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
-    except OSError:
-        pass  # 既に居ない（ProcessLookupError は OSError の派生）
+
+def _forget(p):
+    with _LIVE_LOCK:
+        LIVE.discard(p)
+
+
+def _stop_tree(pgid, leader=None):
+    """プロセスグループ pgid を止める。返すのは止め切れなかった理由（None なら止まった・居なかった）。
+
+    POSIX は STOP_SIGNALS を順にグループへ送り、**長でなくグループの消滅**まで KILL_GRACE ずつ待ち、残れば次の信号へ
+    （systemd の KillMode=control-group と同じ形——長が先に終わっても、SIGTERM を無視する孫には SIGKILL が届く）。
+    長の Popen（leader）を持つなら待つ間に回収する（回収しない長はゾンビのままグループに残り、消滅が見えない）。
+    Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る）。"""
+    if os.name != "posix":
+        r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pgid)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if leader is not None:
+            try:
+                leader.wait(KILL_GRACE)
+            except subprocess.TimeoutExpired:
+                pass
+        if r.returncode != 0 and (leader.poll() is None if leader is not None else _started_at(pgid) != GONE):
+            return f"taskkill が {pgid} を止められない（exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}）"
+        return None
+
+    def alive():
+        if leader is not None:
+            leader.poll()
+        try:
+            os.killpg(pgid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    for sig in STOP_SIGNALS:
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            return None
+        except PermissionError as e:
+            return f"グループ {pgid} に信号を送れない（{e}）"
+        t = time.monotonic() + KILL_GRACE
+        while time.monotonic() < t:
+            if not alive():
+                return None
+            time.sleep(0.05)
+    return f"グループ {pgid} が SIGKILL の後も残っている"
+
+
+def _kill(p):
+    """起こした子を**木ごと**止める（_stop_tree）。前置の層（with-auth.py）は claude を subprocess.run で起こす殻なので、
+    直下の子だけを殺すと孫の claude が out の fd を継いだまま走り続ける（同じ形の事故の先例と解き方はリポジトリの
+    tests/mutate.py の run_group）。SIGTERM を先に送るのは、claude -p が SIGTERM で自分の子（Bash の木）を止めて終わるため"""
+    why = _stop_tree(p.pid, leader=p)
     try:
         p.wait(KILL_GRACE)
     except subprocess.TimeoutExpired:
         pass
+    return why   # 止め切れなかった理由（None なら止まった）
 
 
 def run_tree(argv, *, cwd, timeout, shell=False):
     """1 回走らせて終わりを待つ（rules がテストの実行器を走らせる口。INJECT で渡る）。返すのは subprocess.CompletedProcess
-    （stdout・stderr は UTF-8 の文字列、読めない字は置き換え）。**時間切れなら木ごと止めて**（_kill）から TimeoutExpired を上げる
-    ——subprocess.run の timeout は直下の子（シェル・実行器）だけを止め、その子や孫が作業ツリーに書き続ける。
+    （stdout・stderr は UTF-8 の文字列、読めない字は置き換え）。**時間切れ・止める信号・例外のどれで抜けても木ごと止める**
+    （_kill）——subprocess.run の timeout は直下の子（シェル・実行器）だけを止め、その子や孫が作業ツリーに書き続ける。
     標準入力は閉じる（対話を待つ実行器が loop.py の標準入力を継いで止まらないように）"""
-    kw = ({"start_new_session": True} if os.name == "posix"
-          else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
-    p = subprocess.Popen(argv, cwd=cwd, shell=shell, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         text=True, encoding="utf-8", errors="replace", **kw)
+    p = _popen(argv, cwd=cwd, shell=shell, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+               text=True, encoding="utf-8", errors="replace")
     try:
         out, err = p.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _kill(p)
+    except subprocess.TimeoutExpired as e:
+        # 時間切れの例外に『木が残った』理由を添える（呼び元が起動の失敗と区別して理由の文に載せる）
+        e.tree_left = _kill(p)
         raise
     except BaseException:
         _kill(p)
         raise
+    finally:
+        _forget(p)
     return subprocess.CompletedProcess(argv, p.returncode, out, err)
 
 
@@ -239,12 +318,7 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
     pgid_file を渡されたら、起こした直後に子のグループの番号を書き、子が終わったら消す。**書いてから still_mine を
     聞く**——relaunch は新しい試行を盤面に書いてから、この印を読んで止める。どちらの順で交わっても、古い試行の子は
     どちらか一方が止める（印を書いたのが先なら relaunch が、盤面が先に進んでいたら still_mine が）。"""
-    # 新しいプロセスグループで起こす——木ごと止めるため（_kill・stop_group）
-    kw = ({"start_new_session": True} if os.name == "posix"
-          else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
-    p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env, **kw)
-    with _LIVE_LOCK:
-        LIVE.add(p)
+    p = _popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env)
     ended = False
     try:
         if pgid_file:
@@ -257,9 +331,10 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
         return p.returncode, out, err
     finally:
         if not ended:
-            _kill(p)
-        with _LIVE_LOCK:
-            LIVE.discard(p)
+            why = _kill(p)
+            if why:
+                print(f"NG 子の木を止め切れない（pid {p.pid}）: {why}", file=sys.stderr)
+        _forget(p)
         if pgid_file:
             pathlib.Path(pgid_file).unlink(missing_ok=True)
 
@@ -353,43 +428,15 @@ def probe_group(pgid_file):
 
 def stop_group(pgid_file):
     """別のプロセスから、試行の子を木ごと止める（loop.py relaunch が使う）。返すのは止め切れなかった理由（None なら止まった・
-    居なかった）。確かめ方は probe_group、送る信号の列は _kill と同じ STOP_SIGNALS で、Popen を持たないのでグループの生存を
-    kill(-pgid, 0) で見る。印は子が終わると launch の側が消すので、印が無ければ止める物は無い。"""
-    path = pathlib.Path(pgid_file)
+    居なかった）。確かめ方は probe_group、止め方は _kill と同じ _stop_tree（Popen を持たないので長の回収はしない）。
+    印は子が終わると launch の側が消すので、印が無ければ止める物は無い。"""
     pgid, why = probe_group(pgid_file)
     if why or pgid is None:
         return why
-    if os.name != "posix":
-        r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pgid)], capture_output=True, text=True, encoding="utf-8", errors="replace")
-        if r.returncode != 0 and _started_at(pgid) != GONE:
-            return f"taskkill が {pgid} を止められない（exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}）"
-        path.unlink(missing_ok=True)
-        return None
-
-    def alive():
-        try:
-            os.killpg(pgid, 0)
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-
-    for sig in STOP_SIGNALS:
-        try:
-            os.killpg(pgid, sig)
-        except ProcessLookupError:
-            path.unlink(missing_ok=True)
-            return None
-        except PermissionError as e:
-            return f"グループ {pgid} に信号を送れない（{e}）"
-        t = time.monotonic() + KILL_GRACE
-        while time.monotonic() < t:
-            if not alive():
-                path.unlink(missing_ok=True)
-                return None
-            time.sleep(0.1)
-    return f"グループ {pgid} が SIGKILL の後も残っている"
+    why = _stop_tree(pgid)
+    if why is None:
+        pathlib.Path(pgid_file).unlink(missing_ok=True)
+    return why
 
 
 def unwrap(stdout):

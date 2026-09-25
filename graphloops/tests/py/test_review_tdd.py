@@ -282,7 +282,7 @@ def test_tdd_effect_counts_only_clean_lane_results(tmp_path, monkeypatch):
     RULES.tdd_effect(board({"tdd": {"suite": "s"}}))  # 周の行がまだ無い
     results = {1: ({"arms": [{"arm": "a1"}]}, []),                     # 証拠の欠けた腕が 1 本
                2: ({"arms": [{"arm": "a2"}]}, ["schema に合わない"]),  # 誤りのある結果は数えない
-               3: ({"lane": "no arms"}, [])}                           # 腕の欄が無い結果は 0 本
+               3: ({"lane": "no arms"}, [])}                           # 腕の欄が無い結果は測れていない（None）
     monkeypatch.setattr(RULES.base, "_lane_result", lambda b, lane: results[lane["round"]])
     (tmp_path / "rounds").mkdir()
     (tmp_path / "rounds" / "round-2.json").write_text(json.dumps({"scalars": {"faces_created_by_prev_fix": 4}}), encoding="utf-8")
@@ -291,4 +291,23 @@ def test_tdd_effect_counts_only_clean_lane_results(tmp_path, monkeypatch):
     RULES.tdd_effect(board({"tdd": {"rounds": rows}}, {"lanes": {f"r{i}": {"round": i} for i in (1, 2, 3)}}))
     assert rows == {"1": {"lane_missed": 1, "faces_created_by_this_fix": 4},
                     "2": {"lane_missed": None, "faces_created_by_this_fix": None},
-                    "3": {"lane_missed": 0, "faces_created_by_this_fix": None}}
+                    "3": {"lane_missed": None, "faces_created_by_this_fix": None}}
+
+
+def test_green_names_a_failing_named_test_once():
+    """名指しのテストの失敗は『名指しが緑でない』の 1 行だけ——『ほかのテストが緑でない』に重ねて数えない（赤の確認と同じ）"""
+    probs = RULES.green_problems(["test_a.py::test_new_red"], cases(**{"test_param[x]": "passed"}), 0)
+    assert [p for p in probs if "test_new_red" in p] == [p for p in probs if "名指しのテストが緑でない" in p] and len(probs) == 1
+
+
+def test_tdd_effect_reads_an_unfired_lane_as_unmeasured(tmp_path):
+    """腕を 1 本も撃っていない線は、その周の lane_missed を 0（見逃し 0 本）でなく None（測れていない）にする"""
+    import json
+    res = tmp_path / "lane.json"
+    res.write_text(json.dumps({"rev": "a" * 40, "arms": [], "handled": [], "patch": "", "suite": {"command": "x", "exit": 0}}), encoding="utf-8")
+    b = types.SimpleNamespace(round=2, dir=tmp_path, state={"validator": str(REPO / "scripts" / "review-record.py")},
+                              nodes=load_graph(GRAPH)[0]["nodes"],
+                              record={"process": {"tdd": {"rounds": {"1": {}}}}},
+                              loop_state={"lanes": {"a" * 40: {"round": 1, "rev": "a" * 40, "result": str(res), "state": "merged"}}})
+    RULES.tdd_effect(b)
+    assert b.record["process"]["tdd"]["rounds"]["1"]["lane_missed"] is None

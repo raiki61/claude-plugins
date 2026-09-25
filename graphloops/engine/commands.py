@@ -5,6 +5,7 @@ import os
 import pathlib
 import shutil
 import sys
+import tempfile
 import threading
 
 from . import pointers
@@ -166,9 +167,9 @@ def cmd_next(a):
                 "完了の知らせを待たない（知らせで起こされずに止まった。実測 2026-09-25）。先頭が sleep のコマンドは Bash が拒み、上限の無い until ループは止まらないので使わない。"
                 "返るのは 1 件 1 行の要約だけで、役の返答の本文は回す側に流れない。"
                 "自分の Bash から claude を起こすな（出力をファイルに落とす綴りは auto mode の分類器が止める。実測 2026-09-15）。"
-                "Agent ツールで起こすな（CLAUDE.md が注入され、止める設定が無い。返答の本文が回す側に入る）。"
+                "Agent ツールで起こすな（CLAUDE.md と git status が注入される——Agent の子の git status は止められない。engine は道具ゼロの子をリポジトリの外で起こす。返答の本文が回す側に入る）。"
                 "launch は 1 件ずつ ok と why を返す——ok でない節は why を読み、拒否が続いた・子が落ちたなら "
-                "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（relaunch は前の試行の子を木ごと止めてから新しい試行を作る）。stderr の with-auth: auth=… が "
+                "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（relaunch は新しい試行を書いてから前の試行の子を木ごと止める）。stderr の with-auth: auth=… が "
                 "none / keychain-miss なら認証が足りていない。engine が起こせない節（why が『前置ではない』『旗が無い』『権限の形』"
                 "『定義が読めない』『claude が無い』）は迂回を組まず人に渡せ。"
                 "launch を持たない agent の節（役の定義がこの環境に無い・道具の一覧を持たない・ファイルを書く道具を持つ役）は、手順書の agent の節の"
@@ -353,54 +354,81 @@ def launch_refusal(inst, cwd=None, board_dir=None):
 BOARD_LOCK = threading.Lock()  # 同じ launch の中で並列に起こした役が、盤面を 1 本ずつ開いて書く錠
 
 
-CONFLICT_RETRIES = 3   # 版の衝突で当て直す回数（_board_update）
+CONFLICT_RETRIES = 3
 
 
-def _board_update(d, fn):
-    """錠の下で盤面を開き直し、fn(b) を当てて保存する（版の突合は Board.save がする）。fn の返り値を返す。
-
-    **別のプロセスと版が衝突したら、読み直して当て直す**（Kubernetes client-go の retry.RetryOnConflict と同じ形）——launch の
-    印付けと締め、relaunch はどれも別のプロセスと同じ盤面を書きうる（止められた古い launch の締めと、relaunch・次の launch）。
-    fn は盤面の外に書かない（書くなら返った後に）。trace の行は保存まで控えるので、当て直しても重ならない。
-    BOARD_LOCK はスレッドの錠で、プロセスをまたいでは効かない"""
+def _retry_on_conflict(d, step, allow_halted=False):
+    """盤面を読み直して step(b) を当て直す枠——別のプロセスと版が衝突したら（Board.save の BoardConflict）、読み直して
+    CONFLICT_RETRIES 回まで当て直す（Kubernetes client-go の retry.RetryOnConflict と同じ形）。保存は step の中でも後でもよい
+    （_board_update は後で、launch の受け付けは accept_output の中で）。step は盤面の外に書かないか、書いても同じ中身の上書きに
+    留める。trace の行は保存まで控えるので、当て直しても重ならない。BOARD_LOCK はスレッドの錠で、プロセスをまたいでは効かない。
+    allow_halted は止めた run の盤面に書いてよい帳簿の書き込み（launch の締め）の印——Board.save が見る"""
     with BOARD_LOCK:
         for n in range(CONFLICT_RETRIES):
             b = Board(d)
             b.held_trace = []
-            got = fn(b)
+            b.allow_halted = allow_halted
             try:
-                b.save()
-                return got
+                return step(b)
             except BoardConflict:
                 if n == CONFLICT_RETRIES - 1:
                     raise
 
 
+def _board_update(d, fn, allow_halted=False):
+    """錠の下で盤面を開き直し、fn(b) を当てて保存する（当て直しは _retry_on_conflict）。fn の返り値を返す。launch の印付けと締め、
+    relaunch はどれも別のプロセスと同じ盤面を書きうる（止められた古い launch の締めと、relaunch・次の launch）"""
+    def step(b):
+        got = fn(b)
+        b.save()
+        return got
+    return _retry_on_conflict(d, step, allow_halted)
+
+
 def _accept_for_launch(d, iid, out_path):
     """run_role に渡す受け付け。**返答の不備（AnswerReject）だけを理由として返す**——役に返せば直る側。
     それ以外（節が待っていない・起こし直された・作業ツリーが変わった・盤面が進んだ）は例外のまま上げる（続きを頼んでも直らない）。
+    保存の衝突は _retry_on_conflict が読み直して当て直し、回数まで負けたら conflict の印を立てて上げる（launch_one が done の案内を足す）。
 
     **本文は run_role の手元からでなく、開き直した instance の今の out_path から読む**（done と同じ読み元）。起こし直し
     （relaunch）は試行ごとに置き場を分けて古い試行を締め出す——手元の本文を渡すと、その締め出しを素通りして、
     遅れて終わった古い試行が新しい試行の instance を受け付けてしまう。"""
+    def one(b):
+        inst = pending_instance(b, iid)
+        if inst.get("out_path") != out_path:
+            raise Reject(f"'{iid}' は起こし直されている（今の置き場は {inst.get('out_path')}）——この試行の返答は受け付けない")
+        try:
+            text = pathlib.Path(out_path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise Reject(f"{out_path}: 読めない（{e}）") from e
+        try:
+            accept.msg = accept_output(b, iid, text, f"launch {out_path}")
+        except AnswerReject as e:
+            return str(e)
+        return None
+
     def accept(_text):
-        with BOARD_LOCK:
-            b = Board(d)
-            inst = pending_instance(b, iid)
-            if inst.get("out_path") != out_path:
-                raise Reject(f"'{iid}' は起こし直されている（今の置き場は {inst.get('out_path')}）——この試行の返答は受け付けない")
-            try:
-                text = pathlib.Path(out_path).read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError) as e:
-                raise Reject(f"{out_path}: 読めない（{e}）") from e
-            try:
-                msg = accept_output(b, iid, text, f"launch {out_path}")
-            except AnswerReject as e:
-                return str(e)
-            accept.msg = msg
-            return None
+        try:
+            return _retry_on_conflict(d, one)
+        except BoardConflict:
+            accept.conflict = True   # 返答は置き場に在る
+            raise
     accept.msg = None
+    accept.conflict = False
     return accept
+
+
+def _isolated_cwd(d, inst):
+    """道具ゼロの役を起こす作業ディレクトリ——Git リポジトリの外の、run ごとに固定した一時ディレクトリ（公式文書 sub-agents の
+    git status の項: 『Absent outside a Git repository』。2026-09-25 取得）。子に git status の写しを注入させない。同じ会話の
+    続きの往復（--resume）は会話を起こした cwd の下から探すので、run の間は同じ置き場を使う。道具つきの役はリポジトリを
+    読むので None（呼び出し側の cwd のまま）"""
+    d_ = agent_def(inst.get("agent_type") or "")
+    if d_ is None or d_["tools"] != []:
+        return None
+    p = pathlib.Path(tempfile.gettempdir()) / f"graphloops-isolated-{pathlib.Path(d).name}"
+    p.mkdir(exist_ok=True)
+    return str(p)
 
 
 def _still_mine(d, inst):
@@ -509,12 +537,12 @@ def launch_one(d, inst, max_resumes, cwd=None):
 
     r = run_role(inst["launch"]["argv"], inst["launch"]["stdin"], inst["out_path"],
                  accept=accept, resume_argv=inst["launch"].get("resume_argv"), max_resumes=max_resumes,
-                 log_path=pathlib.Path(d) / "trace.jsonl", still_mine=still_mine, cwd=cwd,
+                 log_path=pathlib.Path(d) / "trace.jsonl", still_mine=still_mine, cwd=_isolated_cwd(d, inst) or cwd,
                  meta={"instance": inst["id"], "node": inst["node"], "agent_type": inst.get("agent_type"),
                        "attempt": inst.get("attempts", 1), "form": inst["launch"].get("form")})
     last = r["runs"][-1] if r["runs"] else {}
-    if r["why"] and "SystemExit" in r["why"]:
-        # 盤面の保存が別のプロセスと競って負けた（Board.save の die）。返答は置き場に在るので、done で受け付けられる
+    if accept.conflict:
+        # 盤面の保存が別のプロセスと当て直しの回数まで競って負けた（BoardConflict）。返答は置き場に在るので、done で受け付けられる
         r["why"] += f"——返答は {inst['out_path']} に在る。loop.py done --node {inst['id']} で受け付けよ"
     return {**got, "ok": r["ok"], "why": r["why"], "session_id": r["session_id"], "superseded": r["superseded"],
             "resumes": len(r["runs"]) - 1, "rejections": r["rejections"], "done": accept.msg,
@@ -538,6 +566,7 @@ def cmd_launch(a):
     picked = []
 
     def mark(b):
+        picked.clear()   # 版の衝突で当て直すたびに組み直す（盤面の外の一覧に行を重ねない）
         ready = [i for i in b.rd["instances"].values()
                  if i["status"] == "pending" and i.get("launch") and (not want or i["id"] == want)]
         if not ready:
@@ -561,17 +590,8 @@ def cmd_launch(a):
     b0 = Board(d)
     max_resumes = int(b0.graph.get("launch", {}).get("resume_on_reject") or 0)
     cwd = launch_cwd(b0)  # 無い場所なら起こす時に OSError で落ち、why に出る
-    # **launch 自身が止められても子を残さない**: 子は別のプロセスグループに切り離してあるので、launch に届いた
-    # 信号は子に届かない。止められたら生きている子を木ごと止めてから抜ける（role_run.kill_all）
-    import signal
-
-    def stop(signum, _frame):
-        kill_all()
-        raise SystemExit(128 + signum)
-
-    for sig in ("SIGTERM", "SIGHUP", "SIGINT"):
-        if hasattr(signal, sig):
-            signal.signal(getattr(signal, sig), stop)
+    # **launch 自身が止められても子を残さない**: 止める信号の口は loop.py の main が全コマンドに立てる
+    # （role_run.install_stop_handlers）。ここは例外で抜けた回の後始末
     try:
         if len(todo) == 1:
             results = [launch_one(d, todo[0], max_resumes, cwd)]
@@ -609,8 +629,8 @@ def cmd_launch(a):
 
     if results:
         try:
-            _board_update(d, settle)
-        except SystemExit:
+            _board_update(d, settle, allow_halted=True)   # 帳簿の締め（記録は進めない）——止めた run でも一覧を返す
+        except BoardConflict:
             # 盤面を別のプロセスと競って書けなかった。結果の一覧は回す側に必ず返す（trace にも行は在る）
             for r in results:
                 r["settle"] = "盤面に起こし直しの記録を書けなかった（別のプロセスと競った）"
@@ -749,8 +769,17 @@ def cmd_done(a):
     print(accept_output(b, a.node, text, read_from, agent_id=a.agent_id, accept_tree_change=a.accept_tree_change))
 
 
+def _refuse_halted(b):
+    """周の途中の問いで止めた run（halted）の受け付けを、中身の仕事（out/ への書き込み・post_check）の前に拒む。
+    止めた run への書き込み全部の拒否は Board.save が持つ（ここは早く拒むための入口の 1 か所だけ）"""
+    if b.state.get("halted"):
+        raise Reject(f"この run は周の途中の問いで止めた（halted: {b.state['halted'].get('node')}）——役を起こさない・受け付けない")
+
+
 def pending_instance(b, node):
-    """受け付けを待っている instance（待っていなければ Reject——役に返しても直らない側）。"""
+    """受け付けを待っている instance（待っていなければ Reject——役に返しても直らない側）。周の途中の問いで止めた run（halted）の
+    instance も待っていない——done と launch の受け付けがここを通るので、止めた run の記録は進まない"""
+    _refuse_halted(b)
     inst = b.rd["instances"].get(node)
     if not inst:
         raise Reject(f"この周に節 '{node}' は出ていない（loop.py next で確かめよ）")
@@ -1013,6 +1042,7 @@ def cmd_patch(a):
     state.json を手で書き換えて続けた——手当ての口が盤面の壊れ方を覆っていなかった）。
     """
     b = Board(resolve_dir(a))
+    b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）
     if a.path.startswith("state."):
         set_path(b.state, a.path[len("state."):], read_json(a.file))
     else:
@@ -1026,6 +1056,7 @@ def cmd_patch(a):
 # ---------------------------------------------------------------- finalize / status / record
 def cmd_finalize(a):
     b = Board(resolve_dir(a))
+    b.allow_halted = True   # 記録の仕上げと検証器は、止めた run でも回せる（報告は書かない）
     finalize(b)
     b.save()
     v = run_validator(b)

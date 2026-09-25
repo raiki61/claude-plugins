@@ -31,7 +31,8 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 from engine import commands as c  # noqa: E402
-from engine.util import Reject, die  # noqa: E402
+from engine.role_run import StopSignal, install_stop_handlers  # noqa: E402
+from engine.util import BoardConflict, Reject, die  # noqa: E402
 
 
 def main():
@@ -64,7 +65,7 @@ def main():
     s.add_argument("--node", help="1 節だけ起こす（省くと、いま起こせる launch を持つ節を全部並列に起こす）")
     s.set_defaults(fn=c.cmd_launch)
 
-    s = sub.add_parser("relaunch", help="待っている instance を起こし直す（engine が起こした前の試行の子を木ごと止めてから。試行の回数と理由を盤面と trace に残す）")
+    s = sub.add_parser("relaunch", help="待っている instance を起こし直す（新しい試行を書いてから、engine が起こした前の試行の子を木ごと止める。試行の回数と理由を盤面と trace に残す）")
     s.add_argument("--dir")
     s.add_argument("--node", required=True)
     s.add_argument("--reason", required=True)
@@ -115,6 +116,7 @@ def main():
     s.set_defaults(fn=c.cmd_allow_checks)
 
     a = p.parse_args()
+    install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす
     a.fn(a)
 
 
@@ -123,6 +125,10 @@ if __name__ == "__main__":
         main()
     except Reject as e:
         die(str(e), 1)
+    except BoardConflict as e:
+        die(e.msg, 2)
+    except StopSignal as e:
+        sys.exit(128 + e.signum)   # 生きている子は信号の口（kill_all）が止めてある
     except SystemExit:
         raise
     except Exception as e:  # 契約: 想定外は 2（盤面が読めない側）に倒す

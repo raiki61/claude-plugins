@@ -4046,8 +4046,8 @@
    "title": "launch が止められたら子を木ごと止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "                os.killpg(p.pid, sig)",
-   "new": "                p.terminate()",
+   "old": "    why = _stop_tree(p.pid, leader=p)",
+   "new": "    why = p.terminate()",
    "expect": "kill_all は生きている子を孫まで止める",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -4074,8 +4074,8 @@
    "title": "古い試行の返答を新しい試行に受け付けない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "            if inst.get(\"out_path\") != out_path:",
-   "new": "            if False:",
+   "old": "        if inst.get(\"out_path\") != out_path:",
+   "new": "        if False:",
    "expect": "古い試行の返答は、新しい試行の節に受け付けない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -4130,8 +4130,8 @@
    "title": "子はレビュー対象の作業ツリーで起こす",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "still_mine=still_mine, cwd=cwd,",
-   "new": "still_mine=still_mine,",
+   "old": "still_mine=still_mine, cwd=_isolated_cwd(d, inst) or cwd,",
+   "new": "still_mine=still_mine, cwd=_isolated_cwd(d, inst),",
    "expect": "子はレビュー対象の作業ツリー（inputs.cwd）で起きる",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4256,9 +4256,9 @@
    "title": "線の閉じなかった見逃しは周の頭で判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    ls[\"prev_declared_faces\"] = _declared_faces(b, b.round - 1) + _lane_faces(b)",
+   "old": "    ls[\"prev_declared_faces\"] = _declared_faces(b, b.round - 1) + [{k: v for k, v in r.items() if k != LANE_DEFECT} for r in lane_rows]",
    "new": "    ls[\"prev_declared_faces\"] = _declared_faces(b, b.round - 1)",
-   "expect": "合流: 線がテストで閉じられなかった見逃し",
+   "expect": "合流: 閉じなかった見逃し（needs_test・defect）は宣言の穴",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_end_to_end"
@@ -5141,8 +5141,8 @@
    "title": "テストの実行器は時間切れで木ごと止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    except subprocess.TimeoutExpired:\n        _kill(p)\n        raise",
-   "new": "    except subprocess.TimeoutExpired:\n        p.kill()\n        raise",
+   "old": "    except BaseException:\n        _kill(p)\n        raise\n    finally:\n        _forget(p)",
+   "new": "    except BaseException:\n        p.kill()\n        raise\n    finally:\n        _forget(p)",
    "expect": "run_tree: 時間切れで孫まで止めて",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5194,12 +5194,12 @@
   },
   {
    "id": "LN16",
-   "title": "最後の関門は撃った腕 0 本を通さない",
+   "title": "最後の関門は撃てた腕 0 本を通さず人に諮る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if final and not out.get(\"arms\"):",
+   "old": "    if not out.get(\"arms\") and (tree or \"\").strip() != b.loop_state.get(\"final_gate_empty_ok\"):",
    "new": "    if False:",
-   "expect": "最後の関門: 撃った腕が 0 本の返答は拒む",
+   "expect": "最後の関門: 撃てた腕が 0 本なら通さず",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -5344,6 +5344,403 @@
    "expect": "役割 agent の定義と手順書の参照が整合する",
    "old": "    if not OUTBOUND & set(agents[f.stem]):",
    "new": "    if not set() & set(agents[f.stem]):"
+  },
+  {
+   "id": "BC2",
+   "title": "版の衝突は読み直して当て直す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "CONFLICT_RETRIES = 3",
+   "new": "CONFLICT_RETRIES = 1",
+   "expect": "_board_update: 衝突したら読み直して",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "BC3",
+   "title": "当て直しの間は trace の行を控える",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            b.held_trace = []\n            b.allow_halted = allow_halted",
+   "new": "            b.allow_halted = allow_halted",
+   "expect": "_board_update: 衝突したら読み直して",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "BC4",
+   "title": "mark は当て直しで行を重ねない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        picked.clear()   # 版の衝突で当て直すたびに組み直す（盤面の外の一覧に行を重ねない）",
+   "new": "        pass",
+   "expect": "cmd_launch の mark",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "BC5",
+   "title": "受け付けの負けは印で運ぶ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            accept.conflict = True   # 返答は置き場に在る",
+   "new": "            pass",
+   "expect": "受け付けの衝突は",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "RR9",
+   "title": "止めるのは長でなくグループの消滅まで待つ",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "            if not alive():\n                return None",
+   "new": "            if not alive() or (leader is not None and leader.poll() is not None):\n                return None",
+   "expect": "run_tree: SIGTERM を無視する孫も",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR10",
+   "title": "止める信号の口は全コマンドに立てる",
+   "file": "graphloops/scripts/loop.py",
+   "suite": "graphloops",
+   "old": "    install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす",
+   "new": "    pass",
+   "expect": "止める信号: next が止められたら",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_stop_signal_stops_test_runner_tree"
+    ]
+   }
+  },
+  {
+   "id": "RR11",
+   "title": "起こした子は生きている子の集合に載せる",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    with _LIVE_LOCK:\n        LIVE.add(p)\n    if _STOPPING.is_set():",
+   "new": "    if _STOPPING.is_set():",
+   "expect": "kill_all は生きている子を孫まで止める",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "HL1",
+   "title": "止めた run の受け付けは拒む",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    _refuse_halted(b)\n    inst = b.rd[\"instances\"].get(node)",
+   "new": "    inst = b.rd[\"instances\"].get(node)",
+   "expect": "仕様の道: stop で止めた run の done",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "HL2",
+   "title": "止めた run の盤面は書かない（保存の 1 か所）",
+   "file": "graphloops/engine/board.py",
+   "suite": "graphloops",
+   "old": "        if self.halted_at_read and not self.allow_halted:",
+   "new": "        if False:",
+   "expect": "仕様の道: stop で止めた run の add",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "HL3",
+   "title": "止めた run にも手当て（patch）は当てられる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）",
+   "new": "    pass",
+   "expect": "仕様の道: stop で止めた run でも手当て",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "FG1",
+   "title": "最後の関門の 0 本は人に諮る",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if gate == [FINAL_GATE_EMPTY]:",
+   "new": "    if False:",
+   "expect": "撃てた腕が 0 本の関門で収束を言わず人に諮る",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_final_gate_empty_asks_human"
+    ]
+   }
+  },
+  {
+   "id": "FG2",
+   "title": "人が認めた木なら 0 本の関門を通す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            b.loop_state[\"final_gate_empty_ok\"] = (tree or \"\").strip() or None",
+   "new": "            pass",
+   "expect": "人が認めた木なら",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_final_gate_empty_asks_human"
+    ]
+   }
+  },
+  {
+   "id": "LN17",
+   "title": "線の defect は出どころつきで依頼の入口へ",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        {\"where\": r[\"key\"], \"text\": LANE_PROVENANCE + r[\"how\"],",
+   "new": "        {\"where\": r[\"key\"], \"text\": r[\"how\"],",
+   "expect": "線の defect は人の依頼の入口",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "DL9",
+   "title": "読んでいる間に起こし直されていたら作らない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        if prev[\"out_path\"] != str(old):",
+   "new": "        if False:",
+   "expect": "relaunch: 読んでいる間に",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_relaunch_race"
+    ]
+   }
+  },
+  {
+   "id": "DL10",
+   "title": "前の試行の印も止め直す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    marks = [pgid_path(old)] + [pgid_path(x[\"prev_out_path\"]) for x in prev0.get(\"attempt_log\") or [] if x.get(\"prev_out_path\")]",
+   "new": "    marks = [pgid_path(old)]",
+   "expect": "relaunch: 前の relaunch が止め切れなかった",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_relaunch"
+    ]
+   }
+  },
+  {
+   "id": "SP19",
+   "title": "init の入口が die でも置き場を消す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        except BaseException:\n            shutil.rmtree",
+   "new": "        except Exception:\n            shutil.rmtree",
+   "expect": "init: rules の入口が die で抜けても",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "SP20",
+   "title": "承認の時点で緑の受け入れ条件は赤を見ていないと渡す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "                            \"既に exit 0（緑——赤を見ていないので、テストが要件を確かめているかを疑え）\" if a[\"exit_at_approval\"] == 0 else",
+   "new": "                            \"exit 0\" if a[\"exit_at_approval\"] == 0 else",
+   "expect": "仕様の道: 承認の時点で緑の受け入れ条件は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "TD1",
+   "title": "直す単位が無い周は一式を走らせない",
+   "file": "graphloops/graphs/review-loop-tdd.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p3.tdd_start"
+    ],
+    "del": "cond"
+   },
+   "expect": "直す単位が無い周は、テスト一式を走らせる",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_tdd_flow"
+    ]
+   }
+  },
+  {
+   "id": "RR12",
+   "title": "信号の口の錠は再入できる",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "_LIVE_LOCK = threading.RLock()",
+   "new": "_LIVE_LOCK = threading.Lock()",
+   "expect": "信号の口（kill_all）は錠を持つ最中の同じスレッドでも",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_stop_signal_guards"
+    ]
+   }
+  },
+  {
+   "id": "RR13",
+   "title": "止め始めた後に起こした子はすぐ止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    if _STOPPING.is_set():   # 止める信号の後に起こした子",
+   "new": "    if False:   # 止める信号の後に起こした子",
+   "expect": "止める信号の後に起こした子はすぐ止めて",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_stop_signal_guards"
+    ]
+   }
+  },
+  {
+   "id": "RR14",
+   "title": "止め切れなかった木の理由を運ぶ",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        e.tree_left = _kill(p)",
+   "new": "        _kill(p)",
+   "expect": "止め切れなかった木の理由は時間切れの例外に添えて",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_stop_signal_guards"
+    ]
+   }
+  },
+  {
+   "id": "BC6",
+   "title": "入口は版の衝突の文を出して exit 2",
+   "file": "graphloops/scripts/loop.py",
+   "suite": "graphloops",
+   "old": "    except BoardConflict as e:\n        die(e.msg, 2)",
+   "new": "    except KeyboardInterrupt as e:\n        die(str(e), 2)",
+   "expect": "loop.py の入口は版の衝突の文を最後に 1 度出して",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "BC7",
+   "title": "launch_one は受け付けの負けに done の案内を足す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if accept.conflict:",
+   "new": "    if False:",
+   "expect": "launch は受け付けの負けに done の案内を足す",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "FG3",
+   "title": "諮る分岐は止めた理由を立てる",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        b.loop_state[\"stop_reason\"] = ((out.get(\"ask\") or {}).get(\"kinds\") or [out.get(\"reason\")])[0]",
+   "new": "        pass",
+   "expect": "諮る前に止めた理由（stop_reason）を立てる",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_final_gate_empty_asks_human"
+    ]
+   }
+  },
+  {
+   "id": "FG4",
+   "title": "上限の周の 0 本の答えは 1 周延ばす",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            if b.state[\"max_rounds\"] <= b.round:   # 上限の周の答え——同じ木の関門を撃つ次の周を 1 つ開ける\n                _extend_one_round(b, entry)",
+   "new": "            pass",
+   "expect": "上限の周の continue は上限を 1 周だけ延ばし",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_final_gate_empty_asks_human"
+    ]
+   }
+  },
+  {
+   "id": "IS1",
+   "title": "道具ゼロの役はリポジトリの外で起こす",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if d_ is None or d_[\"tools\"] != []:\n        return None",
+   "new": "    return None",
+   "expect": "道具ゼロの役は Git リポジトリの外の一時ディレクトリで起こす",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_engine_launch"
+    ]
+   }
+  },
+  {
+   "id": "LN18",
+   "title": "0 本の線は要約で arms 0",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "                     **({\"arms\": len(out.get(\"arms\") or [])} if out and not errs else {}),",
+   "new": "",
+   "expect": "線の要約: 0 本の線は arms 0",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "LN19",
+   "title": "依頼の入口にも積んだ defect は宣言の穴で同じ 1 件と書く",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "                r[\"how\"] += LANE_SAME_ITEM\n",
+   "new": "                pass\n",
+   "expect": "合流: 依頼の入口にも積んだ defect は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_end_to_end"
+    ]
+   }
   }
  ],
  "dropped": [
@@ -5463,6 +5860,14 @@
   {
    "id": "LN3",
    "why": "柵ごと取り下げた: 線と最後の関門の返答の suite（テスト一式の自己申告）を読まない——一式の緑は engine が走らせた p4.ci が正本（2026-09-25、手順 3b）"
+  },
+  {
+   "ids": [
+    "GM1",
+    "GM2",
+    "GM3"
+   ],
+   "why": "消した: 合流でまとめて撃つ入力は gates=merge の 1 通りに揃えた（2026-09-26、人の決定）——gates=at_merge の実装ごと外した。gates=merge の腕は RC1〜RC6"
   }
  ]
 }

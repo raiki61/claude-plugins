@@ -60,10 +60,12 @@ def launch_cwd(b):
 def launch_spec(b, inst, d, resume_sid=None):
     """役を engine の中で起こす語（argv・続きの語・材料）。起こせない役なら None（回す側が Agent で起こす）。
 
-    **道具ゼロの役（遮断系）**は Agent ツールで起こさない——ハーネスは subagent に CLAUDE.md 階層を注入し、**それを止める
-    設定が無い**（公式文書 code.claude.com/docs/en/sub-agents、2026-09-12 取得: "Explore and Plan are the only subagents
-    that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip
-    them."）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。setting source
+    **道具ゼロの役（遮断系）**は Agent ツールで起こさない——ハーネスは subagent に CLAUDE.md 階層と git status を注入する。
+    CLAUDE.md は役の定義の omitClaudeMd で省けるが、git status は止められない（公式文書 code.claude.com/docs/en/sub-agents、
+    2026-09-25 取得: "Every other built-in and custom subagent loads both, unless its definition sets the omitClaudeMd field
+    to skip the user, project, and local CLAUDE.md files." / "You can't change which subagents receive git status. Only
+    Explore and Plan skip it."）。役の定義は convergence-loops が配る物で、遮断をその 1 欄に預けない。engine が起こす道具ゼロの
+    子は Git リポジトリの外の一時ディレクトリで起こす（commands._isolated_cwd。公式: "Absent outside a Git repository"）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。setting source
     ごと外せるのは CLI だけ（同日の対照実験: フラグ無しでは目印が見え、--setting-sources "" を付けると消えた）。
 
     **道具つきの役**も同じ CLI の同じ綴りで起こす（graph の launch.tooled）。回す側と役の間に中継の AI を挟むと、

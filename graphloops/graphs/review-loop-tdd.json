@@ -19,6 +19,7 @@
     "p3.lane_merge",
     "p2.human_gate"
    ],
+   "cond": "units_open",
    "source": "P3（TDD）＞ テストを書く前の版を固める",
    "does": "テストだけを書く段が触ったファイルをこの版からの差で測るために作業ツリーの今の姿を版に固め、テスト一式を 1 回走らせて元の結末を取る（『ほかは緑のまま』は元の結末で通っていたテストに当てる。元から落ちていたテストは問わない）",
    "outputs": [
@@ -49,6 +50,14 @@
     "loop.tdd"
    ],
    "post_check": "tdd_tests_output",
+   "pointers": [
+    {
+     "at": "units[].unit_key",
+     "from": [
+      "record.units"
+     ]
+    }
+   ],
    "schema": {
     "$ref": "#/$defs/tdd_tests_reply"
    }

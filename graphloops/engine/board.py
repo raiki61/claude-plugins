@@ -2,11 +2,10 @@
 import json
 import os
 import pathlib
-import sys
 
 from .rules import load_rules, registry, validator_module
 from . import util
-from .util import BoardConflict, die, get_path, read_json, write_json, now
+from .util import BoardConflict, Reject, die, get_path, read_json, write_json, now
 from .schema import load_graph
 from .validator import run_validator
 from .render import Renderer
@@ -126,6 +125,7 @@ class Board:
         # （実測 2026-09-13: 別リポジトリの cwd から done を実行して record.base が別リポジトリの HEAD になった）
         util.GIT_CWD = (self.state.get("inputs") or {}).get("cwd")
         self.seen_rev = self.state.get("rev", 0)  # 読んだ時点の版。save がこれと突き合わせる
+        self.halted_at_read = bool(self.state.get("halted"))  # 読んだ時点で止めた run か（save が見る）
         self.record = read_json(self.dir / "record.json")
         self.graph, why = load_graph(self.state["graph"])
         if why:
@@ -135,8 +135,11 @@ class Board:
         self.rules = load_rules(self.state["graph"], self.graph)
 
     # -- 保存と痕跡
+    allow_halted = False   # 止めた run（halted）の盤面に書いてよい呼び出しの印（手当ての patch・記録の仕上げ・launch の締め）
+
     def save(self):
-        """**読んでから書くまでに別のプロセスが盤面を進めていたら、上書きせず落とす。**
+        """**読んでから書くまでに別のプロセスが盤面を進めていたら、上書きせず落とす。** 周の途中の問いで止めた run（halted）
+        への書き込みも、ここで拒む（add・skip・thicken・launch・done・relaunch の全部がこの 1 か所を通る。印の立つ呼び出しだけ通す）。
 
         state も record も丸ごと読んで丸ごと書き戻すので、2 つの回す側が同じ run に付くと後勝ちで
         先の完了が消える。実測: 3 本の done を同時に呼んだところ 3 本とも exit 0・「受け付けた」を
@@ -147,15 +150,18 @@ class Board:
         record を先に書くのは、版の繰り上げを commit の印にするため——先に state を書くと、記録の
         書き込みが落ちた run を次のプロセスが「進んだ」と読む。
         """
+        if self.halted_at_read and not self.allow_halted:
+            raise Reject(f"この run は周の途中の問いで止めた（halted: {(self.state.get('halted') or {}).get('node')}）——盤面は書かない"
+                         "（止めた run の記録は進めない。手当ては loop.py patch）")
         cur = read_json(self.dir / "state.json").get("rev", 0)
         if cur != self.seen_rev:
             # **名乗る範囲は保護できる範囲まで。** 守っているのは盤面の 2 本（state.json / record.json）で、
             # cmd_done はここへ来るまでに out/r<N>/<節>.json・save_text_as の本文・trace.jsonl を既に書いている
             # ——「この呼び出しは何も書いていない」と書いていたとき、読み手には副作用が無いと読めた（実測 2026-09-13）
-            print(f"NG 盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
-                  "同じ run を回している。**盤面（state.json / record.json）は書いていない**が、out/ と trace.jsonl には"
-                  "この呼び出しの書き込みが残っている。1 つの盤面に 2 人で付くな（続けるなら next からやり直せ）", file=sys.stderr)
-            raise BoardConflict(2)
+            raise BoardConflict(f"盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
+                                "同じ run を回している。**盤面（state.json / record.json）は書いていない**が、out/ には"
+                                "この呼び出しの書き込みが残りうる（trace.jsonl の行は、保存まで控えた呼び出しなら書いていない）。"
+                                "1 つの盤面に 2 人で付くな（続けるなら next からやり直せ）")
         self.seen_rev += 1
         self.state["rev"] = self.seen_rev
         write_json(self.dir / "record.json", self.record)

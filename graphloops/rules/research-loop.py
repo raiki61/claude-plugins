@@ -106,7 +106,6 @@ RANDOM_FAN = ("sampling_pick",)
 # default の無い欄（rd.new_discrepancies 等）は、評価の順で届いたときに解決できなければ落ちる（以前の JSON の条件と同じ）
 @cond_reads("record.constraints")
 def constraints_self_written(v):
-    """問い・制約のどれかを surveyor が自書した"""
     rows = v("record.constraints", [])
     n = sum(1 for x in rows if isinstance(x, dict) and x.get("origin") == "surveyor自書") if isinstance(rows, list) else 0
     return bool(n), f"surveyor が自書した問い・制約は {n} 件"
@@ -123,7 +122,6 @@ def generation_due(v):
 
 @cond_reads("rd.new_discrepancies")
 def no_new_discrepancies(v):
-    """この周の新規相違がゼロ"""
     n = v("rd.new_discrepancies")
     return n == 0, f"この周の新規相違は {n} 件"
 
