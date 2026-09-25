@@ -2144,7 +2144,7 @@ got["accept_retry"] = [acc(""), acc.msg, acc.conflict, len(calls)]
 
 # launch_one は受け付けの負け（conflict の印）に done の案内を足す
 C.accept_output = losing
-C.launch_refusal = lambda _inst: None
+C.launch_refusal = lambda _inst, *_a: None
 def fake_run_role(argv, prompt, out, accept=None, **kw):
     try:
         accept("")

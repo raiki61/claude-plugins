@@ -775,7 +775,9 @@ def test_launch_delegate_fenced():
     .git も変わらない。sandbox の名指しは起こす瞬間に git から組み直して突き合わせ、next の後に作業ツリーが足されたら起こさない。
     配布先で Agent ツールの任せ先が本物の作業ツリーで git reset --hard を打った事故（2026-09-25）への直し"""
     print("任せ先の柵: engine が写しの上で sandbox の形で起こし、名指しがずれたら起こさない")
-    run = Run("delegate")
+    # p0.local_checks は宣言（.review-checks.json）が在れば engine が走らせる節（engine_run）なので、宣言を置かずに
+    # 任せ先の節（engine_fallback）として出す
+    run = Run("delegate", checks=None)
     g = lambda *a: sh(run.repo, "git", *a).stdout
     nx = run.next()
     inst = next(i for i in nx["ready"] if i["node"] == "p0.local_checks")
