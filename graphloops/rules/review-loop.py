@@ -1002,6 +1002,12 @@ def _final_gate_problems(b):
 FINAL_GATE_EMPTY = "最後の関門が撃った腕が 0 本——0 本のまま収束してよいかを人に諮る"
 
 
+# このループが節に書く鍵（graphcheck の検査 15 が engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と合わせて閉じた集合にする）。
+# NODE_KEYS は rules か graphcheck が読む鍵、NODE_NOTE_KEYS は人が読む説明の鍵
+NODE_KEYS = frozenset({"materials", "na_self_ok", "na_reason", "carry_reason", "result_schema"})
+NODE_NOTE_KEYS = frozenset({"inputs", "enforced_by", "escalate_note", "must_run_in_round_1", "na_reason_note", "refire_when"})
+
+
 ACCEPT_KEYS = ("round_accepts_exit",)  # このループが読む受理集合の鍵（graphcheck が engine の分と合わせて形を見る）
 
 # ---------------------------------------------------------------- 節の条件（graph の cond が名前で指す）
@@ -1306,7 +1312,14 @@ def premise_question(b, nid, src, w):
         res = src.get("resolution") or "（resolution が無い返答）"
         q["reason"] = f"{src['reason']}——検算で仮定は偽: {res}。実測を制約に足し次の周で R2 を回し直す（resolved の確定はその周の judge）"
         b.loop_state.setdefault("facts_to_add", []).extend(src.get("facts_to_add", []))
-    b.record["questions"] = [x for x in b.record["questions"] if not (x.get("kind") == "premise" and x.get("origin") == "R2")]
+    # 消すのは同じ key の行と、この周に書いた R2 の前提の行だけ。前の周から台帳に残っている行（判定者が再審して引き継いだ物）を消すと、
+    # この節は前の周の台帳を読まない別の目なので key が揃う保証が無く、検証器の『前の周の問いが今の周の台帳に無い』
+    # （dropped_questions）に周の記録の段で初めて当たる——判定の受け付けで同じ規則を当てても、後の書き手が消せば届かない
+    prev = b.loop_state.get("prev_questions") or []
+    kept = {x.get("key") for x in prev if x.get("status") in validator_module(b).TRACKED} if prev else set()
+    b.record["questions"] = [x for x in b.record["questions"]
+                             if not (x.get("kind") == "premise" and x.get("origin") == "R2"
+                                     and (x.get("key") not in kept or x.get("key") == q["key"]))]
     b.record["questions"].append(q)
 
 
@@ -1839,6 +1852,27 @@ def _stuck_unrouted(b, V, out):
     cand = {"round": b.round, "units": out.get("units") or [], "questions": out.get("questions") or []}
     return [f"同じ [block] '{k[:60]}' が 3 周続けて在る（2 周連続の残存＝stuck）——処方の誤りか設計の問題かを振り分け、"
             "このユニットを origin に持つ未決の問い（stuck か fork）を questions に載せよ" for _, k in V.stuck_unlisted(prev + [cand])]
+
+
+def _defer_ledger(b):
+    """盤面の defer 台帳（key → {reason, round}）を、検証器の述語が読む形（key → (理由, 周)）にする"""
+    return {k: (v.get("reason"), v.get("round")) for k, v in (b.loop_state.get("defer_ledger") or {}).items()}
+
+
+def _history_rules(b, V, nd, out):
+    """周をまたぐ検証器の規則（defer の再浮上の根拠・未決の問いの連続）を、判定の受け付けで当てる。式は検証器の述語
+    （JUDGE_TIME_RULES）で、写さない。**当てるのは、規則を満たすのに要る入力を読む節だけ**——履歴を見せない判定（p2.diagnose）に
+    前の周の台帳を求めると、役が見ていない物を書き写せず、返させ直しても通らない（_stuck_unrouted を loop.prev_blocks で絞るのと同じ）"""
+    reads = nd.get("reads") or []
+    errs = []
+    if "loop.prev_units" in reads:
+        errs += V.reopened_without_evidence(out.get("units") or [], _defer_ledger(b))
+    if "loop.prev_questions" in reads:
+        # kind=unverifiable の行は除く: R が今の周も unverifiable なら周の記録の段で機械が同じ key で立て直す（record_round）ので、
+        # 判定の時点では落としてよいかが決まらない（R はこの後に走る）。落としたまま R が通った周は、記録の段の検証器が止める
+        prev = [q for q in b.loop_state.get("prev_questions") or [] if q.get("kind") != "unverifiable"]
+        errs += V.dropped_questions(prev, out.get("questions") or [])
+    return errs
 
 
 def _prev_round_record(b):
@@ -2514,6 +2548,7 @@ def judge_output(b, nid, out, item):
                 u = next((x for x in out["units"] if x["key"] == k), None)
                 if u and V.is_open(u):
                     errs.append(f"questions[{i}]（{kind}）の出どころ '{k}' が [block] / do-now（人に聞く前に直す義務が消える。defer にして構造的理由を書け）")
+        errs += [f"questions[{i}]: {m}" for m in V.settled_state_errors(q, out["units"])]
     awaiting = {name for name, m in b.record["materials"].items() if m.get("status") == "awaiting_human"}
     listed = {q.get("origin") for q in out["questions"] if q.get("kind") == "awaiting" and q.get("status") in V.ASKING}
     for name in sorted(awaiting - listed):
@@ -2545,6 +2580,7 @@ def judge_output(b, nid, out, item):
             errs += _carried_r1_accounted(b, out)
     if "loop.prev_blocks" in (nd.get("reads") or []):
         errs += _stuck_unrouted(b, V, out)
+    errs += _history_rules(b, V, nd, out)
     if errs:
         raise Reject("judge の返答が記録の語彙に合わない（judge に返させ直す）: " + "; ".join(errs))
     # engine が 0 件と数えた単位（在るべき物が無い型か、問いの取りこぼし）を、修正の側が読める値で残す——note の文だけだと、
@@ -3056,6 +3092,9 @@ def delta_review_output(b, nid, out, item):
             # 手直しの義務に入ると、人より先に修正役が残すか戻すかを決める。修正の後の後退は R4 の棚卸しが BASE と比べて人に上がる
             errs.append(f"faces[{i}] の kind '{f['kind']}' は事前審査だけの語——修正の後の後退・方針とのぶつかりは R4 と関所（r4.human_gate）が人に聞く")
             continue
+        if f["kind"] in PLAN_ONLY_FACE_KINDS:
+            errs.append(f"faces[{i}] の kind '{f['kind']}' は事前審査だけの語——判定者の先行例はこの節に渡っていない")
+            continue
         if f["where"] not in files:
             errs.append(f"faces[{i}] の where '{f['where'][:60]}' はこの周の修正が触ったファイルでない（{sorted(files)[:5]}）")
             continue
@@ -3096,6 +3135,12 @@ def rejudge_output(b, nid, out, item):
     if blank(fact, 20):
         raise Reject(f"{nid}: new_facts が空同然——回す側が出した事実を**自分で確かめた結果**を書け"
                      "（確かめずに採る／退けるのは、どちらも判定を都合よく使うことになる）")
+    # 再審は units だけを書く（questions は書かない）ので、当てられるのは units だけで決まる defer の再浮上だけ。拒否文が defer の
+    # 理由を名指すので、台帳を読まない再審の役にも直す手が在る
+    ledger = _defer_ledger(b)
+    errs = validator_module(b).reopened_without_evidence(out.get("units") or [], ledger) if ledger else []
+    if errs:
+        raise Reject(f"{nid}: " + "; ".join(errs))
     ls = b.loop_state
     prev = ls.get("rejudge_rounds") or {}
     if not isinstance(prev, dict):
@@ -3917,6 +3962,9 @@ POST_CHECKS.update({"spec_write_output": spec_write_output, "spec_review_output"
 # 事前審査の穴のうち人に聞く語の一覧の正本（graph の $defs.face_kind の enum の部分集合。graph の note はここを指すだけで写さない。
 # 部分集合であることは pytest の test_policy_gate が見る）
 HUMAN_FACE_KINDS = ("regression", "policy")
+# 事前審査だけが書く語（修正差分のレビューは受け付けで拒む）。precedent は、案が採る判定者の先行例の出典を事前審査が開いて
+# 確かめた食い違い——判定者の先行例は修正差分のレビューに渡らないので、その節には確かめる材料が無い
+PLAN_ONLY_FACE_KINDS = HUMAN_FACE_KINDS + ("precedent",)
 
 
 def _policy_change(b):

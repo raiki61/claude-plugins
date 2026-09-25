@@ -5926,6 +5926,33 @@
    "old": "END = rf\"(?![{A}]|-(?!-))\"",
    "new": "END = rf\"(?![{A}-])\"",
    "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "CL1",
+   "title": "CI の突合: 宣言の段の名前が CI の段に無ければ赤",
+   "file": ".review-checks.json",
+   "suite": "root",
+   "old": "{\"name\": \"pytest\", \"argv\"",
+   "new": "{\"name\": \"pytest-外れ\", \"argv\"",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL2",
+   "title": "CI の突合: shellcheck の深さ（-S warning）が外れれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "xargs -0 shellcheck -S warning",
+   "new": "xargs -0 shellcheck",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL3",
+   "title": "CI の突合: shellcheck を回す run: の段が消えれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning",
+   "new": "        run: echo 静的検査を回さない",
+   "expect": "CI の設定が shellcheck を回す"
   }
  ],
  "dropped": [

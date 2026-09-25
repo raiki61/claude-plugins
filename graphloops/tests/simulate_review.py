@@ -3994,6 +3994,16 @@ def test_surviving_branches():
     got = {q["key"] for q in b.record["questions"]}
     check("古い前提" not in got, f"kind=premise かつ origin=R2 の古い行は外れる（{sorted(got)}）")
     check({q["key"] for q in keep} <= got, f"他の問いは残る（{sorted(got)}）")
+    # 前の周から台帳に残る R2 の前提の行は外さない（外すと、判定の受け付けを通った後の記録の段で『前の周の問いが今の周の
+    # 台帳に無い』に当たる）。同じ key の行は差し替える（重複の key は検証器が落とす）
+    held = lambda k: {"key": k, "kind": "premise", "origin": "R2", "status": "held", "reason": "z"}
+    b = types.SimpleNamespace(round=2, state={"validator": str(VALIDATOR)},
+                              loop_state={"prev_questions": [held("引き継いだ前提"), held("差し替える前提")]},
+                              record={"questions": [held("引き継いだ前提"), held("差し替える前提"), held("この周の古い前提")]})
+    rules.premise_question(b, "stop.premise_check", {"key": "差し替える前提", "verdict": "escalate", "reason": "検算した"}, None)
+    got = [(q["key"], q["status"]) for q in b.record["questions"]]
+    check(sorted(got) == sorted([("引き継いだ前提", "held"), ("差し替える前提", "escalate")]),
+          f"前の周から残る前提の行は残り、同じ key は差し替わり、この周の古い行は外れる（{got}）")
 
     # ③ 素材の必須欄——空文字・型違いのどちらも落とす
     def errs_for(value):
@@ -4300,6 +4310,14 @@ def test_delta_conditions():
     except Reject as e:
         got = str(e)
     check(got == "通った", f"修正差分のレビュー: 差分の記録が無い回も、空の返答は落ちずに受ける（{got[:70]}）")
+    try:
+        rules.POST_CHECKS["delta_review_output"](at({}), "p3.delta_review2",
+                                                 {"faces": [{"key": "出典が当たらない", "kind": "precedent", "where": "a.py", "cite": "x",
+                                                             "why": "検査用"}], "checks": []}, None)
+        got = "通った"
+    except Reject as e:
+        got = str(e)
+    check("'precedent' は事前審査だけの語" in got, f"修正差分のレビュー: 先行例の出典の穴（precedent）は事前審査だけの語として拒む（{got[:90]}）")
     rm(tmp)
 
 

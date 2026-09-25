@@ -36,6 +36,8 @@
      background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景の節をほかの節が待たない（deps・instance_deps）。
      {{node.<欄>}} は engine が埋める欄（skills）だけ
      背景の節は delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つ節が在れば launch.delegate.argv が在る。
+ 15. 節の鍵が engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和に在る（綴り違いの鍵は黙って効かない）。
+     init から呼ぶときは NG にせず警告（持ち込みの graph を止めない）
 
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
@@ -70,7 +72,7 @@ sys.path.insert(0, str(PLUGIN_ROOT))
 from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of  # noqa: E402
 from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
-from engine.schema import extends_path, end_anchored, load_graph, unknown_keywords, walk_schema  # noqa: E402
+from engine.schema import DOC_NODE_KEYS, ENGINE_NODE_KEYS, extends_path, end_anchored, load_graph, unknown_keywords, walk_schema  # noqa: E402
 DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この graph が任せ先に書ける名前: Claude Code の subagent の model の別名
 # （https://code.claude.com/docs/en/sub-agents）。完全な model ID も Agent ツールは受けるが、版が変わると古くなるので graph には書かない
 from engine.commands import CLI_FLAGS, INPUT_KINDS  # noqa: E402 — 入力の語彙は engine が正本（写さない）
@@ -354,8 +356,11 @@ def dropped(base, merged, path=""):
     return []
 
 
-def check(gpath, script=None, emit=print):
+def check(gpath, script=None, emit=print, node_keys="ng"):
     """graph を静的に検査して ok を返す（graphcheck の本体。engine の init もここを呼ぶ）。
+
+    node_keys="warn" は節の知らない鍵（検査 15）を NG にせず `WARN ` の行で知らせる——init（外から持ち込む graph の入口）用。
+    持ち込みの graph の節に利用者が書いた注記の鍵で init を止めない（上位互換。単体の graphcheck と台本では NG）。
 
     **入口を 2 つにしても実装は 1 つ。** 以前は検査が CLI にしか無く、engine は init で graph を
     受け取っても何も確かめなかった——同梱のグラフだけが守られ、--graph で渡した任意のグラフは
@@ -682,6 +687,19 @@ def check(gpath, script=None, emit=print):
     if rules_unreadable:
         errs.append(rules)
         rules = None
+    # 15. 節の鍵は閉じた集合（engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和）
+    node_errs = []
+    if rules is not None and any(getattr(rules, n, None) is None for n in ("NODE_KEYS", "NODE_NOTE_KEYS")):
+        node_errs.append("rules が NODE_KEYS / NODE_NOTE_KEYS（このループが節に書く鍵の宣言）を持たない——節の知らない鍵を照らせない")
+    elif not rules_unreadable:
+        allowed = ENGINE_NODE_KEYS | DOC_NODE_KEYS | set(getattr(rules, "NODE_KEYS", ())) | set(getattr(rules, "NODE_NOTE_KEYS", ()))
+        node_errs += [f"節 {k} に知らない鍵 {sorted(set(v) - allowed)}（綴り違いか、engine も rules も読まない鍵——書いても効かない）"
+                      for k, v in nodes.items() if set(v) - allowed]
+    if node_keys == "warn":
+        for e in node_errs:
+            emit("WARN " + e)
+    else:
+        errs += node_errs
     if rules is not None:
         # フック名の綴り違いを落とす。engine は getattr の名前一致で探すので、1 字違いは「このループは持たない」に
         # 静かに倒れる（意図的な不在と区別が付かない）。似て非なる公開名を NG にする

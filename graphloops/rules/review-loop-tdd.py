@@ -364,6 +364,7 @@ def finalize(b):
 
 
 CONDS = {**base.CONDS, "tdd_named": tdd_named, "tdd_red_passed": tdd_red_passed}
+NODE_KEYS, NODE_NOTE_KEYS = base.NODE_KEYS, base.NODE_NOTE_KEYS   # 差し替えの版の節は元の graph の節を含む（検査 15）
 LOOP_KEYS = base.LOOP_KEYS | {"tdd", "tdd_gave_up"}   # TDD の節が盤面の loop に足す鍵（graphcheck が条件と節の loop.<鍵> を照らす正本）
 BUILTINS = {**base.BUILTINS, "tdd_start": tdd_start, "tdd_red": tdd_red, "tdd_green": tdd_green, "record_round": record_round}
 POST_CHECKS = {**base.POST_CHECKS, "tdd_tests_output": tdd_tests_output}

@@ -389,9 +389,10 @@
     "dead_path",
     "scope_creep",
     "regression",
-    "policy"
+    "policy",
+    "precedent"
    ],
-   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。このうち人に聞く語（regression＝BASE にあった能力が消える・狭まる、policy＝人の方針とぶつかる）の一覧の正本は rules の HUMAN_FACE_KINDS で、事前審査だけが使い p2.human_gate が人に聞く——修正差分のレビューは削除を cite できず、手直しの義務に入ると人より先に修正役が決めるので受け付けで拒み、修正の後の後退は R4 の棚卸しと r4.human_gate が受ける"
+   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。このうち人に聞く語（regression＝BASE にあった能力が消える・狭まる、policy＝人の方針とぶつかる）の一覧の正本は rules の HUMAN_FACE_KINDS で、事前審査だけが使い p2.human_gate が人に聞く——修正差分のレビューは削除を cite できず、手直しの義務に入ると人より先に修正役が決めるので受け付けで拒み、修正の後の後退は R4 の棚卸しと r4.human_gate が受ける。precedent（案が採る先行例の出典が実在しない・単位の問題に当たっていない）も事前審査だけの語——判定者の先行例は修正差分のレビューに渡らない。事前審査だけの語の一覧の正本は rules の PLAN_ONLY_FACE_KINDS"
   },
   "delta_review_reply": {
    "type": "object",

@@ -78,3 +78,5 @@ def test_human_kinds_are_face_kinds():
     """人に聞く語の一覧（rules の HUMAN_FACE_KINDS）は、事前審査の穴の語彙（graph の $defs.face_kind の enum）の空でない部分集合"""
     enum = G["nodes"]["p2.plan_review"]["schema"]["properties"]["faces"]["items"]["properties"]["kind"]["enum"]   # load_graph が $ref を展開した形
     assert RULES.HUMAN_FACE_KINDS and set(RULES.HUMAN_FACE_KINDS) <= set(enum)
+    # 事前審査だけの語（修正差分のレビューが拒む）も語彙の中で、人に聞く語を含む
+    assert set(RULES.HUMAN_FACE_KINDS) <= set(RULES.PLAN_ONLY_FACE_KINDS) <= set(enum)

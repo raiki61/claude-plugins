@@ -1,6 +1,7 @@
 """review-loop の rules（rules/review-loop.py）の関数を直に呼ぶ検査——欄が欠けた・空の入力で落ちずに既定へ倒れるか、
 倒れた理由を残すか。盤面は types.SimpleNamespace の偽物で、engine の道具（git・_repo_root）は monkeypatch で差し替える。
 盤面を回す端から端までの台本は simulate_review.py"""
+import pathlib
 import types
 
 import pytest
@@ -123,6 +124,18 @@ def test_checks_reply_keeps_result_under_awaiting_question(tmp_path, launch, run
     assert m["status"] == "awaiting_human" and words in m["reason"]
 
 
+@pytest.mark.parametrize("launch,runs,words", [
+    pytest.param({"blocked": "宣言が読めない"}, [], "宣言が読めない", id="blocked"),
+    pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": None, "wall_s": 0, "error": "起こせない"}], "宣言の語を起こせない: t: 起こせない",
+                 id="cannot-start"),
+])
+def test_checks_reply_before_judge_waits_for_human(tmp_path, launch, runs, words):
+    """判定の前（p0.local_checks）に走らせられないときは人待ち。盤面の台帳は空にする——人待ちの問いが在ると、p4.ci の
+    置き換えでも awaiting_human に戻り、p0 を p4 と取り違える退行が見えない"""
+    m = RULES.checks_reply(board(tmp_path), "p0.local_checks", launch, runs)["reply"]["material"]
+    assert m["status"] == "awaiting_human" and words in m["reason"]
+
+
 # ---------------------------------------------------------------- 並行 PR（_github_repo・_pr_files・parallel_pr_*）
 def test_github_repo_blank_upstream_falls_back_to_origin(monkeypatch):
     monkeypatch.setattr(RULES, "git", fake_git({("rev-parse",): " \n", ("remote", "get-url", "origin"): "https://github.com/o/r.git\n"}))
@@ -217,3 +230,75 @@ def test_spec_freeze_without_repo(no_repo):
 def test_spec_check_without_repo(no_repo):
     b = board(no_repo, record={"process": {"spec": {"acceptance": []}}})
     assert RULES.spec_check(b, "spec.check") == {"ok": True}
+
+
+# ---------------------------------------------------------------- 検証器だけが持っていた規則を判定の受け付けで当てる
+import ast  # noqa: E402
+
+VAL = RULES.validator_module(board(pathlib.Path(".")))
+LEDGER = {"defer_ledger": {"u1": {"reason": "構造的な理由", "round": 1}},
+          "prev_questions": [{"key": "q0", "kind": "fork", "status": "held", "origin": "u1", "reason": "r", "options": ["a", "b"]}]}
+
+
+def judge_reject(tmp_path, nid, out, loop_state=None):
+    b = board(tmp_path, loop_state=loop_state, rnd=2)
+    b.graph = load_graph(GRAPH)[0]
+    with pytest.raises(Reject) as e:
+        RULES.judge_output(b, nid, out, None)
+    return str(e.value)
+
+
+def reopened_block():
+    return {"units": [{"key": "u1", "label": "block", "reason": "r"}], "questions": [], "one_shot_closes": ["u1"], "precedents": []}
+
+
+def test_fail_layers_cover_every_function_that_fails():
+    """検証器の fail を呼ぶ関数と、判定の時点に届くか・届かない理由の表（FAIL_LAYERS）の鍵が一致する"""
+    tree = ast.parse(pathlib.Path(VALIDATOR).read_text(encoding="utf-8"))
+    owners = set()
+    for top in tree.body:
+        name = top.name if isinstance(top, ast.FunctionDef) else "<module>"
+        if any(isinstance(n, ast.Call) and getattr(n.func, "id", None) == "fail" for n in ast.walk(top)):
+            owners.add(name)
+    assert owners == set(VAL.FAIL_LAYERS), (sorted(owners - set(VAL.FAIL_LAYERS)), sorted(set(VAL.FAIL_LAYERS) - owners))
+
+
+def test_judge_time_rules_are_called_by_rules():
+    """判定の時点で当てると検証器が名乗る述語を、rules が呼んでいる（名乗りだけで届いていない形を落とす）"""
+    src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
+    for name in VAL.JUDGE_TIME_RULES:
+        assert callable(getattr(VAL, name, None)), name
+        assert f".{name}(" in src, f"rules が検証器の {name} を呼んでいない"
+
+
+def test_settled_state_rejected_at_judge(tmp_path):
+    out = reopened_block()
+    out["questions"] = [{"key": "q1", "kind": "fork", "status": "resolved", "origin": "u1", "reason": "r", "resolution": "x",
+                         "options": ["a", "b"]}]
+    assert "出どころが [block] / do-now のまま resolved" in judge_reject(tmp_path, "p2.diagnose", out)
+
+
+def test_history_rules_only_where_history_is_read(tmp_path):
+    """周をまたぐ規則（defer の再浮上・問いの連続）は履歴を読む判定（p2.history）で拒み、履歴を見せない判定（p2.diagnose）には
+    当てない——見ていない台帳を書き写せず、返させ直しても通らないから"""
+    hist = judge_reject(tmp_path, "p2.history", reopened_block(), LEDGER)
+    assert "reopen_evidence が無い: u1" in hist and "今ラウンドの台帳に無い: q0" in hist
+    diag = judge_reject(tmp_path, "p2.diagnose", reopened_block(), LEDGER)
+    assert "reopen_evidence" not in diag and "q0" not in diag
+
+
+def test_rejudge_rejects_reopened_defer(tmp_path):
+    b = board(tmp_path, loop_state=LEDGER, rnd=2)
+    out = {"new_facts": "回す側が出した事実を、作業ツリーの現物を読み直して自分で確かめた", "verdict": "採る", **reopened_block()}
+    with pytest.raises(Reject, match="reopen_evidence が無い: u1"):
+        RULES.rejudge_output(b, "p2.rejudge", out, None)
+    out["units"][0]["reopen_evidence"] = "新しい実測"
+    RULES.rejudge_output(b, "p2.rejudge", out, None)
+
+
+def test_history_rules_leave_machine_rows_to_record(tmp_path):
+    """R の unverifiable の行は周の記録の段で機械が立て直すので、判定が落としても判定の受け付けでは拒まない"""
+    b = board(tmp_path, loop_state={"prev_questions": [{"key": "R2 が取れない", "kind": "unverifiable", "origin": "R2", "status": "held",
+                                                        "reason": "r"}]}, rnd=2)
+    nd = load_graph(GRAPH)[0]["nodes"]["p2.history"]
+    assert RULES._history_rules(b, VAL, nd, {"units": [], "questions": []}) == []

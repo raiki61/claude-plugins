@@ -149,6 +149,8 @@ def sampling_due(v):
 CONDS = {"constraints_self_written": constraints_self_written, "generation_due": generation_due,
          "no_new_discrepancies": no_new_discrepancies, "rederiver_compare_due": rederiver_compare_due, "sampling_due": sampling_due}
 # rules が盤面の loop（b.loop_state）と周（b.rd）に持つ鍵のうち、条件が読んでよい物（graphcheck が cond_reads と突き合わせる）
+# このループの節は engine の鍵と説明の鍵だけを書く（graphcheck の検査 15。宣言が無いと照らせないので空で置く）
+NODE_KEYS = NODE_NOTE_KEYS = frozenset()
 LOOP_KEYS = frozenset({"stuck_hint"})
 ROUND_KEYS = frozenset({"new_discrepancies"})
 

@@ -139,9 +139,12 @@ def check_graph(graph, validator):
     except Exception as e:                      # noqa: BLE001 — 何で落ちても「検査できない」は同じ扱い
         die(f"graph の静的検査を動かせない（{type(e).__name__}: {e}）——検査を飛ばして init はしない")
     lines = []
-    if not mod.check(graph, validator, emit=lines.append):
+    if not mod.check(graph, validator, emit=lines.append, node_keys="warn"):
         die(f"{graph}: graph の静的検査が通らない（init で止める。直してから回せ）\n"
             + "\n".join(l for l in lines if str(l).startswith("NG")))
+    # 節の知らない鍵は止めずに知らせる（返りは init の notes に載せる）——外から持ち込んだ graph の節に利用者が書いた鍵で init を
+    # 止めない（上位互換）。単体の graphcheck と台本では NG
+    return [f"graph の静的検査の警告: {str(l)[5:]}" for l in lines if str(l).startswith("WARN ")]
 
 
 # ---------------------------------------------------------------- next
@@ -1312,7 +1315,7 @@ def cmd_init(a):
     loop = g["loop"]
     # 検証器と必須の入力は置き場を作る前に解決する——die しても空の盤面を残さない
     validator = find_validator(loop, g.get("plugin"), a.validator)
-    check_graph(graph, validator)
+    graph_notes = check_graph(graph, validator)
     req = a.request
     if req.startswith("@"):
         req = pathlib.Path(req[1:]).read_text(encoding="utf-8")
@@ -1366,8 +1369,8 @@ def cmd_init(a):
     if bad:
         die("; ".join(bad))
     ignored = undeclared_inputs(g, [kv.partition("=")[0] for kv in a.input or []])
-    notes = [f"--input {k}=… は graph の inputs に宣言が無く、どの節も rules も読まない（効かない）——綴りを確かめよ"
-             f"（宣言済みの入力: {', '.join(sorted(g.get('inputs') or {}))}）" for k in ignored]
+    notes = graph_notes + [f"--input {k}=… は graph の inputs に宣言が無く、どの節も rules も読まない（効かない）——綴りを確かめよ"
+                           f"（宣言済みの入力: {', '.join(sorted(g.get('inputs') or {}))}）" for k in ignored]
     for n in notes:
         print(f"注意: {n}", file=sys.stderr)
     d.mkdir(parents=True, exist_ok=False)
