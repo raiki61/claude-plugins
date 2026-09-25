@@ -21,7 +21,7 @@
      同じく記録を書く宣言に在ること（rules が読めない回は照らさない）
   9. 回す側の節の writes が判定の欄（claims の verdict / refuted、gates、sampling、convergence）に触れない。
      claims に merge する回す側の節は schema が additionalProperties: false で verdict / refuted を持たない
- 10. writes.op・fan_out.builtin・builtin・post_check・cond / applies_cond が engine か rules の知っている名前だけ。
+ 10. writes.op・fan_out.builtin・builtin・post_check・cond / applies_cond（skills[].applies_cond も）が engine か rules の知っている名前だけ。
      cover・save_text_as・thickness_from・raw_for_report の指す欄と節が実在する
  11. schema が engine の読む語（engine/schema.py の KNOWN_KEYWORDS）だけで書かれている——読まない語は書いても効かない
  12. engine が実行に使う欄が宣言どおりの物を指す: writes.from が節の schema.properties に在る、cond / applies_cond の
@@ -189,17 +189,17 @@ def unused_reads(nid, node, holes):
     return errs
 
 
-SKILL_KEYS = {"skill", "args", "note", "required"}
+SKILL_KEYS = {"skill", "args", "note", "required", "applies_cond"}
 
 
 def skills_shape(nid, skills):
-    """`skills` の 1 要素は {skill, args, note, required} の dict。**名前を独立の欄にするための型。**
+    """`skills` の 1 要素は SKILL_KEYS の欄を持つ dict。**名前を独立の欄にするための型。**
 
     以前は「/simplify（指摘だけ）」のような名前＋条件の散文 1 本で、宣言と返答を突き合わせるには
     誰も決めていない正規化規則が要り、その規則自体が新しい未定義物になっていた（実測 2026-09-15:
     宣言 `/simplify（指摘だけ）` に対し返答の綴りは 4 本に分裂した）。欄を割れば照合の両側が
     同じ文字列になる——engine は `{{node.skills}}` で正典をそのまま役へ渡し、post_check は
-    同じ配列の `skill` を数える。条件は `note`、効力段のような引数は `args` へ分ける。
+    同じ配列の `skill` を数える。当てる条件は `applies_cond`（rules の条件の関数の名前）、効力段のような引数は `args` へ分ける。
     """
     if skills is None:
         return []
@@ -208,7 +208,7 @@ def skills_shape(nid, skills):
     errs, seen = [], set()
     for i, e in enumerate(skills):
         if not isinstance(e, dict):
-            errs.append(f"節 {nid}: skills[{i}] は {{skill, args, note, required}} の object（散文 1 本は不可——名前を独立の欄にする型）: {e!r}")
+            errs.append(f"節 {nid}: skills[{i}] は {{skill, args, note, required, applies_cond}} の object（散文 1 本は不可——名前を独立の欄にする型）: {e!r}")
             continue
         extra = sorted(set(e) - SKILL_KEYS)
         if extra:
@@ -232,6 +232,12 @@ def skills_shape(nid, skills):
             errs.append(f"節 {nid}: skills[{i}]（{name}）に required が無い——既定値はどこにも宣言されていないので省けない")
         elif not isinstance(e["required"], bool):
             errs.append(f"節 {nid}: skills[{i}].required は真偽値")
+        # 両向きにする理由: 片向きだと、条件を持たない false の要素がまた散文の読みで当てるかを決める形に戻る。名前と読む欄は節の cond と同じ所で見る
+        elif e["required"] != ("applies_cond" not in e):
+            errs.append(f"節 {nid}: skills[{i}]（{name}）は required: false と applies_cond を対で持つ"
+                        "（当てない周を決めるのは条件の関数だけ。required: true に条件は書けない）")
+        if "applies_cond" in e and not isinstance(e["applies_cond"], str):
+            errs.append(f"節 {nid}: skills[{i}].applies_cond は文字列（rules の CONDS の名前）")
     return errs
 
 
@@ -716,11 +722,12 @@ def check(gpath, script=None, emit=print):
         if nid not in nodes:
             errs.append(f"raw_for_report に無い節: {nid}")
     def check_conds(k, v):
-        """節の条件（cond・applies_cond）の名前と読む欄、節の reads・outputs が名指す loop.<鍵> を照らす（driver の節も同じ）"""
-        for key in ("cond", "applies_cond"):
-            if key not in v:
-                continue
-            c = v[key]
+        """節の条件（cond・applies_cond・skills[].applies_cond）の名前と読む欄、節の reads・outputs が名指す loop.<鍵> を照らす
+        （driver の節も同じ）"""
+        named = [(key, v[key]) for key in ("cond", "applies_cond") if key in v]
+        named += [(f"skills[{i}].applies_cond", e["applies_cond"]) for i, e in enumerate(v.get("skills") or [])
+                  if isinstance(e, dict) and "applies_cond" in e]
+        for key, c in named:
             if not isinstance(c, str) or c not in conds:
                 errs.append(f"節 {k}: {key} '{c}' が rules の CONDS の名前でない（graph には条件の関数の名前だけを書く。CONDS: {sorted(conds)}）")
                 continue
@@ -869,8 +876,8 @@ def check(gpath, script=None, emit=print):
             cov = fo.get("cover")
             if cov and not (cov.get("items_at", "").startswith("item.") and cov.get("answers_at")):
                 errs.append(f"節 {k}: fan_out.cover は items_at（item. で始まる）と answers_at が要る")
-        if "instance_deps" in v and "cond" in v:
-            errs.append(f"節 {k}: instance_deps と cond は同時に持てない（項目を先に出すとき cond を評価できない）")
+        if "instance_deps" in v and ("cond" in v or any(isinstance(e, dict) and "applies_cond" in e for e in v.get("skills") or [])):
+            errs.append(f"節 {k}: instance_deps と cond（skills[].applies_cond も）は同時に持てない（項目を先に出すとき cond を評価できない）")
         if v.get("post_check") and v["post_check"] not in post_checks:
             errs.append(f"節 {k}: post_check '{v['post_check']}' が rules の POST_CHECKS に無い")
         check_conds(k, v)

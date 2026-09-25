@@ -290,7 +290,7 @@ def local_findings(rnd, drop=(), blank=()):
         elif name == "/code-review" and rnd == 1:
             rows.append({"skill": name, "items": [{"where": "src/a.py", "text": "上限が片方の分岐だけ"}]})
         elif name == "/security-review":
-            rows.append({"skill": name, "items": [], "failed": "認証・データ取扱い・外部 I/O に触れない差分（非該当）"})
+            rows.append({"skill": name, "items": [], "failed": "applies_cond の条件が偽の周（applies: false）なので起こさなかった", "invoked": False})
         else:
             rows.append({"skill": name, "items": [], "failed": "起こしたが所見なし（差分の追加行すべてを見た）"})
     return rows
@@ -389,6 +389,7 @@ def answers(run, scenario, rnd):
     table = {
         "p0.base": lambda it: {"base_sha": base, "method": "3 HEAD~1", "commits": 1, "merge_commit": False, "intent_to_add": [],
                                "touches_gates": scenario == "gates", "touches_external_seams": False, "touches_user_path": scenario == "awaiting",
+                               "touches_security_surface": False,
                                "material": CLEAN(f"HEAD~1 で決めた。BASE={base[:7]}。対象差分は 1 コミット分")},
         "p0.local_checks": lambda it: {"material": CLEAN("python -m pytest（緑）")},
         "p0.premises": lambda it: {"constraints": [{"text": "呼び出し元は 1 箇所", "measured_how": "grep -c 'f(' src/",
@@ -434,7 +435,7 @@ def answers(run, scenario, rnd):
                               "fix_closure": CLEAN("退行を注入して赤→復元して緑") if rec["units"] else M("not_applicable", reason="本ラウンドに修正なし"),
                               # decision_records_changed は任意（リポジトリの外に書いた周だけ）——書かない返答が通ることをここで踏む
                               "mechanism_changed": scenario == "premise_resolved" and rnd == 2, "premise_drift": False, "gates_changed": False,
-                              "seams_changed": False, "path_changed": False,
+                              "seams_changed": False, "security_surface_changed": False, "path_changed": False,
                               "wrote_refs": [],
                               # 事前審査の穴と別案に key ごとに 1 行（事前審査が走らなかった周は空）
                               "plan_faces": [{"key": f["key"], "handled": face_how(f["key"])[0], "how": face_how(f["key"])[1]}
@@ -1167,7 +1168,12 @@ def test_local_review_lens_rows():
     # 条件 1（正本を 1 か所に）——役が読む本文に正典の綴りが全部在り、かつ本数を焼き込んだ写しではない
     for name in DECLARED_LENSES:
         check(name in body, f"プロンプトに正典の綴りが埋まる: {name}")
-    check('"required": false' in body, "条件付きのレンズは required で渡る（散文の『（該当時）』ではない）")
+    check('"required": false' in body and '"applies_cond": "security_surface_touched"' in body,
+          "条件付きのレンズは required と条件の関数の名前で渡る（散文の『（該当時）』ではない）")
+    # 当てるかは engine が節を出す時点に評価し、要素と instance に足す（p0.base の申告が全部偽の台本）
+    sec = next(e for e in lr["skills"] if e["skill"] == "/security-review")
+    check(sec["applies"] is False and "applies_why" in sec and '"applies": false' in body,
+          f"申告が偽の周は applies が偽で、プロンプトと instance にその値が載る（{sec}）")
     check("pr-review-toolkit:review-pr" in body, "まとめ役を挟むなという禁止は残る")
     base = t["p1.local_review"](None)
     # 腕 1: 宣言した 1 本の行を落とす
@@ -5047,6 +5053,7 @@ def test_cond_truth_tables():
     # **前の周の P3 の旗（deps・claims・procedures・gates・seams・path）だけでは起こさない**——旗が真の周は P3 がファイルを
     # 触った周で、prev_fix_touched（touched）が拾う。旗だけが真でファイルが空の行が False なのは、旗が死んだ入力として
     # 条件から外れたことの固定。例外は decision_records_changed（リポジトリの外に書いた周はファイルが空のまま真になりうる）
+    quiet = {"touches_security_surface": False, "touches_external_seams": False}
     T = {
         "request_entry": [(c(), False), (c(entry=True), True), (c(entry=True, loop={"request_fixed_at": 1}), False),
                           ({"record": {"process": {"request_entry": "文字列"}}}, False)],
@@ -5140,12 +5147,24 @@ def test_cond_truth_tables():
         "seams_touched": [(c(base={"touches_external_seams": True}), True), (c(base={"touches_external_seams": False}), False)],
         "user_path_touched": [(c(base={"touches_user_path": True}), True), (c(base={"touches_user_path": False}, fix={"path_changed": True}), True),
                               (c(base={"touches_user_path": False}), False)],
+        # 申告の欄が無い盤面（欄を足す前に once の p0.base を終えた）は当てる側に倒す——落とさず、取りこぼしもしない。
+        # 継ぎ目の申告だけが真でも、前の前の周の修正の申告でも当てる
+        "security_surface_touched": [(c(base={**quiet, "touches_security_surface": True}), True),
+                                     (c(base=quiet, fix={"security_surface_changed": True}), True),
+                                     (c(base={**quiet, "touches_external_seams": True}), True),
+                                     (c(3, base=quiet, record={"process": {"fixes": [{"round": 1, "seams_changed": True}, {"round": 2}]}}), True),
+                                     (c(3, base=quiet, record={"process": {"fixes": [{"round": 1, "security_surface_changed": True}]}}), True),
+                                     (c(base=quiet), False), (c(base={}), True)],
     }
     for name, rows in T.items():
         for i, (ctx, want) in enumerate(rows):
             got = ev(name, ctx)
             check(got == want, f"{name} の行 {i}: 期待 {want}・実際 {got}")
     check(set(rules.CONDS) <= set(T), f"CONDS の名前が全部真偽表に在る（表に無い: {sorted(set(rules.CONDS) - set(T))}）")
+    st = {"round": 1}
+    got = cond_call(rules.CONDS["security_surface_touched"], c(base={}), state=st)
+    check(got[0] and "欄が無い" in got[1] and [u["trigger"] for u in st.get("unevaluable", [])] == ["security_surface_touched"],
+          f"申告の欄が無い盤面は当てる側に倒し、倒したことを理由の文と測れなかった痕跡に残す（{got}・{st}）")
     # 理由の文は空でない（走らなかった節の素材の理由として判定役に渡る）——run_cond が空を拒むのと同じ所を、真偽の両側で踏む
     why = cond_call(rules.CONDS["provenance_due"], c(2), validator=V)[1]
     check("成り立たない" in why and "round=2" in why, f"理由の文は評価に使った事実を運ぶ（{why}）")

@@ -2,29 +2,13 @@
 4 件の写し（mutations.json の ER1・ER2・SR1・WS1 の腕が当てにする検査）。bash 側は graphcheck.py を別のプロセスで走らせるが、
 ここは graphcheck.check を同じプロセスで呼ぶ——変異の道具（mutmut）が差し替えた engine.schema を見るため。"""
 import copy
-import importlib.util
 import json
-import shutil
 
 import pytest
 
-from conftest import PLUGIN, REPO
+from conftest import REVIEW_GRAPH_PATH, run_graphcheck
 
-_spec = importlib.util.spec_from_file_location("graphcheck", PLUGIN / "scripts" / "graphcheck.py")
-graphcheck = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(graphcheck)
-GRAPH = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
-VALIDATOR = REPO / "scripts" / "review-record.py"
-
-
-@pytest.fixture(scope="module")
-def sandbox(tmp_path_factory):
-    """graphcheck はプロンプトと rules を graph の隣から読むので、graph を差し替える置き場に写しておく"""
-    tmp = tmp_path_factory.mktemp("graphcheck")
-    (tmp / "graphs").mkdir()
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    return tmp
+GRAPH = json.loads(REVIEW_GRAPH_PATH.read_text(encoding="utf-8"))
 
 
 def class_query(g):
@@ -51,9 +35,5 @@ def typo_under_pattern_properties(g):
 def test_graphcheck_rejects(sandbox, breaks, want):
     g = copy.deepcopy(GRAPH)
     breaks(g)
-    path = sandbox / "graphs" / "review-loop.json"
-    path.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
-    lines = []
-    ok = graphcheck.check(path, str(VALIDATOR), emit=lines.append)
-    out = "\n".join(map(str, lines))
+    ok, out = run_graphcheck(sandbox, g)
     assert not ok and want in out, out[-300:]

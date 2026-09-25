@@ -700,6 +700,7 @@
      "touches_gates",
      "touches_external_seams",
      "touches_user_path",
+     "touches_security_surface",
      "material"
     ],
     "additionalProperties": false,
@@ -737,6 +738,9 @@
       "type": "boolean"
      },
      "touches_user_path": {
+      "type": "boolean"
+     },
+     "touches_security_surface": {
       "type": "boolean"
      },
      "material": {
@@ -796,7 +800,8 @@
       "intent_to_add",
       "touches_gates",
       "touches_external_seams",
-      "touches_user_path"
+      "touches_user_path",
+      "touches_security_surface"
      ]
     }
    ],
@@ -1428,7 +1433,7 @@
     {
      "skill": "/security-review",
      "required": false,
-     "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+     "applies_cond": "security_surface_touched"
     },
     {
      "skill": "pr-review-toolkit:silent-failure-hunter",
@@ -1459,7 +1464,7 @@
    "outputs": [
     "materials.local_review"
    ],
-   "note": "まとめ役（review-pr）は挟まず、レンズを全部名指しで起こす——散文の振り分けでは起きない差分でも当たるクラスがあるため（3 周起動されなかった実測）。**レンズの正本はこの skills 配列 1 か所**で、プロンプトは {{node.skills}} で同じ物を読む。post_check の local_review_covers_lenses が、宣言 1 本につき findings の行 1 本を要求する（覆いの限界は rules の docstring に在る）。pr-review-toolkit:code-simplifier は指摘でなく修正を当てる agent なので呼ぶな。裏取りの verdict は findings に置き場が無いのでこの節では受け取らない（台帳で決着待ち）。 **skills[].note は役に毎周貼られる面なので、指示だけを置き、根拠はこの note に置く**（実測 2026-09-16: 節のプロンプトが前の run より +33.7% に太り、太った分は note に書いた実測の断りだった。目的の 1 文目「少ないトークンで」と逆向き）。根拠: ①/code-review にファイルのパスを渡すのは、審査対象が git diff <BASE>＝作業ツリー込みで、BASE...HEAD には未コミットの変更が1 行も入らないから（実測 2026-09-16: git diff $BASE が 1 file changed に対し $BASE...HEAD が空。p0.base は未コミット変更が在ればBASE=HEAD と定めるので、その方式の run では範囲がまるごと空になる。P3 は commit しないので 2 周目以降はどの方式でも前の周に直した行が範囲外になる）。入手経路の一覧は README の依存表にも在るが、その行はこの変更が足したものなので、根拠は本体同梱という事実の側。②code-reviewer を落とすなは、1 周目でこの 1 本だけが『宣言済み依存からどこにも宣言されていない裸名へ主検出器を移した』を挙げた実測。③/simplify の修正禁止が必須なのは、同じ差分に 3 回当てて 3 回とも Edit が出た実測（P1 は作業ツリーを変えてはいけない段）。④/security-review に行を要求するのは、行ごと省ける形だと未起動が所見ゼロと同じ形で通る実測の穴が戻るから。headless では rc=0・標準出力空・ツール呼び出しゼロで返るので、走ったかは外から言えない。⑤type-design-analyzer は 3 周続けて起動されなかった実測が在る。",
+   "note": "まとめ役（review-pr）は挟まず、レンズを全部名指しで起こす——散文の振り分けでは起きない差分でも当たるクラスがあるため（3 周起動されなかった実測）。**レンズの正本はこの skills 配列 1 か所**で、プロンプトは {{node.skills}} で同じ物を読む。post_check の local_review_covers_lenses が、宣言 1 本につき findings の行 1 本を要求する（覆いの限界は rules の docstring に在る）。pr-review-toolkit:code-simplifier は指摘でなく修正を当てる agent なので呼ぶな。裏取りの verdict は findings に置き場が無いのでこの節では受け取らない（台帳で決着待ち）。 **skills[].note は役に毎周貼られる面なので、指示だけを置き、根拠はこの note に置く**（実測 2026-09-16: 節のプロンプトが前の run より +33.7% に太り、太った分は note に書いた実測の断りだった。目的の 1 文目「少ないトークンで」と逆向き）。根拠: ①/code-review にファイルのパスを渡すのは、審査対象が git diff <BASE>＝作業ツリー込みで、BASE...HEAD には未コミットの変更が1 行も入らないから（実測 2026-09-16: git diff $BASE が 1 file changed に対し $BASE...HEAD が空。p0.base は未コミット変更が在ればBASE=HEAD と定めるので、その方式の run では範囲がまるごと空になる。P3 は commit しないので 2 周目以降はどの方式でも前の周に直した行が範囲外になる）。入手経路の一覧は README の依存表にも在るが、その行はこの変更が足したものなので、根拠は本体同梱という事実の側。②code-reviewer を落とすなは、1 周目でこの 1 本だけが『宣言済み依存からどこにも宣言されていない裸名へ主検出器を移した』を挙げた実測。③/simplify の修正禁止が必須なのは、同じ差分に 3 回当てて 3 回とも Edit が出た実測（P1 は作業ツリーを変えてはいけない段）。④/security-review に行を要求するのは（当てるかは applies_cond の条件の関数が決めても）、行ごと省ける形だと未起動が所見ゼロと同じ形で通る実測の穴が戻るから。headless では rc=0・標準出力空・ツール呼び出しゼロで返るので、走ったかは外から言えない。⑤type-design-analyzer は 3 周続けて起動されなかった実測が在る。",
    "prompt_file": "../prompts/review-loop/p1.local_review.md",
    "post_check": "local_review_covers_lenses",
    "reads": [
@@ -1559,6 +1564,10 @@
            }
           }
          }
+        },
+        "invoked": {
+         "type": "boolean",
+         "note": "このレンズを起こしたか。applies_cond を持つ要素が applies: true の周は true が要る（post_check local_review_covers_lenses）"
         },
         "failed": {
          "type": "string"
@@ -3633,6 +3642,7 @@
      "plan_faces",
      "premise_drift",
      "seams_changed",
+     "security_surface_changed",
      "wrote_refs"
     ],
     "additionalProperties": false,
@@ -3876,6 +3886,9 @@
      "seams_changed": {
       "type": "boolean"
      },
+     "security_surface_changed": {
+      "type": "boolean"
+     },
      "path_changed": {
       "type": "boolean"
      },
@@ -4008,6 +4021,8 @@
       "changes",
       "not_done",
       "mechanism_changed",
+      "security_surface_changed",
+      "seams_changed",
       "premise_drift",
       "premise_drift_note",
       "rejudge_requested",

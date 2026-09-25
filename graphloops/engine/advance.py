@@ -272,7 +272,13 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
     # ——レンズの一覧を散文へ手で写すと、正本を直した周に写しだけが古くなり、しかも役は写しの方を読む
     # （実測 2026-09-15: skills 配列に 3 本足したのにプロンプト側は 2 本しか名指ししていなかった）。
     # 渡すのは skills だけ——節の宣言を丸ごと開くと、schema も deps も役の目に入って指示と資料の境が消える。
-    ctx["node"] = {"skills": n.get("skills", [])}
+    # 条件付きの要素（applies_cond）は、節を出すこの時点で条件を評価して applies・applies_why を足す——節の cond を
+    # applicable が出す時点に評価するのと同じ（GitHub Actions の jobs.<id>.if が起動時にその job の needs だけで評価される形）。
+    # graphcheck が読む欄をこの節の祖先で照らすので、照らす時点と評価する時点が揃う。同じ写しを instance に残し、
+    # 受け付けの柵（rules の post_check）はそれを読む
+    skills = [{**e, **dict(zip(("applies", "applies_why"), b.cond(e["applies_cond"])))}
+              if isinstance(e, dict) and "applies_cond" in e else e for e in n.get("skills", [])]
+    ctx["node"] = {"skills": skills}
     if n.get("pre") == "finalize":
         # 報告の前に記録を仕上げて検証器を回す。通らなければこの節は出さない（fail loud）
         finalize(b)
@@ -372,8 +378,8 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         # **空でも常に書く。** 鍵ごと省くと『落ちる欄が無かった』と『逃がす仕組みを持たない engine が
         # 出した instance』が同じ形になり、逃がしが働いたかを盤面から機械で見る足場が無くなる
         inst["item_omitted"] = omitted
-    if n.get("skills"):
-        inst["skills"] = n["skills"]
+    if skills:
+        inst["skills"] = skills
     if runner and n.get("delegate"):
         # 回す側の節のうち、自分の文脈で抱えずに小さな役へ任せてよいもの（graph の宣言をそのまま渡す。engine は起こさない——
         # 起こすのは回す側で、手順書が渡し方を書く）

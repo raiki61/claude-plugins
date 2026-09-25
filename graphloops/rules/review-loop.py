@@ -970,8 +970,7 @@ def _because(ok, when, facts):
 
 
 def _touched(field, fix_field, what):
-    """差分が〜に触れるか: 差分の形の申告（p0.base の field）か、前の周の修正の申告（p3.fix の fix_field）。
-    P1 の深さの節の条件の部品で、その素材の applies_cond（走った節が『条件に当たらない』を名乗れるか）も同じ関数を指す"""
+    """差分が〜に触れるか: 差分の形の申告（p0.base の field）か、前の周の修正の申告（p3.fix の fix_field）"""
     @cond_reads(f"out.p0.base.{field}", f"prev.p3.fix.{fix_field}")
     def fn(v):
         ok = _eq_true(v(f"out.p0.base.{field}")) or _fix_says(v, fix_field)
@@ -983,6 +982,28 @@ def _touched(field, fix_field, what):
 gates_touched = _touched("touches_gates", "gates_changed", "検証ゲート")
 seams_touched = _touched("touches_external_seams", "seams_changed", "外部との継ぎ目")
 user_path_touched = _touched("touches_user_path", "path_changed", "利用者から見える経路")
+_security_declared = _touched("touches_security_surface", "security_surface_changed", "認証・データの取り扱い・外部との入出力")
+
+
+@cond_reads(*dict.fromkeys((*_security_declared.reads, *seams_touched.reads, "record.process.fixes")))
+def security_surface_touched(v):
+    """認証・データの取り扱い・外部との入出力に触れるか。外部 I/O は既存の継ぎ目の申告（seams_touched）でも真にする——
+    2 つの申告が食い違ったら当てる側に倒す。**前のどの周の修正の申告でも真**（record.process.fixes）: 局所レビューは
+    BASE からの累積の差分を見るので、一度入った面は run の終わりまで差分に残る。申告の欄が無い盤面（欄を足す前に
+    once の p0.base を終えた）は当てる側に倒し、倒したことを痕跡に残す"""
+    if v("out.p0.base.touches_security_surface", None) is None:
+        v.unevaluable("security_surface_touched", "p0.base に touches_security_surface の欄が無い盤面——当てる側に倒した")
+        return True, "p0.base に touches_security_surface の欄が無い盤面なので、当てる側に倒した（申告されていない）"
+    for part in (_security_declared, seams_touched):
+        ok, why = part(v)
+        if ok:
+            return True, why
+    past = [f.get("round") for f in v("record.process.fixes", []) or []
+            if isinstance(f, dict) and (f.get("security_surface_changed") is True or f.get("seams_changed") is True)]
+    if past:
+        return True, f"前の周（{past}）の修正が認証・データの取り扱い・外部との入出力か継ぎ目に触れた（累積の差分に残る）"
+    return False, ("差分も前のどの周の修正も認証・データの取り扱い・外部との入出力・継ぎ目に触れない"
+                   "（p0.base.touches_security_surface・touches_external_seams・process.fixes）")
 _TOUCH = ("round", *prev_fix_touched.reads)   # 深さの節が共通して読む欄
 
 
@@ -1176,6 +1197,8 @@ CONDS = {
     # 素材の applies_cond（走った節が『条件に当たらない』を名乗れるか）が指す部品
     "touches_procedures": touches_procedures, "gates_touched": gates_touched, "seams_touched": seams_touched,
     "user_path_touched": user_path_touched,
+    # 局所レビューの条件付きレンズ（skills[].applies_cond）が指す部品
+    "security_surface_touched": security_surface_touched,
 }
 
 
@@ -2974,13 +2997,16 @@ def local_review_covers_lenses(b, nid, out, item):
     **この検査は嘘を捕まえない**——起こしていないのに items を書けば通る。変わるのは、未起動を
     「黙って」通せた形が「明示の虚偽」を経由しないと通せない形になるところまで。
 
-    条件付きのレンズ（required: false の /security-review）も行は必須にする。条件外のとき行ごと省ける
-    設計にすると、まさに直した穴がそのまま戻る——非該当は `failed` に理由を書いて表す。
+    条件付きのレンズ（required: false で applies_cond を持つ要素）も行は必須にする。条件外のとき行ごと省ける
+    設計にすると、まさに直した穴がそのまま戻る——起こさなかった周は `failed` に理由を書いて表す。**条件が真の周に
+    起こさなかった行（invoked が true でない）は拒む**——値は engine が節を出す時点に評価して instance の skills に
+    置いた applies を読む（無ければ当てる側に倒す）。呼び出しが落ちて人に上げる行（material が awaiting_human）は通す。
 
     照合の両側は同じ文字列: engine が `{{node.skills}}` で正典をそのまま役へ渡し、ここは同じ配列の
     `skill` を読む。綴りの正規化という段は存在しない（在れば、その規則自体が誰も決めていない未定義物になる）。
     """
-    skills = b.graph["nodes"][nid].get("skills") or []
+    inst = next((i for i in reversed(list(b.rd["instances"].values())) if i.get("node") == nid and i.get("status") != "done"), None)
+    skills = (inst or {}).get("skills") or b.graph["nodes"][nid].get("skills") or []
     if not skills:
         # **空なら落とす（fail-closed）。** 空リストだと 1 周も回らず全件合格になり、非空であることの
         # 保証は別ファイルの graphcheck が別の欄（run_by == skill）を根拠に持っていた。engine は
@@ -3008,6 +3034,15 @@ def local_review_covers_lenses(b, nid, out, item):
         elif not row.get("items") and not (row.get("failed") or "").strip():
             errs.append(f"'{name}' の行が items も failed も持たない——『起こして 0 件』なら failed に"
                         "『起こしたが所見なし』と何を見たかを書け。空の行は『起こしていない』と区別できない")
+    awaiting = (out.get("material") or {}).get("status") == "awaiting_human"
+    for e in skills:
+        row = seen.get(e["skill"])
+        if row is None or "applies_cond" not in e or not e.get("applies", True) or awaiting:
+            continue
+        if row.get("invoked") is not True:
+            errs.append(f"'{e['skill']}' は条件 {e['applies_cond']} が真の周（{e.get('applies_why', '評価の値が無いので当てる側に倒した')}）"
+                        "なのに invoked が true でない——起こして invoked: true を書け。呼び出しが落ちたなら failed に理由を書き、"
+                        "material を awaiting_human にせよ")
     if errs:
         raise Reject("宣言したレンズと findings の行が合わない:\n" + "\n".join("  - " + e for e in errs))
 
