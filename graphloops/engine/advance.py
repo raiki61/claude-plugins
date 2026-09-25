@@ -8,14 +8,19 @@ from .render import FILE_CAP, Renderer
 from .rules import hook, registry
 from .schema import validate_schema
 from .util import ANSWER_ACTIONS, TERMINAL_STATUS, deadline_of, die, dump, now, read_json, safe_name, sha, write_json
+from .role_run import WRITE_TOOLS, tooled_permission
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
-# launch.isolated の argv / via の穴。engine が埋められるのはこの 7 語だけ——graphcheck が import して知らない穴と、
-# 役の定義に無い model / effort を静的に落とす（以前は launch_cli の die と format の KeyError でしか出なかった）。
+# launch.isolated / launch.tooled の argv・resume・via の穴。engine が埋められるのはこの語だけ——graphcheck が import して知らない穴と、
+# 役の定義に無い model / effort を静的に落とす（以前は起こす関数の die と format の KeyError でしか出なかった）。
 # python / plugin_root は役でも graph でもなく **engine 自身しか知らない事実**（自分を走らせているインタプリタと、
 # 自分が入っている場所）。「起動の語は graph が宣言する」線は動かさない——graph が使うと書いたときだけ埋まる。
-LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path", "python", "plugin_root")
+# tools / allowed_tools / permission_mode は道具つきの役の分（役の定義の道具と、engine の role_run.tooled_permission から埋める）。
+# session_id は同じ会話を続ける語（--resume）の穴で、続ける会話が決まるまでは '{session_id}' のまま残す（role_run が埋める）。
+LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path", "python", "plugin_root",
+                "tools", "allowed_tools", "permission_mode", "session_id")
+LAUNCH_MAY_BE_EMPTY = ("allowed_tools", "session_id")  # 空でも起こせる穴（道具が全部分類器に掛かる役・続ける会話がまだ無い）
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parents[1]  # engine/ の親＝プラグインの根（scripts/ の隣）
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（直列化した UTF-8 のバイト）。
 # 超える欄は items/ のファイルにだけ置く。**バイトで測る**——実測 2026-09-18: 1 束 1,716 バイト＝
@@ -37,47 +42,87 @@ PROMPT_NOTICE = int(os.environ.get("GL_PROMPT_NOTICE") or 100_000)
 PROMPT_GROWTH_RATIO = float(os.environ.get("GL_PROMPT_GROWTH_RATIO") or 1.5)
 
 
-def launch_cli(b, inst, d):
-    """道具ゼロの役は Agent ツールで起こさない——別プロセスの CLI で起こす。
+def tooled_launchable(d):
+    """道具つきの役を engine が起こせるか。起こせないのは、定義が道具の一覧を持たない（全部の道具を継ぐ）役・
+    ファイルを書く道具を持つ役・モデルか effort を名指ししない役——どれも回す側が Agent で起こす。
+    何でもできる子を engine の中から起こさない（能力の上限は role_run.WRITE_TOOLS の注記）。"""
+    return ("*" not in d["tools"] and not any(x in WRITE_TOOLS for x in d["tools"])
+            and d.get("model") not in (None, "", "inherit") and bool(d.get("effort")))
 
-    ハーネスは subagent に CLAUDE.md 階層を注入し、**それを止める設定が無い**（公式文書 code.claude.com/docs/en/sub-agents、
-    2026-09-12 取得: "Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter
-    field or per-agent setting to change which agents skip them."）。実測 2026-09-12: 道具ゼロの
-    cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した——つまり「道具の不在で遮断する」は
-    Agent ツール経由では成立していない。setting source ごと外せるのは CLI だけ（同日の対照実験:
-    フラグ無しでは目印が見え、--setting-sources "" を付けると消えた）。
+
+def launch_spec(b, inst, d, resume_sid=None):
+    """役を engine の中で起こす語（argv・続きの語・材料）。起こせない役なら None（回す側が Agent で起こす）。
+
+    **道具ゼロの役（遮断系）**は Agent ツールで起こさない——ハーネスは subagent に CLAUDE.md 階層を注入し、**それを止める
+    設定が無い**（公式文書 code.claude.com/docs/en/sub-agents、2026-09-12 取得: "Explore and Plan are the only subagents
+    that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip
+    them."）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。setting source
+    ごと外せるのは CLI だけ（同日の対照実験: フラグ無しでは目印が見え、--setting-sources "" を付けると消えた）。
+
+    **道具つきの役**も同じ CLI の同じ綴りで起こす（graph の launch.tooled）。回す側と役の間に中継の AI を挟むと、
+    書いていないのに『書いた』と返す・続きの返答が回す側へ戻る・完了の知らせが迷う、が起きた（実測 2026-09-24〜25）。
+    役の本文は道具ゼロの役と同じ roles/<役>.txt から system prompt に足し、道具・モデル・effort・権限は argv に並べる——
+    **権限に関わる事実を全部 argv に置く**（--agents の定義ファイルは permissionMode や hooks を持てるので、柵の読まない
+    ファイルに権限が移る）。子はプラグインを読まない（--setting-sources ""）ので、プラグインの名前でも役は解決しない。
 
     起動の語（コマンド名・フラグ）は graph が宣言する——engine はハーネスの語彙を持たない。
+    `via` は、解決した argv の**前に**置く語（既定は空）。子は対話の claude の認証を継がないので、graph はここに
+    薄い層（scripts/with-auth.py）を宣言して認証だけを足す。**argv の中に混ぜず前置に分けてある**のは、`argv[0]` の
+    PATH 解決と `missing` の報せを前置が隠さないため。
 
-    `launch.isolated.via` は、解決した argv の**前に**置く語（既定は空）。子は対話の claude の認証を継がない
-    ので、graph はここに薄い層（scripts/with-auth.py）を宣言して認証だけを足す。**argv の中に混ぜず前置に
-    分けてある**のは、`argv[0]` の PATH 解決と `missing` の報せを前置が隠さないため——混ぜると argv[0] が
-    python になり、claude がこの環境に無いことを next が言えなくなる。
+    resume_sid を渡すと、同じ会話を続ける語（spec の resume）で起こす（same_context_as の節）。続ける語を graph が
+    宣言しない形なら None（続けられない）。
     """
-    spec = b.graph.get("launch", {}).get("isolated")
+    isolated = d["tools"] == []
+    kind = "isolated" if isolated else "tooled"
+    spec = b.graph.get("launch", {}).get(kind)
     if not spec:
-        die(f"{inst['id']}: 道具ゼロの役 '{inst['agent_type']}' を起こすのに graph の launch.isolated が無い"
-            "（Agent ツールで起こすと CLAUDE.md が注入され、遮断が名ばかりになる）")
-    role = b.dir / "roles" / (safe_name(inst["agent_type"]) + ".txt")
-    role.parent.mkdir(parents=True, exist_ok=True)
-    role.write_text(d["body"], encoding="utf-8")
-    sub = dict(zip(LAUNCH_HOLES, (d.get("model") or "", d.get("effort") or "", str(role), inst["prompt_file"],
-                                  inst["out_path"], sys.executable, str(PLUGIN_ROOT))))
-    words = list(spec["argv"]) + list(spec.get("via") or [])
+        if isolated:
+            die(f"{inst['id']}: 道具ゼロの役 '{inst['agent_type']}' を起こすのに graph の launch.isolated が無い"
+                "（Agent ツールで起こすと CLAUDE.md が注入され、遮断が名ばかりになる）")
+        return None
+    if resume_sid and not spec.get("resume"):
+        return None
+    role = safe_name(inst["agent_type"])
+    rdir = b.dir / "roles"
+    rdir.mkdir(parents=True, exist_ok=True)
+    sub = dict.fromkeys(LAUNCH_HOLES, "")
+    sub.update(model=d.get("model") or "", effort=d.get("effort") or "", prompt_file=inst["prompt_file"],
+               out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT),
+               session_id=resume_sid or "{session_id}")
+    role_file = rdir / (role + ".txt")
+    role_file.write_text(d["body"], encoding="utf-8")
+    sub["role_file"] = str(role_file)
+    tools = []
+    if not isolated:
+        if not tooled_launchable(d):
+            return None
+        tools = list(d["tools"])
+        mode, allowed = tooled_permission(tools)
+        sub.update(tools=",".join(tools), allowed_tools=",".join(allowed), permission_mode=mode)
+    words = list(spec["argv"]) + list(spec.get("resume") or []) + list(spec.get("via") or [])
     for k, v in sub.items():
-        if not v and any("{" + k + "}" in a for a in words):
+        if not v and k not in LAUNCH_MAY_BE_EMPTY and any("{" + k + "}" in a for a in words):
             die(f"{inst['id']}: 起動に要る '{k}' が役の定義（{d['file']}）に無い")
-    argv = [a.format(**sub) for a in spec["argv"]]
     # PATH を引いて絶対パスに替える（起こす時の曖昧さを 1 つ減らす）。**見つからなくても落とさない**——
     # next は計画を出す所で、起こすのは回す側の環境である。ここで die にしたら、遮断系を一度も起こさない場
     # （台本の検査・別の機械での再開・記録を読むだけの用）まで動かなくなった（実測 2026-09-12: CI の 3 OS が
-    # 全部赤。手元には claude が在るので緑だった）。実際に起こせないことは、回す側が走らせた瞬間に分かる。
+    # 全部赤。手元には claude が在るので緑だった）。実際に起こせないことは、launch が起こす瞬間に分かる。
     import shutil  # 起動する節でだけ要る（全サブコマンドの起動に掛けない）
-    resolved = shutil.which(argv[0])
     via = [a.format(**sub) for a in (spec.get("via") or [])]
-    launch = {"argv": via + (([resolved] + argv[1:]) if resolved else argv), "stdin": inst["prompt_file"]}
-    if not resolved:
-        launch["missing"] = argv[0]  # この環境では起こせない。回す側と記録に見えるようにしておく
+
+    def resolve(words):
+        argv = [a.format(**sub) for a in words]
+        found = shutil.which(argv[0])
+        return via + (([found] + argv[1:]) if found else argv), found
+
+    argv, found = resolve(spec["resume"] if resume_sid else spec["argv"])
+    launch = {"kind": kind, "argv": argv, "stdin": inst["prompt_file"],
+              "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None}
+    if tools:
+        launch["tools"] = tools
+    if not found:
+        launch["missing"] = argv[len(via)]  # この環境では起こせない。回す側と記録に見えるようにしておく
     return launch
 
 
@@ -162,7 +207,9 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
     n = b.nodes[nid]
     iid = nid + (f"[{item['key']}]" if item else "") + suffix
     emitted = now()
-    deadline = deadline_of(b.graph, n, emitted)
+    # **期限は、回す側が他へ渡して待つ instance だけに付ける**（役・遮断系・任せ先の付いた回す側の節）。回す側が自分で手を動かす節に
+    # 付けると、長い修正のたびに overdue が立ち、圧縮後に読み直した回す側が自分の作業を relaunch で締め出す道が開く
+    deadline = deadline_of(b.graph, n, emitted) if not b.is_runner(n) or n.get("delegate") else None
     prompt_path = pathlib.Path(b.state["graph"]).parent / n["prompt_file"]
     try:
         tpl = prompt_path.read_text(encoding="utf-8")
@@ -205,6 +252,9 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
         b.state.setdefault("role_def_missing", []).append({"instance": iid, "round": b.round, "agent_type": atype})
     isolated = role_def is not None and role_def["tools"] == []
     runner = b.is_runner(n)
+    # engine が起こせる役か（launch_spec が語を組める役）。起こせる役の材料は標準入力で子へ流すので、貼る先の上限が無い
+    launchable = not runner and role_def is not None and (
+        isolated or bool(b.graph.get("launch", {}).get("tooled") and tooled_launchable(role_def)))
     # **上限を外す条件は「貼るか（deliver）」で、道具ゼロか（isolated）ではない。** 以前は isolated を見ていたが、
     # それは正本と相関するだけの代理だった——貼る先の上限は「Agent ツールのプロンプトに本文を貼る」経路の性質なので、
     # 役が自分でファイルを読む deliver=path と、自分の節を自分でやる runner には当たらない。代理を見ていたとき、
@@ -218,7 +268,7 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
     # 遮断系は deliver_mode が paste を返す（道具ゼロなので path_tools を持たない）ため切られる側に回る
     # ——最初にこの 3 つ目を落として台本が 2 件赤くなった（実測 2026-09-13: 45,118 バイトの本文が切られた）
     r = Renderer(ctx, n.get("reads"), ref=b.ref,
-                 cap=None if (runner or isolated or deliver == "path") else FILE_CAP)
+                 cap=None if (runner or launchable or deliver == "path") else FILE_CAP)
     try:
         prompt = r.render(tpl)
     except KeyError as e:
@@ -271,25 +321,34 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
         # 回す側の節のうち、自分の文脈で抱えずに小さな役へ任せてよいもの（graph の宣言をそのまま渡す。engine は起こさない——
         # 起こすのは回す側で、手順書が渡し方を書く）
         inst["delegate"] = n["delegate"]
+    same = n.get("same_context_as")
+    if same and isolated:
+        die(f"{iid}: 遮断系（道具ゼロ）の役に same_context_as は使えない——前の節の文脈を持ち込むと、渡された物しか知らない読み手という遮断が崩れる（graph を直せ）")
+    # 同じ役を続ける節: 前の節の instance の会話を続ける。engine が起こした会話なら session_id で --resume、
+    # 回す側が Agent で起こした旧い盤面なら agent_id（SendMessage）。どちらも無ければ新しい会話になる旨を残す
+    prior = next((i for i in b.rd["instances"].values() if i["node"] == same and i["status"] == "done"), None) if same else None
     if not runner:
         inst["deliver"] = deliver  # path: 役が自分で読む／paste: 本文を貼る。上限を決める前に 1 度だけ引いた物を使う
         if role_def_missing:
             inst["role_def_missing"] = role_def_missing
         if isolated:  # 道具ゼロ＝遮断系。Agent ツールでは CLAUDE.md を止められない
             inst["mode"] = "cli"
-            inst["launch"] = launch_cli(b, inst, role_def)
-    # 同じ agent を続ける節: 前の節の instance が返した agent の id を渡す（無ければ新しい context になる旨を残す）
-    same = n.get("same_context_as")
-    if same and isolated:
-        die(f"{iid}: 遮断系（道具ゼロ）の役に same_context_as は使えない——別プロセスは返答と共に終わり、続ける文脈が無い（graph を直せ）")
+        if launchable and not (prior and prior.get("agent_id") and not prior.get("session_id")):
+            spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get("session_id"))
+            if spec:
+                inst["launch"] = spec
     if same:
-        prior = next((i for i in b.rd["instances"].values() if i["node"] == same and i["status"] == "done"), None)
-        if prior and prior.get("agent_id"):
+        if prior and prior.get("session_id") and inst.get("launch"):
+            inst["mode"] = "agent_continue"
+            inst["continue_of"] = prior["id"]
+            inst["session_id"] = prior["session_id"]
+        elif prior and prior.get("agent_id"):
             inst["mode"] = "agent_continue"
             inst["continue_of"] = prior["id"]
             inst["agent_id"] = prior["agent_id"]
         else:
-            inst["context_lost"] = f"{same} の agent id が無い（done に --agent-id を渡していない）。新しい context で走る"
+            inst["context_lost"] = (f"{same} の会話の番号（session_id）も agent id も無い（launch で起こしていないか、"
+                                    "done に --agent-id を渡していない）。新しい会話で走る")
             b.state.setdefault("context_lost", []).append({"instance": iid, "round": b.round, "reason": inst["context_lost"]})
     if n["run_by"] in b.graph.get("tree_guard_roles", []):
         # 1 回の next の中では取り直さない（扇の節では項目数ぶん同じ写しを取っていた）——memo は盤面が持つ。

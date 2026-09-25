@@ -5,6 +5,9 @@ name: mutation
 # 同じ割り切り: https://stryker-mutator.io/docs/stryker-js/incremental/）。その取りこぼしを週 1 回の全腕で拾う——ただし拾えるのは
 # schedule が動いている間だけ。60 日間リポジトリに活動が無いと GitHub が schedule を止め（public のリポジトリ）、誰にも通知されない。
 # 戻すのは手で: gh workflow enable mutation.yml。止まっている間の取りこぼしは、手元の全腕（--reuse を付けない tests/mutate.py）でしか拾えない
+# 既製の mutmut（pytest が覆うモジュールを丸ごと自動で撃つ）はここで回さない。生き残りの数で落とす形は作れず（文言だけの変異が
+# 残る）、報告だけのジョブは誰も読まないので、手元で撃って生き残りを pytest 側のテストで殺す道具として使う（回し方は
+# graphloops/README.md の「検査」節）。落とす柵はこの workflow が撃つ手書きの腕の側に在る
 on:
   schedule:
     - cron: "17 3 * * 1"

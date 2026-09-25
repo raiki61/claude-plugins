@@ -32,7 +32,7 @@
   "skill"
  ],
  "deadline_minutes": 30,
- "deadline_note": "instance の期限（分）の既定。節の deadline_minutes が上書きする。値はループ固有なので graph だけが持ち、engine は emitted_at に足して deadline_at を出す（next・status の overdue、loop.py wait の exit 3）。値は実測で決めていない目安: 全腕を撃つ 2 節は、全腕を台本一式で撃つと 24 コアでも 1 時間を超えた（tests/mutate.py の注記）ので、--reuse の持ち越しを前提に 120。局所レビュー（レンズ 7 本）は 60。期限で撃てずに残った腕は証拠にならない行で返る——実走の所要時間と残りの数を測って直す",
+ "deadline_note": "instance の期限（分）の既定。節の deadline_minutes が上書きする。値はループ固有なので graph だけが持ち、engine は emitted_at に足して deadline_at を出す（next・status の overdue、loop.py wait の exit 3）。値は実測で決めていない目安: 全腕を撃つ節は、全腕を台本一式で撃つと 24 コアでも 1 時間を超えた（tests/mutate.py の注記）ので、--reuse の持ち越しを前提に 120（最後の関門は BASE からの変更全部を撃つので 240）。局所レビュー（レンズ 7 本）は 60。期限で撃てずに残った腕は証拠にならない行で返る——実走の所要時間と残りの数を測って直す",
  "deliver": {
   "path_tools": [
    "Read"
@@ -57,16 +57,88 @@
     "",
     "--append-system-prompt-file",
     "{role_file}",
-    "--no-session-persistence",
     "--output-format",
-    "text"
+    "json"
+   ],
+   "resume": [
+    "claude",
+    "-p",
+    "--resume",
+    "{session_id}",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
    ],
    "via": [
     "{python}",
     "{plugin_root}/scripts/with-auth.py"
    ],
-   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層を注入し、止める設定が公式に存在しない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-12 取得: 『Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.』）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は via の薄い層（scripts/with-auth.py）を前置して通す——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。"
-  }
+   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層を注入し、止める設定が公式に存在しない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-12 取得: 『Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.』）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は via の薄い層（scripts/with-auth.py）を前置して通す——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。 出力は --output-format json の包みで受け、本文（result）だけを out_path に書き、会話の番号・往復数・所要時間・費用・トークンは盤面の trace.jsonl に op=role_run の行で残す。会話は保存する（受け付けに拒まれたら同じ会話に --resume で出し直させるため。以前の --no-session-persistence は外した）。"
+  },
+  "tooled": {
+   "argv": [
+    "claude",
+    "-p",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "{tools}",
+    "--allowedTools",
+    "{allowed_tools}",
+    "--permission-mode",
+    "{permission_mode}",
+    "--permission-prompts",
+    "none",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
+   ],
+   "resume": [
+    "claude",
+    "-p",
+    "--resume",
+    "{session_id}",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "{tools}",
+    "--allowedTools",
+    "{allowed_tools}",
+    "--permission-mode",
+    "{permission_mode}",
+    "--permission-prompts",
+    "none",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
+   ],
+   "via": [
+    "{python}",
+    "{plugin_root}/scripts/with-auth.py"
+   ],
+   "why": "道具つきの役（judge・inspector・investigator）も engine が claude -p で起こす（loop.py launch）。回す側と役の間に中継の AI を挟んでいたとき、書いていないのに『書いた』と返す・続きの返答が回す側の文脈へ戻る・入れ子の起動で完了の知らせが迷って 7 時間止まる、が起きた（実測 2026-09-24〜25）。綴りは道具ゼロの役と同じ形にする: 役の本文は engine が agents/<役>.md から盤面の roles/<役>.txt に写して system prompt に足し、道具・モデル・effort・権限は argv に並べる。--agents の定義ファイルで起こす形は採らない——定義ファイルは permissionMode や hooks を持てるので、権限を決める事実が engine の柵（argv だけを読む）の外に移る。権限は engine が役の定義の道具から決めて明示する（engine の role_run.tooled_permission。graph は権限を配らない）——-p の開始の権限は起こした側の設定を継ぐので、書かなければ回す側の設定（bypassPermissions 等）が子に移る。聞く先は置かない（--permission-prompts none）。**CLAUDE.md は読ませない（--setting-sources \"\"）**: (1) 役が見る物は graph の reads が宣言した物だけにする——観点（REVIEW.md）は reads で明示して渡している。(2) 利用者の CLAUDE.md は回す側に向けた出力の作法で、JSON だけを返す契約とぶつかる（実測 2026-09-25・haiku: user,project,local を読ませると CLAUDE.md の『返答の最初の語は目印にせよ』が返答の頭に付き、\"\" では付かなかった）。(3) 利用者とプラグインのフックが子で発火しないので、盤面の reads.jsonl は回す側の読みだけになり、役の読みが修正役の読了の証拠に混ざらない。代わりに、プロジェクトの CLAUDE.md に書いた規約も役には届かない（役に要る規約は reads で渡す）。投稿の門番（gates の PreToolUse:Bash）も子には当たらないが、コマンドを走らせる役は分類器に掛かり、外への書き込みは拒まれる（実測 2026-09-25・haiku: gh issue list と curl -X POST が拒まれた——読むだけの gh も拒まれるので、investigator は子では GitHub を WebFetch で読む）。resume は同じ会話を --resume で再開する語で、受け付けに拒まれたときと same_context_as の節が使う（権限と設定の旗は毎回明示する）。engine が起こさない役（定義が道具の一覧を持たない・ファイルを書く道具を持つ・モデルか effort を名指ししない）は launch を持たず、回す側が Agent で起こす。"
+  },
+  "resume_on_reject": 2,
+  "resume_note": "受け付けの検査（done の中身）が返答を拒んだとき、同じ会話に理由を渡して出し直させる回数の上限。続きを頼むのは役に返せば直る拒否（読めない・型に合わない・記録の整合・項目の過不足）だけで、作業ツリーが変わった・前段が済んでいない等は続きを頼まずに回す側へ上げる"
  },
  "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
  "record": {
@@ -410,35 +482,7 @@
     "arms": {
      "type": "array",
      "items": {
-      "type": "object",
-      "required": [
-       "gate",
-       "arm",
-       "red_confirmed",
-       "control_green",
-       "hit_evidence"
-      ],
-      "additionalProperties": false,
-      "properties": {
-       "gate": {
-        "type": "string"
-       },
-       "arm": {
-        "type": "string"
-       },
-       "red_confirmed": {
-        "type": "boolean"
-       },
-       "control_green": {
-        "type": "boolean"
-       },
-       "note": {
-        "type": "string"
-       },
-       "hit_evidence": {
-        "type": "string"
-       }
-      }
+      "$ref": "#/$defs/gate_arm"
      },
      "note": "腕ごとに 1 行。0 行で書けるのは、見たと名乗らない status（検証器の STATUS 表で observed でない値）だけ——見たと名乗る status を 0 行で書くと拒む（post_check gate_arms_all_red）。撃てた腕が無いなら not_run（tests/mutate.py --gate-efficacy が組む）"
     }
@@ -504,6 +548,118 @@
      "origin": {
       "type": "string"
      }
+    }
+   }
+  },
+  "gate_arm": {
+   "type": "object",
+   "required": [
+    "gate",
+    "arm",
+    "red_confirmed",
+    "control_green",
+    "hit_evidence"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "gate": {
+     "type": "string"
+    },
+    "arm": {
+     "type": "string"
+    },
+    "red_confirmed": {
+     "type": "boolean"
+    },
+    "control_green": {
+     "type": "boolean"
+    },
+    "note": {
+     "type": "string"
+    },
+    "hit_evidence": {
+     "type": "string"
+    }
+   }
+  },
+  "lane_reply": {
+   "type": "object",
+   "required": [
+    "rev",
+    "arms",
+    "handled",
+    "patch",
+    "suite"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "rev": {
+     "type": "string",
+     "minLength": 7,
+     "note": "撃った版（名指しされた版をそのまま）。途中の版の結果は、その版の結果でしかない"
+    },
+    "arms": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/gate_arm"
+     },
+     "note": "実行器の --gate-efficacy が組んだ腕の行をそのまま。赤・対照の緑・当たりの証拠のどれかが欠けた腕が見逃し"
+    },
+    "handled": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "handled",
+       "how"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 5,
+        "note": "arm:<腕の名前>——見逃した腕ごとに 1 行"
+       },
+       "handled": {
+        "type": "string",
+        "enum": [
+         "tests_added",
+         "equivalent",
+         "needs_test",
+         "defect"
+        ],
+        "note": "tests_added＝テストを足してその腕の赤を見た（最後の関門では使えない）／equivalent＝振る舞いの変わらない変異（理由）／needs_test＝テストが要るが足していない／defect＝テストでは閉じない（コードの欠陥の疑い）。needs_test と defect は次の周の判定へ渡る"
+       },
+       "how": {
+        "type": "string",
+        "minLength": 10
+       }
+      }
+     },
+     "note": "見逃した腕（arms で証拠の欠けた腕）の全部に 1 度だけ答える。見逃しの無い腕に行を書かない"
+    },
+    "patch": {
+     "type": "string",
+     "note": "足したテストの patch の置き場（名指しの版から。足さなければ空）。テスト一式の件数の定数の行は入れない——合流した周の修正が実測に合わせる"
+    },
+    "suite": {
+     "type": "object",
+     "required": [
+      "command",
+      "exit"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "command": {
+       "type": "string",
+       "minLength": 1
+      },
+      "exit": {
+       "type": "integer"
+      }
+     },
+     "note": "テストを足した後（足さなければ撃った版そのまま）でテスト一式を回したコマンドと終了コード。0 でなければ通らない"
     }
    }
   }
@@ -1457,7 +1613,13 @@
    ],
    "na_self_ok": false,
    "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象",
-   "deadline_minutes": 60
+   "deadline_minutes": 60,
+   "cond": {
+    "not": {
+     "builtin": "request_entry"
+    }
+   },
+   "when": "判定から入る run の周でない（1 周目の P1 より前に add で依頼を置いて始めた run は、修正が入るまで P1 の役を起こさない。途中の周の add では外れない）"
   },
   "p1.consistency_bypass": {
    "stage": "P1",
@@ -1672,9 +1834,14 @@
     "consistency",
     "bypass"
    ],
-   "when": "または",
+   "when": "判定から入る run の周でなく、または",
    "na_self_ok": false,
-   "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象"
+   "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象",
+   "cond": {
+    "not": {
+     "builtin": "request_entry"
+    }
+   }
   },
   "p1.hygiene": {
    "stage": "P1",
@@ -1754,9 +1921,14 @@
    "materials": [
     "hygiene"
    ],
-   "when": "または",
+   "when": "判定から入る run の周でなく、または",
    "na_self_ok": false,
-   "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象"
+   "na_reason_note": "正当な not_applicable は無い: 差分が在る限り常に対象",
+   "cond": {
+    "not": {
+     "builtin": "request_entry"
+    }
+   }
   },
   "p1.external_standards": {
    "stage": "P1",
@@ -1947,28 +2119,37 @@
      "from": "rankings"
     }
    ],
-   "when": "初回か、機構を足した／変えた周か、依存の宣言ファイルが変わった周、または前の周の P3 が何かを直した周",
+   "when": "判定から入る run の周でなく、初回か、機構を足した／変えた周か、依存の宣言ファイルが変わった周、または前の周の P3 が何かを直した周",
    "cond": {
-    "any": [
+    "all": [
      {
-      "path": "round",
-      "op": "eq",
-      "value": 1
+      "not": {
+       "builtin": "request_entry"
+      }
      },
      {
-      "path": "prev.p3.fix.mechanism_changed",
-      "op": "eq",
-      "value": true,
-      "default": false
-     },
-     {
-      "path": "prev.p3.fix.deps_changed",
-      "op": "eq",
-      "value": true,
-      "default": false
-     },
-     {
-      "builtin": "prev_fix_touched"
+      "any": [
+       {
+        "path": "round",
+        "op": "eq",
+        "value": 1
+       },
+       {
+        "path": "prev.p3.fix.mechanism_changed",
+        "op": "eq",
+        "value": true,
+        "default": false
+       },
+       {
+        "path": "prev.p3.fix.deps_changed",
+        "op": "eq",
+        "value": true,
+        "default": false
+       },
+       {
+        "builtin": "prev_fix_touched"
+       }
+      ]
      }
     ]
    },
@@ -1985,7 +2166,7 @@
    "run_by": "investigator",
    "fresh_context": true,
    "optional": true,
-   "when": "差分に手順書・スクリプト・CI 定義があり、初回かそれらを変えた周、または前の周の P3 が何かを直した周",
+   "when": "差分に手順書・スクリプト・CI 定義があり、初回かそれらを変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る）",
    "deps": [
     "p1.worktree_before",
     "p0.local_checks"
@@ -2112,31 +2293,40 @@
    "cond": {
     "any": [
      {
-      "any": [
+      "all": [
        {
-        "all": [
-         {
-          "builtin": "touches_procedures"
-         },
-         {
-          "any": [
-           {
-            "path": "round",
-            "op": "eq",
-            "value": 1
-           },
-           {
-            "path": "prev.p3.fix.procedures_changed",
-            "op": "eq",
-            "value": true,
-            "default": false
-           }
-          ]
-         }
-        ]
+        "not": {
+         "builtin": "request_entry"
+        }
        },
        {
-        "builtin": "prev_fix_touched"
+        "any": [
+         {
+          "all": [
+           {
+            "builtin": "touches_procedures"
+           },
+           {
+            "any": [
+             {
+              "path": "round",
+              "op": "eq",
+              "value": 1
+             },
+             {
+              "path": "prev.p3.fix.procedures_changed",
+              "op": "eq",
+              "value": true,
+              "default": false
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "builtin": "prev_fix_touched"
+         }
+        ]
        }
       ]
      },
@@ -2157,7 +2347,7 @@
    "stage": "P1",
    "run_by": "writer",
    "optional": true,
-   "when": "差分がゲートを新設・変更しており、初回かゲートを変えた周、または前の周の P3 が何かを直した周",
+   "when": "差分がゲートを新設・変更しており、初回かゲートを変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る）",
    "deps": [
     "p1.worktree_before",
     "p0.local_checks"
@@ -2173,8 +2363,7 @@
     "loop.changed_files_file",
     "record.base",
     "inputs.cwd",
-    "node.deadline_at",
-    "loop.gate_auto_args"
+    "node.deadline_at"
    ],
    "schema": {
     "$ref": "#/$defs/gate_reply"
@@ -2210,43 +2399,52 @@
    "cond": {
     "any": [
      {
-      "any": [
+      "all": [
        {
-        "all": [
+        "not": {
+         "builtin": "request_entry"
+        }
+       },
+       {
+        "any": [
          {
-          "any": [
+          "all": [
            {
-            "path": "out.p0.base.touches_gates",
-            "op": "eq",
-            "value": true
+            "any": [
+             {
+              "path": "out.p0.base.touches_gates",
+              "op": "eq",
+              "value": true
+             },
+             {
+              "path": "prev.p3.fix.gates_changed",
+              "op": "eq",
+              "value": true,
+              "default": false
+             }
+            ]
            },
            {
-            "path": "prev.p3.fix.gates_changed",
-            "op": "eq",
-            "value": true,
-            "default": false
+            "any": [
+             {
+              "path": "round",
+              "op": "eq",
+              "value": 1
+             },
+             {
+              "path": "prev.p3.fix.gates_changed",
+              "op": "eq",
+              "value": true,
+              "default": false
+             }
+            ]
            }
           ]
          },
          {
-          "any": [
-           {
-            "path": "round",
-            "op": "eq",
-            "value": 1
-           },
-           {
-            "path": "prev.p3.fix.gates_changed",
-            "op": "eq",
-            "value": true,
-            "default": false
-           }
-          ]
+          "builtin": "prev_fix_touched"
          }
         ]
-       },
-       {
-        "builtin": "prev_fix_touched"
        }
       ]
      },
@@ -2273,7 +2471,7 @@
    "stage": "P1",
    "run_by": "writer",
    "optional": true,
-   "when": "差分が外部との継ぎ目に触れ、初回か代役を変えた周、または前の周の P3 が何かを直した周",
+   "when": "差分が外部との継ぎ目に触れ、初回か代役を変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る）",
    "deps": [
     "p1.worktree_before",
     "p0.local_checks"
@@ -2390,43 +2588,52 @@
    "cond": {
     "any": [
      {
-      "any": [
+      "all": [
        {
-        "all": [
+        "not": {
+         "builtin": "request_entry"
+        }
+       },
+       {
+        "any": [
          {
-          "any": [
+          "all": [
            {
-            "path": "out.p0.base.touches_external_seams",
-            "op": "eq",
-            "value": true
+            "any": [
+             {
+              "path": "out.p0.base.touches_external_seams",
+              "op": "eq",
+              "value": true
+             },
+             {
+              "path": "prev.p3.fix.seams_changed",
+              "op": "eq",
+              "value": true,
+              "default": false
+             }
+            ]
            },
            {
-            "path": "prev.p3.fix.seams_changed",
-            "op": "eq",
-            "value": true,
-            "default": false
+            "any": [
+             {
+              "path": "round",
+              "op": "eq",
+              "value": 1
+             },
+             {
+              "path": "prev.p3.fix.seams_changed",
+              "op": "eq",
+              "value": true,
+              "default": false
+             }
+            ]
            }
           ]
          },
          {
-          "any": [
-           {
-            "path": "round",
-            "op": "eq",
-            "value": 1
-           },
-           {
-            "path": "prev.p3.fix.seams_changed",
-            "op": "eq",
-            "value": true,
-            "default": false
-           }
-          ]
+          "builtin": "prev_fix_touched"
          }
         ]
-       },
-       {
-        "builtin": "prev_fix_touched"
        }
       ]
      },
@@ -2556,51 +2763,60 @@
     ]
    },
    "na_reason": "対象差分は利用者から見える経路・外部との継ぎ目を変えていない",
-   "when": "差分が利用者から見える経路を変え、初回か経路を変えた周。前の周に awaiting_human だった周も（動かす手段が見つかったか再挑戦）、または前の周の P3 が何かを直した周",
+   "when": "判定から入る run の周でなく、差分が利用者から見える経路を変え、初回か経路を変えた周。前の周に awaiting_human だった周も（動かす手段が見つかったか再挑戦）、または前の周の P3 が何かを直した周",
    "cond": {
-    "any": [
+    "all": [
      {
-      "all": [
+      "not": {
+       "builtin": "request_entry"
+      }
+     },
+     {
+      "any": [
        {
-        "any": [
+        "all": [
          {
-          "path": "out.p0.base.touches_user_path",
-          "op": "eq",
-          "value": true
+          "any": [
+           {
+            "path": "out.p0.base.touches_user_path",
+            "op": "eq",
+            "value": true
+           },
+           {
+            "path": "prev.p3.fix.path_changed",
+            "op": "eq",
+            "value": true,
+            "default": false
+           }
+          ]
          },
          {
-          "path": "prev.p3.fix.path_changed",
-          "op": "eq",
-          "value": true,
-          "default": false
+          "any": [
+           {
+            "path": "round",
+            "op": "eq",
+            "value": 1
+           },
+           {
+            "path": "prev.p3.fix.path_changed",
+            "op": "eq",
+            "value": true,
+            "default": false
+           },
+           {
+            "path": "loop.last_material.main_path_observation.status",
+            "op": "eq",
+            "value": "awaiting_human",
+            "default": null
+           }
+          ]
          }
         ]
        },
        {
-        "any": [
-         {
-          "path": "round",
-          "op": "eq",
-          "value": 1
-         },
-         {
-          "path": "prev.p3.fix.path_changed",
-          "op": "eq",
-          "value": true,
-          "default": false
-         },
-         {
-          "path": "loop.last_material.main_path_observation.status",
-          "op": "eq",
-          "value": "awaiting_human",
-          "default": null
-         }
-        ]
+        "builtin": "prev_fix_touched"
        }
       ]
-     },
-     {
-      "builtin": "prev_fix_touched"
      }
     ]
    },
@@ -2708,22 +2924,31 @@
      "from": "material"
     }
    ],
-   "when": "初回か、事実の主張が増減した周、または前の周の P3 が何かを直した周",
+   "when": "判定から入る run の周でなく、初回か、事実の主張が増減した周、または前の周の P3 が何かを直した周",
    "cond": {
-    "any": [
+    "all": [
      {
-      "path": "round",
-      "op": "eq",
-      "value": 1
+      "not": {
+       "builtin": "request_entry"
+      }
      },
      {
-      "path": "prev.p3.fix.claims_changed",
-      "op": "eq",
-      "value": true,
-      "default": false
-     },
-     {
-      "builtin": "prev_fix_touched"
+      "any": [
+       {
+        "path": "round",
+        "op": "eq",
+        "value": 1
+       },
+       {
+        "path": "prev.p3.fix.claims_changed",
+        "op": "eq",
+        "value": true,
+        "default": false
+       },
+       {
+        "builtin": "prev_fix_touched"
+       }
+      ]
      }
     ]
    },
@@ -2796,6 +3021,7 @@
     "record.process.bypass_findings",
     "record.process.external_findings",
     "record.process.procedure_findings",
+    "record.process.request_findings",
     "record.process.gate_arms",
     "out.p1.test_double_fidelity",
     "out.p1.main_path_observation",
@@ -3079,7 +3305,7 @@
     "units",
     "questions（再審）"
    ],
-   "note": "同じ judge を続ける（engine が agent_id を渡す。無ければ新しい context になり記録に残る）",
+   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す。無ければ新しい context になり記録に残る）",
    "prompt_file": "../prompts/review-loop/p2.history.md",
    "reads": [
     "prev.p4.record.out",
@@ -3611,12 +3837,28 @@
     }
    }
   },
+  "p3.lane_merge": {
+   "stage": "P3",
+   "run_by": "driver",
+   "builtin": "lane_merge",
+   "deps": [
+    "p2.history",
+    "p2.plan_review"
+   ],
+   "source": "P3 ＞ 並行の線が足したテストの合流",
+   "does": "書き終えた線のうち未合流の物の patch を作業ツリーに重ねる（git apply。index は触らない）。重ねたテストはこの周の修正差分に載り、差分レビューの目に入る。当たらない patch は重ねずに loop.lane_merge.conflicts で修正に見せ、次の周の判定にも渡す",
+   "outputs": [
+    "loop.lane_merge"
+   ],
+   "reads": []
+  },
   "p3.fix": {
    "stage": "P3",
    "run_by": "writer",
    "deps": [
     "p2.history",
-    "p2.plan_review"
+    "p2.plan_review",
+    "p3.lane_merge"
    ],
    "source": "P3: 修正（根本ユニット単位・閉鎖の実証・fork の出どころは待つ）",
    "does": "[block] と do-now を根本ユニット単位で直す。導線の死を注記で直さない。fork の origin / depends に挙がったユニットはこの周に実装しない（待つのはループを止めることではない——他を直して次の周へ）。手を動かした結果が機構の新設に及んだと気づいたら止める。修正ごとに閉鎖を実証——不変条件を共有する箇所を先に全部挙げ、1 箇所ずつ赤→緑（『1 つ試して赤だった』で止めない）",
@@ -3634,7 +3876,8 @@
     "record.base",
     "prev.r1.minimality",
     "prev.r4.hidden_scope",
-    "out.p2.plan_review"
+    "out.p2.plan_review",
+    "loop.lane_merge"
    ],
    "schema": {
     "type": "object",
@@ -4110,57 +4353,15 @@
     "$ref": "#/$defs/delta_review_reply"
    }
   },
-  "p3.delta_gates": {
-   "stage": "P3",
-   "run_by": "writer",
-   "deps": [
-    "p3.fix_delta"
-   ],
-   "cond": {
-    "builtin": "fix_delta_nonempty"
-   },
-   "when": "この周の修正が差分を作った周",
-   "source": "P3 ＞ 修正差分の腕（柵の分岐ごとに退行を注入して赤を見る——読み役の目に頼らない）",
-   "does": "修正差分が足した・変えた柵の分岐ごとに、写しの上で退行を注入して赤・対照の緑・当たりの証拠を見る。腕の無い分岐は赤を見ていない行として書く",
-   "outputs": [
-    "process.delta_gates"
-   ],
-   "note": "修正差分のレビュー（読み役）は『新しい分岐に腕が在るか』を見ない。証拠にならない腕は手直しの節が arm:<腕> の key で答える",
-   "delegate": {
-    "model": "sonnet",
-    "why": "変異の実行器を走らせて結果を返答の形に組む作業で、修正の判断は要らない（腕の無い分岐を見つけて書くのは読みの判断が要るので haiku でなく sonnet）"
-   },
-   "prompt_file": "../prompts/review-loop/p3.delta_gates.md",
-   "reads": [
-    "loop.fix_delta.file",
-    "loop.fix_delta.files",
-    "inputs.cwd",
-    "inputs.review_rev",
-    "node.deadline_at"
-   ],
-   "writes": [
-    {
-     "op": "set",
-     "to": "process.delta_gates",
-     "from": "$"
-    }
-   ],
-   "post_check": "gate_arms_all_red",
-   "schema": {
-    "$ref": "#/$defs/gate_reply"
-   },
-   "deadline_minutes": 120
-  },
   "p3.delta_owed": {
    "stage": "P3",
    "run_by": "driver",
    "builtin": "delta_owed",
    "deps": [
-    "p3.delta_review",
-    "p3.delta_gates"
+    "p3.delta_review"
    ],
    "source": "P3 ＞ 修正差分の手直しが答える義務を組む",
-   "does": "差分レビューの穴・塞がっていない検算（closed=false）・証拠にならない修正差分の腕を 1 本の値（loop.delta_owed）に組む。p3.delta_fix はこの値だけを貼り、答え合わせも同じ値で行う",
+   "does": "差分レビューの穴と塞がっていない検算（closed=false）を 1 本の値（loop.delta_owed）に組む。p3.delta_fix はこの値だけを貼り、答え合わせも同じ値で行う。変異の検算の見逃しは入れない（並行の線 p3.delta_gates が答える）",
    "outputs": [
     "loop.delta_owed"
    ],
@@ -4302,6 +4503,76 @@
    "post_check": "delta_fix_output",
    "schema": {
     "$ref": "#/$defs/delta_fix_reply"
+   }
+  },
+  "p3.gates_cut": {
+   "stage": "P3",
+   "run_by": "driver",
+   "builtin": "gates_cut",
+   "deps": [
+    "p3.fix",
+    "p2.rejudge",
+    "p2.rejudge_third",
+    "p3.delta_fix",
+    "p3.delta_fix2"
+   ],
+   "source": "P3 ＞ 並行の線が撃つ範囲の切り出し",
+   "does": "修正と手直しが済んだこの周のコードの姿を版に固め、周の頭の版からの範囲と、線の結果の置き場（盤面の lanes/ に版で鍵付け）を置く。範囲が空でなければ線の台帳に載せる",
+   "outputs": [
+    "loop.gates_cut",
+    "loop.lanes"
+   ],
+   "reads": []
+  },
+  "p3.delta_gates": {
+   "stage": "P3",
+   "run_by": "writer",
+   "deps": [
+    "p3.gates_cut"
+   ],
+   "cond": {
+    "builtin": "gates_cut_nonempty"
+   },
+   "when": "この周のコードが周の頭から変わった周",
+   "source": "P3 ＞ 変異の検算と見逃しへの答え（並行の線。周の締めを止めない）",
+   "does": "この周の変更（周の頭 → 周の終わり）を、別の git worktree の上で変異の検算にかけ、見逃した腕ごとにテストを足す（tests_added）・振る舞いの変わらない変異と宣言する（equivalent）・テストでは閉じないと申告する（defect）。結果は置き場に書き、engine の記録には書かない",
+   "outputs": [
+    "lanes/r<周>-<版>.json（線の結果）",
+    "lanes/r<周>-<版>.patch（足したテスト）"
+   ],
+   "note": "回す側は任せ先を背景で立て、待たずに受領（置き場）を返して done する。線の結果は、書き終えた後の周の頭（loop.prev_declared_faces へ——needs_test・defect・使えない結果）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
+   "delegate": {
+    "model": "sonnet",
+    "background": true,
+    "why": "変異の実行器を走らせ、見逃した腕にテストを足す作業で、周の判断は要らない（テストを書くので haiku でなく sonnet）。背景で走らせ、回す側の周を止めない"
+   },
+   "prompt_file": "../prompts/review-loop/p3.delta_gates.md",
+   "reads": [
+    "loop.gates_cut.rev",
+    "loop.gates_cut.from",
+    "loop.gates_cut.files",
+    "loop.gates_cut.result",
+    "loop.gates_cut.patch",
+    "loop.gates_cut.reply_schema",
+    "inputs.cwd"
+   ],
+   "post_check": "lane_receipt",
+   "schema": {
+    "type": "object",
+    "required": [
+     "lane"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "lane": {
+      "type": "string",
+      "minLength": 1,
+      "note": "線の結果の置き場（プロンプトが名指す物をそのまま）"
+     }
+    }
+   },
+   "result_schema": {
+    "$ref": "#/$defs/lane_reply"
    }
   },
   "p4.ci": {
@@ -5235,11 +5506,45 @@
    "builtin": "record_round",
    "reads": []
   },
+  "p4.final_gates": {
+   "stage": "P4",
+   "run_by": "writer",
+   "deps": [
+    "p4.record"
+   ],
+   "cond": {
+    "builtin": "would_converge"
+   },
+   "when": "検証器が阻害なしで CI が緑の周（収束を言う前）",
+   "source": "P4 ＞ 最後の関門（最終のコードで変異の検算を撃ち直す）",
+   "does": "BASE からの変更全部を、この周に固めた最終の版で撃ち直し、見逃した腕ごとに equivalent（振る舞いの変わらない変異）・needs_test・defect で答える。作業ツリーには書かない。converge は、見逃しが全部 equivalent で、テスト一式が緑で、撃った版の後に作業ツリーが変わっていないときだけ収束と言う",
+   "outputs": [
+    "converge が読む（記録には書かない）"
+   ],
+   "note": "途中の版で撃った線の結果は数えない（撃った版が最終のコードでなければ古い）。テストが要る見逃しは next_round になり、次の周の判定・修正・差分レビュー・CI を通る——関門が書いた物を誰も見ないまま収束しない",
+   "delegate": {
+    "model": "sonnet",
+    "why": "変異の実行器を走らせて見逃しを分類する作業で、周の判断は要らない（等価かどうかの読みが要るので haiku でなく sonnet）"
+   },
+   "prompt_file": "../prompts/review-loop/p4.final_gates.md",
+   "reads": [
+    "loop.gates_cut.rev",
+    "record.base",
+    "inputs.cwd",
+    "node.deadline_at"
+   ],
+   "post_check": "final_gates_output",
+   "schema": {
+    "$ref": "#/$defs/lane_reply"
+   },
+   "deadline_minutes": 240
+  },
   "converge": {
    "stage": "P4",
    "run_by": "driver",
    "deps": [
-    "p4.record"
+    "p4.record",
+    "p4.final_gates"
    ],
    "source": "停止条件",
    "does": "検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）と CI 緑と上限 5 を読んで、converged / next_round / ask / stopped",
@@ -5501,7 +5806,7 @@
     "builtin": "rejudge_open"
    },
    "prompt_file": "../prompts/review-loop/p2.rejudge.md",
-   "note": "同じ judge を続ける（engine が agent_id を渡す）。往復の回数は loop_state が数え、done が trace に残す——会話でやると記録に残らない"
+   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復の回数は loop_state が数え、done が trace に残す——会話でやると記録に残らない"
   },
   "p2.rejudge_third": {
    "stage": "P2",
@@ -5662,7 +5967,7 @@
   "p1.consistency_bypass",
   "p1.external_standards"
  ],
- "overview": "コード変更を、採点役と実装役を分けて収束まで回す。P0 で基準点・目的・前提・並行 PR・先行議論を固定し（once）、P1 で 9 系統の素材を新しい context の役が集め（機械が前後で作業ツリーを突き合わせ、走らせなかった欄も機械が埋める）、P2 で judge が根本ユニットとラベルと問いの台帳を確定し（2 周目以降は同じ judge に履歴と前の台帳を後から渡す）、P2 の後に writer が修正案を出して別の judge が書く前に穴を予測し、P3 で writer が [block] と do-now を直して閉鎖を実証し（予測された穴には key ごとに答える）、直後にこの周の修正だけの差分を inspector が見て（塞いだと言う穴の検算も）、挙がった穴を同じ周で直し、手直しにもう 1 回だけ同じレビューを当て、残した穴は次の周の判定者が 1 件ずつ振り分け、P4 で CI と scalar を取り、機械が R1/R2 の再発火と [block] 0 を数え、R1〜R4 の独立の目を回し、周の記録を組んで検証器（review-record.py）にディレクトリごと渡す。検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）を機械が読んで次の周か停止か人に聞く。上限 5 周。writer は判定を一切しない",
+ "overview": "コード変更を、採点役と実装役を分けて収束まで回す。P0 で基準点・目的・前提・並行 PR・先行議論を固定し（once）、P1 で 9 系統の素材を新しい context の役が集め（機械が前後で作業ツリーを突き合わせ、走らせなかった欄も機械が埋める）、P2 で judge が根本ユニットとラベルと問いの台帳を確定し（2 周目以降は同じ judge に履歴と前の台帳を後から渡す）、P2 の後に writer が修正案を出して別の judge が書く前に穴を予測し、P3 で writer が [block] と do-now を直して閉鎖を実証し（予測された穴には key ごとに答える）、直後にこの周の修正だけの差分を inspector が見て（塞いだと言う穴の検算も）、挙がった穴を同じ周で直し、手直しにもう 1 回だけ同じレビューを当て、残した穴は次の周の判定者が 1 件ずつ振り分け、修正と手直しが済んだ版で変異の検算とテストの書き足しを並行の線として背景で立て（周の締めは待たない。線の結果は書き終えた後の周の頭と修正の前に合流する）、P4 で CI と scalar を取り、機械が R1/R2 の再発火と [block] 0 を数え、R1〜R4 の独立の目を回し、周の記録を組んで検証器（review-record.py）にディレクトリごと渡す。検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）を機械が読んで次の周か停止か人に聞く。収束を言う前に、最終のコードで変異の検算を撃ち直し、見逃しが全部等価でテスト一式が緑のときだけ収束する。上限 5 周。writer は判定を一切しない",
  "cond_note": "cond の path は engine が解決する。解決できない path は die——綴り違いや欄の改名が「条件が成り立たない」に化けると、走らなかった節の素材に事実と逆の理由が書かれたまま収束まで通る。設計上まだ書かれていない欄を見る cond は default を明示する（下の各節）",
  "verdict_paths": [
   "reviews",

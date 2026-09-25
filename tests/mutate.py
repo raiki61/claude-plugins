@@ -27,6 +27,11 @@ cr-filter-pragma・cr-filter-operators・cr-filter-git だけで（how-tos/filte
 入り、--gate-efficacy と --reuse を 1 本で通す。依存を足さない配布方針（issue #6）は配布する実行時の決定で、開発用の CI までは縛らない
 ——だから理由に数えない。
 
+**mutmut との受け持ち**（2026-09-25 から）: pytest が覆うモジュール（今は graphloops/engine/schema.py。置き場は graphloops/tests/py/、
+設定は graphloops/setup.cfg）を丸ごと自動で撃ち、生き残りを pytest 側のテストで殺すのは mutmut で、手元で回す（回し方は
+graphloops/README.md の「検査」節）。この実行器は、上に書いた一覧の腕（字列置換・expect と killedBy の突合）と、差分の行に絞った
+自動の腕（--auto。review-loop のゲートの実効性が使う）を受け持ち、週 1 回の CI（mutation.yml）で落とす柵もこちらだけに在る。
+
 以前はこの工程を、回す側（LLM）が周ごとに使い捨てのスクリプトで書いていた。置換対象の字列がコードの書き換えで消えた腕は
 黙って外れ（2026-09-23 のレビューでは 1 周目に 25 本、2 周目に 18 本）、印の差し込みで写しを構文エラーにする
 誤りも 2 度起きた。一覧をリポジトリに置き、`--check` を台本（tests/run.sh）から毎回走らせるので、消えた字列はその変更の

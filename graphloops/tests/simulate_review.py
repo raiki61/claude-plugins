@@ -18,6 +18,7 @@ import subprocess
 import sys
 import types
 
+import fakeclaude  # 同じディレクトリ。--output-format json の包みを返す代役の claude
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -71,7 +72,7 @@ def sh(cwd, *args):
 VOCAB_SEEN = collections.defaultdict(set)
 # 到達した語彙の数。**`!=` で見る**——下限（`<`）だと筋書きを増やしても数が動かず、増やしたつもりの
 # 周に誰も気づかない。上げるときは実測値を書く（減らすのは、語彙そのものを graph から消したときだけ）。
-VOCAB_REACHED = 115
+VOCAB_REACHED = 116
 
 
 def record_vocab(node, output):
@@ -227,6 +228,10 @@ def local_findings(rnd, drop=(), blank=()):
     return rows
 
 
+PROVEN_ARM = {"gate": "src/a.py", "arm": "上限の分岐", "red_confirmed": True, "control_green": True,
+              "hit_evidence": "分岐が書く値を印に替えた写しで、印が出力に現れた（検査用）"}
+
+
 def answers(run, scenario, rnd):
     """節ごとの返答。scenario と周で分岐する。"""
     base = run.base
@@ -246,6 +251,8 @@ def answers(run, scenario, rnd):
             return [unit_block, {**unit_donow, "disposition": "defer", "reason": "処方が共有面（キャッシュ層）に及ぶ（検査用）"}]
         if scenario in ("forkhold", "forkesc"):
             return [unit_block]          # 同じ出どころを毎周開けたまま置く（免除の期限を見る筋書き）
+        if scenario == "entry_reject":
+            return []                    # 判定が人の依頼を全部却下する筋（修正 0 行の入口の run が報告まで届くか）
         return [unit_block, unit_donow] if rnd == 1 else []
 
     def questions_for(rnd):
@@ -390,16 +397,13 @@ def answers(run, scenario, rnd):
                                         for c in (rec["process"].get("delta_review2") or {}).get("checks") or [] if c["closed"] is False]},
         "p3.delta_fix": lambda it: {"handled": [{"key": "入口: 呼び元の上限が残る", "handled": "fixed", "how": "呼び元の分岐を消し、入口の上限だけにした（検査用）",
                                                  "files": ["src/a.py"]}]
-                                    + ([{"key": "arm:上限の分岐（腕が無い）", "handled": "fixed", "how": "上限の分岐に退行を注入する腕を足し、赤を見た（検査用）",
-                                         "files": ["src/a.py"]}] if faced else [])
                                     + [{"key": c["key"], "handled": "declared", "how": "塞がっていなかった写しは次の周の判定に回す（検査用）"}
                                        for c in (rec["process"].get("delta_review") or {}).get("checks") or [] if c["closed"] is False]},
-        # 修正差分の腕: 既定は証拠のそろった 1 本（clean）。planfaces は腕の無い分岐を 1 本足す（found——手直しが arm:<腕> で答える）
-        "p3.delta_gates": lambda it: {"material": M("found", count=1, detail="腕の無い分岐 1") if faced else CLEAN("修正差分の柵の腕を撃ち、赤・対照の緑・当たりを見た"),
-                                      "arms": [{"gate": "src/a.py", "arm": "上限の分岐", "red_confirmed": True, "control_green": True,
-                                                "hit_evidence": "分岐が書く値を印に替えた写しで、印が出力に現れた（検査用）"}]
-                                              + ([{"gate": "src/a.py", "arm": "上限の分岐（腕が無い）", "red_confirmed": False, "control_green": True,
-                                                   "hit_evidence": "", "note": "腕が無い"}] if faced else [])},
+        # 変異の検算の線: 回す側は受領（線の結果の置き場）だけを返して待たない。線の結果は台本が必要な周に置き場へ書く
+        "p3.delta_gates": lambda it: {"lane": run.state()["loop"]["gates_cut"]["result"]},
+        # 最後の関門: この周に固めた最終の版を撃ち、見逃しは無い（証拠のそろった腕 1 本）
+        "p4.final_gates": lambda it: {"rev": run.state()["loop"]["gates_cut"]["rev"], "arms": [PROVEN_ARM], "handled": [], "patch": "",
+                                      "suite": {"command": "pytest（検査用）", "exit": 0}},
         "p4.ci": lambda it: {"material": CLEAN("pytest 緑")},
         "p4.scalars": lambda it: {"scalars": {"comment_ratio_pct": 10, "doc_lines": 1}},
         "r1.comment_candidates": lambda it: {"candidates": [], "kept": []},
@@ -495,6 +499,51 @@ def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
 
 
 # ---------------------------------------------------------------- 検査
+def test_launch_tooled_session():
+    """道具つきの役（judge）を engine が起こし、受け付けまで済ませ、同じ役を続ける節（p2.history）がその会話の番号で
+    --resume すること。拒まれたら同じ会話に出し直させ、起こし直しの理由が盤面に残ること。"""
+    print("道具つきの役の起動: judge を launch で起こし、拒否は同じ会話で出し直させ、次の周の履歴の突合は --resume で続ける")
+    run = Run("launchtool")
+    # 2 周目の判定を engine に起こさせる——同じ周の履歴の突合（p2.history）がその会話を続ける
+    nx = drive(run, "std", stop_at=lambda n: n["round"] == 2 and any(i["node"] == "p2.diagnose" for i in n["ready"]))
+    inst = next(i for i in nx["ready"] if i["node"] == "p2.diagnose")
+    argv = (inst.get("launch") or {}).get("argv") or []
+
+    def after(flag):
+        return argv[argv.index(flag) + 1] if flag in argv else None
+
+    check(inst["mode"] == "agent" and after("--setting-sources") == "" and after("--permission-prompts") == "none"
+          and after("--permission-mode") == "dontAsk" and after("--tools") == after("--allowedTools") == "Read,Glob,Grep,WebSearch,WebFetch"
+          and "--agents" not in argv and pathlib.Path(after("--append-system-prompt-file") or "").is_file(),
+          f"judge は道具つきの形で起こす: 設定を読まない・聞く先が無い・定義の道具を先に許す dontAsk・本文は system prompt（{argv[2:]}）")
+    bindir = run.tmp / "fakebin"
+    bindir.mkdir()
+    fakeclaude.install(bindir)
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    # next が解決した claude を代役に向けるため、この環境で試行を作り直す（relaunch も next と同じく起こす語を組む）
+    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 代役の claude に向ける", env=env)
+    check(r.returncode == 0, f"relaunch できる（{r.stderr[-120:]}）")
+    ans = run.tmp / "diag.json"
+    ans.write_text(json.dumps(answers(run, "std", 2)["p2.diagnose"](None), ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_MODE": "bad_then_answer", "FAKE_OUT": str(ans), "FAKE_SESSION": "sess-judge"})
+    got = json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}]
+    one = next((g for g in got if g.get("node") == "p2.diagnose"), {})
+    check(one.get("ok") and one.get("resumes") == 1 and one.get("session_id") == "sess-judge",
+          f"散文を返した judge に同じ会話で出し直させ、受け付けまで済ませる（{one.get('why') or r.stderr[-200:]}）")
+    st = run.state()
+    me = next((i for i in st["rounds"][1]["instances"].values() if i["node"] == "p2.diagnose" and i["status"] == "done"), {})
+    check(me.get("session_id") == "sess-judge" and [x.get("kind") for x in me.get("attempt_log", []) if x.get("kind")] == ["resume"],
+          f"会話の番号と、出し直させた理由が盤面に残る（{me.get('session_id')} {me.get('attempt_log')}）")
+    last = drive(run, "std")
+    check(last["status"] == "converged", f"残りは台本どおり回って収束する（{last['status']}）")
+    hist = next((i for i in run.state()["rounds"][1]["instances"].values() if i["node"] == "p2.history"), {})
+    hargv = (hist.get("launch") or {}).get("argv") or []
+    check(hist.get("mode") == "agent_continue" and hist.get("session_id") == "sess-judge"
+          and "--resume" in hargv and hargv[hargv.index("--resume") + 1] == "sess-judge",
+          f"履歴の突合は、同じ周の判定を起こした会話の番号で --resume する（{hist.get('mode')} {hist.get('session_id')}）")
+    rm(run.tmp)
+
+
 def test_init_resolves_dir():
     """**盤面の綴りは入口で 1 度だけ解決する。** init だけが未解決の綴りで Board を作っていたとき、
     on_init が盤面から組み立てる値（rounds_dir）は相対のまま state に入り、別の cwd から読むと外れる。
@@ -1025,7 +1074,7 @@ def test_rejections():
         if r.returncode != 0:  # assert は -O で消える（台本の前提が黙って外れる）
             raise SystemExit(f"台本の前提が崩れた: {n} の done が {r.returncode}: {r.stderr[-200:]}")
     r = run.done(hyg["id"], t["p1.hygiene"](None), agent_id="cli-has-no-agent")
-    check(r.returncode == 1 and "agent_id" in r.stderr, "cli で起こした遮断系の done に --agent-id を渡すと exit 1（別プロセスに続く context は無い）")
+    check(r.returncode == 1 and "agent_id" in r.stderr, "cli で起こした遮断系の done に --agent-id を渡すと exit 1（engine が起こす節に Agent の id は無い）")
     r = run.done(hyg["id"], t["p1.hygiene"](None))
     if r.returncode != 0:
         raise SystemExit(f"台本の前提が崩れた: done が {r.returncode}: {r.stderr[-200:]}")
@@ -1543,8 +1592,14 @@ def test_graphcheck_review_shapes():
            "graphcheck: skill を呼ぶ節を任せ先に渡せない（入れ子の委任は完了の知らせが届かない）")
     broken(lambda b: b["nodes"]["p1.gate_efficacy"].__setitem__("deadline_minutes", 0), "deadline_minutes は 1 以上の整数",
            "graphcheck: 期限は 1 以上の整数（分）")
-    broken(lambda b: b.pop("deadline_minutes") and b["nodes"]["p3.delta_gates"].pop("deadline_minutes"), "期限（deadline_minutes）が節にも",
+    broken(lambda b: b["nodes"]["p3.delta_gates"]["delegate"].__setitem__("background", "yes"), "delegate.background は真偽",
+           "graphcheck: 背景の任せ先の旗が真偽でない")
+    broken(lambda b: b["nodes"]["p4.ci"]["deps"].append("p3.delta_gates"), "背景の節（delegate.background）を",
+           "graphcheck: 背景の節（受領しか返さない線）を締めの節が待つ")
+    broken(lambda b: b.pop("deadline_minutes") and b["nodes"]["p4.final_gates"].pop("deadline_minutes"), "期限（deadline_minutes）が節にも",
            "graphcheck: {{node.deadline_at}} を貼る節に期限が無い")
+    broken(lambda b: b["nodes"]["p4.final_gates"].pop("delegate"), "任せ先（delegate）の無い回す側の節",
+           "graphcheck: {{node.deadline_at}} を貼る回す側の節に任せ先が無い（自分でやる節に期限は付かない）")
     broken(lambda b: cq(b, "p2.rejudge").__setitem__("how", {"$ref": "engine#/count_how", "type": "string"}), "他の語が並んでいる",
            "graphcheck: 定義を上書きする $ref")
     broken(lambda b: b["$defs"].__setitem__("loop", {"type": "object", "properties": {"x": {"$ref": "#/$defs/loop"}}})
@@ -2301,6 +2356,7 @@ def test_frozen_review_revision():
         ("一時 index への add が失敗", {**real["clean"], "add": None}, "止まる"),
         ("本物の index の場所が引けない", {**real["clean"], "git-path": None}, "止まる"),
         ("本物の index の場所が空で返る", {**real["clean"], "git-path": "\n"}, "止まる"),
+        ("本物の index を写せない（場所がディレクトリ）", {**real["clean"], "git-path": str(run.tmp)}, "止まる"),
         ("一時 index の refresh が失敗", {**real["clean"], "update-index": None}, "止まる"),
         ("write-tree が木を返さない", {**real["clean"], "write-tree": None}, "止まる"),
         ("commit-tree が版を返さない", {**real["clean"], "commit-tree": None}, "止まる"),
@@ -3014,6 +3070,193 @@ def test_worktree_guard_fires():
     rm(run.tmp)
 
 
+def test_request_entry():
+    """**判定から入る入口**（loop.py add で人の修正依頼を置く。R12）。
+
+    BASE=HEAD（差分ゼロ）でも止まらず、P1 の役を 1 つも起こさずに判定から始まり、素材は入口の理由つきの
+    not_applicable で埋まり、依頼は専用の欄（process.request_findings）で判定に届く。修正が入った次の周からは
+    通常の run と同じく P1 が修正差分を見る。依頼を全部却下した run も、修正 0 行のまま報告まで届く。
+    **依頼を積むことと P1 を外すことは別の欄**: 依頼はその周の判定の前なら何周目でも何度でも積め、P1 を外すのは
+    1 周目の P1 より前の add が立てる印（process.request_entry）だけ。"""
+    print("判定から入る入口: add → P1 の役を起こさず判定へ → 修正の次の周から P1 が戻る・途中の周の add は P1 を外さない")
+    graph = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))["nodes"]
+    roles = {k for k, n in graph.items() if n.get("stage") == "P1" and n.get("run_by") != "driver"}
+    req = [{"where": "src/a.py:f", "text": "上限を掛けたい（人の依頼・検査用の目印 REQ-7f3）", "measured": "手で確かめた"}]
+    for scenario in ("std", "entry_reject"):
+        run = Run(f"entry-{scenario}")
+        f = run.tmp / "req.json"
+        f.write_text(json.dumps(req, ensure_ascii=False), encoding="utf-8")
+        bad = run.tmp / "bad.json"
+        bad.write_text(json.dumps([{"where": "x", "text": "y", "severity": "block"}]), encoding="utf-8")
+        r = run.cmd("add", "--file", str(bad), "--reason", "検査")
+        check(r.returncode == 1 and "severity" in r.stderr, f"入口: findings の型に無い欄を持つ依頼は拒む（{r.stderr[-160:]}）")
+        r = run.cmd("add", "--file", str(f), "--reason", "利用者の依頼（検査用）")
+        check(r.returncode == 0, f"入口: init の直後の add は通る（{r.stderr[-160:]}）")
+        f2 = run.tmp / "req2.json"
+        f2.write_text(json.dumps([{"where": "src/b.py:g", "text": "2 本目の依頼（検査用の目印 REQ-2b9）"}], ensure_ascii=False), encoding="utf-8")
+        r = run.cmd("add", "--file", str(f2), "--reason", "2 回目の依頼（検査用）")
+        check(r.returncode == 0 and "判定から入る run" in r.stdout,
+              f"入口: 同じ周の判定の前なら 2 回目の add も積める（{r.stdout[-160:]}{r.stderr[-160:]}）")
+        head = sh(run.repo, "git", "rev-parse", "HEAD").stdout.strip()
+        seen = collections.defaultdict(set)
+        late = {}
+
+        def hook(run, inst, out, seen=seen, head=head, late=late):
+            rnd = run.state()["round"]
+            seen[rnd].add(inst["node"])
+            if inst["node"] == "p0.base":
+                return {**out, "base_sha": head, "method": "4 依頼者の名指し", "commits": 0}
+            if inst["node"] == "p2.diagnose" and rnd == 1:
+                # 判定役が起きた後の add は拒む（その周の判定に届かない依頼を黙って積まない）
+                late["after_judge"] = run.cmd("add", "--file", str(f2), "--reason", "判定の後")
+            if rnd == 2 and "r2" not in late:
+                # 2 周目の頭（判定の前）の add は受ける——途中の周の依頼の口。入口が続く周は最初に出るのが判定そのもので、そこでは拒まれる
+                f3 = run.tmp / "req3.json"
+                f3.write_text(json.dumps([{"where": "src/c.py:h", "text": "途中の周の依頼（検査用の目印 REQ-r2c）"}], ensure_ascii=False), encoding="utf-8")
+                late["r2"] = run.cmd("add", "--file", str(f3), "--reason", "途中の周の依頼（検査用）")
+            return None
+        # 筋書きが途中で落ちても後ろの腕（他の条件が全部真の筋など）まで届かせる——落ちたことは検査の赤で残す
+        try:
+            last = drive(run, scenario, hook=hook)
+        except RuntimeError as e:
+            check(False, f"入口: 回し切れる（{scenario}）: {str(e)[-300:]}")
+            rm(run.tmp)
+            continue
+        check(last["status"] == "converged", f"入口: BASE=HEAD の差分ゼロでも止まらず収束まで進む（{last['status']}: {last.get('notes')}）（{scenario}）")
+        check(not (seen[1] & roles), f"入口: 1 周目は P1 の役を起こさない（出た {sorted(seen[1] & roles)}）（{scenario}）")
+        r1 = run.round_file(1)["materials"]
+        entry_mats = {m for k in roles for m in graph[k].get("materials", [])}
+        off = {m: r1.get(m) for m in entry_mats if r1.get(m, {}).get("status") != "not_applicable"}
+        by_entry = {m for m in entry_mats if "判定から入る run" in r1.get(m, {}).get("reason", "")}
+        # 入口が無くても走らない節（手順書に触れない差分の procedure_trace 等）は、本当の条件外の理由のまま——入口の文で上書きしない
+        own = {m for m in entry_mats - by_entry if r1.get(m, {}).get("reason")}
+        check(not off and {"local_review", "consistency", "bypass", "hygiene", "external_standards", "provenance"} <= by_entry
+              and "procedure_trace" in own,
+              f"入口: 飛ばした P1 の素材は not_applicable——入口で外れた節は入口の理由、別の条件でも外れる節はその理由（外れ {off}・入口 {sorted(by_entry)}）（{scenario}）")
+        prompt = (run.dir / "prompts" / "r1" / "p2.diagnose.md").read_text(encoding="utf-8")
+        check(all(x in prompt for x in ("REQ-7f3", "利用者の依頼（検査用）", "REQ-2b9", "2 回目の依頼（検査用）")),
+              f"入口: 判定のプロンプトに同じ周の 2 つのバッチが出どころつきで届く（{scenario}）")
+        ab = late.get("after_judge")
+        check(ab is not None and ab.returncode == 1 and "既に起きている" in ab.stderr and "新しい run" in ab.stderr,
+              f"入口: 判定役が起きた後の add は拒み、次の周が来ないときの行き先も言う（{(ab.stderr[-200:] if ab else '呼ばれていない')}）（{scenario}）")
+        proc = run.record()["process"]
+        check(proc.get("request_entry") == {"origin": "利用者の依頼（検査用）"} and not proc.get("procedure_findings"),
+              f"入口: 印は 1 周目の P1 前の最初の add の出どころで立ち、手順トレースの欄を借りない（{proc.get('request_entry')}）（{scenario}）")
+        batches = proc.get("request_history", []) + proc.get("request_findings", [])
+        check(sorted((x["round"], x["origin"]) for x in batches) == sorted(
+                  [(1, "利用者の依頼（検査用）"), (1, "2 回目の依頼（検査用）")] + ([(2, "途中の周の依頼（検査用）")] if "r2" in late and late["r2"].returncode == 0 else [])),
+              f"入口: どの周のバッチも周と出どころつきで記録に残る（{[(x['round'], x['origin']) for x in batches]}）（{scenario}）")
+        if scenario == "std":
+            check("p1.local_review" in seen[2], f"入口: 修正が入った次の周は P1 が修正差分を見る（2 周目に出た {sorted(seen[2] & roles)}）")
+            r2 = late.get("r2")
+            check(r2 is not None and r2.returncode == 0, f"入口: 2 周目の判定の前の add は受ける（{(r2.stderr[-200:] if r2 else '呼ばれていない')}）")
+            p2 = (run.dir / "prompts" / "r2" / "p2.diagnose.md").read_text(encoding="utf-8")
+            check("REQ-r2c" in p2 and "途中の周の依頼（検査用）" in p2 and "REQ-7f3" not in p2,
+                  "入口: 2 周目の判定にはその周の依頼だけが届き、前の周の依頼は履歴に移る")
+        else:
+            check(all(not (seen[n] & roles) for n in seen), "入口: 修正 0 行の run は P1 を起こさないまま周を重ねる")
+            p2 = run.dir / "prompts" / "r2" / "p2.diagnose.md"
+            check(not p2.is_file() or "REQ-7f3" in p2.read_text(encoding="utf-8"),
+                  "入口: 修正 0 行で入口が続く周は、1 周目の依頼を移さず判定役に渡し続ける")
+        rm(run.tmp)
+
+    def first_round(name, prep, base_patch):
+        """init → prep(run) → 1 周目の判定の手前まで回し、1 周目に出た節の集合を返す"""
+        run = Run(name)
+        prep(run)
+        seen1 = set()
+
+        def hook(run, inst, out):
+            seen1.add(inst["node"])
+            return {**out, **base_patch(run)} if inst["node"] == "p0.base" else None
+        try:
+            drive(run, "std", hook=hook, stop_at=lambda nx: nx["round"] > 1 or any(i["node"] == "p2.diagnose" for i in nx["ready"]))
+        except RuntimeError as e:
+            print(f"  （{name} は途中で落ちた: {str(e)[-200:]}）")
+        mats = run.record()["materials"]
+        rm(run.tmp)
+        return seen1, mats
+
+    def add_req(run):
+        f = run.tmp / "req.json"
+        f.write_text(json.dumps(req, ensure_ascii=False), encoding="utf-8")
+        run.cmd("add", "--file", str(f), "--reason", "利用者の依頼（検査用）")
+
+    def put(run, path, value):
+        f = run.tmp / "patch.json"
+        f.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+        r = run.cmd("patch", "--path", path, "--file", str(f), "--reason", "検査")
+        if r.returncode != 0:
+            raise RuntimeError(f"patch {path}: {r.stderr[-300:]}")
+
+    # 入口の項だけで外れる形: 差分が手順書に触れ、ゲート・継ぎ目・経路の申告も全部真（入口が無ければ 9 節とも走る）
+    wide = {"touches_gates": True, "touches_external_seams": True, "touches_user_path": True}
+
+    def touch_readme(run):
+        add_req(run)
+        (run.repo / "README.md").write_text("# demo\n手順を足した\n", encoding="utf-8")
+    got, mats = first_round("entry-wide", touch_readme, lambda run: wide)
+    check(not (got & roles), f"入口: 他の条件が全部真でも、入口の周は P1 の役を 1 つも起こさない（出た {sorted(got & roles)}）")
+    entry_mats = {m for k in roles for m in graph[k].get("materials", [])}
+    off = {m: mats.get(m) for m in entry_mats if "判定から入る run" not in (mats.get(m) or {}).get("reason", "") or mats[m]["status"] != "not_applicable"}
+    check(not off, f"入口: 入口の項だけで外れた節は、どの cond の形（all・any の入れ子）でも入口の理由の not_applicable（外れ {off}）")
+    # 昇格した run では、深さで切っている節は入口より昇格が勝つ（escalate_on_thrash の effects が名乗るとおり）
+    deep = {"p1.procedure_trace", "p1.gate_efficacy", "p1.test_double_fidelity"}
+
+    def escalated(run):
+        add_req(run)
+        put(run, "state.loop.escalated", {"round": 1, "why": "検査"})
+    got, _ = first_round("entry-esc", escalated, lambda run: {})
+    check(deep <= got and not ((got & roles) - deep), f"入口: 昇格した周は深さの 3 節だけ入口より昇格が勝つ（出た {sorted(got & roles)}）")
+    # patch は手当ての口として印も依頼も書ける——印が型どおりなら入口、依頼の一覧だけでは入口にならない、型の崩れた印も入口にならない
+    got, _ = first_round("entry-patch", lambda run: put(run, "process.request_entry", {"origin": "patch（検査）"}), lambda run: {})
+    check(not (got & roles), f"入口: patch で置いた型どおりの印も入口になる（出た {sorted(got & roles)}）")
+    got, _ = first_round("entry-patch-bad", lambda run: put(run, "process.request_entry", "patch（検査）"), lambda run: {})
+    check("p1.local_review" in got, f"入口: 型の合わない印（出どころの dict でない）は入口にならず通常の run（出た {sorted(got & roles)}）")
+    got, _ = first_round("entry-patch-list", lambda run: put(run, "process.request_findings", [{"round": 1, "origin": "patch（検査）", "findings": req}]),
+                         lambda run: {})
+    check("p1.local_review" in got, f"入口: 依頼の一覧だけを置いても P1 は外れない（出た {sorted(got & roles)}）")
+    # 入口の項を持たない節は、cond が真でも入口の理由を書かない（素材の穴埋めが入口の文で上書きしない）
+    sys.path.insert(0, str(PLUGIN))
+    from engine.rules import load_rules
+    gp = PLUGIN / "graphs" / "review-loop.json"
+    rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
+    fake = types.SimpleNamespace(eval_cond=lambda c: True)
+    check(not rules._entry_skipped(fake, {"cond": {"path": "round", "op": "eq", "value": 1}}),
+          "入口: 入口の項を持たない節は、条件が真でも入口で外れたと数えない")
+    # request_entry は印だけを見る——依頼の一覧が在っても印が無ければ偽（空差分の柵も P1 の cond も同じ 1 本を読む）
+    batch = [{"round": 2, "origin": "途中", "findings": req}]
+    ent = lambda proc, ls={}: rules.request_entry(types.SimpleNamespace(record={"process": proc}, loop_state=ls))
+    check(not ent({"request_findings": batch}), "入口: 依頼の一覧だけでは入口にならない（途中の周の依頼で空差分の柵と P1 を外さない）")
+    check(ent({"request_entry": {"origin": "人"}}) and not ent({"request_entry": {"origin": "人"}}, {"request_fixed_at": 1}),
+          "入口: 印が在れば修正が入るまで真、修正が入った後は偽")
+    # 型の崩れた依頼の一覧は読まない（patch は型を通らずに書けるので、読む口 1 か所で当てる）
+    lst, why = rules._requests(types.SimpleNamespace(record={"process": {"request_findings": {"origin": "旧い形", "findings": req}}}), "request_findings")
+    check(lst == [] and why and "request_findings" in why, f"入口: 型の崩れた依頼の一覧は読まずに理由を返す（{why}）")
+
+    # 通常の run で P1 が走った後（判定の前）の add は受けるが、印は立てず P1 も外さない
+    run = Run("entry-late")
+    f = run.tmp / "req.json"
+    f.write_text(json.dumps(req, ensure_ascii=False), encoding="utf-8")
+    seen1, mid = set(), {}
+
+    def mid_hook(run, inst, out):
+        seen1.add(inst["node"])
+        if inst["node"] in roles and "r" not in mid:
+            mid["r"] = run.cmd("add", "--file", str(f), "--reason", "遅い依頼")
+        return None
+    try:
+        drive(run, "std", hook=mid_hook, stop_at=lambda nx: nx["round"] > 1 or any(i["node"] == "p2.diagnose" for i in nx["ready"]))
+    except RuntimeError as e:
+        check(False, f"入口: 途中の add の筋が回し切れる: {str(e)[-300:]}")
+    r = mid.get("r")
+    check(r is not None and r.returncode == 0 and "いつもどおり" in r.stdout,
+          f"入口: P1 が走った後でも判定の前の add は受け、P1 はいつもどおりと言う（{(r.stdout[-160:] + r.stderr[-160:]) if r else '呼ばれていない'}）")
+    check("request_entry" not in run.record()["process"] and "p1.local_review" in seen1,
+          f"入口: P1 が走った後の add は入口の印を立てない（出た {sorted(seen1 & roles)}）")
+    rm(run.tmp)
+
+
 def test_surviving_branches():
     """**退行注入で生き残った残りの分岐に腕を当てる**（どれも反転しても台本が全件緑だった腕）。
 
@@ -3251,11 +3494,8 @@ def test_delta_conditions():
           "修正差分: 手直しの差分が在れば 2 回目を起こす")
     check(rules.delta_review2_due(at({}, {"p3.delta_fix": {"handled": [{"key": "k1", "handled": "fixed"}]}})),
           "修正差分: 手直しの差分が無くても、手直しが直したと言う穴が在れば 2 回目を起こす")
-    arm = lambda n, **k: {"gate": "a.py", "arm": n, "red_confirmed": True, "control_green": True, "hit_evidence": "印が出力に現れた（検査用）", **k}
-    gaps = {r["key"] for r in rules._gate_gaps(at({}, {"p3.delta_gates": {"arms": [arm("full"), arm("nored", red_confirmed=False),
-                                                                arm("nocontrol", control_green=False), arm("noevidence", hit_evidence="")]}}))}
-    check(gaps == {"arm:nored", "arm:nocontrol", "arm:noevidence"},
-          f"修正差分の腕: 赤・対照の緑・当たりの証拠のどれか 1 つでも欠けた腕だけが義務になる（{sorted(gaps)}）")
+    check(rules._delta_owed(at({}), 1) == set() and rules._delta_owed(at({"delta_owed": {"round": 1, "rows": [{"key": "k"}]}}), 1) == set(),
+          "手直しの義務: 義務の値が無い盤面・前の周の値しか無い盤面では、答える義務は空（起こさない）")
     # 周をまたぐ変更の検出: 前の周の頭の版が無ければ測れない（None）、在れば今の木との差（未追跡も入る）
     check(rules._files_changed_since(at({}), 1) is None, "周をまたぐ変更: 前の周の頭の版が無い周は『測れない』（None）")
     (tmp / "b.py").write_text("B = 1\n", encoding="utf-8")
@@ -3288,20 +3528,6 @@ def test_delta_conditions():
     finally:
         rules._take_diff = real_take
     check(not r["ok"] and "木の id が取れない" in " ".join(r["problems"]), f"作業ツリーの保護: 固めた版の木の id が取れない回は止める（{r}）")
-    # ゲートの実効性の自動の腕の起点: 前の周の頭の版が在る周は、組んだ引数（--auto <版>）を役へ渡す。無い周（1 周目）は空
-    try:
-        rules._take_diff = lambda bb, suffix="": {"ok": True, "rev": snap, "raw": b"x", "diff_file": "", "changed_files": [], "stat": ""}
-        bb = at({"head_revs": {"1": head}})
-        r = rules.worktree_snapshot(bb, "p1.worktree_before")
-        got2 = bb.loop_state.get("gate_auto_args")
-        bb.round = 1
-        rules.worktree_snapshot(at({}), "p1.worktree_before")
-        got1 = b.loop_state.get("gate_auto_args")
-    finally:
-        rules._take_diff = real_take
-        b.round = 2
-    check(r["ok"] and got2 == f"--auto {head}", f"ゲートの実効性: 2 周目の頭は前の周の頭の版から自動の腕を撃つ引数を組む（{got2!r}）")
-    check(got1 == "", f"ゲートの実効性: 前の周の頭の版が無い周は引数を空にする（不在の語を引数に貼らない。{got1!r}）")
     V = rules.validator_module(b)
     b.record = {"units": [{"key": u, "label": "block"} for u in ("u1", "u2", "u3")],
                 "questions": [{"key": "q", "kind": "fork", "status": V.ASKING[0], "origin": "u1", "depends": ["u2"]}]}
@@ -3315,6 +3541,206 @@ def test_delta_conditions():
         got = str(e)
     check(got == "通った", f"修正差分のレビュー: 差分の記録が無い回も、空の返答は落ちずに受ける（{got[:70]}）")
     rm(tmp)
+
+
+def _lane_arm(name, **k):
+    return {**PROVEN_ARM, "arm": name, **k}
+
+
+LANE_PATCH = ("diff --git a/tests/test_lane.py b/tests/test_lane.py\nnew file mode 100644\n--- /dev/null\n+++ b/tests/test_lane.py\n"
+              "@@ -0,0 +1 @@\n+def test_lane(): pass\n")
+
+
+def test_lane_graph_shape():
+    """**変異の検算は周の締めを止めない。** p4.ci・p4.scalars・手直しの義務・R1〜R4・周の記録・converge のどれも、
+    線（p3.delta_gates）を deps で（間接にも）待たない。待っていたとき、4 周目は検算 172 分と手直し 167 分を締めの前に待った"""
+    print("並行の線: 締めの節は線を待たず、線は背景で立てる受領の節で、最後の関門だけが converge の前に在る")
+    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    nodes = g["nodes"]
+
+    def closure(nid, seen=None):
+        seen = set() if seen is None else seen
+        for d in nodes[nid].get("deps", []) + nodes[nid].get("instance_deps", []):
+            if d not in seen:
+                seen.add(d)
+                closure(d, seen)
+        return seen
+    waiting = [n for n in ("p4.ci", "p4.scalars", "p3.delta_owed", "p3.delta_fix", "r1.minimality", "r2.compare", "r3.coherence",
+                           "r4.hidden_scope", "p4.record", "converge", "report") if "p3.delta_gates" in closure(n)]
+    check(waiting == [], f"並行の線: 締めの節は線を待たない（待っている節: {waiting}）")
+    check(nodes["p3.delta_gates"]["delegate"].get("background") is True and "p3.gates_cut" in nodes["p3.delta_gates"]["deps"],
+          "並行の線: 線は修正と手直しが済んだ版（p3.gates_cut）の後に、背景の任せ先で立てる")
+    check("p4.final_gates" in nodes["converge"]["deps"] and nodes["p4.final_gates"]["cond"] == {"builtin": "would_converge"},
+          "最後の関門: converge は関門を待ち、関門は収束しうる周にだけ撃つ")
+    check("p3.lane_merge" in nodes["p3.fix"]["deps"], "合流: 線が足したテストは修正の前に重なる（この周の修正差分に載る）")
+
+
+def test_lane_rules():
+    """線の結果の読み方・判定への渡し方・合流・最後の関門を、盤面を手で組んで直に見る"""
+    print("並行の線の規則: 見逃しに全部答えた結果だけを使い、閉じなかった見逃しは 1 度だけ判定へ、patch は当たる物だけ重ね、関門は最終の版だけを数える")
+    _td, tmp = parallel.workspace("gl-lane-")
+    (tmp / "a.py").write_text("A = 1\n", encoding="utf-8")
+    for c in (["init", "-q"], ["config", "user.name", "t"], ["config", "user.email", "t@t"], ["add", "-A"], ["commit", "-qm", "x"]):
+        subprocess.run(["git", *c], cwd=tmp, capture_output=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
+    rules = load_review_rules(tmp)
+    from engine.schema import load_graph  # noqa: E402
+    graph, _ = load_graph(PLUGIN / "graphs" / "review-loop.json")
+    board = tmp / ".git" / "gl-board"
+    (board / "lanes").mkdir(parents=True)
+    outs = {}
+    b = types.SimpleNamespace(round=2, loop_state={}, dir=board, nodes=graph["nodes"], graph=graph,
+                              state={"validator": str(VALIDATOR), "inputs": {}},
+                              record={"units": [], "questions": [], "materials": {}, "process": {}},
+                              output_of_round=lambda n, r: outs.get(n) if r == 2 else None)
+    good = lambda rev, **k: {"rev": rev, "arms": [_lane_arm("ok"), _lane_arm("miss", red_confirmed=False)],
+                             "handled": [{"key": "arm:miss", "handled": "defect", "how": "変異した方が仕様に合う（検査用）"}],
+                             "patch": "", "suite": {"command": "bash run.sh", "exit": 0}, **k}
+    E = lambda out, final=False: rules._lane_errors(b, out, head, final)
+    check(E(good(head)) == [], f"線の結果: 見逃しに全部答えた結果は通る（{E(good(head))}）")
+    for bad, want, desc in [
+            (good(head, handled=[]), "に答えが無い", "見逃した腕に答えの無い結果"),
+            (good(head, handled=good(head)["handled"] + [{"key": "arm:ok", "handled": "equivalent", "how": "見逃していない腕（検査用）"}]),
+             "見逃した腕に無い", "見逃していない腕に答えた結果"),
+            ({**good(head), "rev": "0" * 40}, "名指しの版", "名指しと違う版を撃った結果"),
+            (good(head, suite={"command": "bash run.sh", "exit": 1}), "緑でない", "テスト一式が赤の結果"),
+            (good(head, handled=[{"key": "arm:miss", "handled": "tests_added", "how": "テストを足した（検査用）"}]), "patch", "テストを足したのに patch が無い結果"),
+            (good(head, arms=[_lane_arm("nohit", hit_evidence="")], handled=[]), "arm:nohit", "当たりの証拠の無い腕を見逃しと数えない結果")]:
+        got = "; ".join(E(bad))
+        check(want in got, f"線の結果: {desc}は使わない（{got[:90]}）")
+    got = "; ".join(E(good(head, handled=[{"key": "arm:miss", "handled": "tests_added", "how": "テストを足した（検査用）"}], patch="x.patch"), final=True))
+    check("作業ツリーに書かない" in got, f"最後の関門: テストを足した（tests_added）と言う関門の返答は拒む（{got[:80]}）")
+    # 判定への渡し方: 閉じなかった見逃し（defect・needs_test）だけ、線ごとに 1 度だけ。走っている線は渡さない
+    lane = lambda tag, st="running": {"round": 1, "rev": head, "from": head, "result": str(board / "lanes" / f"{tag}.json"),
+                                      "patch": str(board / "lanes" / f"{tag}.patch"), "state": st}
+    b.loop_state = {"lanes": {head: lane("done"), "f" * 40: {**lane("pending"), "rev": "f" * 40}}}
+    out = good(head, arms=[_lane_arm("miss", red_confirmed=False), _lane_arm("miss2", red_confirmed=False), _lane_arm("miss3", red_confirmed=False)],
+               handled=[{"key": "arm:miss", "handled": "defect", "how": "変異した方が仕様に合う（検査用）"},
+                        {"key": "arm:miss2", "handled": "needs_test", "how": "テストの足場が無い（検査用）"},
+                        {"key": "arm:miss3", "handled": "equivalent", "how": "どの入力でも同じ値になる（検査用）"}])
+    (board / "lanes" / "done.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    rows = rules._lane_faces(b)
+    keys = sorted(r["key"].split(": ", 1)[1] for r in rows)
+    check(keys == ["arm:miss", "arm:miss2"], f"判定への渡し方: 線の中で閉じなかった見逃し（defect・needs_test）だけが次の周の判定へ（{keys}）")
+    check(rules._lane_faces(b) == [], "判定への渡し方: 同じ線の見逃しは 1 度だけ渡す")
+    check(not b.loop_state["lanes"]["f" * 40].get("delivered"), "判定への渡し方: 結果を書き終えていない線は渡さない（走っている）")
+    (board / "lanes" / "pending.json").write_text("{", encoding="utf-8")
+    rows = rules._lane_faces(b)
+    check(len(rows) == 1 and "結果が使えない" in rows[0]["key"], f"判定への渡し方: 読めない結果は『使えない』の 1 行で渡す（{[r['key'] for r in rows]}）")
+    # 合流: 当たる patch は重ね、当たらない patch は重ねずに修正と次の判定へ
+    (board / "lanes" / "ok.patch").write_text(LANE_PATCH, encoding="utf-8")
+    (board / "lanes" / "ng.patch").write_text(LANE_PATCH.replace("new file mode 100644\n--- /dev/null", "--- a/tests/test_lane.py").replace("@@ -0,0 +1 @@", "@@ -1 +1 @@\n-nothing here"), encoding="utf-8")
+    added = [{"key": "arm:miss", "handled": "tests_added", "how": "テストを足してその腕の赤を見た（検査用）"}]
+    for tag, patch in (("ok", "ok.patch"), ("ng", "ng.patch")):
+        (board / "lanes" / f"{tag}.json").write_text(json.dumps(good(head if tag == "ok" else "e" * 40, handled=added, patch=str(board / "lanes" / patch))), encoding="utf-8")
+    b.loop_state = {"lanes": {head: lane("ok"), "e" * 40: {**lane("ng"), "rev": "e" * 40, "round": 2}, "d" * 40: {**lane("none"), "rev": "d" * 40}}}
+    r = rules.lane_merge(b, "p3.lane_merge")
+    lm = b.loop_state["lane_merge"]
+    check(r["ok"] and (tmp / "tests" / "test_lane.py").is_file() and [m["rev"] for m in lm["merged"]] == [head],
+          f"合流: 書き終えた線の patch を作業ツリーに重ねる（{lm}）")
+    idx = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout
+    check(idx.strip() == "", f"合流: index は触らない（{idx.strip()!r}）")
+    check([c["rev"] for c in lm["conflicts"]] == ["e" * 40] and b.loop_state["lanes"]["e" * 40]["state"] == "conflict",
+          f"合流: 当たらない patch は重ねず、修正に見せる（{lm['conflicts']}）")
+    check(b.loop_state["lanes"]["d" * 40]["state"] == "running", "合流: 結果を書き終えていない線はそのまま待つ")
+    rows = rules._lane_faces(b)
+    check(any("patch が当たらない" in x["key"] for x in rows), f"合流: 当たらなかった patch は次の周の判定にも渡る（{[x['key'] for x in rows]}）")
+    r = rules.lane_merge(b, "p3.lane_merge")
+    check(r["ok"] and b.loop_state["lane_merge"]["merged"] == [], "合流: 1 度重ねた線は重ね直さない")
+    # 最後の関門: この周の最終の版を撃ち、見逃しが全部等価で、撃った後に作業ツリーが変わっていないときだけ通る
+    subprocess.run(["git", "add", "-A"], cwd=tmp, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "y"], cwd=tmp, capture_output=True)
+    snap = rules._snapshot("検査用")
+    b.loop_state = {"gates_cut": {"round": 2, "rev": snap, "files": []}}
+    P = lambda: "; ".join(rules._final_gate_problems(b))
+    check("撃っていない" in P(), f"最後の関門: 関門の結果が無い周は通らない（{P()[:60]}）")
+    outs["p4.final_gates"] = good(snap, handled=[{"key": "arm:miss", "handled": "equivalent", "how": "どの入力でも同じ値になる（検査用）"}])
+    check(P() == "", f"最後の関門: 見逃しが全部等価で、作業ツリーが撃った版のままなら通る（{P()[:80]}）")
+    outs["p4.final_gates"] = good(snap, handled=[{"key": "arm:miss", "handled": "needs_test", "how": "テストが要る（検査用）"}])
+    check("needs_test" in P(), f"最後の関門: テストが要る見逃しが残れば通らない（{P()[:80]}）")
+    outs["p4.final_gates"] = good(snap, handled=[{"key": "arm:miss", "handled": "equivalent", "how": "どの入力でも同じ値になる（検査用）"}])
+    (tmp / "a.py").write_text("A = 2\n", encoding="utf-8")
+    check("古い" in P(), f"最後の関門: 撃った版の後にコードが変われば、関門の結果は古い（{P()[:80]}）")
+    b.loop_state = {"gates_cut": {"round": 1, "rev": snap, "files": []}}
+    check("撃っていない" in P(), "最後の関門: 前の周に固めた版の結果は数えない")
+    # 受領: 名乗る置き場がこの周の線の置き場と違えば拒む（別の置き場に書いた線は誰も読まない）
+    from engine.util import Reject  # noqa: E402
+    b.loop_state = {"gates_cut": {"round": 2, "result": str(board / "lanes" / "r2.json")}}
+    for lane_path, want in ((str(board / "lanes" / "r2.json"), "通った"), (str(board / "lanes" / "other.json"), "置き場")):
+        try:
+            rules.POST_CHECKS["lane_receipt"](b, "p3.delta_gates", {"lane": lane_path}, None)
+            got = "通った"
+        except Reject as e:
+            got = str(e)
+        check(want in got, f"受領: 線の置き場がこの周の置き場と{'同じなら通る' if want == '通った' else '違えば拒む'}（{got[:70]}）")
+    # 線の範囲の切り出し: 周の頭の版が無ければ止まり、在れば版と置き場を置く。範囲が空なら線を台帳に載せない
+    b.loop_state = {}
+    r = rules.gates_cut(b, "p3.gates_cut")
+    check(not r["ok"] and "頭の版が無い" in " ".join(r["problems"]), f"線の範囲: 周の頭の版が無い周は止まる（{r}）")
+    b.loop_state = {"head_revs": {"2": head}}
+    r = rules.gates_cut(b, "p3.gates_cut")
+    cut = b.loop_state["gates_cut"]
+    check(r["ok"] and "a.py" in cut["files"] and cut["rev"] in b.loop_state["lanes"] and rules.gates_cut_nonempty(b)
+          and cut["result"].startswith(str(board / "lanes")) and cut["reply_schema"].get("required"),
+          f"線の範囲: 周の頭からこの版までの変更を置き、線の置き場と結果の型を渡す（{cut.get('files')}）")
+    (tmp / "a.py").write_text("A = 1\n", encoding="utf-8")
+    subprocess.run(["git", "checkout", "-q", "--", "."], cwd=tmp, capture_output=True)
+    b.loop_state = {"head_revs": {"2": rules._snapshot("検査用")}}
+    rules.gates_cut(b, "p3.gates_cut")
+    check(not rules.gates_cut_nonempty(b) and not b.loop_state.get("lanes"), "線の範囲: 周の頭から変わっていなければ線を立てない")
+    b.loop_state["gates_cut"]["round"] = 1
+    check(not rules.gates_cut_nonempty(b), "線の範囲: 前の周に固めた範囲では線を立てない")
+    rm(tmp)
+
+
+def test_lane_end_to_end():
+    """線を待たずに周が進み、線が後で書いた結果が合流し、最後の関門が収束を止める——端から端まで"""
+    print("並行の線（端から端）: 線の結果が無くても周は進み、後で書いた結果の patch は修正の前に重なり、閉じなかった見逃しは次の判定へ、関門は収束を止める")
+    run = Run("lane")
+    seen = {"lane_written": False, "gate_calls": 0}
+
+    def hook(run_, inst, out):
+        st = run_.state()
+        if inst["node"] == "p2.history" and st["round"] == 2 and not seen["lane_written"]:
+            # 1 周目の線は 2 周目の判定の頃に書き終えた——結果と patch を置き場に書く（線の役の代わり）
+            lane = next(x for x in st["loop"]["lanes"].values() if x["round"] == 1)
+            pathlib.Path(lane["patch"]).write_text(LANE_PATCH, encoding="utf-8")
+            res = {"rev": lane["rev"], "arms": [PROVEN_ARM, _lane_arm("線の見逃し", red_confirmed=False), _lane_arm("線の欠陥", red_confirmed=False)],
+                   "handled": [{"key": "arm:線の見逃し", "handled": "tests_added", "how": "テストを足してその腕の赤を見た（検査用）"},
+                               {"key": "arm:線の欠陥", "handled": "defect", "how": "変異した方が仕様に合う（検査用）"}],
+                   "patch": lane["patch"], "suite": {"command": "pytest（検査用）", "exit": 0}}
+            pathlib.Path(lane["result"]).write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+            seen["lane_written"] = True
+            check(not any("線 r1" in r["key"] for r in st["loop"].get("prev_declared_faces") or []),
+                  "並行の線: 2 周目の頭では 1 周目の線はまだ走っている——判定に渡る物は無い（周は線を待たずに進んだ）")
+        if inst["node"] == "p4.final_gates":
+            seen["gate_calls"] += 1
+            if seen["gate_calls"] == 1:
+                # 最初の関門はテストの要る見逃しを 1 本見つける——収束せず次の周の判定へ
+                return {**out, "arms": [PROVEN_ARM, _lane_arm("関門の見逃し", red_confirmed=False)],
+                        "handled": [{"key": "arm:関門の見逃し", "handled": "needs_test", "how": "この分岐を殺すテストが無い（検査用）"}]}
+            # 2 回目の関門の見逃しは振る舞いの変わらない変異だけ——等価の宣言は関門を止めない
+            return {**out, "arms": [PROVEN_ARM, _lane_arm("関門の等価", red_confirmed=False)],
+                    "handled": [{"key": "arm:関門の等価", "handled": "equivalent", "how": "どの入力でも同じ値を返す変異（検査用）"}]}
+        return out
+    last = drive(run, "std", hook=hook)
+    st = run.state()
+    check(last["status"] == "converged" and seen["gate_calls"] == 2, f"最後の関門: 見逃しの残る関門は収束を止め、次の周で通って収束する（{last['status']}・関門 {seen['gate_calls']} 回・{st['round']} 周）")
+    fd2 = (run.dir / "fix-delta-r2.patch")
+    check(fd2.is_file() and "tests/test_lane.py" in fd2.read_text(encoding="utf-8"),
+          "合流: 線が足したテストは 2 周目の修正の前に重なり、2 周目の修正差分に載る（差分レビューの目に入る）")
+    h3 = json.loads((run.dir / "out" / "r3" / "p2.history.json").read_text(encoding="utf-8"))
+    routed = [r["key"] for r in h3.get("declared_routed") or []]
+    check(any("arm:線の欠陥" in k for k in routed) and not any("arm:線の見逃し" in k for k in routed),
+          f"合流: 線がテストで閉じられなかった見逃し（defect）だけが、書き終えた後の周の判定に届く（{routed}）")
+    last_r = st["round"]
+    hl = json.loads((run.dir / "out" / f"r{last_r}" / "p2.history.json").read_text(encoding="utf-8"))
+    check(any("最後の関門" in r["key"] for r in hl.get("declared_routed") or []),
+          f"最後の関門: 関門が見つけた、テストの要る見逃しは次の周の判定に届く（{[r['key'] for r in hl.get('declared_routed') or []]}）")
+    lanes = run.record()["process"].get("lanes") or []
+    check(lanes and lanes[0]["state"] == "merged" and lanes[0]["open"] == ["arm:線の欠陥"],
+          f"記録: 線の台帳の要約（合流したか・閉じなかった見逃し）が process.lanes に残る（{lanes[:2]}）")
+    rm(run.tmp)
 
 
 def test_stuck_routed_at_judge():
@@ -3387,16 +3813,16 @@ def test_fix_plan_review():
     r = run.done(item["id"], {**good, "checks": [{**good["checks"][0], "closed": False, "why": "差分で上限の値がまだ 2 か所に在る（検査用）"}]})
     check(r.returncode == 0, f"修正差分のレビュー: 塞がっていない検算は faces に書き直さずに通る（{r.stderr.strip()[-80:]}）")
     # **義務は描画された本文で役に届く**（台本が key を知っている前提で答えると、見せる道が無くても緑になる）。
-    # 1 回目: 穴・塞がっていない検算・証拠にならない腕の 3 成分が、手直しの役のプロンプトに全部載る
+    # 1 回目: 穴と塞がっていない検算の 2 成分が、手直しの役のプロンプトに全部載る。**変異の検算の見逃しは載らない**——
+    # 検算は周の締めを止めない並行の線で、見逃しへの答えも線が持つ（載っていたとき、手直しが検算の終わりを待った）
     nx = drive(run, "planfaces", stop_at=at("p3.delta_fix"))
     item = next(i for i in nx["ready"] if i["node"] == "p3.delta_fix")
     body = pathlib.Path(item["prompt_file"]).read_text(encoding="utf-8")
-    for k in ("入口: 呼び元の上限が残る", "写し: 上限の値を 2 か所に", "arm:上限の分岐（腕が無い）"):
-        check(k in body, f"手直しの義務: 1 回目の手直しのプロンプトに key『{k}』が載る（穴・塞がっていない検算・腕の 3 成分）")
+    for k in ("入口: 呼び元の上限が残る", "写し: 上限の値を 2 か所に"):
+        check(k in body, f"手直しの義務: 1 回目の手直しのプロンプトに key『{k}』が載る（穴・塞がっていない検算の 2 成分）")
+    check("arm:" not in body.split("修正の差分:")[0], "手直しの義務: 変異の検算の見逃し（arm:<腕>）は手直しの義務に入らない（線が答える）")
     refused("p3.delta_fix", lambda o: {"handled": [h for h in o["handled"] if h["key"] != "写し: 上限の値を 2 か所に"]},
             "写し: 上限の値を 2 か所に", "修正差分の穴: 塞がっていない検算に答えない手直しは拒む")
-    refused("p3.delta_fix", lambda o: {"handled": o["handled"][:1]},
-            "arm:上限の分岐（腕が無い）", "修正差分の穴: 修正差分の腕で証拠にならなかった分岐に答えない応答は拒む")
     refused("p3.delta_fix", lambda o: {"handled": [{**o["handled"][0], "files": []}] + o["handled"][1:]},
             "files が空", "修正差分の穴: fixed なのに触ったファイルが無い応答は拒む")
     refused("p3.delta_fix", lambda o: {"handled": [{**o["handled"][0], "key": "レビューに無い穴（検査用）"}] + o["handled"][1:]},

@@ -3591,6 +3591,28 @@ part_out.write_text(json.dumps(part, ensure_ascii=False), encoding="utf-8")
 r = run_mutate("--only", "norm1,norm2", "--reuse", str(part_out), out=mini / "cont.json")
 assert r.returncode == 0 and "撃つ腕 1 本" in r.stdout and "持ち越し 1 本" in r.stdout, \
     f"pending を持つ結果から続きを撃つはずが: exit {r.returncode} {r.stdout}"
+# **撃つ途中で期限が来る**: 期限の手前（TIMEOUT＋TAIL 秒前）を過ぎたら、まだ始まっていない腕を取り消して pending にし、走っている腕は
+# 待って結果に入れる。-j 1 で [速い腕・12 秒眠る腕・速い腕] を撃ち、切り替わりを 8 秒後に置く（眠る腕が走っている間に来る）。
+# 選んだ腕は、撃った腕か pending のどちらかにちょうど 1 度ずつ載る（取り消した腕を結果として読む・撃った腕を 2 度載せる・
+# 走っていた腕を落とす、のどれでも崩れる）
+sys.path.insert(0, str(REAL_TESTS))
+import datetime, mutate as _M
+slow_doc = json.loads((mini / "tests" / "mutations.json").read_text(encoding="utf-8"))
+slow_doc["arms"] = [slow_doc["arms"][0],
+                    {"id": "slow1", "title": "台本を 12 秒眠らせる", "file": "tests/run.sh", "suite": "root",
+                     "old": "set -uo pipefail", "new": "set -uo pipefail\nsleep 12", "expect": "classify は閾値超えで pos"},
+                    slow_doc["arms"][1]]
+(mini / "slow-arms.json").write_text(json.dumps(slow_doc, ensure_ascii=False), encoding="utf-8")
+cut = datetime.datetime.now().astimezone() + datetime.timedelta(seconds=_M.TIMEOUT + _M.TAIL + 8)
+sl_out = mini / "slow.json"
+r = run_mutate("-j", "1", "--arms-file", str(mini / "slow-arms.json"), "--deadline-at", cut.isoformat(), out=sl_out)
+sl = json.loads(sl_out.read_text(encoding="utf-8"))
+shot_ids = [x["id"] for x in sl["arms"]]
+pend_ids = [x["id"] for x in sl.get("pending") or []]
+assert r.returncode == 1 and "Traceback" not in r.stderr, f"途中で期限が来た回は exit 1 で、例外を出さない: exit {r.returncode} {r.stderr[-300:]}"
+assert sorted(shot_ids + pend_ids) == ["norm1", "norm2", "slow1"], f"選んだ腕が撃った腕か pending にちょうど 1 度ずつ載らない: 撃った {shot_ids} / pending {pend_ids}"
+assert "norm2" in pend_ids and "norm1" in shot_ids, f"期限の後に始まる腕は取り消して pending に、期限の前に済んだ腕は結果に: 撃った {shot_ids} / pending {pend_ids}"
+
 # **腕 1 本ごとに --out を書き直す**——撃つ途中で殺しても、撃てた腕と残りの腕が読める形で残る
 mid_out = mini / "mid.json"
 proc = subprocess.Popen([PY, MUT, "-j", "1", "--only", "norm1,norm2", "--out", str(mid_out)], cwd=mini,
@@ -3721,6 +3743,9 @@ FORMS = {
     "EXPECTED_CHECKS": 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then',
     "VOCAB_REACHED": "    check(reached == VOCAB_REACHED,",
     "EXPECTED_TESTS": 'if [ "$tests" -ne "$EXPECTED_TESTS" ]; then',
+    # pytest の置き場の件数の定数。突合の != は fence.py の中で、ここは定数を柵に渡す 1 行を固定する
+    # （fence.py の != を緩めた退行は、graphloops/tests/py/test_fence.py が両向きの不一致で赤にする）
+    "EXPECTED_ITEMS": "    fence.install(config, HERE, EXPECTED_ITEMS)",
 }
 # **母数は宣言から取り、表に無い名前には理由を要求する。** FORMS に名前を 2 つ手で並べていたので、
 # 新しいラチェットを足した周にその 1 本が黙って表の外へ落ちる形だった。検査の置き場に在る整数の定数を

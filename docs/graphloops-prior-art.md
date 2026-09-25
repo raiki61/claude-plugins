@@ -84,9 +84,11 @@ engine が持つ機能は 7 つある。依存関係を持つ工程（DAG）の�
 
 全面の置き換えは、駆動器型（taskflow・task-orchestrator）と Claude Code の Workflow に対しては構造でできず、ライブラリ型（LangGraph）に対しては組めるが割に合わない。
 
+> 2026-09-25: この結論の前提（役はメインの会話からしか起こせない・基盤に任せられるのは約 400 行・pip の依存を足さない）が崩れたので、考え直しを [graphloops-rearchitecture.md](graphloops-rearchitecture.md) の 2 章に置いた。今の方針はそちらを見よ。
+
 ライブラリ型に置き換えたときの取り分は行数で見積もれる。engine の 1,091 行のうち、日程管理と永続化に当たるのは advance.py と board.py と commands.py の一部で、空行と注釈を除いて約 400 行（実測は 2026-09-12。機能への分類は筆者）。LangGraph に載せると、この 400 行の代わりに JSON のグラフを StateGraph に翻訳する層を書き、周をまたぐ参照・被覆の再発行・instance_deps による早出し・once・active_in・same_context_as は対応物が無いので翻訳層で同じ意味を書き直す。役の返答を保存する out/ と記録の record.json はセッションと検証器が読むので残り、LangGraph の checkpoint と保存が二重になる。差し引きの行数はほぼゼロか増え、代わりにプラグインを入れる全員の開発機で依存の解決（pip か uv と初回の取得）が要る。最も近い既存物は taskflow だが、DAG を自分のプロセスで回し、Claude Code を隔離セッションとして起動する駆動器型で、メインの会話を実行者にはしない。
 
-部分の置き換えは成立しうる。位相順の計算は Python 標準ライブラリの graphlib で足りる（engine は既にそれを使う）。subagent の起動は Claude Code の Agent 機能に載っている。門番は hook にある。Claude Code の Workflow は「メインの会話が実行する節を含まない直線区間」（checker→refuter の扇など）に限り使える。
+部分の置き換えは成立しうる。位相順の計算は Python 標準ライブラリの graphlib で足りる（engine は既にそれを使う）。subagent の起動は Claude Code の Agent 機能に載っている（**2026-09-25 に改めた**: 役は engine が `claude -p` の非対話実行——公式の `--agent`・`--resume`・`--output-format json`・権限の明示——で子プロセスとして起こす形に移した。Agent 機能で起こすと役の返答が回す側の会話に入り、それを避けるために挟んだ中継の AI が、書いていないのに『書いた』と返す・続きの返答が回す側に戻る・完了の知らせが迷って 7 時間止まる、を起こした。起こす関数は `graphloops/engine/role_run.py`）。門番は hook にある。Claude Code の Workflow は「メインの会話が実行する節を含まない直線区間」（checker→refuter の扇など）に限り使える。
 
 置き換えの取り分には上限がある。消えるのはスケジューリングの核だけで、rules 936 行と prompts 51 本はループ固有の意味なので残る。engine を「ループの中身を知らない」と定義した時点で、取り分は engine の一部に切られている。
 

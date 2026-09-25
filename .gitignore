@@ -4,3 +4,9 @@ __pycache__/
 # ラウンド記録は作業ファイル（docs/customize.md「ラウンド記録の置き場所」）。
 # 自分自身に /review-loop を当てるとここに溜まる。
 .claude/review-rounds/
+
+# pytest と変異テストの作業ファイル（開発の間だけ。graphloops/README.md の「検査」節）。
+# プラグインは git で配るので、版に入れなければ利用者に届かない
+.pytest_cache/
+mutants/
+.testmondata

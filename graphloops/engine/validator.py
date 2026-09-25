@@ -98,7 +98,7 @@ def agent_def(agent_type):
     """役割 agent の定義（<plugin>:<役> の agents/<役>.md）を読む——道具・モデル・effort と本文（役の指示）。
 
     None = 定義が見つからない（接頭の無い組み込み agent を含む）。tools の行が無い定義は全部を継承する（[] は道具なし）。
-    本文が要るのは、道具ゼロの役を別プロセスの CLI で起こすときに system prompt として渡すため（launch_cli）。
+    本文が要るのは、役を別プロセスの CLI で起こすときに system prompt として渡すため（advance.launch_spec。道具ゼロの役も道具つきの役も）。
     """
     plugin, _, role = agent_type.rpartition(":")
     if not plugin:

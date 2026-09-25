@@ -17,6 +17,12 @@ class Reject(Exception):
     """受け付けない（exit 1）。直して呼び直せる。"""
 
 
+class AnswerReject(Reject):
+    """**返答の中身・形**が受け付けられない（読めない・型に合わない・記録の整合が取れない）。役に理由を返せば直せる
+    ——engine が起こした役なら、同じ会話に続きを頼む（loop.py launch）。それ以外の Reject（節が待っていない・
+    作業ツリーが変わった・前段が済んでいない）は役に返しても直らないので、続きを頼まずに回す側へ上げる。"""
+
+
 def now():
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -30,9 +36,9 @@ def deadline_of(graph, node, emitted_at):
     return (datetime.datetime.fromisoformat(emitted_at) + datetime.timedelta(minutes=minutes)).isoformat(timespec="seconds")
 
 
-def waiting(inst, at=None):
+def waiting(inst):
     """待っている instance の経過と期限——{elapsed_min, deadline_at, overdue, attempts}。**その場で計算し、盤面には書かない**"""
-    t = datetime.datetime.fromisoformat(at or now())
+    t = datetime.datetime.fromisoformat(now())
     got = {"elapsed_min": int((t - datetime.datetime.fromisoformat(inst["emitted_at"])).total_seconds() // 60),
            "attempts": inst.get("attempts", 1)}
     if inst.get("deadline_at"):

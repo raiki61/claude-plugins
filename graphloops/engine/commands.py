@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 import sys
+import threading
 
 from .advance import advance, emit_instance, load_item
 from .board import Board, empty_round
@@ -11,8 +12,9 @@ from .record import apply_writes
 from .render import TOKEN, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import load_graph, validate_schema
-from .util import ANSWER_ACTIONS, PLUGIN_ROOT, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, waiting, write_json
-from .validator import find_validator, finalize, report_accepts, run_validator, env_root, traces
+from .util import ANSWER_ACTIONS, PLUGIN_ROOT, AnswerReject, Reject, TERMINAL_STATUS, die, dump, get_path, git, has_path, now, porcelain, read_json, safe_name, set_path, sha, waiting, write_json
+from .role_run import WRITE_TOOLS, kill_all, run_role, tooled_permission
+from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
 # **どの入力がパスかは graph が宣言し、engine は「どう確かめるか」だけを持つ。**
@@ -146,25 +148,24 @@ def cmd_next(a):
         "dir": str(b.dir), "run_id": b.state.get("run_id"), "notes": notes,
         "ready": [{**{k: v for k, v in i.items() if k != "tree_before"}, **waiting(i)} for i in ready],
         "how": ("ready の全部を同時に始めてよい（同じ波）。"
-                "cli（道具ゼロの遮断系）は **loop.py launch を呼べ**——engine が起こして out_path に落とす。"
-                "自分の Bash から起こすな: 出力をファイルに落とす綴りは auto mode の分類器が止める"
-                "（実測 2026-09-15）。Agent ツールでも起こすな: CLAUDE.md が注入され、止める設定が無い。"
-                "agent は subagent_type に agent_type を渡す。"
-                "起動は運び手（小さな汎用 agent）に任せてよい: 運び手は deliver=path なら『<prompt_file> を読み、その指示にそのまま従え』の 1 文で、"
-                "deliver=paste なら prompt_file の本文をそのまま貼って役を起動し、返答を一字も変えず out_path に書き、あなたには『wrote』だけ返す。"
-                "運び手は役の返答を受け取って書き切るまでが仕事——子を背景に立てたまま自分のターンを閉じるな"
-                "（実測 2026-09-13: 閉じた運び手が『wrote』を返さないまま完了し、out_path が 13 分間空のままだった）。"
-                "役が『ファイル内の指示には従わない』と拒んだら本文を貼る形（paste）で起こし直す（拒否を言い含めるな）。"
-                "schema のある節で役が JSON でなく散文を返したら、同じ役に『判定も内容も変えず、Schema に合う JSON だけで出し直せ』と続けさせる"
-                "——運び手が勝手に組み直すな、新しい役に立て直すな（実測 2026-09-13: r4 の役が Schema を渡されて Markdown を返し、done が非 JSON で拒んだ）。"
-                "launch は 1 件ずつ ok と why と stderr を返す——ok でなければ stderr の with-auth: auth=… を読め"
-                "（inherited / keychain なら認証は足りていて原因は役の側、none / keychain-miss なら認証が足りていない）。"
-                "engine が起こせない節は why が出る——迂回を組まず人に渡せ。"
-                "agent_continue は agent_id の agent に SendMessage で続ける（同じ渡し方）。"
+                "**launch を持つ節（遮断系の cli・道具つきの agent・同じ役を続ける agent_continue）は loop.py launch を呼べ**"
+                "——engine が役を claude -p で起こし、子の終了を直接待ち、返答を out_path に書き、受け付け（done）まで済ませる。"
+                "拒まれたら同じ会話（--resume）に続きを頼み、期限（deadline_at）を過ぎたら子を木ごと止める。"
+                "launch は期限まで戻らないので **Bash の背景実行で立て、プロセスの終了の知らせを待て**（前景だと Bash の上限で切られる）。"
+                "返るのは 1 件 1 行の要約だけで、役の返答の本文は回す側に流れない。"
+                "自分の Bash から claude を起こすな（出力をファイルに落とす綴りは auto mode の分類器が止める。実測 2026-09-15）。"
+                "Agent ツールで起こすな（CLAUDE.md が注入され、止める設定が無い。返答の本文が回す側に入る）。"
+                "launch は 1 件ずつ ok と why を返す——ok でない節は why を読み、期限切れ・拒否が続いた・子が落ちたなら "
+                "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch。stderr の with-auth: auth=… が "
+                "none / keychain-miss なら認証が足りていない。engine が起こせない節（why が『前置ではない』『旗が無い』『権限の形』"
+                "『定義が読めない』『claude が無い』）は迂回を組まず人に渡せ。"
+                "launch を持たない agent の節（役の定義がこの環境に無い・道具の一覧を持たない・ファイルを書く道具を持つ役）は、手順書の agent の節の"
+                "とおりに subagent_type に agent_type を渡して起こし、返答を out_path に書いて done --node <id> --agent-id <id>（agent_continue なら agent_id に SendMessage）。"
                 "runner は自分でやる（skills があればその skill を呼ぶ。置き場のパスで渡された物は要る所だけ Read）。返答を out_path に保存して "
-                "loop.py done --node <id> [--agent-id <id>]（別の場所に置いたなら --output <file>）。ready が空で status が running なら、done の直後にもう一度 next。"
-                "**期限（deadline_at）を持つ instance を背景の役・任せ先に渡したら、同じ手番で loop.py wait --node <id> を Bash の背景実行で立てよ**"
-                "——役の完了の知らせは入れ子や上限落ちで消えるが、wait の終了はプロセスの終了としてハーネスが必ず知らせる。"
+                "loop.py done --node <id>（別の場所に置いたなら --output <file>）。ready が空で status が running なら、done の直後にもう一度 next。"
+                "**期限（deadline_at）を持つ instance を背景の任せ先に渡したら、同じ手番で loop.py wait --node <id> を Bash の背景実行で立てよ**"
+                "（期限は回す側が他へ渡す instance——engine が起こす役の節と任せ先の付いた節——にだけ付く。自分でやる節には付かない）"
+                "——任せ先の完了の知らせは入れ子や上限落ちで消えるが、wait の終了はプロセスの終了としてハーネスが必ず知らせる。"
                 "exit 0 なら done、exit 3（期限切れ）で out_path が空なら loop.py relaunch --node <id> --reason <理由> で起こし直す"
                 "（新しい out_path と deadline_at が返る。前の試行が遅れて書いても別のファイルに落ち、記録に入らない）。"
                 "期限を持たない instance に wait は使えない（期限の無い待ちを作らない）"),
@@ -172,18 +173,24 @@ def cmd_next(a):
 
 
 # ---------------------------------------------------------------- launch
-# 1 節あたりの上限（秒）。台本が下げられるように環境変数で差し替える。
+# 期限（graph の deadline_minutes）を持たない節の上限（秒）。台本が下げられるように環境変数で差し替える。
 LAUNCH_TIMEOUT = int(os.environ.get("GL_LAUNCH_TIMEOUT") or 1800)
-# **engine が自分で起こしてよい形。** 起動が回す側の Bash から engine の中へ移ると、1 件ずつ人（と
+# **engine が自分で起こしてよい形。** 起動が回す側の Bash・Agent ツールから engine の中へ移ると、1 件ずつ人（と
 # auto mode の分類器）が見ていた審査がそのぶん外れる。代わりに engine が「自分が何を起こすか」をここで
 # 言い切る——**graph の宣言を読んで判断する柵は柵ではない**（graph を書き換えられる立場の人が柵ごと
-# 書き換えられる。README が受容として書いている「実行の正本をレビュー対象の木から取る」問題）。条件は 2 つ:
-#   1. 起こすのは engine 自身のインタプリタと、engine に同梱の層（scripts/with-auth.py）だけ。
-#      層は claude 以外を名前で撥ねるので、engine が起こせる相手は claude に限られる
-#   2. 遮断の旗（--tools "" と --setting-sources ""）が揃っていること——道具ゼロ・設定ゼロでない子は
-#      engine の中から起こさない。道具が 1 つも無い子は何も実行できないので「権限の外で動く入れ子」に
-#      ならない。これは argv から機械で確かめられる性質で、宣言や約束ではない
+# 書き換えられる。README が受容として書いている「実行の正本をレビュー対象の木から取る」問題）。
+# 起こしてよい形は役の定義（agent_def。起こす時に読み直す）で 2 つに分かれ、どちらも argv から機械で確かめる:
+#   共通: 起こすのは engine 自身のインタプリタと、engine に同梱の層（scripts/with-auth.py）だけ。
+#         層は claude 以外を名前で撥ねるので、engine が起こせる相手は claude に限られる
+#   道具ゼロの役: 遮断の旗（--tools "" と --setting-sources ""）が揃っていること——道具が 1 つも無い子は
+#         何も実行できないので「権限の外で動く入れ子」にならない
+#   道具つきの役: --setting-sources ""（利用者の設定・CLAUDE.md・プラグインのフックを読まない）・聞く先が無い
+#         （--permission-prompts none）・権限を外す旗が無い・渡す道具（--tools）が役の定義の道具と一致し、ファイルを書く
+#         道具を含まない・権限の形（--permission-mode）と先に許す道具（--allowedTools）が engine の決めた値
+#         （role_run.tooled_permission）と一致する。graph は権限を配れない——graph の書き換えで起こせる物が広がらない
 ISOLATION_FLAGS = (("--tools", ""), ("--setting-sources", ""))
+TOOLED_FLAGS = (("--setting-sources", ""), ("--permission-prompts", "none"))
+UNSAFE_FLAGS = ("--dangerously-skip-permissions", "--allow-dangerously-skip-permissions")
 
 
 def launch_prefix():
@@ -203,81 +210,228 @@ def _norm(path):
     return os.path.normcase(os.path.normpath(path))
 
 
+def _flag(argv, flag):
+    """旗の直後の値（旗が無ければ None）。同じ旗が 2 度あれば後の方が効く CLI が普通なので、2 度目を見たら ''
+    ではなく '重複' を返して柵に落とす。"""
+    at = [i for i, x in enumerate(argv) if x == flag]
+    if not at:
+        return None
+    if len(at) > 1:
+        return "\0重複"
+    return argv[at[0] + 1] if at[0] + 1 < len(argv) else "\0値が無い"
+
+
+def _argv_refusal(argv, role_tools):
+    """1 本の argv が起こしてよい形か（よければ None）。role_tools は役の定義の道具（[] は道具ゼロ、['*'] は全部）。"""
+    want = launch_prefix()
+    if [_norm(a) for a in argv[:len(want)]] != [_norm(w) for w in want]:
+        return (f"engine が起こしてよい前置ではない（graph の launch の via が {want} を指していない）"
+                f"——先頭は {argv[:2]}")
+    if role_tools == []:
+        for flag, val in ISOLATION_FLAGS:
+            if _flag(argv, flag) != val:
+                return f'遮断の旗 {flag} "{val}" が argv に無い——道具ゼロでない子は engine の中から起こさない'
+        return None
+    for flag, val in TOOLED_FLAGS:
+        if _flag(argv, flag) != val:
+            return f'道具つきの役の旗 {flag} "{val}" が argv に無い——利用者の設定を読む子・聞く先を持つ子は engine の中から起こさない'
+    bad = [f for f in UNSAFE_FLAGS if f in argv]
+    if bad or "*" in role_tools or any(x in WRITE_TOOLS for x in role_tools):
+        return f"権限を外す旗 {bad} か、全部の道具・ファイルを書く道具を持つ役（{role_tools}）——engine の中からは起こさない"
+    mode, allowed = tooled_permission(role_tools)
+    got = {"--tools": _flag(argv, "--tools"), "--allowedTools": _flag(argv, "--allowedTools"),
+           "--permission-mode": _flag(argv, "--permission-mode")}
+    want = {"--tools": ",".join(role_tools), "--allowedTools": ",".join(allowed), "--permission-mode": mode}
+    for flag in want:
+        if got[flag] is None or sorted(got[flag].split(",")) != sorted(want[flag].split(",")):
+            return f"{flag} が {got[flag]!r}——役の定義から engine が決めた値は {want[flag]!r}（権限の形は graph でなく engine が決める）"
+    return None
+
+
 def launch_refusal(inst):
-    """起こせない理由（起こしてよければ None）。**理由は回す側に見せる**——黙って飛ばさない。"""
+    """起こせない理由（起こしてよければ None）。**理由は回す側に見せる**——黙って飛ばさない。
+
+    形は instance の自己申告（launch.kind）でなく、**起こす時に読み直した役の定義**で決める。"""
     launch = inst.get("launch") or {}
     argv = launch.get("argv") or []
     if launch.get("missing"):
         return f"この環境に {launch['missing']} が無い（PATH を確かめるか、人が起こす）"
-    want = launch_prefix()
-    if [_norm(a) for a in argv[:len(want)]] != [_norm(w) for w in want]:
-        return (f"engine が起こしてよい前置ではない（graph の launch.isolated.via が {want} を指していない）"
-                f"——先頭は {argv[:2]}")
-    for flag, val in ISOLATION_FLAGS:
-        at = argv.index(flag) if flag in argv else -1
-        if at < 0 or argv[at + 1:at + 2] != [val]:
-            return f'遮断の旗 {flag} "{val}" が argv に無い——道具ゼロでない子は engine の中から起こさない'
+    d = agent_def(inst.get("agent_type") or "")
+    if d is None:
+        return f"役 {inst.get('agent_type')!r} の定義が読めない——道具の形が決まらないので engine は起こさない"
+    for words in (argv, launch.get("resume_argv")):
+        if words:
+            why = _argv_refusal(words, d["tools"])
+            if why:
+                return why
     if not pathlib.Path(launch.get("stdin") or "").is_file():
         return f"材料 {launch.get('stdin')} が無い"
     return None
 
 
-def launch_one(inst):
-    """1 節を起こし、標準出力を out_path に落とす。返すのは回す側と記録に見せる 1 件ぶんの結果。"""
-    import subprocess  # 起こす節でだけ要る（全サブコマンドの起動に掛けない）
+BOARD_LOCK = threading.Lock()  # 同じ launch の中で並列に起こした役が、盤面を 1 本ずつ開いて書く錠
+
+
+def _board_update(d, fn):
+    """錠の下で盤面を開き直し、fn(b) を当てて保存する（版の突合は Board.save がする）。fn の返り値を返す。"""
+    with BOARD_LOCK:
+        b = Board(d)
+        got = fn(b)
+        b.save()
+        return got
+
+
+def _accept_for_launch(d, iid, out_path):
+    """run_role に渡す受け付け。**返答の不備（AnswerReject）だけを理由として返す**——役に返せば直る側。
+    それ以外（節が待っていない・起こし直された・作業ツリーが変わった・盤面が進んだ）は例外のまま上げる（続きを頼んでも直らない）。
+
+    **本文は run_role の手元からでなく、開き直した instance の今の out_path から読む**（done と同じ読み元）。起こし直し
+    （relaunch）は試行ごとに置き場を分けて古い試行を締め出す——手元の本文を渡すと、その締め出しを素通りして、
+    遅れて終わった古い試行が新しい試行の instance を受け付けてしまう。"""
+    def accept(_text):
+        with BOARD_LOCK:
+            b = Board(d)
+            inst = pending_instance(b, iid)
+            if inst.get("out_path") != out_path:
+                raise Reject(f"'{iid}' は起こし直されている（今の置き場は {inst.get('out_path')}）——この試行の返答は受け付けない")
+            try:
+                text = pathlib.Path(out_path).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                raise Reject(f"{out_path}: 読めない（{e}）") from e
+            try:
+                msg = accept_output(b, iid, text, f"launch {out_path}")
+            except AnswerReject as e:
+                return str(e)
+            accept.msg = msg
+            return None
+    accept.msg = None
+    return accept
+
+
+def launch_one(d, inst, max_resumes):
+    """1 節を起こして受け付けまで済ませる（run_role）。返すのは回す側と記録に見せる 1 件ぶんの要約だけ——役の返答の
+    本文は回す側の会話に流さない。"""
     got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
     why = launch_refusal(inst)
     if why:
         return {**got, "ok": False, "why": why}
-    out = pathlib.Path(inst["out_path"])
-    out.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with open(inst["launch"]["stdin"], "rb") as fh, open(out, "wb") as sink:
-            p = subprocess.run(inst["launch"]["argv"], stdin=fh, stdout=sink,
-                               stderr=subprocess.PIPE, timeout=LAUNCH_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        return {**got, "ok": False, "why": f"{LAUNCH_TIMEOUT} 秒で返らなかった（out_path は途中まで）"}
-    except OSError as e:
-        return {**got, "ok": False, "why": f"起こせない: {e}"}
-    # 層の 1 行（auth=…）はここにしか出ない。**必ず回す側へ運ぶ**——起動が engine の中に入ったぶん、
-    # 認証落ちが「役の返答の不良」に見えてしまう経路をここで塞ぐ
-    err = (p.stderr or b"").decode("utf-8", "replace").strip()
-    size = out.stat().st_size if out.exists() else 0
-    return {**got, "ok": p.returncode == 0 and size > 0, "exit": p.returncode, "bytes": size,
-            "stderr": err[-600:]}
+    accept = _accept_for_launch(d, inst["id"], inst["out_path"])
+    left = (datetime.datetime.fromisoformat(inst["deadline_at"]) - datetime.datetime.fromisoformat(now())).total_seconds() \
+        if inst.get("deadline_at") else LAUNCH_TIMEOUT
+    r = run_role(inst["launch"]["argv"], inst["launch"]["stdin"], inst["out_path"], timeout_s=max(1.0, left),
+                 accept=accept, resume_argv=inst["launch"].get("resume_argv"), max_resumes=max_resumes,
+                 log_path=pathlib.Path(d) / "trace.jsonl",
+                 meta={"instance": inst["id"], "node": inst["node"], "agent_type": inst.get("agent_type"),
+                       "attempt": inst.get("attempts", 1)})
+    last = r["runs"][-1] if r["runs"] else {}
+    if r["why"] and "SystemExit" in r["why"]:
+        # 盤面の保存が別のプロセスと競って負けた（Board.save の die）。返答は置き場に在るので、done で受け付けられる
+        r["why"] += f"——返答は {inst['out_path']} に在る。loop.py done --node {inst['id']} で受け付けよ"
+    return {**got, "ok": r["ok"], "why": r["why"], "session_id": r["session_id"], "expired": r["expired"],
+            "resumes": len(r["runs"]) - 1, "rejections": r["rejections"], "done": accept.msg,
+            # total_cost_usd は会話の累計（続きを頼むたびに増える。実測 2026-09-25・haiku: 0.0137 → 0.0166 → 0.0198）——足さずに最大を取る
+            "cost_usd": max((x.get("total_cost_usd") or 0 for x in r["runs"]), default=0) or None,
+            "permission_denials": sum(len(x.get("permission_denials") or []) for x in r["runs"]),
+            "stderr": "" if r["ok"] else (last.get("stderr") or "")}
 
 
 def cmd_launch(a):
-    """遮断系（道具ゼロの役）を engine が起こす。回す側の Bash に子の claude を出さない。
+    """engine が役を起こし、返答を置き場に書き、受け付け（done）まで済ませる。回す側は役の返答の本文に触れない。
 
     **なぜ engine が起こすか。** 回す側が Bash から起こす形は、出力を out_path に落とす綴りだと auto mode の
-    分類器が『Auto-Mode Bypass』で止める（実測 2026-09-15: 同じ層でも出力が会話に出る形は通り、
-    `< 材料 > out_path` は止まった）。Agent ツールへ逃げると CLAUDE.md が注入されて遮断が名ばかりになる
-    （実測 2026-09-12）。gates の読み役が同じ起動を通せているのはフックの中で起きているからで、認証の差ではない。
-    起こす場所を engine へ移すと、回す側は loop.py を呼ぶだけになる——代わりに、何を起こすかは
-    launch_refusal が機械で縛る。
+    分類器が『Auto-Mode Bypass』で止める（実測 2026-09-15）。道具ゼロの役を Agent ツールへ逃がすと CLAUDE.md が
+    注入されて遮断が名ばかりになる（実測 2026-09-12）。道具つきの役を Agent ツールと中継の AI で起こすと、
+    書いていないのに『書いた』と返す・続きの返答が回す側へ戻る・完了の知らせが迷って止まる、が起きた（実測 2026-09-24〜25）。
+    **終わりは子プロセスの終了で直接待つ**（role_run.run_role）。期限は節の deadline_at で、起こす時に取り直す
+    （next から launch までの間を役の持ち時間から引かない）。何を起こすかは launch_refusal が機械で縛る。
     """
-    b = Board(resolve_dir(a))
+    d = resolve_dir(a)
     want = getattr(a, "node", None)
-    ready = [i for i in b.rd["instances"].values()
-             if i["status"] == "pending" and i.get("mode") == "cli" and (not want or i["id"] == want)]
-    if not ready:
-        die("起こせる遮断系の節が無い（next が cli の節を出しているか、--node の綴りを確かめよ）", 1)
-    if len(ready) == 1:
-        results = [launch_one(ready[0])]
-    else:
-        # 同じ波に載った遮断系は互いに依存しない。直列に待つと素直に足し算になる
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(ready))) as ex:
-            results = list(ex.map(launch_one, ready))
-    for r in results:
-        b.trace("launched", id=r["id"], ok=r["ok"], exit=r.get("exit"), bytes=r.get("bytes"),
-                why=r.get("why"), stderr=(r.get("stderr") or "")[-200:])
-    print(dump({"launched": results,
-                "how": ("ok の節は返答が out_path に在る——そのまま loop.py done --node <id>（--output は要らない）。"
-                        "ok でない節は why と stderr を読め: stderr の with-auth: auth=… が inherited / keychain なら"
-                        "認証は足りていて原因は役の側、none / keychain-miss なら認証が足りていない。"
-                        "engine が起こせない節（why が『前置ではない』『旗が無い』）は人に渡す——迂回を組むな")}))
+    picked = []
+
+    def mark(b):
+        ready = [i for i in b.rd["instances"].values()
+                 if i["status"] == "pending" and i.get("launch") and (not want or i["id"] == want)]
+        if not ready:
+            raise Reject("engine が起こせる節が無い（next の ready に launch を持つ節が在るか、--node の綴りを確かめよ。"
+                         "launch を持たない役の節は回す側が Agent で起こす）")
+        at = now()
+        for i in ready:
+            if i.get("launched_at"):
+                # 起こすのは 1 つの試行につき 1 回だけ。起動中の節は波の遅い節を待つ間も pending のまま ready に出るので、
+                # ここで拾うと 2 つの子が同じ置き場に書いて競る。止まった起動・拒まれた起動からの出口は relaunch
+                # （launched_at の無い新しい試行を作る）
+                picked.append({"id": i["id"], "node": i["node"], "ok": False,
+                               "why": f"この試行は {i['launched_at']} に起こし済み（{i.get('launch_state')}）——生きている launch を待つか、"
+                                      f"loop.py relaunch --node {i['id']} --reason <理由> で起こし直してから launch"})
+                continue
+            if i.get("deadline_at"):
+                width = (datetime.datetime.fromisoformat(i["deadline_at"])
+                         - datetime.datetime.fromisoformat(i["emitted_at"]))
+                i["deadline_at"] = (datetime.datetime.fromisoformat(at) + width).isoformat(timespec="seconds")
+            i.update(launch_state="running", launched_at=at)
+            b.trace("launch", instance=i["id"], deadline_at=i.get("deadline_at"))
+        return [dict(i) for i in ready if i.get("launched_at") == at and i.get("launch_state") == "running"]
+
+    todo = _board_update(d, mark)
+    max_resumes = int(Board(d).graph.get("launch", {}).get("resume_on_reject") or 0)
+    # **launch 自身が止められても子を残さない**: 子は別のプロセスグループに切り離してあるので、launch に届いた
+    # 信号は子に届かない。止められたら生きている子を木ごと止めてから抜ける（role_run.kill_all）
+    import signal
+
+    def stop(signum, _frame):
+        kill_all()
+        raise SystemExit(128 + signum)
+
+    for sig in ("SIGTERM", "SIGHUP", "SIGINT"):
+        if hasattr(signal, sig):
+            signal.signal(getattr(signal, sig), stop)
+    try:
+        if len(todo) == 1:
+            results = [launch_one(d, todo[0], max_resumes)]
+        elif todo:
+            # 同じ波に載った役は互いに依存しない。直列に待つと素直に足し算になる
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(todo))) as ex:
+                results = list(ex.map(lambda i: launch_one(d, i, max_resumes), todo))
+        else:
+            results = []
+    finally:
+        kill_all()
+
+    def settle(b):
+        for r in results:
+            i = b.rd["instances"].get(r["id"])
+            if i is None or i.get("out_path") != r["out_path"]:
+                continue  # 起こし直された（試行が進んだ）——古い試行の結果を新しい試行に書かない
+            i["launch_state"] = "ended"
+            if r.get("session_id"):
+                i["session_id"] = r["session_id"]
+            log = i.setdefault("attempt_log", [])
+            # 起こし直しの回数と理由: 拒まれて同じ会話に続きを頼んだ（resume）・拒まれたまま上限に達した（rejected）
+            for j, why in enumerate(r.get("rejections") or []):
+                log.append({"at": now(), "kind": "resume" if j < r["resumes"] else "rejected", "reason": why})
+            if r.get("expired"):
+                log.append({"at": now(), "kind": "expired", "reason": r["why"]})
+            elif not r["ok"] and r.get("why") and not r.get("rejections"):
+                log.append({"at": now(), "kind": "failed", "reason": r["why"]})
+            b.trace("launched", id=r["id"], ok=r["ok"], why=r.get("why"), session_id=r.get("session_id"),
+                    resumes=r.get("resumes"), expired=r.get("expired"), stderr=(r.get("stderr") or "")[-200:])
+
+    if results:
+        try:
+            _board_update(d, settle)
+        except SystemExit:
+            # 盤面を別のプロセスと競って書けなかった。結果の一覧は回す側に必ず返す（trace にも行は在る）
+            for r in results:
+                r["settle"] = "盤面に起こし直しの記録を書けなかった（別のプロセスと競った）"
+    print(dump({"launched": picked + results,
+                "how": ("ok の節は受け付けまで済んでいる（done は要らない）——次は loop.py next。"
+                        "ok でない節は why を読め: 期限切れ（expired）・受け付けの拒否が続いた・子が落ちた、なら "
+                        "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch。"
+                        "stderr の with-auth: auth=… が none / keychain-miss なら認証が足りていない（inherited / keychain なら役の側）。"
+                        "返答は out_path に在る（読むのは要る所だけ）。engine が起こせない節（why が『前置ではない』『旗が無い』"
+                        "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ")}))
 
 
 # ---------------------------------------------------------------- done
@@ -292,7 +446,7 @@ def parse_output(text):
     # --stdin / out_path の 3 入口で text を作り、ここへは text しか渡らない。1 つに決め打つと、
     # 既定の導線（--output）で誤った場所を直しに行かせる。
     if not text:
-        raise Reject("返答が中身を持たない（空か空白だけ）——役が何も返していないか、"
+        raise AnswerReject("返答が中身を持たない（空か空白だけ）——役が何も返していないか、"
                      "渡した返答が空。JSON だけを返せ")
     errs, tried = [], set()
     for label, cand in _json_candidates(text):
@@ -317,7 +471,7 @@ def parse_output(text):
         lines.append(f"  - {label}: {e.msg} / {_around(cand, e.pos)}")
     lines.append('よくある原因: 文字列値の中のエスケープしていない " ／ 末尾のカンマ ／ '
                  "JSON の前後に付いた地の文 ／ 囲い（```）が閉じていない")
-    raise Reject("\n".join(lines))
+    raise AnswerReject("\n".join(lines))
 
 
 def _around(text, pos):
@@ -361,18 +515,7 @@ STDIN_MAX = 20_000_000  # 文字
 
 def cmd_done(a):
     b = Board(resolve_dir(a))
-    inst = b.rd["instances"].get(a.node)
-    if not inst:
-        raise Reject(f"この周に節 '{a.node}' は出ていない（loop.py next で確かめよ）")
-    if inst["status"] != "pending":
-        raise Reject(f"節 '{a.node}' は既に {inst['status']}")
-    nid = inst["node"]
-    n = b.nodes[nid]
-    # **出した後に graph が変わり、deps が増えた節は、増えた deps を待つ。** 出した時点で揃っていた deps だけを信じると、
-    # run の途中で足した前段（例: 修正の前の事前審査）を飛ばした返答を受け付ける（実測 2026-09-24: 回す側が手で待たせた）
-    if not b.deps_met(nid):
-        wait = [d for d in n.get("deps", []) if b.node_state(d) == "pending"]
-        raise Reject(f"節 '{a.node}' の deps {wait} がまだ済んでいない（出した後に graph が変わった）——先にそちらを回せ（loop.py next）")
+    inst = pending_instance(b, a.node)
     # 読む順: --output の明示 → --stdin の明示 → 置き場（out_path）。以前は置き場が標準入力より先で、拒まれた前回分が
     # 置き場に残っていると新しい返答を標準入力で渡しても古い方が黙って記録に入った（実測 2026-09-12）。
     # 標準入力は**明示されたときだけ**読む——「端末でなければ読む」にしていたとき、呼び出し元の stdin が閉じない
@@ -405,23 +548,48 @@ def cmd_done(a):
         except (OSError, UnicodeDecodeError) as e:
             raise Reject(f"{inst['out_path']}: 読めない（{e}）——UTF-8 で書き直して done し直せ")
     if text is None:
-        raise Reject(f"返答が無い——--output か標準入力で渡すか、運び手に {inst.get('out_path')} へ書かせる")
+        raise Reject(f"返答が無い——--output か標準入力で渡すか、{inst.get('out_path')} に置け（engine が起こす節は loop.py launch が書く）")
     if inst.get("mode") == "cli" and a.agent_id:
-        raise Reject("cli で起こした遮断系に agent_id は無い（別プロセスは返答と共に終わる）——--agent-id を渡すな")
+        raise Reject("cli の遮断系は engine が起こすので agent_id は無い（会話の番号は launch が盤面に残す）——--agent-id を渡すな")
+    print(accept_output(b, a.node, text, read_from, agent_id=a.agent_id, accept_tree_change=a.accept_tree_change))
+
+
+def pending_instance(b, node):
+    """受け付けを待っている instance（待っていなければ Reject——役に返しても直らない側）。"""
+    inst = b.rd["instances"].get(node)
+    if not inst:
+        raise Reject(f"この周に節 '{node}' は出ていない（loop.py next で確かめよ）")
+    if inst["status"] != "pending":
+        raise Reject(f"節 '{node}' は既に {inst['status']}")
+    return inst
+
+
+def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=None):
+    """返答の本文を受け付けて盤面と記録に写す（done の中身。loop.py launch も同じここを呼ぶ）。返すのは回す側に見せる 1 行。
+
+    **返答の中身・形の不備は AnswerReject**（役に返せば直る——launch は同じ会話に続きを頼む）、それ以外の不備は Reject。
+    盤面を書くのは最後の b.save() だけ——拒んだ呼び出しは盤面（state.json / record.json）を変えない。"""
+    inst = pending_instance(b, node)
+    nid = inst["node"]
+    n = b.nodes[nid]
+    # **出した後に graph が変わり、deps が増えた節は、増えた deps を待つ。** 出した時点で揃っていた deps だけを信じると、
+    # run の途中で足した前段（例: 修正の前の事前審査）を飛ばした返答を受け付ける（実測 2026-09-24: 回す側が手で待たせた）
+    if not b.deps_met(nid):
+        wait = [d for d in n.get("deps", []) if b.node_state(d) == "pending"]
+        raise Reject(f"節 '{node}' の deps {wait} がまだ済んでいない（出した後に graph が変わった）——先にそちらを回せ（loop.py next）")
+
     inst["read_from"] = read_from
     if n.get("schema"):
         output = parse_output(text)
         errs = validate_schema(output, n["schema"])
         if errs:
-            print("NG 返答が型に合わない（直して done し直す。回す側が中身を補ってはいけない——役に返させろ）:", file=sys.stderr)
-            for e in errs:
-                print(f"  - {e}", file=sys.stderr)
-            sys.exit(1)
+            raise AnswerReject("返答が型に合わない（直して done し直す。回す側が中身を補ってはいけない——役に返させろ）:\n"
+                               + "\n".join(f"  - {e}" for e in errs))
     else:
         # 本文を返す節にも空の検査を当てる（schema 節は minLength が同じ形を落としている）。空を受けると
         # 0 バイトの report.md が残り、『人が決めること』が黙って消える（実測: --output <空> も </dev/null> も exit 0 だった）。
         if not text.strip():
-            raise Reject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、運び手が {inst.get('out_path')} に書けていない）")
+            raise AnswerReject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、{inst.get('out_path')} に書けていない）")
         output = {"text": text}
     item = load_item(inst, b.dir)
     # 作業ツリーの前後突合（書き換えを塞ぐのは定義でも自制でもなくこの突合）
@@ -434,11 +602,11 @@ def cmd_done(a):
             # 同じ波に保護対象の instance が複数在ると、誰が汚したかはこの突合では決まらない（基準点は全員ほぼ同時刻の
             # グローバルな git status で、done を呼んだ順に検出される）。**帰属を断定せず、同じ波の一覧を記録に残す。**
             peers = sorted(i for i, x in b.rd["instances"].items()
-                           if i != a.node and "tree_before" in x and x["status"] == "pending")
+                           if i != node and "tree_before" in x and x["status"] == "pending")
             who = f"（同じ波で保護対象の instance が他に {len(peers)} 件走っている: {peers}——変えたのがこの instance とは限らない）" if peers else ""
-            if not a.accept_tree_change:
+            if not accept_tree_change:
                 raise Reject(f"{inst['run_by']} の前後で作業ツリーが変わっている: {diff}{who}。戻してから done し直すか、自分の変更なら --accept-tree-change <理由>")
-            b.state.setdefault("git_mismatches", []).append({"instance": a.node, "diff": diff, "accepted": a.accept_tree_change,
+            b.state.setdefault("git_mismatches", []).append({"instance": node, "diff": diff, "accepted": accept_tree_change,
                                                             "round": b.round, "concurrent_guarded": peers})
     # 扇の被覆（返した答えが項目を全部覆っているか。欠けは『なし』ではない）
     remaining = None
@@ -450,16 +618,16 @@ def cmd_done(a):
         got = {x.get(key) for x in (get_path(output, cover["answers_at"]) if has_path(output, cover["answers_at"]) else [])}
         extra = got - want
         if extra:
-            raise Reject(f"項目に無い {key} を返している: {sorted(extra)}")
+            raise AnswerReject(f"項目に無い {key} を返している: {sorted(extra)}")
         remaining = sorted(want - got)
     # 段の昇格（降格は engine が拒む）
     tf = n.get("thickness_from")
     if tf and has_path(output, tf):
         want = get_path(output, tf)
         if want not in b.tiers:
-            raise Reject(f"段 '{want}' はこの loop の段（{b.tiers}）に無い")
+            raise AnswerReject(f"段 '{want}' はこの loop の段（{b.tiers}）に無い")
         if b.tiers.index(want) < b.tiers.index(b.state["thickness"]):
-            raise Reject(f"段を {b.state['thickness']} から {want} に下げようとしている。降格は依頼者の指定で init に渡す（回す側の自己判断による降格＝さぼり降格を禁ずる）")
+            raise AnswerReject(f"段を {b.state['thickness']} から {want} に下げようとしている。降格は依頼者の指定で init に渡す（回す側の自己判断による降格＝さぼり降格を禁ずる）")
         if b.tiers.index(want) > b.tiers.index(b.state["thickness"]):
             thicken(b, want, output.get(n.get("thickness_reason_from", ""), ""), by=nid)
     # 節ごとの整合（型では書けない規則。rules が持つ）。out を検査・補ってから writes を当てる。
@@ -471,7 +639,12 @@ def cmd_done(a):
         fn = registry(b.rules, "POST_CHECKS").get(pc)
         if not fn:
             die(f"post_check '{pc}' が rules に無い")
-        note = fn(b, nid, output, item)
+        try:
+            note = fn(b, nid, output, item)
+        except AnswerReject:
+            raise
+        except Reject as e:  # 節ごとの整合（rules）は返答の中身を見る——役に返せば直る側に揃える
+            raise AnswerReject(str(e)) from e
         if note:
             notes.append(note)
     apply_writes(b, nid, output, item)
@@ -479,26 +652,24 @@ def cmd_done(a):
     if check:
         errs = check(b, nid)  # 今 done している節はまだ done の印が無いので名指しで渡す（走った事実との突合に要る）
         if errs:
-            print("NG 記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）:", file=sys.stderr)
-            for e in errs:
-                print(f"  - {e}", file=sys.stderr)
-            sys.exit(1)
-    f = b.dir / "out" / f"r{b.round}" / (safe_name(a.node) + ".json")
+            raise AnswerReject("記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）:\n"
+                               + "\n".join(f"  - {e}" for e in errs))
+    f = b.dir / "out" / f"r{b.round}" / (safe_name(node) + ".json")
     write_json(f, output)
     if n.get("save_text_as"):
         (b.dir / n["save_text_as"]).write_text(output["text"], encoding="utf-8")
         notes.append(f"本文は {b.dir / n['save_text_as']} に保存した")
-    b.state["outputs"][nid] = {"file": str(f.relative_to(b.dir)), "round": b.round, "instance": a.node}
+    b.state["outputs"][nid] = {"file": str(f.relative_to(b.dir)), "round": b.round, "instance": node}
     # **綴りは 1 つに決める。** 以前はこの 2 行が同じ f を 2 つの綴りで書いていた——outputs は盤面からの相対、
     # instance は `--dir` をそのまま前に付けた綴り。後者は**記録されていない過去の作業ディレクトリ**に錨を持つので、
     # 相対の `--dir` で回した run を別の作業ディレクトリから開くと読めない（実測 2026-09-13: 絶対 --dir で開いても
     # cwd=/tmp から ref('raw') が SystemExit 2。最終報告の節でだけ露出した）。盤面からの相対に揃えると、
     # 錨は「いまの呼び出しが渡した --dir」1 つになり、読む側に規約の知識が要らなくなる。
     inst.update({"status": "done", "done_at": now(), "output_file": str(f.relative_to(b.dir))})
-    if a.agent_id:
-        inst["agent_id"] = a.agent_id
-    b.trace("done", instance=a.node, sha=sha(text))
-    msg = f"ok {a.node} を受け付けた（読んだ先: {read_from}）"
+    if agent_id:
+        inst["agent_id"] = agent_id
+    b.trace("done", instance=node, sha=sha(text))
+    msg = f"ok {node} を受け付けた（読んだ先: {read_from}）"
     if remaining:
         item = dict(item)
         base = cover["items_at"].split(".", 1)[1]
@@ -507,11 +678,12 @@ def cmd_done(a):
         new = emit_instance(b, nid, item, suffix=f"#{k + 1}")
         msg += f"。ただし答えが欠けた項目がある: {remaining}——欠けた分だけ {new['id']} として出し直した（無言の省略を『なし』と読まない）"
     if "fan_out" not in n:
-        b.rd["done"][nid] = {"at": now(), "instance": a.node}
+        b.rd["done"][nid] = {"at": now(), "instance": node}
         b.state["done_ever"][nid] = b.round
     b.save()
     # done の 1 行にも run_id を載せる——done だけを打った session でも印が転写に載る（読了の柵が読む）
-    print("。".join([msg, *notes]) + f"。続きは loop.py next（run {b.state.get('run_id')}）")
+    return "。".join([msg, *notes]) + f"。続きは loop.py next（run {b.state.get('run_id')}）"
+
 
 
 # ---------------------------------------------------------------- skip / answer / thicken / add / patch
@@ -651,7 +823,7 @@ def cmd_status(a):
     }))
 
 
-WAIT_POLL = float(os.environ.get("GL_WAIT_POLL") or 15)   # wait が盤面を見に行く間隔（秒）。台本が縮められるように環境変数で差し替える
+WAIT_POLL = 15   # wait が盤面を見に行く間隔（秒）。期限がそれより近ければ期限まで眠る
 
 
 def cmd_wait(a):
@@ -669,8 +841,8 @@ def cmd_wait(a):
             raise Reject(f"今の周に instance '{a.node}' が無い（id は next の ready の id）")
         if not inst.get("deadline_at"):
             raise Reject(f"'{a.node}' は期限（deadline_at）を持たない——graph の deadline_minutes が無い節に wait は使えない")
-        out = pathlib.Path(inst.get("out_path") or "")
-        if inst["status"] != "pending" or (out.name and out.is_file() and out.stat().st_size > 0):
+        out = pathlib.Path(inst["out_path"])
+        if inst["status"] != "pending" or (out.is_file() and out.stat().st_size > 0):
             print(dump({"id": a.node, "written": True, "status": inst["status"], "out_path": str(out), **waiting(inst)}))
             return
         w = waiting(inst)
@@ -690,14 +862,17 @@ def cmd_relaunch(a):
     作業ツリーの基準点（tree_before）は前の試行の物を引き継ぐ——取り直すと、前の試行が書き換えた作業ツリーが基準に入り、突合を素通りする"""
     b = Board(resolve_dir(a))
     prev = b.rd["instances"].get(a.node)
-    if prev is None or prev["status"] != "pending":
-        raise Reject(f"'{a.node}' は今の周の待っている instance でない（起こし直せるのは pending だけ）")
-    item = load_item(prev, b.dir) if prev.get("item_file") else None
+    # 起こし直せるのは他へ渡した instance だけ: 期限を持つ物（役・任せ先の付いた節）と、engine が起こす節（launch を持つ。
+    # 期限の無い graph でも、落ちた起動・拒まれた起動の出口は relaunch しか無い）。回す側が自分でやる節はどちらも持たない
+    if prev is None or prev["status"] != "pending" or not (prev.get("deadline_at") or prev.get("launch")):
+        raise Reject(f"'{a.node}' は今の周の、期限を持って待っている instance でない（起こし直せるのは pending で deadline_at か launch を持つ物だけ。"
+                     "回す側が自分でやる節は期限を持たず、起こし直さない）")
+    item = load_item(prev, b.dir)
     nid = prev["node"]
     suffix = a.node[len(nid + (f"[{item['key']}]" if item else "")):]
     n = prev.get("attempts", 1)
-    old = pathlib.Path(prev.get("out_path") or "")
-    if old.name and old.is_file():
+    old = pathlib.Path(prev["out_path"])
+    if old.is_file():
         old.replace(old.with_name(old.name + f".stale-a{n}"))
     new = emit_instance(b, nid, item, suffix=suffix, attempt=n + 1)
     if "tree_before" in prev:

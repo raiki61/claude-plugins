@@ -25,11 +25,13 @@
  11. schema が engine の読む語（engine/schema.py の KNOWN_KEYWORDS）だけで書かれている——読まない語は書いても効かない
  12. engine が実行に使う欄が宣言どおりの物を指す: writes.from が節の schema.properties に在る、cond / applies_cond の
      out.<節>.<欄> と prev.<節>.<欄> がその節の schema に在る、same_context_as の役が一致し遮断系でない、
-     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated の argv / via の穴が
-     engine の埋める語（LAUNCH_HOLES）だけで model / effort は遮断系の役の定義に在り、via が指す実体が同梱されている
+     report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated / launch.tooled の argv・resume・via の
+     穴が engine の埋める語（LAUNCH_HOLES）だけで、resume は {session_id} を持ち、model / effort は遮断系の役の定義に在り、
+     via が指す実体が同梱されている、resume_on_reject が 0 以上の整数
  13. graph の enum が検証器の語彙（大文字の定数）の写しからはみ出していない（重なる表のどれかに丸ごと含まれる）
  14. 回す側の任せ先（delegate）と期限: delegate は回す側の節にだけ・skills を持つ節には書けない（入れ子の委任）。
-     deadline_minutes（最上位と節）は 1 以上の整数で、{{node.deadline_at}} を貼る節には期限が在る
+     background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景の節をほかの節が待たない（deps・instance_deps）。
+     deadline_minutes（最上位と節）は 1 以上の整数で、{{node.deadline_at}} を貼る節には期限が付く（期限が在り、回す側の節なら任せ先が在る）
 
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
@@ -536,6 +538,14 @@ def check(gpath, script=None, emit=print):
             errs.append(f"節 {k}: delegate は回す側の節（runners）にだけ書ける——役の節の model は役の定義が正本")
         elif not (isinstance(dg, dict) and dg.get("model") in DELEGATE_MODELS and isinstance(dg.get("why"), str) and dg["why"].strip()):
             errs.append(f"節 {k}: delegate は {{model: {'/'.join(DELEGATE_MODELS)}, why: 任せてよい理由}}")
+        if isinstance(dg, dict) and "background" in dg:
+            if not isinstance(dg["background"], bool):
+                errs.append(f"節 {k}: delegate.background は真偽（任せ先を背景で立てて待たずに受領を返すか）")
+            elif dg["background"]:
+                # 背景の節の done は受領（線を立てた事実）でしかない——待つ節は、線の結果を待ったと読み違える
+                waiters = sorted(w for w, x in nodes.items() if k in (x.get("deps") or []) + (x.get("instance_deps") or []))
+                if waiters:
+                    errs.append(f"節 {k}: 背景の節（delegate.background）を {waiters} が待っている——背景の節の done は受領で、結果は置き場から読む")
         if v.get("skills"):
             # skill（/simplify・/code-review）は中でさらに役を背景で起こす。任せ先の役越しに呼ぶと、孫の完了の知らせが
             # 任せ先に届かないまま待ち続けた（実測 2026-09-25: 局所レビューの任せ先が 7 時間以上戻らなかった）
@@ -559,31 +569,47 @@ def check(gpath, script=None, emit=print):
     if isolated and (used & set(isolated)) and not (g.get("launch", {}).get("isolated", {}).get("argv")):
         errs.append(f"道具ゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
                     "——Agent ツールで起こすと CLAUDE.md が注入され、遮断が成立しない")
-    spec = (g.get("launch") or {}).get("isolated") or {}
-    via = spec.get("via")
-    if via is not None and not (isinstance(via, list) and all(isinstance(a, str) for a in via)):
-        errs.append("launch.isolated.via は解決した argv の前に置く語の一覧（文字列の配列）")
-        via = None
-    for a in via or []:
-        # via が指す実体が同梱されているか。**実行時にしか出ない落ち方**——回す側が起こした瞬間に
-        # python が「そんなファイルは無い」で落ち、遮断系の返答が空のまま done が拒むだけになる。
-        # plugin_root しか穴が無い語は検査の時点で埋まる（他の穴を含む語は実行時にしか決まらないので触らない）
-        if "{plugin_root}" in a and "{" not in a.replace("{plugin_root}", ""):
-            p = pathlib.Path(a.format(plugin_root=PLUGIN_ROOT))
-            if not p.is_file():
-                errs.append(f"launch.isolated.via が指す {p} が無い（プラグインに同梱されていない）")
-    if isolated and (used & set(isolated)) and isinstance(spec.get("argv"), list):
-        # 起動の穴は engine の launch_cli が埋める語だけ（LAUNCH_HOLES）。知らない穴は format の KeyError、model / effort は役の
-        # 定義から埋めるので定義に無ければ die——どちらも実行時にしか出なかった遮断系の不変条件を静的に見る
-        holes = {m.group(1) for a in list(spec["argv"]) + list(via or []) if isinstance(a, str) for m in re.finditer(r"\{(\w+)\}", a)}
-        unknown = holes - set(LAUNCH_HOLES)
-        if unknown:
-            errs.append(f"launch.isolated の argv / via の穴 {sorted(unknown)} を engine は埋められない（埋めるのは {list(LAUNCH_HOLES)}）")
-        for r in sorted(used & set(isolated)):
-            d = agent_def(f"{g.get('plugin')}:{r}") or {}
-            for k in ("model", "effort"):
-                if k in holes and not d.get(k):
-                    errs.append(f"遮断系の役 {r} の定義に '{k}' が無いが launch.isolated.argv が {{{k}}} を使う（実行時の die を静的にも見る）")
+    launch = g.get("launch") or {}
+    for kind in ("isolated", "tooled"):
+        spec = launch.get(kind) or {}
+        if not spec:
+            continue
+        via = spec.get("via")
+        if via is not None and not (isinstance(via, list) and all(isinstance(a, str) for a in via)):
+            errs.append(f"launch.{kind}.via は解決した argv の前に置く語の一覧（文字列の配列）")
+            via = None
+        for a in via or []:
+            # via が指す実体が同梱されているか。**実行時にしか出ない落ち方**——launch が起こした瞬間に
+            # python が「そんなファイルは無い」で落ち、役の返答が空のまま拒まれるだけになる。
+            # plugin_root しか穴が無い語は検査の時点で埋まる（他の穴を含む語は実行時にしか決まらないので触らない）
+            if "{plugin_root}" in a and "{" not in a.replace("{plugin_root}", ""):
+                p = pathlib.Path(a.format(plugin_root=PLUGIN_ROOT))
+                if not p.is_file():
+                    errs.append(f"launch.{kind}.via が指す {p} が無い（プラグインに同梱されていない）")
+        for part in ("argv", "resume"):
+            words = spec.get(part)
+            if words is None and part == "resume":
+                continue
+            if not (isinstance(words, list) and words and all(isinstance(a, str) for a in words)):
+                errs.append(f"launch.{kind}.{part} は起こす語の一覧（空でない文字列の配列）")
+                continue
+            # 起動の穴は engine の launch_spec が埋める語だけ（LAUNCH_HOLES）。知らない穴は format の KeyError
+            holes = {m.group(1) for a in words + list(via or []) for m in re.finditer(r"\{(\w+)\}", a)}
+            unknown = holes - set(LAUNCH_HOLES)
+            if unknown:
+                errs.append(f"launch.{kind}.{part} / via の穴 {sorted(unknown)} を engine は埋められない（埋めるのは {list(LAUNCH_HOLES)}）")
+            if part == "resume" and "session_id" not in holes:
+                errs.append(f"launch.{kind}.resume に {{session_id}} が無い——続ける会話を名指ししない語は同じ会話を続けない")
+            if kind == "isolated" and isolated and (used & set(isolated)):
+                # model / effort は役の定義から埋めるので定義に無ければ die——実行時にしか出ない不変条件を静的に見る
+                for r in sorted(used & set(isolated)):
+                    d = agent_def(f"{g.get('plugin')}:{r}") or {}
+                    for k in ("model", "effort"):
+                        if k in holes and not d.get(k):
+                            errs.append(f"遮断系の役 {r} の定義に '{k}' が無いが launch.isolated.{part} が {{{k}}} を使う（実行時の die を静的にも見る）")
+    ror = launch.get("resume_on_reject", 0)
+    if not (isinstance(ror, int) and not isinstance(ror, bool) and ror >= 0):
+        errs.append(f"launch.resume_on_reject は 0 以上の整数（{ror!r}）")
     rules = load_rules(gpath, g)
     if isinstance(rules, str):
         errs.append(rules)
@@ -651,10 +677,10 @@ def check(gpath, script=None, emit=print):
         same = v.get("same_context_as")
         if same and (same not in nodes or same not in ancestors(nodes, k)):
             errs.append(f"節 {k}: same_context_as '{same}' が前の節でない")
-        # 遮断系（道具ゼロの役）は別プロセスで起こすので context を継げない。**実行時の die だけに置かない**
+        # 遮断系（道具ゼロの役）は渡された物しか知らない読み手なので、前の節の文脈を継がせない。**実行時の die だけに置かない**
         # ——回した周にしか出ないので、静的に無いことが痛みとして現れにくい（engine/advance.py の die と同じ不変条件）
         if same and rb in isolated:
-            errs.append(f"節 {k}: 遮断系（道具ゼロ）の役 '{rb}' に same_context_as——別プロセスで起こすので context は継げない")
+            errs.append(f"節 {k}: 遮断系（道具ゼロ）の役 '{rb}' に same_context_as——前の節の文脈を持ち込むと遮断が崩れる")
         if rb == "driver":
             if v.get("builtin") not in node_builtins:
                 errs.append(f"節 {k}: builtin '{v.get('builtin')}' が rules の BUILTINS に無い")
@@ -716,8 +742,10 @@ def check(gpath, script=None, emit=print):
                     errs.append(f"節 {k}: {core} を読むが、その節は前の節（deps の推移閉包）でない（前の周の出力なら prev.<節>）")
             if core.startswith("prev.") and node_of(core[5:], nodes) is None:
                 errs.append(f"節 {k}: {core} の節が無い")
-            if core == "node.deadline_at" and v.get("deadline_minutes", g.get("deadline_minutes")) is None:
-                errs.append(f"節 {k}: {{{{node.deadline_at}}}} を貼るが、期限（deadline_minutes）が節にも graph の最上位にも無い——埋められずに init で止まる")
+            if core == "node.deadline_at" and (v.get("deadline_minutes", g.get("deadline_minutes")) is None
+                                               or rb in runners and not v.get("delegate")):
+                errs.append(f"節 {k}: {{{{node.deadline_at}}}} を貼るが、期限が付かない——期限（deadline_minutes）が節にも graph の最上位にも無いか、"
+                            "任せ先（delegate）の無い回す側の節（自分でやる節に engine は期限を付けない）。埋められずに next で止まる")
         for r in reads:
             if r.startswith("out."):
                 src = node_of(r[4:], nodes)
@@ -789,7 +817,7 @@ def check(gpath, script=None, emit=print):
             if me != them:
                 errs.append(f"節 {k}: same_context_as '{same}' と役が違う（{them} → {me}）——同じ context を継げない")
             if (me or "").rpartition(":")[2] in isolated:
-                errs.append(f"節 {k}: 遮断系（道具ゼロ）の役に same_context_as は使えない——別プロセスは返答と共に終わる（実行時の die を静的にも見る）")
+                errs.append(f"節 {k}: 遮断系（道具ゼロ）の役に same_context_as は使えない——前の節の文脈を持ち込むと遮断が崩れる（実行時の die を静的にも見る）")
         # pre は『報告の前に記録を仕上げて検証器を回す』唯一の門。綴り違いは検証器を通さずに報告を出す形になる
         if "pre" in v and v["pre"] not in ENGINE_PRE:
             errs.append(f"節 {k}: pre '{v['pre']}' を engine が知らない（使えるのは {'/'.join(ENGINE_PRE)}）")

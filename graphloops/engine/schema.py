@@ -122,8 +122,8 @@ def expand_refs(graph):
             src, _, name = ref.partition("#/")
             if src == "" and name.startswith("$defs/"):
                 table, key = local, name[len("$defs/"):]
-            elif src == "engine" and not name.startswith("$defs/"):
-                table, key = ENGINE_DEFS, name
+            elif src == "engine":
+                table, key = ENGINE_DEFS, name   # engine#/$defs/<名前> は鍵に $defs/ が残るので引けない（名乗りどおり engine#/<名前> だけ）
             else:
                 table, key = {}, None
             if key not in table:

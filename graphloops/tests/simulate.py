@@ -8,6 +8,7 @@
 使い方: python3 simulate.py            # 全部の台本と否定検査を回す。失敗があれば exit 1
 """
 import collections
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -16,8 +17,10 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 import types
 
+import fakeclaude  # 同じディレクトリ。--output-format json の包みを返す代役の claude
 import parallel  # 同じディレクトリ。台本を同時に走らせる土台（検査の中身は変えない）
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
@@ -833,7 +836,8 @@ def test_schema_refs_fail_closed():
     ok = lambda ref: expand_refs({"$defs": {"a": {"type": "string"}}, "nodes": {"n": {"schema": {"$ref": ref}}}})
     check(ok(f"engine#/{name}")["nodes"]["n"]["schema"] == ENGINE_DEFS[name], "engine#/<名前> は引ける")
     check(ok("#/$defs/a")["nodes"]["n"]["schema"] == {"type": "string"}, "#/$defs/<名前> は引ける")
-    for bad in (f"engine#/$defs/{name}", "#/a", "other#/a"):
+    # 3 つの綴りは、条件の項を 1 つ外すと別の表の鍵に当たる形を選ぶ（engine の表の $defs/・局所の表の名前・局所の $defs/ を外した頭 6 字）
+    for bad in (f"engine#/$defs/{name}", "engine#/$defs/a", "#/a", "#/xxxxxxa", f"#/{name}", "other#/a"):
         try:
             ok(bad)
             got = "通った"
@@ -1134,7 +1138,7 @@ def test_graphcheck():
     bad_iso = tmp / "graphs" / "iso.json"
     bad_iso.write_text(json.dumps(iso, ensure_ascii=False), encoding="utf-8")
     r = subprocess.run([PY, str(GRAPHCHECK), str(bad_iso), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
-    check(r.returncode == 1 and "context は継げない" in r.stdout,
+    check(r.returncode == 1 and "遮断が崩れる" in r.stdout,
           f"遮断系の役に same_context_as を書いた graph は落ちる（rc={r.returncode}: {r.stdout.strip()[-90:]}）")
     # **対象は graphs/ の実体から導く**（名前を手で並べると、足した graph も落とした graph も検査の側が追えない）
     for gf in sorted((PLUGIN / "graphs").glob("*.json")):
@@ -1413,11 +1417,8 @@ def test_isolated_real_launch():
     # **標準入力はバイトで読む。** 実物の claude と同じで、text で読むと Windows は OS 既定（cp1252）で復号し、
     # 日本語のプロンプトが UnicodeDecodeError になる（実測 2026-09-13: .bat で起動できるようにした直後の CI）。
     # engine 側の cmd_done が同じ理由で既にバイト読みに直してある——代役だけが実物と違う形に残っていた
-    fake = _fake_claude(bindir,
-                        "import sys, json\n"
-                        "raw = sys.stdin.buffer.read()\n"
-                        "sys.stdout.write(json.dumps({'seen_bytes': len(raw), 'argv': sys.argv[1:]}) + '\\n')\n")
-    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    fake = fakeclaude.install(bindir)
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", ""), "FAKE_MODE": "seen"}
     argv = list(inst["launch"]["argv"])
     # **差し替えるのは claude の 1 語だけ。** argv[0] を偽物にしていたとき、前置（launch.isolated.via の
     # with-auth）を丸ごと飛び越えて起こしていて、層が在ろうと無かろうとこの腕は緑だった（2026-09-15 に
@@ -1430,7 +1431,7 @@ def test_isolated_real_launch():
     check(r.returncode == 0, f"argv どおりに起こせて exit 0（{r.returncode}: {r.stderr[:120]}）")
     check("with-auth: auth=" in r.stderr, f"前置の層を通って起きている（標準エラーに 1 行。{r.stderr[:80]!r}）")
     check(r.stdout.strip().startswith("{"), "層の語が標準出力に混ざらない（out_path に落とすのは子の返答だけ）")
-    got = json.loads(r.stdout)
+    got = json.loads(json.loads(r.stdout)["result"])  # --output-format json の包みの本文
     want = len(pathlib.Path(inst["launch"]["stdin"]).read_bytes())
     check(got["seen_bytes"] == want, f"標準入力が欠けずに届く（届いた {got['seen_bytes']} / 渡した {want} バイト）")
     check("--setting-sources" in got["argv"] and got["argv"][got["argv"].index("--setting-sources") + 1] == "",
@@ -1576,52 +1577,204 @@ def test_engine_launch():
     起こす場所を engine へ移すぶん、**何を起こすかは engine が機械で縛る**——この腕の後半はその柵。
     """
     from engine.commands import launch_prefix, launch_refusal  # 起こしてよい形は engine が正本
-    print("engine 起動: 遮断系を loop.py launch で起こし、起こしてよい形を柵で縛る")
+    print("engine 起動: 遮断系を loop.py launch で起こし、受け付けまで済ませ、起こしてよい形を柵で縛る")
     run = Run("englaunch")
     run.next()
     run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
     bindir = run.tmp / "fakebin"
     bindir.mkdir()
-    fake = _fake_claude(bindir,
-                        "import sys, json\n"
-                        "raw = sys.stdin.buffer.read()\n"
-                        "sys.stdout.write(json.dumps({'seen_bytes': len(raw)}) + '\\n')\n")
+    fake = fakeclaude.install(bindir)
     env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
     nx = json.loads(run.cmd("next", env=env).stdout)
     cli = [i for i in nx["ready"] if i.get("mode") == "cli"]
     check(bool(cli), f"遮断系が cli で出る（{[i['node'] for i in cli]}）")
-    r = run.cmd("launch", env=env)
+    inst = cli[0] if cli else {}
+    ans = run.tmp / "answer.json"
+    ans.write_text(json.dumps(base_answers(run, "std")[inst["node"]](load_item(inst), 1), ensure_ascii=False), encoding="utf-8")
+    log = run.tmp / "fake.log"
+    # 役が誤りで終わった回: 受け付けに回さず、層の 1 行（with-auth: auth=…）を運び、起こし直しの記録を残す
+    # ——層の行を運ばないと、認証落ちが「役の返答の不良」に見える
+    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_MODE": "error"})
+    bad = (json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}])[0]
+    st = json.loads((run.dir / "state.json").read_text(encoding="utf-8"))
+    me = st["rounds"][-1]["instances"].get(inst["id"], {})
+    check(not bad.get("ok") and "誤りで終わった" in (bad.get("why") or "") and "with-auth: auth=" in (bad.get("stderr") or ""),
+          f"誤りの包みは受け付けず、層の標準エラーを結果に運ぶ（{bad.get('why')} / {(bad.get('stderr') or '')[:50]}）")
+    check(me.get("status") == "pending" and [x.get("kind") for x in me.get("attempt_log", [])] == ["failed"],
+          f"落ちた起動は盤面の attempt_log に理由つきで残り、節は待ったまま（{me.get('status')} {me.get('attempt_log')}）")
+    r = run.cmd("launch", "--node", inst["id"], env=env)
+    check("起こし済み" in r.stdout, f"起こした試行は 2 度起こさない——出口は relaunch（{r.stdout[-120:]}）")
+    old_out = me.get("out_path")
+    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 役が誤りで終わった", env=env)
+    check(r.returncode == 0, f"relaunch で新しい試行を作れる（{r.stderr[-80:]}）")
+    # 遅れて終わった古い試行が、新しい試行の節を受け付けさせない（本文は今の試行の置き場からしか読まない）
+    from engine.commands import _accept_for_launch
+    from engine.util import Reject
+    pathlib.Path(old_out).write_text(ans.read_text(encoding="utf-8"), encoding="utf-8")
+    try:
+        _accept_for_launch(str(run.dir), inst["id"], old_out)("")
+        stale = "受け付けた"
+    except Reject as e:
+        stale = str(e)
+    check("起こし直されている" in stale, f"古い試行の返答は、新しい試行の節に受け付けない（{stale[:60]}）")
+    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_OUT": str(ans), "FAKE_LOG": str(log), "FAKE_SESSION": "sess-cli"})
     got = json.loads(r.stdout)["launched"] if r.returncode == 0 else []
-    check(r.returncode == 0 and got and all(g["ok"] for g in got),
-          f"engine が起こして ok（rc={r.returncode}: {[g.get('why') for g in got] or r.stderr[:120]}）")
     one = got[0] if got else {}
-    # 層の 1 行は engine の中にしか出ない。運ばないと、認証落ちが「役の返答の不良」に見える
-    check("with-auth: auth=" in (one.get("stderr") or ""),
-          f"層の標準エラーが結果に運ばれる（{(one.get('stderr') or '')[:60]}）")
-    out = pathlib.Path(one["out_path"]) if one else None
-    check(bool(out) and out.is_file() and json.loads(out.read_text(encoding="utf-8"))["seen_bytes"] > 0,
-          "返答が out_path に落ち、材料が子へ届いている")
+    check(r.returncode == 0 and one.get("ok"), f"engine が起こして ok（rc={r.returncode}: {one.get('why') or r.stderr[-160:]}）")
+    st = json.loads((run.dir / "state.json").read_text(encoding="utf-8"))
+    me = st["rounds"][-1]["instances"].get(inst["id"], {})
+    check(me.get("status") == "done" and me.get("session_id") == "sess-cli" and me.get("launch_state") == "ended",
+          f"launch が受け付けまで済ませ、会話の番号を盤面に残す（{me.get('status')} {me.get('session_id')} {me.get('launch_state')}）")
+    check("result" not in r.stdout and ans.read_text(encoding="utf-8")[:40] not in r.stdout,
+          "launch の出力に役の返答の本文は載らない（回す側の会話に流さない）")
+    runs = [json.loads(x) for x in (run.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+            if '"role_run"' in x]
+    runs = [x for x in runs if x.get("session_id") == "sess-cli"]
+    check(len(runs) == 1 and runs[0].get("session_id") == "sess-cli" and runs[0].get("num_turns") == 2
+          and runs[0].get("total_cost_usd") == 0.001 and runs[0].get("instance") == inst["id"],
+          f"実行の要約（会話の番号・往復数・費用）が盤面の trace.jsonl に 1 起動 1 行で残る（{runs[-1:] }）")
+    seen = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()] if log.is_file() else []
+    check(seen and seen[0]["stdin"] == pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")[:4000],
+          "材料（指示書）は標準入力で子へ届く")
+    r2 = run.cmd("launch", "--node", inst["id"], env=env)
+    check(r2.returncode == 1 and "起こせる節が無い" in r2.stderr, f"済んだ節は起こし直さない（{r2.returncode}: {r2.stderr[-80:]}）")
 
     # **柵は graph の宣言を読まない。** graph を書き換えられる立場の人が柵ごと書き換えられるので、
     # engine は「自分の前置」と「遮断の旗」だけを見る
-    good = {"launch": {"argv": launch_prefix() + ["claude", "--tools", "", "--setting-sources", ""],
-                       "stdin": str(fake)}}
+    good = {"agent_type": "convergence-loops:cold-reader",
+            "launch": {"argv": launch_prefix() + ["claude", "--tools", "", "--setting-sources", ""], "stdin": str(fake)}}
     check(launch_refusal(good) is None, f"前置と旗が揃っていれば起こす（{launch_refusal(good)}）")
     for mut, want in ((lambda a: a[:1] + a[2:], "前置"),                    # 同梱の層を外す
                       (lambda a: [x for x in a if x != "--tools"], "旗")):  # 遮断の旗を落とす
-        why = launch_refusal({"launch": {"argv": mut(good["launch"]["argv"]), "stdin": str(fake)}}) or ""
+        why = launch_refusal({**good, "launch": {"argv": mut(good["launch"]["argv"]), "stdin": str(fake)}}) or ""
         check(want in why, f"{want} が違えば engine は起こさない（{why[:70]}）")
-    why = launch_refusal({"launch": {**good["launch"], "missing": "claude"}}) or ""
+    why = launch_refusal({**good, "launch": {**good["launch"], "missing": "claude"}}) or ""
     check("この環境に" in why, f"claude の無い環境では起こさず、その旨を返す（{why[:50]}）")
     # **綴りが違っても同じ層なら起こし、外へ出た綴りは撥ねる**（柵が緩んでいないことを対で見る）。
     # なぜ綴りが混ざるか・なぜ normpath で足りるかは engine.commands._norm が持つ
     for spelling, same in ((os.path.join(str(PLUGIN), "scripts", ".", "with-auth.py"), True),
                            (os.path.join(str(PLUGIN), "scripts", "..", "..", "evil.py"), False)):
         argv = [good["launch"]["argv"][0], spelling, *good["launch"]["argv"][2:]]
-        why = launch_refusal({"launch": {"argv": argv, "stdin": str(fake)}})
+        why = launch_refusal({**good, "launch": {"argv": argv, "stdin": str(fake)}})
         check((why is None) == same,
               f"{'同じ層を指す綴りなら起こす' if same else '外へ出た綴りは撥ねる'}（{why or 'ok'}）")
     rm(run.tmp)
+
+
+def test_role_run():
+    """役を起こす関数（engine/role_run.run_role）を代役の claude で端から端まで通す。盤面を持たずに呼べること・
+    包みを解いて本文だけを書くこと・拒まれたら同じ会話に続きを頼むこと・期限で子を木ごと止めること。"""
+    from engine import role_run
+    print("役を起こす関数: 包み・受け付け・同じ会話での出し直し・期限で木ごと止める・役のせいでない失敗は続けない")
+    _td, tmp = parallel.workspace("gl-rolerun-")
+    bindir = tmp / "bin"
+    bindir.mkdir()
+    fake = str(fakeclaude.install(bindir))
+    prompt = tmp / "prompt.md"
+    prompt.write_text("指示書の本文\n", encoding="utf-8")
+    ans = tmp / "ans.json"
+    ans.write_text('{"ok": 1}', encoding="utf-8")
+    log, flog = tmp / "trace.jsonl", tmp / "fake.log"
+    env = {**os.environ, "FAKE_OUT": str(ans), "FAKE_LOG": str(flog), "FAKE_MODE": "bad_then_answer", "FAKE_SESSION": "sess-9"}
+    seen = []
+
+    def accept(text):
+        seen.append(text)
+        return None if text.strip().startswith("{") else "返答が JSON として読めない"
+
+    argv = [fake, "-p", "--tools", ""]
+    resume = [fake, "-p", "--resume", "{session_id}", "--tools", ""]
+    out = tmp / "out.json"
+    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=accept, resume_argv=resume, max_resumes=2,
+                          log_path=log, meta={"instance": "x"}, env=env)
+    calls = [json.loads(x) for x in flog.read_text(encoding="utf-8").splitlines()]
+    check(r["ok"] and r["session_id"] == "sess-9" and len(r["runs"]) == 2 and r["rejections"] == ["返答が JSON として読めない"],
+          f"拒まれたら同じ会話に続きを頼み、受け付けまで済ませる（{ {k: r[k] for k in ('ok', 'session_id', 'rejections')} }）")
+    check(len(calls) == 2 and calls[1]["argv"][calls[1]["argv"].index("--resume") + 1] == "sess-9"
+          and "返答が JSON として読めない" in calls[1]["stdin"] and calls[0]["stdin"] == "指示書の本文\n",
+          "続きは記録した会話の番号で --resume し、拒否の理由を標準入力で渡す（初回は指示書）")
+    check(out.read_text(encoding="utf-8") == '{"ok": 1}' and "sess-9" not in json.dumps({k: v for k, v in r.items() if k != "runs" and k != "session_id"}),
+          "out_path には包みの本文（result）だけを書き、返り値は本文を持たない")
+    rows = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()]
+    check([x.get("kind") for x in rows] == ["first", "resume"] and all(x.get("op") == "role_run" and x.get("instance") == "x" for x in rows)
+          and rows[1].get("permission_denials") == ["WebFetch"],
+          f"1 起動 1 行の要約（op=role_run・添えた値・権限で拒まれた道具）を JSON Lines で足す（{[(x.get('kind'), x.get('permission_denials')) for x in rows]}）")
+    # 上限まで拒まれ続けたら止める（続けない）
+    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=lambda _t: "いつも拒む", resume_argv=resume, max_resumes=1, env=env)
+    check(not r["ok"] and len(r["runs"]) == 2 and r["accepted"] is False and "いつも拒む" in r["why"],
+          f"拒否が上限（resume_on_reject）まで続いたら止めて理由を返す（{len(r['runs'])} 起動）")
+    # 役のせいでない失敗（受け付けの検査が例外）は続きを頼まない
+    def boom(_t):
+        raise RuntimeError("盤面が読めない")
+    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=boom, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "answer"})
+    check(not r["ok"] and len(r["runs"]) == 1 and "盤面が読めない" in (r["why"] or ""),
+          f"受け付けの検査が例外で落ちたら、続きを頼まずに理由を返す（{len(r['runs'])} 起動: {r['why']}）")
+    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=accept, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "error"})
+    check(not r["ok"] and len(r["runs"]) == 1 and "誤りで終わった" in (r["why"] or ""), f"誤りの包みは受け付けに回さない（{r['why']}）")
+    if os.name == "posix":
+        pidf = tmp / "grandchild.pid"
+        t0 = time.monotonic()
+        r = role_run.run_role(argv, prompt, out, timeout_s=2, env={**env, "FAKE_MODE": "sleep", "FAKE_PID": str(pidf)})
+        took = time.monotonic() - t0
+        pid = int(pidf.read_text(encoding="utf-8")) if pidf.is_file() else None
+        alive = False
+        if pid:
+            try:
+                os.kill(pid, 0)
+                alive = True
+            except OSError:
+                alive = False
+        check(r["expired"] and not r["ok"] and took < 30, f"期限を過ぎたら子を止めて期限切れとして返す（{took:.1f} 秒）")
+        check(pid is not None and not alive, f"期限切れでは孫（前置の層の先の claude に当たる）まで止まる（pid {pid} alive={alive}）")
+    rm(tmp)
+
+
+def test_tooled_launch_fence():
+    """道具つきの役を engine が起こしてよい形（launch_refusal の 2 形目）。**入口ごとに 1 本ずつ倒して撥ねることを見る**。"""
+    from engine.commands import launch_prefix, launch_refusal
+    from engine.role_run import tooled_permission
+    print("道具つきの柵: 設定を読まない・聞く先が無い・権限の形と道具は役の定義から engine が決めた値だけ")
+    _td, tmp = parallel.workspace("gl-tooledfence-")
+    stdin = tmp / "p.md"
+    stdin.write_text("x", encoding="utf-8")
+    tools = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]  # agents/judge.md の道具
+    mode, allowed = tooled_permission(tools)
+    check(mode == "dontAsk" and allowed == tools, f"コマンドを走らせない役は dontAsk で、道具を全部先に許す（{mode} {allowed}）")
+    m2, a2 = tooled_permission(["Read", "Bash", "WebFetch"])
+    check(m2 == "auto" and a2 == ["Read", "WebFetch"], f"Bash を持つ役は auto にし、Bash を先に許す一覧から外す（{m2} {a2}）")
+    body = ["claude", "-p", "--model", "opus", "--effort", "high", "--tools", ",".join(tools), "--allowedTools", ",".join(allowed),
+            "--permission-mode", mode, "--permission-prompts", "none", "--setting-sources", "", "--output-format", "json"]
+    good = {"agent_type": "convergence-loops:judge", "launch": {"argv": launch_prefix() + body, "stdin": str(stdin)}}
+    check(launch_refusal(good) is None, f"揃った形は起こす（{launch_refusal(good)}）")
+
+    def swap(flag, val):
+        return lambda a: [val if i > 0 and a[i - 1] == flag else x for i, x in enumerate(a)]
+
+    def drop(flag):
+        return lambda a: [x for i, x in enumerate(a) if x != flag and not (i > 0 and a[i - 1] == flag)]
+
+    # 入口ごとの腕（tests/mutations.json の TF*）が名指しで落とせるよう、検査の名前は字面で書く
+    for mut, want, desc in ((drop("--setting-sources"), "旗", "柵: 利用者の設定を読む子は起こさない"),
+                            (drop("--permission-prompts"), "旗", "柵: 聞く先を持つ子は起こさない"),
+                            (lambda a: a + ["--dangerously-skip-permissions"], "権限を外す旗", "柵: 権限を外す旗を持つ子は起こさない"),
+                            (swap("--permission-mode", "bypassPermissions"), "--permission-mode", "柵: 権限の形を広げた子は起こさない"),
+                            (swap("--tools", ",".join(tools + ["Write"])), "--tools", "柵: 役の定義に無い道具を持つ子は起こさない"),
+                            (swap("--allowedTools", ",".join(allowed + ["Bash"])), "--allowedTools", "柵: 先に許す道具を広げた子は起こさない"),
+                            (lambda a: a + ["--tools", "Bash"], "--tools", "柵: 旗を重ねて後勝ちを狙う子は起こさない")):
+        why = launch_refusal({**good, "launch": {"argv": mut(good["launch"]["argv"]), "stdin": str(stdin)}}) or ""
+        check(want in why, f"{desc}（{why[:70]}）")
+    from engine.advance import tooled_launchable
+    for d, desc in (({"tools": ["Read", "Write"], "model": "opus", "effort": "high"}, "ファイルを書く道具を持つ役は engine が起こさない"),
+                    ({"tools": ["*"], "model": "opus", "effort": "high"}, "道具の一覧を持たない役は engine が起こさない"),
+                    ({"tools": ["Read"], "model": "inherit", "effort": "high"}, "モデルを名指ししない役は engine が起こさない")):
+        check(not tooled_launchable(d), desc)
+    check(tooled_launchable({"tools": ["Read"], "model": "sonnet", "effort": "medium"}), "道具を名指しした読むだけの役は engine が起こす")
+    # 続きの語（--resume）にも同じ柵が当たる
+    bad_resume = {**good, "launch": {**good["launch"], "resume_argv": drop("--permission-prompts")(good["launch"]["argv"])}}
+    check("旗" in (launch_refusal(bad_resume) or ""), "続きを頼む語にも同じ柵が当たる")
+    # 役の定義が読めない役は、形が決まらないので起こさない
+    check("定義が読めない" in (launch_refusal({**good, "agent_type": "no-such-plugin:nobody"}) or ""), "定義の読めない役は起こさない")
+    rm(tmp)
 
 
 def test_relative_dir():
@@ -2038,30 +2191,57 @@ def test_deadline_wait_relaunch():
     gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     run = Run("deadline", graph=gp)
     nx = run.next()
-    inst = nx["ready"][0]
+    own = next(i for i in nx["ready"] if i["node"] == "p0.question")
+    check("deadline_at" not in own and "overdue" not in own,
+          f"回す側が自分でやる節（任せ先の無い runner）には期限を付けない（{ {k: own.get(k) for k in ('deadline_at', 'overdue')} }）")
+    r = run.cmd("relaunch", "--node", own["id"], "--reason", "検査用")
+    check(r.returncode == 1 and "期限を持って待っている" in r.stderr, f"relaunch: 期限を持たない（自分でやる）節は起こし直さない（{r.stderr.strip()[-80:]}）")
+    def finish(i):
+        r = run.done(i["id"], base_answers(run, "std")[i["node"]](load_item(i), 1))   # 台本の答えは記録から組むので毎回作り直す
+        if r.returncode != 0:
+            raise RuntimeError(f"done {i['id']} が {r.returncode}: {r.stderr}")
+    inst = None
+    for _ in range(10):   # 役（investigator）の節が出るまで回す側の節を済ませる
+        inst = next((i for i in nx["ready"] if i["node"] == "p0.prior_decisions"), None)
+        if inst:
+            break
+        for i in nx["ready"]:
+            finish(i)
+        nx = run.next()
     iid = inst["id"]
     check(inst.get("deadline_at") and inst.get("overdue") is False and inst.get("attempts") == 1 and inst.get("elapsed_min") == 0,
-          f"next: 期限（emitted_at＋graph の分）・経過・試行の回数を出す（{ {k: inst.get(k) for k in ('deadline_at', 'overdue', 'attempts')} }）")
+          f"next: 役に渡す節は期限（emitted_at＋graph の分）・経過・試行の回数を出す（{ {k: inst.get(k) for k in ('deadline_at', 'overdue', 'attempts')} }）")
     pend = run.status()["this_round"]["pending_instances"]
     check(any(p["id"] == iid and p.get("overdue") is False for p in pend), f"status: 待っている instance ごとに期限と経過を出す（{pend[:1]}）")
-    # 期限を過ぎた形を盤面に作る（時計を待たない）
+    r = run.cmd("wait", "--node", "無い節（検査用）")
+    check(r.returncode == 1 and "今の周に instance" in r.stderr, f"wait: 今の周に無い instance は理由を名乗って拒む（{r.stderr.strip()[-60:]}）")
     st = run.state()
+    # 期限が数秒先の instance を、返答無しで待つ: 期限まで眠ってから exit 3（眠る時間は期限で切る）
+    st["rounds"][-1]["instances"][iid]["deadline_at"] = (datetime.datetime.now().astimezone() + datetime.timedelta(seconds=2)).isoformat(timespec="seconds")
+    (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    t0 = time.time()
+    r = run.cmd("wait", "--node", iid)
+    check(r.returncode == 3 and 0.5 < time.time() - t0 < 14, f"wait: 期限まで眠って exit 3（{r.returncode}・{time.time() - t0:.1f} 秒。間隔 15 秒より期限が近ければ期限で起きる）")
+    # 期限を過ぎた形を盤面に作る（時計を待たない）
     st["rounds"][-1]["instances"][iid]["deadline_at"] = "2000-01-01T00:00:00+00:00"
+    real_base = st["rounds"][-1]["instances"][iid].get("tree_before")
     st["rounds"][-1]["instances"][iid]["tree_before"] = ["?? 前の試行の基準点（検査用）"]
     (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     check(any(p["id"] == iid and p.get("overdue") is True for p in run.status()["this_round"]["pending_instances"]),
           "status: 期限を過ぎた instance は overdue")
+    old = pathlib.Path(st["rounds"][-1]["instances"][iid]["out_path"])
+    old.write_text("", encoding="utf-8")   # 空の返答は『書かれた』に数えない
     before = (run.dir / "state.json").read_bytes()
     r = run.cmd("wait", "--node", iid)
-    check(r.returncode == 3 and "relaunch" in r.stdout, f"wait: 期限を過ぎて返答が無ければ exit 3 で次の手を言う（{r.returncode} {r.stdout[-80:]}）")
+    check(r.returncode == 3 and "relaunch" in r.stdout, f"wait: 期限を過ぎて返答が無い（空のファイルも無いと数える）なら exit 3 で次の手を言う（{r.returncode} {r.stdout[-80:]}）")
     check((run.dir / "state.json").read_bytes() == before, "wait: 盤面を 1 バイトも書かない")
-    old = pathlib.Path(st["rounds"][-1]["instances"][iid]["out_path"])
     old.write_text("前の試行の途中の返答（検査用）", encoding="utf-8")
     r = run.cmd("relaunch", "--node", iid, "--reason", "期限を過ぎても返らない（検査用）")
     check(r.returncode == 0, f"relaunch: 待っている instance は起こし直せる（{r.stderr.strip()[-80:]}）")
     new = run.state()["rounds"][-1]["instances"][iid]
     check(new.get("attempts") == 2 and len(new.get("attempt_log") or []) == 1 and "検査用" in new["attempt_log"][0]["reason"],
           f"relaunch: 試行の回数と理由を盤面に刻む（{new.get('attempts')} {new.get('attempt_log')}）")
+    check(new["out_path"] in r.stdout, "relaunch: 新しい置き場を回す側に返す（運び手に渡す先）")
     check(new["deadline_at"] > "2001", f"relaunch: 期限を新しい試行の分に取り直す（{new['deadline_at']}）")
     check(new["out_path"] != str(old) and ".a2." in new["out_path"], f"relaunch: 新しい試行は別の置き場に書く（{new['out_path']}）")
     check(not old.exists() and old.with_name(old.name + ".stale-a1").is_file(), "relaunch: 前の試行の置き場に在った物は .stale-a1 へ退ける")
@@ -2072,11 +2252,40 @@ def test_deadline_wait_relaunch():
     old.write_text("遅れて届いた前の試行の返答（検査用）", encoding="utf-8")
     r = run.cmd("done", "--node", iid)
     check(r.returncode != 0 and "返答が無い" in r.stderr, f"done: 前の試行の置き場は読まない（{r.stderr.strip()[-80:]}）")
-    pathlib.Path(new["out_path"]).write_text("{}", encoding="utf-8")
+    # 置き場に何も無いまま 2 回目の起こし直し: 退ける物が無くても起こし直せ、試行の記録は積み増す
+    r = run.cmd("relaunch", "--node", iid, "--reason", "2 回目（検査用）")
+    new3 = run.state()["rounds"][-1]["instances"][iid]
+    check(r.returncode == 0 and new3.get("attempts") == 3 and len(new3.get("attempt_log") or []) == 2,
+          f"relaunch: 前の置き場が空でも起こし直せ、attempt_log は積み増す（{r.returncode} {new3.get('attempt_log')}）")
+    pathlib.Path(new3["out_path"]).write_text("{}", encoding="utf-8")
     r = run.cmd("wait", "--node", iid)
     check(r.returncode == 0 and '"written": true' in r.stdout, f"wait: 今の試行の置き場に返答が在れば exit 0（{r.returncode}）")
+    # 済んだ instance: 置き場に返答が無くても wait は exit 0、relaunch は拒む
+    pathlib.Path(new3["out_path"]).unlink()
+    st = run.state()
+    st["rounds"][-1]["instances"][iid]["tree_before"] = real_base   # 検査用の基準点を本物に戻す（done の突合に通す）
+    (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    r = run.done(iid, base_answers(run, "std")["p0.prior_decisions"](load_item(new3), 1))
+    check(r.returncode == 0, f"前提: 役の返答を --output で受け付ける（{r.stderr.strip()[-200:]}）")
+    r = run.cmd("wait", "--node", iid) if r.returncode == 0 else r
+    check(r.returncode == 0 and '"status": "done"' in r.stdout, f"wait: 済んだ instance は置き場に返答が無くても exit 0（{r.returncode} {r.stdout[-60:]}）")
+    r = run.cmd("relaunch", "--node", iid, "--reason", "x")
+    check(r.returncode == 1 and "待っている instance でない" in r.stderr, "relaunch: 済んだ instance は起こし直さない")
     r = run.cmd("relaunch", "--node", "無い節（検査用）", "--reason", "x")
-    check(r.returncode != 0 and "pending だけ" in r.stderr, "relaunch: 待っていない instance は拒む")
+    check(r.returncode == 1 and "待っている instance でない" in r.stderr, "relaunch: 今の周に無い instance は拒む")
+    # 扇の項目の instance も、同じ id・同じ項目で起こし直せる
+    fan = None
+    for _ in range(20):
+        nx = run.next()
+        fan = next((i for i in nx["ready"] if i["node"] == "p1.checker"), None)
+        if fan or not nx["ready"]:
+            break
+        for i in nx["ready"]:
+            finish(i)
+    r = run.cmd("relaunch", "--node", fan["id"], "--reason", "扇の項目（検査用）")
+    got = run.state()["rounds"][-1]["instances"].get(fan["id"]) or {}
+    check(r.returncode == 0 and got.get("attempts") == 2 and load_item(got) == load_item(fan),
+          f"relaunch: 扇の項目の instance は同じ id・同じ項目で起こし直す（{r.returncode} {fan['id']}）")
     # 期限を宣言しない graph の instance には wait を使わせない（期限の無い待ちは、書かずに落ちた役を永久に待つ）
     r2 = Run("nodeadline")
     iid2 = r2.next()["ready"][0]["id"]

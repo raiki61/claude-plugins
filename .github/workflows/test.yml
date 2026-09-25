@@ -41,3 +41,11 @@ jobs:
       - name: tests/run.sh
         shell: bash
         run: bash tests/run.sh
+      # **pytest の置き場（graphloops/tests/py/）を丸ごと回す。** 依存は開発の間だけで、ここで入れる（README の必須には
+      # 足さない）。版を固定するのは、手元と CI で柵（fence.py）が使う pytest のフックの振る舞いを揃えるため。
+      # 置き場を丸ごと渡すので件数の柵（conftest.py の EXPECTED_ITEMS）が当たる——パスを絞ると柵が外れる
+      - name: pytest
+        shell: bash
+        run: |
+          python -m pip install pytest==9.1.1
+          python -m pytest graphloops/tests/py
