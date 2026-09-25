@@ -188,7 +188,7 @@ class Run:
             args.append("--unattended")
         if graph:
             args += ["--graph", str(graph)]
-        if before_init:   # init より前に置く物（人の方針の文書など）
+        if before_init:
             before_init(self)
         self.init = self.cmd(*args)
         # **engine を回せば、その出力が道具の結果として転写に載る**——本番と同じ形を代役にも作る。
@@ -424,8 +424,22 @@ def test_policy_reaches_research_roles():
     def hook(run_, inst, out):
         seen.setdefault(inst["node"], pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8"))
         return None
-    drive(run, "std", hook=hook)
+    def hook2(run_, inst, out):
+        if inst["node"] == "p5.internal":   # 回す側が方針の文書を書き換えた形（周の途中の関所は無いので、仕上げで照らす）
+            (run_.repo / ".git" / "graphloops" / "policy.md").write_text(mark + "\nWRITER-EDIT-9d2\n", encoding="utf-8")
+        return hook(run_, inst, out)
+    drive(run, "std", hook=hook2)
     path = str((run.repo / ".git" / "graphloops" / "policy.md").resolve())
+    rec = run.record()
+    pol, ch = rec["process"].get("policy") or {}, rec["process"].get("policy_change") or {}
+    check(pol.get("path") == path and len(pol.get("sha256") or "") == 64 and mark in pathlib.Path(pol.get("copy") or "/nonexistent").read_text(encoding="utf-8")
+          and "amendments" not in pol,
+          f"人の方針: research の init も文書の版（sha と写し）を記録に固定する（{pol}）")
+    check(ch.get("from") == pol.get("sha256") and ch.get("to") and ch["to"] != ch["from"]
+          and "+WRITER-EDIT-9d2" in pathlib.Path(ch.get("diff_file") or "/nonexistent").read_text(encoding="utf-8")
+          and "WRITER-EDIT-9d2" not in json.dumps(ch, ensure_ascii=False),
+          f"人の方針: run の途中で文書が変わったら、仕上げが前後の sha と差分のファイルを記録に残す（置き場だけで本文は載せない。{ch}）")
+    check((run.dir / "report.md").is_file(), "人の方針: 文書が変わった run も報告まで届く（研究の run は周の途中で止めない）")
     check(mark in seen.get("p1.refuter", "") and mark in seen.get("p5.internal", ""),
           f"人の方針: 反証役と内部照合役のプロンプトに本文が貼られる（{sorted(k for k, v in seen.items() if mark in v)}）")
     check(path in seen.get("p0.question", "") and mark not in seen.get("p0.question", ""),

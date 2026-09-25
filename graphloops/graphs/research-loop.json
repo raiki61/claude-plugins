@@ -11,7 +11,7 @@
    "kind": "file",
    "by": "rules",
    "optional": true,
-   "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める——既定は対象リポジトリの <git の共有の置き場>/graphloops/policy.md（作業ツリーの外なので採点する版・差分・作業ツリーの突合に入らず、同じリポジトリの worktree の全部の run が読む）、init --input policy_md=<パス> で名指しもできる。役には節を出す時点の本文を prompts/policy.md の段落が貼る（run の途中の人の書き足しも後の節に届く）"
+   "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める"
   }
  },
  "plugin": "convergence-loops",

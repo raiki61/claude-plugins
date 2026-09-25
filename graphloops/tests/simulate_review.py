@@ -196,7 +196,7 @@ class Run:
         if latin:  # UTF-8 でないテキスト（Latin-1 の é と単独の 0xFF）。git の出力と file: の読みが厳格な復号で落ちていた
             (self.repo / "src" / "latin.py").write_bytes(b"# caf\xe9 \xff legacy encoding\nX = 1\n")
         g("add", "."); g("commit", "-q", "-m", "change under review")
-        if before_init:   # init より前に置く物（人の方針の文書など）
+        if before_init:
             before_init(self)
         self.dir = self.tmp / "state"
         args = ["init", "--loop", loop, "--request", "この変更をレビュー", "--dir", str(self.dir), "--validator", str(VALIDATOR)]
@@ -498,9 +498,9 @@ def answers(run, scenario, rnd):
         "r3.coherence": lambda it: ({"status": "unverifiable", "reason": "横断の材料が取れない（検査用）"}
                                     if scenario == "rnonpass" else
                                     {"status": "pass", "reason": "横断で揃っている"}),
-        "r4.hidden_scope": lambda it: ({"status": "unverifiable", "reason": "基準点の材料が取れない（検査用）", "capability_inventory": {"fired": False}, "surfaced": []}
+        "r4.hidden_scope": lambda it: ({"status": "unverifiable", "reason": "基準点の材料が取れない（検査用）", "capability_inventory": {"fired": False}, "policy_conflicts": [], "surfaced": []}
                                        if scenario == "rnonpass" else
-                                       {"status": "pass", "reason": "導入・露呈した横断リスクなし", "capability_inventory": {"fired": False}, "surfaced": []}),
+                                       {"status": "pass", "reason": "導入・露呈した横断リスクなし", "capability_inventory": {"fired": False}, "policy_conflicts": [], "surfaced": []}),
         "stop.premise_check": lambda it: ({"key": "f の上限は既存機構で自明に満たされているか", "assumption": "呼び出し元が上限を持つ", "assumption_false": True, "evidence": "grep f( で 3 箇所中 2 箇所は上限を持たない",
                                            "verdict": "resolved", "reason": "仮定は実態で偽", "resolution": "呼び出し元 3 箇所中 2 箇所は上限を持たない（実測）",
                                            "facts_to_add": ["f の呼び出し元 3 箇所のうち 2 箇所は上限を持たない"]} if scenario == "premise_resolved" else
@@ -5984,7 +5984,6 @@ POLICY_MARK = "POLICY-MARK-7f3（検査用の人の方針: 今ある能力を減
 
 
 def policy_default(run):
-    """既定の置き場（<git の共有の置き場>/graphloops/policy.md）"""
     return run.repo / ".git" / "graphloops" / "policy.md"
 
 
@@ -6008,16 +6007,18 @@ def test_policy_reaches_roles():
         return None
     last = drive(run, "std", hook=hook)
     pol = run.record()["process"].get("policy") or {}
-    check(pol.get("path") == str(policy_default(run).resolve()) and len(pol.get("sha256") or "") == 64 and pol.get("amendments") == [],
-          f"人の方針: init が既定の置き場の文書を拾い、sha を記録に固定する（{pol}）")
+    check(pol.get("path") == str(policy_default(run).resolve()) and len(pol.get("sha256") or "") == 64 and pol.get("amendments") == []
+          and pathlib.Path(pol.get("copy") or "/nonexistent").read_text(encoding="utf-8") == POLICY_MARK + "\n"
+          and pathlib.Path(pol["copy"]).parent.resolve() == (run.dir / "policy").resolve(),
+          f"人の方針: init が既定の置き場の文書を拾い、sha と盤面の写しを記録に固定する（{pol}）")
     pasted = [k for k in ("p2.diagnose", "p2.plan_review", "r2.design", "r4.hidden_scope") if POLICY_MARK in seen.get(k, "")]
     check(pasted == ["p2.diagnose", "p2.plan_review", "r2.design", "r4.hidden_scope"],
           f"人の方針: 判定・事前審査・R2（道具ゼロ）・R4 のプロンプトに本文が貼られる（貼られた節 {pasted}）")
     fixp = seen.get("p3.fix", "")
     check(str(policy_default(run).resolve()) in fixp and POLICY_MARK not in fixp,
           "人の方針: 回す側の節（修正）には本文でなく置き場が渡る")
-    check(last["status"] == "converged" and not run.record()["process"]["human_items"],
-          f"人の方針: 文書が変わらず後退も並ばない run は、関所で聞かずに収束する（{last['status']}）")
+    check(last["status"] == "converged" and not run.record()["process"]["human_items"] and "policy_change" not in run.record()["process"],
+          f"人の方針: 文書が変わらず後退も並ばない run は、関所で聞かずに収束し、変化の欄も置かない（{last['status']}）")
     rm(run.tmp)
 
     run = Run("policy-missing", init_args=("--input", "policy_md=no/such/policy.md"))
@@ -6050,7 +6051,8 @@ def test_human_gate():
             r = run_.done(inst["id"], bad)
             seen["delta"] = (r.returncode, r.stderr)
         if inst["node"] == "r4.hidden_scope":
-            return {**out, "capability_inventory": {"fired": True, "lost": ["呼び元の上限なしの経路（検査用 LOST-1）"]}}
+            return {**out, "capability_inventory": {"fired": True, "lost": ["呼び元の上限なしの経路（検査用 LOST-1）"]},
+                    "policy_conflicts": ["期限を足した（検査用 CONFLICT-1）"]}
         return None
 
     last = drive(run, "std", hook=hook)
@@ -6072,19 +6074,28 @@ def test_human_gate():
           f"関所: 修正差分の審査は後退の語を使えない（手直しの義務に入れて役に決めさせない。{seen.get('delta', ('', ''))[1][-120:]}）")
     check(last["status"] == "awaiting_human" and last["ask"]["kinds"] == ["policy_changed"],
           f"関所: 方針の文書が init の後に変わった（役が書いた）なら、修正の後の関所で人に聞く（{last.get('ask', {}).get('kinds')}）")
+    row = "".join(last["ask"]["items"])
+    diff = row.split("差分 ", 1)[-1].split("・", 1)[0] if "差分 " in row else ""
+    check("WRITER-POLICY" not in row and diff and "+修正役が書いた方針（検査用 WRITER-POLICY）" in pathlib.Path(diff).read_text(encoding="utf-8"),
+          f"関所: 方針の文書の変化の行は差分のファイルの置き場を載せ（本文は載せない）、差分に変わった中身が在る（{row[-200:]}）")
     run.cmd("answer", "--text", "continue", "--note", "確かめた（検査用）")
     pol = run.record()["process"]["policy"]
     check(len(pol["amendments"]) == 1 and pol["path"] == str(policy_default(run).resolve()) and len(pol["sha256"] or "") == 64
-          and run.state()["inputs"]["policy_md"] == pol["path"],
-          "関所: 通した方針の文書の変更は新しい版を固定し直し、以後の節に届く（履歴は amendments）")
-    asked_lost = 0
+          and run.state()["inputs"]["policy_md"] == pol["path"] and "WRITER-POLICY" in pathlib.Path(pol["copy"]).read_text(encoding="utf-8")
+          and pol["amendments"][0]["diff_file"] == diff,
+          "関所: 通した方針の文書の変更は新しい版（写しも）を固定し直し、以後の節に届く（履歴は amendments）")
+    asked = {"LOST-1": 0, "CONFLICT-1": 0}
+    kinds = set()
     for _ in range(6):
         last = drive(run, "std", hook=hook)
         if last["status"] != "awaiting_human":
             break
-        asked_lost += "LOST-1" in "".join(last["ask"]["items"])
+        for k in asked:
+            asked[k] += k in "".join(last["ask"]["items"])
+        kinds |= set(last["ask"]["kinds"])
         run.cmd("answer", "--text", "continue", "--note", "消えてよい（検査用）")
-    check(asked_lost == 1, f"関所: R4 の lost は人に聞き、同じ文の行は通した後に聞き直さない（聞いた回数 {asked_lost}）")
+    check(asked == {"LOST-1": 1, "CONFLICT-1": 1} and {"regression", "policy"} <= kinds,
+          f"関所: R4 の lost と方針とのぶつかり（policy_conflicts）は人に聞き、同じ文の行は通した後に聞き直さない（聞いた回数 {asked}・{sorted(kinds)}）")
     check(last["status"] == "converged", f"関所: 人が通した後は収束まで進む（{last['status']}）")
     rm(run.tmp)
 

@@ -62,7 +62,7 @@ allowed-tools: Bash, Agent, Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 
 ## 人の方針
 
-人が決めた、どの run にも効く決まりは、対象リポジトリの共有の git ディレクトリ（`git rev-parse --git-common-dir` が指す所）の下の `graphloops/policy.md` に置けば、`init` が拾う（別の文書なら `init --input policy_md=<パス>`）。問いの確定・反証・統合・内部照合・適用の節に、役には本文が、回す側には置き場が届く。置き場の決め方と文書の変化の扱いは [review-graph の「人の方針」](review-graph.md#人の方針) と同じ——ただしこの loop には周の途中の関所が無いので、文書が init の後に変わっても人に聞かない。
+人が決めた、どの run にも効く決まりは、対象リポジトリの共有の git ディレクトリ（`git rev-parse --git-common-dir` が指す所）の下の `graphloops/policy.md` に置けば、`init` が拾う（別の文書なら `init --input policy_md=<パス>`）。問いの確定・反証・統合・内部照合・適用の節に、役には本文が、回す側には置き場が届く。置き場の決め方と文書の変化の扱いは [review-graph の「人の方針」](review-graph.md#人の方針) と同じ——ただしこの loop には周の途中の関所が無いので、文書が init の後に変わっても周の途中では人に聞かない。init の時点の版（sha と写しの置き場）を記録の `process.policy` に固定し、報告の前の仕上げで比べて、変わっていれば `process.policy_change`（前後の写しと差分の置き場）に残し、報告の冒頭に出す。
 
 ## 守ること
 

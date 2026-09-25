@@ -7,8 +7,8 @@ engine（scripts/loop.py）が graph の名前で呼ぶ。ここにあるのは:
   BUILTINS      機械の節（件数突合・収束判定）
   POST_CHECKS   節ごとの整合（型では書けない規則）。out を検査・補うだけで record は触らない（記録を書くのは WRITE_OPS）
   check_record  判定ごとの必須欄と出典（検証器と同じ規則を done の時点で当てる）
-  finalize      報告の前の仕上げ（段ごとの『走らせない』理由・未反証の荷重の申告・未照合の主張の退避）
-  on_init       人の方針の文書の置き場を inputs.policy_md に（置き場の決め方は rules/policy_input.py が review-loop と共有）
+  finalize      報告の前の仕上げ（段ごとの『走らせない』理由・未反証の荷重の申告・未照合の主張の退避・方針の文書の変化）
+  on_init       人の方針の文書の置き場を inputs.policy_md に、init の時点の版を process.policy に（rules/policy_input.py を review-loop と共有）
   on_answer / on_unattended / on_thickness / add   人に聞いた後・無人・昇格・外から足す
 
 engine が差し込む道具は engine/rules.py の INJECT が正本（rules は engine を import しない）。
@@ -43,9 +43,9 @@ def init_record(thickness, decider):
 
 
 def on_init(b, args):
-    """人の方針の文書を inputs.policy_md に（役には節を出す時点の本文が貼られる）。文書が init の後に変わったかの照らしは
-    review-loop の関所（human_gate）だけが持つ——この loop には周の途中で人に聞く関所が無い（残した隙間）"""
-    policy_input.resolve(b, git, Reject)
+    """人の方針の文書を inputs.policy_md に、init の時点の版（sha と写し）を process.policy に。変わったかは finalize が照らして
+    記録と報告に出す——この loop に周の途中で人に聞く関所は足さない（元の research-loop に無い止める点になる）"""
+    b.record["process"]["policy"] = policy_input.resolve(b, git, Reject)
 
 
 # ---------------------------------------------------------------- 扇の項目
@@ -878,6 +878,12 @@ def finalize(b):
             proc["load_zero_reason"] = ls["load_zero_reason"]
     else:
         proc.pop("load_zero_reason", None)
+    # 版を固定していない盤面（init が方針の版を記録する前の盤面）は比べる元が無いので照らさない
+    ch = "policy" in proc and policy_input.change(b, git, proc["policy"])
+    if ch:
+        proc["policy_change"] = ch
+    else:
+        proc.pop("policy_change", None)
 
 
 def on_answer(b, ph, ans):

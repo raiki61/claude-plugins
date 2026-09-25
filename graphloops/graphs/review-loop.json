@@ -45,7 +45,7 @@
    "kind": "file",
    "by": "rules",
    "optional": true,
-   "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める——既定は対象リポジトリの <git の共有の置き場>/graphloops/policy.md（作業ツリーの外なので採点する版・差分・作業ツリーの突合に入らず、同じリポジトリの worktree の全部の run が読む）、init --input policy_md=<パス> で名指しもできる。役には節を出す時点の本文を prompts/policy.md の段落が貼る（run の途中の人の書き足しも後の節に届く）"
+   "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める"
   }
  },
  "plugin": "convergence-loops",
@@ -392,7 +392,7 @@
     "policy",
     "precedent"
    ],
-   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。このうち人に聞く語（regression＝BASE にあった能力が消える・狭まる、policy＝人の方針とぶつかる）の一覧の正本は rules の HUMAN_FACE_KINDS で、事前審査だけが使い p2.human_gate が人に聞く——修正差分のレビューは削除を cite できず、手直しの義務に入ると人より先に修正役が決めるので受け付けで拒み、修正の後の後退は R4 の棚卸しと r4.human_gate が受ける。precedent（案が採る先行例の出典が実在しない・単位の問題に当たっていない）も事前審査だけの語——判定者の先行例は修正差分のレビューに渡らない。事前審査だけの語の一覧の正本は rules の PLAN_ONLY_FACE_KINDS"
+   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。人に聞く語の正本は rules の HUMAN_FACE_KINDS。precedent（案が採る先行例の出典が実在しない・単位の問題に当たっていない）は事前審査だけの語——判定者の先行例は修正差分のレビューに渡らない。事前審査だけの語の一覧の正本は rules の PLAN_ONLY_FACE_KINDS"
   },
   "delta_review_reply": {
    "type": "object",
@@ -3629,7 +3629,7 @@
     "p2.plan_review"
    ],
    "source": "人の決定権の関所 ＞ 修正の前",
-   "does": "この周の修正案の narrows と、事前審査の穴のうち regression / policy の物、方針の文書の init の後の変化が 1 件でも在れば、修正の前に人に聞く（周の途中の問い。continue で同じ周のまま修正へ、stop で run を止める。無人では止まる）",
+   "does": "この周の修正案の narrows と、事前審査の穴のうち regression / policy の物、方針の文書の固定した版（init か、関所で人が通した版）からの変化が 1 件でも在れば、修正の前に人に聞く（周の途中の問い。continue で同じ周のまま修正へ、stop で run を止める。無人では止まる）",
    "outputs": [
     "process.human_items"
    ],
@@ -5034,7 +5034,7 @@
     "累積差分",
     "REVIEW.md 横断リスク観点（Read させる）"
    ],
-   "does": "diff が解こうとしている領域に潜む横断リスク（SRE・セキュリティ・データガバナンス）。移行退行の棚卸しは『消えた能力』の明示返答を要求。導入・露呈したものは redesign-needed、既存で無関係なら [suggest] で surface して pass。消えた能力は周の記録の前に r4.human_gate が人に聞く",
+   "does": "diff が解こうとしている領域に潜む横断リスク（SRE・セキュリティ・データガバナンス）。移行退行の棚卸しは『消えた能力』の明示返答を要求。導入・露呈したものは redesign-needed、既存で無関係なら [suggest] で surface して pass。消えた能力と人の方針とのぶつかり（policy_conflicts）は周の記録の前に r4.human_gate が人に聞く",
    "outputs": [
     "reviews.R4"
    ],
@@ -5047,7 +5047,8 @@
     "inputs.review_rev",
     "inputs.cwd",
     "out.p0.purpose.purpose_text",
-    "inputs.policy_md"
+    "inputs.policy_md",
+    "record.process.human_items"
    ],
    "schema": {
     "type": "object",
@@ -5055,6 +5056,7 @@
      "status",
      "reason",
      "capability_inventory",
+     "policy_conflicts",
      "surfaced"
     ],
     "additionalProperties": false,
@@ -5090,6 +5092,13 @@
        "note": {
         "type": "string"
        }
+      }
+     },
+     "policy_conflicts": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "minLength": 1
       }
      },
      "surfaced": {
@@ -5138,6 +5147,7 @@
      "from": "$",
      "pick": [
       "capability_inventory",
+      "policy_conflicts",
       "surfaced"
      ]
     }
@@ -5158,7 +5168,7 @@
     "r4.hidden_scope"
    ],
    "source": "人の決定権の関所 ＞ 修正の後",
-   "does": "この周の R4 が BASE から消えたと見た能力（capability_inventory.lost）のうち人が前に通していない物と、方針の文書の init の後の変化が 1 件でも在れば、周の記録の前に人に聞く（周の途中の問い）",
+   "does": "この周の R4 が BASE から消えたと見た能力（capability_inventory.lost）と人の方針とのぶつかり（policy_conflicts）のうち人が前に通していない物と、方針の文書の固定した版からの変化が 1 件でも在れば、周の記録の前に人に聞く（周の途中の問い）",
    "outputs": [
     "process.human_items"
    ],

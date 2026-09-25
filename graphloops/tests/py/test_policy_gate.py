@@ -1,5 +1,6 @@
 """人の方針の文書の置き場（rules/policy_input.py）と、人の決定権の関所が人に聞く行（rules/review-loop.py の human_gate の部品）。
 関数を直に呼ぶ検査。盤面を回す端から端までの台本は simulate_review.py の test_policy_reaches_roles・test_human_gate"""
+import pathlib
 import types
 
 import pytest
@@ -19,7 +20,7 @@ class Reject(Exception):
 
 
 def board(tmp_path, named=None, outs=None, human_items=()):
-    return types.SimpleNamespace(state={"inputs": {"cwd": str(tmp_path), "policy_md": named}}, round=1, loop_state={},
+    return types.SimpleNamespace(state={"inputs": {"cwd": str(tmp_path), "policy_md": named}}, round=1, loop_state={}, dir=tmp_path / "state",
                                  record={"process": {"human_items": list(human_items)}},
                                  output_of_round=lambda nid, rnd: (outs or {}).get(nid))
 
@@ -40,11 +41,12 @@ def test_default_found_when_present(tmp_path):
     b = board(tmp_path)
     got = PI.resolve(b, git_at(".git"), Reject)
     assert got["path"] == str(f.resolve()) and len(got["sha256"]) == 64 and b.state["inputs"]["policy_md"] == got["path"]
+    assert got["copy"] == str(tmp_path / "state" / "policy" / f"{got['sha256']}.md") and pathlib.Path(got["copy"]).read_text(encoding="utf-8") == "方針\n"
 
 
 def test_absent_default_is_none(tmp_path):
     b = board(tmp_path)
-    assert PI.resolve(b, git_at(".git"), Reject) == {"path": None, "sha256": None}
+    assert PI.resolve(b, git_at(".git"), Reject) == {"path": None, "sha256": None, "copy": None}
     assert PI.resolve(board(tmp_path), lambda *a: None, Reject)["path"] is None   # git の置き場が引けない
 
 
@@ -66,16 +68,45 @@ def test_plan_gate_lists_narrows_and_only_human_kinds(tmp_path):
 
 
 def test_r4_gate_does_not_reask_passed_rows(tmp_path):
-    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["X", "Y"]}}}
-    passed = [{"answer": "continue", "asked": ["R4 が BASE から消えたと見た能力: X"]},
-              {"answer": "stop", "asked": ["R4 が BASE から消えたと見た能力: Y"]}]
+    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["X", "Y"]}, "policy_conflicts": ["P", "Q"]}}
+    passed = [{"answer": "continue", "asked": ["R4 が BASE から消えたと見た能力: X", "R4 が見た人の方針とのぶつかり: P"]},
+              {"answer": "stop", "asked": ["R4 が BASE から消えたと見た能力: Y", "R4 が見た人の方針とのぶつかり: Q"]}]
     got = RULES._r4_gate_items(board(tmp_path, outs=outs, human_items=passed))
-    assert got == [("regression", "R4 が BASE から消えたと見た能力: Y")]
+    assert got == [("regression", "R4 が BASE から消えたと見た能力: Y"), ("policy", "R4 が見た人の方針とのぶつかり: Q")]
+
+
+def test_r4_must_answer_policy_conflicts():
+    schema = G["nodes"]["r4.hidden_scope"]["schema"]
+    assert "policy_conflicts" in schema["required"] and schema["properties"]["policy_conflicts"]["type"] == "array"
+
+
+def test_change_keeps_copies_and_diff_out_of_row(tmp_path):
+    f = tmp_path / "p.md"
+    f.write_text("守る 1\n", encoding="utf-8")
+    b = board(tmp_path, named="p.md")
+    pol = PI.resolve(b, git_at(".git"), Reject)
+    assert PI.change(b, git_at(".git"), pol) is None   # 変わっていなければ None
+    f.write_text("守る 1\n書き足し BODY-X\n", encoding="utf-8")
+    ch = PI.change(b, git_at(".git"), pol)
+    assert ch["from"] == pol["sha256"] and ch["to"] != ch["from"] and ch["from_copy"] == pol["copy"]
+    assert pathlib.Path(ch["to_copy"]).read_text(encoding="utf-8") == f.read_text(encoding="utf-8")
+    assert "+書き足し BODY-X" in pathlib.Path(ch["diff_file"]).read_text(encoding="utf-8")
+    row = PI.change_row(ch)
+    assert ch["diff_file"] in row and "BODY-X" not in row   # 行は置き場だけ——本文は人の答えの台帳を通って回す側に貼られる
+
+
+def test_change_without_pinned_copy_does_not_fake_diff(tmp_path):
+    f = tmp_path / "p.md"
+    f.write_text("今の版\n", encoding="utf-8")
+    b = board(tmp_path, named=str(f))
+    ch = PI.change(b, git_at(".git"), {"path": str(f), "sha256": "0" * 64})   # 写しを取らない版で init した盤面
+    assert ch["diff_file"] is None and "写し" in ch["diff_missing"]
+    ch = PI.change(board(tmp_path, named=str(f)), git_at(".git"), {"path": None, "sha256": None, "copy": None})   # init の時点で文書が無い
+    assert "+今の版" in pathlib.Path(ch["diff_file"]).read_text(encoding="utf-8")
 
 
 
 def test_human_kinds_are_face_kinds():
-    """人に聞く語の一覧（rules の HUMAN_FACE_KINDS）は、事前審査の穴の語彙（graph の $defs.face_kind の enum）の空でない部分集合"""
     enum = G["nodes"]["p2.plan_review"]["schema"]["properties"]["faces"]["items"]["properties"]["kind"]["enum"]   # load_graph が $ref を展開した形
     assert RULES.HUMAN_FACE_KINDS and set(RULES.HUMAN_FACE_KINDS) <= set(enum)
     # 事前審査だけの語（修正差分のレビューが拒む）も語彙の中で、人に聞く語を含む
