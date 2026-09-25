@@ -1,4 +1,4 @@
-"""走らせるだけの節（graph の engine_run）の部品——宣言の読み手（engine/declared.py）・承認・走らせてよい語の柵
+"""走らせるだけの節（graph の engine_run）の部品——宣言の読み手（engine/declared.py）・走らせてよい語の柵
 （commands.engine_run_refusal）・語を走らせる関数（role_run.run_steps）。関数を直に呼ぶ検査。盤面を回す端から端までの台本は
 simulate_review.py の test_engine_run_checks・test_engine_run_parallel_pr"""
 import importlib.util
@@ -10,7 +10,7 @@ import types
 import pytest
 
 from conftest import PLUGIN
-from engine import declared, util
+from engine import declared
 from engine.advance import helper_argv, engine_run_entry, plan_engine_run
 from engine.commands import engine_run_refusal
 from engine.role_run import run_steps
@@ -46,48 +46,48 @@ def test_sha_ignores_layout_but_not_content():
     assert declared.steps_sha(a) == declared.steps_sha(b) != declared.steps_sha(c)
 
 
-def test_allow_binds_to_content(tmp_path):
+def test_refusal_runs_declared_steps_without_approval(tmp_path):
+    """人の承認は要らない——ルートの宣言と一致する語はそのまま走らせてよい"""
     root = repo(tmp_path)
-    d = declared.read(root)
-    assert not declared.allowed(root, d["sha"])
-    got, err = declared.allow(root, "検査")
-    assert err is None and got["sha"] == d["sha"] and declared.allowed(root, d["sha"])
-    (root / declared.DECL_NAME).write_text(json.dumps({"suite": [{"name": "suite", "argv": ["other"]}]}), encoding="utf-8")
-    assert not declared.allowed(root, declared.read(root)["sha"])
-    # 承認の置き場は作業ツリーの外（git の共通ディレクトリ）
-    assert ".git" in declared.allow_file(root).parts
+    inst = {"launch": {"kind": "engine_run", "steps": OK, "sha": declared.steps_sha(OK)}}
+    assert engine_run_refusal(inst, root) is None
 
 
-def test_refusal_needs_approval_for_declared_steps(tmp_path):
+def test_refusal_rejects_steps_that_differ_from_root_declaration(tmp_path):
     root = repo(tmp_path)
-    sha = declared.steps_sha(OK)
-    inst = {"launch": {"kind": "engine_run", "steps": OK, "sha": sha, "cwd": str(root)}}
-    assert "人の承認に無い" in engine_run_refusal(inst)
-    declared.allow(root, "検査")
-    assert engine_run_refusal(inst) is None
-    # 承認した語と違う語を instance に書き足しても走らない（盤面の手当てで柵を回らない）
+    inst = {"launch": {"kind": "engine_run", "steps": OK, "sha": declared.steps_sha(OK)}}
+    # 盤面の手当てで instance に語を書き足しても走らない
     bad = {"launch": {**inst["launch"], "steps": OK + [{"name": "evil", "argv": ["sh", "-c", "true"]}]}}
-    assert "人の承認に無い" in engine_run_refusal(bad)
+    assert "一致しない" in engine_run_refusal(bad, root)
+    # emit の後に宣言が変わった・読めなくなった・消えた——古い instance の語は走らせず、relaunch で計画し直させる
+    (root / declared.DECL_NAME).write_text(json.dumps({"suite": [{"name": "suite", "argv": ["other"]}]}), encoding="utf-8")
+    assert "relaunch" in engine_run_refusal(inst, root)
+    (root / declared.DECL_NAME).write_text("{", encoding="utf-8")
+    assert "一致しない" in engine_run_refusal(inst, root)
+    (root / declared.DECL_NAME).unlink()
+    assert "一致しない" in engine_run_refusal(inst, root)
+
+
+def test_refusal_reads_the_declaration_at_root_not_a_board_field(tmp_path):
+    """突き合わせる宣言は呼び元が渡すルートの物だけ——盤面に書ける欄（launch.cwd）が指す別の場所の宣言は読まない"""
+    root = repo(tmp_path / "repo")
+    evil = [{"name": "evil", "argv": ["sh", "-c", "true"]}]
+    elsewhere = repo(tmp_path / "elsewhere", steps=evil)
+    inst = {"launch": {"kind": "engine_run", "steps": evil, "sha": declared.steps_sha(evil), "cwd": str(elsewhere)}}
+    assert "一致しない" in engine_run_refusal(inst, root)
+    assert engine_run_refusal(inst, elsewhere) is None
 
 
 def test_refusal_exempts_only_the_bundled_helper_by_argv(tmp_path):
+    """宣言の無いルートで確かめる——免除が効くのは argv の頭が engine の同梱の語を指すときだけ"""
     ok = {"launch": {"kind": "engine_run", "steps": [{"name": "parallel-pr.py", "argv": helper_argv("parallel-pr.py", ["--repo", "t/x"])}],
-                     "sha": None, "cwd": str(tmp_path)}}
-    assert engine_run_refusal(ok) is None
-    # 名前だけ同梱の語を名乗り、別の置き場のスクリプトを指す語は承認を免れない
+                     "sha": None}}
+    assert not (tmp_path / declared.DECL_NAME).exists()
+    assert engine_run_refusal(ok, tmp_path) is None
+    # 名前だけ同梱の語を名乗り、別の置き場のスクリプトを指す語は免除されず、宣言との突き合わせに回る
     fake = {"launch": {**ok["launch"], "steps": [{"name": "parallel-pr.py", "argv": [sys.executable, str(tmp_path / "parallel-pr.py")]}]}}
-    assert "人の承認に無い" in engine_run_refusal(fake)
-    assert "形が" in engine_run_refusal({"launch": {"steps": [{"name": "x", "argv": "bash"}]}})
-
-
-def test_refusal_without_cwd_checks_approval_where_steps_run(tmp_path, monkeypatch):
-    """launch.cwd の無い語は、run_steps が cwd=None で走らせる所（呼んだ場所）の承認で決める"""
-    root = repo(tmp_path)
-    declared.allow(root, "検査")
-    monkeypatch.setattr(util, "GIT_CWD", None)
-    monkeypatch.chdir(root)
-    inst = {"launch": {"kind": "engine_run", "steps": OK, "sha": declared.steps_sha(OK)}}
-    assert engine_run_refusal(inst) is None
+    assert "一致しない" in engine_run_refusal(fake, tmp_path)
+    assert "形が" in engine_run_refusal({"launch": {"steps": [{"name": "x", "argv": "bash"}]}}, tmp_path)
 
 
 def _board_with(plan):
@@ -101,7 +101,7 @@ def test_engine_run_entry_refuses_unknown_builtin(capsys):
 
 
 def test_plan_runs_only_bundled_helpers(capsys):
-    """同梱の語（ENGINE_HELPERS）だけを承認なしで走らせる。args の無い計画は引数なしの argv になる"""
+    """同梱の語（ENGINE_HELPERS）は宣言に無くても走らせる。args の無い計画は引数なしの argv になる"""
     n = {"engine_run": {"builtin": "x"}}
     inst = {}
     plan_engine_run(_board_with(lambda b, nid: {"helper": "parallel-pr.py"}), "p0.x", n, inst)

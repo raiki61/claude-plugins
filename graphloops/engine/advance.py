@@ -269,7 +269,7 @@ def prompt_growth(b, nid, prompt_bytes):
     return {"node": nid, "round": b.round, "bytes": prompt_bytes, "was": max(prev)}
 
 
-ENGINE_HELPERS = ("parallel-pr.py",)   # engine に同梱の走らせる語（scripts/ の下）。承認なしで走らせてよいのはこれだけ
+ENGINE_HELPERS = ("parallel-pr.py",)   # engine に同梱の走らせる語（scripts/ の下）。対象リポジトリの宣言と突き合わせずに走らせてよいのはこれだけ
 
 
 def helper_argv(name, args=()):
@@ -287,9 +287,9 @@ def engine_run_entry(b, n):
 def plan_engine_run(b, nid, n, inst, fallback=None):
     """走らせるだけの節（graph の engine_run）を、engine が走らせる instance（mode=engine_run）にするか、任せ先の節のまま
     出すかを決める。決めるのは rules の ENGINE_RUNS[builtin].plan で、返りは 4 つの形のどれか:
-      {"steps": [{name, argv}], "sha": …}   対象リポジトリの宣言の語（launch が人の承認を確かめ直してから走らせる）
-      {"helper": 名前, "args": […]}          engine に同梱の語（ENGINE_HELPERS。承認は要らない）
-      {"blocked": 理由}                      走らせないが、engine が返答を組む（例: 宣言は在るが未承認）
+      {"steps": [{name, argv}], "sha": …}   対象リポジトリの宣言の語（launch が走らせる直前にルートの宣言と突き合わせ直す）
+      {"helper": 名前, "args": […]}          engine に同梱の語（ENGINE_HELPERS。宣言とは突き合わせない）
+      {"blocked": 理由}                      走らせないが、engine が返答を組む（例: 宣言は在るが書式が読めない）
       {"fallback": 理由}                     任せ先の節として出す（理由は instance と、rules の fallback が記録に残す）
     fallback を渡されたら計画を立てずに任せ先へ落とす（engine の組んだ返答が拒まれた・役の判断が要る結果が出た）。
     **走らせる語は emit の時点で instance に固める**——launch は固めた語だけを走らせ、読んだ時と走らせる時のずれを作らない"""
@@ -309,7 +309,7 @@ def plan_engine_run(b, nid, n, inst, fallback=None):
     inst.pop("delegate", None)
     inst["mode"] = "engine_run"
     inst["launch"] = {"kind": "engine_run", "builtin": n["engine_run"]["builtin"], "steps": steps,
-                      "sha": plan.get("sha"), "blocked": plan.get("blocked"), "cwd": plan.get("cwd")}
+                      "sha": plan.get("sha"), "blocked": plan.get("blocked")}
 
 
 def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None):

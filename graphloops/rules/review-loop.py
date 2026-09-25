@@ -1967,7 +1967,7 @@ def _converge(b, nid):
             return {"decision": "ask", "reason": "ci_unverified（local_checks の clean は任せ先の自己申告）", "ask": {
                 "kinds": ["ci_unverified"],
                 "question": (f"検証器は阻害なしで CI は clean と書かれたが、engine が走らせた結果ではない（{why}）。"
-                             f"走らせる語を宣言 {DECL_NAME} に書き、人が loop.py allow-checks で承認すれば次の周から engine が走らせる。"
+                             f"走らせる語を宣言 {DECL_NAME} に書けば次の周から engine が走らせる。"
                              "確かめてから続けるか（continue --note <何を走らせて何色だったか>）、未収束のまま報告に進むか（stop）"),
                 "items": [f"local_checks: clean（任せ先の申告）— {ci.get('checked') or ''}"],
                 "options": ["continue", "stop"],
@@ -2058,7 +2058,8 @@ BUILTINS = {"worktree_snapshot": worktree_snapshot, "worktree_compare": worktree
 # ---------------------------------------------------------------- 走らせるだけの節（graph の engine_run）
 # 走らせて写すだけの節を任せ先（haiku）に渡していた頃、走り切る前に読む・写し違える・一部を飛ばすが 1 周目で止めた run の
 # 全部で出た（実測 2026-09-25: テスト 572 件の途中の 537 件で clean、CI の 2 系統のうち 1 系統だけ）。engine が走らせ、
-# 終了コードから返答を組む。何を走らせるかは対象リポジトリの宣言（engine/declared.py）で、人の承認が要る。
+# 終了コードから返答を組む。何を走らせるかは対象リポジトリの宣言（engine/declared.py。人の承認は要らない——外した理由と
+# 守られなくなった物はそこの注記）。
 # 宣言の無いリポジトリだけ任せ先に落とし、その周の CI を engine が確かめていないことを process.checks に残す
 # ——converge はそれを『CI を確かめていない』として人に諮る（_ci_by_engine）。
 
@@ -2075,11 +2076,8 @@ def checks_plan(b, nid):
     if d is None:
         return {"fallback": f"対象リポジトリに走らせる語の宣言 {DECL_NAME} が無い——任せ先が CI の定義から走らせる（engine は終了コードを見ていない）"}
     if "error" in d:
-        return {"blocked": d["error"], "cwd": root}
-    if not checks_allowed(root, d["sha"]):
-        return {"blocked": (f"宣言 {DECL_NAME}（sha {d['sha'][:12]}）を人が承認していない——人が宣言を見て loop.py allow-checks を"
-                            "打つまで engine は走らせない（宣言を変えたら承認し直す）"), "cwd": root}
-    return {"steps": d["steps"], "sha": d["sha"], "cwd": root}
+        return {"blocked": d["error"]}
+    return {"steps": d["steps"], "sha": d["sha"]}
 
 
 def checks_fallback(b, nid, reason):
@@ -2149,16 +2147,14 @@ def parallel_pr_plan(b, nid):
         return {"fallback": why}
     if not shutil.which("gh"):
         return {"fallback": "gh がこの環境に無い"}
-    root = _repo_root()
     files = _pr_files(b)
     if not files:
-        return {"blocked": "交差を取る変更ファイルの集合が空（差分も、依頼の where が名指す追跡中のパスも無い）——空の集合との交差は何も確かめない",
-                "cwd": root}
+        return {"blocked": "交差を取る変更ファイルの集合が空（差分も、依頼の where が名指す追跡中のパスも無い）——空の集合との交差は何も確かめない"}
     head = (git("rev-parse", "HEAD") or "").strip()
     f = b.dir / "runs" / f"r{b.round}" / "parallel_pr-files.txt"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("\n".join(files) + "\n", encoding="utf-8")
-    return {"helper": "parallel-pr.py", "args": ["--repo", repo, "--head", head, "--changed", str(f)], "cwd": root}
+    return {"helper": "parallel-pr.py", "args": ["--repo", repo, "--head", head, "--changed", str(f)]}
 
 
 def parallel_pr_reply(b, nid, launch, runs):

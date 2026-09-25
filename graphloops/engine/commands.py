@@ -16,7 +16,7 @@ from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
-from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, safe_name, set_path, sha, waiting, write_json
+from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, repo_root, safe_name, set_path, sha, waiting, write_json
 from .role_run import DELEGATE_TOOLS, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path, probe_group, run_role, run_steps, stop_group, tooled_permission
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
@@ -493,11 +493,12 @@ def _still_mine(d, inst):
     return still_mine
 
 
-def engine_run_refusal(inst):
+def engine_run_refusal(inst, root):
     """走らせる節（kind=engine_run）の語が走らせてよい形か（よければ None）。**instance の申告でなく argv そのもので決める**
     ——同梱の語（ENGINE_HELPERS）は argv の頭が engine 自身のインタプリタと engine の置き場の scripts/<名前> に一致するときだけ
-    承認を免れ、それ以外の語は全部、対象リポジトリの宣言として人の承認（declared.allowed）を走らせる直前に確かめ直す。
-    盤面（loop.py patch）や graph を書き換えても、承認の無い語は engine の手で走らない"""
+    宣言との突き合わせを免れ、それ以外の語は全部、走らせる直前に対象リポジトリのルート（root）の宣言を読み直し、中身が一致する
+    ときだけ走らせる。root は盤面の instance から取らない（呼び元が util.repo_root で引く）。盤面（loop.py patch）や graph を
+    書き換えても、宣言に無い語は engine の手で走らない"""
     launch = inst.get("launch") or {}
     steps = launch.get("steps")
     if not isinstance(steps, list) or not all(isinstance(s, dict) and isinstance(s.get("name"), str) and isinstance(s.get("argv"), list)
@@ -506,11 +507,11 @@ def engine_run_refusal(inst):
     heads = [[_norm(a) for a in helper_argv(h)] for h in ENGINE_HELPERS]
     theirs = [s for s in steps if [_norm(a) for a in s["argv"][:2]] not in heads]
     if theirs:
-        root = launch.get("cwd") or "."
         sha = declared.steps_sha(theirs)
-        if sha != launch.get("sha") or not declared.allowed(root, sha):
-            return (f"走らせる語（{[s['name'] for s in theirs]}）が人の承認に無い（sha {sha[:12]}）——宣言 {declared.DECL_NAME} を"
-                    "人が見て loop.py allow-checks で承認してから、loop.py relaunch で出し直せ")
+        d = declared.read(root) if root else None
+        if not d or d.get("sha") != sha:
+            return (f"走らせる語（{[s['name'] for s in theirs]}）が対象リポジトリの宣言 {declared.DECL_NAME} と一致しない（sha {sha[:12]}）"
+                    "——loop.py relaunch で今の宣言から計画し直せ")
     return None
 
 
@@ -532,13 +533,14 @@ def launch_engine_run(d, inst):
     返答を組むのは rules の ENGINE_RUNS[builtin].reply で、任せ先が要る結果（役の判断が要る・受け付けが拒んだ）なら
     同じ節を任せ先の節として出し直す（_engine_fallback）。回す側は結果を書かない（done は engine_run を拒む）"""
     got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
-    why = engine_run_refusal(inst)
+    root = repo_root()
+    why = engine_run_refusal(inst, root) if root else "対象リポジトリのルートが引けない（git rev-parse --show-toplevel）"
     if why:
         return {**got, "ok": False, "why": why}
     launch = inst["launch"]
     log_dir = pathlib.Path(d) / "runs" / pathlib.Path(inst["out_path"]).parent.name / safe_name(inst["id"] + f".a{inst.get('attempts', 1)}")
     try:
-        runs = run_steps(launch["steps"], launch.get("cwd"), log_dir, pgid_file=pgid_path(inst["out_path"]),
+        runs = run_steps(launch["steps"], root, log_dir, pgid_file=pgid_path(inst["out_path"]),
                          still_mine=_still_mine(d, inst))
     except Superseded:
         return {**got, "ok": False, "why": SUPERSEDED, "superseded": True}
@@ -576,7 +578,7 @@ def launch_one(d, inst, max_resumes, cwd=None):
     """1 節を起こして受け付けまで済ませる（run_role）。返すのは回す側と記録に見せる 1 件ぶんの要約だけ——役の返答の
     本文は回す側の会話に流さない。cwd は子の作業ディレクトリ（レビュー対象の作業ツリー）——dontAsk の子は作業ディレクトリの
     外の git を拒まれる（role_run.tooled_permission の実測）ので、launch を呼んだ場所でなく盤面の inputs.cwd で起こす。
-    走らせる節（engine_run）は宣言の cwd（launch.cwd）で走るので、この cwd は使わない。"""
+    走らせる節（engine_run）は対象リポジトリのルート（repo_root）で走るので、この cwd は使わない。"""
     if (inst.get("launch") or {}).get("kind") == "engine_run":
         return launch_engine_run(d, inst)
     got = {"id": inst["id"], "node": inst["node"], "out_path": inst["out_path"]}
@@ -736,7 +738,7 @@ def cmd_launch(a):
                         "返答は out_path に在る（読むのは要る所だけ）。engine が起こせない節（why が『前置ではない』『旗が無い』"
                         "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ。"
                         "走らせる節（engine_run）の why が『任せ先の節に回した』なら次の手は next（任せ先の節として出る）。"
-                        "『人の承認に無い』なら宣言を人に見せ、人が loop.py allow-checks を打ってから relaunch——承認を回す側が打つな")}))
+                        "『宣言と一致しない』なら loop.py relaunch で今の宣言から計画し直してから launch")}))
 
 
 # ---------------------------------------------------------------- done
@@ -1252,20 +1254,6 @@ def retire_out(old, n):
     old = pathlib.Path(old)
     if old.is_file():
         old.replace(old.with_name(old.name + f".stale-a{n}"))
-
-
-def cmd_allow_checks(a):
-    """対象リポジトリの宣言（.review-checks.json）を人が見て承認する（direnv allow と同じ形。承認は中身の sha に結ぶ）。
-    **人が打つ口**——回す側が打たないことは手順書が縛る。承認が及ぶのは宣言の中身（走らせる語の列）だけで、語が呼ぶ
-    スクリプトの中身は含まない（engine/declared.py の注記）"""
-    root = git("rev-parse", "--show-toplevel")
-    if root is None or not root.strip():
-        raise Reject("リポジトリの中で呼べ（git rev-parse --show-toplevel が引けない）")
-    got, err = declared.allow(root.strip(), a.note)
-    if err:
-        raise Reject(err)
-    print(dump({"allowed": got["sha"], "steps": got["steps"], "file": got["file"],
-                "how": "engine はこの sha の宣言だけを走らせる。宣言を 1 字でも変えたら承認し直す"}))
 
 
 def cmd_record(a):

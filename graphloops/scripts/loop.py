@@ -14,7 +14,6 @@
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
     loop.py patch  --path <record の欄 | state.<盤面の欄>> --file <json> --reason   # 記録（既定）か盤面の手当て（痕跡が残る最終手段）
     loop.py status [--dir] / loop.py record [--dir] / loop.py finalize [--dir]
-    loop.py allow-checks [--note <誰が何を見て承認したか>]   # 人が打つ: 対象リポジトリの宣言（.review-checks.json）を承認する
 
 置き場（--dir 省略時）: `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/`。作業ツリーの外
 （`git status --porcelain` に映らない）で、リポジトリごとに残る。`current` がいちばん新しい run を指す。
@@ -113,10 +112,6 @@ def main():
     s.add_argument("--file", required=True)
     s.add_argument("--reason", required=True)
     s.set_defaults(fn=c.cmd_patch)
-
-    s = sub.add_parser("allow-checks", help="人が打つ: リポジトリのルートの .review-checks.json の中身を承認する（engine は承認した中身の語だけを走らせる）")
-    s.add_argument("--note", default="", help="誰が何を見て承認したか（承認の一覧に残る）")
-    s.set_defaults(fn=c.cmd_allow_checks)
 
     a = p.parse_args()
     install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす

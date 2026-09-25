@@ -172,8 +172,8 @@ CHECKS_OK = [{"name": "suite", "argv": [PY, "-c", "print('1 passed')"]}]   # 台
 class Run:
     def __init__(self, name, unattended=False, big=False, latin=False, loop="review-loop", inputs=(), init_args=(), graph=None,
                  checks=CHECKS_OK, before_init=None):
-        """checks: 台本のリポジトリのルートに置く走らせる語の宣言（.review-checks.json の suite）。既定は緑の 1 段を置いて人の承認まで
-        済ませる（p0.local_checks・p4.ci は engine が走らせる）。None なら宣言を置かない——任せ先の節として出て、台本の表が返答を書く"""
+        """checks: 台本のリポジトリのルートに置く走らせる語の宣言（.review-checks.json の suite）。既定は緑の 1 段を置く（人の承認は
+        要らない。p0.local_checks・p4.ci は engine が走らせる）。None なら宣言を置かない——任せ先の節として出て、台本の表が返答を書く"""
         self._td, self.tmp = parallel.workspace(f"gl-review-{name}-")
         self.env = None   # 全部の呼び出しに渡す環境（代役の gh を PATH の先頭に置く台本が使う）
         self.repo = self.tmp / "repo"
@@ -186,8 +186,6 @@ class Run:
         if checks is not None:
             (self.repo / ".review-checks.json").write_text(json.dumps({"suite": checks}), encoding="utf-8")
         g("add", "."); g("commit", "-q", "-m", "base")
-        if checks is not None:
-            self.allow_checks()
         self.base = g("rev-parse", "HEAD").stdout.strip()
         (self.repo / "src" / "a.py").write_text("def f(x, limit=None):\n    return x if limit is None else min(x, limit)\n", encoding="utf-8")
         (self.repo / "src" / "b.py").write_text("def g(y):\n    return y * 2\n", encoding="utf-8")
@@ -208,13 +206,6 @@ class Run:
             args.append("--unattended")
         args += [*(["--graph", str(graph)] if graph else []), *init_args]
         self.init = self.cmd(*args)
-
-    def allow_checks(self):
-        """人の承認（loop.py allow-checks）。台本は人の代わりに打つ"""
-        r = subprocess.run([PY, str(LOOP), "allow-checks", "--note", "台本"], cwd=self.repo, capture_output=True, text=True, encoding="utf-8", timeout=120)
-        if r.returncode != 0:
-            raise RuntimeError(f"allow-checks が {r.returncode}: {r.stderr[-400:]}")
-        return json.loads(r.stdout)
 
     def launch(self, node):
         """engine が走らせる節（mode=engine_run）を launch で走らせる。返りは launch の 1 件の要約"""
@@ -604,9 +595,9 @@ def drive(run, scenario, max_steps=120, hook=None, stop_at=None):
 # ---------------------------------------------------------------- 検査
 def test_engine_run_checks():
     """**走らせて写すだけの節は engine が走らせる。** 任せ先（haiku）が写していた頃、テスト 572 件の途中の 537 件で clean と書く・
-    CI の 2 系統のうち 1 系統だけ走らせる、が 1 周目で止めた run の全部で出た（実測 2026-09-25）。宣言（.review-checks.json）を人が
-    承認していれば engine が語を走らせて終了コードから返答を組み、回す側の done は拒む。"""
-    print("走らせるだけの節: 宣言と承認があれば engine が走らせ、done は拒み、未承認・起こせない語・赤は engine が書き分ける")
+    CI の 2 系統のうち 1 系統だけ走らせる、が 1 周目で止めた run の全部で出た（実測 2026-09-25）。宣言（.review-checks.json）が
+    在れば engine が語を走らせて終了コードから返答を組み、回す側の done は拒む。"""
+    print("走らせるだけの節: 宣言があれば承認なしで engine が走らせ、done は拒み、宣言と一致しない語・起こせない語・赤は engine が書き分ける")
     run = Run("engrun")
     nx = run.next()
     inst = next(i for i in nx["ready"] if i["node"] == "p0.local_checks")
@@ -621,15 +612,36 @@ def test_engine_run_checks():
           f"launch が宣言の語を走らせ、終了コードで clean を書き、記録に by=engine と段ごとの終了コード・出力の置き場が残る（{m} / {c.get('by')}）")
     rm(run.tmp)
 
-    # 宣言を承認の後に書き換えた——sha が外れるので走らせず、P0 は人待ちで『承認していない』と書く（任せ先に落とさない）
-    run = Run("engrun-unapproved")
-    (run.repo / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "suite", "argv": [PY, "-c", "print('changed')"]}]}), encoding="utf-8")
+    # emit の後に宣言を書き換えた——launch は固めた古い語を走らせず『一致しない』と言い、relaunch で今の宣言から計画し直すと新しい語で走る
+    run = Run("engrun-changed")
     inst = next(i for i in run.next()["ready"] if i["node"] == "p0.local_checks")
+    (run.repo / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "suite", "argv": [PY, "-c", "print('changed')"]}]}), encoding="utf-8")
     got = run.launch(inst["id"])
+    check(inst["mode"] == "engine_run" and not got["ok"] and "一致しない" in (got.get("why") or ""),
+          f"emit の後に宣言が変わると、launch は固めた語を走らせず宣言と一致しないと言う（{inst['mode']} / {got}）")
+    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 宣言を書き換えた")
+    got = run.launch(json.loads(r.stdout)["relaunched"]["id"])
     m = run.record()["materials"]["local_checks"]
-    check(inst["mode"] == "engine_run" and inst["launch"]["steps"] == [] and got["ok"] and m["status"] == "awaiting_human"
-          and "承認していない" in m.get("reason", ""),
-          f"承認の後に宣言を書き換えると走らせず、P0 は awaiting_human で承認が無いと書く（{inst['mode']} / {m}）")
+    c = run.record()["process"]["checks"]["p0.local_checks"]
+    check(got["ok"] and m["status"] == "clean" and pathlib.Path(c["runs"][0]["out"]).read_text(encoding="utf-8").strip() == "changed",
+          f"relaunch は今の宣言から計画し直し、承認なしで新しい語を走らせる（{m} / {got}）")
+    rm(run.tmp)
+
+    # 盤面の手当てで語と置き場（launch.cwd）を別の場所の宣言に揃えても走らない——engine が突き合わせるのは run の対象リポジトリのルートの宣言だけ
+    run = Run("engrun-tamper")
+    inst = next(i for i in run.next()["ready"] if i["node"] == "p0.local_checks")
+    elsewhere, marker = run.tmp / "elsewhere", run.tmp / "evil-ran"
+    elsewhere.mkdir()
+    evil = [{"name": "evil", "argv": [PY, "-c", f"open({str(marker)!r}, 'w').write('x')"]}]
+    (elsewhere / ".review-checks.json").write_text(json.dumps({"suite": evil}), encoding="utf-8")
+    st = run.state()
+    at = f"state.rounds.{len(st['rounds']) - 1}.instances.{inst['id']}.launch"
+    f = run.tmp / "evil-launch.json"
+    f.write_text(json.dumps({**st["rounds"][-1]["instances"][inst["id"]]["launch"], "steps": evil, "cwd": str(elsewhere)}), encoding="utf-8")
+    r = run.cmd("patch", "--path", at, "--file", str(f), "--reason", "検査: 盤面の語を差し替える")
+    got = run.launch(inst["id"])
+    check(r.returncode == 0 and not got["ok"] and "一致しない" in (got.get("why") or "") and not marker.exists(),
+          f"盤面で語と launch.cwd を差し替えても、ルートの宣言に無い語は走らない（patch rc={r.returncode} / {got} / 走った={marker.exists()}）")
     rm(run.tmp)
 
     # 赤の段: 終了コードが 0 でない段を found で数え、出力の末尾を detail に載せる
@@ -646,7 +658,6 @@ def test_engine_run_checks():
     nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p4.ci" for i in n["ready"]))
     inst = next(i for i in nx["ready"] if i["node"] == "p4.ci")
     (run.repo / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "suite", "argv": ["no-such-command-gl-test"]}]}), encoding="utf-8")
-    run.allow_checks()
     r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 宣言を差し替えた")
     new = json.loads(r.stdout)["relaunched"]
     got = run.launch(new["id"])
@@ -1449,7 +1460,7 @@ def test_rejections():
     check(all(pathlib.Path(i["out_path"]).parent.is_dir() for i in nx["ready"]),
           "返答の置き場のディレクトリは engine が作る（最初の波の節も、運び手が mkdir せずに書ける）")
     check(by["p0.local_checks"]["mode"] == "engine_run" and "delegate" not in by["p0.local_checks"],
-          f"宣言と承認の在るリポジトリでは、走らせるだけの節は engine が走らせる節（mode=engine_run）で出て、任せ先は載らない（{by['p0.local_checks']['mode']}）")
+          f"宣言の在るリポジトリでは、走らせるだけの節は engine が走らせる節（mode=engine_run）で出て、任せ先は載らない（{by['p0.local_checks']['mode']}）")
     nodecl = Run("neg-nodecl", checks=None)
     by0 = {i["node"]: i for i in nodecl.next()["ready"]}
     check(by0["p0.local_checks"].get("delegate", {}).get("model") == "sonnet" and "delegate" not in by0["p0.base"]

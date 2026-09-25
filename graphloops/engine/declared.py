@@ -1,22 +1,27 @@
-"""対象リポジトリが宣言した走らせる語（ルートの .review-checks.json）と、人の承認（loop.py allow-checks）。
+"""対象リポジトリが宣言した走らせる語（ルートの .review-checks.json）。
 
-**なぜ承認が要るか。** 役（任せ先）がコマンドを走らせていた頃は、Claude Code の許可の仕組み（permission mode・分類器）が
-1 本ずつ見ていた。engine が宣言の語を直接走らせると、その関門を通らない。そこで direnv の `direnv allow` と同じ形にする
-——人が宣言の中身を見て承認し、承認は中身の sha256 に結ぶ。中身が 1 字でも変われば承認は外れ、engine は走らせない。
+**人の承認は要らない。** engine は宣言の語を、走らせる直前に作業ツリーのルートの宣言を読み直して一致を確かめてから、shell を
+通さずに走らせる（engine/commands.py の engine_run_refusal）。以前は direnv の `direnv allow` の形で、人が宣言の中身の sha256 を
+`loop.py allow-checks` で承認するまで走らせなかった。人が寝ている間の run がそこで人を待って止まり、人はその手間を不要と
+決めた（2026-09-25）ので外した。git の共通ディレクトリに残った graphloops/allowed-checks.json はもう読まない（消してよい）。
 
-**承認が及ぶのは宣言の中身（走らせる語の列）だけ**で、語が呼ぶスクリプトの中身（例えば tests/run.sh の本文）は含まない
-——direnv が .envrc だけを承認するのと同じ線。前の経路（任せ先の Bash を分類器が見る）も `bash tests/run.sh` という語だけを
-見ていて、スクリプトの中身は見ていなかった。
-
-承認の置き場は git の共通ディレクトリ（`git rev-parse --git-common-dir`）の graphloops/allowed-checks.json ——作業ツリーの外
-（レビュー対象の差分に載らない）で、同じリポジトリの worktree の間で共有する。承認は人が打つ。回す側（LLM）が打たないことは
-手順書が縛る（answer と同じ信頼の線）——機械では縛れない。
+**外したことで守られなくなった物**: 初見のリポジトリ・レビューしている差分・修正役が書き換えた宣言の語を、人が見る前に
+engine が Claude Code の許可の仕組み（permission mode・分類器）の外で走らせる。回す側が打つ `loop.py launch` は分類器から見て
+1 語で、engine が起こす宣言の語は分類器を通らない。**他人のリポジトリ・他人の PR を回すときは、宣言とそれが呼ぶスクリプトを
+先に読め。**
+**残る物**: shell を通さない argv と宣言の書式の検査（parse）／同梱の語の免除は argv の頭で決める（ENGINE_HELPERS）／盤面
+（loop.py patch）で instance の語を書き換えても、ルートの宣言に無い語は走らない（宣言を読む場所は盤面の欄でなく、run の
+inputs.cwd から引いたリポジトリのルート——inputs.cwd を patch で差し替えるのは run 全体の対象を差し替える操作で、この柵の外）
+／宣言の無いリポジトリは任せ先の節（Claude Code の許可の仕組みを通る）。
+**もともと守っていなかった物**: 語が呼ぶスクリプトの本文（例えば tests/run.sh）。承認が在った頃も及ぶのは宣言の中身だけで、
+差分がスクリプトの本文を書き換えれば承認済みの宣言のままで走った。前の経路（任せ先の Bash を分類器が見る）も語しか見ていない。
+**OS の境界（sandbox）を足さない理由**: 役の sandbox では `uv run --with` が ~/.cache/uv に書けず止まる（engine/role_run.py の
+tooled_permission の注記の実測）。このリポジトリの宣言の pytest の段がその形で、包むと今の能力が減る。
 """
 import hashlib
 import json
 import pathlib
 
-from .util import git, now, write_json
 
 DECL_NAME = ".review-checks.json"
 DECL_KEYS = ("suite",)   # 宣言の最上位の鍵。知らない鍵は拒む（効かない鍵を書いても黙って無視しない）
@@ -24,7 +29,7 @@ STEP_KEYS = ("name", "argv")
 
 
 def canonical(steps):
-    """承認に結ぶ正規形（鍵の順・空白に依らない）。宣言の書き方の揺れで承認が外れない"""
+    """sha に結ぶ正規形（鍵の順・空白に依らない）。宣言の書き方の揺れで突き合わせが外れない"""
     return json.dumps(steps, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
@@ -69,46 +74,3 @@ def read(root):
     if err:
         return {"error": f"{DECL_NAME}: {err}"}
     return {"steps": steps, "sha": steps_sha(steps)}
-
-
-def allow_file(root):
-    """承認の置き場（引けなければ None）"""
-    common = git("-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir")
-    if common is None or not common.strip():
-        return None
-    return pathlib.Path(common.strip()) / "graphloops" / "allowed-checks.json"
-
-
-def _load(path):
-    try:
-        got = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError, UnicodeDecodeError):
-        return None   # 読めない承認の一覧は『承認なし』と同じに扱う（読めない物を承認と数えない）
-    return got if isinstance(got, dict) else None
-
-
-def allowed(root, sha):
-    """この sha の宣言を人が承認しているか"""
-    path = allow_file(root)
-    got = _load(path) if path else None
-    return bool(got) and sha in got
-
-
-def allow(root, note):
-    """今の宣言を承認の一覧に積む ——（承認した宣言, 誤り）"""
-    d = read(root)
-    if d is None:
-        return None, f"{pathlib.Path(root) / DECL_NAME} が無い"
-    if "error" in d:
-        return None, d["error"]
-    path = allow_file(root)
-    if path is None:
-        return None, "git の共通ディレクトリが引けない（リポジトリの中で呼べ）"
-    got = _load(path)
-    if got is None:
-        return None, f"{path} が読めない——直すか消してから承認し直せ"
-    got[d["sha"]] = {"at": now(), "note": note, "steps": d["steps"]}
-    write_json(path, got)
-    return {**d, "file": str(path)}, None

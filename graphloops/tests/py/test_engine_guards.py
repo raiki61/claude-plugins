@@ -109,18 +109,6 @@ def test_relaunch_dies_when_previous_child_survives(tmp_path, monkeypatch, capsy
     assert "前の試行の子を止められない" in out.err and "relaunched" not in out.out
 
 
-def test_allow_checks_refuses_outside_repo(monkeypatch):
-    monkeypatch.setattr(commands, "git", lambda *a, **k: None)
-    with pytest.raises(Reject, match="リポジトリの中で呼べ"):
-        commands.cmd_allow_checks(argparse.Namespace(note="検査"))
-
-
-def test_allow_checks_refuses_without_declaration(tmp_path, monkeypatch):
-    monkeypatch.setattr(commands, "git", lambda *a, **k: str(tmp_path) + "\n")
-    with pytest.raises(Reject, match="が無い"):
-        commands.cmd_allow_checks(argparse.Namespace(note="検査"))
-
-
 def test_init_removes_run_dir_when_on_init_refuses(tmp_path, monkeypatch, capsys):
     """rules の入口（on_init）が拒んだら、作った置き場を消してから同じ失敗を上げる"""
     real = commands.hook

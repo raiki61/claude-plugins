@@ -51,7 +51,7 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 219
+EXPECTED_ITEMS = 217
 
 
 def pytest_configure(config):

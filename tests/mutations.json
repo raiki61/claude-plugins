@@ -1311,6 +1311,34 @@
    }
   },
   {
+   "id": "EG3",
+   "title": "走らせる直前に宣言と突き合わせる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        if not d or d.get(\"sha\") != sha:",
+   "new": "        if False:",
+   "expect": "emit の後に宣言が変わると",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
+    ]
+   }
+  },
+  {
+   "id": "EG4",
+   "title": "突き合わせる宣言は盤面の欄でなく対象リポジトリのルートから読む",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    root = repo_root()\n    why = engine_run_refusal(inst, root)",
+   "new": "    root = (inst.get(\"launch\") or {}).get(\"cwd\") or repo_root()\n    why = engine_run_refusal(inst, root)",
+   "expect": "盤面で語と launch.cwd を差し替えても",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
+    ]
+   }
+  },
+  {
    "id": "A19",
    "title": "ちょうど 2000 行の文書は全文（一つずれ）",
    "file": "graphloops/hooks/record-read.py",

@@ -35,7 +35,7 @@ def main():
     a = p.parse_args()
     global GH
     # PATH から引いた実体で起こす（Windows では名前だけだと .exe しか探さない——which は PATHEXT を見る）。
-    # 実体を引数で受けない: 引数は data だけにして、承認なしで走る同梱の語が別の実行形式を起こす口を作らない
+    # 実体を引数で受けない: 引数は data だけにして、宣言と突き合わせずに走る同梱の語が別の実行形式を起こす口を作らない
     GH = shutil.which("gh") or "gh"
     with open(a.changed, encoding="utf-8") as f:
         mine = {ln.strip() for ln in f if ln.strip()}
