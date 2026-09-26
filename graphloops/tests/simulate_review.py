@@ -2166,8 +2166,10 @@ def test_old_expression_graph_board():
         st.write_text(json.dumps({**orig, "graph": str(gp)}, ensure_ascii=False, indent=1), encoding="utf-8")
         before = {p.name: p.read_bytes() for p in (st, run.dir / "record.json")}
         r = run.cmd("next")
-        want = str(plug / "scripts" / "loop.py") if with_engine else "この graph を作った版の engine"
-        check(r.returncode == 2 and "条件を式で書いていた版" in r.stderr and "p1.gate_efficacy" in r.stderr and want in r.stderr,
+        # engine は置き場を実体に解いて言う（Windows の一時の置き場は 8.3 の短い綴り RUNNER~1 で渡り、解くと長い綴りになる）
+        want = ({str(plug / "scripts" / "loop.py"), str((plug / "scripts" / "loop.py").resolve())} if with_engine
+                else {"この graph を作った版の engine"})
+        check(r.returncode == 2 and "条件を式で書いていた版" in r.stderr and "p1.gate_efficacy" in r.stderr and any(w in r.stderr for w in want),
               f"旧い形式の盤面（置き場に engine が{'在る' if with_engine else '無い'}）: 開く engine を言って止まる（{r.stderr.strip()[-120:]}）")
         check(before == {p.name: p.read_bytes() for p in (st, run.dir / "record.json")}, "旧い形式の盤面: state.json と record.json を書かない")
 
@@ -6099,7 +6101,9 @@ def test_spec_default_unchanged():
         drive(r_, "std")
 
     def norm(run_, text):
-        for p_ in sorted({str(run_.tmp), str(run_.tmp.resolve())}, key=len, reverse=True):   # 長い綴り（/private/var…）から
+        # 長い綴り（/private/var…）から。JSON に書いた綴り（Windows では \\ が 2 つずつ）も同じ置き場として読む
+        spell = {v for q in (str(run_.tmp), str(run_.tmp.resolve())) for v in (q, json.dumps(q)[1:-1])}
+        for p_ in sorted(spell, key=len, reverse=True):
             text = text.replace(p_, "<TMP>")
         text = re.sub(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+\-Z0-9:.]*", "<T>", text)
         # engine が走らせた段（engine_run）の所要時間は実測で、負荷で 0.0 と 0.1 に割れる

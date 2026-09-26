@@ -2117,10 +2117,14 @@ SCALARS_FIXED = ("added_lines", "comment_lines", "comment_ratio_pct")   # commen
 
 def _comment_ratio(b, base, rev):
     """comment-ratio.sh <BASE> <版> の最後の scalars: 行 ——（名前 → 数, 測れなかった理由）。印字を読むだけで数え直さない"""
+    import shutil
     import subprocess
     script = pathlib.Path(b.state["inputs"].get("scripts_dir") or "") / "comment-ratio.sh"
+    # bash は PATH の順で引く。裸の名前を渡すと、Windows では CreateProcess が PATH より先にシステムのディレクトリを探し、
+    # Git の bash でなく C:\Windows\System32\bash.exe（WSL の起動口）に当たる（tests/mutate.py の BASH と同じ。実測 2026-09-26:
+    # windows-latest で comment-ratio.sh が走らず、added_lines と comment_ratio_pct が測れなかった）
     try:
-        r = subprocess.run(["bash", str(script), base, rev], cwd=_repo_root() or None, capture_output=True, text=True,
+        r = subprocess.run([shutil.which("bash") or "bash", str(script), base, rev], cwd=_repo_root() or None, capture_output=True, text=True,
                            encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
     except OSError as e:
         return {}, f"comment-ratio.sh を起こせない（{e}）"

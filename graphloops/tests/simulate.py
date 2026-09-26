@@ -2064,6 +2064,11 @@ def test_relaunch_live_launch():
     rm(run.tmp)
 
 
+# 差し替えて走らせる子（-c の probe）は日本語を印字する。親は UTF-8 で読むので、子の標準入出力も UTF-8 に揃える——Windows の
+# 既定（cp1252）のままだと、子は印字で UnicodeEncodeError になり、親の読み手のスレッドは復号で落ちて stdout・stderr が None になる
+# （実測 2026-09-26: windows-latest で _board_update・受け付けの衝突・test_relaunch_race が赤）
+PROBE_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+
 CONFLICT_PROBE = r"""
 import io, json, pathlib, sys, types
 from contextlib import redirect_stderr, redirect_stdout
@@ -2207,7 +2212,8 @@ def test_relaunch_race():
     run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
     nx = run.next()
     inst = next(i for i in nx["ready"] if i.get("launch") or i.get("mode") == "cli")
-    r = subprocess.run([PY, "-c", RELAUNCH_RACE_PROBE, str(PLUGIN), str(run.dir), inst["id"]], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    r = subprocess.run([PY, "-c", RELAUNCH_RACE_PROBE, str(PLUGIN), str(run.dir), inst["id"]], capture_output=True, text=True, encoding="utf-8",
+                       env=PROBE_ENV, timeout=300)
     me = run.state()["rounds"][-1]["instances"][inst["id"]]
     check("別の relaunch" in r.stdout and me.get("attempts", 1) == 1,
           f"relaunch: 読んでいる間に別の relaunch が起こし直していたら、新しい試行を作らない（{r.stdout.strip()[-120:]} {r.stderr[-120:]} attempts={me.get('attempts')}）")
@@ -2252,7 +2258,8 @@ def test_stop_signal_guards():
         return
     print("止める信号の口: 錠の再入・止め始めた後の起動を拒む・止め切れない理由を運ぶ")
     try:
-        r = subprocess.run([PY, "-c", SIGNAL_PROBE, str(PLUGIN)], capture_output=True, text=True, encoding="utf-8", timeout=120)
+        r = subprocess.run([PY, "-c", SIGNAL_PROBE, str(PLUGIN)], capture_output=True, text=True, encoding="utf-8", env=PROBE_ENV,
+                           timeout=120)
         out, err = r.stdout, r.stderr
     except subprocess.TimeoutExpired:   # 錠が再入できないと、錠を持つ最中の kill_all が自分の錠を待って固まる——落ちずに検査の赤で言う
         out, err = "", "120 秒で終わらない（錠の待ちで固まった）"
@@ -2273,7 +2280,8 @@ def test_board_conflict():
     print("版の衝突: 読み直して当て直す・成功した回は文も trace も重ねない・mark は行を重ねない・受け付けの負けは印で運ぶ")
     run = Run("conflict")
     run.next()
-    r = subprocess.run([PY, "-c", CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    r = subprocess.run([PY, "-c", CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8",
+                       env=PROBE_ENV, timeout=300)
     try:
         got = json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -2292,7 +2300,7 @@ def test_board_conflict():
     check("done --node" in (got.get("launch_hint") or "") and "返答は" in (got.get("launch_hint") or ""),
           f"launch は受け付けの負けに done の案内を足す（{(got.get('launch_hint') or '')[-120:]}）")
     r = subprocess.run([PY, "-c", CLI_CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8",
-                       env={**os.environ, "GL_LOOP": str(LOOP)}, timeout=300)
+                       env={**PROBE_ENV, "GL_LOOP": str(LOOP)}, timeout=300)
     check(r.returncode == 2 and "NG 検査用の衝突の文" in r.stderr,
           f"loop.py の入口は版の衝突の文を最後に 1 度出して exit 2（rc={r.returncode} {r.stderr.strip()[-120:]}）")
     rm(run.tmp)
@@ -3038,7 +3046,8 @@ def test_relaunch():
     new = run.state()["rounds"][-1]["instances"][iid]
     check(new.get("attempts") == 2 and len(new.get("attempt_log") or []) == 1 and "検査用" in new["attempt_log"][0]["reason"],
           f"relaunch: 試行の回数と理由を盤面に刻む（{new.get('attempts')} {new.get('attempt_log')}）")
-    check(new["out_path"] in r.stdout, "relaunch: 新しい置き場を回す側に返す（運び手に渡す先）")
+    # 返りは JSON なので、Windows の置き場の \\ は 2 つずつに書かれる——JSON に書いた綴りで探す
+    check(json.dumps(new["out_path"], ensure_ascii=False)[1:-1] in r.stdout, f"relaunch: 新しい置き場を回す側に返す（運び手に渡す先。{r.stdout.strip()[-160:]}）")
     check("deadline_at" not in new, f"relaunch: 新しい試行にも期限を付けない（{new.get('deadline_at')}）")
     check(new["out_path"] != str(old) and ".a2." in new["out_path"], f"relaunch: 新しい試行は別の置き場に書く（{new['out_path']}）")
     check(not old.exists() and old.with_name(old.name + ".stale-a1").is_file(), "relaunch: 前の試行の置き場に在った物は .stale-a1 へ退ける")
