@@ -16,6 +16,7 @@ README）。ここは手本を読む・手の前後の記憶と目録を組む�
 import copy
 import gzip
 import hashlib
+import importlib.machinery
 import json
 import os
 import pathlib
@@ -31,12 +32,44 @@ if str(CORE) not in sys.path:
 
 from board import BOARD_VERSION, CORE_DIR, GRAPH_SHA, DiskBoard  # noqa: E402
 
+
+# ---------------------------------------------------------------- 再生の中だけの compile の控え
+# 盤面を開くたびに engine の load_rules が写しの RL（と RL が読む policy_input.py）を読み直す。bytecode を書かない決まり
+# なので毎回 compile し直し、手本の再生では 1 盤面あたりの時間の 3 割近くがここだった（Task 4b の測り）。
+# 再生の試験のプロセスでだけ、compile の結果（code object）をパスと元のバイトの sha256 で控えて使い回す。
+# module は盤面ごとに新しく exec する（engine の INJECT も毎回入り、overrides の大域の差し替えは他の盤面に漏れない）。
+# 控えるのは写しの rules/ の下のファイルだけ。bytecode のファイルは書かない。board.py と写しは変えない
+CODE_CACHE = {}     # (パス, 元のバイトの sha256, _optimize) → code object
+_RULES_DIR = (CORE_DIR / "graphloops" / "rules").resolve()
+
+
+def _install_compile_cache():
+    loader = importlib.machinery.SourceFileLoader
+    if getattr(loader.__dict__.get("source_to_code"), "_works_replay_cache", False):
+        return
+    orig = importlib.machinery.SourceFileLoader.source_to_code
+
+    def source_to_code(self, data, path, *, _optimize=-1):
+        p = pathlib.Path(path).resolve()
+        if p.parent != _RULES_DIR:
+            return orig(self, data, path, _optimize=_optimize)
+        key = (str(p), hashlib.sha256(data).hexdigest(), _optimize)
+        code = CODE_CACHE.get(key)
+        if code is None:
+            code = CODE_CACHE[key] = orig(self, data, path, _optimize=_optimize)
+        return code
+    source_to_code._works_replay_cache = True
+    loader.source_to_code = source_to_code
+
+
+_install_compile_cache()
+
 # ---------------------------------------------------------------- 比べない欄（仕様 9.3）
 # 名前 → 理由。試験の出力に毎回並べる。足すときは理由を書いて足す（ずれを見つけたら board.py を直すのが先）
 NOT_REPRODUCED = {
     # 時刻
     "at": "時刻（周の箱の done・問いなどに engine が刻む）",
-    "t": "時刻（trace の行）",
+    "t": "時刻（trace の行。trace そのものも比べない: disk:trace.jsonl）",
     "created": "時刻（盤面を作った時）",
     "done_at": "時刻（instance を受けた時）",
     "emitted_at": "時刻（instance を出した時）",
@@ -60,12 +93,18 @@ NOT_REPRODUCED = {
     "instance.delegate": "任せ先の起動を持たない",
     "instance.agent_id": "役の会話の番号は Archon が持つ（accept は受け取らない）",
     "instance.read_from": "返答を読んだ先（accept は返答の dict を受け取る）",
-    "state.git_mismatches": "作業ツリーの突合（tree_before）を持たないので、突合を受け入れた控えも残らない",
+    "state.git_mismatches（accept の突合の行）": "受け付けの作業ツリーの突合（tree_before）を持たないので、突合を受け入れた控え"
+                                                "（instance を持つ行）も残らない。機械の節 worktree_compare が書く行（where: P1）は比べる",
     # 受け付けの中で持たない物（仕様 4.1。a1202d0 の graph に fan_out・thickness_from の節は無い）
     "扇の被覆（fan_out.cover）": "扇の節の答えの欠けを出し直す所を持たない（a1202d0 の graph に扇の節は無い）",
     "段の昇格（thickness_from）": "段の昇格を持たない（a1202d0 の graph は段を持たない）",
     "disk:report.md": "本文の保存（節の save_text_as）を持たない。報告の本文は works のブロックが書く",
+    "disk:trace.jsonl": "手本が撮っていない（時刻の痕跡。作り手の目録の範囲の外）。DiskBoard も engine と同じ行の形で書くが比べない",
+    "trace の done の行の sha（schema の節）": "engine は役が返した生の本文の sha、DiskBoard は本文を受け取らず返答の dict を"
+                                          "並べ直した JSON の sha（本文を返す節は同じ本文の sha）。trace は比べない（disk:trace.jsonl）",
     "disk:count-budget.json#seconds": "RL が数える問いを走らせた時間（回数 calls と周は比べる）",
+    "JSON のファイルの鍵の順（disk の *.json）": "手本の記憶は鍵を並べ直して撮った（作り手の sort_keys）ので、記憶から組んだ盤面が"
+                                          "書く JSON（rounds/round-<N>.json など）は鍵の順だけ違いうる。中身の sha が違う *.json は読んだ値で比べる",
     # engine が走らせる節
     "checks_fallback の時機": "engine は next の計画の時に書き、DiskBoard は run_engine の中で書く（周の終わりの値は比べる）",
     "runs[].wall_s": "実行の時間",
@@ -98,6 +137,9 @@ def normalize(obj, _path=()):
                 continue
             if len(p) == 2 and p[0] == "state" and k in _STATE_KEYS:
                 continue
+            if p == ("state", "git_mismatches") and isinstance(v, list):
+                # 受け付けの突合の行（instance を持つ）だけ落とす。worktree_compare の行（where: P1）は比べる
+                v = [x for x in v if not (isinstance(x, dict) and "instance" in x)]
             inst = len(p) == 6 and p[:2] == ("state", "rounds") and p[3] == "instances"
             if inst and k == "launch":
                 v = {x: v[x] for x in ("steps", "sha") if isinstance(v, dict) and x in v}
@@ -384,6 +426,8 @@ def _keep_repo(rel, is_dir):
         return True
     if len(parts) == 1:
         return is_dir
+    if parts[1] == "graphloops":   # 人の方針の文書の既定の置き場（RL の policy_input が読む。作業ツリーの外）
+        return parts[2:] == (() if is_dir else ("policy.md",))
     return parts[1] in (("objects", "refs") if len(parts) > 2 or is_dir else ("HEAD", "index", "objects", "refs"))
 
 
@@ -483,6 +527,19 @@ def _short(v):
     return s if len(s) <= 160 else s[:157] + "..."
 
 
+def _json_same(path, exp: bytes, got: bytes) -> bool:
+    """JSON のファイルを読んだ値で比べる（鍵の順を問わない。disk:<path>#<欄> の欄は最上位から落とす）"""
+    try:
+        a, b = json.loads(exp), json.loads(got)
+    except ValueError:
+        return False
+    drop = _DISK_FIELDS.get(path)
+    if drop and isinstance(a, dict) and isinstance(b, dict):
+        a = {k: v for k, v in a.items() if k not in drop}
+        b = {k: v for k, v in b.items() if k not in drop}
+    return a == b
+
+
 def disk_diff(board_dir, expected: dict) -> list:
     """盤面の置き場の目録と、手本の目録 expected の違いの文の一覧（NOT_REPRODUCED のパスと欄を除く。空なら同じ）"""
     places = Places.of_board(board_dir)
@@ -494,13 +551,8 @@ def disk_diff(board_dir, expected: dict) -> list:
         elif p not in expected:
             out.append(f"disk:{p}: 盤面の置き場に在るが手本に無い")
         elif expected[p] != got[p]:
-            drop = _DISK_FIELDS.get(p)
-            if drop:
-                a = {k: v for k, v in json.loads(blob(expected[p])).items() if k not in drop}
-                b = {k: v for k, v in json.loads(places.tokenize_bytes((pathlib.Path(board_dir) / p).read_bytes())).items()
-                     if k not in drop}
-                if a == b:
-                    continue
+            if p.endswith(".json") and _json_same(p, blob(expected[p]), places.tokenize_bytes((pathlib.Path(board_dir) / p).read_bytes())):
+                continue
             out.append(f"disk:{p}: 中身が違う")
     return out
 

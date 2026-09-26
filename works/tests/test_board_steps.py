@@ -2,8 +2,11 @@
 
 手の前の記憶とディスクとリポジトリを一時の場所に戻し、DiskBoard を記憶から組み（表は NodeTable.everything）、
 同じ手を settle しない口で当て、手の後の記憶とディスクと比べる（boardreplay.compare。NOT_REPRODUCED の欄を除く）。
-この Task（4a）で当てるのは役の返答の受け付け（kind=accept → DiskBoard.accept）。
+当てる手: 役の返答の受け付け（kind=accept → DiskBoard.accept）・機械の節（kind=builtin → step_builtin）・
+周の開き（kind=open_round → 親の converge の手を step_builtin）・条件の na（kind=na → _settle_node）。
+settle の単体（入口の止め方・壁・問い・周の止め・読んだ物の控え）もここに置く。
 """
+import collections
 import contextlib
 import copy
 import dataclasses
@@ -22,7 +25,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import boardreplay as R  # noqa: E402  （board と写しの engine を sys.path に足す）
-from board import GRAPH_PATH, GRAPH_SHA, BoardGap, NodeEntry, NodeTable  # noqa: E402
+from board import GRAPH_PATH, GRAPH_SHA, BoardGap, DiskBoard, NodeEntry, NodeTable  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine import commands as engine_commands  # noqa: E402
 from engine import pointers as engine_pointers  # noqa: E402
@@ -59,6 +62,19 @@ def accept_steps(raised=False):
                 yield s
 
 
+def kind_steps(kind):
+    """再生に当てる Run の、種類 kind の手の全部（Run の中の順）"""
+    for rs in R.every_run():
+        for s in rs:
+            if s["kind"] == kind:
+                yield s
+
+
+def run_step(scenario, run, seq):
+    rs = R.load_runs(scenario)[str(run)]
+    return next(s for s in rs if s["seq"] == seq)
+
+
 def first_step(scenario, node, raised=False):
     for rs in R.load_runs(scenario).values():
         if not R.replayable(rs):
@@ -80,12 +96,12 @@ class StepCase(unittest.TestCase):
         self.addCleanup(setattr, engine_util, "GIT_CWD", cwd)
         self.n = 0
 
-    def board_before(self, step, table=TABLE, edit=None):
-        """手の前を一時の場所に戻し、記憶から DiskBoard を組む。edit(記憶) で組む前に記憶を書き換えられる"""
+    def board_before(self, step, table=TABLE, edit=None, which="before"):
+        """手の前（which="after" なら後）を一時の場所に戻し、記憶から DiskBoard を組む。edit(記憶) で組む前に記憶を書き換えられる"""
         self.n += 1
         into = self.tmp / f"s{self.n}"
-        d, _ = R.restore(step.run_steps, step["seq"], "before", into)
-        mem = R.memory_at(step.run_steps, step["seq"], "before")
+        d, _ = R.restore(step.run_steps, step["seq"], which, into)
+        mem = R.memory_at(step.run_steps, step["seq"], which)
         if edit:
             edit(mem)
         return R.board_from_memory(mem, d, table)
@@ -118,6 +134,7 @@ class AcceptStepsCase(StepCase):
               f"（うち {named} 手は台本の役が番号で書いた欄を instance の控えで名前に直して当てた）", file=sys.stderr)
         self.assertGreater(done, 800)
         self.assertEqual(bad, [], "\n".join(bad[:20]))
+        self.assertEqual(named, 1)   # 台本の役が番号で書いた手（p2.plan_review）。撮り直しで増えたら黙って通さない
 
     def test_accept_reject_leaves_board(self):
         """拒まれた accept の手: accept が Reject、文が手本の文と同じ、盤面の置き場の全部のファイルが前のまま。
@@ -131,14 +148,15 @@ class AcceptStepsCase(StepCase):
                     continue
                 b = self.board_before(s)
                 before = tree_shas(b.dir)
+                out = R.reply(s, b)   # 返答の読み取り（parse_output）の拒否を accept の拒否と数えない
                 if s["raised"]["type"] == "Reject" and "deps" in text:
                     with self.assertRaises(BoardGap):
-                        b.accept(s["node"], R.reply(s, b))
+                        b.accept(s["node"], out)
                     counts["gap"] += 1
                 else:
                     self.assertEqual(s["raised"]["type"], "AnswerReject")
                     with self.assertRaises(Reject) as cm:
-                        b.accept(s["node"], R.reply(s, b))
+                        b.accept(s["node"], out)
                     self.assertEqual(str(cm.exception), text)
                     counts["reject"] += 1
                 self.assertEqual(tree_shas(b.dir), before)
@@ -255,8 +273,9 @@ class AcceptStepsCase(StepCase):
         # 対照: skills の無い instance は graph の生の宣言（applies が無い＝当てる側）に倒れて拒まれる
         b2 = self.board_before(s)
         b2.rd["instances"]["p1.local_review"].pop("skills", None)
+        out2 = R.reply(s, b2)
         with self.assertRaises(Reject) as cm:
-            b2.accept("p1.local_review", R.reply(s, b2))
+            b2.accept("p1.local_review", out2)
         self.assertIn("/security-review", str(cm.exception))
 
     def test_lens_applied_needs_invoked(self):
@@ -273,8 +292,9 @@ class AcceptStepsCase(StepCase):
         lens = next(e for e in b._emit("p1.local_review")["skills"] if e["skill"] == "/security-review")
         self.assertIs(lens["applies"], True)
         self.assertEqual(lens["applies_why"], b.cond("security_surface_touched")[1])
+        out = R.reply(s, b)
         with self.assertRaises(Reject) as cm:
-            b.accept("p1.local_review", R.reply(s, b))
+            b.accept("p1.local_review", out)
         self.assertIn("invoked が true でない", str(cm.exception))
 
     def test_accept_on_halted_rejected(self):
@@ -284,18 +304,20 @@ class AcceptStepsCase(StepCase):
             mem["state"]["halted"] = {"node": "p2.human_gate", "round": 1}
         b = self.board_before(s, edit=halt)
         before = tree_shas(b.dir)
+        out = R.reply(s, b)
         with self.assertRaises(Reject) as want:
             engine_commands._refuse_halted(b)
         with self.assertRaises(Reject) as cm:
-            b.accept("p0.base", R.reply(s, b))
+            b.accept("p0.base", out)
         self.assertEqual(str(cm.exception), str(want.exception))
         self.assertEqual(tree_shas(b.dir), before)
 
     def test_accept_absent_is_gap(self):
         s = first_step("test_converges", "p0.base")
         b = self.board_before(s, table=with_by(TABLE, "p0.base", by="absent", reason="このラインに無い（検査用）"))
+        out = R.reply(s, b)
         with self.assertRaises(BoardGap):
-            b.accept("p0.base", R.reply(s, b))
+            b.accept("p0.base", out)
         b = self.board_before(s)
         with self.assertRaises(BoardGap):
             b.accept("p1.worktree_before", {})     # 機械の節は受けない（step_builtin で回す）
@@ -306,12 +328,13 @@ class AcceptStepsCase(StepCase):
         s = first_step("test_converges", "p0.base")
         b = self.board_before(s)
         del b.rd["instances"]["p0.base"]
+        out = R.reply(s, b)
         with self.assertRaises(BoardGap):
-            b.accept("p0.base", R.reply(s, b))
+            b.accept("p0.base", out)
         b = self.board_before(s)
-        b.accept("p0.base", R.reply(s, b))
+        b.accept("p0.base", out)
         with self.assertRaises(BoardGap):   # 既に done
-            b.accept("p0.base", R.reply(s, b))
+            b.accept("p0.base", out)
 
     def test_not_reproduced_listed(self):
         """比べない欄の表（名前と理由）を試験の出力に並べる"""
@@ -321,10 +344,354 @@ class AcceptStepsCase(StepCase):
             self.assertGreater(len(why.strip()), 4, name)
         for name in ("at", "done_at", "emitted_at", "state.rev", "run_id", "instance.read_from", "instance.agent_id",
                      "instance.tree_before", "扇の被覆（fan_out.cover）", "段の昇格（thickness_from）", "disk:report.md",
-                     "state.works"):
+                     "state.works", "disk:trace.jsonl", "trace の done の行の sha（schema の節）"):
             self.assertIn(name, R.NOT_REPRODUCED)
         print("\n比べない欄（NOT_REPRODUCED）:\n" + "\n".join(f"  {k}: {v}" for k, v in R.NOT_REPRODUCED.items()),
               file=sys.stderr)
+
+
+def tok(board, obj):
+    """盤面の置き場の実パスを手本の印に戻す（手本の文と比べるため）"""
+    return R.Places.of_board(board.dir).tokenize(obj)
+
+
+def trace_ops(board):
+    return [json.loads(ln) for ln in (board.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+# 手本の builtin の手が通る機械の節の中身（brief の 11 種）
+BUILTINS_SEEN = {"worktree_snapshot", "worktree_compare", "human_gate", "lane_merge", "fix_delta", "delta_owed", "gates_cut",
+                 "scalars", "assemble", "record_round", "converge"}
+
+
+# 台本が手の環境を変えて回した手（手本は手の環境を撮らない）。再生は同じ環境を作って当てる
+NO_GIT_STEPS = {("test_rejections", "1", 33): "台本が PATH を空の置き場にして git の無い場を作った next（突合が『測れない』で止まる手）"}
+
+
+class MachineStepsCase(StepCase):
+    """機械の節（builtin）・周の開き（open_round）・条件の na の手を 1 手ずつ当てる"""
+
+    def no_git(self):
+        empty = self.tmp / "empty-bin"
+        empty.mkdir(exist_ok=True)
+        return mock.patch.dict(os.environ, {"PATH": str(empty)})
+
+    def test_builtin_steps(self):
+        """kind=builtin の全部の手: 記憶から組む → step_builtin → 手の後と同じ、返りが手本の result と同じ"""
+        done, bad, seen, no_git = 0, [], collections.Counter(), 0
+        for s in kind_steps("builtin"):
+            b = self.board_before(s)
+            b.accept_tree_change = s["args"].get("accept_tree_change")   # settle が盤面に置く属性（手の引数）
+            env = contextlib.nullcontext()
+            if (s.run_steps.scenario, s.run_steps.run, s["seq"]) in NO_GIT_STEPS:
+                env, no_git = self.no_git(), no_git + 1
+            with env:
+                got = b.step_builtin(s["node"])
+            diffs = R.compare(b, s)
+            if tok(b, got) != s["result"]:
+                diffs.append(f"返り: 手本 {s['result']} ／ 盤面 {tok(b, got)}")
+            done += 1
+            seen[s["args"]["builtin"]] += 1
+            if diffs:
+                bad.append(f"{s.run_steps.scenario} run {s['run']} seq {s['seq']} {s['node']}: " + " / ".join(diffs[:5]))
+            shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+        print(f"\n手本の builtin の手: {done} 手を当て、{done - len(bad)} 手が手の後と同じ（中身ごと: {dict(sorted(seen.items()))}。"
+              f"うち {no_git} 手は台本と同じく git の無い場で当てた）", file=sys.stderr)
+        self.assertGreater(done, 500)
+        self.assertEqual(no_git, len(NO_GIT_STEPS))
+        self.assertLessEqual(BUILTINS_SEEN, set(seen))
+        self.assertEqual(bad, [], "\n".join(bad[:20]))
+
+    def test_open_round_steps(self):
+        """converge の手で周を開いた物（open_round の親が builtin）: step_builtin の後の round・新しい周の箱・loop・record・
+        status・halted が open_round の手の後と同じ（on_new_round の持ち越しを含む）"""
+        done, opened, bad = 0, 0, []
+        for s in kind_steps("open_round"):
+            parent = next(x for x in s.run_steps if x["seq"] == s["parent"])
+            if parent["kind"] != "builtin":
+                continue    # 人の答えの中の周の開き（answer の手）は Task 6
+            b = self.board_before(parent)
+            b.step_builtin(parent["node"])
+            exp = R.normalize(R.memory_at(s.run_steps, s["seq"], "after"))
+            got = R.normalize(tok(b, {"state": b.state, "record": b.record}))
+            for key in ("round", "loop", "status", "halted"):
+                if exp["state"].get(key) != got["state"].get(key):
+                    bad.append(f"seq {s['seq']} state.{key}")
+            if exp["state"]["rounds"][-1] != got["state"]["rounds"][-1]:
+                bad.append(f"seq {s['seq']} 周の箱")
+            if exp["record"] != got["record"]:
+                bad.append(f"seq {s['seq']} record")
+            done += 1
+            opened += bool(s["result"]["opened"])
+            shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+        print(f"\n手本の open_round の手（converge の中）: {done} 手を当て（開いた {opened}・止めた {done - opened}）、"
+              f"{done - len(set(x.split()[1] for x in bad))} 手が同じ", file=sys.stderr)
+        self.assertGreater(opened, 10)
+        self.assertGreater(done - opened, 0)
+        self.assertEqual(bad, [])
+
+    def test_na_steps(self):
+        """kind=na の全部の手: 手の前から組んで _settle_node(節) → 返りの理由 == 手の why、rd.na[節] == why。
+        続く na の手（間に記憶を撮る手が無い＝同じ advance の中で続けて評価された物）は、同じ盤面で順に当てる
+        （手の後＝次の手の前。1 つ目だけ記憶から組む）"""
+        done, boards, bad = 0, 0, []
+        for rs in R.every_run():
+            b = None
+            for s in rs:
+                if s["kind"] != "na":
+                    if b is not None:
+                        shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+                        b = None
+                    continue
+                if b is None:
+                    b = self.board_before(s)
+                    boards += 1
+                self.assertEqual(b.node_state(s["node"]), "pending")
+                why = b._settle_node(s["node"])
+                done += 1
+                want = s["na"]["why"]
+                if tok(b, why) != want or tok(b, b.rd["na"].get(s["node"])) != want:
+                    bad.append(f"{rs.scenario} run {rs.run} seq {s['seq']} {s['node']}: 手本 {want!r} ／ 盤面 {tok(b, why)!r}")
+            if b is not None:
+                shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+        print(f"\n手本の na の手: {done} 手を当て（組んだ盤面 {boards}）、{done - len(bad)} 手が同じ理由", file=sys.stderr)
+        self.assertGreater(done, 1100)
+        self.assertEqual(bad, [], "\n".join(bad[:20]))
+
+    def test_step_builtin_refuses_non_builtin(self):
+        s = first_step("test_converges", "p0.base")
+        b = self.board_before(s)
+        with self.assertRaises(BoardGap):
+            b.step_builtin("p0.base")          # 役の節
+        with self.assertRaises(BoardGap):
+            b.step_builtin("converge")         # 依存が済んでいない
+        with self.assertRaises(BoardGap):
+            b.step_builtin("no.such.node")
+
+
+def builtin_step(scenario, node, nth=0):
+    got = [s for rs in R.load_runs(scenario).values() if R.replayable(rs) for s in rs
+           if s["kind"] == "builtin" and s["node"] == node]
+    return got[nth]
+
+
+class SettleCase(StepCase):
+    """settle（仕様 4.1 の 1〜3・5）と、settle まで回す口（done・run_builtin）"""
+
+    def test_settle_entry_halted(self):
+        """止めた run の盤面は何もしない: 盤面（記憶もディスクも）が前のまま、halted を返し、ready は空"""
+        s = builtin_step("test_converges", "p1.worktree_after")
+        halted = {"node": "p2.human_gate", "round": 1, "by": "stop", "reason": "検査用"}
+        b = self.board_before(s, edit=lambda m: m["state"].__setitem__("halted", halted))
+        mem = copy.deepcopy({"state": b.state, "record": b.record})
+        disk = tree_shas(b.dir)
+        p = b.settle()
+        self.assertEqual(p["halted"], halted)
+        self.assertEqual(p["ready"], [])
+        self.assertEqual({"state": b.state, "record": b.record}, mem)
+        self.assertEqual(tree_shas(b.dir), disk)
+        self.assertTrue(p["notes"])
+
+    def test_settle_entry_pending_human(self):
+        """人に聞いている間（r4.human_gate の周の途中の問い）に別の節を done: 受け付けは済むが、settle は進めない
+        ——r4.human_gate を走らせ直さず、pending_human が同じ、ready は空（engine の cmd_next と同じ）"""
+        ask = run_step("test_human_gate", 1, 54)
+        self.assertEqual((ask["kind"], ask["node"]), ("builtin", "r4.human_gate"))
+        acc = run_step("test_human_gate", 1, 56)
+        self.assertEqual((acc["kind"], acc["node"]), ("accept", "r1.comment_candidates"))
+        b = self.board_before(ask, which="after")
+        ph = copy.deepcopy(b.state["pending_human"])
+        self.assertEqual(b.rd["instances"]["r1.comment_candidates"]["status"], "pending")
+        p = b.done("r1.comment_candidates", R.reply(acc, b))
+        self.assertEqual(b.rd["instances"]["r1.comment_candidates"]["status"], "done")
+        self.assertEqual(b.state["pending_human"], ph)
+        self.assertEqual(p["asking"], ph)
+        self.assertEqual(p["ready"], [])
+        self.assertNotIn("r4.human_gate", b.rd["done"])
+        self.assertFalse([r for r in trace_ops(b) if r["op"] == "builtin"])
+        disk = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(disk["pending_human"], ph)
+        self.assertEqual(disk["rounds"][-1]["instances"]["r1.comment_candidates"]["status"], "done")
+
+    def test_settle_stops_at_ask(self):
+        """周の途中の問い（p2.human_gate）で止まる: asking に kinds・items、human_gate は done でない、ready は空、保存した"""
+        s = run_step("test_human_gate", 1, 30)
+        self.assertEqual((s["kind"], s["node"]), ("builtin", "p2.human_gate"))
+        b = self.board_before(s)
+        p = b.settle()
+        self.assertEqual(p["asking"]["node"], "p2.human_gate")
+        self.assertEqual(p["asking"]["kinds"], ["regression"])
+        self.assertTrue(p["asking"]["items"])
+        self.assertNotIn("p2.human_gate", b.rd["done"])
+        self.assertEqual(p["ready"], [])
+        self.assertIsNone(p["halted"])
+        self.assertTrue(any("p2.human_gate: ask" in x for x in p["notes"]))
+        disk = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(disk["pending_human"], b.state["pending_human"])
+        # 手本の engine の手の後と同じ記憶
+        self.assertEqual(R.compare(b, s), [])
+
+    def test_settle_stop_after_round(self):
+        """stop_after_round の周の converge の後: halted.by == stop_after_round、round は増えない、ready は空"""
+        s = builtin_step("test_stop_after_round", "converge")
+        b = self.board_before(s)
+        self.assertEqual(b.state["stop_after_round"], b.round)
+        rnd = b.round
+        p = b.settle()
+        self.assertEqual(p["halted"]["by"], "stop_after_round")
+        self.assertEqual(b.state["halted"]["by"], "stop_after_round")
+        self.assertEqual(b.round, rnd)
+        self.assertEqual(p["round"], rnd)
+        self.assertEqual(len(b.state["rounds"]), rnd)
+        self.assertEqual(p["ready"], [])
+        self.assertEqual(b.state["status"], "stopped")
+        disk = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(disk["halted"]["by"], "stop_after_round")
+        # 止めた後の settle は何もしない
+        self.assertEqual(b.settle()["halted"]["by"], "stop_after_round")
+
+    def test_settle_passes_accept_tree_change(self):
+        """P1 の後に作業ツリーが変わった盤面（手本 test_rejections の手の前）: 理由なしの settle は worktree_compare で止まり、
+        accept_tree_change="理由" の settle は通って git_mismatches に accepted で残り、撃ち直す材料の節を出す"""
+        s = run_step("test_rejections", 1, 34)
+        self.assertEqual(s["node"], "p1.worktree_after")
+        atc = s["args"]["accept_tree_change"]
+        b = self.board_before(s)
+        p = b.settle()
+        self.assertTrue(any("P1 の前後で作業ツリーが変わっている" in x for x in p["notes"]), p["notes"])
+        self.assertIsNone(b.state["git_mismatches"][-1]["accepted"])
+        self.assertNotIn("p1.worktree_after", b.rd["done"])
+        b = self.board_before(s)
+        p = b.settle(accept_tree_change=atc)
+        gm = b.state["git_mismatches"][-1]
+        self.assertEqual(gm["accepted"], atc)
+        self.assertTrue(gm["refired"])
+        self.assertTrue(set(gm["refired"]) & set(p["ready"]), (gm["refired"], p["ready"]))
+        disk = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(disk["git_mismatches"][-1]["accepted"], atc)
+
+    def test_explicit_is_wall(self):
+        """p4.record を explicit にした表と auto の表で同じ盤面（p4.record の手の前）を settle: explicit 側は p4.record で止まり
+        （待ちのまま ready に出し、graph の順で後ろの節を評価しない）、run_builtin の後の盤面（converge 以降の na を含む）が auto 側と同じ"""
+        s = builtin_step("test_converges", "p4.record")
+        explicit = with_by(TABLE, "p4.record", by="builtin", run="explicit")
+        auto = self.board_before(s)
+        pa = auto.settle()
+        wall = self.board_before(s, table=explicit)
+        order = list(GRAPH["nodes"])
+        after = order[order.index("p4.record") + 1:]
+        states = {n: wall.node_state(n) for n in after}
+        pw = wall.settle()
+        self.assertIn("p4.record", pw["ready"])
+        self.assertEqual(wall.node_state("p4.record"), "pending")
+        before_na = dict(wall.rd["na"])
+        self.assertEqual({n: wall.node_state(n) for n in after}, states, "壁の後ろを評価した")
+        self.assertIn("pending", states.values())
+        self.assertFalse([r for r in trace_ops(wall) if r["op"] == "builtin"], "壁で止まる settle が機械の節を回した")
+        rnd = wall.round
+        pr = wall.run_builtin("p4.record")
+        self.assertIn("p4.record", wall.state["rounds"][rnd - 1]["done"])
+        norm = lambda b: R.normalize(tok(b, {"state": {k: v for k, v in b.state.items() if k != "works"}, "record": b.record}))
+        self.assertEqual(norm(wall), norm(auto))
+        self.assertEqual(pr["round"], pa["round"])
+        self.assertEqual(sorted(pr["ready"]), sorted(pa["ready"]))
+        # converge 以降の na が付いた（壁の前には付いていなかった）
+        first = wall.state["rounds"][rnd - 1]["na"]
+        self.assertTrue(set(first) - set(before_na) & set(after), "壁の後ろの na が run_builtin の後に付いていない")
+
+    def test_run_builtin_only_explicit(self):
+        s = builtin_step("test_converges", "p4.record")
+        b = self.board_before(s)
+        with self.assertRaises(BoardGap):
+            b.run_builtin("p4.record")          # auto の節は settle が回す
+        with self.assertRaises(BoardGap):
+            b.run_builtin("p0.base")            # 機械の節でない
+        b = self.board_before(s, table=with_by(TABLE, "converge", by="builtin", run="explicit"))
+        with self.assertRaises(BoardGap):
+            b.run_builtin("converge")           # 依存が済んでいない
+
+    def test_run_builtin_na(self):
+        """explicit の節の条件が偽なら、走らせずに na（engine の applicable の理由）にしてから settle"""
+        s = next(x for x in kind_steps("na") if GRAPH["nodes"][x["node"]].get("run_by") == "driver")
+        table = with_by(TABLE, s["node"], by="builtin", run="explicit")
+        b = self.board_before(s, table=table)
+        rnd = b.round
+        p = b.run_builtin(s["node"])
+        self.assertEqual(tok(b, b.state["rounds"][rnd - 1]["na"][s["node"]]), s["na"]["why"])
+        self.assertFalse([r for r in trace_ops(b) if r["op"] == "builtin" and r["node"] == s["node"]])
+        self.assertNotIn(s["node"], p["ready"])
+
+    def test_settle_clears_read_caches(self):
+        """rewind の後に同じ out のパスへ書いた出力を、同じ入れ物の settle が新しい中身で読む（読んだ物の控えを消す。仕様 4.1 の 2）。
+        p0.base を touches_security_surface: true で受け直し、p1.local_review を出し直させると、レンズの条件が新しい中身で真になる"""
+        base = first_step("test_converges", "p0.base")
+        s = first_step("test_converges", "p1.local_review")
+        b = self.board_before(s)
+        self.assertFalse(b.cond("security_surface_touched")[0])     # p0.base の出力を読んで控えに持つ
+        path = b.dir / b.state["outputs"]["p0.base"]["file"]
+        b.rewind(["p0.base"], "検査用")
+        b._emit("p0.base")
+        out = R.reply(base, b)
+        out["touches_security_surface"] = True
+        b.accept("p0.base", out)
+        self.assertEqual(b.dir / b.state["outputs"]["p0.base"]["file"], path)   # 同じ置き場に書いた
+        self.assertFalse(b.cond("security_surface_touched")[0], "控えが効いていない（試験の前提が崩れた）")
+        del b.rd["instances"]["p1.local_review"]
+        b.settle()
+        lens = next(e for e in b.rd["instances"]["p1.local_review"]["skills"] if e["skill"] == "/security-review")
+        self.assertIs(lens["applies"], True)
+
+    def test_settle_absent_goes_to_skipped(self):
+        """表で absent の節は、条件に当たれば周の箱の skipped に表の理由（done_ever も engine の skip と同じく書く）"""
+        s = builtin_step("test_converges", "p4.record")
+        b = self.board_before(s, table=with_by(TABLE, "p4.record", by="absent", reason="このラインに無い（検査用）"))
+        b.settle()
+        first = b.state["rounds"][0]
+        self.assertEqual(first["skipped"]["p4.record"], "このラインに無い（検査用）")
+        self.assertEqual(b.state["done_ever"]["p4.record"], 1)
+        self.assertNotIn("p4.record", first["done"])
+
+    def test_settle_on_scratch_is_gap(self):
+        """v1 の受け付けの入れ物（scratch。表も instance も持たない）は settle・機械の節を回さない"""
+        s = builtin_step("test_converges", "p4.record")
+        b = self.board_before(s)
+        sc = DiskBoard.scratch(b.dir, review_rev="HEAD")
+        with self.assertRaises(BoardGap):
+            sc.settle()
+        with self.assertRaises(BoardGap):
+            sc.step_builtin("p1.worktree_before")
+
+    def test_settle_refuses_fan_out(self):
+        """扇の節（fan_out）は持たない（a1202d0 の graph に無い）: 出会ったら黙って進めず BoardGap"""
+        s = builtin_step("test_converges", "p4.record")
+        b = self.board_before(s)
+        b.nodes["converge"]["fan_out"] = {"builtin": "x"}
+        with self.assertRaises(BoardGap):
+            b.settle()
+
+
+class AcceptStrictCase(StepCase):
+    def test_text_node_only_text_key(self):
+        """本文を返す節の返答は {text} だけ（engine は本文から {text} を組むので他の鍵は届かない。余分な鍵はラインの配線の誤り）"""
+        s = next(x for x in accept_steps() if x["node"] in TEXT_NODES)
+        b = self.board_before(s)
+        out = R.reply(s, b)
+        self.assertEqual(set(out), {"text"})
+        before = tree_shas(b.dir)
+        with self.assertRaises(BoardGap):
+            b.accept(s["node"], {**out, "extra": 1})
+        self.assertEqual(tree_shas(b.dir), before)
+        b.accept(s["node"], out)
+
+    def test_accept_refuses_fan_out_and_thickness_from(self):
+        """扇の被覆・段の昇格は持たない（NOT_REPRODUCED）: そういう節の受け付けは黙って受けず BoardGap"""
+        s = first_step("test_converges", "p0.base")
+        for key, val in (("fan_out", {"builtin": "x"}), ("thickness_from", "x")):
+            b = self.board_before(s)
+            b.nodes["p0.base"][key] = val
+            out = R.reply(s, b)
+            with self.assertRaises(BoardGap):
+                b.accept("p0.base", out)
 
 
 class ReplayToolCase(unittest.TestCase):
@@ -347,6 +714,21 @@ class ReplayToolCase(unittest.TestCase):
         after = R.memory_at(rs, na["seq"], "after")
         self.assertNotIn(na["node"], before["state"]["rounds"][-1]["na"])
         self.assertEqual(after["state"]["rounds"][-1]["na"][na["node"]], na["na"]["why"])
+
+    def test_compile_cache_fresh_module(self):
+        """再生の中だけの compile の控え（boardreplay が入れる）: 同じ RL を 2 度読むと code は使い回すが module は盤面ごとに
+        新しく exec する（大域の差し替えが他へ漏れない）。鍵はパスと元のバイトの sha256。bytecode のファイルは書かない"""
+        from board import rules_module
+        a, b = rules_module(), rules_module()
+        self.assertIsNot(a, b)
+        self.assertIs(a.converge.__code__, b.converge.__code__)       # 控えの code を使い回した
+        self.assertIsNot(a.converge, b.converge)                        # 関数は exec のたびに新しい
+        a.check_record = None
+        self.assertIsNotNone(b.check_record)
+        rl = (R.CORE_DIR / "graphloops" / "rules" / "review-loop.py").resolve()
+        sha = hashlib.sha256(rl.read_bytes()).hexdigest()
+        self.assertTrue(any(k[0] == str(rl) and k[1] == sha for k in R.CODE_CACHE))
+        self.assertFalse(list((R.CORE_DIR / "graphloops").rglob("__pycache__")))
 
     def test_normalize_drops_listed(self):
         mem = {"state": {"rev": 3, "works": {}, "round": 1, "rounds": [{"instances": {"x": {

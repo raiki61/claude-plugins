@@ -4,6 +4,7 @@
 - BoardGap・BoardMismatch: 内部の誤りの型（仕様 4.6）。役の返答の誤りは engine の Reject のまま
 - NodeEntry・NodeTable:    節の表（仕様 4.2）。graph の全部の節を、このラインでどう持つかに振る
 - DiskBoard:               ディスクの盤面を開く入れ物（仕様 4.1・4.4）。写した engine の Board を継ぐ
+- Progress:                settle まで回す口（settle・done・run_builtin）の返り（仕様 4.1）
 - rules_module・graph_expanded: 盤面なしで写しの RL と graph を読む口（仕様 4.1 の末尾）
 
 節の表のファイル（<ライン>/nodes.json）の形:
@@ -18,7 +19,7 @@ import pathlib
 import shutil
 import sys
 import types
-from typing import Mapping
+from typing import Mapping, TypedDict
 
 # pack の中に __pycache__ を作らない（下で import する写しの engine の分。accept.py と同じ）
 sys.dont_write_bytecode = True
@@ -30,14 +31,14 @@ if str(_GL) not in sys.path:
 
 import engine.util as _util  # noqa: E402
 from engine import pointers as _pointers  # noqa: E402
-from engine.advance import load_item  # noqa: E402
+from engine.advance import load_item, run_driver_node  # noqa: E402
 from engine.board import Board as _EngineBoard, empty_round, refuse_expression_conds  # noqa: E402
 from engine.commands import (_refuse_halted, choice_input_errors, max_rounds_for, path_inputs,  # noqa: E402
                              undeclared_inputs)
 from engine.record import apply_writes  # noqa: E402
 from engine.rules import hook, load_rules, registry  # noqa: E402
 from engine.schema import expand_refs, graph_text, load_graph, resolve_extends, validate_schema  # noqa: E402
-from engine.util import AnswerReject, Reject, now, safe_name, write_json  # noqa: E402
+from engine.util import TERMINAL_STATUS, AnswerReject, Reject, now, safe_name, write_json  # noqa: E402
 
 CORE_DIR = CORE
 GRAPH_PATH = _GL / "graphs" / "review-loop.json"      # 写しの graph
@@ -54,6 +55,17 @@ class BoardGap(Exception):
 
 class BoardMismatch(BoardGap):
     """盤面を開かない（graph_sha・board_version・表の graph_sha が合わない）。文に両方の値を出す"""
+
+
+class Progress(TypedDict):
+    """settle まで回す口の返り（仕様 4.1）。ready は依存が済んで待っている、表で role・machine・engine_run の節と、
+    壁で止めた explicit の機械の節（ラインが次に作る・回す物。人に聞いている間と止めた run は空）。
+    asking は state.pending_human、halted は state.halted、notes は止まった理由と機械の節の知らせ"""
+    round: int
+    ready: list
+    asking: dict | None
+    halted: dict | None
+    notes: list
 
 
 # ---------------------------------------------------------------- 節の表
@@ -275,6 +287,14 @@ def _core() -> dict:
     return {"commit": first.split()[0], "path": str(CORE_DIR)}
 
 
+def _refuse_unowned(nid, n) -> None:
+    """盤面の層が持たない節の形（扇の節 fan_out・段の昇格 thickness_from）を黙って回さない。a1202d0 の graph には無い
+    （再生の比べない欄 NOT_REPRODUCED の「扇の被覆」「段の昇格」）。写し直しで入ったら、ここで止まる"""
+    for key, what in (("fan_out", "扇の節（項目ごとの instance・被覆）"), ("thickness_from", "段の昇格")):
+        if key in n:
+            raise BoardGap(f"節 '{nid}' は {key} を持つ——{what}は盤面の層が持たない（a1202d0 の graph に無い形）")
+
+
 def _check_table(table: "NodeTable") -> None:
     """節の表の縛り 1〜5（仕様 4.2）。表の graph_sha の違いは BoardMismatch、他の破れは BoardGap"""
     if not isinstance(table, NodeTable):
@@ -322,6 +342,8 @@ class DiskBoard(_EngineBoard):
         self.table = table
         self.validator_runner = validator_runner
         self._scratch = scratch
+        self._notes = []      # settle の輪が集める知らせ（機械の節の notes と止まった理由）
+        self._walls = []      # settle の輪の最後の段で当たった explicit の機械の節（ready に出す）
         if allow_halted:
             self.allow_halted = True
         self._apply_overrides(overrides or {})
@@ -509,8 +531,9 @@ class DiskBoard(_EngineBoard):
         writes → check_record → out/r<N>/<節>.json → state.outputs → instance を done → 周の箱の done・done_ever → trace → 保存。
         返答の中身の誤りは engine の AnswerReject と同じ文で拒み、盤面（ディスク）は書かない（記憶の入れ物は汚れうるので捨てる）。
         ラインの配線の誤り（表で受けられない節・待っている instance が無い・依存が済んでいない）は BoardGap。
-        engine の受け付けのうち、描画・起動に関わる所（read_from・agent_id・tree_before の突合・扇の被覆・段の昇格・
-        save_text_as）は持たない（再生の比べない欄 tests/boardreplay.py の NOT_REPRODUCED）"""
+        engine の受け付けのうち、描画・起動に関わる所（read_from・agent_id・tree_before の突合・save_text_as）は持たない
+        （再生の比べない欄 tests/boardreplay.py の NOT_REPRODUCED）。扇の節・段の昇格を持つ節は受けずに BoardGap。
+        本文を返す節の返答は {text} だけ（engine と同じく他の鍵は届かない形。余分な鍵は BoardGap）"""
         _refuse_halted(self)
         n = self.nodes.get(nid)
         if n is None:
@@ -520,6 +543,7 @@ class DiskBoard(_EngineBoard):
             by = entry.by if entry is not None else "（表が無い）"
             raise BoardGap(f"節 '{nid}' は表で {by}——accept で受けるのは role・machine・engine_run の節だけ"
                            "（機械の節は step_builtin・run_builtin、このラインに無い節は受けない）")
+        _refuse_unowned(nid, n)
         inst = self.rd["instances"].get(nid)
         if not inst:
             raise BoardGap(f"この周に節 '{nid}' の instance が出ていない（settle が出した節だけを受ける）")
@@ -534,6 +558,9 @@ class DiskBoard(_EngineBoard):
             if errs:
                 raise AnswerReject("返答が型に合わない（直して done し直す。回す側が中身を補ってはいけない——役に返させろ）:\n"
                                    + "\n".join(f"  - {e}" for e in errs))
+        elif isinstance(output, dict) and set(output) - {"text"}:
+            # engine は本文から {text} を組むので、他の鍵は届かない。余分な鍵はラインが返答を組む所の誤り
+            raise BoardGap(f"節 '{nid}' は本文を返す節——返答は {{text}} だけ（余分な鍵: {sorted(set(output) - {'text'})}）")
         elif not (isinstance(output, dict) and isinstance(output.get("text"), str) and output["text"].strip()):
             raise AnswerReject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、{inst.get('out_path')} に書けていない）")
         # 番号で指した欄を名前に戻す。一覧を固めた控え（instance.pointers）を持たないので、番号は engine の文で拒まれる（BL17）
@@ -574,6 +601,159 @@ class DiskBoard(_EngineBoard):
         self.trace("done", instance=nid, sha=_util.sha(text))
         self.save()
         return "。".join([f"ok {nid} を受け付けた", *notes])
+
+    # -- 機械の節と settle（engine の advance の輪）
+    def _entry(self, nid: str) -> NodeEntry:
+        if self.table is None:
+            raise BoardGap("節の表が無い入れ物（scratch）は settle・機械の節を回さない")
+        e = self.table.nodes.get(nid)
+        if e is None:
+            raise BoardGap(f"節 '{nid}' が表に無い")
+        return e
+
+    def _check_builtin(self, nid: str) -> NodeEntry:
+        """機械の節を 1 つ回してよいか（表で builtin・待ち・依存が済んだ・人に聞いていない）。配線の誤りは BoardGap"""
+        n = self.nodes.get(nid)
+        if n is None:
+            raise BoardGap(f"節 '{nid}' は graph に無い")
+        e = self._entry(nid)
+        if e.by != "builtin" or n.get("run_by") != "driver":
+            raise BoardGap(f"節 '{nid}' は表で {e.by}——機械の節（builtin）だけを回す")
+        if self.state.get("pending_human"):
+            raise BoardGap(f"人に聞いている間（{self.state['pending_human'].get('node')}）は機械の節を回さない——先に answer")
+        if self.node_state(nid) != "pending":
+            raise BoardGap(f"節 '{nid}' は既に {self.node_state(nid)}")
+        if not self.deps_ok(nid):
+            wait = [d for d in n.get("deps", []) if self.node_state(d) == "pending"]
+            raise BoardGap(f"節 '{nid}' の deps {wait} がまだ済んでいない")
+        return e
+
+    def step_builtin(self, nid: str) -> dict:
+        """機械の節を 1 つだけ回して保存する（engine の run_driver_node。settle しない）。返りは {progressed, notes}
+        （progressed が偽なら止まった——通らない・人に聞く・stop_after_round の周の締め。理由は notes）。
+        条件（cond）は見ない（見るのは settle と run_builtin）。止めた run には書かない（engine の Reject）"""
+        _refuse_halted(self)
+        self._check_builtin(nid)
+        notes = []
+        progressed = run_driver_node(self, nid, self.nodes[nid], notes)
+        self.save()
+        return {"progressed": progressed, "notes": notes}
+
+    def run_builtin(self, nid: str) -> Progress:
+        """表で explicit の機械の節を回す（ラインが段の境で呼ぶ）: 条件に当たらなければ na、当たれば step_builtin → settle。
+        auto の節（settle が回す）・機械の節でない節・待っていない・依存が済んでいない節は BoardGap"""
+        _refuse_halted(self)
+        if self._check_builtin(nid).run != "explicit":
+            raise BoardGap(f"節 '{nid}' は表で auto——settle が回す（run_builtin は explicit の節だけ）")
+        why = self.applicable(nid)
+        if why:
+            self.rd["na"][nid] = why
+            self.save()
+            notes = [f"{nid}: 条件に当たらない（{why}）"]
+        else:
+            notes = self.step_builtin(nid)["notes"]
+        p = self.settle()
+        p["notes"] = notes + p["notes"]
+        return p
+
+    def done(self, nid: str, output: dict) -> Progress:
+        """役（か機械の返答）の返答を受けて、settle まで回す（loop.py done → next）"""
+        msg = self.accept(nid, output)
+        p = self.settle()
+        p["notes"] = [msg] + p["notes"]
+        return p
+
+    def settle(self, accept_tree_change: str | None = None) -> Progress:
+        """engine の loop.py next の advance を、役の節は控え（instance）を出すだけにして回す（仕様 4.1 の settle の 1〜3・5。
+        4 の周の添え書きは Task 6）。
+        1. 入口の止め方は engine の cmd_next と同じ: 止めた run・終わって待ちの無い run・人に聞いている間は、何もせず返す（保存もしない）
+        2. 読んだ物の控え（_out_cache・_porcelain・_vtables）を消し、accept_tree_change を盤面に置く（RL の worktree_compare が読む）
+        3. 進む物が無くなるまで _settle_pass を回す（機械の節が止まったらそこで終わる）
+        5. 最後に 1 度だけ保存する。
+        engine の advance の頭の graph_changed・engine_changed・frozen_outputs_stale は持たない（開くときに graph_sha を突き合わせ、
+        写しの版は state.works.core。再生の比べない欄 NOT_REPRODUCED の state.engine・graph_changes・stale_frozen）"""
+        if self.table is None:
+            raise BoardGap("節の表が無い入れ物（scratch）は settle しない")
+        st = self.state
+        if st.get("halted"):
+            h = st["halted"]
+            return self._progress([f"止めた run（halted: {h.get('by')}・{h.get('node')}）。後の節は出さない"])
+        if st.get("status") in TERMINAL_STATUS and all(self.node_state(x) != "pending" for x in self.nodes):
+            return self._progress([f"全部の節が終わっている（status: {st['status']}）"])
+        if st.get("pending_human"):
+            return self._progress([f"人に聞いている間（{st['pending_human'].get('node')}）は進めない——answer で答える"])
+        for k in ("_out_cache", "_porcelain", "_vtables"):
+            self.__dict__.pop(k, None)
+        self.accept_tree_change = accept_tree_change
+        self._notes = []
+        while self._settle_pass():
+            pass
+        self.save()
+        return self._progress(list(self._notes))
+
+    def _progress(self, notes) -> Progress:
+        ph, halted = self.state.get("pending_human"), self.state.get("halted")
+        ready = []
+        if not ph and not halted:
+            for i in self.rd["instances"].values():
+                if (i["status"] == "pending" and i["node"] not in ready
+                        and self.table.nodes[i["node"]].by in ("role", "machine", "engine_run")):
+                    ready.append(i["node"])
+            ready += [w for w in self._walls if w not in ready and self.node_state(w) == "pending"]
+        return Progress(round=self.round, ready=ready, asking=ph, halted=halted, notes=notes)
+
+    def _settle_pass(self) -> bool:
+        """engine の advance の輪の 1 段: graph の節の順に、待ちで依存が済んだ節を 1 つずつ評価する（_evaluate）。
+        返りは「もう 1 段回すか」——進んだ物が在り、機械の節で止まっていない（engine は止まったらその場で advance を抜ける）。
+        explicit の機械の節に当たったら、この段では graph の順でその後ろを評価しない（壁。仕様 4.1 の 3〔審 I8〕）"""
+        self._walls = []
+        progressed = False
+        for nid, n in self.nodes.items():
+            if self.node_state(nid) != "pending":
+                continue
+            _refuse_unowned(nid, n)
+            if not self.deps_ok(nid):
+                continue
+            got = self._evaluate(nid)
+            if got == "stop":
+                return False
+            if got == "wall":
+                self._walls.append(nid)
+                return progressed
+            progressed = progressed or got in ("na", "skipped", "ran", "emitted")
+        return progressed
+
+    def _settle_node(self, nid: str) -> str | None:
+        """節を 1 つだけ評価する（待ちで依存が済んだ節。1 手ずつの試験が na の手に当てる）。na にしたら理由を返す"""
+        if self.node_state(nid) != "pending" or not self.deps_ok(nid):
+            raise BoardGap(f"節 '{nid}' は評価する形でない（{self.node_state(nid)}・依存が済んだか {self.deps_ok(nid)}）")
+        _refuse_unowned(nid, self.nodes[nid])
+        got = self._evaluate(nid)
+        return self.rd["na"][nid] if got == "na" else None
+
+    def _evaluate(self, nid: str) -> str:
+        """待ちで依存が済んだ節を 1 つ評価する（engine の advance の輪の中身）。返りは何が起きたか:
+        na（条件に当たらない）・skipped（表で absent）・ran（機械の節が進んだ）・stop（機械の節が止まった）・
+        wall（表で explicit の機械の節。待ちのまま）・emitted（役の節の instance を出した）・waiting（既に出して待っている）"""
+        why = self.applicable(nid)
+        if why:
+            self.rd["na"][nid] = why
+            return "na"
+        e = self._entry(nid)
+        if e.by == "absent":
+            # engine の skip と同じ印（周の箱の skipped・done_ever・trace）。理由は表の理由
+            self.rd["skipped"][nid] = e.reason
+            self.state["done_ever"][nid] = self.round
+            self.trace("skip", node=nid, reason=e.reason)
+            return "skipped"
+        if e.by == "builtin":
+            if e.run == "explicit":
+                return "wall"
+            return "ran" if run_driver_node(self, nid, self.nodes[nid], self._notes) else "stop"
+        if any(i["node"] == nid and i["status"] == "pending" for i in self.rd["instances"].values()):
+            return "waiting"
+        self._emit(nid)
+        return "emitted"
 
     # -- works の作業ファイル
     def work(self, name: str) -> pathlib.Path:
