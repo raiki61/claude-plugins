@@ -5,7 +5,8 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - check_judge:   判定役（p2.diagnose）の返答。作業ツリー → 型 → rules の judge_output。通れば盤面に judgment.json
 - check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
-- role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）
+- role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）。
+                 番号で指す欄（pointers）は名前の型のまま、修正差分のレビューは事前審査だけの kind を落とす
 - snapshot_tree: 作業ツリーの写し（git が無視するファイルも入れる。依頼の受け付けと差分を切る節が盤面に置き、
                  check_judge・check_delta が突き合わせる）
 - record_ignored・remove_new_ignored: 修正役の前の git が無視するファイルを控え、後で増えた物だけを消す（blk-fix の節 ignored-before・clean）
@@ -94,13 +95,35 @@ def _strip_notes(x):
     return out
 
 
+def _unpointed(graph):
+    """節の pointers（engine が一覧に振った番号で役に指させる欄。engine/pointers.py）を外した graph の写し。
+    works の役には番号を振った一覧を貼らず、番号を名前に戻す engine の段も無い——expand_refs が pointers の位置の型を
+    [integer, string] に広げると、役が書いた番号が名前に戻らないまま rules に届く。外せば名前（文字列）の型のまま残る"""
+    return {**graph, "nodes": {nid: {k: v for k, v in n.items() if k != "pointers"} for nid, n in graph["nodes"].items()}}
+
+
+def _drop_plan_only_kinds(node, schema):
+    """修正差分のレビューの節（rules の DELTA_PASS_OF の review）なら、faces[].kind の enum から事前審査だけの語
+    （rules の PLAN_ONLY_FACE_KINDS）を落とす。graph の $defs.face_kind は事前審査と共有の enum で、その語は
+    delta_review_output が拒む——役の型に残すと、受け付けが必ず拒む語を型が通す"""
+    rules = _rules()
+    if not any(node == p.review for p in rules.DELTA_PASSES.values()):
+        return schema
+    kind = schema["properties"]["faces"]["items"]["properties"]["kind"]
+    kind["enum"] = [k for k in kind["enum"] if k not in rules.PLAN_ONLY_FACE_KINDS]
+    return schema
+
+
 @functools.lru_cache(maxsize=None)
 def _role_schema_json(node):
-    return json.dumps(_strip_notes(expand_refs(_graph())["nodes"][node]["schema"]), ensure_ascii=False)
+    schema = _strip_notes(expand_refs(_unpointed(_graph()))["nodes"][node]["schema"])
+    return json.dumps(_drop_plan_only_kinds(node, schema), ensure_ascii=False)
 
 
 def role_schema(node: str) -> dict:
-    """graph の節（"p2.diagnose" か "p3.delta_review"）の schema。$ref を開き、注記を落とした写しを返す"""
+    """graph の節（"p2.diagnose" か "p3.delta_review"）の schema。$ref を開き、注記を落とした写しを返す。
+    pointers の位置は名前（文字列）の型のまま（_unpointed）。修正差分のレビューは事前審査だけの語を kind から落とす
+    （_drop_plan_only_kinds）"""
     return json.loads(_role_schema_json(node))
 
 
