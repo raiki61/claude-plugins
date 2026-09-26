@@ -22,6 +22,10 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
   どれか 1 つでも赤なら終了コード 1 になること（Archon は偽物の記録係に差し替える。Ruling R10）。
   validate する工程が 0 本（名前の合わない YAML だけ・YAML 無し）の時も、glob の型の文字列を
   validate に渡さずに終了コード 1 になること。
+
+試験の一時フォルダの基は setUpModule が 1 か所で決める。TMPDIR（tempfile の既定）が Claude Code の一時フォルダの
+下なら、そのままでは置き場が全部 guard.sh に拒まれて殻の振る舞いまで届かないので、リポジトリの根の
+.works-test-tmp/（gitignore。works/ の中は _dogfood が自分を写し込むので避ける）へ移す。guard.sh は緩めない。
 """
 import json
 import os
@@ -34,6 +38,36 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
+
+# guard.sh の works_dev_refuse_claude_tmp が拒む所（realpath で見る）
+CLAUDE_TMP = ("/private/tmp/claude-", "/tmp/claude-")
+BASETEMP_PARENT = ROOT.parent / ".works-test-tmp"
+_saved = {}
+
+
+def in_claude_tmp(path):
+    return os.path.realpath(path).startswith(CLAUDE_TMP)
+
+
+def setUpModule():
+    """試験の一時フォルダ（TemporaryDirectory() の既定と、子へ渡す TMPDIR）を Claude Code の一時フォルダの外に置く。"""
+    _saved["tempdir"] = tempfile.tempdir
+    _saved["origin"] = tempfile.gettempdir()
+    if in_claude_tmp(_saved["origin"]):
+        BASETEMP_PARENT.mkdir(exist_ok=True)
+        _saved["base"] = tempfile.mkdtemp(prefix="run-", dir=str(BASETEMP_PARENT))   # 同時に回る別の run と分ける
+        tempfile.tempdir = _saved["base"]
+
+
+def tearDownModule():
+    base = _saved.pop("base", None)
+    tempfile.tempdir = _saved.get("tempdir")
+    if base:
+        shutil.rmtree(base, ignore_errors=True)
+        try:
+            BASETEMP_PARENT.rmdir()   # 空の時だけ消える
+        except OSError:
+            pass
 
 
 def git(cwd, *args):
@@ -636,6 +670,27 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("usage: dogfood.sh", result.stderr)
             self.assertEqual(calls, [])
+
+    def test_positive_path_reaches_shell_when_tmpdir_in_claude_tmp(self):
+        """TMPDIR が Claude Code の一時フォルダの下でも、正の道の試験が guard.sh に拒まれず緑になる。"""
+        origin = _saved["origin"]
+        try:
+            if in_claude_tmp(origin):
+                hole = tempfile.mkdtemp(prefix="works-tmpdir-", dir=origin)
+            else:
+                hole = tempfile.mkdtemp(prefix="claude-works-tmpdir-", dir="/private/tmp")
+        except OSError as e:
+            self.skipTest(f"Claude Code の一時フォルダの下に試しのフォルダを作れない（{e}）")
+        try:
+            self.assertTrue(in_claude_tmp(hole), hole)
+            r = subprocess.run(
+                ["python3", "-m", "unittest", "test_dev.TestDevShell.test_mktarget_places_pack_without_dev_files"],
+                cwd=str(pathlib.Path(__file__).resolve().parent), capture_output=True, text=True,
+                env=dict(os.environ, TMPDIR=hole, PYTHONDONTWRITEBYTECODE="1"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("OK", r.stderr)
+        finally:
+            shutil.rmtree(hole, ignore_errors=True)
 
 
 if __name__ == "__main__":
