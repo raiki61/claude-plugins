@@ -23,7 +23,8 @@ import subprocess
 import sys
 import time
 
-KILL_GRACE = 5    # SIGTERM から SIGKILL までの猶予（秒）。role_run.KILL_GRACE と同じ
+KILL_GRACE = 2    # SIGTERM から SIGKILL までの猶予（秒）。Archon の cancel の猶予（SIGTERM → 5 秒 → SIGKILL）より短くする:
+                  # 同じ 5 秒だと、SIGTERM を無視する孫へ SIGKILL を送る前に殻が Archon に殺され、孫が残った（試し P11）
 POLL = 0.2        # 信号と親の替わりを見る間隔（秒）
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 

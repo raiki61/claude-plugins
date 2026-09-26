@@ -2,7 +2,7 @@
 
 - 終了コードをそのまま返す（0・3・信号で死んだら 128+信号）
 - 殻が SIGTERM を受けたら、コマンドが背景に起こした孫まで止め、孫は後から作業ツリーに書かない
-- SIGTERM を無視する孫は猶予の後に SIGKILL で止める
+- SIGTERM を無視する孫は猶予の後に SIGKILL で止める。猶予は Archon の cancel の猶予（5 秒）より短く、その内に孫が消える
 - コマンドが終わった後に背景に残した孫も止める
 - 殻の直下の親（節では uv）が kill -9 で消えたら（親が替わったら）木ごと止める。起きた時に既に孤児（親が 1）なら走らせない
 - 終わりを待ち終えた直後に届いた止める信号も落とさない
@@ -153,6 +153,20 @@ class TreeRunCase(unittest.TestCase):
         p.send_signal(signal.SIGTERM)
         self.assertEqual(p.wait(15), 128 + signal.SIGTERM)
         self.assertTrue(group_gone(pgid, 1), "SIGTERM を無視する孫が残った")
+
+    def test_sigterm_ignoring_grandchild_is_killed_before_archon_kills_tree_run(self):
+        # Archon の cancel は持ち主のグループへ SIGTERM を送り、5 秒（TERMINATION_GRACE_MS）待って SIGKILL を送る。
+        # tree_run の猶予が同じ 5 秒だと、孫へ SIGKILL を送る前に tree_run が殺され、孫が残った（試し P11 の mode=c）。
+        # SIGTERM を無視する孫も、Archon の猶予より前に消えていること
+        archon_grace = 5.0
+        self.assertLess(tree_run.KILL_GRACE, archon_grace)
+        p = self.start(f"echo $$ > {self.pidf}; (trap '' TERM; sleep 300) & wait")
+        pgid = self.wait_pgid()
+        t0 = time.monotonic()
+        p.send_signal(signal.SIGTERM)
+        self.assertTrue(group_gone(pgid, archon_grace), "Archon の猶予の内に孫が消えなかった")
+        self.assertLess(time.monotonic() - t0, archon_grace)
+        self.assertEqual(p.wait(10), 128 + signal.SIGTERM)
 
     def test_leftover_background_is_stopped_after_exit(self):
         # コマンドは緑で終わったが背景に孫を残した。殻が戻る時には孫も居ない
