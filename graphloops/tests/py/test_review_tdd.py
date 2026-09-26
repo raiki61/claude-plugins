@@ -204,7 +204,7 @@ def test_tdd_conds_truth_table():
     assert not ev("tdd_named", {"p3.tdd_tests": {"units": [{"route": "tdd"}]}})   # tests の欄の無い行は 0 件と数える
     assert not ev("tdd_red_passed", named)   # この周の赤の確認がまだ出力を書いていない
     assert ev("tdd_red_passed", named, {"ok": True, "named": 1, "red_rev": "r" * 40})
-    assert not ev("tdd_red_passed", named, {"ok": True, "gave_up": "red", "problems": ["赤でない"]})   # 上限で諦めた
+    assert not ev("tdd_red_passed", named, {"ok": True, "gave_up": "red", "problems": ["赤でない"]})
     assert not ev("tdd_red_passed", named, {"ok": False, "problems": ["赤でない"], "rewound": ["p3.tdd_tests"]})
     assert not ev("tdd_red_passed", direct, {"ok": True, "named": 1, "red_rev": "r" * 40})
 

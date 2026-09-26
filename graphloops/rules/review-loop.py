@@ -127,7 +127,6 @@ def add(b, items, reason):
     proc["request_findings"] = cur + [batch]
     if opened:
         proc["request_entry"] = {"origin": reason}
-    # P0 の範囲の読み口（hist.request_wheres）は積んだ依頼から読む時に作る——worktree_before の後の add も落とさない
     wrote = ["record.process.request_findings", *(["record.process.request_entry"] if opened else []),
              *(["hist.request_wheres"] if request_wheres(b) else [])]
     # 積んだ欄を読む節（正本は graph の reads）の、待っている instance。起きていない他へ渡した物は描き直し、起きた物・回す側の節は言う
@@ -534,7 +533,7 @@ HIST_KEYS = frozenset(HIST)
 def on_new_round(b):
     """次の周の入口を組む。周をまたぐ値は履歴から作る（hist.<名>。HIST）ので、ここは写しを積まず、記録への書き込みと
     run の状態（B）だけを持つ: 記録を空にする・前の周の実測を制約に足す・入口の周の終わり・依頼の履歴への移し・申告と差分の食い違い・
-    ラチェット。前の周の P3 が触ったファイルと線の結果の受け渡しは、周の頭の機械の節（p1.worktree_before）の出口に置く"""
+    ラチェット"""
     rec, ls = b.record, b.loop_state
     rec["round"] = b.round
     mutation_decl(b)   # 周の修正が宣言を書き換えた周も、次の周の役は今の宣言を読む
@@ -1171,7 +1170,7 @@ def _lanes(b):
 def _lane_faces(b):
     """線の結果のうち、まだ判定へ渡していない物を宣言の穴の行にする（{key, from, how}）。渡した線に渡した周の印を付ける（1 度だけ）。
     線の中で閉じなかった見逃し（needs_test・defect）・読めない／型に合わない結果・合流で当たらなかった patch が行になる。
-    走っている線は渡さない（次の周の頭でもう一度見る）。返りの行の LANE_DEFECT の印は deliver_lanes が依頼の入口へも積む行を選ぶためのもの"""
+    走っている線は渡さない（次の周の頭でもう一度見る）"""
     rows = []
     good, bad = _lanes(b)
     told = b.loop_state.setdefault("lanes_bad_delivered", [])
@@ -1567,7 +1566,7 @@ def r2_premise_invalid(v):
 # rules が盤面の loop（b.loop_state）に持つ鍵の名前の宣言。**形の正本は graph の state_schema** で、graphcheck が両者の鍵を
 # 両向きで突き合わせ、条件の関数・節の reads と outputs・プロンプトの穴が読む loop.<…> を state_schema の木で最後の欄まで照らす。
 # 台本（simulate_review）が rules の書き込みの字面と両向きを確かめる: 書く鍵が全部ここに在り、ここの鍵が全部 rules のどこかで
-# 書かれている——宣言だけ残った古い鍵を default 付きで読む形を残さない。修正差分の往復の鍵は DELTA_PASSES から引く
+# 書かれている——宣言だけ残った古い鍵を default 付きで読む形を残さない
 LOOP_KEYS = frozenset({
     "escalated", "final_gate_empty_ok", "fix_units", "in_round_answers", "lanes", "lanes_bad_delivered", "mutation_decl",
     "outcome", "policy_change", "request_fixed_at", "stop_reason",
@@ -1954,8 +1953,6 @@ TREE_BEFORE_MISSING = ("{node} の今の周の出力に tree_before（P1 の前�
 
 
 def _current_snapshot(b):
-    """この周に効いている周の頭の審査対象——撮り直した回の p1.worktree_after の snapshot、無ければ p1.worktree_before の snapshot。
-    どちらも無い（旧い版の出力）なら None"""
     for node in ("p1.worktree_after", "p1.worktree_before"):
         s = (b.output_of_round(node, b.round) or {}).get("snapshot")
         if s:
@@ -2954,7 +2951,7 @@ def judge_output(b, nid, out, item):
         raise Reject("judge の返答が記録の語彙に合わない（judge に返させ直す）: " + "; ".join(errs))
     # engine が 0 件と数えた単位（在るべき物が無い型か、問いの取りこぼし）を、修正の側が読める値で残す——note の文だけだと、
     # 修正役が判定者の how をそのまま使うと『問いを狭めている』で拒まれ、塞いだのに『残した』と書く形しか無かった
-    out["engine_zero"] = zero_keys   # 判定の出口の欄（engine が数えて書く。役が書いた値は上書きする）
+    out["engine_zero"] = zero_keys
     notes = ([f"class_query の件数を engine が走らせた値に置き換えた: {'; '.join(replaced)}"] if replaced else []) + \
             ([f"engine の数が 0 件なので置き換えなかった: {'; '.join(zeroed)}"] if zeroed else [])
     if notes:

@@ -5,7 +5,7 @@
   - 節の出力と周の rd は、その節の祖先（deps の推移閉包）が出した物だけを今の周の値として見せる（評価した時点に在った物）
   - 周の記録は rounds/round-<N>.json の欄を、書き手の節が祖先に在る物だけ（素材・単位・問い・R の判定・規模の数値）
   - 記録の process は最後の値。周を刻んだ行（fixes）はその周より前の行だけ
-  - 盤面の loop は run の状態のうち、周をまたいで一方向にだけ変わる旗（request_fixed_at・escalated）を、立った周より後にだけ
+  - 盤面の loop は run の状態のうち、周をまたいで一方向にだけ変わる旗（request_fixed_at・escalated）を、立った周より後にだけ見せる
 旧い版の rules が書いた出力（ブロックの出口の欄を持たない出力）は、この道具の中で今の形に読み替えてから評価する（upcast）——
 周の頭の節の前の周の P3 が触ったファイルは、今の rules と同じ定義（前の周の頭の版と、この周の頭の版の木の差）を git で測る。
 
@@ -80,7 +80,7 @@ def upcast(nid, out, head_revs, rnd, repo):
 class ReplayBoard(board_mod.Board):
     """盤面を読むだけの Board——ディスクには何も書かない。周 N・節 nid の評価の時点の見え方を組む"""
 
-    def __init__(self, d, graph_path, repo=None):   # noqa: super を呼ばない（盤面の state.graph でなく渡した graph で読む）
+    def __init__(self, d, graph_path, repo=None):   # super を呼ばない（盤面の state.graph でなく渡した graph で読む）
         self.dir = pathlib.Path(d)
         self.full = read_json(self.dir / "state.json")
         self.final_record = read_json(self.dir / "record.json")

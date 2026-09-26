@@ -1392,7 +1392,6 @@ def cmd_patch(a):
 
 
 def _undeclared_loop_key(b, path):
-    """手当ての path が盤面の loop の、graph の state_schema が閉じて（additionalProperties: false）宣言していない鍵を指すなら、その鍵"""
     if not path.startswith("state.loop."):
         return None
     sch = b.graph.get("state_schema")
