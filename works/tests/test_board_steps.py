@@ -2,8 +2,10 @@
 
 手の前の記憶とディスクとリポジトリを一時の場所に戻し、DiskBoard を記憶から組み（表は NodeTable.everything）、
 同じ手を settle しない口で当て、手の後の記憶とディスクと比べる（boardreplay.compare。NOT_REPRODUCED の欄を除く）。
-当てる手: 役の返答の受け付け（kind=accept → DiskBoard.accept）・機械の節（kind=builtin → step_builtin）・
-周の開き（kind=open_round → 親の converge の手を step_builtin）・条件の na（kind=na → _settle_node）。
+当てる手: 役の返答の受け付け（kind=accept → DiskBoard.accept。engine_run の中の受け付けは _accept_engine_reply）・
+機械の節（kind=builtin → step_builtin）・周の開き（kind=open_round → 親の converge の手を step_builtin）・
+条件の na（kind=na → _settle_node）・engine が走らせた節（kind=engine_run → 撮った計画と runs を差し込んで run_engine、
+続く accept の手の後と比べる）。
 settle の単体（入口の止め方・壁・問い・周の止め・読んだ物の控え）もここに置く。
 """
 import collections
@@ -70,6 +72,16 @@ def kind_steps(kind):
                 yield s
 
 
+def parent_of(step):
+    return next(x for x in step.run_steps if x["seq"] == step["parent"]) if step.get("parent") else None
+
+
+def under_engine_run(step):
+    """engine_run の手の中の受け付け（launch_engine_run が組んだ返答の accept_output）か"""
+    p = parent_of(step)
+    return p is not None and p["kind"] == "engine_run"
+
+
 def run_step(scenario, run, seq):
     rs = R.load_runs(scenario)[str(run)]
     return next(s for s in rs if s["seq"] == seq)
@@ -119,22 +131,29 @@ class StepCase(unittest.TestCase):
 class AcceptStepsCase(StepCase):
     def test_accept_steps(self):
         """kind=accept の通った手の全部: 戻す → 記憶から組む → accept → 手の後と同じ（NOT_REPRODUCED を除く）"""
-        done, bad, named = 0, [], 0
+        done, bad, named, nested = 0, [], 0, 0
         for s in accept_steps():
             b = self.board_before(s)
             out = R.reply(s, b)
             named += out != R.reply(s, b, names=False)
-            b.accept(s["node"], out)
+            if under_engine_run(s):
+                # engine_run の中の受け付け: ラインの accept は任せ先に落ちる前の engine_run の節を拒むので、run_engine の中の口で当てる
+                b._accept_engine_reply(s["node"], out)
+                nested += 1
+            else:
+                b.accept(s["node"], out)
             diffs = R.compare(b, s)
             done += 1
             if diffs:
                 bad.append(f"{s.run_steps.scenario} run {s['run']} seq {s['seq']} {s['node']}: " + " / ".join(diffs[:5]))
             shutil.rmtree(b.dir.parents[3], ignore_errors=True)
         print(f"\n手本の accept の手: {done} 手を当て、{done - len(bad)} 手が手の後と同じ"
-              f"（うち {named} 手は台本の役が番号で書いた欄を instance の控えで名前に直して当てた）", file=sys.stderr)
+              f"（うち {named} 手は台本の役が番号で書いた欄を instance の控えで名前に直して当てた。"
+              f"{nested} 手は engine_run の中の受け付けで _accept_engine_reply に当てた）", file=sys.stderr)
         self.assertGreater(done, 800)
         self.assertEqual(bad, [], "\n".join(bad[:20]))
         self.assertEqual(named, 1)   # 台本の役が番号で書いた手（p2.plan_review）。撮り直しで増えたら黙って通さない
+        self.assertEqual(nested, 71)
 
     def test_accept_reject_leaves_board(self):
         """拒まれた accept の手: accept が Reject、文が手本の文と同じ、盤面の置き場の全部のファイルが前のまま。
@@ -474,6 +493,35 @@ def builtin_step(scenario, node, nth=0):
     got = [s for rs in R.load_runs(scenario).values() if R.replayable(rs) for s in rs
            if s["kind"] == "builtin" and s["node"] == node]
     return got[nth]
+
+
+class EngineRunStepsCase(StepCase):
+    """engine が走らせる節（kind=engine_run と、その中の accept）を 1 手ずつ当てる"""
+
+    def test_engine_run_steps(self):
+        """kind=engine_run の全部の手: 手の前から組む → 撮った計画と runs を差し込んで run_engine → 続く accept の手の後と同じ
+        （process.checks・素材・instance・runs/ のログ。NOT_REPRODUCED を除く）。runner に渡る語と cwd は計画の語とリポジトリのルート"""
+        done, bad, nodes = 0, [], collections.Counter()
+        for s in kind_steps("engine_run"):
+            b = self.board_before(s)
+            seen = []
+            plan = R.engine_run_plan(s, b)
+            got = b.run_engine(s["node"], runner=R.captured_runner(s, b, seen), plan=plan)
+            acc = [x for x in s.run_steps if x.get("parent") == s["seq"] and x["kind"] == "accept"]
+            diffs = R.compare(b, acc[0]) if len(acc) == 1 else [f"続く accept の手が {len(acc)} 手"]
+            if not got["ok"] or got.get("fallback") or s["result"]["ok"] is not True:
+                diffs.append(f"返り {got}（手本 {s['result']}）")
+            if [x[0] for x in seen] != [plan.get("steps", [])] or pathlib.Path(seen[0][1]).resolve() != (b.dir.parent / "repo").resolve():
+                diffs.append(f"runner に渡った物 {seen}")
+            done += 1
+            nodes[s["node"]] += 1
+            if diffs:
+                bad.append(f"{s.run_steps.scenario} run {s['run']} seq {s['seq']} {s['node']}: " + " / ".join(diffs[:5]))
+            shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+        print(f"\n手本の engine_run の手: {done} 手を当て、{done - len(bad)} 手が続く accept の手の後と同じ"
+              f"（節ごと: {dict(sorted(nodes.items()))}）", file=sys.stderr)
+        self.assertEqual(done, 71)
+        self.assertEqual(bad, [], "\n".join(bad[:20]))
 
 
 class SettleCase(StepCase):

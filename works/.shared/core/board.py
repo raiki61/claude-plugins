@@ -5,6 +5,7 @@
 - NodeEntry・NodeTable:    節の表（仕様 4.2）。graph の全部の節を、このラインでどう持つかに振る
 - DiskBoard:               ディスクの盤面を開く入れ物（仕様 4.1・4.4）。写した engine の Board を継ぐ
 - Progress:                settle まで回す口（settle・done・run_builtin）の返り（仕様 4.1）
+- tree_runner:             run_engine の既定の runner（works の tree_run で 1 段ずつ。返りの行は engine の run_steps と同じ鍵）
 - rules_module・graph_expanded: 盤面なしで写しの RL と graph を読む口（仕様 4.1 の末尾）
 
 節の表のファイル（<ライン>/nodes.json）の形:
@@ -15,9 +16,12 @@ import contextlib
 import dataclasses
 import datetime
 import json
+import os
 import pathlib
 import shutil
+import subprocess
 import sys
+import time
 import types
 from typing import Mapping, TypedDict
 
@@ -26,19 +30,22 @@ sys.dont_write_bytecode = True
 
 CORE = pathlib.Path(__file__).resolve().parent
 _GL = CORE / "graphloops"
-if str(_GL) not in sys.path:
-    sys.path.insert(0, str(_GL))
+for _p in (_GL, CORE):   # 写しの engine（graphloops/engine）と、works の tree_run（この置き場）
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 import engine.util as _util  # noqa: E402
 from engine import pointers as _pointers  # noqa: E402
-from engine.advance import load_item, run_driver_node  # noqa: E402
+from engine.advance import ENGINE_HELPERS, helper_argv, load_item, run_driver_node  # noqa: E402
 from engine.board import Board as _EngineBoard, empty_round, refuse_expression_conds  # noqa: E402
-from engine.commands import (_refuse_halted, choice_input_errors, max_rounds_for, path_inputs,  # noqa: E402
-                             undeclared_inputs)
+from engine.commands import (_refuse_halted, choice_input_errors, engine_run_refusal, max_rounds_for,  # noqa: E402
+                             path_inputs, undeclared_inputs)
 from engine.record import apply_writes  # noqa: E402
 from engine.rules import hook, load_rules, registry  # noqa: E402
 from engine.schema import expand_refs, graph_text, load_graph, resolve_extends, validate_schema  # noqa: E402
+from engine.role_run import _tail  # noqa: E402
 from engine.util import TERMINAL_STATUS, AnswerReject, Reject, now, safe_name, write_json  # noqa: E402
+import tree_run  # noqa: E402
 
 CORE_DIR = CORE
 GRAPH_PATH = _GL / "graphs" / "review-loop.json"      # 写しの graph
@@ -270,6 +277,55 @@ def rules_module(graph: pathlib.Path | None = None):
     """写しの RL を読み込んだ module（engine の load_rules。呼ぶたびに新しく読むので、差し替えは他に漏れない）"""
     path = str(graph or GRAPH_PATH)
     return load_rules(path, graph_expanded(path))
+
+
+# ---------------------------------------------------------------- engine が走らせる節の既定の runner
+def _outside_env(environ) -> dict:
+    """uv run が足した物を外した環境（blk-tests の run_tests.py の outside_env と同じ決まり。台帳 R23）。
+    PYTHONDONTWRITEBYTECODE=1 を立て、UV_NO_CONFIG はいつも外す（対象の [tool.uv] を読ませる）。uv run の中で起こされた
+    （UV_RUN_RECURSION_DEPTH が在る）ときだけ、PATH の頭のこの python の bin と、sys.prefix を指す VIRTUAL_ENV も外す
+    ——そのまま渡すと宣言の `python3 -m pytest` が uv の python を掴んで偽の赤になる"""
+    env = dict(environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("UV_NO_CONFIG", None)
+    if env.pop("UV_RUN_RECURSION_DEPTH", None) is None:
+        return env
+    ours = {os.path.realpath(d) for d in (os.path.dirname(sys.executable), os.path.join(sys.prefix, "bin"))}
+    parts = env.get("PATH", "").split(os.pathsep)
+    while parts and parts[0] and os.path.realpath(parts[0]) in ours:
+        ours.discard(os.path.realpath(parts.pop(0)))
+    env["PATH"] = os.pathsep.join(parts)
+    venv = env.get("VIRTUAL_ENV")
+    if venv and os.path.realpath(venv) == os.path.realpath(sys.prefix):
+        del env["VIRTUAL_ENV"]
+    return env
+
+
+def tree_runner(steps: list, cwd, log_dir) -> list:
+    """run_engine の既定の runner（仕様 4.3）: 段を 1 つずつ works の tree_run で走らせる——shell を通さない・別のプロセス
+    グループ・期限なし・標準入力は空・uv run の環境を外す（_outside_env）・止められたら SIGTERM → KILL_GRACE（2 秒）→ SIGKILL で
+    木ごと止めて tree_run.Stopped を投げる（ここでは捕まえない）。標準出力・標準エラーは log_dir/<段の番号>.out・.err に丸ごと。
+    返りの行は engine の run_steps と同じ鍵 {name, argv, out, err, exit, wall_s, tail}（起こせなければ exit None と error）。
+    engine と違う所: 信号で死んだ段の exit は tree_run の 128+信号（engine は負の番号）。どちらも赤に読まれる"""
+    log_dir = pathlib.Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    env = _outside_env(os.environ)
+    runs = []
+    for i, s in enumerate(steps):
+        started = time.time()
+        base = log_dir / f"{i + 1}"
+        row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
+        with open(row["out"], "wb") as out, open(row["err"], "wb") as err:
+            try:
+                rc = tree_run.run(list(s["argv"]), stdin=subprocess.DEVNULL, stdout=out, stderr=err, cwd=str(cwd), env=env)
+            except OSError as e:
+                rc = None
+                row["error"] = str(e)
+                err.write(str(e).encode("utf-8"))
+        data = pathlib.Path(row["out"]).read_bytes() + b"\n" + pathlib.Path(row["err"]).read_bytes()
+        row.update(exit=rc, wall_s=round(time.time() - started, 1), tail=_tail(data))
+        runs.append(row)
+    return runs
 
 
 # ---------------------------------------------------------------- 盤面
@@ -526,6 +582,16 @@ class DiskBoard(_EngineBoard):
         return inst
 
     def accept(self, nid: str, output: dict) -> str:
+        """ラインの受け付けの口（仕様 4.1）。engine が走らせる節（graph の engine_run）は、任せ先に落ちた（instance が
+        engine_fallback を持つ）後だけ受ける——落ちる前の結果は run_engine が engine と同じく組む（engine の cmd_done の拒否と
+        同じ。落ちる前の外からの返答は BoardGap〔再審2 m10〕）。中身は _accept"""
+        return self._accept(nid, output, engine_reply=False)
+
+    def _accept_engine_reply(self, nid: str, reply: dict) -> str:
+        """run_engine の中の受け付け（engine の launch_engine_run の accept_output）。落ちる前の engine_run の節を受ける口"""
+        return self._accept(nid, reply, engine_reply=True)
+
+    def _accept(self, nid: str, output: dict, *, engine_reply: bool) -> str:
         """役（か機械の返答・engine が走らせた節）の返答を受けて盤面と記録に写し、保存する（engine の accept_output と同じ範囲。
         settle しない）。順は engine と同じ: 止めた run の拒否 → instance → 依存 → 型 → 番号の読み替え → post_check →
         writes → check_record → out/r<N>/<節>.json → state.outputs → instance を done → 周の箱の done・done_ever → trace → 保存。
@@ -549,6 +615,11 @@ class DiskBoard(_EngineBoard):
             raise BoardGap(f"この周に節 '{nid}' の instance が出ていない（settle が出した節だけを受ける）")
         if inst["status"] != "pending":
             raise BoardGap(f"節 '{nid}' の instance は既に {inst['status']}（受け直すなら先に rewind で待ちに戻す）")
+        if engine_reply and "engine_run" not in n:
+            raise BoardGap(f"節 '{nid}' は engine が走らせる節（graph の engine_run）でない——_accept_engine_reply は run_engine の中の口")
+        if not engine_reply and "engine_run" in n and not inst.get("engine_fallback"):
+            raise BoardGap(f"節 '{nid}' は engine が走らせる節（engine_run）で、まだ任せ先に落ちていない——結果は run_engine が組む"
+                           "（ラインの accept・done は受けない。任せ先に落ちた後なら表の fallback の持ち主が渡す）")
         if not self.deps_met(nid):
             wait = [d for d in n.get("deps", []) if self.node_state(d) == "pending"]
             raise BoardGap(f"節 '{nid}' の deps {wait} がまだ済んでいない——先にそちらを受ける")
@@ -665,6 +736,114 @@ class DiskBoard(_EngineBoard):
         p["notes"] = [msg] + p["notes"]
         return p
 
+    # -- engine が走らせる節（仕様 4.3）
+    def run_engine(self, nid: str, *, runner=None, plan=None) -> dict:
+        """engine が走らせる節（graph の engine_run）を、engine の「出す時の計画」と launch（launch_engine_run）を 1 つに
+        つないだ順で走らせ、受け付けまで済ませる（settle しない）。返り {ok, node, fallback?, blocked?, runs?, why?, relaunch?}。
+        1. 計画: plan を渡されなければ RL の ENGINE_RUNS[builtin].plan（渡すのは撮った計画を差し込む試験）。形は 4 つ——
+           steps（対象の宣言の語）・helper（engine に同梱の語。写しの graphloops/scripts/<名前> を今の Python で）・
+           blocked（走らせずに返答を組む）・fallback（任せ先へ。7）
+        2. steps・helper は走らせる直前に engine の engine_run_refusal（対象のルートの宣言と sha の照合）を当てる。拒めば
+           {ok: False, why, relaunch: True} を返し、盤面は書かず、節は待ちのまま（呼び直す＝今の宣言で計画し直す）
+        3. runner(steps, cwd=リポジトリのルート, log_dir=runs/r<N>/<id>.a1/)（既定は tree_runner）。tree_run.Stopped は
+           盤面を書かずに投げ直す（Archon の取り消し・Ctrl-C。節は待ちのまま）
+        4. RL の ENGINE_RUNS[builtin].reply → 返りが fallback なら 7。そうでなければ instance に engine と同じ mode・launch を
+           置いて _accept_engine_reply。受け付けが拒めば（AnswerReject）7
+        7. 任せ先へ落とす（_fall_back）: 記憶を捨ててディスクから読み直し、self に入れ直し、RL の fallback（checks_fallback は
+           process.checks[nid] = {by: "role"}）→ 節の instance を engine_fallback つきで出し直す → 表の fallback が absent なら
+           skipped に表の理由 → 保存。machine・role なら節は待ちのまま ready に残り、ラインが done で渡す。
+        配線の誤り（graph の engine_run でない・表で engine_run でない・待っている instance が無い・既に任せ先に落ちた・依存が
+        済んでいない・ENGINE_RUNS に無い・同梱に無い helper）は BoardGap。止めた run は engine の Reject"""
+        _refuse_halted(self)
+        n = self.nodes.get(nid)
+        if n is None or "engine_run" not in n:
+            raise BoardGap(f"節 '{nid}' は engine が走らせる節（graph の engine_run）でない")
+        e = self._entry(nid)
+        if e.by != "engine_run":
+            raise BoardGap(f"節 '{nid}' は表で {e.by}——run_engine は表で engine_run の節だけを走らせる")
+        inst = self.rd["instances"].get(nid)
+        if not inst or inst["status"] != "pending":
+            raise BoardGap(f"この周に節 '{nid}' の待っている instance が無い（settle が出した節だけを走らせる）")
+        if inst.get("engine_fallback"):
+            raise BoardGap(f"節 '{nid}' は任せ先に落ちた（{inst['engine_fallback']}）——表の fallback（{e.fallback}）の持ち主が done で渡す")
+        if not self.deps_met(nid):
+            wait = [d for d in n.get("deps", []) if self.node_state(d) == "pending"]
+            raise BoardGap(f"節 '{nid}' の deps {wait} がまだ済んでいない")
+        builtin = n["engine_run"]["builtin"]
+        er = registry(self.rules, "ENGINE_RUNS").get(builtin)
+        if not er:
+            raise BoardGap(f"engine_run.builtin '{builtin}' が rules の ENGINE_RUNS に無い")
+        self._drop_read_caches()   # 前の受け付け・settle の控えのまま計画と返答を組まない（engine は launch ごとに読み直す）
+        if plan is None:
+            plan = er["plan"](self, nid)
+        if "fallback" in plan:
+            return self._fall_back(nid, er, plan["fallback"], {})
+        if "helper" in plan:
+            if plan["helper"] not in ENGINE_HELPERS:
+                raise BoardGap(f"{nid}: 同梱の語 '{plan['helper']}' は engine の ENGINE_HELPERS に無い")
+            steps = [{"name": plan["helper"], "argv": helper_argv(plan["helper"], plan.get("args") or [])}]
+        else:
+            steps = plan.get("steps") or []
+        launch = {"kind": "engine_run", "builtin": builtin, "steps": steps, "sha": plan.get("sha"), "blocked": plan.get("blocked")}
+        runs = []
+        if not launch["blocked"]:
+            root = _util.repo_root()
+            if not root:
+                return {"ok": False, "node": nid, "why": "対象リポジトリのルートが引けない（git rev-parse --show-toplevel）"}
+            why = engine_run_refusal({"launch": {"steps": steps, "sha": launch["sha"]}}, root)
+            if why:
+                return {"ok": False, "node": nid, "why": why, "relaunch": True}
+            log_dir = self.dir / "runs" / f"r{self.round}" / safe_name(nid + ".a1")
+            runs = (runner or tree_runner)(steps, pathlib.Path(root), log_dir)
+            self.trace("engine_run", instance=nid, node=nid,
+                       runs=[{k: r.get(k) for k in ("name", "exit", "wall_s", "error")} for r in runs])
+        reply = er["reply"](self, nid, launch, runs)
+        if "fallback" in reply:
+            return self._fall_back(nid, er, reply["fallback"], {"runs": runs})
+        inst["mode"], inst["launch"] = "engine_run", launch
+        try:
+            self._accept_engine_reply(nid, reply["reply"])
+        except AnswerReject as ex:
+            return self._fall_back(nid, er, f"engine が組んだ返答を受け付けが拒んだ（{str(ex)[:400]}）", {"runs": runs})
+        return {"ok": True, "node": nid, "runs": runs, **({"blocked": launch["blocked"]} if launch["blocked"] else {})}
+
+    def _fall_back(self, nid: str, er: dict, reason: str, extra: dict) -> dict:
+        """engine の組んだ結果を使えない節を任せ先へ落とす（仕様 4.3 の 7。engine の _engine_fallback と、出す時の計画の
+        fallback）。記憶の入れ物は捨て、ディスクから読み直した盤面を self に入れ直してから当てる〔再審 N3・再審2 P2〕"""
+        self._reload_from_disk()
+        inst = self.rd["instances"].get(nid)
+        if not inst or inst["status"] != "pending":
+            raise BoardGap(f"読み直した盤面で節 '{nid}' が待っていない——別の手が先に進めた")
+        if er.get("fallback"):
+            er["fallback"](self, nid, reason)
+        inst = self._emit(nid)
+        inst["engine_fallback"] = reason
+        self.trace("engine_fallback", instance=nid, reason=reason)
+        e = self._entry(nid)
+        if e.fallback == "absent":
+            # このラインに任せ先が無い: engine の skip と同じ印（周の箱の skipped・instance・done_ever・trace）。理由は表の理由
+            why = e.reason.strip() or f"任せ先はこのラインに無い（表の fallback: absent）——{reason}"
+            self.rd["skipped"][nid] = why
+            inst["status"] = "skipped"
+            self.state["done_ever"][nid] = self.round
+            self.trace("skip", node=nid, reason=why)
+        self.save()
+        return {"ok": False, "node": nid, "fallback": reason, **extra,
+                "why": f"任せ先に回した（表の fallback: {e.fallback}）: {reason}"}
+
+    def _reload_from_disk(self):
+        """記憶の state・record を捨て、ディスクの盤面を読み直して self に入れる（seen_rev・halted_at_read も。読んだ物の控えは消す）。
+        開いた時に置いた works の欄（core・overrides の控え）と、読み込んだ RL の module（overrides の差し替え）はそのまま"""
+        works = self.state.get("works")
+        self.state = _read_json(self.dir / "state.json")
+        self._rewrite_paths()
+        if works is not None:
+            self.state["works"] = works
+        self.record = _read_json(self.dir / "record.json")
+        self.seen_rev = self.state.get("rev", 0)
+        self.halted_at_read = bool(self.state.get("halted"))
+        self._drop_read_caches()
+
     def settle(self, accept_tree_change: str | None = None) -> Progress:
         """engine の loop.py next の advance を、役の節は控え（instance）を出すだけにして回す（仕様 4.1 の settle の 1〜3・5。
         4 の周の添え書きは Task 6）。
@@ -693,9 +872,12 @@ class DiskBoard(_EngineBoard):
 
     def _fresh_reads(self, accept_tree_change):
         """読んだ物の控え（_out_cache・_porcelain・_vtables）を消し、accept_tree_change を盤面に置く（RL の worktree_compare が読む）"""
+        self._drop_read_caches()
+        self.accept_tree_change = accept_tree_change
+
+    def _drop_read_caches(self):
         for k in ("_out_cache", "_porcelain", "_vtables"):
             self.__dict__.pop(k, None)
-        self.accept_tree_change = accept_tree_change
 
     def _progress(self, notes) -> Progress:
         ph, halted = self.state.get("pending_human"), self.state.get("halted")

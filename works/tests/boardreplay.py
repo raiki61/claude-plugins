@@ -505,6 +505,38 @@ def reply(step: Step, board: DiskBoard, names: bool = True) -> dict:
     return out
 
 
+def engine_run_plan(step: Step, board: DiskBoard) -> dict:
+    """engine_run の手の撮った計画（instance の launch）を、RL の ENGINE_RUNS[..].plan の返りの形にする
+    （DiskBoard.run_engine の plan= に差し込む。印は盤面の置き場の実パスに戻す）"""
+    launch = Places.of_board(board.dir).untokenize(step["engine_run"]["plan"])
+    if launch.get("blocked"):
+        return {"blocked": launch["blocked"]}
+    return {"steps": launch["steps"], "sha": launch["sha"]}
+
+
+def captured_runner(step: Step, board: DiskBoard, seen: list | None = None):
+    """engine_run の手の撮った runs を返す偽の runner（DiskBoard.run_engine の runner=）。log_dir の下に撮った標準出力・
+    標準エラーを engine と同じ名前（<段>.out・.err）で書き、返りの行の out・err はそのパス。seen を渡せば受けた
+    (steps, cwd, log_dir) を足す"""
+    places = Places.of_board(board.dir)
+
+    def runner(steps, cwd, log_dir):
+        if seen is not None:
+            seen.append((steps, cwd, log_dir))
+        log_dir = pathlib.Path(log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        rows = []
+        for i, r in enumerate(step["engine_run"]["runs"]):
+            base = log_dir / f"{i + 1}"
+            row = {k: places.untokenize(r[k]) for k in ("name", "argv", "exit", "wall_s", "tail", "error") if k in r}
+            row["out"], row["err"] = str(base) + ".out", str(base) + ".err"
+            for k in ("out", "err"):
+                pathlib.Path(row[k]).write_bytes(places.untokenize_bytes((r.get(k + "_text") or "").encode("utf-8")))
+            rows.append(row)
+        return rows
+    return runner
+
+
 def _diff(exp, got, path, out):
     if isinstance(exp, dict) and isinstance(got, dict):
         for k in exp.keys() | got.keys():
