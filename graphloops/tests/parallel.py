@@ -27,6 +27,16 @@ LOCK = threading.Lock()
 _buf = threading.local()
 
 
+SKIP_MARK = " # SKIP"   # 見送りの行の印（TAP 14 の SKIP 指示子）。root の tests/run.sh の note_skips がこの印で拾う
+
+
+def skip_line(desc, reason):
+    """環境で走れなかった検査の 1 行。**合格の行と別の印を付ける**——合格と同じ『ok』だけで出していたとき、道具や OS の
+    機能の無い CI が走らないまま緑になり、柵にも CI にも止める口が無かった。拾って数え、一覧にし、FAIL_ON_SKIP=1 で
+    失敗に数えるのは root の tests/run.sh の 1 か所だけ（層ごとに一覧を作ると同じ見送りを二重に数える）"""
+    return f"  ok   {desc}{SKIP_MARK} {reason}"
+
+
 def line(text):
     """1 行を、その台本のまとまりに溜める。直列（溜め先が無い）ときは素通しで出す。"""
     buf = getattr(_buf, "lines", None)

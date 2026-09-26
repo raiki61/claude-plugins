@@ -3362,8 +3362,8 @@
    "title": "入口の印を立てるのは 1 周目の P1 より前の add だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    opened = b.round == 1 and b.node_state(\"p1.worktree_before\") == \"pending\" and \"request_entry\" not in proc",
-   "new": "    opened = \"request_entry\" not in proc",
+   "old": "    return b.round == 1 and b.node_state(\"p1.worktree_before\") == \"pending\" and \"request_entry\" not in b.record[\"process\"]",
+   "new": "    return \"request_entry\" not in b.record[\"process\"]",
    "expect": "入口: P1 が走った後の add は入口の印を立てない",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3376,8 +3376,8 @@
    "title": "入口の印は最初の add だけが立て、後の add で書き換えない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    opened = b.round == 1 and b.node_state(\"p1.worktree_before\") == \"pending\" and \"request_entry\" not in proc",
-   "new": "    opened = b.round == 1 and b.node_state(\"p1.worktree_before\") == \"pending\"",
+   "old": "    return b.round == 1 and b.node_state(\"p1.worktree_before\") == \"pending\" and \"request_entry\" not in b.record[\"process\"]",
+   "new": "    return b.round == 1 and b.node_state(\"p1.worktree_before\") == \"pending\"",
    "expect": "入口: 印は 1 周目の P1 前の最初の add の出どころで立ち",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3673,8 +3673,8 @@
    "title": "写しの assume-unchanged の印を外す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "        if git(\"update-index\", \"-q\", \"--really-refresh\", env=env) is None or git(\"add\", \"-A\", env=env) is None:",
-   "new": "        if git(\"add\", \"-A\", env=env) is None:",
+   "old": "        if git(\"update-index\", \"-q\", \"--really-refresh\", env=env, why=why) is None or git(\"add\", \"-A\", env=env, why=why) is None:",
+   "new": "        if git(\"add\", \"-A\", env=env, why=why) is None:",
    "expect": "assume-unchanged の印を付けたファイルも",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4005,7 +4005,7 @@
    "suite": "graphloops",
    "old": "            os.killpg(p.pid, signal.SIGTERM)",
    "new": "            p.terminate()",
-   "expect": "期限切れでは孫",
+   "expect": "期限切れでは、SIGTERM をすぐに処理しない孫",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -4291,6 +4291,61 @@
      "test_graphcheck_review_shapes"
     ]
    }
+  },
+  {
+   "id": "ES1",
+   "title": "review-graph の description が入口の節を名指しする",
+   "file": "graphloops/commands/review-graph.md",
+   "suite": "root",
+   "old": "（本文の「判定から入る（人の修正依頼）」）。起動するのは",
+   "new": "。起動するのは",
+   "expect": "review-graph の description が判定から入る入口の節を名指しする"
+  },
+  {
+   "id": "ES2",
+   "title": "空差分の拒否文は入口が開く所で add を案内する",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            if entry_opens(b):\n                why += (",
+   "new": "            if False:\n                why += (",
+   "expect": "空差分の拒否文は、1 周目の P1 の前なら判定から入る add を案内する",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_new_guards"
+    ]
+   }
+  },
+  {
+   "id": "ES3",
+   "title": "空差分の拒否文は入口が開かない所で add を案内しない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            if entry_opens(b):\n                why += (",
+   "new": "            if True:\n                why += (",
+   "expect": "add で入口が開かない所の空差分の拒否文は add を案内しない",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_new_guards"
+    ]
+   }
+  },
+  {
+   "id": "ES4",
+   "title": "重い工程のコマンドは description で起動を人の指示に限る（graphloops/commands の側）",
+   "file": "graphloops/commands/research-graph.md",
+   "suite": "root",
+   "old": "——AI は自分から起動せず、設計文書",
+   "new": "——設計文書",
+   "expect": "重い工程のコマンドの description が、起動は人の指示のときだけと言う"
+  },
+  {
+   "id": "ES5",
+   "title": "重い工程のコマンドは description で起動を人の指示に限る（commands の側）",
+   "file": "commands/review-loop.md",
+   "suite": "root",
+   "old": "——AI は自分から起動せず、実装完了時",
+   "new": "——実装完了時",
+   "expect": "重い工程のコマンドの description が、起動は人の指示のときだけと言う"
   }
  ],
  "dropped": [

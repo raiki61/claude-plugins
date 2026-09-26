@@ -7,8 +7,8 @@ import sys
 from .render import FILE_CAP, Renderer
 from .rules import hook, registry
 from .schema import validate_schema
-from .util import ANSWER_ACTIONS, TERMINAL_STATUS, deadline_of, die, dump, now, read_json, safe_name, sha, write_json
-from .role_run import WRITE_TOOLS, tooled_permission
+from .util import ANSWER_ACTIONS, TERMINAL_STATUS, deadline_of, die, dump, get_path, now, protected_paths, read_json, safe_name, sha, write_json
+from .role_run import DELEGATE_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, tooled_permission
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -16,10 +16,11 @@ ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphch
 # 役の定義に無い model / effort を静的に落とす（以前は起こす関数の die と format の KeyError でしか出なかった）。
 # python / plugin_root は役でも graph でもなく **engine 自身しか知らない事実**（自分を走らせているインタプリタと、
 # 自分が入っている場所）。「起動の語は graph が宣言する」線は動かさない——graph が使うと書いたときだけ埋まる。
-# tools / allowed_tools / permission_mode は道具つきの役の分（役の定義の道具と、engine の role_run.tooled_permission から埋める）。
+# tools / allowed_tools / permission_mode は道具つきの役と任せ先の分（役の定義の道具と role_run.tooled_permission、任せ先は
+# role_run.delegate_permission から埋める）。settings は任せ先の sandbox の設定（role_run.delegate_settings）。
 # session_id は同じ会話を続ける語（--resume）の穴で、続ける会話が決まるまでは '{session_id}' のまま残す（role_run が埋める）。
 LAUNCH_HOLES = ("model", "effort", "role_file", "prompt_file", "out_path", "python", "plugin_root",
-                "tools", "allowed_tools", "permission_mode", "session_id")
+                "tools", "allowed_tools", "permission_mode", "session_id", "settings")
 LAUNCH_MAY_BE_EMPTY = ("allowed_tools", "session_id")  # 空でも起こせる穴（道具が全部分類器に掛かる役・続ける会話がまだ無い）
 PLUGIN_ROOT = pathlib.Path(__file__).resolve().parents[1]  # engine/ の親＝プラグインの根（scripts/ の隣）
 ITEM_INLINE = 1000  # 扇の項目のうち instance（state.json と next の出力）に残す欄の上限（直列化した UTF-8 のバイト）。
@@ -123,6 +124,58 @@ def launch_spec(b, inst, d, resume_sid=None):
         launch["tools"] = tools
     if not found:
         launch["missing"] = argv[len(via)]  # この環境では起こせない。回す側と記録に見えるようにしておく
+    return launch
+
+
+def delegate_launch_spec(b, inst, n, ctx):
+    """任せ先（graph の delegate を持つ回す側の節）を engine の中で起こす語。graph に launch.delegate が無ければ None。
+
+    **任せ先は Agent ツールで起こさない**——Agent の子は回す側の作業ディレクトリと権限をそのまま継ぎ、呼ぶ側が 1 回ごとに
+    sandbox を掛ける口が無い（公式の sandboxing 文書: subagent は親と同じ sandbox の設定を使う）。配布先で、指示書に
+    『作業ツリーのファイルを変えるな』と書いた任せ先が本物の作業ツリーで git checkout と git reset --hard を打ち、回す側の
+    未コミットの修正を消した（2026-09-25）。そこで役の節と同じ起動路（claude -p）で起こし、書ける範囲を OS の sandbox で縛る:
+    denyWrite は起こす瞬間に git から引いた守る場所（util.protected_paths）、作業ディレクトリは本物の写し（launch_one が作る）。
+    権限の値（道具・許す道具・権限の形・sandbox）は engine が決め、graph は語の並びと前置きの文（preamble）だけを持つ。
+    人が init --unfenced-delegates で柵を外した run では呼ばない（回す側が Agent で起こす。外した事実は盤面に残る）"""
+    spec = b.graph.get("launch", {}).get("delegate")
+    if not spec:
+        return None
+    delegate = n["delegate"]
+    rdir = b.dir / "roles"
+    rdir.mkdir(parents=True, exist_ok=True)
+    role_file = rdir / "delegate.txt"
+    role_file.write_text(spec.get("preamble") or "", encoding="utf-8")
+    mode, allowed = delegate_permission()
+    protected = protected_paths([b.dir])
+    sub = dict.fromkeys(LAUNCH_HOLES, "")
+    sub.update(model=delegate.get("model") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
+               out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
+               tools=",".join(DELEGATE_TOOLS), allowed_tools=",".join(allowed), permission_mode=mode,
+               settings=delegate_settings(protected or []))
+    import shutil  # 起こす節でだけ要る
+    via = [a.format(**sub) for a in (spec.get("via") or [])]
+
+    def resolve(words):
+        argv = [a.format(**sub) for a in words]
+        found = shutil.which(argv[0])
+        return via + (([found] + argv[1:]) if found else argv), found
+
+    argv, found = resolve(spec["argv"])
+    launch = {"kind": "delegate", "argv": argv, "stdin": inst["prompt_file"],
+              "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None,
+              "tools": list(DELEGATE_TOOLS)}
+    if protected is None:
+        launch["unprotected"] = "守る場所（git rev-parse --show-toplevel / --absolute-git-dir / --git-common-dir・worktree list）を引けない"
+    if not found:
+        launch["missing"] = argv[len(via)]
+    if delegate.get("background"):
+        # 背景の節は受領を done した後に起こす（cmd_launch）。子の返答は受け付けに回さず、graph が名指す置き場（ctx の path）に
+        # engine が置く——置き場は盤面の下（sandbox が拒む場所）に在ってよい。書くのは sandbox の外の engine だけ
+        try:
+            launch["result_path"] = str(get_path(ctx, delegate["result_to"]))
+        except (KeyError, TypeError):
+            die(f"{inst['id']}: delegate.result_to {delegate.get('result_to')!r} がこの節の材料から引けない（graph を直せ）")
+        launch["background"] = True
     return launch
 
 
@@ -318,9 +371,15 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1):
     if n.get("skills"):
         inst["skills"] = n["skills"]
     if runner and n.get("delegate"):
-        # 回す側の節のうち、自分の文脈で抱えずに小さな役へ任せてよいもの（graph の宣言をそのまま渡す。engine は起こさない——
-        # 起こすのは回す側で、手順書が渡し方を書く）
+        # 回す側の節のうち、自分の文脈で抱えずに小さな役へ任せてよいもの。既定は engine が sandbox の中で起こす（launch）。
+        # 人が柵を外した run だけ launch を付けず、回す側が Agent で起こす
         inst["delegate"] = n["delegate"]
+        if b.state.get("unfenced_delegates"):
+            inst["unfenced"] = b.state["unfenced_delegates"]
+        else:
+            spec = delegate_launch_spec(b, inst, n, ctx)
+            if spec:
+                inst["launch"] = spec
     same = n.get("same_context_as")
     if same and isolated:
         die(f"{iid}: 遮断系（道具ゼロ）の役に same_context_as は使えない——前の節の文脈を持ち込むと、渡された物しか知らない読み手という遮断が崩れる（graph を直せ）")

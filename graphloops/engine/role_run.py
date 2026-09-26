@@ -57,6 +57,39 @@ def tooled_permission(tools):
     return "dontAsk", list(tools)
 
 
+# 任せ先（graph の delegate を持つ回す側の節）に渡す道具。ファイルを書く道具（WRITE_TOOLS）は渡さない——任せ先が書くのは
+# 作業ディレクトリの外に作る写しで、Edit(./**) のように作業ディレクトリに縛った書く道具はそこへ届かない。書くのは Bash だけで、
+# Bash は OS の sandbox の中でだけ走る（delegate_settings）
+DELEGATE_TOOLS = ("Bash", "Read", "Glob", "Grep", "WebFetch", "WebSearch")
+
+
+def delegate_permission():
+    """任せ先の権限の形 (permission_mode, allowed_tools)。起こす側（advance.delegate_launch_spec）と柵（commands.launch_refusal）が
+    同じここを引く。**Bash は先に許さない**——sandbox の中で走るコマンドは sandbox の自動の許し（autoAllowBashIfSandboxed）で
+    通り、sandbox の外に落ちるコマンドは聞く先が無い（--permission-prompts none）ので拒まれる。実測 2026-09-25・haiku: この形で
+    sandbox の中の python3・git status・作業ディレクトリへの書き込みは通り、sandbox を切った設定（enabled: false。管理者の設定が
+    切った場を写した）では Bash が全部拒まれた。dontAsk は sandbox の中のコマンドまで拒むので採らない（同日の実測）"""
+    return "default", [t for t in DELEGATE_TOOLS if t not in COMMAND_TOOLS]
+
+
+def delegate_settings(protected):
+    """任せ先の sandbox の設定（--settings に渡す JSON の文字列。並びを固定して、柵が起こす瞬間に組み直して突き合わせる）。
+
+    - denyWrite: protected（util.protected_paths——本物の作業ツリー・gitdir の実体・共通の .git・他の作業ツリー・盤面・
+      git とシェルの設定・engine 自身）。allowWrite より優先される（公式の設定の説明: 'takes precedence over allowWrite'）
+    - allowWrite ['/']: 名指しした場所の外は今までどおり書ける——依存の置き場（~/.cache 等）・写し。狭めると、今の任せ先が
+      できていた依存の導入が落ちる（実測 2026-09-25: 既定の範囲では uv が ~/.cache/uv を開けなかった）
+    - allowUnsandboxedCommands: false と failIfUnavailable: true——sandbox の外で走る道と、sandbox が立たない場で黙って素通しになる道を閉じる
+    - network.allowedDomains ['*']・enableWeakerNetworkIsolation・allowLocalBinding: 網（依存の導入・gh の読み）と手元のサーバを
+      今までどおり使う（実測 2026-09-25・macOS: gh は enableWeakerNetworkIsolation が無いと TLS の検証で落ち、localhost の bind は
+      allowLocalBinding で通った）"""
+    return json.dumps({"sandbox": {
+        "enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
+        "enableWeakerNetworkIsolation": True,
+        "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
+        "filesystem": {"allowWrite": ["/"], "denyWrite": list(protected)}}}, sort_keys=True, separators=(",", ":"))
+
+
 def kill_all():
     """生きている子を全部木ごと止める（launch のプロセスが SIGTERM・SIGHUP・SIGINT を受けたとき）。"""
     with _LIVE_LOCK:
@@ -76,15 +109,25 @@ def _kill(p):
     同じ形の事故の先例と解き方はリポジトリの tests/mutate.py の run_group）。
 
     POSIX はプロセスグループに SIGTERM → 猶予の後に SIGKILL（coreutils の timeout -k と同じ形）。SIGTERM を先に送るのは、
-    claude -p が SIGTERM で自分の子（Bash の木）を止めて終わるため。Windows はグループへの信号が無いので taskkill /T /F。"""
+    claude -p が SIGTERM で自分の子（Bash の木）を止めて終わるため。Windows はグループへの信号が無いので taskkill /T /F。
+
+    **止めたと数えるのはグループが空になった時**（systemd の KillMode=control-group と同じ）。直下の子の終了で数えていたとき、
+    SIGTERM をすぐに処理しない孫が残ったまま戻り、SIGKILL も送らなかった（実測: CI の ubuntu で負荷の高い回に孫が生きて見えた）。
+    猶予は SIGTERM から数えて KILL_GRACE の 1 つだけ。刈り取る親の居ない環境の孤児のゾンビも kill(2) の sig 0 には
+    『在る』ので、その環境ではこの猶予を使い切ってから戻る（有限）。"""
     try:
         if os.name == "posix":
             os.killpg(p.pid, signal.SIGTERM)
+            end = time.monotonic() + KILL_GRACE
             try:
                 p.wait(KILL_GRACE)
-                return
+                while _group_alive(p.pid) and time.monotonic() < end:
+                    time.sleep(0.05)
             except subprocess.TimeoutExpired:
-                os.killpg(p.pid, signal.SIGKILL)
+                pass
+            if not _group_alive(p.pid):
+                return
+            os.killpg(p.pid, signal.SIGKILL)
         else:
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
     except OSError:
@@ -95,8 +138,19 @@ def _kill(p):
         pass
 
 
+def _group_alive(pgid):
+    """プロセスグループにまだ誰か居るか（kill(2) の sig 0）。信号を送る権限が無いだけの回も『居る』と数える"""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
 def _spawn(argv, stdin_bytes, timeout_s, cwd=None, env=None):
-    """1 回起こして終了を待つ。返すのは (exit, stdout, stderr, expired)。
+    """1 回起こして終了を待つ。返すのは (exit, stdout, stderr, expired)。timeout_s が None なら期限なしで待つ。
 
     **どの道で抜けても子を残さない**（finally）——期限切れだけでなく、待っている間に例外・SystemExit・
     KeyboardInterrupt で抜けた回も木ごと止める。子は別のプロセスグループに切り離してあるので、親のグループに
@@ -110,7 +164,7 @@ def _spawn(argv, stdin_bytes, timeout_s, cwd=None, env=None):
     ended = False
     try:
         try:
-            out, err = p.communicate(stdin_bytes, timeout=max(0.1, timeout_s))
+            out, err = p.communicate(stdin_bytes, timeout=None if timeout_s is None else max(0.1, timeout_s))
             ended = True
             return p.returncode, out, err, False
         except subprocess.TimeoutExpired:
@@ -169,7 +223,7 @@ def run_role(argv, prompt_file, out_path, *, timeout_s, accept=None, resume_argv
     argv        起こす語の全部（前置の層・claude・旗）。同じ会話を続ける節ならここが既に --resume を含む
     prompt_file 指示書（標準入力で渡す）
     out_path    返答の本文の置き場
-    timeout_s   期限までの秒（続きを頼む往復も含めた全体の上限）
+    timeout_s   期限までの秒（続きを頼む往復も含めた全体の上限）。None なら期限なし（背景の線——期限で止めない節）
     accept      accept(本文) -> None（受け付けた）| str（拒んだ理由——役に返して出し直させる）。
                 役のせいでない失敗（盤面が読めない等）は例外で投げよ——続きを頼まずに止まり、why に載る
     resume_argv 拒まれたときに同じ会話を続ける語。'{session_id}' の語を会話の番号で埋める。None なら続けない
@@ -180,7 +234,7 @@ def run_role(argv, prompt_file, out_path, *, timeout_s, accept=None, resume_argv
 
     返り値: {"ok", "why", "session_id", "expired", "accepted", "runs": [要約…], "rejections": [理由…]}
     """
-    deadline = time.monotonic() + timeout_s
+    deadline = None if timeout_s is None else time.monotonic() + timeout_s
     with open(prompt_file, "rb") as fh:
         stdin = fh.read()
     got = {"ok": False, "why": None, "session_id": None, "expired": False, "accepted": None, "runs": [], "rejections": []}
@@ -188,7 +242,7 @@ def run_role(argv, prompt_file, out_path, *, timeout_s, accept=None, resume_argv
     for turn in range(max_resumes + 1):
         started = time.time()
         try:
-            rc, out, err, expired = _spawn(cur, stdin, deadline - time.monotonic(), cwd=cwd, env=env)
+            rc, out, err, expired = _spawn(cur, stdin, None if deadline is None else deadline - time.monotonic(), cwd=cwd, env=env)
         except OSError as e:
             rc, out, err, expired = None, b"", str(e).encode("utf-8"), False
         text, summary, bad = (None, {}, None) if expired else unwrap(out)
@@ -232,7 +286,7 @@ def run_role(argv, prompt_file, out_path, *, timeout_s, accept=None, resume_argv
                                     "op": "role_run", **(meta or {}), **run}, ensure_ascii=False) + "\n")
         # 続きを頼むのは「役が返したが拒まれた」ときだけ。期限切れ・起動の失敗・受け付けの検査の失敗は、
         # 同じ会話に頼んでも直らない（続ける会話が無いか、役のせいでない）
-        if stop or not (resume_argv and got["session_id"]) or turn == max_resumes or time.monotonic() >= deadline:
+        if stop or not (resume_argv and got["session_id"]) or turn == max_resumes or (deadline is not None and time.monotonic() >= deadline):
             break
         cur = [a.replace("{session_id}", got["session_id"]) for a in resume_argv]
         stdin = RESUME_NOTE.format(why=got["rejections"][-1]).encode("utf-8")
