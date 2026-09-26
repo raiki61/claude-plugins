@@ -1,0 +1,5 @@
+{
+  "name": "works",
+  "description": "持ち主の普段の作業を Archon の上に移す pack の、Claude Code 側の入口。/works スキルは、人の修正依頼を生産ライン darkfactory（判定 → 修正 → テスト → 人の承認 → 修正差分の審査）に回すときの依頼の書き方・起動・関所での答え方を持つ。",
+  "version": "0.1.0"
+}

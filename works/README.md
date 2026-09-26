@@ -8,6 +8,12 @@
 archon plugin install raiki61/claude-plugins/works@<tag>
 ```
 
+## Claude Code のスキル
+
+`skills/works/SKILL.md`（`/works`）に、依頼の JSON の書き方・起動の 1 行・人の関所での答え方を置く。Claude Code のプラグインの定義は `.claude-plugin/plugin.json`。
+
+持ち主に確かめること: Claude Code のプラグインとして配るには、リポジトリ直下の `.claude-plugin/marketplace.json` に works の 1 行が要る。共有のファイルなので、まだ足していない。
+
 ## 開発の回し方
 
 テストは `works/tests/run.sh`。実際に Archon の上で回す手順（実行ファイルの取得・使い捨ての対象作り・`archon workflow test` 相当の検査）は `works/dev/` を見る。
