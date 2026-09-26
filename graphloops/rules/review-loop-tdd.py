@@ -337,8 +337,6 @@ def tdd_effect(b):
     lane_arms・lane_state＝撃てた腕の本数と線の状態（0 本の lane_missed 0 を見逃し 0 と読まない・止めた線を見分ける）／
     faces_created_by_this_fix＝その周の修正が作った指摘の件数（次の周の周の記録の scalars.faces_created_by_prev_fix。まだなら None）"""
     rows = (b.record["process"].get("tdd") or {}).get("rounds") or {}
-    if not rows:
-        return
     lanes = {l["round"]: l for _, l in base._lanes(b)[0]}
     for rnd, row in rows.items():
         lane = lanes.get(int(rnd))

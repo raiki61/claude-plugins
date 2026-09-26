@@ -4028,7 +4028,6 @@ def test_gates_merge():
     check((run.dir / "report.md").is_file() and "gates_deferred" in hi and "gates=merge 無しの run で回し" in hi,
           "止まった run も報告まで届き、報告の冒頭の指示書が止めた理由と残る義務（合流した版で関門を撃つ）を渡す")
     rm(run.tmp)
-    # ゲートを触った差分でも P1 のゲートの検算は撃たず、素材は理由つきの not_applicable（not_run だと検証器が止め、gates_deferred に届かない）
     run = Run("gmerge-gates", inputs=["gates=merge"])
     seen = set()
     last = drive(run, "gates", hook=hook)
@@ -4050,7 +4049,6 @@ def test_gates_merge():
     check(run.init.returncode == 1 and "綴り違い" in run.init.stderr and not run.dir.exists(),
           f"鍵の綴り違い（gate=merge）は既定に倒さず、init が盤面を作る前に拒む（{run.init.stderr[-160:]}）")
     rm(run.tmp)
-    # 近くない綴りの鍵は拒まず（受け付けていた呼びを壊さない）、効かないことを init の返り・stderr・盤面の notes に出す
     for kv in ("GATES=merge", "gates_mode=merge"):
         run = Run(f"gfar-{kv.split('=')[0]}", inputs=[kv, "gates=merge"])
         key = kv.split("=")[0]
@@ -4061,6 +4059,15 @@ def test_gates_merge():
               f"宣言に無い鍵 {key} は受け付け、効かないことを stderr・init の返り・盤面の notes に出す（rc={run.init.returncode}・{run.init.stderr[-160:]}）")
         check(not any("gates=" in n for n in notes), f"宣言済みの鍵（gates）は知らせに載らない（{notes}）")
         rm(run.tmp)
+    run = Run("gfar-drive", inputs=["gates_mode=merge", "review_md=/no/such.md", "gates=merge"])
+    check(run.init.returncode == 0 and "--input review_md=" in run.init.stderr and "rules が埋める" in run.init.stderr,
+          f"rules が埋める鍵（by: rules）を渡すと、受け付けて上書きされることを知らせる（rc={run.init.returncode}・{run.init.stderr[-200:]}）")
+    drive(run, "std")
+    got = run.record()["process"].get("notices") or []
+    hi = next((run.dir / "prompts").glob("r*/report.human_items.md")).read_text(encoding="utf-8")
+    check(any("gates_mode" in n for n in got) and any("review_md" in n for n in got) and "gates_mode" in hi and "review_md" in hi,
+          f"init の知らせは記録の process.notices に組まれ、報告の人向けの項目の指示書に届く（{got}）")
+    rm(run.tmp)
     # 選べる値の正本は graph の inputs の values、意味は rules の定数——2 つが割れると、engine が受けた値を rules が既定に倒す
     sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
@@ -4555,9 +4562,7 @@ def test_lane_rules():
     check(any("patch が当たらない" in x["key"] for x in rows), f"合流: 当たらなかった patch は次の周の判定にも渡る（{[x['key'] for x in rows]}）")
     r = rules.lane_merge(b, "p3.lane_merge")
     check(r["ok"] and b.loop_state["lane_merge"]["merged"] == [], "合流: 1 度重ねた線は重ね直さない")
-    # 止めた線（回す側が loop.py patch で abandoned と理由 why を書く）: 後から届いた結果を重ねず・判定へ渡さず・要約は abandoned。
-    # patch は rules を通らないので、形の崩れた行（丸ごと書き換えて round が消えた・why が無い）は読まずに判定へ 1 度だけ渡す
-    # 後から届いた結果は、判定へ渡るはずの答え（defect）を持つ——止めた線だから渡さない、を見分けるため
+    # 止めた線に後から届いた結果は、判定へ渡るはずの答え（defect）を持つ——止めた線だから渡さない、を見分けるため
     late_rows = [{"key": "arm:miss", "handled": "defect", "how": "止めた後に届いた結果の閉じない見逃し（検査用）"}]
     (board / "lanes" / "late.json").write_text(json.dumps(good("c" * 40, handled=late_rows, patch="")), encoding="utf-8")
     b.loop_state = {"lanes": {"c" * 40: {**lane("late"), "rev": "c" * 40, "state": "abandoned", "why": "回す側が止めた（検査用）"},
@@ -4574,7 +4579,6 @@ def test_lane_rules():
     check(s["c" * 40]["state"] == "abandoned" and s["c" * 40]["why"] and s["c" * 40]["arms"] is None
           and s["a" * 40]["state"] == s["b" * 40]["state"] == "unreadable",
           f"止めた線: 要約は running と書かず abandoned と理由を、崩れた行は unreadable を書く（{ {k[:4]: v['state'] for k, v in s.items()} }）")
-    # 撃てた腕 0 本: 宣言に変異の実行器が在るときだけ判定へ渡す（見逃し 0 本と区別する）。要約には本数を書く
     (board / "lanes" / "zero.json").write_text(json.dumps(good(head, arms=[], handled=[])), encoding="utf-8")
     for declared_mut, want in ((True, 1), (False, 0)):
         b.loop_state = {"lanes": {head: lane("zero")}, "mutation_decl": {"declared": declared_mut, "text": "検査用"}}
@@ -4582,7 +4586,6 @@ def test_lane_rules():
         check(len(rows) == want and all("0 本" in x["key"] for x in rows),
               f"撃てた腕 0 本: 宣言に実行器が{'在る' if declared_mut else '無い'}なら判定へ {want} 行（{[x['key'] for x in rows]}）")
     check(rules.lane_summary(b)[0]["arms"] == 0, "撃てた腕 0 本: 要約に撃てた腕の本数 0 を書く（見逃し 0 本と読み分ける）")
-    # 変異の実行器の名指し: 宣言の mutation の段が在ればその値、無い・読めなければ対象リポジトリの側を探させる
     (tmp / "arms.json").write_text("{}", encoding="utf-8")
     for decl, want_declared, want in (
             ({"suite": [{"name": "s", "argv": ["x"]}], "mutation": {"argv": ["runner-gl"], "arms": "arms.json"}}, True, "runner-gl"),
@@ -4594,6 +4597,36 @@ def test_lane_rules():
         rules.mutation_decl(b)
         md = b.loop_state["mutation_decl"]
         check(md["declared"] is want_declared and want in md["text"], f"実行器の名指し: {want}（{md}）")
+    (tmp / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "s", "argv": ["x"]}], "mutations": {"argv": ["r"], "arms": "arms.json"}}),
+                                             encoding="utf-8")
+    b.loop_state = {}
+    rules.mutation_decl(b)
+    md = b.loop_state["mutation_decl"]
+    check(md["unknown"] == ["mutations"] and "mutations" in md["text"] and not md["declared"],
+          f"宣言の知らない段: 役に貼る名指しに、読まない段の名前を添える（{md}）")
+    runs = [{"name": "s", "exit": 0, "wall_s": 1}]
+    m = rules.checks_reply(b, "p0.local_checks", {"sha": "a" * 40}, runs)["reply"]["material"]
+    check(m["status"] == "awaiting_human" and "mutations" in m["reason"] and "s: exit 0" in m["reason"],
+          f"宣言の知らない段: 知っている段は走らせ、P0 は結果を添えて人待ちにする（{m}）")
+    m = rules.checks_reply(b, "p4.ci", {"sha": "a" * 40}, runs)["reply"]["material"]
+    check(m["status"] == "clean", f"宣言の知らない段: 判定の後（p4.ci）は人待ちを新しく立てない（{m}）")
+    b.state["notes"] = ["--input GATES=… は効かない（検査用）"]
+    b.loop_state["lanes"] = {"e" * 40: {**lane("never"), "rev": "e" * 40}}
+    got = rules.notices(b)
+    check(any(n.startswith("init: ") and "GATES" in n for n in got) and any("mutations" in n for n in got)
+          and any("e" * 12 in n and "running" in n for n in got),
+          f"機械の知らせ: init の効かない入力・宣言の知らない段・結果の来ない線を組む（{got}）")
+    b.loop_state["outcome"] = "converged"
+    check(not any("running" in n for n in rules.notices(b)), "機械の知らせ: 収束した run の最後の線は知らせない（最後の関門が撃ち直した）")
+    b.state.pop("notes")
+    (tmp / ".review-checks.json").unlink()
+    for ran, want in ((True, 1), (False, 0)):
+        b.loop_state = {}
+        rules.mutation_decl(b)
+        b.state["outputs"] = {"p1.gate_efficacy": {"round": 2}} if ran else {}
+        got = [n for n in rules.notices(b) if "mutation の段が無い" in n]
+        check(len(got) == want, f"機械の知らせ: 宣言外で探した実行器は、撃つ節が{'出た' if ran else '出ない'} run で {want} 件（{got}）")
+    b.state.pop("outputs")
     (tmp / "arms.json").unlink()
     # 最後の関門: この周の最終の版を撃ち、見逃しが全部等価で、撃った後に作業ツリーが変わっていないときだけ通る
     subprocess.run(["git", "add", "-A"], cwd=tmp, capture_output=True)

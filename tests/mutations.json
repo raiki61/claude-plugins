@@ -4940,11 +4940,11 @@
   },
   {
    "id": "SP7",
-   "title": "知らない flow・gates を init で拒む",
-   "file": "graphloops/rules/review-loop.py",
+   "title": "知らない flow・gates を init で拒む（graph の inputs の values を engine が確かめる）",
+   "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "        if v is not None and v != want:",
-   "new": "        if False:",
+   "old": "            if inputs[key] not in (decl.get(\"values\") or []):",
+   "new": "            if False:",
    "expect": "仕様の道: 知らない flow は init で拒む",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -5927,6 +5927,99 @@
      "test_gates_merge"
     ]
    }
+  },
+  {
+   "id": "IN2",
+   "title": "rules が埋める入力（by: rules）を --input で渡すと効かないと知らせる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    return sorted(k for k in keys if isinstance(decls.get(k), dict) and decls[k].get(\"by\") == \"rules\" and not decls[k].get(\"input\"))",
+   "new": "    return []",
+   "expect": "rules が埋める鍵（by: rules）を渡すと",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "DC1",
+   "title": "宣言の知らない最上位の段を拒まず unknown で返す",
+   "file": "graphloops/engine/declared.py",
+   "suite": "graphloops",
+   "old": "        out[\"unknown\"] = unknown",
+   "new": "        pass",
+   "expect": "宣言の知らない段: 役に貼る名指し",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "CK1",
+   "title": "宣言に知らない段が在れば、知っている段を走らせたうえで P0 を人待ちにする",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if unknown and not broken:",
+   "new": "        if False:",
+   "expect": "宣言の知らない段: 知っている段は走らせ",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "NT1",
+   "title": "周の締めで機械の知らせを記録へ組む（報告の人向けの項目が読む）",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    b.record[\"process\"][\"notices\"] = notices(b)",
+   "new": "    pass",
+   "expect": "init の知らせは記録の process.notices",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "NT2",
+   "title": "収束した run の最後の線を結果の来ない線として知らせない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if b.loop_state.get(\"outcome\") != \"converged\":",
+   "new": "    if True:",
+   "expect": "機械の知らせ: 収束した run",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "NT3",
+   "title": "宣言外で探した実行器の知らせは撃つ節が出た run だけ",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if md and not md.get(\"declared\") and _mutation_ran(b):",
+   "new": "    if md and not md.get(\"declared\"):",
+   "expect": "機械の知らせ: 宣言外で探した実行器は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "FN3",
+   "title": "道具名の柵が宣言の語の拡張子を大小を畳んで見る",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "            elif \"/\" in a or re.search(r\"\\.[A-Za-z]{1,4}$\", a):",
+   "new": "            elif \"/\" in a or re.search(r\"\\.[a-z]{1,4}$\", a):",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
   },
   {
    "id": "FN1",

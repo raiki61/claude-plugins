@@ -1867,10 +1867,8 @@ for f in [root/"REVIEW.md", root/"README.md", *(root/"commands").glob("*.md"), *
 # 道具の語はルートの宣言（.review-checks.json の suite と mutation。ruff の banned-api と同じく禁止の正本を設定に置く）から、
 # 引数は宣言が名指す実行器自身の --help から、件数の柵は定数の接頭辞で、道具のパスは tests/ の成分と、その下に在るファイルの名前で当てる。
 # 宣言に無い道具（graphloops/README の手で回す変異の道具）だけ手で持つ。
-# 境界は ASCII で切る——`\w` は日本語も語に数えるので、『は--reuse』のように和文に接した綴りを見逃す。名前と引数をつないだ
-# 綴り（名前の直後の --）も拾う——1 つの - でつないだ語（pre-commit）は別の語として外す。
+# 境界は ASCII で切る——`\w` は日本語も語に数えるので、『は--reuse』のように和文に接した綴りを見逃す。
 def derive(decl):
-    """宣言の語: argv のうちパスの形の語（/ か拡張子を持つ）・-m の後のモジュール・--with の後のパッケージと、腕の一覧のパス"""
     argvs = [s["argv"] for s in decl["suite"]] + ([decl["mutation"]["argv"]] if "mutation" in decl else [])
     paths, mods = set(), set()
     for argv in argvs:
@@ -1879,7 +1877,7 @@ def derive(decl):
                 mods.add(a)
             elif prev == "--with":
                 mods.add(re.split(r"[=<>!~\[]", a, maxsplit=1)[0])
-            elif "/" in a or re.search(r"\.[a-z]{1,4}$", a):
+            elif "/" in a or re.search(r"\.[A-Za-z]{1,4}$", a):
                 paths.add(a)
     if "mutation" in decl:
         paths.add(decl["mutation"]["arms"])
@@ -1893,25 +1891,29 @@ probe_paths, probe_mods = derive({"suite": [{"argv": ["bash", "scripts/check.sh"
                                   "mutation": {"argv": ["runner"], "arms": "conf/arms.json"}})
 assert probe_paths == {"scripts/check.sh", "conf/arms.json"} and probe_mods == {"gl-probe", "gl_mod"}, \
     f"宣言から語を導く道が壊れた（{probe_paths}・{probe_mods}）"
+assert derive({"suite": [{"argv": ["bash", "Check.SH"]}]})[0] == {"Check.SH"}, "宣言の語の拡張子を大小を畳まずに見ている"
 margv = decl["mutation"]["argv"]
 runner = [sys.executable if re.fullmatch(r"python3?(\.exe)?", margv[0]) else margv[0], *margv[1:]]
 helptext = subprocess.run([*runner, "--help"], cwd=root, capture_output=True, text=True, encoding="utf-8").stdout
 flags = sorted(set(re.findall(r"--[a-z][a-z0-9-]*", helptext)) - {"--help"})
 assert len(flags) >= 5, f"実行器の --help から引数が取れない（{flags}）——走査が空回りする"
 names = sorted({f.name for d in [root/"tests", *root.glob("*/tests")] for f in d.iterdir()
-                if f.is_file() and f.suffix in (".py", ".sh", ".json")})
+                if f.is_file() and f.suffix.lower() in (".py", ".sh", ".json")})
 assert "mutate.py" in names, f"テストの置き場のファイルの名前が取れない（{names}）——走査が空回りする"
 A = r"A-Za-z0-9_"
 END = rf"(?![{A}]|-(?!-))"   # 語の終わり: 英数字が続かず、1 つの - でつないだ語でもない（-- でつないだ引数は拾う）
+# パス・ファイル名・モジュール名は大小を畳んで当てる（大小を区別しないファイルシステムでは Tests/Run.SH も同じ道具。
+# パッケージ名も正規化で小文字に畳む——PEP 503）。大小に意味のある定数の接頭辞と実行器の旗は区別したまま
 tool = re.compile(
-    rf"(?<![{A}./-])(?:[{A}.-]+/)*tests/[{A}./-]*"
-    rf"|(?<![{A}])(?:EXPECTED|VOCAB)_[A-Z_]*"
+    rf"(?i:(?<![{A}./-])(?:[{A}.-]+/)*tests/[{A}./-]*"
     rf"|(?<![{A}])mutmut(?![{A}])"
     + "".join(rf"|(?<![{A}]){re.escape(m)}(?![{A}])" for m in sorted(decl_mods))
     + "".join(rf"|(?<![{A}./-]){re.escape(p)}{END}" for p in sorted(decl_paths))
-    + "".join(rf"|(?<![{A}-]){re.escape(f)}(?![{A}-])" for f in flags)
-    + "".join(rf"|(?<![{A}./-]){re.escape(n)}{END}" for n in names))
-for probe in ("は mutate.py--reuse で撃つ", "は--reuse で", "python -m pytest で回す", "腕は mutations.json に", "tests/run.sh を"):
+    + "".join(rf"|(?<![{A}./-]){re.escape(n)}{END}" for n in names)
+    + rf")|(?<![{A}])(?:EXPECTED|VOCAB)_[A-Z_]*"
+    + "".join(rf"|(?<![{A}-]){re.escape(f)}(?![{A}-])" for f in flags))
+for probe in ("は mutate.py--reuse で撃つ", "は--reuse で", "python -m pytest で回す", "腕は mutations.json に", "tests/run.sh を",
+              "は MUTATE.PY で撃つ", "Tests/Run.sh を", "Mutmut で"):
     assert tool.search(probe), f"柵が {probe!r} を拾わない——境界か導く元が壊れた"
 for probe in ("pre-commit の hook", "x-mutate.py-y", "a-reuse"):
     assert not tool.search(probe), f"柵が道具名でない {probe!r} を拾う（{tool.search(probe).group(0)}）"

@@ -41,8 +41,14 @@ def undeclared_inputs(g, inputs):
     return sorted(k for k in inputs if k not in known)
 
 
+def rules_owned_inputs(g, keys):
+    """init の --input のうち、graph が rules の埋める入力（by: rules）と宣言し、渡した値を使うと宣言していない（input: true が無い）鍵
+    ——rules が init の後に上書きするので効かない。undeclared_inputs と同じく拒まずに知らせる"""
+    decls = g.get("inputs") or {}
+    return sorted(k for k in keys if isinstance(decls.get(k), dict) and decls[k].get("by") == "rules" and not decls[k].get("input"))
+
+
 def choice_input_errors(g, inputs):
-    """kind が choice の入力に、宣言の values に無い値が渡されたか（誤りの文の一覧）"""
     errs = []
     for key, decl in (g.get("inputs") or {}).items():
         if isinstance(decl, dict) and decl.get("kind") == "choice" and inputs.get(key) is not None:
@@ -1551,10 +1557,13 @@ def cmd_init(a):
         fn(inputs)   # ループ固有の入力の値（flow・gates 等）は置き場を作る前に確かめる——拒んでも空の盤面を残さない
     bad = choice_input_errors(g, inputs)
     if bad:
-        die("; ".join(bad))
-    ignored = undeclared_inputs(g, [kv.partition("=")[0] for kv in a.input or []])
+        die("; ".join(bad), 1)   # 1＝直して呼び直す（loop.py の終了コードの約束。rules の Reject と同じ）
+    given = [kv.partition("=")[0] for kv in a.input or []]
+    ignored = undeclared_inputs(g, given)
     notes = graph_notes + [f"--input {k}=… は graph の inputs に宣言が無く、どの節も rules も読まない（効かない）——綴りを確かめよ"
                            f"（宣言済みの入力: {', '.join(sorted(g.get('inputs') or {}))}）" for k in ignored]
+    notes += [f"--input {k}=… は rules が埋める入力（graph の inputs の by: rules）で、渡した値は上書きされる（効かない）"
+              for k in rules_owned_inputs(g, given)]
     for n in notes:
         print(f"注意: {n}", file=sys.stderr)
     d.mkdir(parents=True, exist_ok=False)

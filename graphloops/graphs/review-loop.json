@@ -10,7 +10,7 @@
     "merge"
    ],
    "optional": true,
-   "note": "変異の検算を合流でまとめる（init --input gates=merge）。値の意味は rules の GATES_MERGE（check_inputs が値の一致を見る）"
+   "note": "変異の検算を合流でまとめる（init --input gates=merge）。値の意味は rules の GATES_MERGE。値は init が values で確かめる"
   },
   "flow": {
    "kind": "choice",
@@ -18,7 +18,7 @@
     "spec"
    ],
    "optional": true,
-   "note": "仕様から入る（init --input flow=spec）。値の意味は rules の SPEC_FLOW（check_inputs が値の一致を見る）"
+   "note": "仕様から入る（init --input flow=spec）。値の意味は rules の SPEC_FLOW。値は init が values で確かめる"
   },
   "review_md": {
    "kind": "file",
@@ -44,6 +44,7 @@
   "policy_md": {
    "kind": "file",
    "by": "rules",
+   "input": true,
    "optional": true,
    "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める"
   }

@@ -1,7 +1,7 @@
 """対象リポジトリが宣言した走らせる語（ルートの .review-checks.json）。
 
 任意の mutation の段は変異の実行器と腕の一覧の名指しで、engine は走らせない——役（ゲートの検算・変異の検算の線・最後の関門）が
-読む（rules の mutation_decl が貼る）。engine が撃つ段は、撃って確かめられる run に残した。
+読む（rules の mutation_decl が貼る）。
 
 **人の承認は要らない。** engine は宣言の語を、走らせる直前に作業ツリーのルートの宣言を読み直して一致を確かめてから、shell を
 通さずに走らせる（engine/commands.py の engine_run_refusal）。以前は direnv の `direnv allow` の形で、人が宣言の中身の sha256 を
@@ -27,8 +27,8 @@ import pathlib
 
 
 DECL_NAME = ".review-checks.json"
-DECL_KEYS = ("suite",)   # 宣言の最上位の必須の鍵。知らない鍵は拒む（効かない鍵を書いても黙って無視しない）
-OPTIONAL_KEYS = ("mutation",)   # 任意の鍵。engine は走らせず、役が読む名指し（変異の実行器と腕の一覧）
+DECL_KEYS = ("suite",)   # 宣言の最上位の必須の鍵
+OPTIONAL_KEYS = ("mutation",)
 STEP_KEYS = ("name", "argv")
 MUTATION_KEYS = ("argv", "arms")   # argv＝実行器の呼び方の頭（口の旗は付けない——口の綴りは実行器の --help）・arms＝腕の一覧のパス
 
@@ -48,8 +48,8 @@ def parse(text):
         d = json.loads(text)
     except ValueError as e:
         return None, f"JSON として読めない（{e}）"
-    if not isinstance(d, dict) or not set(DECL_KEYS) <= set(d) <= set(DECL_KEYS + OPTIONAL_KEYS):
-        return None, (f"最上位は {{{', '.join(DECL_KEYS)}}}（必須）と {{{', '.join(OPTIONAL_KEYS)}}}（任意）だけ"
+    if not isinstance(d, dict) or not set(DECL_KEYS) <= set(d):
+        return None, (f"最上位は {{{', '.join(DECL_KEYS)}}}（必須）を持つオブジェクト"
                       f"（在る鍵: {sorted(d) if isinstance(d, dict) else type(d).__name__}）")
     suite = d["suite"]
     if not isinstance(suite, list) or not suite:
@@ -85,8 +85,10 @@ def parse_mutation(m, root=None):
 
 
 def read(root):
-    """ルートの宣言を読む。無ければ None、在れば {steps, sha[, mutation | mutation_error]} か {error}。
-    sha は suite の段だけで結ぶ——mutation の段を足し書きしても、走っている run の engine_run の突き合わせは外れない"""
+    """ルートの宣言を読む。無ければ None、在れば {steps, sha[, mutation | mutation_error][, unknown]} か {error}。
+    sha は suite の段だけで結ぶ——mutation の段を足し書きしても、走っている run の engine_run の突き合わせは外れない。
+    **知らない最上位の段は拒まず unknown で返す**（Cargo が Cargo.toml の知らない鍵を警告して続けるのと同じ）——新しい段を足した
+    宣言を古い engine が読んでも、知っている段（テスト一式）は走る。黙って無視はしない: 読み手（rules）が人に確かめる"""
     p = pathlib.Path(root) / DECL_NAME
     if not p.is_file():
         return None
@@ -98,7 +100,11 @@ def read(root):
     if err:
         return {"error": f"{DECL_NAME}: {err}"}
     out = {"steps": steps, "sha": steps_sha(steps)}
-    mut, merr = parse_mutation(json.loads(text).get("mutation"), root)
+    top = json.loads(text)
+    unknown = sorted(set(top) - set(DECL_KEYS + OPTIONAL_KEYS))
+    if unknown:
+        out["unknown"] = unknown
+    mut, merr = parse_mutation(top.get("mutation"), root)
     if merr:
         out["mutation_error"] = f"{DECL_NAME}: {merr}"
     elif mut:

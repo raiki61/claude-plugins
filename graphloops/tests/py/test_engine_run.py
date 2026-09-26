@@ -26,7 +26,7 @@ def repo(tmp_path, steps=OK):
 
 @pytest.mark.parametrize("text,want", [
     ("{", "JSON として読めない"),
-    ('{"suite": [], "x": 1}', "最上位は"),
+    ('{"tests": []}', "最上位は"),
     ('{"suite": []}', "1 段以上"),
     ('{"suite": [{"name": "a"}]}', "suite[0] は"),
     ('{"suite": [{"name": "a", "argv": []}]}', "1 語以上"),
@@ -63,12 +63,18 @@ MUT = {"argv": ["runner"], "arms": "arms.json"}
     ({"argv": ["runner"], "arms": "missing.json"}, "リポジトリに無い"),
 ])
 def test_mutation_section_errors_do_not_disable_the_suite(tmp_path, mutation, want):
-    """mutation の段の書き損じは、その段の誤りとして返し、engine が走らせる suite は読めたまま（sha も変わらない）"""
     root = repo(tmp_path)
     (root / "arms.json").write_text("{}", encoding="utf-8")
     (root / declared.DECL_NAME).write_text(json.dumps({"suite": OK, "mutation": mutation}), encoding="utf-8")
     d = declared.read(root)
     assert d["steps"] == OK and d["sha"] == declared.steps_sha(OK) and "mutation" not in d and want in d["mutation_error"]
+
+
+def test_unknown_top_level_section_keeps_the_suite(tmp_path):
+    root = repo(tmp_path)
+    (root / declared.DECL_NAME).write_text(json.dumps({"suite": OK, "mutations": MUT}), encoding="utf-8")
+    d = declared.read(root)
+    assert d["steps"] == OK and d["sha"] == declared.steps_sha(OK) and d["unknown"] == ["mutations"] and "mutation" not in d
 
 
 def test_mutation_section_is_read_without_touching_the_suite_sha(tmp_path):
@@ -77,10 +83,9 @@ def test_mutation_section_is_read_without_touching_the_suite_sha(tmp_path):
     (root / declared.DECL_NAME).write_text(json.dumps({"suite": OK, "mutation": MUT}), encoding="utf-8")
     d = declared.read(root)
     assert d["mutation"] == MUT and d["sha"] == declared.steps_sha(OK) and "mutation_error" not in d
-    # suite の無い宣言（mutation だけ）は今までどおり読めない——engine が走らせる段が無い
     assert "最上位は" in declared.parse(json.dumps({"mutation": MUT}))[1]
     inst = {"launch": {"kind": "engine_run", "steps": OK, "sha": declared.steps_sha(OK)}}
-    assert engine_run_refusal(inst, root) is None   # mutation の段を足し書きしても走っている run の突き合わせは外れない
+    assert engine_run_refusal(inst, root) is None
 
 
 def test_refusal_runs_declared_steps_without_approval(tmp_path):

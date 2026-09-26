@@ -51,7 +51,7 @@ def on_init(b, args):
     b.state["inputs"]["scripts_dir"] = str(pathlib.Path(b.state["validator"]).parent) if b.state.get("validator") else None
     b.state["inputs"]["rounds_dir"] = str(b.dir / "rounds")
     # 条件の関数は inputs を読めない（条件の文脈は record・out・prev・cur・round・rd・loop だけ）ので、選んだ流れを loop に写す。
-    # 値は init の後に変わらない（inputs は init で固まる）。値は check_inputs が置き場を作る前に確かめてある
+    # 値は init の後に変わらない（inputs は init で固まる）。値は engine が置き場を作る前に graph の values で確かめてある
     # flow の写しは、選べる流れの選び方を 1 つに揃える問い（問いの台帳の fork: 仕様の道を extends の版にするか）の決着で、
     # flow の入力ごと消える
     inputs = b.state["inputs"]
@@ -65,8 +65,8 @@ def on_init(b, args):
 
 
 def check_inputs(inputs):
-    """init の入口（置き場を作る前）で、選ぶ入力の鍵と値を確かめる——綴り違いの鍵や知らない値を既定（今の流れ）に倒さない。
-    仕様の道（flow=spec）と、変異の検算を合流でまとめる選択（gates=merge）"""
+    """init の入口（置き場を作る前）で、選ぶ入力の鍵の綴り違いを確かめる——綴り違いの鍵を既定（今の流れ）に倒さない。
+    仕様の道（flow=spec）と、変異の検算を合流でまとめる選択（gates=merge）。値は graph の inputs の values を engine が確かめる"""
     import difflib
     chosen = {"flow": SPEC_FLOW, "gates": GATES_MERGE}
     for k in inputs:
@@ -75,10 +75,6 @@ def check_inputs(inputs):
         near = difflib.get_close_matches(k, chosen, n=1, cutoff=0.75) if k not in chosen else []
         if near:
             raise Reject(f"--input {k}=… は鍵 {near[0]} の綴り違いに見える（知らない鍵は既定の流れに倒れる）——{near[0]}={chosen[near[0]]} と書け")
-    for k, want in chosen.items():
-        v = inputs.get(k)
-        if v is not None and v != want:
-            raise Reject(f"--input {k}={v!r} は知らない値（使えるのは {k}={want}。今の流れなら {k} を渡さない）")
 
 
 # ---------------------------------------------------------------- 人の修正依頼と、判定から入る入口（R12）
@@ -677,7 +673,7 @@ LANE_ROW = ("round", "result", "state")   # patch は台帳に無い——任せ
 # （p3.delta_gates）も最後の関門（p4.final_gates）も条件外で閉じ、収束の手前で止まる（converge の gates_deferred）——検算は消さず、
 # 合流した版を gates=merge 無しの run で回して撃つ（GitHub の merge queue と同じ形: 重い検査はまとめた版に対して走らせる）。
 # P1 の検算も外すのは人の決定（2026-09-25『変異テストは並べた run の中では撃たず、合流した版でまとめて撃つ』）
-GATES_MERGE = "merge"   # inputs.gates の値。これ以外の値は init で拒む（check_inputs）
+GATES_MERGE = "merge"   # inputs.gates の値（graph の inputs.gates.values と一致する——simulate_review の test_gates_merge が縛る）
 GATES_MERGE_WHY = "変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
 
 
@@ -736,7 +732,32 @@ def mutation_decl(b):
         err = (d or {}).get("mutation_error") or (d or {}).get("error")
         if err:
             text += f"（宣言は在るが mutation の段を読めない: {err}）"
-    b.loop_state["mutation_decl"] = {"declared": bool(m), "text": text}
+    unknown = (d or {}).get("unknown") or []
+    if unknown:
+        text += f"（宣言にこの engine が読まない最上位の段 {unknown} が在る——mutation の綴り違いなら、在りかは宣言の側に在る）"
+    b.loop_state["mutation_decl"] = {"declared": bool(m), "text": text, **({"unknown": unknown} if unknown else {})}
+
+
+def _mutation_ran(b):
+    """この run で変異の実行器を撃つ節（P1 のゲートの検算・線・最後の関門）がどれか出たか。条件外の節は出力を持たない"""
+    return bool(b.loop_state.get("lanes")) or any(n in b.state.get("outputs", {}) for n in ("p1.gate_efficacy", "p4.final_gates"))
+
+
+def notices(b):
+    """機械が知った『人が見るべき事実』の一覧（記録の process.notices へ。報告の人向けの項目が 1 項ずつ挙げる）。
+    写しを持たず、呼ぶたびに正本（engine の init の知らせ・宣言の読み・線の台帳）から組み直す——宣言を直せば次に組むとき消える"""
+    out = [f"init: {n}" for n in b.state.get("notes") or []]
+    md = b.loop_state.get("mutation_decl") or {}
+    if md.get("unknown"):
+        out.append(f"宣言 {DECL_NAME} にこの engine が読まない最上位の段 {md['unknown']} が在る——綴り違いなら宣言を直せ"
+                   "（知っている段は読んで走らせた）")
+    if md and not md.get("declared") and _mutation_ran(b):
+        out.append(f"宣言 {DECL_NAME} に mutation の段が無い——変異の検算の役は対象リポジトリの側を探して撃った。宣言に足せば"
+                   "毎回探さずに済む（役が撃った呼び方は、ゲートの検算の素材と記録の process.lanes に在る）")
+    if b.loop_state.get("outcome") != "converged":   # 収束した run の最後の線は最後の関門が BASE から撃ち直している
+        out += [f"変異の検算の線 r{r['round']}@{r['rev'][:12]} の結果がまだ来ていない（running）——待つか、止めて線の台帳に書くか"
+                for r in lane_summary(b) if r["state"] == "running" and r.get("arms") is None and not r.get("errors")]
+    return out
 
 
 def _lane_schema(b):
@@ -760,7 +781,7 @@ def gates_cut_nonempty(v):
 
 @cond_reads("loop.gates")
 def gates_merge(v):
-    """変異の検算を合流でまとめる run か（条件の部品。lane_due・final_gate_due・gate_efficacy_due が読む）"""
+    """変異の検算を合流でまとめる run か（条件の部品）"""
     got = v("loop.gates", None)
     return got == GATES_MERGE, (GATES_MERGE_WHY if got == GATES_MERGE else "変異の検算をこの run で撃つ（init --input gates=merge が無い）")
 
@@ -898,7 +919,7 @@ def lane_merge(b, nid):
     ls = b.loop_state
     merged, conflicts = [], []
     for rev, lane in _lanes(b)[0]:
-        if lane["state"] != "running":   # 止めた線（abandoned）に後から届いた結果も重ねない
+        if lane["state"] != "running":
             continue
         out, errs = _lane_result(b, lane)
         if out is None and not errs:
@@ -928,7 +949,6 @@ def lane_summary(b):
     good, bad = _lanes(b)
     for rev, lane in good:
         out, errs = (None, []) if lane["state"] == "abandoned" else _lane_result(b, lane)
-        # arms＝撃てた腕の本数（結果がまだ無い・使えない・止めた線は None）——0 本と見逃し 0 本を分ける
         rows.append({"round": lane["round"], "rev": rev, "state": lane["state"],
                      "arms": len(out.get("arms") or []) if out and not errs else None,
                      "open": [r["key"] for r in (out or {}).get("handled") or [] if r["handled"] in LANE_OPEN] if not errs else [],
@@ -1257,7 +1277,7 @@ LOOP_KEYS = frozenset({
 }) | {k for p in DELTA_PASSES.values() for k in (p.state_key, p.owed_key)}
 # 記録の欄のうち rules が writes の外で書く物（add が書く入口の印・依頼の一覧・止める口 on_stop が書く止めた所と理由）——条件が record.<欄> を読むとき、完全一致で照らす
 RECORD_KEYS = ("process.request_entry", "process.request_findings", "process.request_history", "process.checks",
-               "process.scalars_unmeasured", "process.halted")
+               "process.scalars_unmeasured", "process.halted", "process.notices")
 ENTRY_OFF = {"record.process.request_entry": None}   # 入口の印を外す重ね書き（_entry_skipped）——印が無い文脈は _entry_marked が偽
 
 
@@ -2005,11 +2025,13 @@ def record_round(b, nid, stopped_reason=None):
 
 def converge(b, nid):
     """周の締め。人に諮る（decision=ask）分岐は全部、返る口のこの 1 か所で outcome=stopped と stop_reason（問いの種類）を立てる
-    ——stop の答えでも無人の停止でも、記録から止めた理由が読める。continue の答えは on_answer が外す"""
+    ——stop の答えでも無人の停止でも、記録から止めた理由が読める。continue の答えは on_answer が外す。
+    判定で outcome が決まってから、機械の知らせを記録へ組む（報告の人向けの項目が読む）"""
     out = _converge(b, nid)
     if out.get("decision") == "ask":
         b.loop_state["outcome"] = "stopped"
         b.loop_state["stop_reason"] = ((out.get("ask") or {}).get("kinds") or [out.get("reason")])[0]
+    b.record["process"]["notices"] = notices(b)
     return out
 
 
@@ -2219,7 +2241,16 @@ def checks_reply(b, nid, launch, runs):
                  "detail": f"engine が宣言 {DECL_NAME} を走らせた: {summary} ／ " + " ／ ".join(f"{r['name']} の末尾: {r['tail'][-600:]}" for r in red)}
         else:
             m = {"status": "clean", "checked": f"engine が宣言 {DECL_NAME}（sha {launch['sha'][:12]}）の {len(runs)} 段を走らせた: {summary}"}
-        _checks_note(b, nid, by="engine", sha=launch.get("sha"),
+        # 宣言に engine の読まない最上位の段が在る: 知っている段は走らせたうえで、判定の前（p0）なら人待ちにする——綴り違い
+        # （mutations）を run の頭で捕まえる守りを、段を拒んでいた頃から減らさない（人の決定 2026-09-26）。p4.ci は人待ちを新しく立てない
+        root = None if after_judge else _repo_root()
+        unknown = ((declared_checks(root) or {}) if root else {}).get("unknown")
+        if unknown and not broken:
+            m = {"status": "awaiting_human",
+                 "reason": (f"宣言 {DECL_NAME} にこの engine が読まない最上位の段 {unknown} が在る——綴り違いなら宣言を直す、"
+                            f"意図した段なら続けてよいかを人に確かめる。知っている段は走らせた: {summary}"
+                            + (f" ／ 赤: {', '.join(r['name'] for r in red)}" if red else ""))[:1500]}
+        _checks_note(b, nid, by="engine", sha=launch.get("sha"), **({"unknown": unknown} if unknown else {}),
                      runs=[{k: r.get(k) for k in ("name", "argv", "exit", "wall_s", "out", "err")} for r in runs])
     if after_judge and m["status"] != "awaiting_human":
         V = validator_module(b)
@@ -3688,6 +3719,7 @@ def finalize(b):
     proc["defer_ledger"] = ls.get("defer_ledger", {})
     proc["validator_outputs"] = ls.get("validator_outputs", {})
     proc["drift_notes"] = ls.get("drift_notes", [])
+    proc["notices"] = notices(b)
     # **書く欄には読み手を付ける。** 付けずに置いていたとき、この欄は 2 周ぶん書かれたまま
     # リポジトリのどこからも読まれず、R2 は「なぜ目的が使えないのか」を知らずに回った（実測 r10）。
     # 運び方は隣の drift_notes と同じ 3 点（記録へ写す・プロンプトの穴・graph の reads）で揃える

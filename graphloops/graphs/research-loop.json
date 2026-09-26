@@ -10,6 +10,7 @@
   "policy_md": {
    "kind": "file",
    "by": "rules",
+   "input": true,
    "optional": true,
    "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める"
   }

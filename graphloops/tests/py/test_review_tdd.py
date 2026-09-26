@@ -291,7 +291,6 @@ def test_tdd_effect_counts_only_clean_lane_results(tmp_path, monkeypatch):
     rows = {"1": {}, "2": {}, "3": {}}
     lane = lambda i, state="running", **kw: {"round": i, "result": f"r{i}.json", "patch": "", "state": state, **kw}
     RULES.tdd_effect(board({"tdd": {"rounds": rows}}, {"lanes": {f"r{i}": lane(i) for i in (1, 2, 3)}}))
-    # 腕の欄が無い結果は測れていない（lane_missed None）で、lane_arms 0 が撃てた腕 0 本を言う
     assert rows == {"1": {"lane_missed": 1, "lane_arms": 1, "lane_state": "running", "faces_created_by_this_fix": 4},
                     "2": {"lane_missed": None, "lane_arms": None, "lane_state": "running", "faces_created_by_this_fix": None},
                     "3": {"lane_missed": None, "lane_arms": 0, "lane_state": "running", "faces_created_by_this_fix": None}}
