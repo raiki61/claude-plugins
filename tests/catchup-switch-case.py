@@ -359,7 +359,7 @@ def _none(tmp):
     out, on = call(repo, node(repo, headRefName="nope", state="MERGED"))
     git(repo, "remote", "set-url", "origin", os.path.join(tmp, "nowhere", "o", "r.git"))
     out2, on2 = call(repo, node(repo, headRefName="nope"))
-    # 応答が無ければ FETCH_TIMEOUT 秒で切る（ssh を sleep する script に差し替えて再現。git が sh を起こせない環境では見送る）。
+    # 応答が無ければ FETCH_TIMEOUT 秒で切る（ssh を sleep する script に差し替えて再現）。
     # 待つのは検査の実時間なので、切る秒数は縮めて借りる（timeout は float を受ける）
     short = 0.2
     out3 = f"origin から取れなかった（{short} 秒で応答が無い）"

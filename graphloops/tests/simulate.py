@@ -73,7 +73,7 @@ def check(cond, desc):
 
 
 def skip(desc, capability, reason):
-    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、欠けた能力の名前つきで合格と別の印で出す（parallel.skip_line）"""
+    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
     global ran
     with parallel.LOCK:
         ran += 1
@@ -1917,6 +1917,7 @@ def test_role_run():
     check(role_run.parse_cim("gone\r\n") == role_run.GONE and role_run.parse_cim("alive:116444736000000000") == 0.0
           and role_run.parse_cim("alive:") is None and role_run.parse_cim("") is None,
           "Windows: 居ない・開始時刻・読めない（確かめられない＝止めずに拒む）を分ける")
+    check(role_run.stop_group(str(tmp / "no-mark.json.pgid")) is None, "印が無ければ止める物は無い（relaunch は素通り）")
     if os.name == "posix":
         def gone(pid, within=10):
             """pid が居なくなるまで期限つきで問い直す——止めた孫は親が居なくなってから init が回収するので、1 回だけ見ると
@@ -1954,7 +1955,6 @@ def test_role_run():
               f"stop_group は別の口から試行の子を止め、run_role は失敗として返る（{why} {got.get('why')}）")
         check(pid is not None and gone(pid), f"stop_group では孫（前置の層の先の claude に当たる）まで止まる（pid {pid}）")
         check(not mark.exists(), "子が終わったら印を消す（残った番号が別のグループに当たらない）")
-        check(role_run.stop_group(str(mark)) is None, "印が無ければ止める物は無い（relaunch は素通り）")
         # launch のプロセスが止められたとき（kill_all）も、生きている子を孫まで止める
         th, got, pid = sleeper({"log_path": None})
         role_run.kill_all()
@@ -2016,6 +2016,9 @@ def test_role_run():
         r = role_run.run_tree(["sh", "-c", "read x; echo \"got:$x\"; echo err >&2"], cwd=tmp, timeout=30)
         check(r.returncode == 0 and r.stdout == "got:\n" and r.stderr == "err\n",
               f"run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す（{r.returncode} {r.stdout!r} {r.stderr!r}）")
+    else:
+        for desc in ("起こした子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口", "stop_group は別の口から試行の子を止め、run_role は失敗として返る", "stop_group では孫（前置の層の先の claude に当たる）まで止まる", "子が終わったら印を消す（残った番号が別のグループに当たらない）", "kill_all は生きている子を孫まで止める（launch が止められても子を残さない）", "起こし直された試行は子を止めて返る", "そのとき子の木も印も残さない——still_mine を聞く前に印は書いてある", "番号が印より後に始まったプロセスに再利用されていれば止めずに印だけ消す", "開始時刻を確かめられなければ止めずに理由を返す", "run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる", "run_tree: SIGTERM を無視する孫も、グループが消えるまで待って SIGKILL で止める", "run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す"):
+            skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作りに頼る")
     rm(tmp)
 
 
@@ -2024,6 +2027,9 @@ def test_relaunch_live_launch():
     止めるので、止められた古い launch の締めは版の競りで relaunch を落とさず、『起こし直された古い試行』に言い換わる
     （実測 2026-09-25: 止めてから書いていた版は 4 回とも exit 2）"""
     if os.name != "posix":
+        for desc in ("relaunch: 生きている launch への 1 回目の起こし直しが通る", "古い launch の行は『起こし直された古い試行』に言い換わる",
+                     "新しい試行は待ったまま（古い launch の締めが新しい試行に書かない）"):
+            skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作り（代役の子と孫を眠らせて止める）に頼る")
         return
     print("生きている launch への relaunch: 1 回目で通り、古い launch は起こし直された試行として締める")
     run = Run("relaunch-live")
@@ -2221,19 +2227,20 @@ with R._LIVE_LOCK:
     R.kill_all()
     got["reentrant"] = True
 # 止める信号の後に起こした子は、すぐ止めて StopSignal を上げる（止め始めた後に子を増やさない）
-R._STOPPING.set()
-try:
-    R.run_tree(["sh", "-c", "sleep 30"], cwd=".", timeout=60)
-    got["stopping"] = "起こした"
-except R.StopSignal:
-    got["stopping"] = "StopSignal"
-got["live_after"] = len(R.LIVE)
-R._STOPPING.clear()
+if os.name == "posix":
+    R._STOPPING.set()
+    try:
+        R.run_tree(["sh", "-c", "sleep 30"], cwd=".", timeout=60)
+        got["stopping"] = "起こした"
+    except R.StopSignal:
+        got["stopping"] = "StopSignal"
+    got["live_after"] = len(R.LIVE)
+    R._STOPPING.clear()
 # 止め切れなかった木の理由は、時間切れの例外に添えて呼び元へ運ぶ
 orig = R._stop_tree
 R._stop_tree = lambda pgid, leader=None: "検査用の止め切れない理由"
 try:
-    R.run_tree(["sh", "-c", "sleep 3"], cwd=".", timeout=0.3)
+    R.run_tree([sys.executable, "-c", "import time; time.sleep(3)"], cwd=".", timeout=0.3)
     got["tree_left"] = None
 except subprocess.TimeoutExpired as e:
     got["tree_left"] = getattr(e, "tree_left", None)
@@ -2245,8 +2252,6 @@ print(json.dumps(got, ensure_ascii=False))
 def test_stop_signal_guards():
     """止める信号の口の守り: 再入できる錠・止め始めた後の起動の拒否・止め切れなかった理由の運び（engine の大域を差し替えるので
     別のプロセスで走らせる）"""
-    if os.name != "posix":
-        return
     print("止める信号の口: 錠の再入・止め始めた後の起動を拒む・止め切れない理由を運ぶ")
     r = subprocess.run([PY, "-c", SIGNAL_PROBE, str(PLUGIN)], capture_output=True, text=True, encoding="utf-8", timeout=120)
     try:
@@ -2254,8 +2259,11 @@ def test_stop_signal_guards():
     except (ValueError, IndexError):
         got = {}
     check(got.get("reentrant") is True, f"信号の口（kill_all）は錠を持つ最中の同じスレッドでも止まらない（{r.stderr[-160:]}）")
-    check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
-          f"止める信号の後に起こした子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
+    if os.name == "posix":
+        check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
+              f"止める信号の後に起こした子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
+    else:
+        skip("止める信号の後に起こした子はすぐ止めて StopSignal を上げる", "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作りに頼る")
     check(got.get("tree_left") == "検査用の止め切れない理由", f"止め切れなかった木の理由は時間切れの例外に添えて運ぶ（{got.get('tree_left')}）")
 
 
@@ -3028,6 +3036,9 @@ def test_relaunch():
         check(stopped and child.returncode is not None and child.returncode < 0,
               f"relaunch: 前の試行の子を木ごと止めてから起こし直す（relaunch が止めた: {stopped}・信号で終わった: {child.returncode}）")
         check(not pathlib.Path(str(old) + ".pgid").exists(), "relaunch: 止めた試行の印を消す")
+    else:
+        for desc in ("relaunch: 前の試行の子を木ごと止めてから起こし直す", "relaunch: 止めた試行の印を消す"):
+            skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作り（自分のグループで眠る子）に頼る")
     new = run.state()["rounds"][-1]["instances"][iid]
     check(new.get("attempts") == 2 and len(new.get("attempt_log") or []) == 1 and "検査用" in new["attempt_log"][0]["reason"],
           f"relaunch: 試行の回数と理由を盤面に刻む（{new.get('attempts')} {new.get('attempt_log')}）")
@@ -3064,6 +3075,9 @@ def test_relaunch():
             stale_child.kill()
             stale_reaper.join()
         check(stopped, "relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す")
+    else:
+        skip("relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す", "process-group",
+             "posix の信号とプロセスグループで孫の生死を見る台本の作り（自分のグループで眠る子）に頼る")
     new3 = run.state()["rounds"][-1]["instances"][iid]
     check(r.returncode == 0 and new3.get("attempts") == 3 and len(new3.get("attempt_log") or []) == 2,
           f"relaunch: 前の置き場が空でも起こし直せ、attempt_log は積み増す（{r.returncode} {new3.get('attempt_log')}）")

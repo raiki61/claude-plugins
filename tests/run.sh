@@ -60,8 +60,7 @@ skip_capability() {
     local cap=${rest%%:*}
     [[ "$cap" =~ ^[a-z0-9][a-z0-9-]*$ ]] && printf '%s' "$cap"
 }
-# どの OS で見送りを許すかは実装側で決めない——CI の定義か人が渡す。FAIL_ON_SKIP=1 のとき、欠けてよい能力の一覧 SKIP_ALLOW
-# （空白かカンマ区切り。既定は空＝何も許さない）に名前の在る見送りだけを失敗から除く。FAIL_ON_SKIP の無い既定は一覧に出すだけ
+# どの OS で見送りを許すかは実装側で決めない——CI の定義か人が渡す
 report_skips() {
     [ "${#SKIPS[@]}" -gt 0 ] || return 0
     local list=${SKIP_ALLOW:-} allow=() s cap a allowed denied=0
@@ -160,8 +159,7 @@ case "$guard_probe" in
 esac
 
 # **見送りの拾い手自身の腕。** 行頭が「  ok   」で印を含む行だけを拾い（理由の無い印も拾う——拾い損ねは合格に化ける）、
-# 行の途中の印は拾わない。既定では fail を立てず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送り
-# （名前の無い見送り・名前の形でない物を含む）だけを失敗に数える。副シェルで本体を汚さない。
+# 行の途中の印は拾わない。副シェルで本体を汚さない。
 # 引数: FAIL_ON_SKIP・SKIP_ALLOW・台本の出力（見送りの行の並び）。返り: |拾った件数|fail|失敗に数えた件数|許した印の件数|拾った行
 skip_probe() {
     ( SKIPS=(); fail=0; ran=0; FAIL_ON_SKIP=$1; SKIP_ALLOW=$2
@@ -176,7 +174,7 @@ skip_probe() {
 skip_in=$'  ok   甲 # SKIP 理由\n  ok   乙\nx  ok   丙 # SKIP fifo: 理由\n  ok   丁 # SKIP\n  ok   戊 # SKIP fifo: 理由\n  ok   己 # SKIP sh: 理由\n  ok   庚 # SKIP Fifo: 理由\n  ok   辛 # SKIP symlink: 理由\n'
 skip_all="甲 # SKIP 理由 丁 # SKIP 戊 # SKIP fifo: 理由 己 # SKIP sh: 理由 庚 # SKIP Fifo: 理由 辛 # SKIP symlink: 理由"
 skip_off=$(skip_probe "" "" "$skip_in")                 # 既定: 一覧に出すだけ
-skip_on=$(skip_probe 1 "" "$skip_in")                   # 一覧が空: 全部を失敗に数える（SKIP_ALLOW の無い FAIL_ON_SKIP=1 の今までの意味）
+skip_on=$(skip_probe 1 "" "$skip_in")                   # 一覧が空: 全部を失敗に数える
 skip_part=$(skip_probe 1 "fifo, sh,Fifo" "$skip_in")    # 許した名前だけ除く。名前無し・形でない名前（一覧に在っても Fifo）・一覧に無い名前は失敗
 skip_off_allow=$(skip_probe "" "fifo,sh" "$skip_in")    # 一覧だけ渡しても FAIL_ON_SKIP が無ければ失敗にしない
 skip_ok=$(skip_probe 1 "sh fifo" $'  ok   戊 # SKIP fifo: 理由\n  ok   己 # SKIP sh: 理由\n')   # 全部許せば緑
@@ -3087,28 +3085,31 @@ hits = [r for r in runs if re.search(r"(^|[\s|;&])shellcheck(\s|$)", r)]
 assert hits, f"{wf}: shellcheck を実際に回す run: の段が無い（注記に語が在るだけでは通さない）"
 assert all("-S warning" in r for r in hits), f"{wf}: shellcheck の深さ（-S warning）が手元の検査と揃っていない: {hits}"
 # 段ごとに切って、注記の行を除いた中身だけを見る——env: と if: は run: の行でないので、全文の部分一致だと注記の語で通る
-steps = []
+steps, head = [], []
 for l in txt.splitlines():
     t = l.strip()
-    if t.startswith("#"):
+    if not t or t.startswith("#"):
         continue
     if t.startswith("- name:") or t.startswith("- uses:"):
         steps.append([t])
     elif steps:
         steps[-1].append(t)
+    else:
+        head.append(t)
 def step(name):
     got = [s for s in steps if s[0] == f"- name: {name}"]
     assert len(got) == 1, f"{wf}: 段 {name} がちょうど 1 つでない（{len(got)} 個）"
     return got[0]
-# **見送り自体を無くす道具は 3 OS に同じ版で入れる。** OS の条件（if:）を付けると、付けなかった OS で tests/run.sh の中の
+# **見送り自体を無くす道具は 3 OS に同じ版で入れる。** OS の条件（if:）を付けると、条件から外れた OS で tests/run.sh の中の
 # shellcheck が見送りになり、SKIP_ALLOW に無い名前なので赤になる——黙って緑には戻らないが、原因が遠い
 inst = [s for s in steps if any(re.fullmatch(r"run: python -m pip install shellcheck-py==[0-9][0-9.]*", x) for x in s)]
 assert inst, f"{wf}: shellcheck を版を固定して入れる段（run: python -m pip install shellcheck-py==<版>）が無い"
 assert not any(x.startswith("if:") for s in inst for x in s), f"{wf}: shellcheck を入れる段に OS の条件（if:）が付いている: {inst}"
-# **見送りを CI で失敗に数える。** 許すのは OS ごとの一覧（matrix の skip_allow。include に無い OS は空）に名前の在る能力だけ
 rs = step("tests/run.sh")
-assert 'FAIL_ON_SKIP: "1"' in rs, f"{wf}: tests/run.sh の段が FAIL_ON_SKIP: \"1\" を渡していない（見送りが黙って緑になる）: {rs}"
-assert "SKIP_ALLOW: ${{ matrix.skip_allow }}" in rs, f"{wf}: tests/run.sh の段が OS ごとの許しの一覧（SKIP_ALLOW: ${{{{ matrix.skip_allow }}}}）を渡していない: {rs}"
+want = ["- name: tests/run.sh", "shell: bash", "env:", 'FAIL_ON_SKIP: "1"', "SKIP_ALLOW: ${{ matrix.skip_allow }}", "run: bash tests/run.sh"]
+assert rs == want, (f"{wf}: tests/run.sh の段が、見送りを失敗に数えて OS ごとの許しの一覧を渡す形（{want}）と違う——"
+                    f"env の値・run: の頭の代入・shell:・if:・continue-on-error: のどれでも見送りが黙って緑になる: {rs}")
+assert not any(x.startswith(("if:", "continue-on-error:")) for x in head), f"{wf}: ジョブ全体に if: か continue-on-error: が在る（見送りの失敗ごと外れる）: {head}"
 # **engine が走らせる宣言は CI の段の写し**（手元は pytest を uv で入れ、CI は pip で入れるので語は揃わない）。名前だけ突き合わせる
 # ——宣言に在って CI に無い段は、CI が回していない物を engine だけが回している。逆向き（CI の段を宣言が持たない）は許す:
 # shellcheck は CI だけが段として回し、手元では tests/run.sh が在れば回す任意の道具

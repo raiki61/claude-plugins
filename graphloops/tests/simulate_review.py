@@ -81,7 +81,7 @@ def check(cond, desc):
 
 
 def skip(desc, capability, reason):
-    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、欠けた能力の名前つきで合格と別の印で出す（parallel.skip_line）"""
+    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
     global ran
     with parallel.LOCK:
         ran += 1
@@ -6018,6 +6018,8 @@ def test_stop_signal_stops_test_runner_tree():
     """**loop.py が止める信号を受けたら、builtin が起こしたテストの実行器の木も止める**（全コマンドの信号の口）。
     仕様の固定（spec.freeze）が受け入れ条件を走らせている next に SIGTERM を送り、孫まで止まって exit 143 で抜けることを見る"""
     if os.name != "posix":
+        skip("止める信号: next が止められたら、受け入れ条件の実行器の孫まで止めて 143 で抜ける", "process-group",
+             "posix の信号とプロセスグループで孫の生死を見る台本の作り（SIGTERM を送って 128+信号で抜ける）に頼る")
         return
     print("止める信号: next の中で走るテストの実行器の木を孫まで止め、128+信号で抜ける")
     run = Run("spec-signal", init_args=("--input", "flow=spec"))

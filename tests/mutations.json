@@ -6016,6 +6016,51 @@
    "old": "return f\"  ok   {desc}{SKIP_MARK} {capability}: {reason}\"",
    "new": "return f\"  ok   {desc}{SKIP_MARK} {reason}\"",
    "expect": "Python の台本の見送りの行を root の拾い手が拾えないか"
+  },
+  {
+   "id": "CL7",
+   "title": "CI の突合: tests/run.sh の段の run: の頭で見送りの失敗を外せば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "        run: bash tests/run.sh",
+   "new": "        run: FAIL_ON_SKIP=0 bash tests/run.sh",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL8",
+   "title": "CI の突合: tests/run.sh の段が失敗を無視すれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          SKIP_ALLOW: ${{ matrix.skip_allow }}\n        run: bash tests/run.sh",
+   "new": "          SKIP_ALLOW: ${{ matrix.skip_allow }}\n        continue-on-error: true\n        run: bash tests/run.sh",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL9",
+   "title": "CI の突合: tests/run.sh の段を OS で外せば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "      - name: tests/run.sh\n        shell: bash\n",
+   "new": "      - name: tests/run.sh\n        if: matrix.os == 'ubuntu-latest'\n        shell: bash\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL10",
+   "title": "CI の突合: ジョブ全体が失敗を無視すれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "    runs-on: ${{ matrix.os }}\n",
+   "new": "    runs-on: ${{ matrix.os }}\n    continue-on-error: true\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL11",
+   "title": "CI の突合: tests/run.sh の段の shell: を差し替えれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "      - name: tests/run.sh\n        shell: bash\n",
+   "new": "      - name: tests/run.sh\n        shell: sh -c 'exit 0' {0}\n",
+   "expect": "CI の設定が shellcheck を回す"
   }
  ],
  "dropped": [
