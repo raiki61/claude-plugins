@@ -172,7 +172,7 @@ class TestLineShape(unittest.TestCase):
         ap = gate["approval"]
         self.assertIs(ap["capture_response"], True)
         self.assertNotIn("on_reject", ap)          # 拒めば run を止める
-        for ref in ("$testing.output.green", "$testing.output.log", "$judging.output.one_shot",
+        for ref in ("$testing.output.green", "$testing.output.log", "$judging.output.one_shot", "$fixing.output.removed",
                     "$judging.output.judgment_file", "Archon の run ごとの worktree"):
             self.assertIn(ref, ap["message"])
 

@@ -7,8 +7,9 @@
 読む環境変数:
 - INPUTS_ACCEPTED: 輪（fix-loop）の出力 = 最後の周の fix-accept の出力（{ok, reason, changes} の JSON の文字列）
 - INPUTS_CHANGED: assert-changed の出力（{ok, files} の JSON の文字列）
+- INPUTS_CLEANED: clean の出力（{ok, removed} の JSON の文字列。修正役が残した git が無視するファイルのうち消した物）
 - ARTIFACTS_DIR: 盤面はその下の board/
-受け付けた changes を盤面の changes.json（{"changes": [...]}）に書き、{"ok": true, "files", "changes_file"} を 1 行出して 0。
+受け付けた changes を盤面の changes.json（{"changes": [...]}）に書き、{"ok": true, "files", "changes_file", "removed"} を 1 行出して 0。
 受け付けが通っていない・入力が読めないときは、標準エラーに理由を 1 行出して 2（何も書かない）。標準ライブラリだけ。
 """
 import json
@@ -39,7 +40,7 @@ def env_json(name):
 
 
 def collect():
-    accepted, changed = env_json("INPUTS_ACCEPTED"), env_json("INPUTS_CHANGED")
+    accepted, changed, cleaned = env_json("INPUTS_ACCEPTED"), env_json("INPUTS_CHANGED"), env_json("INPUTS_CLEANED")
     artifacts = os.environ.get("ARTIFACTS_DIR")
     if not artifacts:
         raise Unreadable("環境変数が無い: ARTIFACTS_DIR")
@@ -51,13 +52,16 @@ def collect():
     files = changed.get("files")
     if changed.get("ok") is not True or not isinstance(files, list) or not all(isinstance(f, str) for f in files):
         raise Unreadable(f"assert-changed の出力に files が無い（{changed!r}）")
+    removed = cleaned.get("removed")
+    if cleaned.get("ok") is not True or not isinstance(removed, list) or not all(isinstance(f, str) for f in removed):
+        raise Unreadable(f"clean の出力に removed が無い（{cleaned!r}）")
     board = pathlib.Path(artifacts) / "board"
     board.mkdir(parents=True, exist_ok=True)
     path = board / CHANGES_FILE
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps({"changes": changes}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-    return {"ok": True, "files": files, "changes_file": str(path)}
+    return {"ok": True, "files": files, "changes_file": str(path), "removed": removed}
 
 
 def main():
