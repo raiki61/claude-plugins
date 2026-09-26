@@ -36,10 +36,10 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 import engine.util as _util  # noqa: E402
-from engine.board import COND_HEADS, run_cond  # noqa: E402
-from engine.rules import load_rules, registry, validator_module  # noqa: E402
+from engine.rules import load_rules, validator_module  # noqa: E402
 from engine.schema import expand_refs, validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
+from board import DiskBoard  # noqa: E402  （規則に渡す入れ物は盤面の層の scratch。仕様 works/docs/specs/2026-09-26-board-layer-design.md 7 節）
 
 GRAPH_PATH = _GL / "graphs" / "review-loop.json"
 VALIDATOR = CORE / "scripts" / "review-record.py"
@@ -132,43 +132,6 @@ def role_schema(node: str) -> dict:
     pointers の位置は名前（文字列）の型のまま（_unpointed）。修正差分のレビューは事前審査だけの語を kind から落とす
     （_drop_plan_only_kinds）"""
     return json.loads(_role_schema_json(node))
-
-
-# ---------------------------------------------------------------- 盤面の入れ物
-class _Board:
-    """rules が読む盤面の口だけを持つ入れ物（dir・round・state・record・loop_state・graph・nodes・rd・node_state・
-    output_of_round・is_runner・cond）。1 本目は 1 周だけ回すので round は 1、判定役はまだ起きていない（node_state は pending）"""
-
-    def __init__(self, board, review_rev, record=None, loop_state=None, outputs=None):
-        self.dir = pathlib.Path(board)
-        self.round = 1
-        self.state = {"validator": str(VALIDATOR), "inputs": {"review_rev": review_rev}}
-        self.record = record if record is not None else _rules().init_record(None, None)
-        self.loop_state = loop_state or {}
-        self._outputs = outputs or {}
-        self.graph = _graph()
-        self.nodes = self.graph["nodes"]
-        self.rd = {"instances": {}}
-
-    def node_state(self, nid):
-        return "pending"
-
-    def output_of_round(self, nid, rnd):
-        return self._outputs.get(nid) if rnd == self.round else None
-
-    def is_runner(self, n):
-        """回す側の節か（engine の Board.is_runner と同じ式: graph の runners が正本）"""
-        return n["run_by"] in self.graph.get("runners", [])
-
-    def cond(self, name, overlay=None):
-        """rules の条件の関数 name を呼ぶ（engine の Board.cond と同じ run_cond を通す）——(真偽, 理由の文)。
-        文脈は engine の条件の文脈の頭（COND_HEADS）と同じ鍵。出力は周が 1 つだけなので out と cur が同じ、prev は空"""
-        fn = registry(_rules(), "CONDS").get(name)
-        if fn is None:
-            raise Reject(f"cond '{name}' が rules の CONDS に無い")
-        cur = dict(self._outputs)
-        ctx = {"record": self.record, "out": cur, "prev": {}, "cur": cur, "round": self.round, "rd": self.rd, "loop": self.loop_state}
-        return run_cond(name, fn, {h: ctx[h] for h in COND_HEADS}, lambda: validator_module(self), None, overlay)
 
 
 # ---------------------------------------------------------------- git と盤面のファイル
@@ -341,7 +304,7 @@ def check_request(items: list, board: pathlib.Path, reason: str) -> dict:
         cur = _read_board(board, REQUEST_FILE)
         if cur is not None:
             rec["process"]["request_findings"] = cur
-        b = _Board(board, "", record=rec)
+        b = DiskBoard.scratch(board, review_rev="", record=rec)
         _rules().add(b, items, reason)
         _write_board(board, REQUEST_FILE, b.record["process"]["request_findings"])
         return {"ok": True, "reason": ""}
@@ -382,7 +345,7 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             req = _read_board(board, REQUEST_FILE)
             if req is not None:
                 rec["process"]["request_findings"] = req
-            b = _Board(board, rev, record=rec)
+            b = DiskBoard.scratch(board, review_rev=rev, record=rec)
             out = copy.deepcopy(reply)   # judge_output は 1 行の欄と class_query を正規化する（返答の元は触らない）
             try:
                 note = rules.POST_CHECKS["judge_output"](b, "p2.diagnose", out, None)
@@ -409,7 +372,7 @@ def check_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pat
             rules = _rules()
             rec = rules.init_record(None, None)
             rec["units"], rec["questions"] = judgment.get("units") or [], judgment.get("questions") or []
-            b = _Board(board, rev, record=rec)
+            b = DiskBoard.scratch(board, review_rev=rev, record=rec)
             plan = {"plan": [{"unit_keys": [c["unit_key"]]} for c in reply["changes"]]}
             try:
                 rules.POST_CHECKS["fix_plan_covers_units"](b, "p3.fix", plan, None)
@@ -438,7 +401,7 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             _type_errors(reply, role_schema("p3.delta_review"), "差分の審査の返答")
             rules = _rules()
             st = rules.DELTA_PASSES[1].state_key
-            b = _Board(board, rev, loop_state={st: {"round": 1, "files": touched_files(repo_p, rev)}}, outputs={"p3.fix": {}})
+            b = DiskBoard.scratch(board, review_rev=rev, loop_state={st: {"round": 1, "files": touched_files(repo_p, rev)}})
             rules.POST_CHECKS["delta_review_output"](b, "p3.delta_review", reply, None)
             pathlib.Path(board).mkdir(parents=True, exist_ok=True)
             path = _write_board(board, DELTA_REVIEW_FILE, reply)
