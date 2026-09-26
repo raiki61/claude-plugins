@@ -384,10 +384,10 @@ def test_finalize_writes_the_policy_change_after_the_last_gate(tmp_path, monkeyp
     """最後の関所の後に方針の文書が変わった run も、仕上げが変化を記録に書く。変化が無ければ前に書いた欄を消す"""
     b = board(tmp_path, record={"process": {"policy": {"path": "POLICY.md", "sha": "a"}}})
     b.state["status"] = "stopped"
-    monkeypatch.setattr(RULES, "_policy_change", lambda b: {"before": "a", "after": "b"})
+    monkeypatch.setattr(RULES.policy_input, "change", lambda b, git, pol: {"before": "a", "after": "b"})
     RULES.finalize(b)
     assert b.record["process"]["policy_change"] == {"before": "a", "after": "b"}
-    monkeypatch.setattr(RULES, "_policy_change", lambda b: None)
+    monkeypatch.setattr(RULES.policy_input, "change", lambda b, git, pol: None)
     RULES.finalize(b)
     assert "policy_change" not in b.record["process"]
 

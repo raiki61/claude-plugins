@@ -141,7 +141,7 @@ def test_policy_change_without_fixed_policy(tmp_path):
     f.write_text("方針\n", encoding="utf-8")
     b = board(tmp_path, named=str(f))
     b.dir = tmp_path
-    ch = RULES._policy_change(b)
+    ch = RULES.policy_input.change(b, RULES.git, b.record["process"].get("policy") or {})
     assert (ch["path"], ch["from"], ch["to"]) == (str(f), None, PI.file_sha(str(f)))
 
 
