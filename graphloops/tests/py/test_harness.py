@@ -310,11 +310,13 @@ RMTREE_ALLOWED = {
     ("graphloops/tests/golden_make.py", "write_expectations"): (1, "同じ関数が mkdtemp で作った作業場"),
     ("graphloops/tests/golden_make.py", "check"): (1, "同じ関数が mkdtemp で作った作業場"),
     ("graphloops/tests/golden_make.py", "collect"): (2, "作り直す直前の golden の固定具と期待値の置き場（ga.GOLDEN の下の決まった名前）"),
-    # 変異の実行器の作業場（scratch_dir の mkdtemp と呼び元の finally）。作業場の作り替えは別の run の持ち分で、ここでは
-    # 表に載せるだけ（作り替えたらこの 3 行を消す）
+    # 変異の実行器の作業場（scratch_dir の mkdtemp と呼び元の finally）と、起動ごとの根（run_root。ロックを握って作る）
     ("tests/mutate.py", "one"): (1, "同じ関数が copy（scratch_dir の mkdtemp）で作った腕の作業場"),
     ("tests/mutate.py", "control"): (1, "同じ関数が copy で作った作業場"),
     ("tests/mutate.py", "marker_run"): (1, "同じ関数が copy で作った作業場"),
+    ("tests/mutate.py", "copy"): (1, "作る途中の例外・止める信号で、同じ関数が scratch_dir で作った作業場"),
+    ("tests/mutate.py", "_drop"): (1, "この起動が run_root で作った根（ロックのファイルは最後に消す）"),
+    ("tests/mutate.py", "sweep_roots"): (1, "前の起動が残した根のうち、ロックを取れた物とロックの無い物だけ"),
 }
 
 

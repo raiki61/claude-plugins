@@ -1990,7 +1990,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=589
+EXPECTED_CHECKS=591
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3502,7 +3502,7 @@ line2 = t.splitlines()[1]
 outer = line2.index(":2:7:cond") < line2.index(":2:7:and")
 mid = [a["id"] for a in arms if not mutate.auto_marker(src, a, pathlib.Path("/tmp/h"))]
 sd = mutate.scratch_dir(arms[0]["id"])  # 撃つ段の作業場: id の / と : で mkdtemp が落ちない
-scratch = sd.is_dir() and sd.parent.resolve() == pathlib.Path(mutate.tempfile.gettempdir()).resolve()
+scratch = sd.is_dir() and sd.parent.resolve() == mutate.run_root().resolve()
 sd.rmdir()
 print("kinds=" + ",".join(kinds), f"compiled={ok}/{len(arms)}", f"outer_first={outer}", "unmarked=" + ",".join(i.split(":", 2)[2] for i in mid),
       "anchor=" + repr(mutate.anchor_problem(mutate.ROOT, arms[0])), f"scratch={scratch}",
@@ -3521,6 +3521,9 @@ sys.path.insert(0, sys.argv[1])
 sys.path.insert(0, sys.argv[2])
 import mutate, parallel
 assert (parallel.TEST_THREAD, parallel.TAG) == (mutate.OWNER_THREAD, "GLT~"), "parallel.py と mutate.py の印の書式が揃っていない"
+# 普段の回を見るので、印の写しの中で走る回（外側の marker_run が GL_MARK_OWNERS を立てて台本一式を回す）に継いだ値を落とす——
+# 継いだまま見ると、印の写しがこの検査で赤になり、赤い印の写しの回として撃つ腕の選び方が崩れる（実測 2026-09-27: 固めた基点の印の写しの赤はこの 1 件だけ）
+os.environ.pop("GL_MARK_OWNERS", None)
 d = pathlib.Path(tempfile.mkdtemp())
 hits = d / "hits.txt"
 src = "def f(x):\n    if x:\n        return 1\n    return 0\n"
@@ -3698,6 +3701,165 @@ print(f"arms_in_copy={len(seen['arms'])} git={seen['git']} status={r['status']}"
 PYCOPY
 expect_output 0 "arms_in_copy=0 git=True status=Killed" "腕の写しは腕の一覧を空にして台本を走らせ、.gitignore に当たる物は写さない（写しの --check で赤を作らない）" \
     "$PY_BIN" "$WORK/mut-copy.py" "$ROOT/tests"
+
+cat > "$WORK/mut-root.py" <<'PYROOT'
+import contextlib, io, json, os, pathlib, subprocess, sys, tempfile, time
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+T = sys.argv[1]
+sys.path.insert(0, T)
+import mutate
+PY = sys.executable
+tmp = pathlib.Path(tempfile.mkdtemp())
+ctl = pathlib.Path(tempfile.mkdtemp())
+env = {**os.environ, "TMPDIR": str(tmp), "TMP": str(tmp), "TEMP": str(tmp)}
+head = f"import os, pathlib, sys, time\nsys.path.insert(0, {T!r})\nimport mutate\n"
+live = subprocess.Popen([PY, "-c", head + f"r = mutate.run_root()\npathlib.Path({str(ctl / 'live')!r}).write_text(str(r))\n"
+                         f"while not pathlib.Path({str(ctl / 'go')!r}).exists():\n    time.sleep(0.05)\n"], env=env)
+t0 = time.monotonic()
+while not (ctl / "live").exists() and live.poll() is None and time.monotonic() - t0 < 120:
+    time.sleep(0.05)
+live_root = pathlib.Path((ctl / "live").read_text())
+# atexit を通らずに死んだ起動（SIGKILL と同じく後片付けが走らない）の根と、消しかけの残り（ロックの無い根）と、旧形式の写し
+subprocess.run([PY, "-c", head + "r = mutate.run_root()\n(r / 'x').write_text('x')\nprint(r)\nos._exit(0)\n"], env=env, check=True,
+               capture_output=True, text=True)
+dead = [p for p in tmp.glob("mutate-run-*") if p.name.split(".")[0] != live_root.name]
+(tmp / "mutate-run-zzzzzzzz").mkdir()
+(tmp / "mutate-x-legacy").mkdir()
+third = subprocess.run([PY, "-c", head + "print(mutate.run_root())\n"], env=env, capture_output=True, text=True, check=True)
+after = {p.name for p in tmp.iterdir()}
+(ctl / "go").touch()
+live.wait(timeout=120)
+end = {p.name for p in tmp.iterdir()}
+out = [f"dead_seen={len(dead) == 2} dead_swept={not any(p.exists() for p in dead)} live_kept={live_root.name in after and live_root.name + '.lock' in after}"
+       f" lockless_swept={'mutate-run-zzzzzzzz' not in after} legacy_kept={'mutate-x-legacy' in after}"
+       f" exit_clean={pathlib.Path(third.stdout.strip()).name not in after} live_clean={end == {'mutate-x-legacy'}}"]
+tempfile.tempdir = str(pathlib.Path(tempfile.mkdtemp()))
+src = pathlib.Path(tempfile.mkdtemp()) / "src"
+src.mkdir()
+(src / "a.txt").write_text("old\n", encoding="utf-8")
+(src / "b.py").write_text("x = 1\n", encoding="utf-8")
+subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)
+mutate.ROOT = src
+repo, d = mutate.copy("t1")
+(src / "a.txt").write_text("new\n", encoding="utf-8")
+repo2, d2 = mutate.copy("t2")
+probe = [PY, "-c", "import tempfile; print(tempfile.gettempdir())"]
+in_copy = pathlib.Path(mutate.run_group(probe, cwd=repo)[1].strip())
+outside = pathlib.Path(mutate.run_group(probe, cwd=src)[1].strip())
+out.append(f"under_root={d.parent == mutate.run_root()} same_base={(repo2 / 'a.txt').read_text(encoding='utf-8') == 'old' + chr(10)}"
+           f" child_tmp={in_copy.resolve() == (d / 'tmp').resolve()}"
+           f" outside_tmp={outside == pathlib.Path(subprocess.run(probe, cwd=src, capture_output=True, text=True).stdout.strip())}")
+real = mutate.shutil.copytree
+for exc in (OSError("検査用"), mutate.Stopped(15)):
+    def boom(*_a, **_k):
+        raise exc
+    mutate.shutil.copytree = boom
+    before = set(mutate.run_root().iterdir())
+    try:
+        mutate.copy("t3")
+        raised = None
+    except BaseException as e:
+        raised = type(e).__name__
+    out.append(f"{raised}_left={sorted(p.name for p in set(mutate.run_root().iterdir()) - before)}")
+mutate.shutil.copytree = real
+# 基点を写した直後に作業ツリーを動かす（a.txt と b.py を HEAD の中身へ戻す）。assume-unchanged の印の付いた c.py は基点の前に変える
+src = pathlib.Path(tempfile.mkdtemp()) / "src2"
+src.mkdir()
+git = lambda *a: subprocess.run(["git", "-C", str(src), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, check=True)
+for name, body in (("a.txt", "orig\n"), ("b.py", "x = 1\n"), ("c.py", "y = 1\n")):
+    (src / name).write_text(body, encoding="utf-8")
+git("init", "-q"); git("add", "-A"); git("commit", "-qm", "x"); git("update-index", "--assume-unchanged", "c.py")
+(src / "a.txt").write_text("changed\n", encoding="utf-8")
+(src / "b.py").write_text("x = 1\nif x:\n    f()\n", encoding="utf-8")
+(src / "c.py").write_text("y = 1\ng()\n", encoding="utf-8")
+real_index = (src / ".git" / "index").read_bytes()
+mutate.ROOT = src
+real_git = mutate.base_git
+def moving_git():
+    (src / "a.txt").write_text("orig\n", encoding="utf-8")
+    (src / "b.py").write_text("x = 1\n", encoding="utf-8")
+    return real_git()
+mutate.base_git = moving_git
+fired = []
+def fake_shoot(_a, res, fire, sel, fps, late, pend):
+    fired.extend(x["id"] for x in fire)
+    res["control"] = {"root": {"rc": 0}}
+    res["marker"] = {"rc": 0, "failed": [], "tail": [], "placed": [], "seen": [], "cover": {}, "skipped": {}}
+    return []
+mutate.shoot = fake_shoot
+arms = pathlib.Path(tempfile.mkdtemp()) / "arms.json"
+arms.write_text('{"arms": [{"id": "l1", "title": "l", "file": "a.txt", "suite": "root", "old": "changed", "new": "x", "marker": {"where": "at"}}]}',
+                encoding="utf-8")
+rep_out = arms.with_name("out.json")
+sys.argv = ["mutate.py", "--arms-file", str(arms), "--auto", "HEAD", "--changed-since", "HEAD", "--out", str(rep_out)]
+err = io.StringIO()
+try:
+    with contextlib.redirect_stderr(err):
+        mutate.main()
+    code = None
+except SystemExit as e:
+    code = e.code
+got = json.loads(rep_out.read_text(encoding="utf-8"))
+out.append(f"moved_code={code} fired={sorted(fired)} worktree_moved={got.get('worktree_moved')} moved_named={'b.py' in err.getvalue()}"
+           f" real_index_kept={(src / '.git' / 'index').read_bytes() == real_index}")
+print(" ".join(out))
+PYROOT
+expect_output 0 "dead_seen=True dead_swept=True live_kept=True lockless_swept=True legacy_kept=True exit_clean=True live_clean=True under_root=True same_base=True child_tmp=True outside_tmp=True OSError_left=[] Stopped_left=[] moved_code=1 fired=['auto:b.py:2:3:cond', 'auto:b.py:3:4:stmt', 'auto:c.py:2:0:stmt', 'l1'] worktree_moved=['a.txt', 'b.py'] moved_named=True real_index_kept=True" "写しの根: 次の起動はロックの解けた根とロックの無い根だけを消し、生きた根・旧形式の写しは触らない。写しは基点から作り、作る途中の例外・止める信号で置き場を残さず、写しの中の子だけ TMPDIR を作業場の下に向ける。--auto・--changed-since の差分と字列の検査は基点から取り（assume-unchanged の印も見ずに、本物の index は書かない）、基点の後に動いた作業ツリーは止めずに worktree_moved に残す" \
+    "$PY_BIN" "$WORK/mut-root.py" "$ROOT/tests"
+
+cat > "$WORK/mut-red.py" <<'PYRED'
+import pathlib, sys, types
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+out = []
+mutate.control = lambda suites, selected=None: {"root": {"rc": 0, "failed": [], "tail": []}}
+mutate.one = lambda x: {"id": x["id"], "title": x["title"], "status": "Survived", "own": False, "rc": 0, "failed": [], "killedBy": [], "tail": []}
+auto = {"start": 0, "end": 1, "new": "False", "stmt": False, "in_function": True}
+for rc in (2, 0):
+    mutate.marker_run = lambda arms, rc=rc: {"rc": rc, "failed": [], "tail": [], "placed": ["a1", "a2"], "seen": ["a1"],
+                                             "cover": {"a1": ["simulate.py~test_a"]}, "skipped": {}}
+    fire = [{"id": i, "title": i, "file": "f.py", "suite": "root", "auto": dict(auto)} for i in ("a1", "a2")]
+    res = {"schemaVersion": "1", "arms": [], "pruned": []}
+    mutate.shoot(types.SimpleNamespace(j=1, out=None), res, list(fire), fire, {"a1": "f", "a2": "f"}, lambda: False, lambda xs: [])
+    s = mutate.evaluate(res, fire)
+    st = {r["id"]: r["status"] for r in res["arms"]}
+    g = mutate.gate_efficacy(res)
+    a2 = next(x for x in g["arms"] if x["arm"].startswith("a2"))
+    out.append(f"rc{rc}: a1={st['a1']} a2={st['a2']} unrunnable={s['unrunnable']} unhealthy={'marker_unhealthy' in res}"
+               f" note={'印の写しが赤' in a2.get('note', '')} healthy={mutate.healthy(res)}")
+# 撃った腕の Survived も、印の写しが赤の回は NoCoverage に書き換えない
+for rc in (2, 0):
+    res = {"marker": {"placed": ["m1"], "seen": [], "rc": rc}, "control": {"root": {"rc": 0}},
+           "arms": [{"id": "m1", "title": "m", "status": "Survived", "own": False}]}
+    mutate.evaluate(res, [{"id": "m1"}])
+    out.append(f"eval_rc{rc}={res['arms'][0]['status']}")
+# 通ったが台本一式で撃つ腕の理由別の数と、差せない腕の数
+au = lambda i, **k: {"id": i, "auto": {**auto, **k}}
+sel = [au("n1"), au("u1"), au("i1", in_function=False), au("o1"), au("h1"), au("z1"), {"id": "l1"}]
+cover = {"n1": ["simulate.py~test_a"], "u1": ["?"], "i1": ["simulate.py~test_a"], "o1": ["other.py~test_b"], "z1": ["simulate.py~test_a"]}
+for x in sel:
+    if x["id"] in cover:
+        x["cover"] = cover[x["id"]]
+res = {"marker": {"placed": [x["id"] for x in sel[:6]] + ["s1"], "seen": ["n1", "u1", "i1", "o1", "l1"], "rc": 0, "skipped": {"s1": "式の途中の行"}},
+       "control": {"root": {"rc": 0}}, "arms": []}
+s = mutate.evaluate(res, sel)
+out.append(f"why={s['whole_suite_why']} unplaced={s['unplaced']}")
+body = "  ok   a\n  FAIL b — x\n  line after\n  ok   c\nTraceback (most recent call last):\nZeroDivisionError\n"
+mutate.run_group = lambda argv, cwd, env=None, failfast=False: (1, body)
+r = mutate.run_suite(pathlib.Path("."), "root", detail=True)
+plain = mutate.run_suite(pathlib.Path("."), "root")
+f = r["detail"]["fails"]
+out.append(f"detail={f[0]['line'] == 'FAIL b — x' and f[0]['after'] == ['  line after'] and r['detail']['end'][-1] == 'ZeroDivisionError'}"
+           f" plain_no_detail={'detail' not in plain}")
+print(" ".join(out))
+PYRED
+expect_output 0 "rc2: a1=Survived a2=Pending unrunnable=['a2'] unhealthy=True note=True healthy=False rc0: a1=Survived a2=NoCoverage unrunnable=[] unhealthy=False note=False healthy=True eval_rc2=Survived eval_rc0=NoCoverage why={'import_time': 1, 'outside_scripts': 1, 'unknown_owner': 1} unplaced=1 detail=True plain_no_detail=True" "印の写しが赤の回は、通らなかった自動の腕を撃たずに Pending（unrunnable に理由）にし、NoCoverage に書き換えない（緑の回は今のまま）。理由は marker_unhealthy に、赤の本文は detail に残る。通ったが台本一式で撃つ腕は理由別に、差せない腕は数で summary に出る" \
+    "$PY_BIN" "$WORK/mut-red.py" "$ROOT/tests"
 
 # auto_targets の差分読み: git そのものを差し替えて、数え無し／数え有りの @@ 見出し・削除だけの見出し・
 # +++ /dev/null（cur 無し）の後の見出し・diff には出るがディスクに無いファイル・未追跡の新しい .py は全行・

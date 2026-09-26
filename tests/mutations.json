@@ -2132,7 +2132,7 @@
    "title": "印を通らない生存は NoCoverage",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "        if r.get(\"status\") == \"Survived\" and r[\"id\"] in m[\"placed\"] and r[\"id\"] not in m[\"seen\"]:",
+   "old": "        if r.get(\"status\") == \"Survived\" and m.get(\"rc\", 0) == 0 and r[\"id\"] in m[\"placed\"] and r[\"id\"] not in m[\"seen\"]:",
    "new": "        if False:",
    "expect": "expect を宣言した腕は別の検査の赤と印では証拠にならず"
   },
@@ -3875,8 +3875,8 @@
    "title": "一覧の腕と自動の腕の和で 0 本を判定する",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "    sel = pick(arms, a.only, a.files, a.changed_since) + autos",
-   "new": "    sel = (pick(arms, a.only, a.files, a.changed_since) if a.only or a.files or a.changed_since or not a.auto else []) + autos",
+   "old": "    sel = pick(arms, a.only, a.files, a.changed_since, *view) + autos",
+   "new": "    sel = (pick(arms, a.only, a.files, a.changed_since, *view) if a.only or a.files or a.changed_since or not a.auto else []) + autos",
    "expect": "自動の腕の本命"
   },
   {
