@@ -16,8 +16,9 @@ import sys
 
 BODY = r'''
 import json, os, subprocess, sys, time
-# 実物の claude -p と同じく UTF-8 で書く（Windows のパイプの既定は ANSI コードページで、日本語の答えが書けずに空の標準出力になった）
-sys.stdout.reconfigure(encoding="utf-8")
+# 実物の claude -p と同じく UTF-8 で、改行を変換せずに書く（Windows のパイプの既定は ANSI コードページで、日本語の答えが書けずに
+# 空の標準出力になった。text モードの既定は \n を \r\n にするが、実物の claude は変換しない）
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
 raw = sys.stdin.buffer.read()
 argv = sys.argv[1:]
 log = os.environ.get("FAKE_LOG")

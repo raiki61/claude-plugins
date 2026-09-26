@@ -2666,6 +2666,24 @@
    "expect": "引用符の無い python-version も拾う"
   },
   {
+   "id": "SE1",
+   "title": "書く側の柵: ファイルに書く形の埋め込み script から標準出力の encoding の直しを消す",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "cat > \"$WORK/mut-eval.py\" <<'PYEVAL'\nimport sys\nfor _s in (sys.stdout, sys.stderr):\n    if hasattr(_s, \"reconfigure\"):\n        _s.reconfigure(encoding=\"utf-8\")\n",
+   "new": "cat > \"$WORK/mut-eval.py\" <<'PYEVAL'\nimport sys\n",
+   "expect": "子の出力を文字で読む呼びは encoding を明示している"
+  },
+  {
+   "id": "SE2",
+   "title": "書く側の柵: 標準入力で渡す埋め込み script から標準出力の encoding の直しを消す",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "<<'PYENTRY'\nimport re, sys, pathlib\nfor _s in (sys.stdout, sys.stderr):\n    if hasattr(_s, \"reconfigure\"):\n        _s.reconfigure(encoding=\"utf-8\")\n",
+   "new": "<<'PYENTRY'\nimport re, sys, pathlib\n",
+   "expect": "子の出力を文字で読む呼びは encoding を明示している"
+  },
+  {
    "id": "DG1",
    "title": "任せ先を ready に載せる",
    "file": "graphloops/engine/advance.py",
