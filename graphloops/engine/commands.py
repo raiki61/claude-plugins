@@ -9,6 +9,7 @@ import tempfile
 import threading
 
 from . import pointers
+from . import hist as histmod
 from . import declared
 from . import intake
 from .advance import ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, open_next_round
@@ -1283,6 +1284,12 @@ def cmd_patch(a):
     """
     b = Board(resolve_dir(a))
     b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）
+    derived = _derived_patch_target(b, a.path)
+    if derived:
+        fn = registry(b.rules, "HIST").get(derived)
+        routes = "／".join(histmod.repair_routes(fn)) if fn else f"hist.{derived} は rules の HIST に無い"
+        raise Reject(f"{a.path} は履歴から作り直す値 hist.{derived}（rules の HIST）で、書いても次に引くとき作り直されて効かない——"
+                     f"直すなら値の元を: {routes}（控え {b.dir / 'hist.json'} は正本でなく、書き戻す口も無い）")
     if a.path.startswith("out."):
         _patch_output(b, a.path[len("out."):], read_json(a.file))
     elif a.path.startswith("state."):
@@ -1293,6 +1300,16 @@ def cmd_patch(a):
     b.trace("patch", path=a.path, reason=a.reason)
     b.save()
     print(f"ok {a.path if a.path.startswith('state.') else 'record.' + a.path} を手当てした（痕跡は state.patches と trace に残る）")
+
+
+def _derived_patch_target(b, path):
+    """手当ての path が hist の値を指すなら、その名前（hist.<名>、または rules の HIST に在る名前の state.loop.<名>）。指さなければ None"""
+    for head in ("hist.", "state.loop."):
+        if path.startswith(head):
+            key = path[len(head):].split(".", 1)[0]
+            if head == "hist." or key in registry(b.rules, "HIST"):
+                return key
+    return None
 
 
 def _patch_output(b, rest, value):
