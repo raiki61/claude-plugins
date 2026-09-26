@@ -2005,7 +2005,7 @@
    "title": "印を通らない生存は NoCoverage",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "        if r.get(\"status\") == \"Survived\" and r[\"id\"] in m[\"placed\"] and r[\"id\"] not in m[\"seen\"]:",
+   "old": "        if r.get(\"status\") == \"Survived\" and m.get(\"rc\", 0) == 0 and r[\"id\"] in m[\"placed\"] and r[\"id\"] not in m[\"seen\"]:",
    "new": "        if False:",
    "expect": "expect を宣言した腕は別の検査の赤と印では証拠にならず"
   },
