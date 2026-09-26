@@ -18,6 +18,7 @@ Windows では作業場を消せないことがあるので、片づけは `Temp
 import importlib.util
 import os
 import pathlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -43,6 +44,16 @@ def git(repo, *args):
     r = subprocess.run([*GIT, "-C", repo, *args], check=True, capture_output=True,
                        encoding="utf-8", errors="replace")
     return r.stdout.strip()
+
+
+def git_runs_sh(tmp):
+    """git が sh で命令を起こせるか（hook と GIT_SSH_COMMAND は git が sh で起こす）。OS の名前で推し量らず、git に sh の
+    別名を 1 回起こさせて確かめる——Git for Windows は同梱の sh で起こすので、PATH に sh が在るかとも別の問い"""
+    try:
+        return subprocess.run([*GIT, "-C", tmp, "-c", "alias.shprobe=!exit 0", "shprobe"],
+                              capture_output=True).returncode == 0
+    except OSError:
+        return False
 
 
 def write(repo, rel, text):
@@ -348,21 +359,22 @@ def _none(tmp):
     out, on = call(repo, node(repo, headRefName="nope", state="MERGED"))
     git(repo, "remote", "set-url", "origin", os.path.join(tmp, "nowhere", "o", "r.git"))
     out2, on2 = call(repo, node(repo, headRefName="nope"))
-    # 応答が無ければ FETCH_TIMEOUT 秒で切る（ssh を sleep する script に差し替えて再現。Windows は sh が無いことがある）。
+    # 応答が無ければ FETCH_TIMEOUT 秒で切る（ssh を sleep する script に差し替えて再現。git が sh を起こせない環境では見送る）。
     # 待つのは検査の実時間なので、切る秒数は縮めて借りる（timeout は float を受ける）
     short = 0.2
     out3 = f"origin から取れなかった（{short} 秒で応答が無い）"
-    if os.name != "nt":
+    if git_runs_sh(tmp):
         git(repo, "remote", "set-url", "origin", "ssh://nowhere.invalid/o/r.git")
         slow = write(tmp, "slow-ssh", "#!/bin/sh\nsleep 5\n")
         os.chmod(slow, 0o755)
-        os.environ["GIT_SSH_COMMAND"] = slow
+        # git は GIT_SSH_COMMAND を sh の命令として読むので、Windows の逆斜線の path は前向きに直して引用する
+        os.environ["GIT_SSH_COMMAND"] = shlex.quote(slow.replace(os.sep, "/"))
         saved, catchup.FETCH_TIMEOUT = catchup.FETCH_TIMEOUT, short
         out3, on3 = call(repo, node(repo, headRefName="nope"))
         catchup.FETCH_TIMEOUT = saved
         del os.environ["GIT_SSH_COMMAND"]
     else:
-        print("  ok   応答の無い origin は FETCH_TIMEOUT 秒で切る # SKIP Windows は ssh の代役に使う sh が無いことがある")
+        print("  ok   応答の無い origin は FETCH_TIMEOUT 秒で切る # SKIP sh: git が ssh の代役の script を起こす sh が無い")
     return verdict({"gone": "origin にももう無い（PR は merge 済みで、枝は削除済み）" in out
                     and f"git fetch origin refs/pull/{NUM}/head" in out and "（手元は main のまま）" in out,
                     "unreachable": "origin から取れなかった（git fetch が失敗）" in out2
@@ -541,17 +553,18 @@ def _triangular(tmp):
 @case("hook")
 def _hook(tmp):
     """post-checkout hook が非 0 でも HEAD は移っているので、移った扱い（終了コードで判定しない）。
-    hook の言い分は行に添える（Windows は hook の sh が無いことがあるので、そこは見ない。global の
+    hook の言い分は行に添える（git が hook の sh を起こせない環境では、そこは見ない。global の
     core.hooksPath は main() で読ませないようにしてある）。"""
     repo = make_repo(tmp)
     os.chmod(write(repo, os.path.join(".git", "hooks", "post-checkout"),
                    "#!/bin/sh\necho hook-said-no >&2\nexit 1\n"), 0o755)
     out, on = call(repo)
-    if os.name == "nt":
-        print("  ok   hook の言い分を行に添える # SKIP Windows は hook の sh が無いことがある")
+    runs_sh = git_runs_sh(tmp)
+    if not runs_sh:
+        print("  ok   hook の言い分を行に添える # SKIP sh: git が hook を起こす sh が無い")
     return verdict({"line": f"ブランチ {HEAD_REF}: main から移った" in out,
                     "branch": current(repo) == HEAD_REF, "on": on,
-                    "note": os.name == "nt" or "hook-said-no" in out}, out)
+                    "note": not runs_sh or "hook-said-no" in out}, out)
 
 
 @case("lock")
