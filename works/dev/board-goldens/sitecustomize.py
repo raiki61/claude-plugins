@@ -14,7 +14,7 @@
 1 手ごとに撮る物（WORKS_GOLDEN_OUT の下へ。make.py が場面ごとに集めて差分に直す）:
 - 手の前後の記憶（盤面を引数に取る関数は記憶の中の b.state・b.record、サブコマンドの関数はディスクの state.json・record.json）
 - 手の前後のディスクの目録（盤面の置き場の全部から state.json・record.json・trace.jsonl・prompts/・roles/・*.pgid を除いた物）
-- 手の前の対象リポジトリの目録（作業ツリーと .git の objects・refs・HEAD・index）
+- 手の前の対象リポジトリの目録（作業ツリーと .git の objects・refs・HEAD・index、人の方針の文書 .git/graphloops/policy.md）
 目録はパス → 中身の sha256 で、中身は blobs/<sha256>.gz。記憶と目録は raw/mem・raw/man に中身の sha で 1 度だけ置く。
 起動の終わり（atexit）には、ディスクの記憶と目録を raw/end に撮る（Run の最後の起動の後の盤面。make.py の final）。
 入れ子の手（converge や answer の中の open_round・engine_run の中の accept）は parent に親の手の番号を持つ。
@@ -171,6 +171,8 @@ def _install(out_dir):
             return True
         if len(parts) == 1:
             return is_dir
+        if parts[1] == "graphloops":   # 人の方針の文書の既定の置き場（RL の policy_input が読む。作業ツリーの外）
+            return parts[2:] == (() if is_dir else ("policy.md",))
         return parts[1] in (("objects", "refs") if len(parts) > 2 or is_dir else ("HEAD", "index", "objects", "refs"))
 
     def disk_listing():

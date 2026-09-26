@@ -56,7 +56,8 @@
     count-*.json・policy/・lanes/・runs/ に、機械の節が書く diff-r<N>.patch などと items/・report.md を足した範囲。再生で手の前の
     ディスクを戻すため）。Run の最初の手だけ base（丸ごと。init は後の目録）、以後は before・after を前の目録からの差分
     {add: {パス: sha}, drop: [パス]} で持ち、変わらなければ省く。拒んだ手でもディスクは後を撮る（ディスクは捨てられないため）。
-  - repo_before は手の前の対象リポジトリの目録（作業ツリーと .git の objects・refs・HEAD・index）。最初だけ base、以後は差分。
+  - repo_before は手の前の対象リポジトリの目録（作業ツリーと .git の objects・refs・HEAD・index、人の方針の文書の既定の置き場
+    .git/graphloops/policy.md——RL の関所と仕上げが読む。作業ツリーの外なので足した）。最初だけ base、以後は差分。
 - blobs/<sha256>.gz: 目録が指す中身（置き換えた後のバイトの sha256。gzip）と、MANIFEST の last の中身。
 
 置き換え（中身・記憶・引数・MANIFEST の全部。/var と /private/var、/tmp と /private/tmp の両方の綴り。長い綴りから）:
