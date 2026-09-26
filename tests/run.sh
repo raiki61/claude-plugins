@@ -3559,8 +3559,15 @@ subprocess.run([sys.executable, str(d / "m.py")], cwd=d, check=True)
 th = threading.Thread(target=in_thread)
 th.start(); th.join()
 ids, cover = mutate.read_hits(hits)
-print(f"ids={ids == [arm['id']]} cover={cover.get(arm['id'])} ws_plain={seen['ws_plain']} tagged={'GLT~simulate.py~test_probe~' in seen['ws'].name}"
-      f" name_back={threading.current_thread().name == 'MainThread'}")
+(d / "red.py").write_text("print('  FAIL red-for-test')\nraise SystemExit(1)\n", encoding="utf-8")
+(d / "late.py").write_text(f"import pathlib\npathlib.Path({str(d / 'late-ran')!r}).touch()\n", encoding="utf-8")
+ff = mutate.run_selected(d, {"red.py": ["t"], "late.py": ["t"]}, failfast=True)
+ff_stops = ff["rc"] != 0 and not (d / "late-ran").exists()
+# 結果は 1 行に書く: Windows では下の見送りの行が間に入り、2 行に割った期待が続きの行として当たらなかった（実測 2026-09-26: windows-latest）
+head = (f"ids={ids == [arm['id']]} cover={cover.get(arm['id'])} ws_plain={seen['ws_plain']} tagged={'GLT~simulate.py~test_probe~' in seen['ws'].name}"
+        f" name_back={threading.current_thread().name == 'MainThread'}"
+        # スレッドの名前だけで帰属する（作業場の印の無い cwd でも）——上の台本の印は子の作業場の印でも帰属するので、別に見る
+        f" by_thread={mutate.owner_of(mutate.OWNER_THREAD + 'a.py~t', str(d)) == 'a.py~t'} ff_stops={ff_stops}")
 # 止める信号の後の run_group は、起こした最中に止められた子も・その後に起こす子も『stopped』で返し、赤（Killed）と読ませない
 if os.name == "posix":
     import time
@@ -3573,19 +3580,26 @@ if os.name == "posix":
     mutate.STOPPING.set()
     mutate.stop_groups()
     th.join()
-    after = mutate.run_group([sys.executable, "-c", "pass"], cwd=d)
+    t0 = time.monotonic()
+    after = mutate.run_group([sys.executable, "-c", "import time; time.sleep(600)"], cwd=d)
+    after = (after, time.monotonic() - t0 < 300)
     try:
         mutate.run_selected(d, {"x.py": ["t"]})
         raised = False
     except mutate.Stopped:
         raised = True
-    print(f"stop={got.get('r')} after={after} raised={raised}")
+    # 止める信号の後に取り出された腕は、写しを作らずに Stopped で抜ける
+    try:
+        mutate.one({"id": "x", "title": "検査用", "file": "tests/run.sh", "suite": "root"})
+        one_stopped = False
+    except mutate.Stopped:
+        one_stopped = True
+    print(f"{head} stop={got.get('r')} after={after} raised={raised} one_stopped={one_stopped}")
 else:
     print("  ok   run_group の止める信号 # SKIP process-group: posix のプロセスグループ（killpg）に頼る")
-    print("stop=('stopped', '') after=('stopped', '') raised=True")
+    print(f"{head} stop=('stopped', '') after=(('stopped', ''), True) raised=True one_stopped=True")
 PYOWN
-expect_output 0 "ids=True cover=['?', 'simulate.py~test_probe'] ws_plain=False tagged=True name_back=True
-stop=('stopped', '') after=('stopped', '') raised=True" "印の帰属: 台本のスレッドの中の印と、印の写しの回に台本の作業場で起こした子の印はその台本に、台本の外のスレッド・作業場の外の子の印は ? に帰属する（普段の回は作業場の名前を変えない）。止める信号の後の run_group は stopped を返し、腕は Stopped で抜ける" \
+expect_output 0 "ids=True cover=['?', 'simulate.py~test_probe'] ws_plain=False tagged=True name_back=True by_thread=True ff_stops=True stop=('stopped', '') after=(('stopped', ''), True) raised=True one_stopped=True" "印の帰属: 台本のスレッドの中の印と、印の写しの回に台本の作業場で起こした子の印はその台本に、台本の外のスレッド・作業場の外の子の印は ? に帰属する（普段の回は作業場の名前を変えない）。止める信号の後の run_group は stopped を返し、腕は Stopped で抜ける" \
     "$PY_BIN" "$WORK/mut-owner.py" "$ROOT/tests" "$ROOT/graphloops/tests"
 # Google 型の絞り（1 行 1 本・効かない行）と、行を通した台本だけで撃つ・一式での確かめ直しは --confirm-survivors の回だけ・赤の出どころ
 cat > "$WORK/mut-narrow.py" <<'PYNAR'
@@ -4201,6 +4215,15 @@ pend_ids = [x["id"] for x in sl.get("pending") or []]
 assert r.returncode == 1 and "Traceback" not in r.stderr, f"途中で期限が来た回は exit 1 で、例外を出さない: exit {r.returncode} {r.stderr[-300:]}"
 assert sorted(shot_ids + pend_ids) == ["norm1", "norm2", "slow1"], f"選んだ腕が撃った腕か pending にちょうど 1 度ずつ載らない: 撃った {shot_ids} / pending {pend_ids}"
 assert "norm2" in pend_ids and "norm1" in shot_ids and "slow1" in shot_ids, f"期限の後に始まる腕は pending に、前に始まった腕は結果に: 撃った {shot_ids} / pending {pend_ids}"
+# 撃つ段の頭で期限を過ぎていた回は、写しで control も印の写しも走らせず、選んだ腕を全部 pending に置く（期限の後に仕事を始めない）
+past = (datetime.datetime.now().astimezone() - datetime.timedelta(days=1)).isoformat()
+pa_out = mini / "past.json"
+r = subprocess.run([PY, MUT, "-j", "1", "--only", "norm1,norm2", "--deadline-at", past, "--out", str(pa_out)], cwd=mini,
+                   capture_output=True, text=True, encoding="utf-8", timeout=600)
+pa = json.loads(pa_out.read_text(encoding="utf-8"))
+assert r.returncode == 1 and not pa["arms"] and sorted(x["id"] for x in pa.get("pending") or []) == ["norm1", "norm2"] \
+    and pa.get("control") == {"carried": {"rc": 0}} and not (pa.get("marker") or {}).get("placed"), \
+    f"期限を過ぎてから撃ち始めた回は control も腕も走らせず全部 pending に: exit {r.returncode} control={pa.get('control')} {r.stderr[-200:]}"
 
 
 def gone(pid, within=10):

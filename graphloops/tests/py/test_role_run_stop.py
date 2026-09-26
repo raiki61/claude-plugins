@@ -413,3 +413,16 @@ def test_stop_tree_reaps_the_leader_it_holds(monkeypatch):
         if p.poll() is None:
             p.kill()
             p.wait()
+
+
+@pytest.mark.parametrize("reap,want", [pytest.param(True, 1, id="reap"), pytest.param(False, 0, id="no-reap")])
+def test_run_role_ends_a_normal_attempt_only_when_reaping(tmp_path, monkeypatch, reap, want):
+    """reap が真の試行は、役が正常に終わって受け付けた回も、試行の終わりに木の残りを 1 回まとめて止める（_end_attempt）。偽なら止めない"""
+    prompt = tmp_path / "p.md"
+    prompt.write_text("指示書", encoding="utf-8")
+    env = json.dumps({"type": "result", "subtype": "success", "result": "{}", "session_id": "s-1"})
+    ended = []
+    monkeypatch.setattr(role_run, "_end_attempt", lambda trees, pgid_file: ended.append((trees, pgid_file)))
+    r = role_run.run_role([sys.executable, "-c", f"print({env!r})"], prompt, tmp_path / "out.json", accept=lambda t: None, reap=reap)
+    assert r["ok"] and len(ended) == want, (r, ended)
+    assert all(isinstance(t, list) for t, _ in ended)

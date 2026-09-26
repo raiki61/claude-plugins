@@ -35,6 +35,8 @@ def test_schema_at_follows_the_declared_tree(path, ok):
 def test_schema_at_says_why_a_path_is_undeclared():
     assert "下の欄を持たない" in schema_at(TREE, ["opaque", "x"])[1]
     assert "'c'" in schema_at(TREE, ["a", "c"])[1]
+    # 宣言が schema（object）でない欄（true・配列）の下は辿らず、落ちずに理由を返す
+    assert schema_at({"properties": {"t": True}}, ["t", "x"]) == (None, "t の宣言が schema でない")
 
 
 # ---------------------------------------------------------------- graphcheck（review の graph を 1 か所ずつ壊す）

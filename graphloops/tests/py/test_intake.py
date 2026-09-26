@@ -249,3 +249,13 @@ def test_set_url_rejects_non_http(tmp_path):
 def test_key_reads_a_missing_part_as_empty():
     """鍵の部品が無い（None）のと空の文字列は同じ鍵——欄の有無の違いで同じ問題を割らない"""
     assert intake.key_of({"where": "loop.py next", "exc": None}) == intake.key_of({"where": "loop.py next", "exc": ""})
+
+
+def test_quiet_swallows_errors_but_lets_keyboard_interrupt_through():
+    """記録器の握りは呼び元を止めない（例外は None で返す）が、利用者の中断（KeyboardInterrupt）だけは外へ通す"""
+    def boom(e):
+        raise e
+    assert intake.quiet(boom)(RuntimeError("検査用")) is None
+    assert intake.quiet(boom)(SystemExit(3)) is None
+    with pytest.raises(KeyboardInterrupt):
+        intake.quiet(boom)(KeyboardInterrupt())
