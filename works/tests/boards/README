@@ -1,45 +1,45 @@
-# graphloops の実物の盤面の写し。1 行 1 個: 置き場<TAB>元のパス<TAB>state.graph_sha
-# real/ は state.json・record.json・out/・rounds/（reads.jsonl・policy/ は元に無い）。foreign/ は state.json だけ。
+# graphloops の実物の盤面の写し。1 行 1 個: 置き場<TAB>元のパス<TAB>state.graph_sha<TAB>元の state.json の sha256
+# real/ は state.json・record.json・out/・rounds/（reads.jsonl・policy/ は元に無い）。foreign/ は state.json を graph_sha の鍵だけに削った物（値は元と同じ。開くときは graph_sha で断るので足りる〔BL-R1〕）。
 # 写し元: 〔盤見本〕scratchpad/board-fixtures/（review-loop 多周の盤面 37 個と sim/）。見本は書き換えない。
 # sim__* は graphloops fbd40e3（0.20.3）の tests/simulate_review.py の場面を回した盤面（元の一時の置き場は消えている）。
-real/wt-ci-skip	/Users/p03623/src/claude-plugins/.git/worktrees/wt-ci-skip/graphloops/review-loop/20260926-103155	f9897bb07384
-real/wt-layer1	/Users/p03623/src/claude-plugins/.git/worktrees/wt-layer1/graphloops/review-loop/20260926-103145	f9897bb07384
-foreign/claude-plugins-work1__20260913-230750	/Users/p03623/src/claude-plugins-work1/.git/graphloops/review-loop/20260913-230750	970adbf96217
-foreign/claude-plugins__20260915-193936	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260915-193936	b004881a2e3b
-foreign/claude-plugins__20260918-140703	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260918-140703	7e46a227e5de
-foreign/claude-plugins__20260918-221245	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260918-221245	7e46a227e5de
-foreign/claude-plugins__20260922-140143	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260922-140143	88710aaf600b
-foreign/claude-plugins__20260922-182823	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260922-182823	88710aaf600b
-foreign/claude-plugins__20260923-152557	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260923-152557	d8dd30166f93
-foreign/claude-plugins__20260924-081523	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260924-081523	3e1914f32f0a
-foreign/claude-plugins__wt-merge__20260925-135044	/Users/p03623/src/claude-plugins/.git/worktrees/wt-merge/graphloops/review-loop/20260925-135044	772e2ddf6fff
-foreign/guided-resolver-work0__20260920-105219	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260920-105219	7e46a227e5de
-foreign/guided-resolver-work0__20260922-142956	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956	88710aaf600b
-foreign/guided-resolver-work0__20260923-091739	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-091739	88710aaf600b
-foreign/guided-resolver-work0__20260923-135112	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-135112	88710aaf600b
-foreign/guided-resolver-work0__20260923-205434	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-205434	88710aaf600b
-foreign/guided-resolver-work0__20260924-121908	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260924-121908	88710aaf600b
-foreign/guided-resolver-work1__20260917-170334	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260917-170334	7e46a227e5de
-foreign/guided-resolver-work1__20260923-132402	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-132402	88710aaf600b
-foreign/guided-resolver-work1__20260923-134100	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-134100	88710aaf600b
-foreign/guided-resolver-work1__20260923-170545	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-170545	88710aaf600b
-foreign/guided-resolver-work1__20260924-065028	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260924-065028	88710aaf600b
-foreign/guided-resolver-work1__20260924-162230	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260924-162230	88710aaf600b
-foreign/guided-resolver-work2__20260918-162035	/Users/p03623/src/guided-resolver-work2/.git/graphloops/review-loop/20260918-162035	7e46a227e5de
-foreign/guided-resolver-work3__20260923-222850	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260923-222850	88710aaf600b
-foreign/guided-resolver-work3__20260924-142359	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359	88710aaf600b
-foreign/guided-resolver-work3__20260924-191939	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-191939	1150cb09bb6b
-foreign/guided-resolver-work3__20260925-173154	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260925-173154	55ba6ea3666b
-foreign/guided-resolver-work4__20260918-162718	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260918-162718	7e46a227e5de
-foreign/guided-resolver-work4__20260922-164726	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260922-164726	7e46a227e5de
-foreign/guided-resolver-work4__20260923-105529	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260923-105529	7e46a227e5de
-foreign/guided-resolver-work4__20260923-151836	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260923-151836	1150cb09bb6b
-foreign/guided-resolver-work5__20260923-174720	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260923-174720	88710aaf600b
-foreign/guided-resolver-work5__20260924-064929	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-064929	88710aaf600b
-foreign/guided-resolver-work5__20260924-162014	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-162014	88710aaf600b
-foreign/guided-resolver-work5__20260924-192520	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-192520	1150cb09bb6b
-foreign/guided-resolver-work6__20260924-172416	/Users/p03623/src/guided-resolver-work6/.git/graphloops/review-loop/20260924-172416	88710aaf600b
-foreign/sim__test_awaiting	graphloops fbd40e3 simulate_review.py test_awaiting	8676692bbcb2
-foreign/sim__test_converges	graphloops fbd40e3 simulate_review.py test_converges	8676692bbcb2
-foreign/sim__test_rejections	graphloops fbd40e3 simulate_review.py test_rejections	8676692bbcb2
-foreign/sim__test_runaway	graphloops fbd40e3 simulate_review.py test_runaway	8676692bbcb2
+real/wt-ci-skip	/Users/p03623/src/claude-plugins/.git/worktrees/wt-ci-skip/graphloops/review-loop/20260926-103155	f9897bb07384	50508bdea0b121f3d79158be1dbbfe16bf727792dce81417edd19d8b385977c7
+real/wt-layer1	/Users/p03623/src/claude-plugins/.git/worktrees/wt-layer1/graphloops/review-loop/20260926-103145	f9897bb07384	b11b2ba5e1f69bd4acaa468854b3dad25604a34a4d18149af903646e7342ce19
+foreign/claude-plugins-work1__20260913-230750	/Users/p03623/src/claude-plugins-work1/.git/graphloops/review-loop/20260913-230750	970adbf96217	8c11babfb72b99339b0574747996b94d0ff45cbdf6e6fab84008466304be680e
+foreign/claude-plugins__20260915-193936	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260915-193936	b004881a2e3b	cf7e43f47cc1ae0e66ef6027d5bdbcf9a30d1b34c8afeeff0533c931578e4c64
+foreign/claude-plugins__20260918-140703	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260918-140703	7e46a227e5de	f198f79100332c7052f553bb63272d8f1f7c8c0d0b8d8743bf27573e557d2c7b
+foreign/claude-plugins__20260918-221245	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260918-221245	7e46a227e5de	2ce7e83d7ba372225a4fe3491990ac387f586bf8340cea0ad9b163ddedde5276
+foreign/claude-plugins__20260922-140143	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260922-140143	88710aaf600b	35a3c6ad487ce463e80bf5baacb635a5839283eab435c14744a1306fd326b566
+foreign/claude-plugins__20260922-182823	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260922-182823	88710aaf600b	9d358571cc5b4d31faa052bd3fe2446f2ac857539fd0959203ace1f7a32c0834
+foreign/claude-plugins__20260923-152557	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260923-152557	d8dd30166f93	684c1d12390473aad31676afc9f5f7b01de940fb81ab1d3b1f1f9a545ee95c4e
+foreign/claude-plugins__20260924-081523	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260924-081523	3e1914f32f0a	b1b9b11e4217ac90e862048f67511b808fdc18fbf6755f1fe97a2a231b08656b
+foreign/claude-plugins__wt-merge__20260925-135044	/Users/p03623/src/claude-plugins/.git/worktrees/wt-merge/graphloops/review-loop/20260925-135044	772e2ddf6fff	f957803d00f2d76c9b8b720b0c14e7a263ffaf2bb95adcbb9c465e52a0005132
+foreign/guided-resolver-work0__20260920-105219	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260920-105219	7e46a227e5de	c823a673b9db0388c04fe14224114fa86459b845d00b126d4e2a35530ca1642d
+foreign/guided-resolver-work0__20260922-142956	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956	88710aaf600b	c60e5b2675bd51b28d6f76ccabdc888a6488169bbf752bd79e7f7ef94abfa609
+foreign/guided-resolver-work0__20260923-091739	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-091739	88710aaf600b	3d7e5a4d25990e0b61e405b0c9c4be9e11a8fffca00d276b446059e851dba29d
+foreign/guided-resolver-work0__20260923-135112	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-135112	88710aaf600b	1dedf04edf54a4c591bf25c0df7be087a90eb3f4b907b524d219cce80ad90469
+foreign/guided-resolver-work0__20260923-205434	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-205434	88710aaf600b	86cf3398a4ea3b5a6d2af9bf9dab7a23eb25337a2978e3784a621f4817ce04f0
+foreign/guided-resolver-work0__20260924-121908	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260924-121908	88710aaf600b	00ab597bf7c8757749cf68bd89c236c467a5c2413ff13db21c84ce5c91a18d5c
+foreign/guided-resolver-work1__20260917-170334	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260917-170334	7e46a227e5de	1ad91604654e29abcd24d181cb905e28bb5ebe76ddbd1c08fe53fa51c9c81faf
+foreign/guided-resolver-work1__20260923-132402	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-132402	88710aaf600b	ae8da43c304494b1bd7f8c47dd03866e3bb18ac8bdc9d0d1ebbf0a3dcbfc671c
+foreign/guided-resolver-work1__20260923-134100	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-134100	88710aaf600b	254314962e73a6eea84bcbac1e79534d2c527b321ea76f3561e6d0e5715bb556
+foreign/guided-resolver-work1__20260923-170545	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-170545	88710aaf600b	99d3512e6f212a9fb1bef09143c1a7ff0cab11bc9052febfe20345dcc67b78f4
+foreign/guided-resolver-work1__20260924-065028	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260924-065028	88710aaf600b	6b9825e7ba5a50c23277745079b29c72ba9907fdaf697fba30b9e01739ee646f
+foreign/guided-resolver-work1__20260924-162230	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260924-162230	88710aaf600b	be8413dddf0b99fbfbfb13447978f9ef88d2296773d89df88efc4e6f7a560a3c
+foreign/guided-resolver-work2__20260918-162035	/Users/p03623/src/guided-resolver-work2/.git/graphloops/review-loop/20260918-162035	7e46a227e5de	4d33b02eb0e6ffe3883f55ade71c7f0f17e451c454959298126fa422970148bb
+foreign/guided-resolver-work3__20260923-222850	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260923-222850	88710aaf600b	95e2603e487b01f64c5a41ac2269dbac0034380b568441acb0b4f8dda6ad8efa
+foreign/guided-resolver-work3__20260924-142359	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359	88710aaf600b	6868d8c4652a04e1a4c8000feb39c0f9af4ec5f57f849c519dfa03b0474abd83
+foreign/guided-resolver-work3__20260924-191939	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-191939	1150cb09bb6b	1a7828796803754b8052d4234912d6759be180bb27b73a10bf799df12a7c3556
+foreign/guided-resolver-work3__20260925-173154	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260925-173154	55ba6ea3666b	91ffe789634a6e024798ee9940a40ce313716972c7675fdc230f7b8f81e47cf2
+foreign/guided-resolver-work4__20260918-162718	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260918-162718	7e46a227e5de	fe00667cd6e1ebcf40fe721cd78b1ac69233858feb7312f5b9698b847378cf50
+foreign/guided-resolver-work4__20260922-164726	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260922-164726	7e46a227e5de	bedb428b0d86e0bef544bfb738b5b41672f693fadadfc33aa0433ccb31ab2d64
+foreign/guided-resolver-work4__20260923-105529	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260923-105529	7e46a227e5de	a358d97905d505824534a5d91b04a806d42ae4647f9300093f02bc10ae308896
+foreign/guided-resolver-work4__20260923-151836	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260923-151836	1150cb09bb6b	cbdabc451676944cba6a8e442149e89da36b93de1cb272322a7c837ee99b6e49
+foreign/guided-resolver-work5__20260923-174720	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260923-174720	88710aaf600b	0e4815a2c628361d1c3d314eeb008dff2b2056192ed498decf71cab2bf87a39d
+foreign/guided-resolver-work5__20260924-064929	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-064929	88710aaf600b	f11d5c768bcb83e0094d8dd888358c8eed1b54b34e89bb72be65b4d86c07f2af
+foreign/guided-resolver-work5__20260924-162014	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-162014	88710aaf600b	099c96b1ff9416abd61c6d77005e2b6f67ef29c14a30876d054f6e2297669471
+foreign/guided-resolver-work5__20260924-192520	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-192520	1150cb09bb6b	9edbf29e15eddfdb3ae01ee248b79da2a33d21106b194376a1127d0bba29206d
+foreign/guided-resolver-work6__20260924-172416	/Users/p03623/src/guided-resolver-work6/.git/graphloops/review-loop/20260924-172416	88710aaf600b	e639168ef3522dfc4c84abb6b341e6537c30e891b2792d7837b7430c9829377a
+foreign/sim__test_awaiting	graphloops fbd40e3 simulate_review.py test_awaiting	8676692bbcb2	a2f1f6ed13205f48ba66b2592f8879d0489617bf896fab87ae5fb16cc16e9b01
+foreign/sim__test_converges	graphloops fbd40e3 simulate_review.py test_converges	8676692bbcb2	4dc42ecd3dd79d372c6c35ef94d5242ef6068002dcd24841cfb114231d002085
+foreign/sim__test_rejections	graphloops fbd40e3 simulate_review.py test_rejections	8676692bbcb2	e64ca7ff07fa03b2adf24de4412ed069be9443fccb422a9bcaebce2766bf6d10
+foreign/sim__test_runaway	graphloops fbd40e3 simulate_review.py test_runaway	8676692bbcb2	7f091a69fe078a8c7e065e417a75d7902fae491df8ec17b6f54a6dcd026f412e
