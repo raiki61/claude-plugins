@@ -37,7 +37,8 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 import engine.util as _util  # noqa: E402
-from engine.rules import load_rules, validator_module  # noqa: E402
+from engine.board import COND_HEADS, run_cond  # noqa: E402
+from engine.rules import load_rules, registry, validator_module  # noqa: E402
 from engine.schema import expand_refs, validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
 
@@ -105,8 +106,8 @@ def role_schema(node: str) -> dict:
 
 # ---------------------------------------------------------------- 盤面の入れ物
 class _Board:
-    """rules が読む盤面の口だけを持つ入れ物（dir・round・state・record・loop_state・graph・rd・node_state・output_of_round）。
-    1 本目は 1 周だけ回すので round は 1、判定役はまだ起きていない（node_state は pending）"""
+    """rules が読む盤面の口だけを持つ入れ物（dir・round・state・record・loop_state・graph・nodes・rd・node_state・
+    output_of_round・is_runner・cond）。1 本目は 1 周だけ回すので round は 1、判定役はまだ起きていない（node_state は pending）"""
 
     def __init__(self, board, review_rev, record=None, loop_state=None, outputs=None):
         self.dir = pathlib.Path(board)
@@ -116,6 +117,7 @@ class _Board:
         self.loop_state = loop_state or {}
         self._outputs = outputs or {}
         self.graph = _graph()
+        self.nodes = self.graph["nodes"]
         self.rd = {"instances": {}}
 
     def node_state(self, nid):
@@ -123,6 +125,20 @@ class _Board:
 
     def output_of_round(self, nid, rnd):
         return self._outputs.get(nid) if rnd == self.round else None
+
+    def is_runner(self, n):
+        """回す側の節か（engine の Board.is_runner と同じ式: graph の runners が正本）"""
+        return n["run_by"] in self.graph.get("runners", [])
+
+    def cond(self, name, overlay=None):
+        """rules の条件の関数 name を呼ぶ（engine の Board.cond と同じ run_cond を通す）——(真偽, 理由の文)。
+        文脈は engine の条件の文脈の頭（COND_HEADS）と同じ鍵。出力は周が 1 つだけなので out と cur が同じ、prev は空"""
+        fn = registry(_rules(), "CONDS").get(name)
+        if fn is None:
+            raise Reject(f"cond '{name}' が rules の CONDS に無い")
+        cur = dict(self._outputs)
+        ctx = {"record": self.record, "out": cur, "prev": {}, "cur": cur, "round": self.round, "rd": self.rd, "loop": self.loop_state}
+        return run_cond(name, fn, {h: ctx[h] for h in COND_HEADS}, lambda: validator_module(self), None, overlay)
 
 
 # ---------------------------------------------------------------- git と盤面のファイル
