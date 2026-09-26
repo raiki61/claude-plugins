@@ -1,4 +1,4 @@
-# works/dev/guard.sh — archon.sh・mktarget.sh・real-run.sh が . で読む（単独では走らせない）
+# works/dev/guard.sh — archon.sh・mktarget.sh・real-run.sh・dogfood.sh が . で読む（単独では走らせない）
 #
 # Claude Code のサンドボックスは、自分の一時フォルダ（/private/tmp/claude-<uid>/。/tmp は macOS では /private/tmp への
 # symlink）への書き込みを Bash に許す。そこに開発の家（WORKS_DEV_HOME）・対象・origin を置くと、サンドボックスの中の

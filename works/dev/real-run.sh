@@ -69,25 +69,7 @@ run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
 
-# 一番新しい darkfactory の run を引き、run id・状態・修正の差分がある worktree と、次に打つコマンドを出す
-# （問い合わせは認証が要らないので認証を読ませない）。修正は対象（$DIR）ではなく、Archon が run ごとに切った
-# worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
-WORKS_DEV_NO_AUTH=1 sh "$DEV_DIR/archon.sh" workflow runs --json 2>/dev/null |
-  DIR="$DIR" ARCHON_SH="$DEV_DIR/archon.sh" python3 -c '
-import json, os, sys
-runs = [r for r in json.load(sys.stdin).get("runs", []) if r.get("workflow_name") == "darkfactory"]
-if not runs:
-    sys.exit("real-run.sh: darkfactory の run が見つからない")
-r = runs[0]
-# 承認・続きも AI の節を回すので、認証（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM）を設定した殻で打つ
-go = "cd {} && WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} sh {} workflow".format(
-    os.environ["DIR"], os.environ["WORKS_DEV_HOME"], os.environ["WORKS_DEV_MODEL"], os.environ["CLAUDE_BIN_PATH"],
-    os.environ["ARCHON_SH"])
-print("run id:", r.get("id"))
-print("状態:", r.get("status"))
-print("修正の差分がある worktree:", r.get("working_path"))
-print("進める（承認するとその場で続きを回す）:", go, "approve", r.get("id"))
-print("止める:", go, "reject", r.get("id"))
-print("失敗や中断から続ける:", go, "resume", r.get("id"))
-'
+# run id・状態・修正の差分がある worktree・次に打つコマンドを出す（lib.sh）
+. "$DEV_DIR/lib.sh"
+works_dev_show_run "$DEV_DIR/archon.sh" "$DIR"
 exit "$run_status"

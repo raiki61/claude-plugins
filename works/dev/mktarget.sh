@@ -31,18 +31,9 @@ git -C "$DIR" config user.name "works-dev"
 # 種（バグ入りの stats.py・test_stats.py）を対象の根に置く。
 cp -R "$DEV_DIR/target-seed/." "$DIR/"
 
-# works/ を project pack として写す。tests/・dev/・docs/ は除く
-# （Archon はドット始まりのフォルダと、直下に YAML の無いフォルダを工程として読まない）。
-PACK_DIR="$DIR/.archon/workflows/works"
-mkdir -p "$PACK_DIR"
-for entry in "$WORKS_DIR"/* "$WORKS_DIR"/.[!.]*; do
-  [ -e "$entry" ] || continue
-  name="$(basename "$entry")"
-  case "$name" in
-    tests | dev | docs | .git) continue ;;
-  esac
-  cp -R "$entry" "$PACK_DIR/"
-done
+# works/ を project pack として写す。tests/・dev/・docs/ は除く（lib.sh）
+. "$DEV_DIR/lib.sh"
+works_dev_copy_pack "$WORKS_DIR" "$DIR/.archon/workflows/works"
 
 # Python のバイトコードキャッシュや OS のゴミファイルは、種にも pack にも残さない
 # （.git の中は触らない）。

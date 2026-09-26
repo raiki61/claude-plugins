@@ -14,6 +14,9 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - archon.sh・mktarget.sh・real-run.sh が、WORKS_DEV_HOME・対象・origin が Claude Code の一時フォルダ
   （/private/tmp/claude-* か /tmp/claude-*。サンドボックスの Bash がそこへ書ける穴）の下に解けるとき、
   何も作らずに 1 行の理由で終了コード 2 で止まること（symlink を辿った先で見る）。
+- dogfood.sh（このリポジトリ自身を対象にラインを回す）が、今の HEAD を clone して pack を枝 dogfood-base に commit し、
+  <dir>/origin.git を origin（既定の枝は dogfood-base）にして、clone の中で Archon（偽物）を正しい引数で呼ぶこと。
+  認証が無い・置き場が Claude Code の一時フォルダの下のときは何も作らずに止まること。
 - check.sh が works 自身の工程（works/<d>/<d>.yaml）だけを 1 本ずつ validate し、`workflow test works` を回し
   （どちらも認証を読ませない）、
   どれか 1 つでも赤なら終了コード 1 になること（Archon は偽物の記録係に差し替える。Ruling R10）。
@@ -426,6 +429,138 @@ class TestDevShell(unittest.TestCase):
                 args = [c[2] for c in calls]
                 self.assertFalse([a for a in args if a.startswith("validate workflows")], args)
                 self.assertIn("workflow test works", args)   # 赤でも残りは回す
+
+    # ---- dogfood.sh（works 自身のリポジトリを対象にラインを回す）。AI の要らない所だけを偽の Archon で見る
+    GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+
+    def _dogfood(self, tmp, *args, **env_kw):
+        """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon で回す。
+        偽の Archon は cwd・WORKS_DEV_NO_AUTH・引数（1 つずつ）をタブ区切りで記録し、`workflow runs --json` には
+        止まった run を 1 本返す。戻り値は (結果, 元のリポジトリ, 呼び出しの記録)。"""
+        src = tmp / "src"
+        shutil.copytree(ROOT, src / "works", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
+        subprocess.run(["git", "init", "-q", str(src)], check=True)
+        subprocess.run(["git", "-C", str(src), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(src), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
+        (src / "uncommitted.txt").write_text("手元だけの変更\n")   # commit していない物は clone に入らない
+        log = tmp / "calls.txt"
+        fake = tmp / "fake-archon.sh"
+        runs = ('{"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",'
+                ' "working_path": "/wt/run-1", "output_root": "/out"}]}')
+        fake.write_text(
+            "#!/bin/sh\n"
+            f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "$@"; echo; }} >> "{log}"\n'
+            f'case "$*" in "workflow runs --json") echo \'{runs}\' ;; esac\n'
+            "exit 0\n"
+        )
+        env = self._env(TMPDIR=str(tmp), WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
+                        CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true")
+        env.pop("WORKS_DEV_NO_AUTH", None)
+        for name, value in env_kw.items():
+            if value is None:
+                env.pop(name, None)
+            else:
+                env[name] = value
+        result = subprocess.run(["sh", str(src / "works" / "dev" / "dogfood.sh"), *args],
+                                capture_output=True, text=True, env=env)
+        self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
+        calls = [line.rstrip("\t").split("\t") for line in log.read_text().splitlines()] if log.exists() else []
+        return result, src, calls
+
+    def test_dogfood_clones_head_commits_pack_and_runs_line(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            request = tmp / "req.json"
+            request.write_text('[{"where": "x", "text": "y"}]\n')
+            result, src, calls = self._dogfood(tmp, str(request), "python3 -m unittest -q", str(tmp / "dog"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            dog = (tmp / "dog").resolve()
+            repo = dog / "repo"
+
+            # 元の HEAD の上に、pack を置いた commit が 1 本だけ乗った枝 dogfood-base
+            self.assertEqual(git(repo, "rev-parse", "--abbrev-ref", "HEAD"), "dogfood-base")
+            self.assertEqual(git(repo, "rev-parse", "HEAD~1"), git(src, "rev-parse", "HEAD"))
+            self.assertEqual(git(repo, "status", "--porcelain"), "")
+            self.assertFalse((repo / "uncommitted.txt").exists())
+            pack = repo / ".archon" / "workflows" / "works"
+            self.assertTrue((pack / "archon-plugin.json").exists())
+            self.assertTrue((pack / "darkfactory" / "darkfactory.yaml").exists())
+            for d in ("tests", "dev", "docs"):
+                self.assertFalse((pack / d).exists(), d)
+            self.assertEqual(list(pack.rglob("__pycache__")), [])
+            self.assertEqual(sorted(git(repo, "diff", "--name-only", "HEAD~1").splitlines()),
+                             sorted(str(p.relative_to(repo)) for p in pack.rglob("*") if p.is_file()))
+
+            # origin は <dir>/origin.git の裸のリポジトリで、既定の枝は dogfood-base（元のリポジトリの枝は持たない）
+            self.assertEqual(pathlib.Path(git(repo, "remote", "get-url", "origin")).resolve(), dog / "origin.git")
+            self.assertEqual(git(repo, "symbolic-ref", "refs/remotes/origin/HEAD"), "refs/remotes/origin/dogfood-base")
+            self.assertEqual(git(repo, "for-each-ref", "--format=%(refname)", "refs/remotes/"),
+                             "refs/remotes/origin/HEAD\nrefs/remotes/origin/dogfood-base")
+            self.assertEqual(git(dog / "origin.git", "symbolic-ref", "HEAD"), "refs/heads/dogfood-base")
+            self.assertEqual(git(dog / "origin.git", "rev-parse", "dogfood-base"), git(repo, "rev-parse", "HEAD"))
+
+            # 依頼は <dir>/request.json に写し、その絶対パスを渡す。ラインは clone の中で認証付きで回し、
+            # run の問い合わせは認証を読ませずに回す
+            self.assertEqual((dog / "request.json").read_text(), request.read_text())
+            self.assertEqual(calls, [
+                [str(repo), "", "workflow", "run", "darkfactory",
+                 "--input", f"request={dog / 'request.json'}", "--input", "test_cmd=python3 -m unittest -q"],
+                [str(repo), "1", "workflow", "runs", "--json"],
+            ])
+
+            out = result.stdout
+            self.assertIn("run id: run-1", out)
+            self.assertIn("状態: paused", out)
+            self.assertIn("/wt/run-1", out)
+            for verb in ("approve", "reject", "resume"):
+                self.assertIn(f"workflow {verb} run-1", out)
+            self.assertIn("WORKS_DEV_MODEL=opus", out)
+            self.assertIn(f"git -C {src.resolve()} apply /out/artifacts/runs/run-1/board/fix.diff", out)
+
+    def test_dogfood_default_dir_is_under_tmpdir(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            made = list(tmp.glob("works-dogfood.*"))
+            self.assertEqual(len(made), 1, made)
+            self.assertEqual(calls[0][0], str((made[0] / "repo").resolve()))
+
+    def test_dogfood_stops_without_auth_before_cloning(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                               CLAUDE_CODE_OAUTH_TOKEN=None)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+            self.assertIn("WORKS_KEYCHAIN_ITEM", result.stderr)
+            self.assertFalse((tmp / "dog").exists())
+            self.assertEqual(calls, [])
+
+    def test_dogfood_refuses_claude_tmp(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            cases = {
+                "置き場": ([self.HOLE], {}),
+                "WORKS_DEV_HOME": ([str(tmp / "dog")], {"WORKS_DEV_HOME": self.HOLE}),
+                "既定の置き場（TMPDIR）": ([], {"TMPDIR": "/private/tmp/claude-works-guard-test-0"}),
+            }
+            for why, (dir_arg, env) in cases.items():
+                with self.subTest(why):
+                    result, src, calls = self._dogfood(tmp / why, str(tmp / "req.json"), "true", *dir_arg, **env)
+                    self.assert_guarded(result, tmp / "dog", "/private/tmp/claude-works-guard-test-0")
+                    self.assertEqual(calls, [])
+
+    def test_dogfood_usage(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            result, src, calls = self._dogfood(tmp, "only-one-arg")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("usage: dogfood.sh", result.stderr)
+            self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
