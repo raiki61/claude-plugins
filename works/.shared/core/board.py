@@ -106,7 +106,11 @@ class NodeTable:
     nodes: Mapping[str, NodeEntry]
 
     def __post_init__(self):
-        object.__setattr__(self, "nodes", types.MappingProxyType(dict(self.nodes)))
+        nodes = dict(self.nodes)
+        for nid, e in nodes.items():
+            if not isinstance(e, NodeEntry):
+                raise BoardGap(f"節 {nid} の値が NodeEntry でない: {e!r}")
+        object.__setattr__(self, "nodes", types.MappingProxyType(nodes))
 
     @classmethod
     def load(cls, path: pathlib.Path) -> "NodeTable":

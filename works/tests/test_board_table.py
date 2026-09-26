@@ -24,6 +24,10 @@ GRAPH_PATH = CORE / "graphloops" / "graphs" / "review-loop.json"
 GRAPH = json.loads(GRAPH_PATH.read_text(encoding="utf-8"))
 GRAPH_SHA = sha(graph_text(GRAPH_PATH))
 ENGINE_RUN = {"p0.local_checks", "p4.ci", "p0.parallel_pr"}
+# tests/boards/tables/ の悪い見本（同じ置き場には良い表も置くので、名前で数える）
+BAD_TABLES = ("missing-node", "duplicate-node", "role-on-driver", "builtin-on-role", "engine-run-on-plain",
+              "absent-no-reason", "bad-fallback", "missing-fallback", "parallel-pr-machine",
+              "skippable-not-optional", "wrong-graph-sha", "unknown-by")
 
 
 def with_node(table, nid, **fields):
@@ -47,6 +51,8 @@ class NodeTableCase(unittest.TestCase):
         # 写しの graph が仕様の数えた物（60 節・機械の節 17・optional 10・graph_sha f9897bb07384）であること
         self.assertEqual(GRAPH_SHA, "f9897bb07384")
         self.assertEqual(len(GRAPH["nodes"]), 60)
+        self.assertEqual(sum(g.get("run_by") == "driver" for g in GRAPH["nodes"].values()), 17)
+        self.assertEqual(sum(bool(g.get("optional")) for g in GRAPH["nodes"].values()), 10)
 
     def test_everything_covers_graph(self):
         t = self.full
@@ -178,10 +184,10 @@ class NodeTableCase(unittest.TestCase):
         self.assertIn("robot", errs[0])
 
     def test_each_bad_table_is_bad_once(self):
-        # tests/boards/tables/ の悪い見本は、どれも誤りがちょうど 1 つ（読めない duplicate-node を除く）
-        names = sorted(p.stem for p in TABLES.glob("*.json"))
-        self.assertEqual(len(names), 12, names)
-        for name in names:
+        # 悪い見本は、どれも在って、誤りがちょうど 1 つ（読めない duplicate-node を除く）
+        self.assertEqual(len(BAD_TABLES), 12)
+        for name in BAD_TABLES:
+            self.assertTrue((TABLES / f"{name}.json").is_file(), name)
             if name == "duplicate-node":
                 continue
             with self.subTest(name=name):
@@ -209,6 +215,12 @@ class NodeTableCase(unittest.TestCase):
             self.full.line = "y"
         with self.assertRaises(TypeError):
             self.full.nodes["p4.ci"] = NodeEntry(by="role")
+
+    def test_nodes_must_be_entries(self):
+        # 表を直に組むときも、節の値が NodeEntry でなければ BoardGap（check の中で AttributeError にしない）
+        with self.assertRaises(BoardGap) as cm:
+            NodeTable("x", GRAPH_SHA, {"p2.diagnose": {"by": "role"}})
+        self.assertIn("p2.diagnose", str(cm.exception))
 
     def test_mismatch_is_gap(self):
         self.assertTrue(issubclass(BoardMismatch, BoardGap))
