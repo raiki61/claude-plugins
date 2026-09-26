@@ -38,7 +38,8 @@ def dead_pid():
 
 
 def sleeper():
-    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **GROUP)
+    """眠る子。この検査のプロセスが握る標準入力の管の EOF まで眠る（検査が消えれば終わる）"""
+    return subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE, **GROUP)
 
 
 def settle(p, within=30):

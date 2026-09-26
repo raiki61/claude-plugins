@@ -5104,7 +5104,7 @@
    "title": "番号が印より後に始まったプロセスに再利用されていたら止めない",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "        elif started <= born + REUSE_SLACK:",
+   "old": "        elif not number_reused(started, born):",
    "new": "        elif True:",
    "expect": "番号が印より後に始まったプロセスに再利用されていれば",
    "tests": {

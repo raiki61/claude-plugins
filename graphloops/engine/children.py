@@ -60,7 +60,7 @@ def _owner_state(owner, written):
     started = role_run._started_at(owner)
     if started is None:
         return UNKNOWN
-    if started == role_run.GONE or started > written + role_run.REUSE_SLACK:   # 居ない・番号が別のプロセスに再利用された
+    if started == role_run.GONE or role_run.number_reused(started, written):
         return LEFT
     return RUNNING
 

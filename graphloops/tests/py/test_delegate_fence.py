@@ -274,8 +274,8 @@ def test_kill_sends_sigkill_to_a_group_that_ignores_sigterm(monkeypatch):
     monkeypatch.setattr(role_run, "KILL_GRACE", 0.5)
     kw = ({"start_new_session": True} if os.name == "posix"
           else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
-    code = "import signal,sys,time\nif hasattr(signal,'SIGTERM'): signal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('ready', flush=True)\ntime.sleep(60)"
-    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, **kw)
+    code = "import signal,sys\nif hasattr(signal,'SIGTERM'): signal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('ready', flush=True)\nsys.stdin.read()"
+    p = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, **kw)
     try:
         assert p.stdout.readline().strip() == b"ready"
         role_run._kill(p)
@@ -289,14 +289,15 @@ def test_kill_sends_sigkill_to_a_group_that_ignores_sigterm(monkeypatch):
 def test_kill_stops_the_grandchild_while_the_leader_lives():
     """長が生きている間に孫を起こした木を、_kill が孫まで止める。OS で見送らない——Windows は taskkill /T /F の道（/T は
     『指定したプロセスとそれが起こした子を終わらせる』。孫まで届くかは文書に無いので、ここが実機で確かめる口）、POSIX は
-    _stop_tree の数え上げの道を通る。孫は自分で終わる（120 秒）固定具で、後始末で止めるのは持っている Popen だけ"""
-    code = ("import subprocess,sys,time\n"
-            "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+    _stop_tree の数え上げの道を通る。長も孫も、この検査が握る標準入力の管の EOF まで眠る固定具で、後始末で止めるのは
+    持っている Popen だけ"""
+    code = ("import subprocess,sys\n"
+            "g = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'])\n"
             "print(g.pid, flush=True)\n"
-            "time.sleep(120)")
+            "sys.stdin.read()")
     kw = ({"start_new_session": True} if os.name == "posix"
           else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
-    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, **kw)
+    p = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, **kw)
     try:
         grand = int(p.stdout.readline().strip())
         assert role_run._kill(p) is None
@@ -431,7 +432,8 @@ def test_kill_returns_once_the_group_is_gone(monkeypatch):
     monkeypatch.setattr(role_run, "KILL_GRACE", 20)
     kw = ({"start_new_session": True} if os.name == "posix"
           else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
-    p = subprocess.Popen([sys.executable, "-c", "print('ready', flush=True); import time; time.sleep(60)"], stdout=subprocess.PIPE, **kw)
+    p = subprocess.Popen([sys.executable, "-c", "print('ready', flush=True); import sys; sys.stdin.read()"],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, **kw)
     try:
         assert p.stdout.readline().strip() == b"ready"
         t = time.monotonic()

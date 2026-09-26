@@ -325,7 +325,7 @@ def _tree_members(pgid, known=None, born=None):
     while cur in rows and cur not in mine:
         mine.add(cur)
         cur = rows[cur].ppid
-    reused = born is not None and pgid in rows and rows[pgid].started > born + REUSE_SLACK
+    reused = born is not None and pgid in rows and number_reused(rows[pgid].started, born)
     found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid or sessions.get(pid) == pgid}
     found |= {pid for pid, t in (known or {}).items() if pid in rows and abs(rows[pid].started - t) <= REUSE_SLACK}
     children = {}
@@ -584,7 +584,12 @@ def _end_attempt(trees, pgid_file):
 
 
 GONE = "gone"   # _started_at の『その番号のプロセスは居ない』
-REUSE_SLACK = 2.0   # 開始時刻の読みの誤差（ps の etime は秒の切り捨て）。印より後にこれを超えて始まったプロセスは別物
+REUSE_SLACK = 2.0   # 開始時刻の読みの誤差（ps の etime は秒の切り捨て）
+
+
+def number_reused(started, born):
+    """番号が再利用されたか: その番号のプロセスが born（起こした時刻・印を書いた時刻）より REUSE_SLACK を超えて後に始まった"""
+    return started > born + REUSE_SLACK
 
 
 def _started_at(pid):
@@ -685,7 +690,7 @@ def _probe(pgid_file):
         if started == GONE:
             if os.name == "posix":
                 keep.append((pgid, born))
-        elif started <= born + REUSE_SLACK:   # 印より後に始まったプロセスは番号の再利用——古い試行はもう居ない
+        elif not number_reused(started, born):
             keep.append((pgid, born))
     if not keep:
         pathlib.Path(pgid_file).unlink(missing_ok=True)

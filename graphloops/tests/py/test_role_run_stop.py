@@ -69,10 +69,22 @@ def test_stop_group_windows(tmp_path, monkeypatch, rc, started, fails):
     monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="nt"))
     monkeypatch.setattr(role_run, "_probe", lambda f: ([(4242, 100.0)], None))
     monkeypatch.setattr(role_run, "_started_at", lambda pid: started)
-    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, rc, "", "err"))
+    sent = []
+    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: sent.append(argv) or subprocess.CompletedProcess(argv, rc, "", "err"))
     why = role_run.stop_group(str(m))
+    assert sent == [["taskkill", "/T", "/F", "/PID", "4242"]]   # /T で木を辿り /F で強いる（Windows の実機の CI を待たずに見る）
     assert (why is not None and "taskkill" in why) == fails
     assert m.exists() == fails
+
+
+@pytest.mark.parametrize("started,reused", [
+    pytest.param(100.0 + role_run.REUSE_SLACK, False, id="within-the-reading-error"),
+    pytest.param(100.0 + role_run.REUSE_SLACK + 0.1, True, id="started-after-birth"),
+    pytest.param(90.0, False, id="started-before-birth"),
+])
+def test_number_reused(started, reused):
+    """番号の再利用は『born より読みの誤差を超えて後に始まった』だけ——向きを逆にすると再利用された無関係な木を止める"""
+    assert role_run.number_reused(started, 100.0) is reused
 
 
 def proc(pid, pgid=4242, stat="S", ppid=1, started=100.0, uid=501):
@@ -109,7 +121,7 @@ def test_stop_group_posix_tree_already_gone(tmp_path, monkeypatch):
     assert not m.exists() and sent == []
 
 
-def test_stop_group_passes_the_mark_time_read_with_the_number(tmp_path, monkeypatch):
+def test_stop_group_passes_the_probed_birth_with_the_number(tmp_path, monkeypatch):
     """番号の再利用の目印（born）は、_probe が番号と同じ読みで返す値——別の読みにしない"""
     m = mark(tmp_path)
     got = {}
@@ -406,7 +418,7 @@ def test_stop_handler_marks_stopping_then_raises(monkeypatch):
 def test_stop_tree_reaps_the_leader_it_holds(monkeypatch):
     """長の Popen を持って止めるときは待つ間に回収する——回収しない長はゾンビのままグループに残り、消滅が見えない"""
     monkeypatch.setattr(role_run, "KILL_GRACE", 2)
-    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    p = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], start_new_session=True, stdin=subprocess.PIPE)
     try:
         assert role_run._stop_tree(p.pid, leader=p) is None
     finally:

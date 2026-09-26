@@ -3,7 +3,7 @@
 振る舞いは環境変数で選ぶ（起こされた子は起こした側の環境を継ぐ——前置の層 with-auth.py も継がせる）:
   FAKE_MODE   answer（既定。FAKE_OUT の中身を返す）／bad_then_answer（--resume の無い初回は散文、--resume なら FAKE_OUT）／
               error（is_error の包み）／error_noresult（result の無い誤りの包み。subtype は error_max_turns で errors を持つ）／
-              text（包まずに FAKE_OUT の中身だけを書く——--output-format text の形）／sleep（SIGTERM を 1 秒遅れて処理する孫を立てて眠る。孫の pid を FAKE_PID に書く）／
+              text（包まずに FAKE_OUT の中身だけを書く——--output-format text の形）／sleep（SIGTERM を 1 秒遅れて処理する孫を立てて、台本が握るロック FAKE_HOLD が離れるまで眠る。孫の pid を FAKE_PID に書く）／
               seen（届いた材料のバイト数と argv）
   FAKE_OUT    返答の本文のファイル
   FAKE_EXIT   書き終えた後の終了コード（既定 0）
@@ -13,6 +13,8 @@
 """
 import os
 import sys
+
+import parallel  # 同じディレクトリ。眠る代役の待ち方（hold_code）の正本
 
 BODY = r'''
 import json, os, subprocess, sys, time
@@ -56,14 +58,16 @@ elif mode == "text":
 elif mode == "sleep":
     # 孫は出力の管を継がず、SIGTERM を受けてから 1 秒後に終わる（前置の層の先の claude が自分の子を片付けてから終わる形）。
     # 管を継がないので engine の読み終わりは孫を待たない——直下の子の終了だけで『止めた』と数える engine を、負荷に依らず赤にする
+    # 代役も孫も、台本が握るロック（FAKE_HOLD。parallel.creator_lock）を待って眠る——台本が消えれば終わる。待ち方の本文は
+    # install が parallel.hold_code から埋める（__HOLD__）
+    hold = __HOLD__
     grand = ("import signal, sys, time\n"
-             "signal.signal(signal.SIGTERM, lambda *a: (time.sleep(1), sys.exit(0)))\n"
-             "time.sleep(120)\n")
-    child = subprocess.Popen([sys.executable, "-c", grand], stdin=subprocess.DEVNULL,
+             "signal.signal(signal.SIGTERM, lambda *a: (time.sleep(1), sys.exit(0)))\n") + hold
+    child = subprocess.Popen([sys.executable, "-c", grand, os.environ["FAKE_HOLD"]], stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with open(os.environ["FAKE_PID"], "w", encoding="utf-8") as f:
         f.write(str(child.pid))
-    time.sleep(120)
+    os.execv(sys.executable, [sys.executable, "-c", hold, os.environ["FAKE_HOLD"]])   # 同じ pid のまま待つ側に替わる
 elif mode == "bad_then_answer" and not resumed:
     out("判定は次のとおりです（散文）")
 else:
@@ -76,12 +80,13 @@ def install(bindir):
     """bindir に代役の claude を置き、そのパスを返す。**実物と同じ実行形式で置く**（Windows は .bat——shebang を解さない。
     理由の正本は simulate.py の _fake_claude の注記）。"""
     impl = bindir / "fake_claude_env.py"
-    impl.write_text(BODY, encoding="utf-8")
+    body = BODY.replace("__HOLD__", repr(parallel.hold_code(120)))
+    impl.write_text(body, encoding="utf-8")
     if os.name == "nt":
         fake = bindir / "claude.bat"
         fake.write_text(f'@echo off\r\n"{sys.executable}" "{impl}" %*\r\n', encoding="utf-8")
         return fake
     fake = bindir / "claude"
-    fake.write_text(f"#!{sys.executable}\n" + BODY, encoding="utf-8")
+    fake.write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
     fake.chmod(0o755)
     return fake
