@@ -40,7 +40,10 @@ from engine.util import BoardConflict, Reject, die  # noqa: E402
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # prog を sys.argv[0] から明示する: 既定は __main__ の名前から引くので、同じプロセスで呼ぶ口（テストの土台）では
+    # 「python -m pytest」になり、2 つの口の使い方の文がずれた（Python 3.14 の argparse）
+    p = argparse.ArgumentParser(prog=pathlib.Path(sys.argv[0]).name, description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("init")
@@ -141,9 +144,12 @@ def main():
     a.fn(a)
 
 
-if __name__ == "__main__":
-    # 非 0 で終わる呼び出しは、終わる前に利用者の環境へ 1 行残す（engine/intake.py。残す処理は何が起きても終了コードと
-    # 標準エラーを変えない）。exit 1 の日常の拒否も残す——同じ鍵の件数が「どの拒否が多いか」になる
+def cli():
+    """入口の全体（sys.argv を読み、例外を終了コードに直して SystemExit で抜ける）。子プロセスとして起こす口と、
+    テストの土台（graphloops/tests/py/glharness.py）が同じプロセスで呼ぶ口の 2 つが、この 1 本を通る。
+
+    非 0 で終わる呼び出しは、終わる前に利用者の環境へ 1 行残す（engine/intake.py。残す処理は何が起きても終了コードと
+    標準エラーを変えない）。exit 1 の日常の拒否も残す——同じ鍵の件数が「どの拒否が多いか」になる"""
     try:
         main()
     except Reject as e:
@@ -162,3 +168,7 @@ if __name__ == "__main__":
     except Exception as e:  # 契約: 想定外は 2（盤面が読めない側）に倒す
         intake.failed(sys.argv[1:], 2, e, e.__traceback__, str(e))
         die(f"想定外の例外（{type(e).__name__}）: {e}")
+
+
+if __name__ == "__main__":
+    cli()

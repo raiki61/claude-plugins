@@ -189,7 +189,7 @@ marketplace を確認。公式スキーマ `https://anthropic.com/claude-code/ma
 git clone https://github.com/raiki61/claude-plugins
 cd claude-plugins
 bash tests/run.sh
-uv run --no-project --with pytest python -m pytest graphloops/tests/py   # pytest の置き場（開発の間だけ入れる。方針は graphloops/README.md の「検査」節）
+uv run --no-project --with pytest --with pytest-xdist python -m pytest -n auto graphloops/tests/py   # pytest の置き場（開発の間だけ入れる。方針は graphloops/README.md の「検査」節）
 ```
 
 検査するもの——`review-record.py`・`research-record.py`・`doctor-record.py`・`firstread-record.py` の終了コードの区別、`review-record.py` の履歴（全ラウンドの推移）と問いの台帳の縛り（保留が黙って消えない・出どころが記録に実在する・stuck は未決の記載が要る・帰属は前の周から持ち越した保留にだけ付く・問いが新しく載った周は台帳を監査する R1 を走らせる）、（記録が不正・読めない・引数違い・想定外の例外を非収束と混ぜないこと。後者は「収束の偽装だけを塞ぎ、停止の正直な申告は通す」ことも含む）、`comment-ratio.sh` の注釈カウントと計測漏れの扱い、依存の宣言と marketplace の許可リストの整合、マニフェストの必須欄、文書とコメントが名指しする `REVIEW.md` のセクションと機械の定数が実在するか（ファイル名つきの名指しは、そのファイルに在ることまで見る）、手順書が名指しする役割 agent が `agents/` に実在し・どの役も書く道具を持たず・遮断系は道具ゼロで・手順書にモデル名の写しが戻っていないか、手順書に自作の導入コマンドと `-R` 無しの `gh` が戻っていないか、配布物に固有の技術名と、このリポジトリの検証の道具の名前（下の宣言の節が名指しする物）が混ざっていないか。件数はここに書き写さない（腐るので、走らせた出力を見てほしい）。CI が Linux / macOS / Windows で上の 2 行と同じものを回す。
@@ -205,7 +205,7 @@ uv run --no-project --with pytest python -m pytest graphloops/tests/py   # pytes
 `/review-loop`・`/review-graph` の手順書・グラフ・プロンプトは、テスト一式・件数の柵・変異テストの実行器を能力の言葉（期限を受ける口・前の結果を持ち越す口など）でしか書かない。どの道具でそれをするかは対象リポジトリの側が名指しし、役は `REVIEW.md` の「固有規約の把握」の読む先から拾う。テスト一式と変異テストの実行器は機械が読む書式の宣言を持つ（テスト一式は engine が走らせる。変異の実行器は `/review-graph` の engine が役のプロンプトに名指しとして貼る）。このリポジトリの宣言はこの節である——`REVIEW.md` は convergence-loops の配布物としてほかのリポジトリでも観点の正本として読まれるので、そこには書かない。
 
 - **テスト一式**: ルートの `.review-checks.json`（`{"suite": [{"name": …, "argv": […]}]}`）。`/review-graph` の engine は、この宣言の語を人の承認なしに shell を通さずに走らせ、終了コードから CI の欄（`p0.local_checks`・`p4.ci`）を書く。宣言の語は Claude Code の許可の仕組みを通らない——他人のリポジトリ・他人の PR を回すときは、宣言とそれが呼ぶスクリプトを先に読め（承認を外した理由・守られなくなった物・残る物は `graphloops/engine/declared.py` の冒頭の注記）。宣言が無いリポジトリでは任せ先が CI の定義から走らせ、その周の CI は engine が確かめていない自己申告として、収束の前に人に諮られる。宣言は CI の定義 `.github/workflows/test.yml` の段の写しで（手元は pytest を uv で入れ、CI は pip で入れるので語は揃えない）、宣言の段の名前が CI の run を持つ段に在ることを `tests/run.sh` の CI の設定の検査（CI_LINT_OK の行）が見る。shellcheck は CI だけが段として回す（手元では `tests/run.sh` が在れば回す）
-- **件数の柵**: `EXPECTED_CHECKS`・`EXPECTED_TESTS`・`VOCAB_REACHED`・`EXPECTED_ITEMS`。置き場と突合の式は `tests/run.sh` のラチェットの表が導く。検査を足した・消した差分は、同じ差分で実測に合わせる。この行の名前がラチェットの表とずれると `tests/run.sh` が赤くなる
+- **件数の柵**: `EXPECTED_CHECKS`・`EXPECTED_TESTS`・`VOCAB_REACHED`・`EXPECTED_ITEMS`・`EXPECTED_SIM_CHECKS`・`EXPECTED_SIM_REACHED`。置き場と突合の式は `tests/run.sh` のラチェットの表が導く。検査を足した・消した差分は、同じ差分で実測に合わせる。この行の名前がラチェットの表とずれると `tests/run.sh` が赤くなる
 - **変異テスト**: ルートの `.review-checks.json` の `mutation` の段（`{"argv": […], "arms": "<腕の一覧のパス>"}`）。腕の一覧は `tests/mutations.json`、実行器は `tests/mutate.py`。engine はこの段を走らせず、ゲートの検算・変異の検算の線・最後の関門の役に名指しとして貼る（段が無いリポジトリでは、役が対象リポジトリの側の散文を探す）。段の書き損じはこの段だけの誤りになり、テスト一式は止めない。道具名の柵（`tests/run.sh`）は禁止語をこの宣言から導く。口（変わったファイルの腕だけ撃つ・起点の版から機械で腕を作る・期限を受ける・前の結果を持ち越す・返答の形を組む）の綴りは `python3 tests/mutate.py --help` が正本。腕の字列が今の版に在るかは `tests/run.sh` が毎回見る
 
 ## ライセンス

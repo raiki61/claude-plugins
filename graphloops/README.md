@@ -46,15 +46,23 @@ bash graphloops/tests/run.sh
 
 ### pytest の置き場（graphloops/tests/py/）
 
-関数を直に呼ぶ単体の検査は pytest に置く。依存は開発の間だけで、その場で入れる（プラグインの利用者の必須には足さない）:
+関数を直に呼ぶ単体の検査は pytest に置く。依存は開発の間だけで、その場で入れる（プラグインの利用者の必須には足さない）。pytest-xdist の `-n` でプロセス単位に並べる（`-n` を外しても同じ柵が当たる）:
 
 ```bash
-uv run --no-project --with pytest python -m pytest graphloops/tests/py
+uv run --no-project --with pytest --with pytest-xdist python -m pytest -n auto graphloops/tests/py
 ```
 
-**置き場の方針**: 単体の検査（関数を直に呼ぶ物）は、新しく書くなら、また既存の物を触るなら pytest に書く。bash の側から pytest へ移し終えた検査は、同じ変更で bash の側を消し、両方の件数の定数（bash の台本の `EXPECTED_CHECKS` ほかと、`graphloops/tests/py/conftest.py` の `EXPECTED_ITEMS`）と、その検査を当てにする変異の腕（`tests/mutations.json` の `tests`）を同じ変更で直す——ただし腕の実行器 `tests/mutate.py` はまだ bash の台本しか回せない（撃つ台本の表は `tests/run.sh` と `graphloops/tests/run.sh` の 2 本）ので、bash 側を消す最初の変更で実行器に pytest の口を足す。それまでは腕が pytest の写しでも落ちることを手で確かめる（今の `engine/schema.py` の腕 11 本は 2026-09-25 に全部落ちた）。盤面を端から端まで回す台本（`tests/simulate.py`・`tests/simulate_review.py`）は、台本の土台がまだ pytest に無いので、土台を移すまでは今の置き場に足す。今の pytest 側の中身は `engine/schema.py` の検査（差し替えの版の重ね方 `test_graph_extends.py` を含む）と、`engine/role_run.py` の `unwrap`（役の標準出力を解く）の検査と、TDD の流れの赤・緑の判定（`test_review_tdd.py`）と、走らせるだけの節と宣言（`test_engine_run.py`）・人の方針の関所（`test_policy_gate.py`）・review-loop の rules の欠けた入力（`test_review_rules.py`）・engine の守りの口（`test_engine_guards.py`）・子を止める部品（`test_role_run_stop.py`）の検査で、そのうち `test_schema.py`・`test_schema_graphcheck.py` は bash 側の同じ検査の写し（bash 側はまだ消していない。移し終えるまでは片方を直したらもう片方も直す——ずれを見る柵は無い）。
+**置き場の方針**: 単体の検査（関数を直に呼ぶ物）は、新しく書くなら、また既存の物を触るなら pytest に書く。bash の側から pytest へ移し終えた検査は、同じ変更で bash の側を消し、両方の件数の定数（bash の台本の `EXPECTED_CHECKS` ほかと、`graphloops/tests/py/conftest.py` の `EXPECTED_ITEMS`）と、その検査を当てにする変異の腕（`tests/mutations.json` の `tests`）を同じ変更で直す——ただし腕の実行器 `tests/mutate.py` はまだ bash の台本しか回せない（撃つ台本の表は `tests/run.sh` と `graphloops/tests/run.sh` の 2 本）ので、bash 側を消す最初の変更で実行器に pytest の口を足す。それまでは腕が pytest の写しでも落ちることを手で確かめる（今の `engine/schema.py` の腕 11 本は 2026-09-25 に全部落ちた）。盤面を端から端まで回す台本（`tests/simulate.py`・`tests/simulate_review.py`）を載せる土台は pytest の側に在る（下の「盤面を回す台本の土台」）が、台本はまだ移していないので、移すまでは今の置き場に足す（移す段で bash 側を消し、上の実行器の口も足す）。今の pytest 側の中身は `engine/schema.py` の検査（差し替えの版の重ね方 `test_graph_extends.py` を含む）と、`engine/role_run.py` の `unwrap`（役の標準出力を解く）の検査と、TDD の流れの赤・緑の判定（`test_review_tdd.py`）と、走らせるだけの節と宣言（`test_engine_run.py`）・人の方針の関所（`test_policy_gate.py`）・review-loop の rules の欠けた入力（`test_review_rules.py`）・engine の守りの口（`test_engine_guards.py`）・子を止める部品（`test_role_run_stop.py`）の検査で、そのうち `test_schema.py`・`test_schema_graphcheck.py` は bash 側の同じ検査の写し（bash 側はまだ消していない。移し終えるまでは片方を直したらもう片方も直す——ずれを見る柵は無い）。
 
-**柵**（`graphloops/tests/py/fence.py`）: 飛ばしは失敗にする（テスト単位の skip・xfail と、モジュール丸ごとの skip・importorskip の両方）。集めたテストの数を `EXPECTED_ITEMS` と `!=` で突き合わせる——置き場のテストのファイルを全部集めた回だけで、パス・node id・`--ignore` などでファイルを絞った回は柵を外して、外した旨を 1 行出す（`-k` は集めた後で選ぶので柵は付いたまま）。CI は置き場を丸ごと回す。
+**盤面を回す台本の土台**（`graphloops/tests/py/glharness.py`。`conftest.py` が plugin として載せる）: 台本の本文（`Run`・`drive`・`check`・代役の claude）は写さず、台本のモジュールを import して使う。
+
+- **2 つの口**（`--gl-driver=cli|inproc`、既定は cli）: cli は今と同じく子プロセスで `loop.py` を起こす。inproc は台本のモジュールの `subprocess` の名前を差し替え、`loop.py` を起こす `subprocess.run` だけを同じプロセスの `loop.cli()` に回す（`Popen` で起こす腕は子プロセスのまま——警告を出す）。inproc は呼ぶたびに engine の大域の状態（`glharness.RESTORED` の表: `util.GIT_CWD`・`role_run.LIVE`・検証器の読み込みの控え・`tempfile.tempdir`・signal の口・cwd・環境変数・標準入出力）を戻す。signal を触るので主スレッドでしか呼べず、並べ方はスレッドでなく pytest-xdist のプロセス単位
+- **fixture**: `gl_script("review")`（台本のモジュールを選んだ口で返す）・`gl_run(kind, 名前, **Run の引数)`・`gl_check`（台本と同じ `check`・`skip` と、到達を記す `reach`）・`fake_claude`（代役の claude を PATH の先頭に置いた環境）・`gl_tmp`（一時の置き場の環境変数 TMPDIR を `tmp_path` に向ける——台本の作業場・engine の置き場・子プロセス・`parallel.rm` の基点が同じ所を見る。後始末は `tmp_path` に任せる）
+- **check の数え方**: 行の形と数え方の正本は台本の `check`。pytest の側は各テストの前後で台本の件数と失敗の差を読み、失敗が 1 件でもあればそのテストを失敗にし、環境変数 GL_CHECK_LOG の置き場に `  FAIL <desc>` を 1 行ずつ足す
+- **2 つの口の突合**（`test_harness.py` の `test_drivers_agree`）: 同じ筋書きを 2 つの口で回し、盤面（`state.json`・`record.json`・周の記録）を run の番号・時刻・作業場の根・所要・プロンプトの要約（本文が作業場のパスを貼る）で正規化して突き合わせる。所要は測って出すだけ（2026-09-26・負荷 100 前後で review の標準の筋書きが cli 354 秒・inproc 145 秒）
+- **大きさの印**（Google の Test Sizes）: `small` は子プロセスとスリープを呼んだら失敗（握り潰しても失敗）。`medium` は子プロセス・git・盤面を回すテストで、手で撃つ mutmut は選ばない（`graphloops/setup.cfg`）。時間の上限と、落ちたテストの自動の再試行は入れない
+
+**柵**（`graphloops/tests/py/fence.py`）: 飛ばしは失敗にする（テスト単位の skip・xfail と、モジュール丸ごとの skip・importorskip の両方）。集めたテストの数を `EXPECTED_ITEMS` と `!=` で突き合わせる——置き場のテストのファイルを全部集めた回だけで、パス・node id・`--ignore` などでファイルを絞った回は柵を外して、外した旨を 1 行出す（`-k` は集めた後で選ぶので柵は付いたまま）。台本の検査が走った件数を `EXPECTED_SIM_CHECKS` と、到達した値の数を `EXPECTED_SIM_REACHED` と `!=` で突き合わせる——全件の回で、しかも `-k`・`-m` で 1 件も選び外さなかった回だけ。`-n` の回は worker が数えた値を controller が集めて当てる（worker から届く node id の一覧では、テストを全部消したファイルが見えない）。CI は置き場を丸ごと回す。
 
 **変更に関係するテストだけ回す道具（pytest-testmon）**: 使うなら手元の速回しだけで、commit 前と CI は全件。testmon はファイルを集めないので、上の柵はその回を「絞った回」と見なして外す。測った事実（2026-09-25、Python 3.14・pytest-testmon 2.2.0・coverage 7.16.1）: 設定のままでは rootdir（`graphloops/tests/py/`）の外にある `engine/` の変更を追わず、`schema.py` を壊しても 1 件も選ばなかった。`--rootdir=graphloops` にすると追うが、Python 3.14 の既定（coverage の `COVERAGE_CORE=sysmon`）では落ちるべきテストを選び漏らし、`COVERAGE_CORE=ctrace` で正しく選んだ。graph の JSON・プロンプトの変更には効かない:
 
@@ -76,7 +84,7 @@ cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest m
 1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。
 2. `prompts/<loop>/` に節ごとのプロンプト。散文の手順書の「なぜ」を前書きに残す（指示だけに削ると、規律は守られても判断の質が落ちる）。
 3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_stop`・`on_thickness`・`add`（要るものだけ）。人が途中で止める口（`loop.py stop`）で報告まで届かせるなら、graph の最上位に `stop`（止めた後に『済んだ』と見なす機械の節。下流に報告の節が要る——graphcheck が見る）を書く。
-4. `tests/simulate.py` に台本を足す（盤面を回す台本の土台はまだそこにしか無い。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。
+4. `tests/simulate.py` に台本を足す（台本はまだそこに在る。pytest の側の土台は台本を import して回せるが、移すのは次の段。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。
 5. `commands/<loop>-graph.md` は engine の呼び方だけ。
 
 ## 流れの一部を差し替えた版を足すには

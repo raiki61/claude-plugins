@@ -4120,6 +4120,9 @@ FORMS = {
     # pytest の置き場の件数の定数。突合の != は fence.py の中で、ここは定数を柵に渡す 1 行を固定する
     # （fence.py の != を緩めた退行は、graphloops/tests/py/test_fence.py が両向きの不一致で赤にする）
     "EXPECTED_ITEMS": "    fence.install(config, HERE, EXPECTED_ITEMS)",
+    # 盤面を回す台本の検査の件数と到達の数。突合の != は fence.py の中で、ここは期待値を柵に渡す 1 行を固定する
+    "EXPECTED_SIM_CHECKS": "    fence.expect_sim(config, EXPECTED_SIM_CHECKS, EXPECTED_SIM_REACHED)",
+    "EXPECTED_SIM_REACHED": "    fence.expect_sim(config, EXPECTED_SIM_CHECKS, EXPECTED_SIM_REACHED)",
 }
 # **母数は宣言から取り、表に無い名前には理由を要求する。** FORMS に名前を 2 つ手で並べていたので、
 # 新しいラチェットを足した周にその 1 本が黙って表の外へ落ちる形だった。検査の置き場に在る整数の定数を
