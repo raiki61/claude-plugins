@@ -91,7 +91,8 @@ cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest m
 
 同じループの一部の節だけを別の流れに差し替える版（例: 修正を TDD の流れにした `graphs/review-loop-tdd.json`）は、元の graph を写さずに差分だけを書く。最上位に `"extends": "<元の graph のファイル名>"` を書くと、engine（`engine/schema.py` の `load_graph`）が元の graph に RFC 7396（JSON Merge Patch）で重ねる: object は鍵ごとに重なり、`null` は鍵を消し、配列は置き換わる。
 
-- 元は同じ置き場（`graphs/`）のファイルだけで、重ねは 1 段だけ。継いだ節の `prompt_file`・`rules` の相対パスが同じ置き場を基準に読まれるため。
+- 元は同じ置き場（`graphs/`）のファイルだけ。継いだ節の `prompt_file`・`rules` の相対パスが同じ置き場を基準に読まれるため。
+- 差し替えの版の上にさらに差し替えの版を重ねてよい（`engine/schema.py` の `extends_chain`）。鎖は根元から順に重なり、後の段が勝つ。輪（自分を指すのも含む）は拒み、途中の段の誤りはその段のファイル名で言う。
 - 差し替えた節の `deps`・`reads` は元の要素も書く（配列は置き換わる）。元の要素を落とすと graphcheck が止める——元の graph に後から足した依存が、差し替えの版で黙って消えないように。
 - 元の指示書に段落を足すなら、節の `prompt_append`（指示書の後ろに続けるファイルの一覧）に書く。元の指示書は写さない。
 - rules を足すなら別のファイルに置き、元の rules を読み込んで表（`CONDS`・`BUILTINS`・`POST_CHECKS`）に足した写しを出す（`rules/review-loop-tdd.py` の頭の形）。元の rules は触らない。

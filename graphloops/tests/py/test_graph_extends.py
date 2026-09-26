@@ -56,8 +56,7 @@ def test_extends_refs_resolve_against_the_merged_defs(tmp_path):
 
 @pytest.mark.parametrize("ref,words", [
     pytest.param("sub/base.json", "同じ置き場", id="other-directory"),
-    pytest.param("over.json", "自分", id="self"),
-    pytest.param("mid.json", "1 段", id="two-levels"),
+    pytest.param("over.json", "輪", id="self"),
     pytest.param("missing.json", "が無い", id="missing-base"),
     pytest.param(5, "同じ置き場", id="not-a-string"),
     pytest.param("", "同じ置き場", id="empty"),
@@ -70,6 +69,57 @@ def test_extends_rejects(tmp_path, ref, words):
     over = write(tmp_path / "over.json", {"extends": ref, "nodes": {}})
     g, why = load_graph(over)
     assert g is None and words in why
+
+
+def test_extends_chain_overlays_every_level(tmp_path):
+    """差し替えの版の上にまた差し替えの版を重ねられる（仕様の版を TDD の版の上に置く形）——根元から順に重ね、後の段が勝つ"""
+    write(tmp_path / "base.json", {"loop": "demo", "nodes": {"a": {"deps": [], "does": "元"}, "b": {"deps": ["a"], "does": "元"}}})
+    write(tmp_path / "mid.json", {"extends": "base.json", "nodes": {"b": {"does": "中"}, "c": {"deps": ["a"], "does": "中"}}})
+    leaf = write(tmp_path / "leaf.json", {"extends": "mid.json", "nodes": {"c": {"does": "葉"}, "d": {"deps": ["c"]}}})
+    g, why = load_graph(leaf)
+    assert why == ""
+    assert "extends" not in g and g["loop"] == "demo"
+    assert [g["nodes"][k].get("does") for k in "abcd"] == ["元", "中", "葉", None]
+
+
+@pytest.mark.parametrize("mid,words", [
+    pytest.param({"extends": "missing.json", "nodes": {}}, "mid.json: extends 'missing.json' が無い", id="missing-base-in-the-middle"),
+    pytest.param({"extends": "leaf.json", "nodes": {}}, "mid.json: extends が輪になっている（leaf.json → mid.json → leaf.json）", id="cycle"),
+    pytest.param(["not", "an", "object"], "mid.json: graph が object でない", id="middle-not-an-object"),
+])
+def test_extends_chain_names_the_level_that_is_wrong(tmp_path, mid, words):
+    """鎖の途中の誤りは、それを書いた段のファイル名で言う（葉のパスだけでは直す先を取り違える）。輪は例外の素通りでなく理由で返る"""
+    write(tmp_path / "base.json", {"nodes": {}})
+    write(tmp_path / "mid.json", mid)
+    leaf = write(tmp_path / "leaf.json", {"extends": "mid.json", "nodes": {}})
+    g, why = load_graph(leaf)
+    assert g is None and words in why, why
+
+
+def test_graph_text_covers_the_root_of_a_chain(tmp_path):
+    """根元の graph の編集も、2 段上の葉の sha に映る"""
+    base = write(tmp_path / "base.json", {"nodes": {}})
+    write(tmp_path / "mid.json", {"extends": "base.json", "nodes": {}})
+    leaf = write(tmp_path / "leaf.json", {"extends": "mid.json", "nodes": {}})
+    before = graph_text(leaf)
+    write(base, {"nodes": {"a": {}}})
+    assert graph_text(leaf) != before
+
+
+@pytest.mark.parametrize("mid_text", [
+    pytest.param('{"extends": "base.json", "nodes": {', id="broken-json"),
+    pytest.param('["not an object"]', id="not-an-object"),
+    pytest.param('{"extends": "leaf.json"}', id="cycle"),
+])
+def test_graph_text_does_not_die_on_a_broken_level(tmp_path, mid_text):
+    """run の途中に鎖の段が書きかけで壊れても、graph の変化の検知（graph_changed）は落ちずに変化として記録する——止めると直せない"""
+    write(tmp_path / "base.json", {"nodes": {}})
+    mid = write(tmp_path / "mid.json", {"extends": "base.json", "nodes": {}})
+    leaf = write(tmp_path / "leaf.json", {"extends": "mid.json", "nodes": {}})
+    before = graph_text(leaf)
+    mid.write_text(mid_text, encoding="utf-8")
+    after = graph_text(leaf)
+    assert after != before and mid_text in after
 
 
 def test_graph_text_covers_the_base(tmp_path):
@@ -109,6 +159,23 @@ def test_shipped_tdd_graph_keeps_every_base_dep_and_read():
     for nid, n in base["nodes"].items():
         for key in ("deps", "reads"):
             assert set(n.get(key) or []) <= set(tdd["nodes"][nid].get(key) or []), f"{nid}.{key}"
+
+
+@pytest.mark.parametrize("patch,words", [
+    pytest.param({}, None, id="plain-chain-passes"),
+    pytest.param({"p4.ci": {"deps": []}}, "元の review-loop-tdd.json の nodes.p4.ci.deps を落とした", id="drops-an-item-the-middle-inherited"),
+])
+def test_graphcheck_takes_a_chain_on_the_tdd_graph(tmp_path, patch, words):
+    """TDD の版の上にもう 1 段重ねた版を graphcheck が受け、根元から中間が継いだ要素を葉が落とせば止める（突合は直接の親の重ねた姿と）"""
+    for d in ("graphs", "prompts", "rules"):
+        shutil.copytree(PLUGIN / d, tmp_path / d)
+    leaf = write(tmp_path / "graphs" / "review-loop-chain.json", {"extends": "review-loop-tdd.json", "nodes": patch})
+    lines = []
+    ok = graphcheck.check(leaf, REPO / "scripts" / "review-record.py", emit=lines.append)
+    if words is None:
+        assert ok, [l for l in lines if l.startswith("NG")][:5]
+    else:
+        assert not ok and any(words in l for l in lines), [l for l in lines if l.startswith("NG")][:5]
 
 
 @pytest.mark.parametrize("patch,words", [

@@ -15,6 +15,7 @@ minLength / maxLength / pattern だけで、これ以外は無視する（展開
 """
 import copy
 import functools
+import json
 import pathlib
 import re
 
@@ -166,35 +167,58 @@ def extends_path(path, g):
     if not isinstance(ref, str) or not ref or pathlib.PurePath(ref).name != ref:
         raise ValueError(f"extends {ref!r} は同じ置き場の graph のファイル名だけ（継いだ節の相対パスが別の置き場を指さないため）")
     base = pathlib.Path(path).parent / ref
-    if base.resolve() == pathlib.Path(path).resolve():
-        raise ValueError(f"extends {ref!r} が自分を指している")
     if not base.is_file():
         raise ValueError(f"extends {ref!r} が無い（{base}）")
     return base
 
 
+def extends_chain(path, read):
+    """extends の鎖を葉から根元まで辿った [(パス, graph)]。各段の検査は extends_path、自分を指すのも含めた輪は訪れたパスで拒む。
+    誤りは、それを書いた段のファイル名を添えた ValueError（葉のパスだけでは、中間の段の誤りを直す先が分からない）"""
+    chain, seen = [], set()
+    p = pathlib.Path(path)
+    while True:
+        seen.add(p.resolve())
+        g = read(p)
+        chain.append((p, g))
+        where = f"{p.name}: " if len(chain) > 1 else ""   # 葉の名前は呼び元（load_graph）が添える
+        if not isinstance(g, dict):
+            raise ValueError(f"{where}graph が object でない")
+        try:
+            base = extends_path(p, g)
+        except ValueError as e:
+            raise ValueError(f"{where}{e}") from None
+        if base is None:
+            return chain
+        if base.resolve() in seen:
+            raise ValueError(f"{where}extends が輪になっている（{' → '.join(q.name for q, _ in chain)} → {base.name}）")
+        p = base
+
+
 def resolve_extends(path, read):
-    """graph の差し替えの版を元の graph に重ねた姿（extends の無い graph はそのまま）。重ねは 1 段だけ。
+    """graph の差し替えの版を、extends の鎖の根元から順に重ねた姿（extends の無い graph はそのまま）。
     配列は置き換えなので、足すなら元の要素も書く（落としていないかは graphcheck が見る）"""
-    g = read(path)
-    base = extends_path(path, g)
-    if base is None:
-        return g
-    b = read(base)
-    if "extends" in b:
-        raise ValueError(f"extends の先 {base.name} がまた extends を持つ——重ねは 1 段だけ")
-    return merge_patch(b, {k: v for k, v in g.items() if k != "extends"})
+    chain = extends_chain(path, read)
+    out = chain[-1][1]
+    for _, g in reversed(chain[:-1]):
+        out = merge_patch(out, {k: v for k, v in g.items() if k != "extends"})
+    return out
 
 
 def graph_text(path):
-    """graph の本文（差し替えの版なら元の graph の本文も続ける）——init の後に graph が変わったかを sha で見るため"""
-    from .util import read_json
-    text = pathlib.Path(path).read_text(encoding="utf-8")
+    """graph の本文（差し替えの版なら鎖の根元までの本文も続ける）——init の後に graph が変わったかを sha で見るため。
+    壊れた段・輪では読めた所までの本文を返す: 呼び元（graph_changed）は変化を記録して止めない——止めると直せない"""
+    first = pathlib.Path(path).read_text(encoding="utf-8")
+    texts = []
+
+    def read(p):
+        texts.append(pathlib.Path(p).read_text(encoding="utf-8") if texts else first)
+        return json.loads(texts[-1])
     try:
-        base = extends_path(path, read_json(path))
-    except ValueError:
-        return text
-    return text if base is None else text + "\n" + base.read_text(encoding="utf-8")
+        extends_chain(path, read)
+    except (OSError, ValueError):
+        pass
+    return "\n".join(texts)
 
 
 def load_graph(path):
