@@ -4051,6 +4051,20 @@ def test_stop_after_round():
     halts = [json.loads(x) for x in (run.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"halted"' in x]
     check([(x.get("op"), x.get("by"), x.get("round")) for x in halts] == [("halted", "stop_after_round", 1)],
           f"止めたことは trace にも 1 行残る（{halts}）")
+    # 止めた run を次の周へ進める口（loop.py resume）——盤面の手当て（patch）なしで 2 周目を開き、1 周目の試行を起こし直さない
+    r1 = run.state()["rounds"][0]["instances"]
+    r = run.cmd("resume", "--reason", "検査: 続ける", "--stop-after-round", "2")
+    st = run.state()
+    check(r.returncode == 0 and st["round"] == 2 and st["status"] == "running" and "halted" not in st and st["rounds"][0]["instances"] == r1
+          and not st.get("patches"), f"resume が 2 周目を開き、1 周目の試行はそのまま（{r.stderr[-300:]}・周 {st['round']}）")
+    last = drive(run, "std")
+    st = run.state()
+    check(last["status"] == "stopped" and st["halted"]["by"] == "stop_after_round" and st["halted"]["round"] == 2
+          and [x["prev_halted"]["round"] for x in st["resumes"]] == [1],
+          f"続けた run は新しい止め周（2 周目）の締めで止まり、続けた痕跡が盤面に残る（{st.get('halted')}・{st.get('resumes')}）")
+    run.cmd("finalize")
+    check([x["reason"] for x in run.record()["process"].get("resumes", [])] == ["検査: 続ける"],
+          "続けた痕跡は記録の process.resumes にも写る（halted は最後の止めだけになるので）")
     rm(run.tmp)
     # N より前の周は止めずに開く（3 周で収束する筋書きを 2 周目の締めの後で止める）
     run = Run("stop2", init_args=["--stop-after-round", "2"])
@@ -4151,18 +4165,23 @@ def test_gates_merge():
 
 
 def test_launch_wait_wording():
-    """**launch の待ち方の案内**が完了の知らせに頼らせない（next の how・手順書 2 本・loop.py の使い方の 4 か所）。
-    知らせを待った回す側が起こされずに止まった（実測 2026-09-25）。1 か所が戻ると回す側はそちらを読む"""
-    print("launch の待ち方: 4 か所とも『手番を終えるな』で、完了の知らせを待てと書かない")
+    """**待ち方の案内**が完了の知らせに頼らせない。手順書 2 本の既定の回し方は `loop.py run` を前景で打ち、終了コードで次の手を
+    決める形で、LLM に見に行きのループを書かせない（残骸のループが 17〜24 時間残った。実測 2026-09-26）。next の how と
+    loop.py の使い方も、会話からは launch を打たずに run に任せる形を案内する（背景の launch を見に行く旧い形を残さない）。
+    知らせを待った回す側が起こされずに止まった（実測 2026-09-25）"""
+    print("待ち方: 手順書は run の作法（20 は打ち直す・13 は handoff・手番を終えるのは 0・11・12・14）で、見に行きのループを書かせない")
     run = Run("waitword")
     how = run.next()["how"]
-    texts = {"next の how": how,
-             "review-graph.md": (PLUGIN / "commands" / "review-graph.md").read_text(encoding="utf-8"),
-             "research-graph.md": (PLUGIN / "commands" / "research-graph.md").read_text(encoding="utf-8"),
-             "loop.py": (PLUGIN / "scripts" / "loop.py").read_text(encoding="utf-8")}
-    for name, x in texts.items():
-        check("手番を終え" in x and "知らせを待て" not in x and "必ず知らせる" not in x,
-              f"{name}: launch を立てたら手番を終えずに見に行けと書き、完了の知らせを待てとは書かない")
+    books = {name: (PLUGIN / "commands" / name).read_text(encoding="utf-8") for name in ("review-graph.md", "research-graph.md")}
+    for name, x in books.items():
+        check("loop.py\" run --dir <DIR>" in x and "**20**" in x and "**13**" in x and "ここで初めて手番を終えてよい" in x
+              and "seq 1 54" not in x and "run_in_background" not in x and "知らせを待て" not in x,
+              f"{name}: 既定の回し方は run の作法で、見に行きのループの例と背景実行の案内を持たない")
+    for name, x in {"next の how": how, "loop.py": (PLUGIN / "scripts" / "loop.py").read_text(encoding="utf-8")}.items():
+        check("run に任せ" in x or "loop.py run --dir <DIR> を前景で打て" in x,
+              f"{name}: 会話からは launch を打たずに run に任せよと書く")
+        check("seq 1 54" not in x and "見に行くコマンド" not in x and "知らせを待て" not in x and "必ず知らせる" not in x,
+              f"{name}: 背景の launch を見に行くループの旧い案内を持たず、完了の知らせを待てとは書かない")
     rm(run.tmp)
 
 

@@ -6,6 +6,7 @@ import pathlib
 from .rules import load_rules, registry, validator_module
 from . import util
 from .util import BoardConflict, Reject, die, get_path, read_json, write_json, now
+from .filelock import board_lock
 from .schema import load_graph, validate_schema
 from .validator import run_validator
 from .render import Renderer
@@ -153,6 +154,12 @@ class Board:
         if self.halted_at_read and not self.allow_halted:
             raise Reject(f"この run は周の途中の問いで止めた（halted: {(self.state.get('halted') or {}).get('node')}）——盤面は書かない"
                          "（止めた run の記録は進めない。手当ては loop.py patch）")
+        # 比べてから書くまでを盤面の錠の下で不可分にする（別のプロセスが間に書くと後勝ちで先の受け付けが消えた）。入口（loop.py）が
+        # 同じ錠を先に取っていれば入れ子で通る
+        with board_lock(self.dir):
+            self._save_locked()
+
+    def _save_locked(self):
         cur = read_json(self.dir / "state.json").get("rev", 0)
         if cur != self.seen_rev:
             # **名乗る範囲は保護できる範囲まで。** 守っているのは盤面の 2 本（state.json / record.json）で、
@@ -161,7 +168,8 @@ class Board:
             raise BoardConflict(f"盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
                                 "同じ run を回している。**盤面（state.json / record.json）は書いていない**が、out/ には"
                                 "この呼び出しの書き込みが残りうる（trace.jsonl の行は、保存まで控えた呼び出しなら書いていない）。"
-                                "1 つの盤面に 2 人で付くな（続けるなら next からやり直せ）")
+                                "loop.py の書き手は盤面の錠の下で読むので、これは錠を通らない書き手（loop.py を通さない呼び出し・"
+                                "錠を持たない版の engine）が間に書いた形（続けるなら next からやり直せ）")
         self.seen_rev += 1
         self.state["rev"] = self.seen_rev
         self._loop_drift()

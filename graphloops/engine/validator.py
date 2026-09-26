@@ -173,6 +173,8 @@ TRACES = (
     ("git_mismatches", "git_mismatches"),
     ("thickness_changes", "thickness_changes"),
     ("patches", "patches"),
+    # 周の数で止めた run を続けた痕跡（loop.py resume）。続けると state.halted が外れ、記録の halted からは消えるので、ここに残す
+    ("resumes", "resumes"),
     ("graph_changes", "graph_changes"),
     ("role_def_missing", "role_def_missing"),  # 別 plugin の役で、定義がこの環境に無かったもの
     # 盤面の loop が graph の state_schema から外れた（Board.save が積む。止めないので、見せる口はここだけ）

@@ -216,10 +216,10 @@ def cmd_next(a):
                 "——engine が役を claude -p で起こし（engine_run なら宣言のコマンドを走らせ）、子の終了を直接待ち、返答を out_path に書き、受け付け（done）まで済ませる。"
                 "engine_run の結果は engine が終了コードから組む——done は拒まれる。"
                 "拒まれたら同じ会話（--resume）に続きを頼む。時間の上限は無い。"
-                "launch は役が終わるまで戻らず、前景だと Bash の上限（10 分）で切られるので Bash の背景実行に回す——**回したら手番を終えるな**。"
-                "背景の出力のファイル（ハーネスが返す置き場。自分でリダイレクトしない）に launch の要約（\"launched\"）が出るまで、"
-                "前景で 1 回 10 分未満の見に行くコマンドを繰り返せ（例: for i in $(seq 1 54); do grep -q '\"launched\"' <出力のファイル> && break; sleep 10; done）。"
-                "完了の知らせを待たない（知らせで起こされずに止まった。実測 2026-09-25）。先頭が sleep のコマンドは Bash が拒み、上限の無い until ループは止まらないので使わない。"
+                "launch は役が終わるまで戻らず、前景だと Bash の上限（10 分）で切られる——会話からは launch を打たずに loop.py run --dir <DIR> を前景で打て"
+                "（回し手が launch を立てて子の終了を待ち、run は会話に返す節・人の答え待ち・周の止め・終わりでだけ戻る。終了コードの表は手順書の『回す』）。"
+                "端末や CI で待てるなら launch を直に打ってよいが、回し手が居る間に launch を自分で打つな（同じ節を 2 本で起こさない）。"
+                "完了の知らせを待たない（知らせで起こされずに止まった。実測 2026-09-25）。"
                 "返るのは 1 件 1 行の要約だけで、役の返答の本文は回す側に流れない。"
                 "自分の Bash から claude を起こすな（出力をファイルに落とす綴りは auto mode の分類器が止める。実測 2026-09-15）。"
                 "Agent ツールで起こすな（CLAUDE.md と git status が注入される——Agent の子の git status は止められない。engine は道具ゼロの子をリポジトリの外で起こす。返答の本文が回す側に入る）。"
@@ -455,7 +455,9 @@ def _delegate_refusal(inst, launch, board):
     return None
 
 
-BOARD_LOCK = threading.Lock()  # 同じ launch の中で並列に起こした役が、盤面を 1 本ずつ開いて書く錠
+# 同じ launch の中で並列に起こした役が、盤面を 1 本ずつ開いて書く錠。scripts/loop.py の入口は盤面を書くコマンドで、
+# これをプロセスをまたぐ盤面の錠（engine/filelock.board_lock）に差し替える
+BOARD_LOCK = threading.Lock()
 
 
 CONFLICT_RETRIES = 3
@@ -466,7 +468,7 @@ def _retry_on_conflict(d, step, allow_halted=False):
     CONFLICT_RETRIES 回まで当て直す（Kubernetes client-go の retry.RetryOnConflict と同じ形）。保存は step の中でも後でもよい
     （_board_update は後で、launch の受け付けは accept_output の中で）。launch の印付けと締め、relaunch、stop はどれも
     別のプロセスと同じ盤面を書きうる。step は盤面の外に書かないか、書くなら（stop の on_stop が周の記録を書く）当て直すたびに
-    読み直した盤面から組み直して上書きし、済んだかは盤面の事実で決める（負けた試行が外に残した物を『済んだ』と読まない）。trace の行は保存まで控えるので、当て直しても重ならない。BOARD_LOCK はスレッドの錠で、プロセスをまたいでは効かない。
+    読み直した盤面から組み直して上書きし、済んだかは盤面の事実で決める（負けた試行が外に残した物を『済んだ』と読まない）。trace の行は保存まで控えるので、当て直しても重ならない。BOARD_LOCK は既定ではスレッドの錠で、loop.py から呼ぶときは盤面の錠（プロセスをまたぐ）に差し替わっている。
     allow_halted は止めた run の盤面に書いてよい帳簿の書き込み（launch の締め）の印——Board.save が見る"""
     with BOARD_LOCK:
         for n in range(CONFLICT_RETRIES):

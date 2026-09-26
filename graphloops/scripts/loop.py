@@ -5,8 +5,10 @@
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--stop-after-round N] [--dir <置き場>] [--validator <path>]
                    [--unfenced-delegates <理由>]   # 任せ先を sandbox で縛らない（人が明示したときだけ）
+    loop.py run    [--dir] [--foreground]               # 回し手が engine の起こせる節を回し続け、止まる所でだけ戻る（前景で打つ。下の終了コード）
+    loop.py resume --reason <理由> (--stop-after-round N | --no-stop-after-round)   # init --stop-after-round で止めた run を次の周へ進める
     loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
-    loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・任せ先・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（背景実行に回し、手番を終えずに前景で出力を見に行く。任せ先は sandbox の中）
+    loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・任せ先・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（役が終わるまで戻らない——会話からは打たずに run に任せる。端末・CI なら直に打ってよい。任せ先は sandbox の中）
     loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
     loop.py answer --text <答え> [--note <本文>] [--detail <json>]  # 人に聞く番のとき（本文は次の周の再審に渡る。--detail は rules が受ける構造の値）
@@ -22,7 +24,12 @@
 （`git status --porcelain` に映らない）で、リポジトリごとに残る。`current` がいちばん新しい run を指す。
 
 終了コード: 0 = 受け付けた / 1 = 受け付けない（返答が型に合わない・節が待ち状態でない等。直して
-呼び直す） / 2 = 盤面・グラフ・引数が読めない
+呼び直す） / 2 = 盤面・グラフ・引数が読めない。run だけは止まった種類も返す（値の表の正本は engine/runner.py の CODES）:
+0 = 終わった / 10 = 人の答え待ち / 11 = 指定の周で止めた / 12 = 進めない / 13 = 会話に返す節がある / 14 = 人が確かめる事がある /
+20 = まだ回っている（見守りの上限。回し手と子は止めない）
+
+盤面を書くコマンドは、盤面の置き場の錠（engine/filelock.py）の下で走る——回し手と会話と人が同じ盤面を同時に書いても、
+読み直し→比べる→書くが割り込まれない
 """
 import argparse
 import pathlib
@@ -34,9 +41,15 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 from engine import commands as c  # noqa: E402
-from engine import intake, util  # noqa: E402
+from engine import filelock, intake, resume, runner, util  # noqa: E402
 from engine.role_run import StopSignal, install_stop_handlers  # noqa: E402
 from engine.util import BoardConflict, Reject, die  # noqa: E402
+
+
+# 盤面を読んでから書くまでを丸ごと盤面の錠の下で走らせるコマンド（短い。next は機械の節も走らせるので長くなりうるが、その間は
+# 他の書き手が待つ——時間では諦めない）。launch は役の終わりまで戻らないので丸ごとは持たず、書く所だけで取る（BOARD_SHARERS）
+BOARD_WRITERS = ("next", "done", "skip", "answer", "thicken", "add", "patch", "finalize", "resume")
+BOARD_SHARERS = ("launch", "relaunch", "stop")
 
 
 def main():
@@ -68,6 +81,19 @@ def main():
         s.add_argument("--dir")
         s.set_defaults(fn=fn)
     sub.choices["next"].add_argument("--accept-tree-change", help="P1 の前後の作業ツリー突合が『変わっている』と止めたとき、自分の変更なら理由を添えて通す（痕跡は process.git_mismatches）")
+
+    s = sub.add_parser("run", help="回し手が engine の起こせる節を回し続け、止まる所（人の答え・会話に返す節・周の止め・終わり）でだけ戻る")
+    s.add_argument("--dir")
+    s.add_argument("--foreground", action="store_true", help="切り離さず、このプロセスが回し手として止まるまで回す（端末・CI）")
+    s.set_defaults(fn=lambda a: runner.cmd_run(a, a.dir))
+
+    s = sub.add_parser("resume", help="init --stop-after-round で止めた run を、理由と次の止め周を添えて次の周へ進める")
+    s.add_argument("--dir")
+    s.add_argument("--reason", required=True)
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--stop-after-round", type=int, help="次に止める周（今の周より大きい）")
+    g.add_argument("--no-stop-after-round", action="store_true", help="周の数では止めない")
+    s.set_defaults(fn=lambda a: resume.cmd_resume(a, a.dir))
 
     s = sub.add_parser("launch")
     s.add_argument("--dir")
@@ -141,6 +167,17 @@ def main():
 
     a = p.parse_args()
     install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす
+    if a.cmd in BOARD_WRITERS + BOARD_SHARERS or a.cmd == "run":
+        a.dir = c.resolve_dir(a)
+    if a.cmd in BOARD_WRITERS + BOARD_SHARERS:
+        lock = filelock.board_lock(a.dir)
+        # launch・relaunch・stop は盤面を書く所を BOARD_LOCK の下で当て直す（commands._retry_on_conflict・launch_engine_run）。
+        # その錠をプロセスをまたぐ盤面の錠に差し替え、受け付けの post_check が盤面の置き場に書く物まで別のプロセスと並べる
+        c.BOARD_LOCK = lock
+        if a.cmd in BOARD_WRITERS:
+            with lock:
+                a.fn(a)
+            return
     a.fn(a)
 
 
@@ -162,7 +199,8 @@ def cli():
         intake.failed(sys.argv[1:], 128 + e.signum, e, e.__traceback__, f"止める信号 {e.signum} を受けた")
         sys.exit(128 + e.signum)   # 生きている子は信号の口（kill_all）が止めてある
     except SystemExit as e:
-        if e.code not in (0, None):
+        # run の日常の止まり方（人の答え待ち・周の止め・会話に返す・まだ回っている）は踏んだ問題でないので残さない
+        if e.code not in (0, None) and not (sys.argv[1:2] == ["run"] and e.code in runner.QUIET_CODES):
             intake.failed(sys.argv[1:], e.code, e, e.__traceback__, util.LAST_DIE)
         raise
     except Exception as e:  # 契約: 想定外は 2（盤面が読めない側）に倒す
