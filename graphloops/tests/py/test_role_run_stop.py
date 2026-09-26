@@ -69,12 +69,24 @@ def test_stop_group_windows(tmp_path, monkeypatch, rc, started, fails):
     """Windows の taskkill: 非 0 でも相手が居なくなっていれば止まったと数える。止まったら印を消す"""
     m = mark(tmp_path)
     monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="nt"))
-    monkeypatch.setattr(role_run, "_probe", lambda f: (4242, 100.0, None))
+    monkeypatch.setattr(role_run, "_probe", lambda f: ([(4242, 100.0)], None))
     monkeypatch.setattr(role_run, "_started_at", lambda pid: started)
-    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, rc, "", "err"))
+    sent = []
+    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: sent.append(argv) or subprocess.CompletedProcess(argv, rc, "", "err"))
     why = role_run.stop_group(str(m))
+    assert sent == [["taskkill", "/T", "/F", "/PID", "4242"]]   # /T で木を辿り /F で強いる（Windows の実機の CI を待たずに見る）
     assert (why is not None and "taskkill" in why) == fails
     assert m.exists() == fails
+
+
+@pytest.mark.parametrize("started,reused", [
+    pytest.param(100.0 + role_run.REUSE_SLACK, False, id="within-the-reading-error"),
+    pytest.param(100.0 + role_run.REUSE_SLACK + 0.1, True, id="started-after-birth"),
+    pytest.param(90.0, False, id="started-before-birth"),
+])
+def test_number_reused(started, reused):
+    """番号の再利用は『born より読みの誤差を超えて後に始まった』だけ——向きを逆にすると再利用された無関係な木を止める"""
+    assert role_run.number_reused(started, 100.0) is reused
 
 
 def proc(pid, pgid=4242, stat="S", ppid=1, started=100.0, uid=501):
@@ -99,7 +111,7 @@ def posix(monkeypatch, members, sent, eperm=False):
     monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (members(sent), None))
     monkeypatch.setattr(role_run, "STOP_SIGNALS", (15, 9))
     monkeypatch.setattr(role_run, "KILL_GRACE", 0.3)
-    monkeypatch.setattr(role_run, "_probe", lambda f: (4242, 100.0, None))
+    monkeypatch.setattr(role_run, "_probe", lambda f: ([(4242, 100.0)], None))
 
 
 def test_stop_group_posix_tree_already_gone(tmp_path, monkeypatch):
@@ -111,11 +123,11 @@ def test_stop_group_posix_tree_already_gone(tmp_path, monkeypatch):
     assert not m.exists() and sent == []
 
 
-def test_stop_group_passes_the_mark_time_read_with_the_number(tmp_path, monkeypatch):
-    """番号の再利用の目印（born）は、_probe が番号と同じ読みで返す印の更新時刻——別の読みにしない"""
+def test_stop_group_passes_the_probed_birth_with_the_number(tmp_path, monkeypatch):
+    """番号の再利用の目印（born）は、_probe が番号と同じ読みで返す値——別の読みにしない"""
     m = mark(tmp_path)
     got = {}
-    monkeypatch.setattr(role_run, "_probe", lambda f: (4242, 123.5, None))
+    monkeypatch.setattr(role_run, "_probe", lambda f: ([(4242, 123.5)], None))
     monkeypatch.setattr(role_run, "_stop_tree", lambda pgid, leader=None, born=None: got.update(pgid=pgid, born=born))
     assert role_run.stop_group(str(m)) is None and got == {"pgid": 4242, "born": 123.5}
 
@@ -408,7 +420,7 @@ def test_stop_handler_marks_stopping_then_raises(monkeypatch):
 def test_stop_tree_reaps_the_leader_it_holds(monkeypatch):
     """長の Popen を持って止めるときは待つ間に回収する——回収しない長はゾンビのままグループに残り、消滅が見えない"""
     monkeypatch.setattr(role_run, "KILL_GRACE", 2)
-    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    p = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], start_new_session=True, stdin=subprocess.PIPE)
     try:
         assert role_run._stop_tree(p.pid, leader=p) is None
     finally:
@@ -417,14 +429,57 @@ def test_stop_tree_reaps_the_leader_it_holds(monkeypatch):
             p.wait()
 
 
-@pytest.mark.parametrize("reap,want", [pytest.param(True, 1, id="reap"), pytest.param(False, 0, id="no-reap")])
-def test_run_role_ends_a_normal_attempt_only_when_reaping(tmp_path, monkeypatch, reap, want):
-    """reap が真の試行は、役が正常に終わって受け付けた回も、試行の終わりに木の残りを 1 回まとめて止める（_end_attempt）。偽なら止めない"""
+def test_run_role_ends_a_normal_attempt(tmp_path, monkeypatch):
+    """役が正常に終わって受け付けた回も、試行の終わりに木の残りを 1 回まとめて止める（_end_attempt）"""
     prompt = tmp_path / "p.md"
     prompt.write_text("指示書", encoding="utf-8")
     env = json.dumps({"type": "result", "subtype": "success", "result": "{}", "session_id": "s-1"})
     ended = []
     monkeypatch.setattr(role_run, "_end_attempt", lambda trees, pgid_file: ended.append((trees, pgid_file)))
-    r = role_run.run_role([sys.executable, "-c", f"print({env!r})"], prompt, tmp_path / "out.json", accept=lambda t: None, reap=reap)
-    assert r["ok"] and len(ended) == want, (r, ended)
+    r = role_run.run_role([sys.executable, "-c", f"print({env!r})"], prompt, tmp_path / "out.json", accept=lambda t: None)
+    assert r["ok"] and len(ended) == 1, (r, ended)
     assert all(isinstance(t, list) for t, _ in ended)
+
+
+def test_probe_group_keeps_only_trees_not_reused(tmp_path, monkeypatch):
+    """止め切れなかった木を書き直した印（left）は木ごとの born で番号の再利用を見分け、残った木だけを止める側に倒す"""
+    m = tmp_path / "out.json.pgid"
+    m.write_text(json.dumps({"left": [{"pgid": 11, "born": 100.0}, {"pgid": 22, "born": 100.0}], "owner": 1}), encoding="utf-8")
+    monkeypatch.setattr(role_run, "_started_at", lambda pid: {11: 99.0, 22: 500.0}[pid])   # 22 は印より後に始まった別物
+    assert role_run._probe(str(m)) == ([(11, 100.0)], None)
+    monkeypatch.setattr(role_run, "_started_at", lambda pid: 500.0)
+    assert role_run._probe(str(m)) == ([], None) and not m.exists()
+
+
+def test_stop_group_stops_every_tree_the_mark_left(tmp_path, monkeypatch):
+    """印が名指す木を全部、それぞれの born で止める。1 つでも止め切れなければ理由を返して印を残す"""
+    m = tmp_path / "out.json.pgid"
+    m.write_text(json.dumps({"left": [{"pgid": 11, "born": 1.0}, {"pgid": 22, "born": 2.0}]}), encoding="utf-8")
+    monkeypatch.setattr(role_run, "_started_at", lambda pid: role_run.GONE)
+    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix", getpid=os.getpid))
+    got = []
+    monkeypatch.setattr(role_run, "_stop_tree", lambda pgid, leader=None, born=None: got.append((pgid, born)) or ("残った" if pgid == 22 else None))
+    assert role_run.stop_group(str(m)) == "残った" and got == [(11, 1.0), (22, 2.0)] and m.exists()
+
+
+def test_end_attempt_rewrites_the_mark_with_the_trees_it_could_not_stop(tmp_path, monkeypatch):
+    """試行の終わりに止め切れなかった木（最後の往復・段でない物も）を、番号と起こした時刻で印に書き直す。全部止まれば消す"""
+    m = tmp_path / "out.json.pgid"
+    m.write_text(json.dumps({"pgid": 33}), encoding="utf-8")   # 起こした直後の印は最後の子の番号だけ
+    monkeypatch.setattr(role_run, "_reap_one", lambda pid, leader=None, born=None: "残った" if pid == 11 else None)
+    role_run._end_attempt([(11, 5.0), (33, 6.0)], str(m))
+    mk = json.loads(m.read_text(encoding="utf-8"))
+    assert mk["left"] == [{"pgid": 11, "born": 5.0}] and mk["owner"] == os.getpid()
+    assert role_run.read_mark(str(m))[0] == [(11, 5.0)]
+    monkeypatch.setattr(role_run, "_reap_one", lambda pid, leader=None, born=None: None)
+    role_run._end_attempt([(11, 5.0)], str(m))
+    assert not m.exists()
+
+
+def test_read_mark_says_why_for_a_broken_mark(tmp_path):
+    m = tmp_path / "out.json.pgid"
+    m.write_text("{", encoding="utf-8")
+    trees, owner, _written, why = role_run.read_mark(str(m))
+    assert trees == [] and owner is None and why and "読めない" in why
+    assert role_run.read_mark(str(tmp_path / "none.pgid")) == ([], None, None, None)
+

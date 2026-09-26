@@ -5703,7 +5703,6 @@ def test_big_diff():
     check(pt_inst.get("deliver") == "path" and not pt_inst.get("launch") and f"ROW_{BIG_ROWS - 1:05d}" in body,
           f"engine が起こさない path の役は、差分の本文を末尾まで受け取る（deliver {pt_inst.get('deliver')}・{len(body.encode('utf-8'))} バイト）")
     rm(run.tmp)
-    shutil.rmtree(gtmp, ignore_errors=True)
 
 
 
@@ -6453,10 +6452,12 @@ def test_stop_signal_stops_test_runner_tree():
     run = Run("spec-signal", init_args=("--input", "flow=spec"))
     drive(run, "spec")
     pidf = run.tmp / "runner-grandchild.pid"
+    hold, lock = parallel.hold_code(120), parallel.creator_lock(run.tmp)   # 実行器と孫の寿命をこの台本に縛る
     f = run.repo / SPEC_TESTS["AC1"][0]
     f.write_text(f.read_text(encoding="utf-8").replace("import pathlib, sys\n",
-                 f"import pathlib, subprocess, sys, time\nc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
-                 f"open({str(pidf)!r}, 'w').write(str(c.pid))\ntime.sleep(120)\n", 1), encoding="utf-8")
+                 f"import pathlib, subprocess, sys, time\nc = subprocess.Popen([sys.executable, '-c', {hold!r}, {lock!r}])\n"
+                 f"open({str(pidf)!r}, 'w').write(str(c.pid))\nimport fcntl, os, signal\nsignal.alarm(120)\n"
+                 f"fcntl.flock(os.open({lock!r}, os.O_RDONLY), fcntl.LOCK_SH)\n", 1), encoding="utf-8")
     run.cmd("answer", "--text", "continue")
     proc = subprocess.Popen([PY, str(LOOP), "next", "--dir", str(run.dir)], cwd=run.repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     t0 = time.monotonic()

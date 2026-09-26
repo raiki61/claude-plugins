@@ -3571,9 +3571,10 @@ head = (f"ids={ids == [arm['id']]} cover={cover.get(arm['id'])} ws_plain={seen['
 # 止める信号の後の run_group は、起こした最中に止められた子も・その後に起こす子も『stopped』で返し、赤（Killed）と読ませない
 if os.name == "posix":
     import time
+    lock = parallel.creator_lock(d)   # 眠る子の寿命をこの台本に縛る（止める側が壊れた回にも子が残らない）
     rdy, got = d / "ready", {}
     th = threading.Thread(target=lambda: got.update(r=mutate.run_group(
-        [sys.executable, "-c", f"import pathlib, time; pathlib.Path({str(rdy)!r}).touch(); time.sleep(600)"], cwd=d)))
+        [sys.executable, "-c", parallel.hold_code(600, f"import pathlib; pathlib.Path({str(rdy)!r}).touch(); "), lock], cwd=d)))
     th.start()
     while th.is_alive() and not rdy.exists():
         time.sleep(0.05)
@@ -3581,7 +3582,7 @@ if os.name == "posix":
     mutate.stop_groups()
     th.join()
     t0 = time.monotonic()
-    after = mutate.run_group([sys.executable, "-c", "import time; time.sleep(600)"], cwd=d)
+    after = mutate.run_group([sys.executable, "-c", parallel.hold_code(600), lock], cwd=d)
     after = (after, time.monotonic() - t0 < 300)
     try:
         mutate.run_selected(d, {"x.py": ["t"]})
@@ -3818,12 +3819,78 @@ for _s in (sys.stdout, sys.stderr):
 sys.path.insert(0, sys.argv[1])
 import mutate
 
+# Windows の枝が taskkill に渡す argv を、どの OS でも見る: mutate の os と subprocess だけを差し替え（モジュールそのものは
+# 書き換えない）、止める信号の後に起こした子へ run_group が送る語を記録する。本物の木が止まるかは Windows の実機の CI が見る
+import subprocess, types
+sent, born = [], []
+
+
+class Recorded(subprocess.Popen):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        born.append(self.pid)
+
+
+real_os, real_sp = mutate.os, mutate.subprocess
+mutate.os = types.SimpleNamespace(name="nt")
+mutate.subprocess = types.SimpleNamespace(**{**vars(subprocess), "Popen": Recorded,
+                                            "run": lambda argv, **k: sent.append(argv)})
+mutate.STOPPING.set()
+try:
+    got = mutate.run_group([sys.executable, "-c", "pass"], cwd=tempfile.gettempdir())
+finally:
+    mutate.os, mutate.subprocess = real_os, real_sp
+    mutate.STOPPING.clear()
+assert got == ("stopped", "") and sent == [["taskkill", "/T", "/F", "/PID", str(born[0])]], f"Windows の枝の止め方: {got} {sent} {born}"
+
 if os.name != "posix":
-    print("  ok   run_group の腕 # SKIP process-group: この腕の時間切れと failfast の止め方は posix のプロセスグループ（killpg）で組んである（Windows の taskkill /T の経路は実機で確かめていない）")
+    print("  ok   run_group の腕 # SKIP process-group: この腕の時間切れと failfast の止め方は posix のプロセスグループ（killpg）で組んである（Windows の taskkill /T が本物の木を止めるかは実機で確かめていない。渡す argv は上で見た）")
     print("RUNGROUP_OK")
     sys.exit(0)
 
 root = tempfile.mkdtemp()
+import pathlib
+GL_TESTS = pathlib.Path(sys.argv[1]).resolve().parent / "graphloops" / "tests"
+sys.path.insert(0, str(GL_TESTS))
+import parallel
+lock = parallel.creator_lock(root)   # 下で起こす眠る子の寿命をこの台本に縛る
+
+
+def gone(pid, within=30):
+    """居なくなったか（回収待ちのゾンビも居ないと数える）。止まった子の消滅は非同期なので数え直す"""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < within:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        st = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        if not st or st.startswith("Z"):
+            return True
+        time.sleep(0.1)
+    return False
+
+
+# 変異の腕が赤で台本を止める回（failfast のグループへの SIGKILL）: 台本の後始末（finally・ExitStack）は走らず、グループや
+# セッションを抜けた固定具の子に killpg は届かない。固定具の子の寿命を台本の生存に縛る 2 つの形（台本が握るロックを待つ
+# parallel.hold_code と、台本が握る標準入力の管の EOF）なら、台本が消えた時点で子も孫も終わる
+pids, own = pathlib.Path(root) / "fixture.pids", pathlib.Path(root) / "creator"
+own.mkdir()   # 台本のロックは自分の置き場に（この台本が root に握るロックと別の物）
+creator = f"""import os, subprocess, sys, time
+sys.path.insert(0, {str(GL_TESTS)!r})
+import parallel
+lock = parallel.creator_lock({str(own)!r})
+a = subprocess.Popen([sys.executable, "-c", parallel.hold_code(600, "os.setsid(); "), lock], stdout=subprocess.DEVNULL)
+b = subprocess.Popen([sys.executable, "-c", "import os, subprocess, sys; os.setsid(); g = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()']); print(g.pid, flush=True); sys.stdin.read()"],
+                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+g = b.stdout.readline().strip()
+open({str(pids)!r}, "w").write(f"{{a.pid}} {{b.pid}} {{g}}")
+print("  FAIL 固定具の子と孫を起こした台本", flush=True)
+time.sleep(600)
+"""
+rc, out = mutate.run_group([sys.executable, "-c", creator], cwd=root, failfast=True)
+left = [int(x) for x in pids.read_text(encoding="utf-8").split()]
+assert rc == 1 and len(left) == 3 and all(gone(x) for x in left), f"SIGKILL で消えた台本の固定具の子が残った: rc={rc} {left}"
 
 # **時計に頼らない。** 本物の threading.Timer と固定の短い上限（0.1〜2 秒）で見ていたとき、機械の負荷で子の起動が
 # 遅れると上限を越えて赤くなった（実測 2026-09-25: load average 60〜112 の下で、この台本だけが差分と無関係に赤）。
@@ -3857,7 +3924,7 @@ threading.Timer = FakeTimer
 # p.wait が子の自然終了（60 秒）まで返らないので、その半分より十分早く返ったことで殺したと言える
 FakeTimer.fire = True
 t0 = time.time()
-rc, out = mutate.run_group([sys.executable, "-c", "import time; time.sleep(60)"], cwd=root)
+rc, out = mutate.run_group([sys.executable, "-c", parallel.hold_code(60), lock], cwd=root)
 dt = time.time() - t0
 assert (rc, out) == ("timeout", ""), f"時間切れが (\"timeout\", \"\") でない: {(rc, out)!r}"
 assert dt < 30, f"時間切れの後に子の自然終了まで待った（{dt:.2f}s）——グループを殺せていない疑い"
@@ -3904,7 +3971,7 @@ assert timer.cancel.called, "timer.cancel() が呼ばれず、通常終了の後
 
 print("RUNGROUP_OK")
 PYRG
-expect_output 0 "RUNGROUP_OK" "run_group: 時間切れでグループごと殺す・標準出力が先に閉じても子の終了を待つ・failfast は最初の FAIL 行だけで rc を 1 にする（NO_TEST を含む行や failfast=False では止めない）・timer.cancel が通常終了後の時間切れ kill を防ぐ" \
+expect_output 0 "RUNGROUP_OK" "run_group: Windows の枝は taskkill /T /F /PID <子> を送る・時間切れでグループごと殺す・標準出力が先に閉じても子の終了を待つ・failfast は最初の FAIL 行だけで rc を 1 にする（NO_TEST を含む行や failfast=False では止めない）・timer.cancel が通常終了後の時間切れ kill を防ぐ" \
     "$PY_BIN" "$WORK/mut-rungroup.py" "$ROOT/tests"
 
 # 自動の腕（--auto）の本命: 使い捨ての小さな git repo を tests/mutate.py の写しごと作り、base から
