@@ -103,14 +103,14 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(nodes[1]["script"], "assert_changed")
         for n in (accept, nodes[1], nodes[2]):
             self.assertEqual(n["timeout"], DEADLINE)
-        self.assertEqual(nodes[1]["with"]["base_rev"], "$INPUTS.base_rev")
+        self.assertEqual(nodes[1]["with"], {"base_rev": "$INPUTS.base_rev", "accepted": "$fix-loop.output"})
         self.assertEqual(accept["with"]["base_rev"], "$INPUTS.base_rev")
 
     def test_fix_node(self):
         fix = find_node(block()["nodes"], "fix")
         self.assertEqual(fix["command"], "fix")
         self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash"])
-        self.assertEqual(fix["sandbox"], {"enabled": True})
+        self.assertEqual(fix["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(fix["idle_timeout"], DEADLINE)
         of = fix["output_format"]
         self.assertIs(of["additionalProperties"], False)
@@ -121,9 +121,13 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_fix_prompt(self):
         body = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
-        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$LOOP_PREV.accept.output.reason",
+        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$INPUTS.prev_reason",
                   "git commit", "テスト", "unit_key"):
             self.assertIn(s, body)
+        # 指示書の中の $LOOP_PREV は置き換わらない（Ruling R13）。前の周の理由は節の with: で束ねて $INPUTS で読む
+        self.assertNotIn("$LOOP_PREV", body)
+        fix = find_node(block()["nodes"], "fix")
+        self.assertEqual(fix["with"], {"prev_reason": "$LOOP_PREV.accept.output.reason"})
         self.assertNotIn("{{", body, "graphloops の engine の穴を残さない")
 
     def test_fixtures(self):
@@ -159,27 +163,52 @@ class ScriptCase(unittest.TestCase):
 
 
 class TestAssertChanged(ScriptCase):
-    def run_it(self, base_rev=""):
-        return run_script("assert_changed", self.repo, {"INPUTS_BASE_REV": base_rev})
+    def run_it(self, base_rev="", declared=("stats.py",), accepted=None):
+        if accepted is None:
+            accepted = {"ok": True, "reason": "", "changes": [
+                {"unit_key": "u", "files": list(declared), "what": "直した"}]}
+        raw = accepted if isinstance(accepted, str) else json.dumps(accepted, ensure_ascii=False)
+        return run_script("assert_changed", self.repo, {"INPUTS_BASE_REV": base_rev, "INPUTS_ACCEPTED": raw})
+
+    def assert_refused(self, result, *words):
+        code, out, err = result
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(err.count("\n"), 1, "理由は 1 行")
+        for w in words:
+            self.assertIn(w, err)
 
     def test_clean_tree_fails(self):
         for rev in ("", self.base):
             with self.subTest(rev=rev):
-                code, out, err = self.run_it(rev)
-                self.assertEqual(code, 1)
-                self.assertEqual(out, "")
-                self.assertEqual(err.count("\n"), 1, "理由は 1 行")
-                self.assertIn("変わっていない", err)
+                self.assert_refused(self.run_it(rev), "変わっていない", "stats.py")
+
+    def test_running_tests_only_fails(self):
+        """テストを回しただけ（__pycache__ ができただけ）では通らない"""
+        r = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=str(self.repo), capture_output=True,
+                           env={"PATH": os.environ["PATH"]}, timeout=120)
+        self.assertTrue(list(self.repo.glob("__pycache__/*.pyc")), r.stderr)
+        self.assert_refused(self.run_it(), "stats.py")
 
     def test_modified_file_passes(self):
         (self.repo / "stats.py").write_text("x = 1\n")
-        code, out, _ = self.run_it()
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        code, out, _ = self.run_it(declared=["./stats.py"])
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out), {"ok": True, "files": ["stats.py"]})
+        self.assertEqual(json.loads(out), {"ok": True, "files": ["stats.py"]}, "申告と変わった物の重なりだけを出す")
+
+    def test_declared_but_unchanged_file_fails(self):
+        (self.repo / "stats.py").write_text("x = 1\n")
+        self.assert_refused(self.run_it(declared=["stats.py", "test_stats.py"]), "test_stats.py")
+
+    def test_nothing_declared_fails(self):
+        (self.repo / "stats.py").write_text("x = 1\n")
+        self.assert_refused(self.run_it(declared=[]), "申告")
 
     def test_untracked_file_passes(self):
         (self.repo / "new_test.py").write_text("x = 1\n")
-        code, out, _ = self.run_it(self.base)
+        code, out, _ = self.run_it(self.base, declared=["new_test.py"])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out)["files"], ["new_test.py"])
 
@@ -194,11 +223,15 @@ class TestAssertChanged(ScriptCase):
     def test_archon_dir_does_not_count(self):
         (self.repo / ".archon").mkdir()
         (self.repo / ".archon" / "x.yaml").write_text("a: 1\n")
-        self.assertEqual(self.run_it()[0], 1)
+        self.assertEqual(self.run_it(declared=[".archon/x.yaml"])[0], 1)
 
-    def test_bad_rev_or_missing_env(self):
+    def test_bad_input(self):
         self.assertEqual(self.run_it("no-such-rev")[0], 2)
         self.assertEqual(run_script("assert_changed", self.repo, {})[0], 2)
+        self.assertEqual(run_script("assert_changed", self.repo, {"INPUTS_BASE_REV": ""})[0], 2)
+        for bad in ("not json", {"ok": False, "reason": "拒んだ", "changes": []}, {"ok": True, "reason": ""}):
+            with self.subTest(accepted=bad):
+                self.assertEqual(self.run_it(accepted=bad)[0], 2)
 
 
 class TestAccept(ScriptCase):

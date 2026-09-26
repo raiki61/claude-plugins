@@ -2,7 +2,7 @@ name: blk-fix
 description: |
   修正のブロック（support workflow。ラインから include で使う）。
   判定のブロックが受け付けた根本の単位を修正役に直させ（fix）、返答を写した規則で受け付け（accept。
-  拒めば理由を貼って同じ会話で出し直し、上限 3 回）、作業ツリーが実際に変わったかを確かめ（assert-changed。
+  拒めば理由を貼って同じ会話で出し直し、上限 3 回）、申告したファイルが実際に変わったかを確かめ（assert-changed。
   何も変えずに済んだと言えば run が落ちる）、出口に集める（collect）。
 
 inputs:
@@ -29,8 +29,12 @@ nodes:
         - id: fix
           command: fix
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
-          sandbox: {enabled: true}
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
+          # 指示書（command）の中の $LOOP_PREV は Archon 0.11.1 では置き換わらない（Ruling R13）。節の with: の
+          # 文字列の値は周ごとに置き換わるので、ここで前の周の拒否の理由を束ね、指示書は $INPUTS.prev_reason で読む
+          with:
+            prev_reason: "$LOOP_PREV.accept.output.reason"
           output_format:
             type: object
             additionalProperties: false
@@ -72,6 +76,7 @@ nodes:
     timeout: 1728000000
     with:
       base_rev: $INPUTS.base_rev
+      accepted: $fix-loop.output
     output_format:
       type: object
       required: [ok, files]
