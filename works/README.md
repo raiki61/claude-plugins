@@ -22,7 +22,7 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 
 ## 開発の回し方
 
-テストは `works/tests/run.sh`。実際に Archon の上で回す手順（実行ファイルの取得・使い捨ての対象作り・`archon workflow test` 相当の検査）は `works/dev/` を見る。
+テストは `works/tests/run.sh`。実際に Archon の上で回す手順（実行ファイルの取得・使い捨ての対象作り・`archon workflow test` 相当の検査・自分食い）は `works/dev/` を見る。キャッシュした Archon の実行ファイルの sha256 が合わないときは、止まった時の 1 行に出るそのファイルを消して回し直せば取り直す（殻は消さない）。
 
 `works/dev/archon.sh`（固定した版の Archon を隔離して回す殻）の認証に既定の口座は無い。AI を呼ぶ実行（`workflow run`・`workflow approve`・`workflow resume`、`dev/real-run.sh`）の前に、次のどちらかを設定する:
 
@@ -60,6 +60,29 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 - 判定役・修正役・審査役は 3 回とも別々の新しい会話で始まった（前の役の会話を引き継がない）。
 - run 3e5bcda1 の審査が挙げた 2 件は本物の指摘: 修正役が docstring に「statistics.mean・numpy.clip と同じ定義」と書き足したが、空の列・`lo > hi` のときは一致しない（宣言と実装のずれ）。
 - 回すのに要った準備: Archon は run ごとに切る worktree の元を remote から取るので、remote の無い対象では止まる（`real-run.sh` が対象の外に裸のリポジトリを作って origin にする）。隔離した HOME からは `~/.local/bin/claude` を見つけられないので、`CLAUDE_BIN_PATH` を渡す。
+
+## 自分食い（dogfood）
+
+works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfood.sh`（費用が掛かる。回す前に持ち主の了承を取る）。
+
+1. 依頼の JSON を書く（形は `skills/works/SKILL.md`）。置き場所はどこでもよい（殻が写して渡す）。
+2. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/dogfood.sh <依頼の JSON> "<テストのコマンド>" [<dir>]` を前景で打つ。殻は、このリポジトリの今の HEAD（commit 済みの物だけ）を `<dir>/repo` に clone し、works を `.archon/workflows/works` に写して枝 `dogfood-base` に commit し、`<dir>/origin.git` を origin にしてラインを回す。`<dir>` の既定は `$TMPDIR` の下の一時フォルダ。人の関所で止まって戻る。
+3. 実走と同じく、関所の文面と殻が出す worktree を見て、approve のコマンドを打つ。
+4. 審査が終わったら、殻が出す `git -C <このリポジトリ> apply <fix.diff のパス>` で差分を取り込み、手元でテストを回してから commit する。
+
+### 結果（2026-09-26・Archon v0.11.1・opus・2 回）
+
+| run | 依頼 | 費用 | 審査の指摘 | 取り込んだ commit |
+|---|---|---|---|---|
+| dd52a646 | 悪い見本ごとに違反の文面まで照合 | $1.00 | 0 | f3baa2e |
+| 98978777 | validate が 0 本なら赤 | $0.75 | 0 | fef8877 |
+
+分かったこと:
+
+- 模型は固定しないと黙って変わる。当初は `real-run.sh` だけが模型を設定に書いていたので、`archon.sh workflow run` を直に打つと Claude CLI の既定の模型（sonnet）で回った。今は `archon.sh` が認証を使う実行のたびに書く（開発の回し方の節）。
+- テストのコマンドが確かめるのは、渡した物だけ。ラインにはまだ全体を回す CI の節が無いので、迷ったら全体（`sh works/tests/run.sh`）を渡す。
+- サンドボックスの中の修正役は `tests/test_dev.py` を回せない。サンドボックスの TMPDIR は `/tmp/claude-*` の下で、`guard.sh` がそこを拒むため。修正役は環境のせいの赤を 10 件ほど報告するが、修正の良し悪しとは関係ない。
+- 修正役は run の worktree に `__pycache__` などの git が無視するファイルを残すことがある。fix.diff には載らないので取り込みには響かないが、worktree を直に見るときは混ざっている。
 
 ## 足りない所
 
