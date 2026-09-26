@@ -93,3 +93,8 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 ## 仕様
 
 設計の正本は [`docs/specs/2026-09-26-darkfactory-design.md`](docs/specs/2026-09-26-darkfactory-design.md)。実装計画は [`docs/plans/2026-09-26-darkfactory-v1.md`](docs/plans/2026-09-26-darkfactory-v1.md)。
+
+これから入れる物（実装前。どちらも盤面の層 [`docs/specs/2026-09-26-board-layer-design.md`](docs/specs/2026-09-26-board-layer-design.md) の上に載る）:
+
+- 線 A（1 回の run を review-graph と同じ工程に強くする）: 設計 [`docs/specs/2026-09-27-darkfactory-single-run-design.md`](docs/specs/2026-09-27-darkfactory-single-run-design.md)・計画 [`docs/plans/2026-09-27-darkfactory-single-run.md`](docs/plans/2026-09-27-darkfactory-single-run.md)
+- 線 B（直ったと言えるまで何周も回す入口 `darkfactory-rounds`）: 設計 [`docs/specs/2026-09-27-darkfactory-rounds-design.md`](docs/specs/2026-09-27-darkfactory-rounds-design.md)・計画 [`docs/plans/2026-09-27-darkfactory-rounds.md`](docs/plans/2026-09-27-darkfactory-rounds.md)
