@@ -74,6 +74,23 @@ class TestIntake(AcceptCase):
         batches = json.loads((self.board / "request.json").read_text())
         self.assertEqual(batches, [{"round": 1, "origin": "持ち主", "findings": load("request_ok")}])
 
+    def test_add_reads_nodes_and_runners_of_fake_board(self):
+        # 0.21.0 の add は、積んだ欄を読む待ちの instance を b.nodes の reads と b.is_runner で振り分ける（他へ渡した物は描き直し、
+        # 回す側の節は言うだけ）。今の works は instances が空でこの道を通らない——偽の盤面の nodes・is_runner が engine と
+        # 同じ振り分けになるかを、instance を 3 つ持たせて見る
+        import accept
+        rules = accept._rules()
+        b = accept._Board(self.board, "", record=rules.init_record(None, None))
+        self.assertFalse(b.is_runner(b.nodes["p2.diagnose"]))   # judge
+        self.assertTrue(b.is_runner(b.nodes["report"]))          # writer（graph の runners）
+        none = str(self.board / "まだ無い返答.json")
+        b.rd["instances"] = {i: {"id": i, "node": n, "status": "pending", "out_path": none}
+                             for i, n in (("p2.diagnose#1", "p2.diagnose"), ("report#1", "report"), ("p3.fix#1", "p3.fix"))}
+        r = rules.add(b, load("request_ok"), "持ち主")
+        self.assertEqual(r["redraw"], ["p2.diagnose#1"])   # 依頼を読む・回す側でない・まだ起きていない
+        self.assertIn("report#1 は起きた後か回す側の節なので描き直していない", r["msg"])
+        self.assertNotIn("p3.fix#1", r["msg"])               # 依頼の欄を読まない節は触らない
+
     def test_intake_rejects_unknown_key(self):
         r = check_request(load("request_extra_key"), self.board, "持ち主")
         self.assertFalse(r["ok"])
