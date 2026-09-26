@@ -587,7 +587,7 @@ def engine_changed(b, notes):
     たどり着くのに 9 周かかった（実測 r10）。置き場と版を毎周書けば、記録を読むだけで分かる。
     """
     here = pathlib.Path(__file__).resolve().parent.parent          # <plugin>/engine/.. = <plugin>
-    cur = {"root": str(here), "version": intake.plugin_meta(here)[1]}   # 版が読めなくても置き場は残す
+    cur = {"root": str(here), "version": intake.plugin_meta(here)[1]}
     if cur != b.state.get("engine"):
         b.state.setdefault("engine_changes", []).append({"round": b.round, "from": b.state.get("engine"), "to": cur, "at": now()})
         b.state["engine"] = cur

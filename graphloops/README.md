@@ -30,8 +30,8 @@ engine はループの節名も記録の欄名も持たない。graph が名前�
 
 - **自動で残る物**: `loop.py` が非 0 で終わった呼び出し（日常の拒否 exit 1 も含む）と、`loop.py launch` で役が落ちた・拒否が上限まで続いた行（launch 自身は exit 0 のまま。行は終了コードの代わりに落ち方の種類を持ち、鍵もそれで分かれる——`commands.launch_cause`）。`loop.py` を通らない物（`with-auth.py`・`graphcheck.py`・`parallel-pr.py`・フックの `record-read.py`）は残らない
 - **手で残す口**: `/graphloops:intake <1 行>`。たまった分は `export <書き出し先>` で 1 ファイルにまとめて手渡す。届け先を `set-url <URL>` で決めると `send` で POST する（`{"text": 要約, "records": 行}`。受けを立てる段 3 は作っていない）。どれも `loop.py intake` の旗
-- **置き場**: Claude Code の持続の置き場 `${CLAUDE_PLUGIN_DATA}` の `intake.jsonl`（更新で消えない）。Bash のコマンドには渡らないので、自動の口は engine の置き場 `<plugins>/cache/<marketplace>/<plugin>/<version>` から Claude Code と同じ規則で `<plugins>/data/<plugin>-<marketplace>` を導く。`--plugin-dir` で読んだ回・checkout から直に走らせた回は導けないので、自動の行は残らない（手の口は手順書の本文が置き場を渡すので残る）
-- **欄と秘匿**: 既定は構造化した欄だけ（呼び口は節の id まで。項目の鍵とパスは落とす）。同じ問題を数える鍵は版を含まない。標準エラーの頭は環境変数 `GRAPHLOOPS_INTAKE_STDERR=1` のときだけ残し、書き出しと送る本文からは既定で落とす
+- **置き場**: Claude Code の持続の置き場 `${CLAUDE_PLUGIN_DATA}` の `intake.jsonl`（更新で消えない。アンインストールの最後の 1 回では消える）。Bash のコマンドには渡らないので、自動の口は engine の置き場 `<plugins>/cache/<marketplace>/<plugin>/<version>` から Claude Code と同じ規則で `<plugins>/data/<plugin>-<marketplace>` を導く。`--plugin-dir` で読んだ回・checkout から直に走らせた回は導けないので、自動の行は残らない（手の口は手順書の本文が置き場を渡すので残る）
+- **欄と秘匿**: 既定は構造化した欄だけ——プラグインの名前・版・取れればコミット・OS と Python の版・呼び口（節の id まで。項目の鍵とパスは落とす）・終了コード・例外の型と上げた関数・run の番号と周・人が書いた 1 行。本文・差分・記録の中身は残さない。同じ問題を数える鍵は版を含まない。標準エラーの頭は環境変数 `GRAPHLOOPS_INTAKE_STDERR=1` のときだけ残し、書き出しと送る本文からは既定で落とす
 - **止めない**: 残す処理は何が起きても、元の終了コードと出力を変えない。認証もネットワークも使わない（使うのは利用者が明示に呼ぶ send だけで、期限は付けない）
 - **報告の頭**: `save_text_as` の節（両ループの最終報告）を保存するとき、engine が 1 行目に来歴（`graphloops <版> (<commit>) / <loop> run <run_id> / round <周> / graph <sha>`）を刻む
 

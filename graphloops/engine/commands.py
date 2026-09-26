@@ -1,8 +1,10 @@
 """回す側が呼ぶコマンド。init / next / done / skip / answer / stop / thicken / add / patch / finalize / status / record。"""
 import datetime
+import functools
 import json
 import os
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
@@ -154,6 +156,28 @@ def check_graph(graph, validator):
     return [f"graph の静的検査の警告: {str(l)[5:]}" for l in lines if str(l).startswith("WARN ")]
 
 
+def resolve_dir(a):
+    # **綴りは絶対に揃える。** 相対の --dir で作った run は instance の item_file にも相対の綴りが残り、
+    # 別の cwd から開き直した回に load_item が読めずに落ちる（扇の重複排除が正本を読むようになって
+    # next も同じ経路を通る）。盤面の外から渡る唯一の入口がここなので、ここで 1 度だけ解決する
+    if getattr(a, "dir", None):
+        return str(pathlib.Path(a.dir).resolve())
+    gd = git("rev-parse", "--git-dir")
+    if gd:
+        base = pathlib.Path(gd.strip()).resolve() / "graphloops"
+        found = {}
+        for p in sorted(base.glob("*/current")):
+            t = p.read_text(encoding="utf-8").strip()
+            if pathlib.Path(t).is_dir():
+                found[p.parent.name] = t
+        if len(found) > 1:
+            # 別のループの run に記録が入る取り違えを黙って起こさない——曖昧なら指させる
+            die("--dir が無く、current を持つループが複数ある: " + ", ".join(f"{k} → {v}" for k, v in found.items()) + "——--dir で指せ（init の出力の dir）")
+        if found:
+            return next(iter(found.values()))
+    die("--dir が無く、current も見つからない（init したか？）")
+
+
 # ---------------------------------------------------------------- next
 def cmd_next(a):
     b = Board(resolve_dir(a))
@@ -200,8 +224,9 @@ def cmd_next(a):
                 "自分の Bash から claude を起こすな（出力をファイルに落とす綴りは auto mode の分類器が止める。実測 2026-09-15）。"
                 "Agent ツールで起こすな（CLAUDE.md と git status が注入される——Agent の子の git status は止められない。engine は道具ゼロの子をリポジトリの外で起こす。返答の本文が回す側に入る）。"
                 "launch は 1 件ずつ ok と why を返す——ok でない節は why を読み、拒否が続いた・子が落ちたなら "
-                "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（relaunch は新しい試行を書いてから前の試行の子を木ごと止める）。stderr の with-auth: auth=… が "
-                "none / keychain-miss なら認証が足りていない。engine が起こせない節（why が『前置ではない』『旗が無い』『権限の形』"
+                "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（relaunch は新しい試行を書いてから前の試行の子を木ごと止める）。"
+                "cause が launch_auth なら認証が足りていない、launch_child_failed なら役の側、launch_auth_unread なら段が読めなかった（stderr の with-auth: の行で確かめよ）。"
+                "engine が起こせない節（why が『前置ではない』『旗が無い』『権限の形』"
                 "『定義が読めない』『claude が無い』）は迂回を組まず人に渡せ。"
                 "launch を持たない agent の節（役の定義がこの環境に無い・道具の一覧を持たない・ファイルを書く道具を持つ役）は、手順書の agent の節の"
                 "とおりに subagent_type に agent_type を渡して起こし、返答を out_path に書いて done --node <id> --agent-id <id>（agent_continue なら agent_id に SendMessage）。"
@@ -684,9 +709,39 @@ def launch_cause(r, kind):
         return "launch_refused", "commands.launch_refusal"
     if r["rejections"]:
         return "launch_rejected", "role_run.run_role"
-    if "with-auth: auth=none" in (r.get("stderr") or "") or "with-auth: auth=keychain-miss" in (r.get("stderr") or ""):
-        return "launch_auth", "role_run.run_role"
-    return "launch_child_failed", "role_run.run_role"
+    stage = AUTH_STAGE.search(r.get("stderr") or "")
+    if stage is None:
+        return "launch_auth_unread", "role_run.run_role"
+    return ("launch_child_failed" if _claude_auth().added(stage.group(1)) else "launch_auth"), "role_run.run_role"
+
+
+# 前置の層が標準エラーに書く段の名前: 頭の行と、子が落ちた回の末尾の行（運ばれるのは末尾の 600 字なので、頭が切れても末尾に残る）
+AUTH_STAGE = re.compile(r"with-auth: (?:auth=|子が rc=-?\d+ で落ちた。認証は )(\S+)")
+
+
+@functools.lru_cache(maxsize=None)
+def _claude_auth():
+    """同梱の認証の段（scripts/claude_auth.py）。足せたかの判定はその added だけが持つ。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("graphloops_claude_auth", PLUGIN_ROOT / "scripts" / "claude_auth.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@intake.quiet
+def mark_launch_failures(results, kinds, state):
+    """ok でない行に落ち方（cause）を載せ、記録器に 1 行ずつ渡す。launch は exit 0 で返るので最上段の口を通らない。
+    分けそこねた行は cause を持たず、分けそこねた例外そのものを記録器に残す（黙らせず、launch も止めない）。"""
+    for r in results:
+        if not r["ok"] and not r.get("superseded") and not r.get("fell_back"):
+            try:
+                exc, func = launch_cause(r, kinds.get(r["id"]))
+                r["cause"] = exc
+            except Exception as e:
+                exc, func = type(e).__name__, "commands.launch_cause"
+            intake.record("auto", intake.where_of(["launch", "--node", r["id"]]), exc=exc, func=func,
+                          state=state, detail=r.get("why"))
 
 
 def cmd_launch(a):
@@ -778,19 +833,14 @@ def cmd_launch(a):
             # 盤面を別のプロセスと競って書けなかった。結果の一覧は回す側に必ず返す（trace にも行は在る）
             for r in results:
                 r["settle"] = "盤面に起こし直しの記録を書けなかった（別のプロセスと競った）"
-    # 役が落ちた・拒否が上限まで続いた行は launch 自身が exit 0 で返すので、最上段の口を通らない——ここで同じ記録器に渡す
-    kinds = {i["id"]: (i.get("launch") or {}).get("kind") for i in todo}
-    for r in results:
-        if not r["ok"] and not r.get("superseded") and not r.get("fell_back"):
-            exc, func = launch_cause(r, kinds.get(r["id"]))
-            intake.record("auto", intake.where_of(["launch", "--node", r["id"]]), exc=exc, func=func,
-                          state=b0.state, detail=r.get("why"))
+    mark_launch_failures(results, {i["id"]: (i.get("launch") or {}).get("kind") for i in todo}, b0.state)
     print(dump({"launched": picked + results,
                 "how": ("ok の節は受け付けまで済んでいる（done は要らない）——次は loop.py next。"
                         "ok でない節は why を読め: 受け付けの拒否が続いた・子が落ちた、なら "
                         "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（前の試行の子は relaunch が止める）。"
                         "why が『起こし直された古い試行』の行は次の手が要らない（起こし直しなら新しい試行の launch を待て。人が止めた試行なら次は next）。"
-                        "stderr の with-auth: auth=… が none / keychain-miss なら認証が足りていない（inherited / keychain なら役の側）。"
+                        "cause が launch_auth なら認証が足りていない、launch_child_failed なら認証は足りていて役の側、"
+                        "launch_auth_unread なら標準エラーから段が読めなかった（stderr の with-auth: の行で確かめよ）。"
                         "返答は out_path に在る（読むのは要る所だけ）。engine が起こせない節（why が『前置ではない』『旗が無い』"
                         "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ。"
                         "走らせる節（engine_run）の why が『任せ先の節に回した』なら次の手は next（任せ先の節として出る）。"
@@ -1349,6 +1399,11 @@ def cmd_status(a):
     }))
 
 
+def cmd_record(a):
+    print(dump(Board(resolve_dir(a)).record))
+
+
+# ---------------------------------------------------------------- relaunch
 def cmd_relaunch(a):
     """待っている instance を起こし直す——新しい試行を盤面に書いてから、**前の試行の子を木ごと止める**。同じ節・同じ項目で
     出し直し、試行の回数と理由を盤面と trace に刻む。
@@ -1443,11 +1498,7 @@ def retire_out(old, n):
         old.replace(old.with_name(old.name + f".stale-a{n}"))
 
 
-def cmd_record(a):
-    print(dump(Board(resolve_dir(a)).record))
-
-
-# ---------------------------------------------------------------- init
+# ---------------------------------------------------------------- intake
 def cmd_intake(a):
     """手の口: 1 行を残す（--what）・まだ手渡していない行を書き出す（--export）・届け先へ送る（--send）・届け先を決める（--set-url）。"""
     d = intake.data_dir(a.data_dir)
@@ -1456,7 +1507,6 @@ def cmd_intake(a):
                      "（プラグインとして入れていない engine を直に呼んだ回）")
     derived = intake.data_dir()
     if derived and derived != d:
-        # 自動の行（最上段の口）は導いた置き場に書くので、渡された置き場と違えば export は自動の行を拾わない
         print(f"注意: 自動の記録の置き場 {derived} と、渡された置き場 {d} が違う——自動の行は {derived} に在る")
     if a.what is not None:
         if not a.what.strip():
@@ -1495,28 +1545,7 @@ def cmd_intake(a):
     print(f"ok {len(rows)} 件を送った（HTTP {status}）")
 
 
-def resolve_dir(a):
-    # **綴りは絶対に揃える。** 相対の --dir で作った run は instance の item_file にも相対の綴りが残り、
-    # 別の cwd から開き直した回に load_item が読めずに落ちる（扇の重複排除が正本を読むようになって
-    # next も同じ経路を通る）。盤面の外から渡る唯一の入口がここなので、ここで 1 度だけ解決する
-    if getattr(a, "dir", None):
-        return str(pathlib.Path(a.dir).resolve())
-    gd = git("rev-parse", "--git-dir")
-    if gd:
-        base = pathlib.Path(gd.strip()).resolve() / "graphloops"
-        found = {}
-        for p in sorted(base.glob("*/current")):
-            t = p.read_text(encoding="utf-8").strip()
-            if pathlib.Path(t).is_dir():
-                found[p.parent.name] = t
-        if len(found) > 1:
-            # 別のループの run に記録が入る取り違えを黙って起こさない——曖昧なら指させる
-            die("--dir が無く、current を持つループが複数ある: " + ", ".join(f"{k} → {v}" for k, v in found.items()) + "——--dir で指せ（init の出力の dir）")
-        if found:
-            return next(iter(found.values()))
-    die("--dir が無く、current も見つからない（init したか？）")
-
-
+# ---------------------------------------------------------------- init
 def cmd_init(a):
     graph = a.graph or str(PLUGIN_ROOT / "graphs" / f"{a.loop}.json")
     g, why = load_graph(graph)

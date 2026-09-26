@@ -9,6 +9,7 @@ loop.py の最上段（非 0 で終わった呼び出し）・launch の ok で�
 上げ（except Exception を素通りする）、util.git は対象のリポジトリで走るのでプラグインのコミットを取り違える。
 """
 import datetime
+import functools
 import hashlib
 import json
 import os
@@ -24,6 +25,20 @@ CURSOR = "intake.cursor"      # 手渡した（書き出した・送った）所
 CONFIG = "intake-config.json"
 CLIP = 500                    # 人が書く 1 行と標準エラーの頭を切る長さ
 DETAIL_ENV = "GRAPHLOOPS_INTAKE_STDERR"   # 1 のときだけ標準エラーの頭を残す（既定は構造化した欄だけ）
+
+
+def quiet(fn):
+    """呼び元を止めない握り。例外は捨てて None を返す（KeyboardInterrupt だけは通す）。引数を組む処理ごと中に入れるため、
+    記録器へ渡す値は呼ぶ前に組まず、この握りを付けた関数の中で組む。"""
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except KeyboardInterrupt:
+            raise
+        except BaseException:
+            return None
+    return guarded
 
 
 def plugin_meta(root=PLUGIN_ROOT):
@@ -102,16 +117,14 @@ def provenance(state=None):
     return out
 
 
+@quiet
 def stamp_line(state):
     """報告の頭に刻む 1 行（読めなければ None——報告は刻まずに保存する）。"""
-    try:
-        p = provenance(state)
-        r = p.get("run", {})
-        head = f"{p['plugin']} {p['version'] or '?'}" + (f" ({p['commit']})" if p.get("commit") else "")
-        return " / ".join([head, f"{r.get('loop_name', '?')} run {r.get('run_id', '?')}",
-                           f"round {r.get('round', '?')}", f"graph {r.get('graph_sha', '?')}"])
-    except Exception:
-        return None
+    p = provenance(state)
+    r = p.get("run", {})
+    head = f"{p['plugin']} {p['version'] or '?'}" + (f" ({p['commit']})" if p.get("commit") else "")
+    return " / ".join([head, f"{r.get('loop_name', '?')} run {r.get('run_id', '?')}",
+                       f"round {r.get('round', '?')}", f"graph {r.get('graph_sha', '?')}"])
 
 
 def where_of(argv):
@@ -126,7 +139,6 @@ def where_of(argv):
 
 
 def flag(argv, name):
-    """argv の `--name 値` / `--name=値`（無ければ None）。"""
     for i, x in enumerate(argv):
         if x == name and i + 1 < len(argv):
             return argv[i + 1]
@@ -157,35 +169,32 @@ def key_of(row):
     return hashlib.sha1("\0".join("" if x is None else str(x) for x in parts).encode("utf-8")).hexdigest()[:12]
 
 
+@quiet
 def record(kind, where, *, exit=None, exc=None, func=None, what=None, state=None, detail=None, given_dir=None):
     """1 件 1 行を追記する。書いた置き場を返し、どう失敗しても None を返すだけ（何も出さない）。
 
     kind が auto の行だけが鍵を持つ——手の行は呼び口が決まった値なので、鍵にすると別々の問題が 1 つに数えられる。"""
-    try:
-        d = data_dir(given_dir)
-        if d is None:
-            return None
-        row = {"at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "kind": kind,
-               **provenance(state), "where": where}
-        for k, v in (("exit", exit), ("exc", exc), ("func", func)):
-            if v is not None:
-                row[k] = v
-        if what:
-            row["what"] = str(what)[:CLIP]
-        if detail and os.environ.get(DETAIL_ENV) == "1":
-            row["stderr"] = str(detail)[:CLIP]
-        if kind == "auto":
-            row["key"] = key_of(row)
-        d.mkdir(parents=True, exist_ok=True)
-        with open(d / LOG, "a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-        return d / LOG
-    except KeyboardInterrupt:
-        raise
-    except BaseException:
+    d = data_dir(given_dir)
+    if d is None:
         return None
+    row = {"at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "kind": kind,
+           **provenance(state), "where": where}
+    for k, v in (("exit", exit), ("exc", exc), ("func", func)):
+        if v is not None:
+            row[k] = v
+    if what:
+        row["what"] = str(what)[:CLIP]
+    if detail and os.environ.get(DETAIL_ENV) == "1":
+        row["stderr"] = str(detail)[:CLIP]
+    if kind == "auto":
+        row["key"] = key_of(row)
+    d.mkdir(parents=True, exist_ok=True)
+    with open(d / LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return d / LOG
 
 
+@quiet
 def failed(argv, code, exc, tb=None, detail=None):
     """loop.py が非 0 で終わるときの 1 行（最上段の例外口が呼ぶ）。"""
     d, where = flag(argv, "--dir"), where_of(argv)
