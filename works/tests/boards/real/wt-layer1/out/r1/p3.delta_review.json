@@ -1,0 +1,39 @@
+{
+  "faces": [
+    {
+      "key": "session-match-lacks-reuse-time-check",
+      "kind": "entrance",
+      "where": "graphloops/engine/role_run.py",
+      "cite": "found = {pid for pid, row in rows.items() if row.pgid == pgid or sessions.get(pid) == pgid}",
+      "why": "この行の row.pgid==pgid 判定自体は probe_group が呼び出し前に一度だけ _started_at と REUSE_SLACK で「この pgid 番号は今なお自分が起こした木の物だ」と確かめた前提の上に立つ（stop_group:606-609 `pgid, why = probe_group(pgid_file)` の後、_stop_tree(pgid) に leader を渡さない——Popen を持たないので、_kill(p) の経路と違って対象をゾンビとして保持し続ける仕組みが無い）。しかし _stop_tree は STOP_SIGNALS（SIGTERM→SIGKILL、間に KILL_GRACE=5 秒ずつ、role_run.py:43）の毎回で _tree_members を呼び直し、その中の sessions.get(pid)==pgid 判定は probe_group のような開始時刻の検証を一切経ていない生の番号比較である。1 回目の信号で対象の木が完全に消え、pgid 番号が OS に回収された直後（stop_group はゾンビを保持しないので即座に回収されうる）、無関係な新しいプロセスがその番号と同じ pid で起こされ setsid() を呼べば（すなわちその新プロセスの sid が回収された旧 pgid 番号と一致すれば）、2 回目の SIGKILL の数え上げでその無関係なセッション全体（と children ループで辿れるその子孫）が『木の仲間』として found に混入し、SIGKILL が送られる。known 経由の再利用対策（tests/py/test_role_run_stop.py の test_tree_members_follows_group_session_and_parents で検証済み、REUSE_SLACK で保護）はこの直接の pgid/session 一致経路には及ばない。今回の周が追加した session マッチ・親子鎖 BFS という新しい経路そのものが、known 側でだけ塞いだはずの『番号の再利用で無関係な木に信号が飛ぶ』穴をコピーして残した形になっている。"
+    }
+  ],
+  "faces_none": "role_run.py の _stop_tree/_tree_members/_ps_all/_live/_name 全域、tests/py/test_role_run_stop.py の全追加テスト（各アサーションを rows/sessions/known から手で BFS を追って検算）、tests/py/conftest.py・tests/run.sh の EXPECTED_ITEMS/EXPECTED_CHECKS 差分、simulate.py の escaped/reap/新規 check 3 件、tests/mutations.json の RR3・RR9・RR15・RR16 の old/new アンカーが現在のファイル本文と一致するかを読んだ。加えて test_engine_guards.py・commands.py の stop_why 関連の呼び出し元も読み、旧い理由文字列がハードコードされている箇所（test_engine_guards.py:148）はモックの入力値であってアサーションが文字列に依存していないため契約のずれには当たらないと判断した。上記 1 件を除き、写し・入口・宣言と実装のずれに当たる新規の穴は見つからなかった。",
+  "checks": [
+    {
+      "key": "fallback-keeps-fail-open-when-unreadable",
+      "closed": true,
+      "why": "role_run.py:390-405 で members が None（表が読めない）の分岐は、ProcessLookupError でも PermissionError でも例外が無い通常送信でも、必ず理由文字列を返すよう書き換わっており、None を返す唯一の経路は line 439-445 の最終数え上げで live が空になった場合だけになっている。test_stop_group_posix_unreadable_table_is_not_stopped を手でトレースし、_tree_members が (None, \"ps が無い\") を返し続ける状況で stop_group が「止める相手を数え上げられない（ps が無い）——グループ 4242 の外へ出た子孫を確かめていない」を返し、印（m）が残ることを確認した。黙って今の形（fail-open）へ落ちる分岐は無い。"
+    },
+    {
+      "key": "pytest-fakes-and-mutation-anchors-not-updated",
+      "closed": true,
+      "why": "test_tree_members_follows_group_session_and_parents と test_tree_members_unreadable_session_of_the_same_user の 2 本を、_tree_members の実装（sessions 収集・found の pgid/session/known 判定・children BFS・mine 除外・unreadable の lost 抽出）に沿って手で値を追跡し、期待するアサーション（sorted(found) と why の文字列）が実装の出力と一致することを確認した。RR3/RR9/RR15/RR16 の old アンカー文字列（os.killpg(g, sig)・_live の本体・found の pgid-or-session 行・todo = list(found)）はすべて role_run.py の現在の本文に一字一句一致し、mutate.py --check が「old が 0 か所」で赤くなる状態は解消されている。posix() ヘルパーが role_run.os を killpg/kill 付き SimpleNamespace に、_tree_members を直接差し替える形に変わっており、旧テストが依存していた alive() 経由の os.killpg(pgid, 0) だけの世界観に依存するアサーションは残っていない。"
+    },
+    {
+      "key": "seen-pid-reuse-signals-unrelated",
+      "closed": true,
+      "why": "found |= {pid for pid, t in (known or {}).items() if pid in rows and abs(rows[pid].started - t) <= REUSE_SLACK} の行と test_tree_members_follows_group_session_and_parents の手トレース（9000: started 500 vs known 100 → REUSE_SLACK 超過で除外、9100: started 100 vs known 100 → 一致で採用）により、『前の回に数えた pid を番号だけで持ち越して送る』という元の指摘（known ベースの再利用）は具体的に閉じられていることを確認した。ただし known を経由しない、同一回内の生の pgid/session 一致判定には同種の再利用リスクが未保護のまま残っており、これは別の穴（session-match-lacks-reuse-time-check）として faces に起票した——元の指摘の記述する経路自体は塞がっている。"
+    },
+    {
+      "key": "eperm-cause-lost-and-slower",
+      "closed": true,
+      "why": "role_run.py:410-431 を読み、生きた仲間がいる状態で killpg/kill が PermissionError を返すと denied に記録し、KILL_GRACE の待ちループに入らずに即座に _tree_members を再照会して『生きている仲間が本当にいなければ待たずに理由を返す』分岐になっていることを確認した。test_stop_group_posix_eperm_on_a_live_member_says_why_at_once を手でトレースし、sent が [(\"pg\",4242,15)] の 1 回きりで待たずに \"グループ 4242 に信号を送れない（[Errno 1] Operation not permitted）\" が返ることを確認した——BASE と同じ文面が保たれている。"
+    },
+    {
+      "key": "jenkins-precedent-inapplicable-on-darwin",
+      "closed": true,
+      "why": "_tree_members の docstring（role_run.py:297-298）に『環境変数の印（Jenkins の ProcessTreeKiller の形）は macOS では他のプロセスの環境が読めない（ps -E にも KERN_PROCARGS2 にも出ない。実測 2026-09-26）ので使わない』と実測日付つきで明記されていることを確認した。これにより次の周の判定が同じ先行例を無条件に処方し直す前に参照できる宣言が残っている。"
+    }
+  ]
+}

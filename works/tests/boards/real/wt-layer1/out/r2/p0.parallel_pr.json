@@ -1,0 +1,10 @@
+{
+  "material": {
+    "status": "clean",
+    "checked": "engine が gh -R raiki61/claude-plugins で open な PR 1 件を引き、自分の PR（headRefOid が HEAD）を除いて、変更ファイルの集合と交差 0 件（打ち切りなし）"
+  },
+  "repo": "raiki61/claude-plugins",
+  "listed": 1,
+  "truncated": false,
+  "conflicts": []
+}

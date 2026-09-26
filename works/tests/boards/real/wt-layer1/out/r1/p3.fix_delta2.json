@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "fix_delta_file": "/Users/p03623/src/claude-plugins/.git/worktrees/wt-layer1/graphloops/review-loop/20260926-103145/fix-delta2-r1.patch",
+  "changed_files": [
+    "graphloops/engine/role_run.py",
+    "graphloops/tests/py/conftest.py",
+    "graphloops/tests/py/test_role_run_stop.py",
+    "tests/mutations.json"
+  ]
+}

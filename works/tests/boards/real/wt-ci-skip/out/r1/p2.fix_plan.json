@@ -1,0 +1,82 @@
+{
+  "plan": [
+    {
+      "unit_keys": [
+        "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない",
+        ".github/workflows/test.yml shellcheck: macOS と Windows の CI に shellcheck が無く、tests/run.sh の shellcheck の検査が見送りになる"
+      ],
+      "approach": "見送りの行に能力の名前を持たせ、許すか拒むかを tests/run.sh の拾い手 1 か所で決め、CI が 3 OS とも FAIL_ON_SKIP=1 と OS ごとの許しの一覧を渡し、同時に 3 OS に同じ版の shellcheck を入れる。(a) 行の形を『  ok   <検査> # SKIP <能力>: <理由>』にする（TAP 14 の SKIP の説明文の頭に名前。名前は [a-z0-9][a-z0-9-]* の 1 語）。(b) tests/run.sh: note_skips は今のまま行を拾い、新しい関数 skip_capability が行から名前を取り出す（名前の形でなければ空）。report_skips は FAIL_ON_SKIP=1 のとき、名前が環境変数 SKIP_ALLOW（空白かカンマ区切りの能力の名前の一覧。未指定は空）に在る見送りだけを失敗から除き、名前の無い見送り・一覧に無い名前は失敗に数える（fail-closed）。一覧の表示は各行に『許した（SKIP_ALLOW）』か否かを添える。FAIL_ON_SKIP 未指定の既定（一覧に出すだけで失敗にしない）と、SKIP_ALLOW 未指定の FAIL_ON_SKIP=1（全部を失敗に数える）は今と同じ。(c) Python の正本 graphloops/tests/parallel.skip_line(desc, capability, reason) が名前を受けて形を検査し（形でなければ ValueError）、simulate.py と simulate_review.py の skip(desc, capability, reason) がそのまま渡す（FIFO は fifo、symlink は symlink、権限で読みを止められないのは read-permission）。(d) 手書きの行に名前を入れる: tests/run.sh 2982 posix-mode・3026 shellcheck・3549 process-group。(e) .github/workflows/test.yml: setup-python の後に全 OS で『python -m pip install shellcheck-py==0.11.0.1』の段を置き（ubuntu の独立した shellcheck の段もこの版を使う）、tests/run.sh の段に env FAIL_ON_SKIP: \"1\" と SKIP_ALLOW: ${{ matrix.skip_allow }} を渡す。matrix.include で windows-latest にだけ skip_allow: \"posix-mode process-group fifo read-permission\"（CI の Windows のログで実際に見送られ、OS の機能として無い物だけ。symlink は Windows の CI で見送られていないので書かない。sh は単位 3 で確かめる形にするので書かない）。ubuntu と macOS は include を持たず空。注記（ubuntu には既定で入っている）を新しい構成に書き直す。(f) CI_LINT_OK の検査（tests/run.sh の PYCI）に、tests/run.sh の段が FAIL_ON_SKIP: \"1\" と SKIP_ALLOW を持つこと、shellcheck-py を版を固定して入れる段が OS の条件（if:）無しで在ることを足す。(g) 拾い手の腕（skip_probe）に、名前つきで許された見送り・名前つきで許されない見送り・名前の無い見送り・FAIL_ON_SKIP 未指定・SKIP_ALLOW のカンマ区切り、の場合を足す。Python の行の腕（skip_py）を新しい形で見る。件数の定数 EXPECTED_CHECKS を実測に合わせる。(h) README.md:199 と tests/run.sh:54 の文言、parallel.py・fence.py の docstring を新しい口に合わせる。",
+      "adds": [
+        {
+          "kind": "function",
+          "name": "tests/run.sh skip_capability（見送りの行から能力の名前を取り出す）",
+          "canonical": "新設。名前を読み許すか決める場所を拾い手 1 か所に置く（判定の処方 (1)）ので、正本は tests/run.sh のこの関数だけ"
+        },
+        {
+          "kind": "cli",
+          "name": "環境変数 SKIP_ALLOW（FAIL_ON_SKIP=1 のときに失敗から除く能力の名前の一覧。既定は空）",
+          "canonical": "新設。読むのは tests/run.sh の report_skips だけ。値を持つ正本は CI の定義（test.yml の matrix.include）と人の手元"
+        },
+        {
+          "kind": "other",
+          "name": "見送りの行の形『# SKIP <能力>: <理由>』と能力の名前の形 [a-z0-9][a-z0-9-]*",
+          "canonical": "Python の側は graphloops/tests/parallel.py の skip_line と SKIP_MARK（今の正本）、bash の側は tests/run.sh の skip_capability。手書きの行（tests/run.sh 3 か所・catchup 2 か所）は写し"
+        },
+        {
+          "kind": "other",
+          "name": "能力の名前 posix-mode・shellcheck・process-group・fifo・symlink・read-permission・sh",
+          "canonical": "新設。各見送りの出どころ（その行を出す場所）が名前を持つ。一覧（登録簿）は作らない——未知の名前は許しの一覧に無い限り失敗なので、打ち間違いは fail-closed に倒れる"
+        },
+        {
+          "kind": "config",
+          "name": "test.yml: shellcheck-py==0.11.0.1 を入れる段（全 OS）",
+          "canonical": "test.yml が pytest を pip で版固定して入れている既存の形に倣う。版は手元の shellcheck 0.11.0 に揃える"
+        },
+        {
+          "kind": "config",
+          "name": "test.yml: tests/run.sh の段の env FAIL_ON_SKIP と SKIP_ALLOW、matrix.include の skip_allow（windows だけ）",
+          "canonical": "新設。OS ごとの許しの一覧の正本は test.yml の matrix.include"
+        },
+        {
+          "kind": "guard",
+          "name": "CI_LINT_OK の検査に、tests/run.sh の段の FAIL_ON_SKIP=1・SKIP_ALLOW と、shellcheck-py を OS の条件無しで入れる段を見る assert を足す",
+          "canonical": "既存の CI_LINT_OK（tests/run.sh の PYCI）を広げる。新しい柵は作らない"
+        },
+        {
+          "kind": "test",
+          "name": "skip_probe の場合を足す（許した名前・許さない名前・名前無し・未指定・カンマ区切り）と skip_py の期待を新しい形に",
+          "canonical": "既存の拾い手の腕（tests/run.sh 140-164）を広げる"
+        },
+        {
+          "kind": "doc",
+          "name": "README.md:199 の SKIP_ALLOW の説明、tests/run.sh:54 の注記、parallel.py・fence.py の docstring",
+          "canonical": "README.md の見送りの段落が利用者向けの正本"
+        }
+      ],
+      "removes": [
+        "tests/run.sh:3026 の理由の文『CI の ubuntu の段が回し…』（新しい構成では 3 OS で入れるので死ぬ）",
+        "test.yml:33-35 の注記『ubuntu の runner には既定で入っているので 3 OS のうち 1 本だけで回す』のうち、tests/run.sh の中の検査も ubuntu だけと読める部分"
+      ],
+      "shrink_first": "消す形を先に考えた。(1) FAIL_ON_SKIP=1 を CI に渡すだけ（足さない）: Windows の本当に無い能力の見送りまで失敗になり恒常的に赤。人も 09:00 に退けた。(2) 見送りの印を消して検査を失敗にする: 本当に無い能力の検査が Windows で常に赤。(3) FAIL_ON_SKIP の値を一覧に変える（新しい変数を足さない）: FAIL_ON_SKIP=1 の意味（全部）と衝突し、1 という名前の能力と区別が付かない。よって変数 1 つと名前の欄を足すのが最小。関数は拾い手の中に 1 つだけで、登録簿は作らない（許しの一覧に無い名前は全部失敗なので、名前の一覧を別に持たなくても fail-closed）。",
+      "narrows": []
+    },
+    {
+      "unit_keys": [
+        "tests/catchup-switch-case.py _hook・応答の無い origin: 見送りの条件が sh の有無を確かめず、OS の名前で決まる"
+      ],
+      "approach": "tests/catchup-switch-case.py の 3 か所（応答の無い origin の 355、hook の 550 と判定の 554）の条件を os.name でなく、sh を起こせるか（shutil.which(\"sh\") が在るか）で決める。モジュールの頭で HAVE_SH を 1 回だけ求めて 3 か所で使う。無いときだけ能力の名前 sh つきの見送り『# SKIP sh: …』を出す。sh が在る環境（Windows の Git for Windows の bash の下を含む）では検査が走る。Windows の許しの一覧に sh は書かない（不能を確かめていないため。人の決定『本当にできない物だけ』）。",
+      "adds": [
+        {
+          "kind": "other",
+          "name": "tests/catchup-switch-case.py の HAVE_SH（sh を起こせるか）",
+          "canonical": "新設。このファイルの中だけで使う。能力を確かめて見送る形は simulate_review.py の symlink（実際に作れるか試す）・FIFO（hasattr(os, 'mkfifo')）に揃える"
+        }
+      ],
+      "removes": [
+        "tests/catchup-switch-case.py の os.name による見送りの条件 3 か所"
+      ],
+      "shrink_first": "消す形として、見送りそのものを消して常に走らせる案を考えた。sh の無い環境（sh の無い Windows の手元）で検査が赤になり、今は通る手元を壊すので採らない。能力を確かめる条件への置き換えは、条件式を差し替えるだけで新しい口を足さない。",
+      "narrows": []
+    }
+  ]
+}

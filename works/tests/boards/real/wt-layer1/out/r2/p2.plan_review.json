@@ -1,0 +1,178 @@
+{
+  "faces": [
+    {
+      "key": "send-target-drops-leader-group-killpg",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_stop_tree.alive — macOS でゾンビだけのグループへの killpg の EPERM を『生きている』『送れない』と数え、止まった木を止め切れないと報告する",
+        "graphloops/engine/role_run.py::_stop_tree — 生存の問い・KILL_GRACE の待ち・送りの例外処理・最後の数え直しが写しで 2〜3 重"
+      ],
+      "kind": "regression",
+      "where": "graphloops/engine/role_run.py::_stop_tree — plan 1 (a): groups = {m.pgid for m in live.values() if m.pgid in members}",
+      "why": "In the _kill path, the leader.poll() just before enumerating (line 396) reaps a leader that died on SIGTERM, so the leader number pgid is no longer in the table or in members. From the SIGKILL round on, the plan's condition removes group pgid from the targets even when it still has live members. Those members are then signalled one pid at a time. The docstring (lines 353-354) says killpg to the group also reaches children that appear after the count; that is lost. With a member that ignores TERM and keeps forking, like the tree-deaf fixture (`while :; do sleep 1; done`), a child forked between the ps and the SIGKILL survives. The final recount then returns a false NG ('SIGKILL の後も残っている'). BASE always sent killpg to group pgid. The judge's world solution is to limit targets to 'groups that a live member belongs to'. Restricting to groups whose leader is a member is narrower than that, and the narrowing is not listed in narrows. If `or m.pgid == pgid` is added (group pgid only while it has a live member, which can't hit the zombie-only EPERM), it keeps the same power to stop members as BASE and still closes unit 1.",
+      "severity": "block"
+    },
+    {
+      "key": "reuse-check-bias-remains-in-started-at",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_tree_members.reused — 長の番号の再利用の見分けが、ps の後に取った時刻・未回収の長・印の別の読みで誤って真になり、信号を送らずに『止まった』を返す"
+      ],
+      "kind": "entrance",
+      "where": "graphloops/engine/role_run.py::_started_at (line 548: time.time() - secs) → probe_group / the planned _probe reuse check (line 604)",
+      "why": "Unit 2 names 'the time taken after ps' as a cause. Plan (b) only moves the time reading in _ps_all to before the ps call. stop_group takes its first decision through probe_group (the planned _probe) → _started_at. _started_at still subtracts etime from time.time() read after ps, so ps delay plus the sub-second fraction lands in started. When the delay goes past about 1-2 seconds, `started > written + REUSE_SLACK` is wrongly true. The code then unlinks the mark and returns (None, None), and stop_group returns 'stopped' (None) without sending a signal. That is the same false 'stopped' as in unit 2, reached through a different entrance. Fixing only _ps_all leaves this entrance open for the next round.",
+      "severity": "block",
+      "no_add": "Take now before subprocess.run in _started_at's POSIX branch too (the same one-line move as in _ps_all). The now-minus-etime conversion is the same in both places, so change both in the same diff and add no new gate."
+    },
+    {
+      "key": "denied-early-return-still-races-zombie-eperm",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_stop_tree.alive — macOS でゾンビだけのグループへの killpg の EPERM を『生きている』『送れない』と数え、止まった木を止め切れないと報告する",
+        "graphloops/engine/role_run.py::_stop_tree — 生存の問い・KILL_GRACE の待ち・送りの例外処理・最後の数え直しが写しで 2〜3 重"
+      ],
+      "kind": "entrance",
+      "where": "graphloops/engine/role_run.py::_stop_tree lines 435-439 (the denied → no-grace recount → return 'cannot send'); plan 1 (c) keeps this",
+      "why": "After (a), no group is zombie-only at the moment of counting. But a group can become zombie-only between the ps and the killpg: its only live member exits on its own, and a parent that hasn't reaped it (a live member) keeps it as a zombie. On macOS that killpg still returns EPERM. The denied branch then recounts with no grace period while other members that just got TERM are still alive, and returns 'グループ G に信号を送れない'. SIGKILL is never sent, and the mark is kept. The effect is the same as the unit-1 symptom (the tree stopped, or would have stopped, but the result says it can't be stopped). The route is timing-dependent. The plan closes the zombie-only EPERM through the choice of targets, but leaves the EPERM entrance itself unconditionally trusted.",
+      "severity": "suggest",
+      "no_add": "Remove the early return on denied. Remember EPERM, but go on to the wait and the SIGKILL round like any other send, and decide only at the final recount of the planned `for sig in (*STOP_SIGNALS, None)` loop. If live members remain there and denied is set, the reason is 'cannot send'. This removes one branch and one copy of the recount. It changes the promise of test_stop_group_posix_eperm_on_a_live_member_says_why_at_once ('without waiting'): the sandbox EPERM would be reported only after 2×KILL_GRACE. List that as a narrowing."
+    },
+    {
+      "key": "tests-patch-probe-group-not-probe",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_tree_members.reused — 長の番号の再利用の見分けが、ps の後に取った時刻・未回収の長・印の別の読みで誤って真になり、信号を送らずに『止まった』を返す"
+      ],
+      "kind": "contract_drift",
+      "where": "graphloops/tests/py/test_role_run_stop.py:70 (test_stop_group_windows) and :99 (the posix fixture) — monkeypatch.setattr(role_run, \"probe_group\", …)",
+      "why": "Plan 1 (b) makes stop_group call the internal _probe. The stop_group tests replace probe_group, so after the change that replacement no longer takes effect. The posix-fixture tests would read the real host's pid 4242 through the real ps (_started_at is not replaced there), so their outcome depends on whether pid 4242 exists on the machine at run time. In test_stop_group_windows' taskkill-failed-but-gone case, _started_at=GONE sends _probe down the nt path (unlink, return None), so the test passes without going through taskkill; what it checks is no longer what it says. The plan's removes only lists test_stop_group_reads_the_reuse_mark_before_probing.",
+      "severity": "suggest"
+    },
+    {
+      "key": "restore-pgid-arm-red-only-on-macos",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_stop_tree.alive — macOS でゾンビだけのグループへの killpg の EPERM を『生きている』『送れない』と数え、止まった木を止め切れないと報告する"
+      ],
+      "kind": "dead_path",
+      "where": "tests/mutations.json: the new arm that puts {pgid} back into the send targets (expect = the check with the zombie leader and a TERM-ignoring grandchild)",
+      "why": "On Linux, killpg to a zombie-only group succeeds, so with {pgid} restored denied is never set. killpg to the zombie succeeds, the grandchild dies on SIGKILL, and the check stays green. The arm goes red only on macOS. mutations.json has no field to state the platform, so on a Linux run the arm is reported as a survivor. For comparison, RR9 goes red on Linux too, because kill(pid,0) to a zombie succeeds there and the final recount returns 'still remains'.",
+      "severity": "suggest"
+    },
+    {
+      "key": "reap-per-step-not-per-attempt",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない"
+      ],
+      "kind": "regression",
+      "where": "graphloops/engine/role_run.py::_spawn (ended path) ← run_steps line 689 calls _spawn once per step, run_role line 725 once per turn",
+      "why": "The plan's narrows says 'reaped at the end of the attempt', but the reap is placed at the end of _spawn, which run_steps calls per step. The judge's narrowing said not to reap per step, because a repo's declaration (declared.py: several steps per attempt) can have step 2 use a background process started in step 1, so reap at the end of the attempt. Jenkins' primary source also says 'end of the build' (fetched and confirmed). In BASE, a background process that redirected its output (e.g., `server > log 2>&1 &`) did not hold the pipe, so communicate returned and the process survived into step 2. Under the plan it is killed at the end of step 1. This narrowing is not in narrows.",
+      "severity": "block"
+    },
+    {
+      "key": "run-tree-timeout-no-longer-bounds-call",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない"
+      ],
+      "kind": "regression",
+      "where": "graphloops/engine/role_run.py::run_tree — plan 2: communicate(timeout) → p.wait(timeout) then an unbounded join",
+      "why": "In BASE, communicate(timeout=SUITE_TIMEOUT / SPEC_RUN_TIMEOUT) bounded the whole call, including pipe EOF. If a runner's descendant held the pipe, it timed out, killed the tree through _kill, and raised TimeoutExpired, so the rules could always report back within the time limit. The plan hands the timeout only to the leader's p.wait. After the leader exits, it reaps and then joins with no limit. The docstring (lines 304-305) names 'descendants it can't pick up' (e.g., double-fork daemons). If one of those holds the pipe, run_tree never returns. The plan says this is 'the same wait as BASE', but for run_tree BASE was bounded. It is a loss of a BASE capability and is not in narrows.",
+      "severity": "block"
+    },
+    {
+      "key": "normal-end-reap-masks-stop-group-and-kill-all-arms",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない",
+        "graphloops/engine/role_run.py::_tree_members/_stop_tree — 数え上げと止め方の入口に、壊すと赤になる検査と変異の腕が無い"
+      ],
+      "kind": "contract_drift",
+      "where": "graphloops/tests/simulate.py:1948-1964 (the stop_group and kill_all checks through sleeper = run_role in a thread) / tests/mutations.json RR1 (_kill → p.terminate()) and RR3 (killpg → kill)",
+      "why": "sleeper starts fakeclaude through the same process's run_role (_spawn). Once plan 2 lands, killing only the leader counts as a 'normal end' in _spawn, and the reap in _wait_and_reap clears the grandchild (fakeclaude's grandchild exits one second after TERM). Under RR1, kill_all's _kill only terminates the leader, and the _spawn side then reaps the grandchild, so line 1963's gone(pid) goes green. Under RR3, stop_group only kills the leader with os.kill; the _spawn side reaps the grandchild; stop_group's recount sees the tree gone and returns None, so line 1954 and line 1956 (the expect 'stop_group では孫') go green. A second path to stopping the same set is added, and the existing arms lose their red.",
+      "severity": "block"
+    },
+    {
+      "key": "wait-and-reap-reimplements-communicate",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない"
+      ],
+      "kind": "copy",
+      "where": "the new function role_run._wait_and_reap (canonical: 'new')",
+      "why": "The canonical copy already exists in the standard library: Popen.communicate(timeout=) raises TimeoutExpired, and the docs state that retrying loses no output. The plan instead reimplements communicate's internals with threads: reading the pipes, writing stdin (ignoring EPIPE), text-mode decoding (run_tree is text=True with an encoding, _spawn is bytes), and joining. Unless the reading threads are daemon threads, the StopSignal path (loop.py main → exit) blocks at interpreter shutdown joining threads while an unreachable descendant holds the pipe. In BASE, the main thread's communicate was interrupted, so exit was not blocked.",
+      "severity": "suggest"
+    },
+    {
+      "key": "normal-end-keeps-mark-on-unreadable-session",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない"
+      ],
+      "kind": "regression",
+      "where": "graphloops/engine/role_run.py::_stop_tree lines 416-417 (return why even with no live members) × plan 2: 'on NG, keep the mark'",
+      "why": "_tree_members returns a reason whenever a same-user process's session can't be read (lines 336-337), and _stop_tree returns it even when there are no live members. Once the reap runs on every normal end, an environment with even one such process prints NG at the end of every role, step, and run_tree, and keeps the mark. The next relaunch or stop re-stops that mark through attempt_marks (commands.py:1375): probe finds the leader GONE and leans toward stopping on POSIX, so the same reason is returned forever. BASE always removed the mark on a normal end.",
+      "severity": "suggest"
+    },
+    {
+      "key": "normal-end-reap-noop-on-windows",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない"
+      ],
+      "kind": "contract_drift",
+      "where": "graphloops/engine/role_run.py::_stop_tree Windows branch (taskkill /T /F /PID, lines 362-371) ← plan 2: calls it after the leader has been reaped",
+      "why": "taskkill /T walks the tree from a live root process. After the leader exits and is reaped, the root is gone: taskkill fails, leader.poll() is not None, so it returns None ('stopped'), and orphaned grandchildren are neither reaped nor seen. On Windows, the grandchild holding the pipe keeps the join from returning, exactly as before. The plan does not say that the unit stays open on Windows (the pytest file assumes CI on three OSes).",
+      "severity": "suggest"
+    },
+    {
+      "key": "jenkins-warn-and-proceed-half-dropped",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない"
+      ],
+      "kind": "precedent",
+      "where": "plan 2 approach / the judge's precedent (Jenkins 'Spawning processes from build', verdict adapt)",
+      "why": "The judge adapted the precedent in two halves: reap at the end of the build, and warn and move on instead of blocking on the pipe. The primary source says the same ('instead of causing infinite block, it will just print out a warning and let you get going'). The plan drops the second half on the grounds that it conflicts with a human policy, 'don't add wait timeouts'. But the human-policy section for this round is empty, and the judge's reason for unit 5 describes settled item (1) as being about the child's own run-time limit. The plan is invoking a policy that wasn't given and dropping half of the precedent. This is a case where the human decides whether to adopt it.",
+      "severity": "suggest"
+    },
+    {
+      "key": "mutmut-on-role-run-sends-real-signals",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_tree_members/_stop_tree — 数え上げと止め方の入口に、壊すと赤になる検査と変異の腕が無い"
+      ],
+      "kind": "scope_creep",
+      "where": "graphloops/setup.cfg only_mutate += engine/role_run.py (tests run tests/py/)",
+      "why": "tests/py includes tests that go through the real _kill → _stop_tree → _tree_members → os.killpg/os.kill with real processes. Examples: test_run_tree_kills_the_tree_when_waiting_breaks, and run_role's tests, which after plan 2 also call _stop_tree on normal ends. mutmut's standard operator mutations include ==→!=. Under the mutants `row.pgid == pgid` → `!=` or `sessions.get(pid) == pgid` → `!=`, members becomes almost every process on the machine, and SIGTERM goes to every same-user process (editors, terminals, other sessions). Sends continue after EPERM, so it isn't stopped midway. It also isn't needed to close the unit: (i)-(iii) already give simulate-side arms. The setup.cfg comment (lines 5-6) and the README 'checks' section also stop matching.",
+      "severity": "block"
+    },
+    {
+      "key": "exitstack-kills-recorded-bare-pids",
+      "unit_keys": [
+        "graphloops/tests/simulate.py::test_role_run（run_tree の TERM を無視する固定具 tree-deaf）— 止め方が壊れた回に固定具を後片付けせず、親の居ない終わらないプロセスが残る"
+      ],
+      "kind": "entrance",
+      "where": "graphloops/tests/simulate.py::test_role_run — plan 3 (b): the ExitStack callback that 'SIGKILLs the recorded pids'",
+      "why": "In the normal case, the fixtures have already been stopped by the code under test. The callback then sends SIGKILL to the same numbers when the test ends, which may be long afterwards. It is another entrance for signals to reach numbers without an identity check, and the scripts run in parallel under parallel.run_all. This is the same number-reuse defect that unit 2 removes. The existing reap (line 2013) has the same shape and would just spread to every fixture.",
+      "severity": "suggest",
+      "no_add": "Have the callback only kill and wait on Popen objects it holds (it can't send to reused numbers while they are unreaped). Leave grandchildren to the plan's bounding of the fixtures (120 seconds, and the existing sleep 120 / sleep 37 are also bounded), and don't send to bare pids. If a bare pid must be signalled, only do so when _started_at matches the start time recorded when it was launched."
+    }
+  ],
+  "shrink": [
+    {
+      "key": "communicate-retry-instead-of-threads",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない"
+      ],
+      "alternative": "Instead of making _wait_and_reap thread-based, loop over p.communicate(stdin, timeout=a short polling interval) (the standard library documents that retrying after TimeoutExpired loses no output). On each TimeoutExpired: if the leader has ended (p.poll() is not None) and hasn't been reaped yet, reap once with _stop_tree. For run_tree, keep the caller's timeout as a monotonic deadline and raise TimeoutExpired → _kill when it passes. The reap point follows the judge's narrowing: the end of the attempt, meaning after run_steps' loop and after run_role's loop, not after each _spawn.",
+      "why": "No threads, and text decoding, EPIPE handling, and shutdown joins are left to the standard library (removes the copy and the daemon-thread hang). run_tree's time limit stays over the whole call as in BASE (removes the unbounded-join regression). The pipe-holding wait gets a place to decide 'reap after the leader ends' within a single mechanism."
+    },
+    {
+      "key": "drop-only-mutate-role-run",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_tree_members/_stop_tree — 数え上げと止め方の入口に、壊すと赤になる検査と変異の腕が無い"
+      ],
+      "alternative": "Drop (v) (adding role_run.py to only_mutate). Cover the pytest-only branches with (i)-(iii)'s simulate arms, plus a pytest unit test of _ps_all's parsing, which keeps its red independently of mutmut.",
+      "why": "Removes the hazard that mutants send real signals to the whole user session. It is also not needed to close the unit (the judge's reason is the lack of red for the pytest-only branches, and the string-replacement arms supply it)."
+    },
+    {
+      "key": "decide-denied-at-final-recount",
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_stop_tree.alive — macOS でゾンビだけのグループへの killpg の EPERM を『生きている』『送れない』と数え、止まった木を止め切れないと報告する",
+        "graphloops/engine/role_run.py::_stop_tree — 生存の問い・KILL_GRACE の待ち・送りの例外処理・最後の数え直しが写しで 2〜3 重"
+      ],
+      "alternative": "Remove _stop_tree's denied → immediate-recount → return branch. Just remember the EPERM, and in the last round of `for sig in (*STOP_SIGNALS, None)` decide in one place: 'live members remain → if denied, cannot send; otherwise still remains'.",
+      "why": "One fewer branch and one fewer recount copy than the consolidation in (c). The EPERM from a group that became zombie-only after counting also goes through the wait and SIGKILL instead of short-circuiting."
+    }
+  ],
+  "reason": "Read-side version: I read the working tree's role_run.py, simulate.py, test_role_run_stop.py, mutations.json, setup.cfg, commands.py and declared.py. I only have read tools, so I could not compare against the commit by hash; this rests on the premise that the working tree is at the read version. Opened primary sources: psutil recipes (individual sends plus wait_procs), psutil API (PID + creation time, create_time cached), Jenkins (reap at the end of the build, warn on pipe EOF). Main findings: (1) Plan 1 limits the send targets to groups whose leader is a member, which drops killpg on group pgid after the leader is reaped. That is narrower than BASE and than the world solution. (2) The ps time bias remains in _started_at (the probe_group route), an entrance still open to the same false 'stopped'. (3) Plan 2 reaps per _spawn, i.e., per step; it removes the run_tree time limit from the whole call; and the normal-end reap clears what stop_group and kill_all fail to stop, so RR1 and RR3 lose their red. (4) Adding role_run.py to mutmut risks sending real signals through the ==→!= mutants to the whole user session. Plans 5 (ps timeout) and 8 (docstrings and names): I checked callers, mutations.json references and test names, and found no holes. The human-policy section is empty this round, so I did not judge policy-type conflicts; plan 2's claim of a 'human policy' is recorded as a precedent hole. Queries not made because they would need the target's name: none. All outside fetches were only to public third-party pages (psutil, Jenkins)."
+}

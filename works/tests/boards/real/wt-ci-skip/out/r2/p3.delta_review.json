@@ -1,0 +1,36 @@
+{
+  "faces": [],
+  "faces_none": "fix-delta-r2.patch の全 7 ファイルを読み、変更後の作業ツリーで .github/workflows/test.yml・tests/run.sh（3070-3111 の CI_LINT_OK と skip_probe 周り）・graphloops/tests/simulate.py（skip() docstring、1920 前後・2019-2033・2220-2267・3036-3080 の posix/非 posix 分岐と skip() 呼び出し）・graphloops/tests/simulate_review.py（6017-6023）・tests/catchup-switch-case.py（359 前後の注記）・tests/mutations.json（CL7〜CL11）・.gitattributes を照合した。CI_LINT_OK の新しい単一 assert（tests/run.sh:3108-3111）は head/steps の分離ロジックとも整合し、CL7〜CL11 の old/new 文字列は現行の test.yml に一意に存在してミューテーションが検出可能なことを確認した。simulate.py の各 posix/非 posix 分岐は check() と skip() の件数が一致しており（12/12・3/3・2/2・1/1・1/1）、EXPECTED_CHECKS の OS 非依存の前提を壊していない。catchup-switch-case.py の注記削除、mutations.json 追加、.gitattributes の追加のいずれにも、正本を持つ規則の写しや、読む側が古いままの記述は見つからなかった。ただし no.1 の absorbed 宣言は checks で示すとおり本体の指摘（process-group の名の下に Windows で実装済みの能力を隠す 20 件）を閉じておらず、その残存は copy/entrance/contract_drift のいずれの語にも当たらない（policy 相当）ため faces には計上せず checks に記録した。",
+  "checks": [
+    {
+      "key": "posix の枝の見送りに付ける名前 process-group が、実際に欠けている能力と合わない",
+      "closed": false,
+      "why": "graphloops/tests/simulate.py:2020-2021・2032・3041・3079・2266 と graphloops/tests/simulate_review.py:6021-6022 は依然として『起こした子のグループの番号を置き場の隣に書く』『stop_group では孫まで止まる』『kill_all は生きている子を孫まで止める』『run_tree: 時間切れで孫まで止める』『SIGTERM を無視する孫も…SIGKILL で止める』を含む 20 件全部を capability=\"process-group\" で見送っている。しかし graphloops/engine/role_run.py:264-280 は Windows でも taskkill /T /F で木ごと止め、247-248 の CREATE_NEW_PROCESS_GROUP と 416 の parse_cim（Windows の CIM の FILETIME 読み）で生死と再利用を見分ける道を持つ——つまりこれらのテストが検証する『孫まで止まる』『開始時刻で再利用を見分ける』という能力自体は Windows にも実装済みで、欠けているのは Windows 向けテスト（taskkill の経路を通す）だけである。.github/workflows/test.yml:24 の windows-latest の skip_allow は今も posix-mode process-group fifo read-permission のままで、process-group を許す一覧に変更が無い。修正役は『Windows の taskkill の道のテストは別の依頼（親が積む）』と自ら明言しており、absorbed としながら核心（能力の名前と実際に欠けている物の不一致、および skip_allow が Windows のテスト欠如を永久に隠す形）は今周の差分では閉じていない。3 件（stop_group(no-mark)・SIGNAL_PROBE の錠の再入・_stop_tree 差し替え）を OS 非依存にした部分のみが実際の変更であり、それ以外は事前審査が指摘した状態のまま残る"
+    },
+    {
+      "key": "CI_LINT_OK の柵が、ジョブ単位の continue-on-error・if: と段の shell: を見ない",
+      "closed": true,
+      "why": "tests/run.sh:3088-3111 で steps に加え head（最初の - name:/- uses: より前の非コメント行）を集め、rs == want の完全一致 assert（3108-3111）で env の値・run: の頭の代入・shell:・if:・continue-on-error: のいずれの差し替えも rs の不一致として検出する形になっている。ジョブ全体の if:/continue-on-error: は head に集約され、not any(x.startswith((if:, continue-on-error:)) for x in head) の assert（3111 相当）で拒む。対応する CL7〜CL11（tests/mutations.json）の old 文字列は現在の test.yml に一意に存在し、各 new はいずれも want との不一致（または head の追加行）を生むため検出される"
+    },
+    {
+      "key": "単位 3 が消す注記の場所に、単位 4 の assert の理由が同じ場所へ戻る",
+      "closed": true,
+      "why": "tests/run.sh の diff で旧注記『見送りを CI で失敗に数える。許すのは OS ごとの一覧…』の行が単純に削除され（旧 3108 行相当）、新しい assert（現 3109-3111）には注記が付いていない。理由は assert の失敗メッセージ文字列にのみ書かれており、削除した注記と同じ文言が同じ場所に戻ってはいない"
+    },
+    {
+      "key": "POSIX_GROUP_WHY が simulate_review.py では 1 回しか使われず、周りの書き方とも違う",
+      "closed": true,
+      "why": "リポジトリ全体を grep しても POSIX_GROUP_WHY という定数は存在しない。simulate.py・simulate_review.py の新しい skip() 呼び出しはいずれも理由の文字列をその場に直接書いており（例: simulate.py:2021, 2032, 3041, 3079-3080、simulate_review.py:6021-6022）、既存の skip 呼び出しの書き方（理由を都度書く）と揃っている"
+    },
+    {
+      "key": "CI_LINT_OK の段の検査を、段の行の完全一致 1 つにまとめる",
+      "closed": true,
+      "why": "旧来の 2 本の in assert と案の (a)(b) はすべて削除され、tests/run.sh:3108-3111 の 1 本の完全一致 assert（rs == want）に統合されている。want は 6 行固定（name/shell/env/FAIL_ON_SKIP/SKIP_ALLOW/run）で、CL7・CL8・CL9・CL11 のいずれのミューテーションも rs を want と不一致にするため、単一の assert で検出できる"
+    },
+    {
+      "key": "OS によらない検査は posix の囲いから出し、見送りの数を減らす",
+      "closed": true,
+      "why": "人の決定どおり 3 件が posix 限定の囲いの外に出ている: graphloops/tests/simulate.py:1920 の stop_group(no-mark) は if os.name==posix の外で無条件に走る。SIGNAL_PROBE（simulate.py:2220-2248）では錠の再入テストと _stop_tree 差し替えテスト（今は sys.executable の sleep に置換され posix 依存が外れている）が無条件化され、R._STOPPING を使う StopSignal のテストだけが os.name==posix の分岐に残っている（テスト自体は残しつつ非 posix では skip() で件数だけ数える形、simulate.py:2262-2266）。sh 限定のテストを sh の名前で見送る案は採らず process-group のままにしたことは、no.1 の未解決点として checks 1 に記録した"
+    }
+  ]
+}

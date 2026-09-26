@@ -1,0 +1,6 @@
+{
+  "material": {
+    "status": "clean",
+    "checked": "engine が宣言 .review-checks.json（sha 1ae180a39b46）の 2 段を走らせた: tests/run.sh: exit 0（324.7 秒）; pytest: exit 0（51.6 秒）"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "faces": [
+    {
+      "key": "session-match-lacks-reuse-time-check",
+      "kind": "entrance",
+      "where": "graphloops/engine/role_run.py",
+      "cite": "born = pathlib.Path(pgid_file).stat().st_mtime   # 印は子を起こした直後に書く（probe_group と同じ目印）",
+      "why": "stop_group は probe_group で pgid_file を読んで pgid を確かめた後（614 行）、born を得るために同じファイルへ 2 度目の stat を独立に打つ（618 行）。この 2 回の読みは非アトミックで、その間に子が自然終了すれば _spawn の finally（519〜520 行）が pgid_file を unlink する。すると 2 度目の stat は FileNotFoundError（OSError）で born=None になり、_stop_tree に born が渡らない。_stop_tree（392〜393 行）は leader が無い（stop_group 経由は Popen を持たない）ため gl_born でも補えず、reused の判定式（323 行 `born is not None and ...`）が常に False——つまりこの回だけ、今回の修正が塞いだはずの『番号の再利用』防御が丸ごと外れ、fix #1 が対象にした『止める間に木が消えて無関係なプロセスに同じ番号が回った』ケースを再びグループ／セッション一致で拾ってしまう。probe_group は内部で既に written（=同じ mtime）を計算済みなのに呼び出し元へ返していないのが原因で、2 回目の stat を要求する設計そのものが穴。stop_group は loop.py の relaunch・stop 両方から呼ばれ、対象の子がちょうど終わるタイミングで叩かれるのは珍しくない実運用の経路であり、理論上の隙間ではない。"
+    }
+  ],
+  "checks": [
+    {
+      "key": "session-match-lacks-reuse-time-check",
+      "closed": false,
+      "why": "born による再利用防御は _kill（leader.gl_born 経由、プロセス内オブジェクトなので競合なし）では機能するが、stop_group（外部プロセスからの停止口）は probe_group の読みとは別に pgid_file を再度 stat して born を作っており、その間に印ファイルが消えると born=None に落ちて防御が丸ごと無効化される。fixed と申告された穴（session-match-lacks-reuse-time-check）は _stop_tree 単体では閉じているが、stop_group という主要な呼び出し経路では TOCTOU で再び開く。"
+    }
+  ]
+}

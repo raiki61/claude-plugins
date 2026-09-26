@@ -1,0 +1,18 @@
+{
+  "decision": "ask",
+  "reason": "human_gate",
+  "ask": {
+    "kinds": [
+      "regression"
+    ],
+    "in_round": true,
+    "question": "今ある能力を減らす・狭める変更、人の方針とぶつかる変更、または方針の文書そのものの変更が挙がった。役は代償として決めない——人が決める。通すなら continue --note <通す範囲と条件>（答えは記録の process.human_items に残り、修正役に届く。方針の文書の変更を通すと、その版を固定し直す）。通さないなら stop（run をここで止める。直す向きを決めてから新しい run で）",
+    "items": [
+      "R4 が BASE から消えたと見た能力: Windows の CI が symlink 見送りで赤くならない能力: .github/workflows/test.yml の windows-latest 用 skip_allow（\"posix-mode process-group fifo read-permission\"）に symlink が無く、graphloops/tests/simulate_review.py:1897-1901,1932 の symlink 見送りが FAIL_ON_SKIP=1 の下で SKIP_ALLOW に無い名前として必ず失敗に数えられる。Windows が既定で symlink 作成権限を持たないことはコード自身の注記が明言しており、道具を入れて無くせる shellcheck・実プローブで回避できる sh とは違って対策が入っていない"
+    ],
+    "options": [
+      "continue",
+      "stop"
+    ]
+  }
+}

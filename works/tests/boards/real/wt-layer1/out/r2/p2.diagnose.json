@@ -1,0 +1,460 @@
+{
+  "units": [
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree — 送り先に止める番号のグループを無条件に入れ、長がゾンビのグループへの EPERM（macOS）で SIGKILL の前に『送れない』と抜ける・再利用された番号のグループへ送る",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "作業ツリーの role_run.py:418 `groups = {pgid} | {...}` を読んで確かめた（作業ツリーは diff-r2.patch の + 側と一致）。stop_group は長を回収しない。そのため、長がゾンビのまま外の孫（setpgid で自分のグループへ移った）だけが生きている形になる。この形で起きること: (1) killpg(pgid) は macOS で EPERM になる（凍結した制約の実測と、silent-failure-hunter の killpg(ゾンビだけのグループ, 0) の実測）。 (2) denied が立つ。 (3) 435-438 行は猶予なしに数え直すので、孫はまだ生きて見え、SIGKILL の回へ進まずに『グループ N に信号を送れない』を返す。 /code-review・code-reviewer・silent-failure-hunter の 3 つが、mktemp の下の実プロセスで別々に再現した。SIGTERM を無視する孫は生き残り、印も残る。0.5 秒で終わる孫でも『送れない』を返し、印が残る。simulate.py:2025-2034 の検査が緑なのは、孫が SIGTERM ですぐ死に、数え直しの ps（約 0.4 秒）に先を越されるという競合に頼っているからである。 同じ行が type-design-analyzer の指摘も生む。reused（番号の再利用）が真でも、pgid を宛先に入れ続ける。偽の ps での実測では、再利用した無関係なプロセスのグループへ killpg(4242, SIGKILL) が届いた。docstring の『無関係なプロセスがその番号で setsid した形に送らない』が守られていない。 この差分が入れた欠陥で、凍結した目的『止めた後に消えたことを確かめる』の中心にあたる。Linux ではゾンビだけのグループへの killpg が通るので、前者は macOS だけで起きる。",
+      "reopen_evidence": "決着済み (3)（EPERM を生きていると読まない。数え上げ→送り→数え直し）の方式は正しい。ただ、実装が名目の pgid を宛先に残したため、同じ EPERM がまた『送れない』に化けている。3 レンズの実測がこれを示す新しい証拠である。",
+      "origin_analysis": "①ロジックの誤り: 宛先を『数えた生きた仲間』から作らず、名目の番号を足した。②出自は 2 つ。1 つ目は、実行観測でだけ現れる欠陥（競合で緑）。2 つ目は、検証機構の fail-open ④（ゾンビのグループの検査は、SIGTERM ですぐ死ぬ孫の 1 形しか試していない）。③ラベル: block。",
+      "why_chain": [
+        "なぜ pgid が無条件に入ったか: BASE の『止める＝killpg(pgid)』の形の上に、数え上げの方式を重ねたから。『数えた後に増えた子も届く』という理由で名目のグループを残し、宛先を生きた仲間から作り直さなかった",
+        "なぜ検査で見つからなかったか: ゾンビのグループの実物の検査は、孫が SIGTERM ですぐ死ぬ形だけだった。数え直しの ps の遅れの間に孫が消えるので、denied の道でも why=None になり緑になる。pytest の代役は、生きた仲間が居る EPERM だけを試している",
+        "なぜその形だけだったか: 検査を『ゾンビだけのグループの EPERM』という症状から作ったから。不変条件（生きた仲間には STOP_SIGNALS が順に全部届く）から作れば、SIGTERM を無視する孫の腕が出ていた"
+      ],
+      "prescriptions": [
+        "零処方（採る）: 418 行を `groups = {m.pgid for m in live.values() if m.pgid in members}` にする。長が生きていれば長自身が生きた仲間で pgid==pid なので、今までどおり入る。生きた仲間が居ないグループにだけ送らなくなる。これでゾンビだけのグループの EPERM も、再利用された番号への送信も消える。既存の pytest 4 本（ゾンビだけ・生きた仲間への EPERM・グループの外への送り分け・木を見る）は、この形でも同じ答えになる",
+        "検査と腕を同じ差分で足す: simulate の escaped(leader_stays=False) に、孫が `signal.signal(SIGTERM, SIG_IGN)` を呼ぶ腕を足し、stop_group が why=None で孫が消え、印も消えることを確かめる。mutations.json に、宛先へ {pgid} を戻す腕を足し、expect をその検査にする",
+        "退けた案: denied の後に KILL_GRACE を待って次の信号へ進む。名目のグループへの無駄な送信と EPERM を残したままで、sandbox の中の本当の EPERM を返すのも遅れる。零処方の方が小さく、両方の症状を消す"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "groups = {pgid} |"
+          ],
+          "fixed": true,
+          "paths": [
+            "graphloops/engine/role_run.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "defects",
+        "total": 1,
+        "note": "送り先を組むのはこの 1 行だけ。表が読めない回に pgid だけへ送る予備の道（401 行）は BASE の能力なので残す"
+      }
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_tree_members.reused — 長の番号の再利用の見分けが、ps の後に取った時刻・未回収の長・印の別の読みで誤って真になり、信号を送らずに『止まった』を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "コードで確かめたこと: (1) _ps_all（277 行）は、ps が終わった後の time.time() から、切り捨ての etime を引いて started を出す。そのため started には、ps が表を読んでから終わるまでの遅れと、1 秒未満の端数がいつも足される。REUSE_SLACK=2.0 の余裕は、実質 1 秒強しかない。Linux の etime は起動からの時刻なので、壁時計の飛びもそのまま乗る。 (2) _kill の道では、長の Popen が未回収のあいだ番号は再利用されない（POSIX）。それでも 393 行は gl_born を常に渡して見分けに当てている。1 回目は known が空なので、誤って reused が真になると found=∅ となり、None を返す。 (3) stop_group（616-622 行）は、born を probe_group と別の stat で先に読む。docstring の根拠『印は試行ごとに 1 度だけ書く』は偽である。run_steps（689 行）は段ごとに、run_role（725 行）は往復ごとに、_spawn（507 行）で同じ印を書き直す。 結果の側は実測がある。silent-failure-hunter は、born を 2.6 秒ずらすと why=None・送った信号 []・長は生存、を得た。type-design-analyzer は、偽の ps で印を書き直させると why=None・送信なし・印は消えた、を得た。どちらも『止まった』の偽りで、凍結した目的の事故の型（止めた後に消えたことを確かめない）そのものである。 発火の条件は実測されていない。条件は負荷の下で ps の遅れが約 1 秒を超えることと、Linux の時計の飛びである。(3) は今のところ still_mine が守っている。どれもこの差分が入れた。R1 の削除候補 5 はここに入れる。",
+      "reopen_evidence": "",
+      "origin_analysis": "①ロジック: 同一性を、基準の違う 2 つの時刻（Python の壁時計と、ps の後の now - etime）で比べている。要らない所（未回収の長）にも当てている。②出自: 根拠の循環。偽の不変条件『印は 1 度だけ書く』を docstring に書き、それで先読みを正当化した。加えて、外部標準（psutil の PID＋作成時刻の同一性）の劣化変種になっている。psutil は同じ源の create_time どうしを比べる。③ラベル: block。",
+      "why_chain": [
+        "なぜ基準がずれたか: _started_at の単一 pid 用の変換（time.time() - etime）を、全表用の _ps_all に写した。そのとき、比べる相手（born）が別の時計だと意識しなかった",
+        "なぜ未回収の長にも当てたか: born を leader から無条件に引く形にした。leader.poll() が長を回収して番号が空く場合と、まだ空かない場合を分けなかった",
+        "なぜ stop_group で別の読みを足したか: probe_group が written を読んでいるのに返さない。呼ぶ側が順番で補い、その順番を偽の根拠で正当化した"
+      ],
+      "prescriptions": [
+        "零処方 1: _ps_all で now を ps を起こす前に取る。started が真の開始時刻を 1 秒以上超えなくなる",
+        "零処方 2: _stop_tree は、長を回収した後（leader is None か leader.returncode is not None）にだけ born を _tree_members に渡す。未回収の子の番号は再利用されない",
+        "零処方 3（R1 の削除候補 5）: probe_group の中身を (pgid, written, why) を返す内部の口に寄せ、stop_group は同じ読みの written を born にする。先読みの stat 6 行・偽の根拠の句・test_stop_group_reads_the_reuse_mark_before_probing は消す。公開の probe_group の 2 つ組の返り値は変えない（commands.py:1381 が呼ぶ）",
+        "世界の解（adapt）: psutil は PID と作成時刻の組で同一性を確かめ、作成時刻は同じ源から読んだ値どうしで比べる。数え上げの known がすでに同じ源どうしで比べているので、長にも同じ形を当てる",
+        "退けた案: os.waitid(WNOWAIT) で長を回収せずに見る。零処方 2 と同じ効果だが、_kill の待ち方を作り替えることになり大きい。pidfd・kqueue は後から見つけた子孫に遡って使えず、OS をまたげない"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "born",
+            "REUSE_SLACK"
+          ],
+          "paths": [
+            "graphloops/engine/role_run.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 19,
+        "note": "再利用の見分けの目印と余裕に触れる行の全部。直す site は 277（now の位置。この問いには当たらないので note で名指しする）・393・616-617・614-615 の docstring。修正の後は、先読みの消去で数が減る"
+      }
+    },
+    {
+      "key": "graphloops/tests/simulate.py::test_role_run — 実プロセスの固定具を検査が赤・例外の回にも回収する後始末が無く、ps を起こせない環境では検査でなく例外で抜ける",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "3 つの材料がそろっている: (a) 取りまとめ役の実測（2026-09-26 13:40）: TERM を無視する固定具 tree-deaf（2049 行。while :; do sleep 1; done で終わらない）が、親の居ないまま 12 本残っていた。最も古いものは 20.5 時間前。止め方を壊した変異の腕の回と、sandbox の回に漏れる。2049-2054 行に後片付けは無い。 (b) main_path_observation と procedure_trace の実測: この差分が足した 2027 行の while ループは、ps を try なしで呼ぶ。ps の exec が拒まれる環境では PermissionError で test_role_run が抜け、長と孫（sleep 120）が回収されずに残った。 (c) escaped()（2008 行）の int(leader.stdout.readline()) は、孫が何も出さないと ValueError になる。leader.stdout も閉じない。reap() も finally の中にない。 材料の訂正: parallel.run_all（parallel.py:116-153）は、ほかの台本を走らせ切ってから最初の例外を投げ直す。だから『残り約 350 件を走らせずに落とす』は言い過ぎで、飛ぶのは test_role_run の残り（run_tree の 3 検査）である。全体は例外で赤になる（fail-closed）。 害は、TERM を無視するプロセスが何時間も残る実害（実測）である。変異の腕を撃つたびに増える。この差分が同じ形の固定具を 3 つ足し、止め方そのものを変えたので、ここで回収する。",
+      "reopen_evidence": "",
+      "origin_analysis": "①検査のロジックは正しい。②出自は衛生違反 2 つ。後始末漏れ（try/finally なし）と、外部 I/O の無防備（台本の中の ps の起動を守っていない）。実行観測でだけ現れた。③ラベル: block。",
+      "why_chain": [
+        "なぜ漏れるか: 固定具を消すのが、検査の対象（止め方）だけに任されている。止め方が壊れた回に誰も消さない",
+        "なぜ気づかれなかったか: 固定具の多くは sleep 60〜120 で自然に消える。tree-deaf だけが無限ループで、変異の腕の回にしか漏れない",
+        "なぜ ps を無防備に呼んだか: 本番の _ps_all は OSError を拾うのに、台本の側では同じ ps を『必ず起きる道具』と扱った"
+      ],
+      "prescriptions": [
+        "零処方（採る）: 起こした固定具ごとに try/finally（か contextlib.ExitStack の callback）を置き、記録した pid（gp・gp2・leader）を SIGKILL して wait し、leader.stdout を閉じる。tree-deaf は、pid ファイルが在れば finally で SIGKILL する",
+        "2027 行の ps を try で囲み、OSError なら check(False, 理由) にしてその場面だけ飛ばす。検査 1 件の赤にして、関数を抜けない。escaped() の readline が空なら check の赤にして、残りを走らせる",
+        "世界の解（adopt）: Python の unittest.TestCase.addCleanup と contextlib.ExitStack は、失敗・例外の回にも後始末を走らせる定番の口"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "time\\.sleep\\(120\\)",
+            "sleep 37",
+            "while :; do sleep 1",
+            "time\\.sleep\\(60\\)",
+            "\"FAKE_MODE\": \"sleep\"",
+            "\\[\"ps\", \"-o\""
+          ],
+          "paths": [
+            "graphloops/tests/simulate.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 10,
+        "note": "長く生きる実プロセスの固定具と、台本の中の ps の起動の行。test_role_run の中の 7 行（1940・1980・2003・2006・2027・2040・2049）が直す対象。3052・3093 行は同じ形で、後始末があるかを確かめる対象"
+      }
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_tree_members/_stop_tree — 数え上げと止め方の入口に、壊すと赤になる検査と変異の腕が無い",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "pr-test-analyzer が一時 clone で実測した。次の変異では、pytest 33 件と simulate の test_role_run 31 件が全件緑のまま、止めるべき物が残る: - known.update → pass（setsid した孫が生き残る） - _ps_all の失敗の分岐 → if False（子が生き残り、why=None） - 403 行 → return None - 393 行の born の配線 → pass - 437 行 → if _live(again or {}) test_double_fidelity は、_ps_all の『生テキスト → _Proc』の変換を通る単体テストが無いことを確かめた。posix()・members_of() は _ps_all・_tree_members を丸ごと差し替えている。hygiene が挙げたとおり、直接一致・reused・denied の分岐にも腕が無い。 さらに、変異の実行器が走らせるのは run.sh（graphcheck と simulate の 2 本）だけである（tests/mutate.py:74・77）。mutmut の対象も engine/schema.py だけ（graphloops/setup.cfg:9）。だから pytest でしか覆っていない分岐は、どの腕でも赤を確かめられない。 REVIEW.md の fail-open ④『柵を足した・直した差分は、同じ差分で腕も足し・直す』に当たる。この差分が入れた柵の入口ごとに赤を見ていない。",
+      "reopen_evidence": "",
+      "origin_analysis": "①ロジックは各入口とも正しい（読んだ限り）。②出自: 検証機構の fail-open ④。腕は RR15・RR16・RR9・RR3 の 4 本で、柵が名乗る範囲（3 つの印・持ち越し・表が読めない・再利用・EPERM・ps の読み）より狭い。③ラベル: block。",
+      "why_chain": [
+        "なぜ入口が素通りか: 新しい分岐の多くを、pytest の代役（差し替え）でだけ確かめた。pytest は変異の実行器にも mutmut の対象にも入っていない",
+        "なぜ代役だけで済ませたか: 実物の検査は macOS の EPERM の再現に注意が向き、持ち越し（known）や表の読めない回を実物で作る台本を足さなかった",
+        "なぜ構造で縛られていないか: 腕の一覧が覆う分岐の数と、柵が名乗る入口の数を突き合わせる工程が無い"
+      ],
+      "prescriptions": [
+        "零処方（既存の機構 1 つ）: graphloops/setup.cfg の only_mutate に engine/role_run.py を足し、pytest が覆う分岐を mutmut の対象にする。撃つのは合流の後にまとめて 1 回",
+        "simulate に実物の検査を足し、それぞれに腕を付ける: (i) SIGTERM で死ぬ長の下で setsid し、SIGTERM を無視する孫を _kill が止める（known の持ち越し） (ii) PATH の先頭に exit 1 の偽の ps を置き、_kill が None でなく理由を返して子は止まる (iii) 表が読めずグループが居ない回の拒否文",
+        "pytest に _ps_all の変換の単体テストを足す（subprocess.run を差し替え、見出しの無い 6 列の出力・etime の書式・読めない行・exit 非 0 を渡す）"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "known.update(",
+            "if r.returncode != 0 or not rows",
+            "は居ないが、外へ出た子孫を確かめていない",
+            "getattr(leader, \"gl_born\", None)",
+            "if again is None or _live(again)",
+            "reused = born is not None",
+            "if row.pgid == pgid or sessions.get(pid) == pgid",
+            "if denied:",
+            "rows[int(f[0])] = _Proc("
+          ],
+          "fixed": true,
+          "paths": [
+            "graphloops/engine/role_run.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 10,
+        "note": "腕か赤を見る検査が要る入口の行。RR15（セッション項）・RR16（鎖）・RR9（ゾンビ）・RR3（killpg）は既にある。stop_group の『読めない（{e}）』の文は、再利用の単位の零処方 3 で消える見込みなので入れていない（役の書いた total は 9。engine が how を走らせた 10 に置き換えた）"
+      }
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_ps_all — 全プロセスの表を取る ps に時間の上限が無い（同じファイルの ps・git・bwrap の呼びは timeout 付き）",
+      "label": "suggest",
+      "disposition": "do-now",
+      "reason": "role_run.py の subprocess.run は 5 か所ある。bwrap（85 行、timeout=10）・git（96 行、30）・_started_at の ps（539 行、30）は上限付き。この差分の _ps_all（273 行）だけが無く、Windows の taskkill（363 行。BASE から）も無い。_ps_all は信号の口（install_stop_handlers → kill_all → _stop_tree）から、1 本の木につき 3〜4 回呼ばれる。ps が固まると engine ごと止まる。発火は実測されておらず稀。 hygiene・bypass・consistency・/code-review・/simplify の 5 つが独立に挙げた。出自は近傍の標準機構（上限付きの外部呼び出し）の迂回なので、nit ではない。凍結した目的の『期限・タイムアウトを足さない』との関係は決着済み (1) を読んで確かめた。あれは子の走る時間の上限の話で、ps の呼びの timeout=30 は決着の後も _started_at に残っている。この処方は子を止める期限を足さない。上限に当たっても、既存の except が (None, 理由) に落とし、保守側の予備の道へ進むだけ。",
+      "reopen_evidence": "",
+      "origin_analysis": "①ロジックは正しい。②出自: 標準機構の迂回（_started_at の呼びを写したときに timeout を落とした）。③ラベル: suggest（害は具体的だが未実測で稀）。",
+      "prescriptions": [
+        "零処方（採る）: 273 行に timeout=30（_started_at と同じ値）を足す。TimeoutExpired は SubprocessError なので、既存の except が拾う",
+        "より大きい案: ps の呼びの設定と now - etime の変換を 1 つの内部の口に寄せる（/simplify）。写しはすでに一度食い違ったので、正本を 1 つにする価値はある。ただ、再利用の単位の零処方 1（now を ps の前へ）と同じ所を触るので、そちらと合わせて決めてよい"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "subprocess.run("
+          ],
+          "fixed": true,
+          "paths": [
+            "graphloops/engine/role_run.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 5,
+        "note": "上限の無い呼びは 273 行（この差分）と 363 行（taskkill・BASE・Windows）。直す対象は 273 行"
+      }
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない",
+      "label": "suggest",
+      "disposition": "do-now",
+      "reason": "コードで確かめた。_spawn は ended=True の回に _kill を通らない（514 行）。外へ出た孫も、グループに残った子も刈らずに印を消す（520 行）ので、後の relaunch・stop は素通りになる。run_tree と _spawn の communicate（476・510 行）は両方の管の EOF を待つ。管を継いだ孫が居ると、長が終わっても期限なしで戻らない。 BASE から在る欠陥で、この差分が入れたものではない。ただし、凍結した目的の範囲（role_run.py の起こす口）に入っている。世界の解で決まる。Jenkins の『Spawning processes from build』は、ビルドの終わりにビルドが起こしたプロセスを刈る（ProcessTreeKiller）。管を継いだデーモンについては『instead of causing infinite block, it will just print out a warning and let you get going』とする。だから人に回さない。 このリポジトリで、試行を超えて生き残るプロセスを使う消費者は見当たらない。任せ先の作業ディレクトリは commands.py:642-648 が終わりに消す。『期限を足さない』は守れる。長の wait を管の読みと分ければよく、時間の上限は要らない。",
+      "reopen_evidence": "",
+      "origin_analysis": "①ロジック: 止める道と終わる道が別で、終わる道は数え上げを通らない。②出自: 待ちの生存（衛生・完了を管の EOF で待つ）と、外部標準（ジョブの終わりの残りの刈り取り）の未採用。③ラベル: suggest（BASE から在り、この差分が入れていない）。",
+      "prescriptions": [
+        "世界の解を採る（adapt）: 管の読みをスレッドに移し、長の終わりを p.wait() で待つ。終わったら _stop_tree で木の残りを刈り、管が閉じてから読みを join する。時間の上限は足さない。印は刈った後で消す",
+        "零処方（ended の回に _stop_tree を呼ぶだけ）は、刈り取りは閉じるが、管を継いだ孫で communicate が戻らない方を閉じない。そのため単独では足りない",
+        "Jenkins の環境変数の印は、macOS で他のプロセスの環境が読めないので採らない（決着済み (2)）。識別はこの差分の数え上げで代える"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "communicate("
+          ],
+          "fixed": true,
+          "paths": [
+            "graphloops/engine/role_run.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 2,
+        "note": "終わりを管の EOF で待つ口（run_tree 476 行・_spawn 510 行）"
+      }
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree — 生存の問い・KILL_GRACE の待ち・送りの例外処理・最後の数え直しが写しで 2〜3 重",
+      "label": "suggest",
+      "disposition": "do-now",
+      "reason": "/simplify と R1 が挙げ、作業ツリーで確かめた: - exists と group_gone は、信号 0 の例外を真偽に写す同じ形（373-389 行） - KILL_GRACE の待ちのループは 406-412 行と 440-446 行の 2 つ - killpg と kill の送りの try/except は 419-434 行の 2 つ - 最後の数え直し（447-453 行）は、ループの頭の写し EPERM を生きていると読む規則が 3 か所に散っている。送り先の単位の修正で同じ関数を触るので、今寄せるのが最も安い。注意: RR3 の old（`os.killpg(g, sig)`）の字列が変わるなら、同じ差分で腕を直す。",
+      "reopen_evidence": "",
+      "origin_analysis": "①正しい。②出自: 予備の道を足したとき、条件で引数化せずに写した（読む量の増加）。③ラベル: suggest。",
+      "prescriptions": [
+        "零処方: 述語を 1 つ受け取る待ち wait(done) を 1 つにし、宛先の一覧 [(送る関数, 宛先, 名前)] を 1 つのループで送る",
+        "for sig in (*STOP_SIGNALS, None) で、最後の回を『送らずに判定だけ』にして数え直しを 1 本にする。最後の文が違うので、分岐 1 つは残る"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "time.monotonic() + KILL_GRACE",
+            "def exists(pid)",
+            "def group_gone()"
+          ],
+          "fixed": true,
+          "paths": [
+            "graphloops/engine/role_run.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "defects",
+        "total": 4,
+        "note": "寄せれば待ちが 1 つ・生存の問いが 1 つになり、2 以下に減る（0 にはならない）"
+      }
+    },
+    {
+      "key": "graphloops/engine/role_run.py・tests — docstring とテスト名が実物とずれ、コードを繰り返す注記が残る",
+      "label": "suggest",
+      "disposition": "do-now",
+      "reason": "作業ツリーで確かめたずれ: - _ps_all の docstring（271 行）は返り値を『{pid: _Proc}』と書くが、実際は (表, None)／(None, 理由) の組 - 固定具 posix の docstring は sent を『(宛先, 信号)』と書くが、実際は (種別, 宛先, 信号) の 3 つ組 - テスト名 test_stop_group_posix_group_already_gone は、本文（木の仲間が居ない）とずれている - 『長の居ないグループ』は、本文の実際（長が仲間でないグループ）とずれている R1 の削除候補 1〜4 は、名指しされた重複先がどれも実在した: - 399 行の注記 ↔ 360 行の docstring - test の m.unlink() の行末 ↔ 同じテストの docstring - simulate 2046 行 ↔ 2054 行の check の文 - 『今どおり』は編集の実況 読み手が返り値の形を取り違える型のずれなので、注記を足すのでなく本文を直す。",
+      "reopen_evidence": "",
+      "origin_analysis": "①ロジックは無関係。②出自: 導線の死（説明と実物のずれ、注記の二重保守）。③ラベル: suggest（誤読は起きうるが、実際の誤読の再現はない）。",
+      "prescriptions": [
+        "零処方: 4 つのずれは本文と名前を直す（test_stop_group_posix_tree_already_gone・『長が仲間でないグループ』）。R1 の削除候補 1・2・4 は削る。3 は check の文へ『長（sh）が先に終わっても』を移してから消す"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "全プロセスの表 {pid: _Proc}。",
+            "sent は送った (宛先, 信号)",
+            "def test_stop_group_posix_group_already_gone",
+            "長の居ないグループ",
+            "# 表が読めない——止める番号のグループへだけ送り",
+            "# 確かめた直後に子が終わり、launch の側が印を消した",
+            "# SIGTERM を無視する孫も止まる——長（sh）が先に終わっても",
+            "グループへは今どおり送るが"
+          ],
+          "fixed": true,
+          "paths": [
+            "graphloops/engine/role_run.py",
+            "graphloops/tests/py/test_role_run_stop.py",
+            "graphloops/tests/simulate.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "defects",
+        "total": 8,
+        "note": "直せば 0。2 番目の削除候補の行は、再利用の単位の零処方 3 でテストごと消えても 0 になる"
+      }
+    },
+    {
+      "key": "graphloops/tests・engine — 日常の動線で起こした木の取りこぼし（孤児）をあぶり出す口が無い",
+      "label": "suggest",
+      "disposition": "defer",
+      "reason": "入口 5（1 周目の R2）の後半。台本ごとの後始末の走査、engine の開始時の孤児の報告、撤収時の全記録の停止と確認、の 3 つ。いま測った漏れの源（tree-deaf などの固定具）は test_role_run の単位で、終わる道の残りは _spawn/run_tree の単位で閉じる。残るのは、それでも漏れた物を見つける新しい機構である。どの層に置くかで、覆う範囲（setsid で抜けた物を拾えるか）と作る物（印に持ち主の番号を足す等）が分かれ、世界の解（cgroup・環境変数の印）は macOS で使えない。defer の構造的理由は『未解決の設計判断（機構の新設で、選定に判断が要る）』。問いの台帳に fork で載せる。",
+      "reopen_evidence": "",
+      "origin_analysis": "①無関係。②出自: 取りこぼしを見つける仕組みが無い（検証機構の欠落）。③ラベル: suggest（今の周の漏れの源は別の単位で閉じる）。",
+      "prescriptions": [
+        "零処方: 取り下げ。今の周の 2 単位で、測った漏れの源を閉じる",
+        "台本の層: run.sh が台本ごとに新しいセッションで起こし、終わったらそのセッションに残った物を数えて止め、報告する（setpgid で抜けた物は拾え、setsid で抜けた物は拾えない）",
+        "engine の層: 印に launch 自身の pid と開始時刻を足し、開始時と stop のときに、持ち主の死んだ印の木を止めて報告する"
+      ]
+    },
+    {
+      "key": "tests/mutations.json::RR15 — セッション項を削る腕の expect がゾンビのグループの検査を指すのは当たらない（整合の指摘）",
+      "label": "info",
+      "reason": "反証で落とした。指摘は『ゾンビの長から親子の鎖で孫へ届くので、セッション項を消しても found は変わらない』と読む。しかし親が終わると、子は回収を待たずにその時点で init（launchd）へ付け替わる。役の docstring 自身も『長が死んで親が 1 に付け替わった後も残る』と書いている。そのため escaped(leader_stays=False) の孫は、ppid=1・pgid=自分・sid=長 となり、拾うのはセッション項だけである。RR15 を入れると members はゾンビの長だけになり、None が返って孫が残るので、2033 行の check が赤になる。R1 も『書き手が注入して赤を見た記録がある』と書いている。pytest が変異の実行器に入っていないことは事実で、それは数え上げの入口の単位で扱う。"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree — 途中の回の『決められない』理由を握り潰し最後の数え直しだけで判定する（衛生の指摘 2）",
+      "label": "info",
+      "reason": "反証で落とした。途中の回で決められなかったプロセスが最後の数え直しの時点で終わっていれば、それは木に残っていない。セッションが読めるようになって仲間でなければ、止める物ではない。止め切ったかを最後の状態で判定するのは、止める口の問い（今、木が残っているか）として正しい。嘘の『止まった』にはならない。"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree — 増え続ける木を凍結せずに刈る・pidfd/kqueue を使わない（外部標準の 2 件）",
+      "label": "info",
+      "reason": "(1) SIGSTOP で凍結してから刈る形は採っていない。ただ、信号の回ごとに数え直してから送り、killpg は数えた後に増えた同じグループの子にも届く。最後の数え直しは、残りを名指しして成功を騙らない。止める相手は協調的な役の木で、fork bomb 相当は想定の外である。実害は示されていない。(2) pidfd・kqueue は、後から見つけた子孫に遡って使えず、OS をまたげない。レンズ自身が『次善策として妥当』と結論している。再利用の見分けの誤りそのものは、再利用の単位で扱う。"
+    },
+    {
+      "key": "graphloops/engine/role_run.py — docstring の実測の主張 3 件に外の出典が無い（根拠の出所検査）",
+      "label": "info",
+      "reason": "(3)『macOS はゾンビだけのグループへの killpg を EPERM で拒む』は、凍結した制約の実測（exp.py の PermissionError）と、silent-failure-hunter・code-reviewer の実測で裏が取れた。(1)『長の死後もセッションの番号が残る』は、POSIX のセッションの意味（番号は長の pid で、最後のプロセスが去るまで在る）と合う。simulate のゾンビの検査（セッション項だけが孫を拾う形）が緑であることとも合う。(2) 環境の読めなさは、採らなかった案の理由で、正しさを支える根拠ではない（決着済み (2)）。どれも判定を動かさない。"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree/kill_all — 止めるたびに ps -A を繰り返し、止める時間が 0.06 秒から 0.70 秒になった（効率）",
+      "label": "info",
+      "reason": "/simplify の実測（_stop_tree 1 回 0.702 秒、kill_all 4 本 3.484 秒）は事実として受ける。止める道は熱い経路に乗らない。1 本の木の最悪の待ちは KILL_GRACE の 5 秒×2 で、それが支配的である。上位の止める期限を超えて木が漏れる、という具体的な害は示されていない。test_run_tree_kills_the_tree_when_waiting_breaks の 1.03 秒も同じく害は無い。"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_tree_members/_stop_tree — 保守側に倒す振る舞い（同じ利用者の読めないセッション・ps の無い環境の理由・ゾンビを数える待ち）",
+      "label": "info",
+      "reason": "3 つとも、止まったと言わない側・待つ側に倒す意図した形で、嘘の成功を返さない。 - 木の外の、セッションが読めない同じ利用者のプロセスでも理由を返す点: 素の XNU と Linux の getsid は同じ利用者に EPERM を返さず、LSM・sandbox の下だけで起きる。未実測 - ps の無い環境で _kill が必ず理由を返す点: 実測済み。信号は BASE と同じく送っている。tree_left は理由の文に載るだけ（review-loop-tdd.py:82・review-loop.py:3905） - exists() がゾンビを数える待ち: BASE の alive() も同じ"
+    },
+    {
+      "key": "graphloops/engine/commands.py・tests/mutate.py — 消す口（rmtree）に範囲の守りが無い（入口 5 の前半）",
+      "label": "info",
+      "reason": "読んで確かめた。commands.py:633/646/648 は同じ関数で tempfile.mkdtemp が作った work とその下を消す。1591 行は init が作った d を消す。tests/mutate.py:359/371/424 は scratch_dir（mkdtemp）の d を消す。『計算に失敗した親のパスを消す』という事故の機構はどこにも無い。台本の消す口は parallel.rm に守られている。ついでに見つけた既存の欠陥: simulate_review.py:5460 は parallel.workspace の gtmp を素の shutil.rmtree で消し、台本の標準の parallel.rm（Windows の読み取り専用も扱う）を迂回している。この差分の外で、安全性の害は無い。"
+    }
+  ],
+  "questions": [
+    {
+      "key": "孤児のあぶり出しをどの層に置くか（台本の走査・engine の印の持ち主・置かない）",
+      "kind": "fork",
+      "status": "held",
+      "reason": "日常の動線の取りこぼしを見つける機構は新設になる。世界の解は Linux の cgroup（systemd KillMode=control-group）か、環境変数の印（Jenkins）で、どちらも macOS では使えない（決着済み (2)）。零処方（取り下げ）が落ちるかは、今の周の固定具の後始末と終わる道の刈り取りで、測った漏れが止まるかで決まる。次の周の件数を見てから決める。",
+      "options": [
+        "置かない（零処方）: 固定具の finally と、終わる道の刈り取りで源を閉じる。帰結: 新しい機構は無い。setsid で抜けた物が別の源から漏れても、次に取りまとめ役が手で見つけるまで気づかない",
+        "台本の層: run.sh が台本ごとに新しいセッションで起こし、終わりにそのセッションの残りを止めて報告する。帰結: setpgid で抜けた物は拾う。setsid で抜けた物は拾えない。run.sh に数十行",
+        "engine の層: 印に launch の pid と開始時刻を足し、開始時・stop で持ち主の死んだ印の木を止めて報告する。帰結: 役の試行の漏れを日常の動線で拾う。印の形が変わり、読む口（probe_group・relaunch）も追従が要る"
+      ],
+      "origin": "graphloops/tests・engine — 日常の動線で起こした木の取りこぼし（孤児）をあぶり出す口が無い"
+    }
+  ],
+  "framing": "この差分は、止め方を『グループが消えた＝木が消えた』から『数え上げて送り、数え直して確かめる』に置き換えた。方向は正しく、決着済み (3) と一致する。ただ、観測に基づく新しい方式の中に、名目の値が 3 つ混ざっている。(a) 数えた生きた仲間の居ないグループの番号 pgid を宛先に入れた。(b) 別の時計で取った born を、ps から出した開始時刻と比べた。(c) probe_group とは別の読みで、印の時刻を取った。そのため、ゾンビだけのグループの EPERM が SIGKILL の前の『送れない』に化け（3 レンズが実測）、再利用の見分けの誤りが『止まった』の偽りになる。検査の側は、SIGTERM ですぐ死ぬ孫と代役の差し替えで緑になり、柵の入口ごとの赤を見ていない。固定具は後始末を持たず、TERM を無視する物が何時間も残った（実測）。BASE から在る『終わる道が数え上げを通らず、管の EOF を待つ』は、目的の範囲の穴として同じ周に回収する。",
+  "one_shot": "止める判断（送り先・再利用の見分け・止まったかの判定）を、その回の数え上げ（ps の表 1 枚と、同じ基準で取った時刻）だけから導く。名目の値を混ぜない。具体的には、宛先に無条件で入れる pgid、先に stat した印の mtime、ps の後の time.time()、未回収の長への born をなくす。反証の形: 次の周の送り先の単位の class_query（`groups = {pgid} |`）が 0 件でなければ、または再利用の単位の母数の行で先読みの stat が残っていれば、この一撃は効いていない。",
+  "materials_missing": [],
+  "carried_r1": [
+    {
+      "where": "graphloops/engine/role_run.py:399（_stop_tree の if members is None: の直下のコメント『# 表が読めない——止める番号のグループへだけ送り、その消滅を待つ。外へ出た子孫は確かめられない』）",
+      "disposition": "promote",
+      "unit_key": "graphloops/engine/role_run.py・tests — docstring とテスト名が実物とずれ、コードを繰り返す注記が残る"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:118（m.unlink() の行末コメント『# 確かめた直後に子が終わり、launch の側が印を消した』）",
+      "disposition": "promote",
+      "unit_key": "graphloops/engine/role_run.py・tests — docstring とテスト名が実物とずれ、コードを繰り返す注記が残る"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2046（『# SIGTERM を無視する孫も止まる——長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL を送る』）",
+      "disposition": "promote",
+      "unit_key": "graphloops/engine/role_run.py・tests — docstring とテスト名が実物とずれ、コードを繰り返す注記が残る"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:233（test_stop_group_posix_unreadable_table_is_not_stopped の docstring の語『今どおり』）",
+      "disposition": "promote",
+      "unit_key": "graphloops/engine/role_run.py・tests — docstring とテスト名が実物とずれ、コードを繰り返す注記が残る"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:614-615（stop_group の docstring の『（印は試行ごとに 1 度だけ書くので、先に読んだ時刻は probe_group が見る物と同じ）』）と、:616-621 の先読みの stat",
+      "disposition": "promote",
+      "unit_key": "graphloops/engine/role_run.py::_tree_members.reused — 長の番号の再利用の見分けが、ps の後に取った時刻・未回収の長・印の別の読みで誤って真になり、信号を送らずに『止まった』を返す"
+    }
+  ],
+  "router": [
+    {
+      "key": "graphloops/engine/role_run.py::_ps_all — 全プロセスの表を取る ps に時間の上限が無い（同じファイルの ps・git・bwrap の呼びは timeout 付き）",
+      "route": "①記録された理由がまだ束縛する——ただしこの処方は射程の外",
+      "note": "決着済み (1)『期限・タイムアウトの全廃』の理由（実測に基づかない目安が子を止める上限を兼ねた）は今も成り立つ。ps の呼びの timeout は子の走る時間を縛らず、_started_at にはこの決着の後も残っている"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree — 送り先に止める番号のグループを無条件に入れ、長がゾンビのグループへの EPERM（macOS）で SIGKILL の前に『送れない』と抜ける・再利用された番号のグループへ送る",
+      "route": "②新証拠が理由に答える——再開の提案（実装の範囲に限る）",
+      "note": "決着済み (3) の方式は保つ。宛先の組み方だけが、決着の理由（ゾンビだけのグループの EPERM を生きていると読まない）に反していることが、3 レンズの実測で出た"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない",
+      "route": "①記録された理由がまだ束縛する",
+      "note": "決着済み (2)（環境変数の印を採らない）の理由（macOS で他のプロセスの環境が読めない）に反する証拠は、今の周に無い。Jenkins の解は識別を印でなく数え上げに替えて採る"
+    }
+  ],
+  "reburn_causes": [
+    {
+      "key": "graphloops/engine/role_run.py::_tree_members.reused — 長の番号の再利用の見分けが、ps の後に取った時刻・未回収の長・印の別の読みで誤って真になり、信号を送らずに『止まった』を返す",
+      "cause": "前の周の修正",
+      "note": "born の先読みと偽の根拠は、1 周目の修正（この差分に含まれる）が足した"
+    },
+    {
+      "key": "graphloops/tests/simulate.py::test_role_run — 実プロセスの固定具を検査が赤・例外の回にも回収する後始末が無く、ps を起こせない環境では検査でなく例外で抜ける",
+      "cause": "コード",
+      "note": "tree-deaf の後片付けは差分に入っておらず、同じ形の固定具が 3 つ増えた"
+    }
+  ],
+  "one_shot_closes": [
+    "graphloops/engine/role_run.py::_stop_tree — 送り先に止める番号のグループを無条件に入れ、長がゾンビのグループへの EPERM（macOS）で SIGKILL の前に『送れない』と抜ける・再利用された番号のグループへ送る",
+    "graphloops/engine/role_run.py::_tree_members.reused — 長の番号の再利用の見分けが、ps の後に取った時刻・未回収の長・印の別の読みで誤って真になり、信号を送らずに『止まった』を返す"
+  ],
+  "precedents": [
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree — 送り先に止める番号のグループを無条件に入れ、長がゾンビのグループへの EPERM（macOS）で SIGKILL の前に『送れない』と抜ける・再利用された番号のグループへ送る",
+      "problem": "プロセスグループをまたぐ子孫の木を止める（名目のグループでなく、数えた生きた仲間に送る）",
+      "source": "https://psutil.io/recipes/ （Kill process tree: children(recursive=True) で数えた各プロセスへ送り、wait_procs で確かめる）",
+      "verdict": "adapt",
+      "reason": "定番は、数えた生きたプロセスそのものへ送る。この差分はグループへの killpg を併用するので、宛先のグループを『生きた仲間が属するもの』に限れば同じ形になる。psutil は依存を足さない方針（docs/graphloops-prior-art.md）なので、形だけ採る"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_tree_members.reused — 長の番号の再利用の見分けが、ps の後に取った時刻・未回収の長・印の別の読みで誤って真になり、信号を送らずに『止まった』を返す",
+      "problem": "番号の再利用で別のプロセスへ信号を送らない（番号と開始時刻での同一性）",
+      "source": "https://psutil.io/api/ （Process: 'Some methods ... perform an additional check using PID + creation time'。create_time は初回に読んで保持し、同じ源の値どうしで比べる）",
+      "verdict": "adapt",
+      "reason": "同一性を比べる 2 つの時刻は同じ基準で取る。数え上げの known はすでにそうしている。長には、now を ps の前に取ることと、未回収の子には当てないことで合わせる"
+    },
+    {
+      "key": "graphloops/tests/simulate.py::test_role_run — 実プロセスの固定具を検査が赤・例外の回にも回収する後始末が無く、ps を起こせない環境では検査でなく例外で抜ける",
+      "problem": "テストが起こした子プロセスを、失敗・例外の回にも必ず片付ける",
+      "source": "https://docs.python.org/3/library/contextlib.html#contextlib.ExitStack と https://docs.python.org/3/library/unittest.html#unittest.TestCase.addCleanup",
+      "verdict": "adopt",
+      "reason": "後始末を、検査の結果に依らず走る口（finally・ExitStack の callback）に置くのが定番。台本は unittest でないので、try/finally か ExitStack をそのまま使う"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_tree_members/_stop_tree — 数え上げと止め方の入口に、壊すと赤になる検査と変異の腕が無い",
+      "problem": "守りの分岐ごとに、壊すと赤になる検査があることを変異で確かめる",
+      "source": "https://github.com/boxed/mutmut （README。設定はリポジトリの graphloops/setup.cfg [mutmut] only_mutate）",
+      "verdict": "adapt",
+      "reason": "pytest が覆う分岐は、既存の mutmut の対象に role_run.py を足せば撃てる。実物の検査は、既存の字列置換の腕（mutations.json）で錨を下ろす。新しい機構は作らない"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_ps_all — 全プロセスの表を取る ps に時間の上限が無い（同じファイルの ps・git・bwrap の呼びは timeout 付き）",
+      "problem": "外部コマンドの呼び出しに上限を付け、固まったコマンドで呼び元を止めない",
+      "source": "https://docs.python.org/3/library/subprocess.html#subprocess.run （timeout と TimeoutExpired。TimeoutExpired は SubprocessError の派生）",
+      "verdict": "adopt",
+      "reason": "標準の timeout 引数で足り、既存の except (OSError, SubprocessError) がそのまま拾う。近傍の _started_at が同じ値 30 を使っている"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない",
+      "problem": "仕事の終わりに残った子孫を刈り、管を継いだ子孫で終わりの待ちが止まらないようにする",
+      "source": "https://wiki.jenkins.io/display/JENKINS/Spawning+processes+from+build （ビルドの終わりにビルドが起こしたプロセスを止める。管を継いだデーモンには 'instead of causing infinite block, it will just print out a warning and let you get going'）",
+      "verdict": "adapt",
+      "reason": "終わりで刈ることと、管の EOF で無期限に待たないことを採る。識別は Jenkins の環境変数の印でなく、この差分の数え上げで代える（macOS で環境が読めない。決着済み (2)）。期限は足さない"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree — 生存の問い・KILL_GRACE の待ち・送りの例外処理・最後の数え直しが写しで 2〜3 重",
+      "problem": "同じ待ち・送りの写しを 1 つの口に寄せる",
+      "source": "REVIEW.md「実装観点 ①④」（より少ないコードで同じ目的）",
+      "verdict": "does_not_apply",
+      "reason": "局所の重複の解消で、外部の定番解が当たる問題の類ではない"
+    },
+    {
+      "key": "graphloops/engine/role_run.py・tests — docstring とテスト名が実物とずれ、コードを繰り返す注記が残る",
+      "problem": "説明と名前を実物に合わせ、コードを繰り返す注記を削る",
+      "source": "REVIEW.md「導線を作る手段の優先順位」",
+      "verdict": "does_not_apply",
+      "reason": "リポジトリの規約（名前を直し、何をしているかの注記を削る）で決まり、外部の定番解の問題ではない"
+    },
+    {
+      "key": "孤児のあぶり出しをどの層に置くか（台本の走査・engine の印の持ち主・置かない）",
+      "problem": "起こした木の取りこぼし（孤児）を日常の動線で見つける",
+      "source": "https://www.freedesktop.org/software/systemd/man/latest/systemd.kill.html （KillMode=control-group: 止めるときに cgroup に残った全プロセスを止める）と https://wiki.jenkins.io/display/JENKINS/Spawning+processes+from+build （環境変数の印）",
+      "verdict": "does_not_apply",
+      "reason": "cgroup は Linux だけで、環境変数の印は macOS で他のプロセスから読めない（決着済み (2)）。どちらの定番も OS をまたいでは採れない",
+      "undecided_because": "定番の 2 つが使えず、残る案はどれも新しい機構（台本の層か印の形の変更）になる。覆う範囲（setsid で抜けた物）と作る量の取引は、今の周の 2 単位で漏れが止まるかの実測を見るまで決められない"
+    }
+  ]
+}

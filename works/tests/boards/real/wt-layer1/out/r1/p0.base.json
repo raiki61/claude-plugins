@@ -1,0 +1,16 @@
+{
+  "base_sha": "4233aa8243bf4e3656cf68591498420170a77c8b",
+  "method": "4 依頼者の名指し",
+  "commits": 0,
+  "merge_commit": false,
+  "intent_to_add": [],
+  "touches_gates": true,
+  "touches_external_seams": true,
+  "touches_user_path": true,
+  "touches_security_surface": true,
+  "material": {
+    "status": "found",
+    "count": 1,
+    "detail": "BASE=4233aa8（0.21.0 の候補。回す側への指示が土台として名指し。method 4）。作業ツリーはクリーンで HEAD=BASE、対象差分は 0 コミット（判定から入る run——依頼は既存のコードに向く）。差分の形の申告は依頼の範囲（engine の子プロセスを起こして止める層・テストの台本の消す口・tests/mutate.py の止め方）に直しが入る前提で、テスト（ゲート）・別プロセスとの継ぎ目・loop.py stop/relaunch の利用者の経路・ファイルの削除と信号に触れうるので全部 true。"
+  }
+}

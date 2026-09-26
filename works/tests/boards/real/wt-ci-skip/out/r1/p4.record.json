@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "exit": 1,
+  "branch": "work_remains",
+  "out": "問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。目的の内側でないかは R1 が監査）:\n  - [未決] split: posix 限定の枝の見送り化をどちらの線で直すか — 並行する wip/windows-green が Windows の落ちを直しており、実測した制約はその範囲をこの run で触らないとしている。posix 限定の枝が行を出さずに抜ける問題は、Windows で件数の柵が割れる原因の 1 つでありうる。この run（能力の名前つきの見送り）と windows-green が同じ場所を別の形で直すと衝突する。能力の名前の語彙はこの run で決まるので、windows-green の側で直す場合もその語彙に合わせる必要がある。\n  - [未決] field: push 後の 3 OS の CI で shellcheck が走り、許しの一覧の外の見送りが 0 件であることを確かめる — push と gh workflow run は禁じられており、この run の中では CI の結果を見られない。push 後に確かめるのは次の点である。(a) macOS と Windows のログで shellcheck が見送りでなく実際に走ること（Windows では checkout の改行が CRLF になり、SC1017 で落ちる危険がある。ただし tests/run.sh 自体が Windows の bash で走っているので、LF で取り出されている見込みは高い）。(b) Windows で見送られる能力の名前が、一覧に書いた物とちょうど一致すること。(c) catchup の 2 件を能力を確かめる形にした後、Windows で走って緑になるか。\n収束を妨げるもの 4 件:\n  - [block] 未解消: tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない\n  - [block] 未解消: .github/workflows/test.yml shellcheck: macOS と Windows の CI に shellcheck が無く、tests/run.sh の shellcheck の検査が見送りになる\n  - [suggest] do-now 未対応: tests/catchup-switch-case.py _hook・応答の無い origin: 見送りの条件が sh の有無を確かめず、OS の名前で決まる\n  - 前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）\n台帳に未決の問いが 2 件（うち人へ 0 件）——阻害要因の有無に依らず、最終報告の冒頭に載せろ。"
+}

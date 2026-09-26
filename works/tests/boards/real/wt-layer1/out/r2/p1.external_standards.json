@@ -1,0 +1,59 @@
+{
+  "material": {
+    "status": "found",
+    "count": 2,
+    "detail": "外部標準照合で確度のある指摘 2 件（増殖木の刈り取り順序・PID/PGID 再利用の識別手段の順位）。手元の依存の使い残しは無い——Python 側の依存宣言ファイル（pyproject.toml・requirements*.txt 等）はリポジトリ全体に1つも無く、docs/graphloops-prior-art.md が『配布方針は git/python3/bash のみ、pip 依存を足さない』と明記し、_started_at の docstring 自身が『psutil の Process と同じ形（番号＋作成時刻で同一性）』と明言した上での意図的な自作である。plugin.json の宣言済み依存は pr-review-toolkit のみでプロセス管理と無関係。"
+  },
+  "findings": [
+    {
+      "where": "graphloops/engine/role_run.py:_stop_tree (STOP_SIGNALS=(SIGTERM, SIGKILL)、行 44 は本 diff 未変更)",
+      "text": "diff は数え上げ→送信→再数え上げの周回を丁寧に作ったが、周回の間に新しい子孫を作り続ける相手（増殖する木）への防御は無い。標準解は先に SIGSTOP でグループを凍結してから数え上げ・SIGKILL する形で、diff の TERM→KILL の 2 巡はこの凍結を挟まない。",
+      "mechanism": "_stop_tree は STOP_SIGNALS を 1 巡するたびに _tree_members で数え上げてから signal を送る。信号を送ってから次の巡の数え上げまでの間（KILL_GRACE の待ち・os.kill のループ）に、生き残った仲間が新しい子を fork すれば、その子は『今回捕まえた live』には入らず、次の巡（最後は SIGKILL のみ）でしか拾われない。巡の残数が尽きた後に増殖が続いていれば、最終の _tree_members はそれを検出して『残っている』を返す（嘘の成功は返さない）が、木を刈り切る保証は無い。",
+      "measured": "未実測（KILL_GRACE 内で高速に fork し続けるテストは書いていない）。ただしコード上の因果（周回ごとの live 集合が固定され、次の巡まで再数え上げしない）は diff-r2.patch のロジックから直接読める。最終チェックが失敗を正しく報告する経路（残っていれば成功を騙らない）は _stop_tree 末尾の `if live: return f\"...残っている...\"` から確認済み",
+      "false_positive_if": "止める対象が『協調的なエージェントのサブプロセス木』に限られ、敵対的・高頻度に fork し続けるプロセス（fork bomb 相当）を想定していない場合。今回の用途（役の起動子を止める）はまさにこれに当たるので、リスクは実質低いが、ゼロではない（例えば止める最中に無限リトライループへ入った子が孫を作り続けるケース）"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:_tree_members・_started_at・probe_group（born/REUSE_SLACK による番号再利用の見分け）",
+      "text": "番号（pid/pgid）の再利用を『開始時刻の比較（REUSE_SLACK 内か）』という ps ベースのヒューリスティックで判定している。これは診断コード自身が明言する通り psutil の Process 同一性（pid + create_time）と同じ設計だが、OS にはこの種の TOCTOU を根本的に塞ぐ、より上位の識別子（Linux の pidfd・BSD/macOS の kqueue EVFILT_PROC/NOTE_EXIT）が存在する。ただしこれらは『自分がまだ生きている間に確保した子（Popen で作った leader）』にしか適用できず、diff が実際に追跡する対象（ps で後から見つけた孫・ひ孫）には遡って使えない。",
+      "mechanism": "pidfd/kqueue はプロセス生成直後に確保した識別子が、その後の番号再利用と無関係にそのプロセスだけを指し続けることで race を消す。diff の対象は _tree_members が ps のスナップショットから後追いで見つける子孫で、生成時点で識別子を確保していないため、pidfd/kqueue を今から挟んでも根本解決にはならず、diff の『開始時刻＋許容誤差』方式は妥当な次善策だと考えられる",
+      "measured": "未実測。man pidfd_open(2) と Python `select` の kqueue 実装がこの機構を提供することは一次情報で確認したが、本リポジトリでの適用可能性の評価はコード読解のみ（プロトタイプは書いていない）",
+      "false_positive_if": "『pidfd/kqueue が使えるのに使っていない』と読めば誤り——leader（Popen で生成した直接の子）に限れば Linux では os.pidfd_open (stdlib, 3.9+) で置き換え余地があるが、macOS では kqueue の NOTE_EXIT も既存プロセスへの遡及登録はできず、Windows もサポート対象なので、単一の cross-platform 機構には収まらない。したがってこれは『既存の優れた解を見落とした』でなく『部分適用のコストと一貫性のトレードオフ』という設計判断に近い"
+    }
+  ],
+  "seen": "diff-r2.patch 全文（role_run.py の _stop_tree/_tree_members/_ps_all/probe_group/stop_group 一式・テスト 2 ファイル・run.sh/mutations.json の定数差分）。role_run.py の diff 近傍（_started_at・parse_etime・parse_cim・probe_group・STOP_SIGNALS・KILL_GRACE、diff 外の既存コードを含む）を通読。docs/graphloops-prior-art.md（配布方針・pip 非依存の明記）、.claude-plugin/plugin.json（宣言済み依存は pr-review-toolkit のみ）、リポジトリ全体を find して Python/Node の依存マニフェスト（pyproject.toml・requirements*.txt・package.json 等）の有無を確認（無し）。外部一次情報: Jenkins ProcessTreeKiller の設計（javadoc・GitHub ソース言及）、node-tree-kill の ps ベースの子孫追跡、Wikipedia Process group、pidfd_open(2) man page、LWN の race-free signaling 記事群、Python select モジュールの kqueue ドキュメント、Linux kernel cgroup freezer 文書、LWN『Killing processes that don't want to die』、Apple Developer Forums の killpg/EPERM/zombie スレッド（XNU kern_sig.c の killpg1 のゾンビ除外挙動）",
+  "unseen": "graphloops/tests/simulate.py の escaped()/reap() ヘルパーと新設の統合テスト本体は追加箇所を読んだのみで実行していない（sandbox 内で subprocess を fork して setsid/setpgid する統合テストは、今回の Bash 実行では時間を割かず未実行——run.sh 経由のフル実行はしていない）。tests/mutations.json の RR15/RR16 が実際に赤くなるかの変異注入実行も未実施。role_run.py の diff 以外の部分（run_tree・_kill・kill_all 本体などの全文）は grep で該当箇所のみ確認し、通読はしていない。Windows taskkill 経路（diff は変更していない）は今回の照合対象から外した。GitHub 検索で類似の macOS EPERM/ゾンビ問題を扱う第三者リポジトリが複数ヒットしたが、内容の細部が今回の diff と酷似しすぎており出自不明のノイズと判断し、本文の根拠には使っていない（Apple Developer Forums のスレッドのみを一次情報として採用）",
+  "web_refetched": true,
+  "rankings": [
+    {
+      "problem": "プロセスグループの外へ setpgid/setsid で抜けた子孫を含む木を、シェルのジョブ制御を経ていても取りこぼさず数え上げて止める",
+      "source": "Jenkins ProcessTreeKiller の設計文書（環境変数の印で子孫を辿る。ただし『子孫であること』を追跡する代替手段と明記）／node-tree-kill README（\"ps -o pid --no-headers --ppid PID\" で親子の鎖を再帰的に辿ってから kill）／Linux cgroup freezer 文書（cgroup は子孫が抜けられない追跡単位）",
+      "ranked": [
+        "cgroup 等、脱げられない追跡単位で束ねる（特権・コンテナ基盤が前提）",
+        "環境変数の印を子孫に継承させて辿る（Jenkins。対象プロセスの環境を読める権限が前提）",
+        "プロセスグループ＋親子の鎖（ps の ppid）で木を再数え上げしてから signal（node-tree-kill 系）"
+      ],
+      "diff_at": "プロセスグループ＋親子の鎖（ps の ppid）で木を再数え上げしてから signal（node-tree-kill 系）",
+      "why_not_higher": "cgroup は macOS 非対応かつ本リポジトリが非特権・非コンテナ環境で動く前提（docs/graphloops-prior-art.md の梱包方針）と噛み合わない。環境変数の印は diff 自身が明記する通り macOS では他プロセスの環境変数を読む手段が無い（ps -E・KERN_PROCARGS2 いずれも不可、実測 2026-09-26 とコメントにあり、今回の web 照合でもこれを覆す一次情報は見つからなかった）。残る選択肢としてプロセスグループ＋親子鎖の再帰追跡は tree-kill 系ツールと同型で、これが到達可能な上位である"
+    },
+    {
+      "problem": "signal 対象の pid/pgid 番号が、待っている間に別プロセスへ再利用されて無関係な相手へ signal を送ってしまう race を防ぐ",
+      "source": "pidfd_open(2) man page（プロセス生成直後に確保した識別子は番号再利用と無関係に同一プロセスを指し続ける）／LWN『Toward race-free process signaling』／Python select モジュールの kqueue（EVFILT_PROC・NOTE_EXIT、BSD/macOS でプロセスの exit を識別子ベースで観測できる）",
+      "ranked": [
+        "生成直後に確保したカーネルの安定識別子（pidfd・kqueue NOTE_EXIT）でプロセスの同一性を追跡する",
+        "開始時刻を記録し、後から見た同じ番号のプロセスの開始時刻と比較して再利用を推定する（psutil の Process と同じ形）"
+      ],
+      "diff_at": "開始時刻を記録し、後から見た同じ番号のプロセスの開始時刻と比較して再利用を推定する（psutil の Process と同じ形）",
+      "why_not_higher": "pidfd/kqueue は『識別子を確保した時点以降』の同一性しか保証せず、diff が追跡する相手（ps のスナップショットで後から見つかる孫・ひ孫）には生成時点で確保できていないため遡及適用できない。加えて pidfd は Linux 専用、kqueue の NOTE_EXIT も macOS/BSD 限定で Windows もサポート対象の本コードには単一機構として載らない。このリポジトリはこの問題を diff 以前から `_started_at`/`probe_group`（psutil 同型の pid+作成時刻同一性）で解いており、diff の `_tree_members` はその既存の設計を拡張したもので、diff 固有の新しい欠落ではない"
+    },
+    {
+      "problem": "止める対象が信号を待つ間も増殖し続ける（fork storm）場合に、数え上げ→signal の周回だけで木を刈り切れるか",
+      "source": "LWN『Killing processes that don't want to die』／linux-kernel メーリングリストの forkbomb-killer パッチ議論（SIGSTOP で増殖を止めてから列挙・SIGKILL する設計）",
+      "ranked": [
+        "対象へ先に SIGSTOP を送って増殖を止めてから数え上げ・SIGKILL する（凍結してから刈る）",
+        "signal を送ってから確かめ直す周回を繰り返す（現状: TERM→KILL の 2 巡、凍結なし）"
+      ],
+      "diff_at": "signal を送ってから確かめ直す周回を繰り返す（現状: TERM→KILL の 2 巡、凍結なし）",
+      "why_not_higher": "diff にも本リポジトリの他ドキュメントにも、凍結を見送った理由の記述が見当たらない。対象が『役が起こすエージェントの子プロセス木』という協調的な相手に限られるなら実害は薄いと考えられるが、それは私の推測であり、grader が受容可否を判定すべき点として残す"
+    }
+  ]
+}

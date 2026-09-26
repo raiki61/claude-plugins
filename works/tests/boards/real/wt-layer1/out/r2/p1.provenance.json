@@ -1,0 +1,29 @@
+{
+  "material": {
+    "status": "found",
+    "count": 3,
+    "detail": "role_run.py の docstring に、この差分（commit fdf61df）だけが導入した外部システム挙動の主張が3件あり、BASE に痕跡が無く外部の一次資料も引かれていない自己申告の「実測」で正当化されている: (1) 長のセッション番号は長が死んで親が1に付け替わった後も残る（実測 2026-09-26・macOS 26.6.2）, (2) 他プロセスの環境変数は ps -E にも KERN_PROCARGS2 にも出ない（実測 2026-09-26）, (3) macOS はゾンビだけのグループへの killpg を EPERM で拒む（XNU の killpg1）。3件とも _tree_members / _stop_tree の分岐の設計根拠として使われており、この差分の外で確認できる形跡が無い。sandbox がプロセス起動を伴う検証コマンドを承認なしで拒んだため、実機での再現確認はできなかった。"
+  },
+  "claims": [
+    {
+      "claim": "born より REUSE_SLACK を超えて後に始まったプロセスが長の番号に居れば番号は再利用されている——長が死んで親が1に付け替わった後もセッション番号は残る（実測 2026-09-26・macOS 26.6.2）",
+      "exists_at_base": false,
+      "evidence": "git log -S\"born\" / role_run.py の該当 docstring は commit fdf61df（この差分）で初出。BASE(4233aa8)には _tree_members も born もセッション追跡も存在しない。日付は差分作成日と同一で、外部資料の引用も再現手順も無い自己申告の実測。"
+    },
+    {
+      "claim": "環境変数の印（Jenkins の ProcessTreeKiller の形）は macOS では他プロセスの環境が読めない（ps -E にも KERN_PROCARGS2 にも出ない。実測 2026-09-26）",
+      "exists_at_base": false,
+      "evidence": "git log -S\"ProcessTreeKiller\" / git log -S\"KERN_PROCARGS2\" はどちらも commit fdf61df のみを返す。BASE に該当記述なし。sandbox の承認拒否により本セッションでは ps -E の挙動を再現できず、自己申告のみに依拠している。"
+    },
+    {
+      "claim": "macOS はゾンビだけのグループへの killpg を EPERM で拒む（XNU の killpg1）",
+      "exists_at_base": false,
+      "evidence": "git log -S\"killpg1\" は commit fdf61df のみを返す。BASE に該当記述なし。_live() でゾンビを除外し、EPERM を『生きている』と読まない分岐（_stop_tree・stop_group）の正当化に使われているが、外部の一次資料（XNU ソースの引用箇所など）は示されていない。"
+    },
+    {
+      "claim": "_ps_all は _started_at と同じ ps（依存を足さない）",
+      "exists_at_base": true,
+      "evidence": "BASE(4233aa8) の role_run.py に _started_at が既に in ['ps', '-o', 'etime=', '-p', str(pid)] で ps を呼び parse_etime を使っている。_ps_all も同じ ps コマンド（-A で全件・追加フィールド）と同じ parse_etime を使っており、新しい外部依存は追加されていない——主張は裏付けが取れる。"
+    }
+  ]
+}

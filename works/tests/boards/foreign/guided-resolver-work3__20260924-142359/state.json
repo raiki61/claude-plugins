@@ -1,0 +1,2561 @@
+{
+  "loop_name": "review-loop",
+  "run_id": "20260924-142359",
+  "graph": "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0/graphs/review-loop.json",
+  "graph_sha": "88710aaf600b",
+  "created": "2026-09-24T14:23:59+09:00",
+  "status": "running",
+  "round": 3,
+  "rounds": [
+    {
+      "round": 1,
+      "done": {
+        "p0.base": {
+          "at": "2026-09-24T14:26:46+09:00",
+          "instance": "p0.base"
+        },
+        "p0.local_checks": {
+          "at": "2026-09-24T14:26:47+09:00",
+          "instance": "p0.local_checks"
+        },
+        "p0.premises": {
+          "at": "2026-09-24T14:26:47+09:00",
+          "instance": "p0.premises"
+        },
+        "p1.worktree_before": {
+          "at": "2026-09-24T14:26:53+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p1.hygiene": {
+          "at": "2026-09-24T14:27:59+09:00",
+          "instance": "p1.hygiene"
+        },
+        "p0.parallel_pr": {
+          "at": "2026-09-24T14:29:39+09:00",
+          "instance": "p0.parallel_pr"
+        },
+        "p0.purpose": {
+          "at": "2026-09-24T14:29:39+09:00",
+          "instance": "p0.purpose"
+        },
+        "p1.provenance": {
+          "at": "2026-09-24T14:29:39+09:00",
+          "instance": "p1.provenance"
+        },
+        "p1.test_double_fidelity": {
+          "at": "2026-09-24T14:29:57+09:00",
+          "instance": "p1.test_double_fidelity"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-24T14:34:35+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.external_standards": {
+          "at": "2026-09-24T14:36:08+09:00",
+          "instance": "p1.external_standards"
+        },
+        "p1.procedure_trace": {
+          "at": "2026-09-24T14:36:24+09:00",
+          "instance": "p1.procedure_trace"
+        },
+        "p1.consistency_bypass": {
+          "at": "2026-09-24T14:38:36+09:00",
+          "instance": "p1.consistency_bypass"
+        },
+        "p1.gate_efficacy": {
+          "at": "2026-09-24T14:41:38+09:00",
+          "instance": "p1.gate_efficacy"
+        },
+        "p1.local_review": {
+          "at": "2026-09-24T14:41:44+09:00",
+          "instance": "p1.local_review"
+        },
+        "p1.worktree_after": {
+          "at": "2026-09-24T14:41:44+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-09-24T14:53:52+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p3.fix": {
+          "at": "2026-09-24T15:01:34+09:00",
+          "instance": "p3.fix"
+        },
+        "p2.rejudge": {
+          "at": "2026-09-24T15:04:08+09:00",
+          "instance": "p2.rejudge"
+        },
+        "p4.ci": {
+          "at": "2026-09-24T15:04:35+09:00",
+          "instance": "p4.ci"
+        },
+        "p4.scalars": {
+          "at": "2026-09-24T15:04:35+09:00",
+          "instance": "p4.scalars"
+        },
+        "p4.assemble": {
+          "at": "2026-09-24T15:04:36+09:00",
+          "builtin": "assemble"
+        },
+        "r2.design": {
+          "at": "2026-09-24T15:05:46+09:00",
+          "instance": "r2.design"
+        },
+        "r1.comment_candidates": {
+          "at": "2026-09-24T15:09:54+09:00",
+          "instance": "r1.comment_candidates"
+        },
+        "r2.compare": {
+          "at": "2026-09-24T15:12:01+09:00",
+          "instance": "r2.compare"
+        },
+        "r1.minimality": {
+          "at": "2026-09-24T15:16:13+09:00",
+          "instance": "r1.minimality"
+        },
+        "p4.record": {
+          "at": "2026-09-24T15:16:13+09:00",
+          "builtin": "record_round"
+        },
+        "converge": {
+          "at": "2026-09-24T15:16:13+09:00",
+          "builtin": "converge"
+        }
+      },
+      "na": {
+        "p1.main_path_observation": "cond: 差分が利用者から見える経路を変え、初回か経路を変えた周。前の周に awaiting_human だった周も（動かす手段が見つかったか再挑戦）、または前の周の P3 が何かを直した周 が成り立たない",
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない",
+        "p2.history": "cond: 2 ラウンド目以降 が成り立たない",
+        "p2.rejudge_third": "cond: 往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する が成り立たない",
+        "r3.coherence": "cond: 阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周 が成り立たない",
+        "r4.hidden_scope": "cond: 阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周 が成り立たない",
+        "stop.premise_check": "cond: R2 が premise-invalid が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p0.base": {
+          "id": "p0.base",
+          "node": "p0.base",
+          "run_by": "writer",
+          "prompt_bytes": 5179,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p0.base.md",
+          "prompt_sha": "cc80b40f4349",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:24:03+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.base.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.base.json",
+          "done_at": "2026-09-24T14:26:46+09:00",
+          "output_file": "out/r1/p0.base.json"
+        },
+        "p0.local_checks": {
+          "id": "p0.local_checks",
+          "node": "p0.local_checks",
+          "run_by": "writer",
+          "prompt_bytes": 2301,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p0.local_checks.md",
+          "prompt_sha": "4d8f7f8059d5",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:24:03+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.local_checks.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.local_checks.json",
+          "done_at": "2026-09-24T14:26:47+09:00",
+          "output_file": "out/r1/p0.local_checks.json"
+        },
+        "p0.premises": {
+          "id": "p0.premises",
+          "node": "p0.premises",
+          "run_by": "writer",
+          "prompt_bytes": 3228,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p0.premises.md",
+          "prompt_sha": "f91144da7957",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:24:03+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.premises.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.premises.json",
+          "done_at": "2026-09-24T14:26:47+09:00",
+          "output_file": "out/r1/p0.premises.json"
+        },
+        "p0.purpose": {
+          "id": "p0.purpose",
+          "node": "p0.purpose",
+          "run_by": "writer",
+          "prompt_bytes": 5432,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p0.purpose.md",
+          "prompt_sha": "d1024adc28e7",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:48+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.purpose.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.purpose.json",
+          "done_at": "2026-09-24T14:29:39+09:00",
+          "output_file": "out/r1/p0.purpose.json"
+        },
+        "p0.parallel_pr": {
+          "id": "p0.parallel_pr",
+          "node": "p0.parallel_pr",
+          "run_by": "writer",
+          "prompt_bytes": 4088,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p0.parallel_pr.md",
+          "prompt_sha": "48add1459825",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:48+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.parallel_pr.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.parallel_pr.json",
+          "done_at": "2026-09-24T14:29:39+09:00",
+          "output_file": "out/r1/p0.parallel_pr.json"
+        },
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 8574,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.local_review.md",
+          "prompt_sha": "973d338f7468",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.local_review.json",
+          "skills": [
+            {
+              "skill": "/code-review",
+              "args": "high",
+              "required": true,
+              "note": "組み込み（同名のプラグインが別に在る）。対象は changed_files_file に並ぶ**ファイルのパス**で渡す——ref 範囲は作業ツリーを含まない。--comment も --fix も付けるな。"
+            },
+            {
+              "skill": "pr-review-toolkit:code-reviewer",
+              "required": true,
+              "note": "準拠とバグ検出の両方を担う汎用レンズ。**落とすな。**"
+            },
+            {
+              "skill": "/simplify",
+              "required": true,
+              "note": "**修正を禁じた形でだけ呼べ**（実物は既定で作業ツリーを書き換える）。4 観点（再利用・単純化・効率・高度）をそれぞれ起こし、指摘だけ返させる。"
+            },
+            {
+              "skill": "/security-review",
+              "required": false,
+              "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+            },
+            {
+              "skill": "pr-review-toolkit:silent-failure-hunter",
+              "required": true,
+              "note": "黙って無力化される検査・握り潰される失敗を見る。"
+            },
+            {
+              "skill": "pr-review-toolkit:type-design-analyzer",
+              "required": true,
+              "note": "不変条件を平坦な値で持つ設計を見る。散文の振り分けでは当たらないクラス。"
+            },
+            {
+              "skill": "pr-review-toolkit:pr-test-analyzer",
+              "required": true,
+              "note": "振る舞い網羅のレンズ。他のどの節も見ていない。"
+            }
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.local_review.json",
+          "done_at": "2026-09-24T14:41:44+09:00",
+          "output_file": "out/r1/p1.local_review.json"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 576226,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.hygiene.md",
+          "prompt_sha": "9f456e250731",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.hygiene.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.hygiene.json",
+          "done_at": "2026-09-24T14:27:59+09:00",
+          "output_file": "out/r1/p1.hygiene.json"
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 13091,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.procedure_trace.md",
+          "prompt_sha": "6839140f7916",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.procedure_trace.json",
+          "done_at": "2026-09-24T14:36:24+09:00",
+          "output_file": "out/r1/p1.procedure_trace.json",
+          "agent_id": "a22118b8e2076c35d"
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4434,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.gate_efficacy.md",
+          "prompt_sha": "f6e0f88c82f7",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.gate_efficacy.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.gate_efficacy.json",
+          "done_at": "2026-09-24T14:41:38+09:00",
+          "output_file": "out/r1/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2884,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.test_double_fidelity.md",
+          "prompt_sha": "1f5a941ab457",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.test_double_fidelity.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.test_double_fidelity.json",
+          "done_at": "2026-09-24T14:29:57+09:00",
+          "output_file": "out/r1/p1.test_double_fidelity.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2723,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.provenance.md",
+          "prompt_sha": "79a6fcb85e2c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.provenance.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.provenance.json",
+          "done_at": "2026-09-24T14:29:39+09:00",
+          "output_file": "out/r1/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 12712,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p0.prior_decisions.md",
+          "prompt_sha": "9bea1fa44156",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:26:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p0.prior_decisions.json",
+          "done_at": "2026-09-24T14:34:35+09:00",
+          "output_file": "out/r1/p0.prior_decisions.json",
+          "agent_id": "a9434bcbaabca06d0"
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 15496,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.consistency_bypass.md",
+          "prompt_sha": "0f845c65e78e",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:29:43+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.consistency_bypass.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.consistency_bypass.json",
+          "done_at": "2026-09-24T14:38:36+09:00",
+          "output_file": "out/r1/p1.consistency_bypass.json",
+          "agent_id": "a56e5814dd99327e4"
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 16390,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p1.external_standards.md",
+          "prompt_sha": "3acc0b5d0ea4",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:29:43+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p1.external_standards.json",
+          "done_at": "2026-09-24T14:36:08+09:00",
+          "output_file": "out/r1/p1.external_standards.json",
+          "agent_id": "a5c0fda2883735db0"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "prompt_bytes": 113041,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p2.diagnose.md",
+          "prompt_sha": "6ec7426a5d64",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:41:44+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p2.diagnose.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p2.diagnose.json",
+          "done_at": "2026-09-24T14:53:52+09:00",
+          "output_file": "out/r1/p2.diagnose.json",
+          "agent_id": "abeac04504e26e773"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "prompt_bytes": 77058,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p3.fix.md",
+          "prompt_sha": "d15d6180a0d0",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T14:53:52+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p3.fix.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p3.fix.json",
+          "done_at": "2026-09-24T15:01:34+09:00",
+          "output_file": "out/r1/p3.fix.json"
+        },
+        "p2.rejudge": {
+          "id": "p2.rejudge",
+          "node": "p2.rejudge",
+          "run_by": "judge",
+          "prompt_bytes": 13848,
+          "mode": "agent_continue",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p2.rejudge.md",
+          "prompt_sha": "b8ba0716a4ea",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:01:34+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p2.rejudge.json",
+          "deliver": "path",
+          "continue_of": "p2.diagnose",
+          "agent_id": "abeac04504e26e773",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p2.rejudge.json",
+          "done_at": "2026-09-24T15:04:08+09:00",
+          "output_file": "out/r1/p2.rejudge.json"
+        },
+        "p4.ci": {
+          "id": "p4.ci",
+          "node": "p4.ci",
+          "run_by": "writer",
+          "prompt_bytes": 2024,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p4.ci.md",
+          "prompt_sha": "48a8dabf3012",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:04:08+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p4.ci.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p4.ci.json",
+          "done_at": "2026-09-24T15:04:35+09:00",
+          "output_file": "out/r1/p4.ci.json"
+        },
+        "p4.scalars": {
+          "id": "p4.scalars",
+          "node": "p4.scalars",
+          "run_by": "writer",
+          "prompt_bytes": 1417,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/p4.scalars.md",
+          "prompt_sha": "3f5e88a83512",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:04:08+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p4.scalars.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/p4.scalars.json",
+          "done_at": "2026-09-24T15:04:35+09:00",
+          "output_file": "out/r1/p4.scalars.json"
+        },
+        "r1.comment_candidates": {
+          "id": "r1.comment_candidates",
+          "node": "r1.comment_candidates",
+          "run_by": "comment-analyzer",
+          "prompt_bytes": 12512,
+          "mode": "agent",
+          "agent_type": "pr-review-toolkit:comment-analyzer",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/r1.comment_candidates.md",
+          "prompt_sha": "9706ffc1a2a5",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:04:36+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/r1.comment_candidates.json",
+          "skills": [
+            {
+              "skill": "pr-review-toolkit:comment-analyzer",
+              "required": true
+            }
+          ],
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/r1.comment_candidates.json",
+          "done_at": "2026-09-24T15:09:54+09:00",
+          "output_file": "out/r1/r1.comment_candidates.json",
+          "agent_id": "a279dac6e33f0ddef"
+        },
+        "r2.design": {
+          "id": "r2.design",
+          "node": "r2.design",
+          "run_by": "blind-judge",
+          "prompt_bytes": 6177,
+          "mode": "cli",
+          "agent_type": "convergence-loops:blind-judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/r2.design.md",
+          "prompt_sha": "08e70aef4bf1",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:04:36+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/r2.design.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/roles/convergence-loops__blind-judge.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/r2.design.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/r2.design.json",
+          "done_at": "2026-09-24T15:05:46+09:00",
+          "output_file": "out/r1/r2.design.json"
+        },
+        "r1.minimality": {
+          "id": "r1.minimality",
+          "node": "r1.minimality",
+          "run_by": "judge",
+          "prompt_bytes": 87017,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/r1.minimality.md",
+          "prompt_sha": "e3158207bc8a",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:09:54+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/r1.minimality.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/r1.minimality.json",
+          "done_at": "2026-09-24T15:16:13+09:00",
+          "output_file": "out/r1/r1.minimality.json",
+          "agent_id": "a645f2f3315503435"
+        },
+        "r2.compare": {
+          "id": "r2.compare",
+          "node": "r2.compare",
+          "run_by": "blind-judge",
+          "prompt_bytes": 581312,
+          "mode": "cli",
+          "agent_type": "convergence-loops:blind-judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/r2.compare.md",
+          "prompt_sha": "48b35cc51fcc",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:09:54+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/r2.compare.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/roles/convergence-loops__blind-judge.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r1/r2.compare.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r1/r2.compare.json",
+          "done_at": "2026-09-24T15:12:01+09:00",
+          "output_file": "out/r1/r2.compare.json"
+        }
+      },
+      "item_counts": {}
+    },
+    {
+      "round": 2,
+      "done": {
+        "p1.worktree_before": {
+          "at": "2026-09-24T15:16:14+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p1.hygiene": {
+          "at": "2026-09-24T15:17:34+09:00",
+          "instance": "p1.hygiene"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-24T15:20:13+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.procedure_trace": {
+          "at": "2026-09-24T15:21:38+09:00",
+          "instance": "p1.procedure_trace"
+        },
+        "p1.main_path_observation": {
+          "at": "2026-09-24T15:23:09+09:00",
+          "instance": "p1.main_path_observation"
+        },
+        "p1.test_double_fidelity": {
+          "at": "2026-09-24T15:23:10+09:00",
+          "instance": "p1.test_double_fidelity"
+        },
+        "p1.provenance": {
+          "at": "2026-09-24T15:23:11+09:00",
+          "instance": "p1.provenance"
+        },
+        "p1.external_standards": {
+          "at": "2026-09-24T15:24:09+09:00",
+          "instance": "p1.external_standards"
+        },
+        "p1.consistency_bypass": {
+          "at": "2026-09-24T15:24:42+09:00",
+          "instance": "p1.consistency_bypass"
+        },
+        "p1.gate_efficacy": {
+          "at": "2026-09-24T15:26:40+09:00",
+          "instance": "p1.gate_efficacy"
+        },
+        "p1.local_review": {
+          "at": "2026-09-24T15:34:07+09:00",
+          "instance": "p1.local_review"
+        },
+        "p1.worktree_after": {
+          "at": "2026-09-24T15:34:07+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-09-24T15:48:16+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p2.history": {
+          "at": "2026-09-24T15:54:06+09:00",
+          "instance": "p2.history"
+        },
+        "p3.fix": {
+          "at": "2026-09-24T16:01:08+09:00",
+          "instance": "p3.fix"
+        },
+        "p2.rejudge": {
+          "at": "2026-09-24T16:04:04+09:00",
+          "instance": "p2.rejudge"
+        },
+        "p4.ci": {
+          "at": "2026-09-24T16:04:25+09:00",
+          "instance": "p4.ci"
+        },
+        "p4.scalars": {
+          "at": "2026-09-24T16:04:25+09:00",
+          "instance": "p4.scalars"
+        },
+        "p4.assemble": {
+          "at": "2026-09-24T16:04:25+09:00",
+          "builtin": "assemble"
+        },
+        "r2.design": {
+          "at": "2026-09-24T16:05:41+09:00",
+          "instance": "r2.design"
+        },
+        "r1.comment_candidates": {
+          "at": "2026-09-24T16:07:23+09:00",
+          "instance": "r1.comment_candidates"
+        },
+        "r3.coherence": {
+          "at": "2026-09-24T16:08:06+09:00",
+          "instance": "r3.coherence"
+        },
+        "r4.hidden_scope": {
+          "at": "2026-09-24T16:09:09+09:00",
+          "instance": "r4.hidden_scope"
+        },
+        "r2.compare": {
+          "at": "2026-09-24T16:10:40+09:00",
+          "instance": "r2.compare"
+        },
+        "r1.minimality": {
+          "at": "2026-09-24T16:13:26+09:00",
+          "instance": "r1.minimality"
+        },
+        "p4.record": {
+          "at": "2026-09-24T16:13:26+09:00",
+          "builtin": "record_round"
+        },
+        "converge": {
+          "at": "2026-09-24T16:13:26+09:00",
+          "builtin": "converge"
+        }
+      },
+      "na": {
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない",
+        "p2.rejudge_third": "cond: 往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する が成り立たない",
+        "stop.premise_check": "cond: R2 が premise-invalid が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 8574,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.local_review.md",
+          "prompt_sha": "d3db0f4b7737",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.local_review.json",
+          "skills": [
+            {
+              "skill": "/code-review",
+              "args": "high",
+              "required": true,
+              "note": "組み込み（同名のプラグインが別に在る）。対象は changed_files_file に並ぶ**ファイルのパス**で渡す——ref 範囲は作業ツリーを含まない。--comment も --fix も付けるな。"
+            },
+            {
+              "skill": "pr-review-toolkit:code-reviewer",
+              "required": true,
+              "note": "準拠とバグ検出の両方を担う汎用レンズ。**落とすな。**"
+            },
+            {
+              "skill": "/simplify",
+              "required": true,
+              "note": "**修正を禁じた形でだけ呼べ**（実物は既定で作業ツリーを書き換える）。4 観点（再利用・単純化・効率・高度）をそれぞれ起こし、指摘だけ返させる。"
+            },
+            {
+              "skill": "/security-review",
+              "required": false,
+              "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+            },
+            {
+              "skill": "pr-review-toolkit:silent-failure-hunter",
+              "required": true,
+              "note": "黙って無力化される検査・握り潰される失敗を見る。"
+            },
+            {
+              "skill": "pr-review-toolkit:type-design-analyzer",
+              "required": true,
+              "note": "不変条件を平坦な値で持つ設計を見る。散文の振り分けでは当たらないクラス。"
+            },
+            {
+              "skill": "pr-review-toolkit:pr-test-analyzer",
+              "required": true,
+              "note": "振る舞い網羅のレンズ。他のどの節も見ていない。"
+            }
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.local_review.json",
+          "done_at": "2026-09-24T15:34:07+09:00",
+          "output_file": "out/r2/p1.local_review.json"
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 15541,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.consistency_bypass.md",
+          "prompt_sha": "f89822b52ef2",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.consistency_bypass.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.consistency_bypass.json",
+          "done_at": "2026-09-24T15:24:42+09:00",
+          "output_file": "out/r2/p1.consistency_bypass.json",
+          "agent_id": "ac2f59b470a0ffb42"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 576519,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.hygiene.md",
+          "prompt_sha": "5103e908e416",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.hygiene.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.hygiene.json",
+          "done_at": "2026-09-24T15:17:34+09:00",
+          "output_file": "out/r2/p1.hygiene.json"
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 16435,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.external_standards.md",
+          "prompt_sha": "f03b0596da2c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": [
+            " M docs/decisions/accepted-limitations.adoc",
+            " M services/document-management/docs/explanations/document-management-detail-design.adoc",
+            " M services/document-management/document-management-backend/README.md",
+            " M services/document-management/document-management-backend/pyproject.toml",
+            " M services/document-management/document-management-backend/src/api/error_mapping/__init__.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_catalog.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+            " M services/document-management/document-management-backend/src/auth/interfaces.py",
+            " M services/document-management/document-management-backend/src/auth/models.py",
+            " M services/document-management/document-management-backend/src/common/span_body_redaction.py",
+            " M services/document-management/document-management-backend/src/dev_entry.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_catalog.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/exception.py",
+            " M services/document-management/document-management-backend/src/main.py",
+            " M services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+            " M services/document-management/document-management-backend/tests/auth/test_models.py",
+            " M services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py",
+            " M services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+            " M services/document-management/document-management-backend/tests/test_application_main.py",
+            " M services/document-management/document-management-backend/uv.lock"
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.external_standards.json",
+          "done_at": "2026-09-24T15:24:09+09:00",
+          "output_file": "out/r2/p1.external_standards.json",
+          "agent_id": "af8f98d4d97309c4d"
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 13136,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.procedure_trace.md",
+          "prompt_sha": "e1c52c167f22",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": [
+            " M docs/decisions/accepted-limitations.adoc",
+            " M services/document-management/docs/explanations/document-management-detail-design.adoc",
+            " M services/document-management/document-management-backend/README.md",
+            " M services/document-management/document-management-backend/pyproject.toml",
+            " M services/document-management/document-management-backend/src/api/error_mapping/__init__.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_catalog.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+            " M services/document-management/document-management-backend/src/auth/interfaces.py",
+            " M services/document-management/document-management-backend/src/auth/models.py",
+            " M services/document-management/document-management-backend/src/common/span_body_redaction.py",
+            " M services/document-management/document-management-backend/src/dev_entry.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_catalog.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/exception.py",
+            " M services/document-management/document-management-backend/src/main.py",
+            " M services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+            " M services/document-management/document-management-backend/tests/auth/test_models.py",
+            " M services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py",
+            " M services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+            " M services/document-management/document-management-backend/tests/test_application_main.py",
+            " M services/document-management/document-management-backend/uv.lock"
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.procedure_trace.json",
+          "done_at": "2026-09-24T15:21:38+09:00",
+          "output_file": "out/r2/p1.procedure_trace.json",
+          "agent_id": "a4168a1176cfb9f48"
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4434,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.gate_efficacy.md",
+          "prompt_sha": "8f57ac7b2f01",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.gate_efficacy.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.gate_efficacy.json",
+          "done_at": "2026-09-24T15:26:40+09:00",
+          "output_file": "out/r2/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2884,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.test_double_fidelity.md",
+          "prompt_sha": "e46823c98137",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.test_double_fidelity.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.test_double_fidelity.json",
+          "done_at": "2026-09-24T15:23:10+09:00",
+          "output_file": "out/r2/p1.test_double_fidelity.json"
+        },
+        "p1.main_path_observation": {
+          "id": "p1.main_path_observation",
+          "node": "p1.main_path_observation",
+          "run_by": "writer",
+          "prompt_bytes": 3003,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.main_path_observation.md",
+          "prompt_sha": "ade84e21a3c8",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.main_path_observation.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.main_path_observation.json",
+          "done_at": "2026-09-24T15:23:09+09:00",
+          "output_file": "out/r2/p1.main_path_observation.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2723,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p1.provenance.md",
+          "prompt_sha": "8804d27e27a1",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.provenance.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p1.provenance.json",
+          "done_at": "2026-09-24T15:23:11+09:00",
+          "output_file": "out/r2/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 12757,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p0.prior_decisions.md",
+          "prompt_sha": "2a62cd095abc",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:16:14+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": [
+            " M docs/decisions/accepted-limitations.adoc",
+            " M services/document-management/docs/explanations/document-management-detail-design.adoc",
+            " M services/document-management/document-management-backend/README.md",
+            " M services/document-management/document-management-backend/pyproject.toml",
+            " M services/document-management/document-management-backend/src/api/error_mapping/__init__.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_catalog.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+            " M services/document-management/document-management-backend/src/auth/interfaces.py",
+            " M services/document-management/document-management-backend/src/auth/models.py",
+            " M services/document-management/document-management-backend/src/common/span_body_redaction.py",
+            " M services/document-management/document-management-backend/src/dev_entry.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_catalog.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/exception.py",
+            " M services/document-management/document-management-backend/src/main.py",
+            " M services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+            " M services/document-management/document-management-backend/tests/auth/test_models.py",
+            " M services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py",
+            " M services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+            " M services/document-management/document-management-backend/tests/test_application_main.py",
+            " M services/document-management/document-management-backend/uv.lock"
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p0.prior_decisions.json",
+          "done_at": "2026-09-24T15:20:13+09:00",
+          "output_file": "out/r2/p0.prior_decisions.json",
+          "agent_id": "a0abf407e8ebc0055"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "prompt_bytes": 128875,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p2.diagnose.md",
+          "prompt_sha": "3a895ab96cc3",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:34:07+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p2.diagnose.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p2.diagnose.json",
+          "done_at": "2026-09-24T15:48:16+09:00",
+          "output_file": "out/r2/p2.diagnose.json",
+          "agent_id": "a1e1070362b907b5b"
+        },
+        "p2.history": {
+          "id": "p2.history",
+          "node": "p2.history",
+          "run_by": "judge",
+          "prompt_bytes": 72835,
+          "mode": "agent_continue",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p2.history.md",
+          "prompt_sha": "374dc96a9f65",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:48:16+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p2.history.json",
+          "deliver": "path",
+          "continue_of": "p2.diagnose",
+          "agent_id": "a1e1070362b907b5b",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p2.history.json",
+          "done_at": "2026-09-24T15:54:06+09:00",
+          "output_file": "out/r2/p2.history.json"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "prompt_bytes": 92678,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p3.fix.md",
+          "prompt_sha": "824918af33fa",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T15:54:06+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p3.fix.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p3.fix.json",
+          "done_at": "2026-09-24T16:01:08+09:00",
+          "output_file": "out/r2/p3.fix.json"
+        },
+        "p2.rejudge": {
+          "id": "p2.rejudge",
+          "node": "p2.rejudge",
+          "run_by": "judge",
+          "prompt_bytes": 17687,
+          "mode": "agent_continue",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p2.rejudge.md",
+          "prompt_sha": "81f9c9d1bcd3",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:01:08+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p2.rejudge.json",
+          "deliver": "path",
+          "continue_of": "p2.diagnose",
+          "agent_id": "a1e1070362b907b5b",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p2.rejudge.json",
+          "done_at": "2026-09-24T16:04:04+09:00",
+          "output_file": "out/r2/p2.rejudge.json"
+        },
+        "p4.ci": {
+          "id": "p4.ci",
+          "node": "p4.ci",
+          "run_by": "writer",
+          "prompt_bytes": 2024,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p4.ci.md",
+          "prompt_sha": "48a8dabf3012",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:04:04+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p4.ci.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p4.ci.json",
+          "done_at": "2026-09-24T16:04:25+09:00",
+          "output_file": "out/r2/p4.ci.json"
+        },
+        "p4.scalars": {
+          "id": "p4.scalars",
+          "node": "p4.scalars",
+          "run_by": "writer",
+          "prompt_bytes": 1417,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/p4.scalars.md",
+          "prompt_sha": "43867fbdd12a",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:04:04+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p4.scalars.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/p4.scalars.json",
+          "done_at": "2026-09-24T16:04:25+09:00",
+          "output_file": "out/r2/p4.scalars.json"
+        },
+        "r1.comment_candidates": {
+          "id": "r1.comment_candidates",
+          "node": "r1.comment_candidates",
+          "run_by": "comment-analyzer",
+          "prompt_bytes": 12512,
+          "mode": "agent",
+          "agent_type": "pr-review-toolkit:comment-analyzer",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/r1.comment_candidates.md",
+          "prompt_sha": "78b58bd44f31",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:04:25+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r1.comment_candidates.json",
+          "skills": [
+            {
+              "skill": "pr-review-toolkit:comment-analyzer",
+              "required": true
+            }
+          ],
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r1.comment_candidates.json",
+          "done_at": "2026-09-24T16:07:23+09:00",
+          "output_file": "out/r2/r1.comment_candidates.json",
+          "agent_id": "a27f49fa5c8b1d806"
+        },
+        "r2.design": {
+          "id": "r2.design",
+          "node": "r2.design",
+          "run_by": "blind-judge",
+          "prompt_bytes": 6177,
+          "mode": "cli",
+          "agent_type": "convergence-loops:blind-judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/r2.design.md",
+          "prompt_sha": "08e70aef4bf1",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:04:25+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r2.design.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/roles/convergence-loops__blind-judge.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/r2.design.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r2.design.json",
+          "done_at": "2026-09-24T16:05:41+09:00",
+          "output_file": "out/r2/r2.design.json"
+        },
+        "r3.coherence": {
+          "id": "r3.coherence",
+          "node": "r3.coherence",
+          "run_by": "inspector",
+          "prompt_bytes": 12050,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/r3.coherence.md",
+          "prompt_sha": "1795aa19cfaa",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:04:25+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r3.coherence.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r3.coherence.json",
+          "done_at": "2026-09-24T16:08:06+09:00",
+          "output_file": "out/r2/r3.coherence.json",
+          "agent_id": "a544e20293ee06b5c"
+        },
+        "r4.hidden_scope": {
+          "id": "r4.hidden_scope",
+          "node": "r4.hidden_scope",
+          "run_by": "inspector",
+          "prompt_bytes": 14890,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/r4.hidden_scope.md",
+          "prompt_sha": "f903d64f5bc5",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:04:25+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r4.hidden_scope.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r4.hidden_scope.json",
+          "done_at": "2026-09-24T16:09:09+09:00",
+          "output_file": "out/r2/r4.hidden_scope.json",
+          "agent_id": "a736ca7eae5304e41"
+        },
+        "r1.minimality": {
+          "id": "r1.minimality",
+          "node": "r1.minimality",
+          "run_by": "judge",
+          "prompt_bytes": 128762,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/r1.minimality.md",
+          "prompt_sha": "2cf87943a403",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:09:09+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r1.minimality.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r1.minimality.json",
+          "done_at": "2026-09-24T16:13:26+09:00",
+          "output_file": "out/r2/r1.minimality.json",
+          "agent_id": "a3a640e2de4b3a5f7"
+        },
+        "r2.compare": {
+          "id": "r2.compare",
+          "node": "r2.compare",
+          "run_by": "blind-judge",
+          "prompt_bytes": 574185,
+          "mode": "cli",
+          "agent_type": "convergence-loops:blind-judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/r2.compare.md",
+          "prompt_sha": "6d71feec84f4",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:09:09+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r2.compare.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/roles/convergence-loops__blind-judge.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r2/r2.compare.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r2/r2.compare.json",
+          "done_at": "2026-09-24T16:10:40+09:00",
+          "output_file": "out/r2/r2.compare.json"
+        }
+      },
+      "item_counts": {}
+    },
+    {
+      "round": 3,
+      "done": {
+        "p1.worktree_before": {
+          "at": "2026-09-24T16:13:26+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p1.procedure_trace": {
+          "at": "2026-09-24T19:16:17+09:00",
+          "instance": "p1.procedure_trace"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-24T19:18:11+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.main_path_observation": {
+          "at": "2026-09-24T19:18:34+09:00",
+          "instance": "p1.main_path_observation"
+        },
+        "p1.test_double_fidelity": {
+          "at": "2026-09-24T19:18:34+09:00",
+          "instance": "p1.test_double_fidelity"
+        },
+        "p1.provenance": {
+          "at": "2026-09-24T19:18:35+09:00",
+          "instance": "p1.provenance"
+        }
+      },
+      "na": {
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 8574,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.local_review.md",
+          "prompt_sha": "757cc02b8564",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.local_review.json",
+          "skills": [
+            {
+              "skill": "/code-review",
+              "args": "high",
+              "required": true,
+              "note": "組み込み（同名のプラグインが別に在る）。対象は changed_files_file に並ぶ**ファイルのパス**で渡す——ref 範囲は作業ツリーを含まない。--comment も --fix も付けるな。"
+            },
+            {
+              "skill": "pr-review-toolkit:code-reviewer",
+              "required": true,
+              "note": "準拠とバグ検出の両方を担う汎用レンズ。**落とすな。**"
+            },
+            {
+              "skill": "/simplify",
+              "required": true,
+              "note": "**修正を禁じた形でだけ呼べ**（実物は既定で作業ツリーを書き換える）。4 観点（再利用・単純化・効率・高度）をそれぞれ起こし、指摘だけ返させる。"
+            },
+            {
+              "skill": "/security-review",
+              "required": false,
+              "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+            },
+            {
+              "skill": "pr-review-toolkit:silent-failure-hunter",
+              "required": true,
+              "note": "黙って無力化される検査・握り潰される失敗を見る。"
+            },
+            {
+              "skill": "pr-review-toolkit:type-design-analyzer",
+              "required": true,
+              "note": "不変条件を平坦な値で持つ設計を見る。散文の振り分けでは当たらないクラス。"
+            },
+            {
+              "skill": "pr-review-toolkit:pr-test-analyzer",
+              "required": true,
+              "note": "振る舞い網羅のレンズ。他のどの節も見ていない。"
+            }
+          ]
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 15541,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.consistency_bypass.md",
+          "prompt_sha": "42f9d8141000",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.consistency_bypass.json",
+          "deliver": "path"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 569159,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.hygiene.md",
+          "prompt_sha": "d41b7e397c53",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.hygiene.md"
+          }
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 16435,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.external_standards.md",
+          "prompt_sha": "0b8c1c821f14",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": [
+            " M docs/decisions/accepted-limitations.adoc",
+            " M services/document-management/docs/explanations/document-management-detail-design.adoc",
+            " M services/document-management/document-management-backend/README.md",
+            " M services/document-management/document-management-backend/pyproject.toml",
+            " M services/document-management/document-management-backend/src/api/error_mapping/__init__.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_catalog.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/__init__.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+            " M services/document-management/document-management-backend/src/auth/interfaces.py",
+            " M services/document-management/document-management-backend/src/auth/models.py",
+            " M services/document-management/document-management-backend/src/common/span_body_redaction.py",
+            " M services/document-management/document-management-backend/src/dev_entry.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_catalog.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/exception.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/registration.py",
+            " M services/document-management/document-management-backend/src/main.py",
+            " M services/document-management/document-management-backend/src/observability/otel_setup.py",
+            " M services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+            " M services/document-management/document-management-backend/tests/auth/test_models.py",
+            " M services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py",
+            " M services/document-management/document-management-backend/tests/auth/test_service_caller.py",
+            " M services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+            " M services/document-management/document-management-backend/tests/document_lifecycle/test_document_lifecycle.py",
+            " M services/document-management/document-management-backend/tests/observability/test_fastapi_instrumentation.py",
+            " M services/document-management/document-management-backend/tests/test_application_main.py",
+            " M services/document-management/document-management-backend/uv.lock"
+          ]
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 13136,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.procedure_trace.md",
+          "prompt_sha": "04443f8e245b",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": [
+            " M docs/decisions/accepted-limitations.adoc",
+            " M services/document-management/docs/explanations/document-management-detail-design.adoc",
+            " M services/document-management/document-management-backend/README.md",
+            " M services/document-management/document-management-backend/pyproject.toml",
+            " M services/document-management/document-management-backend/src/api/error_mapping/__init__.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_catalog.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/__init__.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+            " M services/document-management/document-management-backend/src/auth/interfaces.py",
+            " M services/document-management/document-management-backend/src/auth/models.py",
+            " M services/document-management/document-management-backend/src/common/span_body_redaction.py",
+            " M services/document-management/document-management-backend/src/dev_entry.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_catalog.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/exception.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/registration.py",
+            " M services/document-management/document-management-backend/src/main.py",
+            " M services/document-management/document-management-backend/src/observability/otel_setup.py",
+            " M services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+            " M services/document-management/document-management-backend/tests/auth/test_models.py",
+            " M services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py",
+            " M services/document-management/document-management-backend/tests/auth/test_service_caller.py",
+            " M services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+            " M services/document-management/document-management-backend/tests/document_lifecycle/test_document_lifecycle.py",
+            " M services/document-management/document-management-backend/tests/observability/test_fastapi_instrumentation.py",
+            " M services/document-management/document-management-backend/tests/test_application_main.py",
+            " M services/document-management/document-management-backend/uv.lock"
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.procedure_trace.json",
+          "done_at": "2026-09-24T19:16:17+09:00",
+          "output_file": "out/r3/p1.procedure_trace.json",
+          "agent_id": "abf6e74800ae61cce"
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4434,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.gate_efficacy.md",
+          "prompt_sha": "f525aaa97f99",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2884,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.test_double_fidelity.md",
+          "prompt_sha": "b1db565079fe",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.test_double_fidelity.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.test_double_fidelity.json",
+          "done_at": "2026-09-24T19:18:34+09:00",
+          "output_file": "out/r3/p1.test_double_fidelity.json"
+        },
+        "p1.main_path_observation": {
+          "id": "p1.main_path_observation",
+          "node": "p1.main_path_observation",
+          "run_by": "writer",
+          "prompt_bytes": 3003,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.main_path_observation.md",
+          "prompt_sha": "75bf04d2af22",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.main_path_observation.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.main_path_observation.json",
+          "done_at": "2026-09-24T19:18:34+09:00",
+          "output_file": "out/r3/p1.main_path_observation.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2723,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p1.provenance.md",
+          "prompt_sha": "0ef966cc4fe7",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.provenance.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p1.provenance.json",
+          "done_at": "2026-09-24T19:18:35+09:00",
+          "output_file": "out/r3/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 12757,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/prompts/r3/p0.prior_decisions.md",
+          "prompt_sha": "2a62cd095abc",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-24T16:13:26+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": [
+            " M docs/decisions/accepted-limitations.adoc",
+            " M services/document-management/docs/explanations/document-management-detail-design.adoc",
+            " M services/document-management/document-management-backend/README.md",
+            " M services/document-management/document-management-backend/pyproject.toml",
+            " M services/document-management/document-management-backend/src/api/error_mapping/__init__.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_catalog.py",
+            " M services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/__init__.py",
+            " M services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+            " M services/document-management/document-management-backend/src/auth/interfaces.py",
+            " M services/document-management/document-management-backend/src/auth/models.py",
+            " M services/document-management/document-management-backend/src/common/span_body_redaction.py",
+            " M services/document-management/document-management-backend/src/dev_entry.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/artifact_reader.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_catalog.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/exception.py",
+            " M services/document-management/document-management-backend/src/document_lifecycle/model/registration.py",
+            " M services/document-management/document-management-backend/src/main.py",
+            " M services/document-management/document-management-backend/src/observability/otel_setup.py",
+            " M services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+            " M services/document-management/document-management-backend/tests/auth/test_models.py",
+            " M services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py",
+            " M services/document-management/document-management-backend/tests/auth/test_service_caller.py",
+            " M services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+            " M services/document-management/document-management-backend/tests/document_lifecycle/test_document_lifecycle.py",
+            " M services/document-management/document-management-backend/tests/observability/test_fastapi_instrumentation.py",
+            " M services/document-management/document-management-backend/tests/test_application_main.py",
+            " M services/document-management/document-management-backend/uv.lock"
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/out/r3/p0.prior_decisions.json",
+          "done_at": "2026-09-24T19:18:11+09:00",
+          "output_file": "out/r3/p0.prior_decisions.json",
+          "agent_id": "a98b59c4d9ccb595d"
+        }
+      },
+      "item_counts": {}
+    }
+  ],
+  "thickness": null,
+  "max_rounds": 5,
+  "unattended": false,
+  "inputs": {
+    "request": "PR #1805（ブランチ feature/1301-document-management-backend-rebase-impl、main との merge-base b5ce3e446 からの差分）のレビュー。他人の PR のレビュー用途：修正は手元の作業ツリーに当ててよいが commit・push はしない。最後に修正を戻して PR へのレビュー指摘に変換する。既に PR に出した指摘（/docs 等の無認証公開、ルーター先頭コメントの古さ、scope/tag 許可値の基盤からの除去と一覧の再検査 500、ドメイン命名の見直し）は対象外。",
+    "document": null,
+    "lang": "依頼文の言語（利用者の言語）",
+    "cwd": "/Users/p03623/src/guided-resolver-work3",
+    "review_md": "/Users/p03623/.claude-p3/plugins/cache/raiki61/convergence-loops/0.38.0/REVIEW.md",
+    "repo_review_md": "/Users/p03623/src/guided-resolver-work3/REVIEW.md",
+    "scripts_dir": "/Users/p03623/.claude-p3/plugins/cache/raiki61/convergence-loops/0.38.0/scripts",
+    "rounds_dir": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/rounds",
+    "review_rev": "4c264c11756c08f76211879634a1202f3c32b1f7"
+  },
+  "validator": "/Users/p03623/.claude-p3/plugins/cache/raiki61/convergence-loops/0.38.0/scripts/review-record.py",
+  "outputs": {
+    "p0.base": {
+      "file": "out/r1/p0.base.json",
+      "round": 1,
+      "instance": "p0.base"
+    },
+    "p0.local_checks": {
+      "file": "out/r1/p0.local_checks.json",
+      "round": 1,
+      "instance": "p0.local_checks"
+    },
+    "p0.premises": {
+      "file": "out/r1/p0.premises.json",
+      "round": 1,
+      "instance": "p0.premises"
+    },
+    "p1.worktree_before": {
+      "file": "out/r3/p1.worktree_before.json",
+      "round": 3
+    },
+    "p1.hygiene": {
+      "file": "out/r2/p1.hygiene.json",
+      "round": 2,
+      "instance": "p1.hygiene"
+    },
+    "p0.parallel_pr": {
+      "file": "out/r1/p0.parallel_pr.json",
+      "round": 1,
+      "instance": "p0.parallel_pr"
+    },
+    "p0.purpose": {
+      "file": "out/r1/p0.purpose.json",
+      "round": 1,
+      "instance": "p0.purpose"
+    },
+    "p1.provenance": {
+      "file": "out/r3/p1.provenance.json",
+      "round": 3,
+      "instance": "p1.provenance"
+    },
+    "p1.test_double_fidelity": {
+      "file": "out/r3/p1.test_double_fidelity.json",
+      "round": 3,
+      "instance": "p1.test_double_fidelity"
+    },
+    "p0.prior_decisions": {
+      "file": "out/r3/p0.prior_decisions.json",
+      "round": 3,
+      "instance": "p0.prior_decisions"
+    },
+    "p1.external_standards": {
+      "file": "out/r2/p1.external_standards.json",
+      "round": 2,
+      "instance": "p1.external_standards"
+    },
+    "p1.procedure_trace": {
+      "file": "out/r3/p1.procedure_trace.json",
+      "round": 3,
+      "instance": "p1.procedure_trace"
+    },
+    "p1.consistency_bypass": {
+      "file": "out/r2/p1.consistency_bypass.json",
+      "round": 2,
+      "instance": "p1.consistency_bypass"
+    },
+    "p1.gate_efficacy": {
+      "file": "out/r2/p1.gate_efficacy.json",
+      "round": 2,
+      "instance": "p1.gate_efficacy"
+    },
+    "p1.local_review": {
+      "file": "out/r2/p1.local_review.json",
+      "round": 2,
+      "instance": "p1.local_review"
+    },
+    "p1.worktree_after": {
+      "file": "out/r2/p1.worktree_after.json",
+      "round": 2
+    },
+    "p2.diagnose": {
+      "file": "out/r2/p2.diagnose.json",
+      "round": 2,
+      "instance": "p2.diagnose"
+    },
+    "p3.fix": {
+      "file": "out/r2/p3.fix.json",
+      "round": 2,
+      "instance": "p3.fix"
+    },
+    "p2.rejudge": {
+      "file": "out/r2/p2.rejudge.json",
+      "round": 2,
+      "instance": "p2.rejudge"
+    },
+    "p4.ci": {
+      "file": "out/r2/p4.ci.json",
+      "round": 2,
+      "instance": "p4.ci"
+    },
+    "p4.scalars": {
+      "file": "out/r2/p4.scalars.json",
+      "round": 2,
+      "instance": "p4.scalars"
+    },
+    "p4.assemble": {
+      "file": "out/r2/p4.assemble.json",
+      "round": 2
+    },
+    "r2.design": {
+      "file": "out/r2/r2.design.json",
+      "round": 2,
+      "instance": "r2.design"
+    },
+    "r1.comment_candidates": {
+      "file": "out/r2/r1.comment_candidates.json",
+      "round": 2,
+      "instance": "r1.comment_candidates"
+    },
+    "r2.compare": {
+      "file": "out/r2/r2.compare.json",
+      "round": 2,
+      "instance": "r2.compare"
+    },
+    "r1.minimality": {
+      "file": "out/r2/r1.minimality.json",
+      "round": 2,
+      "instance": "r1.minimality"
+    },
+    "p4.record": {
+      "file": "out/r2/p4.record.json",
+      "round": 2
+    },
+    "converge": {
+      "file": "out/r2/converge.json",
+      "round": 2
+    },
+    "p1.main_path_observation": {
+      "file": "out/r3/p1.main_path_observation.json",
+      "round": 3,
+      "instance": "p1.main_path_observation"
+    },
+    "p2.history": {
+      "file": "out/r2/p2.history.json",
+      "round": 2,
+      "instance": "p2.history"
+    },
+    "r3.coherence": {
+      "file": "out/r2/r3.coherence.json",
+      "round": 2,
+      "instance": "r3.coherence"
+    },
+    "r4.hidden_scope": {
+      "file": "out/r2/r4.hidden_scope.json",
+      "round": 2,
+      "instance": "r4.hidden_scope"
+    }
+  },
+  "done_ever": {
+    "p0.base": 1,
+    "p0.local_checks": 1,
+    "p0.premises": 1,
+    "p1.worktree_before": 3,
+    "p1.hygiene": 2,
+    "p0.parallel_pr": 1,
+    "p0.purpose": 1,
+    "p1.provenance": 3,
+    "p1.test_double_fidelity": 3,
+    "p0.prior_decisions": 3,
+    "p1.external_standards": 2,
+    "p1.procedure_trace": 3,
+    "p1.consistency_bypass": 2,
+    "p1.gate_efficacy": 2,
+    "p1.local_review": 2,
+    "p1.worktree_after": 2,
+    "p2.diagnose": 2,
+    "p3.fix": 2,
+    "p2.rejudge": 2,
+    "p4.ci": 2,
+    "p4.scalars": 2,
+    "p4.assemble": 2,
+    "r2.design": 2,
+    "r1.comment_candidates": 2,
+    "r2.compare": 2,
+    "r1.minimality": 2,
+    "p4.record": 2,
+    "converge": 2,
+    "p1.main_path_observation": 3,
+    "p2.history": 2,
+    "r3.coherence": 2,
+    "r4.hidden_scope": 2
+  },
+  "loop": {
+    "diff_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/diff-r3.patch",
+    "changed_files": [
+      "backend/app/api/auth.py",
+      "backend/app/api/routers/__init__.py",
+      "backend/tests/api/routers/test_internal_documents.py",
+      "backend/tests/main/test_route_registration.py",
+      "docs/decisions/accepted-limitations.adoc",
+      "docs/explanations/architecture/data-document-lifecycle.adoc",
+      "docs/explanations/architecture/document-upload-to-release-architecture-mvp.puml",
+      "docs/explanations/architecture/document-upload-to-release-architecture.puml",
+      "docs/explanations/architecture/document-upload-to-release-mvp.adoc",
+      "docs/explanations/architecture/document-upload-to-release-sequence.puml",
+      "docs/explanations/architecture/document-upload-to-release.adoc",
+      "services/document-management/docs/explanations/document-management-architecture.puml",
+      "services/document-management/docs/explanations/document-management-detail-design.adoc",
+      "services/document-management/docs/reference/document-management-data-design.adoc",
+      "services/document-management/document-management-backend/.env.sample",
+      "services/document-management/document-management-backend/Dockerfile",
+      "services/document-management/document-management-backend/README.md",
+      "services/document-management/document-management-backend/config/config.yaml",
+      "services/document-management/document-management-backend/pyproject.toml",
+      "services/document-management/document-management-backend/src/__init__.py",
+      "services/document-management/document-management-backend/src/api/__init__.py",
+      "services/document-management/document-management-backend/src/api/auth.py",
+      "services/document-management/document-management-backend/src/api/dependencies.py",
+      "services/document-management/document-management-backend/src/api/error_mapping/__init__.py",
+      "services/document-management/document-management-backend/src/api/error_mapping/artifact_reader.py",
+      "services/document-management/document-management-backend/src/api/error_mapping/document_catalog.py",
+      "services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+      "services/document-management/document-management-backend/src/api/model/documents_schema.py",
+      "services/document-management/document-management-backend/src/api/routers/__init__.py",
+      "services/document-management/document-management-backend/src/api/routers/health.py",
+      "services/document-management/document-management-backend/src/api/routers/service/v1/__init__.py",
+      "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+      "services/document-management/document-management-backend/src/auth/__init__.py",
+      "services/document-management/document-management-backend/src/auth/exceptions.py",
+      "services/document-management/document-management-backend/src/auth/interfaces.py",
+      "services/document-management/document-management-backend/src/auth/models.py",
+      "services/document-management/document-management-backend/src/auth/oidc_discovery.py",
+      "services/document-management/document-management-backend/src/auth/oidc_jwt_token_validator.py",
+      "services/document-management/document-management-backend/src/auth/token_validator_settings.py",
+      "services/document-management/document-management-backend/src/common/__init__.py",
+      "services/document-management/document-management-backend/src/common/logging_decorator.py",
+      "services/document-management/document-management-backend/src/common/service_version.py",
+      "services/document-management/document-management-backend/src/common/span_body_redaction.py",
+      "services/document-management/document-management-backend/src/config/__init__.py",
+      "services/document-management/document-management-backend/src/config/settings.py",
+      "services/document-management/document-management-backend/src/core/__init__.py",
+      "services/document-management/document-management-backend/src/core/composition.py",
+      "services/document-management/document-management-backend/src/dev_entry.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/__init__.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/artifact_reader.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/document_catalog.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle_settings.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/model/__init__.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/model/artifact.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/model/catalog.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/model/document.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/model/exception.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/model/manifest.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/model/registration.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/__init__.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/application/__init__.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/application/document_management_gateway.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/infrastructure/__init__.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/infrastructure/blob/__init__.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/infrastructure/blob/azure_blob_object_storage.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/infrastructure/blob/blob_manifest_reader.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/infrastructure/delta_lake/__init__.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/infrastructure/delta_lake/delta_rs_delta_lake_reader.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/infrastructure/orchestration/__init__.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/infrastructure/orchestration/dagster_workflow_launcher.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/ports/__init__.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/ports/dataset_reader_port.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/ports/manifest_reader_port.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/ports/object_storage_port.py",
+      "services/document-management/document-management-backend/src/document_management_gateway/ports/workflow_launcher_port.py",
+      "services/document-management/document-management-backend/src/main.py",
+      "services/document-management/document-management-backend/src/observability/__init__.py",
+      "services/document-management/document-management-backend/src/observability/otel_setup.py",
+      "services/document-management/document-management-backend/src/ports/document_management_port.py",
+      "services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+      "services/document-management/document-management-backend/tests/api/routers/test_health.py",
+      "services/document-management/document-management-backend/tests/api/test_dependencies.py",
+      "services/document-management/document-management-backend/tests/auth/test_models.py",
+      "services/document-management/document-management-backend/tests/auth/test_oidc_discovery.py",
+      "services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py",
+      "services/document-management/document-management-backend/tests/auth/test_service_caller.py",
+      "services/document-management/document-management-backend/tests/common/test_logging_decorator.py",
+      "services/document-management/document-management-backend/tests/common/test_service_version.py",
+      "services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+      "services/document-management/document-management-backend/tests/config/test_settings.py",
+      "services/document-management/document-management-backend/tests/core/test_composition.py",
+      "services/document-management/document-management-backend/tests/document_lifecycle/model/test_document.py",
+      "services/document-management/document-management-backend/tests/document_lifecycle/model/test_manifest.py",
+      "services/document-management/document-management-backend/tests/document_lifecycle/test_artifact_reader.py",
+      "services/document-management/document-management-backend/tests/document_lifecycle/test_document_catalog.py",
+      "services/document-management/document-management-backend/tests/document_lifecycle/test_document_lifecycle.py",
+      "services/document-management/document-management-backend/tests/document_lifecycle/test_document_lifecycle_settings.py",
+      "services/document-management/document-management-backend/tests/observability/test_fastapi_instrumentation.py",
+      "services/document-management/document-management-backend/tests/test_application_main.py",
+      "services/document-management/document-management-backend/uv.lock"
+    ],
+    "changed_files_file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/changed-r3.txt",
+    "diff_stat": "101 files changed, 10815 insertions(+), 286 deletions(-)",
+    "diff_lines": 11101,
+    "reviewed_revision": "4c264c11756c08f76211879634a1202f3c32b1f7",
+    "tree_before": {
+      "porcelain": [
+        " M docs/decisions/accepted-limitations.adoc",
+        " M services/document-management/docs/explanations/document-management-detail-design.adoc",
+        " M services/document-management/document-management-backend/README.md",
+        " M services/document-management/document-management-backend/pyproject.toml",
+        " M services/document-management/document-management-backend/src/api/error_mapping/__init__.py",
+        " M services/document-management/document-management-backend/src/api/error_mapping/artifact_reader.py",
+        " M services/document-management/document-management-backend/src/api/error_mapping/document_catalog.py",
+        " M services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+        " M services/document-management/document-management-backend/src/api/routers/service/v1/__init__.py",
+        " M services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+        " M services/document-management/document-management-backend/src/auth/interfaces.py",
+        " M services/document-management/document-management-backend/src/auth/models.py",
+        " M services/document-management/document-management-backend/src/common/span_body_redaction.py",
+        " M services/document-management/document-management-backend/src/dev_entry.py",
+        " M services/document-management/document-management-backend/src/document_lifecycle/artifact_reader.py",
+        " M services/document-management/document-management-backend/src/document_lifecycle/document_catalog.py",
+        " M services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+        " M services/document-management/document-management-backend/src/document_lifecycle/model/exception.py",
+        " M services/document-management/document-management-backend/src/document_lifecycle/model/registration.py",
+        " M services/document-management/document-management-backend/src/main.py",
+        " M services/document-management/document-management-backend/src/observability/otel_setup.py",
+        " M services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+        " M services/document-management/document-management-backend/tests/auth/test_models.py",
+        " M services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py",
+        " M services/document-management/document-management-backend/tests/auth/test_service_caller.py",
+        " M services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+        " M services/document-management/document-management-backend/tests/document_lifecycle/test_document_lifecycle.py",
+        " M services/document-management/document-management-backend/tests/observability/test_fastapi_instrumentation.py",
+        " M services/document-management/document-management-backend/tests/test_application_main.py",
+        " M services/document-management/document-management-backend/uv.lock"
+      ],
+      "stash": "",
+      "diff_sha": "9d6b7b057b49"
+    },
+    "last_seen": {
+      "base_determination": 1,
+      "local_checks": 2,
+      "hygiene": 2,
+      "parallel_pr": 1,
+      "provenance": 2,
+      "test_double_fidelity": 2,
+      "prior_decisions": 2,
+      "external_standards": 2,
+      "procedure_trace": 2,
+      "consistency": 2,
+      "bypass": 2,
+      "gate_efficacy": 2,
+      "local_review": 2,
+      "fix_closure": 2,
+      "main_path_observation": 2
+    },
+    "last_material": {
+      "base_determination": {
+        "status": "found",
+        "count": 1,
+        "detail": "BASE=b5ce3e446（依頼文が main との merge-base として名指し。git merge-base で一致を確認済み）。対象は b5ce3e446..HEAD(c34ae7c) の 19 コミット、100 ファイル +10906/-275。HEAD はマージコミットではない（親 1 つ）。作業ツリーはクリーンで未追跡の新規ファイル無し。touches_gates: 新サービスのテスト 20 ファイルを新設し、backend のテスト 2 件を変更・削除。touches_external_seams: HTTP API・OIDC（IdP の metadata/JWKS 取得）・Blob への署名付き URL PUT・Dagster 起動の境界を持つ。touches_user_path: 利用者向け画面・経路は変えていない（サービス間 API のみ。backend の /internal/documents 骨組みを削除）。"
+      },
+      "local_checks": {
+        "status": "clean",
+        "checked": "2 周目の修正後の作業ツリーで document-management-backend の CI 相当を手元で実行: uv run pytest -q → 172 passed（OIDC discovery の模擬サーバー用に NO_PROXY=127.0.0.1,localhost。社内プロキシ回避で CI には無い条件）、uv run mypy → no issues（64 files）、uvx pre-commit run --files <変更ファイル全部> → すべて Passed。文書検査（docs-check.yml、Ruby 必須）は手元で走らせていない（台帳『文書検査を手元では走らせない』のとおり）"
+      },
+      "hygiene": {
+        "status": "found",
+        "checked": "diff全体（約9000行超）を通読した。特に注目したファイル: backend/app/api/auth.py（旧resolve_service_caller削除）、backend/app/api/routers/internal_documents.py（削除）とservices側documents.py（新設・移植）、document_lifecycle.py、document_management_gateway系（application/infrastructure/ports）、documents_schema.py、test_route_registration.py、test_documents.py、main.py（lifespan・exception_handlers登録順序）、span_body_redaction.py、oidc_jwt_token_validator.py、token_validator_settings.py。ドキュメント(.adoc/.puml)は差分の意味把握のために目を通したが衛生観点の対象外として深く検証はしていない。uv.lock、Dockerfile、.env.sample、config.yamlは軽く確認したが依存パッケージのバージョン脆弱性等は評価範囲外とした。document_management_gateway配下の実装（azure_blob, delta_rs, dagster_workflow_launcher, blob_manifest_reader）は全てNotImplementedErrorのスケルトンであることを確認済み。テストファイルはtest_documents.py, test_document_lifecycle.py, test_document_catalog.py, test_artifact_reader.py, test_composition.py, test_dependencies.py, test_models.py, test_oidc_discovery.py, test_oidc_jwt_token_validator.py, test_service_caller.py, test_span_body_redaction.py, test_application_main.py, test_fastapi_instrumentation.pyを通読。DocumentManagementGatewayクラス自体を直接検証するテスト、およびAzure/DeltaLake/Dagster各インフラ実装クラスを検証するテストは本diffのファイル一覧中に見当たらないことを確認（打ち切りではなく、diff中に存在しないことの確認）。backend/tests/main/test_route_registration.pyについては差分部分のみが渡されており、ファイル全体（_requires_authenticationの呼び出し元や対象ルーター集合の定義部分）は渡されていないため、その点は「見えない」として明記した。",
+        "count": 8,
+        "detail": "document_lifecycle.py: register_document() の署名付きURLアップロード後、submit_processing_request が失敗した場合: 原本Blobを新規作成として配置済み（PUT成功）の後にPortへ処理要求を投入し、それが失敗すると DocumentLifecycleError を投げて終わる。配置した原本Blobを削除・ロールバックする経路がない。原本は冪等キー（document_id）で新規作成専用のため、後続の再送で content_hash が一致すれば再利用されうるが、一致しない別内容での再送は EXISTING_ORIGINAL_CONTENT_HASH_MISMATCH に落ちる可能性があり、配置済みだが処理要求未達の原本が「宙に浮く」。 / document_lifecycle.py: _upload_original() の httpx.AsyncClient(timeout=...) の使用箇所（async with）: httpx.AsyncClientをasync withで生成し、PUT一発だけに使っている。接続の対称性（開始・終了）はコンテキストマネージャで守られており問題は無いが、grantの取得（issue_original_upload_grant）失敗時の例外はcatchされてOriginalUploadErrorに変換されるのに対し、_upload_original内部でraiseされるhttpx.HTTPStatusErrorや409/412分岐後のread_original_metadata失敗も同じexcept節でOriginalUploadErrorにまとめられている。413(too large)等の意図的なステータス分類がconflict/precondition以外は全て「配置失敗」に潰されるため、実際の失敗理由（ネットワーク vs 認可 vs 想定外ステータス)が呼び出し側から見分けられない。 / documents.py: register_document() の一時ファイル書き込みループ（file.read(1024*1024) を while で回す箇所）: アップロードするファイルの読み取りには1MBチャンクごとのサイズチェックがあり単体アップロードの上限は守られているが、リクエスト全体（フォームの他フィールドやマルチパートのオーバーヘッド）に対するボディサイズ上限や、read()呼び出し自体のタイムアウトが見えない。python-multipartやStarletteの既定の読み取りにタイムアウト・上限が設定されているかはこのファイル内では確認できない。 / document_lifecycle.py: DocumentLifecycle._upload_original() 内、response.status_code not in {CONFLICT, PRECONDITION_FAILED} の分岐でraiseする httpx.HTTPStatusError: この一行で送出したhttpx.HTTPStatusErrorは呼び出し元のregister_document内のtry/exceptで(DocumentManagementError, httpx.HTTPError, OSError)としてキャッチされOriginalUploadErrorに変換される設計だが、_upload_original自体はこの経路以外にも例外検知の粒度がなく、成功判定はhttpx.codes.is_success(response.status_code)のみで判定している。3xxリダイレクトなど中間状態のハンドリングが無い（is_successは2xxのみ真なので3xxは「配置失敗」経路に流れる想定になっているはずだが、そのままHTTPStatusErrorがraiseされ、それが最終的にOriginalUploadErrorに丸められる）。 / document_management_gateway.py 全体（DocumentManagementGateway クラスの各メソッド）: 全メソッドがraise NotImplementedErrorのスケルトンであり、実装が存在しない。ドキュメント上は「未実装」と明記されているため隠蔽された欠陥ではないが、公開契約(DocumentManagementPort)としてのfail-closed/fail-openの検証（テストで実際に例外送出を確認しているか）は本diffのtestsディレクトリを見る限り、DocumentManagementGatewayクラス自体を対象にした単体テストが見当たらない（Mock(spec=DocumentManagementPort)経由でのテストのみ）。 / test_route_registration.py: _requires_authentication() のdocstring変更（resolve_service_caller削除に伴う変更）: diffで `resolve_current_user` と `resolve_service_caller` の両方を許容していたチェックから `resolve_current_user` のみの単一チェックに変更された。この変更に対応する「resolve_service_callerが依存木に含まれるルートを検出できるか」という反対方向の退行検知（サービス認証ルートを見落とす）テストが、削除されたinternal_documentsルーター/テストの削除と同時に行われているため、新設ゲート（_requires_authentication）が「全ルートが利用者認証かサービス認証のどちらかを要求する」という当初の柵の意図を「利用者認証のみ」に狭めている。新設のdocuments.py（service/v1）ルーターはresolve_service_callerのみを使うため、このテストの対象から外れている可能性がある（本diffの範囲では_requires_authenticationの呼び出し元テスト全体を確認できていない）。 / documents.py: register_document() の一時ファイル削除（finally節）: 一時ファイル作成後、finally節でtemporary_file_path.unlink(missing_ok=True)を必ず実行しており、対称性は守られている（正常系・異常系どちらでも削除される）。これは衛生上問題なし、と判断。 / azure_blob_object_storage.py, delta_rs_delta_lake_reader.py, blob_manifest_reader.py, dagster_workflow_launcher.py の全メソッド: インフラ層の実装が全てraise NotImplementedErrorであり、対称性・タイムアウト・fail-openの検証を行うテストがそもそも存在しない（本diffのtests配下に対応ファイルなし）。"
+      },
+      "parallel_pr": {
+        "status": "found",
+        "count": 2,
+        "detail": "open PR 29 件（自分の #1805 を headRefOid で除外）のうち 2 件が同一ファイルに触れる。#1832（190578_daifuku、admin 初期作成と役割権限）は backend/app/api/routers/__init__.py の import 列と include_router に users・role_permissions を足す。#1805 は同じ import 列から internal_documents を消すので隣接行の文字の衝突で、意味の衝突は無い。#1737（190578_daifuku、設計書の誤読 3 か所）は docs/explanations/architecture/document-upload-to-release.adoc の 638〜660 行付近と document-upload-to-release-sequence.puml の 26・151〜176 行付近を直す。#1805 の hunk は同 adoc の 626〜636 行と同 puml の 29〜94・160〜176 行で、puml は範囲が重なり文字の衝突が起きうる。どちらも文字の衝突だけで、後から merge する側が解消すれば済むので本ループの対象から外す。"
+      },
+      "provenance": {
+        "status": "found",
+        "count": 1,
+        "detail": "services/document-management/document-management-backend/README.md（この差分で新規追加）が「経緯は docs/decisions/accepted-limitations.adoc「文書管理基盤の認証処理は backend のコピーで賄う」」と、既存の合意事項であるかのように正本を指し示している。しかし引用先の accepted-limitations.adoc の当該見出し「=== 文書管理基盤の認証処理は backend のコピーで賄う」自体も、この同じ差分が新規追加した節（diff の +）であり、BASE（b5ce3e446ead6ba0e23f964846a0873e51be1982）の accepted-limitations.adoc には存在しない。差分が自ら足した記述を根拠として引用しており循環している。"
+      },
+      "test_double_fidelity": {
+        "status": "clean",
+        "checked": "この差分が外部システムに触れる唯一の継ぎ目は OIDC discovery（metadata_url / jwks_uri）で、src/auth/oidc_discovery.py の OidcDiscoveryClient が httpx で metadata JSON を取得し jwks_uri を抜き出し、PyJWKClient で JWKS を取得する。tests/auth/test_oidc_discovery.py の代役は http.server.ThreadingHTTPServer を実プロセスとして起動し、metadata={\"jwks_uri\": ...} と jwks={\"keys\": [RSAAlgorithm.to_jwk(...) に kid を追加したもの]} を実HTTP経由で返す（httpx/PyJWTを差し替えるモックではなく本物のHTTPラウンドトリップ）。この代役の入力形が実物と一致するかを、実際に到達可能な公開 IdP（Microsoft Entra ID, https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration および https://login.microsoftonline.com/common/discovery/v2.0/keys）から取得した1件の実測値と突き合わせた。metadata の実測値には jwks_uri フィールドが存在し（コードが読む唯一のフィールドと一致）、JWKS の実測値の鍵オブジェクトは kty/use/kid/x5t/n/e/x5c/cloud_instance_name/issuer を持つが alg フィールドは存在しない。テスト代役の鍵オブジェクトは kty/n/e/kid のみ（use/x5c 等は無いが、コードは kty/n/e/kid 以外を読まない）で、alg フィールドが無い点は実物と一致している（PyJWK は alg 欠落時 kty=RSA から RS256 を既定推論する。この既定推論はテストの assert signing_jwk.algorithm_name == \"RS256\" と実測が一致することで裏付けられる）。代役が実物より過度に単純化されている箇所（use/x5c/cloud_instance_name/issuer の欠落）はコードが参照しない属性のみで、誤りの観測能力（kid 不一致・alg 不一致・jwks_uri 欠落などの分岐）を損なわない。"
+      },
+      "prior_decisions": {
+        "status": "found",
+        "count": 6,
+        "detail": "docs/decisions/accepted-limitations.adoc 内の1件（文書管理基盤の認証処理は backend のコピーで賄う）と、PR #1805（本差分の現PR）の既存レビュースレッドでの回答済み決定5件（Dockerfileのconfig未同梱、CORSワイルドカード+資格情報、_TECHNICAL_IDENTIFIER_PATTERNでの英数字許容、ドメイン名見直しの別issue化、tacit_knowledge側ドキュメントの現状維持）を settled として計上。"
+      },
+      "external_standards": {
+        "status": "found",
+        "count": 2,
+        "detail": "①src/observability/otel_setup.py の initialize() が `trace.get_tracer_provider().__class__.__name__ != \"ProxyTracerProvider\"` というクラス名の文字列比較で初期化済み判定をしている。同じ import 済みモジュール（opentelemetry.trace）が `ProxyTracerProvider` クラスそのものを公開しており、`isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider)` で書ける。②pyproject.toml が `openinference-semantic-conventions==0.1.26` を直接依存として宣言しているが、diff 全体で import している箇所が無い（`openinference.instrumentation` の `REDACTED_VALUE` / `TraceConfig` のみ使用）。"
+      },
+      "procedure_trace": {
+        "status": "found",
+        "count": 1,
+        "detail": "services/document-management/document-management-backend/README.md の『設定』節: `cp .env.sample .env` の直前に `cd` が無い。この節の前に `cd` を伴うコマンドブロックは一度も出てこない（『フォルダ構成』節はコマンドでなくツリー図のみ）。最初に `cd` が出るのは後続の『ローカル開発』節。したがって初見の読者が文書冒頭から順に実行すると、リポジトリルート（または任意の未 cd 状態）で `cp .env.sample .env` を実行することになる。実機確認: リポジトリルートに `.env.sample` は存在せず（`test -f .env.sample` → 無し）、`services/document-management/document-management-backend/.env.sample` にのみ存在する（同コマンドで存在確認済み）。よってルートから実行すれば `cp: .env.sample: No such file or directory` で失敗する。"
+      },
+      "consistency": {
+        "status": "found",
+        "count": 2,
+        "detail": "1. `services/document-management/document-management-backend/src/api/routers/service/v1/documents.py` の冒頭 docstring は「このファイルは旧契約 `/internal/documents` の残骸で、実装・ドキュメント追従は将来 issue 1301 で行う」と述べるが、実際にはこの PR（feature/1301）がその追従を完了済み。旧ファイルは削除、ドキュメントは更新済み、宣言パスは既に新パスのまま。docstring は自己言及的に誤り。\n2. `get_manifest`（667-673行目）と `get_gold_content`（764-770行目）の `ValueError` 捕捉時に `raise HTTPException(status_code=422, detail=\"...\")` を直接投げており、他の全エラー経路が従う標準機構（業務例外 → exception_handlers → error_mapping → DocumentsErrorResponse）を迂回。結果として `error_code` なしのボディが返り、対応するテスト（1242行・1446行）がこの形でロック。同一ファイル内他のバリデーションエラーは全て標準形に従う。"
+      },
+      "bypass": {
+        "status": "found",
+        "count": 1,
+        "detail": "get_manifest と get_gold_content の2箇所で `raise HTTPException(...)` が使用され、確立済みの標準エラー変換機構（業務例外クラス → exception_handlers → error_mapping/* → DocumentsErrorResponse）を迂回。同一ファイル内の全他エラー経路（400/404/409/413/500）はこの機構を通っており、迂回が特定2箇所に限定されていることを diff・現物で確認。"
+      },
+      "gate_efficacy": {
+        "status": "found",
+        "count": 2,
+        "detail": "services/document-management/document-management-backend/src/auth/__init__.py の get_service_caller が新設するサービス間 Bearer 認証ゲートを検証。tests/api/routers/service/v1/test_documents.py の test_get_documents_returns_unauthorized_for_missing_bearer_token（401 腕）と test_get_documents_returns_forbidden_for_missing_required_scope（403 腕）の 2 本を対象に、写し（/private/tmp/.../scratchpad/ge-r2 配下、mktemp 相当の一時ディレクトリに cp -R + uv sync 済み）上でそれぞれの分岐を無効化して赤を確認し、印注入で守る行の通過も確認した。"
+      },
+      "local_review": {
+        "status": "found",
+        "count": 27,
+        "detail": "7宣言レンズすべてを起動（/code-review high・pr-review-toolkit:code-reviewer・/simplify・/security-review・silent-failure-hunter・type-design-analyzer・pr-test-analyzer）。所見合計27件（/code-review 3, code-reviewer 2, simplify 13, security-review 0[clean], silent-failure-hunter 1, type-design-analyzer 2, pr-test-analyzer 6）。/simplify と /security-review は下記 failed に理由を記載の代替手段で実行。verdict/採点はこの節では行っていない。"
+      },
+      "main_path_observation": {
+        "status": "clean",
+        "checked": "services/document-management/document-management-backend を uv run uvicorn src.main:app --host 127.0.0.1 --port 18010 で実起動し（APP_CONFIG_FILE=./config/config.yaml, OTEL_ENABLED=false, NO_PROXY/no_proxy=127.0.0.1,localhost）、curl で service/v1/documents 系エンドポイントを叩いた。document_management_gateway（AzureBlobObjectStorage / DagsterWorkflowLauncher / BlobManifestReader / DeltaRsDeltaLakeReader）は全メソッド NotImplementedError のスケルトンのため、resolve_service_caller の認証依存より先に届く経路（FastAPI dependency 解決・HTTPBearer・OidcJwtTokenValidator の未検証デコード段）だけが実行観測できる。Gateway 呼出しに到達する箇所（有効な JWT が必要な 200/400/409/413 系）は本物の IdP（Entra/Keycloak）が無いため到達不能で、observed には載せていない。起動プロセスは検証後に kill 済み（PID 59955、停止確認済み）。",
+        "detail": "main.py の起動シーケンス（設定検証→create_document_management_port→initialize_application→ルート登録）は Azure/Dagster 等の実クライアントへの疎通を起動時に行わないため、資格情報なしでも正常起動した。認証依存が先に評価される経路では 401 系（token_missing / token_invalid）が実物として観測でき、いずれもコード上の AuthFailureError の to_http_response_spec() どおりの status/detail/WWW-Authenticate を返した。欠陥は見つからなかった。"
+      },
+      "fix_closure": {
+        "status": "clean",
+        "count": 0,
+        "checked": "10 ユニットそれぞれに閉鎖の確かめ方を実行した。テストを足した・変えたものは退行の注入で赤→復元で緑を確認（認証の集約、422、サイズ判定、孤立サロゲート、ServiceCaller、ログ秘匿 2 本）。削除は judge の class_query を走らせ直して 0 件。文言は変更後の実物を提示。NO_PROXY=127.0.0.1,localhost uv run pytest -q → 172 passed、uv run mypy → no issues、pre-commit（ruff 等）Passed"
+      }
+    },
+    "rejudge_rounds": {
+      "round": 2,
+      "n": 1
+    },
+    "retaken_for_reviews": {
+      "file": "/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359/diff-r2-after-fix.patch"
+    },
+    "last_review": {
+      "R1": {
+        "round": 2,
+        "status": "redesign-needed",
+        "reason": "「backend から写した部分のうち、このサービスが使わないものが残っている」ユニットは、3 周続けて同じ形の対症処置になっています。これが判定の中心です。1 周目は名指しした 12 か所を消し、2 周目は語のリスト（Helm・LLM・canonicalize_hide_env など）で 17 行を消しました。それでも固定版には同じ種類の写しが残っています。(1) src/common/span_body_redaction.py 9-11 行の「本文を載せるかはテナントが values で明示して選び」。このサービスには chart もテナントの values もありません。また、正本として挙げる docs/reference/telemetry-attributes.adoc は、起動時に \"false\" を補う処理を方針にしていますが、この周にこの処理（canonicalize_hide_env）を消したので、書かれた方針と実装が合いません。(2) src/main.py 136 行の起動時警告「テナントの values を見直す」。運用者が、存在しない設定を探しに行くことになります。(3) 同じファイル 125 行の「回答の本文が載り続ける」。LLM の回答を前提にしています。2 周目の問いは `values\\.schema\\.json` のように語で引いたので、これらを取りこぼしました。さらに、同じ累積差分の中で逆向きの基準が同居しています。1 周目は auth/models.py から User 系を消しました。一方で、token_validator_settings.py 232 行の「users テーブルの識別キー」は「写しは backend と揃えて保つ」を理由に nit で残しています。README と台帳は「backend を直したら同じ修正をこちらにも当てる」と約束していますが、2 周目で common と observability の写しを書き換えて削ったので、この約束が守りにくくなっています。処方は次のとおり作り直してください。まず写しの扱いの基準を 1 つに決めます。選択肢は (a) このサービスに無い前提（chart・テナントの values・LLM・OpenInference 計装・利用者 DB）を持つ記述を、auth を含む写し全体で消す、(b) 写しは backend のまま保ち、食い違いは台帳だけに書く、の 2 つです。次に、ユニットの対象と問い（語ではなく前提で引く問い）をその基準から作り直します。基準を決めるのは PR 作者なので、PR への指摘は「どちらかを選んでほしい」という形で残します。これ以外に、この周の修正が生んだ削り残しが 1 つあります。router が metadata のサイズを判定しなくなったので、src/api/error_mapping/document_registration.py の metadata_too_large_response と、変換表より前にある MetadataTooLargeError の特別分岐は、呼び出し元が同じファイルの 1 か所だけになりました。これは _DOCUMENT_REGISTRATION_ERROR_SPECS の 1 行に畳めます（file_too_large_response は router からも呼ばれるので残します）。ほかのユニットの処方（集約ルーターでの認証の強制と、全ルートの 401 テスト。metadata の入口を 1 つにすること。AfterValidator で標準の 422 に乗せること）は、零処方から並べても正当化できます。集約ルーターで強制したうえでテストを残すのは、このテストがいつでも緑になる検査ではないからです。依存を外すと 5 件が赤になることを見ています。"
+      },
+      "R2": {
+        "round": 2,
+        "status": "pass",
+        "reason": "構造の骨格は独立設計と一致しており、本質的な食い違いは無い。一致している点は次のとおり。(1) document-management-backend を独立したデプロイ単位として切り出し、独自の pyproject・OTel service.name・/service/v1 ルーターを持つ。backend 側の internal_documents と resolve_service_caller は撤去している。(2) 責務は API 層（router と error_mapping）、アプリ層（DocumentLifecycle / DocumentCatalog / ArtifactReader）、業務語彙の DocumentManagementPort、インフラ Port 群を合成する Gateway の 4 層に分かれている。(3) 冪等キーは caller_iss・caller_sub・request_id から決定的に導出する UUIDv5 である。ハッシュはサーバ側で計算し、申告値は照合にだけ使う。同一キーで既存原本のハッシュが異なれば 409 を返す。(4) Manifest 世代予約は、Port の 1 操作 reserve_manifest_version を原子的な条件付き新規作成として契約化しており、check-then-act を避けている。予約済みなら 409 を返し、処理要求は投入しない。(5) 認証はルーター集約点で依存を強制し、全ルートの 401 をテストで固定している。検証は OIDC JWT の iss・aud・exp・nbf・scope で、失敗時は 401（WWW-Authenticate 付き）と 403 を返す。(6) 必須設定が欠けていれば起動時に失敗させる。独立設計と構造が異なる点もある。複数インフラにまたがる順序制御（原本配置、次に処理要求投入）を Gateway ではなくアプリ層に置いている点と、fake 実装と共有契約テストを持たず、本番配線でスケルトン Gateway の NotImplementedError が汎用 500 になる点である。ただし前者は、Bronze 登録の冪等性と再送によって途中失敗から回復できるよう設計書で明示して閉じている。後者は、Gateway を #1302 で実装する段階分割として README に明記されており、この PR の業務処理はモック Port を使った in-process テストで検証が閉じている。いずれも作り直しを要する食い違いではない。そのほかの差（readiness の不在、ヘルスのトレース除外、Keycloak realm 設定、配備・CI、run_key による二重防御、設定プレフィックス、流用元コメントの残骸）は、後続で埋められる不足か表現の差である。"
+      },
+      "R3": {
+        "round": 2,
+        "status": "redesign-needed",
+        "reason": "Module docstring in services/document-management/document-management-backend/src/api/routers/service/v1/documents.py contains three contradictions: (1) describes this file as a stub/redirect to 'services/document-management/' implementation when this file IS that implementation with router prefix '/documents' and parent prefix '/service/v1' yielding actual path '/service/v1/documents'; (2) states 'docs/explanations/architecture/data-document-lifecycle.adoc remains to be updated' but the diff shows this file has already been updated from 'POST /internal/documents' to 'POST /service/v1/documents'; (3) references issue 1301 as pending follow-up work when the changes described are already implemented in this diff. The docstring must be rewritten to reflect the current state: this file is the production endpoint implementation, not a temporary stub, and the documentation updates are complete."
+      },
+      "R4": {
+        "round": 2,
+        "status": "pass",
+        "reason": "移行退行棚卸しが発火する diff（/internal/documents → /service/v1/documents への契約移行、backend 側の internal_documents スタブ router 廃止）だが、廃止された旧 router は resolve_service_caller が常に NotImplementedError を送出するだけの未稼働スケルトンで、backend/app/api/routers/internal_documents.py は git 上 rename として新サービスの services/document-management/document-management-backend/src/api/routers/service/v1/documents.py へ全面移設・実装されている。旧 test_internal_documents.py も同じ契約（認証必須）を test_route_registration.py の allowlist 検査へ統合済みで、失われた能力は無い。アーキテクチャ図（document-upload-to-release-sequence.puml 等）も『ブラウザ→Nginx→file_backend』から『呼び出し元サービス→Document Management Backend』へ露出面の変更が全ドキュメント（mvp.adoc・sequence.puml・architecture.puml・data-document-lifecycle.adoc）で一貫して反映されており、齟齬は見当たらない。横断リスクの主要候補（OIDC discovery/JWKS 取得が外部 IdP に同期依存する可用性結合、アプリ層レート制限の不在、登録 API の actor_iss/actor_sub が呼び出し元の自己申告で認可には使わない設計、backend からのコード複製）はいずれも a) 既存 backend と同一設計の踏襲（accepted-limitations.adoc に明記・追跡 issue #1821 あり）、b) 本 PR の目的外の後続 issue（#1302 の Gateway 実装待ち）に明示的に委譲、c) 元から repo 全体の方針（ネットワーク層+トークンで境界を作る）として一貫、のいずれかであり、この diff が新規に導入・露呈させたものではない。"
+      }
+    },
+    "lines_at_r1": 11101,
+    "block_counts": [
+      {
+        "round": 1,
+        "n": 1
+      },
+      {
+        "round": 2,
+        "n": 3
+      }
+    ],
+    "prev_blocks": [
+      "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: 登録処理全体を覆う except ValueError が metadata 以外の失敗も 400 INVALID_METADATA に変え、ログも残さない",
+      "services/document-management/document-management-backend/src（auth/models.py・auth/interfaces.py・common/span_body_redaction.py・main.py の CORS）と pyproject.toml: backend から複製した部分のうち、このサービスが使わないものが残っている",
+      "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py router: 全ルートがサービス認証を要求することを検査するテストが、backend からの移設で失われた"
+    ],
+    "defer_ledger": {
+      "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: multipart の本文を、認証と上限確認より先に全量ディスクへ受信している": {
+        "reason": "defer 台帳のキーのままです。構造的な理由（未解決の設計判断: 本文の上限を ingress・ASGI middleware・ルート内のどこで効かせるか。backend の利用者向けアップロードにも同じ制約がある）は今も成り立っています。固定版にも配備設定の変更は 0 件です。",
+        "round": 2
+      },
+      "services/document-management/document-management-backend/src/api/error_mapping: 業務例外から HTTP 応答への変換が、3 ファイルの isinstance の連鎖に分かれている": {
+        "reason": "defer 台帳のキーのままです。この周の /code-review（5xx のログ出力ブロックの逐語コピー）と /simplify（3 通りの変換方式）は、同じ欠陥の別の側面です。構造的な理由（例外に HTTP 仕様を持たせるか、表で引くか、という未解決の設計判断）は今も成り立っています。",
+        "round": 2
+      },
+      "services/document-management/document-management-backend/src/auth（backend のコピー）: 署名・audience 検証がテストで一度も実行されない（backend と同じ欠陥）": {
+        "reason": "pr-test-analyzer によると、jwt.decode を差し替えるテストしか無いため、verify_aud を False にするミュータントが生き残ります。backend/tests/modules/auth/test_oidc_jwt_token_validator.py も同じ形です（Grep で確認）。決着済みの論点（auth の写しは backend と揃えて保ち、#1821 で共通化する）の理由は今も成り立っています。defer の構造的な理由は「サブシステムが別」で、正本は backend 側にあります。silent-failure-hunter の「500 系の認証失敗で原因をログに残さない」は、get_service_caller が InternalServerAuthFailureError を送出する前に logger.exception で traceback を出している（src/auth/__init__.py:72）ので反証でき、このユニットから外しています。",
+        "round": 2
+      }
+    },
+    "validator_outputs": {
+      "1": "問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。目的の内側でないかは R1 が監査）:\n  - [未決] fork: fork: multipart の本文上限をどの層で効かせるか — 零処方は落ちます。取り下げは目的の中核を失い、既存の機構（依存・ハンドラ内の確認）では FastAPI が本文を先に解析するため効きません（backend/app/api/routers/documents.py:152 に記録済み）。残る候補は、どれも機構の新設か配備設定の追加です。\n収束を妨げるもの 15 件:\n  - [block] 未解消: services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: 登録処理全体を覆う except ValueError が metadata 以外の失敗も 400 INVALID_METADATA に変え、ログも残さない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src（auth/models.py・auth/interfaces.py・common/span_body_redaction.py・main.py の CORS）と pyproject.toml: backend から複製した部分のうち、このサービスが使わないものが残っている\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py OidcJwtTokenValidator: コピー元にある issuer 不一致・正常系の検証テストがコピー先に移っていない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py _upload_original と src/api/auth.py _create_auth_token_validator: 失敗分岐を踏むテストが無い\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/document_lifecycle の DocumentManagementError 捕捉点: 失敗の記録が層ごとにばらばら。原因分類と traceback が残らない経路と、NOT_FOUND を ERROR で出す経路が混在している\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/README.md 依存方針: backend からコピーした auth/common/observability に、共通化の追跡 issue への導線が無い\n  - [suggest] do-now 未対応: services/document-management/docs/explanations/document-management-detail-design.adoc サービスAPIの公開方針: 到達制御を範囲外とした記述から追跡 issue への参照が消えている\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/dev_entry.py start と src/main.py main: 待受ポートが 8000 固定で、backend の開発サーバーと衝突する\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/README.md ローカル開発・テスト: libmagic の事前導入が書かれておらず、macOS では uv run pytest が収集エラーになる\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/pyproject.toml dependencies: dev_entry.py が直接 import する python-dotenv が宣言されていない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/main.py の FastAPIInstrumentor 分岐: OTEL_ENABLED の判定を otel_setup.tracing_enabled とは別に書き直している\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/pyproject.toml pyjwt: 固定版 2.12.1 が GHSA-jq35-7prp-9v3f の対象範囲に入る（今の呼び方では悪用経路に乗らない）\n  - [suggest] do-now 未対応: metadata の 2KiB 上限: router は受信した文字列、DocumentLifecycle は再直列化した JSON で測っており、後者は router 経由では到達しない\n  - R1 が redesign-needed: 判定は redesign-needed です。backend からのコピーの残り物を消す修正（ユニット 2）が、判定者が挙げた 12 か所を消すところで止まっています。「このサービスに要るか」を洗い直していないため、理由を失った仕組みと、このサービスについて誤りになった WHY コメントが残りました。\n    \n    根拠（diff-r1-after-fix.patch と作業ツリーで確認）:\n    (1) OpenInference 系の依存は langchain/openai の計装 2 つを外した結果、このサービスには OpenInference の計装が 1 つも残っていません。FastAPIInstrumentor は OTel のもので、OPENINFERENCE_HIDE_* を読みません。それなのに次が残っています。\n    - canonicalize_hide_env と、その呼出し（otel_setup.initialize）\n    - otel_setup の WHY「OpenInference は instrument 時に…手動スパン側との判定分裂を防ぐ」\n    - REDACTED_SENTINEL のコメント（手動スパンとライブラリスパンのセンチネル）\n    canonicalize_hide_env は読む側がいない環境変数を書き戻すだけです。起動ログにも「本文をトレースへ載せる」と事実と違う行を出します。修正者は bypass_tried で「openinference-instrumentation を残したので canonicalize_hide_env は動く」と書いており、仕組みの存在理由を確かめずに生かしています。\n    (2) 同じモジュールの _HIDE_ENV_LOOKALIKE と warn_unknown_hide_env の説明に、このサービスには無いものが前提として残っています。values.schema.json の backend.env.propertyNames との同期義務、「Helm 経由は schema が弾く」、「backend からは未設定に見える」です。ユニット 8 自身が「deploy/ にこのサービスの配備設定は無い」と確認しています。exception_log_payload の docstring と main.py の JSONFormatter のコメントも、「ツール応答・LLM エラー」とこのサービスに無い中身を挙げています。\n    (3) openinference-semantic-conventions が pyproject に直接宣言されていますが、src から import されていません。ユニット 2 の網は、判定者が挙げた 2 パッケージだけを数えていました。\n    (4) 同じ種類の見落とし（PR 本体由来）もあります。documents.py のモジュール docstring 3-6 行が「このルーターが宣言する /internal/documents は旧契約で、このファイルの退役は #1301 で行う」と言っています。17-18 行は「実装時は…依存性注入する」と言っています。どちらも改名前の backend/app/api/routers/internal_documents.py から持ち越した、今は誤りの記述です。凍結した目的のレビュー観点「流用コードの変更漏れ」の中心にあたります。\n    \n    根本は「コピーした common/・observability/・ルーターの記述を、このサービスの呼び出し経路から洗い直していない」の 1 つです。ユニット 2・3・6 はどれも根を「PR 作者の判断」として症状だけを消し、その結果、残った側の説明がこのサービスについて嘘になりました。\n    \n    零処方（削除だけで閉じるもの）:\n    - canonicalize_hide_env、その呼出しと WHY、openinference-semantic-conventions の宣言を消す\n    - 上記の Helm・backend・LLM・手動スパンを前提にした記述と、documents.py 3-6・17-18 行を消す\n    OPENINFERENCE_HIDE_* をこのサービスのログ秘匿の切替として使い続けるか（その場合 openinference-instrumentation は REDACTED_VALUE と TraceConfig のフィールド名のためだけに残ります）は、指摘として PR 作者へ回すべき選択です。\n    \n    その他（redesign の理由ではありません）:\n    - ユニット 1・13 で小さな重複が残りました。router の _parse_metadata は invalid_metadata_response() を使い、lifecycle 側は表の InvalidMetadataError 行を使います。同じ 400 INVALID_METADATA の本文が 2 か所に書かれています。router の直接呼出しが消えた metadata_too_large_response も、表の特別扱いのまま 1 か所からしか使われていません。\n    - ユニット 13 では、書かれた契約（Form の説明「JSON文字列で渡す…UTF-8で最大2KiB」）と、残した測り方（詰めて再直列化した JSON）が食い違ったままです。指摘には、この両案と、到達しない判定があった事実を添えて出す必要があります。\n    - ユニット 4・7・8・9・10・11・12 の処方は最小で、正当化されています。問いの台帳の fork は、零処方（取り下げ・既存の機構）を列挙し、理由を付けて棄却しているので逃げ道ではありません。\n  - 前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）\n台帳に未決の問いが 1 件（うち人へ 0 件）——阻害要因の有無に依らず、最終報告の冒頭に載せろ。",
+      "2": "増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:\n  - scalar 'doc_lines_backend_readme': 94 → 98\n持ち越し（機械は中身を見ない。古いものほど、見直す理由が無いかを疑え）:\n  - 素材 base_determination: round 1 の判定を流用（1 ラウンド前）\n  - 素材 parallel_pr: round 1 の判定を流用（1 ラウンド前）\n問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。目的の内側でないかは R1 が監査）:\n  - [人へ] fork: fork: multipart の本文上限をどの層で効かせるか — 再審の結果、escalate にします。この周の 1〜7 で台帳を見ずに同じ欠陥を採点しても、処方を 1 つに置けず、同じ岐路が立ちました。問いは実在します。零処方のうち、取り下げは登録 API を失うので落ち、既存の機構は FastAPI が依存の解決より先に本文を書き出すため効かないので落ちます。選択はリポジトリ全体の方針（backend の利用者向けアップロードも同じ制約を持つ）と配備設計に及びます。人でないと決められないため、held のまま 2 周目に持ち越さずに人へ上げます。\n履歴（round 1〜2。P2 の judge に渡せ。機械は解釈しない）:\n  - services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: 登録処理全体を覆う except ValueError が metadata 以外の失敗も 400 INVALID_METADATA に変え、ログも残さない\n          r1:block → r2:block\n  - services/document-management/document-management-backend/src（auth/models.py・auth/interfaces.py・common/span_body_redaction.py・main.py の CORS）と pyproject.toml: backend から複製した部分のうち、このサービスが使わないものが残っている\n          r1:suggest/do-now → r2:block\n  - services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py OidcJwtTokenValidator: コピー元にある issuer 不一致・正常系の検証テストがコピー先に移っていない\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py _upload_original と src/api/auth.py _create_auth_token_validator: 失敗分岐を踏むテストが無い\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/document_lifecycle の DocumentManagementError 捕捉点: 失敗の記録が層ごとにばらばら。原因分類と traceback が残らない経路と、NOT_FOUND を ERROR で出す経路が混在している\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/README.md 依存方針: backend からコピーした auth/common/observability に、共通化の追跡 issue への導線が無い\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/docs/explanations/document-management-detail-design.adoc サービスAPIの公開方針: 到達制御を範囲外とした記述から追跡 issue への参照が消えている\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/dev_entry.py start と src/main.py main: 待受ポートが 8000 固定で、backend の開発サーバーと衝突する\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/README.md ローカル開発・テスト: libmagic の事前導入が書かれておらず、macOS では uv run pytest が収集エラーになる\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/pyproject.toml dependencies: dev_entry.py が直接 import する python-dotenv が宣言されていない\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/main.py の FastAPIInstrumentor 分岐: OTEL_ENABLED の判定を otel_setup.tracing_enabled とは別に書き直している\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/pyproject.toml pyjwt: 固定版 2.12.1 が GHSA-jq35-7prp-9v3f の対象範囲に入る（今の呼び方では悪用経路に乗らない）\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: multipart の本文を、認証と上限確認より先に全量ディスクへ受信している\n          r1:suggest/defer → r2:suggest/defer\n  - services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py register_document: 同じ request_id の再送で、content_hash 以外の属性が違っても受理される\n          r1:question → r2:question\n  - services/document-management/docs の設計書: 照合先の設計書の決定を、この PR 自身が実装に合わせて書き換えている\n          r1:question → r2:question\n  - services/document-management/document-management-backend/src/api/error_mapping: 業務例外から HTTP 応答への変換が、3 ファイルの isinstance の連鎖に分かれている\n          r1:suggest/defer → r2:suggest/defer\n  - metadata の 2KiB 上限: router は受信した文字列、DocumentLifecycle は再直列化した JSON で測っており、後者は router 経由では到達しない\n          r1:suggest/do-now → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/auth/models.py _normalize_scopes: scp が JSON 配列のトークンで、401 でなく 500 になる\n          r1:nit → r2:nit\n  - services/document-management/document-management-backend/src/document_lifecycle/model: ScopeId/DocumentTags/Visibility は dataclass のフィールドと __init__ の引数が食い違い、DocumentCatalogItem.visibility だけが検証済みの型でない\n          r1:nit → r2:nit\n  - services/document-management/document-management-backend/src/main.py の app 生成部のコメントの Issue #1021 と、src/api/auth.py の未実装分岐: 追跡先が完全 URL になっていない\n          r1:nit → r2:nit\n  - services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py register_document: 原本を 3 回全読みし、原本の PUT ごとに httpx.AsyncClient を作り直している\n          r1:nit → r2:nit\n  - services/document-management/document-management-backend/src/api/routers/service/v1/documents.py router: 全ルートがサービス認証を要求することを検査するテストが、backend からの移設で失われた\n          r1:— → r2:block\n  - services/document-management/document-management-backend/src/api/routers/service/v1/documents.py get_manifest / get_gold_content: 意味検証の失敗を HTTPException で返し、FastAPI の検証エラーとも業務エラーとも違う形の 422 本文になる\n          r1:— → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py DocumentLifecycle.register_document: metadata の解析・符号化の失敗が 500 に落ち、INVALID_METADATA の本文が 2 か所に書かれている\n          r1:— → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/main.py lifespan: create_document_management_port の戻り値に常に真の isinstance 検査と、どこからも読まれない app.state.document_management_port が残っている\n          r1:— → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/auth/__init__.py get_service_caller: 成功経路（ServiceCaller の組み立て）を通るテストが無く、issuer と subject の取り違えが検出されない\n          r1:— → r2:suggest/do-now\n  - services/document-management/document-management-backend/tests/test_application_main.py test_json_formatter_redacts_context_through_shared_policy: 秘匿を名乗るテストが秘匿の分岐を一度も通らない\n          r1:— → r2:suggest/do-now\n  - services/document-management/document-management-backend/README.md 設定: cp .env.sample .env の前にサービスのディレクトリへ移る手順が無い\n          r1:— → r2:suggest/do-now\n  - services/document-management/document-management-backend/src/auth（backend のコピー）: 署名・audience 検証がテストで一度も実行されない（backend と同じ欠陥）\n          r1:— → r2:suggest/defer\n  - services/document-management/document-management-backend/src/api と src/main.py の docstring・コメント: 関数名・構造で表れる内容の繰り返し（WHAT 注記）\n          r1:— → r2:nit\n  - services/document-management/document-management-backend/src/observability/otel_setup.py initialize: TracerProvider の初期化済み判定をクラス名の文字列比較で行っている\n          r1:— → r2:nit\n  - services/document-management/document-management-backend/src/document_lifecycle/model/registration.py RegisterDocumentCommand: content_hash と caller／actor が生の str で、不変条件が型で縛られていない\n          r1:— → r2:nit\n  - services/document-management/document-management-backend/tests/auth/test_oidc_discovery.py: プロキシ環境変数が設定された手元ではテストが失敗する\n          r1:— → r2:nit\n  - services/document-management/document-management-backend/src/document_lifecycle: 同じ形の分岐の重複（artifact_reader の NOT_FOUND 分岐 3 回、register_document の属性検証 3 回）\n          r1:— → r2:nit\n  - services/document-management/document-management-backend/src/auth/token_validator_settings.py validate_trusted_issuers: docstring が、このサービスに無い users テーブルを理由に挙げている\n          r1:— → r2:nit\n  - services/document-management/document-management-backend/src/api/routers/service/v1/documents.py モジュール docstring: 移設前の /internal/documents を旧契約と呼ぶ説明が残っている\n          r1:— → r2:info\n  - services/document-management/document-management-backend/README.md: 経緯の引用先の台帳項目が同じ差分で追加されている（根拠の循環の疑い）\n          r1:— → r2:info\n  - services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py register_document: 原本配置後の処理要求が失敗すると原本が残る、など hygiene の残り\n          r1:— → r2:info\n  - 問い: fork: multipart の本文上限をどの層で効かせるか\n          r1:held(fork) → r2:escalate(fork)\n  - 要対応（[block]＋do-now）の件数: 13 → 20\n  - 問いの台帳の件数（保留・人へ・ループが決めた）: 1・0・0 → 0・1・0\n  - scalar 'added_lines': 9932 → 9853\n  - scalar 'comment_lines': 2620 → 2603\n  - scalar 'comment_ratio_pct': 26 → 26\n  - scalar 'doc_lines_backend_readme': 94 → 98\n  - scalar 'doc_lines_data_design': 300 → —\n  - scalar 'doc_lines_data_document_lifecycle': 385 → —\n  - scalar 'doc_lines_detail_design': 536 → 536\n  - scalar 'doc_lines_document_upload_to_release': 720 → —\n  - scalar 'doc_lines_document_upload_to_release_mvp': 255 → —\n収束を妨げるもの 23 件:\n  - [block] 未解消（新規）: services/document-management/document-management-backend/src（auth/models.py・auth/interfaces.py・common/span_body_redaction.py・main.py の CORS）と pyproject.toml: backend から複製した部分のうち、このサービスが使わないものが残っている\n  - [block] 未解消（新規）: services/document-management/document-management-backend/src/api/routers/service/v1/documents.py router: 全ルートがサービス認証を要求することを検査するテストが、backend からの移設で失われた\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/README.md 依存方針: backend からコピーした auth/common/observability に、共通化の追跡 issue への導線が無い\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/api/routers/service/v1/documents.py get_manifest / get_gold_content: 意味検証の失敗を HTTPException で返し、FastAPI の検証エラーとも業務エラーとも違う形の 422 本文になる\n  - [suggest] do-now 未対応: metadata の 2KiB 上限: router は受信した文字列、DocumentLifecycle は再直列化した JSON で測っており、後者は router 経由では到達しない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py DocumentLifecycle.register_document: metadata の解析・符号化の失敗が 500 に落ち、INVALID_METADATA の本文が 2 か所に書かれている\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/main.py lifespan: create_document_management_port の戻り値に常に真の isinstance 検査と、どこからも読まれない app.state.document_management_port が残っている\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/auth/__init__.py get_service_caller: 成功経路（ServiceCaller の組み立て）を通るテストが無く、issuer と subject の取り違えが検出されない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/tests/test_application_main.py test_json_formatter_redacts_context_through_shared_policy: 秘匿を名乗るテストが秘匿の分岐を一度も通らない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/README.md 設定: cp .env.sample .env の前にサービスのディレクトリへ移る手順が無い\n  - [block] 未解消（残存——過去のラウンドにも在った）: services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: 登録処理全体を覆う except ValueError が metadata 以外の失敗も 400 INVALID_METADATA に変え、ログも残さない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py OidcJwtTokenValidator: コピー元にある issuer 不一致・正常系の検証テストがコピー先に移っていない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py _upload_original と src/api/auth.py _create_auth_token_validator: 失敗分岐を踏むテストが無い\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/document_lifecycle の DocumentManagementError 捕捉点: 失敗の記録が層ごとにばらばら。原因分類と traceback が残らない経路と、NOT_FOUND を ERROR で出す経路が混在している\n  - [suggest] do-now 未対応: services/document-management/docs/explanations/document-management-detail-design.adoc サービスAPIの公開方針: 到達制御を範囲外とした記述から追跡 issue への参照が消えている\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/dev_entry.py start と src/main.py main: 待受ポートが 8000 固定で、backend の開発サーバーと衝突する\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/README.md ローカル開発・テスト: libmagic の事前導入が書かれておらず、macOS では uv run pytest が収集エラーになる\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/pyproject.toml dependencies: dev_entry.py が直接 import する python-dotenv が宣言されていない\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/src/main.py の FastAPIInstrumentor 分岐: OTEL_ENABLED の判定を otel_setup.tracing_enabled とは別に書き直している\n  - [suggest] do-now 未対応: services/document-management/document-management-backend/pyproject.toml pyjwt: 固定版 2.12.1 が GHSA-jq35-7prp-9v3f の対象範囲に入る（今の呼び方では悪用経路に乗らない）\n  - R1 が redesign-needed: 「backend から写した部分のうち、このサービスが使わないものが残っている」ユニットは、3 周続けて同じ形の対症処置になっています。これが判定の中心です。1 周目は名指しした 12 か所を消し、2 周目は語のリスト（Helm・LLM・canonicalize_hide_env など）で 17 行を消しました。それでも固定版には同じ種類の写しが残っています。(1) src/common/span_body_redaction.py 9-11 行の「本文を載せるかはテナントが values で明示して選び」。このサービスには chart もテナントの values もありません。また、正本として挙げる docs/reference/telemetry-attributes.adoc は、起動時に \"false\" を補う処理を方針にしていますが、この周にこの処理（canonicalize_hide_env）を消したので、書かれた方針と実装が合いません。(2) src/main.py 136 行の起動時警告「テナントの values を見直す」。運用者が、存在しない設定を探しに行くことになります。(3) 同じファイル 125 行の「回答の本文が載り続ける」。LLM の回答を前提にしています。2 周目の問いは `values\\.schema\\.json` のように語で引いたので、これらを取りこぼしました。さらに、同じ累積差分の中で逆向きの基準が同居しています。1 周目は auth/models.py から User 系を消しました。一方で、token_validator_settings.py 232 行の「users テーブルの識別キー」は「写しは backend と揃えて保つ」を理由に nit で残しています。README と台帳は「backend を直したら同じ修正をこちらにも当てる」と約束していますが、2 周目で common と observability の写しを書き換えて削ったので、この約束が守りにくくなっています。処方は次のとおり作り直してください。まず写しの扱いの基準を 1 つに決めます。選択肢は (a) このサービスに無い前提（chart・テナントの values・LLM・OpenInference 計装・利用者 DB）を持つ記述を、auth を含む写し全体で消す、(b) 写しは backend のまま保ち、食い違いは台帳だけに書く、の 2 つです。次に、ユニットの対象と問い（語ではなく前提で引く問い）をその基準から作り直します。基準を決めるのは PR 作者なので、PR への指摘は「どちらかを選んでほしい」という形で残します。これ以外に、この周の修正が生んだ削り残しが 1 つあります。router が metadata のサイズを判定しなくなったので、src/api/error_mapping/document_registration.py の metadata_too_large_response と、変換表より前にある MetadataTooLargeError の特別分岐は、呼び出し元が同じファイルの 1 か所だけになりました。これは _DOCUMENT_REGISTRATION_ERROR_SPECS の 1 行に畳めます（file_too_large_response は router からも呼ばれるので残します）。ほかのユニットの処方（集約ルーターでの認証の強制と、全ルートの 401 テスト。metadata の入口を 1 つにすること。AfterValidator で標準の 422 に乗せること）は、零処方から並べても正当化できます。集約ルーターで強制したうえでテストを残すのは、このテストがいつでも緑になる検査ではないからです。依存を外すと 5 件が赤になることを見ています。\n  - R3 が redesign-needed: Module docstring in services/document-management/document-management-backend/src/api/routers/service/v1/documents.py contains three contradictions: (1) describes this file as a stub/redirect to 'services/document-management/' implementation when this file IS that implementation with router prefix '/documents' and parent prefix '/service/v1' yielding actual path '/service/v1/documents'; (2) states 'docs/explanations/architecture/data-document-lifecycle.adoc remains to be updated' but the diff shows this file has already been updated from 'POST /internal/documents' to 'POST /service/v1/documents'; (3) references issue 1301 as pending follow-up work when the changes described are already implemented in this diff. The docstring must be rewritten to reflect the current state: this file is the production endpoint implementation, not a temporary stub, and the documentation updates are complete.\n  - 前ラウンドに阻害要因が 14 件あった（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）\n台帳に未決の問いが 1 件（うち人へ 1 件）——阻害要因の有無に依らず、最終報告の冒頭に載せろ。"
+    },
+    "prev_questions": [
+      {
+        "key": "fork: multipart の本文上限をどの層で効かせるか",
+        "kind": "fork",
+        "status": "escalate",
+        "reason": "再審の結果、escalate にします。この周の 1〜7 で台帳を見ずに同じ欠陥を採点しても、処方を 1 つに置けず、同じ岐路が立ちました。問いは実在します。零処方のうち、取り下げは登録 API を失うので落ち、既存の機構は FastAPI が依存の解決より先に本文を書き出すため効かないので落ちます。選択はリポジトリ全体の方針（backend の利用者向けアップロードも同じ制約を持つ）と配備設計に及びます。人でないと決められないため、held のまま 2 周目に持ち越さずに人へ上げます。",
+        "options": [
+          "配備の ingress・プロキシで本文の上限を設定する: アプリのコードは変わらない。この PR には配備設定が無く、K8s へ載せる PR で入れることになる。ingress を経由しない Pod 間通信には効かない",
+          "このサービスに ASGI middleware を足し、Content-Length の事前拒否と受信バイト数の打ち切りを行う: サービス単体で閉じ、認証より前に止まる。新しい機構で、backend に広げるなら共有面の拡大になる",
+          "登録ルートを Request 受けにして、自前でストリーム解析する: 認証を先に確かめられるが、OpenAPI の Form・File の宣言を失う",
+          "主張を狭める: backend と同じ制約を accepted-limitations.adoc に既知の制約として載せ、配備時の ingress の設定を再訪条件にする（前の周の R1 が、選択肢に無かったと指摘した案）"
+        ],
+        "origin": "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: multipart の本文を、認証と上限確認より先に全量ディスクへ受信している"
+      }
+    ],
+    "prev_units": [
+      {
+        "key": "services/document-management/document-management-backend/src（auth/models.py・auth/interfaces.py・common/span_body_redaction.py・main.py の CORS）と pyproject.toml: backend から複製した部分のうち、このサービスが使わないものが残っている",
+        "label": "block",
+        "disposition": "do-now",
+        "reason": "前の周のキーと同じ欠陥です（このサービスが使わない backend の写しが残っている）。前の周が名指しした 12 か所（利用者・ローカル認証のモデル、UserRepository、LLM span 用の 3 関数、LangChain/OpenAI 計装の依存、CORS）は作業ツリーで消えており、Grep では 0 件でした。ただし同じ種類の写しの残りが固定版にまだあります。(1) canonicalize_hide_env とその呼出し・WHY: このサービスには OpenInference の計装が無く、正規化した環境変数を読む側がありません。処理としては何もせず、OTEL_ENABLED=true の起動時に「本文をトレースへ載せる（既定）」という事実と違うログを出します。(2) warn_unknown_hide_env の docstring の「Helm 経由の配備は values.schema.json が弾く」: このサービスには chart がありません。(3) main.py と exception_log_payload の「ツール応答・LLM エラー」、REDACTED_SENTINEL の手動スパンの前提。(4) import されない openinference-semantic-conventions と pandas-stubs（どちらも backend/pyproject.toml と同じ行）。起動ログと docstring が運用者の読み違えを具体的に起こし、凍結した目的のレビュー観点「流用コードの変更漏れ」の中心にあたるため、block に上げます。このループの修正は最後に PR への指摘へ変わるので、do-now は「今回の指摘に含める」という意味です。",
+        "reopen_evidence": "前の周の totals（12）は名指しした箇所を数えていました。この周の class_query は、写したファイル全体からこのサービスに無い前提（Helm・OpenInference 計装・LLM・未使用の依存）を数えており、17 行が残っていました。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py router: 全ルートがサービス認証を要求することを検査するテストが、backend からの移設で失われた",
+        "label": "block",
+        "disposition": "do-now",
+        "reason": "BASE の backend/tests/api/routers/test_internal_documents.py にあった test_internal_documents_routes_authentication_contract は、全 APIRoute の依存に resolve_service_caller があることを確かめていました。この差分はこのテストを消しましたが、サービス側へは移していません（サービスの tests に route.dependant を辿るテストは 0 件）。実物の認証を通るテストは GET 一覧の 401・403 の 2 本だけで、ほかの成功系は resolve_service_caller を丸ごと差し替えています。そのため、一覧以外の 5 ルートのどれかから依存を外しても、テストは緑のまま残ります（仕組みから導いた結論で、未実測）。今は 6 ルートすべてに依存が付いています。今壊れているのではなく壊れる余地ですが、凍結した目的の中心であるサービス認証の柵が移設で消えた、移行退行です。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/README.md 依存方針: backend からコピーした auth/common/observability に、共通化の追跡 issue への導線が無い",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "前の周のキーと同じ欠陥で、一部だけ閉じています。前の周の修正で、README の段落と accepted-limitations.adoc の項目、#1821 の完全 URL が入りました。ただし対象は src/auth/ と src/api/auth.py だけです。src/common/ の 3 ファイル、src/observability/otel_setup.py、main.py の JSONFormatter も backend の写しですが、README・台帳・コードのどこにも写しとして記録されていません。リポジトリの README.md は「common は services から参照する必要が生じた場合は packages に昇格する」と定めています。backend 側で秘匿の方針を直した人には、写しへ向かう手掛かりがありません。今壊れているのではなく、修正が片方にしか当たらずに食い違う余地です。",
+        "reopen_evidence": "前の周の totals（10）のうち auth の分は閉じ、common と observability の 4 ファイルが残っていることを ls-tree と grep で確認しました。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py get_manifest / get_gold_content: 意味検証の失敗を HTTPException で返し、FastAPI の検証エラーとも業務エラーとも違う形の 422 本文になる",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "暦の上で成り立たない manifest_version（pattern は通る）と、v5 でない UUID の document_id は、router の HTTPException(422, detail=文字列) で返ります。同じエンドポイントでも、pattern 違反には FastAPI 標準の 422（detail は配列。OpenAPI に自動で載る HTTPValidationError の形）が返ります。ほかの業務エラーは error_code 付きです。つまり 422 の本文の形が入力によって変わり、公開している OpenAPI とも合いません。テスト（1242 行と 1446 行付近）はこの形のまま固定しています。"
+      },
+      {
+        "key": "metadata の 2KiB 上限: router は受信した文字列、DocumentLifecycle は再直列化した JSON で測っており、後者は router 経由では到達しない",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "前の周のキーと同じ論点ですが、形が変わりました。前の周の修正で router 側の判定が消え、今は lifecycle が、詰めて再直列化した JSON の長さで判定する 1 か所だけです。書かれた契約は Form の説明 documents.py:277（「JSON文字列で渡す任意の管理メタデータ。UTF-8で最大2KiB」）だけです。主語は JSON 文字列なので、整形した 2KiB 超の文字列を受け付ける今の実装は、この文言より緩くなっています。詳細設計とデータ設計には、サイズ上限の定めがありません（前の周の grep で 0 件）。前の周の writer の異議（このループは他人の PR のレビューで、修正は最後に指摘へ戻る。どちらの測り方を残すかは PR 作者と設計の持ち主が決める）を受け入れます。このユニットは修正の是非ではなく、選択を求める指摘として正しく残すことを求めます。",
+        "reopen_evidence": "新しい事実: router 側の判定を消したので、「到達しない判定」はもうありません。代わりに、契約の文言と実装の測り方が食い違う状態が残りました。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py DocumentLifecycle.register_document: metadata の解析・符号化の失敗が 500 に落ち、INVALID_METADATA の本文が 2 か所に書かれている",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "P2 の判定理由を訂正します。私は固定版 r2 だけで確かめ、元の PR と 1 周目の修正後の違いを見ていませんでした。元の PR（diff-r1.patch の register_document）では、router が受け取った文字列の 2KiB 判定を解析より先に行います。2KiB に収まる入れ子は高々 1,024 段なので、json.loads の RecursionError には届きません。孤立サロゲート（\\ud800 のエスケープ）は lifecycle の .encode(\"utf-8\") で UnicodeEncodeError になります。しかし元の PR では、登録処理全体を包む広い except ValueError（1 周目の block）が拾い、400 INVALID_METADATA になります。この 400 は正しい分類ですが、偶然そうなっているだけです。500 に落ちるのは、1 周目の block の処方どおりに except を狭めた後だけです。固定版 r2 では router の 2KiB 判定も消えているので、どちらの入力も 500 に落ちます。INVALID_METADATA の本文が 2 か所に書かれている重複も、1 周目の修正で InvalidMetadataError の表の行を足したことで生じたもので、元の PR にはありません。したがって PR への指摘は、元の PR の欠陥としてではなく、1 周目の block（広い except）への指摘に添える注意書きとして書きます。内容は「except を狭めるなら、符号化できない値と解析の失敗を InvalidMetadataError に変える処理を、サイズ判定より後・解析と同じ入口に入れること。入れないと、偶然 400 だった入力が 500 になる」です。今の作業ツリー（document_lifecycle.py の _parse_metadata、248-272 行）は、符号化とサイズの確認を解析より先に行い、キーと値の UnicodeEncodeError も InvalidMetadataError に変えており、この順序を満たしています。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/main.py lifespan: create_document_management_port の戻り値に常に真の isinstance 検査と、どこからも読まれない app.state.document_management_port が残っている",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "create_document_management_port は、戻り値の型が DocumentManagementPort の DocumentManagementGateway を分岐なしに返すので、isinstance の検査は常に真です。app.state.document_management_port は代入だけで、src と tests のどこからも読まれていません（Grep で確認）。どちらもこの PR が新しく書いたコードです。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/auth/__init__.py get_service_caller: 成功経路（ServiceCaller の組み立て）を通るテストが無く、issuer と subject の取り違えが検出されない",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "get_service_caller はこのサービスで新しく書いたコードです。組み立てる issuer と subject は、document_id の採番、冪等性キー、登録記録の caller_iss と caller_sub にそのまま使われます。pr-test-analyzer が、issuer=claims.sub に取り違えたミュータントでも全件が緑になることを実測しています。router の成功系テストは依存を丸ごと差し替えており、test_service_caller.py にあるのは credentials=None の 1 本だけです。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/tests/test_application_main.py test_json_formatter_redacts_context_through_shared_policy: 秘匿を名乗るテストが秘匿の分岐を一度も通らない",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "テスト名は秘匿を名乗っていますが、実際は秘匿が無効な既定の状態で、秘匿対象ではない値を渡しているだけです。redact_log_context と warn_unknown_hide_env は、tests から一度も呼ばれていません（Grep で 0 件）。local_review が、2 つを何もしない関数に差し替えても 13 件すべてが緑になることを実測しています。ログ秘匿は JSONFormatter の本番経路で、この PR が残す機能です。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/README.md 設定: cp .env.sample .env の前にサービスのディレクトリへ移る手順が無い",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "procedure_trace が実機で確認しています。.env.sample はサービスのディレクトリにだけあり、README で最初に cd が出るのは後ろの「ローカル開発」節です。上から順に実行すると、最初の cp が失敗します。backend/README.md は各コードブロックの先頭で cd を明示しています。エラーの内容が明確ですぐに気づけるので、suggest にします。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: multipart の本文を、認証と上限確認より先に全量ディスクへ受信している",
+        "label": "suggest",
+        "disposition": "defer",
+        "reason": "defer 台帳のキーのままです。構造的な理由（未解決の設計判断: 本文の上限を ingress・ASGI middleware・ルート内のどこで効かせるか。backend の利用者向けアップロードにも同じ制約がある）は今も成り立っています。固定版にも配備設定の変更は 0 件です。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/api/error_mapping: 業務例外から HTTP 応答への変換が、3 ファイルの isinstance の連鎖に分かれている",
+        "label": "suggest",
+        "disposition": "defer",
+        "reason": "defer 台帳のキーのままです。この周の /code-review（5xx のログ出力ブロックの逐語コピー）と /simplify（3 通りの変換方式）は、同じ欠陥の別の側面です。構造的な理由（例外に HTTP 仕様を持たせるか、表で引くか、という未解決の設計判断）は今も成り立っています。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/auth（backend のコピー）: 署名・audience 検証がテストで一度も実行されない（backend と同じ欠陥）",
+        "label": "suggest",
+        "disposition": "defer",
+        "reason": "pr-test-analyzer によると、jwt.decode を差し替えるテストしか無いため、verify_aud を False にするミュータントが生き残ります。backend/tests/modules/auth/test_oidc_jwt_token_validator.py も同じ形です（Grep で確認）。決着済みの論点（auth の写しは backend と揃えて保ち、#1821 で共通化する）の理由は今も成り立っています。defer の構造的な理由は「サブシステムが別」で、正本は backend 側にあります。silent-failure-hunter の「500 系の認証失敗で原因をログに残さない」は、get_service_caller が InternalServerAuthFailureError を送出する前に logger.exception で traceback を出している（src/auth/__init__.py:72）ので反証でき、このユニットから外しています。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py register_document: 同じ request_id の再送で、content_hash 以外の属性が違っても受理される",
+        "label": "question",
+        "reason": "前の周の問いのままです。固定版でも照合するのは content_hash だけです。設計書は属性が食い違う場合を定めていません。意図の確認として PR に残します。"
+      },
+      {
+        "key": "services/document-management/docs の設計書: 照合先の設計書の決定を、この PR 自身が実装に合わせて書き換えている",
+        "label": "question",
+        "reason": "前の周の問いのままです。この周の材料で答えは出ていません。整合の確認は、BASE の設計書との差分で行う必要があります。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/api と src/main.py の docstring・コメント: 関数名・構造で表れる内容の繰り返し（WHAT 注記）",
+        "label": "nit",
+        "reason": "前の周の R1 が削除候補に挙げたもののうち、事実と違う内容を含まないものです。CLAUDE.md のコメント規約には当たりますが、実害がありません。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/observability/otel_setup.py initialize: TracerProvider の初期化済み判定をクラス名の文字列比較で行っている",
+        "label": "nit",
+        "reason": "backend/app/observability/otel_setup.py:109 と同じ行の写しで、今壊れるものはありません。直すなら backend と一緒に直すものです。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle/model/registration.py RegisterDocumentCommand: content_hash と caller／actor が生の str で、不変条件が型で縛られていない",
+        "label": "nit",
+        "reason": "router の pattern で書式は検証済みで、今の取り違えもありません。大文字の content_hash を使うテストを 1 本足す程度の話です。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/tests/auth/test_oidc_discovery.py: プロキシ環境変数が設定された手元ではテストが失敗する",
+        "label": "nit",
+        "reason": "backend 側の同じテストも同じ条件で失敗します。プロキシの無い CI では再現しません。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle: 同じ形の分岐の重複（artifact_reader の NOT_FOUND 分岐 3 回、register_document の属性検証 3 回）",
+        "label": "nit",
+        "reason": "挙動は正しく、揃えれば読みやすくなる程度です。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py register_document: 原本を 3 回全読みし、原本の PUT ごとに httpx.AsyncClient を作り直している",
+        "label": "nit",
+        "reason": "前の周の nit のままです。/simplify の 3 パスの読み込みの指摘は、この欠陥と同じです。10MiB 上限では実害がありません。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/auth/token_validator_settings.py validate_trusted_issuers: docstring が、このサービスに無い users テーブルを理由に挙げている",
+        "label": "nit",
+        "reason": "auth の写しの中にあります。決着済みの論点（写しは backend と揃えて保つ）の理由が今も成り立ちます。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/auth/models.py _normalize_scopes: scp が JSON 配列のトークンで、401 でなく 500 になる",
+        "label": "nit",
+        "reason": "前の周の nit のままです。auth の写しで、署名検証の後に限られます。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle/model: ScopeId/DocumentTags/Visibility は dataclass のフィールドと __init__ の引数が食い違い、DocumentCatalogItem.visibility だけが検証済みの型でない",
+        "label": "nit",
+        "reason": "前の周の nit のままです。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/main.py の app 生成部のコメントの Issue #1021 と、src/api/auth.py の未実装分岐: 追跡先が完全 URL になっていない",
+        "label": "nit",
+        "reason": "前の周の nit のままです。固定版でも main.py の「Issue #1021」は短縮参照のままです。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py モジュール docstring: 移設前の /internal/documents を旧契約と呼ぶ説明が残っている",
+        "label": "info",
+        "reason": "作業ツリーでも 3-6 行と 17-18 行が残っていることを確認しました。依頼文が「既に PR に出した 4 件（ルーター先頭コメントの古さを含む）はこのレビューの対象外」と指定しているため、指摘にはしません。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/README.md: 経緯の引用先の台帳項目が同じ差分で追加されている（根拠の循環の疑い）",
+        "label": "info",
+        "reason": "反証できました。台帳規約に従って足した項目で、根拠（PR #1641 のレビュー、issue #1821）は差分の外に実在します。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py register_document: 原本配置後の処理要求が失敗すると原本が残る、など hygiene の残り",
+        "label": "info",
+        "reason": "反証できました。同じ X-Request-Id で再送すると、409/412 を受けたあと content_hash を照合して処理要求を再び投げる、冪等な設計の前提どおりです。"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: 登録処理全体を覆う except ValueError が metadata 以外の失敗も 400 INVALID_METADATA に変え、ログも残さない",
+        "label": "block",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py OidcJwtTokenValidator: コピー元にある issuer 不一致・正常系の検証テストがコピー先に移っていない",
+        "label": "suggest",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py _upload_original と src/api/auth.py _create_auth_token_validator: 失敗分岐を踏むテストが無い",
+        "label": "suggest",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/document_lifecycle の DocumentManagementError 捕捉点: 失敗の記録が層ごとにばらばら。原因分類と traceback が残らない経路と、NOT_FOUND を ERROR で出す経路が混在している",
+        "label": "suggest",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/docs/explanations/document-management-detail-design.adoc サービスAPIの公開方針: 到達制御を範囲外とした記述から追跡 issue への参照が消えている",
+        "label": "suggest",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/dev_entry.py start と src/main.py main: 待受ポートが 8000 固定で、backend の開発サーバーと衝突する",
+        "label": "suggest",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/document-management-backend/README.md ローカル開発・テスト: libmagic の事前導入が書かれておらず、macOS では uv run pytest が収集エラーになる",
+        "label": "suggest",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/document-management-backend/pyproject.toml dependencies: dev_entry.py が直接 import する python-dotenv が宣言されていない",
+        "label": "suggest",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/document-management-backend/src/main.py の FastAPIInstrumentor 分岐: OTEL_ENABLED の判定を otel_setup.tracing_enabled とは別に書き直している",
+        "label": "suggest",
+        "disposition": "do-now"
+      },
+      {
+        "key": "services/document-management/document-management-backend/pyproject.toml pyjwt: 固定版 2.12.1 が GHSA-jq35-7prp-9v3f の対象範囲に入る（今の呼び方では悪用経路に乗らない）",
+        "label": "suggest",
+        "disposition": "do-now"
+      }
+    ],
+    "prev_scalars": {
+      "added_lines": 9853,
+      "comment_lines": 2603,
+      "comment_ratio_pct": 26,
+      "doc_lines_detail_design": 536,
+      "doc_lines_backend_readme": 98
+    },
+    "prev_rejudge": {
+      "round": 2,
+      "text": "metadata の RecursionError（unit 5 の判定理由の一部）は実測で到達しないことを確かめた（CPython 3.13 の json は 5,000 段を通し、2KiB の上限が解析より先に効く）。元の PR でも router が 2KiB を解析より先に確かめるので同じく到達しない。孤立サロゲートは、元の PR では router の広い except ValueError（1 周目の block）が UnicodeEncodeError を 400 に拾っていたので、500 になるのは 1 周目の修正で except を狭めた後だけ。PR への指摘では、この 2 点を正しい条件で書く必要がある。加えて: p2.history が 1 周目に閉じた 10 ユニットを closed_note 付きのまま block/do-now で返したため、この周の p3.fix に『変更なし』として記録した。次の周では閉じたユニットのラベルを閉じた扱いにしてほしい"
+    },
+    "prev_one_shot": {
+      "round": 2,
+      "text": "移設の棚卸しを、名指しの箇所ではなく写したファイルと BASE の柵を単位にして 1 回で行う。backend から持ち出したファイル（src/auth、src/api/auth.py、src/common/*、src/observability/otel_setup.py、main.py の JSONFormatter、pyproject の依存）を 1 件ずつこのサービスの呼出し経路と突き合わせ、3 つを同時に行う。(1) 要らないものを消す（写し過ぎ）。(2) BASE にあって移設先に無い柵を、service/v1 集約ルーターの認証依存という構造で置き換える（写し漏れ）。(3) 残した写しを台帳と README の一覧に載せる（記録漏れ）。反証の仕方: 次の周に下の 3 キーの class_query を数え直す。写し過ぎが 17 から 0、認証を外したルートが作れない（または全ルートを覆う検査が 1 件以上ある）、記録の無い写しが 4 から 0、にならなければ効いていない。",
+      "closes": [
+        "services/document-management/document-management-backend/src（auth/models.py・auth/interfaces.py・common/span_body_redaction.py・main.py の CORS）と pyproject.toml: backend から複製した部分のうち、このサービスが使わないものが残っている",
+        "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py router: 全ルートがサービス認証を要求することを検査するテストが、backend からの移設で失われた",
+        "services/document-management/document-management-backend/README.md 依存方針: backend からコピーした auth/common/observability に、共通化の追跡 issue への導線が無い"
+      ],
+      "check": "",
+      "totals": {
+        "services/document-management/document-management-backend/src（auth/models.py・auth/interfaces.py・common/span_body_redaction.py・main.py の CORS）と pyproject.toml: backend から複製した部分のうち、このサービスが使わないものが残っている": 17,
+        "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py router: 全ルートがサービス認証を要求することを検査するテストが、backend からの移設で失われた": 6,
+        "services/document-management/document-management-backend/README.md 依存方針: backend からコピーした auth/common/observability に、共通化の追跡 issue への導線が無い": 4,
+        "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py get_manifest / get_gold_content: 意味検証の失敗を HTTPException で返し、FastAPI の検証エラーとも業務エラーとも違う形の 422 本文になる": 2,
+        "metadata の 2KiB 上限: router は受信した文字列、DocumentLifecycle は再直列化した JSON で測っており、後者は router 経由では到達しない": 1,
+        "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py DocumentLifecycle.register_document: metadata の解析・符号化の失敗が 500 に落ち、INVALID_METADATA の本文が 2 か所に書かれている": 2,
+        "services/document-management/document-management-backend/src/main.py lifespan: create_document_management_port の戻り値に常に真の isinstance 検査と、どこからも読まれない app.state.document_management_port が残っている": 2,
+        "services/document-management/document-management-backend/src/auth/__init__.py get_service_caller: 成功経路（ServiceCaller の組み立て）を通るテストが無く、issuer と subject の取り違えが検出されない": 1,
+        "services/document-management/document-management-backend/tests/test_application_main.py test_json_formatter_redacts_context_through_shared_policy: 秘匿を名乗るテストが秘匿の分岐を一度も通らない": 2,
+        "services/document-management/document-management-backend/README.md 設定: cp .env.sample .env の前にサービスのディレクトリへ移る手順が無い": 1,
+        "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py register_document: 登録処理全体を覆う except ValueError が metadata 以外の失敗も 400 INVALID_METADATA に変え、ログも残さない": 0,
+        "services/document-management/document-management-backend/tests/auth/test_oidc_jwt_token_validator.py OidcJwtTokenValidator: コピー元にある issuer 不一致・正常系の検証テストがコピー先に移っていない": 1,
+        "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py _upload_original と src/api/auth.py _create_auth_token_validator: 失敗分岐を踏むテストが無い": 0,
+        "services/document-management/document-management-backend/src/document_lifecycle の DocumentManagementError 捕捉点: 失敗の記録が層ごとにばらばら。原因分類と traceback が残らない経路と、NOT_FOUND を ERROR で出す経路が混在している": 0,
+        "services/document-management/docs/explanations/document-management-detail-design.adoc サービスAPIの公開方針: 到達制御を範囲外とした記述から追跡 issue への参照が消えている": 0,
+        "services/document-management/document-management-backend/src/dev_entry.py start と src/main.py main: 待受ポートが 8000 固定で、backend の開発サーバーと衝突する": 0,
+        "services/document-management/document-management-backend/README.md ローカル開発・テスト: libmagic の事前導入が書かれておらず、macOS では uv run pytest が収集エラーになる": 0,
+        "services/document-management/document-management-backend/pyproject.toml dependencies: dev_entry.py が直接 import する python-dotenv が宣言されていない": 0,
+        "services/document-management/document-management-backend/src/main.py の FastAPIInstrumentor 分岐: OTEL_ENABLED の判定を otel_setup.tracing_enabled とは別に書き直している": 1,
+        "services/document-management/document-management-backend/pyproject.toml pyjwt: 固定版 2.12.1 が GHSA-jq35-7prp-9v3f の対象範囲に入る（今の呼び方では悪用経路に乗らない）": 0
+      }
+    },
+    "prev_fix_files": [
+      "docs/decisions/accepted-limitations.adoc",
+      "services/document-management/document-management-backend/README.md",
+      "services/document-management/document-management-backend/pyproject.toml",
+      "services/document-management/document-management-backend/src/api/error_mapping/document_registration.py",
+      "services/document-management/document-management-backend/src/api/routers/service/v1/__init__.py",
+      "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py",
+      "services/document-management/document-management-backend/src/common/span_body_redaction.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py",
+      "services/document-management/document-management-backend/src/document_lifecycle/model/registration.py",
+      "services/document-management/document-management-backend/src/main.py",
+      "services/document-management/document-management-backend/src/observability/otel_setup.py",
+      "services/document-management/document-management-backend/tests/api/routers/service/v1/test_documents.py",
+      "services/document-management/document-management-backend/tests/auth/test_service_caller.py",
+      "services/document-management/document-management-backend/tests/common/test_span_body_redaction.py",
+      "services/document-management/document-management-backend/tests/document_lifecycle/test_document_lifecycle.py",
+      "services/document-management/document-management-backend/tests/observability/test_fastapi_instrumentation.py",
+      "services/document-management/document-management-backend/tests/test_application_main.py",
+      "services/document-management/document-management-backend/uv.lock"
+    ],
+    "prev_fix_source": "実測（diff の差）",
+    "closed_keys": [
+      "services/document-management/document-management-backend/src/api/routers/service/v1/documents.py モジュール docstring: 移設前の /internal/documents を旧契約と呼ぶ説明が残っている",
+      "services/document-management/document-management-backend/README.md: 経緯の引用先の台帳項目が同じ差分で追加されている（根拠の循環の疑い）",
+      "services/document-management/document-management-backend/src/document_lifecycle/document_lifecycle.py register_document: 原本配置後の処理要求が失敗すると原本が残る、など hygiene の残り"
+    ]
+  },
+  "rev": 72,
+  "engine_changes": [
+    {
+      "round": 1,
+      "from": null,
+      "to": {
+        "root": "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0",
+        "version": "0.15.0"
+      },
+      "at": "2026-09-24T14:24:03+09:00"
+    },
+    {
+      "round": 3,
+      "from": {
+        "root": "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.15.0",
+        "version": "0.15.0"
+      },
+      "to": {
+        "root": "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.18.0",
+        "version": "0.18.0"
+      },
+      "at": "2026-09-24T19:13:15+09:00"
+    }
+  ],
+  "engine": {
+    "root": "/Users/p03623/.claude-p3/plugins/cache/raiki61/graphloops/0.18.0",
+    "version": "0.18.0"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "diff_file": "/Users/p03623/src/claude-plugins/.git/worktrees/wt-ci-skip/graphloops/review-loop/20260926-103155/diff-r2.patch",
+  "changed_files": [
+    ".github/workflows/test.yml",
+    "README.md",
+    "graphloops/tests/parallel.py",
+    "graphloops/tests/py/fence.py",
+    "graphloops/tests/simulate.py",
+    "graphloops/tests/simulate_review.py",
+    "tests/catchup-switch-case.py",
+    "tests/mutations.json",
+    "tests/run.sh"
+  ],
+  "stat": "9 files changed, 213 insertions(+), 59 deletions(-)"
+}

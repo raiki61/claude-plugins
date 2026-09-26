@@ -1,0 +1,39 @@
+{
+  "consistency": {
+    "status": "found",
+    "count": 1,
+    "detail": "tests/mutations.json の RR15（『found = ... or sessions.get(pid) == pgid』のセッション項を削る腕）の expect が『ゾンビだけのグループの EPERM』（simulate.py の escaped(leader_stays=False) シナリオ）を指しているが、そのシナリオでは長（leader）のゾンビが pgid 一致で found に直接入り、親子の鎖（todo/children）だけで孫（grand, ppid=leader.pid）まで辿り着けるため、セッション項を消しても found の結果は変わらないと読める。実際に区別が付くのは test_role_run_stop.py の test_tree_members_follows_group_session_and_parents（長が死んで ppid=1 に付け替わった孤児 4500 は鎖で辿れずセッション項だけが拾う）だが、この pytest は tests/mutate.py の SUITES['graphloops']（graphloops/tests/run.sh。graphcheck + simulate.py + simulate_review.py のみ）にも含まれず、mutmut の対象（README『変異テスト』節: 今は graphloops/engine/schema.py のみ）にも入っていない。RR15 の当たりの証拠（own）は run_selected → run_suite の simulate.py 側 check() 出力としか突き合わされないため、実際に撃つと own=False（別の検査だけが赤／もしくは無反応）になり得る。"
+  },
+  "bypass": {
+    "status": "found",
+    "count": 1,
+    "detail": "role_run.py に新設した _ps_all() の subprocess.run(['ps', '-A', ...]) だけ timeout= が無く、同じファイル内の他の subprocess.run（bwrap: timeout=10、git: timeout=30、_started_at の ps: timeout=30）が全て確立している『外部コマンド呼び出しは timeout 付き』という機構を手書きで再実装する際に踏襲していない。"
+  },
+  "findings": [
+    {
+      "where": "tests/mutations.json: RR15 (\"id\": \"RR15\", \"expect\": \"ゾンビだけのグループの EPERM\") / graphloops/engine/role_run.py _tree_members (found = ... or sessions.get(pid) == pgid の行) / graphloops/tests/simulate.py の escaped()+reap() ブロック / graphloops/tests/py/test_role_run_stop.py test_tree_members_follows_group_session_and_parents",
+      "text": "RR15 は _tree_members のセッション一致条件を削る腕で、expect は simulate.py の『ゾンビだけのグループの EPERM』チェックを指す。しかしそのテストのシナリオでは、ゾンビ化した長（leader）自身が pgid 一致で found に入り、found→children の親子鎖 BFS だけで孫（grand, ppid=leader.pid）へ到達できるため、セッション一致を消しても found の集合は変わらないはずである。セッション項の効果が実際に現れるのは、長が死んで ppid が 1 に付け替わった『孤児』ケース（test_tree_members_follows_group_session_and_parents の pid 4500）だが、この pytest は tests/mutate.py の suite『graphloops』（graphloops/tests/run.sh = graphcheck + simulate.py + simulate_review.py のみ）にも、mutmut の対象（README 記載の対象は現状 schema.py のみ）にも含まれない。",
+      "mechanism": "tests/mutate.py の run_selected/run_suite は a['tests'] に列挙された台本（simulate.py の関数）のみを実行し、その標準出力の check() メッセージと a['expect'] を突き合わせて own（当たりの証拠）を決める（mutate.py:344-346, 355）。pytest（graphloops/tests/py 配下）はこの経路に一切登場しない。したがって RR15 の実際の判定材料は simulate.py の escaped()/reap() ブロックだけであり、そこでの found の計算は前段のコード追跡上セッション項に依存しないため、mutate.py を実走すると own=False（証拠なし）で proven() が False になり得る。",
+      "measured": "未実測（tests/mutate.py も pytest も実行していない。process table・ps -A の実挙動・os.getsid の実返り値を手元で確かめていないため、静的なコード追跡のみに基づく仮説）。",
+      "false_positive_if": "macOS の ps -A がゾンビ化した長の pgid をそのまま報告しない（列自体が空・別値になる）場合、または os.getsid が想定と異なる値を返し found への長の混入経路自体が成立しない場合、あるいは children の BFS 対象になる前に leader が実際には rows から欠落する（reap タイミングの実測差）場合は、セッション項の削除がこのテストを本当に赤くする可能性があり、その場合この指摘は誤り。"
+    },
+    {
+      "where": "graphloops/engine/role_run.py _ps_all()（diff hunk 冒頭付近、旧 253 行台に追加）",
+      "text": "_ps_all() の subprocess.run(['ps', '-A', ...]) にだけ timeout が無い。同じファイルの bwrap 呼び出し（timeout=10）・git 呼び出し（timeout=30）・_started_at の ps 呼び出し（timeout=30）は全て timeout 付きで、except 節も (OSError, subprocess.SubprocessError) と共通（TimeoutExpired は SubprocessError のサブクラスなのでそのまま拾える形になっている）。_ps_all は _tree_members 経由で _stop_tree の STOP_SIGNALS ループのたびに毎回呼ばれる設計（数え直しで確かめる、が本 PR の主眼）なので、呼び出し頻度も既存の単発呼び出しより高い。",
+      "mechanism": "_ps_all がハングした場合（ps がフリーズする稀な環境障害等）、他の呼び出しなら timeout=… の TimeoutExpired が SubprocessError として同じ except 節で捕捉され理由付きで抜けられるが、_ps_all だけは無期限にブロックし、_stop_tree・stop_group・loop.py の relaunch/stop 全体を止める。graphloops/scripts/loop.py 側にも stop_group/probe_group 呼び出しを包む上位タイムアウトは見当たらない。",
+      "measured": "未実測（ps を実際にハングさせて確認していない。コードの静的比較と loop.py の呼び出し箇所の grep のみ）。",
+      "false_positive_if": "対象 OS・CI 環境で ps -A が原理的にブロックし得ない（例えば /proc が常にローカルディスクで NFS 越しなどの遅延要因が無いことが保証されている）場合、あるいは呼び出し元にこの diff の外側で既に十分な上位タイムアウト・キャンセル機構がある場合は、実害が無く誤検出。"
+    }
+  ],
+  "bypass_findings": [
+    {
+      "where": "graphloops/engine/role_run.py _ps_all()（同上）",
+      "text": "同一ファイル内で確立している『外部コマンド呼び出しは timeout= を必須とする』という標準機構を、_ps_all() のみ経由せず手書きで再実装している。",
+      "mechanism": "role_run.py 内の subprocess.run 呼び出しは _ps_all() 以前に 3 箇所（bwrap: timeout=10、git 呼び出し: timeout=30、_started_at の ps 呼び出し: timeout=30）あり、全て timeout 付き。_ps_all() だけがこの一貫した局所規約を外れている。",
+      "measured": "未実測（grep によるコード比較のみ。ps の実ハングは再現していない）。",
+      "false_positive_if": "この関数だけ意図的に timeout を外す理由（例えば呼び出し頻度が高くタイムアウト検出のオーバーヘッドを避けたい等）が別途文書化されている場合は誤検出だが、diff・docstring・PR 相当のコミットメッセージにその理由は見当たらない。"
+    }
+  ],
+  "seen": "diff-r2.patch 全文。graphloops/engine/role_run.py 全体（timeout 使用箇所の突合、_ps_all/_tree_members/_stop_tree/stop_group/probe_group/_started_at の全実装）。graphloops/tests/py/conftest.py（EXPECTED_ITEMS と fence.install の配線）。graphloops/tests/py/test_role_run_stop.py の全差分（新規テスト関数の内容と件数）。graphloops/tests/run.sh 全文（EXPECTED_CHECKS/EXPECTED_TESTS と SIMS 配線）。graphloops/tests/simulate.py の追加ブロック（escaped/reap/check 呼び出し3件）。tests/mutations.json の該当差分（『別の口からもグループごと止める』RR9改題・RR15・RR16の全文）。tests/mutate.py 全体の仕組み（SUITES/DRIVERS/run_selected/run_suite/proven/healthy/evaluate、own の判定条件）。.github/workflows/mutation.yml・test.yml 全文。graphloops/README.md の『検査』『pytest の置き場』『変異テスト』節。graphloops/scripts/loop.py 内の stop_group/probe_group 呼び出し箇所（grep で timeout/wrapper の有無）。EXPECTED_ITEMS・EXPECTED_CHECKS の増分と新規テスト・check 数の実カウント突合。",
+  "unseen": "graphloops/engine/role_run.py の diff 外の既存関数（run_role・launch・run_tree 本体など）は今回の観点に不要な範囲は詳細読了せず。graphloops/tests/simulate_review.py・parallel.py・graphloops/tests/py 配下の他のテストファイルは未読（今回の変更ファイル集合に含まれないため走査対象から外した）。tests/mutations.json の他の数千行の既存エントリ（RR15/RR16/RR9・『別の口から』以外）は全走査していない（重複 id・他の expect 迷子の有無は未確認）。tests/mutate.py の collect_arms・build_map・自動腕（--auto）関連コードは概要のみで詳細ロジックは読了していない。実際の `python3 tests/mutate.py` / `pytest graphloops/tests/py` / ps コマンドは一切実行していない（実行環境・Bash 相当の手段が無く、Read/Grep/Glob のみで静的解析）。並行 PR の有無は GitHub 等へのアクセス手段が無く確認していない。"
+}

@@ -1,0 +1,45 @@
+# graphloops の実物の盤面の写し。1 行 1 個: 置き場<TAB>元のパス<TAB>state.graph_sha
+# real/ は state.json・record.json・out/・rounds/（reads.jsonl・policy/ は元に無い）。foreign/ は state.json だけ。
+# 写し元: 〔盤見本〕scratchpad/board-fixtures/（review-loop 多周の盤面 37 個と sim/）。見本は書き換えない。
+# sim__* は graphloops fbd40e3（0.20.3）の tests/simulate_review.py の場面を回した盤面（元の一時の置き場は消えている）。
+real/wt-ci-skip	/Users/p03623/src/claude-plugins/.git/worktrees/wt-ci-skip/graphloops/review-loop/20260926-103155	f9897bb07384
+real/wt-layer1	/Users/p03623/src/claude-plugins/.git/worktrees/wt-layer1/graphloops/review-loop/20260926-103145	f9897bb07384
+foreign/claude-plugins-work1__20260913-230750	/Users/p03623/src/claude-plugins-work1/.git/graphloops/review-loop/20260913-230750	970adbf96217
+foreign/claude-plugins__20260915-193936	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260915-193936	b004881a2e3b
+foreign/claude-plugins__20260918-140703	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260918-140703	7e46a227e5de
+foreign/claude-plugins__20260918-221245	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260918-221245	7e46a227e5de
+foreign/claude-plugins__20260922-140143	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260922-140143	88710aaf600b
+foreign/claude-plugins__20260922-182823	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260922-182823	88710aaf600b
+foreign/claude-plugins__20260923-152557	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260923-152557	d8dd30166f93
+foreign/claude-plugins__20260924-081523	/Users/p03623/src/claude-plugins/.git/graphloops/review-loop/20260924-081523	3e1914f32f0a
+foreign/claude-plugins__wt-merge__20260925-135044	/Users/p03623/src/claude-plugins/.git/worktrees/wt-merge/graphloops/review-loop/20260925-135044	772e2ddf6fff
+foreign/guided-resolver-work0__20260920-105219	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260920-105219	7e46a227e5de
+foreign/guided-resolver-work0__20260922-142956	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956	88710aaf600b
+foreign/guided-resolver-work0__20260923-091739	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-091739	88710aaf600b
+foreign/guided-resolver-work0__20260923-135112	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-135112	88710aaf600b
+foreign/guided-resolver-work0__20260923-205434	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260923-205434	88710aaf600b
+foreign/guided-resolver-work0__20260924-121908	/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260924-121908	88710aaf600b
+foreign/guided-resolver-work1__20260917-170334	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260917-170334	7e46a227e5de
+foreign/guided-resolver-work1__20260923-132402	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-132402	88710aaf600b
+foreign/guided-resolver-work1__20260923-134100	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-134100	88710aaf600b
+foreign/guided-resolver-work1__20260923-170545	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260923-170545	88710aaf600b
+foreign/guided-resolver-work1__20260924-065028	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260924-065028	88710aaf600b
+foreign/guided-resolver-work1__20260924-162230	/Users/p03623/src/guided-resolver-work1/.git/graphloops/review-loop/20260924-162230	88710aaf600b
+foreign/guided-resolver-work2__20260918-162035	/Users/p03623/src/guided-resolver-work2/.git/graphloops/review-loop/20260918-162035	7e46a227e5de
+foreign/guided-resolver-work3__20260923-222850	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260923-222850	88710aaf600b
+foreign/guided-resolver-work3__20260924-142359	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-142359	88710aaf600b
+foreign/guided-resolver-work3__20260924-191939	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260924-191939	1150cb09bb6b
+foreign/guided-resolver-work3__20260925-173154	/Users/p03623/src/guided-resolver-work3/.git/graphloops/review-loop/20260925-173154	55ba6ea3666b
+foreign/guided-resolver-work4__20260918-162718	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260918-162718	7e46a227e5de
+foreign/guided-resolver-work4__20260922-164726	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260922-164726	7e46a227e5de
+foreign/guided-resolver-work4__20260923-105529	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260923-105529	7e46a227e5de
+foreign/guided-resolver-work4__20260923-151836	/Users/p03623/src/guided-resolver-work4/.git/graphloops/review-loop/20260923-151836	1150cb09bb6b
+foreign/guided-resolver-work5__20260923-174720	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260923-174720	88710aaf600b
+foreign/guided-resolver-work5__20260924-064929	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-064929	88710aaf600b
+foreign/guided-resolver-work5__20260924-162014	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-162014	88710aaf600b
+foreign/guided-resolver-work5__20260924-192520	/Users/p03623/src/guided-resolver-work5/.git/graphloops/review-loop/20260924-192520	1150cb09bb6b
+foreign/guided-resolver-work6__20260924-172416	/Users/p03623/src/guided-resolver-work6/.git/graphloops/review-loop/20260924-172416	88710aaf600b
+foreign/sim__test_awaiting	graphloops fbd40e3 simulate_review.py test_awaiting	8676692bbcb2
+foreign/sim__test_converges	graphloops fbd40e3 simulate_review.py test_converges	8676692bbcb2
+foreign/sim__test_rejections	graphloops fbd40e3 simulate_review.py test_rejections	8676692bbcb2
+foreign/sim__test_runaway	graphloops fbd40e3 simulate_review.py test_runaway	8676692bbcb2

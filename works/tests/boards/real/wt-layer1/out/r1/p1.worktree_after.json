@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "materials": [
+    "base_determination",
+    "bypass",
+    "consistency",
+    "external_standards",
+    "fix_closure",
+    "gate_efficacy",
+    "hygiene",
+    "local_checks",
+    "local_review",
+    "main_path_observation",
+    "parallel_pr",
+    "prior_decisions",
+    "procedure_trace",
+    "provenance",
+    "test_double_fidelity"
+  ]
+}

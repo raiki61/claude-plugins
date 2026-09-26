@@ -1,0 +1,1918 @@
+{
+  "loop_name": "review-loop",
+  "run_id": "20260913-230750",
+  "graph": "/Users/p03623/src/claude-plugins-work1/graphloops/graphs/review-loop.json",
+  "graph_sha": "970adbf96217",
+  "created": "2026-09-13T23:07:50+09:00",
+  "status": "running",
+  "round": 3,
+  "rounds": [
+    {
+      "round": 1,
+      "done": {
+        "p0.base": {
+          "at": "2026-09-13T23:08:29+09:00",
+          "instance": "p0.base"
+        },
+        "p0.local_checks": {
+          "at": "2026-09-13T23:20:53+09:00",
+          "instance": "p0.local_checks"
+        },
+        "p0.premises": {
+          "at": "2026-09-13T23:21:50+09:00",
+          "instance": "p0.premises"
+        },
+        "p1.worktree_before": {
+          "at": "2026-09-13T23:21:57+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p0.purpose": {
+          "at": "2026-09-13T23:22:34+09:00",
+          "instance": "p0.purpose"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-13T23:26:47+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.gate_efficacy": {
+          "at": "2026-09-13T23:29:09+09:00",
+          "instance": "p1.gate_efficacy"
+        },
+        "p1.procedure_trace": {
+          "at": "2026-09-13T23:29:18+09:00",
+          "instance": "p1.procedure_trace"
+        },
+        "p0.parallel_pr": {
+          "at": "2026-09-13T23:30:34+09:00",
+          "instance": "p0.parallel_pr"
+        },
+        "p1.provenance": {
+          "at": "2026-09-13T23:31:46+09:00",
+          "instance": "p1.provenance"
+        },
+        "p1.main_path_observation": {
+          "at": "2026-09-13T23:32:28+09:00",
+          "instance": "p1.main_path_observation"
+        },
+        "p1.hygiene": {
+          "at": "2026-09-13T23:33:23+09:00",
+          "instance": "p1.hygiene"
+        },
+        "p1.local_review": {
+          "at": "2026-09-13T23:48:21+09:00",
+          "instance": "p1.local_review"
+        },
+        "p1.consistency_bypass": {
+          "at": "2026-09-13T23:53:30+09:00",
+          "instance": "p1.consistency_bypass"
+        },
+        "p1.external_standards": {
+          "at": "2026-09-13T23:55:31+09:00",
+          "instance": "p1.external_standards"
+        },
+        "p1.worktree_after": {
+          "at": "2026-09-13T23:56:00+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-09-14T00:12:09+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p3.fix": {
+          "at": "2026-09-14T05:00:31+09:00",
+          "instance": "p3.fix"
+        },
+        "p4.scalars": {
+          "at": "2026-09-14T05:01:18+09:00",
+          "instance": "p4.scalars"
+        },
+        "p4.ci": {
+          "at": "2026-09-14T05:13:25+09:00",
+          "instance": "p4.ci"
+        },
+        "p4.assemble": {
+          "at": "2026-09-14T05:13:30+09:00",
+          "builtin": "assemble"
+        },
+        "r2.design": {
+          "at": "2026-09-14T05:17:33+09:00",
+          "instance": "r2.design"
+        },
+        "r1.comment_candidates": {
+          "at": "2026-09-14T05:25:25+09:00",
+          "instance": "r1.comment_candidates"
+        },
+        "r2.compare": {
+          "at": "2026-09-14T05:27:59+09:00",
+          "instance": "r2.compare"
+        },
+        "r1.minimality": {
+          "at": "2026-09-14T05:37:07+09:00",
+          "instance": "r1.minimality"
+        },
+        "p4.record": {
+          "at": "2026-09-14T05:37:15+09:00",
+          "builtin": "record_round"
+        },
+        "converge": {
+          "at": "2026-09-14T05:37:15+09:00",
+          "builtin": "converge"
+        }
+      },
+      "na": {
+        "p1.test_double_fidelity": "cond: 差分が外部との継ぎ目に触れ、初回か代役を変えた周、または前の周の P3 が何かを直した周 が成り立たない",
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない",
+        "p2.history": "cond: 2 ラウンド目以降 が成り立たない",
+        "p2.rejudge": "cond: 回す側が今の周に異議を出し、往復が上限（3）未満の周 が成り立たない",
+        "p2.rejudge_third": "cond: 往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する が成り立たない",
+        "r3.coherence": "cond: 阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周 が成り立たない",
+        "r4.hidden_scope": "cond: 阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周 が成り立たない",
+        "stop.premise_check": "cond: R2 が premise-invalid が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p0.base": {
+          "id": "p0.base",
+          "node": "p0.base",
+          "run_by": "writer",
+          "prompt_bytes": 7529,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p0.base.md",
+          "prompt_sha": "b52ca5535611",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:08:01+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p0.base.json",
+          "read_from": "--output /tmp/p0base.json",
+          "done_at": "2026-09-13T23:08:29+09:00",
+          "output_file": "out/r1/p0.base.json"
+        },
+        "p0.local_checks": {
+          "id": "p0.local_checks",
+          "node": "p0.local_checks",
+          "run_by": "writer",
+          "prompt_bytes": 2158,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p0.local_checks.md",
+          "prompt_sha": "f05aab72ecf8",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:08:01+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p0.local_checks.json",
+          "read_from": "--output /tmp/lc.json",
+          "done_at": "2026-09-13T23:20:53+09:00",
+          "output_file": "out/r1/p0.local_checks.json"
+        },
+        "p0.premises": {
+          "id": "p0.premises",
+          "node": "p0.premises",
+          "run_by": "writer",
+          "prompt_bytes": 5578,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p0.premises.md",
+          "prompt_sha": "c776cf160675",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:08:01+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p0.premises.json",
+          "read_from": "--output /tmp/prem.json",
+          "done_at": "2026-09-13T23:21:50+09:00",
+          "output_file": "out/r1/p0.premises.json"
+        },
+        "p0.purpose": {
+          "id": "p0.purpose",
+          "node": "p0.purpose",
+          "run_by": "writer",
+          "prompt_bytes": 8114,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p0.purpose.md",
+          "prompt_sha": "7efae96a191a",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p0.purpose.json",
+          "read_from": "--output /tmp/purpose.json",
+          "done_at": "2026-09-13T23:22:34+09:00",
+          "output_file": "out/r1/p0.purpose.json"
+        },
+        "p0.parallel_pr": {
+          "id": "p0.parallel_pr",
+          "node": "p0.parallel_pr",
+          "run_by": "writer",
+          "prompt_bytes": 3945,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p0.parallel_pr.md",
+          "prompt_sha": "0345142b6e43",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p0.parallel_pr.json",
+          "read_from": "--output /tmp/ppr.json",
+          "done_at": "2026-09-13T23:30:34+09:00",
+          "output_file": "out/r1/p0.parallel_pr.json"
+        },
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 4801,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.local_review.md",
+          "prompt_sha": "7b106c083e51",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p1.local_review.json",
+          "skills": [
+            "pr-review-toolkit:review-pr",
+            "/simplify（指摘だけ）",
+            "/security-review（該当時）",
+            "pr-review-toolkit:silent-failure-hunter",
+            "pr-review-toolkit:type-design-analyzer"
+          ],
+          "read_from": "--output /tmp/lr.json",
+          "done_at": "2026-09-13T23:48:21+09:00",
+          "output_file": "out/r1/p1.local_review.json"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 239544,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.hygiene.md",
+          "prompt_sha": "a0ce26028de0",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              ".git/graphloops/review-loop/20260913-230750/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.hygiene.md"
+          },
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/p1.hygiene.json",
+          "done_at": "2026-09-13T23:33:23+09:00",
+          "output_file": "out/r1/p1.hygiene.json"
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 4378,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.procedure_trace.md",
+          "prompt_sha": "38537aedda97",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/p1.procedure_trace.json",
+          "done_at": "2026-09-13T23:29:18+09:00",
+          "output_file": "out/r1/p1.procedure_trace.json"
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4211,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.gate_efficacy.md",
+          "prompt_sha": "07a0b9a96cd1",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p1.gate_efficacy.json",
+          "read_from": "--output /tmp/gate.json",
+          "done_at": "2026-09-13T23:29:09+09:00",
+          "output_file": "out/r1/p1.gate_efficacy.json"
+        },
+        "p1.main_path_observation": {
+          "id": "p1.main_path_observation",
+          "node": "p1.main_path_observation",
+          "run_by": "writer",
+          "prompt_bytes": 2780,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.main_path_observation.md",
+          "prompt_sha": "0660dad497ed",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p1.main_path_observation.json",
+          "read_from": "--output /tmp/mpo.json",
+          "done_at": "2026-09-13T23:32:28+09:00",
+          "output_file": "out/r1/p1.main_path_observation.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2540,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.provenance.md",
+          "prompt_sha": "496df32b97d1",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p1.provenance.json",
+          "read_from": "--output /tmp/prov.json",
+          "done_at": "2026-09-13T23:31:46+09:00",
+          "output_file": "out/r1/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 4072,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p0.prior_decisions.md",
+          "prompt_sha": "e62161fea070",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:21:57+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/p0.prior_decisions.json",
+          "done_at": "2026-09-13T23:26:47+09:00",
+          "output_file": "out/r1/p0.prior_decisions.json"
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 6302,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.consistency_bypass.md",
+          "prompt_sha": "8f41e7458c3d",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:48:55+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p1.consistency_bypass.json",
+          "deliver": "path",
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/p1.consistency_bypass.json",
+          "done_at": "2026-09-13T23:53:30+09:00",
+          "output_file": "out/r1/p1.consistency_bypass.json"
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 7419,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p1.external_standards.md",
+          "prompt_sha": "8a025b295130",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:48:55+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": [
+            " M graphloops/tests/simulate_review.py"
+          ],
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/p1.external_standards.json",
+          "done_at": "2026-09-13T23:55:31+09:00",
+          "output_file": "out/r1/p1.external_standards.json"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "prompt_bytes": 86729,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p2.diagnose.md",
+          "prompt_sha": "3d11e6a84ad2",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-13T23:56:00+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p2.diagnose.json",
+          "deliver": "path",
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/p2.diagnose.json",
+          "done_at": "2026-09-14T00:12:09+09:00",
+          "output_file": "out/r1/p2.diagnose.json",
+          "agent_id": "judge-r1"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "prompt_bytes": 71894,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p3.fix.md",
+          "prompt_sha": "8a686c182c25",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T00:12:46+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p3.fix.json",
+          "read_from": "--output /private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins-work1/77e3d8a2-5f8f-4812-b1b3-e0f4722ac840/scratchpad/p3fix.json",
+          "done_at": "2026-09-14T05:00:31+09:00",
+          "output_file": "out/r1/p3.fix.json"
+        },
+        "p4.ci": {
+          "id": "p4.ci",
+          "node": "p4.ci",
+          "run_by": "writer",
+          "prompt_bytes": 1881,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p4.ci.md",
+          "prompt_sha": "d488950bec42",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:00:39+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p4.ci.json",
+          "read_from": "--output /private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins-work1/77e3d8a2-5f8f-4812-b1b3-e0f4722ac840/scratchpad/p4ci.json",
+          "done_at": "2026-09-14T05:13:25+09:00",
+          "output_file": "out/r1/p4.ci.json"
+        },
+        "p4.scalars": {
+          "id": "p4.scalars",
+          "node": "p4.scalars",
+          "run_by": "writer",
+          "prompt_bytes": 1168,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/p4.scalars.md",
+          "prompt_sha": "d8636aaf3808",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:00:39+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/p4.scalars.json",
+          "read_from": "--output /private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins-work1/77e3d8a2-5f8f-4812-b1b3-e0f4722ac840/scratchpad/p4scalars.json",
+          "done_at": "2026-09-14T05:01:18+09:00",
+          "output_file": "out/r1/p4.scalars.json"
+        },
+        "r1.comment_candidates": {
+          "id": "r1.comment_candidates",
+          "node": "r1.comment_candidates",
+          "run_by": "comment-analyzer",
+          "prompt_bytes": 3265,
+          "mode": "agent",
+          "agent_type": "pr-review-toolkit:comment-analyzer",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/r1.comment_candidates.md",
+          "prompt_sha": "e1986e22a45d",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:13:30+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/r1.comment_candidates.json",
+          "skills": [
+            "pr-review-toolkit:comment-analyzer"
+          ],
+          "deliver": "path",
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/r1.comment_candidates.json",
+          "done_at": "2026-09-14T05:25:25+09:00",
+          "output_file": "out/r1/r1.comment_candidates.json"
+        },
+        "r2.design": {
+          "id": "r2.design",
+          "node": "r2.design",
+          "run_by": "blind-judge",
+          "prompt_bytes": 5573,
+          "mode": "cli",
+          "agent_type": "convergence-loops:blind-judge",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/r2.design.md",
+          "prompt_sha": "3e0a322990d5",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:13:30+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/r2.design.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              ".git/graphloops/review-loop/20260913-230750/roles/convergence-loops__blind-judge.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": ".git/graphloops/review-loop/20260913-230750/prompts/r1/r2.design.md"
+          },
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/r2.design.json",
+          "done_at": "2026-09-14T05:17:33+09:00",
+          "output_file": "out/r1/r2.design.json"
+        },
+        "r1.minimality": {
+          "id": "r1.minimality",
+          "node": "r1.minimality",
+          "run_by": "judge",
+          "prompt_bytes": 84308,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/r1.minimality.md",
+          "prompt_sha": "7c3fa06468fc",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:25:31+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/r1.minimality.json",
+          "deliver": "path",
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/r1.minimality.json",
+          "done_at": "2026-09-14T05:37:07+09:00",
+          "output_file": "out/r1/r1.minimality.json"
+        },
+        "r2.compare": {
+          "id": "r2.compare",
+          "node": "r2.compare",
+          "run_by": "blind-judge",
+          "prompt_bytes": 249017,
+          "mode": "cli",
+          "agent_type": "convergence-loops:blind-judge",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r1/r2.compare.md",
+          "prompt_sha": "a8ac05eeb68b",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:25:31+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r1/r2.compare.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              ".git/graphloops/review-loop/20260913-230750/roles/convergence-loops__blind-judge.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": ".git/graphloops/review-loop/20260913-230750/prompts/r1/r2.compare.md"
+          },
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r1/r2.compare.json",
+          "done_at": "2026-09-14T05:27:59+09:00",
+          "output_file": "out/r1/r2.compare.json"
+        }
+      },
+      "item_counts": {}
+    },
+    {
+      "round": 2,
+      "done": {
+        "p1.worktree_before": {
+          "at": "2026-09-14T05:37:15+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p1.provenance": {
+          "at": "2026-09-14T05:41:28+09:00",
+          "instance": "p1.provenance"
+        },
+        "p1.main_path_observation": {
+          "at": "2026-09-14T05:41:28+09:00",
+          "instance": "p1.main_path_observation"
+        },
+        "p1.test_double_fidelity": {
+          "at": "2026-09-14T05:41:28+09:00",
+          "instance": "p1.test_double_fidelity"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-14T05:42:06+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.consistency_bypass": {
+          "at": "2026-09-14T05:42:48+09:00",
+          "instance": "p1.consistency_bypass"
+        },
+        "p1.hygiene": {
+          "at": "2026-09-14T05:43:32+09:00",
+          "instance": "p1.hygiene"
+        },
+        "p1.external_standards": {
+          "at": "2026-09-14T05:44:07+09:00",
+          "instance": "p1.external_standards"
+        },
+        "p1.procedure_trace": {
+          "at": "2026-09-14T05:46:01+09:00",
+          "instance": "p1.procedure_trace"
+        },
+        "p1.local_review": {
+          "at": "2026-09-14T06:06:45+09:00",
+          "instance": "p1.local_review"
+        },
+        "p1.gate_efficacy": {
+          "at": "2026-09-14T06:15:13+09:00",
+          "instance": "p1.gate_efficacy"
+        },
+        "p1.worktree_after": {
+          "at": "2026-09-14T06:30:10+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-09-14T06:49:03+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p2.history": {
+          "at": "2026-09-14T07:02:50+09:00",
+          "instance": "p2.history"
+        },
+        "p3.fix": {
+          "at": "2026-09-14T07:24:47+09:00",
+          "instance": "p3.fix"
+        },
+        "p4.ci": {
+          "at": "2026-09-14T07:25:20+09:00",
+          "instance": "p4.ci"
+        },
+        "p4.scalars": {
+          "at": "2026-09-14T07:25:20+09:00",
+          "instance": "p4.scalars"
+        },
+        "p4.assemble": {
+          "at": "2026-09-14T07:25:20+09:00",
+          "builtin": "assemble"
+        },
+        "r3.coherence": {
+          "at": "2026-09-14T07:28:06+09:00",
+          "instance": "r3.coherence"
+        },
+        "r4.hidden_scope": {
+          "at": "2026-09-14T07:30:00+09:00",
+          "instance": "r4.hidden_scope"
+        },
+        "r1.comment_candidates": {
+          "at": "2026-09-14T07:37:28+09:00",
+          "instance": "r1.comment_candidates"
+        },
+        "r1.minimality": {
+          "at": "2026-09-14T07:47:37+09:00",
+          "instance": "r1.minimality"
+        },
+        "p4.record": {
+          "at": "2026-09-14T07:47:37+09:00",
+          "builtin": "record_round"
+        },
+        "converge": {
+          "at": "2026-09-14T07:47:37+09:00",
+          "builtin": "converge"
+        }
+      },
+      "na": {
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない",
+        "p2.rejudge": "cond: 回す側が今の周に異議を出し、往復が上限（3）未満の周 が成り立たない",
+        "p2.rejudge_third": "cond: 往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する が成り立たない",
+        "r2.design": "cond: R2 の再発火条件に当たる周（初回は必ず） が成り立たない",
+        "r2.compare": "cond: R2 が再発火し、問いが立っていて、目的の出典が取れている が成り立たない",
+        "stop.premise_check": "cond: R2 が premise-invalid が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 4801,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.local_review.md",
+          "prompt_sha": "3e9f459f8e43",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.local_review.json",
+          "skills": [
+            "pr-review-toolkit:review-pr",
+            "/simplify（指摘だけ）",
+            "/security-review（該当時）",
+            "pr-review-toolkit:silent-failure-hunter",
+            "pr-review-toolkit:type-design-analyzer"
+          ],
+          "read_from": "--output /private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins-work1/77e3d8a2-5f8f-4812-b1b3-e0f4722ac840/scratchpad/p1.local_review.json",
+          "done_at": "2026-09-14T06:06:45+09:00",
+          "output_file": "out/r2/p1.local_review.json"
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 6302,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.consistency_bypass.md",
+          "prompt_sha": "caf29e2c5fe6",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.consistency_bypass.json",
+          "deliver": "path",
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r2/p1.consistency_bypass.json",
+          "done_at": "2026-09-14T05:42:48+09:00",
+          "output_file": "out/r2/p1.consistency_bypass.json"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 273735,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.hygiene.md",
+          "prompt_sha": "2b6b7685f293",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              ".git/graphloops/review-loop/20260913-230750/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.hygiene.md"
+          },
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r2/p1.hygiene.json",
+          "done_at": "2026-09-14T05:43:32+09:00",
+          "output_file": "out/r2/p1.hygiene.json"
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 7419,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.external_standards.md",
+          "prompt_sha": "81f1a3c40782",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r2/p1.external_standards.json",
+          "done_at": "2026-09-14T05:44:07+09:00",
+          "output_file": "out/r2/p1.external_standards.json"
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 4378,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.procedure_trace.md",
+          "prompt_sha": "756b77c27ac2",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r2/p1.procedure_trace.json",
+          "done_at": "2026-09-14T05:46:01+09:00",
+          "output_file": "out/r2/p1.procedure_trace.json"
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4211,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.gate_efficacy.md",
+          "prompt_sha": "685fba2bfb2c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.gate_efficacy.json",
+          "read_from": "--output /private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins-work1/77e3d8a2-5f8f-4812-b1b3-e0f4722ac840/scratchpad/p1.gate_efficacy.json",
+          "done_at": "2026-09-14T06:15:13+09:00",
+          "output_file": "out/r2/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2661,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.test_double_fidelity.md",
+          "prompt_sha": "31052fe44e7c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.test_double_fidelity.json",
+          "read_from": "--output /private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins-work1/77e3d8a2-5f8f-4812-b1b3-e0f4722ac840/scratchpad/p1.test_double_fidelity.json",
+          "done_at": "2026-09-14T05:41:28+09:00",
+          "output_file": "out/r2/p1.test_double_fidelity.json"
+        },
+        "p1.main_path_observation": {
+          "id": "p1.main_path_observation",
+          "node": "p1.main_path_observation",
+          "run_by": "writer",
+          "prompt_bytes": 2780,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.main_path_observation.md",
+          "prompt_sha": "66cdd2b41110",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.main_path_observation.json",
+          "read_from": "--output /private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins-work1/77e3d8a2-5f8f-4812-b1b3-e0f4722ac840/scratchpad/p1.main_path_observation.json",
+          "done_at": "2026-09-14T05:41:28+09:00",
+          "output_file": "out/r2/p1.main_path_observation.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2540,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p1.provenance.md",
+          "prompt_sha": "e45cb5523975",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p1.provenance.json",
+          "read_from": "--output /private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins-work1/77e3d8a2-5f8f-4812-b1b3-e0f4722ac840/scratchpad/p1.provenance.json",
+          "done_at": "2026-09-14T05:41:28+09:00",
+          "output_file": "out/r2/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 4072,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p0.prior_decisions.md",
+          "prompt_sha": "e62161fea070",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T05:37:15+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path .git/graphloops/review-loop/20260913-230750/out/r2/p0.prior_decisions.json",
+          "done_at": "2026-09-14T05:42:06+09:00",
+          "output_file": "out/r2/p0.prior_decisions.json"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "prompt_bytes": 149096,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p2.diagnose.md",
+          "prompt_sha": "92884d3cd348",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T06:30:10+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p2.diagnose.json",
+          "deliver": "path",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/p2.diagnose.json",
+          "done_at": "2026-09-14T06:49:03+09:00",
+          "output_file": "out/r2/p2.diagnose.json",
+          "agent_id": "ad1a9359861151081"
+        },
+        "p2.history": {
+          "id": "p2.history",
+          "node": "p2.history",
+          "run_by": "judge",
+          "prompt_bytes": 58161,
+          "mode": "agent_continue",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p2.history.md",
+          "prompt_sha": "5c019578db9e",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T06:49:07+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p2.history.json",
+          "deliver": "path",
+          "continue_of": "p2.diagnose",
+          "agent_id": "ad1a9359861151081",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/p2.history.json",
+          "done_at": "2026-09-14T07:02:50+09:00",
+          "output_file": "out/r2/p2.history.json"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "prompt_bytes": 63768,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p3.fix.md",
+          "prompt_sha": "68a9105a7690",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T07:02:55+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p3.fix.json",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/p3.fix.json",
+          "done_at": "2026-09-14T07:24:47+09:00",
+          "output_file": "out/r2/p3.fix.json"
+        },
+        "p4.ci": {
+          "id": "p4.ci",
+          "node": "p4.ci",
+          "run_by": "writer",
+          "prompt_bytes": 1881,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p4.ci.md",
+          "prompt_sha": "d488950bec42",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T07:24:52+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p4.ci.json",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/p4.ci.json",
+          "done_at": "2026-09-14T07:25:20+09:00",
+          "output_file": "out/r2/p4.ci.json"
+        },
+        "p4.scalars": {
+          "id": "p4.scalars",
+          "node": "p4.scalars",
+          "run_by": "writer",
+          "prompt_bytes": 1168,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/p4.scalars.md",
+          "prompt_sha": "5b45978e52e6",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T07:24:52+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/p4.scalars.json",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/p4.scalars.json",
+          "done_at": "2026-09-14T07:25:20+09:00",
+          "output_file": "out/r2/p4.scalars.json"
+        },
+        "r1.comment_candidates": {
+          "id": "r1.comment_candidates",
+          "node": "r1.comment_candidates",
+          "run_by": "comment-analyzer",
+          "prompt_bytes": 3265,
+          "mode": "agent",
+          "agent_type": "pr-review-toolkit:comment-analyzer",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/r1.comment_candidates.md",
+          "prompt_sha": "f7a823ea1c0f",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T07:25:20+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/r1.comment_candidates.json",
+          "skills": [
+            "pr-review-toolkit:comment-analyzer"
+          ],
+          "deliver": "path",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/r1.comment_candidates.json",
+          "done_at": "2026-09-14T07:37:28+09:00",
+          "output_file": "out/r2/r1.comment_candidates.json"
+        },
+        "r3.coherence": {
+          "id": "r3.coherence",
+          "node": "r3.coherence",
+          "run_by": "inspector",
+          "prompt_bytes": 2802,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/r3.coherence.md",
+          "prompt_sha": "523f5ece784f",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T07:25:20+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/r3.coherence.json",
+          "deliver": "path",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/r3.coherence.json",
+          "done_at": "2026-09-14T07:28:06+09:00",
+          "output_file": "out/r2/r3.coherence.json"
+        },
+        "r4.hidden_scope": {
+          "id": "r4.hidden_scope",
+          "node": "r4.hidden_scope",
+          "run_by": "inspector",
+          "prompt_bytes": 5086,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/r4.hidden_scope.md",
+          "prompt_sha": "8b39918f22b7",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T07:25:20+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/r4.hidden_scope.json",
+          "deliver": "path",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/r4.hidden_scope.json",
+          "done_at": "2026-09-14T07:30:00+09:00",
+          "output_file": "out/r2/r4.hidden_scope.json"
+        },
+        "r1.minimality": {
+          "id": "r1.minimality",
+          "node": "r1.minimality",
+          "run_by": "judge",
+          "prompt_bytes": 127467,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r2/r1.minimality.md",
+          "prompt_sha": "02affd14dca3",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-14T07:37:34+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r2/r1.minimality.json",
+          "deliver": "path",
+          "read_from": "--output .git/graphloops/review-loop/20260913-230750/out/r2/r1.minimality.json",
+          "done_at": "2026-09-14T07:47:37+09:00",
+          "output_file": "out/r2/r1.minimality.json"
+        }
+      },
+      "item_counts": {}
+    },
+    {
+      "round": 3,
+      "done": {
+        "p1.worktree_before": {
+          "at": "2026-09-14T07:47:37+09:00",
+          "builtin": "worktree_snapshot"
+        }
+      },
+      "na": {
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 4801,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.local_review.md",
+          "prompt_sha": "640f78a8684e",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.local_review.json",
+          "skills": [
+            "pr-review-toolkit:review-pr",
+            "/simplify（指摘だけ）",
+            "/security-review（該当時）",
+            "pr-review-toolkit:silent-failure-hunter",
+            "pr-review-toolkit:type-design-analyzer"
+          ]
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 6335,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.consistency_bypass.md",
+          "prompt_sha": "4dd0f1b30d0c",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.consistency_bypass.json",
+          "deliver": "path"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 295824,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.hygiene.md",
+          "prompt_sha": "8e6da0e967f8",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              ".git/graphloops/review-loop/20260913-230750/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.hygiene.md"
+          }
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 7452,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.external_standards.md",
+          "prompt_sha": "043acdffcbaa",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": []
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 4411,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.procedure_trace.md",
+          "prompt_sha": "6c71566365dd",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": []
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4211,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.gate_efficacy.md",
+          "prompt_sha": "6887d0aa56c0",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2661,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.test_double_fidelity.md",
+          "prompt_sha": "5348a259728e",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.test_double_fidelity.json"
+        },
+        "p1.main_path_observation": {
+          "id": "p1.main_path_observation",
+          "node": "p1.main_path_observation",
+          "run_by": "writer",
+          "prompt_bytes": 2780,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.main_path_observation.md",
+          "prompt_sha": "0e305c50e10d",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.main_path_observation.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2540,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p1.provenance.md",
+          "prompt_sha": "aafd08c67b37",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 4105,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": ".git/graphloops/review-loop/20260913-230750/prompts/r3/p0.prior_decisions.md",
+          "prompt_sha": "179c7c66ff0b",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-14T07:47:37+09:00",
+          "out_path": ".git/graphloops/review-loop/20260913-230750/out/r3/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": []
+        }
+      },
+      "item_counts": {}
+    }
+  ],
+  "thickness": null,
+  "max_rounds": 5,
+  "unattended": false,
+  "inputs": {
+    "request": "# レビュー依頼: research-loop 側が review-loop 側と同じ水準になっているか\n\n## BASE\n\n`bd0a56f`（今日の作業の直前）から HEAD まで。\n\n## 何を見てほしいか\n\nこの差分は、review-loop を 6 周レビューして見つけた欠陥を閉じ、その知見を research-loop 側にも\n当てたもの。**知りたいのは「当て残しが無いか」の 1 点。**\n\n6 周で出た一撃（根本フレーミング）はこれ:\n\n> **宣言している面が、実際に消費されている面より狭く、その差の全部が静かに落ちる。**\n\nこの形で閉じた欠陥（review 側）:\n\n- `once` の節の凍った出力を、後から厳しくした schema で測り直していなかった（R2 が 6 周とも走らなかった原因）\n- 上限の無い経路で穴が周ごとに育っていた（1,120 KB）\n- 検証器の語彙の表をプロンプトに写しており、写しが既にずれていた\n- 柵が見る集合（フック名・受理集合）を engine と別に手で持っていた\n- 停止した run の報告口を 3 本のうち 2 本しか直していなかった\n- 自己申告と機械の事実を突き合わせる柵が 6 値のうち 2 値にしか当たらない\n- 人の答えの語に表が無く、知らない語が「続ける」側に落ちていた\n- 任意の欄を写す `write` が無音で消えていた\n- 名前表の要素を読む側が文字列で並べ直していた（10 か所）\n- 作業ツリーの前後の柵が、検査で 1 度も踏まれていなかった\n\nresearch 側に当てたもの:\n\n- 判定語彙の表を検証器 1 か所から渡す（prompt 6 本・13 か所の写しを廃止）\n- 判定語彙の到達ラチェット（44 値中 22 値しか到達していないことが分かった）\n- 受理集合を既定と同じ `[0]` で明示\n- 無作為に引く扇（`RANDOM_FAN`）を覆いの測定から外す\n\n## とくに疑ってほしいこと\n\n1. **片側にしか当たっていない知見**——review 側で閉じた形が research 側に残っていないか。\n   逆（research 側で先に在った良い形が review 側に無い）も見てほしい。\n2. **新しく置いた柵が、自分の名乗りより狭くないか。** 今日 3 回、部分一致で書いた柵が\n   退行をすり抜けた（`def bullet` が `def bullet_removed` を含む、など）。\n3. **新しく置いた柵が、実物の経路を通っているか。** 今日 9 回、部品を直に呼ぶ腕だけで\n   配線が覆えていなかった。\n4. **測る側が乱数を数えていないか。** 1 回やった（`p3.sampling` の無作為抽出で到達数が揺れた）。\n\n## 前の run との関係\n\n同じリポジトリに review-loop の run がもう 1 本（`20260912-214912`、6 周目の P3 の途中）在る。\nそちらの対象は `73fda8a`（graphloops を足す前）から HEAD で、範囲が広い。この run は\n**今日の差分だけ**に絞って、当て残しを見る。\n\n## 言語\n\n日本語。\n",
+    "document": null,
+    "lang": "日本語",
+    "cwd": "/Users/p03623/src/claude-plugins-work1",
+    "review_md": "/Users/p03623/src/claude-plugins-work1/REVIEW.md",
+    "repo_review_md": "/Users/p03623/src/claude-plugins-work1/REVIEW.md",
+    "scripts_dir": "/Users/p03623/src/claude-plugins-work1/scripts",
+    "rounds_dir": "/Users/p03623/src/claude-plugins-work1/.git/graphloops/review-loop/20260913-230750/rounds"
+  },
+  "validator": "/Users/p03623/src/claude-plugins-work1/scripts/review-record.py",
+  "outputs": {
+    "p0.base": {
+      "file": "out/r1/p0.base.json",
+      "round": 1,
+      "instance": "p0.base"
+    },
+    "p0.local_checks": {
+      "file": "out/r1/p0.local_checks.json",
+      "round": 1,
+      "instance": "p0.local_checks"
+    },
+    "p0.premises": {
+      "file": "out/r1/p0.premises.json",
+      "round": 1,
+      "instance": "p0.premises"
+    },
+    "p1.worktree_before": {
+      "file": "out/r3/p1.worktree_before.json",
+      "round": 3
+    },
+    "p0.purpose": {
+      "file": "out/r1/p0.purpose.json",
+      "round": 1,
+      "instance": "p0.purpose"
+    },
+    "p0.prior_decisions": {
+      "file": "out/r2/p0.prior_decisions.json",
+      "round": 2,
+      "instance": "p0.prior_decisions"
+    },
+    "p1.gate_efficacy": {
+      "file": "out/r2/p1.gate_efficacy.json",
+      "round": 2,
+      "instance": "p1.gate_efficacy"
+    },
+    "p1.procedure_trace": {
+      "file": "out/r2/p1.procedure_trace.json",
+      "round": 2,
+      "instance": "p1.procedure_trace"
+    },
+    "p0.parallel_pr": {
+      "file": "out/r1/p0.parallel_pr.json",
+      "round": 1,
+      "instance": "p0.parallel_pr"
+    },
+    "p1.provenance": {
+      "file": "out/r2/p1.provenance.json",
+      "round": 2,
+      "instance": "p1.provenance"
+    },
+    "p1.main_path_observation": {
+      "file": "out/r2/p1.main_path_observation.json",
+      "round": 2,
+      "instance": "p1.main_path_observation"
+    },
+    "p1.hygiene": {
+      "file": "out/r2/p1.hygiene.json",
+      "round": 2,
+      "instance": "p1.hygiene"
+    },
+    "p1.local_review": {
+      "file": "out/r2/p1.local_review.json",
+      "round": 2,
+      "instance": "p1.local_review"
+    },
+    "p1.consistency_bypass": {
+      "file": "out/r2/p1.consistency_bypass.json",
+      "round": 2,
+      "instance": "p1.consistency_bypass"
+    },
+    "p1.external_standards": {
+      "file": "out/r2/p1.external_standards.json",
+      "round": 2,
+      "instance": "p1.external_standards"
+    },
+    "p1.worktree_after": {
+      "file": "out/r2/p1.worktree_after.json",
+      "round": 2
+    },
+    "p2.diagnose": {
+      "file": "out/r2/p2.diagnose.json",
+      "round": 2,
+      "instance": "p2.diagnose"
+    },
+    "p3.fix": {
+      "file": "out/r2/p3.fix.json",
+      "round": 2,
+      "instance": "p3.fix"
+    },
+    "p4.scalars": {
+      "file": "out/r2/p4.scalars.json",
+      "round": 2,
+      "instance": "p4.scalars"
+    },
+    "p4.ci": {
+      "file": "out/r2/p4.ci.json",
+      "round": 2,
+      "instance": "p4.ci"
+    },
+    "p4.assemble": {
+      "file": "out/r2/p4.assemble.json",
+      "round": 2
+    },
+    "r2.design": {
+      "file": "out/r1/r2.design.json",
+      "round": 1,
+      "instance": "r2.design"
+    },
+    "r1.comment_candidates": {
+      "file": "out/r2/r1.comment_candidates.json",
+      "round": 2,
+      "instance": "r1.comment_candidates"
+    },
+    "r2.compare": {
+      "file": "out/r1/r2.compare.json",
+      "round": 1,
+      "instance": "r2.compare"
+    },
+    "r1.minimality": {
+      "file": "out/r2/r1.minimality.json",
+      "round": 2,
+      "instance": "r1.minimality"
+    },
+    "p4.record": {
+      "file": "out/r2/p4.record.json",
+      "round": 2
+    },
+    "converge": {
+      "file": "out/r2/converge.json",
+      "round": 2
+    },
+    "p1.test_double_fidelity": {
+      "file": "out/r2/p1.test_double_fidelity.json",
+      "round": 2,
+      "instance": "p1.test_double_fidelity"
+    },
+    "p2.history": {
+      "file": "out/r2/p2.history.json",
+      "round": 2,
+      "instance": "p2.history"
+    },
+    "r3.coherence": {
+      "file": "out/r2/r3.coherence.json",
+      "round": 2,
+      "instance": "r3.coherence"
+    },
+    "r4.hidden_scope": {
+      "file": "out/r2/r4.hidden_scope.json",
+      "round": 2,
+      "instance": "r4.hidden_scope"
+    }
+  },
+  "done_ever": {
+    "p0.base": 1,
+    "p0.local_checks": 1,
+    "p0.premises": 1,
+    "p1.worktree_before": 3,
+    "p0.purpose": 1,
+    "p0.prior_decisions": 2,
+    "p1.gate_efficacy": 2,
+    "p1.procedure_trace": 2,
+    "p0.parallel_pr": 1,
+    "p1.provenance": 2,
+    "p1.main_path_observation": 2,
+    "p1.hygiene": 2,
+    "p1.local_review": 2,
+    "p1.consistency_bypass": 2,
+    "p1.external_standards": 2,
+    "p1.worktree_after": 2,
+    "p2.diagnose": 2,
+    "p3.fix": 2,
+    "p4.scalars": 2,
+    "p4.ci": 2,
+    "p4.assemble": 2,
+    "r2.design": 1,
+    "r1.comment_candidates": 2,
+    "r2.compare": 1,
+    "r1.minimality": 2,
+    "p4.record": 2,
+    "converge": 2,
+    "p1.test_double_fidelity": 2,
+    "p2.history": 2,
+    "r3.coherence": 2,
+    "r4.hidden_scope": 2
+  },
+  "loop": {
+    "diff_file": ".git/graphloops/review-loop/20260913-230750/diff-r3.patch",
+    "changed_files": [
+      ".claude-plugin/marketplace.json",
+      ".claude-plugin/plugin.json",
+      "attention/scripts/catchup.py",
+      "attention/scripts/what-am-i-doing.py",
+      "attention/scripts/whose-turn.py",
+      "graphloops/.claude-plugin/plugin.json",
+      "graphloops/README.md",
+      "graphloops/engine/advance.py",
+      "graphloops/engine/board.py",
+      "graphloops/engine/commands.py",
+      "graphloops/engine/record.py",
+      "graphloops/engine/render.py",
+      "graphloops/engine/util.py",
+      "graphloops/engine/validator.py",
+      "graphloops/graphs/research-loop.json",
+      "graphloops/graphs/review-loop.json",
+      "graphloops/prompts/research-loop/p1.checker.md",
+      "graphloops/prompts/research-loop/p1.refuter.md",
+      "graphloops/prompts/research-loop/p3.sampling.md",
+      "graphloops/prompts/review-loop/p2.diagnose.md",
+      "graphloops/prompts/review-loop/report.human_items.md",
+      "graphloops/rules/research-loop.py",
+      "graphloops/rules/review-loop.py",
+      "graphloops/scripts/graphcheck.py",
+      "graphloops/tests/parallel.py",
+      "graphloops/tests/run.sh",
+      "graphloops/tests/simulate.py",
+      "graphloops/tests/simulate_review.py",
+      "scripts/research-record.py",
+      "scripts/review-record.py",
+      "tests/run.sh"
+    ],
+    "changed_files_file": ".git/graphloops/review-loop/20260913-230750/changed-r3.txt",
+    "diff_stat": "31 files changed, 2589 insertions(+), 291 deletions(-)",
+    "diff_lines": 2880,
+    "tree_before": {
+      "porcelain": [],
+      "stash": "",
+      "diff_sha": "7eb8bd712518"
+    },
+    "last_seen": {
+      "base_determination": 1,
+      "local_checks": 2,
+      "prior_decisions": 2,
+      "gate_efficacy": 2,
+      "procedure_trace": 2,
+      "parallel_pr": 1,
+      "provenance": 2,
+      "main_path_observation": 2,
+      "hygiene": 2,
+      "local_review": 2,
+      "consistency": 2,
+      "bypass": 2,
+      "external_standards": 2,
+      "fix_closure": 2,
+      "test_double_fidelity": 2
+    },
+    "last_material": {
+      "base_determination": {
+        "status": "clean",
+        "checked": "git rev-parse bd0a56f（依頼文が名指し）/ git rev-list --count bd0a56f..HEAD = 14 / git rev-list --merges = 0 件 / git ls-files --others --exclude-standard = 0 件（未追跡なし＝git add -N は不要で index は触っていない）/ git diff --shortstat bd0a56f..HEAD = 30 files changed, 2003 insertions(+), 221 deletions(-)"
+      },
+      "local_checks": {
+        "status": "clean",
+        "checked": "CI（.github/workflows/test.yml）が走らせるのは `bash tests/run.sh` の 1 本だけ。これを手元で再実行して 537 件すべて緑。あわせて root の中から呼ばれる graphloops/tests/run.sh も単体で回して 212 台本・487 件すべて緑。lint の段は CI に無い。**対象差分の外で windows-latest が 11 件赤い件は別（台帳の ci-foreign-red）で、この周の修正が増やした赤は 0 件**——柵 6 本には退行を 8 本注入して全部赤・control は 6 本とも緑であることも確認した"
+      },
+      "prior_decisions": {
+        "status": "found",
+        "count": 16,
+        "detail": "対象差分が触れる領域（graphloops 一式・scripts/*-record.py・tests/run.sh・attention/scripts）について、closed issue 8 件・merged PR 2 件（#7, #10）・docs/loop-contract.md・docs/graphloops-prior-art.md・docs/loop-graph/README.md・docs/loop-graph/review-loop.md・scripts/review-record.py 本文コメントを突合し、決着済み論点 16 件を回収した。OPEN の PR #11（research-loop の検索予算）は決着していないため settled に含めていない。docs/loop-graph/README.md L82 は『保留していた 9 件のうち 8 件が決着』と書くが、同ファイル内に『決めた』印の付いた行は 1 件のみで、残り 7 件の記載場所を突き止められなかった（未確認のまま列挙から除外）。"
+      },
+      "gate_efficacy": {
+        "status": "found",
+        "count": 1,
+        "detail": "対象差分が新設・変更した柵に、腕を 18 本当てた——柵 6 本（ratchet / doc-cli / sub-encoding / stdout-shape / validator-order / table-copies）に 14 本、engine 側の検査 4 本（prompt_growth の痕跡 / worktree_compare の受理後の取り直し / research の上限で諮る口 / 作業場の後始末）。**18 本とも赤・control は緑・守る行を通った印も出た**（腕ごとに git archive HEAD の写しを mktemp -d の下に作り、本物の作業ツリーは 1 バイトも触っていない）。\n\n見つけたのは 1 件。**doc-cli.py の宣言（『手順書が案内する loop.py の呼び出しが実物に在る』）が、実際に測っている面より広い。** 走査の正規表現 `loop\\.py\\s+([a-z]+)` は `loop.py` の直後に空白を要求するが、手順書が案内する正規の形は `python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/loop.py\" init …` で、`loop.py` の直後に `\"` が来るので**当たらない**。実測: 今当たっているのは 8 件だが、閉じ引用符を許す形に広げると 17 件——**9 件が母数の外**で、落ちているのは init / done / answer / add、つまり**利用者がそのまま打つ囲み付きの塊**のほう。柵が守ると名乗った当の事故（案内どおり打つと落ちる）が測る面の外に在る。腕で確かめた: 存在しないサブコマンド `resurrect` を囲み付きの形で手順書に足しても緑（照合件数は 8 件のまま動かない）。同じ柵の『照合が 0 件なら赤』の腕は赤くなるので、空回りの検知は効いているが、狭い母数の中での空回りしか見ていない。\n\nこの周の一撃（宣言している面が消費されている面より狭い）と同じ形で、しかも**今周この柵を直した当人が当たり数の柵だけを足して走査の形を直していない**。P3 で閉じる。"
+      },
+      "procedure_trace": {
+        "status": "found",
+        "count": 1,
+        "detail": "手順トレース対象（graphloops/tests/run.sh・graphloops/tests/{parallel,simulate,simulate_review}.py・tests/run.sh・graphloops/README.md「検査」節・graphloops/scripts/graphcheck.py）を実際に実行して確認した。graphloops/tests/run.sh は 485/485 件、tests/run.sh（ルート、graphloops 経由も含む）は 537/537 件、いずれも EXPECTED_CHECKS の等値ラチェットと一致して全緑（実測: `bash graphloops/tests/run.sh` 20.4s、`bash tests/run.sh` 62.2s、いずれも exit 0）。README.md「検査」節に書かれた 2 行のコマンド（graphcheck 単体呼び出し・run.sh）もリポジトリ直下から素の初見手順で実行し、案内どおりに通ることを確認した。`GL_TEST_WORKERS=1 python3 simulate.py`（直列復帰の手順として docstring が案内）も実行し、並列時と同じ件数・同じ判定語彙到達数（272 件中 0 件失敗、22/44）になることを確認した——手順書が名乗る代替経路が実際に機能する。加えて 1 件、診断で見つけた副次的事実: `/var/folders/.../T/` に `gl-*` という接頭辞の一時ディレクトリが 502 個・148 MB 残っていた（このリポジトリの `graphloops/tests/parallel.py` の docstring が「実測 2026-09-13: 502 個・148 MB」と名指しする、まさにその数と一致）。ただし全 502 個の mtime は 2026-09-12〜13 のみで、今回私が実行した 2026-09-14 の複数回のテスト実行（graphloops 側・ルート側・simulate.py 単体×2）は 1 個も新規の残留ディレクトリを作らなかった——`parallel.workspace`（`tempfile.TemporaryDirectory`）への置き換えは正常系・例外系で実際に効いており、502 個は本 diff 以前（旧 MADE+atexit 方式や、diff 作成中の途中状態）の残骸であって、今のコードが今新たに漏らしたものではない。"
+      },
+      "parallel_pr": {
+        "status": "clean",
+        "checked": "① git rev-parse --abbrev-ref @{u} = origin/main → git remote get-url origin = git@github.com-raiki61:raiki61/claude-plugins.git → owner/repo = raiki61/claude-plugins（gh repo view は使っていない）。② gh pr list -R raiki61/claude-plugins --limit 100 --json number,headRefOid = 1 件（#11 / head e6a7a2c5f3ee）。git rev-parse HEAD = c94aad8cf41e と一致しないので自 PR ではない（この作業は PR を立てず main に直接押しているため、除外対象は 0 件）。③ 打ち切りなし（1 < 100）。④ 対象差分の変更ファイルは git diff --name-only bd0a56f..HEAD で 30 件。⑤ gh pr view 11 --json files = commands/research-loop.md の 1 件。⑥ 交差は comm -12 で 0 件——衝突なし。なお #11 は research-loop の散文手順書（commands/research-loop.md）を触っており、対象差分は graphloops/prompts/research-loop/ 側を触っている。**別ファイルだが同じループの規律を述べる 2 本**なので、内容の食い違いは交差検査では出ない（ファイル集合の交差はこの粒度では捕れない——P2 の判定役に素材として渡す）"
+      },
+      "provenance": {
+        "status": "found",
+        "count": 4,
+        "detail": "対象差分が足した『実測』の注記は 98 件、うちこの周に足したのが 16 件。そのうち 4 件が、リポジトリから辿れない出典に立っている。①②『実測 2026-09-14: 判定役が退行を注入して確認』（2 か所）と ③『写しを読んだ procedure_trace は「重複が残っている」、現物を読んだ bypass は「解消済み」』は、いずれも**この review-loop の run 自身が作った素材**を根拠にしている。その素材は .git/graphloops/review-loop/20260913-230750/ に在り、`git ls-files .git` が 0 件——追跡下でも配布物でもないので、リポジトリを読む人は検算できない。④『実測 2026-09-14: CI が「2 か所」で NG』は GitHub Actions の run に立つが、run 番号を書いていないので同じく辿れない。循環（差分が自ら足した物を根拠にする）ではなく『未確認の前提』の側。"
+      },
+      "main_path_observation": {
+        "status": "found",
+        "count": 2,
+        "detail": "利用者から見える経路（`loop.py` の CLI と `bash tests/run.sh`）を実際に動かし、本番と同じ経路を流れた値を観測した。**動かして初めて出た欠陥が 2 件**——どちらも差分を読む役では現れない。①`bash tests/run.sh` の stderr に `fail: command not found` と `_rows: command not found` が出た。柵の説明文がシェルの二重引用符の中で ` に囲まれており、コマンド置換として実行されていた。検査自体は緑（exit 0）のままなので、印字を読まないと気づかない。924446f の前の commit で直した。②windows-latest の CI だけ ratchet が赤。`str(path)` が Windows で `tests\\\\run.sh` になり、柵が自分の表を除外する口が一致せず、自分の表を別の突合と数えた。macOS と Linux は緑なので手元では出ない。この 2 件は静的な読みでは出ず、走らせた出力と CI のログから出た。"
+      },
+      "hygiene": {
+        "status": "found",
+        "checked": "渡された diff 全体を最後まで読んだ（量による打ち切りなし）。対象は、marketplace.json / plugin.json の版、attention/scripts の 2 ファイル、graphloops の README・engine（advance / board / commands / record / render / util / validator）・graphs 2 本・prompts 5 本・rules 2 本・scripts/graphcheck.py・tests（parallel.py 新設、run.sh、simulate.py、simulate_review.py）、scripts/research-record.py と review-record.py、tests/run.sh（CR_REASON の timeout と、埋め込みの doc-symbols / py-floor / ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order）。本文だけからは判断できず、推測で埋めていない点: diff に現れない関数の中身（util.porcelain・git のタイムアウト、validator_module、registry、load_rules、Board.ref の record 腕、Run.cmd の戻り値の型、expect_output、research finalize の後半、drive_graph の呼び出し側）、CI の workflow と README が宣言する Python の下限、engine が answer=escalate をどう処理するか、emit_instance が同じ instance について何回呼ばれるか。指摘はいずれも、検証手段を持たない目による仮説。",
+        "count": 22,
+        "detail": "attention/scripts/whose-turn.py gh()（subprocess.run の呼び）: この行は encoding を足すために触られているが、`timeout` がまだ無い。隣の what-am-i-doing.py の同じ gh 呼びには timeout=20 がある。gh（GraphQL）が応答しないと、再試行ループに入る前に無制限にハングする。加えて `errors=\"replace\"` は、復号できないバイトを黙って U+FFFD に置き換える。what-am-i-doing 側は「材料が減るだけ」と書いているが、whose-turn 側は戻り値をそのまま判定に使う。壊れた出力が失敗として表に出ず、そのまま通る可能性がある。 / graphloops/rules/review-loop.py worktree_compare（accepted の腕）: 受理したときは `again = worktree_snapshot(b, nid)` で写しを取り直し、`not again[\"ok\"]` なら即 return する。この return は `gm.append(entry)` より前にある。そのため、受理を伴う作業ツリーの変化があった事実（git_mismatches への記録）が、取り直しに失敗した経路でだけ残らない。成功経路と例外的な経路で、記録の対称性が崩れている。 / graphloops/engine/board.py Board.porcelain と、review-loop.py の worktree_snapshot / worktree_compare: P1 の前後の突合で使う 2 つの写しが、同じ memo（1 プロセスで 1 回）を引くようになった。この memo が正しいのは「前と後が必ず別プロセスの next で評価される」場合だけで、その前提は docstring の散文にしか無い。P1 の途中の節がすべて条件外（na）になるか、機械の節だけになると、前後が同じ next の中で続けて走る可能性がある。その場合は同じ写しを比べることになり、柵は常に緑になる。test_worktree_guard_fires 自身が「memo 化すると常時緑になる」と書いている形そのものだ。test_porcelain_memo は呼び出し回数しか見ておらず、前後が別プロセスであることは検査していない。 / graphloops/engine/board.py Board._out_path: 古い綴りを見分けるのに `str(p).startswith(str(self.dir))` という文字列の前方一致を使っている。docstring は「形から推し量る余地を残さない」と書くが、これはパスの区切りを見ない推測そのものだ。たとえば dir が `o`、相対の保存値が `outputs/...` なら、古い綴りと誤判定して盤面を前に付けない。`/x/run1` と `/x/run10` の区別もできない。Windows の区切りでも崩れうる。標準ライブラリの Path.parts の比較や is_relative_to を使っていない。 / graphloops/engine/board.py Board.validator_tables（ctx が常に呼ぶ）: (1) ImportError / OSError / Reject を握り潰して `{}` にする。validator の import 失敗は、下流では「穴を埋められない」という別の KeyError としてしか出ず、元の原因が消える。(2) validator は import 時に `_rows` → `fail` → `sys.exit(2)` を起こしうる。SystemExit は except の外なので、engine のプロセスが「記録が不正:」という文言を出して落ちる。(3) ctx の組み立てが毎回これを呼ぶため、`{{validator.*}}` を読まない節の描画でも validator の import が走り、その失敗に巻き込まれる。 / graphloops/engine/advance.py PROMPT_NOTICE / PROMPT_GROWTH_RATIO: 本番の検知の閾値を、import 時に環境変数から読んでいる（台本専用と注記されている）。環境変数に不正な値があると import 時に ValueError となり、未処理例外で落ちる。逆に大きな値が残っていると、育ちの検知が黙って無効になる。上書きされたこと自体は state にも記録にも残らないので、「検知は鳴らなかった」と「鳴らない設定だった」を区別できない。 / graphloops/tests/parallel.py の前提（docstring）と、simulate.py の test_porcelain_memo ほか: 並列化してよい前提として挙がっているのは os.chdir と os.environ の 2 つだけで、実際に共有される状態より狭い。test_porcelain_memo はモジュールの属性 `engine.util.porcelain` をスレッドをまたいで差し替える（try/finally はあるが、窓の間は他スレッドにも効く）。同じ時間帯に同じプロセス内で Board.porcelain を引く台本があれば、calls の数が揺れる。ほかにも複数の台本が `sys.path.insert` を並行に呼んで sys.path を伸ばし続ける。前提の一覧にモジュール属性のモンキーパッチが無いので、後から足された台本がこれを破っても誰も気づかない。 / graphloops/tests/parallel.py run_all と、各 test_* 冒頭の print: docstring は「出力は台本ごとにまとめて、渡された順で出す」と名乗る。しかしまとめられるのは check → parallel.line の行だけで、各台本の冒頭にある素の `print(\"否定検査: …\")` は即座に標準出力へ出る。並列時は見出しが先に混ざって並び、ok / FAIL の塊とずれるので、どの見出しがどの結果のものか読めない。 / graphloops/tests/parallel.py workspace（tempfile.TemporaryDirectory(ignore_cleanup_errors=True)）: `ignore_cleanup_errors` は Python 3.10 で入った引数で、それより前の版では TypeError になり、台本全体が起動できない。本文には「CI に下限を 1 本固定」する py-floor の柵があるが、宣言された下限の値は差分に無いので、ここでは互換を判断できない。 / graphloops/tests/simulate.py test_unresolved_role 内の drive_graph、test_workspace_cleanup: workspace は「持ち手を捨てるとその場で消える」。drive_graph のような入れ子関数の中で `_td_tmp, tmp = parallel.workspace(...)` を受けて return すると、持ち手はローカル変数なので戻った瞬間に作業場が消える（CPython の参照カウントの場合）。戻り値に作業場配下のパス（instance の prompt_file 等）が含まれていて、呼び出し側がそれを読むなら、読めなくなる。また test_workspace_cleanup の `del _td` →「その場で消える」は CPython の参照カウントに依存した検査で、処理系の性質を要件として固定している。 / graphloops/tests/simulate.py test_answer_vocabulary（state.json の直書き）: 盤面を手当てするのに、engine の公式の口（`loop.py patch`。同じ差分の test_rejudge_path はこちらを使い、痕跡が state.patches に残ることまで検査している）を使っていない。state.json を直接読み書きしているので、版の突合・patches の痕跡・書き込みの形式を迂回した盤面から、答える側の腕を検査していることになる。 / graphloops/tests/simulate.py test_relative_dir: docstring は「相対の --dir で回した run を別の作業ディレクトリから開くと ref:raw が <dir>/<dir> を読みに行く」退行を狙うと名乗る。しかし実際に ref:raw を解決しているのは、同じプロセス内の `Board(run.dir)` で、run.dir は絶対パスだ。`_out_path` は絶対の dir を前に付けるので、cwd に依らず通ってしまう。相対の --dir を使うのは `status` 1 回だけで、status が ref:raw を解決するかは本文から読めない。実在の確認も最初の 1 件で break する。狙った退行を赤くするのは実質「保存値が相対か」の 1 check だけで、覆いが名乗りより狭い。 / graphloops/tests/simulate.py test_rejections（前の節の出力の穴の check）: `\"open_questions\" not in prompts or \"[]\" in prompts or \"この周には無い\" in prompts` と、OR の腕が 3 本に増えた。`\"[]\"` はプロンプトのどこかに空配列が 1 つあれば真になり、ABSENT の語は別の穴の不在でも真になる。この節の穴が埋まったかどうかと無関係に緑になりうる、平坦な部分一致の検査だ。 / tests/run.sh の埋め込み ratchet.py: (1) 監視する定数名が FORMS に手で 2 つ列挙されている。「走査対象は宣言から導く」と名乗るが、別名のラチェット定数を足すと対象外になる。(2) RATCHETS には宣言が見つかったファイルしか入らないので、ループ内の「宣言が無い」NG の腕に到達できない。simulate_review.py の VOCAB_REACHED を改名・削除しても、そのファイルが黙って走査から落ち、他の 1 本が残る限り RATCHET_OK になる。(3) 宣言の検出は `^const\\s*=` の行頭限定で、インデントや export 付きの宣言は拾わない。(4) 緩い比較の同居は「定数名を含む行」しか見ない。前の行で `if reached >= 0: reached = VOCAB_REACHED` のように比較対象の変数側を緩める形は通る。 / tests/run.sh の埋め込み doc-cli.py: (1) 走査対象が `commands/*.md` と `graphloops/commands/*.md` のディレクトリの手列挙になっている。差分内でも graphloops/README.md や rules の文言（`loop.py patch --path state.*`）が案内を持つが、対象外だ。(2) 照合は `loop.py` と字面で綴られた呼びだけで、変数経由の `\"$LOOP\" next` などは母数に入らない。(3) `loop.py <sub> --help` の returncode を見ていない。失敗すると real[sub] が空集合になり、フラグを書かない案内はそのまま通る。 / tests/run.sh の埋め込み sub-encoding.py: (1) 読む側の走査は root 配下の `*.py` だけで、tests/run.sh の heredoc で書き出す script（doc-cli.py 等）は入らない。コメントが「3 度目を新しい柵自身がやった」と名指しした当の doc-cli.py が、読む側の検査の母数の外にある（書く側の reconfigure しか見ていない）。(2) `ast.parse` が SyntaxError になったファイルは、黙って continue する。走らせる Python より新しい構文のファイルは NG にも件数にも出ない。(3) `**kwargs` で text / encoding を渡す呼び、`text=変数` の呼び、`subprocess.getoutput` / `getstatusoutput`（常に文字列で読む）は判定の外。 / tests/run.sh の埋め込み table-copies.py: 見るのは `Compare` の in / not in だけ。同じ差分の research-loop.py finalize が直した `for k in (\"rederiver\", \"cold_reader\", \"cartographer\")` のような、リテラルの反復（ast.For の iter）で並べ直す形は母数の外にある。コメントが「漏れた 3 本目」と書いた当の形がこの柵では赤くならない。`==` の連鎖も外。正本側も、生成式で導く表（CHECKED_VERDICTS / SILENT_STATUS / DECIDED_STATUS 等の tuple(...for...)）は members() が None を返して owners に入らないので、それらの写しは検出されない。 / tests/run.sh の埋め込み stdout-shape.py: 守ると名乗るのは「役の自由文が行頭を作らない」ことだが、見ているのは `bullet()` の呼びが 1 か所以上あることだけ。コメントは「呼び 7 か所を全部外す退行が通った」と書くが、6 か所外して 1 か所残す退行は今も通る。行頭で読む rules の検出も `\\[0\\]\\.isspace\\(\\)` の平坦な正規表現で、`ln[:1].isspace()` などの別の綴りに書き換えた rules は対象から黙って外れる。 / scripts/research-record.py / scripts/review-record.py の PROMPT_TABLES と tests/run.sh の validator-order.py: validator-order.py が縛るのは「fail が _rows より前」だけ。しかし同じ差分で、import 時に評価される式がほかにも増えている。research の `v.fields[0]` は、要る欄が空の判定語を足すと IndexError になる。review の `ORIGIN_NOTE[v.domain]` は、域を足して ORIGIN_NOTE を書き忘れると KeyError になる。どちらも import 時の未処理例外（exit 1）で、`_rows` の docstring が防ぐと名乗る「契約の 3 値が 1 つ潰れる」壊れ方そのものだが、この柵の対象外にある。 / graphloops/scripts/graphcheck.py 受理集合の形の検査（ENGINE_ACCEPT_KEYS | ACCEPT_KEYS）: 検査するのは宣言された鍵の形だけで、graph の record に書かれた未知の `*_accepts_exit` 鍵（綴り違い）は何も言わない。research-loop.json で `report_accepts_exit` を綴り違えると、engine の report_accepts は既定の [0] に倒れ、graphcheck も黙る。test_graphcheck_sets_derived の control は「宣言しない鍵は見ない」を緑の条件として固定しており、この fail-open を仕様として焼き込んでいる。同じ差分が accepts_note で「書かないと graphcheck の形の検査にも入らない」と明示の効用を説いているのに、綴り違いは無宣言と同じ扱いになる。 / graphloops/scripts/graphcheck.py writes.from の optional 宣言の検査: required との照合は `frm.split(\".\")[0]`（先頭の欄）だけで行っている。先頭が required でも、その下の入れ子の欄が任意（例: `material.detail` の detail が任意）なら、宣言なしで通る。engine の apply_writes は `has_path` が偽なら黙って飛ばすので、無音で消える write の入口が入れ子の分だけ残る。 / graphloops/engine/record.py apply_writes（writes_skipped）/ advance.py emit_instance（growing_prompts）: どちらも append だけで、重複の除去も上限も無い。writes_skipped は周×節×扇の項目×write の数だけ積まれ、optional と宣言した意図的な省略でも毎回積まれる。growing_prompts は emit_instance が同じ instance について複数回呼ばれると（next の再呼び出しで再発行されるなら）同じ行を重ねる。同じ差分の purpose_sources_changed は「葉が何度も評価されるので周ごとに 1 行だけ」と重複除去をしているのに、これらには無い。記録と、回す側に渡る process がこの差分自身の問題（周ごとに単調増加する穴）を再生産しうる。"
+      },
+      "local_review": {
+        "status": "found",
+        "count": 40,
+        "detail": "5 レンズ（pr-review-toolkit:code-reviewer / silent-failure-hunter / type-design-analyzer / code-simplifier / comment-analyzer）を並列で起こし、5 本とも完走した（失敗・未起動は無し）。各レンズには REVIEW.md「指摘の提出基準」（機構・実測/未実測・提出前の自己反証・誤検出の見積もり）と、ファイルの作成・編集・削除の自己禁止を明記して渡した。code-simplifier には「修正を当てるな・指摘だけ返せ」を冒頭に明記して渡し、実際にパッチは 1 件も当たっていない。母数は diff-r2.patch 全 3,747 行・30 ファイル（changed-r2.txt）と、変更後の実ファイル。収集件数は code-reviewer 6・silent-failure-hunter 9・type-design-analyzer 8・code-simplifier 8・comment-analyzer 9 の計 40 件。うち複数レンズが独立に同じ箇所を挙げたものが 3 組ある（review-loop.py:603 の到達不能な腕を 3 レンズ、board.py:231 の綴り二重化を 2 レンズ、research-record.py:112 系の import 時例外を 2 レンズ）。重複の突合・採点・ラベル確定は行っていない（P1 の役割外）。作業ツリーは P1 の前後で git status --porcelain が空のまま（変更 0 バイト）。",
+        "checked": "",
+        "reason": ""
+      },
+      "consistency": {
+        "status": "found",
+        "count": 1,
+        "detail": "graphloops/tests/simulate.py: DELIVERY_SEEN（渡し方の検査が実際に当たった節を積む module 全体で共有する set）への `DELIVERY_SEEN.add(node)`（drive() 内、simulate.py:282）が parallel.LOCK の外で行われている。同じ diff は check() 内の `ran`/`fails` を『`ran += 1` は不可分ではない』と明記して parallel.LOCK で囲い、record_vocab() の VOCAB_SEEN も同じ LOCK で囲っているのに、drive() の中で同じスレッド並列（parallel.run_all → ThreadPoolExecutor）に晒される DELIVERY_SEEN だけ素の `.add()` のまま残っている——同一 diff 内で「共有可変状態は錠を掛ける」という新設した規律を、1 箇所だけ選択的に適用し損ねている。"
+      },
+      "bypass": {
+        "status": "found",
+        "count": 1,
+        "detail": "graphloops/rules/review-loop.py の judge_output() が、units の『今の周に直す単位か』判定に対して新設のローカル関数 open_unit()（745行目）を使っているが、同じファイルの assemble()（521行目）は全く同じ意味の判定を既に validator 側の正本 V.is_open()（scripts/review-record.py:620、`u['label']=='block' or (label=='suggest' and disposition=='do-now')`）を呼んで済ませている。judge_output() 自身も冒頭で `V = validator_module(b)` を取得しており V.is_open を呼べる状態にあるのに、それを経由せず手書きで再実装した open_unit() を使っている。これは本 diff が ANSWER_ACTIONS・TERMINAL_STATUS・VERDICT_FIELDS・SILENT_STATUS・REVIEW_STATUS 等について執拗に潰して回っている『同じ式を2か所に手で並べる』という当のクラスの欠陥そのもの——しかも open_unit() のdocstring自体が『同じ式が2か所に書かれていた…式は1つにする』と書きながら、その『1つ』を対応する検証器の正本ではなく rules 内のもう1つの写しに定めてしまっている。"
+      },
+      "external_standards": {
+        "status": "found",
+        "count": 2,
+        "detail": "①エンコーディング欄: 今回の diff は「Windows の既定コーデックで日本語が壊れる」という同一問題に対し、attention/scripts/what-am-i-doing.py・whose-turn.py の subprocess.run に encoding=\"utf-8\", errors=\"replace\" を個別に足し、さらに tests/run.sh 内に埋め込む新設の柵（ratchet.py・doc-cli.py・sub-encoding.py・table-copies.py・stdout-shape.py・validator-order.py）と既存の doc-symbols.py・py-floor.py の計 8 本すべてに `for _s in (sys.stdout, sys.stderr): if hasattr(_s, \"reconfigure\"): _s.reconfigure(encoding=\"utf-8\")` という同一 3 行＋同一コメント（コメント内で『今日足した柵 4 本が windows-latest だけで落ちた』『3 度目』と自認）を丸ごとコピーしている。これは CPython の UTF-8 モード（PEP 540、環境変数 PYTHONUTF8=1 または `-X utf8`）を使えば、`locale.getpreferredencoding()` が常に 'utf-8' を返すようになり（Python 公式ドキュメント locale.getpreferredencoding の 3.7 での変更点として明記）、text=True の subprocess decode も sys.stdout/stderr の既定 encoding も一括で直る問題。この repo は .github/workflows/test.yml を完全に所有しており（python-version: \"3.12\" を指定する job がある）、そこに env: PYTHONUTF8: \"1\"（または PYTHONIOENCODING: utf-8）を 1 行足すだけで、tests/run.sh 配下の CI 専用の埋め込みスクリプト群（doc-symbols.py・py-floor.py・ratchet.py・doc-cli.py・sub-encoding.py・table-copies.py・stdout-shape.py・validator-order.py の 8 本）に散らばる reconfigure の複製と、sub-encoding.py という『reconfigure と encoding= の書き忘れを見つける柵』自体の存在理由の一部が要らなくなる。②並行制御の自作: 新設ファイル graphloops/tests/parallel.py は ThreadPoolExecutor・threading.Lock・thread-local バッファでテストの同時実行と出力の順序保持を実装しているが、これは pytest-xdist が公式に提供する定番解と同じ問題クラス（並行制御・テスト分散）を独自実装したもの。ただしこの repo は Python パッケージマニフェスト（requirements.txt/pyproject.toml/setup.py 相当）を1つも持たず、既存の check()/ran/fails という自作テストハーネス自体がこの diff より前から存在するため、この diff が新規に導入した欠陥というより既存アーキテクチャの延長。"
+      },
+      "test_double_fidelity": {
+        "status": "found",
+        "count": 1,
+        "detail": "対象差分が触る継ぎ目は ①子プロセス（`loop.py` の CLI）②git ③CI。検査一式にはこの 3 つの代役が**無い**——`simulate.py` / `simulate_review.py` は実物の `loop.py` を subprocess で叩き、実物の git リポジトリを作り、実物の検証器を渡している。代役が無いので『代役にだけ通る形』の穴は原理的に無い。代役の形をしているのは 1 つだけ: **柵を注入で試すために、埋め込み script を `awk` で取り出した写し**。この写しは run.sh が `$WORK` に書く実物と一致しなければ、注入の赤も抜け道の緑も実物の話でなくなる。実測: 同じ heredoc を shell に展開させた実物 6 本と突き合わせたところ、取り出し直した写しは**6 本とも 1 バイト差なく一致**した（抜き出しの方法は忠実）。ただし**柵を直した後に写しを取り直さないと古いまま**で、突合の時点で 6 本中 2 本（sub-encoding・ratchet）が古かった。写しが実物と一致することを見る口がどこにも無い。この周は 2 本とも取り直して抜け道を当て直し、ratchet の 3 通り・sub-encoding の 3 通りが赤であることを確認済み。"
+      },
+      "fix_closure": {
+        "status": "found",
+        "count": 1,
+        "detail": "前の周が閉じた形が、この周の修正の中で 1 件再生産されていた——検証器の PROMPT_TABLES を例外境界の中へ入れる修正（U7）が、名前表を探す柵（U1・table-copies）の母数を 51 → 49 に黙って狭めた。dict literal が lambda の内側へ移り、柵の members() が見つけられなくなったため。退行注入で気づき、members() が lambda の本体まで見るようにして同じ周に閉じた（母数は 51 に戻る）。**柵の母数が狭くなった側は自分では赤くならない**ので、注入が無ければ緑のまま残った"
+      }
+    },
+    "last_review": {
+      "R1": {
+        "round": 2,
+        "status": "redesign-needed",
+        "reason": "累積差分は最小でない——増えた注記の実質すべてが、この差分自身が作った逐語の写しである。実測: tests/run.sh に同一 4 行の cp1252 注記が 7 か所（2626・2728・2771・2877・2961・3063・3159。8 本目の validator-order.py:3242 は注記なしで同じ 3 行を持ち、run.sh:3038-3044 の柵が reconfigure を機械で要求している＝注記は 1 本で足りる）。R2 が走らなかった実測 2026-09-13 は 6 か所（advance.py:310／simulate.py:1243／simulate_review.py:1193／review-loop.py:173 と :182／p0.purpose.md:7）に在り、うち 3 か所が「6 周」、2 か所が「5 周」と食い違う——review-loop.py の同じ関数の中で 8 行差で数字が割れており、写しが古くなる害は予測でなく既に発生している。scalar の comment_lines は +60（633→693・比 34%）だが、下の deletions だけで 70 行前後の逐語重複を消せる。台帳の側は fork:gate-shape-meta が逃げ道になっている: ②（埋め込み柵を 1 本足す）を『機構の新設だから判定者は選べない』として人へ回しているのに、同じ累積差分が tests/run.sh に埋め込み柵を 6 本新設している（ratchet/doc-cli/sub-encoding/table-copies/stdout-shape/validator-order は全部この差分の新規行）。②は 7 本目にすぎず、既存の機構での零処方として judge が自分で採るか merits で棄却すべきもので、阻害理由が自分の実績と矛盾したまま人へ渡っている。"
+      },
+      "R2": {
+        "round": 1,
+        "status": "redesign-needed",
+        "reason": "目的の骨格は両者で同じ方向を向いている。差分も語彙の正本を 1 か所に置き、読む側に派生させる形を採っている（PROMPT_TABLES・SILENT_STATUS／OBSERVED_STATUS／DECIDED_STATUS・CHECKED_VERDICTS・GATED_THICKNESS・ANSWER_ACTIONS・TERMINAL_STATUS・ACCEPT_KEYS・parallel.collect）。ただし『閉じる』の中身で、構造の食い違いが本質的な規模で残る。\n\n(1) 実行時の騒がしさを本体としていない。欄の欠落で起きない write、測れない引き金、凍った出力と今の schema の不一致は、いずれも既定の処分路（continue／False／進行続行）を残したまま、痕跡（writes_skipped／unevaluable／stale_frozen）を足して処理している。raise には倒していない。独立設計は『柵だけ足して黙殺路を残す修正は閉じていない』と定める。\n\n(2) 新しい柵に常設の退行注入が無い。table-copies・ratchet・sub-encoding・doc-cli・stdout-shape の 5 本とも、注入で赤を見た記録は注記の『実測』だけで、run.sh に注入の検査が入っていない。\n\n(3) 柵の空振りを赤にしていない。table-copies は該当 site が 0 件でも緑になり、赤になるのは母数（名前表・走査ファイル）が 0 のときだけ。site の列挙も一部が名前の一覧による（research の prompt 3 本を名指し、RATCHETS 表）。\n\n(4) 語彙の写しの検出が片方向で、媒体も狭い。table-copies は Python の所属判定のうち『正本の部分集合』しか見ない。写しに値が余る方向、else 側の黙殺、.md／.json／shell の写し、graph schema の enum と検証器の表の一致は、差分の中に機械の問いが無い。\n\n(5) 到達の柵に抜け道が残る。到達数の等値だけで、母数と新規値の絶対規則を持たない。schema に enum 値を 1 つ足しても緑のままで、比率を薄める経路が開いている。\n\n(6) research 側への当て方が、独立設計が『最も起きやすい誤り』と名指しした形そのものである。review 側の到達測定（record_vocab／vocab_coverage）をパスを差し替えて simulate.py に複製しており、写しはすでに分岐している（RANDOM_FAN の除外は research 側だけ）。glob で graph を発見する 1 実装になっていない。\n\n(7) 残りの論点:\n- RANDOM_FAN の除外は宣言を読むだけで、宣言が正しいかの照合も注入も無い。\n- 標準出力の encoding の前置は各 script に写したうえで存在を柵で見ており、共通の前置 1 本になっていない。区切りの正規化は覆われていない。\n- 柵は run.sh の heredoc に埋め込まれていて、単体では起動できない。\n- windows の常時赤は凍結されず、門が戻っていない。\n\n加えて、差分は目的の外で機構を新設している（件数停滞の引き金、上限到達時の諮りと 1 周延長、並列実行の土台、プロンプトの育ちの測定）。engine と検証器のあいだに PROMPT_TABLES という新しい面も開いている。これらを設計の岐路として人に出したかは、差分からは読めない。"
+      },
+      "R3": {
+        "round": 2,
+        "status": "pass",
+        "reason": "seen: 全 34 変更ファイルの diff hunk を通読。特に横断整合の要である (1) engine 側の新規/変更定数（TERMINAL_STATUS・ANSWER_ACTIONS・REPORT_ACCEPTS/ENGINE_ACCEPT_KEYS・report_accepts()）が commands.py/advance.py/graphcheck.py で一貫して import・使用されている、(2) rules/review-loop.py の ACCEPT_KEYS=('round_accepts_exit',) と graph の review-loop.json の report_accepts_exit/round_accepts_exit/accepts_note、graphcheck.py の ENGINE_ACCEPT_KEYS|reg('ACCEPT_KEYS') 検査が整合、(3) 検証器（scripts/review-record.py・scripts/research-record.py）が新設した PROMPT_TABLES（verdicts/checked_verdicts/question_kinds/question_fields 等）のキー名が、対応する graph の reads 追加（'validator'）・prompts（p1.checker.md・p1.refuter.md・p3.sampling.md・p2.diagnose.md）の {{validator.xxx}} 参照と1対1で一致し、board.py の validator_tables()/ctx() 経路・render.py の resolve（get_path 経由）とも整合、(4) rules 側の V.SILENT_STATUS/V.OBSERVED_STATUS/V.REVIEW_STATUS/V.QUESTION_KINDS.domain/.fields 等の属性アクセスが両検証器の namedtuple 定義（Rule/RRule/Kind/Verdict、fields 追加済み）と噛み合っている、(5) research-loop.py と review-loop.py で同種の max_rounds 諮り機能・on_answer の kinds 記録が対で追加され、ask の options はいずれも ANSWER_ACTIONS の部分集合になっている、(6) graphloops/tests（parallel.py・simulate.py・simulate_review.py・run.sh の EXPECTED_CHECKS 330→485）・tests/run.sh（新設の doc-cli.py・sub-encoding.py・table-copies.py・stdout-shape.py 等の柵）が、rules/engine の正本（RANDOM_FAN・PROMPT_TABLES・ACCEPT_KEYS 等）を書き写さず参照する形に揃っている——を確認し、命名・宣言-使用・prompt-graph-validator 間で不一致は見つからなかった。unseen/打ち切り線: board.py・commands.py・util.py・validator.py・render.py・schema.py の diff に現れない既存部分と graphloops/README.md 全文は必要箇所のみ参照読みで全文突合はしていない。tests/simulate.py・simulate_review.py・tests/run.sh（root）は主要な新設ブロックのみ読み、全行の逐次検証はしていない。VOCAB_REACHED=72 等のテスト内の実測定数値そのものは、本セッションに実行手段（Bash 等）が無いため動かして裏取りできておらず「読解で妥当に見える」域に留まる（読むより動かす原則の対象だが実行不能）。並行 PR の衝突確認は対象外（今回の入力に該当情報なし）。"
+      },
+      "R4": {
+        "round": 2,
+        "status": "redesign-needed",
+        "reason": "この diff は新設した『育った穴を検知する』安全機構（GL_PROMPT_NOTICE / GL_PROMPT_GROWTH_RATIO）を、同じ diff が新設した『台本専用と分かる名前の環境変数』（GL_TEST_WORKERS）と非対称な命名で実装しており、engine/advance.py が os.environ から無条件・無ゲートで読む。台本専用のつもりの値が本番の run にそのまま効いてしまう経路が、この diff 自身によって作られている——皮肉にも、この diff が回収した『6 周で 1,120 KB まで誰にも見えず育ったプロンプト』事故と同じ形（検証機構の fail-open）を、その修正自体が新しい経路で持ち込んだ。加えてテスト実行のスレッド並列化（tests/parallel.py）は開発フロー・UX に触れる変更で、既定の逐次・即時出力という体験が失われている（棚卸し対象）。"
+      }
+    },
+    "lines_at_r1": 2630,
+    "block_counts": [
+      {
+        "round": 1,
+        "n": 6
+      },
+      {
+        "round": 2,
+        "n": 1
+      }
+    ],
+    "prev_blocks": [
+      "tests/run.sh:sub-encoding.py(CALL) — subprocess の走査が自作正規表現で、入れ子 2 段の呼びと『語だけ残した書く側』が母数から落ちる",
+      "graphloops/engine/advance.py:prompt_growth — 痕跡を積む分岐に実物の next を通す腕が無く、配線を殺しても全件緑",
+      "tests/run.sh の新設柵 — 非空検査が容れ物（ファイル数・script 本数）を数え、当たり 0 を合格と区別できない",
+      "scripts/research-record.py:_rows — fail より前に定義され、守ると名乗った exit の三値が自分の経路で潰れる",
+      "graphloops/rules/research-loop.py:converge/on_answer — 上限で諮る口と kinds が research 側だけ無い",
+      "graphloops/prompts/review-loop/report.human_items.md:3 — pick が実在しない欄 question を指し depends を落とす",
+      "tests/run.sh の埋め込み柵（ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order） — 柵が測る面を手書きの綴りで内側に固定しており、名乗った面より狭い（狭さは合格の印字に出ない）"
+    ],
+    "defer_ledger": {
+      "tests/run.sh(CI):windows-latest 11 件 — 対象差分の外の赤を『対象外』と名乗る語が素材に無い": {
+        "reason": "defer 維持です。構造的理由『スコープ／サブシステムが別（別プラグインの検査）』は今も成立しており、この周に反証する材料は出ていません（local_checks はこの周 carried_over で、誰も観測し直していません）。前の周の実測では 11 件とも別プラグインで、20 回前の run でも同じ検査が赤く、この差分が触った 2 ファイルを通りません。素材の 6 値に『赤だが対象差分の外』を表す語が無いことが本体で、それは設計の岐路（questions:ci-foreign-red）に残します。",
+        "round": 2
+      },
+      "graphloops/prompts/research-loop/p1.checker.md ほか — 未マージ PR #11 と同じループの規律を別ファイルで述べており、ファイル集合の交差では出ない": {
+        "reason": "defer 維持です。構造的理由『スコープ／サブシステムが別（担当 PR が別に在る）』は今も成立しています（parallel_pr はこの周 carried_over で、#11 の本文を読める材料は増えていません）。REVIEW.md の『担当 PR がある箇所は本 PR のスコープから外し、修正は担当 PR への申し送り』に従います。",
+        "round": 2
+      }
+    },
+    "validator_outputs": {
+      "1": "問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。目的の内側でないかは R1 が監査）:\n  - [未決] fork: gate-shape-meta — U1〜U3 の零処方（5 本を手で揃える）は各 site を閉じるが、**次に足す柵が同じ形で入ることは止められない**——実測: この差分自身が『柵の名乗り＞測る面』を同じ日に 3 度潰しながら、5 本目の新設柵で再びこの形を入れた。ここから先は機構の新設・共有面の拡大に及ぶので、凍結した目的の『やらないこと』に当たり、判定者は確定しない。\n  - [未決] fork: pick-unknown-field — U7 の零処方（欄名を直す 1 行）はその穴を閉じるが、pick が未知の欄を黙って捨てる性質は残り、14 か所の穴のどれでも同じ事故が再発する。engine の共有面（util.pick / render）に触る処方なので判定者は確定しない。\n  - [未決] fork: ci-foreign-red — local_checks の 6 値に『赤だが対象差分の外』を表す語が無く、既存・無関係の 11 件が収束を構造的に止める。issue #8 の裁定（緑を確認できた場合のみ clean）は今も束縛するので clean と名乗らせる零処方は取れない。語彙を足すか運用で回すかは設計の判断。\n収束を妨げるもの 15 件:\n  - [block] 未解消: tests/run.sh:sub-encoding.py(CALL) — subprocess の走査が自作正規表現で、入れ子 2 段の呼びと『語だけ残した書く側』が母数から落ちる（今ラウンドに立った問い——再審は次の周）\n  - [block] 未解消: graphloops/engine/advance.py:prompt_growth — 痕跡を積む分岐に実物の next を通す腕が無く、配線を殺しても全件緑\n  - [block] 未解消: tests/run.sh の新設柵 — 非空検査が容れ物（ファイル数・script 本数）を数え、当たり 0 を合格と区別できない\n  - [block] 未解消: scripts/research-record.py:_rows — fail より前に定義され、守ると名乗った exit の三値が自分の経路で潰れる\n  - [block] 未解消: graphloops/rules/research-loop.py:converge/on_answer — 上限で諮る口と kinds が research 側だけ無い\n  - [suggest] do-now 未対応: graphloops/tests/simulate_review.py:vocab_coverage — 無作為の扇の除外（RANDOM_FAN）が review 側に無い\n  - [block] 未解消: graphloops/prompts/review-loop/report.human_items.md:3 — pick が実在しない欄 question を指し depends を落とす（今ラウンドに立った問い——再審は次の周）\n  - [suggest] do-now 未対応: tests/run.sh:doc-cli.py — 子プロセスの呼びに timeout が無い\n  - [suggest] do-now 未対応: graphloops/tests/simulate.py:MADE/_sweep_made — tempfile.TemporaryDirectory の再実装で、並列化後も集合に排他が無い\n  - [suggest] do-now 未対応: graphloops/rules/review-loop.py:worktree_compare — 受理した作業ツリー変更で diff-r<N>.patch を取り直さず、審査対象と現物が割れる\n  - [suggest] do-now 未対応: graphloops/engine/render.py:5,17 — 省略可の穴の docstring とコメントが実装（ABSENT は KeyError のみ）と逆を言う\n  - [suggest] do-now 未対応: tests/run.sh:ratchet.py(RATCHETS) — ラチェットの走査対象を手で並べている\n  - R1 が redesign-needed: 問いの台帳は逃げ道になっていない（3 件とも fork、3 件とも零処方が選択肢に在り、うち 2 件は今周に実際に採られている。origin はいずれも機構の新設・共有面の拡大で、凍結した目的の『やらないこと』の内側なので人へ回すのが正しい）。落ちるのは累積差分の最小性の方で、実物を読んで 2 つ確認した。(1) 今周が tests/run.sh に足した埋め込み script 7 本に、cp1252 の同じ 4 行注記が逐語で写されている（2626/2728/2771/2852/2914/3011/3092）。同じ事実は同ファイル 2906 の節の頭と柵の NG 文言（2993・2996）に在り、同じ日に足した 8 本目 validator-order.py（3170-3172）は注記なしで同じ 3 行を持つ。柵自身が `_s.reconfigure(encoding=` の呼びだけを見て注記を見ない（2991）ので、消しても赤くならない——28 行が他所から導ける重複。(2) U9（TemporaryDirectory）の処方は root・『自作の後始末を標準に戻す』と名乗るが、木には rm() ヘルパが simulate.py:53-56 と simulate_review.py:50-53 に 2 本、その呼びが 66 か所残り、rm() の docstring は parallel.workspace の docstring（parallel.py:61-62）と同じ Windows の事実を 3 度目に言っている。持ち手が同じ後始末を持つので挙動は落ちない削除で、閉鎖の名乗りが木より広い。加えて U9 の母数の問い（`grep -rn 'MADE' | wc -l`）も U1 の母数の問い（`re.compile(r\"…(subprocess|^def )`）も、直した綴りそのものを数える形なので構造上ほぼ 0/1 を返す——凍結した目的が要求する『同じ形を全部引ける機械の問い』になっていない。実証: U1 の当の unit（書く側）に残った 2991 は今も正規表現で、この問いに一度も当たらない（docstring 行に同じ 1 行を置けばすり抜ける。ast なら閉じる）。処方の骨格・ゲートの設計自体は作り直し不要で、必要なのは deletions の適用と、母数の問いを『形』側に置き直すこと。検証できなかった点: テストの緑件数・red_seen・CI の 11 件の帰属は私の道具（Read / Grep のみ）では未検算で、判定はコードの構造だけに拠る。\n  - R2 が redesign-needed: 目的の骨格は両者で同じ方向を向いている。差分も語彙の正本を 1 か所に置き、読む側に派生させる形を採っている（PROMPT_TABLES・SILENT_STATUS／OBSERVED_STATUS／DECIDED_STATUS・CHECKED_VERDICTS・GATED_THICKNESS・ANSWER_ACTIONS・TERMINAL_STATUS・ACCEPT_KEYS・parallel.collect）。ただし『閉じる』の中身で、構造の食い違いが本質的な規模で残る。\n    \n    (1) 実行時の騒がしさを本体としていない。欄の欠落で起きない write、測れない引き金、凍った出力と今の schema の不一致は、いずれも既定の処分路（continue／False／進行続行）を残したまま、痕跡（writes_skipped／unevaluable／stale_frozen）を足して処理している。raise には倒していない。独立設計は『柵だけ足して黙殺路を残す修正は閉じていない』と定める。\n    \n    (2) 新しい柵に常設の退行注入が無い。table-copies・ratchet・sub-encoding・doc-cli・stdout-shape の 5 本とも、注入で赤を見た記録は注記の『実測』だけで、run.sh に注入の検査が入っていない。\n    \n    (3) 柵の空振りを赤にしていない。table-copies は該当 site が 0 件でも緑になり、赤になるのは母数（名前表・走査ファイル）が 0 のときだけ。site の列挙も一部が名前の一覧による（research の prompt 3 本を名指し、RATCHETS 表）。\n    \n    (4) 語彙の写しの検出が片方向で、媒体も狭い。table-copies は Python の所属判定のうち『正本の部分集合』しか見ない。写しに値が余る方向、else 側の黙殺、.md／.json／shell の写し、graph schema の enum と検証器の表の一致は、差分の中に機械の問いが無い。\n    \n    (5) 到達の柵に抜け道が残る。到達数の等値だけで、母数と新規値の絶対規則を持たない。schema に enum 値を 1 つ足しても緑のままで、比率を薄める経路が開いている。\n    \n    (6) research 側への当て方が、独立設計が『最も起きやすい誤り』と名指しした形そのものである。review 側の到達測定（record_vocab／vocab_coverage）をパスを差し替えて simulate.py に複製しており、写しはすでに分岐している（RANDOM_FAN の除外は research 側だけ）。glob で graph を発見する 1 実装になっていない。\n    \n    (7) 残りの論点:\n    - RANDOM_FAN の除外は宣言を読むだけで、宣言が正しいかの照合も注入も無い。\n    - 標準出力の encoding の前置は各 script に写したうえで存在を柵で見ており、共通の前置 1 本になっていない。区切りの正規化は覆われていない。\n    - 柵は run.sh の heredoc に埋め込まれていて、単体では起動できない。\n    - windows の常時赤は凍結されず、門が戻っていない。\n    \n    加えて、差分は目的の外で機構を新設している（件数停滞の引き金、上限到達時の諮りと 1 周延長、並列実行の土台、プロンプトの育ちの測定）。engine と検証器のあいだに PROMPT_TABLES という新しい面も開いている。これらを設計の岐路として人に出したかは、差分からは読めない。\n  - 前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）\n台帳に未決の問いが 3 件（うち人へ 0 件）——阻害要因の有無に依らず、最終報告の冒頭に載せろ。",
+      "2": "増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:\n  - scalar 'added_lines': 1871 → 2018\n  - scalar 'comment_lines': 633 → 693\n  - scalar 'comment_ratio_pct': 33 → 34\n持ち越し（機械は中身を見ない。古いものほど、見直す理由が無いかを疑え）:\n  - 素材 base_determination: round 1 の判定を流用（1 ラウンド前）\n  - 素材 parallel_pr: round 1 の判定を流用（1 ラウンド前）\n問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。目的の内側でないかは R1 が監査）:\n  - [人へ] fork: gate-shape-meta — 新証拠が出たので held から上げます。前の周は選択肢①（手で揃える）が実際に採られ、名指しの 6 site は今の作業ツリーで全部閉じていました（私が現物で確認）。それでも同じ形が同じ柵の一段内側（doc-cli の照合正規表現・ratchet の FORMS・table-copies の鍵）に戻り、pick のクラスは母数 14 のまま動きませんでした——①だけでは次に足す柵・次の層を止められないことが 2 周で実測された形です。②③はどちらも機構の新設・共有面の拡大で、凍結した目的が明示する『やらないこと』に当たるため、判定者は選べません（目的の書き換えに当たるので人の判断が要ります）。\n  - [未決] fork: pick-unknown-field — held のまま次の周へ送ります。前の周の零処方①は採られて出どころ（report.human_items.md:3）は閉じましたが、クラスの母数は 14 のまま（今周に数え直し）で、現に同ファイル :6 の `{{loop | pick round,…}}` が `round` を落としています。②（未知の欄で例外）③（検証器の宣言から生成）はどちらも engine の共有面に触るので判定者は確定しません。決まる条件: 14 穴の欄名を全部検算した表（どの穴のどの欄が実在しないか）が次の周に出れば、②の先行棚卸しが済み、この岐路は決められます。\n  - [未決] fork: ci-foreign-red — held を維持します。local_checks はこの周 carried_over で、11 件の帰属を確かめ直した材料がありません——新証拠なしに判定を作り直さない側に倒します。issue #8 の裁定（緑を確認できた場合のみ clean）は今も束縛するので、clean と名乗らせる零処方は取れません。決まる条件: 次の周に local_checks を走らせ直し、11 件の帰属（別プラグインであること）と、対象差分の job だけを見たときの緑が実測で揃うこと。\n履歴（round 1〜2。P2 の judge に渡せ。機械は解釈しない）:\n  - tests/run.sh:sub-encoding.py(CALL) — subprocess の走査が自作正規表現で、入れ子 2 段の呼びと『語だけ残した書く側』が母数から落ちる\n          r1:block → r2:—\n  - graphloops/engine/advance.py:prompt_growth — 痕跡を積む分岐に実物の next を通す腕が無く、配線を殺しても全件緑\n          r1:block → r2:—\n  - tests/run.sh の新設柵 — 非空検査が容れ物（ファイル数・script 本数）を数え、当たり 0 を合格と区別できない\n          r1:block → r2:—\n  - scripts/research-record.py:_rows — fail より前に定義され、守ると名乗った exit の三値が自分の経路で潰れる\n          r1:block → r2:—\n  - graphloops/rules/research-loop.py:converge/on_answer — 上限で諮る口と kinds が research 側だけ無い\n          r1:block → r2:—\n  - graphloops/tests/simulate_review.py:vocab_coverage — 無作為の扇の除外（RANDOM_FAN）が review 側に無い\n          r1:suggest/do-now → r2:—\n  - graphloops/prompts/review-loop/report.human_items.md:3 — pick が実在しない欄 question を指し depends を落とす\n          r1:block → r2:—\n  - tests/run.sh:doc-cli.py — 子プロセスの呼びに timeout が無い\n          r1:suggest/do-now → r2:—\n  - graphloops/tests/simulate.py:MADE/_sweep_made — tempfile.TemporaryDirectory の再実装で、並列化後も集合に排他が無い\n          r1:suggest/do-now → r2:—\n  - tests/run.sh(CI):windows-latest 11 件 — 対象差分の外の赤を『対象外』と名乗る語が素材に無い\n          r1:suggest/defer → r2:suggest/defer\n  - graphloops/rules/review-loop.py:worktree_compare — 受理した作業ツリー変更で diff-r<N>.patch を取り直さず、審査対象と現物が割れる\n          r1:suggest/do-now → r2:—\n  - graphloops/tests/simulate_review.py:10-23 — sys.path.insert と TERMINAL_STATUS の重複 import\n          r1:nit → r2:—\n  - graphloops/engine/render.py:5,17 — 省略可の穴の docstring とコメントが実装（ABSENT は KeyError のみ）と逆を言う\n          r1:suggest/do-now → r2:—\n  - scripts/research-record.py:89 DECIDERS — インラインコメントが ORIGINS の説明で、区切りのスペースも落ちている\n          r1:nit → r2:—\n  - tests/run.sh の埋め込み script — import sys の重複\n          r1:nit → r2:—\n  - tests/run.sh:ratchet.py(RATCHETS) — ラチェットの走査対象を手で並べている\n          r1:suggest/do-now → r2:—\n  - graphloops/prompts/research-loop/p1.checker.md ほか — 未マージ PR #11 と同じループの規律を別ファイルで述べており、ファイル集合の交差では出ない\n          r1:suggest/defer → r2:suggest/defer\n  - tests/run.sh の埋め込み柵（ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order） — 柵が測る面を手書きの綴りで内側に固定しており、名乗った面より狭い（狭さは合格の印字に出ない）\n          r1:— → r2:block\n  - graphloops/rules/review-loop.py:open_unit — 『今の周に直す単位か』の式が、検証器の正本 is_open と別に手書きで写されている\n          r1:— → r2:suggest/do-now\n  - graphloops/rules/review-loop.py:record_round — 腕を前置きした結果 elif prev: が到達不能になり、同じ本文が 2 か所に残っている\n          r1:— → r2:suggest/do-now\n  - graphloops/engine/board.py:_out_path — 古い綴りの見分けが文字列の前方一致で、絶対の --dir で旧盤面を開くと <dir>/<dir> に戻る\n          r1:— → r2:suggest/do-now\n  - attention/scripts/whose-turn.py:gh — 判定にそのまま使う外部コマンドの呼びに timeout が無く、無制限に待つ\n          r1:— → r2:suggest/do-now\n  - graphloops/engine/validator.py:finalize / graphloops/rules/review-loop.py:finalize — process の痕跡 5 欄に消費者が 1 つも無く、鳴っても何も赤くならない\n          r1:— → r2:suggest/do-now\n  - scripts/research-record.py:PROMPT_TABLES / scripts/review-record.py:PROMPT_TABLES — import 時に評価される派生表が例外境界の外に在り、契約の exit 2 が exit 1 に潰れる\n          r1:— → r2:suggest/do-now\n  - graphloops/prompts/review-loop/report.human_items.md:6 / graphloops/engine/util.py:pick — 穴が指す欄が値に無いと黙って落ち、盤面の行から round が消えている\n          r1:— → r2:suggest/do-now\n  - graphloops/engine/advance.py・graphloops/rules/review-loop.py・graphloops/tests/simulate.py・tests/run.sh の『実測 2026-09-14』注記 4 件 — 根拠がリポジトリから辿れない置き場に立っている\n          r1:— → r2:suggest/do-now\n  - graphloops/tests/simulate.py:drive — DELIVERY_SEEN への追加だけが parallel.LOCK の外に残っている\n          r1:— → r2:nit\n  - attention/scripts/whose-turn.py:gh — errors=\"replace\" が復号の失敗を黙って置換し、化けた文字列が判定に載る\n          r1:— → r2:nit\n  - graphloops/rules/review-loop.py:worktree_compare — 受理後に写しを取り直せなかった経路だけ git_mismatches に記録が残らない\n          r1:— → r2:nit\n  - graphloops/engine/advance.py:import — この差分で呼び手が消えた porcelain の import が残っている\n          r1:— → r2:nit\n  - tests/run.sh の埋め込み柵 8 本 — Windows の既定コーデックを上流の UTF-8 モードでなく各本の reconfigure 3 行で解いている\n          r1:— → r2:info\n  - graphloops/tests/parallel.py — テストの並列実行を pytest-xdist でなく ThreadPoolExecutor で自作している\n          r1:— → r2:info\n  - この周に反証して落とした指摘（情報共有）\n          r1:— → r2:info\n  - 問い: gate-shape-meta\n          r1:held(fork) → r2:escalate(fork)\n  - 問い: pick-unknown-field\n          r1:held(fork) → r2:held(fork)\n  - 問い: ci-foreign-red\n          r1:held(fork) → r2:held(fork)\n  - 要対応（[block]＋do-now）の件数: 12 → 9\n  - 問いの台帳の件数（保留・人へ・ループが決めた）: 3・0・0 → 2・1・0\n  - scalar 'added_lines': 1871 → 2018\n  - scalar 'changed_files': 30 → 15\n  - scalar 'checks_graphloops': 485 → —\n  - scalar 'checks_root': 537 → —\n  - scalar 'comment_lines': 633 → 693\n  - scalar 'comment_ratio_pct': 33 → 34\n  - scalar 'diff_deletions': 264 → —\n  - scalar 'diff_insertions': 2353 → —\n  - scalar 'doc_cli_matched': — → 17\n  - scalar 'doc_cli_universe': — → 20\n  - scalar 'doc_lines': 128 → —\n  - scalar 'gate_arms_red': — → 8\n  - scalar 'gate_arms_total': — → 8\n  - scalar 'graphloops_checks': — → 487\n  - scalar 'ratchet_universe': — → 6\n  - scalar 'root_checks': — → 537\n  - scalar 'table_owners': — → 51\n過去のラウンドの [block] で今ラウンドの記録に無いキー（直ったのか、記録から落ちたのかは機械には見えない。P2「履歴との突合」でルーターに掛けろ）:\n  - graphloops/engine/advance.py:prompt_growth — 痕跡を積む分岐に実物の next を通す腕が無く、配線を殺しても全件緑\n  - graphloops/prompts/review-loop/report.human_items.md:3 — pick が実在しない欄 question を指し depends を落とす\n  - graphloops/rules/research-loop.py:converge/on_answer — 上限で諮る口と kinds が research 側だけ無い\n  - scripts/research-record.py:_rows — fail より前に定義され、守ると名乗った exit の三値が自分の経路で潰れる\n  - tests/run.sh の新設柵 — 非空検査が容れ物（ファイル数・script 本数）を数え、当たり 0 を合格と区別できない\n  - tests/run.sh:sub-encoding.py(CALL) — subprocess の走査が自作正規表現で、入れ子 2 段の呼びと『語だけ残した書く側』が母数から落ちる\n収束を妨げるもの 13 件:\n  - [block] 未解消（新規）: tests/run.sh の埋め込み柵（ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order） — 柵が測る面を手書きの綴りで内側に固定しており、名乗った面より狭い（狭さは合格の印字に出ない）（保留の問いに帰属——答えを待っている）\n  - [suggest] do-now 未対応: graphloops/rules/review-loop.py:open_unit — 『今の周に直す単位か』の式が、検証器の正本 is_open と別に手書きで写されている\n  - [suggest] do-now 未対応: graphloops/rules/review-loop.py:record_round — 腕を前置きした結果 elif prev: が到達不能になり、同じ本文が 2 か所に残っている\n  - [suggest] do-now 未対応: graphloops/engine/board.py:_out_path — 古い綴りの見分けが文字列の前方一致で、絶対の --dir で旧盤面を開くと <dir>/<dir> に戻る\n  - [suggest] do-now 未対応: attention/scripts/whose-turn.py:gh — 判定にそのまま使う外部コマンドの呼びに timeout が無く、無制限に待つ\n  - [suggest] do-now 未対応: graphloops/engine/validator.py:finalize / graphloops/rules/review-loop.py:finalize — process の痕跡 5 欄に消費者が 1 つも無く、鳴っても何も赤くならない\n  - [suggest] do-now 未対応: scripts/research-record.py:PROMPT_TABLES / scripts/review-record.py:PROMPT_TABLES — import 時に評価される派生表が例外境界の外に在り、契約の exit 2 が exit 1 に潰れる\n  - [suggest] do-now 未対応: graphloops/prompts/review-loop/report.human_items.md:6 / graphloops/engine/util.py:pick — 穴が指す欄が値に無いと黙って落ち、盤面の行から round が消えている（保留の問いに帰属——答えを待っている）\n  - [suggest] do-now 未対応: graphloops/engine/advance.py・graphloops/rules/review-loop.py・graphloops/tests/simulate.py・tests/run.sh の『実測 2026-09-14』注記 4 件 — 根拠がリポジトリから辿れない置き場に立っている\n  - R1 が redesign-needed: 累積差分は最小でない——増えた注記の実質すべてが、この差分自身が作った逐語の写しである。実測: tests/run.sh に同一 4 行の cp1252 注記が 7 か所（2626・2728・2771・2877・2961・3063・3159。8 本目の validator-order.py:3242 は注記なしで同じ 3 行を持ち、run.sh:3038-3044 の柵が reconfigure を機械で要求している＝注記は 1 本で足りる）。R2 が走らなかった実測 2026-09-13 は 6 か所（advance.py:310／simulate.py:1243／simulate_review.py:1193／review-loop.py:173 と :182／p0.purpose.md:7）に在り、うち 3 か所が「6 周」、2 か所が「5 周」と食い違う——review-loop.py の同じ関数の中で 8 行差で数字が割れており、写しが古くなる害は予測でなく既に発生している。scalar の comment_lines は +60（633→693・比 34%）だが、下の deletions だけで 70 行前後の逐語重複を消せる。台帳の側は fork:gate-shape-meta が逃げ道になっている: ②（埋め込み柵を 1 本足す）を『機構の新設だから判定者は選べない』として人へ回しているのに、同じ累積差分が tests/run.sh に埋め込み柵を 6 本新設している（ratchet/doc-cli/sub-encoding/table-copies/stdout-shape/validator-order は全部この差分の新規行）。②は 7 本目にすぎず、既存の機構での零処方として judge が自分で採るか merits で棄却すべきもので、阻害理由が自分の実績と矛盾したまま人へ渡っている。\n  - R2 が redesign-needed: 目的の骨格は両者で同じ方向を向いている。差分も語彙の正本を 1 か所に置き、読む側に派生させる形を採っている（PROMPT_TABLES・SILENT_STATUS／OBSERVED_STATUS／DECIDED_STATUS・CHECKED_VERDICTS・GATED_THICKNESS・ANSWER_ACTIONS・TERMINAL_STATUS・ACCEPT_KEYS・parallel.collect）。ただし『閉じる』の中身で、構造の食い違いが本質的な規模で残る。\n    \n    (1) 実行時の騒がしさを本体としていない。欄の欠落で起きない write、測れない引き金、凍った出力と今の schema の不一致は、いずれも既定の処分路（continue／False／進行続行）を残したまま、痕跡（writes_skipped／unevaluable／stale_frozen）を足して処理している。raise には倒していない。独立設計は『柵だけ足して黙殺路を残す修正は閉じていない』と定める。\n    \n    (2) 新しい柵に常設の退行注入が無い。table-copies・ratchet・sub-encoding・doc-cli・stdout-shape の 5 本とも、注入で赤を見た記録は注記の『実測』だけで、run.sh に注入の検査が入っていない。\n    \n    (3) 柵の空振りを赤にしていない。table-copies は該当 site が 0 件でも緑になり、赤になるのは母数（名前表・走査ファイル）が 0 のときだけ。site の列挙も一部が名前の一覧による（research の prompt 3 本を名指し、RATCHETS 表）。\n    \n    (4) 語彙の写しの検出が片方向で、媒体も狭い。table-copies は Python の所属判定のうち『正本の部分集合』しか見ない。写しに値が余る方向、else 側の黙殺、.md／.json／shell の写し、graph schema の enum と検証器の表の一致は、差分の中に機械の問いが無い。\n    \n    (5) 到達の柵に抜け道が残る。到達数の等値だけで、母数と新規値の絶対規則を持たない。schema に enum 値を 1 つ足しても緑のままで、比率を薄める経路が開いている。\n    \n    (6) research 側への当て方が、独立設計が『最も起きやすい誤り』と名指しした形そのものである。review 側の到達測定（record_vocab／vocab_coverage）をパスを差し替えて simulate.py に複製しており、写しはすでに分岐している（RANDOM_FAN の除外は research 側だけ）。glob で graph を発見する 1 実装になっていない。\n    \n    (7) 残りの論点:\n    - RANDOM_FAN の除外は宣言を読むだけで、宣言が正しいかの照合も注入も無い。\n    - 標準出力の encoding の前置は各 script に写したうえで存在を柵で見ており、共通の前置 1 本になっていない。区切りの正規化は覆われていない。\n    - 柵は run.sh の heredoc に埋め込まれていて、単体では起動できない。\n    - windows の常時赤は凍結されず、門が戻っていない。\n    \n    加えて、差分は目的の外で機構を新設している（件数停滞の引き金、上限到達時の諮りと 1 周延長、並列実行の土台、プロンプトの育ちの測定）。engine と検証器のあいだに PROMPT_TABLES という新しい面も開いている。これらを設計の岐路として人に出したかは、差分からは読めない。（round 1 と同じ。持ち越せない値なので今も諮っている記録として書く）\n  - R4 が redesign-needed: この diff は新設した『育った穴を検知する』安全機構（GL_PROMPT_NOTICE / GL_PROMPT_GROWTH_RATIO）を、同じ diff が新設した『台本専用と分かる名前の環境変数』（GL_TEST_WORKERS）と非対称な命名で実装しており、engine/advance.py が os.environ から無条件・無ゲートで読む。台本専用のつもりの値が本番の run にそのまま効いてしまう経路が、この diff 自身によって作られている——皮肉にも、この diff が回収した『6 周で 1,120 KB まで誰にも見えず育ったプロンプト』事故と同じ形（検証機構の fail-open）を、その修正自体が新しい経路で持ち込んだ。加えてテスト実行のスレッド並列化（tests/parallel.py）は開発フロー・UX に触れる変更で、既定の逐次・即時出力という体験が失われている（棚卸し対象）。\n  - 前ラウンドに阻害要因が 14 件あった（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）\n保留の問いに帰属する阻害要因 2 件は聞くのを待て——帰属しない 10 件を先に直せ（聞くのはまだ）。\n台帳に未決の問いが 3 件（うち人へ 1 件）——阻害要因の有無に依らず、最終報告の冒頭に載せろ。"
+    },
+    "prev_questions": [
+      {
+        "key": "gate-shape-meta",
+        "kind": "fork",
+        "status": "escalate",
+        "reason": "新証拠が出たので held から上げます。前の周は選択肢①（手で揃える）が実際に採られ、名指しの 6 site は今の作業ツリーで全部閉じていました（私が現物で確認）。それでも同じ形が同じ柵の一段内側（doc-cli の照合正規表現・ratchet の FORMS・table-copies の鍵）に戻り、pick のクラスは母数 14 のまま動きませんでした——①だけでは次に足す柵・次の層を止められないことが 2 周で実測された形です。②③はどちらも機構の新設・共有面の拡大で、凍結した目的が明示する『やらないこと』に当たるため、判定者は選べません（目的の書き換えに当たるので人の判断が要ります）。",
+        "options": [
+          "①手で揃え続ける（追加の機構ゼロ。帰結: 2 周続けて同じ根が新しい顔で戻った実測が在るので、3 周目も同じ位置に別の面で出る見込みが高い）",
+          "②柵の形を機械で縛るメタ柵を 1 本足す（各埋め込み script に『母数と照合件数の差を印字している』『Python の構文は ast で見ている』を要求する。帰結: 柵が 1 本増え、偽陽性の面倒を誰かが持つ。母数 8 本は既に機械で取れている）",
+          "③埋め込み script をやめ、柵を graphloops/tests 側の台本へ移して既存の退行注入の機構（gate_efficacy）に乗せる（帰結: 共有面の拡大。tests/run.sh と graphloops/tests/run.sh の役割分担を決め直す設計作業になる）"
+        ],
+        "depends": [
+          "tests/run.sh の埋め込み柵（ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order） — 柵が測る面を手書きの綴りで内側に固定しており、名乗った面より狭い（狭さは合格の印字に出ない）"
+        ],
+        "origin": "tests/run.sh の埋め込み柵（ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order） — 柵が測る面を手書きの綴りで内側に固定しており、名乗った面より狭い（狭さは合格の印字に出ない）"
+      },
+      {
+        "key": "pick-unknown-field",
+        "kind": "fork",
+        "status": "held",
+        "reason": "held のまま次の周へ送ります。前の周の零処方①は採られて出どころ（report.human_items.md:3）は閉じましたが、クラスの母数は 14 のまま（今周に数え直し）で、現に同ファイル :6 の `{{loop | pick round,…}}` が `round` を落としています。②（未知の欄で例外）③（検証器の宣言から生成）はどちらも engine の共有面に触るので判定者は確定しません。決まる条件: 14 穴の欄名を全部検算した表（どの穴のどの欄が実在しないか）が次の周に出れば、②の先行棚卸しが済み、この岐路は決められます。",
+        "options": [
+          "①穴の欄名を直すだけ（1 行。帰結: 残り 13 穴は未検算のまま。前の周にこれを採り、母数は 14 から動かなかった）",
+          "②util.pick が未知の欄で例外を投げる（帰結: 綴り違いが必ず赤くなる。既存の穴に綴り違いが 1 つでもあれば全プロンプトが止まるので、先に 14 件の棚卸しが要る）",
+          "③穴の欄名を検証器の宣言（QUESTION_FIELDS / UNIT_FIELDS / loop_state の鍵）から生成する（PROMPT_TABLES と同じ形。帰結: 正本が 1 つになるが、research / review の両方に口が要り共有面が広がる）"
+        ],
+        "origin": "graphloops/prompts/review-loop/report.human_items.md:6 / graphloops/engine/util.py:pick — 穴が指す欄が値に無いと黙って落ち、盤面の行から round が消えている"
+      },
+      {
+        "key": "ci-foreign-red",
+        "kind": "fork",
+        "status": "held",
+        "reason": "held を維持します。local_checks はこの周 carried_over で、11 件の帰属を確かめ直した材料がありません——新証拠なしに判定を作り直さない側に倒します。issue #8 の裁定（緑を確認できた場合のみ clean）は今も束縛するので、clean と名乗らせる零処方は取れません。決まる条件: 次の周に local_checks を走らせ直し、11 件の帰属（別プラグインであること）と、対象差分の job だけを見たときの緑が実測で揃うこと。",
+        "options": [
+          "①現状維持（local_checks=found のまま収束させない。帰結: 別プラグインの赤が直るまで review-loop は収束を宣言できない。運用で別 PR を先に通す）",
+          "②素材に帰属の欄を足す（status は found のまま、blocks の判定に『対象差分の外』を渡す。帰結: 帰属を役が自書するので、嘘の帰属を拒む腕が要る）",
+          "③CI 側を分割し、対象プラグインの job だけを収束条件にする（帰結: .github/workflows/test.yml の構造変更。赤の帰属が job から読めるが、共有面の変更）"
+        ],
+        "origin": "tests/run.sh(CI):windows-latest 11 件 — 対象差分の外の赤を『対象外』と名乗る語が素材に無い"
+      }
+    ],
+    "prev_units": [
+      {
+        "key": "tests/run.sh の埋め込み柵（ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order） — 柵が測る面を手書きの綴りで内側に固定しており、名乗った面より狭い（狭さは合格の印字に出ない）",
+        "label": "block",
+        "disposition": "do-now",
+        "reason": "doc-cli は `loop\\.py\\s+([a-z]+)` なので、手順書が案内する正規の形 `python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/loop.py\" init` に当たりません（実測: 同じ 2 ファイルに引用符付きの呼びが 10 件在り、照合は 8 件のまま）。table-copies は `owners[名前]` と名前だけを鍵にするため、宣言 51 個のうち 10 個が同名衝突で後勝ちに潰れます（doctor の 6・firstread の 3・research の PROMPT_TABLES）。ratchet は FORMS に定数名を手で 2 つ並べ、stdout-shape は入口を `[0].isspace()` の字面に、sub-encoding の書く側は `^\\s*_s\\.reconfigure\\(encoding=` の綴りに固定しており、いずれも『柵が名乗った範囲より狭い』（REVIEW.md コード衛生観点 ④）に見受けられます。この母数 16 のうち、実測で狭いと名指しできたのは 5 件です。"
+      },
+      {
+        "key": "graphloops/rules/review-loop.py:open_unit — 『今の周に直す単位か』の式が、検証器の正本 is_open と別に手書きで写されている",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "judge_output は冒頭で `V = validator_module(b)` を取っているのに、:784 / :791 では正本の `V.is_open` でなく自前の open_unit（:753）を呼んでいます。同じファイルの :521 / :834 / :858 は `V.is_open` を通しており、標準経路は既に近傍に在るように見受けられます。open_unit の docstring 自身が『同じ式が 2 か所に書かれていた…式は 1 つにする』と書きながら、その 1 つを検証器の正本でなく rules 側の写しに定めている形です。"
+      },
+      {
+        "key": "graphloops/rules/review-loop.py:record_round — 腕を前置きした結果 elif prev: が到達不能になり、同じ本文が 2 か所に残っている",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": ":590 が `prev and not carryable` を全部取り、:598 が only_for を、:601 が `prev and carryable` を取るため、:603 の `elif prev:` に入る組み合わせが残っていません。本文は :597 と 1 文字も違わないので、読む人は生きている腕と死んだ腕を区別できません。"
+      },
+      {
+        "key": "graphloops/engine/board.py:_out_path — 古い綴りの見分けが文字列の前方一致で、絶対の --dir で旧盤面を開くと <dir>/<dir> に戻る",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "旧盤面 .git/graphloops/review-loop/20260912-214912/state.json の output_file は相対の綴り（`.git/graphloops/review-loop/20260912-214912/out/…`）で、絶対の `--dir` で開くと `is_absolute()` も `startswith(str(self.dir))` も偽になり `self.dir / p` で二重に前置きされます。docstring は『形から推し量る余地を残さない』と書きますが、区切りを見ない前方一致なので `o` と `outputs`・`run1` と `run10` も区別できません。手順書は init が返した dir をそのまま渡す導線なので、実害は『旧盤面を絶対パスで開いた回』に限られるように見受けられます。"
+      },
+      {
+        "key": "attention/scripts/whose-turn.py:gh — 判定にそのまま使う外部コマンドの呼びに timeout が無く、無制限に待つ",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "この差分は同じ理由（Windows の既定コーデック）で whose-turn.py:195 と what-am-i-doing.py:80 の両方を触っていますが、timeout があるのは what-am-i-doing 側（timeout=20）だけです。同じ周に tests/run.sh と新設の doc-cli.py へ timeout=60 を足し、その場で『決着済みの規約（issue #5 無制限ハングを塞ぐ）が今日の新設に当たっていなかった』と書いているので、規約はこの周に想起されています（未実測——ハングの再現はしていません）。"
+      },
+      {
+        "key": "graphloops/engine/validator.py:finalize / graphloops/rules/review-loop.py:finalize — process の痕跡 5 欄に消費者が 1 つも無く、鳴っても何も赤くならない",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "新設した stale_frozen / growing_prompts / writes_skipped / unevaluable / context_lost は record.process へ写されるだけで、検証器（scripts/*-record.py）はこの 5 語も `process` 欄も 1 度も参照していません（実測: grep で 0 件）。報告側も report.human_items.md が `{{ref:record.process}}`（置き場のパスと 1 行要約）に変わったため、本文に件数が出ません。結果として、この差分自身が『この run が収束できない本当の理由』と名指しした引き金が全周にわたって測れなかった run も、exit 0・converged のまま終われるように見受けられます。"
+      },
+      {
+        "key": "scripts/research-record.py:PROMPT_TABLES / scripts/review-record.py:PROMPT_TABLES — import 時に評価される派生表が例外境界の外に在り、契約の exit 2 が exit 1 に潰れる",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "research 側の `v.fields[0]`（:112）と review 側の `ORIGIN_NOTE[v.domain]`（:284）は module 直下で評価され、`_rows` の try（TypeError のみ）にも末尾の例外境界にも入りません。判定語に空の fields を足せば IndexError、域を足して ORIGIN_NOTE を書き忘れれば KeyError で、どちらも未処理例外の exit 1 になり『記録が不正』の exit 2 と区別が付きません。新設の validator-order.py は fail と _rows の行順しか見ないため、名乗り（表の組み立ての失敗が exit 2 で落ちる）より射程が狭い形に見受けられます。"
+      },
+      {
+        "key": "graphloops/prompts/review-loop/report.human_items.md:6 / graphloops/engine/util.py:pick — 穴が指す欄が値に無いと黙って落ち、盤面の行から round が消えている",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "`pick` は `{k: value[k] for k in fields if k in value}` なので、値に無い欄は綴り違いでも欄落ちでも黙って消えます。前の周が閉じたのは同じクラスの別の site（report.human_items.md:3 の `question`）で、今の木では `{{loop | pick round,outcome,…}}`（同ファイル :6）の `round` が落ちています——loop_state に `round` の鍵は無く、`grep -rn 'ls\\[\"round\"\\]\\|loop_state\\[\"round\"\\]' graphloops` は 0 件でした。人が読む最終報告の盤面の行から周番号が消えるので、導線としては軽くない側に見受けられます。"
+      },
+      {
+        "key": "graphloops/engine/advance.py・graphloops/rules/review-loop.py・graphloops/tests/simulate.py・tests/run.sh の『実測 2026-09-14』注記 4 件 — 根拠がリポジトリから辿れない置き場に立っている",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "『判定役が退行を注入して確認』（2 か所）と『写しを読んだ procedure_trace は…』は、この run が .git/graphloops/review-loop/20260913-230750/ に作った素材を根拠にしています。`git ls-files .git` が 0 件なので追跡下でも配布物でもなく、読む人は検算できません。『CI が「2 か所」で NG』は GitHub Actions の run に立ちますが run 番号が無く、同じく辿れません（番号を書けば解けます）。"
+      },
+      {
+        "key": "graphloops/tests/simulate.py:drive — DELIVERY_SEEN への追加だけが parallel.LOCK の外に残っている",
+        "label": "nit",
+        "reason": "同じ差分が check() の ran / fails と record_vocab() の VOCAB_SEEN には錠を掛けているのに、drive() の DELIVERY_SEEN（:282）だけ素の add() です。ただし CPython では str 1 つの set.add は実質不可分で、錠が守っている `ran += 1` のような複合操作とは同列に置けないため、値の欠落は起きにくいように見受けられます（未実測）。直すなら 1 行です。"
+      },
+      {
+        "key": "attention/scripts/whose-turn.py:gh — errors=\"replace\" が復号の失敗を黙って置換し、化けた文字列が判定に載る",
+        "label": "nit",
+        "reason": "encoding の明示は正しい直しですが、errors=\"replace\" を同時に付けたため、本当に UTF-8 でなかった回は赤で止まらず U+FFFD 入りの文字列が json.loads を通ります。JSON の構造が壊れれば落ちるので、黙るのは文字列の中身だけです（未実測）。"
+      },
+      {
+        "key": "graphloops/rules/review-loop.py:worktree_compare — 受理後に写しを取り直せなかった経路だけ git_mismatches に記録が残らない",
+        "label": "nit",
+        "reason": "受理の腕（:437-446）は `again = worktree_snapshot(...)` が失敗すると :445 で return し、:447-449 の `gm.append(entry)` より前に抜けます。受理を伴う作業ツリーの変化が在った事実が、取り直しに失敗した回だけ痕跡に残らない形です。run 自体はその場で止まって理由を返すので、人は気づけます。"
+      },
+      {
+        "key": "graphloops/engine/advance.py:import — この差分で呼び手が消えた porcelain の import が残っている",
+        "label": "nit",
+        "reason": "emit_instance が b.porcelain()（board の memo）に移った結果、advance.py 内で porcelain を呼ぶ箇所が無くなりましたが :8 の import は残っています（`grep -rn 'advance\\.porcelain'` は 0 件）。lint 設定も CI の lint 段も無いので機械は見ていません。"
+      },
+      {
+        "key": "tests/run.sh の埋め込み柵 8 本 — Windows の既定コーデックを上流の UTF-8 モードでなく各本の reconfigure 3 行で解いている",
+        "label": "info",
+        "reason": "PEP 540 の UTF-8 モード（PYTHONUTF8=1）なら locale.getpreferredencoding が常に utf-8 を返し、同種の問題は上流 1 行で消えます。ただしこのリポジトリは cp1252 を強いて配布物の耐性を測る検査（tests/run.sh:2049 ほか）を持っており、CI の env で一括して立てるとその検査が緑側に倒れます。attention のフック 2 本は起動側の環境変数を制御できない文脈で走るため、個別の encoding 明示が現時点では妥当な処方に見受けられます（零処方が落ちないので指摘には上げません）。"
+      },
+      {
+        "key": "graphloops/tests/parallel.py — テストの並列実行を pytest-xdist でなく ThreadPoolExecutor で自作している",
+        "label": "info",
+        "reason": "定番解は pytest-xdist ですが、このリポジトリは Python の依存宣言を 1 つも持たず、check()/ran/fails の自作ハーネスは BASE より前から在ります。『必須は git / python3 / bash だけ』は docs/graphloops-prior-art.md で決着済みの方針で今も束縛しているため、この差分の増分（並列化のみ）を定番解の不採用として数えるのはスコープの取り違えに見受けられます。"
+      },
+      {
+        "key": "この周に反証して落とした指摘（情報共有）",
+        "label": "info",
+        "reason": "①parallel.py の ignore_cleanup_errors が 3.10 未満で落ちる——下限は 3.12 に決着済みで py-floor が固定しており射程外。②gl-* 残骸 502 個——mtime は 09-12〜13 のみで、今日の 4 回の実行は 1 個も作っておらず本差分以前の残骸。③doc-cli が `add-claims` を今すり抜けている——graphloops/prompts/** は母数の外なので、すり抜けでなく未検査（K1 に吸収）。④ratchet.py の『宣言が無い』NG 腕が到達不能——tests/run.sh 自身については source() が自分の表を外すため到達しうる。⑤SIGKILL で作業場が残る——旧 MADE+atexit 方式と同じ弱点で本差分の退行ではありません。"
+      },
+      {
+        "key": "tests/run.sh(CI):windows-latest 11 件 — 対象差分の外の赤を『対象外』と名乗る語が素材に無い",
+        "label": "suggest",
+        "disposition": "defer",
+        "reason": "defer 維持です。構造的理由『スコープ／サブシステムが別（別プラグインの検査）』は今も成立しており、この周に反証する材料は出ていません（local_checks はこの周 carried_over で、誰も観測し直していません）。前の周の実測では 11 件とも別プラグインで、20 回前の run でも同じ検査が赤く、この差分が触った 2 ファイルを通りません。素材の 6 値に『赤だが対象差分の外』を表す語が無いことが本体で、それは設計の岐路（questions:ci-foreign-red）に残します。"
+      },
+      {
+        "key": "graphloops/prompts/research-loop/p1.checker.md ほか — 未マージ PR #11 と同じループの規律を別ファイルで述べており、ファイル集合の交差では出ない",
+        "label": "suggest",
+        "disposition": "defer",
+        "reason": "defer 維持です。構造的理由『スコープ／サブシステムが別（担当 PR が別に在る）』は今も成立しています（parallel_pr はこの周 carried_over で、#11 の本文を読める材料は増えていません）。REVIEW.md の『担当 PR がある箇所は本 PR のスコープから外し、修正は担当 PR への申し送り』に従います。"
+      }
+    ],
+    "prev_scalars": {
+      "added_lines": 2018,
+      "comment_lines": 693,
+      "comment_ratio_pct": 34,
+      "changed_files": 15,
+      "root_checks": 537,
+      "graphloops_checks": 487,
+      "gate_arms_red": 8,
+      "gate_arms_total": 8,
+      "doc_cli_matched": 17,
+      "doc_cli_universe": 20,
+      "table_owners": 51,
+      "ratchet_universe": 6
+    },
+    "prev_rejudge": null,
+    "prev_one_shot": {
+      "round": 2,
+      "text": "柵と穴は『測った件数』を印字するのをやめ、『在りうる母数』と『実際に照合できた件数』の差を出し、差が 0 でなければ remaining（残した理由）の宣言が無い限り赤にする。前の周は同じ根に『数え方』（容れ物→当たり・正規表現→ast）を当てて名指しの site は全部閉じましたが、当たりを数える面そのものが狭いことは母数に出ませんでした——今回当てるのは面の側です。これは機構の新設ではなく、scripts/review-record.py が既に修正ユニットの closure に課している規律（実測: 本番の done が『母数 7 のうち閉鎖を実証した site が 1 件で、残りが在るのに remaining が無い』と exit 1 で拒んだ）を柵と痕跡へ当て直すだけで、メタ柵（questions:gate-shape-meta の選択肢②③）はここに含めません。反証の仕方: 次の周に doc-cli が『手順書に現れる loop.py の綴り 18 件のうち照合 8 件・未照合 10 件』を出して赤にならなければ、この一撃も効いていません。",
+      "closes": [
+        "tests/run.sh の埋め込み柵（ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order） — 柵が測る面を手書きの綴りで内側に固定しており、名乗った面より狭い（狭さは合格の印字に出ない）",
+        "graphloops/engine/validator.py:finalize / graphloops/rules/review-loop.py:finalize — process の痕跡 5 欄に消費者が 1 つも無く、鳴っても何も赤くならない",
+        "scripts/research-record.py:PROMPT_TABLES / scripts/review-record.py:PROMPT_TABLES — import 時に評価される派生表が例外境界の外に在り、契約の exit 2 が exit 1 に潰れる"
+      ],
+      "check": "",
+      "totals": {
+        "tests/run.sh の埋め込み柵（ratchet / doc-cli / sub-encoding / table-copies / stdout-shape / validator-order） — 柵が測る面を手書きの綴りで内側に固定しており、名乗った面より狭い（狭さは合格の印字に出ない）": 16,
+        "graphloops/rules/review-loop.py:open_unit — 『今の周に直す単位か』の式が、検証器の正本 is_open と別に手書きで写されている": 10,
+        "graphloops/rules/review-loop.py:record_round — 腕を前置きした結果 elif prev: が到達不能になり、同じ本文が 2 か所に残っている": 2,
+        "graphloops/engine/board.py:_out_path — 古い綴りの見分けが文字列の前方一致で、絶対の --dir で旧盤面を開くと <dir>/<dir> に戻る": 2,
+        "attention/scripts/whose-turn.py:gh — 判定にそのまま使う外部コマンドの呼びに timeout が無く、無制限に待つ": 5,
+        "graphloops/engine/validator.py:finalize / graphloops/rules/review-loop.py:finalize — process の痕跡 5 欄に消費者が 1 つも無く、鳴っても何も赤くならない": 5,
+        "scripts/research-record.py:PROMPT_TABLES / scripts/review-record.py:PROMPT_TABLES — import 時に評価される派生表が例外境界の外に在り、契約の exit 2 が exit 1 に潰れる": 2,
+        "graphloops/prompts/review-loop/report.human_items.md:6 / graphloops/engine/util.py:pick — 穴が指す欄が値に無いと黙って落ち、盤面の行から round が消えている": 14,
+        "graphloops/engine/advance.py・graphloops/rules/review-loop.py・graphloops/tests/simulate.py・tests/run.sh の『実測 2026-09-14』注記 4 件 — 根拠がリポジトリから辿れない置き場に立っている": 4
+      }
+    },
+    "prev_fix_files": [
+      "attention/scripts/catchup.py",
+      "attention/scripts/whose-turn.py",
+      "graphloops/engine/advance.py",
+      "graphloops/engine/board.py",
+      "graphloops/engine/commands.py",
+      "graphloops/engine/validator.py",
+      "graphloops/graphs/review-loop.json",
+      "graphloops/prompts/review-loop/report.human_items.md",
+      "graphloops/rules/review-loop.py",
+      "graphloops/tests/run.sh",
+      "graphloops/tests/simulate.py",
+      "graphloops/tests/simulate_review.py",
+      "scripts/research-record.py",
+      "scripts/review-record.py",
+      "tests/run.sh"
+    ],
+    "prev_fix_source": "実測（diff の差）",
+    "closed_keys": [
+      "tests/run.sh の埋め込み柵 8 本 — Windows の既定コーデックを上流の UTF-8 モードでなく各本の reconfigure 3 行で解いている",
+      "graphloops/tests/parallel.py — テストの並列実行を pytest-xdist でなく ThreadPoolExecutor で自作している",
+      "この周に反証して落とした指摘（情報共有）"
+    ]
+  },
+  "rev": 63,
+  "git_mismatches": [
+    {
+      "where": "P1",
+      "round": 1,
+      "diff": [
+        "porcelain: [] → [' M graphloops/tests/simulate_review.py']",
+        "diff_sha: 'da029eb082e1' → 'a63218d58081'"
+      ],
+      "accepted": null
+    },
+    {
+      "where": "P1",
+      "round": 1,
+      "diff": [
+        "porcelain: [] → [' M graphloops/tests/simulate_review.py']",
+        "diff_sha: 'da029eb082e1' → 'a63218d58081'"
+      ],
+      "accepted": "P1 の最中に p1.procedure_trace の指摘（simulate_review.py の重複 import）を私が直した。素材を集める役が見たのは直す前の木で、その 1 行は素材として既に判定役に渡っている（p1.consistency_bypass が自己反証の根拠として実ファイルを読み、解消済みと記録）"
+    }
+  ],
+  "growing_prompts": [
+    {
+      "instance": "p2.diagnose",
+      "capped": false,
+      "node": "p2.diagnose",
+      "round": 2,
+      "bytes": 149096,
+      "was": 86729
+    },
+    {
+      "instance": "r1.minimality",
+      "capped": false,
+      "node": "r1.minimality",
+      "round": 2,
+      "bytes": 127467,
+      "was": 84308
+    }
+  ],
+  "graph_changes": [
+    {
+      "round": 2,
+      "from": "38aa07ae1b02",
+      "to": "970adbf96217",
+      "at": "2026-09-14T07:24:52+09:00"
+    }
+  ]
+}

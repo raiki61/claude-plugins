@@ -1,0 +1,43 @@
+{
+  "faces": [
+    {
+      "key": "windows-skip-allow-list-omits-symlink-capability",
+      "kind": "contract_drift",
+      "where": ".github/workflows/test.yml",
+      "cite": "skip_allow: \"posix-mode process-group fifo read-permission\"",
+      "why": "この段は windows-latest 用に FAIL_ON_SKIP=1 と SKIP_ALLOW を渡すようになったが、SKIP_ALLOW の一覧には fifo・posix-mode・process-group・read-permission しか無く、graphloops/tests/simulate_review.py の skip(\"リンク: symlink のディレクトリを経由するリンクは実体で引いて届く\", \"symlink\", \"この環境では symlink を作れない（Windows は既定で権限を持たない）\")（同ファイル内、修正で capability 引数が追加された行）が使う capability 名 symlink が入っていない。このコメント自身が『Windows は既定で権限を持たない』と明言しており、windows-latest の CI では os.symlink が失敗して via_symlink=False になり、この skip が必ず発火する見込みが高い。SKIP_ALLOW に symlink が無いので report_skips は denied を増やし、FAIL_ON_SKIP=1 と合わさって Windows の CI が赤になる。これは事前審査が指摘した『OS 名から sh の有無を推す』穴とは別に、修正が新しく足した『OS ごとの許しの一覧』というしくみ自身が、同じ修正の中で自分の対象（symlink の見送り）を数え落とした穴である。tests/run.sh 内の report_skips/skip_probe のテストは一覧の仕組みそのものは厳密に検査しているが、windows-latest の matrix.skip_allow の値の中身が実際に発生する capability の集合と一致しているかは何も検査していない。"
+    }
+  ],
+  "checks": [
+    {
+      "key": "ci-lint-existing-S-warning-assert-rejects-pip-install",
+      "closed": true,
+      "why": "tests/run.sh の CI_LINT_OK 内の hits 抽出を re.search(r\"(^|[\\s|;&])shellcheck(\\s|$)\", r) に絞った結果、\"python -m pip install shellcheck-py==0.11.0.1\" は shellcheck の直後に '-py' が続き空白/行末が来ないため hits に含まれず、既存の assert all(\"-S warning\" in r for r in hits) は shellcheck 本体を回す run: 行だけを見るようになった。pip install の段自体は別の fullmatch の assert（run: python -m pip install shellcheck-py==<版>）で1行run:であることまで見ており、案の懸念（同一 run: | ブロックに埋めて検査を素通りする形）も1行run:を要求することで塞がれている。"
+    },
+    {
+      "key": "ci-lint-env-assert-word-presence-passes-on-comment",
+      "closed": true,
+      "why": "CI_LINT_OK 内で test.yml を '- name:'/'- uses:' 単位の steps に分割し、コメント行（# 始まり）を除外してから該当ステップの行のみを対象に FAIL_ON_SKIP や SKIP_ALLOW の在否を厳密一致（in list）で見るようにした。env はステップ階層の1箇所に固定され、job階層に移すと steps の tests/run.sh 段の中に該当行が現れず assert が落ちる形になっている。注記に同じ語があっても対象外なので、事前審査が指摘した『語だけを見て通す』再発は塞がれている。"
+    },
+    {
+      "key": "catchup-git-ssh-command-backslash-path-on-windows",
+      "closed": true,
+      "why": "tests/catchup-switch-case.py の _none で GIT_SSH_COMMAND に渡す前に slow.replace(os.sep, \"/\") で区切り文字をPOSIX形式に統一し、さらに shlex.quote で1つの引用付き引数として渡すようにした。git の prepare_shell_cmd は GIT_SSH_COMMAND の生文字列にそのまま \"$@\" を続けて sh -c に渡すため、単一引用で囲むことで空白・逆斜線由来のトークン分割/エスケープ問題が避けられる。手元での確認（引用した形は起き、しない形は起きない）も応答に記載されている。"
+    },
+    {
+      "key": "have-sh-lookup-diverges-from-cited-try-precedent",
+      "closed": true,
+      "why": "have-sh-lookup の指摘は shutil.which によるPATH探索がgitが実際に呼ぶshと一致しないというものだったが、修正はgit_runs_shで `git -c alias.shprobe='!exit 0' shprobe` を実際に実行し、git自身がaliasの `!` 起動でshを使えるかを試す形に変えた。hookとGIT_SSH_COMMANDのいずれもgitがshで起こす経路であり、同じ経路を試している点は先行例（実際に操作を1回試す）の理由付けとも整合する。"
+    },
+    {
+      "key": "regrtest-precedent-does-not-fail-on-skip",
+      "closed": true,
+      "why": "diffを確認した範囲（README.md・tests/run.sh・graphloops/tests/*.py・tests/catchup-switch-case.py）内に regrtest という語や、CPythonのregrtestを根拠として引用する新しい文言は追加されていない。今回の修正が触れた文書・docstringのいずれも見送りの分類ルールをregrtestに紐づけて説明していないため、precedentの誤帰属は再発していない。"
+    },
+    {
+      "key": "capability-name-rule-held-in-two-languages",
+      "closed": true,
+      "why": "graphloops/tests/parallel.py の skip_line は capability 引数を受け取って文字列に埋め込むだけで、名前の形式検証（ValueError等）は追加されていない。名前の形式チェックは tests/run.sh の skip_capability 関数（正規表現 ^[a-z0-9][a-z0-9-]*$）1箇所のみに残っており、tests/run.shのskip_pyテストも大文字を含む「Fifo」などの崩れた名前がbash側でのみ無名扱い（fail-closedに倒れる）になることをskip_partで検証している。Python側とbash側で名前規則が二重に持たれる状態は解消された。"
+    }
+  ]
+}

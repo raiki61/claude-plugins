@@ -1,0 +1,2534 @@
+{
+  "loop_name": "review-loop",
+  "run_id": "20260922-142956",
+  "graph": "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0/graphs/review-loop.json",
+  "graph_sha": "88710aaf600b",
+  "created": "2026-09-22T14:29:56+09:00",
+  "status": "running",
+  "round": 4,
+  "rounds": [
+    {
+      "round": 1,
+      "done": {
+        "p0.base": {
+          "at": "2026-09-22T14:30:54+09:00",
+          "instance": "p0.base"
+        },
+        "p0.local_checks": {
+          "at": "2026-09-22T14:31:02+09:00",
+          "instance": "p0.local_checks"
+        },
+        "p0.premises": {
+          "at": "2026-09-22T14:31:43+09:00",
+          "instance": "p0.premises"
+        },
+        "p1.worktree_before": {
+          "at": "2026-09-22T14:31:46+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p1.hygiene": {
+          "at": "2026-09-22T14:33:56+09:00",
+          "instance": "p1.hygiene"
+        },
+        "p0.parallel_pr": {
+          "at": "2026-09-22T14:35:20+09:00",
+          "instance": "p0.parallel_pr"
+        },
+        "p1.procedure_trace": {
+          "at": "2026-09-22T14:37:20+09:00",
+          "instance": "p1.procedure_trace"
+        },
+        "p1.gate_efficacy": {
+          "at": "2026-09-22T14:37:45+09:00",
+          "instance": "p1.gate_efficacy"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-22T14:37:56+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.test_double_fidelity": {
+          "at": "2026-09-22T14:38:08+09:00",
+          "instance": "p1.test_double_fidelity"
+        },
+        "p1.provenance": {
+          "at": "2026-09-22T14:38:56+09:00",
+          "instance": "p1.provenance"
+        },
+        "p0.purpose": {
+          "at": "2026-09-22T14:39:25+09:00",
+          "instance": "p0.purpose"
+        },
+        "p1.local_review": {
+          "at": "2026-09-22T15:13:50+09:00",
+          "instance": "p1.local_review"
+        },
+        "p1.external_standards": {
+          "at": "2026-09-22T15:18:07+09:00",
+          "instance": "p1.external_standards"
+        },
+        "p1.consistency_bypass": {
+          "at": "2026-09-22T15:19:29+09:00",
+          "instance": "p1.consistency_bypass"
+        },
+        "p1.worktree_after": {
+          "at": "2026-09-22T15:19:29+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-09-22T15:44:35+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p3.fix": {
+          "at": "2026-09-22T15:55:05+09:00",
+          "instance": "p3.fix"
+        },
+        "p4.ci": {
+          "at": "2026-09-22T15:55:52+09:00",
+          "instance": "p4.ci"
+        },
+        "p4.scalars": {
+          "at": "2026-09-22T15:55:52+09:00",
+          "instance": "p4.scalars"
+        },
+        "p4.assemble": {
+          "at": "2026-09-22T15:55:57+09:00",
+          "builtin": "assemble"
+        },
+        "r2.design": {
+          "at": "2026-09-22T15:58:48+09:00",
+          "instance": "r2.design"
+        },
+        "r1.comment_candidates": {
+          "at": "2026-09-22T16:03:17+09:00",
+          "instance": "r1.comment_candidates"
+        },
+        "r2.compare": {
+          "at": "2026-09-22T16:07:42+09:00",
+          "instance": "r2.compare"
+        },
+        "r1.minimality": {
+          "at": "2026-09-22T16:08:23+09:00",
+          "instance": "r1.minimality"
+        },
+        "p4.record": {
+          "at": "2026-09-22T16:08:23+09:00",
+          "builtin": "record_round"
+        },
+        "converge": {
+          "at": "2026-09-22T16:08:23+09:00",
+          "builtin": "converge"
+        }
+      },
+      "na": {
+        "p1.main_path_observation": "cond: 差分が利用者から見える経路を変え、初回か経路を変えた周。前の周に awaiting_human だった周も（動かす手段が見つかったか再挑戦）、または前の周の P3 が何かを直した周 が成り立たない",
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない",
+        "p2.history": "cond: 2 ラウンド目以降 が成り立たない",
+        "p2.rejudge": "cond: 回す側が今の周に異議を出し、往復が上限（3）未満の周 が成り立たない",
+        "p2.rejudge_third": "cond: 往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する が成り立たない",
+        "r3.coherence": "cond: 阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周 が成り立たない",
+        "r4.hidden_scope": "cond: 阻害要因（[block]＋do-now）が 0 の周、または前の周の P3 が実際にファイルを触った周 が成り立たない",
+        "stop.premise_check": "cond: R2 が premise-invalid が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p0.base": {
+          "id": "p0.base",
+          "node": "p0.base",
+          "run_by": "writer",
+          "prompt_bytes": 5032,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p0.base.md",
+          "prompt_sha": "0a7c4309515b",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:30:01+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.base.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.base.json",
+          "done_at": "2026-09-22T14:30:54+09:00",
+          "output_file": "out/r1/p0.base.json"
+        },
+        "p0.local_checks": {
+          "id": "p0.local_checks",
+          "node": "p0.local_checks",
+          "run_by": "writer",
+          "prompt_bytes": 2301,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p0.local_checks.md",
+          "prompt_sha": "1fd1938a29e4",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:30:01+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.local_checks.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.local_checks.json",
+          "done_at": "2026-09-22T14:31:02+09:00",
+          "output_file": "out/r1/p0.local_checks.json"
+        },
+        "p0.premises": {
+          "id": "p0.premises",
+          "node": "p0.premises",
+          "run_by": "writer",
+          "prompt_bytes": 3081,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p0.premises.md",
+          "prompt_sha": "b5ce35ff035b",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:30:01+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.premises.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.premises.json",
+          "done_at": "2026-09-22T14:31:43+09:00",
+          "output_file": "out/r1/p0.premises.json"
+        },
+        "p0.purpose": {
+          "id": "p0.purpose",
+          "node": "p0.purpose",
+          "run_by": "writer",
+          "prompt_bytes": 9052,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p0.purpose.md",
+          "prompt_sha": "a54b7187ffca",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.purpose.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.purpose.json",
+          "done_at": "2026-09-22T14:39:25+09:00",
+          "output_file": "out/r1/p0.purpose.json"
+        },
+        "p0.parallel_pr": {
+          "id": "p0.parallel_pr",
+          "node": "p0.parallel_pr",
+          "run_by": "writer",
+          "prompt_bytes": 4088,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p0.parallel_pr.md",
+          "prompt_sha": "d690de46dfa7",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.parallel_pr.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.parallel_pr.json",
+          "done_at": "2026-09-22T14:35:20+09:00",
+          "output_file": "out/r1/p0.parallel_pr.json"
+        },
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 8574,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.local_review.md",
+          "prompt_sha": "7b5f98f1a752",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.local_review.json",
+          "skills": [
+            {
+              "skill": "/code-review",
+              "args": "high",
+              "required": true,
+              "note": "組み込み（同名のプラグインが別に在る）。対象は changed_files_file に並ぶ**ファイルのパス**で渡す——ref 範囲は作業ツリーを含まない。--comment も --fix も付けるな。"
+            },
+            {
+              "skill": "pr-review-toolkit:code-reviewer",
+              "required": true,
+              "note": "準拠とバグ検出の両方を担う汎用レンズ。**落とすな。**"
+            },
+            {
+              "skill": "/simplify",
+              "required": true,
+              "note": "**修正を禁じた形でだけ呼べ**（実物は既定で作業ツリーを書き換える）。4 観点（再利用・単純化・効率・高度）をそれぞれ起こし、指摘だけ返させる。"
+            },
+            {
+              "skill": "/security-review",
+              "required": false,
+              "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+            },
+            {
+              "skill": "pr-review-toolkit:silent-failure-hunter",
+              "required": true,
+              "note": "黙って無力化される検査・握り潰される失敗を見る。"
+            },
+            {
+              "skill": "pr-review-toolkit:type-design-analyzer",
+              "required": true,
+              "note": "不変条件を平坦な値で持つ設計を見る。散文の振り分けでは当たらないクラス。"
+            },
+            {
+              "skill": "pr-review-toolkit:pr-test-analyzer",
+              "required": true,
+              "note": "振る舞い網羅のレンズ。他のどの節も見ていない。"
+            }
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.local_review.json",
+          "done_at": "2026-09-22T15:13:50+09:00",
+          "output_file": "out/r1/p1.local_review.json",
+          "agent_id": "ad0e08de1dd9efcb5"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 19296,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.hygiene.md",
+          "prompt_sha": "35dc3d9f5405",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.hygiene.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.hygiene.json",
+          "done_at": "2026-09-22T14:33:56+09:00",
+          "output_file": "out/r1/p1.hygiene.json"
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 3763,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.procedure_trace.md",
+          "prompt_sha": "930f258ddb64",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.procedure_trace.json",
+          "done_at": "2026-09-22T14:37:20+09:00",
+          "output_file": "out/r1/p1.procedure_trace.json",
+          "agent_id": "abdda2060a128ac54"
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4434,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.gate_efficacy.md",
+          "prompt_sha": "e09f8872be7c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.gate_efficacy.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.gate_efficacy.json",
+          "done_at": "2026-09-22T14:37:45+09:00",
+          "output_file": "out/r1/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2884,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.test_double_fidelity.md",
+          "prompt_sha": "40ce730a0f15",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.test_double_fidelity.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.test_double_fidelity.json",
+          "done_at": "2026-09-22T14:38:08+09:00",
+          "output_file": "out/r1/p1.test_double_fidelity.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2723,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.provenance.md",
+          "prompt_sha": "f3d7213bba73",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.provenance.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.provenance.json",
+          "done_at": "2026-09-22T14:38:56+09:00",
+          "output_file": "out/r1/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 3384,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p0.prior_decisions.md",
+          "prompt_sha": "7f9ed8f0c5fb",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T14:31:46+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p0.prior_decisions.json",
+          "done_at": "2026-09-22T14:37:56+09:00",
+          "output_file": "out/r1/p0.prior_decisions.json",
+          "agent_id": "a0754b1236fe7aa4a"
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 6168,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.consistency_bypass.md",
+          "prompt_sha": "bc914a7cc1ce",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T15:13:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.consistency_bypass.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.consistency_bypass.json",
+          "done_at": "2026-09-22T15:19:29+09:00",
+          "output_file": "out/r1/p1.consistency_bypass.json",
+          "agent_id": "ae1654575dd74785b"
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 9146,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p1.external_standards.md",
+          "prompt_sha": "df2227532fa2",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T15:13:53+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p1.external_standards.json",
+          "done_at": "2026-09-22T15:18:07+09:00",
+          "output_file": "out/r1/p1.external_standards.json",
+          "agent_id": "a70ed06eb3866ac55"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "prompt_bytes": 98973,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p2.diagnose.md",
+          "prompt_sha": "a6b3c595fcb9",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T15:19:29+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p2.diagnose.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p2.diagnose.json",
+          "done_at": "2026-09-22T15:44:35+09:00",
+          "output_file": "out/r1/p2.diagnose.json",
+          "agent_id": "af13fcd32ff61f9a1"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "prompt_bytes": 58607,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p3.fix.md",
+          "prompt_sha": "8a623fc57bb7",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T15:44:43+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p3.fix.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p3.fix.json",
+          "done_at": "2026-09-22T15:55:05+09:00",
+          "output_file": "out/r1/p3.fix.json"
+        },
+        "p4.ci": {
+          "id": "p4.ci",
+          "node": "p4.ci",
+          "run_by": "writer",
+          "prompt_bytes": 2024,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p4.ci.md",
+          "prompt_sha": "d1ccbe4525ed",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T15:55:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p4.ci.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p4.ci.json",
+          "done_at": "2026-09-22T15:55:52+09:00",
+          "output_file": "out/r1/p4.ci.json"
+        },
+        "p4.scalars": {
+          "id": "p4.scalars",
+          "node": "p4.scalars",
+          "run_by": "writer",
+          "prompt_bytes": 1417,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/p4.scalars.md",
+          "prompt_sha": "b1bcd778174e",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T15:55:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p4.scalars.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/p4.scalars.json",
+          "done_at": "2026-09-22T15:55:52+09:00",
+          "output_file": "out/r1/p4.scalars.json"
+        },
+        "r1.comment_candidates": {
+          "id": "r1.comment_candidates",
+          "node": "r1.comment_candidates",
+          "run_by": "comment-analyzer",
+          "prompt_bytes": 3139,
+          "mode": "agent",
+          "agent_type": "pr-review-toolkit:comment-analyzer",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/r1.comment_candidates.md",
+          "prompt_sha": "75ca7a5624d6",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T15:55:57+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/r1.comment_candidates.json",
+          "skills": [
+            {
+              "skill": "pr-review-toolkit:comment-analyzer",
+              "required": true
+            }
+          ],
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/r1.comment_candidates.json",
+          "done_at": "2026-09-22T16:03:17+09:00",
+          "output_file": "out/r1/r1.comment_candidates.json",
+          "agent_id": "a9aa896cfa4869ce7"
+        },
+        "r2.design": {
+          "id": "r2.design",
+          "node": "r2.design",
+          "run_by": "blind-judge",
+          "prompt_bytes": 10467,
+          "mode": "cli",
+          "agent_type": "convergence-loops:blind-judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/r2.design.md",
+          "prompt_sha": "3245efa48200",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T15:55:57+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/r2.design.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/roles/convergence-loops__blind-judge.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/r2.design.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/r2.design.json",
+          "done_at": "2026-09-22T15:58:48+09:00",
+          "output_file": "out/r1/r2.design.json"
+        },
+        "r1.minimality": {
+          "id": "r1.minimality",
+          "node": "r1.minimality",
+          "run_by": "judge",
+          "prompt_bytes": 50359,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/r1.minimality.md",
+          "prompt_sha": "35a9a790871c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:03:17+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/r1.minimality.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/r1.minimality.json",
+          "done_at": "2026-09-22T16:08:23+09:00",
+          "output_file": "out/r1/r1.minimality.json",
+          "agent_id": "a2152c88b0087f391"
+        },
+        "r2.compare": {
+          "id": "r2.compare",
+          "node": "r2.compare",
+          "run_by": "blind-judge",
+          "prompt_bytes": 30134,
+          "mode": "cli",
+          "agent_type": "convergence-loops:blind-judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/r2.compare.md",
+          "prompt_sha": "0be0bc6a06fc",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:03:17+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/r2.compare.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/roles/convergence-loops__blind-judge.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r1/r2.compare.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r1/r2.compare.json",
+          "done_at": "2026-09-22T16:07:42+09:00",
+          "output_file": "out/r1/r2.compare.json"
+        }
+      },
+      "item_counts": {}
+    },
+    {
+      "round": 2,
+      "done": {
+        "p1.worktree_before": {
+          "at": "2026-09-22T16:08:23+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p1.hygiene": {
+          "at": "2026-09-22T16:10:46+09:00",
+          "instance": "p1.hygiene"
+        },
+        "p1.main_path_observation": {
+          "at": "2026-09-22T16:11:00+09:00",
+          "instance": "p1.main_path_observation"
+        },
+        "p1.test_double_fidelity": {
+          "at": "2026-09-22T16:11:00+09:00",
+          "instance": "p1.test_double_fidelity"
+        },
+        "p1.gate_efficacy": {
+          "at": "2026-09-22T16:11:42+09:00",
+          "instance": "p1.gate_efficacy"
+        },
+        "p1.provenance": {
+          "at": "2026-09-22T16:12:21+09:00",
+          "instance": "p1.provenance"
+        },
+        "p1.external_standards": {
+          "at": "2026-09-22T16:12:32+09:00",
+          "instance": "p1.external_standards"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-22T16:12:36+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.procedure_trace": {
+          "at": "2026-09-22T16:14:07+09:00",
+          "instance": "p1.procedure_trace"
+        },
+        "p1.consistency_bypass": {
+          "at": "2026-09-22T16:17:17+09:00",
+          "instance": "p1.consistency_bypass"
+        },
+        "p1.local_review": {
+          "at": "2026-09-22T16:22:27+09:00",
+          "instance": "p1.local_review"
+        },
+        "p1.worktree_after": {
+          "at": "2026-09-22T16:22:28+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-09-22T16:40:50+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p2.history": {
+          "at": "2026-09-22T16:49:23+09:00",
+          "instance": "p2.history"
+        },
+        "p3.fix": {
+          "at": "2026-09-22T16:54:52+09:00",
+          "instance": "p3.fix"
+        },
+        "p4.ci": {
+          "at": "2026-09-22T16:55:33+09:00",
+          "instance": "p4.ci"
+        },
+        "p4.scalars": {
+          "at": "2026-09-22T16:55:33+09:00",
+          "instance": "p4.scalars"
+        },
+        "p4.assemble": {
+          "at": "2026-09-22T16:55:39+09:00",
+          "builtin": "assemble"
+        },
+        "r3.coherence": {
+          "at": "2026-09-22T17:01:14+09:00",
+          "instance": "r3.coherence"
+        },
+        "r4.hidden_scope": {
+          "at": "2026-09-22T17:01:34+09:00",
+          "instance": "r4.hidden_scope"
+        },
+        "r1.comment_candidates": {
+          "at": "2026-09-22T17:03:47+09:00",
+          "instance": "r1.comment_candidates"
+        },
+        "r1.minimality": {
+          "at": "2026-09-22T17:13:31+09:00",
+          "instance": "r1.minimality"
+        },
+        "p4.record": {
+          "at": "2026-09-22T17:26:13+09:00",
+          "builtin": "record_round"
+        },
+        "converge": {
+          "at": "2026-09-22T17:26:13+09:00",
+          "builtin": "converge"
+        }
+      },
+      "na": {
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない",
+        "p2.rejudge": "cond: 回す側が今の周に異議を出し、往復が上限（3）未満の周 が成り立たない",
+        "p2.rejudge_third": "cond: 往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する が成り立たない",
+        "r2.design": "cond: R2 の再発火条件に当たる周（初回は必ず） が成り立たない",
+        "r2.compare": "cond: R2 が再発火し、問いが立っていて、目的の出典が取れている が成り立たない",
+        "stop.premise_check": "cond: R2 が premise-invalid が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 8574,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.local_review.md",
+          "prompt_sha": "6ec644e44381",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.local_review.json",
+          "skills": [
+            {
+              "skill": "/code-review",
+              "args": "high",
+              "required": true,
+              "note": "組み込み（同名のプラグインが別に在る）。対象は changed_files_file に並ぶ**ファイルのパス**で渡す——ref 範囲は作業ツリーを含まない。--comment も --fix も付けるな。"
+            },
+            {
+              "skill": "pr-review-toolkit:code-reviewer",
+              "required": true,
+              "note": "準拠とバグ検出の両方を担う汎用レンズ。**落とすな。**"
+            },
+            {
+              "skill": "/simplify",
+              "required": true,
+              "note": "**修正を禁じた形でだけ呼べ**（実物は既定で作業ツリーを書き換える）。4 観点（再利用・単純化・効率・高度）をそれぞれ起こし、指摘だけ返させる。"
+            },
+            {
+              "skill": "/security-review",
+              "required": false,
+              "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+            },
+            {
+              "skill": "pr-review-toolkit:silent-failure-hunter",
+              "required": true,
+              "note": "黙って無力化される検査・握り潰される失敗を見る。"
+            },
+            {
+              "skill": "pr-review-toolkit:type-design-analyzer",
+              "required": true,
+              "note": "不変条件を平坦な値で持つ設計を見る。散文の振り分けでは当たらないクラス。"
+            },
+            {
+              "skill": "pr-review-toolkit:pr-test-analyzer",
+              "required": true,
+              "note": "振る舞い網羅のレンズ。他のどの節も見ていない。"
+            }
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.local_review.json",
+          "done_at": "2026-09-22T16:22:27+09:00",
+          "output_file": "out/r2/p1.local_review.json",
+          "agent_id": "a6b90a9bc933b7293"
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 6168,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.consistency_bypass.md",
+          "prompt_sha": "92ba7293529b",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.consistency_bypass.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.consistency_bypass.json",
+          "done_at": "2026-09-22T16:17:17+09:00",
+          "output_file": "out/r2/p1.consistency_bypass.json",
+          "agent_id": "af3da2249c5c999d5"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 21715,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.hygiene.md",
+          "prompt_sha": "7066532f3d90",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.hygiene.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.hygiene.json",
+          "done_at": "2026-09-22T16:10:46+09:00",
+          "output_file": "out/r2/p1.hygiene.json"
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 9146,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.external_standards.md",
+          "prompt_sha": "c8b1edfa85e6",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": [
+            " M .github/actions/install-yq/action.yml",
+            " M .github/actions/setup-helm-chart-deps/action.yml",
+            " M .github/workflows/helm-chart-check.yml",
+            " M .github/workflows/vulnerability_checks.yml",
+            " M .github/workflows/workflow-lint.yml"
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.external_standards.json",
+          "done_at": "2026-09-22T16:12:32+09:00",
+          "output_file": "out/r2/p1.external_standards.json",
+          "agent_id": "a3adc3fb47d65f61a"
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 3763,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.procedure_trace.md",
+          "prompt_sha": "31aa8db28747",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": [
+            " M .github/actions/install-yq/action.yml",
+            " M .github/actions/setup-helm-chart-deps/action.yml",
+            " M .github/workflows/helm-chart-check.yml",
+            " M .github/workflows/vulnerability_checks.yml",
+            " M .github/workflows/workflow-lint.yml"
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.procedure_trace.json",
+          "done_at": "2026-09-22T16:14:07+09:00",
+          "output_file": "out/r2/p1.procedure_trace.json",
+          "agent_id": "a338d44567a2334fc"
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4434,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.gate_efficacy.md",
+          "prompt_sha": "391fd35cf076",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.gate_efficacy.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.gate_efficacy.json",
+          "done_at": "2026-09-22T16:11:42+09:00",
+          "output_file": "out/r2/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2884,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.test_double_fidelity.md",
+          "prompt_sha": "e853eee987a8",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.test_double_fidelity.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.test_double_fidelity.json",
+          "done_at": "2026-09-22T16:11:00+09:00",
+          "output_file": "out/r2/p1.test_double_fidelity.json"
+        },
+        "p1.main_path_observation": {
+          "id": "p1.main_path_observation",
+          "node": "p1.main_path_observation",
+          "run_by": "writer",
+          "prompt_bytes": 3003,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.main_path_observation.md",
+          "prompt_sha": "d31d7921c86f",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.main_path_observation.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.main_path_observation.json",
+          "done_at": "2026-09-22T16:11:00+09:00",
+          "output_file": "out/r2/p1.main_path_observation.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2723,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p1.provenance.md",
+          "prompt_sha": "2d87d71fca26",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.provenance.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p1.provenance.json",
+          "done_at": "2026-09-22T16:12:21+09:00",
+          "output_file": "out/r2/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 3384,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p0.prior_decisions.md",
+          "prompt_sha": "7f9ed8f0c5fb",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:08:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": [
+            " M .github/actions/install-yq/action.yml",
+            " M .github/actions/setup-helm-chart-deps/action.yml",
+            " M .github/workflows/helm-chart-check.yml",
+            " M .github/workflows/vulnerability_checks.yml",
+            " M .github/workflows/workflow-lint.yml"
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p0.prior_decisions.json",
+          "done_at": "2026-09-22T16:12:36+09:00",
+          "output_file": "out/r2/p0.prior_decisions.json",
+          "agent_id": "ab592dc8368771932"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "prompt_bytes": 122426,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p2.diagnose.md",
+          "prompt_sha": "c2b07886d1c1",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:22:28+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p2.diagnose.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p2.diagnose.json",
+          "done_at": "2026-09-22T16:40:50+09:00",
+          "output_file": "out/r2/p2.diagnose.json",
+          "agent_id": "a0c11933085d8ce88"
+        },
+        "p2.history": {
+          "id": "p2.history",
+          "node": "p2.history",
+          "run_by": "judge",
+          "prompt_bytes": 59805,
+          "mode": "agent_continue",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p2.history.md",
+          "prompt_sha": "f17429869b80",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:40:56+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p2.history.json",
+          "deliver": "path",
+          "continue_of": "p2.diagnose",
+          "agent_id": "a0c11933085d8ce88",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p2.history.json",
+          "done_at": "2026-09-22T16:49:23+09:00",
+          "output_file": "out/r2/p2.history.json"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "prompt_bytes": 71966,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p3.fix.md",
+          "prompt_sha": "4a05014b8be8",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:49:23+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p3.fix.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p3.fix.json",
+          "done_at": "2026-09-22T16:54:52+09:00",
+          "output_file": "out/r2/p3.fix.json"
+        },
+        "p4.ci": {
+          "id": "p4.ci",
+          "node": "p4.ci",
+          "run_by": "writer",
+          "prompt_bytes": 2024,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p4.ci.md",
+          "prompt_sha": "d1ccbe4525ed",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:55:03+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p4.ci.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p4.ci.json",
+          "done_at": "2026-09-22T16:55:33+09:00",
+          "output_file": "out/r2/p4.ci.json"
+        },
+        "p4.scalars": {
+          "id": "p4.scalars",
+          "node": "p4.scalars",
+          "run_by": "writer",
+          "prompt_bytes": 1417,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/p4.scalars.md",
+          "prompt_sha": "67ea7d40f50c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:55:03+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p4.scalars.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/p4.scalars.json",
+          "done_at": "2026-09-22T16:55:33+09:00",
+          "output_file": "out/r2/p4.scalars.json"
+        },
+        "r1.comment_candidates": {
+          "id": "r1.comment_candidates",
+          "node": "r1.comment_candidates",
+          "run_by": "comment-analyzer",
+          "prompt_bytes": 3139,
+          "mode": "agent",
+          "agent_type": "pr-review-toolkit:comment-analyzer",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/r1.comment_candidates.md",
+          "prompt_sha": "33666721ba3a",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:55:39+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/r1.comment_candidates.json",
+          "skills": [
+            {
+              "skill": "pr-review-toolkit:comment-analyzer",
+              "required": true
+            }
+          ],
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/r1.comment_candidates.json",
+          "done_at": "2026-09-22T17:03:47+09:00",
+          "output_file": "out/r2/r1.comment_candidates.json",
+          "agent_id": "a8615cf95e3ed5bcd"
+        },
+        "r3.coherence": {
+          "id": "r3.coherence",
+          "node": "r3.coherence",
+          "run_by": "inspector",
+          "prompt_bytes": 2677,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/r3.coherence.md",
+          "prompt_sha": "12475042ddd0",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:55:39+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/r3.coherence.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/r3.coherence.json",
+          "done_at": "2026-09-22T17:01:14+09:00",
+          "output_file": "out/r2/r3.coherence.json",
+          "agent_id": "aa50fa21ca433be45"
+        },
+        "r4.hidden_scope": {
+          "id": "r4.hidden_scope",
+          "node": "r4.hidden_scope",
+          "run_by": "inspector",
+          "prompt_bytes": 6040,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/r4.hidden_scope.md",
+          "prompt_sha": "c4f7e195a8a5",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T16:55:39+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/r4.hidden_scope.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/r4.hidden_scope.json",
+          "done_at": "2026-09-22T17:01:34+09:00",
+          "output_file": "out/r2/r4.hidden_scope.json",
+          "agent_id": "a8a181c00f8efed99"
+        },
+        "r1.minimality": {
+          "id": "r1.minimality",
+          "node": "r1.minimality",
+          "run_by": "judge",
+          "prompt_bytes": 92563,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r2/r1.minimality.md",
+          "prompt_sha": "e7e92c9f3e21",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:03:47+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/r1.minimality.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r2/r1.minimality.json",
+          "done_at": "2026-09-22T17:13:31+09:00",
+          "output_file": "out/r2/r1.minimality.json",
+          "agent_id": "a4996dfc0a4094115"
+        }
+      },
+      "item_counts": {}
+    },
+    {
+      "round": 3,
+      "done": {
+        "p1.worktree_before": {
+          "at": "2026-09-22T17:26:13+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p1.hygiene": {
+          "at": "2026-09-22T17:30:29+09:00",
+          "instance": "p1.hygiene"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-22T17:30:30+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.gate_efficacy": {
+          "at": "2026-09-22T17:30:30+09:00",
+          "instance": "p1.gate_efficacy"
+        },
+        "p1.main_path_observation": {
+          "at": "2026-09-22T17:30:30+09:00",
+          "instance": "p1.main_path_observation"
+        },
+        "p1.test_double_fidelity": {
+          "at": "2026-09-22T17:30:30+09:00",
+          "instance": "p1.test_double_fidelity"
+        },
+        "p1.provenance": {
+          "at": "2026-09-22T17:31:03+09:00",
+          "instance": "p1.provenance"
+        },
+        "p1.external_standards": {
+          "at": "2026-09-22T17:31:26+09:00",
+          "instance": "p1.external_standards"
+        },
+        "p1.procedure_trace": {
+          "at": "2026-09-22T17:31:45+09:00",
+          "instance": "p1.procedure_trace"
+        },
+        "p1.consistency_bypass": {
+          "at": "2026-09-22T17:31:57+09:00",
+          "instance": "p1.consistency_bypass"
+        },
+        "p1.local_review": {
+          "at": "2026-09-22T17:45:33+09:00",
+          "instance": "p1.local_review"
+        },
+        "p1.worktree_after": {
+          "at": "2026-09-22T17:48:47+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-09-22T18:05:15+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p2.history": {
+          "at": "2026-09-22T18:13:48+09:00",
+          "instance": "p2.history"
+        },
+        "p3.fix": {
+          "at": "2026-09-22T18:16:33+09:00",
+          "instance": "p3.fix"
+        },
+        "p4.ci": {
+          "at": "2026-09-22T18:17:06+09:00",
+          "instance": "p4.ci"
+        },
+        "p4.scalars": {
+          "at": "2026-09-22T18:17:06+09:00",
+          "instance": "p4.scalars"
+        },
+        "p4.assemble": {
+          "at": "2026-09-22T18:17:11+09:00",
+          "builtin": "assemble"
+        },
+        "r3.coherence": {
+          "at": "2026-09-22T18:21:08+09:00",
+          "instance": "r3.coherence"
+        },
+        "r4.hidden_scope": {
+          "at": "2026-09-22T18:23:08+09:00",
+          "instance": "r4.hidden_scope"
+        },
+        "r1.comment_candidates": {
+          "at": "2026-09-22T18:24:51+09:00",
+          "instance": "r1.comment_candidates"
+        },
+        "r1.minimality": {
+          "at": "2026-09-22T18:32:31+09:00",
+          "instance": "r1.minimality"
+        },
+        "p4.record": {
+          "at": "2026-09-22T18:39:05+09:00",
+          "builtin": "record_round"
+        },
+        "converge": {
+          "at": "2026-09-22T18:39:05+09:00",
+          "builtin": "converge"
+        }
+      },
+      "na": {
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない",
+        "p2.rejudge": "cond: 回す側が今の周に異議を出し、往復が上限（3）未満の周 が成り立たない",
+        "p2.rejudge_third": "cond: 往復が上限（3）に達しても決着しない周——それまでの往復を材料に、新しい別の judge が判定する が成り立たない",
+        "r2.design": "cond: R2 の再発火条件に当たる周（初回は必ず） が成り立たない",
+        "r2.compare": "cond: R2 が再発火し、問いが立っていて、目的の出典が取れている が成り立たない",
+        "stop.premise_check": "cond: R2 が premise-invalid が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 8574,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.local_review.md",
+          "prompt_sha": "d55075711fe0",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.local_review.json",
+          "skills": [
+            {
+              "skill": "/code-review",
+              "args": "high",
+              "required": true,
+              "note": "組み込み（同名のプラグインが別に在る）。対象は changed_files_file に並ぶ**ファイルのパス**で渡す——ref 範囲は作業ツリーを含まない。--comment も --fix も付けるな。"
+            },
+            {
+              "skill": "pr-review-toolkit:code-reviewer",
+              "required": true,
+              "note": "準拠とバグ検出の両方を担う汎用レンズ。**落とすな。**"
+            },
+            {
+              "skill": "/simplify",
+              "required": true,
+              "note": "**修正を禁じた形でだけ呼べ**（実物は既定で作業ツリーを書き換える）。4 観点（再利用・単純化・効率・高度）をそれぞれ起こし、指摘だけ返させる。"
+            },
+            {
+              "skill": "/security-review",
+              "required": false,
+              "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+            },
+            {
+              "skill": "pr-review-toolkit:silent-failure-hunter",
+              "required": true,
+              "note": "黙って無力化される検査・握り潰される失敗を見る。"
+            },
+            {
+              "skill": "pr-review-toolkit:type-design-analyzer",
+              "required": true,
+              "note": "不変条件を平坦な値で持つ設計を見る。散文の振り分けでは当たらないクラス。"
+            },
+            {
+              "skill": "pr-review-toolkit:pr-test-analyzer",
+              "required": true,
+              "note": "振る舞い網羅のレンズ。他のどの節も見ていない。"
+            }
+          ],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.local_review.json",
+          "done_at": "2026-09-22T17:45:33+09:00",
+          "output_file": "out/r3/p1.local_review.json",
+          "agent_id": "a80e507b83e4c8f79"
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 6168,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.consistency_bypass.md",
+          "prompt_sha": "c0224ea9d9f4",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.consistency_bypass.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.consistency_bypass.json",
+          "done_at": "2026-09-22T17:31:57+09:00",
+          "output_file": "out/r3/p1.consistency_bypass.json",
+          "agent_id": "a8373314305db8c6e"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 22809,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.hygiene.md",
+          "prompt_sha": "e20afa4efa0c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.hygiene.md"
+          },
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.hygiene.json",
+          "done_at": "2026-09-22T17:30:29+09:00",
+          "output_file": "out/r3/p1.hygiene.json"
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 9146,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.external_standards.md",
+          "prompt_sha": "2070dea41ef9",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.external_standards.json",
+          "done_at": "2026-09-22T17:31:26+09:00",
+          "output_file": "out/r3/p1.external_standards.json",
+          "agent_id": "a4e55808addad7765"
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 3763,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.procedure_trace.md",
+          "prompt_sha": "a0cd20a049d5",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.procedure_trace.json",
+          "done_at": "2026-09-22T17:31:45+09:00",
+          "output_file": "out/r3/p1.procedure_trace.json",
+          "agent_id": "aa1af13e39ccb42bd"
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4434,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.gate_efficacy.md",
+          "prompt_sha": "a244c716c32e",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.gate_efficacy.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.gate_efficacy.json",
+          "done_at": "2026-09-22T17:30:30+09:00",
+          "output_file": "out/r3/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2884,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.test_double_fidelity.md",
+          "prompt_sha": "7bf75e616d93",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.test_double_fidelity.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.test_double_fidelity.json",
+          "done_at": "2026-09-22T17:30:30+09:00",
+          "output_file": "out/r3/p1.test_double_fidelity.json"
+        },
+        "p1.main_path_observation": {
+          "id": "p1.main_path_observation",
+          "node": "p1.main_path_observation",
+          "run_by": "writer",
+          "prompt_bytes": 3003,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.main_path_observation.md",
+          "prompt_sha": "8fdb0f7e2560",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.main_path_observation.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.main_path_observation.json",
+          "done_at": "2026-09-22T17:30:30+09:00",
+          "output_file": "out/r3/p1.main_path_observation.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2723,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p1.provenance.md",
+          "prompt_sha": "7fd280edbc10",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.provenance.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p1.provenance.json",
+          "done_at": "2026-09-22T17:31:03+09:00",
+          "output_file": "out/r3/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 3384,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p0.prior_decisions.md",
+          "prompt_sha": "7f9ed8f0c5fb",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:26:13+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": [],
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p0.prior_decisions.json",
+          "done_at": "2026-09-22T17:30:30+09:00",
+          "output_file": "out/r3/p0.prior_decisions.json",
+          "agent_id": "a97ebf9af08bfa916"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "prompt_bytes": 122718,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p2.diagnose.md",
+          "prompt_sha": "70db6bbf0366",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T17:48:47+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p2.diagnose.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p2.diagnose.json",
+          "done_at": "2026-09-22T18:05:15+09:00",
+          "output_file": "out/r3/p2.diagnose.json",
+          "agent_id": "a5ed26eeecf8af4ba"
+        },
+        "p2.history": {
+          "id": "p2.history",
+          "node": "p2.history",
+          "run_by": "judge",
+          "prompt_bytes": 74553,
+          "mode": "agent_continue",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p2.history.md",
+          "prompt_sha": "34beff16c123",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T18:05:24+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p2.history.json",
+          "deliver": "path",
+          "continue_of": "p2.diagnose",
+          "agent_id": "a5ed26eeecf8af4ba",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p2.history.json",
+          "done_at": "2026-09-22T18:13:48+09:00",
+          "output_file": "out/r3/p2.history.json"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "prompt_bytes": 71049,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p3.fix.md",
+          "prompt_sha": "2b08f79dea9d",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T18:13:48+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p3.fix.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p3.fix.json",
+          "done_at": "2026-09-22T18:16:33+09:00",
+          "output_file": "out/r3/p3.fix.json"
+        },
+        "p4.ci": {
+          "id": "p4.ci",
+          "node": "p4.ci",
+          "run_by": "writer",
+          "prompt_bytes": 2024,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p4.ci.md",
+          "prompt_sha": "d1ccbe4525ed",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T18:17:06+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p4.ci.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p4.ci.json",
+          "done_at": "2026-09-22T18:17:06+09:00",
+          "output_file": "out/r3/p4.ci.json"
+        },
+        "p4.scalars": {
+          "id": "p4.scalars",
+          "node": "p4.scalars",
+          "run_by": "writer",
+          "prompt_bytes": 1417,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/p4.scalars.md",
+          "prompt_sha": "911938c5c153",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T18:17:06+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p4.scalars.json",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/p4.scalars.json",
+          "done_at": "2026-09-22T18:17:06+09:00",
+          "output_file": "out/r3/p4.scalars.json"
+        },
+        "r1.comment_candidates": {
+          "id": "r1.comment_candidates",
+          "node": "r1.comment_candidates",
+          "run_by": "comment-analyzer",
+          "prompt_bytes": 3139,
+          "mode": "agent",
+          "agent_type": "pr-review-toolkit:comment-analyzer",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/r1.comment_candidates.md",
+          "prompt_sha": "78ceee8eeff9",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T18:17:11+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/r1.comment_candidates.json",
+          "skills": [
+            {
+              "skill": "pr-review-toolkit:comment-analyzer",
+              "required": true
+            }
+          ],
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/r1.comment_candidates.json",
+          "done_at": "2026-09-22T18:24:51+09:00",
+          "output_file": "out/r3/r1.comment_candidates.json",
+          "agent_id": "aa42510de0d4f12f4"
+        },
+        "r3.coherence": {
+          "id": "r3.coherence",
+          "node": "r3.coherence",
+          "run_by": "inspector",
+          "prompt_bytes": 2677,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/r3.coherence.md",
+          "prompt_sha": "3bbdcc0e5cc0",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T18:17:11+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/r3.coherence.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/r3.coherence.json",
+          "done_at": "2026-09-22T18:21:08+09:00",
+          "output_file": "out/r3/r3.coherence.json",
+          "agent_id": "abbd6372ee637e23a"
+        },
+        "r4.hidden_scope": {
+          "id": "r4.hidden_scope",
+          "node": "r4.hidden_scope",
+          "run_by": "inspector",
+          "prompt_bytes": 6040,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/r4.hidden_scope.md",
+          "prompt_sha": "0b05fb9216ca",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T18:17:11+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/r4.hidden_scope.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/r4.hidden_scope.json",
+          "done_at": "2026-09-22T18:23:08+09:00",
+          "output_file": "out/r3/r4.hidden_scope.json",
+          "agent_id": "a3f31475aadf55b50"
+        },
+        "r1.minimality": {
+          "id": "r1.minimality",
+          "node": "r1.minimality",
+          "run_by": "judge",
+          "prompt_bytes": 116629,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r3/r1.minimality.md",
+          "prompt_sha": "c2f40be7cc83",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-22T18:24:51+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/r1.minimality.json",
+          "deliver": "path",
+          "read_from": "out_path /Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r3/r1.minimality.json",
+          "done_at": "2026-09-22T18:32:31+09:00",
+          "output_file": "out/r3/r1.minimality.json",
+          "agent_id": "ac7575ba8da6f04a9"
+        }
+      },
+      "item_counts": {}
+    },
+    {
+      "round": 4,
+      "done": {
+        "p1.worktree_before": {
+          "at": "2026-09-22T18:39:10+09:00",
+          "builtin": "worktree_snapshot"
+        }
+      },
+      "na": {
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 8574,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.local_review.md",
+          "prompt_sha": "a933f3accda7",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.local_review.json",
+          "skills": [
+            {
+              "skill": "/code-review",
+              "args": "high",
+              "required": true,
+              "note": "組み込み（同名のプラグインが別に在る）。対象は changed_files_file に並ぶ**ファイルのパス**で渡す——ref 範囲は作業ツリーを含まない。--comment も --fix も付けるな。"
+            },
+            {
+              "skill": "pr-review-toolkit:code-reviewer",
+              "required": true,
+              "note": "準拠とバグ検出の両方を担う汎用レンズ。**落とすな。**"
+            },
+            {
+              "skill": "/simplify",
+              "required": true,
+              "note": "**修正を禁じた形でだけ呼べ**（実物は既定で作業ツリーを書き換える）。4 観点（再利用・単純化・効率・高度）をそれぞれ起こし、指摘だけ返させる。"
+            },
+            {
+              "skill": "/security-review",
+              "required": false,
+              "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+            },
+            {
+              "skill": "pr-review-toolkit:silent-failure-hunter",
+              "required": true,
+              "note": "黙って無力化される検査・握り潰される失敗を見る。"
+            },
+            {
+              "skill": "pr-review-toolkit:type-design-analyzer",
+              "required": true,
+              "note": "不変条件を平坦な値で持つ設計を見る。散文の振り分けでは当たらないクラス。"
+            },
+            {
+              "skill": "pr-review-toolkit:pr-test-analyzer",
+              "required": true,
+              "note": "振る舞い網羅のレンズ。他のどの節も見ていない。"
+            }
+          ]
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 6168,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.consistency_bypass.md",
+          "prompt_sha": "89bc3ca77a15",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.consistency_bypass.json",
+          "deliver": "path"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 22710,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.hygiene.md",
+          "prompt_sha": "2f5f7aaac5ae",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.hygiene.json",
+          "deliver": "paste",
+          "launch": {
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0/scripts/with-auth.py",
+              "/Users/p03623/.local/bin/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/roles/convergence-loops__cold-reader.txt",
+              "--no-session-persistence",
+              "--output-format",
+              "text"
+            ],
+            "stdin": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.hygiene.md"
+          }
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 9146,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.external_standards.md",
+          "prompt_sha": "281a8323af9b",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.external_standards.json",
+          "deliver": "path",
+          "tree_before": []
+        },
+        "p1.procedure_trace": {
+          "id": "p1.procedure_trace",
+          "node": "p1.procedure_trace",
+          "run_by": "investigator",
+          "prompt_bytes": 3763,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.procedure_trace.md",
+          "prompt_sha": "e793680c4c89",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.procedure_trace.json",
+          "deliver": "path",
+          "tree_before": []
+        },
+        "p1.gate_efficacy": {
+          "id": "p1.gate_efficacy",
+          "node": "p1.gate_efficacy",
+          "run_by": "writer",
+          "prompt_bytes": 4434,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.gate_efficacy.md",
+          "prompt_sha": "dc83c87388d8",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.gate_efficacy.json"
+        },
+        "p1.test_double_fidelity": {
+          "id": "p1.test_double_fidelity",
+          "node": "p1.test_double_fidelity",
+          "run_by": "writer",
+          "prompt_bytes": 2884,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.test_double_fidelity.md",
+          "prompt_sha": "4a89afa941f9",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.test_double_fidelity.json"
+        },
+        "p1.main_path_observation": {
+          "id": "p1.main_path_observation",
+          "node": "p1.main_path_observation",
+          "run_by": "writer",
+          "prompt_bytes": 3003,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.main_path_observation.md",
+          "prompt_sha": "a3e667d384ed",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.main_path_observation.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2723,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p1.provenance.md",
+          "prompt_sha": "9518b2dcb618",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p1.provenance.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 3384,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/prompts/r4/p0.prior_decisions.md",
+          "prompt_sha": "7f9ed8f0c5fb",
+          "item": null,
+          "status": "pending",
+          "emitted_at": "2026-09-22T18:39:10+09:00",
+          "out_path": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/out/r4/p0.prior_decisions.json",
+          "deliver": "path",
+          "tree_before": []
+        }
+      },
+      "item_counts": {}
+    }
+  ],
+  "thickness": null,
+  "max_rounds": 5,
+  "unattended": false,
+  "inputs": {
+    "request": "PR #1826（ブランチ ci/stall-timeouts、commit 84986fd15 + 3b8b2508c）のレビュー。CI が外部から配布物を取る curl 7 か所の打ち切りを、総経過（--max-time）から停滞（--connect-timeout / --speed-limit / --speed-time）へ移した変更と、それに伴う現地コメント・族の一覧・accepted-limitations 台帳の追従。最大 5 周、収束しそうになるまで。",
+    "document": null,
+    "lang": "依頼文の言語（利用者の言語）",
+    "cwd": "/Users/p03623/src/guided-resolver-work0",
+    "review_md": "/Users/p03623/.claude-p1/plugins/cache/raiki61/convergence-loops/0.38.0/REVIEW.md",
+    "repo_review_md": "/Users/p03623/src/guided-resolver-work0/REVIEW.md",
+    "scripts_dir": "/Users/p03623/.claude-p1/plugins/cache/raiki61/convergence-loops/0.38.0/scripts",
+    "rounds_dir": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/rounds",
+    "review_rev": "0fbac44474361071981b7eea7f94b766055d7ed6"
+  },
+  "validator": "/Users/p03623/.claude-p1/plugins/cache/raiki61/convergence-loops/0.38.0/scripts/review-record.py",
+  "outputs": {
+    "p0.base": {
+      "file": "out/r1/p0.base.json",
+      "round": 1,
+      "instance": "p0.base"
+    },
+    "p0.local_checks": {
+      "file": "out/r1/p0.local_checks.json",
+      "round": 1,
+      "instance": "p0.local_checks"
+    },
+    "p0.premises": {
+      "file": "out/r1/p0.premises.json",
+      "round": 1,
+      "instance": "p0.premises"
+    },
+    "p1.worktree_before": {
+      "file": "out/r4/p1.worktree_before.json",
+      "round": 4
+    },
+    "p1.hygiene": {
+      "file": "out/r3/p1.hygiene.json",
+      "round": 3,
+      "instance": "p1.hygiene"
+    },
+    "p0.parallel_pr": {
+      "file": "out/r1/p0.parallel_pr.json",
+      "round": 1,
+      "instance": "p0.parallel_pr"
+    },
+    "p1.procedure_trace": {
+      "file": "out/r3/p1.procedure_trace.json",
+      "round": 3,
+      "instance": "p1.procedure_trace"
+    },
+    "p1.gate_efficacy": {
+      "file": "out/r3/p1.gate_efficacy.json",
+      "round": 3,
+      "instance": "p1.gate_efficacy"
+    },
+    "p0.prior_decisions": {
+      "file": "out/r3/p0.prior_decisions.json",
+      "round": 3,
+      "instance": "p0.prior_decisions"
+    },
+    "p1.test_double_fidelity": {
+      "file": "out/r3/p1.test_double_fidelity.json",
+      "round": 3,
+      "instance": "p1.test_double_fidelity"
+    },
+    "p1.provenance": {
+      "file": "out/r3/p1.provenance.json",
+      "round": 3,
+      "instance": "p1.provenance"
+    },
+    "p0.purpose": {
+      "file": "out/r1/p0.purpose.json",
+      "round": 1,
+      "instance": "p0.purpose"
+    },
+    "p1.local_review": {
+      "file": "out/r3/p1.local_review.json",
+      "round": 3,
+      "instance": "p1.local_review"
+    },
+    "p1.external_standards": {
+      "file": "out/r3/p1.external_standards.json",
+      "round": 3,
+      "instance": "p1.external_standards"
+    },
+    "p1.consistency_bypass": {
+      "file": "out/r3/p1.consistency_bypass.json",
+      "round": 3,
+      "instance": "p1.consistency_bypass"
+    },
+    "p1.worktree_after": {
+      "file": "out/r3/p1.worktree_after.json",
+      "round": 3
+    },
+    "p2.diagnose": {
+      "file": "out/r3/p2.diagnose.json",
+      "round": 3,
+      "instance": "p2.diagnose"
+    },
+    "p3.fix": {
+      "file": "out/r3/p3.fix.json",
+      "round": 3,
+      "instance": "p3.fix"
+    },
+    "p4.ci": {
+      "file": "out/r3/p4.ci.json",
+      "round": 3,
+      "instance": "p4.ci"
+    },
+    "p4.scalars": {
+      "file": "out/r3/p4.scalars.json",
+      "round": 3,
+      "instance": "p4.scalars"
+    },
+    "p4.assemble": {
+      "file": "out/r3/p4.assemble.json",
+      "round": 3
+    },
+    "r2.design": {
+      "file": "out/r1/r2.design.json",
+      "round": 1,
+      "instance": "r2.design"
+    },
+    "r1.comment_candidates": {
+      "file": "out/r3/r1.comment_candidates.json",
+      "round": 3,
+      "instance": "r1.comment_candidates"
+    },
+    "r2.compare": {
+      "file": "out/r1/r2.compare.json",
+      "round": 1,
+      "instance": "r2.compare"
+    },
+    "r1.minimality": {
+      "file": "out/r3/r1.minimality.json",
+      "round": 3,
+      "instance": "r1.minimality"
+    },
+    "p4.record": {
+      "file": "out/r3/p4.record.json",
+      "round": 3
+    },
+    "converge": {
+      "file": "out/r3/converge.json",
+      "round": 3
+    },
+    "p1.main_path_observation": {
+      "file": "out/r3/p1.main_path_observation.json",
+      "round": 3,
+      "instance": "p1.main_path_observation"
+    },
+    "p2.history": {
+      "file": "out/r3/p2.history.json",
+      "round": 3,
+      "instance": "p2.history"
+    },
+    "r3.coherence": {
+      "file": "out/r3/r3.coherence.json",
+      "round": 3,
+      "instance": "r3.coherence"
+    },
+    "r4.hidden_scope": {
+      "file": "out/r3/r4.hidden_scope.json",
+      "round": 3,
+      "instance": "r4.hidden_scope"
+    }
+  },
+  "done_ever": {
+    "p0.base": 1,
+    "p0.local_checks": 1,
+    "p0.premises": 1,
+    "p1.worktree_before": 4,
+    "p1.hygiene": 3,
+    "p0.parallel_pr": 1,
+    "p1.procedure_trace": 3,
+    "p1.gate_efficacy": 3,
+    "p0.prior_decisions": 3,
+    "p1.test_double_fidelity": 3,
+    "p1.provenance": 3,
+    "p0.purpose": 1,
+    "p1.local_review": 3,
+    "p1.external_standards": 3,
+    "p1.consistency_bypass": 3,
+    "p1.worktree_after": 3,
+    "p2.diagnose": 3,
+    "p3.fix": 3,
+    "p4.ci": 3,
+    "p4.scalars": 3,
+    "p4.assemble": 3,
+    "r2.design": 1,
+    "r1.comment_candidates": 3,
+    "r2.compare": 1,
+    "r1.minimality": 3,
+    "p4.record": 3,
+    "converge": 3,
+    "p1.main_path_observation": 3,
+    "p2.history": 3,
+    "r3.coherence": 3,
+    "r4.hidden_scope": 3
+  },
+  "loop": {
+    "diff_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/diff-r4.patch",
+    "changed_files": [
+      ".github/actions/install-yq/action.yml",
+      ".github/actions/setup-helm-chart-deps/action.yml",
+      ".github/workflows/helm-chart-check.yml",
+      ".github/workflows/vulnerability_checks.yml",
+      ".github/workflows/workflow-lint.yml",
+      "docs/decisions/accepted-limitations.adoc"
+    ],
+    "changed_files_file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/changed-r4.txt",
+    "diff_stat": "6 files changed, 65 insertions(+), 35 deletions(-)",
+    "diff_lines": 100,
+    "reviewed_revision": "0fbac44474361071981b7eea7f94b766055d7ed6",
+    "tree_before": {
+      "porcelain": [],
+      "stash": "",
+      "diff_sha": "63673c2eeecc"
+    },
+    "last_seen": {
+      "base_determination": 1,
+      "local_checks": 3,
+      "hygiene": 3,
+      "parallel_pr": 1,
+      "procedure_trace": 3,
+      "gate_efficacy": 3,
+      "prior_decisions": 3,
+      "test_double_fidelity": 3,
+      "provenance": 3,
+      "local_review": 3,
+      "external_standards": 3,
+      "consistency": 3,
+      "bypass": 3,
+      "fix_closure": 3,
+      "main_path_observation": 3
+    },
+    "last_material": {
+      "base_determination": {
+        "status": "found",
+        "count": 6,
+        "detail": "依頼文が commit を名指し（84986fd15 + 3b8b2508c）したので BASE はその親 7329af95a。git diff --stat 7329af95a..HEAD は 6 ファイル +37/-31。内訳は .github/actions/install-yq/action.yml(+4/-1)、.github/actions/setup-helm-chart-deps/action.yml(+17/-10)、.github/workflows/helm-chart-check.yml(+22/-11)、.github/workflows/vulnerability_checks.yml(+4/-1)、.github/workflows/workflow-lint.yml(+12/-4)、docs/decisions/accepted-limitations.adoc(+9/-4)。touches_gates=true は変更対象が CI ジョブそのもの（helm-chart-check・workflow-lint・vulnerability_checks と、それらが呼ぶ composite action 2 本）であるため。touches_external_seams=true は変更点が外部ホスト（get.helm.sh・kind.sigs.k8s.io・dl.k8s.io・github.com の Releases）からの HTTP 取得の打ち切り条件であるため。touches_user_path=false は製品コード・配備マニフェストに差分が無いため（diff --stat の 6 ファイルはすべて CI 定義と文書）。"
+      },
+      "local_checks": {
+        "status": "clean",
+        "count": 0,
+        "checked": "この周の修正後に手元で 4 本を再実行して全部緑。(1) uvx pre-commit run --all-files → ruff check / ruff format / shellcheck / trim trailing whitespace / fix end of files / check for merge conflicts / prettier (frontend) / yamllint がすべて Passed。shellcheck は gitleaks step へ set -euo pipefail を足した後も通る。(2) python3 tools/lint_workflow_timeouts.py → 『ワークフロー 25 本 / job 69 件を検査（うち uses: の 13 件は対象外）』rc=0。(3) ruby tools/lint_docs.rb → 『検査した文書: 276 件（explanations 29 / decisions 70）』rc=0。台帳を書き換えたのでこの検査が当たる。(4) actionlint -ignore 'specifying action \"\\$/\\.github/'（CI と同じ ignore）→ 指摘なし rc=0。GitHub 上の実行は、1・2 周目の修正までは push 済みで HEAD 24809121f に対して走るが、この周の修正はまだ未 push なのでこの記録には含まれない。vulnerability_checks.yml は on: schedule と workflow_dispatch だけで PR では起動しないため、gitleaks 取得への変更（再試行の追加・set -euo pipefail の追加）は GitHub 上では本 PR の checks で一度も実行されない。"
+      },
+      "hygiene": {
+        "status": "found",
+        "checked": "渡された diff 全体（install-yq/action.yml、setup-helm-chart-deps/action.yml、helm-chart-check.yml の3箇所のcurl呼び出しとコメント、vulnerability_checks.yml、workflow-lint.yml の2箇所、docs/decisions/accepted-limitations.adoc の該当節）を最後まで読んだ。差分外のコード（各ファイルの他の部分、setup-helm-chart-deps.yml の全体像、helm-chart-check.yml の他ジョブ、tools/lint_workflow_timeouts.py の実装）は渡されておらず見ていない。量による打ち切りは行っていない。",
+        "count": 4,
+        "detail": "accepted-limitations.adoc: 「取得 step もこの項目の内側に残る」の一覧: 文書は「helm・yq（composite action 内なので step の上限を置けない）・gitleaks・actionlint と、curl でない取得の外側は job の段だけ」と述べる。しかし diff 本体で --connect-timeout/--speed-limit/--speed-time/--retry-max-time を追加された curl 呼び出しを数えると、install-yq、setup-helm-chart-deps の helm、vulnerability_checks.yml の gitleaks、workflow-lint.yml の actionlint、helm-chart-check.yml の kind・kubectl・Gateway API の 3 か所で計 7 か所ある。文書の列挙は「helm・yq・gitleaks・actionlint」の 4 者どまりで、helm-chart-check.yml 内の kind・kubectl・Gateway API の 3 step（いずれも timeout-minutes: 10 を段1として個別に持つ、または job 段に委ねる）が名指しで触れられていない。実際に上限を持つ／持たないの帰属先が正しいかは、この diff だけでは各 step の timeout-minutes 有無を全部突き合わせないと判定できない / helm-chart-check.yml 「Install kind and kubectl」コメント冒頭: 「この段は curl を呼ばない step から引かれてもそのまま意味が通る」「段3（curl のフラグ）とは別の関心なので、発火順は断定しない」と書くが、この diff 片だけでは timeout-minutes: 10（段1）と --connect-timeout 20 / --speed-time 20 / --retry-max-time 300（段3、curl 内部の時間軸）の合計がどちらが先に発火するかの算術的な整合を検証できる記述がない。3 の最悪合計時間（複数回の再試行 × 各 20 秒接続 + 転送 + retry-max-time 300 の上限）が 10 分の段1 上限を超えないかは、この diff の情報だけでは計算不能 / helm-chart-check.yml 「Install kind and kubectl」の実測コメント（覆えていない形）: コメントは「--speed-limit をわずかに上回る速度で流れ続ける転送は 2 では切れない」ことを自ら明記し、「ここを縛るには絶対時間の上限が要るが、それは走る機械を測らないと選べない値なので置いていない」「外側は段1 の timeout-minutes と job の上限だけで、これは受容している」と結んでいる。これは fail-open ではなく既知の未対応ギャップの自己申告であり、指摘というより本文が既に認めている限界 / workflow-lint.yml の ACTIONLINT_SHA256 段のコメント「curl＋sha256sum -c の同形は…5 ファイル・6 か所ある」: 列挙は install-yq(yq)、vulnerability_checks.yml(gitleaks)、setup-helm-chart-deps(helm)、helm-chart-check.yml(kind・kubectl・Gateway API の3か所)で合計5ファイル6か所としている。diffの実物を数えると、setup-helm-chart-deps.yml 内に helm 用 curl が1つ、install-yq.yml に1つ、vulnerability_checks.yml に1つ、workflow-lint.yml 自身のactionlint取得に1つ、helm-chart-check.ymlにkind/kubectl/Gateway APIの3つで、自ファイル（workflow-lint.yml）を含めると6ファイル7か所になる可能性がある。この一覧が自分自身（actionlint取得）を数に含めているかが本文から判別できない"
+      },
+      "parallel_pr": {
+        "status": "found",
+        "count": 13,
+        "detail": "upstream は git@github.com:IL-SW-AI/guided-resolver.git（git rev-parse --abbrev-ref @{u} = origin/ci/stall-timeouts、git remote get-url origin で解決）。gh pr list --limit 100 が 26 件を返したので打ち切りなし。HEAD 3b8b2508c と headRefOid が一致する PR #1826 は自分なので除外。残り 25 件のうち、本 PR の変更 6 ファイルと交差するのは 13 件。内訳は docs/decisions/accepted-limitations.adoc が 10 件、.github/workflows/helm-chart-check.yml が 3 件、.github/workflows/vulnerability_checks.yml が 1 件（#1780 は 2 ファイルで重複）。gh pr diff で全件の hunk 見出しを取って突き合わせた結果、本 PR が触る箇所と重なる hunk は 1 件も無い。台帳については『step 単位の上限は持たない』の項目に触れる PR が 0 件であることを、各 PR の accepted-limitations.adoc の hunk 見出しを grep して確認した。したがって申し送り（handed_over）は 0 件。ただし台帳は 10 件の PR が同時に追記しており、マージ順によっては行位置のテキスト衝突は起こりうる（意味の衝突ではない）。"
+      },
+      "procedure_trace": {
+        "status": "found",
+        "count": 1,
+        "detail": "docs/decisions/accepted-limitations.adoc の「step 単位の上限は持たない」節に新規追加された一文が、同じ diff が根拠として名指しする helm-chart-check.yml の実際の step 定義と食い違う。"
+      },
+      "gate_efficacy": {
+        "status": "found",
+        "count": 1,
+        "detail": "6 腕をこの周に測り直し、5 腕は赤と control の緑と守る行を通った証拠がそろった。残る 1 腕（トリクル転送）は赤にできない——停滞の判定では原理的に捕まらず、絶対時間の上限を置かない判断のため。前の周と違うのは、この事実が注記（実測の構成と curl の版つき）と台帳（『取得 step もこの項目の内側に残る』・再訪条件は『栓を持たない外部取得 step のハング』）の両方に載っていることで、記述と実体が食い違う状態は解消している。制約: --speed-time は出荷値 20 ではなく 3〜5 に縮めて測った（機構は同じで待ち時間だけが変わる）。測った curl は手元の macOS 版 8.7.1 で ubuntu-latest runner 同梱の版ではない。vulnerability_checks.yml は PR では起動しないため、gitleaks 取得への変更は本 PR の checks では一度も実行されない。"
+      },
+      "prior_decisions": {
+        "status": "found",
+        "count": 4,
+        "detail": "対象差分は PR #1826（ブランチ ci/stall-timeouts、対象 6 ファイル一致）そのもの。決着済み論点は次の 4 件——(1) 台帳「step 単位の上限は持たない」項の、install-yq/setup-helm-chart-deps/workflow-lint/vulnerability_checks/helm-chart-check にまたがる curl 停滞打ち切りの扱い（本 PR が改訂対象）。(2) PR #1826 上のレビュースレッド 1 件（Copilot の nit → 190578_daifuku が commit bab97c710 で解消済み、参照のずれを直した）。(3) issue #1516（CI の PyYAML 版固定なし、known-limitation で close 済み・台帳に転記済み）——本差分の対象ファイルに直接の版固定変更は無いが install-yq の YQ_VERSION に絡む注記として台帳が引用。(4) issue #1506（blob-sync の timeout 900 秒、AKS 実測待ちで open のまま）と、本 PR 本文が明記する「本 PR の外」扱い（helm template --repo の停滞化・git push・pip/uv/npm・kubectl wait・httpx・release.sh の timeout 等は対象外と判断済み）。",
+        "checked": "対象差分が触れる 6 ファイル、PR #1826 の本文・inline review comments・reviews 全件、docs/decisions/accepted-limitations.adoc の CI・脆弱性スキャン節（719〜1265 行）を全文、gh issue/pr search（キーワード: install-yq, setup-helm-chart-deps, workflow-lint, vulnerability_checks, speed-limit, connect-timeout, 停滞, known-limitation）"
+      },
+      "test_double_fidelity": {
+        "status": "clean",
+        "count": 0,
+        "checked": "この周も代役（モック・スタブ・フェイク）は 0 件。探し方: (1) git diff --name-only 7329af95a で変更ファイルを列挙し、全件が .github/ と docs/ の下でテストコードを含まないことを確認。(2) 7 か所の取得先ホスト名（get.helm.sh・kind.sigs.k8s.io・dl.k8s.io・github.com の Releases）でリポジトリを検索し、これらを代役に置き換えるテストが 0 件であることを確認。CI は本物の配布元へ直に当たる形のままで、代役は介在しない。実物から取った値 1 件との突き合わせは、この周も p1.main_path_observation で本物の配布元に対して実際に流して行った（yq 9,961,624 バイト・sha256 OK）。打ち切りの挙動を測るために立てた擬似サーバはテストの代役ではなく計測用で、mktemp -d 下に置いて破棄しリポジトリには残していない。"
+      },
+      "provenance": {
+        "status": "found",
+        "count": 2,
+        "detail": "対象差分と PR 本文から事実の主張を 7 件抽出し、BASE 時点の実在を git show で確かめた。この周の変化: 前の周まで 2 件あった循環のうち、台帳の側は『対象外』を撤回して注記と同じことを言う形になり、主張の食い違いとしては解消した。注記の側の循環（正本の中身を差分が書いた）は残るが、中身をこの周も実測で検算して一致を確認している。**代わりに新しい欠陥を 1 件持ち込んでいる**——この周に書いた台帳の文が、同じ段落で『4 step』と『3 呼び出し』を数える単位を変えずに並べており、かつ『curl でない取得（helm repo add 等）の外側は job の段だけ』が helm-chart-check の Apply external-secrets CRDs（step の上限 10 分を持つ）について事実として誤り。r3.coherence が独立に同じ箇所を指している。あわせて未確認の前提が 3 件（runner 上の 7〜9 秒、curl の既定接続上限 300 秒、helm/kind-action の再試行の実値）で、いずれも現地に未確認と書いてあるか PR 本文にしかない。"
+      },
+      "local_review": {
+        "status": "found",
+        "count": 24,
+        "detail": "宣言された 7 レンズを全て起こし、指摘 24 件。/security-review のみ所見なし（起動済み）。重い順は (1) 台帳 accepted-limitations.adoc:1122-1123 の「curl でない取得（helm repo add 等）の外側は job の段だけ」が、同じ段落が例外に数えている Apply external-secrets CRDs（helm repo add を回し timeout-minutes: 10 を持つ）と矛盾する、(2) 段2 が「5 回・5 秒」を正本として掲げるのに、そこを指す 4 か所のうち 3 か所は --retry 3・delay 無しで、正本に揃えようとすると値が退行する、(3) --max-time 撤去で細流時の最悪待ちが伸び、composite action 内の helm は job の 15 分だけが外枠になる、(4) 4 フラグの一致を守る機械検査が無く、変異体で既存検査が全緑になることを実測、(5) 「4 step」と「3 呼び出し」の単位切り替え（複数レンズが独立に検出）、(6) 並行 PR #1780 が同じ台帳の節と Apply external-secrets CRDs を独立に書き換えている。",
+        "checked": "diff-r3.patch（6 ファイル）と現物、REVIEW.md、CLAUDE.md、tools/lint_workflow_timeouts.py、tools/lint_docs.rb、out/r2 の記録、並行 PR。curl 8.7.1 / macOS で擬似サーバによる実測 2 本（2 バイト/秒の細流、429 + Retry-After）。"
+      },
+      "external_standards": {
+        "status": "found",
+        "count": 1,
+        "detail": "受容済み弱点リストの項目3「--retry-max-time 300 を落としている」の記述と diff の実際の変更内容が食い違う（詳細は findings）。"
+      },
+      "consistency": {
+        "status": "clean",
+        "checked": "diff-r3.patch を読み、変更6ファイルを対象版相当（作業ツリー、下記制約参照）で通読。①install-yq/setup-helm-chart-deps/vulnerability_checks/workflow-lint/helm-chart-check の6箇所のcurl呼び出しで --connect-timeout 20 / --speed-limit 1 --speed-time 20 / --retry-max-time 300 の値が全箇所で一致するか。②「同形はほかに4ファイル・6か所」「5ファイル全部を同時に見る」（workflow-lint.yml env）と「ほかに4ファイルにあり」（setup-helm-chart-deps）の申告数を実際のファイル/箇所と数え合わせ（install-yq=1・vulnerability_checks=1・setup-helm-chart-deps=1・helm-chart-check.yml=3（kind/kubectl/gateway-api）=計6か所5ファイル、自身を含め6ファイル中対応関係が一致）。③accepted-limitations.adocの見出し「4 step」と本文「3 呼び出し」の言い方の違いが、実際には『timeout-minutes:10を持つstep数=4』と『curl_optsを使うcurl呼び出し数=3（kind・kubectl・gateway-api。Create kind clusterはcurlを呼ばず、Apply external-secrets CRDsはhelmでcurlを使わない)』という別カウント対象を指しており矛盾でないことをワークフロー本体で確認。④「段2（5回・5秒）を根拠に5回ループとsleep 5を書いている」という参照先（Apply external-secrets CRDsの1つ目のループ）と、「Apply Gateway API CRDsの注記が正本」という参照先（同ステップ2つ目のkubectl waitループ、5回・sleep 2）が、実際のコード（該当2ループの回数・sleep秒）と食い違わないかを行を突き合わせて確認。⑤週次gitleaksスキャンの説明（cron設定・37分/21秒の実測値の記述）とワークフロー本体のtrigger定義との整合。"
+      },
+      "bypass": {
+        "status": "clean",
+        "checked": "diffが追加したのはcurlネイティブの--connect-timeout/--speed-limit/--speed-time/--retry-max-timeフラグのみで、いずれもcurl標準機構であり自作の再試行・タイムアウト処理への置き換えではない。近傍（setup-helm-chart-deps冒頭のWHYコメント）はAzure/setup-helm・helm/kind-action・jdx/mise-actionという既製の代替actionを比較検討した上でcurl直書きを選んだ理由（checksum検証の有無・version-file読み取りの不備など2026-08-24/2026-09-11確認済みの一次情報）を既に記録しており、本diffはその選択自体を変えていない。diffが新設したbashのretryループ（kubectl wait等）はコード自体は変更されておらずコメントの参照先変更のみのため、今回のbypass評価の対象（diffが持ち込んだ迂回）には当たらない。"
+      },
+      "main_path_observation": {
+        "status": "clean",
+        "count": 0,
+        "checked": "差分が変えるのは外部との継ぎ目（外部ホストからの HTTP 取得の打ち切り条件）なので、この周も本物の配布元に対して実際に流した。前の周から --retry-max-time 300 が入った後の形で、健全な取得を妨げないことを確認した——9,961,624 バイトを 0.95 秒（10.5 MB/秒）で取り切り、sha256 照合も通る。転送速度は --speed-limit 1（1 バイト/秒）の約 1,050 万倍で、この閾値が健全な転送を殺さない前提を実物で裏付ける。前の周は 0.87 秒（11.5 MB/秒）で、回線の揺らぎの範囲。残る制約: 手元の curl は macOS の 8.7.1 で ubuntu-latest 同梱の版ではない。helm・kind・kubectl・Gateway API・gitleaks・actionlint はこの周は流していない（同じ形の単発 HTTPS GET で、フラグ列は同一）。vulnerability_checks.yml は PR では起動しないので GitHub 上の実行観測はこの PR の checks からは取れない。"
+      },
+      "fix_closure": {
+        "status": "found",
+        "count": 3,
+        "detail": "根本ユニット 4 件（block 1・suggest do-now 1・suggest defer 2）のうち 3 件を直し、1 件（7 か所の一致を機械で守るか）は fork の出どころで status が escalate なので残した。block の台帳は、逐一列挙を削って受容の本体と再訪条件だけ残す形にした——列挙は現物と独立に動いて 2 つの反例（Apply external-secrets CRDs と Create kind cluster がどちらも curl でない外部取得で timeout-minutes: 10 を持つ）を取りこぼしていた。あわせて正本の中身の写し 10 行のうち 9 行を削り、台帳に置いていた現地の無い WHY を現地 2 か所へ移し、7 取得点で唯一シェルの宣言を持たなかった gitleaks に set -euo pipefail を足した。",
+        "checked": "手元の検査 4 本（uvx pre-commit run --all-files・tools/lint_workflow_timeouts.py・tools/lint_docs.rb・actionlint を CI と同じ ignore で）をすべて回して緑。"
+      }
+    },
+    "retaken_for_reviews": {
+      "file": "/Users/p03623/src/guided-resolver-work0/.git/graphloops/review-loop/20260922-142956/diff-r3-after-fix.patch"
+    },
+    "last_review": {
+      "R1": {
+        "round": 3,
+        "status": "redesign-needed",
+        "reason": "この周が消すべき写し 3 種（3 つの窓の要約・再試行の意味・取得点の件数）は、固定版の現物で消えていることを確認した（/Users/p03623/src/guided-resolver-work0/.github/actions/install-yq/action.yml:14-16、同 setup-helm-chart-deps/action.yml:109-116、.github/workflows/workflow-lint.yml:28-35、.github/workflows/vulnerability_checks.yml:340-342）。台帳も逐一列挙が消えて本文 4 行になり、残る数字「4 step」は現物と一致する（helm-chart-check.yml の step 上限は 1218・1262・1282・1392 の 4 件で、いずれも 1162 の cloud-manifest-validate job の内側）。それでも累積差分は純減していない（行数の伸び 1.0204）。理由は、写しを消す周が同じ形の写しを新たに 3 つ作ったことにある——(1) setup-helm-chart-deps/action.yml:112-114 は同じ注記への正本ポインタを 2 本並べている、(2) helm-chart-check.yml:1227-1228 は正本の側に参照元を 1 件だけ手書きで挙げる逆参照で、台帳から削ったばかりの逐一列挙と同じ腐り方をする、(3) workflow-lint.yml:35 の逸話は BASE の現物と食い違う（BASE でこの写しを持っていたのは setup-helm-chart-deps/action.yml で、workflow-lint のこの段には再試行の差の記述が無かった。patch の当該ハンクで確認）。加えて BASE 由来の setup-helm-chart-deps/action.yml:111 の 3/7 列挙を実装側が自ら次周送りにしており、scalar の copies_of_sot_content が 1 なのはこれに当たる。この周の「写し 0 行」という検証は自分で選んだ grep の網の内側だけの主張で、同じ周に足した行は網の外にある。次の周は注記を足さず、下の 4 件の削除だけで純減にすること。方法の断り: このセッションはシェルを持たないため固定版 39df80a99 を git で読めず、作業ツリー（git status は clean）と diff-r3-after-fix.patch を突き合わせて読んだ。確認したハンクはすべて一致している。"
+      },
+      "R2": {
+        "round": 3,
+        "status": "redesign-needed",
+        "reason": "打ち切りの本体（--max-time を外し --connect-timeout 20 / --speed-limit 1 / --speed-time 20 を 7 か所へ一様に置く、再試行の厚み 5/3 は揃えない、一覧の正本を 5 ファイル・7 か所へ直す）は独立設計と構造的に一致しており、覆えない形（1 B/s をわずかに上回る細流）を注記で明示して受容している点も設計の要求どおりである。食い違いは、その受容の受け皿の扱いに在る。--max-time を外した結果、細流の唯一の上界は step の timeout-minutes（背骨）になったが、背骨を持つのは helm-chart-check の取得 step だけで、yq・gitleaks・actionlint・helm の 4 か所は job の段しか持たない。にもかかわらず台帳（accepted-limitations.adoc）は旧文の正直な記述（「それ以外の外部取得は job の段で止まる」）を消し、「外部から配布物を取る curl は curl 自身の停滞打ち切りで止まるのでこの項目の対象外」と書き換え、さらに再訪条件を「取得以外の step のハング」に狭めた。これは同じ変更が helm-chart-check の注記で「細流は 2 では切れない／外側は段1 と job の上限だけ」と認めた事実と正面から矛盾し、覆えないと分かっている唯一の事例を台帳の再訪の網から外している。背骨に依存を増やした変更が、その背骨を守る唯一の恒久記録を弱めているので、ここは書き直しが要る（「取得 step は背骨として timeout-minutes を持つ／持たない 4 か所は job の段まで待つ」のどちらが方針かを 1 行で確定させ、細流でのハングを再訪条件に残す）。一覧の機械化（lint）と --retry-max-time の存置は設計と分かれるが、前者は元の目的が宣言した変更面の外、後者は Retry-After による眠りという設計が見落とした機構を根拠に置いており、それ自体では再設計を要さない。（round 1 と同じ。持ち越せない値なので今も諮っている記録として書く）（round 2 と同じ。持ち越せない値なので今も諮っている記録として書く）"
+      },
+      "R3": {
+        "round": 3,
+        "status": "pass",
+        "reason": "累積差分 6 ファイルの相互参照・命名を実体と突き合わせた。(1) helm-chart-check.yml の「Install kind and kubectl」内 段1/段2/段3 のラベルは同ファイル内の他 3 箇所（Apply Gateway API CRDs 1288 行、setup-helm-chart-deps 112-116 行、install-yq・gitleaks・actionlint の各コメント）から指す先として実在し、内容も一致（段2＝再試行の回数根拠、段3＝curl 3 窓の説明）。(2) workflow-lint.yml の ACTIONLINT_SHA256 段に置いた「curl+sha256sum -c の同形」一覧（install-yq / vulnerability_checks.yml gitleaks / setup-helm-chart-deps helm / helm-chart-check.yml kind・kubectl・Gateway API）は grep sha256sum -c で見つかる実ファイル5件（自身含む）と過不足なく一致し、setup-helm-chart-deps 側もこの段を正本として指し返している（相互参照が閉じている）。(3) accepted-limitations.adoc の「step 単位の上限は持たない」節が言う「例外は cloud-manifest-validate の 4 step」は実際に timeout-minutes: 10 を持つ4 step（Install kind and kubectl 1218 / Create kind cluster 1262 / Apply Gateway API CRDs 1282 / Apply external-secrets CRDs 1392）と一致し、それ以外（install-yq・gitleaks・actionlint の step、setup-helm-chart-deps の Install pinned Helm step）は step-level timeout を持たず job 段（15分）任せなのも doc の記述と整合。helm-chart-check.yml 段2 の「5回ループと sleep 5 を書いている step（Apply external-secrets CRDs）」参照も実物のループと一致。(4) 各 curl 行の実値（--connect-timeout 20 --speed-limit 1 --speed-time 20 --retry-max-time 300、install-yq/gitleaks/actionlint は --retry 3、helm/kind/kubectl/gateway-api は --retry 5 --retry-delay 5）は診断コメントの主張どおりに現地へ実装されている。矛盾・参照切れ・数値不一致は見つからなかった。seen: 累積差分6ファイル全体（.github/actions/install-yq/action.yml, .github/actions/setup-helm-chart-deps/action.yml, .github/workflows/helm-chart-check.yml のtimeout-minutes全出現行と該当job前後、.github/workflows/vulnerability_checks.yml のgitleaks job、.github/workflows/workflow-lint.yml 全体、docs/decisions/accepted-limitations.adoc の該当節および相互参照先の見出し）。読む版は固定版 39df80a99dea299d21748bfc753e1e0c34a6c3eb。unseen: helm/kind-action・curl 7.66.0のRetry-After挙動・setup-helm-chart-deps内Azure/setup-helm等、コメントが引く外部一次情報の再検証はしていない（R3の対象＝差分内の横断整合に絞り、外部標準照合観点は対象外とした）。CIを実行しての実機検証は行っていない——読解のみ。cloud-manifest-validate以外のjob（trivy・kube-linter等、timeout-minutes:15のjob群）は本diffが触れていないため深追いせず、jobレベルtimeoutの存在確認どまり。"
+      },
+      "R4": {
+        "round": 3,
+        "status": "pass",
+        "reason": "横断リスク観点で見た範囲: (1) diff 対象 5 ファイル・7 curl 呼び出し全部を固定版で読了。(2) 共有 composite action install-yq/action.yml の呼び出し元を workflow-lint.yml 以外にも repo 全体で Grep し、release-verify.yml（job verify, AKS/Azure 資格情報下, timeout-minutes 90）・rollback-pr.yml（job create-rollback-pr, timeout-minutes 15）・release-pr.yml（job create-release-pr, timeout-minutes 90）の3件を特定し各 job の timeout-minutes を確認した。(3) docs/decisions/accepted-limitations.adoc の該当項目と、diff 内の『段1/段2/段3』注記・2026-09-22 実測（curl 8.7.1/macOS、speed-limit をわずかに上回る速度の転送は切れない）を突き合わせた。見ていない範囲: helm/kind-action 側の実retry値そのもの（diff 自身も『未確認』と明記）、ubuntu-latest 同梱 curl での Retry-After 挙動の実機検証、curl 以外の外部取得（docker pull・外部 action 実行）の停滞耐性——後者は diff の対象が『curl + sha256sum -c で配布物を取る箇所』に明示的に限定されているためスコープ外として打ち切った。結果、この変更が導入・露呈させた redesign 級の横断リスクは見つからなかった。install-yq の挙動変更は release-verify/rollback-pr/release-pr という PR の設計ノート（適用範囲は5ファイル・7か所）に列挙されていない消費者にも及ぶが、変更内容自体は『無制限だった停滞に初めて栓が付く』という中立〜改善方向で、各 job の timeout-minutes（90/15/90分）は新しい curl オプションの最悪ケースを十分吸収するため機能面の悪化はない。したがって [suggest] 以下に留め pass を妨げない。"
+      }
+    },
+    "lines_at_r1": 100,
+    "block_counts": [
+      {
+        "round": 1,
+        "n": 3
+      },
+      {
+        "round": 2,
+        "n": 3
+      },
+      {
+        "round": 3,
+        "n": 1
+      }
+    ],
+    "prev_blocks": [
+      ".github/actions/setup-helm-chart-deps/action.yml::curl_opts と .github/workflows/helm-chart-check.yml::curl_opts — 停滞検知が原理的に見られない 2 つの窓（再試行と再試行の間の待ち・1 バイト/秒をわずかに超える転送）に上限が無くなり、composite action 側は job の 15 分だけが歯止めになっている",
+      ".github/workflows/helm-chart-check.yml::「Install kind and kubectl」の注記 — 7 か所が正本として引く 1 つの注記が「内側（curl の停滞打ち切り）が先に鳴る。ここは最後の網」と断定し、curl を呼ばない参照元にも当たる顔をしている",
+      "docs/decisions/accepted-limitations.adoc::step 単位の上限は持たない — 本文の一般化と再訪条件の書き換えで、curl でない外部取得 12 か所が対象からも再訪の引き金からも黙って外れた",
+      "docs/decisions/accepted-limitations.adoc の step 単位の上限は持たない節: 外部取得 curl を curl 自身の停滞打ち切りで止まると断定し、同じ版が実測で認めたトリクルの穴と段1 を持たない 4 か所の露出を隠している",
+      "docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節: どの取得点に step の上限が在るかの逐一列挙が現物と食い違う"
+    ],
+    "closed_keys": [
+      "P1 の申し立てのうち、現物で反証して落としたもの（次の周が同じ顔で出し直さないための記録）",
+      ".github/workflows/helm-chart-check.yml::「Install kind and kubectl」の注記 — 7 か所が正本として引く 1 つの注記が「内側（curl の停滞打ち切り）が先に鳴る。ここは最後の網」と断定し、curl を呼ばない参照元にも当たる顔をしている",
+      ".github/workflows/vulnerability_checks.yml::gitleaks 取得 — 再試行を持たない唯一の取得に停滞打ち切りだけが付き、回復しうる停滞が即失敗になる",
+      "docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節と helm-chart-check.yml「Apply external-secrets CRDs」: 並行 PR #1780 が同じ節と同じ step を独立に書き換えている",
+      "prompts/r3/p1.external_standards.md の受容済み弱点リスト: 落ちたフラグを --retry-max-time と書いているが実際に落ちたのは --max-time",
+      ".github/actions/setup-helm-chart-deps/action.yml::curl_opts と .github/workflows/helm-chart-check.yml::curl_opts — 停滞検知が原理的に見られない 2 つの窓（再試行と再試行の間の待ち・1 バイト/秒をわずかに超える転送）に上限が無くなり、composite action 側は job の 15 分だけが歯止めになっている",
+      "docs/decisions/accepted-limitations.adoc の step 単位の上限は持たない節: 外部取得 curl を curl 自身の停滞打ち切りで止まると断定し、同じ版が実測で認めたトリクルの穴と段1 を持たない 4 か所の露出を隠している",
+      "docs/decisions/accepted-limitations.adoc::step 単位の上限は持たない — 本文の一般化と再訪条件の書き換えで、curl でない外部取得 12 か所が対象からも再訪の引き金からも黙って外れた",
+      ".github/workflows/workflow-lint.yml の ACTIONLINT_SHA256 の段: 残る差は再試行の回数だけという一覧の正本の記述が不正確で、--retry-delay 5 の有無を覆っていない",
+      ".github/workflows/helm-chart-check.yml の Install kind and kubectl 段2: 再試行は helm/kind-action と同じ 5 回・5 秒間隔が正本から落ち、正本を指す step の 5 回ループと sleep 5 の由来が正本に無い",
+      ".github/workflows/helm-chart-check.yml:1239 段3 の実測断定: 2026-09-22 実測に測り方と curl の版が無く、CLAUDE.md のコメント規約と同リポジトリの先例に反する"
+    ],
+    "validator_outputs": {
+      "1": "問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。目的の内側でないかは R1 が監査）:\n  - [未決] fork: 7 か所の curl + sha256sum -c の一致を、手書きの一覧より強い形で保つか — 零処方（一覧の手書きをやめて grep 1 本で引ける注記に置き換える）は件数のドリフトを消すが、7 か所のどれか 1 つからオプションが落ちたときに赤くなる経路は作らない——P1 が 1 入口で退行を注入し、actionlint・shellcheck・pre-commit のいずれも緑を返すことを実測している。この穴を塞ぐ側の候補はどちらも共有面の拡大で、レビューが確定してよい範囲を超える。選ぶのは人。\n  - [未決] fork: 台帳の当該項目が覆う集合を、自然文のままにするか機械で引ける形にするか — 零処方（削除された列挙と再訪条件の語を戻す）は今回の狭まりを回収するが、同じ編集が次にもう一度起きたときに気づく経路は作らない——台帳の集合は自然文で、証跡に挙がる tools/lint_workflow_timeouts.py は job 直下しか見ないため、この項目の主張は機械で検算されていない。集合を機械化する側は検査の新設に当たるので人が決める。\n収束を妨げるもの 8 件:\n  - [block] 未解消: .github/actions/setup-helm-chart-deps/action.yml::curl_opts と .github/workflows/helm-chart-check.yml::curl_opts — 停滞検知が原理的に見られない 2 つの窓（再試行と再試行の間の待ち・1 バイト/秒をわずかに超える転送）に上限が無くなり、composite action 側は job の 15 分だけが歯止めになっている\n  - [block] 未解消: .github/workflows/helm-chart-check.yml::「Install kind and kubectl」の注記 — 7 か所が正本として引く 1 つの注記が「内側（curl の停滞打ち切り）が先に鳴る。ここは最後の網」と断定し、curl を呼ばない参照元にも当たる顔をしている\n  - [block] 未解消: docs/decisions/accepted-limitations.adoc::step 単位の上限は持たない — 本文の一般化と再訪条件の書き換えで、curl でない外部取得 12 か所が対象からも再訪の引き金からも黙って外れた（今ラウンドに立った問い——再審は次の周）\n  - [suggest] do-now 未対応: .github/workflows/vulnerability_checks.yml::gitleaks 取得 — 再試行を持たない唯一の取得に停滞打ち切りだけが付き、回復しうる停滞が即失敗になる\n  - [suggest] do-now 未対応: .github/workflows/workflow-lint.yml::ACTIONLINT_SHA256 の段 — 7 か所の取得の一致を、件数もファイル名も手書きのコメント一覧だけが保っており、どこから落としても何も赤くならない（今ラウンドに立った問い——再審は次の周）\n  - R1 が redesign-needed: この周の累積差分は、同じリビジョンの中に互いに反する 2 つの主張を残したまま閉じている。docs/decisions/accepted-limitations.adoc:1121-1122 は「外部から配布物を取る curl は curl 自身の停滞打ち切りで止まるのでこの項目の対象外」と書き、その一覧の正本として指す .github/workflows/helm-chart-check.yml:1238-1241 は「--speed-limit をわずかに上回る速度で流れ続ける転送は 2 では切れない(2026-09-22 実測)／外側は段1 の timeout-minutes と job の上限だけ」と書く。台帳が「止まる」と言い、その台帳が指す正本が「止まらない」と言う。実装者自身が not_done でこの食い違いを認めている(「これは curl_opts のユニットの実測で成り立たないことが分かっている」)。この一文は BASE に無く、この PR が入れた欠陥であり、label=block・disposition=do-now のユニットである。それが questions[1] の origin を共有するという理由だけで held に置かれ、放置された。questions[1] の零処方(削除された列挙と再訪条件の語を戻す)は人の判断を一切要さず、かつ fork のどちらの選択肢(自然文のまま／機械で引く形)とも両立する——先に当てても人の選択を潰さない。REVIEW.md「処方の最小性」の『この変更が導入した欠陥の放置は不可』に直接当たり、問いの台帳が do-now の逃げ道として機能している。\n    \n    次に、この周の修正が正本から why を 1 つ落とした。BASE の注記にあった「再試行は helm/kind-action と同じ 5 回・5 秒間隔」が段2 の書き換えで消え(diff の -72 行)、現物 helm-chart-check.yml:1222-1227 に無い。一方この注記を「再試行の理由の正本」として引く helm-chart-check.yml:1391 の step は `for i in 1 2 3 4 5` と `sleep 5` を持つ。冷たい読み手は 1391 から正本へ飛んでも 5 回・5 秒の出どころに辿り着けない。修正記録の breaks.result は「7 件の参照はすべて成立する」と断定しているが、この 1 件は成立していない。順序の規則(必要な内容が在るか → 在るとして最小か)の前段で落ちる。\n    \n    三つめ。この周は questions[0](手書きの一覧をより強い形にするか)を held にしたまま、その held の対象である手書き一覧を 2 か所ぶん新規に増やした。workflow-lint.yml:33-35 はフラグ文字列 `--connect-timeout 20 --speed-limit 1 --speed-time 20 --retry-max-time 300` と再試行回数をコメントへ写し、setup-helm-chart-deps/action.yml:42-43 は同じ再試行回数の内訳をもう 1 部写す。後者は自分で「一覧の正本は workflow-lint.yml の ACTIONLINT_SHA256 の段」と書いている塊の中にある。前回のドリフト(gitleaks は再試行を持たない)が起きたのがまさにこの 2 か所で、直した上で写しの面をさらに広げている。④注記の増分としての正当化(他所に無い情報か)が立たない。\n    \n    四つめ。修正記録は「1 か所だけ短縮版だった workflow-lint.yml も同じ形に揃えた」と書くが、現物では揃っていない。参照 5 か所のうち install-yq:14・setup-helm-chart-deps:116・vulnerability_checks:340・workflow-lint:72 は「(接続・転送中の停滞・再試行の待ちの 3 つの窓)」を抱えた長い形、helm-chart-check.yml:1283 だけが「再試行と打ち切りの理由は…が正本」の短い形。揃え直しの向きが逆で、しかも短い形で足りることをリポジトリ自身が 1283 で示している。\n    \n    処方の最小性そのもの(--retry-max-time 300 の復活・gitleaks への --retry 追加・注記の 3 段分割)は零処方どおりで、機構の新設も共有面の拡大も無い。ここは正当化されている。落ちているのは、台帳の欠陥を放置したこと、正本から why を 1 つ落としたまま全参照成立と断定したこと、held の対象を広げる注記増分を入れたことの 3 点。\n  - R2 が redesign-needed: 打ち切りの本体（--max-time を外し --connect-timeout 20 / --speed-limit 1 / --speed-time 20 を 7 か所へ一様に置く、再試行の厚み 5/3 は揃えない、一覧の正本を 5 ファイル・7 か所へ直す）は独立設計と構造的に一致しており、覆えない形（1 B/s をわずかに上回る細流）を注記で明示して受容している点も設計の要求どおりである。食い違いは、その受容の受け皿の扱いに在る。--max-time を外した結果、細流の唯一の上界は step の timeout-minutes（背骨）になったが、背骨を持つのは helm-chart-check の取得 step だけで、yq・gitleaks・actionlint・helm の 4 か所は job の段しか持たない。にもかかわらず台帳（accepted-limitations.adoc）は旧文の正直な記述（「それ以外の外部取得は job の段で止まる」）を消し、「外部から配布物を取る curl は curl 自身の停滞打ち切りで止まるのでこの項目の対象外」と書き換え、さらに再訪条件を「取得以外の step のハング」に狭めた。これは同じ変更が helm-chart-check の注記で「細流は 2 では切れない／外側は段1 と job の上限だけ」と認めた事実と正面から矛盾し、覆えないと分かっている唯一の事例を台帳の再訪の網から外している。背骨に依存を増やした変更が、その背骨を守る唯一の恒久記録を弱めているので、ここは書き直しが要る（「取得 step は背骨として timeout-minutes を持つ／持たない 4 か所は job の段まで待つ」のどちらが方針かを 1 行で確定させ、細流でのハングを再訪条件に残す）。一覧の機械化（lint）と --retry-max-time の存置は設計と分かれるが、前者は元の目的が宣言した変更面の外、後者は Retry-After による眠りという設計が見落とした機構を根拠に置いており、それ自体では再設計を要さない。\n  - 前ラウンドの記録が無い（連続 2 ラウンドの 1 ラウンド目。収束は次ラウンド以降）\n台帳に未決の問いが 2 件（うち人へ 0 件）——阻害要因の有無に依らず、最終報告の冒頭に載せろ。",
+      "2": "増えた scalar（阻害要因ではない。相殺する削除があるか R1 に見せろ）:\n  - scalar 'insertions': 58 → 71\n  - scalar 'deletions': 33 → 39\n持ち越し（機械は中身を見ない。古いものほど、見直す理由が無いかを疑え）:\n  - 素材 base_determination: round 1 の判定を流用（1 ラウンド前）\n  - 素材 parallel_pr: round 1 の判定を流用（1 ラウンド前）\n問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。目的の内側でないかは R1 が監査）:\n  - [人へ] fork: 7 か所の curl + sha256sum -c の一致を、手書きの一覧より強い形で保つか — 前の周に held で 1 周を使い切り、この周も決着していない。held のままだと人には何も届かないので上げる。処方が機構の新設（run: の curl 行を拾う検査の追加）か共有面の拡大（共通 composite action への集約）で、レビューが下せる判断ではない。零処方（一覧の強化をやめてファイル名の列挙だけに戻す）も候補として列挙済みなので、列挙を欠いた逃げではない。選定を難しくしている実体上の理由を 1 つ添える: composite action の step は timeout-minutes を持てず、検査を足しても 7 か所のうち段1 を置けるのは 3 か所だけで、覆いは原理的に部分的になる。あわせて CLAUDE.md の回避策・部分的修正には追跡 issue を先に立てコード側コメントに完全 URL を貼るという規約が未充足のままであることも人へ渡す。\n  - [ループが決めた（欠陥は残存）] fork: 台帳の当該項目が覆う集合を、自然文のままにするか機械で引ける形にするか — 零処方をこの周に当てる（上の一撃）。台帳の覆う集合を機械で引ける形にするかは、同じ問題の別の面なので questions の 1 本目（7 か所の curl + sha256sum -c の一致を、手書きの一覧より強い形で保つか）へ一本化し、この問いは閉じる。\n  - [ループが決めた] unverifiable: vulnerability_checks.yml の gitleaks 取得への変更は、この PR の checks では一度も実行されない — 解けている。判定の根拠は (1) 出荷フラグのまま本物の配布元へ流した実測 2 件（yq・actionlint）、(2) 429＋Retry-After・トリクル・到達不能の各腕の実測、(3) gitleaks のフラグ列が actionlint と同一であることの grep による突合。未実行であること自体は記録に残すが、人の判断を要する問いではない。GitHub 上で現物を見たいなら workflow_dispatch を 1 回流せば足りる。\n履歴（round 1〜2。P2 の judge に渡せ。機械は解釈しない）:\n  - .github/actions/setup-helm-chart-deps/action.yml::curl_opts と .github/workflows/helm-chart-check.yml::curl_opts — 停滞検知が原理的に見られない 2 つの窓（再試行と再試行の間の待ち・1 バイト/秒をわずかに超える転送）に上限が無くなり、composite action 側は job の 15 分だけが歯止めになっている\n          r1:block → r2:block\n  - .github/workflows/helm-chart-check.yml::「Install kind and kubectl」の注記 — 7 か所が正本として引く 1 つの注記が「内側（curl の停滞打ち切り）が先に鳴る。ここは最後の網」と断定し、curl を呼ばない参照元にも当たる顔をしている\n          r1:block → r2:info\n  - docs/decisions/accepted-limitations.adoc::step 単位の上限は持たない — 本文の一般化と再訪条件の書き換えで、curl でない外部取得 12 か所が対象からも再訪の引き金からも黙って外れた\n          r1:block → r2:block\n  - .github/workflows/vulnerability_checks.yml::gitleaks 取得 — 再試行を持たない唯一の取得に停滞打ち切りだけが付き、回復しうる停滞が即失敗になる\n          r1:suggest/do-now → r2:info\n  - .github/workflows/workflow-lint.yml::ACTIONLINT_SHA256 の段 — 7 か所の取得の一致を、件数もファイル名も手書きのコメント一覧だけが保っており、どこから落としても何も赤くならない\n          r1:suggest/do-now → r2:—\n  - P1 の申し立てのうち、現物で反証して落としたもの（次の周が同じ顔で出し直さないための記録）\n          r1:info → r2:—\n  - docs/decisions/accepted-limitations.adoc の step 単位の上限は持たない節: 外部取得 curl を curl 自身の停滞打ち切りで止まると断定し、同じ版が実測で認めたトリクルの穴と段1 を持たない 4 か所の露出を隠している\n          r1:— → r2:block\n  - .github/workflows/workflow-lint.yml の ACTIONLINT_SHA256 の段: 残る差は再試行の回数だけという一覧の正本の記述が不正確で、--retry-delay 5 の有無を覆っていない\n          r1:— → r2:suggest/do-now\n  - .github/workflows/helm-chart-check.yml の Install kind and kubectl 段2: 再試行は helm/kind-action と同じ 5 回・5 秒間隔が正本から落ち、正本を指す step の 5 回ループと sleep 5 の由来が正本に無い\n          r1:— → r2:suggest/do-now\n  - .github/workflows/helm-chart-check.yml:1239 段3 の実測断定: 2026-09-22 実測に測り方と curl の版が無く、CLAUDE.md のコメント規約と同リポジトリの先例に反する\n          r1:— → r2:suggest/do-now\n  - .github/ の curl と sha256sum -c の 7 か所: フラグ一致を保つ手段が手書きの一覧だけで機械の検査が無い\n          r1:— → r2:suggest/defer\n  - 問い: 7 か所の curl + sha256sum -c の一致を、手書きの一覧より強い形で保つか\n          r1:held(fork) → r2:escalate(fork)\n  - 問い: 台帳の当該項目が覆う集合を、自然文のままにするか機械で引ける形にするか\n          r1:held(fork) → r2:decided(fork)\n  - 問い: vulnerability_checks.yml の gitleaks 取得への変更は、この PR の checks では一度も実行されない\n          r1:— → r2:resolved(unverifiable)\n  - 要対応（[block]＋do-now）の件数: 5 → 6\n  - 問いの台帳の件数（保留・人へ・ループが決めた）: 2・0・0 → 0・1・1\n  - scalar 'comment_ratio_pct': 0 → 0\n  - scalar 'curl_fetch_sites': 7 → 7\n  - scalar 'curl_flag_specs': 6 → 6\n  - scalar 'deletions': 33 → 39\n  - scalar 'doc_lines_accepted_limitations': 1511 → —\n  - scalar 'files_changed': 6 → 6\n  - scalar 'handwritten_count_copies': — → 0\n  - scalar 'insertions': 58 → 71\n  - scalar 'ledger_entry_body_lines': — → 5\n  - scalar 'note_referrers': 7 → 7\n  - scalar 'specs_with_retry': 6 → —\n  - scalar 'specs_with_retry_delay': — → 3\n  - scalar 'specs_with_retry_max_time': 6 → 6\n  - scalar 'specs_with_stall_cap': 6 → —\n収束を妨げるもの 10 件:\n  - [block] 未解消（残存——過去のラウンドにも在った）: .github/actions/setup-helm-chart-deps/action.yml::curl_opts と .github/workflows/helm-chart-check.yml::curl_opts — 停滞検知が原理的に見られない 2 つの窓（再試行と再試行の間の待ち・1 バイト/秒をわずかに超える転送）に上限が無くなり、composite action 側は job の 15 分だけが歯止めになっている\n  - [block] 未解消（新規）: docs/decisions/accepted-limitations.adoc の step 単位の上限は持たない節: 外部取得 curl を curl 自身の停滞打ち切りで止まると断定し、同じ版が実測で認めたトリクルの穴と段1 を持たない 4 か所の露出を隠している\n  - [block] 未解消（残存——過去のラウンドにも在った）: docs/decisions/accepted-limitations.adoc::step 単位の上限は持たない — 本文の一般化と再訪条件の書き換えで、curl でない外部取得 12 か所が対象からも再訪の引き金からも黙って外れた\n  - [suggest] do-now 未対応: .github/workflows/workflow-lint.yml の ACTIONLINT_SHA256 の段: 残る差は再試行の回数だけという一覧の正本の記述が不正確で、--retry-delay 5 の有無を覆っていない\n  - [suggest] do-now 未対応: .github/workflows/helm-chart-check.yml の Install kind and kubectl 段2: 再試行は helm/kind-action と同じ 5 回・5 秒間隔が正本から落ち、正本を指す step の 5 回ループと sleep 5 の由来が正本に無い\n  - [suggest] do-now 未対応: .github/workflows/helm-chart-check.yml:1239 段3 の実測断定: 2026-09-22 実測に測り方と curl の版が無く、CLAUDE.md のコメント規約と同リポジトリの先例に反する\n  - R1 が redesign-needed: 累積差分が最小でない。固定版（作業ツリーの現物が r2 の累積差分と一致することを各ファイルで確認）を読み、削っても検証済みの値打ちが落ちない写しを 3 種と、置き場所が逆転した WHY を 1 件見つけた。(1) .github/actions/setup-helm-chart-deps/action.yml:113-115 は helm-chart-check.yml:1224-1225（段2）と同じ --retry / --retry-all-errors の意味を言い直しているが、同ファイル 112 行が既に段2 を正本として指している。この周は同じ段から回数の写しを削っており、線引きが同一ファイル内で一貫していない。(2) 「（接続・転送中の停滞・再試行の待ちの 3 つの窓）」が 4 か所（install-yq/action.yml:14、vulnerability_checks.yml:339、workflow-lint.yml:72、setup-helm-chart-deps/action.yml:116）に写っている。直下の行に --connect-timeout / --speed-limit / --speed-time / --retry-max-time が並ぶので注記は WHAT の言い直しであり、同じ差分の helm-chart-check.yml:1287 が gloss 無しで正本を指すだけで成立しているから、落とせることは差分自身が示している。窓の数はこの PR の中で 2→3 と動いた値でもある。(3) workflow-lint.yml:30,32 と setup-helm-chart-deps/action.yml:41-42 に件数（「4 ファイル・6 か所」「5 ファイル」）が手書きで残る。ファイル名は同じ文に並び件数はそこから数えられるうえ、BASE で腐っていたのはまさにこの件数（4 か所と書いて実数 7）で、同じ段が今回「ここに写すと写しがずれる」と書いている。scalar の handwritten_count_copies: 0 は固定版と合わない。(4) docs/decisions/accepted-limitations.adoc:1122-1123 の「composite action 内なので step の上限を置けない」は、リポジトリ内でこの台帳にしか無い（install-yq・setup-helm-chart-deps に相当する注記が無いことを grep で確認）。台帳冒頭の書き方は理由の正を現地と定め「現地より詳しくなったら書く場所を間違えている」と明記しており、移すべきは現地で台帳は要約に戻す。／ 反証して外れたもの: 段3（helm-chart-check.yml:1232-1245）の 14 行は各文が他所に無い情報（3 窓の別立て・停滞を選ぶ理由・Retry-After に対する締切・覆えていない形と実測条件）で、削れる行は見つからなかった。台帳本文が 7 行で「3 行以内」の規約を超える点は、同台帳の他項目も恒常的に超えており（例: 1131-1138）この項目だけの欠陥としては立たない。処方はどれも零処方（フラグを戻す・主張を狭める・語を戻す・写しを削る）で、列挙を経ずに足された機構は無く、問いの台帳にも逃げ道は無い。したがって設計のやり直しではなく、削除 3 件と WHY の移動 1 件で閉じる——次の周は行数を純減にしろ。\n  - R2 が redesign-needed: 打ち切りの本体（--max-time を外し --connect-timeout 20 / --speed-limit 1 / --speed-time 20 を 7 か所へ一様に置く、再試行の厚み 5/3 は揃えない、一覧の正本を 5 ファイル・7 か所へ直す）は独立設計と構造的に一致しており、覆えない形（1 B/s をわずかに上回る細流）を注記で明示して受容している点も設計の要求どおりである。食い違いは、その受容の受け皿の扱いに在る。--max-time を外した結果、細流の唯一の上界は step の timeout-minutes（背骨）になったが、背骨を持つのは helm-chart-check の取得 step だけで、yq・gitleaks・actionlint・helm の 4 か所は job の段しか持たない。にもかかわらず台帳（accepted-limitations.adoc）は旧文の正直な記述（「それ以外の外部取得は job の段で止まる」）を消し、「外部から配布物を取る curl は curl 自身の停滞打ち切りで止まるのでこの項目の対象外」と書き換え、さらに再訪条件を「取得以外の step のハング」に狭めた。これは同じ変更が helm-chart-check の注記で「細流は 2 では切れない／外側は段1 と job の上限だけ」と認めた事実と正面から矛盾し、覆えないと分かっている唯一の事例を台帳の再訪の網から外している。背骨に依存を増やした変更が、その背骨を守る唯一の恒久記録を弱めているので、ここは書き直しが要る（「取得 step は背骨として timeout-minutes を持つ／持たない 4 か所は job の段まで待つ」のどちらが方針かを 1 行で確定させ、細流でのハングを再訪条件に残す）。一覧の機械化（lint）と --retry-max-time の存置は設計と分かれるが、前者は元の目的が宣言した変更面の外、後者は Retry-After による眠りという設計が見落とした機構を根拠に置いており、それ自体では再設計を要さない。（round 1 と同じ。持ち越せない値なので今も諮っている記録として書く）\n  - R3 が redesign-needed: diff 6ファイル・累積パッチ・REVIEW.mdを読み、docs/decisions/accepted-limitations.adocの「step単位の上限は持たない」節の書き換えに内部矛盾を発見。見出しと直前文は『例外はcloud-manifest-validateの4 step』『外部取得の4 stepの上限（10分）』と明言し、実ファイル.github/workflows/helm-chart-check.ymlでもtimeout-minutes: 10を持つstepは実際に4つ（Install kind and kubectl/Create kind cluster/Apply Gateway API CRDs/Apply external-secrets CRDs、行1219・1262・1282・1392）でこの『4』は正しい。ところが直後の文は『step の上限を持つのは cloud-manifest-validate の3呼び出しだけで、helm・yq（composite action内なのでstepの上限を置けない）・gitleaks・actionlintと、curlでない取得（`helm repo add`等）の外側はjobの段だけ』と続き、同一段落内で4と3が食い違う。さらに『curlでない取得（`helm repo add`等）』は文脈上Apply external-secrets CRDsステップ（helm repo add --force-update external-secrets ...、行1399）を指すとしか読めない（setup-helm-chart-deps側のhelm repo addは直前の『helm（composite action...）』枠で既に押さえてある）が、このステップは実ファイルでtimeout-minutes: 10を持ち（行1392）、『jobの段だけ』という主張と直接矛盾する。この節はこのdiffで能動的に書き換えられた箇所であり、diffが触れた範囲の自己整合性の欠陥として修正が必要。なお本セッションにBashが無くgit showでの固定版26de7d98a95f29f66d363af5c37a984cc6fbf8b0照合はできず、作業ツリーの現物とdiff-r2-after-fix.patchの後側を目視突き合わせて代替した。並行PRとの衝突確認・curlフラグの実機再現は未実施。\n  - 前ラウンドに阻害要因が 7 件あった（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）\n台帳に未決の問いが 1 件（うち人へ 1 件）——阻害要因の有無に依らず、最終報告の冒頭に載せろ。",
+      "3": "持ち越し（機械は中身を見ない。古いものほど、見直す理由が無いかを疑え）:\n  - 素材 base_determination: round 1 の判定を流用（2 ラウンド前）\n  - 素材 parallel_pr: round 1 の判定を流用（2 ラウンド前）\n問いの台帳（人に聞く候補。載せた周には聞かない——次の周の judge が再審する。目的の内側でないかは R1 が監査）:\n  - [人へ] fork: 7 か所の curl + sha256sum -c の一致を、手書きの一覧より強い形で保つか — 2 周目に escalate へ上げたまま人の決着が着いていない。この周も状態は変わらない——lint_workflow_timeouts.py が job 直下の timeout-minutes しか見ないこと、curl フラグを見る検査が .github にも tools にも無いことを、固定版のソースを自分で読んで再確認した。岐路が残る理由は、2 系統の処方がどちらも 7 か所を全部は覆えないこと: composite action の step は timeout-minutes を持てないので、step 上限を足す方向の lint は 7 か所のうち 3 か所しか覆えない。人へ渡すとき落としてはならない点が 2 つ——(1) CLAUDE.md の「回避策・部分的修正には追跡 issue を先に立て、コード側コメントに完全 URL を貼る」が未充足、(2) 一覧の腐りは台帳の当該項目の再訪条件（栓を持たない外部取得 step のハング）では拾えないので、ずれを将来検知する引き金がどこにも無い。\n  - [ループが決めた（欠陥は残存）] fork: 台帳の当該項目が覆う集合を、自然文のままにするか機械で引ける形にするか — 自然文のまま維持する決着（選択肢 1）は有効。ただしこの周の [block] は、その決着の実装が自然文の中へ『どの取得点に栓が在るか』の逐一列挙（現物から導ける派生値）を持ち込んだことで生じた。決着が許すのは『自然文＋現地への指し先』であって『自然文の中に現物の写しを持つ』ではない、という線を U1 の零処方 A が引き直す。この線引きを守る限り、選択肢 2 へ移る必要は今も無い。出どころの [block] が閉じたら次の周に resolved へ落としてよい。\n  - [ループが決めた] unverifiable: vulnerability_checks.yml の gitleaks 取得への変更は、この PR の checks では一度も実行されない — 確認済みで、これを使って隠している欠陥は無い（curl 行は他 6 か所と同形で、局所の WHY は週次固有の理由だけ）。ただしこの周に新しく分かったことが 1 つある——走らないことが、7 か所のうちここだけ set -euo pipefail / shell: bash を持たない非対称（U4）を隠してもいた。検査の緑では気づけない面であることを、U4 の判定根拠に含めた。\n履歴（round 1〜3。P2 の judge に渡せ。機械は解釈しない）:\n  - .github/actions/setup-helm-chart-deps/action.yml::curl_opts と .github/workflows/helm-chart-check.yml::curl_opts — 停滞検知が原理的に見られない 2 つの窓（再試行と再試行の間の待ち・1 バイト/秒をわずかに超える転送）に上限が無くなり、composite action 側は job の 15 分だけが歯止めになっている\n          r1:block → r2:block → r3:info\n  - .github/workflows/helm-chart-check.yml::「Install kind and kubectl」の注記 — 7 か所が正本として引く 1 つの注記が「内側（curl の停滞打ち切り）が先に鳴る。ここは最後の網」と断定し、curl を呼ばない参照元にも当たる顔をしている\n          r1:block → r2:info → r3:info\n  - docs/decisions/accepted-limitations.adoc::step 単位の上限は持たない — 本文の一般化と再訪条件の書き換えで、curl でない外部取得 12 か所が対象からも再訪の引き金からも黙って外れた\n          r1:block → r2:block → r3:info\n  - .github/workflows/vulnerability_checks.yml::gitleaks 取得 — 再試行を持たない唯一の取得に停滞打ち切りだけが付き、回復しうる停滞が即失敗になる\n          r1:suggest/do-now → r2:info → r3:info\n  - .github/workflows/workflow-lint.yml::ACTIONLINT_SHA256 の段 — 7 か所の取得の一致を、件数もファイル名も手書きのコメント一覧だけが保っており、どこから落としても何も赤くならない\n          r1:suggest/do-now → r2:— → r3:—\n  - P1 の申し立てのうち、現物で反証して落としたもの（次の周が同じ顔で出し直さないための記録）\n          r1:info → r2:— → r3:—\n  - docs/decisions/accepted-limitations.adoc の step 単位の上限は持たない節: 外部取得 curl を curl 自身の停滞打ち切りで止まると断定し、同じ版が実測で認めたトリクルの穴と段1 を持たない 4 か所の露出を隠している\n          r1:— → r2:block → r3:info\n  - .github/workflows/workflow-lint.yml の ACTIONLINT_SHA256 の段: 残る差は再試行の回数だけという一覧の正本の記述が不正確で、--retry-delay 5 の有無を覆っていない\n          r1:— → r2:suggest/do-now → r3:info\n  - .github/workflows/helm-chart-check.yml の Install kind and kubectl 段2: 再試行は helm/kind-action と同じ 5 回・5 秒間隔が正本から落ち、正本を指す step の 5 回ループと sleep 5 の由来が正本に無い\n          r1:— → r2:suggest/do-now → r3:info\n  - .github/workflows/helm-chart-check.yml:1239 段3 の実測断定: 2026-09-22 実測に測り方と curl の版が無く、CLAUDE.md のコメント規約と同リポジトリの先例に反する\n          r1:— → r2:suggest/do-now → r3:info\n  - .github/ の curl と sha256sum -c の 7 か所: フラグ一致を保つ手段が手書きの一覧だけで機械の検査が無い\n          r1:— → r2:suggest/defer → r3:suggest/defer\n  - docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節: どの取得点に step の上限が在るかの逐一列挙が現物と食い違う\n          r1:— → r2:— → r3:block\n  - .github/ の取得 step の注記（install-yq・setup-helm-chart-deps・workflow-lint・vulnerability_checks）: 正本を指すポインタの横に正本の中身（3 つの窓の内訳・再試行の意味・取得点の件数）を写している\n          r1:— → r2:— → r3:suggest/do-now\n  - .github/workflows/vulnerability_checks.yml「Install gitleaks」: 取得 7 か所のうちここだけ shell: bash も set -euo pipefail も無い\n          r1:— → r2:— → r3:suggest/defer\n  - docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節と helm-chart-check.yml「Apply external-secrets CRDs」: 並行 PR #1780 が同じ節と同じ step を独立に書き換えている\n          r1:— → r2:— → r3:info\n  - prompts/r3/p1.external_standards.md の受容済み弱点リスト: 落ちたフラグを --retry-max-time と書いているが実際に落ちたのは --max-time\n          r1:— → r2:— → r3:info\n  - 問い: 7 か所の curl + sha256sum -c の一致を、手書きの一覧より強い形で保つか\n          r1:held(fork) → r2:escalate(fork) → r3:escalate(fork)\n  - 問い: 台帳の当該項目が覆う集合を、自然文のままにするか機械で引ける形にするか\n          r1:held(fork) → r2:decided(fork) → r3:decided(fork)\n  - 問い: vulnerability_checks.yml の gitleaks 取得への変更は、この PR の checks では一度も実行されない\n          r1:— → r2:resolved(unverifiable) → r3:resolved(unverifiable)\n  - 要対応（[block]＋do-now）の件数: 5 → 6 → 2\n  - 問いの台帳の件数（保留・人へ・ループが決めた）: 2・0・0 → 0・1・1 → 0・1・1\n  - scalar 'comment_ratio_pct': 0 → 0 → 0\n  - scalar 'copies_of_sot_content': — → — → 1\n  - scalar 'curl_fetch_sites': 7 → 7 → 7\n  - scalar 'curl_flag_specs': 6 → 6 → 6\n  - scalar 'deletions': 33 → 39 → —\n  - scalar 'doc_lines_accepted_limitations': 1511 → — → —\n  - scalar 'files_changed': 6 → 6 → —\n  - scalar 'handwritten_count_copies': — → 0 → —\n  - scalar 'insertions': 58 → 71 → —\n  - scalar 'ledger_claims_about_plugs': — → — → 2\n  - scalar 'ledger_entry_body_lines': — → 5 → 4\n  - scalar 'note_referrers': 7 → 7 → 7\n  - scalar 'specs_with_retry': 6 → — → —\n  - scalar 'specs_with_retry_delay': — → 3 → —\n  - scalar 'specs_with_retry_max_time': 6 → 6 → 6\n  - scalar 'specs_with_shell_declaration': — → — → 6\n  - scalar 'specs_with_stall_cap': 6 → — → —\n収束を妨げるもの 5 件:\n  - [block] 未解消（新規）: docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節: どの取得点に step の上限が在るかの逐一列挙が現物と食い違う\n  - [suggest] do-now 未対応: .github/ の取得 step の注記（install-yq・setup-helm-chart-deps・workflow-lint・vulnerability_checks）: 正本を指すポインタの横に正本の中身（3 つの窓の内訳・再試行の意味・取得点の件数）を写している（保留の問いに帰属——答えを待っている）\n  - R1 が redesign-needed: この周が消すべき写し 3 種（3 つの窓の要約・再試行の意味・取得点の件数）は、固定版の現物で消えていることを確認した（/Users/p03623/src/guided-resolver-work0/.github/actions/install-yq/action.yml:14-16、同 setup-helm-chart-deps/action.yml:109-116、.github/workflows/workflow-lint.yml:28-35、.github/workflows/vulnerability_checks.yml:340-342）。台帳も逐一列挙が消えて本文 4 行になり、残る数字「4 step」は現物と一致する（helm-chart-check.yml の step 上限は 1218・1262・1282・1392 の 4 件で、いずれも 1162 の cloud-manifest-validate job の内側）。それでも累積差分は純減していない（行数の伸び 1.0204）。理由は、写しを消す周が同じ形の写しを新たに 3 つ作ったことにある——(1) setup-helm-chart-deps/action.yml:112-114 は同じ注記への正本ポインタを 2 本並べている、(2) helm-chart-check.yml:1227-1228 は正本の側に参照元を 1 件だけ手書きで挙げる逆参照で、台帳から削ったばかりの逐一列挙と同じ腐り方をする、(3) workflow-lint.yml:35 の逸話は BASE の現物と食い違う（BASE でこの写しを持っていたのは setup-helm-chart-deps/action.yml で、workflow-lint のこの段には再試行の差の記述が無かった。patch の当該ハンクで確認）。加えて BASE 由来の setup-helm-chart-deps/action.yml:111 の 3/7 列挙を実装側が自ら次周送りにしており、scalar の copies_of_sot_content が 1 なのはこれに当たる。この周の「写し 0 行」という検証は自分で選んだ grep の網の内側だけの主張で、同じ周に足した行は網の外にある。次の周は注記を足さず、下の 4 件の削除だけで純減にすること。方法の断り: このセッションはシェルを持たないため固定版 39df80a99 を git で読めず、作業ツリー（git status は clean）と diff-r3-after-fix.patch を突き合わせて読んだ。確認したハンクはすべて一致している。\n  - R2 が redesign-needed: 打ち切りの本体（--max-time を外し --connect-timeout 20 / --speed-limit 1 / --speed-time 20 を 7 か所へ一様に置く、再試行の厚み 5/3 は揃えない、一覧の正本を 5 ファイル・7 か所へ直す）は独立設計と構造的に一致しており、覆えない形（1 B/s をわずかに上回る細流）を注記で明示して受容している点も設計の要求どおりである。食い違いは、その受容の受け皿の扱いに在る。--max-time を外した結果、細流の唯一の上界は step の timeout-minutes（背骨）になったが、背骨を持つのは helm-chart-check の取得 step だけで、yq・gitleaks・actionlint・helm の 4 か所は job の段しか持たない。にもかかわらず台帳（accepted-limitations.adoc）は旧文の正直な記述（「それ以外の外部取得は job の段で止まる」）を消し、「外部から配布物を取る curl は curl 自身の停滞打ち切りで止まるのでこの項目の対象外」と書き換え、さらに再訪条件を「取得以外の step のハング」に狭めた。これは同じ変更が helm-chart-check の注記で「細流は 2 では切れない／外側は段1 と job の上限だけ」と認めた事実と正面から矛盾し、覆えないと分かっている唯一の事例を台帳の再訪の網から外している。背骨に依存を増やした変更が、その背骨を守る唯一の恒久記録を弱めているので、ここは書き直しが要る（「取得 step は背骨として timeout-minutes を持つ／持たない 4 か所は job の段まで待つ」のどちらが方針かを 1 行で確定させ、細流でのハングを再訪条件に残す）。一覧の機械化（lint）と --retry-max-time の存置は設計と分かれるが、前者は元の目的が宣言した変更面の外、後者は Retry-After による眠りという設計が見落とした機構を根拠に置いており、それ自体では再設計を要さない。（round 1 と同じ。持ち越せない値なので今も諮っている記録として書く）（round 2 と同じ。持ち越せない値なので今も諮っている記録として書く）\n  - 前ラウンドに阻害要因が 9 件あった（連続 2 ラウンドの 1 ラウンド目。今ラウンドが阻害なしでも収束は次ラウンド）\n保留の問いに帰属する阻害要因 1 件は聞くのを待て——帰属しない 3 件を先に直せ（聞くのはまだ）。\n台帳に未決の問いが 1 件（うち人へ 1 件）——阻害要因の有無に依らず、最終報告の冒頭に載せろ。"
+    },
+    "prev_questions": [
+      {
+        "key": "7 か所の curl + sha256sum -c の一致を、手書きの一覧より強い形で保つか",
+        "kind": "fork",
+        "status": "escalate",
+        "origin": ".github/ の curl と sha256sum -c の 7 か所: フラグ一致を保つ手段が手書きの一覧だけで機械の検査が無い",
+        "reason": "2 周目に escalate へ上げたまま人の決着が着いていない。この周も状態は変わらない——lint_workflow_timeouts.py が job 直下の timeout-minutes しか見ないこと、curl フラグを見る検査が .github にも tools にも無いことを、固定版のソースを自分で読んで再確認した。岐路が残る理由は、2 系統の処方がどちらも 7 か所を全部は覆えないこと: composite action の step は timeout-minutes を持てないので、step 上限を足す方向の lint は 7 か所のうち 3 か所しか覆えない。人へ渡すとき落としてはならない点が 2 つ——(1) CLAUDE.md の「回避策・部分的修正には追跡 issue を先に立て、コード側コメントに完全 URL を貼る」が未充足、(2) 一覧の腐りは台帳の当該項目の再訪条件（栓を持たない外部取得 step のハング）では拾えないので、ずれを将来検知する引き金がどこにも無い。",
+        "options": [
+          "lint の新設: git 追跡ファイルの .github/**（actions 配下を含む）から curl 行を拾い、4 フラグが揃うかを assert する小さなスクリプトと回帰テスト。帰結は検査器が 1 本増えること、lint_workflow_timeouts.py の対象を .github/workflows から広げる改修が要ること。",
+          "共通 composite action への集約: URL・sha256・出力先を受ける取得 action を 1 本作り 7 か所を差し替える。帰結は共有面が増え、各現場の後処理（install / tar 展開 / kubectl apply）の分岐を引数で受けることになる。",
+          "零処方: 一覧の強化をやめ、ファイル名の列挙だけ残して件数も検知も持たない。台帳へ「揃え忘れは赤くならない」と受容として明記する。落ちる理由は、これが BASE で現に腐った形そのもの（4 か所と書いて実数 7）で、凍結した目的が直しに来た当の欠陥だから。"
+        ],
+        "depends": [
+          ".github/ の取得 step の注記（install-yq・setup-helm-chart-deps・workflow-lint・vulnerability_checks）: 正本を指すポインタの横に正本の中身（3 つの窓の内訳・再試行の意味・取得点の件数）を写している"
+        ]
+      },
+      {
+        "key": "台帳の当該項目が覆う集合を、自然文のままにするか機械で引ける形にするか",
+        "kind": "fork",
+        "status": "decided",
+        "origin": "docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節: どの取得点に step の上限が在るかの逐一列挙が現物と食い違う",
+        "reason": "2 周目の decided（自然文のまま維持する＝下の選択肢 1）が固定版で実際に当たっていることを自分で読んで確認した——1121-1125 に『対象外』は無く『取得 step もこの項目の内側に残る』が在り、再訪条件 1127 は BASE と同じ『栓を持たない外部取得 step のハングで job が段まで待ったとき、または GitHub が step 単位の既定を提供したとき』。分岐としての決着は着いているが、出どころのユニットがこの周に label=block / disposition=do-now で開いたままなので resolved ではなく decided に置く（resolved は出どころも閉じた問いだけ）。採ったのは選択肢 1 で、選択肢 2 を採らなかったのは台帳が受容の記録であって検査の入力ではなく、機械形式にすると『どの step に栓が在るか』という現物の写しを台帳が持ち続けることになり、この周の [block] を作った当の構造を固定してしまうため。選択肢 3 を採らなかったのは、細流が切れない事実を台帳から落とすと受容そのものの記録が消え、CLAUDE.md が台帳を正本と定める前提が崩れるため。",
+        "options": [
+          "1. 自然文のまま維持し、覆う集合は現地（各 step の timeout-minutes と各現場の curl 行）へ指すだけにする（採用）。帰結: 台帳は受容の本体と再訪条件だけを持ち、派生値の写しを持たないので現物とずれる面が消える。代わりに『どの取得点に栓が無いか』を機械で一覧する手段は台帳側に無いままで、知りたい人は現地を読むことになる。",
+          "2. 覆う集合を機械で引ける形にする（項目に対象パスの列を持たせ、lint_docs.rb か新設の検査で現物と突き合わせる）。帰結: 台帳と現物のずれが CI で赤くなるが、台帳が現物の写し（どの step に栓が在るか）を恒常的に持つことになり、この周の [block] を生んだ構造が固定される。加えて検査器 1 本と維持の手間が増え、composite action 配下を含める改修が要る点は questions[0] と同じ非対称を抱える。",
+          "3. この項目から取得 step の話を落とし、受容の記録を現地の注記だけに委ねる（零処方）。帰結: 台帳の腐りは原理的に起きないが、CLAUDE.md が『対応しないと決めた事項の正本は台帳』と定めているため、受容の記録が正本から消える。落ちる理由はこれで、round 2 で一度この方向（台帳側の『対象外』）を採った結果、注記と台帳が食い違う状態を作った実績がある。"
+        ],
+        "resolution": "自然文のまま維持する決着（選択肢 1）は有効。ただしこの周の [block] は、その決着の実装が自然文の中へ『どの取得点に栓が在るか』の逐一列挙（現物から導ける派生値）を持ち込んだことで生じた。決着が許すのは『自然文＋現地への指し先』であって『自然文の中に現物の写しを持つ』ではない、という線を U1 の零処方 A が引き直す。この線引きを守る限り、選択肢 2 へ移る必要は今も無い。出どころの [block] が閉じたら次の周に resolved へ落としてよい。"
+      },
+      {
+        "key": "vulnerability_checks.yml の gitleaks 取得への変更は、この PR の checks では一度も実行されない",
+        "kind": "unverifiable",
+        "status": "resolved",
+        "origin": "R2",
+        "reason": "前提を自分で読んで確かめた——vulnerability_checks.yml の 17-21 行の on: は schedule（cron '45 18 * * 0'）と workflow_dispatch だけで pull_request を持たない。よって gitleaks 取得への変更は本 PR の checks では一度も走らず、GitHub 上の実行観測はこの PR からは取れない。",
+        "resolution": "確認済みで、これを使って隠している欠陥は無い（curl 行は他 6 か所と同形で、局所の WHY は週次固有の理由だけ）。ただしこの周に新しく分かったことが 1 つある——走らないことが、7 か所のうちここだけ set -euo pipefail / shell: bash を持たない非対称（U4）を隠してもいた。検査の緑では気づけない面であることを、U4 の判定根拠に含めた。"
+      }
+    ],
+    "prev_units": [
+      {
+        "key": "docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節: どの取得点に step の上限が在るかの逐一列挙が現物と食い違う",
+        "label": "block",
+        "disposition": "do-now",
+        "reason": "この差分が新たに書いた 1122-1124 行「step の上限を持つのは cloud-manifest-validate の 3 呼び出しだけで、helm・yq（composite action 内なので step の上限を置けない）・gitleaks・actionlint と、curl でない取得（`helm repo add` 等）の外側は job の段だけ」は、固定版の現物と突き合わせると偽である。反証は 2 つあり、両方を自分で読んで確かめた。(1) helm-chart-check.yml:1389-1391「Apply external-secrets CRDs」は `helm repo add --force-update external-secrets https://charts.external-secrets.io`（1398 行）を回す step で、timeout-minutes: 10 を持つ。しかも同 step 自身の 1390 行が「上限は、本ジョブが直接持つ他の外部取得 step と同じ 10 分」と現地で明記しており、台帳と現地が正面から食い違う。(2) helm-chart-check.yml:1260-1261「Create kind cluster」も curl でない外部取得（ノードイメージ 374MB の pull）で timeout-minutes: 10 を持ち、1255-1259 の注記が「step 側で栓をする」と理由まで書いている。局所レンズが挙げた逃げ道（「helm repo add 等」は setup-helm-chart-deps 内の helm repo add だけを指す省略表現だ）は (2) を殺せない——(2) は helm repo add ではないが「curl でない取得」であり、しかも同じ段落が例外に数える「4 step」の 1 つである。よって説明不足ではなく事実の誤り。なお見出しと 1120 の「4 step」と 1122 の「3 呼び出し」は、数える集合が step と curl 呼び出しで別なのでそれ自体は両方正しく、ここは軽微。重いのは「だけ」が付くことで curl でない取得 step 2 件を明示的に除外する主張になっている点。CLAUDE.md が台帳を受容事項の正本と定める以上、次に読む人はここを信じて「栓が無い」と判断する。ラベル根拠は REVIEW.md の [block] 条件 ①現物で特定済み ②習熟した読み手が実際に誤読した（r3.coherence・手順トレース・根拠の出所検査・局所 3 レンズが独立に同じ箇所を挙げた）③この差分が書いた文なので同じ PR で回収。母数 4 行のうち名指ししたのは 4 件すべて。履歴を読んだ後の追記: これは前の周の [block] 2 件（『対象外と断定してトリクルの穴を隠す』『本文の一般化と再訪条件の書き換え』）とは別の欠陥で、その 2 件は閉じている（各 closed_note）。前の周の一撃がこの段落を書き直した結果、新しく書き足された主張の側が現物とずれた。",
+        "reopen_evidence": "同じ節が r1・r2・r3 と 3 周続けて [block] を出しているが、キー（症状）は毎周別で、いずれも直前の周の書き直しが新しく書き足した主張である。この周の 1122-1124 行が BASE（7329af95a）に無く本差分が書いた文であることは diff-r3.patch の当該ハンクで確認した。"
+      },
+      {
+        "key": ".github/ の取得 step の注記（install-yq・setup-helm-chart-deps・workflow-lint・vulnerability_checks）: 正本を指すポインタの横に正本の中身（3 つの窓の内訳・再試行の意味・取得点の件数）を写している",
+        "label": "suggest",
+        "disposition": "do-now",
+        "reason": "「理由は helm-chart-check.yml の『Install kind and kubectl』の注記が正本」と指しておきながら、同じ場所にその正本の中身を写している箇所が 10 行ある。写しは 3 種で、(a) 3 つの窓の内訳の要約 4 か所（install-yq:14・setup-helm-chart-deps:116・workflow-lint:72・vulnerability_checks:339）——直下の curl 行にフラグが並ぶので WHAT の言い直しであり、同じ差分の helm-chart-check.yml:1286 が要約なしのポインタだけで成立していることが、落とせる証拠になっている。窓の数はこの PR の中で 2 → 3 と動いた実績がある。(b) 再試行の意味の写し（setup-helm-chart-deps:113-115）——112 行が段2 を正本と指した直後に、段2 の 1223-1224 と同じ内容を書いている。局所にしか無いのは「（版を打ち間違えた回は即座には落ちない）」の一節だけ。(c) 取得点の件数（workflow-lint:30・32、setup-helm-chart-deps:41-42）——件数は同じ文に並ぶファイル名から数えられる派生値で、BASE で現に腐っていたのがこの件数（4 か所と書いて実数 7）であり、凍結した目的が直さねばならなかった当の箇所。同じ段（workflow-lint:34-35）が「ここに写すと写しがずれる」と自認した直後に別の写しを手書きで持ち続けている。block に上げないのは、現時点で件数・窓の数とも実物と一致しており具体的実害がまだ出ていないため。母数 10 行のうち名指ししたのは 10 件すべてだが、R1 の削除候補が挙げたのは 9 行で、setup-helm-chart-deps:111（本差分が触っていない既存の 4 つ目の写し。他の 6 か所のうち 3 つしか挙げていない）は誰も名指ししていなかった。",
+        "reopen_evidence": "R1 最小性（r2）の deletions 1・2・3 がこの 3 種を名指しし status は redesign-needed だったが、この周の固定版で 3 種とも 1 行も減っていない（insertions 58 → 71 で逆に増えた）。R1 の「次の周は行数を純減にしろ」という指示が実行されていない。"
+      },
+      {
+        "key": ".github/ の curl と sha256sum -c の 7 か所: フラグ一致を保つ手段が手書きの一覧だけで機械の検査が無い",
+        "label": "suggest",
+        "disposition": "defer",
+        "reason": "defer 台帳のルーター判定は①——構造的理由がまだ成立しているので defer 維持。固定版で自分で確認した事実は 2 つ。(1) tools/lint_workflow_timeouts.py は `git ls-files .github/workflows/*.yml` だけを読み、job 直下の timeout-minutes の有無・型・正数性しか見ない（119-138 行と 204-226 行を読んだ）。run: の中身にも .github/actions/ 配下にも降りない。(2) .github と tools のどこにも --connect-timeout / --speed-limit / --retry-max-time を検査する行は無い。よって 7 か所のどれか 1 つからフラグが落ちても CI は全緑のまま退行する。構造的理由は未解決の設計判断——処方が lint の新設（機構の新設）か共通 composite action への集約（共有面の拡大）で、composite action は step 上限を持てないため lint 側の処方は 7 か所のうち 3 か所しか覆えないという非対称が選定を難しくしている。コスト感は理由にしていない。回収先は questions[0]（この周も escalate のまま）。",
+        "reopen_evidence": "round 2 の defer 台帳に同じキーで在り、この周も欠陥は固定版に残存。件数のドリフトは直ったが、手で維持する形と検知不能の経路は残る。母数は前の周の totals と同じ 7 で、今の周に数え直しても 7。"
+      },
+      {
+        "key": ".github/workflows/vulnerability_checks.yml「Install gitleaks」: 取得 7 か所のうちここだけ shell: bash も set -euo pipefail も無い",
+        "label": "suggest",
+        "disposition": "defer",
+        "reason": "1〜8 では do-now と判定したが、履歴の再審で『目的の外への膨張』に当たると分かったので defer へ落とし、kind=split で人へ出す（ラベルは下げていない）。目的の外である理由: 凍結した目的は curl の打ち切りを停滞へ移すことと、それに伴う一覧・注記・台帳の追従に限られており、シェルの宣言は打ち切りの機構でも一覧でもない。BASE 時点の実在の確かめ方: diff-r3.patch の当該ハンク（@@ -336,7 +336,12 @@）で `run: |` の直後が `VERSION=\"8.18.4\"` のまま文脈行になっており、削除行に set 行が無い——BASE にも無かった。欠陥そのものは現物で確認済み: GitHub Actions の既定は `bash -e {0}` で pipefail が付かず、7 か所のうちここだけがシェルの宣言を持たない（他 6 か所に在ることは install-yq:12・setup-helm-chart-deps:63（shell: bash は 55）・helm-chart-check:1220 と 1283・workflow-lint:71 を読んで確認）。現状は fail-open ではない——唯一のパイプ `echo ... | sha256sum -c` は失敗判定コマンドが最終段にあるので -e で赤くなる。将来この run にパイプ途中で失敗しうる行が足されると黙って通る余地が残る、という予防の指摘。REVIEW.md は『別 Issue への先送りを既定にするな』と定めるので、これは既定からの例外申請として questions の split に載せた——人が『この PR で 1 行足す』と決めるなら do-now に戻してよい。",
+        "reopen_evidence": "新規（この周に pr-review-toolkit:code-reviewer と silent-failure-hunter が独立に当て、私も現物で確認した）。前の周に同じキーは無い。"
+      },
+      {
+        "key": "docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節と helm-chart-check.yml「Apply external-secrets CRDs」: 並行 PR #1780 が同じ節と同じ step を独立に書き換えている",
+        "label": "info",
+        "reason": "局所レンズ（pr-review-toolkit:code-reviewer）が `gh pr diff 1780` で確認したと報告している。私はこのセッションでシェルを持たず #1780 を独立に検算できていないので、未検証のまま情報として置く。効いてくる筋は 2 つ——(a) 本 PR が U1 を直すと #1780 が同じ節へ足す追記と git conflict になり、機械的な解消でどちらかの記述が消えうる。(b) #1780 が Apply external-secrets CRDs を `helm template --repo` へ書き換えるなら U1 の反例 (1) は消える。ただし U1 の反例 (2)（Create kind cluster のノードイメージ pull が timeout-minutes: 10 を持つ）は #1780 の書き換えに影響されないので、U1 の block 判定は #1780 の帰趨に依存しない。REVIEW.md 整合性観点の『担当 PR がある箇所は本 PR のスコープから外す』は、本 PR 自身が書いた偽の文には適用しない——出自が本 PR だから。なお素材の parallel_pr は round 1 からの持ち越しで、2 ラウンド前の観測である点も人へ渡す。"
+      },
+      {
+        "key": "prompts/r3/p1.external_standards.md の受容済み弱点リスト: 落ちたフラグを --retry-max-time と書いているが実際に落ちたのは --max-time",
+        "label": "info",
+        "reason": "リポジトリ側の欠陥ではなく、レビュー素材側の誤りなので info に置く。diff-r3.patch の setup-helm-chart-deps のハンクを自分で読んで確認した——before は `--max-time 120 --retry-max-time 300`、after は `--connect-timeout 20 --speed-limit 1 --speed-time 20 --retry-max-time 300` で、--retry-max-time 300 は残り、落ちたのは --max-time 120。両者は縛る窓が違うので、取り違えたまま議論すると『失われた保護』が別物になる。PR 側の現地記述（段3 の『覆えていない形』）は取り違えておらず正しい。次の周の素材生成でこの弱点リストを引き継がないこと。"
+      },
+      {
+        "key": ".github/actions/setup-helm-chart-deps/action.yml::curl_opts と .github/workflows/helm-chart-check.yml::curl_opts — 停滞検知が原理的に見られない 2 つの窓（再試行と再試行の間の待ち・1 バイト/秒をわずかに超える転送）に上限が無くなり、composite action 側は job の 15 分だけが歯止めになっている",
+        "label": "info",
+        "reason": "過去の [block] キーの振り分け。現物（1121-1125 と 1240-1245）を今の作業ツリーで読み直して閉鎖を確認した。記録には載せず、次の周が新規の顔で出し直さないための印として残す。"
+      },
+      {
+        "key": "docs/decisions/accepted-limitations.adoc の step 単位の上限は持たない節: 外部取得 curl を curl 自身の停滞打ち切りで止まると断定し、同じ版が実測で認めたトリクルの穴と段1 を持たない 4 か所の露出を隠している",
+        "label": "info",
+        "reason": "過去の [block] キーの振り分け。現物で確認した。"
+      },
+      {
+        "key": "docs/decisions/accepted-limitations.adoc::step 単位の上限は持たない — 本文の一般化と再訪条件の書き換えで、curl でない外部取得 12 か所が対象からも再訪の引き金からも黙って外れた",
+        "label": "info",
+        "reason": "過去の [block] キーの振り分け。1127 行を現物で読んで確認した。"
+      },
+      {
+        "key": ".github/workflows/helm-chart-check.yml::「Install kind and kubectl」の注記 — 7 か所が正本として引く 1 つの注記が「内側（curl の停滞打ち切り）が先に鳴る。ここは最後の網」と断定し、curl を呼ばない参照元にも当たる顔をしている",
+        "label": "info",
+        "reason": "過去の [block] キーの振り分け。r2 で info、この周も現物で確認して閉鎖のまま。"
+      },
+      {
+        "key": ".github/workflows/workflow-lint.yml の ACTIONLINT_SHA256 の段: 残る差は再試行の回数だけという一覧の正本の記述が不正確で、--retry-delay 5 の有無を覆っていない",
+        "label": "info",
+        "reason": "前の周の [suggest] do-now 未対応 3 件のうち 1 件目。現物で確認して閉鎖。"
+      },
+      {
+        "key": ".github/workflows/helm-chart-check.yml の Install kind and kubectl 段2: 再試行は helm/kind-action と同じ 5 回・5 秒間隔が正本から落ち、正本を指す step の 5 回ループと sleep 5 の由来が正本に無い",
+        "label": "info",
+        "reason": "前の周の [suggest] do-now 未対応 3 件のうち 2 件目。現物で確認して閉鎖。"
+      },
+      {
+        "key": ".github/workflows/helm-chart-check.yml:1239 段3 の実測断定: 2026-09-22 実測に測り方と curl の版が無く、CLAUDE.md のコメント規約と同リポジトリの先例に反する",
+        "label": "info",
+        "reason": "前の周の [suggest] do-now 未対応 3 件のうち 3 件目。現物で確認して閉鎖。"
+      },
+      {
+        "key": ".github/workflows/vulnerability_checks.yml::gitleaks 取得 — 再試行を持たない唯一の取得に停滞打ち切りだけが付き、回復しうる停滞が即失敗になる",
+        "label": "info",
+        "reason": "r2 の info の振り分けを今の作業ツリーで確かめ直した。なお同じ step のシェル宣言の欠落は別キーで新規に挙げている。"
+      }
+    ],
+    "prev_scalars": {
+      "curl_fetch_sites": 7,
+      "curl_flag_specs": 6,
+      "specs_with_retry_max_time": 6,
+      "specs_with_shell_declaration": 6,
+      "copies_of_sot_content": 1,
+      "ledger_claims_about_plugs": 2,
+      "note_referrers": 7,
+      "ledger_entry_body_lines": 4,
+      "comment_ratio_pct": 0
+    },
+    "prev_rejudge": null,
+    "prev_one_shot": {
+      "round": 3,
+      "text": "処方の当て方を反転させる——台帳と注記を『書き直す』のをやめ、現物から導ける値を削って行数を純減させる。削る対象は 3 種: (a) 台帳 1120・1122-1124 の『どの取得点に栓が在るか』の逐一列挙、(b) workflow-lint:30・32 と setup-helm-chart-deps:41-42 の件数、(c) 4 か所の『3 つの窓』の要約と setup-helm-chart-deps:113-115 の再試行の意味。残すのは現物に書けないものだけ（停滞を経過時間より選ぶ判断、覆えていない形と実測条件、受容そのもの、現地への指し先）。あわせて台帳にしか無い WHY（composite action 内なので step の上限を置けない）を現地へ移す。前の周の閉じ方が取りこぼした対象集合はこれ——前の周は『台帳の 4 行の主張を実体へ狭めろ』と当てたので、主張を正しくすることだけが対象になり、主張を持つこと自体が対象に入っていなかった。反証の仕方: 次の周は (1) U1 の class_query（今 4 行）が 1 行以下か、(2) U2 の class_query（今 10 行）が 2 行以下か、(3) 累積差分の insertions が 71 から減ったか、の 3 つを数えるだけで判定できる。どれかが今の周と同じかそれ以上なら効いていない。4 周目も同じ節が [block] になるなら、当て方でもなく処方の対象（台帳という置き場所そのもの）を疑え。",
+      "closes": [
+        "docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節: どの取得点に step の上限が在るかの逐一列挙が現物と食い違う",
+        ".github/ の取得 step の注記（install-yq・setup-helm-chart-deps・workflow-lint・vulnerability_checks）: 正本を指すポインタの横に正本の中身（3 つの窓の内訳・再試行の意味・取得点の件数）を写している"
+      ],
+      "check": "",
+      "totals": {
+        "docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節: どの取得点に step の上限が在るかの逐一列挙が現物と食い違う": 4,
+        ".github/ の取得 step の注記（install-yq・setup-helm-chart-deps・workflow-lint・vulnerability_checks）: 正本を指すポインタの横に正本の中身（3 つの窓の内訳・再試行の意味・取得点の件数）を写している": 10,
+        ".github/ の curl と sha256sum -c の 7 か所: フラグ一致を保つ手段が手書きの一覧だけで機械の検査が無い": 7,
+        ".github/workflows/vulnerability_checks.yml「Install gitleaks」: 取得 7 か所のうちここだけ shell: bash も set -euo pipefail も無い": 0,
+        "docs/decisions/accepted-limitations.adoc「step 単位の上限は持たない」節と helm-chart-check.yml「Apply external-secrets CRDs」: 並行 PR #1780 が同じ節と同じ step を独立に書き換えている": 1,
+        "prompts/r3/p1.external_standards.md の受容済み弱点リスト: 落ちたフラグを --retry-max-time と書いているが実際に落ちたのは --max-time": 4
+      }
+    },
+    "prev_fix_files": [
+      ".github/actions/install-yq/action.yml",
+      ".github/actions/setup-helm-chart-deps/action.yml",
+      ".github/workflows/helm-chart-check.yml",
+      ".github/workflows/vulnerability_checks.yml",
+      ".github/workflows/workflow-lint.yml",
+      "docs/decisions/accepted-limitations.adoc"
+    ],
+    "prev_fix_source": "実測（diff の差）",
+    "defer_ledger": {
+      ".github/ の curl と sha256sum -c の 7 か所: フラグ一致を保つ手段が手書きの一覧だけで機械の検査が無い": {
+        "reason": "defer 台帳のルーター判定は①——構造的理由がまだ成立しているので defer 維持。固定版で自分で確認した事実は 2 つ。(1) tools/lint_workflow_timeouts.py は `git ls-files .github/workflows/*.yml` だけを読み、job 直下の timeout-minutes の有無・型・正数性しか見ない（119-138 行と 204-226 行を読んだ）。run: の中身にも .github/actions/ 配下にも降りない。(2) .github と tools のどこにも --connect-timeout / --speed-limit / --retry-max-time を検査する行は無い。よって 7 か所のどれか 1 つからフラグが落ちても CI は全緑のまま退行する。構造的理由は未解決の設計判断——処方が lint の新設（機構の新設）か共通 composite action への集約（共有面の拡大）で、composite action は step 上限を持てないため lint 側の処方は 7 か所のうち 3 か所しか覆えないという非対称が選定を難しくしている。コスト感は理由にしていない。回収先は questions[0]（この周も escalate のまま）。",
+        "round": 3
+      },
+      ".github/workflows/vulnerability_checks.yml「Install gitleaks」: 取得 7 か所のうちここだけ shell: bash も set -euo pipefail も無い": {
+        "reason": "1〜8 では do-now と判定したが、履歴の再審で『目的の外への膨張』に当たると分かったので defer へ落とし、kind=split で人へ出す（ラベルは下げていない）。目的の外である理由: 凍結した目的は curl の打ち切りを停滞へ移すことと、それに伴う一覧・注記・台帳の追従に限られており、シェルの宣言は打ち切りの機構でも一覧でもない。BASE 時点の実在の確かめ方: diff-r3.patch の当該ハンク（@@ -336,7 +336,12 @@）で `run: |` の直後が `VERSION=\"8.18.4\"` のまま文脈行になっており、削除行に set 行が無い——BASE にも無かった。欠陥そのものは現物で確認済み: GitHub Actions の既定は `bash -e {0}` で pipefail が付かず、7 か所のうちここだけがシェルの宣言を持たない（他 6 か所に在ることは install-yq:12・setup-helm-chart-deps:63（shell: bash は 55）・helm-chart-check:1220 と 1283・workflow-lint:71 を読んで確認）。現状は fail-open ではない——唯一のパイプ `echo ... | sha256sum -c` は失敗判定コマンドが最終段にあるので -e で赤くなる。将来この run にパイプ途中で失敗しうる行が足されると黙って通る余地が残る、という予防の指摘。REVIEW.md は『別 Issue への先送りを既定にするな』と定めるので、これは既定からの例外申請として questions の split に載せた——人が『この PR で 1 行足す』と決めるなら do-now に戻してよい。",
+        "round": 3
+      }
+    }
+  },
+  "rev": 93,
+  "engine_changes": [
+    {
+      "round": 1,
+      "from": null,
+      "to": {
+        "root": "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0",
+        "version": "0.15.0"
+      },
+      "at": "2026-09-22T14:30:01+09:00"
+    }
+  ],
+  "engine": {
+    "root": "/Users/p03623/.claude-p1/plugins/cache/raiki61/graphloops/0.15.0",
+    "version": "0.15.0"
+  },
+  "patches": [
+    {
+      "round": 2,
+      "path": "questions",
+      "reason": "検証器が round-2.json の questions[2] を『unverifiable の origin R2 が unverifiable でない（解けたなら resolved にしろ）』で拒み、同じ judge（p2.diagnose を書いた agent）に差し戻して status を held から resolved へ直させたが、節が既に done のため記録へ反映されなかった。judge が出し直した out/r2/p2.diagnose.json の questions をそのまま写す。判定の中身は judge が決めたもので、こちらは一切変えていない。",
+      "at": "2026-09-22T17:20:18+09:00"
+    },
+    {
+      "round": 2,
+      "path": "questions",
+      "reason": "検証器が『前ラウンドの問い（held）が今ラウンドの台帳に無い』で拒んだ。周をまたぐ同一性を key の文字列で見ているため、同じ judge（p2.diagnose を書いた agent）に差し戻して 1 周目の key の表記へそろえさせた。節が既に done のため記録へ反映されないので写す。status・kind・options・reason・origin は judge が決めたままで、変わったのは key の文字列だけ。",
+      "at": "2026-09-22T17:26:12+09:00"
+    },
+    {
+      "round": 3,
+      "path": "questions",
+      "reason": "検証器が round-3.json の questions[2] を『kind=unverifiable なので origin は R1〜R4』で拒んだ（origin が空だった）。同じ judge（p2.diagnose を書いた agent）に差し戻して origin を足させたが、節が既に done のため記録へ反映されないので写す。status・kind・key・reason は judge が決めたままで、足したのは origin の 1 欄だけ。",
+      "at": "2026-09-22T18:32:56+09:00"
+    },
+    {
+      "round": 3,
+      "path": "questions",
+      "reason": "検証器の 2 件目（questions[1] の status が resolved のままで出どころが block/do-now、questions[2] の origin が空）を同じ judge に直させた。節が既に done のため記録へ反映されないので写す。判定の中身は judge が決めたままで、変わったのは status と origin の 2 欄。",
+      "at": "2026-09-22T18:39:04+09:00"
+    }
+  ]
+}

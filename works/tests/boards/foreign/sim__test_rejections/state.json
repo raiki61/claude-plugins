@@ -1,0 +1,1340 @@
+{
+  "loop_name": "review-loop",
+  "run_id": "20260926-202927",
+  "graph": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/graphs/review-loop.json",
+  "graph_sha": "8676692bbcb2",
+  "created": "2026-09-26T20:29:27+09:00",
+  "status": "running",
+  "round": 1,
+  "rounds": [
+    {
+      "round": 1,
+      "done": {
+        "p0.base": {
+          "at": "2026-09-26T20:29:28+09:00",
+          "instance": "p0.base"
+        },
+        "p0.local_checks": {
+          "at": "2026-09-26T20:29:28+09:00",
+          "instance": "p0.local_checks"
+        },
+        "p0.premises": {
+          "at": "2026-09-26T20:29:28+09:00",
+          "instance": "p0.premises"
+        },
+        "p1.worktree_before": {
+          "at": "2026-09-26T20:29:29+09:00",
+          "builtin": "worktree_snapshot"
+        },
+        "p0.purpose": {
+          "at": "2026-09-26T20:29:29+09:00",
+          "instance": "p0.purpose"
+        },
+        "p0.parallel_pr": {
+          "at": "2026-09-26T20:29:30+09:00",
+          "instance": "p0.parallel_pr"
+        },
+        "p0.prior_decisions": {
+          "at": "2026-09-26T20:29:33+09:00",
+          "instance": "p0.prior_decisions"
+        },
+        "p1.local_review": {
+          "at": "2026-09-26T20:29:33+09:00",
+          "instance": "p1.local_review"
+        },
+        "p1.consistency_bypass": {
+          "at": "2026-09-26T20:29:33+09:00",
+          "instance": "p1.consistency_bypass"
+        },
+        "p1.hygiene": {
+          "at": "2026-09-26T20:29:33+09:00",
+          "instance": "p1.hygiene"
+        },
+        "p1.external_standards": {
+          "at": "2026-09-26T20:29:33+09:00",
+          "instance": "p1.external_standards"
+        },
+        "p1.provenance": {
+          "at": "2026-09-26T20:29:34+09:00",
+          "instance": "p1.provenance"
+        },
+        "p1.worktree_after": {
+          "at": "2026-09-26T20:29:34+09:00",
+          "builtin": "worktree_compare"
+        },
+        "p2.diagnose": {
+          "at": "2026-09-26T20:29:36+09:00",
+          "instance": "p2.diagnose"
+        },
+        "p2.fix_plan": {
+          "at": "2026-09-26T20:29:36+09:00",
+          "instance": "p2.fix_plan"
+        },
+        "p2.plan_review": {
+          "at": "2026-09-26T20:29:37+09:00",
+          "instance": "p2.plan_review"
+        },
+        "p3.lane_merge": {
+          "at": "2026-09-26T20:29:37+09:00",
+          "builtin": "lane_merge"
+        },
+        "p3.fix": {
+          "at": "2026-09-26T20:29:40+09:00",
+          "instance": "p3.fix"
+        }
+      },
+      "na": {
+        "p0.purpose_review": "cond: 目的テキストを writer が要約した（出典③）周。1 周目、または前の周の P3 が目的の出典ファイルを触った周に走り直す が成り立たない",
+        "p1.procedure_trace": "cond: 差分に手順書・スクリプト・CI 定義があり、初回かそれらを変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る） が成り立たない",
+        "p1.gate_efficacy": "cond: 差分がゲートを新設・変更しており、初回かゲートを変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る） が成り立たない",
+        "p1.test_double_fidelity": "cond: 差分が外部との継ぎ目に触れ、初回か代役を変えた周、または前の周の P3 が何かを直した周（判定から入る run の周は、昇格した周だけ走る） が成り立たない",
+        "p1.main_path_observation": "cond: 判定から入る run の周でなく、差分が利用者から見える経路を変え、初回か経路を変えた周。前の周に awaiting_human だった周も（動かす手段が見つかったか再挑戦）、または前の周の P3 が何かを直した周 が成り立たない",
+        "p2.history": "cond: 2 ラウンド目以降 が成り立たない"
+      },
+      "skipped": {},
+      "empty": [],
+      "instances": {
+        "p0.base": {
+          "id": "p0.base",
+          "node": "p0.base",
+          "run_by": "writer",
+          "prompt_bytes": 4931,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.base.md",
+          "prompt_sha": "22c8b69eb89f",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:28+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p0.base.json",
+          "attempts": 1,
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:28+09:00",
+          "output_file": "out/r1/p0.base.json"
+        },
+        "p0.local_checks": {
+          "id": "p0.local_checks",
+          "node": "p0.local_checks",
+          "run_by": "writer",
+          "prompt_bytes": 2747,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.local_checks.md",
+          "prompt_sha": "3872229ef9a4",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:28+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p0.local_checks.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:28+09:00",
+          "delegate": {
+            "model": "haiku",
+            "why": "コマンドを走らせて結果を欄に写すだけで、判断が要らない。回す側の文脈にテストの出力を入れない"
+          },
+          "launch": {
+            "kind": "delegate",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "haiku",
+              "--tools",
+              "Bash,Read,Glob,Grep,WebFetch,WebSearch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebFetch,WebSearch",
+              "--permission-mode",
+              "default",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--settings",
+              "{\"sandbox\":{\"allowUnsandboxedCommands\":false,\"autoAllowBashIfSandboxed\":true,\"enableWeakerNetworkIsolation\":true,\"enabled\":true,\"failIfUnavailable\":true,\"filesystem\":{\"allowWrite\":[\"/\"],\"denyWrite\":[\"/Users/p03623/.bash_profile\",\"/Users/p03623/.bashrc\",\"/Users/p03623/.claude-p1\",\"/Users/p03623/.config/git\",\"/Users/p03623/.gitconfig\",\"/Users/p03623/.profile\",\"/Users/p03623/.zprofile\",\"/Users/p03623/.zshenv\",\"/Users/p03623/.zshrc\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo/.git\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops\"]},\"network\":{\"allowLocalBinding\":true,\"allowedDomains\":[\"*\"]}}}",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/delegate.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.local_checks.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "haiku",
+              "--tools",
+              "Bash,Read,Glob,Grep,WebFetch,WebSearch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebFetch,WebSearch",
+              "--permission-mode",
+              "default",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--settings",
+              "{\"sandbox\":{\"allowUnsandboxedCommands\":false,\"autoAllowBashIfSandboxed\":true,\"enableWeakerNetworkIsolation\":true,\"enabled\":true,\"failIfUnavailable\":true,\"filesystem\":{\"allowWrite\":[\"/\"],\"denyWrite\":[\"/Users/p03623/.bash_profile\",\"/Users/p03623/.bashrc\",\"/Users/p03623/.claude-p1\",\"/Users/p03623/.config/git\",\"/Users/p03623/.gitconfig\",\"/Users/p03623/.profile\",\"/Users/p03623/.zprofile\",\"/Users/p03623/.zshenv\",\"/Users/p03623/.zshrc\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo/.git\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops\"]},\"network\":{\"allowLocalBinding\":true,\"allowedDomains\":[\"*\"]}}}",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/delegate.txt",
+              "--output-format",
+              "json"
+            ],
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep",
+              "WebFetch",
+              "WebSearch"
+            ]
+          },
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:28+09:00",
+          "output_file": "out/r1/p0.local_checks.json"
+        },
+        "p0.premises": {
+          "id": "p0.premises",
+          "node": "p0.premises",
+          "run_by": "writer",
+          "prompt_bytes": 2736,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.premises.md",
+          "prompt_sha": "10e88707626f",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:28+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p0.premises.json",
+          "attempts": 1,
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:28+09:00",
+          "output_file": "out/r1/p0.premises.json"
+        },
+        "p0.purpose": {
+          "id": "p0.purpose",
+          "node": "p0.purpose",
+          "run_by": "writer",
+          "prompt_bytes": 2565,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.purpose.md",
+          "prompt_sha": "91651d63211f",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:28+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p0.purpose.json",
+          "attempts": 1,
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:29+09:00",
+          "output_file": "out/r1/p0.purpose.json"
+        },
+        "p0.parallel_pr": {
+          "id": "p0.parallel_pr",
+          "node": "p0.parallel_pr",
+          "run_by": "writer",
+          "prompt_bytes": 4133,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.parallel_pr.md",
+          "prompt_sha": "b3d912a2ffec",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:28+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p0.parallel_pr.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:28+09:00",
+          "delegate": {
+            "model": "haiku",
+            "why": "gh の一覧を引いて交差を数えるだけで、判断が要らない"
+          },
+          "launch": {
+            "kind": "delegate",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "haiku",
+              "--tools",
+              "Bash,Read,Glob,Grep,WebFetch,WebSearch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebFetch,WebSearch",
+              "--permission-mode",
+              "default",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--settings",
+              "{\"sandbox\":{\"allowUnsandboxedCommands\":false,\"autoAllowBashIfSandboxed\":true,\"enableWeakerNetworkIsolation\":true,\"enabled\":true,\"failIfUnavailable\":true,\"filesystem\":{\"allowWrite\":[\"/\"],\"denyWrite\":[\"/Users/p03623/.bash_profile\",\"/Users/p03623/.bashrc\",\"/Users/p03623/.claude-p1\",\"/Users/p03623/.config/git\",\"/Users/p03623/.gitconfig\",\"/Users/p03623/.profile\",\"/Users/p03623/.zprofile\",\"/Users/p03623/.zshenv\",\"/Users/p03623/.zshrc\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo/.git\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops\"]},\"network\":{\"allowLocalBinding\":true,\"allowedDomains\":[\"*\"]}}}",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/delegate.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.parallel_pr.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "haiku",
+              "--tools",
+              "Bash,Read,Glob,Grep,WebFetch,WebSearch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebFetch,WebSearch",
+              "--permission-mode",
+              "default",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--settings",
+              "{\"sandbox\":{\"allowUnsandboxedCommands\":false,\"autoAllowBashIfSandboxed\":true,\"enableWeakerNetworkIsolation\":true,\"enabled\":true,\"failIfUnavailable\":true,\"filesystem\":{\"allowWrite\":[\"/\"],\"denyWrite\":[\"/Users/p03623/.bash_profile\",\"/Users/p03623/.bashrc\",\"/Users/p03623/.claude-p1\",\"/Users/p03623/.config/git\",\"/Users/p03623/.gitconfig\",\"/Users/p03623/.profile\",\"/Users/p03623/.zprofile\",\"/Users/p03623/.zshenv\",\"/Users/p03623/.zshrc\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo/.git\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops\"]},\"network\":{\"allowLocalBinding\":true,\"allowedDomains\":[\"*\"]}}}",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/delegate.txt",
+              "--output-format",
+              "json"
+            ],
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep",
+              "WebFetch",
+              "WebSearch"
+            ]
+          },
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:30+09:00",
+          "output_file": "out/r1/p0.parallel_pr.json"
+        },
+        "p0.prior_decisions": {
+          "id": "p0.prior_decisions",
+          "node": "p0.prior_decisions",
+          "run_by": "investigator",
+          "prompt_bytes": 3199,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.prior_decisions.md",
+          "prompt_sha": "0bfcfc1c6553",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:33+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p0.prior_decisions.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:33+09:00",
+          "deliver": "path",
+          "launch": {
+            "kind": "tooled",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "Read,Glob,Grep,Bash,WebSearch,WebFetch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--permission-mode",
+              "auto",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__investigator.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p0.prior_decisions.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "Read,Glob,Grep,Bash,WebSearch,WebFetch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--permission-mode",
+              "auto",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__investigator.txt",
+              "--output-format",
+              "json"
+            ],
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "Bash",
+              "WebSearch",
+              "WebFetch"
+            ]
+          },
+          "tree_before": [
+            "?? stray.txt"
+          ],
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:33+09:00",
+          "output_file": "out/r1/p0.prior_decisions.json"
+        },
+        "p1.local_review": {
+          "id": "p1.local_review",
+          "node": "p1.local_review",
+          "run_by": "skill",
+          "prompt_bytes": 8592,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.local_review.md",
+          "prompt_sha": "5c939fa9bd00",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:33+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p1.local_review.json",
+          "attempts": 1,
+          "skills": [
+            {
+              "skill": "/code-review",
+              "args": "high",
+              "required": true,
+              "note": "組み込み（同名のプラグインが別に在る）。対象は changed_files_file に並ぶ**ファイルのパス**で渡す——ref 範囲は作業ツリーを含まない。--comment も --fix も付けるな。"
+            },
+            {
+              "skill": "pr-review-toolkit:code-reviewer",
+              "required": true,
+              "note": "準拠とバグ検出の両方を担う汎用レンズ。**落とすな。**"
+            },
+            {
+              "skill": "/simplify",
+              "required": true,
+              "note": "**修正を禁じた形でだけ呼べ**（実物は既定で作業ツリーを書き換える）。4 観点（再利用・単純化・効率・高度）をそれぞれ起こし、指摘だけ返させる。"
+            },
+            {
+              "skill": "/security-review",
+              "required": false,
+              "note": "認証・データ取扱い・外部 I/O に触れる差分のとき。**非該当でも行は要る**（items を空にして failed に理由）。"
+            },
+            {
+              "skill": "pr-review-toolkit:silent-failure-hunter",
+              "required": true,
+              "note": "黙って無力化される検査・握り潰される失敗を見る。"
+            },
+            {
+              "skill": "pr-review-toolkit:type-design-analyzer",
+              "required": true,
+              "note": "不変条件を平坦な値で持つ設計を見る。散文の振り分けでは当たらないクラス。"
+            },
+            {
+              "skill": "pr-review-toolkit:pr-test-analyzer",
+              "required": true,
+              "note": "振る舞い網羅のレンズ。他のどの節も見ていない。"
+            }
+          ],
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:33+09:00",
+          "output_file": "out/r1/p1.local_review.json"
+        },
+        "p1.consistency_bypass": {
+          "id": "p1.consistency_bypass",
+          "node": "p1.consistency_bypass",
+          "run_by": "inspector",
+          "prompt_bytes": 5997,
+          "mode": "agent",
+          "agent_type": "convergence-loops:inspector",
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.consistency_bypass.md",
+          "prompt_sha": "357fedc4feeb",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:33+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p1.consistency_bypass.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:33+09:00",
+          "deliver": "paste",
+          "launch": {
+            "kind": "tooled",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "Read,Glob,Grep",
+              "--allowedTools",
+              "Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__inspector.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.consistency_bypass.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "Read,Glob,Grep",
+              "--allowedTools",
+              "Read,Glob,Grep",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__inspector.txt",
+              "--output-format",
+              "json"
+            ],
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep"
+            ]
+          },
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:33+09:00",
+          "output_file": "out/r1/p1.consistency_bypass.json"
+        },
+        "p1.hygiene": {
+          "id": "p1.hygiene",
+          "node": "p1.hygiene",
+          "run_by": "cold-reader",
+          "prompt_bytes": 6876,
+          "mode": "cli",
+          "agent_type": "convergence-loops:cold-reader",
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.hygiene.md",
+          "prompt_sha": "7bb4527cf4d0",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:33+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p1.hygiene.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:33+09:00",
+          "deliver": "paste",
+          "launch": {
+            "kind": "isolated",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__cold-reader.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.hygiene.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__cold-reader.txt",
+              "--output-format",
+              "json"
+            ]
+          },
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:33+09:00",
+          "output_file": "out/r1/p1.hygiene.json"
+        },
+        "p1.external_standards": {
+          "id": "p1.external_standards",
+          "node": "p1.external_standards",
+          "run_by": "investigator",
+          "prompt_bytes": 7012,
+          "mode": "agent",
+          "agent_type": "convergence-loops:investigator",
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.external_standards.md",
+          "prompt_sha": "7faa9ee68663",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:33+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p1.external_standards.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:33+09:00",
+          "deliver": "path",
+          "launch": {
+            "kind": "tooled",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "Read,Glob,Grep,Bash,WebSearch,WebFetch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--permission-mode",
+              "auto",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__investigator.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.external_standards.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "sonnet",
+              "--effort",
+              "medium",
+              "--tools",
+              "Read,Glob,Grep,Bash,WebSearch,WebFetch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--permission-mode",
+              "auto",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__investigator.txt",
+              "--output-format",
+              "json"
+            ],
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "Bash",
+              "WebSearch",
+              "WebFetch"
+            ]
+          },
+          "tree_before": [
+            "?? stray.txt"
+          ],
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:33+09:00",
+          "output_file": "out/r1/p1.external_standards.json"
+        },
+        "p1.provenance": {
+          "id": "p1.provenance",
+          "node": "p1.provenance",
+          "run_by": "writer",
+          "prompt_bytes": 2770,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.provenance.md",
+          "prompt_sha": "326a62eb3f6a",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:33+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p1.provenance.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:33+09:00",
+          "delegate": {
+            "model": "sonnet",
+            "why": "材料を読んで判断を書く節だが、回す側の修正の判断とは独立で、読んだ本文を回す側の文脈に入れずに済む"
+          },
+          "launch": {
+            "kind": "delegate",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "sonnet",
+              "--tools",
+              "Bash,Read,Glob,Grep,WebFetch,WebSearch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebFetch,WebSearch",
+              "--permission-mode",
+              "default",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--settings",
+              "{\"sandbox\":{\"allowUnsandboxedCommands\":false,\"autoAllowBashIfSandboxed\":true,\"enableWeakerNetworkIsolation\":true,\"enabled\":true,\"failIfUnavailable\":true,\"filesystem\":{\"allowWrite\":[\"/\"],\"denyWrite\":[\"/Users/p03623/.bash_profile\",\"/Users/p03623/.bashrc\",\"/Users/p03623/.claude-p1\",\"/Users/p03623/.config/git\",\"/Users/p03623/.gitconfig\",\"/Users/p03623/.profile\",\"/Users/p03623/.zprofile\",\"/Users/p03623/.zshenv\",\"/Users/p03623/.zshrc\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo/.git\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops\"]},\"network\":{\"allowLocalBinding\":true,\"allowedDomains\":[\"*\"]}}}",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/delegate.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p1.provenance.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "sonnet",
+              "--tools",
+              "Bash,Read,Glob,Grep,WebFetch,WebSearch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebFetch,WebSearch",
+              "--permission-mode",
+              "default",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--settings",
+              "{\"sandbox\":{\"allowUnsandboxedCommands\":false,\"autoAllowBashIfSandboxed\":true,\"enableWeakerNetworkIsolation\":true,\"enabled\":true,\"failIfUnavailable\":true,\"filesystem\":{\"allowWrite\":[\"/\"],\"denyWrite\":[\"/Users/p03623/.bash_profile\",\"/Users/p03623/.bashrc\",\"/Users/p03623/.claude-p1\",\"/Users/p03623/.config/git\",\"/Users/p03623/.gitconfig\",\"/Users/p03623/.profile\",\"/Users/p03623/.zprofile\",\"/Users/p03623/.zshenv\",\"/Users/p03623/.zshrc\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo/.git\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state\",\"/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops\"]},\"network\":{\"allowLocalBinding\":true,\"allowedDomains\":[\"*\"]}}}",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/delegate.txt",
+              "--output-format",
+              "json"
+            ],
+            "tools": [
+              "Bash",
+              "Read",
+              "Glob",
+              "Grep",
+              "WebFetch",
+              "WebSearch"
+            ]
+          },
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:34+09:00",
+          "output_file": "out/r1/p1.provenance.json"
+        },
+        "p2.diagnose": {
+          "id": "p2.diagnose",
+          "node": "p2.diagnose",
+          "run_by": "judge",
+          "prompt_bytes": 31619,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p2.diagnose.md",
+          "prompt_sha": "2658e8a68a70",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:34+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p2.diagnose.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:34+09:00",
+          "deliver": "path",
+          "launch": {
+            "kind": "tooled",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__judge.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p2.diagnose.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__judge.txt",
+              "--output-format",
+              "json"
+            ],
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "WebSearch",
+              "WebFetch"
+            ]
+          },
+          "read_from": "stdin",
+          "done_at": "2026-09-26T20:29:36+09:00",
+          "output_file": "out/r1/p2.diagnose.json",
+          "agent_id": "judge-1"
+        },
+        "p2.fix_plan": {
+          "id": "p2.fix_plan",
+          "node": "p2.fix_plan",
+          "run_by": "writer",
+          "prompt_bytes": 5168,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p2.fix_plan.md",
+          "prompt_sha": "e53eb3d11e79",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:36+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p2.fix_plan.json",
+          "attempts": 1,
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:36+09:00",
+          "output_file": "out/r1/p2.fix_plan.json"
+        },
+        "p2.plan_review": {
+          "id": "p2.plan_review",
+          "node": "p2.plan_review",
+          "run_by": "judge",
+          "prompt_bytes": 7016,
+          "mode": "agent",
+          "agent_type": "convergence-loops:judge",
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p2.plan_review.md",
+          "prompt_sha": "226eeb44e80c",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:36+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p2.plan_review.json",
+          "attempts": 1,
+          "deadline_at": "2026-09-26T20:59:36+09:00",
+          "deliver": "path",
+          "launch": {
+            "kind": "tooled",
+            "argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__judge.txt",
+              "--output-format",
+              "json"
+            ],
+            "stdin": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p2.plan_review.md",
+            "resume_argv": [
+              "/opt/homebrew/opt/python@3.14/bin/python3.14",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops/scripts/with-auth.py",
+              "/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-guard-v83m238w/claude",
+              "-p",
+              "--resume",
+              "{session_id}",
+              "--model",
+              "opus",
+              "--effort",
+              "high",
+              "--tools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--allowedTools",
+              "Read,Glob,Grep,WebSearch,WebFetch",
+              "--permission-mode",
+              "dontAsk",
+              "--permission-prompts",
+              "none",
+              "--setting-sources",
+              "",
+              "--append-system-prompt-file",
+              "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/roles/convergence-loops__judge.txt",
+              "--output-format",
+              "json"
+            ],
+            "tools": [
+              "Read",
+              "Glob",
+              "Grep",
+              "WebSearch",
+              "WebFetch"
+            ]
+          },
+          "read_from": "--output /var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/out.txt",
+          "done_at": "2026-09-26T20:29:37+09:00",
+          "output_file": "out/r1/p2.plan_review.json"
+        },
+        "p3.fix": {
+          "id": "p3.fix",
+          "node": "p3.fix",
+          "run_by": "writer",
+          "prompt_bytes": 28757,
+          "mode": "runner",
+          "agent_type": null,
+          "prompt_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/prompts/r1/p3.fix.md",
+          "prompt_sha": "c997471e7764",
+          "item": null,
+          "status": "done",
+          "emitted_at": "2026-09-26T20:29:37+09:00",
+          "out_path": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p3.fix.json",
+          "attempts": 1,
+          "read_from": "out_path /private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/out/r1/p3.fix.json",
+          "done_at": "2026-09-26T20:29:40+09:00",
+          "output_file": "out/r1/p3.fix.json"
+        }
+      },
+      "item_counts": {}
+    }
+  ],
+  "thickness": null,
+  "max_rounds": 5,
+  "unattended": false,
+  "inputs": {
+    "request": "この変更をレビュー",
+    "document": null,
+    "lang": "依頼文の言語（利用者の言語）",
+    "cwd": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/repo",
+    "review_md": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/REVIEW.md",
+    "repo_review_md": null,
+    "scripts_dir": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/scripts",
+    "rounds_dir": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/rounds",
+    "review_rev": "71c106763f918546ec7dc17c4773450ef53d9754"
+  },
+  "validator": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/scripts/review-record.py",
+  "outputs": {
+    "p0.base": {
+      "file": "out/r1/p0.base.json",
+      "round": 1,
+      "instance": "p0.base"
+    },
+    "p0.local_checks": {
+      "file": "out/r1/p0.local_checks.json",
+      "round": 1,
+      "instance": "p0.local_checks"
+    },
+    "p0.premises": {
+      "file": "out/r1/p0.premises.json",
+      "round": 1,
+      "instance": "p0.premises"
+    },
+    "p1.worktree_before": {
+      "file": "out/r1/p1.worktree_before.json",
+      "round": 1
+    },
+    "p0.purpose": {
+      "file": "out/r1/p0.purpose.json",
+      "round": 1,
+      "instance": "p0.purpose"
+    },
+    "p0.parallel_pr": {
+      "file": "out/r1/p0.parallel_pr.json",
+      "round": 1,
+      "instance": "p0.parallel_pr"
+    },
+    "p1.worktree_after": {
+      "file": "out/r1/p1.worktree_after.json",
+      "round": 1
+    },
+    "p0.prior_decisions": {
+      "file": "out/r1/p0.prior_decisions.json",
+      "round": 1,
+      "instance": "p0.prior_decisions"
+    },
+    "p1.local_review": {
+      "file": "out/r1/p1.local_review.json",
+      "round": 1,
+      "instance": "p1.local_review"
+    },
+    "p1.consistency_bypass": {
+      "file": "out/r1/p1.consistency_bypass.json",
+      "round": 1,
+      "instance": "p1.consistency_bypass"
+    },
+    "p1.hygiene": {
+      "file": "out/r1/p1.hygiene.json",
+      "round": 1,
+      "instance": "p1.hygiene"
+    },
+    "p1.external_standards": {
+      "file": "out/r1/p1.external_standards.json",
+      "round": 1,
+      "instance": "p1.external_standards"
+    },
+    "p1.provenance": {
+      "file": "out/r1/p1.provenance.json",
+      "round": 1,
+      "instance": "p1.provenance"
+    },
+    "p2.diagnose": {
+      "file": "out/r1/p2.diagnose.json",
+      "round": 1,
+      "instance": "p2.diagnose"
+    },
+    "p2.fix_plan": {
+      "file": "out/r1/p2.fix_plan.json",
+      "round": 1,
+      "instance": "p2.fix_plan"
+    },
+    "p2.plan_review": {
+      "file": "out/r1/p2.plan_review.json",
+      "round": 1,
+      "instance": "p2.plan_review"
+    },
+    "p3.lane_merge": {
+      "file": "out/r1/p3.lane_merge.json",
+      "round": 1
+    },
+    "p3.fix": {
+      "file": "out/r1/p3.fix.json",
+      "round": 1,
+      "instance": "p3.fix"
+    }
+  },
+  "done_ever": {
+    "p0.base": 1,
+    "p0.local_checks": 1,
+    "p0.premises": 1,
+    "p1.worktree_before": 1,
+    "p0.purpose": 1,
+    "p0.parallel_pr": 1,
+    "p0.prior_decisions": 1,
+    "p1.local_review": 1,
+    "p1.consistency_bypass": 1,
+    "p1.external_standards": 1,
+    "p1.provenance": 1,
+    "p1.hygiene": 1,
+    "p1.worktree_after": 1,
+    "p2.diagnose": 1,
+    "p2.fix_plan": 1,
+    "p2.plan_review": 1,
+    "p3.lane_merge": 1,
+    "p3.fix": 1
+  },
+  "loop": {
+    "reviewed_revision": "71c106763f918546ec7dc17c4773450ef53d9754",
+    "diff_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/diff-r1.patch",
+    "changed_files": [
+      "src/a.py",
+      "src/b.py",
+      "stray.txt"
+    ],
+    "changed_files_file": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/changed-r1.txt",
+    "diff_stat": "3 files changed, 5 insertions(+), 2 deletions(-)",
+    "diff_lines": 7,
+    "head_revs": {
+      "1": "71c106763f918546ec7dc17c4773450ef53d9754"
+    },
+    "tree_before": {
+      "porcelain": [
+        "?? stray.txt"
+      ],
+      "stash": "",
+      "tree": "33a88aed8b2c1a3c68b3c03f39020020d99e71e8"
+    },
+    "last_seen": {
+      "base_determination": 1,
+      "local_checks": 1,
+      "parallel_pr": 1,
+      "prior_decisions": 1,
+      "local_review": 1,
+      "consistency": 1,
+      "bypass": 1,
+      "hygiene": 1,
+      "external_standards": 1,
+      "provenance": 1
+    },
+    "last_material": {
+      "base_determination": {
+        "status": "clean",
+        "checked": "HEAD~1 で決めた。BASE=f6b595c。対象差分は 1 コミット分"
+      },
+      "local_checks": {
+        "status": "clean",
+        "checked": "python -m pytest（緑）"
+      },
+      "parallel_pr": {
+        "status": "clean",
+        "checked": "gh pr list 0 件（打ち切りなし）"
+      },
+      "prior_decisions": {
+        "status": "clean",
+        "checked": "docs/ と closed issue を洗った。決着済みなし"
+      },
+      "local_review": {
+        "status": "found",
+        "count": 1,
+        "detail": "/code-review: 上限の分岐が片方だけ"
+      },
+      "consistency": {
+        "status": "clean",
+        "checked": "命名と設定の追従を Grep で突合"
+      },
+      "bypass": {
+        "status": "clean",
+        "checked": "翻訳関数・共有ユーティリティの迂回なし"
+      },
+      "hygiene": {
+        "status": "clean",
+        "checked": "差分の追加行すべて"
+      },
+      "external_standards": {
+        "status": "clean",
+        "checked": "依存の組み込み機能と突合。再発明なし"
+      },
+      "provenance": {
+        "status": "clean",
+        "checked": "事実の主張なし"
+      }
+    },
+    "engine_zero": {
+      "round": 1,
+      "keys": [
+        "src/b.py:g — 定数の重複"
+      ]
+    },
+    "lane_merge": {
+      "round": 1,
+      "merged": [],
+      "conflicts": []
+    },
+    "wrote_refs_reads": {
+      "round": 1,
+      "items": [
+        {
+          "kind": "text",
+          "cite": "# demo",
+          "target": "README.md",
+          "where": "src/a.py",
+          "self": false,
+          "state": "none",
+          "why": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/reads.jsonl が無い（フックが入っていないか、入れる前に始めた session）"
+        },
+        {
+          "kind": "text",
+          "cite": "# この周に書いた見出し",
+          "target": "docs/made-this-round.md",
+          "where": "README.md",
+          "self": false,
+          "state": "none",
+          "why": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-review-neg-pjsi253r/state/reads.jsonl が無い（フックが入っていないか、入れる前に始めた session）"
+        }
+      ]
+    },
+    "coverage_after": {
+      "round": 1,
+      "items": [
+        {
+          "unit_key": "src/a.py:f — 上限が効かない経路がある",
+          "how": {
+            "patterns": [
+              "limit"
+            ],
+            "paths": [
+              "src"
+            ],
+            "count": "files"
+          },
+          "counts": "population",
+          "total": 1,
+          "closed": 1,
+          "after": 0
+        },
+        {
+          "unit_key": "src/b.py:g — 定数の重複",
+          "how": {
+            "patterns": [
+              "limit"
+            ],
+            "paths": [
+              "src"
+            ],
+            "count": "files"
+          },
+          "counts": "population",
+          "total": 1,
+          "closed": 1,
+          "after": 0
+        }
+      ]
+    }
+  },
+  "rev": 34,
+  "engine_changes": [
+    {
+      "round": 1,
+      "from": null,
+      "to": {
+        "root": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops",
+        "version": "0.20.3"
+      },
+      "at": "2026-09-26T20:29:28+09:00"
+    }
+  ],
+  "engine": {
+    "root": "/private/var/folders/sz/ry75t4r93s9d8bhdfb248gbn7z3rwq/T/gl-sim/graphloops",
+    "version": "0.20.3"
+  },
+  "git_mismatches": [
+    {
+      "where": "P1",
+      "round": 1,
+      "diff": [
+        "porcelain: [] → [' M src/a.py']",
+        "tree: '818152e239e0bfc63ed8ec507ceca397ed31b638' → '135bc12531f68c231cb1fd0b7551c9b2e9a77511'"
+      ],
+      "accepted": null
+    },
+    {
+      "where": "P1",
+      "round": 1,
+      "diff": [
+        "porcelain: [] → ['?? stray.txt']",
+        "tree: '818152e239e0bfc63ed8ec507ceca397ed31b638' → '33a88aed8b2c1a3c68b3c03f39020020d99e71e8'"
+      ],
+      "accepted": null
+    },
+    {
+      "where": "P1",
+      "round": 1,
+      "diff": [
+        "porcelain: [] → ['?? stray.txt']",
+        "tree: '818152e239e0bfc63ed8ec507ceca397ed31b638' → '33a88aed8b2c1a3c68b3c03f39020020d99e71e8'"
+      ],
+      "accepted": "writer の変更（検査用）",
+      "retaken": {
+        "stat": "3 files changed, 5 insertions(+), 2 deletions(-)",
+        "files": 3
+      },
+      "refired": [
+        "p1.local_review",
+        "p1.consistency_bypass",
+        "p1.hygiene",
+        "p1.external_standards",
+        "p1.procedure_trace",
+        "p1.gate_efficacy",
+        "p1.test_double_fidelity",
+        "p1.main_path_observation",
+        "p1.provenance",
+        "p0.prior_decisions"
+      ],
+      "stale_materials": {
+        "local_review": {
+          "status": "found",
+          "count": 1,
+          "detail": "/code-review: 上限の分岐が片方だけ"
+        },
+        "consistency": {
+          "status": "clean",
+          "checked": "命名と設定の追従を Grep で突合"
+        },
+        "bypass": {
+          "status": "clean",
+          "checked": "翻訳関数・共有ユーティリティの迂回なし"
+        },
+        "hygiene": {
+          "status": "clean",
+          "checked": "差分の追加行すべて"
+        },
+        "external_standards": {
+          "status": "clean",
+          "checked": "依存の組み込み機能と突合。再発明なし"
+        },
+        "provenance": {
+          "status": "clean",
+          "checked": "事実の主張なし"
+        },
+        "prior_decisions": {
+          "status": "clean",
+          "checked": "docs/ と closed issue を洗った。決着済みなし"
+        }
+      }
+    }
+  ]
+}

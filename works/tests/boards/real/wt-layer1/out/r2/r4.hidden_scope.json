@@ -1,0 +1,21 @@
+{
+  "status": "pass",
+  "reason": "seen: 累積差分全文（README.md・engine/commands.py・engine/declared.py・engine/role_run.py・tests 一式・tests/mutations.json）を読み、role_run.py の主要関数（_ps_all・_tree_members・_stop_tree・_communicate・_reap/_reap_one・_end_attempt・_spawn・run_role・run_steps・probe_group/_probe・stop_group）の実装を全文読了。近傍・呼び元として graphloops/engine/commands.py（launch_one・cmd_relaunch・stop_group 呼び出し箇所）、graphloops/engine/advance.py（role_run からの import 範囲）、graphloops/engine/declared.py（宣言スキーマとヘッダ注記）、README.md の宣言節を確認し、run_role/run_steps の全呼び出し元（commands.py launch_one L637・run_steps L569、rules/review-loop.py の run_tree 呼び出し）を Grep で洗った。横断リスク観点のうち「レート制限・濫用耐性」「PII の外部送信」は本 diff の領域（ローカルプロセスの起動・停止）に該当する外部公開エンドポイント・PII 送信経路が無いため非該当と確認（沈黙でなく明示）。「可用性の外部結合」は新設の _ps_all が `ps -A` をローカルで起こす形（既存の _started_at と同じパターン、timeout=30 で外部ネットワーク結合なし）で新規のリスク増分は無いと判断。「誤爆半径」はこの diff がまさに解こうとしている中心課題で、round1・round2 の人による事前審査で洗い出された regression（pid 再利用による誤射・EPERM の原因消失・killpg の対象を長のグループに絞る欠陥・段ごとでなく試行ごとの回収・run_tree の時間上限・セッション不読で印が残り続ける形）は、コード上（started 比較による reuse 判定、EPERM 時の即時返答、`or m.pgid == pgid`、_end_attempt による試行単位の回収、_communicate の deadline が呼び出し全体にかかる形、_reap_one の UNSURE 除外）と対応する新規テスト（test_tree_members_ignores_a_reused_leader_number・test_stop_group_posix_eperm_on_a_live_member_says_why_at_once・test_stop_tree_keeps_signalling_the_group_after_the_leader_is_reaped 等）で確認でき、全て解消済みと確認した。新たに見えた誤爆半径の穴は無い。移行退行の棚卸し（capability_inventory）はこの diff がテスト一式の既定挙動（正常終了後の背景プロセスの扱い）を変える dev-flow/UX 変更のため発火する。lost に挙げた 1 件は round2 で人が continue 済みの同一能力（役・テスト一式・run_tree のいずれも正常終了時に残した背景プロセスが試行の終わりに刈られる）で、承認条件②（.review-checks.json の段ごとの keep_background 逃げ道・README 明記・壊すと赤くなるテスト）が実装（declared.py STEP_OPTIONAL_KEYS・README 該当節・test_readme_names_every_optional_step_key・test_parse_keeps_the_keep_background_declaration）で満たされていることを確認した。ただし run_role（役の起動、launch_one 経由の全ノード呼び出し）にはこの逃げ道が存在せず、reap はモジュール内部の bool kwarg のみで対象リポジトリ側から宣言できない——これは round2 の人の決定文が明示的に『役』を含めて対象にした上での continue なので、同じ文で棚卸しに載せるに留め、redesign-needed には数えない。unseen: tests/mutations.json の RR15〜RR24 が実際に mutmut/mutate.py の実行器で緑/赤を検算できているか（腕の実測）は実行できておらず未検証（実行は他 inspector/gate の役割と理解し、ここでは対象外とした）。commands.py・advance.py 以外に role_run を import する engine 側コード（graphs/*.json・rules/*.py 経由の間接呼び出し）はファイル一覧の grep で洗ったが、rules/review-loop.py 等のプロンプト側の使い方の逐次実行までは追っていない（手順トレースは別観点の担当と理解）。policy_conflicts はゼロ——期限・タイムアウトの新設なし、新しい外部依存の追加なし、能力の削減は棚卸しの経路で人に上げられ承認済み。",
+  "capability_inventory": {
+    "fired": true,
+    "lost": [
+      "長が正常に終わった試行（役・テスト一式・rules の run_tree）が意図して残した背景のプロセスも、試行の終わりに刈られる（BASE では正常に終わった試行の子孫は残った）——判定役が世界の解（Jenkins の ProcessTreeKiller・systemd の停止時の刈り取り）で決め、試行を超えて生き残るプロセスを使う消費者がこのリポジトリに見当たらないとした。ただし今ある使い方を狭める形なので、書き落とさずに挙げる"
+    ],
+    "note": "この能力損失は round2 の human_gate で continue 済み（条件②の keep_background 逃げ道・README・テストは本差分で実装済みと確認）。役（run_role/launch_one）側にはこの逃げ道が及んでいないが、これは人の決定文が『役』を明示的に対象へ含めた上での承認であり、新規の未決事項ではないため同じ文でそのまま記録するに留める。"
+  },
+  "policy_conflicts": [],
+  "surfaced": [
+    {
+      "where": "graphloops/engine/declared.py:6-22（冒頭の注記）",
+      "text": "README.md の宣言節は「他人のリポジトリ・他人の PR を回すときは、宣言とそれが呼ぶスクリプトを先に読め（承認を外した理由・守られなくなった物・残る物は declared.py の冒頭の注記）」と keep_background の説明文の直後で同じ注記を指すが、指し先の注記本文（6-22行）は 2026-09-25 の『人の承認 direnv allow を外した』決定についてのみで、keep_background が持つ『段の背景プロセスを試行終了後も残す』という新しい持続可能性についての言及がない。初見の読者がリンクを辿っても keep_background 固有のトレードオフの説明に行き着かない。",
+      "mechanism": "README の 1 文の中で 2 つの異なる懸念（承認廃止／keep_background）が同じ参照先を共有しているため、参照先のテキストが更新されないまま片方の懸念だけを説明する形になっている。",
+      "measured": "declared.py 6-22 行を読み、keep_background・背景プロセス・持続への言及が無いことを目視確認した。",
+      "false_positive_if": "『他人のリポジトリの宣言とスクリプト本体を先に読め』という既存の一般的注意で、この持続の含意も読者が推論できると判断される場合"
+    }
+  ]
+}

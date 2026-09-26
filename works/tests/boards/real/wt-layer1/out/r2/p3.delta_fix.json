@@ -1,0 +1,24 @@
+{
+  "handled": [
+    {
+      "key": "communicate-midreap-skips-unsure-filter",
+      "handled": "fixed",
+      "how": "正常に終わった長の木の残りを止める口を _reap_one 1 つにし、_communicate の途中（管が閉じない回）と _reap（試行の終わり）の両方がそこを呼ぶ形にした。UNSURE（セッションを読めないプロセスが居るだけ）は止め切れなかったと数えず NG も出さない、の約束が 1 か所になった。pytest test_reap_one_does_not_count_an_unreadable_session_as_left（unsure→None・NG なし／残った→理由と NG）を足し（件数 396→398、conftest の定数も）、写しで UNSURE の濾過を外すと unsure の形が赤、戻して緑を確かめた。あわせて判定の再判定（p2.rejudge）が keep_background の説明の『次の段や』を実物に合わせよとしたので、README・declared.py・run_steps の docstring を『試行の外で使う背景のプロセスを残す逃げ道（次の段までは宣言が無くても残る）』に直した",
+      "files": [
+        "graphloops/engine/role_run.py",
+        "graphloops/tests/py/test_role_run_stop.py",
+        "graphloops/tests/py/conftest.py",
+        "graphloops/engine/declared.py",
+        "README.md"
+      ]
+    },
+    {
+      "key": "commands-relaunch-docstring-stale-pgid-cleanup-timing",
+      "handled": "fixed",
+      "how": "commands.py の cmd_relaunch の docstring の『role_run が書き、子が終わると消す』を『試行が終わると木の残りを止めてから消す』に直した（1 句だけ。並行の wip/h1 が同じファイルを触りうるので、ほかは触らない）",
+      "files": [
+        "graphloops/engine/commands.py"
+      ]
+    }
+  ]
+}

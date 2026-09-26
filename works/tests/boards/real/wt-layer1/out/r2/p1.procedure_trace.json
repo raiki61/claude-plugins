@@ -1,0 +1,20 @@
+{
+  "material": {
+    "status": "found",
+    "count": 1,
+    "detail": "graphloops/tests/simulate.py の新設ゾンビ検出ループ（test_role_run 内、r2 差分 +2027〜+2030 相当）が、ps の起動自体が拒まれる sandbox で無防備な subprocess.run を打ち、実行するとその場で例外を投げてスイート全体を落とす（実測で再現済み）。graphloops/engine/role_run.py 側・graphloops/tests/py/test_role_run_stop.py 側は該当 pytest 33 件が緑、conftest.py の EXPECTED_ITEMS=383 は `pytest --collect-only` の実測 383 件と一致。graphloops/tests/run.sh の EXPECTED_CHECKS=1935・EXPECTED_TESTS=162 は、この sandbox では simulate.py が同じ理由で完走できず実測できなかった（unmeasured へ）。"
+  },
+  "findings": [
+    {
+      "where": "graphloops/tests/simulate.py:2026-2030（test_role_run。r2 差分の該当行）",
+      "text": "ゾンビ検出の while ループが `subprocess.run([\"ps\", \"-o\", \"stat=\", \"-p\", str(leader.pid)], ...)` を try/except なしで直接呼んでおり、ps の起動自体が拒まれる sandbox（本 PR が role_run.py で明示的に想定・対処している種類の sandbox）では、ループの初回呼び出しで PermissionError が無防備に伝播し、test_role_run 全体・parallel.run_all を通じて simulate.py プロセス全体を落とす。実測: このレビュー実行環境（macOS Seatbelt。Claude Code の Bash サンドボックス）で `python3 graphloops/tests/simulate.py` を単体実行し、`PermissionError: [Errno 1] Operation not permitted: 'ps'` が subprocess._execute_child から未捕捉のまま上がり、トレースバックとともに落ちるのを確認した（他の 66 件超のチェックは通過済みで、この 1 箇所でだけ落ちる）。同じ関数内の他の ps 呼び出し（role_run._ps_all）は `except (OSError, subprocess.SubprocessError)` で同種の失敗を握っており、この新設ループだけが対称性を欠く。",
+      "mechanism": "role_run.py 自身が『macOS はゾンビだけのグループへの killpg を EPERM で拒む』『sandbox の中から別のグループへの信号は EPERM』と明記し、_ps_all() はその種の失敗を捕捉して (None, 理由) を返す設計にしているのに、同じ PR がテストに追加したこの while ループは ps の**起動そのもの**が拒まれるケースを想定しておらず、例外が subprocess.run 内で無捕捉のまま上がる。",
+      "measured": "python3 graphloops/tests/simulate.py を直接実行し、上記の PermissionError トレースバックで停止することを確認（実行ログはツール呼び出しの出力に残る）。graphloops/tests/py の pytest 33 件（test_role_run_stop.py）は同条件で全て緑——そちらは ps を monkeypatch でモックしており、この sandbox 特有の失敗を再現しない側だった。",
+      "false_positive_if": "対象リポジトリの CI・レビュー実行環境が exec(\"ps\") を拒まない（sandbox なし、または ps だけを許すサンドボックス設定）なら、このコードパスは通常運用で発火せず、指摘は的外れになる。ただし role_run.py 自身の docstring がこの PR の対象環境として『sandbox の形の実測（sandbox-exec 経由の claude 実行）』を明示的に挙げており、このレビュー自体が同種の sandbox の中で実行されている実測結果と符合するため、的外れである可能性は低いと判断した。"
+    }
+  ],
+  "unmeasured": [
+    "graphloops/tests/run.sh の EXPECTED_CHECKS=1935・EXPECTED_TESTS=162: `bash graphloops/tests/run.sh` をバックグラウンドで実行したが、simulate.py が上記 PermissionError で途中終了するため、この sandbox では実測値が確定するまで完走を確認できなかった（graphcheck ループ分は EXPECTED_CHECKS に含まれるが、simulate 系 2 本の走査件数と台本数の柵は simulate.py の異常終了により未実測）。",
+    "_stop_tree の「表が読めない（_tree_members が None を返す）」分岐が、長のグループがゾンビだけで killpg が EPERM を返すケースを『表が読める』分岐と同じ寛容さで扱っていない可能性（機構: 読める分岐は _live() で判定し EPERM を活きていると読まないが、読めない分岐は os.killpg(pgid, sig) が投げた PermissionError を無条件に『信号を送れない』として返す）。この仮説を検証するはずだった simulate.py の該当チェック（『ゾンビだけのグループの EPERM を生きていると読まず…』テスト、graphloops/tests/simulate.py:2031-2034 相当）自体が、その手前の ps 起動失敗（findings の該当項目）で到達前に落ちたため、実測できなかった。"
+  ]
+}
