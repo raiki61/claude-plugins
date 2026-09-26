@@ -1,0 +1,1802 @@
+[
+ {
+  "name": "request_ok",
+  "fn": "check_request",
+  "input": {
+   "reply": "request_ok",
+   "base_rev": "<base>",
+   "before": []
+  },
+  "result": {
+   "ok": true,
+   "reason": ""
+  },
+  "files": [
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "request_ok_twice",
+  "fn": "check_request",
+  "input": {
+   "reply": "request_ok",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": ""
+  },
+  "files": [
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    },
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "request_extra_key",
+  "fn": "check_request",
+  "input": {
+   "reply": "request_extra_key",
+   "base_rev": "<base>",
+   "before": []
+  },
+  "result": {
+   "ok": false,
+   "reason": "add の形: [{where, text, mechanism?, measured?, false_positive_if?}] の配列（空でない）: $[0].findings[0]: 知らない欄 'severity'"
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "request_not_list",
+  "fn": "check_request",
+  "input": {
+   "reply": "request_ok+not_list",
+   "base_rev": "<base>",
+   "before": []
+  },
+  "result": {
+   "ok": false,
+   "reason": "add の形: [{where, text, mechanism?, measured?, false_positive_if?}] の配列（空でない）: $[0].findings: 型が array でない（dict）"
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "judge_ok_after_request",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "open_units": [
+    "stats.py mean: 分母が len(xs) - 1 になっている",
+    "stats.py clamp: 上限を超えた値に lo を返す"
+   ],
+   "judgment_file": "<board>/judgment.json"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "judge_ok_no_request",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok",
+   "base_rev": "<base>",
+   "before": []
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "open_units": [
+    "stats.py mean: 分母が len(xs) - 1 になっている",
+    "stats.py clamp: 上限を超えた値に lo を返す"
+   ],
+   "judgment_file": "<board>/judgment.json"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judgment.json"
+  ],
+  "written": {
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "judge_ok_empty_base_rev",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok",
+   "base_rev": "",
+   "before": []
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "open_units": [
+    "stats.py mean: 分母が len(xs) - 1 になっている",
+    "stats.py clamp: 上限を超えた値に lo を返す"
+   ],
+   "judgment_file": "<board>/judgment.json"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judgment.json"
+  ],
+  "written": {
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "judge_missing_units",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok+no_units",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "判定の返答の型が合わない: $: 必須の欄 'units' が無い",
+   "open_units": [],
+   "judgment_file": ""
+  },
+  "files": [
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "judge_notfound_no_searched",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_notfound_no_searched",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "judge の返答が記録の語彙に合わない（judge に返させ直す）: precedents[1]（not_found）に searched（何をどう探したか）が無い",
+   "open_units": [],
+   "judgment_file": ""
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "judge_no_fix",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_no_fix",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "open_units": [],
+   "judgment_file": "<board>/judgment.json"
+  },
+  "files": [
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも既に直っていて、stats.py の mean と clamp は依頼の期待どおりの値を返す",
+    "one_shot": "直す物は無い",
+    "units": [
+     {
+      "key": "stats.py mean: 依頼の件は再現しない",
+      "label": "info",
+      "reason": "事実: stats.py の mean は sum(xs) / len(xs) を返し、mean([1, 2, 3]) は 2.0。反証: 別の入力で分母が変わる枝を探したが無い"
+     },
+     {
+      "key": "stats.py clamp: 依頼の件は再現しない",
+      "label": "info",
+      "reason": "事実: stats.py の clamp は x > hi の枝で hi を返し、clamp(15, 0, 10) は 10。反証: 下限の枝との取り違えを探したが無い"
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [],
+    "precedents": []
+   }
+  }
+ },
+ {
+  "name": "judge_dirty_tree",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok",
+    "tree:dirty_extra"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: ['?? extra.txt']）",
+   "open_units": [],
+   "judgment_file": ""
+  },
+  "files": [
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "judge_snapshot_same",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok",
+   "base_rev": "<base>",
+   "before": [
+    "tree:dirty_extra",
+    "request:request_ok",
+    "snapshot:judge"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "open_units": [
+    "stats.py mean: 分母が len(xs) - 1 になっている",
+    "stats.py clamp: 上限を超えた値に lo を返す"
+   ],
+   "judgment_file": "<board>/judgment.json"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judge-snapshot.json",
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "judge_snapshot_changed",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok",
+    "snapshot:judge",
+    "tree:dirty_extra"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 受け付けた時 [] / 今 ['?? extra.txt']）",
+   "open_units": [],
+   "judgment_file": ""
+  },
+  "files": [
+   "judge-snapshot.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "name": "judge_carried_r1_round1",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok+carried_r1",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "open_units": [
+    "stats.py mean: 分母が len(xs) - 1 になっている",
+    "stats.py clamp: 上限を超えた値に lo を返す"
+   ],
+   "judgment_file": "<board>/judgment.json"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [
+     {
+      "where": "stats.py:4",
+      "disposition": "decline",
+      "why": "削除すると mean が壊れる"
+     }
+    ],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "judge_not_object",
+  "fn": "check_judge",
+  "input": {
+   "reply": "judge_ok+not_object",
+   "base_rev": "<base>",
+   "before": []
+  },
+  "result": {
+   "ok": false,
+   "reason": "判定の返答の型が合わない: $: 型が object でない（str）",
+   "open_units": [],
+   "judgment_file": ""
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "fix_ok",
+  "fn": "check_fix",
+  "input": {
+   "reply": "fix_ok",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok",
+    "judge:judge_ok"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": ""
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "fix_missing_unit",
+  "fn": "check_fix",
+  "input": {
+   "reply": "fix_missing_unit",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok",
+    "judge:judge_ok"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "p3.fix: どの案にも入っていない単位 ['stats.py clamp: 上限を超えた値に lo を返す']——直す義務の単位は全部どれかの案に入れる"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "fix_unit_key_typo",
+  "fn": "check_fix",
+  "input": {
+   "reply": "fix_ok+unit_key_typo",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok",
+    "judge:judge_ok"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "p3.fix: 今の周に直す単位に無い key ['stats.py mean: 分母が len(xs) - 1 になっている（写し']（判定の key を字面のまま写せ）; どの案にも入っていない単位 ['stats.py mean: 分母が len(xs) - 1 になっている']——直す義務の単位は全部どれかの案に入れる"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "fix_without_judgment",
+  "fn": "check_fix",
+  "input": {
+   "reply": "fix_ok",
+   "base_rev": "<base>",
+   "before": []
+  },
+  "result": {
+   "ok": false,
+   "reason": "盤面に judgment.json が無い——判定を先に受け付けよ"
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "fix_after_no_fix",
+  "fn": "check_fix",
+  "input": {
+   "reply": "fix_ok",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok",
+    "judge:judge_no_fix"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "p3.fix: 今の周に直す単位に無い key ['stats.py clamp: 上限を超えた値に lo を返す', 'stats.py mean: 分母が len(xs) - 1 になっている']（判定の key を字面のまま写せ）"
+  },
+  "files": [
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも既に直っていて、stats.py の mean と clamp は依頼の期待どおりの値を返す",
+    "one_shot": "直す物は無い",
+    "units": [
+     {
+      "key": "stats.py mean: 依頼の件は再現しない",
+      "label": "info",
+      "reason": "事実: stats.py の mean は sum(xs) / len(xs) を返し、mean([1, 2, 3]) は 2.0。反証: 別の入力で分母が変わる枝を探したが無い"
+     },
+     {
+      "key": "stats.py clamp: 依頼の件は再現しない",
+      "label": "info",
+      "reason": "事実: stats.py の clamp は x > hi の枝で hi を返し、clamp(15, 0, 10) は 10。反証: 下限の枝との取り違えを探したが無い"
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [],
+    "precedents": []
+   }
+  }
+ },
+ {
+  "name": "fix_not_object",
+  "fn": "check_fix",
+  "input": {
+   "reply": "fix_ok+not_object",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok",
+    "judge:judge_ok"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "修正の返答の型が合わない: $: 型が object でない（list）"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "delta_ok",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "review_file": "<board>/delta-review.json"
+  },
+  "files": [
+   "delta-review.json"
+  ],
+  "written": {
+   "delta-review.json": {
+    "faces": [],
+    "checks": [],
+    "faces_none": "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
+   }
+  }
+ },
+ {
+  "name": "delta_ok_empty_base_rev",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok",
+   "base_rev": "",
+   "before": [
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "review_file": "<board>/delta-review.json"
+  },
+  "files": [
+   "delta-review.json"
+  ],
+  "written": {
+   "delta-review.json": {
+    "faces": [],
+    "checks": [],
+    "faces_none": "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
+   }
+  }
+ },
+ {
+  "name": "delta_ok_untouched",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok",
+   "base_rev": "<base>",
+   "before": []
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "review_file": "<board>/delta-review.json"
+  },
+  "files": [
+   "delta-review.json"
+  ],
+  "written": {
+   "delta-review.json": {
+    "faces": [],
+    "checks": [],
+    "faces_none": "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
+   }
+  }
+ },
+ {
+  "name": "delta_bad_cite",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_bad_cite",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "p3.delta_review: faces[0] の cite 'return hi + 1' が stats.py の今の姿に無い——在る字列を写せ",
+   "review_file": ""
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "delta_stray_check",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok+stray_check",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "p3.delta_review: checks の key 'stats.py 塞いだと言われていない穴' は塞いだと言われた穴に無い",
+   "review_file": ""
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "delta_no_faces_none",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok+no_faces_none",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "p3.delta_review: 穴を挙げないなら faces_none に何を読んで無いと言えるかを書け",
+   "review_file": ""
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "delta_face_on_untracked",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok+helper_face",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats",
+    "tree:add_helper"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "review_file": "<board>/delta-review.json"
+  },
+  "files": [
+   "delta-review.json"
+  ],
+  "written": {
+   "delta-review.json": {
+    "faces": [
+     {
+      "key": "helper.py 使われない関数",
+      "kind": "dead_path",
+      "where": "helper.py",
+      "cite": "def helper():",
+      "why": "どこからも呼ばれない関数を修正が足している"
+     }
+    ],
+    "checks": []
+   }
+  }
+ },
+ {
+  "name": "delta_snapshot_same",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats",
+    "snapshot:delta"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "review_file": "<board>/delta-review.json"
+  },
+  "files": [
+   "delta-review.json",
+   "delta-snapshot.json"
+  ],
+  "written": {
+   "delta-review.json": {
+    "faces": [],
+    "checks": [],
+    "faces_none": "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
+   }
+  }
+ },
+ {
+  "name": "delta_snapshot_changed",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats",
+    "snapshot:delta",
+    "tree:append_stats"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 切った時 [' M stats.py'] / 今 [' M stats.py']）",
+   "review_file": ""
+  },
+  "files": [
+   "delta-snapshot.json"
+  ],
+  "written": {}
+ },
+ {
+  "name": "delta_plan_only_regression",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok+regression",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "差分の審査の返答の型が合わない: $.faces[0].kind: 値 'regression' が語彙 ['copy', 'entrance', 'contract_drift', 'dead_path', 'scope_creep'] に無い",
+   "review_file": ""
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "delta_plan_only_policy",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok+policy",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "差分の審査の返答の型が合わない: $.faces[0].kind: 値 'policy' が語彙 ['copy', 'entrance', 'contract_drift', 'dead_path', 'scope_creep'] に無い",
+   "review_file": ""
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "delta_plan_only_precedent",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok+precedent",
+   "base_rev": "<base>",
+   "before": [
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": false,
+   "reason": "差分の審査の返答の型が合わない: $.faces[0].kind: 値 'precedent' が語彙 ['copy', 'entrance', 'contract_drift', 'dead_path', 'scope_creep'] に無い",
+   "review_file": ""
+  },
+  "files": [],
+  "written": {}
+ },
+ {
+  "name": "delta_after_full_run",
+  "fn": "check_delta",
+  "input": {
+   "reply": "delta_ok",
+   "base_rev": "<base>",
+   "before": [
+    "request:request_ok",
+    "judge:judge_ok",
+    "tree:fix_stats"
+   ]
+  },
+  "result": {
+   "ok": true,
+   "reason": "",
+   "review_file": "<board>/delta-review.json"
+  },
+  "files": [
+   "count-budget.json",
+   "count-cache.json",
+   "delta-review.json",
+   "judgment.json",
+   "request.json"
+  ],
+  "written": {
+   "request.json": [
+    {
+     "round": 1,
+     "origin": "持ち主",
+     "findings": [
+      {
+       "where": "stats.py",
+       "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤"
+      },
+      {
+       "where": "stats.py",
+       "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+      }
+     ]
+    }
+   ],
+   "judgment.json": {
+    "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+    "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+    "units": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+      "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "(len(xs) - 1)"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "defects",
+       "total": 1
+      }
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+      "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+      "class_query": {
+       "how": {
+        "patterns": [
+         "return lo"
+        ],
+        "fixed": true,
+        "paths": [
+         "stats.py"
+        ],
+        "count": "lines"
+       },
+       "counts": "population",
+       "total": 2
+      }
+     }
+    ],
+    "questions": [],
+    "materials_missing": [],
+    "carried_r1": [],
+    "one_shot_closes": [
+     "stats.py mean: 分母が len(xs) - 1 になっている",
+     "stats.py clamp: 上限を超えた値に lo を返す"
+    ],
+    "precedents": [
+     {
+      "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+      "problem": "数列の算術平均を求める",
+      "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+      "verdict": "adopt",
+      "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+     },
+     {
+      "key": "stats.py clamp: 上限を超えた値に lo を返す",
+      "problem": "値を下限と上限の間に収める",
+      "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+      "verdict": "adopt",
+      "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+     }
+    ]
+   },
+   "delta-review.json": {
+    "faces": [],
+    "checks": [],
+    "faces_none": "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
+   }
+  }
+ }
+]
