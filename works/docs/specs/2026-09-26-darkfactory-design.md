@@ -6,15 +6,13 @@
 
 - 持ち主の普段の作業を、Archon（AI の工程を YAML で書いて機械が順に回す外の道具）の上に移していく。その入れ物が `works`、最初の生産ラインが `darkfactory`（人の修正依頼を、判定 → 修正 → テスト → 人の承認 → 修正の審査の順に流す）。
 - 工程の並べ方は Archon に任せ、差を付けるのは「AI の返答を何で受け付けるか」——graphloops（このリポジトリの既存のプラグイン）の規則と記録の検証器を写してきて、中身が通ったときだけ次へ進める。
-- ブロック（節のまとまり）を 1 フォルダずつ持ち、ラインはブロックを並べるだけにする。並び替え・差し替え・付け足しはラインの数行を替える作業で、噛み合わない並びはお金を使う前にテストで赤くなる。
+- ブロック（節のまとまり）を Archon の工程 1 つとして 1 フォルダずつ持ち、ラインはブロックを `include:` で並べるだけにする。並び替え・差し替え・付け足しはラインの数行を替える作業で、噛み合わない並びは Archon の読み込みの検査（お金を使う前）で落ちる。
 
 ## 0. 狙い（持ち主の言葉から）
 
-- この形に載せ換えておけば、次に別の土台へ移るときも、自分で engine を作るときも、載せ換えが楽になる。**ノウハウ（何を判定させ、何で受け付け、どう並べるか）を、土台に依らない資産として綺麗に保存する**のが狙いである。Archon はその資産を今回置く土台の 1 つで、資産そのものではない。
-- だから層の境目（3 節）を次の線で引き、機械で確かめる（10 節の 2）。
-  - **資産（土台に依らない）**: ブロックの約束（`block.json`・入口と出口の型）・役の指示書の本文・役の返答の型・規則の関数と記録の検証器（`.shared/core/`）。
-  - **Archon への結び（土台ごとに書き直す）**: ラインとブロックの YAML・つなぎ（`scripts/*.py`）・筋書き（`fixtures/*.stubs.yaml`）・開発の殻（`dev/`）。
-- 別の土台へ移るときに書き直すのは結びだけで、資産はそのまま持っていける。載せ換えの手間は「結びの行数」で測れる。
+- この形に載せ換えておけば、次に別の土台へ移るときも、自分で engine を作るときも、載せ換えが楽になる。**ノウハウ（何を判定させ、何で受け付け、どう並べるか）を資産として綺麗に保存する**のが狙いである。
+- 保存の書式は **Archon の規約に寄せる**（持ち主の判断 2026-09-26）。Archon の工程の書式は特定の用途に縛られない汎用の物で、約束の仕組み（入力の宣言・返す節・返答の型・成否の欄）も持っている。自前の書式を別に立てても、移る先でまた訳すことになるので得が薄い。
+- 自前で持つのは、Archon の規約が「コードに置け」と言っている物だけ——受け付けの規則と記録の検証器（script の節から呼ぶ Python）である。
 
 ## 1. 持ち主の決定（2026-09-26）
 
@@ -33,7 +31,7 @@
 - 外側の組み方（1 工程 1 フォルダ、`include:` と `with:` で部品を並べる）は Archon 同梱の工程集 sdlc と同じになる。これは Archon の標準の組み方で、ここで差は付けない。
 - 差を付けるのは次の 2 つ。
   1. **受け付けの厳しさ**: sdlc は返答の形（`output_format`）が合えば受け付ける。works は形の上で graphloops の規則と検証器が中身を通したときだけ受け付け、拒めば同じ会話で出し直させる。
-  2. **ブロックの約束**: ブロックごとに入口・出口の型のファイルと差し込み口を持ち、並びが噛み合うかを走らせる前に機械で確かめる。sdlc は部品の入口を名前だけで持ち、噛み合わなければ走った時点で落ちる。
+  2. **ブロックの切り方**: graphloops で積んだ知見（どこで区切れば修正を TDD 版や外の実装に差し替えられるか、どこに人の関所を置くか）でブロックを切る。約束そのものは Archon の仕組みで持つ（3 節）。
 
 ## 3. 層（Archon の作法「YAML coordinates. Code computes. Agents judge.」に沿う）
 
@@ -44,11 +42,12 @@
 3. **つなぎ（ブロックの `scripts/*.py`）** —— Archon の口（`$節.output`・`$ARTIFACTS_DIR`・`$INPUTS`）を読み、中身の関数を呼び、決まった JSON を 1 行で返す。拒否も終了コード 0 で `ok: false` を返し、読めないときだけ 2 で落ちる。
 4. **中身（`.shared/core/`）** —— 規則の関数・記録の検証器・型。Archon を知らない。Archon 無しで単体テストが回る。
 
-土台に依らない物の決まり（0 節の資産の側）:
-- `.shared/core/`・`block.json`・`*.schema.json` は Archon の名前（`$ARTIFACTS_DIR`・`$INPUTS`・`INPUTS_`・`$LOOP_PREV`・`archon` など）を含まない。
-- 役の指示書の本文が使ってよい差し込みは、そのブロックが `inputs:` で宣言した `$INPUTS.<名>` と、受け付けが拒んだ理由の 1 か所（`$LOOP_PREV.accept.output.reason`。同じ会話での出し直しに要る）だけにする（前の節の `$節.output`・`$ARTIFACTS_DIR` を直に書かない。要る物はブロックの YAML が `with:` か前の節の出力を入口の欄に写して渡す）。別の土台へ移るときは、差し込みの書き方を置き換えるだけで済む。Archon も include で入った指示書が外の節を直に指すのを拒むので、この決まりは Archon の決まりとも揃う。
+約束は Archon の仕組みで持つ（自前の約束のファイルは置かない）:
+- ブロックの入口は `inputs:`、出口は `returns:` が指す節の `output_format`、成否は `outcome_field`。
+- 読み込みの時に Archon が確かめる（879c99fe の源で確かめた）: `with:` の鍵と `inputs:` の突き合わせ・宣言の外の鍵の拒否、前の節の出力の欄を読むときにその欄が相手の `output_format` に在るか（`packages/workflows/src/output-ref.ts`）、`outcome_field` が返す節の `output_format` に在るか（`loader.ts`）。
+- 同梱の工程集 sdlc の作法も使う: 成果物の報告は `archon_artifact` の指し（在るファイルでなければ節を拒む）、構造のある値はスクリプトへ `with: {欄: {from: "$節.output.欄"}}` で型のまま渡す、修正の前の版は `$節.execution.checkoutStart` で取る。
 
-## 4. 構成
+## 4. 構成## 4. 構成
 
 ```
 works/
@@ -63,17 +62,14 @@ works/
 │   ├── darkfactory.yaml
 │   └── fixtures/*.stubs.yaml   ライン全体の筋書き
 ├── blk-judge/                  ブロック（support workflow。ラインからしか使えない）
-│   ├── blk-judge.yaml
-│   ├── block.json
-│   ├── entry.schema.json
-│   ├── exit.schema.json
+│   ├── blk-judge.yaml          入口（inputs）・出口（returns の節の output_format）もここに書く
 │   ├── commands/diagnose.md
 │   ├── scripts/accept.py
 │   └── fixtures/*.stubs.yaml
 ├── blk-fix/
 ├── blk-tests/
 ├── blk-delta/
-├── tests/                      中身とつなぎの単体テスト・約束の突き合わせ・返答の見本（直下に YAML を置かない）
+├── tests/                      中身とつなぎの単体テスト・返答の見本（直下に YAML を置かない）
 ├── dev/                        固定した版の Archon を隔離した HOME で回す殻・使い捨ての対象リポジトリを作る道具
 └── skills/works/SKILL.md       works の薄いスキル（配り方は 12 節）
 ```
@@ -81,16 +77,15 @@ works/
 - Archon の決まり（879c99fe で確かめた）: pack の根の直下のフォルダのうち、直下に YAML がちょうど 1 本あるものが工程になる。ドット始まりのフォルダ・直下に YAML が無いフォルダ（`tests/`・`dev/`・`docs/`・`skills/`）は工程として読まれない。install は symlink・submodule・`\`・`:` を含むパスを拒む。
 - 名前: ラインは素の名前（`darkfactory`・後の `research`）、ブロックは `blk-` を頭に付ける。
 
-## 5. ブロックの約束と組み替え
-
-形は本体のセッションのブロックの約束の案（`S/blocks/BLOCKS.md`、S = 本体のセッションの scratchpad）の 2 節と 4.2 節に揃える。後で graphloops 側と寄せ直すとき、つなぎを差し替えるだけで済むようにするため。
+## 5. ブロックと組み替え
 
 ### 5.1 1 ブロックの持ち物
 
-- `block.json`: `id`・`version`・`entry`（入口の型の名前と、前のブロックの出口から読む欄の path の一覧 `needs`）・`exit`（出口の型の名前と、出口を作る集める節）・`nodes`・`gates`（人の関所の節）・`slot`（差し込み口の名前。差し替えられるブロックだけ）。
-- `entry.schema.json`・`exit.schema.json`: JSON Schema の標準の語だけで書く。出口は必ず `type: object` で `ok`（真偽）を持ち、結果の欄は `ok` と並べる（包まない）。
-- `<blk>.yaml`: `inputs:` に入口の欄の名前と説明（Archon の `inputs:` は型を持てない。型はつなぎが entry.schema.json で照らす）。`returns:` は集める節で、その `output_format` に exit.schema.json の写しを置く。
-- 受け渡し: 小さい値は `$節.output.欄`、大きい物（単位の表など）は `$ARTIFACTS_DIR/board/` のファイルのパス。
+- `<blk>.yaml`: Archon の工程 1 つ。`inputs:` に入口の欄、`returns:` に出口を集める節、その節の `output_format` に出口の型、`outcome_field` に成否の欄。
+- `commands/*.md`: 役の指示書。Archon の変数（`$INPUTS.<名>`・`$節.output` など）をそのまま使う。
+- `scripts/*.py`: つなぎ（受け付け・確かめ）。
+- `fixtures/*.stubs.yaml`: このブロック単体の筋書き。
+- 受け渡し: 小さい値は `$節.output.欄`、大きい物（単位の表など）は `archon_artifact` の指しか `$ARTIFACTS_DIR` の下のファイルのパス。
 
 ### 5.2 ラインでの並べ方
 
@@ -125,15 +120,14 @@ nodes:
 ### 5.3 組み替えの 4 通り
 
 1. 並び替え: ラインの `depends_on` を書き換える。
-2. 差し替え: 同じ `slot` を持つ別のブロックへ `include:` の名前を替える（例: `blk-fix` → TDD で直す `blk-fix-tdd`）。入口・出口の型が同じなら前後はそのまま効く。
+2. 差し替え: 同じ入口（`inputs:`）と出口（返す節の `output_format`）を持つ別のブロックへ `include:` の名前を替える（例: `blk-fix` → TDD で直す `blk-fix-tdd`）。噛み合わなければ Archon の読み込みの検査で落ちる。
 3. 付け足し: 雛形からブロックのフォルダを作り、筋書きと出口の型を先に書いて赤を確かめ、中身を書き、ラインに `include:` を 1 つ足す。
 4. 新しいライン: 別の入口の YAML が同じブロックを並べ直す。
 
-### 5.4 組み替えを守る検査（`tests/`）
+### 5.4 組み替えを守る検査
 
-- **約束の突き合わせ**: ラインを読み、各 include の `with:` とブロックの `needs` が、前に並ぶブロックの出口の型に在る欄を指しているかを辿る。欠けていれば赤。
-- **型の写しの一致**: 各ブロックの集める節の `output_format` と `exit.schema.json`、役の節の `output_format` と `.shared/core` の役の返答の型が一致するか。Archon の `output_format` は外のファイルを指せないため、写しを置いて一致を機械で確かめる（BLOCKS.md 9 節の 2 の推し）。
-- 片方の検査が効くことは、わざと壊した見本（欄を消したライン・型をずらした YAML）で赤になることで確かめる。
+- 並びが噛み合うかは Archon の読み込みの検査（`archon validate workflows`）に任せる（3 節）。自前の突き合わせは作らない。
+- 自前で足すのは 1 つだけ: 役の節の `output_format`（YAML に書いた返答の型）と、受け付けの規則が前提にする返答の形がずれていないか。良い返答の見本が「YAML の `output_format`」と「受け付けの規則」の両方を通ることを単体テストで確かめる（型の検査には写した中身の `engine/schema.py` を使う。標準ライブラリだけで動く）。
 
 ## 6. darkfactory の 1 本目（範囲）
 
@@ -148,7 +142,7 @@ nodes:
 | blk-delta | 差分を切る → 審査役 → 受け付け → 集める | なし | 受け付けの出し直し（上限 3） |
 
 - 受け付けの出し直し: `loop_group`（`until_bash: test $accept.output.ok = true`・`fresh_context: false`・`max_iterations: 3`）。2 回目以降の役は同じ会話の続きで起き、拒んだ理由を `$LOOP_PREV.accept.output.reason` でプロンプトに貼る（試作で実走、REPORT.md 3 節 (c)）。上限を超えれば run は失敗で止まり、`archon workflow resume` で続きから回せる。
-- loop_group の出力は型を持てないので、輪の後ろに集める節を置く（BLOCKS.md 1 節の事実）。
+- loop_group の出力は型を持てないので、輪の後ろに集める節を置く（本体のセッションのブロックの設計書 `S/blocks/BLOCKS.md` の 1 節の事実。S = 本体のセッションの scratchpad `/private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins/799d1c5c-a888-4cdb-bf0a-ac1aea9c5577/scratchpad`）。
 - 判定役に渡す依頼は、graphloops の `add` と同じ findings の型（欄は `where`・`text` 必須、`mechanism`・`measured`・`false_positive_if` 任意）。起動の前に、依頼の欠け（問題・重要性・急ぎ度・成果・壊してはいけない条件・受け入れの基準）を確かめる検査を入口に置く（Archon の `archon-cli` スキルの起動前の確かめを取り入れる）。
 - 指示書は graphloops の `prompts/review-loop/` の p2.diagnose・p3.fix・p3.delta_review を元に、Archon の変数で書き直す。graphloops の指示書は engine の盤面の穴（`{{record.materials}}` など）を前提にしているので、1 本目で盤面に無い物（P1 の素材・前の周の記録・台帳）は削り、受け付けの規則が要求する欄（反証・class_query・precedents・one_shot_closes・questions）を書かせる部分は残す。
 - 範囲の外（次の段以降）: 修正案と事前審査（BLOCKS.md の R5）・修正の手直しと 2 回目の審査（R7 の 2 回目）・周の輪（2 周目以降）・前提（R1）・素材集め（R3）・独立の目（R11）・周の締め（R12）・報告（R13）・変異の検算（R9）・research のライン。
@@ -184,7 +178,7 @@ nodes:
 ## 10. テスト（TDD で先に赤を書く）
 
 1. **中身とつなぎの単体テスト**（`tests/`、Python の unittest）: 良い返答と悪い返答の見本を、写した規則と検証器に通して通る・拒むを見る。悪い見本を拒むことが「検査の検査」になる（ASF の自己検査の考え方）。Archon 不要、数秒。
-2. **約束の突き合わせ・型の写しの一致・期限の上限・資産の土台からの独立**（5.4・7・3 節）: YAML とファイルを読むだけ。Archon 不要。独立の検査は、資産の側のファイルに Archon の名前が現れたら赤、役の指示書が宣言の外の差し込み（拒んだ理由の 1 か所を除く）を使ったら赤にする。
+2. **返答の型のずれ・期限の上限**（5.4・7 節）: YAML とファイルを読むだけ。Archon 不要。
 3. **読み込みの検査**: 使い捨ての対象リポジトリに pack を置き、固定した版の Archon で `archon validate workflows`。
 4. **筋書き**: Archon の `fixtures/*.stubs.yaml`（AI の返答を差し替えた筋書き）で `--dry-run`。ブロックごとと、ライン全体。お金を使わない。拒否 → 出し直し → 通過の筋書きを含める。
 5. **実走**: 試作と同じくバグを仕込んだ使い捨てのリポジトリで回す（1 回約 0.5 ドル）。節目にだけ手で撃つ。
@@ -207,4 +201,4 @@ nodes:
 
 - 修正役を Archon の AI の節のまま置く判断（7 節）は、引き継ぎ文書の案（script の節から role_run で起こす）と違う。実走で書く道具の漏れが問題になれば、role_run の形へ移す。
 - Archon は版上げでよく互換を壊す（0.8〜0.11 の全部に互換を壊す変更の節がある）。範囲の宣言と筋書きのテストで受け止める。
-- 本体のセッションは graphloops 側でブロックの約束（`graphloops/blocks/`）と `gl` コマンドを作る計画で進んでいる。works は写して独立に作るので、同じ約束の形を二か所で育てることになる。寄せ直しの時期は持ち主が決める。
+- 本体のセッションは graphloops 側で自前の約束の書式（`graphloops/blocks/<ブロック>/block.json` と入口・出口の型）と `gl` コマンドを作る計画で進んでいる（`S/blocks/BLOCKS.md`）。works は約束を Archon の規約で持つので、書式が分かれる。ブロックの切り方（どの節を 1 つにまとめるか）と規則の関数の形（読み口を受けて JSON を返す）は BLOCKS.md に倣う。
