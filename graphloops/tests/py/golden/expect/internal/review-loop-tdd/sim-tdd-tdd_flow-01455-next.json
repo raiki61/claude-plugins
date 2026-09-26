@@ -169,7 +169,9 @@
   "out/r1/p3.lane_merge.json": {
    "ok": true,
    "merged": 0,
-   "conflicts": 0
+   "conflicts": 0,
+   "merged_rows": [],
+   "conflict_rows": []
   }
  },
  "calls": [

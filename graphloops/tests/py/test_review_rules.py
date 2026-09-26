@@ -66,6 +66,18 @@ def test_purpose_sources_without_prev_fix_files_is_untouched():
     assert (ok, why) == (False, "前の周の P3 は目的の出典を触っていない")
 
 
+def test_prev_fix_touched_reads_the_round_head_exit():
+    """前の周の P3 が触ったファイルは周の頭の節（p1.worktree_before）の出口から読む。欄の無い旧い出力は触った側（再発火する側）に
+    倒し、測れなかった痕跡を残す（人の決定 2026-09-27: 旧い盤面は警告して通す）"""
+    head = lambda files: View({"cur.p1.worktree_before": {"ok": True, "changed_since_prev_round": files}})
+    assert RULES.prev_fix_touched(head(["a.py"]))[0] is True and RULES.prev_fix_touched(head([]))[0] is False
+    v = View({"cur.p1.worktree_before": {"ok": True, "diff_file": "旧い形"}})
+    ok, why = RULES.prev_fix_touched(v)
+    assert ok is True and "旧い版の出力" in why and v.unevaluated == [("prev_fix_touched", v.unevaluated[0][1])]
+    v = View({"out.p0.purpose": {"source_files": ["README.md"]}, "cur.p1.worktree_before": {"ok": True}})
+    assert RULES.purpose_sources_changed(v)[0] is True and v.unevaluated
+
+
 # ---------------------------------------------------------------- 収束（converge）の CI の自己申告
 def test_converge_asks_when_ci_clean_without_any_checks_note(tmp_path):
     b = board(tmp_path, outputs={"p4.record": {"branch": "converged"}},
@@ -165,7 +177,7 @@ def test_parallel_pr_plan_without_head_passes_empty(tmp_path, monkeypatch):
                                                 ("remote", "get-url", "origin"): "git@github.com:o/r.git\n"}))
     monkeypatch.setattr(RULES, "shutil", types.SimpleNamespace(which=lambda name: "/bin/" + name))
     (tmp_path / "changed.txt").write_text("src/a.py\n", encoding="utf-8")
-    b = board(tmp_path, loop_state={"changed_files_file": str(tmp_path / "changed.txt")})
+    b = board(tmp_path, hist={"snapshot": {"changed_files_file": str(tmp_path / "changed.txt")}})
     got = RULES.parallel_pr_plan(b, "p0.parallel_pr")
     assert got["helper"] == "parallel-pr.py" and got["args"][:4] == ["--repo", "o/r", "--head", ""]
 

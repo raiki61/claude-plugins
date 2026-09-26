@@ -25,8 +25,8 @@
    "この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件"
   ],
   "external_standards_due": [
-   true,
-   "初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "final_gate_due": [
    false,
@@ -37,8 +37,8 @@
    "この周の修正の差分は 0 ファイル"
   ],
   "gate_efficacy_due": [
-   true,
-   "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "gates_cut_nonempty": [
    false,
@@ -57,8 +57,8 @@
    "この周のコードは周の頭から 0 ファイル変わった"
   ],
   "main_path_observation_due": [
-   true,
-   "差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "not_request_entry": [
    true,
@@ -73,16 +73,16 @@
    "入口の印（process.request_entry）が無い——通常の run"
   ],
   "prior_decisions_due": [
-   true,
-   "初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "procedure_trace_due": [
-   true,
-   "差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 0 件）"
   ],
   "provenance_due": [
-   true,
-   "初回か、前の周の P3 が何かを直した周——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、前の周の P3 が何かを直した周——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "purpose_review_due": [
    false,
@@ -141,8 +141,8 @@
    "この周のテストだけを書く段が名指ししたテストは 0 件"
   ],
   "test_double_fidelity_due": [
-   true,
-   "差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "touches_procedures": [
    false,
@@ -163,157 +163,18 @@
  },
  "loop": {},
  "outputs": {
-  "out/r2/p3.delta_owed.json": {
-   "ok": true,
-   "owed": 0,
-   "rows": []
-  },
-  "out/r2/p3.delta_owed2.json": {
-   "ok": true,
-   "owed": 0,
-   "rows": []
-  },
   "out/r2/p3.fix_delta.json": {
-   "ok": true,
-   "fix_delta_file": "<RUN>/fix-delta-r2.patch",
-   "changed_files": []
-  },
-  "out/r2/p3.gates_cut.json": {
-   "ok": true,
-   "from": "f823c7f0d16cc45959771606427e585c6d659e97",
-   "rev": "2b3809ae242cdc1bd995f08dbf4bd9c5a08ae219",
-   "files": [],
-   "result": "<RUN>/lanes/r2-2b3809ae242c.json",
-   "reply_schema": {
-    "type": "object",
-    "required": [
-     "rev",
-     "arms",
-     "handled",
-     "patch"
-    ],
-    "additionalProperties": false,
-    "properties": {
-     "rev": {
-      "type": "string",
-      "minLength": 7,
-      "note": "撃った版（名指しされた版をそのまま）。途中の版の結果は、その版の結果でしかない"
-     },
-     "arms": {
-      "type": "array",
-      "items": {
-       "type": "object",
-       "required": [
-        "gate",
-        "arm",
-        "red_confirmed",
-        "control_green",
-        "hit_evidence"
-       ],
-       "additionalProperties": false,
-       "properties": {
-        "gate": {
-         "type": "string"
-        },
-        "arm": {
-         "type": "string"
-        },
-        "red_confirmed": {
-         "type": "boolean"
-        },
-        "control_green": {
-         "type": "boolean"
-        },
-        "note": {
-         "type": "string"
-        },
-        "hit_evidence": {
-         "type": "string"
-        }
-       }
-      },
-      "note": "実行器の返答の形を組む口が組んだ腕の行をそのまま。赤・対照の緑・当たりの証拠のどれかが欠けた腕が見逃し"
-     },
-     "handled": {
-      "type": "array",
-      "items": {
-       "type": "object",
-       "required": [
-        "key",
-        "handled",
-        "how"
-       ],
-       "additionalProperties": false,
-       "properties": {
-        "key": {
-         "type": "string",
-         "minLength": 5,
-         "note": "arm:<腕の名前>——見逃した腕ごとに 1 行"
-        },
-        "handled": {
-         "type": "string",
-         "enum": [
-          "tests_added",
-          "equivalent",
-          "needs_test",
-          "defect"
-         ],
-         "note": "tests_added＝テストを足してその腕の赤を見た（最後の関門では使えない）／equivalent＝振る舞いの変わらない変異（理由）／needs_test＝テストが要るが足していない／defect＝テストでは閉じない（コードの欠陥の疑い）。needs_test と defect は次の周の判定へ渡る"
-        },
-        "how": {
-         "type": "string",
-         "minLength": 10
-        }
-       }
-      },
-      "note": "見逃した腕（arms で証拠の欠けた腕）の全部に 1 度だけ答える。見逃しの無い腕に行を書かない"
-     },
-     "patch": {
-      "type": "string",
-      "note": "足したテストの patch の置き場（名指しの版から。足さなければ空）。テスト一式の件数の定数の行は入れない——合流した周の修正が実測に合わせる"
-     },
-     "suite": {
-      "type": "object",
-      "required": [
-       "command",
-       "exit"
-      ],
-      "additionalProperties": false,
-      "properties": {
-       "command": {
-        "type": "string",
-        "minLength": 1
-       },
-       "exit": {
-        "type": "integer"
-       }
-      },
-      "note": "読まない欄（取り下げた）。テスト一式の緑は役の申告で受けない——線の足したテストは合流した周の p4.ci、最後の関門の版は同じ周の p4.ci を engine が走らせる。書いてある古い線の結果を型で落とさないために欄だけ残す"
-     }
-    }
-   }
+   "ok": false,
+   "problems": [
+    "p3.fix_delta: 差分の起点の版が無い（1 回目は P1 の頭で、2 回目は p3.fix_delta で固める）"
+   ]
   }
  },
  "calls": [
   [
    "BUILTINS",
-   "delta_owed",
-   "ok=True"
-  ],
-  [
-   "BUILTINS",
    "fix_delta",
-   "ok=True"
-  ],
-  [
-   "BUILTINS",
-   "gates_cut",
-   "ok=True"
-  ],
-  [
-   "BUILTINS",
-   "scalars",
-   "blocked"
+   "ok=False"
   ],
   [
    "CONDS",
@@ -348,7 +209,7 @@
   [
    "CONDS",
    "external_standards_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -363,7 +224,7 @@
   [
    "CONDS",
    "gate_efficacy_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -388,7 +249,7 @@
   [
    "CONDS",
    "main_path_observation_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -408,17 +269,17 @@
   [
    "CONDS",
    "prior_decisions_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
    "procedure_trace_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
    "provenance_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -493,7 +354,7 @@
   [
    "CONDS",
    "test_double_fidelity_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",

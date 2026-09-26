@@ -64,7 +64,7 @@
  "command": {
   "exit": 1,
   "out": "",
-  "err": "NG p3.delta_review: 塞いだと言われた穴 '_s3_xxxxxxxxxxx' に検算が無い——差分で塞がったか（closed）を 1 件ずつ書け\n"
+  "err": "NG p3.delta_review: faces[0] の where 'src/a.py' はこの周の修正が触ったファイルでない（[]）; 塞いだと言われた穴 '_s3_xxxxxxxxxxx' に検算が無い——差分で塞がったか（closed）を 1 件ずつ書け\n"
  },
  "record": {},
  "board": {}

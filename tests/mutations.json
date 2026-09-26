@@ -186,8 +186,8 @@
    "title": "次の周のプロンプトに読了の記録が描画される",
    "file": "graphloops/prompts/review-loop/p2.diagnose.md",
    "suite": "graphloops",
-   "old": "{{?loop.wrote_refs_reads}}",
-   "new": "{{?loop.wrote_refs_read}}",
+   "old": "{{?prev.p3.fix.wrote_refs_reads}}",
+   "new": "{{?prev.p3.fix.wrote_refs_read}}",
    "expect": "review-loop.json は第 2 引数なし",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -1216,7 +1216,7 @@
    "title": "修正後の件数を記録に残す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    b.loop_state[\"coverage_after\"] = {\"round\": b.round, \"items\": afters}",
+   "old": "    out[\"coverage_after\"] = {\"round\": b.round, \"items\": afters}",
    "new": "    pass",
    "expect": "修正前の母数 1・修正後に engine が数えた 0 が記録に残る",
    "tests": {
@@ -2380,7 +2380,7 @@
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "修正の件数: 修正役が population と書いても判定者の defects で数え",
-   "old": "coverage（修正前）\", cov[\"how\"], root, rev=b.loop_state.get(\"reviewed_revision\"))",
+   "old": "coverage（修正前）\", cov[\"how\"], root, rev=_head_rev(b))",
    "new": "coverage（修正前）\", cov[\"how\"], root, rev=None)",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3412,8 +3412,8 @@
    "title": "2 回目の差分は 1 回目の修正後の版から測る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    rev = b.loop_state.get(\"reviewed_revision\") if n == 1 else (_delta_of(b, n - 1) or {}).get(\"rev\")",
-   "new": "    rev = b.loop_state.get(\"reviewed_revision\")",
+   "old": "    rev = (_hist(b, \"snapshot\") or {}).get(\"rev\") if n == 1 else (_delta_of(b, n - 1) or {}).get(\"rev\")",
+   "new": "    rev = (_hist(b, \"snapshot\") or {}).get(\"rev\")",
    "expect": "2 回目の差分は手直しだけ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4426,11 +4426,11 @@
   },
   {
    "id": "LN10",
-   "title": "線の閉じなかった見逃しは周の頭で判定へ",
+   "title": "線の閉じなかった見逃しは周の頭の節の出力から判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "            rows += lane.get(\"delivered_rows\") or []",
-   "new": "            pass",
+   "old": "    return _declared_faces(h.output, h.round - 1) + ((h.output(\"p1.worktree_before\", h.round) or {}).get(\"lane_rows\") or [])",
+   "new": "    return _declared_faces(h.output, h.round - 1)",
    "expect": "合流: 閉じなかった見逃し（needs_test・defect）は宣言の穴",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -6033,8 +6033,8 @@
    "title": "依頼の入口にも積んだ defect は宣言の穴で同じ 1 件と書く",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "                r[\"how\"] += LANE_SAME_ITEM\n",
-   "new": "                pass\n",
+   "old": "            row[\"how\"] += LANE_SAME_ITEM\n",
+   "new": "            pass\n",
    "expect": "合流: 依頼の入口にも積んだ defect は",
    "tests": {
     "graphloops/tests/simulate_review.py": [

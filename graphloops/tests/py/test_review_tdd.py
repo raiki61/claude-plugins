@@ -127,7 +127,7 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
     """TDD の rules は今の流れの rules の公開名を全部そのまま出し、差し替えるのは名乗った物だけ——フックや表の出し忘れは
     engine から見ると『このループは持たない』に黙って倒れるので、名前を選んで並べていないことを見る"""
     base = RULES.base
-    replaced = {"record_round", "finalize", "on_new_round", "CONDS", "BUILTINS", "POST_CHECKS", "LOOP_KEYS", "HIST"}
+    replaced = {"record_round", "finalize", "on_new_round", "CONDS", "BUILTINS", "POST_CHECKS", "HIST"}
     public = {k for k in vars(base) if not k.startswith("__")}
     assert not public - set(vars(RULES))
     assert [k for k in public - replaced if getattr(RULES, k) is not getattr(base, k)] == []
@@ -135,8 +135,8 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
     assert all(RULES.CONDS[k] is v for k, v in base.CONDS.items())
     assert all(RULES.POST_CHECKS[k] is v for k, v in base.POST_CHECKS.items())
     assert set(RULES.BUILTINS) - set(base.BUILTINS) == {"tdd_start", "tdd_red", "tdd_green"}
-    assert RULES.LOOP_KEYS - base.LOOP_KEYS == {"tdd"} and base.LOOP_KEYS <= RULES.LOOP_KEYS
-    assert set(RULES.HIST) - set(base.HIST) == {"tdd_gave_up"}
+    assert RULES.LOOP_KEYS is base.LOOP_KEYS   # TDD の赤・緑の証拠は 3 つの機械の節の出力で、盤面の loop に鍵を足さない
+    assert set(RULES.HIST) - set(base.HIST) == {"tdd_gave_up", "tdd_retry"}
     assert [k for k, v in base.HIST.items() if RULES.HIST[k] is not v] == ["prev_declared_faces"]
 
 
@@ -195,26 +195,25 @@ def test_tdd_conds_truth_table():
     """TDD の節の条件（rules の関数）: 赤の確認は名指しのテストが在る周だけ、緑の確認はそのうえ赤の確認がこの周に通った周だけ"""
     from engine.board import COND_HEADS, run_cond
 
-    def ev(name, cur=None, loop=None, rnd=2):
-        ctx = {**{h: {} for h in COND_HEADS}, "round": rnd, "cur": cur or {}, "loop": loop or {}}
+    def ev(name, cur=None, red=None, rnd=2):
+        ctx = {**{h: {} for h in COND_HEADS}, "round": rnd, "cur": {**(cur or {}), **({"p3.tdd_red": red} if red else {})}}
         return run_cond(name, RULES.CONDS[name], ctx)[0]
     named = {"p3.tdd_tests": {"units": [{"route": "tdd", "tests": ["t::a"]}, {"route": "direct", "tests": ["t::b"]}]}}
     direct = {"p3.tdd_tests": {"units": [{"route": "direct", "tests": ["t::b"]}]}}
     assert ev("tdd_named", named) and not ev("tdd_named", direct) and not ev("tdd_named")
     assert not ev("tdd_named", {"p3.tdd_tests": {"units": [{"route": "tdd"}]}})   # tests の欄の無い行は 0 件と数える
-    assert not ev("tdd_red_passed", named)   # 盤面にまだ loop.tdd が無い
-    assert ev("tdd_red_passed", named, {"tdd": {"round": 2, "red": "passed"}})
-    assert not ev("tdd_red_passed", named, {"tdd": {"round": 2, "red": "failed"}})
-    assert not ev("tdd_red_passed", named, {"tdd": {"round": 2}})
-    assert not ev("tdd_red_passed", named, {"tdd": {"round": 1, "red": "passed"}})
-    assert not ev("tdd_red_passed", direct, {"tdd": {"round": 2, "red": "passed"}})
+    assert not ev("tdd_red_passed", named)   # この周の赤の確認がまだ出力を書いていない
+    assert ev("tdd_red_passed", named, {"ok": True, "named": 1, "red_rev": "r" * 40})
+    assert not ev("tdd_red_passed", named, {"ok": True, "gave_up": "red", "problems": ["赤でない"]})   # 上限で諦めた
+    assert not ev("tdd_red_passed", named, {"ok": False, "problems": ["赤でない"], "rewound": ["p3.tdd_tests"]})
+    assert not ev("tdd_red_passed", direct, {"ok": True, "named": 1, "red_rev": "r" * 40})
 
 
 # --- 差し戻しと諦め（_retry・_give_up）: 盤面を手で組んで直に呼ぶ
 def retry_board(fixes):
     calls = []
     b = types.SimpleNamespace(round=2, loop_state={}, record={"process": {"fixes": fixes}}, state={"inputs": {}},
-                              rewind=lambda nodes, by: calls.append((tuple(nodes), by)))
+                              output_of_round=lambda nid, rnd: None, rewind=lambda nodes, by: calls.append((tuple(nodes), by)))
     return b, calls
 
 
@@ -239,6 +238,7 @@ def test_retry_gives_up_at_the_limit_without_stopping(step, back):
     t = RULES._tdd(b)
     got = [RULES._retry(b, t, step, back, [f"{step} の {i} 回目"]) for i in range(RULES.RETRY_MAX)]
     assert [g["ok"] for g in got] == [False] * (RULES.RETRY_MAX - 1) + [True]
+    assert [g["tries"] for g in got] == list(range(1, RULES.RETRY_MAX + 1))   # 試行の回数は出力に累積で載る
     assert got[-1]["gave_up"] == step and len(calls) == RULES.RETRY_MAX - 1
     assert "tdd_gave_up" not in b.loop_state   # 諦めた事実は節の出力が正本——hist が出力から作る
     want = [{"round": 2, "step": step, "problems": [f"{step} の {RULES.RETRY_MAX - 1} 回目"]}]
@@ -279,7 +279,23 @@ def test_red_check_rewinds_instead_of_crashing(monkeypatch, out, changed, words)
 def test_green_check_without_reply_or_named_passes_on_a_green_suite(monkeypatch):
     """返答も赤の確認の名指しも無い盤面で、一式が緑なら通す（読めない欄で落ちない）"""
     b = check_board(monkeypatch, None, [], cases(test_new_red="passed", **{"test_param[x]": "passed"}), 0)
-    assert RULES.tdd_green(b, "p3.tdd_green") == {"ok": True}
+    assert RULES.tdd_green(b, "p3.tdd_green") == {"ok": True, "tries": 0, "suite_made": []}
+
+
+def test_suite_made_is_carried_across_retries_through_the_outputs(monkeypatch):
+    """一式が作ったファイル（suite_made）は、差し戻しで出力を書き直しても前の試行の分を運ぶ——落とすと次の試行が
+    『申告の外に触れた』で誤って拒まれる。試行の回数も自分の前の出力から数える"""
+    outs = {"p3.tdd_start": {"ok": True, "rev": "s", "suite_made": ["from_start.log"]},
+            "p3.tdd_red": {"ok": False, "problems": ["前の試行"], "tries": 1, "suite_made": ["from_red1.log"]},
+            "p3.tdd_tests": NAMED_REPLY}
+    monkeypatch.setattr(RULES, "_snap", lambda: "rev")
+    monkeypatch.setattr(RULES, "_diff_names", lambda frm, to: ["test_a.py", "from_red1.log", "from_start.log"] if frm == "s" else ["new.log"])
+    monkeypatch.setattr(RULES, "run_suite", lambda b: (cases(**{"test_param[x]": "passed"}), 1, []))
+    b = types.SimpleNamespace(round=2, loop_state={}, record={"process": {}}, state={"inputs": {}},
+                              output_of_round=lambda nid, rnd: outs.get(nid), rewind=lambda nodes, by: None)
+    got = RULES.tdd_red(b, "p3.tdd_red")
+    assert got["ok"] is True and got["red_rev"] == "rev", got   # 前の試行と元の結末が作ったファイルを『申告の外』と数えない
+    assert got["tries"] == 1 and set(got["suite_made"]) == {"from_start.log", "from_red1.log", "new.log"}
 
 
 def test_green_check_rejects_when_the_diff_is_unknown(monkeypatch):

@@ -132,11 +132,7 @@
    "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
   ]
  },
- "loop": {
-  "request_wheres": [
-   "_s2_xxxxxx"
-  ]
- },
+ "loop": {},
  "outputs": {},
  "calls": [
   [

@@ -23,7 +23,7 @@
   "p3.delta_review": "cond delta_review_due: この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件",
   "p3.delta_review2": "cond delta_review2_due: 手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件",
   "p3.fix_delta2": "cond delta_fixed: 手直しが今の周に直した（fixed）穴は 0 件",
-  "p3.tdd_green": "cond tdd_red_passed: この周のテストだけを書く段が名指ししたテストは 1 件、この周の赤の確認は None",
+  "p3.tdd_green": "cond tdd_red_passed: この周のテストだけを書く段が名指ししたテストは 1 件、この周の赤の確認は 通っていない",
   "p3.tdd_red": null,
   "p3.tdd_start": null,
   "p3.tdd_tests": null,

@@ -25,8 +25,8 @@
    "この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件"
   ],
   "external_standards_due": [
-   true,
-   "初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "final_gate_due": [
    false,
@@ -37,8 +37,8 @@
    "この周の修正の差分は 0 ファイル"
   ],
   "gate_efficacy_due": [
-   true,
-   "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "gates_cut_nonempty": [
    false,
@@ -57,8 +57,8 @@
    "この周のコードは周の頭から 0 ファイル変わった"
   ],
   "main_path_observation_due": [
-   true,
-   "差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "not_request_entry": [
    true,
@@ -73,16 +73,16 @@
    "入口の印（process.request_entry）が無い——通常の run"
   ],
   "prior_decisions_due": [
-   true,
-   "初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "procedure_trace_due": [
-   true,
-   "差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 0 件）"
   ],
   "provenance_due": [
-   true,
-   "初回か、前の周の P3 が何かを直した周——成り立つ（round=2・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "初回か、前の周の P3 が何かを直した周——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
   ],
   "purpose_review_due": [
    false,
@@ -141,8 +141,8 @@
    "この周のテストだけを書く段が名指ししたテストは 0 件"
   ],
   "test_double_fidelity_due": [
-   true,
-   "差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 3 件）"
+   false,
+   "差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=2・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 0 件）"
   ],
   "touches_procedures": [
    false,
@@ -210,7 +210,7 @@
   [
    "CONDS",
    "external_standards_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -225,7 +225,7 @@
   [
    "CONDS",
    "gate_efficacy_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -250,7 +250,7 @@
   [
    "CONDS",
    "main_path_observation_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -270,17 +270,17 @@
   [
    "CONDS",
    "prior_decisions_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
    "procedure_trace_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
    "provenance_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
@@ -355,7 +355,7 @@
   [
    "CONDS",
    "test_double_fidelity_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",

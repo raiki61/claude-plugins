@@ -153,24 +153,24 @@
    "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
   ]
  },
- "loop": {
-  "changed_files_file": "<RUN>/changed-r1-after-fix.txt",
-  "diff_file": "<RUN>/diff-r1-after-fix.patch",
-  "open_units": 0,
-  "purpose_known": true,
-  "purpose_unusable": null,
-  "r1_refire": true,
-  "reviewed_revision": "a16086e3045e8e37d2c71a1ad653436118a6e7cb"
- },
+ "loop": {},
  "outputs": {
   "out/r1/p4.assemble.json": {
    "ok": true,
+   "after_fix": {
+    "rev": "a16086e3045e8e37d2c71a1ad653436118a6e7cb",
+    "diff_file": "<RUN>/diff-r1-after-fix.patch",
+    "changed_files": [],
+    "changed_files_file": "<RUN>/changed-r1-after-fix.txt",
+    "stat": "0 files changed, 0 insertions(+), 0 deletions(-)"
+   },
    "open_units": 0,
    "r1_refire": true,
    "r2_refire": true,
    "lines_ratio": null,
    "ledger_changed": false,
    "purpose_known": true,
+   "purpose_unusable": null,
    "diff_lines": 0,
    "retaken": {
     "file": "<RUN>/diff-r1-after-fix.patch"

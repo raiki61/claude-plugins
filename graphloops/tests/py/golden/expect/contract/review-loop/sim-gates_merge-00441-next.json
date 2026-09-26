@@ -52,8 +52,35 @@
   "p3.lane_merge": []
  },
  "command": {
-  "blocked": "子プロセス bash"
+  "exit": 0,
+  "out": {
+   "status": "running",
+   "round": 3,
+   "thickness": null,
+   "run_id": "_s21_xxxxxxxxxx",
+   "ready": [
+    {
+     "id": "p0.local_checks",
+     "node": "p0.local_checks",
+     "mode": "engine_run"
+    }
+   ],
+   "notes": [
+    "p0.base は once で凍った出力（round 1）が今の schema に合わない（$: 必須の欄 'base_sha' が無い; $: 必須の欄 'method' が無い; $: 必須の欄 'commits' が無い）。**この欄を読む cond・述語は永久に偽になる**。痕跡は process.stale_frozen",
+    "p0.purpose は once で凍った出力（round 1）が今の schema に合わない（$: 必須の欄 'purpose_text' が無い; $: 必須の欄 'known_weaknesses' が無い; $: 必須の欄 'source_files' が無い）。**この欄を読む cond・述語は永久に偽になる**。痕跡は process.stale_frozen",
+    "p3.fix_delta: p3.fix_delta: 差分の起点の版が無い（1 回目は P1 の頭で、2 回目は p3.fix_delta で固める）"
+   ]
+  },
+  "err": ""
  },
  "record": {},
- "board": {}
+ "board": {
+  "rd.na.p0.parallel_pr": "cond parallel_pr_due: 入口の印（process.request_entry）が無い——通常の run",
+  "rd.na.p0.prior_decisions": "cond prior_decisions_due: 初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立たない（round=3・前の周の P3 が触ったファイルは 0 件）",
+  "rd.na.p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+  "rd.na.p1.external_standards": "cond external_standards_due: 初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立たない（round=3・前の周の P3 が触ったファイルは 0 件）",
+  "rd.na.p1.provenance": "cond provenance_due: 初回か、前の周の P3 が何かを直した周——成り立たない（round=3・前の周の P3 が触ったファイルは 0 件）",
+  "rd.na.p2.fix_plan": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+  "rd.na.p2.plan_review": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件"
+ }
 }

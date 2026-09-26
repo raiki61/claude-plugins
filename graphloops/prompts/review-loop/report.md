@@ -4,6 +4,7 @@
 {{ref:record}}
 
 盤面: {{loop}}
+最後に独立の目の入口まで進んだ周の数え: {{?out.p4.assemble | pick open_units,r1_refire,r2_refire,purpose_known,purpose_unusable}}
 選んだ流れ（init の入力。選ばなかった run では『この周には無い』と出る）: 仕様の道 flow={{?inputs.flow}}・変異の検算を合流でまとめる gates={{?inputs.gates}}
 人が決めることの本文（前の節）: {{out.report.human_items.text}}
 初見検査の結果（詰まりが残っていれば直してから出す）: {{out.report.cold_check}}

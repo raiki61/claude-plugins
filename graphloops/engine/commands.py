@@ -1357,6 +1357,11 @@ def cmd_patch(a):
         routes = "／".join(histmod.repair_routes(fn)) if fn else f"hist.{derived} は rules の HIST に無い"
         raise Reject(f"{a.path} は履歴から作り直す値 hist.{derived}（rules の HIST）で、書いても次に引くとき作り直されて効かない——"
                      f"直すなら値の元を: {routes}（控え {b.dir / 'hist.json'} は正本でなく、書き戻す口も無い）")
+    undeclared = _undeclared_loop_key(b, a.path)
+    if undeclared:
+        raise Reject(f"{a.path}: 鍵 '{undeclared}' は graph の state_schema に無い——今の rules はこの鍵を読まないので、書いても効かない"
+                     "（旧い盤面の鍵か綴り違い）。値の置き場が節の出力に移った鍵なら、その節の出力を loop.py patch --path out.<節>.<欄> で直せ"
+                     "（どの節の出力かは graph の節の outputs が名乗る）")
     if a.path.startswith("out."):
         target, path, shown = None, a.path[len("out."):], a.path   # 節の出力のファイル（_patch_output）
     elif a.path.startswith("state."):
@@ -1384,6 +1389,17 @@ def cmd_patch(a):
     b.trace("patch", path=a.path, **({"delete": True} if a.delete else {}), reason=a.reason)
     b.save()
     print(f"ok {shown} を{'消した' if a.delete else '手当てした'}（痕跡は state.patches と trace に残る）")
+
+
+def _undeclared_loop_key(b, path):
+    """手当ての path が盤面の loop の、graph の state_schema が閉じて（additionalProperties: false）宣言していない鍵を指すなら、その鍵"""
+    if not path.startswith("state.loop."):
+        return None
+    sch = b.graph.get("state_schema")
+    if not isinstance(sch, dict) or sch.get("additionalProperties") is not False:
+        return None
+    key = path[len("state.loop."):].split(".", 1)[0]
+    return None if key in (sch.get("properties") or {}) else key
 
 
 def _derived_patch_target(b, path):

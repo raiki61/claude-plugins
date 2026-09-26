@@ -153,12 +153,7 @@
    "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
   ]
  },
- "loop": {
-  "engine_zero": {
-   "round": 1,
-   "keys": []
-  }
- },
+ "loop": {},
  "outputs": {
   "out/r1/p2.diagnose.json": {
    "units": [],
@@ -169,7 +164,8 @@
    "one_shot_closes": [],
    "materials_missing": [],
    "carried_r1": [],
-   "router": []
+   "router": [],
+   "engine_zero": []
   }
  },
  "calls": [
