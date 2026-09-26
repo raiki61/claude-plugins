@@ -3,7 +3,8 @@
 #
 # 使い捨ての対象リポジトリを作り、その中で固定した版の Archon の
 # `validate workflows <名>`（works 自身の工程 works/<d>/<d>.yaml を 1 本ずつ）と `workflow test works` を回す。
-# どれか 1 つでも赤なら終了コード 1（赤でも残りは全部回す）。
+# どれか 1 つでも赤なら終了コード 1（赤でも残りは全部回す）。validate した工程が 0 本の時も
+# 何も確かめていないので赤（終了コード 1）にする（合わない glob の型の文字列はそのまま回さない）。
 # Archon に同梱の工程は見ない（Ruling R10。archon-smart-pr-review は .archon/mcp/ntfy.json が無くて必ず赤になる）。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_dev.py が偽物を差す）。
 set -eu
@@ -21,13 +22,21 @@ status=0
 # Archon は .archon/.env などを process の cwd 基準で読むので、--cwd ではなく実際に
 # 対象の中へ cd してから回す。validate も workflow test（dry-run。provider に触れない）も認証が要らないので、
 # 認証を読ませない（Ruling R20: 認証の要らない道は変えない）。
+validated=0
 for yaml in "$WORKS_DIR"/*/*.yaml; do
+  [ -e "$yaml" ] || continue
   name="$(basename "$(dirname "$yaml")")"
   [ "$(basename "$yaml" .yaml)" = "$name" ] || continue
+  validated=$((validated + 1))
   if ! (cd "$TARGET_DIR" && WORKS_DEV_NO_AUTH=1 sh "$ARCHON" validate workflows "$name"); then
     status=1
   fi
 done
+
+if [ "$validated" -eq 0 ]; then
+  echo "check.sh: validate する工程が見つからない（$WORKS_DIR/<d>/<d>.yaml）" >&2
+  status=1
+fi
 
 if ! (cd "$TARGET_DIR" && WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow test works); then
   status=1

@@ -13,6 +13,8 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - check.sh が works 自身の工程（works/<d>/<d>.yaml）だけを 1 本ずつ validate し、`workflow test works` を回し
   （どちらも認証を読ませない）、
   どれか 1 つでも赤なら終了コード 1 になること（Archon は偽物の記録係に差し替える。Ruling R10）。
+  validate する工程が 0 本（名前の合わない YAML だけ・YAML 無し）の時も、glob の型の文字列を
+  validate に渡さずに終了コード 1 になること。
 """
 import os
 import pathlib
@@ -288,10 +290,22 @@ class TestDevShell(unittest.TestCase):
                                              WORKS_DEV_HOME=str(tmp / "dev-home")))
             self.assert_guarded(r, tmp / "t", tmp / "dev-home")
 
-    def _run_check(self, fail_on=""):
-        """check.sh を偽の Archon（引数と cwd を記録し、引数に fail_on を含めば終了コード 1）で回す"""
+    def _run_check(self, fail_on="", works_layout=None):
+        """check.sh を偽の Archon（引数と cwd を記録し、引数に fail_on を含めば終了コード 1）で回す。
+
+        works_layout を渡せば、works/dev を TMPDIR の下の works/dev に写し、works/ の下に
+        {相対パス: 中身} の物だけを置いた写しの check.sh を回す。
+        """
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
+            check = DEV / "check.sh"
+            if works_layout is not None:
+                works = tmp / "works"
+                shutil.copytree(DEV, works / "dev")
+                for rel, text in works_layout.items():
+                    (works / rel).parent.mkdir(parents=True, exist_ok=True)
+                    (works / rel).write_text(text)
+                check = works / "dev" / "check.sh"
             log = tmp / "calls.txt"
             fake = tmp / "fake-archon.sh"
             fake.write_text(
@@ -307,7 +321,7 @@ class TestDevShell(unittest.TestCase):
             env = dict(os.environ, WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp), WORKS_DEV_HOME=str(dev_home))
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
                 env.pop(name, None)   # 認証が無くても回ること
-            result = subprocess.run(["sh", str(DEV / "check.sh")], capture_output=True, text=True, env=env)
+            result = subprocess.run(["sh", str(check)], capture_output=True, text=True, env=env)
             calls = [line.split("|", 2) for line in log.read_text().splitlines()] if log.exists() else []
             return result, calls
 
@@ -327,6 +341,17 @@ class TestDevShell(unittest.TestCase):
         result, calls = self._run_check(fail_on="validate workflows blk-fix")
         self.assertEqual(result.returncode, 1)
         self.assertIn("workflow test works", [c[2] for c in calls])   # 赤でも残りは回す
+
+    def test_check_fails_when_no_workflow_is_validated(self):
+        # 何も確かめずに緑を返さない（名前の合わない YAML だけ／YAML 無し）
+        for label, layout in (("name-mismatch", {"blk-x/other.yaml": "name: other\n"}), ("no-yaml", {})):
+            with self.subTest(label):
+                result, calls = self._run_check(works_layout=layout)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("validate する工程が見つからない", result.stderr)
+                args = [c[2] for c in calls]
+                self.assertFalse([a for a in args if a.startswith("validate workflows")], args)
+                self.assertIn("workflow test works", args)   # 赤でも残りは回す
 
 
 if __name__ == "__main__":
