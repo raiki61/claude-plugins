@@ -41,14 +41,10 @@ nodes:
         - id: review
           command: delta-review
           allowed_tools: [Read, Grep, Glob]
-          sandbox: {enabled: true}
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # 指示書へは $INPUTS.<名> だけで渡す。指示書の中の $LOOP_PREV は、単体で回すと差し込まれない
-          # （Archon は輪の中の節の欄にしか $LOOP_PREV を差し込まず、読み込んだ指示書の本文は見ない。Ruling R13）
-          with:
-            diff_file: $cut.output.diff_file
-            files: $cut.output.files
-            prev_reason: $LOOP_PREV.accept.output.reason
+          # 指示書（commands/delta-review.md）は $cut.output.* と $LOOP_PREV.accept.output.reason を直に読む。
+          # include が指示書の本文の節の名を付け替える（Ruling R16）。宣言していない $INPUTS.<名> は読み込みで拒まれる
           # role_schema("p3.delta_review") を 1 度出して貼った物（tests/test_blk_tests_delta.py が一致を見る）
           output_format:
             type: object

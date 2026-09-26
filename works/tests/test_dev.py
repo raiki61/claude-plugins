@@ -6,6 +6,8 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - archon.sh が、キャッシュにある実行ファイルの sha256 が違えばネットワークに出ずに拒むこと。
 - archon.sh が keychain（ここでは偽物に差し替える。本物には触らない）を、HOME を隔離する
   前の元の HOME で読むこと。
+- check.sh が works 自身の工程（works/<d>/<d>.yaml）だけを 1 本ずつ validate し、`workflow test works` を回し、
+  どれか 1 つでも赤なら終了コード 1 になること（Archon は偽物の記録係に差し替える。Ruling R10）。
 """
 import os
 import pathlib
@@ -125,6 +127,47 @@ class TestDevShell(unittest.TestCase):
             # 中身の違う実行ファイルなので、keychain を読んだ後の sha256 の確かめで落ちる。
             self.assertEqual(result.returncode, 1)
             self.assertIn("sha256", result.stderr)
+
+
+    def _run_check(self, fail_on=""):
+        """check.sh を偽の Archon（引数と cwd を記録し、引数に fail_on を含めば終了コード 1）で回す"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            log = tmp / "calls.txt"
+            fake = tmp / "fake-archon.sh"
+            fake.write_text(
+                "#!/bin/sh\n"
+                f'printf \'%s|%s|%s\\n\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "$*" >> "{log}"\n'
+                f'case "$*" in *"{fail_on or "@@never@@"}"*) exit 1 ;; esac\n'
+                "exit 0\n"
+            )
+            # 偽物を使わず本物の archon.sh へ落ちても、ネットワークにも keychain にも出ずに sha256 で止まるようにしておく
+            dev_home = tmp / "dev-home"
+            (dev_home / "bin").mkdir(parents=True)
+            (dev_home / "bin" / "archon-darwin-arm64").write_bytes(b"not the real archon binary")
+            env = dict(os.environ, WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp), WORKS_DEV_HOME=str(dev_home),
+                       CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
+            env.pop("WORKS_DEV_NO_AUTH", None)
+            result = subprocess.run(["sh", str(DEV / "check.sh")], capture_output=True, text=True, env=env)
+            calls = [line.split("|", 2) for line in log.read_text().splitlines()] if log.exists() else []
+            return result, calls
+
+    def test_check_validates_only_works_workflows(self):
+        ours = sorted(p.parent.name for p in ROOT.glob("*/*.yaml") if p.stem == p.parent.name)
+        self.assertIn("blk-judge", ours)
+        result, calls = self._run_check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = [c[2] for c in calls]
+        self.assertEqual(args, [f"validate workflows {n}" for n in ours] + ["workflow test works"])
+        for cwd, no_auth, a in calls:
+            with self.subTest(a):
+                self.assertIn("works-check", cwd)   # 使い捨ての対象の中で回す
+                self.assertEqual(no_auth, "1" if a.startswith("validate") else "")
+
+    def test_check_fails_when_one_workflow_is_red(self):
+        result, calls = self._run_check(fail_on="validate workflows blk-fix")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("workflow test works", [c[2] for c in calls])   # 赤でも残りは回す
 
 
 if __name__ == "__main__":

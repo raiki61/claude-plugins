@@ -5,5 +5,5 @@ nodes:
   - id: judge
     command: diagnose
     allowed_tools: [Read, Grep, Glob]
-    sandbox: {enabled: true}
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
     output_format: {type: object}

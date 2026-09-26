@@ -103,14 +103,20 @@ class TestDeltaSchema(unittest.TestCase):
         self.assertIn("checks: []", body)
         self.assertNotIn("{{", body)
 
-    def test_delta_prompt_reads_only_inputs(self):
-        # Ruling R13: 指示書の本文の $LOOP_PREV は単体で回すと差し込まれない。値は節の with: から $INPUTS.<名> で受ける
+    def test_delta_prompt_reads_block_outputs(self):
+        # Ruling R16: 指示書の本文は同じブロックの節の出力を直に読む（include が節の名を付け替える）。
+        # 宣言していない $INPUTS.<名> は Archon 0.11.1 の include が読み込みで拒むので、節の with: で束ねない
         body = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
         refs = re.findall(r"\$[A-Za-z_][A-Za-z0-9_.]*", body)
-        self.assertEqual(sorted(set(refs)), ["$INPUTS.diff_file", "$INPUTS.files", "$INPUTS.prev_reason"])
+        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.accept.output.reason", "$cut.output.diff_file",
+                                             "$cut.output.files"])
         review = find_node(workflow("blk-delta")["nodes"], "review")
-        self.assertEqual(review["with"], {"diff_file": "$cut.output.diff_file", "files": "$cut.output.files",
-                                          "prev_reason": "$LOOP_PREV.accept.output.reason"})
+        self.assertNotIn("with", review)
+
+    def test_delta_review_sandbox(self):
+        # Ruling R12: Bash を持たない役でも、サンドボックスの外へ出る道を閉じる
+        review = find_node(workflow("blk-delta")["nodes"], "review")
+        self.assertEqual(review["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
 
 
 # ---------------------------------------------------------------- blk-tests

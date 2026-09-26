@@ -36,7 +36,7 @@ nodes:
         - id: judge
           command: diagnose
           allowed_tools: [Read, Grep, Glob]
-          sandbox: {enabled: true}
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # role_schema("p2.diagnose") を 1 度出して貼った物（tests/test_blk_judge.py が一致を見る）
           output_format:

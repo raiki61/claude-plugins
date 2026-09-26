@@ -121,13 +121,14 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_fix_prompt(self):
         body = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
-        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$INPUTS.prev_reason",
+        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$LOOP_PREV.accept.output.reason",
                   "git commit", "テスト", "unit_key"):
             self.assertIn(s, body)
-        # 指示書の中の $LOOP_PREV は置き換わらない（Ruling R13）。前の周の理由は節の with: で束ねて $INPUTS で読む
-        self.assertNotIn("$LOOP_PREV", body)
+        # 前の周の理由は指示書の本文で $LOOP_PREV から直に読む。Archon 0.11.1 の include は本文の $LOOP_PREV の節の名を
+        # 付け替えるが、宣言していない $INPUTS.prev_reason は読み込みで拒む（Ruling R16）。節の with: で束ねない
+        self.assertNotIn("$INPUTS.prev_reason", body)
         fix = find_node(block()["nodes"], "fix")
-        self.assertEqual(fix["with"], {"prev_reason": "$LOOP_PREV.accept.output.reason"})
+        self.assertNotIn("with", fix)
         self.assertNotIn("{{", body, "graphloops の engine の穴を残さない")
 
     def test_fixtures(self):

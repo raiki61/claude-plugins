@@ -98,7 +98,7 @@ class YamlCase(unittest.TestCase):
         judge = find_node(self.y, "judge")
         self.assertEqual(judge["command"], "diagnose")
         self.assertEqual(judge["allowed_tools"], ["Read", "Grep", "Glob"])
-        self.assertEqual(judge["sandbox"], {"enabled": True})
+        self.assertEqual(judge["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(judge["idle_timeout"], DEADLINE)
         acc = find_node(self.y, "accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$judge.output"}, "base_rev": "$INPUTS.base_rev"})

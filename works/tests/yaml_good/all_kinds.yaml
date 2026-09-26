@@ -19,7 +19,7 @@ nodes:
         - id: judge
           command: diagnose
           allowed_tools: [Read, Grep, Glob]
-          sandbox: {enabled: true}
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           output_format: {type: object}
         - id: accept
@@ -30,7 +30,7 @@ nodes:
   - id: collect
     prompt: まとめよ
     allowed_tools: []
-    sandbox: {enabled: true}
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
     idle_timeout: 1728000000
     output_format: {type: object}
     depends_on: [judge-loop]

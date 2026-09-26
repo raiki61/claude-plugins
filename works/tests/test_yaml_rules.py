@@ -2,7 +2,8 @@
 
 check_file(path) は 1 本の工程の YAML を読み、決まりに反する所を文の一覧で返す（空なら緑）。決まり:
 - bash・script の節は timeout: 1728000000（20 日）を持つ。2^31-1 ms を超える値は Archon の検査を通るのに実行で即失敗する
-- AI の節（prompt: か command: を持つ節）は idle_timeout: 1728000000・output_format・sandbox: {enabled: true} を持つ
+- AI の節（prompt: か command: を持つ節）は idle_timeout: 1728000000・output_format・
+  sandbox: {enabled: true, allowUnsandboxedCommands: false} を持つ（Ruling R12。Bash がサンドボックスの外へ出る道を閉じる）
 - AI の節の allowed_tools は [Read, Grep, Glob] の部分集合（無ければ全部の道具を持つので違反）。
   外れてよいのは blk-fix/blk-fix.yaml の節 fix（書く役）だけ
 - approval・include・loop_group の節は期限を持たない。書く期限の欄は上の 2 つだけ（AI の節の timeout・bash の節の idle_timeout も違反）
@@ -63,8 +64,8 @@ def _check_node(node, where, writer_ok, out):
         if not isinstance(node.get("output_format"), dict) or not node["output_format"]:
             out.append(f"{at}: AI の節に output_format が無い")
         sb = node.get("sandbox")
-        if not (isinstance(sb, dict) and sb.get("enabled") is True):
-            out.append(f"{at}: AI の節の sandbox.enabled が true でない（{sb!r}）")
+        if not (isinstance(sb, dict) and sb.get("enabled") is True and sb.get("allowUnsandboxedCommands") is False):
+            out.append(f"{at}: AI の節の sandbox が {{enabled: true, allowUnsandboxedCommands: false}} でない（{sb!r}）")
         tools = node.get("allowed_tools")
         if not (writer_ok and nid == WRITER[2]):
             if not isinstance(tools, list):

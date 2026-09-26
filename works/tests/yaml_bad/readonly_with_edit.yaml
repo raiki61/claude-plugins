@@ -5,6 +5,6 @@ nodes:
   - id: judge
     prompt: 判定せよ
     allowed_tools: [Read, Edit]
-    sandbox: {enabled: true}
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
     idle_timeout: 1728000000
     output_format: {type: object}

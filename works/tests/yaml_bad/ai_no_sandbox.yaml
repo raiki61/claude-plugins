@@ -5,6 +5,6 @@ nodes:
   - id: judge
     prompt: 判定せよ
     allowed_tools: [Read, Grep, Glob]
-    sandbox: {enabled: false}
+    sandbox: {enabled: false, allowUnsandboxedCommands: false}
     idle_timeout: 1728000000
     output_format: {type: object}
