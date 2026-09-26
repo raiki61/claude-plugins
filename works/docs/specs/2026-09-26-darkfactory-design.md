@@ -1,6 +1,8 @@
 # works と darkfactory の設計（2026-09-26）
 
-状態: 持ち主と会話で合意した設計の書き起こし。実装計画はこの文書を元に別に書く。
+状態: 持ち主と会話で合意した設計の書き起こし。実装計画はこの文書を元に別に書いた。実装の途中の判断（台帳の Ruling R1–R21）で変わった所は、この文書に書き戻してある。
+
+Archon の版: 固定したのは release の v0.11.1（tag aa095446）。最初に源を読んだ 879c99fe は開発の先頭で release ではない。v0.11.1 との差は `packages/` の下の 26 ファイル（provider の再試行・dag-executor など）で、include の展開の源は両方で同じ。validate・筋書き・実走は v0.11.1 の実行ファイルで回した。
 
 ## 平易版（3 行）
 
@@ -35,7 +37,7 @@
 
 ## 3. 層（Archon の作法「YAML coordinates. Code computes. Agents judge.」に沿う）
 
-出典: Archon 本体 `.archon/workflow-language-constitution.md`（commit 879c99fe）。
+出典: Archon 本体 `.archon/workflow-language-constitution.md`。
 
 1. **ライン（YAML）** —— 節の順番・受け付けの輪・人の関所・上限だけ。`when:` には欄の比べだけを書き、計算を書かない。
 2. **役（`commands/*.md` と `output_format`）** —— 判定役・修正役・審査役への指示書と返答の型。判断はここだけ。
@@ -44,10 +46,10 @@
 
 約束は Archon の仕組みで持つ（自前の約束のファイルは置かない）:
 - ブロックの入口は `inputs:`、出口は `returns:` が指す節の `output_format`、成否は `outcome_field`。
-- 読み込みの時に Archon が確かめる（879c99fe の源で確かめた）: `with:` の鍵と `inputs:` の突き合わせ・宣言の外の鍵の拒否、前の節の出力の欄を読むときにその欄が相手の `output_format` に在るか（`packages/workflows/src/output-ref.ts`）、`outcome_field` が返す節の `output_format` に在るか（`loader.ts`）。
-- 同梱の工程集 sdlc の作法も使う: 成果物の報告は `archon_artifact` の指し（在るファイルでなければ節を拒む）、構造のある値はスクリプトへ `with: {欄: {from: "$節.output.欄"}}` で型のまま渡す、修正の前の版は `$節.execution.checkoutStart` で取る。
+- 読み込みの時に Archon が確かめる（v0.11.1 の源で確かめた）: `with:` の鍵と `inputs:` の突き合わせ・宣言の外の鍵の拒否、前の節の出力の欄を読むときにその欄が相手の `output_format` に在るか（`packages/workflows/src/output-ref.ts`）、`outcome_field` が返す節の `output_format` に在るか（`loader.ts`）。
+- 同梱の工程集 sdlc の作法も使う: 成果物の報告は `archon_artifact` の指し（在るファイルでなければ節を拒む）、構造のある値はスクリプトへ `with: {欄: {from: "$節.output.欄"}}` で型のまま渡す。修正の前の版は、ラインの頭の節 `base`（`git rev-parse HEAD` を `{ok, rev}` で出す）で固め、`$base.output.rev` を各ブロックの `base_rev` へ渡す（ブロックの `base_rev` は `default: ""` で、空ならその場の HEAD。Ruling R2）。
 
-## 4. 構成## 4. 構成
+## 4. 構成
 
 ```
 works/
@@ -60,6 +62,7 @@ works/
 │       └── ...
 ├── darkfactory/                ライン（入口）
 │   ├── darkfactory.yaml
+│   ├── scripts/finish.py       いつも走る出口の節（6 節）
 │   └── fixtures/*.stubs.yaml   ライン全体の筋書き
 ├── blk-judge/                  ブロック（support workflow。ラインからしか使えない）
 │   ├── blk-judge.yaml          入口（inputs）・出口（returns の節の output_format）もここに書く
@@ -74,7 +77,7 @@ works/
 └── skills/works/SKILL.md       works の薄いスキル（配り方は 12 節）
 ```
 
-- Archon の決まり（879c99fe で確かめた）: pack の根の直下のフォルダのうち、直下に YAML がちょうど 1 本あるものが工程になる。ドット始まりのフォルダ・直下に YAML が無いフォルダ（`tests/`・`dev/`・`docs/`・`skills/`）は工程として読まれない。install は symlink・submodule・`\`・`:` を含むパスを拒む。
+- Archon の決まり（v0.11.1 で確かめた）: pack の根の直下のフォルダのうち、直下に YAML がちょうど 1 本あるものが工程になる。ドット始まりのフォルダ・直下に YAML が無いフォルダ（`tests/`・`dev/`・`docs/`・`skills/`）は工程として読まれない。install は symlink・submodule・`\`・`:` を含むパスを拒む。
 - 名前: ラインは素の名前（`darkfactory`・後の `research`）、ブロックは `blk-` を頭に付ける。
 
 ## 5. ブロックと組み替え
@@ -93,29 +96,44 @@ works/
 name: darkfactory
 interactive: true            # 人の関所を持つので必須（背景では回せない）
 inputs:
-  request: {required: true, description: 人の修正依頼（findings の JSON の配列）のファイルのパス}
+  request: {required: true, description: 人の修正依頼（findings の JSON の配列）のファイルの絶対パス}
   test_cmd: {required: true, description: テストのコマンド}
+returns: finish
+outcome_field: ok
 nodes:
-  - id: judge
+  - id: base                 # 周の頭の版を固める（bash。{ok, rev}）
+  - id: judging
     include: blk-judge
-    with: {request: $INPUTS.request}
-  - id: fix
+    depends_on: [base]
+    with: {request: $INPUTS.request, base_rev: $base.output.rev}
+  - id: fixing
     include: blk-fix
-    depends_on: [judge]
-    with: {judgment: $judge.output.judgment_file}
-  - id: tests
+    depends_on: [judging]
+    when: "$judging.output.need_fix == true"
+    with: {judgment_file: $judging.output.judgment_file, open_units: $judging.output.open_units, base_rev: $base.output.rev}
+  - id: testing
     include: blk-tests
-    depends_on: [fix]
+    depends_on: [fixing]
+    when: "$judging.output.need_fix == true"
     with: {cmd: $INPUTS.test_cmd}
   - id: gate
-    approval: {message: "テストは $tests.output.result。修正差分の審査へ進めてよいか", capture_response: true}
-    depends_on: [tests]
-  - id: delta
+    depends_on: [testing]
+    when: "$judging.output.need_fix == true"
+    approval: {message: "判定の一手・判定のファイル・テストの緑赤とログ。修正差分の審査へ進めてよいか", capture_response: true}
+  - id: reviewing
     include: blk-delta
     depends_on: [gate]
+    when: "$judging.output.need_fix == true"
+    with: {base_rev: $base.output.rev}
+  - id: finish               # いつも走る出口（script。6 節）
+    depends_on: [judging, reviewing]
+    trigger_rule: none_failed_min_one_success
 ```
 
-（欄の名前は形の例。確定は実装計画で。）
+（正本は `darkfactory/darkfactory.yaml`。ここは形だけ。）
+
+- include の id（`judging`・`fixing`・`testing`・`reviewing`）はブロックの中の節の id と重ねない（Ruling R17）。重ねると、ブロックの中の `$<id>.output` が include の方を指す。
+- include の `when:` はブロックの全部の節に掛かる（Archon の include の展開が入口の節とブロックの境に付ける）。
 
 ### 5.3 組み替えの 4 通り
 
@@ -141,7 +159,10 @@ nodes:
 | （ラインの節） | 人の承認 | あり | なし |
 | blk-delta | 差分を切る → 審査役 → 受け付け → 集める | なし | 受け付けの出し直し（上限 3） |
 
-- 受け付けの出し直し: `loop_group`（`until_bash: test $accept.output.ok = true`・`fresh_context: false`・`max_iterations: 3`）。2 回目以降の役は同じ会話の続きで起き、拒んだ理由を `$LOOP_PREV.accept.output.reason` でプロンプトに貼る（試作で実走、REPORT.md 3 節 (c)）。上限を超えれば run は失敗で止まり、`archon workflow resume` で続きから回せる。
+- 受け付けの出し直し: `loop_group`（`until_bash: test $<役>-accept.output.ok = true`・`fresh_context: false`・`max_iterations: 3`）。受け付けの節の名前は `judge-accept`・`fix-accept`・`review-accept`（Ruling R19。模擬実行は輪の中の節を名前空間の付かない id で stub に引くので、ブロックをまたいで重ねない）。2 回目以降の役は同じ会話の続きで起き、拒んだ理由を `$LOOP_PREV.<役>-accept.output.reason` でプロンプトに貼る（試作で実走、REPORT.md 3 節 (c)。本物の run でも確かめた）。上限を超えれば run は失敗で止まり、`archon workflow resume` で続きから回せる。
+- 指示書への値の渡し方（Ruling R16）: 指示書（`commands/*.md`）は `$LOOP_PREV.<役>-accept.output.reason`・`$cut.output.*` を本文で直に読む。節の `with:` で `$INPUTS.<名>` として渡す形は、宣言していない入力として include の読み込みで拒まれる。include は `$cut` のようなブロックの上の段の節の名前を `reviewing__cut` に付け替えるが、輪の中の節の id は付け替えない（輪の中で解ける）。ブロックは include で入る形でだけ回す（単独の本物の run は支えない）。
+- 直す物が無い判定（Ruling R21）: 判定のブロックの出口 `need_fix`（直す義務の残る単位が 1 つでも在るか）が false なら、ラインは `fixing`・`testing`・`gate`・`reviewing` を `when:` で飛ばす。直す物が無いのは失敗ではないので、run は成功で終わる。
+- 出口の節 `finish`: ラインの `returns:`。`judging` と `reviewing` に依り、`trigger_rule: none_failed_min_one_success` で、修正から後を飛ばしても走る（どこかが落ちた run では走らない）。`with:` で判定と審査の出口を受け取り（審査を飛ばした run は `if_skipped: null`）、`{ok, outcome: "fixed" | "no_fix_needed", judgment_file, review_file?, diff_file?, faces?}` を出す。run の後に人が見るファイルのパスはここに揃う。
 - loop_group の出力は型を持てないので、輪の後ろに集める節を置く（本体のセッションのブロックの設計書 `S/blocks/BLOCKS.md` の 1 節の事実。S = 本体のセッションの scratchpad `/private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins/799d1c5c-a888-4cdb-bf0a-ac1aea9c5577/scratchpad`）。
 - 判定役に渡す依頼は、graphloops の `add` と同じ findings の型（欄は `where`・`text` 必須、`mechanism`・`measured`・`false_positive_if` 任意）。起動の前に、依頼の型を graphloops の `add` と同じ規則で確かめる節を入口に置き、AI を起こす前に止める。依頼の中身の欠け（問題・重要性・急ぎ度・成果・壊してはいけない条件・受け入れの基準。Archon の `archon-cli` スキルの起動前の確かめ）を見るのは AI の判断が要るので次の段。
 - 指示書は graphloops の `prompts/review-loop/` の p2.diagnose・p3.fix・p3.delta_review を元に、Archon の変数で書き直す。graphloops の指示書は engine の盤面の穴（`{{record.materials}}` など）を前提にしているので、1 本目で盤面に無い物（P1 の素材・前の周の記録・台帳）は削り、受け付けの規則が要求する欄（反証・class_query・precedents・one_shot_closes・questions）を書かせる部分は残す。
@@ -149,11 +170,12 @@ nodes:
 
 ## 7. 守り
 
-- **読むだけの役**（判定役・審査役）: `allowed_tools: [Read, Grep, Glob]`、`sandbox.enabled: true`。Archon の AI の節は全部 `bypassPermissions` で起きる（試作で確かめた）ので、書く道具を持たせないことが主な守り。`mutates_checkout: false` は include で入ると落とされる（Archon の文書: run が持つ設定）ため当てにしない。代わりに受け付けの前に作業ツリーが変わっていないかをつなぎで確かめる。
-- **書く役**（修正役）: Archon が run ごとに切る worktree の中で動かし、`sandbox.enabled: true` で Bash の書き込みを worktree の中に限る。残る穴: Edit・Write の道具は bypass の下で OS の柵が掛からない。今の graphloops でも修正は回す側の会話がしていてこの柵は無いので、能力は減らない。引き継ぎ文書は「書く役は script の節から graphloops の `role_run.py` で起こす」としていたが、1 本目は Archon の AI の節のまま置く（同じ会話での出し直し・`output_format` の型・節ごとの費用の記録を Archon に任せられるため）。任せ先を OS の柵の中で起こす守り（graphloops の delegate）が要る節は 1 本目に無い。
-- **何もせず済んだと言うのを止める**: 修正役の後に「差分が空でないか」を確かめる決まった検査の節を置く（sdlc の `assert-changed` の考え方）。
+- **読むだけの役**（判定役・審査役）: `allowed_tools: [Read, Grep, Glob]`、`sandbox: {enabled: true, allowUnsandboxedCommands: false}`（Ruling R12）。Archon の AI の節は全部 `bypassPermissions` で起きる（試作で確かめた）ので、書く道具を持たせないことが主な守り。`mutates_checkout: false` は include で入ると落とされる（Archon の文書: run が持つ設定）ため当てにしない。代わりに受け付けの前に作業ツリーが変わっていないかをつなぎで確かめる: 判定は、依頼を受け付けた節 intake が盤面に置く作業ツリーの写し（`judge-snapshot.json`）と比べる（Ruling R14。依頼のファイルが対象の中で未追跡でも、判定役が変えていなければ通る）。審査は、差分を切った節 cut が置く写し（`delta-snapshot.json`）と比べる（Ruling R3）。
+- **書く役**（修正役）: Archon が run ごとに切る worktree の中で動かし、`sandbox: {enabled: true, allowUnsandboxedCommands: false}`（Ruling R12。Bash がサンドボックスの外へ逃げる口を閉じる）で Bash の書き込みを worktree の中に限る。残る穴: Edit・Write の道具は bypass の下で OS の柵が掛からない。今の graphloops でも修正は回す側の会話がしていてこの柵は無いので、能力は減らない。引き継ぎ文書は「書く役は script の節から graphloops の `role_run.py` で起こす」としていたが、1 本目は Archon の AI の節のまま置く（同じ会話での出し直し・`output_format` の型・節ごとの費用の記録を Archon に任せられるため）。任せ先を OS の柵の中で起こす守り（graphloops の delegate）が要る節は 1 本目に無い。
+- **何もせず済んだと言うのを止める**: 修正役の後に、申告したファイルが周の頭の版から本当に変わったかを確かめる決まった検査の節を置く（sdlc の `assert-changed` の考え方。名前は `git -z` で読み、日本語の名前も引用無しで突き合わせる）。テストを回すと出来るバイトコード（`__pycache__/`・`.pyc`）は、触ったファイルに数えない（Ruling R15。blk-tests は `PYTHONDONTWRITEBYTECODE=1` で回す。ほかの言語の生成物は対象の `.gitignore` に任せる）。
+- **サンドボックスの穴（塞げない）**: Claude Code のサンドボックスは、Claude Code 自身の一時フォルダ（`/private/tmp/claude-<uid>/`。`/tmp` は macOS では `/private/tmp` への symlink）への書き込みを Bash に許す。pack の側ではこれを塞げない。だから対象リポジトリ・その origin・開発の家（`WORKS_DEV_HOME`）はそこに置かない。開発の殻（`dev/archon.sh`・`dev/mktarget.sh`・`dev/real-run.sh`）は、それらが symlink を辿って `/private/tmp/claude-*` か `/tmp/claude-*` の下に解けると、終了コード 2 と 1 行の理由で止まる（`dev/guard.sh`）。
 - **期限**: AI の節の `idle_timeout` と bash・script の節の `timeout` は 20 日。2^31−1 ms（約 24.8 日）を超える値は Archon の検査を通るのに実行で即失敗するので、`tests/` で YAML の期限が上限の内かを確かめる。
-- **止め方**: 前景の run を SIGTERM で止め、`archon workflow resume` で続ける（Archon の素の機能。試作で確かめた）。人の関所を持つラインは背景（`--detach`）で回せず、外から cancel もできない。止め札のファイル（ASF の `halt`）は次の段で考える。
+- **止め方**: 前景の run を Ctrl-C（端末が SIGINT を送る）で止め、`archon workflow resume` で続ける（Archon の素の機能。試作で確かめた）。人の関所を持つラインは背景（`--detach`）で回せず、外から cancel もできない。止め札のファイル（ASF の `halt`）は次の段で考える。
 - **Archon への直し**: 試作の A〜D は使わない。素の版で回る形にする。
 
 ## 8. 中身（`.shared/core/`）の写し
@@ -167,11 +189,12 @@ nodes:
   - 返りの形をブロックの出口の型に揃える。
 - その後、規則の関数を BLOCKS.md 5 節の形（読み口を受けて `{ok, reason, reply, effects, note}` を返す純粋な関数）に 1 本ずつ直す。直した関数から、呼ぶブロックの近くへ移してよい。
 
-## 9. 確かめた事実（Archon 879c99fe）
+## 9. 確かめた事実（Archon v0.11.1）
 
 - 実行の時、pack は run ごとに丸ごと写され、写しの中から動く（`.git` と `__pycache__` だけ除く）。script の節は写しの中の絶対パスで起き、`Path(__file__).resolve().parents[2]` が pack の根の写しになる。
 - include で入ったブロックの `script: <名>` は、そのブロック自身の `scripts/` から解決される。`.shared/core` を import できる。`with:` の値は bash の節の `$INPUTS.<名>` と環境変数 `INPUTS_<名>` の両方に届く。（2026-09-26、使い捨ての対象リポジトリの project pack で実走して確かめた。AI の節なし）
-- include は読み込みの時に節を平らに展開し、節の名前は `<includeの名>__<節>` になる。`$<includeの名>.output` はブロックの `returns:` の節（無ければ最初の末端）を指す。
+- include は読み込みの時に節を平らに展開し、ブロックの上の段の節の名前は `<includeの名>__<節>` になる（輪の中の節の名前は変わらない）。`$<includeの名>.output` はブロックの `returns:` の節（無ければ最初の末端）を指す。
+- run ごとの worktree は、既定では `origin/<既定の枝>` から切られる（`packages/isolation/src/providers/worktree.ts` の createNewBranch。`--from` で元を替えられる）。remote の無いリポジトリでは切れずに止まる。修正は commit されず、その worktree（`archon workflow runs --json` の `working_path`）に残る。依頼のファイルは worktree の外に置いて絶対パスで渡す。
 - `archon plugin install` は GitHub の tag か既定の枝の先頭からしか入らず、手元のパスからは入らない。開発中は対象リポジトリの `.archon/workflows/works/` に置く project pack で回す（この形では manifest は無視され、工程は YAML の `name:` で起きる）。
 - run の題名を付けるために Archon が別に Claude を 1 回呼ぶ。認証が無いとその呼び出しだけが失敗し、run は続く。
 
@@ -183,13 +206,13 @@ nodes:
 4. **筋書き**: Archon の `fixtures/*.stubs.yaml`（AI の返答を差し替えた筋書き）で `--dry-run`。ブロックごとと、ライン全体。お金を使わない。拒否 → 出し直し → 通過の筋書きを含める。
 5. **実走**: 試作と同じくバグを仕込んだ使い捨てのリポジトリで回す（1 回約 0.5 ドル）。節目にだけ手で撃つ。
 
-- 1〜3 は `works/tests/run.sh` 1 本で回す。このリポジトリの CI（`.github/workflows/test.yml`）へのつなぎ込みは共有のファイルを触るので、持ち主に聞いてから。
+- 1〜2 は `works/tests/run.sh` 1 本で回す。3〜4 は `works/dev/check.sh`（使い捨ての対象を作り、works の工程を 1 本ずつ `validate` し、`workflow test works` で筋書きを全部回す。認証は読まない）。このリポジトリの CI（`.github/workflows/test.yml`）へのつなぎ込みは共有のファイルを触るので、持ち主に聞いてから。
 - テストは `nice -n 19` で前景で回す。プロセスを止めるときは pid と cwd を確かめてから止める（`pkill -f` の広い形を使わない）。
 
 ## 11. 配布と版
 
 - `archon-plugin.json` の `compatibility.archon` で、動くと確かめた版の範囲を宣言する（最初は `>=0.11.1 <0.12.0`）。Archon を上げるときは 10 節の 2〜4 を通してから範囲を広げる。
-- 開発の殻（`dev/`）は、固定した版の Archon の実行ファイル（GitHub の release の `archon-darwin-arm64` など）を落として sha256 を確かめ、HOME・`ARCHON_HOME`・Claude の設定を隔離して回す。認証は macOS の keychain の `claude-code-oauth-p1` から起こすたびに読み、ファイルに書かない。利用者に配る物ではない。
+- 開発の殻（`dev/`）は、固定した版の Archon の実行ファイル（GitHub の release の `archon-darwin-arm64` など）を落として sha256 を確かめ、HOME・`ARCHON_HOME`・Claude の設定を隔離して回す。認証に既定の口座は無い（Ruling R20）: `CLAUDE_CODE_OAUTH_TOKEN` があればそれ、無ければ `WORKS_KEYCHAIN_ITEM` の名の macOS の keychain の項目を起こすたびに読み（ファイルに書かない）、どちらも無ければ 1 行の案内で止まる。`WORKS_DEV_NO_AUTH=1`（テスト・validate・workflow test）では読まない。利用者に配る物ではない。
 - tag（例 `works-v0.1.0`）と push は持ち主の指示を待つ。それまでは project pack で回す。
 
 ## 12. works のスキル
@@ -199,6 +222,7 @@ nodes:
 
 ## 13. 未決・危うい所
 
+- **能力の欠け**: 修正の受け付けは、graphloops の `fix_covers_open_units`（修正の後に判定の `class_query` を機械で数え直し、残る単位が閉じたかを見る）ではなく、`fix_plan_covers_units`（直す義務の残る単位ごとに `changes` の行が在るか）を使う。修正の後の機械による数え直しは未実装（周の輪の段で入れる予定）。
 - 修正役を Archon の AI の節のまま置く判断（7 節）は、引き継ぎ文書の案（script の節から role_run で起こす）と違う。実走で書く道具の漏れが問題になれば、role_run の形へ移す。
 - Archon は版上げでよく互換を壊す（0.8〜0.11 の全部に互換を壊す変更の節がある）。範囲の宣言と筋書きのテストで受け止める。
 - 本体のセッションは graphloops 側で自前の約束の書式（`graphloops/blocks/<ブロック>/block.json` と入口・出口の型）と `gl` コマンドを作る計画で進んでいる（`S/blocks/BLOCKS.md`）。works は約束を Archon の規約で持つので、書式が分かれる。ブロックの切り方（どの節を 1 つにまとめるか）と規則の関数の形（読み口を受けて JSON を返す）は BLOCKS.md に倣う。

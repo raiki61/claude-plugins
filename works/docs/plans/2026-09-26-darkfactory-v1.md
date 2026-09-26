@@ -1,5 +1,24 @@
 # darkfactory 1 本目 Implementation Plan
 
+> **注（実装の後に足した）:** 実装は台帳の Ruling R1–R21 で変わった（`.superpowers/sdd/2026-09-26-darkfactory-v1/progress.md` は作業用で git の外）。下の本文は書き換えていない。今の形は設計書と YAML が正本。主な変更:
+> - R1: 筋書きの依頼 `request_ok.json` を種（`dev/target-seed/`）に置く。
+> - R2: ブロックの `base_rev` は `default: ""`（空はその場の HEAD）。ラインはいつも `$base.output.rev` を渡す。
+> - R3: 差分の審査の受け付けの「作業ツリーが変わった」は、cut が盤面に置く写し（porcelain と差分の digest）と比べる（判定の側は R14）。
+> - R4: bash・script の節は全部 `timeout: 1728000000`、AI の節は全部 `idle_timeout: 1728000000`。
+> - R7: ブロックのスクリプトは `import accept` の前に `.shared/core` を `sys.path` の頭に入れる。
+> - R8: ブロックのテストはブロックごとのファイル（`test_blk_judge.py`・`test_blk_fix.py`・`test_blk_tests_delta.py`）。
+> - R10: `dev/check.sh` は works 自身の工程だけを 1 本ずつ validate する。
+> - R11: 出し直しの上限の筋書きは、模擬実行が `until_bash` を回さないので、失敗の節を collect で見る。
+> - R12: AI の節の sandbox は `{enabled: true, allowUnsandboxedCommands: false}`。
+> - R14: 判定の受け付けは、intake が盤面に置く作業ツリーの写し（`judge-snapshot.json`）と比べる。
+> - R15: テストで出来るバイトコード（`__pycache__/`・`.pyc`）は触ったファイルに数えない。blk-tests は `PYTHONDONTWRITEBYTECODE=1` で回す。
+> - R16（R13 を置き換え）: 指示書は `$LOOP_PREV.<役>-accept.output.reason` と `$cut.output.*` を本文で直に読む（節の `with:` で渡さない）。
+> - R17: ラインの include の id は `judging`・`fixing`・`testing`・`reviewing`（ブロックの中の節の id と重ねない）。
+> - R18: 実走の模型は隔離した開発用の Archon の設定の既定（opus）。ブロックの YAML に `model:` を書かない。
+> - R19: 受け付けの節の名前は `judge-accept`・`fix-accept`・`review-accept`。
+> - R20: 開発の殻の認証に既定の口座は無い（`CLAUDE_CODE_OAUTH_TOKEN` か `WORKS_KEYCHAIN_ITEM`）。
+> - R21: 直す物が無い判定なら、ラインは修正から後を飛ばし、いつも走る節 `finish`（`returns`）で `no_fix_needed` を返す。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `works/` を Archon の pack として作り、人の修正依頼を「判定 → 修正 → テスト → 人の承認 → 修正差分の審査」の順に流すライン `darkfactory` を、graphloops から写した本物の受け付けの規則と記録の検証器で回す。
