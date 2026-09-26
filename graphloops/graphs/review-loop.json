@@ -47,11 +47,12 @@
  "state_schema": {
   "type": "object",
   "additionalProperties": false,
-  "description": "盤面の loop（rules が b.loop_state に書く run 全体の状態）の形の正本。ブロックの出口の値は節の出力（schema 付き）に置き、ここには置かない——外の鍵を持つ旧い盤面は、保存の時の照らしが警告を盤面（state.loop_drift）と trace に残して通す",
+  "description": "盤面の loop（rules が b.loop_state に書く run 全体の状態）の形の正本。ブロックの出口の値は節の出力（schema 付き）に置き、ここには置かない——外の鍵を持つ旧い盤面は、保存の時の照らしが警告を盤面（state.loop_drift）と trace に残して通す。鍵ごとの合わせ方（x-reducer: overwrite・append・merge_by_key・set_once）を宣言し、rules は effect（engine/effects.py）の口だけで書く——loop.py patch はそれを飛ばす上書きとして痕跡（state.patches の bypass）に残る",
   "properties": {
    "request_fixed_at": {
     "type": "integer",
-    "description": "振り分けの候補: B run 全体の状態（入口の周が終わった周）"
+    "description": "振り分けの候補: B run 全体の状態（入口の周が終わった周）",
+    "x-reducer": "set_once"
    },
    "escalated": {
     "type": "object",
@@ -78,15 +79,18 @@
       }
      }
     },
-    "description": "振り分けの候補: B run 全体の状態（一方向の旗。下げるのは人の手当てだけ）"
+    "description": "振り分けの候補: B run 全体の状態（一方向の旗。下げるのは人の手当てだけ）",
+    "x-reducer": "set_once"
    },
    "outcome": {
     "type": "string",
-    "description": "振り分けの候補: B run 全体の状態（engine の status と重なる）"
+    "description": "振り分けの候補: B run 全体の状態（engine の status と重なる）",
+    "x-reducer": "overwrite"
    },
    "stop_reason": {
     "type": "string",
-    "description": "振り分けの候補: B run 全体の状態"
+    "description": "振り分けの候補: B run 全体の状態",
+    "x-reducer": "overwrite"
    },
    "lanes": {
     "type": "object",
@@ -132,7 +136,8 @@
       }
      }
     },
-    "description": "振り分けの候補: B run 全体の状態（版 → 線の台帳）"
+    "description": "振り分けの候補: B run 全体の状態（版 → 線の台帳）",
+    "x-reducer": "merge_by_key"
    },
    "lanes_bad_delivered": {
     "type": "array",
@@ -153,7 +158,8 @@
       }
      }
     },
-    "description": "振り分けの候補: B 線の台帳の読めない行を判定へ渡した印（{rev, round, row}。版だけの文字列は渡した周を持たない旧い印）"
+    "description": "振り分けの候補: B 線の台帳の読めない行を判定へ渡した印（{rev, round, row}。版だけの文字列は渡した周を持たない旧い印）",
+    "x-reducer": "append"
    },
    "mutation_decl": {
     "type": "object",
@@ -165,18 +171,21 @@
       "type": "string"
      }
     },
-    "description": "振り分けの候補: B 対象リポジトリの変異の宣言の読み取り。init の入力にしないのは、周ごとに宣言を読み直すため（周の修正が宣言を書き換えうる）"
+    "description": "振り分けの候補: B 対象リポジトリの変異の宣言の読み取り。init の入力にしないのは、周ごとに宣言を読み直すため（周の修正が宣言を書き換えうる）",
+    "x-reducer": "overwrite"
    },
    "final_gate_empty_ok": {
     "type": [
      "string",
      "null"
     ],
-    "description": "振り分けの候補: B 人の答えから来る"
+    "description": "振り分けの候補: B 人の答えから来る",
+    "x-reducer": "overwrite"
    },
    "policy_change": {
     "type": "object",
-    "description": "振り分けの候補: B 関所で見つけた人の方針の文書の変化。人の答えまで持ち、答えで記録へ移して消える"
+    "description": "振り分けの候補: B 関所で見つけた人の方針の文書の変化。人の答えまで持ち、答えで記録へ移して消える",
+    "x-reducer": "overwrite"
    },
    "in_round_answers": {
     "type": "array",
@@ -203,7 +212,8 @@
       }
      }
     },
-    "description": "振り分けの候補: B 周の途中の人の答え"
+    "description": "振り分けの候補: B 周の途中の人の答え",
+    "x-reducer": "append"
    }
   }
  },
@@ -489,18 +499,6 @@
      }
     },
     "description": "周 → 周の頭に固めた版（p1.worktree_after か p1.worktree_before の tree_before.rev。無い旧い出力は tree）"
-   },
-   "rejudge_rounds": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "n": {
-      "type": "integer"
-     }
-    },
-    "description": "今の周に受け付けた擦り合わせ（p2.rejudge・p2.rejudge_third）の数"
    },
    "snapshot": {
     "$ref": "#/$defs/snapshot",
@@ -1520,6 +1518,11 @@
     }
    },
    "writes": [
+    {
+     "op": "set",
+     "to": "base",
+     "from": "base_sha"
+    },
     {
      "op": "set",
      "to": "materials.base_determination",
@@ -5243,6 +5246,10 @@
    "deps": [
     "p3.fix",
     "p2.rejudge",
+    "p3.rejudge_reply",
+    "p2.rejudge2",
+    "p3.rejudge_reply2",
+    "p2.rejudge3",
     "p2.rejudge_third",
     "p3.delta_fix",
     "p3.delta_fix2"
@@ -5343,6 +5350,10 @@
    "deps": [
     "p3.fix",
     "p2.rejudge",
+    "p3.rejudge_reply",
+    "p2.rejudge2",
+    "p3.rejudge_reply2",
+    "p2.rejudge3",
     "p2.rejudge_third",
     "p3.delta_fix",
     "p3.delta_fix2"
@@ -5432,6 +5443,10 @@
    "deps": [
     "p3.fix",
     "p2.rejudge",
+    "p3.rejudge_reply",
+    "p2.rejudge2",
+    "p3.rejudge_reply2",
+    "p2.rejudge3",
     "p2.rejudge_third",
     "p3.delta_fix",
     "p3.delta_fix2",
@@ -5474,6 +5489,10 @@
    "deps": [
     "p3.fix",
     "p2.rejudge",
+    "p3.rejudge_reply",
+    "p2.rejudge2",
+    "p3.rejudge_reply2",
+    "p2.rejudge3",
     "p2.rejudge_third",
     "p3.delta_fix",
     "p3.delta_fix2",
@@ -6606,8 +6625,389 @@
    "same_context_as": "p2.diagnose",
    "cond": "rejudge_open",
    "prompt_file": "../prompts/review-loop/p2.rejudge.md",
-   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復の回数は rules の hist.rejudge_rounds が数え、done が trace に残す——会話でやると記録に残らない",
+   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復は rules の REJUDGE_PASSES が 3 回まで展開し（1 回ごとに回す側の再異議の口が在る）、done が trace に残す——会話でやると記録に残らない",
    "prompt_append": [
+    "../prompts/review-loop/rejudge-rules.md",
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
+  },
+  "p3.rejudge_reply": {
+   "stage": "P2",
+   "run_by": "writer",
+   "optional": true,
+   "deps": [
+    "p2.rejudge"
+   ],
+   "source": "P2 ＞ 9. 同じ周の擦り合わせ（回す側の異議を次の周に送らない）",
+   "inputs": [
+    "判定役の擦り合わせの答え（決着しなかった回）",
+    "回す側の前の異議"
+   ],
+   "does": "1 回目の擦り合わせが決着しなかった（一部採る）ときに、回す側が新しい事実を伴う再異議を書くか取り下げる",
+   "outputs": [
+    "rejudge_requested（再異議）"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "reason"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "rejudge_requested": {
+      "type": "string",
+      "note": "新しい事実を伴う再異議（空か無ければ取り下げ——往復はここで止まり、決着しなかった分は次の周の p2.history が再審する）"
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 10,
+      "note": "再異議なら判定役の答えのどこに新しい事実で答えるか、取り下げなら取り下げる理由"
+     }
+    }
+   },
+   "reads": [
+    "cur.p2.rejudge",
+    "cur.p3.fix.rejudge_requested",
+    "record.units",
+    "record.process.rejudge",
+    "record.process.policy.path"
+   ],
+   "cond": "rejudge_reply_due",
+   "prompt_file": "../prompts/review-loop/p3.rejudge_reply.md",
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
+  },
+  "p2.rejudge2": {
+   "stage": "P2",
+   "run_by": "judge",
+   "optional": true,
+   "deps": [
+    "p3.rejudge_reply"
+   ],
+   "source": "P2 ＞ 9. 同じ周の擦り合わせ（回す側の異議を次の周に送らない）",
+   "inputs": [
+    "回す側の異議（rejudge_requested）と、それが伴う新しい事実",
+    "今の周の units と questions"
+   ],
+   "does": "2 回目の擦り合わせ: 回す側の再異議が出した新しい事実を自分で確かめ、判定を採る／退ける／一部採る。units を書き換えるのは judge の側で、回す側に権限は移らない",
+   "outputs": [
+    "units（更新）"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "verdict",
+     "new_facts",
+     "units"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "採る",
+       "退ける",
+       "一部採る"
+      ]
+     },
+     "new_facts": {
+      "type": "string",
+      "minLength": 20,
+      "note": "回す側が出した新しい事実を、自分で確かめた結果。確かめずに採るな・退けるな"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "units": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "label"
+       ],
+       "additionalProperties": true,
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "label": {
+         "type": "string",
+         "enum": [
+          "block",
+          "suggest",
+          "nit",
+          "question",
+          "info"
+         ]
+        },
+        "disposition": {
+         "type": "string",
+         "enum": [
+          "do-now",
+          "defer"
+         ]
+        },
+        "reason": {
+         "type": "string"
+        },
+        "reopen_evidence": {
+         "type": "string"
+        },
+        "origin_analysis": {
+         "type": "string"
+        },
+        "why_chain": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "prescriptions": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "closed_note": {
+         "type": "string"
+        },
+        "class_query": {
+         "$ref": "#/$defs/class_query"
+        }
+       }
+      }
+     }
+    }
+   },
+   "reads": [
+    "cur.p3.rejudge_reply.rejudge_requested",
+    "record.units",
+    "record.questions",
+    "record.process.rejudge",
+    "record.process.diagnosis",
+    "record.process.policy.path"
+   ],
+   "writes": [
+    {
+     "op": "set",
+     "to": "units",
+     "from": "units",
+     "pick": [
+      "key",
+      "label",
+      "disposition",
+      "reason",
+      "reopen_evidence"
+     ]
+    },
+    {
+     "op": "append",
+     "to": "process.rejudge",
+     "from": "$"
+    }
+   ],
+   "post_check": "rejudge_output",
+   "same_context_as": "p2.diagnose",
+   "cond": "rejudge2_open",
+   "prompt_file": "../prompts/review-loop/p2.rejudge2.md",
+   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復は rules の REJUDGE_PASSES が 3 回まで展開し（1 回ごとに回す側の再異議の口が在る）、done が trace に残す——会話でやると記録に残らない",
+   "prompt_append": [
+    "../prompts/review-loop/rejudge-rules.md",
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
+  },
+  "p3.rejudge_reply2": {
+   "stage": "P2",
+   "run_by": "writer",
+   "optional": true,
+   "deps": [
+    "p2.rejudge2"
+   ],
+   "source": "P2 ＞ 9. 同じ周の擦り合わせ（回す側の異議を次の周に送らない）",
+   "inputs": [
+    "判定役の擦り合わせの答え（決着しなかった回）",
+    "回す側の前の異議"
+   ],
+   "does": "2 回目の擦り合わせが決着しなかった（一部採る）ときに、回す側が新しい事実を伴う再異議を書くか取り下げる",
+   "outputs": [
+    "rejudge_requested（再異議）"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "reason"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "rejudge_requested": {
+      "type": "string",
+      "note": "新しい事実を伴う再異議（空か無ければ取り下げ——往復はここで止まり、決着しなかった分は次の周の p2.history が再審する）"
+     },
+     "reason": {
+      "type": "string",
+      "minLength": 10,
+      "note": "再異議なら判定役の答えのどこに新しい事実で答えるか、取り下げなら取り下げる理由"
+     }
+    }
+   },
+   "reads": [
+    "cur.p2.rejudge2",
+    "cur.p3.rejudge_reply.rejudge_requested",
+    "record.units",
+    "record.process.rejudge",
+    "record.process.policy.path"
+   ],
+   "cond": "rejudge_reply2_due",
+   "prompt_file": "../prompts/review-loop/p3.rejudge_reply2.md",
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
+  },
+  "p2.rejudge3": {
+   "stage": "P2",
+   "run_by": "judge",
+   "optional": true,
+   "deps": [
+    "p3.rejudge_reply2"
+   ],
+   "source": "P2 ＞ 9. 同じ周の擦り合わせ（回す側の異議を次の周に送らない）",
+   "inputs": [
+    "回す側の異議（rejudge_requested）と、それが伴う新しい事実",
+    "今の周の units と questions"
+   ],
+   "does": "3 回目の擦り合わせ: 回す側の再異議が出した新しい事実を自分で確かめ、判定を採る／退ける／一部採る。units を書き換えるのは judge の側で、回す側に権限は移らない",
+   "outputs": [
+    "units（更新）"
+   ],
+   "schema": {
+    "type": "object",
+    "required": [
+     "verdict",
+     "new_facts",
+     "units"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "採る",
+       "退ける",
+       "一部採る"
+      ]
+     },
+     "new_facts": {
+      "type": "string",
+      "minLength": 20,
+      "note": "回す側が出した新しい事実を、自分で確かめた結果。確かめずに採るな・退けるな"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "units": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "key",
+        "label"
+       ],
+       "additionalProperties": true,
+       "properties": {
+        "key": {
+         "type": "string",
+         "minLength": 1
+        },
+        "label": {
+         "type": "string",
+         "enum": [
+          "block",
+          "suggest",
+          "nit",
+          "question",
+          "info"
+         ]
+        },
+        "disposition": {
+         "type": "string",
+         "enum": [
+          "do-now",
+          "defer"
+         ]
+        },
+        "reason": {
+         "type": "string"
+        },
+        "reopen_evidence": {
+         "type": "string"
+        },
+        "origin_analysis": {
+         "type": "string"
+        },
+        "why_chain": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "prescriptions": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "closed_note": {
+         "type": "string"
+        },
+        "class_query": {
+         "$ref": "#/$defs/class_query"
+        }
+       }
+      }
+     }
+    }
+   },
+   "reads": [
+    "cur.p3.rejudge_reply2.rejudge_requested",
+    "record.units",
+    "record.questions",
+    "record.process.rejudge",
+    "record.process.diagnosis",
+    "record.process.policy.path"
+   ],
+   "writes": [
+    {
+     "op": "set",
+     "to": "units",
+     "from": "units",
+     "pick": [
+      "key",
+      "label",
+      "disposition",
+      "reason",
+      "reopen_evidence"
+     ]
+    },
+    {
+     "op": "append",
+     "to": "process.rejudge",
+     "from": "$"
+    }
+   ],
+   "post_check": "rejudge_output",
+   "same_context_as": "p2.diagnose",
+   "cond": "rejudge3_open",
+   "prompt_file": "../prompts/review-loop/p2.rejudge3.md",
+   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復は rules の REJUDGE_PASSES が 3 回まで展開し（1 回ごとに回す側の再異議の口が在る）、done が trace に残す——会話でやると記録に残らない",
+   "prompt_append": [
+    "../prompts/review-loop/rejudge-rules.md",
     "../prompts/policy-paste.md",
     "../prompts/policy.md"
    ]
@@ -6617,7 +7017,7 @@
    "run_by": "judge",
    "optional": true,
    "deps": [
-    "p3.fix"
+    "p2.rejudge3"
    ],
    "source": "P2 ＞ 9. 同じ周の擦り合わせ（回す側の異議を次の周に送らない）",
    "inputs": [
@@ -6717,7 +7117,7 @@
     }
    },
    "reads": [
-    "cur.p3.fix.rejudge_requested",
+    "cur.p3.rejudge_reply2.rejudge_requested",
     "record.units",
     "record.questions",
     "record.process.rejudge",
@@ -6746,7 +7146,7 @@
    "fresh_context": true,
    "cond": "rejudge_exhausted",
    "prompt_file": "../prompts/review-loop/p2.rejudge_third.md",
-   "note": "**第三の目は常設しない**——上限を超えた周にだけ立つ。見るのは元の材料でなく往復そのもの（何で食い違ったか）",
+   "note": "**第三の目は常設しない**——3 回の擦り合わせ（p2.rejudge・p2.rejudge2・p2.rejudge3）がどれも決着しなかった周にだけ立つ。見るのは元の材料でなく往復そのもの（何で食い違ったか）",
    "prompt_append": [
     "../prompts/policy-paste.md",
     "../prompts/policy.md"

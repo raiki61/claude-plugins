@@ -1,4 +1,5 @@
 """回す側が呼ぶコマンド。init / next / done / skip / answer / stop / thicken / add / patch / finalize / status / record。"""
+import copy
 import datetime
 import json
 import os
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import threading
 
+from . import effects
 from . import pointers
 from . import hist as histmod
 from . import declared
@@ -934,6 +936,43 @@ def pending_instance(b, node):
     return inst
 
 
+ACCEPT_SHAPE = {"type": "object", "required": ["ok"], "additionalProperties": False,
+                "properties": {"ok": {"type": "boolean"}, "reason": {"type": "string"}, "note": {"type": "string"},
+                               "reply": {"type": "object"}, "effects": {"type": "array"}}}
+
+
+def post_check(b, nid, output, item):
+    """節ごとの整合（型では書けない規則。rules の POST_CHECKS）を当てる ——（受け付ける返答, 注記, effects）。done と gl accept が
+    同じここを通る。新しい形の関数（読み口を受ける）は {ok, reason, note, reply, effects} を返し、拒否は ok: false——ここで
+    AnswerReject に戻す（役に返せば直る側）。reply は補った返答で、節の schema で照らし直してから受け付ける。旧い形の関数
+    （盤面を受ける）は注記を返すか Reject を投げ、記録を書くことがある（review-loop の r2_design——移し終えるまでの例外）"""
+    pc = b.nodes[nid].get("post_check")
+    if not pc:
+        return output, [], []
+    fn = registry(b.rules, "POST_CHECKS").get(pc)
+    if not fn:
+        die(f"post_check '{pc}' が rules に無い")
+    try:
+        new, got = b.rule(pc, fn, nid, output, item)
+    except AnswerReject:
+        raise
+    except Reject as e:  # 節ごとの整合（rules）は返答の中身を見る——役に返せば直る側に揃える
+        raise AnswerReject(str(e)) from e
+    if not new:
+        return output, [got] if got else [], []
+    errs = validate_schema(got, ACCEPT_SHAPE, f"post_check {pc}")
+    if errs:
+        die(f"post_check '{pc}' の返りが {{ok, reason, note, reply, effects}} の形でない（rules の欠陥）: " + "; ".join(errs[:3]))
+    if not got["ok"]:
+        raise AnswerReject(got.get("reason") or f"post_check '{pc}' が理由を書かずに拒んだ")
+    if "reply" in got:
+        errs = validate_schema(got["reply"], b.nodes[nid]["schema"]) if b.nodes[nid].get("schema") else []
+        if errs:
+            die(f"post_check '{pc}' が補った返答が節 {nid} の schema に合わない（rules の欠陥）: " + "; ".join(errs[:3]))
+        output = got["reply"]
+    return output, [got["note"]] if got.get("note") else [], got.get("effects") or []
+
+
 def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=None):
     """返答の本文を受け付けて盤面と記録に写す（done の中身。loop.py launch も同じここを呼ぶ）。返すのは回す側に見せる 1 行。
 
@@ -1005,23 +1044,8 @@ def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=No
             raise AnswerReject(f"段を {b.state['thickness']} から {want} に下げようとしている。降格は依頼者の指定で init に渡す（回す側の自己判断による降格＝さぼり降格を禁ずる）")
         if b.tiers.index(want) > b.tiers.index(b.state["thickness"]):
             thicken(b, want, output.get(n.get("thickness_reason_from", ""), ""), by=nid)
-    # 節ごとの整合（型では書けない規則。rules が持つ）。out を検査・補ってから writes を当てる。
-    # **record を書く post_check は例外として 2 つ在る**（review-loop の base_valid と r2_design——検査の結果で
-    # 初めて決まる値を書く）。それ以外は out だけを見る規約で、記録を書く経路は writes（WRITE_OPS）が主
-    notes = []
-    pc = n.get("post_check")
-    if pc:
-        fn = registry(b.rules, "POST_CHECKS").get(pc)
-        if not fn:
-            die(f"post_check '{pc}' が rules に無い")
-        try:
-            note = fn(b, nid, output, item)
-        except AnswerReject:
-            raise
-        except Reject as e:  # 節ごとの整合（rules）は返答の中身を見る——役に返せば直る側に揃える
-            raise AnswerReject(str(e)) from e
-        if note:
-            notes.append(note)
+    output, notes, effs = post_check(b, nid, output, item)
+    effects.apply_effects(b.loop_state, effs, b.graph.get("state_schema"), f"post_check {n.get('post_check')}")
     apply_writes(b, nid, output, item)
     check = hook(b.rules, "check_record")
     if check:
@@ -1295,20 +1319,24 @@ def cmd_patch(a):
         raise Reject(f"{a.path}: 鍵 '{undeclared}' は graph の state_schema に無い——今の rules はこの鍵を読まないので、書いても効かない"
                      "（旧い盤面の鍵か綴り違い）。値の置き場が節の出力に移った鍵なら、その節の出力を loop.py patch --path out.<節>.<欄> で直せ"
                      "（どの節の出力かは graph の節の outputs が名乗る）")
+    loop_before = copy.deepcopy(b.state.get("loop") or {})
     if a.path.startswith("out."):
         _patch_output(b, a.path[len("out."):], read_json(a.file))
     elif a.path.startswith("state."):
         set_path(b.state, a.path[len("state."):], read_json(a.file))
     else:
         set_path(b.record, a.path, read_json(a.file))
-    b.state.setdefault("patches", []).append({"round": b.round, "path": a.path, "reason": a.reason, "at": now()})
-    b.trace("patch", path=a.path, reason=a.reason)
+    # 盤面の loop（run の状態）を変えた手当ては、合わせ方（x-reducer）を飛ばした上書き——どの path で書いても、変わった鍵と飛ばした
+    # 合わせ方を痕跡に残す（LangGraph の Overwrite と同じ扱い。記録の process.patches に写る）
+    bypass = effects.bypassed(loop_before, b.state.get("loop") or {}, b.graph.get("state_schema"))
+    b.state.setdefault("patches", []).append({"round": b.round, "path": a.path, "reason": a.reason, "at": now(),
+                                              **({"bypass": bypass} if bypass else {})})
+    b.trace("patch", path=a.path, reason=a.reason, **({"bypass": bypass} if bypass else {}))
     b.save()
     print(f"ok {a.path if a.path.startswith('state.') else 'record.' + a.path} を手当てした（痕跡は state.patches と trace に残る）")
 
 
 def _undeclared_loop_key(b, path):
-    """手当ての path が盤面の loop の、graph の state_schema が閉じて（additionalProperties: false）宣言していない鍵を指すなら、その鍵"""
     if not path.startswith("state.loop."):
         return None
     sch = b.graph.get("state_schema")

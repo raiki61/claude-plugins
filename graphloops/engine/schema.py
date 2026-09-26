@@ -251,10 +251,11 @@ def schema_at(schema, parts):
 # graph に書いても効かない。graphcheck がこの集合で節の schema を走査して落とす（注記で守るのをやめ、仕組みで守る）。
 # note / description は説明のための欄で、検査には使わないが書いてよい。writeOnly は JSON Schema 2020-12 の注記語（validation §9.4）で、
 # 型検査には使わない——graph の state_schema の最上位の鍵にだけ書き、graphcheck が「rules だけが読み書きし、条件・節の reads・
-# プロンプトの穴は読まない鍵」として読む（それ以外の場所に書けば graphcheck が落とす）
+# プロンプトの穴は読まない鍵」として読む（それ以外の場所に書けば graphcheck が落とす）。x-reducer（OpenAPI の拡張の x- と同じ綴り）も
+# 型検査には使わない——state_schema の最上位の鍵の合わせ方で、engine/effects.py が読む（置ける場所と語は graphcheck が照らす）
 KNOWN_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties", "patternProperties", "additionalProperties", "items",
                             "minItems", "maxItems", "minimum", "maximum", "minLength", "maxLength", "pattern", "note", "description",
-                            "writeOnly"})
+                            "writeOnly", "x-reducer"})
 
 
 # 節の鍵のうち engine（と graphcheck の実行の形の検査）が読む物と、人が読むための説明の鍵。ループ固有の鍵は rules が NODE_KEYS

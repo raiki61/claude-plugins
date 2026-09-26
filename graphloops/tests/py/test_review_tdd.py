@@ -6,7 +6,8 @@ import types
 import pytest
 
 from conftest import PLUGIN, REPO
-from engine.rules import load_rules
+from engine.board import CondView
+from engine.rules import load_rules, validator_module
 from engine.schema import load_graph
 
 GRAPH = PLUGIN / "graphs" / "review-loop-tdd.json"
@@ -144,6 +145,7 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
 UNITS = [{"key": "u-block", "label": "block"}, {"key": "u-donow", "label": "suggest", "disposition": "do-now"}]
 BOARD = types.SimpleNamespace(state={"validator": str(REPO / "scripts" / "review-record.py")},
                               record={"units": UNITS, "questions": []})
+BOARD.view = lambda name, reads: CondView(name, reads, {"record": BOARD.record}, lambda: validator_module(BOARD), copy=True)
 OK_FRICTION = {"setup_heavy": False, "reaches_internals": False, "name_unclear": False}
 
 
@@ -196,7 +198,7 @@ def test_tdd_conds_truth_table():
     assert not ev("tdd_named", {"p3.tdd_tests": {"units": [{"route": "tdd"}]}})   # tests の欄の無い行は 0 件と数える
     assert not ev("tdd_red_passed", named)   # この周の赤の確認がまだ出力を書いていない
     assert ev("tdd_red_passed", named, {"ok": True, "named": 1, "red_rev": "r" * 40})
-    assert not ev("tdd_red_passed", named, {"ok": True, "gave_up": "red", "problems": ["赤でない"]})   # 上限で諦めた
+    assert not ev("tdd_red_passed", named, {"ok": True, "gave_up": "red", "problems": ["赤でない"]})
     assert not ev("tdd_red_passed", named, {"ok": False, "problems": ["赤でない"], "rewound": ["p3.tdd_tests"]})
     assert not ev("tdd_red_passed", direct, {"ok": True, "named": 1, "red_rev": "r" * 40})
 

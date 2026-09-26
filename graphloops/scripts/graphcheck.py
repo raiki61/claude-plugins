@@ -59,6 +59,7 @@
 
 終了コード: 0 = 全部通った / 1 = どれかが通らなかった / 2 = 入力が読めない
 """
+import ast
 import graphlib
 import importlib.util
 import io
@@ -81,6 +82,7 @@ PLUGIN_ROOT = HERE.parent
 sys.path.insert(0, str(PLUGIN_ROOT))
 # 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
 from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of  # noqa: E402
+from engine.effects import REDUCER_KEY, REDUCERS, declares_reducers  # noqa: E402
 from engine.hist import LOOKUP_HEADS as HIST_LOOKUP_HEADS  # noqa: E402
 from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
@@ -408,11 +410,60 @@ def hist_errors(g, rules):
     return errs
 
 
+LOOP_MUTATORS = frozenset({"setdefault", "pop", "popitem", "update", "append", "extend", "insert", "remove", "clear"})
+
+
+def direct_loop_writes(src):
+    """rules の本文のうち、盤面の loop（<何か>.loop_state か、それを束ねた名前）を直に書き換える行 ——[(行, 字面)]。
+    代入・拡張代入・削除の先と、書き換える方法の呼び出しを見る。loop から取り出した値を別の名前に渡してから書く形（行の辞書を
+    関数の返りで受け取って書く）までは追わない——追えない形は graph の state_schema の保存の時の照らしが受ける"""
+    tree, found = ast.parse(src), []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        aliases = set()
+
+        def rooted(n):
+            while True:
+                if isinstance(n, ast.Attribute):
+                    if n.attr == "loop_state":
+                        return True
+                    n = n.value
+                elif isinstance(n, ast.Subscript):
+                    n = n.value
+                elif isinstance(n, ast.Call):
+                    n = n.func
+                elif isinstance(n, ast.Name):
+                    return n.id in aliases
+                else:
+                    return False
+        for node in ast.walk(fn):   # 束ねた名前（ls = b.loop_state・rec, ls = b.record, b.loop_state）
+            if isinstance(node, ast.Assign):
+                pairs = [(node.targets[0], node.value)]
+                if isinstance(node.targets[0], ast.Tuple) and isinstance(node.value, ast.Tuple):
+                    pairs = list(zip(node.targets[0].elts, node.value.elts))
+                aliases |= {t.id for t, v in pairs if isinstance(t, ast.Name) and isinstance(v, ast.Attribute) and v.attr == "loop_state"}
+        for node in ast.walk(fn):
+            targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else []
+            hit = any(isinstance(t, (ast.Subscript, ast.Attribute)) and rooted(t.value) for t in targets)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in LOOP_MUTATORS and rooted(node.func.value):
+                hit = True
+            if hit:
+                found.append((node.lineno, ast.get_source_segment(src, node) or ""))
+    return sorted(set(found))
+
+
+def rules_files(rules):
+    """rules の本文のファイル（差し替えの版が元の rules を module として読み込んでいれば、その本文も）"""
+    mods = [rules, *(m for m in vars(rules).values() if type(m).__name__ == "module" and getattr(m, "__name__", "").startswith("graphloops_rules"))]
+    return sorted({pathlib.Path(m.__file__) for m in mods if getattr(m, "__file__", None)})
+
+
 def check_declared_reads(fn, name, where, g, rules, errs, nid=None):
-    """条件の関数が宣言した読む欄（cond_reads）を 1 本ずつ check_read_path で照らす"""
+    """条件と規則の関数が宣言した読む欄（cond_reads）を 1 本ずつ check_read_path で照らす"""
     reads = getattr(fn, "reads", None)
     if not isinstance(reads, tuple) or not all(isinstance(r, str) and r for r in reads):
-        errs.append(f"{where}: cond '{name}' が読む欄を宣言していない（rules で cond_reads(...) を付けよ）")
+        errs.append(f"{where}: '{name}' が読む欄を宣言していない（rules で cond_reads(...) を付けよ）")
         return
     before = ancestors(g["nodes"], nid) if nid else None
     for path in reads:
@@ -678,14 +729,18 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     for who, sch in owners:
         for u in unknown_keywords(sch):
             errs.append(f"{who}: schema に engine が読まない語 {u}（綴り違いか本家 JSON Schema の語——書いても効かない）")
-        # writeOnly（rules だけが読み書きする鍵の印）が効くのは state_schema の最上位の鍵だけ——ほかに書くと効かない印になる
+        # writeOnly（rules だけが読み書きする鍵の印）と x-reducer（run の状態の合わせ方）が効くのは state_schema の最上位の鍵だけ
+        # ——ほかに書くと効かない印になる
         for at, s in walk_schema(sch):
-            if "writeOnly" not in s:
-                continue
-            if not (who == "state_schema" and re.fullmatch(r"\$\.[^.\[\]]+", at)):
-                errs.append(f"{who}: {at} の writeOnly は効かない（書けるのは state_schema の最上位の鍵だけ）")
-            elif not isinstance(s["writeOnly"], bool):
-                errs.append(f"{who}: {at} の writeOnly は真偽で書く（{s['writeOnly']!r}）")
+            for word in ("writeOnly", REDUCER_KEY):
+                if word not in s:
+                    continue
+                if not (who == "state_schema" and re.fullmatch(r"\$\.[^.\[\]]+", at)):
+                    errs.append(f"{who}: {at} の {word} は効かない（書けるのは state_schema の最上位の鍵だけ）")
+                elif word == "writeOnly" and not isinstance(s[word], bool):
+                    errs.append(f"{who}: {at} の writeOnly は真偽で書く（{s['writeOnly']!r}）")
+                elif word == REDUCER_KEY and s[word] not in REDUCERS:
+                    errs.append(f"{who}: {at} の {REDUCER_KEY} '{s[word]}' を engine が知らない（{'/'.join(REDUCERS)}）")
         for pat in schema_patterns(sch):
             try:
                 end_anchored(pat)   # 検査と同じ読み替えを通した物をコンパイルする（読み替えた後が壊れる形も拾う）
@@ -809,6 +864,14 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     elif sch is None and keys is not None:
         node_errs.append("rules が LOOP_KEYS を持つのに graph に state_schema（盤面の loop の形）が無い——loop の読みを最後の欄まで照らせず、"
                          "保存の時の照らしも掛からない")
+    # 合わせ方（x-reducer）を宣言した graph は、run の状態を effect の口（engine/effects.py。旧い形の関数は write_loop）だけで書く:
+    # 鍵は全部合わせ方を持ち、rules の本文は loop を直に書かない。宣言の無い graph（research-loop）は今の書き方のまま
+    if isinstance(sch, dict) and declares_reducers(sch):
+        errs += [f"state_schema の鍵 '{k}' に {REDUCER_KEY} が無い——合わせ方を宣言した graph では全部の鍵が持つ"
+                 for k, p in (sch.get("properties") or {}).items() if not (isinstance(p, dict) and REDUCER_KEY in p)]
+        for f in rules_files(rules) if rules is not None else []:
+            errs += [f"rules {f.name}:{ln} が盤面の loop を直に書いている（{seg.splitlines()[0][:80]}）——write_loop（effect の口）で書け"
+                     for ln, seg in direct_loop_writes(f.read_text(encoding="utf-8"))]
     errs += hist_errors(g, rules)
     # 機械の節も返りの形（schema）を宣言する——後の節・条件・rules が出力の欄を名前で読み、engine が返りを照らす。無ければ読む欄の
     # 綴りを照らせない。持ち込みの graph の init は止めない（15・16 と同じく init からは WARN）
@@ -866,6 +929,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             errs.append(f"節 {k}: materials の宣言 {sorted(declared)} と writes の素材の書き先 {sorted(wrote)} が揃わない")
     fan_builtins, node_builtins, post_checks = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS")
     conds = dict(registry(rules, "CONDS"))
+    post_checks_fns, builtin_fns = dict(registry(rules, "POST_CHECKS")), dict(registry(rules, "BUILTINS"))
     for nid in g.get("raw_for_report", []):
         if nid not in nodes:
             errs.append(f"raw_for_report に無い節: {nid}")
@@ -880,6 +944,12 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 errs.append(f"節 {k}: {key} '{c}' が rules の CONDS の名前でない（graph には条件の関数の名前だけを書く。CONDS: {sorted(conds)}）")
                 continue
             check_declared_reads(conds[c], c, f"節 {k}.{key}", g, rules, errs, nid=k)
+        # 新しい形の規則の関数（受け付け・機械の節。読む欄を cond_reads で宣言した物）も同じ照らしを通す——宣言の誤りを実行時の die まで
+        # 待たない。祖先の検査は当てない（同じ関数が回の違う節に付き、どの回の欄も宣言する——DELTA_PASSES の 2 回ぶん）
+        for key, table in (("post_check", post_checks_fns), ("builtin", builtin_fns)):
+            fn = table.get(v.get(key)) if isinstance(v.get(key), str) else None
+            if fn is not None and isinstance(getattr(fn, "reads", None), tuple):
+                check_declared_reads(fn, v[key], f"節 {k}.{key}", g, rules, errs)
         # 節の reads と outputs が名指す loop.<…> も、条件と同じ宣言（LOOP_KEYS と state_schema の木）で照らす——穴（{{?loop.X}}）の
         # 綴り違いは ABSENT で黙って埋まり、outputs の loop.<鍵> は宣言の 2 本目として別にずれうる。outputs は書き先の名乗りなので、
         # writeOnly の鍵でも書いてよい

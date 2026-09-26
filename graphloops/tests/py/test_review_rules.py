@@ -7,12 +7,14 @@ import types
 import pytest
 
 from conftest import PLUGIN, REPO
-from engine.rules import load_rules
+from engine.board import CondView
+from engine.rules import load_rules, validator_module
 from engine.schema import load_graph
 from engine.util import Reject
 
 GRAPH = PLUGIN / "graphs" / "review-loop.json"
-RULES = load_rules(GRAPH, load_graph(GRAPH)[0])
+G = load_graph(GRAPH)[0]
+RULES = load_rules(GRAPH, G)
 VALIDATOR = str(REPO / "scripts" / "review-record.py")
 
 
@@ -22,12 +24,22 @@ def board(tmp_path, *, outputs=None, latest=None, record=None, loop_state=None, 
     outputs, latest = outputs or {}, latest or {}
     rec = {"base": None, "materials": {}, "units": [], "questions": [], "process": {}}
     rec.update(record or {})
-    return types.SimpleNamespace(
-        round=rnd, dir=tmp_path, record=rec, loop_state=dict(loop_state or {}),
+    b = types.SimpleNamespace(
+        round=rnd, dir=tmp_path, record=rec, loop_state=dict(loop_state or {}), graph=G,
         state={"validator": VALIDATOR, "max_rounds": max_rounds, "inputs": dict(inputs or {})},
         output_of_round=lambda nid, r: outputs.get(nid), latest_output=lambda nid: latest.get(nid),
         cond=lambda name, overlay=None: (name == RULES.ENTRY_BUILTIN, "偽物"),
         hist=lambda name: (hist or {}).get(name, RULES.HIST_ABSENT))
+    # 読み口（engine の Board.view と同じ入れ物）。新しい形の規則の関数と、旧い形の関数が読み口で呼ぶ補助が読む
+    ctx = {"record": rec, "out": latest, "cur": outputs, "prev": {}, "round": rnd, "rd": {}, "loop": b.loop_state,
+           "inputs": b.state["inputs"], "hist": dict(hist or {})}
+    b.view = lambda name, reads: CondView(name, reads, ctx, lambda: validator_module(b), None, copy=True)
+    return b
+
+
+def call(b, fn, *args):
+    """新しい形の規則の関数を、宣言した読み口で呼ぶ（engine の Board.rule と同じ）"""
+    return fn(b.view(fn.__name__, fn.reads), *args)
 
 
 def fake_git(table):
@@ -157,8 +169,7 @@ def test_github_repo_blank_upstream_falls_back_to_origin(monkeypatch):
 
 
 def entry_board(tmp_path):
-    return board(tmp_path, record={"process": {"request_findings": [
-        {"round": 1, "origin": "人", "findings": [{"where": "src/a.py: 3 行目", "text": "直せ"}]}]}})
+    return board(tmp_path, hist={"request_wheres": ["src/a.py: 3 行目"]})
 
 
 def test_pr_files_takes_tracked_paths_named_by_where(tmp_path, monkeypatch):
@@ -193,8 +204,8 @@ def test_parallel_pr_reply_failed_run_shows_why(tmp_path, run, words):
 # ---------------------------------------------------------------- 修正案（fix_plan_covers_units）
 def test_fix_plan_rejects_unknown_unit_key(tmp_path):
     b = board(tmp_path, record={"units": [{"key": "K1", "label": "block"}]})
-    with pytest.raises(Reject, match="今の周に直す単位に無い key"):
-        RULES.fix_plan_covers_units(b, "p2.fix_plan", {"plan": [{"unit_keys": ["K1", "写した key"]}]}, None)
+    got = call(b, RULES.fix_plan_covers_units, "p2.fix_plan", {"plan": [{"unit_keys": ["K1", "写した key"]}]}, None)
+    assert got["ok"] is False and "今の周に直す単位に無い key" in got["reason"]
 
 
 # ---------------------------------------------------------------- 仕様の道（spec.*）
@@ -222,7 +233,7 @@ def test_spec_errors_rejects_missing_test_name(no_repo):
 
 @pytest.mark.parametrize("review", [pytest.param(None, id="no-review"), pytest.param({"faces": []}, id="no-faces")])
 def test_spec_revise_output_without_review_faces(no_repo, review):
-    RULES.spec_revise_output(board(no_repo, latest={"spec.review": review}), "spec.revise", {"handled": [], "spec": SPEC}, None)
+    assert call(board(no_repo, latest={"spec.review": review}), RULES.spec_revise_output, "spec.revise", {"handled": [], "spec": SPEC}, None)["ok"]
 
 
 def test_spec_approve_without_review_or_revise(no_repo):
@@ -312,10 +323,10 @@ def test_history_rules_only_where_history_is_read(tmp_path):
 def test_rejudge_rejects_reopened_defer(tmp_path):
     b = board(tmp_path, hist=LEDGER, rnd=2)
     out = {"new_facts": "回す側が出した事実を、作業ツリーの現物を読み直して自分で確かめた", "verdict": "採る", **reopened_block()}
-    with pytest.raises(Reject, match="reopen_evidence が無い: u1"):
-        RULES.rejudge_output(b, "p2.rejudge", out, None)
+    got = call(b, RULES.rejudge_output, "p2.rejudge", out, None)
+    assert got["ok"] is False and "reopen_evidence が無い: u1" in got["reason"]
     out["units"][0]["reopen_evidence"] = "新しい実測"
-    RULES.rejudge_output(b, "p2.rejudge", out, None)
+    assert call(b, RULES.rejudge_output, "p2.rejudge", out, None) == {"ok": True}
 
 
 def test_history_rules_leave_machine_rows_to_record(tmp_path):

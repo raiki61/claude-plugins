@@ -1,4 +1,5 @@
 """盤面——どの節が終わったか・何周目か・いま走らせてよいか。ディスク（state.json / record.json）が正本。"""
+import copy as copy_mod
 import json
 import os
 import pathlib
@@ -46,11 +47,12 @@ class CondView:
     AttributeError で落ち、宣言の検査をすり抜けない。Python は属性を封じられないので、`getattr(v, "_CondView__ctx")`・
     `vars(v)` のような意図した迂回までは止めない（ruff の SLF001 も属性の綴りしか見ない）"""
 
-    def __init__(self, name, reads, ctx, validator=None, state=None, overlay=None):
+    def __init__(self, name, reads, ctx, validator=None, state=None, overlay=None, copy=False):
         self.__name, self.__reads, self.__ctx = name, tuple(reads), ctx
         self.__validator = validator     # module か、module を返す引き手（Board.cond は引き手を渡す）
         self.__state = state
         self.__overlay = overlay or {}   # {path: 値}——その path（と下の欄）だけ、盤面の値の代わりにこの値を見せる
+        self.__copy = copy               # 真なら読んだ値の写しを返す（規則の関数が中身を書き換えても盤面に届かない。Board.view）
 
     def __call__(self, path, default=_MISSING):
         if not Renderer({}, self.__reads).allowed(path):   # 前置き一致は Renderer が正本（pointers.widen と同じ）
@@ -61,8 +63,10 @@ class CondView:
         try:
             if over:
                 k, val = over[0]
-                return val if path == k else get_path(val, path[len(k) + 1:])
-            return get_path(self.__ctx, path)
+                got = val if path == k else get_path(val, path[len(k) + 1:])
+            else:
+                got = get_path(self.__ctx, path)
+            return copy_mod.deepcopy(got) if self.__copy else got
         except KeyError:
             if default is _MISSING:
                 die(f"cond '{self.__name}' の欄 '{path}' が解決できない（綴り違いか、その欄をまだ誰も書いていない。"
@@ -358,6 +362,20 @@ class Board:
         full = self.ctx()
         ctx = {h: full[h] for h in COND_HEADS}
         return run_cond(name, fn, ctx, lambda: validator_module(self), self.state, overlay)
+
+    def view(self, name, reads):
+        """規則の関数（新しい形——読む欄を cond_reads で宣言した受け付け・機械の節）に渡す読み口。条件と同じ入れ物（CondView）で、
+        宣言した欄だけが見え、読んだ値は写し——関数が中身を書き換えても盤面に届かない。書き込みは返りの effects で頼む"""
+        full = self.ctx()
+        return CondView(name, reads, {h: full[h] for h in COND_HEADS}, lambda: validator_module(self), self.state, copy=True)
+
+    def rule(self, name, fn, *args):
+        """規則の関数 fn を呼ぶ唯一の口 ——(新しい形か, 返り)。読む欄の宣言（fn.reads）を持つ関数は読み口で、持たない旧い形の関数は
+        盤面そのもので呼ぶ（包みが新旧を読み分ける。移し終えるまで旧い形も通す）"""
+        reads = getattr(fn, "reads", None)
+        if isinstance(reads, tuple):
+            return True, fn(self.view(name, reads), *args)
+        return False, fn(self, *args)
 
     # -- プロンプトと条件の文脈
     def output_of_round(self, nid, rnd):

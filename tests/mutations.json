@@ -2115,7 +2115,7 @@
    "title": "主経路の観測は観測した値が要る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if st in validator_module(b).OBSERVED_STATUS and not out.get(\"observed\"):",
+   "old": "    if st in v.validator.OBSERVED_STATUS and not out.get(\"observed\"):",
    "new": "    if False:",
    "expect": "主経路の観測: 見たと言う状態なのに観測した値が無ければ exit 1",
    "tests": {
@@ -2253,7 +2253,7 @@
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "修正の件数: 修正役が population と書いても判定者の defects で数え",
-   "old": "coverage（修正前）\", cov[\"how\"], root, rev=_head_rev(b))",
+   "old": "coverage（修正前）\", cov[\"how\"], root, rev=_head_rev(_view(b, _head_rev)))",
    "new": "coverage（修正前）\", cov[\"how\"], root, rev=None)",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -2894,7 +2894,7 @@
    "title": "腕 0 行で見たと言う状態は拒む",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if not arms and st in validator_module(b).OBSERVED_STATUS:",
+   "old": "    if not arms and st in v.validator.OBSERVED_STATUS:",
    "new": "    if False:",
    "expect": "腕 0 行で見たと言う状態（clean）は拒み",
    "tests": {
@@ -3309,7 +3309,7 @@
    "title": "修正が入った次の周から P1 が戻る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "        ls.setdefault(\"request_fixed_at\", b.round - 1)",
+   "old": "        write_loop(b, \"request_fixed_at\", \"set_once\", b.round - 1)",
    "new": "        pass",
    "expect": "入口: 修正が入った次の周は P1 が修正差分を見る",
    "tests": {
@@ -4312,8 +4312,8 @@
    "title": "線の範囲は今の周の出力だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    c = b.output_of_round(\"p3.gates_cut\", b.round)",
-   "new": "    c = b.latest_output(\"p3.gates_cut\")",
+   "old": "    return _cut_ok(b.output_of_round(\"p3.gates_cut\", b.round))",
+   "new": "    return _cut_ok(b.latest_output(\"p3.gates_cut\"))",
    "expect": "最後の関門: 今の周の p3.gates_cut の出力が無ければ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4519,20 +4519,6 @@
    "old": "    return [f[\"where\"] for x in reqs for f in x[\"findings\"]]",
    "new": "    return []",
    "expect": "入口: 1 周目の P0 の 2 節",
-   "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_request_entry"
-    ]
-   }
-  },
-  {
-   "id": "q02",
-   "title": "修正が入った後の周は依頼の where を範囲に足さない",
-   "file": "graphloops/rules/review-loop.py",
-   "suite": "graphloops",
-   "old": "    if not b.cond(ENTRY_BUILTIN)[0]:\n        return []",
-   "new": "    if False:\n        return []",
-   "expect": "入口: 依頼の where を P0 の範囲にするのは入口の周だけ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
@@ -4883,8 +4869,8 @@
    "title": "穴を挙げない仕様の審査に faces_none を求める",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if not faces and blank(out.get(\"faces_none\"), 20):\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    if errs:\n        raise Reject(f\"{nid}: \" + \"; \".join(errs))\n\n\ndef spec_revise_output",
-   "new": "    if False:\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    if errs:\n        raise Reject(f\"{nid}: \" + \"; \".join(errs))\n\n\ndef spec_revise_output",
+   "old": "    if not faces and blank(out.get(\"faces_none\"), 20):\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    return _refused(nid, errs) if errs else _accepted()\n\n\n@cond_reads(\"out.spec.review\")",
+   "new": "    if False:\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    return _refused(nid, errs) if errs else _accepted()\n\n\n@cond_reads(\"out.spec.review\")",
    "expect": "仕様の道: 穴を挙げない審査は",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -5532,7 +5518,7 @@
    "title": "人が認めた木なら 0 本の関門を通す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "            b.loop_state[\"final_gate_empty_ok\"] = (tree or \"\").strip() or None",
+   "old": "            write_loop(b, \"final_gate_empty_ok\", \"overwrite\", (tree or \"\").strip() or None)",
    "new": "            pass",
    "expect": "人が認めた木なら",
    "tests": {
@@ -5705,7 +5691,7 @@
    "title": "諮る分岐は止めた理由を立てる",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "        b.loop_state[\"stop_reason\"] = ((out.get(\"ask\") or {}).get(\"kinds\") or [out.get(\"reason\")])[0]",
+   "old": "        write_loop(b, \"stop_reason\", \"overwrite\", ((out.get(\"ask\") or {}).get(\"kinds\") or [out.get(\"reason\")])[0])",
    "new": "        pass",
    "expect": "諮る前に止めた理由（stop_reason）を立てる",
    "tests": {
@@ -5987,7 +5973,7 @@
    "title": "義務の行の無い旧い出力を 0 件に倒さない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if \"rows\" not in out:",
+   "old": "    if owed is not None and \"rows\" not in owed:",
    "new": "    if False:",
    "expect": "手直しの義務: 出力が在るのに rows が無い",
    "tests": {
@@ -6136,6 +6122,10 @@
     "GM3"
    ],
    "why": "消した: 合流でまとめて撃つ入力は gates=merge の 1 通りに揃えた（2026-09-26、人の決定）——gates=at_merge の実装ごと外した。gates=merge の腕は RC1〜RC6"
+  },
+  {
+   "id": "q02",
+   "why": "守る分岐（依頼の where を範囲にするのは入口の周だけ）は rules の request_wheres(b) を消して hist.request_wheres の 1 本に寄せ（手順 3 の 3-6）、その検査は pytest（test_hist の test_request_wheres_from_an_old_snapshot_rebuild_the_entry）に移った——実行器が pytest を撃つ口を持つまで腕を外す"
   }
  ]
 }
