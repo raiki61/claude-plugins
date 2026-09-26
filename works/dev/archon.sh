@@ -49,9 +49,11 @@ if [ ! -f "$BIN_PATH" ]; then
   gh release download "$ARCHON_VERSION" -R coleam00/Archon -p "$ARCHON_BIN_NAME" -D "$BIN_DIR" --clobber
 fi
 
+# 合わなければ止まる。壊れたキャッシュ（ダウンロードが途中で切れた等）は在る限り毎回同じ所で止まるので、
+# 消せば次で取り直すと 1 行で案内する。消すのは人に任せる（利用者のファイルを黙って消さない）。
 actual_sha256="$(shasum -a 256 "$BIN_PATH" | awk '{print $1}')"
 if [ "$actual_sha256" != "$ARCHON_SHA256" ]; then
-  echo "archon.sh: sha256 mismatch for $BIN_PATH (expected $ARCHON_SHA256, got $actual_sha256)" >&2
+  echo "archon.sh: sha256 mismatch for $BIN_PATH (expected $ARCHON_SHA256, got $actual_sha256)。壊れたキャッシュなら、このファイルを消して回し直せば取り直す（rm \"$BIN_PATH\"）" >&2
   exit 1
 fi
 

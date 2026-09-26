@@ -3,7 +3,8 @@
 archon 本体のダウンロードやネットワークは伴わない範囲だけを見る:
 - mktarget.sh が作る使い捨ての対象に、pack が dev 用ファイル抜き・ゴミファイル抜きで入り、
   全部 commit 済みで、仕込んだバグのせいでテストが赤になること。
-- archon.sh が、キャッシュにある実行ファイルの sha256 が違えばネットワークに出ずに拒むこと。
+- archon.sh が、キャッシュにある実行ファイルの sha256 が違えばネットワークに出ずに拒み、
+  そのファイルを消せば取り直すと 1 行で案内すること（消すのは人。archon.sh は消さない）。
 - archon.sh の認証に既定の口座が無いこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
   WORKS_KEYCHAIN_ITEM の名の keychain の項目（ここでは偽物に差し替える。本物には触らない）を
   HOME を隔離する前の元の HOME で読み、どちらも無ければ 1 行の案内で止まること（Ruling R20）。
@@ -70,11 +71,13 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(run_tests(tmp).returncode, 1)  # 仕込んだバグで赤
 
     def test_archon_sh_refuses_wrong_checksum(self):
+        """壊れたキャッシュは 1 行で拒み、消せば取り直すと案内する。消すのは人（黙って消さない）。"""
         with tempfile.TemporaryDirectory() as tmp_str:
             dev_home = pathlib.Path(tmp_str)
             bin_dir = dev_home / "bin"
             bin_dir.mkdir(parents=True)
-            (bin_dir / "archon-darwin-arm64").write_bytes(b"not the real archon binary")
+            cached = bin_dir / "archon-darwin-arm64"
+            cached.write_bytes(b"not the real archon binary")
 
             env = dict(os.environ)
             env["WORKS_DEV_HOME"] = str(dev_home)
@@ -87,7 +90,13 @@ class TestDevShell(unittest.TestCase):
                 env=env,
             )
             self.assertEqual(result.returncode, 1)
-            self.assertIn("sha256", result.stderr)
+            lines = result.stderr.strip().splitlines()
+            self.assertEqual(len(lines), 1, result.stderr)
+            self.assertIn("sha256", lines[0])
+            self.assertIn(str(cached), lines[0])
+            self.assertIn("消して", lines[0])
+            self.assertIn("取り直す", lines[0])
+            self.assertEqual(cached.read_bytes(), b"not the real archon binary")   # 消さない
 
     def _run_archon_sh_with_fake_security(self, fake_token="dummy-token-for-test", **overrides):
         """偽の `security`（呼ばれた時の $HOME と引数を記録し、偽のトークンを出す）を PATH の先頭に置いて archon.sh を回す。
