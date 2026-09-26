@@ -1273,15 +1273,19 @@ def cmd_add(a):
 
 
 def cmd_patch(a):
-    """記録（既定）か盤面（state. 接頭）の手当て。痕跡は state.patches と trace に残る。
+    """記録（既定）か盤面（state. 接頭）か節の出力（out.<節>.<欄>）の手当て。痕跡は state.patches と trace に残る。
 
     盤面も許すのは、run の途中で graph と雛形が変わると rules の私有の鍵が足りずに next が止まり、
     記録側の手当てでは届かないから（実測 2026-09-12: 雛形が新しい loop_state の鍵を読み、回す側が
     state.json を手で書き換えて続けた——手当ての口が盤面の壊れ方を覆っていなかった）。
+    節の出力も許すのは、条件と rules が読む値の置き場が loop から節の出力（out/r<周>/<節>.json）へ移ったから——
+    書くのはその節の最新の出力のファイルで、節が schema を持てば書いた後の形を照らし、外れれば書かない。
     """
     b = Board(resolve_dir(a))
     b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）
-    if a.path.startswith("state."):
+    if a.path.startswith("out."):
+        _patch_output(b, a.path[len("out."):], read_json(a.file))
+    elif a.path.startswith("state."):
         set_path(b.state, a.path[len("state."):], read_json(a.file))
     else:
         set_path(b.record, a.path, read_json(a.file))
@@ -1289,6 +1293,26 @@ def cmd_patch(a):
     b.trace("patch", path=a.path, reason=a.reason)
     b.save()
     print(f"ok {a.path if a.path.startswith('state.') else 'record.' + a.path} を手当てした（痕跡は state.patches と trace に残る）")
+
+
+def _patch_output(b, rest, value):
+    """節の最新の出力（state.outputs の指すファイル）の欄 rest（<節>.<欄>。節の名前の点は最長一致で取る）を value にする"""
+    nid = b.node_of(rest)
+    info = b.state["outputs"].get(nid) if nid else None
+    if info is None:
+        die(f"patch: out.{rest} の節に出力が無い（節の名前か、まだ出力を書いていない節）")
+    field = rest[len(nid) + 1:]
+    f = pathlib.Path(b._out_path(info["file"]))
+    out = read_json(f)
+    if field:
+        set_path(out, field, value)
+    else:
+        out = value
+    sch = b.nodes[nid].get("schema")
+    errs = validate_schema(out, sch) if isinstance(sch, dict) else []
+    if errs:
+        die(f"patch: 書いた後の out.{nid} が節の schema に合わない（書いていない）: " + "; ".join(errs[:5]))
+    write_json(f, out)
 
 
 # ---------------------------------------------------------------- finalize / status / record

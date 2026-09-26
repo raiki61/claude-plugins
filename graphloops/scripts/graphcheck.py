@@ -15,21 +15,22 @@
   6. run_by が回す側（graph の runners）・役割 agent（graph の plugin の agents/*.md）・driver のどれか。rules（graph の rules）が読める
   7. 回す側と役割 agent の節は prompt_file が実在し、schema か text: true を持つ
   8. プロンプトの穴（{{...}}）が全部 reads に宣言されている（遮断の機械版——宣言に無いものは貼れない）。
-     out.<節> は自分より前（deps の推移閉包）の節だけ、prev.<節> は前の周の出力。fresh_context の節は record 全体を読めない。
+     out.<節>・cur.<節> は自分より前（deps の推移閉包）の節だけ、prev.<節> は前の周の出力。fresh_context の節は record 全体を読めない。
      回す側の節には本文を貼る穴（file: / section:）を書けない——回す側はファイルを読めるので、渡すのはパス
-     （見るのは run_by が runners の節だけ。Read を持つ役割 agent の節は対象外）。record.<欄> と loop.<…> の穴は、12 の条件の読みと
-     同じく記録を書く宣言・loop の形の宣言に在ること（rules が読めない回は照らさない）。loop の穴の pick の欄も state_schema で照らす
-     （番号で指す欄 pointers は照らさない）
+     （見るのは run_by が runners の節だけ。Read を持つ役割 agent の節は対象外）。record.<欄>・loop.<…>・out./cur./prev.<節>.<欄> の穴は、
+     12 の条件の読みと同じく記録を書く宣言・loop の形の宣言・節の schema に在ること（rules が読めない回は照らさない）。loop と節の
+     出力の穴の pick の欄も state_schema・節の schema で照らす（番号で指す欄 pointers は照らさない）
   9. 回す側の節の writes が判定の欄（claims の verdict / refuted、gates、sampling、convergence）に触れない。
      claims に merge する回す側の節は schema が additionalProperties: false で verdict / refuted を持たない
  10. writes.op・fan_out.builtin・builtin・post_check・cond / applies_cond（skills[].applies_cond も）が engine か rules の知っている名前だけ。
      cover・save_text_as・thickness_from・raw_for_report の指す欄と節が実在する
  11. schema（節の schema と graph の state_schema）が engine の読む語（engine/schema.py の KNOWN_KEYWORDS）だけで書かれ、
-     正規表現がコンパイルできる——読まない語は書いても効かない
+     正規表現がコンパイルできる——読まない語は書いても効かない。writeOnly は state_schema の最上位の鍵にだけ、真偽で書く
  12. engine が実行に使う欄が宣言どおりの物を指す: writes.from が節の schema.properties に在る、cond / applies_cond の
-     関数が宣言した読む欄（cond_reads）と節の reads・outputs の loop.<…> が実在する（out./prev./cur. は節の schema、loop. は
-     rules の LOOP_KEYS〔LOOP_READS が在ればその中〕と graph の state_schema の木で最後の欄まで——state_schema の無い graph は
-     鍵の 1 段目だけ。条件の関数の本体が読んだ値を添字で辿る所は照らさない。rd. は周の鍵、record. は記録を書く宣言）、same_context_as の役が一致し遮断系でない、
+     関数が宣言した読む欄（cond_reads）と節の reads の out./prev./cur. と reads・outputs の loop.<…> が実在する（out./prev./cur. は節の
+     schema、loop. は rules の LOOP_KEYS と graph の state_schema の木で最後の欄まで〔読む path は state_schema で writeOnly の鍵を除く〕
+     ——state_schema の無い graph は鍵の 1 段目だけ。条件の関数の本体が読んだ値を添字で辿る所は照らさない。rd. は周の鍵、record. は
+     記録を書く宣言、inputs. は graph の inputs の宣言・init の旗・cwd で下の欄を持たない）、same_context_as の役が一致し遮断系でない、
      report_accepts_exit / round_accepts_exit が整数、pre が engine の知る名前、launch.isolated / launch.tooled / launch.delegate の argv・resume・via の
      穴が engine の埋める語（LAUNCH_HOLES）だけで、resume は {session_id} を持ち、model / effort は遮断系の役の定義に在り、
      via が指す実体が同梱されている、resume_on_reject が 0 以上の整数
@@ -40,9 +41,9 @@
      {{node.<欄>}} は engine が埋める欄（skills）だけ
      背景の節は delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つ節が在れば launch.delegate.argv が在る。
  15. 節の鍵が engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和に在る（綴り違いの鍵は黙って効かない）。
-     init から呼ぶときは NG にせず警告（持ち込みの graph を止めない）
- 16. 盤面の loop の形（graph の state_schema。type: object・additionalProperties: false）の鍵と rules の LOOP_KEYS が両向きで一致し、
-     LOOP_READS が LOOP_KEYS の中に在る。rules が LOOP_KEYS を持つのに state_schema が無い graph は NG（init からは 15 と同じく警告）
+     機械の節（driver）は返りの形（schema）を持つ。どちらも init から呼ぶときは NG にせず警告（持ち込みの graph を止めない）
+ 16. 盤面の loop の形（graph の state_schema。type: object・additionalProperties: false）の鍵と rules の LOOP_KEYS が両向きで一致する。
+     rules が LOOP_KEYS を持つのに state_schema が無い graph は NG（init からは 15 と同じく警告）
 
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
@@ -304,10 +305,11 @@ def _record_ok(rest, g, rules):
 def check_read_path(path, where, g, rules, errs, before=None, reading=True):
     """条件（と節の reads）が読む欄 path を、実行の前に照らす。out.<節>.<欄>・prev.<節>.<欄>・cur.<節>.<欄> は節と欄
     （schema.properties）が実在し、before（条件を持つ節の deps の推移閉包）が在れば out.・cur. はその中の節だけ。loop.<鍵> は
-    鍵が rules の LOOP_KEYS（rules が LOOP_READS を持てばその中）に在り、graph が state_schema を持てば path をその木で最後の欄まで
-    辿れること（持たない graph は鍵の 1 段目だけ——持ち込みの graph を止めない）。LOOP_READS の絞りは読む path（reading）だけに
-    掛け、書き先を名乗る節の outputs（reading=False）には掛けない。照らすのは宣言した path で、条件の関数の本体が
-    読んだ値を添字で辿る所は照らさない。rd.<鍵> は engine の周の鍵か rules の ROUND_KEYS、record.<欄> は記録を書く宣言（_record_ok）"""
+    鍵が rules の LOOP_KEYS に在り、graph が state_schema を持てば path をその木で最後の欄まで辿れること（持たない graph は鍵の
+    1 段目だけ——持ち込みの graph を止めない）。state_schema で writeOnly の鍵（rules だけが読み書きする鍵）は読む path（reading）では
+    落とし、書き先を名乗る節の outputs（reading=False）では通す。照らすのは宣言した path で、条件の関数の本体が
+    読んだ値を添字で辿る所は照らさない。rd.<鍵> は engine の周の鍵か rules の ROUND_KEYS、record.<欄> は記録を書く宣言（_record_ok）、
+    inputs.<名前> は run の入力（graph の inputs の宣言・init の旗・cwd。init で固まり下の欄を持たない）"""
     nodes = g["nodes"]
     head, _, rest = path.partition(".")
     if head not in COND_HEADS:
@@ -324,18 +326,23 @@ def check_read_path(path, where, g, rules, errs, before=None, reading=True):
         if head != "prev" and before is not None and ref not in before:
             errs.append(f"{where}: {head}.{ref} を読むが、{ref} はこの節の前（deps の推移閉包）に無い——評価の時点で今の周の出力が在る保証が無い")
     elif head == "loop":
-        keys, allowed = getattr(rules, "LOOP_KEYS", None), getattr(rules, "LOOP_READS", None)
-        sch = g.get("state_schema")
+        keys, sch = getattr(rules, "LOOP_KEYS", None), g.get("state_schema")
+        top = ((sch.get("properties") or {}).get(rest.split(".")[0]) or {}) if isinstance(sch, dict) else {}
         if keys is None:
             errs.append(f"{where}: loop.{rest} を読むが、rules が LOOP_KEYS（盤面の loop の鍵の宣言）を持たない")
         elif rest.split(".")[0] not in keys:
             errs.append(f"{where}: 読む欄 '{path}' の鍵が rules の LOOP_KEYS に無い（綴り違いか、誰も書かない鍵）")
-        elif reading and allowed is not None and rest.split(".")[0] not in allowed:
-            errs.append(f"{where}: 読む欄 '{path}' の鍵が rules の LOOP_READS（条件と節が読んでよい loop の鍵）に無い")
+        elif reading and top.get("writeOnly") is True:
+            errs.append(f"{where}: 読む欄 '{path}' の鍵は graph の state_schema で writeOnly（rules だけが読み書きし、条件・節の reads・穴は読まない）")
         elif isinstance(sch, dict):
             _, why = schema_at(sch, rest.split("."))
             if why:
                 errs.append(f"{where}: 読む欄 '{path}' を graph の state_schema で辿れない（{why}）——綴り違いか、宣言の漏れ")
+    elif head == "inputs":
+        # run の入力は init で固まる値そのもの（下に欄を持たない）。名前は graph の inputs の宣言・init の旗・cwd のどれか
+        known = set(g.get("inputs") or {}) | set(CLI_FLAGS) | {"cwd"}
+        if not rest or "." in rest or rest not in known:
+            errs.append(f"{where}: 読む欄 '{path}' が run の入力（graph の inputs の宣言・init の旗・cwd）に無いか、下の欄を読んでいる")
     elif head == "rd":
         if rest.split(".")[0] not in set(empty_round(0)) | set(getattr(rules, "ROUND_KEYS", ()) or ()):
             errs.append(f"{where}: 読む欄 '{path}' の鍵が周の鍵（engine の empty_round と rules の ROUND_KEYS）に無い")
@@ -609,14 +616,22 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 errs.append(f"stop.node '{sn}' の下流に報告の節（pre=finalize）が無い——止めた run の報告が出ない")
 
     # 11. schema は engine が読む語だけで書く——読まない語（oneOf / not / format / 綴り違い）は validate_schema が黙って
-    # 無視するので、書いても効かない schema が graph に入る（以前は docstring の注記だけで守っていた）。盤面の loop の形
-    # （最上位の state_schema）も engine が保存の時に同じ検査器で照らすので、同じ本文を通す
+    # 無視するので、書いても効かない schema が graph に入る。盤面の loop の形（最上位の state_schema）も engine が保存の時に
+    # 同じ検査器で照らすので、同じ本文を通す
     owners = [(f"節 {k}", v["schema"]) for k, v in nodes.items() if isinstance(v.get("schema"), dict)]
     if isinstance(g.get("state_schema"), dict):
         owners.append(("state_schema", g["state_schema"]))
     for who, sch in owners:
         for u in unknown_keywords(sch):
             errs.append(f"{who}: schema に engine が読まない語 {u}（綴り違いか本家 JSON Schema の語——書いても効かない）")
+        # writeOnly（rules だけが読み書きする鍵の印）が効くのは state_schema の最上位の鍵だけ——ほかに書くと効かない印になる
+        for at, s in walk_schema(sch):
+            if "writeOnly" not in s:
+                continue
+            if not (who == "state_schema" and re.fullmatch(r"\$\.[^.\[\]]+", at)):
+                errs.append(f"{who}: {at} の writeOnly は効かない（書けるのは state_schema の最上位の鍵だけ）")
+            elif not isinstance(s["writeOnly"], bool):
+                errs.append(f"{who}: {at} の writeOnly は真偽で書く（{s['writeOnly']!r}）")
         for pat in schema_patterns(sch):
             try:
                 end_anchored(pat)   # 検査と同じ読み替えを通した物をコンパイルする（読み替えた後が壊れる形も拾う）
@@ -727,9 +742,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         allowed = ENGINE_NODE_KEYS | DOC_NODE_KEYS | set(getattr(rules, "NODE_KEYS", ())) | set(getattr(rules, "NODE_NOTE_KEYS", ()))
         node_errs += [f"節 {k} に知らない鍵 {sorted(set(v) - allowed)}（綴り違いか、engine も rules も読まない鍵——書いても効かない）"
                       for k, v in nodes.items() if set(v) - allowed]
-    # 16. 盤面の loop の形（graph の state_schema）と鍵の名前（rules の LOOP_KEYS）をそろえる——形の正本は graph、名前は rules が
-    # 両方に持つので、片方だけ変えた食い違いを赤にする。読んでよい鍵の絞り（rules の LOOP_READS）は名前の中に在ること。
-    # state_schema の無い graph（持ち込み・旧い版）は、init では止めずに知らせる（loop の読みは鍵の 1 段目だけで照らす）
+    # 16. loop の形（state_schema）と LOOP_KEYS
     keys = getattr(rules, "LOOP_KEYS", None) if rules is not None else None
     sch = g.get("state_schema")
     if sch is not None and not (isinstance(sch, dict) and sch.get("type") == "object" and sch.get("additionalProperties") is False):
@@ -742,9 +755,10 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     elif sch is None and keys is not None:
         node_errs.append("rules が LOOP_KEYS を持つのに graph に state_schema（盤面の loop の形）が無い——loop の読みを最後の欄まで照らせず、"
                          "保存の時の照らしも掛からない")
-    reads_only = getattr(rules, "LOOP_READS", None) if rules is not None else None
-    if reads_only is not None and keys is not None and set(reads_only) - set(keys):
-        errs.append(f"rules の LOOP_READS の鍵 {sorted(set(reads_only) - set(keys))} が LOOP_KEYS に無い（読んでよい鍵は盤面の鍵の中から絞る）")
+    # 機械の節も返りの形（schema）を宣言する——後の節・条件・rules が出力の欄を名前で読み、engine が返りを照らす。無ければ読む欄の
+    # 綴りを照らせない。持ち込みの graph の init は止めない（15・16 と同じく init からは WARN）
+    node_errs += [f"節 {k}: 機械の節に schema（返りの形）が無い——出力を読む条件・穴の欄を照らせず、engine も返りを照らせない"
+                  for k, v in nodes.items() if v.get("run_by") == "driver" and not isinstance(v.get("schema"), dict)]
     if node_keys == "warn":
         for e in node_errs:
             emit("WARN " + e)
@@ -812,13 +826,17 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 continue
             check_declared_reads(conds[c], c, f"節 {k}.{key}", g, rules, errs, nid=k)
         # 節の reads と outputs が名指す loop.<…> も、条件と同じ宣言（LOOP_KEYS と state_schema の木）で照らす——穴（{{?loop.X}}）の
-        # 綴り違いは ABSENT で黙って埋まり、outputs の loop.<鍵> は宣言の 2 本目として別にずれうる。読んでよい鍵の絞り（LOOP_READS）は
-        # reads だけに掛ける（outputs は書き先の名乗りで、盤面の鍵なら読める鍵の外でも書いてよい）
+        # 綴り違いは ABSENT で黙って埋まり、outputs の loop.<鍵> は宣言の 2 本目として別にずれうる。outputs は書き先の名乗りなので、
+        # writeOnly の鍵でも書いてよい
         if rules is not None and getattr(rules, "LOOP_KEYS", None) is not None:
             for key in ("reads", "outputs"):
                 for r in v.get(key) or []:
                     if isinstance(r, str) and r.startswith("loop."):
                         check_read_path(r.split()[0].rstrip("（(:"), f"節 {k}.{key}", g, rules, errs, reading=key == "reads")
+        # 節の reads が名指す前の節の出力の欄（out./cur./prev.）も節の schema で照らす（祖先の検査は穴の検査と reads の検査が持つ）
+        for r in v.get("reads") or []:
+            if isinstance(r, str) and r.split(".", 1)[0] in COND_NODE_HEADS:
+                check_read_path(r, f"節 {k}.reads", g, rules, errs)
 
     for k, v in nodes.items():
         rb = v.get("run_by")
@@ -909,19 +927,30 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             # 許可の判定は engine の Renderer を呼ぶ（式を写すと engine だけ変えたとき検査が黙って緩む）
             if not Renderer({}, reads).allowed(path):
                 errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} が reads に無い")
-            # record.<欄> の穴も条件の読みと同じ照らし（記録を書く宣言）に通す——省略可の穴（{{?record.…}}）の綴り違いは
+            # record.<欄> と loop.<…> の穴も条件の読みと同じ照らし（記録を書く宣言・loop の形の宣言）に通す——省略可の穴（{{?record.…}}）の綴り違いは
             # 実行時に『（この周には無い）』で黙って埋まる。rules が在るのに読めなかった回は照らさない（init_record を
             # 引けず、全部の穴が偽の NG になって本当の原因——rules が読めない——が埋もれる）
             if (core.startswith("record.") or core.startswith("loop.") and getattr(rules, "LOOP_KEYS", None) is not None) and not rules_unreadable:
                 check_read_path(core, f"節 {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
-            # loop の穴の pick の欄も同じ木で照らす（util.pick は無い欄を黙って落とす）。番号で指す欄（pointers）は照らさない
-            if core.startswith("loop.") and m.group(3) and isinstance(g.get("state_schema"), dict):
-                at, _ = schema_at(g["state_schema"], core[5:].split("."))
+            # loop と節の出力の穴の pick の欄も同じ木（state_schema・節の schema）で照らす（util.pick は無い欄を黙って落とす）。
+            # 番号で指す欄（pointers）は照らさない
+            if m.group(3):
+                at, owner = None, None
+                if core.startswith("loop.") and isinstance(g.get("state_schema"), dict):
+                    (at, _), owner = schema_at(g["state_schema"], core[5:].split(".")), "graph の state_schema"
+                elif core.split(".", 1)[0] in COND_NODE_HEADS and "." in core:
+                    ref = node_of(core.split(".", 1)[1], nodes)
+                    tail = core.split(".", 1)[1][len(ref) + 1:] if ref else ""
+                    sch = (nodes.get(ref) or {}).get("schema")
+                    if isinstance(sch, dict):
+                        (at, _), owner = (schema_at(sch, tail.split(".")) if tail else (sch, "")), f"節 {ref} の schema"
                 at = at.get("items") if isinstance(at, dict) and isinstance(at.get("items"), dict) else at
                 for f in (x.strip() for x in m.group(3).split(",") if x.strip()):
                     if at is not None and schema_at(at, [f])[1]:
-                        errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} の pick の欄 '{f}' が graph の state_schema に無い")
-            if core.startswith("out."):
+                        errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} の pick の欄 '{f}' が {owner} に無い")
+            if core.split(".", 1)[0] in COND_NODE_HEADS and not rules_unreadable:
+                check_read_path(core, f"節 {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
+            if core.startswith("out.") or core.startswith("cur."):
                 src = node_of(core[4:], nodes)
                 if src is None or src not in anc:
                     errs.append(f"節 {k}: {core} を読むが、その節は前の節（deps の推移閉包）でない（前の周の出力なら prev.<節>）")
@@ -930,7 +959,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             if core.startswith("node.") and core != "node.skills":
                 errs.append(f"節 {k}: {{{{{core}}}}} は engine が埋めない（埋める node の欄は skills だけ）。埋められずに next で止まる")
         for r in reads:
-            if r.startswith("out."):
+            if r.startswith("out.") or r.startswith("cur."):
                 src = node_of(r[4:], nodes)
                 if src is None or src not in anc:
                     errs.append(f"節 {k}: reads の {r} は前の節でない（前の周の出力なら prev.<節>）")

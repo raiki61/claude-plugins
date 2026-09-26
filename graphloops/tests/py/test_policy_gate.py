@@ -150,3 +150,25 @@ def test_human_gate_answered_without_kinds(tmp_path):
     assert b.record["process"]["human_items"] == [{"round": 1, "kinds": [], "asked": ["行"], "answer": "continue", "note": "",
                                                    "node": "r4.human_gate"}]
     assert b.record["process"]["policy"] == {"path": None, "sha256": None, "amendments": []} and "policy_change" not in b.loop_state
+
+
+def test_gate_answer_keeps_inputs_and_watches_the_amended_path(tmp_path):
+    """関所で方針の文書の変更を通しても run の入力（inputs.policy_md）は init のまま——通した置き場は記録（process.policy）と
+    その amendments にだけ残り、以後の見張り（change）はそこから引く。消えた文書を通した後は既定の置き場を見張る"""
+    f = tmp_path / "p.md"
+    f.write_text("前の版\n", encoding="utf-8")
+    b = board(tmp_path, named=str(f))
+    b.record["process"]["policy"] = {**PI.resolve(b, git_at(".git"), Reject), "amendments": []}
+    f.write_text("通す版\n", encoding="utf-8")
+    ch = PI.change(b, git_at(".git"), b.record["process"]["policy"])
+    b.loop_state["policy_change"] = ch
+    RULES.human_gate_answered(b, {"node": "r4.human_gate", "kinds": ["policy_changed"], "items": ["行"]}, "continue")
+    pol = b.record["process"]["policy"]
+    assert b.state["inputs"]["policy_md"] == str(f.resolve()) and pol["sha256"] == ch["to"] and len(pol["amendments"]) == 1
+    assert PI.change(b, git_at(".git"), pol) is None   # 通した版を見張る——同じ中身なら変化なし
+    f.unlink()
+    gone = PI.change(b, git_at(".git"), pol)
+    b.loop_state["policy_change"] = gone
+    RULES.human_gate_answered(b, {"node": "r4.human_gate", "kinds": ["policy_changed"], "items": ["行"]}, "continue")
+    assert b.state["inputs"]["policy_md"] == str(f.resolve()) and pol["sha256"] is None
+    assert PI.watched(b, git_at(".git"), pol) is None   # 消えた文書を通した後は、既定の置き場（無い）を見張る

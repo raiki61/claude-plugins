@@ -95,7 +95,31 @@
    "outputs": [
     "loop.tdd"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "rev": {
+      "type": "string"
+     },
+     "cases": {
+      "type": "integer"
+     },
+     "red_before": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   }
   },
   "p3.tdd_tests": {
    "stage": "P3",
@@ -145,7 +169,28 @@
    "outputs": [
     "loop.tdd"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "rewound": {
+      "$ref": "engine#/driver_rewound"
+     },
+     "named": {
+      "type": "integer"
+     },
+     "gave_up": {
+      "type": "string"
+     }
+    }
+   }
   },
   "p3.fix": {
    "deps": [
@@ -168,7 +213,7 @@
     "loop.lane_merge",
     "out.p3.tdd_tests",
     "loop.tdd",
-    "inputs.policy_md",
+    "record.process.policy.path",
     "record.process.human_items"
    ],
    "prompt_append": [
@@ -190,7 +235,25 @@
    "outputs": [
     "loop.tdd"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "rewound": {
+      "$ref": "engine#/driver_rewound"
+     },
+     "gave_up": {
+      "type": "string"
+     }
+    }
+   }
   },
   "p3.fix_delta": {
    "deps": [
@@ -206,7 +269,7 @@
     "out.p2.plan_review",
     "out.p3.fix.plan_faces",
     "out.p3.tdd_tests",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "prompt_append": [
     "../prompts/review-loop/tdd/p3.delta_review.md",

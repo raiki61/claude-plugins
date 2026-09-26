@@ -2253,7 +2253,7 @@
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "修正の件数: 修正役が population と書いても判定者の defects で数え",
-   "old": "coverage（修正前）\", cov[\"how\"], root, rev=(b.state.get(\"inputs\") or {}).get(\"review_rev\"))",
+   "old": "coverage（修正前）\", cov[\"how\"], root, rev=b.loop_state.get(\"reviewed_revision\"))",
    "new": "coverage（修正前）\", cov[\"how\"], root, rev=None)",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4309,12 +4309,12 @@
   },
   {
    "id": "LN12",
-   "title": "線の範囲は今の周の物だけ",
+   "title": "線の範囲は今の周の出力だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    return c if c.get(\"round\") == b.round else None",
-   "new": "    return c",
-   "expect": "線の範囲: 前の周に固めた範囲では線を立てない",
+   "old": "    c = b.output_of_round(\"p3.gates_cut\", b.round)",
+   "new": "    c = b.latest_output(\"p3.gates_cut\")",
+   "expect": "最後の関門: 今の周の p3.gates_cut の出力が無ければ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -4758,8 +4758,8 @@
    "title": "道具名の柵: engine が役へ渡す値に引数の綴りを組めば赤",
    "file": "graphloops/rules/review-loop.py",
    "suite": "root",
-   "old": "    cut = {\"round\": b.round, \"from\": frm, \"rev\": snap, \"files\": files,",
-   "new": "    cut = {\"round\": b.round, \"from\": f\"--auto {frm}\", \"rev\": snap, \"files\": files,",
+   "old": "    cut = {\"from\": frm, \"rev\": snap, \"files\": files, \"result\": str(d / f\"{tag}.json\")}",
+   "new": "    cut = {\"from\": f\"--auto {frm}\", \"rev\": snap, \"files\": files, \"result\": str(d / f\"{tag}.json\")}",
    "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
   },
   {
@@ -5281,7 +5281,7 @@
    "title": "gates=merge の run は線を台帳に載せない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if files and ls.get(\"gates\") != GATES_MERGE:   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）",
+   "old": "    if files and not _gates_merged(b):   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）",
    "new": "    if files:",
    "expect": "線と関門の instance は出ず、線の台帳は空",
    "tests": {
@@ -5295,7 +5295,7 @@
    "title": "gates=merge の run は収束を名乗らず gates_deferred で止まる",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if _would_converge(b) and ls.get(\"gates\") == GATES_MERGE:",
+   "old": "    if _would_converge(b) and _gates_merged(b):",
    "new": "    if False:",
    "expect": "収束する筋書きでも converge は収束を名乗らず",
    "tests": {
@@ -5886,7 +5886,7 @@
    "title": "合流に回した P1 のゲートの検算を理由つきの not_applicable で残す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "            elif state == \"na\" and n.get(\"cond\") == \"gate_efficacy_due\" and b.loop_state.get(\"gates\") == GATES_MERGE:",
+   "old": "            elif state == \"na\" and n.get(\"cond\") == \"gate_efficacy_due\" and _gates_merged(b):",
    "new": "            elif False:",
    "expect": "撃たなかった素材は合流でまとめる理由と残る義務",
    "tests": {
@@ -5953,6 +5953,62 @@
    "old": "        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning",
    "new": "        run: echo 静的検査を回さない",
    "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "DS1",
+   "title": "機械の節の返りを節の schema で照らす",
+   "file": "graphloops/engine/advance.py",
+   "suite": "graphloops",
+   "old": "    errs = validate_schema(out, sch) if isinstance(sch, dict) else []",
+   "new": "    errs = []",
+   "expect": "節の schema に無い欄を返す builtin は die",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_bad_builtin"
+    ]
+   }
+  },
+  {
+   "id": "PO1",
+   "title": "節の出力の手当ては節の schema に合わない値を書かない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    errs = validate_schema(out, sch) if isinstance(sch, dict) else []",
+   "new": "    errs = []",
+   "expect": "手当て: 節の schema に合わない値は書かない",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_patch_node_output"
+    ]
+   }
+  },
+  {
+   "id": "OR1",
+   "title": "義務の行の無い旧い出力を 0 件に倒さない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if \"rows\" not in out:",
+   "new": "    if False:",
+   "expect": "手直しの義務: 出力が在るのに rows が無い",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_delta_conditions"
+    ]
+   }
+  },
+  {
+   "id": "BL1",
+   "title": "突合の基準は取り直した基準を先に読む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if \"tree_before\" in after:",
+   "new": "    if False:",
+   "expect": "作業ツリーの保護: 突合の基準は今の周の節の出力から引き",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_delta_conditions"
+    ]
+   }
   }
  ],
  "dropped": [
