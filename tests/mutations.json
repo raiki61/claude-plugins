@@ -4092,8 +4092,8 @@
    "title": "launch が止められたら子を木ごと止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    why = _stop_tree(p.pid, leader=p)",
-   "new": "    why = p.terminate()",
+   "old": "    why = _stop_tree(p.pid, leader=p)\n    try:\n        p.wait(KILL_GRACE)",
+   "new": "    why = p.terminate()\n    try:\n        p.wait(KILL_GRACE)",
    "expect": "kill_all は生きている子を孫まで止める",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5076,8 +5076,8 @@
    "title": "別の口からもグループごと止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "                os.killpg(g, sig)\n",
-   "new": "                os.kill(g, sig)\n",
+   "old": "(os.killpg if kind == \"pg\" else os.kill)(target, sig)",
+   "new": "os.kill(target, sig)",
    "expect": "stop_group では孫",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5174,8 +5174,8 @@
    "title": "開始時刻を確かめられない試行は止めない",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    if started is None:\n        return None, f\"プロセス",
-   "new": "    if False:\n        return None, f\"プロセス",
+   "old": "    if started is None:\n        return None, None, f\"プロセス",
+   "new": "    if False:\n        return None, None, f\"プロセス",
    "expect": "開始時刻を確かめられなければ止めずに理由を返す",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5713,6 +5713,104 @@
    "old": "    todo = list(found)\n",
    "new": "    todo = []\n",
    "expect": "グループの外へ出た孫（",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR18",
+   "title": "前の回に数えた仲間を次の回へ持ち越す（setsid で抜けて親を失った孫を拾う）",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        known.update({pid: m.started for pid, m in members.items()})",
+   "new": "        pass",
+   "expect": "長が先に死んだ後も",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR19",
+   "title": "ps が失敗した表を『仲間なし』と読まない",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    if r.returncode != 0 or not rows:",
+   "new": "    if False:",
+   "expect": "ps が失敗する回は",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR20",
+   "title": "表が読めずグループが居ない回も、外へ出た子孫を確かめていないと言う",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "                return f\"止める相手を数え上げられない（{why}）——グループ {pgid} は居ないが、外へ出た子孫を確かめていない\"",
+   "new": "                return None",
+   "expect": "ps が失敗する回は",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR21",
+   "title": "正常に終わった run_tree の木の残りを止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    _reap(trees)\n    return subprocess.CompletedProcess",
+   "new": "    return subprocess.CompletedProcess",
+   "expect": "run_tree: 正常に終わった回も",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR22",
+   "title": "長が終わっても管が閉じない回は、その場で木の残りを止めて管を閉じさせる",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        if trees is not None and not reaped and p.poll() is not None:",
+   "new": "        if False:",
+   "expect": "run_tree: 管を継いだ",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR23",
+   "title": "keep_background を宣言した段の背景のプロセスは残す",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "trees=None if s.get(\"keep_background\") else trees)",
+   "new": "trees=trees)",
+   "expect": "run_steps: 段の背景",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR24",
+   "title": "宣言の段の木の残りを試行の終わりに止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        _end_attempt(trees, pgid_file)\n    return runs",
+   "new": "        pass\n    return runs",
+   "expect": "run_steps: 段の背景",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"

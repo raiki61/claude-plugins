@@ -30,6 +30,10 @@ DECL_NAME = ".review-checks.json"
 DECL_KEYS = ("suite",)   # 宣言の最上位の必須の鍵
 OPTIONAL_KEYS = ("mutation",)
 STEP_KEYS = ("name", "argv")
+# 段の任意の鍵。keep_background が真の段は、正常に終わった後も背景のプロセスを止めない（engine/role_run.py の run_steps。
+# engine は試行の終わりに、段が残したプロセスを 1 回まとめて止める——試行の外で使う背景のプロセスを残す逃げ道。次の段までは宣言が無くても残る）。
+# 時間切れ・止める信号・異常終了の止め方は宣言に依らない
+STEP_OPTIONAL_KEYS = ("keep_background",)
 MUTATION_KEYS = ("argv", "arms")   # argv＝実行器の呼び方の頭（口の旗は付けない——口の綴りは実行器の --help）・arms＝腕の一覧のパス
 
 
@@ -43,7 +47,7 @@ def steps_sha(steps):
 
 
 def parse(text):
-    """宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv}]。誤りがあれば steps は None"""
+    """宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv[, keep_background]}]。誤りがあれば steps は None"""
     try:
         d = json.loads(text)
     except ValueError as e:
@@ -56,15 +60,18 @@ def parse(text):
         return None, "suite は 1 段以上の配列"
     seen = set()
     for i, s in enumerate(suite):
-        if not isinstance(s, dict) or set(s) != set(STEP_KEYS):
-            return None, f"suite[{i}] は {{{', '.join(STEP_KEYS)}}} だけ"
+        if not isinstance(s, dict) or not set(STEP_KEYS) <= set(s) <= set(STEP_KEYS + STEP_OPTIONAL_KEYS):
+            return None, f"suite[{i}] は {{{', '.join(STEP_KEYS)}}}（必須）と {{{', '.join(STEP_OPTIONAL_KEYS)}}}（任意）だけ"
+        if not isinstance(s.get("keep_background", False), bool):
+            return None, f"suite[{i}].keep_background は true か false"
         if not isinstance(s["name"], str) or not s["name"].strip() or s["name"] in seen:
             return None, f"suite[{i}].name は空でない・重ならない文字列"
         seen.add(s["name"])
         if (not isinstance(s["argv"], list) or not s["argv"]
                 or not all(isinstance(a, str) for a in s["argv"]) or not s["argv"][0]):
             return None, f"suite[{i}].argv は 1 語以上の文字列の配列（shell を通さずにそのまま起こす）"
-    return [{"name": s["name"], "argv": list(s["argv"])} for s in suite], None
+    return [{"name": s["name"], "argv": list(s["argv"]), **({"keep_background": True} if s.get("keep_background") else {})}
+            for s in suite], None
 
 
 def parse_mutation(m, root=None):

@@ -147,7 +147,7 @@ def stop_groups():
 
 
 def install_stop_handlers():
-    """止める信号を受けたら、子のグループを止めてから Stopped を上げる。子は run_group が別のセッションに切り離すので、この実行器に
+    """止める信号を受けたら、子のグループを止めてから Stopped を上げる。子は run_group が別のプロセスグループに切り離すので、この実行器に
     届いた信号は子に届かない——ここで止めないと、写しの中の台本が親の居ないまま走り続ける（実測 2026-09-26 06:37: CPU 76%）"""
     def stop(signum, _frame):
         if STOPPING.is_set():
@@ -433,9 +433,11 @@ def run_group(argv, cwd, env=None, failfast=False):
     殺し損ねた孫が増え続けて全体を時間切れにした（2026-09-23 の 3 周目の撃ち直し）。
     failfast なら最初の FAIL の行でグループごと止めて exit 1 を返す（自動の腕は赤と印で証拠がそろい、どの検査かを要らない）。
     起こした子は _LIVE に載せ、止める信号（install_stop_handlers）で木ごと止める。止めた回は "stopped"——赤と読ませない"""
+    # POSIX は新しいプロセスグループで起こす（setpgid。セッションは抜けない）——この実行器が SIGKILL で止められても、起こした側
+    # （engine の子を止める口）が同じセッションの仲間として拾える。setsid で抜けると親の消えた子孫を拾う手が無い。
     # Windows にはプロセスグループへの信号（killpg・SIGKILL）が無いので、新しいプロセスグループで起こして taskkill /T で
     # 木ごと止める（graphloops/engine/role_run.py の _spawn と _kill と同じ分け方）
-    group = ({"start_new_session": True} if os.name == "posix"
+    group = ({"process_group": 0} if os.name == "posix"
              else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
     p = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                          encoding="utf-8", errors="replace", **group)

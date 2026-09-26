@@ -3,6 +3,7 @@
 simulate_review.py の test_engine_run_checks・test_engine_run_parallel_pr"""
 import importlib.util
 import json
+import pathlib
 import subprocess
 import sys
 import types
@@ -37,7 +38,9 @@ def repo(tmp_path, steps=OK):
     ('{"suite": {"a": 1}}', "suite は 1 段以上の配列"),   # 配列でない suite を段の並びと読まない
     ('{"suite": [["name", "argv"]]}', "suite[0] は"),   # 鍵の名前を並べた配列を段と読まない
     ('{"suite": [{"name": "a", "argv": [1]}]}', "1 語以上"),   # 文字列でない語
-    ('{"suite": [{"name": "a", "argv": [""]}]}', "1 語以上"),   # 空の頭の語（起こす物が無い）   # object でない最上位は型の名前で言う（set(5) で落ちない）   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
+    ('{"suite": [{"name": "a", "argv": [""]}]}', "1 語以上"),
+    ('{"suite": [{"name": "a", "argv": ["x"], "keep_background": "yes"}]}', "true か false"),   # 真偽でない逃げ道の宣言
+    ('{"suite": [{"name": "a", "argv": ["x"], "keep_backgrounds": true}]}', "（任意）だけ"),   # 綴り違いの鍵を黙って無視しない   # 空の頭の語（起こす物が無い）   # object でない最上位は型の名前で言う（set(5) で落ちない）   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
 ])
 def test_parse_rejects_shapes_it_cannot_run(text, want):
     steps, err = declared.parse(text)
@@ -49,6 +52,22 @@ def test_sha_ignores_layout_but_not_content():
     b, _ = declared.parse('{ "suite" : [ { "argv": ["x","y"], "name":"a" } ] }')
     c, _ = declared.parse('{"suite": [{"name": "a", "argv": ["x", "z"]}]}')
     assert declared.steps_sha(a) == declared.steps_sha(b) != declared.steps_sha(c)
+
+
+def test_parse_keeps_the_keep_background_declaration():
+    """段の keep_background（背景のプロセスを残す逃げ道）は真のときだけ段に載り、sha にも入る（宣言を変えれば突き合わせが外れる）"""
+    kept, err = declared.parse('{"suite": [{"name": "a", "argv": ["x"], "keep_background": true}]}')
+    off, _ = declared.parse('{"suite": [{"name": "a", "argv": ["x"], "keep_background": false}]}')
+    plain, _ = declared.parse('{"suite": [{"name": "a", "argv": ["x"]}]}')
+    assert err is None and kept == [{"name": "a", "argv": ["x"], "keep_background": True}]
+    assert off == plain == [{"name": "a", "argv": ["x"]}] and declared.steps_sha(kept) != declared.steps_sha(plain)
+
+
+def test_readme_names_every_optional_step_key():
+    """段の任意の鍵（逃げ道の宣言）は、利用者が読む README の宣言の節に綴りのまま載る——載っていなければ宣言できることが
+    伝わらない"""
+    readme = (pathlib.Path(PLUGIN).parent / "README.md").read_text(encoding="utf-8")
+    assert all(f'"{k}"' in readme for k in declared.STEP_OPTIONAL_KEYS)
 
 
 MUT = {"argv": ["runner"], "arms": "arms.json"}

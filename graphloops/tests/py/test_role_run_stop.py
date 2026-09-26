@@ -24,12 +24,11 @@ def test_run_tree_kills_the_tree_when_waiting_breaks(tmp_path, monkeypatch):
 
     class Broken(subprocess.Popen):
         def communicate(self, *a, **k):
-            if seen:   # 止める口が数え上げに起こす ps は普通に待つ
-                return super().communicate(*a, **k)
             seen.append(self)
             raise KeyboardInterrupt
 
     monkeypatch.setattr(role_run.subprocess, "Popen", Broken)
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (None, "検査では数えない"))
     try:
         with pytest.raises(KeyboardInterrupt):
             role_run.run_tree([sys.executable, "-c", "import time; time.sleep(120)"], cwd=tmp_path, timeout=None)
@@ -68,7 +67,7 @@ def test_stop_group_windows(tmp_path, monkeypatch, rc, started, fails):
     """Windows の taskkill: 非 0 でも相手が居なくなっていれば止まったと数える。止まったら印を消す"""
     m = mark(tmp_path)
     monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="nt"))
-    monkeypatch.setattr(role_run, "probe_group", lambda f: (4242, None))
+    monkeypatch.setattr(role_run, "_probe", lambda f: (4242, 100.0, None))
     monkeypatch.setattr(role_run, "_started_at", lambda pid: started)
     monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, rc, "", "err"))
     why = role_run.stop_group(str(m))
@@ -81,7 +80,8 @@ def proc(pid, pgid=4242, stat="S", ppid=1, started=100.0, uid=501):
 
 
 def posix(monkeypatch, members, sent, eperm=False):
-    """role_run の os を POSIX の代役に替える。members(sent) が数え上げの答え（{pid: _Proc}）、sent は送った (宛先, 信号)。
+    """POSIX の代役: role_run の os（killpg・kill）・_tree_members・STOP_SIGNALS・KILL_GRACE・_probe を差し替える。
+    members(sent) が数え上げの答え（{pid: _Proc}）、sent は送った (種別 pg|pid, 宛先, 信号)。
     eperm なら送る口が PermissionError（sandbox の中から別のグループへ送った形）"""
     def send(kind):
         def f(target, sig):
@@ -97,10 +97,10 @@ def posix(monkeypatch, members, sent, eperm=False):
     monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (members(sent), None))
     monkeypatch.setattr(role_run, "STOP_SIGNALS", (15, 9))
     monkeypatch.setattr(role_run, "KILL_GRACE", 0.3)
-    monkeypatch.setattr(role_run, "probe_group", lambda f: (4242, None))
+    monkeypatch.setattr(role_run, "_probe", lambda f: (4242, 100.0, None))
 
 
-def test_stop_group_posix_group_already_gone(tmp_path, monkeypatch):
+def test_stop_group_posix_tree_already_gone(tmp_path, monkeypatch):
     """信号を送る前に木の仲間が居なければ、送らずに止まったと数えて印を消す"""
     m = mark(tmp_path)
     sent = []
@@ -109,18 +109,13 @@ def test_stop_group_posix_group_already_gone(tmp_path, monkeypatch):
     assert not m.exists() and sent == []
 
 
-def test_stop_group_reads_the_reuse_mark_before_probing(tmp_path, monkeypatch):
-    """再利用の目印（印の更新時刻）は probe_group より先に読む——確かめた後に子が終わって印が消えても、_stop_tree に目印が渡る"""
+def test_stop_group_passes_the_mark_time_read_with_the_number(tmp_path, monkeypatch):
+    """番号の再利用の目印（born）は、_probe が番号と同じ読みで返す印の更新時刻——別の読みにしない"""
     m = mark(tmp_path)
-    written = m.stat().st_mtime
     got = {}
-
-    def probe(f):
-        m.unlink()   # 確かめた直後に子が終わり、launch の側が印を消した
-        return 4242, None
-    monkeypatch.setattr(role_run, "probe_group", probe)
-    monkeypatch.setattr(role_run, "_stop_tree", lambda pgid, leader=None, born=None: got.update(born=born))
-    assert role_run.stop_group(str(m)) is None and got["born"] == written
+    monkeypatch.setattr(role_run, "_probe", lambda f: (4242, 123.5, None))
+    monkeypatch.setattr(role_run, "_stop_tree", lambda pgid, leader=None, born=None: got.update(pgid=pgid, born=born))
+    assert role_run.stop_group(str(m)) is None and got == {"pgid": 4242, "born": 123.5}
 
 
 def test_stop_group_posix_zombies_only_is_gone(tmp_path, monkeypatch):
@@ -143,7 +138,7 @@ def test_stop_group_posix_eperm_on_a_live_member_says_why_at_once(tmp_path, monk
 
 
 def test_stop_group_posix_signals_members_outside_the_group(tmp_path, monkeypatch):
-    """グループの外へ出た仲間にも送る: 長が仲間のグループには killpg、長の居ないグループの仲間には 1 本ずつ"""
+    """グループの外へ出た仲間にも送る: 長が仲間のグループには killpg、長が仲間でないグループの仲間には 1 本ずつ"""
     m = mark(tmp_path)
     sent = []
     tree = {4242: proc(4242), 5000: proc(5000, pgid=5000), 6000: proc(6000, pgid=7777)}
@@ -231,13 +226,100 @@ def test_stop_group_posix_watches_the_tree(tmp_path, monkeypatch, dies_after):
 
 
 def test_stop_group_posix_unreadable_table_is_not_stopped(tmp_path, monkeypatch):
-    """全プロセスの表が読めなければ、グループへは今どおり送るが、外へ出た子孫を確かめていないので止まったと言わない"""
+    """全プロセスの表が読めなければ、グループ pgid へは送るが、外へ出た子孫を確かめていないので止まったと言わない"""
     m = mark(tmp_path)
     sent = []
     posix(monkeypatch, lambda s: {}, sent)
     monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (None, "ps が無い"))
     why = role_run.stop_group(str(m))
     assert why.startswith("止める相手を数え上げられない（ps が無い）") and ("pg", 4242, 15) in sent and m.exists()
+
+
+def test_stop_tree_skips_a_zombie_only_group(monkeypatch):
+    """生きた仲間の居ないグループ（長がゾンビ）へは送らず、外へ出た生きた仲間のグループへだけ送る——macOS はゾンビだけの
+    グループへの killpg を EPERM で拒み、SIGKILL の前に『送れない』で抜けていた"""
+    sent = []
+    posix(monkeypatch, lambda s: {} if s else {4242: proc(4242, stat="Z"), 5000: proc(5000, pgid=5000)}, sent)
+    assert role_run._stop_tree(4242) is None and sent == [("pg", 5000, 15)]
+
+
+def test_stop_tree_keeps_signalling_the_group_after_the_leader_is_reaped(monkeypatch):
+    """長を回収した後も、止める番号のグループに生きた仲間が居る間は killpg を送り続ける（数えた後に増えた子にも届く）"""
+    sent = []
+    posix(monkeypatch, lambda s: {} if len(s) > 1 else {5000: proc(5000, pgid=4242)}, sent)
+    assert role_run._stop_tree(4242) is None and sent[:2] == [("pg", 4242, 15), ("pg", 4242, 9)]
+
+
+def test_stop_tree_eperm_on_a_member_that_then_left_is_not_a_failure(monkeypatch):
+    """送ったら EPERM でも、数え直してその相手に生きた仲間が居なければ（間に終わった）送れないとは言わない"""
+    sent = []
+    posix(monkeypatch, lambda s: {} if s else {4242: proc(4242)}, sent, eperm=True)
+    assert role_run._stop_tree(4242) is None and sent == [("pg", 4242, 15)]
+
+
+class Leader:
+    """_stop_tree に渡す長の代役（回収したかは returncode で持つ）"""
+
+    def __init__(self, returncode):
+        self.returncode, self.gl_born = returncode, 55.0
+
+    def poll(self):
+        return self.returncode
+
+
+@pytest.mark.parametrize("returncode,want", [pytest.param(None, None, id="not-reaped"), pytest.param(0, 55.0, id="reaped")])
+def test_stop_tree_uses_the_reuse_mark_only_after_the_leader_is_reaped(monkeypatch, returncode, want):
+    """回収していない長の番号は再利用されないので、born（起こした時刻）で見分けない。回収した後だけ gl_born を渡す"""
+    seen = []
+    posix(monkeypatch, lambda s: {}, [])
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: seen.append(born) or ({}, None))
+    assert role_run._stop_tree(4242, leader=Leader(returncode)) is None and seen == [want]
+
+
+@pytest.mark.parametrize("why,want", [pytest.param(role_run.UNSURE + "（pid [8000]）", None, id="unsure"),
+                                      pytest.param("グループ 4242 の木が SIGKILL の後も残っている（…）", "残っている", id="left")])
+def test_reap_one_does_not_count_an_unreadable_session_as_left(monkeypatch, capsys, why, want):
+    """正常に終わった木の残りを止める口（_communicate の途中と試行の終わりの両方）は、セッションを読めないプロセスが居る
+    だけの理由を止め切れなかったと数えず NG も出さない。本当に残ったなら NG を出して理由を返す"""
+    monkeypatch.setattr(role_run, "_stop_tree", lambda pid, leader=None, born=None: why)
+    got = role_run._reap_one(4242)
+    err = capsys.readouterr().err
+    assert (got is None and "NG" not in err) if want is None else (want in got and "NG" in err)
+
+
+def ps_answer(monkeypatch, stdout="", rc=0, stderr="", exc=None):
+    """_ps_all が起こす ps の答えを差し替え、渡された引数を返す"""
+    got = {}
+
+    def run(argv, **k):
+        got.update(argv=argv, **k)
+        if exc:
+            raise exc
+        return subprocess.CompletedProcess(argv, rc, stdout, stderr)
+    monkeypatch.setattr(role_run.subprocess, "run", run)
+    monkeypatch.setattr(role_run.time, "time", lambda: 1000.0)
+    return got
+
+
+def test_ps_all_reads_the_six_columns(monkeypatch):
+    """見出しの無い 6 列（pid ppid pgid uid etime stat）を読み、開始時刻は ps の前の時刻から etime を引く。読めない行は捨てる。
+    ps には時間の上限を付ける（同じファイルの ps・git と同じ 30 秒）"""
+    got = ps_answer(monkeypatch, "    1     0     1     0 1-00:00:00 Ss\n 4242     1  4242   501    00:05 S+\nx y z\n 7 1 7 501 bad S\n")
+    rows, why = role_run._ps_all()
+    assert why is None and sorted(rows) == [1, 4242] and got["timeout"] == 30
+    assert rows[4242] == role_run._Proc(4242, 1, 4242, 501, 995.0, "S+") and rows[1].started == 1000.0 - 86400
+
+
+@pytest.mark.parametrize("kw,want", [
+    pytest.param({"rc": 1, "stderr": "ps: denied"}, "exit 1: ps: denied", id="exit-nonzero"),
+    pytest.param({"stdout": "読めない\n"}, "exit 0", id="no-rows"),
+    pytest.param({"exc": subprocess.TimeoutExpired(["ps"], 30)}, "ps を起こせない", id="timeout"),
+])
+def test_ps_all_refuses_a_table_it_cannot_trust(monkeypatch, kw, want):
+    """ps が失敗した・表が空・時間切れなら表を返さない（空の表を『仲間なし』と読んで止まったと言わない）"""
+    ps_answer(monkeypatch, **kw)
+    rows, why = role_run._ps_all()
+    assert rows is None and want in why
 
 
 def members_of(monkeypatch, rows, sessions, me=100):
