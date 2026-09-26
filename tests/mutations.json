@@ -2323,8 +2323,8 @@
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "expect": "graphcheck: 壊れた patternProperties の正規表現",
-   "old": "                    end_anchored(pat)   #",
-   "new": "                    pass   #",
+   "old": "                end_anchored(pat)   #",
+   "new": "                pass   #",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_graphcheck_review_shapes"
@@ -4796,7 +4796,7 @@
   },
   {
    "id": "GC9",
-   "title": "プロンプトの record.<欄> の穴を記録を書く宣言で照らす",
+   "title": "プロンプトの record.<欄> と loop.<…> の穴を記録を書く宣言・loop の形の宣言で照らす",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "expect": "graphcheck: プロンプトの穴",
@@ -4805,7 +4805,7 @@
      "test_graphcheck_review_shapes"
     ]
    },
-   "old": "            if core.startswith(\"record.\") and not rules_unreadable:",
+   "old": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
    "new": "            if False:"
   },
   {
@@ -4819,8 +4819,8 @@
      "test_graphcheck_review_shapes"
     ]
    },
-   "old": "            if core.startswith(\"record.\") and not rules_unreadable:",
-   "new": "            if core.startswith(\"record.\"):"
+   "old": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
+   "new": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None):"
   },
   {
    "id": "OB1",

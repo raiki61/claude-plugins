@@ -1241,15 +1241,15 @@ def r2_premise_invalid(v):
     return st == "premise-invalid", f"R2 の判定は {st}"
 
 
-# rules が盤面の loop（b.loop_state）に持つ鍵の宣言——loop の鍵の正本。条件の関数が loop.<鍵> を読むとき、graphcheck が
-# ここと突き合わせる（綴り違いを回す前に落とす）。graph の節の outputs に書く loop.<鍵> もここに在ること（graphcheck）。
-# 台本（simulate_review）が両向きを確かめる: 回した盤面の鍵が全部ここに在り、ここの鍵が全部 rules のどこかで書かれている
-# ——宣言だけ残った古い鍵を default 付きで読む形を残さない。修正差分の往復の鍵は DELTA_PASSES から引く
+# rules が盤面の loop（b.loop_state）に持つ鍵の名前の宣言。**形の正本は graph の state_schema** で、graphcheck が両者の鍵を
+# 両向きで突き合わせ、条件の関数・節の reads と outputs・プロンプトの穴が読む loop.<…> を state_schema の木で最後の欄まで照らす。
+# 台本（simulate_review）が rules の書き込みの字面と両向きを確かめる: 書く鍵が全部ここに在り、ここの鍵が全部 rules のどこかで
+# 書かれている——宣言だけ残った古い鍵を default 付きで読む形を残さない。修正差分の往復の鍵は DELTA_PASSES から引く
 LOOP_KEYS = frozenset({
     "block_counts", "changed_files", "changed_files_file", "closed_keys", "cold_check", "coverage_after", "defer_ledger",
     "diff_file", "diff_lines", "diff_lines_by_round", "diff_stat", "drift_notes", "engine_zero", "escalated", "facts_to_add",
     "final_gate_empty_ok", "flow", "gates", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "lanes_bad_delivered", "last_material", "last_review", "last_seen",
-    "ledger_changed", "lines_at_r1", "lines_ratio", "mutation_decl", "open_units", "outcome", "prev_blocks", "prev_declared_faces",
+    "ledger_changed", "lines_at_r1", "lines_ratio", "mutation_decl", "open_units", "outcome", "policy_change", "prev_blocks", "prev_declared_faces",
     "prev_fix_files", "prev_one_shot", "prev_questions", "prev_rejudge", "prev_scalars", "prev_units", "purpose_known",
     "purpose_review_stale", "purpose_unusable", "r1_refire", "r2_refire", "r2_refire_forced", "rejudge_requested",
     "rejudge_rounds", "request_fixed_at", "request_wheres", "retaken_for_reviews", "reviewed_revision", "spec_changed",

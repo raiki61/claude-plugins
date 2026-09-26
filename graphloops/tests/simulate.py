@@ -411,7 +411,20 @@ def test_converges():
     check(any(i.startswith("p1.refuter[A]") for i in r1["instances"]) and any(i.startswith("p1.refuter[B]") for i in r1["instances"]), "refuter は A（荷重確証）と B（相違）に走った")
     check("p1.checker" in st["rounds"][2]["empty"], "3 周目の checker は項目ゼロ（empty）")
     check(len(rec["process"]["skipped"]) == 0, "省略なし")
+    loop_shape_held(run, "標準・収束", {"stuck_ids"}, "sampled_r")
     rm(run.tmp)
+
+
+def loop_shape_held(run, what, must, prefix=None):
+    """盤面の loop が graph の state_schema の形に収まる（engine が保存の時に照らした痕跡 loop_drift が 0 件）。0 件が照らさなかった
+    結果でないことも見る: 盤面の graph が state_schema を持ち、loop が must の鍵（と prefix で始まる周ごとの鍵）を実際に書いた"""
+    from engine.schema import load_graph
+    st = run.state()
+    g, _ = load_graph(st["graph"])
+    keys = set(st.get("loop") or {})
+    check(isinstance((g or {}).get("state_schema"), dict) and must <= keys and (prefix is None or any(k.startswith(prefix) for k in keys))
+          and not st.get("loop_drift"),
+          f"{what}: 盤面の loop（{sorted(keys)}）が state_schema の形に収まる（外れ {[r.get('error') for r in st.get('loop_drift') or []][:3]}）")
 
 
 def test_policy_reaches_research_roles():
@@ -474,6 +487,7 @@ def test_attended_stuck_answer():
     nx = run.next()
     check(any(i["node"] == "p0.generation" for i in nx["ready"]), "stuck 後の重厚では断面の生成が開く")
     check(any(i["node"] == "p3.cartographer" for i in nx["ready"]), "重厚に上がると cartographer が序盤に出る")
+    loop_shape_held(run, "有人・stuck で続行", {"stuck_hint", "stuck_ids"})
     rm(run.tmp)
 
 

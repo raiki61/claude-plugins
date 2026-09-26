@@ -4781,6 +4781,8 @@ def test_tdd_flow():
     fix_prompt = next((run.dir / "prompts" / "r1").glob("p3.fix*.md")).read_text(encoding="utf-8")
     check("## TDD の流れ" in fix_prompt and "tests/test_limit.py::test_limit_is_fixed" in fix_prompt,
           "実装の段（p3.fix）の指示書の後ろに TDD の段落が足され、名指しのテストが渡る（元の指示書は写さない）")
+    check("tdd" in (run.state().get("loop") or {}), "TDD の版の盤面は loop に tdd を書いた（形の照らしが空の盤面を見ていない）")
+    loop_shape_held(run, "TDD の流れ")
     rm(run.tmp)
 
 
@@ -4808,6 +4810,8 @@ def test_tdd_gives_up_without_dead_end():
     h2 = json.loads((run.dir / "out" / "r2" / "p2.history.json").read_text(encoding="utf-8"))
     check(any("TDD の赤の確認が上限で通らなかった" in r["key"] for r in h2.get("declared_routed") or []),
           f"諦めた理由は次の周の判定役に穴の行として届く（{[r['key'] for r in h2.get('declared_routed') or []][:3]}）")
+    check(bool((run.state().get("loop") or {}).get("tdd_gave_up")), "TDD を諦めた盤面は loop に tdd_gave_up を書いた")
+    loop_shape_held(run, "TDD を諦めた流れ")
     rm(run.tmp)
 
 
@@ -5729,10 +5733,28 @@ def test_relaunch_delegate():
     rm(run.tmp)
 
 
+def loop_shape_held(run, what):
+    """通しで回した盤面の loop が graph の state_schema から外れていない（engine が保存の時に照らした痕跡 loop_drift が 0 件）。
+    0 件が照らさなかった結果でないことも見る: 盤面の graph が state_schema を持つ"""
+    from engine.schema import load_graph
+    st = run.state()
+    g, _ = load_graph(st["graph"])
+    check(isinstance((g or {}).get("state_schema"), dict) and not st.get("loop_drift"),
+          f"{what}: 盤面の loop が state_schema の形に収まる（照らした graph に宣言が在る={isinstance((g or {}).get('state_schema'), dict)}・"
+          f"外れ {[r.get('error') for r in st.get('loop_drift') or []][:3]}）")
+
+
+def literal_loop_writes(*names):
+    """rules の本文に字面で書かれた loop の鍵（ls["X"] = ・loop_state["X"] = ・setdefault("X")）"""
+    src = "".join((PLUGIN / "rules" / f"{n}.py").read_text(encoding="utf-8") for n in names)
+    return {a or b for a, b in re.findall(r'(?:ls|loop_state)(?:\[\s*"([a-z_0-9]+)"\s*\]\s*=[^=]|\.setdefault\(\s*"([a-z_0-9]+)")', src)}
+
+
 def test_loop_keys_declared():
     """**rules が盤面の loop に書いた鍵は、全部 LOOP_KEYS に宣言されている。** graphcheck は条件の読む loop.<鍵> を
-    この宣言と突き合わせるので、宣言が書く側から離れると、正しい条件が落ちるか綴り違いが通る。回した盤面の鍵で確かめる"""
-    print("loop の鍵の宣言: 通しで回した盤面の loop の鍵が、全部 rules の LOOP_KEYS に在る")
+    この宣言と突き合わせるので、宣言が書く側から離れると、正しい条件が落ちるか綴り違いが通る。回した盤面の鍵で確かめる。
+    形（graph の state_schema）も、回した盤面が外れていないことを engine の保存の時の痕跡で確かめる"""
+    print("loop の鍵の宣言: 通しで回した盤面の loop の鍵が、全部 rules の LOOP_KEYS に在り、graph の state_schema の形に収まる")
     sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
@@ -5741,6 +5763,13 @@ def test_loop_keys_declared():
     drive(run, "std")
     keys = set(run.state().get("loop") or {})
     check(len(keys) >= 20 and keys <= set(rules.LOOP_KEYS), f"盤面の loop の鍵 {len(keys)} 件が全部宣言に在る（宣言の外: {sorted(keys - set(rules.LOOP_KEYS))}）")
+    loop_shape_held(run, "既定の流れ")
+    # 照らしが効いていること: 形を外した値を盤面の手当てで書くと、保存の時に痕跡が出て、run は止まらない
+    bad = run.tmp / "bad-gates.json"
+    bad.write_text("5", encoding="utf-8")
+    r = run.cmd("patch", "--path", "state.loop.gates", "--file", str(bad), "--reason", "検査: loop の形を外す")
+    drift = [x.get("error", "") for x in run.state().get("loop_drift") or []]
+    check(r.returncode == 0 and any("loop.gates" in e for e in drift), f"形を外した書き込みは保存の時に痕跡に残り、止めない（rc={r.returncode}・{drift[:2]}）")
     rm(run.tmp)
     # 仕様の道（flow=spec）の盤面も: 承認待ち・周の途中の答え・承認後のテストの改変の鍵
     run = Run("loopkeys-spec", init_args=("--input", "flow=spec"))
@@ -5758,14 +5787,21 @@ def test_loop_keys_declared():
     seen |= set(run.state().get("loop") or {})
     check({"spec_pending", "in_round_answers", "spec_changed"} <= seen and seen <= set(rules.LOOP_KEYS),
           f"仕様の道の盤面の loop の鍵も全部宣言に在る（宣言の外: {sorted(seen - set(rules.LOOP_KEYS))}）")
+    loop_shape_held(run, "仕様の道")
     rm(run.tmp)
     # 逆向き: 宣言の鍵は全部 rules のどこかで書かれている（宣言だけ残った古い鍵を、条件が default 付きで読む形を残さない）。
     # 台本が通らない分岐（昇格・往復）で書く鍵もあるので、書く字面で見る。修正差分の往復の鍵は DELTA_PASSES から組む
-    src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
     dyn = {k for p in rules.DELTA_PASSES.values() for k in (p.state_key, p.owed_key)}
-    unwritten = sorted(k for k in rules.LOOP_KEYS - dyn
-                       if not re.search(rf'(ls|loop_state)(\[\s*"{k}"\s*\]\s*=[^=]|\.setdefault\(\s*"{k}")', src))
-    check(not unwritten, f"LOOP_KEYS の鍵は全部 rules が書いている（書く所の無い宣言: {unwritten}）")
+    # 逆向きも字面で: rules の本文が書く鍵は全部宣言に在る（通しの台本が通らない分岐——人の方針の変化・昇格——で書いて消える鍵も拾う）。
+    # TDD の版は元の rules に足すので元の本文も合わせて見る。research は周ごとに名前の変わる控え（sampled_r<周>）を state_schema の型で持つ
+    for names, gname in ((("review-loop",), "review-loop"), (("review-loop", "review-loop-tdd"), "review-loop-tdd"), (("research-loop",), "research-loop")):
+        gpath = PLUGIN / "graphs" / f"{gname}.json"
+        r_ = load_rules(gpath, json.loads(gpath.read_text(encoding="utf-8")))
+        wrote = literal_loop_writes(*names)
+        declared = set(r_.LOOP_KEYS)
+        unwritten = sorted(declared - wrote - dyn)
+        check(not unwritten, f"{gname}: LOOP_KEYS の鍵は全部 rules が書いている（書く所の無い宣言: {unwritten}）")
+        check(len(wrote) >= 4 and wrote <= declared, f"{gname}: rules が字面で書く loop の鍵 {len(wrote)} 件は全部 LOOP_KEYS に在る（宣言の外: {sorted(wrote - declared)}）")
 # ---------------------------------------------------------------- 仕様の道（init --input flow=spec）
 SPEC_TESTS = {  # 受け入れ条件のテスト（台本のリポジトリに書く）。修正（p3.fix の台本が src/a.py に足す 1 行）が入ると緑になる
     "AC1": ("tests/test_spec_entry.py", "ac_entry_starts_at_judge",

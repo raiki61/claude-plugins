@@ -136,6 +136,8 @@ def expand_refs(graph):
         return {k: walk(v, seen) for k, v in x.items()}
     out = {k: v for k, v in graph.items() if k != "$defs"}
     out["nodes"] = walk(graph.get("nodes", {}), frozenset())
+    if "state_schema" in graph:   # 盤面の loop の形（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
+        out["state_schema"] = walk(graph["state_schema"], frozenset())
     # 番号で指す欄（pointers）の型も同じ入口で広げる——graph に型を手で書かせず、宣言の誤りはここで ValueError
     from .pointers import widen
     widen(out["nodes"])
@@ -217,6 +219,31 @@ def walk_schema(schema, path="$"):
         yield from walk_schema(v, f"{path}[/{k}/]")
     if isinstance(schema.get("items"), dict):
         yield from walk_schema(schema["items"], f"{path}[]")
+
+
+def schema_at(schema, parts):
+    """schema の木を、path を点で割った欄の列 parts で最後の欄まで辿る ——（辿り着いた schema, ""）か（None, 辿れなかった理由）。
+    object の欄は properties、次に patternProperties（validate_schema と同じ end_anchored で当てる）で引き、配列は数字の欄で
+    items に降りる（get_path と同じ綴り）。**下の欄を宣言しない schema より下は辿らない**——宣言の外を読む path を黙って通さない。
+    graphcheck が盤面の loop を読む path（条件・節の reads と outputs・プロンプトの穴）を graph の state_schema で照らす口"""
+    cur = schema
+    for i, p in enumerate(parts):
+        where = ".".join(parts[:i]) or "最上位"
+        if not isinstance(cur, dict):
+            return None, f"{where} の宣言が schema でない"
+        props, pats = cur.get("properties") or {}, cur.get("patternProperties") or {}
+        hit = [s for pat, s in pats.items() if end_anchored(pat).search(p)]
+        if p in props:
+            cur = props[p]
+        elif hit:
+            cur = hit[0]
+        elif p.isdigit() and isinstance(cur.get("items"), dict):
+            cur = cur["items"]
+        elif props or pats:
+            return None, f"欄 '{p}' が {where} の宣言（properties・patternProperties）に無い"
+        else:
+            return None, f"{where} の宣言が下の欄を持たない（'{p}' から下を照らせない）"
+    return cur, ""
 
 
 # engine が読む語の全部。これ以外（oneOf / not / format / uniqueItems、綴り違い）は validate_schema が黙って無視するので、
