@@ -3,7 +3,7 @@
 Archon を知らない関数だけを出す。ブロックの script の節がこれを呼び、結果をそのまま出口にする。
 - check_request: 依頼（findings の配列）を rules の add に通し、盤面の request.json に積む
 - check_judge:   判定役（p2.diagnose）の返答。作業ツリー → 型 → rules の judge_output。通れば盤面に judgment.json
-- check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units
+- check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units（番号で指せという案内は key を写せに戻す）
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
 - role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）。
                  番号で指す欄（pointers）は名前の型のまま、修正差分のレビューは事前審査だけの kind を落とす
@@ -54,6 +54,10 @@ GIT_TIMEOUT = 120
 FIX_SCHEMA = {"type": "object", "required": ["changes"], "properties": {
     "changes": {"type": "array", "items": {"type": "object", "required": ["unit_key"], "properties": {
         "unit_key": {"type": "string", "minLength": 1}}}}}}
+# fix_plan_covers_units の拒否文のうち、番号で指せという案内（graphloops 0.21.0 の pointers 向け）と、works での言い換え。
+# works の修正役には番号を振った一覧を貼らず、unit_key は文字列だけを通す（FIX_SCHEMA）
+FIX_HINT_BY_NUMBER = "（写さずに、貼られた単位の no で指せ）"
+FIX_HINT_BY_KEY = "（判定の key を字面のまま写せ）"
 SNAPSHOT_SCHEMA = {"type": "object", "required": ["porcelain", "diff_sha256"], "properties": {
     "porcelain": {"type": "string"}, "diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
 
@@ -392,7 +396,10 @@ def check_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pat
             rec["units"], rec["questions"] = judgment.get("units") or [], judgment.get("questions") or []
             b = _Board(board, rev, record=rec)
             plan = {"plan": [{"unit_keys": [c["unit_key"]]} for c in reply["changes"]]}
-            rules.POST_CHECKS["fix_plan_covers_units"](b, "p3.fix", plan, None)
+            try:
+                rules.POST_CHECKS["fix_plan_covers_units"](b, "p3.fix", plan, None)
+            except Reject as e:   # 番号の一覧を貼る graphloops の役向けの案内を、works の修正役の書き方（key を写す）に戻す
+                raise Reject(str(e).replace(FIX_HINT_BY_NUMBER, FIX_HINT_BY_KEY))
         return {"ok": True, "reason": ""}
     return _guard(run)
 

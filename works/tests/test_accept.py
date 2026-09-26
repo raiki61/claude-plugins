@@ -138,6 +138,17 @@ class TestFix(AcceptCase):
         self.assertEqual(len(missing), 1)
         self.assertIn(missing[0], r["reason"])
 
+    def test_fix_unknown_key_tells_to_copy_the_key(self):
+        # graphloops 0.21.0 の拒否文は『貼られた単位の no で指せ』（番号の一覧を貼る graphloops の役向け）。works の修正役には
+        # 番号の一覧が無く、unit_key は文字列だけを通すので、判定の key を字面のまま写せと返す
+        self.judged()
+        reply = load("fix_ok")
+        reply["changes"][0]["unit_key"] += "（写し違い）"
+        r = check_fix(reply, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("判定の key を字面のまま写せ", r["reason"])
+        self.assertNotIn("no で指せ", r["reason"])
+
     def test_fix_without_judgment(self):
         r = check_fix(load("fix_ok"), self.board, self.base, self.repo)
         self.assertFalse(r["ok"])
