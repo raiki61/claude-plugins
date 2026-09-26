@@ -4,6 +4,7 @@ description: 違反の見本
 nodes:
   - id: fix
     prompt: 直せ
+    settingSources: []
     allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
     sandbox: {enabled: true, allowUnsandboxedCommands: false}
     idle_timeout: 1728000000

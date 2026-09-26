@@ -6,6 +6,9 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   sandbox: {enabled: true, allowUnsandboxedCommands: false} を持つ（Ruling R12。Bash がサンドボックスの外へ出る道を閉じる）
 - AI の節の allowed_tools は [Read, Grep, Glob] の部分集合（無ければ全部の道具を持つので違反）。
   外れてよいのは blk-fix/blk-fix.yaml の節 fix（書く役）だけ
+- AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
+  書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
+  skills: を持つ節だけは [project] も許す（skills は読む元が要る）
 - approval・include・loop_group の節は期限を持たない。書く期限の欄は上の 2 つだけ（AI の節の timeout・bash の節の idle_timeout も違反）
 - loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る
 - 上のどれでもない種類の節（loop: など）は違反（決まりを決めていない種類を黙って通さない）
@@ -27,6 +30,9 @@ WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい�
 AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
 QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種類
+# 役の節: (フォルダ, ファイル, 節)。どれもブロックの最初の AI の節で、輪（loop_group）の 1 周目の新しい会話で起きる
+ROLES = (("blk-judge", "blk-judge.yaml", "judge"), ("blk-fix", "blk-fix.yaml", "fix"),
+         ("blk-delta", "blk-delta.yaml", "review"))
 
 
 def _is_deadline(v):
@@ -73,6 +79,9 @@ def _check_node(node, where, writer_ok, out):
             elif not set(tools) <= READ_ONLY_TOOLS:
                 out.append(f"{at}: AI の節の allowed_tools が {sorted(READ_ONLY_TOOLS)} の外を持つ"
                            f"（{sorted(set(tools) - READ_ONLY_TOOLS)}）")
+        ss = node.get("settingSources", "（無し）")
+        if not (ss == [] or ("skills" in node and ss == ["project"])):
+            out.append(f"{at}: AI の節の settingSources が [] でない（{ss!r}。skills: を持つ節だけ [project] も可）")
     else:
         if has_t or has_it:
             out.append(f"{at}: {kind} の節に期限（timeout・idle_timeout）を書いた")
@@ -144,6 +153,65 @@ class YamlRulesCase(unittest.TestCase):
             p = pathlib.Path(tmp) / "blk-fix" / "blk-fix.yaml"
             p.write_text(body.replace("id: fix", "id: accept-fix"), encoding="utf-8")
             self.assertEqual(len(check_file(p)), 1, check_file(p))
+
+    def test_setting_sources_project_only_with_skills(self):
+        base = ("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n"
+                "    sandbox: {enabled: true, allowUnsandboxedCommands: false}\n"
+                "    idle_timeout: 1728000000\n    output_format: {type: object}\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            for extra, want in (("    settingSources: []\n", 0),
+                                ("    skills: [x]\n    settingSources: [project]\n", 0),
+                                ("    skills: [x]\n    settingSources: []\n", 0),
+                                ("    settingSources: [project]\n", 1),
+                                ("    skills: [x]\n    settingSources: [project, user]\n", 1),
+                                ("    skills: [x]\n", 1)):
+                p = pathlib.Path(tmp) / "w.yaml"
+                p.write_text(base + extra, encoding="utf-8")
+                with self.subTest(extra):
+                    self.assertEqual(len(check_file(p)), want, check_file(p))
+
+
+def _is_ai(node):
+    return _kind(node) in AI_KEYS or _kind(node) == "include"   # include は中に AI の節を持ちうる
+
+
+def _ancestors(nid, by_id):
+    seen, todo = set(), list(by_id[nid].get("depends_on") or [])
+    while todo:
+        d = todo.pop()
+        if d in by_id and d not in seen:
+            seen.add(d)
+            todo.extend(by_id[d].get("depends_on") or [])
+    return seen
+
+
+class RoleSessionCase(unittest.TestCase):
+    """役の節は、CLAUDE.md を読んだ前の会話を引き継がない（settingSources: [] が効くのは新しい会話だけ）。
+
+    輪の中の役に context: fresh は書けない（受け付けが拒んだ時の同じ会話での出し直しが壊れる）。代わりに形で守る:
+    役はブロックの輪（loop_group）の中に居て、ブロックの中で役より前（depends_on を辿った先）に AI の節も include も無い。
+    Archon は輪の 1 周目をいつも新しい会話で起こし（dag-executor.ts:5069）、include の入口の節は外の会話を
+    引き継がない（dag-executor.ts:10417-10427）。2 周目からの出し直しは、1 周目の settingSources: [] の会話の続き。
+    """
+
+    def test_role_is_first_ai_node_in_its_block_loop(self):
+        for folder, name, rid in ROLES:
+            with self.subTest(f"{folder}/{rid}"):
+                doc = yaml.safe_load((ROOT / folder / name).read_text(encoding="utf-8"))
+                top = {n["id"]: n for n in doc["nodes"]}
+                loops = [n for n in doc["nodes"] if _kind(n) == "loop_group"
+                         and any(m.get("id") == rid for m in n["loop_group"]["nodes"])]
+                self.assertEqual(len(loops), 1, f"{rid} が輪の中にちょうど 1 つ居ない")
+                grp = loops[0]
+                inner = {m["id"]: m for m in grp["loop_group"]["nodes"]}
+                role = inner[rid]
+                self.assertEqual(role.get("settingSources"), [])
+                self.assertNotIn("context", role, "輪の中の役に context を書くと同じ会話での出し直しが壊れる")
+                before = [inner[a] for a in _ancestors(rid, inner)] + [top[a] for a in _ancestors(grp["id"], top)]
+                self.assertEqual([n["id"] for n in before if _is_ai(n)], [],
+                                 f"{rid} より前に AI の節か include が在る（前の会話を引き継ぐ恐れ）")
+                others = [m["id"] for m in inner.values() if m["id"] != rid and _is_ai(m)]
+                self.assertEqual(others, [], f"{rid} の輪に別の AI の節が在る")
 
 
 if __name__ == "__main__":

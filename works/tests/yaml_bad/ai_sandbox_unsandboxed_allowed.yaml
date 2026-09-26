@@ -4,6 +4,7 @@ description: 違反の見本
 nodes:
   - id: judge
     prompt: 判定せよ
+    settingSources: []
     allowed_tools: [Read, Grep, Glob]
     sandbox: {enabled: true}
     idle_timeout: 1728000000

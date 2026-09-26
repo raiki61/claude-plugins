@@ -35,6 +35,7 @@ nodes:
       nodes:
         - id: judge
           command: diagnose
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（JSON だけを返す約束。graphloops の --setting-sources ""）
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000

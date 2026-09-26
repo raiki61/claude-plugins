@@ -18,6 +18,7 @@ nodes:
       nodes:
         - id: judge
           command: diagnose
+          settingSources: []
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
@@ -29,6 +30,7 @@ nodes:
           depends_on: [judge]
   - id: collect
     prompt: まとめよ
+    settingSources: []
     allowed_tools: []
     sandbox: {enabled: true, allowUnsandboxedCommands: false}
     idle_timeout: 1728000000
