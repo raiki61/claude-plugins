@@ -19,6 +19,16 @@ WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
 export WORKS_DEV_HOME
 
+# 開発の家・対象・origin が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
+. "$DEV_DIR/guard.sh"
+works_dev_refuse_claude_tmp real-run.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
+if [ "$#" -ge 1 ]; then
+  works_dev_refuse_claude_tmp real-run.sh "対象" "$1"
+  works_dev_refuse_claude_tmp real-run.sh "origin" "$1.origin.git"
+else
+  works_dev_refuse_claude_tmp real-run.sh "対象の置き場（TMPDIR）" "${TMPDIR:-/tmp}/works-real.x"
+fi
+
 # 対象を作る前に、認証が無いことを 1 行で知らせて止まる（archon.sh と同じ規則）。
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -z "${WORKS_KEYCHAIN_ITEM:-}" ]; then
   echo "real-run.sh: 認証が無い。CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する" >&2

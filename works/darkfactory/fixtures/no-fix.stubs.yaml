@@ -1,0 +1,45 @@
+# 筋書き no-fix: 判定役が「依頼の件は再現しない」と判定し、直す義務の残る単位が 1 つも無い（need_fix: false）。
+# 修正・テスト・関所・差分の審査は when: で飛び（Ruling R21）、いつも走る節 finish が no_fix_needed で出口を組む。
+# 修正から後の stub は置かない——飛ばずに走れば「stub の無い節に届いた」で落ちる。finish は exec-code で本物を回し、
+# 審査を飛ばした run の review（if_skipped: null）を受け取る。判定の役の返答は tests/replies/judge_no_fix.json と同じ中身。
+base:
+  ok: true
+  rev: 0123456789abcdef0123456789abcdef01234567
+judging__intake:
+  ok: true
+  reason: ''
+  request: request_ok.json
+judge:
+  framing: 依頼の 2 件はどちらも既に直っていて、stats.py の mean と clamp は依頼の期待どおりの値を返す
+  one_shot: 直す物は無い
+  units:
+  - key: 'stats.py mean: 依頼の件は再現しない'
+    label: info
+    reason: '事実: stats.py の mean は sum(xs) / len(xs) を返し、mean([1, 2, 3]) は 2.0。反証: 別の入力で分母が変わる枝を探したが無い'
+  - key: 'stats.py clamp: 依頼の件は再現しない'
+    label: info
+    reason: '事実: stats.py の clamp は x > hi の枝で hi を返し、clamp(15, 0, 10) は 10。反証: 下限の枝との取り違えを探したが無い'
+  questions: []
+  materials_missing: []
+  carried_r1: []
+  one_shot_closes: []
+  precedents: []
+judge-accept:
+  ok: true
+  reason: ''
+  open_units: []
+judging__collect:
+  ok: true
+  open_units: []
+  need_fix: false
+  judgment_file: board/judgment.json
+  one_shot: 直す物は無い
+fixture:
+  expect: completed
+  reached:
+  - judging__collect
+  - finish
+  inputs:
+    request: request_ok.json
+    test_cmd: python3 -m unittest
+exec-code: true

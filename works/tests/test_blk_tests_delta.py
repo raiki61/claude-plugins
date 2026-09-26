@@ -267,9 +267,17 @@ class TestAcceptCollect(RepoCase):
         r = self.run_script("blk-delta", "accept", reply=reply, base_rev=self.base)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["ok"], True, r.stdout)
+        self.assertEqual(self.run_script("blk-delta", "cut", base_rev=self.base).returncode, 0)
         r = self.run_script("blk-delta", "collect")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout), {"ok": True, "faces": 1})
+        out = json.loads(r.stdout)
+        # 出口は穴の数と、run の後に人が見る審査の返答・修正の差分のパス（I4）
+        self.assertEqual(out, {"ok": True, "faces": 1, "review_file": str(self.board / "delta-review.json"),
+                               "diff_file": str(self.board / "fix.diff")})
+        self.assertTrue(pathlib.Path(out["diff_file"]).exists())
+        collect = find_node(workflow("blk-delta")["nodes"], "collect")
+        self.assertEqual(validate_schema(out, collect["output_format"]), [])
+        self.assertEqual(sorted(collect["output_format"]["required"]), ["diff_file", "faces", "ok", "review_file"])
 
     def test_accept_rejects_face_outside_touched_files(self):
         r = self.run_script("blk-delta", "accept", reply=json.dumps(load("delta_bad_cite")), base_rev="")

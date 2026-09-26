@@ -1,9 +1,10 @@
 """何も変えずに「済んだ」と言うのを止める検査（blk-fix の節 assert-changed。sdlc の assert-changed の考え方）。
 
-変わったファイル = git diff --name-only <base_rev> と未追跡のファイル（.gitignore に当たる物は外す）。
+変わったファイル = git diff --name-only <base_rev> と未追跡のファイル（.gitignore に当たる物は外す。どちらも -z で読み、
+日本語などの名前を git の引用無しのまま申告と突き合わせる）。
 どちらも .archon/ の下は数えない（Archon が run の作業ツリーに写す工程の置き場で、修正役の仕事ではない）。
 .archon/ の下だけを触った修正は通らない（安全側に倒す）。
-申告 = 受け付けた返答の changes[].files（INPUTS_ACCEPTED。輪の出力 = 最後の周の accept の {ok, reason, changes}）。
+申告 = 受け付けた返答の changes[].files（INPUTS_ACCEPTED。輪の出力 = 最後の周の fix-accept の {ok, reason, changes}）。
 変わった物だけでは見ない: テストを回すと __pycache__ などの未追跡のゴミができ、中身を 1 行も直さずに通ってしまう。
 - 申告したファイルが全部変わっている: {"ok": true, "files": [申告 ∩ 変わった物]} を 1 行出して 0（ゴミは下流に流さない）
 - 申告が空・申告したのに変わっていないファイルが在る: 標準エラーに理由（どのファイルか）を 1 行出して 1（run が止まる）
@@ -27,7 +28,7 @@ class Unreadable(Exception):
     pass
 
 
-def git(*args):
+def git(*args, text=True):
     try:
         r = subprocess.run(["git", *args], capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -35,7 +36,12 @@ def git(*args):
     if r.returncode != 0:
         err = r.stderr.decode("utf-8", "replace").strip().replace("\n", " ")[-300:]
         raise Unreadable(f"git {' '.join(args)} が失敗した（{err or f'exit {r.returncode}'}）")
-    return r.stdout.decode("utf-8", "replace")
+    return r.stdout.decode("utf-8", "replace") if text else r.stdout
+
+
+def names(*args):
+    """git <args> -z が出すパスの一覧（NUL 区切り。日本語などの名前も引用符や \\ の書き換え無しでそのまま。core の accept._names と同じ）"""
+    return [os.fsdecode(n) for n in git(*args[:1], "-z", *args[1:], text=False).split(b"\0") if n]
 
 
 def touched(base_rev):
@@ -46,8 +52,8 @@ def touched(base_rev):
         rev = git("rev-parse", "--verify", "--quiet", f"{name}^{{commit}}").strip()
     except Unreadable:
         raise Unreadable(f"base_rev {base_rev!r} が版として引けない")
-    files = git("diff", "--name-only", "--no-renames", rev, "--", ":/").splitlines()
-    files += git("ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/").splitlines()
+    files = names("diff", "--name-only", "--no-renames", rev, "--", ":/")
+    files += names("ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/")
     return rev, sorted({f for f in files if f and not f.startswith(IGNORED_PREFIX)})
 
 

@@ -7,12 +7,16 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - archon.sh の認証に既定の口座が無いこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
   WORKS_KEYCHAIN_ITEM の名の keychain の項目（ここでは偽物に差し替える。本物には触らない）を
   HOME を隔離する前の元の HOME で読み、どちらも無ければ 1 行の案内で止まること（Ruling R20）。
+- archon.sh・mktarget.sh・real-run.sh が、WORKS_DEV_HOME・対象・origin が Claude Code の一時フォルダ
+  （/private/tmp/claude-* か /tmp/claude-*。サンドボックスの Bash がそこへ書ける穴）の下に解けるとき、
+  何も作らずに 1 行の理由で終了コード 2 で止まること（symlink を辿った先で見る）。
 - check.sh が works 自身の工程（works/<d>/<d>.yaml）だけを 1 本ずつ validate し、`workflow test works` を回し
   （どちらも認証を読ませない）、
   どれか 1 つでも赤なら終了コード 1 になること（Archon は偽物の記録係に差し替える。Ruling R10）。
 """
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -198,6 +202,91 @@ class TestDevShell(unittest.TestCase):
             self.assertIn("WORKS_KEYCHAIN_ITEM", result.stderr)
             self.assertFalse((tmp / "target").exists())
             self.assertFalse((tmp / "dev-home").exists())   # 設定も書かない
+
+    # ---- Claude Code の一時フォルダの下を拒む（サンドボックスの穴。設計書 7 節）
+    HOLE = "/private/tmp/claude-works-guard-test-0/x"   # 作らない（拒むのは作る前）
+
+    def assert_guarded(self, result, *made):
+        self.assertEqual(result.returncode, 2, result.stderr)
+        lines = result.stderr.strip().splitlines()
+        self.assertEqual(len(lines), 1, result.stderr)
+        self.assertIn("/private/tmp/claude-", lines[0])
+        self.assertNotIn("sha256", result.stderr)
+        for p in made:
+            self.assertFalse(pathlib.Path(p).exists(), p)
+
+    def _env(self, **kw):
+        env = dict(os.environ)
+        for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM"):
+            env.pop(name, None)
+        env.update(kw)
+        return env
+
+    def test_archon_sh_refuses_dev_home_in_claude_tmp(self):
+        for home in (self.HOLE, "/tmp/claude-works-guard-test-0/x"):   # /tmp は macOS では /private/tmp への symlink
+            with self.subTest(home):
+                r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True,
+                                   env=self._env(WORKS_DEV_HOME=home, WORKS_DEV_NO_AUTH="1"))
+                self.assert_guarded(r, "/private/tmp/claude-works-guard-test-0")
+
+    def test_archon_sh_refuses_dev_home_through_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            link = pathlib.Path(tmp_str) / "link"
+            link.symlink_to("/private/tmp")
+            r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True,
+                               env=self._env(WORKS_DEV_HOME=str(link / "claude-works-guard-test-0" / "x"),
+                                             WORKS_DEV_NO_AUTH="1"))
+            self.assert_guarded(r, "/private/tmp/claude-works-guard-test-0")
+
+    def test_archon_sh_refuses_cwd_in_claude_tmp(self):
+        try:
+            cwd = tempfile.mkdtemp(prefix="claude-works-guard-", dir="/private/tmp")
+        except OSError as e:
+            self.skipTest(f"/private/tmp に試しのフォルダを作れない（{e}）")
+        try:
+            with tempfile.TemporaryDirectory() as tmp_str:
+                r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True, cwd=cwd,
+                                   env=self._env(WORKS_DEV_HOME=str(pathlib.Path(tmp_str) / "dev-home"),
+                                                 WORKS_DEV_NO_AUTH="1"))
+                self.assert_guarded(r, pathlib.Path(tmp_str) / "dev-home")
+        finally:
+            shutil.rmtree(cwd)
+
+    def test_mktarget_refuses_target_in_claude_tmp(self):
+        r = subprocess.run(["sh", str(DEV / "mktarget.sh"), self.HOLE], capture_output=True, text=True,
+                           env=self._env())
+        self.assert_guarded(r, "/private/tmp/claude-works-guard-test-0")
+
+    def test_real_run_refuses_claude_tmp(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            link = tmp / "link"
+            link.symlink_to("/private/tmp")
+            cases = {
+                "WORKS_DEV_HOME": ([str(tmp / "target")], {"WORKS_DEV_HOME": self.HOLE}),
+                "対象": ([self.HOLE], {"WORKS_DEV_HOME": str(tmp / "dev-home")}),
+                "対象（symlink の先）": ([str(link / "claude-works-guard-test-0" / "t")],
+                                        {"WORKS_DEV_HOME": str(tmp / "dev-home")}),
+                "既定の対象（TMPDIR）": ([], {"WORKS_DEV_HOME": str(tmp / "dev-home"),
+                                           "TMPDIR": "/private/tmp/claude-works-guard-test-0"}),
+            }
+            for why, (args, env) in cases.items():
+                with self.subTest(why):
+                    # 認証が在っても（偽のトークン）、拒むのは認証の確かめと対象を作るより前
+                    r = subprocess.run(["sh", str(DEV / "real-run.sh"), *args], capture_output=True, text=True,
+                                       env=self._env(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", **env))
+                    self.assert_guarded(r, tmp / "target", tmp / "dev-home", "/private/tmp/claude-works-guard-test-0")
+                    self.assertNotIn("dummy-token-for-test", r.stdout + r.stderr)
+
+    def test_real_run_refuses_origin_in_claude_tmp(self):
+        # 対象は穴の外でも、origin（<対象>.origin.git）が穴の下の symlink に解けるなら拒む
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "t.origin.git").symlink_to("/private/tmp/claude-works-guard-test-0")
+            r = subprocess.run(["sh", str(DEV / "real-run.sh"), str(tmp / "t")], capture_output=True, text=True,
+                               env=self._env(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test",
+                                             WORKS_DEV_HOME=str(tmp / "dev-home")))
+            self.assert_guarded(r, tmp / "t", tmp / "dev-home")
 
     def _run_check(self, fail_on=""):
         """check.sh を偽の Archon（引数と cwd を記録し、引数に fail_on を含めば終了コード 1）で回す"""

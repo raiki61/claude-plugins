@@ -2,7 +2,7 @@ name: blk-judge
 description: |
   判定のブロック。人の修正依頼（findings の JSON の配列）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ、
   受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回）。ラインから include で使う。
-  出口は盤面の judgment.json のパスと、直す義務の残る単位の key の一覧。
+  出口は盤面の judgment.json のパスと、直す義務の残る単位の key の一覧と、直す物が在るか（need_fix）。
 
 inputs:
   request:
@@ -209,6 +209,7 @@ nodes:
       properties:
         ok: {type: boolean}
         open_units: {type: array, items: {type: string}}
+        need_fix: {type: boolean}
         judgment_file: {type: string}
         one_shot: {type: string}
-      required: [ok, open_units, judgment_file, one_shot]
+      required: [ok, open_units, need_fix, judgment_file, one_shot]

@@ -4,12 +4,17 @@
 - include の id とブロックの中の節の id がぶつからないこと（Ruling R17）。Archon 0.11.1 の模擬実行は輪（loop_group）の
   中の節を名前空間の付かない id で stub に引くので、輪の中の節の id もライン全体で一意であること
 - 節 base（bash）を使い捨ての git で実際に起こし、HEAD を {ok, rev} で出すこと
-- 関所（approval）の文にテストの緑赤とログのパスが載り、返答を取っておくこと
-- 筋書き（fixtures/）の形: wiring は stub を置ける節を全部 stub し、tests-red はテストの節だけ赤にして完走する
+- 関所（approval）の文にテストの緑赤とログのパス・判定の一手・判定のファイルが載り、返答を取っておくこと
+- 直す物が無い判定（need_fix: false）なら修正から後を when: で飛ばし、いつも走る節 finish で終えること（Ruling R21）。
+  finish のスクリプトを別のプロセスで起こして、出口の形を見る
+- 筋書き（fixtures/）の形: wiring は finish 以外の stub を置ける節を全部 stub し（finish は exec-code で本物を回す）、
+  tests-red はテストの節だけ赤にして完走し、no-fix は判定だけで finish まで届く
 """
 import json
 import pathlib
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -20,6 +25,8 @@ LINE = ROOT / "darkfactory"
 REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
 DEADLINE = 1728000000
 BLOCKS = {"judging": "blk-judge", "fixing": "blk-fix", "testing": "blk-tests", "reviewing": "blk-delta"}
+NEED_FIX = "$judging.output.need_fix == true"
+SKIPPABLE = ("fixing", "testing", "gate", "reviewing")
 GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
@@ -79,24 +86,45 @@ class TestLineShape(unittest.TestCase):
         self.assertEqual(set(y["inputs"]), {"request", "test_cmd"})
         for k in ("request", "test_cmd"):
             self.assertIs(y["inputs"][k]["required"], True)
-        self.assertEqual(y["returns"], "reviewing")
+        self.assertEqual(y["returns"], "finish")
         self.assertEqual(y["outcome_field"], "ok")
-        # returns の先（blk-delta の出口 collect）が ok を真偽で持つ
-        collect = next(n for n in block("blk-delta")["nodes"] if n["id"] == block("blk-delta")["returns"])
-        self.assertEqual(collect["output_format"]["properties"]["ok"], {"type": "boolean"})
-        self.assertIn("ok", collect["output_format"]["required"])
+        # returns の先（いつも走る節 finish）が ok を真偽で持つ
+        of = node("finish")["output_format"]
+        self.assertEqual(of["properties"]["ok"], {"type": "boolean"})
+        self.assertEqual(of["properties"]["outcome"], {"type": "string", "enum": ["fixed", "no_fix_needed"]})
+        self.assertEqual(sorted(of["required"]), ["judgment_file", "ok", "outcome"])
+        self.assertLessEqual({"review_file", "diff_file", "faces"}, set(of["properties"]))
 
     def test_nodes_in_order(self):
         nodes = line()["nodes"]
-        self.assertEqual([n["id"] for n in nodes], ["base", "judging", "fixing", "testing", "gate", "reviewing"])
+        self.assertEqual([n["id"] for n in nodes],
+                         ["base", "judging", "fixing", "testing", "gate", "reviewing", "finish"])
         self.assertNotIn("depends_on", nodes[0])
-        for prev, cur in zip(nodes, nodes[1:]):
+        for prev, cur in zip(nodes[:-1], nodes[1:-1]):
             with self.subTest(cur["id"]):
                 self.assertEqual(cur["depends_on"], [prev["id"]])
         for n in nodes:
             if "include" in n:
                 with self.subTest(n["id"]):
                     self.assertEqual(n["include"], BLOCKS[n["id"]])
+
+    def test_skips_after_judging_when_nothing_to_fix(self):
+        # Ruling R21: 直す物が無い判定は失敗ではない。修正・テスト・関所・審査を飛ばす
+        for nid in SKIPPABLE:
+            with self.subTest(nid):
+                self.assertEqual(node(nid)["when"], NEED_FIX)
+        for nid in ("base", "judging", "finish"):
+            with self.subTest(nid):
+                self.assertNotIn("when", node(nid))
+
+    def test_finish_node(self):
+        fin = node("finish")
+        self.assertEqual((fin["script"], fin["runtime"], fin["timeout"]), ("finish", "uv", DEADLINE))
+        self.assertEqual(fin["depends_on"], ["judging", "reviewing"])
+        self.assertEqual(fin["trigger_rule"], "none_failed_min_one_success")
+        self.assertEqual(fin["with"], {"judged": {"from": "$judging.output"},
+                                       "review": {"from": "$reviewing.output", "if_skipped": None}})
+        self.assertTrue((LINE / "scripts" / "finish.py").is_file())
 
     def test_include_with(self):
         self.assertEqual(node("judging")["with"], {"request": "$INPUTS.request", "base_rev": "$base.output.rev"})
@@ -140,11 +168,12 @@ class TestLineShape(unittest.TestCase):
 
     def test_gate(self):
         gate = node("gate")
-        self.assertEqual(set(gate), {"id", "approval", "depends_on"})
+        self.assertEqual(set(gate), {"id", "approval", "depends_on", "when"})
         ap = gate["approval"]
         self.assertIs(ap["capture_response"], True)
         self.assertNotIn("on_reject", ap)          # 拒めば run を止める
-        for ref in ("$testing.output.green", "$testing.output.log"):
+        for ref in ("$testing.output.green", "$testing.output.log", "$judging.output.one_shot",
+                    "$judging.output.judgment_file", "Archon の run ごとの worktree"):
             self.assertIn(ref, ap["message"])
 
 
@@ -173,32 +202,103 @@ class TestBaseNodeRuns(unittest.TestCase):
             self.assertEqual(r.stdout, "")
 
 
+class TestFinishRuns(unittest.TestCase):
+    """節 finish のスクリプトを別のプロセスで起こす（INPUTS_JUDGED・INPUTS_REVIEW は Archon が with: から渡す JSON の文字列）"""
+
+    JUDGED = {"ok": True, "open_units": ["u"], "need_fix": True, "judgment_file": "/a/board/judgment.json",
+              "one_shot": "直す"}
+    REVIEW = {"ok": True, "faces": 2, "review_file": "/a/board/delta-review.json", "diff_file": "/a/board/fix.diff"}
+
+    def run_it(self, judged, review):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+        for name, value in (("INPUTS_JUDGED", judged), ("INPUTS_REVIEW", review)):
+            if value is not None:
+                env[name] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            return subprocess.run([sys.executable, str(LINE / "scripts" / "finish.py")], cwd=tmp, env=env,
+                                  capture_output=True, text=True, timeout=60)
+
+    def assert_out(self, r, want):
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual(got, want)
+        from engine.schema import validate_schema   # noqa: E402（core は下の setUpModule で path に入る）
+        self.assertEqual(validate_schema(got, node("finish")["output_format"]), [])
+
+    def test_fixed(self):
+        self.assert_out(self.run_it(self.JUDGED, self.REVIEW), {
+            "ok": True, "outcome": "fixed", "judgment_file": "/a/board/judgment.json",
+            "review_file": "/a/board/delta-review.json", "diff_file": "/a/board/fix.diff", "faces": 2})
+
+    def test_no_fix_needed(self):
+        judged = dict(self.JUDGED, open_units=[], need_fix=False)
+        self.assert_out(self.run_it(judged, "null"), {
+            "ok": True, "outcome": "no_fix_needed", "judgment_file": "/a/board/judgment.json"})
+
+    def test_inconsistent_or_unreadable_fails(self):
+        cases = {
+            "need_fix なのに審査が無い": (self.JUDGED, "null"),
+            "直す物が無いのに審査が在る": (dict(self.JUDGED, open_units=[], need_fix=False), self.REVIEW),
+            "判定が JSON でない": ("not json", "null"),
+            "判定に need_fix が無い": ({k: v for k, v in self.JUDGED.items() if k != "need_fix"}, self.REVIEW),
+            "審査の出口が崩れている": (self.JUDGED, {"ok": True, "faces": 0}),
+            "環境変数が無い": (None, None),
+        }
+        for why, (judged, review) in cases.items():
+            with self.subTest(why):
+                r = self.run_it(judged, review)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertEqual(r.stdout, "")
+                self.assertEqual(r.stderr.strip().count("\n"), 0, "理由は 1 行")
+
+
+def setUpModule():
+    sys.path.insert(0, str(ROOT / ".shared" / "core"))
+
+
 class TestLineFixtures(unittest.TestCase):
+    FULL = ("wiring.stubs.yaml", "tests-red.stubs.yaml")
+    JUDGE_ONLY = {"base", "judging__intake", "judge", "judge-accept", "judging__collect"}
+
     def fixtures(self):
         return {p.name: load_yaml(p) for p in (LINE / "fixtures").glob("*.stubs.yaml")}
 
     def test_fixture_names(self):
-        self.assertEqual(set(self.fixtures()), {"wiring.stubs.yaml", "tests-red.stubs.yaml"})
+        self.assertEqual(set(self.fixtures()), {"wiring.stubs.yaml", "tests-red.stubs.yaml", "no-fix.stubs.yaml"})
 
     def test_every_stubbable_node_is_stubbed(self):
-        # include で入った script・bash の節は、模擬実行では呼び手の with: が届かないので本物で回せない
+        # include で入った script・bash の節は、模擬実行では呼び手の with: が届かないので本物で回せない。
+        # finish だけは stub せず exec-code で本物を回す（自分の with: は模擬実行でも届く）
         for name, f in self.fixtures().items():
             with self.subTest(name):
-                self.assertEqual(set(f) - {"fixture", "exec-code"}, set(stub_keys()))
-                self.assertNotIn("exec-code", f)
+                want = set(stub_keys()) - {"finish"} if name in self.FULL else self.JUDGE_ONLY
+                self.assertEqual(set(f) - {"fixture", "exec-code"}, want)
+                self.assertIs(f["exec-code"], True)
                 self.assertEqual(set(f["fixture"]["inputs"]), {"request", "test_cmd"})
+                self.assertEqual(f["fixture"]["reached"][-1], "finish")
 
     def test_role_stubs_are_the_good_samples(self):
-        for name, f in self.fixtures().items():
+        for name in self.FULL:
+            f = self.fixtures()[name]
             with self.subTest(name):
                 self.assertEqual(f["judge"], reply("judge_ok"))
                 self.assertEqual(f["fix"], reply("fix_ok"))
                 self.assertEqual(f["review"], reply("delta_ok"))
+                self.assertIs(f["judging__collect"]["need_fix"], True)
+
+    def test_no_fix(self):
+        # 判定が直す物を 1 つも残さない。修正から後の stub は置かない（走れば「stub の無い節に届いた」で落ちる）
+        f = self.fixtures()["no-fix.stubs.yaml"]
+        self.assertEqual(f["fixture"]["expect"], "completed")
+        self.assertEqual(f["fixture"]["reached"], ["judging__collect", "finish"])
+        self.assertEqual(f["judge"], reply("judge_no_fix"))
+        self.assertEqual(f["judge-accept"]["open_units"], [])
+        self.assertEqual((f["judging__collect"]["open_units"], f["judging__collect"]["need_fix"]), ([], False))
 
     def test_wiring(self):
         f = self.fixtures()["wiring.stubs.yaml"]
         self.assertEqual(f["fixture"]["expect"], "completed")
-        self.assertEqual(f["fixture"]["reached"], ["gate", "reviewing__collect"])
+        self.assertEqual(f["fixture"]["reached"], ["gate", "reviewing__collect", "finish"])
         self.assertIs(f["testing__run"]["green"], True)
 
     def test_tests_red(self):
@@ -207,7 +307,7 @@ class TestLineFixtures(unittest.TestCase):
         self.assertEqual(f["fixture"]["expect"], "completed")
         self.assertIs(f["testing__run"]["ok"], True)
         self.assertIs(f["testing__run"]["green"], False)
-        self.assertEqual(f["fixture"]["reached"], ["testing__run", "gate", "reviewing__collect"])
+        self.assertEqual(f["fixture"]["reached"], ["testing__run", "gate", "reviewing__collect", "finish"])
         self.assertNotIn("pause-at-gates", f["fixture"])
 
 

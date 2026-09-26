@@ -2,19 +2,21 @@ name: darkfactory
 description: |
   ダークファクトリーの 1 本目のライン。人の修正依頼を判定役が根本の単位にまとめ（judging）、修正役が直し（fixing）、
   テストを 1 回走らせ（testing）、人がテストの緑赤とログを見て承認し（gate）、修正の差分を審査役が審査する（reviewing）。
-  出口は差分の審査で受け付けた穴の数。人の関所があるので interactive。
+  判定が直す物を 1 つも残さなければ、修正から後を飛ばす（直す物が無いのは失敗でない。Ruling R21）。
+  出口はいつも走る節 finish: 結末（fixed か no_fix_needed）と、run の後に見るファイル（判定・審査の返答・修正の差分）のパス。
+  人の関所があるので interactive。
 
 interactive: true
 
 inputs:
   request:
     required: true
-    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対
+    description: 人の修正依頼（findings の JSON の配列）のファイルの絶対パス（対象の外でよい）。相対なら run の worktree の根から
   test_cmd:
     required: true
     description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）
 
-returns: reviewing
+returns: finish
 outcome_field: ok
 
 # include の id はブロックの中の節の id と重ねない（Ruling R17。重ねるとブロックの中の $<id>.output が include を指す）
@@ -40,9 +42,11 @@ nodes:
       request: $INPUTS.request
       base_rev: $base.output.rev
 
+  # 直す物が無い判定（need_fix: false）なら、ここから関所・審査までを飛ばして finish へ行く（Ruling R21）
   - id: fixing
     include: blk-fix
     depends_on: [judging]
+    when: "$judging.output.need_fix == true"
     with:
       judgment_file: $judging.output.judgment_file
       open_units: $judging.output.open_units
@@ -52,22 +56,51 @@ nodes:
   - id: testing
     include: blk-tests
     depends_on: [fixing]
+    when: "$judging.output.need_fix == true"
     with:
       cmd: $INPUTS.test_cmd
 
-  # 人の承認。拒めば run を止める（修正の差分は作業ツリーに残る）。承認の一言は $gate.output に残す
+  # 人の承認。拒めば run を止める（修正の差分は Archon の run ごとの worktree に残る）。承認の一言は $gate.output に残す
   - id: gate
     depends_on: [testing]
+    when: "$judging.output.need_fix == true"
     approval:
       message: |
         修正とテストが済んだ。差分の審査へ進めてよいか。
+        - 判定の一手: $judging.output.one_shot
+        - 判定のファイル: $judging.output.judgment_file
         - テストが緑か: $testing.output.green（true が緑・false が赤）
         - テストのログ: $testing.output.log
-        修正の差分は作業ツリーにある（commit していない）。承認すると審査役が差分を審査する。拒むと run を止める。
+        修正の差分は Archon の run ごとの worktree にある（commit していない。場所は archon workflow runs --json の
+        working_path）。承認すると審査役が差分を審査する。拒むと run を止める。
       capture_response: true
 
   - id: reviewing
     include: blk-delta
     depends_on: [gate]
+    when: "$judging.output.need_fix == true"
     with:
       base_rev: $base.output.rev
+
+  # いつも走る出口（returns）。直した run は審査の返答・修正の差分のパスまで、直す物が無い run は判定のパスだけを出す。
+  # judging に依ることで、修正から後を全部飛ばしても走る（none_failed_min_one_success。どこかが落ちた run では走らない）
+  - id: finish
+    script: finish
+    runtime: uv
+    depends_on: [judging, reviewing]
+    trigger_rule: none_failed_min_one_success
+    timeout: 1728000000
+    with:
+      judged: {from: "$judging.output"}
+      review: {from: "$reviewing.output", if_skipped: null}
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, outcome, judgment_file]
+      properties:
+        ok: {type: boolean}
+        outcome: {type: string, enum: [fixed, no_fix_needed]}
+        judgment_file: {type: string}
+        review_file: {type: string}
+        diff_file: {type: string}
+        faces: {type: integer, minimum: 0}

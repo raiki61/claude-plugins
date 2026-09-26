@@ -1,7 +1,7 @@
 """修正のブロックの出口を集める（blk-fix の節 collect。returns の節）。
 
 読む環境変数:
-- INPUTS_ACCEPTED: 輪（fix-loop）の出力 = 最後の周の accept の出力（{ok, reason, changes} の JSON の文字列）
+- INPUTS_ACCEPTED: 輪（fix-loop）の出力 = 最後の周の fix-accept の出力（{ok, reason, changes} の JSON の文字列）
 - INPUTS_CHANGED: assert-changed の出力（{ok, files} の JSON の文字列）
 - ARTIFACTS_DIR: 盤面はその下の board/
 受け付けた changes を盤面の changes.json（{"changes": [...]}）に書き、{"ok": true, "files", "changes_file"} を 1 行出して 0。

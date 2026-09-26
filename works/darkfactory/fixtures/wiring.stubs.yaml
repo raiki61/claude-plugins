@@ -1,6 +1,7 @@
 # 筋書き wiring: 配線だけを見る。stub を置ける節を全部 stub する（include で入った script・bash の節は、模擬実行では
 # 呼び手の with: が届かず本物で回せない）。判定・修正・審査の役の返答は tests/replies/ の良い見本と同じ中身。
 # 関所（gate）は --pause-at-gates 無しの模擬実行では自動で通り、差分の審査の出口（reviewing__collect）まで届く。
+# 最後の節 finish（ラインの節。自分の with: は模擬実行でも届く）だけは stub せず、exec-code で本物を回す。
 # 輪（loop_group）の中の節は名前空間の付かない id（judge・judge-accept・fix・…）で stub を引く（Archon 0.11.1 の dry-run.ts）
 base:
   ok: true
@@ -71,6 +72,7 @@ judging__collect:
   open_units:
   - 'stats.py mean: 分母が len(xs) - 1 になっている'
   - 'stats.py clamp: 上限を超えた値に lo を返す'
+  need_fix: true
   judgment_file: board/judgment.json
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
 fix:
@@ -124,11 +126,15 @@ review-accept:
 reviewing__collect:
   ok: true
   faces: 0
+  review_file: board/delta-review.json
+  diff_file: board/fix.diff
 fixture:
   expect: completed
   reached:
   - gate
   - reviewing__collect
+  - finish
   inputs:
     request: request_ok.json
     test_cmd: python3 -m unittest
+exec-code: true

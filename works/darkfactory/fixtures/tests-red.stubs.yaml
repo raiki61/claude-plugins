@@ -1,5 +1,5 @@
 # 筋書き tests-red: テストの節（testing__run）だけが赤（ok: true・green: false）。赤でも run は止まらず、関所は
-# 模擬実行で自動で通り（--pause-at-gates 無し）、差分の審査まで完走する。ほかの stub は wiring と同じ
+# 模擬実行で自動で通り（--pause-at-gates 無し）、差分の審査と finish まで完走する。ほかの stub は wiring と同じ
 base:
   ok: true
   rev: 0123456789abcdef0123456789abcdef01234567
@@ -69,6 +69,7 @@ judging__collect:
   open_units:
   - 'stats.py mean: 分母が len(xs) - 1 になっている'
   - 'stats.py clamp: 上限を超えた値に lo を返す'
+  need_fix: true
   judgment_file: board/judgment.json
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
 fix:
@@ -122,12 +123,16 @@ review-accept:
 reviewing__collect:
   ok: true
   faces: 0
+  review_file: board/delta-review.json
+  diff_file: board/fix.diff
 fixture:
   expect: completed
   reached:
   - testing__run
   - gate
   - reviewing__collect
+  - finish
   inputs:
     request: request_ok.json
     test_cmd: python3 -m unittest
+exec-code: true

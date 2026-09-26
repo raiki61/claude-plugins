@@ -80,8 +80,9 @@ class YamlCase(unittest.TestCase):
         fmt = find_node(self.y, "collect")["output_format"]
         self.assertEqual(fmt["properties"], {
             "ok": {"type": "boolean"}, "open_units": {"type": "array", "items": {"type": "string"}},
+            "need_fix": {"type": "boolean"},
             "judgment_file": {"type": "string"}, "one_shot": {"type": "string"}})
-        self.assertEqual(sorted(fmt["required"]), ["judgment_file", "ok", "one_shot", "open_units"])
+        self.assertEqual(sorted(fmt["required"]), ["judgment_file", "need_fix", "ok", "one_shot", "open_units"])
 
     def test_nodes_and_loop(self):
         ids = [n["id"] for n in self.y["nodes"]]
@@ -164,6 +165,19 @@ class ScriptCase(unittest.TestCase):
         self.assertIs(json.loads(r.stdout)["ok"], True)
         batches = json.loads((self.board / "request.json").read_text(encoding="utf-8"))
         self.assertEqual(batches[0]["findings"], load("request_ok"))
+
+    def test_intake_accepts_absolute_path_outside_repo(self):
+        # 依頼は対象の外に置いて絶対パスで渡せる（Archon は run ごとの worktree を origin から切るので、
+        # 対象の中の commit していない依頼はそこに無い）
+        outside = pathlib.Path(self._tmp.name) / "outside" / "依頼.json"
+        outside.parent.mkdir()
+        shutil.copy(REPLIES / "request_ok.json", outside)
+        r = self.run_script("intake", INPUTS_REQUEST=str(outside))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"ok": True, "reason": "", "request": str(outside)})
+        batches = json.loads((self.board / "request.json").read_text(encoding="utf-8"))
+        self.assertEqual(batches[0]["findings"], load("request_ok"))
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")   # 対象の作業ツリーは汚さない
 
     def test_intake_missing_file(self):
         r = self.run_script("intake", INPUTS_REQUEST="missing.json")
@@ -252,10 +266,30 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(got, {
             "ok": True,
             "open_units": [u["key"] for u in load("judge_ok")["units"] if u["label"] == "block"],
+            "need_fix": True,
             "judgment_file": str(self.board / "judgment.json"),
             "one_shot": load("judge_ok")["one_shot"],
         })
         self.assertEqual(validate_schema(got, find_node(workflow(), "collect")["output_format"]), [])
+
+    def test_collect_no_fix_needed(self):
+        # Ruling R21: 直す義務の残る単位が 1 つも無ければ need_fix: false（ラインは修正から後を飛ばす）
+        self.board.mkdir(parents=True)
+        (self.board / "judgment.json").write_text(json.dumps(load("judge_no_fix"), ensure_ascii=False),
+                                                  encoding="utf-8")
+        r = self.run_script("collect")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["open_units"], got["need_fix"]), ([], False))
+        self.assertEqual(validate_schema(got, find_node(workflow(), "collect")["output_format"]), [])
+
+    def test_no_fix_sample_is_accepted(self):
+        # 見本 judge_no_fix（依頼の件は再現しない）は受け付けを通り、open_units が空になる
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_no_fix")), INPUTS_BASE_REV="")
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], True, got["reason"])
+        self.assertEqual(got["open_units"], [])
 
     def test_collect_without_judgment(self):
         r = self.run_script("collect")

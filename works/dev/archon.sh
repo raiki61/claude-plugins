@@ -12,6 +12,11 @@ ARCHON_BIN_NAME="archon-darwin-arm64"
 
 WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 
+# 開発の家と対象（cwd）が Claude Code の一時フォルダの下なら、認証も実行ファイルも触らずに止まる（guard.sh）
+. "$(cd "$(dirname "$0")" && pwd -P)/guard.sh"
+works_dev_refuse_claude_tmp archon.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
+works_dev_refuse_claude_tmp archon.sh "対象（cwd）" "$(pwd -P)"
+
 # 認証に既定の口座は無い（Ruling R20）。順は
 #   1. CLAUDE_CODE_OAUTH_TOKEN があればそれを使う。
 #   2. 無ければ WORKS_KEYCHAIN_ITEM の名の keychain の項目を読む。

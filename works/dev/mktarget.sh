@@ -17,6 +17,10 @@ fi
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 
+# 対象が Claude Code の一時フォルダの下なら、何も作らずに止まる（guard.sh）
+. "$DEV_DIR/guard.sh"
+works_dev_refuse_claude_tmp mktarget.sh "対象" "$1"
+
 mkdir -p "$1"
 DIR="$(cd "$1" && pwd -P)"
 
@@ -46,7 +50,8 @@ find "$DIR" -name .git -prune -o \
   \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 |
   xargs -0 rm -rf
 
+# 利用者の git の設定（署名・hook）に左右されないように、この commit だけ切る
 git -C "$DIR" add -A
-git -C "$DIR" commit -q -m "chore: works-dev の使い捨ての対象を作る（種と pack）"
+git -C "$DIR" -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -q -m "chore: works-dev の使い捨ての対象を作る（種と pack）"
 
 echo "$DIR"

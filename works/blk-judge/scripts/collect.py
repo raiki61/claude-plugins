@@ -1,7 +1,9 @@
 """判定のブロックの出口を組む。輪（judge-loop）の受け付けが盤面（$ARTIFACTS_DIR/board/）に書いた judgment.json を読み、
-{"ok", "open_units", "judgment_file", "one_shot"} を 1 行出して 0。
+{"ok", "open_units", "need_fix", "judgment_file", "one_shot"} を 1 行出して 0。
 
 - open_units: 直す義務の残る単位（検証器の is_open＝[block] か do-now の [suggest]）の key。check_judge と同じ述語
+- need_fix: open_units が 1 つでも在るか。false ならラインは修正から後を飛ばして finish で終える（Ruling R21。
+  直す物が無いという判定は失敗ではない）
 - judgment.json が無い・読めない・形が崩れている: 標準エラーに理由を 1 行出して 1（受け付けを通らずに輪を抜けたことになる）
 - ARTIFACTS_DIR が欠けた（空も欠け）: 標準エラーに名前を出して 2
 """
@@ -40,7 +42,8 @@ def main() -> int:
             or not isinstance(one_shot, str):
         return _fail(f"盤面の {JUDGMENT_FILE} の形が崩れている（units[].key・label と one_shot が要る）: {path}")
     V = validator_module(types.SimpleNamespace(state={"validator": str(VALIDATOR)}))
-    out = {"ok": True, "open_units": [u["key"] for u in units if V.is_open(u)],
+    open_units = [u["key"] for u in units if V.is_open(u)]
+    out = {"ok": True, "open_units": open_units, "need_fix": bool(open_units),
            "judgment_file": str(path), "one_shot": one_shot}
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(out, ensure_ascii=False), flush=True)

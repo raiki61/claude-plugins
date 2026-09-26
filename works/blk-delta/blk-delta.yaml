@@ -2,7 +2,7 @@ name: blk-delta
 description: |
   修正差分の審査のブロック。周の頭で固めた版からの差分を切って盤面に置き、審査役（読むだけ）に修正が新しく作った穴
   （写し・塞がない入口・宣言と実装のずれ）を探させ、受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回）。
-  ラインから include で使う。出口は受け付けた穴の数。
+  ラインから include で使う。出口は受け付けた穴の数と、審査の返答（delta-review.json）・修正の差分（fix.diff）のパス。
 
 inputs:
   base_rev:
@@ -43,8 +43,9 @@ nodes:
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # 指示書（commands/delta-review.md）は $cut.output.* と $LOOP_PREV.review-accept.output.reason を直に読む。
-          # include が指示書の本文の節の名を付け替える（Ruling R16）。宣言していない $INPUTS.<名> は読み込みで拒まれる
+          # 指示書（commands/delta-review.md）は $cut.output.* と $LOOP_PREV.review-accept.output.reason を直に読む（Ruling R16）。
+          # include は $cut を reviewing__cut に付け替えるが、輪の中の節の id（review-accept）は付け替えない——輪の中で解ける。
+          # 宣言していない $INPUTS.<名> は読み込みで拒まれる
           # role_schema("p3.delta_review") を 1 度出して貼った物（tests/test_blk_tests_delta.py が一致を見る）
           output_format:
             type: object
@@ -100,7 +101,9 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, faces]
+      required: [ok, faces, review_file, diff_file]
       properties:
         ok: {type: boolean}
         faces: {type: integer, minimum: 0}
+        review_file: {type: string}
+        diff_file: {type: string}

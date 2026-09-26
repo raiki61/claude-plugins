@@ -1,7 +1,7 @@
 name: blk-fix
 description: |
   修正のブロック（support workflow。ラインから include で使う）。
-  判定のブロックが受け付けた根本の単位を修正役に直させ（fix）、返答を写した規則で受け付け（accept。
+  判定のブロックが受け付けた根本の単位を修正役に直させ（fix）、返答を写した規則で受け付け（fix-accept。
   拒めば理由を貼って同じ会話で出し直し、上限 3 回）、申告したファイルが実際に変わったかを確かめ（assert-changed。
   何も変えずに済んだと言えば run が落ちる）、出口に集める（collect）。
 
@@ -31,8 +31,8 @@ nodes:
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # 前の周の拒否の理由は、指示書（commands/fix.md）が $LOOP_PREV.fix-accept.output.reason で直に読む。
-          # include が指示書の本文の節の名を付け替える（Ruling R16）。宣言していない $INPUTS.<名> は読み込みで拒まれる
+          # 前の周の拒否の理由は、指示書（commands/fix.md）が $LOOP_PREV.fix-accept.output.reason で直に読む（Ruling R16）。
+          # include は輪の中の節の id（fix-accept）を付け替えない——輪の中で解ける。宣言していない $INPUTS.<名> は読み込みで拒まれる
           output_format:
             type: object
             additionalProperties: false

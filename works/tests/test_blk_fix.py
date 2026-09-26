@@ -221,6 +221,18 @@ class TestAssertChanged(ScriptCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out)["files"], ["stats.py"])
 
+    def test_japanese_names_pass(self):
+        # 日本語の名前も git の引用（"\346\227\245..."）でなく、そのままの名前で申告と突き合わせる
+        (self.repo / "日本.py").write_text("x = 1\n", encoding="utf-8")
+        git(self.repo, "add", "日本.py")
+        git(self.repo, "commit", "-q", "-m", "日本")
+        base = git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "日本.py").write_text("x = 2\n", encoding="utf-8")        # 追跡している側（diff --name-only）
+        (self.repo / "未追跡.py").write_text("y = 1\n", encoding="utf-8")      # 未追跡の側（ls-files）
+        code, out, err = self.run_it(base, declared=["日本.py", "未追跡.py"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["files"], sorted(["日本.py", "未追跡.py"]))
+
     def test_archon_dir_does_not_count(self):
         (self.repo / ".archon").mkdir()
         (self.repo / ".archon" / "x.yaml").write_text("a: 1\n")
