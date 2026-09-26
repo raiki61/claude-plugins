@@ -15,7 +15,9 @@ from .schema import validate_schema
 HIST_FILE = "hist.json"
 # 値が無い（その周にはまだ作れない。例: 1 周目の前の周の値）。穴は ABSENT で、条件の default で受ける
 HIST_ABSENT = object()
-LOOKUP_HEADS = ("loop", "record", "inputs")   # hist の関数が宣言して読める盤面の頭（graphcheck も同じ表を引く）
+# hist の関数が宣言して読める盤面の頭（graphcheck も同じ表を引く）。書き換えられる run の状態（loop）は入れない——入れると
+# 過去の周の値が後の書き換えで変わり、履歴から作り直せない
+LOOKUP_HEADS = ("record", "inputs")
 
 
 def _rd_of(board, n):
@@ -24,7 +26,7 @@ def _rd_of(board, n):
 
 def hist_reads(*paths):
     """hist の関数が読む物の宣言（rules が HIST の関数に付ける）: rounds（閉じた周の記録）・rd（周の rd）・out.<節>（周ごとの出力）・
-    loop.<鍵>・record.<欄>・inputs.<欄>・hist.<名>（ほかの hist の値）。宣言の外を読むと History がその場で落とす"""
+    record.<欄>・inputs.<欄>・hist.<名>（ほかの hist の値）。宣言の外を読むと History がその場で落とす"""
     def deco(fn):
         fn.hist_reads = tuple(paths)
         return fn
@@ -81,13 +83,13 @@ class History:
         return None
 
     def __call__(self, path, default=None):
-        """宣言した loop.<鍵>・record.<欄>・inputs.<欄> の値の写し（無ければ default）"""
+        """宣言した record.<欄>・inputs.<欄> の値の写し（無ければ default）"""
         if path.split(".", 1)[0] not in LOOKUP_HEADS:
             die(f"hist '{self.__name}' が読めない頭 '{path}'（読めるのは {'/'.join(LOOKUP_HEADS)}）")
         self.__need(path)
         b = self.__b
         try:
-            return copy.deepcopy(get_path({"loop": b.loop_state, "record": b.record, "inputs": b.state["inputs"]}, path))
+            return copy.deepcopy(get_path({"record": b.record, "inputs": b.state["inputs"]}, path))
         except KeyError:
             return default
 
@@ -145,8 +147,6 @@ def repair_routes(fn):
             routes.append(f"節 {rest} の最新の出力は loop.py patch --path out.{rest}.<欄>（前の周の出力には届かない）")
         elif head == "record":
             routes.append(f"今の周の記録は loop.py patch --path {rest}")
-        elif head == "loop":
-            routes.append(f"盤面の run の状態は loop.py patch --path state.loop.{rest}")
         elif head == "hist":
             routes.append(f"元の値 hist.{rest} の元を直す")
         elif r == "rounds":

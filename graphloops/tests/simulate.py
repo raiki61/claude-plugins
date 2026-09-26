@@ -4262,7 +4262,7 @@ def test_set_path():
 def test_carried_r1_only_previous_round():
     """`前の周の R1` は `最後に走った R1` ではない。走らなかった周を挟んだら要求しない。
 
-    outputs は節ごとに最新の 1 件しか持たず、R1 は再発火条件付き（cond: loop.r1_refire）なので、
+    outputs は節ごとに最新の 1 件しか持たず、R1 は再発火条件付き（cond: r1_refire）なので、
     走らなかった周を挟むと数周前の出力が返る——処理済みの削除候補が次の周にも同じ顔で要求され、
     judge には直す術が無い（実測 2026-09-16: judge がこの形を名指しした）。
     """

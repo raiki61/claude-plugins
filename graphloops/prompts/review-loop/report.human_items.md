@@ -3,7 +3,7 @@
 問いの台帳: {{record.questions | pick key,kind,status,reason,resolution,options,depends,origin}}
 根本ユニット: {{record.units | pick key,label,disposition}}
 記録の process（**置き場と 1 行要約**。要る所だけ Read で読め）: {{ref:record.process}}
-盤面: 周 {{round}}／{{loop | pick outcome,stop_reason,escalated,open_units,purpose_known,purpose_unusable}}
+盤面: 周 {{round}}／{{loop | pick outcome,stop_reason,escalated}}／最後に独立の目の入口まで進んだ周の数え（阻害の件数・目的の出典が使えるか）: {{?out.p4.assemble | pick open_units,purpose_known,purpose_unusable}}
 止めた所と理由（無ければ空）: {{?record.process.halted}}
 最後の周の検証器の出力（履歴）: {{?out.p4.record.out}}
 言語: {{inputs.lang}}

@@ -47,38 +47,8 @@
  "state_schema": {
   "type": "object",
   "additionalProperties": false,
-  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）",
+  "description": "盤面の loop（rules が b.loop_state に書く run 全体の状態）の形の正本。ブロックの出口の値は節の出力（schema 付き）に置き、ここには置かない——外の鍵を持つ旧い盤面は、保存の時の照らしが警告を盤面（state.loop_drift）と trace に残して通す",
   "properties": {
-   "diff_file": {
-    "type": "string",
-    "description": "振り分けの候補: A 素材集めの出口（p4.assemble の後は修正後の差分）"
-   },
-   "changed_files": {
-    "type": "array",
-    "items": {
-     "type": "string"
-    },
-    "description": "振り分けの候補: A 素材集めの出口"
-   },
-   "changed_files_file": {
-    "type": "string",
-    "description": "振り分けの候補: A 素材集めの出口"
-   },
-   "diff_lines": {
-    "type": "integer",
-    "description": "振り分けの候補: A 独立の目の入口の出口"
-   },
-   "reviewed_revision": {
-    "type": "string",
-    "description": "振り分けの候補: A 素材集めの出口（周に固めた版の正本。役へ渡す読む版もこれ）"
-   },
-   "prev_fix_files": {
-    "type": "array",
-    "items": {
-     "type": "string"
-    },
-    "description": "振り分けの候補: A 周の締めの出口（前の周の P3 が触ったファイル）"
-   },
    "request_fixed_at": {
     "type": "integer",
     "description": "振り分けの候補: B run 全体の状態（入口の周が終わった周）"
@@ -109,90 +79,6 @@
      }
     },
     "description": "振り分けの候補: B run 全体の状態（一方向の旗。下げるのは人の手当てだけ）"
-   },
-   "engine_zero": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "keys": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     }
-    },
-    "description": "振り分けの候補: A 判定の出口"
-   },
-   "rejudge_requested": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "text": {
-      "type": "string"
-     }
-    },
-    "description": "振り分けの候補: A 修正の出口"
-   },
-   "wrote_refs_reads": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "items": {
-      "type": "array",
-      "items": {
-       "type": "object"
-      }
-     }
-    },
-    "description": "振り分けの候補: A 修正の出口"
-   },
-   "coverage_after": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "items": {
-      "type": "array",
-      "items": {
-       "type": "object"
-      }
-     }
-    },
-    "description": "振り分けの候補: A 修正の出口"
-   },
-   "fix_delta": {
-    "$ref": "#/$defs/fix_delta_state",
-    "description": "振り分けの候補: A 修正差分の審査の出口（1 回目）"
-   },
-   "fix_delta2": {
-    "$ref": "#/$defs/fix_delta_state",
-    "description": "振り分けの候補: A 修正差分の審査の出口（2 回目）"
-   },
-   "open_units": {
-    "type": "integer",
-    "description": "振り分けの候補: A 独立の目の入口の出口"
-   },
-   "r1_refire": {
-    "type": "boolean",
-    "description": "振り分けの候補: A 独立の目の入口の出口"
-   },
-   "purpose_known": {
-    "type": "boolean",
-    "description": "振り分けの候補: A 独立の目の入口の出口"
-   },
-   "purpose_unusable": {
-    "type": [
-     "string",
-     "null"
-    ],
-    "description": "振り分けの候補: A 独立の目の入口の出口"
    },
    "outcome": {
     "type": "string",
@@ -241,7 +127,7 @@
         "items": {
          "type": "object"
         },
-        "description": "渡した行（hist.prev_declared_faces が読む）"
+        "description": "旧い版の rules が線の台帳に残した渡した行（今の rules は書かない。判定へ渡した行の正本は p1.worktree_before の出力の lane_rows）"
        }
       }
      }
@@ -269,21 +155,6 @@
     },
     "description": "振り分けの候補: B 線の台帳の読めない行を判定へ渡した印（{rev, round, row}。版だけの文字列は渡した周を持たない旧い印）"
    },
-   "lane_merge": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "merged": {
-      "type": "array"
-     },
-     "conflicts": {
-      "type": "array"
-     }
-    },
-    "description": "振り分けの候補: A 検算の出口"
-   },
    "mutation_decl": {
     "type": "object",
     "properties": {
@@ -302,13 +173,6 @@
      "null"
     ],
     "description": "振り分けの候補: B 人の答えから来る"
-   },
-   "request_wheres": {
-    "type": "array",
-    "items": {
-     "type": "string"
-    },
-    "description": "振り分けの候補: A 判定から入る周の P0 の範囲の読み口（依頼の where）。init の入力にしないのは、add で依頼が積まれるたびに引き直すため"
    },
    "policy_change": {
     "type": "object",
@@ -412,7 +276,7 @@
       "type": "string"
      }
     },
-    "description": "前の周の異議（loop.rejudge_requested の round が前の周で、擦り合わせで決着していない物）"
+    "description": "前の周の異議（前の周の p3.fix の出力の rejudge_requested で、その周の擦り合わせで決着していない物）"
    },
    "block_counts": {
     "type": "array",
@@ -637,6 +501,21 @@
      }
     },
     "description": "今の周に受け付けた擦り合わせ（p2.rejudge・p2.rejudge_third）の数"
+   },
+   "snapshot": {
+    "$ref": "#/$defs/snapshot",
+    "description": "この周に効いている周の頭の審査対象（撮り直した回の p1.worktree_after の snapshot、無ければ p1.worktree_before の snapshot）"
+   },
+   "after_fix": {
+    "$ref": "#/$defs/snapshot",
+    "description": "この周の修正の後に撮り直した審査対象（p4.assemble の after_fix）"
+   },
+   "request_wheres": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "判定から入る run の周に、この周の判定に届く依頼の where（入口でない周は []）"
    }
   }
  },
@@ -1359,27 +1238,6 @@
    },
    "description": "素材 1 つの形（検証器の素材の欄と同じ: status・count・detail・checked・reason・from_round）"
   },
-  "fix_delta_state": {
-   "type": "object",
-   "properties": {
-    "round": {
-     "type": "integer"
-    },
-    "file": {
-     "type": "string"
-    },
-    "files": {
-     "type": "array",
-     "items": {
-      "type": "string"
-     }
-    },
-    "rev": {
-     "type": "string"
-    }
-   },
-   "description": "修正差分の往復 1 回ぶん（周・差分の写し・変わったファイル・固めた版）"
-  },
   "worktree_baseline": {
    "type": "object",
    "additionalProperties": false,
@@ -1440,14 +1298,29 @@
     "problems": {
      "$ref": "engine#/driver_problems"
     },
-    "fix_delta_file": {
-     "type": "string"
-    },
-    "changed_files": {
-     "type": "array",
-     "items": {
-      "type": "string"
-     }
+    "delta": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "file",
+      "files",
+      "rev"
+     ],
+     "properties": {
+      "file": {
+       "type": "string"
+      },
+      "files": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "rev": {
+       "type": "string"
+      }
+     },
+     "description": "この回の修正差分（修正差分の審査のブロックの出口）: 写しの置き場・触ったファイル・修正後に固めた版"
     }
    }
   },
@@ -1466,6 +1339,69 @@
     },
     "ask": {
      "$ref": "engine#/driver_ask"
+    }
+   }
+  },
+  "snapshot": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "rev",
+    "diff_file",
+    "changed_files",
+    "changed_files_file",
+    "stat"
+   ],
+   "properties": {
+    "rev": {
+     "type": "string",
+     "description": "固めた版（役に渡す読む版）"
+    },
+    "diff_file": {
+     "type": "string",
+     "description": "BASE → 版の差分の写し"
+    },
+    "changed_files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "changed_files_file": {
+     "type": "string",
+     "description": "変更ファイルの一覧の写し（1 行 1 ファイル）"
+    },
+    "stat": {
+     "type": "string"
+    },
+    "diff_lines": {
+     "type": "integer",
+     "description": "差分の行数（追加＋削除）"
+    },
+    "entry": {
+     "type": "boolean",
+     "description": "判定から入る run の周か（周の頭で測る。hist.request_wheres が読む）"
+    },
+    "from_old_output": {
+     "type": "boolean",
+     "description": "旧い版の rules が書いた出力から hist が読み替えた値の印"
+    }
+   }
+  },
+  "declared_face": {
+   "type": "object",
+   "properties": {
+    "key": {
+     "type": "string"
+    },
+    "from": {
+     "type": "string"
+    },
+    "how": {
+     "type": "string"
+    },
+    "unverified": {
+     "type": "boolean"
     }
    }
   }
@@ -1850,7 +1786,7 @@
    "prompt_file": "../prompts/review-loop/p0.purpose_review.md",
    "reads": [
     "out.p0.purpose.purpose_text",
-    "loop.reviewed_revision",
+    "hist.snapshot.rev",
     "inputs.cwd"
    ],
    "schema": {
@@ -1930,8 +1866,8 @@
    "reads": [
     "inputs.cwd",
     "record.base",
-    "loop.changed_files_file",
-    "loop.request_wheres"
+    "hist.snapshot.changed_files_file",
+    "hist.request_wheres"
    ],
    "schema": {
     "type": "object",
@@ -2074,8 +2010,8 @@
    "reads": [
     "inputs.cwd",
     "record.base",
-    "loop.changed_files",
-    "loop.request_wheres"
+    "hist.snapshot.changed_files",
+    "hist.request_wheres"
    ],
    "schema": {
     "type": "object",
@@ -2205,8 +2141,7 @@
    "source": "P1 ＞ 局所（前後の作業ツリー突合）",
    "does": "この周に採点する版を固め、対象差分（BASE → 版）と前後の突合の基準（git status --porcelain・stash list・版の木の id）を機械が取る。回す側に貼らせない",
    "outputs": [
-    "loop.diff_file",
-    "loop.changed_files"
+    "out.p1.worktree_before（snapshot・changed_since_prev_round・lane_rows・tree_before）"
    ],
    "builtin": "worktree_snapshot",
    "reads": [],
@@ -2220,21 +2155,27 @@
      "problems": {
       "$ref": "engine#/driver_problems"
      },
-     "diff_file": {
-      "type": "string"
-     },
-     "changed_files": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     },
-     "stat": {
-      "type": "string"
+     "snapshot": {
+      "$ref": "#/$defs/snapshot",
+      "description": "周の頭に固めた審査対象（素材集めのブロックの出口。hist.snapshot が読む）"
      },
      "tree_before": {
       "$ref": "#/$defs/worktree_baseline",
       "description": "P1 の前後の突合の基準（git status・stash の一覧・固めた版の木の id）"
+     },
+     "changed_since_prev_round": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "前の周の P3 が触ったファイル（前の周の頭の版からこの周の頭の版の差。測れなければ前の周の p3.fix の申告。1 周目は []）"
+     },
+     "lane_rows": {
+      "type": "array",
+      "items": {
+       "$ref": "#/$defs/declared_face"
+      },
+      "description": "この周の頭に並行の線から判定へ渡した行（渡した時点で組み、書き換えない。hist.prev_declared_faces が読む）"
      }
     }
    }
@@ -2297,8 +2238,8 @@
    "prompt_file": "../prompts/review-loop/p1.local_review.md",
    "post_check": "local_review_covers_lenses",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files_file",
+    "hist.snapshot.diff_file",
+    "hist.snapshot.changed_files_file",
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
@@ -2454,12 +2395,12 @@
    ],
    "prompt_file": "../prompts/review-loop/p1.consistency_bypass.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files",
+    "hist.snapshot.diff_file",
+    "hist.snapshot.changed_files",
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
-    "loop.reviewed_revision",
+    "hist.snapshot.rev",
     "inputs.cwd"
    ],
    "schema": {
@@ -2666,7 +2607,7 @@
    ],
    "prompt_file": "../prompts/review-loop/p1.hygiene.md",
    "reads": [
-    "file:loop.diff_file",
+    "file:hist.snapshot.diff_file",
     "section:inputs.review_md#コード衛生観点"
    ],
    "schema": {
@@ -2755,8 +2696,8 @@
    ],
    "prompt_file": "../prompts/review-loop/p1.external_standards.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files",
+    "hist.snapshot.diff_file",
+    "hist.snapshot.changed_files",
     "inputs.review_md",
     "out.p0.purpose.purpose_text",
     "out.p0.purpose.known_weaknesses",
@@ -2947,8 +2888,8 @@
    ],
    "prompt_file": "../prompts/review-loop/p1.procedure_trace.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files",
+    "hist.snapshot.diff_file",
+    "hist.snapshot.changed_files",
     "inputs.review_md",
     "inputs.cwd"
    ],
@@ -3070,8 +3011,8 @@
    ],
    "prompt_file": "../prompts/review-loop/p1.gate_efficacy.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files_file",
+    "hist.snapshot.diff_file",
+    "hist.snapshot.changed_files_file",
     "record.base",
     "inputs.cwd",
     "loop.mutation_decl.text"
@@ -3120,8 +3061,8 @@
    ],
    "prompt_file": "../prompts/review-loop/p1.test_double_fidelity.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files_file",
+    "hist.snapshot.diff_file",
+    "hist.snapshot.changed_files_file",
     "inputs.cwd"
    ],
    "schema": {
@@ -3233,8 +3174,8 @@
    ],
    "prompt_file": "../prompts/review-loop/p1.main_path_observation.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files_file",
+    "hist.snapshot.diff_file",
+    "hist.snapshot.changed_files_file",
     "inputs.cwd"
    ],
    "schema": {
@@ -3338,7 +3279,7 @@
    ],
    "prompt_file": "../prompts/review-loop/p1.provenance.md",
    "reads": [
-    "loop.diff_file",
+    "hist.snapshot.diff_file",
     "record.base",
     "inputs.cwd"
    ],
@@ -3476,6 +3417,10 @@
      "tree_before": {
       "$ref": "#/$defs/worktree_baseline",
       "description": "この回の後に効いている突合の基準（作業ツリーの変化を受理して取り直した回は新しい基準）"
+     },
+     "snapshot": {
+      "$ref": "#/$defs/snapshot",
+      "description": "この回の後に効いている周の頭の審査対象（作業ツリーの変化を受理して撮り直した回は新しい版）"
      }
     }
    }
@@ -3523,12 +3468,12 @@
     "out.p0.purpose.purpose_text",
     "record.process.purpose_review",
     "record.process.constraints",
-    "loop.diff_file",
-    "loop.changed_files",
+    "hist.snapshot.diff_file",
+    "hist.snapshot.changed_files",
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
-    "loop.reviewed_revision",
+    "hist.snapshot.rev",
     "inputs.cwd",
     "hist.defer_ledger",
     "loop.escalated",
@@ -3536,8 +3481,8 @@
     "prev.r3.coherence",
     "prev.r4.hidden_scope",
     "validator",
-    "loop.wrote_refs_reads",
-    "loop.coverage_after",
+    "prev.p3.fix.wrote_refs_reads",
+    "prev.p3.fix.coverage_after",
     "record.process.policy.path"
    ],
    "pointers": [
@@ -3730,6 +3675,13 @@
      },
      "precedents": {
       "$ref": "#/$defs/precedents"
+     },
+     "engine_zero": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "engine が 0 件と数えた単位の key（受け付けの時に engine が書く——役は書かない。書いても上書きする）"
      }
     }
    },
@@ -3825,8 +3777,8 @@
     "record.questions",
     "hist.prev_rejudge",
     "hist.prev_one_shot",
-    "loop.wrote_refs_reads",
-    "loop.coverage_after",
+    "prev.p3.fix.wrote_refs_reads",
+    "prev.p3.fix.coverage_after",
     "hist.prev_declared_faces",
     "record.process.policy.path"
    ],
@@ -4024,6 +3976,13 @@
        }
       },
       "note": "前の周に直さずに残すと宣言された穴（hist.prev_declared_faces）1 件ごとに振り分ける。to_unit＝今の周の直す単位に上げた（unit_key にその単位の key）／accept＝残すことを認めた（理由）"
+     },
+     "engine_zero": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "engine が 0 件と数えた単位の key（受け付けの時に engine が書く——役は書かない。書いても上書きする）"
      }
     }
    },
@@ -4110,7 +4069,7 @@
     "record.process.diagnosis",
     "record.process.precedents",
     "inputs.cwd",
-    "loop.reviewed_revision",
+    "hist.snapshot.rev",
     "record.questions",
     "record.process.policy.path",
     "record.base",
@@ -4267,7 +4226,7 @@
     "record.process.diagnosis",
     "record.process.precedents",
     "inputs.cwd",
-    "loop.reviewed_revision",
+    "hist.snapshot.rev",
     "inputs.review_md",
     "record.process.policy.path",
     "record.base"
@@ -4430,9 +4389,9 @@
     "p2.plan_review"
    ],
    "source": "P3 ＞ 並行の線が足したテストの合流",
-   "does": "書き終えた線のうち未合流の物の patch を作業ツリーに重ねる（git apply。index は触らない）。重ねたテストはこの周の修正差分に載り、差分レビューの目に入る。当たらない patch は重ねずに loop.lane_merge.conflicts で修正に見せ、次の周の判定にも渡す",
+   "does": "書き終えた線のうち未合流の物の patch を作業ツリーに重ねる（git apply。index は触らない）。重ねたテストはこの周の修正差分に載り、差分レビューの目に入る。当たらない patch は重ねずに この節の出力の conflict_rows で修正に見せ、次の周の判定にも渡す",
    "outputs": [
-    "loop.lane_merge"
+    "out.p3.lane_merge（merged・conflicts・merged_rows・conflict_rows）"
    ],
    "reads": [],
    "schema": {
@@ -4450,6 +4409,42 @@
      },
      "conflicts": {
       "type": "integer"
+     },
+     "merged_rows": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "rev": {
+         "type": "string"
+        },
+        "round": {
+         "type": "integer"
+        },
+        "patch": {
+         "type": "string"
+        }
+       }
+      },
+      "description": "作業ツリーに重ねた線の patch"
+     },
+     "conflict_rows": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "rev": {
+         "type": "string"
+        },
+        "round": {
+         "type": "integer"
+        },
+        "patch": {
+         "type": "string"
+        }
+       }
+      },
+      "description": "当たらずに重ねなかった線の patch（p3.fix が読む）"
      }
     }
    }
@@ -4480,7 +4475,7 @@
     "prev.r1.minimality",
     "prev.r4.hidden_scope",
     "out.p2.plan_review",
-    "loop.lane_merge",
+    "cur.p3.lane_merge",
     "record.process.policy.path",
     "record.process.human_items"
    ],
@@ -4880,6 +4875,36 @@
        }
       },
       "note": "その場で足す規模の数値（x_ で始まる名前 → 数。OpenAPI の Specification Extensions の x- と同じ形）。固定の 4 つ（added_lines・comment_lines・comment_ratio_pct・doc_lines）は engine が数える（p4.scalars）——ここに書くのは x_ だけ。周をまたいで同じ名前を使え"
+     },
+     "wrote_refs_reads": {
+      "type": "object",
+      "properties": {
+       "round": {
+        "type": "integer"
+       },
+       "items": {
+        "type": "array",
+        "items": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "修正が書いた指しの指し先の読了の記録（受け付けの時に engine が書く——役は書かない）。次の周の判定が prev.p3.fix で読む"
+     },
+     "coverage_after": {
+      "type": "object",
+      "properties": {
+       "round": {
+        "type": "integer"
+       },
+       "items": {
+        "type": "array",
+        "items": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "覆いの母数の修正後の数え直し（受け付けの時に engine が書く——役は書かない）。次の周の判定が prev.p3.fix で読む"
      }
     }
    },
@@ -4912,7 +4937,7 @@
    "materials": [
     "fix_closure"
    ],
-   "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes と loop.rejudge_requested に残り、擦り合わせで決着しなければ次の周の p2.history が hist.prev_rejudge で再審する。この周は判定どおり直す（post_check fix_covers_open_units）",
+   "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes とこの節の出力に残り（手当ては loop.py patch --path out.p3.fix.rejudge_requested）、擦り合わせで決着しなければ次の周の p2.history が hist.prev_rejudge で再審する。この周は判定どおり直す（post_check fix_covers_open_units）",
    "na_self_ok": "その周に修正が 0 件なら閉鎖の実証は対象が無い（fix_covers_open_units が changes 非空との食い違いを別に拒む）",
    "prompt_append": [
     "../prompts/policy-path.md",
@@ -4929,7 +4954,7 @@
    "source": "P3 ＞ 修正差分の切り出し",
    "does": "周の頭に固めた版から修正後の姿（採点する版と同じ手続きで固める）までの差分——この周の修正だけ——を写しに落とす",
    "outputs": [
-    "loop.fix_delta"
+    "out.p3.fix_delta.delta"
    ],
    "reads": [],
    "schema": {
@@ -4956,8 +4981,8 @@
    "note": "修正が作った穴を次の周まで持ち越さない。見る観点を 3 つに絞り、読み取りだけの安い役（inspector）で回す",
    "prompt_file": "../prompts/review-loop/p3.delta_review.md",
    "reads": [
-    "loop.fix_delta.file",
-    "loop.fix_delta.files",
+    "cur.p3.fix_delta.delta.file",
+    "cur.p3.fix_delta.delta.files",
     "inputs.cwd",
     "out.p2.plan_review",
     "out.p3.fix.plan_faces",
@@ -5037,7 +5062,7 @@
    "prompt_file": "../prompts/review-loop/p3.delta_fix.md",
    "reads": [
     "cur.p3.delta_owed",
-    "loop.fix_delta.file",
+    "cur.p3.fix_delta.delta.file",
     "inputs.cwd",
     "record.process.policy.path"
    ],
@@ -5076,7 +5101,7 @@
    "source": "P3 ＞ 手直しの差分の切り出し",
    "does": "1 回目に固めた修正後の姿から手直し後の姿（同じ手続きで固める）までの差分——手直しだけ——を写しに落とす",
    "outputs": [
-    "loop.fix_delta2"
+    "out.p3.fix_delta2.delta"
    ],
    "reads": [],
    "schema": {
@@ -5103,8 +5128,8 @@
    "note": "手直しの穴を次の周まで持ち越さないための 2 回目。ここで挙がった穴への手直し（p3.delta_fix2）はもう見ない——次の周の判定者へ渡す",
    "prompt_file": "../prompts/review-loop/p3.delta_review2.md",
    "reads": [
-    "loop.fix_delta2.file",
-    "loop.fix_delta2.files",
+    "cur.p3.fix_delta2.delta.file",
+    "cur.p3.fix_delta2.delta.files",
     "inputs.cwd",
     "out.p3.delta_fix.handled",
     "record.process.policy.path"
@@ -5183,7 +5208,7 @@
    "prompt_file": "../prompts/review-loop/p3.delta_fix2.md",
    "reads": [
     "cur.p3.delta_owed2",
-    "loop.fix_delta2.file",
+    "cur.p3.fix_delta2.delta.file",
     "inputs.cwd",
     "record.process.policy.path"
    ],
@@ -5276,7 +5301,7 @@
    "outputs": [
     "lanes/r<周>-<版>.json（線の結果。任せ先の返答を engine が置く）"
    ],
-   "note": "回す側は受領（置き場）を返して done し、その後で engine に任せ先を背景で起こさせる（loop.py launch --node）。足したテストの patch は任せ先の写しの側に在り、結果の patch の欄が名指す。線の結果は、書き終えた後の周の頭（線の台帳に渡した行を残し hist.prev_declared_faces へ——needs_test・defect・使えない結果。defect は依頼の入口 record.process.request_findings にも）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
+   "note": "回す側は受領（置き場）を返して done し、その後で engine に任せ先を背景で起こさせる（loop.py launch --node）。足したテストの patch は任せ先の写しの側に在り、結果の patch の欄が名指す。線の結果は、書き終えた後の周の頭（周の頭の節 p1.worktree_before が渡した行を出力の lane_rows に置き hist.prev_declared_faces へ——needs_test・defect・使えない結果。defect は依頼の入口 record.process.request_findings にも）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
    "delegate": {
     "model": "sonnet",
     "background": true,
@@ -5421,7 +5446,8 @@
    "reads": [
     "inputs.scripts_dir",
     "record.base",
-    "cur.p3.gates_cut"
+    "cur.p3.gates_cut",
+    "cur.p3.fix.x_scalars"
    ],
    "schema": {
     "type": "object",
@@ -5446,8 +5472,11 @@
    "run_by": "driver",
    "builtin": "assemble",
    "deps": [
-    "p4.ci",
-    "p4.scalars",
+    "p3.fix",
+    "p2.rejudge",
+    "p2.rejudge_third",
+    "p3.delta_fix",
+    "p3.delta_fix2",
     "p2.history",
     "spec.check"
    ],
@@ -5455,16 +5484,14 @@
    "source": "P4 ＞ R1 / R2 の再発火条件／判定後の分岐",
    "does": "開いたユニットの数・R1/R2 の再発火（機構の追加・置換／前提のドリフト／行数 1.5 倍／台帳の変化）・目的の出典の有無を機械が数える",
    "outputs": [
-    "loop.open_units",
-    "loop.r1_refire",
-    "out.p4.assemble（r2_refire・lines_ratio・ledger_changed・retaken）"
+    "out.p4.assemble（after_fix・open_units・r1_refire・r2_refire・lines_ratio・ledger_changed・purpose_known・purpose_unusable・diff_lines・retaken）"
    ],
    "reads": [
     "record.units",
-    "loop.diff_lines",
     "out.p3.fix",
     "out.p0.purpose.source",
-    "record.process.purpose_review.verdict"
+    "record.process.purpose_review.verdict",
+    "hist.lines_at_r1"
    ],
    "schema": {
     "type": "object",
@@ -5508,11 +5535,22 @@
       "required": [
        "file"
       ],
-      "description": "R1〜R4 に渡すために取り直した写し（修正後の差分）"
+      "description": "R1〜R4 に渡すために取り直した写しの痕跡（after_fix.diff_file と同じ置き場）"
      },
      "diff_lines": {
       "type": "integer",
       "description": "P3 の後の対象差分の行数（hist.diff_lines_by_round・hist.lines_at_r1 が読む）"
+     },
+     "after_fix": {
+      "$ref": "#/$defs/snapshot",
+      "description": "修正の後に撮り直した審査対象（独立の目の入口の出口。周の頭の snapshot と別の欄。hist.after_fix が読む）"
+     },
+     "purpose_unusable": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "目的の出典が R2 に使えない理由（目的不明・狭めている。使えるなら null）"
      }
     }
    }
@@ -5540,11 +5578,11 @@
    ],
    "prompt_file": "../prompts/review-loop/r1.comment_candidates.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files",
+    "hist.after_fix.diff_file",
+    "hist.after_fix.changed_files",
     "record.base",
     "inputs.review_md",
-    "loop.reviewed_revision",
+    "hist.after_fix.rev",
     "inputs.cwd"
    ],
    "schema": {
@@ -5622,7 +5660,8 @@
    "deps": [
     "r1.comment_candidates",
     "p4.assemble",
-    "p0.purpose"
+    "p0.purpose",
+    "p4.scalars"
    ],
    "source": "P-R ＞ R1 冗長と最小性（台帳の監査を含む）",
    "inputs": [
@@ -5649,7 +5688,7 @@
    "reads": [
     "out.r1.comment_candidates",
     "out.p0.purpose.purpose_text",
-    "loop.diff_file",
+    "hist.after_fix.diff_file",
     "record.base",
     "record.units",
     "record.questions",
@@ -5657,7 +5696,7 @@
     "hist.prev_scalars",
     "cur.p4.assemble.lines_ratio",
     "inputs.review_md",
-    "loop.reviewed_revision",
+    "hist.after_fix.rev",
     "inputs.cwd",
     "record.process.fixes",
     "record.process.policy.path"
@@ -5853,7 +5892,7 @@
    "prompt_file": "../prompts/review-loop/r2.compare.md",
    "reads": [
     "out.r2.design.design",
-    "file:loop.diff_file",
+    "file:hist.after_fix.diff_file",
     "out.p0.purpose.purpose_text"
    ],
    "schema": {
@@ -5933,12 +5972,12 @@
    "note": "走るのは『阻害要因ゼロの周』と『前の周に修正が在った周』。以前は前者だけで、**修正の結果を一度も見られなかった**。引き金に前の周の修正（prev_fix_touched＝engine が diff の差から測る）を使うのは、この節が受け取る差分（P1 が写した diff-r<N>.patch）にその修正が写っているから——同じ周の修正は写っていないので引き金にしない",
    "prompt_file": "../prompts/review-loop/r3.coherence.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files",
+    "hist.after_fix.diff_file",
+    "hist.after_fix.changed_files",
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
-    "loop.reviewed_revision",
+    "hist.after_fix.rev",
     "inputs.cwd",
     "record.process.policy.path"
    ],
@@ -5994,11 +6033,11 @@
    ],
    "prompt_file": "../prompts/review-loop/r4.hidden_scope.md",
    "reads": [
-    "loop.diff_file",
-    "loop.changed_files",
+    "hist.after_fix.diff_file",
+    "hist.after_fix.changed_files",
     "record.base",
     "inputs.review_md",
-    "loop.reviewed_revision",
+    "hist.after_fix.rev",
     "inputs.cwd",
     "out.p0.purpose.purpose_text",
     "record.process.policy.path",
@@ -6221,7 +6260,9 @@
     "r3.coherence",
     "r4.hidden_scope",
     "stop.premise_check",
-    "r4.human_gate"
+    "r4.human_gate",
+    "p4.ci",
+    "p4.scalars"
    ],
    "source": "P4 ＞ 3. 突合（機械）／P-R ＞ verdict は記録の reviews に写せ",
    "does": "周の記録 rounds/round-<N>.json を組む（走らせなかった R は carried_over／not_applicable を機械が書く）。検証器にディレクトリを渡し、出力（履歴・帰属・聞く時）を次の周の judge と converge に渡す",
@@ -6338,7 +6379,8 @@
     "loop",
     "round",
     "out.p4.record.out",
-    "inputs.lang"
+    "inputs.lang",
+    "out.p4.assemble"
    ],
    "text": true
   },
@@ -6423,7 +6465,8 @@
     "out.report.cold_check",
     "inputs.lang",
     "inputs.flow",
-    "inputs.gates"
+    "inputs.gates",
+    "out.p4.assemble"
    ],
    "text": true,
    "pre": "finalize",
@@ -6534,7 +6577,7 @@
     }
    },
    "reads": [
-    "loop.rejudge_requested",
+    "cur.p3.fix.rejudge_requested",
     "record.units",
     "record.questions",
     "record.process.diagnosis",
@@ -6563,7 +6606,7 @@
    "same_context_as": "p2.diagnose",
    "cond": "rejudge_open",
    "prompt_file": "../prompts/review-loop/p2.rejudge.md",
-   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復の回数は loop_state が数え、done が trace に残す——会話でやると記録に残らない",
+   "note": "同じ judge を続ける（engine が前の会話の番号（session_id）で --resume する。Agent で起こした旧い盤面なら agent_id を渡す）。往復の回数は rules の hist.rejudge_rounds が数え、done が trace に残す——会話でやると記録に残らない",
    "prompt_append": [
     "../prompts/policy-paste.md",
     "../prompts/policy.md"
@@ -6674,7 +6717,7 @@
     }
    },
    "reads": [
-    "loop.rejudge_requested",
+    "cur.p3.fix.rejudge_requested",
     "record.units",
     "record.questions",
     "record.process.rejudge",

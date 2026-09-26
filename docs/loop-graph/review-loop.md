@@ -50,16 +50,17 @@ flowchart TB
   prv2 --> fix[p3.fix writer<br/>予測された穴に答える]
   fix --> fd[p3.fix_delta<br/>機械: この周の修正だけの差分] --> dr[p3.delta_review<br/>inspector: 穴と、塞いだと言う穴の検算] --> df[p3.delta_fix<br/>writer: 穴が在る周だけ]
   df --> fd2[p3.fix_delta2<br/>機械: 手直しだけの差分] --> dr2[p3.delta_review2<br/>inspector: 2 回目] --> df2[p3.delta_fix2<br/>writer: 次の周の判定者が検算]
-  df2 --> ci[p4.ci<br/>宣言が在れば engine が走らせる] & sc[p4.scalars<br/>機械: 規模の数値] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
-  df2 --> sck{spec.check<br/>仕様の道だけ: テストの改変を人に聞く} --> asm
+  df2 --> ci[p4.ci<br/>宣言が在れば engine が走らせる] & sc[p4.scalars<br/>機械: 規模の数値]
+  df2 --> sck{spec.check<br/>仕様の道だけ: テストの改変を人に聞く} --> asm[p4.assemble<br/>独立の目の入口: 修正後の撮り直し after_fix・再発火・目的の可否]
   hist --> asm
   asm --> cc[r1.comment_candidates<br/>comment-analyzer] --> r1[r1.minimality<br/>judge]
+  sc --> r1
   purp --> r1
   purp --> prv[p0.purpose_review<br/>inspector] --> r2d[r2.design<br/>blind-judge] --> r2c[r2.compare<br/>blind-judge]
   asm --> r2d & r2c
   asm --> r3[r3.coherence<br/>inspector] & r4[r4.hidden_scope<br/>inspector]
   r2d & r2c -- premise-invalid の周に --> pc[stop.premise_check<br/>judge]
-  asm & r1 & r2c & r3 & r4 & pc --> rec[p4.record<br/>review-record.py ディレクトリ]
+  asm & ci & sc & r1 & r2c & r3 & r4 & pc --> rec[p4.record<br/>review-record.py ディレクトリ]
   rec --> conv{converge<br/>機械の 3 分岐}
   conv -- 連続2R 阻害なし --> done([converged])
   conv -- 帰属しない阻害あり --> next([次ラウンド P1])
