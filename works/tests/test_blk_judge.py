@@ -24,7 +24,7 @@ REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
 SEED = ROOT / "dev" / "target-seed"
 sys.path.insert(0, str(CORE))
 
-from accept import role_schema  # noqa: E402
+from accept import JUDGE_SNAPSHOT_FILE, check_judge, role_schema, snapshot_tree  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 
 DEADLINE = 1728000000
@@ -186,8 +186,14 @@ class ScriptCase(unittest.TestCase):
 
     def test_intake_missing_env(self):
         r = self.run_script("intake")
-        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(r.returncode, 2)
         self.assertIn("INPUTS_REQUEST", r.stderr)
+
+    def test_intake_stores_judge_snapshot(self):
+        r = self.run_script("intake", INPUTS_REQUEST="request_ok.json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads((self.board / JUDGE_SNAPSHOT_FILE).read_text(encoding="utf-8")),
+                         snapshot_tree(self.repo))
 
     # ---- accept
     def test_accept_good_and_bad_reply(self):
@@ -202,6 +208,39 @@ class ScriptCase(unittest.TestCase):
         got = json.loads(r.stdout)
         self.assertIs(got["ok"], True, got["reason"])
         self.assertTrue((self.board / "judgment.json").exists())
+
+    def test_accept_passes_with_untracked_request_in_repo(self):
+        # Ruling R14: 依頼のファイルが対象の中で未追跡でも、intake の時から作業ツリーが変わっていなければ通す
+        shutil.copy(REPLIES / "request_ok.json", self.repo / "my_request.json")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="my_request.json").returncode, 0)
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="")
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], True, got["reason"])
+
+    def test_accept_rejects_file_added_after_intake(self):
+        shutil.copy(REPLIES / "request_ok.json", self.repo / "my_request.json")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="my_request.json").returncode, 0)
+        (self.repo / "extra.txt").write_text("読むだけの役が書いた\n", encoding="utf-8")
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="")
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], False)
+        self.assertIn("extra.txt", got["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_accept_rejects_untracked_content_changed_after_intake(self):
+        shutil.copy(REPLIES / "request_ok.json", self.repo / "my_request.json")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="my_request.json").returncode, 0)
+        (self.repo / "my_request.json").write_text("[]\n", encoding="utf-8")   # 名前は同じで中身だけ変わる
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
+        self.assertIs(got["ok"], False)
+
+    def test_check_judge_without_snapshot_needs_clean_tree(self):
+        # 写しが無いとき（intake を通らない呼び方）は今までどおり作業ツリーが綺麗であることを求める
+        self.board.mkdir(parents=True)
+        (self.repo / "extra.txt").write_text("x\n", encoding="utf-8")
+        r = check_judge(load("judge_ok"), self.board, "", self.repo)
+        self.assertIs(r["ok"], False)
+        self.assertIn("extra.txt", r["reason"])
 
     # ---- collect
     def test_collect_builds_exit(self):

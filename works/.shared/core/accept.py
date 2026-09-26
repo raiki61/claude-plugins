@@ -45,6 +45,7 @@ JUDGMENT_FILE = "judgment.json"      # 受け付けた判定の返答（judge_ou
 SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "diff_sha256": str}
 DIFF_FILE = "fix.diff"                   # 修正の差分（cut_delta が書き、審査役が読む）
 DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
+JUDGE_SNAPSHOT_FILE = "judge-snapshot.json"   # 判定役を起こす前（依頼の受け付けの時）の作業ツリー。形は SNAPSHOT_FILE と同じ
 GIT_TIMEOUT = 120
 
 # 修正役の返答のうち、受け付けが読む欄だけの型（役の output_format は blk-fix が持つ。ここは読む欄が在るかだけを見る）
@@ -292,8 +293,26 @@ def check_request(items: list, board: pathlib.Path, reason: str) -> dict:
     return _guard(run)
 
 
+def _judge_tree_unchanged(repo, board):
+    """判定役が作業ツリーを変えていないか（Ruling R3・R14）。盤面に judge-snapshot.json（依頼の受け付けの時の写し）が
+    在れば、今の作業ツリーがその写しと同じかを見る（依頼のファイルが対象の中で未追跡・変更中でも通る）。
+    無ければ作業ツリーが綺麗（git status --porcelain が空）であることを求める。違えば Reject"""
+    snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
+    if snap is None:
+        dirty = _git(repo, "status", "--porcelain").splitlines()
+        if dirty:
+            raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
+                         f"（git status --porcelain: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
+        return
+    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {JUDGE_SNAPSHOT_FILE} ")
+    now = snapshot_tree(repo)
+    if now != {k: snap[k] for k in ("porcelain", "diff_sha256")}:
+        raise Reject("依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない"
+                     f"（git status --porcelain: 受け付けた時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}）")
+
+
 def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
-    """判定役の返答を受け付ける。作業ツリーに変更が在れば拒む（Ruling R3。判定役は読むだけ）→ 型（graph の p2.diagnose の
+    """判定役の返答を受け付ける。作業ツリーが変わっていれば拒む（_judge_tree_unchanged。判定役は読むだけ）→ 型（graph の p2.diagnose の
     schema）→ rules の judge_output（記録の process.request_findings に盤面の request.json を入れて渡す）。
     通れば盤面の judgment.json に書く。{"ok", "reason", "open_units", "judgment_file"}"""
     def run():
@@ -301,10 +320,7 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
         pathlib.Path(board).mkdir(parents=True, exist_ok=True)
         with _in_repo(repo_p):
             rev = _rev(repo_p, base_rev)
-            dirty = _git(repo_p, "status", "--porcelain").splitlines()
-            if dirty:
-                raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
-                             f"（git status --porcelain: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
+            _judge_tree_unchanged(repo_p, board)
             _type_errors(reply, role_schema("p2.diagnose"), "判定の返答")
             rules = _rules()
             rec = rules.init_record(None, None)
