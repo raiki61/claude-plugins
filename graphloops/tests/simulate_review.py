@@ -6280,6 +6280,11 @@ def test_policy_reaches_roles():
           "人の方針: 回す側の節（修正）には本文でなく置き場が渡る")
     check(last["status"] == "converged" and not run.record()["process"]["human_items"] and "policy_change" not in run.record()["process"],
           f"人の方針: 文書が変わらず後退も並ばない run は、関所で聞かずに収束し、変化の欄も置かない（{last['status']}）")
+    put_policy(run, POLICY_MARK + "\n最後の関所の後の書き足し（検査用 LATE-EDIT）")
+    run.cmd("finalize")
+    ch = run.record()["process"].get("policy_change") or {}
+    check(ch.get("from") == pol["sha256"] and ch.get("to") and ch["to"] != ch["from"],
+          f"人の方針: 最後の関所の後に文書が変わった run は、仕上げが変化を記録に置く（{ch}）")
     rm(run.tmp)
 
     run = Run("policy-missing", init_args=("--input", "policy_md=no/such/policy.md"))

@@ -85,7 +85,7 @@ def test_change_keeps_copies_and_diff_out_of_row(tmp_path):
     f.write_text("守る 1\n", encoding="utf-8")
     b = board(tmp_path, named="p.md")
     pol = PI.resolve(b, git_at(".git"), Reject)
-    assert PI.change(b, git_at(".git"), pol) is None   # 変わっていなければ None
+    assert PI.change(b, git_at(".git"), pol) is None
     f.write_text("守る 1\n書き足し BODY-X\n", encoding="utf-8")
     ch = PI.change(b, git_at(".git"), pol)
     assert ch["from"] == pol["sha256"] and ch["to"] != ch["from"] and ch["from_copy"] == pol["copy"]
@@ -103,6 +103,22 @@ def test_change_without_pinned_copy_does_not_fake_diff(tmp_path):
     assert ch["diff_file"] is None and "写し" in ch["diff_missing"]
     ch = PI.change(board(tmp_path, named=str(f)), git_at(".git"), {"path": None, "sha256": None, "copy": None})   # init の時点で文書が無い
     assert "+今の版" in pathlib.Path(ch["diff_file"]).read_text(encoding="utf-8")
+
+
+def test_record_change_sets_and_clears(tmp_path):
+    f = tmp_path / "p.md"
+    f.write_text("守る 1\n", encoding="utf-8")
+    b = board(tmp_path, named=str(f))
+    proc = {"policy_change": {"stale": True}}   # policy を持たない proc は、方針の版を記録する前に init した盤面
+    PI.record_change(b, git_at(".git"), proc)
+    assert proc == {}
+    proc = {"policy": PI.resolve(b, git_at(".git"), Reject)}
+    f.write_text("守る 1\n書き足し\n", encoding="utf-8")
+    PI.record_change(b, git_at(".git"), proc)
+    assert proc["policy_change"]["from"] == proc["policy"]["sha256"]
+    f.write_text("守る 1\n", encoding="utf-8")
+    PI.record_change(b, git_at(".git"), proc)
+    assert "policy_change" not in proc
 
 
 

@@ -60,7 +60,6 @@ def on_init(b, args):
     if inputs.get("gates") is not None:
         b.loop_state["gates"] = inputs["gates"]
     mutation_decl(b)
-    # 人の方針の文書: init の時点の版を固定し（sha と写し）、関所（human_gate）と仕上げが変わっていないかを照らす
     b.record["process"]["policy"] = {**policy_input.resolve(b, git, Reject), "amendments": []}
 
 
@@ -3139,7 +3138,6 @@ def delta_review_output(b, nid, out, item):
     errs = _keys_once(faces, "faces")
     for i, f in enumerate(faces):
         if f["kind"] in HUMAN_FACE_KINDS:
-            # 手直しの義務に入ると、人より先に修正役が残すか戻すかを決める
             errs.append(f"faces[{i}] の kind '{f['kind']}' は事前審査だけの語——修正の後の後退・方針とのぶつかりは R4 と関所（r4.human_gate）が人に聞く")
             continue
         if f["kind"] in PLAN_ONLY_FACE_KINDS:
@@ -3744,12 +3742,7 @@ def finalize(b):
     proc["cold_check"] = ls.get("cold_check")  # 初見検査の verdict と件数（非 pass でも報告は出る。直したかは writer の申告）
     proc["open_questions"] = [q for q in rec["questions"] if q.get("status") in V.ASKING]
     proc["resolved_questions"] = [q for q in rec["questions"] if q.get("status") in V.DECIDED_STATUS]
-    # 最後の関所の後に方針の文書が変わって止まった run も、変化を記録と報告に残す（関所は周の途中にしか無い）
-    ch = "policy" in proc and _policy_change(b)
-    if ch:
-        proc["policy_change"] = ch
-    else:
-        proc.pop("policy_change", None)
+    policy_input.record_change(b, git, proc)
 
 
 def on_answer(b, ph, ans):
@@ -4072,10 +4065,6 @@ HUMAN_FACE_KINDS = ("regression", "policy")
 PLAN_ONLY_FACE_KINDS = HUMAN_FACE_KINDS + ("precedent",)
 
 
-def _policy_change(b):
-    return policy_input.change(b, git, b.record["process"].get("policy") or {})
-
-
 def _plan_gate_items(b):
     items = []
     for i, p in enumerate((b.output_of_round("p2.fix_plan", b.round) or {}).get("plan") or []):
@@ -4101,7 +4090,7 @@ HUMAN_GATES = {"p2.human_gate": _plan_gate_items, "r4.human_gate": _r4_gate_item
 def human_gate(b, nid):
     """能力の後退・方針とのぶつかり・方針の文書の変化が 1 件でも在れば、人に聞く（周の途中の問い）。無ければ素通り"""
     rows = HUMAN_GATES[nid](b)
-    ch = _policy_change(b)
+    ch = policy_input.change(b, git, b.record["process"].get("policy") or {})
     if ch:
         b.loop_state["policy_change"] = ch
         rows.append(("policy_changed", policy_input.change_row(ch)))

@@ -102,8 +102,18 @@ def change(b, git, pol):
     return ch
 
 
+def record_change(b, git, proc):
+    """仕上げから呼ぶ: 固定した版から変わっていれば proc の policy_change に置き、変わっていなければ消す。
+    proc に policy が無い盤面（init が方針の版を記録する前の盤面）は比べる元が無いので照らさない"""
+    ch = "policy" in proc and change(b, git, proc["policy"])
+    if ch:
+        proc["policy_change"] = ch
+    else:
+        proc.pop("policy_change", None)
+
+
 def change_row(ch):
-    """関所の行と報告に載せる 1 行——置き場だけで、本文を載せない"""
+    """関所で人に聞く 1 行——置き場だけで、本文を載せない"""
     where = (f"差分 {ch['diff_file']}" if ch.get("diff_file") else ch.get("diff_missing", "")) + \
             f"・前の版の写し {ch.get('from_copy') or '（無い）'}・今の版の写し {ch.get('to_copy') or '（無い）'}"
     return (f"人の方針の文書 {ch['path'] or '（無い）'} が固定した版から変わった: sha256 "

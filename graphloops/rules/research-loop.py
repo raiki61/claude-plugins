@@ -927,12 +927,7 @@ def finalize(b):
             proc["load_zero_reason"] = ls["load_zero_reason"]
     else:
         proc.pop("load_zero_reason", None)
-    # 版を固定していない盤面（init が方針の版を記録する前の盤面）は比べる元が無いので照らさない
-    ch = "policy" in proc and policy_input.change(b, git, proc["policy"])
-    if ch:
-        proc["policy_change"] = ch
-    else:
-        proc.pop("policy_change", None)
+    policy_input.record_change(b, git, proc)
     # 止まった run で、作る工程より前に止まったので空のままの欄。検証器はこの欄に理由の在る欄だけを、止まった記録に限って空で受ける
     # （受理集合は広げない——収束を名乗る記録では空を今までどおり落とす）
     gaps = {}
