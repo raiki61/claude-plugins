@@ -168,6 +168,23 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("sha256", result.stderr)
 
+    def test_real_run_stops_without_auth_before_making_target(self):
+        """real-run.sh（費用の掛かる実走）は、認証が無ければ対象を作る前に 1 行の案内で止まること。"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            env = dict(os.environ, WORKS_DEV_HOME=str(tmp / "dev-home"))
+            for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
+                env.pop(name, None)
+            result = subprocess.run(
+                ["sh", str(DEV / "real-run.sh"), str(tmp / "target")],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+            self.assertIn("WORKS_KEYCHAIN_ITEM", result.stderr)
+            self.assertFalse((tmp / "target").exists())
+            self.assertFalse((tmp / "dev-home").exists())   # 設定も書かない
+
     def _run_check(self, fail_on=""):
         """check.sh を偽の Archon（引数と cwd を記録し、引数に fail_on を含めば終了コード 1）で回す"""
         with tempfile.TemporaryDirectory() as tmp_str:
