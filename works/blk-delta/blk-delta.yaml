@@ -43,6 +43,12 @@ nodes:
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true}
           idle_timeout: 1728000000
+          # 指示書へは $INPUTS.<名> だけで渡す。指示書の中の $LOOP_PREV は、単体で回すと差し込まれない
+          # （Archon は輪の中の節の欄にしか $LOOP_PREV を差し込まず、読み込んだ指示書の本文は見ない。Ruling R13）
+          with:
+            diff_file: $cut.output.diff_file
+            files: $cut.output.files
+            prev_reason: $LOOP_PREV.accept.output.reason
           # role_schema("p3.delta_review") を 1 度出して貼った物（tests/test_blk_tests_delta.py が一致を見る）
           output_format:
             type: object

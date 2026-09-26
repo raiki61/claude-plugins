@@ -9,6 +9,7 @@
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -100,18 +101,28 @@ class TestDeltaSchema(unittest.TestCase):
         # 1 本目は修正役が「塞いだ」と言う穴を持たないので、checks の行は全部拒まれる
         body = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
         self.assertIn("checks: []", body)
-        for ref in ("$cut.output.diff_file", "$cut.output.files", "$LOOP_PREV.accept.output.reason"):
-            self.assertIn(ref, body)
         self.assertNotIn("{{", body)
+
+    def test_delta_prompt_reads_only_inputs(self):
+        # Ruling R13: 指示書の本文の $LOOP_PREV は単体で回すと差し込まれない。値は節の with: から $INPUTS.<名> で受ける
+        body = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
+        refs = re.findall(r"\$[A-Za-z_][A-Za-z0-9_.]*", body)
+        self.assertEqual(sorted(set(refs)), ["$INPUTS.diff_file", "$INPUTS.files", "$INPUTS.prev_reason"])
+        review = find_node(workflow("blk-delta")["nodes"], "review")
+        self.assertEqual(review["with"], {"diff_file": "$cut.output.diff_file", "files": "$cut.output.files",
+                                          "prev_reason": "$LOOP_PREV.accept.output.reason"})
 
 
 # ---------------------------------------------------------------- blk-tests
 class TestTestsBlock(RepoCase):
-    def run_bash(self, cmd):
+    def run_bash(self, cmd, rc=0):
         node = find_node(workflow("blk-tests")["nodes"], "run")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "PYTHONDONTWRITEBYTECODE"}
         env.update(INPUTS_CMD=cmd, ARTIFACTS_DIR=str(self.artifacts))
         r = subprocess.run(["bash", "-c", node["bash"]], cwd=str(self.repo), env=env, capture_output=True, text=True, timeout=120)
+        if rc:
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            return None
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout)
         self.assertEqual(validate_schema(out, node["output_format"]), [])
@@ -129,6 +140,18 @@ class TestTestsBlock(RepoCase):
         out = self.run_bash("python3 -c 'print(\"走った\")' && test -f stats.py")   # cwd は対象リポジトリ
         self.assertEqual(out, {"ok": True, "green": True, "log": str(self.board / "tests.log")})
         self.assertIn("走った", (self.board / "tests.log").read_text(encoding="utf-8"))
+
+    def test_empty_command_fails_the_node(self):
+        # 何も走らせずに緑と言わない
+        self.run_bash("", rc=1)
+        self.assertFalse((self.board / "tests.log").exists())
+
+    def test_tests_leave_no_bytecode(self):
+        # 種の .gitignore が無くても、テストが作業ツリーに __pycache__ を作らない（修正の差分に紛れ込まない）
+        (self.repo / ".gitignore").unlink()
+        out = self.run_bash("python3 -m unittest -q test_stats")
+        self.assertEqual((out["ok"], out["green"]), (True, False))   # 種はバグ入りで赤
+        self.assertEqual(list(self.repo.rglob("__pycache__")), [])
 
     def test_red_command_is_still_ok(self):
         # 赤を人の関所に見せるのがこの段の仕事なので、赤でも節は通る
@@ -167,6 +190,48 @@ class TestCut(RepoCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["files"], [])
         self.assertEqual((self.board / "fix.diff").read_text(), "")
+
+    def test_cut_skips_bytecode(self):
+        # 種の .gitignore が無く、テストがバイトコードを作った作業ツリー。追跡している .pyc が変わっても差分に載せない
+        git(self.repo, "rm", "-q", ".gitignore")
+        (self.repo / "old.pyc").write_bytes(b"\x00old")
+        git(self.repo, "add", "old.pyc")
+        git(self.repo, "commit", "-q", "-m", "no ignore")
+        base = git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "old.pyc").write_bytes(b"\x00new")
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        subprocess.run([sys.executable, "-m", "unittest", "-q", "test_stats"], cwd=str(self.repo), env=env,
+                       capture_output=True, timeout=120)
+        self.assertTrue(list(self.repo.rglob("*.pyc")))                  # バイトコードは本当に出来た
+        self.fix()
+        r = self.run_script("blk-delta", "cut", base_rev=base)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["files"], ["helper.py", "stats.py"])
+        diff = (self.board / "fix.diff").read_text(encoding="utf-8", errors="replace")
+        self.assertNotIn(".pyc", diff)
+        self.assertNotIn("__pycache__", diff)
+
+    def test_seed_ignores_bytecode(self):
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        subprocess.run([sys.executable, "-m", "unittest", "-q", "test_stats"], cwd=str(self.repo), env=env,
+                       capture_output=True, timeout=120)
+        self.assertEqual(git(self.repo, "status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_cut_and_accept_japanese_name(self):
+        # 日本語の名前も git の引用（"\346\227\245..."）でなく、そのままの名前で files と受け付けに乗る
+        (self.repo / "日本.py").write_text("def 日付():\n    return 1\n", encoding="utf-8")
+        (self.repo / "stats.py").write_text((self.repo / "stats.py").read_text() + "\n# 直した\n")
+        git(self.repo, "add", "日本.py")                                   # 追跡している側（diff --name-only）
+        (self.repo / "未追跡.py").write_text("x = 1\n", encoding="utf-8")  # 未追跡の側（ls-files）
+        r = self.run_script("blk-delta", "cut", base_rev=self.base)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["files"], sorted(["stats.py", "日本.py", "未追跡.py"]))
+        self.assertIn("未追跡.py", (self.board / "fix.diff").read_text(encoding="utf-8"))
+        for where, cite in (("日本.py", "def 日付():"), ("未追跡.py", "x = 1")):
+            reply = {"faces": [{"key": f"{where} 使われない物", "kind": "dead_path", "where": where, "cite": cite,
+                                "why": "どこからも呼ばれない物を修正が足している"}], "checks": []}
+            res = check_delta(reply, self.board, self.base, self.repo)
+            self.assertTrue(res["ok"], res["reason"])
 
     def test_cut_bad_base_rev_stops_the_run(self):
         r = self.run_script("blk-delta", "cut", base_rev="no-such-rev")

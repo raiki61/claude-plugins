@@ -7,7 +7,8 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
 - role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）
 - snapshot_tree: 作業ツリーの写し（差分を切る節が盤面の delta-snapshot.json に置き、check_delta が突き合わせる）
-- touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う）
+- touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
+- cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置く（blk-delta の節 cut）
 
 check_* は全部 dict を返し、例外で拒まない。拒否は {"ok": False, "reason": str}。
 git は全部 repo を cwd にして呼ぶ。HEAD をその場で読むのは base_rev が空のときだけ（空なら repo の HEAD を版にする）。
@@ -42,6 +43,7 @@ VALIDATOR = CORE / "scripts" / "review-record.py"
 REQUEST_FILE = "request.json"        # 依頼のバッチの一覧（rules の REQUEST_SCHEMA の形）
 JUDGMENT_FILE = "judgment.json"      # 受け付けた判定の返答（judge_output が正規化した後の姿）
 SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "diff_sha256": str}
+DIFF_FILE = "fix.diff"                   # 修正の差分（cut_delta が書き、審査役が読む）
 DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
 GIT_TIMEOUT = 120
 
@@ -215,12 +217,62 @@ def snapshot_tree(repo: pathlib.Path) -> dict:
     return {"porcelain": porcelain, "diff_sha256": h.hexdigest()}
 
 
+def _names(repo, cmd, *args) -> list:
+    """git <cmd> -z <args> が出すパスの一覧（NUL 区切り。日本語などの名前も引用符や \\ の書き換え無しでそのまま）"""
+    return [os.fsdecode(n) for n in _git(repo, cmd, "-z", *args, binary=True).split(b"\0") if n]
+
+
+def _is_bytecode(name: str) -> bool:
+    """Python のバイトコードの置き場（__pycache__/ の下）か .pyc。テストを走らせただけで出来る物で、修正ではない"""
+    return name.endswith(".pyc") or "__pycache__" in name.rstrip("/").split("/")
+
+
+def _touched(repo, rev) -> tuple:
+    """(追跡しているファイルで rev から変わった物, 未追跡のファイル)。どちらもバイトコードを除き、名前の順"""
+    tracked = _names(repo, "diff", "--name-only", "--no-renames", rev)
+    untracked = _names(repo, "ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/")
+    return (sorted(n for n in set(tracked) if not _is_bytecode(n)),
+            sorted(n for n in set(untracked) if not _is_bytecode(n)))
+
+
 def touched_files(repo: pathlib.Path, rev: str) -> list:
     """修正が触ったファイル（repo の根からのパス、名前の順）。git diff --name-only <rev> と未追跡のファイル
-    （入れ子の git リポジトリは `sub/` の 1 本）。差分を切る節と check_delta が同じ物を使う"""
-    files = _git(repo, "diff", "--name-only", "--no-renames", rev).splitlines()
-    files += _git(repo, "ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/").splitlines()
-    return sorted(set(files))
+    （入れ子の git リポジトリは `sub/` の 1 本）。__pycache__/ と .pyc は除く。差分を切る節と check_delta が同じ物を使う"""
+    tracked, untracked = _touched(repo, rev)
+    return sorted(set(tracked) | set(untracked))
+
+
+def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
+    """修正の差分を盤面に切る（blk-delta の節 cut）。touched_files と同じファイルだけを差分に載せる:
+    追跡しているファイルは git diff --binary <rev>、未追跡のファイルは 1 本ずつ git diff --no-index /dev/null <名>
+    （どちらも core.quotePath=false で、日本語の名前を \\346… に書き換えずに載せる）
+    （未追跡のフォルダ＝入れ子の git リポジトリは差分に載せず、files に `sub/` の 1 本で出す）。
+    盤面に fix.diff と、切った時の作業ツリーの写し delta-snapshot.json（Ruling R3）を置く。
+    {"ok": True, "files", "diff_file"} を返す。版が引けない・git が効かないときは Reject を投げる（拒否を dict で返さない）"""
+    repo = pathlib.Path(repo)
+    rev = _rev(repo, base_rev)
+    tracked, untracked = _touched(repo, rev)
+    diff = b""
+    if tracked:   # パスを渡さないと全部の差分になるので、空なら呼ばない
+        diff = _git(repo, "-c", "core.quotePath=false", "diff", "--binary", "--no-ext-diff", "--no-renames", rev, "--",
+                    *[f":(top,literal){n}" for n in tracked], binary=True)
+    for name in untracked:
+        if name.endswith("/"):
+            continue
+        try:   # --no-index は差が在れば 1 で終わるので _git（0 以外は Reject）を通さない
+            r = subprocess.run(["git", "-c", "core.quotePath=false", "diff", "--no-index", "--binary", "--no-ext-diff", "--", "/dev/null", name],
+                               cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise Reject(f"git diff --no-index {name} を呼べない（{type(e).__name__}: {e}）")
+        if r.returncode not in (0, 1):
+            raise Reject(f"git diff --no-index {name} が失敗した（{r.stderr.decode('utf-8', 'replace').strip()[-300:]}）")
+        diff += r.stdout
+    board = pathlib.Path(board)
+    board.mkdir(parents=True, exist_ok=True)
+    path = board / DIFF_FILE
+    path.write_bytes(diff)
+    _write_board(board, SNAPSHOT_FILE, snapshot_tree(repo))
+    return {"ok": True, "files": sorted(set(tracked) | set(untracked)), "diff_file": str(path)}
 
 
 # ---------------------------------------------------------------- 受け付け

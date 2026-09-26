@@ -13,12 +13,16 @@ outcome_field: ok
 
 nodes:
   # コマンドの出力（標準出力と標準エラー）は盤面の tests.log に置く。標準入力は閉じる（入力待ちで止まらない）。
-  # コマンドの値は環境変数 INPUTS_CMD で届く（Archon は bash の本文に $INPUTS.<名> を差し込まない）
+  # コマンドは本文に差し込まず環境変数 INPUTS_CMD で受け取る——値がシェルの記号を含んでも本文の一部にならず、データのまま届く。
+  # 空・欠けなら節を落とす（何も走らせずに緑と言わない）。PYTHONDONTWRITEBYTECODE は、テストが作業ツリーに
+  # __pycache__ を作って修正の差分に紛れ込むのを止める
   - id: run
     bash: |
+      : "${INPUTS_CMD:?テストのコマンドが空}"
       board="$ARTIFACTS_DIR/board"
       mkdir -p "$board" || exit 1
       log="$board/tests.log"
+      export PYTHONDONTWRITEBYTECODE=1
       ( eval "$INPUTS_CMD" ) >"$log" 2>&1 </dev/null
       if [ "$?" -eq 0 ]; then green=true; else green=false; fi
       esc=$(printf '%s' "$log" | sed 's/\\/\\\\/g; s/"/\\"/g')
