@@ -145,7 +145,8 @@ class TreeRunCase(unittest.TestCase):
         p.send_signal(signal.SIGINT)
         self.assertEqual(p.wait(10), 128 + signal.SIGINT)
         self.assertTrue(group_gone(pgid, 1))
-        self.assertLess(time.monotonic() - t0, 4, "SIGKILL の猶予まで待った（SIGTERM を送っていない）")
+        # 猶予（KILL_GRACE）より十分短く終わる。猶予まで待ったなら SIGTERM を送っていない
+        self.assertLess(time.monotonic() - t0, tree_run.KILL_GRACE / 2, "SIGKILL の猶予まで待った（SIGTERM を送っていない）")
 
     def test_sigterm_ignoring_grandchild_is_killed(self):
         p = self.start(f"echo $$ > {self.pidf}; (trap '' TERM; sleep 300) & wait")
