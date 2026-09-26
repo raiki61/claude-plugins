@@ -1,4 +1,4 @@
-"""修正役の返答の受け付け（blk-fix の節 accept）。
+"""修正役の返答の受け付け（blk-fix の節 fix-accept）。
 
 core の check_fix（changes[].unit_key が盤面の judgment.json の直す義務の単位を覆うか）に通し、結果に changes を足して出す。
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を

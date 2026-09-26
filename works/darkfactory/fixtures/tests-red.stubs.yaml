@@ -1,18 +1,12 @@
-# 判定役が毎回同じ悪い返答（not_found の先行例に searched が無い）を返し、受け付けが拒む筋書き。
-# judge の中身は tests/replies/judge_notfound_no_searched.json と同じ。
-# 本番の run では輪が上限（3 回）で judge-loop が落ちる。dry-run は until_bash を回さず輪を 1 回で済んだと
-# みなす（Archon 0.11.1: "assumed complete after 1 iteration(s) — 'until_bash' is not executed in a dry run"）ので、
-# 筋書きでは受け付けが judgment.json を書かなかったことを collect が見つけて落ちる。どちらでも出口は返らない。
-fixture:
-  expect: failed
-  fail-node: collect
-  reached:
-  - intake
-  - judge
-  - judge-accept
-  inputs:
-    request: request_ok.json
-exec-code: true
+# 筋書き tests-red: テストの節（testing__run）だけが赤（ok: true・green: false）。赤でも run は止まらず、関所は
+# 模擬実行で自動で通り（--pause-at-gates 無し）、差分の審査まで完走する。ほかの stub は wiring と同じ
+base:
+  ok: true
+  rev: 0123456789abcdef0123456789abcdef01234567
+judging__intake:
+  ok: true
+  reason: ''
+  request: request_ok.json
 judge:
   framing: 依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
@@ -62,5 +56,78 @@ judge:
   - key: 'stats.py clamp: 上限を超えた値に lo を返す'
     problem: 値を下限と上限の間に収める
     source: 'numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える'
-    verdict: not_found
+    verdict: adopt
     reason: 上限を超えた値は hi を返す。lo を返す形の先行例は無い
+judge-accept:
+  ok: true
+  reason: ''
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+judging__collect:
+  ok: true
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  judgment_file: board/judgment.json
+  one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
+fix:
+  changes:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    files:
+    - stats.py
+    what: mean の分母を len(xs) に直した
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    files:
+    - stats.py
+    what: clamp の上限の枝で hi を返すように直した
+fix-accept:
+  ok: true
+  reason: ''
+  changes:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    files:
+    - stats.py
+    what: mean の分母を len(xs) に直した
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    files:
+    - stats.py
+    what: clamp の上限の枝で hi を返すように直した
+fixing__assert-changed:
+  ok: true
+  files:
+  - stats.py
+fixing__collect:
+  ok: true
+  files:
+  - stats.py
+  changes_file: board/changes.json
+testing__run:
+  ok: true
+  green: false
+  log: board/tests.log
+reviewing__cut:
+  ok: true
+  files:
+  - stats.py
+  diff_file: board/fix.diff
+review:
+  faces: []
+  checks: []
+  faces_none: stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い
+review-accept:
+  ok: true
+  reason: ''
+  review_file: board/delta-review.json
+reviewing__collect:
+  ok: true
+  faces: 0
+fixture:
+  expect: completed
+  reached:
+  - testing__run
+  - gate
+  - reviewing__collect
+  inputs:
+    request: request_ok.json
+    test_cmd: python3 -m unittest

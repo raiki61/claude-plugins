@@ -1,4 +1,4 @@
-# 良い判定が 1 回で受け付けを通る筋書き。intake・accept・collect は本物を回す（exec-code）。
+# 良い判定が 1 回で受け付けを通る筋書き。intake・judge-accept・collect は本物を回す（exec-code）。
 # 依頼は対象の根の request_ok.json（dev/target-seed に置いた物。中身は tests/replies/request_ok.json と同じ）。
 # judge の中身は tests/replies/judge_ok.json と同じ（tests/test_blk_judge.py が一致を見る）。
 fixture:
@@ -6,7 +6,7 @@ fixture:
   reached:
   - intake
   - judge
-  - accept
+  - judge-accept
   - collect
   inputs:
     request: request_ok.json

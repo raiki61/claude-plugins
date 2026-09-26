@@ -8,7 +8,7 @@
 前の回の受け付けが拒んだ理由（初回は空。空でなければ、まずこれを直して出し直せ）:
 
 ```
-$LOOP_PREV.accept.output.reason
+$LOOP_PREV.fix-accept.output.reason
 ```
 
 ## 直し方

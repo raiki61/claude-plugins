@@ -1,0 +1,73 @@
+name: darkfactory
+description: |
+  ダークファクトリーの 1 本目のライン。人の修正依頼を判定役が根本の単位にまとめ（judging）、修正役が直し（fixing）、
+  テストを 1 回走らせ（testing）、人がテストの緑赤とログを見て承認し（gate）、修正の差分を審査役が審査する（reviewing）。
+  出口は差分の審査で受け付けた穴の数。人の関所があるので interactive。
+
+interactive: true
+
+inputs:
+  request:
+    required: true
+    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対
+  test_cmd:
+    required: true
+    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）
+
+returns: reviewing
+outcome_field: ok
+
+# include の id はブロックの中の節の id と重ねない（Ruling R17。重ねるとブロックの中の $<id>.output が include を指す）
+nodes:
+  # 周の頭の版を固める。後ろのブロックは全部この版から数える（ラインの中で HEAD を暗に読まない。設計書 8 節）
+  - id: base
+    bash: |
+      rev=$(git rev-parse HEAD) || exit 1
+      printf '{"ok": true, "rev": "%s"}\n' "$rev"
+    timeout: 1728000000
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, rev]
+      properties:
+        ok: {type: boolean}
+        rev: {type: string}
+
+  - id: judging
+    include: blk-judge
+    depends_on: [base]
+    with:
+      request: $INPUTS.request
+      base_rev: $base.output.rev
+
+  - id: fixing
+    include: blk-fix
+    depends_on: [judging]
+    with:
+      judgment_file: $judging.output.judgment_file
+      open_units: $judging.output.open_units
+      base_rev: $base.output.rev
+
+  # 赤でも run を止めない（ok: true・green: false）。緑赤を人の関所に見せる
+  - id: testing
+    include: blk-tests
+    depends_on: [fixing]
+    with:
+      cmd: $INPUTS.test_cmd
+
+  # 人の承認。拒めば run を止める（修正の差分は作業ツリーに残る）。承認の一言は $gate.output に残す
+  - id: gate
+    depends_on: [testing]
+    approval:
+      message: |
+        修正とテストが済んだ。差分の審査へ進めてよいか。
+        - テストが緑か: $testing.output.green（true が緑・false が赤）
+        - テストのログ: $testing.output.log
+        修正の差分は作業ツリーにある（commit していない）。承認すると審査役が差分を審査する。拒むと run を止める。
+      capture_response: true
+
+  - id: reviewing
+    include: blk-delta
+    depends_on: [gate]
+    with:
+      base_rev: $base.output.rev

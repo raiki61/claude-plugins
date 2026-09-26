@@ -31,7 +31,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $accept.output.ok = true
+      until_bash: test $judge-accept.output.ok = true
       nodes:
         - id: judge
           command: diagnose
@@ -182,7 +182,7 @@ nodes:
                     reason: {type: string, minLength: 4}
                     searched: {type: string}
                     undecided_because: {type: string}
-        - id: accept
+        - id: judge-accept
           script: accept
           runtime: uv
           timeout: 1728000000

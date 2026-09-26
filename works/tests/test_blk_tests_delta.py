@@ -107,11 +107,17 @@ class TestDeltaSchema(unittest.TestCase):
         # Ruling R16: 指示書の本文は同じブロックの節の出力を直に読む（include が節の名を付け替える）。
         # 宣言していない $INPUTS.<名> は Archon 0.11.1 の include が読み込みで拒むので、節の with: で束ねない
         body = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
-        refs = re.findall(r"\$[A-Za-z_][A-Za-z0-9_.]*", body)
-        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.accept.output.reason", "$cut.output.diff_file",
+        refs = re.findall(r"\$[A-Za-z_][A-Za-z0-9_.-]*", body)
+        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.review-accept.output.reason", "$cut.output.diff_file",
                                              "$cut.output.files"])
         review = find_node(workflow("blk-delta")["nodes"], "review")
         self.assertNotIn("with", review)
+
+    def test_delta_loop(self):
+        # 輪の中の節の id はライン全体で一意にする（模擬実行は輪の中の節を名前空間なしの id で stub に引く）
+        loop = find_node(workflow("blk-delta")["nodes"], "delta-loop")["loop_group"]
+        self.assertEqual([n["id"] for n in loop["nodes"]], ["review", "review-accept"])
+        self.assertEqual(loop["until_bash"], "test $review-accept.output.ok = true")
 
     def test_delta_review_sandbox(self):
         # Ruling R12: Bash を持たない役でも、サンドボックスの外へ出る道を閉じる

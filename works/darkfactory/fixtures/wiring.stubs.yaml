@@ -1,0 +1,134 @@
+# 筋書き wiring: 配線だけを見る。stub を置ける節を全部 stub する（include で入った script・bash の節は、模擬実行では
+# 呼び手の with: が届かず本物で回せない）。判定・修正・審査の役の返答は tests/replies/ の良い見本と同じ中身。
+# 関所（gate）は --pause-at-gates 無しの模擬実行では自動で通り、差分の審査の出口（reviewing__collect）まで届く。
+# 輪（loop_group）の中の節は名前空間の付かない id（judge・judge-accept・fix・…）で stub を引く（Archon 0.11.1 の dry-run.ts）
+base:
+  ok: true
+  rev: 0123456789abcdef0123456789abcdef01234567
+judging__intake:
+  ok: true
+  reason: ''
+  request: request_ok.json
+judge:
+  framing: 依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する
+  one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
+  units:
+  - key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    label: block
+    disposition: do-now
+    reason: '事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する'
+    origin_analysis: 算術平均と不偏分散の分母の取り違え
+    class_query:
+      how:
+        patterns:
+        - (len(xs) - 1)
+        fixed: true
+        paths:
+        - stats.py
+        count: lines
+      counts: defects
+      total: 1
+  - key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    label: block
+    disposition: do-now
+    reason: '事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する'
+    origin_analysis: 下限の枝を写したときに戻り値を直し忘れた形
+    class_query:
+      how:
+        patterns:
+        - return lo
+        fixed: true
+        paths:
+        - stats.py
+        count: lines
+      counts: population
+      total: 2
+  questions: []
+  materials_missing: []
+  carried_r1: []
+  one_shot_closes:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  precedents:
+  - key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    problem: 数列の算術平均を求める
+    source: 'Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る'
+    verdict: adopt
+    reason: 分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない
+  - key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    problem: 値を下限と上限の間に収める
+    source: 'numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える'
+    verdict: adopt
+    reason: 上限を超えた値は hi を返す。lo を返す形の先行例は無い
+judge-accept:
+  ok: true
+  reason: ''
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+judging__collect:
+  ok: true
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  judgment_file: board/judgment.json
+  one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
+fix:
+  changes:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    files:
+    - stats.py
+    what: mean の分母を len(xs) に直した
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    files:
+    - stats.py
+    what: clamp の上限の枝で hi を返すように直した
+fix-accept:
+  ok: true
+  reason: ''
+  changes:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    files:
+    - stats.py
+    what: mean の分母を len(xs) に直した
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    files:
+    - stats.py
+    what: clamp の上限の枝で hi を返すように直した
+fixing__assert-changed:
+  ok: true
+  files:
+  - stats.py
+fixing__collect:
+  ok: true
+  files:
+  - stats.py
+  changes_file: board/changes.json
+testing__run:
+  ok: true
+  green: true
+  log: board/tests.log
+reviewing__cut:
+  ok: true
+  files:
+  - stats.py
+  diff_file: board/fix.diff
+review:
+  faces: []
+  checks: []
+  faces_none: stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い
+review-accept:
+  ok: true
+  reason: ''
+  review_file: board/delta-review.json
+reviewing__collect:
+  ok: true
+  faces: 0
+fixture:
+  expect: completed
+  reached:
+  - gate
+  - reviewing__collect
+  inputs:
+    request: request_ok.json
+    test_cmd: python3 -m unittest

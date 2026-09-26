@@ -36,14 +36,14 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $accept.output.ok = true
+      until_bash: test $review-accept.output.ok = true
       nodes:
         - id: review
           command: delta-review
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # 指示書（commands/delta-review.md）は $cut.output.* と $LOOP_PREV.accept.output.reason を直に読む。
+          # 指示書（commands/delta-review.md）は $cut.output.* と $LOOP_PREV.review-accept.output.reason を直に読む。
           # include が指示書の本文の節の名を付け替える（Ruling R16）。宣言していない $INPUTS.<名> は読み込みで拒まれる
           # role_schema("p3.delta_review") を 1 度出して貼った物（tests/test_blk_tests_delta.py が一致を見る）
           output_format:
@@ -74,7 +74,7 @@ nodes:
                     key: {type: string, minLength: 8}
                     closed: {type: boolean}
                     why: {type: string, minLength: 20}
-        - id: accept
+        - id: review-accept
           script: accept
           runtime: uv
           timeout: 1728000000

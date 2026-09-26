@@ -24,14 +24,14 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $accept.output.ok = true
+      until_bash: test $fix-accept.output.ok = true
       nodes:
         - id: fix
           command: fix
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # 前の周の拒否の理由は、指示書（commands/fix.md）が $LOOP_PREV.accept.output.reason で直に読む。
+          # 前の周の拒否の理由は、指示書（commands/fix.md）が $LOOP_PREV.fix-accept.output.reason で直に読む。
           # include が指示書の本文の節の名を付け替える（Ruling R16）。宣言していない $INPUTS.<名> は読み込みで拒まれる
           output_format:
             type: object
@@ -51,7 +51,7 @@ nodes:
                       items: {type: string, minLength: 1}
                     what: {type: string, minLength: 1}
 
-        - id: accept
+        - id: fix-accept
           script: accept
           runtime: uv
           depends_on: [fix]

@@ -93,11 +93,11 @@ class TestBlockYaml(unittest.TestCase):
         g = nodes[0]["loop_group"]
         self.assertEqual(g["max_iterations"], 3)
         self.assertIs(g["fresh_context"], False)
-        self.assertEqual(g["until_bash"], "test $accept.output.ok = true")
-        self.assertEqual([n["id"] for n in g["nodes"]], ["fix", "accept"])
+        self.assertEqual(g["until_bash"], "test $fix-accept.output.ok = true")
+        self.assertEqual([n["id"] for n in g["nodes"]], ["fix", "fix-accept"])
         self.assertEqual(nodes[1]["depends_on"], ["fix-loop"])
         self.assertEqual(nodes[2]["depends_on"], ["assert-changed"])
-        accept = find_node(nodes, "accept")
+        accept = find_node(nodes, "fix-accept")
         self.assertEqual(accept["script"], "accept")
         self.assertEqual(accept["with"]["reply"], {"from": "$fix.output"})
         self.assertEqual(nodes[1]["script"], "assert_changed")
@@ -121,7 +121,7 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_fix_prompt(self):
         body = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
-        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$LOOP_PREV.accept.output.reason",
+        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$LOOP_PREV.fix-accept.output.reason",
                   "git commit", "テスト", "unit_key"):
             self.assertIn(s, body)
         # 前の周の理由は指示書の本文で $LOOP_PREV から直に読む。Archon 0.11.1 の include は本文の $LOOP_PREV の節の名を

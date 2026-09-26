@@ -93,21 +93,21 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(g["depends_on"], ["intake"])
         lg = g["loop_group"]
         self.assertEqual((lg["max_iterations"], lg["fresh_context"], lg["until_bash"]),
-                         (3, False, "test $accept.output.ok = true"))
-        self.assertEqual([n["id"] for n in lg["nodes"]], ["judge", "accept"])
+                         (3, False, "test $judge-accept.output.ok = true"))
+        self.assertEqual([n["id"] for n in lg["nodes"]], ["judge", "judge-accept"])
         judge = find_node(self.y, "judge")
         self.assertEqual(judge["command"], "diagnose")
         self.assertEqual(judge["allowed_tools"], ["Read", "Grep", "Glob"])
         self.assertEqual(judge["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(judge["idle_timeout"], DEADLINE)
-        acc = find_node(self.y, "accept")
+        acc = find_node(self.y, "judge-accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$judge.output"}, "base_rev": "$INPUTS.base_rev"})
         self.assertEqual(sorted(acc["output_format"]["required"]), ["ok", "open_units", "reason"])
         self.assertEqual(find_node(self.y, "collect")["depends_on"], ["judge-loop"])
 
     def test_diagnose_prompt_wires_request_and_retry_reason(self):
         text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
-        for needle in ("$INPUTS.request", "$LOOP_PREV.accept.output.reason", "one_shot_closes", "class_query",
+        for needle in ("$INPUTS.request", "$LOOP_PREV.judge-accept.output.reason", "one_shot_closes", "class_query",
                        "precedents", "searched", "questions", "反証"):
             with self.subTest(needle):
                 self.assertIn(needle, text)

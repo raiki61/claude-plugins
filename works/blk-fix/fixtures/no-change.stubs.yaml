@@ -8,7 +8,7 @@ fix:
     - unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
       files: [stats.py]
       what: "clamp の上限の枝で hi を返すように直した"
-accept:
+fix-accept:
   ok: true
   reason: ""
   changes:
