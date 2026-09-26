@@ -1,0 +1,110 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1452）",
+ "command": [
+  "done",
+  "--node",
+  "p2.fix_plan",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.consistency_bypass.json": {},
+  "out/r1/p1.external_standards.json": {},
+  "out/r1/p1.hygiene.json": {},
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.provenance.json": {},
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "record.json": {
+   "materials": {},
+   "units": [
+    {
+     "key": "src/a.py:f — 上限が効かない経路がある",
+     "label": "block"
+    },
+    {
+     "key": "src/b.py:g — 定数の重複",
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {},
+   "questions": [],
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s4_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.provenance": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.external_standards": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {}
+     },
+     "na": {
+      "p2.history": "cond after_first_round: round=1"
+     },
+     "instances": {
+      "p2.fix_plan": {
+       "node": "p2.fix_plan",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"plan\": [{\"unit_keys\": [\"src/a.py:f — 上限が効かない経路がある\", \"src/b.py:g — 定数の重複\"], \"approach\": \"上限を入口の関数 f の 1 か所で掛け、呼び元の分岐を消す（検査用）\", \"adds\": [{\"kind\": \"guard\", \"name\": \"f の上限\", \"canonical\": \"src/a.py の f が正本（新設。呼び元には写さない）\"}], \"removes\": [\"呼び元の上限の分岐\"], \"shrink_first\": \"呼び元の分岐を消すだけでは上限が掛からない経路が残るので、入口 1 か所に寄せる（検査用）\", \"narrows\": []}]}"
+  }
+ },
+ "git": {}
+}

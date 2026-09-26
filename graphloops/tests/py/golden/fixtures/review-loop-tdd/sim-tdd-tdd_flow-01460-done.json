@@ -1,0 +1,155 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1460）",
+ "command": [
+  "done",
+  "--node",
+  "p3.fix",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "count-cache.json": {
+   "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+    1,
+    ""
+   ]
+  },
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.consistency_bypass.json": {},
+  "out/r1/p1.external_standards.json": {},
+  "out/r1/p1.hygiene.json": {},
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.provenance.json": {},
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.lane_merge.json": {},
+  "out/r1/p3.tdd_red.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {
+   "units": [
+    {
+     "route": "tdd",
+     "tests": [
+      "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     ]
+    }
+   ]
+  },
+  "record.json": {
+   "materials": {},
+   "units": [
+    {
+     "label": "block"
+    },
+    {
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s6_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.provenance": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.external_standards": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {},
+      "p2.fix_plan": {},
+      "p2.plan_review": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.tdd_start": {},
+      "p3.tdd_tests": {},
+      "p3.tdd_red": {}
+     },
+     "na": {
+      "p2.history": "cond after_first_round: round=1"
+     },
+     "instances": {
+      "p3.fix": {
+       "node": "p3.fix",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p3.tdd_tests": {
+     "file": "out/r1/p3.tdd_tests.json",
+     "round": 1
+    }
+   },
+   "loop": {
+    "fix_units": {
+     "round": 1
+    },
+    "tdd": {
+     "round": 1,
+     "red": "_s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"changes\": [{\"unit_key\": \"src/a.py:f — 上限が効かない経路がある\", \"what\": \"上限を 1 箇所に\", \"files\": [\"src/a.py\"], \"closure\": {\"mechanism\": \"分岐で上限が漏れる\", \"fix_mechanism\": \"共通経路に寄せた\", \"verified_how\": \"退行注入で赤→緑\", \"sites\": [{\"site\": \"src/a.py:f\", \"red_seen\": true}]}, \"coverage\": {\"how\": {\"patterns\": [\"limit\"], \"paths\": [\"src\"], \"count\": \"files\"}, \"counts\": \"population\"}, \"precedent\": {\"problem\": \"値の上限を 1 か所で掛ける\", \"source\": \"https://example.invalid/limit（検査用）\", \"verdict\": \"adopt\", \"reason\": \"定番の形をそのまま採った（検査用）\"}, \"root_or_symptom\": {\"kind\": \"root\", \"why\": \"上限の分散そのものを 1 箇所に寄せた\"}, \"bypass_tried\": \"修正を残したまま limit=0 と limit=-1 と分岐の両側を通した——どれも上限が効いた\", \"breaks\": {\"how\": \"grep -rn 'min(' src/\", \"result\": \"同じ経路を使う 2 箇所とも既存の検査が緑\"}}, {\"unit_key\": \"src/b.py:g — 定数の重複\", \"what\": \"上限を 1 箇所に\", \"files\": [\"src/a.py\"], \"closure\": {\"mechanism\": \"分岐で上限が漏れる\", \"fix_mechanism\": \"共通経路に寄せた\", \"verified_how\": \"退行注入で赤→緑\", \"sites\": [{\"site\": \"src/a.py:f\", \"red_seen\": true}]}, \"coverage\": {\"how\": {\"patterns\": [\"limit\"], \"paths\": [\"src\"], \"count\": \"files\"}, \"counts\": \"population\"}, \"precedent\": {\"problem\": \"値の上限を 1 か所で掛ける\", \"source\": \"https://example.invalid/limit（検査用）\", \"verdict\": \"adopt\", \"reason\": \"定番の形をそのまま採った（検査用）\"}, \"root_or_symptom\": {\"kind\": \"root\", \"why\": \"上限の分散そのものを 1 箇所に寄せた\"}, \"bypass_tried\": \"修正を残したまま limit=0 と limit=-1 と分岐の両側を通した——どれも上限が効いた\", \"breaks\": {\"how\": \"grep -rn 'min(' src/\", \"result\": \"同じ経路を使う 2 箇所とも既存の検査が緑\"}}], \"not_done\": [], \"interactions\": [{\"surface\": \"src/a.py\", \"checked\": \"上限を寄せる修正と定数を寄せる修正は同じ関数を触るが、当てる順序で結果は変わらない（どちらも共通経路に足すだけ）\"}], \"fix_closure\": {\"status\": \"clean\", \"checked\": \"退行を注入して赤→復元して緑\"}, \"mechanism_changed\": false, \"premise_drift\": false, \"gates_changed\": false, \"seams_changed\": false, \"security_surface_changed\": false, \"path_changed\": false, \"wrote_refs\": [], \"plan_faces\": []}"
+  }
+ },
+ "git": {
+  "[[\"rev-parse\", \"--show-toplevel\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   }
+  ]
+ }
+}

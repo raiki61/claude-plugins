@@ -1,0 +1,29 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_light が loop.py init を呼ぶ直前（1625）",
+ "command": [
+  "init",
+  "--loop",
+  "research-loop",
+  "--request",
+  "この見立ては正しいか",
+  "--document",
+  "<REPO>/mitate.md",
+  "--dir",
+  "<RUN>",
+  "--validator",
+  "<ROOT>/scripts/research-record.py",
+  "--thickness",
+  "軽量"
+ ],
+ "files": {},
+ "repo": {
+  "mitate.md": {}
+ },
+ "config": {},
+ "input": {},
+ "session": "gl-light-bad-session",
+ "git": {}
+}

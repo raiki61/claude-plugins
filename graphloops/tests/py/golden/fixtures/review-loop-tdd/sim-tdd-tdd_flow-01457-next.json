@@ -1,0 +1,195 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py next を呼ぶ直前（1457）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.consistency_bypass.json": {},
+  "out/r1/p1.external_standards.json": {},
+  "out/r1/p1.hygiene.json": {},
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.provenance.json": {},
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.lane_merge.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {
+   "units": [
+    {
+     "route": "tdd",
+     "tests": [
+      "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     ]
+    }
+   ]
+  },
+  "record.json": {
+   "materials": {},
+   "units": [
+    {
+     "label": "block"
+    },
+    {
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s14_xxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.provenance": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.external_standards": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {},
+      "p2.fix_plan": {},
+      "p2.plan_review": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.tdd_start": {},
+      "p3.tdd_tests": {}
+     },
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "tdd_suite": "<PLUGIN>/tests/tinyjunit.py"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p3.tdd_tests": {
+     "file": "out/r1/p3.tdd_tests.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "_s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": "<REPO>/.git/index\n"
+   },
+   {
+    "rc": 0,
+    "_s15_x": "<REPO>/.git/index\n"
+   }
+  ],
+  "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": ""
+   },
+   {
+    "rc": 0,
+    "_s15_x": ""
+   }
+  ],
+  "_s5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": ""
+   },
+   {
+    "rc": 0,
+    "_s15_x": ""
+   }
+  ],
+  "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": "_s6_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   {
+    "rc": 0,
+    "_s15_x": "_s6_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  ],
+  "_s13_xxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": "_s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   {
+    "rc": 0,
+    "_s15_x": "_s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  ],
+  "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": "_s8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   {
+    "rc": 0,
+    "_s15_x": "_s9_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  ],
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": "_s12_xxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  ],
+  "_s11_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": "<REPO>\n"
+   }
+  ]
+ }
+}

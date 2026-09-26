@@ -1,0 +1,367 @@
+{
+ "cond": {
+  "after_first_round": [
+   true,
+   "round=2"
+  ],
+  "delta2_faces_open": [
+   false,
+   "手直しの差分のレビューが挙げた、2 回目の手直しが答える義務は 0 件"
+  ],
+  "delta_faces_open": [
+   false,
+   "修正差分のレビューと検算が挙げた、手直しが答える義務は 0 件"
+  ],
+  "delta_fixed": [
+   false,
+   "手直しが今の周に直した（fixed）穴は 0 件"
+  ],
+  "delta_review2_due": [
+   false,
+   "手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件"
+  ],
+  "delta_review_due": [
+   false,
+   "この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件"
+  ],
+  "external_standards_due": [
+   false,
+   "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、外部標準の照合を起こさない"
+  ],
+  "final_gate_due": [
+   true,
+   "検証器が阻害なしで、この周の CI を engine が走らせて緑"
+  ],
+  "fix_delta_nonempty": [
+   false,
+   "この周の修正の差分は 0 ファイル"
+  ],
+  "gate_efficacy_due": [
+   false,
+   "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、ゲートの検算を起こさない"
+  ],
+  "gates_cut_nonempty": [
+   false,
+   "この周のコードは周の頭から 0 ファイル変わった"
+  ],
+  "gates_merge": [
+   false,
+   "変異の検算をこの run で撃つ（init --input gates=merge が無い）"
+  ],
+  "gates_touched": [
+   false,
+   "差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）"
+  ],
+  "lane_due": [
+   false,
+   "この周のコードは周の頭から 0 ファイル変わった"
+  ],
+  "main_path_observation_due": [
+   false,
+   "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、主経路の観察を起こさない"
+  ],
+  "not_request_entry": [
+   false,
+   "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない"
+  ],
+  "overview_due": [
+   true,
+   "阻害要因（[block]＋do-now）が 0 件"
+  ],
+  "parallel_pr_due": [
+   false,
+   "判定から入る run で、最初に修正が入った周は None（今は 2 周目）"
+  ],
+  "prior_decisions_due": [
+   false,
+   "初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立たない（round=2・前の周の P3 が触ったファイルは 0 件）"
+  ],
+  "procedure_trace_due": [
+   false,
+   "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、手順の追跡を起こさない"
+  ],
+  "provenance_due": [
+   false,
+   "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、出典の確かめを起こさない"
+  ],
+  "purpose_review_due": [
+   false,
+   "目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ"
+  ],
+  "r1_refire": [
+   false,
+   "R1 の再発火条件に当たらない（前の周から台帳も差分も変わっていない）"
+  ],
+  "r2_compare_due": [
+   false,
+   "R2 の再発火条件に当たらない"
+  ],
+  "r2_design_due": [
+   false,
+   "R2 の再発火条件に当たらない"
+  ],
+  "r2_premise_invalid": [
+   false,
+   "R2 の判定は carried_over"
+  ],
+  "rejudge_exhausted": [
+   false,
+   "回す側は今の周に異議を出していない"
+  ],
+  "rejudge_open": [
+   false,
+   "回す側は今の周に異議を出していない"
+  ],
+  "request_entry": [
+   true,
+   "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）"
+  ],
+  "seams_touched": [
+   false,
+   "差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）"
+  ],
+  "security_surface_touched": [
+   false,
+   "差分も前のどの周の修正も認証・データの取り扱い・外部との入出力・継ぎ目に触れない（p0.base.touches_security_surface・touches_external_seams・process.fixes）"
+  ],
+  "spec_flow": [
+   false,
+   "仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま"
+  ],
+  "spec_revise_due": [
+   false,
+   "仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま"
+  ],
+  "test_double_fidelity_due": [
+   false,
+   "判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起こさない"
+  ],
+  "touches_procedures": [
+   false,
+   "差分に手順書・スクリプト・CI 定義が無い"
+  ],
+  "units_open": [
+   false,
+   "今の周に直す単位（[block]・do-now）が 0 件"
+  ],
+  "user_path_touched": [
+   false,
+   "差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）"
+  ],
+  "would_converge": [
+   true,
+   "検証器が阻害なしで、この周の CI を engine が走らせて緑"
+  ]
+ },
+ "loop": {
+  "outcome": "converged"
+ },
+ "outputs": {
+  "out/r2/converge.json": {
+   "decision": "converged",
+   "reason": "検証器が連続 2 ラウンド阻害なし・CI 緑（local_checks clean: _s8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx）・最後の関門（最終のコードで撃ち直した変異の見逃しが全部等価）が通った。残った指摘は意図的に受容した設計判断として理由を明示して終える"
+  }
+ },
+ "calls": [
+  [
+   "BUILTINS",
+   "converge",
+   "decision=converged"
+  ],
+  [
+   "CONDS",
+   "after_first_round",
+   "真"
+  ],
+  [
+   "CONDS",
+   "delta2_faces_open",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "delta_faces_open",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "delta_fixed",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "delta_review2_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "delta_review_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "external_standards_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "final_gate_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "fix_delta_nonempty",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "gate_efficacy_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "gates_cut_nonempty",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "gates_merge",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "gates_touched",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "lane_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "main_path_observation_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "not_request_entry",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "overview_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "parallel_pr_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "prior_decisions_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "procedure_trace_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "provenance_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "purpose_review_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "r1_refire",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "r2_compare_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "r2_design_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "r2_premise_invalid",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "rejudge_exhausted",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "rejudge_open",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "request_entry",
+   "真"
+  ],
+  [
+   "CONDS",
+   "seams_touched",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "security_surface_touched",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "spec_flow",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "spec_revise_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "test_double_fidelity_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "touches_procedures",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "units_open",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "user_path_touched",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "would_converge",
+   "真"
+  ],
+  [
+   "HOOKS",
+   "check_record",
+   "一覧なし"
+  ]
+ ]
+}

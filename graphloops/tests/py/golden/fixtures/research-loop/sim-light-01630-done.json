@@ -1,0 +1,89 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_light が loop.py done を呼ぶ直前（1630）",
+ "command": [
+  "done",
+  "--node",
+  "p0.claims",
+  "--output",
+  "<INPUT>/out.json"
+ ],
+ "files": {
+  "out/r1/p0.question.json": {},
+  "record.json": {
+   "claims": [],
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "20260927-040720",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.question": {}
+     },
+     "instances": {
+      "p0.claims": {
+       "node": "p0.claims",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": "軽量",
+   "inputs": {
+    "document": "<REPO>/mitate.md"
+   },
+   "outputs": {},
+   "done_ever": {}
+  }
+ },
+ "repo": {
+  "mitate.md": {
+   "<text-file>": "# 見立て\n\nこの見立て文書の冒頭の一文は、読了の確かめの標本として先頭から取られる行である。\n\n主張 A・B・C・D を含む見立て文書。この一文は中間の標本として取られる行である。\n\nこの見立て文書の末尾の一文は、読了の確かめの標本として末尾から取られる行である。\n"
+  }
+ },
+ "config": {
+  "projects/sim/gl-light-session.jsonl": {
+   "<text-file>": "{\"message\": {\"content\": [{\"type\": \"tool_result\", \"content\": \"# 見立て\\n\\nこの見立て文書の冒頭の一文は、読了の確かめの標本として先頭から取られる行である。\\n\\n主張 A・B・C・D を含む見立て文書。この一文は中間の標本として取られる行である。\\n\\nこの見立て文書の末尾の一文は、読了の確かめの標本として末尾から取られる行である。\\n\"}]}}\n{\"message\": {\"content\": [{\"type\": \"tool_result\", \"content\": \"ok p0.question を受け付けた（読んだ先: --output /dev/null）。続きは loop.py next（run 20260927-040720）\"}]}}\n"
+  }
+ },
+ "input": {
+  "out.json": {
+   "claims": [
+    {
+     "id": "A",
+     "claim": "_s3_x",
+     "load_bearing": true
+    },
+    {
+     "id": "B",
+     "claim": "_s4_x",
+     "load_bearing": false
+    },
+    {
+     "id": "C",
+     "claim": "_s5_x",
+     "load_bearing": false
+    },
+    {
+     "id": "D",
+     "claim": "_s6_x",
+     "load_bearing": false
+    }
+   ],
+   "judgments": [
+    {
+     "text": "好み"
+    }
+   ],
+   "judgments_as_facts": [],
+   "open_questions": []
+  }
+ },
+ "session": "gl-light-session",
+ "git": {}
+}

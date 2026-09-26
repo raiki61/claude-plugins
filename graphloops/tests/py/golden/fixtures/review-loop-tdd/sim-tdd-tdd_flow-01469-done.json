@@ -1,0 +1,190 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1469）",
+ "command": [
+  "done",
+  "--node",
+  "r2.design",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.consistency_bypass.json": {},
+  "out/r1/p1.external_standards.json": {},
+  "out/r1/p1.hygiene.json": {},
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.provenance.json": {},
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_gates.json": {},
+  "out/r1/p3.delta_owed.json": {
+   "rows": []
+  },
+  "out/r1/p3.delta_owed2.json": {
+   "rows": []
+  },
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/p3.fix.json": {},
+  "out/r1/p3.fix_delta.json": {},
+  "out/r1/p3.gates_cut.json": {
+   "files": [
+    "_s7_xxxx",
+    "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "_s5_xxxxxxxxxxxxxxx"
+   ]
+  },
+  "out/r1/p3.lane_merge.json": {},
+  "out/r1/p3.tdd_green.json": {},
+  "out/r1/p3.tdd_red.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {
+   "units": [
+    {
+     "route": "tdd",
+     "tests": [
+      "_s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     ]
+    }
+   ]
+  },
+  "out/r1/p4.assemble.json": {},
+  "out/r1/p4.ci.json": {},
+  "out/r1/p4.scalars.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r4.human_gate.json": {},
+  "record.json": {
+   "materials": {},
+   "units": [
+    {
+     "label": "block"
+    },
+    {
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {},
+   "questions": [],
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s6_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.provenance": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.external_standards": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {},
+      "p2.fix_plan": {},
+      "p2.plan_review": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.tdd_start": {},
+      "p3.tdd_tests": {},
+      "p3.tdd_red": {},
+      "p3.fix": {},
+      "p3.tdd_green": {},
+      "p3.fix_delta": {},
+      "p3.delta_review": {},
+      "p3.delta_owed": {},
+      "p3.delta_owed2": {},
+      "p3.gates_cut": {},
+      "p4.scalars": {},
+      "p3.delta_gates": {},
+      "p4.ci": {},
+      "p4.assemble": {},
+      "r4.human_gate": {},
+      "r1.comment_candidates": {}
+     },
+     "na": {
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ"
+     },
+     "instances": {
+      "r2.design": {
+       "node": "r2.design",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p3.tdd_tests": {
+     "file": "out/r1/p3.tdd_tests.json",
+     "round": 1
+    },
+    "p3.gates_cut": {
+     "file": "out/r1/p3.gates_cut.json",
+     "round": 1
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "tdd": {
+     "round": 1,
+     "red": "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_delta": {
+     "round": 1,
+     "files": [
+      "_s7_xxxx",
+      "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "_s5_xxxxxxxxxxxxxxx"
+     ]
+    },
+    "open_units": 2
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"question_stands\": true, \"reason\": \"問いは立っている\", \"design\": \"上限は入口 1 箇所で掛ける\"}"
+  }
+ },
+ "git": {}
+}

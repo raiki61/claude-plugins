@@ -1,0 +1,158 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1493）",
+ "command": [
+  "done",
+  "--node",
+  "r4.hidden_scope",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/converge.json": {},
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_gates.json": {},
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/p3.fix.json": {},
+  "out/r1/p3.tdd_green.json": {},
+  "out/r1/p3.tdd_red.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {},
+  "out/r1/p4.record.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r1.minimality.json": {},
+  "out/r1/r2.compare.json": {},
+  "out/r1/r2.design.json": {},
+  "out/r1/r4.human_gate.json": {},
+  "out/r2/p0.prior_decisions.json": {},
+  "out/r2/p1.consistency_bypass.json": {},
+  "out/r2/p1.external_standards.json": {},
+  "out/r2/p1.gate_efficacy.json": {},
+  "out/r2/p1.hygiene.json": {},
+  "out/r2/p1.local_review.json": {},
+  "out/r2/p1.main_path_observation.json": {},
+  "out/r2/p1.procedure_trace.json": {},
+  "out/r2/p1.provenance.json": {},
+  "out/r2/p1.test_double_fidelity.json": {},
+  "out/r2/p1.worktree_after.json": {},
+  "out/r2/p1.worktree_before.json": {},
+  "out/r2/p2.diagnose.json": {},
+  "out/r2/p2.fix_units.json": {},
+  "out/r2/p2.history.json": {},
+  "out/r2/p2.human_gate.json": {},
+  "out/r2/p3.delta_owed.json": {
+   "rows": []
+  },
+  "out/r2/p3.delta_owed2.json": {
+   "rows": []
+  },
+  "out/r2/p3.fix.json": {},
+  "out/r2/p3.fix_delta.json": {},
+  "out/r2/p3.gates_cut.json": {},
+  "out/r2/p3.lane_merge.json": {},
+  "out/r2/p4.assemble.json": {
+   "r2_refire": false
+  },
+  "out/r2/p4.ci.json": {},
+  "out/r2/p4.scalars.json": {},
+  "out/r2/r3.coherence.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": [],
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "round": 2,
+   "rounds": [
+    {
+     "done": {
+      "p1.worktree_before": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.external_standards": {},
+      "p1.procedure_trace": {},
+      "p1.gate_efficacy": {},
+      "p1.test_double_fidelity": {},
+      "p1.main_path_observation": {},
+      "p1.provenance": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.history": {},
+      "p2.fix_units": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.fix": {},
+      "p3.fix_delta": {},
+      "p3.delta_owed": {},
+      "p3.delta_owed2": {},
+      "p3.gates_cut": {},
+      "p4.scalars": {},
+      "p4.ci": {},
+      "p4.assemble": {},
+      "r3.coherence": {}
+     },
+     "instances": {
+      "r4.hidden_scope": {
+       "node": "r4.hidden_scope",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p4.assemble": {
+     "file": "out/r2/p4.assemble.json",
+     "round": 2
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "prev_fix_files": [
+     "_s4_xxxx",
+     "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "_s2_xxxxxxxxxxxxxxx"
+    ],
+    "r1_refire": false
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"status\": \"pass\", \"reason\": \"導入・露呈した横断リスクなし\", \"capability_inventory\": {\"fired\": false}, \"policy_conflicts\": [], \"surfaced\": []}"
+  }
+ },
+ "git": {}
+}

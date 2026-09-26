@@ -1,0 +1,95 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.rederiver_compare": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+ },
+ "check_record": {
+  "p0.claims": [],
+  "p0.clusters": [],
+  "p0.question": [],
+  "p0.terms": [],
+  "p1.checker": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok p1.refuter[A] を受け付けた（読んだ先: --output <INPUT>/out.json）。続きは loop.py next（run _s0_xxxxxxxxxxx）\n",
+  "err": ""
+ },
+ "record": {
+  "claims": [
+   {
+    "id": "A",
+    "claim": "_s9_x",
+    "load_bearing": true,
+    "kind": "事実",
+    "cluster": "c1",
+    "evidence": "一致",
+    "sources": [
+     "_s2_xxxxxxx"
+    ],
+    "source_grade": "_s13_",
+    "recheck": false,
+    "checked_round": 1,
+    "upheld": true,
+    "verdict": "確証",
+    "refuter_reasoning": "_s16_",
+    "conditions": "_s15_",
+    "refuted": true
+   },
+   {
+    "id": "B",
+    "claim": "_s10_",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c1",
+    "verdict": "相違",
+    "evidence": "_s7_xx",
+    "sources": [
+     "_s3_xxxxxxx"
+    ],
+    "correction": "_s14_",
+    "refuted": false,
+    "recheck": false,
+    "checked_round": 1
+   },
+   {
+    "id": "C",
+    "claim": "_s11_",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c2",
+    "verdict": "留保",
+    "evidence": "概ね",
+    "sources": [
+     "_s4_xxxxxxx"
+    ],
+    "correction": "_s8_xx",
+    "refuted": false,
+    "recheck": false,
+    "checked_round": 1
+   },
+   {
+    "id": "D",
+    "claim": "_s12_",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c2",
+    "verdict": "確証",
+    "evidence": "一致",
+    "sources": [
+     "_s5_xxxxxxx"
+    ],
+    "conditions": "_s15_",
+    "source_grade": "_s13_",
+    "refuted": false,
+    "recheck": false,
+    "checked_round": 1
+   }
+  ]
+ },
+ "board": {}
+}

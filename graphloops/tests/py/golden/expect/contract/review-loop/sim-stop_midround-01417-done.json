@@ -1,0 +1,67 @@
+{
+ "applicable": {
+  "p0.parallel_pr": null,
+  "p0.prior_decisions": null,
+  "p0.purpose_review": "die: cond 'purpose_review_due' の欄 'out.p0.purpose.source' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "p1.consistency_bypass": null,
+  "p1.external_standards": null,
+  "p1.gate_efficacy": "cond gate_efficacy_due: 差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 0 件）",
+  "p1.hygiene": null,
+  "p1.local_review": null,
+  "p1.main_path_observation": "cond main_path_observation_due: 差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 0 件）",
+  "p1.procedure_trace": "cond procedure_trace_due: 差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 0 件）",
+  "p1.provenance": null,
+  "p1.test_double_fidelity": "cond test_double_fidelity_due: 差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 0 件）",
+  "p2.fix_plan": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+  "p2.history": "cond after_first_round: round=1",
+  "p2.plan_review": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+  "p2.rejudge": "cond rejudge_open: 回す側は今の周に異議を出していない",
+  "p2.rejudge_third": "cond rejudge_exhausted: 回す側は今の周に異議を出していない",
+  "p3.delta_fix": "cond delta_faces_open: 修正差分のレビューと検算が挙げた、手直しが答える義務は 0 件",
+  "p3.delta_fix2": "cond delta2_faces_open: 手直しの差分のレビューが挙げた、2 回目の手直しが答える義務は 0 件",
+  "p3.delta_gates": "cond lane_due: この周のコードは周の頭から 0 ファイル変わった",
+  "p3.delta_review": "cond delta_review_due: この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件",
+  "p3.delta_review2": "cond delta_review2_due: 手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件",
+  "p3.fix_delta2": "cond delta_fixed: 手直しが今の周に直した（fixed）穴は 0 件",
+  "p4.final_gates": "cond final_gate_due: 検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける",
+  "r1.comment_candidates": null,
+  "r1.minimality": null,
+  "r2.compare": "cond r2_compare_due: R2 のゼロベース再導出が、問いは立っていないと言った",
+  "r2.design": null,
+  "r3.coherence": null,
+  "r4.hidden_scope": null,
+  "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.check": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.review": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.write": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "stop.premise_check": "cond r2_premise_invalid: R2 の判定は None"
+ },
+ "check_record": {
+  "p0.base": [],
+  "p0.local_checks": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok p0.premises を受け付けた（読んだ先: --output <INPUT>/out.txt）。続きは loop.py next（run _s1_xxxxxxxxxxx）\n",
+  "err": ""
+ },
+ "record": {
+  "process.constraints": [
+   {
+    "text": "呼び出し元は 1 箇所",
+    "measured_how": "grep -c 'f(' src/",
+    "measured_output": "src/a.py:1",
+    "kind": "実測"
+   }
+  ]
+ },
+ "board": {
+  "rd.done": [
+   "p0.base",
+   "p0.local_checks",
+   "p0.premises"
+  ]
+ }
+}

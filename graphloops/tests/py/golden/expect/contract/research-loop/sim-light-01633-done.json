@@ -1,0 +1,70 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.rederiver_compare": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+ },
+ "check_record": {
+  "p0.claims": [],
+  "p0.question": [],
+  "p0.terms": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok p0.clusters を受け付けた（読んだ先: --output <INPUT>/out.json）。続きは loop.py next（run _s0_xxxxxxxxxxx）\n",
+  "err": ""
+ },
+ "record": {
+  "claims": [
+   {
+    "id": "A",
+    "claim": "_s1_x",
+    "load_bearing": true,
+    "kind": "事実",
+    "cluster": "c1"
+   },
+   {
+    "id": "B",
+    "claim": "_s2_x",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c1"
+   },
+   {
+    "id": "C",
+    "claim": "_s3_x",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c2"
+   },
+   {
+    "id": "D",
+    "claim": "_s4_x",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c2"
+   }
+  ],
+  "clusters": [
+   {
+    "key": "c1",
+    "claims_submitted": 2
+   },
+   {
+    "key": "c2",
+    "claims_submitted": 2
+   }
+  ]
+ },
+ "board": {
+  "rd.done": [
+   "p0.claims",
+   "p0.clusters",
+   "p0.question",
+   "p0.terms"
+  ]
+ }
+}

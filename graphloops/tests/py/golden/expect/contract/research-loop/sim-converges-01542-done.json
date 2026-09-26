@@ -1,0 +1,41 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": null,
+  "p3.rederiver_compare": null,
+  "p3.sampling": null
+ },
+ "check_record": {
+  "p1.checker": [],
+  "p1.record_check": [],
+  "p2.integrate": [],
+  "p3.rederiver_compare": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok p3.cold_reader を受け付けた（読んだ先: --output <INPUT>/out.json）。続きは loop.py next（run _s0_xxxxxxxxxxx）\n",
+  "err": ""
+ },
+ "record": {
+  "gates.cold_reader.reason": "<消えた>",
+  "gates.cold_reader.rounds": [
+   {
+    "verdict": "redesign-needed",
+    "findings": 1,
+    "round": 2
+   }
+  ],
+  "gates.cold_reader.status": "<消えた>"
+ },
+ "board": {
+  "rd.done": [
+   "p1.checker",
+   "p1.record_check",
+   "p2.integrate",
+   "p3.cold_reader",
+   "p3.rederiver_compare"
+  ]
+ }
+}

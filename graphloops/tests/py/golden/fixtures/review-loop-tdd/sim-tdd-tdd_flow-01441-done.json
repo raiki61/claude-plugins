@@ -1,0 +1,99 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1441）",
+ "command": [
+  "done",
+  "--node",
+  "p1.local_review",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.worktree_before.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": [],
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s1_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {}
+     },
+     "instances": {
+      "p1.local_review": {
+       "node": "p1.local_review",
+       "status": "pending",
+       "skills": [
+        {
+         "skill": "/code-review"
+        },
+        {
+         "skill": "pr-review-toolkit:code-reviewer"
+        },
+        {
+         "skill": "/simplify"
+        },
+        {
+         "skill": "/security-review"
+        },
+        {
+         "skill": "pr-review-toolkit:silent-failure-hunter"
+        },
+        {
+         "skill": "pr-review-toolkit:type-design-analyzer"
+        },
+        {
+         "skill": "pr-review-toolkit:pr-test-analyzer"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"material\": {\"status\": \"found\", \"count\": 1, \"detail\": \"/code-review: 上限の分岐が片方だけ\"}, \"findings\": [{\"skill\": \"/code-review\", \"items\": [{\"where\": \"src/a.py\", \"text\": \"上限が片方の分岐だけ\"}]}, {\"skill\": \"pr-review-toolkit:code-reviewer\", \"items\": [], \"failed\": \"起こしたが所見なし（差分の追加行すべてを見た）\"}, {\"skill\": \"/simplify\", \"items\": [], \"failed\": \"起こしたが所見なし（差分の追加行すべてを見た）\"}, {\"skill\": \"/security-review\", \"items\": [], \"failed\": \"applies_cond の条件が偽の周（applies: false）なので起こさなかった\", \"invoked\": false}, {\"skill\": \"pr-review-toolkit:silent-failure-hunter\", \"items\": [], \"failed\": \"起こしたが所見なし（差分の追加行すべてを見た）\"}, {\"skill\": \"pr-review-toolkit:type-design-analyzer\", \"items\": [], \"failed\": \"起こしたが所見なし（差分の追加行すべてを見た）\"}, {\"skill\": \"pr-review-toolkit:pr-test-analyzer\", \"items\": [], \"failed\": \"起こしたが所見なし（差分の追加行すべてを見た）\"}], \"simplify_carried\": false}"
+  }
+ },
+ "git": {}
+}

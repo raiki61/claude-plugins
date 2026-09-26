@@ -1,0 +1,136 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.rederiver_compare": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+ },
+ "check_record": {
+  "p0.claims": [],
+  "p0.clusters": [],
+  "p0.question": [],
+  "p0.terms": [],
+  "p1.checker": [],
+  "p1.record_check": [],
+  "p1.refuter": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok p2.integrate を受け付けた（読んだ先: --output <INPUT>/out.json）。続きは loop.py next（run _s1_xxxxxxxxxxx）\n",
+  "err": ""
+ },
+ "record": {
+  "claims": [
+   {
+    "id": "A",
+    "claim": "_s11_",
+    "load_bearing": true,
+    "kind": "事実",
+    "cluster": "c1",
+    "verdict": "確証",
+    "evidence": "一致",
+    "sources": [
+     "_s2_xxxxxxx"
+    ],
+    "conditions": "_s14_",
+    "source_grade": "_s15_",
+    "refuted": true,
+    "recheck": false,
+    "checked_round": 1,
+    "upheld": true,
+    "refuter_reasoning": "_s16_"
+   },
+   {
+    "id": "B",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c1",
+    "verdict": "相違",
+    "evidence": "_s9_xx",
+    "sources": [
+     "_s3_xxxxxxx"
+    ],
+    "correction": "_s7_xxxx",
+    "refuted": true,
+    "checked_round": 1,
+    "upheld": true,
+    "refuter_reasoning": "本物",
+    "first_discrepant_round": 1,
+    "claim": "_s17_",
+    "recheck": true
+   },
+   {
+    "id": "C",
+    "claim": "_s12_",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c2",
+    "verdict": "留保",
+    "evidence": "概ね",
+    "sources": [
+     "_s4_xxxxxxx"
+    ],
+    "correction": "_s10_x",
+    "refuted": false,
+    "recheck": false,
+    "checked_round": 1
+   },
+   {
+    "id": "D",
+    "claim": "_s13_",
+    "load_bearing": false,
+    "kind": "事実",
+    "cluster": "c2",
+    "verdict": "確証",
+    "evidence": "一致",
+    "sources": [
+     "_s5_xxxxxxx"
+    ],
+    "conditions": "_s14_",
+    "source_grade": "_s15_",
+    "refuted": false,
+    "recheck": false,
+    "checked_round": 1
+   }
+  ],
+  "corrections": [
+   {
+    "text": "_s8_xxx",
+    "claim_ids": [
+     "B"
+    ],
+    "no": 1,
+    "round": 1
+   }
+  ],
+  "numbers": [
+   {
+    "value": "4 件",
+    "source": "記録"
+   }
+  ],
+  "process.applied": [
+   {
+    "claim_id": "B",
+    "stable_key": "B:逆",
+    "where": "_s6_xxxxx",
+    "round": 1
+   }
+  ],
+  "process.root_causes": []
+ },
+ "board": {
+  "rd.done": [
+   "p0.claims",
+   "p0.clusters",
+   "p0.question",
+   "p0.terms",
+   "p1.checker",
+   "p1.record_check",
+   "p1.refuter",
+   "p2.integrate"
+  ]
+ }
+}

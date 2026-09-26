@@ -1,0 +1,101 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_spec_flow が loop.py next を呼ぶ直前（1228）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/spec.approve.json": {
+   "pending": {
+    "acceptance": [
+     {
+      "run": "\"/opt/homebrew/opt/python@3.14/bin/python3.14\" tests/test_spec_entry.py"
+     }
+    ]
+   }
+  },
+  "out/r1/spec.review.json": {
+   "faces": [
+    {}
+   ]
+  },
+  "out/r1/spec.revise.json": {},
+  "out/r1/spec.write.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s2_xxxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p0.purpose": {},
+      "spec.write": {},
+      "spec.review": {},
+      "spec.revise": {},
+      "spec.approve": {}
+     },
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "flow": "spec"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "spec.review": {
+     "file": "out/r1/spec.review.json",
+     "round": 1
+    },
+    "spec.approve": {
+     "file": "out/r1/spec.approve.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s3_xx": "<REPO>\n"
+   }
+  ]
+ }
+}

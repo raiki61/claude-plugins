@@ -1,0 +1,62 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.rederiver_compare": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+ },
+ "check_record": {
+  "p0.claims": [],
+  "p0.clusters": [],
+  "p0.question": [],
+  "p0.terms": [],
+  "p1.checker": [],
+  "p1.record_check": [],
+  "p1.refuter": [],
+  "p2.integrate": []
+ },
+ "command": {
+  "exit": 0,
+  "out": {
+   "status": "stopped",
+   "round": 1,
+   "thickness": "軽量",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "ready": [
+    {
+     "id": "p5.adapt",
+     "node": "p5.adapt",
+     "mode": "runner"
+    }
+   ],
+   "notes": [
+    "converge: stopped——軽量段: 1 ラウンドで打ち切り（収束の宣言はしない。判定の集計と結論・残件だけを出す）"
+   ]
+  },
+  "err": ""
+ },
+ "record": {
+  "convergence.outcome": "stopped",
+  "convergence.stopped_reason": "軽量段: 1 ラウンドで打ち切り（収束の宣言はしない。判定の集計と結論・残件だけを出す）"
+ },
+ "board": {
+  "rd.done": [
+   "converge",
+   "p0.claims",
+   "p0.clusters",
+   "p0.question",
+   "p0.terms",
+   "p1.checker",
+   "p1.record_check",
+   "p1.refuter",
+   "p2.integrate"
+  ],
+  "rd.na.p3.cartographer_compare": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "rd.na.p3.cold_reader": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "rd.na.p3.rederiver_compare": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "rd.na.p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）",
+  "status": "stopped"
+ }
+}

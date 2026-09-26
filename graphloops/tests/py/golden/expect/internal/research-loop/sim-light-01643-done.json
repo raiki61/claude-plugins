@@ -1,0 +1,88 @@
+{
+ "cond": {
+  "constraints_self_written": [
+   false,
+   "surveyor が自書した問い・制約は 0 件"
+  ],
+  "generation_due": [
+   true,
+   "初回"
+  ],
+  "no_new_discrepancies": [
+   false,
+   "この周の新規相違は 1 件"
+  ],
+  "rederiver_compare_due": [
+   false,
+   "この周の新規相違は 1 件"
+  ],
+  "sampling_due": [
+   false,
+   "round=1（2 周目以降だけ）"
+  ]
+ },
+ "loop": {},
+ "outputs": {
+  "out/r1/p5.adapt.json": {
+   "decide_now": [
+    {
+     "text": "_s3_",
+     "basis": "_s1_x",
+     "premortem": [
+      "_s4_"
+     ],
+     "tripwire": "_s2_x"
+    }
+   ],
+   "poc": [],
+   "human_only": [
+    {
+     "text": "_s5_",
+     "options": [
+      {
+       "option": "a",
+       "consequence": "b"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "calls": [
+  [
+   "CONDS",
+   "constraints_self_written",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "generation_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "no_new_discrepancies",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "rederiver_compare_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "sampling_due",
+   "偽"
+  ],
+  [
+   "HOOKS",
+   "check_record",
+   "一覧なし"
+  ],
+  [
+   "WRITE_OPS",
+   "decisions_from_details",
+   "返った"
+  ]
+ ]
+}

@@ -1,0 +1,105 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1450）",
+ "command": [
+  "done",
+  "--node",
+  "p2.diagnose",
+  "--output",
+  "<INPUT>/out.txt",
+  "--agent-id",
+  "judge-1"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.consistency_bypass.json": {},
+  "out/r1/p1.external_standards.json": {},
+  "out/r1/p1.hygiene.json": {},
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.provenance.json": {},
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s4_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.provenance": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.external_standards": {},
+      "p1.worktree_after": {}
+     },
+     "instances": {
+      "p2.diagnose": {
+       "node": "p2.diagnose",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"units\": [{\"key\": \"src/a.py:f — 上限が効かない経路がある\", \"label\": \"block\", \"class_query\": {\"how\": {\"patterns\": [\"limit\"], \"paths\": [\"src\"], \"count\": \"files\"}, \"counts\": \"population\", \"total\": 1}}, {\"key\": \"src/b.py:g — 定数の重複\", \"label\": \"suggest\", \"disposition\": \"do-now\", \"class_query\": {\"how\": {\"patterns\": [\"limit\"], \"paths\": [\"src\"], \"count\": \"files\"}, \"counts\": \"population\", \"total\": 1}}], \"questions\": [], \"precedents\": [{\"key\": \"src/a.py:f — 上限が効かない経路がある\", \"problem\": \"値の上限を 1 か所で掛ける\", \"source\": \"https://example.invalid/limit（検査用）\", \"verdict\": \"adopt\", \"reason\": \"定番の入口 1 か所で掛ける形をそのまま採る\"}, {\"key\": \"src/b.py:g — 定数の重複\", \"problem\": \"値の上限を 1 か所で掛ける\", \"source\": \"https://example.invalid/limit（検査用）\", \"verdict\": \"adopt\", \"reason\": \"定番の入口 1 か所で掛ける形をそのまま採る\"}], \"framing\": \"根本は上限の欠落\", \"one_shot\": \"上限を 1 箇所に寄せる\", \"one_shot_closes\": [\"src/a.py:f — 上限が効かない経路がある\", \"src/b.py:g — 定数の重複\"], \"materials_missing\": [], \"carried_r1\": [], \"router\": []}"
+  }
+ },
+ "git": {
+  "[[\"rev-parse\", \"--show-toplevel\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   }
+  ],
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  ]
+ }
+}

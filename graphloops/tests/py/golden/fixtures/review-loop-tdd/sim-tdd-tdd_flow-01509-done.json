@@ -1,0 +1,184 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1509）",
+ "command": [
+  "done",
+  "--node",
+  "p4.final_gates",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_gates.json": {},
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/p3.fix.json": {},
+  "out/r1/p3.tdd_green.json": {},
+  "out/r1/p3.tdd_red.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r1.minimality.json": {},
+  "out/r1/r2.compare.json": {},
+  "out/r1/r2.design.json": {},
+  "out/r2/converge.json": {},
+  "out/r2/p0.prior_decisions.json": {},
+  "out/r2/p1.external_standards.json": {},
+  "out/r2/p1.gate_efficacy.json": {},
+  "out/r2/p1.main_path_observation.json": {},
+  "out/r2/p1.procedure_trace.json": {},
+  "out/r2/p1.provenance.json": {},
+  "out/r2/p1.test_double_fidelity.json": {},
+  "out/r2/p2.history.json": {
+   "declared_routed": []
+  },
+  "out/r2/p3.fix.json": {},
+  "out/r3/p1.consistency_bypass.json": {},
+  "out/r3/p1.hygiene.json": {},
+  "out/r3/p1.local_review.json": {},
+  "out/r3/p1.worktree_after.json": {},
+  "out/r3/p1.worktree_before.json": {},
+  "out/r3/p2.diagnose.json": {},
+  "out/r3/p2.fix_units.json": {},
+  "out/r3/p2.history.json": {},
+  "out/r3/p2.human_gate.json": {},
+  "out/r3/p3.delta_owed.json": {
+   "rows": []
+  },
+  "out/r3/p3.delta_owed2.json": {
+   "rows": []
+  },
+  "out/r3/p3.fix.json": {},
+  "out/r3/p3.fix_delta.json": {},
+  "out/r3/p3.gates_cut.json": {
+   "ok": true,
+   "rev": "b39b202ec388e0133e8eb062ccb16ed1deb2a685"
+  },
+  "out/r3/p3.lane_merge.json": {},
+  "out/r3/p4.assemble.json": {
+   "r2_refire": false
+  },
+  "out/r3/p4.ci.json": {},
+  "out/r3/p4.record.json": {
+   "branch": "converged"
+  },
+  "out/r3/p4.scalars.json": {},
+  "out/r3/r3.coherence.json": {},
+  "out/r3/r4.hidden_scope.json": {},
+  "out/r3/r4.human_gate.json": {},
+  "record.json": {
+   "materials": {
+    "local_checks": {
+     "status": "clean",
+     "checked": "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+   },
+   "reviews": {
+    "R2": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "再発火の条件（機構の追加・置換／前提のドリフト／行数が R1 の時点の 1.5 倍・前の周の 2/3 以下／台帳の変化）に当たらない"
+    }
+   },
+   "questions": [],
+   "process": {
+    "checks": {
+     "p4.ci": {
+      "round": 3,
+      "by": "engine"
+     }
+    }
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "round": 3,
+   "rounds": [
+    {
+     "done": {
+      "p1.worktree_before": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.consistency_bypass": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.history": {},
+      "p2.fix_units": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.fix": {},
+      "p3.fix_delta": {},
+      "p3.delta_owed": {},
+      "p3.delta_owed2": {},
+      "p3.gates_cut": {},
+      "p4.scalars": {},
+      "p4.ci": {},
+      "p4.assemble": {},
+      "r3.coherence": {},
+      "r4.hidden_scope": {},
+      "r4.human_gate": {},
+      "p4.record": {}
+     },
+     "instances": {
+      "p4.final_gates": {
+       "node": "p4.final_gates",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p3.gates_cut": {
+     "file": "out/r3/p3.gates_cut.json",
+     "round": 3
+    },
+    "p4.assemble": {
+     "file": "out/r3/p4.assemble.json",
+     "round": 3
+    },
+    "p4.record": {
+     "file": "out/r3/p4.record.json",
+     "round": 3
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "r1_refire": false
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"rev\": \"b39b202ec388e0133e8eb062ccb16ed1deb2a685\", \"arms\": [{\"gate\": \"src/a.py\", \"arm\": \"上限の分岐\", \"red_confirmed\": true, \"control_green\": true, \"hit_evidence\": \"分岐が書く値を印に替えた写しで、印が出力に現れた（検査用）\"}], \"handled\": [], \"patch\": \"\", \"suite\": {\"command\": \"pytest（検査用）\", \"exit\": 0}}"
+  }
+ },
+ "git": {}
+}

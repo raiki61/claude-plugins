@@ -1,0 +1,77 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_spec_flow が loop.py done を呼ぶ直前（1221）",
+ "command": [
+  "done",
+  "--node",
+  "spec.review",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/spec.write.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s1_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p0.purpose": {},
+      "spec.write": {}
+     },
+     "instances": {
+      "spec.review": {
+       "node": "spec.review",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "flow": "spec"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"faces\": [{\"key\": \"p1-after-fix\", \"kind\": \"missing\", \"where\": \"requirements\", \"why\": \"2 周目以降は P1 を通常どおり走らせる、という条件が無い——入口が run の最後まで P1 を外したままでも全部の受け入れ条件が通る\"}], \"reason\": \"要件を周をまたいだ振る舞いと突き合わせた（検査用）\"}"
+  }
+ },
+ "git": {}
+}

@@ -1,0 +1,123 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_attended_stuck_answer が loop.py next を呼ぶ直前（1588）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.claims.json": {
+   "claims": [
+    {
+     "id": "D",
+     "claim": "_s8_x",
+     "load_bearing": false
+    }
+   ],
+   "judgments": [],
+   "judgments_as_facts": [],
+   "open_questions": []
+  },
+  "out/r1/p0.clusters.json": {
+   "clusters": [
+    {
+     "key": "c2",
+     "claim_ids": [
+      "D"
+     ]
+    }
+   ]
+  },
+  "out/r1/p0.prior_decisions.json": {
+   "checked": true,
+   "searched": [],
+   "settled_points": [],
+   "overlaps": [],
+   "reopen_proposals": []
+  },
+  "out/r1/p0.question.json": {
+   "question": "_s3_xxxxxx",
+   "domain": "_s5_xxx",
+   "constraints": [
+    {
+     "text": "_s2_xxxxxxx",
+     "source": "依頼文",
+     "origin": "独立出典",
+     "breaks_if_false": "_s7_xx"
+    }
+   ],
+   "thickness": "標準",
+   "thickness_decider": "既定",
+   "thickness_reason": "_s6_xxx"
+  },
+  "out/r1/p0.terms.json": {
+   "terms": []
+  },
+  "out/r1/p3.rederiver.json": {
+   "question_stands": true,
+   "verdict": "pass",
+   "reason": "_s4_xxxx",
+   "derivation": "_s1_xxxxxxxxx"
+  },
+  "out/r1/p5.internal.json": {
+   "facts": [],
+   "corrections": []
+  },
+  "out/r2/converge.json": {},
+  "out/r2/p1.checker__c1__.json": {},
+  "out/r2/p1.record_check.json": {},
+  "out/r2/p1.refuter__B__.json": {},
+  "out/r2/p2.integrate.json": {},
+  "out/r2/p3.cold_reader.json": {},
+  "out/r2/p3.rederiver_compare.json": {},
+  "out/r2/p3.sampling__sample__.json": {},
+  "record.json": {
+   "question": "_s3_xxxxxx",
+   "constraints": [],
+   "clusters": [],
+   "claims": []
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s0_xxxxxxxxxxx",
+   "status": "running",
+   "round": 3,
+   "rounds": [
+    {
+     "round": 3,
+     "done": {},
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": "重厚",
+   "inputs": {},
+   "outputs": {
+    "p0.question": {
+     "file": "out/r1/p0.question.json",
+     "round": 1
+    }
+   },
+   "done_ever": {
+    "p0.question": 1,
+    "p0.claims": 1,
+    "p0.terms": 1,
+    "p0.prior_decisions": 1,
+    "p5.internal": 1,
+    "p3.rederiver": 1,
+    "p0.clusters": 1
+   },
+   "loop": {
+    "stuck_hint": true
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "session": "gl-ask-session",
+ "git": {}
+}

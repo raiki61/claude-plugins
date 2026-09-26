@@ -1,0 +1,37 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py init を呼ぶ直前（1435）",
+ "command": [
+  "init",
+  "--loop",
+  "review-loop-tdd",
+  "--request",
+  "この変更をレビュー",
+  "--dir",
+  "<RUN>",
+  "--validator",
+  "<ROOT>/scripts/review-record.py",
+  "--input",
+  "tdd_suite=<PLUGIN>/tests/tinyjunit.py"
+ ],
+ "files": {},
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s2_xx": "<REPO>\n"
+   }
+  ],
+  "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s2_xx": "_s3_x"
+   }
+  ]
+ }
+}

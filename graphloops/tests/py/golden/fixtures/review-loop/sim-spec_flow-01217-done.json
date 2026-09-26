@@ -1,0 +1,85 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_spec_flow が loop.py done を呼ぶ直前（1217）",
+ "command": [
+  "done",
+  "--node",
+  "spec.write",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p0.purpose": {}
+     },
+     "instances": {
+      "spec.write": {
+       "node": "spec.write",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "flow": "spec"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   }
+  }
+ },
+ "repo": {
+  "src/a.py": {
+   "<text-file>": "def f(x, limit=None):\n    return x if limit is None else min(x, limit)\n"
+  }
+ },
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"requirements\": [{\"key\": \"R1\", \"text\": \"判定から入る run は修正が入るまで P1 を起こさない\"}], \"acceptance\": [{\"key\": \"AC1\", \"requirement\": \"R1\", \"file\": \"src/a.py\", \"name\": \"def f\", \"run\": \"\\\"/opt/homebrew/opt/python@3.14/bin/python3.14\\\" tests/test_spec_entry.py\"}], \"out_of_scope\": []}"
+  }
+ },
+ "git": {
+  "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s4_xx": "<REPO>\n"
+   }
+  ]
+ }
+}

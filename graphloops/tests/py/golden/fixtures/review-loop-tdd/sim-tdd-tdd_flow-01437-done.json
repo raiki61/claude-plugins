@@ -1,0 +1,62 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1437）",
+ "command": [
+  "done",
+  "--node",
+  "p0.base",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": [],
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s4_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {},
+     "instances": {
+      "p0.base": {
+       "node": "p0.base",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {},
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"base_sha\": \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"method\": \"3 HEAD~1\", \"commits\": 1, \"merge_commit\": false, \"intent_to_add\": [], \"touches_gates\": false, \"touches_external_seams\": false, \"touches_user_path\": false, \"touches_security_surface\": false, \"material\": {\"status\": \"clean\", \"checked\": \"HEAD~1 で決めた。BASE=e2e3038。対象差分は 1 コミット分\"}}"
+  }
+ },
+ "git": {
+  "[[\"cat-file\", \"-e\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e^{commit}\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"rev-parse\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "e2e303838f308a70b0c6ce1569fd53de4b628d4e\n"
+   }
+  ]
+ }
+}

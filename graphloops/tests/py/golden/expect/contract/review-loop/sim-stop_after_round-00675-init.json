@@ -1,0 +1,9 @@
+{
+ "command": {
+  "exit": 2,
+  "out": "",
+  "err": "NG --stop-after-round は 1 以上（0）——止める周の番号で、その周の締めの後で止まる\n"
+ },
+ "record": {},
+ "board": {}
+}

@@ -1,0 +1,39 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_rejections が loop.py skip を呼ぶ直前（1655）",
+ "command": [
+  "skip",
+  "--node",
+  "p0.claims",
+  "--reason",
+  "面倒"
+ ],
+ "files": {
+  "out/r1/p0.question.json": {},
+  "record.json": {
+   "claims": []
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s0_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.question": {}
+     }
+    }
+   ],
+   "thickness": "標準",
+   "inputs": {},
+   "outputs": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "session": "gl-neg-session",
+ "git": {}
+}

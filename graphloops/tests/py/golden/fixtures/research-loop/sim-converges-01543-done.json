@@ -1,0 +1,120 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_converges が loop.py done を呼ぶ直前（1543）",
+ "command": [
+  "done",
+  "--node",
+  "p3.sampling[sample]",
+  "--output",
+  "<INPUT>/out.json"
+ ],
+ "files": {
+  "items/r2/p3.sampling__sample__.json": {
+   "claims": [
+    {
+     "id": "B"
+    }
+   ]
+  },
+  "out/r1/converge.json": {},
+  "out/r1/p0.claims.json": {},
+  "out/r1/p0.clusters.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.question.json": {},
+  "out/r1/p0.terms.json": {},
+  "out/r1/p1.refuter__B__.json": {},
+  "out/r1/p3.rederiver.json": {
+   "verdict": "pass"
+  },
+  "out/r1/p5.internal.json": {},
+  "out/r2/p1.checker__c1__.json": {},
+  "out/r2/p1.record_check.json": {},
+  "out/r2/p2.integrate.json": {},
+  "out/r2/p3.cold_reader.json": {},
+  "out/r2/p3.rederiver_compare.json": {},
+  "record.json": {
+   "claims": [
+    {
+     "id": "B",
+     "verdict": "確証",
+     "sources": [
+      "_s3_xxxxxxx"
+     ],
+     "conditions": "_s6_"
+    }
+   ],
+   "sampling": {
+    "reason": "未実行"
+   }
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s2_xxxxxxxxxxx",
+   "round": 2,
+   "rounds": [
+    {
+     "done": {
+      "p1.checker": {},
+      "p1.record_check": {},
+      "p2.integrate": {},
+      "p3.rederiver_compare": {},
+      "p3.cold_reader": {}
+     },
+     "instances": {
+      "p3.sampling[sample]": {
+       "node": "p3.sampling",
+       "item": {
+        "claims": [
+         {
+          "id": "B"
+         }
+        ]
+       },
+       "status": "pending"
+      }
+     },
+     "item_counts": {
+      "p1.checker": 0
+     },
+     "new_discrepancies": 0
+    }
+   ],
+   "thickness": "標準",
+   "inputs": {},
+   "outputs": {
+    "p3.rederiver": {
+     "file": "out/r1/p3.rederiver.json",
+     "round": 1
+    }
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.json": {
+   "findings": [
+    {
+     "id": "B",
+     "verdict": "確証",
+     "evidence": "再検証",
+     "sources": [
+      "_s4_xxxxxxx"
+     ],
+     "conditions": "同じ"
+    }
+   ]
+  }
+ },
+ "session": "gl-std-session",
+ "git": {
+  "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s5_xx": ""
+   }
+  ]
+ }
+}

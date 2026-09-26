@@ -1,0 +1,9 @@
+{
+ "command": {
+  "exit": 1,
+  "out": "",
+  "err": "NG --input gate=… は鍵 gates の綴り違いに見える（知らない鍵は既定の流れに倒れる）——gates=merge と書け\n"
+ },
+ "record": {},
+ "board": {}
+}

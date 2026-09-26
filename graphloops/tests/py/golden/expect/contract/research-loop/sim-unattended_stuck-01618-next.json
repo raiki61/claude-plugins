@@ -1,0 +1,70 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": null,
+  "p3.rederiver_compare": null,
+  "p3.sampling": null
+ },
+ "check_record": {
+  "p1.checker": [],
+  "p1.record_check": [],
+  "p1.refuter": [],
+  "p2.integrate": [],
+  "p3.cold_reader": [],
+  "p3.rederiver_compare": []
+ },
+ "command": {
+  "exit": 0,
+  "out": {
+   "status": "stopped",
+   "round": 2,
+   "thickness": "標準",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "ready": [
+    {
+     "id": "p5.adapt",
+     "node": "p5.adapt",
+     "mode": "runner"
+    }
+   ],
+   "notes": [
+    "converge: ask——stuck",
+    "無人実行: 停止（無人実行: 諮るべき事態（stuck）に当たったので保守的に停止。要人間判断は process.human_items）"
+   ]
+  },
+  "err": ""
+ },
+ "record": {
+  "convergence.consecutive_zero": 1,
+  "convergence.outcome": "stopped",
+  "convergence.rounds_total": 2,
+  "convergence.stopped_reason": "無人実行: 諮るべき事態（stuck）に当たったので保守的に停止。要人間判断は process.human_items",
+  "process.human_items": [
+   {
+    "round": 2,
+    "kinds": [
+     "stuck"
+    ],
+    "asked": [
+     "stuck: 同じ相違が反映後も残っている: ['B']——主張側でなく前提側が誤っている可能性。P0 に戻すか"
+    ],
+    "answer": "（無人実行で保守的に停止。答えは無い）"
+   }
+  ]
+ },
+ "board": {
+  "rd.done": [
+   "converge",
+   "p1.checker",
+   "p1.record_check",
+   "p1.refuter",
+   "p2.integrate",
+   "p3.cold_reader",
+   "p3.rederiver_compare",
+   "p3.sampling"
+  ],
+  "status": "stopped"
+ }
+}

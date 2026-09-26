@@ -1,0 +1,52 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": null,
+  "p3.rederiver_compare": null,
+  "p3.sampling": null
+ },
+ "check_record": {
+  "p1.record_check": [],
+  "p2.integrate": [],
+  "p3.cold_reader": [],
+  "p3.rederiver_compare": []
+ },
+ "command": {
+  "exit": 0,
+  "out": {
+   "status": "converged",
+   "round": 3,
+   "thickness": "標準",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "ready": [
+    {
+     "id": "p5.adapt",
+     "node": "p5.adapt",
+     "mode": "runner"
+    }
+   ],
+   "notes": [
+    "converge: converged——連続 2 周で新規相違ゼロ、標準 段のゲートは全部 pass"
+   ]
+  },
+  "err": ""
+ },
+ "record": {
+  "convergence.consecutive_zero": 2,
+  "convergence.outcome": "converged",
+  "convergence.rounds_total": 3
+ },
+ "board": {
+  "rd.done": [
+   "converge",
+   "p1.record_check",
+   "p2.integrate",
+   "p3.cold_reader",
+   "p3.rederiver_compare",
+   "p3.sampling"
+  ],
+  "status": "converged"
+ }
+}

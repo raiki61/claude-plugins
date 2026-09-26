@@ -1,0 +1,39 @@
+{
+ "command": {
+  "exit": 0,
+  "out": "{\n \"dir\": \"<RUN>\",\n \"run_id\": \"20260101-000000\",\n \"loop\": \"review-loop\",\n \"thickness\": null,\n \"thickness_decider\": null,\n \"max_rounds\": 5,\n \"validator\": \"<ROOT>/scripts/review-record.py\",\n \"overview\": \"review-loop（graphs/review-loop.json の overview）と同じループで、P3 の修正だけを TDD の流れに差し替えた版。修正を 2 段に割る: 直す単位ごとに、使う側の呼び口で今は落ちるテストだけを書き（書きにくさ——準備が重い・内部に手を入れる・名前から意図が読めない——を単位ごとに記録する）、engine が一式を回して名指しのテストが狙いどおりの失敗で赤・ほかは緑であることを確かめ（赤の確認）、同じ writer が実装してテストを通し、engine が名指しもほかも緑で、テストのファイルを書き換えていないことを確かめる（緑の確認）。先にテストを書けない単位（文書・指示書・注記だけの直し）は理由をつけて今の修正の流れに回す。テスト一式のコマンドは init --input tdd_suite='…{junit}…' で渡す（JUnit XML を書く物）。TDD を使った周ごとに、修正差分への変異の見逃しの本数と、その周の修正が作った指摘の件数を record.process.tdd に残す\",\n \"next\": \"python3 <PLUGIN>/scripts/loop.py next --dir <RUN>\"\n}\n",
+  "err": ""
+ },
+ "record": {
+  "base": null,
+  "materials": {},
+  "process": {
+   "human_items": [],
+   "human_answers": [],
+   "policy": {
+    "path": null,
+    "sha256": null,
+    "copy": null,
+    "amendments": []
+   }
+  },
+  "questions": [],
+  "reviews": {},
+  "round": 1,
+  "scalars": {},
+  "units": []
+ },
+ "board": {
+  "halted": null,
+  "pending_human": null,
+  "rd": {
+   "done": [],
+   "na": {},
+   "skipped": {},
+   "empty": [],
+   "stopped": {}
+  },
+  "round": 1,
+  "status": "running"
+ }
+}

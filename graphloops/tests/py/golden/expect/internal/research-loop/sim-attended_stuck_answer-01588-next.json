@@ -1,0 +1,49 @@
+{
+ "cond": {
+  "constraints_self_written": [
+   false,
+   "surveyor が自書した問い・制約は 0 件"
+  ],
+  "generation_due": [
+   true,
+   "手詰まり（stuck）の後の周"
+  ],
+  "no_new_discrepancies": "die: cond 'no_new_discrepancies' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "rederiver_compare_due": "die: cond 'rederiver_compare_due' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "sampling_due": "die: cond 'sampling_due' の欄 'rd.item_counts.p1.checker' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）"
+ },
+ "loop": {},
+ "outputs": {},
+ "calls": [
+  [
+   "CONDS",
+   "constraints_self_written",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "generation_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "no_new_discrepancies",
+   "die"
+  ],
+  [
+   "CONDS",
+   "rederiver_compare_due",
+   "die"
+  ],
+  [
+   "CONDS",
+   "sampling_due",
+   "die"
+  ],
+  [
+   "FAN_OUT",
+   "claims_needing_refute",
+   "一覧なし"
+  ]
+ ]
+}

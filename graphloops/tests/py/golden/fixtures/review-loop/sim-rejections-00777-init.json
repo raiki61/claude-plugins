@@ -1,0 +1,35 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_rejections が loop.py init を呼ぶ直前（777）",
+ "command": [
+  "init",
+  "--loop",
+  "review-loop",
+  "--request",
+  "この変更をレビュー",
+  "--dir",
+  "<RUN>",
+  "--validator",
+  "<ROOT>/scripts/review-record.py"
+ ],
+ "files": {},
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s2_xx": "<REPO>\n"
+   }
+  ],
+  "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s2_xx": "_s3_x"
+   }
+  ]
+ }
+}

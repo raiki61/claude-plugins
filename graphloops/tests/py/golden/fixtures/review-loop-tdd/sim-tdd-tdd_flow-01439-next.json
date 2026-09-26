@@ -1,0 +1,198 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py next を呼ぶ直前（1439）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "base_sha": "e2e303838f308a70b0c6ce1569fd53de4b628d4e",
+   "method": "3 HEAD~1",
+   "commits": 1,
+   "merge_commit": false,
+   "intent_to_add": [],
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false,
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.local_checks.json": {
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.premises.json": {
+   "constraints": []
+  },
+  "record.json": {
+   "base": "e2e303838f308a70b0c6ce1569fd53de4b628d4e",
+   "materials": {},
+   "reviews": {},
+   "questions": [],
+   "process": {
+    "constraints": []
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s23_xxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "round": 1,
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {}
+     },
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "request": "_s24_xxxx",
+    "cwd": "<REPO>",
+    "review_md": "<ROOT>/REVIEW.md"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "[[\"stash\", \"list\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"status\", \"--porcelain\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"rev-parse\", \"--path-format=absolute\", \"--git-path\", \"index\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   }
+  ],
+  "[[\"update-index\", \"-q\", \"--really-refresh\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"add\", \"-A\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"write-tree\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": "512e57d057ae65137bc5a9501e949c3e21845e06\n"
+   }
+  ],
+  "[[\"rev-parse\", \"HEAD\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "eb50cad5e23435607be592b9bd9e9464feb1962e\n"
+   }
+  ],
+  "[[\"commit-tree\", \"512e57d057ae65137bc5a9501e949c3e21845e06\", \"-p\", \"eb50cad5e23435607be592b9bd9e9464feb1962e\", \"-m\", \"graphloops review r1\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "dc604fdff28e53cd91da1a967a43dd2c0bf42a2f\n"
+   }
+  ],
+  "[[\"diff\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"dc604fdff28e53cd91da1a967a43dd2c0bf42a2f\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  ],
+  "[[\"diff\", \"--numstat\", \"-z\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"dc604fdff28e53cd91da1a967a43dd2c0bf42a2f\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "2\t2\tsrc/a.py\u00002\t0\tsrc/b.py\u0000"
+   }
+  ],
+  "[[\"rev-parse\", \"dc604fdff28e53cd91da1a967a43dd2c0bf42a2f^{tree}\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "512e57d057ae65137bc5a9501e949c3e21845e06\n"
+   }
+  ],
+  "_s17_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   }
+  ],
+  "_s14_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   }
+  ],
+  "_s8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   }
+  ],
+  "_s15_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "worktree <REPO>\nHEAD eb50cad5e23435607be592b9bd9e9464feb1962e\nbranch refs/heads/main\n\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "worktree <REPO>\nHEAD eb50cad5e23435607be592b9bd9e9464feb1962e\nbranch refs/heads/main\n\n"
+   }
+  ],
+  "_s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 128,
+    "stdout": ""
+   }
+  ],
+  "_s18_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 2,
+    "stdout": ""
+   }
+  ]
+ }
+}

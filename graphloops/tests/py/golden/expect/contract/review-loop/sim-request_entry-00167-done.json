@@ -1,0 +1,79 @@
+{
+ "applicable": {
+  "p0.parallel_pr": null,
+  "p0.prior_decisions": null,
+  "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+  "p1.consistency_bypass": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+  "p1.external_standards": "cond external_standards_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、外部標準の照合を起こさない",
+  "p1.gate_efficacy": "cond gate_efficacy_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、ゲートの検算を起こさない",
+  "p1.hygiene": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+  "p1.local_review": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+  "p1.main_path_observation": "cond main_path_observation_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、主経路の観察を起こさない",
+  "p1.procedure_trace": "cond procedure_trace_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、手順の追跡を起こさない",
+  "p1.provenance": "cond provenance_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、出典の確かめを起こさない",
+  "p1.test_double_fidelity": "cond test_double_fidelity_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起こさない",
+  "p2.fix_plan": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+  "p2.history": "cond after_first_round: round=1",
+  "p2.plan_review": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+  "p2.rejudge": "cond rejudge_open: 回す側は今の周に異議を出していない",
+  "p2.rejudge_third": "cond rejudge_exhausted: 回す側は今の周に異議を出していない",
+  "p3.delta_fix": "cond delta_faces_open: 修正差分のレビューと検算が挙げた、手直しが答える義務は 0 件",
+  "p3.delta_fix2": "cond delta2_faces_open: 手直しの差分のレビューが挙げた、2 回目の手直しが答える義務は 0 件",
+  "p3.delta_gates": "cond lane_due: この周のコードは周の頭から 0 ファイル変わった",
+  "p3.delta_review": "cond delta_review_due: この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件",
+  "p3.delta_review2": "cond delta_review2_due: 手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件",
+  "p3.fix_delta2": "cond delta_fixed: 手直しが今の周に直した（fixed）穴は 0 件",
+  "p4.final_gates": "cond final_gate_due: 検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける",
+  "r1.comment_candidates": null,
+  "r1.minimality": null,
+  "r2.compare": "cond r2_compare_due: R2 のゼロベース再導出が、問いは立っていないと言った",
+  "r2.design": null,
+  "r3.coherence": null,
+  "r4.hidden_scope": null,
+  "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.check": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.review": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "spec.write": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+  "stop.premise_check": "cond r2_premise_invalid: R2 の判定は None"
+ },
+ "check_record": {
+  "p0.base": [],
+  "p0.local_checks": [],
+  "p0.parallel_pr": [],
+  "p0.premises": [],
+  "p0.prior_decisions": [],
+  "p0.purpose": [],
+  "p1.worktree_after": [],
+  "p1.worktree_before": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok p2.diagnose を受け付けた（読んだ先: --output <INPUT>/out.txt）。続きは loop.py next（run _s1_xxxxxxxxxxx）\n",
+  "err": ""
+ },
+ "record": {
+  "process.carried_r1": [],
+  "process.diagnosis": {
+   "framing": "根本は上限の欠落",
+   "one_shot": "上限を 1 箇所に寄せる",
+   "units": [],
+   "one_shot_closes": []
+  },
+  "process.precedents": []
+ },
+ "board": {
+  "rd.done": [
+   "p0.base",
+   "p0.local_checks",
+   "p0.parallel_pr",
+   "p0.premises",
+   "p0.prior_decisions",
+   "p0.purpose",
+   "p1.worktree_after",
+   "p1.worktree_before",
+   "p2.diagnose"
+  ]
+ }
+}

@@ -1,0 +1,127 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_request_entry が loop.py done を呼ぶ直前（170）",
+ "command": [
+  "done",
+  "--node",
+  "p3.fix",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p3.lane_merge.json": {},
+  "record.json": {
+   "materials": {
+    "fix_closure": {
+     "status": "not_applicable",
+     "reason": "P1 時点。修正は P3 でこれから行う"
+    }
+   },
+   "reviews": {},
+   "questions": [],
+   "process": {
+    "request_entry": {
+     "origin": "_s7_xxxxxxx"
+    }
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s6_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {}
+     },
+     "na": {
+      "p2.history": "cond after_first_round: round=1",
+      "p2.plan_review": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件"
+     },
+     "instances": {
+      "p3.fix": {
+       "node": "p3.fix",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "fix_units": {
+     "round": 1
+    }
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"changes\": [], \"not_done\": [], \"interactions\": [], \"fix_closure\": {\"status\": \"not_applicable\", \"reason\": \"本ラウンドに修正なし\"}, \"mechanism_changed\": false, \"premise_drift\": false, \"gates_changed\": false, \"seams_changed\": false, \"security_surface_changed\": false, \"path_changed\": false, \"wrote_refs\": [], \"plan_faces\": []}"
+  }
+ },
+ "git": {
+  "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s8_xx": "<REPO>\n"
+   }
+  ],
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s8_xx": ""
+   }
+  ],
+  "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s8_xx": ""
+   }
+  ]
+ }
+}

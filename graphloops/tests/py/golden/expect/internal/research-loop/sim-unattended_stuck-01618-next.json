@@ -1,0 +1,92 @@
+{
+ "cond": {
+  "constraints_self_written": [
+   false,
+   "surveyor が自書した問い・制約は 0 件"
+  ],
+  "generation_due": [
+   false,
+   "初回でなく、手詰まり（stuck）の後でもない"
+  ],
+  "no_new_discrepancies": [
+   true,
+   "この周の新規相違は 0 件"
+  ],
+  "rederiver_compare_due": [
+   true,
+   "この周の新規相違は 0 件・rederiver の判定は pass"
+  ],
+  "sampling_due": [
+   true,
+   "この周の P1 の照合対象は 0 件"
+  ]
+ },
+ "loop": {},
+ "outputs": {
+  "out/r2/converge.json": {
+   "decision": "ask",
+   "reason": "stuck",
+   "ask": {
+    "kinds": [
+     "stuck"
+    ],
+    "question": "収束していない。次のどれにするか（continue: 次の周へ／stop: 未収束のまま報告へ／escalate: 重厚に上げて次の周へ）",
+    "items": [
+     "stuck: 同じ相違が反映後も残っている: ['B']——主張側でなく前提側が誤っている可能性。P0 に戻すか"
+    ],
+    "options": [
+     "continue",
+     "stop",
+     "escalate"
+    ]
+   }
+  }
+ },
+ "calls": [
+  [
+   "BUILTINS",
+   "converge",
+   "decision=ask"
+  ],
+  [
+   "CONDS",
+   "constraints_self_written",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "generation_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "no_new_discrepancies",
+   "真"
+  ],
+  [
+   "CONDS",
+   "rederiver_compare_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "sampling_due",
+   "真"
+  ],
+  [
+   "FAN_OUT",
+   "sampling_pick",
+   "一覧あり"
+  ],
+  [
+   "HOOKS",
+   "check_record",
+   "一覧なし"
+  ],
+  [
+   "HOOKS",
+   "on_unattended",
+   "返った"
+  ]
+ ]
+}

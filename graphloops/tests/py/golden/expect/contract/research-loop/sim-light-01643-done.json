@@ -1,0 +1,72 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.rederiver_compare": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+ },
+ "check_record": {
+  "converge": [],
+  "p0.claims": [],
+  "p0.clusters": [],
+  "p0.question": [],
+  "p0.terms": [],
+  "p1.checker": [],
+  "p1.record_check": [],
+  "p1.refuter": [],
+  "p2.integrate": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok p5.adapt を受け付けた（読んだ先: --output <INPUT>/out.json）。続きは loop.py next（run _s0_xxxxxxxxxxx）\n",
+  "err": ""
+ },
+ "record": {
+  "decisions.decide_now": [
+   "_s3_"
+  ],
+  "decisions.human_only": [
+   "_s5_"
+  ],
+  "process.decision_details": {
+   "decide_now": [
+    {
+     "text": "_s3_",
+     "basis": "_s1_x",
+     "premortem": [
+      "_s4_"
+     ],
+     "tripwire": "_s2_x"
+    }
+   ],
+   "poc": [],
+   "human_only": [
+    {
+     "text": "_s5_",
+     "options": [
+      {
+       "option": "a",
+       "consequence": "b"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "board": {
+  "rd.done": [
+   "converge",
+   "p0.claims",
+   "p0.clusters",
+   "p0.question",
+   "p0.terms",
+   "p1.checker",
+   "p1.record_check",
+   "p1.refuter",
+   "p2.integrate",
+   "p5.adapt"
+  ]
+ }
+}

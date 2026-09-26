@@ -1,0 +1,67 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 軽量 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.rederiver_compare": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+  "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+ },
+ "check_record": {
+  "converge": [],
+  "p0.claims": [],
+  "p0.clusters": [],
+  "p0.question": [],
+  "p0.terms": [],
+  "p1.checker": [],
+  "p1.record_check": [],
+  "p1.refuter": [],
+  "p2.integrate": [],
+  "p5.adapt": []
+ },
+ "command": {
+  "exit": 0,
+  "out": {
+   "status": "stopped",
+   "round": 1,
+   "thickness": "軽量",
+   "run_id": "_s5_xxxxxxxxxxx",
+   "ready": [
+    {
+     "id": "report",
+     "node": "report",
+     "mode": "runner"
+    }
+   ],
+   "notes": []
+  },
+  "err": ""
+ },
+ "record": {
+  "gates.cartographer.reason": "軽量 段では走らせない（重厚だけ。厚みの三段の表が正本）",
+  "gates.cold_reader.reason": "軽量段では走らせない（厚みの三段の表が正本）",
+  "gates.rederiver.reason": "軽量段では走らせない（厚みの三段の表が正本）",
+  "process.git_mismatches": [],
+  "process.graph_changes": [],
+  "process.growing_prompts": [],
+  "process.halted": null,
+  "process.hist_drift": [],
+  "process.launch_missing": [],
+  "process.loop_drift": [],
+  "process.patches": [],
+  "process.read_through_unchecked": [],
+  "process.resumes": [],
+  "process.role_def_missing": [],
+  "process.skipped": [],
+  "process.stale_frozen": [],
+  "process.stale_verdicts": [
+   "B"
+  ],
+  "process.stopped_nodes": [],
+  "process.thickness_changes": [],
+  "process.truncated_inputs": [],
+  "process.writes_skipped": [],
+  "sampling.reason": "再ラウンドの検証対象が空集合になった周が無かった（抜き取りの条件に当たらない）"
+ },
+ "board": {}
+}

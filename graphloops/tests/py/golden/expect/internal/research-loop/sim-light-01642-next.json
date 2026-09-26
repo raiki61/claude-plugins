@@ -1,0 +1,68 @@
+{
+ "cond": {
+  "constraints_self_written": [
+   false,
+   "surveyor が自書した問い・制約は 0 件"
+  ],
+  "generation_due": [
+   true,
+   "初回"
+  ],
+  "no_new_discrepancies": [
+   false,
+   "この周の新規相違は 1 件"
+  ],
+  "rederiver_compare_due": [
+   false,
+   "この周の新規相違は 1 件"
+  ],
+  "sampling_due": [
+   false,
+   "round=1（2 周目以降だけ）"
+  ]
+ },
+ "loop": {},
+ "outputs": {
+  "out/r1/converge.json": {
+   "decision": "stopped",
+   "reason": "軽量段: 1 ラウンドで打ち切り（収束の宣言はしない。判定の集計と結論・残件だけを出す）"
+  }
+ },
+ "calls": [
+  [
+   "BUILTINS",
+   "converge",
+   "decision=stopped"
+  ],
+  [
+   "CONDS",
+   "constraints_self_written",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "generation_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "no_new_discrepancies",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "rederiver_compare_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "sampling_due",
+   "偽"
+  ],
+  [
+   "HOOKS",
+   "check_record",
+   "一覧なし"
+  ]
+ ]
+}

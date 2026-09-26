@@ -1,0 +1,197 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_request_entry が loop.py next を呼ぶ直前（209）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "base_sha": "_s14_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "method": "3 HEAD~1",
+   "commits": 1,
+   "merge_commit": false,
+   "intent_to_add": [],
+   "touches_gates": true,
+   "touches_external_seams": true,
+   "touches_user_path": true,
+   "touches_security_surface": false,
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.local_checks.json": {
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {
+   "constraints": []
+  },
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "purpose_text": "_s23_xxxxxxxxxxxx",
+   "source": "①PR 説明",
+   "known_weaknesses": [],
+   "source_files": []
+  },
+  "out/r1/p1.worktree_before.json": {
+   "tree_before": {
+    "porcelain": [
+     " M README.md"
+    ],
+    "stash": "",
+    "tree": "cc3610678ba2be6ab3882fea6fa97d131d4324e0",
+    "rev": "_s16_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  },
+  "record.json": {
+   "base": "_s14_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "materials": {
+    "base_determination": {
+     "status": "clean",
+     "checked": "_s17_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_checks": {
+     "status": "clean",
+     "checked": "_s5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "parallel_pr": {
+     "status": "clean",
+     "checked": "_s22_xxxxxxxxxxxxxxxxx"
+    },
+    "prior_decisions": {
+     "status": "clean",
+     "checked": "_s18_xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+   },
+   "reviews": {},
+   "questions": [],
+   "process": {
+    "request_findings": [
+     {
+      "round": 1,
+      "origin": "_s27_xxxxxx",
+      "findings": [
+       {
+        "where": "_s28_xxxxx",
+        "text": "_s20_xxxxxxxxxxxxxxxxxxxxxxx"
+       }
+      ]
+     }
+    ],
+    "request_entry": {
+     "origin": "_s27_xxxxxx"
+    },
+    "constraints": []
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s24_xxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "round": 1,
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {}
+     },
+     "na": {
+      "spec.write": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.review": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "p1.local_review": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+      "p1.hygiene": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+      "p1.procedure_trace": "cond procedure_trace_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、手順の追跡を起こさない",
+      "p1.gate_efficacy": "cond gate_efficacy_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、ゲートの検算を起こさない",
+      "p1.test_double_fidelity": "cond test_double_fidelity_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起こさない",
+      "p1.main_path_observation": "cond main_path_observation_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、主経路の観察を起こさない",
+      "p1.provenance": "cond provenance_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、出典の確かめを起こさない"
+     },
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "cwd": "<REPO>",
+    "review_md": "<ROOT>/REVIEW.md"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p1.worktree_before": {
+     "file": "out/r1/p1.worktree_before.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "reviewed_revision": "_s16_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "diff_file": "<RUN>/diff-r1.patch",
+    "changed_files": [
+     "README.md"
+    ]
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "[[\"status\", \"--porcelain\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": " M README.md\n"
+   }
+  ],
+  "[[\"rev-parse\", \"--path-format=absolute\", \"--git-path\", \"index\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   }
+  ],
+  "[[\"update-index\", \"-q\", \"--really-refresh\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"add\", \"-A\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"write-tree\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": "cc3610678ba2be6ab3882fea6fa97d131d4324e0\n"
+   }
+  ],
+  "[[\"stash\", \"list\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ]
+ }
+}

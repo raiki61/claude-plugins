@@ -1,0 +1,269 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py next を呼ぶ直前（1490）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/converge.json": {},
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_gates.json": {},
+  "out/r1/p3.delta_owed.json": {},
+  "out/r1/p3.delta_owed2.json": {},
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/p3.fix_delta.json": {},
+  "out/r1/p3.gates_cut.json": {},
+  "out/r1/p3.tdd_green.json": {},
+  "out/r1/p3.tdd_red.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {},
+  "out/r1/p4.assemble.json": {},
+  "out/r1/p4.ci.json": {},
+  "out/r1/p4.record.json": {},
+  "out/r1/p4.scalars.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r1.minimality.json": {},
+  "out/r1/r2.compare.json": {},
+  "out/r1/r2.design.json": {
+   "question_stands": true
+  },
+  "out/r1/r4.human_gate.json": {},
+  "out/r2/p0.prior_decisions.json": {},
+  "out/r2/p1.consistency_bypass.json": {},
+  "out/r2/p1.external_standards.json": {},
+  "out/r2/p1.gate_efficacy.json": {},
+  "out/r2/p1.hygiene.json": {},
+  "out/r2/p1.local_review.json": {},
+  "out/r2/p1.main_path_observation.json": {},
+  "out/r2/p1.procedure_trace.json": {},
+  "out/r2/p1.provenance.json": {},
+  "out/r2/p1.test_double_fidelity.json": {},
+  "out/r2/p1.worktree_after.json": {},
+  "out/r2/p1.worktree_before.json": {
+   "tree_before": {
+    "rev": "f823c7f0d16cc45959771606427e585c6d659e97"
+   }
+  },
+  "out/r2/p2.diagnose.json": {},
+  "out/r2/p2.fix_units.json": {},
+  "out/r2/p2.history.json": {},
+  "out/r2/p2.human_gate.json": {},
+  "out/r2/p3.fix.json": {},
+  "out/r2/p3.lane_merge.json": {},
+  "record.json": {
+   "base": "_s18_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s23_xxxxxxxxxx",
+   "status": "running",
+   "round": 2,
+   "rounds": [
+    {
+     "round": 2,
+     "done": {
+      "p1.worktree_before": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.external_standards": {},
+      "p1.procedure_trace": {},
+      "p1.gate_efficacy": {},
+      "p1.test_double_fidelity": {},
+      "p1.main_path_observation": {},
+      "p1.provenance": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.history": {},
+      "p2.fix_units": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.fix": {}
+     },
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "cwd": "<REPO>"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "r2.design": {
+     "file": "out/r1/r2.design.json",
+     "round": 1
+    }
+   },
+   "done_ever": {
+    "p0.base": 1,
+    "p0.premises": 1,
+    "p0.purpose": 1
+   },
+   "loop": {
+    "reviewed_revision": "f823c7f0d16cc45959771606427e585c6d659e97",
+    "prev_fix_files": [
+     "_s24_xxx",
+     "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "_s21_xxxxxxxxxxxxxx"
+    ]
+   }
+  }
+ },
+ "repo": {
+  ".review-checks.json": {
+   "suite": [
+    {
+     "name": "suite",
+     "argv": [
+      "_s22_xxxxxxxxxxxx"
+     ]
+    }
+   ]
+  }
+ },
+ "config": {},
+ "input": {},
+ "git": {
+  "[[\"rev-parse\", \"--path-format=absolute\", \"--git-path\", \"index\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   }
+  ],
+  "[[\"update-index\", \"-q\", \"--really-refresh\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   },
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"add\", \"-A\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   },
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"write-tree\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": "7d97d0dfbdf5aae4c09af2c19104f208958824be\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "7d97d0dfbdf5aae4c09af2c19104f208958824be\n"
+   }
+  ],
+  "[[\"rev-parse\", \"HEAD\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "eb50cad5e23435607be592b9bd9e9464feb1962e\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "eb50cad5e23435607be592b9bd9e9464feb1962e\n"
+   }
+  ],
+  "[[\"commit-tree\", \"7d97d0dfbdf5aae4c09af2c19104f208958824be\", \"-p\", \"eb50cad5e23435607be592b9bd9e9464feb1962e\", \"-m\", \"graphloops fix r2\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "6a1a4ba7a4abce993ab7325123c87cf06e730a06\n"
+   }
+  ],
+  "[[\"diff\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"6a1a4ba7a4abce993ab7325123c87cf06e730a06\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"diff\", \"--name-only\", \"-z\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"6a1a4ba7a4abce993ab7325123c87cf06e730a06\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"commit-tree\", \"7d97d0dfbdf5aae4c09af2c19104f208958824be\", \"-p\", \"eb50cad5e23435607be592b9bd9e9464feb1962e\", \"-m\", \"graphloops gates r2\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "2b3809ae242cdc1bd995f08dbf4bd9c5a08ae219\n"
+   }
+  ],
+  "[[\"diff\", \"--name-only\", \"-z\", \"f823c7f0d16cc45959771606427e585c6d659e97\", \"2b3809ae242cdc1bd995f08dbf4bd9c5a08ae219\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"rev-parse\", \"--show-toplevel\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   }
+  ],
+  "_s15_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   }
+  ],
+  "_s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   }
+  ],
+  "_s16_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "worktree <REPO>\nHEAD eb50cad5e23435607be592b9bd9e9464feb1962e\nbranch refs/heads/main\n\n"
+   }
+  ]
+ }
+}
