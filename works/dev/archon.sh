@@ -12,11 +12,19 @@ ARCHON_BIN_NAME="archon-darwin-arm64"
 
 WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 
+# 認証に既定の口座は無い（Ruling R20）。順は
+#   1. CLAUDE_CODE_OAUTH_TOKEN があればそれを使う。
+#   2. 無ければ WORKS_KEYCHAIN_ITEM の名の keychain の項目を読む。
+#   3. どちらも無ければ、1 行の案内を出して止まる。
+# WORKS_DEV_NO_AUTH=1 のときは読まない（テストや validate など、認証が要らないとき用）。
 # keychain は HOME を隔離する前に読む（macOS の security はログイン keychain を
 # $HOME 基準で探すので、後で読むと隔離した偽の HOME の下を探して必ず失敗する）。
-# WORKS_DEV_NO_AUTH=1 のときは読まない（テストなど、認証が要らないとき用）。
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
-  CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s claude-code-oauth-p1 -w)"
+  if [ -z "${WORKS_KEYCHAIN_ITEM:-}" ]; then
+    echo "archon.sh: 認証が無い。CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する" >&2
+    exit 2
+  fi
+  CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "$WORKS_KEYCHAIN_ITEM" -w)"
   export CLAUDE_CODE_OAUTH_TOKEN
 fi
 

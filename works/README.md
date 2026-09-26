@@ -18,6 +18,13 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 
 テストは `works/tests/run.sh`。実際に Archon の上で回す手順（実行ファイルの取得・使い捨ての対象作り・`archon workflow test` 相当の検査）は `works/dev/` を見る。
 
+`works/dev/archon.sh`（固定した版の Archon を隔離して回す殻）の認証に既定の口座は無い。AI を呼ぶ実行（`workflow run`・`workflow test`・`dev/check.sh`）の前に、次のどちらかを設定する:
+
+1. `CLAUDE_CODE_OAUTH_TOKEN`（`claude setup-token` で作るトークン）
+2. `WORKS_KEYCHAIN_ITEM`（そのトークンを入れた macOS の keychain の項目名。`security find-generic-password -s <名> -w` で読む）
+
+両方あれば 1 を使う。どちらも無ければ、案内を 1 行出して止まる。`WORKS_DEV_NO_AUTH=1` のときは認証を読まない（テスト・`validate` 用）。
+
 ## 仕様
 
 設計の正本は [`docs/specs/2026-09-26-darkfactory-design.md`](docs/specs/2026-09-26-darkfactory-design.md)。実装計画は [`docs/plans/2026-09-26-darkfactory-v1.md`](docs/plans/2026-09-26-darkfactory-v1.md)。

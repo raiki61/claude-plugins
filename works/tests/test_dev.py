@@ -4,8 +4,9 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - mktarget.sh が作る使い捨ての対象に、pack が dev 用ファイル抜き・ゴミファイル抜きで入り、
   全部 commit 済みで、仕込んだバグのせいでテストが赤になること。
 - archon.sh が、キャッシュにある実行ファイルの sha256 が違えばネットワークに出ずに拒むこと。
-- archon.sh が keychain（ここでは偽物に差し替える。本物には触らない）を、HOME を隔離する
-  前の元の HOME で読むこと。
+- archon.sh の認証に既定の口座が無いこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
+  WORKS_KEYCHAIN_ITEM の名の keychain の項目（ここでは偽物に差し替える。本物には触らない）を
+  HOME を隔離する前の元の HOME で読み、どちらも無ければ 1 行の案内で止まること（Ruling R20）。
 - check.sh が works 自身の工程（works/<d>/<d>.yaml）だけを 1 本ずつ validate し、`workflow test works` を回し、
   どれか 1 つでも赤なら終了コード 1 になること（Archon は偽物の記録係に差し替える。Ruling R10）。
 """
@@ -81,13 +82,13 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("sha256", result.stderr)
 
-    def test_archon_sh_reads_keychain_before_home_is_isolated(self):
-        """keychain（偽物）を読む時点の $HOME が、隔離した偽の HOME ではなく元の HOME であること。
+    def _run_archon_sh_with_fake_security(self, **overrides):
+        """偽の `security`（呼ばれた時の $HOME と引数を記録し、偽のトークンを出す）を PATH の先頭に置いて archon.sh を回す。
 
-        本物の keychain には一切触れない: PATH の先頭に置いた偽の `security` が実物の代わりに
-        呼ばれる。実行ファイルの中身は意図的に違うものにして、認証を読んだすぐ後の sha256 の
-        確かめで exit 1 になる（読み込みが exec より前で起きたことの観測に、本物の 77MB の
-        実行ファイルは要らない）。
+        本物の keychain には一切触れない。実行ファイルの中身は意図的に違うものにしてあるので、
+        認証の段を抜ければ sha256 の確かめで exit 1 になる（本物の 77MB の実行ファイルは要らない）。
+        overrides の値が None の変数は環境から外す。戻り値は (結果, 呼ばれた時の $HOME, 引数) で、
+        security が呼ばれなければ後ろ 2 つは None。
         """
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
@@ -98,22 +99,28 @@ class TestDevShell(unittest.TestCase):
 
             fake_bin = tmp / "fake-bin"
             fake_bin.mkdir()
-            record_file = tmp / "security-home.txt"
+            home_file = tmp / "security-home.txt"
+            args_file = tmp / "security-args.txt"
             security_script = fake_bin / "security"
             security_script.write_text(
                 "#!/bin/sh\n"
-                f'echo "$HOME" > "{record_file}"\n'
+                f'echo "$HOME" > "{home_file}"\n'
+                f'echo "$*" > "{args_file}"\n'
                 "echo dummy-token-for-test\n"
             )
             security_script.chmod(0o755)
 
-            original_home = "/tmp/works-dev-test-original-home"  # 実在しなくてよい、印の値
             env = dict(os.environ)
-            env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-            env.pop("WORKS_DEV_NO_AUTH", None)
-            env["HOME"] = original_home
+            for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
+                env.pop(name, None)
+            env["HOME"] = "/tmp/works-dev-test-original-home"  # 実在しなくてよい、印の値
             env["WORKS_DEV_HOME"] = str(dev_home)
             env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            for name, value in overrides.items():
+                if value is None:
+                    env.pop(name, None)
+                else:
+                    env[name] = value
 
             result = subprocess.run(
                 ["sh", str(DEV / "archon.sh"), "version"],
@@ -121,13 +128,45 @@ class TestDevShell(unittest.TestCase):
                 text=True,
                 env=env,
             )
+            home = home_file.read_text().strip() if home_file.exists() else None
+            args = args_file.read_text().strip() if args_file.exists() else None
+            # トークンは画面にも記録にも出さない。
+            self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
+            return result, home, args
 
-            # 偽の security を呼んだ時点の $HOME は、隔離前の元の HOME のまま。
-            self.assertEqual(record_file.read_text().strip(), original_home)
-            # 中身の違う実行ファイルなので、keychain を読んだ後の sha256 の確かめで落ちる。
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("sha256", result.stderr)
+    def test_archon_sh_reads_named_keychain_item_before_home_is_isolated(self):
+        """WORKS_KEYCHAIN_ITEM の名の keychain の項目（偽物）を、HOME を隔離する前の元の HOME で読むこと。"""
+        result, home, args = self._run_archon_sh_with_fake_security(WORKS_KEYCHAIN_ITEM="some-item-for-test")
+        self.assertEqual(home, "/tmp/works-dev-test-original-home")
+        self.assertEqual(args, "find-generic-password -s some-item-for-test -w")
+        # 中身の違う実行ファイルなので、keychain を読んだ後の sha256 の確かめで落ちる。
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("sha256", result.stderr)
 
+    def test_archon_sh_prefers_token_env_over_keychain(self):
+        result, home, args = self._run_archon_sh_with_fake_security(
+            CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", WORKS_KEYCHAIN_ITEM="some-item-for-test"
+        )
+        self.assertIsNone(args)  # keychain は読まない
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("sha256", result.stderr)
+
+    def test_archon_sh_has_no_default_account(self):
+        """トークンも keychain の項目名も無ければ、既定の口座を読まずに 1 行の案内で止まること。"""
+        result, home, args = self._run_archon_sh_with_fake_security()
+        self.assertIsNone(args)  # 既定の項目名で keychain を読みに行かない
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("sha256", result.stderr)  # 実行ファイルの確かめより前で止まる
+        lines = result.stderr.strip().splitlines()
+        self.assertEqual(len(lines), 1, result.stderr)
+        for word in ("CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token", "WORKS_KEYCHAIN_ITEM"):
+            self.assertIn(word, lines[0])
+
+    def test_archon_sh_no_auth_skips_auth(self):
+        result, home, args = self._run_archon_sh_with_fake_security(WORKS_DEV_NO_AUTH="1")
+        self.assertIsNone(args)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("sha256", result.stderr)
 
     def _run_check(self, fail_on=""):
         """check.sh を偽の Archon（引数と cwd を記録し、引数に fail_on を含めば終了コード 1）で回す"""
