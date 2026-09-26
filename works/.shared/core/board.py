@@ -280,36 +280,16 @@ def rules_module(graph: pathlib.Path | None = None):
 
 
 # ---------------------------------------------------------------- engine が走らせる節の既定の runner
-def _outside_env(environ) -> dict:
-    """uv run が足した物を外した環境（blk-tests の run_tests.py の outside_env と同じ決まり。台帳 R23）。
-    PYTHONDONTWRITEBYTECODE=1 を立て、UV_NO_CONFIG はいつも外す（対象の [tool.uv] を読ませる）。uv run の中で起こされた
-    （UV_RUN_RECURSION_DEPTH が在る）ときだけ、PATH の頭のこの python の bin と、sys.prefix を指す VIRTUAL_ENV も外す
-    ——そのまま渡すと宣言の `python3 -m pytest` が uv の python を掴んで偽の赤になる"""
-    env = dict(environ)
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    env.pop("UV_NO_CONFIG", None)
-    if env.pop("UV_RUN_RECURSION_DEPTH", None) is None:
-        return env
-    ours = {os.path.realpath(d) for d in (os.path.dirname(sys.executable), os.path.join(sys.prefix, "bin"))}
-    parts = env.get("PATH", "").split(os.pathsep)
-    while parts and parts[0] and os.path.realpath(parts[0]) in ours:
-        ours.discard(os.path.realpath(parts.pop(0)))
-    env["PATH"] = os.pathsep.join(parts)
-    venv = env.get("VIRTUAL_ENV")
-    if venv and os.path.realpath(venv) == os.path.realpath(sys.prefix):
-        del env["VIRTUAL_ENV"]
-    return env
-
-
 def tree_runner(steps: list, cwd, log_dir) -> list:
     """run_engine の既定の runner（仕様 4.3）: 段を 1 つずつ works の tree_run で走らせる——shell を通さない・別のプロセス
-    グループ・期限なし・標準入力は空・uv run の環境を外す（_outside_env）・止められたら SIGTERM → KILL_GRACE（2 秒）→ SIGKILL で
+    グループ・期限なし・標準入力は空・uv run の環境を外す（tree_run.outside_env。blk-tests の run_tests と同じ 1 本）・止められたら SIGTERM → KILL_GRACE（2 秒）→ SIGKILL で
     木ごと止めて tree_run.Stopped を投げる（ここでは捕まえない）。標準出力・標準エラーは log_dir/<段の番号>.out・.err に丸ごと。
     返りの行は engine の run_steps と同じ鍵 {name, argv, out, err, exit, wall_s, tail}（起こせなければ exit None と error）。
-    engine と違う所: 信号で死んだ段の exit は tree_run の 128+信号（engine は負の番号）。どちらも赤に読まれる"""
+    engine と違う所: 信号で死んだ段の exit は tree_run の 128+信号（engine は負の番号）。どちらも赤に読まれる。
+    子の環境は uv run の外の形で、PYTHONDONTWRITEBYTECODE=1 を立てる（works の決まり。engine の run_steps は環境をそのまま継ぐ）"""
     log_dir = pathlib.Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    env = _outside_env(os.environ)
+    env = tree_run.outside_env(os.environ)
     runs = []
     for i, s in enumerate(steps):
         started = time.time()
@@ -745,7 +725,7 @@ class DiskBoard(_EngineBoard):
            blocked（走らせずに返答を組む）・fallback（任せ先へ。7）
         2. steps・helper は走らせる直前に engine の engine_run_refusal（対象のルートの宣言と sha の照合）を当てる。拒めば
            {ok: False, why, relaunch: True} を返し、盤面は書かず、節は待ちのまま（呼び直す＝今の宣言で計画し直す）
-        3. runner(steps, cwd=リポジトリのルート, log_dir=runs/r<N>/<id>.a1/)（既定は tree_runner）。tree_run.Stopped は
+        3. runner(steps, cwd=リポジトリのルート, log_dir=runs/r<N>/<id>.a<k>/。k は空いた最初の番号)（既定は tree_runner）。tree_run.Stopped は
            盤面を書かずに投げ直す（Archon の取り消し・Ctrl-C。節は待ちのまま）
         4. RL の ENGINE_RUNS[builtin].reply → 返りが fallback なら 7。そうでなければ instance に engine と同じ mode・launch を
            置いて _accept_engine_reply。受け付けが拒めば（AnswerReject）7
@@ -793,7 +773,7 @@ class DiskBoard(_EngineBoard):
             why = engine_run_refusal({"launch": {"steps": steps, "sha": launch["sha"]}}, root)
             if why:
                 return {"ok": False, "node": nid, "why": why, "relaunch": True}
-            log_dir = self.dir / "runs" / f"r{self.round}" / safe_name(nid + ".a1")
+            log_dir = self._log_dir(nid)
             runs = (runner or tree_runner)(steps, pathlib.Path(root), log_dir)
             self.trace("engine_run", instance=nid, node=nid,
                        runs=[{k: r.get(k) for k in ("name", "exit", "wall_s", "error")} for r in runs])
@@ -806,6 +786,15 @@ class DiskBoard(_EngineBoard):
         except AnswerReject as ex:
             return self._fall_back(nid, er, f"engine が組んだ返答を受け付けが拒んだ（{str(ex)[:400]}）", {"runs": runs})
         return {"ok": True, "node": nid, "runs": runs, **({"blocked": launch["blocked"]} if launch["blocked"] else {})}
+
+    def _log_dir(self, nid: str) -> pathlib.Path:
+        """走らせた語のログの置き場 runs/r<N>/<id>.a<k>/（engine と同じ名前）。k は空いている最初の番号——engine は instance の
+        試行の数（attempts）で分けるが、DiskBoard は試行を数えないので、止められた後の呼び直しで前の走りのログを上書きしない"""
+        top = self.dir / "runs" / f"r{self.round}"
+        k = 1
+        while (top / safe_name(f"{nid}.a{k}")).exists():
+            k += 1
+        return top / safe_name(f"{nid}.a{k}")
 
     def _fall_back(self, nid: str, er: dict, reason: str, extra: dict) -> dict:
         """engine の組んだ結果を使えない節を任せ先へ落とす（仕様 4.3 の 7。engine の _engine_fallback と、出す時の計画の

@@ -225,5 +225,31 @@ class TreeRunCase(unittest.TestCase):
         self.assertEqual(list(ROOT.rglob("__pycache__")), [])
 
 
+
+class OutsideEnvCase(unittest.TestCase):
+    """uv run の外の環境（tree_run.outside_env。blk-tests の run_tests と盤面の tree_runner が使う。台帳 R23）"""
+
+    def test_strips_path_front_inside_uv(self):
+        """uv run の中（UV_RUN_RECURSION_DEPTH が在る）: PATH の頭のこの python の bin を 1 度だけ外し、後ろの同じフォルダは残す。
+        sys.prefix を指す VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH・UV_NO_CONFIG を外し、PYTHONDONTWRITEBYTECODE=1 を立てる"""
+        ours = os.path.dirname(sys.executable)
+        env = tree_run.outside_env({"PATH": os.pathsep.join([ours, "/usr/bin", ours]), "UV_RUN_RECURSION_DEPTH": "1",
+                                    "VIRTUAL_ENV": sys.prefix, "UV_NO_CONFIG": "1", "HOME": "/h"})
+        self.assertEqual(env, {"PATH": os.pathsep.join(["/usr/bin", ours]), "PYTHONDONTWRITEBYTECODE": "1", "HOME": "/h"})
+
+    def test_keeps_foreign_venv_and_outside_uv(self):
+        """sys.prefix でない VIRTUAL_ENV（利用者の物）は残す。uv run の外なら PATH も VIRTUAL_ENV も触らない（UV_NO_CONFIG は外す）"""
+        ours = os.path.dirname(sys.executable)
+        env = tree_run.outside_env({"PATH": ours, "UV_RUN_RECURSION_DEPTH": "1", "VIRTUAL_ENV": "/elsewhere"})
+        self.assertEqual(env, {"PATH": "", "VIRTUAL_ENV": "/elsewhere", "PYTHONDONTWRITEBYTECODE": "1"})
+        env = tree_run.outside_env({"PATH": ours, "VIRTUAL_ENV": sys.prefix, "UV_NO_CONFIG": "1"})
+        self.assertEqual(env, {"PATH": ours, "VIRTUAL_ENV": sys.prefix, "PYTHONDONTWRITEBYTECODE": "1"})
+
+    def test_does_not_touch_given_mapping(self):
+        src = {"UV_RUN_RECURSION_DEPTH": "1", "PATH": ""}
+        tree_run.outside_env(src)
+        self.assertEqual(src, {"UV_RUN_RECURSION_DEPTH": "1", "PATH": ""})
+
+
 if __name__ == "__main__":
     unittest.main()
