@@ -5,7 +5,8 @@
 当てる手: 役の返答の受け付け（kind=accept → DiskBoard.accept。engine_run の中の受け付けは _accept_engine_reply）・
 機械の節（kind=builtin → step_builtin）・周の開き（kind=open_round → 親の converge の手を step_builtin）・
 条件の na（kind=na → _settle_node）・engine が走らせた節（kind=engine_run → 撮った計画と runs を差し込んで run_engine、
-続く accept の手の後と比べる）。
+続く accept の手の後と比べる）・依頼（kind=add → add_request）・人の答え（kind=answer → _answer_record。答えの中の周の開きを含む）・
+止める（kind=stop → stop）・仕上げ（kind=finalize → finalize）。省く（skip）の手は手本に無いので、engine の cmd_skip と比べる。
 settle の単体（入口の止め方・壁・問い・周の止め・読んだ物の控え）もここに置く。
 """
 import collections
@@ -13,12 +14,14 @@ import contextlib
 import copy
 import dataclasses
 import hashlib
+import io
 import json
 import os
 import pathlib
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -428,7 +431,7 @@ class MachineStepsCase(StepCase):
         for s in kind_steps("open_round"):
             parent = next(x for x in s.run_steps if x["seq"] == s["parent"])
             if parent["kind"] != "builtin":
-                continue    # 人の答えの中の周の開き（answer の手）は Task 6
+                continue    # 人の答えの中の周の開き（answer の手）は LineStepsCase.test_answer_steps が answer の手の後と比べる
             b = self.board_before(parent)
             b.step_builtin(parent["node"])
             exp = R.normalize(R.memory_at(s.run_steps, s["seq"], "after"))
@@ -522,6 +525,261 @@ class EngineRunStepsCase(StepCase):
               f"（節ごと: {dict(sorted(nodes.items()))}）", file=sys.stderr)
         self.assertEqual(done, 71)
         self.assertEqual(bad, [], "\n".join(bad[:20]))
+
+
+def file_items(step, board):
+    """add の手の依頼の本文（台本が --file に書いた JSON）を、盤面の置き場の実パスに戻して読む"""
+    return R.Places.of_board(board.dir).untokenize(json.loads(step["args"]["file_text"]))
+
+
+def in_round_asking(board):
+    return bool((board.state.get("pending_human") or {}).get("in_round"))
+
+
+class LineStepsCase(StepCase):
+    """依頼（add）・人の答え（answer）・省く（skip）・止める（stop）・仕上げ（finalize）の手を 1 手ずつ当てる。
+    settle しない記録の部分（add_request・_answer_record・_skip_record・stop・finalize）に当て、手の後と比べる。
+    拒まれた手は、engine と同じ文で拒み、盤面の置き場が前のまま"""
+
+    def rejected_same(self, s, call):
+        """拒まれた手: 同じ文の Reject、盤面の置き場（state・record・trace・out）と目録が前のまま"""
+        b = self.board_before(s)
+        before = tree_shas(b.dir)
+        with self.assertRaises(Reject) as cm:
+            call(b)
+        self.assertEqual(tok(b, str(cm.exception)), s["raised"]["text"])
+        self.assertEqual(tree_shas(b.dir), before)
+        self.assertEqual(R.disk_diff(b.dir, R.manifest_at(s.run_steps, s["seq"], "after", "disk")), [])
+        shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+
+    def test_add_steps(self):
+        """kind=add の全部の手: add_request(依頼, 出どころ) → 手の後と同じ。拒まれた手（RL の add の拒否）は同じ文"""
+        done, bad, rejected, redrawn = 0, [], 0, 0
+        for s in kind_steps("add"):
+            call = lambda b, s=s: b.add_request(file_items(s, b), s["args"]["reason"])
+            if s.get("raised"):
+                with self.subTest(scenario=s.run_steps.scenario, seq=s["seq"]):
+                    self.rejected_same(s, call)
+                rejected += 1
+                continue
+            b = self.board_before(s)
+            got = call(b)
+            self.assertEqual(set(got), {"msg", "redraw"})
+            redrawn += len(got["redraw"])
+            diffs = R.compare(b, s)
+            done += 1
+            if diffs:
+                bad.append(f"{s.run_steps.scenario} run {s['run']} seq {s['seq']}: " + " / ".join(diffs[:5]))
+            shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+        print(f"\n手本の add の手: 通った {done} 手を当て {done - len(bad)} 手が手の後と同じ（描き直した instance {redrawn}）・"
+              f"拒まれた {rejected} 手は同じ文", file=sys.stderr)
+        self.assertGreater(done, 10)
+        self.assertGreater(rejected, 3)
+        self.assertEqual(bad, [], "\n".join(bad[:20]))
+
+    def test_answer_steps(self):
+        """kind=answer の全部の手: _answer_record(答え, 一言) → 手の後と同じ（周の途中の問い human_gate への答えと、
+        周の終わりの答えの中の周の開き open_round を含む）"""
+        done, bad, in_round, opened = 0, [], 0, 0
+        for s in kind_steps("answer"):
+            b = self.board_before(s)
+            in_round += in_round_asking(b)
+            b._answer_record(s["args"]["text"], s["args"].get("note") or "")
+            opened += any(x.get("parent") == s["seq"] and x["kind"] == "open_round" for x in s.run_steps)
+            diffs = R.compare(b, s)
+            done += 1
+            if diffs:
+                bad.append(f"{s.run_steps.scenario} run {s['run']} seq {s['seq']}: " + " / ".join(diffs[:5]))
+            shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+        print(f"\n手本の answer の手: {done} 手を当て {done - len(bad)} 手が手の後と同じ（周の途中の問い {in_round}・"
+              f"答えの中の周の開き {opened}）", file=sys.stderr)
+        self.assertEqual(done, 6)
+        self.assertGreaterEqual(in_round, 3)
+        self.assertEqual(opened, 2)
+        self.assertEqual(bad, [], "\n".join(bad[:20]))
+
+    def test_answer_in_round_continue(self):
+        """test_human_gate の p2.human_gate の問いに continue と一言: human_items に node・answer・note、pending_human が消え、
+        続く settle で p3.fix が ready"""
+        s = run_step("test_human_gate", 1, 31)
+        self.assertEqual(s["kind"], "answer")
+        b = self.board_before(s)
+        self.assertEqual(b.state["pending_human"]["node"], "p2.human_gate")
+        self.assertTrue(in_round_asking(b))
+        p = b.answer("continue", "呼び元の経路は残せ（検査用）")
+        row = b.record["process"]["human_items"][-1]
+        self.assertEqual((row["node"], row["answer"], row["note"]), ("p2.human_gate", "continue", "呼び元の経路は残せ（検査用）"))
+        self.assertNotIn("pending_human", b.state)
+        self.assertIsNone(p["asking"])
+        self.assertIn("p2.human_gate", b.rd["done"])
+        self.assertIn("p3.fix", p["ready"])
+        disk = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        self.assertNotIn("pending_human", disk)
+
+    def test_answer_in_round_stop_halts(self):
+        """周の途中の問いに stop: halted.by == "answer"、status は stopped。以後の保存は allow_halted 無しで Reject
+        （同じ入れ物も、開き直した入れ物も。engine は手ごとに盤面を読み直すので、止めた後の手は必ず拒まれる）"""
+        s = run_step("test_human_gate", 2, 208)
+        self.assertEqual((s["kind"], s["args"]["text"]), ("answer", "stop"))
+        b = self.board_before(s)
+        self.assertTrue(in_round_asking(b))
+        p = b.answer("stop", "削らない向きで出し直す")
+        self.assertEqual(b.state["halted"]["by"], "answer")
+        self.assertEqual(p["halted"]["by"], "answer")
+        self.assertEqual(b.state["status"], "stopped")
+        self.assertEqual(p["ready"], [])
+        with self.assertRaises(Reject):
+            b.save()
+        again = DiskBoard.open(b.dir, table=TABLE)
+        with self.assertRaises(Reject):
+            again.save()
+        DiskBoard.open(b.dir, table=TABLE, allow_halted=True).save()
+
+    def test_answer_without_question(self):
+        """人に聞いていない盤面への答えは engine と同じ文で拒み、盤面を書かない"""
+        s = first_step("test_converges", "p0.base")
+        b = self.board_before(s)
+        self.assertNotIn("pending_human", b.state)
+        before = tree_shas(b.dir)
+        with self.assertRaises(Reject) as cm:
+            b.answer("continue")
+        self.assertEqual(str(cm.exception), "人に聞いている節は無い")
+        self.assertEqual(tree_shas(b.dir), before)
+
+    def test_answer_bad_word(self):
+        """選択肢に無い語・周の途中の問いに escalate は engine と同じく拒む"""
+        s = run_step("test_human_gate", 1, 31)
+        for word, part in (("maybe", "のどれか"), ("escalate", "")):
+            b = self.board_before(s)
+            b.state["pending_human"]["options"] = sorted(set(b.state["pending_human"]["options"]) | {"escalate"})
+            with self.assertRaises(Reject) as cm:
+                b._answer_record(word)
+            self.assertIn(part or "周の途中の問い", str(cm.exception))
+
+    def skip_board(self, table=None):
+        """p2.history（graph で optional）が待っている盤面（test_converges の p2.history の手の前）"""
+        s = first_step("test_converges", "p2.history")
+        table = table or with_by(TABLE, "p2.history", by="role", skippable=True)
+        return s, self.board_before(s, table=table)
+
+    def test_skip_steps(self):
+        """kind=skip の手は手本に無い（台本が loop.py skip を打たない。数を 0 に固め、撮り直しで増えたら手本に当てる）。
+        代わりに engine の cmd_skip を同じ盤面の写しに当て、_skip_record の後の記憶と比べる（engine が正本）"""
+        n = sum(1 for _ in kind_steps("skip"))
+        print(f"\n手本の skip の手: {n}（engine の cmd_skip と同じ盤面で比べる）", file=sys.stderr)
+        self.assertEqual(n, 0)
+        s, b = self.skip_board()
+        twin = self.tmp / "engine-twin"
+        shutil.copytree(b.dir, twin)
+        with contextlib.redirect_stdout(io.StringIO()):
+            engine_commands.cmd_skip(types.SimpleNamespace(dir=str(twin), node="p2.history", reason="検査用に省く"))
+        b._skip_record("p2.history", "検査用に省く")
+        want = json.loads((twin / "state.json").read_text(encoding="utf-8"))
+        got = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        for d in (want, got):
+            d.pop("works", None)
+            d["inputs"]["cwd"] = None
+        self.assertEqual(R.normalize({"state": want}), R.normalize({"state": got}))
+        self.assertEqual(json.loads((twin / "record.json").read_text(encoding="utf-8")),
+                         json.loads((b.dir / "record.json").read_text(encoding="utf-8")))
+        self.assertEqual(b.rd["skipped"]["p2.history"], "検査用に省く")
+        self.assertEqual(b.rd["instances"]["p2.history"]["status"], "skipped")
+
+    def test_skip_then_settle(self):
+        """skip は _skip_record → settle: 省いた節は ready に無く、依存する節（p3.fix の前の節）へ進む"""
+        s, b = self.skip_board()
+        p = b.skip("p2.history", "検査用に省く")
+        self.assertNotIn("p2.history", p["ready"])
+        self.assertEqual(b.node_state("p2.history"), "skipped")
+
+    def test_skip_optional_only(self):
+        """省けるのは表で skippable（graph で optional の節だけに付く）の節だけ: p2.history は表しだい、
+        p2.plan_review（optional でない）は表で skippable にできないので BoardGap"""
+        s, b = self.skip_board(table=TABLE)
+        with self.assertRaises(BoardGap):
+            b._skip_record("p2.history", "表で skippable でない")
+        with self.assertRaises(BoardGap):
+            b._skip_record("p2.plan_review", "optional でない")
+        with self.assertRaises(BoardGap):
+            with_table = with_by(TABLE, "p2.plan_review", by="role", skippable=True)
+            self.board_before(s, table=with_table)
+        with self.assertRaises(BoardGap):
+            b._skip_record("no.such.node", "無い節")
+        s, b = self.skip_board()
+        b._skip_record("p2.history", "表で skippable")
+        with self.assertRaises(Reject):   # 既に省いた（engine と同じ文）
+            b._skip_record("p2.history", "二度目")
+
+    def test_skip_needs_reason(self):
+        s, b = self.skip_board()
+        before = tree_shas(b.dir)
+        for reason in ("", "  ", None):
+            with self.assertRaises(BoardGap):
+                b.skip("p2.history", reason)
+        self.assertEqual(tree_shas(b.dir), before)
+
+    def test_stop_steps(self):
+        """kind=stop の全部の手: stop(理由, "stop") → 手の後と同じ（state.stop・rd.stopped・process.halted・止めた周の記録）。
+        拒まれた手（理由が空・止めた後の二度目）は engine と同じ文"""
+        done, bad, rejected = 0, [], 0
+        for s in kind_steps("stop"):
+            call = lambda b, s=s: b.stop(s["args"]["reason"], "stop")
+            if s.get("raised"):
+                with self.subTest(scenario=s.run_steps.scenario, seq=s["seq"]):
+                    self.rejected_same(s, call)
+                rejected += 1
+                continue
+            b = self.board_before(s)
+            got = call(b)
+            self.assertEqual(got["stopped"], b.state["stop"])
+            diffs = R.compare(b, s)
+            done += 1
+            if diffs:
+                bad.append(f"{s.run_steps.scenario} run {s['run']} seq {s['seq']}: " + " / ".join(diffs[:5]))
+            shutil.rmtree(b.dir.parents[3], ignore_errors=True)
+        print(f"\n手本の stop の手: 通った {done} 手を当て {done - len(bad)} 手が手の後と同じ・拒まれた {rejected} 手は同じ文",
+              file=sys.stderr)
+        self.assertEqual((done, rejected), (4, 2))
+        self.assertEqual(bad, [], "\n".join(bad[:20]))
+
+    def test_stop_by(self):
+        """by は止めた口の名前（engine の loop.py stop は "stop"）。state.stop・halted と記録の process.halted に残る。空は BoardGap"""
+        s = next(x for x in kind_steps("stop") if not x.get("raised"))
+        b = self.board_before(s)
+        with self.assertRaises(BoardGap):
+            b.stop("理由", "")
+        got = b.stop("検査用の理由", "stopfile")
+        self.assertEqual(got["stopped"]["by"], "stopfile")
+        self.assertEqual(b.record["process"]["halted"]["by"], "stopfile")
+
+    def test_finalize_steps(self):
+        """kind=finalize の手（test_stop_after_round の止めた run。開くのは allow_halted）: finalize() → 手の後と同じ"""
+        steps = list(kind_steps("finalize"))
+        for s in steps:
+            self.n += 1
+            d, _ = R.restore(s.run_steps, s["seq"], "before", self.tmp / f"s{self.n}")
+            b = R.board_from_memory(R.memory_at(s.run_steps, s["seq"], "before"), d, TABLE, allow_halted=True)
+            self.assertTrue(b.state.get("halted"))
+            self.assertIsNone(b.finalize())
+            self.assertEqual(R.compare(b, s), [])
+        print(f"\n手本の finalize の手: {len(steps)} 手を当て、手の後と同じ", file=sys.stderr)
+        self.assertEqual(len(steps), 1)
+
+    def test_finalize_copies_skipped(self):
+        """表で absent の節: 条件に当たった（skipped）物は finalize の後の process.skipped に表の理由で在り、条件に当たらない（na）物は無い"""
+        s = builtin_step("test_converges", "p4.record")
+        b0 = self.board_before(s)
+        na_node = next(n for n in GRAPH["nodes"] if n in b0.rd["na"])
+        table = with_by(with_by(TABLE, "p4.record", by="absent", reason="記録はこのラインに無い（検査用）"),
+                        na_node, by="absent", reason="条件に当たらない節（検査用）")
+        b = self.board_before(s, table=table)
+        b.settle()
+        b.finalize()
+        rows = {r["node"]: r["reason"] for r in b.record["process"]["skipped"]}
+        self.assertEqual(rows.get("p4.record"), "記録はこのラインに無い（検査用）")
+        self.assertNotIn(na_node, rows)
+        disk = json.loads((b.dir / "record.json").read_text(encoding="utf-8"))
+        self.assertEqual(disk["process"]["skipped"], b.record["process"]["skipped"])
 
 
 class SettleCase(StepCase):
@@ -700,17 +958,57 @@ class SettleCase(StepCase):
         self.assertEqual(b.state["done_ever"]["p4.record"], 1)
         self.assertNotIn("p4.record", first["done"])
 
-    def test_settle_refuses_pre_finalize(self):
-        """pre: finalize の節（report）には、記録の仕上げと検証器の関所なしで出さず BoardGap（関所は Task 6）"""
+    def pre_finalize_board(self, validator_runner=None):
+        """report.cold_check の手の前の盤面（test_converges。次の settle で pre: finalize の節 report に当たる）"""
         s = run_step("test_converges", 1, 172)
         self.assertEqual((s["kind"], s["node"]), ("accept", "report.cold_check"))
         self.assertEqual(GRAPH["nodes"]["report"].get("pre"), "finalize")
         b = self.board_before(s)
-        out = R.reply(s, b)
-        with self.assertRaises(BoardGap) as cm:
-            b.done("report.cold_check", out)
-        self.assertIn("report", str(cm.exception))
-        self.assertNotIn("report", b.rd["instances"])
+        b.validator_runner = validator_runner
+        return s, b
+
+    def test_settle_pre_finalize_emits_after_validator(self):
+        """pre: finalize の節（report）は、engine の emit_instance と同じく記録を仕上げ（finalize）→ 保存 → 検証器（self.run_validator。
+        Track B の包みが効く口）→ 受理集合（report_accepts_exit）に入れば出す"""
+        seen = []
+
+        def runner(b, target):
+            seen.append(target)
+            return super(DiskBoard, b).run_validator(target)   # engine と同じ検証器を、盤面の口を通して回す
+        s, b = self.pre_finalize_board(runner)
+        p = b.done("report.cold_check", R.reply(s, b))
+        self.assertEqual(seen, [None])
+        self.assertEqual(b.rd["instances"]["report"]["status"], "pending")
+        self.assertIn("report", p["ready"])
+        # 仕上げが記録に写した（engine の validator.finalize の process.skipped など）。保存もした
+        self.assertIn("skipped", b.record["process"])
+        disk = json.loads((b.dir / "record.json").read_text(encoding="utf-8"))
+        self.assertEqual(disk["process"]["skipped"], b.record["process"]["skipped"])
+        self.assertFalse([r for r in trace_ops(b) if r["op"] == "validator_failed"])
+
+    def test_settle_pre_finalize_validator_fails(self):
+        """検証器が受理集合の外（exit 2・None）なら report を出さずに止まる（engine は trace に validator_failed を書いて止まる）。
+        仕上げの保存は残る（engine も検証器の前に保存する）"""
+        for code in (2, None):
+            with self.subTest(exit=code):
+                s, b = self.pre_finalize_board(lambda b, target: {"exit": code, "out": "検査用の不合格"})
+                p = b.done("report.cold_check", R.reply(s, b))
+                self.assertNotIn("report", b.rd["instances"])
+                self.assertNotIn("report", p["ready"])
+                self.assertTrue(any("検証器を通らない" in x and "検査用の不合格" in x for x in p["notes"]), p["notes"])
+                fails = [r for r in trace_ops(b) if r["op"] == "validator_failed"]
+                self.assertEqual([(r["exit"], r["out"]) for r in fails], [(code, "検査用の不合格")])
+                disk = json.loads((b.dir / "record.json").read_text(encoding="utf-8"))
+                self.assertIn("skipped", disk["process"])
+                # 呼び直しても同じ（出さない）
+                self.assertNotIn("report", b.settle()["ready"])
+
+    def test_settle_unknown_pre_is_gap(self):
+        """finalize でない pre は持たない（a1202d0 の graph に無い）: 黙って出さず BoardGap"""
+        s, b = self.pre_finalize_board()
+        b.nodes["report"]["pre"] = "somethingelse"
+        with self.assertRaises(BoardGap):
+            b.done("report.cold_check", R.reply(s, b))
 
     def test_run_builtin_fresh_reads(self):
         """run_builtin は前の settle の読んだ物の控え（git status の写し）と accept_tree_change を使わない:

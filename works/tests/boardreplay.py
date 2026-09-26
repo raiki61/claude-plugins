@@ -85,7 +85,13 @@ NOT_REPRODUCED = {
     # instance の描画・起動の欄（描画・起動は Archon と works のブロックが持つ）
     "instance.prompt_sha": "プロンプトの描画を持たない",
     "instance.prompt_file": "プロンプトの描画を持たない",
-    "instance.launch": "役の起動を持たない（engine_run の steps・sha は比べる）",
+    "instance.launch": "役の起動を持たない（engine_run の steps・sha は比べる。engine が役の節に置く空の {} も比べない）",
+    "instance.mode（engine_run でない値）": "役の起こし方（agent・runner・cli・agent_continue）は Archon とブロックが持つ。"
+                                         "engine が走らせた節の mode: engine_run は比べる",
+    "instance.agent_type": "役の定義の名前（役を起こすのは Archon とブロック。描画・起動を持たない）",
+    "instance.deliver": "プロンプトの渡し方（描画を持たない）",
+    "instance.prompt_bytes": "プロンプトの大きさ（描画を持たない）",
+    "instance.item": "扇の項目（a1202d0 の graph に扇の節は無く、engine は扇でない節に null を置く。扇の節は BoardGap）",
     "instance.tree_before": "役ごとの作業ツリーの前後の突合を持たない（v1 の写しが持つ）。突合で拒む手（作業ツリーが変わった）も当てない",
     "instance.attempts": "起こし直しを持たない",
     "instance.attempt_log": "起こし直しを持たない",
@@ -99,6 +105,7 @@ NOT_REPRODUCED = {
     "扇の被覆（fan_out.cover）": "扇の節の答えの欠けを出し直す所を持たない（a1202d0 の graph に扇の節は無い）",
     "段の昇格（thickness_from）": "段の昇格を持たない（a1202d0 の graph は段を持たない）",
     "disk:report.md": "本文の保存（節の save_text_as）を持たない。報告の本文は works のブロックが書く",
+    "disk:rounds/works/": "works の周の添え書き（仕様 4.5。engine の盤面に無い。RR は rounds/ の下のディレクトリを読み飛ばす）",
     "disk:trace.jsonl": "手本が撮っていない（時刻の痕跡。作り手の目録の範囲の外）。DiskBoard も engine と同じ行の形で書くが比べない",
     "trace の done の行の sha（schema の節）": "engine は役が返した生の本文の sha、DiskBoard は本文を受け取らず返答の dict を"
                                           "並べ直した JSON の sha（本文を返す節は同じ本文の sha）。trace は比べない（disk:trace.jsonl）",
@@ -118,7 +125,8 @@ _ANY_KEYS = {k for k in NOT_REPRODUCED if "." not in k and ":" not in k and "（
 _STATE_KEYS = {k.split(".", 1)[1] for k in NOT_REPRODUCED if k.startswith("state.")}
 _INSTANCE_KEYS = {k.split(".", 1)[1] for k in NOT_REPRODUCED if k.startswith("instance.")}
 _RUN_KEYS = {k.split(".", 1)[1] for k in NOT_REPRODUCED if k.startswith("runs[].")}
-_DISK_PATHS = {k.split(":", 1)[1] for k in NOT_REPRODUCED if k.startswith("disk:") and "#" not in k}
+_DISK_PATHS = {k.split(":", 1)[1] for k in NOT_REPRODUCED if k.startswith("disk:") and "#" not in k and not k.endswith("/")}
+_DISK_DIRS = tuple(k.split(":", 1)[1] for k in NOT_REPRODUCED if k.startswith("disk:") and k.endswith("/"))   # 下の全部を比べない置き場
 _DISK_FIELDS = {}
 for _k in NOT_REPRODUCED:
     if _k.startswith("disk:") and "#" in _k:
@@ -143,6 +151,10 @@ def normalize(obj, _path=()):
             inst = len(p) == 6 and p[:2] == ("state", "rounds") and p[3] == "instances"
             if inst and k == "launch":
                 v = {x: v[x] for x in ("steps", "sha") if isinstance(v, dict) and x in v}
+                if not v:
+                    continue
+            elif inst and k == "mode" and v != "engine_run":
+                continue
             elif inst and k in _INSTANCE_KEYS:
                 continue
             if len(_path) >= 2 and _path[-2] == "runs" and isinstance(_path[-1], int) and k in _RUN_KEYS:
@@ -470,9 +482,9 @@ def restore(run_steps, seq, which, into) -> tuple:
     return places.board, places.repo
 
 
-def board_from_memory(mem: dict, board_dir, table) -> DiskBoard:
+def board_from_memory(mem: dict, board_dir, table, allow_halted: bool = False) -> DiskBoard:
     """memory_at の返り（手本の印のまま）から盤面を組む: 印を実パスに戻し、state.works = {board_version} を足して
-    state.json・record.json を書き、DiskBoard.open で開く（置き場は restore の形）"""
+    state.json・record.json を書き、DiskBoard.open で開く（置き場は restore の形。allow_halted は止めた run の仕上げの手）"""
     places = Places.of_board(board_dir)
     mem = places.untokenize(mem)
     state, record = mem["state"], mem["record"]
@@ -481,7 +493,7 @@ def board_from_memory(mem: dict, board_dir, table) -> DiskBoard:
     (d / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (d / "record.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (d / "trace.jsonl").touch()
-    return DiskBoard.open(d, table=table, repo=places.repo)
+    return DiskBoard.open(d, table=table, repo=places.repo, allow_halted=allow_halted)
 
 
 def reply(step: Step, board: DiskBoard, names: bool = True) -> dict:
@@ -583,6 +595,8 @@ def disk_diff(board_dir, expected: dict) -> list:
     got = disk_listing(board_dir)
     out = []
     for p in sorted((expected.keys() | got.keys()) - _DISK_PATHS):
+        if p.startswith(_DISK_DIRS):
+            continue
         if p not in got:
             out.append(f"disk:{p}: 手本に在るが盤面の置き場に無い")
         elif p not in expected:
