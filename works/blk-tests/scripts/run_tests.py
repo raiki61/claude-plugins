@@ -5,7 +5,11 @@ tests.log に置き、標準入力は閉じる（入力待ちで止まらない�
 値がシェルの記号を含んでもデータのまま届く。PYTHONDONTWRITEBYTECODE=1 を立て、テストが作業ツリーに __pycache__ を
 作って修正の差分に紛れ込むのを止める。
 走らせるのは tree_run（.shared/core）——コマンドを自分のプロセスグループで起こし、run が止められたら（SIGINT・SIGTERM・
-SIGHUP、親の uv が消えた）テストが背景に起こした孫まで木ごと止める。
+SIGHUP、直下の親の uv が消えた）テストが背景に起こした孫まで木ごと止める。
+テストのコマンドには uv run の外の環境を渡す（outside_env）。Archon は script の節を `uv run <このファイル>` で起こし、
+uv は PATH の頭に自分の python の bin（対象が pyproject.toml を持てば対象の .venv/bin）を足し、VIRTUAL_ENV・
+UV_RUN_RECURSION_DEPTH を立てる。そのまま渡すと `python3 -m pytest` が uv の python を掴んで偽の赤になる
+（bash の節だった頃は Archon の素の環境で走った）。
 
 出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。赤（信号で死んだ回も）でも ok: true
 ——赤を人の関所に見せるのがこの段の仕事で、赤で run を止めない。
@@ -27,6 +31,28 @@ CMD_ENV = "INPUTS_CMD"
 LOG_NAME = "tests.log"
 
 
+def outside_env(environ):
+    """uv run が足した物を外した環境（PYTHONDONTWRITEBYTECODE=1 は立てる）。外すのは:
+    - PATH の頭の、この python の bin（dirname(sys.executable) か sys.prefix/bin。実体のパスで比べる）。uv は頭に足すので
+      頭だけを見て、同じフォルダは 1 度だけ外す（元の PATH に同じフォルダが在っても後ろの物は残る）
+    - UV_RUN_RECURSION_DEPTH と、sys.prefix を指す VIRTUAL_ENV（uv が起こした環境。対象の .venv もここ）
+    uv run の外で起こされた（UV_RUN_RECURSION_DEPTH が無い）ときは何も外さない。
+    限界: 節に deps: を足すと uv は --with の層の bin も足し、それは外れない（今の節は deps を持たない）"""
+    env = dict(environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    if env.pop("UV_RUN_RECURSION_DEPTH", None) is None:
+        return env
+    ours = {os.path.realpath(d) for d in (os.path.dirname(sys.executable), os.path.join(sys.prefix, "bin"))}
+    parts = env.get("PATH", "").split(os.pathsep)
+    while parts and parts[0] and os.path.realpath(parts[0]) in ours:
+        ours.discard(os.path.realpath(parts.pop(0)))
+    env["PATH"] = os.pathsep.join(parts)
+    venv = env.get("VIRTUAL_ENV")
+    if venv and os.path.realpath(venv) == os.path.realpath(sys.prefix):
+        del env["VIRTUAL_ENV"]
+    return env
+
+
 def main() -> int:
     if not os.environ.get(script_io.ARTIFACTS_ENV):
         print(f"環境変数が無い: {script_io.ARTIFACTS_ENV}", file=sys.stderr)
@@ -38,7 +64,7 @@ def main() -> int:
     board = Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
     board.mkdir(parents=True, exist_ok=True)
     log = board / LOG_NAME
-    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    env = outside_env(os.environ)
     try:
         with open(log, "wb") as f:
             code = tree_run.run(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, env=env)

@@ -195,6 +195,35 @@ class TestTestsBlock(RepoCase):
         out = self.run_tests("kill -SEGV $$")
         self.assertEqual((out["ok"], out["green"]), (True, False))
 
+    def uv_run_tests(self):
+        """Archon と同じ形（`uv run <パス>`、cwd は対象リポジトリ。Archon 0.11.1 の script の節）で節のスクリプトを走らせ、
+        テストのコマンドから見えた python3・VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH と、uv の外の bash から見えた python3 を返す。
+        外の環境は uv の外の姿にする（このテスト自身が run.sh の uv run の中で走るので、uv が足した物を外して PATH を決め打つ）"""
+        uv = shutil.which("uv")
+        self.assertTrue(uv, "uv が無い")
+        cmd = 'echo "PY=$(command -v python3)"; echo "VENV=${VIRTUAL_ENV:-}"; echo "DEPTH=${UV_RUN_RECURSION_DEPTH:-}"'
+        env = {k: v for k, v in self.cmd_env(cmd).items() if k not in ("VIRTUAL_ENV", "UV", "UV_RUN_RECURSION_DEPTH")}
+        env.update(PATH=f"{os.path.dirname(uv)}:/usr/bin:/bin", PYTHONDONTWRITEBYTECODE="1")   # Archon が立てる
+        outside = subprocess.run(["bash", "-c", "command -v python3"], env=env, capture_output=True, text=True).stdout.strip()
+        r = subprocess.run([uv, "run", str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo), env=env,
+                           capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["green"], True)
+        seen = dict(line.split("=", 1) for line in (self.board / "tests.log").read_text().splitlines())
+        return seen, outside
+
+    def test_command_sees_outside_python_not_uvs(self):
+        # 節は uv run の中で走るが、テストのコマンドは uv が PATH の頭に足した python を掴まない（掴むと偽の赤になる）
+        seen, outside = self.uv_run_tests()
+        self.assertTrue(outside)
+        self.assertEqual(seen, {"PY": outside, "VENV": "", "DEPTH": ""})
+
+    def test_command_does_not_inherit_target_project_venv(self):
+        # 対象が pyproject.toml を持つと uv run は対象の .venv でスクリプトを起こす。テストのコマンドにはその VIRTUAL_ENV を渡さない
+        (self.repo / "pyproject.toml").write_text('[project]\nname = "seed"\nversion = "0"\nrequires-python = ">=3.9"\n')
+        seen, outside = self.uv_run_tests()
+        self.assertEqual(seen, {"PY": outside, "VENV": "", "DEPTH": ""})
+
     def test_stop_stops_the_test_tree(self):
         # run を止めた（節のスクリプトが SIGTERM を受けた）ら、テストが背景に起こした孫まで止まり、後から作業ツリーに書かない
         pidf, marker = self.artifacts / "pgid", self.repo / "late.txt"

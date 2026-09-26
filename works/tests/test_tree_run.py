@@ -4,7 +4,8 @@
 - 殻が SIGTERM を受けたら、コマンドが背景に起こした孫まで止め、孫は後から作業ツリーに書かない
 - SIGTERM を無視する孫は猶予の後に SIGKILL で止める
 - コマンドが終わった後に背景に残した孫も止める
-- 殻の親が kill -9 で消えたら（親が替わったら）木ごと止める
+- 殻の直下の親（節では uv）が kill -9 で消えたら（親が替わったら）木ごと止める。起きた時に既に孤児（親が 1）なら走らせない
+- 終わりを待ち終えた直後に届いた止める信号も落とさない
 - pack の中に __pycache__ を作らない
 孫の生死はプロセスグループ（コマンドの sh の pid と同じ番号）が空かで見る。
 """
@@ -16,9 +17,14 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TREE_RUN = ROOT / ".shared" / "core" / "tree_run.py"
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように
+sys.path.insert(0, str(TREE_RUN.parent))
+
+import tree_run  # noqa: E402
 
 
 def group_gone(pgid, within):
@@ -176,6 +182,27 @@ class TreeRunCase(unittest.TestCase):
         self.assertTrue(pid_gone(tree_pid, 8), "殻が残った")
         time.sleep(3)
         self.assertFalse(self.marker.exists(), "親が消えた後に孫が書いた")
+
+    def test_orphan_at_start_does_not_run(self):
+        # 起きた時に既に親が 1（直下の親が先に消えた）なら、親の替わりを待てないので何も走らせずに止まる
+        outer = (f"(sleep 0.5; exec {sys.executable} {TREE_RUN} -- 'echo ran > {self.marker}') "
+                 ">/dev/null 2>&1 </dev/null & exit 0")
+        subprocess.run(["/bin/sh", "-c", outer], env=self.env, cwd=str(self.tmp), timeout=10, check=True)
+        time.sleep(3)
+        self.assertFalse(self.marker.exists(), "孤児で起きたのにコマンドを走らせた")
+
+    def test_signal_right_after_wait_is_not_dropped(self):
+        # 子の終わりを待ち終えた直後（後始末の前）に届いた SIGTERM も、止められたとして Stopped にする
+        class LateSignal(subprocess.Popen):
+            def wait(self, timeout=None):
+                rc = super().wait()
+                os.kill(os.getpid(), signal.SIGTERM)
+                return rc
+
+        with mock.patch.object(tree_run.subprocess, "Popen", LateSignal):
+            with self.assertRaises(tree_run.Stopped) as cm:
+                tree_run.run(["/bin/sh", "-c", "exit 0"])
+        self.assertEqual(cm.exception.signum, signal.SIGTERM)
 
     # ------------------------------------------------ pack を汚さない
     def test_no_bytecode_in_pack(self):

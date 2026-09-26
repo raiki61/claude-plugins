@@ -16,8 +16,10 @@ nodes:
   # 標準入力は閉じる（入力待ちで止まらない）。コマンドは本文に差し込まず環境変数 INPUTS_CMD で受け取る——値がシェルの記号を
   # 含んでもデータのまま届く。空・空白だけなら節を落とす（何も走らせずに緑と言わない）。PYTHONDONTWRITEBYTECODE は、テストが
   # 作業ツリーに __pycache__ を作って修正の差分に紛れ込むのを止める。
-  # コマンドは自分のプロセスグループで走り、run が止められたら（Ctrl-C・SIGTERM・期限・親の消失）テストが背景に起こした孫まで
+  # コマンドは自分のプロセスグループで走り、run が止められたら（Ctrl-C・SIGTERM・期限・直下の親 uv の消失）テストが背景に起こした孫まで
   # 木ごと止める（.shared/core/tree_run.py）。Archon は直下の子しか止めないので、孫が止めた後も作業ツリーに書き続けた（試作で実測）。
+  # テストのコマンドには uv run が足した物（PATH の頭の python の bin・VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH）を外した環境を渡す
+  # （外さないと python3 が uv の python を指して偽の赤になる）。
   # 木ごと止める殻を pack の中から引くため bash の節でなく script の節（bash の節は対象リポジトリで走り、pack の場所を知らない）
   - id: run
     script: run_tests

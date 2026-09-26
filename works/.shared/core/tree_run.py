@@ -6,13 +6,16 @@ engine/role_run.py（_spawn・_kill・kill_all）と同じ形で塞ぐ:
 - コマンドを新しいセッション（= 新しいプロセスグループ）で起こす
 - SIGINT・SIGTERM・SIGHUP を受けたら、受けた信号と SIGTERM をグループへ送り、KILL_GRACE 秒の内に空にならなければ
   SIGKILL を送る。**止めたと数えるのはグループが空になった時**
-- 殻の親が替わったら（親が kill -9 で消えて孤児になった）同じく木ごと止める（POLL 秒ごとに見る）
+- 殻の直下の親（節では uv）が替わったら（kill -9 で消えて孤児になった）同じく木ごと止める（POLL 秒ごとに見る）。
+  起きた時に既に親が 1（直下の親が先に消えた）なら、替わりを待てないので何も起こさずに止まる。
+  見るのは直下の親だけ: uv が生きたまま Archon だけが kill -9 された回は気づかない（bash の節だった頃と同じ限界）。
+  PID 1 の殻（コンテナの sh など）の子として手で起こすと、いつも孤児と見なして走らない
 - コマンドが自分で終わった後も、背景に残した孫を同じ手順で止める（節が終わった後に作業ツリーを書く物を残さない）
 抜け道: 孫が自分で setsid して別のグループに出た物は止められない。
 
 使い方: `python3 tree_run.py -- <コマンド>`（-- の後の語は空白で繋いで 1 行にし /bin/sh -c で走らせる。
 語が無ければ環境変数 INPUTS_CMD）。終了コードはコマンドの終了コード、信号で死んだら 128+信号、殻が止められたら
-128+受けた信号（親が消えた回は SIGHUP）、コマンドが空なら 2。関数として使う側は run(argv, **Popen の引数) を呼ぶ。
+128+受けた信号（直下の親が消えた回は SIGHUP）、コマンドが空なら 2。関数として使う側は run(argv, **Popen の引数) を呼ぶ。
 """
 import os
 import signal
@@ -26,7 +29,7 @@ STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
 class Stopped(Exception):
-    """殻が止められ、木ごと止め終えた。signum は受けた信号（親が消えた回は SIGHUP）"""
+    """殻が止められ、木ごと止め終えた。signum は受けた信号（直下の親が消えた回は SIGHUP）"""
 
     def __init__(self, signum):
         super().__init__(signum)
@@ -65,12 +68,15 @@ def stop_group(p, first=signal.SIGTERM):
 
 def run(argv, **popen_kw):
     """argv を新しいプロセスグループで起こして終わりを待ち、終了コード（信号で死んだら 128+信号）を返す。
-    待つ間に STOP_SIGNALS を受けたか親が替わったら木ごと止めて Stopped を投げる。どの道で抜けても木を残さない"""
+    待つ間（後始末の間も）に STOP_SIGNALS を受けたか直下の親が替わったら、木ごと止めて Stopped を投げる。
+    起きた時に既に孤児（親が 1）なら起こさずに Stopped(SIGHUP)。どの道で抜けても木を残さない"""
     got = []
     old = {s: signal.signal(s, lambda signum, _f: got.append(signum)) for s in STOP_SIGNALS}
     ppid = os.getppid()
     p = None
     try:
+        if ppid == 1:
+            raise Stopped(signal.SIGHUP)
         p = subprocess.Popen(argv, start_new_session=True, **popen_kw)
         while True:
             if got or os.getppid() != ppid:
@@ -83,6 +89,8 @@ def run(argv, **popen_kw):
             except subprocess.TimeoutExpired:
                 continue
         stop_group(p)   # 背景に残した孫
+        if got:         # 待ち終えた後・後始末の間に届いた止める信号を落とさない
+            raise Stopped(got[0])
         return rc if rc >= 0 else 128 - rc
     finally:
         if p is not None and _group_alive(p.pid):
