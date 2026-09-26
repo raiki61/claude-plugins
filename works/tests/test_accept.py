@@ -179,6 +179,17 @@ class TestDelta(AcceptCase):
         self.assertFalse(r["ok"])
         self.assertIn("作業ツリー", r["reason"])
 
+    def test_delta_rejects_plan_only_kind(self):
+        # graphloops 0.21.0 の face_kind は事前審査と共有で regression・policy・precedent を含むが、修正差分のレビューでは拒む語
+        self.fix_stats()
+        for kind in ("regression", "policy", "precedent"):
+            reply = {"faces": [{"key": f"stats.py の {kind} の穴", "kind": kind, "where": "stats.py", "cite": "def clamp(x, lo, hi):",
+                                "why": "修正差分のレビューが事前審査だけの語で穴を挙げている"}], "checks": []}
+            r = check_delta(reply, self.board, self.base, self.repo)
+            self.assertFalse(r["ok"], kind)
+            self.assertIn("kind", r["reason"])
+            self.assertFalse((self.board / "delta-review.json").exists())
+
     def test_snapshot_sees_untracked_content(self):
         (self.repo / "new.txt").write_text("a\n")
         before = snapshot_tree(self.repo)
@@ -199,6 +210,18 @@ class TestRoleSchema(unittest.TestCase):
         router = s["properties"]["router"]["items"]
         self.assertIn("note", router["required"])
         self.assertIn("note", router["properties"])
+
+    def test_pointer_fields_stay_names(self):
+        # graphloops 0.21.0 は pointers の位置（番号で指す欄）の型を [integer, string] に広げる。works の役には番号を振った
+        # 一覧を貼らず、番号を名前に戻す段も無いので、名前（文字列）の型のまま役に渡す
+        where = role_schema("p2.diagnose")["properties"]["carried_r1"]["items"]["properties"]["where"]
+        self.assertEqual(where, {"type": "string", "minLength": 1})
+        key = role_schema("p3.delta_review")["properties"]["checks"]["items"]["properties"]["key"]
+        self.assertEqual(key, {"type": "string", "minLength": 8})
+
+    def test_delta_kinds_exclude_plan_only(self):
+        kind = role_schema("p3.delta_review")["properties"]["faces"]["items"]["properties"]["kind"]
+        self.assertEqual(kind["enum"], ["copy", "entrance", "contract_drift", "dead_path", "scope_creep"])
 
     def test_good_replies_pass_role_schema(self):
         from engine.schema import validate_schema
