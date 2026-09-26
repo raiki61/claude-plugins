@@ -31,11 +31,12 @@ _buf = threading.local()
 SKIP_MARK = " # SKIP"   # 見送りの行の印（TAP 14 の SKIP 指示子）。root の tests/run.sh の note_skips がこの印で拾う
 
 
-def skip_line(desc, reason):
-    """環境で走れなかった検査の 1 行。**合格の行と別の印を付ける**——合格と同じ『ok』だけで出していたとき、道具や OS の
-    機能の無い CI が走らないまま緑になり、柵にも CI にも止める口が無かった。拾って数え、一覧にし、FAIL_ON_SKIP=1 で
-    失敗に数えるのは root の tests/run.sh の 1 か所だけ（層ごとに一覧を作ると同じ見送りを二重に数える）"""
-    return f"  ok   {desc}{SKIP_MARK} {reason}"
+def skip_line(desc, capability, reason):
+    """環境で走れなかった検査の 1 行。**合格の行と別の印を付け、欠けた能力の名前（capability。小文字・数字・- の 1 語）を
+    説明文の頭に置く**——合格と同じ『ok』だけで出していたとき、道具や OS の機能の無い CI が走らないまま緑になり、柵にも
+    CI にも止める口が無かった。拾って数え、一覧にし、名前で許すか決めて FAIL_ON_SKIP=1 で失敗に数えるのは root の
+    tests/run.sh の 1 か所だけ（層ごとに一覧を作ると同じ見送りを二重に数える。名前の形を見るのもそこだけ）"""
+    return f"  ok   {desc}{SKIP_MARK} {capability}: {reason}"
 
 
 def line(text):

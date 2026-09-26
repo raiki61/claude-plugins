@@ -80,12 +80,12 @@ def check(cond, desc):
     parallel.line(("  ok   " if cond else "  FAIL ") + desc)
 
 
-def skip(desc, reason):
-    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
+def skip(desc, capability, reason):
+    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、欠けた能力の名前つきで合格と別の印で出す（parallel.skip_line）"""
     global ran
     with parallel.LOCK:
         ran += 1
-    parallel.line(parallel.skip_line(desc, reason))
+    parallel.line(parallel.skip_line(desc, capability, reason))
 
 
 def rm(p):
@@ -1929,7 +1929,7 @@ def test_md_links():
     if via_symlink:
         check("viasym.md" not in joined, f"リンク: symlink のディレクトリを経由するリンクは実体で引いて届く（{errs}）")
     else:
-        skip("リンク: symlink のディレクトリを経由するリンクは実体で引いて届く", "この環境では symlink を作れない（Windows は既定で権限を持たない）")
+        skip("リンク: symlink のディレクトリを経由するリンクは実体で引いて届く", "symlink", "この環境では symlink を作れない（Windows は既定で権限を持たない）")
     rm(tmp)
 
 
@@ -2565,7 +2565,7 @@ def test_wrote_refs_direct_arms():
             locked.chmod(0o644)
         check(len(errs) == 1 and "作業ツリーで数えられない" in errs[0], f"開けない指し先は『数えられない』で拒む（例外にしない。{errs}）")
     else:
-        skip("開けない指し先は『数えられない』で拒む", "root か Windows では権限で読みを止められない")
+        skip("開けない指し先は『数えられない』で拒む", "read-permission", "root か Windows では権限で読みを止められない")
     # **指し先が FIFO に置き換わっても、開いて止まらない**（上限付きの読みは通常のファイルだけを開く）。書き手を
     # 立てておくので、柵が外れた写しでは開いて読み、止まらずに別の文（中に無い）で赤になる
     if hasattr(os, "mkfifo"):
@@ -2580,7 +2580,7 @@ def test_wrote_refs_direct_arms():
         errs, _ = mod._cite_errors(b, "p3.fix", [{"kind": "text", "cite": "# pipe", "target": "pipe.md", "where": "src/a.py"}], None, "wrote_refs")
         check(len(errs) == 1 and "通常のファイルでない" in errs[0], f"FIFO に置き換わった指し先は開かずに拒む（{errs}）")
     else:
-        skip("FIFO に置き換わった指し先は開かずに拒む", "この OS には FIFO（os.mkfifo）が無い")
+        skip("FIFO に置き換わった指し先は開かずに拒む", "fifo", "この OS には FIFO（os.mkfifo）が無い")
     # **symlink の輪を含む指し先を、例外にせず拒む**（3.12 以前の resolve は輪を RuntimeError で投げる）
     try:
         (run.repo / "loopa").symlink_to("loopb"); (run.repo / "loopb").symlink_to("loopa")

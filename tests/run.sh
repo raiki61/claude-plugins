@@ -37,9 +37,9 @@ unset PYTHONOPTIMIZE
 
 fail=0
 ran=0
-# **環境で走れなかった検査（見送り）は合格と別に数える。** 各台本は見送りを 1 行ずつ「  ok   <検査> # SKIP <理由>」
-# （TAP 14 の SKIP 指示子。Python の側の正本は graphloops/tests/parallel.py の skip_line）で出すだけで、拾う・数える・
-# 一覧にする・FAIL_ON_SKIP=1 で失敗に数えるのはここ 1 か所——層ごとに一覧を作ると同じ見送りを二重に数える。
+# **環境で走れなかった検査（見送り）は合格と別に数える。** 各台本は見送りを 1 行ずつ「  ok   <検査> # SKIP <能力>: <理由>」
+# （TAP 14 の SKIP 指示子。説明文の頭に欠けた能力の名前。Python の側の正本は graphloops/tests/parallel.py の skip_line）で出すだけで、
+# 拾う・数える・一覧にする・名前で許すか決めて FAIL_ON_SKIP=1 で失敗に数えるのはここ 1 か所——層ごとに一覧を作ると同じ見送りを二重に数える。
 # 合格と同じ「ok」だけで出していたとき、道具や OS の機能の無い CI は走らないまま緑になり、止める口が無かった
 SKIP_MARK=' # SKIP'
 SKIPS=()
@@ -51,13 +51,37 @@ note_skips() {
         [[ "$l" == "  ok   "*"$SKIP_MARK"* ]] && SKIPS+=("${l#  ok   }")
     done <<< "$1"
 }
-# どの OS で見送りを許すかは実装側で決めない——CI の定義か人が FAIL_ON_SKIP=1 を渡したときだけ失敗に数える
+# 拾った見送りの行から能力の名前を出す。名前の形（小文字・数字・-）でなければ空——名前の無い見送りは許しようが無いので、
+# FAIL_ON_SKIP=1 の下では必ず失敗に数える（名前の打ち間違いも同じく失敗に倒れる）
+skip_capability() {
+    local rest=${1#*"$SKIP_MARK"}
+    rest=${rest# }
+    [[ "$rest" == *:* ]] || return 0
+    local cap=${rest%%:*}
+    [[ "$cap" =~ ^[a-z0-9][a-z0-9-]*$ ]] && printf '%s' "$cap"
+}
+# どの OS で見送りを許すかは実装側で決めない——CI の定義か人が渡す。FAIL_ON_SKIP=1 のとき、欠けてよい能力の一覧 SKIP_ALLOW
+# （空白かカンマ区切り。既定は空＝何も許さない）に名前の在る見送りだけを失敗から除く。FAIL_ON_SKIP の無い既定は一覧に出すだけ
 report_skips() {
     [ "${#SKIPS[@]}" -gt 0 ] || return 0
-    echo "見送り ${#SKIPS[@]} 件（この環境で走らなかった検査。FAIL_ON_SKIP=1 で失敗に数える）:"
-    printf '  - %s\n' "${SKIPS[@]}"
-    if [ "${FAIL_ON_SKIP:-}" = 1 ]; then
-        echo "見送りを失敗に数えた: ${#SKIPS[@]} 件（FAIL_ON_SKIP=1）"
+    local list=${SKIP_ALLOW:-} allow=() s cap a allowed denied=0
+    list=${list//$'\n'/ }
+    read -ra allow <<< "${list//,/ }"
+    echo "見送り ${#SKIPS[@]} 件（この環境で走らなかった検査。FAIL_ON_SKIP=1 で、SKIP_ALLOW に能力の名前が無いものを失敗に数える）:"
+    for s in "${SKIPS[@]}"; do
+        cap=$(skip_capability "$s"); allowed=0
+        if [ -n "$cap" ]; then
+            for a in ${allow[@]+"${allow[@]}"}; do [ "$a" = "$cap" ] && allowed=1; done
+        fi
+        if [ "$allowed" = 1 ]; then
+            echo "  - ${s}（SKIP_ALLOW で許した）"
+        else
+            echo "  - $s"
+            denied=$((denied + 1))
+        fi
+    done
+    if [ "${FAIL_ON_SKIP:-}" = 1 ] && [ "$denied" -gt 0 ]; then
+        echo "見送りを失敗に数えた: $denied 件（FAIL_ON_SKIP=1。SKIP_ALLOW に無い能力か、名前の無い見送り）"
         fail=1
     fi
 }
@@ -136,30 +160,44 @@ case "$guard_probe" in
 esac
 
 # **見送りの拾い手自身の腕。** 行頭が「  ok   」で印を含む行だけを拾い（理由の無い印も拾う——拾い損ねは合格に化ける）、
-# 行の途中の印は拾わない。既定では fail を立てず、FAIL_ON_SKIP=1 のときだけ立てる。副シェルで本体を汚さない
+# 行の途中の印は拾わない。既定では fail を立てず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送り
+# （名前の無い見送り・名前の形でない物を含む）だけを失敗に数える。副シェルで本体を汚さない。
+# 引数: FAIL_ON_SKIP・SKIP_ALLOW・台本の出力（見送りの行の並び）。返り: |拾った件数|fail|失敗に数えた件数|許した印の件数|拾った行
 skip_probe() {
-    ( SKIPS=(); fail=0; ran=0; FAIL_ON_SKIP=$1
-      expect_output 0 "終わり" "見送りの拾い手の腕" printf '  ok   甲 # SKIP 理由\n  ok   乙\nx  ok   丙 # SKIP 理由\n  ok   丁 # SKIP\n終わり\n' >/dev/null
-      report_skips >/dev/null
-      printf '|n=%s|fail=%s|%s' "${#SKIPS[@]}" "$fail" "${SKIPS[*]}" )
+    ( SKIPS=(); fail=0; ran=0; FAIL_ON_SKIP=$1; SKIP_ALLOW=$2
+      expect_output 0 "終わり" "見送りの拾い手の腕" printf '%s終わり\n' "$3" >/dev/null
+      report_skips > "$WORK/skip-probe.out"
+      rep=$(cat "$WORK/skip-probe.out")
+      denied=0
+      [[ "$rep" =~ 失敗に数えた:\ ([0-9]+)\ 件 ]] && denied=${BASH_REMATCH[1]}
+      marked=$(grep -c "（SKIP_ALLOW で許した）" "$WORK/skip-probe.out")
+      printf '|n=%s|fail=%s|denied=%s|allowed=%s|%s' "${#SKIPS[@]}" "$fail" "$denied" "$marked" "${SKIPS[*]}" )
 }
-skip_off=$(skip_probe ""); skip_on=$(skip_probe 1)
+skip_in=$'  ok   甲 # SKIP 理由\n  ok   乙\nx  ok   丙 # SKIP fifo: 理由\n  ok   丁 # SKIP\n  ok   戊 # SKIP fifo: 理由\n  ok   己 # SKIP sh: 理由\n  ok   庚 # SKIP Fifo: 理由\n  ok   辛 # SKIP symlink: 理由\n'
+skip_all="甲 # SKIP 理由 丁 # SKIP 戊 # SKIP fifo: 理由 己 # SKIP sh: 理由 庚 # SKIP Fifo: 理由 辛 # SKIP symlink: 理由"
+skip_off=$(skip_probe "" "" "$skip_in")                 # 既定: 一覧に出すだけ
+skip_on=$(skip_probe 1 "" "$skip_in")                   # 一覧が空: 全部を失敗に数える（SKIP_ALLOW の無い FAIL_ON_SKIP=1 の今までの意味）
+skip_part=$(skip_probe 1 "fifo, sh,Fifo" "$skip_in")    # 許した名前だけ除く。名前無し・形でない名前（一覧に在っても Fifo）・一覧に無い名前は失敗
+skip_off_allow=$(skip_probe "" "fifo,sh" "$skip_in")    # 一覧だけ渡しても FAIL_ON_SKIP が無ければ失敗にしない
+skip_ok=$(skip_probe 1 "sh fifo" $'  ok   戊 # SKIP fifo: 理由\n  ok   己 # SKIP sh: 理由\n')   # 全部許せば緑
 ran=$((ran + 1))
-if [ "$skip_off" = "|n=2|fail=0|甲 # SKIP 理由 丁 # SKIP" ] && [ "$skip_on" = "|n=2|fail=1|甲 # SKIP 理由 丁 # SKIP" ]; then
-    echo "  ok   見送りの行は行頭の印で拾われ、既定では失敗にせず、FAIL_ON_SKIP=1 のときだけ失敗に数える"
+if [ "$skip_off" = "|n=6|fail=0|denied=0|allowed=0|$skip_all" ] && [ "$skip_on" = "|n=6|fail=1|denied=6|allowed=0|$skip_all" ] \
+    && [ "$skip_part" = "|n=6|fail=1|denied=4|allowed=2|$skip_all" ] && [ "$skip_off_allow" = "|n=6|fail=0|denied=0|allowed=2|$skip_all" ] \
+    && [ "$skip_ok" = "|n=2|fail=0|denied=0|allowed=2|戊 # SKIP fifo: 理由 己 # SKIP sh: 理由" ]; then
+    echo "  ok   見送りの行は行頭の印で拾われ、既定では失敗にせず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送りだけを失敗に数える"
 else
-    echo "  FAIL 見送りの拾い手が期待と違う: 既定 $skip_off / FAIL_ON_SKIP=1 $skip_on"
+    echo "  FAIL 見送りの拾い手が期待と違う: 既定 $skip_off / 一覧が空 $skip_on / 一部許す $skip_part / 一覧だけ $skip_off_allow / 全部許す $skip_ok"
     fail=1
 fi
-# Python の台本の見送りの行（graphloops/tests/parallel.py の skip_line）が、ここの拾い手の印に当たる——片方だけ変えると
-# 見送りが一覧から黙って消え、合格に化ける
-skip_py=$( SKIPS=(); note_skips "$(PYTHONIOENCODING=utf-8 "$PY_BIN" -c 'import sys; sys.path.insert(0, sys.argv[1]); import parallel; print(parallel.skip_line("検査", "理由"))' "$ROOT/graphloops/tests" 2>&1)"
-           printf '|n=%s|%s' "${#SKIPS[@]}" "${SKIPS[*]}" )
+# Python の台本の見送りの行（graphloops/tests/parallel.py の skip_line）が、ここの拾い手の印と能力の名前の形に当たる——片方だけ
+# 変えると、見送りが一覧から黙って消えて合格に化けるか、名前が読めずに許しの一覧が効かなくなる
+skip_py=$( SKIPS=(); note_skips "$(PYTHONIOENCODING=utf-8 "$PY_BIN" -c 'import sys; sys.path.insert(0, sys.argv[1]); import parallel; print(parallel.skip_line("検査", "fifo", "理由"))' "$ROOT/graphloops/tests" 2>&1)"
+           printf '|n=%s|%s|cap=%s' "${#SKIPS[@]}" "${SKIPS[*]}" "$(skip_capability "${SKIPS[0]:-}")" )
 ran=$((ran + 1))
-if [ "$skip_py" = "|n=1|検査 # SKIP 理由" ]; then
-    echo "  ok   Python の台本の見送りの行（parallel.skip_line）を、root の拾い手が 1 件として拾う"
+if [ "$skip_py" = "|n=1|検査 # SKIP fifo: 理由|cap=fifo" ]; then
+    echo "  ok   Python の台本の見送りの行（parallel.skip_line）を、root の拾い手が 1 件として拾い、能力の名前を読む"
 else
-    echo "  FAIL Python の台本の見送りの行を root の拾い手が拾えない: $skip_py"
+    echo "  FAIL Python の台本の見送りの行を root の拾い手が拾えないか、能力の名前が読めない: $skip_py"
     fail=1
 fi
 
@@ -2979,7 +3017,7 @@ if os.name == "posix":
     mode = stat.S_IMODE(os.stat(m.group(1)).st_mode)
     assert mode == 0o600, f"一時ファイルが {oct(mode)}（/tmp では他の利用者が読める）"
 else:
-    print("  ok   outfile の一時ファイルは 0600 # SKIP posix でない OS はファイルの mode を持たない")
+    print("  ok   outfile の一時ファイルは 0600 # SKIP posix-mode: posix でない OS はファイルの mode を持たない")
 assert "節（Read の offset）: 2 節" in out, out
 os.unlink(m.group(1))
 print("OUT_FLAG_OK")
@@ -3023,7 +3061,7 @@ if command -v shellcheck >/dev/null 2>&1; then
         fail=1
     fi
 else
-    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck が手元に無い（CI の ubuntu の段が回し、下の CI_LINT_OK がその設定を見る）"
+    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck: shellcheck が手元に無い（CI は 3 OS とも入れる。下の CI_LINT_OK がその設定を見る）"
     echo "$sc_skip"
     note_skips "$sc_skip"
 fi
@@ -3032,7 +3070,7 @@ ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -3042,10 +3080,35 @@ wf = pathlib.Path(sys.argv[1]) / ".github" / "workflows" / "test.yml"
 txt = wf.read_text(encoding="utf-8")
 # **語が在るかでなく、回す段が在るかを見る。** 語だけを見ていたとき、段を消しても**注記に残った同じ語**で
 # 柵が通った（実測 2026-09-21: 腕 f5 が緑のまま素通りした）。実際に走る行（run:）だけを対象にする
+import re
 runs = [l.split("run:", 1)[1] for l in txt.splitlines() if l.strip().startswith("run:")]
-hits = [r for r in runs if "shellcheck" in r]
+# 道具そのものを起こす run: だけを数える（入れる段の shellcheck-py は語が続くので当たらない）
+hits = [r for r in runs if re.search(r"(^|[\s|;&])shellcheck(\s|$)", r)]
 assert hits, f"{wf}: shellcheck を実際に回す run: の段が無い（注記に語が在るだけでは通さない）"
 assert all("-S warning" in r for r in hits), f"{wf}: shellcheck の深さ（-S warning）が手元の検査と揃っていない: {hits}"
+# 段ごとに切って、注記の行を除いた中身だけを見る——env: と if: は run: の行でないので、全文の部分一致だと注記の語で通る
+steps = []
+for l in txt.splitlines():
+    t = l.strip()
+    if t.startswith("#"):
+        continue
+    if t.startswith("- name:") or t.startswith("- uses:"):
+        steps.append([t])
+    elif steps:
+        steps[-1].append(t)
+def step(name):
+    got = [s for s in steps if s[0] == f"- name: {name}"]
+    assert len(got) == 1, f"{wf}: 段 {name} がちょうど 1 つでない（{len(got)} 個）"
+    return got[0]
+# **見送り自体を無くす道具は 3 OS に同じ版で入れる。** OS の条件（if:）を付けると、付けなかった OS で tests/run.sh の中の
+# shellcheck が見送りになり、SKIP_ALLOW に無い名前なので赤になる——黙って緑には戻らないが、原因が遠い
+inst = [s for s in steps if any(re.fullmatch(r"run: python -m pip install shellcheck-py==[0-9][0-9.]*", x) for x in s)]
+assert inst, f"{wf}: shellcheck を版を固定して入れる段（run: python -m pip install shellcheck-py==<版>）が無い"
+assert not any(x.startswith("if:") for s in inst for x in s), f"{wf}: shellcheck を入れる段に OS の条件（if:）が付いている: {inst}"
+# **見送りを CI で失敗に数える。** 許すのは OS ごとの一覧（matrix の skip_allow。include に無い OS は空）に名前の在る能力だけ
+rs = step("tests/run.sh")
+assert 'FAIL_ON_SKIP: "1"' in rs, f"{wf}: tests/run.sh の段が FAIL_ON_SKIP: \"1\" を渡していない（見送りが黙って緑になる）: {rs}"
+assert "SKIP_ALLOW: ${{ matrix.skip_allow }}" in rs, f"{wf}: tests/run.sh の段が OS ごとの許しの一覧（SKIP_ALLOW: ${{{{ matrix.skip_allow }}}}）を渡していない: {rs}"
 # **engine が走らせる宣言は CI の段の写し**（手元は pytest を uv で入れ、CI は pip で入れるので語は揃わない）。名前だけ突き合わせる
 # ——宣言に在って CI に無い段は、CI が回していない物を engine だけが回している。逆向き（CI の段を宣言が持たない）は許す:
 # shellcheck は CI だけが段として回し、手元では tests/run.sh が在れば回す任意の道具
@@ -3546,7 +3609,7 @@ sys.path.insert(0, sys.argv[1])
 import mutate
 
 if os.name != "posix":
-    print("  ok   run_group の腕 # SKIP run_group は posix のプロセスグループ（start_new_session・killpg）に頼る")
+    print("  ok   run_group の腕 # SKIP process-group: run_group は posix のプロセスグループ（start_new_session・killpg）に頼る")
     print("RUNGROUP_OK")
     sys.exit(0)
 

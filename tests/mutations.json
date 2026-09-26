@@ -5953,6 +5953,69 @@
    "old": "        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning",
    "new": "        run: echo 静的検査を回さない",
    "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL4",
+   "title": "CI の突合: tests/run.sh の段が見送りを失敗に数えなければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          FAIL_ON_SKIP: \"1\"",
+   "new": "          FAIL_ON_SKIP: \"0\"",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL5",
+   "title": "CI の突合: shellcheck を入れる段に OS の条件が付けば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "      - name: install shellcheck\n        shell: bash\n",
+   "new": "      - name: install shellcheck\n        if: matrix.os == 'ubuntu-latest'\n        shell: bash\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL6",
+   "title": "CI の突合: 許しの一覧が OS ごとの値でなく固定なら赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          SKIP_ALLOW: ${{ matrix.skip_allow }}",
+   "new": "          SKIP_ALLOW: posix-mode",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "SK1",
+   "title": "見送りの許し: 許しの一覧に無い名前まで許せば赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "[ \"$a\" = \"$cap\" ] && allowed=1",
+   "new": "allowed=1",
+   "expect": "見送りの拾い手が期待と違う"
+  },
+  {
+   "id": "SK2",
+   "title": "見送りの許し: 名前の形を見なければ赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "    [[ \"$cap\" =~ ^[a-z0-9][a-z0-9-]*$ ]] && printf '%s' \"$cap\"",
+   "new": "    printf '%s' \"$cap\"",
+   "expect": "見送りの拾い手が期待と違う"
+  },
+  {
+   "id": "SK3",
+   "title": "見送りの許し: FAIL_ON_SKIP の無い既定で失敗に数えれば赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "    if [ \"${FAIL_ON_SKIP:-}\" = 1 ] && [ \"$denied\" -gt 0 ]; then",
+   "new": "    if [ \"$denied\" -gt 0 ]; then",
+   "expect": "見送りの拾い手が期待と違う"
+  },
+  {
+   "id": "SK4",
+   "title": "見送りの許し: Python の見送りの行が能力の名前を持たなければ赤",
+   "file": "graphloops/tests/parallel.py",
+   "suite": "root",
+   "old": "return f\"  ok   {desc}{SKIP_MARK} {capability}: {reason}\"",
+   "new": "return f\"  ok   {desc}{SKIP_MARK} {reason}\"",
+   "expect": "Python の台本の見送りの行を root の拾い手が拾えないか"
   }
  ],
  "dropped": [

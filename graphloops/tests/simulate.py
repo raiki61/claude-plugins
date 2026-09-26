@@ -72,12 +72,12 @@ def check(cond, desc):
     parallel.line(f"  ok   {desc}" if cond else f"  FAIL {desc}")
 
 
-def skip(desc, reason):
-    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
+def skip(desc, capability, reason):
+    """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、欠けた能力の名前つきで合格と別の印で出す（parallel.skip_line）"""
     global ran
     with parallel.LOCK:
         ran += 1
-    parallel.line(parallel.skip_line(desc, reason))
+    parallel.line(parallel.skip_line(desc, capability, reason))
 
 
 def rm(p):
@@ -809,8 +809,8 @@ def test_hook_evidence():
         got, why = RESEARCH_RULES.hook_evidence(board, str(fifo))
         check(got == "none" and "通常のファイルでない" in why, f"FIFO は開かずに none（{why[:50]}）")
     else:
-        skip("FIFO を読んだ回はフックが記録しない", "この OS には FIFO（os.mkfifo）が無い")
-        skip("FIFO は開かずに none", "この OS には FIFO（os.mkfifo）が無い")
+        skip("FIFO を読んだ回はフックが記録しない", "fifo", "この OS には FIFO（os.mkfifo）が無い")
+        skip("FIFO は開かずに none", "fifo", "この OS には FIFO（os.mkfifo）が無い")
     # **sha を持たない行（書いた側の上限超え）は大きさの部分読みとして扱い、一致の証拠にも不一致の証拠にもしない**——
     # 不一致と数えていた頃は、2 つの上限の写しがずれた日に、小さい文書が『読んだ後に変わった』と名乗られた
     nosha = tmp / "nosha.md"; nosha.write_text("n" + chr(10), encoding="utf-8")

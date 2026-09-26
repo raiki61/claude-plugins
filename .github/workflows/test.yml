@@ -16,6 +16,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # **欠けてよい能力の一覧（tests/run.sh の SKIP_ALLOW）は OS ごとに書き、既定は空。** include に無い OS は何も許さない。
+        # 書くのはその OS で本当にできない物だけ——道具で無くせる見送り（shellcheck）は道具を入れて無くす。
+        # 名前は見送りの行の「# SKIP <能力>:」の頭。一覧に無い名前の見送りは、下の FAIL_ON_SKIP=1 で赤になる
+        include:
+          - os: windows-latest
+            skip_allow: "posix-mode process-group fifo read-permission"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -30,16 +36,24 @@ jobs:
         with:
           python-version: "3.12"
       # **shell の静的検査は定番解（shellcheck）で。** 自作の正規表現は for の位置しか見なかった。
-      # ubuntu の runner には既定で入っているので、3 OS のうち 1 本だけで回す（同じ .sh を 3 回見ても
-      # 指摘は変わらない）。深さは tests/run.sh の手元の検査と同じ -S warning——片方だけ深くすると、
-      # 手元で緑・CI で赤（またはその逆）になって、どちらが正本か分からなくなる。
+      # runner の既定では ubuntu にしか無く（版も手元と違う）、tests/run.sh の中の同じ検査が macOS と Windows で
+      # 見送りになっていた。3 OS とも PyPI のホイールで同じ版を入れ、見送り自体を無くす（pytest と同じく版を固定する）。
+      - name: install shellcheck
+        shell: bash
+        run: python -m pip install shellcheck-py==0.11.0.1
+      # 独立した段は 3 OS のうち 1 本だけで回す（同じ .sh を 3 回見ても指摘は変わらない）。深さは tests/run.sh の
+      # 手元の検査と同じ -S warning——片方だけ深くすると、手元で緑・CI で赤（またはその逆）になって、どちらが正本か分からなくなる。
       - name: shellcheck
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning
       # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。
+      # 見送りを失敗に数え、許すのは OS ごとの一覧（上の matrix の skip_allow）に名前の在る能力だけ
       - name: tests/run.sh
         shell: bash
+        env:
+          FAIL_ON_SKIP: "1"
+          SKIP_ALLOW: ${{ matrix.skip_allow }}
         run: bash tests/run.sh
       # **pytest の置き場（graphloops/tests/py/）を丸ごと回す。** 依存は開発の間だけで、ここで入れる（README の必須には
       # 足さない）。版を固定するのは、手元と CI で柵（fence.py）が使う pytest のフックの振る舞いを揃えるため。
