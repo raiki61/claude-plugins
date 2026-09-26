@@ -39,7 +39,7 @@ class TestCoreCopy(unittest.TestCase):
         for rel in listed:
             self.assertTrue((CORE / rel).is_file(), rel)
         # 検証器が読む物（盤面の層の scalars の段が要る。0.21.0 の写しで足した）
-        for rel in ("scripts/comment-ratio.sh", "REVIEW.md"):
+        for rel in ("scripts/comment-ratio.sh", "REVIEW.md", "graphloops/scripts/parallel-pr.py"):
             self.assertIn(rel, listed)
 
     def test_copies_are_byte_identical_to_the_commit(self):
