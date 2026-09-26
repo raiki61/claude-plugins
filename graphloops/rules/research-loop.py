@@ -731,7 +731,8 @@ def claims_intake(b, nid, out, item):
     memo = b.dir / "read-through.json"
     scope = [b.round, doc, size, str(tp), hook]
     try:
-        cached = read_json(memo) if memo.is_file() else None
+        # read_json は読めないと die（SystemExit）で抜け、下の except に届かないので使わない
+        cached = json.loads(memo.read_text(encoding="utf-8")) if memo.is_file() else None
     except Exception:                       # noqa: BLE001 — 写しが読めないなら走査し直すだけ
         cached = None
     # **写しに当たっても、この節の出力から出る一言は出す。** 早期 return にしていたとき、

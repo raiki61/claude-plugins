@@ -60,6 +60,15 @@ def test_still_mine_false_when_instance_left_the_round(tmp_path):
     assert commands._still_mine(tmp_path, {"id": "p1.x", "out_path": "o"})() is False
 
 
+@pytest.mark.parametrize("board", [None, "{壊れた", json.dumps({"rounds": [{"instances": []}]}),
+                                   json.dumps({"rounds": [{"instances": {"p1.x": "o"}}]})])
+def test_still_mine_true_when_the_board_cannot_be_read(tmp_path, board):
+    """盤面が無い・JSON でない・形が違うときは、die（SystemExit）で抜けずに真（読めない回は健全な子を止めない）"""
+    if board is not None:
+        (tmp_path / "state.json").write_text(board, encoding="utf-8")
+    assert commands._still_mine(tmp_path, {"id": "p1.x", "out_path": "o"})() is True
+
+
 @pytest.mark.parametrize("redraw", [["gone"], ["p1.done"]])
 def test_add_refuses_redraw_of_non_waiting_instance(tmp_path, monkeypatch, capsys, redraw):
     """rules の add が、今の周に無い・待っていない instance を描き直せと言ったら rules の欠陥として止める"""

@@ -3690,10 +3690,13 @@ def test_read_through():
     check(r.returncode == 0 and not run2.state().get("read_through_unchecked"),
           f"道具の結果が配列の形でも本文は見つかる（痕跡なしで通る。{r.stderr[-80:]}）")
     # **実物の Read は各行に行番号＋タブを付ける**（照合は部分一致なので通るはず。行の一致に変えた周に赤くなる）
+    (run2.dir / "read-through.json").write_text("{壊れた", encoding="utf-8")
     r = run2.cmd("done", "--node", ids2["p0.terms"], "--output", str(terms2),
                  env=session_fixture(run2.tmp, run2.env, text=run2.doc.read_text(encoding="utf-8"), numbered=True))
     check(r.returncode == 0 and not run2.state().get("read_through_unchecked"),
           f"行番号＋タブの接頭が付く形（実物の Read）でも本文は見つかる（{r.stderr[-80:]}）")
+    check(json.loads((run2.dir / "read-through.json").read_text(encoding="utf-8")).get("scope"),
+          "壊れた写しは走査し直して書き直す（読めない写しで die しない）")
     rm(run2.tmp)
 
     # **文書そのものが読めない回は拒む**（init のあとで消された・移された）。不成立へ倒すと、
