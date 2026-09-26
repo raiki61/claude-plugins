@@ -1,0 +1,807 @@
+{
+ "graphloops_rev": "a1202d0",
+ "graph_sha": "f9897bb07384",
+ "made_at": "2026-09-26T15:20:57+00:00",
+ "git_env": {
+  "GIT_AUTHOR_NAME": "t",
+  "GIT_AUTHOR_EMAIL": "t@t",
+  "GIT_AUTHOR_DATE": "2026-01-01T00:00:00+0000",
+  "GIT_COMMITTER_NAME": "t",
+  "GIT_COMMITTER_EMAIL": "t@t",
+  "GIT_COMMITTER_DATE": "2026-01-01T00:00:00+0000",
+  "GIT_CONFIG_GLOBAL": "/dev/null",
+  "GIT_CONFIG_NOSYSTEM": "1"
+ },
+ "tokens": {
+  "@BOARD@": "Run の盤面の置き場（--dir）",
+  "@REPO@": "Run の対象リポジトリ（loop.py の cwd）",
+  "@RUN@": "Run の作業場（盤面と対象リポジトリの親。台本の返答の置き場 out.txt など）",
+  "@CORE@": "書き出した graphloops の根（graphloops/ と scripts/review-record.py の親）",
+  "@PY@": "撮った機械の Python（台本の宣言の語が sys.executable のため。再生は今の Python で宣言の sha を計算し直す）",
+  "@TMPDIR@": "一時の置き場（engine の道具ゼロの役の置き場 graphloops-isolated-* など）",
+  "@HOME@": "撮った機械のホーム"
+ },
+ "scenarios": {
+  "test_converges": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-std-*/state",
+     "steps": 173,
+     "kinds": {
+      "init": 1,
+      "accept": 51,
+      "engine_run": 4,
+      "na": 76,
+      "builtin": 39,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "c912f362c40759525572ef69f01ad71117bbf492754cd5cd7b180be81a2bcbac",
+      "disk": "7450c9be5f35b1ebb0dcc8841fe58690d73f9947f98a603c8496e658e548aa68",
+      "repo": "67dcb1ca47c7e524494b47fed04b5d4c562b6f0573fc4ffd8df3ce8e080c47b6"
+     },
+     "bytes": 95936
+    }
+   }
+  },
+  "test_runaway": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-runaway-*/state",
+     "steps": 283,
+     "kinds": {
+      "init": 1,
+      "accept": 109,
+      "engine_run": 6,
+      "na": 98,
+      "builtin": 65,
+      "open_round": 4
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "85dbbcf454142c3a44003ac079d2f6c627b8c887b348297b24f440ddfc6e4ab8",
+      "disk": "692196c956bc57eee32e12af11d0dea4de6ca87b98a2bc74093df75148273221",
+      "repo": "53c2f096600e03a5790afe0eee911ae38ab19aa433ede437e21480134052f33a"
+     },
+     "bytes": 165174
+    }
+   }
+  },
+  "test_awaiting": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-await-*/state",
+     "steps": 231,
+     "kinds": {
+      "init": 1,
+      "accept": 66,
+      "engine_run": 5,
+      "na": 103,
+      "builtin": 52,
+      "open_round": 3,
+      "answer": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "117c74398cc969567887fabd02372c6fe4424fcc64b7c57b58a1a87085851e9e",
+      "disk": "fdb13a8b19228dcad6957cafdccea78f69ab05add6f7a2c157cdcdb5a4ea8141",
+      "repo": "72989e986b16604b10f251762a406b5ba395045159a5188acaa6511bc80f688c"
+     },
+     "bytes": 107500
+    }
+   }
+  },
+  "test_rejections": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-neg-*/state",
+     "steps": 98,
+     "kinds": {
+      "init": 1,
+      "accept": 72,
+      "engine_run": 1,
+      "na": 15,
+      "builtin": 9
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "cb85fd6ff63c857bce6bb2343c800b8186e385d1dce1ec26a8dbc8c7921bc5dc",
+      "disk": "fd38a52e7bad94d5f31e2bf5d85e6d8457d503d23ee1b5e4f5f6339b464c42a6",
+      "repo": "2851ec83de93fe9656d6642d5bcbd08358fc678d60f88748c36ec42b91c810f2"
+     },
+     "bytes": 47824
+    },
+    "2": {
+     "dir": "gl-review-neg-nodecl-*/state",
+     "steps": 1,
+     "kinds": {
+      "init": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "cae657a989d3822ec5382d56ea2e412a107ec6dfaa27ac916806d308795044a6",
+      "disk": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "repo": "42286061baf4cb024414e195e01dbde729f693e7c4ebb550c8b3e19913335097"
+     },
+     "init_only": "宣言の無いリポジトリの最初の next が p0.local_checks を任せ先に落とした ready だけを見る（その next の中に機械の節も条件の na も無い）",
+     "bytes": 4627
+    }
+   }
+  },
+  "test_request_entry": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-entry-std-*/state",
+     "steps": 179,
+     "kinds": {
+      "init": 1,
+      "add": 6,
+      "accept": 47,
+      "engine_run": 4,
+      "na": 80,
+      "builtin": 39,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "9080eba96c6c8a46f4d0b2d911a54ed0ec07a0da143fc752f295fbf003e63655",
+      "disk": "6f193bf6af4a8e0420680f2f1ebfc7588adbab237821d2046b6879e1265434aa",
+      "repo": "ed99d8838e805df1d3e5884d98516a19c5279dc9c51edd7fb3f09d0573b98c20"
+     },
+     "bytes": 79121
+    },
+    "2": {
+     "dir": "gl-review-entry-entry_reject-*/state",
+     "steps": 124,
+     "kinds": {
+      "init": 1,
+      "add": 6,
+      "accept": 25,
+      "engine_run": 3,
+      "na": 62,
+      "builtin": 26,
+      "open_round": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "104b863ffaecddc983652866e343f00dc03268db4e4368a0613639f6cc7c1406",
+      "disk": "3f22b156cddfb07432ee26e860015b3b7a573b1c9c865c5cd9254d593fa48d0d",
+      "repo": "294995f3a27fc8bdeabf32433e7afc082651f1efc248408aa8a32514b788114c"
+     },
+     "bytes": 50040
+    },
+    "3": {
+     "dir": "gl-review-entry-wide-*/state",
+     "steps": 26,
+     "kinds": {
+      "init": 1,
+      "add": 1,
+      "accept": 6,
+      "engine_run": 1,
+      "na": 15,
+      "builtin": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "310b84839a4d805c295223d73a13870744d7f5aa725b07a1e4fc7ccfa831bb2c",
+      "disk": "064ef2c1a88ab966f6625dcf33ea64512c99d8501fc2ef33fe0159395992fc46",
+      "repo": "fea80a95983393fa400a31dcafef046d56b23bbb7fceb1a322b2d60fd4b7fd03"
+     },
+     "bytes": 16389
+    },
+    "4": {
+     "dir": "gl-review-entry-esc-*/state",
+     "steps": 27,
+     "kinds": {
+      "init": 1,
+      "add": 1,
+      "patch": 1,
+      "accept": 9,
+      "engine_run": 1,
+      "na": 12,
+      "builtin": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "181d0dff370fb2f0134ab29779a85bde5dd94a152c9d76f87883e9f510682497",
+      "disk": "d27d3e4fe198a5f830d9b713511c23959de5965fa2b4bbe942896b354f527d2d",
+      "repo": "1b59d2e547360f71b5ab84347c5e006d3decfaa2eecdefad10d997506a529a7e"
+     },
+     "bytes": 17504
+    },
+    "5": {
+     "dir": "gl-review-entry-patch-*/state",
+     "steps": 26,
+     "kinds": {
+      "init": 1,
+      "patch": 1,
+      "accept": 6,
+      "engine_run": 1,
+      "na": 15,
+      "builtin": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "c88ebff4f0b0cc9bf8af28903ba9ea2ef011fd939b8e69ba57c4b628d6aca647",
+      "disk": "a5cce8d035f2d38ce716e67c9d5726cc5d25e4f77cd2132da9893efc440013f7",
+      "repo": "6930dd7d83de7966e280cf6ca85292038b4f9d86002a781ffb68204719bfdfa4"
+     },
+     "bytes": 15200
+    },
+    "6": {
+     "dir": "gl-review-entry-patch-bad-*/state",
+     "steps": 26,
+     "kinds": {
+      "init": 1,
+      "patch": 1,
+      "accept": 11,
+      "engine_run": 1,
+      "na": 10,
+      "builtin": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "9d727d2e1f13243bf4ccd03217665772bdd2720147999daaf909b8f5502da5cc",
+      "disk": "673481748854ecc53fe907da2c822ea30cb8bc0c08d6b71bfdbf6c402948b25e",
+      "repo": "f0221674dc3bac298f4888ec03eac8145e3358a39d31a38be614d7e746ecf4c7"
+     },
+     "bytes": 19685
+    },
+    "7": {
+     "dir": "gl-review-entry-patch-list-*/state",
+     "steps": 26,
+     "kinds": {
+      "init": 1,
+      "patch": 1,
+      "accept": 11,
+      "engine_run": 1,
+      "na": 10,
+      "builtin": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "9a56cf2610eb98dbd3f8429c3437fa73663a2586cea32cbccb28259dfdc10f45",
+      "disk": "950e93f6cdd4e6b86e8c2b6743f1571e05a654ce59b37699780ab6b1872a9099",
+      "repo": "e8bd4f5918d487973f4b1aefb6a2f9aceb03860dfb9e3407a31c986227e8e965"
+     },
+     "bytes": 19830
+    },
+    "8": {
+     "dir": "gl-review-entry-p0late-*/state",
+     "steps": 21,
+     "kinds": {
+      "init": 1,
+      "add": 3,
+      "accept": 3,
+      "engine_run": 1,
+      "na": 12,
+      "builtin": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "09c2373ef232128637bd8bb17bbb4e8767245904dcd6487f2a0b887c92a7832e",
+      "disk": "2bb6bcfdedd41729c2d9396455141b5113848a431dc6a243eb1fcb76e6fb5f22",
+      "repo": "5ee0fcf890d6dae6b9551e7ba2adbaeb5b6a067193b1d9a31730beed7957a059"
+     },
+     "bytes": 13143
+    },
+    "9": {
+     "dir": "gl-review-entry-started-launched-*/state",
+     "steps": 27,
+     "kinds": {
+      "init": 1,
+      "add": 2,
+      "accept": 6,
+      "engine_run": 1,
+      "na": 15,
+      "builtin": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "3f02a05888e7ae3c7c0348570a3fdb272075b92e1125506f26c1e406514823e7",
+      "disk": "a5cce8d035f2d38ce716e67c9d5726cc5d25e4f77cd2132da9893efc440013f7",
+      "repo": "8116b0b9137a483e603dfd0e5b1aefa17abb0be507a7fe6f7aaac45a32eee500"
+     },
+     "bytes": 15354
+    },
+    "10": {
+     "dir": "gl-review-entry-started-out_file-*/state",
+     "steps": 27,
+     "kinds": {
+      "init": 1,
+      "add": 2,
+      "accept": 6,
+      "engine_run": 1,
+      "na": 15,
+      "builtin": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "307407eb91a67023ce7df7a7af0cf844dee2a8f3392ac1d6cd941ce401c8d9f4",
+      "disk": "95d0e8d83805c16ad5322688263b2b4d4a41c446190914caac7df63a2ef5229c",
+      "repo": "971405d8154855b36f638caba7dfa5d863512db5704b691bc64fdf3e5776f8b5"
+     },
+     "bytes": 16037
+    },
+    "11": {
+     "dir": "gl-review-entry-late-*/state",
+     "steps": 26,
+     "kinds": {
+      "init": 1,
+      "accept": 11,
+      "engine_run": 1,
+      "na": 10,
+      "builtin": 2,
+      "add": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "4f937ca5bef9a2ed78c0322f8d3fd0fd92aff42d63876e5d3ea3fb20e848ee33",
+      "disk": "950e93f6cdd4e6b86e8c2b6743f1571e05a654ce59b37699780ab6b1872a9099",
+      "repo": "e4bf0aede9a087acce4b374710c255cace29fa794b0d9016a1aa58ed71080583"
+     },
+     "bytes": 18868
+    }
+   }
+  },
+  "test_fix_plan_review": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-planfaces-*/state",
+     "steps": 190,
+     "kinds": {
+      "init": 1,
+      "accept": 71,
+      "engine_run": 4,
+      "na": 72,
+      "builtin": 40,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "5cbf18ce54cec501bbb347f25b49c91009087c51554c62fd3c4c62b0d05ab5e9",
+      "disk": "9b39069b0051169715dbf7c8cb81942a7e9b15d241ea9b43b08254016c7d6923",
+      "repo": "4d4a4e85c0a8e5d5c061b63561f081f6f103e2421ab4c77b140570176e07b8c5"
+     },
+     "bytes": 94750
+    }
+   }
+  },
+  "test_human_gate": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-gate-*/state",
+     "steps": 177,
+     "kinds": {
+      "init": 1,
+      "accept": 52,
+      "engine_run": 4,
+      "na": 76,
+      "builtin": 39,
+      "answer": 3,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "67b6803eb16a4aed7e4cd8391343510ee0536bca1f5852b36929ca5548945901",
+      "disk": "094f789c7faf5c9ed85220119f594d4b84be3de3a5c6ca3e3b72e6a3029f4c92",
+      "repo": "2cde81a4a1586a2a89abd0fd63ad1968da2a01638369d0afe198b76572e432a3"
+     },
+     "bytes": 84431
+    },
+    "2": {
+     "dir": "gl-review-gate-stop-*/state",
+     "steps": 31,
+     "kinds": {
+      "init": 1,
+      "accept": 14,
+      "engine_run": 1,
+      "na": 11,
+      "builtin": 3,
+      "answer": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "2d5613e89867be9619f96e86c70bcd4b6f6bf59bedee6503c7aef82e71fcb2f1",
+      "disk": "0676233d0a19194fc86a88fd074d3fbbeb4ec37051f7371f2bfc149f98efa03e",
+      "repo": "eb45ed67f5474823c4277513266f3b71c99ed3176024bda754fa8aefe86510c6"
+     },
+     "bytes": 24873
+    },
+    "3": {
+     "dir": "gl-review-gate-unattended-*/state",
+     "steps": 30,
+     "kinds": {
+      "init": 1,
+      "accept": 14,
+      "engine_run": 1,
+      "na": 11,
+      "builtin": 3
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "7d67f7f11ec3f89d32dd178a4b083c33560b292405c8b7957b3d94105745ca47",
+      "disk": "329c9b21fa8809c31e82ad06a7cc272841de38fac5abc6dd1bebcedb27cc366b",
+      "repo": "d28381329ff4920d0a4445d03c7cf7d7f3b056c190a7096c9c97096ae35cd406"
+     },
+     "bytes": 24533
+    }
+   }
+  },
+  "test_policy_reaches_roles": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-policy-*/state",
+     "steps": 173,
+     "kinds": {
+      "init": 1,
+      "accept": 51,
+      "engine_run": 4,
+      "na": 76,
+      "builtin": 39,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "6f3965ebd0c6cfe16fec68acf92ae12f1267cdf62d3541db9e7cce24af6ff12b",
+      "disk": "f0f61be896393eba89d74bc08020274115fa08d46b0836c36b63ced269c04c0b",
+      "repo": "fdaba6b2d9724aad7988fab607ac53ed26205fdf0aaf5baad260317a705fb336"
+     },
+     "bytes": 73713
+    },
+    "2": {
+     "dir": "gl-review-policy-missing-*/state",
+     "steps": 1,
+     "kinds": {
+      "init": 1
+     },
+     "init_rejected": true,
+     "bytes": 1853
+    }
+   }
+  },
+  "test_stop_midround": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-stop-mid-*/state",
+     "steps": 33,
+     "kinds": {
+      "init": 1,
+      "accept": 15,
+      "engine_run": 1,
+      "na": 11,
+      "builtin": 2,
+      "stop": 3
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "d2bb01d09684939dea26e8e931ded4f5b3191f6ca742e0855adff05d56da7154",
+      "disk": "a7bc93299fef981b691d62c4056bfde7a9855388bf4ae49747582a359fff06be",
+      "repo": "81a4fd8a4ded7cee8f030b93a949271b26d0e629c5aa9be40900c1d95acc7c39"
+     },
+     "bytes": 26888
+    },
+    "2": {
+     "dir": "gl-review-stop-stale-*/state",
+     "steps": 28,
+     "kinds": {
+      "init": 1,
+      "accept": 12,
+      "engine_run": 1,
+      "na": 11,
+      "builtin": 2,
+      "stop": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "6e5cf45152d45b8c63b78daf3524a4f2c763ef348497af15c2c13ed218f13820",
+      "disk": "5bd980012463e0fdc5c147f435b9634e5b8a4f850ca4b21d97252c300ee614ff",
+      "repo": "3443727a3cb4a2f2f385ed4c691067acce868ede002352a15cc915b98d3d754b"
+     },
+     "bytes": 24610
+    },
+    "3": {
+     "dir": "gl-review-stop-r2-*/state",
+     "steps": 70,
+     "kinds": {
+      "init": 1,
+      "accept": 22,
+      "engine_run": 2,
+      "na": 29,
+      "builtin": 14,
+      "open_round": 1,
+      "stop": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "562dd37484bc1b30a2d94166ac416481f1fbf12bc7b2859f35722318147a4422",
+      "disk": "755383a684715ef30bf92c1b60f694663904de3a757c26ac73a469f14b6f3790",
+      "repo": "1996129b9a1d9dec571c5d4727faed34a98c64a5ad0ee448ea6d5b8fafcee546"
+     },
+     "bytes": 44545
+    },
+    "4": {
+     "dir": "gl-review-stop-ask-*/state",
+     "steps": 61,
+     "kinds": {
+      "init": 1,
+      "accept": 22,
+      "engine_run": 2,
+      "na": 22,
+      "builtin": 13,
+      "stop": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "a902da5b97a66b7a0e0a1d66d3be856c06b8bf775a50a8e8b8070bca3efced4a",
+      "disk": "b825a957710b48731dc4427969d27d8a630d755f8fa65f670d3a39b1861f7503",
+      "repo": "d350c1e059da86d9696c4580d894ae17ed31ee3b2a8e04dd813a42079cf25079"
+     },
+     "bytes": 42191
+    },
+    "5": {
+     "dir": "gl-review-stop-nodecl-*/state",
+     "steps": 29,
+     "kinds": {
+      "init": 1,
+      "accept": 12,
+      "engine_run": 1,
+      "na": 11,
+      "builtin": 2,
+      "stop": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "c2fda58f59fb",
+     "last": {
+      "memory": "008214eb33dec9e41691a3ca1af5be692268c17b0e40620671ba2446a0303d02",
+      "disk": "6d37ab60b16ef6bbbb23748330575eec299c332b27c33f2e05ee4916ac535fe7",
+      "repo": "ac58f7172ead9b482e38dad6089e0da8cadb78481c0b20bb48d51f8fe69e9e3a"
+     },
+     "bytes": 24763
+    }
+   }
+  },
+  "test_stop_after_round": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-stop1-*/state",
+     "steps": 62,
+     "kinds": {
+      "init": 1,
+      "accept": 22,
+      "engine_run": 2,
+      "na": 22,
+      "builtin": 13,
+      "open_round": 1,
+      "finalize": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "707aeaf001e611c540f1b09e5c59c93b2de7f77e5685d6d73132f2c2468ab72c",
+      "disk": "bd37f90ed11dab87bd9ed392d3917cbb1d5fcbdd8e98de6f42695143dce5d0b7",
+      "repo": "faaced041dd0561db77c3d583022b192d8412609944f8e9cc66f59e39b5e4fbc"
+     },
+     "bytes": 37824
+    },
+    "2": {
+     "dir": "gl-review-stop2-*/state",
+     "steps": 116,
+     "kinds": {
+      "init": 1,
+      "accept": 38,
+      "engine_run": 3,
+      "na": 46,
+      "builtin": 26,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "47b24660a66d4fd1d09e1b614eeb1dd70511dea582dd63bd5e177062a25b6f09",
+      "disk": "ff5123813f877dcf8b189bf4de22da4004cb2e2cdb5cec7bc79a7a58b15f8611",
+      "repo": "d492c521bca2ff114cea68a97fa72ca67c0eecb97a228a35dc59b4325e72e587"
+     },
+     "bytes": 57994
+    },
+    "3": {
+     "dir": "gl-review-stop1-answer-*/state",
+     "steps": 62,
+     "kinds": {
+      "init": 1,
+      "accept": 22,
+      "engine_run": 2,
+      "na": 22,
+      "builtin": 13,
+      "answer": 1,
+      "open_round": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "97255f44b23af660ed39144bef09debec7df1be0a88c175dfe5e96c1e2632161",
+      "disk": "bd41eda290a462c8e59a0e8b69fed79db0b5fc4bc9dd22fb472ceba8b0c61874",
+      "repo": "5f41039aac514024a4f8e3734686e96b96ac3eb1bb6361753f266a8c4790bd89"
+     },
+     "bytes": 38629
+    },
+    "4": {
+     "dir": "gl-review-stop0-*/state",
+     "steps": 1,
+     "kinds": {
+      "init": 1
+     },
+     "init_rejected": true,
+     "bytes": 1834
+    }
+   }
+  },
+  "test_gates_merge": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-gmerge-*/state",
+     "steps": 173,
+     "kinds": {
+      "init": 1,
+      "accept": 48,
+      "engine_run": 4,
+      "na": 79,
+      "builtin": 39,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "734ef3f96ccc4f9684cb67d140537a50c0b7e0b60dda48a4f88a400d59c0364c",
+      "disk": "04021cb0af45c436b535af8309afe2ef7b4709888eed4259dfef96e4555f3193",
+      "repo": "a9535e8f4a297cc46e2aa108896d59e482a8bbc66b43fae628e471d81446f41b"
+     },
+     "bytes": 70550
+    },
+    "2": {
+     "dir": "gl-review-gmerge-gates-*/state",
+     "steps": 173,
+     "kinds": {
+      "init": 1,
+      "accept": 48,
+      "engine_run": 4,
+      "na": 79,
+      "builtin": 39,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "27e1b9ada341c718a311943d7999fd621a9f57661cdad36b28f1cb26ce5df3d6",
+      "disk": "01a70a2e3015d0d93f98c0dca8008f6b2cac8b2dff53ab3084855af213d01eb6",
+      "repo": "89ae287e488a83822b3be56fd28d6cb3ccb4431880e3882f5f058cf6df2a6ddd"
+     },
+     "bytes": 74077
+    },
+    "3": {
+     "dir": "gl-review-gbad-gates-*/state",
+     "steps": 1,
+     "kinds": {
+      "init": 1
+     },
+     "init_rejected": true,
+     "bytes": 1842
+    },
+    "4": {
+     "dir": "gl-review-gbad-flow-*/state",
+     "steps": 1,
+     "kinds": {
+      "init": 1
+     },
+     "init_rejected": true,
+     "bytes": 1843
+    },
+    "5": {
+     "dir": "gl-review-gbad-key-*/state",
+     "steps": 1,
+     "kinds": {
+      "init": 1
+     },
+     "init_rejected": true,
+     "bytes": 1865
+    },
+    "6": {
+     "dir": "gl-review-gfar-GATES-*/state",
+     "steps": 1,
+     "kinds": {
+      "init": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "c342c169300d202e10ff0ac57556dd5fadfc0df10c231ca7f435e35d94dff88d",
+      "disk": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "repo": "ae23083b4af4d1b6ed384c2b881a95a8f13d3838368abb8e210a4ad28450e676"
+     },
+     "init_only": "宣言に無い鍵を init が受け付けて notes に出すことだけを見る（next を呼ばない）",
+     "bytes": 4702
+    },
+    "7": {
+     "dir": "gl-review-gfar-gates_mode-*/state",
+     "steps": 1,
+     "kinds": {
+      "init": 1
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "3a832a8940bc59ce9f9d0015d6976d000eb01217d26df0a7b95ce5b46a193584",
+      "disk": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "repo": "f581dab43887ce8fd2ef620800c52ec22c31f24fed2e9f7b358d2e76bb332d03"
+     },
+     "init_only": "宣言に無い鍵を init が受け付けて notes に出すことだけを見る（next を呼ばない）",
+     "bytes": 4702
+    }
+   }
+  },
+  "test_rejudge_path": {
+   "runs": {
+    "1": {
+     "dir": "gl-review-rejudge-*/state",
+     "steps": 174,
+     "kinds": {
+      "init": 1,
+      "accept": 52,
+      "engine_run": 4,
+      "na": 75,
+      "builtin": 39,
+      "patch": 1,
+      "open_round": 2
+     },
+     "init_rejected": false,
+     "graph_sha": "f9897bb07384",
+     "last": {
+      "memory": "3efb31536744f3d17f62532ad8824d7796ebce6461b51980808b67ad0e538875",
+      "disk": "226a2ea2c8d433dd966db17e0864d5c6c1003b68fedbe73e90080b7aad82c4c0",
+      "repo": "362a0a013468240519168a6357a617fe9555eb219e955ee10fdeef1cfaf07ec1"
+     },
+     "bytes": 81761
+    }
+   }
+  }
+ },
+ "skipped_scenarios": {
+  "test_delta_conditions": "loop.py を通らず、偽の盤面で規則（RL）を直に呼ぶ——engine の中の手が無い",
+  "test_fix_counts_by_engine": "loop.py を通らず、偽の盤面で規則（RL）を直に呼ぶ——engine の中の手が無い",
+  "test_lane_end_to_end": "変異の実行器（tests/mutate.py の線）を起こす——変異テストを回さない決まり"
+ },
+ "uncovered": [
+  "p0.parallel_pr"
+ ],
+ "total_bytes": 1511888,
+ "simulator": {
+  "checks": 255,
+  "failed": []
+ }
+}
