@@ -85,7 +85,7 @@ def test_change_keeps_copies_and_diff_out_of_row(tmp_path):
     f.write_text("守る 1\n", encoding="utf-8")
     b = board(tmp_path, named="p.md")
     pol = PI.resolve(b, git_at(".git"), Reject)
-    assert PI.change(b, git_at(".git"), pol) is None   # 変わっていなければ None
+    assert PI.change(b, git_at(".git"), pol) is None
     f.write_text("守る 1\n書き足し BODY-X\n", encoding="utf-8")
     ch = PI.change(b, git_at(".git"), pol)
     assert ch["from"] == pol["sha256"] and ch["to"] != ch["from"] and ch["from_copy"] == pol["copy"]
@@ -105,11 +105,26 @@ def test_change_without_pinned_copy_does_not_fake_diff(tmp_path):
     assert "+今の版" in pathlib.Path(ch["diff_file"]).read_text(encoding="utf-8")
 
 
+def test_record_change_sets_and_clears(tmp_path):
+    f = tmp_path / "p.md"
+    f.write_text("守る 1\n", encoding="utf-8")
+    b = board(tmp_path, named=str(f))
+    proc = {"policy_change": {"stale": True}}   # policy を持たない proc は、方針の版を記録する前に init した盤面
+    PI.record_change(b, git_at(".git"), proc)
+    assert proc == {}
+    proc = {"policy": PI.resolve(b, git_at(".git"), Reject)}
+    f.write_text("守る 1\n書き足し\n", encoding="utf-8")
+    PI.record_change(b, git_at(".git"), proc)
+    assert proc["policy_change"]["from"] == proc["policy"]["sha256"]
+    f.write_text("守る 1\n", encoding="utf-8")
+    PI.record_change(b, git_at(".git"), proc)
+    assert "policy_change" not in proc
+
+
 
 def test_human_kinds_are_face_kinds():
     enum = G["nodes"]["p2.plan_review"]["schema"]["properties"]["faces"]["items"]["properties"]["kind"]["enum"]   # load_graph が $ref を展開した形
     assert RULES.HUMAN_FACE_KINDS and set(RULES.HUMAN_FACE_KINDS) <= set(enum)
-    # 事前審査だけの語（修正差分のレビューが拒む）も語彙の中で、人に聞く語を含む
     assert set(RULES.HUMAN_FACE_KINDS) <= set(RULES.PLAN_ONLY_FACE_KINDS) <= set(enum)
 
 
@@ -126,7 +141,7 @@ def test_policy_change_without_fixed_policy(tmp_path):
     f.write_text("方針\n", encoding="utf-8")
     b = board(tmp_path, named=str(f))
     b.dir = tmp_path
-    ch = RULES._policy_change(b)
+    ch = RULES.policy_input.change(b, RULES.git, b.record["process"].get("policy") or {})
     assert (ch["path"], ch["from"], ch["to"]) == (str(f), None, PI.file_sha(str(f)))
 
 

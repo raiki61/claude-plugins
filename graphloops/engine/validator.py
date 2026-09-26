@@ -175,6 +175,8 @@ TRACES = (
     ("patches", "patches"),
     ("graph_changes", "graph_changes"),
     ("role_def_missing", "role_def_missing"),  # 別 plugin の役で、定義がこの環境に無かったもの
+    # 盤面の loop が graph の state_schema から外れた（Board.save が積む。止めないので、見せる口はここだけ）
+    ("loop_drift", "loop_drift"),
 )
 
 

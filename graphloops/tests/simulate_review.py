@@ -80,12 +80,12 @@ def check(cond, desc):
     parallel.line(("  ok   " if cond else "  FAIL ") + desc)
 
 
-def skip(desc, reason):
+def skip(desc, capability, reason):
     """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
     global ran
     with parallel.LOCK:
         ran += 1
-    parallel.line(parallel.skip_line(desc, reason))
+    parallel.line(parallel.skip_line(desc, capability, reason))
 
 
 def rm(p):
@@ -657,6 +657,18 @@ def test_engine_run_checks():
           f"赤の段は found で数え、段の名前・終了コード・出力の末尾を detail に書く（{m}）")
     rm(run.tmp)
 
+    # 宣言の語はレビュー対象のリポジトリのルートで走る——launch を下のディレクトリから起こしても段の作業場所はルート
+    # （台本の語が場所に依らない 1 行だけだと、engine が作業場所を渡さない退行でも緑のまま）
+    run = Run("engrun-cwd", checks=[{"name": "where", "argv": [PY, "-c", "import os; print(os.getcwd())"]}])
+    inst = next(i for i in run.next()["ready"] if i["node"] == "p0.local_checks")
+    r = subprocess.run([PY, str(LOOP), "launch", "--node", inst["id"], "--dir", str(run.dir)], cwd=run.repo / "src",
+                       capture_output=True, text=True, encoding="utf-8", env=run.env, timeout=600)
+    runs = run.record()["process"].get("checks", {}).get("p0.local_checks", {}).get("runs") or [{}]
+    got = pathlib.Path(runs[0]["out"]).read_text(encoding="utf-8").strip() if runs[0].get("out") else ""
+    check(r.returncode == 0 and got and os.path.realpath(got) == os.path.realpath(run.repo),
+          f"宣言の語はレビュー対象のリポジトリのルートで走る（launch を起こした場所に依らない）（rc={r.returncode} / {got} / {run.repo}）")
+    rm(run.tmp)
+
     # 起こせない語: P4 の再実行は人待ちを新しく立てず not_run（判定の後の規則）。起こし直しは今の宣言で計画し直す
     run = Run("engrun-p4")
     nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p4.ci" for i in n["ready"]))
@@ -1042,14 +1054,19 @@ def test_prev_fix_faces_scalar():
     run = Run("prevfix")
 
     def hook(run_, inst, out):
+        if inst["node"] == "p2.history" and "history_prompt" not in prompts:
+            prompts["history_prompt"] = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
         if inst["node"] == "p2.history" and isinstance(out, dict) and out.get("router") and not seen:
             seen.append(inst["id"])   # 2 周目の 1 回だけ（3 周目は 0 件に戻ることも見る）
             k = out["router"][0]["key"]   # 同じ key を 2 度書いても 1 件と数える
             return {**out, "reburn_causes": [{"key": k, "cause": "前の周の修正", "note": "検査用"},
                                              {"key": k, "cause": "前の周の修正", "note": "検査用（重複）"},
                                              {"key": k + "（別）", "cause": "コード", "note": "原因が別なら数えない"}]}
-    seen = []
+    seen, prompts = [], {}
     drive(run, "std", hook=hook)
+    own = prompts.get("history_prompt", "").split("前の周の修正役が自分で当たった先行例", 1)[-1][:600]
+    check("https://example.invalid/limit" in own,
+          "修正役が自分で当たった先行例（判定者の行を採っていない行）が、次の周の履歴の突合のプロンプトに出典つきで渡る")
     r2 = run.round_file(2)
     check((r2.get("scalars") or {}).get("faces_created_by_prev_fix") == 1,
           f"2 周目の記録に faces_created_by_prev_fix=1 が載る（同じ key の重複は 1 件、原因が『コード』の行は数えない。{r2.get('scalars')}）")
@@ -1073,6 +1090,24 @@ def test_prev_fix_faces_scalar():
     r2, r3 = run.round_file(2), run.round_file(3)
     check((r2.get("scalars") or {}).get("faces_created_by_prev_fix") == 1 and "faces_created_by_prev_fix" not in (r3.get("scalars") or {}),
           f"p2.history を省いた周の記録には載らない（2 周目 {r2.get('scalars')} / 3 周目 {r3.get('scalars')}）")
+    rm(run.tmp)
+    # 修正役が自分で当たった先行例は、p2.history を省いた周に渡っていた分を次の周へ持ち越す（上書きで消さない）
+    run = Run("prevfix-ownskip")
+    hist = []
+
+    def hook_own(run_, inst, out):
+        if inst["node"] == "p3.fix" and isinstance(out, dict):   # 周ごとに出典の印を変え、どの周の行が届いたかを見分ける
+            mark = f"https://example.invalid/own-r{run_.state()['round']}"
+            return {**out, "changes": [{**c, "precedent": {**c["precedent"], "source": mark}} for c in out.get("changes", [])]}
+        if inst["node"] == "p2.history" and isinstance(out, dict):
+            hist.append(pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8"))
+            if len(hist) == 1:
+                return {"__skip__": "検査用に省く"}
+        return None
+    drive(run, "std", hook=hook_own)
+    own = [h.split("前の周の修正役が自分で当たった先行例", 1)[-1].split("——**1 件ずつ出典を開いて", 1)[0] for h in hist]
+    check(len(own) >= 2 and "own-r1" in own[0] and "own-r1" in own[1],
+          f"p2.history を省いた周に渡っていた修正役の先行例（1 周目の修正の行）は、次の周の p2.history へ持ち越される（{[o[-200:] for o in own[:2]]}）")
     rm(run.tmp)
     # **次の周へ渡す一撃も、前の周に出した判定から読む**——最新を読むと、p2.history を省いた周の次に 2 周前の一撃が拾われた
     run = Run("prevfix-oneshot")
@@ -1271,6 +1306,34 @@ def test_awaiting():
     rm(run.tmp)
 
 
+def test_patch_record_prefix_and_delete():
+    """記録の手当ての綴り: record. 接頭は接頭なしと同じ場所を指し（入れ子を作らない）、--delete は在る鍵だけを消す。
+    接頭をそのまま鍵にしていた頃、record.questions が記録の中に record の入れ子を作り、消す口が無いので
+    null で上書きした鍵が記録の最上位に残った（実測 2026-09-26）"""
+    print("記録の手当て: record. 接頭は同じ場所・--delete は在る鍵だけ・記録まるごとは受けない")
+    run = Run("patchrec")
+    run.next()
+    f = run.tmp / "v.json"
+    f.write_text(json.dumps("手当ての値"), encoding="utf-8")
+    r1 = run.cmd("patch", "--path", "record.process.x_note", "--file", str(f), "--reason", "検査: 接頭つき")
+    rec = run.record()
+    check(r1.returncode == 0 and rec["process"].get("x_note") == "手当ての値" and "record" not in rec,
+          f"record. 接頭は接頭なしと同じ場所に書き、記録の中に record の入れ子を作らない（rc={r1.returncode} {r1.stderr[-80:]}）")
+    r2 = run.cmd("patch", "--path", "process.x_note", "--delete", "--reason", "検査: 消す")
+    st = run.state()
+    check(r2.returncode == 0 and "x_note" not in run.record()["process"] and st["patches"][-1].get("op") == "delete",
+          f"--delete は在る鍵を消し、痕跡に op=delete を残す（rc={r2.returncode} {r2.stderr[-80:]}）")
+    r3 = run.cmd("patch", "--path", "process.x_note", "--delete", "--reason", "検査: 無い鍵")
+    r4 = run.cmd("patch", "--path", "record", "--file", str(f), "--reason", "検査: 記録まるごと")
+    r5 = run.cmd("patch", "--path", "process.x_note", "--reason", "検査: どちらも無い")
+    r6 = [run.cmd("patch", "--path", bad, "--file", str(f), "--reason", "検査: 空の区切り") for bad in ("record.", "record..x", "state.")]
+    check(r3.returncode == 1 and "当たらない" in r3.stderr and r4.returncode == 1 and "記録まるごと" in r4.stderr
+          and r5.returncode == 1 and "どちらか 1 つ" in r5.stderr and all(r.returncode == 1 and "空の区切り" in r.stderr for r in r6)
+          and len(run.state()["patches"]) == 2 and "" not in run.record() and "" not in run.state(),
+          f"無い鍵の消し・記録まるごと・書くか消すかの無い手当て・空の区切りの綴りは拒み、痕跡を残さない（{r3.returncode}/{r4.returncode}/{r5.returncode}/{[r.returncode for r in r6]}）")
+    rm(run.tmp)
+
+
 def test_awaiting_origin_guards():
     """人待ちの問いの出どころは、今 awaiting_human の素材だけ——**判定の時点**（判定者が人待ちでない欄を借りる入口）と、
     **素材を書いた時点**（後の工程が人待ちの欄を上書きする入口）の両方で当てる。検証器は周の最後の 1 回しか見ず、
@@ -1285,6 +1348,10 @@ def test_awaiting_origin_guards():
         if inst["node"] == "p0.local_checks":
             return {"material": M("awaiting_human", reason="CI 専用のジョブで手元では走らない（検査用）")}
         if inst["node"] == "p2.diagnose" and run.state()["round"] == 1:
+            r = run.done(inst["id"], {**out, "questions": [field]}, agent_id="judge-1")
+            seen["unlisted"] = (r.returncode, r.stderr)
+            if r.returncode == 0:
+                raise RuntimeError("人待ちの素材を台帳に載せない判定を受け付けた")
             bad = {**out, "questions": [wait_ci, {"key": "Windows の実機で動かしたか", "kind": "awaiting", "origin": "main_path_observation",
                                                   "status": "held", "reason": "（検査用）"}]}
             r = run.done(inst["id"], bad, agent_id="judge-1")
@@ -1306,6 +1373,9 @@ def test_awaiting_origin_guards():
         drive(run, "std", hook=hook, stop_at=lambda nx: nx["round"] >= 2)
     except RuntimeError as e:
         seen["stopped"] = str(e)
+    rc, err = seen.get("unlisted", (None, ""))
+    check(rc == 1 and "素材 'local_checks' が awaiting_human なのに台帳に kind=awaiting で無い" in err,
+          f"判定の時点: 人待ちの素材を出どころにする問いを台帳に載せない判定は拒む（rc={rc} {err.strip()[-120:]}）")
     rc, err = seen.get("judge", (None, ""))
     check(rc == 1 and "awaiting の出どころは" in err and "main_path_observation" in err and "kind=field" in err,
           f"判定の時点: 人待ちでない素材を出どころにした awaiting は拒み、field を案内する（rc={rc} {err.strip()[-120:]}）")
@@ -1935,7 +2005,7 @@ def test_md_links():
     if via_symlink:
         check("viasym.md" not in joined, f"リンク: symlink のディレクトリを経由するリンクは実体で引いて届く（{errs}）")
     else:
-        skip("リンク: symlink のディレクトリを経由するリンクは実体で引いて届く", "この環境では symlink を作れない（Windows は既定で権限を持たない）")
+        skip("リンク: symlink のディレクトリを経由するリンクは実体で引いて届く", "symlink", "この環境では symlink を作れない（Windows は既定で権限を持たない）")
     rm(tmp)
 
 
@@ -2166,8 +2236,10 @@ def test_old_expression_graph_board():
         st.write_text(json.dumps({**orig, "graph": str(gp)}, ensure_ascii=False, indent=1), encoding="utf-8")
         before = {p.name: p.read_bytes() for p in (st, run.dir / "record.json")}
         r = run.cmd("next")
-        want = str(plug / "scripts" / "loop.py") if with_engine else "この graph を作った版の engine"
-        check(r.returncode == 2 and "条件を式で書いていた版" in r.stderr and "p1.gate_efficacy" in r.stderr and want in r.stderr,
+        # engine は置き場を実体に解いて言う（Windows の一時の置き場は 8.3 の短い綴り RUNNER~1 で渡り、解くと長い綴りになる）
+        want = ({str(plug / "scripts" / "loop.py"), str((plug / "scripts" / "loop.py").resolve())} if with_engine
+                else {"この graph を作った版の engine"})
+        check(r.returncode == 2 and "条件を式で書いていた版" in r.stderr and "p1.gate_efficacy" in r.stderr and any(w in r.stderr for w in want),
               f"旧い形式の盤面（置き場に engine が{'在る' if with_engine else '無い'}）: 開く engine を言って止まる（{r.stderr.strip()[-120:]}）")
         check(before == {p.name: p.read_bytes() for p in (st, run.dir / "record.json")}, "旧い形式の盤面: state.json と record.json を書かない")
 
@@ -2571,7 +2643,7 @@ def test_wrote_refs_direct_arms():
             locked.chmod(0o644)
         check(len(errs) == 1 and "作業ツリーで数えられない" in errs[0], f"開けない指し先は『数えられない』で拒む（例外にしない。{errs}）")
     else:
-        skip("開けない指し先は『数えられない』で拒む", "root か Windows では権限で読みを止められない")
+        skip("開けない指し先は『数えられない』で拒む", "read-permission", "root か Windows では権限で読みを止められない")
     # **指し先が FIFO に置き換わっても、開いて止まらない**（上限付きの読みは通常のファイルだけを開く）。書き手を
     # 立てておくので、柵が外れた写しでは開いて読み、止まらずに別の文（中に無い）で赤になる
     if hasattr(os, "mkfifo"):
@@ -2586,7 +2658,7 @@ def test_wrote_refs_direct_arms():
         errs, _ = mod._cite_errors(b, "p3.fix", [{"kind": "text", "cite": "# pipe", "target": "pipe.md", "where": "src/a.py"}], None, "wrote_refs")
         check(len(errs) == 1 and "通常のファイルでない" in errs[0], f"FIFO に置き換わった指し先は開かずに拒む（{errs}）")
     else:
-        skip("FIFO に置き換わった指し先は開かずに拒む", "この OS には FIFO（os.mkfifo）が無い")
+        skip("FIFO に置き換わった指し先は開かずに拒む", "fifo", "この OS には FIFO（os.mkfifo）が無い")
     # **symlink の輪を含む指し先を、例外にせず拒む**（3.12 以前の resolve は輪を RuntimeError で投げる）
     try:
         (run.repo / "loopa").symlink_to("loopb"); (run.repo / "loopb").symlink_to("loopa")
@@ -4028,7 +4100,6 @@ def test_gates_merge():
     check((run.dir / "report.md").is_file() and "gates_deferred" in hi and "gates=merge 無しの run で回し" in hi,
           "止まった run も報告まで届き、報告の冒頭の指示書が止めた理由と残る義務（合流した版で関門を撃つ）を渡す")
     rm(run.tmp)
-    # ゲートを触った差分でも P1 のゲートの検算は撃たず、素材は理由つきの not_applicable（not_run だと検証器が止め、gates_deferred に届かない）
     run = Run("gmerge-gates", inputs=["gates=merge"])
     seen = set()
     last = drive(run, "gates", hook=hook)
@@ -4050,7 +4121,6 @@ def test_gates_merge():
     check(run.init.returncode == 1 and "綴り違い" in run.init.stderr and not run.dir.exists(),
           f"鍵の綴り違い（gate=merge）は既定に倒さず、init が盤面を作る前に拒む（{run.init.stderr[-160:]}）")
     rm(run.tmp)
-    # 近くない綴りの鍵は拒まず（受け付けていた呼びを壊さない）、効かないことを init の返り・stderr・盤面の notes に出す
     for kv in ("GATES=merge", "gates_mode=merge"):
         run = Run(f"gfar-{kv.split('=')[0]}", inputs=[kv, "gates=merge"])
         key = kv.split("=")[0]
@@ -4061,6 +4131,15 @@ def test_gates_merge():
               f"宣言に無い鍵 {key} は受け付け、効かないことを stderr・init の返り・盤面の notes に出す（rc={run.init.returncode}・{run.init.stderr[-160:]}）")
         check(not any("gates=" in n for n in notes), f"宣言済みの鍵（gates）は知らせに載らない（{notes}）")
         rm(run.tmp)
+    run = Run("gfar-drive", inputs=["gates_mode=merge", "review_md=/no/such.md", "gates=merge"])
+    check(run.init.returncode == 0 and "--input review_md=" in run.init.stderr and "rules が埋める" in run.init.stderr,
+          f"rules が埋める鍵（by: rules）を渡すと、受け付けて上書きされることを知らせる（rc={run.init.returncode}・{run.init.stderr[-200:]}）")
+    drive(run, "std")
+    got = run.record()["process"].get("notices") or []
+    hi = next((run.dir / "prompts").glob("r*/report.human_items.md")).read_text(encoding="utf-8")
+    check(any("gates_mode" in n for n in got) and any("review_md" in n for n in got) and "gates_mode" in hi and "review_md" in hi,
+          f"init の知らせは記録の process.notices に組まれ、報告の人向けの項目の指示書に届く（{got}）")
+    rm(run.tmp)
     # 選べる値の正本は graph の inputs の values、意味は rules の定数——2 つが割れると、engine が受けた値を rules が既定に倒す
     sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
@@ -4555,9 +4634,7 @@ def test_lane_rules():
     check(any("patch が当たらない" in x["key"] for x in rows), f"合流: 当たらなかった patch は次の周の判定にも渡る（{[x['key'] for x in rows]}）")
     r = rules.lane_merge(b, "p3.lane_merge")
     check(r["ok"] and b.loop_state["lane_merge"]["merged"] == [], "合流: 1 度重ねた線は重ね直さない")
-    # 止めた線（回す側が loop.py patch で abandoned と理由 why を書く）: 後から届いた結果を重ねず・判定へ渡さず・要約は abandoned。
-    # patch は rules を通らないので、形の崩れた行（丸ごと書き換えて round が消えた・why が無い）は読まずに判定へ 1 度だけ渡す
-    # 後から届いた結果は、判定へ渡るはずの答え（defect）を持つ——止めた線だから渡さない、を見分けるため
+    # 止めた線に後から届いた結果は、判定へ渡るはずの答え（defect）を持つ——止めた線だから渡さない、を見分けるため
     late_rows = [{"key": "arm:miss", "handled": "defect", "how": "止めた後に届いた結果の閉じない見逃し（検査用）"}]
     (board / "lanes" / "late.json").write_text(json.dumps(good("c" * 40, handled=late_rows, patch="")), encoding="utf-8")
     b.loop_state = {"lanes": {"c" * 40: {**lane("late"), "rev": "c" * 40, "state": "abandoned", "why": "回す側が止めた（検査用）"},
@@ -4574,7 +4651,6 @@ def test_lane_rules():
     check(s["c" * 40]["state"] == "abandoned" and s["c" * 40]["why"] and s["c" * 40]["arms"] is None
           and s["a" * 40]["state"] == s["b" * 40]["state"] == "unreadable",
           f"止めた線: 要約は running と書かず abandoned と理由を、崩れた行は unreadable を書く（{ {k[:4]: v['state'] for k, v in s.items()} }）")
-    # 撃てた腕 0 本: 宣言に変異の実行器が在るときだけ判定へ渡す（見逃し 0 本と区別する）。要約には本数を書く
     (board / "lanes" / "zero.json").write_text(json.dumps(good(head, arms=[], handled=[])), encoding="utf-8")
     for declared_mut, want in ((True, 1), (False, 0)):
         b.loop_state = {"lanes": {head: lane("zero")}, "mutation_decl": {"declared": declared_mut, "text": "検査用"}}
@@ -4582,7 +4658,6 @@ def test_lane_rules():
         check(len(rows) == want and all("0 本" in x["key"] for x in rows),
               f"撃てた腕 0 本: 宣言に実行器が{'在る' if declared_mut else '無い'}なら判定へ {want} 行（{[x['key'] for x in rows]}）")
     check(rules.lane_summary(b)[0]["arms"] == 0, "撃てた腕 0 本: 要約に撃てた腕の本数 0 を書く（見逃し 0 本と読み分ける）")
-    # 変異の実行器の名指し: 宣言の mutation の段が在ればその値、無い・読めなければ対象リポジトリの側を探させる
     (tmp / "arms.json").write_text("{}", encoding="utf-8")
     for decl, want_declared, want in (
             ({"suite": [{"name": "s", "argv": ["x"]}], "mutation": {"argv": ["runner-gl"], "arms": "arms.json"}}, True, "runner-gl"),
@@ -4594,6 +4669,36 @@ def test_lane_rules():
         rules.mutation_decl(b)
         md = b.loop_state["mutation_decl"]
         check(md["declared"] is want_declared and want in md["text"], f"実行器の名指し: {want}（{md}）")
+    (tmp / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "s", "argv": ["x"]}], "mutations": {"argv": ["r"], "arms": "arms.json"}}),
+                                             encoding="utf-8")
+    b.loop_state = {}
+    rules.mutation_decl(b)
+    md = b.loop_state["mutation_decl"]
+    check(md["unknown"] == ["mutations"] and "mutations" in md["text"] and not md["declared"],
+          f"宣言の知らない段: 役に貼る名指しに、読まない段の名前を添える（{md}）")
+    runs = [{"name": "s", "exit": 0, "wall_s": 1}]
+    m = rules.checks_reply(b, "p0.local_checks", {"sha": "a" * 40}, runs)["reply"]["material"]
+    check(m["status"] == "awaiting_human" and "mutations" in m["reason"] and "s: exit 0" in m["reason"],
+          f"宣言の知らない段: 知っている段は走らせ、P0 は結果を添えて人待ちにする（{m}）")
+    m = rules.checks_reply(b, "p4.ci", {"sha": "a" * 40}, runs)["reply"]["material"]
+    check(m["status"] == "clean", f"宣言の知らない段: 判定の後（p4.ci）は人待ちを新しく立てない（{m}）")
+    b.state["notes"] = ["--input GATES=… は効かない（検査用）"]
+    b.loop_state["lanes"] = {"e" * 40: {**lane("never"), "rev": "e" * 40}}
+    got = rules.notices(b)
+    check(any(n.startswith("init: ") and "GATES" in n for n in got) and any("mutations" in n for n in got)
+          and any("e" * 12 in n and "running" in n for n in got),
+          f"機械の知らせ: init の効かない入力・宣言の知らない段・結果の来ない線を組む（{got}）")
+    b.loop_state["outcome"] = "converged"
+    check(not any("running" in n for n in rules.notices(b)), "機械の知らせ: 収束した run の最後の線は知らせない（最後の関門が撃ち直した）")
+    b.state.pop("notes")
+    (tmp / ".review-checks.json").unlink()
+    for ran, want in ((True, 1), (False, 0)):
+        b.loop_state = {}
+        rules.mutation_decl(b)
+        b.state["outputs"] = {"p1.gate_efficacy": {"round": 2}} if ran else {}
+        got = [n for n in rules.notices(b) if "mutation の段が無い" in n]
+        check(len(got) == want, f"機械の知らせ: 宣言外で探した実行器は、撃つ節が{'出た' if ran else '出ない'} run で {want} 件（{got}）")
+    b.state.pop("outputs")
     (tmp / "arms.json").unlink()
     # 最後の関門: この周の最終の版を撃ち、見逃しが全部等価で、撃った後に作業ツリーが変わっていないときだけ通る
     subprocess.run(["git", "add", "-A"], cwd=tmp, capture_output=True)
@@ -4804,6 +4909,8 @@ def test_tdd_flow():
     fix_prompt = next((run.dir / "prompts" / "r1").glob("p3.fix*.md")).read_text(encoding="utf-8")
     check("## TDD の流れ" in fix_prompt and "tests/test_limit.py::test_limit_is_fixed" in fix_prompt,
           "実装の段（p3.fix）の指示書の後ろに TDD の段落が足され、名指しのテストが渡る（元の指示書は写さない）")
+    check("tdd" in (run.state().get("loop") or {}), "TDD の版の盤面は loop に tdd を書いた（形の照らしが空の盤面を見ていない）")
+    loop_shape_held(run, "TDD の流れ")
     rm(run.tmp)
 
 
@@ -4831,6 +4938,8 @@ def test_tdd_gives_up_without_dead_end():
     h2 = json.loads((run.dir / "out" / "r2" / "p2.history.json").read_text(encoding="utf-8"))
     check(any("TDD の赤の確認が上限で通らなかった" in r["key"] for r in h2.get("declared_routed") or []),
           f"諦めた理由は次の周の判定役に穴の行として届く（{[r['key'] for r in h2.get('declared_routed') or []][:3]}）")
+    check(bool((run.state().get("loop") or {}).get("tdd_gave_up")), "TDD を諦めた盤面は loop に tdd_gave_up を書いた")
+    loop_shape_held(run, "TDD を諦めた流れ")
     rm(run.tmp)
 
 
@@ -5752,10 +5861,28 @@ def test_relaunch_delegate():
     rm(run.tmp)
 
 
+def loop_shape_held(run, what):
+    """通しで回した盤面の loop が graph の state_schema から外れていない（engine が保存の時に照らした痕跡 loop_drift が 0 件）。
+    0 件が照らさなかった結果でないことも見る: 盤面の graph が state_schema を持つ"""
+    from engine.schema import load_graph
+    st = run.state()
+    g, _ = load_graph(st["graph"])
+    check(isinstance((g or {}).get("state_schema"), dict) and not st.get("loop_drift"),
+          f"{what}: 盤面の loop が state_schema の形に収まる（照らした graph に宣言が在る={isinstance((g or {}).get('state_schema'), dict)}・"
+          f"外れ {[r.get('error') for r in st.get('loop_drift') or []][:3]}）")
+
+
+def literal_loop_writes(*names):
+    """rules の本文に字面で書かれた loop の鍵（ls["X"] = ・loop_state["X"] = ・setdefault("X")）"""
+    src = "".join((PLUGIN / "rules" / f"{n}.py").read_text(encoding="utf-8") for n in names)
+    return {a or b for a, b in re.findall(r'(?:ls|loop_state)(?:\[\s*"([a-z_0-9]+)"\s*\]\s*=[^=]|\.setdefault\(\s*"([a-z_0-9]+)")', src)}
+
+
 def test_loop_keys_declared():
     """**rules が盤面の loop に書いた鍵は、全部 LOOP_KEYS に宣言されている。** graphcheck は条件の読む loop.<鍵> を
-    この宣言と突き合わせるので、宣言が書く側から離れると、正しい条件が落ちるか綴り違いが通る。回した盤面の鍵で確かめる"""
-    print("loop の鍵の宣言: 通しで回した盤面の loop の鍵が、全部 rules の LOOP_KEYS に在る")
+    この宣言と突き合わせるので、宣言が書く側から離れると、正しい条件が落ちるか綴り違いが通る。回した盤面の鍵で確かめる。
+    形（graph の state_schema）も、回した盤面が外れていないことを engine の保存の時の痕跡で確かめる"""
+    print("loop の鍵の宣言: 通しで回した盤面の loop の鍵が、全部 rules の LOOP_KEYS に在り、graph の state_schema の形に収まる")
     sys.path.insert(0, str(PLUGIN))
     from engine.rules import load_rules
     gp = PLUGIN / "graphs" / "review-loop.json"
@@ -5764,6 +5891,13 @@ def test_loop_keys_declared():
     drive(run, "std")
     keys = set(run.state().get("loop") or {})
     check(len(keys) >= 20 and keys <= set(rules.LOOP_KEYS), f"盤面の loop の鍵 {len(keys)} 件が全部宣言に在る（宣言の外: {sorted(keys - set(rules.LOOP_KEYS))}）")
+    loop_shape_held(run, "既定の流れ")
+    # 照らしが効いていること: 形を外した値を盤面の手当てで書くと、保存の時に痕跡が出て、run は止まらない
+    bad = run.tmp / "bad-gates.json"
+    bad.write_text("5", encoding="utf-8")
+    r = run.cmd("patch", "--path", "state.loop.gates", "--file", str(bad), "--reason", "検査: loop の形を外す")
+    drift = [x.get("error", "") for x in run.state().get("loop_drift") or []]
+    check(r.returncode == 0 and any("loop.gates" in e for e in drift), f"形を外した書き込みは保存の時に痕跡に残り、止めない（rc={r.returncode}・{drift[:2]}）")
     rm(run.tmp)
     # 仕様の道（flow=spec）の盤面も: 承認待ち・周の途中の答え・承認後のテストの改変の鍵
     run = Run("loopkeys-spec", init_args=("--input", "flow=spec"))
@@ -5781,14 +5915,21 @@ def test_loop_keys_declared():
     seen |= set(run.state().get("loop") or {})
     check({"spec_pending", "in_round_answers", "spec_changed"} <= seen and seen <= set(rules.LOOP_KEYS),
           f"仕様の道の盤面の loop の鍵も全部宣言に在る（宣言の外: {sorted(seen - set(rules.LOOP_KEYS))}）")
+    loop_shape_held(run, "仕様の道")
     rm(run.tmp)
     # 逆向き: 宣言の鍵は全部 rules のどこかで書かれている（宣言だけ残った古い鍵を、条件が default 付きで読む形を残さない）。
     # 台本が通らない分岐（昇格・往復）で書く鍵もあるので、書く字面で見る。修正差分の往復の鍵は DELTA_PASSES から組む
-    src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
     dyn = {k for p in rules.DELTA_PASSES.values() for k in (p.state_key, p.owed_key)}
-    unwritten = sorted(k for k in rules.LOOP_KEYS - dyn
-                       if not re.search(rf'(ls|loop_state)(\[\s*"{k}"\s*\]\s*=[^=]|\.setdefault\(\s*"{k}")', src))
-    check(not unwritten, f"LOOP_KEYS の鍵は全部 rules が書いている（書く所の無い宣言: {unwritten}）")
+    # 逆向きも字面で: rules の本文が書く鍵は全部宣言に在る（通しの台本が通らない分岐——人の方針の変化・昇格——で書いて消える鍵も拾う）。
+    # TDD の版は元の rules に足すので元の本文も合わせて見る。research は周ごとに名前の変わる控え（sampled_r<周>）を state_schema の型で持つ
+    for names, gname in ((("review-loop",), "review-loop"), (("review-loop", "review-loop-tdd"), "review-loop-tdd"), (("research-loop",), "research-loop")):
+        gpath = PLUGIN / "graphs" / f"{gname}.json"
+        r_ = load_rules(gpath, json.loads(gpath.read_text(encoding="utf-8")))
+        wrote = literal_loop_writes(*names)
+        declared = set(r_.LOOP_KEYS)
+        unwritten = sorted(declared - wrote - dyn)
+        check(not unwritten, f"{gname}: LOOP_KEYS の鍵は全部 rules が書いている（書く所の無い宣言: {unwritten}）")
+        check(len(wrote) >= 4 and wrote <= declared, f"{gname}: rules が字面で書く loop の鍵 {len(wrote)} 件は全部 LOOP_KEYS に在る（宣言の外: {sorted(wrote - declared)}）")
 # ---------------------------------------------------------------- 仕様の道（init --input flow=spec）
 SPEC_TESTS = {  # 受け入れ条件のテスト（台本のリポジトリに書く）。修正（p3.fix の台本が src/a.py に足す 1 行）が入ると緑になる
     "AC1": ("tests/test_spec_entry.py", "ac_entry_starts_at_judge",
@@ -6041,6 +6182,8 @@ def test_stop_signal_stops_test_runner_tree():
     """**loop.py が止める信号を受けたら、builtin が起こしたテストの実行器の木も止める**（全コマンドの信号の口）。
     仕様の固定（spec.freeze）が受け入れ条件を走らせている next に SIGTERM を送り、孫まで止まって exit 143 で抜けることを見る"""
     if os.name != "posix":
+        skip("止める信号: next が止められたら、受け入れ条件の実行器の孫まで止めて 143 で抜ける", "process-group",
+             "posix の信号とプロセスグループで孫の生死を見る台本の作り（SIGTERM を送って 128+信号で抜ける）に頼る")
         return
     print("止める信号: next の中で走るテストの実行器の木を孫まで止め、128+信号で抜ける")
     run = Run("spec-signal", init_args=("--input", "flow=spec"))
@@ -6099,7 +6242,9 @@ def test_spec_default_unchanged():
         drive(r_, "std")
 
     def norm(run_, text):
-        for p_ in sorted({str(run_.tmp), str(run_.tmp.resolve())}, key=len, reverse=True):   # 長い綴り（/private/var…）から
+        # 長い綴り（/private/var…）から。JSON に書いた綴り（Windows では \\ が 2 つずつ）も同じ置き場として読む
+        spell = {v for q in (str(run_.tmp), str(run_.tmp.resolve())) for v in (q, json.dumps(q)[1:-1])}
+        for p_ in sorted(spell, key=len, reverse=True):
             text = text.replace(p_, "<TMP>")
         text = re.sub(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+\-Z0-9:.]*", "<T>", text)
         # engine が走らせた段（engine_run）の所要時間は実測で、負荷で 0.0 と 0.1 に割れる
@@ -6177,6 +6322,11 @@ def test_policy_reaches_roles():
           "人の方針: 回す側の節（修正）には本文でなく置き場が渡る")
     check(last["status"] == "converged" and not run.record()["process"]["human_items"] and "policy_change" not in run.record()["process"],
           f"人の方針: 文書が変わらず後退も並ばない run は、関所で聞かずに収束し、変化の欄も置かない（{last['status']}）")
+    put_policy(run, POLICY_MARK + "\n最後の関所の後の書き足し（検査用 LATE-EDIT）")
+    run.cmd("finalize")
+    ch = run.record()["process"].get("policy_change") or {}
+    check(ch.get("from") == pol["sha256"] and ch.get("to") and ch["to"] != ch["from"],
+          f"人の方針: 最後の関所の後に文書が変わった run は、仕上げが変化を記録に置く（{ch}）")
     rm(run.tmp)
 
     run = Run("policy-missing", init_args=("--input", "policy_md=no/such/policy.md"))
@@ -6230,6 +6380,16 @@ def test_human_gate():
           f"関所: 答えは人の答えの台帳（process.human_items）に残る（{hi}）")
     last = drive(run, "std", hook=hook)
     check("KEEP-NOTE" in seen.get("fix", ""), "関所: 人の答えの note が同じ周の修正役のプロンプトに届く")
+    # 修正の入口は単位の短い行と義務の印（loop.fix_units）だけを貼り、判定の長い本文は記録の置き場を指す（同じ単位を 2 回貼らない）
+    rows = (run.state()["loop"].get("fix_units") or {}).get("rows") or []
+    refs = re.findall(r"置き場 (\S+?record\.json)（", seen.get("fix", ""))
+    judged = [u for u in run.record()["process"]["diagnosis"]["units"] if u.get("class_query")]
+    check([r["key"] for r in rows] == [u["key"] for u in run.record()["units"]] and any(r["owed"] for r in rows)
+          and all(f'"key": {json.dumps(r["key"], ensure_ascii=False)}' in seen.get("fix", "") for r in rows),
+          f"修正の入口: 単位の行は記録の単位と同じ順で全部載り、義務の印を持つ（{[(r['key'][:20], r['owed']) for r in rows]}）")
+    check(judged and all(r["has_class_query"] for r in rows) and '"class_query"' not in seen.get("fix", "")
+          and refs and all(pathlib.Path(x).is_file() for x in refs),
+          f"修正の入口: 判定の長い本文（母数の問いなど）は貼らず印だけを載せ、盤面に在る記録の置き場を指す（{refs}）")
     check(seen.get("delta", (0,))[0] == 1 and "事前審査だけ" in seen["delta"][1],
           f"関所: 修正差分の審査は後退の語を使えない（手直しの義務に入れて役に決めさせない。{seen.get('delta', ('', ''))[1][-120:]}）")
     check(last["status"] == "awaiting_human" and last["ask"]["kinds"] == ["policy_changed"],
@@ -6274,6 +6434,36 @@ def test_human_gate():
     last = run.next()
     check(last["status"] == "stopped" and last.get("halted", {}).get("node") == "p2.human_gate" and not last["ready"],
           f"関所: stop で run がその場で止まり、修正を出さない（{last.get('halted')}）")
+    rm(run.tmp)
+
+    # 人が関所で直す義務の単位を外す（answer --detail）: 形の誤りと義務に無い単位は拒んで盤面を変えず、受けた分は台帳に残り修正役に届く
+    run = Run("gate-exclude")
+    seen = {}
+
+    def narrow(run_, inst, out):
+        if inst["node"] == "p2.fix_plan":
+            return {"plan": [{**out["plan"][0], "narrows": [{"what": "検査用の狭め", "why": "関所を立てるため（検査用）"}]}]}
+        if inst["node"] == "p3.fix" and "fix" not in seen:
+            seen["fix"] = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
+        return None
+    last = drive(run, "std", hook=narrow)
+    asked = last.get("ask", {}).get("question", "")
+    bad, good = run.tmp / "bad.json", run.tmp / "good.json"
+    bad.write_text(json.dumps({"exclude": [{"unit": "義務に無い単位（検査用）", "why": "外す（検査用）"}]}), encoding="utf-8")
+    good.write_text(json.dumps({"exclude": [{"unit": 1, "why": "この周は触らない（検査用 EXCLUDE-WHY）"}]}), encoding="utf-8")
+    r1 = run.cmd("answer", "--text", "continue", "--note", "通す（検査用）", "--detail", str(bad))
+    hi0 = list(run.record()["process"]["human_items"])
+    r2 = run.cmd("answer", "--text", "continue", "--note", "通す（検査用）", "--detail", str(good))
+    hi = run.record()["process"]["human_items"]
+    unit1 = run.record()["units"][0]["key"]
+    check("--detail" in asked and "1. " in asked and r1.returncode == 1 and "直す義務の単位でない" in r1.stderr and not hi0
+          and r2.returncode == 0 and hi and hi[-1].get("excluded") == [{"unit": unit1, "why": "この周は触らない（検査用 EXCLUDE-WHY）"}],
+          f"関所: --detail で直す義務の単位を外せる（義務に無い単位は拒んで盤面を変えず、受けた分は台帳に key で残る）（{r1.returncode}/{r2.returncode} {r2.stderr[-100:]}）")
+    fu = run.state()["loop"].get("fix_units") or {}
+    check([r.get("owed") for r in fu.get("rows") or [] if r.get("key") == unit1] == [False],
+          f"関所: 外した単位は修正の側に見せる義務の印（fix_units の owed）からも外れる——修正の受け付けはこの印から義務を引く（{fu.get('rows')}）")
+    drive(run, "std", hook=narrow, stop_at=lambda n: "fix" in seen)
+    check("EXCLUDE-WHY" in seen.get("fix", ""), "関所: 外した単位と理由が同じ周の修正役のプロンプトに届く")
     rm(run.tmp)
 
     run = Run("gate-unattended", unattended=True)

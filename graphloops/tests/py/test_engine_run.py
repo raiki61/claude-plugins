@@ -3,6 +3,7 @@
 simulate_review.py の test_engine_run_checks・test_engine_run_parallel_pr"""
 import importlib.util
 import json
+import pathlib
 import subprocess
 import sys
 import types
@@ -26,7 +27,7 @@ def repo(tmp_path, steps=OK):
 
 @pytest.mark.parametrize("text,want", [
     ("{", "JSON として読めない"),
-    ('{"suite": [], "x": 1}', "最上位は"),
+    ('{"tests": []}', "最上位は"),
     ('{"suite": []}', "1 段以上"),
     ('{"suite": [{"name": "a"}]}', "suite[0] は"),
     ('{"suite": [{"name": "a", "argv": []}]}', "1 語以上"),
@@ -37,7 +38,9 @@ def repo(tmp_path, steps=OK):
     ('{"suite": {"a": 1}}', "suite は 1 段以上の配列"),   # 配列でない suite を段の並びと読まない
     ('{"suite": [["name", "argv"]]}', "suite[0] は"),   # 鍵の名前を並べた配列を段と読まない
     ('{"suite": [{"name": "a", "argv": [1]}]}', "1 語以上"),   # 文字列でない語
-    ('{"suite": [{"name": "a", "argv": [""]}]}', "1 語以上"),   # 空の頭の語（起こす物が無い）   # object でない最上位は型の名前で言う（set(5) で落ちない）   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
+    ('{"suite": [{"name": "a", "argv": [""]}]}', "1 語以上"),
+    ('{"suite": [{"name": "a", "argv": ["x"], "keep_background": "yes"}]}', "true か false"),   # 真偽でない逃げ道の宣言
+    ('{"suite": [{"name": "a", "argv": ["x"], "keep_backgrounds": true}]}', "（任意）だけ"),   # 綴り違いの鍵を黙って無視しない   # 空の頭の語（起こす物が無い）   # object でない最上位は型の名前で言う（set(5) で落ちない）   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
 ])
 def test_parse_rejects_shapes_it_cannot_run(text, want):
     steps, err = declared.parse(text)
@@ -49,6 +52,22 @@ def test_sha_ignores_layout_but_not_content():
     b, _ = declared.parse('{ "suite" : [ { "argv": ["x","y"], "name":"a" } ] }')
     c, _ = declared.parse('{"suite": [{"name": "a", "argv": ["x", "z"]}]}')
     assert declared.steps_sha(a) == declared.steps_sha(b) != declared.steps_sha(c)
+
+
+def test_parse_keeps_the_keep_background_declaration():
+    """段の keep_background（背景のプロセスを残す逃げ道）は真のときだけ段に載り、sha にも入る（宣言を変えれば突き合わせが外れる）"""
+    kept, err = declared.parse('{"suite": [{"name": "a", "argv": ["x"], "keep_background": true}]}')
+    off, _ = declared.parse('{"suite": [{"name": "a", "argv": ["x"], "keep_background": false}]}')
+    plain, _ = declared.parse('{"suite": [{"name": "a", "argv": ["x"]}]}')
+    assert err is None and kept == [{"name": "a", "argv": ["x"], "keep_background": True}]
+    assert off == plain == [{"name": "a", "argv": ["x"]}] and declared.steps_sha(kept) != declared.steps_sha(plain)
+
+
+def test_readme_names_every_optional_step_key():
+    """段の任意の鍵（逃げ道の宣言）は、利用者が読む README の宣言の節に綴りのまま載る——載っていなければ宣言できることが
+    伝わらない"""
+    readme = (pathlib.Path(PLUGIN).parent / "README.md").read_text(encoding="utf-8")
+    assert all(f'"{k}"' in readme for k in declared.STEP_OPTIONAL_KEYS)
 
 
 MUT = {"argv": ["runner"], "arms": "arms.json"}
@@ -63,12 +82,18 @@ MUT = {"argv": ["runner"], "arms": "arms.json"}
     ({"argv": ["runner"], "arms": "missing.json"}, "リポジトリに無い"),
 ])
 def test_mutation_section_errors_do_not_disable_the_suite(tmp_path, mutation, want):
-    """mutation の段の書き損じは、その段の誤りとして返し、engine が走らせる suite は読めたまま（sha も変わらない）"""
     root = repo(tmp_path)
     (root / "arms.json").write_text("{}", encoding="utf-8")
     (root / declared.DECL_NAME).write_text(json.dumps({"suite": OK, "mutation": mutation}), encoding="utf-8")
     d = declared.read(root)
     assert d["steps"] == OK and d["sha"] == declared.steps_sha(OK) and "mutation" not in d and want in d["mutation_error"]
+
+
+def test_unknown_top_level_section_keeps_the_suite(tmp_path):
+    root = repo(tmp_path)
+    (root / declared.DECL_NAME).write_text(json.dumps({"suite": OK, "mutations": MUT}), encoding="utf-8")
+    d = declared.read(root)
+    assert d["steps"] == OK and d["sha"] == declared.steps_sha(OK) and d["unknown"] == ["mutations"] and "mutation" not in d
 
 
 def test_mutation_section_is_read_without_touching_the_suite_sha(tmp_path):
@@ -77,10 +102,9 @@ def test_mutation_section_is_read_without_touching_the_suite_sha(tmp_path):
     (root / declared.DECL_NAME).write_text(json.dumps({"suite": OK, "mutation": MUT}), encoding="utf-8")
     d = declared.read(root)
     assert d["mutation"] == MUT and d["sha"] == declared.steps_sha(OK) and "mutation_error" not in d
-    # suite の無い宣言（mutation だけ）は今までどおり読めない——engine が走らせる段が無い
     assert "最上位は" in declared.parse(json.dumps({"mutation": MUT}))[1]
     inst = {"launch": {"kind": "engine_run", "steps": OK, "sha": declared.steps_sha(OK)}}
-    assert engine_run_refusal(inst, root) is None   # mutation の段を足し書きしても走っている run の突き合わせは外れない
+    assert engine_run_refusal(inst, root) is None
 
 
 def test_refusal_runs_declared_steps_without_approval(tmp_path):

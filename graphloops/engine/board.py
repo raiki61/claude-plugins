@@ -6,7 +6,7 @@ import pathlib
 from .rules import load_rules, registry, validator_module
 from . import util
 from .util import BoardConflict, Reject, die, get_path, read_json, write_json, now
-from .schema import load_graph
+from .schema import load_graph, validate_schema
 from .validator import run_validator
 from .render import Renderer
 
@@ -164,12 +164,31 @@ class Board:
                                 "1 つの盤面に 2 人で付くな（続けるなら next からやり直せ）")
         self.seen_rev += 1
         self.state["rev"] = self.seen_rev
+        self._loop_drift()
         write_json(self.dir / "record.json", self.record)
         write_json(self.dir / "state.json", self.state)
         # 保存まで控えていた trace の行（_board_update が当て直す間は書かない——当て直しのたびに行が重なる）
         for row in self.held_trace or []:
             self._write_trace(row)
         self.held_trace = None
+
+    def _loop_drift(self):
+        """盤面の loop を graph の state_schema（在れば）で照らし、外れを state.loop_drift に積む——**痕跡だけで止めない**
+        （走っている run・今の rules が書かない鍵を持つ旧い盤面を開けて進めるため。人の決定 2026-09-26）。同じ周の同じ外れは
+        1 行だけ（save は 1 回の呼び出しで何度も通る）。照らし自体が落ちても保存は続け、落ちたことを同じ欄に残す。
+        記録と報告へは validator の TRACES が写す"""
+        sch = self.graph.get("state_schema")
+        if not isinstance(sch, dict):
+            return
+        try:
+            errs = validate_schema(self.state.get("loop") or {}, sch, "loop")
+        except Exception as e:  # noqa: BLE001 — 照らせなかったことも痕跡にする（黙って 0 件にしない）
+            errs = [f"loop を state_schema で照らせなかった（{type(e).__name__}: {e}）"]
+        rows = self.state.setdefault("loop_drift", [])
+        for e in errs:
+            if not any(r.get("round") == self.state.get("round") and r.get("error") == e for r in rows):
+                rows.append({"round": self.state.get("round"), "error": e})
+                self.trace("loop_drift", round=self.state.get("round"), error=e)
 
     def run_validator(self, target=None):
         """検証器を回す（rules からも呼ぶ。INJECT の道具と同じ公開面に揃える——無名関数を属性に束ねない）。"""
@@ -217,7 +236,7 @@ class Board:
 
     @property
     def loop_state(self):
-        """rules が自分の都合で持つ状態の置き場（engine は中を見ない）。"""
+        """rules が自分の都合で持つ状態の置き場。engine は中身を解さず、形を graph の state_schema で照らして外れを痕跡に残すだけ（save）。"""
         return self.state.setdefault("loop", {})
 
     def new_round(self):

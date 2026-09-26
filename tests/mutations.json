@@ -2323,8 +2323,8 @@
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "expect": "graphcheck: 壊れた patternProperties の正規表現",
-   "old": "                    end_anchored(pat)   #",
-   "new": "                    pass   #",
+   "old": "                end_anchored(pat)   #",
+   "new": "                pass   #",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_graphcheck_review_shapes"
@@ -3757,8 +3757,8 @@
    "title": "腕 1 本ごとに --out を書き直す",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "            write_out(a.out, snapshot())",
-   "new": "            pass",
+   "old": "else \"（赤は別の検査から）\"), flush=True)\n            write_out(a.out, snapshot())",
+   "new": "else \"（赤は別の検査から）\"), flush=True)\n            pass",
    "expect": "自動の腕の本命"
   },
   {
@@ -4092,8 +4092,8 @@
    "title": "launch が止められたら子を木ごと止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    why = _stop_tree(p.pid, leader=p)",
-   "new": "    why = p.terminate()",
+   "old": "    why = _stop_tree(p.pid, leader=p)\n    try:\n        p.wait(KILL_GRACE)",
+   "new": "    why = p.terminate()\n    try:\n        p.wait(KILL_GRACE)",
    "expect": "kill_all は生きている子を孫まで止める",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -4814,7 +4814,7 @@
   },
   {
    "id": "GC9",
-   "title": "プロンプトの record.<欄> の穴を記録を書く宣言で照らす",
+   "title": "プロンプトの record.<欄> と loop.<…> の穴を記録を書く宣言・loop の形の宣言で照らす",
    "file": "graphloops/scripts/graphcheck.py",
    "suite": "graphloops",
    "expect": "graphcheck: プロンプトの穴",
@@ -4823,7 +4823,7 @@
      "test_graphcheck_review_shapes"
     ]
    },
-   "old": "            if core.startswith(\"record.\") and not rules_unreadable:",
+   "old": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
    "new": "            if False:"
   },
   {
@@ -4837,8 +4837,8 @@
      "test_graphcheck_review_shapes"
     ]
    },
-   "old": "            if core.startswith(\"record.\") and not rules_unreadable:",
-   "new": "            if core.startswith(\"record.\"):"
+   "old": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
+   "new": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None):"
   },
   {
    "id": "OB1",
@@ -4940,11 +4940,11 @@
   },
   {
    "id": "SP7",
-   "title": "知らない flow・gates を init で拒む",
-   "file": "graphloops/rules/review-loop.py",
+   "title": "知らない flow・gates を init で拒む（graph の inputs の values を engine が確かめる）",
+   "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "        if v is not None and v != want:",
-   "new": "        if False:",
+   "old": "            if inputs[key] not in (decl.get(\"values\") or []):",
+   "new": "            if False:",
    "expect": "仕様の道: 知らない flow は init で拒む",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -5076,8 +5076,8 @@
    "title": "別の口からもグループごと止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "            os.killpg(pgid, sig)\n",
-   "new": "            os.kill(pgid, sig)\n",
+   "old": "(os.killpg if kind == \"pg\" else os.kill)(target, sig)",
+   "new": "os.kill(target, sig)",
    "expect": "stop_group では孫",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5174,8 +5174,8 @@
    "title": "開始時刻を確かめられない試行は止めない",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    if started is None:\n        return None, f\"プロセス",
-   "new": "    if False:\n        return None, f\"プロセス",
+   "old": "    if started is None:\n        return None, None, f\"プロセス",
+   "new": "    if False:\n        return None, None, f\"プロセス",
    "expect": "開始時刻を確かめられなければ止めずに理由を返す",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5450,12 +5450,12 @@
   },
   {
    "id": "RR9",
-   "title": "止めるのは長でなくグループの消滅まで待つ",
+   "title": "ゾンビは木の生きた仲間に数えない（ゾンビだけのグループの EPERM を生きていると読まない）",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "            if not alive():\n                return None",
-   "new": "            if not alive() or (leader is not None and leader.poll() is not None):\n                return None",
-   "expect": "run_tree: SIGTERM を無視する孫も",
+   "old": "    return {pid: m for pid, m in members.items() if not m.stat.startswith(\"Z\")}",
+   "new": "    return dict(members)",
+   "expect": "ゾンビだけのグループの EPERM",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5688,6 +5688,132 @@
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_stop_signal_guards"
+    ]
+   }
+  },
+  {
+   "id": "RR15",
+   "title": "セッションの番号で、グループの外へ出た孫を木の仲間に数える",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid or sessions.get(pid) == pgid}",
+   "new": "    found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid}",
+   "expect": "ゾンビだけのグループの EPERM",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR16",
+   "title": "親子の鎖で、新しいセッションへ抜けた孫を木の仲間に数える",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    todo = list(found)\n",
+   "new": "    todo = []\n",
+   "expect": "グループの外へ出た孫（",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR18",
+   "title": "前の回に数えた仲間を次の回へ持ち越す（setsid で抜けて親を失った孫を拾う）",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        known.update({pid: m.started for pid, m in members.items()})",
+   "new": "        pass",
+   "expect": "長が先に死んだ後も",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR19",
+   "title": "ps が失敗した表を『仲間なし』と読まない",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    if r.returncode != 0 or not rows:",
+   "new": "    if False:",
+   "expect": "ps が失敗する回は",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR20",
+   "title": "表が読めずグループが居ない回も、外へ出た子孫を確かめていないと言う",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "                return f\"止める相手を数え上げられない（{why}）——グループ {pgid} は居ないが、外へ出た子孫を確かめていない\"",
+   "new": "                return None",
+   "expect": "ps が失敗する回は",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR21",
+   "title": "正常に終わった run_tree の木の残りを止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    _reap(trees)\n    return subprocess.CompletedProcess",
+   "new": "    return subprocess.CompletedProcess",
+   "expect": "run_tree: 正常に終わった回も",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR22",
+   "title": "長が終わっても管が閉じない回は、その場で木の残りを止めて管を閉じさせる",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        if trees is not None and not reaped and p.poll() is not None:",
+   "new": "        if False:",
+   "expect": "run_tree: 管を継いだ",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR23",
+   "title": "keep_background を宣言した段の背景のプロセスは残す",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "trees=None if s.get(\"keep_background\") else trees)",
+   "new": "trees=trees)",
+   "expect": "run_steps: 段の背景",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR24",
+   "title": "宣言の段の木の残りを試行の終わりに止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        _end_attempt(trees, pgid_file)\n    return runs",
+   "new": "        pass\n    return runs",
+   "expect": "run_steps: 段の背景",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
     ]
    }
   },
@@ -5929,6 +6055,99 @@
    }
   },
   {
+   "id": "IN2",
+   "title": "rules が埋める入力（by: rules）を --input で渡すと効かないと知らせる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    return sorted(k for k in keys if isinstance(decls.get(k), dict) and decls[k].get(\"by\") == \"rules\" and not decls[k].get(\"input\"))",
+   "new": "    return []",
+   "expect": "rules が埋める鍵（by: rules）を渡すと",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "DC1",
+   "title": "宣言の知らない最上位の段を拒まず unknown で返す",
+   "file": "graphloops/engine/declared.py",
+   "suite": "graphloops",
+   "old": "        out[\"unknown\"] = unknown",
+   "new": "        pass",
+   "expect": "宣言の知らない段: 役に貼る名指し",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "CK1",
+   "title": "宣言に知らない段が在れば、知っている段を走らせたうえで P0 を人待ちにする",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if unknown and not broken:",
+   "new": "        if False:",
+   "expect": "宣言の知らない段: 知っている段は走らせ",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "NT1",
+   "title": "周の締めで機械の知らせを記録へ組む（報告の人向けの項目が読む）",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    b.record[\"process\"][\"notices\"] = notices(b)",
+   "new": "    pass",
+   "expect": "init の知らせは記録の process.notices",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "NT2",
+   "title": "収束した run の最後の線を結果の来ない線として知らせない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if b.loop_state.get(\"outcome\") != \"converged\":",
+   "new": "    if True:",
+   "expect": "機械の知らせ: 収束した run",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "NT3",
+   "title": "宣言外で探した実行器の知らせは撃つ節が出た run だけ",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if md and not md.get(\"declared\") and _mutation_ran(b):",
+   "new": "    if md and not md.get(\"declared\"):",
+   "expect": "機械の知らせ: 宣言外で探した実行器は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "FN3",
+   "title": "道具名の柵が宣言の語の拡張子を大小を畳んで見る",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "            elif \"/\" in a or re.search(r\"\\.[A-Za-z]{1,4}$\", a):",
+   "new": "            elif \"/\" in a or re.search(r\"\\.[a-z]{1,4}$\", a):",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
    "id": "FN1",
    "title": "道具名の柵が宣言の --with の語を禁止語に導く",
    "file": "tests/run.sh",
@@ -5972,6 +6191,142 @@
    "old": "        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning",
    "new": "        run: echo 静的検査を回さない",
    "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL4",
+   "title": "CI の突合: tests/run.sh の段が見送りを失敗に数えなければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          FAIL_ON_SKIP: \"1\"",
+   "new": "          FAIL_ON_SKIP: \"0\"",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL5",
+   "title": "CI の突合: shellcheck を入れる段に OS の条件が付けば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "      - name: install shellcheck\n        shell: bash\n",
+   "new": "      - name: install shellcheck\n        if: matrix.os == 'ubuntu-latest'\n        shell: bash\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL6",
+   "title": "CI の突合: 許しの一覧が OS ごとの値でなく固定なら赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          SKIP_ALLOW: ${{ matrix.skip_allow }}",
+   "new": "          SKIP_ALLOW: posix-mode",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "SK1",
+   "title": "見送りの許し: 許しの一覧に無い名前まで許せば赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "[ \"$a\" = \"$cap\" ] && allowed=1",
+   "new": "allowed=1",
+   "expect": "見送りの拾い手が期待と違う"
+  },
+  {
+   "id": "SK2",
+   "title": "見送りの許し: 名前の形を見なければ赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "    [[ \"$cap\" =~ ^[a-z0-9][a-z0-9-]*$ ]] && printf '%s' \"$cap\"",
+   "new": "    printf '%s' \"$cap\"",
+   "expect": "見送りの拾い手が期待と違う"
+  },
+  {
+   "id": "SK3",
+   "title": "見送りの許し: FAIL_ON_SKIP の無い既定で失敗に数えれば赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "    if [ \"${FAIL_ON_SKIP:-}\" = 1 ] && [ \"$denied\" -gt 0 ]; then",
+   "new": "    if [ \"$denied\" -gt 0 ]; then",
+   "expect": "見送りの拾い手が期待と違う"
+  },
+  {
+   "id": "SK4",
+   "title": "見送りの許し: Python の見送りの行が能力の名前を持たなければ赤",
+   "file": "graphloops/tests/parallel.py",
+   "suite": "root",
+   "old": "return f\"  ok   {desc}{SKIP_MARK} {capability}: {reason}\"",
+   "new": "return f\"  ok   {desc}{SKIP_MARK} {reason}\"",
+   "expect": "Python の台本の見送りの行を root の拾い手が拾えないか"
+  },
+  {
+   "id": "CL7",
+   "title": "CI の突合: tests/run.sh の段の run: の頭で見送りの失敗を外せば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "        run: bash tests/run.sh",
+   "new": "        run: FAIL_ON_SKIP=0 bash tests/run.sh",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL8",
+   "title": "CI の突合: tests/run.sh の段が失敗を無視すれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          SKIP_ALLOW: ${{ matrix.skip_allow }}\n        run: bash tests/run.sh",
+   "new": "          SKIP_ALLOW: ${{ matrix.skip_allow }}\n        continue-on-error: true\n        run: bash tests/run.sh",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL9",
+   "title": "CI の突合: tests/run.sh の段を OS で外せば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "      - name: tests/run.sh\n        shell: bash\n",
+   "new": "      - name: tests/run.sh\n        if: matrix.os == 'ubuntu-latest'\n        shell: bash\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL10",
+   "title": "CI の突合: ジョブ全体が失敗を無視すれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "    runs-on: ${{ matrix.os }}\n",
+   "new": "    runs-on: ${{ matrix.os }}\n    continue-on-error: true\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL11",
+   "title": "CI の突合: tests/run.sh の段の shell: を差し替えれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "      - name: tests/run.sh\n        shell: bash\n",
+   "new": "      - name: tests/run.sh\n        shell: sh -c 'exit 0' {0}\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CK3",
+   "title": "判定の受け付けが、人待ちの素材を出どころにする問いを台帳に載せない返答を拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    for name in sorted(awaiting - listed):",
+   "new": "    for name in sorted(set()):",
+   "expect": "判定の時点: 人待ちの素材を出どころにする問いを台帳に載せない判定は拒む",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_awaiting_origin_guards"
+    ]
+   }
+  },
+  {
+   "id": "CK2",
+   "title": "engine が宣言の語をレビュー対象のリポジトリのルートで走らせる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "run_steps(launch[\"steps\"], root, log_dir",
+   "new": "run_steps(launch[\"steps\"], None, log_dir",
+   "expect": "宣言の語はレビュー対象のリポジトリのルートで走る",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
+    ]
+   }
   }
  ],
  "dropped": [

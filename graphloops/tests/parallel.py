@@ -31,11 +31,12 @@ _buf = threading.local()
 SKIP_MARK = " # SKIP"   # 見送りの行の印（TAP 14 の SKIP 指示子）。root の tests/run.sh の note_skips がこの印で拾う
 
 
-def skip_line(desc, reason):
-    """環境で走れなかった検査の 1 行。**合格の行と別の印を付ける**——合格と同じ『ok』だけで出していたとき、道具や OS の
-    機能の無い CI が走らないまま緑になり、柵にも CI にも止める口が無かった。拾って数え、一覧にし、FAIL_ON_SKIP=1 で
-    失敗に数えるのは root の tests/run.sh の 1 か所だけ（層ごとに一覧を作ると同じ見送りを二重に数える）"""
-    return f"  ok   {desc}{SKIP_MARK} {reason}"
+def skip_line(desc, capability, reason):
+    """環境で走れなかった検査の 1 行。**合格の行と別の印を付け、欠けた能力の名前（capability。小文字・数字・- の 1 語）を
+    説明文の頭に置く**——合格と同じ『ok』だけで出していたとき、道具や OS の機能の無い CI が走らないまま緑になり、柵にも
+    CI にも止める口が無かった。拾って数え、一覧にし、名前で許すか決めて FAIL_ON_SKIP=1 で失敗に数えるのは root の
+    tests/run.sh の 1 か所だけ（層ごとに一覧を作ると同じ見送りを二重に数える。名前の形を見るのもそこだけ）"""
+    return f"  ok   {desc}{SKIP_MARK} {capability}: {reason}"
 
 
 def line(text):
@@ -84,7 +85,7 @@ def workspace(prefix):
 
     **持ち手（第 1 要素）を捨てると、その場で作業場が消える**——呼ぶ側は検査の間だけ生きる変数に受けろ。
     """
-    td = tempfile.TemporaryDirectory(prefix=prefix, ignore_cleanup_errors=True)
+    td = tempfile.TemporaryDirectory(prefix=prefix + _test_tag(), ignore_cleanup_errors=True)
     return td, pathlib.Path(td.name)
 
 
@@ -103,6 +104,34 @@ def rm(p):
     if real == base or os.path.commonpath([real, base]) != base:
         raise ValueError(f"rm: 一時の置き場（{base}）より深いパスでないので消さない: {p}")
     shutil.rmtree(p, ignore_errors=True)
+
+
+# 走っている台本の名前。変異の実行器（tests/mutate.py の marker_run）が、印を書いた行を『どの台本が通したか』に帰属させる口。
+# 同じプロセスの中はスレッドの名前（TEST_THREAD の接頭辞）で、台本が起こした子のプロセスは作業場の名前の印（TAG）で見分ける
+# ——子の起動の呼び元は、作業場を cwd に渡しさえすれば何も持たなくてよい（env の渡し口を呼び元ごとに足すと、渡さない入口が残る）。
+# 書式の正本はここで、tests/mutate.py の OWNER が同じ書式を読む（揃いは tests/run.sh の mut-owner の検査が縛る）
+TEST_THREAD = "gl-test~"
+TAG = "GLT~"
+_cur = threading.local()
+
+
+def _test_tag():
+    """作業場の名前に挟む台本の印。挟むのは印の写しの回（環境変数 GL_MARK_OWNERS。tests/mutate.py の marker_run が立てる）の
+    台本の中だけ——普段の回の作業場の名前は変えない（名前が長くなると Windows のパスの長さの上限に近づく）"""
+    name = getattr(_cur, "name", None)
+    return f"{TAG}{name}~" if name and os.environ.get("GL_MARK_OWNERS") else ""
+
+
+def _as_test(fn):
+    """台本 fn を、台本の名前をスレッドと作業場の印に付けて呼ぶ（終われば元の名前に戻す）"""
+    th = threading.current_thread()
+    old = th.name
+    _cur.name = f"{pathlib.Path(fn.__code__.co_filename).name}~{fn.__name__}"
+    th.name = TEST_THREAD + _cur.name
+    try:
+        fn()
+    finally:
+        th.name, _cur.name = old, None
 
 
 def workers(n_tests):
@@ -127,7 +156,7 @@ def run_all(tests):
     if n == 1:
         for fn in tests:
             try:
-                fn()
+                _as_test(fn)
             except BaseException:   # 並列の枝と同じ 1 行を残してから投げ直す（1 本に絞った回も例外を FAIL として読める）
                 print(f"  FAIL {fn.__name__} が例外で抜けた: {traceback.format_exc().strip().splitlines()[-1]}", flush=True)
                 raise
@@ -136,7 +165,7 @@ def run_all(tests):
     def one(fn):
         _buf.lines = []
         try:
-            fn()
+            _as_test(fn)
             return _buf.lines, None
         except BaseException as e:  # 出力を出しきってから投げ直す。ここで止めない
             _buf.lines.append(f"  FAIL {fn.__name__} が例外で抜けた: {traceback.format_exc().strip().splitlines()[-1]}")

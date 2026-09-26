@@ -11,7 +11,7 @@
      消えた（実測 2026-09-24〜25: 局所レビューの入れ子の起動で知らせが届かず 7 時間止まった）。**時間の上限は付けない**
      ——所要時間を実測で決めていない値が上限を兼ねると、長く考える役を途中で打ち切る（2026-09-25 に外した。理由は
      docs/graphloops-rearchitecture.md の「期限を外した」）。子を起こすたびに、そのプロセスグループの番号を返答の置き場の
-     隣（pgid_path）に書き、子が終わったら消す——別のプロセスが試行を木ごと止める口
+     隣（pgid_path）に書き、試行の終わりに木の残りを止めてから消す——別のプロセスが試行を木ごと止める口
      （前置の層 with-auth.py が子の claude を孫として起こすので、層だけを止めると claude が孤児で走り続ける）。
   3. 標準出力が `--output-format json` の包み（result・session_id・num_turns・duration_ms・total_cost_usd・usage）なら
      解いて返答の本文だけを、包みでなければ標準出力の全文を本文として out_path に書く（unwrap）。要約は log_path
@@ -24,6 +24,7 @@
 
 役でなく**コマンドを走らせるだけの節**（対象リポジトリが宣言したテスト一式など）も同じ起こし方で走らせる（run_steps）。
 """
+import collections
 import datetime
 import json
 import os
@@ -246,7 +247,9 @@ def _popen(argv, **kw):
     外すのは _forget（待ち終えた後）"""
     grp = ({"start_new_session": True} if os.name == "posix"
            else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
+    born = time.time()
     p = subprocess.Popen(argv, **kw, **grp)
+    p.gl_born = born   # 長の番号が止める間に再利用されたかを見分ける目印（_tree_members の born）
     with _LIVE_LOCK:
         LIVE.add(p)
     if _STOPPING.is_set():   # 止める信号の後に起こした子（並列の launch の続きの往復など）——kill_all はもう走った
@@ -261,13 +264,121 @@ def _forget(p):
         LIVE.discard(p)
 
 
-def _stop_tree(pgid, leader=None):
-    """プロセスグループ pgid を止める。返すのは止め切れなかった理由（None なら止まった・居なかった）。
+UNSURE = "セッションの番号を読めないプロセスが在り、木の仲間かを決められない"   # _tree_members の理由の頭（_reap_one が見分ける）
+_Proc = collections.namedtuple("_Proc", "pid ppid pgid uid started stat")   # ps の 1 行（started は開始時刻のエポック秒）
 
-    POSIX は STOP_SIGNALS を順にグループへ送り、**長でなくグループの消滅**まで KILL_GRACE ずつ待ち、残れば次の信号へ
-    （systemd の KillMode=control-group と同じ形——長が先に終わっても、SIGTERM を無視する孫には SIGKILL が届く）。
-    長の Popen（leader）を持つなら待つ間に回収する（回収しない長はゾンビのままグループに残り、消滅が見えない）。
-    Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る）。"""
+
+def _ps_all():
+    """全プロセスの表 ——({pid: _Proc}, None)。読めなければ (None, 理由)。_started_at と同じ ps（依存を足さない）。
+    開始時刻は ps を起こす**前**の時刻から etime を引く——後の時刻から引くと ps の遅れが開始時刻に乗り、番号の再利用の
+    見分け（REUSE_SLACK）を誤って真にする"""
+    now = time.time()
+    try:
+        r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,uid=,etime=,stat="], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, f"ps を起こせない（{e}）"
+    rows = {}
+    for line in r.stdout.splitlines():
+        f = line.split()
+        secs = parse_etime(f[4]) if len(f) >= 6 else None
+        if secs is None or not all(x.lstrip("-").isdigit() for x in f[:4]):
+            continue
+        rows[int(f[0])] = _Proc(int(f[0]), int(f[1]), int(f[2]), int(f[3]), now - secs, f[5])
+    if r.returncode != 0 or not rows:
+        return None, f"ps が全プロセスの表を返さない（exit {r.returncode}: {r.stderr.strip()[-200:]}）"
+    return rows, None
+
+
+def _tree_members(pgid, known=None, born=None):
+    """試行の木の仲間を数え上げる ——({pid: _Proc}, 理由)。表が読めなければ (None, 理由)。
+
+    プロセスグループは子孫が抜けられる（ジョブ制御つきのシェルは背景の仕事を setpgid で自分のグループへ移し、setsid は
+    新しいセッションを作る）ので、グループだけでは木を数えられない。拾う印は 3 つ:
+      - pgid が止める番号のもの
+      - セッションの番号が止める番号のもの——子は setsid で起こしてあり、setpgid で抜けた孫もセッションは抜けない。
+        長が死んで親が 1 に付け替わった後も残る（実測 2026-09-26・macOS 26.6.2）
+      - 上の 2 つと known（前の回に数えた {pid: 開始時刻}。今の表に同じ開始時刻で居るものだけ——番号の再利用で木の外へ
+        送らない）から親子の鎖で辿れる子孫——setsid で抜けた孫。鎖が切れる前に拾うため、信号より先に数える
+    born（長を起こした時刻か、印を書いた時刻）より REUSE_SLACK を超えて後に始まったプロセスが長の番号に居れば、番号は
+    再利用されている（グループもセッションも在る限り番号は再利用されない）ので、グループとセッションでは拾わない——
+    止める間に木が消えて番号が回収され、無関係なプロセスがその番号で setsid した形に送らない。
+    呼んだ自分と自分の祖先は数えない。環境変数の印（Jenkins の ProcessTreeKiller の形）は macOS では他のプロセスの
+    環境が読めない（ps -E にも KERN_PROCARGS2 にも出ない。実測 2026-09-26）ので使わない。
+    **拾えない物**: 信号より前に親が消えて鎖が切れ、かつ setsid でセッションも抜けた子孫（二重 fork の daemon 化・
+    外から SIGKILL された実行器が残した自前のセッションの子）。
+    セッションの番号を読めない同じ利用者のプロセスが在れば、仲間かどうかを決められないので理由を返す（止まったと言わない）"""
+    rows, why = _ps_all()
+    if rows is None:
+        return None, why
+    uid, sessions, unreadable = os.getuid(), {}, []
+    for pid, row in rows.items():
+        try:
+            sessions[pid] = os.getsid(pid)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            if row.uid == uid:
+                unreadable.append(pid)
+    mine, cur = set(), os.getpid()
+    while cur in rows and cur not in mine:
+        mine.add(cur)
+        cur = rows[cur].ppid
+    reused = born is not None and pgid in rows and rows[pgid].started > born + REUSE_SLACK
+    found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid or sessions.get(pid) == pgid}
+    found |= {pid for pid, t in (known or {}).items() if pid in rows and abs(rows[pid].started - t) <= REUSE_SLACK}
+    children = {}
+    for pid, row in rows.items():
+        children.setdefault(row.ppid, []).append(pid)
+    todo = list(found)
+    while todo:
+        for c in children.get(todo.pop(), ()):
+            if c not in found:
+                found.add(c)
+                todo.append(c)
+    found -= mine
+    lost = [pid for pid in unreadable if pid not in found and pid not in mine]
+    why = f"{UNSURE}（pid {lost[:5]}）" if lost else None
+    return {pid: rows[pid] for pid in found}, why
+
+
+def _live(members):
+    return {pid: m for pid, m in members.items() if not m.stat.startswith("Z")}
+
+
+def _name(members):
+    return ", ".join(f"pid {m.pid}（pgid {m.pgid}・{m.stat}）" for m in list(members.values())[:5])
+
+
+def _answers(send, target):
+    """信号 0 の問い: 相手が居る（届く・EPERM）なら真、居なければ偽"""
+    try:
+        send(target, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _stop_tree(pgid, leader=None, born=None):
+    """起こした試行の木（プロセスグループ pgid の子とその子孫）を止める。返すのは止め切れなかった理由（None なら止まった・
+    居なかった）。
+
+    POSIX は信号ごとに **数え上げてから送り、送った後に同じ数え上げで確かめる**（_tree_members）。送り先はその回に数えた
+    生きた仲間から作る: 生きた仲間が属するグループのうち、長が仲間のグループと止める番号のグループへは killpg（数えた後に
+    増えた子も届く）、残りの仲間へは 1 本ずつ。生きた仲間の居ないグループへは送らない——macOS はゾンビだけのグループへの
+    killpg を EPERM で拒み（XNU の killpg1）、番号が再利用されたグループは木の外である。STOP_SIGNALS を順に、KILL_GRACE
+    ずつ待ちながら送り（長が先に終わっても、SIGTERM を無視する孫には SIGKILL が届く）、最後に数え直して生きた仲間が
+    残れば名指しの理由を返す。systemd の KillMode=control-group は抜けられない cgroup で数えるが、プロセスグループは
+    子孫が抜けられるので、グループが消えたことは木が消えたことにならない。
+    生きた仲間に送った信号が EPERM で拒まれ、数え直しても同じ相手に生きた仲間が居れば、待たずに『信号を送れない』を返す
+    （sandbox の中から別のグループへの信号）。
+    表が読めない回は止める番号のグループへだけ送り、外へ出た子孫を確かめられないと返す（止まったと言わない）。
+    長の Popen（leader）を持つなら待つ間に回収する。born は長の番号の再利用の目印で、長を回収した後（か長を持たない
+    stop_group）にだけ効かせる——回収していない子の番号は再利用されない。
+    Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る。根の長が居ないと辿れないので、長が
+    終わった後の呼び——_reap——は何も止めない）。"""
     if os.name != "posix":
         r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pgid)], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if leader is not None:
@@ -278,31 +389,62 @@ def _stop_tree(pgid, leader=None):
         if r.returncode != 0 and (leader.poll() is None if leader is not None else _started_at(pgid) != GONE):
             return f"taskkill が {pgid} を止められない（exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}）"
         return None
+    if born is None and leader is not None:
+        born = getattr(leader, "gl_born", None)
 
-    def alive():
-        if leader is not None:
-            leader.poll()
-        try:
-            os.killpg(pgid, 0)
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-
-    for sig in STOP_SIGNALS:
-        try:
-            os.killpg(pgid, sig)
-        except ProcessLookupError:
-            return None
-        except PermissionError as e:
-            return f"グループ {pgid} に信号を送れない（{e}）"
+    def wait(done):
         t = time.monotonic() + KILL_GRACE
         while time.monotonic() < t:
-            if not alive():
-                return None
+            if leader is not None:
+                leader.poll()
+            if done():
+                return
             time.sleep(0.05)
-    return f"グループ {pgid} が SIGKILL の後も残っている"
+
+    def count():
+        if leader is not None:
+            leader.poll()
+        return _tree_members(pgid, known, born if leader is None or leader.returncode is not None else None)
+
+    known = {}
+    for sig in (*STOP_SIGNALS, None):   # None の回は送らずに数え直して判定だけ
+        members, why = count()
+        if members is None:
+            if sig is None:
+                return f"止める相手を数え上げられない（{why}）——グループ {pgid} の外へ出た子孫を確かめていない"
+            try:
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                return f"止める相手を数え上げられない（{why}）——グループ {pgid} は居ないが、外へ出た子孫を確かめていない"
+            except PermissionError as e:
+                return f"グループ {pgid} に信号を送れない（{e}）"
+            wait(lambda: not _answers(os.killpg, pgid))
+            continue
+        known.update({pid: m.started for pid, m in members.items()})
+        live = _live(members)
+        if not live:
+            return why
+        if sig is None:
+            return f"グループ {pgid} の木が SIGKILL の後も残っている（{_name(live)}）"
+        groups = {m.pgid for m in live.values() if m.pgid in members or m.pgid == pgid}
+        targets = ([("pg", g, f"グループ {g}") for g in sorted(groups)]
+                   + [("pid", pid, f"pid {pid}") for pid, m in live.items() if m.pgid not in groups])
+        denied = []
+        for kind, target, label in targets:
+            try:
+                (os.killpg if kind == "pg" else os.kill)(target, sig)
+            except ProcessLookupError:
+                pass
+            except PermissionError as e:
+                denied.append((kind, target, label, e))
+        if denied:
+            again, _ = count()
+            still = None if again is None else _live(again)
+            for kind, target, label, e in denied:
+                if still is None or any((m.pgid if kind == "pg" else pid) == target for pid, m in still.items()):
+                    return f"{label} に信号を送れない（{e}）"
+        wait(lambda: not any(_answers(os.kill, pid) for pid in live))
+    return None   # 届かない（最後の回は必ず返す）
 
 
 def _kill(p):
@@ -321,11 +463,15 @@ def run_tree(argv, *, cwd, timeout, shell=False):
     """1 回走らせて終わりを待つ（rules がテストの実行器を走らせる口。INJECT で渡る）。返すのは subprocess.CompletedProcess
     （stdout・stderr は UTF-8 の文字列、読めない字は置き換え）。**時間切れ・止める信号・例外のどれで抜けても木ごと止める**
     （_kill）——subprocess.run の timeout は直下の子（シェル・実行器）だけを止め、その子や孫が作業ツリーに書き続ける。
-    標準入力は閉じる（対話を待つ実行器が loop.py の標準入力を継いで止まらないように）"""
+    標準入力は閉じる（対話を待つ実行器が loop.py の標準入力を継いで止まらないように）。
+    **正常に終わった回も、残った木（外へ出た背景のプロセス）を止める**（_communicate と _reap。Jenkins の
+    ProcessTreeKiller・systemd の停止と同じく、仕事の終わりに残りを刈る）。timeout は今までどおり呼び出し全体
+    （管の終わりまで）にかかる"""
     p = _popen(argv, cwd=cwd, shell=shell, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                text=True, encoding="utf-8", errors="replace")
+    trees = []
     try:
-        out, err = p.communicate(timeout=timeout)
+        out, err = _communicate(p, None, timeout=timeout, trees=trees)
     except subprocess.TimeoutExpired as e:
         # 時間切れの例外に『木が残った』理由を添える（呼び元が起動の失敗と区別して理由の文に載せる）
         e.tree_left = _kill(p)
@@ -335,20 +481,70 @@ def run_tree(argv, *, cwd, timeout, shell=False):
         raise
     finally:
         _forget(p)
+    _reap(trees)
     return subprocess.CompletedProcess(argv, p.returncode, out, err)
+
+
+POLL = 0.5   # 長の終わりを見に行く間隔（秒）。待ちの上限ではない——管が閉じるまで何度でも繰り返す
+
+
+def _communicate(p, stdin=None, timeout=None, trees=None):
+    """p.communicate と同じ返り値・同じ時間切れ（timeout は管の終わりまでの呼び出し全体）。trees（list）を渡されたら、
+    **長が終わった後も管が閉じない**（外へ出た子孫が出力の管を継いでいる）回に、その場で木の残りを止めて管を閉じさせる。
+    管が閉じて普通に終わった回は、長の (pid, 起こした時刻) を trees に足す——止めるのは試行の終わり（_reap）で、段ごとに
+    止めると、次の段が使う背景のプロセス（出力を管に繋がない物）まで止める。
+    communicate を短い間隔で繰り返す形は標準ライブラリの約束（時間切れの後に呼び直しても出力を失わない）で、入力は
+    最初の呼びにだけ渡す（2 回目以降は ValueError）"""
+    deadline = None if timeout is None else time.monotonic() + timeout
+    reaped = False
+    while True:
+        left = None if deadline is None else deadline - time.monotonic()
+        try:
+            out = p.communicate(stdin, timeout=POLL if left is None else max(0, min(POLL, left)))
+            break
+        except subprocess.TimeoutExpired:
+            if left is not None and left <= POLL:
+                raise subprocess.TimeoutExpired(p.args, timeout) from None
+        stdin = None
+        if trees is not None and not reaped and p.poll() is not None:
+            reaped = True
+            _reap_one(p.pid, leader=p)
+    if trees is not None and not reaped:
+        trees.append((p.pid, getattr(p, "gl_born", None)))
+    return out
+
+
+def _reap(trees):
+    """試行の終わりに、正常に終わった長の木の残り（外へ出た背景のプロセス）を止める。返すのは止め切れなかった理由（None なら
+    止まった・居なかった）。長はもう回収してあるので、番号の再利用は起こした時刻（born）で見分ける。セッションを読めない
+    プロセスが居るだけの理由（UNSURE）は止め切れなかったとは数えない——正常に終わった試行の印を、それだけで残し続けない"""
+    whys = [w for w in (_reap_one(pid, born=born) for pid, born in trees) if w]
+    return "; ".join(whys) or None
+
+
+def _reap_one(pid, leader=None, born=None):
+    """正常に終わった長 1 本の木の残りを止める（_communicate の途中と _reap の両方の口）。セッションを読めないプロセスが
+    居るだけの理由（UNSURE）は止め切れなかったと数えない。止め切れなければ NG を標準エラーに出して理由を返す"""
+    why = _stop_tree(pid, leader=leader, born=born)
+    if not why or why.startswith(UNSURE):
+        return None
+    print(f"NG 終わった試行の木の残りを止め切れない（pid {pid}）: {why}", file=sys.stderr)
+    return why
 
 
 class Superseded(Exception):
     """起こした直後に、この試行がもう自分の物でなかった（still_mine が偽——起こし直された・人が止めた）。子は木ごと止めてある。"""
 
 
-def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=None):
-    """1 回起こして終了を待つ（上限なし）。返すのは (exit, stdout, stderr)。
+def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=None, trees=None):
+    """1 回起こして終了を待つ（上限なし）。返すのは (exit, stdout, stderr)。trees は _communicate に渡す（試行の終わりに
+    木の残りを止める記録。None なら正常に終わった回の残りは止めず、印もここで消す——背景を残すと宣言した段）。
 
     **どの道で抜けても子を残さない**（finally）——待っている間に例外・SystemExit・KeyboardInterrupt で抜けた回も
     木ごと止める。子は別のプロセスグループに切り離してあるので、親のグループに届く信号はもう子に届かない。
 
-    pgid_file を渡されたら、起こした直後に子のグループの番号を書き、子が終わったら消す。**書いてから still_mine を
+    pgid_file を渡されたら、起こした直後に子のグループの番号を書き、止めた回と trees の無い回はここで、正常に終わった回は
+    試行の終わり（_end_attempt）に消す。**書いてから still_mine を
     聞く**——止める側（起こし直し・人が止める口）は盤面を先に書いてから、この印を読んで止める。どちらの順で交わっても、
     試行の子はどちらか一方が止める（印を書いたのが先なら止める側が、盤面が先に進んでいたら still_mine が）。"""
     p = _popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env)
@@ -359,7 +555,7 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
             pathlib.Path(pgid_file).write_text(json.dumps({"pgid": p.pid}), encoding="utf-8")
         if still_mine is not None and not still_mine():
             raise Superseded
-        out, err = p.communicate(stdin_bytes)
+        out, err = _communicate(p, stdin_bytes, trees=trees)
         ended = True
         return p.returncode, out, err
     finally:
@@ -368,8 +564,14 @@ def _spawn(argv, stdin_bytes, cwd=None, env=None, pgid_file=None, still_mine=Non
             if why:
                 print(f"NG 子の木を止め切れない（pid {p.pid}）: {why}", file=sys.stderr)
         _forget(p)
-        if pgid_file:
-            pathlib.Path(pgid_file).unlink(missing_ok=True)
+        if pgid_file and (trees is None or not ended):
+            pathlib.Path(pgid_file).unlink(missing_ok=True)   # 正常に終わった回の印は、試行の終わりに残りを止めてから消す
+
+
+def _end_attempt(trees, pgid_file):
+    """試行の終わり: 木の残りを止め（_reap）、止まったら印を消す。止め切れなければ印を残す（relaunch・stop が止められる）"""
+    if _reap(trees) is None and pgid_file:
+        pathlib.Path(pgid_file).unlink(missing_ok=True)
 
 
 GONE = "gone"   # _started_at の『その番号のプロセスは居ない』
@@ -387,6 +589,7 @@ def _started_at(pid):
         argv = ["powershell", "-NoProfile", "-Command",
                 f"$p = Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}'; "
                 "if ($p) { 'alive:' + $p.CreationDate.ToFileTimeUtc() } else { 'gone' }"]
+    now = time.time()   # ps を起こす前の時刻から引く（_ps_all と同じ——ps の遅れを開始時刻に乗せない）
     try:
         r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
@@ -397,7 +600,7 @@ def _started_at(pid):
     if not out:
         return GONE if not r.stderr.strip() else None   # 居ない番号は出力も誤りの文も無い（exit 1）
     secs = parse_etime(out)
-    return None if secs is None else time.time() - secs
+    return None if secs is None else now - secs
 
 
 def parse_etime(s):
@@ -428,7 +631,14 @@ def parse_cim(out):
 
 
 def probe_group(pgid_file):
-    """印（<out_path>.pgid）が指す試行の子のグループを、**信号を送らずに**確かめる ——(pgid, why)。
+    """印（<out_path>.pgid）が指す試行の子のグループを、**信号を送らずに**確かめる ——(pgid, why)。中身は _probe"""
+    pgid, _written, why = _probe(pgid_file)
+    return pgid, why
+
+
+def _probe(pgid_file):
+    """probe_group の中身 ——(pgid, written, why)。written は印の更新時刻で、stop_group が番号の再利用の目印（born）に
+    同じ読みのまま使う（別の読みにすると、間に印が書き直された回に古い時刻と新しい番号の組になる）。
     pgid が None なら止める物が無い（印が無い・番号が別のプロセスに再利用されていた——そのときは印を消す）。
     why は確かめられない理由（印が読めない・開始時刻が取れない）。relaunch は新しい試行を書く前にこれだけを呼ぶ
     （止められない試行の上に新しい試行を作らない）。
@@ -442,31 +652,32 @@ def probe_group(pgid_file):
         pgid = int(mark["pgid"])
         written = path.stat().st_mtime
     except FileNotFoundError:
-        return None, None
+        return None, None, None
     except (OSError, ValueError, KeyError, TypeError) as e:
-        return None, f"{path}: 読めない（{e}）"
+        return None, None, f"{path}: 読めない（{e}）"
     started = _started_at(pgid)
     if started is None:
-        return None, f"プロセス {pgid} の開始時刻を確かめられない（番号が再利用されていれば無関係な木を止めるので、止めない）"
+        return None, None, f"プロセス {pgid} の開始時刻を確かめられない（番号が再利用されていれば無関係な木を止めるので、止めない）"
     if started == GONE:
         if os.name != "posix":
             path.unlink(missing_ok=True)
-            return None, None
-        return pgid, None
+            return None, None, None
+        return pgid, written, None
     if started > written + REUSE_SLACK:
         path.unlink(missing_ok=True)   # 番号が印より後に始まった別のプロセスに再利用されている——古い試行はもう居ない
-        return None, None
-    return pgid, None
+        return None, None, None
+    return pgid, written, None
 
 
 def stop_group(pgid_file):
     """別のプロセスから、試行の子を木ごと止める（loop.py relaunch と loop.py stop が使う）。返すのは止め切れなかった理由（None なら止まった・
-    居なかった）。確かめ方は probe_group、止め方は _kill と同じ _stop_tree（Popen を持たないので長の回収はしない）。
-    印は子が終わると launch の側が消すので、印が無ければ止める物は無い。"""
-    pgid, why = probe_group(pgid_file)
+    居なかった）。確かめ方は _probe、止め方は _kill と同じ _stop_tree（Popen を持たないので長の回収はしない）。
+    印は試行が終わると launch の側が消すので、印が無ければ止める物は無い。長の番号の再利用の目印（born）は、_probe が
+    番号と同じ読みで返す印の更新時刻"""
+    pgid, written, why = _probe(pgid_file)
     if why or pgid is None:
         return why
-    why = _stop_tree(pgid)
+    why = _stop_tree(pgid, born=written)
     if why is None:
         pathlib.Path(pgid_file).unlink(missing_ok=True)
     return why
@@ -521,16 +732,27 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
 
     shell を通さない（argv をそのまま）。標準入力は空。標準出力と標準エラーは log_dir に丸ごと置き、返り値には末尾だけ載せる。
     返すのは段ごとの {name, argv, exit, wall_s, out, err, tail}（exit が None なら起こせなかった——error に理由）。
-    もう自分の物でなければ（still_mine が偽——起こし直された・人が止めた）Superseded を上げる。"""
+    もう自分の物でなければ（still_mine が偽——起こし直された・人が止めた）Superseded を上げる。
+    正常に終わった段の木の残り（外へ出た背景のプロセス）は、試行（全段）の終わりに 1 回まとめて止める。段の宣言の
+    keep_background（engine/declared.py）が真の段は止めない——試行の外で使う背景のプロセスを残す逃げ道（次の段までは宣言が無くても残る）"""
     log_dir = pathlib.Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    runs = []
+    runs, trees = [], []
+    try:
+        _run_steps(steps, cwd, log_dir, pgid_file, still_mine, runs, trees)
+    finally:
+        _end_attempt(trees, pgid_file)
+    return runs
+
+
+def _run_steps(steps, cwd, log_dir, pgid_file, still_mine, runs, trees):
     for i, s in enumerate(steps):
         started = time.time()
         base = log_dir / f"{i + 1}"
         row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
         try:
-            rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, pgid_file=pgid_file, still_mine=still_mine)
+            rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, pgid_file=pgid_file, still_mine=still_mine,
+                                  trees=None if s.get("keep_background") else trees)
         except OSError as e:
             rc, out, err = None, b"", str(e).encode("utf-8")
             row["error"] = str(e)
@@ -538,11 +760,10 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
         pathlib.Path(row["err"]).write_bytes(err)
         row.update(exit=rc, wall_s=round(time.time() - started, 1), tail=_tail(out + b"\n" + err))
         runs.append(row)
-    return runs
 
 
 def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_resumes=0,
-             log_path=None, meta=None, cwd=None, env=None, still_mine=None):
+             log_path=None, meta=None, cwd=None, env=None, still_mine=None, reap=True):
     """役を起こし、返答を out_path に書き、受け付けまで済ませる。
 
     argv        起こす語の全部（前置の層・claude・旗）。同じ会話を続ける節ならここが既に --resume を含む
@@ -556,6 +777,7 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
     meta        要約の各行に添える値（instance・周など。呼び出し側の語彙で、この関数は読まない）
     cwd / env   子の作業ディレクトリと環境（None なら呼び出し側のもの）
     still_mine  still_mine() -> bool。子を起こすたびに聞き、偽なら（起こし直された・人が止めた）その子を止めて返る。None なら聞かない
+    reap        真なら、正常に終わった往復の木の残りを試行の終わりに 1 回まとめて止める（偽は止める口だけを確かめる台本の形）
 
     返り値: {"ok", "why", "session_id", "superseded", "accepted", "runs": [要約…], "rejections": [理由…]}
     """
@@ -563,10 +785,20 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
         stdin = fh.read()
     got = {"ok": False, "why": None, "session_id": None, "superseded": False, "accepted": None, "runs": [], "rejections": []}
     cur = list(argv)
+    trees = [] if reap else None
+    try:
+        _role_turns(cur, stdin, out_path, got, accept, resume_argv, max_resumes, log_path, meta, cwd, env, still_mine, trees)
+    finally:
+        if trees is not None:
+            _end_attempt(trees, pgid_path(out_path))
+    return got
+
+
+def _role_turns(cur, stdin, out_path, got, accept, resume_argv, max_resumes, log_path, meta, cwd, env, still_mine, trees):
     for turn in range(max_resumes + 1):
         started = time.time()
         try:
-            rc, out, err = _spawn(cur, stdin, cwd=cwd, env=env, pgid_file=pgid_path(out_path), still_mine=still_mine)
+            rc, out, err = _spawn(cur, stdin, cwd=cwd, env=env, pgid_file=pgid_path(out_path), still_mine=still_mine, trees=trees)
         except OSError as e:
             rc, out, err = None, b"", str(e).encode("utf-8")
         except Superseded:
@@ -615,4 +847,3 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
             break
         cur = [a.replace("{session_id}", got["session_id"]) for a in resume_argv]
         stdin = RESUME_NOTE.format(why=got["rejections"][-1]).encode("utf-8")
-    return got

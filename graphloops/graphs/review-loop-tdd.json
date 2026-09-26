@@ -7,6 +7,76 @@
    "note": "テスト一式を走らせる実行ファイル。JUnit XML の書き先を第 1 引数に受け、リポジトリのルートで走る（init --input tdd_suite=<パス>）。無ければ init が止まる"
   }
  },
+ "state_schema": {
+  "properties": {
+   "tdd": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "red_tries": {
+      "type": "integer"
+     },
+     "green_tries": {
+      "type": "integer"
+     },
+     "start": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "baseline": {
+      "type": "object"
+     },
+     "baseline_exit": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "red": {
+      "type": "string"
+     },
+     "green": {
+      "type": "string"
+     },
+     "named": {
+      "type": "array"
+     },
+     "problems": {
+      "type": "array"
+     },
+     "suite_made": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "description": "振り分けの候補: A 修正の出口（TDD の赤・緑の証拠）"
+   },
+   "tdd_gave_up": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "step": {
+       "type": "string"
+      },
+      "problems": {
+       "type": "array"
+      }
+     }
+    },
+    "description": "振り分けの候補: C2 record.process.tdd.rounds と同じ中身"
+   }
+  }
+ },
  "overview": "review-loop（graphs/review-loop.json の overview）と同じループで、P3 の修正だけを TDD の流れに差し替えた版。修正を 2 段に割る: 直す単位ごとに、使う側の呼び口で今は落ちるテストだけを書き（書きにくさ——準備が重い・内部に手を入れる・名前から意図が読めない——を単位ごとに記録する）、engine が一式を回して名指しのテストが狙いどおりの失敗で赤・ほかは緑であることを確かめ（赤の確認）、同じ writer が実装してテストを通し、engine が名指しもほかも緑で、テストのファイルを書き換えていないことを確かめる（緑の確認）。先にテストを書けない単位（文書・指示書・注記だけの直し）は理由をつけて今の修正の流れに回す。テスト一式のコマンドは init --input tdd_suite='…{junit}…' で渡す（JUnit XML を書く物）。TDD を使った周ごとに、修正差分への変異の見逃しの本数と、その周の修正が作った指摘の件数を record.process.tdd に残す",
  "nodes": {
   "p3.tdd_start": {
@@ -31,7 +101,8 @@
    "stage": "P3",
    "run_by": "writer",
    "deps": [
-    "p3.tdd_start"
+    "p3.tdd_start",
+    "p2.fix_units"
    ],
    "cond": "units_open",
    "source": "P3（TDD）＞ テストだけを書く",
@@ -41,7 +112,7 @@
    ],
    "prompt_file": "../prompts/review-loop/tdd/p3.tdd_tests.md",
    "reads": [
-    "record.units",
+    "loop.fix_units",
     "record.questions",
     "record.process.diagnosis",
     "out.p2.plan_review",
@@ -54,7 +125,7 @@
     {
      "at": "units[].unit_key",
      "from": [
-      "record.units"
+      "loop.fix_units.rows"
      ]
     }
    ],
@@ -83,10 +154,11 @@
     "p2.plan_review",
     "p3.lane_merge",
     "p3.tdd_red",
-    "p2.human_gate"
+    "p2.human_gate",
+    "p2.fix_units"
    ],
    "reads": [
-    "record.units",
+    "loop.fix_units",
     "record.questions",
     "record.process.diagnosis",
     "inputs.review_md",

@@ -553,9 +553,6 @@ def validate_questions(rec, path, unit_index):
         if not isinstance(deps, list) or not all(isinstance(d, str) and d for d in deps):
             fail(f"{where} の depends は、この答え待ちで手を止めるユニットの key の配列")
         origin = q.get("origin")
-        # **2 軸目を記録から判定する。** 決着した問い（`decided` / `resolved`）は、出どころの
-        # 欠陥がまだ開いているかで書き分ける。書き手の申告に任せると、`resolved` を 1 件置いて
-        # stuck の振り分け要求を黙らせる形（実測で再現した穴）がそのまま戻る。
         for msg in settled_state_errors(q, rec["units"]):
             fail(f"{where}: {msg}")
         # **開き禁止は域の枝の外に置く。** `NO_OPEN_ORIGIN` の 2 種類はどちらも域が unit なので
@@ -631,7 +628,8 @@ def is_open(u):
 # 判定の時点で当てる述語の一覧の正本は JUDGE_TIME_RULES、当てない規則の理由は FAIL_LAYERS（どちらも下）。
 def settled_state_errors(q, units):
     """決着した問い（decided / resolved）の状態が、出どころのユニットがまだ開いているかと食い違っていないか。
-    2 軸目（出どころの欠陥が開いて残っているか）は欄にせず記録から判定する（QUESTION_STATUS の注記）"""
+    2 軸目（出どころの欠陥が開いて残っているか）は欄にせず記録から判定する（QUESTION_STATUS の注記）——書き手の申告に
+    任せると、resolved を 1 件置いて stuck の振り分け要求を黙らせる形（実測で再現した穴）がそのまま戻る"""
     k = QUESTION_KINDS.get(q.get("kind"))
     status = q.get("status")
     by_key = {u.get("key"): u for u in units}
@@ -667,8 +665,8 @@ def dropped_questions(prev_questions, questions):
             for q in prev_questions if q.get("status") in TRACKED and q.get("key") not in now_q]
 
 
-# 判定の時点（graphloops の rules の、判定の節の受け付け）でも当てる述語。rules はこの名前で import して呼ぶ
-# （写さない）。一覧に在る名前を rules が呼んでいることは graphloops の pytest（test_review_rules）が見る
+# 判定の時点（graphloops の rules の、判定の節の受け付け）でも当てる述語。rules は validator_module が返すこのモジュールの
+# 属性として呼ぶ（写さない）。一覧に在る名前を rules が呼んでいることは graphloops の pytest（test_review_rules）が見る
 JUDGE_TIME_RULES = ("settled_state_errors", "reopened_without_evidence", "dropped_questions",
                     "stuck_unlisted", "origin_not_awaiting")
 # fail を呼ぶ関数ごとに、その規則が判定の時点に届いているか・届かない理由。fail を持つ関数とこの表の鍵が一致することは
@@ -681,7 +679,8 @@ FAIL_LAYERS = {
                 "units の key の重複も judge_output が当てる。ほかは判定の時点に入力が無い（記録を組むのは engine）",
     "validate_questions": "問いの台帳の 1 周内の整合。種類・状態・状態ごとの欄・options・depends・開き禁止・出どころの域は judge_output が"
                           "語彙を import して当てる。決着の状態と出どころの開きは settled_state_errors、素材を出どころにする人待ちは "
-                          "origin_not_awaiting（check_record。全部の done）。問いの key の欠け・重複は判定の時点で当てていない",
+                          "origin_not_awaiting（check_record。全部の done）。key の欠けは graph の schema、判定役が書いた行どうしの key の重複は "
+                          "judge_output が当てる。判定の後に機械が足す行（premise_question・周の記録の段）との重複は検証器だけ",
     "validate_against": "前の周との突合。base と持ち越しの連鎖は判定の時点に入力が無い。defer の再浮上は reopened_without_evidence、"
                         "問いの連続は dropped_questions（どちらも履歴を読む判定の節）。台帳が動いた周の R1 は判定の後の R1 の欄",
     "question_origins_exist": "未決の問いの出どころの実在。judge_output が targets で units と defer 台帳に当てる",

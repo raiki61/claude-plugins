@@ -30,8 +30,8 @@ engine はループの節名も記録の欄名も持たない。graph が名前�
 
 - **自動で残る物**: `loop.py` が非 0 で終わった呼び出し（日常の拒否 exit 1 も含む）と、`loop.py launch` で役が落ちた・拒否が上限まで続いた行（launch 自身は exit 0 のまま。行は終了コードの代わりに落ち方の種類を持ち、鍵もそれで分かれる——`commands.launch_cause`）。`loop.py` を通らない物（`with-auth.py`・`graphcheck.py`・`parallel-pr.py`・フックの `record-read.py`）は残らない
 - **手で残す口**: `/graphloops:intake <1 行>`。たまった分は `export <書き出し先>` で 1 ファイルにまとめて手渡す。届け先を `set-url <URL>` で決めると `send` で POST する（`{"text": 要約, "records": 行}`。受けを立てる段 3 は作っていない）。どれも `loop.py intake` の旗
-- **置き場**: Claude Code の持続の置き場 `${CLAUDE_PLUGIN_DATA}` の `intake.jsonl`（更新で消えない）。Bash のコマンドには渡らないので、自動の口は engine の置き場 `<plugins>/cache/<marketplace>/<plugin>/<version>` から Claude Code と同じ規則で `<plugins>/data/<plugin>-<marketplace>` を導く。`--plugin-dir` で読んだ回・checkout から直に走らせた回は導けないので、自動の行は残らない（手の口は手順書の本文が置き場を渡すので残る）
-- **欄と秘匿**: 既定は構造化した欄だけ（呼び口は節の id まで。項目の鍵とパスは落とす）。同じ問題を数える鍵は版を含まない。標準エラーの頭は環境変数 `GRAPHLOOPS_INTAKE_STDERR=1` のときだけ残し、書き出しと送る本文からは既定で落とす
+- **置き場**: Claude Code の持続の置き場 `${CLAUDE_PLUGIN_DATA}` の `intake.jsonl`（更新で消えない。アンインストールの最後の 1 回では消える）。Bash のコマンドには渡らないので、自動の口は engine の置き場 `<plugins>/cache/<marketplace>/<plugin>/<version>` から Claude Code と同じ規則で `<plugins>/data/<plugin>-<marketplace>` を導く。`--plugin-dir` で読んだ回・checkout から直に走らせた回は導けないので、自動の行は残らない（手の口は手順書の本文が置き場を渡すので残る）
+- **欄と秘匿**: 既定は構造化した欄だけ——プラグインの名前・版・取れればコミット・OS と Python の版・呼び口（節の id まで。項目の鍵とパスは落とす）・終了コード・例外の型と上げた関数・run の番号と周・人が書いた 1 行。本文・差分・記録の中身は残さない。同じ問題を数える鍵は版を含まない。標準エラーの頭は環境変数 `GRAPHLOOPS_INTAKE_STDERR=1` のときだけ残し、書き出しと送る本文からは既定で落とす
 - **止めない**: 残す処理は何が起きても、元の終了コードと出力を変えない。認証もネットワークも使わない（使うのは利用者が明示に呼ぶ send だけで、期限は付けない）
 - **報告の頭**: `save_text_as` の節（両ループの最終報告）を保存するとき、engine が 1 行目に来歴（`graphloops <版> (<commit>) / <loop> run <run_id> / round <周> / graph <sha>`）を刻む
 
@@ -46,15 +46,23 @@ bash graphloops/tests/run.sh
 
 ### pytest の置き場（graphloops/tests/py/）
 
-関数を直に呼ぶ単体の検査は pytest に置く。依存は開発の間だけで、その場で入れる（プラグインの利用者の必須には足さない）:
+関数を直に呼ぶ単体の検査は pytest に置く。依存は開発の間だけで、その場で入れる（プラグインの利用者の必須には足さない）。pytest-xdist の `-n` でプロセス単位に並べる（`-n` を外しても同じ柵が当たる）:
 
 ```bash
-uv run --no-project --with pytest python -m pytest graphloops/tests/py
+uv run --no-project --with pytest --with pytest-xdist python -m pytest -n auto graphloops/tests/py
 ```
 
-**置き場の方針**: 単体の検査（関数を直に呼ぶ物）は、新しく書くなら、また既存の物を触るなら pytest に書く。bash の側から pytest へ移し終えた検査は、同じ変更で bash の側を消し、両方の件数の定数（bash の台本の `EXPECTED_CHECKS` ほかと、`graphloops/tests/py/conftest.py` の `EXPECTED_ITEMS`）と、その検査を当てにする変異の腕（`tests/mutations.json` の `tests`）を同じ変更で直す——ただし腕の実行器 `tests/mutate.py` はまだ bash の台本しか回せない（撃つ台本の表は `tests/run.sh` と `graphloops/tests/run.sh` の 2 本）ので、bash 側を消す最初の変更で実行器に pytest の口を足す。それまでは腕が pytest の写しでも落ちることを手で確かめる（今の `engine/schema.py` の腕 11 本は 2026-09-25 に全部落ちた）。盤面を端から端まで回す台本（`tests/simulate.py`・`tests/simulate_review.py`）は、台本の土台がまだ pytest に無いので、土台を移すまでは今の置き場に足す。今の pytest 側の中身は `engine/schema.py` の検査（差し替えの版の重ね方 `test_graph_extends.py` を含む）と、`engine/role_run.py` の `unwrap`（役の標準出力を解く）の検査と、TDD の流れの赤・緑の判定（`test_review_tdd.py`）と、走らせるだけの節と宣言（`test_engine_run.py`）・人の方針の関所（`test_policy_gate.py`）・review-loop の rules の欠けた入力（`test_review_rules.py`）・engine の守りの口（`test_engine_guards.py`）・子を止める部品（`test_role_run_stop.py`）の検査で、そのうち `test_schema.py`・`test_schema_graphcheck.py` は bash 側の同じ検査の写し（bash 側はまだ消していない。移し終えるまでは片方を直したらもう片方も直す——ずれを見る柵は無い）。
+**置き場の方針**: 単体の検査（関数を直に呼ぶ物）は、新しく書くなら、また既存の物を触るなら pytest に書く。bash の側から pytest へ移し終えた検査は、同じ変更で bash の側を消し、両方の件数の定数（bash の台本の `EXPECTED_CHECKS` ほかと、`graphloops/tests/py/conftest.py` の `EXPECTED_ITEMS`）と、その検査を当てにする変異の腕（`tests/mutations.json` の `tests`）を同じ変更で直す——ただし腕の実行器 `tests/mutate.py` はまだ bash の台本しか回せない（撃つ台本の表は `tests/run.sh` と `graphloops/tests/run.sh` の 2 本）ので、bash 側を消す最初の変更で実行器に pytest の口を足す。それまでは腕が pytest の写しでも落ちることを手で確かめる（今の `engine/schema.py` の腕 11 本は 2026-09-25 に全部落ちた）。盤面を端から端まで回す台本（`tests/simulate.py`・`tests/simulate_review.py`）を載せる土台は pytest の側に在る（下の「盤面を回す台本の土台」）が、台本はまだ移していないので、移すまでは今の置き場に足す（移す段で bash 側を消し、上の実行器の口も足す）。今の pytest 側の中身は `engine/schema.py` の検査（差し替えの版の重ね方 `test_graph_extends.py` を含む）と、`engine/role_run.py` の `unwrap`（役の標準出力を解く）の検査と、TDD の流れの赤・緑の判定（`test_review_tdd.py`）と、走らせるだけの節と宣言（`test_engine_run.py`）・人の方針の関所（`test_policy_gate.py`）・review-loop の rules の欠けた入力（`test_review_rules.py`）・engine の守りの口（`test_engine_guards.py`）・子を止める部品（`test_role_run_stop.py`）・盤面の loop の形（graph の `state_schema` を graphcheck が照らす・engine が保存の時に照らす。`test_state_schema.py`）の検査で、そのうち `test_schema.py`・`test_schema_graphcheck.py` は bash 側の同じ検査の写し（bash 側はまだ消していない。移し終えるまでは片方を直したらもう片方も直す——ずれを見る柵は無い）。
 
-**柵**（`graphloops/tests/py/fence.py`）: 飛ばしは失敗にする（テスト単位の skip・xfail と、モジュール丸ごとの skip・importorskip の両方）。集めたテストの数を `EXPECTED_ITEMS` と `!=` で突き合わせる——置き場のテストのファイルを全部集めた回だけで、パス・node id・`--ignore` などでファイルを絞った回は柵を外して、外した旨を 1 行出す（`-k` は集めた後で選ぶので柵は付いたまま）。CI は置き場を丸ごと回す。
+**盤面を回す台本の土台**（`graphloops/tests/py/glharness.py`。`conftest.py` が plugin として載せる）: 台本の本文（`Run`・`drive`・`check`・代役の claude）は写さず、台本のモジュールを import して使う。
+
+- **2 つの口**（`--gl-driver=cli|inproc`、既定は cli）: cli は今と同じく子プロセスで `loop.py` を起こす。inproc は台本のモジュールの `subprocess` の名前を差し替え、`loop.py` を起こす `subprocess.run` だけを同じプロセスの `loop.cli()` に回す（`Popen` で起こす腕は子プロセスのまま——警告を出す）。inproc は呼ぶたびに engine の大域の状態（`glharness.RESTORED` の表: `util.GIT_CWD`・`role_run.LIVE`・検証器の読み込みの控え・`tempfile.tempdir`・signal の口・cwd・環境変数・標準入出力）を戻す。signal を触るので主スレッドでしか呼べず、並べ方はスレッドでなく pytest-xdist のプロセス単位
+- **fixture**: `gl_script("review")`（台本のモジュールを選んだ口で返す）・`gl_run(kind, 名前, **Run の引数)`・`gl_check`（台本と同じ `check`・`skip` と、到達を記す `reach`）・`fake_claude`（代役の claude を PATH の先頭に置いた環境）・`gl_tmp`（一時の置き場の環境変数 TMPDIR を `tmp_path` に向ける——台本の作業場・engine の置き場・子プロセス・`parallel.rm` の基点が同じ所を見る。後始末は `tmp_path` に任せる）
+- **check の数え方**: 行の形と数え方の正本は台本の `check`。pytest の側は各テストの前後で台本の件数と失敗の差を読み、失敗が 1 件でもあればそのテストを失敗にし、環境変数 GL_CHECK_LOG の置き場に `  FAIL <desc>` を 1 行ずつ足す
+- **2 つの口の突合**（`test_harness.py` の `test_drivers_agree`）: 同じ筋書きを 2 つの口で回し、盤面（`state.json`・`record.json`・周の記録）を run の番号・時刻・作業場の根・所要・プロンプトの要約（本文が作業場のパスを貼る）で正規化して突き合わせる。所要は測って出すだけ（2026-09-26・負荷 100 前後で review の標準の筋書きが cli 354 秒・inproc 145 秒）
+- **大きさの印**（Google の Test Sizes）: `small` は子プロセスとスリープを呼んだら失敗（握り潰しても失敗）。`medium` は子プロセス・git・盤面を回すテストで、手で撃つ mutmut は選ばない（`graphloops/setup.cfg`）。時間の上限と、落ちたテストの自動の再試行は入れない
+
+**柵**（`graphloops/tests/py/fence.py`）: 飛ばしは失敗にする（テスト単位の skip・xfail と、モジュール丸ごとの skip・importorskip の両方）。集めたテストの数を `EXPECTED_ITEMS` と `!=` で突き合わせる——置き場のテストのファイルを全部集めた回だけで、パス・node id・`--ignore` などでファイルを絞った回は柵を外して、外した旨を 1 行出す（`-k` は集めた後で選ぶので柵は付いたまま）。台本の検査が走った件数を `EXPECTED_SIM_CHECKS` と、到達した値の数を `EXPECTED_SIM_REACHED` と `!=` で突き合わせる——全件の回で、しかも `-k`・`-m` で 1 件も選び外さなかった回だけ。`-n` の回は worker が数えた値を controller が集めて当てる（worker から届く node id の一覧では、テストを全部消したファイルが見えない）。CI は置き場を丸ごと回す。
 
 **変更に関係するテストだけ回す道具（pytest-testmon）**: 使うなら手元の速回しだけで、commit 前と CI は全件。testmon はファイルを集めないので、上の柵はその回を「絞った回」と見なして外す。測った事実（2026-09-25、Python 3.14・pytest-testmon 2.2.0・coverage 7.16.1）: 設定のままでは rootdir（`graphloops/tests/py/`）の外にある `engine/` の変更を追わず、`schema.py` を壊しても 1 件も選ばなかった。`--rootdir=graphloops` にすると追うが、Python 3.14 の既定（coverage の `COVERAGE_CORE=sysmon`）では落ちるべきテストを選び漏らし、`COVERAGE_CORE=ctrace` で正しく選んだ。graph の JSON・プロンプトの変更には効かない:
 
@@ -62,7 +70,7 @@ uv run --no-project --with pytest python -m pytest graphloops/tests/py
 cd graphloops/tests/py && COVERAGE_CORE=ctrace uv run --no-project --with pytest --with pytest-testmon python -m pytest --rootdir=../.. -c pytest.ini --testmon .
 ```
 
-**変異テスト**: 手書きの腕（`tests/mutate.py` と `tests/mutations.json`）は、呼び出しを足す変異・デコレータ付きの関数・JSON・Markdown・シェルを狙う腕と、どの検査で落ちたかの突き合わせのために残す。pytest が覆うモジュールを丸ごと撃つのは既製の mutmut で、設定は `graphloops/setup.cfg`（鍵の名前は mutmut 3 の物で、2 系の `paths_to_mutate` などとは違う。版を固定して回す）。mutmut は作業用の写しを回した場所の `mutants/` に作り、前回の「殺した」結果を持ち越すので、**作業ツリーの一時の写しの上で、毎回新しく**撃つ（作業ツリーに `mutants/` を作ると、ファイルシステムを直に走査する `tests/run.sh` の柵がその写しまで数える）。Windows では動かない:
+**変異テスト**: 差分から機械で作る腕（`tests/mutate.py --auto`）は、印の写しで行を通した台本だけで撃つ。どの台本が通したかは台本の土台 `parallel.py` が付ける印（台本を走らせるスレッドの名前と、印の写しの回だけ作業場の名前に挟む台本名）で見分けるので、子のプロセスは台本の作業場を cwd にして起こせば帰属する（作業場の外で起こした子は帰属できず、その腕は台本一式で撃つ）。手書きの腕（`tests/mutate.py` と `tests/mutations.json`）は、呼び出しを足す変異・デコレータ付きの関数・JSON・Markdown・シェルを狙う腕と、どの検査で落ちたかの突き合わせのために残す。pytest が覆うモジュールを丸ごと撃つのは既製の mutmut で、設定は `graphloops/setup.cfg`（鍵の名前は mutmut 3 の物で、2 系の `paths_to_mutate` などとは違う。版を固定して回す）。mutmut は作業用の写しを回した場所の `mutants/` に作り、前回の「殺した」結果を持ち越すので、**作業ツリーの一時の写しの上で、毎回新しく**撃つ（作業ツリーに `mutants/` を作ると、ファイルシステムを直に走査する `tests/run.sh` の柵がその写しまで数える）。Windows では動かない:
 
 ```bash
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard | tar -cf - -T - | tar -xf - -C "$tmp"
@@ -73,17 +81,18 @@ cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest m
 
 ## ループを足すには
 
-1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。
+1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。rules が盤面の loop（`b.loop_state`）に鍵を書くなら、鍵の名前を rules の `LOOP_KEYS` に、形を graph の最上位の `state_schema`（`type: object`・`additionalProperties: false` の JSON Schema。周ごとに名前の変わる鍵は `patternProperties`）に書く——graphcheck が両方をそろえ、loop を読む path を最後の欄まで照らし、engine は保存の時に照らして外れを `state.loop_drift` に残す（止めない）。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。
 2. `prompts/<loop>/` に節ごとのプロンプト。散文の手順書の「なぜ」を前書きに残す（指示だけに削ると、規律は守られても判断の質が落ちる）。
 3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_stop`・`on_thickness`・`add`（要るものだけ）。人が途中で止める口（`loop.py stop`）で報告まで届かせるなら、graph の最上位に `stop`（止めた後に『済んだ』と見なす機械の節。下流に報告の節が要る——graphcheck が見る）を書く。
-4. `tests/simulate.py` に台本を足す（盤面を回す台本の土台はまだそこにしか無い。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。
+4. `tests/simulate.py` に台本を足す（台本はまだそこに在る。pytest の側の土台は台本を import して回せるが、移すのは次の段。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。
 5. `commands/<loop>-graph.md` は engine の呼び方だけ。
 
 ## 流れの一部を差し替えた版を足すには
 
 同じループの一部の節だけを別の流れに差し替える版（例: 修正を TDD の流れにした `graphs/review-loop-tdd.json`）は、元の graph を写さずに差分だけを書く。最上位に `"extends": "<元の graph のファイル名>"` を書くと、engine（`engine/schema.py` の `load_graph`）が元の graph に RFC 7396（JSON Merge Patch）で重ねる: object は鍵ごとに重なり、`null` は鍵を消し、配列は置き換わる。
 
-- 元は同じ置き場（`graphs/`）のファイルだけで、重ねは 1 段だけ。継いだ節の `prompt_file`・`rules` の相対パスが同じ置き場を基準に読まれるため。
+- 元は同じ置き場（`graphs/`）のファイルだけ。継いだ節の `prompt_file`・`rules` の相対パスが同じ置き場を基準に読まれるため。
+- 差し替えの版の上にさらに差し替えの版を重ねてよい（`engine/schema.py` の `extends_chain`）。鎖は根元から順に重なり、後の段が勝つ。輪（自分を指すのも含む）は拒み、途中の段の誤りはその段のファイル名で言う。
 - 差し替えた節の `deps`・`reads` は元の要素も書く（配列は置き換わる）。元の要素を落とすと graphcheck が止める——元の graph に後から足した依存が、差し替えの版で黙って消えないように。
 - 元の指示書に段落を足すなら、節の `prompt_append`（指示書の後ろに続けるファイルの一覧）に書く。元の指示書は写さない。
 - rules を足すなら別のファイルに置き、元の rules を読み込んで表（`CONDS`・`BUILTINS`・`POST_CHECKS`）に足した写しを出す（`rules/review-loop-tdd.py` の頭の形）。元の rules は触らない。

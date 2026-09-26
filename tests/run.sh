@@ -37,9 +37,9 @@ unset PYTHONOPTIMIZE
 
 fail=0
 ran=0
-# **環境で走れなかった検査（見送り）は合格と別に数える。** 各台本は見送りを 1 行ずつ「  ok   <検査> # SKIP <理由>」
-# （TAP 14 の SKIP 指示子。Python の側の正本は graphloops/tests/parallel.py の skip_line）で出すだけで、拾う・数える・
-# 一覧にする・FAIL_ON_SKIP=1 で失敗に数えるのはここ 1 か所——層ごとに一覧を作ると同じ見送りを二重に数える。
+# **環境で走れなかった検査（見送り）は合格と別に数える。** 各台本は見送りを 1 行ずつ「  ok   <検査> # SKIP <能力>: <理由>」
+# （TAP 14 の SKIP 指示子。説明文の頭に欠けた能力の名前。Python の側の正本は graphloops/tests/parallel.py の skip_line）で出すだけで、
+# 拾う・数える・一覧にする・名前で許すか決めて FAIL_ON_SKIP=1 で失敗に数えるのはここ 1 か所——層ごとに一覧を作ると同じ見送りを二重に数える。
 # 合格と同じ「ok」だけで出していたとき、道具や OS の機能の無い CI は走らないまま緑になり、止める口が無かった
 SKIP_MARK=' # SKIP'
 SKIPS=()
@@ -51,13 +51,36 @@ note_skips() {
         [[ "$l" == "  ok   "*"$SKIP_MARK"* ]] && SKIPS+=("${l#  ok   }")
     done <<< "$1"
 }
-# どの OS で見送りを許すかは実装側で決めない——CI の定義か人が FAIL_ON_SKIP=1 を渡したときだけ失敗に数える
+# 拾った見送りの行から能力の名前を出す。名前の形（小文字・数字・-）でなければ空——名前の無い見送りは許しようが無いので、
+# FAIL_ON_SKIP=1 の下では必ず失敗に数える（名前の打ち間違いも同じく失敗に倒れる）
+skip_capability() {
+    local rest=${1#*"$SKIP_MARK"}
+    rest=${rest# }
+    [[ "$rest" == *:* ]] || return 0
+    local cap=${rest%%:*}
+    [[ "$cap" =~ ^[a-z0-9][a-z0-9-]*$ ]] && printf '%s' "$cap"
+}
+# どの OS で見送りを許すかは実装側で決めない——CI の定義か人が渡す
 report_skips() {
     [ "${#SKIPS[@]}" -gt 0 ] || return 0
-    echo "見送り ${#SKIPS[@]} 件（この環境で走らなかった検査。FAIL_ON_SKIP=1 で失敗に数える）:"
-    printf '  - %s\n' "${SKIPS[@]}"
-    if [ "${FAIL_ON_SKIP:-}" = 1 ]; then
-        echo "見送りを失敗に数えた: ${#SKIPS[@]} 件（FAIL_ON_SKIP=1）"
+    local list=${SKIP_ALLOW:-} allow=() s cap a allowed denied=0
+    list=${list//$'\n'/ }
+    read -ra allow <<< "${list//,/ }"
+    echo "見送り ${#SKIPS[@]} 件（この環境で走らなかった検査。FAIL_ON_SKIP=1 で、SKIP_ALLOW に能力の名前が無いものを失敗に数える）:"
+    for s in "${SKIPS[@]}"; do
+        cap=$(skip_capability "$s"); allowed=0
+        if [ -n "$cap" ]; then
+            for a in ${allow[@]+"${allow[@]}"}; do [ "$a" = "$cap" ] && allowed=1; done
+        fi
+        if [ "$allowed" = 1 ]; then
+            echo "  - ${s}（SKIP_ALLOW で許した）"
+        else
+            echo "  - $s"
+            denied=$((denied + 1))
+        fi
+    done
+    if [ "${FAIL_ON_SKIP:-}" = 1 ] && [ "$denied" -gt 0 ]; then
+        echo "見送りを失敗に数えた: $denied 件（FAIL_ON_SKIP=1。SKIP_ALLOW に無い能力か、名前の無い見送り）"
         fail=1
     fi
 }
@@ -136,30 +159,43 @@ case "$guard_probe" in
 esac
 
 # **見送りの拾い手自身の腕。** 行頭が「  ok   」で印を含む行だけを拾い（理由の無い印も拾う——拾い損ねは合格に化ける）、
-# 行の途中の印は拾わない。既定では fail を立てず、FAIL_ON_SKIP=1 のときだけ立てる。副シェルで本体を汚さない
+# 行の途中の印は拾わない。副シェルで本体を汚さない。
+# 引数: FAIL_ON_SKIP・SKIP_ALLOW・台本の出力（見送りの行の並び）。返り: |拾った件数|fail|失敗に数えた件数|許した印の件数|拾った行
 skip_probe() {
-    ( SKIPS=(); fail=0; ran=0; FAIL_ON_SKIP=$1
-      expect_output 0 "終わり" "見送りの拾い手の腕" printf '  ok   甲 # SKIP 理由\n  ok   乙\nx  ok   丙 # SKIP 理由\n  ok   丁 # SKIP\n終わり\n' >/dev/null
-      report_skips >/dev/null
-      printf '|n=%s|fail=%s|%s' "${#SKIPS[@]}" "$fail" "${SKIPS[*]}" )
+    ( SKIPS=(); fail=0; ran=0; FAIL_ON_SKIP=$1; SKIP_ALLOW=$2
+      expect_output 0 "終わり" "見送りの拾い手の腕" printf '%s終わり\n' "$3" >/dev/null
+      report_skips > "$WORK/skip-probe.out"
+      rep=$(cat "$WORK/skip-probe.out")
+      denied=0
+      [[ "$rep" =~ 失敗に数えた:\ ([0-9]+)\ 件 ]] && denied=${BASH_REMATCH[1]}
+      marked=$(grep -c "（SKIP_ALLOW で許した）" "$WORK/skip-probe.out")
+      printf '|n=%s|fail=%s|denied=%s|allowed=%s|%s' "${#SKIPS[@]}" "$fail" "$denied" "$marked" "${SKIPS[*]}" )
 }
-skip_off=$(skip_probe ""); skip_on=$(skip_probe 1)
+skip_in=$'  ok   甲 # SKIP 理由\n  ok   乙\nx  ok   丙 # SKIP fifo: 理由\n  ok   丁 # SKIP\n  ok   戊 # SKIP fifo: 理由\n  ok   己 # SKIP sh: 理由\n  ok   庚 # SKIP Fifo: 理由\n  ok   辛 # SKIP symlink: 理由\n'
+skip_all="甲 # SKIP 理由 丁 # SKIP 戊 # SKIP fifo: 理由 己 # SKIP sh: 理由 庚 # SKIP Fifo: 理由 辛 # SKIP symlink: 理由"
+skip_off=$(skip_probe "" "" "$skip_in")                 # 既定: 一覧に出すだけ
+skip_on=$(skip_probe 1 "" "$skip_in")                   # 一覧が空: 全部を失敗に数える
+skip_part=$(skip_probe 1 "fifo, sh,Fifo" "$skip_in")    # 許した名前だけ除く。名前無し・形でない名前（一覧に在っても Fifo）・一覧に無い名前は失敗
+skip_off_allow=$(skip_probe "" "fifo,sh" "$skip_in")    # 一覧だけ渡しても FAIL_ON_SKIP が無ければ失敗にしない
+skip_ok=$(skip_probe 1 "sh fifo" $'  ok   戊 # SKIP fifo: 理由\n  ok   己 # SKIP sh: 理由\n')   # 全部許せば緑
 ran=$((ran + 1))
-if [ "$skip_off" = "|n=2|fail=0|甲 # SKIP 理由 丁 # SKIP" ] && [ "$skip_on" = "|n=2|fail=1|甲 # SKIP 理由 丁 # SKIP" ]; then
-    echo "  ok   見送りの行は行頭の印で拾われ、既定では失敗にせず、FAIL_ON_SKIP=1 のときだけ失敗に数える"
+if [ "$skip_off" = "|n=6|fail=0|denied=0|allowed=0|$skip_all" ] && [ "$skip_on" = "|n=6|fail=1|denied=6|allowed=0|$skip_all" ] \
+    && [ "$skip_part" = "|n=6|fail=1|denied=4|allowed=2|$skip_all" ] && [ "$skip_off_allow" = "|n=6|fail=0|denied=0|allowed=2|$skip_all" ] \
+    && [ "$skip_ok" = "|n=2|fail=0|denied=0|allowed=2|戊 # SKIP fifo: 理由 己 # SKIP sh: 理由" ]; then
+    echo "  ok   見送りの行は行頭の印で拾われ、既定では失敗にせず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送りだけを失敗に数える"
 else
-    echo "  FAIL 見送りの拾い手が期待と違う: 既定 $skip_off / FAIL_ON_SKIP=1 $skip_on"
+    echo "  FAIL 見送りの拾い手が期待と違う: 既定 $skip_off / 一覧が空 $skip_on / 一部許す $skip_part / 一覧だけ $skip_off_allow / 全部許す $skip_ok"
     fail=1
 fi
-# Python の台本の見送りの行（graphloops/tests/parallel.py の skip_line）が、ここの拾い手の印に当たる——片方だけ変えると
-# 見送りが一覧から黙って消え、合格に化ける
-skip_py=$( SKIPS=(); note_skips "$(PYTHONIOENCODING=utf-8 "$PY_BIN" -c 'import sys; sys.path.insert(0, sys.argv[1]); import parallel; print(parallel.skip_line("検査", "理由"))' "$ROOT/graphloops/tests" 2>&1)"
-           printf '|n=%s|%s' "${#SKIPS[@]}" "${SKIPS[*]}" )
+# Python の台本の見送りの行（graphloops/tests/parallel.py の skip_line）が、ここの拾い手の印と能力の名前の形に当たる——片方だけ
+# 変えると、見送りが一覧から黙って消えて合格に化けるか、名前が読めずに許しの一覧が効かなくなる
+skip_py=$( SKIPS=(); note_skips "$(PYTHONIOENCODING=utf-8 "$PY_BIN" -c 'import sys; sys.path.insert(0, sys.argv[1]); import parallel; print(parallel.skip_line("検査", "fifo", "理由"))' "$ROOT/graphloops/tests" 2>&1)"
+           printf '|n=%s|%s|cap=%s' "${#SKIPS[@]}" "${SKIPS[*]}" "$(skip_capability "${SKIPS[0]:-}")" )
 ran=$((ran + 1))
-if [ "$skip_py" = "|n=1|検査 # SKIP 理由" ]; then
-    echo "  ok   Python の台本の見送りの行（parallel.skip_line）を、root の拾い手が 1 件として拾う"
+if [ "$skip_py" = "|n=1|検査 # SKIP fifo: 理由|cap=fifo" ]; then
+    echo "  ok   Python の台本の見送りの行（parallel.skip_line）を、root の拾い手が 1 件として拾い、能力の名前を読む"
 else
-    echo "  FAIL Python の台本の見送りの行を root の拾い手が拾えない: $skip_py"
+    echo "  FAIL Python の台本の見送りの行を root の拾い手が拾えないか、能力の名前が読めない: $skip_py"
     fail=1
 fi
 
@@ -1867,10 +1903,8 @@ for f in [root/"REVIEW.md", root/"README.md", *(root/"commands").glob("*.md"), *
 # 道具の語はルートの宣言（.review-checks.json の suite と mutation。ruff の banned-api と同じく禁止の正本を設定に置く）から、
 # 引数は宣言が名指す実行器自身の --help から、件数の柵は定数の接頭辞で、道具のパスは tests/ の成分と、その下に在るファイルの名前で当てる。
 # 宣言に無い道具（graphloops/README の手で回す変異の道具）だけ手で持つ。
-# 境界は ASCII で切る——`\w` は日本語も語に数えるので、『は--reuse』のように和文に接した綴りを見逃す。名前と引数をつないだ
-# 綴り（名前の直後の --）も拾う——1 つの - でつないだ語（pre-commit）は別の語として外す。
+# 境界は ASCII で切る——`\w` は日本語も語に数えるので、『は--reuse』のように和文に接した綴りを見逃す。
 def derive(decl):
-    """宣言の語: argv のうちパスの形の語（/ か拡張子を持つ）・-m の後のモジュール・--with の後のパッケージと、腕の一覧のパス"""
     argvs = [s["argv"] for s in decl["suite"]] + ([decl["mutation"]["argv"]] if "mutation" in decl else [])
     paths, mods = set(), set()
     for argv in argvs:
@@ -1879,7 +1913,7 @@ def derive(decl):
                 mods.add(a)
             elif prev == "--with":
                 mods.add(re.split(r"[=<>!~\[]", a, maxsplit=1)[0])
-            elif "/" in a or re.search(r"\.[a-z]{1,4}$", a):
+            elif "/" in a or re.search(r"\.[A-Za-z]{1,4}$", a):
                 paths.add(a)
     if "mutation" in decl:
         paths.add(decl["mutation"]["arms"])
@@ -1893,25 +1927,29 @@ probe_paths, probe_mods = derive({"suite": [{"argv": ["bash", "scripts/check.sh"
                                   "mutation": {"argv": ["runner"], "arms": "conf/arms.json"}})
 assert probe_paths == {"scripts/check.sh", "conf/arms.json"} and probe_mods == {"gl-probe", "gl_mod"}, \
     f"宣言から語を導く道が壊れた（{probe_paths}・{probe_mods}）"
+assert derive({"suite": [{"argv": ["bash", "Check.SH"]}]})[0] == {"Check.SH"}, "宣言の語の拡張子を大小を畳まずに見ている"
 margv = decl["mutation"]["argv"]
 runner = [sys.executable if re.fullmatch(r"python3?(\.exe)?", margv[0]) else margv[0], *margv[1:]]
 helptext = subprocess.run([*runner, "--help"], cwd=root, capture_output=True, text=True, encoding="utf-8").stdout
 flags = sorted(set(re.findall(r"--[a-z][a-z0-9-]*", helptext)) - {"--help"})
 assert len(flags) >= 5, f"実行器の --help から引数が取れない（{flags}）——走査が空回りする"
 names = sorted({f.name for d in [root/"tests", *root.glob("*/tests")] for f in d.iterdir()
-                if f.is_file() and f.suffix in (".py", ".sh", ".json")})
+                if f.is_file() and f.suffix.lower() in (".py", ".sh", ".json")})
 assert "mutate.py" in names, f"テストの置き場のファイルの名前が取れない（{names}）——走査が空回りする"
 A = r"A-Za-z0-9_"
 END = rf"(?![{A}]|-(?!-))"   # 語の終わり: 英数字が続かず、1 つの - でつないだ語でもない（-- でつないだ引数は拾う）
+# パス・ファイル名・モジュール名は大小を畳んで当てる（大小を区別しないファイルシステムでは Tests/Run.SH も同じ道具。
+# パッケージ名も正規化で小文字に畳む——PEP 503）。大小に意味のある定数の接頭辞と実行器の旗は区別したまま
 tool = re.compile(
-    rf"(?<![{A}./-])(?:[{A}.-]+/)*tests/[{A}./-]*"
-    rf"|(?<![{A}])(?:EXPECTED|VOCAB)_[A-Z_]*"
+    rf"(?i:(?<![{A}./-])(?:[{A}.-]+/)*tests/[{A}./-]*"
     rf"|(?<![{A}])mutmut(?![{A}])"
     + "".join(rf"|(?<![{A}]){re.escape(m)}(?![{A}])" for m in sorted(decl_mods))
     + "".join(rf"|(?<![{A}./-]){re.escape(p)}{END}" for p in sorted(decl_paths))
-    + "".join(rf"|(?<![{A}-]){re.escape(f)}(?![{A}-])" for f in flags)
-    + "".join(rf"|(?<![{A}./-]){re.escape(n)}{END}" for n in names))
-for probe in ("は mutate.py--reuse で撃つ", "は--reuse で", "python -m pytest で回す", "腕は mutations.json に", "tests/run.sh を"):
+    + "".join(rf"|(?<![{A}./-]){re.escape(n)}{END}" for n in names)
+    + rf")|(?<![{A}])(?:EXPECTED|VOCAB)_[A-Z_]*"
+    + "".join(rf"|(?<![{A}-]){re.escape(f)}(?![{A}-])" for f in flags))
+for probe in ("は mutate.py--reuse で撃つ", "は--reuse で", "python -m pytest で回す", "腕は mutations.json に", "tests/run.sh を",
+              "は MUTATE.PY で撃つ", "Tests/Run.sh を", "Mutmut で"):
     assert tool.search(probe), f"柵が {probe!r} を拾わない——境界か導く元が壊れた"
 for probe in ("pre-commit の hook", "x-mutate.py-y", "a-reuse"):
     assert not tool.search(probe), f"柵が道具名でない {probe!r} を拾う（{tool.search(probe).group(0)}）"
@@ -1952,7 +1990,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=587
+EXPECTED_CHECKS=589
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3015,7 +3053,7 @@ if os.name == "posix":
     mode = stat.S_IMODE(os.stat(m.group(1)).st_mode)
     assert mode == 0o600, f"一時ファイルが {oct(mode)}（/tmp では他の利用者が読める）"
 else:
-    print("  ok   outfile の一時ファイルは 0600 # SKIP posix でない OS はファイルの mode を持たない")
+    print("  ok   outfile の一時ファイルは 0600 # SKIP posix-mode: posix でない OS はファイルの mode を持たない")
 assert "節（Read の offset）: 2 節" in out, out
 os.unlink(m.group(1))
 print("OUT_FLAG_OK")
@@ -3059,7 +3097,7 @@ if command -v shellcheck >/dev/null 2>&1; then
         fail=1
     fi
 else
-    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck が手元に無い（CI の ubuntu の段が回し、下の CI_LINT_OK がその設定を見る）"
+    sc_skip="  ok   リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck: shellcheck が手元に無い（CI は 3 OS とも入れる。下の CI_LINT_OK がその設定を見る）"
     echo "$sc_skip"
     note_skips "$sc_skip"
 fi
@@ -3068,7 +3106,7 @@ ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -3078,10 +3116,38 @@ wf = pathlib.Path(sys.argv[1]) / ".github" / "workflows" / "test.yml"
 txt = wf.read_text(encoding="utf-8")
 # **語が在るかでなく、回す段が在るかを見る。** 語だけを見ていたとき、段を消しても**注記に残った同じ語**で
 # 柵が通った（実測 2026-09-21: 腕 f5 が緑のまま素通りした）。実際に走る行（run:）だけを対象にする
+import re
 runs = [l.split("run:", 1)[1] for l in txt.splitlines() if l.strip().startswith("run:")]
-hits = [r for r in runs if "shellcheck" in r]
+# 道具そのものを起こす run: だけを数える（入れる段の shellcheck-py は語が続くので当たらない）
+hits = [r for r in runs if re.search(r"(^|[\s|;&])shellcheck(\s|$)", r)]
 assert hits, f"{wf}: shellcheck を実際に回す run: の段が無い（注記に語が在るだけでは通さない）"
 assert all("-S warning" in r for r in hits), f"{wf}: shellcheck の深さ（-S warning）が手元の検査と揃っていない: {hits}"
+# 段ごとに切って、注記の行を除いた中身だけを見る——env: と if: は run: の行でないので、全文の部分一致だと注記の語で通る
+steps, head = [], []
+for l in txt.splitlines():
+    t = l.strip()
+    if not t or t.startswith("#"):
+        continue
+    if t.startswith("- name:") or t.startswith("- uses:"):
+        steps.append([t])
+    elif steps:
+        steps[-1].append(t)
+    else:
+        head.append(t)
+def step(name):
+    got = [s for s in steps if s[0] == f"- name: {name}"]
+    assert len(got) == 1, f"{wf}: 段 {name} がちょうど 1 つでない（{len(got)} 個）"
+    return got[0]
+# **見送り自体を無くす道具は 3 OS に同じ版で入れる。** OS の条件（if:）を付けると、条件から外れた OS で tests/run.sh の中の
+# shellcheck が見送りになり、SKIP_ALLOW に無い名前なので赤になる——黙って緑には戻らないが、原因が遠い
+inst = [s for s in steps if any(re.fullmatch(r"run: python -m pip install shellcheck-py==[0-9][0-9.]*", x) for x in s)]
+assert inst, f"{wf}: shellcheck を版を固定して入れる段（run: python -m pip install shellcheck-py==<版>）が無い"
+assert not any(x.startswith("if:") for s in inst for x in s), f"{wf}: shellcheck を入れる段に OS の条件（if:）が付いている: {inst}"
+rs = step("tests/run.sh")
+want = ["- name: tests/run.sh", "shell: bash", "env:", 'FAIL_ON_SKIP: "1"', "SKIP_ALLOW: ${{ matrix.skip_allow }}", "run: bash tests/run.sh"]
+assert rs == want, (f"{wf}: tests/run.sh の段が、見送りを失敗に数えて OS ごとの許しの一覧を渡す形（{want}）と違う——"
+                    f"env の値・run: の頭の代入・shell:・if:・continue-on-error: のどれでも見送りが黙って緑になる: {rs}")
+assert not any(x.startswith(("if:", "continue-on-error:")) for x in head), f"{wf}: ジョブ全体に if: か continue-on-error: が在る（見送りの失敗ごと外れる）: {head}"
 # **engine が走らせる宣言は CI の段の写し**（手元は pytest を uv で入れ、CI は pip で入れるので語は揃わない）。名前だけ突き合わせる
 # ——宣言に在って CI に無い段は、CI が回していない物を engine だけが回している。逆向き（CI の段を宣言が持たない）は許す:
 # shellcheck は CI だけが段として回し、手元では tests/run.sh が在れば回す任意の道具
@@ -3415,7 +3481,7 @@ for _s in (sys.stdout, sys.stderr):
 sys.path.insert(0, sys.argv[1])
 import mutate
 src = "def f(x, y, errs):\n    if x > 1 and y:\n        raise ValueError('x')\n    errs.append(x)\n    errs += [1]\n    z = 1 if x else 2\n    if x: raise KeyError\n    w = x or y\n"
-arms = mutate.auto_arms_for("graphloops/engine/x.py", src, {2, 3, 4, 5, 6, 7, 8})
+arms = mutate.auto_arms_for("graphloops/engine/x.py", src, {2, 3, 4, 5, 6, 7, 8}, every=True)   # 畳む前の全部の節（畳みは mut-narrow）
 # graphloops/tests/ でない graphloops 配下の相対パスなら suite は graphloops のはず（graphloops/tests/run.sh を撃つ側）
 assert all(a["suite"] == "graphloops" for a in arms), "graphloops 配下の相対パスから作った腕の suite が graphloops になっていない"
 # or/and の項は種類のラベルだけでなく、置く値（and は True・or は False）も種類ごとに正しいはず
@@ -3444,6 +3510,165 @@ print("kinds=" + ",".join(kinds), f"compiled={ok}/{len(arms)}", f"outer_first={o
 PYAUTO
 expect_output 0 "kinds=and,cond,ifexp,or,stmt compiled=11/11 outer_first=True unmarked=7:10:stmt anchor='' scratch=True and_new=['True'] or_new=['False']" "--auto: 条件・and/or の項・条件式・文から腕を作り、変異も印の包みも構文を壊さず、同じ位置では外側の式の印が外に来る（行の途中の文には印を差さない）。graphloops 配下の相対パスは suite も graphloops。撃つ段の作業場も id から作れる" \
     "$PY_BIN" "$WORK/mut-auto.py" "$ROOT/tests"
+# 印の帰属: 印の行を『どの台本が通したか』に帰属させる書式は graphloops/tests/parallel.py が正本で、tests/mutate.py が読む。
+# 同じプロセスの中はスレッドの名前、子のプロセスは作業場の名前の印（印の写しの回だけ挟む）。どちらも無い印は帰属できない（?）
+cat > "$WORK/mut-owner.py" <<'PYOWN'
+import os, pathlib, subprocess, sys, tempfile, threading
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, sys.argv[2])
+import mutate, parallel
+assert (parallel.TEST_THREAD, parallel.TAG) == (mutate.OWNER_THREAD, "GLT~"), "parallel.py と mutate.py の印の書式が揃っていない"
+d = pathlib.Path(tempfile.mkdtemp())
+hits = d / "hits.txt"
+src = "def f(x):\n    if x:\n        return 1\n    return 0\n"
+arm = mutate.auto_arms_for("graphloops/engine/x.py", src, {2})[0]
+t = src
+for pos, _, _, s in sorted(mutate.auto_marker(src, arm, hits), key=lambda x: (-x[0], x[1], x[2])):
+    t = t[:pos] + s + t[pos:]
+(d / "m.py").write_text(t + "import sys\nf(1)\n", encoding="utf-8")
+seen = {}
+
+
+def in_thread():
+    exec(compile(t, "m", "exec"), g := {})
+    g["f"](1)
+
+
+# 1) 台本のスレッド（parallel.run_all が名前を付ける）の中で通った印は、その台本に帰属する。作業場の名前の印は GL_MARK_OWNERS の回だけ
+def test_probe():
+    in_thread()
+    _td, ws = parallel.workspace("gl-probe-")
+    seen["ws_plain"] = "GLT~" in ws.name
+    os.environ["GL_MARK_OWNERS"] = "1"
+    try:
+        _td2, ws2 = parallel.workspace("gl-probe-")
+        seen["ws"] = ws2
+        # 2) 子のプロセスは作業場を cwd に起こせば帰属する（呼び元は何も渡さない）
+        subprocess.run([sys.executable, str(d / "m.py")], cwd=ws2, check=True)
+    finally:
+        del os.environ["GL_MARK_OWNERS"]
+
+
+test_probe.__code__ = test_probe.__code__.replace(co_filename=str(d / "simulate.py"))
+parallel.run_all([test_probe])
+# 3) 作業場の外の子・台本の外のスレッドは帰属できない
+subprocess.run([sys.executable, str(d / "m.py")], cwd=d, check=True)
+th = threading.Thread(target=in_thread)
+th.start(); th.join()
+ids, cover = mutate.read_hits(hits)
+(d / "red.py").write_text("print('  FAIL red-for-test')\nraise SystemExit(1)\n", encoding="utf-8")
+(d / "late.py").write_text(f"import pathlib\npathlib.Path({str(d / 'late-ran')!r}).touch()\n", encoding="utf-8")
+ff = mutate.run_selected(d, {"red.py": ["t"], "late.py": ["t"]}, failfast=True)
+ff_stops = ff["rc"] != 0 and not (d / "late-ran").exists()
+# 結果は 1 行に書く: Windows では下の見送りの行が間に入り、2 行に割った期待が続きの行として当たらなかった（実測 2026-09-26: windows-latest）
+head = (f"ids={ids == [arm['id']]} cover={cover.get(arm['id'])} ws_plain={seen['ws_plain']} tagged={'GLT~simulate.py~test_probe~' in seen['ws'].name}"
+        f" name_back={threading.current_thread().name == 'MainThread'}"
+        # スレッドの名前だけで帰属する（作業場の印の無い cwd でも）——上の台本の印は子の作業場の印でも帰属するので、別に見る
+        f" by_thread={mutate.owner_of(mutate.OWNER_THREAD + 'a.py~t', str(d)) == 'a.py~t'} ff_stops={ff_stops}")
+# 止める信号の後の run_group は、起こした最中に止められた子も・その後に起こす子も『stopped』で返し、赤（Killed）と読ませない
+if os.name == "posix":
+    import time
+    rdy, got = d / "ready", {}
+    th = threading.Thread(target=lambda: got.update(r=mutate.run_group(
+        [sys.executable, "-c", f"import pathlib, time; pathlib.Path({str(rdy)!r}).touch(); time.sleep(600)"], cwd=d)))
+    th.start()
+    while th.is_alive() and not rdy.exists():
+        time.sleep(0.05)
+    mutate.STOPPING.set()
+    mutate.stop_groups()
+    th.join()
+    t0 = time.monotonic()
+    after = mutate.run_group([sys.executable, "-c", "import time; time.sleep(600)"], cwd=d)
+    after = (after, time.monotonic() - t0 < 300)
+    try:
+        mutate.run_selected(d, {"x.py": ["t"]})
+        raised = False
+    except mutate.Stopped:
+        raised = True
+    # 止める信号の後に取り出された腕は、写しを作らずに Stopped で抜ける
+    try:
+        mutate.one({"id": "x", "title": "検査用", "file": "tests/run.sh", "suite": "root"})
+        one_stopped = False
+    except mutate.Stopped:
+        one_stopped = True
+    print(f"{head} stop={got.get('r')} after={after} raised={raised} one_stopped={one_stopped}")
+else:
+    print("  ok   run_group の止める信号 # SKIP process-group: posix のプロセスグループ（killpg）に頼る")
+    print(f"{head} stop=('stopped', '') after=(('stopped', ''), True) raised=True one_stopped=True")
+PYOWN
+expect_output 0 "ids=True cover=['?', 'simulate.py~test_probe'] ws_plain=False tagged=True name_back=True by_thread=True ff_stops=True stop=('stopped', '') after=(('stopped', ''), True) raised=True one_stopped=True" "印の帰属: 台本のスレッドの中の印と、印の写しの回に台本の作業場で起こした子の印はその台本に、台本の外のスレッド・作業場の外の子の印は ? に帰属する（普段の回は作業場の名前を変えない）。止める信号の後の run_group は stopped を返し、腕は Stopped で抜ける" \
+    "$PY_BIN" "$WORK/mut-owner.py" "$ROOT/tests" "$ROOT/graphloops/tests"
+# Google 型の絞り（1 行 1 本・効かない行）と、行を通した台本だけで撃つ・一式での確かめ直しは --confirm-survivors の回だけ・赤の出どころ
+cat > "$WORK/mut-narrow.py" <<'PYNAR'
+import pathlib, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+src = ("import logging, time\nX = 1 if time else 2\n\n\ndef f(a, b, log):\n    if a and b:\n        raise ValueError('x')\n"
+       "    logging.info('hi')\n    time.sleep(0)\n    log.debug('d')\n    if a: raise KeyError\n    print('kept')\n")
+lines = set(range(1, 13))
+pruned = []
+arms = mutate.auto_arms_for("graphloops/engine/x.py", src, lines, pruned=pruned)
+every = mutate.auto_arms_for("graphloops/engine/x.py", src, lines, every=True)
+per_line = {}
+for x in arms:
+    per_line[x["id"].split(":")[2]] = per_line.get(x["id"].split(":")[2], 0) + 1
+kinds6 = [x["title"].split(":")[0] for x in arms if x["id"].split(":")[2] == "6"]
+why = sorted({p["reason"].split("（")[0] for p in pruned})
+arid = sorted(p["title"].split(": ")[1].split("(")[0] for p in pruned if p["reason"].startswith("効かない"))
+infn = {x["id"].split(":")[2]: x["auto"]["in_function"] for x in arms}
+print(f"one_per_line={max(per_line.values()) == 1} line6={kinds6} every={len(every)}>{len(arms)} pruned={len(pruned)}=={len(every) - len(arms)}"
+      f" why={why} arid={arid} module_line={infn['2']} fn_line={infn['6']}")
+
+# one の撃ち分け: 台本の走らせ方を差し替え、どちらが呼ばれたかを見る
+d = pathlib.Path(tempfile.mkdtemp())
+(d / "repo").mkdir()
+calls = []
+mutate.copy = lambda tag: (d / "repo", d)
+mutate.mutate = lambda repo, a: None
+state = {"sel": 0, "full": 1}
+mutate.run_selected = lambda repo, tests, failfast=False: calls.append(("sel", tests, failfast)) or {"rc": state["sel"], "failed": ["F sel"] if state["sel"] else [], "tail": [], "selected": True}
+mutate.run_suite = lambda repo, suite, failfast=False, env=None: calls.append(("full", suite, failfast)) or {"rc": state["full"], "failed": ["F full"] if state["full"] else [], "tail": []}
+base = {"id": "auto:graphloops/engine/x.py:6:7:cond", "title": "cond: a", "file": "graphloops/engine/x.py", "suite": "graphloops",
+        "auto": {"start": 0, "end": 0, "new": "False", "stmt": False, "in_function": True}}
+out = []
+def shot(cover, in_fn=True, confirm=False, sel=0, full=1):
+    calls.clear(); mutate.CONFIRM = confirm; state.update(sel=sel, full=full)
+    a = {**base, "cover": cover, "auto": {**base["auto"], "in_function": in_fn}}
+    r = mutate.one(a)
+    return [c[0] for c in calls], r
+c, r = shot(["simulate_review.py~test_b", "simulate.py~test_a"])
+out.append(f"narrow={c} tests={calls[0][1]} failfast={calls[0][2]} status={r['status']} selected={r.get('selected')}")
+c, r = shot(["simulate.py~test_a", "?"])
+out.append(f"unknown={c}")
+c, r = shot(["simulate.py~test_a"], in_fn=False)
+out.append(f"module={c}")
+c, r = shot(["other.py~test_z"])
+out.append(f"outside={c}")
+c, r = shot(["simulate.py~test_a"], confirm=True)
+out.append(f"confirm={c} {r['status']} {r.get('attribution')}")
+c, r = shot(["simulate.py~test_a"], sel=1)
+out.append(f"red_narrow={c} {r.get('attribution')}")
+c, r = shot(["?"])
+out.append(f"red_full={r.get('attribution')}")
+# 証拠は帰属で外さない（unrelated も印が現れていれば証拠）。記録には一覧で見える
+res = {"marker": {"placed": ["u1", "g1"], "seen": ["u1", "g1"], "rc": 0}, "control": {"root": {"rc": 0}}, "pruned": [{"id": "p1"}],
+       "arms": [{"id": "u1", "title": "u", "status": "Killed", "own": False, "attribution": "unrelated"},
+                {"id": "g1", "title": "g", "status": "Survived", "own": False, "selected": True}]}
+s = mutate.evaluate(res, [{"id": "u1"}, {"id": "g1"}])
+g = mutate.gate_efficacy({**res, "summary": s})
+out.append(f"evidence={bool(res['arms'][0]['evidence'])} unrelated={s['unrelated']} narrowed_green={s['narrowed_green']} pruned={s['pruned']}"
+           f" note={'確かめていない' in g['arms'][1].get('note', '')} material={'pruned' in g['material'].get('detail', '')}")
+print(" ".join(out))
+PYNAR
+expect_output 0 "one_per_line=True line6=['cond'] every=11>5 pruned=6==6 why=['1 行 1 本', '効かない行'] arid=['log.debug', 'logging.info', 'time.sleep'] module_line=False fn_line=True
+narrow=['sel'] tests={'graphloops/tests/simulate.py': ['test_a'], 'graphloops/tests/simulate_review.py': ['test_b']} failfast=True status=Survived selected=True unknown=['full'] module=['full'] outside=['full'] confirm=['sel', 'full'] Killed unrelated red_narrow=['sel'] narrowed red_full=unattributed evidence=True unrelated=['u1'] narrowed_green=['g1'] pruned=1 note=True material=True" "Google 型の絞り: 自動の腕は 1 行 1 本（cond を残す）・効かない行（ログ・待ち）は作らず pruned に理由つき（--every-node 相当で全部）。行を通した台本が全部分かる関数の中の行だけ、その台本で撃つ（? ・import の時の行・一覧の外の台本は一式）。一式の確かめ直しは --confirm-survivors の回だけで、赤の出どころは記録に残り証拠は外さない。--gate-efficacy は一式で確かめていない緑と pruned を言う" \
+    "$PY_BIN" "$WORK/mut-narrow.py" "$ROOT/tests"
 # 腕の写しは版に入るファイルだけで、写しの腕の一覧は空（写しの --check が壊した字列で赤になり、生き残りを Killed と書かない）
 cat > "$WORK/mut-copy.py" <<'PYCOPY'
 import json, pathlib, subprocess, sys, tempfile
@@ -3462,7 +3687,7 @@ src = pathlib.Path(tempfile.mkdtemp()) / "src"
 subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)
 mutate.ROOT = src
 seen = {}
-def fake_suite(repo, suite):
+def fake_suite(repo, suite, **_kw):
     seen["arms"] = json.loads((repo / "tests" / "mutations.json").read_text(encoding="utf-8"))["arms"]
     seen["git"] = (repo / ".git").is_dir() and not (repo / "ignored.txt").exists()
     return {"rc": 1, "failed": ["x"], "tail": []}
@@ -3594,7 +3819,7 @@ sys.path.insert(0, sys.argv[1])
 import mutate
 
 if os.name != "posix":
-    print("  ok   run_group の腕 # SKIP この腕の時間切れと failfast の止め方は posix のプロセスグループ（killpg）で組んである（Windows の taskkill /T の経路は実機で確かめていない）")
+    print("  ok   run_group の腕 # SKIP process-group: この腕の時間切れと failfast の止め方は posix のプロセスグループ（killpg）で組んである（Windows の taskkill /T の経路は実機で確かめていない）")
     print("RUNGROUP_OK")
     sys.exit(0)
 
@@ -3875,7 +4100,7 @@ loud_cond = find("calc.py", "cond: n > 100")
 dead_cond = find("calc.py", "cond: n == 42")
 extra_cond = find("extra.py", "cond: n is None")
 extra_stmt = find("extra.py", "stmt: raise ValueError")
-seven_stmt = find("calc.py", "stmt: raise ValueError(\"seven\")")
+seven_cond = find("calc.py", "cond: n == 7")
 
 assert r.returncode == 1, f"生存・未到達を含む撃ちの exit は 1 のはずが {r.returncode}"
 assert norm1["status"] == "Killed" and norm1["own"], f"norm1 は Killed・own のはずが: {norm1['status']}, own={norm1.get('own')}"
@@ -3888,25 +4113,31 @@ assert extra_cond["status"] == "Killed", f"extra の cond は Killed のはず�
 assert extra_stmt["status"] == "Killed", f"extra の raise は Killed のはずが: {extra_stmt['status']}"
 assert loud_cond["status"] == "Survived", f"loud_but_uncaught の cond は Survived のはずが: {loud_cond['status']}"
 assert dead_cond["status"] == "NoCoverage", f"dead_code の cond は NoCoverage のはずが: {dead_cond['status']}"
-# 行の途中から始まる文（if x: raise …）には印を差せない——印が無いのは『通らない』ではないので撃つ
-assert seven_stmt["status"] == "Killed" and seven_stmt["rc"] is not None, f"印の無い行途中の文も撃つはずが: {seven_stmt['status']} rc={seven_stmt['rc']!r}"
+# 1 行 1 本（Google 型）: 同じ行の条件と文（if n == 7: raise …）は条件だけを撃ち、文は撃たずに pruned に理由つきで残る
+assert seven_cond["status"] == "Killed", f"同じ行の条件の腕は撃つはずが: {seven_cond['status']}"
+pr = {x["title"]: x["reason"] for x in res.get("pruned") or []}
+assert pr.get("stmt: raise ValueError(\"seven\")", "").startswith("1 行 1 本"), f"同じ行の 2 本目の腕が pruned に理由つきで残っていない: {pr}"
 assert not any(t.startswith("stmt: \"\"\"") for (_, t) in by_title), f"docstring（裸の式の文）が腕になった: {list(by_title)}"
 assert dead_cond["rc"] is None, f"到達しない腕は撃たずに済ませるはずが rc={dead_cond['rc']!r}（一度動かしてしまった）"
 assert "撃たずに生き残り" in " ".join(dead_cond["tail"]), f"未到達の理由が tail に無い: {dead_cond['tail']}"
 assert len(guard_cond["killedBy"]) == 1, f"failfast で最初の FAIL だけのはずが: {guard_cond['killedBy']}"
 assert guard_cond["killedBy"] == ["guard(-1) は例外"], f"failfast が止めた場所が違う: {guard_cond['killedBy']}"
 # 印の写しが実物の結果（5 本通った・6 本差した）を持つこと——素通りの既定値（0/0）にすり替わっていないか
-assert "自動の腕: 印の写しで通った 7 本を撃つ・通らない 1 本は撃たない" in r.stdout, f"自動の腕の通過数の行が無いか数が違う: {r.stdout}"
+assert "印の写しで通った 6 本を撃つ" in r.stdout and "通らない 1 本は撃たない" in r.stdout, f"自動の腕の通過数の行が無いか数が違う: {r.stdout}"
 assert "印: 7 / 8 本が通った" in r.stdout, f"印の写しの通過数（seen/placed。norm2 の通常 marker も数えるはず）が出ていないか違う: {r.stdout}"
 
-# --files/--only を付けずに --auto だけで撃つと、一覧の腕（全部）と自動の腕の和を 1 回で撃つ（次の周の頭のゲートの実効性の撃ち方）
+# --files/--only を付けずに --auto だけで撃つと、一覧の腕（全部）と自動の腕の和を 1 回で撃つ（次の周の頭のゲートの実効性の撃ち方）。
+# --every-node なら 1 行 1 本に畳まない（Google 型に絞る前の撃ち方）
 r_out2 = mini / "r2.json"
-r2 = run_mutate("-j", "2", "--auto", BASE, out=r_out2)
+r2 = run_mutate("-j", "2", "--auto", BASE, "--every-node", out=r_out2)
 assert "撃つ腕が 0 本" not in r2.stderr, f"autos が非 0 なのに 0 本判定に止められた: {r2.stderr!r}"
 res2 = json.loads(r_out2.read_text(encoding="utf-8"))
 ids2 = {a["id"] for a in res2["arms"]}
 assert {"norm1", "norm2"} <= ids2, f"--auto だけの回に、一覧の腕が入っていない: {ids2}"
-assert len(ids2) == 10, f"--auto だけの回は 10 本（一覧 2・自動の発火 7・未到達 1）のはずが: {ids2}"
+assert len(ids2) == 10 and not res2.get("pruned"), f"--every-node の回は畳まずに 10 本（一覧 2・自動の発火 7・未到達 1）のはずが: {ids2}"
+# 行の途中から始まる文（if x: raise …）には印を差せない——印が無いのは『通らない』ではないので撃つ
+seven_stmt = next(a for a in res2["arms"] if a["title"] == "stmt: raise ValueError(\"seven\")")
+assert seven_stmt["status"] == "Killed" and seven_stmt["rc"] is not None, f"印の無い行途中の文も撃つはずが: {seven_stmt['status']} rc={seven_stmt['rc']!r}"
 
 # 絞りに当たる一覧の腕が 0 本でも、自動の腕が在れば撃つ（0 本の判定は和の後の 1 か所）——一覧に腕の無いファイルだけを
 # 直した周に、自動の腕が撃たれずに抜けていた
@@ -3938,32 +4169,43 @@ part_out.write_text(json.dumps(part, ensure_ascii=False), encoding="utf-8")
 r = run_mutate("--only", "norm1,norm2", "--reuse", str(part_out), out=mini / "cont.json")
 assert r.returncode == 0 and "撃つ腕 1 本" in r.stdout and "持ち越し 1 本" in r.stdout, \
     f"pending を持つ結果から続きを撃つはずが: exit {r.returncode} {r.stdout}"
-# **撃つ途中で期限が来る**: 期限の手前（TIMEOUT＋TAIL 秒前）を過ぎたら、まだ始まっていない腕を取り消して pending にし、走っている腕は
-# 待って結果に入れる。-j 1 で [速い腕・止めておく腕・速い腕] を撃つ。止めておく腕は始まったら印を置き、解放のファイルが在るまで
-# 待つ——台本は切り替わりの時刻を過ぎてから解放するので、切り替わりは必ずその腕の最中に来る（眠る秒数と切り替わりの秒数の
-# 競りにしない。以前は 12 秒眠らせて 8 秒後に切り替えていて、負荷の下で速い腕まで間に合わずに赤くなった）。
-# 選んだ腕は、撃った腕か pending のどちらかにちょうど 1 度ずつ載る（取り消した腕を結果として読む・撃った腕を 2 度載せる・
-# 走っていた腕を落とす、のどれでも崩れる）
+# **撃つ途中で期限が来る**: 期限を過ぎた後に始まる腕は撃たずに pending に、走っている腕は待って結果に入れる。-j 1 で
+# [速い腕・止めておく腕・速い腕] を撃つ。**切り替わりは時計でなく印のファイルで起こす**——mutate.py の期限の判定は時刻の口 now の
+# 1 本で、包み（clock.py）がそれを『切り替えのファイルが在れば 1 年先』に差し替える。台本は、止めておく腕が始まった印（held）を
+# 見てから切り替え、それから解放する。-j 1 なので、それまでに control・印の写し・速い腕 1 本目は済んでおり、2 本目は切り替えの後に
+# 始まる（以前は 30 秒の壁時計の窓に 3 つが収まる前提で、負荷の下で割れた）。選んだ腕は、撃った腕か pending のどちらかに
+# ちょうど 1 度ずつ載る（取り消した腕を結果として読む・撃った腕を 2 度載せる・走っていた腕を落とす、のどれでも崩れる）
 sys.path.insert(0, str(REAL_TESTS))
-import datetime, mutate as _M
-held, release = mini / "slow-started", mini / "slow-release"
+import datetime, os, time, mutate as _M
+held, release, switch = mini / "slow-started", mini / "slow-release", mini.parent / "clock-switch"
+
+
+def slow_arm(aid, started, rel):
+    """始まったら自分の pid を started に書き、rel が在るまで台本を止めておく腕"""
+    return {"id": aid, "title": "台本を解放まで止めておく", "file": "tests/run.sh", "suite": "root", "old": "set -uo pipefail",
+            "new": f"set -uo pipefail\necho $$ > '{started.as_posix()}'\nwhile [ ! -e '{rel.as_posix()}' ]; do sleep 0.1; done",
+            "expect": "classify は閾値超えで pos"}
+
+
 slow_doc = json.loads((mini / "tests" / "mutations.json").read_text(encoding="utf-8"))
-slow_doc["arms"] = [slow_doc["arms"][0],
-                    {"id": "slow1", "title": "台本を解放まで止めておく", "file": "tests/run.sh", "suite": "root",
-                     "old": "set -uo pipefail",
-                     "new": f"set -uo pipefail\ntouch '{held.as_posix()}'\nwhile [ ! -e '{release.as_posix()}' ]; do sleep 0.1; done",
-                     "expect": "classify は閾値超えで pos"},
-                    slow_doc["arms"][1]]
+slow_doc["arms"] = [slow_doc["arms"][0], slow_arm("slow1", held, release), slow_doc["arms"][1]]
 (mini / "slow-arms.json").write_text(json.dumps(slow_doc, ensure_ascii=False), encoding="utf-8")
-lead = 30   # 切り替わりまでの秒数——速い腕（と control・印の写し）が負荷の下でも済む幅。台本はこの秒数だけ長くなる
-cut = datetime.datetime.now().astimezone() + datetime.timedelta(seconds=_M.TIMEOUT + _M.TAIL + lead)
-switch = cut - datetime.timedelta(seconds=_M.TIMEOUT + _M.TAIL)
+clock = mini.parent / "clock.py"
+clock.write_text("import datetime, pathlib, sys\n"
+                 f"sys.path.insert(0, {str(mini / 'tests')!r})\n"
+                 "import mutate\n"
+                 "switch = pathlib.Path(sys.argv.pop(1))\n"
+                 "real = mutate.now\n"
+                 "mutate.now = lambda tz: real(tz) + datetime.timedelta(days=365 if switch.exists() else 0)\n"
+                 "for s in (sys.stdout, sys.stderr):\n    s.reconfigure(encoding='utf-8')\n"
+                 "mutate.main()\n", encoding="utf-8")
+cut = datetime.datetime.now().astimezone() + datetime.timedelta(seconds=_M.TIMEOUT + _M.TAIL, days=1)
 sl_out = mini / "slow.json"
-proc = subprocess.Popen([PY, MUT, "-j", "1", "--arms-file", str(mini / "slow-arms.json"), "--deadline-at", cut.isoformat(), "--out", str(sl_out)],
-                        cwd=mini, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
-import time
-while proc.poll() is None and not (held.exists() and datetime.datetime.now().astimezone() > switch + datetime.timedelta(seconds=1)):
+proc = subprocess.Popen([PY, str(clock), str(switch), "-j", "1", "--arms-file", str(mini / "slow-arms.json"), "--deadline-at", cut.isoformat(),
+                         "--out", str(sl_out)], cwd=mini, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+while proc.poll() is None and not held.exists():
     time.sleep(0.1)
+switch.touch()
 release.touch()
 out_, err_ = proc.communicate(timeout=120)
 r = subprocess.CompletedProcess(proc.args, proc.returncode, out_, err_)
@@ -3972,27 +4214,71 @@ shot_ids = [x["id"] for x in sl["arms"]]
 pend_ids = [x["id"] for x in sl.get("pending") or []]
 assert r.returncode == 1 and "Traceback" not in r.stderr, f"途中で期限が来た回は exit 1 で、例外を出さない: exit {r.returncode} {r.stderr[-300:]}"
 assert sorted(shot_ids + pend_ids) == ["norm1", "norm2", "slow1"], f"選んだ腕が撃った腕か pending にちょうど 1 度ずつ載らない: 撃った {shot_ids} / pending {pend_ids}"
-assert "norm2" in pend_ids and "norm1" in shot_ids, f"期限の後に始まる腕は取り消して pending に、期限の前に済んだ腕は結果に: 撃った {shot_ids} / pending {pend_ids}"
+assert "norm2" in pend_ids and "norm1" in shot_ids and "slow1" in shot_ids, f"期限の後に始まる腕は pending に、前に始まった腕は結果に: 撃った {shot_ids} / pending {pend_ids}"
+# 撃つ段の頭で期限を過ぎていた回は、写しで control も印の写しも走らせず、選んだ腕を全部 pending に置く（期限の後に仕事を始めない）
+past = (datetime.datetime.now().astimezone() - datetime.timedelta(days=1)).isoformat()
+pa_out = mini / "past.json"
+r = subprocess.run([PY, MUT, "-j", "1", "--only", "norm1,norm2", "--deadline-at", past, "--out", str(pa_out)], cwd=mini,
+                   capture_output=True, text=True, encoding="utf-8", timeout=600)
+pa = json.loads(pa_out.read_text(encoding="utf-8"))
+assert r.returncode == 1 and not pa["arms"] and sorted(x["id"] for x in pa.get("pending") or []) == ["norm1", "norm2"] \
+    and pa.get("control") == {"carried": {"rc": 0}} and not (pa.get("marker") or {}).get("placed"), \
+    f"期限を過ぎてから撃ち始めた回は control も腕も走らせず全部 pending に: exit {r.returncode} control={pa.get('control')} {r.stderr[-200:]}"
 
-# **腕 1 本ごとに --out を書き直す**——撃つ途中で殺しても、撃てた腕と残りの腕が読める形で残る。-j 1 で [速い腕・止めておく腕] を撃ち、
-# 止めておく腕が始まって（印が在り）、途中の --out に撃てた腕が載るまで待ってから解放する——途中の姿を時間の窓で覗かない
-# （0.1 秒ごとに覗いていたとき、速い機械では 2 本とも済んで途中の姿を見逃し、負荷の高い機械では 120 秒で諦めて赤になった。
-# 実測 2026-09-26: macOS の CI で 1 回赤）
-held2, release2 = mini / "mid-started", mini / "mid-release"
+
+def gone(pid, within=10):
+    """pid が居なくなるまで問い直す（止めた子は親の回収の前に一瞬残るので、1 回だけ見るとゾンビを生きていると数える）"""
+    t0 = time.monotonic()
+    while True:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        if time.monotonic() - t0 > within:
+            return False
+        time.sleep(0.05)
+
+
+# **止める信号で子と写しを残さない**: 止めておく腕の台本が走っている最中に SIGTERM を送ると、mutate.py は子のグループ（写しの中の台本）を
+# 止め、写しの置き場を消し、128＋15 で抜ける。止めた腕は Killed と書かない（撃った腕に載らず pending に残る）
+if os.name == "posix":
+    tmpd = mini.parent / "tmp-stop"
+    tmpd.mkdir()
+    held2, rel2 = mini / "stop-started", mini / "stop-release"
+    (mini / "stop-arms.json").write_text(json.dumps({"arms": [slow_arm("slow2", held2, rel2)]}, ensure_ascii=False), encoding="utf-8")
+    st_out = mini / "stop.json"
+    proc = subprocess.Popen([PY, MUT, "-j", "1", "--arms-file", str(mini / "stop-arms.json"), "--out", str(st_out)], cwd=mini,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", env={**os.environ, "TMPDIR": str(tmpd)})
+    while proc.poll() is None and not (held2.exists() and held2.read_text(encoding="utf-8").strip()):
+        time.sleep(0.1)
+    child = int(held2.read_text(encoding="utf-8"))
+    proc.terminate()
+    out_, err_ = proc.communicate(timeout=120)
+    st = json.loads(st_out.read_text(encoding="utf-8"))
+    left = sorted(p.name for p in tmpd.glob("mutate-*"))
+    assert proc.returncode == 143 and "Traceback" not in err_, f"SIGTERM で 128+15 で抜け、例外を出さない: exit {proc.returncode} {err_[-300:]}"
+    assert gone(child), f"止めた mutate.py の子（写しの中の台本 pid {child}）が残っている"
+    assert not left, f"止めた mutate.py の写しの置き場が残っている: {left}"
+    assert "slow2" not in [x["id"] for x in st["arms"]] and "slow2" in [x["id"] for x in st.get("pending") or []], \
+        f"止めた腕を結果に載せた（Killed と読ませない）: {st}"
+
+# **腕 1 本ごとに --out を書き直す**——撃つ途中で止めても、撃てた腕と残りの腕が読める形で残り、写しの置き場も残らない。
+# -j 1 で [速い腕・止めておく腕] を撃ち、止めておく腕が始まって（印が在り）、途中の --out に撃てた腕が載るまで待ってから止める
+# ——途中の姿を時間の窓で覗かない（0.1 秒ごとに覗いていたとき、速い機械では 2 本とも済んで途中の姿を見逃し、負荷の高い機械では
+# 120 秒で諦めて赤になった。実測 2026-09-26: macOS の CI で 1 回赤）
+tmpm = mini.parent / "tmp-mid"
+tmpm.mkdir()
+held3, release3 = mini / "mid-started", mini / "mid-release"
 mid_doc = json.loads((mini / "tests" / "mutations.json").read_text(encoding="utf-8"))
-mid_doc["arms"] = [mid_doc["arms"][0],
-                   {"id": "slow2", "title": "台本を解放まで止めておく（途中の --out を見る）", "file": "tests/run.sh", "suite": "root",
-                    "old": "set -uo pipefail",
-                    "new": f"set -uo pipefail\ntouch '{held2.as_posix()}'\nwhile [ ! -e '{release2.as_posix()}' ]; do sleep 0.1; done",
-                    "expect": "classify は閾値超えで pos"}]
+mid_doc["arms"] = [mid_doc["arms"][0], slow_arm("slow3", held3, release3)]
 (mini / "mid-arms.json").write_text(json.dumps(mid_doc, ensure_ascii=False), encoding="utf-8")
 mid_out = mini / "mid.json"
 proc = subprocess.Popen([PY, MUT, "-j", "1", "--arms-file", str(mini / "mid-arms.json"), "--out", str(mid_out)], cwd=mini,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env={**os.environ, "TMPDIR": str(tmpm)})
 seen_mid = None
 deadline = time.monotonic() + 1200   # 止めておく腕が始まるまでの上限（control と速い腕が済む幅。負荷の下でも尽きない長さ）
 while time.monotonic() < deadline and proc.poll() is None:
-    if held2.exists():
+    if held3.exists():
         try:
             doc = json.loads(mid_out.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -4001,11 +4287,12 @@ while time.monotonic() < deadline and proc.poll() is None:
             seen_mid = doc
             break
     time.sleep(0.1)
-release2.touch()
-proc.kill()
+proc.terminate()
 proc.wait()
+release3.touch()   # 止める信号で子を片付けない OS（Windows）でも、止めておいた台本を抜けさせる
 assert seen_mid and len(seen_mid["arms"]) == 1 and len(seen_mid["pending"]) == 1, \
     f"撃つ途中の --out に、撃てた腕 1 本と残り 1 本が載っていない: {seen_mid}"
+assert os.name != "posix" or not list(tmpm.glob("mutate-*")), f"止めた mutate.py の写しの置き場が残っている: {sorted(tmpm.iterdir())}"
 
 # --auto を付けない回は、印の写しを撃つのと同じ波で回し、その結果を証拠に使う（自動の腕の先回りの印は無い）
 r_out4 = mini / "r4.json"
@@ -4118,6 +4405,9 @@ FORMS = {
     # pytest の置き場の件数の定数。突合の != は fence.py の中で、ここは定数を柵に渡す 1 行を固定する
     # （fence.py の != を緩めた退行は、graphloops/tests/py/test_fence.py が両向きの不一致で赤にする）
     "EXPECTED_ITEMS": "    fence.install(config, HERE, EXPECTED_ITEMS)",
+    # 盤面を回す台本の検査の件数と到達の数。突合の != は fence.py の中で、ここは期待値を柵に渡す 1 行を固定する
+    "EXPECTED_SIM_CHECKS": "    fence.expect_sim(config, EXPECTED_SIM_CHECKS, EXPECTED_SIM_REACHED)",
+    "EXPECTED_SIM_REACHED": "    fence.expect_sim(config, EXPECTED_SIM_CHECKS, EXPECTED_SIM_REACHED)",
 }
 # **母数は宣言から取り、表に無い名前には理由を要求する。** FORMS に名前を 2 つ手で並べていたので、
 # 新しいラチェットを足した周にその 1 本が黙って表の外へ落ちる形だった。検査の置き場に在る整数の定数を
@@ -4130,6 +4420,7 @@ NOT_RATCHET = {
     "TIMEOUT": "tests/mutate.py が写しで台本一式を走らせる時間切れ（秒）。件数の突合ではない",
     "EXPECT_HEAD": "tests/mutate.py が expect の頭を台本の本文に探す字数。件数の突合ではない",
     "TAIL": "tests/mutate.py が --deadline-at の期限の手前に残す幅（秒）。件数の突合ではない",
+    "STOP_GRACE": "tests/mutate.py が止める信号で子のグループへ送る信号の間の猶予（秒）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []

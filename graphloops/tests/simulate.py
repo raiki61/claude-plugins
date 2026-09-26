@@ -8,6 +8,7 @@
 使い方: python3 simulate.py            # 全部の台本と否定検査を回す。失敗があれば exit 1
 """
 import collections
+import contextlib
 import datetime
 import hashlib
 import importlib.util
@@ -72,12 +73,12 @@ def check(cond, desc):
     parallel.line(f"  ok   {desc}" if cond else f"  FAIL {desc}")
 
 
-def skip(desc, reason):
+def skip(desc, capability, reason):
     """環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、合格と別の印で出す（parallel.skip_line）"""
     global ran
     with parallel.LOCK:
         ran += 1
-    parallel.line(parallel.skip_line(desc, reason))
+    parallel.line(parallel.skip_line(desc, capability, reason))
 
 
 def rm(p):
@@ -411,7 +412,20 @@ def test_converges():
     check(any(i.startswith("p1.refuter[A]") for i in r1["instances"]) and any(i.startswith("p1.refuter[B]") for i in r1["instances"]), "refuter は A（荷重確証）と B（相違）に走った")
     check("p1.checker" in st["rounds"][2]["empty"], "3 周目の checker は項目ゼロ（empty）")
     check(len(rec["process"]["skipped"]) == 0, "省略なし")
+    loop_shape_held(run, "標準・収束", {"stuck_ids"}, "sampled_r")
     rm(run.tmp)
+
+
+def loop_shape_held(run, what, must, prefix=None):
+    """盤面の loop が graph の state_schema の形に収まる（engine が保存の時に照らした痕跡 loop_drift が 0 件）。0 件が照らさなかった
+    結果でないことも見る: 盤面の graph が state_schema を持ち、loop が must の鍵（と prefix で始まる周ごとの鍵）を実際に書いた"""
+    from engine.schema import load_graph
+    st = run.state()
+    g, _ = load_graph(st["graph"])
+    keys = set(st.get("loop") or {})
+    check(isinstance((g or {}).get("state_schema"), dict) and must <= keys and (prefix is None or any(k.startswith(prefix) for k in keys))
+          and not st.get("loop_drift"),
+          f"{what}: 盤面の loop（{sorted(keys)}）が state_schema の形に収まる（外れ {[r.get('error') for r in st.get('loop_drift') or []][:3]}）")
 
 
 def test_policy_reaches_research_roles():
@@ -474,6 +488,7 @@ def test_attended_stuck_answer():
     nx = run.next()
     check(any(i["node"] == "p0.generation" for i in nx["ready"]), "stuck 後の重厚では断面の生成が開く")
     check(any(i["node"] == "p3.cartographer" for i in nx["ready"]), "重厚に上がると cartographer が序盤に出る")
+    loop_shape_held(run, "有人・stuck で続行", {"stuck_hint", "stuck_ids"})
     rm(run.tmp)
 
 
@@ -809,8 +824,8 @@ def test_hook_evidence():
         got, why = RESEARCH_RULES.hook_evidence(board, str(fifo))
         check(got == "none" and "通常のファイルでない" in why, f"FIFO は開かずに none（{why[:50]}）")
     else:
-        skip("FIFO を読んだ回はフックが記録しない", "この OS には FIFO（os.mkfifo）が無い")
-        skip("FIFO は開かずに none", "この OS には FIFO（os.mkfifo）が無い")
+        skip("FIFO を読んだ回はフックが記録しない", "fifo", "この OS には FIFO（os.mkfifo）が無い")
+        skip("FIFO は開かずに none", "fifo", "この OS には FIFO（os.mkfifo）が無い")
     # **sha を持たない行（書いた側の上限超え）は大きさの部分読みとして扱い、一致の証拠にも不一致の証拠にもしない**——
     # 不一致と数えていた頃は、2 つの上限の写しがずれた日に、小さい文書が『読んだ後に変わった』と名乗られた
     nosha = tmp / "nosha.md"; nosha.write_text("n" + chr(10), encoding="utf-8")
@@ -1917,6 +1932,7 @@ def test_role_run():
     check(role_run.parse_cim("gone\r\n") == role_run.GONE and role_run.parse_cim("alive:116444736000000000") == 0.0
           and role_run.parse_cim("alive:") is None and role_run.parse_cim("") is None,
           "Windows: 居ない・開始時刻・読めない（確かめられない＝止めずに拒む）を分ける")
+    check(role_run.stop_group(str(tmp / "no-mark.json.pgid")) is None, "印が無ければ止める物は無い（relaunch は素通り）")
     if os.name == "posix":
         def gone(pid, within=10):
             """pid が居なくなるまで期限つきで問い直す——止めた孫は親が居なくなってから init が回収するので、1 回だけ見ると
@@ -1933,7 +1949,7 @@ def test_role_run():
 
         def sleeper(extra):
             """眠る子（孫も立てる）を run_role で起こし、印（<out>.pgid）と孫の pid が出るまで待つ。返すのは (スレッド, 結果, 孫の pid)"""
-            pidf = tmp / f"grandchild-{len(extra)}.pid"
+            pidf = tmp / f"grandchild-{'-'.join(sorted(extra))}.pid"
             got = {}
             th = threading.Thread(target=lambda: got.update(role_run.run_role(
                 argv, prompt, out, env={**env, "FAKE_MODE": "sleep", "FAKE_PID": str(pidf)}, **extra)))
@@ -1944,7 +1960,8 @@ def test_role_run():
             return th, got, int(pidf.read_text(encoding="utf-8")) if pidf.is_file() and pidf.read_text(encoding="utf-8") else None
 
         mark = pathlib.Path(str(out) + ".pgid")
-        th, got, pid = sleeper({})
+        # reap=False: 止める口だけで孫まで止まるかを見る（試行の終わりの刈り取りが代わりに孫を止めると、止める口の欠陥が隠れる）
+        th, got, pid = sleeper({"reap": False})
         check(mark.is_file() and json.loads(mark.read_text(encoding="utf-8")).get("pgid"),
               "起こした子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口")
         t0 = time.monotonic()
@@ -1954,9 +1971,8 @@ def test_role_run():
               f"stop_group は別の口から試行の子を止め、run_role は失敗として返る（{why} {got.get('why')}）")
         check(pid is not None and gone(pid), f"stop_group では孫（前置の層の先の claude に当たる）まで止まる（pid {pid}）")
         check(not mark.exists(), "子が終わったら印を消す（残った番号が別のグループに当たらない）")
-        check(role_run.stop_group(str(mark)) is None, "印が無ければ止める物は無い（relaunch は素通り）")
         # launch のプロセスが止められたとき（kill_all）も、生きている子を孫まで止める
-        th, got, pid = sleeper({"log_path": None})
+        th, got, pid = sleeper({"log_path": None, "reap": False})
         role_run.kill_all()
         th.join(30)
         check(not th.is_alive() and pid is not None and gone(pid) and not mark.exists(),
@@ -1998,6 +2014,63 @@ def test_role_run():
             role_run._started_at = orig
         check(why and "確かめられない" in why and mark.exists(), f"開始時刻を確かめられなければ止めずに理由を返す（{why}）")
         mark.unlink()
+
+        def escaped(escape, leader_stays=True):
+            """孫がグループの外へ出る木を起こす ——(長の Popen, 孫の pid)。escape は孫が最初に呼ぶ口（setpgid はジョブ制御つきの
+            シェルが背景の仕事を移す形、setsid は新しいセッションへ抜ける形）。leader_stays が偽なら長は孫を起こしてすぐ終わる"""
+            grand = f"import os, sys, time\n{escape}\nprint(os.getpid(), flush=True)\ntime.sleep(120)\n"
+            leader = subprocess.Popen([sys.executable, "-c", "import subprocess, sys, time\n"
+                                       f"subprocess.Popen([sys.executable, '-c', {grand!r}])\n"
+                                       + ("time.sleep(120)\n" if leader_stays else "")],
+                                      start_new_session=True, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+            fixtures.callback(held, leader)
+            line = leader.stdout.readline().strip()
+            check(line.isdigit(), f"固定具の孫が pid を書いた（{line!r}）")
+            return leader, int(line) if line.isdigit() else None
+
+        def held(leader):
+            """固定具の後始末（検査が赤・例外の回にも ExitStack が走らせる）。止めるのは持っている Popen だけ——番号だけで
+            送ると、止めた後に再利用された番号へ届く。孫は自分で終わる（sleep 120）"""
+            if leader.poll() is None:
+                leader.kill()
+            leader.wait()
+            leader.stdout.close()
+
+        with contextlib.ExitStack() as fixtures:
+            for escape in ("os.setpgid(0, 0)", "os.setsid()"):
+                leader, gp = escaped(escape)
+                why = role_run._kill(leader)
+                check(why is None and gp is not None and gone(gp), f"グループの外へ出た孫（{escape}）も木の仲間として止める（{why} pid {gp}）")
+            # 長が終わって回収されていない（ゾンビだけの）グループ: macOS は killpg を EPERM で拒む（その場面を作るため長の
+            # ゾンビ化を待つ）。孫が SIGTERM ですぐ死ぬ形と、SIGTERM を無視する形の両方で見る——すぐ死ぬ形だけだと、数え直しの
+            # ps の遅れの間に孫が消える競合で緑になる
+            for deaf in (False, True):
+                leader, gp = escaped("import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); os.setpgid(0, 0)" if deaf
+                                     else "os.setpgid(0, 0)", leader_stays=False)
+                t0 = time.monotonic()
+                while time.monotonic() - t0 < 30:
+                    try:
+                        st = subprocess.run(["ps", "-o", "stat=", "-p", str(leader.pid)], capture_output=True, text=True,
+                                            encoding="utf-8").stdout.strip()
+                    except OSError as e:
+                        st = f"ps を起こせない（{e}）"
+                        break
+                    if st[:1] == "Z":
+                        break
+                    time.sleep(0.05)
+                check(st[:1] == "Z", f"固定具の長がゾンビになった（{st!r}）")
+                mark.write_text(json.dumps({"pgid": leader.pid}), encoding="utf-8")
+                why = role_run.stop_group(str(mark))
+                check(why is None and gp is not None and gone(gp) and not mark.exists(),
+                      f"ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す"
+                      f"（孫が SIGTERM を{'無視する' if deaf else '受けて終わる'}形。{why} pid {gp}）")
+                mark.unlink(missing_ok=True)
+            # 長が SIGTERM で死んで回収された後、setsid で抜けて SIGTERM を無視する孫は、前の回に数えた記録（known）からしか
+            # 拾えない（親は 1 に付け替わり、グループもセッションも違う）
+            leader, gp = escaped("import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); os.setsid()")
+            why = role_run._kill(leader)
+            check(why is None and gp is not None and gone(gp),
+                  f"長が先に死んだ後も、setsid で抜けて SIGTERM を無視する孫を前の回の数え上げから拾って止める（{why} pid {gp}）")
         # テストの実行器を走らせる口（run_tree）: 時間切れは孫まで止め、標準入力は閉じ、文字列で返す
         gpid = tmp / "tree-grandchild.pid"
         try:
@@ -2007,18 +2080,104 @@ def test_role_run():
             got = "TimeoutExpired"
         gp = int(gpid.read_text(encoding="utf-8")) if gpid.is_file() else None
         check(got == "TimeoutExpired" and gp is not None and gone(gp), f"run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる（{got} pid {gp}）")
-        # SIGTERM を無視する孫も止まる——長（sh）が先に終わっても、グループが消えるまで待って SIGKILL を送る
         gpid2 = tmp / "tree-deaf.pid"
         try:
-            role_run.run_tree(["sh", "-c", f"(trap '' TERM; echo $$ > /dev/null; exec sh -c 'trap \"\" TERM; echo $$ > {gpid2}; while :; do sleep 1; done') & wait"],
+            role_run.run_tree(["sh", "-c", f"(trap '' TERM; echo $$ > /dev/null; exec sh -c 'trap \"\" TERM; echo $$ > {gpid2}; i=0; while [ $i -lt 120 ]; do sleep 1; i=$((i+1)); done') & wait"],
                               cwd=tmp, timeout=1)
         except subprocess.TimeoutExpired:
             pass
         gp2 = int(gpid2.read_text(encoding="utf-8")) if gpid2.is_file() and gpid2.read_text(encoding="utf-8").strip() else None
-        check(gp2 is not None and gone(gp2), f"run_tree: SIGTERM を無視する孫も、グループが消えるまで待って SIGKILL で止める（pid {gp2}）")
+        check(gp2 is not None and gone(gp2), f"run_tree: SIGTERM を無視する孫も、長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL で止める（pid {gp2}）")
         r = role_run.run_tree(["sh", "-c", "read x; echo \"got:$x\"; echo err >&2"], cwd=tmp, timeout=30)
         check(r.returncode == 0 and r.stdout == "got:\n" and r.stderr == "err\n",
               f"run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す（{r.returncode} {r.stdout!r} {r.stderr!r}）")
+        # 正常に終わった回も、残った背景のプロセス（グループの外へ出た孫）を止める。孫は自分で終わる（sleep 120）
+        bg = f"{sys.executable} -c 'import os, time; os.setpgid(0, 0); time.sleep(120)'"
+        r = role_run.run_tree(["sh", "-c", f"{bg} >/dev/null 2>&1 & echo $!"], cwd=tmp, timeout=60)
+        gp = int(r.stdout.strip()) if r.stdout.strip().isdigit() else None
+        check(gp is not None and gone(gp), f"run_tree: 正常に終わった回も、グループの外へ出た背景のプロセスを終わりに止める（pid {gp}）")
+        # 背景のプロセスが出力の管を継いでいても、長が終わったら木の残りを止めて管を閉じさせ、戻る（管の終わりを待ち続けない）
+        t0 = time.monotonic()
+        try:
+            r = role_run.run_tree(["sh", "-c", f"{bg} & echo $!"], cwd=tmp, timeout=60)
+            gp, took = (int(r.stdout.strip()) if r.stdout.strip().isdigit() else None), time.monotonic() - t0
+        except subprocess.TimeoutExpired:
+            gp, took = None, time.monotonic() - t0
+        check(gp is not None and gone(gp) and took < 45,
+              f"run_tree: 管を継いだ背景のプロセスが居ても、長が終わったら止めて戻る（pid {gp}・{took:.1f} 秒）")
+        # 宣言の段（run_steps）: 正常に終わった段の残りは試行の終わりに止める。keep_background を宣言した段は残す
+        for keep in (False, True):
+            gpf = tmp / f"steps-bg-{keep}.pid"
+            step = {"name": "bg", "argv": ["sh", "-c", f"{bg} >/dev/null 2>&1 & echo $! > {gpf}"],
+                    **({"keep_background": True} if keep else {})}
+            runs = role_run.run_steps([step, {"name": "next", "argv": ["sh", "-c", f"kill -0 $(cat {gpf})"]}], tmp, tmp / f"steps-{keep}")
+            gp = int(gpf.read_text(encoding="utf-8").strip()) if gpf.is_file() and gpf.read_text(encoding="utf-8").strip().isdigit() else None
+            survived = gp is not None and not gone(gp, within=0)
+            check([x["exit"] for x in runs] == [0, 0] and survived == keep,
+                  f"run_steps: 段の背景のプロセスは次の段まで生き（段ごとには止めない）、試行の終わりに止める。"
+                  f"keep_background を宣言した段は残す（keep={keep}・exit {[x['exit'] for x in runs]}・生存 {survived}）")
+            if survived:
+                os.kill(gp, 9)   # 起こした直後に自分で読んだ番号（宣言どおり残った物を片付ける）
+        # 全プロセスの表が読めない（ps が失敗する）回: グループへは送って子は止めるが、外へ出た子孫を確かめていないので
+        # 止まったと言わない。PATH を替えるので子のプロセスで走らせる（台本の環境を汚さない）
+        fake = tmp / "fake-ps"
+        fake.mkdir(exist_ok=True)
+        (fake / "ps").write_text("#!/bin/sh\necho 'ps: denied' >&2\nexit 1\n", encoding="utf-8")
+        (fake / "ps").chmod(0o755)
+        probe = ("import json, subprocess, sys\n"
+                 f"sys.path.insert(0, {str(PLUGIN)!r})\n"
+                 "from engine import role_run\n"
+                 "p = role_run._popen(['sleep', '60'], stdout=subprocess.DEVNULL)\n"
+                 "try:\n"
+                 "    why = role_run._kill(p)\n"
+                 "finally:\n"
+                 "    if p.poll() is None:\n"
+                 "        p.kill()\n"
+                 "    p.wait()\n"
+                 "print(json.dumps({'why': why, 'stopped_by_kill': p.returncode == -15}))\n")
+        r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, encoding="utf-8",
+                           env={**os.environ, "PATH": f"{fake}{os.pathsep}{os.environ.get('PATH', '')}"}, timeout=120)
+        try:
+            got = json.loads(r.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            got = {"why": None, "stopped_by_kill": False, "raw": (r.stdout + r.stderr)[-300:]}
+        check(got["stopped_by_kill"] and (got["why"] or "").startswith("止める相手を数え上げられない（ps が全プロセスの表を返さない")
+              and "は居ないが、外へ出た子孫を確かめていない" in (got["why"] or ""),
+              f"ps が失敗する回は、グループへ送って子を止め、外へ出た子孫を確かめていないと言う（{got}）")
+    else:
+        # posix の囲いの check と同じ本数を見送りで数える（件数は OS に依らず同じ）——囲いに check を足したらここにも足す
+        for desc in (
+                "起こした子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口",
+                "stop_group は別の口から試行の子を止め、run_role は失敗として返る",
+                "stop_group では孫（前置の層の先の claude に当たる）まで止まる",
+                "子が終わったら印を消す（残った番号が別のグループに当たらない）",
+                "kill_all は生きている子を孫まで止める（launch が止められても子を残さない）",
+                "起こし直された試行は子を止めて返る",
+                "そのとき子の木も印も残さない——still_mine を聞く前に印は書いてある",
+                "番号が印より後に始まったプロセスに再利用されていれば止めずに印だけ消す",
+                "開始時刻を確かめられなければ止めずに理由を返す",
+                "固定具の孫が pid を書いた（setpgid で抜ける孫）",
+                "グループの外へ出た孫（os.setpgid(0, 0)）も木の仲間として止める",
+                "固定具の孫が pid を書いた（setsid で抜ける孫）",
+                "グループの外へ出た孫（os.setsid()）も木の仲間として止める",
+                "固定具の孫が pid を書いた（SIGTERM を受けて終わる孫）",
+                "固定具の長がゾンビになった（SIGTERM を受けて終わる孫）",
+                "ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す（孫が SIGTERM を受けて終わる形）",
+                "固定具の孫が pid を書いた（SIGTERM を無視する孫）",
+                "固定具の長がゾンビになった（SIGTERM を無視する孫）",
+                "ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す（孫が SIGTERM を無視する形）",
+                "固定具の孫が pid を書いた（長が先に死ぬ木）",
+                "長が先に死んだ後も、setsid で抜けて SIGTERM を無視する孫を前の回の数え上げから拾って止める",
+                "run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる",
+                "run_tree: SIGTERM を無視する孫も、長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL で止める",
+                "run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す",
+                "run_tree: 正常に終わった回も、グループの外へ出た背景のプロセスを終わりに止める",
+                "run_tree: 管を継いだ背景のプロセスが居ても、長が終わったら止めて戻る",
+                "run_steps: 段の背景のプロセスは次の段まで生き、試行の終わりに止める（keep_background なし）",
+                "run_steps: keep_background を宣言した段の背景のプロセスは試行の終わりにも残す",
+                "ps が失敗する回は、グループへ送って子を止め、外へ出た子孫を確かめていないと言う",
+        ):
+            skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作りに頼る")
     rm(tmp)
 
 
@@ -2027,6 +2186,9 @@ def test_relaunch_live_launch():
     止めるので、止められた古い launch の締めは版の競りで relaunch を落とさず、『起こし直された古い試行』に言い換わる
     （実測 2026-09-25: 止めてから書いていた版は 4 回とも exit 2）"""
     if os.name != "posix":
+        for desc in ("relaunch: 生きている launch への 1 回目の起こし直しが通る", "古い launch の行は『起こし直された古い試行』に言い換わる",
+                     "新しい試行は待ったまま（古い launch の締めが新しい試行に書かない）"):
+            skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作り（代役の子と孫を眠らせて止める）に頼る")
         return
     print("生きている launch への relaunch: 1 回目で通り、古い launch は起こし直された試行として締める")
     run = Run("relaunch-live")
@@ -2063,6 +2225,11 @@ def test_relaunch_live_launch():
           "新しい試行は待ったまま（古い launch の締めが新しい試行に書かない）")
     rm(run.tmp)
 
+
+# 差し替えて走らせる子（-c の probe）は日本語を印字する。親は UTF-8 で読むので、子の標準入出力も UTF-8 に揃える——Windows の
+# 既定（cp1252）のままだと、子は印字で UnicodeEncodeError になり、親の読み手のスレッドは復号で落ちて stdout・stderr が None になる
+# （実測 2026-09-26: windows-latest で _board_update・受け付けの衝突・test_relaunch_race が赤）
+PROBE_ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
 CONFLICT_PROBE = r"""
 import io, json, pathlib, sys, types
@@ -2207,7 +2374,8 @@ def test_relaunch_race():
     run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
     nx = run.next()
     inst = next(i for i in nx["ready"] if i.get("launch") or i.get("mode") == "cli")
-    r = subprocess.run([PY, "-c", RELAUNCH_RACE_PROBE, str(PLUGIN), str(run.dir), inst["id"]], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    r = subprocess.run([PY, "-c", RELAUNCH_RACE_PROBE, str(PLUGIN), str(run.dir), inst["id"]], capture_output=True, text=True, encoding="utf-8",
+                       env=PROBE_ENV, timeout=300)
     me = run.state()["rounds"][-1]["instances"][inst["id"]]
     check("別の relaunch" in r.stdout and me.get("attempts", 1) == 1,
           f"relaunch: 読んでいる間に別の relaunch が起こし直していたら、新しい試行を作らない（{r.stdout.strip()[-120:]} {r.stderr[-120:]} attempts={me.get('attempts')}）")
@@ -2224,35 +2392,37 @@ with R._LIVE_LOCK:
     R.kill_all()
     got["reentrant"] = True
 # 止める信号の後に起こした子は、すぐ止めて StopSignal を上げる（止め始めた後に子を増やさない）
-R._STOPPING.set()
-try:
-    R.run_tree(["sh", "-c", "sleep 30"], cwd=".", timeout=60)
-    got["stopping"] = "起こした"
-except R.StopSignal:
-    got["stopping"] = "StopSignal"
-got["live_after"] = len(R.LIVE)
-R._STOPPING.clear()
+if os.name == "posix":
+    R._STOPPING.set()
+    try:
+        R.run_tree(["sh", "-c", "sleep 30"], cwd=".", timeout=60)
+        got["stopping"] = "起こした"
+    except R.StopSignal:
+        got["stopping"] = "StopSignal"
+    got["live_after"] = len(R.LIVE)
+    R._STOPPING.clear()
 # 止め切れなかった木の理由は、時間切れの例外に添えて呼び元へ運ぶ
 orig = R._stop_tree
 R._stop_tree = lambda pgid, leader=None: "検査用の止め切れない理由"
 try:
-    R.run_tree(["sh", "-c", "sleep 3"], cwd=".", timeout=0.3)
+    R.run_tree([sys.executable, "-c", "import time; time.sleep(3)"], cwd=".", timeout=0.3)
     got["tree_left"] = None
 except subprocess.TimeoutExpired as e:
     got["tree_left"] = getattr(e, "tree_left", None)
 R._stop_tree = orig
-print(json.dumps(got, ensure_ascii=False))
+# ASCII で出す: Windows の子の標準出力は既定で cp1252 で、日本語の理由を書くと UnicodeEncodeError で結果ごと失う（実測 2026-09-26:
+# windows-latest の CI で錠の再入と理由の運びの 2 件が赤。原因は検査の中身でなく、この 1 行の書き出し）
+print(json.dumps(got))
 """
 
 
 def test_stop_signal_guards():
     """止める信号の口の守り: 再入できる錠・止め始めた後の起動の拒否・止め切れなかった理由の運び（engine の大域を差し替えるので
     別のプロセスで走らせる）"""
-    if os.name != "posix":
-        return
     print("止める信号の口: 錠の再入・止め始めた後の起動を拒む・止め切れない理由を運ぶ")
     try:
-        r = subprocess.run([PY, "-c", SIGNAL_PROBE, str(PLUGIN)], capture_output=True, text=True, encoding="utf-8", timeout=120)
+        r = subprocess.run([PY, "-c", SIGNAL_PROBE, str(PLUGIN)], capture_output=True, text=True, encoding="utf-8", env=PROBE_ENV,
+                           timeout=120)
         out, err = r.stdout, r.stderr
     except subprocess.TimeoutExpired:   # 錠が再入できないと、錠を持つ最中の kill_all が自分の錠を待って固まる——落ちずに検査の赤で言う
         out, err = "", "120 秒で終わらない（錠の待ちで固まった）"
@@ -2261,8 +2431,11 @@ def test_stop_signal_guards():
     except (ValueError, IndexError):
         got = {}
     check(got.get("reentrant") is True, f"信号の口（kill_all）は錠を持つ最中の同じスレッドでも止まらない（{err[-160:]}）")
-    check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
-          f"止める信号の後に起こした子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
+    if os.name == "posix":
+        check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
+              f"止める信号の後に起こした子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
+    else:
+        skip("止める信号の後に起こした子はすぐ止めて StopSignal を上げる", "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作りに頼る")
     check(got.get("tree_left") == "検査用の止め切れない理由", f"止め切れなかった木の理由は時間切れの例外に添えて運ぶ（{got.get('tree_left')}）")
 
 
@@ -2273,7 +2446,8 @@ def test_board_conflict():
     print("版の衝突: 読み直して当て直す・成功した回は文も trace も重ねない・mark は行を重ねない・受け付けの負けは印で運ぶ")
     run = Run("conflict")
     run.next()
-    r = subprocess.run([PY, "-c", CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    r = subprocess.run([PY, "-c", CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8",
+                       env=PROBE_ENV, timeout=300)
     try:
         got = json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -2292,7 +2466,7 @@ def test_board_conflict():
     check("done --node" in (got.get("launch_hint") or "") and "返答は" in (got.get("launch_hint") or ""),
           f"launch は受け付けの負けに done の案内を足す（{(got.get('launch_hint') or '')[-120:]}）")
     r = subprocess.run([PY, "-c", CLI_CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8",
-                       env={**os.environ, "GL_LOOP": str(LOOP)}, timeout=300)
+                       env={**PROBE_ENV, "GL_LOOP": str(LOOP)}, timeout=300)
     check(r.returncode == 2 and "NG 検査用の衝突の文" in r.stderr,
           f"loop.py の入口は版の衝突の文を最後に 1 度出して exit 2（rc={r.returncode} {r.stderr.strip()[-120:]}）")
     rm(run.tmp)
@@ -3035,10 +3209,14 @@ def test_relaunch():
         check(stopped and child.returncode is not None and child.returncode < 0,
               f"relaunch: 前の試行の子を木ごと止めてから起こし直す（relaunch が止めた: {stopped}・信号で終わった: {child.returncode}）")
         check(not pathlib.Path(str(old) + ".pgid").exists(), "relaunch: 止めた試行の印を消す")
+    else:
+        for desc in ("relaunch: 前の試行の子を木ごと止めてから起こし直す", "relaunch: 止めた試行の印を消す"):
+            skip(desc, "process-group", "posix の信号とプロセスグループで孫の生死を見る台本の作り（自分のグループで眠る子）に頼る")
     new = run.state()["rounds"][-1]["instances"][iid]
     check(new.get("attempts") == 2 and len(new.get("attempt_log") or []) == 1 and "検査用" in new["attempt_log"][0]["reason"],
           f"relaunch: 試行の回数と理由を盤面に刻む（{new.get('attempts')} {new.get('attempt_log')}）")
-    check(new["out_path"] in r.stdout, "relaunch: 新しい置き場を回す側に返す（運び手に渡す先）")
+    # 返りは JSON なので、Windows の置き場の \\ は 2 つずつに書かれる——JSON に書いた綴りで探す
+    check(json.dumps(new["out_path"], ensure_ascii=False)[1:-1] in r.stdout, f"relaunch: 新しい置き場を回す側に返す（運び手に渡す先。{r.stdout.strip()[-160:]}）")
     check("deadline_at" not in new, f"relaunch: 新しい試行にも期限を付けない（{new.get('deadline_at')}）")
     check(new["out_path"] != str(old) and ".a2." in new["out_path"], f"relaunch: 新しい試行は別の置き場に書く（{new['out_path']}）")
     check(not old.exists() and old.with_name(old.name + ".stale-a1").is_file(), "relaunch: 前の試行の置き場に在った物は .stale-a1 へ退ける")
@@ -3071,6 +3249,9 @@ def test_relaunch():
             stale_child.kill()
             stale_reaper.join()
         check(stopped, "relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す")
+    else:
+        skip("relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す", "process-group",
+             "posix の信号とプロセスグループで孫の生死を見る台本の作り（自分のグループで眠る子）に頼る")
     new3 = run.state()["rounds"][-1]["instances"][iid]
     check(r.returncode == 0 and new3.get("attempts") == 3 and len(new3.get("attempt_log") or []) == 2,
           f"relaunch: 前の置き場が空でも起こし直せ、attempt_log は積み増す（{r.returncode} {new3.get('attempt_log')}）")
@@ -4239,6 +4420,17 @@ def test_set_path():
     except KeyError as e:
         check("葉 1 つ" in str(e), "2 段以上の新設は落ちる（どちらの読みも成り立つ綴りを機械が選ばない）")
     check("p2" not in d["outputs"], "落ちた綴りが途中まで書き込まれていない")
+    # 消す口（del_path）も同じ綴りで辿る——点を含む鍵が最後に来る綴りで親を見失わない。無い鍵とリストの要素は落とす
+    from engine.util import del_path
+    del_path(d, "outputs.p1.local_review")
+    check(d["outputs"] == {}, "消す口は点を含む鍵を最長一致で食って消す")
+    for bad in ("outputs.nope", "questions.0", "a.b.nope.deep"):
+        try:
+            del_path(d, bad)
+            check(False, f"消せない綴り {bad} は落ちる")
+        except KeyError:
+            check(True, f"消せない綴り {bad} は落ちる（無い鍵・リストの要素・辿れない親）")
+    check(len(d["questions"]) == 2 and d["a"] == {"b": {"c": 1}}, "落ちた消しは何も消していない")
 
 
 def test_carried_r1_only_previous_round():

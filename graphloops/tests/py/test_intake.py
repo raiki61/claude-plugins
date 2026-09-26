@@ -1,17 +1,19 @@
 """踏んだ事実を利用者の環境に残す記録器（engine/intake.py）と、その口（loop.py の最上段・loop.py intake）。
 launch の ok でない行は simulate.py の test_engine_launch、報告の頭の 1 行は simulate_review.py の test_converges が端から端まで見る。"""
 import http.server
+import importlib.util
 import json
 import os
 import pathlib
 import subprocess
 import sys
 import threading
+import types
 
 import pytest
 
 from conftest import PLUGIN
-from engine import intake
+from engine import commands, intake
 from engine.commands import launch_cause
 
 LOOP = PLUGIN / "scripts" / "loop.py"
@@ -36,7 +38,6 @@ def test_failure_leaves_structured_row_with_key_without_version(tmp_path):
     assert row["kind"] == "auto" and row["where"] == "loop.py next" and row["exit"] == 2
     assert row["exc"] == "SystemExit" and row["func"] == "board.__init__"   # die の呼び元（util.py の小道具は飛ばす）
     assert {"plugin", "version", "os", "python", "key"} <= set(row) and "stderr" not in row and "what" not in row
-    # 鍵に版を入れない——版をまたいで続く同じ問題を 1 つに数える
     assert intake.key_of({**row, "version": "99.0.0"}) == row["key"]
 
 
@@ -87,7 +88,7 @@ def test_unreadable_board_under_dir_keeps_reject_exit(tmp_path):
     (["done", "--node", "p1.hygiene[src/secret/path.py]#2"], "loop.py done --node p1.hygiene"),
     (["done", "--node=p2.diagnose#3", "--dir", "x"], "loop.py done --node p2.diagnose"),
     (["--x"], "loop.py ?"),
-    (["/home/me/secret/loop-state"], "loop.py ?"),             # 打ち間違いの語がパスでも残さない
+    (["/home/me/secret/loop-state"], "loop.py ?"),
     (["done", "--node", "../../etc/passwd"], "loop.py done"),
 ])
 def test_where_keeps_only_stable_parts(argv, want):
@@ -96,14 +97,14 @@ def test_where_keeps_only_stable_parts(argv, want):
 
 def test_data_dir_order_and_derivation(tmp_path, monkeypatch):
     monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
-    assert intake.data_dir() is None                                  # checkout から直に走らせた回は書かない
+    assert intake.data_dir() is None
     root = tmp_path / "plugins" / "cache" / "mk.t" / "graphloops" / "1.2.3"
     root.mkdir(parents=True)
     monkeypatch.setattr(intake, "PLUGIN_ROOT", root)
     assert intake.data_dir() == tmp_path / "plugins" / "data" / "graphloops-mk-t"   # Claude Code の id の規則
     monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "env"))
     assert intake.data_dir() == tmp_path / "env"
-    assert intake.data_dir("${CLAUDE_PLUGIN_DATA}") == tmp_path / "env"   # 置き換わらなかった字面は無視
+    assert intake.data_dir("${CLAUDE_PLUGIN_DATA}") == tmp_path / "env"
     assert intake.data_dir(str(tmp_path / "given")) == tmp_path / "given"
 
 
@@ -114,7 +115,6 @@ def test_commit_is_the_plugin_not_the_repo_under_review(tmp_path, monkeypatch):
     monkeypatch.chdir(other)
     mine = subprocess.run(["git", "-C", str(PLUGIN), "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True, encoding="utf-8")
     assert intake.provenance().get("commit") == ((mine.stdout.strip() or None) if mine.returncode == 0 else None)
-    # 入れた置き場は Claude Code の台帳の commit
     root = tmp_path / "plugins" / "cache" / "mkt" / "graphloops" / "1.0.0"
     (root / ".claude-plugin").mkdir(parents=True)
     (root / ".claude-plugin" / "plugin.json").write_text('{"name": "graphloops", "version": "1.0.0"}', encoding="utf-8")
@@ -137,9 +137,9 @@ def test_manual_row_has_no_key_and_export_hands_over_once(tmp_path):
     out = tmp_path / "out.jsonl"
     assert loop("intake", "--export", str(out), "--data-dir", str(data)).returncode == 0
     got = [json.loads(x) for x in out.read_text(encoding="utf-8").splitlines()]
-    assert [g["kind"] for g in got] == ["auto", "manual"] and all("stderr" not in g for g in got)   # 既定は標準エラーを落とす
+    assert [g["kind"] for g in got] == ["auto", "manual"] and all("stderr" not in g for g in got)
     assert loop("intake", "--export", str(out), "--data-dir", str(data)).returncode == 0
-    assert out.read_text(encoding="utf-8") == ""                                                  # 手渡した分は 2 度出さない
+    assert out.read_text(encoding="utf-8") == ""
     loop("intake", "--export", str(out), "--all", "--with-stderr", "--data-dir", str(data))
     assert "stderr" in json.loads(out.read_text(encoding="utf-8").splitlines()[0])
 
@@ -180,15 +180,65 @@ def test_send_posts_structured_rows_and_hands_them_over(tmp_path):
 @pytest.mark.parametrize("row,kind,want", [
     ({"ok": False, "why": "前置ではない"}, None, "launch_refused"),
     ({"ok": False, "why": "x", "rejections": ["型に合わない"], "stderr": ""}, None, "launch_rejected"),
-    ({"ok": False, "why": "x", "rejections": [], "stderr": "with-auth: auth=none"}, None, "launch_auth"),
-    ({"ok": False, "why": "x", "rejections": [], "stderr": "with-auth: auth=inherited(x)"}, None, "launch_child_failed"),
     ({"ok": False, "why": "宣言と一致しない"}, "engine_run", "launch_refused"),
     ({"ok": False, "why": "受け付けまで進めない", "runs": []}, "engine_run", "launch_engine_run_accept"),
 ])
 def test_launch_rows_are_keyed_by_how_they_failed(row, kind, want):
-    """launch の行は落ち方で分ける——同じ節の別々の落ち方が 1 つの鍵にまとまらない"""
     exc, func = launch_cause(row, kind)
     assert exc == want and func
+
+
+@pytest.mark.parametrize("note", ["none", "keychain-miss(svc)", "keychain-malformed(svc)", "keychain-error(TimeoutExpired)(svc)",
+                                  "keychain(svc)", "inherited(CLAUDE_CODE_OAUTH_TOKEN)"])
+@pytest.mark.parametrize("rc", [0, 1])
+@pytest.mark.parametrize("noisy", [False, True])
+def test_launch_auth_follows_what_with_auth_wrote(note, rc, noisy, monkeypatch, capsys):
+    """前置の層が実際に書く標準エラーを、role_run と同じく末尾 600 字に切って読ませる（頭が切れても子の落ちた行で読む）"""
+    spec = importlib.util.spec_from_file_location("with_auth_under_test", PLUGIN / "scripts" / "with-auth.py")
+    wa = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wa)
+    monkeypatch.setattr(wa.claude_auth, "auth_env", lambda env, **_: (dict(env, CLAUDE_CONFIG_DIR="/c"), note))
+
+    def child(argv, env):
+        if noisy:
+            sys.stderr.write("x" * 1000 + "\n")
+        return types.SimpleNamespace(returncode=rc)
+    monkeypatch.setattr(wa.subprocess, "run", child)
+    capsys.readouterr()
+    assert wa.main(["claude", "-p"]) == rc
+    err = capsys.readouterr().err.strip()[-600:]
+    exc, _ = launch_cause({"ok": False, "why": "x", "rejections": [], "stderr": err}, None)
+    if noisy and rc == 0:
+        assert exc == "launch_auth_unread"
+    else:
+        assert exc == ("launch_child_failed" if wa.claude_auth.added(note) else "launch_auth")
+
+
+def test_failed_swallows_errors_while_building_its_row(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "data"))
+
+    def boom(tb):
+        raise AttributeError("is_relative_to")
+    monkeypatch.setattr(intake, "raised_in", boom)
+    assert intake.failed(["next"], 2, SystemExit(2)) is None
+
+
+def test_launch_rows_get_their_cause_and_errors_are_swallowed(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "data"))
+    got = [{"id": "p1.x", "ok": False, "why": "前置ではない"}, {"id": "p1.y", "ok": True}]
+    commands.mark_launch_failures(got, {}, None)
+    assert got[0]["cause"] == "launch_refused" and "cause" not in got[1] and len(rows(tmp_path / "data")) == 1
+
+    def boom(r, kind):
+        raise KeyError("rejections")
+    monkeypatch.setattr(commands, "launch_cause", boom)
+    got = [{"id": "p1.x", "ok": False}, {"id": "p1.z", "ok": False}]
+    commands.mark_launch_failures(got, {}, None)
+    assert [("cause" in g) for g in got] == [False, False]
+    assert [(x["exc"], x["func"]) for x in rows(tmp_path / "data")[1:]] == [("KeyError", "commands.launch_cause")] * 2
+
+    monkeypatch.setattr(intake, "record", lambda *a, **k: 1 / 0)
+    assert commands.mark_launch_failures([{"id": "p1.x", "ok": False}], {}, None) is None
 
 
 def test_set_url_rejects_non_http(tmp_path):
@@ -199,3 +249,13 @@ def test_set_url_rejects_non_http(tmp_path):
 def test_key_reads_a_missing_part_as_empty():
     """鍵の部品が無い（None）のと空の文字列は同じ鍵——欄の有無の違いで同じ問題を割らない"""
     assert intake.key_of({"where": "loop.py next", "exc": None}) == intake.key_of({"where": "loop.py next", "exc": ""})
+
+
+def test_quiet_swallows_errors_but_lets_keyboard_interrupt_through():
+    """記録器の握りは呼び元を止めない（例外は None で返す）が、利用者の中断（KeyboardInterrupt）だけは外へ通す"""
+    def boom(e):
+        raise e
+    assert intake.quiet(boom)(RuntimeError("検査用")) is None
+    assert intake.quiet(boom)(SystemExit(3)) is None
+    with pytest.raises(KeyboardInterrupt):
+        intake.quiet(boom)(KeyboardInterrupt())

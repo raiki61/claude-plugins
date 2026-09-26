@@ -15,6 +15,7 @@ minLength / maxLength / pattern だけで、これ以外は無視する（展開
 """
 import copy
 import functools
+import json
 import pathlib
 import re
 
@@ -136,6 +137,8 @@ def expand_refs(graph):
         return {k: walk(v, seen) for k, v in x.items()}
     out = {k: v for k, v in graph.items() if k != "$defs"}
     out["nodes"] = walk(graph.get("nodes", {}), frozenset())
+    if "state_schema" in graph:   # 盤面の loop の形（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
+        out["state_schema"] = walk(graph["state_schema"], frozenset())
     # 番号で指す欄（pointers）の型も同じ入口で広げる——graph に型を手で書かせず、宣言の誤りはここで ValueError
     from .pointers import widen
     widen(out["nodes"])
@@ -164,35 +167,58 @@ def extends_path(path, g):
     if not isinstance(ref, str) or not ref or pathlib.PurePath(ref).name != ref:
         raise ValueError(f"extends {ref!r} は同じ置き場の graph のファイル名だけ（継いだ節の相対パスが別の置き場を指さないため）")
     base = pathlib.Path(path).parent / ref
-    if base.resolve() == pathlib.Path(path).resolve():
-        raise ValueError(f"extends {ref!r} が自分を指している")
     if not base.is_file():
         raise ValueError(f"extends {ref!r} が無い（{base}）")
     return base
 
 
+def extends_chain(path, read):
+    """extends の鎖を葉から根元まで辿った [(パス, graph)]。各段の検査は extends_path、自分を指すのも含めた輪は訪れたパスで拒む。
+    誤りは、それを書いた段のファイル名を添えた ValueError（葉のパスだけでは、中間の段の誤りを直す先が分からない）"""
+    chain, seen = [], set()
+    p = pathlib.Path(path)
+    while True:
+        seen.add(p.resolve())
+        g = read(p)
+        chain.append((p, g))
+        where = f"{p.name}: " if len(chain) > 1 else ""   # 葉の名前は呼び元（load_graph）が添える
+        if not isinstance(g, dict):
+            raise ValueError(f"{where}graph が object でない")
+        try:
+            base = extends_path(p, g)
+        except ValueError as e:
+            raise ValueError(f"{where}{e}") from None
+        if base is None:
+            return chain
+        if base.resolve() in seen:
+            raise ValueError(f"{where}extends が輪になっている（{' → '.join(q.name for q, _ in chain)} → {base.name}）")
+        p = base
+
+
 def resolve_extends(path, read):
-    """graph の差し替えの版を元の graph に重ねた姿（extends の無い graph はそのまま）。重ねは 1 段だけ。
+    """graph の差し替えの版を、extends の鎖の根元から順に重ねた姿（extends の無い graph はそのまま）。
     配列は置き換えなので、足すなら元の要素も書く（落としていないかは graphcheck が見る）"""
-    g = read(path)
-    base = extends_path(path, g)
-    if base is None:
-        return g
-    b = read(base)
-    if "extends" in b:
-        raise ValueError(f"extends の先 {base.name} がまた extends を持つ——重ねは 1 段だけ")
-    return merge_patch(b, {k: v for k, v in g.items() if k != "extends"})
+    chain = extends_chain(path, read)
+    out = chain[-1][1]
+    for _, g in reversed(chain[:-1]):
+        out = merge_patch(out, {k: v for k, v in g.items() if k != "extends"})
+    return out
 
 
 def graph_text(path):
-    """graph の本文（差し替えの版なら元の graph の本文も続ける）——init の後に graph が変わったかを sha で見るため"""
-    from .util import read_json
-    text = pathlib.Path(path).read_text(encoding="utf-8")
+    """graph の本文（差し替えの版なら鎖の根元までの本文も続ける）——init の後に graph が変わったかを sha で見るため。
+    壊れた段・輪では読めた所までの本文を返す: 呼び元（graph_changed）は変化を記録して止めない——止めると直せない"""
+    first = pathlib.Path(path).read_text(encoding="utf-8")
+    texts = []
+
+    def read(p):
+        texts.append(pathlib.Path(p).read_text(encoding="utf-8") if texts else first)
+        return json.loads(texts[-1])
     try:
-        base = extends_path(path, read_json(path))
-    except ValueError:
-        return text
-    return text if base is None else text + "\n" + base.read_text(encoding="utf-8")
+        extends_chain(path, read)
+    except (OSError, ValueError):
+        pass
+    return "\n".join(texts)
 
 
 def load_graph(path):
@@ -219,6 +245,31 @@ def walk_schema(schema, path="$"):
         yield from walk_schema(schema["items"], f"{path}[]")
 
 
+def schema_at(schema, parts):
+    """schema の木を、path を点で割った欄の列 parts で最後の欄まで辿る ——（辿り着いた schema, ""）か（None, 辿れなかった理由）。
+    object の欄は properties、次に patternProperties（validate_schema と同じ end_anchored で当てる）で引き、配列は数字の欄で
+    items に降りる（get_path と同じ綴り）。**下の欄を宣言しない schema より下は辿らない**——宣言の外を読む path を黙って通さない。
+    graphcheck が盤面の loop を読む path（条件・節の reads と outputs・プロンプトの穴）を graph の state_schema で照らす口"""
+    cur = schema
+    for i, p in enumerate(parts):
+        where = ".".join(parts[:i]) or "最上位"
+        if not isinstance(cur, dict):
+            return None, f"{where} の宣言が schema でない"
+        props, pats = cur.get("properties") or {}, cur.get("patternProperties") or {}
+        hit = [s for pat, s in pats.items() if end_anchored(pat).search(p)]
+        if p in props:
+            cur = props[p]
+        elif hit:
+            cur = hit[0]
+        elif p.isdigit() and isinstance(cur.get("items"), dict):
+            cur = cur["items"]
+        elif props or pats:
+            return None, f"欄 '{p}' が {where} の宣言（properties・patternProperties）に無い"
+        else:
+            return None, f"{where} の宣言が下の欄を持たない（'{p}' から下を照らせない）"
+    return cur, ""
+
+
 # engine が読む語の全部。これ以外（oneOf / not / format / uniqueItems、綴り違い）は validate_schema が黙って無視するので、
 # graph に書いても効かない。graphcheck がこの集合で節の schema を走査して落とす（注記で守るのをやめ、仕組みで守る）。
 # note / description は説明のための欄で、検査には使わないが書いてよい。
@@ -227,7 +278,7 @@ KNOWN_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties", "
 
 
 # 節の鍵のうち engine（と graphcheck の実行の形の検査）が読む物と、人が読むための説明の鍵。ループ固有の鍵は rules が NODE_KEYS
-# （rules が読む）と NODE_NOTE_KEYS（説明）で宣言する——engine はループ固有の語を持たない。この 4 つの和に無い節の鍵は、綴り違いか
+# （rules か graphcheck が読む）と NODE_NOTE_KEYS（説明）で宣言する——engine はループ固有の語を持たない。この 4 つの和に無い節の鍵は、綴り違いか
 # 誰も読まなくなった鍵で、書いても黙って効かないので graphcheck が落とす（KNOWN_KEYWORDS と同じ閉じた集合。JSON Schema の
 # additionalProperties: false と同じ形）。ENGINE_NODE_KEYS の各鍵を engine か graphcheck が読んでいることは pytest が見る
 ENGINE_NODE_KEYS = frozenset({

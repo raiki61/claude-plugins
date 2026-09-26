@@ -1,7 +1,7 @@
 """対象リポジトリが宣言した走らせる語（ルートの .review-checks.json）。
 
 任意の mutation の段は変異の実行器と腕の一覧の名指しで、engine は走らせない——役（ゲートの検算・変異の検算の線・最後の関門）が
-読む（rules の mutation_decl が貼る）。engine が撃つ段は、撃って確かめられる run に残した。
+読む（rules の mutation_decl が貼る）。
 
 **人の承認は要らない。** engine は宣言の語を、走らせる直前に作業ツリーのルートの宣言を読み直して一致を確かめてから、shell を
 通さずに走らせる（engine/commands.py の engine_run_refusal）。以前は direnv の `direnv allow` の形で、人が宣言の中身の sha256 を
@@ -27,9 +27,13 @@ import pathlib
 
 
 DECL_NAME = ".review-checks.json"
-DECL_KEYS = ("suite",)   # 宣言の最上位の必須の鍵。知らない鍵は拒む（効かない鍵を書いても黙って無視しない）
-OPTIONAL_KEYS = ("mutation",)   # 任意の鍵。engine は走らせず、役が読む名指し（変異の実行器と腕の一覧）
+DECL_KEYS = ("suite",)   # 宣言の最上位の必須の鍵
+OPTIONAL_KEYS = ("mutation",)
 STEP_KEYS = ("name", "argv")
+# 段の任意の鍵。keep_background が真の段は、正常に終わった後も背景のプロセスを止めない（engine/role_run.py の run_steps。
+# engine は試行の終わりに、段が残したプロセスを 1 回まとめて止める——試行の外で使う背景のプロセスを残す逃げ道。次の段までは宣言が無くても残る）。
+# 時間切れ・止める信号・異常終了の止め方は宣言に依らない
+STEP_OPTIONAL_KEYS = ("keep_background",)
 MUTATION_KEYS = ("argv", "arms")   # argv＝実行器の呼び方の頭（口の旗は付けない——口の綴りは実行器の --help）・arms＝腕の一覧のパス
 
 
@@ -43,28 +47,31 @@ def steps_sha(steps):
 
 
 def parse(text):
-    """宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv}]。誤りがあれば steps は None"""
+    """宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv[, keep_background]}]。誤りがあれば steps は None"""
     try:
         d = json.loads(text)
     except ValueError as e:
         return None, f"JSON として読めない（{e}）"
-    if not isinstance(d, dict) or not set(DECL_KEYS) <= set(d) <= set(DECL_KEYS + OPTIONAL_KEYS):
-        return None, (f"最上位は {{{', '.join(DECL_KEYS)}}}（必須）と {{{', '.join(OPTIONAL_KEYS)}}}（任意）だけ"
+    if not isinstance(d, dict) or not set(DECL_KEYS) <= set(d):
+        return None, (f"最上位は {{{', '.join(DECL_KEYS)}}}（必須）を持つオブジェクト"
                       f"（在る鍵: {sorted(d) if isinstance(d, dict) else type(d).__name__}）")
     suite = d["suite"]
     if not isinstance(suite, list) or not suite:
         return None, "suite は 1 段以上の配列"
     seen = set()
     for i, s in enumerate(suite):
-        if not isinstance(s, dict) or set(s) != set(STEP_KEYS):
-            return None, f"suite[{i}] は {{{', '.join(STEP_KEYS)}}} だけ"
+        if not isinstance(s, dict) or not set(STEP_KEYS) <= set(s) <= set(STEP_KEYS + STEP_OPTIONAL_KEYS):
+            return None, f"suite[{i}] は {{{', '.join(STEP_KEYS)}}}（必須）と {{{', '.join(STEP_OPTIONAL_KEYS)}}}（任意）だけ"
+        if not isinstance(s.get("keep_background", False), bool):
+            return None, f"suite[{i}].keep_background は true か false"
         if not isinstance(s["name"], str) or not s["name"].strip() or s["name"] in seen:
             return None, f"suite[{i}].name は空でない・重ならない文字列"
         seen.add(s["name"])
         if (not isinstance(s["argv"], list) or not s["argv"]
                 or not all(isinstance(a, str) for a in s["argv"]) or not s["argv"][0]):
             return None, f"suite[{i}].argv は 1 語以上の文字列の配列（shell を通さずにそのまま起こす）"
-    return [{"name": s["name"], "argv": list(s["argv"])} for s in suite], None
+    return [{"name": s["name"], "argv": list(s["argv"]), **({"keep_background": True} if s.get("keep_background") else {})}
+            for s in suite], None
 
 
 def parse_mutation(m, root=None):
@@ -85,8 +92,10 @@ def parse_mutation(m, root=None):
 
 
 def read(root):
-    """ルートの宣言を読む。無ければ None、在れば {steps, sha[, mutation | mutation_error]} か {error}。
-    sha は suite の段だけで結ぶ——mutation の段を足し書きしても、走っている run の engine_run の突き合わせは外れない"""
+    """ルートの宣言を読む。無ければ None、在れば {steps, sha[, mutation | mutation_error][, unknown]} か {error}。
+    sha は suite の段だけで結ぶ——mutation の段を足し書きしても、走っている run の engine_run の突き合わせは外れない。
+    **知らない最上位の段は拒まず unknown で返す**（Cargo が Cargo.toml の知らない鍵を警告して続けるのと同じ）——新しい段を足した
+    宣言を古い engine が読んでも、知っている段（テスト一式）は走る。黙って無視はしない: 読み手（rules）が人に確かめる"""
     p = pathlib.Path(root) / DECL_NAME
     if not p.is_file():
         return None
@@ -98,7 +107,11 @@ def read(root):
     if err:
         return {"error": f"{DECL_NAME}: {err}"}
     out = {"steps": steps, "sha": steps_sha(steps)}
-    mut, merr = parse_mutation(json.loads(text).get("mutation"), root)
+    top = json.loads(text)
+    unknown = sorted(set(top) - set(DECL_KEYS + OPTIONAL_KEYS))
+    if unknown:
+        out["unknown"] = unknown
+    mut, merr = parse_mutation(top.get("mutation"), root)
     if merr:
         out["mutation_error"] = f"{DECL_NAME}: {merr}"
     elif mut:

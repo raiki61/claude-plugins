@@ -30,7 +30,8 @@ jobs:
           python-version: "3.12"
       - name: tests/mutate.py
         shell: bash
-        run: python3 tests/mutate.py -j 4 --out mutation-report.json
+        # --confirm-survivors: 絞った台本（腕の tests）が緑の腕を台本一式で確かめ直す（週 1 回の全腕は、既定で外した確かめ直しを残す）
+        run: python3 tests/mutate.py -j 4 --confirm-survivors --out mutation-report.json
       - name: 結果を残す（次の撃ち直しの --reuse に使える）
         if: always()
         uses: actions/upload-artifact@v4

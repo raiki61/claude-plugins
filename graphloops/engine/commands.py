@@ -1,8 +1,10 @@
 """回す側が呼ぶコマンド。init / next / done / skip / answer / stop / thicken / add / patch / finalize / status / record。"""
 import datetime
+import functools
 import json
 import os
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
@@ -17,7 +19,7 @@ from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
-from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, repo_root, safe_name, set_path, sha, waiting, write_json
+from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, repo_root, safe_name, set_path, del_path, sha, waiting, write_json
 from .role_run import DELEGATE_TOOLS, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path, probe_group, run_role, run_steps, stop_group, tooled_permission
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
@@ -41,8 +43,14 @@ def undeclared_inputs(g, inputs):
     return sorted(k for k in inputs if k not in known)
 
 
+def rules_owned_inputs(g, keys):
+    """init の --input のうち、graph が rules の埋める入力（by: rules）と宣言し、渡した値を使うと宣言していない（input: true が無い）鍵
+    ——rules が init の後に上書きするので効かない。undeclared_inputs と同じく拒まずに知らせる"""
+    decls = g.get("inputs") or {}
+    return sorted(k for k in keys if isinstance(decls.get(k), dict) and decls[k].get("by") == "rules" and not decls[k].get("input"))
+
+
 def choice_input_errors(g, inputs):
-    """kind が choice の入力に、宣言の values に無い値が渡されたか（誤りの文の一覧）"""
     errs = []
     for key, decl in (g.get("inputs") or {}).items():
         if isinstance(decl, dict) and decl.get("kind") == "choice" and inputs.get(key) is not None:
@@ -148,6 +156,28 @@ def check_graph(graph, validator):
     return [f"graph の静的検査の警告: {str(l)[5:]}" for l in lines if str(l).startswith("WARN ")]
 
 
+def resolve_dir(a):
+    # **綴りは絶対に揃える。** 相対の --dir で作った run は instance の item_file にも相対の綴りが残り、
+    # 別の cwd から開き直した回に load_item が読めずに落ちる（扇の重複排除が正本を読むようになって
+    # next も同じ経路を通る）。盤面の外から渡る唯一の入口がここなので、ここで 1 度だけ解決する
+    if getattr(a, "dir", None):
+        return str(pathlib.Path(a.dir).resolve())
+    gd = git("rev-parse", "--git-dir")
+    if gd:
+        base = pathlib.Path(gd.strip()).resolve() / "graphloops"
+        found = {}
+        for p in sorted(base.glob("*/current")):
+            t = p.read_text(encoding="utf-8").strip()
+            if pathlib.Path(t).is_dir():
+                found[p.parent.name] = t
+        if len(found) > 1:
+            # 別のループの run に記録が入る取り違えを黙って起こさない——曖昧なら指させる
+            die("--dir が無く、current を持つループが複数ある: " + ", ".join(f"{k} → {v}" for k, v in found.items()) + "——--dir で指せ（init の出力の dir）")
+        if found:
+            return next(iter(found.values()))
+    die("--dir が無く、current も見つからない（init したか？）")
+
+
 # ---------------------------------------------------------------- next
 def cmd_next(a):
     b = Board(resolve_dir(a))
@@ -194,8 +224,9 @@ def cmd_next(a):
                 "自分の Bash から claude を起こすな（出力をファイルに落とす綴りは auto mode の分類器が止める。実測 2026-09-15）。"
                 "Agent ツールで起こすな（CLAUDE.md と git status が注入される——Agent の子の git status は止められない。engine は道具ゼロの子をリポジトリの外で起こす。返答の本文が回す側に入る）。"
                 "launch は 1 件ずつ ok と why を返す——ok でない節は why を読み、拒否が続いた・子が落ちたなら "
-                "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（relaunch は新しい試行を書いてから前の試行の子を木ごと止める）。stderr の with-auth: auth=… が "
-                "none / keychain-miss なら認証が足りていない。engine が起こせない節（why が『前置ではない』『旗が無い』『権限の形』"
+                "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（relaunch は新しい試行を書いてから前の試行の子を木ごと止める）。"
+                "cause が launch_auth なら認証が足りていない、launch_child_failed なら役の側、launch_auth_unread なら段が読めなかった（stderr の with-auth: の行で確かめよ）。"
+                "engine が起こせない節（why が『前置ではない』『旗が無い』『権限の形』"
                 "『定義が読めない』『claude が無い』）は迂回を組まず人に渡せ。"
                 "launch を持たない agent の節（役の定義がこの環境に無い・道具の一覧を持たない・ファイルを書く道具を持つ役）は、手順書の agent の節の"
                 "とおりに subagent_type に agent_type を渡して起こし、返答を out_path に書いて done --node <id> --agent-id <id>（agent_continue なら agent_id に SendMessage）。"
@@ -678,9 +709,39 @@ def launch_cause(r, kind):
         return "launch_refused", "commands.launch_refusal"
     if r["rejections"]:
         return "launch_rejected", "role_run.run_role"
-    if "with-auth: auth=none" in (r.get("stderr") or "") or "with-auth: auth=keychain-miss" in (r.get("stderr") or ""):
-        return "launch_auth", "role_run.run_role"
-    return "launch_child_failed", "role_run.run_role"
+    stage = AUTH_STAGE.search(r.get("stderr") or "")
+    if stage is None:
+        return "launch_auth_unread", "role_run.run_role"
+    return ("launch_child_failed" if _claude_auth().added(stage.group(1)) else "launch_auth"), "role_run.run_role"
+
+
+# 前置の層が標準エラーに書く段の名前: 頭の行と、子が落ちた回の末尾の行（運ばれるのは末尾の 600 字なので、頭が切れても末尾に残る）
+AUTH_STAGE = re.compile(r"with-auth: (?:auth=|子が rc=-?\d+ で落ちた。認証は )(\S+)")
+
+
+@functools.lru_cache(maxsize=None)
+def _claude_auth():
+    """同梱の認証の段（scripts/claude_auth.py）。足せたかの判定はその added だけが持つ。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("graphloops_claude_auth", PLUGIN_ROOT / "scripts" / "claude_auth.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@intake.quiet
+def mark_launch_failures(results, kinds, state):
+    """ok でない行に落ち方（cause）を載せ、記録器に 1 行ずつ渡す。launch は exit 0 で返るので最上段の口を通らない。
+    分けそこねた行は cause を持たず、分けそこねた例外そのものを記録器に残す（黙らせず、launch も止めない）。"""
+    for r in results:
+        if not r["ok"] and not r.get("superseded") and not r.get("fell_back"):
+            try:
+                exc, func = launch_cause(r, kinds.get(r["id"]))
+                r["cause"] = exc
+            except Exception as e:
+                exc, func = type(e).__name__, "commands.launch_cause"
+            intake.record("auto", intake.where_of(["launch", "--node", r["id"]]), exc=exc, func=func,
+                          state=state, detail=r.get("why"))
 
 
 def cmd_launch(a):
@@ -772,19 +833,14 @@ def cmd_launch(a):
             # 盤面を別のプロセスと競って書けなかった。結果の一覧は回す側に必ず返す（trace にも行は在る）
             for r in results:
                 r["settle"] = "盤面に起こし直しの記録を書けなかった（別のプロセスと競った）"
-    # 役が落ちた・拒否が上限まで続いた行は launch 自身が exit 0 で返すので、最上段の口を通らない——ここで同じ記録器に渡す
-    kinds = {i["id"]: (i.get("launch") or {}).get("kind") for i in todo}
-    for r in results:
-        if not r["ok"] and not r.get("superseded") and not r.get("fell_back"):
-            exc, func = launch_cause(r, kinds.get(r["id"]))
-            intake.record("auto", intake.where_of(["launch", "--node", r["id"]]), exc=exc, func=func,
-                          state=b0.state, detail=r.get("why"))
+    mark_launch_failures(results, {i["id"]: (i.get("launch") or {}).get("kind") for i in todo}, b0.state)
     print(dump({"launched": picked + results,
                 "how": ("ok の節は受け付けまで済んでいる（done は要らない）——次は loop.py next。"
                         "ok でない節は why を読め: 受け付けの拒否が続いた・子が落ちた、なら "
                         "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（前の試行の子は relaunch が止める）。"
                         "why が『起こし直された古い試行』の行は次の手が要らない（起こし直しなら新しい試行の launch を待て。人が止めた試行なら次は next）。"
-                        "stderr の with-auth: auth=… が none / keychain-miss なら認証が足りていない（inherited / keychain なら役の側）。"
+                        "cause が launch_auth なら認証が足りていない、launch_child_failed なら認証は足りていて役の側、"
+                        "launch_auth_unread なら標準エラーから段が読めなかった（stderr の with-auth: の行で確かめよ）。"
                         "返答は out_path に在る（読むのは要る所だけ）。engine が起こせない節（why が『前置ではない』『旗が無い』"
                         "『権限の形』『定義が読めない』）は迂回を組まず人に渡せ。"
                         "走らせる節（engine_run）の why が『任せ先の節に回した』なら次の手は next（任せ先の節として出る）。"
@@ -1096,6 +1152,12 @@ def cmd_answer(a):
     if in_round and ans not in IN_ROUND_ACTIONS:
         raise Reject(f"周の途中の問い（in_round）に '{ans}' は使えない（使えるのは {list(IN_ROUND_ACTIONS)}）")
     ph["note"] = a.note or ""
+    if a.detail:
+        # 答えに添える構造の値。engine は中身を解釈せず、受ける形と意味は rules が持つ（持たない loop では黙って捨てずに拒む）
+        take = hook(b.rules, "answer_detail")
+        if not take:
+            raise Reject("この loop は答えに添える値（--detail）を受けない")
+        ph["detail"] = take(b, ph, ans, read_json(a.detail))
     fn = hook(b.rules, "on_answer_in_round" if in_round else "on_answer")
     if fn:
         fn(b, ph, ans)
@@ -1273,7 +1335,7 @@ def cmd_add(a):
 
 
 def cmd_patch(a):
-    """記録（既定）か盤面（state. 接頭）の手当て。痕跡は state.patches と trace に残る。
+    """記録（既定。record. 接頭も同じ）か盤面（state. 接頭）の手当て——書く（--file）か消す（--delete）。痕跡は state.patches と trace に残る。
 
     盤面も許すのは、run の途中で graph と雛形が変わると rules の私有の鍵が足りずに next が止まり、
     記録側の手当てでは届かないから（実測 2026-09-12: 雛形が新しい loop_state の鍵を読み、回す側が
@@ -1281,14 +1343,31 @@ def cmd_patch(a):
     """
     b = Board(resolve_dir(a))
     b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）
+    if (a.file is None) == (not a.delete):
+        raise Reject("--file（書く）か --delete（消す）のどちらか 1 つを渡せ")
     if a.path.startswith("state."):
-        set_path(b.state, a.path[len("state."):], read_json(a.file))
+        target, path, shown = b.state, a.path[len("state."):], a.path
     else:
-        set_path(b.record, a.path, read_json(a.file))
-    b.state.setdefault("patches", []).append({"round": b.round, "path": a.path, "reason": a.reason, "at": now()})
-    b.trace("patch", path=a.path, reason=a.reason)
+        # 記録は接頭なしでも record. 付きでも同じ場所を指す（board.ref の綴りと同じ）。接頭をそのまま鍵にしていた頃、
+        # record.questions が記録の中に record の入れ子を作り、消す口が無いので null の鍵が残った（実測 2026-09-26）
+        if a.path == "record":
+            raise Reject("--path record は記録まるごと——欄を名指しせよ（record.<欄> か <欄>）")
+        path = a.path[len("record."):] if a.path.startswith("record.") else a.path
+        target, shown = b.record, "record." + path
+    if "" in path.split("."):
+        raise Reject(f"--path {a.path} に空の区切りがある——空の名前の鍵を作らない（欄を名指しせよ）")
+    try:
+        if a.delete:
+            del_path(target, path)
+        else:
+            set_path(target, path, read_json(a.file))
+    except KeyError as e:
+        raise Reject(f"{shown} に当たらない: {e}")
+    op = {"op": "delete"} if a.delete else {}
+    b.state.setdefault("patches", []).append({"round": b.round, "path": a.path, **op, "reason": a.reason, "at": now()})
+    b.trace("patch", path=a.path, **({"delete": True} if a.delete else {}), reason=a.reason)
     b.save()
-    print(f"ok {a.path if a.path.startswith('state.') else 'record.' + a.path} を手当てした（痕跡は state.patches と trace に残る）")
+    print(f"ok {shown} を{'消した' if a.delete else '手当てした'}（痕跡は state.patches と trace に残る）")
 
 
 # ---------------------------------------------------------------- finalize / status / record
@@ -1320,12 +1399,17 @@ def cmd_status(a):
     }))
 
 
+def cmd_record(a):
+    print(dump(Board(resolve_dir(a)).record))
+
+
+# ---------------------------------------------------------------- relaunch
 def cmd_relaunch(a):
     """待っている instance を起こし直す——新しい試行を盤面に書いてから、**前の試行の子を木ごと止める**。同じ節・同じ項目で
     出し直し、試行の回数と理由を盤面と trace に刻む。
 
     **前の試行を止める**: engine が起こした試行（launch）は、子のグループの番号を置き場の隣（role_run.pgid_path。role_run が
-    書き、子が終わると消す）に持つ。書く前に、その印を**信号を送らずに**確かめ（probe_group: 読めない・開始時刻を確かめ
+    書き、試行が終わると木の残りを止めてから消す）に持つ。書く前に、その印を**信号を送らずに**確かめ（probe_group: 読めない・開始時刻を確かめ
     られない、なら新しい試行を作らずに拒む）、新しい試行を保存した後に 1 回だけ止める。止めるのが先だと、止められた古い
     launch が締め（settle）で先に盤面を進め、ここの保存が版の衝突で落ちた（実測 2026-09-25: 生きている launch への relaunch が
     4 回とも exit 2）。保存が先なら、古い launch の締めは置き場の不一致で『起こし直された古い試行』に言い換わる。止めた直後に
@@ -1414,11 +1498,7 @@ def retire_out(old, n):
         old.replace(old.with_name(old.name + f".stale-a{n}"))
 
 
-def cmd_record(a):
-    print(dump(Board(resolve_dir(a)).record))
-
-
-# ---------------------------------------------------------------- init
+# ---------------------------------------------------------------- intake
 def cmd_intake(a):
     """手の口: 1 行を残す（--what）・まだ手渡していない行を書き出す（--export）・届け先へ送る（--send）・届け先を決める（--set-url）。"""
     d = intake.data_dir(a.data_dir)
@@ -1427,7 +1507,6 @@ def cmd_intake(a):
                      "（プラグインとして入れていない engine を直に呼んだ回）")
     derived = intake.data_dir()
     if derived and derived != d:
-        # 自動の行（最上段の口）は導いた置き場に書くので、渡された置き場と違えば export は自動の行を拾わない
         print(f"注意: 自動の記録の置き場 {derived} と、渡された置き場 {d} が違う——自動の行は {derived} に在る")
     if a.what is not None:
         if not a.what.strip():
@@ -1466,28 +1545,7 @@ def cmd_intake(a):
     print(f"ok {len(rows)} 件を送った（HTTP {status}）")
 
 
-def resolve_dir(a):
-    # **綴りは絶対に揃える。** 相対の --dir で作った run は instance の item_file にも相対の綴りが残り、
-    # 別の cwd から開き直した回に load_item が読めずに落ちる（扇の重複排除が正本を読むようになって
-    # next も同じ経路を通る）。盤面の外から渡る唯一の入口がここなので、ここで 1 度だけ解決する
-    if getattr(a, "dir", None):
-        return str(pathlib.Path(a.dir).resolve())
-    gd = git("rev-parse", "--git-dir")
-    if gd:
-        base = pathlib.Path(gd.strip()).resolve() / "graphloops"
-        found = {}
-        for p in sorted(base.glob("*/current")):
-            t = p.read_text(encoding="utf-8").strip()
-            if pathlib.Path(t).is_dir():
-                found[p.parent.name] = t
-        if len(found) > 1:
-            # 別のループの run に記録が入る取り違えを黙って起こさない——曖昧なら指させる
-            die("--dir が無く、current を持つループが複数ある: " + ", ".join(f"{k} → {v}" for k, v in found.items()) + "——--dir で指せ（init の出力の dir）")
-        if found:
-            return next(iter(found.values()))
-    die("--dir が無く、current も見つからない（init したか？）")
-
-
+# ---------------------------------------------------------------- init
 def cmd_init(a):
     graph = a.graph or str(PLUGIN_ROOT / "graphs" / f"{a.loop}.json")
     g, why = load_graph(graph)
@@ -1551,10 +1609,13 @@ def cmd_init(a):
         fn(inputs)   # ループ固有の入力の値（flow・gates 等）は置き場を作る前に確かめる——拒んでも空の盤面を残さない
     bad = choice_input_errors(g, inputs)
     if bad:
-        die("; ".join(bad))
-    ignored = undeclared_inputs(g, [kv.partition("=")[0] for kv in a.input or []])
+        die("; ".join(bad), 1)   # 1＝直して呼び直す（loop.py の終了コードの約束。rules の Reject と同じ）
+    given = [kv.partition("=")[0] for kv in a.input or []]
+    ignored = undeclared_inputs(g, given)
     notes = graph_notes + [f"--input {k}=… は graph の inputs に宣言が無く、どの節も rules も読まない（効かない）——綴りを確かめよ"
                            f"（宣言済みの入力: {', '.join(sorted(g.get('inputs') or {}))}）" for k in ignored]
+    notes += [f"--input {k}=… は rules が埋める入力（graph の inputs の by: rules）で、渡した値は上書きされる（効かない）"
+              for k in rules_owned_inputs(g, given)]
     for n in notes:
         print(f"注意: {n}", file=sys.stderr)
     d.mkdir(parents=True, exist_ok=False)

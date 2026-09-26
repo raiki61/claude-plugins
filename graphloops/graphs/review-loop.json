@@ -10,7 +10,7 @@
     "merge"
    ],
    "optional": true,
-   "note": "変異の検算を合流でまとめる（init --input gates=merge）。値の意味は rules の GATES_MERGE（check_inputs が値の一致を見る）"
+   "note": "変異の検算を合流でまとめる（init --input gates=merge）。値の意味は rules の GATES_MERGE。値は init が values で確かめる"
   },
   "flow": {
    "kind": "choice",
@@ -18,7 +18,7 @@
     "spec"
    ],
    "optional": true,
-   "note": "仕様から入る（init --input flow=spec）。値の意味は rules の SPEC_FLOW（check_inputs が値の一致を見る）"
+   "note": "仕様から入る（init --input flow=spec）。値の意味は rules の SPEC_FLOW。値は init が values で確かめる"
   },
   "review_md": {
    "kind": "file",
@@ -44,8 +44,1196 @@
   "policy_md": {
    "kind": "file",
    "by": "rules",
+   "input": true,
    "optional": true,
    "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める"
+  }
+ },
+ "state_schema": {
+  "type": "object",
+  "additionalProperties": false,
+  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。鍵の名前は rules の LOOP_KEYS と graphcheck が両向きで突き合わせ、条件・節の reads・プロンプトの穴が読む path は graphcheck がこの木で最後の欄まで照らす。engine は盤面を保存するときにこの形で照らし、外れを state.loop_drift に残す（止めない）。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）",
+  "properties": {
+   "diff_file": {
+    "type": "string",
+    "description": "振り分けの候補: A 素材集めの出口（p4.assemble の後は修正後の差分）"
+   },
+   "changed_files": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "振り分けの候補: A 素材集めの出口"
+   },
+   "changed_files_file": {
+    "type": "string",
+    "description": "振り分けの候補: A 素材集めの出口"
+   },
+   "diff_stat": {
+    "type": "string",
+    "description": "振り分けの候補: C1 節の出力に置ける"
+   },
+   "diff_lines": {
+    "type": "integer",
+    "description": "振り分けの候補: A 独立の目の入口の出口"
+   },
+   "reviewed_revision": {
+    "type": "string",
+    "description": "振り分けの候補: A 素材集めの出口（inputs.review_rev と同じ値）"
+   },
+   "head_revs": {
+    "type": "object",
+    "patternProperties": {
+     "^[0-9]+$": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる（周 → 周の頭の版）"
+   },
+   "tree_before": {
+    "type": "object",
+    "properties": {
+     "porcelain": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "stash": {
+      "type": "string"
+     },
+     "tree": {
+      "type": "string"
+     },
+     "diff_sha": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: C1 節の出力に置ける（diff_sha は旧い盤面の形）"
+   },
+   "retaken_for_reviews": {
+    "type": "object",
+    "properties": {
+     "file": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: C4 書くだけで誰も読まない"
+   },
+   "last_seen": {
+    "type": "object",
+    "properties": {
+     "base_determination": {
+      "type": "integer"
+     },
+     "local_checks": {
+      "type": "integer"
+     },
+     "parallel_pr": {
+      "type": "integer"
+     },
+     "prior_decisions": {
+      "type": "integer"
+     },
+     "local_review": {
+      "type": "integer"
+     },
+     "consistency": {
+      "type": "integer"
+     },
+     "bypass": {
+      "type": "integer"
+     },
+     "hygiene": {
+      "type": "integer"
+     },
+     "external_standards": {
+      "type": "integer"
+     },
+     "procedure_trace": {
+      "type": "integer"
+     },
+     "gate_efficacy": {
+      "type": "integer"
+     },
+     "test_double_fidelity": {
+      "type": "integer"
+     },
+     "main_path_observation": {
+      "type": "integer"
+     },
+     "provenance": {
+      "type": "integer"
+     },
+     "fix_closure": {
+      "type": "integer"
+     }
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる（素材 → 周）"
+   },
+   "last_material": {
+    "type": "object",
+    "properties": {
+     "base_determination": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "local_checks": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "parallel_pr": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "prior_decisions": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "local_review": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "consistency": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "bypass": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "hygiene": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "external_standards": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "procedure_trace": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "gate_efficacy": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "test_double_fidelity": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "main_path_observation": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "provenance": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     },
+     "fix_closure": {
+      "type": "object",
+      "properties": {
+       "status": {
+        "type": "string"
+       },
+       "count": {
+        "type": "integer"
+       },
+       "detail": {
+        "type": "string"
+       },
+       "checked": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "from_round": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる（素材 → 素材）"
+   },
+   "last_review": {
+    "type": "object",
+    "patternProperties": {
+     "^R[0-9]+$": {
+      "type": "object",
+      "properties": {
+       "round": {
+        "type": "integer"
+       },
+       "status": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "type": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる（R → 最後の本物の判定）"
+   },
+   "block_counts": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "n": {
+       "type": "integer"
+      }
+     }
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる"
+   },
+   "closed_keys": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる"
+   },
+   "prev_blocks": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる（名前に反して run の通しの [block] の key）"
+   },
+   "defer_ledger": {
+    "type": "object",
+    "patternProperties": {
+     "^": {
+      "type": "object",
+      "properties": {
+       "reason": {
+        "type": "string"
+       },
+       "round": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる（単位の key → 保留の理由）"
+   },
+   "validator_outputs": {
+    "type": "object",
+    "patternProperties": {
+     "^[0-9]+$": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: C1 p4.record の出力に在る（周 → 検証器の出力）"
+   },
+   "lines_at_r1": {
+    "type": "integer",
+    "description": "振り分けの候補: C2 履歴から派生できる"
+   },
+   "prev_own_precedents": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "unit_key": {
+       "type": "string"
+      },
+      "precedent": {
+       "type": "object"
+      }
+     }
+    },
+    "description": "振り分けの候補: A 周の締めの出口（前の周の修正役が自分で当たった先行例。p2.history を省いた周の分は持ち越す）"
+   },
+   "prev_questions": {
+    "type": "array",
+    "items": {
+     "type": "object"
+    },
+    "description": "振り分けの候補: C2 前の周の記録の questions"
+   },
+   "prev_units": {
+    "type": "array",
+    "items": {
+     "type": "object"
+    },
+    "description": "振り分けの候補: C2 前の周の記録の units"
+   },
+   "prev_scalars": {
+    "type": "object",
+    "patternProperties": {
+     "^": {
+      "type": "number"
+     }
+    },
+    "description": "振り分けの候補: C2 前の周の記録の scalars"
+   },
+   "prev_one_shot": {
+    "type": [
+     "object",
+     "null"
+    ],
+    "description": "振り分けの候補: C2 前の周の判定の one_shot"
+   },
+   "prev_declared_faces": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "key": {
+       "type": "string"
+      },
+      "from": {
+       "type": "string"
+      },
+      "how": {
+       "type": "string"
+      },
+      "unverified": {
+       "type": "boolean"
+      }
+     }
+    },
+    "description": "振り分けの候補: C2 前の周の宣言の穴（修正・手直し・線・TDD）"
+   },
+   "prev_rejudge": {
+    "type": [
+     "object",
+     "null"
+    ],
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "text": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: C2 前の周の異議"
+   },
+   "prev_fix_files": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "振り分けの候補: A 周の締めの出口（前の周の P3 が触ったファイル）"
+   },
+   "request_fixed_at": {
+    "type": "integer",
+    "description": "振り分けの候補: B run 全体の状態（入口の周が終わった周）"
+   },
+   "escalated": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "reburn_count": {
+      "type": "integer"
+     },
+     "block_counts": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     },
+     "why": {
+      "type": "string"
+     },
+     "effects": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "description": "振り分けの候補: B run 全体の状態（一方向の旗。下げるのは人の手当てだけ）"
+   },
+   "facts_to_add": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "振り分けの候補: C1 stop.premise_check の返答に在る"
+   },
+   "r2_refire_forced": {
+    "type": "boolean",
+    "description": "振り分けの候補: C2 前の周の facts_to_add から派生できる"
+   },
+   "engine_zero": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "keys": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "description": "振り分けの候補: A 判定の出口"
+   },
+   "rejudge_requested": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "text": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: A 修正の出口"
+   },
+   "rejudge_rounds": {
+    "type": [
+     "object",
+     "integer"
+    ],
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "n": {
+      "type": "integer"
+     }
+    },
+    "description": "振り分けの候補: C2 engine の周の記録から派生できる（整数は旧い盤面の形）"
+   },
+   "wrote_refs_reads": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     }
+    },
+    "description": "振り分けの候補: A 修正の出口"
+   },
+   "coverage_after": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     }
+    },
+    "description": "振り分けの候補: A 修正の出口"
+   },
+   "fix_delta": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "file": {
+      "type": "string"
+     },
+     "files": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "rev": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: A 修正差分の審査の出口（1 回目）"
+   },
+   "fix_delta2": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "file": {
+      "type": "string"
+     },
+     "files": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "rev": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: A 修正差分の審査の出口（2 回目）"
+   },
+   "delta_owed": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "from": {
+         "type": "string"
+        },
+        "how": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: C1 ブロックの中だけ（1 回目）"
+   },
+   "delta_owed2": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "from": {
+         "type": "string"
+        },
+        "how": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: C1 ブロックの中だけ（2 回目）"
+   },
+   "open_units": {
+    "type": "integer",
+    "description": "振り分けの候補: A 独立の目の入口の出口"
+   },
+   "r1_refire": {
+    "type": "boolean",
+    "description": "振り分けの候補: A 独立の目の入口の出口"
+   },
+   "r2_refire": {
+    "type": "boolean",
+    "description": "振り分けの候補: C1 ブロックの中だけ"
+   },
+   "ledger_changed": {
+    "type": "boolean",
+    "description": "振り分けの候補: C1 ブロックの中だけ"
+   },
+   "lines_ratio": {
+    "type": [
+     "number",
+     "null"
+    ],
+    "description": "振り分けの候補: C1 ブロックの中だけ"
+   },
+   "purpose_known": {
+    "type": "boolean",
+    "description": "振り分けの候補: A 独立の目の入口の出口"
+   },
+   "purpose_unusable": {
+    "type": [
+     "string",
+     "null"
+    ],
+    "description": "振り分けの候補: A 独立の目の入口の出口"
+   },
+   "diff_lines_by_round": {
+    "type": "object",
+    "patternProperties": {
+     "^[0-9]+$": {
+      "type": "integer"
+     }
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる（周 → 行数）"
+   },
+   "drift_notes": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "text": {
+       "type": "string"
+      }
+     }
+    },
+    "description": "振り分けの候補: C2 履歴から派生できる"
+   },
+   "purpose_review_stale": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "why": {
+       "type": "string"
+      }
+     }
+    },
+    "description": "振り分けの候補: C3 記録に直接書けば要らない"
+   },
+   "outcome": {
+    "type": "string",
+    "description": "振り分けの候補: B run 全体の状態（engine の status と重なる）"
+   },
+   "stop_reason": {
+    "type": "string",
+    "description": "振り分けの候補: B run 全体の状態"
+   },
+   "cold_check": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "verdict": {
+      "type": "string"
+     },
+     "stops": {
+      "type": "integer"
+     },
+     "guessed": {
+      "type": "integer"
+     },
+     "decidable": {
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "description": "振り分けの候補: C1 report.cold_check の返答に在る"
+   },
+   "gates_cut": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "from": {
+      "type": "string"
+     },
+     "rev": {
+      "type": "string"
+     },
+     "files": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "result": {
+      "type": "string"
+     },
+     "patch": {
+      "type": "string"
+     },
+     "reply_schema": {
+      "type": "object"
+     }
+    },
+    "description": "振り分けの候補: C1 ブロックの中だけ（線の範囲と結果の置き場）"
+   },
+   "lanes": {
+    "type": "object",
+    "patternProperties": {
+     "^[0-9a-f]{40,64}$": {
+      "type": "object",
+      "properties": {
+       "round": {
+        "type": "integer"
+       },
+       "from": {
+        "type": "string"
+       },
+       "rev": {
+        "type": "string"
+       },
+       "result": {
+        "type": "string"
+       },
+       "patch": {
+        "type": "string"
+       },
+       "state": {
+        "type": "string"
+       },
+       "why": {
+        "type": "string"
+       },
+       "delivered": {
+        "type": "boolean"
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: B run 全体の状態（版 → 線の台帳）"
+   },
+   "lanes_bad_delivered": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "振り分けの候補: B 線の台帳の読めない行を判定へ渡した印"
+   },
+   "lane_merge": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "merged": {
+      "type": "array"
+     },
+     "conflicts": {
+      "type": "array"
+     }
+    },
+    "description": "振り分けの候補: A 検算の出口"
+   },
+   "mutation_decl": {
+    "type": "object",
+    "properties": {
+     "declared": {
+      "type": "boolean"
+     },
+     "text": {
+      "type": "string"
+     }
+    },
+    "description": "振り分けの候補: 未分類（対象リポジトリの変異の宣言の読み取り）"
+   },
+   "fix_units": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "label": {
+         "type": "string"
+        },
+        "disposition": {
+         "type": "string"
+        },
+        "owed": {
+         "type": "boolean"
+        },
+        "has_class_query": {
+         "type": "boolean"
+        }
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: C1 ブロックの中だけ（修正の側の節に見せる単位の行と義務の印。人が関所で単位を外すと組み直す）"
+   },
+   "final_gate_empty_ok": {
+    "type": [
+     "string",
+     "null"
+    ],
+    "description": "振り分けの候補: B 人の答えから来る"
+   },
+   "flow": {
+    "type": "string",
+    "description": "振り分けの候補: B run の入力の写し"
+   },
+   "gates": {
+    "type": "string",
+    "description": "振り分けの候補: B run の入力の写し"
+   },
+   "request_wheres": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "振り分けの候補: 未分類（判定から入る周の P0 の範囲の読み口）"
+   },
+   "policy_change": {
+    "type": "object",
+    "description": "振り分けの候補: 未分類（人の方針の文書の変化。関所の答えで消える）"
+   },
+   "spec_pending": {
+    "type": "object",
+    "properties": {
+     "requirements": {
+      "type": "array"
+     },
+     "acceptance": {
+      "type": "array"
+     },
+     "out_of_scope": {
+      "type": "array"
+     }
+    },
+    "description": "振り分けの候補: C1 仕様の道の中だけ"
+   },
+   "spec_changed": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "file": {
+       "type": "string"
+      },
+      "from": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "to": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     }
+    },
+    "description": "振り分けの候補: C1 仕様の道の中だけ"
+   },
+   "in_round_answers": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "node": {
+       "type": "string"
+      },
+      "answer": {
+       "type": "string"
+      },
+      "note": {
+       "type": "string"
+      },
+      "kinds": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: B 周の途中の人の答え"
+   }
   }
  },
  "plugin": "convergence-loops",
@@ -392,7 +1580,7 @@
     "policy",
     "precedent"
    ],
-   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。人に聞く語の正本は rules の HUMAN_FACE_KINDS。precedent（案が採る先行例の出典が実在しない・単位の問題に当たっていない）は事前審査だけの語——判定者の先行例は修正差分のレビューに渡らない。事前審査だけの語の一覧の正本は rules の PLAN_ONLY_FACE_KINDS"
+   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。人に聞く語の正本は rules の HUMAN_FACE_KINDS。precedent も事前審査だけの語で、事前審査だけの語の一覧と理由の正本は rules の PLAN_ONLY_FACE_KINDS"
   },
   "delta_review_reply": {
    "type": "object",
@@ -3041,6 +4229,8 @@
     "loop.prev_blocks",
     "loop.defer_ledger",
     "record.process.human_answers",
+    "record.process.human_items",
+    "loop.prev_own_precedents",
     "out.p0.purpose.purpose_text",
     "record.units",
     "record.questions",
@@ -3312,11 +4502,27 @@
     "../prompts/policy.md"
    ]
   },
+  "p2.fix_units": {
+   "stage": "P2",
+   "run_by": "driver",
+   "builtin": "fix_units",
+   "deps": [
+    "p2.history"
+   ],
+   "source": "P2 ＞ 修正の側に見せる単位の行を組む",
+   "does": "この周の単位を record.units と同じ順で短い行（key・label・disposition と、直す義務の印 owed・判定者が母数の問いを持つかの印 has_class_query）にし、1 本の値（loop.fix_units）に組む。義務の印は _owed_units から引く。修正案（p2.fix_plan）と修正（p3.fix。TDD の版ではテストの段 p3.tdd_tests も）はこの値だけを単位の一覧として貼り、受け付けも同じ値の owed で答え合わせをする。単位の長い本文は貼らず、指示書が記録の置き場を指す。cond を持たない——単位の無い周もその周の値を置き、前の周の行が貼られない",
+   "note": "同じ単位の表を record.units と判定の写し process.diagnosis の 2 つの穴から全文で貼り、義務の条件を指示書の散文で写していた（写しの 2 か所は人に諮っている条件を落としていた）。修正の指示書は 6.4〜11 万バイトあった（2026-09-26）",
+   "outputs": [
+    "loop.fix_units"
+   ],
+   "reads": []
+  },
   "p2.fix_plan": {
    "stage": "P2",
    "run_by": "writer",
    "deps": [
-    "p2.history"
+    "p2.history",
+    "p2.fix_units"
    ],
    "cond": "units_open",
    "source": "P2 ＞ 10. 修正案（書く前に出す）",
@@ -3327,7 +4533,7 @@
    "note": "修正の良し悪しを見る段は全部『直した後』に在り、修正が作った穴は次の周に新しい指摘として挙がっていた（実測 2026-09-24: 3 周目の指摘のうち 8 件が 2 周目の修正の産物）。書く前の案を別の目に叩かせる",
    "prompt_file": "../prompts/review-loop/p2.fix_plan.md",
    "reads": [
-    "record.units",
+    "loop.fix_units",
     "record.process.diagnosis",
     "record.process.precedents",
     "inputs.cwd",
@@ -3341,7 +4547,7 @@
     {
      "at": "plan[].unit_keys[]",
      "from": [
-      "record.units"
+      "loop.fix_units.rows"
      ]
     }
    ],
@@ -3661,17 +4867,18 @@
     "p2.history",
     "p2.plan_review",
     "p3.lane_merge",
-    "p2.human_gate"
+    "p2.human_gate",
+    "p2.fix_units"
    ],
    "source": "P3: 修正（根本ユニット単位・閉鎖の実証・fork の出どころは待つ）",
-   "does": "[block] と do-now を根本ユニット単位で直す。導線の死を注記で直さない。fork の origin / depends に挙がったユニットはこの周に実装しない（待つのはループを止めることではない——他を直して次の周へ）。手を動かした結果が機構の新設に及んだと気づいたら止める。修正ごとに閉鎖を実証——不変条件を共有する箇所を先に全部挙げ、1 箇所ずつ赤→緑（『1 つ試して赤だった』で止めない）",
+   "does": "[block] と do-now を根本ユニット単位で直す。導線の死を注記で直さない。義務の印（loop.fix_units の owed）が偽の開いた単位——人に諮っている fork の出どころ・depends——はこの周に実装しない（待つのはループを止めることではない——他を直して次の周へ）。手を動かした結果が機構の新設に及んだと気づいたら止める。修正ごとに閉鎖を実証——不変条件を共有する箇所を先に全部挙げ、1 箇所ずつ赤→緑（『1 つ試して赤だった』で止めない）",
    "outputs": [
     "materials.fix_closure"
    ],
    "note": "見つけた周の記録は判定どおり書く（直したことは fix_closure に書く）",
    "prompt_file": "../prompts/review-loop/p3.fix.md",
    "reads": [
-    "record.units",
+    "loop.fix_units",
     "record.questions",
     "record.process.diagnosis",
     "inputs.review_md",
@@ -3695,13 +4902,13 @@
     {
      "at": "changes[].unit_key",
      "from": [
-      "record.units"
+      "loop.fix_units.rows"
      ]
     },
     {
      "at": "not_done[].unit_key",
      "from": [
-      "record.units"
+      "loop.fix_units.rows"
      ]
     }
    ],
@@ -6102,7 +7309,7 @@
   "p1.external_standards"
  ],
  "overview": "コード変更を、採点役と実装役を分けて収束まで回す。P0 で基準点・目的・前提・並行 PR・先行議論を固定し（once）、P1 で 9 系統の素材を新しい context の役が集め（機械が前後で作業ツリーを突き合わせ、走らせなかった欄も機械が埋める）、P2 で judge が根本ユニットとラベルと問いの台帳を確定し（2 周目以降は同じ judge に履歴と前の台帳を後から渡す）、P2 の後に writer が修正案を出して別の judge が書く前に穴を予測し、P3 で writer が [block] と do-now を直して閉鎖を実証し（予測された穴には key ごとに答える）、直後にこの周の修正だけの差分を inspector が見て（塞いだと言う穴の検算も）、挙がった穴を同じ周で直し、手直しにもう 1 回だけ同じレビューを当て、残した穴は次の周の判定者が 1 件ずつ振り分け、修正と手直しが済んだ版で変異の検算とテストの書き足しを並行の線として背景で立て（周の締めは待たない。線の結果は書き終えた後の周の頭と修正の前に合流する）、P4 で CI と scalar を取り、機械が R1/R2 の再発火と [block] 0 を数え、R1〜R4 の独立の目を回し、周の記録を組んで検証器（review-record.py）にディレクトリごと渡す。検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）を機械が読んで次の周か停止か人に聞く。収束を言う前に、最終のコードで変異の検算を撃ち直し、見逃しが全部等価でテスト一式が緑のときだけ収束する。今ある能力を減らす・狭める変更と人の方針（run をまたいで効く人の決まり。在れば各節に届く）とぶつかる変更は、修正の前と周の記録の前の関所で人に聞く（役は代償として決めない）。上限 5 周。writer は判定を一切しない",
- "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop の鍵（rules の LOOP_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
+ "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop の鍵（rules の LOOP_KEYS と、graph の state_schema の木で最後の欄まで）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
  "verdict_paths": [
   "reviews",
   "units",

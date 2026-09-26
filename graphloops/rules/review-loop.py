@@ -51,7 +51,7 @@ def on_init(b, args):
     b.state["inputs"]["scripts_dir"] = str(pathlib.Path(b.state["validator"]).parent) if b.state.get("validator") else None
     b.state["inputs"]["rounds_dir"] = str(b.dir / "rounds")
     # 条件の関数は inputs を読めない（条件の文脈は record・out・prev・cur・round・rd・loop だけ）ので、選んだ流れを loop に写す。
-    # 値は init の後に変わらない（inputs は init で固まる）。値は check_inputs が置き場を作る前に確かめてある
+    # 値は init の後に変わらない（inputs は init で固まる）。値は engine が置き場を作る前に graph の values で確かめてある
     # flow の写しは、選べる流れの選び方を 1 つに揃える問い（問いの台帳の fork: 仕様の道を extends の版にするか）の決着で、
     # flow の入力ごと消える
     inputs = b.state["inputs"]
@@ -60,13 +60,12 @@ def on_init(b, args):
     if inputs.get("gates") is not None:
         b.loop_state["gates"] = inputs["gates"]
     mutation_decl(b)
-    # 人の方針の文書: init の時点の版を固定し（sha と写し）、関所（human_gate）と仕上げが変わっていないかを照らす
     b.record["process"]["policy"] = {**policy_input.resolve(b, git, Reject), "amendments": []}
 
 
 def check_inputs(inputs):
-    """init の入口（置き場を作る前）で、選ぶ入力の鍵と値を確かめる——綴り違いの鍵や知らない値を既定（今の流れ）に倒さない。
-    仕様の道（flow=spec）と、変異の検算を合流でまとめる選択（gates=merge）"""
+    """init の入口（置き場を作る前）で、選ぶ入力の鍵の綴り違いを確かめる——綴り違いの鍵を既定（今の流れ）に倒さない。
+    仕様の道（flow=spec）と、変異の検算を合流でまとめる選択（gates=merge）。値は graph の inputs の values を engine が確かめる"""
     import difflib
     chosen = {"flow": SPEC_FLOW, "gates": GATES_MERGE}
     for k in inputs:
@@ -75,10 +74,6 @@ def check_inputs(inputs):
         near = difflib.get_close_matches(k, chosen, n=1, cutoff=0.75) if k not in chosen else []
         if near:
             raise Reject(f"--input {k}=… は鍵 {near[0]} の綴り違いに見える（知らない鍵は既定の流れに倒れる）——{near[0]}={chosen[near[0]]} と書け")
-    for k, want in chosen.items():
-        v = inputs.get(k)
-        if v is not None and v != want:
-            raise Reject(f"--input {k}={v!r} は知らない値（使えるのは {k}={want}。今の流れなら {k} を渡さない）")
 
 
 # ---------------------------------------------------------------- 人の修正依頼と、判定から入る入口（R12）
@@ -258,6 +253,13 @@ def on_new_round(b):
         ls["r2_refire_forced"] = True
     # 前の周の writer の異議（rejudge_requested）は次の周の p2.history が再審する
     ls["prev_rejudge"] = ls.pop("rejudge_requested", None)
+    # 修正役が自分で当たった先行例は修正の後に書かれ、事前審査にも修正差分の審査（道具に web が無い）にも渡らない——
+    # 出典を開ける次の周の判定役（p2.history）へ渡す。p2.history は省ける節なので、省いた周に渡っていた行は持ち越す
+    # （上書きすると、その行は誰にも確かめられずに消える）
+    unread = [] if b.output_of_round("p2.history", b.round - 1) else ls.get("prev_own_precedents") or []
+    ls["prev_own_precedents"] = unread + [{"unit_key": c["unit_key"], "precedent": c["precedent"]}
+                                          for c in (b.output_of_round("p3.fix", b.round - 1) or {}).get("changes") or []
+                                          if c.get("precedent") and not c["precedent"].get("from_judge_row")]
     # 前の周に『残す』と宣言した穴と、もう一度は見ていない手直しを、次の周の判定者へ渡す（p2.history が 1 件ずつ振り分ける）。
     # 渡さないと記録に残るだけで、次の周の全体レビューがたまたま拾い直すのを待つ形になる
     # 並行の線（p3.delta_gates）が書き終えた結果のうち、線の中で閉じなかった見逃しもここで渡す——線は周を越えて走るので、
@@ -677,7 +679,7 @@ LANE_ROW = ("round", "result", "state")   # patch は台帳に無い——任せ
 # （p3.delta_gates）も最後の関門（p4.final_gates）も条件外で閉じ、収束の手前で止まる（converge の gates_deferred）——検算は消さず、
 # 合流した版を gates=merge 無しの run で回して撃つ（GitHub の merge queue と同じ形: 重い検査はまとめた版に対して走らせる）。
 # P1 の検算も外すのは人の決定（2026-09-25『変異テストは並べた run の中では撃たず、合流した版でまとめて撃つ』）
-GATES_MERGE = "merge"   # inputs.gates の値。これ以外の値は init で拒む（check_inputs）
+GATES_MERGE = "merge"   # inputs.gates の値（graph の inputs.gates.values と一致する——simulate_review の test_gates_merge が縛る）
 GATES_MERGE_WHY = "変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
 
 
@@ -736,7 +738,32 @@ def mutation_decl(b):
         err = (d or {}).get("mutation_error") or (d or {}).get("error")
         if err:
             text += f"（宣言は在るが mutation の段を読めない: {err}）"
-    b.loop_state["mutation_decl"] = {"declared": bool(m), "text": text}
+    unknown = (d or {}).get("unknown") or []
+    if unknown:
+        text += f"（宣言にこの engine が読まない最上位の段 {unknown} が在る——mutation の綴り違いなら、在りかは宣言の側に在る）"
+    b.loop_state["mutation_decl"] = {"declared": bool(m), "text": text, **({"unknown": unknown} if unknown else {})}
+
+
+def _mutation_ran(b):
+    """この run で変異の実行器を撃つ節（P1 のゲートの検算・線・最後の関門）がどれか出たか。条件外の節は出力を持たない"""
+    return bool(b.loop_state.get("lanes")) or any(n in b.state.get("outputs", {}) for n in ("p1.gate_efficacy", "p4.final_gates"))
+
+
+def notices(b):
+    """機械が知った『人が見るべき事実』の一覧（記録の process.notices へ。報告の人向けの項目が 1 項ずつ挙げる）。
+    写しを持たず、呼ぶたびに正本（engine の init の知らせ・宣言の読み・線の台帳）から組み直す——宣言を直せば次に組むとき消える"""
+    out = [f"init: {n}" for n in b.state.get("notes") or []]
+    md = b.loop_state.get("mutation_decl") or {}
+    if md.get("unknown"):
+        out.append(f"宣言 {DECL_NAME} にこの engine が読まない最上位の段 {md['unknown']} が在る——綴り違いなら宣言を直せ"
+                   "（知っている段は読んで走らせた）")
+    if md and not md.get("declared") and _mutation_ran(b):
+        out.append(f"宣言 {DECL_NAME} に mutation の段が無い——変異の検算の役は対象リポジトリの側を探して撃った。宣言に足せば"
+                   "毎回探さずに済む（役が撃った呼び方は、ゲートの検算の素材と記録の process.lanes に在る）")
+    if b.loop_state.get("outcome") != "converged":   # 収束した run の最後の線は最後の関門が BASE から撃ち直している
+        out += [f"変異の検算の線 r{r['round']}@{r['rev'][:12]} の結果がまだ来ていない（running）——待つか、止めて線の台帳に書くか"
+                for r in lane_summary(b) if r["state"] == "running" and r.get("arms") is None and not r.get("errors")]
+    return out
 
 
 def _lane_schema(b):
@@ -760,7 +787,7 @@ def gates_cut_nonempty(v):
 
 @cond_reads("loop.gates")
 def gates_merge(v):
-    """変異の検算を合流でまとめる run か（条件の部品。lane_due・final_gate_due・gate_efficacy_due が読む）"""
+    """変異の検算を合流でまとめる run か（条件の部品）"""
     got = v("loop.gates", None)
     return got == GATES_MERGE, (GATES_MERGE_WHY if got == GATES_MERGE else "変異の検算をこの run で撃つ（init --input gates=merge が無い）")
 
@@ -898,7 +925,7 @@ def lane_merge(b, nid):
     ls = b.loop_state
     merged, conflicts = [], []
     for rev, lane in _lanes(b)[0]:
-        if lane["state"] != "running":   # 止めた線（abandoned）に後から届いた結果も重ねない
+        if lane["state"] != "running":
             continue
         out, errs = _lane_result(b, lane)
         if out is None and not errs:
@@ -928,7 +955,6 @@ def lane_summary(b):
     good, bad = _lanes(b)
     for rev, lane in good:
         out, errs = (None, []) if lane["state"] == "abandoned" else _lane_result(b, lane)
-        # arms＝撃てた腕の本数（結果がまだ無い・使えない・止めた線は None）——0 本と見逃し 0 本を分ける
         rows.append({"round": lane["round"], "rev": rev, "state": lane["state"],
                      "arms": len(out.get("arms") or []) if out and not errs else None,
                      "open": [r["key"] for r in (out or {}).get("handled") or [] if r["handled"] in LANE_OPEN] if not errs else [],
@@ -1001,8 +1027,7 @@ def _final_gate_problems(b):
 FINAL_GATE_EMPTY = "最後の関門が撃った腕が 0 本——0 本のまま収束してよいかを人に諮る"
 
 
-# このループが節に書く鍵（graphcheck の検査 15 が engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と合わせて閉じた集合にする）。
-# NODE_KEYS は rules か graphcheck が読む鍵、NODE_NOTE_KEYS は人が読む説明の鍵
+# このループが節に書く鍵（意味と検査 15 の組み方は engine の schema の ENGINE_NODE_KEYS の注記）
 NODE_KEYS = frozenset({"materials", "na_self_ok", "na_reason", "carry_reason", "result_schema"})
 NODE_NOTE_KEYS = frozenset({"inputs", "enforced_by", "escalate_note", "must_run_in_round_1", "na_reason_note", "refire_when"})
 
@@ -1241,23 +1266,23 @@ def r2_premise_invalid(v):
     return st == "premise-invalid", f"R2 の判定は {st}"
 
 
-# rules が盤面の loop（b.loop_state）に持つ鍵の宣言——loop の鍵の正本。条件の関数が loop.<鍵> を読むとき、graphcheck が
-# ここと突き合わせる（綴り違いを回す前に落とす）。graph の節の outputs に書く loop.<鍵> もここに在ること（graphcheck）。
-# 台本（simulate_review）が両向きを確かめる: 回した盤面の鍵が全部ここに在り、ここの鍵が全部 rules のどこかで書かれている
-# ——宣言だけ残った古い鍵を default 付きで読む形を残さない。修正差分の往復の鍵は DELTA_PASSES から引く
+# rules が盤面の loop（b.loop_state）に持つ鍵の名前の宣言。**形の正本は graph の state_schema** で、graphcheck が両者の鍵を
+# 両向きで突き合わせ、条件の関数・節の reads と outputs・プロンプトの穴が読む loop.<…> を state_schema の木で最後の欄まで照らす。
+# 台本（simulate_review）が rules の書き込みの字面と両向きを確かめる: 書く鍵が全部ここに在り、ここの鍵が全部 rules のどこかで
+# 書かれている——宣言だけ残った古い鍵を default 付きで読む形を残さない。修正差分の往復の鍵は DELTA_PASSES から引く
 LOOP_KEYS = frozenset({
     "block_counts", "changed_files", "changed_files_file", "closed_keys", "cold_check", "coverage_after", "defer_ledger",
     "diff_file", "diff_lines", "diff_lines_by_round", "diff_stat", "drift_notes", "engine_zero", "escalated", "facts_to_add",
-    "final_gate_empty_ok", "flow", "gates", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "lanes_bad_delivered", "last_material", "last_review", "last_seen",
-    "ledger_changed", "lines_at_r1", "lines_ratio", "mutation_decl", "open_units", "outcome", "prev_blocks", "prev_declared_faces",
-    "prev_fix_files", "prev_one_shot", "prev_questions", "prev_rejudge", "prev_scalars", "prev_units", "purpose_known",
+    "final_gate_empty_ok", "fix_units", "flow", "gates", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "lanes_bad_delivered", "last_material", "last_review", "last_seen",
+    "ledger_changed", "lines_at_r1", "lines_ratio", "mutation_decl", "open_units", "outcome", "policy_change", "prev_blocks", "prev_declared_faces",
+    "prev_fix_files", "prev_one_shot", "prev_own_precedents", "prev_questions", "prev_rejudge", "prev_scalars", "prev_units", "purpose_known",
     "purpose_review_stale", "purpose_unusable", "r1_refire", "r2_refire", "r2_refire_forced", "rejudge_requested",
     "rejudge_rounds", "request_fixed_at", "request_wheres", "retaken_for_reviews", "reviewed_revision", "spec_changed",
     "spec_pending", "stop_reason", "tree_before", "validator_outputs", "wrote_refs_reads",
 }) | {k for p in DELTA_PASSES.values() for k in (p.state_key, p.owed_key)}
 # 記録の欄のうち rules が writes の外で書く物（add が書く入口の印・依頼の一覧・止める口 on_stop が書く止めた所と理由）——条件が record.<欄> を読むとき、完全一致で照らす
 RECORD_KEYS = ("process.request_entry", "process.request_findings", "process.request_history", "process.checks",
-               "process.scalars_unmeasured", "process.halted")
+               "process.scalars_unmeasured", "process.halted", "process.notices")
 ENTRY_OFF = {"record.process.request_entry": None}   # 入口の印を外す重ね書き（_entry_skipped）——印が無い文脈は _entry_marked が偽
 
 
@@ -1857,7 +1882,6 @@ def _stuck_unrouted(b, V, out):
 
 
 def _defer_ledger(b):
-    """盤面の defer 台帳（key → {reason, round}）を、検証器の述語が読む形（key → (理由, 周)）にする"""
     return {k: (v.get("reason"), v.get("round")) for k, v in (b.loop_state.get("defer_ledger") or {}).items()}
 
 
@@ -2005,11 +2029,13 @@ def record_round(b, nid, stopped_reason=None):
 
 def converge(b, nid):
     """周の締め。人に諮る（decision=ask）分岐は全部、返る口のこの 1 か所で outcome=stopped と stop_reason（問いの種類）を立てる
-    ——stop の答えでも無人の停止でも、記録から止めた理由が読める。continue の答えは on_answer が外す"""
+    ——stop の答えでも無人の停止でも、記録から止めた理由が読める。continue の答えは on_answer が外す。
+    判定で outcome が決まってから、機械の知らせを記録へ組む（報告の人向けの項目が読む）"""
     out = _converge(b, nid)
     if out.get("decision") == "ask":
         b.loop_state["outcome"] = "stopped"
         b.loop_state["stop_reason"] = ((out.get("ask") or {}).get("kinds") or [out.get("reason")])[0]
+    b.record["process"]["notices"] = notices(b)
     return out
 
 
@@ -2117,10 +2143,14 @@ SCALARS_FIXED = ("added_lines", "comment_lines", "comment_ratio_pct")   # commen
 
 def _comment_ratio(b, base, rev):
     """comment-ratio.sh <BASE> <版> の最後の scalars: 行 ——（名前 → 数, 測れなかった理由）。印字を読むだけで数え直さない"""
+    import shutil
     import subprocess
     script = pathlib.Path(b.state["inputs"].get("scripts_dir") or "") / "comment-ratio.sh"
+    # bash は PATH の順で引く。裸の名前を渡すと、Windows では CreateProcess が PATH より先にシステムのディレクトリを探し、
+    # Git の bash でなく C:\Windows\System32\bash.exe（WSL の起動口）に当たる（tests/mutate.py の BASH と同じ。実測 2026-09-26:
+    # windows-latest で comment-ratio.sh が走らず、added_lines と comment_ratio_pct が測れなかった）
     try:
-        r = subprocess.run(["bash", str(script), base, rev], cwd=_repo_root() or None, capture_output=True, text=True,
+        r = subprocess.run([shutil.which("bash") or "bash", str(script), base, rev], cwd=_repo_root() or None, capture_output=True, text=True,
                            encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
     except OSError as e:
         return {}, f"comment-ratio.sh を起こせない（{e}）"
@@ -2219,7 +2249,16 @@ def checks_reply(b, nid, launch, runs):
                  "detail": f"engine が宣言 {DECL_NAME} を走らせた: {summary} ／ " + " ／ ".join(f"{r['name']} の末尾: {r['tail'][-600:]}" for r in red)}
         else:
             m = {"status": "clean", "checked": f"engine が宣言 {DECL_NAME}（sha {launch['sha'][:12]}）の {len(runs)} 段を走らせた: {summary}"}
-        _checks_note(b, nid, by="engine", sha=launch.get("sha"),
+        # 宣言に engine の読まない最上位の段が在る: 知っている段は走らせたうえで、判定の前（p0）なら人待ちにする——綴り違い
+        # （mutations）を run の頭で捕まえる守りを、段を拒んでいた頃から減らさない（人の決定 2026-09-26）。p4.ci は人待ちを新しく立てない
+        root = None if after_judge else _repo_root()
+        unknown = ((declared_checks(root) or {}) if root else {}).get("unknown")
+        if unknown and not broken:
+            m = {"status": "awaiting_human",
+                 "reason": (f"宣言 {DECL_NAME} にこの engine が読まない最上位の段 {unknown} が在る——綴り違いなら宣言を直す、"
+                            f"意図した段なら続けてよいかを人に確かめる。知っている段は走らせた: {summary}"
+                            + (f" ／ 赤: {', '.join(r['name'] for r in red)}" if red else ""))[:1500]}
+        _checks_note(b, nid, by="engine", sha=launch.get("sha"), **({"unknown": unknown} if unknown else {}),
                      runs=[{k: r.get(k) for k in ("name", "argv", "exit", "wall_s", "out", "err")} for r in runs])
     if after_judge and m["status"] != "awaiting_human":
         V = validator_module(b)
@@ -2361,7 +2400,7 @@ def _fork_moves_forward(b, out):
 
     **義務は動ける役の手前に置く。** 最初この柵を P3（fix_covers_open_units）に置いたが、writer には
     questions を書く権限が無く、同じ周の p2 は既に done で再実行できず、p3.fix は optional でないので
-    skip もできない——正本のプロンプトが「fork の出どころは実装するな」と言う所で機械が「実装しろ」と
+    skip もできない——指示書が「fork の出どころは実装するな」と言う所で機械が「実装しろ」と
     言い、writer の手が無くなった（実測 2026-09-16: judge が [block] として名指しした）。
     questions を書けるのは p2 の節なので、ここで返させ直す。
 
@@ -2517,6 +2556,7 @@ def judge_output(b, nid, out, item):
     if unknown:
         errs.append(f"one_shot_closes に今の周の units に無い key: {unknown}")
     defer = set(b.loop_state.get("defer_ledger", {}))
+    errs += _keys_once(out["questions"], "questions")
     for i, q in enumerate(out["questions"]):
         unknown = sorted(set(q) - set(V.QUESTION_FIELDS))
         if unknown:
@@ -2599,29 +2639,62 @@ def judge_output(b, nid, out, item):
 
 def _owed_units(b):
     """今の周に直す義務の単位の key——開いた単位（検証器の is_open）から、人に諮っている fork の出どころ・depends を除いた物。
-    修正案（fix_plan_covers_units）と修正（fix_covers_open_units）が同じこの 1 本から引く（2 か所で計算していた頃は、
-    修正案の側だけ免除が抜けていた）"""
+    修正の側の節に見せる義務の印（fix_units）がこの 1 本から引き、修正案・TDD のテスト・修正の受け付けはその印から引く
+    （2 か所で計算していた頃は、修正案の側だけ免除が抜けていた）"""
     V = validator_module(b)
     exempt = set()
     for q in b.record["questions"]:
         if q.get("kind") == "fork" and q.get("status") in V.ASKING:
             exempt.add(q.get("origin"))
             exempt.update(q.get("depends", []) or [])
-    return {u["key"] for u in b.record["units"] if V.is_open(u)} - exempt
+    return {u["key"] for u in b.record["units"] if V.is_open(u)} - exempt - _human_excluded(b)
+
+
+def _human_excluded(b):
+    """この周の修正の前の関所（p2.human_gate）で、人が直す義務から外した単位の key（answer_detail が受けた exclude）"""
+    return {r["unit"] for h in (b.record.get("process") or {}).get("human_items") or []
+            if h.get("round") == b.round and h.get("node") == "p2.human_gate" and h.get("answer") == "continue"
+            for r in h.get("excluded") or []}
+
+
+def fix_units(b, nid):
+    """修正の前: 修正の側の節（修正案・TDD のテスト・修正）に見せる単位の行を 1 本の loop 値（fix_units）に組んで盤面に置く
+    （driver の builtin）。行は record.units と同じ順（engine が振る番号 no が record.units を貼っていた頃と同じになる）で、
+    短い欄と、_owed_units から引いた義務の印（owed）と、判定者が母数の問いを持つかの印（has_class_query）だけ。
+    **見せる値と答え合わせの値を同じ物にする**（delta_owed と同じ形）——3 節の受け付けは義務の集合をこの値から引く（_owed_shown）。
+    長い本文（判定の理由・why_chain・処方・母数の問い）は貼らず、指示書が記録の置き場を指す。同じ単位の表を record.units と
+    判定の写し process.diagnosis の 2 つの穴から全文で貼っていた頃、修正の指示書が 6.4〜11 万バイトになった（2026-09-26）"""
+    owed = _owed_units(b)
+    cq = {u.get("key") for u in ((b.record.get("process") or {}).get("diagnosis") or {}).get("units") or [] if u.get("class_query")}
+    rows = [{**{k: u[k] for k in ("key", "label", "disposition") if k in u}, "owed": u["key"] in owed,
+             "has_class_query": u["key"] in cq} for u in b.record["units"]]
+    b.loop_state["fix_units"] = {"round": b.round, "rows": rows}
+    return {"ok": True, "units": len(rows), "owed": sum(r["owed"] for r in rows)}
+
+
+BUILTINS.update({"fix_units": fix_units})
+
+
+def _owed_shown(b):
+    """修正の側の受け付けが引く義務の key——fix_units が今の周に置いた行のうち owed の物（役に見せた値そのもの）。
+    置いていない盤面（fix_units の節を持たない graph で始めた run）は _owed_units をその場で引く"""
+    d = _in_round(b.loop_state.get("fix_units"), b.round)
+    return _owed_units(b) if d is None else {r["key"] for r in d.get("rows") or [] if r.get("owed")}
 
 
 def fix_covers_open_units(b, nid, out, item):
-    """[block] と do-now は必ず直す。fork の出どころ・depends だけは待ってよい（義務の集合は _owed_units）。"""
+    """[block] と do-now は必ず直す。人に諮っている fork の出どころ・depends だけは待ってよい（義務の集合は _owed_shown）。"""
     V = validator_module(b)
     # **fork の出どころは待ってよい。** 待ちが前に進んでいるかを見るのは judge の側（_fork_moves_forward）
-    # ——ここで止めると、正本のプロンプト（p3.fix.md「fork の出どころは実装するな」）と機械が逆を言い、writer には
+    # ——ここで止めると、指示書（待つ単位は実装するな）と機械が逆を言い、writer には
     # questions を書く権限が無く、同じ周の p2 は既に done で再実行できない＝周が詰む（実測 2026-09-16）。義務は、動ける役の手前に置く。
     changed = {c["unit_key"] for c in out["changes"]}
     waiting = {c["unit_key"]: c["why"] for c in out.get("not_done", [])}
-    missing = [f"{k}（理由: {waiting[k]}）——fork の出どころでないなら直す義務がある" if k in waiting else k
-               for k in sorted(_owed_units(b) - changed)]
+    missing = [f"{k}（理由: {waiting[k]}）——義務の印（owed）が真の単位は直す義務がある（待ってよいのは人に諮っている fork の出どころ・depends と、人が関所で外した単位だけ）"
+               if k in waiting else k for k in sorted(_owed_shown(b) - changed)]
     if missing:
-        raise Reject("直していない [block] / do-now がある（writer の裁量で defer に覆せない。異議は新しい judge に再判定させる）: " + "; ".join(missing))
+        raise Reject("直していない [block] / do-now がある（writer の裁量で defer に覆せない。待ってよいのは fork の出どころ・depends と、"
+                     "人が関所で外した単位だけ。異議は新しい judge に再判定させる）: " + "; ".join(missing))
     # 閉鎖の実証は自己申告——機械が検算できるのは「赤を一度も見ていないのに clean を名乗る」形だけなので、そこは拒む
     # （gate_arms_all_red と同じ形。以前は red_seen が全部 false・verified_how が「見ていない」でも clean が通った）。
     # 見るのは周の全体——文書だけの修正は赤を見られないので、修正ごとに要求すると文書を触った周が全部 found になる。
@@ -3023,7 +3096,7 @@ def _keys_once(rows, label):
 def fix_plan_covers_units(b, nid, out, item):
     """修正案は今の周に直す単位を全部、どれか 1 つの案に入れる。**書き落とした単位は事前審査に届かない**"""
     V = validator_module(b)
-    want, opened = _owed_units(b), {u["key"] for u in b.record["units"] if V.is_open(u)}
+    want, opened = _owed_shown(b), {u["key"] for u in b.record["units"] if V.is_open(u)}
     got = [k for p in out["plan"] for k in p["unit_keys"]]
     errs = []
     unknown = sorted(set(got) - opened)   # 免除の単位（fork の出どころ）は入れても入れなくてもよい
@@ -3094,7 +3167,6 @@ def delta_review_output(b, nid, out, item):
     errs = _keys_once(faces, "faces")
     for i, f in enumerate(faces):
         if f["kind"] in HUMAN_FACE_KINDS:
-            # 手直しの義務に入ると、人より先に修正役が残すか戻すかを決める
             errs.append(f"faces[{i}] の kind '{f['kind']}' は事前審査だけの語——修正の後の後退・方針とのぶつかりは R4 と関所（r4.human_gate）が人に聞く")
             continue
         if f["kind"] in PLAN_ONLY_FACE_KINDS:
@@ -3688,6 +3760,7 @@ def finalize(b):
     proc["defer_ledger"] = ls.get("defer_ledger", {})
     proc["validator_outputs"] = ls.get("validator_outputs", {})
     proc["drift_notes"] = ls.get("drift_notes", [])
+    proc["notices"] = notices(b)
     # **書く欄には読み手を付ける。** 付けずに置いていたとき、この欄は 2 周ぶん書かれたまま
     # リポジトリのどこからも読まれず、R2 は「なぜ目的が使えないのか」を知らずに回った（実測 r10）。
     # 運び方は隣の drift_notes と同じ 3 点（記録へ写す・プロンプトの穴・graph の reads）で揃える
@@ -3698,12 +3771,7 @@ def finalize(b):
     proc["cold_check"] = ls.get("cold_check")  # 初見検査の verdict と件数（非 pass でも報告は出る。直したかは writer の申告）
     proc["open_questions"] = [q for q in rec["questions"] if q.get("status") in V.ASKING]
     proc["resolved_questions"] = [q for q in rec["questions"] if q.get("status") in V.DECIDED_STATUS]
-    # 最後の関所の後に方針の文書が変わって止まった run も、変化を記録と報告に残す（関所は周の途中にしか無い）
-    ch = "policy" in proc and _policy_change(b)
-    if ch:
-        proc["policy_change"] = ch
-    else:
-        proc.pop("policy_change", None)
+    policy_input.record_change(b, git, proc)
 
 
 def on_answer(b, ph, ans):
@@ -4026,10 +4094,6 @@ HUMAN_FACE_KINDS = ("regression", "policy")
 PLAN_ONLY_FACE_KINDS = HUMAN_FACE_KINDS + ("precedent",)
 
 
-def _policy_change(b):
-    return policy_input.change(b, git, b.record["process"].get("policy") or {})
-
-
 def _plan_gate_items(b):
     items = []
     for i, p in enumerate((b.output_of_round("p2.fix_plan", b.round) or {}).get("plan") or []):
@@ -4055,24 +4119,57 @@ HUMAN_GATES = {"p2.human_gate": _plan_gate_items, "r4.human_gate": _r4_gate_item
 def human_gate(b, nid):
     """能力の後退・方針とのぶつかり・方針の文書の変化が 1 件でも在れば、人に聞く（周の途中の問い）。無ければ素通り"""
     rows = HUMAN_GATES[nid](b)
-    ch = _policy_change(b)
+    ch = policy_input.change(b, git, b.record["process"].get("policy") or {})
     if ch:
         b.loop_state["policy_change"] = ch
         rows.append(("policy_changed", policy_input.change_row(ch)))
     if not rows:
         return {"ok": True}
     kinds = sorted({k for k, _ in rows})
+    exclude = ""
+    if nid == "p2.human_gate":
+        owed = _owed_units(b)
+        listed = "／".join(f"{i}. {u['key']}" for i, u in enumerate(b.record["units"], 1) if u["key"] in owed)
+        exclude = ("直す義務の単位をこの周の修正から外すなら、continue に --detail <JSON のファイル>（{\"exclude\": [{\"unit\": <番号か key>, "
+                   f"\"why\": <理由>}}]}}）を添える（外した単位と理由は記録に残り、修正役と次の周の判定役に届く）。直す義務の単位: {listed}。")
     return {"decision": "ask", "reason": "human_gate", "ask": {
         "kinds": kinds, "in_round": True,
         "question": ("今ある能力を減らす・狭める変更、人の方針とぶつかる変更、または方針の文書そのものの変更が挙がった。役は代償として決めない"
                      "——人が決める。通すなら continue --note <通す範囲と条件>（答えは記録の process.human_items に残り、修正役に届く。"
-                     "方針の文書の変更を通すと、その版を固定し直す）。通さないなら stop（run をここで止める。直す向きを決めてから新しい run で）"),
+                     "方針の文書の変更を通すと、その版を固定し直す）。" + exclude + "通さないなら stop（run をここで止める。直す向きを決めてから新しい run で）"),
         "items": [r for _, r in rows], "options": ["continue", "stop"]}}
 
 
+def answer_detail(b, ph, ans, detail):
+    """人の答えに添えた構造の値（loop.py answer --detail）を当てて、記録に残す形に直す。受けるのは修正の前の関所
+    （p2.human_gate）への continue の {exclude: [{unit, why}]} だけ——人が直す義務の単位をこの周の修正から外す。
+    自由文の note は解釈しない（外す単位は名指しで受ける）。拒む回は盤面を変えない（engine が保存の前に呼ぶ）"""
+    if ph.get("node") != "p2.human_gate" or ans != "continue":
+        raise Reject("--detail を受けるのは修正の前の関所（p2.human_gate）への continue だけ")
+    rows = detail.get("exclude") if isinstance(detail, dict) and set(detail) == {"exclude"} else None
+    if not isinstance(rows, list) or not rows or any(not isinstance(r, dict) or set(r) != {"unit", "why"} for r in rows):
+        raise Reject('--detail の形: {"exclude": [{"unit": <番号か key>, "why": <理由>}]}（空でない配列。ほかの鍵は受けない）')
+    units, owed, out = b.record["units"], _owed_units(b), []
+    for r in rows:
+        u = r["unit"]
+        key = units[u - 1]["key"] if isinstance(u, int) and not isinstance(u, bool) and 1 <= u <= len(units) else u
+        if key not in owed:
+            raise Reject(f"exclude の unit {str(u)[:60]!r} はこの周の直す義務の単位でない（番号は関所の問いが並べた番号、key は完全一致）")
+        if not isinstance(r["why"], str) or len(r["why"].strip()) < 4:
+            raise Reject(f"exclude の {str(key)[:60]} に理由（why）が無い")
+        out.append({"unit": key, "why": " ".join(r["why"].split())})
+    return {"exclude": out}
+
+
 def human_gate_answered(b, ph, ans):
+    excluded = (ph.get("detail") or {}).get("exclude")
     b.record["process"]["human_items"].append({"round": b.round, "kinds": ph.get("kinds") or [], "asked": ph["items"],
-                                               "answer": ans, "note": ph.get("note", ""), "node": ph["node"]})
+                                               "answer": ans, "note": ph.get("note", ""), "node": ph["node"],
+                                               **({"excluded": excluded} if excluded else {})})
+    if excluded and _in_round(b.loop_state.get("fix_units"), b.round) is not None:
+        # 人が外した単位を、修正の側に見せる義務の印（fix_units の owed）からも外す——修正の受け付けは見せた値から義務を引く
+        # （_owed_shown）ので、組み直さないと外した単位を直さない修正が拒まれる
+        fix_units(b, ph["node"])
     ch = b.loop_state.pop("policy_change", None)
     if ans == "continue" and ch and "policy_changed" in (ph.get("kinds") or []):
         pol = b.record["process"]["policy"]

@@ -157,11 +157,15 @@ def sampling_due(v):
 
 CONDS = {"constraints_self_written": constraints_self_written, "generation_due": generation_due,
          "no_new_discrepancies": no_new_discrepancies, "rederiver_compare_due": rederiver_compare_due, "sampling_due": sampling_due}
-# rules が盤面の loop（b.loop_state）と周（b.rd）に持つ鍵のうち、条件が読んでよい物（graphcheck が cond_reads と突き合わせる）
+# rules が盤面の loop（b.loop_state）に書く名前の決まった鍵（review と同じ意味。形の正本は graph の state_schema で、周ごとに
+# 名前の変わる扇の控え sampled_r<周> は state_schema の patternProperties だけが持つ）。graphcheck が state_schema と両向きで突き合わせる
+LOOP_KEYS = frozenset({"stuck_hint", "stuck_ids", "rederiver_redesign_rounds", "load_zero_reason"})
+# そのうち条件と節の reads が読んでよい物（graphcheck が cond_reads・reads と突き合わせる。以前の LOOP_KEYS の絞りを残す）
+LOOP_READS = frozenset({"stuck_hint"})
+# 周（b.rd）に持つ鍵のうち、条件が読んでよい物（graphcheck が cond_reads と突き合わせる）
+ROUND_KEYS = frozenset({"new_discrepancies"})
 # このループの節は engine の鍵と説明の鍵だけを書く（graphcheck の検査 15。宣言が無いと照らせないので空で置く）
 NODE_KEYS = NODE_NOTE_KEYS = frozenset()
-LOOP_KEYS = frozenset({"stuck_hint"})
-ROUND_KEYS = frozenset({"new_discrepancies"})
 
 
 # ---------------------------------------------------------------- 記録の形に固有の書き込み
@@ -927,12 +931,7 @@ def finalize(b):
             proc["load_zero_reason"] = ls["load_zero_reason"]
     else:
         proc.pop("load_zero_reason", None)
-    # 版を固定していない盤面（init が方針の版を記録する前の盤面）は比べる元が無いので照らさない
-    ch = "policy" in proc and policy_input.change(b, git, proc["policy"])
-    if ch:
-        proc["policy_change"] = ch
-    else:
-        proc.pop("policy_change", None)
+    policy_input.record_change(b, git, proc)
     # 止まった run で、作る工程より前に止まったので空のままの欄。検証器はこの欄に理由の在る欄だけを、止まった記録に限って空で受ける
     # （受理集合は広げない——収束を名乗る記録では空を今までどおり落とす）
     gaps = {}

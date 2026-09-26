@@ -206,6 +206,29 @@ def set_path(obj, path, value):
     新しい入れ子」を黙って生やす形だった（どちらの読みも成り立つ綴りで、機械が片方を勝手に選んでいた）。
     リストの添字は**既に在る要素だけ**を指せる——リストを伸ばす手当ては、順序の意味を回す側が決める。
     """
+    cur, last = _parent(obj, path, create=True)
+    if isinstance(cur, list):
+        if not (last.isdigit() and int(last) < len(cur)):
+            raise KeyError(path)
+        cur[int(last)] = value
+    elif isinstance(cur, dict):
+        cur[last] = value
+    else:
+        raise KeyError(path)
+
+
+def del_path(obj, path):
+    """`set_path` と同じ綴りで辿り、在る辞書の鍵を 1 つ消す（JSON Patch の remove と同じく、無い場所は落とす）。
+    リストの要素は消さない——順序の意味は回す側が決める（set_path がリストを伸ばさないのと同じ理由）"""
+    cur, last = _parent(obj, path, create=False)
+    if not (isinstance(cur, dict) and last in cur):
+        raise KeyError(f"{path}: 消す鍵が無い（辞書の在る鍵だけを消せる）")
+    del cur[last]
+
+
+def _parent(obj, path, create):
+    """set_path・del_path が辿る唯一の式 ——（親, 最後の鍵）。辿り方は `_step`＝get_path と同じ 1 本で、
+    create が真なら葉の親を 1 段だけ作ってよい"""
     # **角括弧は受けない。** `questions[1]` は get_path が読めない綴りで、黙って通すと
     # その名前の鍵が新設される（今回の事故そのもの）。書けない綴りはここで落とす。
     if "[" in path or "]" in path:
@@ -219,13 +242,12 @@ def set_path(obj, path, value):
         # 新設していた。get_path は元の場所を読み続けるので、当たらない手当てが ok を返した。
         rest = ".".join(parts[i:])
         if isinstance(cur, dict) and rest in cur:
-            cur[rest] = value
-            return
+            return cur, rest
         nxt = _step(cur, parts, i, len(parts) - 1)
         if nxt is not None:
             cur, i = nxt
             continue
-        if not isinstance(cur, dict):
+        if not isinstance(cur, dict) or not create:
             raise KeyError(path)
         if i != len(parts) - 2:
             # 作るのは葉 1 つまで。2 段以上の新設は「点を含む 1 つの鍵」との区別が付かない
@@ -234,15 +256,7 @@ def set_path(obj, path, value):
                            f"2 段以上を黙って作ると、点を含む 1 つの鍵と区別が付かない")
         cur = cur.setdefault(parts[i], {})
         i += 1
-    last = parts[-1]
-    if isinstance(cur, list):
-        if not (last.isdigit() and int(last) < len(cur)):
-            raise KeyError(path)
-        cur[int(last)] = value
-    elif isinstance(cur, dict):
-        cur[last] = value
-    else:
-        raise KeyError(path)
+    return cur, parts[-1]
 
 
 def has_path(obj, path):

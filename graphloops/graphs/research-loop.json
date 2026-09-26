@@ -10,8 +10,38 @@
   "policy_md": {
    "kind": "file",
    "by": "rules",
+   "input": true,
    "optional": true,
    "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める"
+  }
+ },
+ "state_schema": {
+  "type": "object",
+  "additionalProperties": false,
+  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。鍵の名前は rules の LOOP_KEYS と graphcheck が両向きで突き合わせ、条件・節の reads・プロンプトの穴が読む path は graphcheck がこの木で最後の欄まで照らす。engine は盤面を保存するときにこの形で照らし、外れを state.loop_drift に残す（止めない）。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）",
+  "properties": {
+   "stuck_hint": {
+    "type": "boolean",
+    "description": "振り分けの候補: B run 全体の状態（人の答えが立てる旗）"
+   },
+   "stuck_ids": {
+    "type": "array",
+    "description": "振り分けの候補: B run 全体の状態（通しで積み、人の答えで空にする）"
+   },
+   "rederiver_redesign_rounds": {
+    "type": "integer",
+    "description": "振り分けの候補: B run 全体の状態（数え上げ）"
+   },
+   "load_zero_reason": {
+    "type": "string",
+    "description": "振り分けの候補: C1 p0.clusters の返答に在る"
+   }
+  },
+  "patternProperties": {
+   "^sampled_r[0-9]+$": {
+    "type": "array",
+    "description": "振り分けの候補: B 扇が周の中で選び直さないための控え（周ごとに名前が変わる）"
+   }
   }
  },
  "plugin": "convergence-loops",
@@ -2202,7 +2232,7 @@
   "p3.sampling",
   "p0.independence_review"
  ],
- "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop / 周の鍵（rules の LOOP_KEYS / ROUND_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
+ "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop / 周の鍵（rules の LOOP_KEYS・読んでよい loop の鍵 LOOP_READS と graph の state_schema の木 / ROUND_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
  "verdict_paths": [
   "gates",
   "sampling",

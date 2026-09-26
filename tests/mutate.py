@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """変異の腕を撃つ実行器。腕の一覧は tests/mutations.json（リポジトリに置き、柵を直す差分が同じ変更で腕も直す）。
 
-腕 1 本ごとにリポジトリの写しを一時ディレクトリに作り、その写しの上で 1 か所だけ壊して台本一式を走らせ、赤になるかを見る。
+腕 1 本ごとにリポジトリの写しを一時ディレクトリに作り、その写しの上で 1 か所だけ壊して台本を走らせ、赤になるかを見る（走らせるのは、
+腕の tests か印の写しで行を通した台本が分かればその台本だけ、分からなければ台本一式）。
 **本物の作業ツリーは触らない。** 壊していない写しでも 1 本走らせて緑を確かめ（control）、全腕の印を 1 つの写しに入れて
 走らせ、守る行を実際に通ったかを見る（marker）。赤・control の緑・当たりの証拠の 3 つがそろって、その腕は覆いの証拠になる。
 当たりの証拠は、expect を宣言した腕なら「実際に落ちた検査（killedBy）に expect が在る」こと、宣言しない腕なら印が出たこと。
@@ -44,12 +45,17 @@ graphloops/README.md の「検査」節）。この実行器は、上に書い�
     python3 tests/mutate.py --files a.py,b.py / --only d01,K1a
     python3 tests/mutate.py --reuse prev.json          # 前回の --out から、腕も指紋も変わっていない腕の結果を持ち越す
     python3 tests/mutate.py --auto <rev>               # 一覧の腕に加えて、<rev> からの差分が足した Python の文と式の腕も撃つ
+                                                       # （1 行 1 本・効かない行は外す。--every-node で全部の節）
+    python3 tests/mutate.py --confirm-survivors        # 絞った台本が緑の腕を台本一式で確かめ直す（版を出す前の関門・週 1 回の全腕）
     python3 tests/mutate.py --deadline-at <ISO 時刻>   # その時刻までに書き終える（残った腕は pending。--reuse で続きから）
     python3 tests/mutate.py --gate-efficacy r.json     # --out の結果を review-loop の p1.gate_efficacy の返答の形で印字
 
 --out の形は変異テストの報告の共通形式（mutation-testing-report-schema。Stryker ほかが使う）に寄せる: 腕ごとに
 status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と、実際に落ちた検査 killedBy。共通形式の外の欄は
-empty（撃てた腕 0 本の理由）・partial（撃つ途中の版。腕 1 本ごとに書き直す）・pending（期限で撃たずに残った腕）の 3 つ。
+empty（撃てた腕 0 本の理由）・partial（撃つ途中の版。腕 1 本ごとに書き直す）・pending（期限で撃たずに残った腕）・pruned（1 行 1 本と
+効かない行の規則で作らなかった自動の腕と理由）の 4 つと、腕ごとの cover（印の写しで行を通した台本。? は帰属できない印）と
+attribution（赤の出どころ: narrowed＝絞った台本から / unrelated＝絞った台本は緑で一式の確かめ直しだけ赤 / unattributed＝一式だけで撃った）。
+止める信号（SIGTERM・SIGINT・SIGHUP）を受けたら、起こした子のグループと写しを片付けて 128＋信号の番号で抜ける。
 
 終了コード: 0 = 撃った腕（1 本以上）が全部、赤・当たりの証拠つきで control が緑（--check なら全腕の字列と証拠の口が在る）
 / 1 = そうでない / 2 = 一覧が読めない。時間切れ・台本が 1 本も当たらなかった腕は赤でなく『走り切らない』
@@ -68,6 +74,8 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARMS_FILE = ROOT / "tests" / "mutations.json"
@@ -84,6 +92,72 @@ TAIL = 300
 NO_TEST = "に当たる台本が 1 本も無い"   # graphloops/tests/parallel.py の collect が出す拒否文
 # 持ち越しの指紋に入れる台本（腕の結果を決める検査の側）。壊す側のファイルは腕ごとに足す
 DRIVERS = ("tests/run.sh", "graphloops/tests/run.sh", "graphloops/tests/parallel.py") + SCRIPTS
+# 止める信号を受けたとき、起こした子のグループへ SIGTERM → SIGKILL を送る間の猶予（秒）。engine（graphloops/engine/role_run.py の
+# KILL_GRACE）がこの実行器を止めるときは SIGTERM の 5 秒後に SIGKILL を送るので、2 段の猶予と写しの掃除がその前に済む幅にする
+STOP_GRACE = 1
+# 印の写しで『どの台本が行を通したか』を読む書式。正本は graphloops/tests/parallel.py（TEST_THREAD・TAG）で、ここはその写し
+# （揃いは tests/run.sh の mut-owner の検査が縛る）。同じプロセスの中はスレッドの名前、子のプロセスは作業場の名前の印で見分ける
+OWNER_THREAD = "gl-test~"
+OWNER_DIR = re.compile(r"GLT~([^~/\\]+)~([^~/\\]+)~")
+UNKNOWN = "?"   # 帰属できない印（台本の外のスレッド・作業場の外の cwd・bash の台本）。1 つでも在る腕は台本一式で撃つ
+
+_LIVE, _LOCK = set(), threading.Lock()   # 生きている子（Popen）。止める信号で木ごと止める先
+STOPPING = threading.Event()
+
+
+class Stopped(BaseException):
+    """止める信号（SIGTERM・SIGINT・SIGHUP）を受けた。子のグループは stop_groups で止めてある。BaseException の派生にするのは、
+    腕の中の Exception を捕まえる口に飲まれず main まで抜けるため（engine の role_run.StopSignal と同じ形）"""
+
+    def __init__(self, signum):
+        super().__init__(signum)
+        self.signum = signum
+
+
+def stop_groups():
+    """生きている子のグループを全部止める。**全グループへ先に同じ信号を送ってから 1 回だけ待つ**——1 本ずつ待つと、-j の本数ぶん
+    待つ間に止める側（engine）の SIGKILL がこの実行器に届き、後ろのグループと写しが残る"""
+    if not hasattr(os, "killpg"):
+        return
+    with _LOCK:
+        live = list(_LIVE)
+
+    def alive(p):
+        p.poll()   # 長を回収する（回収しない長はゾンビのままグループに残り、消滅が見えない）
+        try:
+            os.killpg(p.pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for p in live:
+            try:
+                os.killpg(p.pid, sig)
+            except OSError:
+                pass
+        end = time.monotonic() + STOP_GRACE
+        while live and time.monotonic() < end:
+            live = [p for p in live if alive(p)]
+            if live:
+                time.sleep(0.05)
+        if not live:
+            return
+
+
+def install_stop_handlers():
+    """止める信号を受けたら、子のグループを止めてから Stopped を上げる。子は run_group が別のプロセスグループに切り離すので、この実行器に
+    届いた信号は子に届かない——ここで止めないと、写しの中の台本が親の居ないまま走り続ける（実測 2026-09-26 06:37: CPU 76%）"""
+    def stop(signum, _frame):
+        if STOPPING.is_set():
+            return   # 片付けの最中に届いた 2 度目の信号は、片付けを中断させない
+        STOPPING.set()
+        stop_groups()
+        raise Stopped(signum)
+    for name in ("SIGTERM", "SIGINT", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), stop)
 
 
 def load():
@@ -172,13 +246,51 @@ def auto_targets(rev, root=ROOT):
     return {k: v for k, v in out.items() if v and (k == "tests/mutate.py" or not k.startswith(AUTO_SKIP)) and (root / k).is_file()}
 
 
-def auto_arms_for(rel, text, added):
+# 1 行に 1 本だけ残すときの種類の順（先の種類を残す）。同じ種類なら列の小さい方
+KIND_ORDER = ("cond", "or", "and", "ifexp", "stmt")
+# 効かない行（Google の arid ノード）: 呼び出しの文のうち、壊しても検査が見る値を変えない物。このリポジトリの検査は CLI の出力と
+# trace を読むので、print・標準エラー・trace は入れない（0.21.0 の関門で print の文の腕は 6 本中 5 本が Killed）
+ARID_CALLS = ("time.sleep", "warnings.warn")
+ARID_RECEIVERS = ("logging", "log", "logger", "LOG")
+
+
+def _dotted(f):
+    import ast
+    parts = []
+    while isinstance(f, ast.Attribute):
+        parts.append(f.attr)
+        f = f.value
+    if isinstance(f, ast.Name):
+        parts.append(f.id)
+        return ".".join(reversed(parts))
+    return ""
+
+
+def arid(node):
+    """効かない文か（ログ・警告・待ちの呼び出しの文）"""
+    import ast
+    if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)):
+        return ""
+    name = _dotted(node.value.func)
+    if name in ARID_CALLS or ("." in name and name.split(".")[0] in ARID_RECEIVERS):
+        return name
+    return ""
+
+
+def auto_arms_for(rel, text, added, every=False, pruned=None):
     """差分が足した行に当たる Python の文と式から、機械で腕を作る（ast の 1 本の規則。形を字面で列挙しない）:
     if の条件は False に、or の各項は False に・and の各項は True に（その項だけで柵が効く形を潰す）、条件式は else の側に、
     raise・式の呼び出し・累算代入（errs += …）の文は pass に。当てる場所は位置（文字の offset）で持つ——字列の一意性に頼らない。
-    JSON・Markdown・台本の分岐は対象外（腕の一覧 mutations.json が持つ）"""
+    JSON・Markdown・台本の分岐は対象外（腕の一覧 mutations.json が持つ）。
+
+    **既定は Google 型に絞る**（Petrović と Ivanković "State of Mutation Testing at Google" ICSE-SEIP 2018 の §3・§4）: 1 行に 1 本
+    （KIND_ORDER の順で決定的に選ぶ。Google は無作為に選ぶが、--reuse の指紋を再現できるようにする）、効かない行（arid）の腕は
+    作らない。外した腕は pruned（渡されれば）に理由つきで積む——撃たなかった腕を記録から見えるようにする。every なら絞らない（今の撃ち方）"""
     import ast
     tree = ast.parse(text)
+    # 関数の本体の行（import の時に走る行は、最初に import した台本にしか印が付かないので、台本の絞りに使わない）
+    bodies = [(n.body[0].lineno, n.end_lineno) for n in ast.walk(tree)
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.body]
     lines = text.splitlines(keepends=True)
     starts = [0]
     for ln in lines:
@@ -192,7 +304,10 @@ def auto_arms_for(rel, text, added):
         s, e = span(node)
         aid = f"auto:{rel}:{node.lineno}:{node.col_offset}:{kind}"
         arms[aid] = {"id": aid, "title": f"{kind}: {' '.join(text[s:e].split())[:50]}", "file": rel, "suite": suite,
-                     "auto": {"start": s, "end": e, "new": new, "stmt": stmt}}
+                     "auto": {"start": s, "end": e, "new": new, "stmt": stmt,
+                              "in_function": any(lo <= node.lineno <= hi for lo, hi in bodies)},
+                     "_line": node.lineno, "_rank": (KIND_ORDER.index(kind), node.col_offset),
+                     "_arid": arid(node) if stmt else ""}
     for node in ast.walk(tree):
         if getattr(node, "lineno", None) not in added:
             continue
@@ -207,13 +322,55 @@ def auto_arms_for(rel, text, added):
             add(node, "ifexp", f"({text[s:e]})")
         elif isinstance(node, (ast.Raise, ast.AugAssign)) or (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)):
             add(node, "stmt", "pass", stmt=True)
-    return list(arms.values())
+    out, drop = list(arms.values()), []
+    if not every:
+        keep = {}
+        for x in out:
+            if x["_arid"]:
+                drop.append((x, f"効かない行（{x['_arid']} の呼び出し）"))
+            elif x["_line"] not in keep or x["_rank"] < keep[x["_line"]]["_rank"]:
+                keep[x["_line"]] = x
+        drop += [(x, f"1 行 1 本（同じ行の {keep[x['_line']]['id']} を撃つ）") for x in out
+                 if not x["_arid"] and keep[x["_line"]] is not x]
+        out = [x for x in out if x in keep.values()]
+    if pruned is not None:
+        pruned += [{"id": x["id"], "title": x["title"], "file": x["file"], "reason": why} for x, why in drop]
+    for x in out:
+        for k in ("_line", "_rank", "_arid"):
+            x.pop(k)
+    return out
+
+
+def mark_write(hits, aid):
+    """印の 1 行を書く式: 腕の id・スレッドの名前・cwd をタブで区切る（どの台本が通したかは owner_of が読む）"""
+    return (f"__import__('builtins').open({str(hits)!r}, 'a').write({aid!r} + '\\t' + __import__('threading').current_thread().name"
+            f" + '\\t' + __import__('os').getcwd() + '\\n')")
+
+
+def owner_of(thread, cwd):
+    """印の行を書いた台本（'<台本のファイル名>~<関数名>'）。見分けられなければ UNKNOWN"""
+    if thread.startswith(OWNER_THREAD):
+        return thread[len(OWNER_THREAD):]
+    m = OWNER_DIR.search(cwd)
+    return f"{m.group(1)}~{m.group(2)}" if m else UNKNOWN
+
+
+def read_hits(hits):
+    """印のファイル → (通った腕の id の一覧, 腕 → 通した台本の一覧)"""
+    cover = {}
+    if hits.exists():
+        for ln in hits.read_text(encoding="utf-8").splitlines():
+            aid, _, rest = ln.partition("\t")
+            thread, _, cwd = rest.partition("\t")
+            if aid.strip():
+                cover.setdefault(aid.strip(), set()).add(owner_of(thread, cwd))
+    return sorted(cover), {k: sorted(v) for k, v in cover.items()}
 
 
 def auto_marker(text, a, hits):
     """自動の腕の印の差し込み ——[(位置, 順, 副, 文字列)]（同じ位置では外側の式の包みが外に来る順に並ぶ）。式は評価されたときに印を書く形で包み、文は前の行に印の 1 行を置く。
     文が行の途中から始まる（if x: raise …）ときは差せない（空の一覧）"""
-    w = f"__import__('builtins').open({str(hits)!r}, 'a').write({a['id']!r} + '\\n')"
+    w = mark_write(hits, a["id"])
     s, e = a["auto"]["start"], a["auto"]["end"]
     if a["auto"]["stmt"]:
         ls = text.rfind("\n", 0, s) + 1
@@ -271,17 +428,21 @@ def copy(tag):
 
 
 def run_group(argv, cwd, env=None, failfast=False):
-    """子を自分のプロセスグループで起こし、時間切れならグループごと殺す ——（exit か "timeout", 標準出力＋標準エラー）。
+    """子を自分のプロセスグループで起こし、時間切れならグループごと殺す ——（exit か "timeout" か "stopped", 標準出力＋標準エラー）。
     subprocess.run の timeout は直下の子しか殺さない——実行器そのものを壊した腕では、写しの台本が写しの実行器を呼び、
     殺し損ねた孫が増え続けて全体を時間切れにした（2026-09-23 の 3 周目の撃ち直し）。
-    failfast なら最初の FAIL の行でグループごと止めて exit 1 を返す（自動の腕は赤と印で証拠がそろい、どの検査かを要らない）"""
-    import threading
+    failfast なら最初の FAIL の行でグループごと止めて exit 1 を返す（自動の腕は赤と印で証拠がそろい、どの検査かを要らない）。
+    起こした子は _LIVE に載せ、止める信号（install_stop_handlers）で木ごと止める。止めた回は "stopped"——赤と読ませない"""
+    # POSIX は新しいプロセスグループで起こす（setpgid。セッションは抜けない）——この実行器が SIGKILL で止められても、起こした側
+    # （engine の子を止める口）が同じセッションの仲間として拾える。setsid で抜けると親の消えた子孫を拾う手が無い。
     # Windows にはプロセスグループへの信号（killpg・SIGKILL）が無いので、新しいプロセスグループで起こして taskkill /T で
     # 木ごと止める（graphloops/engine/role_run.py の _spawn と _kill と同じ分け方）
-    group = ({"start_new_session": True} if os.name == "posix"
+    group = ({"process_group": 0} if os.name == "posix"
              else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
     p = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                          encoding="utf-8", errors="replace", **group)
+    with _LOCK:
+        _LIVE.add(p)
     late = {"v": False}
 
     def killpg():
@@ -302,6 +463,8 @@ def run_group(argv, cwd, env=None, failfast=False):
     timer.start()
     out, stopped = [], False
     try:
+        if STOPPING.is_set():   # 信号の片付けが _LIVE を読んだ後に起こした子（止める信号の後の腕）は、ここで自分で止める
+            killpg()
         for line in p.stdout:
             out.append(line)
             if failfast and line.startswith("  FAIL ") and NO_TEST not in line:
@@ -311,13 +474,19 @@ def run_group(argv, cwd, env=None, failfast=False):
         p.wait()
     finally:
         timer.cancel()
+        with _LOCK:
+            _LIVE.discard(p)
+    if STOPPING.is_set():
+        return "stopped", ""
     if late["v"]:
         return "timeout", ""
     return (1 if stopped else p.returncode), "".join(out)
 
 
-def run_suite(repo, suite, failfast=False):
-    rc, body = run_group(SUITES[suite], repo, failfast=failfast)
+def run_suite(repo, suite, failfast=False, env=None):
+    rc, body = run_group(SUITES[suite], repo, env=env, failfast=failfast)
+    if rc == "stopped":
+        raise Stopped(0)
     if rc == "timeout":
         return {"rc": "timeout", "failed": [f"{TIMEOUT} 秒で打ち切り"], "tail": []}
     failed = [l.strip()[5:].strip() for l in body.splitlines() if l.startswith("  FAIL ")]
@@ -325,11 +494,15 @@ def run_suite(repo, suite, failfast=False):
     return {"rc": rc, "failed": failed, "tail": tail}
 
 
-def run_selected(repo, tests):
-    """腕の tests（台本 → 関数名）だけを走らせる"""
+def run_selected(repo, tests, failfast=False):
+    """腕の tests（台本 → 関数名）だけを走らせる。failfast なら最初の FAIL で止める（残りの台本は走らせない）"""
     rcs, failed = [], []
     for script, fns in tests.items():
-        rc, body = run_group([sys.executable, script], repo, env={**os.environ, "GL_TEST_ONLY": ",".join(fns)})
+        if failfast and failed:
+            break
+        rc, body = run_group([sys.executable, script], repo, env={**os.environ, "GL_TEST_ONLY": ",".join(fns)}, failfast=failfast)
+        if rc == "stopped":
+            raise Stopped(0)
         if rc == "timeout":
             rcs.append("timeout"); continue
         # 絞った名前が台本に 1 本も無いと collect が exit 1 で抜ける——壊した行とは無関係の赤なので、撃てないと言う
@@ -339,11 +512,32 @@ def run_selected(repo, tests):
     return {"rc": bad[0] if bad else 0, "failed": failed, "tail": [], "selected": True}
 
 
+CONFIRM = False   # --confirm-survivors: 絞った台本が緑の腕を台本一式で確かめ直す（main が立てる）
+
+
+def narrowed(a):
+    """自動の腕を回す台本（台本 → 関数名）。印の写しで行を通した台本が全部分かり、行が関数の本体に在るときだけ——
+    1 つでも帰属できない印が在る・import の時に走る行・台本の一覧（SCRIPTS）の外の台本なら None（台本一式で撃つ）"""
+    cov = a.get("cover")
+    if "auto" not in a or not cov or UNKNOWN in cov or not a["auto"].get("in_function"):
+        return None
+    tests = {}
+    for o in cov:
+        script, _, fn = o.partition("~")
+        rel = f"graphloops/tests/{script}"
+        if rel not in SCRIPTS or not fn:
+            return None
+        tests.setdefault(rel, set()).add(fn)
+    return {s: sorted(v) for s, v in sorted(tests.items())}
+
+
 def one(a):
     if ignored(a):
         mx = a["python_max"]
         return {"id": a["id"], "title": a["title"], "status": "Ignored", "own": False, "rc": None, "failed": [], "killedBy": [],
                 "tail": [f"Python {mx} 以前でしか撃てない（今は {sys.version_info[0]}.{sys.version_info[1]}）"]}
+    if STOPPING.is_set():
+        raise Stopped(0)   # 止める信号の後に取り出された腕は写しも作らない
     repo, d = copy(a["id"])
     try:
         mutate(repo, a)
@@ -352,20 +546,29 @@ def one(a):
         if a["file"] != "tests/mutations.json" and (repo / "tests" / "mutations.json").is_file():
             (repo / "tests" / "mutations.json").write_text('{"arms": []}\n', encoding="utf-8")
         r = None
-        if a.get("tests") and a["suite"] == "graphloops":
-            r = run_selected(repo, a["tests"])
-            if r["rc"] == 0:   # 絞った台本が気づかなければ、台本一式で確かめ直す（絞りの取りこぼしを緑と言わない）
-                r = {**run_suite(repo, a["suite"]), "selected": False}
+        auto = "auto" in a
+        tests = narrowed(a) if auto else (a.get("tests") if a["suite"] == "graphloops" else None)
+        if tests:
+            r = run_selected(repo, tests, failfast=auto)
+            # 絞った台本が気づかない腕を台本一式で確かめ直すのは --confirm-survivors の回だけ（版を出す前の関門。人の決定 2026-09-26）。
+            # 確かめ直して赤なら、行を通した台本の外の検査が落とした——件数・語彙の到達・本文を読む柵のように台本の関数の外で
+            # 決定的に落ちる検査もあれば、揺れた検査もある。見分けられないので attribution に印を残し、証拠は外さない
+            if r["rc"] == 0 and CONFIRM:
+                r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False, "confirmed": True}
         if r is None:
-            r = {**run_suite(repo, a["suite"], **({"failfast": True} if "auto" in a else {})), "selected": False}
+            r = {**run_suite(repo, a["suite"], failfast=auto), "selected": False}
         if r["rc"] in ("timeout", "no-test"):
             return {"id": a["id"], "title": a["title"], "status": "Timeout" if r["rc"] == "timeout" else "RuntimeError",
                     "own": False, **r, "killedBy": [], "failed": r["failed"][:3],
                     "unrunnable": "時間切れ" if r["rc"] == "timeout" else "tests の関数名が台本に無い（--map で結び直せ）"}
         red = r["rc"] != 0
         own = bool(a.get("expect")) and any(f.startswith(a["expect"]) for f in r["failed"])
+        # 赤の出どころ: narrowed＝絞った台本（自動の腕なら行を通した台本）から / unrelated＝絞った台本は緑で一式の確かめ直しで赤 /
+        # unattributed＝台本一式だけで撃った（帰属できない）。揺れた検査の赤を見分ける材料として記録に残す（再試行はしない）
+        why = ("narrowed" if r.get("selected") else "unrelated" if r.get("confirmed") else "unattributed") if red else None
         return {"id": a["id"], "title": a["title"], "status": "Killed" if red else "Survived", "own": own,
-                **r, "killedBy": r["failed"][:20], "failed": r["failed"][:3]}
+                **r, "killedBy": r["failed"][:20], "failed": r["failed"][:3],
+                **({"attribution": why} if why else {}), **({"cover": a["cover"]} if "cover" in a else {})}
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -407,7 +610,7 @@ def marker_run(arms):
                 skipped[a["id"]] = "old が 1 か所でない"
                 continue
             idx = t.index(a["old"]); ls = t.rindex("\n", 0, idx) + 1; le = t.index("\n", idx)
-            w = f"open({str(hits)!r}, 'a').write({a['id']!r} + '\\n')"
+            w = mark_write(hits, a["id"])
             cond = mk.get("cond")
             if mk["where"] == "after":
                 nxt = t[le + 1:t.index("\n", le + 1)]
@@ -428,9 +631,10 @@ def marker_run(arms):
         # 印は複数行の old を割るので、写しの中の --check（tests/run.sh が走らせる）が字列の消失で赤になる。
         # 印の写しは『守る行を通ったか』だけを見る所なので、写しの一覧は空にする（本物の一覧は触らない）
         (repo / "tests" / "mutations.json").write_text('{"arms": []}\n', encoding="utf-8")
-        r = run_suite(repo, "root")   # tests/run.sh は graphloops の台本も内包する
-        seen = sorted(set(hits.read_text(encoding="utf-8").split())) if hits.exists() else []
-        return {**r, "failed": r["failed"][:5], "placed": sorted(placed), "seen": seen, "skipped": skipped}
+        # GL_MARK_OWNERS: graphloops の台本の土台（parallel.workspace）が作業場の名前に台本の印を挟む（子のプロセスの印を帰属させる）
+        r = run_suite(repo, "root", env={**os.environ, "GL_MARK_OWNERS": "1"})   # tests/run.sh は graphloops の台本も内包する
+        seen, cover = read_hits(hits)
+        return {**r, "failed": r["failed"][:5], "placed": sorted(placed), "seen": seen, "cover": cover, "skipped": skipped}
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -545,6 +749,11 @@ def evaluate(res, sel):
                       "unrunnable": [r["id"] for r in fresh if r.get("unrunnable")],
                       "unhit": sorted(set(m["placed"]) - set(m["seen"])),
                       "no_evidence": [r["id"] for r in fresh if r.get("status") == "Killed" and not r["evidence"]],
+                      # 赤の出どころ（one の attribution）と、一式で確かめていない緑。証拠と終了コードには使わず、見える形にだけする
+                      "unrelated": [r["id"] for r in fresh if r.get("attribution") == "unrelated"],
+                      "unattributed": [r["id"] for r in fresh if r.get("attribution") == "unattributed"],
+                      "narrowed_green": [r["id"] for r in fresh if r.get("status") == "Survived" and r.get("selected")],
+                      "pruned": len(res.get("pruned") or []),
                       "control_ok": all(v["rc"] == 0 for v in res["control"].values())}
     return res["summary"]
 
@@ -585,10 +794,16 @@ def gate_efficacy(res):
     # 期限で撃たずに残った腕は、撃てた腕と同じ行にして証拠にならない側に数える（黙って落とすと、残りを撃たないまま clean になる）
     shot = [r for r in res["arms"] if r.get("status") != "Ignored"] + list(res.get("pending") or [])
     ign = [f"{r['id']}" for r in res["arms"] if r.get("status") == "Ignored"]
+    def why(r):
+        if r.get("status") == "Survived" and r.get("selected"):
+            return "Survived（絞った台本だけで緑。台本一式では確かめていない——--confirm-survivors で確かめ直せる）"
+        return r.get("unrunnable") or r.get("status")
     arms = [{"gate": r.get("file", ""), "arm": f"{r['id']} {r['title']}", "red_confirmed": r.get("status") == "Killed",
              "control_green": ok, "hit_evidence": r.get("evidence") or "",
-             **({"note": r.get("unrunnable") or r.get("status")} if not proven(r) else {})} for r in shot]
+             **({"note": why(r)} if not proven(r) else {})} for r in shot]
     note = f"（この Python では撃てない腕: {' '.join(ign)}）" if ign else ""
+    if res.get("pruned"):
+        note += f"（1 行 1 本・効かない行で撃たなかった自動の腕 {len(res['pruned'])} 本は --out の pruned に理由つき）"
     if not arms:
         return {"material": {"status": "not_run", "reason": (res.get("empty") or "撃てた腕が 0 本") + note}, "arms": arms}
     short = [x["arm"] for x, r in zip(arms, shot) if not (ok and proven(r))]
@@ -616,6 +831,9 @@ def main():
     ap.add_argument("--reuse", help="前回の --out。腕の定義・壊すファイル・台本一式が同じで、赤と当たりの証拠が在った腕を撃たずに持ち越す")
     ap.add_argument("--gate-efficacy", help="--out の結果を p1.gate_efficacy の返答の形で印字する")
     ap.add_argument("--arms-file", help="腕の一覧の置き場（既定は tests/mutations.json。台本が壊した一覧で --check の赤を見るため）")
+    ap.add_argument("--every-node", action="store_true", help="--auto の腕を 1 行 1 本に畳まず、効かない行の腕も作る（Google 型に絞る前の撃ち方）")
+    ap.add_argument("--confirm-survivors", action="store_true", help="絞った台本（腕の tests・自動の腕の行を通した台本）が緑の腕を、"
+                    "台本一式で確かめ直す。版を出す前の関門と週 1 回の全腕で付ける")
     a = ap.parse_args()
     if a.gate_efficacy:
         print(json.dumps(gate_efficacy(json.loads(pathlib.Path(a.gate_efficacy).read_text(encoding="utf-8"))), ensure_ascii=False, indent=1))
@@ -641,15 +859,19 @@ def main():
             print(f"NG 腕 {i}: {why}——柵を直したなら、同じ変更でこの腕も今の字列に直せ")
         print(f"{len(arms)} 腕のうち字列か証拠の口の無い腕 {len(bad)}・id の重複 {len(dup)}")
         sys.exit(1 if bad or dup else 0)
-    autos = []
+    global CONFIRM
+    CONFIRM = a.confirm_survivors
+    autos, pruned = [], []
     if a.auto:
         tg = auto_targets(a.auto)
         if tg is None:
             print(f"NG --auto {a.auto}: git diff が取れない", file=sys.stderr)
             sys.exit(2)
         for rel, lines in sorted(tg.items()):
-            autos += auto_arms_for(rel, (ROOT / rel).read_text(encoding="utf-8"), lines)
+            autos += auto_arms_for(rel, (ROOT / rel).read_text(encoding="utf-8"), lines, every=a.every_node, pruned=pruned)
         ids += [x["id"] for x in autos]
+        if pruned:
+            print(f"自動の腕: 1 行 1 本・効かない行で {len(pruned)} 本を撃たない（--out の pruned に理由つき。--every-node で全部撃つ）", flush=True)
     # **一覧の腕（絞りがあれば絞った物）と自動の腕の和を撃ち、0 本の判定は和の後の 1 か所で行う。** 絞りの中で 0 本を判定して
     # いたとき、一覧に腕の無いファイルだけを直した周は、自動の腕が在っても撃つ前に抜けた。--auto だけのときに一覧の腕を
     # 捨てていたので、次の周の頭で一覧と前の周の差分の自動の腕を 1 回で撃てなかった
@@ -676,71 +898,23 @@ def main():
         print(f"NG {why}", file=sys.stderr)
         sys.exit(1)
     # **期限: 新しい仕事（印の写し・腕）を始めてよいのは cutoff まで。** 始めた仕事は TIMEOUT のうちに終わるので、結果は期限の
-    # TAIL 秒前までに書き終わる（control は最初に始めるので、同じ TIMEOUT に収まる）
+    # TAIL 秒前までに書き終わる（control は最初に始めるので、同じ TIMEOUT に収まる）。期限を見るのは仕事を始める時の 1 回だけ（now の 1 本の口）
     cutoff = (datetime.datetime.fromisoformat(a.deadline_at) - datetime.timedelta(seconds=TIMEOUT + TAIL)) if a.deadline_at else None
-    late = lambda: cutoff is not None and datetime.datetime.now(cutoff.tzinfo) >= cutoff
+    late = lambda: cutoff is not None and now(cutoff.tzinfo) >= cutoff
     print(f"撃つ腕 {len(fire)} 本（全 {len(arms)} 本" + (f"・持ち越し {len(carried)} 本" if carried else "") + "）", flush=True)
-    res = {"schemaVersion": "1", "arms": [{**prev[x["id"]], "carried": True} for x in carried]}
+    res = {"schemaVersion": "1", "arms": [{**prev[x["id"]], "carried": True} for x in carried], "pruned": pruned}
     pend = lambda xs: [{"id": x["id"], "title": x["title"], "file": x["file"], "status": "Pending",
                         "unrunnable": "期限で撃たずに残った（同じ --out を --reuse に渡して続きを撃て）"} for x in xs]
     write_out(a.out, {**res, "partial": True, "pending": pend(fire)})
-    pre_marker, unreached, res_pre, skipped_late = None, [], [], []
-    if any("auto" in x for x in fire) and not late():
-        # **自動の腕は、印の写しで一度も通らない行を撃たない**——壊しても台本が気づけない行なので、撃つまでもなく生き残り
-        # （NoCoverage。腕の無い入口）。撃つのは通った行の腕だけ（全部を台本一式で撃つと 1 周の修正で 2 時間を超えた）
-        pre_marker = marker_run(fire)
-        seen = set(pre_marker["seen"])
-        unreached = [x for x in fire if "auto" in x and x["id"] not in seen and x["id"] in pre_marker["placed"]]
-        fire = [x for x in fire if x not in unreached]
-        res_pre = [{"id": x["id"], "title": x["title"], "status": "NoCoverage", "own": False, "rc": None, "failed": [], "killedBy": [],
-                    "tail": ["印の写しで一度も通らない行（撃たずに生き残りと数える）"], "file": x["file"], "fingerprint": fps[x["id"]]}
-                   for x in unreached]
-        print(f"自動の腕: 印の写しで通った {len([x for x in fire if 'auto' in x])} 本を撃つ・通らない {len(unreached)} 本は撃たない", flush=True)
-    if late():
-        skipped_late, fire = fire, []
-    with cf.ThreadPoolExecutor(max(1, a.j)) as ex:
-        union = {}
-        for x in fire:
-            for s, fns in (x.get("tests") or {}).items():
-                union.setdefault(s, set()).update(fns)
-        # 撃つ腕が無い（全部持ち越し）回は写しで control を走らせない——持ち越した腕の健全さは前の回の結果が持つ
-        fc = ex.submit(control, {x["suite"] for x in fire} | {"root"}, {s: sorted(v) for s, v in union.items()}) if fire else None
-        fm = None if pre_marker else (ex.submit(marker_run, fire) if fire else None)   # 全部持ち越しの回は印の写しを走らせない（差す腕が無い）
-        fa = {ex.submit(one, x): x for x in fire}
-        empty_marker = {"rc": 0, "failed": [], "tail": [], "placed": [], "seen": [], "skipped": {}}
-
-        def snapshot():
-            """途中の版: 撃った腕・未撃ちの腕・（終わっていれば）control と印の写し。両方そろっていれば証拠まで付けて、--reuse が読める形にする"""
-            done_ids = {r["id"] for r in res["arms"]}
-            snap = {**copymod.deepcopy(res), "arms": copymod.deepcopy(res["arms"]) + copymod.deepcopy(res_pre), "partial": True,
-                    "pending": pend([x for x in fire + skipped_late if x["id"] not in done_ids])}
-            if (fc is None or fc.done()) and (pre_marker or fm is None or fm.done()):
-                snap["control"] = fc.result() if fc else {"carried": {"rc": 0}}
-                snap["marker"] = pre_marker or (fm.result() if fm else empty_marker)
-                evaluate(snap, sel)
-            return snap
-
-        def take(f):
-            r = {**f.result(), "file": fa[f]["file"], "fingerprint": fps[fa[f]["id"]]}
-            res["arms"].append(r)
-            killed = r.get("status") == "Killed"
-            mark = "red  " if killed else "GREEN" if r.get("status") in SURVIVED else "skip "
-            print(f"  {mark} {r['id']} {r['title']}" + ("" if r["own"] or not killed else "（赤は別の検査から）"), flush=True)
-            write_out(a.out, snapshot())
-        try:
-            wait = None if cutoff is None else max(0.0, (cutoff - datetime.datetime.now(cutoff.tzinfo)).total_seconds())
-            for f in cf.as_completed(fa, timeout=wait):
-                take(f)
-        except cf.TimeoutError:
-            # 期限: まだ始まっていない腕を取り消す（走っている腕は TIMEOUT のうちに終わるので待つ）
-            for f, x in fa.items():
-                if f.cancel():
-                    skipped_late.append(x)
-            for f in cf.as_completed([f for f in fa if not f.cancelled() and fa[f]["id"] not in {r["id"] for r in res["arms"]}]):
-                take(f)
-        res["control"] = fc.result() if fc else {"carried": {"rc": 0}}
-        res["marker"] = pre_marker or (fm.result() if fm else empty_marker)
-        res["arms"] += res_pre
+    install_stop_handlers()
+    try:
+        skipped_late = shoot(a, res, fire, sel, fps, late, pend)
+    except Stopped as e:
+        # 子のグループは信号の口（stop_groups）が止め、写しは腕ごとの finally が消してある（shoot が走っている腕の終わりを待つ）。
+        # 撃てた腕までの --out は腕ごとに書いてある
+        print(f"NG 止める信号（{e.signum}）を受けた——起こした子のグループと写しを片付けて抜ける（撃てた腕までの --out は残る）",
+              file=sys.stderr, flush=True)
+        sys.exit(128 + e.signum if e.signum else 1)
     if skipped_late:
         res["pending"] = pend(skipped_late)
         print(f"期限で撃たずに残った腕 {len(skipped_late)} 本: {' '.join(x['id'] for x in skipped_late)}"
@@ -759,10 +933,94 @@ def main():
         print(f"印を差したが通らなかった腕: {' '.join(unhit)}")
     if noev:
         print(f"赤だが当たりの証拠が無い腕（expect を宣言した腕は、落ちた検査に expect が無い）: {' '.join(noev)}")
+    if s["unrelated"] or s["unattributed"] or s["narrowed_green"]:
+        print(f"赤の出どころ: 絞った台本は緑で一式だけ赤 {len(s['unrelated'])}（揺れか台本の関数の外の検査）: {' '.join(s['unrelated'])}"
+              f" / 台本一式だけで撃った赤 {len(s['unattributed'])} / 一式で確かめていない緑 {len(s['narrowed_green'])}")
     res["summary"]["carried"] = [x["id"] for x in carried]
     write_out(a.out, res)
     shot = [r for r in res["arms"] if r.get("status") != "Ignored"]
     sys.exit(0 if shot and not skipped_late and healthy(res) and all(proven(r) for r in shot) else 1)
+
+
+def now(tz):
+    """期限を見る時刻の 1 本の口（台本が差し替えて、期限の切り替わりを印のファイルで起こす）"""
+    return datetime.datetime.now(tz)
+
+
+def shoot(a, res, fire, sel, fps, late, pend):
+    """印の写し・control・腕を撃って res に積む。返すのは期限で撃たずに残った腕"""
+    pre_marker, unreached, res_pre, skipped_late = None, [], [], []
+    if any("auto" in x for x in fire) and not late():
+        # **自動の腕は、印の写しで一度も通らない行を撃たない**——壊しても台本が気づけない行なので、撃つまでもなく生き残り
+        # （NoCoverage。腕の無い入口）。撃つのは通った行の腕だけ（全部を台本一式で撃つと 1 周の修正で 2 時間を超えた）
+        pre_marker = marker_run(fire)
+        seen = set(pre_marker["seen"])
+        unreached = [x for x in fire if "auto" in x and x["id"] not in seen and x["id"] in pre_marker["placed"]]
+        fire = [x for x in fire if x not in unreached]
+        res_pre = [{"id": x["id"], "title": x["title"], "status": "NoCoverage", "own": False, "rc": None, "failed": [], "killedBy": [],
+                    "tail": ["印の写しで一度も通らない行（撃たずに生き残りと数える）"], "file": x["file"], "fingerprint": fps[x["id"]]}
+                   for x in unreached]
+        # 行を通した台本（印の写しの記録）を腕に渡す——one がその台本だけを回す（narrowed）
+        for x in fire:
+            if "auto" in x and x["id"] in pre_marker["cover"]:
+                x["cover"] = pre_marker["cover"][x["id"]]
+        nar = [x for x in fire if narrowed(x)]
+        print(f"自動の腕: 印の写しで通った {len([x for x in fire if 'auto' in x])} 本を撃つ（うち行を通した台本だけで撃つ {len(nar)} 本）"
+              f"・通らない {len(unreached)} 本は撃たない", flush=True)
+    if late():
+        skipped_late, fire = fire, []
+    LATE = object()
+
+    def start(x):
+        """腕を始める。始める時に期限を過ぎていれば撃たずに LATE を返す（期限の判定はここの 1 か所）"""
+        return LATE if late() else one(x)
+    with cf.ThreadPoolExecutor(max(1, a.j)) as ex:
+        union = {}
+        for x in fire:
+            # control は撃つときと同じ絞り方で確かめる——手書きの腕の tests も、自動の腕の行を通した台本も
+            for s, fns in (narrowed(x) or x.get("tests") or {}).items():
+                union.setdefault(s, set()).update(fns)
+        # 撃つ腕が無い（全部持ち越し）回は写しで control を走らせない——持ち越した腕の健全さは前の回の結果が持つ
+        fc = ex.submit(control, {x["suite"] for x in fire} | {"root"}, {s: sorted(v) for s, v in union.items()}) if fire else None
+        fm = None if pre_marker else (ex.submit(marker_run, fire) if fire else None)   # 全部持ち越しの回は印の写しを走らせない（差す腕が無い）
+        fa = {ex.submit(start, x): x for x in fire}
+        empty_marker = {"rc": 0, "failed": [], "tail": [], "placed": [], "seen": [], "cover": {}, "skipped": {}}
+
+        def snapshot():
+            """途中の版: 撃った腕・未撃ちの腕・（終わっていれば）control と印の写し。両方そろっていれば証拠まで付けて、--reuse が読める形にする"""
+            done_ids = {r["id"] for r in res["arms"]}
+            snap = {**copymod.deepcopy(res), "arms": copymod.deepcopy(res["arms"]) + copymod.deepcopy(res_pre), "partial": True,
+                    "pending": pend([x for x in fire + [y for y in skipped_late if y not in fire] if x["id"] not in done_ids])}
+            if (fc is None or fc.done()) and (pre_marker or fm is None or fm.done()):
+                snap["control"] = fc.result() if fc else {"carried": {"rc": 0}}
+                snap["marker"] = pre_marker or (fm.result() if fm else empty_marker)
+                evaluate(snap, sel)
+            return snap
+
+        def take(f):
+            got = f.result()
+            if got is LATE:
+                skipped_late.append(fa[f])   # 撃った腕には積まない（pending にだけ載る）
+                write_out(a.out, snapshot())
+                return
+            r = {**got, "file": fa[f]["file"], "fingerprint": fps[fa[f]["id"]]}
+            res["arms"].append(r)
+            killed = r.get("status") == "Killed"
+            mark = "red  " if killed else "GREEN" if r.get("status") in SURVIVED else "skip "
+            print(f"  {mark} {r['id']} {r['title']}" + ("" if r["own"] or not killed else "（赤は別の検査から）"), flush=True)
+            write_out(a.out, snapshot())
+        try:
+            for f in cf.as_completed(fa):
+                take(f)
+            res["control"] = fc.result() if fc else {"carried": {"rc": 0}}
+            res["marker"] = pre_marker or (fm.result() if fm else empty_marker)
+        except Stopped:
+            # with の外へ抜ける前に、始まっていない腕を取り消す（抜けてからの shutdown(wait=True) は、残りの腕を写しから順に消化する）
+            ex.shutdown(wait=True, cancel_futures=True)
+            raise
+        res["arms"] += res_pre
+    return skipped_late
+
 
 if __name__ == "__main__":
     # 起動の口でだけ直す（台本が import mutate して使うので、取り込んだ側の標準出力は書き換えない）
