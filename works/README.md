@@ -11,7 +11,7 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 ## 要る物
 
 - Archon v0.11.1 以上 0.12.0 未満（`archon-plugin.json` の `compatibility.archon` が `>=0.11.1 <0.12.0`。確かめたのは v0.11.1 だけ）。
-- uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。Archon の環境に `UV_NO_PROJECT=1` を足すのは任意の念押し。
+- uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。ただし対象の uv の設定（`[tool.uv]`・`uv.toml`）は読まれ、満たせない `required-version` などで全部の script の節が止まり得るので、Archon を起こす環境（シェルか `~/.archon/.env`）に `UV_NO_CONFIG=1` を立てる（`UV_NO_PROJECT=1` では防げない）。利用者自身の `~/.config/uv` も読まれなくなるが、スクリプトは依存を持たないので困らない。
 - 対象リポジトリに git の remote。Archon は run ごとの worktree を既定で `origin/<既定の枝>` から切るので、remote が無いと run が始まらない。手元の枝や commit していない変更は worktree に入らないので、依頼の JSON は対象の外に置いて絶対パスで渡す（`skills/works/SKILL.md` の 2 節）。
 
 ## Claude Code のスキル

@@ -11,8 +11,8 @@ tests.log に置き、標準入力は閉じる（入力待ちで止まらない�
 走らせるのは tree_run（.shared/core）——コマンドを自分のプロセスグループで起こし、run が止められたら（SIGINT・SIGTERM・
 SIGHUP、直下の親の uv が消えた）テストが背景に起こした孫まで木ごと止める。
 テストのコマンドには uv run の外の環境を渡す（outside_env）。Archon は script の節を `uv run <このファイル>` で起こし、
-uv は PATH の頭に自分の python の bin（対象が pyproject.toml を持てば対象の .venv/bin）を足し、VIRTUAL_ENV・
-UV_RUN_RECURSION_DEPTH を立てる。そのまま渡すと `python3 -m pytest` が uv の python を掴んで偽の赤になる
+uv は PATH の頭に自分の python の bin（PEP 723 の塊が作る ~/.cache/uv の下の環境。塊が外れて対象が pyproject.toml を
+持てば対象の .venv/bin）を足し、VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH を立てる。そのまま渡すと `python3 -m pytest` が uv の python を掴んで偽の赤になる
 （bash の節だった頃は Archon の素の環境で走った）。
 
 出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。赤（信号で死んだ回も）でも ok: true
