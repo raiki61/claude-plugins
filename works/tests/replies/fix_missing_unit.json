@@ -1,0 +1,11 @@
+{
+ "changes": [
+  {
+   "unit_key": "stats.py mean: 分母が len(xs) - 1 になっている",
+   "files": [
+    "stats.py"
+   ],
+   "what": "mean の分母を len(xs) に直した"
+  }
+ ]
+}

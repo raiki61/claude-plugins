@@ -1,0 +1,18 @@
+{
+ "changes": [
+  {
+   "unit_key": "stats.py mean: 分母が len(xs) - 1 になっている",
+   "files": [
+    "stats.py"
+   ],
+   "what": "mean の分母を len(xs) に直した"
+  },
+  {
+   "unit_key": "stats.py clamp: 上限を超えた値に lo を返す",
+   "files": [
+    "stats.py"
+   ],
+   "what": "clamp の上限の枝で hi を返すように直した"
+  }
+ ]
+}

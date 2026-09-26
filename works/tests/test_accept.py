@@ -1,0 +1,210 @@
+"""受け付けの口（.shared/core/accept.py）の検査。
+
+良い返答の見本が通り、悪い見本（拒む理由が 1 つだけになるように作った物）が ok: False で拒まれるかを、
+dev/target-seed/ を一時ディレクトリの git に写した使い捨ての対象リポジトリで見る。見本は tests/replies/ に在る。
+"""
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+CORE = ROOT / ".shared" / "core"
+REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
+SEED = ROOT / "dev" / "target-seed"
+sys.path.insert(0, str(CORE))
+
+from accept import check_delta, check_fix, check_judge, check_request, role_schema, snapshot_tree  # noqa: E402
+
+GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+FIXED_STATS = '''"""直した後の姿。"""
+
+
+def mean(xs):
+    return sum(xs) / len(xs)
+
+
+def clamp(x, lo, hi):
+    if x < lo:
+        return lo
+    if x > hi:
+        return hi
+    return x
+'''
+
+
+def load(name):
+    return json.loads((REPLIES / f"{name}.json").read_text())
+
+
+def git(repo, *args):
+    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+class AcceptCase(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = pathlib.Path(self._tmp.name)
+        self.repo = tmp / "repo"
+        shutil.copytree(SEED, self.repo)
+        git(self.repo, "init", "-q")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "seed")
+        self.base = git(self.repo, "rev-parse", "HEAD")
+        self.board = tmp / "board"
+        self.board.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def judged(self):
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+        return r
+
+
+class TestIntake(AcceptCase):
+    def test_intake_accepts_request(self):
+        r = check_request(load("request_ok"), self.board, "持ち主")
+        self.assertTrue(r["ok"], r["reason"])
+        batches = json.loads((self.board / "request.json").read_text())
+        self.assertEqual(batches, [{"round": 1, "origin": "持ち主", "findings": load("request_ok")}])
+
+    def test_intake_rejects_unknown_key(self):
+        r = check_request(load("request_extra_key"), self.board, "持ち主")
+        self.assertFalse(r["ok"])
+        self.assertIn("severity", r["reason"])
+        self.assertFalse((self.board / "request.json").exists())
+
+    def test_intake_rejects_non_list(self):
+        r = check_request({"where": "stats.py", "text": "x"}, self.board, "持ち主")
+        self.assertFalse(r["ok"])
+
+
+class TestJudge(AcceptCase):
+    def test_judge_accepts_good_reply(self):
+        check_request(load("request_ok"), self.board, "持ち主")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+        self.assertTrue((self.board / "judgment.json").exists())
+        self.assertEqual(r["judgment_file"], str(self.board / "judgment.json"))
+        self.assertEqual(sorted(r["open_units"]), sorted(u["key"] for u in load("judge_ok")["units"] if u["label"] == "block"))
+
+    def test_judge_empty_base_rev_reads_head(self):
+        # Ruling R2: base_rev が空なら repo の HEAD をその場で読む
+        r = check_judge(load("judge_ok"), self.board, "", self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+
+    def test_judge_missing_units(self):
+        no_units = load("judge_ok")
+        del no_units["units"]
+        r = check_judge(no_units, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("units", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_judge_rejects_precedent_without_searched(self):
+        r = check_judge(load("judge_notfound_no_searched"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("searched", r["reason"])
+
+    def test_judge_rejects_dirty_tree(self):
+        (self.repo / "extra.txt").write_text("読むだけの役が書いた\n")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("extra.txt", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_judge_rejects_non_object(self):
+        r = check_judge("units", self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+
+
+class TestFix(AcceptCase):
+    def test_fix_accepts_covering_reply(self):
+        self.judged()
+        r = check_fix(load("fix_ok"), self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+
+    def test_fix_rejects_uncovered_unit(self):
+        self.judged()
+        r = check_fix(load("fix_missing_unit"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        covered = {c["unit_key"] for c in load("fix_missing_unit")["changes"]}
+        missing = [u["key"] for u in load("judge_ok")["units"] if u["key"] not in covered]
+        self.assertEqual(len(missing), 1)
+        self.assertIn(missing[0], r["reason"])
+
+    def test_fix_without_judgment(self):
+        r = check_fix(load("fix_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("judgment.json", r["reason"])
+
+
+class TestDelta(AcceptCase):
+    def fix_stats(self):
+        (self.repo / "stats.py").write_text(FIXED_STATS)
+
+    def test_delta_accepts_good_reply(self):
+        self.fix_stats()
+        r = check_delta(load("delta_ok"), self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+
+    def test_delta_rejects_uncited_face(self):
+        self.fix_stats()
+        r = check_delta(load("delta_bad_cite"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("cite", r["reason"])
+
+    def test_delta_face_on_untracked_file(self):
+        # 触ったファイルは未追跡も含む（修正が足したファイルを審査が指せる）
+        self.fix_stats()
+        (self.repo / "helper.py").write_text("def helper():\n    return 1\n")
+        reply = {"faces": [{"key": "helper.py 使われない関数", "kind": "dead_path", "where": "helper.py",
+                            "cite": "def helper():", "why": "どこからも呼ばれない関数を修正が足している"}], "checks": []}
+        r = check_delta(reply, self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+
+    def test_delta_rejects_tree_changed_after_snapshot(self):
+        # Ruling R3: cut が盤面に置いた写しと、受け付けの時の作業ツリーが違えば拒む
+        self.fix_stats()
+        (self.board / "delta-snapshot.json").write_text(json.dumps(snapshot_tree(self.repo)))
+        self.assertTrue(check_delta(load("delta_ok"), self.board, self.base, self.repo)["ok"])
+        with open(self.repo / "stats.py", "a") as f:
+            f.write("# 審査役が書いた\n")
+        r = check_delta(load("delta_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("作業ツリー", r["reason"])
+
+    def test_snapshot_sees_untracked_content(self):
+        (self.repo / "new.txt").write_text("a\n")
+        before = snapshot_tree(self.repo)
+        (self.repo / "new.txt").write_text("b\n")
+        self.assertEqual(before["porcelain"], snapshot_tree(self.repo)["porcelain"])
+        self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
+
+
+class TestRoleSchema(unittest.TestCase):
+    def test_role_schema_resolves_refs(self):
+        self.assertNotIn("$ref", json.dumps(role_schema("p2.diagnose")))
+
+    def test_role_schema_drops_notes_but_keeps_note_fields(self):
+        s = role_schema("p2.diagnose")
+        self.assertNotIn("note", s)
+        self.assertNotIn("note", s["properties"]["units"]["items"]["properties"]["class_query"]["properties"]["how"])
+        # router の行は note という名前の欄を必須に持つ——注記と一緒に欄まで落とすと、どの行も型を通らない
+        router = s["properties"]["router"]["items"]
+        self.assertIn("note", router["required"])
+        self.assertIn("note", router["properties"])
+
+    def test_good_replies_pass_role_schema(self):
+        from engine.schema import validate_schema
+        self.assertEqual(validate_schema(load("judge_ok"), role_schema("p2.diagnose")), [])
+        self.assertEqual(validate_schema(load("delta_ok"), role_schema("p3.delta_review")), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,11 @@
+[
+ {
+  "where": "stats.py",
+  "text": "mean([1, 2, 3]) が 2 でなく 3 を返す。test_mean_of_three が赤",
+  "severity": "high"
+ },
+ {
+  "where": "stats.py",
+  "text": "clamp(15, 0, 10) が 10 でなく 0 を返す。test_clamp_above_range が赤"
+ }
+]

@@ -1,0 +1,12 @@
+{
+ "faces": [
+  {
+   "key": "stats.py clamp: 上限の枝の戻り値",
+   "kind": "contract_drift",
+   "where": "stats.py",
+   "cite": "return hi + 1",
+   "why": "上限を超えた値に hi でない値を返しており、docstring の約束とずれている"
+  }
+ ],
+ "checks": []
+}
