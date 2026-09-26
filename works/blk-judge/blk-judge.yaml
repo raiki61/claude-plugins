@@ -1,0 +1,214 @@
+name: blk-judge
+description: |
+  判定のブロック。人の修正依頼（findings の JSON の配列）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ、
+  受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回）。ラインから include で使う。
+  出口は盤面の judgment.json のパスと、直す義務の残る単位の key の一覧。
+
+inputs:
+  request:
+    required: true
+    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版。空なら受け付けの時の HEAD（Ruling R2）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 依頼の型を graphloops の add と同じ規則で確かめ、盤面の request.json に積む。
+  # 読めない・JSON でない・規則が拒むなら終了コード 1 で run を止める（AI を起こす前に止める）
+  - id: intake
+    script: intake
+    runtime: uv
+    timeout: 1728000000
+    with:
+      request: $INPUTS.request
+
+  # 判定役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
+  - id: judge-loop
+    depends_on: [intake]
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $accept.output.ok = true
+      nodes:
+        - id: judge
+          command: diagnose
+          allowed_tools: [Read, Grep, Glob]
+          sandbox: {enabled: true}
+          idle_timeout: 1728000000
+          # role_schema("p2.diagnose") を 1 度出して貼った物（tests/test_blk_judge.py が一致を見る）
+          output_format:
+            type: object
+            required: [units, questions, framing, one_shot, materials_missing, carried_r1, one_shot_closes, precedents]
+            additionalProperties: false
+            properties:
+              units:
+                type: array
+                items:
+                  type: object
+                  required: [key, label]
+                  additionalProperties: true
+                  properties:
+                    key: {type: string, minLength: 1}
+                    label:
+                      type: string
+                      enum: [block, suggest, nit, question, info]
+                    disposition:
+                      type: string
+                      enum: [do-now, defer]
+                    reason: {type: string}
+                    reopen_evidence: {type: string}
+                    origin_analysis: {type: string}
+                    why_chain:
+                      type: array
+                      items: {type: string}
+                    prescriptions:
+                      type: array
+                      items: {type: string}
+                    closed_note: {type: string}
+                    class_query:
+                      type: object
+                      required: [how, counts, total]
+                      additionalProperties: false
+                      properties:
+                        how:
+                          type: object
+                          required: [patterns, paths, count]
+                          additionalProperties: false
+                          properties:
+                            patterns:
+                              type: array
+                              minItems: 1
+                              maxItems: 20
+                              items: {type: string, minLength: 1, pattern: '^[^\n\r\x00]+$'}
+                            fixed: {type: boolean}
+                            paths:
+                              type: array
+                              minItems: 1
+                              maxItems: 50
+                              items: {type: string, minLength: 1, pattern: '^[^\n\r\x00]+$'}
+                            count:
+                              type: string
+                              enum: [lines, files]
+                            untracked: {type: boolean}
+                            ignore_case: {type: boolean}
+                            word: {type: boolean}
+                        counts:
+                          type: string
+                          enum: [defects, population]
+                        total: {type: integer, minimum: 0}
+                        note: {type: string}
+              questions:
+                type: array
+                items:
+                  type: object
+                  required: [key, kind, status, reason]
+                  additionalProperties: false
+                  properties:
+                    key: {type: string, minLength: 1}
+                    kind:
+                      type: string
+                      enum: [fork, split, rule, stuck, thrash, premise, unverifiable, awaiting, field]
+                    status:
+                      type: string
+                      enum: [held, decided, resolved, escalate]
+                    reason: {type: string}
+                    resolution: {type: string}
+                    options:
+                      type: array
+                      items: {type: string}
+                    depends:
+                      type: array
+                      items: {type: string}
+                    origin: {type: string}
+              framing: {type: string}
+              one_shot: {type: string}
+              materials_missing:
+                type: array
+                items: {type: string}
+              carried_r1:
+                type: array
+                items:
+                  type: object
+                  required: [where, disposition]
+                  additionalProperties: false
+                  properties:
+                    where: {type: string, minLength: 1}
+                    disposition:
+                      type: string
+                      enum: [promote, decline]
+                    unit_key: {type: string}
+                    why: {type: string}
+              router:
+                type: array
+                items:
+                  type: object
+                  required: [key, route, note]
+                  additionalProperties: false
+                  properties:
+                    key: {type: string}
+                    route: {type: string}
+                    note: {type: string}
+              reburn_causes:
+                type: array
+                items:
+                  type: object
+                  required: [key, cause]
+                  additionalProperties: false
+                  properties:
+                    key: {type: string}
+                    cause:
+                      type: string
+                      enum: [コード, レビュアー, 規約, 前の周の修正]
+                    note: {type: string}
+              one_shot_closes:
+                type: array
+                items: {type: string}
+              precedents:
+                type: array
+                items:
+                  type: object
+                  required: [key, problem, source, verdict, reason]
+                  additionalProperties: false
+                  properties:
+                    key: {type: string, minLength: 1}
+                    problem: {type: string, minLength: 4}
+                    source: {type: string}
+                    verdict:
+                      type: string
+                      enum: [adopt, adapt, does_not_apply, not_found]
+                    reason: {type: string, minLength: 4}
+                    searched: {type: string}
+                    undecided_because: {type: string}
+        - id: accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [judge]
+          with:
+            reply: {from: "$judge.output"}
+            base_rev: $INPUTS.base_rev
+          output_format:
+            type: object
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              open_units: {type: array, items: {type: string}}
+            required: [ok, reason, open_units]
+
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の judgment.json から出口を組む
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [judge-loop]
+    output_format:
+      type: object
+      properties:
+        ok: {type: boolean}
+        open_units: {type: array, items: {type: string}}
+        judgment_file: {type: string}
+        one_shot: {type: string}
+      required: [ok, open_units, judgment_file, one_shot]
