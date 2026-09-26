@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1998,6 +1999,44 @@ def test_role_run():
             role_run._started_at = orig
         check(why and "確かめられない" in why and mark.exists(), f"開始時刻を確かめられなければ止めずに理由を返す（{why}）")
         mark.unlink()
+
+        def escaped(escape, leader_stays=True):
+            """孫がグループの外へ出る木を起こす ——(長の Popen, 孫の pid)。escape は孫が最初に呼ぶ口（setpgid はジョブ制御つきの
+            シェルが背景の仕事を移す形、setsid は新しいセッションへ抜ける形）。leader_stays が偽なら長は孫を起こしてすぐ終わる"""
+            grand = f"import os, sys, time\n{escape}\nprint(os.getpid(), flush=True)\ntime.sleep(120)\n"
+            leader = subprocess.Popen([sys.executable, "-c", "import subprocess, sys, time\n"
+                                       f"subprocess.Popen([sys.executable, '-c', {grand!r}])\n"
+                                       + ("time.sleep(120)\n" if leader_stays else "")],
+                                      start_new_session=True, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+            return leader, int(leader.stdout.readline())
+
+        def reap(leader, gp):
+            """止め損ねた回も固定具を残さない（検査が赤でも、孫と長を番号で止めて回収する）"""
+            if not gone(gp, within=0):
+                os.kill(gp, signal.SIGKILL)
+            if leader.poll() is None:
+                leader.kill()
+            leader.wait()
+
+        for escape in ("os.setpgid(0, 0)", "os.setsid()"):
+            leader, gp = escaped(escape)
+            why = role_run._kill(leader)
+            check(why is None and gone(gp), f"グループの外へ出た孫（{escape}）も木の仲間として止める（{why} pid {gp}）")
+            reap(leader, gp)
+        # 長が終わって回収されていない（ゾンビだけの）グループ: macOS は killpg を EPERM で拒むが、送れないとは言わず、
+        # セッションに残った孫を止めて止まったと数える
+        leader, gp = escaped("os.setpgid(0, 0)", leader_stays=False)
+        t0 = time.monotonic()
+        while (subprocess.run(["ps", "-o", "stat=", "-p", str(leader.pid)], capture_output=True, text=True,
+                              encoding="utf-8").stdout.strip()[:1] != "Z"
+               and time.monotonic() - t0 < 30):
+            time.sleep(0.05)
+        mark.write_text(json.dumps({"pgid": leader.pid}), encoding="utf-8")
+        why = role_run.stop_group(str(mark))
+        check(why is None and gone(gp) and not mark.exists(),
+              f"ゾンビだけのグループの EPERM を生きていると読まず、セッションに残った孫を止めて印を消す（{why} pid {gp}）")
+        reap(leader, gp)
+        mark.unlink(missing_ok=True)
         # テストの実行器を走らせる口（run_tree）: 時間切れは孫まで止め、標準入力は閉じ、文字列で返す
         gpid = tmp / "tree-grandchild.pid"
         try:
@@ -2007,7 +2046,7 @@ def test_role_run():
             got = "TimeoutExpired"
         gp = int(gpid.read_text(encoding="utf-8")) if gpid.is_file() else None
         check(got == "TimeoutExpired" and gp is not None and gone(gp), f"run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる（{got} pid {gp}）")
-        # SIGTERM を無視する孫も止まる——長（sh）が先に終わっても、グループが消えるまで待って SIGKILL を送る
+        # SIGTERM を無視する孫も止まる——長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL を送る
         gpid2 = tmp / "tree-deaf.pid"
         try:
             role_run.run_tree(["sh", "-c", f"(trap '' TERM; echo $$ > /dev/null; exec sh -c 'trap \"\" TERM; echo $$ > {gpid2}; while :; do sleep 1; done') & wait"],
@@ -2015,7 +2054,7 @@ def test_role_run():
         except subprocess.TimeoutExpired:
             pass
         gp2 = int(gpid2.read_text(encoding="utf-8")) if gpid2.is_file() and gpid2.read_text(encoding="utf-8").strip() else None
-        check(gp2 is not None and gone(gp2), f"run_tree: SIGTERM を無視する孫も、グループが消えるまで待って SIGKILL で止める（pid {gp2}）")
+        check(gp2 is not None and gone(gp2), f"run_tree: SIGTERM を無視する孫も、木が消えたかを数え直して SIGKILL で止める（pid {gp2}）")
         r = role_run.run_tree(["sh", "-c", "read x; echo \"got:$x\"; echo err >&2"], cwd=tmp, timeout=30)
         check(r.returncode == 0 and r.stdout == "got:\n" and r.stderr == "err\n",
               f"run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す（{r.returncode} {r.stdout!r} {r.stderr!r}）")

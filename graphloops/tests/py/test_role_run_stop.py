@@ -24,6 +24,8 @@ def test_run_tree_kills_the_tree_when_waiting_breaks(tmp_path, monkeypatch):
 
     class Broken(subprocess.Popen):
         def communicate(self, *a, **k):
+            if seen:   # 止める口が数え上げに起こす ps は普通に待つ
+                return super().communicate(*a, **k)
             seen.append(self)
             raise KeyboardInterrupt
 
@@ -74,18 +76,80 @@ def test_stop_group_windows(tmp_path, monkeypatch, rc, started, fails):
     assert m.exists() == fails
 
 
-def test_stop_group_posix_group_already_gone(tmp_path, monkeypatch):
-    """信号を送る前にグループが消えていたら、止まったと数えて印を消す"""
-    m = mark(tmp_path)
+def proc(pid, pgid=4242, stat="S", ppid=1, started=100.0, uid=501):
+    return role_run._Proc(pid, ppid, pgid, uid, started, stat)
 
-    def killpg(pgid, sig):
-        raise ProcessLookupError
 
-    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix", killpg=killpg))
+def posix(monkeypatch, members, sent, eperm=False):
+    """role_run の os を POSIX の代役に替える。members(sent) が数え上げの答え（{pid: _Proc}）、sent は送った (宛先, 信号)。
+    eperm なら送る口が PermissionError（sandbox の中から別のグループへ送った形）"""
+    def send(kind):
+        def f(target, sig):
+            if sig == 0:
+                if not any(pid == target for pid in members(sent)):
+                    raise ProcessLookupError
+                return
+            sent.append((kind, target, sig))
+            if eperm:
+                raise PermissionError(1, "Operation not permitted")
+        return f
+    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix", killpg=send("pg"), kill=send("pid")))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (members(sent), None))
     monkeypatch.setattr(role_run, "STOP_SIGNALS", (15, 9))
+    monkeypatch.setattr(role_run, "KILL_GRACE", 0.3)
     monkeypatch.setattr(role_run, "probe_group", lambda f: (4242, None))
+
+
+def test_stop_group_posix_group_already_gone(tmp_path, monkeypatch):
+    """信号を送る前に木の仲間が居なければ、送らずに止まったと数えて印を消す"""
+    m = mark(tmp_path)
+    sent = []
+    posix(monkeypatch, lambda s: {}, sent)
     assert role_run.stop_group(str(m)) is None
-    assert not m.exists()
+    assert not m.exists() and sent == []
+
+
+def test_stop_group_reads_the_reuse_mark_before_probing(tmp_path, monkeypatch):
+    """再利用の目印（印の更新時刻）は probe_group より先に読む——確かめた後に子が終わって印が消えても、_stop_tree に目印が渡る"""
+    m = mark(tmp_path)
+    written = m.stat().st_mtime
+    got = {}
+
+    def probe(f):
+        m.unlink()   # 確かめた直後に子が終わり、launch の側が印を消した
+        return 4242, None
+    monkeypatch.setattr(role_run, "probe_group", probe)
+    monkeypatch.setattr(role_run, "_stop_tree", lambda pgid, leader=None, born=None: got.update(born=born))
+    assert role_run.stop_group(str(m)) is None and got["born"] == written
+
+
+def test_stop_group_posix_zombies_only_is_gone(tmp_path, monkeypatch):
+    """仲間がゾンビ（回収待ち）だけなら止まったと数える——macOS はゾンビだけのグループへの killpg を EPERM で拒む"""
+    m = mark(tmp_path)
+    sent = []
+    posix(monkeypatch, lambda s: {4242: proc(4242, stat="Z")}, sent, eperm=True)
+    assert role_run.stop_group(str(m)) is None
+    assert not m.exists() and sent == []
+
+
+def test_stop_group_posix_eperm_on_a_live_member_says_why_at_once(tmp_path, monkeypatch):
+    """生きた仲間が居るのに送れない（sandbox の中から別のグループへ）なら、待たずに原因を言い、印を残す"""
+    m = mark(tmp_path)
+    sent = []
+    posix(monkeypatch, lambda s: {4242: proc(4242)}, sent, eperm=True)
+    why = role_run.stop_group(str(m))
+    assert why == "グループ 4242 に信号を送れない（[Errno 1] Operation not permitted）"
+    assert sent == [("pg", 4242, 15)] and m.exists()
+
+
+def test_stop_group_posix_signals_members_outside_the_group(tmp_path, monkeypatch):
+    """グループの外へ出た仲間にも送る: 長が仲間のグループには killpg、長の居ないグループの仲間には 1 本ずつ"""
+    m = mark(tmp_path)
+    sent = []
+    tree = {4242: proc(4242), 5000: proc(5000, pgid=5000), 6000: proc(6000, pgid=7777)}
+    posix(monkeypatch, lambda s: tree if not s else {}, sent)
+    assert role_run.stop_group(str(m)) is None
+    assert sorted(sent) == [("pg", 4242, 15), ("pg", 5000, 15), ("pid", 6000, 15)]
 
 
 @pytest.mark.parametrize("platform,tools,want", [
@@ -153,27 +217,72 @@ def test_run_role_reports_a_role_it_could_not_start(tmp_path):
 
 
 @pytest.mark.parametrize("dies_after", [pytest.param(15, id="dies-on-term"), pytest.param(None, id="never-dies")])
-def test_stop_group_posix_watches_the_group(tmp_path, monkeypatch, dies_after):
-    """信号を送った後はグループの生存（kill(-pgid, 0)）を見て、消えたら止まったと数える。消えなければ SIGKILL の後も残ったと言う"""
+def test_stop_group_posix_watches_the_tree(tmp_path, monkeypatch, dies_after):
+    """送った後は数え直して、仲間が消えたら止まったと数える。消えなければ SIGKILL の後も残った仲間を名指しする"""
     m = mark(tmp_path)
     sent = []
-
-    def killpg(pgid, sig):
-        if sig == 0:
-            if dies_after is not None and dies_after in sent:
-                raise ProcessLookupError
-            return
-        sent.append(sig)
-
-    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix", killpg=killpg))
-    monkeypatch.setattr(role_run, "STOP_SIGNALS", (15, 9))
-    monkeypatch.setattr(role_run, "KILL_GRACE", 0.3)
-    monkeypatch.setattr(role_run, "probe_group", lambda f: (4242, None))
+    posix(monkeypatch, lambda s: {} if dies_after in [sig for _, _, sig in s] else {4242: proc(4242), 4300: proc(4300, pgid=4300)}, sent)
     why = role_run.stop_group(str(m))
     if dies_after is None:
-        assert why == "グループ 4242 が SIGKILL の後も残っている" and sent == [15, 9] and m.exists()
+        assert why == "グループ 4242 の木が SIGKILL の後も残っている（pid 4242（pgid 4242・S）, pid 4300（pgid 4300・S））"
+        assert [sig for _, _, sig in sent] == [15, 15, 9, 9] and m.exists()
     else:
-        assert why is None and sent == [15] and not m.exists()
+        assert why is None and [sig for _, _, sig in sent] == [15, 15] and not m.exists()
+
+
+def test_stop_group_posix_unreadable_table_is_not_stopped(tmp_path, monkeypatch):
+    """全プロセスの表が読めなければ、グループへは今どおり送るが、外へ出た子孫を確かめていないので止まったと言わない"""
+    m = mark(tmp_path)
+    sent = []
+    posix(monkeypatch, lambda s: {}, sent)
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (None, "ps が無い"))
+    why = role_run.stop_group(str(m))
+    assert why.startswith("止める相手を数え上げられない（ps が無い）") and ("pg", 4242, 15) in sent and m.exists()
+
+
+def members_of(monkeypatch, rows, sessions, me=100):
+    """_tree_members を、全プロセスの表と getsid の答えを差し替えて呼ぶ口を返す（sessions の値が例外ならそれを上げる）"""
+    def getsid(pid):
+        v = sessions.get(pid, 1)
+        if isinstance(v, BaseException):
+            raise v
+        return v
+    monkeypatch.setattr(role_run, "_ps_all", lambda: ({r.pid: r for r in rows}, None))
+    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix", getsid=getsid, getpid=lambda: me, getuid=lambda: 501))
+    return lambda pgid, known=None, born=None: role_run._tree_members(pgid, known, born)
+
+
+def test_tree_members_follows_group_session_and_parents(monkeypatch):
+    """仲間はグループ・セッション（setpgid で抜けた孫）・親子の鎖（setsid で抜けた孫とその子）で拾い、自分と祖先は除く。
+    前に数えた pid は同じ開始時刻で居るときだけ起点にする（番号の再利用で木の外へ送らない）"""
+    rows = [proc(1, pgid=1, ppid=0), proc(100, pgid=100, ppid=1), proc(4242, ppid=100),
+            proc(4300, pgid=4300, ppid=4242),                    # setpgid で抜けた孫（セッションは 4242 のまま）
+            proc(4400, pgid=4400, ppid=4242), proc(4401, pgid=4400, ppid=4400),   # setsid で抜けた孫とその子
+            proc(4500, pgid=4500, ppid=1),                       # 長が死んだ後の孤児（セッションは 4242）
+            proc(9000, pgid=9000, ppid=1, started=500.0),        # 前に数えた番号が再利用された別物
+            proc(9100, pgid=9100, ppid=1, started=100.0)]        # 前に数えた、同じ開始時刻の仲間
+    count = members_of(monkeypatch, rows, {4242: 4242, 4300: 4242, 4400: 4400, 4401: 4400, 4500: 4242, 100: 4242})
+    found, why = count(4242, known={9000: 100.0, 9100: 100.0})
+    assert sorted(found) == [4242, 4300, 4400, 4401, 4500, 9100] and why is None
+
+
+@pytest.mark.parametrize("leader_started,want", [pytest.param(100.0, [4242, 4300], id="same-leader"),
+                                                  pytest.param(900.0, [], id="number-reused")])
+def test_tree_members_ignores_a_reused_leader_number(monkeypatch, leader_started, want):
+    """長の番号に、長を起こした時刻（born）より後に始まったプロセスが居れば、番号は再利用されている——グループとセッションでは
+    拾わない（止める間に木が消え、無関係なプロセスがその番号で setsid した形に SIGKILL を送らない）"""
+    rows = [proc(100, pgid=100), proc(4242, started=leader_started), proc(4300, pgid=4300, ppid=1, started=leader_started)]
+    count = members_of(monkeypatch, rows, {4242: 4242, 4300: 4242})
+    found, why = count(4242, born=100.0)
+    assert sorted(found) == want and why is None
+
+
+def test_tree_members_unreadable_session_of_the_same_user(monkeypatch):
+    """同じ利用者のプロセスのセッションが読めなければ、仲間か決められないので理由を返す（他の利用者の物は問わない）"""
+    rows = [proc(100, pgid=100), proc(4242), proc(8000, pgid=8000), proc(8100, pgid=8100, uid=0)]
+    count = members_of(monkeypatch, rows, {4242: 4242, 8000: PermissionError(), 8100: PermissionError()})
+    found, why = count(4242)
+    assert sorted(found) == [4242] and why == "セッションの番号を読めないプロセスが在り、木の仲間かを決められない（pid [8000]）"
 
 
 def test_run_role_without_resume_argv_stops_after_a_rejection(tmp_path):

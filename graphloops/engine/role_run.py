@@ -24,6 +24,7 @@
 
 役でなく**コマンドを走らせるだけの節**（対象リポジトリが宣言したテスト一式など）も同じ起こし方で走らせる（run_steps）。
 """
+import collections
 import datetime
 import json
 import os
@@ -246,7 +247,9 @@ def _popen(argv, **kw):
     外すのは _forget（待ち終えた後）"""
     grp = ({"start_new_session": True} if os.name == "posix"
            else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
+    born = time.time()
     p = subprocess.Popen(argv, **kw, **grp)
+    p.gl_born = born   # 長の番号が止める間に再利用されたかを見分ける目印（_tree_members の born）
     with _LIVE_LOCK:
         LIVE.add(p)
     if _STOPPING.is_set():   # 止める信号の後に起こした子（並列の launch の続きの往復など）——kill_all はもう走った
@@ -261,13 +264,101 @@ def _forget(p):
         LIVE.discard(p)
 
 
-def _stop_tree(pgid, leader=None):
-    """プロセスグループ pgid を止める。返すのは止め切れなかった理由（None なら止まった・居なかった）。
+_Proc = collections.namedtuple("_Proc", "pid ppid pgid uid started stat")   # ps の 1 行（started は開始時刻のエポック秒）
 
-    POSIX は STOP_SIGNALS を順にグループへ送り、**長でなくグループの消滅**まで KILL_GRACE ずつ待ち、残れば次の信号へ
-    （systemd の KillMode=control-group と同じ形——長が先に終わっても、SIGTERM を無視する孫には SIGKILL が届く）。
-    長の Popen（leader）を持つなら待つ間に回収する（回収しない長はゾンビのままグループに残り、消滅が見えない）。
-    Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る）。"""
+
+def _ps_all():
+    """全プロセスの表 {pid: _Proc}。読めなければ (None, 理由)。_started_at と同じ ps（依存を足さない）"""
+    try:
+        r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,uid=,etime=,stat="], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, f"ps を起こせない（{e}）"
+    now, rows = time.time(), {}
+    for line in r.stdout.splitlines():
+        f = line.split()
+        secs = parse_etime(f[4]) if len(f) >= 6 else None
+        if secs is None or not all(x.lstrip("-").isdigit() for x in f[:4]):
+            continue
+        rows[int(f[0])] = _Proc(int(f[0]), int(f[1]), int(f[2]), int(f[3]), now - secs, f[5])
+    if r.returncode != 0 or not rows:
+        return None, f"ps が全プロセスの表を返さない（exit {r.returncode}: {r.stderr.strip()[-200:]}）"
+    return rows, None
+
+
+def _tree_members(pgid, known=None, born=None):
+    """試行の木の仲間を数え上げる ——({pid: _Proc}, 理由)。表が読めなければ (None, 理由)。
+
+    プロセスグループは子孫が抜けられる（ジョブ制御つきのシェルは背景の仕事を setpgid で自分のグループへ移し、setsid は
+    新しいセッションを作る）ので、グループだけでは木を数えられない。拾う印は 3 つ:
+      - pgid が止める番号のもの
+      - セッションの番号が止める番号のもの——子は setsid で起こしてあり、setpgid で抜けた孫もセッションは抜けない。
+        長が死んで親が 1 に付け替わった後も残る（実測 2026-09-26・macOS 26.6.2）
+      - 上の 2 つと known（前の回に数えた {pid: 開始時刻}。今の表に同じ開始時刻で居るものだけ——番号の再利用で木の外へ
+        送らない）から親子の鎖で辿れる子孫——setsid で抜けた孫。鎖が切れる前に拾うため、信号より先に数える
+    born（長を起こした時刻か、印を書いた時刻）より REUSE_SLACK を超えて後に始まったプロセスが長の番号に居れば、番号は
+    再利用されている（グループもセッションも在る限り番号は再利用されない）ので、グループとセッションでは拾わない——
+    止める間に木が消えて番号が回収され、無関係なプロセスがその番号で setsid した形に送らない。
+    呼んだ自分と自分の祖先は数えない。環境変数の印（Jenkins の ProcessTreeKiller の形）は macOS では他のプロセスの
+    環境が読めない（ps -E にも KERN_PROCARGS2 にも出ない。実測 2026-09-26）ので使わない。
+    **拾えない物**: 信号より前に親が消えて鎖が切れ、かつ setsid でセッションも抜けた子孫（二重 fork の daemon 化・
+    外から SIGKILL された実行器が残した自前のセッションの子）。
+    セッションの番号を読めない同じ利用者のプロセスが在れば、仲間かどうかを決められないので理由を返す（止まったと言わない）"""
+    rows, why = _ps_all()
+    if rows is None:
+        return None, why
+    uid, sessions, unreadable = os.getuid(), {}, []
+    for pid, row in rows.items():
+        try:
+            sessions[pid] = os.getsid(pid)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            if row.uid == uid:
+                unreadable.append(pid)
+    mine, cur = set(), os.getpid()
+    while cur in rows and cur not in mine:
+        mine.add(cur)
+        cur = rows[cur].ppid
+    reused = born is not None and pgid in rows and rows[pgid].started > born + REUSE_SLACK
+    found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid or sessions.get(pid) == pgid}
+    found |= {pid for pid, t in (known or {}).items() if pid in rows and abs(rows[pid].started - t) <= REUSE_SLACK}
+    children = {}
+    for pid, row in rows.items():
+        children.setdefault(row.ppid, []).append(pid)
+    todo = list(found)
+    while todo:
+        for c in children.get(todo.pop(), ()):
+            if c not in found:
+                found.add(c)
+                todo.append(c)
+    found -= mine
+    lost = [pid for pid in unreadable if pid not in found and pid not in mine]
+    why = f"セッションの番号を読めないプロセスが在り、木の仲間かを決められない（pid {lost[:5]}）" if lost else None
+    return {pid: rows[pid] for pid in found}, why
+
+
+def _live(members):
+    return {pid: m for pid, m in members.items() if not m.stat.startswith("Z")}
+
+
+def _name(members):
+    return ", ".join(f"pid {m.pid}（pgid {m.pgid}・{m.stat}）" for m in list(members.values())[:5])
+
+
+def _stop_tree(pgid, leader=None, born=None):
+    """起こした試行の木（プロセスグループ pgid の子とその子孫）を止める。返すのは止め切れなかった理由（None なら止まった・
+    居なかった）。
+
+    POSIX は信号ごとに **数え上げてから送り、送った後に同じ数え上げで確かめる**（_tree_members）。送り先は止める番号の
+    グループと、仲間が長のグループ（killpg——数えた後に増えた子も届く）、残りの仲間は 1 本ずつ。STOP_SIGNALS を順に、
+    KILL_GRACE ずつ待ちながら送る（長が先に終わっても、SIGTERM を無視する孫には SIGKILL が届く）。systemd の
+    KillMode=control-group は抜けられない cgroup で数えるが、プロセスグループは子孫が抜けられるので、グループが消えた
+    ことは木が消えたことにならない——だから数え直しで確かめる。仲間がゾンビ（回収待ち）だけなら止まったと数える——
+    macOS はゾンビだけのグループへの killpg を EPERM で拒む（XNU の killpg1）ので、EPERM を『生きている』とは読まない。
+    生きた仲間が居るのに EPERM が返ったら、待たずに『信号を送れない』を返す（sandbox の中から別のグループへの信号）。
+    表が読めない回は止める番号のグループへだけ送り、外へ出た子孫を確かめられないと返す（止まったと言わない）。
+    長の Popen（leader）を持つなら待つ間に回収する。born は長の番号の再利用の目印（_tree_members。leader からも引く）。Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る）。"""
     if os.name != "posix":
         r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pgid)], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if leader is not None:
@@ -279,30 +370,87 @@ def _stop_tree(pgid, leader=None):
             return f"taskkill が {pgid} を止められない（exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}）"
         return None
 
-    def alive():
-        if leader is not None:
-            leader.poll()
+    def exists(pid):
         try:
-            os.killpg(pgid, 0)
+            os.kill(pid, 0)
             return True
         except ProcessLookupError:
             return False
         except PermissionError:
             return True
 
-    for sig in STOP_SIGNALS:
+    def group_gone():
         try:
-            os.killpg(pgid, sig)
+            os.killpg(pgid, 0)
+            return False
         except ProcessLookupError:
-            return None
-        except PermissionError as e:
-            return f"グループ {pgid} に信号を送れない（{e}）"
+            return True
+        except PermissionError:
+            return False
+
+    known = {}
+    if born is None and leader is not None:
+        born = getattr(leader, "gl_born", None)
+    for sig in STOP_SIGNALS:
+        if leader is not None:
+            leader.poll()
+        members, why = _tree_members(pgid, known, born)
+        if members is None:
+            # 表が読めない——止める番号のグループへだけ送り、その消滅を待つ。外へ出た子孫は確かめられない
+            try:
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                return f"止める相手を数え上げられない（{why}）——グループ {pgid} は居ないが、外へ出た子孫を確かめていない"
+            except PermissionError as e:
+                return f"グループ {pgid} に信号を送れない（{e}）"
+            t = time.monotonic() + KILL_GRACE
+            while time.monotonic() < t:
+                if leader is not None:
+                    leader.poll()
+                if group_gone():
+                    break
+                time.sleep(0.05)
+            continue
+        known.update({pid: m.started for pid, m in members.items()})
+        live = _live(members)
+        if not live:
+            return why
+        groups = {pgid} | {m.pgid for m in live.values() if m.pgid in members}
+        denied = None
+        for g in sorted(groups):
+            try:
+                os.killpg(g, sig)
+            except ProcessLookupError:
+                pass
+            except PermissionError as e:
+                denied = denied or (f"グループ {g}", e)
+        for pid, m in live.items():
+            if m.pgid not in groups:
+                try:
+                    os.kill(pid, sig)
+                except ProcessLookupError:
+                    pass
+                except PermissionError as e:
+                    denied = denied or (f"pid {pid}", e)
+        if denied:
+            again, _ = _tree_members(pgid, known, born)
+            if again is None or _live(again):
+                return f"{denied[0]} に信号を送れない（{denied[1]}）"
+            return why
         t = time.monotonic() + KILL_GRACE
         while time.monotonic() < t:
-            if not alive():
-                return None
+            if leader is not None:
+                leader.poll()
+            if not any(exists(pid) for pid in live):
+                break
             time.sleep(0.05)
-    return f"グループ {pgid} が SIGKILL の後も残っている"
+    members, why = _tree_members(pgid, known, born)
+    if members is None:
+        return f"止める相手を数え上げられない（{why}）——グループ {pgid} の外へ出た子孫を確かめていない"
+    live = _live(members)
+    if live:
+        return f"グループ {pgid} の木が SIGKILL の後も残っている（{_name(live)}）"
+    return why
 
 
 def _kill(p):
@@ -462,11 +610,19 @@ def probe_group(pgid_file):
 def stop_group(pgid_file):
     """別のプロセスから、試行の子を木ごと止める（loop.py relaunch と loop.py stop が使う）。返すのは止め切れなかった理由（None なら止まった・
     居なかった）。確かめ方は probe_group、止め方は _kill と同じ _stop_tree（Popen を持たないので長の回収はしない）。
-    印は子が終わると launch の側が消すので、印が無ければ止める物は無い。"""
+    印は子が終わると launch の側が消すので、印が無ければ止める物は無い。
+    長の番号の再利用の目印（born）は印の更新時刻で、probe_group より**先に**読む——後で読むと、その間に子が終わって印が
+    消えた回に目印を失い、再利用の見分けが外れる（印は試行ごとに 1 度だけ書くので、先に読んだ時刻は probe_group が見る物と同じ）"""
+    try:
+        born = pathlib.Path(pgid_file).stat().st_mtime
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        return f"{pgid_file}: 読めない（{e}）"
     pgid, why = probe_group(pgid_file)
     if why or pgid is None:
         return why
-    why = _stop_tree(pgid)
+    why = _stop_tree(pgid, born=born)
     if why is None:
         pathlib.Path(pgid_file).unlink(missing_ok=True)
     return why

@@ -5076,8 +5076,8 @@
    "title": "別の口からもグループごと止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "            os.killpg(pgid, sig)\n",
-   "new": "            os.kill(pgid, sig)\n",
+   "old": "                os.killpg(g, sig)\n",
+   "new": "                os.kill(g, sig)\n",
    "expect": "stop_group では孫",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5450,12 +5450,12 @@
   },
   {
    "id": "RR9",
-   "title": "止めるのは長でなくグループの消滅まで待つ",
+   "title": "ゾンビは木の生きた仲間に数えない（ゾンビだけのグループの EPERM を生きていると読まない）",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "            if not alive():\n                return None",
-   "new": "            if not alive() or (leader is not None and leader.poll() is not None):\n                return None",
-   "expect": "run_tree: SIGTERM を無視する孫も",
+   "old": "    return {pid: m for pid, m in members.items() if not m.stat.startswith(\"Z\")}",
+   "new": "    return dict(members)",
+   "expect": "ゾンビだけのグループの EPERM",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -5688,6 +5688,34 @@
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_stop_signal_guards"
+    ]
+   }
+  },
+  {
+   "id": "RR15",
+   "title": "セッションの番号で、グループの外へ出た孫を木の仲間に数える",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid or sessions.get(pid) == pgid}",
+   "new": "    found = set() if reused else {pid for pid, row in rows.items() if row.pgid == pgid}",
+   "expect": "ゾンビだけのグループの EPERM",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR16",
+   "title": "親子の鎖で、新しいセッションへ抜けた孫を木の仲間に数える",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    todo = list(found)\n",
+   "new": "    todo = []\n",
+   "expect": "グループの外へ出た孫（",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
     ]
    }
   },
