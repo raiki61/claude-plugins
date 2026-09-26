@@ -146,14 +146,14 @@ def test_policy_change_without_fixed_policy(tmp_path):
 
 
 def test_human_gate_names_a_policy_file_that_is_gone(tmp_path, monkeypatch):
-    """固定した方針の文書が消えた（今の置き場が引けない）なら、置き場を『（無い）』と書いて人に聞く"""
+    """固定した方針の文書が消えたなら、消えた置き場を名指して人に聞く"""
     monkeypatch.setattr(RULES, "git", lambda *a, **k: None)
     b = board(tmp_path)
     b.dir = tmp_path
     b.record["process"]["policy"] = {"path": str(tmp_path / "gone.md"), "sha256": "a" * 64, "amendments": []}
     got = RULES.human_gate(b, "r4.human_gate")
     assert got["decision"] == "ask" and got["ask"]["kinds"] == ["policy_changed"] and len(got["ask"]["items"]) == 1
-    assert got["ask"]["items"][0].startswith(f"人の方針の文書 （無い） が固定した版から変わった: sha256 {'a' * 12} → 消えた")
+    assert got["ask"]["items"][0].startswith(f"人の方針の文書 {tmp_path / 'gone.md'} が固定した版から変わった: sha256 {'a' * 12} → 消えた")
 
 
 def test_human_gate_answered_without_kinds(tmp_path):
@@ -197,5 +197,21 @@ def test_gate_answer_keeps_inputs_and_watches_the_amended_path(tmp_path):
     gone = PI.change(b, git_at(".git"), pol)
     b.loop_state["policy_change"] = gone
     RULES.human_gate_answered(b, {"node": "r4.human_gate", "kinds": ["policy_changed"], "items": ["行"]}, "continue")
-    assert b.state["inputs"]["policy_md"] == str(f.resolve()) and pol["sha256"] is None
-    assert PI.watched(b, git_at(".git"), pol) is None   # 消えた文書を通した後は、既定の置き場（無い）を見張る
+    assert b.state["inputs"]["policy_md"] == str(f.resolve()) and pol["sha256"] is None and pol["path"] is None and pol["copy"] is None
+    assert PI.watched(b, git_at(".git"), pol) is None
+
+
+def test_gone_policy_reaches_roles_as_absent(tmp_path):
+    """消えた方針の文書を関所で通した後、役へ渡す方針の段（policy-paste の穴）は『読めない』でなく『（この周には無い）』で埋まる
+    ——見張る先と渡す先が同じ pol の path を読む"""
+    from engine.render import ABSENT, Renderer
+    f = tmp_path / "p.md"
+    f.write_text("前の版\n", encoding="utf-8")
+    b = board(tmp_path, named=str(f))
+    b.record["process"]["policy"] = {**PI.resolve(b, git_at(".git"), Reject), "amendments": []}
+    f.unlink()
+    b.loop_state["policy_change"] = PI.change(b, git_at(".git"), b.record["process"]["policy"])
+    RULES.human_gate_answered(b, {"node": "r4.human_gate", "kinds": ["policy_changed"], "items": ["行"]}, "continue")
+    hole = (PLUGIN / "prompts" / "policy-paste.md").read_text(encoding="utf-8")
+    out = Renderer({"record": b.record}, ["record.process.policy.path"]).render(hole)
+    assert ABSENT in out and "読めない" not in out

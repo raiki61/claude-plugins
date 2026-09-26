@@ -73,190 +73,6 @@
     "type": "string",
     "description": "振り分けの候補: A 素材集めの出口（周に固めた版の正本。役へ渡す読む版もこれ）"
    },
-   "head_revs": {
-    "type": "object",
-    "patternProperties": {
-     "^[0-9]+$": {
-      "type": "string"
-     }
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる（周 → 周の頭の版）"
-   },
-   "last_seen": {
-    "type": "object",
-    "properties": {
-     "base_determination": {
-      "type": "integer"
-     },
-     "local_checks": {
-      "type": "integer"
-     },
-     "parallel_pr": {
-      "type": "integer"
-     },
-     "prior_decisions": {
-      "type": "integer"
-     },
-     "local_review": {
-      "type": "integer"
-     },
-     "consistency": {
-      "type": "integer"
-     },
-     "bypass": {
-      "type": "integer"
-     },
-     "hygiene": {
-      "type": "integer"
-     },
-     "external_standards": {
-      "type": "integer"
-     },
-     "procedure_trace": {
-      "type": "integer"
-     },
-     "gate_efficacy": {
-      "type": "integer"
-     },
-     "test_double_fidelity": {
-      "type": "integer"
-     },
-     "main_path_observation": {
-      "type": "integer"
-     },
-     "provenance": {
-      "type": "integer"
-     },
-     "fix_closure": {
-      "type": "integer"
-     }
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる（素材 → 周）"
-   },
-   "last_material": {
-    "type": "object",
-    "properties": {
-     "base_determination": {
-      "$ref": "#/$defs/material_state"
-     },
-     "local_checks": {
-      "$ref": "#/$defs/material_state"
-     },
-     "parallel_pr": {
-      "$ref": "#/$defs/material_state"
-     },
-     "prior_decisions": {
-      "$ref": "#/$defs/material_state"
-     },
-     "local_review": {
-      "$ref": "#/$defs/material_state"
-     },
-     "consistency": {
-      "$ref": "#/$defs/material_state"
-     },
-     "bypass": {
-      "$ref": "#/$defs/material_state"
-     },
-     "hygiene": {
-      "$ref": "#/$defs/material_state"
-     },
-     "external_standards": {
-      "$ref": "#/$defs/material_state"
-     },
-     "procedure_trace": {
-      "$ref": "#/$defs/material_state"
-     },
-     "gate_efficacy": {
-      "$ref": "#/$defs/material_state"
-     },
-     "test_double_fidelity": {
-      "$ref": "#/$defs/material_state"
-     },
-     "main_path_observation": {
-      "$ref": "#/$defs/material_state"
-     },
-     "provenance": {
-      "$ref": "#/$defs/material_state"
-     },
-     "fix_closure": {
-      "$ref": "#/$defs/material_state"
-     }
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる（素材 → 素材）"
-   },
-   "last_review": {
-    "type": "object",
-    "patternProperties": {
-     "^R[0-9]+$": {
-      "type": "object",
-      "properties": {
-       "round": {
-        "type": "integer"
-       },
-       "status": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "type": {
-        "type": "string"
-       }
-      }
-     }
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる（R → 最後の本物の判定）"
-   },
-   "block_counts": {
-    "type": "array",
-    "items": {
-     "type": "object",
-     "properties": {
-      "round": {
-       "type": "integer"
-      },
-      "n": {
-       "type": "integer"
-      }
-     }
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる"
-   },
-   "closed_keys": {
-    "type": "array",
-    "items": {
-     "type": "string"
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる"
-   },
-   "prev_blocks": {
-    "type": "array",
-    "items": {
-     "type": "string"
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる（名前に反して run の通しの [block] の key）"
-   },
-   "defer_ledger": {
-    "type": "object",
-    "patternProperties": {
-     "^": {
-      "type": "object",
-      "properties": {
-       "reason": {
-        "type": "string"
-       },
-       "round": {
-        "type": "integer"
-       }
-      }
-     }
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる（単位の key → 保留の理由）"
-   },
-   "lines_at_r1": {
-    "type": "integer",
-    "description": "振り分けの候補: C2 履歴から派生できる"
-   },
    "prev_own_precedents": {
     "type": "array",
     "items": {
@@ -271,72 +87,6 @@
      }
     },
     "description": "振り分けの候補: A 周の締めの出口（前の周の修正役が自分で当たった先行例。p2.history を省いた周の分は持ち越す）"
-   },
-   "prev_questions": {
-    "type": "array",
-    "items": {
-     "type": "object"
-    },
-    "description": "振り分けの候補: C2 前の周の記録の questions"
-   },
-   "prev_units": {
-    "type": "array",
-    "items": {
-     "type": "object"
-    },
-    "description": "振り分けの候補: C2 前の周の記録の units"
-   },
-   "prev_scalars": {
-    "type": "object",
-    "patternProperties": {
-     "^": {
-      "type": "number"
-     }
-    },
-    "description": "振り分けの候補: C2 前の周の記録の scalars"
-   },
-   "prev_one_shot": {
-    "type": [
-     "object",
-     "null"
-    ],
-    "description": "振り分けの候補: C2 前の周の判定の one_shot"
-   },
-   "prev_declared_faces": {
-    "type": "array",
-    "items": {
-     "type": "object",
-     "properties": {
-      "key": {
-       "type": "string"
-      },
-      "from": {
-       "type": "string"
-      },
-      "how": {
-       "type": "string"
-      },
-      "unverified": {
-       "type": "boolean"
-      }
-     }
-    },
-    "description": "振り分けの候補: C2 前の周の宣言の穴（修正・手直し・線・TDD）"
-   },
-   "prev_rejudge": {
-    "type": [
-     "object",
-     "null"
-    ],
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "text": {
-      "type": "string"
-     }
-    },
-    "description": "振り分けの候補: C2 前の周の異議"
    },
    "prev_fix_files": {
     "type": "array",
@@ -376,10 +126,6 @@
     },
     "description": "振り分けの候補: B run 全体の状態（一方向の旗。下げるのは人の手当てだけ）"
    },
-   "r2_refire_forced": {
-    "type": "boolean",
-    "description": "振り分けの候補: C2 前の周の facts_to_add から派生できる"
-   },
    "engine_zero": {
     "type": "object",
     "properties": {
@@ -406,21 +152,6 @@
      }
     },
     "description": "振り分けの候補: A 修正の出口"
-   },
-   "rejudge_rounds": {
-    "type": [
-     "object",
-     "integer"
-    ],
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "n": {
-      "type": "integer"
-     }
-    },
-    "description": "振り分けの候補: C2 engine の周の記録から派生できる（整数は旧い盤面の形）"
    },
    "wrote_refs_reads": {
     "type": "object",
@@ -479,30 +210,6 @@
     ],
     "description": "振り分けの候補: A 独立の目の入口の出口"
    },
-   "diff_lines_by_round": {
-    "type": "object",
-    "patternProperties": {
-     "^[0-9]+$": {
-      "type": "integer"
-     }
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる（周 → 行数）"
-   },
-   "drift_notes": {
-    "type": "array",
-    "items": {
-     "type": "object",
-     "properties": {
-      "round": {
-       "type": "integer"
-      },
-      "text": {
-       "type": "string"
-      }
-     }
-    },
-    "description": "振り分けの候補: C2 履歴から派生できる"
-   },
    "outcome": {
     "type": "string",
     "description": "振り分けの候補: B run 全体の状態（engine の status と重なる）"
@@ -539,7 +246,18 @@
         "type": "string"
        },
        "delivered": {
-        "type": "boolean"
+        "type": [
+         "boolean",
+         "integer"
+        ],
+        "description": "判定へ渡した周（true は渡した周を持たない旧い印）"
+       },
+       "delivered_rows": {
+        "type": "array",
+        "items": {
+         "type": "object"
+        },
+        "description": "渡した行（hist.prev_declared_faces が読む）"
        }
       }
      }
@@ -549,9 +267,23 @@
    "lanes_bad_delivered": {
     "type": "array",
     "items": {
-     "type": "string"
+     "type": [
+      "string",
+      "object"
+     ],
+     "properties": {
+      "rev": {
+       "type": "string"
+      },
+      "round": {
+       "type": "integer"
+      },
+      "row": {
+       "type": "object"
+      }
+     }
     },
-    "description": "振り分けの候補: B 線の台帳の読めない行を判定へ渡した印"
+    "description": "振り分けの候補: B 線の台帳の読めない行を判定へ渡した印（{rev, round, row}。版だけの文字列は渡した周を持たない旧い印）"
    },
    "lane_merge": {
     "type": "object",
@@ -578,7 +310,7 @@
       "type": "string"
      }
     },
-    "description": "振り分けの候補: 未分類（対象リポジトリの変異の宣言の読み取り）"
+    "description": "振り分けの候補: B 対象リポジトリの変異の宣言の読み取り。init の入力にしないのは、周ごとに宣言を読み直すため（周の修正が宣言を書き換えうる）"
    },
    "fix_units": {
     "type": "object",
@@ -624,11 +356,11 @@
     "items": {
      "type": "string"
     },
-    "description": "振り分けの候補: 未分類（判定から入る周の P0 の範囲の読み口）"
+    "description": "振り分けの候補: A 判定から入る周の P0 の範囲の読み口（依頼の where）。init の入力にしないのは、add で依頼が積まれるたびに引き直すため"
    },
    "policy_change": {
     "type": "object",
-    "description": "振り分けの候補: 未分類（人の方針の文書の変化。関所の答えで消える）"
+    "description": "振り分けの候補: B 関所で見つけた人の方針の文書の変化。人の答えまで持ち、答えで記録へ移して消える"
    },
    "in_round_answers": {
     "type": "array",
@@ -656,6 +388,303 @@
      }
     },
     "description": "振り分けの候補: B 周の途中の人の答え"
+   }
+  }
+ },
+ "hist_schema": {
+  "type": "object",
+  "additionalProperties": false,
+  "description": "履歴から作る読み取り専用の値（hist.<名>）の形の正本。値の定義は rules の HIST（周の記録・節の出力・周の rd から読む時に作り、何も書かない）。graphcheck が HIST の名前と両向きで照らし、engine は保存のたびに盤面の控え hist.json（正本でない）をこれで照らす",
+  "properties": {
+   "prev_questions": {
+    "type": "array",
+    "items": {
+     "type": "object"
+    },
+    "description": "前の周の記録（round-<N-1>.json）の questions"
+   },
+   "prev_units": {
+    "type": "array",
+    "items": {
+     "type": "object"
+    },
+    "description": "前の周の記録の units"
+   },
+   "prev_scalars": {
+    "type": "object",
+    "patternProperties": {
+     "^": {
+      "type": "number"
+     }
+    },
+    "description": "前の周の記録の scalars"
+   },
+   "prev_one_shot": {
+    "type": [
+     "object",
+     "null"
+    ],
+    "description": "前の周の判定（p2.history か p2.diagnose の出力）の一撃。無い周は absent に理由"
+   },
+   "prev_declared_faces": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "key": {
+       "type": "string"
+      },
+      "from": {
+       "type": "string"
+      },
+      "how": {
+       "type": "string"
+      },
+      "unverified": {
+       "type": "boolean"
+      }
+     }
+    },
+    "description": "前の周の修正・手直し・最後の関門が残すと宣言した穴（節の出力から）と、この周の頭に並行の線から渡した行（線の台帳 loop.lanes の delivered_rows）"
+   },
+   "prev_rejudge": {
+    "type": [
+     "object",
+     "null"
+    ],
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "text": {
+      "type": "string"
+     }
+    },
+    "description": "前の周の異議（loop.rejudge_requested の round が前の周で、擦り合わせで決着していない物）"
+   },
+   "block_counts": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "n": {
+       "type": "integer"
+      }
+     }
+    },
+    "description": "閉じた周の記録ごとの [block] の件数"
+   },
+   "closed_keys": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "閉じた周の記録で info だったキー（初めて出た順）"
+   },
+   "prev_blocks": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "閉じた周の記録で [block] だったキー（初めて出た順。run の通し）"
+   },
+   "defer_ledger": {
+    "type": "object",
+    "patternProperties": {
+     "^": {
+      "type": "object",
+      "properties": {
+       "reason": {
+        "type": "string"
+       },
+       "round": {
+        "type": "integer"
+       }
+      }
+     }
+    },
+    "description": "閉じた周の記録で [suggest] defer だったキー → 保留の理由と周"
+   },
+   "last_review": {
+    "type": "object",
+    "patternProperties": {
+     "^R[0-9]+$": {
+      "type": "object",
+      "properties": {
+       "round": {
+        "type": "integer"
+       },
+       "status": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "type": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "description": "R → 閉じた周の記録の最後の本物の判定（機械が埋めた値と、持ち越せない値を据え置いた行を除く）"
+   },
+   "last_seen": {
+    "type": "object",
+    "properties": {
+     "base_determination": {
+      "type": "integer"
+     },
+     "local_checks": {
+      "type": "integer"
+     },
+     "parallel_pr": {
+      "type": "integer"
+     },
+     "prior_decisions": {
+      "type": "integer"
+     },
+     "local_review": {
+      "type": "integer"
+     },
+     "consistency": {
+      "type": "integer"
+     },
+     "bypass": {
+      "type": "integer"
+     },
+     "hygiene": {
+      "type": "integer"
+     },
+     "external_standards": {
+      "type": "integer"
+     },
+     "procedure_trace": {
+      "type": "integer"
+     },
+     "gate_efficacy": {
+      "type": "integer"
+     },
+     "test_double_fidelity": {
+      "type": "integer"
+     },
+     "main_path_observation": {
+      "type": "integer"
+     },
+     "provenance": {
+      "type": "integer"
+     },
+     "fix_closure": {
+      "type": "integer"
+     }
+    },
+    "description": "素材 → 自分で見たと主張する値を最後に書いた周（閉じた周の記録＋今の周の record.materials）"
+   },
+   "last_material": {
+    "type": "object",
+    "properties": {
+     "base_determination": {
+      "$ref": "#/$defs/material_state"
+     },
+     "local_checks": {
+      "$ref": "#/$defs/material_state"
+     },
+     "parallel_pr": {
+      "$ref": "#/$defs/material_state"
+     },
+     "prior_decisions": {
+      "$ref": "#/$defs/material_state"
+     },
+     "local_review": {
+      "$ref": "#/$defs/material_state"
+     },
+     "consistency": {
+      "$ref": "#/$defs/material_state"
+     },
+     "bypass": {
+      "$ref": "#/$defs/material_state"
+     },
+     "hygiene": {
+      "$ref": "#/$defs/material_state"
+     },
+     "external_standards": {
+      "$ref": "#/$defs/material_state"
+     },
+     "procedure_trace": {
+      "$ref": "#/$defs/material_state"
+     },
+     "gate_efficacy": {
+      "$ref": "#/$defs/material_state"
+     },
+     "test_double_fidelity": {
+      "$ref": "#/$defs/material_state"
+     },
+     "main_path_observation": {
+      "$ref": "#/$defs/material_state"
+     },
+     "provenance": {
+      "$ref": "#/$defs/material_state"
+     },
+     "fix_closure": {
+      "$ref": "#/$defs/material_state"
+     }
+    },
+    "description": "素材 → 持ち越しでない最後の値（閉じた周の記録＋今の周の record.materials）"
+   },
+   "lines_at_r1": {
+    "type": "integer",
+    "description": "R1 を最後に回した閉じた周の、P3 の後の対象差分の行数（p4.assemble の出力の diff_lines）"
+   },
+   "diff_lines_by_round": {
+    "type": "object",
+    "patternProperties": {
+     "^[0-9]+$": {
+      "type": "integer"
+     }
+    },
+    "description": "周 → P3 の後の対象差分の行数（p4.assemble の出力の diff_lines）"
+   },
+   "drift_notes": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "text": {
+       "type": "string"
+      }
+     }
+    },
+    "description": "p4.assemble まで進んだ周の p3.fix が申告した前提のドリフト"
+   },
+   "r2_refire_forced": {
+    "type": "boolean",
+    "description": "前の周の stop.premise_check が resolved で実測を返した（その周の R2 を回し直す）"
+   },
+   "head_revs": {
+    "type": "object",
+    "patternProperties": {
+     "^[0-9]+$": {
+      "type": "string"
+     }
+    },
+    "description": "周 → 周の頭に固めた版（p1.worktree_after か p1.worktree_before の tree_before.rev。無い旧い出力は tree）"
+   },
+   "rejudge_rounds": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "n": {
+      "type": "integer"
+     }
+    },
+    "description": "今の周に受け付けた擦り合わせ（p2.rejudge・p2.rejudge_third）の数"
    }
   }
  },
@@ -1398,6 +1427,95 @@
     }
    },
    "description": "修正差分の往復 1 回ぶん（周・差分の写し・変わったファイル・固めた版）"
+  },
+  "worktree_baseline": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "porcelain": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "stash": {
+     "type": "string"
+    },
+    "tree": {
+     "type": "string"
+    },
+    "rev": {
+     "type": "string",
+     "description": "固めた版（周の頭の版。hist.head_revs が読む。旧い出力には無い）"
+    }
+   },
+   "required": [
+    "porcelain",
+    "stash",
+    "tree"
+   ]
+  },
+  "delta_owed_rows": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "key": {
+      "type": "string"
+     },
+     "from": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "key",
+     "from",
+     "text"
+    ]
+   }
+  },
+  "fix_delta_reply": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "problems": {
+     "$ref": "engine#/driver_problems"
+    },
+    "fix_delta_file": {
+     "type": "string"
+    },
+    "changed_files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "human_gate_reply": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "decision": {
+     "$ref": "engine#/driver_decision"
+    },
+    "reason": {
+     "type": "string"
+    },
+    "ask": {
+     "$ref": "engine#/driver_ask"
+    }
+   }
   }
  },
  "stop": {
@@ -2163,27 +2281,7 @@
       "type": "string"
      },
      "tree_before": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-       "porcelain": {
-        "type": "array",
-        "items": {
-         "type": "string"
-        }
-       },
-       "stash": {
-        "type": "string"
-       },
-       "tree": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "porcelain",
-       "stash",
-       "tree"
-      ],
+      "$ref": "#/$defs/worktree_baseline",
       "description": "P1 の前後の突合の基準（git status・stash の一覧・固めた版の木の id）"
      }
     }
@@ -3424,27 +3522,7 @@
       }
      },
      "tree_before": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-       "porcelain": {
-        "type": "array",
-        "items": {
-         "type": "string"
-        }
-       },
-       "stash": {
-        "type": "string"
-       },
-       "tree": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "porcelain",
-       "stash",
-       "tree"
-      ],
+      "$ref": "#/$defs/worktree_baseline",
       "description": "この回の後に効いている突合の基準（作業ツリーの変化を受理して取り直した回は新しい基準）"
      }
     }
@@ -3500,7 +3578,7 @@
     "inputs.repo_review_md",
     "loop.reviewed_revision",
     "inputs.cwd",
-    "loop.defer_ledger",
+    "hist.defer_ledger",
     "loop.escalated",
     "prev.r1.minimality",
     "prev.r3.coherence",
@@ -3785,28 +3863,28 @@
    "prompt_file": "../prompts/review-loop/p2.history.md",
    "reads": [
     "prev.p4.record.out",
-    "loop.prev_questions",
-    "loop.prev_units",
-    "loop.prev_blocks",
-    "loop.defer_ledger",
+    "hist.prev_questions",
+    "hist.prev_units",
+    "hist.prev_blocks",
+    "hist.defer_ledger",
     "record.process.human_answers",
     "record.process.human_items",
     "loop.prev_own_precedents",
     "out.p0.purpose.purpose_text",
     "record.units",
     "record.questions",
-    "loop.prev_rejudge",
-    "loop.prev_one_shot",
+    "hist.prev_rejudge",
+    "hist.prev_one_shot",
     "loop.wrote_refs_reads",
     "loop.coverage_after",
-    "loop.prev_declared_faces",
+    "hist.prev_declared_faces",
     "record.process.policy.path"
    ],
    "pointers": [
     {
      "at": "declared_routed[].key",
      "from": [
-      "loop.prev_declared_faces"
+      "hist.prev_declared_faces"
      ]
     }
    ],
@@ -3995,7 +4073,7 @@
         }
        }
       },
-      "note": "前の周に直さずに残すと宣言された穴（loop.prev_declared_faces）1 件ごとに振り分ける。to_unit＝今の周の直す単位に上げた（unit_key にその単位の key）／accept＝残すことを認めた（理由）"
+      "note": "前の周に直さずに残すと宣言された穴（hist.prev_declared_faces）1 件ごとに振り分ける。to_unit＝今の周の直す単位に上げた（unit_key にその単位の key）／accept＝残すことを認めた（理由）"
      }
     }
    },
@@ -4426,22 +4504,7 @@
    ],
    "reads": [],
    "schema": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {
-     "ok": {
-      "type": "boolean"
-     },
-     "decision": {
-      "$ref": "engine#/driver_decision"
-     },
-     "reason": {
-      "type": "string"
-     },
-     "ask": {
-      "$ref": "engine#/driver_ask"
-     }
-    }
+    "$ref": "#/$defs/human_gate_reply"
    }
   },
   "p3.lane_merge": {
@@ -4936,7 +4999,7 @@
    "materials": [
     "fix_closure"
    ],
-   "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes と loop.prev_rejudge に残り、次の周の p2.history が再審する。この周は判定どおり直す（post_check fix_covers_open_units）",
+   "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes と loop.rejudge_requested に残り、擦り合わせで決着しなければ次の周の p2.history が hist.prev_rejudge で再審する。この周は判定どおり直す（post_check fix_covers_open_units）",
    "na_self_ok": "その周に修正が 0 件なら閉鎖の実証は対象が無い（fix_covers_open_units が changes 非空との食い違いを別に拒む）",
    "prompt_append": [
     "../prompts/policy-path.md",
@@ -4957,25 +5020,7 @@
    ],
    "reads": [],
    "schema": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {
-     "ok": {
-      "type": "boolean"
-     },
-     "problems": {
-      "$ref": "engine#/driver_problems"
-     },
-     "fix_delta_file": {
-      "type": "string"
-     },
-     "changed_files": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     }
-    }
+    "$ref": "#/$defs/fix_delta_reply"
    }
   },
   "p3.delta_review": {
@@ -5053,28 +5098,8 @@
       "type": "integer"
      },
      "rows": {
-      "type": "array",
-      "description": "手直しが答える義務（p3.delta_fix が貼り、条件と答え合わせも同じ値を読む）",
-      "items": {
-       "type": "object",
-       "additionalProperties": false,
-       "properties": {
-        "key": {
-         "type": "string"
-        },
-        "from": {
-         "type": "string"
-        },
-        "text": {
-         "type": "string"
-        }
-       },
-       "required": [
-        "key",
-        "from",
-        "text"
-       ]
-      }
+      "$ref": "#/$defs/delta_owed_rows",
+      "description": "手直しが答える義務（p3.delta_fix が貼り、条件と答え合わせも同じ値を読む）"
      }
     },
     "required": [
@@ -5142,25 +5167,7 @@
    ],
    "reads": [],
    "schema": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {
-     "ok": {
-      "type": "boolean"
-     },
-     "problems": {
-      "$ref": "engine#/driver_problems"
-     },
-     "fix_delta_file": {
-      "type": "string"
-     },
-     "changed_files": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     }
-    }
+    "$ref": "#/$defs/fix_delta_reply"
    }
   },
   "p3.delta_review2": {
@@ -5237,28 +5244,8 @@
       "type": "integer"
      },
      "rows": {
-      "type": "array",
-      "description": "2 回目の手直しが答える義務（p3.delta_fix2 が貼り、条件と答え合わせも同じ値を読む）",
-      "items": {
-       "type": "object",
-       "additionalProperties": false,
-       "properties": {
-        "key": {
-         "type": "string"
-        },
-        "from": {
-         "type": "string"
-        },
-        "text": {
-         "type": "string"
-        }
-       },
-       "required": [
-        "key",
-        "from",
-        "text"
-       ]
-      }
+      "$ref": "#/$defs/delta_owed_rows",
+      "description": "2 回目の手直しが答える義務（p3.delta_fix2 が貼り、条件と答え合わせも同じ値を読む）"
      }
     },
     "required": [
@@ -5376,7 +5363,7 @@
    "outputs": [
     "lanes/r<周>-<版>.json（線の結果。任せ先の返答を engine が置く）"
    ],
-   "note": "回す側は受領（置き場）を返して done し、その後で engine に任せ先を背景で起こさせる（loop.py launch --node）。足したテストの patch は任せ先の写しの側に在り、結果の patch の欄が名指す。線の結果は、書き終えた後の周の頭（loop.prev_declared_faces へ——needs_test・defect・使えない結果。defect は依頼の入口 record.process.request_findings にも）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
+   "note": "回す側は受領（置き場）を返して done し、その後で engine に任せ先を背景で起こさせる（loop.py launch --node）。足したテストの patch は任せ先の写しの側に在り、結果の patch の欄が名指す。線の結果は、書き終えた後の周の頭（線の台帳に渡した行を残し hist.prev_declared_faces へ——needs_test・defect・使えない結果。defect は依頼の入口 record.process.request_findings にも）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
    "delegate": {
     "model": "sonnet",
     "background": true,
@@ -5609,6 +5596,10 @@
        "file"
       ],
       "description": "R1〜R4 に渡すために取り直した写し（修正後の差分）"
+     },
+     "diff_lines": {
+      "type": "integer",
+      "description": "P3 の後の対象差分の行数（hist.diff_lines_by_round・hist.lines_at_r1 が読む）"
      }
     }
    }
@@ -5750,7 +5741,7 @@
     "record.units",
     "record.questions",
     "record.scalars",
-    "loop.prev_scalars",
+    "hist.prev_scalars",
     "cur.p4.assemble.lines_ratio",
     "inputs.review_md",
     "loop.reviewed_revision",
@@ -5883,7 +5874,7 @@
    "reads": [
     "out.p0.purpose.purpose_text",
     "record.process.constraints",
-    "loop.drift_notes",
+    "hist.drift_notes",
     "record.process.purpose_review_stale",
     "record.process.policy.path"
    ],
@@ -6224,22 +6215,7 @@
    ],
    "reads": [],
    "schema": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {
-     "ok": {
-      "type": "boolean"
-     },
-     "decision": {
-      "$ref": "engine#/driver_decision"
-     },
-     "reason": {
-      "type": "string"
-     },
-     "ask": {
-      "$ref": "engine#/driver_ask"
-     }
-    }
+    "$ref": "#/$defs/human_gate_reply"
    }
   },
   "stop.premise_check": {

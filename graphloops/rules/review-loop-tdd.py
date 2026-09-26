@@ -1,7 +1,7 @@
 """review-loop の TDD 版の修正の流れ（graphs/review-loop-tdd.json）だけが使う rules。
 
 今の流れ（graphs/review-loop.json と rules/review-loop.py）には手を入れず、その rules を読み込んで公開名をそのまま出し、
-TDD の節の関数を表（CONDS・BUILTINS・POST_CHECKS）に足した写しを出す。TDD を選ばない run はこのファイルを 1 度も読まない。
+TDD の節の関数を表（CONDS・BUILTINS・POST_CHECKS・HIST）に足した写しを出す。TDD を選ばない run はこのファイルを 1 度も読まない。
 
 流れ（SWE-bench の FAIL_TO_PASS / PASS_TO_PASS と同じ形）:
   p3.tdd_start（版を固め、一式を 1 回走らせて元の結末を取る）→ p3.tdd_tests（テストだけを書く）→ p3.tdd_red（赤の確認）
@@ -28,7 +28,7 @@ base.__dict__.update(_INJECTED)
 _spec.loader.exec_module(base)
 # 今の流れの rules の公開名（フック・表・関数）を**全部**そのまま出す——engine はフックと表を名前で引き、出し忘れた名前は
 # 「このループは持たない」に黙って倒れるので、名前を選んで並べない。下で定義し直す名前（record_round・finalize・on_new_round と
-# 3 つの表）だけが差し替わる（tests/py/test_review_tdd.py が、それ以外が同じ物であることを見る）
+# 4 つの表 CONDS・BUILTINS・POST_CHECKS・HIST）だけが差し替わる（tests/py/test_review_tdd.py が、それ以外が同じ物であることを見る）
 globals().update({k: v for k, v in vars(base).items() if not k.startswith("__") and k not in _INJECTED})
 
 SUITE_INPUT = "tdd_suite"   # init --input tdd_suite=<実行ファイル>。JUnit XML の書き先を第 1 引数に受け、リポジトリのルートで走る
@@ -233,8 +233,7 @@ def _give_up(b, t, step, probs):
     t["problems"] = probs
     _row(b)[step] = "failed"
     _row(b)[f"{step}_problems"] = probs[:10]
-    b.loop_state.setdefault("tdd_gave_up", []).append({"round": b.round, "step": step, "problems": probs[:10]})
-    return {"ok": True, "gave_up": step, "problems": probs}
+    return {"ok": True, "gave_up": step, "problems": probs}   # 諦めた事実はこの出力が正本（hist.tdd_gave_up が読む）
 
 
 def _retry(b, t, step, back, probs):
@@ -320,15 +319,34 @@ def tdd_tests_output(b, nid, out, item):
 
 
 # ---------------------------------------------------------------- 周の頭・周の締め・報告の前
+@hist_reads("out.p3.tdd_red", "out.p3.tdd_green")
+def hist_tdd_gave_up(h):
+    """TDD を諦めた周と段と理由（赤・緑の確認が上限まで通らなかった回の出力 gave_up）"""
+    rows = []
+    for n in range(1, h.round + 1):
+        for step in ("red", "green"):
+            o = h.output(f"p3.tdd_{step}", n) or {}
+            if o.get("gave_up") == step:
+                rows.append({"round": n, "step": step, "problems": (o.get("problems") or [])[:10]})
+    return rows
+
+
+@hist_reads(*base.hist_prev_declared_faces.hist_reads, "hist.tdd_gave_up")
+def hist_prev_declared_faces_tdd(h):
+    """今の流れの宣言の穴に、前の周に TDD を諦めた理由（上限を越えた赤・緑の確認）を足す——次の周の判定役が 1 件ずつ振り分ける"""
+    rows = base.hist_prev_declared_faces(h)
+    if rows is HIST_ABSENT:
+        return rows
+    return rows + [{"key": f"TDD の{'赤' if g['step'] == 'red' else '緑'}の確認が上限で通らなかった（round {g['round']}）",
+                    "from": f"p3.tdd_{g['step']}", "how": "; ".join(g["problems"])[:600]}
+                   for g in h.hist("tdd_gave_up") if g["round"] == h.round - 1]
+
+
 def on_new_round(b):
-    """今の流れの周の頭のあとで、前の周に TDD を諦めた理由（上限を越えた赤・緑の確認）を、次の周の判定役へ渡す穴の行に足す"""
+    """今の流れの周の頭。旧い版の rules が loop に積んだ TDD の値の写しも外す（hist が出力から作り直す）"""
     base.on_new_round(b)
-    ls = b.loop_state
-    rows = [{"key": f"TDD の{'赤' if g['step'] == 'red' else '緑'}の確認が上限で通らなかった（round {g['round']}）",
-             "from": f"p3.tdd_{g['step']}", "how": "; ".join(g["problems"])[:600]}
-            for g in ls.get("tdd_gave_up") or [] if g["round"] == b.round - 1]
-    if rows:
-        ls["prev_declared_faces"] = (ls.get("prev_declared_faces") or []) + rows
+    for k in HIST.keys() - base.HIST.keys():
+        b.loop_state.pop(k, None)
 
 
 def tdd_effect(b):
@@ -363,6 +381,7 @@ def finalize(b):
 
 CONDS = {**base.CONDS, "tdd_named": tdd_named, "tdd_red_passed": tdd_red_passed}
 NODE_KEYS, NODE_NOTE_KEYS = base.NODE_KEYS, base.NODE_NOTE_KEYS   # 差し替えの版の節は元の graph の節を含む（検査 15）
-LOOP_KEYS = base.LOOP_KEYS | {"tdd", "tdd_gave_up"}   # TDD の節が盤面の loop に足す鍵（graphcheck が条件と節の loop.<鍵> を照らす正本）
+LOOP_KEYS = base.LOOP_KEYS | {"tdd"}   # TDD の節が盤面の loop に足す鍵（graphcheck が条件と節の loop.<鍵> を照らす正本）
+HIST = {**base.HIST, "tdd_gave_up": hist_tdd_gave_up, "prev_declared_faces": hist_prev_declared_faces_tdd}
 BUILTINS = {**base.BUILTINS, "tdd_start": tdd_start, "tdd_red": tdd_red, "tdd_green": tdd_green, "record_round": record_round}
 POST_CHECKS = {**base.POST_CHECKS, "tdd_tests_output": tdd_tests_output}

@@ -106,13 +106,13 @@ def nested_cond(g, sandbox):
     rules = sandbox / "rules" / "review-loop.py"
     src = rules.read_text(encoding="utf-8")
     if "bad_nested_loop" not in src:
-        rules.write_text(src + "\n\nCONDS['bad_nested_loop'] = cond_reads('loop.last_material.main_path_observation.statuz')"
+        rules.write_text(src + "\n\nCONDS['bad_nested_loop'] = cond_reads('hist.last_material.main_path_observation.statuz')"
                          "(lambda v: (True, 'x'))\n", encoding="utf-8")
     g["nodes"]["p1.external_standards"]["cond"] = "bad_nested_loop"
 
 
 def material_name_typo(g, sandbox):
-    g["nodes"]["p3.delta_review"]["reads"].append("loop.last_material.main_path_observatoin.status")
+    g["nodes"]["p3.delta_review"]["reads"].append("hist.last_material.main_path_observatoin.status")
 
 
 @pytest.mark.parametrize("breaks,want", [
@@ -129,7 +129,7 @@ def material_name_typo(g, sandbox):
     pytest.param(inputs_undeclared, "読む欄 'inputs.gates.x' が run の入力", id="inputs-nested"),
     pytest.param(nested_optional_hole, "'loop.escalated.whyy' を graph の state_schema で辿れない", id="optional-hole-nested"),
     pytest.param(pick_field, "pick の欄 'fromm'", id="hole-pick-field"),
-    pytest.param(nested_cond, "'loop.last_material.main_path_observation.statuz' を graph の state_schema で辿れない", id="cond-reads-nested"),
+    pytest.param(nested_cond, "'hist.last_material.main_path_observation.statuz' を graph の hist_schema で辿れない", id="cond-reads-nested"),
     pytest.param(material_name_typo, "欄 'main_path_observatoin'", id="map-key-typo"),
     pytest.param(lambda g, s: g["state_schema"]["properties"].pop("escalated"), "LOOP_KEYS の鍵 'escalated' が graph の state_schema.properties に無い",
                  id="loop-keys-only"),
@@ -139,8 +139,20 @@ def material_name_typo(g, sandbox):
                  id="unknown-keyword"),
     pytest.param(lambda g, s: g["nodes"]["p3.delta_owed"]["schema"].__setitem__("writeOnly", True), "節 p3.delta_owed: $ の writeOnly は効かない",
                  id="write-only-outside-state"),
-    pytest.param(lambda g, s: g["state_schema"]["properties"]["head_revs"]["patternProperties"].__setitem__("^[0-9+$", {}),
+    pytest.param(lambda g, s: g["state_schema"]["properties"]["lanes"]["patternProperties"].__setitem__("^[0-9+$", {}),
                  "state_schema: schema の正規表現", id="broken-regex"),
+    pytest.param(lambda g, s: g["nodes"]["p2.history"]["reads"].append("hist.prev_unitz"), "'hist.prev_unitz' の名前が rules の HIST に無い",
+                 id="hist-name-typo"),
+    pytest.param(lambda g, s: g["hist_schema"]["properties"].pop("closed_keys"), "HIST の名前 'closed_keys' が graph の hist_schema.properties に無い",
+                 id="hist-only"),
+    pytest.param(lambda g, s: g["hist_schema"]["properties"].__setitem__("ghost", {"type": "string"}),
+                 "hist_schema.properties の名前 'ghost' が rules の HIST に無い", id="hist-schema-only"),
+    pytest.param(lambda g, s: g["state_schema"]["properties"].__setitem__("closed_keys", {"type": "array"}),
+                 "'closed_keys' が state_schema と hist_schema の両方に在る", id="hist-and-loop-overlap"),
+    pytest.param(lambda g, s: g["hist_schema"]["properties"]["closed_keys"].__setitem__("oneOf", []), "hist_schema: schema に engine が読まない語",
+                 id="hist-unknown-keyword"),
+    pytest.param(lambda g, s: g["hist_schema"].__setitem__("additionalProperties", True), "hist_schema は type: object・additionalProperties: false",
+                 id="hist-open-top"),
     pytest.param(lambda g, s: g["state_schema"].__setitem__("additionalProperties", True), "additionalProperties: false", id="open-top"),
     pytest.param(lambda g, s: g.pop("state_schema"), "state_schema（盤面の loop の形）が無い", id="missing-standalone"),
 ])
@@ -195,8 +207,8 @@ def check_at(place, name, g, validator):
 @pytest.mark.parametrize("breaks,want", [
     pytest.param(lambda t: t["nodes"]["p3.tdd_tests"]["reads"].append("loop.tdd.redd"), "'loop.tdd.redd' を graph の state_schema で辿れない",
                  id="tdd-nested"),
-    pytest.param(lambda t: t["state_schema"]["properties"].pop("tdd_gave_up"),
-                 "LOOP_KEYS の鍵 'tdd_gave_up' が graph の state_schema.properties に無い", id="tdd-key-not-overlaid"),
+    pytest.param(lambda t: t["hist_schema"]["properties"].pop("tdd_gave_up"),
+                 "HIST の名前 'tdd_gave_up' が graph の hist_schema.properties に無い", id="tdd-key-not-overlaid"),
 ])
 def test_graphcheck_rejects_tdd_overlay(place, breaks, want):
     check_at(place, "review-loop", GRAPH, "review")
@@ -283,7 +295,10 @@ def test_shipped_state_schema_expands():
         g, why = load_graph(PLUGIN / "graphs" / f"{name}.json")
         assert not why and g["state_schema"]["type"] == "object" and g["state_schema"]["additionalProperties"] is False
     g, _ = load_graph(PLUGIN / "graphs" / "review-loop-tdd.json")
-    assert {"tdd", "tdd_gave_up", "fix_delta"} <= set(g["state_schema"]["properties"])
+    assert {"tdd", "fix_delta"} <= set(g["state_schema"]["properties"]) and "tdd_gave_up" not in g["state_schema"]["properties"]
+    assert {"tdd_gave_up", "prev_units", "last_material"} <= set(g["hist_schema"]["properties"])
+    # hist_schema の $ref（素材の値の形）も読む入口で展開する——展開しないと控えの照らしと graphcheck の読みの照らしが $ref で止まる
+    assert "$ref" not in json.dumps(g["hist_schema"]) and "$ref" not in json.dumps(load_graph(PLUGIN / "graphs" / "review-loop.json")[0]["hist_schema"])
 
 
 def test_ctx_cur_is_this_round_only(tmp_path):

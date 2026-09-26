@@ -56,7 +56,11 @@
      }
     },
     "description": "振り分けの候補: A 修正の出口（TDD の赤・緑の証拠）"
-   },
+   }
+  }
+ },
+ "hist_schema": {
+  "properties": {
    "tdd_gave_up": {
     "type": "array",
     "items": {
@@ -73,7 +77,7 @@
       }
      }
     },
-    "description": "振り分けの候補: C2 record.process.tdd.rounds と同じ中身"
+    "description": "TDD を諦めた周・段・理由（各周の p3.tdd_red・p3.tdd_green の出力の gave_up）"
    }
   }
  },

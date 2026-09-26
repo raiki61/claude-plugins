@@ -137,8 +137,9 @@ def expand_refs(graph):
         return {k: walk(v, seen) for k, v in x.items()}
     out = {k: v for k, v in graph.items() if k != "$defs"}
     out["nodes"] = walk(graph.get("nodes", {}), frozenset())
-    if "state_schema" in graph:   # 盤面の loop の形（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
-        out["state_schema"] = walk(graph["state_schema"], frozenset())
+    for top in ("state_schema", "hist_schema"):   # 盤面の loop の形と hist の値の形（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
+        if top in graph:
+            out[top] = walk(graph[top], frozenset())
     # 番号で指す欄（pointers）の型も同じ入口で広げる——graph に型を手で書かせず、宣言の誤りはここで ValueError
     from .pointers import widen
     widen(out["nodes"])

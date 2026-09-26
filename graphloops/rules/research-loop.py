@@ -921,7 +921,6 @@ def finalize(b):
     if not any(c.get("load_bearing") for c in rec["claims"]):
         # 役が返さなかった欄を機械が埋めない——柵が要求するのは理由であって『理由が無い旨』ではない。
         # 埋めていたとき、検証器の非空検査は既定文で通り、欄が空だったことが記録から消えていた。
-        # 理由の正本は p0.clusters の返答（最新の出力を読む）
         why = (b.latest_output("p0.clusters") or {}).get("load_zero_reason")
         if why:
             proc["load_zero_reason"] = why

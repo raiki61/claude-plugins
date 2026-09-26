@@ -10,6 +10,7 @@ from .filelock import board_lock
 from .schema import load_graph, validate_schema
 from .validator import run_validator
 from .render import Renderer
+from . import hist as histmod
 
 
 def empty_round(n):
@@ -22,18 +23,19 @@ def empty_round(n):
 # ——綴り違い・default の読み落とし・prev. の検査漏れのたびに検査を継ぎ足し、loop.・record. の葉は最後まで検査の外だった。
 # 条件の文脈で読める前置き。Board.cond はこの表で engine の ctx を切り出し、graphcheck が import して宣言の頭がこの中に在るかを見る
 # （写しを作らない）。cur.<節> は「今の周にその節が出した出力」（out.<節> は周を問わない最新、prev.<節> は前の周までの最新）。
-# inputs は init で固まり run の途中で書き換えない入力（graphcheck が graph の inputs の宣言で照らす）。照らす宣言を持たない
+# inputs は init で固まり run の途中で書き換えない入力（graphcheck が graph の inputs の宣言で照らす）。hist は履歴から作る
+# 読み取り専用の値（rules の HIST。graphcheck が graph の hist_schema で照らす）。照らす宣言を持たない
 # 前置き（run・thickness・item）は条件から読ませない
 COND_NODE_HEADS = ("out", "prev", "cur")   # 下に <節>.<欄> を持つ前置き（graphcheck が節の schema で照らす）
-COND_HEADS = ("record", *COND_NODE_HEADS, "round", "rd", "loop", "inputs")
+COND_HEADS = ("record", *COND_NODE_HEADS, "round", "rd", "loop", "inputs", "hist")
 _MISSING = object()
 
 
 class CondView:
     """条件の関数に渡す入れ物。**宣言した欄だけが見える。**
 
-    `v(path, default)` で読む。宣言した path そのものか、その下（宣言 `loop.last_material` は
-    `loop.last_material.x.status` を読める）だけ通し、宣言の外は die。解決できない path は default を
+    `v(path, default)` で読む。宣言した path そのものか、その下（宣言 `hist.last_material` は
+    `hist.last_material.x.status` を読める）だけ通し、宣言の外は die。解決できない path は default を
     渡していれば default、無ければ die——偽に倒すと綴り違いが『条件が成り立たない』に化け、走らなかった節の
     素材に事実と逆の理由が書かれたまま収束まで通る（実測: cond の path を 1 文字変えても graphcheck は exit 0、
     回すと gate_efficacy が『検証ゲートを新設していない』で not_applicable になった）。
@@ -174,6 +176,9 @@ class Board:
         self.seen_rev += 1
         self.state["rev"] = self.seen_rev
         self._loop_drift()
+        table = registry(self.rules, "HIST")
+        if table:
+            histmod.write_control(self, table)   # 控え（正本でない）。state.hist_drift も同じ呼び出しで積むので state より先に
         write_json(self.dir / "record.json", self.record)
         write_json(self.dir / "state.json", self.state)
         # 保存まで控えていた trace の行（_board_update が当て直す間は書かない——当て直しのたびに行が重なる）
@@ -247,6 +252,14 @@ class Board:
     def loop_state(self):
         """rules が自分の都合で持つ状態の置き場。engine は中身を解さず、形を graph の state_schema で照らして外れを痕跡に残すだけ（save）。"""
         return self.state.setdefault("loop", {})
+
+    def hist(self, name):
+        """履歴から作る読み取り専用の値 hist.<name>（rules の HIST の関数。無い周は HIST_ABSENT）。覚えない——周の記録と
+        節の出力は同じ呼び出しの中でも書き足されるので、引くたびに作る"""
+        fn = registry(self.rules, "HIST").get(name)
+        if fn is None:
+            raise KeyError(f"hist.{name}: rules の HIST に無い")
+        return histmod.compute(self, name, fn, self.__dict__.setdefault("_hist_stack", []))
 
     def new_round(self):
         self.state["round"] += 1
@@ -469,6 +482,7 @@ class Board:
             "cur": {nid: self.output_of_round(nid, self.round) for nid, info in self.state["outputs"].items() if info.get("round") == self.round},
             "thickness": self.state["thickness"], "round": self.round, "rd": self.rd, "loop": self.loop_state,
             "run": {"id": self.state["run_id"], "dir": str(self.dir), "loop": self.state["loop_name"]},
+            "hist": histmod.HistView(self, registry(self.rules, "HIST")),
             "validator": self.validator_tables(),
         }
 

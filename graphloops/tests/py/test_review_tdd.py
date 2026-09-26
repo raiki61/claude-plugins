@@ -127,7 +127,7 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
     """TDD の rules は今の流れの rules の公開名を全部そのまま出し、差し替えるのは名乗った物だけ——フックや表の出し忘れは
     engine から見ると『このループは持たない』に黙って倒れるので、名前を選んで並べていないことを見る"""
     base = RULES.base
-    replaced = {"record_round", "finalize", "on_new_round", "CONDS", "BUILTINS", "POST_CHECKS", "LOOP_KEYS"}
+    replaced = {"record_round", "finalize", "on_new_round", "CONDS", "BUILTINS", "POST_CHECKS", "LOOP_KEYS", "HIST"}
     public = {k for k in vars(base) if not k.startswith("__")}
     assert not public - set(vars(RULES))
     assert [k for k in public - replaced if getattr(RULES, k) is not getattr(base, k)] == []
@@ -135,7 +135,9 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
     assert all(RULES.CONDS[k] is v for k, v in base.CONDS.items())
     assert all(RULES.POST_CHECKS[k] is v for k, v in base.POST_CHECKS.items())
     assert set(RULES.BUILTINS) - set(base.BUILTINS) == {"tdd_start", "tdd_red", "tdd_green"}
-    assert RULES.LOOP_KEYS - base.LOOP_KEYS == {"tdd", "tdd_gave_up"} and base.LOOP_KEYS <= RULES.LOOP_KEYS
+    assert RULES.LOOP_KEYS - base.LOOP_KEYS == {"tdd"} and base.LOOP_KEYS <= RULES.LOOP_KEYS
+    assert set(RULES.HIST) - set(base.HIST) == {"tdd_gave_up"}
+    assert [k for k, v in base.HIST.items() if RULES.HIST[k] is not v] == ["prev_declared_faces"]
 
 
 # --- テストだけを書く段の返答の検査（tdd_tests_output）: 直す義務の単位を全部 1 度だけ tdd か direct に振る
@@ -238,7 +240,10 @@ def test_retry_gives_up_at_the_limit_without_stopping(step, back):
     got = [RULES._retry(b, t, step, back, [f"{step} の {i} 回目"]) for i in range(RULES.RETRY_MAX)]
     assert [g["ok"] for g in got] == [False] * (RULES.RETRY_MAX - 1) + [True]
     assert got[-1]["gave_up"] == step and len(calls) == RULES.RETRY_MAX - 1
-    assert b.loop_state["tdd_gave_up"] == [{"round": 2, "step": step, "problems": [f"{step} の {RULES.RETRY_MAX - 1} 回目"]}]
+    assert "tdd_gave_up" not in b.loop_state   # 諦めた事実は節の出力が正本——hist が出力から作る
+    want = [{"round": 2, "step": step, "problems": [f"{step} の {RULES.RETRY_MAX - 1} 回目"]}]
+    h = types.SimpleNamespace(round=3, output=lambda nid, n: got[-1] if (nid, n) == (f"p3.tdd_{step}", 2) else None)
+    assert RULES.hist_tdd_gave_up(h) == want
     assert b.record["process"]["tdd"]["rounds"]["2"][step] == "failed"
 
 

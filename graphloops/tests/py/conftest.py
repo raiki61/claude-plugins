@@ -53,7 +53,7 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 608
+EXPECTED_ITEMS = 633
 # 全件を回したときに台本の check が走るべき件数と、到達すべき値の数（fence.py の 3）。上げるときも下げるときも実測値を書く
 EXPECTED_SIM_CHECKS = 5
 EXPECTED_SIM_REACHED = 2

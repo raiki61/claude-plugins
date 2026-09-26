@@ -879,8 +879,8 @@
    "title": "減った周に R2 を回し直す（8）",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "or grew or shrank or forced",
-   "new": "or grew or forced",
+   "old": "or grew or shrank or _hist(b, \"r2_refire_forced\", False)",
+   "new": "or grew or _hist(b, \"r2_refire_forced\", False)",
    "marker": {
     "where": "before_raw",
     "cond": "shrank"
@@ -1244,8 +1244,8 @@
    "title": "一撃: 前の周の判定だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    hist = b.output_of_round(\"p2.history\", b.round - 1) or b.output_of_round(\"p2.diagnose\", b.round - 1) or {}",
-   "new": "    hist = b.outputs().get(\"p2.history\") or b.outputs().get(\"p2.diagnose\") or {}",
+   "old": "    j = h.output(\"p2.history\", n) or h.output(\"p2.diagnose\", n) or {}",
+   "new": "    j = h.output(\"p2.history\", n) or h.output(\"p2.history\", n - 1) or h.output(\"p2.diagnose\", n) or {}",
    "expect": "p2.history を省いた周の次は、その周の p2.diagnose の一撃を渡す",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -1523,11 +1523,11 @@
   },
   {
    "id": "A26",
-   "title": "周ごとの行数は _r2_refire が盤面に書く",
+   "title": "周ごとの行数は p4.assemble の出力から作る（行数の無い周は載せない）",
    "file": "graphloops/rules/review-loop.py",
-   "old": "    by_round[str(rnd)] = lines",
-   "new": "    pass",
-   "expect": "周ごとの行数は _r2_refire 自身が",
+   "old": "            if isinstance((a := h.output(\"p4.assemble\", n) or {}).get(\"diff_lines\"), int)}",
+   "new": "            if (a := h.output(\"p4.assemble\", n) or {}) is not None}",
+   "expect": "周ごとの行数は p4.assemble の出力から作り",
    "suite": "graphloops",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4429,8 +4429,8 @@
    "title": "線の閉じなかった見逃しは周の頭で判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    ls[\"prev_declared_faces\"] = _declared_faces(b, b.round - 1) + [{k: v for k, v in r.items() if k != LANE_DEFECT} for r in lane_rows]",
-   "new": "    ls[\"prev_declared_faces\"] = _declared_faces(b, b.round - 1)",
+   "old": "            rows += lane.get(\"delivered_rows\") or []",
+   "new": "            pass",
    "expect": "合流: 閉じなかった見逃し（needs_test・defect）は宣言の穴",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4443,7 +4443,7 @@
    "title": "関門が見つけた見逃しは次の周の判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "             for r in (b.output_of_round(\"p4.final_gates\", rnd) or {}).get(\"handled\") or [] if r[\"handled\"] != \"equivalent\"]",
+   "old": "             for r in (out_of(\"p4.final_gates\", rnd) or {}).get(\"handled\") or [] if r[\"handled\"] != \"equivalent\"]",
    "new": "             for r in []]",
    "expect": "最後の関門: 関門が見つけた、テストの要る見逃しは",
    "tests": {
@@ -4950,7 +4950,7 @@
      "test_graphcheck_review_shapes"
     ]
    },
-   "old": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
+   "old": "            if (core.startswith((\"record.\", \"hist.\")) or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
    "new": "            if False:"
   },
   {
@@ -4964,8 +4964,8 @@
      "test_graphcheck_review_shapes"
     ]
    },
-   "old": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
-   "new": "            if (core.startswith(\"record.\") or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None):"
+   "old": "            if (core.startswith((\"record.\", \"hist.\")) or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
+   "new": "            if (core.startswith((\"record.\", \"hist.\")) or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None):"
   },
   {
    "id": "OB1",
