@@ -1,0 +1,27 @@
+# 筋書き no-change: 修正役は 2 つの単位を直したと言うが、作業ツリーは何も変わっていない（stub の返答は
+# ファイルを書かない）。受け付け（stub）は通るが、assert-changed を実物で回し、差分の空を見つけて run を落とす。
+fix:
+  changes:
+    - unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
+      files: [stats.py]
+      what: "mean の分母を len(xs) に直した"
+    - unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
+      files: [stats.py]
+      what: "clamp の上限の枝で hi を返すように直した"
+accept:
+  ok: true
+  reason: ""
+  changes:
+    - unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
+      files: [stats.py]
+      what: "mean の分母を len(xs) に直した"
+    - unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
+      files: [stats.py]
+      what: "clamp の上限の枝で hi を返すように直した"
+fixture:
+  expect: failed
+  fail-node: assert-changed
+  inputs:
+    judgment_file: board/judgment.json
+    open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+exec-code: true

@@ -1,0 +1,100 @@
+name: blk-fix
+description: |
+  修正のブロック（support workflow。ラインから include で使う）。
+  判定のブロックが受け付けた根本の単位を修正役に直させ（fix）、返答を写した規則で受け付け（accept。
+  拒めば理由を貼って同じ会話で出し直し、上限 3 回）、作業ツリーが実際に変わったかを確かめ（assert-changed。
+  何も変えずに済んだと言えば run が落ちる）、出口に集める（collect）。
+
+inputs:
+  judgment_file:
+    required: true
+    description: 受け付けた判定のファイルのパス（blk-judge の出口 judgment_file。盤面の judgment.json）
+  open_units:
+    required: true
+    description: 直す義務の単位の key の JSON の配列の文字列（blk-judge の出口 open_units）
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版。触ったファイルはこの版からの差分で数える。空はその場の HEAD
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  - id: fix-loop
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $accept.output.ok = true
+      nodes:
+        - id: fix
+          command: fix
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          sandbox: {enabled: true}
+          idle_timeout: 1728000000
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [changes]
+            properties:
+              changes:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [unit_key, files, what]
+                  properties:
+                    unit_key: {type: string, minLength: 1}
+                    files:
+                      type: array
+                      items: {type: string, minLength: 1}
+                    what: {type: string, minLength: 1}
+
+        - id: accept
+          script: accept
+          runtime: uv
+          depends_on: [fix]
+          timeout: 1728000000
+          with:
+            reply: {from: "$fix.output"}
+            base_rev: $INPUTS.base_rev
+          output_format:
+            type: object
+            required: [ok, reason, changes]
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              changes: {type: array}
+
+  - id: assert-changed
+    script: assert_changed
+    runtime: uv
+    depends_on: [fix-loop]
+    timeout: 1728000000
+    with:
+      base_rev: $INPUTS.base_rev
+    output_format:
+      type: object
+      required: [ok, files]
+      properties:
+        ok: {type: boolean}
+        files:
+          type: array
+          items: {type: string}
+
+  - id: collect
+    script: collect
+    runtime: uv
+    depends_on: [assert-changed]
+    timeout: 1728000000
+    with:
+      accepted: $fix-loop.output
+      changed: {from: "$assert-changed.output"}
+    output_format:
+      type: object
+      required: [ok, files, changes_file]
+      properties:
+        ok: {type: boolean}
+        files:
+          type: array
+          items: {type: string}
+        changes_file: {type: string}
