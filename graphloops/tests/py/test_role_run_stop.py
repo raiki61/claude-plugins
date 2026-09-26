@@ -85,3 +85,101 @@ def test_stop_group_posix_group_already_gone(tmp_path, monkeypatch):
     monkeypatch.setattr(role_run, "probe_group", lambda f: (4242, None))
     assert role_run.stop_group(str(m)) is None
     assert not m.exists()
+
+
+@pytest.mark.parametrize("platform,tools,want", [
+    pytest.param("win32", {"bwrap", "socat"}, False, id="windows"),
+    pytest.param("linux", {"socat"}, False, id="linux-without-bwrap"),
+    pytest.param("linux", {"bwrap"}, False, id="linux-without-socat"),
+    pytest.param("linux", {"bwrap", "socat"}, True, id="linux-with-both"),
+])
+def test_sandbox_available_off_macos(monkeypatch, platform, tools, want):
+    """macOS 以外: Linux で bwrap と socat の両方が在り、bwrap が名前空間を作れるときだけ真。ほかは bwrap を試さずに偽"""
+    ran = []
+    monkeypatch.setattr(role_run, "sys", types.SimpleNamespace(platform=platform))
+    monkeypatch.setattr(role_run, "shutil", types.SimpleNamespace(which=lambda n: f"/usr/bin/{n}" if n in tools else None))
+    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: ran.append(argv) or subprocess.CompletedProcess(argv, 0, b"", b""))
+    assert role_run.sandbox_available() is want
+    assert bool(ran) == want
+
+
+def test_sandbox_available_on_macos_needs_only_sandbox_exec(monkeypatch):
+    """macOS は sandbox-exec が在れば真（bwrap は試さない）"""
+    ran = []
+    monkeypatch.setattr(role_run, "sys", types.SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(role_run, "shutil", types.SimpleNamespace(which=lambda n: "/usr/bin/sandbox-exec" if n == "sandbox-exec" else None))
+    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: ran.append(argv))
+    assert role_run.sandbox_available() is True and not ran
+
+
+@pytest.mark.parametrize("worktrees", [pytest.param((False, [], "失敗"), id="worktree-list-fails"),
+                                       pytest.param((True, ["worktree /w"], ""), id="no-common-dir")])
+def test_protected_paths_is_undecided_when_git_answers_partly(tmp_path, monkeypatch, worktrees):
+    """共有の .git か作業ツリーの一覧のどちらかが引けなければ、守る場所は決まらない（None——sandbox の形を選ばない）"""
+    common = (True, [], "") if worktrees[0] else (True, [str(tmp_path / ".git")], "")
+    monkeypatch.setattr(role_run, "_git", lambda cwd, *args: common if "rev-parse" in args else worktrees)
+    assert role_run.protected_paths(tmp_path) is None
+
+
+def test_started_at_on_windows_reads_the_cim_answer(monkeypatch):
+    """Windows は PowerShell の答え（alive:<FILETIME>）を開始時刻に読む（ps の etime として読まない）"""
+    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="nt"))
+    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 0, "alive:116444736000000000\r\n", ""))
+    assert role_run._started_at(4242) == 0.0
+
+
+def test_parse_cim_needs_the_alive_prefix():
+    assert role_run.parse_cim("116444736000000000") is None   # 接頭の無い数を開始時刻と読まない
+
+
+def test_started_at_unreadable_etime_is_unknown(monkeypatch):
+    """ps が読めない etime を返したら『確かめられない』（None）"""
+    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix"))
+    monkeypatch.setattr(role_run.subprocess, "run", lambda argv, **k: subprocess.CompletedProcess(argv, 0, "読めない\n", ""))
+    assert role_run._started_at(4242) is None
+
+
+def test_parse_etime_refuses_four_fields():
+    assert role_run.parse_etime("1:02:03:04") is None   # [[dd-]hh:]mm:ss より多い区切りを時刻と読まない
+
+
+def test_run_role_reports_a_role_it_could_not_start(tmp_path):
+    """子を起こせなかった回は『起こせない』と理由を言う（空の標準出力の包みの誤りに化けない）"""
+    prompt = tmp_path / "p.md"
+    prompt.write_text("指示書", encoding="utf-8")
+    r = role_run.run_role(["no-such-command-gl-test"], prompt, tmp_path / "out.json")
+    assert not r["ok"] and r["why"].startswith("起こせない: ") and len(r["runs"]) == 1
+
+
+@pytest.mark.parametrize("dies_after", [pytest.param(15, id="dies-on-term"), pytest.param(None, id="never-dies")])
+def test_stop_group_posix_watches_the_group(tmp_path, monkeypatch, dies_after):
+    """信号を送った後はグループの生存（kill(-pgid, 0)）を見て、消えたら止まったと数える。消えなければ SIGKILL の後も残ったと言う"""
+    m = mark(tmp_path)
+    sent = []
+
+    def killpg(pgid, sig):
+        if sig == 0:
+            if dies_after is not None and dies_after in sent:
+                raise ProcessLookupError
+            return
+        sent.append(sig)
+
+    monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix", killpg=killpg))
+    monkeypatch.setattr(role_run, "STOP_SIGNALS", (15, 9))
+    monkeypatch.setattr(role_run, "KILL_GRACE", 0.3)
+    monkeypatch.setattr(role_run, "probe_group", lambda f: (4242, None))
+    why = role_run.stop_group(str(m))
+    if dies_after is None:
+        assert why == "グループ 4242 が SIGKILL の後も残っている" and sent == [15, 9] and m.exists()
+    else:
+        assert why is None and sent == [15] and not m.exists()
+
+
+def test_run_role_without_resume_argv_stops_after_a_rejection(tmp_path):
+    """続ける語（resume_argv）の無い役は、会話の番号が在っても拒否の後に続きを頼まず 1 起動で止まる"""
+    prompt = tmp_path / "p.md"
+    prompt.write_text("指示書", encoding="utf-8")
+    env = json.dumps({"type": "result", "subtype": "success", "result": "散文", "session_id": "s-1"})
+    argv = [sys.executable, "-c", f"print({env!r})"]
+    r = role_run.run_role(argv, prompt, tmp_path / "out.json", accept=lambda t: "JSON でない", max_resumes=2)
+    assert not r["ok"] and r["session_id"] == "s-1" and len(r["runs"]) == 1 and r["rejections"] == ["JSON でない"]

@@ -5199,10 +5199,10 @@
    "suite": "graphloops",
    "old": "            shutil.rmtree(d, ignore_errors=True)\n            raise",
    "new": "            raise",
-   "expect": "仕様の道: 拒んだ init は置き場を残さない",
+   "expect": "人の方針: 拒んだ init は置き場を残さない",
    "tests": {
     "graphloops/tests/simulate_review.py": [
-     "test_spec_stop_and_changes"
+     "test_policy_reaches_roles"
     ]
    }
   },

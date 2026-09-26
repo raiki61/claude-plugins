@@ -32,7 +32,12 @@ def repo(tmp_path, steps=OK):
     ('{"suite": [{"name": "a", "argv": []}]}', "1 語以上"),
     ('{"suite": [{"name": "a", "argv": "bash run.sh"}]}', "1 語以上"),
     ('{"suite": [{"name": "a", "argv": ["x"]}, {"name": "a", "argv": ["y"]}]}', "重ならない"),
-    ('{"sweet": []}', "在る鍵: ['sweet']"),   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
+    ('{"sweet": []}', "在る鍵: ['sweet']"),
+    ("5", "在る鍵: int"),
+    ('{"suite": {"a": 1}}', "suite は 1 段以上の配列"),   # 配列でない suite を段の並びと読まない
+    ('{"suite": [["name", "argv"]]}', "suite[0] は"),   # 鍵の名前を並べた配列を段と読まない
+    ('{"suite": [{"name": "a", "argv": [1]}]}', "1 語以上"),   # 文字列でない語
+    ('{"suite": [{"name": "a", "argv": [""]}]}', "1 語以上"),   # 空の頭の語（起こす物が無い）   # object でない最上位は型の名前で言う（set(5) で落ちない）   # 綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）
 ])
 def test_parse_rejects_shapes_it_cannot_run(text, want):
     steps, err = declared.parse(text)
@@ -110,6 +115,12 @@ def test_refusal_reads_the_declaration_at_root_not_a_board_field(tmp_path):
     assert engine_run_refusal(inst, elsewhere) is None
 
 
+@pytest.mark.parametrize("steps", [None, {}, "argv", ["argv"]])
+def test_refusal_needs_a_list_of_steps(steps):
+    """走らせる語は [{name, argv}] の一覧だけ——空の dict・文字列を『段が 0 本』と読まない"""
+    assert "形が [{name, argv}] でない" in engine_run_refusal({"launch": {"kind": "engine_run", "steps": steps}}, None)
+
+
 def test_refusal_exempts_only_the_bundled_helper_by_argv(tmp_path):
     """宣言の無いルートで確かめる——免除が効くのは argv の頭が engine の同梱の語を指すときだけ"""
     ok = {"launch": {"kind": "engine_run", "steps": [{"name": "parallel-pr.py", "argv": helper_argv("parallel-pr.py", ["--repo", "t/x"])}],
@@ -162,3 +173,9 @@ def test_run_steps_waits_and_keeps_output(tmp_path):
     assert [r["exit"] for r in runs] == [0, 4, None]
     assert (tmp_path / "log" / "1.out").read_text(encoding="utf-8").strip() == "done 572"   # 走り終えてから読む
     assert "boom" in runs[1]["tail"] and runs[2].get("error")
+    assert (tmp_path / "log" / "2.err").read_text(encoding="utf-8") == "boom"   # 標準エラーも丸ごと置き場に残す
+
+def test_read_reports_a_broken_declaration(tmp_path):
+    """読めた宣言が形の誤りを持つなら、段も sha も作らず誤りを返す（承認も走らせることもしない）"""
+    (tmp_path / declared.DECL_NAME).write_text('{"suite": []}', encoding="utf-8")
+    assert declared.read(tmp_path) == {"error": f"{declared.DECL_NAME}: suite は 1 段以上の配列"}

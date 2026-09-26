@@ -175,6 +175,7 @@ def test_tests_reply_accepts_every_unit_routed_once():
     pytest.param([tdd_row(friction={**OK_FRICTION, "setup_heavy": True}), direct_row()], "note", id="friction-without-note"),
     pytest.param([tdd_row(), direct_row(), direct_row()], "u-donow", id="unit-twice"),
     pytest.param(None, "どちらの道にも振っていない", id="no-units"),
+    pytest.param([tdd_row(), direct_row(), direct_row(unit_key="u-other")], "今の周に直す義務の単位に無い", id="unknown-unit"),
 ])
 def test_tests_reply_rejects(units, words):
     assert words in check_reply(units)
@@ -319,3 +320,11 @@ def test_tdd_effect_reads_an_unfired_lane_as_unmeasured(tmp_path):
                               loop_state={"lanes": {"a" * 40: {"round": 1, "rev": "a" * 40, "result": str(res), "state": "merged"}}})
     RULES.tdd_effect(b)
     assert b.record["process"]["tdd"]["rounds"]["1"]["lane_missed"] is None
+
+
+def test_tdd_start_stops_without_a_base_revision(monkeypatch):
+    """テストを書く前の版を固められない（git が動かない）なら、一式を走らせずに止める"""
+    monkeypatch.setattr(RULES, "_snap", lambda: None)
+    monkeypatch.setattr(RULES, "run_suite", lambda b: pytest.fail("版を固められないのに一式を走らせた"))
+    b = types.SimpleNamespace(round=1, loop_state={}, record={"process": {}}, state={"inputs": {}})
+    assert RULES.tdd_start(b, "p3.tdd_start") == {"ok": False, "problems": ["テストを書く前の版を固められない（git を確かめよ）"]}

@@ -609,6 +609,11 @@ def test_engine_run_checks():
     check(got["ok"] and m["status"] == "clean" and "engine が宣言" in m.get("checked", "") and c["by"] == "engine"
           and c["runs"][0]["exit"] == 0 and pathlib.Path(c["runs"][0]["out"]).read_text(encoding="utf-8").strip() == "1 passed",
           f"launch が宣言の語を走らせ、終了コードで clean を書き、記録に by=engine と段ごとの終了コード・出力の置き場が残る（{m} / {c.get('by')}）")
+    rows = [json.loads(x) for x in (run.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+    er = [x for x in rows if x.get("op") == "engine_run" and x.get("instance") == inst["id"]]
+    check(len(er) == 1 and [(r_.get("name"), r_.get("exit")) for r_ in er[0].get("runs") or []] == [("suite", 0)],
+          f"走らせた段の名前と終了コードは trace に engine_run の 1 行で残る（{er}）")
+    check([x.get("instance") for x in rows if x.get("op") == "launch"] == [inst["id"]], "起こした印は trace に launch の 1 行で残る")
     rm(run.tmp)
 
     # emit の後に宣言を書き換えた——launch は固めた古い語を走らせず『一致しない』と言い、relaunch で今の宣言から計画し直すと新しい語で走る
@@ -663,6 +668,10 @@ def test_engine_run_checks():
     m = run.record()["materials"]["local_checks"]
     check(got["ok"] and m["status"] == "not_run" and "起こせない" in m.get("reason", ""),
           f"起こせない語は P4 では not_run（人待ちを新しく立てない）で理由を書く（{m}）")
+    # 起こし直した試行（.a2）の置き場にも、engine が組んだ返答を書く（試行ごとに置き場が分かれ、周の出力の写しとは別の所）
+    wrote = pathlib.Path(new["out_path"])
+    check(".a2" in wrote.name and wrote.is_file() and json.loads(wrote.read_text(encoding="utf-8")).get("material", {}).get("status") == "not_run",
+          f"engine が組んだ返答は起こし直した試行の置き場に書く（{new['out_path']}）")
     rm(run.tmp)
 
     # 宣言の無いリポジトリの clean は任せ先の自己申告——収束を名乗らず人に諮る（有人）。記録に by=role と理由が残る
@@ -714,6 +723,11 @@ def test_engine_run_parallel_pr():
             check(not got["ok"] and got.get("fell_back") and again["mode"] == "runner" and again.get("delegate", {}).get("model") == "sonnet"
                   and "交差" in (again.get("engine_fallback") or ""),
                   f"交差あり: 6 段の申し送りは役——同じ節を理由つきの任せ先の節として出し直す（{got.get('why')} / {again['mode']}）")
+            rows = [json.loads(x) for x in (run.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+            fb = [x for x in rows if x.get("op") == "engine_fallback" and x.get("instance") == inst["id"]]
+            check(len(fb) == 1 and "交差" in (fb[0].get("reason") or ""), f"任せ先に回したことは trace に理由つきで 1 行残る（{fb}）")
+            check(got.get("fell_back") and "任せ先の節に回した" in (got.get("why") or "") and not got.get("superseded"),
+                  f"任せ先に回した行は『起こし直された古い試行』に言い換えず、次の手（next）を言う（{got.get('why')}）")
         rm(run.tmp)
 
 
@@ -3941,6 +3955,16 @@ def test_stop_after_round():
     proc = run.record()["process"]
     check(proc.get("outcome") == "stopped" and proc.get("stop_reason") == "stop_after_round",
           f"仕上げた記録に止めた理由が残る（{proc.get('outcome')}・{proc.get('stop_reason')}）")
+    halts = [json.loads(x) for x in (run.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"halted"' in x]
+    check([(x.get("op"), x.get("by"), x.get("round")) for x in halts] == [("halted", "stop_after_round", 1)],
+          f"止めたことは trace にも 1 行残る（{halts}）")
+    rm(run.tmp)
+    # N より前の周は止めずに開く（3 周で収束する筋書きを 2 周目の締めの後で止める）
+    run = Run("stop2", init_args=["--stop-after-round", "2"])
+    last = drive(run, "std")
+    st = run.state()
+    check(last["status"] == "stopped" and st["halted"]["round"] == 2 and len(st["rounds"]) == 2,
+          f"--stop-after-round 2 は 1 周目の後は次の周を開き、2 周目の締めの後で止まる（周 {len(st['rounds'])}・{st.get('halted')}）")
     rm(run.tmp)
     # 人に聞く番の continue（周を開くもう 1 つの口）でも止まる
     run = Run("stop1-answer", init_args=["--stop-after-round", "1"])
@@ -5406,6 +5430,34 @@ def test_big_diff():
     st_size = (run.dir / "state.json").stat().st_size
     check(st_size < 200000, f"state.json は差分を複製しない（{st_size} バイト）")
     rm(run.tmp)
+    # engine が起こさない役（graph に launch.tooled が無い）でも、役が自分でファイルを読む渡し方（deliver=path）なら貼る上限で
+    # 切らない——上限は Agent ツールに本文を貼る経路の性質（advance.emit_instance の cap の注記）。道具つきの役の指示書に
+    # 差分の本文の穴を足した graph の写しで、path の役の本文が末尾まで残るかを見る
+    g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
+    del g["launch"]["tooled"]
+    g["nodes"]["p1.procedure_trace"]["reads"].append("file:loop.diff_file")
+    _td_g, gtmp = parallel.workspace("gl-review-big-path-")
+    for sub in ("prompts", "rules"):
+        shutil.copytree(PLUGIN / sub, gtmp / sub)
+    pt = gtmp / "prompts" / "review-loop" / "p1.procedure_trace.md"
+    pt.write_text(pt.read_text(encoding="utf-8") + "\n\n{{file:loop.diff_file}}\n", encoding="utf-8")
+    (gtmp / "graphs").mkdir()
+    (gtmp / "graphs" / "review-loop.json").write_text(json.dumps(g, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    run = Run("big-path", big=True, graph=gtmp / "graphs" / "review-loop.json")
+    seen = {}
+    nx = run.next()
+    for _ in range(3):
+        t = answers(run, "std", 1)
+        for i in nx["ready"]:
+            seen[i["node"]] = i
+            run.done(i["id"], t[i["node"]](load_item(i)))
+        nx = run.next()
+    pt_inst = seen.get("p1.procedure_trace") or {}
+    body = pathlib.Path(pt_inst["prompt_file"]).read_text(encoding="utf-8") if pt_inst else ""
+    check(pt_inst.get("deliver") == "path" and not pt_inst.get("launch") and f"ROW_{BIG_ROWS - 1:05d}" in body,
+          f"engine が起こさない path の役は、差分の本文を末尾まで受け取る（deliver {pt_inst.get('deliver')}・{len(body.encode('utf-8'))} バイト）")
+    rm(run.tmp)
+    shutil.rmtree(gtmp, ignore_errors=True)
 
 
 
@@ -6107,6 +6159,8 @@ def test_policy_reaches_roles():
     run = Run("policy-missing", init_args=("--input", "policy_md=no/such/policy.md"))
     check(run.init.returncode != 0 and "policy_md" in run.init.stderr,
           f"人の方針: init で名指しした文書が無ければ止める（{run.init.stderr[-160:]}）")
+    # 拒むのは置き場を作った後の入口（rules の on_init）——作った置き場ごと消す（flow の値の拒みは置き場を作る前の check_inputs）
+    check(not run.dir.exists(), "人の方針: 拒んだ init は置き場を残さない（on_init が拒んでも、作った置き場を消す）")
     rm(run.tmp)
 
 

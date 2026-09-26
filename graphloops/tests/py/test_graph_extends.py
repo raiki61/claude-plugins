@@ -59,6 +59,8 @@ def test_extends_refs_resolve_against_the_merged_defs(tmp_path):
     pytest.param("over.json", "自分", id="self"),
     pytest.param("mid.json", "1 段", id="two-levels"),
     pytest.param("missing.json", "が無い", id="missing-base"),
+    pytest.param(5, "同じ置き場", id="not-a-string"),
+    pytest.param("", "同じ置き場", id="empty"),
 ])
 def test_extends_rejects(tmp_path, ref, words):
     (tmp_path / "sub").mkdir()
