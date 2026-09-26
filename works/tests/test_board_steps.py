@@ -433,7 +433,8 @@ class MachineStepsCase(StepCase):
     def test_na_steps(self):
         """kind=na の全部の手: 手の前から組んで _settle_node(節) → 返りの理由 == 手の why、rd.na[節] == why。
         続く na の手（間に記憶を撮る手が無い＝同じ advance の中で続けて評価された物）は、同じ盤面で順に当てる
-        （手の後＝次の手の前。1 つ目だけ記憶から組む）"""
+        （手の後＝次の手の前。1 つ目だけ記憶から組む）。限り: 間に engine が役の節を出しても（手として撮られない）盤面は
+        その instance を持たない——手本も na の手ごとに記憶を撮らないので同じ近似。instance を読む条件はこの試験では見えない"""
         done, boards, bad = 0, 0, []
         for rs in R.every_run():
             b = None
@@ -650,6 +651,37 @@ class SettleCase(StepCase):
         self.assertEqual(first["skipped"]["p4.record"], "このラインに無い（検査用）")
         self.assertEqual(b.state["done_ever"]["p4.record"], 1)
         self.assertNotIn("p4.record", first["done"])
+
+    def test_settle_refuses_pre_finalize(self):
+        """pre: finalize の節（report）には、記録の仕上げと検証器の関所なしで出さず BoardGap（関所は Task 6）"""
+        s = run_step("test_converges", 1, 172)
+        self.assertEqual((s["kind"], s["node"]), ("accept", "report.cold_check"))
+        self.assertEqual(GRAPH["nodes"]["report"].get("pre"), "finalize")
+        b = self.board_before(s)
+        out = R.reply(s, b)
+        with self.assertRaises(BoardGap) as cm:
+            b.done("report.cold_check", out)
+        self.assertIn("report", str(cm.exception))
+        self.assertNotIn("report", b.rd["instances"])
+
+    def test_run_builtin_fresh_reads(self):
+        """run_builtin は前の settle の読んだ物の控え（git status の写し）と accept_tree_change を使わない:
+        worktree_compare を explicit にした表で、前の settle に渡した理由では通らず、新しい git status で突き合わせる"""
+        s = run_step("test_rejections", 1, 34)
+        self.assertEqual(s["node"], "p1.worktree_after")
+        table = with_by(TABLE, "p1.worktree_after", by="builtin", run="explicit")
+        b = self.board_before(s, table=table)
+        p = b.settle(accept_tree_change="前の settle の理由（検査用）")
+        self.assertIn("p1.worktree_after", p["ready"])
+        b.__dict__["_porcelain"] = ["?? 古い写し（検査用）"]
+        p = b.run_builtin("p1.worktree_after")
+        gm = b.state["git_mismatches"][-1]
+        self.assertIsNone(gm["accepted"])
+        self.assertIn("stray.txt", " ".join(gm["diff"]))
+        self.assertNotIn("古い写し", " ".join(gm["diff"]))
+        self.assertTrue(any("作業ツリーが変わっている" in x for x in p["notes"]), p["notes"])
+        p = b.run_builtin("p1.worktree_after", accept_tree_change=s["args"]["accept_tree_change"])
+        self.assertEqual(b.state["git_mismatches"][-1]["accepted"], s["args"]["accept_tree_change"])
 
     def test_settle_on_scratch_is_gap(self):
         """v1 の受け付けの入れ物（scratch。表も instance も持たない）は settle・機械の節を回さない"""

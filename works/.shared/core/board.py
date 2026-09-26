@@ -639,12 +639,14 @@ class DiskBoard(_EngineBoard):
         self.save()
         return {"progressed": progressed, "notes": notes}
 
-    def run_builtin(self, nid: str) -> Progress:
-        """表で explicit の機械の節を回す（ラインが段の境で呼ぶ）: 条件に当たらなければ na、当たれば step_builtin → settle。
+    def run_builtin(self, nid: str, accept_tree_change: str | None = None) -> Progress:
+        """表で explicit の機械の節を回す（ラインが段の境で呼ぶ）: 読んだ物の控えを消して accept_tree_change を置き直し、
+        条件に当たらなければ na、当たれば step_builtin → settle（同じ accept_tree_change）。
         auto の節（settle が回す）・機械の節でない節・待っていない・依存が済んでいない節は BoardGap"""
         _refuse_halted(self)
         if self._check_builtin(nid).run != "explicit":
             raise BoardGap(f"節 '{nid}' は表で auto——settle が回す（run_builtin は explicit の節だけ）")
+        self._fresh_reads(accept_tree_change)   # 前の settle の控え・理由のまま回さない（engine は next ごとに新しいプロセス）
         why = self.applicable(nid)
         if why:
             self.rd["na"][nid] = why
@@ -652,7 +654,7 @@ class DiskBoard(_EngineBoard):
             notes = [f"{nid}: 条件に当たらない（{why}）"]
         else:
             notes = self.step_builtin(nid)["notes"]
-        p = self.settle()
+        p = self.settle(accept_tree_change)
         p["notes"] = notes + p["notes"]
         return p
 
@@ -682,14 +684,18 @@ class DiskBoard(_EngineBoard):
             return self._progress([f"全部の節が終わっている（status: {st['status']}）"])
         if st.get("pending_human"):
             return self._progress([f"人に聞いている間（{st['pending_human'].get('node')}）は進めない——answer で答える"])
-        for k in ("_out_cache", "_porcelain", "_vtables"):
-            self.__dict__.pop(k, None)
-        self.accept_tree_change = accept_tree_change
+        self._fresh_reads(accept_tree_change)
         self._notes = []
         while self._settle_pass():
             pass
         self.save()
         return self._progress(list(self._notes))
+
+    def _fresh_reads(self, accept_tree_change):
+        """読んだ物の控え（_out_cache・_porcelain・_vtables）を消し、accept_tree_change を盤面に置く（RL の worktree_compare が読む）"""
+        for k in ("_out_cache", "_porcelain", "_vtables"):
+            self.__dict__.pop(k, None)
+        self.accept_tree_change = accept_tree_change
 
     def _progress(self, notes) -> Progress:
         ph, halted = self.state.get("pending_human"), self.state.get("halted")
@@ -752,6 +758,10 @@ class DiskBoard(_EngineBoard):
             return "ran" if run_driver_node(self, nid, self.nodes[nid], self._notes) else "stop"
         if any(i["node"] == nid and i["status"] == "pending" for i in self.rd["instances"].values()):
             return "waiting"
+        if "pre" in self.nodes[nid]:
+            # engine の emit_instance は pre: finalize の節（report）を出す前に記録を仕上げ、検証器を通らなければ出さない。
+            # その関所は Task 6（finalize → save → self.run_validator → 出す）。それまでは関所なしで出さずに止める
+            raise BoardGap(f"節 '{nid}' は pre: {self.nodes[nid]['pre']}——記録の仕上げと検証器の関所をまだ持たないので出さない")
         self._emit(nid)
         return "emitted"
 

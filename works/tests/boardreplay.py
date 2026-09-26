@@ -527,8 +527,13 @@ def _short(v):
     return s if len(s) <= 160 else s[:157] + "..."
 
 
+def _canon(obj) -> str:
+    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def _json_same(path, exp: bytes, got: bytes) -> bool:
-    """JSON のファイルを読んだ値で比べる（鍵の順を問わない。disk:<path>#<欄> の欄は最上位から落とす）"""
+    """JSON のファイルを鍵を並べ直した書き方で比べる（鍵の順だけを問わない。true と 1、1 と 1.0 は違う。
+    disk:<path>#<欄> の欄は最上位から落とす）"""
     try:
         a, b = json.loads(exp), json.loads(got)
     except ValueError:
@@ -537,7 +542,7 @@ def _json_same(path, exp: bytes, got: bytes) -> bool:
     if drop and isinstance(a, dict) and isinstance(b, dict):
         a = {k: v for k, v in a.items() if k not in drop}
         b = {k: v for k, v in b.items() if k not in drop}
-    return a == b
+    return _canon(a) == _canon(b)
 
 
 def disk_diff(board_dir, expected: dict) -> list:
