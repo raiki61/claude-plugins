@@ -243,7 +243,10 @@ class TestDelta(AcceptCase):
                                 "why": "修正差分のレビューが事前審査だけの語で穴を挙げている"}], "checks": []}
             r = check_delta(reply, self.board, self.base, self.repo)
             self.assertFalse(r["ok"], kind)
-            self.assertIn("kind", r["reason"])
+            # 型の段で拒む（役の型の enum に無い語）。rules の段の拒否文（works に無い r4.human_gate を指す）まで行かせない
+            self.assertIn(f"値 '{kind}' が語彙", r["reason"])
+            self.assertNotIn("事前審査だけの語", r["reason"])
+            self.assertNotIn("r4.human_gate", r["reason"])
             self.assertFalse((self.board / "delta-review.json").exists())
 
     def test_snapshot_sees_untracked_content(self):
