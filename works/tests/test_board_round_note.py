@@ -101,6 +101,31 @@ class RoundNoteCase(unittest.TestCase):
         self.assertEqual(doc["round"], b.round)
         self.assertEqual(doc["skipped_optional"], [{"node": "p2.history", "reason": "検査用に省く"}])
 
+    def test_note_marker_on_board(self):
+        """添え書きを書く印は盤面（state.works.note_rounds）に保存する: step_builtin("p4.record") の後に入れ物を捨てても、
+        開き直した盤面の settle がその周の添え書きを書く。書いた後は印が消える"""
+        s = step_of("test_converges", "builtin", "p4.record")
+        b = self.board_before(s)
+        b.step_builtin("p4.record")
+        self.assertFalse((b.dir / "rounds" / "works" / "round-1.json").exists())
+        disk = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(disk["works"]["note_rounds"], [1])
+        again = type(b).open(b.dir, table=TABLE)
+        again.settle()
+        self.assertEqual(self.note(again, 1)["round"], 1)
+        self.assertEqual(again.state["works"].get("note_rounds"), [])
+
+    def test_note_after_save(self):
+        """添え書きは settle の保存が通った後に書く: 保存が BoardConflict で落ちたら、保存されなかった状態の添え書きを残さない"""
+        from engine.util import BoardConflict
+        b = self.board_before(step_of("test_converges", "builtin", "p4.record"))
+        state = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        state["rev"] = state.get("rev", 0) + 5   # 別のプロセスが先に進めた
+        (b.dir / "state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaises(BoardConflict):
+            b.settle()
+        self.assertFalse((b.dir / "rounds" / "works").exists())
+
     def test_note_checks(self):
         """checks は process.checks のその周の分（CI を engine が確かめたか・役の自己申告か）"""
         b = self.recorded()
@@ -123,7 +148,9 @@ class RoundNoteCase(unittest.TestCase):
         self.assertTrue((b.dir / "rounds" / f"round-{rnd}.json").exists())
         doc = self.note(b, rnd)
         self.assertEqual({r["node"] for r in doc["not_in_line"]}, set(ABSENT))
-        self.assertTrue(all(r["in_round"] in ("na", "skipped", "stopped", "pending") for r in doc["not_in_line"]))
+        rows = {r["node"]: r["in_round"] for r in doc["not_in_line"]}
+        self.assertEqual(rows["p4.final_gates"], "stopped")   # 止めた周で待っていた absent の節は pending でなく stopped
+        self.assertIn("p4.final_gates", b.rd["stopped"])
 
     def test_validator_ignores_note_dir(self):
         """写しの RR に rounds/ を渡しても、works/ の下（添え書き）は読み飛ばす: 添え書きの有無で exit と出力が変わらない"""

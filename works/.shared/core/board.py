@@ -1,7 +1,7 @@
 """盤面の層。run の途中の状態をディスクに置く盤面と、写した graphloops の規則をそこに当てる口（仕様 works/docs/specs/2026-09-26-board-layer-design.md）。
 
 今ここに在る物:
-- BoardGap・BoardMismatch: 内部の誤りの型（仕様 4.6）。役の返答の誤りは engine の Reject のまま
+- BoardGap・BoardMismatch・RecordInvalid: 内部の誤りの型（仕様 4.6。RecordInvalid は報告の前の検証器の関所）。役の返答の誤りは engine の Reject のまま
 - NodeEntry・NodeTable:    節の表（仕様 4.2）。graph の全部の節を、このラインでどう持つかに振る
 - DiskBoard:               ディスクの盤面を開く入れ物（仕様 4.1・4.4）。写した engine の Board を継ぐ
 - Progress:                settle まで回す口（settle・done・run_builtin・answer・skip）の返り（仕様 4.1）
@@ -64,6 +64,17 @@ class BoardGap(Exception):
 
 class BoardMismatch(BoardGap):
     """盤面を開かない（graph_sha・board_version・表の graph_sha が合わない）。文に両方の値を出す"""
+
+
+class RecordInvalid(BoardGap):
+    """報告の前の関所（pre: finalize の節を出す前の検証器）が通らない。engine は die で exit 1（fail loud）——settle は最後の保存の
+    後に投げる（仕上げの記録・trace の validator_failed・settle の進みは盤面に残る）。呼び直せば関所をやり直す（engine の next と同じ）。
+    node は出さなかった節、exit・out は検証器の終了コードと出力（exit None は検証器が動かない）"""
+
+    def __init__(self, node, exit, out):
+        self.node, self.exit, self.out = node, exit, out
+        super().__init__(f"{node}: 記録が検証器を通らない（exit {exit}）——出さない。engine か rules か節の出力の欠陥"
+                         f"（record.json と trace.jsonl を見て直す）:\n{out}")
 
 
 class Progress(TypedDict):
@@ -382,7 +393,7 @@ class DiskBoard(_EngineBoard):
         self._scratch = scratch
         self._notes = []      # settle の輪が集める知らせ（機械の節の notes と止まった理由）
         self._walls = []      # settle の輪の最後の段で当たった explicit の機械の節（ready に出す）
-        self._note_rounds = set()   # 周の記録（record_round）が済んだ周の番号。settle の終わりに周の添え書きを書く（仕様 4.5）
+        self._record_invalid = None   # settle の輪で報告の前の関所が通らなかった時の RecordInvalid（最後の保存の後に投げる）
         if allow_halted:
             self.allow_halted = True
         self._apply_overrides(overrides or {})
@@ -553,7 +564,7 @@ class DiskBoard(_EngineBoard):
     def _emit(self, nid: str, attempt: int = 1) -> dict:
         """役の節の最小の instance を今の周の箱に置いて返す（仕様 4.1 の「instance の控え」。engine の emit_instance の、
         描画・起動を除いた部分）。id は節の名前（扇の節は a1202d0 の graph に無い）。out_path は engine と同じ置き場
-        （本文を返す節は .md。出し直した試行 attempt > 1 は engine と同じく .a<試行> を挟み、attempts を持つ）で、受けるまで在らない。
+        （本文を返す節は .md。出し直した試行 attempt > 1 は engine と同じく .a<試行> を挟む）で、受けるまで在らない。attempts は試行の数。
         skills は graph の節の skills を写し、applies_cond を持つ要素だけその場で b.cond() を評価して applies・applies_why を置く
         （engine と同じく、出す時点の値を受け付けの柵が読む）"""
         n = self.nodes[nid]
@@ -561,9 +572,8 @@ class DiskBoard(_EngineBoard):
                   if isinstance(e, dict) and "applies_cond" in e else e for e in n.get("skills", [])]
         out = self.dir / "out" / f"r{self.round}" / (safe_name(nid) + (f".a{attempt}" if attempt > 1 else "")
                                                      + (".md" if n.get("text") else ".json"))
-        inst = {"id": nid, "node": nid, "run_by": n["run_by"], "status": "pending", "emitted_at": now(), "out_path": str(out)}
-        if attempt > 1:
-            inst["attempts"] = attempt
+        inst = {"id": nid, "node": nid, "run_by": n["run_by"], "status": "pending", "emitted_at": now(), "out_path": str(out),
+                "attempts": attempt}
         if skills:
             inst["skills"] = skills
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -850,9 +860,11 @@ class DiskBoard(_EngineBoard):
         2. 読んだ物の控え（_out_cache・_porcelain・_vtables）を消し、accept_tree_change を盤面に置く（RL の worktree_compare が読む）
         3. 進む物が無くなるまで _settle_pass を回す（機械の節が止まったらそこで終わる）。pre: finalize の節（report）は、出す前に
            記録を仕上げて保存し、検証器（self.run_validator）が受理集合の外なら出さずに止まる（_pre_finalize。engine の emit_instance）
-        4. 周の記録（record_round。p4.record）が済んだ周の添え書き rounds/works/round-<N>.json を書く（この settle の終わりの周の箱で。
-           step_builtin・run_builtin で済んだ周も、次の settle がここで書く）
-        5. 最後に 1 度だけ保存する（4 の前の仕上げの保存は engine と同じく別に数える）。
+        5. 最後に 1 度だけ保存する（3 の仕上げの保存は engine と同じく別に数える）。
+        4. 保存が通った後に、周の記録（record_round。p4.record）が済んだ周の添え書き rounds/works/round-<N>.json を書く（この settle の
+           終わりの周の箱で）。書く周の印は盤面の state.works.note_rounds に保存してあるので、step_builtin・run_builtin で済んだ周や、
+           印を保存した後に捨てた入れ物の周も、次の settle が書く。保存が落ちれば（BoardConflict）書かない。
+        3 で関所が通らなかったら、保存と添え書きの後に RecordInvalid を投げる（engine の exit 1 と同じく fail closed）。
         engine の advance の頭の graph_changed・engine_changed・frozen_outputs_stale は持たない（開くときに graph_sha を突き合わせ、
         写しの版は state.works.core。再生の比べない欄 NOT_REPRODUCED の state.engine・graph_changes・stale_frozen）"""
         if self.table is None:
@@ -867,10 +879,13 @@ class DiskBoard(_EngineBoard):
             return self._progress([f"人に聞いている間（{st['pending_human'].get('node')}）は進めない——answer で答える"])
         self._fresh_reads(accept_tree_change)
         self._notes = []
+        self._record_invalid = None
         while self._settle_pass():
             pass
-        self._write_pending_notes()
         self.save()
+        self._write_pending_notes()
+        if self._record_invalid is not None:
+            raise self._record_invalid
         return self._progress(list(self._notes))
 
     def _fresh_reads(self, accept_tree_change):
@@ -954,7 +969,8 @@ class DiskBoard(_EngineBoard):
         """pre: finalize の節（report）を出す前の関所（engine の emit_instance と同じ順）: 記録を仕上げて保存（finalize）→
         検証器（self.run_validator——validator_runner を渡した盤面はその包み。engine の直の run_validator は呼ばない）→
         終了コードが graph の受理集合（report_accepts_exit）に入れば真。入らなければ（None＝検証器が動かないも）engine と同じく
-        trace に validator_failed を書き、出さずに止める（偽。理由は notes。engine は die で止まる）。finalize でない pre は BoardGap"""
+        trace に validator_failed を書き、出さずに止める（偽。settle が最後の保存の後に RecordInvalid を投げる——engine は die で
+        exit 1）。finalize でない pre は BoardGap"""
         pre = self.nodes[nid]["pre"]
         if pre != "finalize":
             raise BoardGap(f"節 '{nid}' の pre '{pre}' を盤面の層は持たない（持つのは finalize だけ。a1202d0 の graph に無い形）")
@@ -962,8 +978,8 @@ class DiskBoard(_EngineBoard):
         v = self.run_validator()
         if v.get("exit") not in report_accepts(self):
             self.trace("validator_failed", exit=v.get("exit"), out=v.get("out"))
-            self._notes.append(f"{nid}: 記録が検証器を通らない（exit {v.get('exit')}）——出さない。engine か rules か節の出力の欠陥"
-                               f"（record.json と trace.jsonl を見て直す）:\n{v.get('out')}")
+            self._record_invalid = RecordInvalid(nid, v.get("exit"), v.get("out"))
+            self._notes.append(str(self._record_invalid))
             return False
         return True
 
@@ -1148,14 +1164,21 @@ class DiskBoard(_EngineBoard):
 
     # -- works の周の添え書き（仕様 4.5）
     def _mark_recorded(self, nid: str) -> None:
-        """周の記録を組む機械の節（builtin record_round。a1202d0 では p4.record）が済んだら、その周の番号を控える"""
+        """周の記録を組む機械の節（builtin record_round。a1202d0 では p4.record）が済んだら、添え書きを書く周の番号を盤面の
+        state.works.note_rounds に控える（記憶だけにすると、印を持った入れ物を settle の前に捨てた周の添え書きが落ちる）"""
         if self.nodes[nid].get("builtin") == "record_round" and nid in self.rd["done"]:
-            self._note_rounds.add(self.round)
+            marks = self.state.setdefault("works", {}).setdefault("note_rounds", [])
+            if self.round not in marks:
+                marks.append(self.round)
 
     def _write_pending_notes(self) -> None:
-        for n in sorted(self._note_rounds):
+        """印の周の添え書きを書き、記憶の印を消す（settle の保存の後に呼ぶ。消した印は次の保存で盤面に残る——
+        それまでに入れ物を捨てれば、次の settle が同じ周の添え書きを書き直す）"""
+        marks = (self.state.get("works") or {}).get("note_rounds") or []
+        for n in sorted(marks):
             self._write_round_note(n)
-        self._note_rounds.clear()
+        if marks:
+            self.state["works"]["note_rounds"] = []
 
     def _write_round_note(self, n: int) -> pathlib.Path:
         """rounds/works/round-<n>.json を書いて返す（仕様 4.5 の形）:

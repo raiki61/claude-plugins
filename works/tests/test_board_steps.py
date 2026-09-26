@@ -30,7 +30,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import boardreplay as R  # noqa: E402  （board と写しの engine を sys.path に足す）
-from board import GRAPH_PATH, GRAPH_SHA, BoardGap, DiskBoard, NodeEntry, NodeTable  # noqa: E402
+from board import GRAPH_PATH, GRAPH_SHA, BoardGap, DiskBoard, NodeEntry, NodeTable, RecordInvalid  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine import commands as engine_commands  # noqa: E402
 from engine import pointers as engine_pointers  # noqa: E402
@@ -271,7 +271,8 @@ class AcceptStepsCase(StepCase):
         b = self.board_before(s)
         del b.rd["instances"]["p0.base"]
         inst = b._emit("p0.base")
-        self.assertEqual(set(inst), {"id", "node", "run_by", "status", "emitted_at", "out_path"})
+        self.assertEqual(set(inst), {"id", "node", "run_by", "status", "emitted_at", "out_path", "attempts"})
+        self.assertEqual(inst["attempts"], 1)   # engine の emit_instance と同じく試行の数を持つ（比べる欄）
         self.assertEqual((inst["id"], inst["node"], inst["run_by"]), ("p0.base", "p0.base", "writer"))
         text = sorted(TEXT_NODES)[0]
         self.assertTrue(b._emit(text)["out_path"].endswith(f"/out/r{b.round}/{text}.md"))
@@ -573,8 +574,7 @@ class LineStepsCase(StepCase):
             shutil.rmtree(b.dir.parents[3], ignore_errors=True)
         print(f"\n手本の add の手: 通った {done} 手を当て {done - len(bad)} 手が手の後と同じ（描き直した instance {redrawn}）・"
               f"拒まれた {rejected} 手は同じ文", file=sys.stderr)
-        self.assertGreater(done, 10)
-        self.assertGreater(rejected, 3)
+        self.assertEqual((done, rejected, redrawn), (16, 6, 6))
         self.assertEqual(bad, [], "\n".join(bad[:20]))
 
     def test_answer_steps(self):
@@ -684,13 +684,27 @@ class LineStepsCase(StepCase):
                          json.loads((b.dir / "record.json").read_text(encoding="utf-8")))
         self.assertEqual(b.rd["skipped"]["p2.history"], "検査用に省く")
         self.assertEqual(b.rd["instances"]["p2.history"]["status"], "skipped")
+        # 拒みの文も engine の cmd_skip と同じ（二度目・待っていない節。表で skippable にした optional の節）
+        na_opt = next(n for n in b.rd["na"] if GRAPH["nodes"][n].get("optional"))
+        b.table = with_by(b.table, na_opt, by="role", skippable=True)
+        for nid in ("p2.history", na_opt):
+            with self.assertRaises(Reject) as want:
+                engine_commands.cmd_skip(types.SimpleNamespace(dir=str(twin), node=nid, reason="拒まれる"))
+            with self.assertRaises(Reject) as cm:
+                b._skip_record(nid, "拒まれる")
+            self.assertEqual(str(cm.exception), str(want.exception))
 
     def test_skip_then_settle(self):
         """skip は _skip_record → settle: 省いた節は ready に無く、依存する節（p3.fix の前の節）へ進む"""
         s, b = self.skip_board()
+        waiting = [n for n, g in GRAPH["nodes"].items() if "p2.history" in g.get("deps", []) and b.node_state(n) == "pending"]
+        self.assertTrue(waiting)
+        self.assertFalse(any(b.deps_ok(n) for n in waiting), "p2.history を待つ節が既に進める（試験の前提が崩れた）")
         p = b.skip("p2.history", "検査用に省く")
         self.assertNotIn("p2.history", p["ready"])
         self.assertEqual(b.node_state("p2.history"), "skipped")
+        moved = [n for n in waiting if b.node_state(n) != "pending" or n in p["ready"] or b.deps_ok(n)]
+        self.assertTrue(moved, f"p2.history を待つ節 {waiting} が進んでいない（ready {p['ready']}）")
 
     def test_skip_optional_only(self):
         """省けるのは表で skippable（graph で optional の節だけに付く）の節だけ: p2.history は表しだい、
@@ -987,21 +1001,28 @@ class SettleCase(StepCase):
         self.assertFalse([r for r in trace_ops(b) if r["op"] == "validator_failed"])
 
     def test_settle_pre_finalize_validator_fails(self):
-        """検証器が受理集合の外（exit 2・None）なら report を出さずに止まる（engine は trace に validator_failed を書いて止まる）。
-        仕上げの保存は残る（engine も検証器の前に保存する）"""
+        """検証器が受理集合の外（exit 2・None）なら report を出さず、settle の最後の保存の後に RecordInvalid（BoardGap の子。
+        engine は trace に validator_failed を書いて exit 1 で止まる——fail closed）。仕上げと settle の保存は残る。呼び直しても同じ"""
         for code in (2, None):
             with self.subTest(exit=code):
                 s, b = self.pre_finalize_board(lambda b, target: {"exit": code, "out": "検査用の不合格"})
-                p = b.done("report.cold_check", R.reply(s, b))
+                with self.assertRaises(RecordInvalid) as cm:
+                    b.done("report.cold_check", R.reply(s, b))
+                self.assertIsInstance(cm.exception, BoardGap)
+                self.assertEqual((cm.exception.node, cm.exception.exit, cm.exception.out), ("report", code, "検査用の不合格"))
+                self.assertIn("検証器を通らない", str(cm.exception))
                 self.assertNotIn("report", b.rd["instances"])
-                self.assertNotIn("report", p["ready"])
-                self.assertTrue(any("検証器を通らない" in x and "検査用の不合格" in x for x in p["notes"]), p["notes"])
                 fails = [r for r in trace_ops(b) if r["op"] == "validator_failed"]
                 self.assertEqual([(r["exit"], r["out"]) for r in fails], [(code, "検査用の不合格")])
-                disk = json.loads((b.dir / "record.json").read_text(encoding="utf-8"))
-                self.assertIn("skipped", disk["process"])
-                # 呼び直しても同じ（出さない）
-                self.assertNotIn("report", b.settle()["ready"])
+                disk = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+                self.assertEqual(disk["rounds"][-1]["instances"]["report.cold_check"]["status"], "done")
+                self.assertNotIn("report", disk["rounds"][-1]["instances"])
+                self.assertEqual(disk.get("rev"), b.seen_rev, "settle の最後の保存の後に投げていない")
+                rec = json.loads((b.dir / "record.json").read_text(encoding="utf-8"))
+                self.assertIn("skipped", rec["process"])
+                with self.assertRaises(RecordInvalid):   # 呼び直しても関所をやり直して同じ（engine の next と同じ）
+                    b.settle()
+                self.assertNotIn("report", b.rd["instances"])
 
     def test_settle_unknown_pre_is_gap(self):
         """finalize でない pre は持たない（a1202d0 の graph に無い）: 黙って出さず BoardGap"""
