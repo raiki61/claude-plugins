@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CORE = ROOT / ".shared" / "core"
@@ -116,6 +117,32 @@ class TestJudge(AcceptCase):
         r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
         self.assertFalse(r["ok"])
         self.assertIn("extra.txt", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_judge_carried_r1_tells_to_copy_the_where(self):
+        # graphloops 0.21.0 の _carried_r1_accounted は、前の周の R1 の削除候補に無い where を拒むとき『貼られた行の no で指せ』と
+        # 案内する。works の判定役には番号の一覧を貼らないので、where を字面のまま写せと返す。
+        # 今の works は 1 周だけで盤面に前の周の R1 が無く、この道は通らない——前の周の R1 を持つ盤面を差して通す
+        import accept
+
+        class PrevR1Board(accept._Board):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                self.round = 2
+                self.state["outputs"] = {"r1.minimality": {"round": 1}}
+
+            def outputs(self, before_round=None):
+                return {"r1.minimality": {"deletions": [{"where": "stats.py:3"}]}}
+
+        reply = load("judge_ok")
+        reply["carried_r1"] = [{"where": "stats.py:4", "disposition": "decline", "why": "削除すると mean が壊れる"},
+                               {"where": "stats.py:3", "disposition": "decline", "why": "削除すると mean が壊れる"}]
+        with mock.patch.object(accept, "_Board", PrevR1Board):
+            r = check_judge(reply, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("carried_r1[0] の where 'stats.py:4'", r["reason"])
+        self.assertIn("削除候補の where を字面のまま写せ", r["reason"])
+        self.assertNotIn("no で指せ", r["reason"])
         self.assertFalse((self.board / "judgment.json").exists())
 
     def test_judge_rejects_non_object(self):
