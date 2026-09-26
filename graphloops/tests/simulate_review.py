@@ -866,7 +866,7 @@ def test_launch_delegate_background_lane():
 def test_unfenced_delegates_only_when_named():
     """柵を外すのは人が init --unfenced-delegates で明示した run だけ。外した事実は盤面と next の notes に残る"""
     print("柵を外す口: init --unfenced-delegates の run だけ任せ先が launch を持たず、外した事実と理由が盤面と notes に出る")
-    run = Run("unfenced")
+    run = Run("unfenced", checks=None)   # 宣言が無いので p0.local_checks は任せ先の節として出る（宣言が在れば engine_run）
     d2 = run.tmp / "s-unfenced"
     r = subprocess.run([PY, str(LOOP), "init", "--loop", "review-loop", "--request", "q", "--dir", str(d2),
                         "--validator", str(VALIDATOR), "--unfenced-delegates", "docker を使う CI（検査用）"],
@@ -5878,7 +5878,7 @@ def test_spec_stop_and_changes():
     for sub in ("prompts", "rules", "graphs"):
         shutil.copytree(PLUGIN / sub, gtmp / sub)
     rp = gtmp / "rules" / "review-loop.py"
-    rp.write_text(rp.read_text(encoding="utf-8").replace("    spec_input_check(b)   #", "    raise SystemExit(2)  #", 1), encoding="utf-8")
+    rp.write_text(rp.read_text(encoding="utf-8").replace("    mutation_decl(b)\n", "    raise SystemExit(2)\n    mutation_decl(b)\n", 1), encoding="utf-8")
     run = Run("init-die", graph=gtmp / "graphs" / "review-loop.json")
     check(run.init.returncode == 2 and not run.dir.exists(), f"init: rules の入口が die で抜けても置き場を残さない（rc={run.init.returncode} {run.dir.exists()}）")
     rm(run.tmp)

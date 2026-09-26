@@ -28,6 +28,9 @@ def gh(*args):
 
 
 def main():
+    for s in (sys.stdout, sys.stderr):   # 印字は UTF-8 に固定する（Windows の既定コーデックに依らない。loop.py と同じ）
+        if hasattr(s, "reconfigure"):
+            s.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser()
     p.add_argument("--repo", required=True)
     p.add_argument("--head", required=True)

@@ -512,8 +512,10 @@ def _still_mine(d, inst):
             cur = read_json(pathlib.Path(d) / "state.json")["rounds"][-1]["instances"].get(inst["id"]) or {}
         except (OSError, ValueError, KeyError, IndexError, TypeError):
             return True   # 読めない回は止めない（止める向きの誤りは、健全な役を殺す）
-        # 人が止めた（loop.py stop）試行も自分の物でない——止めた後に続きの往復の子を起こさない
-        return cur.get("out_path") == inst["out_path"] and cur.get("status", "pending") == "pending"
+        # 人が止めた（loop.py stop）試行も自分の物でない——止めた後に続きの往復の子を起こさない。背景の任せ先は受領を done
+        # してから起こすので、done のままが自分の試行
+        mine = ("pending", "done") if (inst.get("launch") or {}).get("background") else ("pending",)
+        return cur.get("out_path") == inst["out_path"] and cur.get("status", "pending") in mine
     return still_mine
 
 

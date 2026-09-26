@@ -671,7 +671,7 @@ LANE_OPEN = ("needs_test", "defect")   # 線の中で閉じなかった答え—
 # 線の台帳の状態。abandoned は回す側が止めた線（Temporal の Cancelled と同じく running と別の閉じた状態）——engine は線を追わないので、
 # 止めた回す側が loop.py patch で state と理由 why を書く。止めた後に届いた結果は重ねない
 LANE_STATES = ("running", "merged", "conflict", "unusable", "abandoned")
-LANE_ROW = ("round", "result", "patch", "state")
+LANE_ROW = ("round", "result", "state")   # patch は台帳に無い——任せ先が写しの側に置き、結果の patch の欄が名指す（0.20.2）
 # **変異の検算を合流でまとめる run**（init --input gates=merge）。並べた run がそれぞれ撃つと、合流した版での撃ち直しと
 # 負荷を食い合う（実測 2026-09-25: 4 本が各自撃って負荷 99）。選んだ run は P1 のゲートの検算（p1.gate_efficacy）も線
 # （p3.delta_gates）も最後の関門（p4.final_gates）も条件外で閉じ、収束の手前で止まる（converge の gates_deferred）——検算は消さず、
