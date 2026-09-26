@@ -29,11 +29,15 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 import engine.util as _util  # noqa: E402
+from engine import pointers as _pointers  # noqa: E402
+from engine.advance import load_item  # noqa: E402
 from engine.board import Board as _EngineBoard, empty_round, refuse_expression_conds  # noqa: E402
-from engine.commands import choice_input_errors, max_rounds_for, path_inputs, undeclared_inputs  # noqa: E402
+from engine.commands import (_refuse_halted, choice_input_errors, max_rounds_for, path_inputs,  # noqa: E402
+                             undeclared_inputs)
+from engine.record import apply_writes  # noqa: E402
 from engine.rules import hook, load_rules, registry  # noqa: E402
-from engine.schema import expand_refs, graph_text, load_graph, resolve_extends  # noqa: E402
-from engine.util import Reject, now  # noqa: E402
+from engine.schema import expand_refs, graph_text, load_graph, resolve_extends, validate_schema  # noqa: E402
+from engine.util import AnswerReject, Reject, now, safe_name, write_json  # noqa: E402
 
 CORE_DIR = CORE
 GRAPH_PATH = _GL / "graphs" / "review-loop.json"      # 写しの graph
@@ -480,6 +484,96 @@ class DiskBoard(_EngineBoard):
         if self.validator_runner is not None:
             return self.validator_runner(self, target)
         return super().run_validator(target)
+
+    # -- 役の節の控え（instance）と受け付け
+    def _emit(self, nid: str) -> dict:
+        """役の節の最小の instance を今の周の箱に置いて返す（仕様 4.1 の「instance の控え」。engine の emit_instance の、
+        描画・起動を除いた部分）。id は節の名前（扇の節は a1202d0 の graph に無い）。out_path は engine と同じ置き場
+        （本文を返す節は .md）で、受けるまで在らない。skills は graph の節の skills を写し、applies_cond を持つ要素だけ
+        その場で b.cond() を評価して applies・applies_why を置く（engine と同じく、出す時点の値を受け付けの柵が読む）"""
+        n = self.nodes[nid]
+        skills = [{**e, **dict(zip(("applies", "applies_why"), self.cond(e["applies_cond"])))}
+                  if isinstance(e, dict) and "applies_cond" in e else e for e in n.get("skills", [])]
+        out = self.dir / "out" / f"r{self.round}" / (safe_name(nid) + (".md" if n.get("text") else ".json"))
+        inst = {"id": nid, "node": nid, "run_by": n["run_by"], "status": "pending", "emitted_at": now(), "out_path": str(out)}
+        if skills:
+            inst["skills"] = skills
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.rd["instances"][nid] = inst
+        self.trace("emit", instance=nid)
+        return inst
+
+    def accept(self, nid: str, output: dict) -> str:
+        """役（か機械の返答・engine が走らせた節）の返答を受けて盤面と記録に写し、保存する（engine の accept_output と同じ範囲。
+        settle しない）。順は engine と同じ: 止めた run の拒否 → instance → 依存 → 型 → 番号の読み替え → post_check →
+        writes → check_record → out/r<N>/<節>.json → state.outputs → instance を done → 周の箱の done・done_ever → trace → 保存。
+        返答の中身の誤りは engine の AnswerReject と同じ文で拒み、盤面（ディスク）は書かない（記憶の入れ物は汚れうるので捨てる）。
+        ラインの配線の誤り（表で受けられない節・待っている instance が無い・依存が済んでいない）は BoardGap。
+        engine の受け付けのうち、描画・起動に関わる所（read_from・agent_id・tree_before の突合・扇の被覆・段の昇格・
+        save_text_as）は持たない（再生の比べない欄 tests/boardreplay.py の NOT_REPRODUCED）"""
+        _refuse_halted(self)
+        n = self.nodes.get(nid)
+        if n is None:
+            raise BoardGap(f"節 '{nid}' は graph に無い")
+        entry = (self.table.nodes.get(nid) if self.table is not None else None)
+        if entry is None or entry.by not in ("role", "machine", "engine_run"):
+            by = entry.by if entry is not None else "（表が無い）"
+            raise BoardGap(f"節 '{nid}' は表で {by}——accept で受けるのは role・machine・engine_run の節だけ"
+                           "（機械の節は step_builtin・run_builtin、このラインに無い節は受けない）")
+        inst = self.rd["instances"].get(nid)
+        if not inst:
+            raise BoardGap(f"この周に節 '{nid}' の instance が出ていない（settle が出した節だけを受ける）")
+        if inst["status"] != "pending":
+            raise BoardGap(f"節 '{nid}' の instance は既に {inst['status']}（受け直すなら先に rewind で待ちに戻す）")
+        if not self.deps_met(nid):
+            wait = [d for d in n.get("deps", []) if self.node_state(d) == "pending"]
+            raise BoardGap(f"節 '{nid}' の deps {wait} がまだ済んでいない——先にそちらを受ける")
+        output = json.loads(json.dumps(output))   # 呼び出し側の dict を書き換えない（読み替え・post_check は中を書く）
+        if n.get("schema"):
+            errs = validate_schema(output, n["schema"])
+            if errs:
+                raise AnswerReject("返答が型に合わない（直して done し直す。回す側が中身を補ってはいけない——役に返させろ）:\n"
+                                   + "\n".join(f"  - {e}" for e in errs))
+        elif not (isinstance(output, dict) and isinstance(output.get("text"), str) and output["text"].strip()):
+            raise AnswerReject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、{inst.get('out_path')} に書けていない）")
+        # 番号で指した欄を名前に戻す。一覧を固めた控え（instance.pointers）を持たないので、番号は engine の文で拒まれる（BL17）
+        errs = _pointers.resolve(output, n.get("pointers"), None)
+        if errs:
+            raise AnswerReject(f"{nid}: " + "; ".join(errs))
+        item = load_item(inst, self.dir)
+        notes = []
+        pc = n.get("post_check")
+        if pc:
+            fn = registry(self.rules, "POST_CHECKS").get(pc)
+            if not fn:
+                raise BoardGap(f"post_check '{pc}' が rules に無い")
+            try:
+                note = fn(self, nid, output, item)
+            except AnswerReject:
+                raise
+            except Reject as e:   # 節ごとの整合（rules）は返答の中身を見る——役に返せば直る側（engine と同じ）
+                raise AnswerReject(str(e)) from e
+            if note:
+                notes.append(note)
+        apply_writes(self, nid, output, item)
+        check = hook(self.rules, "check_record")
+        if check:
+            errs = check(self, nid)
+            if errs:
+                raise AnswerReject("記録の整合が取れない（役に返させ直す。回す側が補ってはいけない）:\n"
+                                   + "\n".join(f"  - {e}" for e in errs))
+        f = self.dir / "out" / f"r{self.round}" / (safe_name(nid) + ".json")
+        write_json(f, output)
+        rel = str(f.relative_to(self.dir))
+        self.state["outputs"][nid] = {"file": rel, "round": self.round, "instance": nid}
+        inst.update({"status": "done", "done_at": now(), "output_file": rel})
+        if "fan_out" not in n:
+            self.rd["done"][nid] = {"at": now(), "instance": nid}
+            self.state["done_ever"][nid] = self.round
+        text = output["text"] if not n.get("schema") else json.dumps(output, ensure_ascii=False, sort_keys=True)
+        self.trace("done", instance=nid, sha=_util.sha(text))
+        self.save()
+        return "。".join([f"ok {nid} を受け付けた", *notes])
 
     # -- works の作業ファイル
     def work(self, name: str) -> pathlib.Path:
