@@ -13,11 +13,13 @@ sh "$DEV_DIR/mktarget.sh" "$TARGET_DIR" >/dev/null
 
 status=0
 
-if ! sh "$DEV_DIR/archon.sh" validate workflows --cwd "$TARGET_DIR"; then
+# Archon は .archon/.env などを process の cwd 基準で読むので、--cwd ではなく実際に
+# 対象の中へ cd してから回す。validate は認証が要らないので keychain を読ませない。
+if ! (cd "$TARGET_DIR" && WORKS_DEV_NO_AUTH=1 sh "$DEV_DIR/archon.sh" validate workflows); then
   status=1
 fi
 
-if ! sh "$DEV_DIR/archon.sh" workflow test works --cwd "$TARGET_DIR"; then
+if ! (cd "$TARGET_DIR" && sh "$DEV_DIR/archon.sh" workflow test works); then
   status=1
 fi
 

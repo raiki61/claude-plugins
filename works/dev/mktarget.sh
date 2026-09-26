@@ -40,6 +40,12 @@ for entry in "$WORKS_DIR"/* "$WORKS_DIR"/.[!.]*; do
   cp -R "$entry" "$PACK_DIR/"
 done
 
+# Python のバイトコードキャッシュや OS のゴミファイルは、種にも pack にも残さない
+# （.git の中は触らない）。
+find "$DIR" -name .git -prune -o \
+  \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 |
+  xargs -0 rm -rf
+
 git -C "$DIR" add -A
 git -C "$DIR" commit -q -m "chore: works-dev の使い捨ての対象を作る（種と pack）"
 

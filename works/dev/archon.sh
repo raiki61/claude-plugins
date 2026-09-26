@@ -12,6 +12,14 @@ ARCHON_BIN_NAME="archon-darwin-arm64"
 
 WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 
+# keychain は HOME を隔離する前に読む（macOS の security はログイン keychain を
+# $HOME 基準で探すので、後で読むと隔離した偽の HOME の下を探して必ず失敗する）。
+# WORKS_DEV_NO_AUTH=1 のときは読まない（テストなど、認証が要らないとき用）。
+if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
+  CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s claude-code-oauth-p1 -w)"
+  export CLAUDE_CODE_OAUTH_TOKEN
+fi
+
 BIN_DIR="$WORKS_DEV_HOME/bin"
 BIN_PATH="$BIN_DIR/$ARCHON_BIN_NAME"
 
@@ -30,7 +38,8 @@ fi
 
 chmod +x "$BIN_PATH"
 
-# HOME・ARCHON_HOME・Claude の設定・XDG_* を全部 WORKS_DEV_HOME の下へ隔離する。
+# HOME・ARCHON_HOME・Claude の設定・XDG_* を全部 WORKS_DEV_HOME の下へ隔離する
+# （keychain はもう読み終えている）。
 HOME="$WORKS_DEV_HOME/home"
 ARCHON_HOME="$WORKS_DEV_HOME/archon-home"
 CLAUDE_CONFIG_DIR="$WORKS_DEV_HOME/claude-config"
@@ -48,11 +57,5 @@ export XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
 ARCHON_TELEMETRY_DISABLED=1
 DO_NOT_TRACK=1
 export ARCHON_TELEMETRY_DISABLED DO_NOT_TRACK
-
-# WORKS_DEV_NO_AUTH=1 のときは keychain を読まない（テストなど、認証が要らないとき用）。
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
-  CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s claude-code-oauth-p1 -w)"
-  export CLAUDE_CODE_OAUTH_TOKEN
-fi
 
 exec "$BIN_PATH" "$@"
