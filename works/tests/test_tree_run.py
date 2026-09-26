@@ -4,13 +4,17 @@
 - 殻が SIGTERM を受けたら、コマンドが背景に起こした孫まで止め、孫は後から作業ツリーに書かない
 - SIGTERM を無視する孫は猶予の後に SIGKILL で止める。猶予は Archon の cancel の猶予（5 秒）より短く、その内に孫が消える
 - コマンドが終わった後に背景に残した孫も止める
+- 自分で setsid して別のセッション（= 別のグループ）へ出た孫も、殻が SIGTERM を受けたら止める（SIGTERM を無視しても
+  Archon の猶予の内に SIGKILL で）
+- 生きた仲間の居ないグループ（ゾンビだけ）に惑わされず、別のグループへ出た生きた仲間を止めて、猶予を使い切らずに戻る
 - 殻の直下の親（節では uv）が kill -9 で消えたら（親が替わったら）木ごと止める。起きた時に既に孤児（親が 1）なら走らせない
 - 終わりを待ち終えた直後に届いた止める信号も落とさない
 - pack の中に __pycache__ を作らない
-孫の生死はプロセスグループ（コマンドの sh の pid と同じ番号）が空かで見る。
+孫の生死はプロセスグループ（コマンドの sh の pid と同じ番号）が空かで見る。グループの外へ出た孫は、孫が書いた pid で見る。
 """
 import os
 import pathlib
+import shlex
 import signal
 import subprocess
 import sys
@@ -218,6 +222,70 @@ class TreeRunCase(unittest.TestCase):
             with self.assertRaises(tree_run.Stopped) as cm:
                 tree_run.run(["/bin/sh", "-c", "exit 0"])
         self.assertEqual(cm.exception.signum, signal.SIGTERM)
+
+    # ------------------------------------------------ グループの外へ出た孫
+    def setsid_sleeper(self, pidf, ignore_term=False):
+        """setsid で新しいセッションへ出て、自分の pid を pidf に書いて眠る孫（python。macOS に setsid の道具は無い）"""
+        body = ("import os, signal, time\n"
+                + ("signal.signal(signal.SIGTERM, signal.SIG_IGN)\n" if ignore_term else "")
+                + "os.setsid()\n"
+                f"open({str(pidf)!r}, 'w').write(str(os.getpid()))\n"
+                "time.sleep(300)\n")
+        return f"{sys.executable} -c {shlex.quote(body)}"
+
+    def wait_pid(self, path):
+        pid = read_int(path)
+        self.started.append(("pid", pid))
+        return pid
+
+    def test_sigterm_stops_setsid_grandchild(self):
+        # 孫が setsid で別のセッション（別のグループ）へ出ても、親子の鎖で拾って止める
+        gpidf = self.tmp / "gpid"
+        p = self.start(f"echo $$ > {self.pidf}; {self.setsid_sleeper(gpidf)} & wait")
+        pgid = self.wait_pgid()
+        gpid = self.wait_pid(gpidf)
+        self.assertEqual(os.getsid(gpid), gpid, "孫が setsid していない（試験の前提）")
+        p.send_signal(signal.SIGTERM)
+        self.assertTrue(pid_gone(gpid, tree_run.KILL_GRACE + 1), "setsid で出た孫が残った")
+        self.assertEqual(p.wait(10), 128 + signal.SIGTERM)
+        self.assertTrue(group_gone(pgid, 1))
+
+    def test_sigterm_ignoring_setsid_grandchild_is_killed_before_archon_kills_tree_run(self):
+        # setsid で出て SIGTERM も無視する孫も、Archon の cancel の猶予（5 秒）より前に SIGKILL で消える
+        archon_grace = 5.0
+        gpidf = self.tmp / "gpid"
+        p = self.start(f"echo $$ > {self.pidf}; {self.setsid_sleeper(gpidf, ignore_term=True)} & wait")
+        self.wait_pgid()
+        gpid = self.wait_pid(gpidf)
+        t0 = time.monotonic()
+        p.send_signal(signal.SIGTERM)
+        self.assertTrue(pid_gone(gpid, archon_grace), "Archon の猶予の内に setsid で出た孫が消えなかった")
+        self.assertLess(time.monotonic() - t0, archon_grace)
+        self.assertEqual(p.wait(10), 128 + signal.SIGTERM)
+
+    def test_zombie_only_group_does_not_hide_live_members(self):
+        # コマンドの sh（グループ G の長）が緑で終わった時、G に残るのはゾンビ Z だけ。Z の親 A は setpgid で別のグループへ
+        # 出て（セッションは G のまま）Z を回収せずに眠る。macOS はゾンビだけのグループへの killpg を EPERM で拒むので、
+        # グループだけを見ると A に届かず、猶予を使い切っても A が残る。仲間を数え上げて A を止め、猶予を待たずに戻る
+        apidf = self.tmp / "apid"
+        body = ("import os, time\n"
+                "g = os.getpgid(0)\n"
+                "os.setpgid(0, 0)\n"
+                "z = os.fork()\n"
+                "if z == 0:\n"
+                "    os.setpgid(0, g)\n"
+                "    os._exit(0)\n"
+                "os.waitid(os.P_PID, z, os.WEXITED | os.WNOWAIT)\n"   # Z が終わるまで待つ。回収はしない（ゾンビのまま）
+                f"open({str(apidf)!r}, 'w').write(str(os.getpid()))\n"
+                "time.sleep(300)\n")
+        p = self.start(f"echo $$ > {self.pidf}; {sys.executable} -c {shlex.quote(body)} & "
+                       f"while [ ! -s {apidf} ]; do sleep 0.05; done; exit 0")
+        self.wait_pgid()
+        apid = self.wait_pid(apidf)
+        t0 = time.monotonic()
+        self.assertEqual(p.wait(15), 0)
+        self.assertLess(time.monotonic() - t0, tree_run.KILL_GRACE * 1.5, "ゾンビだけのグループで猶予を使い切った")
+        self.assertTrue(pid_gone(apid, 1), "ゾンビだけのグループの向こうの生きた仲間が残った")
 
     # ------------------------------------------------ pack を汚さない
     def test_no_bytecode_in_pack(self):
