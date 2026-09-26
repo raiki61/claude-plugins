@@ -28,18 +28,16 @@ git init -q "$DIR"
 git -C "$DIR" config user.email "works-dev@example.invalid"
 git -C "$DIR" config user.name "works-dev"
 
-# 種（バグ入りの stats.py・test_stats.py）を対象の根に置く。
+# 種（バグ入りの stats.py・test_stats.py）を対象の根に置く。Python のバイトコードキャッシュや
+# OS のゴミファイルは種に残さない（.git の中は触らない。pack の分は works_dev_copy_pack が消す）。
 cp -R "$DEV_DIR/target-seed/." "$DIR/"
+find "$DIR" -name .git -prune -o \
+  \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 |
+  xargs -0 rm -rf
 
 # works/ を project pack として写す。tests/・dev/・docs/ は除く（lib.sh）
 . "$DEV_DIR/lib.sh"
 works_dev_copy_pack "$WORKS_DIR" "$DIR/.archon/workflows/works"
-
-# Python のバイトコードキャッシュや OS のゴミファイルは、種にも pack にも残さない
-# （.git の中は触らない）。
-find "$DIR" -name .git -prune -o \
-  \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 |
-  xargs -0 rm -rf
 
 # 利用者の git の設定（署名・hook）に左右されないように、この commit だけ切る
 git -C "$DIR" add -A
