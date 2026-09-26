@@ -71,7 +71,10 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARMS_FILE = ROOT / "tests" / "mutations.json"
-SUITES = {"graphloops": ["bash", "graphloops/tests/run.sh"], "root": ["bash", "tests/run.sh"]}
+# bash は PATH の順で引く。裸の名前を Popen に渡すと、Windows では CreateProcess が PATH より先にシステムのディレクトリを探し、
+# Git の bash でなく C:\Windows\System32\bash.exe（WSL の起動口）に当たりうる（posix では execvp と同じ結果）
+BASH = shutil.which("bash") or "bash"
+SUITES = {"graphloops": [BASH, "graphloops/tests/run.sh"], "root": [BASH, "tests/run.sh"]}
 # 腕に関係する台本だけを走らせる先（graphloops の台本は GL_TEST_ONLY で関数を絞れる）。1 腕ごとに台本一式を回すと
 # CPU で約 8 分かかり、全腕では 24 コアでも 1 時間を超えた。関数 1 本なら秒の単位で済む
 SCRIPTS = ("graphloops/tests/simulate.py", "graphloops/tests/simulate_review.py")
@@ -220,11 +223,12 @@ def auto_marker(text, a, hits):
 
 
 def mutate(root, a):
+    # 写しの台本は bash が読むので、Windows の text モードの改行の変換（\n → \r\n）を通さずに書く（marker_run も同じ）
     p = root / a["file"]
     text = p.read_text(encoding="utf-8")
     if "auto" in a:
         x = a["auto"]
-        p.write_text(text[:x["start"]] + x["new"] + text[x["end"]:], encoding="utf-8")
+        p.write_text(text[:x["start"]] + x["new"] + text[x["end"]:], encoding="utf-8", newline="\n")
         return
     if "json" in a:
         doc = json.loads(text)
@@ -233,9 +237,9 @@ def mutate(root, a):
             t.remove(a["json"]["remove"])
         else:
             t.pop(a["json"]["del"])
-        p.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+        p.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
     else:
-        p.write_text(text.replace(a["old"], a["new"]), encoding="utf-8")
+        p.write_text(text.replace(a["old"], a["new"]), encoding="utf-8", newline="\n")
 
 
 def scratch_dir(tag):
@@ -272,15 +276,22 @@ def run_group(argv, cwd, env=None, failfast=False):
     殺し損ねた孫が増え続けて全体を時間切れにした（2026-09-23 の 3 周目の撃ち直し）。
     failfast なら最初の FAIL の行でグループごと止めて exit 1 を返す（自動の腕は赤と印で証拠がそろい、どの検査かを要らない）"""
     import threading
+    # Windows にはプロセスグループへの信号（killpg・SIGKILL）が無いので、新しいプロセスグループで起こして taskkill /T で
+    # 木ごと止める（graphloops/engine/role_run.py の _spawn と _kill と同じ分け方）
+    group = ({"start_new_session": True} if os.name == "posix"
+             else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
     p = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                         encoding="utf-8", errors="replace", start_new_session=True)
+                         encoding="utf-8", errors="replace", **group)
     late = {"v": False}
 
     def killpg():
         # グループが先に自然終了していると ProcessLookupError（pgid を使い回されていれば PermissionError）が飛ぶ。
         # 握り潰さないと腕 1 本の競合で実行器ごと落ち、--out を書く前に全部の結果を失う（実測 2026-09-24、failfast の直後）
         try:
-            os.killpg(p.pid, signal.SIGKILL)
+            if os.name == "posix":
+                os.killpg(p.pid, signal.SIGKILL)
+            else:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
         except (ProcessLookupError, PermissionError):
             pass
 
@@ -413,7 +424,7 @@ def marker_run(arms):
             # 後ろから差す。同じ位置では包みの頭（順 0）を先に差し、閉じ（順 1）がその前に来る形にする
             for pos, _, _, s in sorted(ins, key=lambda x: (-x[0], x[1], x[2])):
                 t = t[:pos] + s + t[pos:]
-            (repo / rel).write_text(t, encoding="utf-8")
+            (repo / rel).write_text(t, encoding="utf-8", newline="\n")
         # 印は複数行の old を割るので、写しの中の --check（tests/run.sh が走らせる）が字列の消失で赤になる。
         # 印の写しは『守る行を通ったか』だけを見る所なので、写しの一覧は空にする（本物の一覧は触らない）
         (repo / "tests" / "mutations.json").write_text('{"arms": []}\n', encoding="utf-8")

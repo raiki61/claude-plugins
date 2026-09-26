@@ -169,6 +169,9 @@ fi
 write_broken_records() {
     "$PY_BIN" - "$ROOT" "$WORK" <<'PY'
 import json, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 
 # 手書きの deep copy を 1 本に寄せる（同じ形が 20 箇所に散っていた）。`copy.deepcopy` でなく
 # JSON 往復にするのは、**JSON にできない値をここで落とすためではなく、そこで失敗させるため**
@@ -1023,6 +1026,9 @@ expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを
 # write_broken_records と同じ——検査はケースごとに分けたままにする）。
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した研究記録を作れない"; fail=1; }
 import json, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 
 # 手書きの deep copy を 1 本に寄せる（理由は上の `write_broken_records` の clone と同じ）。
 def clone(x):
@@ -1172,6 +1178,9 @@ expect_output 0 "これは品質・飽和の宣言ではない" "阻害なしを
 
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した診断記録を作れない"; fail=1; }
 import json, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 
 def clone(x):
     return json.loads(json.dumps(x))
@@ -1262,6 +1271,9 @@ FR="$ROOT/scripts/firstread-record.py"
 # テンプレートは雛形であって実行可能な記録ではないので、ここで実在パスへ差し替える。
 "$PY_BIN" - "$ROOT" "$WORK" <<'PY' || { echo "  FAIL 壊した初読記録を作れない"; fail=1; }
 import json, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 
 def clone(x):
     return json.loads(json.dumps(x))
@@ -1582,6 +1594,9 @@ rm -f "$REPO/broken.py"
 echo "マニフェストと参照の整合"
 expect_exit 0 "marketplace.json / plugin.json が必須の欄を持つ" "$PY_BIN" - "$ROOT" <<'PY'
 import json, re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 mk = json.loads((root/".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
 # owner はこれが無いと `claude plugin marketplace add` が schema 違反で落ちる（実測）。
@@ -1656,6 +1671,9 @@ PY
 expect_output 0 "DOC_HEADINGS_OK" "手順書が名指しする REVIEW.md のセクションが実在する" \
     "$PY_BIN" - "$ROOT" <<'PYHEAD'
 import re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 review = (root/"REVIEW.md").read_text(encoding="utf-8")
 known = set(re.findall(r"^##+ (.+)$", review, re.M)) | set(re.findall(r"\*\*(.+?)\*\*", review))
@@ -1700,6 +1718,9 @@ PYHEAD
 expect_output 0 "ENTRY_SURFACE_OK" "review-graph の description が判定から入る入口の節を名指しする" \
     "$PY_BIN" - "$ROOT" <<'PYENTRY'
 import re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 p = pathlib.Path(sys.argv[1]) / "graphloops/commands/review-graph.md"
 m = re.match(r"---\n(.*?)\n---\n(.*)", p.read_text(encoding="utf-8"), re.S)
 assert m, "review-graph.md: frontmatter が無い"
@@ -1718,6 +1739,9 @@ PYENTRY
 expect_output 0 "HUMAN_ONLY_OK" "重い工程のコマンドの description が、起動は人の指示のときだけと言う" \
     "$PY_BIN" - "$ROOT" <<'PYHUMAN'
 import re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 cmds = []
 for d in ("commands", "graphloops/commands"):
     found = sorted((pathlib.Path(sys.argv[1]) / d).glob("*.md"))
@@ -1734,6 +1758,9 @@ PYHUMAN
 
 expect_exit 0 "役割 agent の定義と手順書の参照が整合する" "$PY_BIN" - "$ROOT" <<'PY'
 import re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 # 遮断系は道具ゼロで起動する。`tools: []` が「道具なし」、行ごと省くと全道具を継承、
 # 列挙した全部が解決できないときだけ起動拒否——という区別は実測で確かめた
@@ -1793,6 +1820,9 @@ PY
 
 expect_exit 0 "配布物に固有の技術名が混ざっていない" "$PY_BIN" - "$ROOT" <<'PY'
 import re, sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 # 特定プロジェクト由来の名前が観点側に残ると、そのリポジトリでしか意味を持たない写しになる。
 banned = re.compile(r"FastAPI|next-intl|config_kit|DeepAgents|asyncio_mode|guided-resolver")
@@ -2130,6 +2160,9 @@ cp "$ROOT/README.md" "$CW_WORK/README.md"
 cp "$ROOT/tests/coldwrite-config-check.py" "$CW_WORK/tests/coldwrite-config-check.py"
 "$PY_BIN" - "$ROOT/coldwrite/hooks/hooks.json" "$CW_WORK/coldwrite/hooks/hooks.json" <<'PY'
 import json, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 for h in d["hooks"]["PreToolUse"][0]["hooks"]:
     h.pop("continueOnBlock", None)
@@ -2822,6 +2855,9 @@ expect_output 0 "OUT_FLAG_OK" \
     "attention 3 本: --out は値を取らず位置引数を吸わない。一時ファイルは 0600。節の行番号は材料の中の ## を拾わない。手順書が同じ並びで呼び、読み戻しの Read を allowed-tools に持つ" \
     "$PY_BIN" - "$ROOT" <<'PY'
 import importlib.util, pathlib, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 
 
@@ -2946,6 +2982,9 @@ PYCI
 expect_output 0 "DOC_WORDS_OK" "命令書 2 本と README と仕様書が、機械の出力行の語（飛び先・取り込み先・上に積む・依頼先の候補・私の痕跡以降に変わった file）を同じ綴りで持つ（写す規則なので綴り違いは AI が探せない）" \
     "$PY_BIN" - "$ROOT" <<'PY'
 import sys, pathlib
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 docs = {n: (root / n).read_text(encoding="utf-8") for n in
         ["attention/commands/catchup.md", "attention/commands/what-am-i-doing.md", "attention/README.md",
@@ -2961,6 +3000,9 @@ PY
 expect_output 0 "DOC_NUMBERS_OK" "仕様書 7 節の上限の表が、機械の定数と同じ数値を持つ（数値の正本は仕様書。ずれたら片方が古い）" \
     "$PY_BIN" - "$ROOT" <<'PYNUM'
 import sys, pathlib, importlib.util
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
 root = pathlib.Path(sys.argv[1])
 spec = (root / "attention/docs/catchup-spec.md").read_text(encoding="utf-8")
 table = spec[spec.index("## 7."):spec.index("## 8.")]
@@ -3331,7 +3373,10 @@ root = pathlib.Path(tempfile.mkdtemp())
 (root / "tests").mkdir()
 (root / "tests" / "skip.py").write_text("q = 1\n", encoding="utf-8")
 (root / "tests" / "mutate.py").write_text("# dummy\n", encoding="utf-8")
-(root / "   ").write_text("blank name\n", encoding="utf-8")   # 空白だけの行を strip すると空になる名前
+# 空白だけの行を strip すると空になる名前。全角空白 1 字にするのは、Windows が末尾の空白（U+0020）を名前に持てず、
+# ASCII の空白だけの名前は作れないため（実測 2026-09-26: windows-latest で PermissionError）。U+3000 は str.strip() が落とす
+BLANK = "\u3000"
+(root / BLANK).write_text("blank name\n", encoding="utf-8")
 
 DIFF = """diff --git a/one.py b/one.py
 --- a/one.py
@@ -3373,7 +3418,7 @@ def fake_run(argv, **kw):
     if argv[5] == "diff":
         return SimpleNamespace(returncode=0, stdout=DIFF)
     if argv[5] == "ls-files":
-        return SimpleNamespace(returncode=0, stdout="whole.py\ntests/skip.py\nghost.py\n   \n")
+        return SimpleNamespace(returncode=0, stdout=f"whole.py\ntests/skip.py\nghost.py\n{BLANK}\n")
     raise AssertionError(f"想定外の git 呼び出し: {argv}")
 
 
@@ -3389,7 +3434,7 @@ assert "phantom.py" not in tg, "diff には出るがディスクに無いファ�
 assert tg["whole.py"] == set(range(1, whole_n + 1)), f"未追跡の新しい .py は全行のはずが: {tg.get('whole.py')}"
 assert "tests/skip.py" not in tg, "tests/ 配下の未追跡 .py が対象から除外されていない"
 assert "ghost.py" not in tg, "ls-files には出るがディスクに無い未追跡ファイルを対象に残してしまった（is_file の柵）"
-assert "   " not in tg, "空白だけの名前（strip すると空）を対象に残してしまった"
+assert BLANK not in tg, "空白だけの名前（strip すると空）を対象に残してしまった"
 
 
 def fail_diff(argv, **kw):
@@ -3427,7 +3472,7 @@ sys.path.insert(0, sys.argv[1])
 import mutate
 
 if os.name != "posix":
-    print("  ok   run_group の腕 # SKIP run_group は posix のプロセスグループ（start_new_session・killpg）に頼る")
+    print("  ok   run_group の腕 # SKIP この腕の時間切れと failfast の止め方は posix のプロセスグループ（killpg）で組んである（Windows の taskkill /T の経路は実機で確かめていない）")
     print("RUNGROUP_OK")
     sys.exit(0)
 
@@ -3494,7 +3539,7 @@ expect_output 0 "RUNGROUP_OK" "run_group: 時間切れでグループごと殺�
 # .py」を足して撃つ。一覧の通常の腕（expect 持ち・marker 持ち）も同じ回で --files / --only /
 # --changed-since を通す。差分 0 本・存在しない rev・--gate-efficacy も同じ写しの上で見る。
 cat > "$WORK/mut-auto-e2e.py" <<'PYE2E'
-import json, pathlib, subprocess, sys, tempfile
+import json, pathlib, shlex, subprocess, sys, tempfile
 
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -3516,9 +3561,10 @@ def git(*args, check=True):
 
 
 def w(rel, text):
+    # bash が読む台本も書くので、Windows の text モードの改行の変換（\n → \r\n）を通さない
     p = mini / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text, encoding="utf-8")
+    p.write_text(text, encoding="utf-8", newline="\n")
 
 
 # --- BASE 状態: calc.py はしきい値と classify だけ。run.sh は classify の検査だけ ---
@@ -3540,7 +3586,7 @@ w("tests/check_classify.py",
 
 def run_sh(checks):
     body = "#!/usr/bin/env bash\nset -uo pipefail\nROOT=\"$(cd \"$(dirname \"$0\")/..\" && pwd)\"\n" \
-           f"PY={PY!r}\nfail=0; ran=0\n" \
+           f"PY={shlex.quote(PY)}\nfail=0; ran=0\n" \
            "check() {\n  local desc=\"$1\"; shift\n  \"$@\" >/dev/null 2>&1\n  local rc=$?\n" \
            "  ran=$((ran+1))\n  if [ \"$rc\" = 0 ]; then\n    echo \"  ok   $desc\"\n  else\n" \
            "    echo \"  FAIL $desc\"\n    fail=1\n  fi\n}\n"
@@ -3579,7 +3625,19 @@ assert empty_doc["arms"] == [] and "empty" in empty_doc, f"--out に空の結果
 # 絞り（--only）を添えると、同じ「差分 0 本」の rev でも auto 専用の「0 本」判定はバイパスされ、
 # 絞りが選んだ通常の腕（norm1）だけで撃つ（filtered が立っているときは autos の空を理由に止めない）
 r = run_mutate("--only", "norm1", "--auto", BASE)
-assert r.returncode == 0, f"絞りが在るのに auto の 0 本判定に止められた: exit {r.returncode}: {r.stdout}{r.stderr}"
+
+
+def direct_run():
+    """写しの台本を実行器と同じ起こし方（SUITES と run_group）で走らせた終了コードと出力の頭。実行器の要約は『件失敗』などの
+    行しか拾わず、bash が起きない・台本を読み違える回の理由が見えないので、赤の回の切り分けに添える（assert の文の中でだけ
+    呼ぶ）。run_group を通すので、止まらない台本も実行器と同じ時間切れと木ごとの止め方で止まる"""
+    sys.path.insert(0, str(REAL_TESTS))
+    import mutate as real
+    rc, out = real.run_group(real.SUITES["root"], mini)
+    return f"写しの台本を直接: rc={rc} 出力の頭 {out[:600]!r}"
+
+
+assert r.returncode == 0, f"絞りが在るのに auto の 0 本判定に止められた: exit {r.returncode}: {r.stdout}{r.stderr} / {direct_run()}"
 assert "撃つ腕が 0 本" not in r.stderr, f"絞りが在るのに auto の 0 本エラーが出た: {r.stderr!r}"
 
 # --- (3) --auto に存在しない rev ---
@@ -3610,7 +3668,7 @@ calc_ext = (
     "    if n == 7: raise ValueError(\"seven\")\n"
     "    return n\n"
 )
-with (mini / "calc.py").open("a", encoding="utf-8") as f:
+with (mini / "calc.py").open("a", encoding="utf-8", newline="\n") as f:
     f.write(calc_ext)
 w("extra.py", "def add_one(n):\n    if n is None:\n        raise ValueError(\"n required\")\n    return n + 1\n")
 w("tests/check_guard1.py",
@@ -4134,12 +4192,18 @@ if not calls:
 # **書く側も見る。** 読む側だけを見ていたので、今日足した柵 4 本が「合格の行に日本語を print する」
 # ところで windows-latest だけ落ちた（実測 2026-09-13）——**柵の名乗り（encoding を明示している）が、
 # 測る面（読む側だけ）より広かった**。埋め込みの script は自分で標準出力を直せるので、そこを要求する。
-here = re.findall(r"cat > \"\$WORK/([\w.-]+)\" <<'(\w+)'\n(.*?)\n\2\n",
-                  (root / "tests/run.sh").read_text(encoding="utf-8"), re.S)
-if not here:
-    print("NG tests/run.sh に埋め込みの script が 1 本も無い（走査が壊れている）")
+# **母数は tests/run.sh のヒアドキュメントの 2 つの形**——ファイルに書く形（cat > "$WORK/<名前>" <<'<印>'）と、標準入力で
+# 渡す形（"$PY_BIN" - <引数> <<'<印>'）。前者だけを数えていたとき、後者の 1 本（ENTRY_SURFACE_OK）が日本語の合格行を
+# print して windows-latest だけで落ちた（実測 2026-09-26、run 36206449136）。`"$PY_BIN" -c` の 1 行形は数えない——
+# 合格の出力は ASCII か、PYTHONIOENCODING=utf-8 を前置した呼びだけで、日本語を stdout に出す形はここに来ない
+run_sh = (root / "tests/run.sh").read_text(encoding="utf-8")
+here = re.findall(r"cat > \"\$WORK/([\w.-]+)\" <<'(\w+)'\n(.*?)\n\2\n", run_sh, re.S)
+stdin_here = [(f"標準入力の {m.group(1)}（{run_sh.count(chr(10), 0, m.start()) + 1} 行）", m.group(1), m.group(2))
+              for m in re.finditer(r"\"\$PY_BIN\" - [^\n]*<<'(\w+)'[^\n]*\n(.*?)\n\1\n", run_sh, re.S)]
+if not here or not stdin_here:
+    print(f"NG tests/run.sh の埋め込みの script を拾えない（ファイルに書く形 {len(here)} 本・標準入力の形 {len(stdin_here)} 本。走査が壊れている）")
     sys.exit(1)
-for name, _tag, body in here:
+for name, _tag, body in here + stdin_here:
     # **平坦な部分一致で見ない。** `"reconfigure" not in body` で見ていたとき、実コードを消して
     # コメントに語だけ残す退行が通った（実測 2026-09-13）——**呼びの形まで見る**。
     # 同じ commit が stdout-shape.py で潰した `"def bullet" not in t` と同型の穴だった。
@@ -4174,7 +4238,7 @@ if bad:
         print(f"NG {b}" if b.startswith("tests/run.sh") or "起動の口" in b else f"NG {b}: 子の出力を文字で読むのに encoding が無い（Windows の既定 cp1252 で日本語が落ちる）")
     sys.exit(1)
 print(f"SUB_ENCODING_OK（走査した呼び {calls} 件のうち文字で読む {textual} 件を突合／対象外 {calls - textual} 件: バイトで読むので既定コーデックに依らない"
-      f"・{len(files)} ファイル・書く側 {len(here)} script と起動の口 {entries} 本）")
+      f"・{len(files)} ファイル・書く側 ファイルに書く形 {len(here)} 本・標準入力の形 {len(stdin_here)} 本と起動の口 {entries} 本）")
 SUBENC
 expect_output 0 "SUB_ENCODING_OK" "子の出力を文字で読む呼びは encoding を明示している（Windows の既定コーデックに依らない）" \
     "$PY_BIN" "$WORK/sub-encoding.py" "$ROOT"

@@ -1648,7 +1648,7 @@ def test_engine_launch():
           and runs[0].get("total_cost_usd") == 0.001 and runs[0].get("instance") == inst["id"],
           f"実行の要約（会話の番号・往復数・費用）が盤面の trace.jsonl に 1 起動 1 行で残る（{runs[-1:] }）")
     seen = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()] if log.is_file() else []
-    check(seen and seen[0]["stdin"] == pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")[:4000],
+    check(seen and seen[0]["stdin"] == pathlib.Path(inst["prompt_file"]).read_bytes().decode("utf-8")[:4000],
           "材料（指示書）は標準入力で子へ届く")
     r2 = run.cmd("launch", "--node", inst["id"], env=env)
     check(r2.returncode == 1 and "起こせる節が無い" in r2.stderr, f"済んだ節は起こし直さない（{r2.returncode}: {r2.stderr[-80:]}）")
@@ -1707,7 +1707,7 @@ def test_role_run():
     check(r["ok"] and r["session_id"] == "sess-9" and len(r["runs"]) == 2 and r["rejections"] == ["返答が JSON として読めない"],
           f"拒まれたら同じ会話に続きを頼み、受け付けまで済ませる（{ {k: r[k] for k in ('ok', 'session_id', 'rejections')} }）")
     check(len(calls) == 2 and calls[1]["argv"][calls[1]["argv"].index("--resume") + 1] == "sess-9"
-          and "返答が JSON として読めない" in calls[1]["stdin"] and calls[0]["stdin"] == "指示書の本文\n",
+          and "返答が JSON として読めない" in calls[1]["stdin"] and calls[0]["stdin"] == prompt.read_bytes().decode("utf-8"),
           "続きは記録した会話の番号で --resume し、拒否の理由を標準入力で渡す（初回は指示書）")
     check(out.read_text(encoding="utf-8") == '{"ok": 1}' and "sess-9" not in json.dumps({k: v for k, v in r.items() if k != "runs" and k != "session_id"}),
           "out_path には包みの本文（result）だけを書き、返り値は本文を持たない")
