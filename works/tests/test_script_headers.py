@@ -7,8 +7,10 @@ project を見ずに自分の環境（~/.cache/uv）で起こす。
 
 - 形: どのスクリプトも、頭（shebang の後ろなら可）にちょうど下の塊を 1 つだけ持つ
 - 実物: pyproject.toml（依存と build-system 付き）を持つ使い捨ての対象で、Archon と同じ形でスクリプトを 1 本走らせ、
-  対象に uv.lock も .venv もできないこと。塊があっても対象の uv の設定（[tool.uv]・uv.toml）は読まれ、
-  満たせない required-version で節が起動前に止まること、UV_NO_CONFIG=1 ならそれでも起きること
+  対象に uv.lock も .venv もできないこと
+- 既知の限界の記録: 塊があっても対象の uv の設定（[tool.uv]・uv.toml）は読まれ、満たせない required-version で節が
+  起動前に大きな音で止まる（終了コード 2）。pack は UV_NO_CONFIG=1 を立てない（立てると Archon の子のテストのコマンドや
+  修正役の Bash にも漏れ、対象の `uv run pytest` が私的な index を読まずに公開の PyPI から解決する。設計書 §7・README）
 """
 import os
 import pathlib
@@ -58,8 +60,7 @@ UV_ENV_DROP = ("VIRTUAL_ENV", "UV", "UV_RUN_RECURSION_DEPTH", "UV_NO_PROJECT", "
 @unittest.skipIf(shutil.which("uv") is None, "uv が無い（Archon の script の節と同じ形で回せない）")
 class UvRunCase(unittest.TestCase):
     """Archon と同じ形（`uv run <絶対パス>`、cwd は対象）で、pyproject.toml を持つ対象を汚さないこと。
-    塊は対象の project（依存・.venv・uv.lock）を拾わせないだけで、対象の uv の設定（[tool.uv]・uv.toml）は読む。
-    設定まで読ませないのは UV_NO_CONFIG=1（dev/archon.sh が立てる。README）"""
+    塊は対象の project（依存・.venv・uv.lock）を拾わせないだけで、対象の uv の設定（[tool.uv]・uv.toml）は読む（既知の限界）"""
 
     def setUp(self):
         self.uv = shutil.which("uv")
@@ -105,13 +106,16 @@ class UvRunCase(unittest.TestCase):
         self.seed()
         self.assert_started_and_clean(self.run_intake())
 
-    def test_target_uv_config_needs_uv_no_config(self):
-        # 塊があっても uv は対象の [tool.uv] を読む: 満たせない required-version で、どの節も起動の前に止まる
+    def test_target_uv_config_stops_nodes_loudly(self):
+        # 既知の限界: 塊があっても uv は対象の [tool.uv] を読む。満たせない required-version で、どの節も起動の前に
+        # 終了コード 2 で止まる（黙って進まない）。直すのは対象か uv の設定
         self.seed('\n[tool.uv]\nrequired-version = ">=99"\n')
         r = self.run_intake()
-        self.assertEqual(r.returncode, 2, "対象の [tool.uv] が効いていない（この検査が噛んでいない）: " + r.stderr)
+        self.assertEqual(r.returncode, 2, "対象の [tool.uv] が効いていない: " + r.stderr)
         self.assertNotIn("依頼を受け付けない", r.stderr)
-        # UV_NO_CONFIG=1（dev/archon.sh が立てる）なら対象の設定を読まずに起きる
+        self.assertIn("required", r.stderr.lower())
+        # 止まった理由が設定であることの確かめ（UV_NO_CONFIG=1 で設定を読まなければ起きる）。
+        # pack はこれを立てない（Archon の子全部に漏れて対象の uv の動きまで変わる。設計書 §7）
         self.assert_started_and_clean(self.run_intake(UV_NO_CONFIG="1"))
 
 

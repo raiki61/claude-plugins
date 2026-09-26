@@ -77,10 +77,4 @@ ARCHON_TELEMETRY_DISABLED=1
 DO_NOT_TRACK=1
 export ARCHON_TELEMETRY_DISABLED DO_NOT_TRACK
 
-# script の節は `uv run <パス>`（cwd は対象）で起きる。スクリプトの PEP 723 の塊は対象の project を拾わせないが、
-# 対象の uv の設定（[tool.uv]・uv.toml）は読まれ、満たせない required-version や壊れた uv.toml で全部の節が止まる。
-# UV_NO_CONFIG=1 で設定を読ませない（利用者の ~/.config/uv も読まないが、スクリプトは依存を持たないので困らない）
-UV_NO_CONFIG=1
-export UV_NO_CONFIG
-
 exec "$BIN_PATH" "$@"

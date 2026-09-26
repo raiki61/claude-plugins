@@ -11,7 +11,7 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 ## 要る物
 
 - Archon v0.11.1 以上 0.12.0 未満（`archon-plugin.json` の `compatibility.archon` が `>=0.11.1 <0.12.0`。確かめたのは v0.11.1 だけ）。
-- uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。ただし対象の uv の設定（`[tool.uv]`・`uv.toml`）は読まれ、満たせない `required-version` などで全部の script の節が止まり得るので、Archon を起こす環境（シェルか `~/.archon/.env`）に `UV_NO_CONFIG=1` を立てる（`UV_NO_PROJECT=1` では防げない）。利用者自身の `~/.config/uv` も読まれなくなるが、スクリプトは依存を持たないので困らない。
+- uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。既知の限界: 対象の uv の設定（`[tool.uv]`・`uv.toml`）は読まれるので、それが壊れているか、手元の uv に合わない `required-version` を持つと、works の script の節は起動時に終了コード 2 で止まる。直すのは対象か uv の設定。`UV_NO_CONFIG=1` を Archon の環境に立てて逃げるのは勧めない: 対象自身の uv の動きも変わり（テストのコマンドや修正役の Bash が私的な index を読まずに公開の PyPI から解決する）、偽の赤と依存の取り違えの口になる。
 - 対象リポジトリに git の remote。Archon は run ごとの worktree を既定で `origin/<既定の枝>` から切るので、remote が無いと run が始まらない。手元の枝や commit していない変更は worktree に入らないので、依頼の JSON は対象の外に置いて絶対パスで渡す（`skills/works/SKILL.md` の 2 節）。
 
 ## Claude Code のスキル

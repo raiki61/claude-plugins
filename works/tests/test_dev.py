@@ -4,7 +4,6 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - mktarget.sh が作る使い捨ての対象に、pack が dev 用ファイル抜き・ゴミファイル抜きで入り、
   全部 commit 済みで、仕込んだバグのせいでテストが赤になること。
 - archon.sh が、キャッシュにある実行ファイルの sha256 が違えばネットワークに出ずに拒むこと。
-- archon.sh が Archon を UV_NO_CONFIG=1 で起こすこと（script の節の uv に対象の uv の設定を読ませない）。
 - archon.sh の認証に既定の口座が無いこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
   WORKS_KEYCHAIN_ITEM の名の keychain の項目（ここでは偽物に差し替える。本物には触らない）を
   HOME を隔離する前の元の HOME で読み、どちらも無ければ 1 行の案内で止まること（Ruling R20）。
@@ -17,7 +16,6 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 """
 import os
 import pathlib
-import re
 import shutil
 import subprocess
 import tempfile
@@ -88,29 +86,6 @@ class TestDevShell(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("sha256", result.stderr)
-
-    def test_archon_sh_runs_archon_with_uv_no_config(self):
-        # script の節の uv に対象の [tool.uv]・uv.toml を読ませない（tests/test_script_headers.py。README）。
-        # 偽の shasum が固定した sha256 を返し、偽の実行ファイルが受け取った環境を書き出す（本物の実行ファイルは要らない）
-        pinned = re.search(r'^ARCHON_SHA256="([0-9a-f]{64})"$', (DEV / "archon.sh").read_text(), re.M).group(1)
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = pathlib.Path(tmp_str)
-            dev_home = tmp / "dev-home"
-            (dev_home / "bin").mkdir(parents=True)
-            dump = tmp / "env.txt"
-            (dev_home / "bin" / "archon-darwin-arm64").write_text(f'#!/bin/sh\nenv > "{dump}"\n')
-            fake_bin = tmp / "fake-bin"
-            fake_bin.mkdir()
-            (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{pinned}  $3"\n')
-            (fake_bin / "shasum").chmod(0o755)
-            env = {k: v for k, v in os.environ.items() if k not in ("UV_NO_CONFIG", "CLAUDE_CODE_OAUTH_TOKEN")}
-            env.update(WORKS_DEV_HOME=str(dev_home), WORKS_DEV_NO_AUTH="1",
-                       PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""))
-            r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True, env=env,
-                               cwd=tmp_str)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            seen = dict(line.split("=", 1) for line in dump.read_text().splitlines() if "=" in line)
-            self.assertEqual(seen.get("UV_NO_CONFIG"), "1")
 
     def _run_archon_sh_with_fake_security(self, fake_token="dummy-token-for-test", **overrides):
         """偽の `security`（呼ばれた時の $HOME と引数を記録し、偽のトークンを出す）を PATH の先頭に置いて archon.sh を回す。
