@@ -19,7 +19,8 @@ sh "$DEV_DIR/mktarget.sh" "$TARGET_DIR" >/dev/null
 status=0
 
 # Archon は .archon/.env などを process の cwd 基準で読むので、--cwd ではなく実際に
-# 対象の中へ cd してから回す。validate は認証が要らないので keychain を読ませない。
+# 対象の中へ cd してから回す。validate も workflow test（dry-run。provider に触れない）も認証が要らないので、
+# 認証を読ませない（Ruling R20: 認証の要らない道は変えない）。
 for yaml in "$WORKS_DIR"/*/*.yaml; do
   name="$(basename "$(dirname "$yaml")")"
   [ "$(basename "$yaml" .yaml)" = "$name" ] || continue
@@ -28,7 +29,7 @@ for yaml in "$WORKS_DIR"/*/*.yaml; do
   fi
 done
 
-if ! (cd "$TARGET_DIR" && sh "$ARCHON" workflow test works); then
+if ! (cd "$TARGET_DIR" && WORKS_DEV_NO_AUTH=1 sh "$ARCHON" workflow test works); then
   status=1
 fi
 

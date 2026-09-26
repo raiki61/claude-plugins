@@ -20,11 +20,17 @@ WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 # keychain は HOME を隔離する前に読む（macOS の security はログイン keychain を
 # $HOME 基準で探すので、後で読むと隔離した偽の HOME の下を探して必ず失敗する）。
 if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
+  NO_AUTH_HOWTO="archon.sh: 認証が無い。CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する"
   if [ -z "${WORKS_KEYCHAIN_ITEM:-}" ]; then
-    echo "archon.sh: 認証が無い。CLAUDE_CODE_OAUTH_TOKEN（例: claude setup-token で作る）か、トークンを入れた keychain の項目名 WORKS_KEYCHAIN_ITEM を設定する" >&2
+    echo "${NO_AUTH_HOWTO}" >&2
     exit 2
   fi
   CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s "$WORKS_KEYCHAIN_ITEM" -w)"
+  # 項目が空の値を返したら、空のトークンを渡さずに止まる（項目名は出すが、値は出さない）
+  if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+    echo "${NO_AUTH_HOWTO}（keychain の項目 ${WORKS_KEYCHAIN_ITEM} が空）" >&2
+    exit 2
+  fi
   export CLAUDE_CODE_OAUTH_TOKEN
 fi
 

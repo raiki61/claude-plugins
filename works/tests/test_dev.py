@@ -7,7 +7,8 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - archon.sh の認証に既定の口座が無いこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
   WORKS_KEYCHAIN_ITEM の名の keychain の項目（ここでは偽物に差し替える。本物には触らない）を
   HOME を隔離する前の元の HOME で読み、どちらも無ければ 1 行の案内で止まること（Ruling R20）。
-- check.sh が works 自身の工程（works/<d>/<d>.yaml）だけを 1 本ずつ validate し、`workflow test works` を回し、
+- check.sh が works 自身の工程（works/<d>/<d>.yaml）だけを 1 本ずつ validate し、`workflow test works` を回し
+  （どちらも認証を読ませない）、
   どれか 1 つでも赤なら終了コード 1 になること（Archon は偽物の記録係に差し替える。Ruling R10）。
 """
 import os
@@ -82,7 +83,7 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("sha256", result.stderr)
 
-    def _run_archon_sh_with_fake_security(self, **overrides):
+    def _run_archon_sh_with_fake_security(self, fake_token="dummy-token-for-test", **overrides):
         """偽の `security`（呼ばれた時の $HOME と引数を記録し、偽のトークンを出す）を PATH の先頭に置いて archon.sh を回す。
 
         本物の keychain には一切触れない。実行ファイルの中身は意図的に違うものにしてあるので、
@@ -106,7 +107,7 @@ class TestDevShell(unittest.TestCase):
                 "#!/bin/sh\n"
                 f'echo "$HOME" > "{home_file}"\n'
                 f'echo "$*" > "{args_file}"\n'
-                "echo dummy-token-for-test\n"
+                f"echo '{fake_token}'\n"
             )
             security_script.chmod(0o755)
 
@@ -162,6 +163,19 @@ class TestDevShell(unittest.TestCase):
         for word in ("CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token", "WORKS_KEYCHAIN_ITEM"):
             self.assertIn(word, lines[0])
 
+    def test_archon_sh_stops_when_keychain_item_is_empty(self):
+        """keychain の項目が空の値を返したら、空のトークンを渡さずに同じ 1 行の案内で止まること。"""
+        result, home, args = self._run_archon_sh_with_fake_security(
+            fake_token="", WORKS_KEYCHAIN_ITEM="some-item-for-test"
+        )
+        self.assertEqual(args, "find-generic-password -s some-item-for-test -w")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("sha256", result.stderr)  # 実行ファイルの確かめより前で止まる
+        lines = result.stderr.strip().splitlines()
+        self.assertEqual(len(lines), 1, result.stderr)
+        for word in ("CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token", "WORKS_KEYCHAIN_ITEM"):
+            self.assertIn(word, lines[0])
+
     def test_archon_sh_no_auth_skips_auth(self):
         result, home, args = self._run_archon_sh_with_fake_security(WORKS_DEV_NO_AUTH="1")
         self.assertIsNone(args)
@@ -197,13 +211,13 @@ class TestDevShell(unittest.TestCase):
                 f'case "$*" in *"{fail_on or "@@never@@"}"*) exit 1 ;; esac\n'
                 "exit 0\n"
             )
-            # 偽物を使わず本物の archon.sh へ落ちても、ネットワークにも keychain にも出ずに sha256 で止まるようにしておく
+            # 偽物を使わず本物の archon.sh へ落ちても、ネットワークに出ずに sha256 で止まるようにしておく
             dev_home = tmp / "dev-home"
             (dev_home / "bin").mkdir(parents=True)
             (dev_home / "bin" / "archon-darwin-arm64").write_bytes(b"not the real archon binary")
-            env = dict(os.environ, WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp), WORKS_DEV_HOME=str(dev_home),
-                       CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
-            env.pop("WORKS_DEV_NO_AUTH", None)
+            env = dict(os.environ, WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp), WORKS_DEV_HOME=str(dev_home))
+            for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
+                env.pop(name, None)   # 認証が無くても回ること
             result = subprocess.run(["sh", str(DEV / "check.sh")], capture_output=True, text=True, env=env)
             calls = [line.split("|", 2) for line in log.read_text().splitlines()] if log.exists() else []
             return result, calls
@@ -218,7 +232,7 @@ class TestDevShell(unittest.TestCase):
         for cwd, no_auth, a in calls:
             with self.subTest(a):
                 self.assertIn("works-check", cwd)   # 使い捨ての対象の中で回す
-                self.assertEqual(no_auth, "1" if a.startswith("validate") else "")
+                self.assertEqual(no_auth, "1")   # validate も workflow test（dry-run）も provider に触れない
 
     def test_check_fails_when_one_workflow_is_red(self):
         result, calls = self._run_check(fail_on="validate workflows blk-fix")
