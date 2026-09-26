@@ -16,7 +16,9 @@
 - 手の前後のディスクの目録（盤面の置き場の全部から state.json・record.json・trace.jsonl・prompts/・roles/・*.pgid を除いた物）
 - 手の前の対象リポジトリの目録（作業ツリーと .git の objects・refs・HEAD・index）
 目録はパス → 中身の sha256 で、中身は blobs/<sha256>.gz。記憶と目録は raw/mem・raw/man に中身の sha で 1 度だけ置く。
-絶対パスは中身も記憶も @BOARD@・@REPO@・@RUN@・@CORE@・@PY@・@TMPDIR@・@HOME@ に置き換える（/var と /private/var の両方の綴り）。
+起動の終わり（atexit）には、ディスクの記憶と目録を raw/end に撮る（Run の最後の起動の後の盤面。make.py の final）。
+入れ子の手（converge や answer の中の open_round・engine_run の中の accept）は parent に親の手の番号を持つ。
+絶対パスは中身も記憶も @BOARD@・@REPO@・@RUN@・@CORE@・@PY@・@WORK@・@TMPDIR@・@HOME@ に置き換える（/var と /private/var の両方の綴り）。
 """
 import os
 import sys
@@ -88,7 +90,7 @@ def _install(out_dir):
     places = [("@BOARD@", board), ("@REPO@", repo)]
     if board.parent == repo.parent:
         places.append(("@RUN@", board.parent))
-    for token, env in (("@CORE@", "WORKS_GOLDEN_CORE"), ("@PY@", "WORKS_GOLDEN_PY")):
+    for token, env in (("@CORE@", "WORKS_GOLDEN_CORE"), ("@PY@", "WORKS_GOLDEN_PY"), ("@WORK@", "WORKS_GOLDEN_WORK")):
         if os.environ.get(env):
             places.append((token, os.environ[env]))
     places += [("@TMPDIR@", tempfile.gettempdir()), ("@HOME@", str(pathlib.Path.home()))]
@@ -224,17 +226,31 @@ def _install(out_dir):
 
     local = threading.local()
 
+    def parent():
+        stack = getattr(local, "stack", None)
+        return stack[-1] if stack else None
+
+    def push(seq):
+        if getattr(local, "stack", None) is None:
+            local.stack = []
+        local.stack.append(seq)
+
+    def pop():
+        local.stack.pop()
+
     def step(kind, node, args, mem_before, mem_after, call, extra=None):
         """1 手を撮る: 番号を取り、前を撮り、呼び、後を撮って行を書く"""
         seq = next_seq()
-        row = {"seq": seq, "kind": kind, "node": node, "args": clean(args)}
+        row = {"seq": seq, "parent": parent(), "kind": kind, "node": node, "args": clean(args)}
         row["mem_before"] = guarded(mem_before)()
         row["disk_before"] = guarded(disk_listing)()
         row["repo_before"] = guarded(repo_listing)()
         die_before = U.LAST_DIE
+        push(seq)
         try:
             res = call()
         except BaseException as e:
+            pop()
             row["raised"] = raised_of(e, die_before)
             after = guarded(mem_after)(True)
             if after is not None:
@@ -244,6 +260,7 @@ def _install(out_dir):
                 row.update(clean(extra(None)))
             write_row(row)
             raise
+        pop()
         row["mem_after"] = guarded(mem_after)(False)
         row["disk_after"] = guarded(disk_listing)()
         if extra:
@@ -280,7 +297,7 @@ def _install(out_dir):
         def applicable(self, nid):
             why = super().applicable(nid)
             if why:
-                write_row({"seq": next_seq(), "kind": "na", "node": nid, "args": {},
+                write_row({"seq": next_seq(), "parent": parent(), "kind": "na", "node": nid, "args": {},
                            "na": {"node": nid, "why": norm_text(why)}})
             return why
 
@@ -345,7 +362,8 @@ def _install(out_dir):
 
     def launch_engine_run(d, inst):
         seq = next_seq()
-        row = {"seq": seq, "kind": "engine_run", "node": inst.get("node"), "args": clean({"instance": inst.get("id")})}
+        row = {"seq": seq, "parent": parent(), "kind": "engine_run", "node": inst.get("node"),
+               "args": clean({"instance": inst.get("id")})}
         row["mem_before"] = guarded(disk_memory)()
         row["disk_before"] = guarded(disk_listing)()
         row["repo_before"] = guarded(repo_listing)()
@@ -361,6 +379,7 @@ def _install(out_dir):
             write_row(row)
         er["close"] = close
         local.engine_run = er
+        push(seq)
         try:
             res = orig_launch(d, inst)
         except BaseException as e:
@@ -370,6 +389,7 @@ def _install(out_dir):
             raise
         finally:
             local.engine_run = None
+            pop()
         if not er["closed"]:
             close(guarded(disk_memory)(), {k: res.get(k) for k in ("ok", "why", "fell_back", "superseded")})
         else:
@@ -411,6 +431,22 @@ def _install(out_dir):
     wrap_cmd("cmd_stop", "stop")
     wrap_cmd("cmd_patch", "patch")
     wrap_cmd("cmd_finalize", "finalize")
+
+    # ---- 起動の終わりの盤面（Run の最後の起動の分が手の after に入らないため。make.py は Run ごとに番号の最も大きい物を使う）
+    import atexit
+
+    def at_end():
+        try:
+            mem = disk_memory()
+            if mem is None:
+                return
+            row = {**base_row, "seq": next_seq(), "memory": mem, "disk": disk_listing(), "repo": repo_listing()}
+            p = out / "raw" / "end" / f"{row['seq']:09d}.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            _note_error(out_dir, f"at_end: {type(e).__name__}: {e}")
+    atexit.register(at_end)
 
 
 _main()

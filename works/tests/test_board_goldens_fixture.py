@@ -15,6 +15,7 @@ import os
 import pathlib
 import sys
 import unittest
+import zlib
 
 GOLD = pathlib.Path(__file__).resolve().parent / "boards" / "golden-a1202d0"
 LIMIT = 30 * 1024 * 1024
@@ -245,6 +246,7 @@ class GoldenFixtureCase(unittest.TestCase):
         refs = set()
         for scen, run, meta, rows in every_run():
             refs.update((meta.get("last") or {}).values())
+            refs.update((meta.get("final") or {}).values())
             for s in rows:
                 d = s.get("disk") or {}
                 refs.update((d.get("base") or {}).values())
@@ -261,14 +263,64 @@ class GoldenFixtureCase(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(blob(sha)).hexdigest(), sha)
 
     def test_no_absolute_paths(self):
-        raw = ["/var/folders", "/private/var", "/private/tmp", str(pathlib.Path.home())]
-        raw.append(os.path.realpath(sys.executable))
-        texts = [(p.name, gzip.decompress(p.read_bytes())) for p in sorted((GOLD / "blobs").glob("*.gz"))]
+        # 撮った機械の綴りを一般に探す（試験を回す機械の Python は撮った Python と別物なので名指ししない）。
+        # git の object は zlib で縮めてあるので、gzip を解いた後に zlib も解いて中まで見る
+        raw = ["/Users/", "/var/folders", "/private/var/folders", "/private/tmp", str(pathlib.Path.home())]
+        texts, inflated = [], 0
+        for p in sorted((GOLD / "blobs").glob("*.gz")):
+            data = gzip.decompress(p.read_bytes())
+            texts.append((p.name, data))
+            try:
+                texts.append((p.name + "（zlib を解いた物）", zlib.decompress(data)))
+                inflated += 1
+            except zlib.error:
+                pass
         texts += [(p.name, gzip.decompress(p.read_bytes())) for p in sorted((GOLD / "steps").glob("*.json.gz"))]
         texts.append(("MANIFEST.json", (GOLD / "MANIFEST.json").read_bytes()))
+        self.assertGreater(inflated, 50)   # git の object を実際に解いている
         for name, data in texts:
             for r in raw:
                 self.assertNotIn(r.encode("utf-8"), data, name)
+
+    def test_only_stop_nodecl_on_other_graph(self):
+        """graph の違う Run はちょうど 1 本（test_stop_midround の stop-nodecl。台本が graph の stop の宣言を消して回す）"""
+        head = manifest()["graph_sha"]
+        other = [(scen, run_name(meta["dir"]), meta.get("graph_sha")) for scen, run, meta, rows in every_run()
+                 if not meta["init_rejected"] and meta.get("graph_sha") != head]
+        self.assertEqual([(s, n) for s, n, _ in other], [("test_stop_midround", "stop-nodecl")])
+        self.assertTrue(other[0][2])
+
+    def test_final_board_after_last_launch(self):
+        """各 Run の最後の起動の後のディスクの盤面（final）が在り、最後の手（last）より版が進んでいるか同じ"""
+        for scen, run, meta, rows in every_run():
+            if meta["init_rejected"]:
+                self.assertNotIn("final", meta)
+                continue
+            with self.subTest(scenario=scen, run=run):
+                final = {k: json.loads(blob(v)) for k, v in meta["final"].items()}
+                last = json.loads(blob(meta["last"]["memory"]))
+                self.assertEqual(set(final["memory"]), {"state", "record"})
+                self.assertGreaterEqual(final["memory"]["state"].get("rev", 0), last["state"].get("rev", 0))
+                self.assertEqual(final["memory"]["state"]["run_id"], last["state"]["run_id"])
+                self.assertTrue(any(p.startswith(".git/objects/") for p in final["repo"]))
+
+    def test_nested_steps_point_to_parent(self):
+        """入れ子の手は親の手の seq を parent に持つ（engine_run の中の accept・converge と answer の中の open_round）"""
+        kinds = collections.Counter()
+        for scen, run, meta, rows in every_run():
+            by_seq = {s["seq"]: s for s in rows}
+            for i, s in enumerate(rows):
+                if "parent" in s:
+                    par = by_seq[s["parent"]]
+                    self.assertLess(par["seq"], s["seq"])
+                    kinds[(par["kind"], s["kind"])] += 1
+                if s["kind"] == "engine_run" and (s.get("result") or {}).get("ok"):
+                    self.assertEqual(rows[i + 1].get("parent"), s["seq"])
+                if s["kind"] == "open_round":
+                    self.assertIn(by_seq[s["parent"]]["kind"], ("builtin", "answer"))
+        self.assertGreater(kinds[("engine_run", "accept")], 0)
+        self.assertGreater(kinds[("builtin", "open_round")], 0)
+        self.assertLessEqual(set(kinds), {("engine_run", "accept"), ("builtin", "open_round"), ("answer", "open_round")})
 
     def test_uncovered_listed(self):
         u = manifest()["uncovered"]

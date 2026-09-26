@@ -8,6 +8,10 @@ tests/boards/golden-a1202d0/ に置く。お金 0・AI 0（実物の claude を�
 PATH の頭に置く）。graphloops の追跡ファイルには触らない。
 
 使い方: uv run works/dev/board-goldens/make.py [--graphloops-rev a1202d0] [--out <置き場>] [--work <置き場>] [場面 ...]
+作業場（書き出し・台本の作業場・撮った生の物）は ${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/board-goldens/ の下に作って
+終わったら消す。台本の子の TMPDIR もその下に向ける。Claude Code の一時フォルダ（/private/tmp/claude-*・/tmp/claude-*）の
+下に解ける作業場は拒む（works/dev/guard.sh と同じ決まり。サンドボックスの Bash が書けるため）。
+場面を絞って回すと、置き場の他の場面はそのまま残し、渡した場面だけを差し替える。
 終了コード: 0 = 撮れた / 1 = init が通った Run で init の後の手が 0（台本が init の返りだけを見る、下の表の Run を除く）か、
 手が 1 つも撮れない場面が在る（包み方が効いていない） / 2 = それ以外の失敗（書き出し・台本の検査の失敗・偽の claude が
 起こされた・撮り手の中の失敗・絶対パスの残り）
@@ -59,11 +63,16 @@ TOKENS = {
     "@REPO@": "Run の対象リポジトリ（loop.py の cwd）",
     "@RUN@": "Run の作業場（盤面と対象リポジトリの親。台本の返答の置き場 out.txt など）",
     "@CORE@": "書き出した graphloops の根（graphloops/ と scripts/review-record.py の親）",
+    "@WORK@": "作り手の作業場（偽の claude の置き場 guard/ など）",
     "@PY@": "撮った機械の Python（台本の宣言の語が sys.executable のため。再生は今の Python で宣言の sha を計算し直す）",
-    "@TMPDIR@": "一時の置き場（engine の道具ゼロの役の置き場 graphloops-isolated-* など）",
+    "@TMPDIR@": "台本の子の一時の置き場（@WORK@/tmp。台本の作業場 gl-review-*・engine の道具ゼロの役の置き場 graphloops-isolated-*）",
     "@HOME@": "撮った機械のホーム",
 }
-RAW_MARKS = ["/var/folders", "/private/var", "/private/tmp", str(pathlib.Path.home())]
+RAW_MARKS = ["/Users/", "/var/folders", "/private/var", "/private/tmp", str(pathlib.Path.home())]
+# 台本のリポジトリの宣言（.review-checks.json）の走らせる語の頭。台本は sys.executable を書くので、撮った機械の Python の
+# パスが seed の commit（zlib で縮めた git の object）に入る。機械に依らない名前に替えて、PATH から引かせる
+NEUTRAL_PY = "python3"
+CLAUDE_TMP = ("/private/tmp/claude-", "/tmp/claude-")
 
 
 # ---------------------------------------------------------------- 差分
@@ -120,6 +129,10 @@ class Raw:
         d = self.rec / "raw" / "rows"
         return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(d.glob("*.json"))] if d.is_dir() else []
 
+    def ends(self):
+        d = self.rec / "raw" / "end"
+        return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(d.glob("*.json"))] if d.is_dir() else []
+
     def reset(self):
         shutil.rmtree(self.rec / "raw", ignore_errors=True)
         for p in ("seq.txt", "seq.lock"):
@@ -139,7 +152,7 @@ def encode_run(rows, raw, blob_json):
     out = []
     mem_ref = disk_ref = repo_ref = None
     for r in rows:
-        s = {"seq": None, "run": None, "kind": r["kind"]}
+        s = {"seq": None, "run": None, "raw_seq": r["seq"], "parent": r.get("parent"), "kind": r["kind"]}
         if r.get("node") is not None:
             s["node"] = r["node"]
         s["args"] = r.get("args") or {}
@@ -202,6 +215,19 @@ def shas_of(steps):
 
 
 # ---------------------------------------------------------------- 回す
+def dev_home():
+    return pathlib.Path(os.environ.get("WORKS_DEV_HOME") or pathlib.Path.home() / ".cache" / "works-dev")
+
+
+def refuse_claude_tmp(what, path):
+    """Claude Code の一時フォルダの下に解ける場所は使わない（works/dev/guard.sh の works_dev_refuse_claude_tmp と同じ決まり）"""
+    real = os.path.realpath(path)
+    if real.startswith(CLAUDE_TMP):
+        print(f"make.py: {what} が Claude Code の一時フォルダの下にある（{real}。/private/tmp/claude-* はサンドボックスの Bash が"
+              "書ける）。別の場所を使う（WORKS_DEV_HOME の既定は $HOME/.cache/works-dev）", file=sys.stderr)
+        sys.exit(2)
+
+
 def export(rev, dest):
     dest.mkdir(parents=True)
     arc = subprocess.run(["git", "-C", str(ROOT), "archive", rev], capture_output=True, check=True).stdout
@@ -216,11 +242,15 @@ def prepare_env(work, core, rec):
     (guard / "claude").write_text(f"#!/bin/sh\necho \"$@\" >> '{marker}'\nexit 97\n", encoding="utf-8")
     (guard / "claude").chmod(0o755)
     (work / "claude-config").mkdir()
+    tmp = work / "tmp"   # 台本の作業場（gl-review-*）と engine の道具ゼロの役の置き場も作業場の下へ
+    tmp.mkdir()
+    tempfile.tempdir = str(tmp)   # 台本は同じプロセスで tempfile を使う（読み直させる）
     for k in ("CONVERGENCE_LOOPS_ROOT", "GRAPHLOOPS_ROOT", "CLAUDE_PLUGIN_DATA", "GL_TEST_ONLY", "PYTHONHOME"):
         os.environ.pop(k, None)
     os.environ.update(GIT_ENV)
     os.environ.update({
         "PATH": f"{guard}{os.pathsep}{os.environ['PATH']}",
+        "TMPDIR": str(tmp),
         "PYTHONPATH": str(HERE),
         "PYTHONDONTWRITEBYTECODE": "1",
         "CLAUDE_CONFIG_DIR": str(work / "claude-config"),   # 入れた plugin の置き場（~/.claude）を引かせない
@@ -228,6 +258,7 @@ def prepare_env(work, core, rec):
         "WORKS_GOLDEN_OUT": str(rec),
         "WORKS_GOLDEN_CORE": str(core),
         "WORKS_GOLDEN_PY": sys.executable,
+        "WORKS_GOLDEN_WORK": str(work),
     })
     return marker
 
@@ -236,17 +267,33 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--graphloops-rev", default="a1202d0")
     p.add_argument("--out", default=str(DEFAULT_OUT))
-    p.add_argument("--work", help="書き出しと撮った生の物の置き場（渡せば消さない。既定は $TMPDIR の下の使い捨て）")
+    p.add_argument("--work", help="書き出しと撮った生の物の置き場（渡せば消さない。既定は "
+                                  "${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/board-goldens/ の下の使い捨て）")
     p.add_argument("scenarios", nargs="*")
     a = p.parse_args()
     names = a.scenarios or SCENARIOS
     bad = [n for n in names if n in SKIPPED]
     if bad:
-        sys.exit(f"撮らない場面: {bad}（{[SKIPPED[n] for n in bad]}）")
+        print(f"撮らない場面: {bad}（{[SKIPPED[n] for n in bad]}）", file=sys.stderr)
+        return 2
+    unknown = [n for n in names if n not in SCENARIOS]
+    if unknown:
+        print(f"撮る場面の表に無い: {unknown}（撮るのは {SCENARIOS}）", file=sys.stderr)
+        return 2
+    if not shutil.which(NEUTRAL_PY):
+        print(f"{NEUTRAL_PY} が PATH に無い（台本のリポジトリの宣言の語の頭に使う）", file=sys.stderr)
+        return 2
     sys.dont_write_bytecode = True
     keep = bool(a.work)
-    work = pathlib.Path(a.work).resolve() if a.work else pathlib.Path(tempfile.mkdtemp(prefix="works-goldens-"))
-    work.mkdir(parents=True, exist_ok=True)
+    if a.work:
+        work = pathlib.Path(a.work).resolve()
+        refuse_claude_tmp("--work", work)
+        work.mkdir(parents=True, exist_ok=True)
+    else:
+        base = dev_home() / "board-goldens"
+        refuse_claude_tmp("作業場の親（WORKS_DEV_HOME）", base)
+        base.mkdir(parents=True, exist_ok=True)
+        work = pathlib.Path(tempfile.mkdtemp(prefix="run-", dir=base))
     try:
         return run(a, names, work)
     finally:
@@ -255,6 +302,8 @@ def main():
 
 
 def run(a, names, work):
+    import hashlib
+    import zlib
     core = export(a.graphloops_rev, work / "export")
     rec = work / "rec"
     rec.mkdir()
@@ -264,30 +313,30 @@ def run(a, names, work):
     from engine.schema import graph_text  # noqa: E402
     from engine.util import sha  # noqa: E402
     graph_sha = sha(graph_text(core / "graphloops" / "graphs" / "review-loop.json"))
+    # Run の既定の宣言（関数の既定値が同じ list を指す）の頭を機械に依らない名前にする
+    S.CHECKS_OK[0]["argv"][0] = NEUTRAL_PY
 
     raw = Raw(rec)
-    blobs_used = set()
-    extra_blobs = {}   # 目録・記憶の丸ごと（last）の中身
+    extra_blobs = {}   # 目録・記憶の丸ごと（last・final）の中身
 
     def blob_json(obj):
-        import hashlib
         data = json.dumps(obj, ensure_ascii=False, sort_keys=True).encode("utf-8")
         h = hashlib.sha256(data).hexdigest()
         extra_blobs[h] = data
         return h
 
-    scen_steps, scen_meta, empty_scen, lonely = {}, {}, [], []
+    new_steps, new_meta, empty_scen, lonely = {}, {}, [], []
     for name in names:
-        fn = getattr(S, name, None)
-        if fn is None:
-            print(f"台本に {name} が無い", file=sys.stderr)
-            return 2
         raw.reset()
         os.environ["WORKS_GOLDEN_SCENARIO"] = name
-        before = len(S.fails)
+        fails0, ran0 = len(S.fails), S.ran
         print(f"=== {name}", flush=True)
-        fn()
+        getattr(S, name)()
         rows = [r for r in raw.rows() if r.get("scenario") == name]
+        ends = {}
+        for e in raw.ends():
+            if e.get("scenario") == name and e["seq"] > ends.get(e["board_raw"], {}).get("seq", 0):
+                ends[e["board_raw"]] = e
         if not rows:
             empty_scen.append(name)
         by_run = collections.OrderedDict()
@@ -309,6 +358,11 @@ def run(a, names, work):
                 meta["graph_sha"] = mem["state"].get("graph_sha")
             if last:
                 meta["last"] = last
+            end = ends.get(board_raw)
+            if end and not rejected:
+                meta["final"] = {"memory": blob_json(raw.load("raw/mem", end["memory"])),
+                                 "disk": blob_json(raw.load("raw/man", end["disk"]) or {}),
+                                 "repo": blob_json(raw.load("raw/man", end["repo"]) or {})}
             why = INIT_ONLY.get((name, label.split("/")[0].removeprefix("gl-review-").removesuffix("-*")))
             if not rejected and len(enc) <= 1:
                 if why:
@@ -317,69 +371,98 @@ def run(a, names, work):
                     lonely.append(f"{name} の run {n}（{label}）")
             runs[str(n)] = meta
             steps += enc
+        renum = {}
         for i, s in enumerate(steps, 1):
             s["seq"] = i
-        scen_steps[name] = steps
-        scen_meta[name] = {"runs": runs}
-        failed = S.fails[before:]
+            renum[s.pop("raw_seq")] = i
+        for s in steps:
+            if s.get("parent") is not None:
+                s["parent"] = renum[s["parent"]]
+            else:
+                s.pop("parent", None)
+        failed = S.fails[fails0:]
+        new_steps[name] = steps
+        new_meta[name] = {"runs": runs, "simulator": {"checks": S.ran - ran0, "failed": failed}}
         print(f"    Run {len(runs)} 本・手 {len(steps)}・台本の検査の失敗 {len(failed)}", flush=True)
     raw.reset()
-
     errors = (rec / "recorder-errors.txt").read_text(encoding="utf-8") if (rec / "recorder-errors.txt").exists() else ""
 
-    # ---- 置く
+    # ---- 置く（場面を絞った回は、置き場の他の場面をそのまま残す）
     out = pathlib.Path(a.out).resolve()
-    if out.exists():
-        shutil.rmtree(out)
-    (out / "blobs").mkdir(parents=True)
-    (out / "steps").mkdir()
-    seen_blobs = set()
-    for name, steps in scen_steps.items():
-        data = gzip.compress(json.dumps(steps, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 9, mtime=0)
-        (out / "steps" / f"{name}.json.gz").write_bytes(data)
-        # Run ごとの大きさ: その Run の手（gzip）＋その Run が初めて指した中身
-        for rn, meta in scen_meta[name]["runs"].items():
+    old_meta = {}
+    if a.scenarios and (out / "MANIFEST.json").is_file():
+        old_meta = {k: v for k, v in json.loads((out / "MANIFEST.json").read_text(encoding="utf-8"))["scenarios"].items()
+                    if k not in new_steps}
+    stage = out.with_name(out.name + ".new")
+    if stage.exists():
+        shutil.rmtree(stage)
+    (stage / "blobs").mkdir(parents=True)
+    (stage / "steps").mkdir()
+    seen, all_steps, scen_meta = set(), {}, {}
+    for name in [n for n in SCENARIOS if n in new_steps or n in old_meta]:
+        if name in new_steps:
+            steps, meta = new_steps[name], new_meta[name]
+            data = gzip.compress(json.dumps(steps, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 9, mtime=0)
+        else:
+            data = (out / "steps" / f"{name}.json.gz").read_bytes()
+            steps, meta = json.loads(gzip.decompress(data)), old_meta[name]
+        (stage / "steps" / f"{name}.json.gz").write_bytes(data)
+        for rn, rmeta in meta["runs"].items():
             mine = [s for s in steps if str(s["run"]) == rn]
             size = len(gzip.compress(json.dumps(mine, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 9, mtime=0))
-            refs = shas_of(mine) | set((meta.get("last") or {}).values())
-            for h in sorted(refs - seen_blobs):
-                dst = out / "blobs" / f"{h}.gz"
+            refs = shas_of(mine) | set((rmeta.get("last") or {}).values()) | set((rmeta.get("final") or {}).values())
+            for h in sorted(refs - seen):
+                dst = stage / "blobs" / f"{h}.gz"
                 if h in extra_blobs:
                     dst.write_bytes(gzip.compress(extra_blobs[h], 9, mtime=0))
-                else:
+                elif (rec / "blobs" / f"{h}.gz").is_file():
                     dst.write_bytes((rec / "blobs" / f"{h}.gz").read_bytes())
+                else:
+                    dst.write_bytes((out / "blobs" / f"{h}.gz").read_bytes())
                 size += dst.stat().st_size
-            seen_blobs |= refs
-            meta["bytes"] = size
-            blobs_used |= refs
+            seen |= refs
+            if name in new_steps:
+                rmeta["bytes"] = size
+        all_steps[name], scen_meta[name] = steps, meta
 
-    covered = {s["node"] for st in scen_steps.values() for s in st if s["kind"] in ("builtin", "engine_run")}
-    total = sum(p.stat().st_size for p in (out / "blobs").glob("*.gz")) + sum(p.stat().st_size for p in (out / "steps").glob("*.gz"))
+    covered = {s["node"] for st in all_steps.values() for s in st if s["kind"] in ("builtin", "engine_run")}
+    total = sum(p.stat().st_size for p in (stage / "blobs").glob("*.gz")) + sum(p.stat().st_size for p in (stage / "steps").glob("*.gz"))
+    sims = [m.get("simulator") or {} for m in scen_meta.values()]
     manifest = {
         "graphloops_rev": a.graphloops_rev,
         "graph_sha": graph_sha,
         "made_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "git_env": GIT_ENV,
+        "neutral_interpreter": NEUTRAL_PY,
         "tokens": TOKENS,
         "scenarios": scen_meta,
         "skipped_scenarios": SKIPPED,
         "uncovered": [n for n in LINE_NODES if n not in covered],
         "total_bytes": total,
-        "simulator": {"checks": S.ran, "failed": S.fails},
+        "simulator": {"checks": sum(x.get("checks", 0) for x in sims), "failed": [f for x in sims for f in x.get("failed", [])]},
     }
-    (out / "MANIFEST.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    (stage / "MANIFEST.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    if out.exists():
+        shutil.rmtree(out)
+    stage.rename(out)
 
     # ---- 見届け
-    print(f"\n置いた: {out}（{total / 1024 / 1024:.2f} MB。場面 {len(scen_steps)}・中身 {len(blobs_used)}）")
+    print(f"\n置いた: {out}（{total / 1024 / 1024:.2f} MB。場面 {len(all_steps)}（今回 {len(new_steps)}）・中身 {len(seen)}）")
     print(f"uncovered: {manifest['uncovered']}")
     code = 0
     leaks = []
     for p in sorted(out.rglob("*")):
-        if p.is_file():
-            data = gzip.decompress(p.read_bytes()) if p.suffix == ".gz" else p.read_bytes()
-            leaks += [f"{p.relative_to(out)}: {m}" for m in RAW_MARKS if m.encode("utf-8") in data]
+        if not p.is_file():
+            continue
+        data = gzip.decompress(p.read_bytes()) if p.suffix == ".gz" else p.read_bytes()
+        texts = [data]
+        try:
+            texts.append(zlib.decompress(data))   # git の object（zlib で縮めてある）の中まで見る
+        except zlib.error:
+            pass
+        leaks += [f"{p.relative_to(out)}: {m}" for t in texts for m in RAW_MARKS if m.encode("utf-8") in t]
     for what, bad in (("偽の claude が起こされた", marker.exists()), ("撮り手の中の失敗", errors),
-                      ("台本の検査の失敗", S.fails), ("絶対パスの残り", leaks[:20])):
+                      ("台本の検査の失敗", manifest["simulator"]["failed"]), ("絶対パスの残り", leaks[:20])):
         if bad:
             print(f"NG {what}: {bad}", file=sys.stderr)
             code = 2

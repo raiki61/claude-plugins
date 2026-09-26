@@ -1,7 +1,11 @@
 盤面の手本（works/tests/boards/golden-a1202d0/）の作り手。仕様 works/docs/specs/2026-09-26-board-layer-design.md の 9.2。
 
-作り方（お金 0・AI 0。書き出しと台本の作業場は $TMPDIR の下に作って消す。回したら出力を commit する）:
+作り方（お金 0・AI 0。回したら出力を commit する）:
     nice -n 19 uv run works/dev/board-goldens/make.py [--graphloops-rev a1202d0] [--out <置き場>] [--work <置き場>] [場面 ...]
+- 作業場（書き出し・台本の作業場・撮った生の物）は ${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/board-goldens/run-* に作って
+  終わったら消す（--work を渡せば残す）。台本の子の TMPDIR も作業場の tmp/ に向ける（gl-review-*・graphloops-isolated-* もそこ）。
+  Claude Code の一時フォルダ（/private/tmp/claude-*・/tmp/claude-*）の下に解ける作業場は拒む（works/dev/guard.sh と同じ決まり）。
+- 場面を渡すと、その場面だけを撮り直して差し替え、置き場の他の場面はそのまま残す（中身は指す物だけを残す）。
 
 何をするか:
 - a1202d0 のリポジトリを git archive で使い捨ての場所に書き出す（台本 graphloops/tests/simulate_review.py は写しに無いため）。
@@ -9,6 +13,9 @@
   印を書いて 97 で落ちる偽の claude を PATH の頭に置き、CLAUDE_CONFIG_DIR を空の置き場に向ける（入れた plugin を引かせない）。
 - 子の loop.py に PYTHONPATH=このフォルダ を渡し、sitecustomize.py が engine の中で手の前後を撮る（包み方は sitecustomize.py の頭）。
 - 版の id を揃えるため、git の名前・時刻を固定し、利用者と機械の git の設定を読ませない（MANIFEST の git_env。再生も同じ環境で回す）。
+- 台本のリポジトリの宣言 .review-checks.json の走らせる語の頭（台本は sys.executable）を、最初の commit の前に python3 に替える
+  （MANIFEST の neutral_interpreter。PATH から引く）。撮った機械の Python のパスが zlib で縮めた git の object に入らず、
+  再生で作業ツリーを戻しても HEAD と食い違わない。
 
 撮る場面（12）: test_converges test_runaway test_awaiting test_rejections test_request_entry test_fix_plan_review
   test_human_gate test_policy_reaches_roles test_stop_midround test_stop_after_round test_gates_merge test_rejudge_path
@@ -19,16 +26,20 @@
 
 置き方（tests/boards/golden-a1202d0/）:
 - MANIFEST.json: graphloops_rev・graph_sha・made_at・git_env・tokens（置き換えの印の意味）・scenarios（場面 → runs →
-  Run の番号 → {dir, steps, bytes, kinds, init_rejected, graph_sha, last, init_only?}）・skipped_scenarios・uncovered・
-  total_bytes（blobs と steps の大きさの和）・simulator（台本の検査の件数と失敗）
+  Run の番号 → {dir, steps, bytes, kinds, init_rejected, graph_sha, last, final, init_only?}）と場面ごとの simulator・
+  skipped_scenarios・uncovered・total_bytes（blobs と steps の大きさの和）・simulator（台本の検査の件数と失敗の和）・neutral_interpreter
   - dir は台本の作業場の名前 gl-review-<Run の名前>-<乱数> の乱数を * にした物（同じ場面の Run を見分ける）
   - last は、その Run の最後の手の記憶・ディスクの目録・リポジトリの目録を丸ごと置いた中身の sha（差分を当てた答えの検算用）
+  - final は、その Run の最後の loop.py の起動が終わった時のディスクの記憶（state.json・record.json）と目録（同じ範囲）と
+    リポジトリの目録の丸ごと。最後の手の後にも advance が直に書く物（emit_instance・扇の節の done・empty・保存の rev）を含む
+    ——再生の通しの「最後で engine と同じか」の正の値。graph の違う Run は test_stop_midround の stop-nodecl だけ（試験が固定）
   - init_only は台本が init の返りだけを見て閉じる Run（make.py の INIT_ONLY の表の理由）
   - uncovered は線 A・B が使う機械の節と engine が走らせる節のうち、builtin・engine_run の手に 1 度も出ない物
 - steps/<場面>.json.gz: 手の行の配列（seq は場面の中の通し番号、run は Run の番号）。
-  {seq, run, kind, node?, args, raised?: {type, text}, memory?, na?: {node, why}, disk?, repo_before?, engine_run?: {plan, runs}, result?}
+  {seq, run, parent?, kind, node?, args, raised?: {type, text}, memory?, na?: {node, why}, disk?, repo_before?, engine_run?: {plan, runs}, result?}
   - kind: init・accept・builtin・na・open_round・add・answer・skip・stop・patch・finalize・engine_run
-  - seq は手を始めた順（入れ子の手——converge の中の open_round・answer の中の open_round・engine_run の中の accept——は親の後）
+  - seq は手を始めた順。入れ子の手（converge の中の open_round・answer の中の open_round・engine_run の中の accept）は親の後で、
+    parent に親の手の seq を持つ（通しの再生は parent を持つ手を外からの手として当てない）
   - raised.text は Reject ならその文、die（SystemExit）なら engine の util.LAST_DIE（SystemExit の文は "2" になるため）
   - memory は {state, record} の差分 [{path: [鍵…], op: "set" | "del", value?}]。Run の最初の記憶を持つ手だけ base（丸ごと）を持つ
     （init は手の前が無いので base は init の後の記憶）。以後は before を「前の手の after（拒まれて after の無い手なら前の手の
@@ -50,7 +61,9 @@
 
 置き換え（中身・記憶・引数・MANIFEST の全部。/var と /private/var、/tmp と /private/tmp の両方の綴り。長い綴りから）:
   @BOARD@ 盤面の置き場 / @REPO@ 対象リポジトリ / @RUN@ 両方の親の作業場 / @CORE@ 書き出した graphloops の根 /
-  @PY@ 撮った機械の Python（sys.executable と実体） / @TMPDIR@ 一時の置き場 / @HOME@ ホーム
+  @PY@ 撮った機械の Python（sys.executable と実体） / @WORK@ 作り手の作業場 / @TMPDIR@ 台本の子の一時の置き場（@WORK@/tmp） /
+  @HOME@ ホーム
   - @PY@ を含む宣言の sha（process.checks[..].sha・launch.sha）は、再生の時に今の Python のパスで計算し直してから比べる。
-  - .git/objects の中身は zlib で縮めてあるので置き換えが当たらない（撮った機械の Python のパスを持つ .review-checks.json の
-    blob を含む）。再生で作業ツリーの .review-checks.json を今の Python で書き戻すと、commit した blob と食い違いうる。
+  - .git/objects の中身は zlib で縮めてあるので置き換えが当たらない。そのため機械のパスが入る元（.review-checks.json の
+    Python）を撮る前に python3 に替え、試験は zlib を解いた中まで /Users/・/var/folders・/private/var/folders・/private/tmp・
+    $HOME を探す。
