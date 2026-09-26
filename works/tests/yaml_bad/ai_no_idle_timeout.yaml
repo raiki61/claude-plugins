@@ -1,0 +1,9 @@
+# 違反: AI の節に idle_timeout が無い
+name: bad-ai-no-idle-timeout
+description: 違反の見本
+nodes:
+  - id: judge
+    command: diagnose
+    allowed_tools: [Read, Grep, Glob]
+    sandbox: {enabled: true}
+    output_format: {type: object}

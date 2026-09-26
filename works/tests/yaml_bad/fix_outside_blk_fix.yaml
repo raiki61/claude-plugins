@@ -1,0 +1,10 @@
+# 違反: 節の名前が fix でも、blk-fix/blk-fix.yaml の外では書く道具を持てない
+name: bad-fix-outside-blk-fix
+description: 違反の見本
+nodes:
+  - id: fix
+    prompt: 直せ
+    allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+    sandbox: {enabled: true}
+    idle_timeout: 1728000000
+    output_format: {type: object}

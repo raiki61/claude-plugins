@@ -1,0 +1,39 @@
+# 決まりを全部守った見本（節の種類を 1 つずつ。loop_group の中も）
+name: good-all-kinds
+description: 決まりを守った見本
+interactive: true
+nodes:
+  - id: check
+    bash: echo ok
+    timeout: 1728000000
+  - id: sub
+    include: blk-judge
+    depends_on: [check]
+  - id: judge-loop
+    depends_on: [sub]
+    loop_group:
+      max_iterations: 3
+      until_bash: test $accept.output.ok = true
+      fresh_context: false
+      nodes:
+        - id: judge
+          command: diagnose
+          allowed_tools: [Read, Grep, Glob]
+          sandbox: {enabled: true}
+          idle_timeout: 1728000000
+          output_format: {type: object}
+        - id: accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [judge]
+  - id: collect
+    prompt: まとめよ
+    allowed_tools: []
+    sandbox: {enabled: true}
+    idle_timeout: 1728000000
+    output_format: {type: object}
+    depends_on: [judge-loop]
+  - id: gate
+    approval: {message: 進めてよいか}
+    depends_on: [collect]

@@ -21,7 +21,10 @@ import pathlib
 import subprocess
 import sys
 
-sys.dont_write_bytecode = True   # pack の中に __pycache__ を作らない（rules と検証器は下で import する）
+# pack の中に __pycache__ を作らない。ここで立てて止まるのは下で import する engine・rules・検証器の分だけ。
+# accept.py 自身の .pyc は、この行が動く前に import の時点で書かれるので、止めるのは呼び手（import する前に立てる。
+# ブロックのスクリプトの前置きは script_io の docstring）
+sys.dont_write_bytecode = True
 
 CORE = pathlib.Path(__file__).resolve().parent
 _GL = CORE / "graphloops"

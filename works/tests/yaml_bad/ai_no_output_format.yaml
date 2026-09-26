@@ -1,0 +1,9 @@
+# 違反: AI の節に output_format が無い
+name: bad-ai-no-output-format
+description: 違反の見本
+nodes:
+  - id: judge
+    prompt: 判定せよ
+    allowed_tools: [Read, Grep, Glob]
+    sandbox: {enabled: true}
+    idle_timeout: 1728000000

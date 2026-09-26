@@ -1,0 +1,8 @@
+# 違反: 人の関所（approval）の節に期限を書いた
+name: bad-approval-with-timeout
+description: 違反の見本
+interactive: true
+nodes:
+  - id: gate
+    approval: {message: 進めてよいか}
+    timeout: 1728000000
