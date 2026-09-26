@@ -8,6 +8,9 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 - archon.sh の認証に既定の口座が無いこと: CLAUDE_CODE_OAUTH_TOKEN があればそれ、無ければ
   WORKS_KEYCHAIN_ITEM の名の keychain の項目（ここでは偽物に差し替える。本物には触らない）を
   HOME を隔離する前の元の HOME で読み、どちらも無ければ 1 行の案内で止まること（Ruling R20）。
+- archon.sh が、認証を使う実行のたびに隔離した Archon の設定へ模型（WORKS_DEV_MODEL。既定 opus）を書き、
+  TITLE_GENERATION_MODEL も（設定していなければ）同じにすること。WORKS_DEV_NO_AUTH=1 では書かないこと
+  （偽の shasum で確かめを通し、偽の実行ファイルまで exec させて見る）。
 - archon.sh・mktarget.sh・real-run.sh が、WORKS_DEV_HOME・対象・origin が Claude Code の一時フォルダ
   （/private/tmp/claude-* か /tmp/claude-*。サンドボックスの Bash がそこへ書ける穴）の下に解けるとき、
   何も作らずに 1 行の理由で終了コード 2 で止まること（symlink を辿った先で見る）。
@@ -19,6 +22,7 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
 """
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -196,6 +200,67 @@ class TestDevShell(unittest.TestCase):
         self.assertIsNone(args)
         self.assertEqual(result.returncode, 1)
         self.assertIn("sha256", result.stderr)
+
+    def _exec_archon_sh(self, **overrides):
+        """偽の shasum（固定の sha256 を出す）で確かめを通し、キャッシュの偽の実行ファイル（受けた
+        TITLE_GENERATION_MODEL と引数を記録する）まで exec させる。本物の Archon もネットワークも要らない。
+        戻り値は (結果, 隔離した Archon の config.yaml の中身か None, 偽の実行ファイルが記録した行)。"""
+        expected = re.search(r'^ARCHON_SHA256="([0-9a-f]{64})"', (DEV / "archon.sh").read_text(), re.M).group(1)
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            dev_home = tmp / "dev-home"
+            (dev_home / "bin").mkdir(parents=True)
+            seen = tmp / "seen.txt"
+            fake_archon = dev_home / "bin" / "archon-darwin-arm64"
+            fake_archon.write_text(
+                "#!/bin/sh\n"
+                f'printf \'%s\\n\' "${{TITLE_GENERATION_MODEL-(unset)}}" "$*" > "{seen}"\n'
+            )
+            fake_bin = tmp / "fake-bin"
+            fake_bin.mkdir()
+            (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{expected}  $3"\n')
+            (fake_bin / "shasum").chmod(0o755)
+            env = dict(os.environ)
+            for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH",
+                         "WORKS_DEV_MODEL", "TITLE_GENERATION_MODEL"):
+                env.pop(name, None)
+            env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""))
+            env.update(overrides)
+            result = subprocess.run(["sh", str(DEV / "archon.sh"), "workflow", "run", "x"],
+                                    capture_output=True, text=True, env=env)
+            config = dev_home / "archon-home" / "config.yaml"
+            self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
+            return (result, config.read_text() if config.exists() else None,
+                    seen.read_text().splitlines() if seen.exists() else None)
+
+    def test_archon_sh_pins_model_when_using_auth(self):
+        """認証を使う実行は毎回、隔離した Archon の設定に模型（既定 opus）を書き、題の生成の模型も揃える。
+        書かないと Claude CLI の既定の模型で黙って回る（real-run.sh を通さず archon.sh を直に打った時）。"""
+        result, config, seen = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("assistants:\n  claude:\n    model: opus\n", config)
+        self.assertEqual(seen, ["opus", "workflow run x"])
+
+    def test_archon_sh_model_follows_works_dev_model(self):
+        result, config, seen = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test",
+                                                    WORKS_DEV_MODEL="sonnet")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("    model: sonnet\n", config)
+        self.assertEqual(seen[0], "sonnet")
+
+    def test_archon_sh_keeps_title_generation_model_if_set(self):
+        result, config, seen = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test",
+                                                    TITLE_GENERATION_MODEL="haiku")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("    model: opus\n", config)
+        self.assertEqual(seen[0], "haiku")
+
+    def test_archon_sh_no_auth_does_not_pin_model(self):
+        """認証の要らない道（テスト・validate・workflow test）は変えない: 設定を書かず、模型も要らない。"""
+        result, config, seen = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(config)
+        self.assertEqual(seen, ["(unset)", "workflow run x"])
 
     def test_real_run_stops_without_auth_before_making_target(self):
         """real-run.sh（費用の掛かる実走）は、認証が無ければ対象を作る前に 1 行の案内で止まること。"""

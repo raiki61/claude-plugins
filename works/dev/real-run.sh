@@ -2,8 +2,8 @@
 # works/dev/real-run.sh [<dir>]
 #
 # ライン darkfactory を本物の AI で 1 回回す（費用が掛かる。回す前に持ち主の了承を取る）。
-#   1. 隔離した Archon の設定（$WORKS_DEV_HOME/archon-home/config.yaml）に既定の模型を書く
-#      （WORKS_DEV_MODEL。既定は opus。works の YAML には model: を書かない——利用者の選択を残すため）。
+#   1. 模型は WORKS_DEV_MODEL（既定は opus）。隔離した Archon の設定（$WORKS_DEV_HOME/archon-home/config.yaml）に
+#      書くのは archon.sh（認証を使う実行のたび）。承認・続きのコマンドにも同じ模型を付けて出す。
 #   2. mktarget.sh で <dir>（省略時は一時フォルダ）に使い捨ての対象を作り、<dir>.origin.git を origin に付ける
 #      （Archon は run ごとに切る worktree の元を remote から取るため）。
 #   3. その中で archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
@@ -17,7 +17,7 @@ set -eu
 DEV_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
-export WORKS_DEV_HOME
+export WORKS_DEV_HOME WORKS_DEV_MODEL
 
 # 開発の家・対象・origin が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"
@@ -44,14 +44,6 @@ if [ -z "${CLAUDE_BIN_PATH:-}" ]; then
   fi
 fi
 export CLAUDE_BIN_PATH
-
-mkdir -p "$WORKS_DEV_HOME/archon-home"
-cat >"$WORKS_DEV_HOME/archon-home/config.yaml" <<EOF
-# works/dev/real-run.sh が書く、隔離した開発用の Archon の全体設定
-assistants:
-  claude:
-    model: $WORKS_DEV_MODEL
-EOF
 
 if [ "$#" -ge 1 ]; then
   DIR="$(sh "$DEV_DIR/mktarget.sh" "$1")"
@@ -88,8 +80,9 @@ if not runs:
     sys.exit("real-run.sh: darkfactory の run が見つからない")
 r = runs[0]
 # 承認・続きも AI の節を回すので、認証（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM）を設定した殻で打つ
-go = "cd {} && WORKS_DEV_HOME={} CLAUDE_BIN_PATH={} sh {} workflow".format(
-    os.environ["DIR"], os.environ["WORKS_DEV_HOME"], os.environ["CLAUDE_BIN_PATH"], os.environ["ARCHON_SH"])
+go = "cd {} && WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} sh {} workflow".format(
+    os.environ["DIR"], os.environ["WORKS_DEV_HOME"], os.environ["WORKS_DEV_MODEL"], os.environ["CLAUDE_BIN_PATH"],
+    os.environ["ARCHON_SH"])
 print("run id:", r.get("id"))
 print("状態:", r.get("status"))
 print("修正の差分がある worktree:", r.get("working_path"))
