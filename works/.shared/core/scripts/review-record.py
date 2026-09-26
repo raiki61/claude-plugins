@@ -556,14 +556,8 @@ def validate_questions(rec, path, unit_index):
         # **2 軸目を記録から判定する。** 決着した問い（`decided` / `resolved`）は、出どころの
         # 欠陥がまだ開いているかで書き分ける。書き手の申告に任せると、`resolved` を 1 件置いて
         # stuck の振り分け要求を黙らせる形（実測で再現した穴）がそのまま戻る。
-        if status in ("decided", "resolved") and domain == "unit" and origin in unit_index:
-            still_open = is_open(rec["units"][unit_index[origin]])
-            if status == "resolved" and still_open:
-                fail(f"{where}: 出どころが [block] / do-now のまま resolved（決着したが欠陥が"
-                     "残っているなら decided。resolved は出どころも閉じた問いだけ）")
-            if status == "decided" and not still_open:
-                fail(f"{where}: 出どころが閉じているのに decided（欠陥が記録から消えたなら"
-                     "resolved にして、次の周の台帳から降ろせ）")
+        for msg in settled_state_errors(q, rec["units"]):
+            fail(f"{where}: {msg}")
         # **開き禁止は域の枝の外に置く。** `NO_OPEN_ORIGIN` の 2 種類はどちらも域が unit なので
         # 中に置いても今は等価だが、非 unit 域の種類をこの表に足した瞬間に柵が黙って外れる
         # （`depends` は域に依らずユニットの key なので、その種類でも開いたユニットを指せる）。
@@ -631,6 +625,72 @@ def is_open(u):
     )
 
 
+# **判定役が書く欄（units と questions）だけで決まる規則は、違反の文の一覧を返す述語にして置く。** 検証器は周の最後に
+# 1 度だけ当たるので、式が関数の本文に埋まっていると、graphloops の rules が判定の受け付け（役に返させ直せる時点）で
+# 同じ規則を当てられず、判定の節を済ませた後の記録の段で初めて止まった（実測 2026-09-24 の stuck_unlisted）。
+# 判定の時点で当てる述語の一覧の正本は JUDGE_TIME_RULES、当てない規則の理由は FAIL_LAYERS（どちらも下）。
+def settled_state_errors(q, units):
+    """決着した問い（decided / resolved）の状態が、出どころのユニットがまだ開いているかと食い違っていないか。
+    2 軸目（出どころの欠陥が開いて残っているか）は欄にせず記録から判定する（QUESTION_STATUS の注記）"""
+    k = QUESTION_KINDS.get(q.get("kind"))
+    status = q.get("status")
+    by_key = {u.get("key"): u for u in units}
+    if not k or k.domain != "unit" or status not in ("decided", "resolved") or q.get("origin") not in by_key:
+        return []
+    still_open = is_open(by_key[q["origin"]])
+    if status == "resolved" and still_open:
+        return ["出どころが [block] / do-now のまま resolved（決着したが欠陥が"
+                "残っているなら decided。resolved は出どころも閉じた問いだけ）"]
+    if status == "decided" and not still_open:
+        return ["出どころが閉じているのに decided（欠陥が記録から消えたなら"
+                "resolved にして、次の周の台帳から降ろせ）"]
+    return []
+
+
+def reopened_without_evidence(units, ledger):
+    """前の周までに defer と確定したキー（ledger: key → (理由, 周)）が、新しい根拠（reopen_evidence）なしに
+    [block] / do-now へ戻っていないか"""
+    out = []
+    for u in units:
+        if u["key"] in ledger and is_open(u) and not u.get("reopen_evidence"):
+            why, at = ledger[u["key"]]
+            out.append(f"既受容（defer）のキーが再び {u['label']} になったが "
+                       f"reopen_evidence が無い: {u['key']}（round {at} の defer 理由: {why}）")
+    return out
+
+
+def dropped_questions(prev_questions, questions):
+    """前の周に台帳から降りていなかった問い（TRACKED）が、今の周の台帳から黙って消えていないか"""
+    now_q = {q.get("key") for q in questions}
+    return [f"前ラウンドの問い（{q['status']}）が今ラウンドの台帳に"
+            f"無い: {q['key']}（再審して held / resolved / escalate のどれかで書け）"
+            for q in prev_questions if q.get("status") in TRACKED and q.get("key") not in now_q]
+
+
+# 判定の時点（graphloops の rules の、判定の節の受け付け）でも当てる述語。rules はこの名前で import して呼ぶ
+# （写さない）。一覧に在る名前を rules が呼んでいることは graphloops の pytest（test_review_rules）が見る
+JUDGE_TIME_RULES = ("settled_state_errors", "reopened_without_evidence", "dropped_questions",
+                    "stuck_unlisted", "origin_not_awaiting")
+# fail を呼ぶ関数ごとに、その規則が判定の時点に届いているか・届かない理由。fail を持つ関数とこの表の鍵が一致することは
+# graphloops の pytest が AST で見る（関数を足して表を書き忘れると赤）。棚卸しの粒度は関数で、文言ごとではない——
+# 文言は直すたびに変わり、表が 2 つ目の正本として腐る
+FAIL_LAYERS = {
+    "require_fields": "欄の有無と型。判定の節の返答は engine が schema（required と型）で先に当てる。素材と R1〜R4 の欄は判定の後に書かれる",
+    "validate_carry": "持ち越しの from_round。素材と R1〜R4 は判定の後に書かれ、判定の時点に入力が無い",
+    "validate": "記録の最上位・素材・R1〜R4・units の形。units の label・disposition・defer の理由は judge_output が LABELS で当てる。"
+                "units の key の重複も judge_output が当てる。ほかは判定の時点に入力が無い（記録を組むのは engine）",
+    "validate_questions": "問いの台帳の 1 周内の整合。種類・状態・状態ごとの欄・options・depends・開き禁止・出どころの域は judge_output が"
+                          "語彙を import して当てる。決着の状態と出どころの開きは settled_state_errors、素材を出どころにする人待ちは "
+                          "origin_not_awaiting（check_record。全部の done）。問いの key の欠け・重複は判定の時点で当てていない",
+    "validate_against": "前の周との突合。base と持ち越しの連鎖は判定の時点に入力が無い。defer の再浮上は reopened_without_evidence、"
+                        "問いの連続は dropped_questions（どちらも履歴を読む判定の節）。台帳が動いた周の R1 は判定の後の R1 の欄",
+    "question_origins_exist": "未決の問いの出どころの実在。judge_output が targets で units と defer 台帳に当てる",
+    "load_dir": "記録のディレクトリの名前と連番。記録を書くのは engine（周の記録の段）で、判定役は書かない",
+    "main": "引数の形と、3 周続く [block] の振り分け（stuck_unlisted。履歴を読む判定の節で当てる）",
+    "<module>": "想定外の例外を exit 2 に写す境界（規則ではない）",
+}
+
+
 def validate_against(rec, prev, carried=None):
     """前ラウンドとの突合のうち、記録の不正（2）に倒すもの。"""
     if prev["base"] != rec["base"]:
@@ -682,23 +742,13 @@ def validate_against(rec, prev, carried=None):
         for u in prev["units"]
         if u["label"] == "suggest" and u.get("disposition") == "defer"
     })
-    for u in rec["units"]:
-        if u["key"] in ledger and is_open(u) and not u.get("reopen_evidence"):
-            why, at = ledger[u["key"]]
-            fail(
-                f"round {rec['round']}: 既受容（defer）のキーが再び {u['label']} になったが "
-                f"reopen_evidence が無い: {u['key']}（round {at} の defer 理由: {why}）"
-            )
+    for msg in reopened_without_evidence(rec["units"], ledger):
+        fail(f"round {rec['round']}: {msg}")
 
     # 問いの台帳の連続性。黙って落ちるのは「消えた [block]」と同じ形で、聞くはずだった問いが
     # 誰にも聞かれずに終わる。
-    now_q = {q["key"] for q in rec["questions"]}
-    for q in prev["questions"]:
-        if q["status"] in TRACKED and q["key"] not in now_q:
-            fail(
-                f"round {rec['round']}: 前ラウンドの問い（{q['status']}）が今ラウンドの台帳に"
-                f"無い: {q['key']}（再審して held / resolved / escalate のどれかで書け）"
-            )
+    for msg in dropped_questions(prev["questions"], rec["questions"]):
+        fail(f"round {rec['round']}: {msg}")
     # **台帳を監査する経路は R1 しか無い。** 再発火条件の正本は手順書 P-R の R1 で、そこに
     # 台帳の条件が無かった理由と実測もあちらが持つ。散文の条件に 1 行足しても読み落としは
     # 誰にも見えないので、機械の側からも縛る。

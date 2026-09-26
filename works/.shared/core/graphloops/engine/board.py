@@ -3,24 +3,107 @@ import json
 import os
 import pathlib
 
-from .rules import load_rules, registry
+from .rules import load_rules, registry, validator_module
 from . import util
-from .util import die, get_path, read_json, write_json, now
+from .util import BoardConflict, Reject, die, get_path, read_json, write_json, now
 from .schema import load_graph
 from .validator import run_validator
+from .render import Renderer
 
 
 def empty_round(n):
-    return {"round": n, "done": {}, "na": {}, "skipped": {}, "empty": [], "instances": {}, "item_counts": {}}
+    return {"round": n, "done": {}, "na": {}, "skipped": {}, "stopped": {}, "empty": [], "instances": {}, "item_counts": {}}
 
 
-# cond の op → その op に**要る鍵**。op の一覧と必須鍵を別々に持っていたとき、any_field_eq の field 欠落と
-# in の value 欠落が graphcheck を 0 件で通り、実行時に素の KeyError か恒偽になった。1 本の表を engine が持ち、
-# eval_cond と graphcheck の check_cond が同じ物を読む（写しを作らない）
-COND_OP_KEYS = {"eq": ("value",), "ne": ("value",), "gt": ("value",), "lt": ("value",),
-                "nonempty": (), "empty": (), "in": ("value",), "any_field_eq": ("value", "field")}
-COND_OPS = tuple(COND_OP_KEYS)  # 使える op の一覧（die の文面で「使えるのは」を出すため。照合は COND_OP_KEYS 側）
-COND_KEYS = frozenset({"all", "any", "not", "builtin", "path", "op", "value", "default", "field"})  # eval_cond が読む鍵。graphcheck が import
+# 節の条件（cond）は rules の名前付きの関数（CONDS）で、graph には名前だけを書く。関数は読む欄を宣言し（cond_reads）、
+# engine は宣言した欄だけが見える入れ物（CondView）を渡して（真偽, 理由の文）を受け取る。以前は graph の JSON の上の
+# 小さな言語（all / any / not / path+op+default / builtin）を engine が解釈し、graphcheck が同じ言語を検査していた
+# ——綴り違い・default の読み落とし・prev. の検査漏れのたびに検査を継ぎ足し、loop.・record. の葉は最後まで検査の外だった。
+# 条件の文脈で読める前置き。Board.cond はこの表から条件の文脈を組み（engine の ctx から引き、cur だけ足す）、graphcheck が
+# import して宣言の頭がこの中に在るかを見る（写しを作らない）。cur.<節> は「今の周にその節が出した出力」（out.<節> は周を問わない
+# 最新、prev.<節> は前の周までの最新）。照らす宣言を持たない前置き（inputs・run・thickness・item）は条件から読ませない
+COND_NODE_HEADS = ("out", "prev", "cur")   # 下に <節>.<欄> を持つ前置き（graphcheck が節の schema で照らす）
+COND_HEADS = ("record", *COND_NODE_HEADS, "round", "rd", "loop")
+_MISSING = object()
+
+
+class CondView:
+    """条件の関数に渡す入れ物。**宣言した欄だけが見える。**
+
+    `v(path, default)` で読む。宣言した path そのものか、その下（宣言 `loop.last_material` は
+    `loop.last_material.x.status` を読める）だけ通し、宣言の外は die。解決できない path は default を
+    渡していれば default、無ければ die——偽に倒すと綴り違いが『条件が成り立たない』に化け、走らなかった節の
+    素材に事実と逆の理由が書かれたまま収束まで通る（実測: cond の path を 1 文字変えても graphcheck は exit 0、
+    回すと gate_efficacy が『検証ゲートを新設していない』で not_applicable になった）。
+    `validator` は検証器の module（状態ではなくコード）——読むときに初めて引く（検証器の無い run では、読んだ条件だけが
+    Reject で落ちる。Reject は loop.py が制御された拒否として出す）。`unevaluable(trigger, why)` は『この条件は測れなかった』の痕跡を
+    周ごとに 1 行だけ state に残す口（偽を返すのは同じでも、測れなかった事実を残す）。
+
+    内部の欄は下線 2 本の名前（名前の変換が掛かる）に置く: 条件の関数が `v._ctx` のような自然な綴りで文脈を直に読むと
+    AttributeError で落ち、宣言の検査をすり抜けない。Python は属性を封じられないので、`getattr(v, "_CondView__ctx")`・
+    `vars(v)` のような意図した迂回までは止めない（ruff の SLF001 も属性の綴りしか見ない）"""
+
+    def __init__(self, name, reads, ctx, validator=None, state=None, overlay=None):
+        self.__name, self.__reads, self.__ctx = name, tuple(reads), ctx
+        self.__validator = validator     # module か、module を返す引き手（Board.cond は引き手を渡す）
+        self.__state = state
+        self.__overlay = overlay or {}   # {path: 値}——その path（と下の欄）だけ、盤面の値の代わりにこの値を見せる
+
+    def __call__(self, path, default=_MISSING):
+        if not Renderer({}, self.__reads).allowed(path):   # 前置き一致は Renderer が正本（pointers.widen と同じ）
+            die(f"cond '{self.__name}' が宣言していない欄 '{path}' を読んだ（宣言: {list(self.__reads)}）"
+                "——読む欄は cond_reads に書け（graphcheck が宣言を前の節の出力と突き合わせる）")
+        # 重ね書きした path の下は重ね書きの値だけで解決する（引けなければ default か die——盤面の本物の値へ落とさない）
+        over = [(k, val) for k, val in self.__overlay.items() if path == k or path.startswith(k + ".")]
+        try:
+            if over:
+                k, val = over[0]
+                return val if path == k else get_path(val, path[len(k) + 1:])
+            return get_path(self.__ctx, path)
+        except KeyError:
+            if default is _MISSING:
+                die(f"cond '{self.__name}' の欄 '{path}' が解決できない（綴り違いか、その欄をまだ誰も書いていない。"
+                    "意図して未書き込みを見るなら default を渡せ）")
+            return default
+
+    @property
+    def validator(self):
+        if callable(self.__validator):
+            self.__validator = self.__validator()
+        return self.__validator
+
+    def unevaluable(self, trigger, why):
+        """条件の部品 trigger が測れなかった痕跡（同じ周に同じ trigger は 1 行だけ——1 回の next で条件は何度も評価される）"""
+        if self.__state is None:
+            return
+        rnd, seen = self.__state.get("round"), self.__state.setdefault("unevaluable", [])
+        if not any(u["trigger"] == trigger and u["round"] == rnd for u in seen):
+            seen.append({"trigger": trigger, "round": rnd, "why": why})
+
+
+def run_cond(name, fn, ctx, validator=None, state=None, overlay=None):
+    """条件の関数 fn を、宣言した欄だけが見える入れ物で呼ぶ唯一の口 ——(真偽, 理由の文)。
+    Board.cond と台本の真偽表が同じ 1 本を通る（宣言の有無・返りの形の検査を台本の側で写さない）"""
+    reads = getattr(fn, "reads", None)
+    if not isinstance(reads, tuple):
+        die(f"cond '{name}' が読む欄を宣言していない（rules で cond_reads(...) を付けよ）")
+    r = fn(CondView(name, reads, ctx, validator, state, overlay))
+    if not (isinstance(r, tuple) and len(r) == 2 and isinstance(r[0], bool) and isinstance(r[1], str) and r[1].strip()):
+        die(f"cond '{name}' の返りが（真偽, 理由の文）でない: {r!r}")
+    return r
+
+
+def refuse_expression_conds(graph_path, nodes):
+    """**条件を式（JSON の木）で書いていた版の graph を指す盤面は開かない。** 盤面は graph のパスを持つので、
+    旧い engine の置き場で init した run を条件を関数に移した engine で開くと、旧い rules の読み込みか Board.cond の
+    『CONDS に無い』で止まり、graph の書き手向けの案内になる。load_rules より前に形式で見分け、開く engine を名指して止める"""
+    old = sorted(nid for nid, n in nodes.items() for k in ("cond", "applies_cond") if k in n and not isinstance(n[k], str))
+    if not old:
+        return
+    loop = pathlib.Path(graph_path).resolve().parent.parent / "scripts" / "loop.py"
+    where = f"graph と同じ置き場の engine（{loop}）で続けるか" if loop.is_file() else "この graph を作った版の engine で続けるか"
+    die(f"この盤面の graph（{graph_path}）は条件を式で書いていた版の形式で（節 {', '.join(old[:3])}{' ほか' if len(old) > 3 else ''}）、"
+        f"条件を rules の関数に移したこの engine では開けない。{where}、この engine で init し直せ（盤面は書き換えていない）")
 
 
 def node_of(path, nodes):
@@ -42,16 +125,21 @@ class Board:
         # （実測 2026-09-13: 別リポジトリの cwd から done を実行して record.base が別リポジトリの HEAD になった）
         util.GIT_CWD = (self.state.get("inputs") or {}).get("cwd")
         self.seen_rev = self.state.get("rev", 0)  # 読んだ時点の版。save がこれと突き合わせる
+        self.halted_at_read = bool(self.state.get("halted"))  # 読んだ時点で止めた run か（save が見る）
         self.record = read_json(self.dir / "record.json")
         self.graph, why = load_graph(self.state["graph"])
         if why:
             die(why)
         self.nodes = self.graph["nodes"]
+        refuse_expression_conds(self.state["graph"], self.nodes)
         self.rules = load_rules(self.state["graph"], self.graph)
 
     # -- 保存と痕跡
+    allow_halted = False   # 止めた run（halted）の盤面に書いてよい呼び出しの印（手当ての patch・記録の仕上げ・launch の締め）
+
     def save(self):
-        """**読んでから書くまでに別のプロセスが盤面を進めていたら、上書きせず落とす。**
+        """**読んでから書くまでに別のプロセスが盤面を進めていたら、上書きせず落とす。** 周の途中の問いで止めた run（halted）
+        への書き込みも、ここで拒む（add・skip・thicken・launch・done・relaunch の全部がこの 1 か所を通る。印の立つ呼び出しだけ通す）。
 
         state も record も丸ごと読んで丸ごと書き戻すので、2 つの回す側が同じ run に付くと後勝ちで
         先の完了が消える。実測: 3 本の done を同時に呼んだところ 3 本とも exit 0・「受け付けた」を
@@ -62,26 +150,43 @@ class Board:
         record を先に書くのは、版の繰り上げを commit の印にするため——先に state を書くと、記録の
         書き込みが落ちた run を次のプロセスが「進んだ」と読む。
         """
+        if self.halted_at_read and not self.allow_halted:
+            raise Reject(f"この run は周の途中の問いで止めた（halted: {(self.state.get('halted') or {}).get('node')}）——盤面は書かない"
+                         "（止めた run の記録は進めない。手当ては loop.py patch）")
         cur = read_json(self.dir / "state.json").get("rev", 0)
         if cur != self.seen_rev:
             # **名乗る範囲は保護できる範囲まで。** 守っているのは盤面の 2 本（state.json / record.json）で、
             # cmd_done はここへ来るまでに out/r<N>/<節>.json・save_text_as の本文・trace.jsonl を既に書いている
             # ——「この呼び出しは何も書いていない」と書いていたとき、読み手には副作用が無いと読めた（実測 2026-09-13）
-            die(f"盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
-                "同じ run を回している。**盤面（state.json / record.json）は書いていない**が、out/ と trace.jsonl には"
-                "この呼び出しの書き込みが残っている。1 つの盤面に 2 人で付くな（続けるなら next からやり直せ）")
+            raise BoardConflict(f"盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
+                                "同じ run を回している。**盤面（state.json / record.json）は書いていない**が、out/ には"
+                                "この呼び出しの書き込みが残りうる（trace.jsonl の行は、保存まで控えた呼び出しなら書いていない）。"
+                                "1 つの盤面に 2 人で付くな（続けるなら next からやり直せ）")
         self.seen_rev += 1
         self.state["rev"] = self.seen_rev
         write_json(self.dir / "record.json", self.record)
         write_json(self.dir / "state.json", self.state)
+        # 保存まで控えていた trace の行（_board_update が当て直す間は書かない——当て直しのたびに行が重なる）
+        for row in self.held_trace or []:
+            self._write_trace(row)
+        self.held_trace = None
 
     def run_validator(self, target=None):
         """検証器を回す（rules からも呼ぶ。INJECT の道具と同じ公開面に揃える——無名関数を属性に束ねない）。"""
         return run_validator(self, target)
 
+    held_trace = None   # list なら trace の行を save まで控える（commands._board_update が当て直しの間だけ立てる）
+
     def trace(self, op, **kw):
+        row = {"t": now(), "op": op, **kw}
+        if self.held_trace is not None:
+            self.held_trace.append(row)
+        else:
+            self._write_trace(row)
+
+    def _write_trace(self, row):
         with open(self.dir / "trace.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps({"t": now(), "op": op, **kw}, ensure_ascii=False) + "\n")
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     # -- graph が宣言する語（engine は持たない）
     @property
@@ -165,7 +270,8 @@ class Board:
         return removed
 
     def node_state(self, nid):
-        """done / skipped / empty / na は依存を満たす。pending は満たさない。
+        """done / skipped / stopped / empty / na は依存を満たす。pending は満たさない。
+        stopped は人が止めた（loop.py stop）ので走らせない節——省いた（skipped）と別の印で持つ（報告の『省略した機構』に混ぜない）。
 
         **once の節は done_ever に載っていれば done を返す**——done_ever は『もう出さない節』の集合で、
         終わり方（done か skipped か）は持たない。周をまたぐと done と skipped の区別は消える（素材の
@@ -178,6 +284,8 @@ class Board:
             return "na"
         if nid in rd["skipped"]:
             return "skipped"
+        if nid in rd.get("stopped", {}):   # 止める口より前に作った周は欄を持たない
+            return "stopped"
         if nid in rd["empty"]:
             return "empty"
         if self.nodes[nid].get("once") and nid in self.state["done_ever"]:
@@ -201,61 +309,23 @@ class Board:
         tiers = n.get("active_in")
         if tiers and self.state["thickness"] not in tiers:
             return f"active_in: {self.state['thickness']} 段では走らせない（{'/'.join(tiers)} だけ）"
-        cond = n.get("cond")
-        if cond is not None and not self.eval_cond(cond):
-            return f"cond: {n.get('when', json.dumps(cond, ensure_ascii=False))} が成り立たない"
+        if n.get("cond") is not None:
+            ok, why = self.cond(n["cond"])
+            if not ok:
+                return f"cond {n['cond']}: {why}"
         return None
 
-    def eval_cond(self, c):
-        if "all" in c:
-            return all(self.eval_cond(x) for x in c["all"])
-        if "any" in c:
-            return any(self.eval_cond(x) for x in c["any"])
-        if "not" in c:
-            return not self.eval_cond(c["not"])
-        if "builtin" in c:
-            fn = registry(self.rules, "CONDS").get(c["builtin"])
-            if not fn:
-                die(f"cond.builtin '{c['builtin']}' が rules に無い")
-            return bool(fn(self))
-        # 解決できない path は die。偽に倒すと graph の綴り違い・欄の改名が『条件が成り立たない』に化け、
-        # 走らなかった節の素材に事実と逆の理由が書かれたまま収束まで通る（実測: cond の path を 1 文字変えても
-        # graphcheck は exit 0、回すと gate_efficacy が『検証ゲートを新設していない』で not_applicable になった）。
-        # 未書き込みの欄を意図して見る節は cond に default を書く。
-        try:
-            v = get_path(self.ctx(), c["path"])
-        except KeyError:
-            if "default" not in c:
-                die(f"cond の path '{c['path']}' が解決できない（綴り違いか、その欄をまだ誰も書いていない。"
-                    f"意図して未書き込みを見るなら cond に \"default\" を書け）")
-            v = c["default"]
-        op, want = c.get("op", "eq"), c.get("value")
-        if op not in COND_OP_KEYS:
-            die(f"cond の op が不明: {op}（使えるのは {'/'.join(COND_OPS)}）")
-        missing = [k for k in COND_OP_KEYS[op] if k not in c]
-        if missing:
-            die(f"cond の op '{op}' に要る鍵が無い: {missing}（graphcheck が静的に落とすのと同じ表）")
-        if op == "eq":
-            return v == want
-        if op == "ne":
-            return v != want
-        if op == "gt":
-            return isinstance(v, (int, float)) and v > want
-        if op == "lt":
-            return isinstance(v, (int, float)) and v < want
-        if op == "nonempty":
-            return bool(v)
-        if op == "empty":
-            return not v
-        if op == "in":
-            return v in (want or [])
-        if op == "any_field_eq":
-            return isinstance(v, list) and any(isinstance(x, dict) and x.get(c["field"]) == want for x in v)
-        # **最後の腕に op 名を書く。** 無印の return を受け皿にしていたとき、表（COND_OP_KEYS）に op を足して
-        # この連鎖に足し忘れると、例外でなく any_field_eq の意味で静かに評価された（表は 8 個・連鎖は 7 個を
-        # 明示）。:162-165 が path の解決失敗を偽でなく die にしたのと同じ理由——「知らない」を「成り立たない」に
-        # 倒すと、綴り違いが条件の不成立に化けて収束まで通る。表と連鎖のずれは、ここで初めて音が出る
-        die(f"cond の op '{op}' は表（COND_OP_KEYS）に在るが eval_cond の分岐に無い——engine の表と実装がずれている")
+    def cond(self, name, overlay=None):
+        """rules の条件の関数 name（CONDS の名前）を、宣言した欄だけが見える入れ物で呼ぶ ——(真偽, 理由の文)。
+        engine は中身を知らない（名前で呼び、宣言した欄を渡し、返りの形だけ見る）。overlay（{path: 値}）は rules が
+        『この欄が違っていたら』を測るための重ね書き（例: 入口の印を外した文脈）——盤面は書き換えない"""
+        fn = registry(self.rules, "CONDS").get(name)
+        if fn is None:
+            die(f"cond '{name}' が rules の CONDS に無い（graph の cond には関数の名前だけを書く）")
+        full = {**self.ctx(), "cur": {nid: self.output_of_round(nid, self.round) for nid, info in self.state["outputs"].items()
+                                     if info.get("round") == self.round}}
+        ctx = {h: full[h] for h in COND_HEADS}
+        return run_cond(name, fn, ctx, lambda: validator_module(self), self.state, overlay)
 
     # -- プロンプトと条件の文脈
     def output_of_round(self, nid, rnd):
@@ -277,7 +347,7 @@ class Board:
     def outputs(self, before_round=None):
         """節ごとの最新の出力。before_round を渡すと、それより前の周の出力だけ（prev）。
 
-        ファイル 1 本につき 1 度しか読まない（同じ Board の間）。cond の葉ごとに ctx を組み直すので、
+        ファイル 1 本につき 1 度しか読まない（同じ Board の間）。条件の関数を呼ぶたびに ctx を組み直すので、
         memo が無いと 1 回の next で同じ本文を何度も通る（実測 2026-09-12: 出力 29 件・463 KB の周で
         read_json が 1,404 回）。盤面はこのプロセスの中では engine しか書かないので、読み直す必要が無い。
         """

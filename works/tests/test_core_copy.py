@@ -26,7 +26,17 @@ class TestCoreCopy(unittest.TestCase):
         self.assertTrue(hasattr(rules, "add"))
 
     def test_copied_from_names_commit(self):
-        self.assertIn("fbd40e3", (CORE / "COPIED_FROM").read_text())
+        lines = (CORE / "COPIED_FROM").read_text().splitlines()
+        self.assertEqual(lines[0].split()[0], "a1202d0")   # graphloops 0.21.0
+
+    def test_copied_from_lists_existing_files(self):
+        """COPIED_FROM の 2 行目以降に並ぶ写した物が、全部 core の下に在る（0.21.0 で足した 4 本を含む）"""
+        listed = [ln.split()[0] for ln in (CORE / "COPIED_FROM").read_text().splitlines()[1:] if ln.strip() and not ln.startswith("#")]
+        for rel in ("graphloops/engine/declared.py", "graphloops/engine/intake.py", "graphloops/engine/pointers.py",
+                    "graphloops/rules/policy_input.py"):
+            self.assertIn(rel, listed)
+        for rel in listed:
+            self.assertTrue((CORE / rel).is_file(), rel)
 
     def test_manifest(self):
         m = json.loads((ROOT / "archon-plugin.json").read_text())
