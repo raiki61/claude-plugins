@@ -15,19 +15,20 @@ works_dev_copy_pack() {
   find "$2" \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 | xargs -0 rm -rf
 }
 
-# works_dev_show_run <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]:
+# works_dev_show_run <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]:
 # 一番新しい darkfactory の run を引き、run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）・
 # 審査した修正の差分（fix.diff。承認して審査が終わった後に在る）を出す。3 つめを渡せば、その差分を git apply で
-# 取り込むコマンドも出す。問い合わせは認証が要らないので認証を読ませない。
+# 取り込むコマンドも出し、修正が pack の写し（.archon/）に触れていれば取り込まないよう 1 行で注意する
+# （関所で止まっている間は worktree の変更で、審査の後は fix.diff で見る）。問い合わせは認証が要らないので認証を読ませない。
 # 修正は対象ではなく、Archon が run ごとに切った worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
 # WORKS_DEV_HOME・WORKS_DEV_MODEL・CLAUDE_BIN_PATH を export 済みで呼ぶ。
 works_dev_show_run() {
-  WORKS_DEV_NO_AUTH=1 sh "$1" workflow runs --json 2>/dev/null |
-    ARCHON_SH="$1" DIR="$2" BRING_BACK="${3:-}" python3 -c '
-import json, os, sys
+  WORKS_DEV_NO_AUTH=1 sh "$2" workflow runs --json 2>/dev/null |
+    CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" python3 -c '
+import json, os, subprocess, sys
 runs = [r for r in json.load(sys.stdin).get("runs", []) if r.get("workflow_name") == "darkfactory"]
 if not runs:
-    sys.exit("darkfactory の run が見つからない")
+    sys.exit(os.environ["CALLER"] + ": darkfactory の run が見つからない")
 r = runs[0]
 # 承認・続きも AI の節を回すので、認証（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM）を設定した殻で打つ
 go = "cd {} && WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} sh {} workflow".format(
@@ -43,5 +44,15 @@ print("失敗や中断から続ける:", go, "resume", r.get("id"))
 print("審査した修正の差分（承認して審査が終わった後に在る）:", diff)
 if os.environ["BRING_BACK"]:
     print("差分を元のリポジトリへ取り込む:", "git -C {} apply {}".format(os.environ["BRING_BACK"], diff))
+    touched = False
+    if os.path.isfile(diff):
+        with open(diff, encoding="utf-8", errors="replace") as f:
+            touched = any(l.startswith(("diff --git a/.archon/", "--- a/.archon/", "+++ b/.archon/")) for l in f)
+    elif os.path.isdir(r.get("working_path") or ""):
+        st = subprocess.run(["git", "-C", r["working_path"], "status", "--porcelain", "--", ".archon"],
+                            capture_output=True, text=True)
+        touched = bool(st.stdout.strip())
+    if touched:
+        print("注意: 修正が works/ でなく pack の写し（.archon/）に触れている。その部分は元のリポジトリへ取り込まない")
 '
 }

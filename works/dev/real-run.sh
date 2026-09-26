@@ -71,5 +71,5 @@ echo "workflow run の終了コード: $run_status"
 
 # run id・状態・修正の差分がある worktree・次に打つコマンドを出す（lib.sh）
 . "$DEV_DIR/lib.sh"
-works_dev_show_run "$DEV_DIR/archon.sh" "$DIR"
+works_dev_show_run real-run.sh "$DEV_DIR/archon.sh" "$DIR"
 exit "$run_status"

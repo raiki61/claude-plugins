@@ -3,13 +3,15 @@
 #
 # 自分食い: このリポジトリ自身を対象に、ライン darkfactory を本物の AI で 1 回回す（費用が掛かる。回す前に持ち主の了承を取る）。
 #   1. このリポジトリの今の HEAD（commit 済みの物だけ。手元の変更は入らない）を <dir>/repo に clone し、枝 dogfood-base を切る。
-#   2. works/ を project pack として .archon/workflows/works に写し（tests/・dev/・docs/ は除く。lib.sh）、dogfood-base に commit する。
+#   2. clone の中の works/（HEAD の物）を project pack として .archon/workflows/works に写し
+#      （tests/・dev/・docs/ は除く。lib.sh）、dogfood-base に commit する。
 #   3. <dir>/origin.git に裸のリポジトリを作って origin にし、dogfood-base を push して origin の既定の枝にする
 #      （Archon は run ごとに切る worktree の元を origin の既定の枝から取るため）。
 #   4. 依頼を <dir>/request.json に写し（依頼の元が後で書き換わっても、回した物が残る）、clone の中で
 #      archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
 #   5. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）と、審査した差分（fix.diff）を
-#      このリポジトリへ git apply で取り込むコマンドを出す。
+#      このリポジトリへ git apply で取り込むコマンドを出す。修正が pack の写し（.archon/）に触れていれば 1 行で注意する。
+# <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（既定は opus。書くのは archon.sh）。
 # 認証は archon.sh と同じ（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM。既定の口座は無い）。
 # CLAUDE_BIN_PATH は real-run.sh と同じく隔離の前に解いて渡す。
@@ -64,6 +66,12 @@ SRC="$(git -C "$WORKS_DIR" rev-parse --show-toplevel)"
 REV="$(git -C "$SRC" rev-parse HEAD)"
 
 if [ "$#" -ge 3 ]; then
+  for used in repo origin.git request.json; do
+    if [ -e "$3/$used" ] || [ -L "$3/$used" ]; then
+      echo "dogfood.sh: <dir> に前の回の ${used} が在る（$3/${used}）。別の <dir> を使うか、要らなければ消す" >&2
+      exit 2
+    fi
+  done
   mkdir -p "$3"
   DIR="$(cd "$3" && pwd -P)"
 else
@@ -84,7 +92,13 @@ g -C "$REPO" config user.email "works-dev@example.invalid"
 g -C "$REPO" config user.name "works-dev"
 
 . "$DEV_DIR/lib.sh"
-works_dev_copy_pack "$WORKS_DIR" "$REPO/.archon/workflows/works"
+# 写すのは clone した HEAD の works/（元の作業ツリーの commit していない書き換え・未追跡は入れない）
+PACK_SRC="$REPO/${WORKS_DIR#"$SRC"/}"
+if [ ! -f "$PACK_SRC/archon-plugin.json" ]; then
+  echo "dogfood.sh: clone した HEAD に works が無い（${PACK_SRC}/archon-plugin.json）。works を commit してから回す" >&2
+  exit 2
+fi
+works_dev_copy_pack "$PACK_SRC" "$REPO/.archon/workflows/works"
 g -C "$REPO" add -A -- .archon/workflows/works
 g -C "$REPO" commit -q -m "chore: works を project pack として .archon/workflows/works に置く（自分食いの元）"
 
@@ -103,5 +117,5 @@ run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"
 
-works_dev_show_run "$ARCHON" "$REPO" "$SRC"
+works_dev_show_run dogfood.sh "$ARCHON" "$REPO" "$SRC"
 exit "$run_status"

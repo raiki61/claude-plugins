@@ -23,6 +23,7 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
   validate する工程が 0 本（名前の合わない YAML だけ・YAML 無し）の時も、glob の型の文字列を
   validate に渡さずに終了コード 1 になること。
 """
+import json
 import os
 import pathlib
 import re
@@ -433,24 +434,32 @@ class TestDevShell(unittest.TestCase):
     # ---- dogfood.sh（works 自身のリポジトリを対象にラインを回す）。AI の要らない所だけを偽の Archon で見る
     GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
-    def _dogfood(self, tmp, *args, **env_kw):
+    def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root="/out", runs_json=None, **env_kw):
         """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon で回す。
+        src には commit していない物（根の未追跡・works/ の中の書き換えと未追跡）を残す。
         偽の Archon は cwd・WORKS_DEV_NO_AUTH・引数（1 つずつ）をタブ区切りで記録し、`workflow runs --json` には
-        止まった run を 1 本返す。戻り値は (結果, 元のリポジトリ, 呼び出しの記録)。"""
+        runs_json（省略時は working_path・output_root の止まった run を 1 本）を返す。
+        戻り値は (結果, 元のリポジトリ, 呼び出しの記録)。"""
         src = tmp / "src"
         shutil.copytree(ROOT, src / "works", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
         subprocess.run(["git", "init", "-q", str(src)], check=True)
         subprocess.run(["git", "-C", str(src), "add", "-A"], check=True)
         subprocess.run(["git", "-C", str(src), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
-        (src / "uncommitted.txt").write_text("手元だけの変更\n")   # commit していない物は clone に入らない
+        # commit していない物は clone にも pack にも入らない
+        (src / "uncommitted.txt").write_text("手元だけの変更\n")
+        with (src / "works" / "archon-plugin.json").open("a") as f:
+            f.write("手元だけの書き換え\n")
+        (src / "works" / "darkfactory" / "scratch-untracked.txt").write_text("手元だけの未追跡\n")
         log = tmp / "calls.txt"
         fake = tmp / "fake-archon.sh"
-        runs = ('{"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",'
-                ' "working_path": "/wt/run-1", "output_root": "/out"}]}')
+        runs = runs_json or json.dumps({"runs": [{"id": "run-1", "workflow_name": "darkfactory", "status": "paused",
+                                                  "working_path": str(working_path),
+                                                  "output_root": str(output_root)}]})
+        (tmp / "runs.json").write_text(runs)
         fake.write_text(
             "#!/bin/sh\n"
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "$@"; echo; }} >> "{log}"\n'
-            f'case "$*" in "workflow runs --json") echo \'{runs}\' ;; esac\n'
+            f'case "$*" in "workflow runs --json") cat "{tmp / 'runs.json'}" ;; esac\n'
             "exit 0\n"
         )
         env = self._env(TMPDIR=str(tmp), WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
@@ -483,6 +492,9 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(git(repo, "status", "--porcelain"), "")
             self.assertFalse((repo / "uncommitted.txt").exists())
             pack = repo / ".archon" / "workflows" / "works"
+            # pack は clone した HEAD から写す（手元の works/ の書き換え・未追跡は入らない）
+            self.assertEqual((pack / "archon-plugin.json").read_text(), (ROOT / "archon-plugin.json").read_text())
+            self.assertFalse((pack / "darkfactory" / "scratch-untracked.txt").exists())
             self.assertTrue((pack / "archon-plugin.json").exists())
             self.assertTrue((pack / "darkfactory" / "darkfactory.yaml").exists())
             for d in ("tests", "dev", "docs"):
@@ -516,6 +528,69 @@ class TestDevShell(unittest.TestCase):
                 self.assertIn(f"workflow {verb} run-1", out)
             self.assertIn("WORKS_DEV_MODEL=opus", out)
             self.assertIn(f"git -C {src.resolve()} apply /out/artifacts/runs/run-1/board/fix.diff", out)
+            self.assertNotIn("注意", out)   # 差分も worktree も .archon/ に触れていない
+
+    def test_dogfood_warns_when_fix_touches_pack_copy(self):
+        """修正が works/ でなく pack の写し（.archon/workflows/works）を書き換えたら、取り込まないよう 1 行で注意する。
+        関所では worktree の変更で、審査の後は fix.diff で見る。"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            wt = tmp / "wt"
+            (wt / ".archon" / "workflows" / "works").mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(wt)], check=True)
+            (wt / ".archon" / "workflows" / "works" / "a.yaml").write_text("x\n")
+            subprocess.run(["git", "-C", str(wt), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(wt), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
+            board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
+            board.mkdir(parents=True)
+            cases = {
+                "worktree（関所で止まっている間）": ("wt", None),
+                "fix.diff（審査の後）": (None, "diff --git a/.archon/workflows/works/a.yaml b/.archon/workflows/works/a.yaml\n"),
+            }
+            for why, (touch_wt, diff) in cases.items():
+                with self.subTest(why):
+                    (wt / ".archon" / "workflows" / "works" / "a.yaml").write_text("y\n" if touch_wt else "x\n")
+                    (board / "fix.diff").unlink(missing_ok=True)
+                    if diff:
+                        (board / "fix.diff").write_text(diff)
+                    shutil.rmtree(tmp / "src", ignore_errors=True)
+                    result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / why),
+                                                       working_path=wt, output_root=tmp / "out")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    notes = [l for l in result.stdout.splitlines() if "注意" in l]
+                    self.assertEqual(len(notes), 1, result.stdout)
+                    self.assertIn(".archon/", notes[0])
+
+    def test_dogfood_refuses_used_dir(self):
+        """<dir> に前の回の clone か依頼が在れば、何も書かずに 1 行で止まる（前の回の依頼を上書きしない）。"""
+        for used in ("repo", "request.json", "origin.git"):
+            with self.subTest(used), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                (tmp / "req.json").write_text("[]\n")
+                dog = tmp / "dog"
+                dog.mkdir()
+                if used == "request.json":
+                    (dog / used).write_text("前の回の依頼\n")
+                else:
+                    (dog / used).mkdir()
+                result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(dog))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+                self.assertIn(used, result.stderr)
+                self.assertEqual(sorted(p.name for p in dog.iterdir()), [used])
+                if used == "request.json":
+                    self.assertEqual((dog / used).read_text(), "前の回の依頼\n")
+                self.assertEqual(calls, [])
+
+    def test_dogfood_names_itself_when_run_not_found(self):
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                               runs_json='{"runs": []}')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("dogfood.sh: darkfactory の run が見つからない", result.stderr)
 
     def test_dogfood_default_dir_is_under_tmpdir(self):
         with tempfile.TemporaryDirectory() as tmp_str:
