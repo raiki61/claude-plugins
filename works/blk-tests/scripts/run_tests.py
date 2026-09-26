@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """テストのコマンドを 1 回走らせる節（blk-tests の run）。
 
 INPUTS_CMD（節の with: の cmd）を対象リポジトリの根（cwd）で `bash -c` に渡し、標準出力と標準エラーを盤面の

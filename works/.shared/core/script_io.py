@@ -13,6 +13,10 @@ main(fn) が読む環境変数:
 ブロックのスクリプトは、次の前置きをそのまま写し、最後の 2 行の関数だけを替える:
 
 ```python
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 import sys
 from pathlib import Path
 
@@ -24,6 +28,9 @@ from accept import check_judge  # noqa: E402
 sys.exit(script_io.main(check_judge))
 ```
 
+- 頭の `# /// script` の塊（PEP 723。ファイルの頭、docstring より前）は、uv に対象の project を拾わせないため。Archon は
+  script の節を `uv run <パス>`（cwd は対象の worktree）で起こすので、塊が無いと対象が pyproject.toml を持つとき uv が
+  worktree に .venv と uv.lock を作り、対象を sync・build する（`tests/test_script_headers.py` が見る）。
 - `sys.dont_write_bytecode = True` は import する側が立てる。Python は import した物の .pyc を、その物の中の行が動く前に書く。
   だから script_io.py や accept.py の中で立てても、その物自身の __pycache__ は止まらない（ここで下に立てるのは、
   script_io を先に import した後で import される物のための念押し）。

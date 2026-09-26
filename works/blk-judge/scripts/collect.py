@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """判定のブロックの出口を組む。輪（judge-loop）の受け付けが盤面（$ARTIFACTS_DIR/board/）に書いた judgment.json を読み、
 {"ok", "open_units", "need_fix", "judgment_file", "one_shot"} を 1 行出して 0。
 

@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """ラインの最後にいつも走る節 finish（returns の節。Ruling R21）。run の後に人が見る物を 1 つの出口にまとめる。
 
 読む環境変数（Archon が節の with: から JSON の文字列で渡す）:

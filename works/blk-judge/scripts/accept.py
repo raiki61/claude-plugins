@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """判定役の返答の受け付け（check_judge）。拒否も終了コード 0 で {"ok": false, "reason": …} を 1 行出す（script_io の docstring）"""
 import sys
 from pathlib import Path

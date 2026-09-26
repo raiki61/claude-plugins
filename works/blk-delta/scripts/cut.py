@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """差分を切る節（accept.cut_delta）。修正が触った物を、審査役が読む形で盤面（$ARTIFACTS_DIR/board/）に置く:
 fix.diff（修正の差分）と delta-snapshot.json（切った時の作業ツリーの写し。受け付けが突き合わせる。Ruling R3）。
 出口: {"ok": true, "files": [触ったファイル], "diff_file": <fix.diff のパス>} を 1 行。

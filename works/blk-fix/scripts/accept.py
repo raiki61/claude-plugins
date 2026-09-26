@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """修正役の返答の受け付け（blk-fix の節 fix-accept）。
 
 core の check_fix（changes[].unit_key が盤面の judgment.json の直す義務の単位を覆うか）に通し、結果に changes を足して出す。

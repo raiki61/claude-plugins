@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """依頼の受け付け。INPUTS_REQUEST が指す JSON のファイル（cwd＝対象リポジトリの根からの相対か絶対）を読み、
 check_request（graphloops の add と同じ規則）に通して盤面（$ARTIFACTS_DIR/board/）の request.json に積む。
 続けて、判定役を起こす前の作業ツリーの写し（snapshot_tree）を盤面の judge-snapshot.json に置く。受け付け（check_judge）は

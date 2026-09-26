@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """修正のブロックの出口を集める（blk-fix の節 collect。returns の節）。
 
 読む環境変数:

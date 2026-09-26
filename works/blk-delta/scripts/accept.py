@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """審査役の返答を受け付ける節（accept.check_delta）。拒否も終了コード 0 で {"ok": false, "reason": ...} を 1 行出す。
 通れば盤面の delta-review.json に返答を書く。入口の環境変数は script_io の docstring。"""
 import sys

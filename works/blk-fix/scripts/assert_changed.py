@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """何も変えずに「済んだ」と言うのを止める検査（blk-fix の節 assert-changed。sdlc の assert-changed の考え方）。
 
 変わったファイル = git diff --name-only <base_rev> と未追跡のファイル（.gitignore に当たる物は外す。どちらも -z で読み、

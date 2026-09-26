@@ -177,6 +177,7 @@ nodes:
 - **サンドボックスの穴（塞げない）**: Claude Code のサンドボックスは、Claude Code 自身の一時フォルダ（`/private/tmp/claude-<uid>/`。`/tmp` は macOS では `/private/tmp` への symlink）への書き込みを Bash に許す。pack の側ではこれを塞げない。だから対象リポジトリ・その origin・開発の家（`WORKS_DEV_HOME`）はそこに置かない。開発の殻（`dev/archon.sh`・`dev/mktarget.sh`・`dev/real-run.sh`）は、それらが symlink を辿って `/private/tmp/claude-*` か `/tmp/claude-*` の下に解けると、終了コード 2 と 1 行の理由で止まる（`dev/guard.sh`）。
 - **期限**: AI の節の `idle_timeout` と bash・script の節の `timeout` は 20 日。2^31−1 ms（約 24.8 日）を超える値は Archon の検査を通るのに実行で即失敗するので、`tests/` で YAML の期限が上限の内かを確かめる。
 - **テストのコマンドは木ごと止める**: blk-tests の節 `run`（script の節 `run_tests`）はテストのコマンドを自分のプロセスグループで走らせ、run が止められたら（Ctrl-C・SIGTERM・期限・直下の親 uv の消失）背景の孫まで SIGTERM → 5 秒 → SIGKILL でグループが空になるまで止める（`.shared/core/tree_run.py`。graphloops の `role_run.py` と同じ形。Archon は直下の子しか止めず、孫が止めた後も作業ツリーに書いた——試作で実測）。uv が生きたまま Archon だけが kill -9 された回は気づかない（bash の節と同じ限界）。テストのコマンドには uv run が足した PATH の頭・VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH を外した環境を渡す。
+- **節のスクリプトは対象の project を拾わない**: Archon は script の節を `uv run <パス>`（cwd は対象の worktree）で起こす。`<blk>/scripts/*.py` は頭に PEP 723 の塊（`# /// script`・`requires-python = ">=3.10"`・`dependencies = []`）を持ち、uv は対象の pyproject.toml を見ずに自分の環境（`~/.cache/uv`）で起こす。worktree に .venv・uv.lock はできず、受け付けの節の中で対象の build も走らない（`tests/test_script_headers.py`）。
 - **止め方**: 前景の run を Ctrl-C（端末が SIGINT を送る）で止め、`archon workflow resume` で続ける（Archon の素の機能。試作で確かめた）。人の関所を持つラインは背景（`--detach`）で回せず、外から cancel もできない。止め札のファイル（ASF の `halt`）は次の段で考える。
 - **Archon への直し**: 試作の A〜D は使わない。素の版で回る形にする。
 

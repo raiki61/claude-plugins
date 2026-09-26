@@ -219,7 +219,8 @@ class TestTestsBlock(RepoCase):
         self.assertEqual(seen, {"PY": outside, "VENV": "", "DEPTH": ""})
 
     def test_command_does_not_inherit_target_project_venv(self):
-        # 対象が pyproject.toml を持つと uv run は対象の .venv でスクリプトを起こす。テストのコマンドにはその VIRTUAL_ENV を渡さない
+        # 対象が pyproject.toml を持っても、節のスクリプトは PEP 723 の塊で対象の .venv を使わない（test_script_headers）。
+        # 塊が外れて対象の .venv で起きた回にも、テストのコマンドには uv の VIRTUAL_ENV を渡さない
         (self.repo / "pyproject.toml").write_text('[project]\nname = "seed"\nversion = "0"\nrequires-python = ">=3.9"\n')
         seen, outside = self.uv_run_tests()
         self.assertEqual(seen, {"PY": outside, "VENV": "", "DEPTH": ""})

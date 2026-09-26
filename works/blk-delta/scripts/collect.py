@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """輪の後ろで出口を組む節。受け付けた審査の返答（盤面の delta-review.json）から
 {"ok": true, "faces": <穴の数>, "review_file": <delta-review.json のパス>, "diff_file": <fix.diff のパス>} を 1 行。
 review_file と diff_file は run の後に人が見る物（審査の返答と、審査した修正の差分。差分は節 cut が切った物）。
