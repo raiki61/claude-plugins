@@ -143,7 +143,7 @@ nodes:
 
 - 受け付けの出し直し: `loop_group`（`until_bash: test $accept.output.ok = true`・`fresh_context: false`・`max_iterations: 3`）。2 回目以降の役は同じ会話の続きで起き、拒んだ理由を `$LOOP_PREV.accept.output.reason` でプロンプトに貼る（試作で実走、REPORT.md 3 節 (c)）。上限を超えれば run は失敗で止まり、`archon workflow resume` で続きから回せる。
 - loop_group の出力は型を持てないので、輪の後ろに集める節を置く（本体のセッションのブロックの設計書 `S/blocks/BLOCKS.md` の 1 節の事実。S = 本体のセッションの scratchpad `/private/tmp/claude-1341252503/-Users-p03623-src-claude-plugins/799d1c5c-a888-4cdb-bf0a-ac1aea9c5577/scratchpad`）。
-- 判定役に渡す依頼は、graphloops の `add` と同じ findings の型（欄は `where`・`text` 必須、`mechanism`・`measured`・`false_positive_if` 任意）。起動の前に、依頼の欠け（問題・重要性・急ぎ度・成果・壊してはいけない条件・受け入れの基準）を確かめる検査を入口に置く（Archon の `archon-cli` スキルの起動前の確かめを取り入れる）。
+- 判定役に渡す依頼は、graphloops の `add` と同じ findings の型（欄は `where`・`text` 必須、`mechanism`・`measured`・`false_positive_if` 任意）。起動の前に、依頼の型を graphloops の `add` と同じ規則で確かめる節を入口に置き、AI を起こす前に止める。依頼の中身の欠け（問題・重要性・急ぎ度・成果・壊してはいけない条件・受け入れの基準。Archon の `archon-cli` スキルの起動前の確かめ）を見るのは AI の判断が要るので次の段。
 - 指示書は graphloops の `prompts/review-loop/` の p2.diagnose・p3.fix・p3.delta_review を元に、Archon の変数で書き直す。graphloops の指示書は engine の盤面の穴（`{{record.materials}}` など）を前提にしているので、1 本目で盤面に無い物（P1 の素材・前の周の記録・台帳）は削り、受け付けの規則が要求する欄（反証・class_query・precedents・one_shot_closes・questions）を書かせる部分は残す。
 - 範囲の外（次の段以降）: 修正案と事前審査（BLOCKS.md の R5）・修正の手直しと 2 回目の審査（R7 の 2 回目）・周の輪（2 周目以降）・前提（R1）・素材集め（R3）・独立の目（R11）・周の締め（R12）・報告（R13）・変異の検算（R9）・research のライン。
 
