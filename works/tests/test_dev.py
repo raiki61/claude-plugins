@@ -24,8 +24,10 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
   validate に渡さずに終了コード 1 になること。
 
 試験の一時フォルダの基は setUpModule が 1 か所で決める。TMPDIR（tempfile の既定）が Claude Code の一時フォルダの
-下なら、そのままでは置き場が全部 guard.sh に拒まれて殻の振る舞いまで届かないので、リポジトリの根の
-.works-test-tmp/（gitignore。works/ の中は _dogfood が自分を写し込むので避ける）へ移す。guard.sh は緩めない。
+下か（guard.sh の works_dev_refuse_claude_tmp を正本として呼んで決める）なら、そのままでは置き場が全部 guard.sh に
+拒まれて殻の振る舞いまで届かないので、リポジトリの根の .works-test-tmp/（gitignore。works/ の中は _dogfood が
+自分を写し込むので避ける）へ移す。移す時は tempfile.tempdir と、子が継ぐ os.environ の TMPDIR を揃えて差し替え、
+tearDownModule で両方を戻す。guard.sh は緩めない。
 """
 import json
 import os
@@ -35,18 +37,23 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
 
-# guard.sh の works_dev_refuse_claude_tmp が拒む所（realpath で見る）
-CLAUDE_TMP = ("/private/tmp/claude-", "/tmp/claude-")
 BASETEMP_PARENT = ROOT.parent / ".works-test-tmp"
 _saved = {}
 
 
 def in_claude_tmp(path):
-    return os.path.realpath(path).startswith(CLAUDE_TMP)
+    """path を guard.sh の works_dev_refuse_claude_tmp が拒むか（正本を呼び、終了コード 2 なら真）。"""
+    r = subprocess.run(
+        ["sh", "-c", '. "$1"; works_dev_refuse_claude_tmp in_claude_tmp path "$2"', "_", str(DEV / "guard.sh"), str(path)],
+        capture_output=True, text=True)
+    if r.returncode not in (0, 2):
+        raise RuntimeError(f"guard.sh の判定が終了コード {r.returncode} で終わった: {r.stderr}")
+    return r.returncode == 2
 
 
 def setUpModule():
@@ -57,10 +64,15 @@ def setUpModule():
         BASETEMP_PARENT.mkdir(exist_ok=True)
         _saved["base"] = tempfile.mkdtemp(prefix="run-", dir=str(BASETEMP_PARENT))   # 同時に回る別の run と分ける
         tempfile.tempdir = _saved["base"]
+        _saved["environ"] = mock.patch.dict(os.environ, {"TMPDIR": _saved["base"]})   # 子が継ぐ TMPDIR も揃える
+        _saved["environ"].start()
 
 
 def tearDownModule():
     base = _saved.pop("base", None)
+    environ = _saved.pop("environ", None)
+    if environ:
+        environ.stop()
     tempfile.tempdir = _saved.get("tempdir")
     if base:
         shutil.rmtree(base, ignore_errors=True)
@@ -671,6 +683,12 @@ class TestDevShell(unittest.TestCase):
             self.assertIn("usage: dogfood.sh", result.stderr)
             self.assertEqual(calls, [])
 
+    def test_inherited_tmpdir_is_outside_claude_tmp(self):
+        """TMPDIR を継ぐ子の置き場（${TMPDIR}/works-dev など）も guard.sh に拒まれない。"""
+        r = subprocess.run(["sh", "-c", 'printf %s "${TMPDIR:-/tmp}"'], capture_output=True, text=True, check=True)
+        self.assertFalse(in_claude_tmp(r.stdout), r.stdout)
+        self.assertEqual(os.path.realpath(r.stdout), os.path.realpath(tempfile.gettempdir()))
+
     def test_positive_path_reaches_shell_when_tmpdir_in_claude_tmp(self):
         """TMPDIR が Claude Code の一時フォルダの下でも、正の道の試験が guard.sh に拒まれず緑になる。"""
         origin = _saved["origin"]
@@ -684,7 +702,8 @@ class TestDevShell(unittest.TestCase):
         try:
             self.assertTrue(in_claude_tmp(hole), hole)
             r = subprocess.run(
-                ["python3", "-m", "unittest", "test_dev.TestDevShell.test_mktarget_places_pack_without_dev_files"],
+                ["python3", "-m", "unittest", "test_dev.TestDevShell.test_mktarget_places_pack_without_dev_files",
+                 "test_dev.TestDevShell.test_inherited_tmpdir_is_outside_claude_tmp"],
                 cwd=str(pathlib.Path(__file__).resolve().parent), capture_output=True, text=True,
                 env=dict(os.environ, TMPDIR=hole, PYTHONDONTWRITEBYTECODE="1"))
             self.assertEqual(r.returncode, 0, r.stderr)
