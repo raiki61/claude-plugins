@@ -3757,8 +3757,8 @@
    "title": "腕 1 本ごとに --out を書き直す",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "            write_out(a.out, snapshot())",
-   "new": "            pass",
+   "old": "else \"（赤は別の検査から）\"), flush=True)\n            write_out(a.out, snapshot())",
+   "new": "else \"（赤は別の検査から）\"), flush=True)\n            pass",
    "expect": "自動の腕の本命"
   },
   {

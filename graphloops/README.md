@@ -70,7 +70,7 @@ uv run --no-project --with pytest --with pytest-xdist python -m pytest -n auto g
 cd graphloops/tests/py && COVERAGE_CORE=ctrace uv run --no-project --with pytest --with pytest-testmon python -m pytest --rootdir=../.. -c pytest.ini --testmon .
 ```
 
-**変異テスト**: 手書きの腕（`tests/mutate.py` と `tests/mutations.json`）は、呼び出しを足す変異・デコレータ付きの関数・JSON・Markdown・シェルを狙う腕と、どの検査で落ちたかの突き合わせのために残す。pytest が覆うモジュールを丸ごと撃つのは既製の mutmut で、設定は `graphloops/setup.cfg`（鍵の名前は mutmut 3 の物で、2 系の `paths_to_mutate` などとは違う。版を固定して回す）。mutmut は作業用の写しを回した場所の `mutants/` に作り、前回の「殺した」結果を持ち越すので、**作業ツリーの一時の写しの上で、毎回新しく**撃つ（作業ツリーに `mutants/` を作ると、ファイルシステムを直に走査する `tests/run.sh` の柵がその写しまで数える）。Windows では動かない:
+**変異テスト**: 差分から機械で作る腕（`tests/mutate.py --auto`）は、印の写しで行を通した台本だけで撃つ。どの台本が通したかは台本の土台 `parallel.py` が付ける印（台本を走らせるスレッドの名前と、印の写しの回だけ作業場の名前に挟む台本名）で見分けるので、子のプロセスは台本の作業場を cwd にして起こせば帰属する（作業場の外で起こした子は帰属できず、その腕は台本一式で撃つ）。手書きの腕（`tests/mutate.py` と `tests/mutations.json`）は、呼び出しを足す変異・デコレータ付きの関数・JSON・Markdown・シェルを狙う腕と、どの検査で落ちたかの突き合わせのために残す。pytest が覆うモジュールを丸ごと撃つのは既製の mutmut で、設定は `graphloops/setup.cfg`（鍵の名前は mutmut 3 の物で、2 系の `paths_to_mutate` などとは違う。版を固定して回す）。mutmut は作業用の写しを回した場所の `mutants/` に作り、前回の「殺した」結果を持ち越すので、**作業ツリーの一時の写しの上で、毎回新しく**撃つ（作業ツリーに `mutants/` を作ると、ファイルシステムを直に走査する `tests/run.sh` の柵がその写しまで数える）。Windows では動かない:
 
 ```bash
 tmp=$(mktemp -d) && git ls-files -co --exclude-standard | tar -cf - -T - | tar -xf - -C "$tmp"
