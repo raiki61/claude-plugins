@@ -1,0 +1,52 @@
+"""テストのコマンドを 1 回走らせる節（blk-tests の run）。
+
+INPUTS_CMD（節の with: の cmd）を対象リポジトリの根（cwd）で `bash -c` に渡し、標準出力と標準エラーを盤面の
+tests.log に置き、標準入力は閉じる（入力待ちで止まらない）。コマンドは本文に差し込まず環境変数のまま渡すので、
+値がシェルの記号を含んでもデータのまま届く。PYTHONDONTWRITEBYTECODE=1 を立て、テストが作業ツリーに __pycache__ を
+作って修正の差分に紛れ込むのを止める。
+走らせるのは tree_run（.shared/core）——コマンドを自分のプロセスグループで起こし、run が止められたら（SIGINT・SIGTERM・
+SIGHUP、親の uv が消えた）テストが背景に起こした孫まで木ごと止める。
+
+出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。赤（信号で死んだ回も）でも ok: true
+——赤を人の関所に見せるのがこの段の仕事で、赤で run を止めない。
+コマンドが空・空白だけなら何も走らせずに 1（緑と言わない）。ARTIFACTS_DIR が欠け・空なら 2。
+止められた回は木を止め終えてから、出口を出さずに 128+信号で終わる。
+"""
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
+import os  # noqa: E402
+import subprocess  # noqa: E402
+
+import script_io  # noqa: E402
+import tree_run  # noqa: E402
+
+CMD_ENV = "INPUTS_CMD"
+LOG_NAME = "tests.log"
+
+
+def main() -> int:
+    if not os.environ.get(script_io.ARTIFACTS_ENV):
+        print(f"環境変数が無い: {script_io.ARTIFACTS_ENV}", file=sys.stderr)
+        return 2
+    cmd = os.environ.get(CMD_ENV, "")
+    if not cmd.strip():
+        print("テストのコマンドが空", file=sys.stderr)
+        return 1
+    board = Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
+    board.mkdir(parents=True, exist_ok=True)
+    log = board / LOG_NAME
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    try:
+        with open(log, "wb") as f:
+            code = tree_run.run(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, env=env)
+    except tree_run.Stopped as e:
+        print(f"止められた（信号 {e.signum}）。テストのコマンドは木ごと止めた", file=sys.stderr)
+        return 128 + e.signum
+    script_io._emit({"ok": True, "green": code == 0, "log": str(log)})
+    return 0
+
+
+sys.exit(main())

@@ -6,27 +6,24 @@ description: |
 inputs:
   cmd:
     required: true
-    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）
+    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行。自分のプロセスグループで走り、止めるときは木ごと止める）
 
 returns: run
 outcome_field: ok
 
 nodes:
-  # コマンドの出力（標準出力と標準エラー）は盤面の tests.log に置く。標準入力は閉じる（入力待ちで止まらない）。
-  # コマンドは本文に差し込まず環境変数 INPUTS_CMD で受け取る——値がシェルの記号を含んでも本文の一部にならず、データのまま届く。
-  # 空・欠けなら節を落とす（何も走らせずに緑と言わない）。PYTHONDONTWRITEBYTECODE は、テストが作業ツリーに
-  # __pycache__ を作って修正の差分に紛れ込むのを止める
+  # scripts/run_tests.py がコマンドを対象リポジトリの根で bash に渡し、出力（標準出力と標準エラー）を盤面の tests.log に置く。
+  # 標準入力は閉じる（入力待ちで止まらない）。コマンドは本文に差し込まず環境変数 INPUTS_CMD で受け取る——値がシェルの記号を
+  # 含んでもデータのまま届く。空・空白だけなら節を落とす（何も走らせずに緑と言わない）。PYTHONDONTWRITEBYTECODE は、テストが
+  # 作業ツリーに __pycache__ を作って修正の差分に紛れ込むのを止める。
+  # コマンドは自分のプロセスグループで走り、run が止められたら（Ctrl-C・SIGTERM・期限・親の消失）テストが背景に起こした孫まで
+  # 木ごと止める（.shared/core/tree_run.py）。Archon は直下の子しか止めないので、孫が止めた後も作業ツリーに書き続けた（試作で実測）。
+  # 木ごと止める殻を pack の中から引くため bash の節でなく script の節（bash の節は対象リポジトリで走り、pack の場所を知らない）
   - id: run
-    bash: |
-      : "${INPUTS_CMD:?テストのコマンドが空}"
-      board="$ARTIFACTS_DIR/board"
-      mkdir -p "$board" || exit 1
-      log="$board/tests.log"
-      export PYTHONDONTWRITEBYTECODE=1
-      ( eval "$INPUTS_CMD" ) >"$log" 2>&1 </dev/null
-      if [ "$?" -eq 0 ]; then green=true; else green=false; fi
-      esc=$(printf '%s' "$log" | sed 's/\\/\\\\/g; s/"/\\"/g')
-      printf '{"ok": true, "green": %s, "log": "%s"}\n' "$green" "$esc"
+    script: run_tests
+    runtime: uv
+    with:
+      cmd: $INPUTS.cmd
     timeout: 1728000000
     output_format:
       type: object

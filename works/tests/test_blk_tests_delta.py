@@ -1,7 +1,8 @@
 """ブロック blk-tests（テストのコマンド）と blk-delta（修正差分の審査）の検査。
 
 - YAML に書いた審査役の返答の型が、受け付けの規則が前提にする型（graph の p3.delta_review）と同じか（設計書 5.4 節）
-- blk-tests の節 run の bash を、Archon を通さずに環境変数だけ与えて走らせ、緑も赤も ok: true で出るか
+- blk-tests の節 run のスクリプト（scripts/run_tests.py）を、Archon を通さずに環境変数だけ与えて走らせ、緑も赤も ok: true で出るか。
+  止められたらテストのコマンドが起こした孫まで止まるか（.shared/core/tree_run.py）
 - blk-delta の cut・collect のスクリプトを、使い捨ての対象リポジトリで起こして盤面と出口を見る
 - 作業ツリーの写し（snapshot_tree）が、未追跡のフォルダ（入れ子の git リポジトリ）で落ちないか
 筋書き（fixtures/*.stubs.yaml）は dev/check.sh が Archon で回す。
@@ -11,9 +12,11 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 import yaml
@@ -127,13 +130,20 @@ class TestDeltaSchema(unittest.TestCase):
 
 # ---------------------------------------------------------------- blk-tests
 class TestTestsBlock(RepoCase):
-    def run_bash(self, cmd, rc=0):
-        node = find_node(workflow("blk-tests")["nodes"], "run")
+    def cmd_env(self, cmd):
+        # Archon の口と同じ: 節の with: が INPUTS_CMD に、盤面の置き場が ARTIFACTS_DIR に届く。
+        # PYTHONDONTWRITEBYTECODE は外す（スクリプトがテストのコマンドに立てるかを見るため）
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "PYTHONDONTWRITEBYTECODE"}
         env.update(INPUTS_CMD=cmd, ARTIFACTS_DIR=str(self.artifacts))
-        r = subprocess.run(["bash", "-c", node["bash"]], cwd=str(self.repo), env=env, capture_output=True, text=True, timeout=120)
+        return env
+
+    def run_tests(self, cmd, rc=0):
+        node = find_node(workflow("blk-tests")["nodes"], "run")
+        r = subprocess.run([sys.executable, str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo),
+                           env=self.cmd_env(cmd), capture_output=True, text=True, timeout=120)
         if rc:
             self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(r.stdout, "")
             return None
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout)
@@ -145,31 +155,81 @@ class TestTestsBlock(RepoCase):
         self.assertEqual(wf["returns"], "run")
         self.assertEqual(wf["outcome_field"], "ok")
         self.assertIn("cmd", wf["inputs"])
-        fmt = find_node(wf["nodes"], "run")["output_format"]
-        self.assertEqual(sorted(fmt["required"]), ["green", "log", "ok"])
+        node = find_node(wf["nodes"], "run")
+        # 木ごと止める殻を pack の中から引くので、パスを持たない bash の節ではなく名前付きの script の節
+        self.assertEqual((node.get("script"), node.get("runtime")), ("run_tests", "uv"))
+        self.assertNotIn("bash", node)
+        self.assertEqual(node["with"], {"cmd": "$INPUTS.cmd"})
+        self.assertEqual(sorted(node["output_format"]["required"]), ["green", "log", "ok"])
 
     def test_green_command(self):
-        out = self.run_bash("python3 -c 'print(\"走った\")' && test -f stats.py")   # cwd は対象リポジトリ
+        out = self.run_tests("python3 -c 'print(\"走った\")' && test -f stats.py")   # cwd は対象リポジトリ
         self.assertEqual(out, {"ok": True, "green": True, "log": str(self.board / "tests.log")})
         self.assertIn("走った", (self.board / "tests.log").read_text(encoding="utf-8"))
 
+    def test_command_runs_in_bash(self):
+        # 入口の説明のとおり bash が 1 行を走らせる（sh に無い [[ ]] が通る）
+        out = self.run_tests("[[ -f stats.py ]]")
+        self.assertEqual(out["green"], True)
+
     def test_empty_command_fails_the_node(self):
-        # 何も走らせずに緑と言わない
-        self.run_bash("", rc=1)
-        self.assertFalse((self.board / "tests.log").exists())
+        # 何も走らせずに緑と言わない（空白だけも空と同じ）
+        for cmd in ("", "  \n"):
+            with self.subTest(cmd=cmd):
+                self.run_tests(cmd, rc=1)
+                self.assertFalse((self.board / "tests.log").exists())
 
     def test_tests_leave_no_bytecode(self):
         # 種の .gitignore が無くても、テストが作業ツリーに __pycache__ を作らない（修正の差分に紛れ込まない）
         (self.repo / ".gitignore").unlink()
-        out = self.run_bash("python3 -m unittest -q test_stats")
+        out = self.run_tests("python3 -m unittest -q test_stats")
         self.assertEqual((out["ok"], out["green"]), (True, False))   # 種はバグ入りで赤
         self.assertEqual(list(self.repo.rglob("__pycache__")), [])
+        self.assertEqual(list(ROOT.rglob("__pycache__")), [])         # pack の中にも作らない
 
     def test_red_command_is_still_ok(self):
-        # 赤を人の関所に見せるのがこの段の仕事なので、赤でも節は通る
-        out = self.run_bash("echo 赤 >&2; exit 3")
+        # 赤を人の関所に見せるのがこの段の仕事なので、赤でも節は通る。信号で死んだテストも赤
+        out = self.run_tests("echo 赤 >&2; exit 3")
         self.assertEqual((out["ok"], out["green"]), (True, False))
         self.assertIn("赤", (self.board / "tests.log").read_text(encoding="utf-8"))
+        out = self.run_tests("kill -SEGV $$")
+        self.assertEqual((out["ok"], out["green"]), (True, False))
+
+    def test_stop_stops_the_test_tree(self):
+        # run を止めた（節のスクリプトが SIGTERM を受けた）ら、テストが背景に起こした孫まで止まり、後から作業ツリーに書かない
+        pidf, marker = self.artifacts / "pgid", self.repo / "late.txt"
+        cmd = f"echo $$ > {pidf}; sleep 300 & (sleep 3; echo late > {marker}) & wait"
+        p = subprocess.Popen([sys.executable, str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo),
+                             env=self.cmd_env(cmd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True)
+        try:
+            end = time.monotonic() + 10
+            while not (pidf.exists() and pidf.read_text().strip()) and time.monotonic() < end:
+                time.sleep(0.05)
+            pgid = int(pidf.read_text())
+            p.send_signal(signal.SIGTERM)
+            out, err = p.communicate(timeout=10)
+            self.assertEqual((p.returncode, out), (128 + signal.SIGTERM, ""))   # 止められた回は出口を出さない
+            self.assertIn("止められた", err)
+            end = time.monotonic() + 2
+            while time.monotonic() < end:
+                try:
+                    os.killpg(pgid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("テストの孫が残った")
+            time.sleep(4)
+            self.assertFalse(marker.exists(), "止めた後にテストの孫が書いた")
+        finally:   # 落ちた回も、このテストが起こした物だけを片付ける
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+            try:
+                os.killpg(int(pidf.read_text()), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
 
 
 # ---------------------------------------------------------------- blk-delta の cut

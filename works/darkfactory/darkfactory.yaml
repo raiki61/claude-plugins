@@ -14,7 +14,7 @@ inputs:
     description: 人の修正依頼（findings の JSON の配列）のファイルの絶対パス（対象の外でよい）。相対なら run の worktree の根から
   test_cmd:
     required: true
-    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）
+    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行。自分のプロセスグループで走り、止めるときは木ごと止める）
 
 returns: finish
 outcome_field: ok

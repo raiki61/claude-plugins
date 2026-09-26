@@ -176,6 +176,7 @@ nodes:
 - **何もせず済んだと言うのを止める**: 修正役の後に、申告したファイルが周の頭の版から本当に変わったかを確かめる決まった検査の節を置く（sdlc の `assert-changed` の考え方。名前は `git -z` で読み、日本語の名前も引用無しで突き合わせる）。テストを回すと出来るバイトコード（`__pycache__/`・`.pyc`）は、触ったファイルに数えない（Ruling R15。blk-tests は `PYTHONDONTWRITEBYTECODE=1` で回す。ほかの言語の生成物は対象の `.gitignore` に任せる）。
 - **サンドボックスの穴（塞げない）**: Claude Code のサンドボックスは、Claude Code 自身の一時フォルダ（`/private/tmp/claude-<uid>/`。`/tmp` は macOS では `/private/tmp` への symlink）への書き込みを Bash に許す。pack の側ではこれを塞げない。だから対象リポジトリ・その origin・開発の家（`WORKS_DEV_HOME`）はそこに置かない。開発の殻（`dev/archon.sh`・`dev/mktarget.sh`・`dev/real-run.sh`）は、それらが symlink を辿って `/private/tmp/claude-*` か `/tmp/claude-*` の下に解けると、終了コード 2 と 1 行の理由で止まる（`dev/guard.sh`）。
 - **期限**: AI の節の `idle_timeout` と bash・script の節の `timeout` は 20 日。2^31−1 ms（約 24.8 日）を超える値は Archon の検査を通るのに実行で即失敗するので、`tests/` で YAML の期限が上限の内かを確かめる。
+- **テストのコマンドは木ごと止める**: blk-tests の節 `run`（script の節 `run_tests`）はテストのコマンドを自分のプロセスグループで走らせ、run が止められたら（Ctrl-C・SIGTERM・期限・親の消失）背景の孫まで SIGTERM → 5 秒 → SIGKILL でグループが空になるまで止める（`.shared/core/tree_run.py`。graphloops の `role_run.py` と同じ形。Archon は直下の子しか止めず、孫が止めた後も作業ツリーに書いた——試作で実測）。
 - **止め方**: 前景の run を Ctrl-C（端末が SIGINT を送る）で止め、`archon workflow resume` で続ける（Archon の素の機能。試作で確かめた）。人の関所を持つラインは背景（`--detach`）で回せず、外から cancel もできない。止め札のファイル（ASF の `halt`）は次の段で考える。
 - **Archon への直し**: 試作の A〜D は使わない。素の版で回る形にする。
 
