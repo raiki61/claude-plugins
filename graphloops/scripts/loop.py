@@ -9,11 +9,11 @@
     loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・任せ先・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（背景実行に回し、手番を終えずに前景で出力を見に行く。任せ先は sandbox の中）
     loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
-    loop.py answer --text <答え> [--note <本文>]         # 人に聞く番のとき（本文は次の周の再審に渡る）
+    loop.py answer --text <答え> [--note <本文>] [--detail <json>]  # 人に聞く番のとき（本文は次の周の再審に渡る。--detail は rules が受ける構造の値）
     loop.py stop   --reason <理由>                       # 走っている run を人がその時点で止める（理由は記録に残り、graph が宣言する後始末の節——報告——だけが走る）
     loop.py thicken --to <段> --reason <理由>           # 段の昇格（降格は不可。段名は graph の thickness.tiers）
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
-    loop.py patch  --path <record の欄 | state.<盤面の欄>> --file <json> --reason   # 記録（既定）か盤面の手当て（痕跡が残る最終手段）
+    loop.py patch  --path <[record.]記録の欄 | state.<盤面の欄>> (--file <json> | --delete) --reason   # 記録（既定）か盤面の手当て——書くか消す（痕跡が残る最終手段）
     loop.py status [--dir] / loop.py record [--dir] / loop.py finalize [--dir]
     loop.py intake (--what <1 行> [--dir] | --export <file> [--all] [--with-stderr] | --send | --set-url <URL>) [--data-dir]
                                                      # 踏んだ問題を利用者の環境に残す手の口（非 0 の終わりは engine が自動で残す）
@@ -96,6 +96,7 @@ def main():
     s.add_argument("--dir")
     s.add_argument("--text", required=True)
     s.add_argument("--note", help="人の答えの本文（次の周の再審に渡る）")
+    s.add_argument("--detail", help="答えに添える構造の値の JSON のファイル（受ける形は rules の answer_detail。受けない loop では拒む）")
     s.set_defaults(fn=c.cmd_answer)
 
     s = sub.add_parser("stop", help="走っている run を人がその時点で止める（人に聞いていない時点でも。理由は必須で記録に残る。起こし中の役の子は木ごと止める）")
@@ -118,7 +119,8 @@ def main():
     s = sub.add_parser("patch")
     s.add_argument("--dir")
     s.add_argument("--path", required=True)
-    s.add_argument("--file", required=True)
+    s.add_argument("--file")
+    s.add_argument("--delete", action="store_true", help="在る辞書の鍵を消す（--file と排他）")
     s.add_argument("--reason", required=True)
     s.set_defaults(fn=c.cmd_patch)
 

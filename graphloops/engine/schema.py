@@ -227,7 +227,7 @@ KNOWN_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties", "
 
 
 # 節の鍵のうち engine（と graphcheck の実行の形の検査）が読む物と、人が読むための説明の鍵。ループ固有の鍵は rules が NODE_KEYS
-# （rules が読む）と NODE_NOTE_KEYS（説明）で宣言する——engine はループ固有の語を持たない。この 4 つの和に無い節の鍵は、綴り違いか
+# （rules か graphcheck が読む）と NODE_NOTE_KEYS（説明）で宣言する——engine はループ固有の語を持たない。この 4 つの和に無い節の鍵は、綴り違いか
 # 誰も読まなくなった鍵で、書いても黙って効かないので graphcheck が落とす（KNOWN_KEYWORDS と同じ閉じた集合。JSON Schema の
 # additionalProperties: false と同じ形）。ENGINE_NODE_KEYS の各鍵を engine か graphcheck が読んでいることは pytest が見る
 ENGINE_NODE_KEYS = frozenset({

@@ -4239,6 +4239,17 @@ def test_set_path():
     except KeyError as e:
         check("葉 1 つ" in str(e), "2 段以上の新設は落ちる（どちらの読みも成り立つ綴りを機械が選ばない）")
     check("p2" not in d["outputs"], "落ちた綴りが途中まで書き込まれていない")
+    # 消す口（del_path）も同じ綴りで辿る——点を含む鍵が最後に来る綴りで親を見失わない。無い鍵とリストの要素は落とす
+    from engine.util import del_path
+    del_path(d, "outputs.p1.local_review")
+    check(d["outputs"] == {}, "消す口は点を含む鍵を最長一致で食って消す")
+    for bad in ("outputs.nope", "questions.0", "a.b.nope.deep"):
+        try:
+            del_path(d, bad)
+            check(False, f"消せない綴り {bad} は落ちる")
+        except KeyError:
+            check(True, f"消せない綴り {bad} は落ちる（無い鍵・リストの要素・辿れない親）")
+    check(len(d["questions"]) == 2 and d["a"] == {"b": {"c": 1}}, "落ちた消しは何も消していない")
 
 
 def test_carried_r1_only_previous_round():

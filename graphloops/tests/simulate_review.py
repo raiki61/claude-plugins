@@ -657,6 +657,18 @@ def test_engine_run_checks():
           f"赤の段は found で数え、段の名前・終了コード・出力の末尾を detail に書く（{m}）")
     rm(run.tmp)
 
+    # 宣言の語はレビュー対象のリポジトリのルートで走る——launch を下のディレクトリから起こしても段の作業場所はルート
+    # （台本の語が場所に依らない 1 行だけだと、engine が作業場所を渡さない退行でも緑のまま）
+    run = Run("engrun-cwd", checks=[{"name": "where", "argv": [PY, "-c", "import os; print(os.getcwd())"]}])
+    inst = next(i for i in run.next()["ready"] if i["node"] == "p0.local_checks")
+    r = subprocess.run([PY, str(LOOP), "launch", "--node", inst["id"], "--dir", str(run.dir)], cwd=run.repo / "src",
+                       capture_output=True, text=True, encoding="utf-8", env=run.env, timeout=600)
+    runs = run.record()["process"].get("checks", {}).get("p0.local_checks", {}).get("runs") or [{}]
+    got = pathlib.Path(runs[0]["out"]).read_text(encoding="utf-8").strip() if runs[0].get("out") else ""
+    check(r.returncode == 0 and got and os.path.realpath(got) == os.path.realpath(run.repo),
+          f"宣言の語はレビュー対象のリポジトリのルートで走る（launch を起こした場所に依らない）（rc={r.returncode} / {got} / {run.repo}）")
+    rm(run.tmp)
+
     # 起こせない語: P4 の再実行は人待ちを新しく立てず not_run（判定の後の規則）。起こし直しは今の宣言で計画し直す
     run = Run("engrun-p4")
     nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p4.ci" for i in n["ready"]))
@@ -1042,14 +1054,19 @@ def test_prev_fix_faces_scalar():
     run = Run("prevfix")
 
     def hook(run_, inst, out):
+        if inst["node"] == "p2.history" and "history_prompt" not in prompts:
+            prompts["history_prompt"] = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
         if inst["node"] == "p2.history" and isinstance(out, dict) and out.get("router") and not seen:
             seen.append(inst["id"])   # 2 周目の 1 回だけ（3 周目は 0 件に戻ることも見る）
             k = out["router"][0]["key"]   # 同じ key を 2 度書いても 1 件と数える
             return {**out, "reburn_causes": [{"key": k, "cause": "前の周の修正", "note": "検査用"},
                                              {"key": k, "cause": "前の周の修正", "note": "検査用（重複）"},
                                              {"key": k + "（別）", "cause": "コード", "note": "原因が別なら数えない"}]}
-    seen = []
+    seen, prompts = [], {}
     drive(run, "std", hook=hook)
+    own = prompts.get("history_prompt", "").split("前の周の修正役が自分で当たった先行例", 1)[-1][:600]
+    check("https://example.invalid/limit" in own,
+          "修正役が自分で当たった先行例（判定者の行を採っていない行）が、次の周の履歴の突合のプロンプトに出典つきで渡る")
     r2 = run.round_file(2)
     check((r2.get("scalars") or {}).get("faces_created_by_prev_fix") == 1,
           f"2 周目の記録に faces_created_by_prev_fix=1 が載る（同じ key の重複は 1 件、原因が『コード』の行は数えない。{r2.get('scalars')}）")
@@ -1073,6 +1090,24 @@ def test_prev_fix_faces_scalar():
     r2, r3 = run.round_file(2), run.round_file(3)
     check((r2.get("scalars") or {}).get("faces_created_by_prev_fix") == 1 and "faces_created_by_prev_fix" not in (r3.get("scalars") or {}),
           f"p2.history を省いた周の記録には載らない（2 周目 {r2.get('scalars')} / 3 周目 {r3.get('scalars')}）")
+    rm(run.tmp)
+    # 修正役が自分で当たった先行例は、p2.history を省いた周に渡っていた分を次の周へ持ち越す（上書きで消さない）
+    run = Run("prevfix-ownskip")
+    hist = []
+
+    def hook_own(run_, inst, out):
+        if inst["node"] == "p3.fix" and isinstance(out, dict):   # 周ごとに出典の印を変え、どの周の行が届いたかを見分ける
+            mark = f"https://example.invalid/own-r{run_.state()['round']}"
+            return {**out, "changes": [{**c, "precedent": {**c["precedent"], "source": mark}} for c in out.get("changes", [])]}
+        if inst["node"] == "p2.history" and isinstance(out, dict):
+            hist.append(pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8"))
+            if len(hist) == 1:
+                return {"__skip__": "検査用に省く"}
+        return None
+    drive(run, "std", hook=hook_own)
+    own = [h.split("前の周の修正役が自分で当たった先行例", 1)[-1].split("——**1 件ずつ出典を開いて", 1)[0] for h in hist]
+    check(len(own) >= 2 and "own-r1" in own[0] and "own-r1" in own[1],
+          f"p2.history を省いた周に渡っていた修正役の先行例（1 周目の修正の行）は、次の周の p2.history へ持ち越される（{[o[-200:] for o in own[:2]]}）")
     rm(run.tmp)
     # **次の周へ渡す一撃も、前の周に出した判定から読む**——最新を読むと、p2.history を省いた周の次に 2 周前の一撃が拾われた
     run = Run("prevfix-oneshot")
@@ -1271,6 +1306,34 @@ def test_awaiting():
     rm(run.tmp)
 
 
+def test_patch_record_prefix_and_delete():
+    """記録の手当ての綴り: record. 接頭は接頭なしと同じ場所を指し（入れ子を作らない）、--delete は在る鍵だけを消す。
+    接頭をそのまま鍵にしていた頃、record.questions が記録の中に record の入れ子を作り、消す口が無いので
+    null で上書きした鍵が記録の最上位に残った（実測 2026-09-26）"""
+    print("記録の手当て: record. 接頭は同じ場所・--delete は在る鍵だけ・記録まるごとは受けない")
+    run = Run("patchrec")
+    run.next()
+    f = run.tmp / "v.json"
+    f.write_text(json.dumps("手当ての値"), encoding="utf-8")
+    r1 = run.cmd("patch", "--path", "record.process.x_note", "--file", str(f), "--reason", "検査: 接頭つき")
+    rec = run.record()
+    check(r1.returncode == 0 and rec["process"].get("x_note") == "手当ての値" and "record" not in rec,
+          f"record. 接頭は接頭なしと同じ場所に書き、記録の中に record の入れ子を作らない（rc={r1.returncode} {r1.stderr[-80:]}）")
+    r2 = run.cmd("patch", "--path", "process.x_note", "--delete", "--reason", "検査: 消す")
+    st = run.state()
+    check(r2.returncode == 0 and "x_note" not in run.record()["process"] and st["patches"][-1].get("op") == "delete",
+          f"--delete は在る鍵を消し、痕跡に op=delete を残す（rc={r2.returncode} {r2.stderr[-80:]}）")
+    r3 = run.cmd("patch", "--path", "process.x_note", "--delete", "--reason", "検査: 無い鍵")
+    r4 = run.cmd("patch", "--path", "record", "--file", str(f), "--reason", "検査: 記録まるごと")
+    r5 = run.cmd("patch", "--path", "process.x_note", "--reason", "検査: どちらも無い")
+    r6 = [run.cmd("patch", "--path", bad, "--file", str(f), "--reason", "検査: 空の区切り") for bad in ("record.", "record..x", "state.")]
+    check(r3.returncode == 1 and "当たらない" in r3.stderr and r4.returncode == 1 and "記録まるごと" in r4.stderr
+          and r5.returncode == 1 and "どちらか 1 つ" in r5.stderr and all(r.returncode == 1 and "空の区切り" in r.stderr for r in r6)
+          and len(run.state()["patches"]) == 2 and "" not in run.record() and "" not in run.state(),
+          f"無い鍵の消し・記録まるごと・書くか消すかの無い手当て・空の区切りの綴りは拒み、痕跡を残さない（{r3.returncode}/{r4.returncode}/{r5.returncode}/{[r.returncode for r in r6]}）")
+    rm(run.tmp)
+
+
 def test_awaiting_origin_guards():
     """人待ちの問いの出どころは、今 awaiting_human の素材だけ——**判定の時点**（判定者が人待ちでない欄を借りる入口）と、
     **素材を書いた時点**（後の工程が人待ちの欄を上書きする入口）の両方で当てる。検証器は周の最後の 1 回しか見ず、
@@ -1285,6 +1348,10 @@ def test_awaiting_origin_guards():
         if inst["node"] == "p0.local_checks":
             return {"material": M("awaiting_human", reason="CI 専用のジョブで手元では走らない（検査用）")}
         if inst["node"] == "p2.diagnose" and run.state()["round"] == 1:
+            r = run.done(inst["id"], {**out, "questions": [field]}, agent_id="judge-1")
+            seen["unlisted"] = (r.returncode, r.stderr)
+            if r.returncode == 0:
+                raise RuntimeError("人待ちの素材を台帳に載せない判定を受け付けた")
             bad = {**out, "questions": [wait_ci, {"key": "Windows の実機で動かしたか", "kind": "awaiting", "origin": "main_path_observation",
                                                   "status": "held", "reason": "（検査用）"}]}
             r = run.done(inst["id"], bad, agent_id="judge-1")
@@ -1306,6 +1373,9 @@ def test_awaiting_origin_guards():
         drive(run, "std", hook=hook, stop_at=lambda nx: nx["round"] >= 2)
     except RuntimeError as e:
         seen["stopped"] = str(e)
+    rc, err = seen.get("unlisted", (None, ""))
+    check(rc == 1 and "素材 'local_checks' が awaiting_human なのに台帳に kind=awaiting で無い" in err,
+          f"判定の時点: 人待ちの素材を出どころにする問いを台帳に載せない判定は拒む（rc={rc} {err.strip()[-120:]}）")
     rc, err = seen.get("judge", (None, ""))
     check(rc == 1 and "awaiting の出どころは" in err and "main_path_observation" in err and "kind=field" in err,
           f"判定の時点: 人待ちでない素材を出どころにした awaiting は拒み、field を案内する（rc={rc} {err.strip()[-120:]}）")
@@ -6307,6 +6377,33 @@ def test_human_gate():
     last = run.next()
     check(last["status"] == "stopped" and last.get("halted", {}).get("node") == "p2.human_gate" and not last["ready"],
           f"関所: stop で run がその場で止まり、修正を出さない（{last.get('halted')}）")
+    rm(run.tmp)
+
+    # 人が関所で直す義務の単位を外す（answer --detail）: 形の誤りと義務に無い単位は拒んで盤面を変えず、受けた分は台帳に残り修正役に届く
+    run = Run("gate-exclude")
+    seen = {}
+
+    def narrow(run_, inst, out):
+        if inst["node"] == "p2.fix_plan":
+            return {"plan": [{**out["plan"][0], "narrows": [{"what": "検査用の狭め", "why": "関所を立てるため（検査用）"}]}]}
+        if inst["node"] == "p3.fix" and "fix" not in seen:
+            seen["fix"] = pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8")
+        return None
+    last = drive(run, "std", hook=narrow)
+    asked = last.get("ask", {}).get("question", "")
+    bad, good = run.tmp / "bad.json", run.tmp / "good.json"
+    bad.write_text(json.dumps({"exclude": [{"unit": "義務に無い単位（検査用）", "why": "外す（検査用）"}]}), encoding="utf-8")
+    good.write_text(json.dumps({"exclude": [{"unit": 1, "why": "この周は触らない（検査用 EXCLUDE-WHY）"}]}), encoding="utf-8")
+    r1 = run.cmd("answer", "--text", "continue", "--note", "通す（検査用）", "--detail", str(bad))
+    hi0 = list(run.record()["process"]["human_items"])
+    r2 = run.cmd("answer", "--text", "continue", "--note", "通す（検査用）", "--detail", str(good))
+    hi = run.record()["process"]["human_items"]
+    unit1 = run.record()["units"][0]["key"]
+    check("--detail" in asked and "1. " in asked and r1.returncode == 1 and "直す義務の単位でない" in r1.stderr and not hi0
+          and r2.returncode == 0 and hi and hi[-1].get("excluded") == [{"unit": unit1, "why": "この周は触らない（検査用 EXCLUDE-WHY）"}],
+          f"関所: --detail で直す義務の単位を外せる（義務に無い単位は拒んで盤面を変えず、受けた分は台帳に key で残る）（{r1.returncode}/{r2.returncode} {r2.stderr[-100:]}）")
+    drive(run, "std", hook=narrow, stop_at=lambda n: "fix" in seen)
+    check("EXCLUDE-WHY" in seen.get("fix", ""), "関所: 外した単位と理由が同じ周の修正役のプロンプトに届く")
     rm(run.tmp)
 
     run = Run("gate-unattended", unattended=True)

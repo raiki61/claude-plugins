@@ -17,7 +17,7 @@ from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
-from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, repo_root, safe_name, set_path, sha, waiting, write_json
+from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, repo_root, safe_name, set_path, del_path, sha, waiting, write_json
 from .role_run import DELEGATE_TOOLS, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path, probe_group, run_role, run_steps, stop_group, tooled_permission
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
@@ -1102,6 +1102,12 @@ def cmd_answer(a):
     if in_round and ans not in IN_ROUND_ACTIONS:
         raise Reject(f"周の途中の問い（in_round）に '{ans}' は使えない（使えるのは {list(IN_ROUND_ACTIONS)}）")
     ph["note"] = a.note or ""
+    if a.detail:
+        # 答えに添える構造の値。engine は中身を解釈せず、受ける形と意味は rules が持つ（持たない loop では黙って捨てずに拒む）
+        take = hook(b.rules, "answer_detail")
+        if not take:
+            raise Reject("この loop は答えに添える値（--detail）を受けない")
+        ph["detail"] = take(b, ph, ans, read_json(a.detail))
     fn = hook(b.rules, "on_answer_in_round" if in_round else "on_answer")
     if fn:
         fn(b, ph, ans)
@@ -1279,7 +1285,7 @@ def cmd_add(a):
 
 
 def cmd_patch(a):
-    """記録（既定）か盤面（state. 接頭）の手当て。痕跡は state.patches と trace に残る。
+    """記録（既定。record. 接頭も同じ）か盤面（state. 接頭）の手当て——書く（--file）か消す（--delete）。痕跡は state.patches と trace に残る。
 
     盤面も許すのは、run の途中で graph と雛形が変わると rules の私有の鍵が足りずに next が止まり、
     記録側の手当てでは届かないから（実測 2026-09-12: 雛形が新しい loop_state の鍵を読み、回す側が
@@ -1287,14 +1293,31 @@ def cmd_patch(a):
     """
     b = Board(resolve_dir(a))
     b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）
+    if (a.file is None) == (not a.delete):
+        raise Reject("--file（書く）か --delete（消す）のどちらか 1 つを渡せ")
     if a.path.startswith("state."):
-        set_path(b.state, a.path[len("state."):], read_json(a.file))
+        target, path, shown = b.state, a.path[len("state."):], a.path
     else:
-        set_path(b.record, a.path, read_json(a.file))
-    b.state.setdefault("patches", []).append({"round": b.round, "path": a.path, "reason": a.reason, "at": now()})
-    b.trace("patch", path=a.path, reason=a.reason)
+        # 記録は接頭なしでも record. 付きでも同じ場所を指す（board.ref の綴りと同じ）。接頭をそのまま鍵にしていた頃、
+        # record.questions が記録の中に record の入れ子を作り、消す口が無いので null の鍵が残った（実測 2026-09-26）
+        if a.path == "record":
+            raise Reject("--path record は記録まるごと——欄を名指しせよ（record.<欄> か <欄>）")
+        path = a.path[len("record."):] if a.path.startswith("record.") else a.path
+        target, shown = b.record, "record." + path
+    if "" in path.split("."):
+        raise Reject(f"--path {a.path} に空の区切りがある——空の名前の鍵を作らない（欄を名指しせよ）")
+    try:
+        if a.delete:
+            del_path(target, path)
+        else:
+            set_path(target, path, read_json(a.file))
+    except KeyError as e:
+        raise Reject(f"{shown} に当たらない: {e}")
+    op = {"op": "delete"} if a.delete else {}
+    b.state.setdefault("patches", []).append({"round": b.round, "path": a.path, **op, "reason": a.reason, "at": now()})
+    b.trace("patch", path=a.path, **({"delete": True} if a.delete else {}), reason=a.reason)
     b.save()
-    print(f"ok {a.path if a.path.startswith('state.') else 'record.' + a.path} を手当てした（痕跡は state.patches と trace に残る）")
+    print(f"ok {shown} を{'消した' if a.delete else '手当てした'}（痕跡は state.patches と trace に残る）")
 
 
 # ---------------------------------------------------------------- finalize / status / record

@@ -6065,6 +6065,34 @@
    "old": "        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning",
    "new": "        run: echo 静的検査を回さない",
    "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CK3",
+   "title": "判定の受け付けが、人待ちの素材を出どころにする問いを台帳に載せない返答を拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    for name in sorted(awaiting - listed):",
+   "new": "    for name in sorted(set()):",
+   "expect": "判定の時点: 人待ちの素材を出どころにする問いを台帳に載せない判定は拒む",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_awaiting_origin_guards"
+    ]
+   }
+  },
+  {
+   "id": "CK2",
+   "title": "engine が宣言の語をレビュー対象のリポジトリのルートで走らせる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "run_steps(launch[\"steps\"], root, log_dir",
+   "new": "run_steps(launch[\"steps\"], None, log_dir",
+   "expect": "宣言の語はレビュー対象のリポジトリのルートで走る",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
+    ]
+   }
   }
  ],
  "dropped": [

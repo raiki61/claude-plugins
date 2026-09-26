@@ -393,7 +393,7 @@
     "policy",
     "precedent"
    ],
-   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。人に聞く語の正本は rules の HUMAN_FACE_KINDS。precedent（案が採る先行例の出典が実在しない・単位の問題に当たっていない）は事前審査だけの語——判定者の先行例は修正差分のレビューに渡らない。事前審査だけの語の一覧の正本は rules の PLAN_ONLY_FACE_KINDS"
+   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。人に聞く語の正本は rules の HUMAN_FACE_KINDS。precedent も事前審査だけの語で、事前審査だけの語の一覧と理由の正本は rules の PLAN_ONLY_FACE_KINDS"
   },
   "delta_review_reply": {
    "type": "object",
@@ -3042,6 +3042,8 @@
     "loop.prev_blocks",
     "loop.defer_ledger",
     "record.process.human_answers",
+    "record.process.human_items",
+    "loop.prev_own_precedents",
     "out.p0.purpose.purpose_text",
     "record.units",
     "record.questions",
