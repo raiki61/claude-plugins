@@ -502,6 +502,12 @@ def run_driver_node(b, nid, n, notes):
     out = fn(b, nid)
     f = b.dir / "out" / f"r{b.round}" / (safe_name(nid) + ".json")
     write_json(f, out)
+    # 返りの形は節の schema（在れば）で照らす——後の節・条件・rules がこの出力の欄を名前で読む（役の返答と同じ扱い）。
+    # 外れは rules の欠陥なので止める（盤面は保存しない。書いた出力は調べられるよう残す）。schema の無い節（持ち込みの graph）は今までどおり
+    sch = n.get("schema")
+    errs = validate_schema(out, sch) if isinstance(sch, dict) else []
+    if errs:
+        die(f"builtin '{n['builtin']}' の返りが節 {nid} の schema に合わない（{f} に残した）: " + "; ".join(errs[:5]))
     b.state["outputs"][nid] = {"file": str(f.relative_to(b.dir)), "round": b.round}
     b.trace("builtin", node=nid, result=out)
     # 返りは 2 つの形のどちらか——{"ok": bool, "problems": [...]} か {"decision": ...}。

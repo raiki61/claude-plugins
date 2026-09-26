@@ -1,5 +1,132 @@
 {
  "about": "変異の腕の一覧。1 本ずつ写しに当てて台本を走らせ、赤になることを見る（実行器は tests/mutate.py）。old は file の中に 1 か所だけ在る字列で、new に置き換える。json は graph の欄を消す・値を抜く。expect は赤のときに落ちるはずの検査の名前の頭（実際に落ちた検査 killedBy に在ることだけが当たりの証拠。頭の 16 字は台本の本文に字面で在ること。台本の土台が例外で抜けた行（test_… が例外で抜けた）は関数名で見る）。marker は守る行を通ったことを見る印の置き場（after＝old の 1 行目の次の行、before＝前の行。cond はその行で真になる式）。python_max はその版より新しい Python では撃てない腕（実行器は撃たずに status を Ignored にし、要約の『撃てない』はその status から引く）。dropped は外した腕と理由",
+ "dropped": [
+  {
+   "id": "d02",
+   "why": "同じ挙動の変異になった: 版の一覧の照合を前方一致に緩めても、前方一致で当たるのはディレクトリだけで、作業ツリーの通常ファイルの要求（1 周目の修正）が先に拒む。どの台本でも区別できない"
+  },
+  {
+   "id": "f15",
+   "why": "柵ではない: hook_evidence が渡されたバイト列を使うのはファイルを 2 度開かない費用の違いで、判定を変えない"
+  },
+  {
+   "id": "A9",
+   "why": "同じ挙動の変異になった: 頭の段を git だけにしたので、頭と `|` の後ろに同じ名前のコマンドが無く、表を段の位置で選ぶか名前で引くかをどの問いでも区別できない（2026-09-23 の 3 周目の修正）"
+  },
+  {
+   "ids": [
+    "n16",
+    "K1a",
+    "K1b",
+    "K1c",
+    "K1d",
+    "K1e",
+    "K2a",
+    "K2b",
+    "K2c",
+    "K3a",
+    "K3b",
+    "K3c",
+    "K4a",
+    "K4b",
+    "A1",
+    "A3",
+    "A5",
+    "A6",
+    "A7",
+    "A8",
+    "A10",
+    "A18",
+    "A22",
+    "A23",
+    "A24"
+   ],
+   "why": "F1 で役の 1 行を字句解析して段ごとの許可表で見張る形を消した（how は欄で受け、argv は engine が組む）。守っていた行ごと無い"
+  },
+  {
+   "ids": [
+    "GC3",
+    "GC4"
+   ],
+   "why": "数える問いの schema の写しの揃いを見る検出器を消した（2026-09-24 の review-graph 2 周目の一撃: 写しをやめ、engine の 1 つの定義を $ref で引く）。守っていた行ごと無い"
+  },
+  {
+   "ids": [
+    "C16",
+    "CW1",
+    "CQ1",
+    "SI1"
+   ],
+   "why": "回す側が数える口（loop.py count）を消した（2026-09-24 の review-graph 3 周目: engine が全部数え、使う側が無く、engine の数え方と揃わない入口として 4 回繕われた）。守っていた行ごと無い"
+  },
+  {
+   "ids": [
+    "n26"
+   ],
+   "why": "指摘側の数えを engine の grep（cwd=リポジトリのルート）へ寄せた（2026-09-24 の review-graph 3 周目）。ルートで走らせるので :(top) を外しても数える世界は同じ——等価な変異で、赤になる形が無い。:(top) は cwd がルートでなくなったときの二重の備えとして残す"
+  },
+  {
+   "ids": [
+    "PJ1"
+   ],
+   "why": "判定者の行を採った印を共有の verdict の値（judge_row）から precedent の欄（from_judge_row）へ移した（2026-09-24 の review-graph 3 周目・修正案の事前審査の別案）。型が許して柵が拒む値が無くなり、判定者の行に judge_row を拒む柵ごと消えた"
+  },
+  {
+   "ids": [
+    "LF1",
+    "LF2",
+    "LF4",
+    "LF5",
+    "LK4",
+    "LK5"
+   ],
+   "why": "参照形式のリンクを拾うのをやめた（2026-09-24 の review-graph 4 周目: リポジトリに参照形式の定義は 0 件で、前の周の単位に入口を足す形で答えたら誤検知の面が増えた、と判定者が挙げた）。守っていた行ごと無い"
+  },
+  {
+   "id": "GG1",
+   "why": "消した: 変異の検算の見逃しを手直しの義務（_owed_rows）に足す行ごと消した——見逃しへの答えは並行の線（p3.delta_gates）が持ち、周の締めを止めない（2026-09-25）"
+  },
+  {
+   "id": "GG2",
+   "why": "消した: _gate_gaps ごと消した（見逃しの読み方は _unproven 1 本に寄せた。腕は LN1〜LN4）"
+  },
+  {
+   "id": "DO1",
+   "why": "消した: 手直しの義務に腕の成分が無くなった（腕の成分が載らないことは test_fix_plan_review が見る）"
+  },
+  {
+   "id": "GX1",
+   "why": "消した: 前の周の頭から自動の腕を撃つ引数（gate_auto_args）ごと消した——撃ち手は並行の線 1 つ"
+  },
+  {
+   "id": "EJ8",
+   "why": "同じ変異になった: 深さの 3 節の条件を工場 _deep_due に畳んだので、入口の周に起こさない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
+  },
+  {
+   "id": "EJ9",
+   "why": "同じ変異になった: 深さの 3 節の条件を工場 _deep_due に畳んだので、入口の周に起こさない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
+  },
+  {
+   "id": "DL1",
+   "why": "消した: 待ちの期限とそれを過ぎた印を外した（2026-09-25、人の依頼）——経過の表示は test_relaunch が見る"
+  },
+  {
+   "id": "DL7",
+   "why": "消した: graph の期限の値の検査ごと外した（2026-09-25、人の依頼）"
+  },
+  {
+   "id": "LN3",
+   "why": "柵ごと取り下げた: 線と最後の関門の返答の suite（テスト一式の自己申告）を読まない——一式の緑は engine が走らせた p4.ci が正本（2026-09-25、手順 3b）"
+  },
+  {
+   "ids": [
+    "GM1",
+    "GM2",
+    "GM3"
+   ],
+   "why": "消した: 合流でまとめて撃つ入力は gates=merge の 1 通りに揃えた（2026-09-26、人の決定）——gates=at_merge の実装ごと外した。gates=merge の腕は RC1〜RC6"
+  }
+ ],
  "arms": [
   {
    "id": "d01",
@@ -2253,7 +2380,7 @@
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "修正の件数: 修正役が population と書いても判定者の defects で数え",
-   "old": "coverage（修正前）\", cov[\"how\"], root, rev=(b.state.get(\"inputs\") or {}).get(\"review_rev\"))",
+   "old": "coverage（修正前）\", cov[\"how\"], root, rev=b.loop_state.get(\"reviewed_revision\"))",
    "new": "coverage（修正前）\", cov[\"how\"], root, rev=None)",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4327,12 +4454,12 @@
   },
   {
    "id": "LN12",
-   "title": "線の範囲は今の周の物だけ",
+   "title": "線の範囲は今の周の出力だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    return c if c.get(\"round\") == b.round else None",
-   "new": "    return c",
-   "expect": "線の範囲: 前の周に固めた範囲では線を立てない",
+   "old": "    c = b.output_of_round(\"p3.gates_cut\", b.round)",
+   "new": "    c = b.latest_output(\"p3.gates_cut\")",
+   "expect": "最後の関門: 今の周の p3.gates_cut の出力が無ければ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_rules"
@@ -4776,8 +4903,8 @@
    "title": "道具名の柵: engine が役へ渡す値に引数の綴りを組めば赤",
    "file": "graphloops/rules/review-loop.py",
    "suite": "root",
-   "old": "    cut = {\"round\": b.round, \"from\": frm, \"rev\": snap, \"files\": files,",
-   "new": "    cut = {\"round\": b.round, \"from\": f\"--auto {frm}\", \"rev\": snap, \"files\": files,",
+   "old": "    cut = {\"from\": frm, \"rev\": snap, \"files\": files, \"result\": str(d / f\"{tag}.json\")}",
+   "new": "    cut = {\"from\": f\"--auto {frm}\", \"rev\": snap, \"files\": files, \"result\": str(d / f\"{tag}.json\")}",
    "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
   },
   {
@@ -5300,7 +5427,7 @@
    "title": "gates=merge の run は線を台帳に載せない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if files and ls.get(\"gates\") != GATES_MERGE:   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）",
+   "old": "    if files and not _gates_merged(b):   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）",
    "new": "    if files:",
    "expect": "線と関門の instance は出ず、線の台帳は空",
    "tests": {
@@ -5314,7 +5441,7 @@
    "title": "gates=merge の run は収束を名乗らず gates_deferred で止まる",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if _would_converge(b) and ls.get(\"gates\") == GATES_MERGE:",
+   "old": "    if _would_converge(b) and _gates_merged(b):",
    "new": "    if False:",
    "expect": "収束する筋書きでも converge は収束を名乗らず",
    "tests": {
@@ -6031,7 +6158,7 @@
    "title": "合流に回した P1 のゲートの検算を理由つきの not_applicable で残す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "            elif state == \"na\" and n.get(\"cond\") == \"gate_efficacy_due\" and b.loop_state.get(\"gates\") == GATES_MERGE:",
+   "old": "            elif state == \"na\" and n.get(\"cond\") == \"gate_efficacy_due\" and _gates_merged(b):",
    "new": "            elif False:",
    "expect": "撃たなかった素材は合流でまとめる理由と残る義務",
    "tests": {
@@ -6193,6 +6320,62 @@
    "expect": "CI の設定が shellcheck を回す"
   },
   {
+   "id": "DS1",
+   "title": "機械の節の返りを節の schema で照らす",
+   "file": "graphloops/engine/advance.py",
+   "suite": "graphloops",
+   "old": "    errs = validate_schema(out, sch) if isinstance(sch, dict) else []",
+   "new": "    errs = []",
+   "expect": "節の schema に無い欄を返す builtin は die",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_bad_builtin"
+    ]
+   }
+  },
+  {
+   "id": "PO1",
+   "title": "節の出力の手当ては節の schema に合わない値を書かない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    errs = validate_schema(out, sch) if isinstance(sch, dict) else []",
+   "new": "    errs = []",
+   "expect": "手当て: 節の schema に合わない値は書かない",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_patch_node_output"
+    ]
+   }
+  },
+  {
+   "id": "OR1",
+   "title": "義務の行の無い旧い出力を 0 件に倒さない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if \"rows\" not in out:",
+   "new": "    if False:",
+   "expect": "手直しの義務: 出力が在るのに rows が無い",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_delta_conditions"
+    ]
+   }
+  },
+  {
+   "id": "BL1",
+   "title": "突合の基準は取り直した基準を先に読む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if \"tree_before\" in after:",
+   "new": "    if False:",
+   "expect": "作業ツリーの保護: 突合の基準は今の周の節の出力から引き",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_delta_conditions"
+    ]
+   }
+  },
+  {
    "id": "CL4",
    "title": "CI の突合: tests/run.sh の段が見送りを失敗に数えなければ赤",
    "file": ".github/workflows/test.yml",
@@ -6327,133 +6510,6 @@
      "test_engine_run_checks"
     ]
    }
-  }
- ],
- "dropped": [
-  {
-   "id": "d02",
-   "why": "同じ挙動の変異になった: 版の一覧の照合を前方一致に緩めても、前方一致で当たるのはディレクトリだけで、作業ツリーの通常ファイルの要求（1 周目の修正）が先に拒む。どの台本でも区別できない"
-  },
-  {
-   "id": "f15",
-   "why": "柵ではない: hook_evidence が渡されたバイト列を使うのはファイルを 2 度開かない費用の違いで、判定を変えない"
-  },
-  {
-   "id": "A9",
-   "why": "同じ挙動の変異になった: 頭の段を git だけにしたので、頭と `|` の後ろに同じ名前のコマンドが無く、表を段の位置で選ぶか名前で引くかをどの問いでも区別できない（2026-09-23 の 3 周目の修正）"
-  },
-  {
-   "ids": [
-    "n16",
-    "K1a",
-    "K1b",
-    "K1c",
-    "K1d",
-    "K1e",
-    "K2a",
-    "K2b",
-    "K2c",
-    "K3a",
-    "K3b",
-    "K3c",
-    "K4a",
-    "K4b",
-    "A1",
-    "A3",
-    "A5",
-    "A6",
-    "A7",
-    "A8",
-    "A10",
-    "A18",
-    "A22",
-    "A23",
-    "A24"
-   ],
-   "why": "F1 で役の 1 行を字句解析して段ごとの許可表で見張る形を消した（how は欄で受け、argv は engine が組む）。守っていた行ごと無い"
-  },
-  {
-   "ids": [
-    "GC3",
-    "GC4"
-   ],
-   "why": "数える問いの schema の写しの揃いを見る検出器を消した（2026-09-24 の review-graph 2 周目の一撃: 写しをやめ、engine の 1 つの定義を $ref で引く）。守っていた行ごと無い"
-  },
-  {
-   "ids": [
-    "C16",
-    "CW1",
-    "CQ1",
-    "SI1"
-   ],
-   "why": "回す側が数える口（loop.py count）を消した（2026-09-24 の review-graph 3 周目: engine が全部数え、使う側が無く、engine の数え方と揃わない入口として 4 回繕われた）。守っていた行ごと無い"
-  },
-  {
-   "ids": [
-    "n26"
-   ],
-   "why": "指摘側の数えを engine の grep（cwd=リポジトリのルート）へ寄せた（2026-09-24 の review-graph 3 周目）。ルートで走らせるので :(top) を外しても数える世界は同じ——等価な変異で、赤になる形が無い。:(top) は cwd がルートでなくなったときの二重の備えとして残す"
-  },
-  {
-   "ids": [
-    "PJ1"
-   ],
-   "why": "判定者の行を採った印を共有の verdict の値（judge_row）から precedent の欄（from_judge_row）へ移した（2026-09-24 の review-graph 3 周目・修正案の事前審査の別案）。型が許して柵が拒む値が無くなり、判定者の行に judge_row を拒む柵ごと消えた"
-  },
-  {
-   "ids": [
-    "LF1",
-    "LF2",
-    "LF4",
-    "LF5",
-    "LK4",
-    "LK5"
-   ],
-   "why": "参照形式のリンクを拾うのをやめた（2026-09-24 の review-graph 4 周目: リポジトリに参照形式の定義は 0 件で、前の周の単位に入口を足す形で答えたら誤検知の面が増えた、と判定者が挙げた）。守っていた行ごと無い"
-  },
-  {
-   "id": "GG1",
-   "why": "消した: 変異の検算の見逃しを手直しの義務（_owed_rows）に足す行ごと消した——見逃しへの答えは並行の線（p3.delta_gates）が持ち、周の締めを止めない（2026-09-25）"
-  },
-  {
-   "id": "GG2",
-   "why": "消した: _gate_gaps ごと消した（見逃しの読み方は _unproven 1 本に寄せた。腕は LN1〜LN4）"
-  },
-  {
-   "id": "DO1",
-   "why": "消した: 手直しの義務に腕の成分が無くなった（腕の成分が載らないことは test_fix_plan_review が見る）"
-  },
-  {
-   "id": "GX1",
-   "why": "消した: 前の周の頭から自動の腕を撃つ引数（gate_auto_args）ごと消した——撃ち手は並行の線 1 つ"
-  },
-  {
-   "id": "EJ8",
-   "why": "同じ変異になった: 深さの 3 節の条件を工場 _deep_due に畳んだので、入口の周に起こさない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
-  },
-  {
-   "id": "EJ9",
-   "why": "同じ変異になった: 深さの 3 節の条件を工場 _deep_due に畳んだので、入口の周に起こさない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
-  },
-  {
-   "id": "DL1",
-   "why": "消した: 待ちの期限とそれを過ぎた印を外した（2026-09-25、人の依頼）——経過の表示は test_relaunch が見る"
-  },
-  {
-   "id": "DL7",
-   "why": "消した: graph の期限の値の検査ごと外した（2026-09-25、人の依頼）"
-  },
-  {
-   "id": "LN3",
-   "why": "柵ごと取り下げた: 線と最後の関門の返答の suite（テスト一式の自己申告）を読まない——一式の緑は engine が走らせた p4.ci が正本（2026-09-25、手順 3b）"
-  },
-  {
-   "ids": [
-    "GM1",
-    "GM2",
-    "GM3"
-   ],
-   "why": "消した: 合流でまとめて撃つ入力は gates=merge の 1 通りに揃えた（2026-09-26、人の決定）——gates=at_merge の実装ごと外した。gates=merge の腕は RC1〜RC6"
   }
  ]
 }

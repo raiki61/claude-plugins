@@ -15,7 +15,7 @@
     loop.py stop   --reason <理由>                       # 走っている run を人がその時点で止める（理由は記録に残り、graph が宣言する後始末の節——報告——だけが走る）
     loop.py thicken --to <段> --reason <理由>           # 段の昇格（降格は不可。段名は graph の thickness.tiers）
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
-    loop.py patch  --path <[record.]記録の欄 | state.<盤面の欄>> (--file <json> | --delete) --reason   # 記録（既定）か盤面の手当て——書くか消す（痕跡が残る最終手段）
+    loop.py patch  --path <[record.]記録の欄 | state.<盤面の欄> | out.<節>.<欄>> (--file <json> | --delete) --reason   # 記録（既定）か盤面か節の最新の出力の手当て——書くか消す（痕跡が残る最終手段）
     loop.py status [--dir] / loop.py record [--dir] / loop.py finalize [--dir]
     loop.py intake (--what <1 行> [--dir] | --export <file> [--all] [--with-stderr] | --send | --set-url <URL>) [--data-dir]
                                                      # 踏んだ問題を利用者の環境に残す手の口（非 0 の終わりは engine が自動で残す）

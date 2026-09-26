@@ -81,7 +81,7 @@ cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest m
 
 ## ループを足すには
 
-1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。rules が盤面の loop（`b.loop_state`）に鍵を書くなら、鍵の名前を rules の `LOOP_KEYS` に、形を graph の最上位の `state_schema`（`type: object`・`additionalProperties: false` の JSON Schema。周ごとに名前の変わる鍵は `patternProperties`）に書く——graphcheck が両方をそろえ、loop を読む path を最後の欄まで照らし、engine は保存の時に照らして外れを `state.loop_drift` に残す（止めない）。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。
+1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。rules が盤面の loop（`b.loop_state`）に鍵を書くなら、鍵の名前を rules の `LOOP_KEYS` に、形を graph の最上位の `state_schema`（`type: object`・`additionalProperties: false` の JSON Schema。周ごとに名前の変わる鍵は `patternProperties`）に書く——graphcheck が両方をそろえ、loop を読む path を最後の欄まで照らし、engine は保存の時に照らして外れを `state.loop_drift` に残す（止めない）。rules だけが読み書きし、条件・節の `reads`・プロンプトの穴に読ませない鍵には `writeOnly: true` を付ける。1 つのブロックの中で閉じる値は loop に置かず、書く節の出力に載せて `cur.<節>.<欄>` で読む。機械の節（`run_by: driver`）も返りの形を `schema` に書く——engine が返りを照らし（外れは止める）、graphcheck が出力を読む欄を照らす。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。
 2. `prompts/<loop>/` に節ごとのプロンプト。散文の手順書の「なぜ」を前書きに残す（指示だけに削ると、規律は守られても判断の質が落ちる）。
 3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_stop`・`on_thickness`・`add`（要るものだけ）。人が途中で止める口（`loop.py stop`）で報告まで届かせるなら、graph の最上位に `stop`（止めた後に『済んだ』と見なす機械の節。下流に報告の節が要る——graphcheck が見る）を書く。
 4. `tests/simulate.py` に台本を足す（台本はまだそこに在る。pytest の側の土台は台本を import して回せるが、移すのは次の段。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。

@@ -20,11 +20,12 @@ def empty_round(n):
 # engine は宣言した欄だけが見える入れ物（CondView）を渡して（真偽, 理由の文）を受け取る。以前は graph の JSON の上の
 # 小さな言語（all / any / not / path+op+default / builtin）を engine が解釈し、graphcheck が同じ言語を検査していた
 # ——綴り違い・default の読み落とし・prev. の検査漏れのたびに検査を継ぎ足し、loop.・record. の葉は最後まで検査の外だった。
-# 条件の文脈で読める前置き。Board.cond はこの表から条件の文脈を組み（engine の ctx から引き、cur だけ足す）、graphcheck が
-# import して宣言の頭がこの中に在るかを見る（写しを作らない）。cur.<節> は「今の周にその節が出した出力」（out.<節> は周を問わない
-# 最新、prev.<節> は前の周までの最新）。照らす宣言を持たない前置き（inputs・run・thickness・item）は条件から読ませない
+# 条件の文脈で読める前置き。Board.cond はこの表で engine の ctx を切り出し、graphcheck が import して宣言の頭がこの中に在るかを見る
+# （写しを作らない）。cur.<節> は「今の周にその節が出した出力」（out.<節> は周を問わない最新、prev.<節> は前の周までの最新）。
+# inputs は init で固まり run の途中で書き換えない入力（graphcheck が graph の inputs の宣言で照らす）。照らす宣言を持たない
+# 前置き（run・thickness・item）は条件から読ませない
 COND_NODE_HEADS = ("out", "prev", "cur")   # 下に <節>.<欄> を持つ前置き（graphcheck が節の schema で照らす）
-COND_HEADS = ("record", *COND_NODE_HEADS, "round", "rd", "loop")
+COND_HEADS = ("record", *COND_NODE_HEADS, "round", "rd", "loop", "inputs")
 _MISSING = object()
 
 
@@ -190,7 +191,7 @@ class Board:
             return
         try:
             errs = validate_schema(self.state.get("loop") or {}, sch, "loop")
-        except Exception as e:  # noqa: BLE001 — 照らせなかったことも痕跡にする（黙って 0 件にしない）
+        except Exception as e:  # noqa: BLE001
             errs = [f"loop を state_schema で照らせなかった（{type(e).__name__}: {e}）"]
         rows = self.state.setdefault("loop_drift", [])
         for e in errs:
@@ -349,8 +350,7 @@ class Board:
         fn = registry(self.rules, "CONDS").get(name)
         if fn is None:
             die(f"cond '{name}' が rules の CONDS に無い（graph の cond には関数の名前だけを書く）")
-        full = {**self.ctx(), "cur": {nid: self.output_of_round(nid, self.round) for nid, info in self.state["outputs"].items()
-                                     if info.get("round") == self.round}}
+        full = self.ctx()
         ctx = {h: full[h] for h in COND_HEADS}
         return run_cond(name, fn, ctx, lambda: validator_module(self), self.state, overlay)
 
@@ -461,9 +461,12 @@ class Board:
         raise KeyError(f"{path}: ref: にできるのは record・out.<節>・prev.<節>・raw だけ")
 
     def ctx(self, item=None):
+        """プロンプトの穴・条件・pointers の from・delegate.result_to が引く文脈。cur.<節> は今の周にその節が出した出力だけ
+        （前の周の値を今の周の値と読まない。out.<節> は周を問わない最新）"""
         return {
             "record": self.record, "inputs": self.state["inputs"], "item": item or {}, "out": self.outputs(),
             "prev": self.outputs(before_round=self.round),
+            "cur": {nid: self.output_of_round(nid, self.round) for nid, info in self.state["outputs"].items() if info.get("round") == self.round},
             "thickness": self.state["thickness"], "round": self.round, "rd": self.rd, "loop": self.loop_state,
             "run": {"id": self.state["run_id"], "dir": str(self.dir), "loop": self.state["loop_name"]},
             "validator": self.validator_tables(),

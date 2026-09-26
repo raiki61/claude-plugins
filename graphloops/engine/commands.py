@@ -1338,17 +1338,21 @@ def cmd_add(a):
 
 
 def cmd_patch(a):
-    """記録（既定。record. 接頭も同じ）か盤面（state. 接頭）の手当て——書く（--file）か消す（--delete）。痕跡は state.patches と trace に残る。
+    """記録（既定。record. 接頭も同じ）か盤面（state. 接頭）か節の出力（out.<節>.<欄>）の手当て——書く（--file）か消す（--delete）。痕跡は state.patches と trace に残る。
 
     盤面も許すのは、run の途中で graph と雛形が変わると rules の私有の鍵が足りずに next が止まり、
     記録側の手当てでは届かないから（実測 2026-09-12: 雛形が新しい loop_state の鍵を読み、回す側が
     state.json を手で書き換えて続けた——手当ての口が盤面の壊れ方を覆っていなかった）。
+    節の出力も許すのは、条件と rules が読む値の置き場が loop から節の出力（out/r<周>/<節>.json）へ移ったから——
+    書くのはその節の最新の出力のファイルで、節が schema を持てば書いた後の形を照らし、外れれば書かない。
     """
     b = Board(resolve_dir(a))
     b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）
     if (a.file is None) == (not a.delete):
         raise Reject("--file（書く）か --delete（消す）のどちらか 1 つを渡せ")
-    if a.path.startswith("state."):
+    if a.path.startswith("out."):
+        target, path, shown = None, a.path[len("out."):], a.path   # 節の出力のファイル（_patch_output）
+    elif a.path.startswith("state."):
         target, path, shown = b.state, a.path[len("state."):], a.path
     else:
         # 記録は接頭なしでも record. 付きでも同じ場所を指す（board.ref の綴りと同じ）。接頭をそのまま鍵にしていた頃、
@@ -1360,7 +1364,9 @@ def cmd_patch(a):
     if "" in path.split("."):
         raise Reject(f"--path {a.path} に空の区切りがある——空の名前の鍵を作らない（欄を名指しせよ）")
     try:
-        if a.delete:
+        if target is None:
+            _patch_output(b, path, None if a.delete else read_json(a.file), delete=a.delete)
+        elif a.delete:
             del_path(target, path)
         else:
             set_path(target, path, read_json(a.file))
@@ -1371,6 +1377,31 @@ def cmd_patch(a):
     b.trace("patch", path=a.path, **({"delete": True} if a.delete else {}), reason=a.reason)
     b.save()
     print(f"ok {shown} を{'消した' if a.delete else '手当てした'}（痕跡は state.patches と trace に残る）")
+
+
+def _patch_output(b, rest, value, delete=False):
+    """節の最新の出力（state.outputs の指すファイル）の欄 rest（<節>.<欄>。節の名前の点は最長一致で取る）を value にする
+    （delete なら欄を消す。無い欄は KeyError）"""
+    nid = b.node_of(rest)
+    info = b.state["outputs"].get(nid) if nid else None
+    if info is None:
+        die(f"patch: out.{rest} の節に出力が無い（節の名前か、まだ出力を書いていない節）")
+    field = rest[len(nid) + 1:]
+    f = pathlib.Path(b._out_path(info["file"]))
+    out = read_json(f)
+    if field and delete:
+        del_path(out, field)
+    elif field:
+        set_path(out, field, value)
+    elif delete:
+        raise Reject(f"--path out.{nid} は節の出力まるごと——消す欄を名指しせよ（out.{nid}.<欄>）")
+    else:
+        out = value
+    sch = b.nodes[nid].get("schema")
+    errs = validate_schema(out, sch) if isinstance(sch, dict) else []
+    if errs:
+        die(f"patch: 書いた後の out.{nid} が節の schema に合わない（書いていない）: " + "; ".join(errs[:5]))
+    write_json(f, out)
 
 
 # ---------------------------------------------------------------- finalize / status / record

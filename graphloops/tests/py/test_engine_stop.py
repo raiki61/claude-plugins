@@ -76,7 +76,7 @@ def research_board(outcome=None, status="running", halted=None, rederiver=None, 
     state = {"thickness": "標準", "status": status}
     if halted:
         state["halted"] = halted
-    return types.SimpleNamespace(record=rec, state=state, loop_state={}, round=1, nodes=RESEARCH["nodes"])
+    return types.SimpleNamespace(record=rec, state=state, loop_state={}, round=1, nodes=RESEARCH["nodes"], latest_output=lambda nid: None)
 
 
 def test_research_initial_record_is_undecided():
@@ -99,6 +99,19 @@ def test_research_finalize_while_running_writes_nothing_until_the_board_stops():
     conv = b.record["convergence"]
     assert conv["outcome"] == "stopped" and "stop_after_round: 1 周目の締めの後" in conv["stopped_reason"]
     assert [c["id"] for c in b.record["process"]["unchecked_claims"]] == ["C1"]
+
+
+def test_research_load_zero_reason_comes_from_the_clusters_output():
+    """荷重の主張が 0 件の理由は p0.clusters の返答が正本——仕上げはその出力から写し、loop に残った旧い写しは読まない"""
+    b = research_board(outcome="stopped", status="stopped", halted={"by": "stop", "reason": "検査用"},
+                       claims=[{"id": "C1", "cluster": "k", "claim": "c", "load_bearing": False, "verdict": "確証"}],
+                       clusters=[{"key": "k", "claims_submitted": 1}])
+    b.loop_state["load_zero_reason"] = "旧い写し"
+    RULES.finalize(b)
+    assert "load_zero_reason" not in b.record["process"]
+    b.latest_output = lambda nid: {"load_zero_reason": "どの主張も結論を支えない（検査用）"} if nid == "p0.clusters" else None
+    RULES.finalize(b)
+    assert b.record["process"]["load_zero_reason"] == "どの主張も結論を支えない（検査用）"
 
 
 def test_research_rederiver_verdict_carries_its_own_state():

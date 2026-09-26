@@ -1249,20 +1249,32 @@ def test_graphcheck():
 
 
 def test_bad_builtin():
-    print("否定検査: 機械の節の返りが {ok: 真偽値} でも {decision: …} でもなければ die")
+    print("否定検査: 機械の節の返りが {ok: 真偽値} でも {decision: …} でもなければ die・節の schema に合わなければ die")
     _td_tmp, tmp = parallel.workspace("gl-bb-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
     (tmp / "graphs").mkdir()
     r = (tmp / "rules" / "research-loop.py")
     r.write_text(r.read_text(encoding="utf-8") +
-                 '\n\ndef shapeless(b, nid):\n    return {"nope": 1}\n\n\nBUILTINS["shapeless"] = shapeless\n', encoding="utf-8")
-    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
-    g["nodes"]["p1.record_check"]["builtin"] = "shapeless"
-    (tmp / "graphs" / "bad.json").write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+                 '\n\ndef shapeless(b, nid):\n    return {"nope": 1}\n\n\nBUILTINS["shapeless"] = shapeless\n'
+                 '\n\ndef undeclared(b, nid):\n    return {"ok": True, "nope": 1}\n\n\nBUILTINS["undeclared"] = undeclared\n', encoding="utf-8")
     run = Run("badbuiltin")
-    d2 = run.tmp / "s2"
-    init = subprocess.run([PY, str(LOOP), "init", "--loop", "research-loop", "--graph", str(tmp / "graphs" / "bad.json"),
+    for builtin, keep_schema, want, desc in (
+            ("shapeless", False, "でも", "schema の無い機械の節（持ち込みの graph）でも、形の違う返りは die（合格に倒さない）"),
+            ("undeclared", True, "schema に合わない", "節の schema に無い欄を返す builtin は die（書いた出力は調べられるよう残す）")):
+        g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+        g["nodes"]["p1.record_check"]["builtin"] = builtin
+        if not keep_schema:
+            g["nodes"]["p1.record_check"].pop("schema")
+        (tmp / "graphs" / f"{builtin}.json").write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+        seen, init = drive_bad_builtin(run, tmp / "graphs" / f"{builtin}.json", run.tmp / builtin)
+        check(init.returncode == 0 and want in seen and builtin in seen and ("nope" in seen if keep_schema else True), f"{desc}: {seen[-160:]}")
+    rm(tmp); rm(run.tmp)
+
+
+def drive_bad_builtin(run, graph, d2):
+    """壊した builtin の graph で init し、止まるまで next と done を回す ——（next の標準エラーを連ねた物, init の結果）"""
+    init = subprocess.run([PY, str(LOOP), "init", "--loop", "research-loop", "--graph", str(graph),
                            "--request", "q", "--document", str(run.doc), "--dir", str(d2), "--validator", str(VALIDATOR)],
                           cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
     seen = ""
@@ -1281,8 +1293,7 @@ def test_bad_builtin():
             f.write_text(json.dumps(o, ensure_ascii=False) if not isinstance(o, str) else o, encoding="utf-8")
             subprocess.run([PY, str(LOOP), "done", "--node", inst["id"], "--output", str(f), "--dir", str(d2)], env=run.env,
                            cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
-    check(init.returncode == 0 and "でも" in seen and "shapeless" in seen, f"形の違う返りは die（合格に倒さない）: {seen[-140:]}")
-    rm(tmp); rm(run.tmp)
+    return seen, init
 
 
 def test_units():
@@ -2901,7 +2912,7 @@ def test_stopped_gates_all_thicknesses():
                "decisions": {"decide_now": ["d"], "poc": [], "human_only": []}, "convergence": {"outcome": outcome}}
         # 盤面の欄は仕上げが読む物を実物の形で持つ（止めた口 halted・済んだ節 done_ever・graph の節）
         b = types.SimpleNamespace(record=rec, state={"thickness": th, "status": "stopped", "done_ever": {}}, loop_state={}, round=3,
-                                  nodes=json.loads(gp.read_text(encoding="utf-8"))["nodes"])
+                                  nodes=json.loads(gp.read_text(encoding="utf-8"))["nodes"], latest_output=lambda nid: None)
         rules.finalize(b)
         return rec["gates"]
 

@@ -4,6 +4,7 @@
 {{ref:record}}
 
 盤面: {{loop}}
+選んだ流れ（init の入力。選ばなかった run では『この周には無い』と出る）: 仕様の道 flow={{?inputs.flow}}・変異の検算を合流でまとめる gates={{?inputs.gates}}
 人が決めることの本文（前の節）: {{out.report.human_items.text}}
 初見検査の結果（詰まりが残っていれば直してから出す）: {{out.report.cold_check}}
 判定者の生の返答（judge・R1〜R4・比較役・隔離フレーム。要約で丸めず、根本ユニットのキー集合と verdict と理由はそのまま転記する）:

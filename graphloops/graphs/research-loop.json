@@ -18,7 +18,7 @@
  "state_schema": {
   "type": "object",
   "additionalProperties": false,
-  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。鍵の名前は rules の LOOP_KEYS と graphcheck が両向きで突き合わせ、条件・節の reads・プロンプトの穴が読む path は graphcheck がこの木で最後の欄まで照らす。engine は盤面を保存するときにこの形で照らし、外れを state.loop_drift に残す（止めない）。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）",
+  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）。writeOnly: true の鍵は rules だけが読み書きし、条件・節の reads・プロンプトの穴は読まない",
   "properties": {
    "stuck_hint": {
     "type": "boolean",
@@ -26,15 +26,13 @@
    },
    "stuck_ids": {
     "type": "array",
-    "description": "振り分けの候補: B run 全体の状態（通しで積み、人の答えで空にする）"
+    "description": "振り分けの候補: B run 全体の状態（通しで積み、人の答えで空にする）",
+    "writeOnly": true
    },
    "rederiver_redesign_rounds": {
     "type": "integer",
-    "description": "振り分けの候補: B run 全体の状態（数え上げ）"
-   },
-   "load_zero_reason": {
-    "type": "string",
-    "description": "振り分けの候補: C1 p0.clusters の返答に在る"
+    "description": "振り分けの候補: B run 全体の状態（数え上げ）",
+    "writeOnly": true
    }
   },
   "patternProperties": {
@@ -243,7 +241,7 @@
     "inputs.document",
     "thickness",
     "record.thickness_decider",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "schema": {
     "type": "object",
@@ -564,8 +562,7 @@
    ],
    "outputs": [
     "clusters（claims_submitted）"
-   ],
-   "post_check": "load_zero_reason"
+   ]
   },
   "p0.terms": {
    "stage": "P0",
@@ -1027,7 +1024,7 @@
    "reads": [
     "item",
     "validator",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "forbidden_inputs": [
     "同じクラスタの他の判定",
@@ -1132,7 +1129,28 @@
     "claims[].first_discrepant_round"
    ],
    "verdict_is_copy": true,
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "new_discrepancies": {
+      "type": "integer"
+     },
+     "ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   }
   },
   "p5.internal": {
    "stage": "P5（先行）",
@@ -1153,7 +1171,7 @@
     "record.constraints",
     "inputs.document",
     "inputs.cwd",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "schema": {
     "type": "object",
@@ -1250,7 +1268,7 @@
     "prev.p3.cartographer_compare",
     "out.p5.internal",
     "out.p0.prior_decisions",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "schema": {
     "type": "object",
@@ -1993,7 +2011,22 @@
     "convergence（rounds_total・consecutive_zero・outcome・stopped_reason）"
    ],
    "verdict_is_copy": true,
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "decision": {
+      "$ref": "engine#/driver_decision"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "ask": {
+      "$ref": "engine#/driver_ask"
+     }
+    }
+   }
   },
   "p5.adapt": {
    "stage": "P5",
@@ -2007,7 +2040,7 @@
     "record",
     "inputs.document",
     "out.p5.internal",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "schema": {
     "type": "object",
@@ -2232,7 +2265,7 @@
   "p3.sampling",
   "p0.independence_review"
  ],
- "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop / 周の鍵（rules の LOOP_KEYS・読んでよい loop の鍵 LOOP_READS と graph の state_schema の木 / ROUND_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
+ "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop / 周の鍵（rules の LOOP_KEYS と graph の state_schema の木——writeOnly の鍵は読めない / ROUND_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
  "verdict_paths": [
   "gates",
   "sampling",

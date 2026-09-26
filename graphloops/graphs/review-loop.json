@@ -37,10 +37,6 @@
    "kind": "dir",
    "by": "rules"
   },
-  "review_rev": {
-   "kind": "rev",
-   "by": "rules"
-  },
   "policy_md": {
    "kind": "file",
    "by": "rules",
@@ -52,7 +48,7 @@
  "state_schema": {
   "type": "object",
   "additionalProperties": false,
-  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。鍵の名前は rules の LOOP_KEYS と graphcheck が両向きで突き合わせ、条件・節の reads・プロンプトの穴が読む path は graphcheck がこの木で最後の欄まで照らす。engine は盤面を保存するときにこの形で照らし、外れを state.loop_drift に残す（止めない）。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）",
+  "description": "盤面の loop（rules が b.loop_state に書く鍵）の形の正本。各鍵の description はブロック分割の振り分けの候補（注記。まだ振り分けていない）",
   "properties": {
    "diff_file": {
     "type": "string",
@@ -69,17 +65,13 @@
     "type": "string",
     "description": "振り分けの候補: A 素材集めの出口"
    },
-   "diff_stat": {
-    "type": "string",
-    "description": "振り分けの候補: C1 節の出力に置ける"
-   },
    "diff_lines": {
     "type": "integer",
     "description": "振り分けの候補: A 独立の目の入口の出口"
    },
    "reviewed_revision": {
     "type": "string",
-    "description": "振り分けの候補: A 素材集めの出口（inputs.review_rev と同じ値）"
+    "description": "振り分けの候補: A 素材集めの出口（周に固めた版の正本。役へ渡す読む版もこれ）"
    },
    "head_revs": {
     "type": "object",
@@ -89,36 +81,6 @@
      }
     },
     "description": "振り分けの候補: C2 履歴から派生できる（周 → 周の頭の版）"
-   },
-   "tree_before": {
-    "type": "object",
-    "properties": {
-     "porcelain": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     },
-     "stash": {
-      "type": "string"
-     },
-     "tree": {
-      "type": "string"
-     },
-     "diff_sha": {
-      "type": "string"
-     }
-    },
-    "description": "振り分けの候補: C1 節の出力に置ける（diff_sha は旧い盤面の形）"
-   },
-   "retaken_for_reviews": {
-    "type": "object",
-    "properties": {
-     "file": {
-      "type": "string"
-     }
-    },
-    "description": "振り分けの候補: C4 書くだけで誰も読まない"
    },
    "last_seen": {
     "type": "object",
@@ -175,349 +137,49 @@
     "type": "object",
     "properties": {
      "base_determination": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "local_checks": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "parallel_pr": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "prior_decisions": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "local_review": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "consistency": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "bypass": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "hygiene": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "external_standards": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "procedure_trace": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "gate_efficacy": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "test_double_fidelity": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "main_path_observation": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "provenance": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      },
      "fix_closure": {
-      "type": "object",
-      "properties": {
-       "status": {
-        "type": "string"
-       },
-       "count": {
-        "type": "integer"
-       },
-       "detail": {
-        "type": "string"
-       },
-       "checked": {
-        "type": "string"
-       },
-       "reason": {
-        "type": "string"
-       },
-       "from_round": {
-        "type": "integer"
-       }
-      }
+      "$ref": "#/$defs/material_state"
      }
     },
     "description": "振り分けの候補: C2 履歴から派生できる（素材 → 素材）"
@@ -590,15 +252,6 @@
      }
     },
     "description": "振り分けの候補: C2 履歴から派生できる（単位の key → 保留の理由）"
-   },
-   "validator_outputs": {
-    "type": "object",
-    "patternProperties": {
-     "^[0-9]+$": {
-      "type": "string"
-     }
-    },
-    "description": "振り分けの候補: C1 p4.record の出力に在る（周 → 検証器の出力）"
    },
    "lines_at_r1": {
     "type": "integer",
@@ -723,13 +376,6 @@
     },
     "description": "振り分けの候補: B run 全体の状態（一方向の旗。下げるのは人の手当てだけ）"
    },
-   "facts_to_add": {
-    "type": "array",
-    "items": {
-     "type": "string"
-    },
-    "description": "振り分けの候補: C1 stop.premise_check の返答に在る"
-   },
    "r2_refire_forced": {
     "type": "boolean",
     "description": "振り分けの候補: C2 前の周の facts_to_add から派生できる"
@@ -807,104 +453,12 @@
     "description": "振り分けの候補: A 修正の出口"
    },
    "fix_delta": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "file": {
-      "type": "string"
-     },
-     "files": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     },
-     "rev": {
-      "type": "string"
-     }
-    },
+    "$ref": "#/$defs/fix_delta_state",
     "description": "振り分けの候補: A 修正差分の審査の出口（1 回目）"
    },
    "fix_delta2": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "file": {
-      "type": "string"
-     },
-     "files": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     },
-     "rev": {
-      "type": "string"
-     }
-    },
+    "$ref": "#/$defs/fix_delta_state",
     "description": "振り分けの候補: A 修正差分の審査の出口（2 回目）"
-   },
-   "delta_owed": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "rows": {
-      "type": "array",
-      "items": {
-       "type": "object",
-       "properties": {
-        "key": {
-         "type": "string"
-        },
-        "from": {
-         "type": "string"
-        },
-        "how": {
-         "type": "string"
-        },
-        "text": {
-         "type": "string"
-        }
-       }
-      }
-     }
-    },
-    "description": "振り分けの候補: C1 ブロックの中だけ（1 回目）"
-   },
-   "delta_owed2": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "rows": {
-      "type": "array",
-      "items": {
-       "type": "object",
-       "properties": {
-        "key": {
-         "type": "string"
-        },
-        "from": {
-         "type": "string"
-        },
-        "how": {
-         "type": "string"
-        },
-        "text": {
-         "type": "string"
-        }
-       }
-      }
-     }
-    },
-    "description": "振り分けの候補: C1 ブロックの中だけ（2 回目）"
    },
    "open_units": {
     "type": "integer",
@@ -913,21 +467,6 @@
    "r1_refire": {
     "type": "boolean",
     "description": "振り分けの候補: A 独立の目の入口の出口"
-   },
-   "r2_refire": {
-    "type": "boolean",
-    "description": "振り分けの候補: C1 ブロックの中だけ"
-   },
-   "ledger_changed": {
-    "type": "boolean",
-    "description": "振り分けの候補: C1 ブロックの中だけ"
-   },
-   "lines_ratio": {
-    "type": [
-     "number",
-     "null"
-    ],
-    "description": "振り分けの候補: C1 ブロックの中だけ"
    },
    "purpose_known": {
     "type": "boolean",
@@ -964,21 +503,6 @@
     },
     "description": "振り分けの候補: C2 履歴から派生できる"
    },
-   "purpose_review_stale": {
-    "type": "array",
-    "items": {
-     "type": "object",
-     "properties": {
-      "round": {
-       "type": "integer"
-      },
-      "why": {
-       "type": "string"
-      }
-     }
-    },
-    "description": "振り分けの候補: C3 記録に直接書けば要らない"
-   },
    "outcome": {
     "type": "string",
     "description": "振り分けの候補: B run 全体の状態（engine の status と重なる）"
@@ -986,60 +510,6 @@
    "stop_reason": {
     "type": "string",
     "description": "振り分けの候補: B run 全体の状態"
-   },
-   "cold_check": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "verdict": {
-      "type": "string"
-     },
-     "stops": {
-      "type": "integer"
-     },
-     "guessed": {
-      "type": "integer"
-     },
-     "decidable": {
-      "type": [
-       "boolean",
-       "null"
-      ]
-     }
-    },
-    "description": "振り分けの候補: C1 report.cold_check の返答に在る"
-   },
-   "gates_cut": {
-    "type": "object",
-    "properties": {
-     "round": {
-      "type": "integer"
-     },
-     "from": {
-      "type": "string"
-     },
-     "rev": {
-      "type": "string"
-     },
-     "files": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     },
-     "result": {
-      "type": "string"
-     },
-     "patch": {
-      "type": "string"
-     },
-     "reply_schema": {
-      "type": "object"
-     }
-    },
-    "description": "振り分けの候補: C1 ブロックの中だけ（線の範囲と結果の置き場）"
    },
    "lanes": {
     "type": "object",
@@ -1149,14 +619,6 @@
     ],
     "description": "振り分けの候補: B 人の答えから来る"
    },
-   "flow": {
-    "type": "string",
-    "description": "振り分けの候補: B run の入力の写し"
-   },
-   "gates": {
-    "type": "string",
-    "description": "振り分けの候補: B run の入力の写し"
-   },
    "request_wheres": {
     "type": "array",
     "items": {
@@ -1167,45 +629,6 @@
    "policy_change": {
     "type": "object",
     "description": "振り分けの候補: 未分類（人の方針の文書の変化。関所の答えで消える）"
-   },
-   "spec_pending": {
-    "type": "object",
-    "properties": {
-     "requirements": {
-      "type": "array"
-     },
-     "acceptance": {
-      "type": "array"
-     },
-     "out_of_scope": {
-      "type": "array"
-     }
-    },
-    "description": "振り分けの候補: C1 仕様の道の中だけ"
-   },
-   "spec_changed": {
-    "type": "array",
-    "items": {
-     "type": "object",
-     "properties": {
-      "file": {
-       "type": "string"
-      },
-      "from": {
-       "type": [
-        "string",
-        "null"
-       ]
-      },
-      "to": {
-       "type": [
-        "string",
-        "null"
-       ]
-      }
-     }
-    },
-    "description": "振り分けの候補: C1 仕様の道の中だけ"
    },
    "in_round_answers": {
     "type": "array",
@@ -1930,6 +1353,51 @@
      "note": "読まない欄（取り下げた）。テスト一式の緑は役の申告で受けない——線の足したテストは合流した周の p4.ci、最後の関門の版は同じ周の p4.ci を engine が走らせる。書いてある古い線の結果を型で落とさないために欄だけ残す"
     }
    }
+  },
+  "material_state": {
+   "type": "object",
+   "properties": {
+    "status": {
+     "type": "string"
+    },
+    "count": {
+     "type": "integer"
+    },
+    "detail": {
+     "type": "string"
+    },
+    "checked": {
+     "type": "string"
+    },
+    "reason": {
+     "type": "string"
+    },
+    "from_round": {
+     "type": "integer"
+    }
+   },
+   "description": "素材 1 つの形（検証器の素材の欄と同じ: status・count・detail・checked・reason・from_round）"
+  },
+  "fix_delta_state": {
+   "type": "object",
+   "properties": {
+    "round": {
+     "type": "integer"
+    },
+    "file": {
+     "type": "string"
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "rev": {
+     "type": "string"
+    }
+   },
+   "description": "修正差分の往復 1 回ぶん（周・差分の写し・変わったファイル・固めた版）"
   }
  },
  "stop": {
@@ -2312,7 +1780,7 @@
    "prompt_file": "../prompts/review-loop/p0.purpose_review.md",
    "reads": [
     "out.p0.purpose.purpose_text",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "inputs.cwd"
    ],
    "schema": {
@@ -2671,7 +2139,55 @@
     "loop.changed_files"
    ],
    "builtin": "worktree_snapshot",
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "diff_file": {
+      "type": "string"
+     },
+     "changed_files": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "stat": {
+      "type": "string"
+     },
+     "tree_before": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "porcelain": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "stash": {
+        "type": "string"
+       },
+       "tree": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "porcelain",
+       "stash",
+       "tree"
+      ],
+      "description": "P1 の前後の突合の基準（git status・stash の一覧・固めた版の木の id）"
+     }
+    }
+   }
   },
   "p1.local_review": {
    "stage": "P1",
@@ -2893,7 +2409,7 @@
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "inputs.cwd"
    ],
    "schema": {
@@ -3887,7 +3403,52 @@
    ],
    "note": "記録の欄には無い（review / research は散文だけ。doctor は mod_check、firstread は git_status_match を欄で要求する）",
    "builtin": "worktree_compare",
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "rewound": {
+      "$ref": "engine#/driver_rewound"
+     },
+     "materials": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "tree_before": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "porcelain": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "stash": {
+        "type": "string"
+       },
+       "tree": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "porcelain",
+       "stash",
+       "tree"
+      ],
+      "description": "この回の後に効いている突合の基準（作業ツリーの変化を受理して取り直した回は新しい基準）"
+     }
+    }
+   }
   },
   "p2.diagnose": {
    "stage": "P2",
@@ -3937,7 +3498,7 @@
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "inputs.cwd",
     "loop.defer_ledger",
     "loop.escalated",
@@ -3947,7 +3508,7 @@
     "validator",
     "loop.wrote_refs_reads",
     "loop.coverage_after",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "pointers": [
     {
@@ -4239,7 +3800,7 @@
     "loop.wrote_refs_reads",
     "loop.coverage_after",
     "loop.prev_declared_faces",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "pointers": [
     {
@@ -4515,7 +4076,27 @@
    "outputs": [
     "loop.fix_units"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "units": {
+      "type": "integer",
+      "description": "この周の単位の行の数（行そのものは loop.fix_units）"
+     },
+     "owed": {
+      "type": "integer",
+      "description": "そのうち直す義務の印（owed）が立つ行の数"
+     }
+    }
+   }
   },
   "p2.fix_plan": {
    "stage": "P2",
@@ -4537,9 +4118,9 @@
     "record.process.diagnosis",
     "record.process.precedents",
     "inputs.cwd",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "record.questions",
-    "inputs.policy_md",
+    "record.process.policy.path",
     "record.base",
     "inputs.review_md"
    ],
@@ -4694,9 +4275,9 @@
     "record.process.diagnosis",
     "record.process.precedents",
     "inputs.cwd",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "inputs.review_md",
-    "inputs.policy_md",
+    "record.process.policy.path",
     "record.base"
    ],
    "pointers": [
@@ -4843,7 +4424,25 @@
    "outputs": [
     "process.human_items"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "decision": {
+      "$ref": "engine#/driver_decision"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "ask": {
+      "$ref": "engine#/driver_ask"
+     }
+    }
+   }
   },
   "p3.lane_merge": {
    "stage": "P3",
@@ -4858,7 +4457,25 @@
    "outputs": [
     "loop.lane_merge"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "merged": {
+      "type": "integer"
+     },
+     "conflicts": {
+      "type": "integer"
+     }
+    }
+   }
   },
   "p3.fix": {
    "stage": "P3",
@@ -4888,7 +4505,7 @@
     "prev.r4.hidden_scope",
     "out.p2.plan_review",
     "loop.lane_merge",
-    "inputs.policy_md",
+    "record.process.policy.path",
     "record.process.human_items"
    ],
    "pointers": [
@@ -5338,7 +4955,28 @@
    "outputs": [
     "loop.fix_delta"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "fix_delta_file": {
+      "type": "string"
+     },
+     "changed_files": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   }
   },
   "p3.delta_review": {
    "stage": "P3",
@@ -5365,7 +5003,7 @@
     "inputs.cwd",
     "out.p2.plan_review",
     "out.p3.fix.plan_faces",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "pointers": [
     {
@@ -5399,11 +5037,52 @@
     "p3.delta_review"
    ],
    "source": "P3 ＞ 修正差分の手直しが答える義務を組む",
-   "does": "差分レビューの穴と塞がっていない検算（closed=false）を 1 本の値（loop.delta_owed）に組む。p3.delta_fix はこの値だけを貼り、答え合わせも同じ値で行う。変異の検算の見逃しは入れない（並行の線 p3.delta_gates が答える）",
+   "does": "差分レビューの穴と塞がっていない検算（closed=false）を 1 本の値（この節の出力の rows）に組む。p3.delta_fix はこの値だけを貼り、答え合わせも同じ値で行う。変異の検算の見逃しは入れない（並行の線 p3.delta_gates が答える）",
    "outputs": [
-    "loop.delta_owed"
+    "out.p3.delta_owed.rows"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "owed": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "array",
+      "description": "手直しが答える義務（p3.delta_fix が貼り、条件と答え合わせも同じ値を読む）",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "from": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "key",
+        "from",
+        "text"
+       ]
+      }
+     }
+    },
+    "required": [
+     "ok",
+     "owed",
+     "rows"
+    ]
+   }
   },
   "p3.delta_fix": {
    "stage": "P3",
@@ -5419,16 +5098,16 @@
    ],
    "prompt_file": "../prompts/review-loop/p3.delta_fix.md",
    "reads": [
-    "loop.delta_owed",
+    "cur.p3.delta_owed",
     "loop.fix_delta.file",
     "inputs.cwd",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "pointers": [
     {
      "at": "handled[].key",
      "from": [
-      "loop.delta_owed.rows"
+      "cur.p3.delta_owed.rows"
      ]
     }
    ],
@@ -5461,7 +5140,28 @@
    "outputs": [
     "loop.fix_delta2"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "fix_delta_file": {
+      "type": "string"
+     },
+     "changed_files": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   }
   },
   "p3.delta_review2": {
    "stage": "P3",
@@ -5487,7 +5187,7 @@
     "loop.fix_delta2.files",
     "inputs.cwd",
     "out.p3.delta_fix.handled",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "pointers": [
     {
@@ -5521,11 +5221,52 @@
     "p3.delta_review2"
    ],
    "source": "P3 ＞ 手直し差分の手直しが答える義務を組む",
-   "does": "差分レビューの穴・塞がっていない検算（closed=false）を 1 本の値（loop.delta_owed2）に組む。p3.delta_fix2 はこの値だけを貼り、答え合わせも同じ値で行う",
+   "does": "差分レビューの穴・塞がっていない検算（closed=false）を 1 本の値（この節の出力の rows）に組む。p3.delta_fix2 はこの値だけを貼り、答え合わせも同じ値で行う",
    "outputs": [
-    "loop.delta_owed2"
+    "out.p3.delta_owed2.rows"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "owed": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "array",
+      "description": "2 回目の手直しが答える義務（p3.delta_fix2 が貼り、条件と答え合わせも同じ値を読む）",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "from": {
+         "type": "string"
+        },
+        "text": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "key",
+        "from",
+        "text"
+       ]
+      }
+     }
+    },
+    "required": [
+     "ok",
+     "owed",
+     "rows"
+    ]
+   }
   },
   "p3.delta_fix2": {
    "stage": "P3",
@@ -5541,16 +5282,16 @@
    ],
    "prompt_file": "../prompts/review-loop/p3.delta_fix2.md",
    "reads": [
-    "loop.delta_owed2",
+    "cur.p3.delta_owed2",
     "loop.fix_delta2.file",
     "inputs.cwd",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "pointers": [
     {
      "at": "handled[].key",
      "from": [
-      "loop.delta_owed2.rows"
+      "cur.p3.delta_owed2.rows"
      ]
     }
    ],
@@ -5584,10 +5325,44 @@
    "source": "P3 ＞ 並行の線が撃つ範囲の切り出し",
    "does": "修正と手直しが済んだこの周のコードの姿を版に固め、周の頭の版からの範囲と、線の結果の置き場（盤面の lanes/ に版で鍵付け）を置く。範囲が空でなければ線の台帳に載せる",
    "outputs": [
-    "loop.gates_cut",
+    "out.p3.gates_cut（from・rev・files・result・reply_schema）",
     "loop.lanes"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "from": {
+      "type": "string",
+      "description": "線が撃つ範囲の起点（この周の頭の版）"
+     },
+     "rev": {
+      "type": "string",
+      "description": "この周のコードの最後の姿（線・最後の関門・規模の数値が同じ版を見る）"
+     },
+     "files": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "result": {
+      "type": "string",
+      "description": "線の結果の置き場（p3.delta_gates の delegate.result_to）"
+     },
+     "reply_schema": {
+      "type": "object",
+      "description": "線の結果の型（p3.delta_gates の result_schema）"
+     }
+    }
+   }
   },
   "p3.delta_gates": {
    "stage": "P3",
@@ -5606,15 +5381,15 @@
     "model": "sonnet",
     "background": true,
     "why": "変異の実行器を走らせ、見逃した腕にテストを足す作業で、周の判断は要らない（テストを書くので haiku でなく sonnet）。背景で走らせ、回す側の周を止めない",
-    "result_to": "loop.gates_cut.result"
+    "result_to": "cur.p3.gates_cut.result"
    },
    "prompt_file": "../prompts/review-loop/p3.delta_gates.md",
    "reads": [
-    "loop.gates_cut.rev",
-    "loop.gates_cut.from",
-    "loop.gates_cut.files",
-    "loop.gates_cut.result",
-    "loop.gates_cut.reply_schema",
+    "cur.p3.gates_cut.rev",
+    "cur.p3.gates_cut.from",
+    "cur.p3.gates_cut.files",
+    "cur.p3.gates_cut.result",
+    "cur.p3.gates_cut.reply_schema",
     "inputs.cwd",
     "loop.mutation_decl.text"
    ],
@@ -5746,8 +5521,26 @@
    "reads": [
     "inputs.scripts_dir",
     "record.base",
-    "loop.gates_cut"
-   ]
+    "cur.p3.gates_cut"
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "scalars": {
+      "type": "object"
+     },
+     "unmeasured": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   }
   },
   "p4.assemble": {
    "run_by": "driver",
@@ -5764,7 +5557,7 @@
    "outputs": [
     "loop.open_units",
     "loop.r1_refire",
-    "loop.r2_refire"
+    "out.p4.assemble（r2_refire・lines_ratio・ledger_changed・retaken）"
    ],
    "reads": [
     "record.units",
@@ -5772,7 +5565,53 @@
     "out.p3.fix",
     "out.p0.purpose.source",
     "record.process.purpose_review.verdict"
-   ]
+   ],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "open_units": {
+      "type": "integer"
+     },
+     "r1_refire": {
+      "type": "boolean"
+     },
+     "r2_refire": {
+      "type": "boolean"
+     },
+     "lines_ratio": {
+      "type": [
+       "number",
+       "null"
+      ]
+     },
+     "ledger_changed": {
+      "type": "boolean"
+     },
+     "purpose_known": {
+      "type": "boolean"
+     },
+     "retaken": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "file": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "file"
+      ],
+      "description": "R1〜R4 に渡すために取り直した写し（修正後の差分）"
+     }
+    }
+   }
   },
   "r1.comment_candidates": {
    "stage": "P-R",
@@ -5801,7 +5640,7 @@
     "loop.changed_files",
     "record.base",
     "inputs.review_md",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "inputs.cwd"
    ],
    "schema": {
@@ -5912,12 +5751,12 @@
     "record.questions",
     "record.scalars",
     "loop.prev_scalars",
-    "loop.lines_ratio",
+    "cur.p4.assemble.lines_ratio",
     "inputs.review_md",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "inputs.cwd",
     "record.process.fixes",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "schema": {
     "type": "object",
@@ -6045,8 +5884,8 @@
     "out.p0.purpose.purpose_text",
     "record.process.constraints",
     "loop.drift_notes",
-    "loop.purpose_review_stale",
-    "inputs.policy_md"
+    "record.process.purpose_review_stale",
+    "record.process.policy.path"
    ],
    "schema": {
     "type": "object",
@@ -6195,9 +6034,9 @@
     "record.base",
     "inputs.review_md",
     "inputs.repo_review_md",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "inputs.cwd",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "schema": {
     "type": "object",
@@ -6255,10 +6094,10 @@
     "loop.changed_files",
     "record.base",
     "inputs.review_md",
-    "inputs.review_rev",
+    "loop.reviewed_revision",
     "inputs.cwd",
     "out.p0.purpose.purpose_text",
-    "inputs.policy_md",
+    "record.process.policy.path",
     "record.process.human_items"
    ],
    "schema": {
@@ -6383,7 +6222,25 @@
    "outputs": [
     "process.human_items"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "decision": {
+      "$ref": "engine#/driver_decision"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "ask": {
+      "$ref": "engine#/driver_ask"
+     }
+    }
+   }
   },
   "stop.premise_check": {
    "stage": "停止条件",
@@ -6487,7 +6344,31 @@
    "verdict_is_copy": true,
    "note": "Python 3.6 未満だと f-string の構文エラーが exit 1（阻害あり）に化けるので版を確かめる。分岐: 新規／残存 [block] か未対応の do-now が残る→P3 へ戻り次の採点へ／[block] 0 かつ CI 緑→P-R へ",
    "builtin": "record_round",
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "exit": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "branch": {
+      "type": "string"
+     },
+     "out": {
+      "type": "string"
+     }
+    }
+   }
   },
   "p4.final_gates": {
    "stage": "P4",
@@ -6508,7 +6389,7 @@
    },
    "prompt_file": "../prompts/review-loop/p4.final_gates.md",
    "reads": [
-    "loop.gates_cut.rev",
+    "cur.p3.gates_cut.rev",
     "record.base",
     "inputs.cwd",
     "loop.mutation_decl.text"
@@ -6532,7 +6413,22 @@
    ],
    "verdict_is_copy": true,
    "builtin": "converge",
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "decision": {
+      "$ref": "engine#/driver_decision"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "ask": {
+      "$ref": "engine#/driver_ask"
+     }
+    }
+   }
   },
   "report.human_items": {
    "stage": "最終報告",
@@ -6615,13 +6511,6 @@
      }
     }
    },
-   "writes": [
-    {
-     "op": "set",
-     "to": "process.cold_check",
-     "from": "$"
-    }
-   ],
    "post_check": "cold_check_note"
   },
   "report": {
@@ -6643,7 +6532,9 @@
     "loop",
     "out.report.human_items.text",
     "out.report.cold_check",
-    "inputs.lang"
+    "inputs.lang",
+    "inputs.flow",
+    "inputs.gates"
    ],
    "text": true,
    "pre": "finalize",
@@ -6758,7 +6649,7 @@
     "record.units",
     "record.questions",
     "record.process.diagnosis",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "writes": [
     {
@@ -6898,7 +6789,7 @@
     "record.units",
     "record.questions",
     "record.process.rejudge",
-    "inputs.policy_md"
+    "record.process.policy.path"
    ],
    "writes": [
     {
@@ -7253,7 +7144,43 @@
    ],
    "verdict_is_copy": true,
    "reads": [],
-   "once": true
+   "once": true,
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "decision": {
+      "$ref": "engine#/driver_decision"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "ask": {
+      "$ref": "engine#/driver_ask"
+     },
+     "pending": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "requirements": {
+        "type": "array"
+       },
+       "acceptance": {
+        "type": "array"
+       },
+       "out_of_scope": {
+        "type": "array"
+       }
+      },
+      "required": [
+       "requirements",
+       "acceptance",
+       "out_of_scope"
+      ],
+      "description": "承認に掛けた仕様（spec.freeze が同じ周の出力から固定する）"
+     }
+    }
+   }
   },
   "spec.freeze": {
    "stage": "P0",
@@ -7270,7 +7197,19 @@
     "process.request_findings"
    ],
    "reads": [],
-   "once": true
+   "once": true,
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     }
+    }
+   }
   },
   "spec.check": {
    "stage": "P3",
@@ -7285,7 +7224,58 @@
    "outputs": [
     "process.spec"
    ],
-   "reads": []
+   "reads": [],
+   "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "ok": {
+      "type": "boolean"
+     },
+     "problems": {
+      "$ref": "engine#/driver_problems"
+     },
+     "decision": {
+      "$ref": "engine#/driver_decision"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "ask": {
+      "$ref": "engine#/driver_ask"
+     },
+     "changed": {
+      "type": "array",
+      "description": "承認の後に変わった受け入れ条件のテストのファイル（答えの continue が新しい sha を固定する）",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+        "file": {
+         "type": "string"
+        },
+        "from": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "to": {
+         "type": [
+          "string",
+          "null"
+         ]
+        }
+       },
+       "required": [
+        "file",
+        "from",
+        "to"
+       ]
+      }
+     }
+    }
+   }
   }
  },
  "exec": true,

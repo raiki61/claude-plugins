@@ -91,7 +91,7 @@ def test_scalars_without_cut_or_base_records_why(tmp_path):
 
 def test_scalars_records_why_when_numstat_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(RULES, "git", fake_git({}))   # _repo_root も git の diff も引けない
-    b = board(tmp_path, record={"base": "b" * 40}, loop_state={"gates_cut": {"round": 1, "rev": "c" * 40}},
+    b = board(tmp_path, record={"base": "b" * 40}, outputs={"p3.gates_cut": {"ok": True, "rev": "c" * 40}},
               inputs={"scripts_dir": script(tmp_path, "echo 'scalars: added_lines=3 comment_lines=1 comment_ratio_pct=33'\n")})
     got = RULES.scalars(b, "p4.scalars")
     assert got["scalars"] == {"added_lines": 3, "comment_lines": 1, "comment_ratio_pct": 33}
@@ -283,8 +283,16 @@ def test_on_answer_in_round_without_kinds(tmp_path):
 
 
 def test_spec_freeze_without_repo(no_repo):
-    b = board(no_repo, loop_state={"spec_pending": {"requirements": [], "acceptance": []}})
+    b = board(no_repo, outputs={"spec.approve": {"pending": {"requirements": [], "acceptance": [], "out_of_scope": []}}})
     assert RULES.spec_freeze(b, "spec.freeze") == {"ok": True}
+
+
+def test_spec_freeze_needs_the_approved_pending(no_repo):
+    """承認の問い（spec.approve）の今の周の出力に pending が無ければ固定しない——前の版の loop の値は読まない"""
+    b = board(no_repo, loop_state={"spec_pending": {"requirements": [], "acceptance": []}})
+    got = RULES.spec_freeze(b, "spec.freeze")
+    assert got["ok"] is False and "pending" in got["problems"][0]
+    assert "spec" not in b.record["process"]
 
 
 def test_spec_check_without_repo(no_repo):
@@ -453,7 +461,7 @@ def test_finalize_writes_the_policy_change_after_the_last_gate(tmp_path, monkeyp
 
 def test_gates_merge_says_which_way_the_run_shoots():
     """合流でまとめる run はそう言い、そうでない run は『この run で撃つ』と言う——理由の文が真偽と食い違わない"""
-    assert RULES.gates_merge(View({"loop.gates": "merge"})) == (True, RULES.GATES_MERGE_WHY)
+    assert RULES.gates_merge(View({"inputs.gates": "merge"})) == (True, RULES.GATES_MERGE_WHY)
     ok, why = RULES.gates_merge(View({}))
     assert ok is False and "この run で撃つ" in why
 
@@ -493,6 +501,6 @@ def test_sha_file_of_what_cannot_be_read_is_none(tmp_path):
 
 def test_spec_flow_says_which_way_the_run_goes():
     """仕様の道を選んだ run はそう言い、選んでいない run は今の流れのままと言う——理由の文が真偽と食い違わない"""
-    assert RULES.spec_flow(View({"loop.flow": "spec"})) == (True, "仕様の道を選んだ run（flow=spec）")
+    assert RULES.spec_flow(View({"inputs.flow": "spec"})) == (True, "仕様の道を選んだ run（flow=spec）")
     ok, why = RULES.spec_flow(View({}))
     assert ok is False and "今の流れのまま" in why

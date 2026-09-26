@@ -187,7 +187,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop review-loop --reques
 ## 守ること
 
 - **run の途中でプラグインの版を上げても、走っている run の graph は init の時の版のまま**: 盤面は init の時の graph を、その置き場（インストールされた版のディレクトリ）の絶対パスで持ち、graph・指示書・rules・検証器をそこから読み続ける。置き場のファイルそのものが書き換わる形（`--plugin-dir` などでその場から読み込んだプラグイン）では graph も変わり、変わった周は `next` の `notes` と `process.graph_changes` に出る。engine（`loop.py`）は今インストールされている版で動き、役の定義（convergence-loops の `agents/<役>.md` の道具・モデル・effort・system prompt に足す本文）は節を描くたび（`next` が節を出すとき）に今見つかる版から読む——どの engine が周を回したかは、替わった周の `next` の `notes` に出る。新しい版の graph や指示書の動きが要るなら、走っている run を仕上げてから新しい run を始めよ。盤面を別の版の graph へ付け替える手順は用意していない（`loop.py patch` で state を書き換えれば変わるが、それは手当ての口で、この用途には案内しない）。更新で置き換わった古い版のディレクトリは後で掃除されることがあり（公式の plugins の読み込みの文書『Cleanup of previous versions』）、消えるとその run は開けなくなる。古い版の graph が役を `--output-format text` で起こしても、engine は包みでない標準出力を本文として読むので、返答は受け付けまで届く。
-- 周の記録（`rounds/round-<N>.json`）を直接編集しない。判定の欄は役の返答から engine だけが書く。手当ては `loop.py patch`（痕跡が残る最終手段）: `--path` は記録の欄（`record.` を付けても付けなくても同じ所）か `state.<盤面の欄>`、`--file <json>` で書くか `--delete` で在る鍵を消す（無い鍵は拒む。綴りを誤って書いた鍵も消せる）。
+- 周の記録（`rounds/round-<N>.json`）を直接編集しない。判定の欄は役の返答から engine だけが書く。手当ては `loop.py patch`（痕跡が残る最終手段）: `--path` は記録の欄（`record.` を付けても付けなくても同じ所）か `state.<盤面の欄>` か `out.<節>.<欄>`（節の最新の出力。書いた後の形を節の schema で照らす）、`--file <json>` で書くか `--delete` で在る鍵を消す（無い鍵は拒む。綴りを誤って書いた鍵も消せる）。
 - 済んだ節に `done` し直さない（同じ周で採点役を回し直して有利な判定を採らない。やり直しは次の周）。
 - 探す役に「ここは見るな」の線を引かない（プロンプトを書き換えない）。削るのは judge の仕事である。
 - 会話が圧縮されて場所を見失ったら `loop.py status --dir <DIR>` → `loop.py next --dir <DIR>`。盤面はディスクにある。

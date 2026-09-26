@@ -50,8 +50,20 @@ def snapshot(b, path):
 
 
 def locate(b, git):
-    """いま読むべき方針の文書のパス（無ければ None）: init で名指しした物、無ければ既定の置き場に在る物"""
+    """init の時点で読む方針の文書のパス（無ければ None）: init で名指しした物、無ければ既定の置き場に在る物"""
     named = b.state["inputs"].get("policy_md")
+    if named:
+        return named
+    p = default_path(git, b.state["inputs"]["cwd"])
+    return str(p) if p and p.is_file() else None
+
+
+def watched(b, git, pol):
+    """init の後に見張る文書のパス（無ければ None）: 関所で人が変更を通していれば最後に通した置き場（通したのが文書の消滅なら名指し無し）、
+    無ければ init で決めた置き場（run の入力 inputs.policy_md）。名指しが無ければ既定の置き場に在る物。
+    run の入力は init で固まり途中で書き換えない——関所で通した事実は pol の amendments にだけ残る"""
+    am = pol.get("amendments") or []
+    named = (am[-1].get("path") if am[-1].get("to") else None) if am else b.state["inputs"].get("policy_md")
     if named:
         return named
     p = default_path(git, b.state["inputs"]["cwd"])
@@ -84,7 +96,7 @@ def change(b, git, pol):
     変わっていれば {path, from, to, from_copy, to_copy, diff_file}（今の版の写しと差分のファイルを盤面に置く）。
     固定した版の写しが引けない（init の時点で文書が無かった、でなく写しが消えた・写しを取らない版で init した盤面）なら、
     空から比べた差分で中身を偽らず、diff_file を None にして diff_missing に理由を書く"""
-    path = locate(b, git)
+    path = watched(b, git, pol)
     to, to_copy = snapshot(b, path)
     frm = pol.get("sha256")
     if to == frm:
