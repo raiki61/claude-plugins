@@ -6,10 +6,20 @@ rules は engine を import しない。差し込む道具は下の INJECT の�
 import importlib.util
 import pathlib
 
+from . import declared
 from .schema import validate_schema
+from .role_run import run_tree
 from .util import READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, pick, read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, write_json
 
 _VALIDATORS = {}
+
+
+def cond_reads(*paths):
+    """条件の関数が読む欄の宣言（rules が CONDS の関数に付ける）。宣言の外を読むと CondView がその場で落とす"""
+    def deco(fn):
+        fn.reads = tuple(paths)
+        return fn
+    return deco
 
 
 def validator_module(b):
@@ -37,7 +47,9 @@ def validator_module(b):
 # （記録を書く経路を writes に寄せる方針と逆向き）。使う日に戻せる
 INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
           "git": git, "git_bytes": git_bytes, "sha": sha, "hook_evidence": hook_evidence, "read_capped": read_capped, "READ_CAP": READ_CAP, "repo_root": repo_root, "grep": _grep, "run_count": run_count, "sum_counts": sum_counts,
-          "validator_module": validator_module, "validate_schema": validate_schema}
+          "validator_module": validator_module, "validate_schema": validate_schema, "cond_reads": cond_reads,
+          "run_tree": run_tree,
+          "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME}
 
 
 def load_rules(graph_path, graph):
@@ -66,7 +78,8 @@ def registry(rules, name):
 # engine が rules に探すフックの全部。**綴り違いと意図的な不在を分ける唯一の手掛かり**——getattr の名前一致だけ
 # だったとき、on_new_round を 1 字違えても静かに「このループは持たない」に倒れ、周をまたぐ持ち越しが消えないまま
 # 回り続けた。graphcheck がこの表を import して、rules の公開名のうち似て非なる物を落とす
-HOOKS = ("on_init", "on_new_round", "on_answer", "on_unattended", "on_thickness", "finalize", "check_record", "init_record", "add")
+HOOKS = ("on_init", "on_new_round", "on_answer", "on_answer_in_round", "on_unattended", "on_stop", "on_thickness", "finalize", "check_record", "init_record", "add",
+         "check_inputs")
 
 
 def hook(rules, name):

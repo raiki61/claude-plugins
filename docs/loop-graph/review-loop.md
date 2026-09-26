@@ -25,6 +25,13 @@ flowchart TB
     lc[p0.local_checks]
   end
   base --> wb[p1.worktree_before]
+  subgraph SPEC[仕様の道 init --input flow=spec のときだけ]
+    sw[spec.write<br/>writer: 要件と受け入れ条件のテスト] --> sr[spec.review<br/>judge: 抜け・曖昧さ・範囲の外] --> sv[spec.revise<br/>writer: 穴に答える] --> sa{spec.approve<br/>機械: 赤を実測して人に聞く}
+    sa -- continue 同じ周のまま --> sf[spec.freeze<br/>機械: 記録に固定]
+    sa -- stop --> halt([その場で止める])
+  end
+  base & lc --> sw
+  sf --> wb
   subgraph P1[P1 並列]
     lr[local_review<br/>skill を名指しで]
     cb[consistency_bypass<br/>inspector]
@@ -43,7 +50,8 @@ flowchart TB
   prv2 --> fix[p3.fix writer<br/>予測された穴に答える]
   fix --> fd[p3.fix_delta<br/>機械: この周の修正だけの差分] --> dr[p3.delta_review<br/>inspector: 穴と、塞いだと言う穴の検算] --> df[p3.delta_fix<br/>writer: 穴が在る周だけ]
   df --> fd2[p3.fix_delta2<br/>機械: 手直しだけの差分] --> dr2[p3.delta_review2<br/>inspector: 2 回目] --> df2[p3.delta_fix2<br/>writer: 次の周の判定者が検算]
-  df2 --> ci[p4.ci] & sc[p4.scalars] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
+  df2 --> ci[p4.ci<br/>宣言が在れば engine が走らせる] & sc[p4.scalars<br/>機械: 規模の数値] --> asm[p4.assemble<br/>機械: 素材 15 欄・目的の可否]
+  df2 --> sck{spec.check<br/>仕様の道だけ: テストの改変を人に聞く} --> asm
   hist --> asm
   asm --> cc[r1.comment_candidates<br/>comment-analyzer] --> r1[r1.minimality<br/>judge]
   purp --> r1
@@ -77,7 +85,7 @@ flowchart TB
 - 前の周の R1 最小性が挙げた削除候補は、次の周の judge が **1 件につき 1 行**で処理する（`carried_r1`）。配線（`p2.diagnose` と `p3.fix` の `reads` の `prev.r1.minimality`）は前から在り、欠けていたのは**数える口**だった——直す義務は `record["units"]` にしか掛からないので、judge が unit に上げなければ誰も赤くならず、読んだ上で黙って落とせた（実測 2026-09-16、別リポジトリの run: 1 周目の 14 件が 2 周目の修正対象に 1 件も入らなかった）。
 - `fork` の問いが出どころの `[block]` を免除するのは **1 周だけ**。次の周も開けたままにするなら `escalate`（人に実際に届く形）に上げる。`held` のまま持ち越すと `fix_covers_open_units` は免除せず、直す義務が戻る——`held` は判定者がまだ考えている状態で、人には届いていない。以前は無条件の免除だったので、`held` を保持するだけで `[block]` を何周でも未着手にできた。
 - 本文が引く「実測 YYYY-MM-DD」の置き場は `$(git rev-parse --git-dir)/graphloops/<loop>/<run-id>/` で、**git に追跡されていない**（`git ls-files .git` が 0 件）。読み手は断り書きを信じるしかない——検算したいなら、その run を回した環境の置き場を見るか、同じ手順で測り直す。リポジトリ全体で同じ形の引用が 51 か所 21 ファイルに在り、BASE 時点から在る慣行である。
-- 局所レビューはまとめ役（`review-pr`）を挟まず、レンズを 1 本ずつ名指しで起こす。**名指しの正本は `graphs/review-loop.json` の `p1.local_review.skills` 1 か所**で、要素は `{skill, args, note, required}`——engine が `{{node.skills}}` でそのまま役へ渡すので、プロンプトにも手順書にも写しを置かない（写した周に写しだけが取り残され、しかも役は写しの方を読む）。post_check `local_review_covers_lenses` が**宣言 1 本につき findings の行 1 本**を要求する: 起こして 0 件は `failed` に「起こしたが所見なし」、起こしていない・非該当も `failed` に理由で、`required: false` の 1 本も行は省けない。これで「起動しなかった」が「見たが所見なし」と同じ形では通らなくなる（実測 2026-09-15: 3 周続けて型設計のレンズが起動されず、記録のどこにも赤が出なかった）。**嘘は捕まらない**——変わるのは、沈黙で通せた形が明示の虚偽を経由しないと通せない形になるところまで。`/simplify` は指摘だけ返す形で呼ぶ。**散文版（`/review-loop`）とは道具構成が割れている**——散文版はまとめ役 `review-pr` を使い、`pr-test-analyzer` は 1 度も呼ばない。散文版の道具選定はこのグラフの担当範囲の外なので揃えていない
+- 局所レビューはまとめ役（`review-pr`）を挟まず、レンズを 1 本ずつ名指しで起こす。**名指しの正本は `graphs/review-loop.json` の `p1.local_review.skills` 1 か所**で、要素は `{skill, args, note, required, applies_cond}`——engine が `{{node.skills}}` でそのまま役へ渡すので、プロンプトにも手順書にも写しを置かない（写した周に写しだけが取り残され、しかも役は写しの方を読む）。post_check `local_review_covers_lenses` が**宣言 1 本につき findings の行 1 本**を要求する: 起こして 0 件は `failed` に「起こしたが所見なし」、起こしていない・非該当も `failed` に理由で、`required: false` の 1 本も行は省けない。`required: false` の要素は必ず `applies_cond`（rules の条件の関数の名前。graphcheck が対で縛る）を持ち、当てるかは回す側の読みでなく条件の関数が決める——`/security-review` は `security_surface_touched`（p0.base の `touches_security_surface` か `touches_external_seams`、または前のどれかの周の p3.fix の `security_surface_changed` か `seams_changed`。申告はどれも迷うなら true。欄の無い古い盤面は当てる側に倒す）。engine が節を出す時点に評価して `{{node.skills}}` の要素と instance に `applies`・`applies_why` を足し、post_check は `applies` が真の要素で `invoked` が true でない行を拒む（material が awaiting_human の行は通す）。**直さずに残す穴**: 受け付けの柵は `p1.local_review` の post_check にだけ在るので、ほかの節に条件付きのレンズを書くと engine は評価して役に見せるが、未起動を拒む者はいない。これで「起動しなかった」が「見たが所見なし」と同じ形では通らなくなる（実測 2026-09-15: 3 周続けて型設計のレンズが起動されず、記録のどこにも赤が出なかった）。**嘘は捕まらない**——変わるのは、沈黙で通せた形が明示の虚偽を経由しないと通せない形になるところまで。`/simplify` は指摘だけ返す形で呼ぶ。**散文版（`/review-loop`）とは道具構成が割れている**——散文版はまとめ役 `review-pr` を使い、`pr-test-analyzer` は 1 度も呼ばない。散文版の道具選定はこのグラフの担当範囲の外なので揃えていない
 - R1 の前段に `comment-analyzer` によるコメント削除候補の取得。ゲートの赤の確認は腕ごとに、写し（`mktemp -d`）の上で、対照の緑も見る
 - 探す役に「ここは見るな」の線を writer が引かない。見た範囲と見ていない範囲を返させる
 - **世界の解（先行例）を処方の梯子に置く**（REVIEW.md「処方の最小性」）。実行版は、判定役に直す単位と人へ回す問いごとの先行例の行（`precedents`。出典つき。人へ回す問いには「世界の解を当たっても決まらない理由」）を、修正役に修正ごとの先行例（`precedent`）を、外部標準照合に一次情報の順位と差分が乗る位置（`rankings`）を必須にする。世界の解で決まる問いは人に回さない
@@ -107,7 +115,11 @@ flowchart TB
 
 このグラフは 2026-09-12 に実行用の欄（節ごとの prompt_file・schema・reads・writes・cond）を足され、graphloops の engine（`graphloops/scripts/loop.py`）で回せる。手順書は `graphloops/commands/review-graph.md`、ループの算術は `graphloops/rules/review-loop.py`（検証器の定数を写さず import する）。写しの側と違う点が 3 つある: P4 の記録の節は機械の節 2 つ（`p4.assemble` が [block] の数と R1/R2 の再発火を数え、`p4.record` が周の記録を組んで検証器にディレクトリを渡す）に割れ、P1 の前後の作業ツリー突合と走らせなかった素材の欄の穴埋めも機械の節が持つ。R2 の独立設計と比較役は別の節で、premise-invalid は設計の節が返す。判定・履歴の突合は同じ judge を続ける形（engine が agent の id を持ち回る）。
 
-**判定から入る run（人の修正依頼）。** `loop.py add` は人の依頼（findings の型）を、その周の判定役が起きる前なら何周目でも何度でも、記録の `process.request_findings` に周と出どころつきで積む（前の周の分は周の頭で `process.request_history` に移る）。1 周目の P1 より前の最初の `add` だけが入口の印 `process.request_entry` を立て、その run は P1 の役の 9 節を起こさずに判定から始まる（2026-09-25 に足した。背景は docs/feedback/review-loop-remaining-findings.md の R12）。節を外すのは graph の cond（`not request_entry`）で、飛ばした素材は入口の理由つきの not_applicable、空の差分でも周の頭で止まらない。入口が効くのは修正が入るまでで、次の周からは通常の run と同じく P1 が修正差分を見る。途中の周の `add` は P1 を外さない。述語は rules の `request_entry` 1 本（印だけを見る）で、engine には run の種類を持ち込んでいない。
+**判定から入る run（人の修正依頼）。** `loop.py add` は人の依頼（findings の型）を、その周の判定役が起きる前なら何周目でも何度でも、記録の `process.request_findings` に周と出どころつきで積む（前の周の分は周の頭で `process.request_history` に移る）。1 周目の P1 より前の最初の `add` だけが入口の印 `process.request_entry` を立て、その run は P1 の役の 9 節を起こさずに判定から始まる（2026-09-25 に足した。背景は docs/feedback/review-loop-remaining-findings.md の R12）。節を外すのは graph の cond（`not request_entry`）で、飛ばした素材は入口の理由つきの not_applicable、空の差分でも周の頭で止まらない。入口が効くのは修正が入るまでで、次の周からは通常の run と同じく P1 が修正差分を見る。途中の周の `add` は P1 を外さない。述語は rules の `request_entry` 1 本（印だけを見る）で、engine には run の種類を持ち込んでいない。`add` を受ける時機は判定役が入力を読む前まで（instance が出ていても、起こしていない・返答の置き場が空なら受ける）で、積んだ欄を graph の `reads` で読む起きていない instance は engine が新しい試行として描き直す（プロンプトは instance を出した時点で固まるため）。
+
+**回し方の制御（並べた run を合流させる運用）。** `init --stop-after-round N` は N 周目の締め（周の記録・検証器・収束の判定）の後で次の周を開かずに止める（engine の周を開く口 `open_next_round` が見る。止めた run は `halted` の `by: stop_after_round`）。`init --input gates=merge` は変異の検算の線（`p3.delta_gates`）と最後の関門（`p4.final_gates`）を条件外で閉じ、収束の手前で `stop_reason=gates_deferred` で止める——関門は合流した版を gates=merge 無しの run で回して撃つ（2026-09-25 に足した。実測: 並べた run が各自撃って負荷 99）。`loop.py stop --reason` は人に聞いていない時点でも人が止める口で、止めた理由を記録の `process.halted` に残し、graph の最上位の `stop.node`（converge）を済んだと見なしてその下流の報告の節だけを走らせる（止めた周の記録が無ければ rules の `on_stop` が止めた事実で組む。2026-09-26 に足した）。
+
+**仕様の道（選んだときだけ）。** `init --input flow=spec` を渡した run だけが、判定の前に仕様の節を通る（2026-09-25 に足した。設計の正本は docs/graphloops-rearchitecture.md の「開発手法の候補」の仕様駆動の項）。writer が要件と受け入れ条件を書き、受け入れ条件は対象リポジトリの実行できるテスト（Given/When/Then をテストの中に書く）として置く——記録が持つのは置き場・sha・承認の時点の終了コードだけで、本文は写さない（同じテストが TDD の「先に書く赤いテスト」になる）。別の judge が抜け・曖昧さ・範囲の外を挙げ、writer が key ごとに答え、engine が各テストの `run` のコマンドの字面を添えて人に諮り、承認の後に走らせて承認の時点の終了コードを記録する（承認の前には走らせない）。この問いは**周の途中の問い**（ask の `in_round`）で、continue は周を進めずに同じ周のまま先へ、stop は run をその場で止め（`halted`）、後の節を 1 つも出さない。承認した仕様は `record.process.spec` に固定され、受け入れ条件は `process.request_findings` のバッチとして 1 周目の判定に 1 度だけ届く（今の流れの指示書は変えない）。2 周目以降に受け入れ条件の緑を engine が確かめる節は無く（緑を収束の条件にするかは選べる流れの選び方の決着で決める）、承認の後のテストの改変は毎周の修正の後の `spec.check` が人に諮り直す。flow を渡さない run では spec.* の節は条件外（na）になり、節の並び・プロンプト・記録・報告は仕様の道を足す前と変わらない（台本 `test_spec_default_unchanged` が比べる）。
 
 ## 機械検査
 

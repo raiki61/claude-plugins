@@ -6,6 +6,12 @@
   },
   "cwd": {
    "kind": "dir"
+  },
+  "policy_md": {
+   "kind": "file",
+   "by": "rules",
+   "optional": true,
+   "note": "人の方針の文書（人が決めた、run をまたいで効く決まり）。置き場は rules/policy_input.py が決める"
   }
  },
  "plugin": "convergence-loops",
@@ -62,7 +68,64 @@
     "{python}",
     "{plugin_root}/scripts/with-auth.py"
    ],
-   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層を注入し、止める設定が公式に存在しない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-12 取得: 『Explore and Plan are the only subagents that omit CLAUDE.md and git status. There is no frontmatter field or per-agent setting to change which agents skip them.』）。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は via の薄い層（scripts/with-auth.py）を前置して通す——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。 出力は --output-format json の包みで受け、本文（result）だけを out_path に書き、会話の番号・往復数・所要時間・費用・トークンは盤面の trace.jsonl に op=role_run の行で残す。会話は保存する（受け付けに拒まれたら同じ会話に --resume で出し直させるため。以前の --no-session-persistence は外した）。"
+   "why": "道具ゼロの役（遮断系）を Agent ツールで起こすと、ハーネスが CLAUDE.md 階層と git status を注入する。CLAUDE.md は役の定義の frontmatter の omitClaudeMd で省けるが（組織管理の分は残る）、git status は止められない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-25 取得: 『Every other built-in and custom subagent loads both, unless its definition sets the omitClaudeMd field to skip the user, project, and local CLAUDE.md files.』『You can't change which subagents receive git status. Only Explore and Plan skip it.』）。役の定義は convergence-loops が配る物で、道具ゼロの役の遮断をその定義の 1 欄に預けない。engine が起こす道具ゼロの子は、Git リポジトリの外の一時ディレクトリを作業ディレクトリにして起こすので git status の写しは入らず（公式: 『Absent outside a Git repository』）、--setting-sources \"\" で CLAUDE.md も読まない。実測 2026-09-12: 道具ゼロの cold-reader が利用者の CLAUDE.md の 1 項目を逐語で引用した。--setting-sources \"\" は CLAUDE.md ごと外す（同日の対照実験——フラグ無しでは目印が見え、付けると消えた）。材料は stdin で渡す（2026-09-12 にこの環境——macOS・claude 2.1.269——で観測: 748,883 バイトと 774,021 バイトの入力が先頭・末尾とも欠けずに届いた。測定の記録は docs/loop-contract.md の T 節。上限の値は目安で、入り切らなければ API が落として done が拒む）。組織管理の CLAUDE.md だけは外せないので、完全な遮断とは名乗らない。起動は via の薄い層（scripts/with-auth.py）を前置して通す——**子は対話の claude の認証を継がない**（実測 2026-09-12: 『Failed to authenticate』の 1 行 73 バイトが返り、done が非 JSON として拒んだ。利用者の claude がシェル関数のラッパなら子はそれを通らず、ハーネスも子の環境にトークンを渡さない）。トークンを argv に置かないのは、launch が回す側の文脈と record.json に写るから。mac 以外では Keychain の段が空振りし、CLAUDE_CONFIG_DIR を子へ明示する段だけが効く。 出力は --output-format json の包みで受け、本文（result）だけを out_path に書き、会話の番号・往復数・所要時間・費用・トークンは盤面の trace.jsonl に op=role_run の行で残す。会話は保存する（受け付けに拒まれたら同じ会話に --resume で出し直させるため。以前の --no-session-persistence は外した）。"
+  },
+  "tooled": {
+   "argv": [
+    "claude",
+    "-p",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "{tools}",
+    "--allowedTools",
+    "{allowed_tools}",
+    "--permission-mode",
+    "{permission_mode}",
+    "--settings",
+    "{settings}",
+    "--permission-prompts",
+    "none",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
+   ],
+   "resume": [
+    "claude",
+    "-p",
+    "--resume",
+    "{session_id}",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "{tools}",
+    "--allowedTools",
+    "{allowed_tools}",
+    "--permission-mode",
+    "{permission_mode}",
+    "--settings",
+    "{settings}",
+    "--permission-prompts",
+    "none",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
+   ],
+   "via": [
+    "{python}",
+    "{plugin_root}/scripts/with-auth.py"
+   ],
+   "why": "道具つきの役（investigator・inspector・judge）も engine が claude -p で起こす（loop.py launch）。argv・resume・via は review-loop.json の launch.tooled と同じ語で、理由の正本もそちらの why（中継の AI を挟んだときの事故の実測・--agents の定義ファイルを採らない理由・権限は engine が役の定義の道具から決める・CLAUDE.md を読ませない理由・コマンドを走らせる役に読むだけの gh を明示で許す形・計器を OS の sandbox の中でだけ動かす形と sandbox を使えない環境で落とす先）——理由をここに写すと片方だけが古くなるので写さない。2 つの graph の launch の語が揃っていることは、このリポジトリの検査が突き合わせる。"
   },
   "resume_on_reject": 2,
   "resume_note": "受け付けの検査（done の中身）が返答を拒んだとき、同じ会話に理由を渡して出し直させる回数の上限。続きを頼むのは役に返せば直る拒否（読めない・型に合わない・記録の整合・項目の過不足）だけで、作業ツリーが変わった・前段が済んでいない等は続きを頼まずに回す側へ上げる"
@@ -132,6 +195,10 @@
    "軽量": 1
   }
  },
+ "stop": {
+  "node": "converge",
+  "why": "loop.py stop で人が run を止めたとき、この節を『済んだ』と見なし、その下流（p5.adapt → report → reflect）だけを走らせる——今の answer stop が converge で止めて報告へ届く筋と同じ道（Argo の exit handler の形）。下流でない待ちの節は止めた印（rd.stopped）になり、rules の on_stop が記録の convergence に止めた理由を書く"
+ },
  "nodes": {
   "p0.question": {
    "stage": "P0",
@@ -145,7 +212,8 @@
     "inputs.request",
     "inputs.document",
     "thickness",
-    "record.thickness_decider"
+    "record.thickness_decider",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -270,7 +338,11 @@
     "thickness_decider"
    ],
    "thickness_from": "thickness",
-   "thickness_reason_from": "thickness_reason"
+   "thickness_reason_from": "thickness_reason",
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
   },
   "p0.claims": {
    "stage": "P0",
@@ -538,14 +610,7 @@
    "fresh_context": true,
    "once": true,
    "optional": true,
-   "when": "問い・制約のどれかを surveyor が自書した",
-   "cond": {
-    "path": "record.constraints",
-    "op": "any_field_eq",
-    "field": "origin",
-    "value": "surveyor自書",
-    "default": []
-   },
+   "cond": "constraints_self_written",
    "deps": [
     "p0.question"
    ],
@@ -722,22 +787,7 @@
    "active_in": [
     "重厚"
    ],
-   "when": "重厚なら初回に一度、それ以外は stuck の後だけ",
-   "cond": {
-    "any": [
-     {
-      "path": "round",
-      "op": "eq",
-      "value": 1
-     },
-     {
-      "path": "loop.stuck_hint",
-      "op": "eq",
-      "value": true,
-      "default": false
-     }
-    ]
-   },
+   "cond": "generation_due",
    "deps": [
     "p0.clusters"
    ],
@@ -946,7 +996,8 @@
    "prompt_file": "../prompts/research-loop/p1.refuter.md",
    "reads": [
     "item",
-    "validator"
+    "validator",
+    "inputs.policy_md"
    ],
    "forbidden_inputs": [
     "同じクラスタの他の判定",
@@ -1030,7 +1081,11 @@
     "claims[].verdict（反証後）"
    ],
    "note": "checker が返り次第その主張に走る（全クラスタを待ち合わせない）。既定 1 票。3 票の増し掛けは未実装（README の未実装）",
-   "post_check": "refuter_consistency"
+   "post_check": "refuter_consistency",
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
+   ]
   },
   "p1.record_check": {
    "stage": "P1",
@@ -1067,7 +1122,8 @@
     "record.question",
     "record.constraints",
     "inputs.document",
-    "inputs.cwd"
+    "inputs.cwd",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -1139,6 +1195,10 @@
    ],
    "outputs": [
     "corrections（機械確認による）"
+   ],
+   "prompt_append": [
+    "../prompts/policy-paste.md",
+    "../prompts/policy.md"
    ]
   },
   "p2.integrate": {
@@ -1159,7 +1219,8 @@
     "prev.p3.rederiver_compare",
     "prev.p3.cartographer_compare",
     "out.p5.internal",
-    "out.p0.prior_decisions"
+    "out.p0.prior_decisions",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -1395,6 +1456,10 @@
     "corrections",
     "numbers",
     "claims（安定キー・recheck）"
+   ],
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
    ]
   },
   "p3.rederiver": {
@@ -1453,7 +1518,7 @@
    },
    "writes": [
     {
-     "op": "set",
+     "op": "rederiver_first_verdict",
      "to": "gates.rederiver",
      "from": "$",
      "pick": [
@@ -1463,7 +1528,7 @@
     }
    ],
    "outputs": [
-    "gates.rederiver（暫定）"
+    "gates.rederiver（突合が確定させる判定は not_run と暫定の判定 provisional で、突合の来ない判定は確定で）"
    ]
   },
   "p3.rederiver_compare": {
@@ -1474,21 +1539,7 @@
     "標準",
     "重厚"
    ],
-   "when": "この周の新規相違がゼロ、かつ rederiver が問いは立っていると言った",
-   "cond": {
-    "all": [
-     {
-      "path": "rd.new_discrepancies",
-      "op": "eq",
-      "value": 0
-     },
-     {
-      "path": "out.p3.rederiver.verdict",
-      "op": "eq",
-      "value": "pass"
-     }
-    ]
-   },
+   "cond": "rederiver_compare_due",
    "deps": [
     "p3.rederiver",
     "p2.integrate"
@@ -1642,11 +1693,7 @@
    "active_in": [
     "重厚"
    ],
-   "cond": {
-    "path": "rd.new_discrepancies",
-    "op": "eq",
-    "value": 0
-   },
+   "cond": "no_new_discrepancies",
    "deps": [
     "p3.cartographer",
     "p2.integrate"
@@ -1735,11 +1782,7 @@
     "標準",
     "重厚"
    ],
-   "cond": {
-    "path": "rd.new_discrepancies",
-    "op": "eq",
-    "value": 0
-   },
+   "cond": "no_new_discrepancies",
    "deps": [
     "p2.integrate"
    ],
@@ -1815,21 +1858,7 @@
    "stage": "P3",
    "run_by": "investigator",
    "fresh_context": true,
-   "when": "2 周目以降で、この周の P1 の照合対象が空集合だった",
-   "cond": {
-    "all": [
-     {
-      "path": "round",
-      "op": "gt",
-      "value": 1
-     },
-     {
-      "path": "rd.item_counts.p1.checker",
-      "op": "eq",
-      "value": 0
-     }
-    ]
-   },
+   "cond": "sampling_due",
    "deps": [
     "p2.integrate"
    ],
@@ -1947,7 +1976,8 @@
    "reads": [
     "record",
     "inputs.document",
-    "out.p5.internal"
+    "out.p5.internal",
+    "inputs.policy_md"
    ],
    "schema": {
     "type": "object",
@@ -2067,7 +2097,11 @@
    "outputs": [
     "decisions（decide_now・poc・human_only）"
    ],
-   "note": "decisions の 3 配列（文字列）は駆動器が details の text から作る"
+   "note": "decisions の 3 配列（文字列）は駆動器が details の text から作る",
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md"
+   ]
   },
   "report": {
    "stage": "最終報告",
@@ -2168,7 +2202,7 @@
   "p3.sampling",
   "p0.independence_review"
  ],
- "cond_note": "cond の path は engine が解決する。解決できない path は die——綴り違いや欄の改名が「条件が成り立たない」に化けると、走らなかった節の素材に事実と逆の理由が書かれたまま収束まで通る。設計上まだ書かれていない欄を見る cond は default を明示する（下の各節）",
+ "cond_note": "cond は rules の CONDS の関数の名前（どう判断するかは rules に置き、graph には名前だけを書く）。関数は読む欄を cond_reads で宣言し、graphcheck が宣言を前の節の出力・loop / 周の鍵（rules の LOOP_KEYS / ROUND_KEYS）・記録の欄と突き合わせ、engine は宣言した欄だけを渡す（宣言外を読むとその場で落ちる）。返りの（真偽, 理由の文）の理由は、走らなかった節の素材の理由として判定役に渡る",
  "verdict_paths": [
   "gates",
   "sampling",

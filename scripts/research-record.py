@@ -13,7 +13,8 @@ exit 2 になる。中身の質は保証しない（「該当なし」は書け�
 収束せずに停止した実行（rederiver の unverifiable・stuck・thrash・暴走ガード）も
 発行できる——`convergence.outcome` を "stopped" にして理由を書けば、ゲートの未 pass や
 覆りは「未収束の申告」であって阻害ではない（一度も走らなかった必須のゲートは status=not_run と
-reason で書く。not_applicable は「この段では走らせない」に取っておく）。**阻害になるのは「収束した」と名乗り
+reason で書く。not_applicable は「この段では走らせない」に取っておく。欄を作る工程より前に止まった run は、
+空の欄を process.stopped_gaps に欄ごとの理由つきで申告する）。**阻害になるのは「収束した」と名乗り
 ながらゲートが通っていない記録だけ**（収束の偽装を塞ぐのが目的で、停止の正直な報告を
 塞ぐのは目的でない）。
 
@@ -124,6 +125,29 @@ REQUIRED = (
 )
 
 
+# 止まった記録でだけ、空のまま受ける欄（process.stopped_gaps に欄ごとの理由を書く）。作る工程より前に止まった run の
+# 報告を出すため——収束を名乗る記録では今までどおり空を落とす（not_run のゲートを止まった記録でだけ受けるのと同じ形）
+GAP_FIELDS = ("question", "constraints", "clusters", "claims", "decisions")
+
+
+def stopped_gaps(rec, path):
+    """止まった記録が理由つきで空と申告した欄の集合。申告の形が崩れている・止まっていない記録の申告・空でない欄の申告は落とす"""
+    gaps = (rec.get("process") or {}).get("stopped_gaps") if isinstance(rec.get("process"), dict) else None
+    if gaps is None:
+        return set()
+    if not isinstance(gaps, dict) or not all(k in GAP_FIELDS and isinstance(v, str) and v.strip() for k, v in gaps.items()):
+        fail(f"{path}: process.stopped_gaps は {{{'/'.join(GAP_FIELDS)}: 理由}} の形")
+    if not isinstance(rec.get("convergence"), dict) or rec["convergence"].get("outcome") != "stopped":
+        fail(f"{path}: 収束を名乗りながら空の欄を申告している（stopped_gaps は outcome=stopped の記録でだけ受ける）")
+    dec = rec.get("decisions")
+    filled = {"question": bool(rec.get("question")), "decisions": isinstance(dec, dict) and any(dec.get(k) for k in ("decide_now", "poc", "human_only")),
+              **{k: bool(rec.get(k)) for k in ("constraints", "clusters", "claims")}}
+    rotten = [k for k in gaps if filled[k]]
+    if rotten:
+        fail(f"{path}: 空でない欄を空と申告している（申告の腐り）: {rotten}")
+    return set(gaps)
+
+
 def validate(rec, path):
     # 型を見るのは診断メッセージを具体的にするため（保証は末尾の境界。冒頭 docstring 参照）。
     if not isinstance(rec, dict):
@@ -131,14 +155,25 @@ def validate(rec, path):
     for key in REQUIRED:
         if key not in rec:
             fail(f"{path}: 必須の欄 '{key}' が無い")
+    # 結末を先に見る——未決の記録（走っている run を途中で仕上げた）は他の欄も作りかけなので、後ろの検査で落ちると
+    # 『記録が壊れている』に見える。止まった記録でだけ受ける規則（stopped_gaps・not_run）もこの値を読む
+    conv = rec["convergence"]
+    if not isinstance(conv, dict):
+        fail(f"{path}: 'convergence' が object でない")
+    if conv.get("outcome") is None:
+        fail(f"{path}: convergence.outcome が未決（run が終わっていない——止めるか収束してから仕上げよ）")
+    if conv.get("outcome") not in OUTCOMES:
+        fail(f"{path}: convergence.outcome が不正（{'/'.join(OUTCOMES)}）")
+    gaps = stopped_gaps(rec, path)
 
-    require_str(rec, "question", path)
+    if not ("question" in gaps and rec["question"] == ""):
+        require_str(rec, "question", path)
     if rec["thickness"] not in THICKNESS:
         fail(f"{path}: 'thickness' が不正: {rec['thickness']!r}（{'/'.join(THICKNESS)}）")
     if rec["thickness_decider"] not in DECIDERS:
         fail(f"{path}: 'thickness_decider' が不正: {rec['thickness_decider']!r}")
 
-    if not isinstance(rec["constraints"], list) or not rec["constraints"]:
+    if not isinstance(rec["constraints"], list) or not (rec["constraints"] or "constraints" in gaps):
         fail(f"{path}: 'constraints' が空——制約なしの調査は P0-1 に反する")
     for i, c in enumerate(rec["constraints"]):
         if not isinstance(c, dict):
@@ -148,7 +183,7 @@ def validate(rec, path):
         if c.get("origin") not in ORIGINS:
             fail(f"{path}: constraints[{i}] の origin が不正（{'/'.join(ORIGINS)}）")
 
-    if not isinstance(rec["clusters"], list) or not rec["clusters"]:
+    if not isinstance(rec["clusters"], list) or not (rec["clusters"] or "clusters" in gaps):
         fail(f"{path}: 'clusters' が空")
     cluster_expect = {}
     for i, c in enumerate(rec["clusters"]):
@@ -159,7 +194,7 @@ def validate(rec, path):
             fail(f"{path}: クラスタ '{key}' が重複")
         cluster_expect[key] = require_int(c, "claims_submitted", f"{path}: クラスタ '{key}'", 1)
 
-    if not isinstance(rec["claims"], list) or not rec["claims"]:
+    if not isinstance(rec["claims"], list) or not (rec["claims"] or "claims" in gaps):
         fail(f"{path}: 'claims' が空")
     ids = set()
     load_bearing_count = 0
@@ -226,13 +261,8 @@ def validate(rec, path):
             for k in fields:
                 require_str(item, k, f"{path}: {name}[{i}]")
 
-    conv = rec["convergence"]
-    if not isinstance(conv, dict):
-        fail(f"{path}: 'convergence' が object でない")
     require_int(conv, "rounds_total", f"{path}: convergence", 1)
     require_int(conv, "consecutive_zero", f"{path}: convergence")
-    if conv.get("outcome") not in OUTCOMES:
-        fail(f"{path}: convergence.outcome が不正（{'/'.join(OUTCOMES)}）")
     if conv["outcome"] == "stopped":
         require_str(conv, "stopped_reason", f"{path}: convergence（outcome=stopped）")
 
@@ -318,7 +348,8 @@ def validate(rec, path):
             fail(f"{path}: '{cid}' は未反証の荷重でないのに申告されている（申告の腐り）")
     # 荷重の選定ゼロは「その旨と理由」の明示が要る（P1——選定ゼロで素通りする降格の禁止）。
     if load_bearing_count == 0:
-        require_str(proc, "load_zero_reason", f"{path}: process（荷重の選定がゼロ）")
+        if rec["claims"] or "claims" not in gaps:   # 主張ごと無い止まった記録は選定もしていない
+            require_str(proc, "load_zero_reason", f"{path}: process（荷重の選定がゼロ）")
     elif proc.get("load_zero_reason"):
         fail(f"{path}: 荷重があるのに load_zero_reason がある（申告の腐り）")
 
@@ -329,7 +360,7 @@ def validate(rec, path):
         v = dec.get(k)
         if not isinstance(v, list) or not all(isinstance(s, str) and s.strip() for s in v):
             fail(f"{path}: decisions.{k} が文字列の配列でない")
-    if not any(dec[k] for k in ("decide_now", "poc", "human_only")):
+    if not any(dec[k] for k in ("decide_now", "poc", "human_only")) and "decisions" not in gaps:
         fail(f"{path}: decisions が全部空——3 分類に仕分けろ（P5）")
 
 

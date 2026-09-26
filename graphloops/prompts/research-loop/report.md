@@ -6,13 +6,15 @@
 検証器の結果: {{validation}}
 
 判定者の生の返答（refuter・ゲート・抜き取り。要約で丸めずそのまま転記する——転記する時にファイルを Read して写す）:
-{{ref:raw}}
+{{?ref:raw}}
 
 報告は {{inputs.lang}} で書く（この手順書が日本語なのは報告を日本語にする理由にならない。判断を下すのは人で、読めない言語の報告では下せない）。段は {{thickness}}。
 
+報告の 1 行目には、保存のときに engine が来歴の行（プラグインの版・run の番号・周）を刻む——自分で書き写すな。この行は下の『冒頭』に数えない。
+
 散文にだけ残る義務:
 
-1. 冒頭に平易版（専門語なしで何の話か・どう解いたか・なぜ正しいと言えるか）。停止した run・無人実行では、その前に「要人間判断」として process.human_items と decisions.human_only を列挙。
+1. 冒頭に平易版（専門語なしで何の話か・どう解いたか・なぜ正しいと言えるか）。停止した run・無人実行では、その前に「要人間判断」として process.human_items と decisions.human_only を列挙。人が途中で止めた run（process.halted の by が stop）では、さらにその前に、止めた周・理由の本文・答えないまま外した問い（unanswered）と、作る前に止まったので空の欄（process.stopped_gaps）を書く——空の欄は「調べて無かった」ではなく「調べる前に止めた」と書き分ける。収束・停止を問わず、人の方針の文書が init の後に変わっていれば（process.policy_change）、そのことと差分・写しの置き場を冒頭に 1 行で書く。
 2. 役割・記法の凡例（record.terms が正本。凡例を省いた段では冒頭で一言定義）。
 3. 前提の棚卸し（constraints。確度注記付き）。
 4. 根拠（メカニズム＋適用条件。出現例は傍証と明記。「N 分野が一致」を証拠強度にしない）。
@@ -22,7 +24,7 @@
 8. 社内語→標準語 対応表。
 9. 訂正の記録（corrections をそのまま。append-only）。
 10. 残る決定事項（human_only）と PoC 行き（poc）。
-11. 省略した機構（process.skipped・gates の not_applicable・thickness_decider）と、飛ばしたゲート（gates の not_run と理由。止まった run で走らなかった物で、緑と数えない——not_applicable と別の行に並べる）。先行議論を洗えなかった場合はその旨。
+11. 省略した機構（process.skipped・gates の not_applicable・thickness_decider）と、飛ばしたゲート（gates の not_run と理由。止まった run で走らなかった物・導出の半分だけ走った物で、緑と数えない——not_applicable と別の行に並べる。暫定の判定は provisional に在り、確定した判定として書かない）。人が止めて走らせなかった節（process.stopped_nodes）は省略と別の行に。先行議論を洗えなかった場合はその旨。
 12. process・convergence の展開は結論の節に混ぜず専用の節に隔離。
 13. 未解決の開いた問い（P0 で挙がった物。記録の process.open_questions: {{?record.process.open_questions}}）。1 件も省かずに、結論の節の直後に独立の節として並べる。問いごとに、ループの外で扱って持ち帰った事実の主張があるか（claims の added_by が「ループの外（…）」の物。それらは P1 で照合済み）と、それでも答えが出ていない部分を書く。持ち帰りの無い問いは「このループでは調べていない」と書く。1 件以上あれば、冒頭の平易版の近くで「このループが回したのは閉じた主張の検証だけで、開いた問いへの答えまでは出していない（調べ尽くしてはいない）」と明示する。0 件なら節ごと省く。
 

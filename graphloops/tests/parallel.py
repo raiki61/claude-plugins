@@ -16,6 +16,7 @@
 import concurrent.futures
 import os
 import pathlib
+import shutil
 import tempfile
 import threading
 import traceback
@@ -85,6 +86,23 @@ def workspace(prefix):
     """
     td = tempfile.TemporaryDirectory(prefix=prefix, ignore_cleanup_errors=True)
     return td, pathlib.Path(td.name)
+
+
+def rm(p):
+    """作業場の掃除——台本が作業場を消す口はこの 1 本（simulate.py・simulate_review.py の rm がここを呼ぶ）。
+
+    **一時の置き場（tempfile.gettempdir()）より深いパスだけを消し、外を指したら例外にする。** 消す物のパスを計算で作る台本が、
+    計算に失敗した回の既定値の親を渡すと、ignore_errors の rmtree は / やホームを黙って消しに行く（実測 2026-09-26: 任せ先の
+    launch が失敗した回に `kept = Path(one.get("kept") or "/nonexistent")` の親 "/" を消しに行った）。掃除の失敗は握り潰すが、
+    外を消せという指示は握り潰さない。
+
+    Windows は git の object を読み取り専用で置き、素の rmtree が PermissionError で落ちる（実測: CI の windows-latest）——
+    掃除の失敗で検査本体を落とさない（ignore_errors）"""
+    real = os.path.realpath(p)
+    base = os.path.realpath(tempfile.gettempdir())
+    if real == base or os.path.commonpath([real, base]) != base:
+        raise ValueError(f"rm: 一時の置き場（{base}）より深いパスでないので消さない: {p}")
+    shutil.rmtree(p, ignore_errors=True)
 
 
 def workers(n_tests):

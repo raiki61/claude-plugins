@@ -100,14 +100,15 @@ def _good_launch(board, stdin):
     mode, allowed = role_run.delegate_permission()
     words = ["claude", "-p", "--model", "haiku", "--tools", ",".join(role_run.DELEGATE_TOOLS), "--allowedTools", ",".join(allowed),
              "--permission-mode", mode, "--permission-prompts", "none", "--setting-sources", "",
-             "--settings", role_run.delegate_settings(util.protected_paths([board])), "--output-format", "json"]
+             "--settings", role_run.delegate_settings(util.protected_paths([board])), "--append-system-prompt-file", str(stdin),
+             "--output-format", "json"]
     return {"kind": "delegate", "argv": commands.launch_prefix() + words, "stdin": str(stdin), "resume_argv": None}
 
 
 def test_delegate_refusal_accepts_the_engine_shape(repo, tmp_path):
     stdin = tmp_path / "p.md"
     stdin.write_text("x")
-    assert commands.launch_refusal({"launch": _good_launch(tmp_path / "b", stdin)}, tmp_path / "b") is None
+    assert commands.launch_refusal({"launch": _good_launch(tmp_path / "b", stdin), "delegate": {"model": "haiku"}}, board_dir=tmp_path / "b") is None
 
 
 @pytest.mark.parametrize("mutate, want", [
@@ -122,7 +123,7 @@ def test_delegate_refusal_arms(repo, tmp_path, mutate, want):
     stdin = tmp_path / "p.md"
     stdin.write_text("x")
     good = _good_launch(tmp_path / "b", stdin)
-    why = commands.launch_refusal({"launch": {**good, "argv": mutate(good["argv"])}}, tmp_path / "b") or ""
+    why = commands.launch_refusal({"launch": {**good, "argv": mutate(good["argv"])}, "delegate": {"model": "haiku"}}, board_dir=tmp_path / "b") or ""
     assert want in why
 
 
@@ -132,9 +133,9 @@ def test_delegate_refusal_rebuilds_the_fence_at_launch_time(repo, tmp_path):
     stdin.write_text("x")
     good = _good_launch(tmp_path / "b", stdin)
     git(repo, "worktree", "add", "-q", str(tmp_path / "late"), "-b", "late")
-    assert "--settings" in (commands.launch_refusal({"launch": good}, tmp_path / "b") or "")
+    assert "--settings" in (commands.launch_refusal({"launch": good, "delegate": {"model": "haiku"}}, board_dir=tmp_path / "b") or "")
     # 盤面を名指ししない柵（board 無し）も起こさない
-    assert "守る場所" in (commands.launch_refusal({"launch": _good_launch(tmp_path / "b", stdin)}, None) or "")
+    assert "守る場所" in (commands.launch_refusal({"launch": _good_launch(tmp_path / "b", stdin), "delegate": {"model": "haiku"}}, board_dir=None) or "")
 
 
 def test_delegate_refusal_when_git_cannot_name_the_fence(repo, tmp_path, monkeypatch):
@@ -142,17 +143,43 @@ def test_delegate_refusal_when_git_cannot_name_the_fence(repo, tmp_path, monkeyp
     stdin.write_text("x")
     good = _good_launch(tmp_path / "b", stdin)
     monkeypatch.setattr(util, "GIT_CWD", str(tmp_path / "nowhere"))
-    assert "守る場所" in (commands.launch_refusal({"launch": good}, tmp_path / "b") or "")
+    assert "守る場所" in (commands.launch_refusal({"launch": good, "delegate": {"model": "haiku"}}, board_dir=tmp_path / "b") or "")
 
 
 def test_run_role_without_deadline_waits_to_the_end(tmp_path):
-    """背景の線は期限で止めない——timeout_s=None は期限なしで子の終了まで待つ"""
+    """背景の線は期限で止めない——run_role に時間の上限は無く、子の終了まで待つ"""
     prompt = tmp_path / "p"
     prompt.write_text("hi")
     out = tmp_path / "o"
     argv = [sys.executable, "-c", "import sys,time; sys.stdin.read(); time.sleep(0.2); print('done-body')"]
-    r = role_run.run_role(argv, prompt, out, timeout_s=None)
-    assert r["ok"] and not r["expired"] and out.read_text().strip() == "done-body"
+    r = role_run.run_role(argv, prompt, out)
+    assert r["ok"] and not r["superseded"] and out.read_text().strip() == "done-body"
+
+
+def _delegate_board(tmp_path, graph):
+    import types
+    return types.SimpleNamespace(graph=graph, dir=tmp_path / "board")
+
+
+def test_delegate_launch_spec_needs_the_graph_words(tmp_path):
+    """graph に launch.delegate が無ければ任せ先の起こし方を組まない（None——回す側に柵を組めないと言う）"""
+    from engine.advance import delegate_launch_spec
+    assert delegate_launch_spec(_delegate_board(tmp_path, {}), {}, {"delegate": {"model": "haiku"}}, {}) is None
+
+
+def test_delegate_launch_spec_resolves_claude_on_path(repo, tmp_path, monkeypatch):
+    """起こす語の claude は PATH で引いた実体に置き換える（前置の層の後ろ）。引けなければ missing に名前を残す"""
+    from engine import advance
+    spec = {"argv": ["claude", "-p", "--model", "{model}"], "via": ["{python}", "{plugin_root}/scripts/with-auth.py"], "preamble": "p"}
+    b = _delegate_board(tmp_path, {"launch": {"delegate": spec}})
+    inst = {"id": "p4.ci", "prompt_file": str(tmp_path / "p.md"), "out_path": str(tmp_path / "o.json")}
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: f"/opt/bin/{name}")
+    got = advance.delegate_launch_spec(b, inst, {"delegate": {"model": "haiku"}}, {})
+    assert got["argv"][2] == "/opt/bin/claude" and "missing" not in got
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    got = advance.delegate_launch_spec(b, inst, {"delegate": {"model": "haiku"}}, {})
+    assert got["argv"][2] == "claude" and got["missing"] == "claude"
 
 
 # ---- 0.20.2 の取りまとめで足した検査（変異の腕が bash の台本でも pytest でも生き残った所） ----
@@ -219,7 +246,7 @@ def test_delegate_launch_spec_background_needs_a_result_place(repo, tmp_path):
 def test_delegate_refusal_without_stdin(repo, tmp_path):
     good = _good_launch(tmp_path / "b", tmp_path / "p.md")
     del good["stdin"]
-    assert "材料" in (commands.launch_refusal({"launch": good}, tmp_path / "b") or "")
+    assert "材料" in (commands.launch_refusal({"launch": good, "delegate": {"model": "haiku"}}, board_dir=tmp_path / "b") or "")
 
 
 def test_launch_one_removes_the_work_place_when_the_copy_fails(repo, tmp_path, monkeypatch):
@@ -228,7 +255,7 @@ def test_launch_one_removes_the_work_place_when_the_copy_fails(repo, tmp_path, m
     tmp = tmp_path / "tmpdir"
     tmp.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
-    monkeypatch.setattr(commands, "launch_refusal", lambda inst, d: None)
+    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None: None)
 
     def boom(dst):
         pathlib.Path(dst).mkdir()
@@ -342,7 +369,7 @@ def test_delegate_refusal_needs_the_engine_prefix(repo, tmp_path):
     stdin.write_text("x")
     good = _good_launch(tmp_path / "b", stdin)
     bare = good["argv"][len(commands.launch_prefix()):]
-    assert "前置" in (commands.launch_refusal({"launch": {**good, "argv": bare}}, tmp_path / "b") or "")
+    assert "前置" in (commands.launch_refusal({"launch": {**good, "argv": bare}}, board_dir=tmp_path / "b") or "")
 
 
 def test_launch_one_background_delegate_has_no_deadline_and_places_the_answer(repo, tmp_path, monkeypatch):
@@ -352,7 +379,7 @@ def test_launch_one_background_delegate_has_no_deadline_and_places_the_answer(re
     tmp = tmp_path / "tmpdir"
     tmp.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
-    monkeypatch.setattr(commands, "launch_refusal", lambda inst, d: None)
+    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None: None)
     board = tmp_path / "board"
     board.mkdir()
     prompt = tmp_path / "p.md"
@@ -363,6 +390,9 @@ def test_launch_one_background_delegate_has_no_deadline_and_places_the_answer(re
             "launch": {"kind": "delegate", "background": True, "result_path": str(result), "argv": [sys.executable, "-c", code],
                        "stdin": str(prompt)}}
     (tmp_path / "o").write_text("受領の返答", encoding="utf-8")   # 背景の節の out_path は受領の返答の置き場（done 済み）
+    # 起こした直後に盤面を読んで自分の試行かを確かめる（still_mine）——背景の任せ先は受領を done にしてから起こす
+    (board / "state.json").write_text(json.dumps({"rounds": [{"instances": {"p3.x": {"out_path": inst["out_path"], "status": "done"}}}]}),
+                                      encoding="utf-8")
     got = commands.launch_one(str(board), inst, 2)
     assert got["ok"] is True, got.get("why")
     assert json.loads(result.read_text(encoding="utf-8")) == {"tmp": True}

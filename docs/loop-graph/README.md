@@ -32,7 +32,7 @@ JSON の欄:
 - **`inputs` / `forbidden_inputs`** — 渡すもの・渡してはいけないもの。節固有の遮断はここに書く。道具の遮断は役の定義側
 - **`unblockable_context`** — 渡していないのに読み役の context に入るもの（firstread だけが実測して書いている）
 - **`outputs`** — 記録の欄名。検証器が要求する欄と機械で突き合わせる
-- **`optional` / `when` / `active_in`** — 条件付きの節。`active_in` は厚みの段（軽量・標準・重厚——research / doctor が持つ、検査の厚さの 3 段階）
+- **`optional` / `cond` / `active_in`** — 条件付きの節。`cond` は rules の条件の関数の名前（graphloops。どう判断するかは rules に置く）。`active_in` は厚みの段（軽量・標準・重厚——research / doctor が持つ、検査の厚さの 3 段階）
 - **`retry`** — その節から前の節へ差し戻す条件（明示返答の欠落で採点役を再起動する等）
 - **`asks_human`** — 人の入力を待つ節。無人実行では読み替えが要る
 - **`verdict_is_copy`** — 判定を出しているように見えるが、写すだけの節（記録を書く節・機械の出力を読む節）

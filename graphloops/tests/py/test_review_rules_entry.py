@@ -20,7 +20,8 @@ def rules():
 
 def _board(tmp_path, round_=1, p1="pending", process=None, base=None):
     return types.SimpleNamespace(round=round_, node_state=lambda nid: p1 if nid == "p1.worktree_before" else None,
-                                 record={"process": process or {}, "base": base}, loop_state={}, dir=tmp_path)
+                                 record={"process": process or {}, "base": base}, loop_state={}, dir=tmp_path,
+                                 cond=lambda name, overlay=None: (False, "判定から入る run の周でない（偽物）"))
 
 
 def test_entry_opens_only_before_the_first_round_p1(rules, tmp_path):

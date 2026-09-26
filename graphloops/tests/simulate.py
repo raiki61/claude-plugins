@@ -17,6 +17,8 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import types
 
@@ -43,15 +45,15 @@ PY = sys.executable
 
 # **読了の標本の作り方は rules が正本**（台本に数を写すと、engine だけ変えたとき検査が黙って緩む）。
 # 名前にハイフンが入るので import 文では読めない——ファイルから読む
-_spec = importlib.util.spec_from_file_location("research_rules", PLUGIN / "rules" / "research-loop.py")
-RESEARCH_RULES = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(RESEARCH_RULES)
 # engine が差し込む道具（engine/rules.py の INJECT が正本）。部品を直に呼ぶ腕のためにここでも差し込む
-# ——**写さず import する**: 名前を手で並べると、engine が鍵を足した周に台本だけが古くなる
+# ——**写さず import する**: 名前を手で並べると、engine が鍵を足した周に台本だけが古くなる。
+# 読み込む前に差し込む（条件の宣言 cond_reads は rules の読み込みの時点で要る）
 sys.path.insert(0, str(PLUGIN))
 from engine.rules import INJECT as _INJECT  # noqa: E402
-for _k, _v in _INJECT.items():
-    setattr(RESEARCH_RULES, _k, _v)
+_spec = importlib.util.spec_from_file_location("research_rules", PLUGIN / "rules" / "research-loop.py")
+RESEARCH_RULES = importlib.util.module_from_spec(_spec)
+RESEARCH_RULES.__dict__.update(_INJECT)
+_spec.loader.exec_module(RESEARCH_RULES)
 PROBE_MIN, PROBE_POINTS = RESEARCH_RULES.PROBE_MIN, RESEARCH_RULES.PROBE_POINTS
 
 fails = []
@@ -79,9 +81,8 @@ def skip(desc, reason):
 
 
 def rm(p):
-    """作業場の掃除。Windows は git の object を読み取り専用で置き、素の rmtree が PermissionError で
-    落ちる（実測: CI の windows-latest）。掃除の失敗で検査本体を落とさない。"""
-    shutil.rmtree(p, ignore_errors=True)
+    """作業場の掃除。消してよいのは一時の置き場より深いパスだけ（外を指したら例外）——正本は parallel.rm"""
+    parallel.rm(p)
 
 
 
@@ -145,7 +146,7 @@ def vocab_coverage():
 
 
 class Run:
-    def __init__(self, name, thickness=None, decider=None, unattended=False, graph=None, rel_dir=False):
+    def __init__(self, name, thickness=None, decider=None, unattended=False, graph=None, rel_dir=False, before_init=None, init_args=()):
         # graph=<path>: 同梱でなくその写しで回す。**回した後に graph を締める腕**（once の節の凍った出力を
         # 今の schema で測り直す）に要る——同梱を書き換えると、他の台本と本物のリポジトリを壊す
         self._td, self.tmp = parallel.workspace(f"gl-{name}-")
@@ -187,6 +188,9 @@ class Run:
             args.append("--unattended")
         if graph:
             args += ["--graph", str(graph)]
+        args += list(init_args)
+        if before_init:   # init より前に置く物（人の方針の文書など）
+            before_init(self)
         self.init = self.cmd(*args)
         # **engine を回せば、その出力が道具の結果として転写に載る**——本番と同じ形を代役にも作る。
         # 以前は文書の本文だけを転写に置いており、印（run_id）が一度も立たない転写で回していた。
@@ -304,7 +308,7 @@ def base_answers(run, scenario):
         "p0.clusters": lambda it, r: {"clusters": [{"key": "c1", "claim_ids": ["A", "B"]}, {"key": "c2", "claim_ids": ["C", "D"]}]},
         "p0.terms": lambda it, r: {"terms": [{"term": "見立て", "definition": "設計の仮説", "status": "社内造語"}],
                                    },
-        "p0.prior_decisions": lambda it, r: {"checked": True, "searched": ["gh issue list"], "settled_points": [], "overlaps": [], "reopen_proposals": []},
+        "p0.prior_decisions": lambda it, r: {"checked": True, "searched": ["GitHub の issue・PR（gh）", "docs/", "git log"], "settled_points": [], "overlaps": [], "reopen_proposals": []},
         "p0.independence_review": lambda it, r: {"verdict": "問題なし", "reason": "狭めていない", "findings": []},
         "p0.generation": lambda it, r: {"claims": [{"id": "G1", "cluster": "c1", "claim": "生成した主張", "load_bearing": False, "heuristic": "逆転"}]},
         "p5.internal": lambda it, r: {"facts": [{"constraint_text": "対象は 1 リポジトリ", "verified": True, "actual": "1 つ", "location": ".git"}],
@@ -338,13 +342,15 @@ def scenario_thickness(s):
     return "重厚" if s == "heavy" else "標準"
 
 
-def drive(run, scenario, max_steps=60, hook=None):
-    """next → 台本で done を、止まるか終わるまで。返り値は最後の next の出力。"""
+def drive(run, scenario, max_steps=60, hook=None, stop_at=None):
+    """next → 台本で done を、止まるか終わるまで（stop_at が真を返す波の手前でも止まる）。返り値は最後の next の出力。"""
     last = None
     seen_delivery = set()  # 渡し方の検査は節ごとに初回だけ（P3 の遮断系は 1 周目に出ない——round == 1 の条件では一度も当たらなかった）
     for _ in range(max_steps):
         nx = run.next()
         last = nx
+        if stop_at and nx["ready"] and stop_at(nx):
+            return nx
         if nx.get("status") == "awaiting_human" or (not nx["ready"] and nx["status"] in TERMINAL_STATUS):
             return nx
         if not nx["ready"]:
@@ -361,7 +367,9 @@ def drive(run, scenario, max_steps=60, hook=None):
                     DELIVERY_SEEN.add(node)
                 # 遮断系は cli で出るので mode も見る（以前は mode == "agent" と round == 1 を条件にしていて cold_reader の腕が空振りしていた）
                 want_mode, want = ("agent", "path") if node == "p1.checker" else ("cli", "paste")
-                check(inst["mode"] == want_mode and inst.get("deliver") == want, f"{node} は mode={want_mode}・渡し方 {want}（役の道具から決まる）")
+                # 役の節は engine が起こし、材料は標準入力で流れる。deliver は launch が無いときに Agent で起こす受け皿の渡し方
+                check(inst["mode"] == want_mode and inst.get("deliver") == want and (inst.get("launch") or {}).get("stdin") == inst["prompt_file"],
+                      f"{node} は mode={want_mode}・engine が起こして材料は stdin（受け皿の渡し方は {want}。役の道具から決まる）")
             out = answers[node](load_item(inst), nx["round"])
             if hook:
                 out = hook(run, inst, out) or out
@@ -403,6 +411,42 @@ def test_converges():
     check(any(i.startswith("p1.refuter[A]") for i in r1["instances"]) and any(i.startswith("p1.refuter[B]") for i in r1["instances"]), "refuter は A（荷重確証）と B（相違）に走った")
     check("p1.checker" in st["rounds"][2]["empty"], "3 周目の checker は項目ゼロ（empty）")
     check(len(rec["process"]["skipped"]) == 0, "省略なし")
+    rm(run.tmp)
+
+
+def test_policy_reaches_research_roles():
+    """**人の方針の文書**（既定の置き場 <git の共有の置き場>/graphloops/policy.md）は research-loop にも届く——反証役・内部照合役には
+    本文が貼られ、回す側の節（問いの確定）には置き場が渡る"""
+    print("台本: 人の方針が research の役に貼られ、回す側には置き場が渡る")
+    mark = "RESEARCH-POLICY-4c1（検査用の人の方針）"
+    pol = lambda r: (r.repo / ".git" / "graphloops").mkdir(parents=True, exist_ok=True) or (r.repo / ".git" / "graphloops" / "policy.md").write_text(mark + "\n", encoding="utf-8")
+    run = Run("policy", before_init=pol)
+    check(run.init.returncode == 0, f"人の方針: research の init が通る（{run.init.stderr[-160:]}）")
+    seen = {}
+
+    def hook(run_, inst, out):
+        seen.setdefault(inst["node"], pathlib.Path(inst["prompt_file"]).read_text(encoding="utf-8"))
+        return None
+    def hook2(run_, inst, out):
+        if inst["node"] == "p5.internal":   # 回す側が方針の文書を書き換えた形（周の途中の関所は無いので、仕上げで照らす）
+            (run_.repo / ".git" / "graphloops" / "policy.md").write_text(mark + "\nWRITER-EDIT-9d2\n", encoding="utf-8")
+        return hook(run_, inst, out)
+    drive(run, "std", hook=hook2)
+    path = str((run.repo / ".git" / "graphloops" / "policy.md").resolve())
+    rec = run.record()
+    pol, ch = rec["process"].get("policy") or {}, rec["process"].get("policy_change") or {}
+    check(pol.get("path") == path and len(pol.get("sha256") or "") == 64 and mark in pathlib.Path(pol.get("copy") or "/nonexistent").read_text(encoding="utf-8")
+          and "amendments" not in pol,
+          f"人の方針: research の init も文書の版（sha と写し）を記録に固定する（{pol}）")
+    check(ch.get("from") == pol.get("sha256") and ch.get("to") and ch["to"] != ch["from"]
+          and "+WRITER-EDIT-9d2" in pathlib.Path(ch.get("diff_file") or "/nonexistent").read_text(encoding="utf-8")
+          and "WRITER-EDIT-9d2" not in json.dumps(ch, ensure_ascii=False),
+          f"人の方針: run の途中で文書が変わったら、仕上げが前後の sha と差分のファイルを記録に残す（置き場だけで本文は載せない。{ch}）")
+    check((run.dir / "report.md").is_file(), "人の方針: 文書が変わった run も報告まで届く（研究の run は周の途中で止めない）")
+    check(mark in seen.get("p1.refuter", "") and mark in seen.get("p5.internal", ""),
+          f"人の方針: 反証役と内部照合役のプロンプトに本文が貼られる（{sorted(k for k, v in seen.items() if mark in v)}）")
+    check(path in seen.get("p0.question", "") and mark not in seen.get("p0.question", ""),
+          "人の方針: 回す側の節（問いの確定）には本文でなく置き場が渡る")
     rm(run.tmp)
 
 
@@ -1022,6 +1066,19 @@ def test_graphcheck():
     (tmp / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    # 読む欄の宣言を壊した条件の関数を、写しの rules にだけ足す（graph の cond がその名前を指したときに graphcheck が落とすか）
+    bad_conds = {"bad_field": ("out.p1.checker.findingz",), "bad_prev": ("prev.p1.checker.findingz",), "bad_loop": ("loop.stuck_hintz",),
+                 "bad_record": ("record.constraintz",), "bad_head": ("rounds",), "bad_rd": ("rd.new_discrepanciez",),
+                 "bad_order": ("out.p3.cartographer",), "bad_under": ("round.x",)}
+    with open(tmp / "rules" / "research-loop.py", "a", encoding="utf-8") as f:
+        f.write("\n\n")
+        for name, reads in bad_conds.items():
+            f.write(f"CONDS[{name!r}] = cond_reads(*{reads!r})(lambda v: (True, 'x'))\n")
+        f.write("CONDS['no_reads'] = lambda v: (True, 'x')\n")
+    with open(tmp / "rules" / "review-loop.py", "a", encoding="utf-8") as f:
+        f.write("\n\nCONDS['bad_prev_fix'] = cond_reads('prev.p3.fix.changez')(lambda v: (True, 'x'))\n"
+                "CONDS['bad_loop_key'] = cond_reads('loop.prev_fix_filez')(lambda v: (True, 'x'))\n"
+                "CONDS['bad_record_sub'] = cond_reads('record.reviews.R2.stauts')(lambda v: (True, 'x'))\n")
     n = [0]
 
     def broken(mutate, want, desc, validator=str(VALIDATOR)):
@@ -1079,7 +1136,7 @@ def test_graphcheck():
     broken(lambda b: b["launch"]["isolated"].__setitem__("via", ["{python}", "{plugin_root}/scripts/no-such.py"]),
            "同梱されていない", "via が同梱していない実体を指す graph は落ちる（実行時にしか出ない落ち方を静的に見る）")
     broken(lambda b: b["launch"]["isolated"].__setitem__("via", "scripts/with-auth.py"), "文字列の配列", "via が配列でない graph は落ちる")
-    # skills は {skill, args, note, required} の object。名前を独立の欄にしておかないと、宣言と返答の
+    # skills の要素は object。名前を独立の欄にしておかないと、宣言と返答の
     # 突合に誰も決めていない正規化規則が要る（実測 2026-09-15: 宣言『/simplify（指摘だけ）』に対し返答の綴りが 4 本に分裂した）
     def skills(v):
         return lambda b: b["nodes"]["p1.refuter"].__setitem__("skills", v)
@@ -1098,7 +1155,22 @@ def test_graphcheck():
     broken(lambda b: b["nodes"]["p1.checker"]["schema"].__setitem__("oneOf", []), "engine が読まない語", "schema に engine が読まない語（oneOf）を書いた graph は落ちる（書いても効かない語を黙って通さない）")
     # engine が実行に使う欄の綴り違い（文書欄 outputs の照合は通っても、実行では黙って素通りしていた）
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("from", "findingz"), "writes.from", "writes.from が schema に無い欄を指す graph は落ちる（記録に着地しない）")
-    broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", {"path": "out.p1.checker.findingz", "op": "nonempty", "default": False}), "schema に無い", "cond の path が節の schema に無い欄を指す graph は落ちる")
+    # 条件は rules の関数の名前だけ。関数が宣言した読む欄を、graphcheck が実行の前に照らす（以前の JSON の条件の検査は
+    # out.・prev. の葉しか見ず、loop.・record. の葉の綴り違いは回すまで分からなかった）
+    for name, want, desc in (
+            ("bad_field", "schema に無い", "条件が節の schema に無い欄を読むと宣言した graph は落ちる"),
+            ("bad_prev", "schema に無い", "条件が prev.<節>.<欄> で欄を綴り違えた graph は落ちる"),
+            ("bad_loop", "LOOP_KEYS に無い", "条件が rules の LOOP_KEYS に無い loop の鍵を読む graph は落ちる"),
+            ("bad_record", "を書く宣言が無い", "条件が記録に無い欄を読む graph は落ちる"),
+            ("bad_head", "頭が条件の文脈に無い", "条件の読む欄の頭が文脈に無い graph は落ちる"),
+            ("bad_rd", "周の鍵", "条件が周の鍵に無い rd.<鍵> を読む graph は落ちる"),
+            ("bad_order", "前（deps の推移閉包）に無い", "条件が自分より後の節の今の出力を読む graph は落ちる"),
+            ("bad_under", "値そのもの", "round の下の欄を読む graph は落ちる"),
+            ("no_reads", "宣言していない", "読む欄を宣言していない条件を指す graph は落ちる")):
+        broken(lambda b, name=name: b["nodes"]["p1.refuter"].__setitem__("cond", name), want, desc)
+    broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", {"path": "round", "op": "eq", "value": 1}), "CONDS の名前でない",
+           "条件を JSON の式で書いた graph は落ちる（graph には関数の名前だけ）")
+    broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", "no_such"), "CONDS の名前でない", "rules に無い条件の名前を指す graph は落ちる")
     broken(lambda b: b["record"].__setitem__("report_accepts_exit", ["0"]), "report_accepts_exit", "report_accepts_exit に整数でない値を書いた graph は落ちる")
     # 同じ context を継ぐ節: 役が一致し、遮断系でないこと（review graph で見る）
     rg = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
@@ -1106,8 +1178,12 @@ def test_graphcheck():
     for i, (mut, want, desc) in enumerate((
             (lambda b: b["nodes"]["p2.history"].__setitem__("run_by", "inspector"), "役が違う", "same_context_as の役と自分の役が違う graph は落ちる"),
             (lambda b: (b["nodes"]["p2.history"].__setitem__("run_by", "blind-judge"), b["nodes"]["p2.diagnose"].__setitem__("run_by", "blind-judge")), "遮断系", "遮断系の役に same_context_as を書いた graph は落ちる（実行時の die を静的にも見る）"),
-            # cond の path は out. だけでなく prev.<節>.<欄> も節の schema と突き合わせる（review-loop の default 付きの葉は prev. が多数派）
-            (lambda b: b["nodes"]["p1.external_standards"].__setitem__("cond", {"path": "prev.p3.fix.changez", "op": "nonempty", "default": False}), "schema に無い", "cond の path が prev.<節>.<欄> で欄を綴り違えた graph は落ちる（再発火条件が恒偽のまま通らない）"),
+            # 条件の読む欄は out. だけでなく prev.<節>.<欄> も節の schema と、loop.<鍵> も rules の LOOP_KEYS と突き合わせる
+            (lambda b: b["nodes"]["p1.external_standards"].__setitem__("cond", "bad_prev_fix"), "schema に無い", "条件が prev.<節>.<欄> で欄を綴り違えた graph は落ちる（再発火条件が恒偽のまま通らない）"),
+            (lambda b: b["nodes"]["p1.external_standards"].__setitem__("cond", "bad_loop_key"), "LOOP_KEYS に無い", "条件が loop の鍵を綴り違えた graph は落ちる（以前は検査の外で、default の値に化けた）"),
+            (lambda b: b["nodes"]["p1.gate_efficacy"].__setitem__("applies_cond", "bad_loop_key"), "LOOP_KEYS に無い", "applies_cond の関数の読む欄も同じく照らす"),
+            (lambda b: b["nodes"]["p2.diagnose"]["reads"].append("loop.escalatedd"), "LOOP_KEYS に無い", "節の reads の loop.<鍵> の綴り違いも同じ宣言で落ちる（穴は ABSENT で黙って埋まる）"),
+            (lambda b: b["nodes"]["stop.premise_check"].__setitem__("cond", "bad_record_sub"), "を書く宣言が無い", "記録の writes.to の下の欄の綴り違い（pick に無い）は落ちる"),
             # graph の enum は検証器の語彙の写し——はみ出せば片方だけ変わっている
             (lambda b: b["nodes"]["p0.local_checks"]["schema"]["properties"]["material"]["properties"]["status"]["enum"].append("maybe"), "丸ごと含まれない", "素材の status の enum が検証器の語彙からはみ出す graph は落ちる（写しのずれ）"),
             # 遮断系の起動の穴は engine が埋める語だけ——知らない穴は実行時の format で KeyError にしかならなかった
@@ -1119,11 +1195,6 @@ def test_graphcheck():
         r = subprocess.run([PY, str(GRAPHCHECK), str(pr), rv], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1）")
     broken(lambda b: b["nodes"]["p1.checker"].__setitem__("run_by", "nobody"), "run_by", "回す側でも役でもない run_by は落ちる")
-    # cond の op ごとに要る鍵（engine の COND_OP_KEYS が正本）——欠けると実行時に KeyError か恒偽になる
-    broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", {"path": "loop.x", "op": "any_field_eq", "value": 1, "default": []}),
-           "要る鍵が無い", "any_field_eq で field を書き忘れた graph は落ちる（実行時の KeyError を静的に見る）")
-    broken(lambda b: b["nodes"]["p1.refuter"].__setitem__("cond", {"path": "loop.x", "op": "in", "default": None}),
-           "要る鍵が無い", "in で value を書き忘れた graph は落ちる（恒偽に倒れない）")
     broken(lambda b: b["nodes"]["p1.checker"]["writes"][0].__setitem__("stamp_round", True), "stamp_round", "stamp_round に真偽値を書く graph は落ちる（欄の名前だけ）")
     # 段名の正本は thickness.tiers——キーの集合から導かない
     broken(lambda b: b["thickness"].__setitem__("default", "超重厚"), "超重厚", "thickness.default が段に無い graph は落ちる")
@@ -1355,7 +1426,7 @@ def test_isolated_launch():
     drive(run, "std", hook=watch)
     cli, ag = seen.get("cli", []), seen.get("agent", [])
     check(bool(cli), f"道具ゼロの役が cli で出る（{sorted({i['node'] for i in cli})}）")
-    check(bool(ag), f"道具を持つ役は agent のまま（{sorted({i['node'] for i in ag})}）")
+    check(bool(ag), f"道具を持つ役は cli でなく agent の mode で出る（起こし方は test_research_tooled_launch）（{sorted({i['node'] for i in ag})}）")
     L = cli[0].get("launch") if cli else {}
     argv = L.get("argv") or []
 
@@ -1386,6 +1457,56 @@ def test_isolated_launch():
           "起こせない旨が launch.missing に立つ（回す側と記録に見える）")
     rm(run.tmp)
 
+
+
+def test_research_tooled_launch():
+    """道具つきの役（investigator・inspector・judge）も engine が起こすこと（graph の launch.tooled）。
+
+    宣言が無いと launch_spec は黙って None を返し、節は Agent ツールの経路に落ちる——research-loop だけが
+    その形で取り残されていた（2026-09-25）。旗は argv から直に読む: 柵の launch_refusal は claude が PATH に
+    無い場（CI）で必ず『claude が無い』を返すので、ここで当てると CI でだけ赤になる（柵の腕は test_tooled_launch_fence）。
+    """
+    from engine.role_run import tooled_permission
+    from engine.validator import agent_def
+    print("道具つきの役も engine が起こす: 標準の筋書きで出る役の節は全部 launch を持ち、道具つきの役は tooled の形")
+    seen = []
+
+    def watch(run, inst, out):
+        seen.append(inst)
+        return out
+
+    run = Run("tooled")
+    drive(run, "std", hook=watch)
+    ag = [i for i in seen if i["mode"] == "agent"]
+    check(not [i["node"] for i in ag if not i.get("launch")],
+          f"役の節は全部 engine が起こす——Agent ツールの経路に落ちる節が無い（{sorted({i['node'] for i in ag if not i.get('launch')})}）")
+    roles = sorted({i["agent_type"] for i in ag})
+    check(roles == ["convergence-loops:inspector", "convergence-loops:investigator", "convergence-loops:judge"],
+          f"道具つきの 3 役が標準の筋書きに出る（{roles}）")
+    for role in roles:
+        inst = next(i for i in ag if i["agent_type"] == role)
+        L = inst.get("launch") or {}
+        argv = L.get("argv") or []
+
+        def after(flag):
+            return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
+
+        tools = agent_def(role)["tools"]
+        perm = tooled_permission(tools)
+        # 形（sandbox / read_only）は起こす環境で決まるので、ここでは Bash を持つかどうかで分かれることだけを見る
+        forms = ("sandbox", "read_only") if "Bash" in tools else ("plain",)
+        check(L.get("kind") == "tooled" and after("--tools") == ",".join(tools) and after("--allowedTools") == ",".join(perm["allowed_tools"])
+              and after("--permission-mode") == perm["permission_mode"] and after("--permission-prompts") == "none"
+              and after("--setting-sources") == "" and L.get("form") in forms and (after("--settings") == "{}") == (L.get("form") != "sandbox")
+              and "--agents" not in argv and L.get("stdin") == inst["prompt_file"],
+              f"{inst['node']}（{role}）は tooled の形: 定義の道具・engine が決めた権限と設定・聞く先無し・設定を読まない・材料は stdin（{L.get('form')} {argv[2:]}）")
+    rm(run.tmp)
+    # 起こす語は review-loop の graph と同じ（理由の正本は review-loop の why。語がずれたら片方だけが古い）
+    here = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))["launch"]
+    there = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))["launch"]
+    for kind in ("isolated", "tooled"):
+        for k in ("argv", "resume", "via"):
+            check(here.get(kind, {}).get(k) == there.get(kind, {}).get(k), f"launch.{kind}.{k} は review-loop の graph と同じ語")
 
 
 def _fake_claude(bindir, body):
@@ -1608,8 +1729,15 @@ def test_engine_launch():
     log = run.tmp / "fake.log"
     # 役が誤りで終わった回: 受け付けに回さず、層の 1 行（with-auth: auth=…）を運び、起こし直しの記録を残す
     # ——層の行を運ばないと、認証落ちが「役の返答の不良」に見える
-    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_MODE": "error"})
+    data = run.tmp / "plugin-data"
+    r = run.cmd("launch", "--node", inst["id"], env={**env, "FAKE_MODE": "error", "CLAUDE_PLUGIN_DATA": str(data)})
     bad = (json.loads(r.stdout)["launched"] if r.returncode == 0 else [{}])[0]
+    rows = [json.loads(x) for x in (data / "intake.jsonl").read_text(encoding="utf-8").splitlines()] if (data / "intake.jsonl").is_file() else []
+    check(r.returncode == 0 and [(x["where"], x["exc"], x["func"], x.get("run", {}).get("run_id")) for x in rows]
+          in ([(f"loop.py launch --node {inst['node']}", exc, "role_run.run_role", json.loads((run.dir / "state.json").read_text(encoding="utf-8"))["run_id"])]
+              for exc in ("launch_child_failed", "launch_auth"))
+          and "stderr" not in rows[0],
+          f"launch は exit 0 のまま、落ちた役の行を利用者の置き場に 1 行残す（標準エラーは既定で残さない。{rows}）")
     st = json.loads((run.dir / "state.json").read_text(encoding="utf-8"))
     me = st["rounds"][-1]["instances"].get(inst["id"], {})
     check(not bad.get("ok") and "誤りで終わった" in (bad.get("why") or "") and "with-auth: auth=" in (bad.get("stderr") or ""),
@@ -1650,13 +1778,23 @@ def test_engine_launch():
     seen = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()] if log.is_file() else []
     check(seen and seen[0]["stdin"] == pathlib.Path(inst["prompt_file"]).read_bytes().decode("utf-8")[:4000],
           "材料（指示書）は標準入力で子へ届く")
+    cwd = seen[0].get("cwd") if seen else None
+    in_git = cwd is not None and subprocess.run(["git", "-C", cwd, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, encoding="utf-8").stdout.strip() == "true"
+    check(cwd is not None and not in_git and not pathlib.Path(cwd).resolve().is_relative_to(run.repo.resolve()),
+          f"道具ゼロの役は Git リポジトリの外の一時ディレクトリで起こす（git status の写しを注入させない。cwd {cwd}）")
     r2 = run.cmd("launch", "--node", inst["id"], env=env)
     check(r2.returncode == 1 and "起こせる節が無い" in r2.stderr, f"済んだ節は起こし直さない（{r2.returncode}: {r2.stderr[-80:]}）")
 
     # **柵は graph の宣言を読まない。** graph を書き換えられる立場の人が柵ごと書き換えられるので、
     # engine は「自分の前置」と「遮断の旗」だけを見る
+    from engine.validator import agent_def
+    cold = agent_def("convergence-loops:cold-reader")
+    role_file = run.tmp / "cold-reader.txt"
+    role_file.write_text(cold["body"], encoding="utf-8")
     good = {"agent_type": "convergence-loops:cold-reader",
-            "launch": {"argv": launch_prefix() + ["claude", "--tools", "", "--setting-sources", ""], "stdin": str(fake)}}
+            "launch": {"argv": launch_prefix() + ["claude", "-p", "--model", cold["model"], "--effort", cold["effort"], "--tools", "",
+                                                  "--setting-sources", "", "--append-system-prompt-file", str(role_file),
+                                                  "--output-format", "json"], "stdin": str(fake)}}
     check(launch_refusal(good) is None, f"前置と旗が揃っていれば起こす（{launch_refusal(good)}）")
     for mut, want in ((lambda a: a[:1] + a[2:], "前置"),                    # 同梱の層を外す
                       (lambda a: [x for x in a if x != "--tools"], "旗")):  # 遮断の旗を落とす
@@ -1677,9 +1815,9 @@ def test_engine_launch():
 
 def test_role_run():
     """役を起こす関数（engine/role_run.run_role）を代役の claude で端から端まで通す。盤面を持たずに呼べること・
-    包みを解いて本文だけを書くこと・拒まれたら同じ会話に続きを頼むこと・期限で子を木ごと止めること。"""
+    包みを解いて本文だけを書くこと・拒まれたら同じ会話に続きを頼むこと・起こし直しで子を木ごと止めること。"""
     from engine import role_run
-    print("役を起こす関数: 包み・受け付け・同じ会話での出し直し・期限で木ごと止める・役のせいでない失敗は続けない")
+    print("役を起こす関数: 包み・受け付け・同じ会話での出し直し・起こし直しで木ごと止める・役のせいでない失敗は続けない")
     _td, tmp = parallel.workspace("gl-rolerun-")
     bindir = tmp / "bin"
     bindir.mkdir()
@@ -1701,7 +1839,7 @@ def test_role_run():
     argv = [fake, "-p", "--tools", ""]
     resume = [fake, "-p", "--resume", "{session_id}", "--tools", ""]
     out = tmp / "out.json"
-    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=accept, resume_argv=resume, max_resumes=2,
+    r = role_run.run_role(argv, prompt, out, accept=accept, resume_argv=resume, max_resumes=2,
                           log_path=log, meta={"instance": "x"}, env=env)
     calls = [json.loads(x) for x in flog.read_text(encoding="utf-8").splitlines()]
     check(r["ok"] and r["session_id"] == "sess-9" and len(r["runs"]) == 2 and r["rejections"] == ["返答が JSON として読めない"],
@@ -1716,19 +1854,19 @@ def test_role_run():
           and rows[1].get("permission_denials") == ["WebFetch"] and all(x.get("envelope") is True for x in rows),
           f"1 起動 1 行の要約（op=role_run・添えた値・権限で拒まれた道具）を JSON Lines で足す（{[(x.get('kind'), x.get('permission_denials')) for x in rows]}）")
     # 上限まで拒まれ続けたら止める（続けない）
-    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=lambda _t: "いつも拒む", resume_argv=resume, max_resumes=1, env=env)
+    r = role_run.run_role(argv, prompt, out, accept=lambda _t: "いつも拒む", resume_argv=resume, max_resumes=1, env=env)
     check(not r["ok"] and len(r["runs"]) == 2 and r["accepted"] is False and "いつも拒む" in r["why"],
           f"拒否が上限（resume_on_reject）まで続いたら止めて理由を返す（{len(r['runs'])} 起動）")
     # 役のせいでない失敗（受け付けの検査が例外）は続きを頼まない
     def boom(_t):
         raise RuntimeError("盤面が読めない")
-    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=boom, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "answer"})
+    r = role_run.run_role(argv, prompt, out, accept=boom, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "answer"})
     check(not r["ok"] and len(r["runs"]) == 1 and "盤面が読めない" in (r["why"] or ""),
           f"受け付けの検査が例外で落ちたら、続きを頼まずに理由を返す（{len(r['runs'])} 起動: {r['why']}）")
-    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=accept, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "error"})
+    r = role_run.run_role(argv, prompt, out, accept=accept, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "error"})
     check(not r["ok"] and len(r["runs"]) == 1 and "誤りで終わった" in (r["why"] or ""), f"誤りの包みは受け付けに回さない（{r['why']}）")
     # result の無い誤りの包み（公式の SDKResultMessage: 誤りの subtype は result でなく errors を持つ）
-    r = role_run.run_role(argv, prompt, out, timeout_s=60, accept=accept, env={**env, "FAKE_MODE": "error_noresult"})
+    r = role_run.run_role(argv, prompt, out, accept=accept, env={**env, "FAKE_MODE": "error_noresult"})
     one = r["runs"][0] if r["runs"] else {}
     check(not r["ok"] and "誤りで終わった（error_max_turns: Reached maximum number of turns" in (r["why"] or "")
           and one.get("session_id") == "sess-9" and one.get("total_cost_usd") == 0.002 and one.get("num_turns") == 9
@@ -1749,7 +1887,7 @@ def test_role_run():
     out2 = tmp / "out-text.json"
     body = '{"findings": []}\n\n以上が判定です。'
     ans.write_text(body, encoding="utf-8")
-    r = role_run.run_role(argv, prompt, out2, timeout_s=60, accept=parse, resume_argv=resume, max_resumes=2,
+    r = role_run.run_role(argv, prompt, out2, accept=parse, resume_argv=resume, max_resumes=2,
                           log_path=log, env={**env, "FAKE_MODE": "text"})
     one = r["runs"][0] if r["runs"] else {}
     check(r["ok"] and len(r["runs"]) == 1 and out2.read_text(encoding="utf-8") == body and one.get("envelope") is False
@@ -1757,88 +1895,573 @@ def test_role_run():
           f"包みでない出力は全文を本文として受け付けまで通し、要約は envelope=false だけ（{r['why']}）")
     # 包みでない出力が拒まれたら、会話の番号が無いので続きを頼まずに 1 起動で止まる
     ans.write_text("判定は次のとおりです（散文）", encoding="utf-8")
-    r = role_run.run_role(argv, prompt, out2, timeout_s=60, accept=parse, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "text"})
+    r = role_run.run_role(argv, prompt, out2, accept=parse, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "text"})
     check(not r["ok"] and len(r["runs"]) == 1 and r["accepted"] is False and "JSON として読めない" in (r["why"] or ""),
           f"包みでない出力が拒まれたら、同じ会話に続きを頼めないので 1 起動で止まる（{len(r['runs'])} 起動）")
     # 包みでない出力が exit 0 以外と重なった回: 受け付けにも out_path にも回らないので、何が返ったかは標準出力の頭にだけ残る
     before = out2.read_text(encoding="utf-8")
-    r = role_run.run_role(argv, prompt, out2, timeout_s=60, accept=parse, env={**env, "FAKE_MODE": "text", "FAKE_EXIT": "3"})
+    r = role_run.run_role(argv, prompt, out2, accept=parse, env={**env, "FAKE_MODE": "text", "FAKE_EXIT": "3"})
     one = r["runs"][0] if r["runs"] else {}
     check(not r["ok"] and "exit 3" in (r["why"] or "") and one.get("stdout_head") == "判定は次のとおりです（散文）"
           and out2.read_text(encoding="utf-8") == before,
           f"包みでない出力が exit 0 以外で終わった回は、受け付けに回さず標準出力の頭を要約に残す（{r['why']} / {one.get('stdout_head')!r}）")
     ans.write_text("", encoding="utf-8")
-    r = role_run.run_role(argv, prompt, out2, timeout_s=60, accept=parse, env={**env, "FAKE_MODE": "text"})
+    r = role_run.run_role(argv, prompt, out2, accept=parse, env={**env, "FAKE_MODE": "text"})
     check(not r["ok"] and "標準出力が空" in (r["why"] or "") and r["accepted"] is None,
           f"空の標準出力は受け付けに回さない（{r['why']}）")
     ans.write_text('{"ok": 1}', encoding="utf-8")
-    # 期限切れで返ることは OS に依らない（Windows では engine の _kill が taskkill /T で木ごと止める枝を通る）
-    pidf = tmp / "grandchild.pid"
-    t0 = time.monotonic()
-    r = role_run.run_role(argv, prompt, out, timeout_s=2, env={**env, "FAKE_MODE": "sleep", "FAKE_PID": str(pidf)})
-    took = time.monotonic() - t0
-    pid = int(pidf.read_text(encoding="utf-8")) if pidf.is_file() else None
-    check(r["expired"] and not r["ok"] and took < 30, f"期限を過ぎたら子を止めて期限切れとして返す（{took:.1f} 秒）")
+    # 番号の再利用の見分けは開始時刻で（POSIX は ps の etime、Windows は CreationDate の FILETIME）
+    check(role_run.parse_etime("05:07") == 307 and role_run.parse_etime("2-01:00:00") == 2 * 86400 + 3600
+          and role_run.parse_etime("x") is None and role_run.parse_etime("") is None,
+          "ps の etime（[[dd-]hh:]mm:ss）を秒に読む（読めなければ None——確かめられない）")
+    check(role_run.parse_cim("gone\r\n") == role_run.GONE and role_run.parse_cim("alive:116444736000000000") == 0.0
+          and role_run.parse_cim("alive:") is None and role_run.parse_cim("") is None,
+          "Windows: 居ない・開始時刻・読めない（確かめられない＝止めずに拒む）を分ける")
     if os.name == "posix":
-        alive = False
-        if pid:
+        def gone(pid, within=10):
+            """pid が居なくなるまで期限つきで問い直す——止めた孫は親が居なくなってから init が回収するので、1 回だけ見ると
+            回収前のゾンビを『生きている』と数えて時々赤くなる"""
+            t0 = time.monotonic()
+            while True:
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    return True
+                if time.monotonic() - t0 > within:
+                    return False
+                time.sleep(0.05)
+
+        def sleeper(extra):
+            """眠る子（孫も立てる）を run_role で起こし、印（<out>.pgid）と孫の pid が出るまで待つ。返すのは (スレッド, 結果, 孫の pid)"""
+            pidf = tmp / f"grandchild-{len(extra)}.pid"
+            got = {}
+            th = threading.Thread(target=lambda: got.update(role_run.run_role(
+                argv, prompt, out, env={**env, "FAKE_MODE": "sleep", "FAKE_PID": str(pidf)}, **extra)))
+            th.start()
+            t0 = time.monotonic()
+            while not (pidf.is_file() and pidf.read_text(encoding="utf-8")) and th.is_alive() and time.monotonic() - t0 < 30:
+                time.sleep(0.05)
+            return th, got, int(pidf.read_text(encoding="utf-8")) if pidf.is_file() and pidf.read_text(encoding="utf-8") else None
+
+        mark = pathlib.Path(str(out) + ".pgid")
+        th, got, pid = sleeper({})
+        check(mark.is_file() and json.loads(mark.read_text(encoding="utf-8")).get("pgid"),
+              "起こした子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口")
+        t0 = time.monotonic()
+        why = role_run.stop_group(str(mark))
+        th.join(30)
+        check(why is None and not th.is_alive() and not got.get("ok") and time.monotonic() - t0 < 30,
+              f"stop_group は別の口から試行の子を止め、run_role は失敗として返る（{why} {got.get('why')}）")
+        check(pid is not None and gone(pid), f"stop_group では孫（前置の層の先の claude に当たる）まで止まる（pid {pid}）")
+        check(not mark.exists(), "子が終わったら印を消す（残った番号が別のグループに当たらない）")
+        check(role_run.stop_group(str(mark)) is None, "印が無ければ止める物は無い（relaunch は素通り）")
+        # launch のプロセスが止められたとき（kill_all）も、生きている子を孫まで止める
+        th, got, pid = sleeper({"log_path": None})
+        role_run.kill_all()
+        th.join(30)
+        check(not th.is_alive() and pid is not None and gone(pid) and not mark.exists(),
+              f"kill_all は生きている子を孫まで止める（launch が止められても子を残さない。pid {pid}）")
+        # 起こした直後に起こし直されていたと分かったら、その子を自分で止めて『起こし直された』で返る（still_mine）
+        seen_mark = {}
+
+        def superseded():
+            # 聞かれるのは印を書いた後（relaunch と交わっても一方が止める順序）。印の番号を控えて、その子が止まったかを見る
+            seen_mark.update(json.loads(mark.read_text(encoding="utf-8")) if mark.is_file() else {})
+            return False
+        th, got, _ = sleeper({"still_mine": superseded})
+        th.join(30)
+        check(not th.is_alive() and got.get("superseded") and not got.get("ok") and got.get("why") == role_run.SUPERSEDED,
+              f"起こし直された試行は子を止めて返る（{got.get('why')}）")
+        leader = seen_mark.get("pgid")
+        check(not mark.exists() and leader is not None and gone(leader),
+              f"そのとき子の木も印も残さない——still_mine を聞く前に印は書いてある（pgid {leader}）")
+        # 番号が印より後に始まったプロセスに再利用されていたら止めない——同じ python・同じ層（with-auth.py）の兄弟の試行でも
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        mark.write_text(json.dumps({"pgid": other.pid}), encoding="utf-8")
+        past = time.time() - 60
+        os.utime(mark, (past, past))   # 印は 60 秒前に書かれた（その後に始まった other は別物）
+        why = role_run.stop_group(str(mark))
+        alive = other.poll() is None
+        other.kill()
+        other.wait()
+        check(why is None and alive and not mark.exists(), f"番号が印より後に始まったプロセスに再利用されていれば止めずに印だけ消す（{why} alive={alive}）")
+        # 開始時刻を確かめられない回は止めない（止める向きの誤りは無関係な木を止める）
+        orig = role_run._started_at
+        role_run._started_at = lambda pid: None
+        try:
+            mark.write_text(json.dumps({"pgid": os.getpid()}), encoding="utf-8")
             try:
-                os.kill(pid, 0)
-                alive = True
-            except OSError:
-                alive = False
-        check(pid is not None and not alive,
-              f"期限切れでは、SIGTERM をすぐに処理しない孫（前置の層の先の claude に当たる）まで止まってから戻る（pid {pid} alive={alive}）")
-    else:
-        # Windows の os.kill は sig 0 でも TerminateProcess で相手を止める（Python 公式文書 os.kill）ので、生死の見方に使えない
-        skip("期限切れでは、SIGTERM をすぐに処理しない孫まで止まってから戻る",
-             "この台本は posix でない OS で孫の生死を止めずに見る手段を持たない")
+                why = role_run.stop_group(str(mark))
+            except Exception as e:   # 確かめられないまま時刻の比べに進んで落ちる形も、止めずに理由を返していない——検査の赤で言う
+                why = f"例外 {type(e).__name__}: {e}"
+        finally:
+            role_run._started_at = orig
+        check(why and "確かめられない" in why and mark.exists(), f"開始時刻を確かめられなければ止めずに理由を返す（{why}）")
+        mark.unlink()
+        # テストの実行器を走らせる口（run_tree）: 時間切れは孫まで止め、標準入力は閉じ、文字列で返す
+        gpid = tmp / "tree-grandchild.pid"
+        try:
+            role_run.run_tree(["sh", "-c", f"sleep 37 & echo $! > {gpid}; wait"], cwd=tmp, timeout=1)
+            got = "時間切れにならなかった"
+        except subprocess.TimeoutExpired:
+            got = "TimeoutExpired"
+        gp = int(gpid.read_text(encoding="utf-8")) if gpid.is_file() else None
+        check(got == "TimeoutExpired" and gp is not None and gone(gp), f"run_tree: 時間切れで孫まで止めてから TimeoutExpired を上げる（{got} pid {gp}）")
+        # SIGTERM を無視する孫も止まる——長（sh）が先に終わっても、グループが消えるまで待って SIGKILL を送る
+        gpid2 = tmp / "tree-deaf.pid"
+        try:
+            role_run.run_tree(["sh", "-c", f"(trap '' TERM; echo $$ > /dev/null; exec sh -c 'trap \"\" TERM; echo $$ > {gpid2}; while :; do sleep 1; done') & wait"],
+                              cwd=tmp, timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+        gp2 = int(gpid2.read_text(encoding="utf-8")) if gpid2.is_file() and gpid2.read_text(encoding="utf-8").strip() else None
+        check(gp2 is not None and gone(gp2), f"run_tree: SIGTERM を無視する孫も、グループが消えるまで待って SIGKILL で止める（pid {gp2}）")
+        r = role_run.run_tree(["sh", "-c", "read x; echo \"got:$x\"; echo err >&2"], cwd=tmp, timeout=30)
+        check(r.returncode == 0 and r.stdout == "got:\n" and r.stderr == "err\n",
+              f"run_tree: 標準入力は閉じ（対話を待たない）、出力は文字列で返す（{r.returncode} {r.stdout!r} {r.stderr!r}）")
     rm(tmp)
 
 
+def test_relaunch_live_launch():
+    """**生きている launch に relaunch する**（回す側の案内どおりの使い方）。relaunch は新しい試行を盤面に書いてから古い試行の子を
+    止めるので、止められた古い launch の締めは版の競りで relaunch を落とさず、『起こし直された古い試行』に言い換わる
+    （実測 2026-09-25: 止めてから書いていた版は 4 回とも exit 2）"""
+    if os.name != "posix":
+        return
+    print("生きている launch への relaunch: 1 回目で通り、古い launch は起こし直された試行として締める")
+    run = Run("relaunch-live")
+    run.next()
+    run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
+    bindir = run.tmp / "fakebin"
+    bindir.mkdir()
+    fakeclaude.install(bindir)
+    env = {**os.environ, "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    nx = json.loads(run.cmd("next", env=env).stdout)
+    inst = next(i for i in nx["ready"] if i.get("mode") == "cli")
+    pidf = run.tmp / "grandchild.pid"
+    lp = subprocess.Popen([PY, str(LOOP), "launch", "--node", inst["id"], "--dir", str(run.dir)], cwd=run.repo,
+                          env={**env, "FAKE_MODE": "sleep", "FAKE_PID": str(pidf)}, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, encoding="utf-8")
+    mark = pathlib.Path(inst["out_path"] + ".pgid")
+    t0 = time.monotonic()
+    while not (mark.is_file() and pidf.is_file() and pidf.read_text(encoding="utf-8")) and time.monotonic() - t0 < 60:
+        time.sleep(0.05)
+    r = run.cmd("relaunch", "--node", inst["id"], "--reason", "検査: 生きている launch を起こし直す", env=env)
+    try:
+        out, err = lp.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        lp.kill()
+        out, err = lp.communicate()
+    me = run.state()["rounds"][-1]["instances"][inst["id"]]
+    check(r.returncode == 0 and me.get("attempts") == 2,
+          f"relaunch: 生きている launch への 1 回目の起こし直しが通る（rc={r.returncode} attempts={me.get('attempts')} {r.stderr.strip()[-120:]}）")
+    rows = json.loads(out)["launched"] if lp.returncode == 0 and out.strip() else []
+    from engine.role_run import SUPERSEDED
+    check(rows and rows[0].get("superseded") and rows[0].get("why") == SUPERSEDED,
+          f"古い launch の行は『起こし直された古い試行』に言い換わる（rc={lp.returncode} {rows[:1]} {err.strip()[-120:]}）")
+    check(me.get("status") == "pending" and not me.get("launched_at") and me["out_path"] != inst["out_path"],
+          "新しい試行は待ったまま（古い launch の締めが新しい試行に書かない）")
+    rm(run.tmp)
+
+
+CONFLICT_PROBE = r"""
+import io, json, pathlib, sys, types
+from contextlib import redirect_stderr, redirect_stdout
+sys.path.insert(0, sys.argv[1])
+from engine import commands as C
+from engine.board import Board
+from engine.util import BoardConflict
+d = sys.argv[2]
+run_dir = pathlib.Path(d)
+got = {}
+
+def bump_rev():
+    st = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+    st["rev"] = st.get("rev", 0) + 1
+    (run_dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+
+calls = []
+def fn(b):
+    calls.append(1)
+    b.trace("conflict_probe", n=len(calls))
+    if len(calls) == 1:
+        bump_rev()
+    return len(calls)
+buf = io.StringIO()
+with redirect_stderr(buf):
+    got["retry"] = C._board_update(d, fn)
+got["retry_stderr"] = buf.getvalue()
+got["probe_rows"] = [json.loads(x)["n"] for x in (run_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"conflict_probe"' in x]
+
+def always(b):
+    bump_rev()
+try:
+    C._board_update(d, always)
+    got["lose"] = None
+except BoardConflict as e:
+    got["lose"] = [e.code, e.msg, str(e)]
+
+st = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+iid = next(k for k, i in st["rounds"][-1]["instances"].items() if i["status"] == "pending")
+st["rounds"][-1]["instances"][iid].update(launch={"argv": ["x"], "stdin": "x"}, launched_at="2026-09-25T00:00:00+09:00", launch_state="ended")
+(run_dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+orig_save, hit = Board.save, []
+def flaky_save(self):
+    if not hit:
+        hit.append(1)
+        self.seen_rev = -1
+    return orig_save(self)
+Board.save = flaky_save
+out = io.StringIO()
+with redirect_stdout(out):
+    C.cmd_launch(types.SimpleNamespace(dir=d, node=None))
+Board.save = orig_save
+got["mark_hit"] = bool(hit)
+got["launched"] = [x["id"] for x in json.loads(out.getvalue())["launched"]]
+got["iid"] = iid
+
+def losing(*_a, **_k):
+    raise BoardConflict("検査用の衝突")
+C.accept_output = losing
+inst = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))["rounds"][-1]["instances"][iid]
+pathlib.Path(inst["out_path"]).parent.mkdir(parents=True, exist_ok=True)
+pathlib.Path(inst["out_path"]).write_text("{}", encoding="utf-8")
+acc = C._accept_for_launch(d, iid, inst["out_path"])
+try:
+    acc("")
+    got["accept"] = "受け付けた"
+except BoardConflict:
+    got["accept"] = "BoardConflict"
+got["accept_flag"] = acc.conflict
+
+# 1 回負けてから通る受け付け: 当て直しの 2 回目で本物の受け付けに届く
+calls = []
+def once(*a, **k):
+    calls.append(1)
+    if len(calls) == 1:
+        raise BoardConflict("検査用の 1 回目の衝突")
+    return "受け付けた（検査用）"
+C.accept_output = once
+acc = C._accept_for_launch(d, iid, inst["out_path"])
+got["accept_retry"] = [acc(""), acc.msg, acc.conflict, len(calls)]
+
+# launch_one は受け付けの負け（conflict の印）に done の案内を足す
+C.accept_output = losing
+C.launch_refusal = lambda _inst, *_a: None
+def fake_run_role(argv, prompt, out, accept=None, **kw):
+    try:
+        accept("")
+        why = None
+    except (Exception, SystemExit) as e:
+        why = f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
+    return {"ok": False, "why": why, "session_id": None, "superseded": False, "accepted": None, "runs": [], "rejections": []}
+C.run_role = fake_run_role
+row = C.launch_one(d, {**inst, "launch": {"argv": ["x"], "stdin": inst["out_path"]}}, 0)
+got["launch_hint"] = row.get("why")
+print(json.dumps(got, ensure_ascii=False))
+"""
+
+
+CLI_CONFLICT_PROBE = r"""
+import os, runpy, sys
+sys.path.insert(0, sys.argv[1])
+from engine.board import Board
+from engine.util import BoardConflict
+def always(self):
+    raise BoardConflict("検査用の衝突の文（loop.py の入口が出す）")
+Board.save = always
+sys.argv = ["loop.py", "next", "--dir", sys.argv[2]]
+runpy.run_path(os.environ["GL_LOOP"], run_name="__main__")
+"""
+
+
+RELAUNCH_RACE_PROBE = r"""
+import json, pathlib, sys, types
+sys.path.insert(0, sys.argv[1])
+from engine import commands as C
+from engine.util import Reject
+d, iid = sys.argv[2], sys.argv[3]
+state = pathlib.Path(d) / "state.json"
+
+def racing_probe(_mark):
+    # 印を確かめている間に、別の relaunch が同じ instance を起こし直した（置き場が変わった）
+    st = json.loads(state.read_text(encoding="utf-8"))
+    st["rounds"][-1]["instances"][iid]["out_path"] += ".a9.json"
+    state.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    C.probe_group = lambda _m: (None, None)
+    return None, None
+C.probe_group = racing_probe
+try:
+    C.cmd_relaunch(types.SimpleNamespace(dir=d, node=iid, reason="検査用"))
+    print("通った")
+except Reject as e:
+    print(str(e))
+"""
+
+
+def test_relaunch_race():
+    """読んでいる間に別の relaunch が同じ instance を起こし直したら、新しい試行を重ねずに拒む（別のプロセスで差し替えて起こす）"""
+    print("起こし直しの競り: 読んでいる間に置き場が変わったら拒む")
+    run = Run("relaunch-race")
+    run.next()
+    run.done("p0.question", base_answers(run, "std")["p0.question"](None, 1))
+    nx = run.next()
+    inst = next(i for i in nx["ready"] if i.get("launch") or i.get("mode") == "cli")
+    r = subprocess.run([PY, "-c", RELAUNCH_RACE_PROBE, str(PLUGIN), str(run.dir), inst["id"]], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    me = run.state()["rounds"][-1]["instances"][inst["id"]]
+    check("別の relaunch" in r.stdout and me.get("attempts", 1) == 1,
+          f"relaunch: 読んでいる間に別の relaunch が起こし直していたら、新しい試行を作らない（{r.stdout.strip()[-120:]} {r.stderr[-120:]} attempts={me.get('attempts')}）")
+    rm(run.tmp)
+
+
+SIGNAL_PROBE = r"""
+import json, os, subprocess, sys, time
+sys.path.insert(0, sys.argv[1])
+from engine import role_run as R
+got = {}
+# 錠を持つ最中の同じスレッドに信号の口が割り込んでも止まらない（再入できる錠）
+with R._LIVE_LOCK:
+    R.kill_all()
+    got["reentrant"] = True
+# 止める信号の後に起こした子は、すぐ止めて StopSignal を上げる（止め始めた後に子を増やさない）
+R._STOPPING.set()
+try:
+    R.run_tree(["sh", "-c", "sleep 30"], cwd=".", timeout=60)
+    got["stopping"] = "起こした"
+except R.StopSignal:
+    got["stopping"] = "StopSignal"
+got["live_after"] = len(R.LIVE)
+R._STOPPING.clear()
+# 止め切れなかった木の理由は、時間切れの例外に添えて呼び元へ運ぶ
+orig = R._stop_tree
+R._stop_tree = lambda pgid, leader=None: "検査用の止め切れない理由"
+try:
+    R.run_tree(["sh", "-c", "sleep 3"], cwd=".", timeout=0.3)
+    got["tree_left"] = None
+except subprocess.TimeoutExpired as e:
+    got["tree_left"] = getattr(e, "tree_left", None)
+R._stop_tree = orig
+print(json.dumps(got, ensure_ascii=False))
+"""
+
+
+def test_stop_signal_guards():
+    """止める信号の口の守り: 再入できる錠・止め始めた後の起動の拒否・止め切れなかった理由の運び（engine の大域を差し替えるので
+    別のプロセスで走らせる）"""
+    if os.name != "posix":
+        return
+    print("止める信号の口: 錠の再入・止め始めた後の起動を拒む・止め切れない理由を運ぶ")
+    try:
+        r = subprocess.run([PY, "-c", SIGNAL_PROBE, str(PLUGIN)], capture_output=True, text=True, encoding="utf-8", timeout=120)
+        out, err = r.stdout, r.stderr
+    except subprocess.TimeoutExpired:   # 錠が再入できないと、錠を持つ最中の kill_all が自分の錠を待って固まる——落ちずに検査の赤で言う
+        out, err = "", "120 秒で終わらない（錠の待ちで固まった）"
+    try:
+        got = json.loads(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        got = {}
+    check(got.get("reentrant") is True, f"信号の口（kill_all）は錠を持つ最中の同じスレッドでも止まらない（{err[-160:]}）")
+    check(got.get("stopping") == "StopSignal" and got.get("live_after") == 0,
+          f"止める信号の後に起こした子はすぐ止めて StopSignal を上げる（{got.get('stopping')} live={got.get('live_after')}）")
+    check(got.get("tree_left") == "検査用の止め切れない理由", f"止め切れなかった木の理由は時間切れの例外に添えて運ぶ（{got.get('tree_left')}）")
+
+
+def test_board_conflict():
+    """**版の衝突の消費側**: _board_update は読み直して当て直し、成功した回は失敗の文も重なった trace も残さない。launch の
+    印付け（mark）は当て直しで行を重ねない。受け付けが当て直しの回数まで負けたら、launch は done の案内を足せる印を立てる。
+    engine の関数を差し替えて起こすので、別のプロセスで走らせる（台本は同じプロセスで並列に走る——差し替えが他の台本に漏れる）"""
+    print("版の衝突: 読み直して当て直す・成功した回は文も trace も重ねない・mark は行を重ねない・受け付けの負けは印で運ぶ")
+    run = Run("conflict")
+    run.next()
+    r = subprocess.run([PY, "-c", CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8", timeout=300)
+    try:
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        got = {}
+    check(got.get("retry") == 2 and got.get("retry_stderr") == "" and got.get("probe_rows") == [2],
+          f"_board_update: 衝突したら読み直して当て直し、成功した回は失敗の文も控えた trace も出さない（{got.get('retry')} {got.get('retry_stderr')!r} {got.get('probe_rows')} {r.stderr[-200:]}）")
+    lose = got.get("lose") or [None, "", ""]
+    check(lose[0] == 2 and "盤面が読んだ後に進んでいる" in lose[1] and lose[2] == lose[1],
+          f"_board_update: 当て直しの回数まで負けたら BoardConflict（exit 2・文は呼び手が出す）を上げる（{lose}）")
+    check(got.get("mark_hit") and got.get("launched") == [got.get("iid")],
+          f"cmd_launch の mark: 当て直しても『起こし済み』の行を重ねない（{got.get('launched')}）")
+    check(got.get("accept") == "BoardConflict" and got.get("accept_flag") is True,
+          f"受け付けの衝突は当て直しの後に印（conflict）を立てて上げる（{got.get('accept')} {got.get('accept_flag')}）")
+    check(got.get("accept_retry") == [None, "受け付けた（検査用）", False, 2],
+          f"受け付けは 1 回負けても当て直しで通る（{got.get('accept_retry')}）")
+    check("done --node" in (got.get("launch_hint") or "") and "返答は" in (got.get("launch_hint") or ""),
+          f"launch は受け付けの負けに done の案内を足す（{(got.get('launch_hint') or '')[-120:]}）")
+    r = subprocess.run([PY, "-c", CLI_CONFLICT_PROBE, str(PLUGIN), str(run.dir)], capture_output=True, text=True, encoding="utf-8",
+                       env={**os.environ, "GL_LOOP": str(LOOP)}, timeout=300)
+    check(r.returncode == 2 and "NG 検査用の衝突の文" in r.stderr,
+          f"loop.py の入口は版の衝突の文を最後に 1 度出して exit 2（rc={r.returncode} {r.stderr.strip()[-120:]}）")
+    rm(run.tmp)
+
+
 def test_tooled_launch_fence():
-    """道具つきの役を engine が起こしてよい形（launch_refusal の 2 形目）。**入口ごとに 1 本ずつ倒して撥ねることを見る**。"""
+    """道具つきの役を engine が起こしてよい形（launch_refusal の 2 形目）。**入口ごとに 1 本ずつ倒して撥ねることを見る**。
+    柵は許可表なので、倒し方は「値を変える」「要る旗を落とす」「知らない語を足す」の 3 系統を全部撃つ。"""
+    from engine import role_run
     from engine.commands import launch_prefix, launch_refusal
-    from engine.role_run import tooled_permission
-    print("道具つきの柵: 設定を読まない・聞く先が無い・権限の形と道具は役の定義から engine が決めた値だけ")
+    from engine.role_run import protected_paths, tooled_permission
+    from engine.validator import agent_def
+    print("道具つきの柵: 許可表の旗だけ・設定を読まない・聞く先が無い・権限の形と道具と sandbox の設定は engine が決めた値だけ")
     _td, tmp = parallel.workspace("gl-tooledfence-")
     stdin = tmp / "p.md"
     stdin.write_text("x", encoding="utf-8")
+    # 子が起きる作業ツリー（linked worktree を 1 本持つ）と盤面の置き場
+    repo, other, board = tmp / "repo", tmp / "wt2", tmp / "board"
+    board.mkdir()
+    for args in (["init", "-q", str(repo)], ["-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                                                  "--allow-empty", "-m", "x"], ["-C", str(repo), "worktree", "add", "-q", str(other)]):
+        subprocess.run(["git", *args], capture_output=True, check=True)
+    real = os.path.realpath
     tools = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]  # agents/judge.md の道具
-    mode, allowed = tooled_permission(tools)
-    check(mode == "dontAsk" and allowed == tools, f"コマンドを走らせない役は dontAsk で、道具を全部先に許す（{mode} {allowed}）")
-    m2, a2 = tooled_permission(["Read", "Bash", "WebFetch"])
-    check(m2 == "auto" and a2 == ["Read", "WebFetch"], f"Bash を持つ役は auto にし、Bash を先に許す一覧から外す（{m2} {a2}）")
-    body = ["claude", "-p", "--model", "opus", "--effort", "high", "--tools", ",".join(tools), "--allowedTools", ",".join(allowed),
-            "--permission-mode", mode, "--permission-prompts", "none", "--setting-sources", "", "--output-format", "json"]
-    good = {"agent_type": "convergence-loops:judge", "launch": {"argv": launch_prefix() + body, "stdin": str(stdin)}}
-    check(launch_refusal(good) is None, f"揃った形は起こす（{launch_refusal(good)}）")
+    perm = tooled_permission(tools)
+    check(perm == {"form": "plain", "permission_mode": "dontAsk", "allowed_tools": tools, "settings": "{}"},
+          f"コマンドを走らせない役は dontAsk で、道具を全部先に許し、設定は空（{perm}）")
+    # 許すコマンドは字面で持つ——期待を tooled_permission から導くと、定数に gh api を足しても起こす側・柵・検査が揃って変わり緑のまま
+    read_rules = ["Bash(gh issue list:*)", "Bash(gh issue view:*)", "Bash(gh pr list:*)", "Bash(gh pr view:*)", "Bash(gh pr diff:*)",
+                  "Bash(gh search:*)", "Bash(gh repo view:*)", "Bash(git remote get-url:*)"]
+    saved = role_run.sandbox_available
+    try:
+        role_run.sandbox_available = lambda: False
+        p2 = tooled_permission(["Read", "Bash", "WebFetch"], repo, board)
+        check(p2 == {"form": "read_only", "permission_mode": "dontAsk", "allowed_tools": ["Read", "WebFetch"] + read_rules, "settings": "{}"},
+              f"sandbox を使えない環境では Bash を持つ役も dontAsk にし、Bash を丸ごと許さず読むだけのコマンドの前置だけを許す（gh api は許さない）（{p2}）")
+        role_run.sandbox_available = lambda: True
+        p3 = tooled_permission(["Read", "Bash", "WebFetch"], repo, board)
+        box = json.loads(p3["settings"]).get("sandbox") or {}
+        want_deny = sorted({real(repo), real(repo / ".git"), real(other), real(board)})
+        check(p3["form"] == "sandbox" and p3["permission_mode"] == "dontAsk" and p3["allowed_tools"] == ["Read", "WebFetch"] + read_rules,
+              f"sandbox を使える環境では Bash を持つ役を sandbox の形で起こし、gh は読むだけの前置で縛ったまま（{p3['form']} {p3['allowed_tools']}）")
+        check(box.get("enabled") is True and box.get("allowUnsandboxedCommands") is False and box.get("failIfUnavailable") is True
+              and box.get("autoAllowBashIfSandboxed") is True and box.get("excludedCommands") == ["gh:*"]
+              and box.get("network") == {"allowedDomains": [], "strictAllowlist": True},
+              f"sandbox の形: 外へ出る口を閉じ、起きなければ起動で落ち、gh だけ外で権限に掛け、中からの通信は無し（{box}）")
+        check((box.get("filesystem") or {}).get("denyWrite") == want_deny,
+              f"書き込みを止める場所は、自分を含む作業ツリーの根の全部・共有の .git・盤面の置き場（{(box.get('filesystem') or {}).get('denyWrite')}）")
+        plain_dir = tmp / "plain"
+        plain_dir.mkdir()
+        check(protected_paths(plain_dir, board) == sorted({real(plain_dir), real(board)}),
+              f"git の作業ツリーでない場所では cwd と盤面だけを守る（{protected_paths(plain_dir, board)}）")
 
-    def swap(flag, val):
-        return lambda a: [val if i > 0 and a[i - 1] == flag else x for i, x in enumerate(a)]
+        def body_of(role):
+            d = agent_def(role)
+            rf = tmp / (role.replace(":", "__") + ".txt")
+            rf.write_text(d["body"], encoding="utf-8")
+            return d, rf
 
-    def drop(flag):
-        return lambda a: [x for i, x in enumerate(a) if x != flag and not (i > 0 and a[i - 1] == flag)]
+        def argv_for(role, p, resume=None):
+            d, rf = body_of(role)
+            words = ["claude", "-p"] + (["--resume", resume] if resume else []) + [
+                "--model", d["model"], "--effort", d["effort"], "--tools", ",".join(d["tools"]),
+                "--allowedTools", ",".join(p["allowed_tools"]), "--permission-mode", p["permission_mode"],
+                "--settings", p["settings"], "--permission-prompts", "none", "--setting-sources", "",
+                "--append-system-prompt-file", str(rf), "--output-format", "json"]
+            return launch_prefix() + words
 
-    # 入口ごとの腕（tests/mutations.json の TF*）が名指しで落とせるよう、検査の名前は字面で書く
-    for mut, want, desc in ((drop("--setting-sources"), "旗", "柵: 利用者の設定を読む子は起こさない"),
-                            (drop("--permission-prompts"), "旗", "柵: 聞く先を持つ子は起こさない"),
-                            (lambda a: a + ["--dangerously-skip-permissions"], "権限を外す旗", "柵: 権限を外す旗を持つ子は起こさない"),
-                            (swap("--permission-mode", "bypassPermissions"), "--permission-mode", "柵: 権限の形を広げた子は起こさない"),
-                            (swap("--tools", ",".join(tools + ["Write"])), "--tools", "柵: 役の定義に無い道具を持つ子は起こさない"),
-                            (swap("--allowedTools", ",".join(allowed + ["Bash"])), "--allowedTools", "柵: 先に許す道具を広げた子は起こさない"),
-                            (lambda a: a + ["--tools", "Bash"], "--tools", "柵: 旗を重ねて後勝ちを狙う子は起こさない")):
-        why = launch_refusal({**good, "launch": {"argv": mut(good["launch"]["argv"]), "stdin": str(stdin)}}) or ""
-        check(want in why, f"{desc}（{why[:70]}）")
+        def refuse(inst):
+            return launch_refusal(inst, repo, board)
+
+        good = {"agent_type": "convergence-loops:judge", "launch": {"argv": argv_for("convergence-loops:judge", perm), "stdin": str(stdin)}}
+        check(refuse(good) is None, f"揃った形は起こす（{refuse(good)}）")
+
+        def swap(flag, val):
+            return lambda a: [val if i > 0 and a[i - 1] == flag else x for i, x in enumerate(a)]
+
+        def drop(flag):
+            return lambda a: [x for i, x in enumerate(a) if x != flag and not (i > 0 and a[i - 1] == flag)]
+
+        def with_argv(inst, argv):
+            return {**inst, "launch": {**inst["launch"], "argv": argv}}
+
+        other_file = tmp / "other.txt"
+        other_file.write_text("別の本文", encoding="utf-8")
+        # 入口ごとの腕（tests/mutations.json の TF*）が名指しで落とせるよう、検査の名前は字面で書く
+        for mut, want, desc in ((swap("--setting-sources", "user"), "--setting-sources", "柵: 利用者の設定を読む子は起こさない"),
+                                (swap("--permission-prompts", "ask"), "--permission-prompts", "柵: 聞く先を持つ子は起こさない"),
+                                (drop("--setting-sources"), "argv に無い", "柵: 要る旗を落とした子は起こさない"),
+                                (lambda a: a + ["--dangerously-skip-permissions"], "許可表に無い", "柵: 権限を外す旗を持つ子は起こさない"),
+                                (lambda a: a + ["--allowed-tools", "Bash"], "許可表に無い", "柵: 別名の旗で道具を足した子は起こさない"),
+                                (lambda a: a + ["--allowedTools=Bash"], "許可表に無い", "柵: = 綴りの旗で道具を足した子は起こさない"),
+                                (lambda a: a + ["--add-dir", "/"], "許可表に無い", "柵: 作業ディレクトリを足した子は起こさない"),
+                                (lambda a: a + ["--mcp-config", str(stdin)], "許可表に無い", "柵: MCP の設定を足した子は起こさない"),
+                                (lambda a: a + ["--agents", "{}"], "許可表に無い", "柵: 役の定義を差し込んだ子は起こさない"),
+                                (lambda a: a + ["余分"], "許可表に無い", "柵: 余分な位置引数を持つ子は起こさない"),
+                                (swap("--permission-mode", "bypassPermissions"), "--permission-mode", "柵: 権限の形を広げた子は起こさない"),
+                                (swap("--tools", ",".join(tools + ["Write"])), "--tools", "柵: 役の定義に無い道具を持つ子は起こさない"),
+                                (swap("--allowedTools", ",".join(tools + ["Bash"])), "--allowedTools", "柵: 先に許す道具を広げた子は起こさない"),
+                                (swap("--model", "haiku-other"), "--model", "柵: 役の定義と違うモデルの子は起こさない"),
+                                (swap("--output-format", "stream-json"), "--output-format", "柵: 返答の包みを変えた子は起こさない"),
+                                (swap("--append-system-prompt-file", str(other_file)), "--append-system-prompt-file",
+                                 "柵: 役の定義でない本文を system prompt に足した子は起こさない"),
+                                (swap("--settings", '{"permissions": {"allow": ["Bash"]}}'), "--settings", "柵: 設定で権限を配る子は起こさない"),
+                                (lambda a: a + ["--tools", "Bash"], "--tools", "柵: 旗を重ねて後勝ちを狙う子は起こさない"),
+                                (lambda a: a + ["--tools", ",".join(tools)], "2 度", "柵: 同じ旗を 2 度渡す子は起こさない（同じ値でも）")):
+            why = refuse(with_argv(good, mut(good["launch"]["argv"]))) or ""
+            check(want in why, f"{desc}（{why[:70]}）")
+        # 続きの語（--resume）は engine が決めた会話だけ: 続きを頼む語は穴の字面、起こす語は instance の会話の番号
+        check(refuse({**good, "launch": {**good["launch"], "resume_argv": argv_for("convergence-loops:judge", perm, "{session_id}")}}) is None,
+              "続きを頼む語の --resume は穴の字面なら起こす")
+        why = refuse(with_argv(good, argv_for("convergence-loops:judge", perm, "someone-else"))) or ""
+        check("--resume" in why, f"柵: engine が決めていない会話を続ける子は起こさない（{why[:70]}）")
+        check(refuse({**with_argv(good, argv_for("convergence-loops:judge", perm, "sess-1")), "session_id": "sess-1"}) is None,
+              "前の節の会話（instance の session_id）を続ける語は起こす")
+        bad_resume = {**good, "launch": {**good["launch"], "resume_argv": drop("--permission-prompts")(good["launch"]["argv"])}}
+        check("argv に無い" in (refuse(bad_resume) or ""), "続きを頼む語にも同じ柵が当たる")
+
+        # コマンドを走らせる役（investigator）の sandbox の形: 揃った形は起こし、設定の 1 か所でも緩めた形は撥ねる
+        itools = agent_def("convergence-loops:investigator")["tools"]
+        iperm = tooled_permission(itools, repo, board)
+        igood = {"agent_type": "convergence-loops:investigator",
+                 "launch": {"argv": argv_for("convergence-loops:investigator", iperm), "stdin": str(stdin)}}
+        check(iperm["form"] == "sandbox" and refuse(igood) is None, f"Bash を持つ役の sandbox の形は起こす（{iperm['form']} {refuse(igood)}）")
+        for extra, desc in (("Bash(gh api:*)", "柵: 書ける gh api を先に許した子は起こさない"), ("Bash", "柵: Bash を丸ごと先に許した子は起こさない")):
+            why = refuse(with_argv(igood, swap("--allowedTools", ",".join(iperm["allowed_tools"] + [extra]))(igood["launch"]["argv"]))) or ""
+            check("--allowedTools" in why, f"{desc}（{why[:70]}）")
+
+        def loosen(fn):
+            s = json.loads(iperm["settings"])
+            fn(s["sandbox"])
+            return json.dumps(s, ensure_ascii=False)
+
+        wt_deny = [x for x in want_deny if x != real(other)]
+        for fn, want, desc in ((lambda s: s.update(enabled=False), "sandbox が", "柵: sandbox を切った子は起こさない"),
+                               (lambda s: s.update(allowUnsandboxedCommands=True), "sandbox が", "柵: sandbox の外へ出る口を開けた子は起こさない"),
+                               (lambda s: s.update(failIfUnavailable=False), "sandbox が", "柵: sandbox が起きなくても走る子は起こさない"),
+                               (lambda s: s["network"].update(allowedDomains=["api.github.com"]), "sandbox が", "柵: 通信の宛先を足した子は起こさない"),
+                               (lambda s: s.update(excludedCommands=["gh:*", "python3:*"]), "sandbox が", "柵: sandbox の外で走るコマンドを足した子は起こさない"),
+                               (lambda s: s["filesystem"].update(allowWrite=["/"]), "sandbox が", "柵: 書ける場所を足した子は起こさない"),
+                               (lambda s: s["filesystem"].update(denyWrite=wt_deny), "denyWrite", "柵: 守る作業ツリーを欠いた子は起こさない")):
+            why = refuse(with_argv(igood, swap("--settings", loosen(fn))(igood["launch"]["argv"]))) or ""
+            check(want in why, f"{desc}（{why[:70]}）")
+        s = json.loads(iperm["settings"])
+        s["hooks"] = {}
+        why = refuse(with_argv(igood, swap("--settings", json.dumps(s))(igood["launch"]["argv"]))) or ""
+        check("--settings のキー" in why, f"柵: sandbox の外のキー（hooks）を混ぜた子は起こさない（{why[:70]}）")
+        why = refuse(with_argv(igood, drop("--settings")(igood["launch"]["argv"]))) or ""
+        check("argv に無い" in why, f"柵: sandbox の設定を落とした子は起こさない（{why[:70]}）")
+        more = loosen(lambda s: s["filesystem"].update(denyWrite=s["filesystem"]["denyWrite"] + [str(tmp / "gone")]))
+        check(refuse(with_argv(igood, swap("--settings", more)(igood["launch"]["argv"]))) is None,
+              "起こした後に消えた作業ツリーを守る場所に残した子は起こす（守る場所の包含で見る）")
+        subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(tmp / "wt3")], capture_output=True, check=True)
+        why = refuse(igood) or ""
+        check("relaunch" in why, f"柵: 起こした後に増えた作業ツリーを守らない子は起こさず、引き直しを促す（{why[:70]}）")
+        # sandbox を使えない環境: 読むだけの形の語は起こし、sandbox の設定を持つ語は撥ねる（形は起こす時に engine が決め直す）
+        role_run.sandbox_available = lambda: False
+        rperm = tooled_permission(itools, repo, board)
+        rgood = {**igood, "launch": {**igood["launch"], "argv": argv_for("convergence-loops:investigator", rperm)}}
+        check(rperm["form"] == "read_only" and refuse(rgood) is None, f"sandbox を使えない環境では読むだけの形で起こす（{refuse(rgood)}）")
+        check("--settings のキー" in (refuse(igood) or ""), "sandbox を使えない環境では sandbox の設定を持つ語を起こさない")
+    finally:
+        role_run.sandbox_available = saved
     from engine.advance import tooled_launchable
     for d, desc in (({"tools": ["Read", "Write"], "model": "opus", "effort": "high"}, "ファイルを書く道具を持つ役は engine が起こさない"),
                     ({"tools": ["*"], "model": "opus", "effort": "high"}, "道具の一覧を持たない役は engine が起こさない"),
                     ({"tools": ["Read"], "model": "inherit", "effort": "high"}, "モデルを名指ししない役は engine が起こさない")):
         check(not tooled_launchable(d), desc)
     check(tooled_launchable({"tools": ["Read"], "model": "sonnet", "effort": "medium"}), "道具を名指しした読むだけの役は engine が起こす")
-    # 続きの語（--resume）にも同じ柵が当たる
-    bad_resume = {**good, "launch": {**good["launch"], "resume_argv": drop("--permission-prompts")(good["launch"]["argv"])}}
-    check("旗" in (launch_refusal(bad_resume) or ""), "続きを頼む語にも同じ柵が当たる")
     # 役の定義が読めない役は、形が決まらないので起こさない
     check("定義が読めない" in (launch_refusal({**good, "agent_type": "no-such-plugin:nobody"}) or ""), "定義の読めない役は起こさない")
     rm(tmp)
@@ -2099,10 +2722,12 @@ def test_stopped_gates_all_thicknesses():
     def stopped_record(th, outcome="stopped"):
         # 止まった事実は record.convergence.outcome だけに置く（rules の stop() が書く場所）。loop_state は空——
         # 以前は loop_state に鍵を差し込んでいて、research-loop の rules が一度も書かない鍵を finalize が読む形を見なかった
-        rec = {"gates": {k: {"status": "not_applicable"} for k in gates},
+        rec = {"gates": {k: {"status": "not_applicable"} for k in gates}, "question": "問い", "constraints": [{"text": "c"}],
                "sampling": {"status": "not_applicable"}, "claims": [], "clusters": [], "process": {},
-               "convergence": {"outcome": outcome}}
-        b = types.SimpleNamespace(record=rec, state={"thickness": th}, loop_state={}, round=3)
+               "decisions": {"decide_now": ["d"], "poc": [], "human_only": []}, "convergence": {"outcome": outcome}}
+        # 盤面の欄は仕上げが読む物を実物の形で持つ（止めた口 halted・済んだ節 done_ever・graph の節）
+        b = types.SimpleNamespace(record=rec, state={"thickness": th, "status": "stopped", "done_ever": {}}, loop_state={}, round=3,
+                                  nodes=json.loads(gp.read_text(encoding="utf-8"))["nodes"])
         rules.finalize(b)
         return rec["gates"]
 
@@ -2165,11 +2790,67 @@ def test_stopped_before_gates_reports():
         if th == "標準":
             check(g["cartographer"].get("status") == "not_applicable" and bool(g["cartographer"].get("reason")),
                   f"標準: cartographer はこの段では走らせない（飛ばしたと名乗らない）——{g['cartographer']}")
-        # rederiver の導出は毎周の序盤に走り暫定の判定を置くので、止まった周にも判定が残る（比較の半分は走っていない）。
-        # その暫定の pass の扱いはこの台本の範囲外——ここでは『飛ばした』に化けないことだけを見る（語の妥当は上の検証器が見る）
-        check(g["rederiver"].get("status") is None and bool(g["rederiver"].get("verdict")),
-              f"{th}: rederiver は導出の暫定の判定が残る——{g['rederiver']}")
+        check(g["rederiver"].get("status") == "not_run" and (g["rederiver"].get("provisional") or {}).get("verdict") == "pass"
+              and "突合" in g["rederiver"].get("reason", ""),
+              f"{th}: 突合の前に止まった rederiver は not_run で、暫定の判定は provisional に残る——{g['rederiver']}")
         rm(run.tmp)
+
+def test_stop_midway():
+    """**人が途中で止める**（loop.py stop）——research-loop でも、人に聞いていない時点で止め、止めた理由が
+    convergence に入り、後始末の節（p5.adapt → report）だけが走って報告まで届く。作る工程より前に止めて空の欄は、
+    仕上げが stopped_gaps に理由を書き、検証器は止まった記録に限ってそれを受ける。途中で打った finalize は記録を書き換えず、未決として落ちる"""
+    print("台本: research の途中で止めて報告まで届く・最初の節の前でも届く・途中の finalize は記録を書き換えず未決で落ちる")
+    run = Run("stop-mid")
+    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p1.checker" for i in nx["ready"]))
+    r = run.cmd("stop", "--reason", "検査: 照合の前で止める")
+    rec = run.record()
+    check(r.returncode == 0 and rec["convergence"]["outcome"] == "stopped" and "検査: 照合の前で止める" in rec["convergence"]["stopped_reason"],
+          f"止める: 止めた時点で convergence に理由が入る（{r.stderr[-160:]}{rec['convergence']}）")
+    nx = run.next()
+    check([i["node"] for i in nx["ready"]] == ["p5.adapt"], f"止める: 次の next は後始末の節だけを出す（{[i['node'] for i in nx['ready']]}）")
+    last = drive(run, "std")
+    rec = run.record()
+    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
+    check(last["status"] == "stopped" and (run.dir / "report.md").is_file() and v.returncode == 0
+          and rec["process"]["halted"]["by"] == "stop" and any(x["node"] == "p1.checker" for x in rec["process"]["stopped_nodes"]),
+          f"止める: 報告まで届き、記録は検証器を通る（exit {v.returncode}: {(v.stdout + v.stderr).strip()[-160:]}）")
+    check(set(rec["process"].get("stopped_gaps") or {}) == {"claims", "clusters"},
+          f"止める: 照合の前に止めたので主張とクラスタは空で、その理由が残る（{sorted(rec['process'].get('stopped_gaps') or {})}）")
+    rm(run.tmp)
+
+    # 最初の節の前に止めても報告まで届く（問い・制約も空）
+    run = Run("stop-first")
+    r = run.cmd("stop", "--reason", "検査: すぐ止める")
+    last = drive(run, "std")
+    rec = run.record()
+    check(r.returncode == 0 and (run.dir / "report.md").is_file()
+          and {"question", "constraints", "clusters", "claims"} <= set(rec["process"].get("stopped_gaps") or {}),
+          f"止める: 最初の節の前に止めても報告まで届き、空の欄に理由が付く（{last.get('status')}・{sorted(rec['process'].get('stopped_gaps') or {})}）")
+    rm(run.tmp)
+
+    # 途中で打った finalize は記録を書き換えず（照合前の主張も外さない。盤面から写し直す痕跡の欄だけは書く）、
+    # 結末が未決として検証器に落とされる。後で本当に止めたら、その事実で畳む
+    run = Run("finalize-early")
+    drive(run, "std", stop_at=lambda nx: any(i["node"] == "p1.checker" for i in nx["ready"]))
+    before = run.record()
+    r = run.cmd("finalize")
+    after = run.record()
+    from engine.validator import TRACES
+    mirrored = {f for f, _ in TRACES} | {"skipped", "stopped_nodes", "launch_missing", "read_through_unchecked"}
+    added = set(after["process"]) - set(before["process"])
+    for k in added & mirrored:
+        after["process"].pop(k)
+    check(r.returncode == 1 and after == before and "未決" in r.stdout,
+          f"途中の finalize: 記録を書き換えず、未決として exit 1（exit {r.returncode}・足された欄 {sorted(added - mirrored)}: {(r.stdout + r.stderr)[:200]}）")
+    h = run.tmp / "halted.json"
+    h.write_text(json.dumps({"node": "converge", "round": 1, "by": "stop_after_round", "reason": "検査: 周の締めの後で止めた"}, ensure_ascii=False), encoding="utf-8")
+    run.cmd("patch", "--path", "state.halted", "--file", str(h), "--reason", "後で止めた盤面を作る")
+    run.cmd("finalize")
+    conv, proc = run.record()["convergence"], run.record()["process"]
+    check(conv["outcome"] == "stopped" and "stop_after_round" in conv["stopped_reason"] and proc.get("unchecked_claims"),
+          f"途中の finalize の後に止めた run は、止めた事実で畳む（{conv}）")
+    rm(run.tmp)
+
 
 def test_graphcheck_sets_derived():
     """**柵が見る鍵の一覧を、engine と rules から組む（手で並べない）。**
@@ -2292,30 +2973,23 @@ def test_prompt_growth():
     rm(r2.tmp)
 
 
-def test_deadline_wait_relaunch():
-    """**待ちには期限があり、起こし直しは盤面に刻まれ、前の試行は締め出される。**
+def test_relaunch():
+    """**起こし直しは新しい試行を盤面に刻んでから前の試行の子を止め、前の置き場を締め出す。時間の上限は無い。**
 
-    完了の知らせだけで待たせていたとき、入れ子や上限落ちで知らせが消えると、回す側も engine も何も言わずに止まった
-    （実測 2026-09-25: 局所レビューの節が 7 時間以上戻らなかった）。起こし直しも盤面に残らず、emitted_at は最初の起動のまま
-    だった（同日: 週の上限で P1 の 8 節が落ち、別のセッションが起こし直した）。期限の値は graph が持つ（Temporal の
-    Start-To-Close Timeout）。起こし直した試行は置き場を分ける（Temporal の task token が試行ごとに一意なのと同じ）。
+    起こし直しが盤面に残らず、emitted_at は最初の起動のままだった（実測 2026-09-25: 週の上限で P1 の 8 節が落ち、別の
+    セッションが起こし直した）。起こし直した試行は置き場を分ける（Temporal の task token が試行ごとに一意なのと同じ）。
+    期限（deadline_minutes・wait）は 2026-09-25 に外した——目安の値が役の子を止める上限を兼ねていた。
     """
-    print("期限と起こし直し: next・status が期限と経過を出し、wait は期限で返り、relaunch は試行を刻んで前の置き場を締め出す")
-    _td_tmp, tmp = parallel.workspace("gl-deadline-graph-")
-    shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
-    shutil.copytree(PLUGIN / "rules", tmp / "rules")
-    (tmp / "graphs").mkdir()
-    gp = tmp / "graphs" / "research-loop.json"
-    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
-    g["deadline_minutes"] = 60
-    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
-    run = Run("deadline", graph=gp)
+    print("起こし直し: next・status は経過と試行の回数を出し、relaunch は前の試行の子を止め、試行を刻んで前の置き場を締め出す")
+    run = Run("relaunch")
     nx = run.next()
     own = next(i for i in nx["ready"] if i["node"] == "p0.question")
-    check("deadline_at" not in own and "overdue" not in own,
-          f"回す側が自分でやる節（任せ先の無い runner）には期限を付けない（{ {k: own.get(k) for k in ('deadline_at', 'overdue')} }）")
+    check("deadline_at" not in own and "overdue" not in own and own.get("elapsed_min") == 0 and own.get("attempts") == 1,
+          f"next: 期限を出さず、経過と試行の回数を出す（{ {k: own.get(k) for k in ('deadline_at', 'elapsed_min', 'attempts')} }）")
     r = run.cmd("relaunch", "--node", own["id"], "--reason", "検査用")
-    check(r.returncode == 1 and "期限を持って待っている" in r.stderr, f"relaunch: 期限を持たない（自分でやる）節は起こし直さない（{r.stderr.strip()[-80:]}）")
+    check(r.returncode == 1 and "他へ渡して待っている" in r.stderr, f"relaunch: 回す側が自分でやる節は起こし直さない（{r.stderr.strip()[-80:]}）")
+    r = run.cmd("wait", "--node", own["id"])
+    check(r.returncode != 0 and "invalid choice" in r.stderr, f"wait の口は無い（期限の無い待ちを作らない）（{r.stderr.strip()[-60:]}）")
     def finish(i):
         r = run.done(i["id"], base_answers(run, "std")[i["node"]](load_item(i), 1))   # 台本の答えは記録から組むので毎回作り直す
         if r.returncode != 0:
@@ -2329,40 +3003,43 @@ def test_deadline_wait_relaunch():
             finish(i)
         nx = run.next()
     iid = inst["id"]
-    check(inst.get("deadline_at") and inst.get("overdue") is False and inst.get("attempts") == 1 and inst.get("elapsed_min") == 0,
-          f"next: 役に渡す節は期限（emitted_at＋graph の分）・経過・試行の回数を出す（{ {k: inst.get(k) for k in ('deadline_at', 'overdue', 'attempts')} }）")
+    check("deadline_at" not in inst and inst.get("attempts") == 1 and inst.get("elapsed_min") == 0,
+          f"next: 役に渡す節にも期限は無く、経過・試行の回数を出す（{ {k: inst.get(k) for k in ('deadline_at', 'attempts')} }）")
     pend = run.status()["this_round"]["pending_instances"]
-    check(any(p["id"] == iid and p.get("overdue") is False for p in pend), f"status: 待っている instance ごとに期限と経過を出す（{pend[:1]}）")
-    r = run.cmd("wait", "--node", "無い節（検査用）")
-    check(r.returncode == 1 and "今の周に instance" in r.stderr, f"wait: 今の周に無い instance は理由を名乗って拒む（{r.stderr.strip()[-60:]}）")
+    check(any(p["id"] == iid and p.get("elapsed_min") == 0 and "overdue" not in p for p in pend), f"status: 待っている instance ごとに経過を出す（{pend[:1]}）")
     st = run.state()
-    # 期限が数秒先の instance を、返答無しで待つ: 期限まで眠ってから exit 3（眠る時間は期限で切る）
-    st["rounds"][-1]["instances"][iid]["deadline_at"] = (datetime.datetime.now().astimezone() + datetime.timedelta(seconds=2)).isoformat(timespec="seconds")
-    (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
-    t0 = time.time()
-    r = run.cmd("wait", "--node", iid)
-    check(r.returncode == 3 and 0.5 < time.time() - t0 < 14, f"wait: 期限まで眠って exit 3（{r.returncode}・{time.time() - t0:.1f} 秒。間隔 15 秒より期限が近ければ期限で起きる）")
-    # 期限を過ぎた形を盤面に作る（時計を待たない）
-    st["rounds"][-1]["instances"][iid]["deadline_at"] = "2000-01-01T00:00:00+00:00"
     real_base = st["rounds"][-1]["instances"][iid].get("tree_before")
     st["rounds"][-1]["instances"][iid]["tree_before"] = ["?? 前の試行の基準点（検査用）"]
     (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
-    check(any(p["id"] == iid and p.get("overdue") is True for p in run.status()["this_round"]["pending_instances"]),
-          "status: 期限を過ぎた instance は overdue")
     old = pathlib.Path(st["rounds"][-1]["instances"][iid]["out_path"])
-    old.write_text("", encoding="utf-8")   # 空の返答は『書かれた』に数えない
-    before = (run.dir / "state.json").read_bytes()
-    r = run.cmd("wait", "--node", iid)
-    check(r.returncode == 3 and "relaunch" in r.stdout, f"wait: 期限を過ぎて返答が無い（空のファイルも無いと数える）なら exit 3 で次の手を言う（{r.returncode} {r.stdout[-80:]}）")
-    check((run.dir / "state.json").read_bytes() == before, "wait: 盤面を 1 バイトも書かない")
     old.write_text("前の試行の途中の返答（検査用）", encoding="utf-8")
-    r = run.cmd("relaunch", "--node", iid, "--reason", "期限を過ぎても返らない（検査用）")
+    # 前の試行の子が生きている形: 自分のグループで眠る子を立て、role_run と同じ印を置き場の隣に置く
+    child = None
+    if os.name == "posix":
+        script = run.tmp / "prev-attempt.py"
+        script.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
+        child = subprocess.Popen([sys.executable, str(script)], start_new_session=True)
+        # 本物では子を起こした launch のプロセスが終了を待って回収する。ここでは台本がその役——回収しないと子は
+        # ゾンビとしてグループに残り、relaunch には止まらない子に見える
+        reaper = threading.Thread(target=child.wait)
+        reaper.start()
+        pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": child.pid}), encoding="utf-8")   # 子を起こした後に書く（role_run と同じ順）
+    r = run.cmd("relaunch", "--node", iid, "--reason", "子が落ちた（検査用）")
     check(r.returncode == 0, f"relaunch: 待っている instance は起こし直せる（{r.stderr.strip()[-80:]}）")
+    if child is not None:
+        reaper.join(15)
+        stopped = not reaper.is_alive()   # 台本が止める前に終わっていた＝relaunch が止めた
+        if not stopped:
+            child.kill()
+            reaper.join()
+        check(stopped and child.returncode is not None and child.returncode < 0,
+              f"relaunch: 前の試行の子を木ごと止めてから起こし直す（relaunch が止めた: {stopped}・信号で終わった: {child.returncode}）")
+        check(not pathlib.Path(str(old) + ".pgid").exists(), "relaunch: 止めた試行の印を消す")
     new = run.state()["rounds"][-1]["instances"][iid]
     check(new.get("attempts") == 2 and len(new.get("attempt_log") or []) == 1 and "検査用" in new["attempt_log"][0]["reason"],
           f"relaunch: 試行の回数と理由を盤面に刻む（{new.get('attempts')} {new.get('attempt_log')}）")
-    check(json.loads(r.stdout)["relaunched"]["out_path"] == new["out_path"], "relaunch: 新しい置き場を回す側に返す（運び手に渡す先）")
-    check(new["deadline_at"] > "2001", f"relaunch: 期限を新しい試行の分に取り直す（{new['deadline_at']}）")
+    check(new["out_path"] in r.stdout, "relaunch: 新しい置き場を回す側に返す（運び手に渡す先）")
+    check("deadline_at" not in new, f"relaunch: 新しい試行にも期限を付けない（{new.get('deadline_at')}）")
     check(new["out_path"] != str(old) and ".a2." in new["out_path"], f"relaunch: 新しい試行は別の置き場に書く（{new['out_path']}）")
     check(not old.exists() and old.with_name(old.name + ".stale-a1").is_file(), "relaunch: 前の試行の置き場に在った物は .stale-a1 へ退ける")
     check(new.get("tree_before") == ["?? 前の試行の基準点（検査用）"], "relaunch: 作業ツリーの基準点は前の試行の物を引き継ぐ（取り直さない）")
@@ -2372,23 +3049,36 @@ def test_deadline_wait_relaunch():
     old.write_text("遅れて届いた前の試行の返答（検査用）", encoding="utf-8")
     r = run.cmd("done", "--node", iid)
     check(r.returncode != 0 and "返答が無い" in r.stderr, f"done: 前の試行の置き場は読まない（{r.stderr.strip()[-80:]}）")
+    bad = pathlib.Path(new["out_path"] + ".pgid")
+    bad.write_text("読めない印（検査用）", encoding="utf-8")
+    r = run.cmd("relaunch", "--node", iid, "--reason", "止められない（検査用）")
+    check(r.returncode == 1 and "確かめられない" in r.stderr and run.state()["rounds"][-1]["instances"][iid].get("attempts") == 2,
+          f"relaunch: 前の試行の子を確かめられなければ新しい試行を作らない（{r.returncode} {r.stderr.strip()[-80:]}）")
+    bad.unlink()
+    # 前の relaunch が止め切れずに残した子（1 回目の試行の置き場の印）も、次の relaunch が止め直す（attempt_log の前の置き場）
+    stale_child = None
+    if os.name == "posix":
+        stale_child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True)
+        stale_reaper = threading.Thread(target=stale_child.wait)
+        stale_reaper.start()
+        pathlib.Path(str(old) + ".pgid").write_text(json.dumps({"pgid": stale_child.pid}), encoding="utf-8")
     # 置き場に何も無いまま 2 回目の起こし直し: 退ける物が無くても起こし直せ、試行の記録は積み増す
     r = run.cmd("relaunch", "--node", iid, "--reason", "2 回目（検査用）")
+    if stale_child is not None:
+        stale_reaper.join(15)
+        stopped = not stale_reaper.is_alive()
+        if not stopped:
+            stale_child.kill()
+            stale_reaper.join()
+        check(stopped, "relaunch: 前の relaunch が止め切れなかった前の試行の子も、attempt_log の置き場の印から止め直す")
     new3 = run.state()["rounds"][-1]["instances"][iid]
     check(r.returncode == 0 and new3.get("attempts") == 3 and len(new3.get("attempt_log") or []) == 2,
           f"relaunch: 前の置き場が空でも起こし直せ、attempt_log は積み増す（{r.returncode} {new3.get('attempt_log')}）")
-    pathlib.Path(new3["out_path"]).write_text("{}", encoding="utf-8")
-    r = run.cmd("wait", "--node", iid)
-    check(r.returncode == 0 and '"written": true' in r.stdout, f"wait: 今の試行の置き場に返答が在れば exit 0（{r.returncode}）")
-    # 済んだ instance: 置き場に返答が無くても wait は exit 0、relaunch は拒む
-    pathlib.Path(new3["out_path"]).unlink()
     st = run.state()
     st["rounds"][-1]["instances"][iid]["tree_before"] = real_base   # 検査用の基準点を本物に戻す（done の突合に通す）
     (run.dir / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     r = run.done(iid, base_answers(run, "std")["p0.prior_decisions"](load_item(new3), 1))
     check(r.returncode == 0, f"前提: 役の返答を --output で受け付ける（{r.stderr.strip()[-200:]}）")
-    r = run.cmd("wait", "--node", iid) if r.returncode == 0 else r
-    check(r.returncode == 0 and '"status": "done"' in r.stdout, f"wait: 済んだ instance は置き場に返答が無くても exit 0（{r.returncode} {r.stdout[-60:]}）")
     r = run.cmd("relaunch", "--node", iid, "--reason", "x")
     check(r.returncode == 1 and "待っている instance でない" in r.stderr, "relaunch: 済んだ instance は起こし直さない")
     r = run.cmd("relaunch", "--node", "無い節（検査用）", "--reason", "x")
@@ -2406,14 +3096,8 @@ def test_deadline_wait_relaunch():
     got = run.state()["rounds"][-1]["instances"].get(fan["id"]) or {}
     check(r.returncode == 0 and got.get("attempts") == 2 and load_item(got) == load_item(fan),
           f"relaunch: 扇の項目の instance は同じ id・同じ項目で起こし直す（{r.returncode} {fan['id']}）")
-    # 期限を宣言しない graph の instance には wait を使わせない（期限の無い待ちは、書かずに落ちた役を永久に待つ）
-    r2 = Run("nodeadline")
-    iid2 = r2.next()["ready"][0]["id"]
-    r = r2.cmd("wait", "--node", iid2)
-    check(r.returncode != 0 and "期限" in r.stderr and "deadline_at" not in r2.state()["rounds"][-1]["instances"][iid2],
-          f"wait: 期限を持たない instance は拒む（{r.stderr.strip()[-80:]}）")
     rm(run.tmp)
-    rm(r2.tmp)
+
 
 def test_frozen_schema_drift():
     """**`once` で凍った出力を、今の schema で測り直す。**
@@ -3698,6 +4382,56 @@ def test_workspace_cleanup():
     r = subprocess.run([PY, "-c", src], capture_output=True, text=True, encoding="utf-8", timeout=120)
     check(r.returncode == 3 and not pathlib.Path(r.stdout.strip()).exists(),
           f"落ちた回（SystemExit）でも消える（exit {r.returncode}: {r.stdout.strip()}）")
+    # 消す口は一時の置き場より深いパスだけを消す——計算した親や既定値のパス（/・ホーム・置き場そのもの）は例外で止める
+    refused = []
+    for bad in ("/", os.path.expanduser("~"), tempfile.gettempdir(), "/nonexistent"):
+        try:
+            parallel.rm(bad)
+        except ValueError:
+            refused.append(bad)
+    _td2, tmp2 = parallel.workspace("gl-ws-rm-")
+    (tmp2 / "sub").mkdir()
+    parallel.rm(tmp2 / "sub")
+    check(len(refused) == 4 and not (tmp2 / "sub").exists(),
+          f"rm は / やホームや一時の置き場そのものを消さずに例外にし、置き場より深い作業場だけを消す（拒んだ {refused}）")
+
+
+
+def test_cond_truth_tables():
+    """**research-loop の条件ごとの真偽表**（graph の cond が名前で指す rules の関数）。engine と同じ口（run_cond）で
+    文脈を手で組んで直に呼ぶ。期待の "die" は、宣言した欄が default 無しで解決できないと落ちること（偽に倒さない）。
+    CONDS の名前が全部表に在ることも見る"""
+    print("条件の真偽表（research）: CONDS の関数を 1 つずつ、真・偽・落ちるの行で当てる")
+    import io  # noqa: E402
+    from contextlib import redirect_stderr  # noqa: E402
+    from engine.board import COND_HEADS, run_cond  # noqa: E402
+
+    def ev(name, ctx):
+        fn = RESEARCH_RULES.CONDS[name]
+        buf = io.StringIO()
+        try:
+            with redirect_stderr(buf):
+                return run_cond(name, fn, {**{h: {} for h in COND_HEADS}, "round": 1, **ctx})[0]
+        except SystemExit:
+            return "die"
+    T = {
+        "constraints_self_written": [({}, False), ({"record": {"constraints": []}}, False),
+                                     ({"record": {"constraints": [{"origin": "人"}, {"origin": "surveyor自書"}]}}, True),
+                                     ({"record": {"constraints": [{"origin": "人"}]}}, False), ({"record": {"constraints": {"origin": "surveyor自書"}}}, False)],
+        "generation_due": [({}, True), ({"round": 2}, False), ({"round": 2, "loop": {"stuck_hint": True}}, True),
+                           ({"round": 2, "loop": {"stuck_hint": False}}, False)],
+        "no_new_discrepancies": [({"rd": {"new_discrepancies": 0}}, True), ({"rd": {"new_discrepancies": 2}}, False), ({}, "die")],
+        "rederiver_compare_due": [({"rd": {"new_discrepancies": 0}, "out": {"p3.rederiver": {"verdict": "pass"}}}, True),
+                                  ({"rd": {"new_discrepancies": 0}, "out": {"p3.rederiver": {"verdict": "fail"}}}, False),
+                                  ({"rd": {"new_discrepancies": 1}}, False), ({"rd": {"new_discrepancies": 0}}, "die")],
+        "sampling_due": [({}, False), ({"round": 2, "rd": {"item_counts": {"p1.checker": 0}}}, True),
+                         ({"round": 2, "rd": {"item_counts": {"p1.checker": 3}}}, False), ({"round": 2}, "die")],
+    }
+    for name, rows in T.items():
+        for i, (ctx, want) in enumerate(rows):
+            got = ev(name, ctx)
+            check(got == want, f"{name} の行 {i}: 期待 {want}・実際 {got}")
+    check(set(RESEARCH_RULES.CONDS) <= set(T), f"CONDS の名前が全部真偽表に在る（表に無い: {sorted(set(RESEARCH_RULES.CONDS) - set(T))}）")
 
 
 def main():

@@ -1262,16 +1262,16 @@
   },
   {
    "id": "A16",
-   "title": "規模の数値の名前は型で固定する（未知の名前を拒む）",
+   "title": "その場で足す規模の数値の名前は型で固定する（未知の名前を拒む）",
    "file": "graphloops/graphs/review-loop.json",
    "suite": "graphloops",
    "json": {
     "path": [
      "nodes",
-     "p4.scalars",
+     "p3.fix",
      "schema",
      "properties",
-     "scalars"
+     "x_scalars"
     ],
     "del": "additionalProperties"
    },
@@ -1279,6 +1279,62 @@
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_scalar_names_fixed"
+    ]
+   }
+  },
+  {
+   "id": "EG1",
+   "title": "engine が走らせる節の結果を done で書かせない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if inst.get(\"mode\") == \"engine_run\":\n        raise Reject(",
+   "new": "    if False:\n        raise Reject(",
+   "expect": "engine が走らせる節の結果を回す側が",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
+    ]
+   }
+  },
+  {
+   "id": "EG2",
+   "title": "任せ先の申告の clean で収束しない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if st == \"clean\" and not _ci_by_engine(",
+   "new": "        if False and not _ci_by_engine(",
+   "expect": "任せ先が clean と書いた CI では",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
+    ]
+   }
+  },
+  {
+   "id": "EG3",
+   "title": "走らせる直前に宣言と突き合わせる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        if not d or d.get(\"sha\") != sha:",
+   "new": "        if False:",
+   "expect": "emit の後に宣言が変わると",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
+    ]
+   }
+  },
+  {
+   "id": "EG4",
+   "title": "突き合わせる宣言は盤面の欄でなく対象リポジトリのルートから読む",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    root = repo_root()\n    why = engine_run_refusal(inst, root)",
+   "new": "    root = (inst.get(\"launch\") or {}).get(\"cwd\") or repo_root()\n    why = engine_run_refusal(inst, root)",
+   "expect": "盤面で語と launch.cwd を差し替えても",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_engine_run_checks"
     ]
    }
   },
@@ -3173,8 +3229,8 @@
    "title": "手直しにもう 1 回差分レビューを当てる",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    return any(r[\"handled\"] == \"fixed\" for r in (b.output_of_round(DELTA_PASSES[1].fix, b.round) or {}).get(\"handled\") or [])",
-   "new": "    return False",
+   "old": "    k = sum(1 for r in (v(\"cur.\" + DELTA_PASSES[1].fix, None) or {}).get(\"handled\") or [] if r[\"handled\"] == \"fixed\")",
+   "new": "    k = 0",
    "expect": "test_fix_plan_review が例外で抜けた: RuntimeError",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3243,8 +3299,8 @@
    "title": "入口の述語は印が型どおりに在るときだけ真",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if validate_schema(b.record.get(\"process\", {}).get(\"request_entry\"), ENTRY_SCHEMA):  # 欄が無い（None）も型違いとして偽\n        return False\n",
-   "new": "",
+   "old": "    if not _entry_marked(v):\n        return False, \"入口の印（process.request_entry）が無い——通常の run\"\n    at = v(\"loop.request_fixed_at\", None)\n",
+   "new": "    at = v(\"loop.request_fixed_at\", None)\n",
    "expect": "BASE=HEAD（差分ゼロ）は P1 の前で止まる",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3257,7 +3313,7 @@
    "title": "空差分の柵の例外は入口の周だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if not raw_diff.strip() and not request_entry(b):",
+   "old": "    if not raw_diff.strip() and not b.cond(ENTRY_BUILTIN)[0]:",
    "new": "    if False:",
    "expect": "BASE=HEAD（差分ゼロ）は P1 の前で止まる",
    "tests": {
@@ -3285,7 +3341,7 @@
    "title": "別の条件でも外れる節は本当の理由のまま",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    return rest is None or b.eval_cond(rest)",
+   "old": "    return b.cond(c, overlay=ENTRY_OFF)[0]",
    "new": "    return True",
    "expect": "入口: 飛ばした P1 の素材は not_applicable",
    "tests": {
@@ -3299,7 +3355,7 @@
    "title": "add はその周の判定役が起きる前だけ受ける",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if b.node_state(\"p2.diagnose\") != \"pending\" or any(i[\"node\"] == \"p2.diagnose\" for i in b.rd[\"instances\"].values()):",
+   "old": "    if _diagnose_started(b):",
    "new": "    if False:",
    "expect": "入口: 判定役が起きた後の add は拒み",
    "tests": {
@@ -3310,11 +3366,11 @@
   },
   {
    "id": "EN6",
-   "title": "入口の項を抜く式は any の入れ子にも入る",
-   "file": "graphloops/rules/review-loop.py",
+   "title": "入口を外した文脈の重ね書きが条件の読む欄に効く（条件の書き方に依らず入口で外れたと分かる）",
+   "file": "graphloops/engine/board.py",
    "suite": "graphloops",
-   "old": "    if \"any\" in c:",
-   "new": "    if False:",
+   "old": "        over = [(k, val) for k, val in self.__overlay.items() if path == k or path.startswith(k + \".\")]",
+   "new": "        over = []",
    "expect": "入口: 入口の項だけで外れた節は",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3327,8 +3383,8 @@
    "title": "入口の項を持たない節は入口で外れたと数えない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if rest == c:\n        return False",
-   "new": "    if False:\n        return False",
+   "old": "    if not c or not b.cond(ENTRY_BUILTIN)[0] or b.cond(c)[0]:\n        return False",
+   "new": "    if not c:\n        return False",
    "expect": "入口: 入口の項を持たない節は",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3341,8 +3397,8 @@
    "title": "入口の述語は印の型を見る（patch で置いた印も）",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if validate_schema(b.record.get(\"process\", {}).get(\"request_entry\"), ENTRY_SCHEMA):",
-   "new": "    if b.record.get(\"process\", {}).get(\"request_entry\") is None:",
+   "old": "    return not validate_schema(v(\"record.process.request_entry\", None), ENTRY_SCHEMA)",
+   "new": "    return v(\"record.process.request_entry\", None) is not None",
    "expect": "入口: 型の合わない印",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3352,28 +3408,17 @@
   },
   {
    "id": "EN9",
-   "title": "昇格した周は深さの節が入口より勝つ",
-   "file": "graphloops/graphs/review-loop.json",
+   "title": "昇格した周は深さの 3 節が入口より勝つ",
+   "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "json": {
-    "path": [
-     "nodes",
-     "p1.procedure_trace",
-     "cond",
-     "any"
-    ],
-    "remove": {
-     "path": "loop.escalated",
-     "op": "nonempty",
-     "default": null
-    }
-   },
    "expect": "入口: 昇格した周は深さの 3 節",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
     ]
-   }
+   },
+   "old": "        if _escalated(v):\n            return True, f\"判定から入る run の周だが、昇格した周なので{noun}を起こす\"",
+   "new": "        if False:\n            return True, f\"判定から入る run の周だが、昇格した周なので{noun}を起こす\""
   },
   {
    "id": "EN10",
@@ -3436,7 +3481,7 @@
    "title": "入口の周が続く間は依頼を移さない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if not request_entry(b):\n        cur, why_cur = _requests(b, \"request_findings\")",
+   "old": "    if not b.cond(ENTRY_BUILTIN)[0]:\n        cur, why_cur = _requests(b, \"request_findings\")",
    "new": "    if True:\n        cur, why_cur = _requests(b, \"request_findings\")",
    "expect": "入口: 修正 0 行で入口が続く周は、1 周目の依頼を移さず",
    "tests": {
@@ -3519,158 +3564,58 @@
   {
    "id": "EJ4",
    "title": "p1.external_standards は入口の周に起こさない",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "json": {
-    "path": [
-     "nodes",
-     "p1.external_standards",
-     "cond",
-     "all"
-    ],
-    "remove": {
-     "not": {
-      "builtin": "request_entry"
-     }
-    }
-   },
    "expect": "入口: 他の条件が全部真でも",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
     ]
-   }
+   },
+   "old": "        return False, f\"{why}のため、外部標準の照合を起こさない\"",
+   "new": "        pass"
   },
   {
    "id": "EJ5",
    "title": "p1.provenance は入口の周に起こさない",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "json": {
-    "path": [
-     "nodes",
-     "p1.provenance",
-     "cond",
-     "all"
-    ],
-    "remove": {
-     "not": {
-      "builtin": "request_entry"
-     }
-    }
-   },
    "expect": "入口: 他の条件が全部真でも",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
     ]
-   }
+   },
+   "old": "        return False, f\"{why}のため、出典の確かめを起こさない\"",
+   "new": "        pass"
   },
   {
    "id": "EJ6",
    "title": "p1.main_path_observation は入口の周に起こさない",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "json": {
-    "path": [
-     "nodes",
-     "p1.main_path_observation",
-     "cond",
-     "all"
-    ],
-    "remove": {
-     "not": {
-      "builtin": "request_entry"
-     }
-    }
-   },
    "expect": "入口: 他の条件が全部真でも",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
     ]
-   }
+   },
+   "old": "        return False, f\"{why}のため、主経路の観察を起こさない\"",
+   "new": "        pass"
   },
   {
    "id": "EJ7",
-   "title": "p1.procedure_trace は入口の周に起こさない",
-   "file": "graphloops/graphs/review-loop.json",
+   "title": "深さの 3 節（p1.procedure_trace・p1.gate_efficacy・p1.test_double_fidelity）は入口の周に起こさない",
+   "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "json": {
-    "path": [
-     "nodes",
-     "p1.procedure_trace",
-     "cond",
-     "any",
-     0,
-     "all"
-    ],
-    "remove": {
-     "not": {
-      "builtin": "request_entry"
-     }
-    }
-   },
    "expect": "入口: 他の条件が全部真でも",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_request_entry"
     ]
-   }
-  },
-  {
-   "id": "EJ8",
-   "title": "p1.gate_efficacy は入口の周に起こさない",
-   "file": "graphloops/graphs/review-loop.json",
-   "suite": "graphloops",
-   "json": {
-    "path": [
-     "nodes",
-     "p1.gate_efficacy",
-     "cond",
-     "any",
-     0,
-     "all"
-    ],
-    "remove": {
-     "not": {
-      "builtin": "request_entry"
-     }
-    }
    },
-   "expect": "入口: 他の条件が全部真でも",
-   "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_request_entry"
-    ]
-   }
-  },
-  {
-   "id": "EJ9",
-   "title": "p1.test_double_fidelity は入口の周に起こさない",
-   "file": "graphloops/graphs/review-loop.json",
-   "suite": "graphloops",
-   "json": {
-    "path": [
-     "nodes",
-     "p1.test_double_fidelity",
-     "cond",
-     "any",
-     0,
-     "all"
-    ],
-    "remove": {
-     "not": {
-      "builtin": "request_entry"
-     }
-    }
-   },
-   "expect": "入口: 他の条件が全部真でも",
-   "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_request_entry"
-    ]
-   }
+   "old": "        return False, f\"{why}のため、{noun}を起こさない\"",
+   "new": "        return _deep(v, touched, when)   # 変異: 入口の周でも残りの条件で決める"
   },
   {
    "id": "WT1",
@@ -3835,20 +3780,6 @@
    "expect": "自動の腕の本命"
   },
   {
-   "id": "DL1",
-   "title": "期限を過ぎた instance は overdue",
-   "file": "graphloops/engine/util.py",
-   "suite": "graphloops",
-   "old": "\"overdue\": t >= datetime.datetime.fromisoformat(inst[\"deadline_at\"])",
-   "new": "\"overdue\": False",
-   "expect": "status: 期限を過ぎた instance は overdue",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_deadline_wait_relaunch"
-    ]
-   }
-  },
-  {
    "id": "DL2",
    "title": "起こし直しは試行の回数を刻む",
    "file": "graphloops/engine/commands.py",
@@ -3858,7 +3789,7 @@
    "expect": "relaunch: 試行の回数と理由を盤面に刻む",
    "tests": {
     "graphloops/tests/simulate.py": [
-     "test_deadline_wait_relaunch"
+     "test_relaunch"
     ]
    }
   },
@@ -3872,7 +3803,7 @@
    "expect": "relaunch: 新しい試行は別の置き場に書く",
    "tests": {
     "graphloops/tests/simulate.py": [
-     "test_deadline_wait_relaunch"
+     "test_relaunch"
     ]
    }
   },
@@ -3886,21 +3817,21 @@
    "expect": "relaunch: 作業ツリーの基準点は",
    "tests": {
     "graphloops/tests/simulate.py": [
-     "test_deadline_wait_relaunch"
+     "test_relaunch"
     ]
    }
   },
   {
    "id": "DL5",
-   "title": "期限を持たない instance に wait を使わせない",
+   "title": "起こし直しは前の試行の子を確かめてから（確かめられない試行の上に新しい試行を作らない）",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "        if not inst.get(\"deadline_at\"):",
-   "new": "        if False:",
-   "expect": "wait: 期限を持たない instance は拒む",
+   "old": "        _pgid, why = probe_group(m)\n        if why:\n            raise Reject(",
+   "new": "        _pgid, why = None, None\n        if why:\n            raise Reject(",
+   "expect": "relaunch: 前の試行の子を確かめられなければ新しい試行を作らない",
    "tests": {
     "graphloops/tests/simulate.py": [
-     "test_deadline_wait_relaunch"
+     "test_relaunch"
     ]
    }
   },
@@ -3919,26 +3850,12 @@
    }
   },
   {
-   "id": "DL7",
-   "title": "期限の値は 1 以上の整数",
-   "file": "graphloops/scripts/graphcheck.py",
-   "suite": "graphloops",
-   "old": "        if val is not None and not (isinstance(val, int) and not isinstance(val, bool) and val >= 1):",
-   "new": "        if False:",
-   "expect": "graphcheck: 期限は 1 以上の整数",
-   "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_graphcheck_review_shapes"
-    ]
-   }
-  },
-  {
    "id": "TF1",
    "title": "道具つきの子は利用者の設定を読まない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "TOOLED_FLAGS = ((\"--setting-sources\", \"\"), (\"--permission-prompts\", \"none\"))",
-   "new": "TOOLED_FLAGS = ((\"--permission-prompts\", \"none\"),)",
+   "old": "        if flag in BARE_FLAGS:\n            continue\n",
+   "new": "        if flag in BARE_FLAGS or flag == \"--setting-sources\":\n            continue\n",
    "expect": "柵: 利用者の設定を読む子は起こさない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3951,8 +3868,8 @@
    "title": "道具つきの子は聞く先を持たない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "TOOLED_FLAGS = ((\"--setting-sources\", \"\"), (\"--permission-prompts\", \"none\"))",
-   "new": "TOOLED_FLAGS = ((\"--setting-sources\", \"\"),)",
+   "old": "        if flag in BARE_FLAGS:\n            continue\n",
+   "new": "        if flag in BARE_FLAGS or flag == \"--permission-prompts\":\n            continue\n",
    "expect": "柵: 聞く先を持つ子は起こさない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3962,11 +3879,11 @@
   },
   {
    "id": "TF3",
-   "title": "権限を外す旗を持つ子は起こさない",
+   "title": "許可表に無い語（権限を外す旗・別名・=綴り）を持つ子は起こさない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "    bad = [f for f in UNSAFE_FLAGS if f in argv]",
-   "new": "    bad = []",
+   "old": "        if w not in table:\n",
+   "new": "        if w not in table and w in ():\n",
    "expect": "柵: 権限を外す旗を持つ子は起こさない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3979,8 +3896,8 @@
    "title": "道具と権限の形は engine が決めた値だけ",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "        if got[flag] is None or sorted(got[flag].split(\",\")) != sorted(want[flag].split(\",\")):",
-   "new": "        if got[flag] is None:",
+   "old": "            why = None if val == want[flag] else f\"{flag} が {val!r}——engine が決めた値は {want[flag]!r}\"",
+   "new": "            why = None",
    "expect": "柵: 権限の形を広げた子は起こさない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -3993,8 +3910,8 @@
    "title": "続きを頼む語にも柵を当てる",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "    for words in (argv, launch.get(\"resume_argv\")):",
-   "new": "    for words in (argv,):",
+   "old": "    for words, resume in ((argv, False), (launch.get(\"resume_argv\"), True)):",
+   "new": "    for words, resume in ((argv, False),):",
    "expect": "続きを頼む語にも同じ柵が当たる",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -4017,13 +3934,167 @@
    }
   },
   {
-   "id": "RR1",
-   "title": "期限切れは子を木ごと止める",
+   "id": "TF7",
+   "title": "コマンドを走らせる役に書ける gh api を許さない",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "            os.killpg(p.pid, signal.SIGTERM)",
-   "new": "            p.terminate()",
-   "expect": "期限切れでは、SIGTERM をすぐに処理しない孫",
+   "old": "\"git remote get-url\")",
+   "new": "\"git remote get-url\", \"gh api\")",
+   "expect": "sandbox を使えない環境では Bash を持つ役も dontAsk にし、Bash を丸ごと許さず読むだけのコマンドの前置だけを許す",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF8",
+   "title": "同じ旗を 2 度渡す子は起こさない（CLI が和を取るか後勝ちかに依らない）",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        if w in got:\n",
+   "new": "        if w in got and got[w] != words[i + 1]:\n",
+   "expect": "柵: 同じ旗を 2 度渡す子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF9",
+   "title": "要る旗を落とした子は起こさない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    missing = [f for f in table if f not in got and f not in OPTIONAL_FLAGS]",
+   "new": "    missing = []",
+   "expect": "柵: 要る旗を落とした子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF10",
+   "title": "設定のトップのキーは engine の値と同じだけ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if not isinstance(got, dict) or set(got) != set(want):",
+   "new": "    if not isinstance(got, dict) or not set(want) <= set(got):",
+   "expect": "柵: sandbox の外のキー（hooks）を混ぜた子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF11",
+   "title": "sandbox の設定は engine の値と同じ意味",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if rest != wrest:",
+   "new": "    if False:",
+   "expect": "柵: sandbox を切った子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF12",
+   "title": "守る場所は起こす時に引き直した集合を全部含む",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if lack:",
+   "new": "    if False:",
+   "expect": "柵: 守る作業ツリーを欠いた子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF13",
+   "title": "続ける会話は engine が決めた物だけ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            why = None if val in want[\"--resume\"] else",
+   "new": "            why = None if True else",
+   "expect": "柵: engine が決めていない会話を続ける子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF14",
+   "title": "system prompt の本文は役の定義だけ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            why = None if same else f\"--append-system-prompt-file",
+   "new": "            why = None if True else f\"--append-system-prompt-file",
+   "expect": "柵: 役の定義でない本文を system prompt に足した子は起こさない",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF15",
+   "title": "sandbox の書き込みを止める場所に cwd 自身を含める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    paths = {cwd} | (",
+   "new": "    paths = set() | (",
+   "expect": "git の作業ツリーでない場所では cwd と盤面だけを守る",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF16",
+   "title": "sandbox の外へ出る口を閉じる",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "SANDBOX_BASE = {\"enabled\": True, \"autoAllowBashIfSandboxed\": True, \"allowUnsandboxedCommands\": False,",
+   "new": "SANDBOX_BASE = {\"enabled\": True, \"autoAllowBashIfSandboxed\": True, \"allowUnsandboxedCommands\": True,",
+   "expect": "sandbox の形: 外へ出る口を閉じ",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "TF17",
+   "title": "sandbox を使えない環境では読むだけの形に落とす",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    deny = protected_paths(cwd, board_dir) if sandbox_available() else None",
+   "new": "    deny = protected_paths(cwd, board_dir)",
+   "expect": "sandbox を使えない環境では Bash を持つ役も dontAsk にし",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_tooled_launch_fence"
+    ]
+   }
+  },
+  {
+   "id": "RR1",
+   "title": "launch が止められたら子を木ごと止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    why = _stop_tree(p.pid, leader=p)",
+   "new": "    why = p.terminate()",
+   "expect": "kill_all は生きている子を孫まで止める",
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_role_run"
@@ -4049,8 +4120,8 @@
    "title": "古い試行の返答を新しい試行に受け付けない",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "            if inst.get(\"out_path\") != out_path:",
-   "new": "            if False:",
+   "old": "        if inst.get(\"out_path\") != out_path:",
+   "new": "        if False:",
    "expect": "古い試行の返答は、新しい試行の節に受け付けない",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -4101,6 +4172,20 @@
    }
   },
   {
+   "id": "LA5",
+   "title": "子はレビュー対象の作業ツリーで起こす",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "run_cwd, env, work = _isolated_cwd(d, inst) or cwd, None, None",
+   "new": "run_cwd, env, work = _isolated_cwd(d, inst), None, None",
+   "expect": "子はレビュー対象の作業ツリー（inputs.cwd）で起きる",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_launch_tooled_session"
+    ]
+   }
+  },
+  {
    "id": "LN1",
    "title": "線の結果: 見逃した腕の全部に答えを求める",
    "file": "graphloops/rules/review-loop.py",
@@ -4129,20 +4214,6 @@
    }
   },
   {
-   "id": "LN3",
-   "title": "線の結果: テスト一式が緑",
-   "file": "graphloops/rules/review-loop.py",
-   "suite": "graphloops",
-   "old": "    if out[\"suite\"][\"exit\"] != 0:",
-   "new": "    if False:",
-   "expect": "テスト一式が赤の結果",
-   "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_lane_rules"
-    ]
-   }
-  },
-  {
    "id": "LN4",
    "title": "判定へ渡すのは線の中で閉じなかった見逃しだけ",
    "file": "graphloops/rules/review-loop.py",
@@ -4161,8 +4232,8 @@
    "title": "線の見逃しは 1 度だけ判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "        if lane.get(\"delivered\"):\n            continue",
-   "new": "        if False:\n            continue",
+   "old": "        if lane.get(\"delivered\") or lane[\"state\"] == \"abandoned\":\n            continue",
+   "new": "        if lane[\"state\"] == \"abandoned\":\n            continue",
    "expect": "判定への渡し方: 同じ線の見逃しは 1 度だけ渡す",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4231,9 +4302,9 @@
    "title": "線の閉じなかった見逃しは周の頭で判定へ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    ls[\"prev_declared_faces\"] = _declared_faces(b, b.round - 1) + _lane_faces(b)",
+   "old": "    ls[\"prev_declared_faces\"] = _declared_faces(b, b.round - 1) + [{k: v for k, v in r.items() if k != LANE_DEFECT} for r in lane_rows]",
    "new": "    ls[\"prev_declared_faces\"] = _declared_faces(b, b.round - 1)",
-   "expect": "合流: 線がテストで閉じられなかった見逃し",
+   "expect": "合流: 閉じなかった見逃し（needs_test・defect）は宣言の穴",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_lane_end_to_end"
@@ -4311,6 +4382,1456 @@
    }
   },
   {
+   "id": "p01",
+   "title": "範囲外の番号は拒む",
+   "file": "graphloops/engine/pointers.py",
+   "suite": "graphloops",
+   "old": "            elif not 1 <= v <= len(names) or not isinstance(names[v - 1], str):",
+   "new": "            elif False:",
+   "marker": {
+    "where": "after"
+   },
+   "expect": "範囲外の番号は拒む",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p02",
+   "title": "名前の列を固めていない instance の番号は拒む",
+   "file": "graphloops/engine/pointers.py",
+   "suite": "graphloops",
+   "old": "            if names is None:\n                errs.append(",
+   "new": "            if False:\n                errs.append(",
+   "marker": {
+    "where": "after"
+   },
+   "expect": "名前の列を固めていない instance",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p03",
+   "title": "番号を名前に戻す",
+   "file": "graphloops/engine/pointers.py",
+   "suite": "graphloops",
+   "old": "                box[k] = names[v - 1]",
+   "new": "                pass",
+   "expect": "test_pointers_by_number",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p04",
+   "title": "schema に無い位置の宣言は読み込みで拒む",
+   "file": "graphloops/engine/pointers.py",
+   "suite": "graphloops",
+   "old": "            if leaf is None or leaf.get(\"type\") not in (\"string\", [\"string\"], [\"integer\", \"string\"]):",
+   "new": "            if False:",
+   "marker": {
+    "where": "after"
+   },
+   "expect": "widen: schema に無い位置の宣言",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p05",
+   "title": "reads に無い一覧の宣言は読み込みで拒む",
+   "file": "graphloops/engine/pointers.py",
+   "suite": "graphloops",
+   "old": "                if not Renderer({}, n.get(\"reads\")).allowed(f):",
+   "new": "                if False:",
+   "marker": {
+    "where": "after"
+   },
+   "expect": "widen: reads に無い一覧の宣言",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p06",
+   "title": "貼る一覧の各行に no を振る",
+   "file": "graphloops/engine/render.py",
+   "suite": "graphloops",
+   "old": "                    val = number(val, self.numbered[path])",
+   "new": "                    pass",
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p07",
+   "title": "連結した一覧は通し番号",
+   "file": "graphloops/engine/pointers.py",
+   "suite": "graphloops",
+   "old": "            offsets[f] = len(names)",
+   "new": "            offsets[f] = 0",
+   "expect": "test_pointers_by_number",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p08",
+   "title": "p2.fix_plan は単位を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p2.fix_plan"
+    ],
+    "del": "pointers"
+   },
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p09",
+   "title": "p3.delta_fix は答える義務を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p3.delta_fix"
+    ],
+    "del": "pointers"
+   },
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "q01",
+   "title": "入口の周の依頼の where を P0 の範囲に渡す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    return [f[\"where\"] for x in reqs for f in x[\"findings\"]]",
+   "new": "    return []",
+   "expect": "入口: 1 周目の P0 の 2 節",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_request_entry"
+    ]
+   }
+  },
+  {
+   "id": "q02",
+   "title": "修正が入った後の周は依頼の where を範囲に足さない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if not b.cond(ENTRY_BUILTIN)[0]:\n        return []",
+   "new": "    if False:\n        return []",
+   "expect": "入口: 依頼の where を P0 の範囲にするのは入口の周だけ",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_request_entry"
+    ]
+   }
+  },
+  {
+   "id": "q03",
+   "title": "最初に修正が入った次の周だけ並行 PR を見直す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    return at == rnd - 1, f\"判定から入る run で、最初に修正が入った周は {at}（今は {rnd} 周目）\"",
+   "new": "    return bool(at), f\"判定から入る run で、最初に修正が入った周は {at}（今は {rnd} 周目）\"",
+   "expect": "入口: 最初に修正が入った次の周だけ真",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_request_entry"
+    ]
+   }
+  },
+  {
+   "id": "q04",
+   "title": "p0.parallel_pr の再発火条件",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        return True, \"1 周目\"\n    return entry_first_fix(v)",
+   "new": "        return True, \"1 周目\"\n    return False, \"1 周目でない\"",
+   "expect": "入口: 並行 PR の交差は 1 周目と",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_request_entry"
+    ]
+   }
+  },
+  {
+   "id": "q05",
+   "title": "P0 の後の add は、起こす前の節を描き直して範囲に入れる",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    redraw = [i[\"id\"] for i in readers if not own(i) and not _started(b, i)]",
+   "new": "    redraw = []",
+   "marker": {
+    "where": "after"
+   },
+   "expect": "入口: 起こす前の P0 の節は描き直し",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_request_entry"
+    ]
+   }
+  },
+  {
+   "id": "p10",
+   "title": "p2.plan_review は一覧を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p2.plan_review"
+    ],
+    "del": "pointers"
+   },
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p11",
+   "title": "p3.fix は一覧を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p3.fix"
+    ],
+    "del": "pointers"
+   },
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p12",
+   "title": "p3.delta_review は一覧を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p3.delta_review"
+    ],
+    "del": "pointers"
+   },
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p13",
+   "title": "p3.delta_review2 は一覧を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p3.delta_review2"
+    ],
+    "del": "pointers"
+   },
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p14",
+   "title": "p3.delta_fix2 は一覧を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p3.delta_fix2"
+    ],
+    "del": "pointers"
+   },
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p15",
+   "title": "p2.history は一覧を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p2.history"
+    ],
+    "del": "pointers"
+   },
+   "expect": "番号で指した節が揃う",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "p16",
+   "title": "p2.diagnose は一覧を番号で指す",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p2.diagnose"
+    ],
+    "del": "pointers"
+   },
+   "expect": "前の周の R1 の削除候補も no で指せる",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "TN1",
+   "title": "道具名の柵: 指示書に実行器の引数が紛れ込めば赤",
+   "file": "graphloops/prompts/review-loop/p3.delta_gates.md",
+   "suite": "root",
+   "old": "その腕だけを撃ち直して（実行器の撃つ腕を名指しで絞る口で）赤を見た",
+   "new": "その腕だけを撃ち直して（`--only <腕>`）赤を見た",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "TN2",
+   "title": "道具名の柵: グラフの注記に実行器の引数が紛れ込めば赤",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "root",
+   "old": "実行器の返答の形を組む口が組んだ腕の行をそのまま",
+   "new": "実行器の --gate-efficacy が組んだ腕の行をそのまま",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "TN3",
+   "title": "道具名の柵: graphloops の手順書にテストのパスが紛れ込めば赤",
+   "file": "graphloops/commands/review-graph.md",
+   "suite": "root",
+   "old": "2. **回す**。",
+   "new": "2. **回す**（緑は graphloops/tests/run.sh で見る）。",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "TN4",
+   "title": "道具名の柵: 配布する観点（REVIEW.md）に腕の一覧の名前が紛れ込めば赤",
+   "file": "REVIEW.md",
+   "suite": "root",
+   "old": "**腕の一覧と実行器を持つリポジトリでは、それで撃て**",
+   "new": "**腕の一覧（tests/mutations.json）と実行器を持つリポジトリでは、それで撃て**",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "TN5",
+   "title": "道具名の柵: engine が役へ渡す値に引数の綴りを組めば赤",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "root",
+   "old": "    cut = {\"round\": b.round, \"from\": frm, \"rev\": snap, \"files\": files,",
+   "new": "    cut = {\"round\": b.round, \"from\": f\"--auto {frm}\", \"rev\": snap, \"files\": files,",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "TN6",
+   "title": "宣言の件数の柵: README の宣言からラチェットの名前が落ちれば赤",
+   "file": "README.md",
+   "suite": "root",
+   "old": "`EXPECTED_TESTS`・`VOCAB_REACHED`",
+   "new": "`EXPECTED_TESTS`",
+   "expect": "ラチェット（件数・語彙の到達）の突合が等値で、緩められていない"
+  },
+  {
+   "id": "TN7",
+   "title": "宣言の件数の柵: README の宣言の見出しが変われば赤（黙って突合を外さない）",
+   "file": "README.md",
+   "suite": "root",
+   "old": "### review-loop が読む検証の道具（このリポジトリの宣言）",
+   "new": "### 検証の道具",
+   "expect": "ラチェット（件数・語彙の到達）の突合が等値で、緩められていない"
+  },
+  {
+   "id": "CF2",
+   "title": "入れ物の内部の欄は自然な綴り（v._ctx）で読めない",
+   "file": "graphloops/engine/board.py",
+   "suite": "graphloops",
+   "expect": "入れ物: 内部の欄 v.",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_cond_truth_tables"
+    ]
+   },
+   "old": "        self.__name, self.__reads, self.__ctx = name, tuple(reads), ctx\n",
+   "new": "        self.__name, self.__reads, self.__ctx = name, tuple(reads), ctx\n        self._ctx = ctx\n"
+  },
+  {
+   "id": "GC9",
+   "title": "プロンプトの record.<欄> の穴を記録を書く宣言で照らす",
+   "file": "graphloops/scripts/graphcheck.py",
+   "suite": "graphloops",
+   "expect": "graphcheck: プロンプトの穴",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_graphcheck_review_shapes"
+    ]
+   },
+   "old": "            if core.startswith(\"record.\") and not rules_unreadable:",
+   "new": "            if False:"
+  },
+  {
+   "id": "GC10",
+   "title": "rules が読めない回は record. の穴を照らさない",
+   "file": "graphloops/scripts/graphcheck.py",
+   "suite": "graphloops",
+   "expect": "graphcheck: rules が読めない回",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_graphcheck_review_shapes"
+    ]
+   },
+   "old": "            if core.startswith(\"record.\") and not rules_unreadable:",
+   "new": "            if core.startswith(\"record.\"):"
+  },
+  {
+   "id": "OB1",
+   "title": "条件を式で書いていた版の graph を指す盤面は開かない",
+   "file": "graphloops/engine/board.py",
+   "suite": "graphloops",
+   "expect": "旧い形式の盤面",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_old_expression_graph_board"
+    ]
+   },
+   "old": "        refuse_expression_conds(self.state[\"graph\"], self.nodes)\n",
+   "new": ""
+  },
+  {
+   "id": "SP1",
+   "title": "仕様の審査の穴に答えない直しを拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    errs += [f\"仕様の審査の '{k[:40]}' に応答が無い",
+   "new": "    errs += [] and [f\"仕様の審査の '{k[:40]}' に応答が無い",
+   "expect": "仕様の道: 審査の穴に答えない直しは拒む",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP2",
+   "title": "受け入れ条件のテストのファイルが無い仕様を拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            errs.append(f\"acceptance '{a['key']}' のテストのファイル",
+   "new": "            (lambda *_: None)(f\"acceptance '{a['key']}' のテストのファイル",
+   "expect": "仕様の道: 受け入れ条件のテストのファイルが無い仕様は拒む",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP3",
+   "title": "Given/When/Then を持たないテストを拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        miss = [w for w in GWT if w not in text]",
+   "new": "        miss = []",
+   "expect": "仕様の道: Given/When/Then を持たないテスト",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP4",
+   "title": "穴を挙げない仕様の審査に faces_none を求める",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if not faces and blank(out.get(\"faces_none\"), 20):\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    if errs:\n        raise Reject(f\"{nid}: \" + \"; \".join(errs))\n\n\ndef spec_revise_output",
+   "new": "    if False:\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    if errs:\n        raise Reject(f\"{nid}: \" + \"; \".join(errs))\n\n\ndef spec_revise_output",
+   "expect": "仕様の道: 穴を挙げない審査は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP5",
+   "title": "承認の後に受け入れ条件の run を走らせて承認の時点の終了コードを取る",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        code, err = _spec_run(root, a[\"run\"])",
+   "new": "        code, err = 0, \"\"",
+   "expect": "仕様の道: 受け入れ条件が置き場・sha・承認の時点",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP6",
+   "title": "承認した受け入れ条件を判定に届ける",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    b.record[\"process\"][\"request_findings\"] = cur + [{\"round\": b.round, \"origin\": SPEC_ORIGIN",
+   "new": "    b.record[\"process\"][\"_spec_batch\"] = cur + [{\"round\": b.round, \"origin\": SPEC_ORIGIN",
+   "expect": "仕様の道: 承認した受け入れ条件は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP7",
+   "title": "知らない flow・gates を init で拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if v is not None and v != want:",
+   "new": "        if False:",
+   "expect": "仕様の道: 知らない flow は init で拒む",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes",
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "SP8",
+   "title": "承認の後のテストの改変を諮る",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if now_sha != a[\"sha256\"]:",
+   "new": "        if False:",
+   "expect": "仕様の道: 承認の後に受け入れ条件のテストが変わると",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "SP9",
+   "title": "周の途中の問いの continue は周を進めない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if in_round:\n        # 問うた節をここで済ませる",
+   "new": "    if False:\n        # 問うた節をここで済ませる",
+   "expect": "仕様の道: 承認の後も同じ周のまま",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP10",
+   "title": "周の途中の問いの stop は run をその場で止める",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            b.state[\"halted\"] = {\"node\": ph[\"node\"], \"round\": b.round, \"by\": \"answer\"",
+   "new": "            b.state[\"_halted\"] = {\"node\": ph[\"node\"], \"round\": b.round, \"by\": \"answer\"",
+   "expect": "仕様の道: stop で run がその場で止まり",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "SP11",
+   "title": "周の途中の問いの答えは別のフックへ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    fn = hook(b.rules, \"on_answer_in_round\" if in_round else \"on_answer\")",
+   "new": "    fn = hook(b.rules, \"on_answer\")",
+   "expect": "仕様の道: 承認の答えは仕様の記録に残り",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP12",
+   "title": "周の途中の問いに escalate を答えさせない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if in_round and ans not in IN_ROUND_ACTIONS:",
+   "new": "    if False:",
+   "expect": "仕様の道: 周の途中の問いに escalate は無い",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP13",
+   "title": "無人で周の途中の問いに当たったら止める",
+   "file": "graphloops/engine/advance.py",
+   "suite": "graphloops",
+   "old": "            b.state[\"halted\"] = {\"node\": nid, \"round\": b.round, \"by\": \"unattended\"",
+   "new": "            b.state[\"_halted\"] = {\"node\": nid, \"round\": b.round, \"by\": \"unattended\"",
+   "expect": "仕様の道: 無人では承認で止まり",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "SP14",
+   "title": "承認が済むまで P1 を始めない",
+   "file": "graphloops/graphs/review-loop.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p1.worktree_before",
+     "deps"
+    ],
+    "remove": "spec.freeze"
+   },
+   "expect": "仕様の道: 承認の前に P1・P2 の節は出ない",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP15",
+   "title": "仕様のバッチは 1 件ごとに出どころを書く",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "                 \"text\": f\"{SPEC_PROVENANCE}受け入れ条件",
+   "new": "                 \"text\": f\"受け入れ条件",
+   "expect": "仕様の道: 承認した受け入れ条件は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "RR3",
+   "title": "別の口からもグループごと止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "            os.killpg(pgid, sig)\n",
+   "new": "            os.kill(pgid, sig)\n",
+   "expect": "stop_group では孫",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR4",
+   "title": "起こした子のグループの番号を置き場の隣に書く",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "            pathlib.Path(pgid_file).write_text(json.dumps({\"pgid\": p.pid}), encoding=\"utf-8\")",
+   "new": "            pass",
+   "expect": "起こした子のグループの番号を置き場の隣",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR5",
+   "title": "番号が印より後に始まったプロセスに再利用されていたら止めない",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    if started > written + REUSE_SLACK:",
+   "new": "    if False:",
+   "expect": "番号が印より後に始まったプロセスに再利用されていれば",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR6",
+   "title": "起こした直後に起こし直されていたら自分で止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        if still_mine is not None and not still_mine():",
+   "new": "        if False:",
+   "expect": "起こし直された試行は子を止めて返る",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "GN1",
+   "title": "engine が埋めない node の欄の穴は graph の検査で落とす",
+   "file": "graphloops/scripts/graphcheck.py",
+   "suite": "graphloops",
+   "old": "            if core.startswith(\"node.\") and core != \"node.skills\":",
+   "new": "            if False:",
+   "expect": "graphcheck: engine が埋めない node の欄の穴",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_graphcheck_review_shapes"
+    ]
+   }
+  },
+  {
+   "id": "DL7",
+   "title": "起こし直しは新しい試行を書いた後に前の試行の子を止める",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    whys = [w for w in (stop_group(m) for m in marks) if w]",
+   "new": "    whys = []",
+   "expect": "relaunch: 前の試行の子を木ごと止めてから起こし直す",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_relaunch"
+    ]
+   }
+  },
+  {
+   "id": "DL8",
+   "title": "止めるのは新しい試行を書いた後（先に止めると古い launch の締めと版が競る）",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    new, n = _board_update(d, bump)",
+   "new": "    [stop_group(m) for m in marks]\n    new, n = _board_update(d, bump)",
+   "expect": "古い launch の行は『起こし直された古い試行』に言い換わる",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_relaunch_live_launch"
+    ]
+   }
+  },
+  {
+   "id": "RR7",
+   "title": "開始時刻を確かめられない試行は止めない",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    if started is None:\n        return None, f\"プロセス",
+   "new": "    if False:\n        return None, f\"プロセス",
+   "expect": "開始時刻を確かめられなければ止めずに理由を返す",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR8",
+   "title": "テストの実行器は時間切れで木ごと止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        e.tree_left = _kill(p)\n        raise",
+   "new": "        e.tree_left = p.kill()\n        raise",
+   "expect": "run_tree: 時間切れで孫まで止めて",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "SP16",
+   "title": "承認の前に受け入れ条件の run を走らせない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    rows = [{**a, \"sha256\": _file_sha(root, a[\"file\"])} for a in spec[\"acceptance\"]]",
+   "new": "    rows = [{**a, \"sha256\": _file_sha(root, a[\"file\"]), \"pre\": _spec_run(root, a[\"run\"])} for a in spec[\"acceptance\"]]",
+   "expect": "仕様の道: 受け入れ条件の run は承認の前に走らない",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_flow"
+    ]
+   }
+  },
+  {
+   "id": "SP17",
+   "title": "拒んだ init は置き場を消す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            shutil.rmtree(d, ignore_errors=True)\n            raise",
+   "new": "            raise",
+   "expect": "人の方針: 拒んだ init は置き場を残さない",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_policy_reaches_roles"
+    ]
+   }
+  },
+  {
+   "id": "SP18",
+   "title": "周の途中の問いの選択肢は立てる時点で照らす",
+   "file": "graphloops/engine/advance.py",
+   "suite": "graphloops",
+   "old": "        can = IN_ROUND_ACTIONS if out[\"ask\"].get(\"in_round\") else ANSWER_ACTIONS",
+   "new": "        can = ANSWER_ACTIONS",
+   "expect": "仕様の道: 周の途中の問いの選択肢に escalate",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "LN16",
+   "title": "最後の関門は撃てた腕 0 本を通さず人に諮る",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if not out.get(\"arms\") and (tree or \"\").strip() != b.loop_state.get(\"final_gate_empty_ok\"):",
+   "new": "    if False:",
+   "expect": "最後の関門: 撃てた腕が 0 本なら通さず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "PT1",
+   "title": "番号の誤りは役に返せば直る拒否で上げる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        raise AnswerReject(f\"{nid}: \" + \"; \".join(errs))",
+   "new": "        raise Reject(f\"{nid}: \" + \"; \".join(errs))",
+   "expect": "範囲外の番号は役に返せば直る拒否",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "PT2",
+   "title": "貼る行の no は engine の番号で上書きする",
+   "file": "graphloops/engine/pointers.py",
+   "suite": "graphloops",
+   "old": "{NO: offset + i + 1, **{k: v for k, v in x.items() if k != NO}}",
+   "new": "{NO: offset + i + 1, **x}",
+   "expect": "number: 行が元から no を持っていても",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_pointers_by_number"
+    ]
+   }
+  },
+  {
+   "id": "RC1",
+   "title": "--stop-after-round の周の締めの後で次の周を開かない",
+   "file": "graphloops/engine/advance.py",
+   "suite": "graphloops",
+   "old": "    if n and b.round >= n:",
+   "new": "    if False:",
+   "expect": "1 周目の締めの後の next が stopped と halted",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_stop_after_round"
+    ]
+   }
+  },
+  {
+   "id": "RC2",
+   "title": "gates=merge の run は線を台帳に載せない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if files and ls.get(\"gates\") != GATES_MERGE:   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）",
+   "new": "    if files:",
+   "expect": "線と関門の instance は出ず、線の台帳は空",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "RC3",
+   "title": "gates=merge の run は収束を名乗らず gates_deferred で止まる",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if _would_converge(b) and ls.get(\"gates\") == GATES_MERGE:",
+   "new": "    if False:",
+   "expect": "収束する筋書きでも converge は収束を名乗らず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "RC4",
+   "title": "add の後に起こす前の instance を描き直す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    for iid in redraw:",
+   "new": "    for iid in []:",
+   "expect": "入口: 判定役の instance が出ていても起こす前の add は受け",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_request_entry"
+    ]
+   }
+  },
+  {
+   "id": "RC5",
+   "title": "--input の鍵の綴り違いを init で拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        near = difflib.get_close_matches(k, chosen, n=1, cutoff=0.75) if k not in chosen else []",
+   "new": "        near = []",
+   "expect": "鍵の綴り違い（gate=merge）は既定に倒さず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "RC6",
+   "title": "gates_deferred の run の報告に残る義務を書かせる",
+   "file": "graphloops/prompts/review-loop/report.human_items.md",
+   "suite": "graphloops",
+   "old": "「合流した版を gates=merge 無しの run で回し、最後の関門（最終のコードで変異の検算を撃ち直す）を通す——収束と言えるのはその run だけ。差分がゲートに触れていたなら、P1 のゲートの検算もその run で撃つ」",
+   "new": "「」",
+   "expect": "止まった run も報告まで届き、報告の冒頭の指示書が",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "WP1",
+   "title": "外へ問い合わせを出せる役は検索語の規律を持つ",
+   "file": "agents/judge.md",
+   "suite": "root",
+   "expect": "役割 agent の定義と手順書の参照が整合する",
+   "old": "- **検索語に対象の名前を載せるな。**",
+   "new": "- **検索語について。**"
+  },
+  {
+   "id": "WP2",
+   "title": "検索語の規律の字面は役ごとに割れない",
+   "file": "agents/investigator.md",
+   "suite": "root",
+   "expect": "役割 agent の定義と手順書の参照が整合する",
+   "old": "どちらか見分けられない名前は持ち主の名前として扱う。",
+   "new": "どちらか見分けられない名前は第三者の名前として扱う。"
+  },
+  {
+   "id": "WP3",
+   "title": "外へ出せる役の選び方が空振りしない",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "expect": "役割 agent の定義と手順書の参照が整合する",
+   "old": "    if not OUTBOUND & set(agents[f.stem]):",
+   "new": "    if not set() & set(agents[f.stem]):"
+  },
+  {
+   "id": "BC2",
+   "title": "版の衝突は読み直して当て直す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "CONFLICT_RETRIES = 3",
+   "new": "CONFLICT_RETRIES = 1",
+   "expect": "_board_update: 衝突したら読み直して",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "BC3",
+   "title": "当て直しの間は trace の行を控える",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            b.held_trace = []\n            b.allow_halted = allow_halted",
+   "new": "            b.allow_halted = allow_halted",
+   "expect": "_board_update: 衝突したら読み直して",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "BC4",
+   "title": "mark は当て直しで行を重ねない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        picked.clear()   # 版の衝突で当て直すたびに組み直す（盤面の外の一覧に行を重ねない）",
+   "new": "        pass",
+   "expect": "cmd_launch の mark",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "BC5",
+   "title": "受け付けの負けは印で運ぶ",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            accept.conflict = True   # 返答は置き場に在る",
+   "new": "            pass",
+   "expect": "受け付けの衝突は",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "RR9",
+   "title": "止めるのは長でなくグループの消滅まで待つ",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "            if not alive():\n                return None",
+   "new": "            if not alive() or (leader is not None and leader.poll() is not None):\n                return None",
+   "expect": "run_tree: SIGTERM を無視する孫も",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "RR10",
+   "title": "止める信号の口は全コマンドに立てる",
+   "file": "graphloops/scripts/loop.py",
+   "suite": "graphloops",
+   "old": "    install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす",
+   "new": "    pass",
+   "expect": "止める信号: next が止められたら",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_stop_signal_stops_test_runner_tree"
+    ]
+   }
+  },
+  {
+   "id": "RR11",
+   "title": "起こした子は生きている子の集合に載せる",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    with _LIVE_LOCK:\n        LIVE.add(p)\n    if _STOPPING.is_set():",
+   "new": "    if _STOPPING.is_set():",
+   "expect": "kill_all は生きている子を孫まで止める",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_role_run"
+    ]
+   }
+  },
+  {
+   "id": "HL1",
+   "title": "止めた run の受け付けは拒む",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    _refuse_halted(b)\n    inst = b.rd[\"instances\"].get(node)",
+   "new": "    inst = b.rd[\"instances\"].get(node)",
+   "expect": "仕様の道: stop で止めた run の done",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "HL2",
+   "title": "止めた run の盤面は書かない（保存の 1 か所）",
+   "file": "graphloops/engine/board.py",
+   "suite": "graphloops",
+   "old": "        if self.halted_at_read and not self.allow_halted:",
+   "new": "        if False:",
+   "expect": "仕様の道: stop で止めた run の add",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "HL3",
+   "title": "止めた run にも手当て（patch）は当てられる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）",
+   "new": "    pass",
+   "expect": "仕様の道: stop で止めた run でも手当て",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "FG1",
+   "title": "最後の関門の 0 本は人に諮る",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if gate == [FINAL_GATE_EMPTY]:",
+   "new": "    if False:",
+   "expect": "撃てた腕が 0 本の関門で収束を言わず人に諮る",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_final_gate_empty_asks_human"
+    ]
+   }
+  },
+  {
+   "id": "FG2",
+   "title": "人が認めた木なら 0 本の関門を通す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            b.loop_state[\"final_gate_empty_ok\"] = (tree or \"\").strip() or None",
+   "new": "            pass",
+   "expect": "人が認めた木なら",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_final_gate_empty_asks_human"
+    ]
+   }
+  },
+  {
+   "id": "LN17",
+   "title": "線の defect は出どころつきで依頼の入口へ",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        {\"where\": r[\"key\"], \"text\": LANE_PROVENANCE + r[\"how\"],",
+   "new": "        {\"where\": r[\"key\"], \"text\": r[\"how\"],",
+   "expect": "線の defect は人の依頼の入口",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "DL9",
+   "title": "読んでいる間に起こし直されていたら作らない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        if prev[\"out_path\"] != str(old):",
+   "new": "        if False:",
+   "expect": "relaunch: 読んでいる間に",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_relaunch_race"
+    ]
+   }
+  },
+  {
+   "id": "DL10",
+   "title": "前の試行の印も止め直す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    return [pgid_path(inst[\"out_path\"])] + [pgid_path(x[\"prev_out_path\"]) for x in inst.get(\"attempt_log\") or [] if x.get(\"prev_out_path\")]",
+   "new": "    return [pgid_path(inst[\"out_path\"])]",
+   "expect": "relaunch: 前の relaunch が止め切れなかった",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_relaunch"
+    ]
+   }
+  },
+  {
+   "id": "SP19",
+   "title": "init の入口が die でも置き場を消す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        except BaseException:\n            shutil.rmtree",
+   "new": "        except Exception:\n            shutil.rmtree",
+   "expect": "init: rules の入口が die で抜けても",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "SP20",
+   "title": "承認の時点で緑の受け入れ条件は赤を見ていないと渡す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "                            \"既に exit 0（緑——赤を見ていないので、テストが要件を確かめているかを疑え）\" if a[\"exit_at_approval\"] == 0 else",
+   "new": "                            \"exit 0\" if a[\"exit_at_approval\"] == 0 else",
+   "expect": "仕様の道: 承認の時点で緑の受け入れ条件は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_spec_stop_and_changes"
+    ]
+   }
+  },
+  {
+   "id": "TD1",
+   "title": "直す単位が無い周は一式を走らせない",
+   "file": "graphloops/graphs/review-loop-tdd.json",
+   "suite": "graphloops",
+   "json": {
+    "path": [
+     "nodes",
+     "p3.tdd_start"
+    ],
+    "del": "cond"
+   },
+   "expect": "直す単位が無い周は、テスト一式を走らせる",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_tdd_flow"
+    ]
+   }
+  },
+  {
+   "id": "RR12",
+   "title": "信号の口の錠は再入できる",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "_LIVE_LOCK = threading.RLock()",
+   "new": "_LIVE_LOCK = threading.Lock()",
+   "expect": "信号の口（kill_all）は錠を持つ最中の同じスレッドでも",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_stop_signal_guards"
+    ]
+   }
+  },
+  {
+   "id": "RR13",
+   "title": "止め始めた後に起こした子はすぐ止める",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    if _STOPPING.is_set():   # 止める信号の後に起こした子",
+   "new": "    if False:   # 止める信号の後に起こした子",
+   "expect": "止める信号の後に起こした子はすぐ止めて",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_stop_signal_guards"
+    ]
+   }
+  },
+  {
+   "id": "RR14",
+   "title": "止め切れなかった木の理由を運ぶ",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        e.tree_left = _kill(p)",
+   "new": "        _kill(p)",
+   "expect": "止め切れなかった木の理由は時間切れの例外に添えて",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_stop_signal_guards"
+    ]
+   }
+  },
+  {
+   "id": "BC6",
+   "title": "入口は版の衝突の文を出して exit 2",
+   "file": "graphloops/scripts/loop.py",
+   "suite": "graphloops",
+   "old": "    except BoardConflict as e:\n        intake.failed(sys.argv[1:], 2, e, e.__traceback__, e.msg)\n        die(e.msg, 2)",
+   "new": "    except KeyboardInterrupt as e:\n        die(str(e), 2)",
+   "expect": "loop.py の入口は版の衝突の文を最後に 1 度出して",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "BC7",
+   "title": "launch_one は受け付けの負けに done の案内を足す",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if accept is not None and accept.conflict:",
+   "new": "    if False:",
+   "expect": "launch は受け付けの負けに done の案内を足す",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_board_conflict"
+    ]
+   }
+  },
+  {
+   "id": "FG3",
+   "title": "諮る分岐は止めた理由を立てる",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        b.loop_state[\"stop_reason\"] = ((out.get(\"ask\") or {}).get(\"kinds\") or [out.get(\"reason\")])[0]",
+   "new": "        pass",
+   "expect": "諮る前に止めた理由（stop_reason）を立てる",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_final_gate_empty_asks_human"
+    ]
+   }
+  },
+  {
+   "id": "FG4",
+   "title": "上限の周の 0 本の答えは 1 周延ばす",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            if b.state[\"max_rounds\"] <= b.round:   # 上限の周の答え——同じ木の関門を撃つ次の周を 1 つ開ける\n                _extend_one_round(b, entry)",
+   "new": "            pass",
+   "expect": "上限の周の continue は上限を 1 周だけ延ばし",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_final_gate_empty_asks_human"
+    ]
+   }
+  },
+  {
+   "id": "IS1",
+   "title": "道具ゼロの役はリポジトリの外で起こす",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if d_ is None or d_[\"tools\"] != []:\n        return None",
+   "new": "    return None",
+   "expect": "道具ゼロの役は Git リポジトリの外の一時ディレクトリで起こす",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_engine_launch"
+    ]
+   }
+  },
+  {
+   "id": "LN18",
+   "title": "0 本の線は要約で arms 0",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "                     \"arms\": len(out.get(\"arms\") or []) if out and not errs else None,",
+   "new": "                     \"arms\": None,",
+   "expect": "線の要約: 0 本の線は arms 0",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "LN19",
+   "title": "依頼の入口にも積んだ defect は宣言の穴で同じ 1 件と書く",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "                r[\"how\"] += LANE_SAME_ITEM\n",
+   "new": "                pass\n",
+   "expect": "合流: 依頼の入口にも積んだ defect は",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_end_to_end"
+    ]
+   }
+  },
+  {
+   "id": "LN20",
+   "title": "止めた線（abandoned）を判定へ渡さない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if lane.get(\"delivered\") or lane[\"state\"] == \"abandoned\":",
+   "new": "        if lane.get(\"delivered\"):",
+   "expect": "止めた線: 止めた線は判定へ渡さず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "LN21",
+   "title": "理由の無い止めた線を形の崩れた行として読む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        elif row[\"state\"] == \"abandoned\" and blank(row.get(\"why\"), 4):",
+   "new": "        elif False:",
+   "expect": "止めた線: 止めた線は判定へ渡さず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
+   "id": "LN22",
+   "title": "宣言に実行器が在るのに撃てた腕 0 本の線を判定へ渡す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if not out.get(\"arms\") and declared_mut:",
+   "new": "        if False:",
+   "expect": "撃てた腕 0 本: 宣言に実行器が",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_lane_rules"
+    ]
+   }
+  },
+  {
    "id": "ES1",
    "title": "review-graph の description が入口の節を名指しする",
    "file": "graphloops/commands/review-graph.md",
@@ -4364,6 +5885,93 @@
    "old": "——AI は自分から起動せず、実装完了時",
    "new": "——実装完了時",
    "expect": "重い工程のコマンドの description が、起動は人の指示のときだけと言う"
+  },
+  {
+   "id": "GM1",
+   "title": "gates=merge の run では P1 のゲートの検算も撃たない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if merge_off:\n            merged, mwhy = gates_merge(v)",
+   "new": "        if False:\n            merged, mwhy = gates_merge(v)",
+   "expect": "ゲートを触った差分でも p1.gate_efficacy の instance は出ず",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "GM2",
+   "title": "合流に回した P1 のゲートの検算を理由つきの not_applicable で残す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            elif state == \"na\" and n.get(\"cond\") == \"gate_efficacy_due\" and b.loop_state.get(\"gates\") == GATES_MERGE:",
+   "new": "            elif False:",
+   "expect": "撃たなかった素材は合流でまとめる理由と残る義務",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "IN1",
+   "title": "graph に宣言の無い --input の鍵を効かないと知らせる",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        print(f\"注意: {n}\", file=sys.stderr)",
+   "new": "        pass",
+   "expect": "宣言に無い鍵",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_gates_merge"
+    ]
+   }
+  },
+  {
+   "id": "FN1",
+   "title": "道具名の柵が宣言の --with の語を禁止語に導く",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "            elif prev == \"--with\":",
+   "new": "            elif False:",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "FN2",
+   "title": "道具名の柵が名前と引数をつないだ綴りを拾う",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "END = rf\"(?![{A}]|-(?!-))\"",
+   "new": "END = rf\"(?![{A}-])\"",
+   "expect": "配布物に固有の技術名・このリポジトリの検証の道具の名前が混ざっていない"
+  },
+  {
+   "id": "CL1",
+   "title": "CI の突合: 宣言の段の名前が CI の段に無ければ赤",
+   "file": ".review-checks.json",
+   "suite": "root",
+   "old": "{\"name\": \"pytest\", \"argv\"",
+   "new": "{\"name\": \"pytest-外れ\", \"argv\"",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL2",
+   "title": "CI の突合: shellcheck の深さ（-S warning）が外れれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "xargs -0 shellcheck -S warning",
+   "new": "xargs -0 shellcheck",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL3",
+   "title": "CI の突合: shellcheck を回す run: の段が消えれば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning",
+   "new": "        run: echo 静的検査を回さない",
+   "expect": "CI の設定が shellcheck を回す"
   }
  ],
  "dropped": [
@@ -4463,6 +6071,34 @@
   {
    "id": "GX1",
    "why": "消した: 前の周の頭から自動の腕を撃つ引数（gate_auto_args）ごと消した——撃ち手は並行の線 1 つ"
+  },
+  {
+   "id": "EJ8",
+   "why": "同じ変異になった: 深さの 3 節の条件を工場 _deep_due に畳んだので、入口の周に起こさない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
+  },
+  {
+   "id": "EJ9",
+   "why": "同じ変異になった: 深さの 3 節の条件を工場 _deep_due に畳んだので、入口の周に起こさない行は 1 行になり、EJ7 と同じ行を壊す（2026-09-25 条件の関数の 2 周目の run）"
+  },
+  {
+   "id": "DL1",
+   "why": "消した: 待ちの期限とそれを過ぎた印を外した（2026-09-25、人の依頼）——経過の表示は test_relaunch が見る"
+  },
+  {
+   "id": "DL7",
+   "why": "消した: graph の期限の値の検査ごと外した（2026-09-25、人の依頼）"
+  },
+  {
+   "id": "LN3",
+   "why": "柵ごと取り下げた: 線と最後の関門の返答の suite（テスト一式の自己申告）を読まない——一式の緑は engine が走らせた p4.ci が正本（2026-09-25、手順 3b）"
+  },
+  {
+   "ids": [
+    "GM1",
+    "GM2",
+    "GM3"
+   ],
+   "why": "消した: 合流でまとめて撃つ入力は gates=merge の 1 通りに揃えた（2026-09-26、人の決定）——gates=at_merge の実装ごと外した。gates=merge の腕は RC1〜RC6"
   }
  ]
 }
