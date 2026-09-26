@@ -291,3 +291,25 @@ def test_small_marker_refuses_children_and_sleep(inner):
     r = inner(files, 4)
     r.assert_outcomes(passed=1, failed=3)
     r.stdout.fnmatch_lines(["*small のテストが time.sleep を呼んだ（大きさの柵）*"])
+
+
+def test_scripts_reach_rmtree_only_through_parallel_rm():
+    """台本（graphloops/tests の下を再帰で）が rmtree に届くのは、範囲の守りを持つ正本 parallel.rm の本体だけ。
+    呼び出しの形に依らず名前への参照で見る（別名の import・関数を値で渡す形・getattr の文字列も拾う）——守りを呼び出し元ごとに
+    書くと、新しい消す口が守りを素通りする"""
+    import ast
+    tests = HERE.parent
+    found = []
+    for path in sorted(tests.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        # 許すのは正本 parallel.rm の本体と、名前を探すこの検査の本体だけ
+        own = {tests / "parallel.py": "rm", pathlib.Path(__file__).resolve(): "test_scripts_reach_rmtree_only_through_parallel_rm"}
+        allowed = {id(x) for f in tree.body if isinstance(f, ast.FunctionDef) and own.get(path) == f.name for x in ast.walk(f)}
+        for n in ast.walk(tree):
+            hit = ((isinstance(n, ast.Attribute) and n.attr == "rmtree") or (isinstance(n, ast.Name) and n.id == "rmtree")
+                   or (isinstance(n, ast.alias) and n.name == "rmtree")
+                   or (isinstance(n, ast.Constant) and n.value == "rmtree"))
+            if hit and id(n) not in allowed:
+                found.append(f"{path.relative_to(tests)}:{getattr(n, 'lineno', '?')}")
+    assert found == [], f"parallel.rm を通らない rmtree: {found}"
+

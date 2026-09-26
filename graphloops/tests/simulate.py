@@ -1960,23 +1960,30 @@ def test_role_run():
             return th, got, int(pidf.read_text(encoding="utf-8")) if pidf.is_file() and pidf.read_text(encoding="utf-8") else None
 
         mark = pathlib.Path(str(out) + ".pgid")
-        # reap=False: 止める口だけで孫まで止まるかを見る（試行の終わりの刈り取りが代わりに孫を止めると、止める口の欠陥が隠れる）
-        th, got, pid = sleeper({"reap": False})
-        check(mark.is_file() and json.loads(mark.read_text(encoding="utf-8")).get("pgid"),
-              "起こした子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口")
-        t0 = time.monotonic()
-        why = role_run.stop_group(str(mark))
-        th.join(30)
-        check(why is None and not th.is_alive() and not got.get("ok") and time.monotonic() - t0 < 30,
-              f"stop_group は別の口から試行の子を止め、run_role は失敗として返る（{why} {got.get('why')}）")
-        check(pid is not None and gone(pid), f"stop_group では孫（前置の層の先の claude に当たる）まで止まる（pid {pid}）")
-        check(not mark.exists(), "子が終わったら印を消す（残った番号が別のグループに当たらない）")
-        # launch のプロセスが止められたとき（kill_all）も、生きている子を孫まで止める
-        th, got, pid = sleeper({"log_path": None, "reap": False})
-        role_run.kill_all()
-        th.join(30)
-        check(not th.is_alive() and pid is not None and gone(pid) and not mark.exists(),
-              f"kill_all は生きている子を孫まで止める（launch が止められても子を残さない。pid {pid}）")
+        # 止める口だけで孫まで止まるかを見る——試行の終わりの刈り取り（_end_attempt）が代わりに孫を止めると、止める口の欠陥が
+        # 隠れるので、この 2 回だけ刈らずに印だけ消す形に差し替える。途中の刈り取り（長が終わっても管が閉じない回の _reap_one）は
+        # 差し替えない: fakeclaude の sleep の孫は出力の管を継がないので走らない、が前提（固定具を変えるならこの前提を見直せ）
+        real_end = role_run._end_attempt
+        role_run._end_attempt = lambda trees, pgid_file: pathlib.Path(pgid_file).unlink(missing_ok=True)
+        try:
+            th, got, pid = sleeper({})
+            check(mark.is_file() and json.loads(mark.read_text(encoding="utf-8")).get("pgid"),
+                  "起こした子のグループの番号を置き場の隣（<out>.pgid）に書く——別のプロセス（relaunch）が止める口")
+            t0 = time.monotonic()
+            why = role_run.stop_group(str(mark))
+            th.join(30)
+            check(why is None and not th.is_alive() and not got.get("ok") and time.monotonic() - t0 < 30,
+                  f"stop_group は別の口から試行の子を止め、run_role は失敗として返る（{why} {got.get('why')}）")
+            check(pid is not None and gone(pid), f"stop_group では孫（前置の層の先の claude に当たる）まで止まる（pid {pid}）")
+            check(not mark.exists(), "子が終わったら印を消す（残った番号が別のグループに当たらない）")
+            # launch のプロセスが止められたとき（kill_all）も、生きている子を孫まで止める
+            th, got, pid = sleeper({"log_path": None})
+            role_run.kill_all()
+            th.join(30)
+            check(not th.is_alive() and pid is not None and gone(pid) and not mark.exists(),
+                  f"kill_all は生きている子を孫まで止める（launch が止められても子を残さない。pid {pid}）")
+        finally:
+            role_run._end_attempt = real_end
         # 起こした直後に起こし直されていたと分かったら、その子を自分で止めて『起こし直された』で返る（still_mine）
         seen_mark = {}
 

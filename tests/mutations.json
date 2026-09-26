@@ -5090,7 +5090,7 @@
    "title": "起こした子のグループの番号を置き場の隣に書く",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "            pathlib.Path(pgid_file).write_text(json.dumps({\"pgid\": p.pid}), encoding=\"utf-8\")",
+   "old": "            pathlib.Path(pgid_file).write_text(json.dumps({\"pgid\": p.pid, \"owner\": os.getpid()}), encoding=\"utf-8\")",
    "new": "            pass",
    "expect": "起こした子のグループの番号を置き場の隣",
    "tests": {
@@ -5104,8 +5104,8 @@
    "title": "番号が印より後に始まったプロセスに再利用されていたら止めない",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    if started > written + REUSE_SLACK:",
-   "new": "    if False:",
+   "old": "        elif started <= born + REUSE_SLACK:",
+   "new": "        elif True:",
    "expect": "番号が印より後に始まったプロセスに再利用されていれば",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5174,8 +5174,8 @@
    "title": "開始時刻を確かめられない試行は止めない",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    if started is None:\n        return None, None, f\"プロセス",
-   "new": "    if False:\n        return None, None, f\"プロセス",
+   "old": "        if started is None:\n            return [], f\"プロセス",
+   "new": "        if False:\n            return [], f\"プロセス",
    "expect": "開始時刻を確かめられなければ止めずに理由を返す",
    "tests": {
     "graphloops/tests/simulate.py": [

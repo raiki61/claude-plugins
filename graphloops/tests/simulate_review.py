@@ -5589,7 +5589,6 @@ def test_big_diff():
     check(pt_inst.get("deliver") == "path" and not pt_inst.get("launch") and f"ROW_{BIG_ROWS - 1:05d}" in body,
           f"engine が起こさない path の役は、差分の本文を末尾まで受け取る（deliver {pt_inst.get('deliver')}・{len(body.encode('utf-8'))} バイト）")
     rm(run.tmp)
-    shutil.rmtree(gtmp, ignore_errors=True)
 
 
 

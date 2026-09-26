@@ -9,6 +9,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -279,6 +280,30 @@ def test_kill_sends_sigkill_to_a_group_that_ignores_sigterm(monkeypatch):
         assert p.stdout.readline().strip() == b"ready"
         role_run._kill(p)
         p.wait(timeout=15)
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+
+
+def test_kill_stops_the_grandchild_while_the_leader_lives():
+    """長が生きている間に孫を起こした木を、_kill が孫まで止める。OS で見送らない——Windows は taskkill /T /F の道（/T は
+    『指定したプロセスとそれが起こした子を終わらせる』。孫まで届くかは文書に無いので、ここが実機で確かめる口）、POSIX は
+    _stop_tree の数え上げの道を通る。孫は自分で終わる（120 秒）固定具で、後始末で止めるのは持っている Popen だけ"""
+    code = ("import subprocess,sys,time\n"
+            "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+            "print(g.pid, flush=True)\n"
+            "time.sleep(120)")
+    kw = ({"start_new_session": True} if os.name == "posix"
+          else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)})
+    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, **kw)
+    try:
+        grand = int(p.stdout.readline().strip())
+        assert role_run._kill(p) is None
+        t0 = time.monotonic()   # 止めた孫は回収・終わりが非同期なので、居なくなるまで数え直す（1 回見は回収前を生きていると読む）
+        while role_run._started_at(grand) != role_run.GONE and time.monotonic() - t0 < 30:
+            time.sleep(0.2)
+        assert role_run._started_at(grand) == role_run.GONE, f"孫 {grand} が残った"
     finally:
         if p.poll() is None:
             p.kill()

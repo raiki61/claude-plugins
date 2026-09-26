@@ -11,6 +11,8 @@
     loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
     loop.py answer --text <答え> [--note <本文>] [--detail <json>]  # 人に聞く番のとき（本文は次の周の再審に渡る。--detail は rules が受ける構造の値）
     loop.py stop   --reason <理由>                       # 走っている run を人がその時点で止める（理由は記録に残り、graph が宣言する後始末の節——報告——だけが走る）
+    loop.py children [--dir] [--stop --reason <理由> [--include-running]]   # 盤面の印から、この run が起こした子の残りを一覧する（信号なし）・止める
+                                                     # （既定で止めるのは launch が居なくなった後の止め残しだけ。走っている試行と受け付けの前の instance は --include-running のときだけ）
     loop.py thicken --to <段> --reason <理由>           # 段の昇格（降格は不可。段名は graph の thickness.tiers）
     loop.py add    --file <items.json> --reason <理由>   # ループの外で得たものを記録へ（rules の add が受ける）
     loop.py patch  --path <[record.]記録の欄 | state.<盤面の欄>> (--file <json> | --delete) --reason   # 記録（既定）か盤面の手当て——書くか消す（痕跡が残る最終手段）
@@ -34,7 +36,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
 
 from engine import commands as c  # noqa: E402
-from engine import intake, util  # noqa: E402
+from engine import children, intake, util  # noqa: E402
 from engine.role_run import StopSignal, install_stop_handlers  # noqa: E402
 from engine.util import BoardConflict, Reject, die  # noqa: E402
 
@@ -106,6 +108,14 @@ def main():
     s.add_argument("--dir")
     s.add_argument("--reason", required=True)
     s.set_defaults(fn=c.cmd_stop)
+
+    s = sub.add_parser("children", help="盤面の印（*.pgid）から、この run が起こした子の残りを一覧する（既定・信号なし）・--stop で止める（ps の文字列で探さない）")
+    s.add_argument("--dir")
+    s.add_argument("--stop", action="store_true", help="印の子を木ごと止める（既定は launch が居なくなった後の止め残しで、instance が受け付けの前でない物だけ）")
+    s.add_argument("--reason", help="止める理由（--stop のとき必須。盤面の trace に残る）")
+    s.add_argument("--include-running", action="store_true",
+                   help="いま走っている試行（印を書いた launch が生きている・古い印で確かめられない）と受け付けの前の instance の子も止める。受け付けの前の試行は relaunch・stop を先に使え")
+    s.set_defaults(fn=children.cmd_children)
 
     s = sub.add_parser("thicken")
     s.add_argument("--dir")
