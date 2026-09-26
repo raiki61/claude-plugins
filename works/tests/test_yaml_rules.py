@@ -13,7 +13,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
 - loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る
 - 上のどれでもない種類の節（loop: など）は違反（決まりを決めていない種類を黙って通さない）
 
-違反の見本は tests/yaml_bad/（1 本 1 違反）、守った見本は tests/yaml_good/。YAML を読むのはテストだけ（PyYAML は run.sh が足す）。
+違反の見本は tests/yaml_bad/（1 本 1 違反。どの決まりに引っかかるべきかは BAD_EXPECT に置き、件数だけでなく文面で照合する）、
+守った見本は tests/yaml_good/。YAML を読むのはテストだけ（PyYAML は run.sh が足す）。
 """
 import pathlib
 import tempfile
@@ -33,6 +34,28 @@ QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種�
 # 役の節: (フォルダ, ファイル, 節)。どれもブロックの最初の AI の節で、輪（loop_group）の 1 周目の新しい会話で起きる
 ROLES = (("blk-judge", "blk-judge.yaml", "judge"), ("blk-fix", "blk-fix.yaml", "fix"),
          ("blk-delta", "blk-delta.yaml", "review"))
+
+
+# 違反の見本（yaml_bad の stem）→ 出るべき違反の文面の一部。狙いの検査が壊れて別の検査が偶然 1 件出しても赤になるように、
+# 節と決まりと実際の値まで書く（ESLint の RuleTester が invalid な例ごとに messageId を求めるのと同じ考え）
+BAD_EXPECT = {
+    "ai_no_idle_timeout": "節 judge: AI の節の idle_timeout が 1728000000 でない（None）",
+    "ai_no_output_format": "節 judge: AI の節に output_format が無い",
+    "ai_no_sandbox": "節 judge: AI の節の sandbox が {enabled: true, allowUnsandboxedCommands: false} でない"
+                     "（{'enabled': False, ",
+    "ai_no_setting_sources": "節 judge: AI の節の settingSources が [] でない（'（無し）'",
+    "ai_sandbox_unsandboxed_allowed": "節 judge: AI の節の sandbox が {enabled: true, allowUnsandboxedCommands: false} でない"
+                                      "（{'enabled': True}）",
+    "approval_with_timeout": "節 gate: approval の節に期限（timeout・idle_timeout）を書いた",
+    "fix_outside_blk_fix": "節 fix: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash', 'Edit', 'Write']）",
+    "loop_body_timeout": "節 judge-loop の中の節 accept: bash の節の timeout が 1728000000 でない（120000）",
+    "loop_no_max": "節 judge-loop: loop_group の max_iterations が 3 でない（None）",
+    "loop_no_until_bash": "節 judge-loop: loop_group に until_bash が無い",
+    "readonly_no_allowed_tools": "節 judge: AI の節に allowed_tools が無い",
+    "readonly_with_edit": "節 judge: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Edit']）",
+    "script_no_timeout": "節 accept: script の節の timeout が 1728000000 でない（None）",
+    "timeout_25days": "節 run: bash の節の timeout が 1728000000 でない（2160000000）",
+}
 
 
 def _is_deadline(v):
@@ -118,13 +141,19 @@ def check_file(path: pathlib.Path) -> list:
 
 
 class YamlRulesCase(unittest.TestCase):
+    def assertOneRule(self, found, part, what):
+        """違反がちょうど 1 つで、その文面が part を含む（件数だけでは狙いの決まりが当たったか分からない）"""
+        self.assertEqual([part in f for f in found], [True],
+                         f"{what}: 違反はちょうど 1 つで {part!r} を含むはず: {found}")
+
     def test_each_bad_yaml_is_red(self):
         bad = sorted((TESTS / "yaml_bad").glob("*.yaml"))
         self.assertGreaterEqual(len(bad), 5)
+        # 期待の無い見本・見本の無い期待を許さない
+        self.assertEqual({p.stem for p in bad}, set(BAD_EXPECT))
         for p in bad:
             with self.subTest(p.name):
-                found = check_file(p)
-                self.assertEqual(len(found), 1, f"{p.name}: 違反はちょうど 1 つのはず: {found}")
+                self.assertOneRule(check_file(p), f"{p.name}: {BAD_EXPECT[p.stem]}", p.name)
 
     def test_good_yaml_is_green(self):
         good = sorted((TESTS / "yaml_good").glob("*.yaml"))
@@ -142,33 +171,41 @@ class YamlRulesCase(unittest.TestCase):
     def test_writer_allowed_only_in_blk_fix(self):
         body = (TESTS / "yaml_bad" / "fix_outside_blk_fix.yaml").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmp:
-            for folder, name, want in (("blk-fix", "blk-fix.yaml", 0), ("blk-judge", "blk-fix.yaml", 1),
-                                       ("blk-fix", "other.yaml", 1)):
+            outside = "AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash', 'Edit', 'Write']）"
+            for folder, name, want in (("blk-fix", "blk-fix.yaml", None), ("blk-judge", "blk-fix.yaml", outside),
+                                       ("blk-fix", "other.yaml", outside)):
                 p = pathlib.Path(tmp) / folder / name
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(body, encoding="utf-8")
                 with self.subTest(f"{folder}/{name}"):
-                    self.assertEqual(len(check_file(p)), want, check_file(p))
+                    if want is None:
+                        self.assertEqual(check_file(p), [])
+                    else:
+                        self.assertOneRule(check_file(p), f"{name}: 節 fix: {want}", f"{folder}/{name}")
             # blk-fix の中でも fix 以外の節は読むだけの道具に限る
             p = pathlib.Path(tmp) / "blk-fix" / "blk-fix.yaml"
             p.write_text(body.replace("id: fix", "id: accept-fix"), encoding="utf-8")
-            self.assertEqual(len(check_file(p)), 1, check_file(p))
+            self.assertOneRule(check_file(p), f"blk-fix.yaml: 節 accept-fix: {outside}", "blk-fix/accept-fix")
 
     def test_setting_sources_project_only_with_skills(self):
         base = ("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n"
                 "    sandbox: {enabled: true, allowUnsandboxedCommands: false}\n"
                 "    idle_timeout: 1728000000\n    output_format: {type: object}\n")
         with tempfile.TemporaryDirectory() as tmp:
-            for extra, want in (("    settingSources: []\n", 0),
-                                ("    skills: [x]\n    settingSources: [project]\n", 0),
-                                ("    skills: [x]\n    settingSources: []\n", 0),
-                                ("    settingSources: [project]\n", 1),
-                                ("    skills: [x]\n    settingSources: [project, user]\n", 1),
-                                ("    skills: [x]\n", 1)):
+            bad = "w.yaml: 節 judge: AI の節の settingSources が [] でない"
+            for extra, want in (("    settingSources: []\n", None),
+                                ("    skills: [x]\n    settingSources: [project]\n", None),
+                                ("    skills: [x]\n    settingSources: []\n", None),
+                                ("    settingSources: [project]\n", f"{bad}（['project']。"),
+                                ("    skills: [x]\n    settingSources: [project, user]\n", f"{bad}（['project', 'user']。"),
+                                ("    skills: [x]\n", f"{bad}（'（無し）'")):
                 p = pathlib.Path(tmp) / "w.yaml"
                 p.write_text(base + extra, encoding="utf-8")
                 with self.subTest(extra):
-                    self.assertEqual(len(check_file(p)), want, check_file(p))
+                    if want is None:
+                        self.assertEqual(check_file(p), [])
+                    else:
+                        self.assertOneRule(check_file(p), want, extra)
 
 
 def _is_ai(node):
