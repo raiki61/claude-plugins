@@ -4,9 +4,10 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - check_request: 依頼（findings の配列）を rules の add に通し、盤面の request.json に積む
 - check_judge:   判定役（p2.diagnose）の返答。作業ツリー → 型 → rules の judge_output。通れば盤面に judgment.json
 - check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units
-- check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output
+- check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
 - role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）
 - snapshot_tree: 作業ツリーの写し（差分を切る節が盤面の delta-snapshot.json に置き、check_delta が突き合わせる）
+- touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う）
 
 check_* は全部 dict を返し、例外で拒まない。拒否は {"ok": False, "reason": str}。
 git は全部 repo を cwd にして呼ぶ。HEAD をその場で読むのは base_rev が空のときだけ（空なら repo の HEAD を版にする）。
@@ -41,6 +42,7 @@ VALIDATOR = CORE / "scripts" / "review-record.py"
 REQUEST_FILE = "request.json"        # 依頼のバッチの一覧（rules の REQUEST_SCHEMA の形）
 JUDGMENT_FILE = "judgment.json"      # 受け付けた判定の返答（judge_output が正規化した後の姿）
 SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "diff_sha256": str}
+DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
 GIT_TIMEOUT = 120
 
 # 修正役の返答のうち、受け付けが読む欄だけの型（役の output_format は blk-fix が持つ。ここは読む欄が在るかだけを見る）
@@ -182,17 +184,43 @@ def _guard(fn, **on_reject):
         return {"ok": False, "reason": f"受け付けの中で例外（{type(e).__name__}: {e}）", **on_reject}
 
 
+def _entry_digest(p: pathlib.Path) -> bytes:
+    """未追跡の 1 本の中身の sha256。symlink はリンク先の名前、ファイルは中身、フォルダ（入れ子の git リポジトリは
+    git が `sub/` の 1 行で出す）は中の全部の名前と中身を名前の順に続けた物（.git の下は除く）。それ以外（FIFO など）は種類だけ"""
+    if p.is_symlink():
+        return hashlib.sha256(b"link\0" + os.fsencode(os.readlink(p))).digest()
+    if p.is_file():
+        return hashlib.sha256(b"file\0" + p.read_bytes()).digest()
+    if p.is_dir():
+        h = hashlib.sha256(b"dir\0")
+        for top, dirs, files in os.walk(p):
+            dirs[:] = sorted(d for d in dirs if d != ".git")
+            for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
+                q = pathlib.Path(top) / name
+                h.update(os.fsencode(str(q.relative_to(p))) + b"\0" + _entry_digest(q))
+        return h.digest()
+    return hashlib.sha256(b"other\0" if p.exists() else b"gone\0").digest()
+
+
 def snapshot_tree(repo: pathlib.Path) -> dict:
     """作業ツリーの写し {"porcelain": str, "diff_sha256": str}。差分を切る節が盤面の delta-snapshot.json に置く。
     porcelain は git status --porcelain（未追跡は 1 本ずつ）。diff_sha256 は HEAD からの差分（--binary）と、未追跡の
-    ファイルの名前と中身を続けた sha256——名前が同じまま中身だけ変わっても違う値になる。git が効かなければ Reject を投げる"""
+    ファイルの名前と中身を続けた sha256——名前が同じまま中身だけ変わっても違う値になる。未追跡のフォルダ（入れ子の
+    git リポジトリ）は中身を辿って続ける（_entry_digest）。git が効かなければ Reject を投げる"""
     porcelain = _git(repo, "status", "--porcelain", "--untracked-files=all")
     h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", binary=True))
     for name in sorted(n for n in _git(repo, "ls-files", "--others", "--exclude-standard", "-z", binary=True).split(b"\0") if n):
-        p = pathlib.Path(repo) / os.fsdecode(name)
-        data = os.fsencode(os.readlink(p)) if p.is_symlink() else p.read_bytes()
-        h.update(b"\0untracked\0" + name + b"\0" + hashlib.sha256(data).digest())
+        p = pathlib.Path(repo) / os.fsdecode(name).rstrip("/")
+        h.update(b"\0untracked\0" + name + b"\0" + _entry_digest(p))
     return {"porcelain": porcelain, "diff_sha256": h.hexdigest()}
+
+
+def touched_files(repo: pathlib.Path, rev: str) -> list:
+    """修正が触ったファイル（repo の根からのパス、名前の順）。git diff --name-only <rev> と未追跡のファイル
+    （入れ子の git リポジトリは `sub/` の 1 本）。差分を切る節と check_delta が同じ物を使う"""
+    files = _git(repo, "diff", "--name-only", "--no-renames", rev).splitlines()
+    files += _git(repo, "ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/").splitlines()
+    return sorted(set(files))
 
 
 # ---------------------------------------------------------------- 受け付け
@@ -265,7 +293,8 @@ def check_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pat
 def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
     """審査役の返答を受け付ける。盤面に delta-snapshot.json が在れば、今の作業ツリーがその写しと同じかを先に見る
     （Ruling R3。無ければこの突き合わせは飛ばす）→ 型（graph の p3.delta_review の schema）→ rules の delta_review_output。
-    触ったファイルは git diff --name-only <base_rev> と未追跡のファイル。{"ok", "reason"}"""
+    触ったファイルは touched_files（git diff --name-only <base_rev> と未追跡のファイル）。
+    通れば盤面の delta-review.json に返答を書く。{"ok", "reason", "review_file"}"""
     def run():
         repo_p = pathlib.Path(repo)
         with _in_repo(repo_p):
@@ -278,11 +307,11 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
                     raise Reject("差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない"
                                  f"（git status --porcelain: 切った時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}）")
             _type_errors(reply, role_schema("p3.delta_review"), "差分の審査の返答")
-            files = _git(repo_p, "diff", "--name-only", "--no-renames", rev).splitlines()
-            files += _git(repo_p, "ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/").splitlines()
             rules = _rules()
             st = rules.DELTA_PASSES[1].state_key
-            b = _Board(board, rev, loop_state={st: {"round": 1, "files": sorted(set(files))}}, outputs={"p3.fix": {}})
+            b = _Board(board, rev, loop_state={st: {"round": 1, "files": touched_files(repo_p, rev)}}, outputs={"p3.fix": {}})
             rules.POST_CHECKS["delta_review_output"](b, "p3.delta_review", reply, None)
-        return {"ok": True, "reason": ""}
-    return _guard(run)
+            pathlib.Path(board).mkdir(parents=True, exist_ok=True)
+            path = _write_board(board, DELTA_REVIEW_FILE, reply)
+        return {"ok": True, "reason": "", "review_file": str(path)}
+    return _guard(run, review_file="")

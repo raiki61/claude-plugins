@@ -1,0 +1,34 @@
+name: blk-tests
+description: |
+  テストのブロック。対象リポジトリでテストのコマンドを 1 回走らせ、緑か赤かとログのパスを出す。ラインから include で使う。
+  赤でも節は通る（ok: true・green: false）——赤を人の関所に見せるのがこの段の仕事で、赤で run を止めない。
+
+inputs:
+  cmd:
+    required: true
+    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）
+
+returns: run
+outcome_field: ok
+
+nodes:
+  # コマンドの出力（標準出力と標準エラー）は盤面の tests.log に置く。標準入力は閉じる（入力待ちで止まらない）。
+  # コマンドの値は環境変数 INPUTS_CMD で届く（Archon は bash の本文に $INPUTS.<名> を差し込まない）
+  - id: run
+    bash: |
+      board="$ARTIFACTS_DIR/board"
+      mkdir -p "$board" || exit 1
+      log="$board/tests.log"
+      ( eval "$INPUTS_CMD" ) >"$log" 2>&1 </dev/null
+      if [ "$?" -eq 0 ]; then green=true; else green=false; fi
+      esc=$(printf '%s' "$log" | sed 's/\\/\\\\/g; s/"/\\"/g')
+      printf '{"ok": true, "green": %s, "log": "%s"}\n' "$green" "$esc"
+    timeout: 1728000000
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, green, log]
+      properties:
+        ok: {type: boolean}
+        green: {type: boolean}
+        log: {type: string}

@@ -1,0 +1,7 @@
+# 節 run を本当に走らせる（stub なし）。コマンド true は緑で終わり、出口の型を通る
+fixture:
+  inputs:
+    cmd: "true"
+  expect: completed
+  reached: [run]
+exec-code: true

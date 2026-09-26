@@ -1,0 +1,104 @@
+name: blk-delta
+description: |
+  修正差分の審査のブロック。周の頭で固めた版からの差分を切って盤面に置き、審査役（読むだけ）に修正が新しく作った穴
+  （写し・塞がない入口・宣言と実装のずれ）を探させ、受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回）。
+  ラインから include で使う。出口は受け付けた穴の数。
+
+inputs:
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版。空なら差分を切る時の HEAD（Ruling R2）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # git diff <base_rev>（未追跡のファイルも）を盤面の fix.diff に、切った時の作業ツリーの写しを delta-snapshot.json に置く。
+  # 版が引けないときは終了コード 1 で run を止める（審査役を起こさない）
+  - id: cut
+    script: cut
+    runtime: uv
+    timeout: 1728000000
+    with:
+      base_rev: $INPUTS.base_rev
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, files, diff_file]
+      properties:
+        ok: {type: boolean}
+        files: {type: array, items: {type: string}}
+        diff_file: {type: string}
+
+  # 審査役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
+  - id: delta-loop
+    depends_on: [cut]
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $accept.output.ok = true
+      nodes:
+        - id: review
+          command: delta-review
+          allowed_tools: [Read, Grep, Glob]
+          sandbox: {enabled: true}
+          idle_timeout: 1728000000
+          # role_schema("p3.delta_review") を 1 度出して貼った物（tests/test_blk_tests_delta.py が一致を見る）
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [faces, checks]
+            properties:
+              faces:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [key, kind, where, cite, why]
+                  properties:
+                    key: {type: string, minLength: 8}
+                    kind: {type: string, enum: [copy, entrance, contract_drift, dead_path, scope_creep]}
+                    where: {type: string, minLength: 1}
+                    cite: {type: string, minLength: 4}
+                    why: {type: string, minLength: 20}
+              faces_none: {type: string}
+              checks:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [key, closed, why]
+                  properties:
+                    key: {type: string, minLength: 8}
+                    closed: {type: boolean}
+                    why: {type: string, minLength: 20}
+        - id: accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [review]
+          with:
+            reply: {from: "$review.output"}
+            base_rev: $INPUTS.base_rev
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, reason]          # 返答が JSON でないときの拒否は review_file を持たない（script_io）
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              review_file: {type: string}
+
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の delta-review.json から出口を組む
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [delta-loop]
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, faces]
+      properties:
+        ok: {type: boolean}
+        faces: {type: integer, minimum: 0}

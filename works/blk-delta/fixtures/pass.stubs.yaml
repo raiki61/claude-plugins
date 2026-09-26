@@ -1,0 +1,15 @@
+# 審査役が穴 0 件と答え（tests/replies/delta_ok.json と同じ中身）、受け付けと集める節は本当に走って通る。
+# exec-code の作業ツリーは HEAD のままで差分が無いので、cut は stub で置く（盤面に写しを置かないので、受け付けは
+# 写しとの突き合わせを飛ばし、触ったファイル 0 本で規則に通す）
+cut:
+  ok: true
+  files: []
+  diff_file: fix.diff
+review:
+  faces: []
+  checks: []
+  faces_none: "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
+fixture:
+  expect: completed
+  reached: [cut, delta-loop, collect]
+exec-code: true
