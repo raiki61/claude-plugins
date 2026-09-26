@@ -41,14 +41,13 @@ jobs:
       - name: install shellcheck
         shell: bash
         run: python -m pip install shellcheck-py==0.11.0.1
-      # 独立した段は 3 OS のうち 1 本だけで回す（同じ .sh を 3 回見ても指摘は変わらない）。深さは tests/run.sh の
+      # 独立した段は 3 OS のうち 1 本だけで回す（tests/run.sh の中の同じ検査と ubuntu で二重に走るのは数秒で、段を残しても能力は減らない）。深さは tests/run.sh の
       # 手元の検査と同じ -S warning——片方だけ深くすると、手元で緑・CI で赤（またはその逆）になって、どちらが正本か分からなくなる。
       - name: shellcheck
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning
       # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。
-      # 見送りを失敗に数え、許すのは OS ごとの一覧（上の matrix の skip_allow）に名前の在る能力だけ
       - name: tests/run.sh
         shell: bash
         env:
