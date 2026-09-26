@@ -33,7 +33,7 @@ if str(CORE) not in sys.path:
 
 from board import BOARD_VERSION, CORE_DIR, GRAPH_SHA, BoardGap, DiskBoard  # noqa: E402
 from engine.rules import registry  # noqa: E402
-from engine.util import Reject  # noqa: E402
+from engine.util import Reject, now, set_path  # noqa: E402
 
 
 # ---------------------------------------------------------------- 再生の中だけの compile の控え
@@ -76,7 +76,8 @@ NOT_REPRODUCED = {
     "created": "時刻（盤面を作った時）",
     "done_at": "時刻（instance を受けた時）",
     "emitted_at": "時刻（instance を出した時）",
-    "launched_at": "時刻（役を起こした時）",
+    "launched_at": "時刻（役を起こした時）——値だけを比べず、在否は比べる（起こした印。RL の _started が読む。盤面は mark_launched・"
+                   "run_engine が置く。裁定 BL-R3）",
     # 盤面の版
     "state.rev": "盤面の版（保存の回数。手本の engine と保存の回数が違いうる）",
     "run_id": "盤面を作った時刻から engine が決める名前",
@@ -99,8 +100,8 @@ NOT_REPRODUCED = {
     "instance.attempt_log": "試行の控えは前の試行を出した時刻（prev_emitted_at）を持つ。試行の数 attempts と出し直した置き場 out_path は比べる",
     "instance.pointers": "一覧を固めた番号の控えを持たない（番号で書いた返答は engine の文で拒む。仕様 BL17）",
     "instance.delegate": "任せ先の起動を持たない",
-    "instance.launch_state": "engine の launch の起こし済みの印（launched_at と対。running → ended）。run_engine はその場で走らせて"
-                             "受けるまで返らず、役を起こすのは Archon とブロックなので、起こし中の印を持たない",
+    "instance.launch_state": "engine の launch の子の待ちの印（running → ended）。起こした印そのものは launched_at（在否を比べる）。"
+                             "盤面は役の終わりを知らない（役を起こして待つのは Archon とブロックで、終わりは受け付けの done で分かる）",
     "instance.continue_of": "同じ役の会話を続ける控え（graph の same_context_as を engine が起こす時に解く）。役の会話を起こすのは"
                             "Archon とブロック（same_context_as は graph から読む）",
     "instance.role_def_missing": "役の定義（agents/<役>.md）がこの環境に無かった印。役の定義を解くのは役を起こす Archon とブロック"
@@ -131,7 +132,8 @@ NOT_REPRODUCED = {
     "state.works": "works だけの欄（engine の盤面に無い）",
 }
 
-_ANY_KEYS = {k for k in NOT_REPRODUCED if "." not in k and ":" not in k and "（" not in k and " " not in k}
+_PRESENCE_KEYS = {"launched_at"}   # 値（時刻）は比べず、在否だけを比べる欄
+_ANY_KEYS = {k for k in NOT_REPRODUCED if "." not in k and ":" not in k and "（" not in k and " " not in k} - _PRESENCE_KEYS
 _STATE_KEYS = {k.split(".", 1)[1] for k in NOT_REPRODUCED if k.startswith("state.")}
 _RECORD_PATHS = {tuple(k.split(".")) for k in NOT_REPRODUCED if k.startswith("record.")}   # 記録の中の 1 か所
 _INSTANCE_KEYS = {k.split(".", 1)[1] for k in NOT_REPRODUCED if k.startswith("instance.")}
@@ -153,6 +155,9 @@ def normalize(obj, _path=()):
         for k, v in obj.items():
             p = (*_path, k)
             if k in _ANY_KEYS:
+                continue
+            if k in _PRESENCE_KEYS:
+                out[k] = "@時刻@" if v else v
                 continue
             if len(p) == 2 and p[0] == "state" and k in _STATE_KEYS:
                 continue
@@ -643,21 +648,20 @@ def compare(board: DiskBoard, step: Step) -> list:
 # 台本が手の環境を変えて回した手（手本は手の環境を撮らない）。再生は同じ環境を作って当てる
 NO_GIT_STEPS = {("test_rejections", "1", 33): "台本が PATH を空の置き場にして git の無い場を作った next（突合が『測れない』で止まる手）"}
 
-# 台本が engine のコマンドを通さずに盤面を手で書いてから打った手（手本の手として撮られない書き込みに結果が懸かる）。
-# 盤面は同じ書き込みを受ける口を持たず（仕様 4.1: 役を起こすのは Archon とブロックで、instance は起こした印 launched_at を
-# 持たない。返答の置き場 out_path は受けるまで在らない＝RL の _started は偽）、再生は盤面へ手本を書かない（写し直さない）ので、
-# 通しの再生はこの手の前で止め、手本の engine のこの手の前の記憶と比べる。値は (印の種類, 節)——test_board_replay が、
-# 手本の手の前に本当にその書き込みが在ることを確かめる
-HAND_EDITED_STEPS = {
+# 台本が engine のコマンドを通さずに「役が起きた」印を盤面に手で書いてから打った手（手本の手として撮られない書き込みに結果が懸かる）。
+# RL の _started は起こした印（launched_at）か返答の置き場のファイルで「役が起きた」と読む。works の盤面では返答の置き場は受けるまで
+# 在らず、ラインが役を起こす前に mark_launched で印を置く（裁定 BL-R3）。通しの再生は、手書きの印をこの手の直前の mark_launched に
+# 読み替えて当てる（手本の側も、返答の置き場のファイルで起きたと読ませた手は、その instance に起こした印が在る物として比べる）。
+# 値は (手書きの種類, 節, 理由)——test_board_replay が、手本の手の前に本当にその書き込みが在ることを確かめる
+HAND_MARKS = {
     ("test_request_entry", "8", 455): ("out_file", "p0.prior_decisions",
                                        "台本が描き直した p0.prior_decisions の返答の置き場（.a2）にファイルを書いてから add した"
-                                       "（RL は起きた役と読んで描き直さない。盤面は受けるまで置き場が無いので描き直す）"),
+                                       "（RL は起きた役と読んで描き直さない）"),
     ("test_request_entry", "9", 482): ("launched_at", "p2.diagnose",
                                        "台本が state.json の p2.diagnose の instance に launched_at を手で書いてから add した"
-                                       "（RL は判定役が起きたと読んで拒む。盤面は起こした印を持たない）"),
+                                       "（RL は判定役が起きたと読んで拒む）"),
     ("test_request_entry", "10", 509): ("out_file", "p2.diagnose",
-                                        "台本が p2.diagnose の返答の置き場にファイルを書いてから add した"
-                                        "（RL は判定役が起きたと読んで拒む。盤面は受けるまで置き場が無い）"),
+                                        "台本が p2.diagnose の返答の置き場にファイルを書いてから add した（RL は判定役が起きたと読んで拒む）"),
 }
 
 
@@ -680,24 +684,35 @@ def _view(state, record, n):
     return copy.deepcopy({"rd": state["rounds"][n - 1], "loop": state.get("loop"), "record": record})
 
 
-def cut_step(run_steps):
-    """HAND_EDITED_STEPS に載った手（通しの再生はその手の前で止める）。無ければ None"""
-    return next((s for s in run_steps if (run_steps.scenario, run_steps.run, s["seq"]) in HAND_EDITED_STEPS), None)
+def _marks(run_steps):
+    """この Run の HAND_MARKS の手 {seq: (種類, 節, 理由)}"""
+    return {q: v for (s, r, q), v in HAND_MARKS.items() if (s, r) == (run_steps.scenario, run_steps.run)}
+
+
+def _mark_golden(mem, run_steps, upto):
+    """手本の記憶に、手 upto までの HAND_MARKS の返答の置き場の手書きを、盤面の起こした印（launched_at の在否）として読み替える
+    （その試行の instance がまだ在れば。印は試行ごと）"""
+    for q, (kind, node, _) in _marks(run_steps).items():
+        if kind != "out_file" or q > upto:
+            continue
+        want = memory_at(run_steps, q, "before")["state"]["rounds"][-1]["instances"][node]["out_path"]
+        for rd in mem["state"]["rounds"]:
+            inst = rd["instances"].get(node)
+            if inst and inst["out_path"] == want and not inst.get("launched_at"):
+                inst["launched_at"] = "@手書きの印@"
+    return mem
 
 
 def golden_result(run_steps) -> dict:
     """手本の engine の ReplayResult（印のまま）: 周の終わりは周を開く口（open_next_round）に入った時の記憶（open_round の手の前。
     stop_after_round で開かずに止めた締めも含む）。最後は Run の最後の起動の後の盤面（MANIFEST の final）で、最後の周の終わりが
-    まだ無ければそこから取る。HAND_EDITED_STEPS の手が在る Run は、その手の前の記憶を最後とする"""
-    cut = cut_step(run_steps)
+    まだ無ければそこから取る。HAND_MARKS の返答の置き場の手書きは起こした印に読み替える（_mark_golden）"""
     rounds = {}
     for s in run_steps:
-        if cut is not None and s["seq"] >= cut["seq"]:
-            break
         if s["kind"] == "open_round":
-            m = memory_at(run_steps, s["seq"], "before")
+            m = _mark_golden(memory_at(run_steps, s["seq"], "before"), run_steps, s["seq"])
             rounds[m["state"]["round"]] = _view(m["state"], m["record"], m["state"]["round"])
-    fin = memory_at(run_steps, cut["seq"], "before") if cut else json.loads(blob(run_steps.meta["final"]["memory"]))
+    fin = _mark_golden(json.loads(blob(run_steps.meta["final"]["memory"])), run_steps, run_steps[-1]["seq"])
     n = fin["state"]["round"]
     if n not in rounds:
         rounds[n] = _view(fin["state"], fin["record"], n)
@@ -705,16 +720,13 @@ def golden_result(run_steps) -> dict:
 
 
 def golden_disk(run_steps) -> dict:
-    """手本の engine の最後のディスクの目録（MANIFEST の final）。HAND_EDITED_STEPS の手が在る Run は、その手の前の目録から
-    台本が手で書いた返答の置き場のファイルを除いた物（盤面へは書かない。書き込みそのものが再生に無い）"""
-    cut = cut_step(run_steps)
-    if cut is None:
-        return json.loads(blob(run_steps.meta["final"]["disk"]))
-    got = manifest_at(run_steps, cut["seq"], "before", "disk")
-    kind, node, _ = HAND_EDITED_STEPS[(run_steps.scenario, run_steps.run, cut["seq"])]
-    if kind == "out_file":
-        inst = memory_at(run_steps, cut["seq"], "before")["state"]["rounds"][-1]["instances"][node]
-        del got[inst["out_path"].removeprefix("@BOARD@/")]
+    """手本の engine の最後のディスクの目録（MANIFEST の final）。HAND_MARKS で台本が手で書いた返答の置き場のファイルは除く
+    （盤面では印は instance の launched_at。ファイルは書かない）"""
+    got = json.loads(blob(run_steps.meta["final"]["disk"]))
+    for q, (kind, node, _) in _marks(run_steps).items():
+        if kind == "out_file":
+            inst = memory_at(run_steps, q, "before")["state"]["rounds"][-1]["instances"][node]
+            del got[inst["out_path"].removeprefix("@BOARD@/")]
     return got
 
 
@@ -741,14 +753,15 @@ class _Replay:
     """1 本の Run を頭（init の手の後）の盤面から通しで当てる（replay の中身）。盤面は DiskBoard の口だけで進め、手本の記憶を
     盤面へ書くのは頭の 1 度（restore と board_from_memory）だけ。各手の前に対象リポジトリだけを撮った物に戻す"""
 
-    def __init__(self, run_steps, into, table):
+    def __init__(self, run_steps, into, table, public=False):
+        self.public = public      # 真: 公開の口（done・answer・skip は毎回 settle、run_engine の後も settle）で当てる
         self.rs = run_steps
         self.into = pathlib.Path(into)
         self.places = Places(into)
         self.table = table
         self.rounds = {}
         self.planned = set()      # 計画を見た engine_run の instance（周・節・試行）
-        self.counts = {"steps": 0, "settle": 0, "fallback": 0, "reject": 0, "gap": 0, "tree": 0, "cut": 0}
+        self.counts = {"steps": 0, "settle": 0, "fallback": 0, "reject": 0, "gap": 0, "tree": 0, "marks": 0, "plans": 0, "patches": 0}
         self.b = None
 
     # -- 盤面の入れ物
@@ -846,6 +859,11 @@ class _Replay:
             return
         restore_repo(self.rs, s["seq"], self.into)
         raised = s.get("raised")
+        mark = HAND_MARKS.get((self.rs.scenario, self.rs.run, s["seq"]))
+        if mark:
+            # 台本の手書きの「役が起きた」印を、ラインが役を起こす前に置く印（mark_launched）に読み替える（裁定 BL-R3）
+            self.b.mark_launched(mark[1])
+            self.counts["marks"] += 1
         if k == "accept":
             if raised and raised["type"] == "Reject" and "作業ツリーが変わっている" in raised["text"]:
                 self.counts["tree"] += 1     # instance.tree_before（NOT_REPRODUCED）: 突合を持たないので当てない
@@ -856,20 +874,37 @@ class _Replay:
             out = reply(s, self.b)
             if raised:
                 self.expect_reject(s, lambda: self.b.accept(nid, out), gap=gap)
+            elif self.public:
+                self.b.done(nid, out)
+                self.plan_now()
             else:
                 self.b.accept(nid, out)
         elif k == "engine_run":
             self.ensure_emitted(s)
-            got = self.b.run_engine(nid, runner=captured_runner(s, self.b), plan=engine_run_plan(s, self.b))
+            plan = engine_run_plan(s, self.b)
+            er = registry(self.b.rules, "ENGINE_RUNS")[self.b.nodes[nid]["engine_run"]["builtin"]]
+            own = er["plan"](self.b, nid)      # 盤面自身の計画（engine は出す時に立てた。同じ宣言なら同じ計画）
+            if own != plan:
+                raise ReplayDivergence(f"seq {s['seq']} engine_run {nid}: 盤面の計画 {own} ／ 手本の計画 {plan}")
+            self.counts["plans"] += 1
+            got = self.b.run_engine(nid, runner=captured_runner(s, self.b), plan=plan)
             if bool(got.get("ok")) != bool(s["result"].get("ok")):
                 raise ReplayDivergence(f"seq {s['seq']} engine_run {nid}: 返り {got} ／ 手本 {s['result']}")
+            if self.public:
+                self.settle()
         elif k == "answer":
             a = s["args"]
-            call = lambda: self.b._answer_record(a["text"], a.get("note") or "")
+            call = ((lambda: self.b.answer(a["text"], a.get("note") or "")) if self.public
+                    else (lambda: self.b._answer_record(a["text"], a.get("note") or "")))
             self.expect_reject(s, call) if raised else call()
+            if self.public and not raised:
+                self.plan_now()
         elif k == "skip":
-            call = lambda: self.b._skip_record(nid, s["args"]["reason"])
+            call = ((lambda: self.b.skip(nid, s["args"]["reason"])) if self.public
+                    else (lambda: self.b._skip_record(nid, s["args"]["reason"])))
             self.expect_reject(s, call) if raised else call()
+            if self.public and not raised:
+                self.plan_now()
         elif k == "add":
             items = self.places.untokenize(json.loads(s["args"]["file_text"]))
             call = lambda: self.b.add_request(items, s["args"]["reason"])
@@ -878,17 +913,33 @@ class _Replay:
             call = lambda: self.b.stop(s["args"]["reason"], "stop")
             self.expect_reject(s, call) if raised else call()
         elif k == "patch":
-            # works の口を持たない（仕様 9.3）: 人が盤面を手で書いた事実だけを、撮った差分（その手の after）で写す。
-            # 盤面の版（state.rev）は盤面自身の保存が数える
-            ops = [o for o in self.places.untokenize(s["memory"].get("after") or []) if o["path"] != ["state", "rev"]]
-            _apply_ops({"state": self.b.state, "record": self.b.record}, ops)
-            self.b.save()
+            self.patch(s)
         elif k == "finalize":
             if self.b.state.get("halted"):
                 self.reopen(allow_halted=True)     # engine の cmd_finalize と同じく止めた run にも仕上げを書く
             self.b.finalize()
         else:
             raise ReplayDivergence(f"seq {s['seq']}: 知らない手の種類 {k}")
+
+    def patch(self, s):
+        """patch の手（works の口を持たない。仕様 9.3）: 人が盤面の 1 か所を手で書いた事実を、engine の cmd_patch と同じ形で盤面自身が
+        書く——値は人が渡した入力（手の引数のファイルの中身）、手当ての痕跡 state.patches は盤面の今の周・パス・理由で足す。
+        撮った差分は「その 1 か所と patches と rev しか変えていない」ことの確かめにだけ使い、値を盤面へ写さない"""
+        a = s["args"]
+        path = a["path"]
+        where = ["state", *path[len("state."):].split(".")] if path.startswith("state.") else ["record", *path.split(".")]
+        ops = self.places.untokenize(s["memory"].get("after") or [])
+        if not all(o["path"] in (where, ["state", "patches"], ["state", "rev"]) for o in ops):
+            raise ReplayDivergence(f"seq {s['seq']} patch: engine の手当てが {path} の外を変えた: {[o['path'] for o in ops]}")
+        value = self.places.untokenize(json.loads(a["file_text"]))
+        if [o["value"] for o in ops if o["path"] == where] != [value]:
+            raise ReplayDivergence(f"seq {s['seq']} patch: 手の入力と engine が書いた値が違う")
+        b = self.b
+        set_path(b.state if where[0] == "state" else b.record, ".".join(where[1:]), value)
+        b.state.setdefault("patches", []).append({"round": b.round, "path": path, "reason": a["reason"], "at": now()})
+        b.trace("patch", path=path, reason=a["reason"])
+        b.save()
+        self.counts["patches"] += 1
 
     def run(self) -> dict:
         rs = self.rs
@@ -897,19 +948,14 @@ class _Replay:
             raise ValueError(f"{rs.scenario} run {rs.run} は init の通った Run でない")
         d, _ = restore(rs, head["seq"], "after", self.into)
         self.b = board_from_memory(memory_at(rs, head["seq"], "after"), d, self.table)
-        cut = cut_step(rs)
         with self.round_hooks():
             for s in rs[1:]:
-                if cut is not None and s["seq"] >= cut["seq"]:
-                    self.counts["cut"] += 1
-                    break
                 self.step(s)
-            else:
-                # 最後の手の後にも台本の next が盤面を保存した（手として撮られない）なら、同じく settle する
-                last = memory_at(rs, rs[-1]["seq"], "after")
-                fin = json.loads(blob(rs.meta["final"]["memory"]))
-                if fin["state"].get("rev", 0) > last["state"].get("rev", 0):
-                    self.settle()
+            # 最後の手の後にも台本の next が盤面を保存した（手として撮られない）なら、同じく settle する
+            last = memory_at(rs, rs[-1]["seq"], "after")
+            fin = json.loads(blob(rs.meta["final"]["memory"]))
+            if fin["state"].get("rev", 0) > last["state"].get("rev", 0):
+                self.settle()
         b = self.b
         got = self.places.tokenize({"state": b.state, "record": b.record})
         rounds = dict(self.rounds)
@@ -937,7 +983,7 @@ def _no_git(into):
             os.environ["PATH"] = old
 
 
-def replay(scenario: str, run, into, *, table=None, counts: dict | None = None) -> dict:
+def replay(scenario: str, run, into, *, table=None, counts: dict | None = None, public: bool = False) -> dict:
     """手本の Run を頭（init の手の後）の盤面から通しで当て、ReplayResult {rounds: {N: {rd, loop, record}}, final: {state, record}}
     （手本の印に戻した写し）を返す（仕様 9.3 の「通し」）。表は NodeTable.everything（渡せば差し替え）。
     - 撮った手の順に、受け付け（accept）・engine が走らせる節（撮った計画と runs で run_engine）・答え・省く（_answer_record・
@@ -948,15 +994,19 @@ def replay(scenario: str, run, into, *, table=None, counts: dict | None = None) 
       next を打たずに挟んだ patch・stop より前に条件を評価してしまう）。settle の後、出た engine_run の節の計画が任せ先へ落ちる物は
       その場で run_engine（engine は next の中で落とす）
     - 各手の前に対象リポジトリだけを撮った物に戻す。盤面を engine の側から写し直さない（手本の記憶を盤面へ書くのは頭の 1 度だけ）
-    - HAND_EDITED_STEPS の手が在る Run は、その手の前で止める
-    counts を渡せば、当てた手・settle・計画の落ち・拒み・BoardGap・当てない手（作業ツリーの突合）・止めた手の数を足す"""
+    - HAND_MARKS の手は、その直前に mark_launched を当てる（台本の手書きの印の読み替え）
+    - engine が走らせる節は、撮った計画を当てる前に盤面自身の計画（RL の plan）と同じかを確かめる
+    - public=True なら公開の口で当てる: done・answer・skip（毎回 settle）と、run_engine の後の settle（ラインの使い方。
+      台本が next を打たずに patch を挟む Run では条件の評価の時機がずれうるので、patch の無い Run に当てる）
+    counts を渡せば、当てた手・settle・計画の落ち・拒み・BoardGap・当てない手（作業ツリーの突合）・起こした印・計画の突き合わせ・
+    手当ての数を足す"""
     from board import GRAPH_PATH, NodeTable
     rs = load_runs(scenario)[str(run)]
     if not replayable(rs):
         raise ValueError(f"{scenario} run {run} は再生に当てない Run（init で拒まれた・graph が違う）")
     if table is None:
         table = NodeTable.everything(json.loads(GRAPH_PATH.read_text(encoding="utf-8")), GRAPH_SHA)
-    r = _Replay(rs, into, table)
+    r = _Replay(rs, into, table, public=public)
     got = r.run()
     if counts is not None:
         for k, v in r.counts.items():

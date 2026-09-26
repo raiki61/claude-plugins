@@ -38,13 +38,13 @@ import engine.util as _util  # noqa: E402
 from engine import pointers as _pointers  # noqa: E402
 from engine.advance import ENGINE_HELPERS, helper_argv, load_item, open_next_round, run_driver_node  # noqa: E402
 from engine.board import Board as _EngineBoard, empty_round, refuse_expression_conds  # noqa: E402
-from engine.commands import (STOPPED_BY, _refuse_halted, choice_input_errors, engine_run_refusal,  # noqa: E402
+from engine.commands import (CONFLICT_RETRIES, STOPPED_BY, _refuse_halted, choice_input_errors, engine_run_refusal,  # noqa: E402
                              max_rounds_for, path_inputs, retire_out, stop_descendants, thicken, undeclared_inputs)
 from engine.record import apply_writes  # noqa: E402
 from engine.rules import hook, load_rules, registry  # noqa: E402
 from engine.schema import expand_refs, graph_text, load_graph, resolve_extends, validate_schema  # noqa: E402
 from engine.role_run import _tail  # noqa: E402
-from engine.util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, AnswerReject, Reject, now,  # noqa: E402
+from engine.util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, AnswerReject, BoardConflict, Reject, now,  # noqa: E402
                          safe_name, write_json)
 from engine.validator import finalize as _finalize_record, report_accepts  # noqa: E402
 import tree_run  # noqa: E402
@@ -587,6 +587,43 @@ class DiskBoard(_EngineBoard):
         self.trace("emit", instance=nid)
         return inst
 
+    def mark_launched(self, nid: str) -> dict:
+        """ラインが役を起こす前に、待っている instance に起こした印（launched_at）を置いて保存する（裁定 BL-R3。engine の launch の
+        印付けと同じ欄。RL の _started がこの欄を読み、判定役が起きた後の依頼を拒み・起きた読み手を描き直さない）。
+        ラインは表で role・machine の節の役を起こす**前に毎回**呼ぶ（印 → 起こす。engine の launch と同じ順）。
+        - 保存は版の突き合わせ（engine の save）で、別の入れ物が先に進めていたら（BoardConflict）盤面を読み直して当て直す
+          （engine の _board_update と同じく CONFLICT_RETRIES 回まで。trace の行は保存まで控える）
+        - 同じ試行への二度目は前の印を返して保存しない。印は試行ごと: 描き直し・任せ先への出し直しの新しい試行は印を持たない
+        - 起こせなかった試行も印は残る（fail-closed: その周の依頼の締めは閉じたまま。印を外す口は持たない）
+        - 表で role・machine でない節（engine_run は run_engine が置く）・待っている instance の無い節は BoardGap。止めた run は Reject
+        返り {node, id, attempts, launched_at, already}"""
+        for n in range(CONFLICT_RETRIES):
+            _refuse_halted(self)
+            if nid not in self.nodes:
+                raise BoardGap(f"節 '{nid}' は graph に無い")
+            e = self._entry(nid)
+            if e.by not in ("role", "machine"):
+                raise BoardGap(f"節 '{nid}' は表で {e.by}——起こした印を置くのは役（role・machine）の節だけ"
+                               "（engine が走らせる節は run_engine が置く）")
+            inst = next((i for i in self.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+            if inst is None:
+                raise BoardGap(f"この周に節 '{nid}' の待っている instance が無い（settle が出した節の役だけを起こす）")
+            got = {"node": nid, "id": inst["id"], "attempts": inst.get("attempts", 1)}
+            if inst.get("launched_at"):
+                return {**got, "launched_at": inst["launched_at"], "already": True}
+            inst["launched_at"] = now()
+            self.held_trace = []
+            self.trace("launch", instance=inst["id"])
+            try:
+                self.save()
+                return {**got, "launched_at": inst["launched_at"], "already": False}
+            except BoardConflict:
+                self.held_trace = None
+                if n == CONFLICT_RETRIES - 1:
+                    raise
+                self._reload_from_disk()
+        raise AssertionError("届かない")
+
     def accept(self, nid: str, output: dict) -> str:
         """ラインの受け付けの口（仕様 4.1）。engine が走らせる節（graph の engine_run）は、任せ先に落ちた（instance が
         engine_fallback を持つ）後だけ受ける——落ちる前の結果は run_engine が engine と同じく組む（engine の cmd_done の拒否と
@@ -808,6 +845,7 @@ class DiskBoard(_EngineBoard):
         if "fallback" in reply:
             return self._fall_back(nid, er, reply["fallback"], {"runs": runs})
         inst["mode"], inst["launch"] = "engine_run", launch
+        inst["launched_at"] = now()   # engine の launch と同じ起こした印（RL の _started が読む。受け付けの保存で残る）
         try:
             self._accept_engine_reply(nid, reply["reply"])
         except AnswerReject as ex:

@@ -68,3 +68,8 @@
   - .git/objects の中身は zlib で縮めてあるので置き換えが当たらない。そのため機械のパスが入る元（.review-checks.json の
     Python）を撮る前に python3 に替え、試験は zlib を解いた中まで /Users/・/var/folders・/private/var/folders・/private/tmp・
     $HOME を探す。
+
+再生の試験（tests/test_board_steps.py の 1 手ずつと、tests/test_board_replay.py の通し）:
+- 既定の run.sh は、通しの再生を見本 3 本（test_rejudge_path run 1・test_rejections run 2・test_human_gate run 3）だけ回す。
+- 全部の Run（33 本）は `WORKS_BOARD_REPLAY=full nice -n 19 sh works/tests/run.sh -k board_replay` で回す（負荷しだいで 5〜16 分）。
+  次のときは必ず回す: board.py・tests/boardreplay.py・tests/boards/golden-* を触る commit の前と、枝を締める前。
