@@ -1,8 +1,11 @@
-fbd40e3
+a1202d0  graphloops 0.21.0（前の写しは fbd40e3 = 0.20.3）
 graphloops/engine/__init__.py
 graphloops/engine/advance.py
 graphloops/engine/board.py
 graphloops/engine/commands.py
+graphloops/engine/declared.py  # 0.21.0 で足した: engine/rules.py が import する
+graphloops/engine/intake.py  # 0.21.0 で足した: engine/advance.py・commands.py が import する
+graphloops/engine/pointers.py  # 0.21.0 で足した: engine/advance.py・commands.py・render.py・schema.py が import する
 graphloops/engine/record.py
 graphloops/engine/render.py
 graphloops/engine/role_run.py
@@ -11,6 +14,7 @@ graphloops/engine/schema.py
 graphloops/engine/util.py
 graphloops/engine/validator.py
 graphloops/rules/review-loop.py
+graphloops/rules/policy_input.py  # 0.21.0 で足した: rules/review-loop.py が読み込む（方針の入力。後の作業でも使う）
 graphloops/graphs/review-loop.json
 scripts/review-record.py
 scripts/record_common.py
