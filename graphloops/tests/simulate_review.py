@@ -6380,6 +6380,16 @@ def test_human_gate():
           f"関所: 答えは人の答えの台帳（process.human_items）に残る（{hi}）")
     last = drive(run, "std", hook=hook)
     check("KEEP-NOTE" in seen.get("fix", ""), "関所: 人の答えの note が同じ周の修正役のプロンプトに届く")
+    # 修正の入口は単位の短い行と義務の印（loop.fix_units）だけを貼り、判定の長い本文は記録の置き場を指す（同じ単位を 2 回貼らない）
+    rows = (run.state()["loop"].get("fix_units") or {}).get("rows") or []
+    refs = re.findall(r"置き場 (\S+?record\.json)（", seen.get("fix", ""))
+    judged = [u for u in run.record()["process"]["diagnosis"]["units"] if u.get("class_query")]
+    check([r["key"] for r in rows] == [u["key"] for u in run.record()["units"]] and any(r["owed"] for r in rows)
+          and all(f'"key": {json.dumps(r["key"], ensure_ascii=False)}' in seen.get("fix", "") for r in rows),
+          f"修正の入口: 単位の行は記録の単位と同じ順で全部載り、義務の印を持つ（{[(r['key'][:20], r['owed']) for r in rows]}）")
+    check(judged and all(r["has_class_query"] for r in rows) and '"class_query"' not in seen.get("fix", "")
+          and refs and all(pathlib.Path(x).is_file() for x in refs),
+          f"修正の入口: 判定の長い本文（母数の問いなど）は貼らず印だけを載せ、盤面に在る記録の置き場を指す（{refs}）")
     check(seen.get("delta", (0,))[0] == 1 and "事前審査だけ" in seen["delta"][1],
           f"関所: 修正差分の審査は後退の語を使えない（手直しの義務に入れて役に決めさせない。{seen.get('delta', ('', ''))[1][-120:]}）")
     check(last["status"] == "awaiting_human" and last["ask"]["kinds"] == ["policy_changed"],
@@ -6449,6 +6459,9 @@ def test_human_gate():
     check("--detail" in asked and "1. " in asked and r1.returncode == 1 and "直す義務の単位でない" in r1.stderr and not hi0
           and r2.returncode == 0 and hi and hi[-1].get("excluded") == [{"unit": unit1, "why": "この周は触らない（検査用 EXCLUDE-WHY）"}],
           f"関所: --detail で直す義務の単位を外せる（義務に無い単位は拒んで盤面を変えず、受けた分は台帳に key で残る）（{r1.returncode}/{r2.returncode} {r2.stderr[-100:]}）")
+    fu = run.state()["loop"].get("fix_units") or {}
+    check([r.get("owed") for r in fu.get("rows") or [] if r.get("key") == unit1] == [False],
+          f"関所: 外した単位は修正の側に見せる義務の印（fix_units の owed）からも外れる——修正の受け付けはこの印から義務を引く（{fu.get('rows')}）")
     drive(run, "std", hook=narrow, stop_at=lambda n: "fix" in seen)
     check("EXCLUDE-WHY" in seen.get("fix", ""), "関所: 外した単位と理由が同じ周の修正役のプロンプトに届く")
     rm(run.tmp)

@@ -184,6 +184,65 @@ def test_fix_plan_rejects_unknown_unit_key(tmp_path):
         RULES.fix_plan_covers_units(b, "p2.fix_plan", {"plan": [{"unit_keys": ["K1", "写した key"]}]}, None)
 
 
+# ---------------------------------------------------------------- 修正の入口（fix_units・_owed_shown）
+UNITS = [{"key": "K1", "label": "block", "reason": "長い理由 1"}, {"key": "K2", "label": "suggest", "disposition": "do-now"},
+         {"key": "K3", "label": "suggest", "disposition": "defer"}, {"key": "K4", "label": "block"}]
+FORK = {"key": "Q1", "kind": "fork", "origin": "K4", "depends": [], "status": "held"}
+
+
+def fix_board(tmp_path, questions=(FORK,), rnd=1):
+    diag = {"units": [{"key": "K1", "why_chain": ["なぜ"], "class_query": {"how": {}}}, {"key": "K2"}]}
+    return board(tmp_path, rnd=rnd, record={"units": [dict(u) for u in UNITS], "questions": [dict(q) for q in questions],
+                                            "process": {"diagnosis": diag}})
+
+
+def test_fix_units_rows_keep_record_order_and_mark_owed(tmp_path):
+    b = fix_board(tmp_path)
+    got = RULES.fix_units(b, "p2.fix_units")
+    rows = b.loop_state["fix_units"]["rows"]
+    assert got == {"ok": True, "units": 4, "owed": 2} and b.loop_state["fix_units"]["round"] == 1
+    assert [r["key"] for r in rows] == ["K1", "K2", "K3", "K4"]
+    assert [r["owed"] for r in rows] == [True, True, False, False]
+    assert [r["has_class_query"] for r in rows] == [True, False, False, False]
+    assert all(set(r) <= {"key", "label", "disposition", "owed", "has_class_query"} for r in rows)
+
+
+def test_fix_units_owes_the_origin_of_a_decided_fork(tmp_path):
+    b = fix_board(tmp_path, questions=({**FORK, "status": "resolved"},))
+    RULES.fix_units(b, "p2.fix_units")
+    assert [r["owed"] for r in b.loop_state["fix_units"]["rows"]] == [True, True, False, True]
+
+
+def test_fix_acceptance_answers_against_the_shown_rows(tmp_path):
+    b = fix_board(tmp_path)
+    RULES.fix_units(b, "p2.fix_units")
+    b.record["questions"] = []   # 見せた後に台帳が変わっても、答え合わせは見せた値で行う（今の台帳なら K4 も義務）
+    assert RULES._owed_shown(b) == {"K1", "K2"}
+    RULES.fix_plan_covers_units(b, "p2.fix_plan", {"plan": [{"unit_keys": ["K1", "K2"]}]}, None)
+    b.record["questions"] = [{**FORK, "origin": "K2"}]   # 今の台帳なら K2 は待ってよいが、見せた行では義務
+    with pytest.raises(Reject, match="K2"):
+        RULES.fix_covers_open_units(b, "p3.fix", {"changes": [{"unit_key": "K1"}], "not_done": [{"unit_key": "K2", "why": "待つ"}]}, None)
+
+
+def test_owed_shown_without_rows_of_this_round_reads_owed_units(tmp_path):
+    b = fix_board(tmp_path, rnd=2)
+    b.loop_state["fix_units"] = {"round": 1, "rows": [{"key": "K3", "owed": True}]}
+    assert RULES._owed_shown(b) == RULES._owed_units(b) == {"K1", "K2"}
+
+
+@pytest.mark.parametrize("graph, node", [("review-loop.json", "p2.fix_plan"), ("review-loop.json", "p3.fix"),
+                                         ("review-loop-tdd.json", "p3.tdd_tests")])
+def test_fix_side_prompts_paste_units_once(graph, node):
+    """修正の側の指示書は単位の一覧を fix_units の行から 1 度だけ貼り、判定の写しは短い欄だけを貼る（長い本文は置き場を指す）"""
+    from engine.render import node_prompt
+    path = PLUGIN / "graphs" / graph
+    n = load_graph(path)[0]["nodes"][node]
+    body = node_prompt(path, n)
+    assert "{{loop.fix_units.rows}}" in body and "{{record.units" not in body and "{{record.process.diagnosis}}" not in body
+    assert all(p["from"] == ["loop.fix_units.rows"] for p in n["pointers"] if p["at"] != "plan_faces[].key")
+    assert "p2.fix_units" in n["deps"]
+
+
 # ---------------------------------------------------------------- 仕様の道（spec.*）
 SPEC = {"requirements": [{"key": "R1", "text": "要件"}],
         "acceptance": [{"key": "A1", "requirement": "R1", "file": "t_spec.py", "name": "test_spec", "run": "true"}]}

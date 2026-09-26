@@ -141,7 +141,7 @@ def test_tdd_rules_extend_the_default_rules_without_changing_them():
 # --- テストだけを書く段の返答の検査（tdd_tests_output）: 直す義務の単位を全部 1 度だけ tdd か direct に振る
 UNITS = [{"key": "u-block", "label": "block"}, {"key": "u-donow", "label": "suggest", "disposition": "do-now"}]
 BOARD = types.SimpleNamespace(state={"validator": str(REPO / "scripts" / "review-record.py")},
-                              record={"units": UNITS, "questions": []})
+                              record={"units": UNITS, "questions": []}, loop_state={}, round=1)
 OK_FRICTION = {"setup_heavy": False, "reaches_internals": False, "name_unclear": False}
 
 
@@ -179,6 +179,14 @@ def test_tests_reply_accepts_every_unit_routed_once():
 ])
 def test_tests_reply_rejects(units, words):
     assert words in check_reply(units)
+
+
+def test_tests_reply_answers_against_the_shown_rows(monkeypatch):
+    """義務の単位は修正の側に見せた行（loop.fix_units の owed）から引く——見せた後に記録が変わっても、答え合わせは見せた値で行う"""
+    monkeypatch.setattr(BOARD, "loop_state", {"fix_units": {"round": 1, "rows": [{"key": "u-block", "owed": True},
+                                                                                  {"key": "u-donow", "owed": False}]}})
+    assert check_reply([tdd_row()]) == ""
+    assert "今の周に直す義務の単位に無い" in check_reply([tdd_row(), direct_row()])
 
 
 def test_tdd_conds_truth_table():

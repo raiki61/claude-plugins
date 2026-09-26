@@ -301,7 +301,7 @@ def tdd_green(b, nid):
 def tdd_tests_output(b, nid, out, item):
     """テストだけを書く段の返答: 直す義務の単位を全部 1 度だけ、tdd（名指しのテストが 1 件以上）か direct（理由）に振る。
     書きにくさの旗を立てたなら note を書く"""
-    owed = base._owed_units(b)
+    owed = base._owed_shown(b)
     rows = out.get("units") or []
     errs = base._keys_once([{"key": r["unit_key"]} for r in rows], "units")
     got = {r["unit_key"] for r in rows}

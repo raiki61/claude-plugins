@@ -1110,6 +1110,38 @@
     },
     "description": "振り分けの候補: 未分類（対象リポジトリの変異の宣言の読み取り）"
    },
+   "fix_units": {
+    "type": "object",
+    "properties": {
+     "round": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "label": {
+         "type": "string"
+        },
+        "disposition": {
+         "type": "string"
+        },
+        "owed": {
+         "type": "boolean"
+        },
+        "has_class_query": {
+         "type": "boolean"
+        }
+       }
+      }
+     }
+    },
+    "description": "振り分けの候補: C1 ブロックの中だけ（修正の側の節に見せる単位の行と義務の印。人が関所で単位を外すと組み直す）"
+   },
    "final_gate_empty_ok": {
     "type": [
      "string",
@@ -4470,11 +4502,27 @@
     "../prompts/policy.md"
    ]
   },
+  "p2.fix_units": {
+   "stage": "P2",
+   "run_by": "driver",
+   "builtin": "fix_units",
+   "deps": [
+    "p2.history"
+   ],
+   "source": "P2 ＞ 修正の側に見せる単位の行を組む",
+   "does": "この周の単位を record.units と同じ順で短い行（key・label・disposition と、直す義務の印 owed・判定者が母数の問いを持つかの印 has_class_query）にし、1 本の値（loop.fix_units）に組む。義務の印は _owed_units から引く。修正案（p2.fix_plan）と修正（p3.fix。TDD の版ではテストの段 p3.tdd_tests も）はこの値だけを単位の一覧として貼り、受け付けも同じ値の owed で答え合わせをする。単位の長い本文は貼らず、指示書が記録の置き場を指す。cond を持たない——単位の無い周もその周の値を置き、前の周の行が貼られない",
+   "note": "同じ単位の表を record.units と判定の写し process.diagnosis の 2 つの穴から全文で貼り、義務の条件を指示書の散文で写していた（写しの 2 か所は人に諮っている条件を落としていた）。修正の指示書は 6.4〜11 万バイトあった（2026-09-26）",
+   "outputs": [
+    "loop.fix_units"
+   ],
+   "reads": []
+  },
   "p2.fix_plan": {
    "stage": "P2",
    "run_by": "writer",
    "deps": [
-    "p2.history"
+    "p2.history",
+    "p2.fix_units"
    ],
    "cond": "units_open",
    "source": "P2 ＞ 10. 修正案（書く前に出す）",
@@ -4485,7 +4533,7 @@
    "note": "修正の良し悪しを見る段は全部『直した後』に在り、修正が作った穴は次の周に新しい指摘として挙がっていた（実測 2026-09-24: 3 周目の指摘のうち 8 件が 2 周目の修正の産物）。書く前の案を別の目に叩かせる",
    "prompt_file": "../prompts/review-loop/p2.fix_plan.md",
    "reads": [
-    "record.units",
+    "loop.fix_units",
     "record.process.diagnosis",
     "record.process.precedents",
     "inputs.cwd",
@@ -4499,7 +4547,7 @@
     {
      "at": "plan[].unit_keys[]",
      "from": [
-      "record.units"
+      "loop.fix_units.rows"
      ]
     }
    ],
@@ -4819,17 +4867,18 @@
     "p2.history",
     "p2.plan_review",
     "p3.lane_merge",
-    "p2.human_gate"
+    "p2.human_gate",
+    "p2.fix_units"
    ],
    "source": "P3: 修正（根本ユニット単位・閉鎖の実証・fork の出どころは待つ）",
-   "does": "[block] と do-now を根本ユニット単位で直す。導線の死を注記で直さない。fork の origin / depends に挙がったユニットはこの周に実装しない（待つのはループを止めることではない——他を直して次の周へ）。手を動かした結果が機構の新設に及んだと気づいたら止める。修正ごとに閉鎖を実証——不変条件を共有する箇所を先に全部挙げ、1 箇所ずつ赤→緑（『1 つ試して赤だった』で止めない）",
+   "does": "[block] と do-now を根本ユニット単位で直す。導線の死を注記で直さない。義務の印（loop.fix_units の owed）が偽の開いた単位——人に諮っている fork の出どころ・depends——はこの周に実装しない（待つのはループを止めることではない——他を直して次の周へ）。手を動かした結果が機構の新設に及んだと気づいたら止める。修正ごとに閉鎖を実証——不変条件を共有する箇所を先に全部挙げ、1 箇所ずつ赤→緑（『1 つ試して赤だった』で止めない）",
    "outputs": [
     "materials.fix_closure"
    ],
    "note": "見つけた周の記録は判定どおり書く（直したことは fix_closure に書く）",
    "prompt_file": "../prompts/review-loop/p3.fix.md",
    "reads": [
-    "record.units",
+    "loop.fix_units",
     "record.questions",
     "record.process.diagnosis",
     "inputs.review_md",
@@ -4853,13 +4902,13 @@
     {
      "at": "changes[].unit_key",
      "from": [
-      "record.units"
+      "loop.fix_units.rows"
      ]
     },
     {
      "at": "not_done[].unit_key",
      "from": [
-      "record.units"
+      "loop.fix_units.rows"
      ]
     }
    ],

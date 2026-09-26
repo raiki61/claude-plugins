@@ -1273,7 +1273,7 @@ def r2_premise_invalid(v):
 LOOP_KEYS = frozenset({
     "block_counts", "changed_files", "changed_files_file", "closed_keys", "cold_check", "coverage_after", "defer_ledger",
     "diff_file", "diff_lines", "diff_lines_by_round", "diff_stat", "drift_notes", "engine_zero", "escalated", "facts_to_add",
-    "final_gate_empty_ok", "flow", "gates", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "lanes_bad_delivered", "last_material", "last_review", "last_seen",
+    "final_gate_empty_ok", "fix_units", "flow", "gates", "gates_cut", "head_revs", "in_round_answers", "lane_merge", "lanes", "lanes_bad_delivered", "last_material", "last_review", "last_seen",
     "ledger_changed", "lines_at_r1", "lines_ratio", "mutation_decl", "open_units", "outcome", "policy_change", "prev_blocks", "prev_declared_faces",
     "prev_fix_files", "prev_one_shot", "prev_own_precedents", "prev_questions", "prev_rejudge", "prev_scalars", "prev_units", "purpose_known",
     "purpose_review_stale", "purpose_unusable", "r1_refire", "r2_refire", "r2_refire_forced", "rejudge_requested",
@@ -2400,7 +2400,7 @@ def _fork_moves_forward(b, out):
 
     **義務は動ける役の手前に置く。** 最初この柵を P3（fix_covers_open_units）に置いたが、writer には
     questions を書く権限が無く、同じ周の p2 は既に done で再実行できず、p3.fix は optional でないので
-    skip もできない——正本のプロンプトが「fork の出どころは実装するな」と言う所で機械が「実装しろ」と
+    skip もできない——指示書が「fork の出どころは実装するな」と言う所で機械が「実装しろ」と
     言い、writer の手が無くなった（実測 2026-09-16: judge が [block] として名指しした）。
     questions を書けるのは p2 の節なので、ここで返させ直す。
 
@@ -2639,8 +2639,8 @@ def judge_output(b, nid, out, item):
 
 def _owed_units(b):
     """今の周に直す義務の単位の key——開いた単位（検証器の is_open）から、人に諮っている fork の出どころ・depends を除いた物。
-    修正案（fix_plan_covers_units）と修正（fix_covers_open_units）が同じこの 1 本から引く（2 か所で計算していた頃は、
-    修正案の側だけ免除が抜けていた）"""
+    修正の側の節に見せる義務の印（fix_units）がこの 1 本から引き、修正案・TDD のテスト・修正の受け付けはその印から引く
+    （2 か所で計算していた頃は、修正案の側だけ免除が抜けていた）"""
     V = validator_module(b)
     exempt = set()
     for q in b.record["questions"]:
@@ -2657,16 +2657,41 @@ def _human_excluded(b):
             for r in h.get("excluded") or []}
 
 
+def fix_units(b, nid):
+    """修正の前: 修正の側の節（修正案・TDD のテスト・修正）に見せる単位の行を 1 本の loop 値（fix_units）に組んで盤面に置く
+    （driver の builtin）。行は record.units と同じ順（engine が振る番号 no が record.units を貼っていた頃と同じになる）で、
+    短い欄と、_owed_units から引いた義務の印（owed）と、判定者が母数の問いを持つかの印（has_class_query）だけ。
+    **見せる値と答え合わせの値を同じ物にする**（delta_owed と同じ形）——3 節の受け付けは義務の集合をこの値から引く（_owed_shown）。
+    長い本文（判定の理由・why_chain・処方・母数の問い）は貼らず、指示書が記録の置き場を指す。同じ単位の表を record.units と
+    判定の写し process.diagnosis の 2 つの穴から全文で貼っていた頃、修正の指示書が 6.4〜11 万バイトになった（2026-09-26）"""
+    owed = _owed_units(b)
+    cq = {u.get("key") for u in ((b.record.get("process") or {}).get("diagnosis") or {}).get("units") or [] if u.get("class_query")}
+    rows = [{**{k: u[k] for k in ("key", "label", "disposition") if k in u}, "owed": u["key"] in owed,
+             "has_class_query": u["key"] in cq} for u in b.record["units"]]
+    b.loop_state["fix_units"] = {"round": b.round, "rows": rows}
+    return {"ok": True, "units": len(rows), "owed": sum(r["owed"] for r in rows)}
+
+
+BUILTINS.update({"fix_units": fix_units})
+
+
+def _owed_shown(b):
+    """修正の側の受け付けが引く義務の key——fix_units が今の周に置いた行のうち owed の物（役に見せた値そのもの）。
+    置いていない盤面（fix_units の節を持たない graph で始めた run）は _owed_units をその場で引く"""
+    d = _in_round(b.loop_state.get("fix_units"), b.round)
+    return _owed_units(b) if d is None else {r["key"] for r in d.get("rows") or [] if r.get("owed")}
+
+
 def fix_covers_open_units(b, nid, out, item):
-    """[block] と do-now は必ず直す。fork の出どころ・depends だけは待ってよい（義務の集合は _owed_units）。"""
+    """[block] と do-now は必ず直す。人に諮っている fork の出どころ・depends だけは待ってよい（義務の集合は _owed_shown）。"""
     V = validator_module(b)
     # **fork の出どころは待ってよい。** 待ちが前に進んでいるかを見るのは judge の側（_fork_moves_forward）
-    # ——ここで止めると、正本のプロンプト（p3.fix.md「fork の出どころは実装するな」）と機械が逆を言い、writer には
+    # ——ここで止めると、指示書（待つ単位は実装するな）と機械が逆を言い、writer には
     # questions を書く権限が無く、同じ周の p2 は既に done で再実行できない＝周が詰む（実測 2026-09-16）。義務は、動ける役の手前に置く。
     changed = {c["unit_key"] for c in out["changes"]}
     waiting = {c["unit_key"]: c["why"] for c in out.get("not_done", [])}
-    missing = [f"{k}（理由: {waiting[k]}）——fork の出どころでも人が関所で外した単位でもないなら直す義務がある" if k in waiting else k
-               for k in sorted(_owed_units(b) - changed)]
+    missing = [f"{k}（理由: {waiting[k]}）——義務の印（owed）が真の単位は直す義務がある（待ってよいのは人に諮っている fork の出どころ・depends と、人が関所で外した単位だけ）"
+               if k in waiting else k for k in sorted(_owed_shown(b) - changed)]
     if missing:
         raise Reject("直していない [block] / do-now がある（writer の裁量で defer に覆せない。待ってよいのは fork の出どころ・depends と、"
                      "人が関所で外した単位だけ。異議は新しい judge に再判定させる）: " + "; ".join(missing))
@@ -3071,7 +3096,7 @@ def _keys_once(rows, label):
 def fix_plan_covers_units(b, nid, out, item):
     """修正案は今の周に直す単位を全部、どれか 1 つの案に入れる。**書き落とした単位は事前審査に届かない**"""
     V = validator_module(b)
-    want, opened = _owed_units(b), {u["key"] for u in b.record["units"] if V.is_open(u)}
+    want, opened = _owed_shown(b), {u["key"] for u in b.record["units"] if V.is_open(u)}
     got = [k for p in out["plan"] for k in p["unit_keys"]]
     errs = []
     unknown = sorted(set(got) - opened)   # 免除の単位（fork の出どころ）は入れても入れなくてもよい
@@ -4141,6 +4166,10 @@ def human_gate_answered(b, ph, ans):
     b.record["process"]["human_items"].append({"round": b.round, "kinds": ph.get("kinds") or [], "asked": ph["items"],
                                                "answer": ans, "note": ph.get("note", ""), "node": ph["node"],
                                                **({"excluded": excluded} if excluded else {})})
+    if excluded and _in_round(b.loop_state.get("fix_units"), b.round) is not None:
+        # 人が外した単位を、修正の側に見せる義務の印（fix_units の owed）からも外す——修正の受け付けは見せた値から義務を引く
+        # （_owed_shown）ので、組み直さないと外した単位を直さない修正が拒まれる
+        fix_units(b, ph["node"])
     ch = b.loop_state.pop("policy_change", None)
     if ans == "continue" and ch and "policy_changed" in (ph.get("kinds") or []):
         pol = b.record["process"]["policy"]
