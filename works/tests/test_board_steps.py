@@ -387,8 +387,8 @@ BUILTINS_SEEN = {"worktree_snapshot", "worktree_compare", "human_gate", "lane_me
                  "scalars", "assemble", "record_round", "converge"}
 
 
-# 台本が手の環境を変えて回した手（手本は手の環境を撮らない）。再生は同じ環境を作って当てる
-NO_GIT_STEPS = {("test_rejections", "1", 33): "台本が PATH を空の置き場にして git の無い場を作った next（突合が『測れない』で止まる手）"}
+# 台本が手の環境を変えて回した手（手本は手の環境を撮らない）。再生は同じ環境を作って当てる（通しの再生と同じ表）
+NO_GIT_STEPS = R.NO_GIT_STEPS
 
 
 class MachineStepsCase(StepCase):
@@ -1137,6 +1137,16 @@ class ReplayToolCase(unittest.TestCase):
         self.assertEqual(got, {"state": {"round": 1, "rounds": [{"instances": {"x": {
             "status": "done", "launch": {"steps": [1], "sha": "s"}}}}]},
             "record": {"process": {"checks": {"p4.ci": {"runs": [{"exit": 0}]}}}}})
+
+    def test_normalize_drops_launch_traces(self):
+        """通しの再生で足した比べない欄: instance の launch_state・continue_of・role_def_missing と、盤面・記録の role_def_missing
+        （記録は process の下のその 1 か所だけ。他の欄と、別の所の同じ名前は比べる）"""
+        miss = [{"agent_type": "a:b", "instance": "x", "round": 1}]
+        mem = {"state": {"role_def_missing": miss, "rounds": [{"instances": {"x": {
+            "status": "done", "launch_state": "ended", "continue_of": "y", "role_def_missing": "定義が無い"}}}]},
+            "record": {"process": {"role_def_missing": miss, "human_items": []}, "role_def_missing": 1}}
+        self.assertEqual(R.normalize(mem), {"state": {"rounds": [{"instances": {"x": {"status": "done"}}}]},
+                                            "record": {"process": {"human_items": []}, "role_def_missing": 1}})
 
 
 if __name__ == "__main__":

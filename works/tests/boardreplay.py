@@ -13,6 +13,7 @@ README）。ここは手本を読む・手の前後の記憶と目録を組む�
 
 手の行は Step（dict の子。属性 run_steps に同じ Run の手の並びを持つ）で渡す。compare は手 1 つから手の後を引くため。
 """
+import contextlib
 import copy
 import gzip
 import hashlib
@@ -30,7 +31,9 @@ CORE = HERE.parent / ".shared" / "core"
 if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
-from board import BOARD_VERSION, CORE_DIR, GRAPH_SHA, DiskBoard  # noqa: E402
+from board import BOARD_VERSION, CORE_DIR, GRAPH_SHA, BoardGap, DiskBoard  # noqa: E402
+from engine.rules import registry  # noqa: E402
+from engine.util import Reject  # noqa: E402
 
 
 # ---------------------------------------------------------------- 再生の中だけの compile の控え
@@ -96,6 +99,14 @@ NOT_REPRODUCED = {
     "instance.attempt_log": "試行の控えは前の試行を出した時刻（prev_emitted_at）を持つ。試行の数 attempts と出し直した置き場 out_path は比べる",
     "instance.pointers": "一覧を固めた番号の控えを持たない（番号で書いた返答は engine の文で拒む。仕様 BL17）",
     "instance.delegate": "任せ先の起動を持たない",
+    "instance.launch_state": "engine の launch の起こし済みの印（launched_at と対。running → ended）。run_engine はその場で走らせて"
+                             "受けるまで返らず、役を起こすのは Archon とブロックなので、起こし中の印を持たない",
+    "instance.continue_of": "同じ役の会話を続ける控え（graph の same_context_as を engine が起こす時に解く）。役の会話を起こすのは"
+                            "Archon とブロック（same_context_as は graph から読む）",
+    "instance.role_def_missing": "役の定義（agents/<役>.md）がこの環境に無かった印。役の定義を解くのは役を起こす Archon とブロック"
+                                 "（描画・起動を持たない。state.role_def_missing・record.process.role_def_missing も同じ）",
+    "state.role_def_missing": "instance.role_def_missing の盤面の控え（同じ理由）",
+    "record.process.role_def_missing": "state.role_def_missing を finalize が記録に写した痕跡（同じ理由。engine の validator の痕跡の欄）",
     "instance.agent_id": "役の会話の番号は Archon が持つ（accept は受け取らない）",
     "instance.read_from": "返答を読んだ先（accept は返答の dict を受け取る）",
     "state.git_mismatches（accept の突合の行）": "受け付けの作業ツリーの突合（tree_before）を持たないので、突合を受け入れた控え"
@@ -122,6 +133,7 @@ NOT_REPRODUCED = {
 
 _ANY_KEYS = {k for k in NOT_REPRODUCED if "." not in k and ":" not in k and "（" not in k and " " not in k}
 _STATE_KEYS = {k.split(".", 1)[1] for k in NOT_REPRODUCED if k.startswith("state.")}
+_RECORD_PATHS = {tuple(k.split(".")) for k in NOT_REPRODUCED if k.startswith("record.")}   # 記録の中の 1 か所
 _INSTANCE_KEYS = {k.split(".", 1)[1] for k in NOT_REPRODUCED if k.startswith("instance.")}
 _RUN_KEYS = {k.split(".", 1)[1] for k in NOT_REPRODUCED if k.startswith("runs[].")}
 _DISK_PATHS = {k.split(":", 1)[1] for k in NOT_REPRODUCED if k.startswith("disk:") and "#" not in k and not k.endswith("/")}
@@ -143,6 +155,8 @@ def normalize(obj, _path=()):
             if k in _ANY_KEYS:
                 continue
             if len(p) == 2 and p[0] == "state" and k in _STATE_KEYS:
+                continue
+            if p in _RECORD_PATHS:
                 continue
             if p == ("state", "git_mismatches") and isinstance(v, list):
                 # 受け付けの突合の行（instance を持つ）だけ落とす。worktree_compare の行（where: P1）は比べる
@@ -498,7 +512,7 @@ def board_from_memory(mem: dict, board_dir, table, allow_halted: bool = False) -
 def reply(step: Step, board: DiskBoard, names: bool = True) -> dict:
     """accept の手の返答の本文を、accept に渡す dict にする（engine の accept_output と同じ読み方: schema の無い節は本文の
     text）。本文の中の印（役が名指した盤面の置き場など）は、その盤面の置き場の実パスに戻す。
-    names=True なら、台本の役が番号で書いた欄を、手の前の instance が固めていた一覧（instance.pointers）で名前に直す
+    names=True なら、台本の役が番号で書いた欄を、手本の engine の手の前の instance が固めていた一覧（instance.pointers）で名前に直す
     （engine は控えで読み替えるが、DiskBoard は控えを持たず番号を拒む〔BL17〕。ラインの役は名前で書く。
     NOT_REPRODUCED の instance.pointers）。直せない番号はそのまま残す"""
     from engine.commands import parse_output
@@ -508,8 +522,12 @@ def reply(step: Step, board: DiskBoard, names: bool = True) -> dict:
     if not n.get("schema"):
         return {"text": text}
     out = parse_output(text)
-    snap = (board.rd["instances"].get(step["node"]) or {}).get("pointers")
-    if names and snap and n.get("pointers"):
+    snap = None
+    if names and n.get("pointers"):
+        # 控えは手本の engine の手の前の instance から取る（盤面の instance は控えを持たない。通しの再生でも同じ控えで直す）
+        mem = memory_at(step.run_steps, step["seq"], "before")
+        snap = (mem["state"]["rounds"][-1]["instances"].get(step["node"]) or {}).get("pointers")
+    if snap:
         named = copy.deepcopy(out)
         if not resolve(named, n["pointers"], snap):
             return named
@@ -619,3 +637,328 @@ def compare(board: DiskBoard, step: Step) -> list:
     got = places.tokenize({"state": board.state, "record": board.record})
     _diff(normalize(exp), normalize(got), "", out)
     return out + disk_diff(board.dir, manifest_at(rs, step["seq"], "after", "disk"))
+
+
+# ---------------------------------------------------------------- 通しの再生（仕様 9.3 の「通し」）
+# 台本が手の環境を変えて回した手（手本は手の環境を撮らない）。再生は同じ環境を作って当てる
+NO_GIT_STEPS = {("test_rejections", "1", 33): "台本が PATH を空の置き場にして git の無い場を作った next（突合が『測れない』で止まる手）"}
+
+# 台本が engine のコマンドを通さずに盤面を手で書いてから打った手（手本の手として撮られない書き込みに結果が懸かる）。
+# 盤面は同じ書き込みを受ける口を持たず（仕様 4.1: 役を起こすのは Archon とブロックで、instance は起こした印 launched_at を
+# 持たない。返答の置き場 out_path は受けるまで在らない＝RL の _started は偽）、再生は盤面へ手本を書かない（写し直さない）ので、
+# 通しの再生はこの手の前で止め、手本の engine のこの手の前の記憶と比べる。値は (印の種類, 節)——test_board_replay が、
+# 手本の手の前に本当にその書き込みが在ることを確かめる
+HAND_EDITED_STEPS = {
+    ("test_request_entry", "8", 455): ("out_file", "p0.prior_decisions",
+                                       "台本が描き直した p0.prior_decisions の返答の置き場（.a2）にファイルを書いてから add した"
+                                       "（RL は起きた役と読んで描き直さない。盤面は受けるまで置き場が無いので描き直す）"),
+    ("test_request_entry", "9", 482): ("launched_at", "p2.diagnose",
+                                       "台本が state.json の p2.diagnose の instance に launched_at を手で書いてから add した"
+                                       "（RL は判定役が起きたと読んで拒む。盤面は起こした印を持たない）"),
+    ("test_request_entry", "10", 509): ("out_file", "p2.diagnose",
+                                        "台本が p2.diagnose の返答の置き場にファイルを書いてから add した"
+                                        "（RL は判定役が起きたと読んで拒む。盤面は受けるまで置き場が無い）"),
+}
+
+
+class ReplayDivergence(AssertionError):
+    """通しの再生で、盤面が手本の engine と違う動きをした（拒むべき手を通した・違う文で拒んだ・出ているべき節が無い など）"""
+
+
+def restore_repo(run_steps, seq, into) -> pathlib.Path:
+    """手 seq の前の対象リポジトリだけを into の下に戻す（盤面の置き場は触らない。通しの再生が各手の前に呼ぶ）"""
+    places = Places(into)
+    if places.repo.exists():
+        shutil.rmtree(places.repo)
+    places.repo.mkdir(parents=True)
+    _write_tree(places.repo, manifest_at(run_steps, seq, "before", "repo"), places)
+    return places.repo
+
+
+def _view(state, record, n):
+    """周 n の終わりの見え方 {rd, loop, record}（写し）"""
+    return copy.deepcopy({"rd": state["rounds"][n - 1], "loop": state.get("loop"), "record": record})
+
+
+def cut_step(run_steps):
+    """HAND_EDITED_STEPS に載った手（通しの再生はその手の前で止める）。無ければ None"""
+    return next((s for s in run_steps if (run_steps.scenario, run_steps.run, s["seq"]) in HAND_EDITED_STEPS), None)
+
+
+def golden_result(run_steps) -> dict:
+    """手本の engine の ReplayResult（印のまま）: 周の終わりは周を開く口（open_next_round）に入った時の記憶（open_round の手の前。
+    stop_after_round で開かずに止めた締めも含む）。最後は Run の最後の起動の後の盤面（MANIFEST の final）で、最後の周の終わりが
+    まだ無ければそこから取る。HAND_EDITED_STEPS の手が在る Run は、その手の前の記憶を最後とする"""
+    cut = cut_step(run_steps)
+    rounds = {}
+    for s in run_steps:
+        if cut is not None and s["seq"] >= cut["seq"]:
+            break
+        if s["kind"] == "open_round":
+            m = memory_at(run_steps, s["seq"], "before")
+            rounds[m["state"]["round"]] = _view(m["state"], m["record"], m["state"]["round"])
+    fin = memory_at(run_steps, cut["seq"], "before") if cut else json.loads(blob(run_steps.meta["final"]["memory"]))
+    n = fin["state"]["round"]
+    if n not in rounds:
+        rounds[n] = _view(fin["state"], fin["record"], n)
+    return {"rounds": rounds, "final": {"state": fin["state"], "record": fin["record"]}}
+
+
+def golden_disk(run_steps) -> dict:
+    """手本の engine の最後のディスクの目録（MANIFEST の final）。HAND_EDITED_STEPS の手が在る Run は、その手の前の目録から
+    台本が手で書いた返答の置き場のファイルを除いた物（盤面へは書かない。書き込みそのものが再生に無い）"""
+    cut = cut_step(run_steps)
+    if cut is None:
+        return json.loads(blob(run_steps.meta["final"]["disk"]))
+    got = manifest_at(run_steps, cut["seq"], "before", "disk")
+    kind, node, _ = HAND_EDITED_STEPS[(run_steps.scenario, run_steps.run, cut["seq"])]
+    if kind == "out_file":
+        inst = memory_at(run_steps, cut["seq"], "before")["state"]["rounds"][-1]["instances"][node]
+        del got[inst["out_path"].removeprefix("@BOARD@/")]
+    return got
+
+
+def _norm_view(v):
+    got = normalize({"state": {"rounds": [v["rd"]], "loop": v["loop"]}, "record": v["record"]})
+    return {"rd": got["state"]["rounds"][0], "loop": got["state"].get("loop"), "record": got["record"]}
+
+
+def result_diff(expected: dict, got: dict) -> list:
+    """ReplayResult の違いの文の一覧（NOT_REPRODUCED を除く。空なら同じ）: 周ごとの rd・loop・record と、最後の state・record"""
+    out = []
+    for n in sorted(expected["rounds"].keys() | got["rounds"].keys()):
+        if n not in got["rounds"]:
+            out.append(f"周 {n}: 手本に在るが再生に無い")
+        elif n not in expected["rounds"]:
+            out.append(f"周 {n}: 再生に在るが手本に無い")
+        else:
+            _diff(_norm_view(expected["rounds"][n]), _norm_view(got["rounds"][n]), f"周{n}", out)
+    _diff(normalize(expected["final"]), normalize(got["final"]), "最後", out)
+    return out
+
+
+class _Replay:
+    """1 本の Run を頭（init の手の後）の盤面から通しで当てる（replay の中身）。盤面は DiskBoard の口だけで進め、手本の記憶を
+    盤面へ書くのは頭の 1 度（restore と board_from_memory）だけ。各手の前に対象リポジトリだけを撮った物に戻す"""
+
+    def __init__(self, run_steps, into, table):
+        self.rs = run_steps
+        self.into = pathlib.Path(into)
+        self.places = Places(into)
+        self.table = table
+        self.rounds = {}
+        self.planned = set()      # 計画を見た engine_run の instance（周・節・試行）
+        self.counts = {"steps": 0, "settle": 0, "fallback": 0, "reject": 0, "gap": 0, "tree": 0, "cut": 0}
+        self.b = None
+
+    # -- 盤面の入れ物
+    def reopen(self, allow_halted=False):
+        """拒まれた手の後の入れ物は捨てる（仕様 4.1 の M11）。開き直すのは盤面自身のディスク（手本の記憶ではない）"""
+        self.b = DiskBoard.open(self.b.dir, table=self.table, repo=self.places.repo, allow_halted=allow_halted)
+
+    def pending_inst(self, nid):
+        return next((i for i in self.b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+
+    def settle(self, accept_tree_change=None):
+        """台本の next に当たる所: settle して、出たばかりの engine_run の節の計画を見る"""
+        self.counts["settle"] += 1
+        self.b.settle(accept_tree_change)
+        self.plan_now()
+
+    def plan_now(self):
+        """engine は engine_run の節を出す時（next の中）に計画し、任せ先へ落ちる計画ならその場で落とす（手として撮られない。
+        p0.parallel_pr は remote が無いので毎周、宣言の無いリポジトリの p0.local_checks も）。盤面では計画は run_engine の中なので、
+        出たばかりの engine_run の節の計画を見て、落ちる物だけその場で run_engine に渡す（走らせる計画は手本の engine_run の手を待つ）"""
+        b = self.b
+        if b.state.get("halted") or b.state.get("pending_human"):
+            return
+        for inst in list(b.rd["instances"].values()):
+            nid = inst["node"]
+            key = (b.round, nid, inst.get("attempts", 1))
+            if (inst["status"] != "pending" or inst.get("engine_fallback") or key in self.planned
+                    or self.table.nodes[nid].by != "engine_run"):
+                continue
+            self.planned.add(key)
+            er = registry(b.rules, "ENGINE_RUNS")[b.nodes[nid]["engine_run"]["builtin"]]
+            plan = er["plan"](b, nid)
+            if "fallback" in plan:
+                self.counts["fallback"] += 1
+                b.run_engine(nid, plan=plan, runner=_refuse_runner)
+
+    # -- 周の終わりを撮る（手本の作り手が open_next_round を包んだのと同じ点）
+    @contextlib.contextmanager
+    def round_hooks(self):
+        import board as board_mod
+        import engine.advance as advance_mod
+        orig = advance_mod.open_next_round
+
+        def wrapped(b, nid):
+            if b is self.b:
+                self.rounds[b.round] = self.places.tokenize(_view(b.state, b.record, b.round))
+            return orig(b, nid)
+        advance_mod.open_next_round = board_mod.open_next_round = wrapped
+        try:
+            yield
+        finally:
+            advance_mod.open_next_round = board_mod.open_next_round = orig
+
+    # -- 手
+    def expect_reject(self, s, call, gap=False):
+        """engine が拒んだ手: 同じ文の Reject（依存の拒否は BoardGap）。その後の入れ物は捨てて開き直す"""
+        want = s["raised"]
+        try:
+            call()
+        except BoardGap as e:
+            if not gap:
+                raise ReplayDivergence(f"seq {s['seq']} {s['kind']} {s.get('node')}: 手本は {want['type']}（{want['text'][:200]}）、"
+                                       f"盤面は BoardGap（{e}）") from e
+            self.counts["gap"] += 1
+        except Reject as e:
+            if gap or self.places.tokenize(str(e)) != want["text"]:
+                raise ReplayDivergence(f"seq {s['seq']} {s['kind']} {s.get('node')}: 拒みの文が違う——手本 {want['text'][:300]!r} ／ "
+                                       f"盤面 {self.places.tokenize(str(e))[:300]!r}") from e
+            self.counts["reject"] += 1
+        else:
+            raise ReplayDivergence(f"seq {s['seq']} {s['kind']} {s.get('node')}: 手本は拒んだ（{want['text'][:200]}）が盤面は通した")
+        self.reopen()
+
+    def ensure_emitted(self, s):
+        """手の節が待っていなければ settle する（engine の next がこの手の前に出した——機械の節も na も無い next は手に残らない）"""
+        if self.pending_inst(s["node"]) is None:
+            self.settle()
+        if self.pending_inst(s["node"]) is None:
+            raise ReplayDivergence(f"seq {s['seq']} {s['kind']} {s['node']}: 手本では待っている節が、盤面で待っていない"
+                                   f"（{self.b.node_state(s['node'])}）")
+
+    def step(self, s):
+        k, nid = s["kind"], s.get("node")
+        if s.get("parent") or k in ("init", "open_round"):
+            return      # 入れ子の手（engine_run の中の受け付け・周の開き）は親の手の中で起きる
+        self.counts["steps"] += 1
+        if k in ("builtin", "na"):
+            # engine の next の中の手。盤面がその節をまだ回していなければ、ここで台本が next を打った
+            if self.b.node_state(nid) == "pending":
+                if s.get("repo_before") is not None:
+                    restore_repo(self.rs, s["seq"], self.into)
+                no_git = (self.rs.scenario, self.rs.run, s["seq"]) in NO_GIT_STEPS
+                with _no_git(self.into) if no_git else contextlib.nullcontext():
+                    self.settle((s.get("args") or {}).get("accept_tree_change"))
+            return
+        restore_repo(self.rs, s["seq"], self.into)
+        raised = s.get("raised")
+        if k == "accept":
+            if raised and raised["type"] == "Reject" and "作業ツリーが変わっている" in raised["text"]:
+                self.counts["tree"] += 1     # instance.tree_before（NOT_REPRODUCED）: 突合を持たないので当てない
+                return
+            gap = bool(raised) and raised["type"] == "Reject" and "deps" in raised["text"]
+            if not gap:
+                self.ensure_emitted(s)
+            out = reply(s, self.b)
+            if raised:
+                self.expect_reject(s, lambda: self.b.accept(nid, out), gap=gap)
+            else:
+                self.b.accept(nid, out)
+        elif k == "engine_run":
+            self.ensure_emitted(s)
+            got = self.b.run_engine(nid, runner=captured_runner(s, self.b), plan=engine_run_plan(s, self.b))
+            if bool(got.get("ok")) != bool(s["result"].get("ok")):
+                raise ReplayDivergence(f"seq {s['seq']} engine_run {nid}: 返り {got} ／ 手本 {s['result']}")
+        elif k == "answer":
+            a = s["args"]
+            call = lambda: self.b._answer_record(a["text"], a.get("note") or "")
+            self.expect_reject(s, call) if raised else call()
+        elif k == "skip":
+            call = lambda: self.b._skip_record(nid, s["args"]["reason"])
+            self.expect_reject(s, call) if raised else call()
+        elif k == "add":
+            items = self.places.untokenize(json.loads(s["args"]["file_text"]))
+            call = lambda: self.b.add_request(items, s["args"]["reason"])
+            self.expect_reject(s, call) if raised else call()
+        elif k == "stop":
+            call = lambda: self.b.stop(s["args"]["reason"], "stop")
+            self.expect_reject(s, call) if raised else call()
+        elif k == "patch":
+            # works の口を持たない（仕様 9.3）: 人が盤面を手で書いた事実だけを、撮った差分（その手の after）で写す。
+            # 盤面の版（state.rev）は盤面自身の保存が数える
+            ops = [o for o in self.places.untokenize(s["memory"].get("after") or []) if o["path"] != ["state", "rev"]]
+            _apply_ops({"state": self.b.state, "record": self.b.record}, ops)
+            self.b.save()
+        elif k == "finalize":
+            if self.b.state.get("halted"):
+                self.reopen(allow_halted=True)     # engine の cmd_finalize と同じく止めた run にも仕上げを書く
+            self.b.finalize()
+        else:
+            raise ReplayDivergence(f"seq {s['seq']}: 知らない手の種類 {k}")
+
+    def run(self) -> dict:
+        rs = self.rs
+        head = rs[0]
+        if head["kind"] != "init" or head.get("raised"):
+            raise ValueError(f"{rs.scenario} run {rs.run} は init の通った Run でない")
+        d, _ = restore(rs, head["seq"], "after", self.into)
+        self.b = board_from_memory(memory_at(rs, head["seq"], "after"), d, self.table)
+        cut = cut_step(rs)
+        with self.round_hooks():
+            for s in rs[1:]:
+                if cut is not None and s["seq"] >= cut["seq"]:
+                    self.counts["cut"] += 1
+                    break
+                self.step(s)
+            else:
+                # 最後の手の後にも台本の next が盤面を保存した（手として撮られない）なら、同じく settle する
+                last = memory_at(rs, rs[-1]["seq"], "after")
+                fin = json.loads(blob(rs.meta["final"]["memory"]))
+                if fin["state"].get("rev", 0) > last["state"].get("rev", 0):
+                    self.settle()
+        b = self.b
+        got = self.places.tokenize({"state": b.state, "record": b.record})
+        rounds = dict(self.rounds)
+        if b.round not in rounds:
+            rounds[b.round] = _view(got["state"], got["record"], b.round)
+        return {"rounds": rounds, "final": copy.deepcopy(got)}
+
+
+def _refuse_runner(steps, cwd, log_dir):
+    raise ReplayDivergence(f"通しの再生が手本に無い語を走らせようとした: {steps}")
+
+
+@contextlib.contextmanager
+def _no_git(into):
+    empty = pathlib.Path(into) / "empty-bin"
+    empty.mkdir(exist_ok=True)
+    old = os.environ.get("PATH")
+    os.environ["PATH"] = str(empty)
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = old
+
+
+def replay(scenario: str, run, into, *, table=None, counts: dict | None = None) -> dict:
+    """手本の Run を頭（init の手の後）の盤面から通しで当て、ReplayResult {rounds: {N: {rd, loop, record}}, final: {state, record}}
+    （手本の印に戻した写し）を返す（仕様 9.3 の「通し」）。表は NodeTable.everything（渡せば差し替え）。
+    - 撮った手の順に、受け付け（accept）・engine が走らせる節（撮った計画と runs で run_engine）・答え・省く（_answer_record・
+      _skip_record。done・answer・skip の記録の部分）・依頼（add_request）・止める（stop）・仕上げ（finalize）を当てる。patch の手は
+      撮った差分を記憶に当てて保存する。拒まれた手は同じ文で拒むことを確かめ、入れ物を開き直す
+    - 機械の節と na は settle に任せる。settle は台本の next に当たる所で打つ: 手本の next の中の手（builtin・na）の節を盤面が
+      まだ回していない時、手の節がまだ出ていない時、最後の手の後に台本の next が保存した時（done の後に毎回 settle すると、台本が
+      next を打たずに挟んだ patch・stop より前に条件を評価してしまう）。settle の後、出た engine_run の節の計画が任せ先へ落ちる物は
+      その場で run_engine（engine は next の中で落とす）
+    - 各手の前に対象リポジトリだけを撮った物に戻す。盤面を engine の側から写し直さない（手本の記憶を盤面へ書くのは頭の 1 度だけ）
+    - HAND_EDITED_STEPS の手が在る Run は、その手の前で止める
+    counts を渡せば、当てた手・settle・計画の落ち・拒み・BoardGap・当てない手（作業ツリーの突合）・止めた手の数を足す"""
+    from board import GRAPH_PATH, NodeTable
+    rs = load_runs(scenario)[str(run)]
+    if not replayable(rs):
+        raise ValueError(f"{scenario} run {run} は再生に当てない Run（init で拒まれた・graph が違う）")
+    if table is None:
+        table = NodeTable.everything(json.loads(GRAPH_PATH.read_text(encoding="utf-8")), GRAPH_SHA)
+    r = _Replay(rs, into, table)
+    got = r.run()
+    if counts is not None:
+        for k, v in r.counts.items():
+            counts[k] = counts.get(k, 0) + v
+    return got

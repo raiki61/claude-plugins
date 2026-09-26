@@ -461,14 +461,20 @@ class DiskBoard(_EngineBoard):
         return b
 
     @classmethod
-    def create(cls, d, *, repo, table, inputs, request_text, max_rounds=None, stop_after_round=None,
+    def create(cls, d, *, repo, table, inputs, request_text, max_rounds=None, stop_after_round=None, unattended=False,
                overrides=None, validator_runner=None) -> "DiskBoard":
         """盤面を作る（engine の cmd_init と同じ順と入口の検査。仕様 4.1 の 1〜5）。入口で拒めば置き場を作らず、
-        作った後のどこかで例外なら置き場を消して投げ直す（空の盤面を残さない）。既に在る置き場には作らない（BoardGap）"""
+        作った後のどこかで例外なら置き場を消して投げ直す（空の盤面を残さない）。既に在る置き場には作らない（BoardGap）。
+        unattended は engine の init --unattended（人の答えを待たずに RL の保守的な既定で進む run）。入口の文（止める周が
+        1 未満・graph に宣言の無い入力の notes）は engine の cmd_init と同じ文"""
         d = pathlib.Path(d).resolve()
         _check_table(table)
-        if stop_after_round is not None and (type(stop_after_round) is not int or stop_after_round < 1):
-            raise BoardGap(f"stop_after_round は 1 以上の整数（{stop_after_round!r}）——止める周の番号で、その周の締めの後で止まる")
+        if stop_after_round is not None and type(stop_after_round) is not int:
+            raise BoardGap(f"stop_after_round は整数（{stop_after_round!r}）——止める周の番号で、その周の締めの後で止まる")
+        if stop_after_round is not None and stop_after_round < 1:
+            raise BoardGap(f"--stop-after-round は 1 以上（{stop_after_round}）——止める周の番号で、その周の締めの後で止まる")
+        if type(unattended) is not bool:
+            raise BoardGap(f"unattended は真偽（{unattended!r}）")
         graph = graph_expanded()
         rules = load_rules(str(GRAPH_PATH), graph)
         # 1〜2: inputs に engine と同じ既定を足し、パスの入力を絶対にし、RL と graph の選ぶ入力の値を確かめる
@@ -483,8 +489,8 @@ class DiskBoard(_EngineBoard):
         bad = choice_input_errors(graph, ins)
         if bad:
             raise Reject("; ".join(bad))
-        notes = [f"inputs の {k} は graph の inputs に宣言が無く、どの節も rules も読まない（効かない）"
-                 for k in undeclared_inputs(graph, list(inputs or {}))]
+        notes = [f"--input {k}=… は graph の inputs に宣言が無く、どの節も rules も読まない（効かない）——綴りを確かめよ"
+                 f"（宣言済みの入力: {', '.join(sorted(graph.get('inputs') or {}))}）" for k in undeclared_inputs(graph, list(inputs or {}))]
         # 3: 最終の置き場
         try:
             d.mkdir(parents=True, exist_ok=False)
@@ -497,7 +503,7 @@ class DiskBoard(_EngineBoard):
                 "graph": str(GRAPH_PATH), "graph_sha": GRAPH_SHA,
                 "created": now(), "status": "running", "round": 1, "rounds": [empty_round(1)],
                 "thickness": None, "max_rounds": max_rounds if max_rounds is not None else max_rounds_for(graph, None),
-                "unattended": False,
+                "unattended": unattended,
                 **({"stop_after_round": stop_after_round} if stop_after_round is not None else {}),
                 "inputs": ins, "validator": str(VALIDATOR_PATH), "outputs": {}, "done_ever": {}, "loop": {},
                 **({"notes": notes} if notes else {}),

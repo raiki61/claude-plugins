@@ -223,14 +223,40 @@ class CreateCase(TmpCase):
         kw.setdefault("request_text", "依頼")
         return DiskBoard.create(self.tmp / "art" / name, repo=self.repo, table=table or full_table(), **kw)
 
-    def engine_init(self, d):
+    def engine_init(self, d, **kw):
         """engine の cmd_init で同じリポジトリに盤面を作る（graphcheck.py は写しに無いので check_graph だけ外す）"""
         a = types.SimpleNamespace(graph=str(GRAPH_PATH), loop="review-loop", validator=str(VALIDATOR_PATH), request="依頼",
                                   document=None, lang=None, input=[f"cwd={self.repo}"], dir=str(d), thickness=None,
                                   decider=None, stop_after_round=None, unattended=False, unfenced_delegates=None)
-        with mock.patch.object(engine_commands, "check_graph", lambda g, v: []), contextlib.redirect_stdout(io.StringIO()):
+        for k, v in kw.items():
+            setattr(a, k, v)
+        with mock.patch.object(engine_commands, "check_graph", lambda g, v: []), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
             engine_commands.cmd_init(a)
         return read(pathlib.Path(d) / "state.json")
+
+    def test_create_unattended(self):
+        """無人の run（engine の init --unattended）: state.unattended が engine と同じ。既定は False、真偽でない値は BoardGap"""
+        self.assertIs(read(self.create().dir / "state.json")["unattended"], False)
+        b = self.create("b2", unattended=True)
+        self.assertIs(read(b.dir / "state.json")["unattended"], True)
+        self.assertIs(self.engine_init(self.tmp / "eng", unattended=True)["unattended"], True)
+        with self.assertRaises(BoardGap):
+            self.create("b3", unattended="yes")
+        self.assertFalse((self.tmp / "art" / "b3").exists())
+
+    def test_create_texts_like_engine(self):
+        """入口の文が engine の cmd_init と同じ: 止める周が 1 未満（engine は die）と、graph に宣言の無い入力の notes"""
+        with self.assertRaises(BoardGap) as cm:
+            self.create(stop_after_round=0)
+        with self.assertRaises(SystemExit):
+            self.engine_init(self.tmp / "eng0", stop_after_round=0)
+        self.assertEqual(str(cm.exception), engine_util.LAST_DIE)
+        b = self.create("b2", inputs={"GATES": "merge", "gates": "merge"})
+        eng = self.engine_init(self.tmp / "eng", input=[f"cwd={self.repo}", "GATES=merge", "gates=merge"])
+        self.assertEqual(read(b.dir / "state.json")["notes"], eng["notes"])
+        with self.assertRaises(BoardGap):
+            self.create("b3", stop_after_round=1.5)
 
     def test_create_like_engine_init(self):
         table = with_absent(full_table(), "r1.minimality", "R 系はこのラインに無い", "R 系のブロック")
