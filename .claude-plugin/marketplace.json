@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "レビュー・調査・診断ループと外部投稿ゲートのプラグイン",
-    "version": "0.80.4"
+    "version": "0.80.5"
   },
   "allowCrossMarketplaceDependenciesOn": [
     "claude-plugins-official"

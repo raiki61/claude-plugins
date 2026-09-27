@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.21.5] - 2026-09-27
+
 ### Added
 
 - 宣言した検査の一式（`.review-checks.json` の `suite`）が全段緑で終わったら、同じ指紋（作業ツリーの中身・段の定義・実行の土台）の間は別の run でも走らせずに使い回す。必ず走らせるなら `launch` の環境に `GRAPHLOOPS_RERUN_CHECKS=1`。
