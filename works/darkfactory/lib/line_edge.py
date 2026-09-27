@@ -36,6 +36,7 @@ import conflict  # noqa: E402
 import entry  # noqa: E402
 import halt  # noqa: E402
 import plan  # noqa: E402
+import premises  # noqa: E402
 import protect  # noqa: E402
 import purpose  # noqa: E402
 import reads  # noqa: E402
@@ -72,10 +73,10 @@ EMPTY_FIX_OP = "empty_fix"                   # 直す物の無い周に機械が
 EMPTY_FIX_BY = "works:empty-fix"
 JUDGE_BRIDGE_BY = "works:judge-bridge"       # 判定のブロックの出口を盤面が受けなかった時の state.stop.by（h-plan）
 ADAPTER_BY = "works:adapter"                 # 包みが通っていない run を止めた state.stop.by（h-judge。blk-ci の柵と同じ名）
-PREMISES_BY = "works:premises"               # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
+PREMISES_BY = premises.STOP_BY                # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
 PREMISES_NODE = "p0.premises"
 PURPOSE_NODE = "p0.purpose"
-PURPOSE_BY = "works:purpose"                 # 目的の文が盤面に無い・盤面が受けない時の state.stop.by（h-mat）
+PURPOSE_BY = purpose.STOP_BY                 # 目的の文が盤面に無い・盤面が受けない時の state.stop.by（h-mat）
 MAT_BLOCK = "blk-material"                   # 表の where がこれの節が P1 の目（素材集め）。h-mat の mat_go
 EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が独立の目。h-eyes の go
 ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み（works/.shared/core/claude-adapter）の絶対パスを書くか、"

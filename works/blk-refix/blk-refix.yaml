@@ -46,7 +46,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $refix-accept.output.ok = true
+      until_bash: test $refix-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: refix
           command: refix
@@ -101,9 +101,12 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [ok, reason, reason_file]
+            required: [ok, done, reason, reason_file]
             properties:
               ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              node: {type: string}
               reason: {type: string}
               reason_file: {type: string}
               ready: {type: array, items: {type: string}}
@@ -152,7 +155,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $review2-accept.output.ok = true
+      until_bash: test $review2-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: review2
           command: review2
@@ -232,9 +235,12 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [ok, reason, reason_file]
+            required: [ok, done, reason, reason_file]
             properties:
               ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              node: {type: string}
               reason: {type: string}
               reason_file: {type: string}
               ready: {type: array, items: {type: string}}
@@ -284,7 +290,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $refix2-accept.output.ok = true
+      until_bash: test $refix2-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: refix2
           command: refix2
@@ -339,9 +345,12 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [ok, reason, reason_file]
+            required: [ok, done, reason, reason_file]
             properties:
               ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              node: {type: string}
               reason: {type: string}
               reason_file: {type: string}
               ready: {type: array, items: {type: string}}

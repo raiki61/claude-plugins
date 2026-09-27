@@ -17,7 +17,7 @@ excluded に並べ、受け付けが確かめて今の周の pr-excluded.json �
 - downgrades・head_downgrades: 下げた物の一覧（<ライン>/downgrades.json）と、報告の頭の行の部品
 
 盤面を開く口は線 A の entry.open_board（Task 3）。ここでは opener で差し替えられる（試験は節の表を渡して開く）。
-take は entry.take（Task 9）と同じ約束の、このブロックだけの形（Task 9 が入ったら entry.take に寄せる。報告の配線の残り）。
+take は entry.take（Task 9）と同じ約束の、このブロックだけの形（rolekit.accept_role の take に渡す）。
 """
 import hashlib
 import json
@@ -76,6 +76,7 @@ GH_DENY = ("gh api", "gh pr comment", "gh pr review", "gh pr edit", "gh pr creat
 # 役が HEAD・枝を動かす語（作業ツリーの写しと HEAD・枝の比べが拒む。指示書が禁じる）
 GIT_DENY = ("git checkout", "git switch", "git stash", "git reset")
 BRIEF = "pr-brief.json"         # 役への渡し物（落ちた理由・交差を取る集合・版）
+STOP_BY = "works:pr"           # 任せ先の役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
 READS = (ROLE, "pr-checking", "pr-loop", ROLE)   # reads.main_for の (役, include, 輪, 節)
 DOWNGRADES = "downgrades.json"
 DOWNGRADE_KEYS = ("node", "what", "versus")
@@ -260,18 +261,20 @@ def drafts(board, *, opener=None) -> list:
             for c in (rep or {}).get("conflicts", []) if c.get("note")]
 
 
-def collect(board, *, opener=None) -> dict:
+def collect(board, *, opener=None, gave_up=None) -> dict:
     """集める節: {ok, pr_file, conflicts, drafts, material_status, excluded, excluded_file, reads_file}。
     drafts は note を持つ交差の件数、excluded は本ループのスコープから外した hunk の数、excluded_file はその一覧
     （pr-excluded.json。後の役——判定・修正案・修正——に触らせない範囲として渡す）。reads_file は読んだ証拠の節（pr-reads）が
     今の周に書いた reads-pr-check.json（無ければ空）。盤面が p0.parallel_pr を受けていない・handed_over が真の行が残る・
-    外す hunk の一覧が無い時は ok 偽"""
+    外す hunk の一覧が無い時は ok 偽。gave_up(board) -> str は受けていない時の諦めの腕（blk-pr の collect が rolekit.gave_up を
+    渡す: 3 回の拒否で輪を抜けたなら最後の拒否の文で盤面を止めて理由を返す。後ろの役を起こさない）"""
     b = (opener or open_board)(board, allow_halted=True)
     rep, f = _accepted(b)
     empty = {"pr_file": "", "conflicts": 0, "drafts": 0, "material_status": "", "excluded": 0, "excluded_file": "",
              "reads_file": ""}
     if rep is None:
-        return {"ok": False, "reason": f"盤面が {NODE} の返答を受けていない", **empty}
+        why = gave_up(board) if gave_up is not None else ""
+        return {"ok": False, "reason": why or f"盤面が {NODE} の返答を受けていない", **empty}
     reads, ex_p = b.work(f"reads-{ROLE}.json"), b.work(EXCLUDED)
     try:
         excluded = json.loads(ex_p.read_text(encoding="utf-8"))["excluded"]
@@ -287,44 +290,14 @@ def collect(board, *, opener=None) -> dict:
 
 
 # ---------------------------------------------------------------- スクリプトの入口
-# 受け付け（pr-accept）の出口は script_io の公開の口 board_dir・emit_result を通す（盤面の resolve と $ の柵・拒否なら
-# reason_file を書く。script_io.main は INPUTS_BASE_REV を要り、回す側の誤りを終了コード 2 にする道を持たないので呼ばない）。
-# 次の周の役へ理由を届けるのは reason_file で、指示書は $LOOP_PREV.pr-accept.output.reason_file だけを差し込む。
+# 受け付け（pr-accept）は blk-pr/scripts/accept.py が rolekit.main_accept に take を渡して回す（拒否の控え・3 回目で done。R50）。
 # pr-snap・collect の 1 行は $LOOP_PREV で次の周へ渡らないので script_io._emit で出す（形は同じ 1 行・ensure_ascii=False）
-TAKE_NAME = "pr_take"   # 拒否の本文のファイルの名前（reject-pr_take-<連番>.txt）
-
-
 def _artifacts():
     d = os.environ.get(ARTIFACTS_ENV)
     if not d:
         print(f"環境変数が無い: {ARTIFACTS_ENV}", file=sys.stderr)
         return None
     return pathlib.Path(d) / script_io.BOARD_DIR
-
-
-def main_take(reply_env: str = "INPUTS_REPLY") -> int:
-    """pr-accept のスクリプトの入口（script_io.main と同じ約束）。中身の拒否は 0 で {"ok": false, "reason", "reason_file"} を
-    1 行（出口は script_io.emit_result）、回す側の誤り（環境変数の欠け・盤面の $・BoardGap・止めた run への書き込み）は
-    標準エラーに 1 行で 2（TA19）"""
-    if reply_env not in os.environ:
-        print(f"環境変数が無い: {reply_env}", file=sys.stderr)
-        return 2
-    board = script_io.board_dir()
-    if board is None:
-        return 2
-    raw = os.environ[reply_env]
-    try:
-        reply = json.loads(raw)
-    except ValueError as e:
-        return script_io.emit_result(board, TAKE_NAME, {"ok": False, "reason": f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）"})
-    if not isinstance(reply, dict):
-        return script_io.emit_result(board, TAKE_NAME, {"ok": False, "reason": f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"})
-    try:
-        got = take(board, reply, pathlib.Path.cwd())
-    except (BoardGap, Reject) as e:
-        print(f"{NODE} の受け付けを回せない: {e}", file=sys.stderr)
-        return 2
-    return script_io.emit_result(board, TAKE_NAME, got)
 
 
 def main_snapshot() -> int:
@@ -341,13 +314,13 @@ def main_snapshot() -> int:
     return 0
 
 
-def main_collect() -> int:
-    """collect のスクリプトの入口。環境変数が欠けたら 2"""
+def main_collect(gave_up=None) -> int:
+    """collect のスクリプトの入口（gave_up は collect の諦めの腕）。環境変数が欠けたら 2"""
     board = _artifacts()
     if board is None:
         return 2
     try:
-        got = collect(board)
+        got = collect(board, gave_up=gave_up)
     except (BoardGap, Reject) as e:
         print(f"{NODE} の出口を組めない: {e}", file=sys.stderr)
         return 2

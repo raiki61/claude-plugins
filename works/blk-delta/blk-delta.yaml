@@ -41,7 +41,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $review-accept.output.ok = true
+      until_bash: test $review-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: review
           command: delta-review
@@ -125,11 +125,14 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [ok, reason, reason_file]          # 返答が JSON でないときの拒否は review_file を持たない（script_io）
+            required: [ok, done, reason, reason_file]   # rolekit.accept_role の返り（通れば entry.take の欄も）
             properties:
               ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              node: {type: string}
               reason: {type: string}
-              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。rolekit.accept_role）
               review_file: {type: string}
               # 通った時の entry.take の欄（blk-refix の受け付けと同じ。run 25 はこれが無くて落ちた。tests/test_script_contract.py）
               ready: {type: array, items: {type: string}}

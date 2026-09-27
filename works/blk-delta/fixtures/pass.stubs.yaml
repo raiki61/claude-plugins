@@ -12,6 +12,7 @@ review:
   faces_none: "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
 review-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
 collect:

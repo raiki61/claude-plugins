@@ -1,9 +1,10 @@
 # 審査役が触っていないファイル（stats.py）に今の姿に無い字列の穴を挙げる（tests/replies/delta_bad_cite.json と同じ中身）。
 # 受け付けは拒む（ok: false。このブロック単体の run には盤面が無いので stub。拒否の中身は tests/test_blk_tests_delta.py の
 # TestDeltaBoard が盤面の上で見る）。
-# 本当の run では until_bash が偽のまま 3 回で輪（delta-loop）が上限を超えて失敗する。dry-run は until_bash を走らせず
-# 「1 回で済んだ」と見なす（Archon 0.11.1 の dry-run.ts: 'until_bash' is not executed in a dry run）ので、ここでは輪を抜けた後の
-# collect（本物）が「盤面に今の周の受け付けた返答が無い」で失敗する——拒まれた返答で出口が組まれないことを見る
+# 本当の run では 3 回目の拒否で受け付けが done を立てて輪（delta-loop）を抜け、collect が最後の拒否の文で盤面を止めて
+# ok: false を返す（R50）。dry-run は until_bash を走らせず「1 回で済んだ」と見なす（Archon 0.11.1 の dry-run.ts: 'until_bash' is
+# not executed in a dry run）ので、ここでは輪を抜けた後の collect（本物）が「盤面に今の周の受け付けた返答が無い」で失敗する
+# ——拒まれた返答で出口が組まれないことを見る
 cut:
   ok: true
   files: []
@@ -18,6 +19,7 @@ review:
   checks: []
 review-accept:
   ok: false
+  done: false
   reason: "p3.delta_review: faces[0] の cite 'return hi + 1' が stats.py の今の姿に無い——在る字列を写せ"
   reason_file: ''
 review-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）

@@ -17,6 +17,9 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - rejudge（run 28）: 修正役が判定に異議 → 再審の輪（1 回目は拒む。判定役の会話の続き）→ 差分の審査 → 手直し → 2 回目の審査 →
   2 回目の手直し → 最後のテスト（ラインの test_cmd）→ 最後の関所 → 独立の目 → 報告 fixed
 - rejudge-no-session: 同じ異議で判定役の会話が無い → h-rejudge が盤面を止め、後ろは飛んで報告は stopped_by_line
+- <役>-give-up（GIVE_UPS の役: 並行 PR の任せ先・前提の実測・目的・差分の審査・手直し・2 回目の審査）: 役が 3 回とも拒まれる →
+  輪は受け付けの done で 3 周目に抜け（max_iterations に当てない）、出口が盤面を止め、run は落ちずに報告まで届く（R50）。
+  盤面が止まった後はどの役も起きない（並行 PR の任せ先が諦めた後の前提の実測役も）
 網羅: 線と線が include する全部のブロックの script の節（output_format を持つ物）を、(ブロック・スクリプト・output_format) の
 組で 1 回は起こす（同じスクリプトと同じ型の節は、役の名だけが違う同じ口——例えば素材集めの P1 の役は判定から入る run の
 周では起きないが、prep・accept は同じスクリプトと同じ型で prior-decisions が通る）。受け付けのスクリプトは通る出口と拒む
@@ -97,6 +100,13 @@ RULING_CODE = {"rulings": [{"id": "c1-1", "decision": "fix_code_as", "text": "�
                             "limits": ["stats.py:9"]}]}
 
 
+# 3 回とも拒ませる役（<ブロック>/<節>）→ 筋書きの名。2 回目の手直し（refix2）は 2 回目の審査が穴を残す周でしか起きないので、
+# 輪の形は test_role_give_up が、出口の諦めの腕は refix.collect_refix の同じ式（手直し 1・審査 2 と同じ行）が受け持つ
+GIVE_UPS = {"blk-pr/pr-check": "pr-give-up", "blk-premises/premises": "premises-give-up",
+            "blk-purpose/purpose": "purpose-give-up", "blk-delta/review": "review-give-up",
+            "blk-refix/refix": "refix-give-up", "blk-refix/review2": "review2-give-up"}
+
+
 def ai_keys():
     """線が include するブロックの役の節の鍵（<ブロック>/<節>）"""
     return {f"{b}/{n['id']}" for b in scriptline.wired_blocks() for n, _ in scriptline.walk(scriptline.flow(b)["nodes"])
@@ -141,12 +151,16 @@ def scenarios(tmp: pathlib.Path) -> dict:
         "rejudge": dict(replies=objection, edits={**edits, "refix": refix_edit}, inputs={"test_cmd": TL.TEST_CMD},
                         bad_first={"blk-rejudge/rejudge"}, sessions=True),
         "rejudge-no-session": dict(replies=objection, edits={**edits, "refix": refix_edit}, inputs={"test_cmd": TL.TEST_CMD}),
+        **{name: dict(replies={**TL.replies(), "refix": REFIX_FIXED, "review2": REVIEW2_OK, key: lambda n: {}},
+                      edits={**edits, "refix": refix_edit})
+           for key, name in GIVE_UPS.items()},
     }
 
 
 OUTCOMES = {"material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
             "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed",
-            "rejudge-no-session": "stopped_by_line"}
+            "rejudge-no-session": "stopped_by_line",
+            **{name: "stopped_by_line" for name in GIVE_UPS.values()}}
 
 
 def signature(block, node) -> tuple:
@@ -229,6 +243,16 @@ class ScriptContractCase(unittest.TestCase):
                                           if m["id"] == r["node"])}
         missing = sorted(f"{b}/{s}" for b, s, _ in want - ran)
         self.assertEqual(missing, [])
+
+    def test_role_gives_up_after_three_rejections(self):
+        """3 回とも拒まれた役は 3 回だけ起き（輪は done で抜ける）、盤面が止まった後はどの役も起きない（報告の役を除く）"""
+        ai = {k for k in ai_keys() if not k.startswith("blk-report/")}
+        for key, name in GIVE_UPS.items():
+            with self.subTest(name):
+                trail = self.got[name]["trail"]
+                self.assertEqual(trail.count(key), 3, trail)
+                after = trail[len(trail) - trail[::-1].index(key):]
+                self.assertEqual([t for t in after if t in ai], [])
 
     def test_accepts_take_both_exits(self):
         """役の返答の受け付けのスクリプト（YAML の with: に reply を持つ節）は、通る出口と拒む出口の両方を起こした"""
