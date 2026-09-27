@@ -36,7 +36,7 @@ from engine import commands as _commands  # noqa: E402
 from engine import intake as _intake  # noqa: E402
 from engine import rules as _rules  # noqa: E402
 from engine import util as _util  # noqa: E402
-from engine.board import Board  # noqa: E402
+from engine.board import Board, empty_round, node_of  # noqa: E402
 from engine.schema import graph_text  # noqa: E402
 
 GOLDEN = pathlib.Path(__file__).resolve().parent / "golden"
@@ -584,6 +584,93 @@ def coverage(loop, internal_expectations):
                 rows[name] = {"uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"}
         out[table] = rows
     return out
+
+
+# ---------------------------------------------------------------- 盤面の形の宣言
+@functools.lru_cache(maxsize=None)
+def graph(loop):
+    """engine と同じ読み方の graph（$ref を展開した物）"""
+    from engine.schema import load_graph
+    g, why = load_graph(graph_path(loop))
+    if g is None:
+        raise ValueError(why)
+    return g
+
+
+_ATTEMPT = re.compile(r"\.a\d+$")
+
+
+def node_of_file(rel, nodes):
+    """盤面の相対パス out/r<周>/<名前>.json の節 ——名前は safe_name(instance の id) に試行の .a<n> が付いた物で、扇の instance は
+    <節>[<key>] が <節>__<key>__ になる（engine.advance の out_path）。節名で最長一致を取る（engine.board.node_of と同じ考え方）。無ければ None"""
+    parts = rel.split("/")
+    if len(parts) != 3 or parts[0] != "out" or not parts[2].endswith(".json"):
+        return None
+    stem = _ATTEMPT.sub("", parts[2][:-len(".json")])
+    best = None
+    for nid in nodes:
+        s = _util.safe_name(nid)
+        if (stem == s or stem.startswith(s + "__")) and (best is None or len(nid) > len(best)):
+            best = nid
+    return best
+
+
+_UNRESOLVED = re.compile(r"die: cond '[^']+' の欄 '([^']+)' が解決できない")
+_BROKEN = re.compile(r"想定外の例外|例外 [A-Za-z_]\w*|開けない: ")
+
+
+def shape_breaks(fx, obs):
+    """観察の中の、固定具の盤面の形の欠けから来た壊れ（固定具ごとの一覧。空なら無い）。
+
+    規則の振る舞いの変化と見分けるための物で、拾うのは: engine か規則が落ちた（『想定外の例外』・呼ばれ方の『例外 <型>』）、
+    盤面が開けない（『開けない:』）、条件が die した（『die:』）のうち、欄が解決できないのでない物と、解決できない欄が盤面の形の宣言に
+    在るのに固定具に無い物——周の欄（engine.board.empty_round の鍵）か、出力が固定具に在る節の schema の required の欄。
+    まだ誰も書いていない欄（その節がまだ走っていない・周の途中で書かれる欄）は宣言どおりなので拾わない"""
+    nodes = graph(fx["loop"])["nodes"]
+    files = fx.get("files") or {}
+    outs = {}
+    for rel, v in files.items():
+        nid = node_of_file(rel, nodes)
+        if nid and isinstance(v, dict):
+            outs.setdefault(nid, []).append(v)
+    rounds = (files.get("state.json") or {}).get("rounds") or [{}]
+    got = []
+
+    def declared_missing(path):
+        # 宣言が在ると言う欄そのものが固定具に無いときだけ（在るならその下の、周の途中で書かれる欄が無いだけ）。実在の盤面の
+        # 固定具は縮めが元の盤面より宣言の違反を増やさないので、無い欄は元の旧い盤面に無かった物——固定具の欠けではない
+        # （旧い盤面の読み替えの観察として contract の期待値に残る）
+        if fx.get("origin") == "real":
+            return False
+        head, _, rest = path.partition(".")
+        if head == "rd":
+            k = rest.split(".")[0]
+            return k in empty_round(0) and k not in rounds[-1]
+        if head in ("out", "cur", "prev"):
+            nid = node_of(rest, nodes)
+            if not nid or nid not in outs:
+                return False
+            field = rest[len(nid) + 1:].split(".")[0]
+            return (field in ((nodes[nid].get("schema") or {}).get("required") or [])
+                    and any(field not in o for o in outs[nid]))
+        return False
+
+    def walk(o):
+        if isinstance(o, str):
+            for m in _BROKEN.finditer(o):
+                got.append(m.group(0))
+            if "die:" in o:
+                u = _UNRESOLVED.search(o)
+                if u is None or declared_missing(u.group(1)):
+                    got.append(o[:200])
+        elif isinstance(o, list):
+            for x in o:
+                walk(x)
+        elif isinstance(o, dict):
+            for v in o.values():
+                walk(v)
+    walk(obs)
+    return got
 
 
 # ---------------------------------------------------------------- 衛生

@@ -6,6 +6,8 @@
   次の節や問いを出す・記録（record.json）に書く値が変わる・周の印（done・na と理由）が変わる。作り替えの run はこれを変えてはならない
 - internal（内部の形）: 規則の表の名前ごとの返り・loop の状態の鍵・機械の節の出力の形が変わる。作り替えで作り直してよい
   （`golden_make.py expect`。差分は審査に出る）
+- 形の壊れ（test_no_shape_break_in_observation）: 今の観察に、固定具の盤面が宣言の要る欄を欠くせいの落ち方（想定外の例外・
+  開けない・宣言に在る欄が解決できない die）が出た。contract が同時に赤なら、規則の変化でなく固定具の欠けを先に疑う
 - 覆いの一覧（golden/expect/coverage.json）: 規則の表とフックの名前が増えた・消えた・覆いが変わったのに一覧が古い
 - 衛生: 固定具・期待値に家のパス・利用者名・秘密が入った、固定具が上限を超えた
 """
@@ -43,6 +45,14 @@ def test_contract(path, observed):
 @pytest.mark.parametrize("path", FIXTURES, ids=IDS)
 def test_internal(path, observed):
     assert observed(path)["internal"] == _expected("internal", path)
+
+
+@pytest.mark.parametrize("path", FIXTURES, ids=IDS)
+def test_no_shape_break_in_observation(path, observed):
+    """今の観察に、固定具の盤面の形の欠けから来た壊れが無い——赤の名前で『規則の振る舞いの変化』と『固定具の欠け』を分ける。
+    期待値のファイルでなく今の観察を見る（期待値は作り直すまで古いので、作り直す前の赤を分けられない）"""
+    breaks = ga.shape_breaks(ga.load_fixture(path), observed(path))
+    assert not breaks, f"固定具の形の欠けから来た壊れ（盤面の形の宣言で要る欄が固定具に無い）: {breaks[:3]}"
 
 
 def test_every_fixture_has_both_layers_and_no_orphans():

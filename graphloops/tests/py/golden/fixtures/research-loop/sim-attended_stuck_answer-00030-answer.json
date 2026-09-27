@@ -1,0 +1,151 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_attended_stuck_answer が loop.py answer を呼ぶ直前（30）",
+ "command": [
+  "answer",
+  "--text",
+  "escalate"
+ ],
+ "files": {
+  "out/r1/p3.rederiver.json": {
+   "question_stands": true,
+   "verdict": "pass",
+   "reason": "_s13_xxx",
+   "derivation": "_s11_xxxxxxxx"
+  },
+  "record.json": {
+   "question": "_s12_xxxxx",
+   "thickness": "標準",
+   "thickness_decider": "既定",
+   "constraints": [],
+   "clusters": [],
+   "claims": [],
+   "corrections": [],
+   "gates": {
+    "rederiver": {
+     "verdict": "pass",
+     "reason": "_s14_"
+    },
+    "cold_reader": {
+     "rounds": []
+    },
+    "cartographer": {
+     "status": "not_applicable",
+     "reason": "未実行"
+    }
+   },
+   "sampling": {
+    "status": "done",
+    "overturned": 0,
+    "round": 2
+   },
+   "convergence": {
+    "consecutive_zero": 1,
+    "outcome": null
+   },
+   "process": {
+    "human_items": [],
+    "policy": {
+     "path": null,
+     "sha256": null
+    },
+    "open_questions": []
+   },
+   "decisions": {}
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s10_xxxxxxxxxx",
+   "graph": "<PLUGIN>/graphs/research-loop.json",
+   "status": "running",
+   "round": 2,
+   "rounds": [
+    {
+     "round": 2,
+     "done": {
+      "p1.checker": {
+       "at": "_s4_xxxxxxxxxxxxxxxxxxxxx",
+       "instances": 1
+      },
+      "p1.refuter": {
+       "at": "_s5_xxxxxxxxxxxxxxxxxxxxx",
+       "instances": 1
+      },
+      "p1.record_check": {
+       "at": "_s5_xxxxxxxxxxxxxxxxxxxxx",
+       "builtin": "count_check"
+      },
+      "p2.integrate": {
+       "at": "_s6_xxxxxxxxxxxxxxxxxxxxx"
+      },
+      "p3.rederiver_compare": {
+       "at": "_s7_xxxxxxxxxxxxxxxxxxxxx"
+      },
+      "p3.cold_reader": {
+       "at": "_s8_xxxxxxxxxxxxxxxxxxxxx"
+      },
+      "p3.sampling": {
+       "at": "_s9_xxxxxxxxxxxxxxxxxxxxx",
+       "instances": 1
+      }
+     },
+     "na": {
+      "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+      "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+      "p3.cartographer": "active_in: 標準 段では走らせない（重厚 だけ）",
+      "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）"
+     },
+     "skipped": {},
+     "stopped": {},
+     "empty": [],
+     "instances": {},
+     "item_counts": {
+      "p1.checker": 0
+     },
+     "new_discrepancies": 0
+    }
+   ],
+   "thickness": "標準",
+   "max_rounds": 4,
+   "unattended": false,
+   "inputs": {
+    "cwd": "<REPO>",
+    "policy_md": null
+   },
+   "validator": "<ROOT>/scripts/research-record.py",
+   "outputs": {
+    "p3.rederiver": {
+     "file": "out/r1/p3.rederiver.json",
+     "round": 1
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "stuck_ids": [
+     "B"
+    ]
+   },
+   "rev": 30,
+   "pending_human": {
+    "node": "converge",
+    "kinds": [
+     "stuck"
+    ],
+    "question": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "items": [
+     "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "options": [
+     "escalate"
+    ]
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "session": "gl-ask-session",
+ "git": {}
+}

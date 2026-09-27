@@ -4,111 +4,233 @@
  "origin": "real",
  "source": "実在の盤面 20260926-103129（review-loop）",
  "files": {
-  "out/r1/converge.json": {},
   "out/r1/p0.base.json": {
+   "base_sha": "_s13_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "method": "4 依頼者の名指し",
+   "commits": 0,
+   "merge_commit": false,
+   "intent_to_add": [],
    "touches_gates": true,
    "touches_external_seams": false,
    "touches_user_path": true,
-   "touches_security_surface": true
+   "touches_security_surface": true,
+   "material": {
+    "status": "found",
+    "count": 1
+   }
   },
-  "out/r1/p0.local_checks.json": {},
-  "out/r1/p0.parallel_pr.json": {},
-  "out/r1/p0.premises.json": {},
-  "out/r1/p0.prior_decisions.json": {},
   "out/r1/p0.purpose.json": {
-   "source": "②計画・タスク記述"
+   "purpose_text": "_s5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "source": "②計画・タスク記述",
+   "known_weaknesses": [],
+   "source_files": []
   },
-  "out/r1/p1.worktree_after.json": {},
-  "out/r1/p1.worktree_before.json": {},
-  "out/r1/p2.diagnose.json": {},
-  "out/r1/p2.fix_plan.json": {},
-  "out/r1/p2.human_gate.json": {},
-  "out/r1/p2.plan_review.json": {},
-  "out/r1/p3.delta_fix.json": {},
-  "out/r1/p3.delta_owed.json": {},
-  "out/r1/p3.delta_owed2.json": {},
-  "out/r1/p3.delta_review.json": {},
-  "out/r1/p3.fix.json": {},
-  "out/r1/p3.fix_delta.json": {},
-  "out/r1/p3.gates_cut.json": {},
-  "out/r1/p3.lane_merge.json": {},
-  "out/r1/p4.assemble.json": {},
-  "out/r1/p4.ci.json": {},
-  "out/r1/p4.record.json": {},
-  "out/r1/p4.scalars.json": {},
-  "out/r1/r1.comment_candidates.json": {},
-  "out/r1/r1.minimality.json": {},
-  "out/r1/r2.compare.json": {},
+  "out/r1/p3.delta_owed.json": {
+   "ok": true,
+   "owed": 1
+  },
+  "out/r1/p3.delta_owed2.json": {
+   "ok": true,
+   "owed": 0
+  },
+  "out/r1/p3.gates_cut.json": {
+   "ok": true,
+   "rev": "_s14_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "files": [
+    "graphloops/README.md",
+    "_s18_xxxxxxxxxxxxxxxxxxxxxx",
+    "_s17_xxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ]
+  },
   "out/r1/r2.design.json": {
-   "question_stands": true
+   "question_stands": true,
+   "reason": "_s6_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "design": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   },
-  "out/r1/r4.human_gate.json": {},
   "record.json": {
+   "base": "_s13_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "round": 1,
    "materials": {},
    "units": [
     {
-     "label": "block"
+     "key": "_s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "label": "block",
+     "disposition": "do-now",
+     "reason": "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "reopen_evidence": ""
     },
     {
-     "label": "block"
+     "key": "_s8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "label": "block",
+     "disposition": "do-now",
+     "reason": "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "reopen_evidence": ""
     }
    ],
+   "scalars": {},
    "reviews": {
     "R2": {
      "status": "redesign-needed",
-     "reason": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     "reason": "_s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "R1": {
+     "status": "pass",
+     "reason": "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     }
    },
    "questions": [],
    "process": {
+    "human_items": [],
+    "human_answers": [],
+    "policy": {
+     "path": null,
+     "sha256": null
+    },
     "request_entry": {
-     "origin": "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    }
+     "origin": "_s9_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "base": {
+     "base_sha": "_s13_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "constraints": [],
+    "fixes": []
    }
   },
   "state.json": {
    "loop_name": "review-loop",
-   "run_id": "_s7_xxxxxxxxxxx",
+   "run_id": "_s49_xxxxxxxxxx",
+   "graph": "<PLUGIN>/graphs/review-loop.json",
+   "status": "stopped",
    "round": 1,
    "rounds": [
     {
+     "round": 1,
      "done": {
-      "p0.base": {},
-      "p0.premises": {},
-      "p0.purpose": {},
-      "p0.local_checks": {},
-      "p1.worktree_before": {},
-      "p0.parallel_pr": {},
-      "p0.prior_decisions": {},
-      "p1.worktree_after": {},
-      "p2.diagnose": {},
-      "p2.fix_plan": {},
-      "p2.plan_review": {},
-      "p2.human_gate": {},
-      "p3.lane_merge": {},
-      "p3.fix": {},
-      "p3.fix_delta": {},
-      "p3.delta_review": {},
-      "p3.delta_owed": {},
-      "p3.delta_fix": {},
-      "p3.delta_owed2": {},
-      "p3.gates_cut": {},
-      "p4.scalars": {},
-      "p4.ci": {},
-      "p4.assemble": {},
-      "r4.human_gate": {},
-      "r2.design": {},
-      "r1.comment_candidates": {},
-      "r2.compare": {},
-      "r1.minimality": {},
-      "p4.record": {},
-      "converge": {}
+      "p0.base": {
+       "at": "_s19_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p0.premises": {
+       "at": "_s20_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p0.purpose": {
+       "at": "_s21_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p0.local_checks": {
+       "at": "_s22_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p1.worktree_before": {
+       "at": "_s23_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "worktree_snapshot"
+      },
+      "p0.parallel_pr": {
+       "at": "_s24_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p0.prior_decisions": {
+       "at": "_s25_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p1.worktree_after": {
+       "at": "_s26_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "worktree_compare"
+      },
+      "p2.diagnose": {
+       "at": "_s27_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p2.fix_plan": {
+       "at": "_s28_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p2.plan_review": {
+       "at": "_s29_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p2.human_gate": {
+       "at": "_s30_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "_s50_xxxxxxxxxx"
+      },
+      "p3.lane_merge": {
+       "at": "_s31_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "lane_merge"
+      },
+      "p3.fix": {
+       "at": "_s32_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p3.fix_delta": {
+       "at": "_s33_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "fix_delta"
+      },
+      "p3.delta_review": {
+       "at": "_s34_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p3.delta_owed": {
+       "at": "_s35_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "delta_owed"
+      },
+      "p3.delta_fix": {
+       "at": "_s36_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p3.delta_owed2": {
+       "at": "_s37_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "delta_owed"
+      },
+      "p3.gates_cut": {
+       "at": "_s38_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "gates_cut"
+      },
+      "p4.scalars": {
+       "at": "_s39_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "scalars"
+      },
+      "p4.ci": {
+       "at": "_s40_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p4.assemble": {
+       "at": "_s41_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "assemble"
+      },
+      "r4.human_gate": {
+       "at": "_s42_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "human_gate"
+      },
+      "r2.design": {
+       "at": "_s43_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "r1.comment_candidates": {
+       "at": "_s44_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "r2.compare": {
+       "at": "_s45_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "r1.minimality": {
+       "at": "_s46_xxxxxxxxxxxxxxxxxxxx"
+      },
+      "p4.record": {
+       "at": "_s47_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "record_round"
+      },
+      "converge": {
+       "at": "_s47_xxxxxxxxxxxxxxxxxxxx",
+       "builtin": "converge"
+      }
      },
-     "instances": {}
+     "na": {
+      "p3.delta_gates": "cond lane_due: 変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
+     },
+     "skipped": {},
+     "stopped": {},
+     "empty": [],
+     "instances": {},
+     "item_counts": {}
     }
    ],
    "thickness": null,
-   "inputs": {},
+   "max_rounds": 5,
+   "unattended": false,
+   "stop_after_round": 1,
+   "inputs": {
+    "cwd": "<REPO>",
+    "gates": "merge",
+    "policy_md": null
+   },
+   "validator": "<ROOT>/scripts/review-record.py",
    "outputs": {
     "p0.base": {
      "file": "out/r1/p0.base.json",
@@ -118,43 +240,56 @@
      "file": "out/r1/p0.purpose.json",
      "round": 1
     },
+    "p3.delta_owed": {
+     "file": "out/r1/p3.delta_owed.json",
+     "round": 1
+    },
+    "p3.delta_owed2": {
+     "file": "out/r1/p3.delta_owed2.json",
+     "round": 1
+    },
+    "p3.gates_cut": {
+     "file": "out/r1/p3.gates_cut.json",
+     "round": 1
+    },
     "r2.design": {
      "file": "out/r1/r2.design.json",
      "round": 1
     }
    },
+   "done_ever": {},
    "loop": {
     "gates": "merge",
+    "diff_file": "<RUN>/diff-r1-after-fix.patch",
     "changed_files": [
      "graphloops/README.md"
     ],
+    "diff_lines": 136,
+    "tree_before": {
+     "stash": "",
+     "tree": "_s15_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
     "fix_delta": {
      "round": 1,
+     "file": "<RUN>/fix-delta-r1.patch",
      "files": [
       "graphloops/README.md",
-      "_s5_xxxxxxxxxxxxxxxxxxxxxxx",
-      "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-     ]
+      "_s18_xxxxxxxxxxxxxxxxxxxxxx",
+      "_s17_xxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     ],
+     "rev": "_s16_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     },
-    "delta_owed": {
-     "round": 1,
-     "rows": [
-      {
-       "key": "_s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      }
-     ]
-    },
-    "gates_cut": {
-     "round": 1,
-     "files": [
-      "graphloops/README.md",
-      "_s5_xxxxxxxxxxxxxxxxxxxxxxx",
-      "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-     ]
-    },
-    "open_units": 2
+    "open_units": 2,
+    "r1_refire": true,
+    "purpose_unusable": null,
+    "purpose_known": true
+   },
+   "rev": 51,
+   "halted": {
+    "node": "converge",
+    "round": 1,
+    "reason": "_s11_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
    }
   }
  }

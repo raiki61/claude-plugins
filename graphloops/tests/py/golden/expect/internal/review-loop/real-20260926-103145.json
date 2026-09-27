@@ -4,14 +4,8 @@
    true,
    "round=2"
   ],
-  "delta2_faces_open": [
-   false,
-   "手直しの差分のレビューが挙げた、2 回目の手直しが答える義務は 0 件"
-  ],
-  "delta_faces_open": [
-   false,
-   "修正差分のレビューと検算が挙げた、手直しが答える義務は 0 件"
-  ],
+  "delta2_faces_open": "die: cond 'delta2_faces_open' の欄 'cur.p3.delta_owed2.rows' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "delta_faces_open": "die: cond 'delta_faces_open' の欄 'cur.p3.delta_owed.rows' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
   "delta_fixed": [
    true,
    "手直しが今の周に直した（fixed）穴は 2 件"
@@ -30,23 +24,23 @@
   ],
   "final_gate_due": [
    false,
-   "検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
+   "変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
   ],
   "fix_delta_nonempty": [
    true,
    "この周の修正の差分は 9 ファイル"
   ],
   "gate_efficacy_due": [
-   true,
-   "差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立つ（round=2・差分が検証ゲートに触れる・前の周の P3 が触ったファイルは 6 件）"
+   false,
+   "変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
   ],
   "gates_cut_nonempty": [
-   false,
-   "この周のコードは周の頭から 0 ファイル変わった"
+   true,
+   "この周のコードは周の頭から 10 ファイル変わった"
   ],
   "gates_merge": [
-   false,
-   "変異の検算をこの run で撃つ（init --input gates=merge が無い）"
+   true,
+   "変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
   ],
   "gates_touched": [
    true,
@@ -54,7 +48,7 @@
   ],
   "lane_due": [
    false,
-   "この周のコードは周の頭から 0 ファイル変わった"
+   "変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）"
   ],
   "main_path_observation_due": [
    true,
@@ -106,11 +100,11 @@
   ],
   "rejudge_exhausted": [
    false,
-   "今の周の異議に往復 0 回（上限 3）"
+   "今の周の異議に往復 1 回（上限 3）"
   ],
   "rejudge_open": [
    true,
-   "今の周の異議に往復 0 回（上限 3）"
+   "今の周の異議に往復 1 回（上限 3）"
   ],
   "request_entry": [
    false,
@@ -162,12 +156,12 @@
   [
    "CONDS",
    "delta2_faces_open",
-   "偽"
+   "die"
   ],
   [
    "CONDS",
    "delta_faces_open",
-   "偽"
+   "die"
   ],
   [
    "CONDS",
@@ -202,17 +196,17 @@
   [
    "CONDS",
    "gate_efficacy_due",
-   "真"
+   "偽"
   ],
   [
    "CONDS",
    "gates_cut_nonempty",
-   "偽"
+   "真"
   ],
   [
    "CONDS",
    "gates_merge",
-   "偽"
+   "真"
   ],
   [
    "CONDS",

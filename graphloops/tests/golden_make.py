@@ -4,8 +4,9 @@
 使い方:
     python3 golden_make.py expect              # 今の固定具から internal の層と覆いの一覧（coverage.json）を作り直す
     python3 golden_make.py expect --contract   # 外の約束（contract）の層も作り直す。作り直した理由は commit の文に書く
-    python3 golden_make.py collect --real <盤面の置き場>... [--simulate] [--work <作業場>]
-                                               # 盤面から固定具を作り直す（固定具を足す・入れ替えるとき。盤面はこの機械の上にしか無い）
+    python3 golden_make.py collect --real <盤面の置き場>... [--simulate] [--work <作業場>] [--replace]
+                                               # 盤面から固定具を作り直す（固定具を足す・入れ替えるとき。盤面はこの機械の上にしか無い）。
+                                               # --replace は今の固定具を消さずに、集めた分だけ書き換える
 
 手順 3 の作り替えの run が回すのは `expect` だけ。contract の層が変わったら、その差分が審査に出る（層は置き場で分けてある）。
 
@@ -19,12 +20,16 @@ collect のすること（どの固定具も同じ道を通る）:
 3. 基準の観察: 置き換えた盤面を一時の置き場に広げ、git だけは写した対象リポジトリで本物を走らせて答えを録る（ほかの子は締め口で止める）
 4. 当て直しの確かめ: 録った答えだけで同じ観察になるか。ならない固定具は捨て、理由を出す
 5. 選ぶ: 実在の盤面は全部、台本の写しは覆い（規則の名前ごとの結果）を新しく足す物を貪欲に選ぶ
-6. 縮める: ファイル・欄・リストの要素を 1 つずつ外し、観察が変わらない物は落とす。続けて、残った文字列を 1 つずつ印に
-   置き換え（同じ文字列は全部の所で同じ印に）、観察が同じ置き換えを受けるだけなら印のままにする——長さでなく評価の結果で決める
+6. 縮める: ファイル・欄・リストの要素を 1 つずつ外し、観察が変わらず盤面として有効なままの物は落とす。続けて、残った文字列を
+   1 つずつ印に置き換え（同じ文字列は全部の所で同じ印に）、観察が同じ置き換えを受けるだけなら印のままにする——長さでなく評価の
+   結果で決める。有効かは縮める前の盤面との相対で見る（Shrinker の注記）: コードが添字で読む欄は親が残る限り外さず、盤面の loop・
+   節の出力・盤面の中の参照は既存の宣言（graph の state_schema・節の schema）で照らして違反を増やさない。その時点のコードが
+   読まない欄でも、後のコードが読んだときに固定具が欠けで落ちないように
 7. 1 つ 64 KB を超える固定具、禁じる形（家のパス・利用者名・秘密）が残る固定具は捨てる
 """
 import argparse
 import ast
+import collections
 import copy
 import json
 import os
@@ -224,19 +229,75 @@ def clean(fx):
 
 
 # ---------------------------------------------------------------- 縮める
+def _norm_violation(msg):
+    """違反の文を、縮めで動く所（リストの添字・値の字面・型の名前）を均した形に——縮める前と後で同じ違反を同じ文にする"""
+    msg = re.sub(r"\[\d+\]", "[]", msg)
+    msg = re.sub(r"値 .*? が(語彙| )", r"値 … が\1", msg, flags=re.S)
+    return re.sub(r"（[A-Za-z_]+）$", "", msg)
+
+
+def shape_violations(fx):
+    """固定具の盤面を、既存の宣言だけで照らした違反の文の一覧（新しい schema は作らない）: 盤面の loop を graph の state_schema で、
+    節の出力（out/r<周>/<名前>.json）をその節の schema で（engine.schema.validate_schema）、盤面の中の参照（state の outputs と
+    instance が指す返答・項目のファイル）が固定具に在るかで。コードが添字で読む欄は Shrinker が外さないので、ここでは照らさない"""
+    from engine.schema import validate_schema
+    files = fx.get("files") or {}
+    nodes = ga.graph(fx["loop"])["nodes"]
+    out = []
+    st = files.get("state.json")
+    if isinstance(st, dict):
+        sch = ga.graph(fx["loop"]).get("state_schema")
+        if isinstance(sch, dict) and isinstance(st.get("loop"), dict):
+            out += validate_schema(st["loop"], sch, "state.loop")
+        refs = [("outputs", o.get("file")) for o in (st.get("outputs") or {}).values() if isinstance(o, dict)]
+        for rd in st.get("rounds") or []:
+            for inst in ((rd.get("instances") or {}) if isinstance(rd, dict) else {}).values():
+                if isinstance(inst, dict):
+                    refs += [(k, inst.get(k)) for k in ("output_file", "item_file")]
+        for kind, ref in refs:
+            if isinstance(ref, str) and ref:
+                rel = ref.removeprefix("<RUN>/")
+                if rel not in files:
+                    out.append(f"state の {kind} が指す先が固定具に無い")
+    for rel, v in files.items():
+        nid = ga.node_of_file(rel, nodes)
+        if nid and nodes[nid].get("schema"):
+            out += validate_schema(v, nodes[nid]["schema"], f"out/{nid}")
+    return sorted(_norm_violation(m) for m in out)
+
+
 class Shrinker:
-    def __init__(self, fx, ref, work, budget):
+    """縮める。受け入れるのは、観察が基準と同じで、かつ盤面として有効な候補だけ（same）。有効かは縮める前の盤面との相対で見る——
+    旧い実在の盤面は今の宣言をもともと満たさないことがあるので、違反が縮める前より増えないことを求める（C-Reduce が
+    interestingness test の中で妥当性を確かめ、Hypothesis が縮めた例を生成器が作りえた例に限るのと同じ考え方）。
+    観察だけで決めていた頃は、その時点のコードが読まない欄（周の skipped・na、記録の units と key）を落とし、後のコードが
+    その欄を読むと固定具が KeyError で落ちた（実測 2026-09-27: 0.21.2 の取りまとめで 18 件）"""
+
+    def __init__(self, fx, ref, work, budget, keep_keys=frozenset()):
         self.fx, self.ref, self.work, self.left = fx, ref, work, budget
+        self.keep_keys = keep_keys
+        self.shape0 = collections.Counter(shape_violations(fx))
+
+    def valid(self, cand):
+        return not (collections.Counter(shape_violations(cand)) - self.shape0)
 
     def same(self, cand, expect=None):
-        if self.left <= 0:
+        # 形の判定は観察より先に（安いので、形で落ちる候補に observe の試行を使わない）
+        if self.left <= 0 or not self.valid(cand):
             return False
         self.left -= 1
         obs, _ = run(cand, self.work)
         return ga.jsonable(obs) == ga.jsonable(expect if expect is not None else self.ref)
 
     def prune(self, root_key):
-        """fx[root_key]（ファイルの表）の、ファイル・欄・要素を外せるだけ外す（盤面の state.json と record.json は残す）"""
+        """fx[root_key]（ファイルの表）の、ファイル・欄・要素を外せるだけ外す（盤面の state.json と record.json は残す）。
+        欄を外した後にもう 1 度ファイルを外す——ファイルを指す欄（state の outputs など）が先に外れて初めて外せるファイルがある"""
+        self._prune_files(root_key)
+        for rel in list(self.fx.get(root_key) or {}):
+            self._prune_at([root_key, rel], 0)
+        self._prune_files(root_key)
+
+    def _prune_files(self, root_key):
         keep = {"state.json", "record.json"} if root_key == "files" else set()
         names = [k for k in (self.fx.get(root_key) or {}) if k not in keep]
         size = max(1, len(names) // 2)
@@ -252,8 +313,6 @@ class Shrinker:
                 else:
                     i += size
             size //= 2
-        for rel in list(self.fx.get(root_key) or {}):
-            self._prune_at([root_key, rel], 0)
 
     def _get(self, path, fx=None):
         cur = fx if fx is not None else self.fx
@@ -266,14 +325,20 @@ class Shrinker:
         node = self._get(path)
         if depth > 8 or not isinstance(node, (dict, list)) or not node or self.left <= 0:
             return
-        size = max(1, len(node) // 2)
+
+        def removable():
+            # コードが添字で読む欄（read_keys）は、親が残る限り外さない——宣言の無い面（state の最上位・instances・items・
+            # 記録の units と questions）にも同じ 1 つの規則で掛かる。リストの要素は外してよい
+            cur = self._get(path)
+            return [k for k in cur if k not in self.keep_keys] if isinstance(cur, dict) else list(range(len(cur)))
+        size = max(1, len(removable()) // 2)
         while size >= 1 and self.left > 0:
             i = 0
-            while i < len(self._get(path)) and self.left > 0:
+            while i < len(removable()) and self.left > 0:
                 cand = copy.deepcopy(self.fx)
                 target = self._get(path, cand)
                 if isinstance(target, dict):
-                    for k in list(target)[i:i + size]:
+                    for k in removable()[i:i + size]:
                         del target[k]
                 else:
                     del target[i:i + size]
@@ -352,11 +417,29 @@ class Shrinker:
                 stack += [group[mid:], group[:mid]]
 
 
+def _code_trees():
+    for p in list((ga.PLUGIN / "rules").glob("*.py")) + list((ga.PLUGIN / "engine").glob("*.py")) + list((ga.ROOT / "scripts").glob("*-record.py")) + [ga.ROOT / "scripts" / "record_common.py"]:
+        yield ast.parse(p.read_text(encoding="utf-8"))
+
+
+def read_keys():
+    """規則・検証器・engine のコードが添字で読む欄の名前（`x["名前"]` の読み・`x["名前"] += …`）——無いと KeyError で落ちる読み方。
+    `.get` で読む欄は無くても落ちないので入れない（入れると固定具が上限を超える: 字面の定数の全部で 1 件 101,720 バイト。実測 2026-09-27）"""
+    got = set()
+    for tree in _code_trees():
+        for n in ast.walk(tree):
+            sub = n.target if isinstance(n, ast.AugAssign) else n
+            if (isinstance(sub, ast.Subscript) and isinstance(sub.slice, ast.Constant) and isinstance(sub.slice.value, str)
+                    and (sub is not n or isinstance(n.ctx, ast.Load))):
+                got.add(sub.slice.value)
+    return got
+
+
 def protected_strings():
     """規則・graph・検証器・engine が字面で持つ文字列（語彙・節の名前・欄の名前）。これは置き換えの候補にしない"""
     got = set()
-    for p in list((ga.PLUGIN / "rules").glob("*.py")) + list((ga.PLUGIN / "engine").glob("*.py")) + list((ga.ROOT / "scripts").glob("*-record.py")) + [ga.ROOT / "scripts" / "record_common.py"]:
-        for n in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
+    for tree in _code_trees():
+        for n in ast.walk(tree):
             if isinstance(n, ast.Constant) and isinstance(n.value, str):
                 got.add(n.value)
 
@@ -437,10 +520,10 @@ def _reference(fx, work):
     return fx, (ref, sorted(pairs))
 
 
-def _shrink(fx, ref, work, budget, protected):
+def _shrink(fx, ref, work, budget, protected, keep_keys=frozenset()):
     """縮めて確かめる ——(書く本文, None) か (None, 捨てた理由)"""
     t0 = time.time()
-    s = Shrinker(fx, ref, pathlib.Path(work), budget)
+    s = Shrinker(fx, ref, pathlib.Path(work), budget, keep_keys)
     for key in ("files", "repo", "config", "input"):
         s.prune(key)
     s.strings(protected)
@@ -509,10 +592,11 @@ def collect(args):
         pool.remove(best)
     print(f"選んだ {len(chosen)}（実在 {sum(1 for k in chosen if k[0]['origin'] == 'real')}）", flush=True)
     protected = protected_strings()
+    keep_keys = frozenset(read_keys())
     out_dir = ga.GOLDEN / "fixtures"
-    if out_dir.exists():
+    if out_dir.exists() and not args.replace:
         shutil.rmtree(out_dir)
-    futs = {pool_ex.submit(_shrink, fx, ref, str(work), args.budget, protected): fx for fx, ref, _ in chosen}
+    futs = {pool_ex.submit(_shrink, fx, ref, str(work), args.budget, protected, keep_keys): fx for fx, ref, _ in chosen}
     for f in concurrent.futures.as_completed(futs):
         fx = futs[f]
         body, why = f.result()
@@ -544,6 +628,9 @@ def main():
     c.add_argument("--budget", type=int, default=1500, help="固定具 1 つを縮める試行の上限")
     c.add_argument("--max-fixtures", type=int, default=0, help="固定具の数の上限（0 は上限なし——覆いが増えなくなるまで選ぶ）")
     c.add_argument("--jobs", type=int, default=4, help="基準の観察と縮めを並べるプロセスの数")
+    c.add_argument("--replace", action="store_true",
+                   help="固定具の置き場を消さず、集めた候補の分だけ書き足す・同じ名前を書き換える（盤面の一部だけ集め直すとき。"
+                        "置き換えた古い名前の固定具は自分で消す）。期待値は全部を作り直す")
     sub.add_parser("check", help="今の固定具を評価し直して期待値と突き合わせる（別の PYTHONHASHSEED で回すと、走らせるたびに変わる物が分かる）")
     s = sub.add_parser("snap")
     s.add_argument("--work", required=True, help="台本の途中の状態を写す置き場（<work>/snaps）")

@@ -1,0 +1,119 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_attended_stuck_answer が loop.py next を呼ぶ直前（31）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.question.json": {
+   "question": "_s2_xxxxxx",
+   "domain": "_s3_xxx",
+   "constraints": [
+    {
+     "text": "_s1_xxxxxxx",
+     "source": "依頼文",
+     "origin": "独立出典",
+     "breaks_if_false": "_s5_xx"
+    }
+   ],
+   "thickness": "標準",
+   "thickness_decider": "既定",
+   "thickness_reason": "_s4_xxx",
+   "open_questions": []
+  },
+  "record.json": {
+   "question": "_s2_xxxxxx",
+   "thickness": "重厚",
+   "thickness_decider": "既定",
+   "constraints": [],
+   "clusters": [],
+   "claims": [],
+   "corrections": [],
+   "gates": {
+    "rederiver": {
+     "verdict": "pass",
+     "reason": "_s6_x"
+    },
+    "cold_reader": {
+     "rounds": []
+    },
+    "cartographer": {
+     "status": "not_applicable",
+     "reason": "未実行"
+    }
+   },
+   "sampling": {
+    "status": "done",
+    "overturned": 0,
+    "round": 2
+   },
+   "convergence": {
+    "consecutive_zero": 1,
+    "outcome": null
+   },
+   "process": {
+    "human_items": [],
+    "policy": {
+     "path": null,
+     "sha256": null
+    },
+    "open_questions": []
+   },
+   "decisions": {}
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s0_xxxxxxxxxxx",
+   "graph": "<PLUGIN>/graphs/research-loop.json",
+   "status": "running",
+   "round": 3,
+   "rounds": [
+    {
+     "round": 3,
+     "done": {},
+     "na": {},
+     "skipped": {},
+     "stopped": {},
+     "empty": [],
+     "instances": {},
+     "item_counts": {}
+    }
+   ],
+   "thickness": "重厚",
+   "max_rounds": 4,
+   "unattended": false,
+   "inputs": {
+    "cwd": "<REPO>",
+    "policy_md": null
+   },
+   "validator": "<ROOT>/scripts/research-record.py",
+   "outputs": {
+    "p0.question": {
+     "file": "out/r1/p0.question.json",
+     "round": 1
+    }
+   },
+   "done_ever": {
+    "p0.question": 1,
+    "p0.claims": 1,
+    "p0.terms": 1,
+    "p0.prior_decisions": 1,
+    "p5.internal": 1,
+    "p3.rederiver": 1,
+    "p0.clusters": 1
+   },
+   "loop": {
+    "stuck_ids": [],
+    "stuck_hint": true
+   },
+   "rev": 31
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "session": "gl-ask-session",
+ "git": {}
+}
