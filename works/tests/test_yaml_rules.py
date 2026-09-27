@@ -8,6 +8,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   （NARROW_SANDBOX_KEYS: enabled・allowUnsandboxedCommands・failIfUnavailable）だけを持つ。
   外れてよいのは表 EXCEPTIONS の節だけ（どの節が・どの道具と・どの sandbox の形を持ってよいかを 1 つの表に置く）:
   - blk-fix/blk-fix.yaml の節 fix（書く役）: 道具の決まりの外
+  - blk-spec/blk-spec.yaml の節 spec-write・spec-revise（仕様の道の writer。受け入れ条件のテストを対象に書く）: 道具の決まりの外
   - blk-ci/blk-ci.yaml の節 ci（CI の任せ先の役。裁定 R52・R56）: 読む道具に Bash だけ（テストを走らせる。Edit・Write は持たない）。
     sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ広い形（allowWrite ['/']・網）そのもので、本物の作業ツリーは
     包みが守るので、output_format の印に旗 no-tree-write を持つ
@@ -49,6 +50,8 @@ WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい�
 CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
 MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 前提の実測の役（読む道具に Bash だけを足す）
 MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash"}
+SPEC_WRITE = ("blk-spec", "blk-spec.yaml", "spec-write")     # 仕様の道の writer（本線 R2。受け入れ条件のテストを書く）
+SPEC_REVISE = ("blk-spec", "blk-spec.yaml", "spec-revise")   # 同じ writer が審査の穴に答えて直す
 NARROW_SANDBOX_KEYS = {"enabled", "allowUnsandboxedCommands", "failIfUnavailable"}   # 狭める鍵（書き込み・網を広げない）
 # graphloops の任せ先の sandbox（写しの engine の role_run.delegate_settings）から、起動ごとの denyWrite（包みが足す）と
 # autoAllowBashIfSandboxed（Archon は bypassPermissions で起こすので要らない）を除いた形。tests/test_blk_ci.py が写しの関数と突き合わせる
@@ -75,6 +78,8 @@ _MATERIAL = {
 JUDGE_WEB_TOOLS = READ_ONLY_TOOLS | {"WebSearch", "WebFetch"}   # graphloops の judge の定義（agents/judge.md）の道具
 EXCEPTIONS = {
     WRITER: {"tools": None},
+    SPEC_WRITE: {"tools": None},
+    SPEC_REVISE: {"tools": None},
     CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
     **{("blk-material", "blk-material.yaml", n): row for n, row in _MATERIAL.items()},
     ("blk-eyes", "blk-eyes.yaml", "r1-minimality"): {"tools": JUDGE_WEB_TOOLS},
@@ -88,7 +93,8 @@ TIMED_KEYS = ("bash", "script")
 QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種類
 # 役の節: (フォルダ, ファイル, 節)。どれもブロックの最初の AI の節で、輪（loop_group）の 1 周目の新しい会話で起きる
 ROLES = (("blk-judge", "blk-judge.yaml", "judge"), ("blk-fix", "blk-fix.yaml", "fix"),
-         ("blk-delta", "blk-delta.yaml", "review"), ("blk-purpose", "blk-purpose.yaml", "purpose"), CI_ROLE, MEASURER)
+         ("blk-delta", "blk-delta.yaml", "review"), ("blk-purpose", "blk-purpose.yaml", "purpose"), CI_ROLE, MEASURER,
+         SPEC_WRITE)
 
 
 # 違反の見本（yaml_bad の stem）→ 出るべき違反の文面の一部。狙いの検査が壊れて別の検査が偶然 1 件出しても赤になるように、

@@ -1,0 +1,64 @@
+# 筋書き gate-stop: 人が関所で stop（reject も同じ）と答える。盤面は halted（by answer・spec.approve）で、仕様は固めない。
+# 模擬実行では関所は自動で通るので、人の答えは spec-answer の stub に書く（stop の扱いは tests/test_blk_spec.py の test_gate_stop）。
+# スクリプトの節は全部 stub（盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_spec.py が子のプロセスで回す）。
+write-route: {go: true, node: spec.write, why: spec.write が ready}
+write-prep:
+  prompt_file: board/prompts/r1/spec.write.md
+  attempt: 1
+  out_path: board/out/r1/spec.write.json
+  node: spec.write
+  already: false
+spec-write:
+  requirements:
+  - {key: R1, text: mean は 3 つの数の平均を返す}
+  acceptance:
+  - {key: A1, requirement: R1, file: test_spec_accept.py, name: test_mean_is_middle, run: python3 -m unittest test_spec_accept}
+  out_of_scope: []
+write-accept: {ok: true, done: true, give_up: false, reason: '', node: spec.write}
+review-route: {go: true, node: spec.review, why: spec.review が ready}
+review-prep:
+  prompt_file: board/prompts/r1/spec.review.md
+  attempt: 1
+  out_path: board/out/r1/spec.review.json
+  node: spec.review
+  already: false
+spec-review:
+  faces: []
+  faces_none: 要件 R1 と A1 の Then は依頼の 2 つ目と同じ値を見ている。範囲の外も無い
+  reason: 要件 R1 と受け入れ条件 A1 を読み、境目の入力を確かめた
+review-accept: {ok: true, done: true, give_up: false, reason: '', node: spec.review}
+revise-route: {go: false, node: spec.revise, why: 'spec.revise は na（na: 仕様の審査が挙げた穴は 0 件）'}
+spec-ask:
+  ask: true
+  stop: false
+  gate_text: "修正の前の関所（盤面の問い spec.approve・種類: spec_approval）\n\n仕様（要件と受け入れ条件）を承認するか。…\n"
+  why: ''
+spec-answer: {answered: true, decision: stop, stop: true, why: ''}
+collect:
+  ok: false
+  reason: '人が関所で仕様を承認しなかった: 受け入れ条件が弱い'
+  spec_file: ''
+  tests: []
+  approved_by: ''
+  approval_note: ''
+  frozen_rev: ''
+  requirements: 0
+  acceptance: 0
+  faces: 0
+  handled: 0
+fixture:
+  expect: completed
+  reached:
+  - write-route
+  - write-prep
+  - spec-write
+  - write-accept
+  - review-route
+  - review-prep
+  - spec-review
+  - review-accept
+  - revise-route
+  - spec-ask
+  - spec-gate
+  - spec-answer
+  - collect
