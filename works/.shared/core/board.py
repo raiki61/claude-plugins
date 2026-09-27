@@ -3,10 +3,30 @@
 今ここに在る物:
 - BoardGap・BoardMismatch・RecordInvalid: 内部の誤りの型（仕様 4.6。RecordInvalid は報告の前の検証器の関所）。役の返答の誤りは engine の Reject のまま
 - NodeEntry・NodeTable:    節の表（仕様 4.2）。graph の全部の節を、このラインでどう持つかに振る
-- DiskBoard:               ディスクの盤面を開く入れ物（仕様 4.1・4.4）。写した engine の Board を継ぐ
-- Progress:                settle まで回す口（settle・done・run_builtin・answer・skip）の返り（仕様 4.1）
+- DiskBoard:               ディスクの盤面を開く入れ物（仕様 4.1・4.4）。写した engine の Board を継ぐ。入口は begin（仕様 5 節）
+- Progress:                settle まで回す口（settle・done・run_builtin・answer・skip・begin）の返り（仕様 4.1）
+- base_output:             p0.base の返答を機械が組む（begin が受け付けに渡す。仕様 5 節）
 - tree_runner:             run_engine の既定の runner（works の tree_run で 1 段ずつ。返りの行は engine の run_steps と同じ鍵）
 - rules_module・graph_expanded: 盤面なしで写しの RL と graph を読む口（仕様 4.1 の末尾）
+
+ラインの約束（線 A・B のラインがこの盤面を回すときに守ること。engine の loop.py の回し方と同じ強さにするため）:
+1. 始めは DiskBoard.begin。返りの Progress.run_engine の節（engine が走らせる節で、まだ任せ先に落ちていない物）は全部
+   run_engine してから settle する、を run_engine が空になるまで繰り返す（a1202d0 では版を固める p1.worktree_before が spec の
+   節を通して p0.local_checks を待つので、p0.parallel_pr を engine_run にした表では 2 回目に出る）。run_engine が
+   {ok: False, relaunch: True} を返したら（宣言が計画の後に変わった）呼び直す
+2. 役を起こす前に毎回 b.mark_launched(節, 試行) を呼ぶ（試行は待っている instance の attempts）。返りの out_path の試行を起こす
+   （印 → 起こす。engine の launch と同じ順）。Reject（描き直された）なら今の試行で描き直してから呼び直す。印の無い instance の
+   done は BoardGap。Progress.ready に在って run_engine に無い engine_run の節（任せ先に落ちた節）も、表の fallback の持ち主が
+   同じく印を置いてから done で渡す
+3. 同じ役の会話を続ける節（graph の same_context_as）は b.context_of(節) の continue_of の役の会話を Archon の側で続ける。
+   continue_of が None なら新しい会話で起こし、そのことを報告に出す（engine の context_lost と同じ）
+4. 役の定義がこの環境に無い（Archon の役の定義が引けない）時は、盤面は知らないので、ラインが起こした形と定義が無かった事実を
+   報告に出す（engine は instance・state.role_def_missing・記録の痕跡 traces に残して見せる）。黙って別の役で代えない
+5. 止めた run（state.halted）に報告・仕上げ（finalize）を書く入れ物は DiskBoard.open(..., allow_halted=True) で開く
+   （engine の allow_halted と同じ。他の入れ物の保存は止めた run では Reject）
+6. 検証器の包み（validator_runner）を渡して作った盤面（state.works.validator_hook）は、開くたびに同じ包みを渡す
+   （渡さなければ open が BoardGap。線 B の board_hook.py の包みを落として写しの RR で検証しないため）
+7. 役の返答が Reject（engine の AnswerReject と同じ文）で拒まれたら、その入れ物は捨て、盤面を開き直して役に返す
 
 節の表のファイル（<ライン>/nodes.json）の形:
   {"line": str, "graph_sha": str, "nodes": {節: {"by": str, "run"?, "fallback"?, "skippable"?, "reason"?, "where"?, "comes_with"?}}}
@@ -15,6 +35,7 @@
 import contextlib
 import dataclasses
 import datetime
+import hashlib
 import json
 import os
 import pathlib
@@ -80,9 +101,12 @@ class RecordInvalid(BoardGap):
 class Progress(TypedDict):
     """settle まで回す口の返り（仕様 4.1）。ready は依存が済んで待っている、表で role・machine・engine_run の節と、
     壁で止めた explicit の機械の節（ラインが次に作る・回す物。人に聞いている間と止めた run は空）。
+    run_engine は ready のうち、ラインが run_engine で走らせる節（表で engine_run・まだ任せ先に落ちていない）。ready に在って
+    run_engine に無い engine_run の節は任せ先に落ちた節で、表の fallback の持ち主が mark_launched → done で渡す。
     asking は state.pending_human、halted は state.halted、notes は止まった理由と機械の節の知らせ"""
     round: int
     ready: list
+    run_engine: list
     asking: dict | None
     halted: dict | None
     notes: list
@@ -321,6 +345,39 @@ def tree_runner(steps: list, cwd, log_dir) -> list:
     return runs
 
 
+# ---------------------------------------------------------------- p0.base の返答を機械が組む
+BASE_NODE = "p0.base"
+BASE_METHOD = "4 依頼者の名指し"
+
+
+def base_output(repo, base_rev: str) -> dict:
+    """p0.base の返答を機械が組む（仕様 5 節。graphloops の実物の p0.base の返答と同じ書き方）。begin が受け付けに渡す。
+    - base_sha: base_rev の commit（空なら HEAD。台帳 R2）の 40 桁。method は「4 依頼者の名指し」
+    - commits・merge_commit: git rev-list で base..HEAD を数える（merge の commit が 1 つでも在れば真）。intent_to_add は空
+      （機械は git add -N をしない。未追跡の新規ファイルは版を固める worktree_snapshot が一時 index で載せる）
+    - touches_* の 4 つ: 全部 true（機械には判定できないので走らせる側に倒す。走らせない節は表の absent が理由を書く）
+    - material: {status: found, count: commits, detail: "<版>（base_rev の名指し。空なら HEAD）"}
+    base_rev がこのリポジトリの commit に引けなければ Reject（文に版の名前）。git は repo で呼ぶ（util.GIT_CWD は触らない）"""
+    repo = pathlib.Path(repo)
+    name = (base_rev or "").strip() or "HEAD"
+
+    def git(*args):
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    sha = git("rev-parse", "--verify", "--quiet", "--end-of-options", f"{name}^{{commit}}")
+    if not sha:
+        raise Reject(f"base_rev '{name}' がリポジトリ {repo} の commit に引けない（git rev-parse --verify）——BASE に名指す版を確かめよ")
+    commits = git("rev-list", "--count", f"{sha}..HEAD")
+    merges = git("rev-list", "--merges", "--count", f"{sha}..HEAD")
+    if commits is None or merges is None:
+        raise Reject(f"base_rev '{name}'（{sha}）から HEAD までを git rev-list で数えられない（リポジトリ {repo}）")
+    n = int(commits)
+    return {"base_sha": sha, "method": BASE_METHOD, "commits": n, "merge_commit": int(merges) > 0, "intent_to_add": [],
+            "touches_gates": True, "touches_external_seams": True, "touches_user_path": True, "touches_security_surface": True,
+            "material": {"status": "found", "count": n, "detail": f"{name}（base_rev の名指し。空なら HEAD）"}}
+
+
 # ---------------------------------------------------------------- 盤面
 def _read_json(path: pathlib.Path) -> dict:
     """盤面のファイルを読む。読めなければ BoardGap（engine の read_json は die で終わるので使わない）"""
@@ -334,6 +391,26 @@ def _core() -> dict:
     """state.works.core: 写しの元の commit（COPIED_FROM の 1 行目）と、今の写しの置き場"""
     first = (CORE_DIR / "COPIED_FROM").read_text(encoding="utf-8").splitlines()[0]
     return {"commit": first.split()[0], "path": str(CORE_DIR)}
+
+
+def _hook_name(fn) -> str:
+    """検証器の包み（validator_runner）の名前（state.works.validator_hook に書く。開く時は在否だけを見る）"""
+    mod = getattr(fn, "__module__", None) or ""
+    name = getattr(fn, "__qualname__", None) or type(fn).__qualname__
+    return f"{mod}.{name}" if mod else name
+
+
+def _findings_sha(items) -> str:
+    """依頼の項目の sha256（begin の冪等の見分け。鍵の順によらない JSON の綴りで数える）"""
+    try:
+        text = json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError) as e:
+        raise BoardGap(f"依頼の項目が JSON にならない: {e}") from None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _pending_instance(b, nid: str) -> dict | None:
+    return next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
 
 
 def _refuse_unowned(nid, n) -> None:
@@ -439,8 +516,10 @@ class DiskBoard(_EngineBoard):
     # -- 開く・作る
     @classmethod
     def open(cls, d, *, table, repo=None, overrides=None, validator_runner=None, allow_halted=False) -> "DiskBoard":
-        """盤面を開く（仕様 4.4 の順: graph_sha → board_version → 表の縛り → パスの読み替え → overrides）。
-        util.GIT_CWD は inputs.cwd（repo を渡せばそれ）。state.works.core を今の写しで書き直す（保存すれば残る）"""
+        """盤面を開く（仕様 4.4 の順: graph_sha → board_version → 検証器の包みの宣言 → 表の縛り → パスの読み替え → overrides）。
+        util.GIT_CWD は inputs.cwd（repo を渡せばそれ）。state.works.core を今の写しで書き直す（保存すれば残る）。
+        包みを渡して作った盤面（state.works.validator_hook。create が書く）を validator_runner 無しで開けば BoardGap
+        （包みの無い盤面を包みつきで開くのは拒まない）"""
         d = pathlib.Path(d)
         state = _read_json(d / "state.json")
         got = state.get("graph_sha")
@@ -451,6 +530,11 @@ class DiskBoard(_EngineBoard):
         if version != BOARD_VERSION:
             raise BoardMismatch(f"盤面 {d} の board_version {version if version is not None else '（無い）'} を知らない"
                                 f"（この盤面の層は {BOARD_VERSION}）")
+        hook_name = works.get("validator_hook")
+        if hook_name and validator_runner is None:
+            raise BoardGap(f"盤面 {d} は検証器の包み（{hook_name}）で作った盤面——validator_runner を渡さずに開かない"
+                           "（写しの RR のまま検証すると、包みが足す宣言を知らずに周の記録と報告の関所が落ちる。"
+                           "ラインの置き場の包み（線 B の board_hook.py など）を渡して開く）")
         _check_table(table)
         record = _read_json(d / "record.json")
         b = cls(d, state=state, record=record, table=table, overrides=overrides, validator_runner=validator_runner,
@@ -466,9 +550,12 @@ class DiskBoard(_EngineBoard):
         """盤面を作る（engine の cmd_init と同じ順と入口の検査。仕様 4.1 の 1〜5）。入口で拒めば置き場を作らず、
         作った後のどこかで例外なら置き場を消して投げ直す（空の盤面を残さない）。既に在る置き場には作らない（BoardGap）。
         unattended は engine の init --unattended（人の答えを待たずに RL の保守的な既定で進む run）。入口の文（止める周が
-        1 未満・graph に宣言の無い入力の notes）は engine の cmd_init と同じ文"""
+        1 未満・graph に宣言の無い入力の notes）は engine の cmd_init と同じ文。
+        validator_runner を渡せば state.works.validator_hook にその名前を書き、以後の open はそれ無しでは開かない"""
         d = pathlib.Path(d).resolve()
         _check_table(table)
+        if validator_runner is not None and not callable(validator_runner):
+            raise BoardGap(f"validator_runner が呼べない: {validator_runner!r}")
         if stop_after_round is not None and type(stop_after_round) is not int:
             raise BoardGap(f"stop_after_round は整数（{stop_after_round!r}）——止める周の番号で、その周の締めの後で止まる")
         if stop_after_round is not None and stop_after_round < 1:
@@ -509,7 +596,8 @@ class DiskBoard(_EngineBoard):
                 **({"notes": notes} if notes else {}),
                 # 5: works の欄
                 "works": {"board_version": BOARD_VERSION, "line": table.line, "table_sha": table.sha(), "core": _core(),
-                          "not_in_line": table.absent(), "overrides": []},
+                          "not_in_line": table.absent(), "overrides": [],
+                          **({"validator_hook": _hook_name(validator_runner)} if validator_runner is not None else {})},
             }
             _util.write_json(d / "state.json", state)
             _util.write_json(d / "record.json", record)
@@ -541,6 +629,54 @@ class DiskBoard(_EngineBoard):
         b = cls(board, state=state, record={}, table=None, scratch=True)
         b.record = record if record is not None else b.rules.init_record(None, None)
         return b
+
+    @classmethod
+    def begin(cls, d, *, repo, table, items, origin, base_rev, request_text, inputs=None, max_rounds=None,
+              stop_after_round=None, overrides=None, validator_runner=None) -> tuple["DiskBoard", Progress]:
+        """線 A・B の start が共通に使う入口（仕様 5 節）: create → add_request(items, origin) → p0.base を base_output で受ける →
+        settle。返り (盤面, Progress)。判定から入る run になる（RL の add が 1 周目の P1 より前の最初の依頼で入口の印を立て、
+        settle が P1 の役の節を engine と同じ理由の na にする）。1 周の run（線 A）は stop_after_round=1。
+        - p0.base は engine と同じく settle が出した instance に起こした印を置いてから受ける（machine の節。表で machine でなければ
+          作る前に BoardGap）
+        - 冪等: 置き場に盤面が既に在れば作らずに開き、記録の最初の依頼のバッチの findings が items と同じ（sha256）なら、済んでいない
+          所（依頼・p0.base）だけを続けて settle して返す。違う依頼・違う表（state.works.table_sha）で作った盤面は BoardGap。
+          依頼の形の誤りなどで途中で止まった begin は置き場を残す（engine の init と add と同じ）ので、直して呼び直せば続きから
+        - 入口の拒み（入力の誤り・止める周・依頼の形・base_rev が引けない）は create・RL の add・base_output の Reject と BoardGap
+        返りの後にラインがすること（仕様 5 節と、この module の頭の「ラインの約束」）: Progress.run_engine の節を全部 run_engine し、
+        settle する、を run_engine が空になるまで繰り返す（begin の返りでは版はまだ固まっていない——p1.worktree_before は spec の節を
+        通して p0.local_checks を待つ）。任せ先に落ちた節は表の fallback の持ち主が mark_launched → done で渡す"""
+        d = pathlib.Path(d).resolve()
+        _check_table(table)
+        e = table.nodes.get(BASE_NODE)
+        if e is None or e.by != "machine":
+            raise BoardGap(f"begin は {BASE_NODE} を機械の返答（base_output）で受ける——表で machine の節にせよ"
+                           f"（今は {e.by if e else '表に無い'}）")
+        want = _findings_sha(items)
+        if (d / "state.json").exists():
+            b = cls.open(d, table=table, repo=repo, overrides=overrides, validator_runner=validator_runner)
+            made = (b.state.get("works") or {}).get("table_sha")
+            if made != table.sha():
+                raise BoardGap(f"盤面 {d} は別の表（table_sha {made}）で作った——この表（{table.sha()}）では begin し直さない")
+        else:
+            b = cls.create(d, repo=repo, table=table, inputs=inputs, request_text=request_text, max_rounds=max_rounds,
+                           stop_after_round=stop_after_round, overrides=overrides, validator_runner=validator_runner)
+        batches = (b.record.get("process") or {}).get("request_findings") or []
+        if batches:
+            got = _findings_sha(batches[0].get("findings"))
+            if got != want:
+                raise BoardGap(f"盤面 {d} は別の依頼で始めた（記録の最初の依頼の sha256 {got[:12]} ／ 渡した依頼 {want[:12]}）"
+                               "——同じ置き場で別の依頼の run を始めない")
+        else:
+            b.add_request(items, origin)
+        if b.node_state(BASE_NODE) == "pending":
+            if _pending_instance(b, BASE_NODE) is None:
+                b.settle()      # engine の init → add → next と同じ点で、依存の無い節（p0.base・p0.local_checks…）を出す
+            inst = _pending_instance(b, BASE_NODE)
+            if inst is None:
+                raise BoardGap(f"settle が {BASE_NODE} を出さない（{b.node_state(BASE_NODE)}）")
+            b.mark_launched(BASE_NODE, inst.get("attempts", 1))
+            b.accept(BASE_NODE, base_output(repo, base_rev))
+        return b, b.settle()
 
     @classmethod
     @contextlib.contextmanager
@@ -634,6 +770,21 @@ class DiskBoard(_EngineBoard):
                     raise
                 self._reload_from_disk()
         raise AssertionError("届かない")
+
+    def context_of(self, nid: str) -> dict | None:
+        """同じ役の会話を続ける節（graph の same_context_as。a1202d0 では p2.history・p2.rejudge が p2.diagnose）の続け先。
+        engine は出す時に、今の周の same_context_as の節の済んだ instance の会話（session_id か agent_id）を続け、instance に
+        continue_of を置く。盤面は会話の番号を持たないので、ラインが Archon の同じ役の会話を続けるために、続け先を返す:
+        {same_context_as: 節, continue_of: 今の周の済んだ instance の id か None（無ければ新しい会話で走る——engine の context_lost
+        と同じく、そのことを報告に出す）}。same_context_as を持たない節は None。graph に無い節は BoardGap"""
+        n = self.nodes.get(nid)
+        if n is None:
+            raise BoardGap(f"節 '{nid}' は graph に無い")
+        same = n.get("same_context_as")
+        if not same:
+            return None
+        prior = next((i for i in self.rd["instances"].values() if i["node"] == same and i["status"] == "done"), None)
+        return {"same_context_as": same, "continue_of": prior["id"] if prior else None}
 
     def accept(self, nid: str, output: dict) -> str:
         """ラインの受け付けの口（仕様 4.1）。engine が走らせる節（graph の engine_run）は、任せ先に落ちた（instance が
@@ -965,7 +1116,10 @@ class DiskBoard(_EngineBoard):
                         and self.table.nodes[i["node"]].by in ("role", "machine", "engine_run")):
                     ready.append(i["node"])
             ready += [w for w in self._walls if w not in ready and self.node_state(w) == "pending"]
-        return Progress(round=self.round, ready=ready, asking=ph, halted=halted, notes=notes)
+        engine = [nid for nid in ready if self.table.nodes[nid].by == "engine_run"
+                  and not any(i["node"] == nid and i["status"] == "pending" and i.get("engine_fallback")
+                              for i in self.rd["instances"].values())]
+        return Progress(round=self.round, ready=ready, run_engine=engine, asking=ph, halted=halted, notes=notes)
 
     def _settle_pass(self) -> bool:
         """engine の advance の輪の 1 段: graph の節の順に、待ちで依存が済んだ節を 1 つずつ評価する（_evaluate）。
@@ -999,17 +1153,27 @@ class DiskBoard(_EngineBoard):
     def _evaluate(self, nid: str) -> str:
         """待ちで依存が済んだ節を 1 つ評価する（engine の advance の輪の中身）。返りは何が起きたか:
         na（条件に当たらない）・skipped（表で absent）・ran（機械の節が進んだ）・stop（機械の節が止まった）・
-        wall（表で explicit の機械の節。待ちのまま）・emitted（役の節の instance を出した）・waiting（既に出して待っている）"""
-        why = self.applicable(nid)
+        wall（表で explicit の機械の節。待ちのまま）・emitted（役の節の instance を出した）・waiting（既に出して待っている）。
+        表で absent の節の条件が、このラインに無い節の出力を読む時（_blind_reads）は、条件を測らずに skipped にする——その出力は
+        この run に決して現れず、RL の条件は default の無い読みで die する（例: a1202d0 の p0.purpose_review の purpose_review_due が
+        out.p0.purpose.source を読む。線 A の表は p0.purpose・p0.purpose_review を absent にする）。absent の節は na でも skipped でも
+        走らないので、変わるのは周の箱の箱の名前だけ（理由は表の理由。測らなかった事実は notes と trace の skip の行 unmeasured）"""
+        e = self._entry(nid)
+        blind = self._blind_reads(nid) if e.by == "absent" else []
+        why = None if blind else self.applicable(nid)
         if why:
             self.rd["na"][nid] = why
             return "na"
-        e = self._entry(nid)
         if e.by == "absent":
             # engine の skip と同じ印（周の箱の skipped・done_ever・trace）。理由は表の理由
             self.rd["skipped"][nid] = e.reason
             self.state["done_ever"][nid] = self.round
-            self.trace("skip", node=nid, reason=e.reason)
+            if blind:
+                self._notes.append(f"{nid}: 条件 {self.nodes[nid]['cond']} は、このラインに無い節 {'・'.join(blind)} の出力を読むので"
+                                   "測らない——このラインに無い節として省いた")
+                self.trace("skip", node=nid, reason=e.reason, unmeasured=blind)
+            else:
+                self.trace("skip", node=nid, reason=e.reason)
             return "skipped"
         if e.by == "builtin":
             if e.run == "explicit":
@@ -1023,6 +1187,17 @@ class DiskBoard(_EngineBoard):
             return "stop"
         self._emit(nid)
         return "emitted"
+
+    def _blind_reads(self, nid: str) -> list:
+        """節の条件（graph の cond）が読むと宣言した欄（RL の cond_reads）のうち、表で absent で出力の無い節の出力
+        （out.<節>・cur.<節>・prev.<節> とその下）を読む物の、その節の名前の一覧（表の順）。条件の無い節は空"""
+        cond = self.nodes[nid].get("cond")
+        if cond is None:
+            return []
+        reads = getattr(registry(self.rules, "CONDS").get(cond), "reads", None) or ()
+        heads = [f"{h}.{a}" for a, e in self.table.nodes.items() if e.by == "absent" and a not in self.state["outputs"]
+                 for h in ("out", "cur", "prev")]
+        return list(dict.fromkeys(h.split(".", 1)[1] for h in heads for r in reads if r == h or r.startswith(h + ".")))
 
     def _pre_finalize(self, nid: str) -> bool:
         """pre: finalize の節（report）を出す前の関所（engine の emit_instance と同じ順）: 記録を仕上げて保存（finalize）→
