@@ -199,7 +199,7 @@ CASES = [
 
 def _git(repo, *args):
     env = {**os.environ, **GIT_ENV}
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True,
+    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True,
                           env=env, stdin=subprocess.DEVNULL).stdout.strip()
 
 
@@ -282,4 +282,7 @@ def main():
 
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):   # Windows の既定 cp1252 で日本語の出力が落ちないように
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     sys.exit(main())

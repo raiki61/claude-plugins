@@ -73,7 +73,7 @@ def real_copy(tmp, name, **state_edits):
 
 
 def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True).stdout.strip()
 
 
 def make_repo(tmp):

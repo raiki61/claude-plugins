@@ -88,7 +88,7 @@ def find_node(nodes, nid):
 def run_script(name, repo, env):
     full = {"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1", **env}
     r = subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=str(repo), env=full,
-                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                       capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
     return r.returncode, r.stdout, r.stderr
 
 

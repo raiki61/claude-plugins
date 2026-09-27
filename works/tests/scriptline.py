@@ -156,7 +156,7 @@ class ScriptLine:
         env = dict(self.env)
         env.update({f"INPUTS_{k.upper()}": scope.value(v) for k, v in (n.get("with") or {}).items()})
         path = ROOT / scope.block / "scripts" / f"{n['script']}.py"
-        p = subprocess.run([sys.executable, str(path)], cwd=str(self.repo), env=env, capture_output=True, text=True,
+        p = subprocess.run([sys.executable, str(path)], cwd=str(self.repo), env=env, capture_output=True, text=True, encoding="utf-8",
                            stdin=subprocess.DEVNULL)
         rec = {"block": scope.block, "node": n["id"], "rc": p.returncode, "out": None, "errors": [],
                "stderr": p.stderr.strip()[-2000:]}

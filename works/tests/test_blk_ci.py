@@ -272,7 +272,7 @@ class ScriptCase(unittest.TestCase):
         for k in drop:
             env.pop(k, None)
         r = subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=str(self.repo), env=env,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8")
         if r.returncode == 0 and name == "prep" and self.fenced:
             fenced_row(self.repo)
         if r.returncode == 0:

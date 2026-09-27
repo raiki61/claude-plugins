@@ -238,7 +238,7 @@ def _refusal(cfg: pathlib.Path, bad: list) -> str:
 
 def _claude(claude_bin: str, cfg: pathlib.Path, *args: str) -> None:
     r = subprocess.run([claude_bin, *args], env=dict(os.environ, CLAUDE_CONFIG_DIR=str(cfg)),
-                       stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                       stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8")
     if r.returncode != 0:
         said = " / ".join((r.stderr or r.stdout).strip().splitlines())[-400:]
         raise ToolsetError(f"claude {' '.join(args)} が終了コード {r.returncode} で終わった: {said}")
@@ -373,4 +373,7 @@ def main(argv: list) -> int:
 
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):   # Windows の既定 cp1252 で日本語の出力が落ちないように
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     sys.exit(main(sys.argv))

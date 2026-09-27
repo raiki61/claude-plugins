@@ -94,7 +94,7 @@ class BoardCase(unittest.TestCase):
         sink.mkdir(parents=True, exist_ok=True)
         payload = {"tool_name": "Read", "tool_input": {"file_path": path, **extra}, "cwd": str(self.repo),
                    "session_id": "s-1", "tool_use_id": "toolu_x"}
-        subprocess.run([sys.executable, str(RECORDER), str(sink)], input=json.dumps(payload), text=True, check=True,
+        subprocess.run([sys.executable, str(RECORDER), str(sink)], input=json.dumps(payload), text=True, encoding="utf-8", check=True,
                        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
 
     def collect(self, role, node, must, events):
@@ -283,7 +283,7 @@ class AdapterSeenTest(BoardCase):
 def run_block_script(block, repo, env):
     full = {"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1", **env}
     r = subprocess.run([sys.executable, str(ROOT / block / "scripts" / "reads.py")], cwd=str(repo), env=full,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8")
     return r.returncode, r.stdout, r.stderr
 
 

@@ -89,7 +89,7 @@ class RepoCase(unittest.TestCase):
         env["ARTIFACTS_DIR"] = str(self.artifacts)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         return subprocess.run([sys.executable, str(ROOT / blk / "scripts" / f"{name}.py")], cwd=str(self.repo),
-                              env=env, capture_output=True, text=True, timeout=120)
+                              env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
 
 
 # ---------------------------------------------------------------- blk-delta の型
@@ -173,7 +173,7 @@ class TestTestsBlock(RepoCase):
     def run_tests(self, cmd, rc=0, mode=None):
         node = find_node(workflow("blk-tests")["nodes"], "run")
         r = subprocess.run([sys.executable, str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo),
-                           env=self.cmd_env(cmd, mode), capture_output=True, text=True, timeout=120)
+                           env=self.cmd_env(cmd, mode), capture_output=True, text=True, encoding="utf-8", timeout=120)
         if rc:
             self.assertEqual(r.returncode, rc, r.stderr)
             self.assertEqual(r.stdout, "")
@@ -277,9 +277,9 @@ class TestTestsBlock(RepoCase):
         env = {k: v for k, v in self.cmd_env(cmd).items()
                if k not in ("VIRTUAL_ENV", "UV", "UV_RUN_RECURSION_DEPTH", "UV_NO_CONFIG")}
         env.update(PATH=f"{os.path.dirname(uv)}:/usr/bin:/bin", PYTHONDONTWRITEBYTECODE="1", **extra_env)   # Archon が立てる
-        outside = subprocess.run(["bash", "-c", "command -v python3"], env=env, capture_output=True, text=True).stdout.strip()
+        outside = subprocess.run(["bash", "-c", "command -v python3"], env=env, capture_output=True, text=True, encoding="utf-8").stdout.strip()
         r = subprocess.run([uv, "run", str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo), env=env,
-                           capture_output=True, text=True, timeout=300)
+                           capture_output=True, text=True, encoding="utf-8", timeout=300)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["green"], True)
         seen = dict(line.split("=", 1) for line in (self.board / "tests.log").read_text().splitlines())
@@ -314,7 +314,7 @@ class TestTestsBlock(RepoCase):
         cmd = f"echo $$ > {pidf}; sleep 300 & (sleep 3; echo late > {marker}) & wait"
         p = subprocess.Popen([sys.executable, str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo),
                              env=self.cmd_env(cmd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, text=True)
+                             stderr=subprocess.PIPE, text=True, encoding="utf-8")
         try:
             end = time.monotonic() + 10
             while not (pidf.exists() and pidf.read_text().strip()) and time.monotonic() < end:
@@ -834,7 +834,7 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
         env_less = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
         r = subprocess.run([sys.executable, str(ROOT / "blk-delta" / "scripts" / "cut.py")], cwd=str(repo),
-                           env={**env_less, "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True,
+                           env={**env_less, "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True, encoding="utf-8",
                            stdin=subprocess.DEVNULL)
         self.assertEqual((r.returncode, r.stdout), (2, ""))
         r = self.run_script("blk-delta", "cut", repo)

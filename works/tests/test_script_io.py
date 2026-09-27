@@ -207,7 +207,7 @@ class PreambleCase(unittest.TestCase):
             repo.mkdir()
             env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
             env.update(INPUTS_REPLY="not json", INPUTS_BASE_REV="", ARTIFACTS_DIR=str(pathlib.Path(tmp) / "art"))
-            r = subprocess.run([sys.executable, str(script)], cwd=repo, env=env, capture_output=True, text=True,
+            r = subprocess.run([sys.executable, str(script)], cwd=repo, env=env, capture_output=True, text=True, encoding="utf-8",
                                timeout=120)
             self.assertEqual(r.returncode, 0, r.stderr)
             got = json.loads(r.stdout)

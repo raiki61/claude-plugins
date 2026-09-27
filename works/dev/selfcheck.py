@@ -120,7 +120,7 @@ def home() -> pathlib.Path:
 def refuse_claude_tmp(root: pathlib.Path, place: pathlib.Path) -> str:
     """dev/guard.sh の works_dev_refuse_claude_tmp に当てる。止めるなら理由の文（通れば ""）"""
     r = subprocess.run(["sh", "-c", '. "$1"; works_dev_refuse_claude_tmp selfcheck.py 写しの置き場 "$2"', "sh",
-                        str(root / "dev" / "guard.sh"), str(place)], capture_output=True, text=True, check=False)
+                        str(root / "dev" / "guard.sh"), str(place)], capture_output=True, text=True, encoding="utf-8", check=False)
     return "" if r.returncode == 0 else (r.stderr.strip() or f"guard.sh が終了コード {r.returncode}")
 
 
@@ -138,7 +138,7 @@ def run_tests(pack: pathlib.Path, patterns: list) -> tuple:
     argv = ["nice", "-n", "19", "sh", "tests/run.sh"]
     for p in patterns:
         argv += ["-k", p]
-    r = subprocess.run(argv, cwd=pack, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False)
+    r = subprocess.run(argv, cwd=pack, env=env, capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL, check=False)
     return r.returncode, r.stdout + r.stderr
 
 
@@ -272,4 +272,7 @@ def main(argv) -> int:
 
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):   # Windows の既定 cp1252 で日本語の出力が落ちないように
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     sys.exit(main(sys.argv[1:]))

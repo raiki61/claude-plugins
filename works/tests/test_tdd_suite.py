@@ -99,7 +99,7 @@ class TddSuiteCase(unittest.TestCase):
         e = dict(self.env)
         e.update(env)
         return subprocess.run(["sh", str(self.root / "dev" / "tdd-suite.sh"), str(out), *args], cwd=str(self.caller),
-                              env=e, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                              env=e, capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
 
     def outcomes(self, out):
         return {c["name"]: (c["classname"], c["outcome"]) for c in parse_junit(pathlib.Path(out).read_text(encoding="utf-8"))}

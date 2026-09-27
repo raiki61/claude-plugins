@@ -86,10 +86,10 @@ class TicketCase(unittest.TestCase):
     def test_protected_has_git_dirs_and_board(self):
         got = ticket.protected_paths(self.wt1, self.board)
         common = subprocess.run(["git", "-C", str(self.wt1), "rev-parse", "--git-common-dir"],
-                                check=True, capture_output=True, text=True).stdout.strip()
+                                check=True, capture_output=True, text=True, encoding="utf-8").stdout.strip()
         common = os.path.join(str(self.wt1), common) if not os.path.isabs(common) else common
         gitdir = subprocess.run(["git", "-C", str(self.wt1), "rev-parse", "--absolute-git-dir"],
-                                check=True, capture_output=True, text=True).stdout.strip()
+                                check=True, capture_output=True, text=True, encoding="utf-8").stdout.strip()
         self.assertIn(self.real(common), got)
         self.assertEqual(self.real(common), self.real(self.main / ".git"))
         self.assertIn(self.real(gitdir), got)

@@ -41,7 +41,7 @@ SINGLE_RUN = ("test_request_entry", "1")
 
 
 def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True).stdout.strip()
 
 
 def read(p):
@@ -208,7 +208,7 @@ class BeginCase(unittest.TestCase):
         shutil.copy2(self.repo / ".git" / "index", idx)
         env = {**os.environ, "GIT_INDEX_FILE": str(idx)}
         subprocess.run(["git", "-C", str(self.repo), "add", "-A"], env=env, check=True)
-        tree = subprocess.run(["git", "-C", str(self.repo), "write-tree"], env=env, capture_output=True, text=True,
+        tree = subprocess.run(["git", "-C", str(self.repo), "write-tree"], env=env, capture_output=True, text=True, encoding="utf-8",
                               check=True).stdout.strip()
         self.assertEqual(git(self.repo, "rev-parse", f"{rev}^{{tree}}"), tree)
         patch = b.dir / "diff-r1.patch"

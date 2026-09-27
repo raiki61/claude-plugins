@@ -60,7 +60,7 @@ class TestHook(unittest.TestCase):
         self.assertEqual(adapter.writes_path("/x", "/h"), adapter.reads_dir("/x", "/h") / "writes.jsonl")
 
     def run_recorder(self, sink, event):
-        return subprocess.run([sys.executable, str(RECORDER), str(sink)], input=json.dumps(event), text=True,
+        return subprocess.run([sys.executable, str(RECORDER), str(sink)], input=json.dumps(event), text=True, encoding="utf-8",
                               capture_output=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
 
     def test_recorder_writes_path_and_sha_after_write(self):

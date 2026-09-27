@@ -451,7 +451,7 @@ class PathCase(_Case):
             eyes.prep(self.bd, role, self.rnd, self.repo)
         procs = [subprocess.Popen([sys.executable, str(PACK.root / "blk-eyes" / "scripts" / "accept.py")], cwd=str(self.repo),
                                   env=script_env(self.bd, role=role, reply=json.dumps(REPLY[role], ensure_ascii=False)),
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for role in roles]
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8") for role in roles]
         outs = [p.communicate() for p in procs]
         for role, p, (out, err) in zip(roles, procs, outs):
             with self.subTest(role):
@@ -493,7 +493,7 @@ class ScriptCase(_Case):
         for k in drop:
             env.pop(k, None)
         r = subprocess.run([sys.executable, str(PACK.root / "blk-eyes" / "scripts" / f"{name}.py")], cwd=str(self.repo),
-                           env=env, capture_output=True, text=True)
+                           env=env, capture_output=True, text=True, encoding="utf-8")
         if r.returncode == 0:
             lines = r.stdout.splitlines()
             self.assertEqual(len(lines), 1, r.stdout + r.stderr)

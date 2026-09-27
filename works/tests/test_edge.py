@@ -1124,7 +1124,7 @@ class EdgeScriptCase(EdgeBase):
                      "WORKFLOW_ID": RUN_ID, "PYTHONDONTWRITEBYTECODE": "1"})
         base.update(env)
         base = {k: v for k, v in base.items() if v is not None}
-        return subprocess.run([sys.executable, str(SCRIPT)], cwd=self.repo, env=base, capture_output=True, text=True,
+        return subprocess.run([sys.executable, str(SCRIPT)], cwd=self.repo, env=base, capture_output=True, text=True, encoding="utf-8",
                               stdin=subprocess.DEVNULL)
 
     def test_edge_script_null_strings(self):

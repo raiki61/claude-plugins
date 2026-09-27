@@ -3448,9 +3448,20 @@ for _s in (sys.stdout, sys.stderr):
 root = pathlib.Path(sys.argv[1])
 # **除外は明示の表で持つ**——表に無い名前を名指しした瞬間に赤くなるので、足し忘れは
 # fail-closed 側に倒れる。接頭辞はホストの環境変数、名前は git の用語。
-EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_")
-EXTERNAL_NAMES = {"HEAD", "SHA", "PYTHONOPTIMIZE", "CLAUDE_CONFIG_DIR", "CLAUDE_KEYCHAIN_SERVICE"}
-# CLAUDE_CONFIG_DIR はホストの環境変数（loop-contract.md T 節が名指す）。CLAUDE_KEYCHAIN_SERVICE は
+EXTERNAL_PREFIX = ("CLAUDE_CODE_", "COLDREAD_", "INPUTS_")
+EXTERNAL_NAMES = {"SHA", "PYTHONOPTIMIZE", "PYTHONPATH", "CLAUDE_KEYCHAIN_SERVICE",
+                  # Archon が節と子に渡す環境変数・Archon の設定の環境変数・Context7 の鍵
+                  "ARTIFACTS_DIR", "WORKFLOW_ID", "CLAUDE_BIN_PATH", "TITLE_GENERATION_MODEL", "CONTEXT7_API_KEY",
+                  # works が os.environ から読む環境変数と、使う人が置く WORKS_REPO（WORKS_ で始まる shell の定数が在るので接頭辞では外さない）
+                  "WORKS_ADAPTER_HOME", "WORKS_CLAUDE_VERSION", "WORKS_DEV_ARCHON", "WORKS_GH", "WORKS_GOLDEN_OUT",
+                  "WORKS_KEYCHAIN_ITEM", "WORKS_REAL_CLAUDE", "WORKS_REPO", "WORKS_SP_SOURCE", "WORKS_TDD_TIER",
+                  "WORKS_TESTSLOT",
+                  # works のファイル名（写しの印・借りた物の表示・pack の版・盤面の止め札）
+                  "COPIED_FROM", "NOTICE", "VERSION", "STOP"}
+# INPUTS_ は Archon の節の `with:` が script に渡す環境変数。works の各 script は読む名前を定数 INPUTS の
+# 組に持ち、works の試験が YAML の `with:` の鍵と突き合わせる——実在の検査はそちらが持つ
+# HEAD と CLAUDE_CONFIG_DIR は表から外した——works の python・shell が同じ名前を定数に持つので定義の在る
+# 名前として通る（下の未使用の検査が表に残すことを拒む）。CLAUDE_KEYCHAIN_SERVICE は
 # このリポジトリが定める環境変数で、モジュールの定数ではない（os.environ から読む）——COLDREAD_* が
 # 接頭辞で外れているのと同じ理由で、接頭辞を持たないぶん名前で外す
 # **名指しする側は文書だけではない。** 削除した定数を「正本」と呼ぶコメントが `tests/run.sh` に、
@@ -5145,6 +5156,11 @@ NOT_RATCHET = {
     "TAIL": "tests/mutate.py が --deadline-at の期限の手前に残す幅（秒）。件数の突合ではない",
     "STOP_GRACE": "tests/mutate.py が止める信号で子のグループへ送る信号の間の猶予（秒）。件数の突合ではない",
     "ARGV_MAX": "tests/mutate.py が pytest の node id を並べる引数の字数の上限（超えればテストのファイル単位に落とす）。件数の突合ではない",
+    "DEADLINE": "works/tests の各試験が、流れの節の timeout・idle_timeout に宣言されているはずの時間切れ（20 日・ms）の期待値。件数の突合ではない",
+    "LIMIT": "works/tests/test_board_goldens_fixture.py が盤面の見本の圧縮した総量に課す上限（バイト）。件数の突合ではない",
+    "MIN_LINE": "works/tests/test_fix_rules.py が写しを探す行・文の長さの下限（字数。短い語の偶然の重なりを除く）。件数の突合ではない",
+    "PYTHONDONTWRITEBYTECODE": "works/tests/run.sh が子へ渡す環境変数（.pyc を書かせない印）。件数の突合ではない",
+    "TESTSLOT_N": "works/tests/run.sh が重いテストの枠の数として子へ渡す環境変数（同時に走らせる本数）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []

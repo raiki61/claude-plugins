@@ -547,7 +547,7 @@ class ScriptCase(_Case):
         for k in drop:
             env.pop(k, None)
         r = subprocess.run([sys.executable, "-c", WRAP, str(CORE), str(self.pack.root), str(BLK / "scripts" / f"{name}.py")],
-                           cwd=str(self.repo), env=env, capture_output=True, text=True)
+                           cwd=str(self.repo), env=env, capture_output=True, text=True, encoding="utf-8")
         if r.returncode == 0:
             lines = r.stdout.splitlines()
             self.assertEqual(len(lines), 1, r.stdout + r.stderr)

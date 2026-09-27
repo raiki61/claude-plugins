@@ -17,6 +17,9 @@ INPUTS = ("INPUTS_ROLE", "INPUTS_REPLY")   # 読む INPUTS_*（YAML の with: �
 
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):   # Windows の既定 cp1252 で日本語の出力が落ちないように
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     if "INPUTS_ROLE" not in os.environ:
         print("環境変数が無い: INPUTS_ROLE", file=sys.stderr)
         sys.exit(2)

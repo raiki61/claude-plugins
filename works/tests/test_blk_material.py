@@ -399,13 +399,13 @@ class ShapeCase(unittest.TestCase):
                 self.assertIs(strict, True)
                 self.assertEqual(json.loads(out[-1])["sandbox"]["network"], {"allowedDomains": [], "strictAllowlist": True})
         for args in (["pr", "view", "12", "-R", "o/r"], ["repo", "view", "o/r"]):
-            r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True)
+            r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(r.returncode, 0, r.stderr)
         before = log.read_text()
         for args in (["issue", "create", "-R", "o/r", "-t", "x"], ["api", "repos/o/r/issues", "-X", "POST"],
                      ["pr", "comment", "12", "-R", "o/r", "-b", "x"], ["pr", "merge", "12", "-R", "o/r"]):
             with self.subTest(args=args):
-                r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True)
+                r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True, encoding="utf-8")
                 self.assertEqual(r.returncode, 2, r.stderr)
         self.assertEqual(log.read_text(), before)   # 書く形は本物の gh を起こさない
 
@@ -424,7 +424,7 @@ class ShapeCase(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
         for name in ("route", "prep", "accept", "collect"):
             with self.subTest(name):
-                p = subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], capture_output=True, text=True,
+                p = subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], capture_output=True, text=True, encoding="utf-8",
                                    env=env, cwd=str(ROOT))
                 self.assertEqual(p.returncode, 2, p.stderr)
                 self.assertEqual(p.stdout, "")
@@ -647,7 +647,7 @@ class TakeCase(_Case):
                "print(json.dumps(got, ensure_ascii=False))\n")
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
         procs = [subprocess.Popen([sys.executable, "-c", drv, role, str(bd), str(repo)], stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE, text=True, env=env, cwd=str(repo)) for role in roles]
+                                  stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env, cwd=str(repo)) for role in roles]
         for role, p in zip(roles, procs):
             out, err = p.communicate()
             self.assertEqual(p.returncode, 0, err)
@@ -752,7 +752,7 @@ class StoppedBoardCase(_Case):
                "print(json.dumps(got, ensure_ascii=False))\n")
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
         procs = [subprocess.Popen([sys.executable, "-c", drv, role, str(bd), str(repo)], stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE, text=True, env=env, cwd=str(repo)) for role in roles]
+                                  stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env, cwd=str(repo)) for role in roles]
         outs = []
         for p in procs:
             out, err = p.communicate()

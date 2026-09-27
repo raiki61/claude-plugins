@@ -98,7 +98,7 @@ class UseShell(unittest.TestCase):
                 env.pop(k, None)
             else:
                 env[k] = v
-        r = subprocess.run(["sh", str(USE), *args], capture_output=True, text=True, env=env, cwd=cwd)
+        r = subprocess.run(["sh", str(USE), *args], capture_output=True, text=True, encoding="utf-8", env=env, cwd=cwd)
         self.assertNotIn("dummy-token-for-test", r.stdout + r.stderr)
         return r
 

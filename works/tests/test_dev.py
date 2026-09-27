@@ -52,7 +52,7 @@ def in_claude_tmp(path):
     """path を guard.sh の works_dev_refuse_claude_tmp が拒むか（正本を呼び、終了コード 2 なら真）。"""
     r = subprocess.run(
         ["sh", "-c", '. "$1"; works_dev_refuse_claude_tmp in_claude_tmp path "$2"', "_", str(DEV / "guard.sh"), str(path)],
-        capture_output=True, text=True)
+        capture_output=True, text=True, encoding="utf-8")
     if r.returncode not in (0, 2):
         raise RuntimeError(f"guard.sh の判定が終了コード {r.returncode} で終わった: {r.stderr}")
     return r.returncode == 2
@@ -91,7 +91,7 @@ def run_tests(cwd):
         ["python3", "-m", "unittest", "discover", "-s", ".", "-p", "test_*.py"],
         cwd=str(cwd),
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         env=env,
     )
 
@@ -103,7 +103,7 @@ class TestDevShell(unittest.TestCase):
             out = subprocess.run(
                 ["sh", str(DEV / "mktarget.sh"), str(tmp)],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8",
                 check=True,
             )
             printed = pathlib.Path(out.stdout.strip())
@@ -140,7 +140,7 @@ class TestDevShell(unittest.TestCase):
             result = subprocess.run(
                 ["sh", str(DEV / "archon.sh"), "version"],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8",
                 env=env,
             )
             self.assertEqual(result.returncode, 1)
@@ -195,7 +195,7 @@ class TestDevShell(unittest.TestCase):
             result = subprocess.run(
                 ["sh", str(DEV / "archon.sh"), "version"],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8",
                 env=env,
             )
             home = home_file.read_text().strip() if home_file.exists() else None
@@ -292,7 +292,7 @@ class TestDevShell(unittest.TestCase):
                        FAKE_CLAUDE_LOG=str(claude_calls))
             env.update(overrides)
             result = subprocess.run(["sh", str(DEV / "archon.sh"), "workflow", "run", "x"],
-                                    capture_output=True, text=True, env=env)
+                                    capture_output=True, text=True, encoding="utf-8", env=env)
             config = dev_home / "archon-home" / "config.yaml"
             self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
             # exec した時の隔離した CLAUDE_CONFIG_DIR/skills の中身（test_archon_sh_installs_borrowed_skills が見る）
@@ -406,7 +406,7 @@ class TestDevShell(unittest.TestCase):
                 env.pop(name, None)
             result = subprocess.run(
                 ["sh", str(DEV / "real-run.sh"), str(tmp / "target")],
-                capture_output=True, text=True, env=env,
+                capture_output=True, text=True, encoding="utf-8", env=env,
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
@@ -436,7 +436,7 @@ class TestDevShell(unittest.TestCase):
     def test_archon_sh_refuses_dev_home_in_claude_tmp(self):
         for home in (self.HOLE, "/tmp/claude-works-guard-test-0/x"):   # /tmp は macOS では /private/tmp への symlink
             with self.subTest(home):
-                r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True,
+                r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True, encoding="utf-8",
                                    env=self._env(WORKS_DEV_HOME=home, WORKS_DEV_NO_AUTH="1"))
                 self.assert_guarded(r, "/private/tmp/claude-works-guard-test-0")
 
@@ -444,7 +444,7 @@ class TestDevShell(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_str:
             link = pathlib.Path(tmp_str) / "link"
             link.symlink_to("/private/tmp")
-            r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True,
+            r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True, encoding="utf-8",
                                env=self._env(WORKS_DEV_HOME=str(link / "claude-works-guard-test-0" / "x"),
                                              WORKS_DEV_NO_AUTH="1"))
             self.assert_guarded(r, "/private/tmp/claude-works-guard-test-0")
@@ -456,7 +456,7 @@ class TestDevShell(unittest.TestCase):
             self.skipTest(f"/private/tmp に試しのフォルダを作れない（{e}）")
         try:
             with tempfile.TemporaryDirectory() as tmp_str:
-                r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True, cwd=cwd,
+                r = subprocess.run(["sh", str(DEV / "archon.sh"), "version"], capture_output=True, text=True, encoding="utf-8", cwd=cwd,
                                    env=self._env(WORKS_DEV_HOME=str(pathlib.Path(tmp_str) / "dev-home"),
                                                  WORKS_DEV_NO_AUTH="1"))
                 self.assert_guarded(r, pathlib.Path(tmp_str) / "dev-home")
@@ -464,7 +464,7 @@ class TestDevShell(unittest.TestCase):
             shutil.rmtree(cwd)
 
     def test_mktarget_refuses_target_in_claude_tmp(self):
-        r = subprocess.run(["sh", str(DEV / "mktarget.sh"), self.HOLE], capture_output=True, text=True,
+        r = subprocess.run(["sh", str(DEV / "mktarget.sh"), self.HOLE], capture_output=True, text=True, encoding="utf-8",
                            env=self._env())
         self.assert_guarded(r, "/private/tmp/claude-works-guard-test-0")
 
@@ -484,7 +484,7 @@ class TestDevShell(unittest.TestCase):
             for why, (args, env) in cases.items():
                 with self.subTest(why):
                     # 認証が在っても（偽のトークン）、拒むのは認証の確かめと対象を作るより前
-                    r = subprocess.run(["sh", str(DEV / "real-run.sh"), *args], capture_output=True, text=True,
+                    r = subprocess.run(["sh", str(DEV / "real-run.sh"), *args], capture_output=True, text=True, encoding="utf-8",
                                        env=self._env(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", **env))
                     self.assert_guarded(r, tmp / "target", tmp / "dev-home", "/private/tmp/claude-works-guard-test-0")
                     self.assertNotIn("dummy-token-for-test", r.stdout + r.stderr)
@@ -494,7 +494,7 @@ class TestDevShell(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
             (tmp / "t.origin.git").symlink_to("/private/tmp/claude-works-guard-test-0")
-            r = subprocess.run(["sh", str(DEV / "real-run.sh"), str(tmp / "t")], capture_output=True, text=True,
+            r = subprocess.run(["sh", str(DEV / "real-run.sh"), str(tmp / "t")], capture_output=True, text=True, encoding="utf-8",
                                env=self._env(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test",
                                              WORKS_DEV_HOME=str(tmp / "dev-home")))
             self.assert_guarded(r, tmp / "t", tmp / "dev-home")
@@ -530,7 +530,7 @@ class TestDevShell(unittest.TestCase):
             env = dict(os.environ, WORKS_DEV_ARCHON=str(fake), TMPDIR=str(tmp), WORKS_DEV_HOME=str(dev_home))
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH"):
                 env.pop(name, None)   # 認証が無くても回ること
-            result = subprocess.run(["sh", str(check)], capture_output=True, text=True, env=env)
+            result = subprocess.run(["sh", str(check)], capture_output=True, text=True, encoding="utf-8", env=env)
             calls = [line.split("|", 2) for line in log.read_text().splitlines()] if log.exists() else []
             return result, calls
 
@@ -600,7 +600,7 @@ class TestDevShell(unittest.TestCase):
             else:
                 env[name] = value
         result = subprocess.run(["sh", str(src / "works" / "dev" / "dogfood.sh"), *args],
-                                capture_output=True, text=True, env=env)
+                                capture_output=True, text=True, encoding="utf-8", env=env)
         self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
         calls = [line.rstrip("\t").split("\t") for line in log.read_text().splitlines()] if log.exists() else []
         return result, src, calls
@@ -695,7 +695,7 @@ class TestDevShell(unittest.TestCase):
             subprocess.run(["git", "-C", str(wt), *GIT_ID, "commit", "-q", "-m", "base"], check=True)
             board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
             (board / "r1").mkdir(parents=True)
-            base = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+            base = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD"], capture_output=True, text=True, encoding="utf-8").stdout.strip()
             (board / "r1" / "start.json").write_text(json.dumps({"base_rev": base}))
             cases = {"worktree の書き換え（commit していない）": False, "役が commit した変更（HEAD が動いた）": True}
             for why, commit in cases.items():
@@ -732,7 +732,7 @@ class TestDevShell(unittest.TestCase):
             (tmp / "fake-archon.sh").write_text(
                 '#!/bin/sh\nprintf "%s|%s|%s\\n" "${WORKS_KEYCHAIN_ITEM:-}" "$(pwd -P)" "$*"\n')
             cmd = lines["approve"][0].split(": ", 1)[1]
-            ran = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, env=self._env())
+            ran = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, encoding="utf-8", env=self._env())
             self.assertEqual(ran.returncode, 0, ran.stderr)
             self.assertEqual(ran.stdout.strip(),
                              f"item for test|{(tmp / 'dog' / 'repo').resolve()}|workflow approve run-1")
@@ -826,7 +826,7 @@ class TestDevShell(unittest.TestCase):
 
     def test_inherited_tmpdir_is_outside_claude_tmp(self):
         """TMPDIR を継ぐ子の置き場（${TMPDIR}/works-dev など）も guard.sh に拒まれない。"""
-        r = subprocess.run(["sh", "-c", 'printf %s "${TMPDIR:-/tmp}"'], capture_output=True, text=True, check=True)
+        r = subprocess.run(["sh", "-c", 'printf %s "${TMPDIR:-/tmp}"'], capture_output=True, text=True, encoding="utf-8", check=True)
         self.assertFalse(in_claude_tmp(r.stdout), r.stdout)
         self.assertEqual(os.path.realpath(r.stdout), os.path.realpath(tempfile.gettempdir()))
 
@@ -845,7 +845,7 @@ class TestDevShell(unittest.TestCase):
             r = subprocess.run(
                 ["python3", "-m", "unittest", "test_dev.TestDevShell.test_mktarget_places_pack_without_dev_files",
                  "test_dev.TestDevShell.test_inherited_tmpdir_is_outside_claude_tmp"],
-                cwd=str(pathlib.Path(__file__).resolve().parent), capture_output=True, text=True,
+                cwd=str(pathlib.Path(__file__).resolve().parent), capture_output=True, text=True, encoding="utf-8",
                 env=dict(os.environ, TMPDIR=hole, PYTHONDONTWRITEBYTECODE="1"))
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("OK", r.stderr)

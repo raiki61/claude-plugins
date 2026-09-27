@@ -398,7 +398,7 @@ def base_output(repo, base_rev: str) -> dict:
     name = (base_rev or "").strip() or "HEAD"
 
     def git(*args):
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
         return r.stdout.strip() if r.returncode == 0 else None
 
     sha = git("rev-parse", "--verify", "--quiet", "--end-of-options", f"{name}^{{commit}}")

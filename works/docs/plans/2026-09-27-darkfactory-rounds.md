@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 下請けは全部 opus（台帳 Ruling R22）。
 
+> この計画の `works/.shared/core/rounds.py` は線 B の枝（wip/works-trackB）にだけ在り、main にはまだ合流していない。
+
 **Goal:** 別の入口 `darkfactory-rounds` を作り、graphloops の review-graph と同じ芯の規則で「直ったと言えるまで何周も回す」。周の中の順・周の記録・収束の判定は盤面の層（土台）が engine と同じに回し、線 B は周の間の人への問い（早く聞く・周の終わりに要るときだけ）・判定からのやり直し・集めない工程の宣言・mutgate の記録を読む最後の関門だけを足す。
 
 **Architecture:** 土台の `DiskBoard`（`works/.shared/core/board.py`。engine の盤面を継ぐ）の上に、線 B のモジュール 4 つを置く: `rounds.py`（節の表と宣言の導き・start・状態ファイル・境の節・答え・`close_early`）、`close.py`（宣言の差し込み・周の締め・最後の関門）、`judge2.py`（判定の 1 回目と 2 回目）、`rounds_validator.py`（写しの検証器を記憶の中で包み `not_in_line` を足す）。写しは 1 バイトも変えず、土台の `overrides`（`validator_module`・`fill_materials`）と `validator_runner` だけで差し込む。ラインは輪の外の `launch`・`start`・`report` と、周の輪 `rounds`（`open` → blk-judge v2 → 境の節と線 A のブロック 5 つ → blk-close → `ask` → 唯一の末端の関所 `gate`）。どのブロックを走らせるかは境の節が盤面の ready から決める。
@@ -214,7 +216,7 @@ def test_open_without_overrides_is_loud(self):  # 差し替え無しで開いた
 **Interfaces:**
 - `start(board_dir: Path, *, repo: Path, request_path: str, test_cmd: str, base_rev: str, max_rounds: int = 5, gates: str = "merge", run_id: str, run_ci=None, ticket=None, policy_brief=None) -> dict` — 仕様 4.1。返り `{"ok": bool, "round": int, "ready": list, "base_rev": str, "test_cmd": str, "policy_paste": str, "policy_path": str, "reason"?: str}`。`gates` は `merge`・`in_run` だけ（他は `ok: False`）。線 A の部品は引数で受け、既定は線 A のモジュールを遅れて import する: `run_ci(b, nid, *, test_cmd) -> dict`（〔A計〕`entry.run_ci`。任せ先に落ちたら `entry.local_checks_material` の素材を渡す）・`ticket(board_dir, repo, run_id)`（`ticket.write`）・`policy_brief(b) -> {"paste", "path"}`（`policy.brief`）。`works-rounds.json` に `test_cmd` を控える（仕様 4.1。審査 m10）。
 - `load_state(board_dir) -> dict`・`save_state(board_dir, st) -> None` — `works-rounds.json`（仕様 3.2 の形。`version: 1`）。知らない版は `BoardGap`。
-- `boundary(board_dir: Path, at: str, *, repo: Path, run_id: str = "", adapter_mode: str = "", halt_seen=None, adapter_seen=None, take=None, empty_fix_reply=None) -> dict` — 仕様 2.2 の 1〜6。返り `{"ok": True, "stop": bool, "run": bool, "ask": bool, "round": int, "why": str, "judgment_file": str, "open_units": str, "plan_file": str, "human_notes": str}`（後ろの 4 つはブロックの入口。盤面の `state.outputs[節]["file"]` と今の周の記録から組む。無ければ空の文字列。仕様 2.1 の C1）。`at` は `BLOCKS` のどれか。線 A の部品は引数で受け、既定は線 A のモジュールを遅れて import する: `halt_seen(board_dir) -> dict | None`（〔A計〕`halt.seen`）・`adapter_seen(board_dir, run_id) -> {"seen": bool, …}`（`reads.adapter_seen`）・`take(board_dir, nid, reply, repo) -> dict`（`entry.take`）・`empty_fix_reply() -> dict`（`entry.empty_fix_reply`）。止め札は `b.stop(理由, by)`、包みが無い run は `b.stop("包みが通っていない: …", by="works:adapter")`（`h-plan` だけ）。
+- `boundary(board_dir: Path, at: str, *, repo: Path, run_id: str = "", adapter_mode: str = "", halt_seen=None, adapter_seen=None, take=None, empty_fix_reply=None) -> dict` — 仕様 2.2 の 1〜6。返り `{"ok": True, "stop": bool, "run": bool, "ask": bool, "round": int, "why": str, "judgment_file": str, "open_units": str, "plan_file": str, "human_notes": str}`（後ろの 4 つはブロックの入口。盤面の `state.outputs[節]["file"]` と今の周の記録から組む。無ければ空の文字列。仕様 2.1 の C1）。`at` は `rounds.BLOCKS` のどれか。線 A の部品は引数で受け、既定は線 A のモジュールを遅れて import する: `halt_seen(board_dir) -> dict | None`（〔A計〕`halt.seen`）・`adapter_seen(board_dir, run_id) -> {"seen": bool, …}`（`reads.adapter_seen`）・`take(board_dir, nid, reply, repo) -> dict`（`entry.take`）・`empty_fix_reply() -> dict`（`entry.empty_fix_reply`）。止め札は `b.stop(理由, by)`、包みが無い run は `b.stop("包みが通っていない: …", by="works:adapter")`（`h-plan` だけ）。
 - `write_finished(board_dir: Path, why: str) -> None`
 - スクリプトの出口: `start.py` → `start` の返り（`ok` が偽なら終了コード 1）、`boundary.py` → `boundary` の返り（入力 `at`）。各 script は読む環境変数を定数 `INPUTS`（例: `start.py` は `("INPUTS_REQUEST", "INPUTS_TEST_CMD", "INPUTS_BASE_REV", "INPUTS_MAX_ROUNDS", "INPUTS_GATES", "INPUTS_ADAPTER")`）に持つ。
 
@@ -610,7 +612,7 @@ def test_ask_message_sources(self):         # ask.py が asking・一時停止�
 **Files:**
 - Modify: `works/darkfactory-rounds/nodes.json`（`p0.parallel_pr` を `engine_run`・`fallback: role`・where `blk-pr`、`p0.premises` を role・where `blk-premises`）
 - Create: `works/darkfactory-rounds/downgrades.json`（線 A の `darkfactory/downgrades.json` と同じ 1 行）
-- Modify: `works/.shared/core/rounds.py`（`BLOCKS`・`WHERE_TO_BLOCK` に `pr-checking`・`premising`、`open_step` が `prcheck.run_helper` を呼ぶ、`boundary` の包みの確かめを `judging` の段へ、`premises_file` を返りに）
+- Modify: `works/.shared/core/rounds.py`（`rounds.BLOCKS`・`rounds.WHERE_TO_BLOCK` に `pr-checking`・`premising`、`open_step` が `prcheck.run_helper` を呼ぶ、`boundary` の包みの確かめを `judging` の段へ、`premises_file` を返りに）
 - Modify: `works/darkfactory-rounds/darkfactory-rounds.yaml`（輪の頭に `pr-checking`・`h-pre`・`premising`・`h-judge`。`judging` の `when:` を `$h-judge.output.run`、`with:` に `premises_file`）
 - Modify: `works/tests/test_rounds_table.py`（`test_later_rows_name_their_task` から 2 節を外す）・`works/tests/test_rounds_boundary.py`・`works/tests/test_rounds_line.py`
 - Test: `works/tests/test_rounds_head.py`
@@ -618,7 +620,7 @@ def test_ask_message_sources(self):         # ask.py が asking・一時停止�
 **Interfaces:**
 - Consumes: 線 A の `prcheck.run_helper(b, *, runner=None)`・`prcheck.NODE`・`blk-pr`（入口 `base_rev`）・`blk-premises`（入口 `request_file`・`base_rev`）・`reads.adapter_seen`・`report.declared_downgrades`。
 - Produces（`rounds.py`）:
-  - `BLOCKS` に `"pr-checking"`・`"premising"` を足す（並びはラインの順）。`WHERE_TO_BLOCK` に `"blk-pr": "pr-checking"`・`"blk-premises": "premising"`。
+  - `rounds.BLOCKS` に `"pr-checking"`・`"premising"` を足す（並びはラインの順）。`rounds.WHERE_TO_BLOCK` に `"blk-pr": "pr-checking"`・`"blk-premises": "premising"`。
   - `open_step(...)`: 切符の後に、ready の `p0.parallel_pr` を `prcheck.run_helper(b, runner=)` で走らせ（`runner` は試験の差し込み）、`boundary(…, "pr-checking")` の返りを返す（任せ先に落ちた時だけ `run: true`）。
   - `boundary(…, at="judging")`: 包みの確かめ（`h-plan` から移す）。表で `p0.premises` が role なのに盤面で済んでいなければ `b.stop("前提の実測が盤面に無い: …", by="works:premises")`。返りに `premises_file`（`state.outputs["p0.premises"]["file"]`。無ければ `""`）。
 - Produces（ライン）: `open` → `pr-checking`（`when: $open.output.run == true`、`with: base_rev ← $start.output`）→ `h-pre`（`boundary(…, "premising")`）→ `premising`（`when: $h-pre.output.run == true`、`with: request_file・base_rev ← $start.output`）→ `h-judge`（`boundary(…, "judging")`）→ `judging`（`with:` に `premises_file ← $h-judge.output.premises_file`）。合流の節は `trigger_rule: none_failed_min_one_success`。
@@ -650,7 +652,7 @@ def test_downgrade_in_report_head(self):         # 報告の冒頭 ② に downg
 **Files:**
 - Create: `works/blk-purpose/blk-purpose.yaml`・`works/blk-purpose/commands/purpose.md`（a1202d0 の `prompts/review-loop/p0.purpose.md` を写し、`{{…}}` を入口のファイルを読む形に）・`works/blk-purpose/scripts/snap.py`・`accept.py`・`reads.py`・`collect.py`・`works/blk-purpose/fixtures/pass.stubs.yaml`
 - Modify: `works/darkfactory-rounds/nodes.json`（`p0.purpose` を role・where `blk-purpose`）
-- Modify: `works/.shared/core/rounds.py`（`BLOCKS`・`WHERE_TO_BLOCK` に `purposing`、`boundary(…, "purposing")` が `premises_file` を、`boundary(…, "judging")` が `purpose_file` を返す）
+- Modify: `works/.shared/core/rounds.py`（`rounds.BLOCKS`・`rounds.WHERE_TO_BLOCK` に `purposing`、`boundary(…, "purposing")` が `premises_file` を、`boundary(…, "judging")` が `purpose_file` を返す）
 - Modify: `works/blk-judge/blk-judge.yaml`（入口 `purpose_file`。`default: ""`）・`works/blk-judge/commands/diagnose.md`（その入口を読む 1 段落）
 - Modify: `works/darkfactory-rounds/darkfactory-rounds.yaml`（`h-purpose`・`purposing` を `premising` と `h-judge` の間に、`judging` の `with:` に `purpose_file`）
 - Create: `works/tests/replies/purpose_ok.json`・`purpose_bad_source.json`・`purpose_writer_summary.json`（出典 ③）
@@ -688,7 +690,7 @@ def test_purpose_row_is_role(self):              # nodes.json の p0.purpose が
 
 **Files:**
 - Modify: `works/darkfactory-rounds/nodes.json`（写し直しの後の再審の 6 節を role・where `blk-rejudge`）
-- Modify: `works/.shared/core/rounds.py`（`BLOCKS`・`WHERE_TO_BLOCK` に `rejudging`、`boundary(…, "rejudging")` の先の確かめ、一時停止 `rejudge_no_session` と答えの表の行）
+- Modify: `works/.shared/core/rounds.py`（`rounds.BLOCKS`・`rounds.WHERE_TO_BLOCK` に `rejudging`、`boundary(…, "rejudging")` の先の確かめ、一時停止 `rejudge_no_session` と答えの表の行）
 - Modify: `works/darkfactory-rounds/darkfactory-rounds.yaml`（`h-rejudge`・`rejudging` を `fixing` と `h-review` の間に）・`works/darkfactory-rounds/scripts/ask.py`（文に `rejudge_no_session` の行）・`works/darkfactory-rounds/fixtures/`（`rejudge`・`rejudge-no-session` の 2 本）
 - Modify（共有。最後の 1 commit）: `works/tests/test_line.py`（周の輪の形）・`works/skills/works/SKILL.md`（周の輪の関所の表に `rejudge_no_session` の行）
 - Test: `works/tests/test_rounds_rejudge.py`
@@ -726,7 +728,7 @@ def test_rows_are_roles(self):                   # nodes.json の再審の 6 節
 回す側の指示（2026-09-27）。本線のブロックの置き場と名前（`graphloops/blocks/review-loop/<ブロック>/block.json`）が 3-7 で決まったら、線 B の仮の名（`blk-close`・`blk-purpose`）と節の表の `where` を揃える。
 
 **Files（3-7 の中身しだい）:**
-- Modify: `works/darkfactory-rounds/nodes.json`（`where` に本線のブロック名。形は線 A の T25 と同じ）・`works/.shared/core/rounds.py`（`WHERE_TO_BLOCK` を `where` の works の置き場の側で引く）
+- Modify: `works/darkfactory-rounds/nodes.json`（`where` に本線のブロック名。形は線 A の T25 と同じ）・`works/.shared/core/rounds.py`（`rounds.WHERE_TO_BLOCK` を `where` の works の置き場の側で引く）
 - Rename（要る時だけ。`blk-close` は本線の close と 1 対 1 の見込み、`blk-purpose` は本線の prereq の一部）
 - Test: `works/tests/test_rounds_table.py`（`test_where_matches_mainline_blocks`）
 

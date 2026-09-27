@@ -59,7 +59,7 @@ def find_node(y, nid):
 
 
 def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
+    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True).stdout
 
 
 class YamlCase(unittest.TestCase):
@@ -140,7 +140,7 @@ class YamlCase(unittest.TestCase):
         self.assertNotIn("$LOOP_PREV.premises-accept.output.reason\n", text + "\n")
         self.assertNotRegex(text, r"\$LOOP_PREV\.premises-accept\.output\.reason(?!_file)")
         src = subprocess.run(["git", "-C", str(ROOT), "show", "a1202d0:graphloops/prompts/review-loop/p0.premises.md"],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8")
         if src.returncode != 0:
             self.skipTest("このリポジトリから a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）")
         body = [ln for ln in src.stdout.splitlines() if ln.strip() and "{{" not in ln]
@@ -228,7 +228,7 @@ class RepoCase(unittest.TestCase):
         base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
         e = {**base, "ARTIFACTS_DIR": str(self.art), **env}
         return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=self.repo, env=e,
-                              capture_output=True, text=True, timeout=300)
+                              capture_output=True, text=True, encoding="utf-8", timeout=300)
 
     def snapshot(self):
         self.board.mkdir(parents=True, exist_ok=True)
@@ -520,7 +520,7 @@ class ScriptCase(RepoCase):
     def test_collect_missing_env(self):
         e = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
         r = subprocess.run([sys.executable, str(BLK / "scripts" / "collect.py")], cwd=self.repo, env=e,
-                           capture_output=True, text=True, timeout=300)
+                           capture_output=True, text=True, encoding="utf-8", timeout=300)
         self.assertEqual(r.returncode, 2)
         self.assertIn("ARTIFACTS_DIR", r.stderr)
 

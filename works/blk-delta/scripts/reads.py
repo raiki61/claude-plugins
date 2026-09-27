@@ -14,6 +14,9 @@ import refix  # noqa: E402
 INPUTS = ("INPUTS_MUST",)   # 読む INPUTS_*（YAML の with: の鍵と同じ。TA16）
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):   # Windows の既定 cp1252 で日本語の出力が落ちないように
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     import reads  # noqa: E402  （線 A Task 6 の物。入るまでこの節は走らせない——YAML は Task 17）
     if refix.own_module(reads, __file__):
         print("core に reads.py（線 A Task 6）が無い: 読んだ証拠を集められない", file=sys.stderr)

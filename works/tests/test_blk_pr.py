@@ -124,7 +124,7 @@ class PrCase(unittest.TestCase):
         self.addCleanup(path.stop)
 
     def git(self, *args):
-        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True).stdout
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
     def build(self, root):
         """p0.parallel_pr が待っている盤面を root に作る（判定から入る run。p0.base・p0.local_checks は済み、p0.premises は待ち）"""

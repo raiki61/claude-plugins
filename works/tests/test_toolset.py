@@ -138,7 +138,7 @@ class Base(unittest.TestCase):
                                claude_bin=str(self.claude))
 
     def cli(self, *args, **env):
-        return subprocess.run([sys.executable, str(TOOLSET), *args], capture_output=True, text=True,
+        return subprocess.run([sys.executable, str(TOOLSET), *args], capture_output=True, text=True, encoding="utf-8",
                               env=dict(os.environ, **env))
 
 

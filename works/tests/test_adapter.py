@@ -111,7 +111,7 @@ class Env:
             else:
                 env[k] = v
         return subprocess.run([str(ADAPTER), *argv], cwd=str(cwd or self.cwd), env=env, input=stdin,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, encoding="utf-8")
 
     def child(self):
         """偽の claude が受けた最後の起動（起きていなければ None）"""
@@ -156,7 +156,7 @@ class MarkerCase(unittest.TestCase):
     def test_marker_grammar_matches_node_marker(self):
         """枝 wip/works-a2 の node_marker.parse と、読める・読めないが同じ（引けなければ skip）"""
         src = subprocess.run(["git", "-C", str(ROOT), "show", "wip/works-a2:works/.shared/core/node_marker.py"],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8")
         if src.returncode != 0:
             self.skipTest("wip/works-a2 を引けない: " + src.stderr.strip()[-200:])
         ns = {}
@@ -441,13 +441,13 @@ class AdapterCase(unittest.TestCase):
         for shim in (adapter.NO_POST_BIN / "works-gh", adapter.NO_POST_BIN / "gh"):
             for args in allowed:
                 with self.subTest(shim=shim.name, args=args):
-                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True)
+                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True, encoding="utf-8")
                     self.assertEqual(r.returncode, 0, r.stderr)
                     self.assertEqual(log.read_text().splitlines()[-1], " ".join(args))
             for args in refused:
                 with self.subTest(shim=shim.name, args=args):
                     before = log.read_text() if log.exists() else ""
-                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True)
+                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True, encoding="utf-8")
                     self.assertEqual(r.returncode, 2, r.stderr)
                     self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
                     self.assertEqual(log.read_text() if log.exists() else "", before)   # 本物の gh を起こさない
@@ -457,7 +457,7 @@ class AdapterCase(unittest.TestCase):
             with self.subTest(real):
                 env = dict(os.environ, WORKS_REAL_GH=real)
                 r = subprocess.run([str(adapter.NO_POST_BIN / "works-gh"), "pr", "list", "-R", "o/r"], env=env,
-                                   capture_output=True, text=True)
+                                   capture_output=True, text=True, encoding="utf-8")
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("本物の gh", r.stderr)
 
@@ -473,7 +473,7 @@ class AdapterCase(unittest.TestCase):
         env = dict(os.environ, WORKS_REAL_GH=str(fwd), COUNT=str(count))
         env.pop("WORKS_GH_ACTIVE", None)
         r = subprocess.run([str(adapter.NO_POST_BIN / "gh"), "pr", "list", "-R", "o/r"], env=env,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertEqual(count.read_text().count("x"), 1)   # 取り違えた物は 1 度だけ起き、口の 2 度目で止まった
         self.assertIn("起こし直された", r.stderr)
@@ -566,7 +566,7 @@ class AdapterCase(unittest.TestCase):
         event = {"session_id": "s-1", "tool_name": "Read", "tool_input": {"file_path": str(doc)},
                  "tool_use_id": "toolu_x", "cwd": str(self.e.cwd), "hook_event_name": "PostToolUse"}
         # claude と同じく、フックのコマンドを sh で起こして出来事を標準入力に渡す（cwd は役の worktree）
-        h = subprocess.run(["sh", "-c", command], cwd=str(self.e.cwd), input=json.dumps(event), text=True,
+        h = subprocess.run(["sh", "-c", command], cwd=str(self.e.cwd), input=json.dumps(event), text=True, encoding="utf-8",
                            capture_output=True, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
         self.assertEqual(h.returncode, 0, h.stderr)
         log = adapter.reads_dir(self.e.cwd, self.e.home) / "reads.jsonl"
@@ -587,7 +587,7 @@ class AdapterCase(unittest.TestCase):
             doc.write_text("x", encoding="utf-8")
             event = {"tool_name": "Read", "tool_input": {"file_path": str(doc)}, "cwd": t}
             for args in ([], [str(pathlib.Path(t, "missing-dir"))]):
-                h = subprocess.run([sys.executable, str(RECORDER), *args], input=json.dumps(event), text=True,
+                h = subprocess.run([sys.executable, str(RECORDER), *args], input=json.dumps(event), text=True, encoding="utf-8",
                                    capture_output=True, cwd=t)
                 self.assertEqual(h.returncode, 0, h.stderr)
             self.assertEqual(sorted(p.name for p in pathlib.Path(t).iterdir()), ["d.txt"])
@@ -595,7 +595,7 @@ class AdapterCase(unittest.TestCase):
     def test_record_read_copy_differs_only_in_sink(self):
         """record-read.py は graphloops a1202d0:graphloops/hooks/record-read.py の写しで、書く先を決める boards() だけを替えた"""
         src = subprocess.run(["git", "-C", str(ROOT), "show", "a1202d0:graphloops/hooks/record-read.py"],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8")
         if src.returncode != 0:
             self.skipTest("a1202d0 を引けない（浅い clone か、graphloops の履歴を持たない）: " + src.stderr.strip()[-200:])
 
@@ -861,7 +861,7 @@ class AdapterCase(unittest.TestCase):
 def gone(pid):
     """pid がもう居ない（ゾンビも居ないと数える）。待たずにその場で 1 度だけ見る。
     包みは tree_run.stop_group で数え直して仲間が消えたのを見てから抜けるので、抜けた後に見れば足りる"""
-    r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+    r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, encoding="utf-8")
     return r.returncode != 0 or r.stdout.strip().startswith("Z") or not r.stdout.strip()
 
 
@@ -882,7 +882,7 @@ class StopCase(unittest.TestCase):
         if orphan:
             env["FAKE_CLAUDE_ORPHAN"] = "1"
         p = subprocess.Popen([str(ADAPTER), *sdk_argv("works-node: fix")], cwd=str(self.e.cwd), env=env,
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, encoding="utf-8")
         self.addCleanup(self._reap, p)
         while not self.pidfile.exists():
             self.assertIsNone(p.poll(), "包みが孫を起こす前に抜けた")
@@ -963,7 +963,7 @@ class StopCase(unittest.TestCase):
 
 def git(cwd, *args):
     return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false",
-                           "-C", str(cwd), *args], capture_output=True, text=True, check=True).stdout
+                           "-C", str(cwd), *args], capture_output=True, text=True, encoding="utf-8", check=True).stdout
 
 
 class FenceCase(unittest.TestCase):
@@ -1282,7 +1282,7 @@ class IsolatedCase(unittest.TestCase):
         self.assertEqual(pathlib.Path(child["cwd"]).resolve(), want)
         self.assertNotEqual(pathlib.Path(child["cwd"]).resolve(), self.e.cwd.resolve())
         inside = subprocess.run(["git", "-C", child["cwd"], "rev-parse", "--is-inside-work-tree"], capture_output=True,
-                                text=True)
+                                text=True, encoding="utf-8")
         self.assertNotEqual(inside.stdout.strip(), "true", "置き場が Git の中")
         # 会話の id と起動の記録は run の worktree（Archon の cwd）の鍵のまま（出し直しの --resume は同じ置き場で起きる）
         self.assertIsNotNone(self.e.session_id("r2-design"))
@@ -1712,7 +1712,7 @@ class DevWiringCase(unittest.TestCase):
                 else:
                     env[k] = v.replace("@TMP", str(tmp))
             r = subprocess.run(["sh", str(DEV / "archon.sh"), "workflow", "run", "x"], capture_output=True,
-                               text=True, env=env, cwd=str(tmp))
+                               text=True, encoding="utf-8", env=env, cwd=str(tmp))
             config = dev_home / "archon-home" / "config.yaml"
             self.assertNotIn("dummy-token-for-test", r.stdout + r.stderr)
             return (r, config.read_text() if config.exists() else None,
@@ -1769,12 +1769,12 @@ class DevWiringCase(unittest.TestCase):
             env = dict(os.environ, WORKS_DEV_HOME=t, WORKS_DEV_MODEL="opus", CLAUDE_BIN_PATH="/x/claude",
                        WORKS_DEV_ADAPTER="1")
             r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh" && works_dev_show_run t "{fake}" "{t}"'],
-                               capture_output=True, text=True, env=env)
+                               capture_output=True, text=True, encoding="utf-8", env=env)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("WORKS_DEV_ADAPTER=1 ", r.stdout)
             env.pop("WORKS_DEV_ADAPTER")
             r = subprocess.run(["sh", "-c", f'. "{DEV}/lib.sh" && works_dev_show_run t "{fake}" "{t}"'],
-                               capture_output=True, text=True, env=env)
+                               capture_output=True, text=True, encoding="utf-8", env=env)
             self.assertNotIn("WORKS_DEV_ADAPTER", r.stdout)
 
 

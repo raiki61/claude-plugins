@@ -70,7 +70,7 @@ def ticket_path(cwd: pathlib.Path) -> pathlib.Path:
 def _local_env_vars() -> tuple:
     """git が「リポジトリに固有」とする環境変数の名前（git rev-parse --local-env-vars）。引けなければ GIT_ENV_FALLBACK。"""
     try:
-        done = subprocess.run(["git", "rev-parse", "--local-env-vars"], check=True, capture_output=True, text=True)
+        done = subprocess.run(["git", "rev-parse", "--local-env-vars"], check=True, capture_output=True, text=True, encoding="utf-8")
     except (OSError, subprocess.CalledProcessError):
         return GIT_ENV_FALLBACK
     names = tuple(done.stdout.split())
@@ -79,7 +79,7 @@ def _local_env_vars() -> tuple:
 
 def _git(cwd, env, *args) -> str:
     try:
-        done = subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True, env=env)
+        done = subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True, encoding="utf-8", env=env)
     except (OSError, subprocess.CalledProcessError) as e:
         detail = getattr(e, "stderr", None) or str(e)
         raise TicketError(f"git {' '.join(args)} が引けない（{cwd}）: {detail.strip()}") from e

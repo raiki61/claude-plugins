@@ -64,7 +64,7 @@ class UvRunCase(unittest.TestCase):
         # 網に出ない（依存の無い塊は網が要らない。対象の six・hatchling を取りに行けば、ここで落ちる）
         self.env = {k: v for k, v in os.environ.items() if k not in UV_ENV_DROP}
         self.env.update(UV_OFFLINE="1", PYTHONDONTWRITEBYTECODE="1")
-        found = subprocess.run([self.uv, "python", "find", ">=3.10"], env=self.env, capture_output=True, text=True,
+        found = subprocess.run([self.uv, "python", "find", ">=3.10"], env=self.env, capture_output=True, text=True, encoding="utf-8",
                                timeout=60)
         if found.returncode != 0:
             self.skipTest("uv が 3.10 以上の python を手元に見つけられない（網に出ずには塊の requires-python を満たせない）: "
@@ -89,7 +89,7 @@ class UvRunCase(unittest.TestCase):
     def run_intake(self, **extra_env):
         env = dict(self.env, ARTIFACTS_DIR=str(self.art), INPUTS_REQUEST="無い依頼.json", **extra_env)
         return subprocess.run([self.uv, "run", str(ROOT / "blk-judge" / "scripts" / "intake.py")], cwd=str(self.repo),
-                              env=env, capture_output=True, text=True, timeout=300)
+                              env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
 
     def assert_started_and_clean(self, r):
         # 依頼のファイルが無いので intake は理由を 1 行出して 1 で止まる（2 は uv の起動そのものの失敗）

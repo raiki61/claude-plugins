@@ -127,7 +127,7 @@ class TreeRunCase(unittest.TestCase):
         return pgid
 
     def run_cli(self, *args, env=None):
-        return subprocess.run(self.cli(*args), env=env or self.env, cwd=str(self.tmp), capture_output=True, text=True,
+        return subprocess.run(self.cli(*args), env=env or self.env, cwd=str(self.tmp), capture_output=True, text=True, encoding="utf-8",
                               timeout=60)
 
     # ------------------------------------------------ 終了コード
@@ -212,7 +212,7 @@ class TreeRunCase(unittest.TestCase):
                    "print(p.pid, flush=True)\n"
                    "time.sleep(600)\n")
         w = subprocess.Popen([sys.executable, "-c", wrapper], env=self.env, cwd=str(self.tmp), stdin=subprocess.DEVNULL,
-                             stdout=subprocess.PIPE, text=True, start_new_session=True)
+                             stdout=subprocess.PIPE, text=True, encoding="utf-8", start_new_session=True)
         self.started.append(("pg", w.pid))
         tree_pid = int(w.stdout.readline())
         self.started.append(("pid", tree_pid))

@@ -196,7 +196,7 @@ class OutcomeCase(ReportBase):
             with self.subTest(ai=ai):
                 env = {**os.environ, "INPUTS_MACHINE": json.dumps(machine, ensure_ascii=False), "INPUTS_AI": ai,
                        "PYTHONDONTWRITEBYTECODE": "1"}
-                r = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                r = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 out = json.loads(r.stdout)
                 self.assertEqual(out["report_file"], machine["report_file"])
@@ -205,7 +205,7 @@ class OutcomeCase(ReportBase):
                 else:
                     self.assertIsNone(out["ai_report"])
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
-        r = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        r = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
         self.assertEqual((r.returncode, r.stdout), (2, ""))
 
     def test_exit_keeps_finish_fields(self):
@@ -636,7 +636,7 @@ class ScriptCase(ReportBase):
                     "PYTHONDONTWRITEBYTECODE": "1"})
         env.update(env_over)
         env = {k: v for k, v in env.items() if v is not None}
-        return subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True,
+        return subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, encoding="utf-8",
                               stdin=subprocess.DEVNULL, cwd=str(self.tmp))
 
     def test_script_one_line_and_inputs(self):
@@ -705,7 +705,7 @@ class ReportShCase(ReportBase):
         self.begin(board=root / "artifacts" / "runs" / self.RUN / "board")
         self.assertFalse(json.loads((self.board / "state.json").read_text(encoding="utf-8")).get("halted"))
         env = dict(os.environ, WORKS_DEV_ARCHON=str(self.fake_archon(root, "cancelled")), PYTHONDONTWRITEBYTECODE="1")
-        r = subprocess.run(["sh", str(REPORT_SH), self.RUN], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+        r = subprocess.run(["sh", str(REPORT_SH), self.RUN], capture_output=True, text=True, encoding="utf-8", env=env, stdin=subprocess.DEVNULL)
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertEqual(out["outcome"], "interrupted")
@@ -720,7 +720,7 @@ class ReportShCase(ReportBase):
         env = dict(os.environ, WORKS_DEV_ARCHON=str(self.fake_archon(self.tmp / "nowhere", "cancelled")))
         for args in ((), (self.RUN,)):
             with self.subTest(args=args):
-                r = subprocess.run(["sh", str(REPORT_SH), *args], capture_output=True, text=True, env=env,
+                r = subprocess.run(["sh", str(REPORT_SH), *args], capture_output=True, text=True, encoding="utf-8", env=env,
                                    stdin=subprocess.DEVNULL)
                 self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
                 self.assertTrue(r.stderr.strip())

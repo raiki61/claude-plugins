@@ -330,7 +330,7 @@ def answer(board_dir, gate) -> dict:
 
 # ---------------------------------------------------------------- collect
 def _head(repo) -> str:
-    r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo), capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo), capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
     if r.returncode != 0:
         raise Reject(f"git rev-parse HEAD が失敗した: {r.stderr.strip()[-300:]}")
     return r.stdout.strip()

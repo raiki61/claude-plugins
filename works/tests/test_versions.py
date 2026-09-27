@@ -126,7 +126,7 @@ class StartWritesVersionsCase(unittest.TestCase):
                         "INPUTS_POLICY_MD": "", "ARTIFACTS_DIR": str(art), "WORKFLOW_ID": "run-v-1",
                         "WORKS_ARCHON_VERSION": "v0.11.1", "PYTHONDONTWRITEBYTECODE": "1"})
             r = subprocess.run([sys.executable, str(ROOT / "darkfactory" / "scripts" / "start.py")], cwd=cwd, env=env,
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, encoding="utf-8")
             self.assertNotEqual(r.returncode, 0, r.stdout)
             doc = json.loads((art / versions.FILE).read_text(encoding="utf-8"))
             self.assertEqual(doc["run_id"], "run-v-1")

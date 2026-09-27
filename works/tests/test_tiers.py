@@ -165,7 +165,7 @@ class RunShCase(unittest.TestCase):
     def run_sh(self, *args, argv0=(), **env):
         e = dict(self.env)
         e.update(env)
-        return subprocess.run([*argv0, "sh", str(RUN_SH), *args], env=e, capture_output=True, text=True,
+        return subprocess.run([*argv0, "sh", str(RUN_SH), *args], env=e, capture_output=True, text=True, encoding="utf-8",
                               stdin=subprocess.DEVNULL)
 
     def calls(self):

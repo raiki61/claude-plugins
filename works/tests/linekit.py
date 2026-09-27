@@ -34,7 +34,7 @@ def git_env() -> dict:
 
 
 def git(repo, *args) -> str:
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True,
+    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True,
                           env=git_env()).stdout.strip()
 
 

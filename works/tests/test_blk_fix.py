@@ -73,7 +73,7 @@ def run_script(name, repo, env):
     """blk-fix/scripts/<name>.py を repo を cwd にして起こす。(終了コード, 標準出力, 標準エラー)"""
     full = {"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1", **env}
     r = subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=str(repo), env=full,
-                       capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+                       capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL, timeout=120)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -577,7 +577,7 @@ class TestRecount(BoardCase):
             payload = {"tool_name": "Read", "tool_input": {"file_path": str(target)}, "cwd": str(self.repo),
                        "session_id": "s-12", "tool_use_id": "toolu_12"}
             subprocess.run([sys.executable, str(CORE / "record-read.py"), str(sink)], input=json.dumps(payload),
-                           text=True, check=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                           text=True, encoding="utf-8", check=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
         self.assertEqual(self.wrote_refs_state(hook), [("test_stats.py", "read")])
 
     def test_wrote_refs_reads_ignores_board_log(self):

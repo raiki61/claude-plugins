@@ -16,6 +16,9 @@ import refix  # noqa: E402
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_PASS")   # 読む INPUTS_*（YAML の with: の鍵と同じ。TA16）
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):   # Windows の既定 cp1252 で日本語の出力が落ちないように
+        if hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
     import os
     try:
         n = refix.pass_of(os.environ.get(INPUTS[2], ""))

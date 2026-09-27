@@ -430,7 +430,7 @@ class TreeRunnerCase(StepCase):
                    VIRTUAL_ENV=sys.prefix, UV_NO_CONFIG="1", ARTIFACTS_DIR=str(art), INPUTS_CMD="exec env")
         env.pop("PYTHONDONTWRITEBYTECODE", None)
         r = subprocess.run([sys.executable, str(HERE.parent / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.tmp),
-                           env=env, capture_output=True, text=True)
+                           env=env, capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stderr)
         theirs = (art / "board" / "tests.log").read_text(encoding="utf-8")
         with mock.patch.dict(os.environ, env, clear=True):

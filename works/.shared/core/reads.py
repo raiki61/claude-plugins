@@ -68,7 +68,7 @@ def events_for(run_id: str):
         return None
     try:
         r = subprocess.run(cmd + ["workflow", "get", run_id, "--verbose", "--events", "--json"],
-                           stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8")
     except OSError:
         return None
     if r.returncode != 0:

@@ -347,7 +347,7 @@ class ScriptCase(unittest.TestCase):
         env.update({"ARTIFACTS_DIR": str(self.art), "PYTHONDONTWRITEBYTECODE": "1", "WORKFLOW_ID": "run-spec"})
         env.update({f"INPUTS_{k.upper()}": v for k, v in inputs.items()})
         r = subprocess.run([sys.executable, str(self.pack / "blk-spec" / "scripts" / f"{name}.py")], cwd=str(self.repo),
-                           env=env, capture_output=True, text=True)
+                           env=env, capture_output=True, text=True, encoding="utf-8")
         if r.returncode == 0:
             lines = r.stdout.splitlines()
             self.assertEqual(len(lines), 1, r.stdout + r.stderr)

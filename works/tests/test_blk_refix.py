@@ -147,7 +147,7 @@ class DeltaBoardCase(TE.TakeCaseBase):
         env.update({"ARTIFACTS_DIR": str(self.art), "PYTHONDONTWRITEBYTECODE": "1"})
         env = {k: v for k, v in env.items() if v is not None}
         return subprocess.run([sys.executable, str(ROOT / blk / "scripts" / f"{name}.py")], cwd=str(repo), env=env,
-                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                              capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
 
 
 # ---------------------------------------------------------------- 盤面の上の往復
@@ -374,7 +374,7 @@ class RefixScriptCase(DeltaBoardCase):
         self.assertTrue(out["review2_file"])
         env_less = subprocess.run([sys.executable, str(REFIX_DIR / "scripts" / "collect.py")], cwd=str(repo),
                                   env={k: v for k, v in os.environ.items() if k != "ARTIFACTS_DIR"},
-                                  capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                                  capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
         self.assertEqual((env_less.returncode, env_less.stdout), (2, ""))
         self.assertFalse([*CORE.rglob("__pycache__")])
 

@@ -524,10 +524,10 @@ def live_worktrees(cwd) -> List[str]:
     """cwd のリポジトリの今の worktree（元の作業ツリーを含む）のうち、cwd の worktree 自身でない物。git が引けなければ []"""
     env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
     try:
-        own = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+        own = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8",
                              env=env, check=True).stdout.strip()
         listed = subprocess.run(["git", "-C", str(cwd), "worktree", "list", "--porcelain"], capture_output=True,
-                                text=True, env=env, check=True).stdout
+                                text=True, encoding="utf-8", env=env, check=True).stdout
     except (OSError, subprocess.CalledProcessError):
         return []
     trees = [ln[len("worktree "):] for ln in listed.splitlines() if ln.startswith("worktree ")]
@@ -538,7 +538,7 @@ def own_worktree(cwd) -> Optional[str]:
     """役の cwd の worktree の根（git rev-parse --show-toplevel）。git が引けなければ None"""
     env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
     try:
-        top = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+        top = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8",
                              env=env, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -698,7 +698,7 @@ def _inside_git(path: pathlib.Path) -> bool:
     """path が Git の作業ツリーの中か（git が引けない・外なら偽。GIT_DIR などの env は落とす——live_worktrees と同じ）"""
     env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
     try:
-        r = subprocess.run(["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True,
+        r = subprocess.run(["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, encoding="utf-8",
                            env=env)
     except (OSError, subprocess.SubprocessError):
         return False

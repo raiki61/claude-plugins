@@ -904,7 +904,7 @@ class StartScriptCase(StartCaseBase):
 
     def run_script(self, repo, **kw):
         return subprocess.run([sys.executable, str(SCRIPT)], cwd=repo, env=self.env(repo, **kw), capture_output=True,
-                              text=True, stdin=subprocess.DEVNULL)
+                              text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
 
     def test_start_script_refusal_exit_1(self):
         repo = self.seed()

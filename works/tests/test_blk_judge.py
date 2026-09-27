@@ -174,7 +174,7 @@ class ScriptCase(unittest.TestCase):
         base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
         e = dict(base, ARTIFACTS_DIR=str(self.art), **env)
         return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=self.repo, env=e,
-                              capture_output=True, text=True, timeout=300)
+                              capture_output=True, text=True, encoding="utf-8", timeout=300)
 
     # ---- intake
     def test_intake_accepts_request(self):
@@ -239,7 +239,7 @@ class ScriptCase(unittest.TestCase):
     def test_brief_missing_env(self):
         base = {k: v for k, v in os.environ.items() if k != "ARTIFACTS_DIR"}
         r = subprocess.run([sys.executable, str(BLK / "scripts" / "brief.py")], cwd=self.repo, env=base,
-                           capture_output=True, text=True, timeout=300)
+                           capture_output=True, text=True, encoding="utf-8", timeout=300)
         self.assertEqual(r.returncode, 2)
         self.assertIn("ARTIFACTS_DIR", r.stderr)
 

@@ -74,7 +74,7 @@ def body_ids(nodes):
 
 
 def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
+    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8", check=True).stdout
 
 
 class YamlCase(unittest.TestCase):
@@ -233,7 +233,7 @@ class ScriptCase(unittest.TestCase):
         base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         e = dict(base, ARTIFACTS_DIR=str(self.art), **env)
         return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=cwd or self.repo, env=e,
-                              capture_output=True, text=True, timeout=300)
+                              capture_output=True, text=True, encoding="utf-8", timeout=300)
 
     def intake(self, request="request_ok.json", constraints="", cwd=None):
         return self.run_script("intake", cwd=cwd, INPUTS_REQUEST=request, INPUTS_CONSTRAINTS_FILE=constraints)
@@ -514,7 +514,7 @@ class ScriptCase(unittest.TestCase):
     def test_collect_missing_env(self):
         e = {k: v for k, v in os.environ.items() if k != "ARTIFACTS_DIR" and not k.startswith("INPUTS_")}
         r = subprocess.run([sys.executable, str(BLK / "scripts" / "collect.py")], cwd=self.repo, env=e,
-                           capture_output=True, text=True, timeout=300)
+                           capture_output=True, text=True, encoding="utf-8", timeout=300)
         self.assertEqual(r.returncode, 2)
         self.assertIn("ARTIFACTS_DIR", r.stderr)
 

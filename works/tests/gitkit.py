@@ -24,7 +24,7 @@ _made = {}   # (src, sub, ignore) → (型の根, HEAD の版)
 
 def git(repo, *args):
     """repo で git を起こし、標準出力（前後の空白を落とす）を返す。失敗は CalledProcessError。hook・署名・利用者の名前に左右されない"""
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True,
+    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
                           check=True).stdout.strip()
 
 

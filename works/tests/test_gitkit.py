@@ -22,7 +22,7 @@ class TestCommittedCopy(unittest.TestCase):
                     head = committed_copy(repo, SEED)
                     self.assertEqual(git(repo, "rev-parse", "HEAD"), head)
                     for cmd in (["diff-files", "--quiet"], ["diff-index", "--quiet", "HEAD"]):
-                        r = subprocess.run(["git", "-C", str(repo), *cmd], capture_output=True, text=True)
+                        r = subprocess.run(["git", "-C", str(repo), *cmd], capture_output=True, text=True, encoding="utf-8")
                         self.assertEqual(r.returncode, 0, f"git {' '.join(cmd)} が写した直後に差分を見た: {r.stdout}")
 
 
