@@ -22,7 +22,7 @@ works の受け付けの口 `works/.shared/core/accept.py` を、本線 graphloo
 ## 試験が見ること
 
 - `accept.py` の公開の関数（名前が `_` で始まらない一番外の `def`）の全部が、表に 1 度ずつ在る。関数を足しても消しても赤になる。
-- 足りない 4 つが `missing`、works だけの検査（`snapshot_tree`・`tree_state`・`tree_change`・`tree_moved`・`check_claims`・`check_no_post`）と修正役の後始末（`leftovers.py` の 3 つ）が `works-only`。
+- 足りない 4 つが `missing`、works だけの検査（`snapshot_tree`・`tree_state`・`tree_change`・`tree_moved`・`check_claims`・`check_no_post`・`check_unique_units`・`check_opened_units`）と修正役の後始末（`leftovers.py` の 3 つ）が `works-only`。
 
 ## 読んだ版と残り
 

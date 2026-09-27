@@ -68,6 +68,8 @@ class TestGlMap(unittest.TestCase):
         for works in ("accept.snapshot_tree", "accept.tree_state", "accept.tree_change", "accept.tree_moved",
                       "blk-premises/scripts/accept.py:check_claims",
                       "blk-pr/scripts/accept.py:check_no_post",
+                      "blk-fix/scripts/accept.py:check_unique_units",
+                      "blk-fix/scripts/accept.py:check_opened_units",
                       "blk-fix/scripts/leftovers.py:ignored_files",
                       "blk-fix/scripts/leftovers.py:record_ignored",
                       "blk-fix/scripts/leftovers.py:remove_new_ignored"):

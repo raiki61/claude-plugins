@@ -5,12 +5,13 @@
 """修正のブロックの出口を集める（blk-fix の節 collect。returns の節）。
 
 読む環境変数:
-- INPUTS_ACCEPTED: 輪（fix-loop）の出力 = 最後の周の fix-accept の出力（{ok, reason, changes} の JSON の文字列）
+- INPUTS_ACCEPTED: 輪（fix-loop）の出力 = 最後の周の fix-accept の出力（{ok, reason, changes, …} の JSON の文字列）
 - INPUTS_CHANGED: assert-changed の出力（{ok, files} の JSON の文字列）
 - INPUTS_CLEANED: clean の出力（{ok, removed} の JSON の文字列。修正役が残した git が無視するファイルのうち消した物）
 - ARTIFACTS_DIR: 盤面はその下の board/
-受け付けた changes を盤面の changes.json（{"changes": [...]}）に書き、{"ok": true, "files", "changes_file", "removed"} を 1 行出して 0。
-受け付けが通っていない・入力が読めないときは、標準エラーに理由を 1 行出して 2（何も書かない）。標準ライブラリだけ。
+中身は recount.collect: 受け付けた changes を今の周の changes.json（{"changes": [...]}）に書き、1 本目の欄
+{"ok": true, "files", "changes_file", "removed"} に、盤面から fix_file・not_done・coverage・reads_file を足して 1 行出して 0。
+受け付けが通っていない・入力が読めない・盤面が今の周の p3.fix を受けていないときは、標準エラーに理由を 1 行出して 2（何も書かない）。
 """
 import json
 import os
@@ -18,56 +19,45 @@ import pathlib
 import sys
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
+import recount  # noqa: E402
+from board import BoardGap  # noqa: E402  （BoardMismatch も含む）
 
-from leftovers import Unreadable  # noqa: E402   blk-fix の Unreadable の正本（同じフォルダ（sys.path[0]）の模块）
-
-CHANGES_FILE = "changes.json"
+INPUTS = ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED")
 
 
 def env_json(name):
     raw = os.environ.get(name)
     if raw is None:
-        raise Unreadable(f"環境変数が無い: {name}")
+        raise recount.Unreadable(f"環境変数が無い: {name}")
     try:
         v = json.loads(raw)
     except json.JSONDecodeError as e:
-        raise Unreadable(f"{name} が JSON として読めない: {e}（頭: {raw[:200]!r}）")
+        raise recount.Unreadable(f"{name} が JSON として読めない: {e}（頭: {raw[:200]!r}）")
     if not isinstance(v, dict):
-        raise Unreadable(f"{name} が JSON のオブジェクトでない（{type(v).__name__}）")
+        raise recount.Unreadable(f"{name} が JSON のオブジェクトでない（{type(v).__name__}）")
     return v
 
 
 def collect():
-    accepted, changed, cleaned = env_json("INPUTS_ACCEPTED"), env_json("INPUTS_CHANGED"), env_json("INPUTS_CLEANED")
+    accepted, changed, cleaned = (env_json(n) for n in INPUTS)
     artifacts = os.environ.get("ARTIFACTS_DIR")
     if not artifacts:
-        raise Unreadable("環境変数が無い: ARTIFACTS_DIR")
-    if accepted.get("ok") is not True:
-        raise Unreadable(f"受け付けが通っていない（{accepted.get('reason')!r}）")
-    changes = accepted.get("changes")
-    if not isinstance(changes, list) or not changes:
-        raise Unreadable("受け付けの出力に changes が無い")
-    files = changed.get("files")
-    if changed.get("ok") is not True or not isinstance(files, list) or not all(isinstance(f, str) for f in files):
-        raise Unreadable(f"assert-changed の出力に files が無い（{changed!r}）")
+        raise recount.Unreadable("環境変数が無い: ARTIFACTS_DIR")
     removed = cleaned.get("removed")
     if cleaned.get("ok") is not True or not isinstance(removed, list) or not all(isinstance(f, str) for f in removed):
-        raise Unreadable(f"clean の出力に removed が無い（{cleaned!r}）")
-    board = pathlib.Path(artifacts) / "board"
-    board.mkdir(parents=True, exist_ok=True)
-    path = board / CHANGES_FILE
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps({"changes": changes}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
-    return {"ok": True, "files": files, "changes_file": str(path), "removed": removed}
+        raise recount.Unreadable(f"clean の出力に removed が無い（{cleaned!r}）")
+    out = recount.collect(pathlib.Path(artifacts) / "board", accepted, changed)
+    return {**out, "removed": removed}
 
 
 def main():
     try:
         out = collect()
-    except Unreadable as e:
+    except (recount.Unreadable, BoardGap) as e:
         print(f"collect: {e}".replace("\n", " "), file=sys.stderr)
         return 2
+    sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(out, ensure_ascii=False))
     return 0
 

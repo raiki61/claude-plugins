@@ -1,6 +1,7 @@
-# 筋書き pass: 修正役が 2 つの単位を直したと返し、受け付け（stub）が通し、集める節（実物）が出口を組む。
+# 筋書き pass: 修正役が 2 つの単位を直したと返し、受け付け（stub）が通し、集める節（stub）が出口を組む。
 # exec-code の作業ツリーは HEAD のままで差分が無いので、assert-changed は stub する（実物で回すのは no-change）。
-# fix-accept（受け付け）も stub する: 盤面の judgment.json は同じ run の blk-judge が書く物で、このブロック単体の run には無い。
+# fix-accept（受け付け）と collect も stub する: どちらも盤面（start が作り、判定・修正案を受けた物）を開く。このブロック単体の
+# run には盤面が無い（受け付けと集める節の実物は tests/test_blk_fix.py が本物の盤面で回す）。
 fix:
   changes:
     - unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
@@ -23,6 +24,15 @@ fix-accept:
 assert-changed:
   ok: true
   files: [stats.py]
+collect:
+  ok: true
+  files: [stats.py]
+  changes_file: board/r<N>/changes.json
+  removed: []
+  fix_file: board/out/r<N>/p3.fix.json
+  not_done: 0
+  coverage: {}
+  reads_file: ""
 fixture:
   expect: completed
   reached: [collect]

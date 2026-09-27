@@ -17,6 +17,16 @@ inputs:
   base_rev:
     default: ""
     description: 周の頭で固めた版。触ったファイルはこの版からの差分で数える。空はその場の HEAD
+  # 線 A（仕様 3.2）の入口。指示書（commands/fix.md）が読む。どれも空でよい（節の配線の切り替えは Task 17）
+  plan_file:
+    default: ""
+    description: 盤面が受けた修正案（p2.fix_plan）のファイルのパス。事前審査（p2.plan_review）の返答は同じフォルダ。空は修正案の無い run
+  human_notes:
+    default: ""
+    description: 人が関所で答えた一言（盤面の record.process.human_items の今の周の note を並べた文）。空は聞いていない
+  policy_path:
+    default: ""
+    description: 人の方針の文書（盤面が固めた写し）のパス。空は方針の無い run
 
 returns: collect
 outcome_field: ok
