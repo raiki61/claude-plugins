@@ -8,6 +8,9 @@
 - eyes_edge(b): h-eyes の固有の仕事（独立の目を回すか。計画 P1 Task 33）
 - plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
+- 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の差分（record.base から。未追跡を
+  含む）が一覧に当たれば最後の関所を final_gate に関わらず開き、文の頭に並べ、process.human_items に 1 行。h-eyes は答えを
+  その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ
 """
 import json
 import os
@@ -24,9 +27,11 @@ for _p in (_LIB, _CORE):   # core を頭に（節のスクリプトと同じ順�
 
 from board import BoardGap  # noqa: E402
 from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足した後）
+import accept  # noqa: E402
 import entry  # noqa: E402
 import halt  # noqa: E402
 import plan  # noqa: E402
+import protect  # noqa: E402
 import purpose  # noqa: E402
 import reads  # noqa: E402
 import rejudge  # noqa: E402
@@ -50,6 +55,10 @@ FINAL_GATE_KIND = "final_gate"               # process.human_items の行の kin
 ENDED_BY = "stop_after_round"                # 1 周の run が周を締めた後の盤面の halted.by（最後のテストの後の普通の終わり）
 ENDED_AT = ("final", "eyes")                 # 周を締めた後に来る境の節（ENDED_BY の盤面を止めたと読まない）
 STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた盤面に止める答え・止め札が来た印の trace の行（b.stop は拒まれる）
+PROTECTED_BY = "works:protected"              # 守りのファイルの行の node（human_items）と、答えの無いまま止めた by
+PROTECTED_KIND = "protected_files"            # その行の kinds
+PROTECTED_HEAD = "守りのファイルを触った"      # 最後の関所の文の頭の節の見出し
+PROTECTED_UNKNOWN = "守りのファイルを確かめられなかった"   # 一覧か git が読めない時の見出し（黙って空にしない）
 MID_NOTE = "中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）"
 FLAG_BY_PREFIX = "request:"                  # 止め札で止めた盤面の state.stop.by は "request:<札の by>"（報告の stopped_by_request）
 FLAG_SEEN_OP = "stop_flag_seen"              # 止め札を見て止めた境の節の trace の行（op・at・reason・by）
@@ -220,6 +229,9 @@ def _answer_final_gate(b, gate: dict) -> tuple:
         answer = "continue" if decision in GATE_GO else "stop"
         b.record["process"]["human_items"].append({"round": b.round, "kinds": [FINAL_GATE_KIND], "asked": [FINAL_GATE_FILE],
                                                    "answer": answer, "note": text, "node": FINAL_GATE_BY})
+        guarded = _protected_row(b)
+        if guarded is not None:   # 守りのファイルの行に人の答えを写す（報告の冒頭 1 に continue か stop で出る）
+            guarded["answer"] = answer
         b.save()
     stop = decision in GATE_STOP
     return stop, (text if text.strip() else FINAL_GATE_STOP_NOTE) if stop else ""
@@ -297,6 +309,58 @@ def _final_text(b, head: str, tests, objection: str, repo, run_id: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _protected(b, repo) -> tuple:
+    """run の差分（record.base＝p0.base が固めた版から今の作業ツリーまで。commit・消した物・未追跡を含む）のうち守りのファイルに
+    当たる物。返り (rows, rev, 確かめられなかった理由)。一覧・版・git が読めなければ rows は空で理由を返す（fail closed）"""
+    rev = ""
+    try:
+        rev = accept.resolve_rev(repo, b.record.get("base") or "")
+        return protect.touched(repo, rev), rev, ""
+    except (protect.Broken, Reject) as e:
+        return [], rev, str(e)
+
+
+def _stat(r) -> str:
+    return f"+{r['added']} −{r['deleted']}" if r.get("added") is not None else "行数なし"
+
+
+def _protected_text(rows, rev: str, err: str, repo) -> str:
+    """最後の関所の文の頭の節（触った守りのファイル・行数・規則・差分の見方。確かめられなければその理由）"""
+    if err:
+        return (f"## {PROTECTED_UNKNOWN}（差分が一覧に触れていないとは言えない）\n\n- 理由: {err}\n"
+                f"- 一覧: {protect.MANIFEST}\n\n")
+    lines = [f"## {PROTECTED_HEAD}（{len(rows)} 件。works 自身の試験・柵・受け付けの口。通すのは人の continue だけ）", ""]
+    lines += [f"- {x}" for x in protect.lines(rows)]
+    lines += [f"- 差分: git -C {pathlib.Path(repo).resolve()} diff {rev[:12]} -- <パス>（未追跡は新しいファイル）",
+              f"- 一覧: {protect.MANIFEST}", "", ""]
+    return "\n".join(lines)
+
+
+def _protected_row(b):
+    items = (b.record.get("process") or {}).get("human_items") or []
+    return next((h for h in items if isinstance(h, dict) and h.get("node") == PROTECTED_BY and h.get("round") == b.round), None)
+
+
+def _record_protected(b, rows, err: str) -> None:
+    """process.human_items に今の周の 1 行（kinds protected_files・answer は最後の関所の答えまで None・note に一覧）。
+    呼び直し（Archon の再開）では積み増さず、答えの前なら中身だけを今の差分に合わせる"""
+    if err:
+        asked, note = [f"{PROTECTED_UNKNOWN}: {err}"], f"{PROTECTED_UNKNOWN}——最後の関所で人が決める（{err}）"
+    else:
+        asked = protect.lines(rows)
+        note = (f"{PROTECTED_HEAD} {len(rows)} 件: " + "、".join(f"{r['path']}（{_stat(r)}・規則 {r['id']}）" for r in rows)
+                + "——最後の関所で人が決める（通すのは continue だけ）")
+    row = _protected_row(b)
+    if row is None:
+        b.record["process"]["human_items"].append({"round": b.round, "kinds": [PROTECTED_KIND], "asked": asked,
+                                                   "answer": None, "note": note, "node": PROTECTED_BY})
+    elif row.get("answer") is None and (row.get("asked"), row.get("note")) != (asked, note):
+        row.update(asked=asked, note=note)
+    else:
+        return
+    b.save()
+
+
 def entry_edge(b) -> dict:
     """h-entry（start の後・判定の前）: 盤面の ready から、任せ先の役・ブロックを回すかの旗。判定から入る run と仕様から入る run の
     両方で、pr-checking・premising・purposing の when: はこの欄だけを読む"""
@@ -307,14 +371,19 @@ def entry_edge(b) -> dict:
 
 def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     """h-final（最後のテストの後）: ask は final_gate always か、when_needed で最後のテストが緑でない（赤・走れなかった・
-    走らなかった）・盤面が人に聞いている・止めずに残った異議が在る時。文は b.work(FINAL_GATE_FILE) にも"""
+    走らなかった）・盤面が人に聞いている・止めずに残った異議が在る・守りのファイルを触った（確かめられなかった）時。
+    守りのファイルは文の頭の節と process.human_items の 1 行にもなる。文は b.work(FINAL_GATE_FILE) にも"""
     head = _tests_head(b, tests)
     left = rejudge.unsettled(b)
     objection = "" if left["settled"] else left["text"]
-    need = head != "緑" or bool(b.state.get("pending_human")) or bool(objection)
+    rows, rev, err = _protected(b, repo)
+    guarded = bool(rows) or bool(err)
+    need = head != "緑" or bool(b.state.get("pending_human")) or bool(objection) or guarded
     if mode == "when_needed" and not need:
         return {}
-    text = _final_text(b, head, tests, objection, repo, run_id)
+    if guarded:
+        _record_protected(b, rows, err)
+    text = (_protected_text(rows, rev, err, repo) if guarded else "") + _final_text(b, head, tests, objection, repo, run_id)
     _write_text(b.work(FINAL_GATE_FILE), text)
     return {"ask": True, "gate_text": text, "gate_file": str(b.work(FINAL_GATE_FILE))}
 
@@ -476,7 +545,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
        stop・reject は b.answer("stop", 一言 か GATE_STOP_NOTE)（盤面は halted.by == "answer"）
     3. at eyes の gate（final-gate の出口）: どの答えも b.work(FINAL_GATE_ANSWER) に {decision, text} と human_items に 1 行。
        stop・reject は b.stop(一言 か FINAL_GATE_STOP_NOTE, by=FINAL_GATE_BY)——周を締めた盤面では b.stop が拒むので、
-       trace に STOP_AFTER_END_OP の 1 行（by FINAL_GATE_BY）を書いて stop
+       trace に STOP_AFTER_END_OP の 1 行（by FINAL_GATE_BY）を書いて stop。守りのファイルの行（h-final が書いた）にも答えを写す。
+       gate が null（関所が開かなかった）なのに今の周の守りのファイルの行が答えを待っていれば、止める（by PROTECTED_BY）
     4. 2・3 で止まったら止め札は trace にだけ（関所の答えが先）。止まっていなければ、止め札（seen）が在れば
        b.stop(理由, by="request:<札の by>")（周を締めた盤面では trace の 1 行）して stop
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
@@ -506,6 +576,12 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
                 if flag:
                     b.trace(AFTER_HALT_OP, at=at, reason=flag["reason"], by=flag["by"])
                 return {**out, "stop": True, "why": reason}
+    if at == "eyes" and gate is None:
+        guarded = _protected_row(b)
+        if guarded is not None and guarded.get("answer") is None:   # 守りのファイルを触ったのに最後の関所が開かなかった
+            reason = f"{PROTECTED_HEAD}のに最後の関所の答えが無い（関所が開かなかった）——通すのは人の continue だけ: {guarded.get('note')}"
+            _stop_board(b, at, reason, PROTECTED_BY)
+            return {**out, "stop": True, "why": reason}
     if flag:
         b.trace(FLAG_SEEN_OP, at=at, reason=flag["reason"], by=flag["by"])
         _stop_board(b, at, flag["reason"], FLAG_BY_PREFIX + flag["by"])

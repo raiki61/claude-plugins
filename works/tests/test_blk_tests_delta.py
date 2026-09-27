@@ -33,6 +33,7 @@ sys.path.insert(0, str(CORE))
 from accept import role_schema, snapshot_tree, tree_state  # noqa: E402
 from board import BoardGap  # noqa: E402
 import policy  # noqa: E402
+import protect  # noqa: E402
 import refix  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
@@ -125,6 +126,12 @@ class TestDeltaSchema(unittest.TestCase):
             self.assertIn(word, body)
         self.assertNotIn("checks: []", body)
         self.assertNotIn("{{", body)
+
+    def test_review_prompts_read_protected_files(self):
+        # 支度（refix.cut）が brief に書く守りのファイル（protected_files）を、1 回目と 2 回目の審査役の指示書が読ませる
+        for path in (ROOT / "blk-delta" / "commands" / "delta-review.md", ROOT / "blk-refix" / "commands" / "review2.md"):
+            with self.subTest(path.name):
+                self.assertIn("`protected_files`", path.read_text(encoding="utf-8"))
 
     def test_delta_prompt_reads_block_outputs(self):
         # Ruling R16: 指示書の本文は同じブロックの節の出力を直に読む（include が節の名を付け替える）。
@@ -681,6 +688,18 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertEqual(json.loads(b.work(refix.snapshot_name(1)).read_text(encoding="utf-8")), tree_state(repo))   # entry.snapshot は共通の tree_state の形（R47。HEAD・枝を含む）
         self.assertTrue(b.rd["instances"]["p3.delta_review"].get("launched_at"))
         self.assertEqual(refix.cut(self.board, 1, repo)["diff_file"], d["file"])   # 呼び直しても同じ（印は前の物）
+
+    def test_cut_brief_lists_protected_files(self):
+        """変わったファイルのうち守りのファイル（core の protected.json）に当たる物を brief の protected_files に並べる
+        （差分の審査役が検査を緩める変更を穴として見る材料。最後の人の関所にも必ず出る）。本物の一覧では種の stats.py は当たらない"""
+        repo = self.fixed()
+        brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["protected_files"], [])
+        path = pathlib.Path(self.board).parent / "protected.json"
+        path.write_text(json.dumps({"rules": [{"id": "seed-core", "glob": "stats.py", "why": "種の芯"}]}), encoding="utf-8")
+        with mock.patch.object(protect, "MANIFEST", path):
+            brief = json.loads(pathlib.Path(refix.cut(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["protected_files"], [{"path": "stats.py", "id": "seed-core", "glob": "stats.py", "why": "種の芯"}])
 
     def test_review_faces_make_owed(self):
         """fix2_delta_review_faces（穴 1 件・塞がっていない検算 1 件）→ settle の後 loop.delta_owed に 2 件、ready に

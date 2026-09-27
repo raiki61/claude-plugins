@@ -16,7 +16,7 @@
 
 作業ファイル（b.work。今の周の r<N>/。周の番号を仮定しない。TA17）: review<n>-snapshot.json（計画の予約の名）・
 review<n>-brief.json・refix<n>-brief.json（役に見せる材料: graph がその節に読ませる盤面の値と、人の方針 policy.brief の
-{paste, path}。1 本目の blk-delta の YAML は入口 policy_paste を持たないので、審査役へは方針の本文をこの brief で届ける）。
+{paste, path}。審査役の brief には、変わったファイルのうち守りのファイル（protect.hits）の protected_files も。1 本目の blk-delta の YAML は入口 policy_paste を持たないので、審査役へは方針の本文をこの brief で届ける）。
 支度は前の試みの自分の出力（brief・reads-<役>.json・1 本目の blk-delta が盤面の根に書いた delta-review.json・fix.diff・
 delta-snapshot.json）を先に消す——新しい審査の出口が前の審査の穴を数えない（darkfactory の自分食いで 1 本目の blk-delta が
 踏んだ形）。出口は盤面の今の周の出力（output_of_round）だけを読む。
@@ -39,6 +39,7 @@ import accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
 import policy  # noqa: E402
+import protect  # noqa: E402
 import rolekit  # noqa: E402
 
 PASS_KEYS = ("cut", "review", "owed", "fix", "state_key", "owed_key")
@@ -168,9 +169,13 @@ def cut(board: pathlib.Path, n: int, repo: pathlib.Path) -> dict:
     role = REVIEW_ROLE[n]
     brief_name = f"review{n}-brief.json"
     _drop_stale(b, brief_name, f"reads-{role}.json", root=V1_OUTPUTS if n == 1 else ())
-    brief = _write_json(b.work(brief_name), {"node": p["review"], "diff_file": d["file"], "files": d.get("files") or [],
-                                             "rev": d.get("rev"), "reads": _brief(b, p["review"]),
-                                             "policy": policy.brief(b)})
+    doc = {"node": p["review"], "diff_file": d["file"], "files": d.get("files") or [], "rev": d.get("rev"),
+           "reads": _brief(b, p["review"]), "policy": policy.brief(b)}
+    try:   # 変わったファイルのうち守りのファイル（protect）。審査役が検査を緩める変更を見る材料（最後の人の関所にも必ず出る）
+        doc["protected_files"] = protect.hits(doc["files"])
+    except protect.Broken as e:
+        doc["protected_files"], doc["protected_files_error"] = [], str(e)
+    brief = _write_json(b.work(brief_name), doc)
     entry.snapshot(board, snapshot_name(n), repo)
     b.mark_launched(p["review"], inst.get("attempts", 1))
     return {"ok": True, "files": list(d.get("files") or []), "diff_file": d["file"], "rev": d.get("rev") or "",

@@ -4,7 +4,7 @@
 - L0 写し: .shared/core/graphloops・.shared/core/scripts（works の物を何も知らない）
 - L1 基礎: tree_run・script_io・node_marker
 - L2 包み: adapter・ticket・claude-adapter・record-read.py・no-post-bin/works-gh
-- L3 盤面と受け付け: board・accept・policy・entry（共有の部分）・halt（止め札）・refix・recount・rolekit（役の節の共通の口）
+- L3 盤面と受け付け: board・accept・policy・entry（共有の部分）・halt（止め札）・refix・recount・rolekit（役の節の共通の口）・protect（守りのファイル）
 - L4 ブロックの模块: 持ち主のブロックが 1 つの模块（core に在る物は MOD の表・<blk>/lib/*.py）
 - L5 ブロック: blk-*/（scripts など）
 - L6 ラインの模块: 持ち主のラインが 1 つの模块（<line>/lib/*.py・<line>/*.py・MOD の表で 6 の物・PARTS の名前）
@@ -49,6 +49,7 @@ MOD = {
     "no-post-bin/works-gh": (2, None),
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
     "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None), "rolekit": (3, None), "report": (3, None),
+    "protect": (3, None),
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
     "premises": (4, "blk-premises"),
 }
