@@ -57,8 +57,9 @@ def snapshot_name(role: str) -> str:
 
 
 def output_format(role: str) -> dict:
-    """役の output_format: 写しの schema（accept.role_schema）に印 works-node: <役> を付けた物（YAML に貼る値）"""
-    return node_marker.mark(accept.role_schema(role_node(role)), role)
+    """役の output_format: 写しの schema（accept.role_schema）に印 works-node: <役> を付けた物（YAML に貼る値）。
+    prep が番号の一覧を貼って控えを固める（mark_launched(pointers=)）ので、番号の欄は番号でも返せる型に開く"""
+    return node_marker.mark(accept.role_schema(role_node(role), numbered=True), role)
 
 
 def _pending(b, nid: str) -> dict | None:

@@ -403,12 +403,15 @@ class TestRoleSchema(unittest.TestCase):
         self.assertIn("note", router["properties"])
 
     def test_pointer_fields_stay_names(self):
-        # graphloops 0.21.0 は pointers の位置（番号で指す欄）の型を [integer, string] に広げる。works の役には番号を振った
-        # 一覧を貼らず、番号を名前に戻す段も無いので、名前（文字列）の型のまま役に渡す
+        # graphloops 0.21.0 は pointers の位置（番号で指す欄）の型を [integer, string] に広げる。既定（numbered=False）は
+        # 番号の控えを固めない役の型で、番号を名前に戻す段が無いので、名前（文字列）の型のまま役に渡す
         where = role_schema("p2.diagnose")["properties"]["carried_r1"]["items"]["properties"]["where"]
         self.assertEqual(where, {"type": "string", "minLength": 1})
         key = role_schema("p3.delta_review")["properties"]["checks"]["items"]["properties"]["key"]
         self.assertEqual(key, {"type": "string", "minLength": 8})
+        # 番号を貼る節も、numbered を渡さなければ名前の型のまま（開くのは planblk.output_format だけ）
+        keys = role_schema("p2.fix_plan")["properties"]["plan"]["items"]["properties"]["unit_keys"]["items"]
+        self.assertEqual(keys, {"type": "string", "minLength": 1})
 
     def test_delta_kinds_exclude_plan_only(self):
         kind = role_schema("p3.delta_review")["properties"]["faces"]["items"]["properties"]["kind"]
