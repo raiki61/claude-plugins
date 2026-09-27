@@ -1,0 +1,44 @@
+# 筋書き pass: 任せ先に落ちた p0.local_checks（宣言も test_cmd も無い run）で、役が写しの上でテストを走らせ、赤 2 件を found で返し、
+# 受け付けが 1 回で通す。collect は写しを消し、start の輪に戻って（entry.resume_after_ci）pr_go を出す。
+# 役の返答は tests/replies/ci_found.json と同じ中身（tests/test_blk_ci.py が一致を見る）。スクリプトの節は全部 stub
+# （盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_ci.py が子のプロセスで回す）。
+ci-snap:
+  ok: true
+  snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
+  copy_dir: /tmp/works-ci/p0.local_checks-abcd1234/work
+ci-prep:
+  prompt_file: board/prompts/r1/p0.local_checks.md
+  attempt: 1
+  out_path: board/out/r1/p0.local_checks.json
+  node: p0.local_checks
+  already: false
+ci:
+  material:
+    status: found
+    count: 2
+    detail: 'CI の定義が無いので、リポジトリの test_stats.py を python3 -m unittest test_stats で写しの上で走らせた: exit 1。FAIL: test_mean_of_three（2 を期待して 3.0）・test_clamp_above_range（10 を期待して 15）'
+    checked: 写しの上で python3 -m unittest test_stats（終わるまで待った。3 件中 2 件が赤）
+ci-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  node: p0.local_checks
+  status: found
+collect:
+  ok: true
+  reason: ''
+  node: p0.local_checks
+  status: found
+  green: false
+  pr_go: false
+fixture:
+  expect: completed
+  reached:
+  - ci-snap
+  - ci-prep
+  - ci
+  - ci-accept
+  - collect
+  inputs:
+    node: p0.local_checks

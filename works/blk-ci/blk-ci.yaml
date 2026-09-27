@@ -1,0 +1,149 @@
+name: blk-ci
+description: |
+  CI の任せ先の役のブロック（裁定 R52）。graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engine が宣言
+  （.review-checks.json）を走らせられない時に任せ先の役へ落ちる。works では test_cmd も空の run で、start の ci_role_go
+  （p0.local_checks）か blk-tests の final の by: role_needed（p4.ci）が真の時に、ラインが include で node を渡して回す。
+  役（opus）はリポジトリの CI の定義を読み、テスト・lint を作業ツリーの写しの上で走らせて素材（material）を返す。走らせられなければ
+  緑を仮定しない（p0 は awaiting_human、p4 は not_run）。定義が無ければ理由つきの not_applicable（graph の na_self_ok）。
+  受け付けは写しの graph の schema・post_check・記録の検査をそのまま当て、役を起こす前と後で本物の作業ツリー（porcelain・差分・
+  git が無視するパス・HEAD・枝）が変わっていれば拒む。3 回とも拒まれたら輪を抜け、collect が盤面を止める（再審のブロックと同じ形。裁定 R50）。
+  出口 collect: {ok, reason, node, status, green, pr_go}。pr_go は p0.local_checks の後に start の輪へ戻って測った値（entry.resume_after_ci）。
+
+inputs:
+  node:
+    required: true
+    description: CI の節の名前（p0.local_checks か p4.ci）。任せ先に落ちて待っている節だけを渡す（待っていなければ ci-snap が 2 で落ちる）
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版（ラインの口を他のブロックと揃える。スクリプトは読まない——版は盤面が持つ）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 役を起こす前の本物の作業ツリーの姿（受け付けが比べる）と、テストを走らせる写し（写しの engine の copy_worktree。/tmp/works-ci の下）
+  - id: ci-snap
+    script: snap
+    runtime: uv
+    timeout: 1728000000
+    with:
+      node: $INPUTS.node
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, snapshot_file, copy_dir]
+      properties:
+        ok: {type: boolean}
+        snapshot_file: {type: string}
+        copy_dir: {type: string}
+
+  # 出し直しの輪。拒否の後は新しい会話で、前の拒否の文は ci-prep が指示書の頭に書く（$LOOP_PREV で貼らない。裁定 R44）。
+  # 3 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（max_iterations で落とさない。裁定 R50）
+  - id: ci-loop
+    depends_on: [ci-snap]
+    loop_group:
+      max_iterations: 3
+      fresh_context: true
+      until_bash: test $ci-accept.output.done = true
+      nodes:
+        - id: ci-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            node: $INPUTS.node
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, attempt, out_path, node, already]
+            properties:
+              prompt_file: {type: string}
+              attempt: {type: integer}
+              out_path: {type: string}
+              node: {type: string}
+              already: {type: boolean}
+        - id: ci
+          command: ci
+          depends_on: [ci-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない
+          allowed_tools: [Read, Grep, Glob, Bash]   # Bash はテストを走らせるため。Edit・Write は無い（作業ツリーの変化は受け付けが拒む）
+          # Bash の書き込みは既定で作業ディレクトリ（本物）の中だけ。写しの置き場を足す（綴りと実体。ci_role.COPY_ROOT と同じ）
+          sandbox:
+            enabled: true
+            allowUnsandboxedCommands: false
+            filesystem:
+              allowWrite: [/tmp/works-ci, /private/tmp/works-ci]
+          idle_timeout: 1728000000
+          # ci_role.OUTPUT_FORMAT（写しの p0.local_checks・p4.ci の schema に印 works-node: ci）を貼った物（tests/test_blk_ci.py が一致を見る）
+          output_format:
+            description: 'works-node: ci'
+            type: object
+            required:
+            - material
+            additionalProperties: false
+            properties:
+              material:
+                type: object
+                required:
+                - status
+                additionalProperties: false
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - found
+                    - clean
+                    - carried_over
+                    - not_applicable
+                    - awaiting_human
+                    - not_run
+                  count:
+                    type: integer
+                    minimum: 0
+                  detail:
+                    type: string
+                  checked:
+                    type: string
+                  reason:
+                    type: string
+                  from_round:
+                    type: integer
+                    minimum: 1
+        - id: ci-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [ci]
+          with:
+            node: $INPUTS.node
+            reply: {from: "$ci.output"}
+          output_format:
+            type: object
+            required: [ok, done, give_up, reason]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              node: {type: string}
+              status: {type: string}
+
+  # 出口。写しを消す。節を受けていなければ（3 回とも拒まれた）最後の拒否の文で盤面を止めて ok: false
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [ci-loop]
+    with:
+      node: $INPUTS.node
+    output_format:
+      type: object
+      required: [ok, reason, node, status, green, pr_go]
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        node: {type: string}
+        status: {type: string}
+        green: {type: boolean}
+        pr_go:
+          type: [boolean, string]   # p0.local_checks の後の p0.parallel_pr: true・false・"pending"（entry._pr_go の 3 値）

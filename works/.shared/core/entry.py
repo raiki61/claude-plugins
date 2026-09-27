@@ -269,7 +269,7 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
       git の根で test_cmd → done）→ {by: "role", log}
     - fallback で test_cmd が空 → {by: "role_needed", log: "", why}。意味は「この節の素材はこの呼び出しで何も渡していない。
       呼び手が任せ先の役を回して渡す」だけ——**前の結果（記録に残る p0 の local_checks など）を使ってよい、ではない**。
-      節は任せ先に落ちたまま待ち、印も置かない（裁定 R52。役のブロックは後の Task。役が渡した後の続きは resume_after_ci）
+      節は任せ先に落ちたまま待ち、印も置かない（裁定 R52。役のブロックは blk-ci。役が渡した後の続きは resume_after_ci——blk-ci の collect が呼ぶ）
     - ok: False で relaunch も fallback も無い（why だけ。対象の根が引けない）→ CiRefused"""
     got = b.run_engine(nid, runner=runner)
     if got.get("relaunch"):

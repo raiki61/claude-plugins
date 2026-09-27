@@ -1,0 +1,1 @@
+{"material": {"status": "not_applicable", "reason": "対象リポジトリに CI の定義（.github/workflows・Makefile・package.json の scripts・tox.ini など）もテストのファイルも無く、走らせる物が無い"}}

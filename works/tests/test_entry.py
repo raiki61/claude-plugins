@@ -127,6 +127,8 @@ class TableCase(unittest.TestCase):
                 e = self.nodes[nid]
                 self.assertEqual((e.by, e.fallback), ("engine_run", "machine"))
                 self.assertEqual(e.where, where)
+                # 任せ先に落ちて test_cmd も空なら、役のブロック blk-ci が渡す（裁定 R52。where は入口のまま。R42）
+                self.assertIn("blk-ci", e.reason)
         self.assertEqual({n for n, e in self.nodes.items() if e.by == "engine_run"},
                          {"p0.local_checks", "p0.parallel_pr", "p4.ci"})
 
@@ -347,7 +349,7 @@ class LinekitCase(unittest.TestCase):
 # 入力の確かめ・盤面を開く・修正前のテストの記録・方針の文・切符。盤面は linekit の種（stats.py・test_stats.py。赤 2 件）で
 # 本物の darkfactory の表で作る。切符は包みの家を使い捨ての場所に向けて書く（WORKS_ADAPTER_HOME）。
 # 裁定 R52（review-graph と同等）: test_cmd が空で宣言も無い run は拒まない。p0.local_checks は任せ先に落ちたまま残し、
-# run_ci は偽の素材を渡さずに role_needed を返し、start の返りの ci_role_go が真になる（任せ先の役のブロックは後の Task）
+# run_ci は偽の素材を渡さずに role_needed を返し、start の返りの ci_role_go が真になる（任せ先の役のブロックは blk-ci。tests/test_blk_ci.py）
 import subprocess  # noqa: E402
 
 import ticket  # noqa: E402

@@ -1,0 +1,11 @@
+# 違反: 節の名前が ci でも、blk-ci/blk-ci.yaml の外では Bash を持てない（読むだけの役に Bash を許すのは CI の任せ先の役だけ）
+name: bad-bash-outside-blk-ci
+description: 違反の見本
+nodes:
+  - id: ci
+    prompt: CI を走らせよ
+    settingSources: []
+    allowed_tools: [Read, Grep, Glob, Bash]
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
+    idle_timeout: 1728000000
+    output_format: {type: object}
