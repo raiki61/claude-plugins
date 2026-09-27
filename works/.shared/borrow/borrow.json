@@ -12,5 +12,9 @@
   "coldwrite": {
     "kind": "plugin",
     "marketplace": "raiki61"
+  },
+  "pr-review-toolkit": {
+    "kind": "plugin",
+    "pinned": true
   }
 }

@@ -35,6 +35,7 @@ SP = ROOT / ".shared" / "superpowers"
 BORROW_SKILLS = ["test-driven-development", "systematic-debugging", "verification-before-completion",
                  "receiving-code-review", "requesting-code-review"]
 COLDWRITE = REPO / "coldwrite"
+PRT = ROOT / ".shared" / "pr-review-toolkit"   # pr-review-toolkit（Anthropic。Apache-2.0）の版を固めた写し .shared/pr-review-toolkit/<版>/
 MP = "works-local"
 
 # 本物の claude 2.1.283 の `plugin marketplace add|update`・`plugin install|uninstall` が隔離した設定に残す形を真似る
@@ -64,7 +65,7 @@ elif a[:2] == ["plugin", "install"]:
     src = pathlib.Path(load(km, {})[mp]["installLocation"])
     entry = next(p for p in json.loads((src / ".claude-plugin" / "marketplace.json").read_text())["plugins"] if p["name"] == plugin)
     psrc = (src / entry["source"]).resolve()
-    ver = json.loads((psrc / ".claude-plugin" / "plugin.json").read_text())["version"]
+    ver = json.loads((psrc / ".claude-plugin" / "plugin.json").read_text()).get("version") or "unknown"
     dest = cfg / "plugins" / "cache" / mp / plugin / ver
     shutil.rmtree(dest, ignore_errors=True); shutil.copytree(psrc, dest)
     i = load(ip, {"version": 2, "plugins": {}}); i["plugins"][a[2]] = [{"scope": "user", "installPath": str(dest), "version": ver}]; save(ip, i)
@@ -90,10 +91,18 @@ def files_under(base: pathlib.Path) -> list:
     return sorted(p.relative_to(base).as_posix() for p in base.rglob("*") if p.is_file())
 
 
-def pinned() -> pathlib.Path:
-    dirs = [p for p in SP.iterdir() if p.is_dir()]
+def pinned(base: pathlib.Path = SP) -> pathlib.Path:
+    dirs = [p for p in base.iterdir() if p.is_dir()]
     assert len(dirs) == 1, dirs
     return dirs[0]
+
+
+def plugin_version(src: pathlib.Path) -> str:
+    """偽の claude がキャッシュの置き場に使う版（plugin.json に version が無ければ unknown）"""
+    return json.loads((src / ".claude-plugin" / "plugin.json").read_text()).get("version") or "unknown"
+
+
+PLUGINS = ("coldwrite", "pr-review-toolkit")   # 手元の marketplace に並ぶ名の順（sorted）
 
 
 class Base(unittest.TestCase):
@@ -134,28 +143,41 @@ class Base(unittest.TestCase):
 class BorrowListCase(unittest.TestCase):
     def test_borrow_json_is_superpowers_skills_and_coldwrite(self):
         b = toolset.load_borrow(ROOT)
-        self.assertEqual(sorted(b), ["coldwrite", "superpowers"])
+        self.assertEqual(sorted(b), ["coldwrite", "pr-review-toolkit", "superpowers"])
+        # pr-review-toolkit は版を固めた写し（.shared/pr-review-toolkit/<版>/）から入れる。素材集めの局所レビューのレンズ（agent）
+        self.assertEqual(b["pr-review-toolkit"], {"kind": "plugin", "pinned": True})
         self.assertEqual(b["superpowers"]["kind"], "skills")
         self.assertEqual(sorted(b["superpowers"]["skills"]), sorted(BORROW_SKILLS))
         self.assertEqual(b["coldwrite"], {"kind": "plugin", "marketplace": "raiki61"})
 
     def test_fixed_sources_are_the_pinned_copy_and_the_repo_plugin(self):
         chosen = toolset.fixed_sources(ROOT, toolset.load_borrow(ROOT))
-        self.assertEqual(chosen, {"superpowers": pinned(), "coldwrite": COLDWRITE.resolve()})
+        self.assertEqual(chosen, {"superpowers": pinned(), "coldwrite": COLDWRITE.resolve(), "pr-review-toolkit": pinned(PRT)})
+
+    def test_pinned_plugin_copy_is_apache_and_complete(self):
+        """写しは元のキャッシュの物をバイトのまま（COPIED_FROM が元と版を名指す）・使用許諾は Apache-2.0・agent のレンズが在る"""
+        src = pinned(PRT)
+        self.assertIn("Apache License", (src / "LICENSE").read_text(encoding="utf-8"))
+        self.assertEqual(json.loads((src / ".claude-plugin" / "plugin.json").read_text())["name"], "pr-review-toolkit")
+        for lens in ("code-reviewer", "silent-failure-hunter", "type-design-analyzer", "pr-test-analyzer", "comment-analyzer"):
+            self.assertTrue((src / "agents" / f"{lens}.md").is_file(), lens)
+        self.assertIn(src.name, (PRT / "COPIED_FROM").read_text(encoding="utf-8").splitlines()[0])
+        self.assertIn("pr-review-toolkit", (ROOT / "NOTICE").read_text(encoding="utf-8"))
 
 
 class InstallCase(Base):
     def test_install_builds_exactly_the_chosen_config(self):
         """一時の置き場に組んだ設定の中身が、ちょうど 5 つのスキル・手元の marketplace の coldwrite・その入れた状態だけ"""
         rec = self.install()
+        srcs = {"coldwrite": COLDWRITE, "pr-review-toolkit": pinned(PRT)}
         cw_files = files_under(COLDWRITE)
-        ver = json.loads((COLDWRITE / ".claude-plugin" / "plugin.json").read_text())["version"]
+        ver = plugin_version(COLDWRITE)
         want = sorted(
             [f"skills/{n}/{f}" for n in BORROW_SKILLS for f in files_under(pinned() / "skills" / n)]
-            + [f"works-marketplace/coldwrite/{f}" for f in cw_files]
+            + [f"works-marketplace/{n}/{f}" for n, s in srcs.items() for f in files_under(s)]
             + ["works-marketplace/.claude-plugin/marketplace.json", "settings.json", ".works-toolset.json",
                "plugins/known_marketplaces.json", "plugins/installed_plugins.json"]
-            + [f"plugins/cache/{MP}/coldwrite/{ver}/{f}" for f in cw_files])
+            + [f"plugins/cache/{MP}/{n}/{plugin_version(s)}/{f}" for n, s in srcs.items() for f in files_under(s)])
         self.assertEqual(files_under(self.cfg), want)
         # スキルと coldwrite の写しはバイトのまま・権限つき・symlink でない
         for n in BORROW_SKILLS:
@@ -164,21 +186,22 @@ class InstallCase(Base):
                 self.assertEqual(a.read_bytes(), b.read_bytes(), rel)
                 self.assertFalse(a.is_symlink())
                 self.assertEqual(os.access(a, os.X_OK), os.access(b, os.X_OK), rel)
-        for rel in cw_files:
-            self.assertEqual((self.cfg / "works-marketplace" / "coldwrite" / rel).read_bytes(),
-                             (COLDWRITE / rel).read_bytes(), rel)
+        for n, s in srcs.items():
+            for rel in files_under(s):
+                self.assertEqual((self.cfg / "works-marketplace" / n / rel).read_bytes(), (s / rel).read_bytes(), rel)
         self.assertEqual(json.loads((self.cfg / "works-marketplace" / ".claude-plugin" / "marketplace.json").read_text()),
                          {"name": MP, "owner": {"name": "works"},
-                          "plugins": [{"name": "coldwrite", "source": "./coldwrite", "strict": False}]})
+                          "plugins": [{"name": n, "source": f"./{n}", "strict": False} for n in PLUGINS]})
         self.assertEqual(json.loads((self.cfg / "settings.json").read_text()),
                          {"extraKnownMarketplaces": {MP: {"source": {"source": "directory",
                                                                      "path": str(self.cfg / "works-marketplace")}}},
-                          "enabledPlugins": {f"coldwrite@{MP}": True}})
-        self.assertEqual(self.calls(), [["plugin", "marketplace", "add", str(self.cfg / "works-marketplace")],
-                                        ["plugin", "install", f"coldwrite@{MP}"]])
-        self.assertEqual(sorted(rec), ["coldwrite", "superpowers"])
+                          "enabledPlugins": {f"{n}@{MP}": True for n in PLUGINS}})
+        self.assertEqual(self.calls(), [["plugin", "marketplace", "add", str(self.cfg / "works-marketplace")]]
+                         + [["plugin", "install", f"{n}@{MP}"] for n in PLUGINS])
+        self.assertEqual(sorted(rec), ["coldwrite", "pr-review-toolkit", "superpowers"])
         self.assertEqual({k: (v["version"], v["loaded"]) for k, v in rec.items()},
-                         {"superpowers": (pinned().name, True), "coldwrite": (ver, True)})
+                         {"superpowers": (pinned().name, True), "coldwrite": (ver, True),
+                          "pr-review-toolkit": (pinned(PRT).name, True)})
         self.assertEqual(json.loads((self.cfg / ".works-toolset.json").read_text()), rec)
         self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
 
@@ -294,7 +317,8 @@ class CliCase(Base):
         r = self.cli("install", "--claude", str(self.claude), str(self.cfg))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
-        self.assertEqual(json.loads((self.cfg / "settings.json").read_text())["enabledPlugins"], {f"coldwrite@{MP}": True})
+        self.assertEqual(json.loads((self.cfg / "settings.json").read_text())["enabledPlugins"],
+                         {f"{n}@{MP}": True for n in PLUGINS})
         self.assertEqual(sorted(p.name for p in (self.cfg / "skills").iterdir()), sorted(BORROW_SKILLS))
 
     def test_cli_no_plugins_copies_skills_and_calls_no_claude(self):

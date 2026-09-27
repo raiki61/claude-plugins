@@ -394,7 +394,7 @@ nodes:
             status:
               type: string
 
-  # p1.local_review（skill）: 回す側の会話の skill・agent のレンズを起こす。Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。settingSources は [user]（選んだ物だけの隔離した設定 dev/toolset.py を読む。skills: の 3 つは Claude Code に同梱の物。pr-review-toolkit の agent のレンズは許す一覧 borrow.json に入るまで読めず、起きなければその行は failed で material は awaiting_human になる）。output_format は material.output_format("local-review")（写しの schema に印）を貼った物
+  # p1.local_review（skill）: 回す側の会話の skill・agent のレンズを起こす。Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。settingSources は [user]（選んだ物だけの隔離した設定 dev/toolset.py を読む。skills: の 3 つは Claude Code に同梱の物。pr-review-toolkit の agent のレンズは許す一覧 borrow.json の版を固めた写し .shared/pr-review-toolkit/<版>/ を dev/toolset.py が隔離した設定に入れる。起きなければその行は failed で material は awaiting_human になる）。output_format は material.output_format("local-review")（写しの schema に印）を貼った物
   - id: local-review-loop
     depends_on:
     - mat-route

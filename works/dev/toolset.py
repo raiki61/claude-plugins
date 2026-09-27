@@ -8,6 +8,8 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
 - kind "skills"（superpowers）: 版を固めた写し .shared/<名>/<版>/skills/<スキル>/ の一覧のスキルだけを <置き場>/skills/<スキル>/ へ
   バイトのまま・権限つきで写す。プラグインとしては入れない（有効にすると SessionStart の hook が using-superpowers を差し込み、
   無人の役の約束が崩れる）。中身と実行の権限が同じなら何もしない。違えば一時の置き場に写してから入れ替える。
+- kind "plugin" で pinned（pr-review-toolkit。Anthropic・Apache-2.0）: 版を固めた写し .shared/<名>/<版>/（ちょうど 1 つ）を、下の
+  coldwrite と同じ手元の marketplace から入れる（素材集めの局所レビューのレンズの agent）。
 - kind "plugin"（coldwrite）: このリポジトリの marketplace（.claude-plugin/marketplace.json。名は borrow の marketplace）が
   指す置き場を <置き場>/works-marketplace/<名>/ に写し、手元の marketplace works-local を書いて、Claude Code の CLI
   （`claude plugin marketplace add`・`claude plugin install <名>@works-local`）で入れる（試し plugin-hook-probe と同じ機構）。
@@ -61,6 +63,12 @@ def fixed_sources(pack: pathlib.Path, borrow: dict) -> dict:
             dirs = sorted(p.parent for p in (pack / ".shared" / name).glob("*/skills") if p.is_dir())
             if len(dirs) != 1:
                 raise ToolsetError(f"{name} の版の置き場がちょうど 1 つでない（{pack / '.shared' / name}/<版>/skills: "
+                                   f"{[d.name for d in dirs]}）")
+            out[name] = dirs[0]
+        elif item["kind"] == "plugin" and item.get("pinned"):
+            dirs = sorted(p for p in (pack / ".shared" / name).iterdir() if p.is_dir()) if (pack / ".shared" / name).is_dir() else []
+            if len(dirs) != 1:
+                raise ToolsetError(f"{name} の版を固めた写しがちょうど 1 つでない（{pack / '.shared' / name}/<版>/: "
                                    f"{[d.name for d in dirs]}）")
             out[name] = dirs[0]
         elif item["kind"] == "plugin":
@@ -276,7 +284,10 @@ def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin,
             raise ToolsetError(f"{name} が隔離した設定で有効になっていない（claude plugin install の後の settings.json の "
                                f"enabledPlugins に {key}: true が無い）。フックの効かない役を起こさないため止める")
         meta = _read_json(src / ".claude-plugin" / "plugin.json")
-        rec[name] = {"version": meta.get("version") if isinstance(meta, dict) else None, "source": str(src),
+        version = meta.get("version") if isinstance(meta, dict) else None
+        if not version and borrow[name].get("pinned"):
+            version = src.name   # 版を固めた写しの置き場の名（plugin.json に version を持たないプラグイン。pr-review-toolkit）
+        rec[name] = {"version": version, "source": str(src),
                      "sha256": _digest([name, _tree(src)]), "loaded": loaded}
     bad = guard(cfg, borrow)
     if bad:

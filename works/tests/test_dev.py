@@ -327,14 +327,16 @@ class TestDevShell(unittest.TestCase):
     def test_archon_sh_installs_borrowed_skills(self):
         """archon.sh は exec の前に、選んだ物だけの設定を隔離した CLAUDE_CONFIG_DIR に組む（dev/toolset.py）。
         superpowers の 5 つのスキルは両方の道で skills/ へ写す（Archon の validate も同じ置き場でスキルを探す）。
-        coldwrite は認証を使う道だけで、PATH の claude（ここでは偽物）の plugin の CLI で入れる。認証の要らない道は claude を起こさない"""
+        coldwrite・pr-review-toolkit は認証を使う道だけで、PATH の claude（ここでは偽物）の plugin の CLI で入れる。認証の要らない道は claude を起こさない"""
         from test_sp_skills import BORROW
         result, _, _ = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(self.skills_seen), sorted(BORROW))
-        self.assertEqual(self.settings_seen["enabledPlugins"], {"coldwrite@works-local": True})
+        self.assertEqual(self.settings_seen["enabledPlugins"],
+                         {"coldwrite@works-local": True, "pr-review-toolkit@works-local": True})
         self.assertEqual([c[:3] for c in self.claude_calls],
-                         [["plugin", "marketplace", "add"], ["plugin", "install", "coldwrite@works-local"]])
+                         [["plugin", "marketplace", "add"], ["plugin", "install", "coldwrite@works-local"],
+                          ["plugin", "install", "pr-review-toolkit@works-local"]])
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(self.skills_seen), sorted(BORROW))

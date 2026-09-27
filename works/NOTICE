@@ -7,3 +7,9 @@ superpowers（https://github.com/obra/superpowers）6.4.2 のスキル 5 本
   使用許諾: MIT License
   Copyright (c) 2025 Jesse Vincent
   許諾の全文: .shared/superpowers/6.4.2/LICENSE
+
+pr-review-toolkit（https://github.com/anthropics/claude-plugins-official）のプラグイン（版 fa59bc903774）
+  置き場: .shared/pr-review-toolkit/fa59bc903774/（agents/・commands/・.claude-plugin/plugin.json・README.md）
+  写しは元とバイト単位で同じ（直していない）。元と写したファイルの一覧は .shared/pr-review-toolkit/COPIED_FROM。
+  使用許諾: Apache License 2.0
+  許諾の全文: .shared/pr-review-toolkit/fa59bc903774/LICENSE
