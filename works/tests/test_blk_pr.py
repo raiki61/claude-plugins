@@ -325,7 +325,8 @@ class AcceptCase(PrCase):
         prcheck.snapshot(b.dir, self.repo, opener=opener)
         got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
         self.assertEqual({k: got[k] for k in ("ok", "reason", "ready", "asking", "halted")},
-                         {"ok": True, "reason": "", "ready": ["p0.premises"], "asking": False, "halted": False})
+                         {"ok": True, "reason": "", "ready": ["p0.premises", "p0.prior_decisions"], "asking": False,
+                          "halted": False})   # 前の決定の読み出し（blk-material。計画 P1 Task 32）も待つ
         self.assertTrue((b.dir / got["out_file"]).is_file())
         b2 = opener(b.dir)
         self.assertEqual(b2.node_state(prcheck.NODE), "done")
@@ -634,7 +635,7 @@ class SnapCollectCase(PrCase):
         self.assertTrue(json.loads(r.stdout)["ok"])
         r = run_script("accept", {**env, "INPUTS_REPLY": json.dumps(reply("pr_ok.json"))}, cwd=self.repo)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["ready"], ["p0.premises"])
+        self.assertEqual(json.loads(r.stdout)["ready"], ["p0.premises", "p0.prior_decisions"])
         r = run_script("collect", env)
         self.assertEqual(r.returncode, 0, r.stderr)
         got = json.loads(r.stdout)

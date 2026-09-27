@@ -57,7 +57,8 @@ EXCLUDED_ROLES = {"prior-decisions", "external-standards", "procedure-trace", "l
 
 
 # 目的の節が無い表（素材集めの「目的の文が無い run」の道を見る。ラインは p0.purpose を blk-purpose で持つので、ここで戻す）
-NO_PURPOSE_ROWS = {"p0.purpose": {"by": "absent", "reason": "目的の文の無い表（試験）", "comes_with": "blk-purpose"}}
+NO_PURPOSE_ROWS = {"p0.purpose": {"by": "absent", "reason": "目的の文の無い表（試験）", "comes_with": "blk-purpose"},
+                   "p0.purpose_review": {"by": "absent", "reason": "目的の文の無い表（試験）", "comes_with": "blk-purpose"}}
 
 
 def proposed_table() -> NodeTable:
@@ -181,7 +182,7 @@ def _build_entry(into: pathlib.Path):
             TE.launch(bd, nid)
             got = entry.take(bd, nid, reply, repo)
             assert got["ok"], got
-    linekit.pre_judge(bd, repo)   # 目的の文（p1.consistency_bypass・p1.external_standards が待つ）
+    linekit.pre_judge(bd, repo, only=("p0.purpose",))   # 目的の文（p1.consistency_bypass・p1.external_standards が待つ）
     return bd, repo
 
 

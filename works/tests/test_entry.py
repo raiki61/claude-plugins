@@ -35,7 +35,11 @@ ROLES = {"p0.premises", "p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix"
 # 独立の目（blk-eyes。計画 P1 Task 33）の行（tests/boards/tables/eyes-rows.json の案をそのまま当てた）
 EYES = {"r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare", "r3.coherence", "r4.hidden_scope",
         "stop.premise_check"}
-ROLES |= EYES | {"report.human_items", "report.cold_check", "report"}
+# P1 の目と素材集め（blk-material。計画 P1 Task 32）
+MATERIAL = {"p0.prior_decisions", "p0.purpose_review", "p1.local_review", "p1.consistency_bypass", "p1.hygiene",
+            "p1.external_standards", "p1.procedure_trace", "p1.gate_efficacy", "p1.test_double_fidelity",
+            "p1.main_path_observation", "p1.provenance"}
+ROLES |= EYES | MATERIAL | {"report.human_items", "report.cold_check", "report"}
 
 
 def raw_table() -> dict:
@@ -97,16 +101,18 @@ class TableCase(unittest.TestCase):
                 else:
                     self.assertRegex(e.where, r"\A(?:start|blk-[a-z0-9]+(?:-[a-z0-9]+)*)\Z")
 
-    def test_purpose_wired_review_later(self):
-        """目的の文は blk-purpose（計画 P1 Task 33 の前提。独立の目の R1・R2 が読む）。目的の審査・前の決定は P1 の目と一緒"""
+    def test_purpose_and_material_rows(self):
+        """目的の文は blk-purpose（独立の目の R1・R2 と判定が読む）。目的の審査・前の決定・P1 の 9 本は blk-material
+        （計画 P1 Task 32）。P1 の行は判定から入る 1 周目に条件で na と書く"""
         e = self.nodes["p0.purpose"]
         self.assertEqual((e.by, e.where), ("role", "blk-purpose"))
         self.assertIn("h-mat", e.reason)
-        for nid in ("p0.purpose_review", "p0.prior_decisions"):
+        for nid in MATERIAL:
             with self.subTest(nid):
                 e = self.nodes[nid]
-                self.assertEqual(e.by, "absent")
-                self.assertIn("blk-material", e.comes_with)
+                self.assertEqual((e.by, e.where), ("role", "blk-material"))
+                if nid.startswith("p1."):
+                    self.assertIn("1 周目は条件", e.reason)
 
     def test_eyes_rows_follow_block_proposal(self):
         """独立の目の 7 行は blk-eyes の案（eyes-rows.json）と同じ。r1.comment_candidates だけ skippable"""
@@ -169,11 +175,7 @@ class TableCase(unittest.TestCase):
                 self.assertEqual(self.nodes[nid].by, "absent")
                 self.assertIn(name, self.nodes[nid].comes_with)
         p1 = [n for n in GRAPH["nodes"] if n.startswith("p1.") and GRAPH["nodes"][n].get("run_by") != "driver"]
-        self.assertEqual(len(p1), 9)
-        for nid in p1:
-            with self.subTest(nid):
-                self.assertEqual(self.nodes[nid].by, "absent")
-                self.assertIn("P1", self.nodes[nid].reason)
+        self.assertEqual(set(p1), {n for n in MATERIAL if n.startswith("p1.")})
 
 
 class LoadTableCase(unittest.TestCase):

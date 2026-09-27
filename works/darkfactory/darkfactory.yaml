@@ -2,12 +2,12 @@ name: darkfactory
 description: |
   ダークファクトリーのライン（C18 の順。P1 計画 Task 28・29）。人の修正依頼を、盤面（graphloops の review-loop の写しの
   graph と規則。works/.shared/core/board.py）の上で 1 周回す:
-  起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 判定 →
+  起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 素材集め（P1 の目）→ 判定 →
   修正案と事前審査 → 修正の前の人の関所（要る時だけ）→ 修正（TDD の輪）→ 中の検査の枠 → 差分の審査 → 手直し →
   最後のテスト → 最後の人の関所 → 独立の目 → 機械の報告 → AI の報告と初見の検査（盤面が報告の節を出した時）→ 出口。
   境の節（h-*。scripts/edge.py を at を替えて使う。いつも走る）が盤面の ready から次のブロックを回すかを決め、関所の答えと
   止め札を盤面へ渡す。when: と関所の文言は、いつも走る節（start・境の節）の欄だけを読む。
-  素材集め（P1 の目）・仕様から入る道・再審はこの版のラインに無い
+  仕様から入る道・再審はこの版のラインに無い
   （nodes.json の absent。報告の「このラインに無い節」に出る）。
   出口は result（機械の報告 report の欄の全部）: 結末（fixed・no_fix_needed・stopped_by_*・needs_human・record_invalid）と最後の報告のパス。
   人の関所があるので interactive。
@@ -245,10 +245,21 @@ nodes:
         purpose_file: {type: string}
         mat_go: {type: boolean}
 
+  # P1 の目と素材集め（前の決定の読み出し・目的の審査・P1 の 9 本。どれを回すかは盤面の条件。判定から入る 1 周目の P1 は na）
+  - id: gathering
+    include: blk-material
+    depends_on: [h-mat]
+    when: "$h-mat.output.mat_go == true"
+    with:
+      base_rev: $start.output.base_rev
+      adapter: $start.output.adapter
+      purpose_file: $h-mat.output.purpose_file
+
   # 判定
   - id: judging
     include: blk-judge
-    depends_on: [h-mat]
+    depends_on: [h-mat, gathering]
+    trigger_rule: none_failed_min_one_success
     when: "$h-mat.output.go == true"
     with:
       request: $INPUTS.request

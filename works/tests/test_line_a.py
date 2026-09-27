@@ -249,5 +249,37 @@ class AiReportCase(LineBase):
         self.assertEqual(got["outcome"], "fixed")
 
 
+class MaterialCase(LineBase):
+    """P1 の目と素材集め（blk-material）を目的の文の後・判定の前に（計画 P1 Task 32）"""
+
+    def test_purpose_then_material_path(self):
+        """h-mat → gathering（blk-material）→ judging。判定から入る 1 周目は P1 の目が写しの条件で na（盤面の周の箱に在る）で、前の決定の
+        読み出し（p0.prior_decisions）だけが回る"""
+        got = self.run_line()
+        t = got["trail"]
+        self.assertLess(t.index("h-mat"), t.index("gathering"))
+        self.assertLess(t.index("gathering"), t.index("judging"))
+        self.assertIs(got["out"]["h-mat"]["mat_go"], True)
+        self.assertEqual(got["mat_roles"], ["prior-decisions"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertEqual(b.node_state("p0.prior_decisions"), "done")
+        box = next(r for r in b.state["rounds"] if r.get("round") == 1)
+        p1 = [n for n, e in b.table.nodes.items() if n.startswith("p1.") and e.by == "role"]
+        self.assertEqual(len(p1), 9)
+        for nid in p1:
+            with self.subTest(nid):
+                self.assertIn(nid, box["na"])
+        self.assertIs(got["out"]["gathering"]["ok"], True)
+        self.assertEqual(got["outcome"], "fixed")
+
+    def test_purpose_review_due_no_die(self):
+        """p0.purpose が role になり、目的の審査の条件（purpose_review_due）が前提の後の settle で落ちない。出典が ② の目的は
+        審査を要らない（na）"""
+        got = self.run_line()
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertIn(b.node_state("p0.purpose_review"), ("na", "done"))
+        self.assertNotIn("purpose-review", got["mat_roles"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -208,7 +208,361 @@ h-mat:
   holdout_go: false
   mid_note: ''
   purpose_file: board/out/r1/p0.purpose.json
-  mat_go: false
+  mat_go: true
+gathering__mat-route:
+  ok: true
+  stopped: false
+  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards: 回す・p1.procedure_trace:
+    回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance: 回す'
+  snapshot_file: board/r1/material-snapshot.json
+  prior_decisions: true
+  purpose_review: false
+  local_review: true
+  consistency_bypass: true
+  hygiene: true
+  external_standards: true
+  procedure_trace: true
+  gate_efficacy: true
+  test_double_fidelity: true
+  main_path_observation: true
+  provenance: true
+prior-decisions-prep:
+  prompt_file: board/prompts/r1/p0.prior_decisions.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p0.prior_decisions.json
+  node: p0.prior_decisions
+  already: false
+  stopped: false
+prior-decisions:
+  material:
+    status: clean
+    checked: 決定記録（ADR・台帳・issue）はリポジトリに無い
+  checked: true
+  searched:
+  - リポジトリの全部（2 ファイル）
+  settled: []
+prior-decisions-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p0.prior_decisions
+  status: ''
+purpose-review-prep:
+  prompt_file: ''
+  prompt_text: ''
+  attempt: 0
+  out_path: ''
+  node: ''
+  already: true
+  stopped: true
+purpose-review:
+  verdict: 問題なし
+  reason: 要約は依頼の範囲を狭めていない
+  findings: []
+purpose-review-accept:
+  ok: true
+  done: true
+  give_up: true
+  reason: ''
+  reason_file: ''
+local-review-prep:
+  prompt_file: board/prompts/r1/p1.local_review.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.local_review.json
+  node: p1.local_review
+  already: false
+  stopped: false
+local-review:
+  material:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  simplify_carried: false
+  findings:
+  - skill: /code-review
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:code-reviewer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: /simplify
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: /security-review
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:silent-failure-hunter
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:type-design-analyzer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:pr-test-analyzer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+local-review-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.local_review
+  status: ''
+consistency-bypass-prep:
+  prompt_file: board/prompts/r1/p1.consistency_bypass.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.consistency_bypass.json
+  node: p1.consistency_bypass
+  already: false
+  stopped: false
+consistency-bypass:
+  consistency:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  bypass:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  findings: []
+  bypass_findings: []
+  seen: stats.py と test_stats.py の全部
+  unseen: 無し（リポジトリは 2 ファイル）
+consistency-bypass-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.consistency_bypass
+  status: ''
+hygiene-prep:
+  prompt_file: board/prompts/r1/p1.hygiene.md
+  prompt_text: 'お前は文脈を持たない読み手。（試験の stub: 本文に $ARTIFACTS_DIR と $mat-route.output.why を含む——置き換え直されないことを見る）
+
+    ```diff
+
+    diff --git a/stats.py b/stats.py
+
+    -    return sum(xs) / (len(xs) - 1)
+
+    +    return sum(xs) / len(xs)
+
+    ```
+
+    '
+  attempt: 1
+  out_path: board/out/r1/p1.hygiene.json
+  node: p1.hygiene
+  already: false
+  stopped: false
+hygiene:
+  findings: []
+  seen: 差分の全部（stats.py の 1 行と notes.md）
+hygiene-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.hygiene
+  status: ''
+external-standards-prep:
+  prompt_file: board/prompts/r1/p1.external_standards.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.external_standards.json
+  node: p1.external_standards
+  already: false
+  stopped: false
+external-standards:
+  material:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  findings: []
+  seen: statistics の公式文書
+  unseen: 無し
+  web_refetched: true
+  rankings:
+  - problem: 算術平均の分母
+    source: https://docs.python.org/3/library/statistics.html
+    ranked:
+    - statistics.fmean を使う
+    - sum(xs) / len(xs) を自前で書く
+    diff_at: sum(xs) / len(xs) を自前で書く
+    why_not_higher: 種は標準の関数に寄せる前の形で、分母の取り違えだけを直す差分だから
+external-standards-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.external_standards
+  status: ''
+procedure-trace-prep:
+  prompt_file: board/prompts/r1/p1.procedure_trace.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.procedure_trace.json
+  node: p1.procedure_trace
+  already: false
+  stopped: false
+procedure-trace:
+  material:
+    status: clean
+    checked: notes.md の手順を読み、書かれたコマンドを写しで動かした
+  findings: []
+  unmeasured: []
+procedure-trace-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.procedure_trace
+  status: ''
+gate-efficacy-prep:
+  prompt_file: board/prompts/r1/p1.gate_efficacy.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.gate_efficacy.json
+  node: p1.gate_efficacy
+  already: false
+  stopped: false
+gate-efficacy:
+  material:
+    status: not_run
+    reason: 差分は検証ゲートを足していない——撃てる腕が無い
+  arms: []
+gate-efficacy-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.gate_efficacy
+  status: ''
+test-double-fidelity-prep:
+  prompt_file: board/prompts/r1/p1.test_double_fidelity.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.test_double_fidelity.json
+  node: p1.test_double_fidelity
+  already: false
+  stopped: false
+test-double-fidelity:
+  material:
+    status: clean
+    checked: 代役は無い（test_stats.py は実物の関数を呼ぶ）
+  mismatches: []
+test-double-fidelity-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.test_double_fidelity
+  status: ''
+main-path-observation-prep:
+  prompt_file: board/prompts/r1/p1.main_path_observation.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.main_path_observation.json
+  node: p1.main_path_observation
+  already: false
+  stopped: false
+main-path-observation:
+  material:
+    status: clean
+    checked: python3 -c で mean を 1 回呼んだ
+  observed:
+  - path: stats.mean([1, 2, 3])
+    value: '2.0'
+main-path-observation-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.main_path_observation
+  status: ''
+provenance-prep:
+  prompt_file: board/prompts/r1/p1.provenance.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.provenance.json
+  node: p1.provenance
+  already: false
+  stopped: false
+provenance:
+  material:
+    status: clean
+    checked: 差分に『正本は X』の主張は無い
+  claims: []
+provenance-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.provenance
+  status: ''
+gathering__collect:
+  ok: true
+  reason: ''
+  ran:
+  - p0.prior_decisions
+  - p1.local_review
+  - p1.consistency_bypass
+  - p1.hygiene
+  - p1.external_standards
+  - p1.procedure_trace
+  - p1.gate_efficacy
+  - p1.test_double_fidelity
+  - p1.main_path_observation
+  - p1.provenance
+  skipped:
+  - node: p0.purpose_review
+    why: 目的の文と一緒に入る（absent）
+  materials:
+    prior_decisions: clean
+    local_review: clean
+    consistency_bypass: clean
+    hygiene: clean
+    external_standards: clean
+    procedure_trace: clean
+    gate_efficacy: clean
+    test_double_fidelity: clean
+    main_path_observation: clean
+    provenance: clean
+  snapshot:
+    rev: 0123456789abcdef0123456789abcdef01234567
+    diff_file: board/diff-r1.patch
+    changed_files:
+    - stats.py
+    changed_files_file: board/changed-r1.txt
+    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
+    request_wheres: []
+  exit_file: board/r1/material-exit.json
 judging__intake:
   ok: true
   reason: ''
@@ -1153,6 +1507,7 @@ fixture:
   - h-judge
   - purposing__collect
   - h-mat
+  - gathering__collect
   - judging__collect
   - h-plan
   - planning__collect

@@ -59,16 +59,19 @@ def reply(name: str) -> dict:
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
 
 
-# 判定の前に盤面が待つ役の節（前提の後。目的の文）と見本の返答。p2.diagnose はこれらが済むまで待ちにならない
-PRE_JUDGE = (("p0.purpose", "purpose_ok"),)
+# 判定の前に盤面が待つ役の節（前提の後。目的の文・判定から入る 1 周目の素材集め）と見本の返答。p2.diagnose はこれらが済むまで待ちにならない
+PRE_JUDGE = (("p0.purpose", "purpose_ok"), ("p0.prior_decisions", "prior_decisions_ok"),
+             ("p0.purpose_review", "purpose_review_ok"))
 
 
-def pre_judge(board, repo) -> list:
+def pre_judge(board, repo, only=None) -> list:
     """前提の後・判定の前に盤面が待つ役の節（PRE_JUDGE）を、待っている物だけ見本の返答で渡す（起こした印を置いてから
-    entry.take）。盤面を線の順に進める試験の手助け（p2.diagnose を待ちにする）。返りは渡した節"""
+    entry.take）。盤面を線の順に進める試験の手助け（p2.diagnose を待ちにする）。only を渡せばその節だけ。返りは渡した節"""
     import entry
     done = []
     for nid, name in PRE_JUDGE:
+        if only is not None and nid not in only:
+            continue
         b = entry.open_board(pathlib.Path(board))
         inst = next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
         if inst is None:
@@ -165,7 +168,11 @@ LINE_ORDER = [
      "with": {"request": "$INPUTS.request", "constraints_file": "$h-judge.output.premises_file",
               "base_rev": "$start.output.base_rev"}},
     _edge("h-mat", "mat", ["start", "h-judge", "purposing"]),
-    {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat"],
+    {"id": "gathering", "kind": "include", "block": "blk-material", "depends_on": ["h-mat"],
+     "when": "$h-mat.output.mat_go == true",
+     "with": {"base_rev": "$start.output.base_rev", "adapter": "$start.output.adapter",
+              "purpose_file": "$h-mat.output.purpose_file"}},
+    {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat", "gathering"], "trigger_rule": NFMOS,
      "when": "$h-mat.output.go == true",
      "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev",
               "policy_paste": "$start.output.policy_paste", "premises_file": "$h-judge.output.premises_file"}},
@@ -242,6 +249,7 @@ class LineRun:
         self.board = self.tmp / "art" / "board"
         self.out, self.trail = {}, []
         self.eyes_roles = []   # blk-eyes が起こした目の役（起こした順）
+        self.mat_roles = []    # blk-material が起こした役（起こした順）
 
     # -- 盤面の口
     def take(self, nid, reply):
@@ -330,6 +338,27 @@ class LineRun:
                     break
         return report_roles.collect(self.board, machine)
 
+    def blk_material(self):
+        """blk-material の中の節の順（経路 → 待っている役ごとに支度・受け付け → 出口）。返答は replies[<節>]（無ければ
+        test_blk_material の見本）"""
+        if str(ROOT / "blk-material" / "lib") not in sys.path:
+            sys.path.insert(0, str(ROOT / "blk-material" / "lib"))
+        import material
+        import test_blk_material as TM
+        adapter = self.out["start"]["adapter"]
+        r = material.route(self.board, self.repo, adapter)
+        for role, nid in material.ROLES.items():
+            if not r.get(material.route_key(role)):
+                continue
+            material.prep(self.board, role, self.repo, self.out["h-mat"]["purpose_file"])
+            default = reply("purpose_review_ok") if nid == "p0.purpose_review" else TM.good_reply(nid)
+            got = material.take(self.board, role, self.replies.get(nid, default),
+                                self.repo, adapter)
+            if not got["ok"]:
+                raise AssertionError(f"{role}: {got.get('reason')}")
+            self.mat_roles.append(role)
+        return material.collect(self.board)
+
     def blk_judge(self):
         body = self.replies["judge"]
         units = [u["key"] for u in body.get("units") or [] if u.get("label") != "info"]
@@ -409,7 +438,7 @@ class LineRun:
         blocks = {"blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-purpose": self.blk_purpose,
                   "blk-judge": self.blk_judge, "blk-plan": self.blk_plan, "blk-fix": self.blk_fix, "blk-delta": self.blk_delta,
                   "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes,
-                  "blk-report": self.blk_report}
+                  "blk-report": self.blk_report, "blk-material": self.blk_material}
         for row in LINE_ORDER:
             nid = row["id"]
             if nid == "launch":
@@ -448,7 +477,7 @@ class LineRun:
                 self.trail.append(nid)
         rep = self.out["result"]
         return {"outcome": rep["outcome"], "report": rep, "board_dir": self.board, "trail": self.trail, "out": self.out,
-                "eyes_roles": self.eyes_roles}
+                "eyes_roles": self.eyes_roles, "mat_roles": self.mat_roles}
 
 
 def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None) -> dict:
