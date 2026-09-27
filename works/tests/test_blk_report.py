@@ -41,7 +41,14 @@ DEADLINE = 1728000000
 SCENARIO, RUN, READY_SEQ, MID_SEQ = "test_converges", "1", 171, 100
 NODES = ("report.human_items", "report.cold_check", "report")
 # 提案の表の行（報告に載せた darkfactory/nodes.json の差分と同じ。配線の時に本物の表へ入れる）
-PROPOSED = {nid: {"by": "role", "where": "blk-report"} for nid in NODES}
+PROPOSED = {
+    "report.human_items": {"by": "role", "where": "blk-report",
+                           "reason": "書き手（読むだけ）が報告の頭——平易な 3 行と人が決めること——を書く（本線 R13。台帳 R27）"},
+    "report.cold_check": {"by": "role", "where": "blk-report",
+                          "reason": "道具を持たない初見の読み手が、報告の頭の本文だけを貼られて読む（本線 X3。注記であって門ではない）"},
+    "report": {"by": "role", "where": "blk-report",
+               "reason": "書き手が初見検査の詰まりを直して本文の全部を書く。検証器の関所は盤面の settle が踏み、機械の事実は出口が字のまま付ける"},
+}
 
 
 def workflow():
