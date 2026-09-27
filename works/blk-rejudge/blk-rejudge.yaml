@@ -66,7 +66,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: true
-      until_bash: test $rejudge-accept.output.ok = true
+      until_bash: test $rejudge-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
       nodes:
         - id: rejudge-prep
           script: prep
@@ -231,9 +231,15 @@ nodes:
             type: object
             required:
             - ok
+            - done
+            - give_up
             - reason
             properties:
               ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
                 type: boolean
               reason:
                 type: string
@@ -273,7 +279,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: true
-      until_bash: test $rejudge-third-accept.output.ok = true
+      until_bash: test $rejudge-third-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
       nodes:
         - id: rejudge-third-prep
           script: prep
@@ -437,9 +443,15 @@ nodes:
             type: object
             required:
             - ok
+            - done
+            - give_up
             - reason
             properties:
               ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
                 type: boolean
               reason:
                 type: string

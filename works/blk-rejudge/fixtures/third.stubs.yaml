@@ -32,6 +32,8 @@ rejudge-third:
     disposition: do-now
 rejudge-third-accept:
   ok: true
+  done: true
+  give_up: false
   reason: ok p2.rejudge_third を受け付けた
   node: p2.rejudge_third
   verdict: 退ける

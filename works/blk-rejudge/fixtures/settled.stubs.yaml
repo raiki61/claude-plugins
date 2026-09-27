@@ -28,6 +28,8 @@ rejudge:
     disposition: do-now
 rejudge-accept:
   ok: true
+  done: true
+  give_up: false
   reason: ok p2.rejudge を受け付けた
   node: p2.rejudge
   verdict: 採る

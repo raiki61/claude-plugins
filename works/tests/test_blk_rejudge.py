@@ -119,7 +119,7 @@ class YamlCase(unittest.TestCase):
             g = grp["loop_group"]
             with self.subTest(grp["id"]):
                 self.assertIs(g["fresh_context"], True)
-                self.assertEqual(g["max_iterations"], 3)
+                self.assertEqual(g["max_iterations"], rejudge.GIVE_UP_AFTER, "諦めの数は輪の上限と同じ（上限で輪を落とさない）")
                 ai = [m for m in g["nodes"] if "command" in m or "prompt" in m]
                 self.assertEqual(len(ai), 1)
                 role = ai[0]
@@ -134,7 +134,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(role["idle_timeout"], DEADLINE)
                 ids = [m["id"] for m in g["nodes"]]
                 self.assertEqual(ids, [f"{role['id']}-prep", role["id"], f"{role['id']}-accept"])
-                self.assertEqual(g["until_bash"], f"test ${role['id']}-accept.output.ok = true")
+                self.assertEqual(g["until_bash"], f"test ${role['id']}-accept.output.done = true")
 
     def test_yaml_script_inputs_match_with(self):
         for n, _ in walk(self.y["nodes"]):
@@ -154,9 +154,19 @@ class YamlCase(unittest.TestCase):
             text = (BLK / "commands" / f"{role}.md").read_text(encoding="utf-8")
             with self.subTest(role):
                 self.assertIn(f"${role}-prep.output.prompt_file", text)
-                self.assertIn(f"$LOOP_PREV.{role}-accept.output.reason", text)
+                # 拒否の文を $LOOP_PREV で貼らない（Archon が文の中の $<節>.output.<欄> を置き換え直して輪ごと落ちる。裁定 R44）。
+                # 拒否の文は prep が描いた指示書の頭に置く（役は Read で読む）
+                self.assertNotIn("$LOOP_PREV", text)
+                self.assertIn("前の回の受け付けが拒んだ理由", text)
                 self.assertNotIn("$INPUTS.policy_paste", text, "方針は描いた指示書に入っている")
                 self.assertNotIn("{{", text, "指示書を写さない（本文は engine の描画）")
+
+    def test_no_loop_prev_reaches_a_prompt(self):
+        """役に届く文（commands と YAML の prompt）のどこにも $LOOP_PREV が無い"""
+        for p in sorted((BLK / "commands").glob("*.md")):
+            self.assertNotIn("$LOOP_PREV", p.read_text(encoding="utf-8"), p.name)
+        for n, _ in walk(self.y["nodes"]):
+            self.assertNotIn("$LOOP_PREV", str(n.get("prompt", "")), n["id"])
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
@@ -174,6 +184,9 @@ class YamlCase(unittest.TestCase):
         self.assertIn("collect", n["fixture"]["reached"])
         r = fx["rejected-thrice.stubs.yaml"]
         self.assertIs(r["rejudge-accept"]["ok"], False)
+        self.assertIs(r["rejudge-accept"]["done"], True)   # 3 回目の拒否の諦めの印
+        head = (BLK / "fixtures" / "rejected-thrice.stubs.yaml").read_text(encoding="utf-8")
+        self.assertIn("dry-run は until_bash を回さず", head, "筋書きは輪の抜け方を見ていないと書く")
         self.assertIs(r["collect"]["ok"], False)
         t = fx["third.stubs.yaml"]
         self.assertEqual(t["rj-route2"]["next"], "rejudge-third")
@@ -220,13 +233,33 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(rc, 0, err)
         return out
 
+    def run_loop(self, role, reply):
+        """Archon の輪と同じ順に回す: 周ごとに prep → 役（返答は reply）→ accept → until_bash の式を sh で評価（式の中の
+        $<役>-accept.output.<欄> は accept の出口の値を JSON で置く）。抜けた周の番号と各周の (prep, accept) を返す。
+        max_iterations 回で抜けなければ番号は None——Archon は輪を failed にし、後ろの節（rj-route2・collect）は走らない"""
+        g = next(n for n in workflow()["nodes"] if n.get("id") == f"{role}-loop")["loop_group"]
+        rounds = []
+        for i in range(1, g["max_iterations"] + 1):
+            prep = self.ok("prep", role=role)
+            got = self.ok("accept", role=role, reply=json.dumps(reply, ensure_ascii=False))
+            rounds.append((prep, got))
+
+            def value(m):
+                self.assertEqual(m.group(1), f"{role}-accept", "until_bash は同じ輪の受け付けの欄だけを読む")
+                return json.dumps(got[m.group(2)])
+            cond = re.sub(r"\$([A-Za-z0-9_-]+)\.output\.([A-Za-z0-9_]+)", value, g["until_bash"])
+            if subprocess.run(["sh", "-c", cond]).returncode == 0:
+                return i, rounds
+        return None, rounds
+
     def test_block_settled_path(self):
         self.board()
         self.ok("snap")
         self.assertEqual(self.ok("route")["next"], "rejudge")
-        prep = self.ok("prep", role="rejudge")
+        exited, rounds = self.run_loop("rejudge", load("rejudge_settled"))
+        self.assertEqual(exited, 1)
+        prep, got = rounds[0]
         self.assertEqual(prep["attempt"], 1)
-        got = self.ok("accept", role="rejudge", reply=json.dumps(load("rejudge_settled"), ensure_ascii=False))
         self.assertTrue(got["ok"], got)
         r2 = self.ok("route")
         self.assertEqual((r2["next"], r2["stopped"]), ("", False), r2)
@@ -244,20 +277,29 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual((out["ok"], out["passes"]), (True, 0), out)
         self.assertEqual(kit.state(self.bd)["stop"]["by"], rejudge.STOP_BY_SESSION)
 
-    def test_block_rejected_thrice(self):
+    def test_loop_gives_up_after_three_rejections(self):
+        """3 回とも拒まれても輪は max_iterations で落ちず（3 回目の受け付けが done を出し until_bash が抜ける）、rj-route2 と
+        collect が走って、collect が最後の拒否の文で盤面を止める（設計 9.3。裁定 R50）"""
         self.board()
         self.ok("snap")
         self.assertEqual(self.ok("route")["next"], "rejudge")
-        attempts = []
-        for _ in range(3):
-            attempts.append(self.ok("prep", role="rejudge")["attempt"])
-            got = self.ok("accept", role="rejudge", reply=json.dumps(load("rejudge_empty_facts"), ensure_ascii=False))
-            self.assertFalse(got["ok"])
-        self.assertEqual(attempts, [1, 1, 1])
+        exited, rounds = self.run_loop("rejudge", load("rejudge_empty_facts"))
+        self.assertEqual(exited, rejudge.GIVE_UP_AFTER, "輪が上限まで抜けない（Archon は run を落とす）")
+        self.assertEqual([p["attempt"] for p, _ in rounds], [1] * rejudge.GIVE_UP_AFTER)
+        self.assertEqual([(a["ok"], a["give_up"]) for _, a in rounds],
+                         [(False, False)] * (rejudge.GIVE_UP_AFTER - 1) + [(False, True)])
+        # 2 回目からの指示書の頭に前の拒否の文（$LOOP_PREV を通さない）
+        second = pathlib.Path(rounds[1][0]["prompt_file"]).read_text(encoding="utf-8")
+        self.assertTrue(second.startswith(rejudge.REJECT_HEADING))
+        self.assertIn(rounds[0][1]["reason"], second)
+        self.assertNotEqual(self.ok("route")["next"], "rejudge-third")   # rj-route2: 第三の目の輪は飛ぶ
         out = self.ok("collect")
         self.assertFalse(out["ok"])
         self.assertIn("3 回とも", out["reason"])
-        self.assertEqual(kit.state(self.bd)["stop"]["by"], rejudge.STOP_BY)
+        self.assertIn(rounds[-1][1]["reason"].splitlines()[0], out["reason"])
+        st = kit.state(self.bd)
+        self.assertEqual(st["stop"]["by"], rejudge.STOP_BY)
+        self.assertIn("$.new_facts", st["stop"]["reason"])
 
     def test_scripts_exit_zero_on_expected(self):
         self.board("none")

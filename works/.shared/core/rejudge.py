@@ -20,7 +20,8 @@
 まだこの枝に無い部品の代わり（入った時に差し替える。報告の「合わせる時に替える物」）:
 - 盤面を開く口: entry.open_board（Task 3）が在ればそれ、無ければ _open_shim（同じ約束の小さな写し。board_hook は読まない）
 - 印: node_marker.mark・strip（Task 2）が在ればそれ、無ければ _mark・_strip（同じ形の文字列）
-- 包みの置き場: adapter.session_path・launches_path・read_launches（Task 5）が在ればそれ、無ければ _AdapterShim（同じ式）
+- 包みの置き場: adapter.session_path・launches_path・read_launches（Task 5）が在ればそれ、無ければ _AdapterShim（同じ式。家の既定も
+  ${XDG_STATE_HOME:-~/.local/state}/works/adapter）
 - 受け付けの口: entry.take（Task 9）が入ったら take はそれに委ねる
 - 指示書: 写し（graphloops/）は指示書を持たないので、同じ commit から写した gl-prompts/ を使う。写しに prompts/ が入れば写しを先に使う
 """
@@ -45,6 +46,7 @@ from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
 from engine.rules import validator_module  # noqa: E402
 from engine.util import TERMINAL_STATUS, AnswerReject, dump, now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
+import script_io  # noqa: E402
 
 CONT = "judge"   # 再審の役が続きとして起きる会話（包みの印の continue=）
 # 写しの再審の節 → 役の名（YAML の節 id と包みの印の名）。数と順は持たない（passes が写しから引く）
@@ -61,6 +63,11 @@ REJECTS_NAME = "rejudge-rejects.json"
 EXIT_NAME = "rejudge-exit.json"
 READS_NAME = "reads-rejudge.json"
 BEFORE_PREFIX = "rejudge-units-before-"
+# 輪（loop_group）の max_iterations と同じ数。受け付けがこの数だけ拒んだら give_up（done）を出し、輪を失敗で抜けさせずに
+# collect へ渡す（Archon は max_iterations に達した輪を failed にし、後ろの節を全部止めるため。裁定 R50）。
+# tests/test_blk_rejudge.py が YAML の max_iterations と同じかを見る
+GIVE_UP_AFTER = 3
+REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
 ADAPTER_HOME_ENV = "WORKS_ADAPTER_HOME"
 PROMPTS_COPY = _CORE / "gl-prompts"
 PACK = _CORE.parents[1]
@@ -82,7 +89,9 @@ class _AdapterShim:
             return pathlib.Path(home_dir)
         if os.environ.get(ADAPTER_HOME_ENV):
             return pathlib.Path(os.environ[ADAPTER_HOME_ENV])
-        return pathlib.Path(os.environ.get("HOME") or os.path.expanduser("~")) / ".cache" / "works" / "adapter"
+        state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.environ.get("HOME") or os.path.expanduser("~"),
+                                                                  ".local", "state")
+        return pathlib.Path(state) / "works" / "adapter"
 
     @staticmethod
     def cwd_key(cwd):
@@ -436,10 +445,18 @@ def numbered_keys(b) -> list:
 
 def prep(board_dir, role, repo) -> dict:
     """役を起こす前の支度: 指示書を描き、1 回目の試行の前だけ単位の写し（と異議の文・番号の並び）を置き、起こした印を置く。
-    返り {prompt_file, attempt, out_path, node, already}。拒否の後の出し直しは同じ試行なので印は前の物（already: true）"""
+    返り {prompt_file, attempt, out_path, node, already}。拒否の後の出し直しは同じ試行なので印は前の物（already: true）。
+    この周にこの節の拒否が在れば、最後の拒否の文を指示書の頭に置く（REJECT_HEADING の節）"""
     b = open_board(board_dir, repo=repo)
     nid = node_of(role, b.rules, b.graph)
     path = render(b, nid)
+    last = _rejects(b, nid)[-1:]
+    if last:
+        # 拒否の文は指示書のファイルに書く（役は Read で読む）。$LOOP_PREV で指示に貼ると、文の中の $<節>.output.<欄> を
+        # Archon が置き換え直して輪ごと落ちる（裁定 R44）。文は役の返答の頭や git のパスを含みうる
+        path.write_text(f"{REJECT_HEADING}\n\n前の回の返答は受け付けで拒まれた。下の理由のところを直した返答を丸ごと出し直せ"
+                        f"（直した所だけを返すな）:\n\n```text\n{last[0]['reason']}\n```\n\n---\n\n"
+                        + path.read_text(encoding="utf-8"), encoding="utf-8")
     inst = b.rd["instances"][nid]
     before = b.work(f"{BEFORE_PREFIX}{role}.json")
     if not before.exists():
@@ -451,18 +468,25 @@ def prep(board_dir, role, repo) -> dict:
 
 
 # ---------------------------------------------------------------- 受け付け
+def _rejects(b, nid):
+    return [r for r in _read_json(b.work(REJECTS_NAME), []) if r.get("node") == nid]
+
+
 def _reject(b, nid, reason):
+    """拒否の文を rejudge-rejects.json に積んで {ok: False, done, give_up, reason} を返す。この周のこの節の拒否が
+    GIVE_UP_AFTER 回に達したら give_up（done）——輪はそこで抜け、collect が最後の拒否の文で盤面を止める"""
     rows = _read_json(b.work(REJECTS_NAME), [])
     inst = b.rd["instances"].get(nid) or {}
     rows.append({"node": nid, "attempt": inst.get("attempts", 1), "at": now(), "reason": reason})
     _write_json(b.work(REJECTS_NAME), rows)
-    return {"ok": False, "reason": reason, "node": nid, "verdict": ""}
+    give_up = sum(1 for r in rows if r.get("node") == nid) >= GIVE_UP_AFTER
+    return {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": nid, "verdict": ""}
 
 
 def take(board_dir, nid, reply, repo, *, snapshot_name=SNAPSHOT_NAME) -> dict:
     """役の返答を受け付ける（entry.take と同じ約束）。順: 作業ツリーを snapshot_name の写しと比べる → 盤面の done
     （写しの schema → post_check → writes → check_record → settle）。拒否（写しの AnswerReject と作業ツリーの変化）は
-    {ok: False, reason} で返し、盤面の層のファイルは書かない（拒否の文は作業ファイル rejudge-rejects.json に積む）。
+    {ok: False, done, give_up, reason} で返し（done は GIVE_UP_AFTER 回目の拒否で真。輪の抜ける条件）、盤面の層のファイルは書かない（拒否の文は作業ファイル rejudge-rejects.json に積む）。
     ほかの Reject（止めた run など）・BoardGap は投げる。通ったら、単位を書く節なら単位の差分を rejudge-diff.json に 1 行足す"""
     b = open_board(board_dir, repo=repo)
     p = _pass_of(b, nid)
@@ -489,7 +513,8 @@ def take(board_dir, nid, reply, repo, *, snapshot_name=SNAPSHOT_NAME) -> dict:
         rows = _read_json(b.work(DIFF_NAME), [])
         rows.append(row)
         _write_json(b.work(DIFF_NAME), rows)
-    return {"ok": True, "reason": "。".join(progress["notes"]), "node": nid, "verdict": verdict}
+    return {"ok": True, "done": True, "give_up": False, "reason": "。".join(progress["notes"]), "node": nid,
+            "verdict": verdict}
 
 
 # ---------------------------------------------------------------- 単位の差分
@@ -566,7 +591,7 @@ def collect(board_dir) -> dict:
         if waiting:
             ok = False
             nid = waiting[0]
-            rejects = [r for r in _read_json(b.work(REJECTS_NAME), []) if r.get("node") == nid]
+            rejects = _rejects(b, nid)
             if (b.rd["instances"].get(nid) or {}).get("launched_at") and rejects:
                 reason = f"{nid} の返答が {len(rejects)} 回とも受け付けで拒まれた（最後の拒否: {rejects[-1]['reason']}）"
             else:
@@ -593,15 +618,7 @@ def collect(board_dir) -> dict:
 
 
 # ---------------------------------------------------------------- ブロックのスクリプトの入口
-ARTIFACTS_ENV = "ARTIFACTS_DIR"
-
-
-def _emit(obj) -> None:
-    out = sys.stdout
-    if hasattr(out, "reconfigure"):
-        out.reconfigure(encoding="utf-8")
-    out.write(json.dumps(obj, ensure_ascii=False) + "\n")
-    out.flush()
+ARTIFACTS_ENV = script_io.ARTIFACTS_ENV
 
 
 def script_main(fn, inputs=()) -> int:
@@ -615,13 +632,13 @@ def script_main(fn, inputs=()) -> int:
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
-    board_dir = pathlib.Path(os.environ[ARTIFACTS_ENV]) / "board"
+    board_dir = pathlib.Path(os.environ[ARTIFACTS_ENV]) / script_io.BOARD_DIR
     try:
         out = fn(board_dir, pathlib.Path.cwd(), {n: os.environ[n] for n in inputs})
     except (BoardGap, _util.Reject) as e:
         print(f"{type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
         return 2
-    _emit(out)
+    script_io._emit(out)   # 1 行の出し方は受け付けのスクリプトと同じ（script_io.main は INPUTS_BASE_REV を要り、BoardGap を 2 にしない）
     return 0
 
 
@@ -631,7 +648,8 @@ def refuse(board_dir, nid, reason) -> dict:
 
 
 def parse_reply(raw):
-    """役の返答（Archon が $<役>.output を JSON の文字列で渡す）を dict に。読めなければ (None, 理由)"""
+    """役の返答（Archon が $<役>.output を JSON の文字列で渡す）を dict に。読めなければ (None, 理由)。文は script_io.main と同じ
+    （script_io.main は読めない返答を自分で出して終えるが、ここは拒否を rejudge-rejects.json に積んで give_up を数えるので分ける）"""
     try:
         reply = json.loads(raw)
     except json.JSONDecodeError as e:

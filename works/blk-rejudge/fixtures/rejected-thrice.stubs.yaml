@@ -1,5 +1,8 @@
-# 筋書き rejected-thrice: 受け付けが役の返答を拒み続ける（本番では輪が 3 回で抜ける。dry-run は until_bash を回さず輪を 1 回で
-# 済んだとみなす）。collect は再審の節が待ちのまま残った盤面を見て止め、ok: false を返す。
+# 筋書き rejected-thrice: 受け付けが役の返答を 3 回拒み、3 回目に諦めの印（done: true・give_up: true）を出す。collect は再審の節が
+# 待ちのまま残った盤面を見て、最後の拒否の文で盤面を止め、ok: false を返す（輪は max_iterations で落ちないので、collect まで届く）。
+# 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1）。だからこの筋書きは、輪が抜けた後の配線
+# （rj-route2 → collect）しか見ない。3 回目の拒否で輪が抜ける式（until_bash の done）は tests/test_blk_rejudge.py の
+# test_loop_gives_up_after_three_rejections が、Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
 rj-snap:
   ok: true
   snapshot_file: board/r1/rejudge-snapshot.json
@@ -26,6 +29,8 @@ rejudge:
     disposition: do-now
 rejudge-accept:
   ok: false
+  done: true
+  give_up: true
   reason: 'p2.rejudge: new_facts が空同然——回す側が出した事実を**自分で確かめた結果**を書け'
   node: p2.rejudge
   verdict: ''

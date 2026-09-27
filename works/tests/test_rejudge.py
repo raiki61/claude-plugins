@@ -29,7 +29,7 @@ import rejudge  # noqa: E402
 from accept import role_schema, snapshot_tree  # noqa: E402
 from board import BoardGap, graph_expanded, rules_module  # noqa: E402
 from engine import pointers  # noqa: E402
-from engine.render import Renderer, node_prompt  # noqa: E402
+from engine.render import Renderer  # noqa: E402
 from engine.util import dump, safe_name  # noqa: E402
 
 GRAPH = graph_expanded()
@@ -137,9 +137,9 @@ class ShapeCase(_Case):
         commit = lines[0].split()[0]
         listed = [ln.split()[0] for ln in lines[1:] if ln.strip() and not ln.startswith("#")]
         self.assertEqual(sorted(listed), sorted(str(p.relative_to(base)) for p in base.rglob("*.md")))
-        probe = subprocess.run(["git", "-C", str(kit.CORE), "cat-file", "-e", f"{commit}^{{commit}}"], capture_output=True)
-        if probe.returncode != 0:
-            self.skipTest(f"このリポジトリから {commit} を引けない")
+        core = (kit.CORE / "COPIED_FROM").read_text(encoding="utf-8").splitlines()[0].split()[0]
+        self.assertEqual(commit, core, "gl-prompts は写し（graphloops/）と同じ commit から写す——写し直しで一緒に写し直す")
+        # 引けなければ落とす（test_core_copy の写しのバイト一致と同じく、飛ばさない）
         for rel in listed:
             with self.subTest(rel):
                 src = subprocess.run(["git", "-C", str(kit.CORE), "show", f"{commit}:graphloops/{rel}"],
@@ -250,14 +250,18 @@ class RenderPrepCase(_Case):
     def test_render_matches_engine(self):
         self.board("objection")
         rejudge.route(self.bd, self.repo)
-        with mock.patch.object(rejudge, "OPENER", kit.opener):
-            b = rejudge.open_board(self.bd, repo=self.repo)
+        b = rejudge.open_board(self.bd, repo=self.repo)
         path = rejudge.render(b, "p2.rejudge")
         n = b.nodes["p2.rejudge"]
         ctx = b.ctx()
         ctx["node"] = {"skills": []}
         snap, offsets = pointers.snapshot(ctx, n.get("pointers"))
-        tpl = node_prompt(rejudge.prompt_graph_path(b, n), n)
+        # 指示書の本文は試験の側で組む（写しの graph の prompt_file・prompt_append を gl-prompts の置き場で引いて改行でつなぐ。
+        # engine の node_prompt と同じつなぎ方。rejudge の置き場の選び方は通さない）
+        parts = [n["prompt_file"], *(n.get("prompt_append") or [])]
+        self.assertTrue(all(p.startswith("../prompts/") for p in parts), parts)
+        tpl = "\n".join((kit.CORE / "gl-prompts" / "prompts" / p.removeprefix("../prompts/")).read_text(encoding="utf-8")
+                        for p in parts)
         want = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None, numbered=offsets).render(tpl)
         want += ("\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）。"
                  '文字列値の中の " は必ず \\" にエスケープしろ——生のまま入れると返答まるごとが'
@@ -305,6 +309,19 @@ class RenderPrepCase(_Case):
         self.assertTrue(doc["objection"].startswith("判定の単位"))
         self.assertEqual(doc["numbered_keys"], [UNIT_A, UNIT_B])
 
+    def test_prep_puts_last_rejection_in_prompt_file(self):
+        """拒否の文は $LOOP_PREV で指示に貼らず（裁定 R44）、次の prep が描いた指示書の頭に置く。文の中の $<節>.output.<欄> も
+        そのまま（役は Read で読むので Archon は置き換えない）。1 回目の指示書には無い"""
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        first = pathlib.Path(rejudge.prep(self.bd, "rejudge", self.repo)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertNotIn(rejudge.REJECT_HEADING, first)
+        rejudge.refuse(self.bd, "p2.rejudge", "返答が JSON として読めない（頭: '$rj-route1.output.next と $LOOP_PREV.x'）")
+        got = pathlib.Path(rejudge.prep(self.bd, "rejudge", self.repo)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertTrue(got.startswith(rejudge.REJECT_HEADING), got[:200])
+        self.assertIn("$rj-route1.output.next と $LOOP_PREV.x", got)
+        self.assertTrue(got.endswith(first), "拒否の節の後ろは描き直した指示書そのまま（拒否の節を積み重ねない）")
+
     def test_prep_without_pending_is_gap(self):
         self.board("none")
         rejudge.route(self.bd, self.repo)
@@ -351,6 +368,18 @@ class TakeCase(_Case):
         self.assertFalse(self.work(rejudge.DIFF_NAME).exists())
         rows = json.loads(self.work(rejudge.REJECTS_NAME).read_text(encoding="utf-8"))
         self.assertEqual([r["node"] for r in rows], ["p2.rejudge"])
+
+    def test_give_up_on_third_rejection(self):
+        """拒否の数がこの周のこの節で GIVE_UP_AFTER に達したら done（輪を抜ける印）。それまでは done が偽"""
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        rejudge.snap(self.bd, self.repo)
+        got = []
+        for _ in range(rejudge.GIVE_UP_AFTER):
+            rejudge.prep(self.bd, "rejudge", self.repo)
+            r = rejudge.take(self.bd, "p2.rejudge", load("rejudge_empty_facts"), self.repo)
+            got.append((r["ok"], r["done"], r["give_up"]))
+        self.assertEqual(got, [(False, False, False)] * (rejudge.GIVE_UP_AFTER - 1) + [(False, True, True)])
 
     def test_type_rejected(self):
         self.board("objection")
@@ -519,6 +548,19 @@ class CollectCase(_Case):
         got = rejudge.collect(self.bd)
         self.assertTrue(got["ok"], got)
         self.assertEqual((got["passes"], got["verdicts"], got["diff_file"]), (0, [], ""))
+
+
+class ShimCase(unittest.TestCase):
+    def test_shim_home_matches_adapter(self):
+        """包みの代わりの家の既定は本物の包みと同じ ${WORKS_ADAPTER_HOME:-${XDG_STATE_HOME:-~/.local/state}/works/adapter}"""
+        S = rejudge._AdapterShim
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": "/x/state", "HOME": "/h"}):
+            os.environ.pop(rejudge.ADAPTER_HOME_ENV, None)
+            self.assertEqual(S.session_path("/w", "judge").parents[2], pathlib.Path("/x/state/works/adapter"))
+            os.environ.pop("XDG_STATE_HOME")
+            self.assertEqual(S.launches_path("/w").parents[1], pathlib.Path("/h/.local/state/works/adapter"))
+            os.environ[rejudge.ADAPTER_HOME_ENV] = "/a"
+            self.assertEqual(S.launches_path("/w").parents[1], pathlib.Path("/a"))
 
 
 class CostCase(unittest.TestCase):
