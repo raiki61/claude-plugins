@@ -39,7 +39,8 @@ nodes:
   # 判定役を起こす前に、ラインの盤面から本線の判定の「入力」の節（凍結した目的・素材の 15 欄・P1 の所見・前の決定の突合・
   # 依頼・差分・観点の正本）と問いの台帳の段を engine の描き方で描き、判定役が Read するファイルに置く（R61 judgeread・run 27）。
   # 作業ツリーの姿と起こした印も置く（受け付けが盤面へ渡す）。ラインの盤面が無ければ（ブロックを単独で回した）空。
-  # 盤面の p2.diagnose が待っていなければ 2（線の順の誤り）
+  # 盤面が止まっていれば（同じ境の節の後ろの素材集めが止めた。run 30）go: false で判定役を起こさない。
+  # 止まっていない盤面で p2.diagnose が待っていなければ 2（線の順の誤り）
   - id: judge-brief
     script: brief
     runtime: uv
@@ -48,15 +49,17 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, materials_file]
+      required: [ok, go, materials_file]
       properties:
         ok: {type: boolean}
+        go: {type: boolean}
         materials_file: {type: string}
 
   # 判定役 → 受け付け。受け付けが拒めば、拒んだ理由のファイルのパスを渡して同じ会話で出し直させる（R44）。
   # 輪は受け付けの done（通った時か 3 回目の拒否）で抜ける（max_iterations で落とさない。R50）
   - id: judge-loop
     depends_on: [judge-brief]
+    when: "$judge-brief.output.go == true"
     loop_group:
       max_iterations: 3
       fresh_context: false
@@ -233,12 +236,13 @@ nodes:
             required: [ok, done, reason, reason_file, open_units]
 
   # loop_group の出力は型を持てないので、輪の後ろで盤面の judgment.json から出口を組む。受け付けを通った判定が無ければ
-  # （輪が 3 回とも拒んで抜けた）ラインの盤面は最後の拒否の文で止めて ok: false、単独の run は 1
+  # （輪が 3 回とも拒んで抜けた・止まった盤面で輪が飛んだ）ラインの盤面は（止まっていなければ最後の拒否の文で止めて）ok: false、単独の run は 1
   - id: collect
     script: collect
     runtime: uv
     timeout: 1728000000
-    depends_on: [judge-loop]
+    depends_on: [judge-brief, judge-loop]
+    trigger_rule: none_failed_min_one_success   # 止まった盤面では輪が飛ぶ（支度の go 偽）
     output_format:
       type: object
       properties:

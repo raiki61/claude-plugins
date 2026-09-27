@@ -370,6 +370,8 @@ class LineRun:
         import judgebrief
         import judgetake
         self.judge_brief = judgebrief.brief(self.board, self.repo)
+        if not self.judge_brief["go"]:   # 止まった盤面: 判定役の輪は when: で飛ぶ
+            return judgetake.collect(self.board)
         bodies = self.replies["judge"] if isinstance(self.replies["judge"], list) else [self.replies["judge"]]
         for i in range(judgetake.GIVE_UP_AFTER):
             body = bodies[min(i, len(bodies) - 1)]

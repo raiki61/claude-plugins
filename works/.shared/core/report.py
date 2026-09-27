@@ -470,6 +470,10 @@ def head_stop(b, *, interrupted: str | None = None) -> list:
         lines.append(f"止めていない（周の締めの後で止めた: {_halted(b).get('reason')}）")
     elif interrupted is None:
         lines.append("止めていない")
+    if by and info.get("report") is False and info.get("no_report"):
+        # 止めた周の記録が検証器を通らない（判定の前に止めた周は、awaiting_human の素材を問いの台帳に載せる判定役が走っていない
+        # ——run 30）時、本線の cmd_stop は報告の節を出さずに理由を言う。同じ理由をここに出す（記録を機械が繕わない）
+        lines.append(f"報告の節は出ない（本線の止めと同じ）: {info['no_report']}")
     return lines
 
 

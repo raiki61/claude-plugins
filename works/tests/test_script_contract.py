@@ -9,6 +9,7 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
 - full: 全部の役の 1 回目を拒ませ（受け付けの拒否の出口）、TDD の輪（実行器あり・全部 direct）・2 回目の差分の審査を通す
 - ci-final-stop: テストの宣言が無い種（CI の任せ先の役 blk-ci）・最後の関所の stop（AI の報告のブロックが走る）
 - give-up: 修正案の役が 3 回とも拒まれて諦める（盤面が止まり、残りは飛んで報告だけが走る）
+- material-give-up: 素材集めの役が 3 回とも拒まれて諦める（run 30）。判定の支度が止まった盤面を見て判定役を起こさず、報告まで届く
 - fix-give-up・unchanged-file: 修正の輪が 3 回とも拒まれる・申告したファイルが変わっていない（run 26）→ assert-changed が
   盤面を止め、run は落ちずに報告まで届く（R50）
 - no-fix・policy-stop・stop-flag: 修正の無い周・修正の前の関所の stop・止め札
@@ -87,6 +88,9 @@ def conflict_fix():
     return r
 
 
+PR_AWAITING = {"material": {"status": "awaiting_human", "reason": "origin が GitHub でないローカルの bare リポジトリで、PR の一覧を読めない"},
+               "repo": "", "listed": 0, "truncated": False, "conflicts": [], "excluded": []}
+
 RULING_CODE = {"rulings": [{"id": "c1-1", "decision": "fix_code_as", "text": "依頼とテストが正しい。分母を len(xs) に直せ",
                             "limits": ["stats.py:9"]}]}
 
@@ -111,6 +115,13 @@ def scenarios(tmp: pathlib.Path) -> dict:
                               bad_first={"blk-ci/ci", "blk-report/report-items", "blk-report/report-cold", "blk-report/report-write"},
                               gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}}),
         "give-up": dict(replies={**TL.replies(), "plan": lambda n: {}}, edits=edits),
+        # run 30: 素材集めの役が 3 回とも拒まれて諦め、素材集めのブロックが盤面を止める。同じ境の節（h-mat）の後ろの判定の
+        # ブロックは支度 judge-brief が止まった盤面を見て判定役を起こさず（go: false）、報告と出口まで落ちずに届く
+        "material-give-up": dict(replies={**TL.replies(), "prior-decisions": lambda n: {}}, edits=edits),
+        # 同じ止めで、並行 PR の素材が awaiting_human（run 30 の姿）: 判定の前に止めた周の記録は検証器を通らない（awaiting を
+        # 問いの台帳に載せる判定役が走っていない）。本線と同じく報告の節（AI の報告）は出ず、機械の報告がその理由を言う
+        "material-give-up-awaiting": dict(replies={**TL.replies(), "prior-decisions": lambda n: {}, "pr-check": PR_AWAITING},
+                                          edits=edits),
         "fix-give-up": dict(replies={**TL.replies(), "fix": lambda n: {}}, edits=edits),
         "unchanged-file": dict(replies={**TL.replies(), "fix": unchanged_file_fix()}, edits=edits),
         "no-fix": dict(replies=nofix, edits={}),
@@ -122,7 +133,7 @@ def scenarios(tmp: pathlib.Path) -> dict:
     }
 
 
-OUTCOMES = {"conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
+OUTCOMES = {"material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
             "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request"}
 
 
@@ -157,6 +168,24 @@ class ScriptContractCase(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(got["completed"], got["failure"])
                 self.assertEqual(got["out"]["result"]["outcome"], OUTCOMES[name])
+
+    def test_stop_before_judge_reaches_report(self):
+        """素材集めが諦めて盤面を止めた（run 30）: 判定役は起きず（judge-brief が go 偽）、境の節と報告と出口が走る。
+        止めた周の記録が検証器を通らない時は、本線と同じく報告の節を出さず、機械の報告の冒頭 3 がその理由を言う"""
+        for name in ("material-give-up", "material-give-up-awaiting"):
+            with self.subTest(name):
+                got = self.got[name]
+                brief = next(r for r in got["runs"] if r["node"] == "judge-brief")
+                self.assertIs(brief["out"]["go"], False)
+                self.assertNotIn("blk-judge/judge", got["trail"])
+                self.assertIn("darkfactory/report", got["trail"])
+                self.assertEqual(got["trail"][-1], "darkfactory/result")
+        self.assertIs(self.got["material-give-up"]["out"]["report"]["ai_report_go"], True)
+        rep = self.got["material-give-up-awaiting"]["out"]["report"]
+        self.assertIs(rep["ai_report_go"], False)
+        text = pathlib.Path(rep["report_file"]).read_text(encoding="utf-8")
+        self.assertIn("報告の節は出ない（本線の止めと同じ）: 止めた周の記録が検証器を通らない", text)
+        self.assertIn("素材 'parallel_pr' が awaiting_human なのに問いの台帳に無い", text)
 
     def test_every_script_signature_ran(self):
         """線と線が include する全部のブロックの script の節（output_format を持つ物）を、(ブロック・スクリプト・型) の組で

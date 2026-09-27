@@ -92,9 +92,11 @@ class YamlCase(unittest.TestCase):
         brief = find_node(self.y, "judge-brief")
         self.assertEqual((brief["script"], brief["depends_on"], brief["timeout"]), ("brief", ["intake"], DEADLINE))
         self.assertNotIn("with", brief)   # 読むのは盤面だけ（INPUTS を読まない）
-        self.assertEqual(sorted(brief["output_format"]["required"]), ["materials_file", "ok"])
+        self.assertEqual(sorted(brief["output_format"]["required"]), ["go", "materials_file", "ok"])
         g = find_node(self.y, "judge-loop")
         self.assertEqual(g["depends_on"], ["judge-brief"])
+        # 止まった盤面（同じ境の節の後ろの素材集めが止めた。run 30）では支度が go 偽を出し、判定役を起こさない
+        self.assertEqual(g["when"], "$judge-brief.output.go == true")
         lg = g["loop_group"]
         self.assertEqual((lg["max_iterations"], lg["fresh_context"], lg["until_bash"]),
                          (3, False, "test $judge-accept.output.done = true"))   # 通った時か 3 回目の拒否で抜ける（R50）
@@ -107,7 +109,8 @@ class YamlCase(unittest.TestCase):
         acc = find_node(self.y, "judge-accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$judge.output"}, "base_rev": "$INPUTS.base_rev"})
         self.assertEqual(sorted(acc["output_format"]["required"]), ["done", "ok", "open_units", "reason", "reason_file"])
-        self.assertEqual(find_node(self.y, "collect")["depends_on"], ["judge-loop"])
+        col = find_node(self.y, "collect")
+        self.assertEqual((col["depends_on"], col["trigger_rule"]), (["judge-brief", "judge-loop"], "none_failed_min_one_success"))
 
     def test_diagnose_prompt_wires_request_and_retry_reason(self):
         text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
@@ -231,7 +234,7 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
         r = self.run_script("brief")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout), {"ok": True, "materials_file": ""})
+        self.assertEqual(json.loads(r.stdout), {"ok": True, "go": True, "materials_file": ""})
 
     def test_brief_missing_env(self):
         base = {k: v for k, v in os.environ.items() if k != "ARTIFACTS_DIR"}

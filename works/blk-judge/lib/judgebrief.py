@@ -7,8 +7,9 @@ gl-prompts/prompts/review-loop/p2.diagnose.md の 2 か所: 「## 入力」の�
 検証器の表 {{validator.*}} から描く。素材が awaiting_human なら awaiting を必ず載せる決まり）。手順・出力の決まりは blk-judge の
 commands/diagnose.md のまま。受け付けは盤面の p2.diagnose の done（judgetake。本線と同じ judge_output）。
 
-- brief: ラインの盤面（$ARTIFACTS_DIR/board/state.json）が無ければ（ブロックを単独で回した）{ok, materials_file: ""}。在れば
-  盤面の p2.diagnose が待っていること（待っていなければ BoardGap——線の順の誤り。黙って空にしない）。描いた本文を今の周の
+- brief: ラインの盤面（$ARTIFACTS_DIR/board/state.json）が無ければ（ブロックを単独で回した）{ok, go: true, materials_file: ""}。
+  盤面が止まっていれば（同じ境の節の後ろの素材集めが止めた。run 30）何も書かずに go: false（判定役を起こさない。blk-material の
+  支度と同じ形）。止まっていなければ盤面の p2.diagnose が待っていること（待っていなければ BoardGap——線の順の誤り。黙って空にしない）。描いた本文を今の周の
   作業ファイル judge-materials.md に書き、判定役を起こす前の作業ツリーの姿を今の周の judge-tree.json に置き（entry.snapshot。
   受け付けが比べる）、待っている試行に起こした印を置く（描く → 印 → 起こす。盤面の決まり 2）。パスを返す
 """
@@ -55,11 +56,15 @@ def template(b) -> str:
 
 
 def brief(board_dir, repo) -> dict:
-    """judge-brief。返り {ok: True, materials_file}（盤面が無ければ空）。repo は対象リポジトリ（作業ツリーの姿を取る）"""
+    """judge-brief。返り {ok: True, go, materials_file}（盤面が無ければ go 真で空）。止まった盤面は go 偽（判定役の輪は when: で
+    飛び、出口 collect が止まった盤面を ok 偽で渡す）。repo は対象リポジトリ（作業ツリーの姿を取る）"""
     d = pathlib.Path(board_dir)
     if not (d / "state.json").is_file():
-        return {"ok": True, "materials_file": ""}
-    b = entry.open_board(d)
+        return {"ok": True, "go": True, "materials_file": ""}
+    b = entry.open_board(d, allow_halted=True)
+    if b.state.get("halted") or b.state.get("stop"):
+        # 同じ境の節（h-mat）の後ろの前のブロック（素材集め）が盤面を止めた（run 30）。役を起こさず、出口が止まった盤面を渡す
+        return {"ok": True, "go": False, "materials_file": ""}
     inst = b.rd["instances"].get(NODE)
     if not inst or inst.get("status") != "pending":
         raise BoardGap(f"盤面の {NODE} が待っていない（{b.node_state(NODE)}）——判定の支度を回す所でない（線の順の誤り）")
@@ -72,4 +77,4 @@ def brief(board_dir, repo) -> dict:
     tmp.replace(p)
     entry.snapshot(d, judgetake.TREE_FILE, pathlib.Path(repo))
     entry.open_board(d).mark_launched(NODE, inst.get("attempts", 1))
-    return {"ok": True, "materials_file": str(p)}
+    return {"ok": True, "go": True, "materials_file": str(p)}
