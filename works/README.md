@@ -37,6 +37,15 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 
 開発の家（`WORKS_DEV_HOME`。既定は `$TMPDIR/works-dev`）・使い捨ての対象・その origin は、Claude Code の一時フォルダ（`/private/tmp/claude-*`・`/tmp/claude-*`）の下に置けない。サンドボックスの中の Bash がそこへ書けるためで、`dev/` の殻はその下に解けるパスを終了コード 2 で拒む（設計書 7 節）。
 
+## 借りた superpowers のスキル
+
+superpowers（Claude Code のプラグインのスキル集。MIT。表示は `NOTICE`）6.4.2 から、test-driven-development・systematic-debugging・verification-before-completion・receiving-code-review・requesting-code-review の 5 本を `.shared/superpowers/6.4.2/skills/` にバイトのまま写している（元と写したファイルは同じ置き場の `COPIED_FROM`。写しは直さない）。
+
+- 読ませ方: AI の節に `skills: [<名>]` と `settingSources: [user]` を書く。Archon は `[user]` のとき `$CLAUDE_CONFIG_DIR/skills/<名>/SKILL.md` を探す。開発の殻 `dev/archon.sh` は、実行のたびに `dev/skills.sh` で写しを隔離した `$WORKS_DEV_HOME/claude-config/skills/` へ写す。
+- YAML の決まり（`tests/test_yaml_rules.py`）: `[user]` は、`skills:` を持ち、その全部が写しに在る節だけに許す。
+- 無人の読み替え: スキルの文が人（your human partner）や下請けの AI を前提にする所は、`.shared/superpowers/unattended.md` の決まりで読み替える（人に聞く → `not_done` か `rejudge_requested` に理由、修正役は commit しない、`superpowers:` の参照は無視、など）。
+- 試験（`tests/test_sp_skills.py`）は写しと元（プラグインのキャッシュ）のバイトの一致を見る。元が無ければ飛ばさずに赤になるので、同じ版の checkout を `WORKS_SP_SOURCE` に渡す。
+
 ## Claude の包み
 
 `.shared/core/claude-adapter` は、Archon が起こす Claude Code の実行ファイルの前に挟む薄い殻（芯は `.shared/core/adapter.py`）。役が読んだファイルの記録・再審の役が判定役の会話の続きで起きること・役に書かせない場所の柵・止める時に孫まで止めることを受け持つ。形は本物の Archon v0.11.1・SDK 0.3.282・claude 2.1.283 との有料の試しで確かめ、試験（`tests/test_adapter.py`）は偽の claude で縛る。今のラインの YAML はまだ印を持たないので、入れても何も足さずに素通しする（印を付けるのは線 A の後の作業）。

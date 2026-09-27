@@ -13,7 +13,9 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     包みが守るので、output_format の印に旗 no-tree-write を持つ
 - AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
   書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
-  skills: を持つ節だけは [project] も許す（skills は読む元が要る）
+  skills: を持つ節だけは [project] も許す（skills は読む元が要る）。[user] は、skills: を持ち、その全部が借りた superpowers の
+  スキルの写し（.shared/superpowers/<版>/skills/。SP_SKILLS）に在る節だけに許す（dev/skills.sh が隔離した CLAUDE_CONFIG_DIR の
+  skills/ に写し、Archon は [user] のときそこを探す）
 - approval・include・loop_group の節は期限を持たない。書く期限の欄は上の 2 つだけ（AI の節の timeout・bash の節の idle_timeout も違反）
 - loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る
 - 上のどれでもない種類の節（loop: など）は違反（決まりを決めていない種類を黙って通さない）
@@ -48,6 +50,8 @@ EXCEPTIONS = {
     WRITER: {"tools": None},
     CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
 }
+# settingSources: [user] で読んでよいスキル: 借りた superpowers のスキルの写しの名前（dev/skills.sh が写す物と同じ置き場から引く）
+SP_SKILLS = frozenset(p.parent.name for p in (ROOT / ".shared" / "superpowers").glob("*/skills/*/SKILL.md"))
 AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
 QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種類
@@ -64,6 +68,8 @@ BAD_EXPECT = {
     "ai_no_sandbox": "節 judge: AI の節の sandbox が {enabled: true, allowUnsandboxedCommands: false} でない"
                      "（{'enabled': False, ",
     "ai_no_setting_sources": "節 judge: AI の節の settingSources が [] でない（'（無し）'",
+    "user_skills_not_pinned": "節 judge: AI の節の skills: が借りたスキルの写しの外を持つ（['brainstorming']",
+    "user_without_skills": "節 judge: AI の節の settingSources が [user] なのに skills: が無い",
     "ai_sandbox_unsandboxed_allowed": "節 judge: AI の節の sandbox が {enabled: true, allowUnsandboxedCommands: false} でない"
                                       "（{'enabled': True}）",
     "approval_with_timeout": "節 gate: approval の節に期限（timeout・idle_timeout）を書いた",
@@ -149,8 +155,17 @@ def _check_node(node, where, place, out):
                 out.append(f"{at}: AI の節の allowed_tools が {sorted(allowed)} の外を持つ"
                            f"（{sorted(set(tools) - allowed)}）")
         ss = node.get("settingSources", "（無し）")
-        if not (ss == [] or ("skills" in node and ss == ["project"])):
-            out.append(f"{at}: AI の節の settingSources が [] でない（{ss!r}。skills: を持つ節だけ [project] も可）")
+        skills = node.get("skills")
+        if ss == ["user"]:
+            if not (isinstance(skills, list) and skills):
+                out.append(f"{at}: AI の節の settingSources が [user] なのに skills: が無い"
+                           "（[user] は借りたスキルを読むためだけに許す）")
+            elif not set(skills) <= SP_SKILLS:
+                out.append(f"{at}: AI の節の skills: が借りたスキルの写しの外を持つ（{sorted(set(skills) - SP_SKILLS)}。"
+                           "[user] で読めるのは .shared/superpowers の写しだけ）")
+        elif not (ss == [] or ("skills" in node and ss == ["project"])):
+            out.append(f"{at}: AI の節の settingSources が [] でない（{ss!r}。skills: を持つ節だけ [project] も可。"
+                       "[user] は借りたスキルだけ）")
     else:
         if has_t or has_it:
             out.append(f"{at}: {kind} の節に期限（timeout・idle_timeout）を書いた")
@@ -183,6 +198,13 @@ def check_file(path: pathlib.Path) -> list:
         return [f"{path.name}: 工程の YAML が表でない"]
     _check_nodes(doc.get("nodes"), f"{path.name}: ", (path.parent.name, path.name), out)
     return out
+
+
+class PinnedSkillsCase(unittest.TestCase):
+    def test_sp_skills_is_the_borrow_list(self):
+        """[user] で許す名前は、借りた写しの名前そのもの（引き方が壊れて空や別の集合にならない）"""
+        from test_sp_skills import BORROW
+        self.assertEqual(SP_SKILLS, BORROW)
 
 
 class YamlRulesCase(unittest.TestCase):
@@ -314,7 +336,16 @@ class YamlRulesCase(unittest.TestCase):
                                 ("    skills: [x]\n    settingSources: []\n", None),
                                 ("    settingSources: [project]\n", f"{bad}（['project']。"),
                                 ("    skills: [x]\n    settingSources: [project, user]\n", f"{bad}（['project', 'user']。"),
-                                ("    skills: [x]\n", f"{bad}（'（無し）'")):
+                                ("    skills: [x]\n", f"{bad}（'（無し）'"),
+                                ("    skills: [test-driven-development]\n    settingSources: [user]\n", None),
+                                ("    skills: [x]\n    settingSources: [user]\n",
+                                 "w.yaml: 節 judge: AI の節の skills: が借りたスキルの写しの外を持つ（['x']"),
+                                ("    settingSources: [user]\n",
+                                 "w.yaml: 節 judge: AI の節の settingSources が [user] なのに skills: が無い"),
+                                ("    skills: []\n    settingSources: [user]\n",
+                                 "w.yaml: 節 judge: AI の節の settingSources が [user] なのに skills: が無い"),
+                                ("    skills: [test-driven-development]\n    settingSources: [project, user]\n",
+                                 f"{bad}（['project', 'user']。")):
                 p = pathlib.Path(tmp) / "w.yaml"
                 p.write_text(base + extra, encoding="utf-8")
                 with self.subTest(extra):
