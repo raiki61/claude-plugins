@@ -7,6 +7,7 @@
                   この節の拒否が在れば、最後の拒否の理由のファイルのパスを頭の 1 行で名指す（文は貼らない。裁定 R44）
 - compose:        指示書の部分を繋ぎ、前の拒否の理由のファイルを頭の 1 行で名指す（render_prompt と、本線の写しでない指示書を
                   スクリプトが組むブロックが使う）
+- agent_def:      engine の agent_def（役の定義 agents/<役>.md）を、写しの plugin の役は pack の写し（core/agents/）から引く
 - accept_role:    出し直しの輪の受け付け（entry.take）。拒否は理由の本文を盤面の reject-take_<節>-<連番>.txt に書き
                   （script_io が理由の本文を書く名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
                   （輪を max_iterations で落とさない。裁定 R50）
@@ -38,10 +39,12 @@ from board import BoardGap  # noqa: E402  （board が写しの engine を sys.p
 from engine import pointers as _pointers  # noqa: E402
 from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
 from engine.util import Reject, dump, safe_name  # noqa: E402
+from engine.validator import agent_def as _engine_agent_def, env_root  # noqa: E402
 import entry  # noqa: E402
 import script_io  # noqa: E402
 
 PROMPTS_COPY = _CORE / "gl-prompts"   # 写しと同じ commit から写した本線の指示書（graphloops/ と同じ並び）
+AGENTS_PLUGIN = "convergence-loops"    # core/agents/ に写した役の定義の plugin（写しの graph の plugin。tests/test_core_copy.py）
 SCHEMA_NOTE = ("\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）。"
                '文字列値の中の " は必ず \\" にエスケープしろ——生のまま入れると返答まるごとが'
                "読めずに捨てられる:\n")
@@ -118,6 +121,23 @@ def compose(parts, *, reject_file: str = "") -> str:
     ファイル）が在れば 1 行目でそのパスを名指す（理由の文そのものは貼らない。裁定 R44）。同じ入力からは同じバイト"""
     out = [REJECT_LINE.format(path=reject_file)] if reject_file else []
     return "\n\n".join(out + [s for s in parts if s])
+
+
+def agent_def(agent_type: str):
+    """engine の agent_def と同じ返り（無ければ None）。本線の engine は隣に並ぶ plugin の agents/<役>.md を読むが、pack の engine の
+    隣は plugin でないので、写しの plugin（AGENTS_PLUGIN）の役は、置き場 <PLUGIN>_ROOT が明示されていなければ pack の写し
+    （core/agents/。COPIED_FROM）を指して引く——利用者の plugin のキャッシュに依らない（run 31: 隔離した CLAUDE_CONFIG_DIR に
+    convergence-loops が無く、独立の目の支度が BoardGap で落ちた）。明示された置き場と別 plugin の役は engine の探し方のまま。
+    置き場の環境変数はこの呼びの間だけ置く（後で起こす子のプロセス——対象の試験など——へ漏らさない）"""
+    plugin = agent_type.rpartition(":")[0]
+    key = env_root(plugin) if plugin else ""
+    if plugin != AGENTS_PLUGIN or os.environ.get(key):
+        return _engine_agent_def(agent_type)
+    os.environ[key] = str(_CORE)
+    try:
+        return _engine_agent_def(agent_type)
+    finally:
+        os.environ.pop(key, None)
 
 
 # ---------------------------------------------------------------- 受け付け（出し直しの輪）

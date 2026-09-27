@@ -545,6 +545,51 @@ class ScriptCase(_Case):
         out = self.ok("collect", round=rnd)
         self.assertFalse(out["ok"])
 
+    def test_prep_every_eye_without_plugins(self):
+        """dogfood の隔離（plugin の無い CLAUDE_CONFIG_DIR・<PLUGIN>_ROOT なし）でも、7 つの目の支度（prep のスクリプト）が
+        全部通る。graph の plugin の役の定義は pack の写し（core/agents/）から引いて頭に置く（run 31: r2.design・r1.minimality が
+        BoardGap の exit 2 で落ちた）。別 plugin の r1.comment_candidates は engine と同じく止めずに無いことを残す"""
+        os.environ.pop("CONVERGENCE_LOOPS_ROOT", None)
+        empty = pathlib.Path(self._plug.name) / "empty-config"
+        empty.mkdir()
+        os.environ["CLAUDE_CONFIG_DIR"] = str(empty)
+        agents = PACK.root / ".shared" / "core" / "agents"
+        own = {"r1-minimality": "judge", "r2-design": "blind-judge", "r2-compare": "blind-judge", "r3-coherence": "inspector",
+               "r4-scope": "inspector", "premise-check": "judge"}
+        seen = set()
+
+        def prep(role, rnd):
+            got = self.ok("prep", role=role, round=rnd)
+            seen.add(role)
+            if role in own:
+                d = agents / f"{own[role]}.md"
+                self.assertEqual(pathlib.Path(got["role_def"]).resolve(), d.resolve(), role)
+                self.assertEqual(got["role_def_missing"], "", role)
+                body = d.read_text(encoding="utf-8").split("---", 2)[2].strip()
+                self.assertIn(body.splitlines()[0], got["prompt"], f"{role}: 役の定義の本文を頭に置く")
+            else:
+                self.assertEqual(got["role_def"], "")
+                self.assertIn("pr-review-toolkit:comment-analyzer", got["role_def_missing"])
+            return got
+
+        # 目 4 つが同時に出る盤面: 先頭の 4 つ → 受けた後の r1.minimality・r2.compare
+        self.board("all4")
+        rnd = self.ok("enter")["round"]
+        for role in ("r1-comments", "r2-design", "r3-coherence", "r4-scope"):
+            prep(role, rnd)
+            self.ok("accept", role=role, reply=json.dumps(REPLY[role], ensure_ascii=False))
+        for role in ("r1-minimality", "r2-compare"):
+            self.assertTrue(self.ok("route", role=role, round=rnd)["go"], role)
+            prep(role, rnd)
+        # R2 が premise-invalid の盤面: stop.premise_check
+        self.board("r1r2")
+        rnd = self.ok("enter")["round"]
+        prep("r2-design", rnd)
+        self.ok("accept", role="r2-design", reply=json.dumps(DESIGN_INVALID, ensure_ascii=False))
+        self.assertTrue(self.ok("route", role="premise-check", round=rnd)["go"])
+        prep("premise-check", rnd)
+        self.assertEqual(seen, set(eyes.NODE_OF), "目の全部を支度した")
+
     def test_scripts_exit_two_on_wiring(self):
         self.board("r1r2")
         rc, _, err = self.run_script("enter", drop=("ARTIFACTS_DIR",))

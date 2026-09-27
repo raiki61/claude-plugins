@@ -40,7 +40,6 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
 from engine.advance import agent_type_of  # noqa: E402
 from engine.util import now, safe_name  # noqa: E402
-from engine.validator import agent_def  # noqa: E402
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
@@ -250,11 +249,11 @@ def role_definition(b, nid) -> tuple:
     """(役の定義の本文, 定義のファイル, 無い時の知らせ)。graph の plugin の役の定義が見つからなければ BoardGap（engine の die と同じ——
     遮断系かどうかが決まらないので起こさない）。別 plugin の役は止めずに知らせを返す（engine の role_def_missing）"""
     atype = agent_type_of(b, b.nodes[nid])
-    d = agent_def(atype)
+    d = rolekit.agent_def(atype)   # 写しの plugin の役は pack の写し（core/agents/）から
     if d is None:
         if atype.rpartition(":")[0] == b.plugin:
             raise BoardGap(f"{nid}: 役 {atype!r} の定義（agents/<役>.md）が解決できない——遮断系かどうかが決まらないので起こさない"
-                           "（plugin の置き場・<PLUGIN>_ROOT・CLAUDE_CONFIG_DIR を確かめよ）")
+                           "（pack の写し .shared/core/agents/・明示した <PLUGIN>_ROOT を確かめよ）")
         return "", "", f"{atype} の定義がこの環境に無い（別 plugin）。役の定義なしで起こす"
     return d["body"], d["file"], ""
 

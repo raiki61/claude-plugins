@@ -26,3 +26,8 @@ graphloops/rules/review-loop-tdd.py  # 修正の段の TDD で足した。works 
 graphloops/prompts/review-loop/tdd/p3.delta_review.md  # 修正の段の TDD で足した: TDD 版の graph の指示書（graph の置き場からの相対 ../prompts/）
 graphloops/prompts/review-loop/tdd/p3.fix.md  # 同上
 graphloops/prompts/review-loop/tdd/p3.tdd_tests.md  # 同上
+agents/judge.md  # 役の定義を pack に持つ（run 31）: 隔離した CLAUDE_CONFIG_DIR に convergence-loops が無く、engine の agent_def が引けずに独立の目の支度が BoardGap で落ちた。本線の engine は隣の plugin の agents/ を読むので、同じ commit の定義を core/agents/ に写し rolekit.agent_def が引く
+agents/blind-judge.md  # 同上
+agents/inspector.md  # 同上
+agents/investigator.md  # 同上
+agents/cold-reader.md  # 同上

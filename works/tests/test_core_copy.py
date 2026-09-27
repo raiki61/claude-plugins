@@ -5,9 +5,11 @@ commit が記録されていること・pack の manifest（archon-plugin.json�
 Task 9: works のスキル（SKILL.md の frontmatter と本文の起動名）と Claude Code の plugin.json の形。
 """
 import json
+import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 
 import yaml
@@ -63,6 +65,40 @@ class TestCoreCopy(unittest.TestCase):
             self.assertIn(rel, listed)
         for rel in TDD_COPIES:
             self.assertIn(rel, listed)
+
+    def test_role_definitions_resolve_from_pack_without_plugins(self):
+        """graph の plugin の役（回す側・driver・別 plugin の役を除く全部）の定義は、plugin の無い CLAUDE_CONFIG_DIR と
+        <PLUGIN>_ROOT の無い環境（dogfood の隔離）でも、pack の写し（core/agents/。COPIED_FROM に並び、元の commit とバイト一致）
+        から rolekit.agent_def で引ける（run 31: 隔離した設定に convergence-loops が無く、独立の目の支度が BoardGap で落ちた）。
+        引いた後に置き場の環境変数を残さない（対象の試験の子へ漏らさない）"""
+        roles = set()
+        runners = set(json.loads((CORE / "graphloops" / "graphs" / "review-loop.json").read_text(encoding="utf-8"))["runners"])
+        for name in ("review-loop.json", "review-loop-tdd.json"):   # TDD 版は extends で節を足す
+            g = json.loads((CORE / "graphloops" / "graphs" / name).read_text(encoding="utf-8"))
+            roles |= {n["run_by"] for n in g.get("nodes", {}).values()   # 上書きだけの節は run_by を持たない
+                      if n.get("run_by") and not n.get("agent_type") and n["run_by"] not in runners | {"driver"}}
+        self.assertEqual(roles, {"judge", "blind-judge", "inspector", "investigator", "cold-reader"})
+        listed = [ln.split()[0] for ln in (CORE / "COPIED_FROM").read_text().splitlines()[1:] if ln.strip() and not ln.startswith("#")]
+        for r in sorted(roles):
+            self.assertIn(f"agents/{r}.md", listed)
+        code = ("import json, os, sys; sys.path.insert(0, sys.argv[1]); import rolekit\n"
+                "got = {r: rolekit.agent_def('convergence-loops:' + r) for r in sys.argv[2:]}\n"
+                "print(json.dumps({'defs': {r: d and {'file': d['file'], 'tools': d['tools'], 'body': bool(d['body'])}"
+                " for r, d in got.items()}, 'env': os.environ.get('CONVERGENCE_LOOPS_ROOT')}))")
+        with tempfile.TemporaryDirectory() as cfg:
+            env = {k: v for k, v in os.environ.items() if k != "CONVERGENCE_LOOPS_ROOT"}
+            env.update(CLAUDE_CONFIG_DIR=cfg, PYTHONDONTWRITEBYTECODE="1")
+            r = subprocess.run([sys.executable, "-c", code, str(CORE), *sorted(roles)], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertIsNone(out["env"], "置き場の環境変数を残した")
+        for role in sorted(roles):
+            with self.subTest(role):
+                d = out["defs"][role]
+                self.assertIsNotNone(d, f"{role} の定義が pack から引けない")
+                self.assertEqual(pathlib.Path(d["file"]), (CORE / "agents" / f"{role}.md").resolve())
+                self.assertTrue(d["body"])
+        self.assertEqual(out["defs"]["blind-judge"]["tools"], [], "遮断系（道具ゼロ）が写しの定義から決まる")
 
     def test_tdd_rules_load_from_copy(self):
         """写しの TDD 版の graph から load_rules が通り、TDD の機械の節・返答の検査が表に在る。一式の上限は 20 日"""
