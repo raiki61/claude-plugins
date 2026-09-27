@@ -41,8 +41,8 @@ SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
 OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
-            "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note"}
-BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go"}
+            "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note", "purpose_file", "mat_go"}
+BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mat_go"}
 UNIT_MEAN = "stats.py mean: 分母が len(xs) - 1 になっている"
 UNIT_CLAMP = "stats.py clamp: 上限を超えた値に lo を返す"
 FACE = "clamp の上限の意味が変わる"
@@ -137,9 +137,10 @@ class EdgeBase(unittest.TestCase):
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
 
     def premised(self):
-        """前提の役まで受けた盤面（p2.diagnose が待つ）"""
+        """前提の役と目的の文まで受けた盤面（p2.diagnose が待つ）"""
         self.started()
         self.take("p0.premises", {"constraints": []})
+        linekit.pre_judge(self.board, self.repo)
 
     def premises_exit(self, reply):
         """前提のブロックの出口（collect の形）。constraints_file は reply を書いた盤面の外のファイル"""
@@ -321,12 +322,13 @@ class FinalGateCase(EdgeBase):
     GREEN = {"ok": True, "green": True, "log": "/logs/final.log", "suites": [], "by": "engine"}
 
     def closed(self):
-        """直す物の無い周を最後のテストまで回し、周を締めた盤面（halted.by stop_after_round）。返りは最後のテストの出口"""
+        """直す物の無い周を最後のテストと独立の目まで回し、周を締めた盤面（halted.by stop_after_round）。返りは最後のテストの出口"""
         self.premised()
         self.edge("plan", judged=self.judge_exit("judge_no_fix"))
         b = entry.open_board(self.board)
         ci = entry.run_ci(b, "p4.ci", test_cmd="")
         b.settle()
+        linekit.close_eyes(self.board, self.repo)   # 独立の目（R1〜R4）の後に周が締まる（計画 P1 Task 33）
         st = self.state()
         self.assertEqual((st["halted"]["by"], st.get("stop")), (line_edge.ENDED_BY, None))
         return {"ok": True, "green": True, "log": ci["log"], "suites": [], "by": ci["by"]}
@@ -488,7 +490,7 @@ class EntryMidCase(EdgeBase):
         self.assertEqual(got["mid_note"], line_edge.MID_NOTE)
 
     def test_slots_do_not_go(self):
-        """rejudge・eyes は枠（go False。中身は計画 P1 Task 31・33）"""
+        """rejudge は枠（go False。中身は計画 P1 Task 31）。eyes は目が待っていない盤面（修正の直後）では go False"""
         self.fixed()
         for at in ("rejudge", "eyes"):
             with self.subTest(at=at):
@@ -767,10 +769,10 @@ class JudgeEdgeCase(EdgeBase):
         premised = self.premises_exit(linekit.reply("premises_ok"))
         for _ in range(2):
             got = self.edge("judge", premised=premised)
-            self.assertEqual((got["go"], got["stop"]), (True, False), got)
+            self.assertEqual((got["go"], got["stop"], got["purpose_go"]), (True, False, True), got)
         b = entry.open_board(self.board)
         self.assertEqual(b.node_state("p0.premises"), "done")
-        self.assertIn("p2.diagnose", b.ready())
+        self.assertIn("p0.purpose", b.ready())   # 目的の文が待つ（purposing の when:）
         self.assertEqual(len([r for r in trace_rows(self.board, "done") if r.get("instance") == "p0.premises"]), 1)
         self.assertEqual(got["premises_file"], str(self.board / b.state["outputs"]["p0.premises"]["file"]))
 
@@ -829,6 +831,66 @@ class JudgeEdgeCase(EdgeBase):
             self.edge("judge", premised="x")
         with self.assertRaises(BoardGap):
             self.edge("judge", adapter_mode="sometimes")
+
+
+class MatEyesEdgeCase(EdgeBase):
+    """h-mat（目的の文を盤面へ渡す・P1 の目を回すか）と h-eyes（独立の目を回すか）。計画 P1 Task 32・33"""
+
+    def before_purpose(self):
+        """前提まで受けた盤面（p0.purpose が待つ）"""
+        self.started()
+        self.take("p0.premises", {"constraints": []})
+        self.assertIn("p0.purpose", entry.open_board(self.board).ready())
+
+    def test_mat_bridges_purpose(self):
+        """目的の文のブロックが盤面の根に置いた purpose.json → 盤面の p0.purpose に渡し、go True・purpose_file は盤面の出力。
+        呼び直しても 2 度渡さない。P1 の目の役が表に無い版では mat_go False"""
+        import purpose
+        self.before_purpose()
+        got = purpose.check_purpose(linekit.reply("purpose_ok"), self.board, "", self.repo)
+        self.assertTrue(got["ok"], got)
+        for _ in range(2):
+            got = self.edge("mat")
+            self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("p0.purpose"), "done")
+        self.assertEqual(got["purpose_file"], str(self.board / b.state["outputs"]["p0.purpose"]["file"]))
+        self.assertEqual(len([r for r in trace_rows(self.board, "done") if r.get("instance") == "p0.purpose"]), 1)
+        self.assertEqual(got["mat_go"], any(b.table.nodes[n].where == "blk-material" for n in b.ready()))
+
+    def test_mat_without_purpose_stops(self):
+        """目的の文が盤面の根に無い → stop、by works:purpose、判定へ進まない"""
+        self.before_purpose()
+        got = self.edge("mat")
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.PURPOSE_BY)
+        self.assertIn("目的の文が盤面に無い", st["stop"]["reason"])
+
+    def test_mat_purpose_rejected_stops(self):
+        """盤面が目的の文を受けない（型の外）→ stop、by works:purpose"""
+        import purpose
+        self.before_purpose()
+        (self.board / purpose.PURPOSE_FILE).write_text(json.dumps({"purpose_text": "x"}), encoding="utf-8")
+        got = self.edge("mat")
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        self.assertEqual(self.state()["stop"]["by"], line_edge.PURPOSE_BY)
+
+    def test_eyes_go_when_eyes_wait(self):
+        """最後のテストの後（p4.assemble が済み R の目が待つ）→ at eyes の go True。止め札の後は stop"""
+        self.fixed()
+        for nid, reply in (("p3.delta_review", DELTA_REVIEW), ("p3.delta_fix", DELTA_FIX)):
+            self.take(nid, reply)
+        b = entry.open_board(self.board)
+        entry.run_ci(b, "p4.ci", test_cmd="")
+        b.settle()
+        b = entry.open_board(self.board)
+        self.assertTrue({"r1.comment_candidates", "r2.design"} <= set(b.ready()), b.ready())
+        got = self.edge("eyes", gate={"decision": "continue", "text": ""})
+        self.assertEqual((got["go"], got["stop"]), (True, False))
+        halt.place(self.board, "止め札の試し", "test")
+        got = self.edge("eyes")
+        self.assertEqual((got["go"], got["stop"]), (False, True))
 
 
 class ReadyCase(unittest.TestCase):

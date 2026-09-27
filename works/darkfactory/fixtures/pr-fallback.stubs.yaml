@@ -73,6 +73,8 @@ h-entry:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 pr-checking__pr-snap:
   ok: true
   snapshot_file: board/r1/pr-snapshot.json
@@ -160,11 +162,53 @@ h-judge:
   premises_file: board/out/r1/p0.premises.json
   pr_go: false
   premises_go: false
+  purpose_go: true
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+purposing__intake: {}
+purpose:
+  purpose_text: stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする
+  source: ②計画・タスク記述
+  known_weaknesses: []
+  source_files:
+  - request_ok.json
+purpose-accept:
+  ok: true
+  reason: ''
+  reason_file: ''
+  purpose_file: ''
+purposing__collect:
+  ok: true
+  purpose_file: ''
+  purpose_text: ''
+  source: ''
+h-mat:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: ''
+  open_units: ''
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
   purpose_go: false
   spec_go: false
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: board/out/r1/p0.purpose.json
+  mat_go: false
 judging__intake:
   ok: true
   reason: ''
@@ -257,6 +301,8 @@ h-plan:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 planning__plan-snap:
   ok: true
   go: true
@@ -349,6 +395,8 @@ h-gate:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 h-fix:
   ok: true
   stop: false
@@ -370,6 +418,8 @@ h-fix:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 fixing__ignored-before:
   ok: true
   count: 0
@@ -511,6 +561,8 @@ h-mid:
   runtime_go: false
   holdout_go: false
   mid_note: '中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）'
+  purpose_file: ''
+  mat_go: false
 h-review:
   ok: true
   stop: false
@@ -532,6 +584,8 @@ h-review:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 reviewing__cut:
   ok: true
   files:
@@ -575,6 +629,8 @@ h-refix:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 refixing__refix-prep:
   ok: true
   owed: 1
@@ -677,6 +733,8 @@ h-tests:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 testing__run:
   ok: true
   green: true
@@ -706,10 +764,12 @@ h-final:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 h-eyes:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -727,6 +787,245 @@ h-eyes:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
+eyeing__eyes-enter:
+  ok: true
+  round: 1
+  stopped: false
+  asking: false
+  ready:
+  - r1-comments
+  - r2-design
+  - r3-coherence
+  - r4-scope
+  snapshot_file: board/r1/eyes-snapshot.json
+  why: ''
+eyeing__r1-comments-route:
+  go: true
+  node: r1.comment_candidates
+  why: r1.comment_candidates が待っている
+  stopped: false
+r1-comments-prep:
+  prompt: （r1.comment_candidates の描いた指示書）
+  prompt_file: board/prompts/r1/r1.comment_candidates.md
+  node: r1.comment_candidates
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r1-comments:
+  candidates: []
+  kept: []
+r1-comments-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r1.comment_candidates
+  reason_file: ''
+eyeing__r1-minimality-route:
+  go: true
+  node: r1.minimality
+  why: r1.minimality が待っている
+  stopped: false
+r1-minimality-prep:
+  prompt: （r1.minimality の描いた指示書）
+  prompt_file: board/prompts/r1/r1.minimality.md
+  node: r1.minimality
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r1-minimality:
+  status: pass
+  reason: 累積差分は最小。台帳に逃げ道なし
+  deletions: []
+  ledger_audit: []
+  increments: []
+r1-minimality-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r1.minimality
+  reason_file: ''
+eyeing__r2-design-route:
+  go: true
+  node: r2.design
+  why: r2.design が待っている
+  stopped: false
+r2-design-prep:
+  prompt: （r2.design の描いた指示書）
+  prompt_file: board/prompts/r1/r2.design.md
+  node: r2.design
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-design:
+  question_stands: true
+  reason: 問いは立っている
+  design: 上限は入口 1 箇所で掛ける
+r2-design-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.design
+  reason_file: ''
+eyeing__r2-compare-route:
+  go: true
+  node: r2.compare
+  why: r2.compare が待っている
+  stopped: false
+r2-compare-prep:
+  prompt: （r2.compare の描いた指示書）
+  prompt_file: board/prompts/r1/r2.compare.md
+  node: r2.compare
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-compare:
+  status: pass
+  reason: 構造は一致
+  differences: []
+r2-compare-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.compare
+  reason_file: ''
+eyeing__premise-check-route:
+  go: false
+  node: stop.premise_check
+  why: 'stop.premise_check: na'
+  stopped: false
+premise-check-prep:
+  prompt: ''
+  prompt_file: ''
+  node: ''
+  attempt: 0
+  already: true
+  role_def: ''
+  role_def_missing: ''
+premise-check:
+  key: 識別子を別に持つか
+  assumption: 1 デプロイ＝1 リポジトリ
+  assumption_false: false
+  evidence: README に複数デプロイの記述が無い
+  verdict: escalate
+  reason: 実測で反証できない
+premise-check-accept:
+  ok: true
+  done: true
+  give_up: true
+  skipped: true
+  reason: ''
+  node: ''
+  reason_file: ''
+eyeing__r3-coherence-route:
+  go: true
+  node: r3.coherence
+  why: r3.coherence が待っている
+  stopped: false
+r3-coherence-prep:
+  prompt: （r3.coherence の描いた指示書）
+  prompt_file: board/prompts/r1/r3.coherence.md
+  node: r3.coherence
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r3-coherence:
+  status: pass
+  reason: 横断で揃っている
+r3-coherence-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r3.coherence
+  reason_file: ''
+eyeing__r4-scope-route:
+  go: true
+  node: r4.hidden_scope
+  why: r4.hidden_scope が待っている
+  stopped: false
+r4-scope-prep:
+  prompt: （r4.hidden_scope の描いた指示書）
+  prompt_file: board/prompts/r1/r4.hidden_scope.md
+  node: r4.hidden_scope
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r4-scope:
+  status: pass
+  reason: 導入・露呈した横断リスクなし
+  capability_inventory:
+    fired: false
+  policy_conflicts: []
+  surfaced: []
+r4-scope-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r4.hidden_scope
+  reason_file: ''
+eyeing__eyes-collect:
+  ok: true
+  reason: ''
+  complete: true
+  asking: false
+  stopped: false
+  eyes:
+    r1-comments: done
+    r1-minimality: done
+    r2-design: done
+    r2-compare: done
+    r3-coherence: done
+    r4-scope: done
+    premise-check: na
+  gave_up: []
+  after_fix:
+    rev: acc5e6c2327b89f81356f7b71020f3347cdded0c
+    diff_file: board/diff-r1-after-fix.patch
+    changed_files:
+    - src/a.py
+    - src/b.py
+    diff_lines: 9
+  open_units: 0
+  r1_refire: true
+  r2_refire: true
+  purpose_known: true
+  purpose_unusable: ''
+  reviews:
+    R1:
+      status: pass
+      reason: 累積差分は最小。台帳に逃げ道なし
+    R2:
+      status: pass
+      reason: 構造は一致
+    R3:
+      status: pass
+      reason: 横断で揃っている
+    R4:
+      status: pass
+      reason: 導入・露呈した横断リスクなし
+  premise:
+    facts_to_add: []
+  retaken_for_reviews: board/diff-r1-after-fix.patch
+  exit_file: board/r1/eyes-exit.json
 report:
   ok: true
   outcome: fixed
@@ -747,5 +1046,6 @@ fixture:
   - pr-checking__collect
   - premising__collect
   - h-judge
+  - h-mat
   - report
 exec-code: true

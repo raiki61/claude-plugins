@@ -93,6 +93,7 @@ class ReportBase(RF.DeltaBoardCase):
         self.assertTrue(got["ok"], got)
         TE.launch(self.board, "p0.premises")
         self.assertTrue(entry.take(self.board, "p0.premises", premises or TE.PREMISES_REPLY, repo)["ok"])
+        linekit.pre_judge(self.board, repo)   # 目的の文（判定の前に盤面が待つ）
         if judge:
             TE.launch(self.board, "p2.diagnose")
             self.assertTrue(entry.take(self.board, "p2.diagnose", linekit.reply(judge), repo)["ok"])
@@ -102,11 +103,12 @@ class ReportBase(RF.DeltaBoardCase):
         repo = self.begin(judge=name)
         return repo, None
 
-    def to_end(self):
-        """p4.ci を engine で走らせて周を締める（stop_after_round の締めで halted）"""
+    def to_end(self, repo):
+        """p4.ci を engine で走らせ、独立の目を見本で渡して周を締める（stop_after_round の締めで halted）"""
         b = entry.open_board(self.board)
         self.assertEqual(entry.run_ci(b, "p4.ci", test_cmd="")["by"], "engine")
         b.settle()
+        linekit.close_eyes(self.board, repo)
         self.assertEqual(json.loads((self.board / "state.json").read_text(encoding="utf-8"))["halted"]["by"], "stop_after_round")
 
     def full(self, review2="fix2_delta_review2_ok"):
@@ -114,7 +116,7 @@ class ReportBase(RF.DeltaBoardCase):
         repo, _ = self.refixed()
         self.assertTrue(refix.cut(self.board, 2, repo)["ok"])
         self.assertTrue(refix.accept_review(linekit.reply(review2), self.board, "", repo, n=2)["ok"])
-        self.to_end()
+        self.to_end(repo)
         return repo
 
     def no_fix(self):
@@ -122,7 +124,7 @@ class ReportBase(RF.DeltaBoardCase):
         repo, _ = self.judged("judge_no_fix")
         TE.launch(self.board, "p3.fix")
         self.assertTrue(entry.take(self.board, "p3.fix", entry.empty_fix_reply(), repo)["ok"])
-        self.to_end()
+        self.to_end(repo)
         return repo
 
     def planned(self, review="plan_review_regression"):
@@ -334,13 +336,13 @@ class HeadCase(ReportBase):
             self.assertTrue(pathlib.Path(f).is_file(), f)
 
     def test_not_in_line_listed(self):
-        """冒頭 2 の数 == state.works.not_in_line の数、p0.purpose がその一覧に、p0.parallel_pr が下げている所に在る"""
+        """冒頭 2 の数 == state.works.not_in_line の数、p2.history がその一覧に、p0.parallel_pr が下げている所に在る"""
         self.judged()
         b = entry.open_board(self.board)
         lines = report.head_entry(b, None)
         n = len(b.state["works"]["not_in_line"])
         self.assertTrue(any(x.startswith(f"このラインに無い節: {n} 個") for x in lines), lines)
-        self.assertTrue(any(x.startswith("p0.purpose: ") for x in report.absent_lines(b)))
+        self.assertTrue(any(x.startswith("p2.history: ") for x in report.absent_lines(b)))
         self.assertEqual(len(report.absent_lines(b)), n)
         downs = report.declared_downgrades(b.table.line)
         self.assertTrue(any(x.startswith(f"下げている所: {len(downs)} 個") for x in lines))
@@ -445,8 +447,8 @@ class NextRequestCase(ReportBase):
 
     def test_next_request_passes_v1_intake(self):
         """declared で残した穴と赤のテスト → next-request.json を一時の盤面で accept.check_request → ok"""
-        self.declared_board()
-        self.to_end()
+        repo, _ = self.declared_board()
+        self.to_end(repo)
         out, _, h = self.build(tests=RED)
         items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(items), 3)

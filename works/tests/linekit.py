@@ -59,6 +59,55 @@ def reply(name: str) -> dict:
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
 
 
+# 判定の前に盤面が待つ役の節（前提の後。目的の文）と見本の返答。p2.diagnose はこれらが済むまで待ちにならない
+PRE_JUDGE = (("p0.purpose", "purpose_ok"),)
+
+
+def pre_judge(board, repo) -> list:
+    """前提の後・判定の前に盤面が待つ役の節（PRE_JUDGE）を、待っている物だけ見本の返答で渡す（起こした印を置いてから
+    entry.take）。盤面を線の順に進める試験の手助け（p2.diagnose を待ちにする）。返りは渡した節"""
+    import entry
+    done = []
+    for nid, name in PRE_JUDGE:
+        b = entry.open_board(pathlib.Path(board))
+        inst = next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+        if inst is None:
+            continue
+        b.mark_launched(nid, inst.get("attempts", 1))
+        got = entry.take(pathlib.Path(board), nid, reply(name), pathlib.Path(repo))
+        if not got["ok"]:
+            raise AssertionError(f"{nid} の見本 {name} を盤面が受けない: {got['reason']}")
+        done.append(nid)
+    return done
+
+
+def close_eyes(board, repo, replies=None) -> list:
+    """最後のテストの後に盤面が待つ独立の目（R1〜R4・前提の検め直し）を、待っている物が無くなるまで見本の返答で渡す（起こした印を
+    置いてから entry.take）。最後の目の受け付けの settle が周の記録と収束まで回し、1 周の run は周を締める。返答は replies[節]
+    （無ければ test_blk_eyes の見本）。返りは渡した節の順"""
+    import entry
+    if str(ROOT / "blk-eyes" / "lib") not in sys.path:
+        sys.path.insert(0, str(ROOT / "blk-eyes" / "lib"))
+    import eyes
+    import test_blk_eyes as TB
+    done = []
+    while True:
+        b = entry.open_board(pathlib.Path(board), allow_halted=True)
+        if b.state.get("halted") or b.state.get("pending_human"):
+            return done
+        todo = [n for n in eyes.ROLE_OF if eyes._pending(b, n)]
+        if not todo:
+            return done
+        for nid in todo:
+            b = entry.open_board(pathlib.Path(board))
+            b.mark_launched(nid, eyes._pending(b, nid).get("attempts", 1))
+            body = (replies or {}).get(nid, TB.REPLY[eyes.ROLE_OF[nid]])
+            got = entry.take(pathlib.Path(board), nid, body, pathlib.Path(repo))
+            if not got["ok"]:
+                raise AssertionError(f"{nid} の見本を盤面が受けない: {got['reason']}")
+            done.append(nid)
+
+
 CLAUDE_TMP = ("/private/tmp/claude-", "/tmp/claude-")   # Claude Code の一時フォルダ（dev/guard.sh と同じ決まり）
 
 
@@ -110,11 +159,16 @@ LINE_ORDER = [
      "trigger_rule": NFMOS, "when": "$h-entry.output.premises_go == true",
      "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev"}},
     _edge("h-judge", "judge", ["start", "h-entry", "premising"], premised=_skippable("$premising.output")),
-    {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-judge"],
-     "when": "$h-judge.output.go == true",
+    {"id": "purposing", "kind": "include", "block": "blk-purpose", "depends_on": ["h-judge"],
+     "when": "$h-judge.output.purpose_go == true",
+     "with": {"request": "$INPUTS.request", "constraints_file": "$h-judge.output.premises_file",
+              "base_rev": "$start.output.base_rev"}},
+    _edge("h-mat", "mat", ["start", "h-judge", "purposing"]),
+    {"id": "judging", "kind": "include", "block": "blk-judge", "depends_on": ["h-mat"],
+     "when": "$h-mat.output.go == true",
      "with": {"request": "$INPUTS.request", "base_rev": "$start.output.base_rev",
               "policy_paste": "$start.output.policy_paste", "premises_file": "$h-judge.output.premises_file"}},
-    _edge("h-plan", "plan", ["start", "h-judge", "judging"], judged=_skippable("$judging.output")),
+    _edge("h-plan", "plan", ["start", "h-mat", "judging"], judged=_skippable("$judging.output")),
     {"id": "planning", "kind": "include", "block": "blk-plan", "depends_on": ["h-plan"],
      "when": "$h-plan.output.go == true",
      "with": {"judgment_file": "$h-plan.output.judgment_file", "base_rev": "$start.output.base_rev",
@@ -146,7 +200,9 @@ LINE_ORDER = [
     {"id": "final-gate", "kind": "approval", "depends_on": ["h-final"], "when": "$h-final.output.ask == true",
      "decisions": ["approve", "continue", "stop", "reject"]},
     _edge("h-eyes", "eyes", ["start", "h-final", "final-gate"], gate=_skippable("$final-gate.output")),
-    {"id": "report", "kind": "script", "script": "report", "depends_on": ["start", "h-eyes"], "trigger_rule": NFMOS,
+    {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-eyes"], "when": "$h-eyes.output.go == true",
+     "with": {"base_rev": "$start.output.base_rev"}},
+    {"id": "report", "kind": "script", "script": "report", "depends_on": ["start", "h-eyes", "eyeing"], "trigger_rule": NFMOS,
      "with": {"judged": _skippable("$judging.output"), "tests": _skippable("$testing.output"),
               "start": {"from": "$start.output"}, "mid": {"from": "$h-mid.output"},
               "ci": _skippable("$ci-checking.output")}},
@@ -179,6 +235,7 @@ class LineRun:
         self.request = req
         self.board = self.tmp / "art" / "board"
         self.out, self.trail = {}, []
+        self.eyes_roles = []   # blk-eyes が起こした目の役（起こした順）
 
     # -- 盤面の口
     def take(self, nid, reply):
@@ -213,6 +270,37 @@ class LineRun:
     def blk_premises(self):
         f = self._file("premises.json", self.replies.get("premises", {"constraints": []}))
         return {"ok": True, "constraints_file": f, "constraints_summary": ""}
+
+    def blk_purpose(self):
+        import purpose
+        got = purpose.check_purpose(self.replies.get("purpose", reply("purpose_ok")), self.board, "", self.repo)
+        if not got["ok"]:
+            raise AssertionError(got["reason"])
+        path, obj = purpose.read_purpose(self.board)
+        return {"ok": True, "purpose_file": str(path), "purpose_text": obj["purpose_text"], "source": obj["source"]}
+
+    def blk_eyes(self):
+        """blk-eyes の中の節の順（入口 → 待っている目ごとに支度・受け付け → 出口）。目の返答は replies[<役>]（無ければ
+        test_blk_eyes の見本）"""
+        import entry
+        if str(ROOT / "blk-eyes" / "lib") not in sys.path:
+            sys.path.insert(0, str(ROOT / "blk-eyes" / "lib"))
+        import eyes
+        import test_blk_eyes as TB
+        e = eyes.enter(self.board, self.repo)
+        while True:
+            b = entry.open_board(self.board, allow_halted=True)
+            todo = [r for r, n in eyes.NODE_OF.items() if eyes._pending(b, n)]
+            if not todo or eyes._stopped(b):
+                break
+            for role in todo:
+                eyes.prep(self.board, role, e["round"], self.repo)
+                got = eyes.accept(self.board, role, json.dumps(self.replies.get(role, TB.REPLY[role]), ensure_ascii=False),
+                                  self.repo)
+                if not got["ok"]:
+                    raise AssertionError(f"{role}: {got.get('reason')}")
+            self.eyes_roles += todo
+        return eyes.collect(self.board, e["round"])
 
     def blk_judge(self):
         body = self.replies["judge"]
@@ -290,8 +378,9 @@ class LineRun:
         import halt
         import line_edge
         import report
-        blocks = {"blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-judge": self.blk_judge, "blk-plan": self.blk_plan,
-                  "blk-fix": self.blk_fix, "blk-delta": self.blk_delta, "blk-refix": self.blk_refix, "blk-tests": self.blk_tests}
+        blocks = {"blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-purpose": self.blk_purpose,
+                  "blk-judge": self.blk_judge, "blk-plan": self.blk_plan, "blk-fix": self.blk_fix, "blk-delta": self.blk_delta,
+                  "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes}
         for row in LINE_ORDER:
             nid = row["id"]
             if nid == "launch":
@@ -326,9 +415,10 @@ class LineRun:
                                              run_id=RUN_ID, events=[])
                 self.trail.append(nid)
         rep = self.out["report"]
-        return {"outcome": rep["outcome"], "report": rep, "board_dir": self.board, "trail": self.trail, "out": self.out}
+        return {"outcome": rep["outcome"], "report": rep, "board_dir": self.board, "trail": self.trail, "out": self.out,
+                "eyes_roles": self.eyes_roles}
 
 
 def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None) -> dict:
-    """LineRun(...).run()。返り {outcome, report, board_dir, trail, out}"""
+    """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles}"""
     return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits).run()

@@ -56,9 +56,13 @@ YAML_PATH = BLK / "blk-material.yaml"
 EXCLUDED_ROLES = {"prior-decisions", "external-standards", "procedure-trace", "local-review"}
 
 
+# 目的の節が無い表（素材集めの「目的の文が無い run」の道を見る。ラインは p0.purpose を blk-purpose で持つので、ここで戻す）
+NO_PURPOSE_ROWS = {"p0.purpose": {"by": "absent", "reason": "目的の文の無い表（試験）", "comes_with": "blk-purpose"}}
+
+
 def proposed_table() -> NodeTable:
     raw = json.loads((ROOT / LINE / "nodes.json").read_text(encoding="utf-8"))
-    for nid, row in PROPOSED_ROWS.items():
+    for nid, row in {**PROPOSED_ROWS, **NO_PURPOSE_ROWS}.items():
         raw["nodes"][nid] = dict(row)
     d = pathlib.Path(tempfile.mkdtemp(prefix="works-mat-table-"))
     (d / "nodes.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
@@ -177,6 +181,7 @@ def _build_entry(into: pathlib.Path):
             TE.launch(bd, nid)
             got = entry.take(bd, nid, reply, repo)
             assert got["ok"], got
+    linekit.pre_judge(bd, repo)   # 目的の文（p1.consistency_bypass・p1.external_standards が待つ）
     return bd, repo
 
 

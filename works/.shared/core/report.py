@@ -228,7 +228,8 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
 def next_request(b, *, tests: dict | None = None) -> list:
     """次の run に渡す依頼（1 本目の依頼の型 [{where, text}]。key・一言は字のまま）:
     手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴・修正の not_done・最後のテストの赤・
-    再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）"""
+    再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）・
+    盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)）"""
     items = []
     for nid in REFIX_NODES:
         out = _output(b, nid) or {}
@@ -252,6 +253,11 @@ def next_request(b, *, tests: dict | None = None) -> list:
     req = (b.loop_state or {}).get("rejudge_requested") or {}
     if isinstance(req, dict) and isinstance(req.get("text"), str) and req["text"]:
         items.append({"where": "判定（再審されずに残った異議）", "text": req["text"]})
+    ph = b.state.get("pending_human") or {}
+    if ph.get("question"):
+        asked = "・".join(str(x) for x in ph.get("items") or [])
+        items.append({"where": f"人の関所（{ph.get('node')}）",
+                      "text": f"{_one_line(ph['question'])}" + (f"（挙がった物: {_one_line(asked)}）" if asked else "")})
     seen, out = set(), []
     for it in items:
         k = (it["where"], it["text"])

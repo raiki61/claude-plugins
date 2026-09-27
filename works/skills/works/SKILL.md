@@ -1,6 +1,6 @@
 ---
 name: works
-description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 報告 の順に流す）に回す。「darkfactory に回して」「works で直して」と言われたときに使う。依頼の JSON の書き方・起動の 1 行・人の関所で何を見てどう答えるかだけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。起動・待つ・承認・再開の一般は Archon の archon-cli スキルに任せる。
+description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 独立の目 → 報告 の順に流す）に回す。「darkfactory に回して」「works で直して」と言われたときに使う。依頼の JSON の書き方・起動の 1 行・人の関所で何を見てどう答えるかだけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。起動・待つ・承認・再開の一般は Archon の archon-cli スキルに任せる。
 ---
 
 # works
@@ -55,7 +55,8 @@ archon workflow run raiki61/works:darkfactory --input request=<依頼の JSON �
    - 通す: `archon workflow respond <run-id> continue "<通す範囲と条件>"`（一言は修正役にファイルで届く）。`approve` も通す。
    - 止める: `archon workflow respond <run-id> stop "<理由>"`（`reject --reason` も止める）。止めても報告は出る。
 3. 最後の関所 `final-gate`（`final_gate: always` ならいつも）: 最後のテストの緑赤・ログ・差分の置き場・残った異議が全文 `r1/final-gate.md` に在る。
-   - 進める: `archon workflow respond <run-id> continue "<一言>"`。止める: `stop "<理由>"`。どちらでも報告へ進む。
+   - 進める: `archon workflow respond <run-id> continue "<一言>"`（独立の目 R1〜R4 が回ってから報告へ）。止める: `stop "<理由>"`（目は回さずに報告へ）。
+   - 独立の目の R4 が人に聞く物（消えた能力・方針とのぶつかり）を挙げたら、run は止めずに報告へ進み、結末は `needs_human`。問いは報告の冒頭と次の run の依頼の下書きに載る。
 
 修正の差分そのものは、Archon の run ごとの worktree にある（2 節の `working_path`。`git -C <working_path> diff` で見る）。
 関所で待っている run は `cancel` でなく `respond … stop` で止める。
