@@ -272,7 +272,12 @@ class BoardCase(unittest.TestCase):
             d = self.create()
             # 無い: {} で開く
             self.assertEqual(entry.hook_kwargs("darkfactory"), {})
-            self.assertIsNone(entry.open_board(d).validator_runner)
+            b = entry.open_board(d)
+            self.assertIsNone(b.validator_runner)
+            # 線 A の核の差し替え（読んだ記録の置き場。Task 6 の直し 1）は hook が無くても当たる
+            self.assertEqual(entry.open_kwargs("darkfactory"), {"overrides": entry.CORE_OVERRIDES})
+            self.assertIs(b.rules.hook_evidence, entry.CORE_OVERRIDES["hook_evidence"][0])
+            self.assertIn("hook_evidence", [r["name"] for r in b.state["works"]["overrides"]])
             # validator_runner を返す
             hook.write_text("def board_kwargs(table):\n"
                             "    def run(b, target):\n"
@@ -293,6 +298,12 @@ class BoardCase(unittest.TestCase):
             b = entry.open_board(d)
             self.assertEqual(b.rules._final_gate_problems.__name__, "probe")
             self.assertIn({"name": "_final_gate_problems", "reason": "hook の試験"}, b.state["works"]["overrides"])
+            self.assertIs(b.rules.hook_evidence, entry.CORE_OVERRIDES["hook_evidence"][0], "hook の overrides と核の差し替えは重なる")
+            # hook が同じ名前を差し替えれば hook の方が勝つ
+            hook.write_text("def probe(*a, **k):\n    return ('read', 'hook')\n"
+                            "def board_kwargs(table):\n"
+                            "    return {'overrides': {'hook_evidence': (probe, 'hook の試験')}}\n", encoding="utf-8")
+            self.assertEqual(entry.open_board(d).rules.hook_evidence.__name__, "probe")
             # board_kwargs の中で落ちた例外も BoardGap（スクリプトは終了コード 2。TA19）
             hook.write_text("def board_kwargs(table):\n    raise ValueError('hook の中の誤り')\n", encoding="utf-8")
             with self.assertRaises(BoardGap) as cm:

@@ -2,8 +2,10 @@
 
 - load_table(line):   PACK/<line>/nodes.json を読み、盤面の層の縛り 1〜5（NodeTable.check）を当てる。破れは全部を 1 つの BoardGap に
 - open_board(dir):    盤面の state.works.line から表を引き、表の sha が state.works.table_sha と合わなければ BoardMismatch。
-                      ラインの置き場の board_hook.py（在れば）の board_kwargs(table) の返りを DiskBoard.open に渡す
-- hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）。盤面を作る側（start）も同じ物を DiskBoard.begin に渡す
+                      open_kwargs(line, table)（board_hook.py の返りと核の差し替え）を DiskBoard.open に渡す
+- hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）
+- open_kwargs(line):  hook_kwargs に線 A の核の差し替え CORE_OVERRIDES（読んだ記録の置き場）を重ねた物。open_board と start が
+                      同じ物を DiskBoard.open・begin に渡す（開くたびに同じ overrides。BL-R3）
 - check_inputs(raw, repo): ラインの入力を確かめる（線 A の仕様 4 節）。拒めば InputRefused（人に向けた 1 行）
 - local_checks_material(repo, test_cmd, log_path): 任せ先に落ちた CI の節（p0.local_checks・p4.ci）に渡す素材を組む公開の口
   （盤面なしで呼べる。線 B の申し送り 2）
@@ -100,9 +102,32 @@ def hook_kwargs(line: str, table: NodeTable | None = None) -> dict:
     return kw
 
 
+def _hook_evidence_at_adapter(board_dir, doc, cache=None, data=None):
+    """写しの RL の hook_evidence の差し替え。受けた board_dir（盤面の置き場）を捨て、包みのフックが書く置き場
+    adapter.reads_dir(run の worktree) を写しの util.hook_evidence に渡す（残りの引数はそのまま）。run の worktree は
+    盤面を開いた時の util.GIT_CWD（DiskBoard.open が inputs.cwd か repo を入れる）、無ければ cwd。包みの子の env には
+    ARTIFACTS_DIR が来ないので、フックは盤面の隣に書けない（adapter.py の頭）"""
+    import adapter
+    return _util.hook_evidence(adapter.reads_dir(_util.GIT_CWD or os.getcwd()), doc, cache, data)
+
+
+# 線 A の核が写しの RL に当てる差し替え（名前 → (関数, 理由)）。ラインの board_hook.py の overrides が同じ名前を持てば、そちらが勝つ
+CORE_OVERRIDES = {
+    "hook_evidence": (_hook_evidence_at_adapter,
+                      "読んだ記録は盤面の隣でなく包みの置き場 adapter.reads_dir(run の worktree)/reads.jsonl に在る（Task 6 の直し 1）"),
+}
+
+
+def open_kwargs(line: str, table: NodeTable | None = None) -> dict:
+    """DiskBoard.open・begin に渡す引数: hook_kwargs(line, table) の返りに、overrides として CORE_OVERRIDES を重ねた物
+    （board_hook.py の overrides が同じ名前なら board_hook の方）。open_board と start がこれを使う（開くたびに同じ。BL-R3）"""
+    kw = hook_kwargs(line, table)
+    return {**kw, "overrides": {**CORE_OVERRIDES, **(kw.get("overrides") or {})}}
+
+
 def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBoard:
     """盤面を開く。表は state.works.line のラインの nodes.json。表の sha が盤面を作った時の state.works.table_sha と違えば
-    BoardMismatch（run の途中で表が替わった盤面を、替わった表で回さない）。board_hook.py の返りを DiskBoard.open に渡す"""
+    BoardMismatch（run の途中で表が替わった盤面を、替わった表で回さない）。open_kwargs の返りを DiskBoard.open に渡す"""
     d = pathlib.Path(board_dir)
     try:
         state = json.loads((d / "state.json").read_text(encoding="utf-8"))
@@ -117,7 +142,7 @@ def open_board(board_dir: pathlib.Path, *, allow_halted: bool = False) -> DiskBo
     if want != got:
         raise BoardMismatch(f"盤面 {d} の表の sha {want} が今のライン {line} の表の {got} と違う"
                             f"（盤面を作った後に {line}/{TABLE_NAME} が替わった。替わった表で回さない）")
-    return DiskBoard.open(d, table=table, allow_halted=allow_halted, **hook_kwargs(line, table))
+    return DiskBoard.open(d, table=table, allow_halted=allow_halted, **open_kwargs(line, table))
 
 
 
@@ -413,7 +438,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
         b, p = DiskBoard.begin(board_dir, repo=repo, table=table, items=inp["items"], origin=ORIGIN, base_rev="",
                                request_text=inp["request_text"],
                                inputs={"gates": inp["gates"] or None, "policy_md": inp["policy_md"] or None},
-                               stop_after_round=1, **hook_kwargs(LINE, table))
+                               stop_after_round=1, **open_kwargs(LINE, table))
     except Reject as e:
         raise InputRefused(f"盤面が入力を受けない: {e}") from None
     keep = {k: inp[k] for k in ("request_file", "test_cmd", "thickness", "gates", "mid_gate", "adapter", "policy_md")}

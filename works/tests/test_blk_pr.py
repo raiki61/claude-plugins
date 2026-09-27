@@ -135,7 +135,7 @@ class PrCase(unittest.TestCase):
         self.git("remote", "add", "origin", GITHUB)
         table = entry.load_table(LINE)
         b, p = DiskBoard.begin(self.art / "board", repo=self.repo, table=table, items=REQUEST, origin="works/darkfactory",
-                               base_rev="", request_text="依頼", stop_after_round=1, **entry.hook_kwargs(LINE, table))
+                               base_rev="", request_text="依頼", stop_after_round=1, **entry.open_kwargs(LINE, table))
         # ラインの約束 1: Progress.run_engine の節を全部走らせて settle、を空になるまで（p0.parallel_pr は start が run_helper で回す）
         while [n for n in p["run_engine"] if n != prcheck.NODE]:
             for nid in p["run_engine"]:

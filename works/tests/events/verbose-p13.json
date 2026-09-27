@@ -1,0 +1,1062 @@
+{
+ "_note": "〔試P: P13〕 scratchpad/probes-p7-p16-summary.md の run 1c32156a の script の節 probe が ARCHON_CLI_COMMAND + workflow get <id> --verbose --events --json で読んだ出力（artifacts の events1.json。2026-09-26、Archon v0.11.1、AI 費用 0）をそのまま写した。置き場のパスと機械の名だけ伏せた。bash・script の節だけなので tool_called は無い",
+ "id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+ "conversation_id": "ddb99e329259975d83fbaaf29aeb4b85",
+ "codebase_id": "5391e3d367b20f3f23e4f94efb0a0e64",
+ "workflow_name": "p13",
+ "user_message": "",
+ "status": "running",
+ "outcome": null,
+ "current_step_index": null,
+ "metadata": {
+  "model_bindings": {
+   "overrides": {},
+   "effective": {
+    "defaultProvider": "claude",
+    "aliases": {
+     "small": {
+      "provider": "claude",
+      "model": "haiku"
+     },
+     "medium": {
+      "provider": "claude",
+      "model": "sonnet"
+     },
+     "large": {
+      "provider": "claude",
+      "model": "opus"
+     }
+    }
+   }
+  },
+  "dispatch": {
+   "base_branch": "main",
+   "source": "project"
+  },
+  "execution_owner": {
+   "host": "host.local",
+   "pid": 7217,
+   "uid": 1341252503
+  },
+  "workflow_source": {
+   "version": 1,
+   "root": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin/workflow-source/runs/1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "origin": "/Users/someone/works-probe/target",
+   "captured_at": "2026-09-26T12:17:25.575Z",
+   "digest": "2f971da6879cc628b699ce4a7acf849e3ec0e4b12c370c2823bd0a94813b6580",
+   "source_config": {
+    "load_default_workflows": true,
+    "load_default_commands": true
+   },
+   "file_count": 127,
+   "byte_count": 902621
+  },
+  "terminal_graph": {
+   "node_ids": [
+    "first",
+    "lp",
+    "blk__inner",
+    "sc",
+    "probe"
+   ]
+  }
+ },
+ "parent_conversation_id": null,
+ "user_id": "f216f74fe04d711d3c9349a42c726ce8",
+ "parent_run_id": null,
+ "adopted_from_run_id": null,
+ "started_at": "2026-09-26T12:17:28.000Z",
+ "completed_at": null,
+ "last_activity_at": "2026-09-26T12:17:28.000Z",
+ "working_path": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin/worktrees/archon/task-p13-1790425046483",
+ "output_root": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin",
+ "checkout_baseline": {
+  "kind": "git",
+  "sampledAt": "2026-09-26T12:17:28.166Z",
+  "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+  "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+  "worktree": {
+   "status": "clean"
+  },
+  "cutFromCommit": "e1746e2c9814f6f7b63b18040b7b26245401dadf"
+ },
+ "transcript_path": "/Users/someone/works-probe/dev-home/archon-home/workspaces/p7p16/target.origin/logs/1c32156a-8112-4ff3-8d87-bfb1772d93a6.jsonl",
+ "terminal_record": null,
+ "events": [
+  {
+   "id": "59d3a3e6-8627-472b-854d-5b2c95203494",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 613,
+   "event_type": "workflow_started",
+   "step_index": null,
+   "step_name": null,
+   "data": {
+    "workflowName": "p13",
+    "defaultAssistant": "claude",
+    "provider": "claude",
+    "model": null,
+    "isolationMode": "in-place",
+    "baseBranch": "main",
+    "userId": "f216f74fe04d711d3c9349a42c726ce8",
+    "userMessage": "",
+    "origin": "cli"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "620160d8-c835-40bc-a4c7-725bda0f45fe",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 614,
+   "event_type": "workflow_parse_warnings",
+   "step_index": null,
+   "step_name": null,
+   "data": {
+    "workflowName": "p13",
+    "warnings": [
+     "Node 'probe' script (script line 10) reads environment variable 'HOME', which is not provided by its bindings, declared inputs, or the engine. Available bindings/inputs: none.",
+     "Node 'probe' script (script line 24) reads environment variable 'ARCHON_CLI_COMMAND', which is not provided by its bindings, declared inputs, or the engine. Available bindings/inputs: none.",
+     "Node 'probe' script (script line 27) reads environment variable 'ARCHON_CLI_COMMAND', which is not provided by its bindings, declared inputs, or the engine. Available bindings/inputs: none."
+    ]
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "acd45223-922b-4bf6-ab68-cb0e35ed3456",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 615,
+   "event_type": "node_started",
+   "step_index": null,
+   "step_name": "first",
+   "data": {
+    "node": {
+     "id": "first",
+     "kind": "exec",
+     "runtime": "sh"
+    },
+    "invocation": {
+     "id": "4591f99b-5d15-4fd3-a140-39d341be629d",
+     "startedAt": "2026-09-26T12:17:28.284Z",
+     "loopPath": [],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.285Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "a887cdfc-99c3-4297-9a1c-25e1b80ecb27",
+     "startedAt": "2026-09-26T12:17:28.409Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.285Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.409Z"
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "bash"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "cdab2d21-4fce-4e88-b90e-5d5362800b72",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 616,
+   "event_type": "node_completed",
+   "step_index": null,
+   "step_name": "first",
+   "data": {
+    "node": {
+     "id": "first",
+     "kind": "exec",
+     "runtime": "sh"
+    },
+    "invocation": {
+     "id": "4591f99b-5d15-4fd3-a140-39d341be629d",
+     "startedAt": "2026-09-26T12:17:28.284Z",
+     "loopPath": [],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.285Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "a887cdfc-99c3-4297-9a1c-25e1b80ecb27",
+     "startedAt": "2026-09-26T12:17:28.409Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.285Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.409Z",
+     "durationMs": 148
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "bash",
+    "duration_ms": 148,
+    "node_output": "first-out"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "384a2a76-0449-4a44-9693-cc7a60fdf765",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 617,
+   "event_type": "node_started",
+   "step_index": null,
+   "step_name": "lp",
+   "data": {
+    "node": {
+     "id": "lp",
+     "kind": "loop_group"
+    },
+    "invocation": {
+     "id": "4be5d4ec-9e8b-4e3d-982c-632eb60e93a2",
+     "startedAt": "2026-09-26T12:17:28.436Z",
+     "loopPath": []
+    },
+    "attempt": {
+     "id": "740393e4-e300-44a1-a4c9-8bacf3550225",
+     "startedAt": "2026-09-26T12:17:28.437Z"
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.437Z"
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "aggregate",
+    "type": "loop_group",
+    "aggregate": true
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "9d34e2ad-f14c-4a37-9bf1-7f0f94352cf3",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 618,
+   "event_type": "loop_iteration_started",
+   "step_index": null,
+   "step_name": "lp",
+   "data": {
+    "iteration": 1,
+    "maxIterations": 2,
+    "nodeId": "lp"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "a5121dab-a5ac-4ce0-8c7b-a4a3a208b475",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 619,
+   "event_type": "node_started",
+   "step_index": null,
+   "step_name": "lp.lb",
+   "data": {
+    "node": {
+     "id": "lb",
+     "kind": "exec",
+     "runtime": "sh"
+    },
+    "invocation": {
+     "id": "99f414e2-b46a-4dc6-ae0b-49a2784b0aec",
+     "startedAt": "2026-09-26T12:17:28.443Z",
+     "loopPath": [
+      {
+       "groupId": "lp",
+       "iteration": 1
+      }
+     ],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.443Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "50348d3c-1982-4f9d-9807-6d76a7a97979",
+     "startedAt": "2026-09-26T12:17:28.542Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.443Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.542Z"
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "bash",
+    "iteration": 1
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "f118cb02-3c48-4c1e-9aef-918d4e7def55",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 620,
+   "event_type": "node_completed",
+   "step_index": null,
+   "step_name": "lp.lb",
+   "data": {
+    "node": {
+     "id": "lb",
+     "kind": "exec",
+     "runtime": "sh"
+    },
+    "invocation": {
+     "id": "99f414e2-b46a-4dc6-ae0b-49a2784b0aec",
+     "startedAt": "2026-09-26T12:17:28.443Z",
+     "loopPath": [
+      {
+       "groupId": "lp",
+       "iteration": 1
+      }
+     ],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.443Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "50348d3c-1982-4f9d-9807-6d76a7a97979",
+     "startedAt": "2026-09-26T12:17:28.542Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.443Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.542Z",
+     "durationMs": 136
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "bash",
+    "duration_ms": 136,
+    "node_output": "lb-1",
+    "iteration": 1
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "45d06cbf-d876-40c9-9064-6ec4f49b0a8c",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 621,
+   "event_type": "loop_iteration_completed",
+   "step_index": null,
+   "step_name": "lp",
+   "data": {
+    "iteration": 1,
+    "duration": 156,
+    "completionDetected": false,
+    "nodeId": "lp"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "b0f25be6-bd90-4dba-9568-7eb5eae83f1c",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 622,
+   "event_type": "loop_iteration_started",
+   "step_index": null,
+   "step_name": "lp",
+   "data": {
+    "iteration": 2,
+    "maxIterations": 2,
+    "nodeId": "lp"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "56691bf3-d0fd-4002-bc19-7aea0194577e",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 623,
+   "event_type": "node_started",
+   "step_index": null,
+   "step_name": "lp.lb",
+   "data": {
+    "node": {
+     "id": "lb",
+     "kind": "exec",
+     "runtime": "sh"
+    },
+    "invocation": {
+     "id": "5b1f5529-8fd1-426e-8dde-11d377d26a06",
+     "startedAt": "2026-09-26T12:17:28.598Z",
+     "loopPath": [
+      {
+       "groupId": "lp",
+       "iteration": 2
+      }
+     ],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.598Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "4d12345c-6fb2-4731-84f3-29cc64a4f737",
+     "startedAt": "2026-09-26T12:17:28.735Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.598Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.735Z"
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "bash",
+    "iteration": 2
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "746acd50-9030-40e8-8bd6-e009cca1c4ba",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 624,
+   "event_type": "node_completed",
+   "step_index": null,
+   "step_name": "lp.lb",
+   "data": {
+    "node": {
+     "id": "lb",
+     "kind": "exec",
+     "runtime": "sh"
+    },
+    "invocation": {
+     "id": "5b1f5529-8fd1-426e-8dde-11d377d26a06",
+     "startedAt": "2026-09-26T12:17:28.598Z",
+     "loopPath": [
+      {
+       "groupId": "lp",
+       "iteration": 2
+      }
+     ],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.598Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "4d12345c-6fb2-4731-84f3-29cc64a4f737",
+     "startedAt": "2026-09-26T12:17:28.735Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.598Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.735Z",
+     "durationMs": 172
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "bash",
+    "duration_ms": 172,
+    "node_output": "lb-2",
+    "iteration": 2
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "be7ab1c0-1203-40fb-be5b-7c4ed6dfc8b8",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 625,
+   "event_type": "loop_iteration_completed",
+   "step_index": null,
+   "step_name": "lp",
+   "data": {
+    "iteration": 2,
+    "duration": 187,
+    "completionDetected": true,
+    "nodeId": "lp"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "0b435f1a-f708-45ab-99b0-bd8c28f5fcf8",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 626,
+   "event_type": "node_completed",
+   "step_index": null,
+   "step_name": "lp",
+   "data": {
+    "node": {
+     "id": "lp",
+     "kind": "loop_group"
+    },
+    "invocation": {
+     "id": "4be5d4ec-9e8b-4e3d-982c-632eb60e93a2",
+     "startedAt": "2026-09-26T12:17:28.436Z",
+     "loopPath": []
+    },
+    "attempt": {
+     "id": "740393e4-e300-44a1-a4c9-8bacf3550225",
+     "startedAt": "2026-09-26T12:17:28.437Z"
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.437Z",
+     "durationMs": 348
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "aggregate",
+    "type": "loop_group",
+    "duration_ms": 348,
+    "aggregate": true,
+    "node_output": "lb-2"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "5f0a58f1-a52d-4bc7-b948-3fb189b9a0b8",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 627,
+   "event_type": "node_started",
+   "step_index": null,
+   "step_name": "blk__inner",
+   "data": {
+    "node": {
+     "id": "blk__inner",
+     "kind": "exec",
+     "runtime": "sh"
+    },
+    "invocation": {
+     "id": "73fb6ce3-6120-4d9e-8d8c-51b01cb94e50",
+     "startedAt": "2026-09-26T12:17:28.787Z",
+     "loopPath": [],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.787Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "b0eb4328-ef31-4fe4-8b57-8ca7e5d7e616",
+     "startedAt": "2026-09-26T12:17:28.909Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.787Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.909Z"
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "bash"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "e4f172ac-679a-4a60-8ed4-2f9a8677728a",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 628,
+   "event_type": "node_completed",
+   "step_index": null,
+   "step_name": "blk__inner",
+   "data": {
+    "node": {
+     "id": "blk__inner",
+     "kind": "exec",
+     "runtime": "sh"
+    },
+    "invocation": {
+     "id": "73fb6ce3-6120-4d9e-8d8c-51b01cb94e50",
+     "startedAt": "2026-09-26T12:17:28.787Z",
+     "loopPath": [],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.787Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "b0eb4328-ef31-4fe4-8b57-8ca7e5d7e616",
+     "startedAt": "2026-09-26T12:17:28.909Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.787Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:28.909Z",
+     "durationMs": 140
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "bash",
+    "duration_ms": 140,
+    "node_output": "inner-out"
+   },
+   "created_at": "2026-09-26 12:17:28"
+  },
+  {
+   "id": "32cd5c74-fa08-4cba-9714-ec0535664535",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 629,
+   "event_type": "node_started",
+   "step_index": null,
+   "step_name": "sc",
+   "data": {
+    "node": {
+     "id": "sc",
+     "kind": "exec",
+     "runtime": "uv"
+    },
+    "invocation": {
+     "id": "9dfeb11d-1f45-452d-8d82-d7900796d16c",
+     "startedAt": "2026-09-26T12:17:28.930Z",
+     "loopPath": [],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.931Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "64be8da0-8e11-4e22-96dd-2453b6a5058d",
+     "startedAt": "2026-09-26T12:17:29.061Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.931Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:29.061Z"
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "script",
+    "runtime": "uv"
+   },
+   "created_at": "2026-09-26 12:17:29"
+  },
+  {
+   "id": "0cbca456-f79a-4b5c-a699-a4f8d5c8227c",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 630,
+   "event_type": "node_completed",
+   "step_index": null,
+   "step_name": "sc",
+   "data": {
+    "node": {
+     "id": "sc",
+     "kind": "exec",
+     "runtime": "uv"
+    },
+    "invocation": {
+     "id": "9dfeb11d-1f45-452d-8d82-d7900796d16c",
+     "startedAt": "2026-09-26T12:17:28.930Z",
+     "loopPath": [],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.931Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "64be8da0-8e11-4e22-96dd-2453b6a5058d",
+     "startedAt": "2026-09-26T12:17:29.061Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:28.931Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:29.061Z",
+     "durationMs": 195
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "script",
+    "runtime": "uv",
+    "duration_ms": 195,
+    "node_output": "{\"sc\": true}"
+   },
+   "created_at": "2026-09-26 12:17:29"
+  },
+  {
+   "id": "4ded80a1-efde-46d9-bb96-c5562e16a047",
+   "workflow_run_id": "1c32156a-8112-4ff3-8d87-bfb1772d93a6",
+   "event_order": 631,
+   "event_type": "node_started",
+   "step_index": null,
+   "step_name": "probe",
+   "data": {
+    "node": {
+     "id": "probe",
+     "kind": "exec",
+     "runtime": "uv"
+    },
+    "invocation": {
+     "id": "70c87ac3-8e3c-4278-8793-a97bc4def6f5",
+     "startedAt": "2026-09-26T12:17:29.128Z",
+     "loopPath": [],
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:29.128Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "attempt": {
+     "id": "d9b84926-40c7-49a4-97e8-d3b135794d98",
+     "startedAt": "2026-09-26T12:17:29.268Z",
+     "checkoutStart": {
+      "kind": "git",
+      "sampledAt": "2026-09-26T12:17:29.128Z",
+      "commit": "e1746e2c9814f6f7b63b18040b7b26245401dadf",
+      "tree": "bbaa63734a5ffc6b99794b37d9de071b5ae898a5",
+      "worktree": {
+       "status": "clean"
+      }
+     }
+    },
+    "binding": {},
+    "timing": {
+     "startedAt": "2026-09-26T12:17:29.268Z"
+    },
+    "spend": {
+     "tokens": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "costUsd": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "stopReason": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     },
+     "numTurns": {
+      "source": "unavailable",
+      "reason": "not_applicable"
+     }
+    },
+    "accounting": "node",
+    "type": "script",
+    "runtime": "uv"
+   },
+   "created_at": "2026-09-26 12:17:29"
+  }
+ ]
+}

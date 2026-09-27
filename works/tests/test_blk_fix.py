@@ -33,6 +33,7 @@ sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(CORE / "graphloops"))
 sys.path.insert(0, str(TESTS))
 
+import adapter  # noqa: E402
 from accept import role_schema  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import engine.util as engine_util  # noqa: E402
@@ -506,23 +507,42 @@ class TestRecount(BoardCase):
         self.assertTrue(got["ok"], got)
         self.assertEqual(entry.open_board(self.board).record["process"]["human_items"], items)
 
-    def test_wrote_refs_reads_from_board(self):
-        """盤面に reads.jsonl（包みのフックの実物の行の形）を置く → 数え直しの wrote_refs_reads の state が read。無ければ none"""
+    def wrote_refs_state(self, hook):
+        """修正を受けた盤面で、test_stats.py を指す wrote_refs の読了の状態（hook(target) が読んだ記録を置く）"""
         self.fix_ready()
         self.edit_tree(FIXED)
         target = self.repo / "test_stats.py"
-        raw = target.read_bytes()
-        row = {"ts": "2026-09-27T10:00:00", "session_id": "s-12", "agent_id": None, "path": os.path.realpath(target),
-               "file_sha": hashlib.sha256(raw).hexdigest(), "bytes": len(raw), "partial": False, "partial_why": None,
-               "tool_use_id": "toolu_12"}
+        hook(target)
         reply = load("fix2_ok")
         reply["wrote_refs"] = [{"kind": "text", "cite": "def test_clamp_above_range", "target": "test_stats.py",
                                 "where": "stats.py"}]
-        (self.board / "reads.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
         got = self.accept(reply)
         self.assertTrue(got["ok"], got)
         reads = entry.open_board(self.board).loop_state["wrote_refs_reads"]
-        self.assertEqual([(r["target"], r["state"]) for r in reads["items"]], [("test_stats.py", "read")])
+        return [(r["target"], r["state"]) for r in reads["items"]]
+
+    def test_wrote_refs_reads_from_adapter_home(self):
+        """包みのフック（record-read.py を実物で起こす）が包みの置き場 adapter.reads_dir(run の worktree) に書いた記録を、
+        数え直しの wrote_refs_reads が読む（entry が写しの RL の hook_evidence の置き場を差し替える。Task 6 の直し 1）"""
+        def hook(target):
+            sink = adapter.reads_dir(self.repo)
+            sink.mkdir(parents=True, exist_ok=True)
+            payload = {"tool_name": "Read", "tool_input": {"file_path": str(target)}, "cwd": str(self.repo),
+                       "session_id": "s-12", "tool_use_id": "toolu_12"}
+            subprocess.run([sys.executable, str(CORE / "record-read.py"), str(sink)], input=json.dumps(payload),
+                           text=True, check=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(self.wrote_refs_state(hook), [("test_stats.py", "read")])
+
+    def test_wrote_refs_reads_ignores_board_log(self):
+        """盤面の置き場にだけ reads.jsonl（実物の行の形）が在っても数えない（誰も書かない場所。包みの置き場に記録が無ければ none）"""
+        def hook(target):
+            raw = target.read_bytes()
+            row = {"ts": "2026-09-27T10:00:00", "session_id": "s-12", "agent_id": None, "path": os.path.realpath(target),
+                   "file_sha": hashlib.sha256(raw).hexdigest(), "bytes": len(raw), "partial": False, "partial_why": None,
+                   "tool_use_id": "toolu_12"}
+            (self.board / "reads.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+        self.assertEqual(self.wrote_refs_state(hook), [("test_stats.py", "none")])
+
 
 class TestAccept(BoardCase):
     """受け付けのスクリプト（blk-fix の節 fix-accept）を子で起こす。script_io.main と同じ環境変数の約束"""
