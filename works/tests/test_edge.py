@@ -1,4 +1,4 @@
-"""境の節の芯（.shared/core/halt.py の edge・plan.py の gate_text・darkfactory/scripts/edge.py）の検査（線 A の仕様 2 節・
+"""境の節の芯（darkfactory/lib/line_edge.py の edge・darkfactory/lib/plan.py の gate_text・darkfactory/scripts/edge.py）の検査（線 A の仕様 2 節・
 計画 Task 10a・裁定 TA1・TA4）。止め札の置き方そのもの（halt.place・seen・over・dev/stop.sh）は test_halt.py。
 
 盤面は linekit の種で start → 見本の返答を entry.take で進めて作る（役の返答の前に起こした印を置く。盤面の決まり 2）。
@@ -23,6 +23,7 @@ TESTS = pathlib.Path(__file__).resolve().parent
 ROOT = TESTS.parent
 CORE = ROOT / ".shared" / "core"
 sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
 sys.path.insert(0, str(CORE))
 sys.path.insert(0, str(TESTS))
 
@@ -30,6 +31,7 @@ from board import GRAPH_SHA, BoardGap, DiskBoard, NodeTable, graph_expanded  # n
 import engine.util as engine_util  # noqa: E402  （board が写しの graphloops を sys.path に足す）
 import entry  # noqa: E402
 import halt  # noqa: E402
+import line_edge  # noqa: E402
 import linekit  # noqa: E402
 import plan  # noqa: E402
 
@@ -153,7 +155,7 @@ class EdgeBase(unittest.TestCase):
     def edge(self, at, **kw):
         kw.setdefault("mid_gate", "always")
         kw.setdefault("adapter_mode", "")
-        return halt.edge(self.board, at, self.repo, run_id=RUN_ID, **kw)
+        return line_edge.edge(self.board, at, self.repo, run_id=RUN_ID, **kw)
 
     def state(self):
         return json.loads((self.board / "state.json").read_text(encoding="utf-8"))
@@ -172,7 +174,7 @@ class GateCase(EdgeBase):
         self.assertIn(f'archon workflow respond {RUN_ID} stop "<理由>"', text)
         self.assertIn(f"archon workflow reject {RUN_ID} --reason", text)
         b = entry.open_board(self.board)
-        self.assertEqual(b.work(halt.GATE_FILE).read_text(encoding="utf-8"), text)
+        self.assertEqual(b.work(line_edge.GATE_FILE).read_text(encoding="utf-8"), text)
         self.assertEqual(text, plan.gate_text(b.state["pending_human"], run_id=RUN_ID))
 
     def test_gate_not_asking_leaves_closed(self):
@@ -180,7 +182,7 @@ class GateCase(EdgeBase):
         self.planned(review=CLEAN_REVIEW)
         got = self.edge("gate")
         self.assertEqual((got["ask"], got["gate_text"], got["stop"]), (False, "", False))
-        self.assertFalse(entry.open_board(self.board).work(halt.GATE_FILE).exists())
+        self.assertFalse(entry.open_board(self.board).work(line_edge.GATE_FILE).exists())
 
     def test_gate_text_without_run_id(self):
         text = plan.gate_text({"node": "p2.human_gate", "kinds": ["policy"], "question": "問い", "items": ["一"]})
@@ -227,7 +229,7 @@ class GateCase(EdgeBase):
         st = self.state()
         self.assertEqual((st["halted"]["by"], st["halted"]["reason"]), ("answer", "y"))
         self.assertEqual(entry.open_board(self.board, allow_halted=True).record["process"]["human_items"][-1]["answer"], "stop")
-        for at in halt.AT:
+        for at in line_edge.AT:
             with self.subTest(at=at):
                 got = self.edge(at, mid={"ok": True, "green": False, "log": "x"} if at == "midgate" else None)
                 self.assertEqual((got["stop"], got["go"], got["ask"]), (True, False, False))
@@ -237,7 +239,7 @@ class GateCase(EdgeBase):
         got = self.edge("fix", gate={"decision": "stop", "text": "  "})
         self.assertTrue(got["stop"])
         self.assertEqual(self.state()["halted"]["by"], "answer")
-        self.assertEqual(got["why"], halt.GATE_STOP_NOTE)
+        self.assertEqual(got["why"], line_edge.GATE_STOP_NOTE)
 
     def test_gate_note_roundtrip(self):
         """一言に引用符・改行・$(・日本語 → human_items の note と notes が 1 バイトも同じ"""
@@ -279,7 +281,7 @@ class MidGateCase(EdgeBase):
         red = {**green, "green": False}
         broken = {"ok": False, "green": False, "log": log, "reason": "宣言が読めない"}
         b = entry.open_board(self.board)
-        page = b.work(halt.MID_GATE_FILE)
+        page = b.work(line_edge.MID_GATE_FILE)
         got = self.edge("midgate", mid=green, mid_gate="always")
         self.assertEqual((got["ask"], got["stop"], got["go"]), (True, False, False))
         text = got["gate_text"]
@@ -307,21 +309,21 @@ class MidGateCase(EdgeBase):
         got = self.edge("review", gate={"decision": "stop", "text": "z"})
         self.assertEqual((got["stop"], got["go"], got["why"]), (True, False, "z"))
         st = self.state()
-        self.assertEqual((st["stop"]["by"], st["stop"]["reason"]), (halt.MID_GATE_BY, "z"))
+        self.assertEqual((st["stop"]["by"], st["stop"]["reason"]), (line_edge.MID_GATE_BY, "z"))
         self.assertTrue(self.edge("refix")["stop"])
 
     def test_mid_gate_reject_without_text(self):
         self.fixed()
         got = self.edge("review", gate={"decision": "reject"})
         self.assertTrue(got["stop"])
-        self.assertEqual(self.state()["stop"]["reason"], halt.MID_GATE_STOP_NOTE)
+        self.assertEqual(self.state()["stop"]["reason"], line_edge.MID_GATE_STOP_NOTE)
 
     def test_mid_gate_continue_goes_to_review(self):
         """at review・gate continue → mid-gate-answer.json に {decision, text}、go は p3.delta_review の ready"""
         self.fixed()
         got = self.edge("review", gate={"decision": "approve", "text": ODD_NOTE})
         self.assertEqual((got["go"], got["stop"]), (True, False))
-        doc = json.loads(entry.open_board(self.board).work(halt.MID_GATE_ANSWER).read_text(encoding="utf-8"))
+        doc = json.loads(entry.open_board(self.board).work(line_edge.MID_GATE_ANSWER).read_text(encoding="utf-8"))
         self.assertEqual(doc, {"decision": "approve", "text": ODD_NOTE})
 
 
@@ -334,19 +336,19 @@ class StopFlagCase(EdgeBase):
                                         "judgment_file": "/j.json", "one_shot": "x"})
         self.assertEqual((got["stop"], got["go"], got["why"]), (True, False, "依頼が変わった"))
         st = self.state()
-        self.assertEqual((st["stop"]["reason"], st["stop"]["by"]), ("依頼が変わった", halt.FLAG_BY_PREFIX + "alice"))
-        rows = trace_rows(self.board, halt.FLAG_SEEN_OP)
+        self.assertEqual((st["stop"]["reason"], st["stop"]["by"]), ("依頼が変わった", line_edge.FLAG_BY_PREFIX + "alice"))
+        rows = trace_rows(self.board, line_edge.FLAG_SEEN_OP)
         self.assertEqual([(r["at"], r["reason"], r["by"]) for r in rows], [("plan", "依頼が変わった", "alice")])
         for at in ("gate", "fix", "tests"):   # 以後の境の節も stop。STOP は同じ理由なので trace に積み増さない
             self.assertTrue(self.edge(at)["stop"])
-        self.assertEqual(trace_rows(self.board, halt.AFTER_HALT_OP), [])
+        self.assertEqual(trace_rows(self.board, line_edge.AFTER_HALT_OP), [])
 
     def test_unreadable_flag_still_stops(self):
         self.judged()
         (self.board / halt.STOP_FILE).write_text("手で置いた", encoding="utf-8")
         got = self.edge("fix")
         self.assertTrue(got["stop"])
-        self.assertEqual(self.state()["stop"]["by"], halt.FLAG_BY_PREFIX + halt.HAND_PLACED_BY)
+        self.assertEqual(self.state()["stop"]["by"], line_edge.FLAG_BY_PREFIX + halt.HAND_PLACED_BY)
 
     def test_stop_flag_and_gate_stop_first_wins(self):
         """関所の stop と STOP が同じ edge に在る → 関所の答えが先に盤面に入り、STOP の理由は trace だけ、Reject を出さない"""
@@ -357,7 +359,7 @@ class StopFlagCase(EdgeBase):
         st = self.state()
         self.assertEqual((st["halted"]["by"], st["halted"]["reason"]), ("answer", "関所の理由"))
         self.assertNotIn("stop", st)
-        rows = trace_rows(self.board, halt.AFTER_HALT_OP)
+        rows = trace_rows(self.board, line_edge.AFTER_HALT_OP)
         self.assertEqual([(r["reason"], r["by"], r["at"]) for r in rows], [("札の理由", "alice", "fix")])
 
     def test_stop_flag_after_continue_still_stops(self):
@@ -379,7 +381,7 @@ class StopFlagCase(EdgeBase):
             for _ in range(2):
                 got = self.edge("fix")
                 self.assertEqual((got["stop"], got["go"], got["why"]), (True, False, "先に止めた"))
-        rows = trace_rows(self.board, halt.AFTER_HALT_OP)
+        rows = trace_rows(self.board, line_edge.AFTER_HALT_OP)
         self.assertEqual([(r["reason"], r["by"], r["at"]) for r in rows], [("後から置いた", "bob", "fix")])
 
     def test_halted_board_without_flag_writes_nothing(self):
@@ -421,7 +423,7 @@ class GoCase(EdgeBase):
             st = json.loads((board_dir / "state.json").read_text(encoding="utf-8"))
             st["works"].update(line=table.line, table_sha=table.sha())
             (board_dir / "state.json").write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            got = halt.edge(board_dir, "fix", repo, run_id=RUN_ID, adapter_mode="", mid_gate="always")
+            got = line_edge.edge(board_dir, "fix", repo, run_id=RUN_ID, adapter_mode="", mid_gate="always")
         self.assertEqual(entry.open_board(board_dir).round, 2)
         self.assertEqual(got["plan_file"], str(board_dir / "out" / "r2" / "p2.fix_plan.json"))
 
@@ -434,7 +436,7 @@ class GoCase(EdgeBase):
         self.assertEqual((got["go"], got["stop"]), (True, False))
         want = (judged["judgment_file"], json.dumps(judged["open_units"], ensure_ascii=False))
         self.assertEqual((got["judgment_file"], got["open_units"]), want)
-        self.assertEqual(json.loads(entry.open_board(self.board).work(halt.JUDGED_FILE).read_text(encoding="utf-8")), judged)
+        self.assertEqual(json.loads(entry.open_board(self.board).work(line_edge.JUDGED_FILE).read_text(encoding="utf-8")), judged)
         for at in ("gate", "fix", "tests"):
             with self.subTest(at=at):
                 got = self.edge(at)
@@ -466,16 +468,16 @@ class GoCase(EdgeBase):
         self.assertFalse(self.edge("mid")["go"])
         self.take("p3.fix", entry.empty_fix_reply())
         b = entry.open_board(self.board)
-        halt.trace_empty_fix(b)
+        line_edge.trace_empty_fix(b)
         self.assertEqual(b.node_state("p3.fix"), "done")
         self.assertFalse(self.edge("mid")["go"])
         self.assertTrue(self.edge("tests")["go"])
-        rows = [r for r in trace_rows(self.board) if r.get("by") == halt.EMPTY_FIX_BY]
+        rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
         self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
 
     def test_every_at_returns_all_fields(self):
         self.judged()
-        for at in halt.AT:
+        for at in line_edge.AT:
             with self.subTest(at=at):
                 got = self.edge(at)
                 self.assertEqual(set(got), OUT_KEYS)

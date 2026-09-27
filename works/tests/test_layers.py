@@ -46,7 +46,6 @@ MOD = {
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
     "refix": (3, None), "recount": (3, None),
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
-    "plan": (6, "darkfactory"),
 }
 # 共有の模块の中に居る上の層の名前（割る前の当座。V2）: 模块 → (層, 持ち主, 名前の組)
 PARTS = {
@@ -71,7 +70,6 @@ PLANNED_SCRIPTS = frozenset({
 KNOWN = {
     "name entry:LINE 'darkfactory'": "V2",
     "name entry:ORIGIN 'works/darkfactory'": "V2",
-    "up halt -> plan": "V4",
     "name recount:READS 'fixing'": "V5",
     "name refix:READS 'reviewing'": "V6",
     "name refix:READS 'refixing'": "V6",
@@ -155,6 +153,8 @@ class Pack:
                 continue
             layer, owner = self.mod[key]
             self.units.append(Unit(p, key, layer, owner, name))
+        for key in sorted(set(self.mod) - {u.id for u in self.units}):
+            self._hit(f"mod-gone {key}", "MOD から消す（core に無い）")
         for kind, names, mod_layer, node_layer in (("blk", self.blocks, 4, 5), ("line", self.lines, 6, 7)):
             for owner in names:
                 for p in sorted((self.root / owner).rglob("*.py")):
@@ -239,7 +239,7 @@ class Pack:
                 self._hit(f"private {u.id} -> {t.id}", at)
 
     def _part(self, u, mod, attr, at):
-        layer, owner, names = self.parts[mod]
+        _layer, owner, names = self.parts[mod]
         if attr in names and u.name != mod and u.owner != owner and u.layer:
             self._hit(f"up {u.id} -> {mod}.{attr}", at)
 
@@ -493,6 +493,10 @@ class CheckerCase(unittest.TestCase):
         self.assertIn("unassigned stray", new)
         self.assertIn("unresolved blk-a/scripts/s nowhere", new)
         self.assertIn("yaml-include blk-b -> blk-a", new)
+
+    def test_mod_row_without_module_is_red(self):
+        self.mod["moved"] = (3, None)
+        self.assertEqual(self.found()[0], ["mod-gone moved"])
 
     def test_known_row_left_after_fix_is_red(self):
         self.assertEqual(self.found(known=["up base -> shared"]), ([], ["up base -> shared"]))
