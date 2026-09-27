@@ -3,12 +3,12 @@
 1〜5 段は盤面の層の run_engine が写しの parallel-pr.py を走らせ（prcheck.run_helper）、任せ先に落ちた時だけ読むだけの役
 pr-check（ブロック blk-pr）が 6 段をする。申し送りは投稿せず、下書きを conflicts[].note に書き handed_over を false で返す。
 
-盤面は使い捨てのリポジトリに DiskBoard.create で作る判定から入る run（依頼 2 件）。節の表は線 A の表に似せた試験の表
-（LINE_TABLE。線 A の nodes.json は Task 3 の物で、この枝にはまだ無い）。本物の gh・GitHub・網には触らない:
+盤面は本物のラインと同じ道で作る: 使い捨てのリポジトリに、1 本目のラインの本物の表（darkfactory/nodes.json。entry.load_table）で
+DiskBoard.begin（判定から入る run。依頼 2 件）→ Progress.run_engine の節を run_engine（p0.parallel_pr は run_helper に残す）
+→ settle。盤面は本物の entry.open_board で開く（prcheck の既定の口）。本物の gh・GitHub・網には触らない:
 PATH の頭に偽の gh（何を打っても exit 9）を置き、engine の helper は偽の runner で差す。
 """
 import ast
-import dataclasses
 import hashlib
 import importlib.util
 import json
@@ -28,7 +28,8 @@ PACK = HERE.parent
 sys.path.insert(0, str(HERE))
 
 import boardreplay as R  # noqa: E402  （board と写しの engine を sys.path に足す）
-from board import GRAPH_PATH, GRAPH_SHA, BoardGap, DiskBoard, NodeEntry, NodeTable  # noqa: E402
+from board import GRAPH_PATH, BoardGap, DiskBoard  # noqa: E402
+import entry  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from accept import role_schema  # noqa: E402
@@ -39,25 +40,6 @@ BLOCK = PACK / "blk-pr"
 SCRIPTS = BLOCK / "scripts"
 GRAPH = json.loads(GRAPH_PATH.read_text(encoding="utf-8"))
 
-# 線 A の表（Task 3 の nodes.json）に似せた試験の表: 役・機械・engine_run の節だけを持ち、他の役の節は absent。
-# 違う所: p0.premises は absent（blk-premises は別の作業）、p0.purpose は role（absent にすると、p0.premises の後に
-# p0.purpose_review の条件 purpose_review_due が out.p0.purpose.source を引けずに die する。報告の気がかり）
-KEEP = {"p0.base": dict(by="machine"), "p0.local_checks": dict(by="engine_run", fallback="machine"),
-        "p0.parallel_pr": dict(by="engine_run", fallback="role"), "p0.purpose": dict(by="role"),
-        "p2.diagnose": dict(by="role"), "p2.fix_plan": dict(by="role"), "p2.plan_review": dict(by="role"),
-        "p3.fix": dict(by="role"), "p3.delta_review": dict(by="role"), "p3.delta_fix": dict(by="role"),
-        "p3.delta_review2": dict(by="role"), "p3.delta_fix2": dict(by="role"),
-        "p4.ci": dict(by="engine_run", fallback="machine")}
-
-
-def line_table():
-    full = NodeTable.everything(GRAPH, GRAPH_SHA)
-    nodes = {nid: NodeEntry(**KEEP[nid]) if nid in KEEP else e if e.by == "builtin"
-             else NodeEntry(by="absent", reason="試験の表", comes_with="試験") for nid, e in full.nodes.items()}
-    return dataclasses.replace(full, nodes=nodes, line="darkfactory")
-
-
-LINE_TABLE = line_table()
 REQUEST = json.loads((REPLIES / "request_ok.json").read_text(encoding="utf-8"))
 GREEN = {"suite": [{"name": "suite", "argv": [sys.executable, "-c", "print('1 passed')"]}]}
 
@@ -66,8 +48,12 @@ def reply(name):
     return json.loads((REPLIES / name).read_text(encoding="utf-8"))
 
 
+LINE = "darkfactory"
+
+
 def opener(d, **kw):
-    return DiskBoard.open(d, table=LINE_TABLE, **kw)
+    """本物のラインが盤面を開く口（prcheck の既定と同じ entry.open_board）"""
+    return entry.open_board(d, **kw)
 
 
 def board_shas(d):
@@ -135,7 +121,7 @@ class PrCase(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True).stdout
 
     def build(self, root):
-        """p0.parallel_pr が待っている盤面を root に作る（判定から入る run。p0.base・p0.local_checks・p0.purpose は済み）"""
+        """p0.parallel_pr が待っている盤面を root に作る（判定から入る run。p0.base・p0.local_checks は済み、p0.premises は待ち）"""
         self.repo, self.art = root / "repo", root / "art"
         self.repo.mkdir(parents=True)
         self.git("init", "-q")
@@ -144,18 +130,17 @@ class PrCase(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "seed")
         self.git("remote", "add", "origin", GITHUB)
-        b = DiskBoard.create(self.art / "board", repo=self.repo, table=LINE_TABLE, inputs={}, request_text="依頼")
-        b.add_request(REQUEST, "works/darkfactory")
-        b.settle()
-        head = self.git("rev-parse", "HEAD").strip()
-        b.done("p0.base", {"base_sha": head, "method": "4 依頼者の名指し", "commits": 0, "merge_commit": False,
-                           "intent_to_add": [], "touches_gates": False, "touches_external_seams": False,
-                           "touches_user_path": False, "touches_security_surface": False,
-                           "material": {"status": "clean", "checked": "試験"}})
-        self.assertTrue(b.run_engine("p0.local_checks")["ok"])
-        b.done("p0.purpose", {"purpose_text": "依頼の 2 件を直す", "source": "①PR 説明", "known_weaknesses": [],
-                              "source_files": []})
-        self.assertIn(prcheck.NODE, b.settle()["ready"])
+        table = entry.load_table(LINE)
+        b, p = DiskBoard.begin(self.art / "board", repo=self.repo, table=table, items=REQUEST, origin="works/darkfactory",
+                               base_rev="", request_text="依頼", stop_after_round=1, **entry.hook_kwargs(LINE, table))
+        # ラインの約束 1: Progress.run_engine の節を全部走らせて settle、を空になるまで（p0.parallel_pr は start が run_helper で回す）
+        while [n for n in p["run_engine"] if n != prcheck.NODE]:
+            for nid in p["run_engine"]:
+                if nid != prcheck.NODE:
+                    self.assertTrue(b.run_engine(nid)["ok"], nid)
+            p = b.settle()
+        self.assertEqual(p["run_engine"], [prcheck.NODE])
+        self.assertIn(prcheck.NODE, p["ready"])
 
     def restore(self, kind):
         """盤面の種（ready: p0.parallel_pr が待っている・fallen: engine が交差 1 件を見て任せ先に落ちた）を、1 度だけ作って
@@ -284,11 +269,11 @@ def load_script(name):
     return mod
 
 
-def run_script(name, env):
+def run_script(name, env, cwd=None):
     full = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
     full.update(env, PYTHONDONTWRITEBYTECODE="1")
     return subprocess.run([sys.executable, str(SCRIPTS / f"{name}.py")], env=full, capture_output=True, text=True,
-                          encoding="utf-8", stdin=subprocess.DEVNULL)
+                          encoding="utf-8", stdin=subprocess.DEVNULL, cwd=str(cwd) if cwd else None)
 
 
 class AcceptCase(PrCase):
@@ -328,15 +313,18 @@ class AcceptCase(PrCase):
         self.assertEqual(board_shas(b.dir), before)
 
     def test_handover_draft_accepted(self):
-        """handed_over false・note つき → 通る。P1 の na が付き（consistency_bypass は p0.parallel_pr に依存）、p2.diagnose へ進む"""
+        """handed_over false・note つき → 通る。節は済み、ラインの次の段（前提の実測 p0.premises）が待つ。
+        p1.consistency_bypass（p0.parallel_pr に依存する P1 の節）の依存で残るのは、前提の後に表の absent で済む p0.purpose だけ"""
         b = self.fallen()
         prcheck.snapshot(b.dir, self.repo, opener=opener)
         got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
         self.assertEqual({k: got[k] for k in ("ok", "reason", "ready", "asking", "halted")},
-                         {"ok": True, "reason": "", "ready": ["p2.diagnose"], "asking": False, "halted": False})
+                         {"ok": True, "reason": "", "ready": ["p0.premises"], "asking": False, "halted": False})
         self.assertTrue((b.dir / got["out_file"]).is_file())
         b2 = opener(b.dir)
-        self.assertIn("p1.consistency_bypass", b2.rd["na"])
+        self.assertEqual(b2.node_state(prcheck.NODE), "done")
+        wait = [d for d in GRAPH["nodes"]["p1.consistency_bypass"]["deps"] if b2.node_state(d) == "pending"]
+        self.assertEqual(wait, ["p0.purpose"])
         self.assertEqual(b2.record["process"]["parallel_pr"]["conflicts"][0]["note"], reply("pr_ok.json")["conflicts"][0]["note"])
         self.assertEqual(b2.record["materials"]["parallel_pr"]["status"], "found")
         self.assertNotIn("excluded", json.loads((b.dir / got["out_file"]).read_text(encoding="utf-8")))
@@ -512,6 +500,19 @@ class SnapCollectCase(PrCase):
         self.assertEqual(brief["fallback"], b.rd["instances"][prcheck.NODE]["engine_fallback"])
         self.assertEqual(brief["node"], prcheck.NODE)
 
+    def test_snapshot_marks_launched(self):
+        """pr-snap は役を起こす前の最後の節なので、起こした印（mark_launched。盤面の T8 の決まり）を今の試行に置き、試行と
+        役が書く置き場を返す。2 度呼んでも印は同じ（Archon の再開で pr-snap が走り直しても）"""
+        b = self.fallen()
+        attempt = b.rd["instances"][prcheck.NODE]["attempts"]
+        got = prcheck.snapshot(b.dir, self.repo)
+        inst = opener(b.dir).rd["instances"][prcheck.NODE]
+        self.assertTrue(inst.get("launched_at"))
+        self.assertEqual((got["attempt"], got["out_path"]), (attempt, inst["out_path"]))
+        again = prcheck.snapshot(b.dir, self.repo)
+        self.assertEqual(opener(b.dir).rd["instances"][prcheck.NODE]["launched_at"], inst["launched_at"])
+        self.assertEqual(again["attempt"], attempt)
+
     def test_snapshot_refuses_when_not_fallen(self):
         """任せ先に落ちていない節に pr-snap → BoardGap（start が pr_go を偽にした run では blk-pr を開かない）"""
         b = self.pr_ready()
@@ -538,6 +539,23 @@ class SnapCollectCase(PrCase):
         """受けていない盤面の collect は ok false（件数は 0・パスは空）"""
         got = prcheck.collect(self.fallen().dir, opener=opener)
         self.assertEqual((got["ok"], got["conflicts"], got["excluded_file"]), (False, 0, ""))
+
+    def test_scripts_success_path(self):
+        """本物の entry.open_board で、スクリプトを子で起こす: pr-snap → pr-accept（cwd は対象のリポジトリ）→ collect が
+        ok true・drafts 1・excluded 1 を 1 行で出す"""
+        b = self.fallen()
+        env = {"ARTIFACTS_DIR": str(self.art)}
+        r = run_script("snap", env, cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(json.loads(r.stdout)["ok"])
+        r = run_script("accept", {**env, "INPUTS_REPLY": json.dumps(reply("pr_ok.json"))}, cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)["ready"], ["p0.premises"])
+        r = run_script("collect", env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["ok"], got["drafts"], got["excluded"]), (True, 1, 1))
+        self.assertTrue(pathlib.Path(got["excluded_file"]).is_file())
 
     def test_collect_script_wiring_errors(self):
         """集める節のスクリプト: ARTIFACTS_DIR が無い・盤面を開けない → 2、標準出力は空"""

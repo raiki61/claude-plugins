@@ -5,7 +5,7 @@
    "p0.premises":             {"by": "role", "where": "blk-premises", "reason": "判定の前に 1 度。依頼の measured を作業ツリーで測り直す（持ち主の答え 2026-09-27）"},
    "p0.purpose":              {"by": "absent", "reason": "目的の文は線 B の blk-purpose で入る。線 A のラインへの取り込みは未定（持ち主の答え 2026-09-27）", "comes_with": "線 B（blk-purpose）"},
    "p0.purpose_review":       {"by": "absent", "reason": "目的の文（p0.purpose）の審査。目的の文と一緒に線 B の blk-purpose で入る。線 A のラインへの取り込みは未定", "comes_with": "線 B（blk-purpose）"},
-   "p0.parallel_pr":          {"by": "engine_run", "fallback": "role", "where": "start", "reason": "start が run_engine で走らせる。任せ先に落ちたら blk-pr の読むだけの役が 6 段をし、申し送りは下書きを報告に載せ、gh に投稿しない（持ち主の答え 2026-09-27）"},
+   "p0.parallel_pr":          {"by": "engine_run", "fallback": "role", "where": "start", "reason": "start が run_engine で走らせる。任せ先に落ちたら blk-pr の読むだけの役が 6 段をし、衝突した hunk は本ループのスコープから外す（pr-excluded.json。後の役に触らせない）。申し送りは下書きを報告に載せ、gh に投稿しない（持ち主の答え 2026-09-27）"},
    "p0.prior_decisions":      {"by": "absent", "reason": "前の決定の読み出し。目的の文と一緒に線 B の blk-purpose で入る。線 A のラインへの取り込みは未定", "comes_with": "線 B（blk-purpose）"},
    "p1.worktree_before":      {"by": "builtin"},
    "p1.local_review":         {"by": "absent", "reason": "P1 の目はこのラインに無い。判定から入る 1 周目は条件でも na", "comes_with": "P1 の目のブロック（未定。重厚の段で足す）"},

@@ -198,7 +198,8 @@ def snapshot(board_dir, repo, *, opener=None) -> dict:
     """pr-snap: 任せ先の役を起こす前に、作業ツリーの写し（SNAPSHOT）と役への渡し物（BRIEF）を今の周の作業ファイルに書く。
     渡し物は {node, cwd, base, changed_files, request_wheres, fallback}——changed_files は engine の helper と同じ集合
     （写しの RL の _pr_files。差分が空なら依頼の where が名指す追跡中のパス）。任せ先に落ちていない節には BoardGap
-    （pr_go が偽の run では blk-pr を開かない）。返り {ok, snapshot_file, brief_file}"""
+    （pr_go が偽の run では blk-pr を開かない）。最後に起こした印（mark_launched）を今の試行に置く。
+    返り {ok, snapshot_file, brief_file, attempt, out_path}"""
     b = (opener or open_board)(board_dir)
     inst = _waiting(b)
     if inst is None or not inst.get("engine_fallback"):
@@ -209,7 +210,10 @@ def snapshot(board_dir, repo, *, opener=None) -> dict:
              "request_wheres": b.rules.request_wheres(b), "fallback": inst["engine_fallback"]}
     snap = _write(b.work(SNAPSHOT), _tree_state(repo))
     out = _write(b.work(BRIEF), brief)
-    return {"ok": True, "snapshot_file": str(snap), "brief_file": str(out)}
+    # pr-snap は役を起こす前の最後の節: 起こした印を今の試行に置く（盤面のラインの約束 2。印の無い試行の返答は done が受けない）。
+    # 同じ試行への 2 度目は前の印を返す（Archon の再開で pr-snap が走り直しても）
+    m = b.mark_launched(NODE, inst.get("attempts", 1))
+    return {"ok": True, "snapshot_file": str(snap), "brief_file": str(out), "attempt": m["attempt"], "out_path": m["out_path"]}
 
 
 def take(board_dir, reply: dict, repo, *, opener=None) -> dict:

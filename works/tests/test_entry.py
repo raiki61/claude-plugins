@@ -75,6 +75,7 @@ class TableCase(unittest.TestCase):
         self.assertEqual(pr.where, "start")
         self.assertIn("blk-pr", pr.reason)
         self.assertIn("投稿しない", pr.reason)
+        self.assertIn("スコープから外す", pr.reason)   # review-graph の 6 段と同じく、衝突した hunk はこのループで触らない（Task 21）
         for nid in ("p2.rejudge", "p2.rejudge_third"):
             with self.subTest(nid):
                 self.assertEqual(self.nodes[nid].by, "role")
