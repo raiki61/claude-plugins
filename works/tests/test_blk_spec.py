@@ -7,7 +7,7 @@ Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）の子のプロ
 
 - YAML の形: 3 つの役の輪（書く・審査・直す）は、盤面の ready だけで回すかを決める route の後ろに置き、輪は fresh_context・
   上限は GIVE_UP_AFTER・until_bash は受け付けの done（R50）。役の output_format は写しの schema に印 works-node: spec-<役>。
-  人の関所 spec-gate は線 A の policy-gate と同じ形（decisions: approve・continue・stop・reject、文は halt.edge の at gate の gate_text）
+  人の関所 spec-gate は線 A の policy-gate と同じ形（decisions: approve・continue・stop・reject、文は境の節の at gate と同じ手順の gate_text）
 - 指示書: blk-spec/prompts/ は本線 a1202d0 の指示書のバイト単位の写しで、engine と同じ描き方（Renderer と reads）で描く
 - 筋書き: 書く → 審査（穴 1 件）→ 直す → 関所 → 固める。穴が無ければ直す役を飛ばす。関所の stop・輪の諦め・読むだけの役の変化・
   止め札・仕様の道でない run
@@ -163,7 +163,7 @@ class YamlCase(unittest.TestCase):
             self.assertIn("テストのファイルだけ", (BLK / "commands" / f"spec-{role}.md").read_text(encoding="utf-8"))
 
     def test_gate_is_policy_gate_shape(self):
-        """人の関所は線 A の policy-gate と同じ形: 文は halt.edge（at gate）の gate_text、答えの語は halt の GATE_GO・GATE_STOP、
+        """人の関所は線 A の policy-gate と同じ形: 文は境の節の at gate と同じ手順の gate_text、答えの語は GATE_GO・GATE_STOP、
         答えは次の script の節が with: で受けて盤面の answer に渡す"""
         ask, gate, ans, col = (self.top[k] for k in ("spec-ask", "spec-gate", "spec-answer", "collect"))
         self.assertEqual(ask["script"], "ask")
@@ -173,13 +173,23 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(gate["when"], "$spec-ask.output.ask == true")
         ap = gate["approval"]
         self.assertIn("$spec-ask.output.gate_text", ap["message"])
-        self.assertEqual([d["id"] for d in ap["decisions"]], list(halt.GATE_GO + halt.GATE_STOP))
+        self.assertEqual([d["id"] for d in ap["decisions"]], list(self.L.GATE_GO + self.L.GATE_STOP))
         self.assertNotIn("capture_response", ap, "decisions を書いた関所の出口はいつも {decision, text}（古い鍵は書かない）")
         self.assertEqual(ans["script"], "answer")
         self.assertEqual(ans["depends_on"], ["spec-ask", "spec-gate"])
         self.assertEqual(ans["trigger_rule"], "none_failed_min_one_success")
         self.assertEqual(ans["with"], {"gate": {"from": "$spec-gate.output", "if_skipped": None}})
         self.assertEqual(col["depends_on"], ["spec-answer"])
+
+    def test_gate_copies_match_line_edge(self):
+        """境の節の中身はラインの模块（層 L6）で、ブロックからは import できない。写した関所の語・止め札の by・文の置き場が
+        線 A の境の節と同じ（core の関所の模块へ 1 つにまとめるのは統合の計画 Task 10。それまで写しの食い違いをここで止める）"""
+        spec = importlib.util.spec_from_file_location("_line_edge_for_spec", ROOT / "darkfactory" / "lib" / "line_edge.py")
+        edge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(edge)
+        for name in ("GATE_GO", "GATE_STOP", "GATE_STOP_NOTE", "FLAG_BY_PREFIX", "FLAG_SEEN_OP", "GATE_FILE"):
+            with self.subTest(name):
+                self.assertEqual(getattr(self.L, name), getattr(edge, name))
 
     def test_script_inputs_match_with(self):
         for n, _ in walk(self.y["nodes"]):
@@ -415,7 +425,9 @@ class ScriptCase(unittest.TestCase):
         ask, got = self.gate("approve", "受け入れ条件 A1 で進めてよい")
         for part in (ACCEPT_RUN, "spec.approve", "F1", "declared", "respond run-spec continue"):
             self.assertIn(part, ask["gate_text"])
-        self.assertTrue(pathlib.Path(self.board / "r1" / halt.GATE_FILE).is_file())
+        self.assertIn("process.spec.approval", ask["gate_text"], "仕様の承認の一言の行き先")
+        self.assertNotIn("human_items", ask["gate_text"])
+        self.assertTrue(pathlib.Path(self.board / "r1" / lib().GATE_FILE).is_file())
         self.assertEqual((got["answered"], got["decision"], got["stop"]), (True, "approve", False), got)
         b = self.opened()
         self.assertEqual(b.node_state("spec.freeze"), "done")
@@ -523,7 +535,7 @@ class ScriptCase(unittest.TestCase):
         self.assertTrue(halt.place(self.board, "やめる", "tester")["ok"])
         route = self.ok("route", role="review")
         self.assertIs(route["go"], False)
-        self.assertEqual(self.opened().state["stop"]["by"], halt.FLAG_BY_PREFIX + "tester")
+        self.assertEqual(self.opened().state["stop"]["by"], lib().FLAG_BY_PREFIX + "tester")
         self.assertIs(self.ok("ask")["ask"], False)
         out = self.ok("collect")
         self.assertIs(out["ok"], False)

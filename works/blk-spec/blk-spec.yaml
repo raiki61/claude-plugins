@@ -6,7 +6,7 @@ description: |
   仕様・穴・答え・各受け入れ条件の run のコマンドの字面を人に聞き（周の途中の問い）、関所 spec-gate で人が承認すると、機械の節
   spec.freeze が run を走らせて承認の時点の終了コードを取り、仕様を記録に固め、受け入れ条件を判定への依頼として積む。
   回すかどうかは盤面の ready だけで決め（route）、受け付けの検査・問いの文・固める中身は全部写しの rules の物。
-  人の関所は線 A の policy-gate と同じ仕組み（文は halt.edge の at gate、答えの語は approve・continue・stop・reject）。
+  人の関所は線 A の policy-gate と同じ仕組み（文は境の節の at gate と同じ手順、答えの語は approve・continue・stop・reject）。
   関所を持つので、include するラインは interactive: true。ラインは修正前の CI（p0.local_checks）が済んだ後にこのブロックを回す。
   出口 collect: 固めた仕様のファイル・テストの {file, sha}・承認した人と一言・固めた版・件数。固まらなければ ok: false。
 
@@ -412,7 +412,7 @@ nodes:
               node: {type: string}
 
   # 関所を開くか・文。盤面は直す役の後（か審査の後）の settle で spec.approve を回し、周の途中の問い（pending_human）で止まっている。
-  # 文は線 A の境の節 h-gate と同じ halt.edge（at gate）の gate_text（r<N>/gate.md にも置く）。止め札が在れば盤面を止めて ask false
+  # 文は線 A の境の節 h-gate（at gate）と同じ手順の gate_text（r<N>/gate.md にも置く）。止め札が在れば盤面を止めて ask false
   - id: spec-ask
     script: ask
     runtime: uv

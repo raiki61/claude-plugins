@@ -9,20 +9,25 @@
   ここは写さない・足さない
 
 人の関所は線 A の policy-gate と同じ仕組みを使う（新しい関所の仕組みを作らない）:
-- 文: 境の節の芯 halt.edge(at="gate")。盤面の問い（pending_human）を plan.gate_text の文にし、r<N>/gate.md にも置く。止め札も見る
-- 答え: Archon の approval（decisions: approve・continue・stop・reject。halt.GATE_GO・GATE_STOP と同じ語）の出口を次の script の節が
-  with: で受け、盤面の answer に渡す（approve・continue は continue、stop・reject は stop。halt の _answer_policy_gate と同じ当て方）。
+- 文: 線 A の境の節 h-gate（at gate）と同じ手順。止め札（halt.seen）を見て、盤面の問い（pending_human）を関所の文（gate_text）にし、
+  r<N>/gate.md にも置く。境の節の中身はライン darkfactory の模块（層 L6）に移ったので、ブロック（層 L4）からは呼べない。
+  関所の語・止め札の by・文の組み方はここに写して持つ（写しの印「線 A の境の節の写し」。core の関所の模块へ 1 つにまとめるのは
+  統合の計画 Task 10）
+- 答え: Archon の approval（decisions: approve・continue・stop・reject。GATE_GO・GATE_STOP。線 A の境の節と同じ語）の出口を次の
+  script の節が with: で受け、盤面の answer に渡す（approve・continue は continue、stop・reject は stop。境の節の policy-gate と
+  同じ当て方）。
   continue の後の settle で spec.freeze が走る
 
 口:
-- route:    役の輪の前。盤面が止まっていれば go false。止め札が在れば盤面を止めて go false（halt の境の節と同じ by）。
+- route:    役の輪の前。盤面が止まっていれば go false。止め札が在れば盤面を止めて go false（線 A の境の節と同じ by）。
             書く役の route は、spec.write が na（flow=spec の無い run）・待ちなのに ready でない（依存の CI が済んでいない）なら
             BoardGap（配線の誤り）。返り {go, node, why}
 - prep:     指示書を engine と同じ描き方（Renderer・reads・schema の足し書き）で描き、この節の拒否が在れば最後の拒否の文を頭に
             （$LOOP_PREV で貼らない。R44）。読むだけの役（審査）は 1 回目の前だけ作業ツリーの写しを置く。起こした印を置く
 - take:     読むだけの役は作業ツリーを写しと比べる → 盤面の done。拒否は spec-rejects.json に積み、GIVE_UP_AFTER 回目で done・give_up
 - refuse:   読めない返答を拒否として数える
-- ask:      halt.edge(at="gate")。問いが spec.approve 以外なら BoardGap（このブロックは他の節の問いに答えない）
+- ask:      境の節の at gate と同じ手順（止め札 → 盤面の問い → 文）。問いが spec.approve 以外なら BoardGap（このブロックは
+            他の節の問いに答えない）
 - answer:   関所の出口を盤面に渡す。問いが無い（再開で呼び直した）なら 2 度答えない
 - collect:  出口 {ok, reason, spec_file, tests: [{file, sha}], approved_by, approval_note, frozen_rev, requirements, acceptance,
             faces, handled}。固まっていなければ、止まった理由（人の stop・止め札）か最後の拒否の文で盤面を止めて ok false
@@ -48,7 +53,7 @@ from engine.render import ReadsViolation, Renderer  # noqa: E402
 from engine.util import AnswerReject, Reject, dump, now, safe_name  # noqa: E402
 from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
 import entry  # noqa: E402
-import halt  # noqa: E402
+import halt  # noqa: E402  （止め札の seen だけ。境の節の中身はラインの模块）
 import node_marker  # noqa: E402
 import script_io  # noqa: E402
 
@@ -61,13 +66,22 @@ FREEZE = "spec.freeze"
 # 輪を max_iterations で落とさずに collect へ渡す（R50）
 GIVE_UP_AFTER = 3
 STOP_BY = "works:spec"                  # 輪が諦めた・固まらなかった時に collect が盤面を止める by
-GATE_BY = "human:spec-gate"             # 出口の approved_by（人が関所 spec-gate で承認した。halt.MID_GATE_BY と同じ名づけ）
+GATE_BY = "human:spec-gate"             # 出口の approved_by（人が関所 spec-gate で承認した。境の節の MID_GATE_BY と同じ名づけ）
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
 REJECTS = "spec-rejects.json"           # 今の周の作業ファイル（b.work）
 SPEC_FILE = "spec.json"                 # 出口が書く record.process.spec の写し（b.work）
 PROMPTS = BLK / "prompts"               # 本線 a1202d0 の指示書の写し（COPIED_FROM）
 NULL = "null"                           # 飛ばされた節の出力（if_skipped: null）が届く字
-RUN_ID_ENV = "WORKFLOW_ID"              # 関所の文の run の id（darkfactory の境の節と同じ）
+RUN_ID_ENV = "WORKFLOW_ID"              # 関所の文の run の id（ラインの境の節と同じ）
+# 線 A の境の節の写し（darkfactory/lib/line_edge.py・plan.py。層の決まりでブロックからは import できない。統合の計画 Task 10 で
+# core の関所の模块へ 1 つにまとめる）
+GATE_GO = ("approve", "continue")       # approve は continue と、reject は stop と同じ（台帳 R32）
+GATE_STOP = ("stop", "reject")
+GATE_STOP_NOTE = "関所で止めた"          # stop・reject に一言が無い時の理由
+FLAG_BY_PREFIX = "request:"             # 止め札で止めた盤面の state.stop.by は "request:<札の by>"（報告の stopped_by_request）
+FLAG_SEEN_OP = "stop_flag_seen"         # 止め札を見て止めた trace の行（op・at・reason・by）
+GATE_FILE = "gate.md"                   # 関所の文（b.work）
+RUN_ID_HOLE = "<id>"                    # run の id を知らない時の文の穴
 
 
 def node_of(role: str) -> str:
@@ -132,8 +146,8 @@ def route(board_dir, role: str, repo) -> dict:
         return {"go": False, "node": nid, "why": f"盤面は止まっている（{stop.get('by')}: {stop.get('reason')}）"}
     flag = halt.seen(board_dir)
     if flag:
-        b.trace(halt.FLAG_SEEN_OP, at=f"spec-{role}", reason=flag["reason"], by=flag["by"])
-        b.stop(flag["reason"], by=halt.FLAG_BY_PREFIX + flag["by"])
+        b.trace(FLAG_SEEN_OP, at=f"spec-{role}", reason=flag["reason"], by=flag["by"])
+        b.stop(flag["reason"], by=FLAG_BY_PREFIX + flag["by"])
         return {"go": False, "node": nid, "why": f"止め札で止めた: {flag['reason']}"}
     ready = b.ready()
     if nid in ready:
@@ -249,14 +263,46 @@ def parse_reply(raw: str):
 
 
 # ---------------------------------------------------------------- 関所（線 A の policy-gate と同じ仕組み）
+def gate_text(asking: dict, *, run_id: str = RUN_ID_HOLE) -> str:
+    """盤面の問い {node, kinds, question, items, …} を仕様の関所の文にする（線 A の plan.gate_text の写し。答え方の行だけ
+    仕様の承認に合わせる: 一言は記録の process.spec.approval に残る）。項目は 1 行ずつ、問いの文と種類はそのまま"""
+    kinds = [str(k) for k in asking.get("kinds") or []]
+    items = [str(x) for x in asking.get("items") or []]
+    rid = run_id or RUN_ID_HOLE
+    lines = [f"仕様の承認の関所（盤面の問い {asking.get('node') or '（節の名が無い）'}・種類: {'・'.join(kinds) or '（無し）'}）", ""]
+    lines += [str(asking.get("question") or "（問いの文が無い）"), "", f"項目（{len(items)} 件）:"]
+    lines += [f"- {x}" for x in items] or ["- （無し）"]
+    lines += ["", "答え方（approve は continue と、reject は stop と同じ）:",
+              f'- 通す: archon workflow respond {rid} continue "<通す範囲と条件>"（一言は記録の process.spec.approval に残る）',
+              f'- 止める: archon workflow respond {rid} stop "<理由>"'
+              f'（archon workflow reject {rid} --reason "<理由>" でも止まる。報告は出る）']
+    return "\n".join(lines) + "\n"
+
+
 def ask(board_dir, repo, run_id: str) -> dict:
-    """関所を開くか・文。halt.edge(at="gate") の返りから {ask, stop, gate_text, why}。盤面の問いが spec.approve 以外なら BoardGap"""
+    """関所を開くか・文 {ask, stop, gate_text, why}。線 A の境の節の at gate と同じ手順: 盤面が止まっていれば stop・止め札が
+    在れば盤面を止めて stop（by request:<札の by>）・盤面の問いが在れば文（b.work(GATE_FILE) にも置く）。
+    盤面の問いが spec.approve 以外なら BoardGap"""
     b = _open(board_dir, repo, allow_halted=True)
+    out = {"ask": False, "stop": False, "gate_text": "", "why": ""}
+    stop = _stopped(b)
+    if stop:
+        return {**out, "stop": True, "why": str(stop.get("reason") or "")}
     ph = b.state.get("pending_human")
     if ph and ph.get("node") != APPROVE:
         raise BoardGap(f"盤面は {ph.get('node')} を聞いている——blk-spec は {APPROVE} の問いだけに関所を開く（ラインの順を確かめる）")
-    got = halt.edge(pathlib.Path(board_dir), "gate", pathlib.Path(repo), run_id=run_id, adapter_mode="", mid_gate="")
-    return {"ask": got["ask"], "stop": got["stop"], "gate_text": got["gate_text"], "why": got["why"]}
+    flag = halt.seen(board_dir)
+    if flag:
+        b.trace(FLAG_SEEN_OP, at="spec-ask", reason=flag["reason"], by=flag["by"])
+        b.stop(flag["reason"], by=FLAG_BY_PREFIX + flag["by"])
+        return {**out, "stop": True, "why": flag["reason"]}
+    if not ph:
+        return out
+    text = gate_text(ph, run_id=run_id)
+    tmp = b.work(GATE_FILE).with_name(GATE_FILE + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, b.work(GATE_FILE))
+    return {**out, "ask": True, "gate_text": text}
 
 
 def parse_gate(raw: str):
@@ -272,8 +318,8 @@ def parse_gate(raw: str):
     if not isinstance(gate, dict):
         raise BoardGap(f"関所の答えが JSON のオブジェクトでない: {type(gate).__name__}")
     decision = gate.get("decision")
-    if decision not in halt.GATE_GO + halt.GATE_STOP:
-        raise BoardGap(f"関所の答えの語 {decision!r} を知らない（{' / '.join(halt.GATE_GO + halt.GATE_STOP)}）")
+    if decision not in GATE_GO + GATE_STOP:
+        raise BoardGap(f"関所の答えの語 {decision!r} を知らない（{' / '.join(GATE_GO + GATE_STOP)}）")
     text = gate.get("text")
     if text is None:
         text = ""
@@ -297,10 +343,10 @@ def answer(board_dir, gate) -> dict:
         return {"answered": False, "decision": gate["decision"], "stop": False, "why": "盤面は何も聞いていない（答え済み）"}
     if ph.get("node") != APPROVE:
         raise BoardGap(f"盤面は {ph.get('node')} を聞いている——blk-spec の関所の答えは {APPROVE} にだけ渡す")
-    if gate["decision"] in halt.GATE_GO:
+    if gate["decision"] in GATE_GO:
         b.answer("continue", gate["text"])
     else:
-        b.answer("stop", gate["text"] if gate["text"].strip() else halt.GATE_STOP_NOTE)
+        b.answer("stop", gate["text"] if gate["text"].strip() else GATE_STOP_NOTE)
     stopped = bool(_stopped(b))
     return {"answered": True, "decision": gate["decision"], "stop": stopped, "why": ""}
 
