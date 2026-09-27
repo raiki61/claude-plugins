@@ -92,6 +92,7 @@ pr-check:
   excluded: []
 pr-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
 pr-checking__pr-reads:
@@ -107,7 +108,11 @@ pr-checking__collect:
   excluded: 0
   excluded_file: board/r1/pr-excluded.json
   reads_file: ''
-premising__intake: {}
+premising__intake:
+  ok: true
+  reason: ''
+  request: request_ok.json
+  go: true
 premises:
   constraints:
   - text: stats.py の mean は sum(xs) / (len(xs) - 1) を返す（分母が len(xs) - 1）
@@ -132,6 +137,7 @@ premises:
     kind: 仮説
 premises-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
   constraints_file: ''
@@ -178,6 +184,7 @@ purpose:
   - request_ok.json
 purpose-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
   purpose_file: ''
@@ -1123,6 +1130,7 @@ review:
   faces_none: stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い
 review-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
   review_file: board/delta-review.json
@@ -1178,6 +1186,7 @@ refix:
     - stats.py
 refix-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
 refixing__route1:
@@ -1204,6 +1213,7 @@ review2:
     why: docstring に上限と下限の両方の枝が書かれ、事前審査のずれは塞がった
 review2-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
 refixing__route2:
@@ -1224,6 +1234,7 @@ refix2:
     how: 境の値（x == lo・x == hi）は本体が x をそのまま返し、2 つの枝の約束の外側で自明なので書き足さない
 refix2-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
 refixing__refix-reads:
