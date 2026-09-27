@@ -10,7 +10,9 @@
 # 盤面の trace にだけ積む。止めた人（by）は $USER。
 # 盤面の場所は `archon workflow get <run> --json` の output_root + /artifacts/runs/<run-id>/board で組む
 # （走っている run には $ARTIFACTS_DIR の欄が無い。試し P12）。board/ が無い・別の run が返った・run が終わっている
-# （completed・cancelled。failed は resume できるので置く）・get が失敗した、のどれも何も書かずに終了コード 2。
+# （completed・cancelled。failed は resume できるので置く）・盤面がもう止まった・終わった（state.json の halted か
+# status が stopped・converged。cmd_stop の refuse_if_over と同じ）・get が失敗した、のどれも何も書かずに終了コード 2。
+# 止め札を置いた後に盤面の trace へ積めなかったときは、正は STOP なので警告を 1 行出して 0。
 # WORKS_DEV_ARCHON は Archon を呼ぶ殻の差し替え（既定は同じフォルダの archon.sh。tests/test_halt.py が偽物を差す）。
 set -eu
 
@@ -67,10 +69,15 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.environ["CORE_DIR"])
 import halt
 board = os.environ["BOARD"]
+done = halt.over(board)
+if done:
+    sys.exit("stop.sh: 盤面 {} は{}——止め札は置いていない".format(board, done))
 got = halt.place(board, os.environ["REASON"], os.environ["BY"])
 if not got["ok"]:
     sys.exit("stop.sh: " + got["reason"] + "——止め札は置いていない")
 flag = os.path.join(board, halt.STOP_FILE)
+if got.get("warning"):
+    print("stop.sh: 警告:", got["warning"], file=sys.stderr)
 if got["first"]:
     print("stop.sh: 止め札を置いた:", flag)
     print("次の境の節で止まり、報告を出す（走っている AI の節は最後まで走る。すぐ止めるなら archon workflow cancel）")
