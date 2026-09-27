@@ -125,6 +125,139 @@
     "GM3"
    ],
    "why": "消した: 合流でまとめて撃つ入力は gates=merge の 1 通りに揃えた（2026-09-26、人の決定）——gates=at_merge の実装ごと外した。gates=merge の腕は RC1〜RC6"
+  },
+  {
+   "id": "e13",
+   "title": "申告 1 件の長さに上限（maxLength）",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "        if \"maxLength\" in schema and len(value) > schema[\"maxLength\"]:\n",
+   "new": "        if False:\n",
+   "marker": {
+    "where": "after"
+   },
+   "expect": "maxLength: 上限を超えた字列は落とす",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_units"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_types[maxLength-over]"
+   ]
+  },
+  {
+   "id": "e14",
+   "title": "maxLength は素の長さで測る",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "if \"maxLength\" in schema and len(value) > schema[\"maxLength\"]:",
+   "new": "if \"maxLength\" in schema and len(value.strip()) > schema[\"maxLength\"]:",
+   "marker": {
+    "where": "after",
+    "cond": "len(value.strip()) <= schema['maxLength']"
+   },
+   "expect": "maxLength: 前後の空白も数える",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_units"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_types[maxLength-counts-spaces]"
+   ]
+  },
+  {
+   "id": "S01",
+   "title": "patternProperties の名前を受ける",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "            for s in hit:\n                errs += validate_schema(v, s, f\"{path}.{k}\")",
+   "new": "            for s in []:\n                errs += validate_schema(v, s, f\"{path}.{k}\")",
+   "expect": "patternProperties: 形に合う名前も値の型は見る",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_pattern_properties"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_pattern_properties_checks_value_type"
+   ]
+  },
+  {
+   "id": "SC1",
+   "title": "字クラスの閉じは位置で決める",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "        elif ch == \"]\" and i != first:",
+   "new": "        elif ch == \"]\" and pat[i - 1] != \"[\":",
+   "expect": "pattern: エスケープした [ の直後の ] はクラスを閉じ",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_end_anchored"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_end_anchored[escaped-open-bracket-then-close]"
+   ]
+  },
+  {
+   "id": "SC2",
+   "title": "[^ の直後の ] はクラスの中の字",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "                first = i + 2 if pat[i + 1:i + 2] == \"^\" else i + 1",
+   "new": "                first = i + 1",
+   "expect": "test_schema_end_anchored が例外で抜けた",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_end_anchored"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_end_anchored[bracket-first-in-negated-class]"
+   ]
+  },
+  {
+   "id": "SC3",
+   "title": "未展開の $ref は拒む",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "    if \"$ref\" in schema:",
+   "new": "    if False:",
+   "expect": "未展開の $ref は何でも通すのでなく拒む",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_refs_fail_closed"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_unexpanded_ref_is_rejected"
+   ]
+  },
+  {
+   "id": "SC4",
+   "title": "engine#/$defs/ の綴りは名乗りの外",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "            elif src == \"engine\":\n                table, key = ENGINE_DEFS, name   #",
+   "new": "            elif src == \"engine\":\n                table, key = ENGINE_DEFS, name.replace(\"$defs/\", \"\", 1)   #",
+   "expect": "engine#/$defs/",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_refs_fail_closed"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_ref_outside_the_two_spellings_is_rejected[engine-defs-engine-name]"
+   ]
   }
  ],
  "arms": [
@@ -389,41 +522,6 @@
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_hook_evidence"
-    ]
-   }
-  },
-  {
-   "id": "e13",
-   "title": "申告 1 件の長さに上限（maxLength）",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "        if \"maxLength\" in schema and len(value) > schema[\"maxLength\"]:\n",
-   "new": "        if False:\n",
-   "marker": {
-    "where": "after"
-   },
-   "expect": "maxLength: 上限を超えた字列は落とす",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_units"
-    ]
-   }
-  },
-  {
-   "id": "e14",
-   "title": "maxLength は素の長さで測る",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "if \"maxLength\" in schema and len(value) > schema[\"maxLength\"]:",
-   "new": "if \"maxLength\" in schema and len(value.strip()) > schema[\"maxLength\"]:",
-   "marker": {
-    "where": "after",
-    "cond": "len(value.strip()) <= schema['maxLength']"
-   },
-   "expect": "maxLength: 前後の空白も数える",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_units"
     ]
    }
   },
@@ -1827,20 +1925,6 @@
    "tests": {
     "graphloops/tests/simulate.py": [
      "test_run_count"
-    ]
-   }
-  },
-  {
-   "id": "S01",
-   "title": "patternProperties の名前を受ける",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "            for s in hit:\n                errs += validate_schema(v, s, f\"{path}.{k}\")",
-   "new": "            for s in []:\n                errs += validate_schema(v, s, f\"{path}.{k}\")",
-   "expect": "patternProperties: 形に合う名前も値の型は見る",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_pattern_properties"
     ]
    }
   },
@@ -3797,62 +3881,6 @@
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_frozen_review_revision"
-    ]
-   }
-  },
-  {
-   "id": "SC1",
-   "title": "字クラスの閉じは位置で決める",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "        elif ch == \"]\" and i != first:",
-   "new": "        elif ch == \"]\" and pat[i - 1] != \"[\":",
-   "expect": "pattern: エスケープした [ の直後の ] はクラスを閉じ",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_end_anchored"
-    ]
-   }
-  },
-  {
-   "id": "SC2",
-   "title": "[^ の直後の ] はクラスの中の字",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "                first = i + 2 if pat[i + 1:i + 2] == \"^\" else i + 1",
-   "new": "                first = i + 1",
-   "expect": "test_schema_end_anchored が例外で抜けた",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_end_anchored"
-    ]
-   }
-  },
-  {
-   "id": "SC3",
-   "title": "未展開の $ref は拒む",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "    if \"$ref\" in schema:",
-   "new": "    if False:",
-   "expect": "未展開の $ref は何でも通すのでなく拒む",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_refs_fail_closed"
-    ]
-   }
-  },
-  {
-   "id": "SC4",
-   "title": "engine#/$defs/ の綴りは名乗りの外",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "            elif src == \"engine\":\n                table, key = ENGINE_DEFS, name   #",
-   "new": "            elif src == \"engine\":\n                table, key = ENGINE_DEFS, name.replace(\"$defs/\", \"\", 1)   #",
-   "expect": "engine#/$defs/",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_refs_fail_closed"
     ]
    }
   },

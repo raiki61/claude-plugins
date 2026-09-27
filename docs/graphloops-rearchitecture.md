@@ -151,12 +151,12 @@
 ### 手順 3a: 条件（cond）を Python の関数にする（2026-09-25、人が承認）
 - 原則: JSON には「何を約束するか」（指示書・読み込み・返答の型・書き込み先）を置き、「どう判断するか」（条件・算術）は Python の関数に置く。
 - 条件は rules の名前付きの関数にし、graph には名前だけを書く。関数は（真偽, 理由の文）を返し、読む欄を宣言する。graphcheck は宣言を読んで「前の節の出力として実在するか」を実行前に確かめ、engine は宣言した欄だけが見える入れ物を渡して、宣言外を読んだらその場で落とす（今は検査の外の `loop.`・`record.` の葉も検査に入る）。
-- 条件ごとの真偽表を書き（実施では台本 simulate_review.py・simulate.py の test_cond_truth_tables に置いた。下の実施の項）、変異は既製の道具に任せる（graph の JSON の条件を壊す手書きの腕 13 本が要らなくなる）。
+- 条件ごとの真偽表を書き（実施では台本 simulate_review.py・simulate.py の test_cond_truth_tables に置いた。下の実施の項。research の分は後にテストの移し替えの段 S2b で pytest の `graphloops/tests/py/test_research_rules.py` へ移した）、変異は既製の道具に任せる（graph の JSON の条件を壊す手書きの腕 13 本が要らなくなる）。
 - 移し替えは、review-graph の run 20260924-081523 の 5 周分の盤面で新旧の評価が全部一致することを確かめてから切り替える。
 - 次の候補: 書き込みの宣言（writes）も同じ考え方で検討する。
 - **実施（2026-09-25、判定から入る run）**。上の計画と違えた点と、確かめた範囲:
   - 条件は `rules/<loop>.py` の `CONDS`（数は rules の CONDS が正本）。読む欄は `cond_reads(...)` で宣言し、engine は `Board.cond(名前)` から `run_cond` を通して宣言した欄だけの入れ物（`CondView`）を渡す。graph の `cond` と `applies_cond` は名前だけになり、`when` は関数の返す理由に移った。loop の鍵の名前は `rules` の `LOOP_KEYS`、形は graph の最上位の `state_schema`（JSON Schema）が正本で、graphcheck が両者を両向きでそろえ、条件・節の `reads` と `outputs`・プロンプトの穴が読む `loop.<…>` を `state_schema` の木で最後の欄まで照らす。engine は盤面を保存する時に `state_schema` で照らし、外れを `state.loop_drift` に残す（止めない。記録の `process.loop_drift` と報告に出る）。旧い評価器（engine の eval_cond と op の表・graphcheck の check_cond と check_cond_paths・rules の _without_entry）は消した。入口で外れたかは、同じ関数を入口の印を外した重ね書きの文脈でもう一度評価して決める。
-  - 真偽表は pytest でなく今の台本（`graphloops/tests/simulate_review.py`・`simulate.py` の `test_cond_truth_tables`）に置いた——この版に pytest の土台が無いため。
+  - 真偽表は pytest でなく今の台本（`graphloops/tests/simulate_review.py`・`simulate.py` の `test_cond_truth_tables`）に置いた——この版に pytest の土台が無いため。research の分（`simulate.py`）は、pytest の土台が入った後の移し替えの段 S2b で `graphloops/tests/py/test_research_rules.py` の `test_cond_truth_table` に移した（review の分はまだ台本に在る）。
   - 手書きの腕は消さずに付け替えた（EN1・EN2・EN4・EN6〜EN9・EN14・EJ4〜EJ9・LP2。graph の JSON の木を壊していた 7 本は rules の各条件の行を壊す形に）。既製の道具に任せるのは変異テストの道具の移行（下の「作り直しと独立に進められるもの」）と一緒に。
   - 新旧の突き合わせは、本体の `.git/graphloops/review-loop/` の 9 run（36 周）に旧（3643420 の engine と graph）と新を当てた。周ごとの文脈は、rounds を r 周までに切り、出力を r 周までに done した instance から組み直した近似で、loop と record は最終の値しか残っていない——歴史の再現ではなく、同じ入力に新旧を当てた一致である。結果は 1,188 評価で真偽の不一致 0（旧が落ちた 1 件は新も同じ欄で落ちる）。loop と record の欄を同じ種で揺らした盤面（各周 40 通り、48,708 評価）でも真偽の不一致 0。research-loop の盤面は置き場に 1 本も無いので、research の条件（6 節・関数 5 個）は、真偽表と、種つきで揺らした文脈 5,000 通り（30,000 評価）に旧の eval_cond と新の関数を当てた突き合わせ（不一致 0）で確かめた。
 

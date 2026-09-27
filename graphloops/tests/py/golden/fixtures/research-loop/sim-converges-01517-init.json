@@ -2,7 +2,7 @@
  "format": 1,
  "loop": "research-loop",
  "origin": "simulate",
- "source": "simulate.py の test_converges が loop.py init を呼ぶ直前（1517）",
+ "source": "py/test_sim_research.py の test_converges が loop.py init を呼ぶ直前（1517）",
  "command": [
   "init",
   "--loop",

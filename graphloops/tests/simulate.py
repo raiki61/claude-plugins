@@ -386,36 +386,6 @@ def drive(run, scenario, max_steps=60, hook=None, stop_at=None):
 
 
 # ---------------------------------------------------------------- 検査
-def test_converges():
-    print("台本: 標準・3 周で収束")
-    run = Run("std")
-    check(run.init.returncode == 0, "init が通る")
-    last = drive(run, "std")
-    rec, st = run.record(), run.state()
-    check(last["status"] == "converged", "status が converged")
-    check(rec["convergence"] == {"rounds_total": 3, "consecutive_zero": 2, "outcome": "converged"}, f"convergence が 3 周・連続 2: {rec['convergence']}")
-    check([r["verdict"] for r in rec["gates"]["cold_reader"]["rounds"]] == ["redesign-needed", "pass"], "cold_reader が 2 周（redesign→pass）")
-    check(rec["gates"]["rederiver"]["verdict"] == "pass", "rederiver は比較係の pass")
-    check(rec["gates"]["cartographer"].get("status") == "not_applicable", "標準では cartographer は not_applicable")
-    check(rec["sampling"]["status"] == "done" and rec["sampling"]["overturned"] == 0, f"抜き取りが走り覆り 0: {rec['sampling']}")
-    check(next(c for c in rec["claims"] if c["id"] == "B")["verdict"] == "確証", "B は再照合で確証に戻った")
-    check(next(c for c in rec["claims"] if c["id"] == "A")["refuted"] is True, "荷重の確証 A は反証を経た")
-    check([c["no"] for c in rec["corrections"]] == [1, 2], f"訂正の番号は機械が連番で振る: {[c['no'] for c in rec['corrections']]}")
-    check((run.dir / "report.md").is_file(), "report.md が保存された")
-    # 開いた問いが 0 件の run の収束の文言は、分けた文言を足す前と 1 字も変わらない（回帰）
-    check(converge_reasons(run)[-1] == "連続 2 周で新規相違ゼロ、標準 段のゲートは全部 pass",
-          f"開いた問いの無い収束の文言は元のまま: {converge_reasons(run)[-1:]}")
-    v = subprocess.run([PY, str(VALIDATOR), str(run.dir / "record.json")], capture_output=True, text=True, encoding="utf-8", timeout=600)
-    check(v.returncode == 0, f"検証器が exit 0（{v.stdout.strip()[:60]}）")
-    r1 = st["rounds"][0]
-    check("p0.independence_review" in r1["na"], "独立出典だけなので independence_review は na")
-    check(any(i.startswith("p1.refuter[A]") for i in r1["instances"]) and any(i.startswith("p1.refuter[B]") for i in r1["instances"]), "refuter は A（荷重確証）と B（相違）に走った")
-    check("p1.checker" in st["rounds"][2]["empty"], "3 周目の checker は項目ゼロ（empty）")
-    check(len(rec["process"]["skipped"]) == 0, "省略なし")
-    loop_shape_held(run, "標準・収束", {"stuck_ids"}, "sampled_r")
-    rm(run.tmp)
-
-
 def loop_shape_held(run, what, must, prefix=None):
     """盤面の loop が graph の state_schema の形に収まる（engine が保存の時に照らした痕跡 loop_drift が 0 件）。0 件が照らさなかった
     結果でないことも見る: 盤面の graph が state_schema を持ち、loop が must の鍵（と prefix で始まる周ごとの鍵）を実際に書いた"""
@@ -865,59 +835,6 @@ def test_hook_evidence():
     rm(tmp)
 
 
-def test_schema_pattern_properties():
-    """型検査の patternProperties: 型で決めた名前の外は、名前の形に合うものだけを受ける（OpenAPI の x- 拡張と同じ口）"""
-    print("型検査: patternProperties")
-    from engine.schema import validate_schema, unknown_keywords  # noqa: E402
-    s = {"type": "object", "additionalProperties": False, "properties": {"a": {"type": "integer"}},
-         "patternProperties": {"^x_[a-z0-9_]+$": {"type": "number"}}}
-    check(validate_schema({"a": 1, "x_n": 2.5}, s) == [], "patternProperties: 形に合う名前は受ける")
-    check(any("知らない欄 'y'" in e for e in validate_schema({"y": 1}, s)), "patternProperties: 形に合わない名前は additionalProperties で拒む")
-    check(any("x_n" in e for e in validate_schema({"x_n": "1"}, s)), "patternProperties: 形に合う名前も値の型は見る")
-    check(unknown_keywords({"patternProperties": {"^x_": {"typo": 1}}}) != [], "patternProperties: 中の語も engine の読む語かを見る")
-
-
-def test_schema_end_anchored():
-    """型検査の pattern の `$` は ECMA-262 の意味（入力の末尾だけ）。エスケープした `\\$` と文字クラスの中の `$` は字のまま"""
-    print("型検査: pattern の $ は末尾だけ")
-    from engine.schema import end_anchored  # noqa: E402
-    m = lambda pat, s: bool(end_anchored(pat).search(s))
-    check(m("^a$", "a") and not m("^a$", "a\n"), "pattern: $ は末尾の改行の手前で一致しない（Python の $ と違う）")
-    check(m("^a\\$$", "a$") and not m("^a\\$$", "a"), "pattern: \\$ はエスケープした字のまま（\\Z に読み替えない）")
-    check(m("^[$]$", "$") and not m("^[$]$", "a"), "pattern: 文字クラスの中の $ は字のまま")
-    check(m("^[ab$]$", "$"), "pattern: 文字クラスは ] まで続く（2 字目以降の後の $ もクラスの中）")
-    check(m("^[]$]+$", "]$") and not m("^[]$]+$", "]$\n"), "pattern: [ の直後の ] は文字クラスの中の字で、その後の $ もクラスの中")
-    check(m("^[a]$", "a") and not m("^[a]$", "a\n"), "pattern: 文字クラスを閉じた後の $ は末尾")
-    # **クラスの閉じは位置で決める**（Python の re の文書: ] が字になるのは [ か [^ の直後だけ）。直前の 1 字で見ていたとき、
-    # エスケープした \[ の直後の ] を字と読み、クラスを閉じ損ねて後ろの $ を素通しした
-    check(m("^[\\[]a$", "[a") and not m("^[\\[]a$", "[a\n"), "pattern: エスケープした [ の直後の ] はクラスを閉じ、後ろの $ は末尾")
-    check(m("^[^]$]$", "a") and not m("^[^]$]$", "$") and not m("^[^]$]$", "a\n"),
-          "pattern: [^ の直後の ] はクラスの中の字（コンパイルでき、$ もクラスの中）")
-    check(m("^[^]a]$", "b") and not m("^[^]a]$", "b\n"), "pattern: [^] の後のクラスを閉じた $ は末尾")
-
-
-def test_schema_refs_fail_closed():
-    """**展開されていない $ref は型検査が拒み、引ける綴りは docstring の名乗り（#/$defs/<名前> と engine#/<名前>）だけ。**
-    知らない語として無視していたとき、未展開の {"$ref": …} は何でも合格にした。engine#/$defs/<名前> は演算子の優先順位で
-    受け付けていた（読み手の読みが割れた）"""
-    print("型検査: 未展開の $ref は拒み、引ける綴りは 2 つだけ")
-    from engine.schema import validate_schema, expand_refs  # noqa: E402
-    from engine.util import ENGINE_DEFS  # noqa: E402
-    check(any("展開されていない" in e for e in validate_schema({"x": 1}, {"$ref": "#/$defs/a"})), "未展開の $ref は何でも通すのでなく拒む")
-    name = sorted(ENGINE_DEFS)[0]
-    ok = lambda ref: expand_refs({"$defs": {"a": {"type": "string"}}, "nodes": {"n": {"schema": {"$ref": ref}}}})
-    check(ok(f"engine#/{name}")["nodes"]["n"]["schema"] == ENGINE_DEFS[name], "engine#/<名前> は引ける")
-    check(ok("#/$defs/a")["nodes"]["n"]["schema"] == {"type": "string"}, "#/$defs/<名前> は引ける")
-    # 3 つの綴りは、条件の項を 1 つ外すと別の表の鍵に当たる形を選ぶ（engine の表の $defs/・局所の表の名前・局所の $defs/ を外した頭 6 字）
-    for bad in (f"engine#/$defs/{name}", "engine#/$defs/a", "#/a", "#/xxxxxxa", f"#/{name}", "other#/a"):
-        try:
-            ok(bad)
-            got = "通った"
-        except ValueError as e:
-            got = str(e)
-        check("引けない" in got, f"{bad} は名乗りの外なので拒む（{got[:40]}）")
-
-
 def test_run_count():
     """数える問い（how）は欄で受け、argv は engine が決まった形で組む。腕は柵ごとに置き、拒否理由を**その柵に固有の語**で見る
     ——共通の一語で見ていた頃は、柵を 1 つ消しても別の拒否文に当たって緑のままだった（2026-09-23 の gate_efficacy）。"""
@@ -1294,41 +1211,6 @@ def drive_bad_builtin(run, graph, d2):
             subprocess.run([PY, str(LOOP), "done", "--node", inst["id"], "--output", str(f), "--dir", str(d2)], env=run.env,
                            cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
     return seen, init
-
-
-def test_units():
-    """engine の部品を直に呼ぶ検査（盤面を回さずに柵の腕へ入力を与える）。"""
-    print("否定検査: 型検査と遮断の腕（部品を直に呼ぶ）")
-    sys.path.insert(0, str(PLUGIN))
-    from engine.render import Renderer, ReadsViolation, cap_bytes, FILE_CAP, ABSENT
-    from engine.schema import validate_schema
-    # 遮断: reads に無い穴は optional（{{?…}}）でも空で通さない
-    r = Renderer({"a": {"b": 1}, "secret": "x"}, reads=["a"])
-    check(r.render("{{a.b}}") == "1", "reads に在る穴は埋まる")
-    try:
-        r.render("{{?secret}}")
-        check(False, "reads に無い穴が {{?…}} で空埋めされた（遮断が ? 一文字で外れる）")
-    except ReadsViolation:
-        check(True, "reads に無い穴は optional でも ReadsViolation（KeyError と別の型）")
-    # **『無い』は空でなく語で埋める。** 空に潰すと、文の途中に在る穴が判定不能の文になり、
-    # しかも「この周には無い」と「engine が渡し損ねた」が同じ値になる（実測 2026-09-13: p2.diagnose.md の
-    # {{?loop.escalated}} が空に潰れ、「深い側に上がっているなら順序を反転しろ: が在る周は」という文になった）
-    check(r.render("{{?a.nope}}") == ABSENT, "reads の中の『無い』穴は optional なら語で埋まる（空にしない）")
-    check(r.render("前は {{?a.nope}} だった") == f"前は {ABSENT} だった", "文の途中でも語が残る（読む側が真偽を決められる）")
-    # 貼る上限はバイト（日本語は 1 字 3 バイト——字数で測ると 2〜3 倍のバイトが通る）
-    tr = []
-    ja = "あ" * (FILE_CAP // 2)
-    out = cap_bytes(ja, "x", tr)
-    check(len(out.encode()) <= FILE_CAP + 200 and tr, f"上限はバイトで効く（{len(ja)} 字＝{len(ja.encode())} バイトを切った）")
-    check(cap_bytes("abc", "x", []) == "abc", "上限内はそのまま")
-    # 型検査: 真偽値と数値を同一視しない
-    check(validate_schema(True, {"enum": [0, 1]}), "enum: True は語彙 [0, 1] に無い（bool は int の部分型）")
-    check(not validate_schema(1, {"enum": [0, 1]}), "enum: 1 は通る")
-    check(validate_schema(True, {"const": 1}), "const: True は 1 でない")
-    check(validate_schema("   ", {"type": "string", "minLength": 1}), "minLength: 空白だけは空と数える")
-    check(validate_schema("xxx", {"type": "string", "maxLength": 2}), "maxLength: 上限を超えた字列は落とす")
-    check(not validate_schema("xx", {"type": "string", "maxLength": 2}), "maxLength: ちょうどは通る")
-    check(validate_schema(" x ", {"type": "string", "maxLength": 2}), "maxLength: 前後の空白も数える（削って測らない）")
 
 
 def test_arms():
@@ -4077,44 +3959,6 @@ def test_open_questions_unresolved():
     rm(run.tmp)
 
 
-def test_threshold_boundaries():
-    """**閾値の比較は、境界ちょうどで測る。** 3 つの比較（標本に使える行の下限・射程の外に残る量・
-    扇の項目を items/ へ出す大きさ）はどれも閾値から遠い材料しか踏んでおらず、`>` と `>=` を
-    取り違えても検査の色が変わらなかった。境界の 1 つ内側・ちょうど・1 つ外側の 3 点で縛る。"""
-    print("否定検査: 3 つの閾値を、境界の 1 つ内側・ちょうど・1 つ外側で測る")
-    from engine.advance import ITEM_INLINE, slim_item  # noqa: E402 — 部品を直に呼ぶ腕
-    # ① 標本に使える行の下限（len(ln) >= PROBE_MIN）——ちょうどの長さは「使える」側
-    def usable(n):
-        # 相異なる行にする（同じ行が 3 本だと「標本が同じ行に潰れる」別の理由で落ち、下限を測れない）
-        body = "\n\n".join(f"{i}" + "あ" * (n - 1) for i in range(3))
-        return RESEARCH_RULES.read_probes(body)[0]
-    check(not usable(PROBE_MIN - 1), f"下限より 1 字短い行は標本に使えない（{PROBE_MIN - 1} 字）")
-    check(usable(PROBE_MIN), f"下限ちょうどの行は標本に使える（{PROBE_MIN} 字。>= と > の取り違えがここで出る）")
-    # ② 射程の外に残る量（(before + after) * 100 > total * (100 - COVER_MIN_PCT)）——ちょうどは「通る」側。
-    #    標本に使えない短い行で本文を挟み、外に残る字数を 1 字単位で狙う（本文 120 字・許容 5% ＝ 6 字）
-    def outside(head, tail, mid_len=38, n=3):
-        lines = ["あ" * head] + [f"{i}" + "い" * (mid_len - 1) for i in range(n)] + ["う" * tail]
-        return RESEARCH_RULES.read_probes("\n\n".join(lines))
-    probes, why = outside(3, 3)
-    check(probes and why is None, f"射程の外がちょうど許容ぴったり（本文 120 字の 5%＝6 字）なら通る（{why}）")
-    probes, why = outside(3, 4)
-    check(not probes and why and "7 字" in why,
-          f"許容を 1 字超えたら不成立になり、外に残った量を字数で言う（> と >= の取り違えがここで出る: {why}）")
-    # ③ 扇の項目を items/ へ出す大きさ（len(dump(slim)) > ITEM_INLINE）——ちょうどは「残す」側
-    def slim_len(pad):
-        item = {"key": "K", "v": "x" * pad}
-        slim, omitted = slim_item(item)
-        return len(dump(slim).encode("utf-8")), omitted
-    pad = 1
-    while slim_len(pad)[0] < ITEM_INLINE:
-        pad += 1
-    n, omitted = slim_len(pad)
-    check(n == ITEM_INLINE and not omitted,
-          f"上限ちょうどの項目は落とさない（{n} バイト・落とした欄 {omitted}。> と >= の取り違えがここで出る）")
-    n2, omitted2 = slim_len(pad + 1)
-    check(omitted2 == ["v"], f"上限を 1 バイト超えた項目は落とす（{n2} バイト・落とした欄 {omitted2}）")
-
-
 def test_item_file_relative_migration():
     """**保存済みの相対の綴りを持つ盤面も開ける。** 置き場の綴りを入口で絶対化した周に、既に走っていた
     run は item_file に相対を持ったまま残った——別の cwd から next を打つと read_json が die して、
@@ -4394,59 +4238,6 @@ def test_non_utf8_document():
     rm(run.tmp)
 
 
-def test_set_path():
-    """**手当ての口は、読める綴りだけを受けて、当たらないなら落ちる。** set_path は get_path が読む
-    `a.2.b` を解さず、辞書の setdefault だけで辿っていた。`questions[1]` を渡すと配列の要素ではなく
-    その名前の鍵が新設され、patch は ok を返す——**当たっていない手当てが成功と報告される**
-    （実測 2026-09-16: 台帳への手当て 2 回がどちらも入らず、検証器が別の理由で落ちて初めて分かった）。
-    倒れる向きが危ない側なので、書けない綴りは黙って別の場所を作らず落とす。"""
-    print("手当ての口（set_path）: 配列の要素に当たる／当たらない綴りは落ちる")
-    sys.path.insert(0, str(PLUGIN))
-    from engine.util import set_path, get_path
-    d = {"questions": [{"k": 0}, {"k": 1}], "a": {"b": {"c": 1}}}
-    set_path(d, "questions.1", {"k": "書けた"})
-    check(d["questions"][1] == {"k": "書けた"}, "配列の要素を点の添字で書き換えられる")
-    set_path(d, "questions.0.k", "深い所")
-    check(d["questions"][0]["k"] == "深い所", "配列の中の鍵まで辿って書ける")
-    check(get_path(d, "questions.0.k") == "深い所", "書いた所を get_path が同じ綴りで読める（読み書きの綴りが揃う）")
-    for bad in ("questions[1]", "questions.9", "questions.1.k.deep"):
-        try:
-            set_path(d, bad, "x")
-            check(False, f"書けない綴り {bad} は落ちる")
-        except KeyError:
-            check(True, f"書けない綴り {bad} は落ちる（黙って別の場所を作らない）")
-    check("questions[1]" not in d, "角括弧の綴りが、その名前の鍵として新設されていない")
-    # **葉の新設（作成枝）。** ここに腕が無かったので、作成枝を丸ごと KeyError に差し替える 1 行の退行が
-    # 検査一式を緑のまま通った（実測 2026-09-16: 判定役が名指しした 5 つの 1 行退行のうち、この 1 本だけが緑）。
-    set_path(d, "materials.local_review", {"status": "clean"})
-    check(get_path(d, "materials.local_review") == {"status": "clean"}, "既存の辞書の下に葉を 1 つ新設できる")
-    # **点を含む鍵が最後に来る綴り。** 走査が最後の区切りを候補から外していたので、既存の
-    # `outputs["p1.local_review"]` を指す綴りが `outputs["p1"]["local_review"]` を黙って新設し、
-    # get_path は元の場所を読み続けた——patch は ok を印字しながら手当てが当たらない（実測 2026-09-16）
-    d["outputs"] = {"p1.local_review": {"round": 1}}
-    set_path(d, "outputs.p1.local_review", {"round": 2})
-    check(d["outputs"] == {"p1.local_review": {"round": 2}}, "点を含む鍵を最長一致で食い、隣に入れ子を作らない")
-    check(get_path(d, "outputs.p1.local_review") == {"round": 2}, "書いた所を get_path が同じ綴りで読める（点入りの鍵）")
-    # 2 段以上の新設は「点を含む 1 つの鍵」と区別が付かないので受けない（黙ってどちらかを選ばない）
-    try:
-        set_path(d, "outputs.p2.nope.deep", "x")
-        check(False, "2 段以上の新設は落ちる")
-    except KeyError as e:
-        check("葉 1 つ" in str(e), "2 段以上の新設は落ちる（どちらの読みも成り立つ綴りを機械が選ばない）")
-    check("p2" not in d["outputs"], "落ちた綴りが途中まで書き込まれていない")
-    # 消す口（del_path）も同じ綴りで辿る——点を含む鍵が最後に来る綴りで親を見失わない。無い鍵とリストの要素は落とす
-    from engine.util import del_path
-    del_path(d, "outputs.p1.local_review")
-    check(d["outputs"] == {}, "消す口は点を含む鍵を最長一致で食って消す")
-    for bad in ("outputs.nope", "questions.0", "a.b.nope.deep"):
-        try:
-            del_path(d, bad)
-            check(False, f"消せない綴り {bad} は落ちる")
-        except KeyError:
-            check(True, f"消せない綴り {bad} は落ちる（無い鍵・リストの要素・辿れない親）")
-    check(len(d["questions"]) == 2 and d["a"] == {"b": {"c": 1}}, "落ちた消しは何も消していない")
-
-
 def test_carried_r1_only_previous_round():
     """`前の周の R1` は `最後に走った R1` ではない。走らなかった周を挟んだら要求しない。
 
@@ -4477,96 +4268,6 @@ def test_carried_r1_only_previous_round():
     check(errs and "carried_r1 に無い" in errs[0], "直前の周（round-1）に走った R1 の候補は要求する")
     errs = m._carried_r1_accounted(board(1), out)
     check(errs == [], "2 周前の R1 の候補は要求しない（走らなかった周を挟んだら黙って持ち越さない）")
-
-
-def test_parse_output():
-    """done が読む返答の剥がし方。**素の JSON を先に読む**——先に囲いを探すと、本文の中の ``` を囲いと誤認して
-    中身を切り出し、正しい返答が『JSON として読めない』で拒まれる（実測 2026-09-12: 指摘文に ```json を書いた
-    runner の返答が落ちた。役の指摘がコードの囲いに触れるのはレビューでは普通に起きる）。"""
-    print("done の返答の読み方: 素の JSON → 本文中の囲い → { } の切り出し")
-    sys.path.insert(0, str(PLUGIN))
-    from engine.commands import parse_output
-    from engine.util import Reject
-    inner = {"findings": [{"where": "x", "text": "実物は ```json … ``` で囲んで返す。正規表現 ```(?:json)?\\s*(.*?)``` は常に不一致"}]}
-    bare = json.dumps(inner, ensure_ascii=False)
-    check(parse_output(bare) == inner, "本文に ``` を含む素の JSON は、そのまま読める（囲いと誤認しない）")
-    check(parse_output("```json\n" + bare + "\n```") == inner, "全体を ```json で囲った返答は剥がして読める")
-    check(parse_output("以下が返答です。\n```\n" + bare + "\n```\n以上。") == inner, "前後に文が付いた囲いも読める")
-    try:
-        parse_output("これは JSON ではない")
-        check(False, "JSON の無い返答は Reject")
-    except Reject:
-        check(True, "JSON の無い返答は Reject")
-    # **拒否の文は原因を 1 つに断定しない。** 候補は素の str で元テキストのどこから切ったかを
-    # 運ばないので、pos を候補間で比べても「どこまで読めたか」にならない（実測 2026-09-15:
-    # 断定する形で書いたら、散文に波括弧が混じった返答＝JSON を 1 文字も返していない返答に
-    # 『直すのは中身』と出た。素の JSON の後ろに文が付いた形では旧文言の方が正しかった）。
-    broken = '{"findings": [{"where": "配列（"/code-review high" 等）", "text": "x"}]}'
-    try:
-        parse_output("```json\n" + broken + "\n```")
-        check(False, "囲いの中の壊れた JSON は Reject")
-    except Reject as e:
-        msg = str(e)
-        check("候補 2 本すべてで失敗" in msg, "拒否の文が、試した相異なる候補の本数を言う")
-        check("``` 囲いの中" in msg and "全文そのまま" in msg, "候補ごとに、どの切り方で何が起きたかを並べる")
-        check("/code-review high" in msg and "[ここ]" in msg, "折れた所として、実際に壊れている値が前後ごと出る")
-        # **『断定しない』は綴りの不在で測れない。** 以前ここは「直すのは囲いの付け方ではなく中身」
-        # という 1 綴りの不在だけを見ていたが、その文字列は当の検査にしか無く条件は常に真だった
-        # ——同じ趣旨を別の言い回しで書き戻しても赤にならない（実測 2026-09-16: 別綴りの断定文を
-        # 注入した写しが全件緑）。名乗った範囲を測れる形＝診断行が候補の数だけ並ぶ構造で見る。
-        diag = [l for l in msg.splitlines() if l.startswith("  - ")]
-        check(len(diag) == 2, f"診断行が、試した候補と同じ本数だけ並ぶ（原因を 1 本に畳まない。実際 {len(diag)}）")
-        check(len(set(diag)) == len(diag), "同じ中身の候補を 2 回試さない（同一の診断行が並ばない）")
-        check("よくある原因:" in msg and "囲い（```）が閉じていない" in msg,
-              "助言行が付く（役に直し方を教える側——診断だけ出して直し方を出さない形にしない）")
-    # 省略記号は「まだ前後がある」の印。端で無条件に付けると、無いものが在るように読める。
-    broken2 = '{"a": "x（"y"）"}'          # 折れる位置が先頭近くで、後ろも短い
-    try:
-        parse_output(broken2)
-        check(False, "短い壊れた JSON は Reject")
-    except Reject as e:
-        line = [l for l in str(e).splitlines() if l.startswith("  - ")][0]
-        check("...[ここ]" not in line, "折れた所が先頭寄りなら、前側に省略記号を付けない")
-        check(not line.rstrip().endswith("..."), "折れた所の後ろが尽きているなら、後側に省略記号を付けない")
-    # 3 本目の候補（{ から } まで）は、囲いの外に波括弧が在る形でだけ相異なる中身になる。
-    # ラベルを書き換えても赤くならないままだと、どの切り方で落ちたかの名前が信用できない。
-    try:
-        parse_output("前置き { \"a\": } 後書き")
-        check(False, "囲い無しで波括弧を含む壊れた返答は Reject")
-    except Reject as e:
-        check("{ から } まで" in str(e), "3 本目の候補のラベルが、実際にその切り方で落ちたときに出る")
-    try:
-        parse_output("これは JSON を返しません。{ここは例です}")
-        check(False, "散文に波括弧が混じる返答は Reject")
-    except Reject as e:
-        check("全文そのまま: Expecting value" in str(e),
-              "JSON を 1 文字も返していない返答では、全文候補が頭から落ちたことが見える")
-    # 空は候補を出す前に落とす。候補は無条件に全文を 1 本出すので、後ろで「候補が 0 本」を
-    # 見る枝は到達しない（実測 2026-09-15: そう書いた枝が死んでいた）。
-    for empty in ("", "   ", "\n\n"):
-        try:
-            parse_output(empty)
-            check(False, "空の返答は Reject")
-        except Reject as e:
-            msg = str(e)
-            # **読み元を名指しさせない。** cmd_done は --output / --stdin / out_path の 3 入口で
-            # text を作り、parse_output には text しか渡らない。1 つに決め打つと、既定の導線
-            # （手順書が案内する --output）で誤った場所を直しに行かせる。
-            check("空か空白だけ" in msg and "候補" not in msg,
-                  f"空の返答は候補の話をせず、中身が無いことだけを言う（{empty!r}）")
-            check("out_path" not in msg and "--stdin" not in msg,
-                  f"空の返答の拒否文が、3 入口のどれか 1 つを読み元と決め打たない（{empty!r}）")
-    # 閉じ ``` が無い返答は、入力長に対して線形で落ちる。以前ここは正規表現の貪欲な空白 +
-    # lazy な本文で、後戻り地点 × 舐め直しの二次になっていた（実測 2026-09-16: 空白 80,000 文字
-    # で 21.8 秒）。**時間を測る検査は環境差で揺れるので、閾値は桁で置く。**
-    import time as _t
-    _s = _t.time()
-    try:
-        parse_output("```json" + " " * 80000 + "x")
-        check(False, "閉じない囲いは Reject")
-    except Reject:
-        pass
-    check(_t.time() - _s < 1.0, "閉じ ``` が無い返答が、入力長に対して線形で落ちる（1 秒未満）")
 
 
 def test_workspace_cleanup():
@@ -4601,43 +4302,6 @@ def test_workspace_cleanup():
     check(len(refused) == 4 and not (tmp2 / "sub").exists(),
           f"rm は / やホームや一時の置き場そのものを消さずに例外にし、置き場より深い作業場だけを消す（拒んだ {refused}）")
 
-
-
-def test_cond_truth_tables():
-    """**research-loop の条件ごとの真偽表**（graph の cond が名前で指す rules の関数）。engine と同じ口（run_cond）で
-    文脈を手で組んで直に呼ぶ。期待の "die" は、宣言した欄が default 無しで解決できないと落ちること（偽に倒さない）。
-    CONDS の名前が全部表に在ることも見る"""
-    print("条件の真偽表（research）: CONDS の関数を 1 つずつ、真・偽・落ちるの行で当てる")
-    import io  # noqa: E402
-    from contextlib import redirect_stderr  # noqa: E402
-    from engine.board import COND_HEADS, run_cond  # noqa: E402
-
-    def ev(name, ctx):
-        fn = RESEARCH_RULES.CONDS[name]
-        buf = io.StringIO()
-        try:
-            with redirect_stderr(buf):
-                return run_cond(name, fn, {**{h: {} for h in COND_HEADS}, "round": 1, **ctx})[0]
-        except SystemExit:
-            return "die"
-    T = {
-        "constraints_self_written": [({}, False), ({"record": {"constraints": []}}, False),
-                                     ({"record": {"constraints": [{"origin": "人"}, {"origin": "surveyor自書"}]}}, True),
-                                     ({"record": {"constraints": [{"origin": "人"}]}}, False), ({"record": {"constraints": {"origin": "surveyor自書"}}}, False)],
-        "generation_due": [({}, True), ({"round": 2}, False), ({"round": 2, "loop": {"stuck_hint": True}}, True),
-                           ({"round": 2, "loop": {"stuck_hint": False}}, False)],
-        "no_new_discrepancies": [({"rd": {"new_discrepancies": 0}}, True), ({"rd": {"new_discrepancies": 2}}, False), ({}, "die")],
-        "rederiver_compare_due": [({"rd": {"new_discrepancies": 0}, "out": {"p3.rederiver": {"verdict": "pass"}}}, True),
-                                  ({"rd": {"new_discrepancies": 0}, "out": {"p3.rederiver": {"verdict": "fail"}}}, False),
-                                  ({"rd": {"new_discrepancies": 1}}, False), ({"rd": {"new_discrepancies": 0}}, "die")],
-        "sampling_due": [({}, False), ({"round": 2, "rd": {"item_counts": {"p1.checker": 0}}}, True),
-                         ({"round": 2, "rd": {"item_counts": {"p1.checker": 3}}}, False), ({"round": 2}, "die")],
-    }
-    for name, rows in T.items():
-        for i, (ctx, want) in enumerate(rows):
-            got = ev(name, ctx)
-            check(got == want, f"{name} の行 {i}: 期待 {want}・実際 {got}")
-    check(set(RESEARCH_RULES.CONDS) <= set(T), f"CONDS の名前が全部真偽表に在る（表に無い: {sorted(set(RESEARCH_RULES.CONDS) - set(T))}）")
 
 
 def main():
