@@ -1,0 +1,609 @@
+"""機械の報告（.shared/core/report.py・darkfactory/scripts/report.py・dev/report.sh）の検査（P1 計画 Task 27・〔線A計〕T15）。
+
+盤面は線 A の試験と同じ組み方（linekit の種で start → 見本の返答を entry.take で進める。役の返答の前に起こした印）で、道ごとに作る。
+全部の道（修正 → 差分の審査 → 手直し → 2 回目の審査 → 最後のテスト → 周の締め）は test_blk_refix の DeltaBoardCase の
+手順を続け、p4.ci は宣言（.review-checks.json）を engine が走らせる（entry.run_ci）。
+最後の関所の答え・止めた口（P1 Task 26 の境の節が書く）は、その Task の名前（final-gate-answer.json・human:final-gate）で
+盤面に置いて見る。版の一覧の行（Task 18・19）はこの枝に無いので試験も無い。
+"""
+import importlib.util
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+TESTS = pathlib.Path(__file__).resolve().parent
+ROOT = TESTS.parent
+CORE = ROOT / ".shared" / "core"
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(CORE))
+sys.path.insert(0, str(TESTS))
+
+import accept  # noqa: E402
+import adapter  # noqa: E402
+from board import BoardGap, DiskBoard  # noqa: E402
+import ci_role  # noqa: E402
+import engine.util as engine_util  # noqa: E402
+import entry  # noqa: E402
+import linekit  # noqa: E402
+import prcheck  # noqa: E402
+import refix  # noqa: E402
+import rejudge  # noqa: E402
+import report  # noqa: E402
+import test_blk_refix as RF  # noqa: E402
+import test_entry as TE  # noqa: E402
+
+SCRIPT = ROOT / "darkfactory" / "scripts" / "report.py"
+REPORT_SH = ROOT / "dev" / "report.sh"
+EVENTS = TESTS / "events"
+RUN_ID = "run-7"
+ODD = 'a "b" \'c\'\n$(rm -rf /) `x` ${HOME} $ARTIFACTS_DIR 日本語の一言\t終わり'
+ODD_KEY = 'stats.py clamp: "上限" の $(docstring) と ${HOME} が日本語で食い違う'
+GREEN = {"ok": True, "green": True, "log": "/logs/final.log", "suites": [], "by": "engine"}
+RED = {"ok": True, "green": False, "log": "/logs/final-red.log", "suites": [], "by": "engine"}
+FINISH_FIXED = {"ok", "outcome", "judgment_file", "review_file", "diff_file", "faces"}
+ADDED = {"report_file", "next_request_file", "tests_green", "validator_exit", "export_input"}
+
+
+def judged_out(board, need_fix=True) -> dict:
+    """判定のブロックの出口（blk-judge の collect）の形"""
+    b = entry.open_board(board, allow_halted=True)
+    return {"ok": True, "open_units": [RF.K1, RF.K2] if need_fix else [], "need_fix": need_fix,
+            "judgment_file": str(b.dir / b.state["outputs"]["p2.diagnose"]["file"]), "one_shot": False}
+
+
+def heads(text: str) -> dict:
+    """report.md を見出し（## ）ごとの本文に"""
+    out, cur = {}, None
+    for line in text.splitlines():
+        if line.startswith("## "):
+            cur = line
+            out[cur] = []
+        elif cur is not None:
+            out[cur].append(line)
+    return {k: "\n".join(v) for k, v in out.items()}
+
+
+class ReportBase(RF.DeltaBoardCase):
+    """線 A の盤面を道ごとに組む。置き場は self.art / board（$ARTIFACTS_DIR の形）"""
+
+    def begin(self, *, board=None, declared=True, pr=None, premises=None, request=None, judge="judge_ok", **raw):
+        """start → 並行 PR の任せ先・前提の役 → 判定（judge の見本）。pr は p0.parallel_pr の返答（excluded を持てば
+        prcheck の受け付けで外した範囲も書く）。返りは対象リポジトリ"""
+        repo = self.seed(declared=declared)
+        self.art = self.tmp / "art"
+        self.board = pathlib.Path(board) if board else self.art / "board"
+        rawd = self.raw(**raw)
+        if request is not None:
+            TE.request_file(pathlib.Path(rawd["request"]), request)
+        entry.start(self.board, repo, rawd, run_id=RUN_ID)
+        if not declared:   # CI の節が任せ先の役を待つ（並行 PR と前提はその後に出る）
+            return repo
+        if pr is not None and "excluded" in pr:
+            TE.launch(self.board, "p0.parallel_pr")
+            prcheck.snapshot(self.board, repo)
+            got = prcheck.take(self.board, pr, repo)
+        else:
+            TE.launch(self.board, "p0.parallel_pr")
+            got = entry.take(self.board, "p0.parallel_pr", pr or TE.pr_reply(), repo)
+        self.assertTrue(got["ok"], got)
+        TE.launch(self.board, "p0.premises")
+        self.assertTrue(entry.take(self.board, "p0.premises", premises or TE.PREMISES_REPLY, repo)["ok"])
+        if judge:
+            TE.launch(self.board, "p2.diagnose")
+            self.assertTrue(entry.take(self.board, "p2.diagnose", linekit.reply(judge), repo)["ok"])
+        return repo
+
+    def judged(self, name="judge_ok"):   # DeltaBoardCase が呼ぶ口（盤面の置き場は self.art / board）
+        repo = self.begin(judge=name)
+        return repo, None
+
+    def to_end(self):
+        """p4.ci を engine で走らせて周を締める（stop_after_round の締めで halted）"""
+        b = entry.open_board(self.board)
+        self.assertEqual(entry.run_ci(b, "p4.ci", test_cmd="")["by"], "engine")
+        b.settle()
+        self.assertEqual(json.loads((self.board / "state.json").read_text(encoding="utf-8"))["halted"]["by"], "stop_after_round")
+
+    def full(self, review2="fix2_delta_review2_ok"):
+        """標準の全部の道: 修正 → 審査（穴）→ 手直し → 2 回目の審査 → 最後のテスト → 周の締め"""
+        repo, _ = self.refixed()
+        self.assertTrue(refix.cut(self.board, 2, repo)["ok"])
+        self.assertTrue(refix.accept_review(linekit.reply(review2), self.board, "", repo, n=2)["ok"])
+        self.to_end()
+        return repo
+
+    def no_fix(self):
+        """直す物が無い判定 → 機械が p3.fix の空の返答 → 最後のテスト → 周の締め"""
+        repo, _ = self.judged("judge_no_fix")
+        TE.launch(self.board, "p3.fix")
+        self.assertTrue(entry.take(self.board, "p3.fix", entry.empty_fix_reply(), repo)["ok"])
+        self.to_end()
+        return repo
+
+    def planned(self, review="plan_review_regression"):
+        repo, _ = self.judged()
+        for nid, reply in (("p2.fix_plan", RF.plan_reply()), ("p2.plan_review", linekit.reply(review))):
+            TE.launch(self.board, nid)
+            got = entry.take(self.board, nid, reply, repo)
+            self.assertTrue(got["ok"], got)
+        return repo, got
+
+    def build(self, **kw):
+        if "judged" not in kw:
+            kw["judged"] = judged_out(self.board)
+        kw.setdefault("tests", GREEN)
+        kw.setdefault("start", None)
+        kw.setdefault("run_id", RUN_ID)
+        kw.setdefault("launches", [])
+        out = report.build(self.board, **kw)
+        text = pathlib.Path(out["report_file"]).read_text(encoding="utf-8")
+        return out, text, heads(text)
+
+    def stop(self, reason, by):
+        entry.open_board(self.board).stop(reason, by=by)
+
+
+H1, H2, H3, H4, H5 = report.HEADINGS
+
+
+# ---------------------------------------------------------------- 結末と関所
+class OutcomeCase(ReportBase):
+    def test_fixed_run_head_order(self):
+        """標準の全部の道 → fixed、report.md の冒頭 5 節の見出しがこの順、validator_exit ∈ report_accepts"""
+        self.full()
+        out, text, _ = self.build()
+        self.assertEqual(out["outcome"], "fixed")
+        pos = [text.index(h) for h in report.HEADINGS]
+        self.assertEqual(pos, sorted(pos))
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertIn(out["validator_exit"], report.report_accepts(b))
+        self.assertTrue(out["tests_green"])
+
+    def test_exit_keeps_finish_fields(self):
+        """返りの鍵 ⊇ 1 本目の finish の必須の欄と足した欄、outcome ∈ OUTCOMES、export_input は書き出しの 3 つの鍵"""
+        self.full()
+        out, _, _ = self.build()
+        self.assertLessEqual(FINISH_FIXED | ADDED, set(out))
+        self.assertIn(out["outcome"], report.OUTCOMES)
+        self.assertEqual(out["export_input"], {"outcome": out["outcome"], "report_file": out["report_file"],
+                                               "board_dir": str(self.board)})
+        self.assertTrue(pathlib.Path(out["diff_file"]).is_file())
+        self.assertTrue(pathlib.Path(out["review_file"]).is_file())
+        self.assertEqual(out["faces"], 1)
+
+    def test_no_fix_run(self):
+        """judge_no_fix → no_fix_needed、周の記録 rounds/round-<N>.json が在る（TA6）"""
+        self.no_fix()
+        out, _, _ = self.build(judged=judged_out(self.board, need_fix=False))
+        self.assertEqual(out["outcome"], "no_fix_needed")
+        n = json.loads((self.board / "state.json").read_text(encoding="utf-8"))["round"]
+        self.assertTrue((self.board / "rounds" / f"round-{n}.json").is_file())
+        self.assertNotIn("review_file", out)
+
+    def test_validator_rejects_never_fixed(self):
+        """検証器の包み（board_hook の validator_runner）が受理集合の外の exit → record_invalid、冒頭 1 に出力の末尾と痕跡"""
+        self.full()
+        st = json.loads((self.board / "state.json").read_text(encoding="utf-8"))
+        st["git_mismatches"] = [{"node": "p3.fix", "why": "痕跡の見本"}]
+        (self.board / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        fake = mock.Mock(return_value={"exit": 7, "out": "一行目\n偽の検証器: 記録が壊れている"})
+        with mock.patch.object(entry, "hook_kwargs", return_value={"validator_runner": fake}):
+            out, _, h = self.build()
+        self.assertEqual((out["outcome"], out["validator_exit"]), ("record_invalid", 7))
+        self.assertTrue(fake.called)
+        self.assertIn("偽の検証器: 記録が壊れている", h[H1])
+        self.assertIn("git_mismatches", h[H1])
+        self.assertIn("痕跡の見本", h[H1])
+
+    def test_round_not_closed_never_fixed(self):
+        """周の記録（record_round・converge）が済んでいない盤面（止めても聞いてもいない）→ 検証器が通っても record_invalid"""
+        self.fixed()
+        fake = mock.Mock(return_value={"exit": 0, "out": ""})
+        with mock.patch.object(entry, "hook_kwargs", return_value={"validator_runner": fake}):
+            out, _, h = self.build()
+        self.assertEqual(out["outcome"], "record_invalid")
+        self.assertIn("済んでいない", h[H1])
+
+    def test_settle_before_finalize_after_stop(self):
+        """止め札で止めた盤面 → settle が finalize より先に走り、報告の節の待ちが片付いている（M9）、stopped_by_request"""
+        self.refixed()
+        self.stop("依頼が変わった", "request:alice")
+        pending = [n for n in entry.open_board(self.board, allow_halted=True).nodes
+                   if entry.open_board(self.board, allow_halted=True).node_state(n) == "pending"]
+        self.assertTrue(pending)
+        order = []
+        real_settle, real_finalize = DiskBoard.settle, DiskBoard.finalize
+
+        def settle(b, *a, **k):
+            order.append("settle")
+            return real_settle(b, *a, **k)
+
+        def finalize(b, *a, **k):
+            order.append("finalize")
+            return real_finalize(b, *a, **k)
+        with mock.patch.object(DiskBoard, "settle", settle), mock.patch.object(DiskBoard, "finalize", finalize):
+            out, _, _ = self.build()
+        self.assertEqual(order[:2], ["settle", "finalize"])
+        self.assertEqual(out["outcome"], "stopped_by_request")
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual([n for n in b.nodes if b.node_state(n) == "pending"], [])
+
+    def test_stopped_by_request(self):
+        """止め札 → stopped_by_request、冒頭 3 に理由と止めた境の節（trace の stop_flag_seen の at）"""
+        self.judged()
+        b = entry.open_board(self.board)
+        b.trace(report.FLAG_SEEN_OP, at="plan", reason="依頼が変わった", by="alice")
+        b.stop("依頼が変わった", by="request:alice")
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "stopped_by_request")
+        self.assertIn("依頼が変わった", h[H3])
+        self.assertIn("止めた境の節: plan", h[H3])
+
+    def test_stopped_by_human_policy_and_final(self):
+        """事前審査の関所の stop（halted.by answer）と、最後の関所の stop（by human:final-gate）→ どちらも stopped_by_human、
+        冒頭 1 に一言が 1 バイトも変わらずに"""
+        self.planned()
+        entry.open_board(self.board).answer("stop", ODD)
+        out, text, h = self.build()
+        self.assertEqual(out["outcome"], "stopped_by_human")
+        self.assertIn(ODD, h[H1])
+        self.assertIn(ODD.encode("utf-8"), pathlib.Path(out["report_file"]).read_bytes())
+
+    def test_final_gate_stop(self):
+        self.judged()
+        self.stop(ODD, report.FINAL_GATE_BY)
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "stopped_by_human")
+        self.assertIn(f"最後の関所で止めた: 「{ODD}」", h[H1])
+
+    def test_final_gate_answer_in_head(self):
+        """最後の関所の continue（b.work(final-gate-answer.json) の {decision, text}）→ 冒頭 1 に答えと一言。結末は fixed のまま"""
+        self.full()
+        b = entry.open_board(self.board, allow_halted=True)
+        b.work(report.FINAL_GATE_ANSWER).write_text(json.dumps({"decision": "continue", "text": ODD}, ensure_ascii=False),
+                                                    encoding="utf-8")
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "fixed")
+        self.assertIn(f"最後の関所の答え: continue「{ODD}」", h[H1])
+
+    def test_stopped_by_line(self):
+        """包みが無い（包みを通す run で起動の記録が無い・包みの確かめで止めた）→ stopped_by_line、冒頭 4 に「包みが通っていない」"""
+        self.judged()
+        self.stop("包みの確かめが通らない: 包みの起動の記録が無い", ci_role.FENCE_BY)
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "stopped_by_line")
+        self.assertIn("包みが通っていない", h[H4])
+        self.assertIn("包みの確かめで止めた: 包みの確かめが通らない", h[H4])
+
+    def test_ci_role_without_adapter_stopped_by_line(self):
+        """CI の役が要る（宣言も test_cmd も無い）のに切符が無く、blk-ci の柵（ci_role.fence）が止めた盤面 → stopped_by_line、
+        冒頭 4 に止めた理由"""
+        repo = self.begin(declared=False)
+        self.assertIn("p0.local_checks", entry.open_board(self.board).settle()["ready"])
+        adapter.ticket_path(repo).unlink()
+        got = ci_role.fence(self.board, "p0.local_checks", repo)
+        self.assertFalse(got["go"])
+        out, _, h = self.build(judged=None, tests=None, ci={"ok": False, "reason": got["reason"], "note": ""})
+        self.assertEqual(out["outcome"], "stopped_by_line")
+        self.assertIn(got["reason"], h[H4])
+
+    def test_needs_human(self):
+        """最後の settle で pending_human が残った盤面 → needs_human、冒頭 1 に問いと項目"""
+        self.planned()
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "needs_human")
+        ph = entry.open_board(self.board).state["pending_human"]
+        self.assertIn(ph["question"], h[H1])
+        self.assertIn(ph["items"][0], h[H1])
+
+
+# ---------------------------------------------------------------- 冒頭の部品
+class HeadCase(ReportBase):
+    def test_head_parts_callable(self):
+        """head_reads・head_where・head_cost を盤面だけで呼べ、盤面の全部のファイルの sha が変わらない（線 B が呼ぶ）"""
+        self.full()
+        before = TE.board_shas(self.board)
+        b = entry.open_board(self.board, allow_halted=True)
+        where = report.head_where(b)
+        got = report.head_reads(self.board, RUN_ID)
+        cost = report.head_cost(self.board, RUN_ID)
+        self.assertTrue(where and got and cost)
+        self.assertEqual(TE.board_shas(self.board), before)
+        self.assertIn(f"run の作業ツリー: {b.state['inputs']['cwd']}", where)
+        self.assertTrue(any(x.startswith("判定: ") for x in where))
+
+    def test_round_two_paths(self):
+        """周 2 の出力（state.outputs[節]["file"] が out/r2/）→ 見る所のパスは out/r2/ の下（周を仮定しない）"""
+        self.full()
+        st = json.loads((self.board / "state.json").read_text(encoding="utf-8"))
+        for info in st["outputs"].values():
+            info["file"] = info["file"].replace("out/r1/", "out/r2/")
+            info["round"] = 2
+        (self.board / "out" / "r1").rename(self.board / "out" / "r2")
+        (self.board / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+        b = entry.open_board(self.board, allow_halted=True)
+        files = [x.split(": ", 1)[1] for x in report.head_where(b) if x.split(": ", 1)[0] in dict(report.WHERE)]
+        self.assertTrue(files)
+        for f in files:
+            self.assertIn("/out/r2/", f)
+            self.assertTrue(pathlib.Path(f).is_file(), f)
+
+    def test_not_in_line_listed(self):
+        """冒頭 2 の数 == state.works.not_in_line の数、p0.purpose がその一覧に、p0.parallel_pr が下げている所に在る"""
+        self.judged()
+        b = entry.open_board(self.board)
+        lines = report.head_entry(b, None)
+        n = len(b.state["works"]["not_in_line"])
+        self.assertTrue(any(x.startswith(f"このラインに無い節: {n} 個") for x in lines), lines)
+        self.assertTrue(any(x.startswith("p0.purpose: ") for x in report.absent_lines(b)))
+        self.assertEqual(len(report.absent_lines(b)), n)
+        downs = report.declared_downgrades(b.table.line)
+        self.assertTrue(any(x.startswith(f"下げている所: {len(downs)} 個") for x in lines))
+        self.assertTrue(any(x.strip().startswith("- p0.parallel_pr:") and "review-graph" in x for x in lines))
+
+    def test_mid_note_line(self):
+        """境の節 h-mid の出口の mid_note → 冒頭 2 に。出口が無ければ届いていないの行"""
+        self.judged()
+        b = entry.open_board(self.board)
+        note = "中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）"
+        self.assertIn(f"中の検査の枠: {note}", report.head_entry(b, None, mid={"go": True, "mid_note": note}))
+        self.assertTrue(any("届いていない" in x for x in report.head_entry(b, None, mid=None)))
+
+    def test_handover_drafts_and_downgrade(self):
+        """p0.parallel_pr を任せ先で受けた盤面（conflicts 2 件・どちらも note つき・外した hunk 1 件）→ 冒頭 1 に 2 件の下書きと
+        外した範囲、冒頭 2 に downgrades.json の 1 行"""
+        pr = linekit.reply("pr_ok")
+        second = {"pr": "8", "files": ["test_stats.py"], "handed_over": False, "note": "PR #8 の担当へ: " + ODD}
+        pr["conflicts"] = pr["conflicts"] + [second]
+        self.begin(pr=pr)
+        out, _, h = self.build(judged=None, tests=None)
+        self.assertIn(pr["conflicts"][0]["note"], h[H1])
+        self.assertIn(second["note"], h[H1])
+        self.assertEqual(h[H1].count("申し送りの下書き"), 2)
+        x = pr["excluded"][0]
+        self.assertIn(f"{x['file']}:{x['start']}-{x['end']}", h[H1])
+        self.assertIn("- p0.parallel_pr:", h[H2])
+
+    def test_rejudge_undisputed_changes_head(self):
+        """rejudge-diff.json の争点でない変化 1 件 → 冒頭 1 にその単位の key と前後"""
+        self.judged()
+        before = [{"key": RF.K1, "label": "block"}, {"key": RF.K2, "label": "block"}]
+        after = [{"key": RF.K1, "label": "block"}, {"key": RF.K2, "label": "suggest"}]
+        row = {"round": 1, "pass": "rejudge", "node": "p2.rejudge", "verdict": "一部採る",
+               **rejudge.diff_units(before, after, f"{RF.K1} の分母は正しい", [], ["key", "label"])}
+        self.assertEqual(row["unnamed_changed"], [RF.K2])
+        b = entry.open_board(self.board)
+        b.work(report.REJUDGE_DIFF).write_text(json.dumps([row], ensure_ascii=False), encoding="utf-8")
+        lines = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        hit = [x for x in lines if RF.K2 in x]
+        self.assertEqual(len(hit), 1, lines)
+        self.assertIn('"block" → "suggest"', hit[0])
+
+    def test_rejudge_session_stop_asks(self):
+        """state.stop.by == works:rejudge-session → stopped_by_line、冒頭 1 に問い、next-request.json に異議の文（字のまま）"""
+        self.judged()
+        b = entry.open_board(self.board)
+        b.loop_state["rejudge_requested"] = {"round": 1, "text": ODD}
+        b.save()
+        self.stop("判定役の会話を確かめられない", rejudge.STOP_BY_SESSION)
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "stopped_by_line")
+        self.assertIn("再審の会話を確かめられずに止めた", h[H1])
+        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        self.assertIn(ODD, [i["text"] for i in items])
+
+    def test_premises_claims_hypothesis_head(self):
+        """依頼の measured を前提の役が仮説でしか書けなかった制約 1 件 → 冒頭 1 に where と「測り直せなかった」"""
+        req = [{"where": "stats.py mean", "text": "mean([1, 2, 3]) が 3 を返す", "measured": "python3 -c ... → 3"},
+               {"where": "stats.py clamp", "text": "clamp(15, 0, 10) が 0 を返す"}]
+        prem = {"constraints": [{"text": "stats.py mean は分母が len(xs) - 1（読んだだけで走らせていない）",
+                                 "measured_how": "stats.py を読んだ", "kind": "仮説"}]}
+        self.begin(request=req, premises=prem)
+        b = entry.open_board(self.board)
+        lines = report.head_decisions(b, {"accepted": True, "round_closed": True})
+        hit = [x for x in lines if "測り直せなかった" in x]
+        self.assertEqual(len(hit), 1, lines)
+        self.assertIn("stats.py mean", hit[0])
+
+    def test_ci_note_beside_no_adapter(self):
+        """adapter optional で CI の役が走った → 冒頭 4 の「包み無し」の行の横（同じ行）に collect.note"""
+        self.begin(declared=False, adapter="optional")
+        b = entry.open_board(self.board)
+        lines = report.head_reads(self.board, RUN_ID, ci={"ok": True, "note": ci_role.NO_ADAPTER_NOTE})
+        hit = [x for x in lines if x.startswith("包み無し")]
+        self.assertEqual(len(hit), 1, lines)
+        self.assertIn(ci_role.NO_ADAPTER_NOTE, hit[0])
+        self.assertFalse(any("包みが通っていない" in x for x in lines))
+        self.assertTrue(b.state)
+
+
+# ---------------------------------------------------------------- 次の run に渡す依頼
+class NextRequestCase(ReportBase):
+    def declared_board(self, key=None):
+        """差分の審査の穴（key）と事前審査の穴を、手直しが両方 declared で残した盤面"""
+        repo, _ = self.reviewed() if key is None else self._reviewed_with(key)
+        refix.prep_fix(self.board, 1, repo)
+        owed = json.loads(pathlib.Path(refix.prep_fix(self.board, 1, repo)["brief_file"]).read_text(encoding="utf-8"))["owed"]
+        got = refix.accept_fix({"handled": [{"key": r["key"], "handled": "declared", "how": "誤検知でなく残す: 次の run の判定者に振り分けを任せる"}
+                                            for r in owed]}, self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+        return repo, [r["key"] for r in owed]
+
+    def _reviewed_with(self, key):
+        repo = self.fixed()
+        self.assertTrue(refix.cut(self.board, 1, repo)["ok"])
+        rv = linekit.reply("fix2_delta_review_faces")
+        rv["faces"][0]["key"] = key
+        got = refix.accept_review(rv, self.board, "", repo, n=1)
+        self.assertTrue(got["ok"], got)
+        return repo, got
+
+    def test_next_request_passes_v1_intake(self):
+        """declared で残した穴と赤のテスト → next-request.json を一時の盤面で accept.check_request → ok"""
+        self.declared_board()
+        self.to_end()
+        out, _, h = self.build(tests=RED)
+        items = json.loads(pathlib.Path(out["next_request_file"]).read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(items), 3)
+        self.assertTrue(any("赤" in i["text"] for i in items))
+        with tempfile.TemporaryDirectory(dir=linekit.work_home()) as d:
+            self.assertEqual(accept.check_request(items, pathlib.Path(d), "次の run"), {"ok": True, "reason": ""})
+        self.assertIn(f"次の run に渡す物: {len(items)} 件", h[H1])
+        self.assertIn("最後のテストが赤", h[H1])
+
+    def test_next_request_keys_roundtrip(self):
+        """穴の key に引用符・日本語・$( → next-request.json の text に 1 バイトも同じで在る"""
+        _, keys = self.declared_board(ODD_KEY)
+        self.assertIn(ODD_KEY, keys)
+        out, _, _ = self.build()
+        raw = pathlib.Path(out["next_request_file"]).read_bytes()
+        items = json.loads(raw.decode("utf-8"))
+        self.assertTrue(any(ODD_KEY in i["text"] for i in items))
+        self.assertIn(json.dumps(ODD_KEY, ensure_ascii=False)[1:-1].encode("utf-8"), raw)
+
+
+# ---------------------------------------------------------------- 費用
+class CostCase(unittest.TestCase):
+    EVENTS = [{"event_type": "node_completed", "step_name": "judging__judge-loop.judge", "data": {"cost_usd": 0.0284}},
+              {"event_type": "node_completed", "step_name": "rejudging__rj-loop.rejudge", "data": {"cost_usd": 0.0615}},
+              {"event_type": "node_started", "step_name": "x", "data": {"cost_usd": 9}}]
+    LAUNCHES = [{"at": "2026-09-27T10:00:00+09:00", "node": "judge", "session": {"mode": "new", "id": "S1"}},
+                {"at": "2026-09-27T10:05:00+09:00", "node": "rejudge",
+                 "session": {"mode": "continued", "id": "S1", "of": "judge", "from": "S1"}}]
+
+    def test_cost_subtracts_continued(self):
+        """出来事の見本（judge 0.0284・rejudge 0.0615）と launches（rejudge が continued of judge・同じ id）→ rejudge の actual が
+        約 0.0331、行に「judge の会話の累積 … を引いた」"""
+        rows = {r["node"]: r for r in report.cost_rows(self.EVENTS, self.LAUNCHES)}
+        self.assertAlmostEqual(rows["rejudge"]["actual"], 0.0331, places=6)
+        self.assertEqual((rows["rejudge"]["continued_from"], rows["judge"]["actual"]), ("judge", 0.0284))
+        lines = report.head_cost(None, RUN_ID, events=self.EVENTS, launches=self.LAUNCHES)
+        hit = [x for x in lines if x.startswith("費用 rejudge:")]
+        self.assertEqual(len(hit), 1, lines)
+        self.assertIn("judge の会話の累積 0.0284 を引いた", hit[0])
+        self.assertIn("欄の形は未確認", hit[0])   # COST_FIELD_VERIFIED が偽の間
+        self.assertFalse(report.COST_FIELD_VERIFIED)
+
+    def test_cost_unavailable_line(self):
+        """events None → 費用の行が「取れない」の 1 行。費用の欄の無い出来事も 1 行"""
+        for events in (None, [{"event_type": "node_completed", "step_name": "a", "data": {}}]):
+            with self.subTest(events=events):
+                lines = report.head_cost(None, RUN_ID, events=events, launches=self.LAUNCHES)
+                self.assertEqual(len(lines), 1)
+                self.assertIn("取れない", lines[0])
+        self.assertEqual(report.cost_rows(None, self.LAUNCHES), [])
+
+
+# ---------------------------------------------------------------- 名前の揃い・スクリプト・dev の殻
+class NamesCase(unittest.TestCase):
+    def test_board_names_match_writers(self):
+        """報告が読む盤面の上の名前が書き手の模块と同じ（層 L3 は書き手を import しないので、ここで突き合わせる）"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        try:
+            import line_edge
+        finally:
+            sys.path.remove(str(ROOT / "darkfactory" / "lib"))
+        self.assertEqual(report.FLAG_SEEN_OP, line_edge.FLAG_SEEN_OP)
+        self.assertEqual(report.REQUEST_BY, line_edge.FLAG_BY_PREFIX)
+        for name, want in (("FINAL_GATE_ANSWER", "final-gate-answer.json"), ("FINAL_GATE_BY", "human:final-gate")):
+            self.assertEqual(getattr(report, name), want)
+            if hasattr(line_edge, name):   # P1 Task 26 の後
+                self.assertEqual(getattr(report, name), getattr(line_edge, name))
+        self.assertEqual(report.PR_EXCLUDED, prcheck.EXCLUDED)
+        self.assertEqual(report.PR_NODE, prcheck.NODE)
+        self.assertEqual(report.DOWNGRADE_KEYS, prcheck.DOWNGRADE_KEYS)
+        self.assertEqual(report.REJUDGE_DIFF, rejudge.DIFF_NAME)
+        self.assertEqual(report.REJUDGE_SESSION_BY, rejudge.STOP_BY_SESSION)
+        self.assertEqual(report.ADAPTER_BY, ci_role.FENCE_BY)
+        self.assertEqual(report.declared_downgrades("darkfactory"), prcheck.downgrades("darkfactory"))
+        self.assertEqual(report.declared_downgrades("no-such-line"), [])
+
+
+class ScriptCase(ReportBase):
+    def run_script(self, art=None, **env_over):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+        env.update({"INPUTS_JUDGED": "null", "INPUTS_TESTS": "null", "INPUTS_START": "null", "INPUTS_MID": "null",
+                    "INPUTS_CI": "null", "ARTIFACTS_DIR": str(art or self.art), "WORKFLOW_ID": RUN_ID,
+                    "PYTHONDONTWRITEBYTECODE": "1"})
+        env.update(env_over)
+        env = {k: v for k, v in env.items() if v is not None}
+        return subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, cwd=str(self.tmp))
+
+    def test_script_one_line_and_inputs(self):
+        """INPUTS の組、1 行の JSON と 0（record_invalid も 0）、mid の mid_note が報告に"""
+        self.judged()
+        spec = importlib.util.spec_from_file_location("_report_script", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI"))
+        r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_TESTS=json.dumps(RED),
+                            INPUTS_MID=json.dumps({"go": False, "mid_note": "枠のみ"}), INPUTS_CI="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(r.stdout.splitlines()), 1)
+        out = json.loads(r.stdout)
+        self.assertEqual(out["outcome"], "record_invalid")
+        self.assertEqual(out["export_input"]["board_dir"], str(self.board.resolve()))
+        self.assertIn("中の検査の枠: 枠のみ", pathlib.Path(out["report_file"]).read_text(encoding="utf-8"))
+
+    def test_script_errors(self):
+        """盤面が開けない → 1（stderr に 1 行・stdout は空）。環境変数の欠け・読めない JSON → 2"""
+        empty = self.tmp / "empty-art"
+        empty.mkdir()
+        r = self.run_script(art=empty)
+        self.assertEqual((r.returncode, r.stdout), (1, ""), r.stderr)
+        self.assertEqual(len(r.stderr.strip().splitlines()), 1)
+        r = self.run_script(art=empty, INPUTS_TESTS=None)
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+        self.assertIn("INPUTS_TESTS", r.stderr)
+        r = self.run_script(art=empty, INPUTS_JUDGED="{壊れた")
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+
+
+class ReportShCase(ReportBase):
+    RUN = json.loads((EVENTS / "get-running.json").read_text(encoding="utf-8"))["id"]
+
+    def fake_archon(self, root, status):
+        doc = json.loads((EVENTS / "get-running.json").read_text(encoding="utf-8"))
+        doc.update(output_root=str(root), status=status)
+        out = self.tmp / "get.json"
+        out.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        fake = self.tmp / "fake-archon.sh"
+        fake.write_text(f'#!/bin/sh\ncat "{out}"\n', encoding="utf-8")
+        return fake
+
+    def test_report_sh_after_cancel(self):
+        """盤面だけ残った run（halted でない）に report.sh → report.md ができ、outcome interrupted、冒頭 3 に「途中で終わった」と
+        Archon の run の状態。記録の関所も通す（冒頭の後に検証器の終了コード）"""
+        root = self.tmp / "archon-out"
+        self.begin(board=root / "artifacts" / "runs" / self.RUN / "board")
+        self.assertFalse(json.loads((self.board / "state.json").read_text(encoding="utf-8")).get("halted"))
+        env = dict(os.environ, WORKS_DEV_ARCHON=str(self.fake_archon(root, "cancelled")), PYTHONDONTWRITEBYTECODE="1")
+        r = subprocess.run(["sh", str(REPORT_SH), self.RUN], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["outcome"], "interrupted")
+        text = (self.board / "report.md").read_text(encoding="utf-8")
+        h = heads(text)
+        self.assertIn(report.INTERRUPTED_HEAD, h[H3])
+        self.assertIn("Archon の run の状態は cancelled", h[H3])
+        self.assertIn("終了コード: ", text)
+
+    def test_report_sh_refuses(self):
+        """run id が無い・盤面が無い → 2、何も書かない"""
+        env = dict(os.environ, WORKS_DEV_ARCHON=str(self.fake_archon(self.tmp / "nowhere", "cancelled")))
+        for args in ((), (self.RUN,)):
+            with self.subTest(args=args):
+                r = subprocess.run(["sh", str(REPORT_SH), *args], capture_output=True, text=True, env=env,
+                                   stdin=subprocess.DEVNULL)
+                self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
+                self.assertTrue(r.stderr.strip())
+
+
+if __name__ == "__main__":
+    unittest.main()
