@@ -1,0 +1,158 @@
+name: mutation-shards
+
+# 版の関門（2026-09-27 の人の決定: 版を止めない・変異は手元でなく CI で撃つ）。main と版の枝（release/*）への push の後で、
+# 差分の腕を組に分けて 3 OS の並列の job で撃ち（OS ごとの分岐を殺すため）、OS ごとに組の報告を tests/mutate.py --merge で
+# 和を検算してまとめ、証拠にならない腕を --findings で review-graph の loop.py add に渡せる形にして成果物に残す。
+# pytest が覆うモジュールの変異（mutmut）も同じ push で撃ち、結果を成果物に残す。版の前に手元で撃つ関門
+# （python3 tests/mutate.py --confirm-survivors）は選べるまま残る。週 1 回の全腕は mutation.yml。
+# 選ぶ腕は差分の Google 型（--auto の 1 行 1 本・効かない行を外す ＋ --changed-since の一覧の腕）。台本（tests/mutate.py の DRIVERS）に
+# 触れた push は、柵の側を緩めた変更を差分の腕では拾えないので一覧の腕を全部撃つ
+on:
+  push:
+    branches: [main, "release/**"]
+
+# checkout と成果物の上げ下ろしだけなので、GITHUB_TOKEN は読むだけにする。secrets は使わない
+permissions:
+  contents: read
+
+jobs:
+  shards:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # 生き残りで exit 1 になった組が兄弟の組を取り消すと、まとめる job が組の欠けで赤になり結果が読めない
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # 組の数 n は下の --shard に 8 と書く。ここの一覧と食い違えば、まとめる側の和の検算が組の欠けで赤にする
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # 基点の commit が要る（既定の 1 では git diff が落ちる）
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # shell: bash を明示しないと Windows では PowerShell になる。python3 は Windows の runner に無いので python で呼ぶ
+      - name: 基点と撃ち方を決める
+        id: plan
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+          REF: ${{ github.ref_name }}
+        run: |
+          # 基点は push の前の版。枝を作った push（before が全 0）か、before が引けない（強制 push）なら、
+          # 1 つ前の版の枝との分岐点、無ければ main との分岐点
+          if [ -n "$BEFORE" ] && ! [[ "$BEFORE" =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base="$BEFORE"
+          else
+            prev=$(git for-each-ref --sort=-v:refname --format='%(refname:short)' 'refs/remotes/origin/release/' | grep -vx "origin/$REF" | head -n 1)
+            base=$(git merge-base HEAD "${prev:-origin/main}")
+          fi
+          drivers=$(python -c "import sys; sys.path.insert(0, 'tests'); import mutate; print(' '.join(mutate.DRIVERS))")
+          # shellcheck disable=SC2086
+          if git diff --quiet "$base" HEAD -- $drivers; then
+            echo "narrow=--changed-since $base" >> "$GITHUB_OUTPUT"
+          else
+            echo "narrow=" >> "$GITHUB_OUTPUT"
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+      - name: tests/mutate.py（${{ matrix.os }} の組 ${{ matrix.shard }}/8）
+        # 組の赤（生き残り・撃つ腕 0 本）は job を止めずに報告へ残し、関門の判定はまとめる job の 1 か所で行う
+        # （欠け・撃ち切っていない組はまとめる側の和の検算が赤にする）
+        continue-on-error: true
+        shell: bash
+        run: >-
+          python tests/mutate.py -j 4 --confirm-survivors --auto "${{ steps.plan.outputs.base }}" ${{ steps.plan.outputs.narrow }}
+          --shard ${{ matrix.shard }}/8 --out shard-${{ matrix.shard }}.json
+      - name: 組の報告を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # v4 は同じ名前へ複数の job から上げられない
+          name: mutation-shard-${{ matrix.os }}-${{ matrix.shard }}
+          path: shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+
+  merge:
+    needs: shards
+    if: always()
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # OS ごとにまとめる（同じ腕でも OS で結果が分かれうる。混ぜると k が 2 回ずつ在って和の検算が赤になる）
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # 成果物ごとに別のディレクトリへ展開する（merge-multiple は使わない。同じファイル名がぶつかったときの結果が定まっていない）
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-shard-${{ matrix.os }}-*
+          path: shards
+      - name: 組をまとめる（和の検算）
+        id: merge
+        shell: bash
+        run: |
+          set +e
+          python tests/mutate.py --merge shards/*/shard-*.json --out merged.json
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+      - name: 証拠にならない腕を findings に
+        # まとめる段が赤（生き残りが在る）の回こそ findings が要る——前の段の結果で飛ばさない
+        if: always()
+        shell: bash
+        run: python tests/mutate.py --findings merged.json > findings.json
+      - name: まとめた報告と findings を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-merged-${{ matrix.os }}
+          path: |
+            merged.json
+            findings.json
+      - name: 関門の結果
+        if: always()
+        shell: bash
+        env:
+          RC: ${{ steps.merge.outputs.rc }}
+        run: |
+          # 全組が『撃つ腕が 0 本』で揃った回（変異の腕に当たらない push）は赤にしない。それ以外はまとめる段の終了コード
+          if python -c "import json, sys; d = json.load(open('merged.json', encoding='utf-8')); sys.exit(0 if d.get('empty') and not d.get('merge_problems') else 1)"; then
+            echo "撃つ腕が 0 本の push"; exit 0
+          fi
+          exit "${RC:-1}"
+
+  # pytest が覆うモジュールの変異（mutmut。設定は graphloops/setup.cfg）。生き残りの数で落とす形は作れない（文言だけの変異が残る）
+  # ので job は赤にせず、結果を成果物に残す——生き残りは次の run に依頼として渡す（graphloops/README.md の「版の関門」）。
+  # mutmut は Windows で動かないので 2 OS
+  mutmut:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: mutmut
+        shell: bash
+        working-directory: graphloops
+        run: |
+          python -m pip install mutmut==3.8.0 pytest==9.1.1
+          set +e
+          mutmut run --max-children 4
+          echo "mutmut run の終了コード: $?" > ../mutmut-results.txt
+          mutmut results >> ../mutmut-results.txt
+          exit 0
+      - name: mutmut の結果を残す
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutmut-results-${{ matrix.os }}
+          path: mutmut-results.txt
+          if-no-files-found: error

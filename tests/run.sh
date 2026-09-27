@@ -1990,7 +1990,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=591
+EXPECTED_CHECKS=597
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3472,6 +3472,92 @@ print(" ".join(f"{k}={v['material']['status']}:{len(validate_schema(v, sch))}" f
 PYGS
 expect_output 0 "found=found:0 clean=clean:0 not_run=not_run:0" "--gate-efficacy の出力は found・clean・撃てた腕 0 本の not_run とも graph の p1.gate_efficacy の型を通る（0 本の回も本体が --out を書く）" \
     "$PY_BIN" "$WORK/mut-gate-schema.py" "$ROOT/tests" "$ROOT/graphloops" "$ROOT/graphloops/graphs/review-loop.json" "$WORK/mut-empty.json"
+# 組分け（--shard）・まとめ（--merge）・findings（--findings）: CI の並列 job の組の報告を手で組み、和の検算が欠け・食い違い・
+# 撃ち切っていない組・赤の control と印の写しを 1 つずつ拒むこと（fail-closed）と、findings が review-graph の add の型を通ること
+cat > "$WORK/mut-shard.py" <<'PYSHARD'
+import copy, json, sys
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
+import mutate
+from engine.schema import load_graph, validate_schema
+from engine.rules import load_rules
+REQ = load_rules(sys.argv[3], load_graph(sys.argv[3])[0]).REQUEST_SCHEMA
+ids = [f"a{i}" for i in range(10)]
+parts = [mutate.shard_of(ids, k, 3) for k in range(3)]
+over = [mutate.shard_of(ids[:2], k, 4) for k in range(4)]
+prop = (sorted(sum(parts, [])) == sorted(ids) and len(set(sum(parts, []))) == len(ids)
+        and sum(over, []) == ids[:2] and mutate.shard_of(ids, 1, 3) == parts[1])
+
+def arm(i, st="Killed"):
+    return {"id": i, "title": "t" + i, "file": "a.py", "status": st, "evidence": "印" if st == "Killed" else "", "killedBy": ["x"] if st == "Killed" else []}
+
+def shard(k, n, sel, st=None, rc=0, mrc=0):
+    mine = mutate.shard_of(sel, k, n)
+    r = {"schemaVersion": "1", "rev": "r1", "at": f"2026-09-27T00:0{k}:00+00:00", "pruned": [{"id": "p"}],
+         "shard": {"k": k, "n": n, "selected": sel}, "arms": [arm(i, (st or {}).get(i, "Killed")) for i in mine]}
+    if mine:
+        r.update(control={"root": {"rc": rc}}, marker={"rc": mrc, "placed": [], "seen": [], "cover": {}, "skipped": {}},
+                 summary={"control_ok": rc == 0, "green": [i for i in mine if (st or {}).get(i) == "Survived"], "whole_suite_why": {}})
+    return r
+
+sel = ["a0", "a1", "a2"]
+good = [shard(k, 3, sel) for k in range(3)]
+def m(rs):
+    return mutate.merge_reports([(f"s{i}", r) for i, r in enumerate(rs)])
+def red(rs):
+    x = m(rs)
+    return not mutate.healthy(x) and bool(x.get("merge_problems") or not x["summary"]["control_ok"] or x["marker"]["rc"] != 0)
+def edit(k, f):
+    rs = copy.deepcopy(good); f(rs[k]); return rs
+ok = m(good)
+cases = {
+    "missing": red(good[:2]),
+    "n": red(good[:2] + [shard(2, 4, sel)]),
+    "dupk": red(good + [copy.deepcopy(good[0])]),
+    "selected": red(good[:2] + [shard(2, 3, sel + ["a9"])]),
+    "overlap": red(edit(1, lambda r: r["arms"].append(arm("a0")))),
+    "partial": red(edit(0, lambda r: r.update(partial=True))),
+    "pending": red(edit(0, lambda r: r.update(pending=[{"id": "a0"}]))),
+    "control": red([shard(0, 3, sel, rc=1)] + good[1:]),
+    "marker_neg": red([shard(0, 3, sel, mrc=-9)] + good[1:]),
+    "marker_timeout": red([shard(0, 3, sel, mrc="timeout")] + good[1:]),
+    "noshard": red(edit(0, lambda r: r.pop("shard"))),
+    "rev": red(edit(0, lambda r: r.update(rev="r2"))),
+    "short": red(edit(1, lambda r: r["arms"].pop())),
+}
+zero = m([shard(k, 5, sel) for k in range(5)])
+sv = m([shard(k, 3, sel, st={"a1": "Survived"}) for k in range(3)])
+got, _ = mutate.findings(sv)
+batch = [{"round": 1, "origin": "変異の CI", "findings": got}]
+single, why1 = mutate.findings(good[0])
+bad, why2 = mutate.findings(m(good[:2]))
+empty = m([{**shard(k, 2, []), "empty": "撃つ腕が 0 本"} for k in range(2)])
+print("prop=" + str(prop), "ok=" + str(mutate.healthy(ok) and [a["id"] for a in ok["arms"]] == sel and not ok.get("merge_problems")),
+      "fail_closed=" + ",".join(k for k, v in cases.items() if not v) + ";",
+      "zero=" + str(mutate.healthy(zero)) + "/" + str([s["assigned"] for s in zero["shards"]]),
+      "pruned=" + str(ok["summary"]["pruned"]),
+      "findings=" + str(len(got)) + ":" + str(len(validate_schema(batch, REQ))),
+      "single=" + str(single is None and "組が欠けた" in why1), "unhealthy=" + str(bad is None),
+      "ctrl_red=" + str(mutate.findings(m([shard(0, 3, sel, rc=1)] + good[1:]))[0] is None),
+      "empty=" + str(mutate.findings(empty)[0]) + "/" + str(bool(empty.get("empty"))),
+      "gate_single=" + mutate.gate_efficacy(good[0])["material"]["status"])
+PYSHARD
+expect_output 0 "prop=True ok=True fail_closed=; zero=True/[1, 1, 1, 0, 0] pruned=1 findings=1:0 single=True unhealthy=True ctrl_red=True empty=[]/True gate_single=found" "組分け: 割り当ては和が全体で重ならず、まとめる口は組の欠け・n・k の重複・選別・腕の重なり・partial・pending・control の赤・印の写しの負の rc と timeout・身元なし・版の食い違いをどれも健全と言わず、割り当て 0 本の組は欠けと数えず、findings は add の型を通り、組 1 本と健全でない報告からは出さない" \
+    "$PY_BIN" "$WORK/mut-shard.py" "$ROOT/tests" "$ROOT/graphloops" "$ROOT/graphloops/graphs/review-loop.json"
+"$PY_BIN" -c "import json, sys; sys.path.insert(0, sys.argv[1]); import mutate; r = {'schemaVersion': '1', 'rev': 'r', 'shard': {'k': 0, 'n': 2, 'selected': ['a', 'b']}, 'arms': [{'id': 'a', 'title': 't', 'file': 'f', 'status': 'Killed', 'evidence': 'e'}], 'control': {'root': {'rc': 0}}, 'marker': {'rc': 0}, 'summary': {'control_ok': True}}; open(sys.argv[2], 'w').write(json.dumps(r))" "$ROOT/tests" "$WORK/mut-shard0.json"
+expect_output 1 "NG 組が欠けた: k=[1]" "--merge は組の報告が欠けた回を赤にし、欠けた k を名指す" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --merge "$WORK/mut-shard0.json" --out "$WORK/mut-merged.json"
+expect_output 1 "から findings を出さない" "--findings は組 1 本の報告から、全体のふりをした findings を出さない" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --findings "$WORK/mut-shard0.json"
+expect_output 2 "NG --shard 2/2" "--shard の k は 0 から n-1（読めない組は撃たずに 2）" \
+    "$PY_BIN" "$ROOT/tests/mutate.py" --shard 2/2
+# 撃たない形で本体の main を通す: 割り当て 0 本の組は写しを走らせずに身元だけを書いて 0、全体の選別が 0 本の組も身元を書いて 1
+expect_output 0 "shard={'k': 1, 'n': 2, 'selected': ['d01']} arms=0 control=False" "--shard で割り当て 0 本の組は撃たずに身元（k・n・全体の選別）だけを書いて 0（成果物の欠けと区別する）" \
+    bash -c '"$1" "$2/tests/mutate.py" --only d01 --shard 1/2 --out "$3/mut-z.json" >/dev/null && "$1" -c "import json, sys; d = json.load(open(sys.argv[1], encoding=\"utf-8\")); print(\"shard=\" + str(d[\"shard\"]), \"arms=\" + str(len(d[\"arms\"])), \"control=\" + str(\"control\" in d))" "$3/mut-z.json"' _ "$PY_BIN" "$ROOT" "$WORK"
+expect_output 0 "rc=1 shard={'k': 0, 'n': 2, 'selected': []}" "--shard で全体の選別が 0 本でも組の身元を書く（--merge が欠けと見分ける）" \
+    bash -c '"$1" "$2/tests/mutate.py" --only no-such-arm-7f3a --shard 0/2 --out "$3/mut-e.json" >/dev/null 2>&1; echo "rc=$?" "$("$1" -c "import json, sys; print(\"shard=\" + str(json.load(open(sys.argv[1], encoding=\"utf-8\"))[\"shard\"]))" "$3/mut-e.json")"' _ "$PY_BIN" "$ROOT" "$WORK"
 # 自動の腕（--auto）: 差分が足した Python の文と式から ast の 1 本の規則で作り、位置で当てる。作った変異も印の包みも構文が壊れない
 cat > "$WORK/mut-auto.py" <<'PYAUTO'
 import pathlib, sys

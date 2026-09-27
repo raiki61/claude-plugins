@@ -77,7 +77,9 @@ tmp=$(mktemp -d) && git ls-files -co --exclude-standard | tar -cf - -T - | tar -
 cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest mutmut run --max-children 4 && uv run --no-project --with mutmut==3.8.0 --with pytest mutmut results
 ```
 
-`mutmut results` が挙げる生き残りのうち、実害のある物を pytest 側のテストで殺す。CI では回さない（生き残りの数で落とす形は作れず——文言だけの変異が残る——、報告だけのジョブは誰も読まない。落とす柵は手書きの腕の側に在る）。
+`mutmut results` が挙げる生き残りのうち、実害のある物を pytest 側のテストで殺す。CI では下の「版の関門」の workflow が push ごとに撃つが、job を赤にはしない（生き残りの数で落とす形は作れない——文言だけの変異が残る。落とす柵は手書きの腕の側に在る）。結果は成果物に残し、読んで次の run に渡す（下）。
+
+**版の関門**（2026-09-27 から。人の決定「版を止めない」）: 変異の関門は既定で**版の後に CI で撃つ**。main と版の枝（`release/*`）への push で [.github/workflows/mutation-shards.yml](../.github/workflows/mutation-shards.yml) が差分の腕（`--auto` と `--changed-since`。台本に触れた push は一覧の腕を全部）を 3 OS（OS ごとの分岐を殺すため）× 8 組に分けて並列に撃ち（`tests/mutate.py --shard k/n`）、OS ごとに組の報告を `--merge` で和を検算してまとめ（組の欠け・撃ち切っていない組・赤の control は赤）、証拠にならない腕を `--findings` で review-graph の `loop.py add` に渡せる findings にする。同じ push で mutmut（pytest が覆うモジュールの変異。Windows では動かないので 2 OS）も撃ち、`mutmut results` を成果物に残す。版を上げて push した人が、次の run を始める前に成果物を取り（`gh run download <run の番号> -p 'mutation-merged-*' -p 'mutmut-results-*'`）、OS ごとの `findings.json` が空でなければ、その run の init の直後に `loop.py add --file findings.json --reason "変異の CI（<版>・<OS>）"` で判定に渡す（空の配列は add が拒むので渡さない）。mutmut の生き残りは、実害のある物を同じ形（where・text・mechanism・measured）の依頼に書いて渡す。`gates=merge` で止まった run の報告が言う「残る義務」（合流した版で最後の関門を撃つ）は、このリポジトリではこの CI の関門と findings の add が負う。**版の前に手元で撃つ関門も選べる**——`python3 tests/mutate.py --confirm-survivors -j 6`（差分に絞るなら `--auto <基点> --changed-since <基点>` を足す）を版の前に撃てば、今までどおり関門を通してから版を出せる。取りこぼしを拾う週 1 回の全腕は [.github/workflows/mutation.yml](../.github/workflows/mutation.yml)。
 
 ## ループを足すには
 

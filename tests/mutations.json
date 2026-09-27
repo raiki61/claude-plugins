@@ -3108,7 +3108,7 @@
    "title": "撃てた腕 0 本の回も --out を書く",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "    write_out(out, {\"schemaVersion\": \"1\", \"arms\": [], \"empty\": why})",
+   "old": "    write_out(out, {\"schemaVersion\": \"1\", **(head or {}), \"arms\": [], \"empty\": why})",
    "new": "    pass",
    "expect": "--gate-efficacy の出力は found・clean"
   },
@@ -6327,6 +6327,69 @@
      "test_engine_run_checks"
     ]
    }
+  },
+  {
+   "id": "SH1",
+   "title": "組の rc を最大値や 0 で合わせない",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    return next((r for r in rcs if r != 0), 0)",
+   "new": "    return 0",
+   "expect": "組分け: 割り当ては和が全体で重ならず"
+  },
+  {
+   "id": "SH2",
+   "title": "まとめた報告の検算の外れで healthy を偽に",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "            and not res.get(\"merge_problems\"))",
+   "new": "            )",
+   "expect": "組分け: 割り当ては和が全体で重ならず"
+  },
+  {
+   "id": "SH3",
+   "title": "組 1 本の報告は和の検算に通してから読む",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    return merge_reports([(\"<組の報告>\", res)]) if \"shard\" in res else res",
+   "new": "    return res",
+   "expect": "組分け: 割り当ては和が全体で重ならず"
+  },
+  {
+   "id": "SH4",
+   "title": "組の欠けを検算で拒む",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "        if miss:\n",
+   "new": "        if False:\n",
+   "expect": "--merge は組の報告が欠けた回を赤にし"
+  },
+  {
+   "id": "SH5",
+   "title": "findings は control か印の写しが赤の報告から出さない",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "        return None, \"control か印の写しが赤（撃った回そのものが証拠にならない）\"",
+   "new": "        pass",
+   "expect": "組分け: 割り当ては和が全体で重ならず"
+  },
+  {
+   "id": "SH6",
+   "title": "割り当ての式は i % n == k",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "    return [x for i, x in enumerate(ids) if i % n == k]",
+   "new": "    return [x for i, x in enumerate(ids) if i % n <= k]",
+   "expect": "組分け: 割り当ては和が全体で重ならず"
+  },
+  {
+   "id": "SH7",
+   "title": "組の腕が割り当てと一致するかを検算する",
+   "file": "tests/mutate.py",
+   "suite": "root",
+   "old": "        if n is not None and sorted(got) != sorted(shard_of(selected, sh[\"k\"], n)):",
+   "new": "        if False:",
+   "expect": "組分け: 割り当ては和が全体で重ならず"
   }
  ],
  "dropped": [
