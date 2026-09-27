@@ -264,6 +264,54 @@
      "JudgeAwaitingCase.test_judge_gives_up_without_failing_the_run"
     ]
    }
+  },
+  {
+   "id": "wt1",
+   "title": "使用許諾が MIT・Apache-2.0・BSD の外の MCP を隔離した設定に入れない（Context7。持ち主 2026-09-28）",
+   "file": "dev/toolset.py",
+   "old": "        if lic not in LICENCES_OK:",
+   "new": "        if False:",
+   "tests": {
+    "tests/test_toolset.py": [
+     "McpCase.test_licence_not_ok_refuses_and_writes_nothing"
+    ]
+   }
+  },
+  {
+   "id": "wt2",
+   "title": "借りる MCP は web を持つ役の起動にだけ渡す（道具ゼロ・読むだけの目に web の口を開けない）",
+   "file": ".shared/core/adapter.py",
+   "old": "    if no_tools or WEB_TOOL not in _tools(argv):",
+   "new": "    if no_tools:",
+   "tests": {
+    "tests/test_adapter.py": [
+     "McpCase.test_roles_without_web_do_not"
+    ]
+   }
+  },
+  {
+   "id": "wt3",
+   "title": "Context7 から取れなかった物を盤面に控えない（次の周に取り直す。数で言う）",
+   "file": ".shared/core/libdocs.py",
+   "old": "            if got[\"status\"] in (\"ok\", \"not_found\"):\n                board.work(",
+   "new": "            if True:\n                board.work(",
+   "tests": {
+    "tests/test_libdocs.py": [
+     "SectionCase.test_failure_is_declared_by_number_and_not_cached"
+    ]
+   }
+  },
+  {
+   "id": "wt4",
+   "title": "判定役の道具が本線の judge の定義（web を含む）より少なくならない",
+   "file": "blk-judge/blk-judge.yaml",
+   "old": "          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]",
+   "new": "          allowed_tools: [Read, Grep, Glob]",
+   "tests": {
+    "tests/test_tool_parity.py": [
+     "ToolParityCase.test_each_role_has_at_least_the_mainline_tools"
+    ]
+   }
   }
  ],
  "dropped": []

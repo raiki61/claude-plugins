@@ -368,13 +368,18 @@ class McpCase(Base):
     def test_licence_not_ok_refuses_and_writes_nothing(self):
         for lic in ("SSPL-1.0", "", None, "proprietary"):
             with self.subTest(lic):
-                bad = json.loads(json.dumps(self.borrow))
-                bad["context7"]["licence"] = lic
+                bad = {"context7": dict(self.borrow["context7"], licence=lic)}   # 借りる物は MCP だけ（リポジトリの外の置き場に依らない）
                 with self.assertRaises(toolset.ToolsetError) as cm:
-                    toolset.install(self.cfg, toolset.fixed_sources(ROOT, bad), bad, claude_bin=str(self.claude),
-                                    plugins=False)
+                    toolset.install(self.cfg, {"context7": CONTEXT7_URL}, bad, claude_bin=str(self.claude), plugins=False)
                 self.assertIn("使用許諾", str(cm.exception))
                 self.assertFalse((self.cfg / toolset.MCP_FILE).exists())
+
+    def test_licence_ok_writes_the_file_without_other_borrowings(self):
+        good = {"context7": self.borrow["context7"]}
+        rec = toolset.install(self.cfg, {"context7": CONTEXT7_URL}, good, claude_bin=str(self.claude), plugins=False)
+        self.assertEqual(sorted(rec), ["context7"])
+        self.assertEqual(json.loads((self.cfg / toolset.MCP_FILE).read_text())["mcpServers"],
+                         {"context7": {"type": "http", "url": CONTEXT7_URL}})
 
     def test_guard_refuses_unlisted_mcp_server(self):
         (self.cfg / toolset.MCP_FILE).write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": CONTEXT7_URL},
