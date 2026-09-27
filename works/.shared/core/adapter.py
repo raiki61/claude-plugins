@@ -59,8 +59,19 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    --settings が読めない・2 つ・sandbox や network や一覧の形が違う起動は、網を閉じられるかが決まらないので、印が無くても
    claude を起こさずに 1 行を出して止まる（fail closed）。WebFetch・WebSearch はこの鍵の外（Claude Code の説明文どおり）。
 
+9. **指示書の全文版と差分版**（トークンの節約。持ち主の承認。印のある起動だけ）: 輪（loop_group の fresh_context: false）の
+   役は 1 つの会話を周をまたいで継ぐので、共有の規則を毎周送り直すと会話に同じ規則が積み重なる。支度のスクリプトは指示書
+   （prompt_file。既定は全文版の写し）の隣に `<stem>.full.md`・`<stem>.delta.md`・`<stem>.variants.json`（{full, delta,
+   rules_sha, iteration, sections}）を書く。包みは印のある起動の stdin を子へ中継し（バイトは変えない）、最初の user の 1 行
+   （SDK が initialize の後に書く指示文）から指示書のパスを読んで、その行を子へ渡す前に指示書へ全文版か差分版を書く。
+   差分版は、この起動が継ぐ会話（--resume の元。fork の鎖を包みの起動の記録で辿る）が同じ rules_sha の全文版をこの包みから
+   受け取り、Read のフックの記録で部分読みでなく読み切り、会話の記録（Claude Code の transcript）に要約・古い道具の結果の消去
+   （compact_boundary・microcompact_boundary）の跡が無い時だけ。ほかは全部全文版（疑いは全文版）。variants.json が無ければ
+   何もしない。読めない・指示書が 2 つ・指示書の中身が全文版とも包みの差分版とも違う時は指示書に触らない。選んだ版は
+   起動の記録の `prompt`（{file, variant, rules_sha, iteration, full_sha, reason}）に残す（variants.json の無い起動は欄を持たない）
+
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
-変えない。見分けられない形
+変えない（stdin も中継しない）。見分けられない形
 （印の跡の無い `--json-schema` が 2 つ・読めない JSON・値の無い旗）は足さずに素通しし、警告を 1 行出す。
 印の跡（`works-node:`）が --json-schema のどこかに在るのに一番上の description の印として読めない起動（知らない旗・
 大文字・余分な空白・入れ子の description・印を持つ --json-schema が 2 つ・壊れた JSON）は、JSON として読めても
@@ -69,7 +80,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 置き場（包みの家）は env の `WORKS_ADAPTER_HOME`（無ければ `${XDG_STATE_HOME:-~/.local/state}/works/adapter`。切符と同じ）。Claude の子の env には
 ARTIFACTS_DIR が来ないので、run の区別は cwd（Archon が run ごとに切る worktree）の realpath の sha256 の先頭 16 字で付ける:
 `sessions/<key>/<節>.id`・`reads/<key>/reads.jsonl`（graphloops の engine の hook_evidence がそのまま読む形）・
-`launches/<key>.jsonl`（起動ごとの 1 行。引数の本文は書かない）。家は役の sandbox の Bash から書けない場所に置く。
+`launches/<key>.jsonl`（起動ごとの 1 行。引数の本文は書かない。印のある起動は 9 の版を決めた時か子が終わった時に書く）。
+家は役の sandbox の Bash から書けない場所に置く。
 
 Python 3.9 でも動く形で書く（`#!/usr/bin/env python3` が macOS の /usr/bin/python3 に当たりうる）。
 """
@@ -85,6 +97,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
@@ -768,6 +781,254 @@ def _refuse(argv, node, cont, tools_empty, why) -> Plan:
                 session, [])
 
 
+# --- 指示書の全文版と差分版（9） ------------------------------------------------------------------------------
+VARIANTS_SUFFIX = ".variants.json"
+_PROMPT_PATH_RE = re.compile(r"/[^\s`'\"<>|*?]+?\.md(?![A-Za-z0-9_.-])")
+# 会話の中身が減った跡（Claude Code 2.1.283 の transcript の system の subtype と、消された道具の結果の置き換えの文）
+COMPACT_MARKS = (b'"compact_boundary"', b'"microcompact_boundary"', b'"isCompactSummary":true',
+                 b"[Old tool result content cleared]")
+DELTA_HEAD = ("（works の包みより: この指示書は差分版。共有の規則は、この会話の前の回に読んだ全文版 `{full}` に在る。"
+              "会話の中に規則の本文が見えない時——要約された・古い道具の結果が消された・<persisted-output> に置き換わった時も——は、"
+              "先に `{full}` を Read で全部読め）\n\n")
+
+
+def delta_text(delta: str, full) -> str:
+    """包みが指示書に書く差分版（頭に全文版のパスを名指す 1 段を置く。会話から規則が消えていても役が読み直せるように）"""
+    return DELTA_HEAD.format(full=os.path.realpath(str(full))) + delta
+
+
+def user_text(line: bytes) -> Optional[str]:
+    """stream-json の 1 行が user の指示文なら、その文（text の塊をつないだ物）。ほかは None"""
+    try:
+        d = json.loads(line)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(d, dict) or d.get("type") != "user" or not isinstance(d.get("message"), dict):
+        return None
+    content = d["message"].get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(c["text"] for c in content
+                         if isinstance(c, dict) and c.get("type") == "text" and isinstance(c.get("text"), str))
+    return None
+
+
+class Doubt(Exception):
+    """版を決められない（指示書に触らず、理由を記録に残す）"""
+
+
+def _variants(text: str) -> Optional[Tuple[pathlib.Path, pathlib.Path]]:
+    """指示文に名指された .md のうち、隣に <stem>.variants.json が在る物 (指示書, variants.json)。無ければ None、2 つ以上は Doubt"""
+    found = {}
+    for m in _PROMPT_PATH_RE.finditer(text):
+        p = pathlib.Path(m.group(0))
+        v = p.with_name(p.name[:-len(".md")] + VARIANTS_SUFFIX)
+        if os.path.lexists(str(v)):
+            found[os.path.realpath(str(p))] = (p, v)
+    if len(found) > 1:
+        raise Doubt("several-prompts")
+    return next(iter(found.values())) if found else None
+
+
+def _load_variants(vpath: pathlib.Path) -> dict:
+    """variants.json を読む: {full, delta（中身の bytes）, full_path, rules_sha, iteration}。形が違えば Doubt"""
+    try:
+        doc = json.loads(vpath.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        raise Doubt(f"variants-bad: {vpath} が読めない（{e}）") from None
+    if not isinstance(doc, dict) or not isinstance(doc.get("rules_sha"), str) or not doc["rules_sha"] \
+            or not isinstance(doc.get("full"), str) or not isinstance(doc.get("delta"), str):
+        raise Doubt(f"variants-bad: {vpath} の形が違う（full・delta・rules_sha が文字列でない）")
+    out = {"rules_sha": doc["rules_sha"],
+           "iteration": doc.get("iteration") if isinstance(doc.get("iteration"), int) else None}
+    for key in ("full", "delta"):
+        path = vpath.parent / doc[key]          # 絶対パスならそのまま
+        try:
+            if not path.is_file():
+                raise OSError("通常のファイルでない")
+            data = path.read_bytes()
+            data.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise Doubt(f"variants-bad: {key} の {path} が読めない（{e}）") from None
+        out[key] = data
+        out[key + "_path"] = path
+    return out
+
+
+def read_reads(cwd, home_dir=None) -> List[dict]:
+    """Read のフックの記録（reads.jsonl）を古い順に。無い・読めない行は飛ばす"""
+    try:
+        text = (reads_dir(cwd, home_dir) / "reads.jsonl").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    out = []
+    for ln in text.splitlines():
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out
+
+
+def _read_whole(reads: Sequence[dict], sid: str, path: str, sha: str) -> bool:
+    """会話 sid の本人（subagent でない）が path を sha の中身で部分読みでなく読んだ跡が在るか"""
+    real = os.path.realpath(path)
+    return any(r.get("session_id") == sid and r.get("agent_id") is None and r.get("partial") is False
+               and r.get("file_sha") == sha and isinstance(r.get("path"), str) and os.path.realpath(r["path"]) == real
+               for r in reads)
+
+
+def _transcript_clean(config_dir: pathlib.Path, sid: str) -> Optional[str]:
+    """会話 sid の transcript（<設定>/projects/*/<sid>.jsonl）に中身が減った跡が無ければ None、あれば・見えなければ理由"""
+    paths = sorted(config_dir.glob(f"projects/*/{sid}.jsonl")) if _ID_RE.match(sid) else []
+    if not paths:
+        return "transcript-missing"
+    for p in paths:
+        try:
+            data = p.read_bytes()
+        except OSError:
+            return "transcript-missing"
+        if any(m in data for m in COMPACT_MARKS):
+            return "compacted"
+    return None
+
+
+def choose(session: Optional[dict], rules_sha: str, rows: Sequence[dict], reads: Sequence[dict],
+           config_dir: pathlib.Path) -> Tuple[str, str]:
+    """(版, 理由)。差分版は、継ぐ会話の鎖（fork の元を起動の記録で辿る）のどこかが同じ rules_sha の全文版をこの包みから
+    受け取って読み切り、鎖のどの会話の transcript にも中身が減った跡が無い時だけ。理由は same-session・new-session・
+    no-full-record・rules-changed・full-not-read・compacted・transcript-missing"""
+    mode = (session or {}).get("mode")
+    src = (session or {}).get("from")
+    if mode not in ("sdk-resume", "sdk-fork", "continued") or not isinstance(src, str) or not src:
+        return "full", "new-session"
+    chain, cur, holder, why = [], src, None, "no-full-record"
+    while cur and cur not in chain:
+        chain.append(cur)
+        mine = [r for r in rows if r.get("mode") == "merged" and isinstance(r.get("session"), dict)
+                and r["session"].get("id") == cur]
+        for r in reversed(mine):
+            got = r.get("prompt")
+            if not isinstance(got, dict) or got.get("variant") != "full":
+                continue
+            if got.get("rules_sha") != rules_sha:
+                why = "rules-changed" if why == "no-full-record" else why
+                continue
+            if _read_whole(reads, cur, str(got.get("file") or ""), str(got.get("full_sha") or "")):
+                holder = cur
+                break
+            why = "full-not-read"
+        if holder:
+            break
+        parents = {r["session"].get("from") for r in mine
+                   if r["session"].get("from") and r["session"].get("from") != cur}
+        if len(parents) != 1:        # 鎖の根（新しい会話）か、元が 2 つ（疑い）
+            break
+        cur = parents.pop()
+    if holder is None:
+        return "full", why
+    for sid in chain:
+        bad = _transcript_clean(config_dir, sid)
+        if bad:
+            return "full", bad
+    return "delta", "same-session"
+
+
+def _write_atomic(path: pathlib.Path, data: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def prompt_variant(text: str, session: Optional[dict], cwd, home_dir, env=None) -> Optional[dict]:
+    """指示文 text が名指す指示書に全文版か差分版を書き、起動の記録の `prompt` の欄を返す。variants.json が無ければ None
+    （何もしない）。例外は出さない（決められない時は指示書に触らず、variant: null と理由を返す）"""
+    env = os.environ if env is None else env
+    try:
+        found = _variants(text)
+    except Doubt as e:
+        return {"file": None, "variant": None, "rules_sha": None, "iteration": None, "full_sha": None, "reason": str(e)}
+    if found is None:
+        return None
+    prompt, vpath = found
+    info = {"file": os.path.realpath(str(prompt)), "variant": None, "rules_sha": None, "iteration": None,
+            "full_sha": None, "reason": ""}
+    try:
+        v = _load_variants(vpath)
+        info.update(rules_sha=v["rules_sha"], iteration=v["iteration"],
+                    full_sha=hashlib.sha256(v["full"]).hexdigest())
+        ours_delta = delta_text(v["delta"].decode("utf-8"), v["full_path"]).encode("utf-8")
+        try:
+            now_bytes = prompt.read_bytes()
+        except OSError as e:
+            raise Doubt(f"prompt-unreadable: {prompt}（{e}）") from None
+        if now_bytes not in (v["full"], ours_delta):
+            raise Doubt(f"prompt-unexpected: {prompt} の中身が全文版とも包みの差分版とも違う")
+        config = pathlib.Path(env.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"))
+        variant, why = choose(session, v["rules_sha"], read_launches(cwd, home_dir), read_reads(cwd, home_dir), config)
+        want = v["full"] if variant == "full" else ours_delta
+        if now_bytes != want:
+            try:
+                _write_atomic(prompt, want)
+            except OSError as e:
+                raise Doubt(f"write-failed: {prompt}（{e}）") from None
+        info.update(variant=variant, reason=why)
+    except Doubt as e:
+        info["reason"] = str(e)
+    except Exception as e:  # noqa: BLE001  中継を止めない（決められない時は触らない）
+        info["reason"] = f"error: {type(e).__name__}: {e}"
+    return info
+
+
+def relay(src_fd: int, dst_fd: int, on_line: Callable[[bytes], bool]) -> None:
+    """src_fd を読み切るまで dst_fd へ写し、終わったら dst_fd を閉じる（バイトは変えない）。on_line(改行を除いた 1 行) が
+    偽を返すまで、行ごとに渡してから写す（1 行を写す前に指示書を書ける）。on_line の例外は偽と同じ（見るのをやめて写し続ける）。
+    子が先に抜けた（EPIPE）・src が読めない時は写すのをやめる"""
+    buf, watching = b"", True
+    try:
+        while True:
+            try:
+                chunk = os.read(src_fd, 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            if watching:
+                buf += chunk
+                while watching and b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    try:
+                        watching = bool(on_line(line))
+                    except Exception:  # noqa: BLE001
+                        watching = False
+                    _write_all(dst_fd, line + b"\n")
+                if not watching:
+                    _write_all(dst_fd, buf)
+                    buf = b""
+            else:
+                _write_all(dst_fd, chunk)
+        if buf:
+            _write_all(dst_fd, buf)
+    except OSError:
+        pass
+    finally:
+        try:
+            os.close(dst_fd)
+        except OSError:
+            pass
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        n = os.write(fd, view)
+        view = view[n:]
+
+
 # --- 木ごと止める（試し P15 の直しの形。scratchpad/probes-p14-p15-summary.md） ------------------------------------
 # 止め方は tree_run（本流 role_run と同じ数え上げ→送る→数え直し）をそのまま使う。包みが足すのは、走っている間の見回りで
 # 仲間（{pid: 開始時刻}）を溜めて stop_group に渡すことだけ（claude が先に抜けて親子の鎖が切れた孫も拾うため）
@@ -791,19 +1052,27 @@ def _stop(p, known, born, first=signal.SIGTERM) -> None:
         sys.stderr.write(f"works claude-adapter: 木を止め切れない: {why}\n")
 
 
-def supervise(argv: Sequence[str], env_over: Optional[dict] = None, cwd: Optional[str] = None) -> int:
+def supervise(argv: Sequence[str], env_over: Optional[dict] = None, cwd: Optional[str] = None,
+              on_line: Optional[Callable[[bytes], bool]] = None) -> int:
     """argv（本物の claude と引数）を新しいセッションで起こして待ち、終了コードを返す（信号で死んだら 128+信号）。
     待つ間は POLL ごとに仲間を数えて溜める。止める信号を受けたか直下の親が替わったら、溜めた仲間ごと木を止め
     （tree_run.stop_group）、LINGER 待って 128+信号（親の替わりは SIGHUP）を返す。claude が自分で終わった後も
     残った仲間を止める。上限の勘定は tree_run と同じ（信号に気づくまで POLL、SIGKILL まで KILL_GRACE + PS_TIMEOUT、
-    抜けるまで LINGER）。ただし見回りの ps の最中に届いた信号は、その ps が返るまで気づかない（ps が固まれば +PS_TIMEOUT）"""
+    抜けるまで LINGER）。ただし見回りの ps の最中に届いた信号は、その ps が返るまで気づかない（ps が固まれば +PS_TIMEOUT）。
+    on_line を渡すと stdin を継がせずに中継する（relay。印のある起動の 9）。渡さなければ stdin は子がそのまま継ぐ"""
     got: List[int] = []
     old = {s: signal.signal(s, lambda signum, _f: got.append(signum)) for s in STOP_SIGNALS}
     ppid = os.getppid()
     known: Dict[int, float] = {}
     born = time.time()
     env = dict(os.environ, **env_over) if env_over else None
-    p = subprocess.Popen(list(argv), start_new_session=True, env=env, cwd=cwd)   # cwd は旗 isolated の起動だけ
+    p = subprocess.Popen(list(argv), start_new_session=True, env=env, cwd=cwd,   # cwd は旗 isolated の起動だけ
+                         stdin=subprocess.PIPE if on_line is not None else None)
+    if on_line is not None:
+        # 書く口は fd で渡して Python の stdin・p.stdin の物に触らない（終わりの時に daemon の糸が錠を持ったまま残らないように）
+        dst = os.dup(p.stdin.fileno())
+        p.stdin.close()
+        threading.Thread(target=relay, args=(0, dst, on_line), daemon=True).start()
     stopped = False
     try:
         while True:

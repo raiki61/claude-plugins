@@ -11,6 +11,8 @@ $FAKE_CLAUDE_GRANDCHILD（pid を書くファイル）を渡すと、本物の c
 - $FAKE_CLAUDE_STAY=1 なら信号まで待つ。無ければ 1 秒待って（包みが見回る間）孫を残したまま普通に終わる
 $FAKE_CLAUDE_ORPHAN=1 を足すと、孫は中継ぎの子から setpgid で別のグループ（セッションは claude のまま）に出て、
 中継ぎはすぐ抜ける（見回りの間に孤児になる孫。SIGTERM・SIGINT・SIGHUP を無視する）
+$FAKE_CLAUDE_READ（ファイルのパス）を渡すと、標準入力を読み終えた時のそのファイルの中身を記録の read に書く（無ければ null。
+包みが指示書に全文版か差分版を書いてから指示文を渡したかを見る）
 """
 import json
 import os
@@ -28,6 +30,12 @@ row = {
     "pid": os.getpid(),
     "env": {k: v for k, v in os.environ.items() if k.startswith(("WORKS_", "CLAUDE_")) or k == "PATH"},
 }
+if os.environ.get("FAKE_CLAUDE_READ"):
+    try:
+        with open(os.environ["FAKE_CLAUDE_READ"], encoding="utf-8") as f:
+            row["read"] = f.read()
+    except OSError:
+        row["read"] = None
 with open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8") as f:
     f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
