@@ -4,6 +4,8 @@
 
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める
 - judge_edge(b, …): h-judge の固有の仕事（包みの確かめ・前提の実測が盤面に在るか。計画 P1 Task 24・P1-R9）
+- mat_edge(b, …): h-mat の固有の仕事（目的の文を盤面へ渡し、P1 の目を回すか。計画 P1 Task 32・33）
+- eyes_edge(b): h-eyes の固有の仕事（独立の目を回すか。計画 P1 Task 33）
 - plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 """
@@ -21,17 +23,19 @@ for _p in (_LIB, _CORE):   # core を頭に（節のスクリプトと同じ順�
         sys.path.insert(0, str(_p))
 
 from board import BoardGap  # noqa: E402
+from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足した後）
 import entry  # noqa: E402
 import halt  # noqa: E402
 import plan  # noqa: E402
+import purpose  # noqa: E402
 import reads  # noqa: E402
 import rejudge  # noqa: E402
 
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びは C18 の順（中の関所は無い。
 # 人が止まれる所は最後の人の関所 final-gate。P1-R3）。when: と関所の文は境の節の欄だけを読み、go は盤面の ready から決める（TA1）。
-# rejudge・eyes は枠（go False。中身は計画 P1 Task 31・33。eyes は最後の関所の答えを受ける）
-AT = ("entry", "judge", "plan", "gate", "fix", "rejudge", "mid", "review", "refix", "tests", "final", "eyes")
+# rejudge は枠（go False。中身は計画 P1 Task 31）。eyes は最後の関所の答えを受け、独立の目を回すかを決める（計画 P1 Task 33）
+AT = ("entry", "judge", "mat", "plan", "gate", "fix", "rejudge", "mid", "review", "refix", "tests", "final", "eyes")
 GO_NODE = {"plan": "p2.fix_plan", "fix": "p3.fix", "review": "p3.delta_review", "refix": "p3.delta_fix", "tests": "p4.ci"}
 GATE_AT = ("fix", "eyes")            # 関所の答えを受ける境の節（fix は policy-gate、eyes は final-gate）
 GATE_GO = ("approve", "continue")    # approve は continue と、reject は stop と同じ（台帳 R32）
@@ -56,6 +60,10 @@ JUDGE_BRIDGE_BY = "works:judge-bridge"       # 判定のブロックの出口を
 ADAPTER_BY = "works:adapter"                 # 包みが通っていない run を止めた state.stop.by（h-judge。blk-ci の柵と同じ名）
 PREMISES_BY = "works:premises"               # 前提の実測が盤面に無い・盤面が受けない時の state.stop.by（h-judge）
 PREMISES_NODE = "p0.premises"
+PURPOSE_NODE = "p0.purpose"
+PURPOSE_BY = "works:purpose"                 # 目的の文が盤面に無い・盤面が受けない時の state.stop.by（h-mat）
+MAT_BLOCK = "blk-material"                   # 表の where がこれの節が P1 の目（素材集め）。h-mat の mat_go
+EYES_BLOCK = "blk-eyes"                      # 表の where がこれの節が独立の目。h-eyes の go
 ADAPTER_HINT = ("Archon の設定 assistants.claude.claudeBinaryPath に包み（works/.shared/core/claude-adapter）の絶対パスを書くか、"
                 "包み無しで回すなら入力 adapter に optional を渡す（works/README.md の包みの節）")
 JUDGED_FILE = "judged.json"                  # h-plan が受けた判定のブロックの出口の控え（b.work。後ろの境の節が運ぶ。M4）
@@ -64,7 +72,7 @@ NOTES_FILE = "human-notes.md"                # 今の周の人の一言（h-fix 
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
          "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
          "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False,
-         "runtime_go": False, "holdout_go": False, "mid_note": ""}
+         "runtime_go": False, "holdout_go": False, "mid_note": "", "purpose_file": "", "mat_go": False}
 
 
 def _gap(msg):
@@ -362,7 +370,8 @@ def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=N
        entry.take(p0.premises)（起こした印を置いてから。盤面の写しの schema・measured_needs_output・writes が当たる）。
        出口が届かない・読めない・盤面が受けないなら b.stop("前提の実測が盤面に無い: …", by=PREMISES_BY) で stop。
        済んでいれば渡さない（Archon の再開で呼び直しても同じ）
-    3. go True・premises_file は盤面の state.outputs["p0.premises"] の置き場（絶対パス。na・表に無い節なら空）"""
+    3. go True・premises_file は盤面の state.outputs["p0.premises"] の置き場（絶対パス。na・表に無い節なら空）・
+       purpose_go は目的の文（p0.purpose）が盤面で待っているか（前提を渡した後の ready。purposing の when:）"""
     board_dir = pathlib.Path(board_dir)
     if adapter_mode != "optional":
         seen = reads.adapter_seen(board_dir, run_id, repo=repo)
@@ -381,7 +390,47 @@ def judge_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, premised=N
             entry.open_board(board_dir).stop(reason, by=PREMISES_BY)
             return {"stop": True, "go": False, "why": reason}
         b = entry.open_board(board_dir)
-    return {"go": True, "premises_file": _out_file(b, PREMISES_NODE)}
+    return {"go": True, "premises_file": _out_file(b, PREMISES_NODE), "purpose_go": PURPOSE_NODE in b.ready()}
+
+
+def _role_ready(b, where: str) -> list:
+    """盤面の ready のうち、表の where が where の役の節"""
+    return [n for n in b.ready() if b.table is not None and n in b.table.nodes and b.table.nodes[n].by == "role"
+            and b.table.nodes[n].where == where]
+
+
+def mat_edge(b, board_dir, repo) -> dict:
+    """h-mat の固有の仕事（目的の文の後・P1 の目の前。計画 P1 Task 32・33）。順:
+    1. 表で p0.purpose が role なのに盤面で今の周に済んでいなければ、目的の文のブロックが盤面の根に置いた purpose.json
+       （core の purpose.read_purpose。blk-purpose の受け付けが書く）を読んで entry.take(p0.purpose)（起こした印を置いてから。
+       盤面の写しの schema が当たる）。無い・読めない・盤面が受けないなら b.stop("目的の文が盤面に無い: …", by=PURPOSE_BY) で
+       stop。済んでいれば渡さない（Archon の再開で呼び直しても同じ）。na（条件）なら渡さない
+    2. go True（判定へ）・mat_go は P1 の目（表の where が blk-material の役の節）が盤面で 1 つでも待っているか・
+       purpose_file は盤面の state.outputs["p0.purpose"] の置き場（無ければ空）"""
+    board_dir = pathlib.Path(board_dir)
+    row = b.table.nodes.get(PURPOSE_NODE) if b.table is not None else None
+    if row is not None and row.by == "role" and b.node_state(PURPOSE_NODE) == "pending" and not _done_this_round(b, PURPOSE_NODE):
+        try:
+            _, reply = purpose.read_purpose(board_dir)
+            why = ""
+        except Reject as e:   # 無い・読めない・型の外。理由は盤面の止めの文へ
+            reply, why = None, str(e)
+        if not why:
+            got = _hand(b, board_dir, PURPOSE_NODE, reply, repo)
+            why = "" if got["ok"] else f"盤面が目的の文を受けない: {got['reason']}"
+        if why:
+            reason = f"目的の文が盤面に無い: {why}"
+            entry.open_board(board_dir).stop(reason, by=PURPOSE_BY)
+            return {"stop": True, "go": False, "why": reason}
+        b = entry.open_board(board_dir)
+    return {"go": True, "mat_go": bool(_role_ready(b, MAT_BLOCK)), "purpose_file": _out_file(b, PURPOSE_NODE)}
+
+
+def eyes_edge(b) -> dict:
+    """h-eyes の固有の仕事（最後の関所の答えの後。計画 P1 Task 33）: go は独立の目（表の where が blk-eyes の役の節）が盤面で
+    1 つでも待っているか（p4.assemble が済み、条件に当たった目）。r4.human_gate が人に聞いたら、残りの目は答えるまで出ない——
+    ブロックは止めずに asking で抜け、報告が needs_human と問いを次の run へ渡す（計画 Task 33 の (b)）"""
+    return {"go": bool(_role_ready(b, EYES_BLOCK))}
 
 
 def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> dict:
@@ -433,7 +482,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
        gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言（notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
-       rejudge・eyes: 枠（go False）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
+       mat: mat_edge（目的の文を盤面へ・mat_go）。eyes: eyes_edge（go は独立の目が待っているか）。rejudge: 枠（go False）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
        見分ける）・runtime_go・holdout_go は False・mid_note。review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。
        final: final_edge（final_gate と最後のテストの出口 tests から ask と文）。
     ready は DiskBoard.ready（書かない。開き直した盤面でも explicit の機械の節を落とさない）。
@@ -482,8 +531,12 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
             notes_file = str(b.work(NOTES_FILE))
         return {**out, "go": GO_NODE["fix"] in b.ready(), "notes": notes, "notes_file": notes_file,
                 "plan_file": _out_file(b, "p2.fix_plan")}
-    if at in ("rejudge", "eyes"):
+    if at == "rejudge":
         return out
+    if at == "mat":
+        return {**out, **mat_edge(b, board_dir, repo)}
+    if at == "eyes":
+        return {**out, **eyes_edge(b)}
     if at == "mid":
         return {**out, "go": _fixed_by_role(b), "mid_note": MID_NOTE}
     if at == "final":

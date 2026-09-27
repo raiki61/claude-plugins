@@ -411,6 +411,7 @@ class BoardCase(unittest.TestCase):
         pr = {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"}
         self.take("p0.parallel_pr", pr)
         self.take("p0.premises", PREMISES_REPLY)
+        linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
         self.take("p2.diagnose", judge or load(JUDGE))
 
     def fix_ready(self, narrows=(), answer=None, judge=None, numbered=False):

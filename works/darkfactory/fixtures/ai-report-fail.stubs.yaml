@@ -1,5 +1,6 @@
-# 筋書き no-fix: 判定が直す物を残さない（need_fix: false）。h-plan が修正を機械の空の返答で埋め（go 偽）、修正案・修正・
-# 差分の審査・手直しは when: で飛ぶ。最後のテストは周を締めるので回り、報告は no_fix_needed
+# 筋書き ai-report-fail: final-stop と同じ道で、AI の報告のブロックが諦めた（collect の ok 偽）。
+# 出口 result は all_done で走り、機械の報告（report.md）を最後の報告に選ぶ（結末は機械の報告のまま）。模擬実行は include の
+# ok 偽を run の失敗にしない（Archon 0.11.1 の workflow test で確かめた）。本物の run で include が落ちても result は all_done で走る
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 start:
@@ -628,14 +629,16 @@ judge-accept:
   - 'stats.py clamp: 上限を超えた値に lo を返す'
 judging__collect:
   ok: true
-  open_units: []
-  need_fix: false
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  need_fix: true
   judgment_file: board/judgment.json
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
 h-plan:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -752,12 +755,12 @@ h-gate:
 h-fix:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
+  plan_file: board/out/r1/p2.fix_plan.json
   notes: ''
   notes_file: ''
   why: ''
@@ -895,7 +898,7 @@ fixing__collect:
 h-mid:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -918,7 +921,7 @@ h-mid:
 h-review:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -963,7 +966,7 @@ reviewing__collect:
 h-refix:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1120,8 +1123,8 @@ h-final:
   mat_go: false
 h-eyes:
   ok: true
-  stop: false
-  go: true
+  stop: true
+  go: false
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1129,7 +1132,7 @@ h-eyes:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 最後の関所で止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1380,13 +1383,13 @@ eyeing__eyes-collect:
   exit_file: board/r1/eyes-exit.json
 report:
   ok: true
-  outcome: no_fix_needed
+  outcome: stopped_by_human
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
   tests_green: false
   validator_exit: 0
-  ai_report_go: false
+  ai_report_go: true
 reporting__rp-route1:
   next: report-items
   node: report.human_items
@@ -1468,8 +1471,8 @@ report-write-accept:
   node: report
   record_invalid: false
 reporting__collect:
-  ok: true
-  reason: ''
+  ok: false
+  reason: 書き手の返答が 3 回とも拒まれた
   report_file: board/report-ai.md
   text_file: board/out/r3/report.json
   human_items_file: board/out/r3/report.human_items.json
@@ -1482,7 +1485,7 @@ reporting__collect:
   record_invalid: false
 result:
   ok: true
-  outcome: no_fix_needed
+  outcome: stopped_by_human
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
@@ -1490,7 +1493,9 @@ result:
   validator_exit: 0
   ai_report_go: false
   machine_report_file: board/report.md
-  ai_report: null
+  ai_report:
+    ok: false
+    reason: 書き手の返答が 3 回とも拒まれた
 fixture:
   expect: completed
   inputs:
@@ -1507,16 +1512,20 @@ fixture:
   - gathering__collect
   - judging__collect
   - h-plan
+  - planning__collect
   - h-gate
   - h-fix
+  - fixing__collect
   - h-mid
   - h-review
+  - reviewing__collect
   - h-refix
+  - refixing__collect
   - h-tests
   - testing__run
   - h-final
   - h-eyes
-  - eyeing__eyes-collect
   - report
+  - reporting__collect
   - result
 exec-code: true

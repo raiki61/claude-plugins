@@ -82,7 +82,10 @@ class YamlCase(unittest.TestCase):
         self.y = workflow()
 
     def test_purpose_output_format_matches_role_schema(self):
-        self.assertEqual(find_node(self.y, "purpose")["output_format"], role_schema("p0.purpose"))
+        import node_marker
+        fmt = find_node(self.y, "purpose")["output_format"]
+        self.assertEqual(fmt, node_marker.mark(role_schema("p0.purpose"), "purpose"))   # 印（works-node: purpose）つき
+        self.assertEqual(node_marker.strip(fmt), role_schema("p0.purpose"))
 
     def test_samples_against_output_format(self):
         fmt = find_node(self.y, "purpose")["output_format"]

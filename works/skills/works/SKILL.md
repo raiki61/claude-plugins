@@ -1,6 +1,6 @@
 ---
 name: works
-description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 報告 の順に流す）に、今いるリポジトリを対象にして回す。「darkfactory に回して」「works で直して」と言われたときに使う。入れ方・依頼の JSON の書き方・起動の 1 行（works/dev/use.sh）・人の関所での答え方・報告と差分の取り込み方だけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。
+description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 前提の実測 → 目的の文 → 素材集め → 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 独立の目 → 報告 の順に流す）に、今いるリポジトリを対象にして回す。「darkfactory に回して」「works で直して」と言われたときに使う。入れ方・依頼の JSON の書き方・起動の 1 行（works/dev/use.sh）・人の関所での答え方・報告と差分の取り込み方だけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。
 ---
 
 # works
@@ -83,6 +83,9 @@ sh "$WORKS_REPO/works/dev/use.sh" start <対象リポジトリの根> <依頼の
    - 通す: 「答えて進める」の行（`respond <run-id> continue "<通す範囲と条件>"`）。一言は修正役にファイルで届く。`approve` も通す。
    - 止める: 「関所で止める」の行（`respond <run-id> stop "<理由>"`）。止めても報告は出る。
 3. 最後の関所 `final-gate`: 最後のテストの緑赤・ログ・差分の置き場・残った異議が全文 `r1/final-gate.md` に在る。`continue` でも `stop` でも報告へ進む。
+3. 最後の関所 `final-gate`（`final_gate: always` ならいつも）の続き:
+   - `continue` なら独立の目 R1〜R4 が回ってから報告へ。`stop` なら目は回さずに報告へ。
+   - 独立の目の R4 が人に聞く物（消えた能力・方針とのぶつかり）を挙げたら、run は止めずに報告へ進み、結末は `needs_human`。問いは報告の冒頭と次の run の依頼の下書きに載る。
 
 関所で待っている run は `cancel` でなく `respond … stop` で止める。判定が直す物を 1 つも残さなかったときは、修正の段を飛ばして報告へ行く（結末は `no_fix_needed`）。
 
@@ -98,6 +101,7 @@ sh "$WORKS_REPO/works/dev/use.sh" show <対象リポジトリの根>
 - 結末（run の出口の `outcome`）: `fixed`・`no_fix_needed`・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）。
 - 差分: run の worktree と周の頭の版の差（手直しと未追跡も入る）を、利用の家の `diffs/run-<id>.diff` に書く。修正は commit されない。取り込むかは人が決め、殻が出す `git -C <対象> apply <diff>` の行で当ててから、手元でテストを回して commit する。
 - 片付け: 取り込んだ後、run の worktree と枝は `git -C <対象> worktree remove <worktree>` と `git -C <対象> branch -D <枝>` で消せる（Archon 自身の片付けは `complete <枝>`）。
+- `report_file`: 最後の報告。盤面が報告の節を出した run（人か止め札で止めた・収束した）では AI が書いて初見の読み手が確かめた `report-ai.md`（最後に機械の報告が字のまま付く）、そうでなければ機械の `report.md`。機械の報告はいつも `machine_report_file`。
 
 ## 5. 止めて続ける
 

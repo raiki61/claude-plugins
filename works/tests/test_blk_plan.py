@@ -202,6 +202,7 @@ class ScriptCase(unittest.TestCase):
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
         self.take("p0.premises", {"constraints": []})
+        linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
         self.take("p2.diagnose", linekit.reply("judge_ok"))
 
     def state(self):
@@ -437,6 +438,7 @@ class ScriptCase(unittest.TestCase):
                                             "adapter": "", "policy_md": ""}, run_id=RUN_ID)
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
         self.take("p0.premises", {"constraints": []})
+        linekit.pre_judge(self.board, self.repo)   # 目的の文（判定の前に盤面が待つ）
         self.take("p2.diagnose", linekit.reply("judge_no_fix"))
         self.assertIs(self.ok("snap", role="plan")["go"], False)
         self.assertIs(self.ok("snap", role="plan-review")["go"], False)

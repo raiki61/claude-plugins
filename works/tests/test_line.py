@@ -31,10 +31,11 @@ import linekit  # noqa: E402
 import line_edge  # noqa: E402
 
 DEADLINE = 1728000000
-ALWAYS = {"start"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}   # いつも走る節
+# いつも走る節（start・境の節・機械の報告 report・出口 result）
+ALWAYS = {"start", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}
 REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き（TA16）
 FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
-            "start-refused", "pr-fallback"}
+            "start-refused", "pr-fallback", "ai-report-fail"}
 # 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}
 OPTIONAL_INPUTS = {}
 
@@ -125,8 +126,13 @@ class LineShapeCase(unittest.TestCase):
         self.assertIs(y["inputs"]["request"]["required"], True)
         for k in set(y["inputs"]) - {"request"}:
             self.assertEqual(y["inputs"][k].get("default"), "", k)
-        self.assertEqual((y["returns"], y["outcome_field"]), ("report", "ok"))
-        of = node("report")["output_format"]
+        self.assertEqual((y["returns"], y["outcome_field"]), ("result", "ok"))
+        # 出口 result は機械の報告 report の欄を全部持ち、最後の報告を選んだ欄を足す（計画 P1 Task 34）
+        rep, of = node("report")["output_format"], node("result")["output_format"]
+        self.assertLessEqual(set(rep["properties"]), set(of["properties"]))
+        self.assertEqual(rep["required"], of["required"])
+        self.assertLessEqual({"machine_report_file", "ai_report"}, set(of["properties"]))
+        self.assertEqual(node("result")["trigger_rule"], linekit.ALL_DONE)
         self.assertEqual(of["properties"]["ok"], {"type": "boolean"})
         # 1 本目の finish の欄を全部残す（出口の約束）
         self.assertLessEqual({"ok", "outcome", "judgment_file"}, set(of["required"]))
@@ -225,12 +231,14 @@ class LineShapeCase(unittest.TestCase):
                         self.assertIsNone(v["if_skipped"])
 
     def test_join_after_skippable_has_trigger_rule(self):
-        """when: を持つ節に依る節は trigger_rule: none_failed_min_one_success（前の段が飛ばされても走る）"""
+        """when: を持つ節に依る節は trigger_rule: none_failed_min_one_success（前の段が飛ばされても走る）。出口 result だけは
+        all_done（AI の報告のブロックが落ちても機械の報告で出口を出す）"""
         skippable = {n["id"] for n in line()["nodes"] if "when" in n}
         for n in line()["nodes"]:
             if set(n.get("depends_on") or []) & skippable:
                 with self.subTest(n["id"]):
-                    self.assertEqual(n.get("trigger_rule"), linekit.NFMOS)
+                    want = linekit.ALL_DONE if n["id"] == "result" else linekit.NFMOS
+                    self.assertEqual(n.get("trigger_rule"), want)
 
     def test_gates_have_reject_and_text_by_path(self):
         """関所は reject を持ち（無いと reject で run が cancelled になり報告が出ない。P8）、文言は置き場（gate_file）だけを載せる"""
@@ -347,14 +355,25 @@ class LineFixturesCase(unittest.TestCase):
     def test_outcomes_and_expectations(self):
         f = self.fixtures()
         self.assertEqual(f["start-refused"]["fixture"]["expect"], "failed")
-        self.assertEqual(f["start-refused"]["fixture"]["fail-node"], "start")
+        # 出口 result は all_done で走り、機械の報告が無いので落ちる（報告の無い run を成功と言わない）
+        self.assertEqual(f["start-refused"]["fixture"]["fail-node"], ["start", "result"])
         self.assertEqual(f["start-refused"]["fixture"]["inputs"]["thickness"], "軽量")
         for name, outcome in (("standard", "fixed"), ("no-fix", "no_fix_needed"), ("policy-stop", "stopped_by_human"),
                               ("final-stop", "stopped_by_human"), ("stop-flag", "stopped_by_request")):
             with self.subTest(name):
                 self.assertEqual(f[name]["fixture"]["expect"], "completed")
                 self.assertEqual(f[name]["report"]["outcome"], outcome)
-                self.assertEqual(f[name]["fixture"]["reached"][-1], "report")
+                self.assertEqual(f[name]["result"]["outcome"], outcome)
+                self.assertEqual(f[name]["fixture"]["reached"][-1], "result")
+        for name in ("final-stop", "stop-flag"):   # 止めた盤面は報告の役の節を出す（AI の報告が回る。計画 P1 Task 34）
+            with self.subTest(name):
+                self.assertIs(f[name]["report"]["ai_report_go"], True)
+                self.assertIn("reporting__collect", f[name]["fixture"]["reached"])
+        self.assertIs(f["standard"]["report"]["ai_report_go"], False)
+        # AI の報告が諦めても出口は機械の報告を選ぶ（all_done）
+        self.assertIs(f["ai-report-fail"]["reporting__collect"]["ok"], False)
+        self.assertEqual(f["ai-report-fail"]["result"]["report_file"], "board/report.md")
+        self.assertEqual(f["ai-report-fail"]["fixture"]["reached"][-2:], ["reporting__collect", "result"])
         self.assertIs(f["no-fix"]["judging__collect"]["need_fix"], False)
         self.assertIs(f["no-fix"]["h-plan"]["go"], False)
         self.assertIs(f["pr-fallback"]["h-entry"]["pr_go"], True)

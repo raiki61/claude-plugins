@@ -216,12 +216,13 @@ class _Case(unittest.TestCase):
 
 class TableCase(unittest.TestCase):
     def test_rows_turn_absent_eyes_into_roles(self):
-        """案の行は 7 つの目だけを absent から role（where blk-eyes）に替え、表の縛りを通る。入口と関所は機械の節のまま"""
+        """案の行は 7 つの目を role（where blk-eyes）にし、表の縛りを通る。ラインの表はこの行をそのまま当てた（計画 P1 Task 33）。
+        入口と関所は機械の節のまま"""
         now = json.loads((ROOT / "darkfactory" / "nodes.json").read_text(encoding="utf-8"))["nodes"]
         self.assertEqual(set(ROWS), set(eyes.ROLE_OF))
         for nid in ROWS:
             with self.subTest(nid):
-                self.assertEqual(now[nid]["by"], "absent", "ラインの今の表では absent（案はこれを替える）")
+                self.assertEqual(now[nid], ROWS[nid], "ラインの表は案の行と同じ")
                 self.assertEqual((ROWS[nid]["by"], ROWS[nid]["where"]), ("role", "blk-eyes"))
         self.assertEqual({nid for nid, r in ROWS.items() if r.get("skippable")}, {"r1.comment_candidates"})
         for nid in (eyes.ENTRY_NODE, eyes.GATE_NODE):

@@ -2,14 +2,14 @@ name: darkfactory
 description: |
   ダークファクトリーのライン（C18 の順。P1 計画 Task 28・29）。人の修正依頼を、盤面（graphloops の review-loop の写しの
   graph と規則。works/.shared/core/board.py）の上で 1 周回す:
-  起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 判定 → 修正案と事前審査 →
-  修正の前の人の関所（要る時だけ）→ 修正（TDD の輪）→ 中の検査の枠 → 差分の審査 → 手直し → 最後のテスト →
-  最後の人の関所 → 報告。
+  起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 素材集め（P1 の目）→ 判定 →
+  修正案と事前審査 → 修正の前の人の関所（要る時だけ）→ 修正（TDD の輪）→ 中の検査の枠 → 差分の審査 → 手直し →
+  最後のテスト → 最後の人の関所 → 独立の目 → 機械の報告 → AI の報告と初見の検査（盤面が報告の節を出した時）→ 出口。
   境の節（h-*。scripts/edge.py を at を替えて使う。いつも走る）が盤面の ready から次のブロックを回すかを決め、関所の答えと
   止め札を盤面へ渡す。when: と関所の文言は、いつも走る節（start・境の節）の欄だけを読む。
-  独立の目（R1〜R4）・AI が書く報告・素材集め（P1 の目）・目的の文・仕様から入る道・再審はこの版のラインに無い
+  仕様から入る道・再審はこの版のラインに無い
   （nodes.json の absent。報告の「このラインに無い節」に出る）。
-  出口はいつも走る節 report: 結末（fixed・no_fix_needed・stopped_by_*・needs_human・record_invalid）と報告のパス。
+  出口は result（機械の報告 report の欄の全部）: 結末（fixed・no_fix_needed・stopped_by_*・needs_human・record_invalid）と最後の報告のパス。
   人の関所があるので interactive。
 
 interactive: true
@@ -40,7 +40,7 @@ inputs:
     default: ""
     description: テストの実行器（JUnit XML の書き先を第 1 引数に受ける実行ファイル。対象の根から）。空なら修正の段の TDD の輪を飛ばす
 
-returns: report
+returns: result
 outcome_field: ok
 
 nodes:
@@ -108,7 +108,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -130,6 +130,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 並行 PR の任せ先（engine が 1〜5 段を済ませられなかった・交差が在った時だけ）
   - id: pr-checking
@@ -165,7 +167,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -187,12 +189,78 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
+
+  # 目的の文（p0.purpose が待っている時。前提の実測の後に 1 度。判定と独立の目の R1・R2 が読む）
+  - id: purposing
+    include: blk-purpose
+    depends_on: [h-judge]
+    when: "$h-judge.output.purpose_go == true"
+    with:
+      request: $INPUTS.request
+      constraints_file: $h-judge.output.premises_file
+      base_rev: $start.output.base_rev
+
+  # 目的の文を盤面へ渡し、P1 の目（素材集め）を回すかを出す
+  - id: h-mat
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-judge, purposing]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "mat"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
+
+  # P1 の目と素材集め（前の決定の読み出し・目的の審査・P1 の 9 本。どれを回すかは盤面の条件。判定から入る 1 周目の P1 は na）
+  - id: gathering
+    include: blk-material
+    depends_on: [h-mat]
+    when: "$h-mat.output.mat_go == true"
+    with:
+      base_rev: $start.output.base_rev
+      adapter: $start.output.adapter
+      purpose_file: $h-mat.output.purpose_file
 
   # 判定
   - id: judging
     include: blk-judge
-    depends_on: [h-judge]
-    when: "$h-judge.output.go == true"
+    depends_on: [h-mat, gathering]
+    trigger_rule: none_failed_min_one_success
+    when: "$h-mat.output.go == true"
     with:
       request: $INPUTS.request
       base_rev: $start.output.base_rev
@@ -204,7 +272,7 @@ nodes:
     script: edge
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-judge, judging]
+    depends_on: [start, h-mat, judging]
     trigger_rule: none_failed_min_one_success
     with:
       at: "plan"
@@ -217,7 +285,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -239,6 +307,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 修正案と事前審査
   - id: planning
@@ -270,7 +340,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -292,6 +362,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 修正の前の人の関所（要る時だけ）。approve・continue は通す、stop・reject は止める（R32）
   - id: policy-gate
@@ -327,7 +399,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -349,6 +421,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 修正（テストの実行器 tdd_suite が在れば単位ごとの TDD の輪）
   - id: fixing
@@ -382,7 +456,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -404,6 +478,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 差分の審査を回すか
   - id: h-review
@@ -423,7 +499,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -445,6 +521,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 修正差分の審査
   - id: reviewing
@@ -472,7 +550,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -494,6 +572,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 差分の審査の後の手直し（2 往復まで）
   - id: refixing
@@ -523,7 +603,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -545,6 +625,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 最後のテスト（盤面の p4.ci。graphloops と同じく修正と手直しの全部の後）
   - id: testing
@@ -573,7 +655,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -595,6 +677,8 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
   # 最後の人の関所。continue・approve は報告へ、stop・reject は止めて報告へ
   - id: final-gate
@@ -612,7 +696,7 @@ nodes:
         - {id: reject}
       # decisions を書いた関所の出口はいつも {decision, text}（capture_response は Archon が捨てる古い鍵なので書かない）
 
-  # 最後の関所の答えを盤面へ（独立の目の枠。この版では go は偽）
+  # 最後の関所の答えを盤面へ。独立の目が盤面で待っていれば go
   - id: h-eyes
     script: edge
     runtime: uv
@@ -630,7 +714,7 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note, purpose_file, mat_go]
       properties:
         ok: {type: boolean}
         stop: {type: boolean}
@@ -652,13 +736,23 @@ nodes:
         runtime_go: {type: boolean}
         holdout_go: {type: boolean}
         mid_note: {type: string}
+        purpose_file: {type: string}
+        mat_go: {type: boolean}
 
-  # いつも走る出口（returns）。機械が組む報告 report.md と次の run の依頼の下書き next-request.json
+  # 独立の目（R1〜R4。修正と最後のテストの後の、書き手と別の目）。r4.human_gate が人に聞けば止めずに抜け、報告が needs_human と問いを次の run へ渡す
+  - id: eyeing
+    include: blk-eyes
+    depends_on: [h-eyes]
+    when: "$h-eyes.output.go == true"
+    with:
+      base_rev: $start.output.base_rev
+
+  # いつも走る機械の報告。report.md と次の run の依頼の下書き next-request.json。ai_report_go は盤面が報告の役の節を出したか
   - id: report
     script: report
     runtime: uv
     timeout: 1728000000
-    depends_on: [start, h-eyes]
+    depends_on: [start, h-eyes, eyeing]
     trigger_rule: none_failed_min_one_success
     with:
       judged: {from: $judging.output, if_skipped: null}
@@ -680,4 +774,42 @@ nodes:
         next_request_file: {type: string}
         tests_green: {type: boolean}
         validator_exit: {type: integer}
+        ai_report_go: {type: boolean}
+        export_input: {type: object}
+
+  # AI が書く報告と初見の検査（盤面が報告の節を出した run だけ: 人か止め札で止めた・収束した。周を締めて止めた 1 周の run では出ない）
+  - id: reporting
+    include: blk-report
+    depends_on: [report]
+    when: "$report.output.ai_report_go == true"
+    with:
+      machine_report: $report.output.report_file
+
+  # 出口（returns）。機械の報告の欄を全部残し、最後の報告を選ぶ（AI の報告が ok なら report-ai.md、そうでなければ report.md）。AI の報告が落ちても走る（all_done）
+  - id: result
+    script: result
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [report, reporting]
+    trigger_rule: all_done
+    with:
+      machine: {from: $report.output}
+      ai: {from: $reporting.output, if_skipped: null}
+    output_format:
+      type: object
+      required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]
+      properties:
+        ok: {type: boolean}
+        outcome: {type: string, enum: [fixed, no_fix_needed, stopped_by_request, stopped_by_human, stopped_by_line, needs_human, record_invalid, interrupted]}
+        judgment_file: {type: string}
+        review_file: {type: string}
+        diff_file: {type: string}
+        faces: {type: integer, minimum: 0}
+        report_file: {type: string}
+        next_request_file: {type: string}
+        tests_green: {type: boolean}
+        validator_exit: {type: integer}
+        ai_report_go: {type: boolean}
+        machine_report_file: {type: string}
+        ai_report: {type: [object, "null"]}
         export_input: {type: object}

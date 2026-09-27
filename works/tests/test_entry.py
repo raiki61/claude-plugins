@@ -31,7 +31,15 @@ import linekit  # noqa: E402
 GRAPH = graph_expanded()
 TABLE_PATH = ROOT / "darkfactory" / "nodes.json"
 ROLES = {"p0.premises", "p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix", "p3.delta_review", "p3.delta_fix",
-         "p3.delta_review2", "p3.delta_fix2", "p2.rejudge", "p2.rejudge_third"}
+         "p3.delta_review2", "p3.delta_fix2", "p2.rejudge", "p2.rejudge_third", "p0.purpose"}
+# 独立の目（blk-eyes。計画 P1 Task 33）の行（tests/boards/tables/eyes-rows.json の案をそのまま当てた）
+EYES = {"r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare", "r3.coherence", "r4.hidden_scope",
+        "stop.premise_check"}
+# P1 の目と素材集め（blk-material。計画 P1 Task 32）
+MATERIAL = {"p0.prior_decisions", "p0.purpose_review", "p1.local_review", "p1.consistency_bypass", "p1.hygiene",
+            "p1.external_standards", "p1.procedure_trace", "p1.gate_efficacy", "p1.test_double_fidelity",
+            "p1.main_path_observation", "p1.provenance"}
+ROLES |= EYES | MATERIAL | {"report.human_items", "report.cold_check", "report"}
 
 
 def raw_table() -> dict:
@@ -93,14 +101,26 @@ class TableCase(unittest.TestCase):
                 else:
                     self.assertRegex(e.where, r"\A(?:start|blk-[a-z0-9]+(?:-[a-z0-9]+)*)\Z")
 
-    def test_purpose_declared_absent(self):
-        """目的の文は線 B が足す（線 A には入らない）。一緒に入る目的の審査・前の決定も absent"""
-        for nid in ("p0.purpose", "p0.purpose_review", "p0.prior_decisions"):
+    def test_purpose_and_material_rows(self):
+        """目的の文は blk-purpose（独立の目の R1・R2 と判定が読む）。目的の審査・前の決定・P1 の 9 本は blk-material
+        （計画 P1 Task 32）。P1 の行は判定から入る 1 周目に条件で na と書く"""
+        e = self.nodes["p0.purpose"]
+        self.assertEqual((e.by, e.where), ("role", "blk-purpose"))
+        self.assertIn("h-mat", e.reason)
+        for nid in MATERIAL:
             with self.subTest(nid):
                 e = self.nodes[nid]
-                self.assertEqual(e.by, "absent")
-                self.assertIn("線 B", e.reason)
-                self.assertIn("線 B", e.comes_with)
+                self.assertEqual((e.by, e.where), ("role", "blk-material"))
+                if nid.startswith("p1."):
+                    self.assertIn("1 周目は条件", e.reason)
+
+    def test_eyes_rows_follow_block_proposal(self):
+        """独立の目の 7 行は blk-eyes の案（eyes-rows.json）と同じ。r1.comment_candidates だけ skippable"""
+        rows = json.loads((TESTS / "boards" / "tables" / "eyes-rows.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(rows), EYES)
+        for nid, row in rows.items():
+            with self.subTest(nid):
+                self.assertEqual(raw_table()["nodes"][nid], row)
 
     def test_roles_are_track_a_nodes(self):
         roles = {n for n, e in self.nodes.items() if e.by == "role"}
@@ -132,34 +152,30 @@ class TableCase(unittest.TestCase):
         self.assertEqual({n for n, e in self.nodes.items() if e.by == "engine_run"},
                          {"p0.local_checks", "p0.parallel_pr", "p4.ci"})
 
-    def test_no_skippable_yet(self):
-        """手厚さは標準だけ（持ち主の答え 1: 省けない節を省かない）。skippable の行が 0"""
-        self.assertEqual([n for n, e in self.nodes.items() if e.skippable], [])
-        self.assertFalse(any("skippable" in r for r in raw_table()["nodes"].values()))
+    def test_only_optional_comment_candidates_skippable(self):
+        """手厚さは標準だけ（持ち主の答え 1: 省けない節を省かない）。skippable は graph で optional の r1.comment_candidates だけ
+        （3 回とも拒まれたら省いて R1 の本体へ。graph: 取れなくても R1 を not_run に倒さない）"""
+        self.assertEqual([n for n, e in self.nodes.items() if e.skippable], ["r1.comment_candidates"])
 
-    def test_report_absent_so_record_invalid_unreachable(self):
-        """報告の役の 3 節は absent。graph の pre: finalize の節は report だけ → settle の報告の前の関所（RecordInvalid）は
-        線 A で起きない（代わりの関所は線 A の report.build）"""
+    def test_report_rows_are_blk_report(self):
+        """報告の役の 3 節は blk-report の役（計画 P1 Task 34。ml-report の案の行）。graph の pre: finalize の節は report だけ——
+        その関所（settle の RecordInvalid）は機械の報告の gate_record が受けて record_invalid にする（test_report）"""
         for nid in ("report", "report.human_items", "report.cold_check"):
             with self.subTest(nid):
-                self.assertEqual(self.nodes[nid].by, "absent")
-                self.assertIn("R27", self.nodes[nid].reason)
+                self.assertEqual((self.nodes[nid].by, self.nodes[nid].where), ("role", "blk-report"))
+        self.assertIn("R27", self.nodes["report.human_items"].reason)
         self.assertEqual({n for n, g in GRAPH["nodes"].items() if g.get("pre") == "finalize"}, {"report"})
 
     def test_later_lines_name_their_line(self):
         """線 B・線 C・R 系・別の入口の行は comes_with にその名"""
         want = {"p2.history": "線 B", "p3.delta_gates": "線 C", "p4.final_gates": "線 C",
-                "r1.minimality": "R 系", "stop.premise_check": "R 系", "spec.write": "darkfactory-spec"}
+                "spec.write": "darkfactory-spec"}
         for nid, name in want.items():
             with self.subTest(nid):
                 self.assertEqual(self.nodes[nid].by, "absent")
                 self.assertIn(name, self.nodes[nid].comes_with)
         p1 = [n for n in GRAPH["nodes"] if n.startswith("p1.") and GRAPH["nodes"][n].get("run_by") != "driver"]
-        self.assertEqual(len(p1), 9)
-        for nid in p1:
-            with self.subTest(nid):
-                self.assertEqual(self.nodes[nid].by, "absent")
-                self.assertIn("P1", self.nodes[nid].reason)
+        self.assertEqual(set(p1), {n for n in MATERIAL if n.startswith("p1.")})
 
 
 class LoadTableCase(unittest.TestCase):
@@ -1021,6 +1037,7 @@ class TakeCaseBase(StartCaseBase):
             launch(self.board, nid)
             got = entry.take(self.board, nid, reply, repo)
             self.assertTrue(got["ok"], got)
+        linekit.pre_judge(self.board, repo)   # 目的の文（判定の前に盤面が待つ）
         self.assertIn("p2.diagnose", entry.open_board(self.board).settle()["ready"])
         return repo
 

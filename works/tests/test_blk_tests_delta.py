@@ -349,6 +349,7 @@ import contextlib  # noqa: E402
 import entry as real_entry  # noqa: E402
 import test_board_engine_run as ER  # noqa: E402
 import test_blk_refix as RF  # noqa: E402
+import linekit  # noqa: E402
 from engine import declared  # noqa: E402
 
 DECL_BROKEN = {"suite": []}
@@ -611,10 +612,16 @@ class TestTestsModes(ER.EngineRunCase):
         self.assertIn("宣言が計画の後に 2 度変わった", err)
 
     def test_final_settles_to_record(self):
-        # final の後の盤面で p4.record と converge が済み、stop_after_round で止まっている
+        # final の後の盤面は独立の目（R1〜R4。表で blk-eyes の役）を待ち、目を渡すと p4.record と converge が済み、
+        # stop_after_round で止まる（計画 P1 Task 33）
         b = self.mode_board(decl=ER.GREEN)
         rc, out, err = self.call(b, "final", "")
         self.assertEqual(rc, 0, err)
+        after = self.reopen(b)
+        self.assertEqual(after.node_state("p4.assemble"), "done")
+        self.assertEqual(after.node_state("p4.record"), "pending")
+        self.assertTrue(any(after.table.nodes[n].where == "blk-eyes" for n in after.ready()), after.ready())
+        linekit.close_eyes(b.dir, self.repo(b))
         after = self.reopen(b)
         self.assertEqual((after.node_state("p4.record"), after.node_state("converge")), ("done", "done"))
         self.assertEqual(after.state["halted"]["by"], "stop_after_round")
@@ -626,7 +633,8 @@ class TestTestsModes(ER.EngineRunCase):
         self.assertEqual(rc, 0, err)
         after = self.reopen(b)
         self.assertEqual(out["log"], after.record["process"]["checks"]["p4.ci"]["runs"][0]["out"])
-        self.assertEqual(after.state["halted"]["by"], "stop_after_round")
+        linekit.close_eyes(b.dir, self.repo(b))   # 独立の目の後に周が締まる（計画 P1 Task 33）
+        self.assertEqual(self.reopen(b).state["halted"]["by"], "stop_after_round")
 
     # -- 共通
     def test_exit_keeps_v1_fields(self):

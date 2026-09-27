@@ -102,13 +102,14 @@ class LineCase(LineBase):
         self.order_ok(got["trail"])
         for nid in ("fixing", "reviewing", "refixing", "testing", "final-gate"):
             self.assertNotIn(nid, got["trail"])
-        self.assertEqual(got["trail"][-1], "report")
+        # 修正の前の関所の stop は周の途中の答え（盤面は halted.by answer）で、盤面は報告の役の節を出さない
+        self.assertEqual(got["trail"][-3:], ["h-eyes", "report", "result"])
         self.assertEqual(got["outcome"], "stopped_by_human")
 
     def test_final_gate_stop(self):
         """最後の関所の stop → 止めた run にも報告が走り、結末 stopped_by_human。答えは final-gate-answer.json と human_items"""
         got = self.run_line(gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}})
-        self.assertEqual(got["trail"][-2:], ["h-eyes", "report"])
+        self.assertEqual(got["trail"][-4:], ["h-eyes", "report", "reporting", "result"])
         self.assertEqual(got["outcome"], "stopped_by_human")
         b = entry.open_board(got["board_dir"], allow_halted=True)
         ans = json.loads(b.work(line_edge.FINAL_GATE_ANSWER).read_text(encoding="utf-8"))
@@ -141,6 +142,143 @@ class LineCase(LineBase):
         self.assertLess(got["trail"].index("premising"), got["trail"].index("judging"))
         b = entry.open_board(got["board_dir"], allow_halted=True)
         self.assertEqual(got["out"]["h-judge"]["premises_file"], str(b.dir / b.state["outputs"]["p0.premises"]["file"]))
+
+
+class EyesPurposeCase(LineBase):
+    """目的の文（blk-purpose）と独立の目（blk-eyes）の配線（計画 P1 Task 33。目的の文は目の R1・R2 が読むので先に入れた）"""
+
+    def test_purpose_before_judge(self):
+        """前提 → h-judge → 目的の文 → h-mat → 判定。h-mat の purpose_file は盤面の p0.purpose の出力（目的の文を盤面へ渡した）"""
+        got = self.run_line()
+        t = got["trail"]
+        self.assertLess(t.index("h-judge"), t.index("purposing"))
+        self.assertLess(t.index("purposing"), t.index("h-mat"))
+        self.assertLess(t.index("h-mat"), t.index("judging"))
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertEqual(b.node_state("p0.purpose"), "done")
+        self.assertEqual(got["out"]["h-mat"]["purpose_file"], str(b.dir / b.state["outputs"]["p0.purpose"]["file"]))
+
+    def test_eyes_after_final_gate(self):
+        """最後の関所の後に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。周は目の後に締まり、結末 fixed"""
+        got = self.run_line()
+        self.order_ok(got["trail"])
+        t = got["trail"]
+        self.assertLess(t.index("final-gate"), t.index("eyeing"))
+        self.assertEqual(t[-3:], ["eyeing", "report", "result"])
+        self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-design", "r2-compare"})
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        for nid in ("r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare"):
+            with self.subTest(nid):
+                self.assertIn(nid, b.state["outputs"])
+        self.assertEqual(got["out"]["eyeing"]["ok"], True)
+        self.assertEqual(got["outcome"], "fixed", pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8"))
+
+    def test_final_gate_stop_skips_eyes(self):
+        """最後の関所の stop → 目は回らない（周は開いたまま人が止めた）、結末 stopped_by_human"""
+        got = self.run_line(gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}})
+        self.assertNotIn("eyeing", got["trail"])
+        self.assertEqual(got["outcome"], "stopped_by_human")
+        st = self.state(got)
+        self.assertEqual(st["stop"]["by"], line_edge.FINAL_GATE_BY)
+
+    def test_eyes_asking_goes_to_next_run(self):
+        """R4 が方針とのぶつかりを挙げ r4.human_gate が人に聞く → ブロックは止めずに asking で抜け（計画 Task 33 の (b)）、
+        報告は needs_human。問いは報告の冒頭 1 と次の run の依頼の下書きに載る"""
+        import test_blk_eyes as TB
+        r = replies(review=CLEAN_REVIEW)
+        r["judge"] = linekit.reply("judge_no_fix")
+        conflict = "clamp の上限を変えると方針の「既定値は変えない」とぶつかる"
+        r["r4-scope"] = {**TB.SCOPE_OK, "policy_conflicts": [conflict]}
+        got = self.run_line(replies=r, edits={})
+        self.assertIn("r4-scope", got["eyes_roles"])
+        self.assertIs(got["out"]["eyeing"]["asking"], True)
+        self.assertEqual(got["outcome"], "needs_human")
+        text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+        self.assertIn(conflict, text)
+        nxt = json.loads(pathlib.Path(got["report"]["next_request_file"]).read_text(encoding="utf-8"))
+        self.assertTrue(any(conflict in it["text"] for it in nxt), nxt)
+
+
+class AiReportCase(LineBase):
+    """AI が書く報告と初見の検査（blk-report）を機械の報告の後に（計画 P1 Task 34）"""
+
+    def test_ai_report_after_machine(self):
+        """最後の関所の stop（盤面が報告の節を出す道）→ report → reporting → result。最後の報告は report-ai.md で、機械の
+        report.md が字のまま最後に付く。結末は機械の報告のまま"""
+        got = self.run_line(gates={"final-gate": {"decision": "stop", "text": "差分を人が読み直す"}})
+        self.assertEqual(got["trail"][-3:], ["report", "reporting", "result"])
+        rep = got["report"]
+        self.assertEqual(pathlib.Path(rep["report_file"]).name, "report-ai.md")
+        self.assertEqual(pathlib.Path(rep["machine_report_file"]).name, "report.md")
+        self.assertEqual(rep["export_input"]["report_file"], rep["report_file"])
+        self.assertEqual(rep["outcome"], "stopped_by_human")
+        self.assertIs(rep["ai_report"]["ok"], True)
+        machine = pathlib.Path(rep["machine_report_file"]).read_text(encoding="utf-8")
+        self.assertIn(machine, pathlib.Path(rep["report_file"]).read_text(encoding="utf-8"))
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        for nid in ("report.human_items", "report.cold_check", "report"):
+            self.assertEqual(b.node_state(nid), "done", nid)
+
+    def test_ai_report_fail_keeps_machine(self):
+        """書き手が 3 回とも拒まれて諦める → 最後の報告は機械の report.md、結末は変わらない。AI の報告の出口は ok: false と理由"""
+        r = replies()
+        r["report-give-up"] = True
+        got = self.run_line(replies=r, gates={"final-gate": {"decision": "stop", "text": "x"}})
+        rep = got["report"]
+        self.assertEqual(pathlib.Path(rep["report_file"]).name, "report.md")
+        self.assertEqual(rep["outcome"], "stopped_by_human")
+        self.assertIs(rep["ai_report"]["ok"], False)
+        self.assertIn("拒まれた", rep["ai_report"]["reason"])
+
+    def test_human_items_wait_not_unfinished(self):
+        """人が止めた盤面で機械の報告の時に report.human_items が待ち（報告の役の節）→ 結末は stopped_by_human のまま
+        （record_invalid・needs_human に倒れない）で、ai_report_go が真"""
+        r = replies()
+        got = self.run_line(replies=r, gates={"final-gate": {"decision": "stop", "text": "x"}})
+        self.assertIs(got["out"]["report"]["ai_report_go"], True)
+        self.assertEqual(got["out"]["report"]["outcome"], "stopped_by_human")
+
+    def test_round_closed_run_has_no_ai_report(self):
+        """周を締めて止めた 1 周の run（stop_after_round）→ 盤面は報告の節を出さず、reporting は回らない。最後の報告は機械の
+        report.md（本線の --stop-after-round と同じ。報告に「AI の報告は無い」が分かる）"""
+        got = self.run_line()
+        self.assertNotIn("reporting", got["trail"])
+        self.assertIs(got["out"]["report"]["ai_report_go"], False)
+        self.assertEqual(pathlib.Path(got["report"]["report_file"]).name, "report.md")
+        self.assertIsNone(got["report"]["ai_report"])
+        self.assertEqual(got["outcome"], "fixed")
+
+
+class MaterialCase(LineBase):
+    """P1 の目と素材集め（blk-material）を目的の文の後・判定の前に（計画 P1 Task 32）"""
+
+    def test_purpose_then_material_path(self):
+        """h-mat → gathering（blk-material）→ judging。判定から入る 1 周目は P1 の目が写しの条件で na（盤面の周の箱に在る）で、前の決定の
+        読み出し（p0.prior_decisions）だけが回る"""
+        got = self.run_line()
+        t = got["trail"]
+        self.assertLess(t.index("h-mat"), t.index("gathering"))
+        self.assertLess(t.index("gathering"), t.index("judging"))
+        self.assertIs(got["out"]["h-mat"]["mat_go"], True)
+        self.assertEqual(got["mat_roles"], ["prior-decisions"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertEqual(b.node_state("p0.prior_decisions"), "done")
+        box = next(r for r in b.state["rounds"] if r.get("round") == 1)
+        p1 = [n for n, e in b.table.nodes.items() if n.startswith("p1.") and e.by == "role"]
+        self.assertEqual(len(p1), 9)
+        for nid in p1:
+            with self.subTest(nid):
+                self.assertIn(nid, box["na"])
+        self.assertIs(got["out"]["gathering"]["ok"], True)
+        self.assertEqual(got["outcome"], "fixed")
+
+    def test_purpose_review_due_no_die(self):
+        """p0.purpose が role になり、目的の審査の条件（purpose_review_due）が前提の後の settle で落ちない。出典が ② の目的は
+        審査を要らない（na）"""
+        got = self.run_line()
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertIn(b.node_state("p0.purpose_review"), ("na", "done"))
+        self.assertNotIn("purpose-review", got["mat_roles"])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 # 筋書き start-refused: 手厚さ 軽量 を渡す → start（本物）が入力を受けず 1 で止まる（AI を起こす前。持ち主の決定
-# 2026-09-27）。後ろの節には届かない
+# 2026-09-27）。後ろの節には届かない。出口 result は all_done で走るが、機械の報告が無いので 2 で落ちる（報告の無い run を
+# 成功と言わない）
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 ci-checking__ci-fence:
@@ -60,6 +61,8 @@ h-entry:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 pr-checking__pr-snap:
   ok: true
   snapshot_file: board/r1/pr-snapshot.json
@@ -147,11 +150,407 @@ h-judge:
   premises_file: board/out/r1/p0.premises.json
   pr_go: false
   premises_go: false
+  purpose_go: true
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+purposing__intake: {}
+purpose:
+  purpose_text: stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする
+  source: ②計画・タスク記述
+  known_weaknesses: []
+  source_files:
+  - request_ok.json
+purpose-accept:
+  ok: true
+  reason: ''
+  reason_file: ''
+  purpose_file: ''
+purposing__collect:
+  ok: true
+  purpose_file: ''
+  purpose_text: ''
+  source: ''
+h-mat:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: ''
+  open_units: ''
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
   purpose_go: false
   spec_go: false
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: board/out/r1/p0.purpose.json
+  mat_go: true
+gathering__mat-route:
+  ok: true
+  stopped: false
+  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards: 回す・p1.procedure_trace:
+    回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance: 回す'
+  snapshot_file: board/r1/material-snapshot.json
+  prior_decisions: true
+  purpose_review: false
+  local_review: true
+  consistency_bypass: true
+  hygiene: true
+  external_standards: true
+  procedure_trace: true
+  gate_efficacy: true
+  test_double_fidelity: true
+  main_path_observation: true
+  provenance: true
+prior-decisions-prep:
+  prompt_file: board/prompts/r1/p0.prior_decisions.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p0.prior_decisions.json
+  node: p0.prior_decisions
+  already: false
+  stopped: false
+prior-decisions:
+  material:
+    status: clean
+    checked: 決定記録（ADR・台帳・issue）はリポジトリに無い
+  checked: true
+  searched:
+  - リポジトリの全部（2 ファイル）
+  settled: []
+prior-decisions-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p0.prior_decisions
+  status: ''
+purpose-review-prep:
+  prompt_file: ''
+  prompt_text: ''
+  attempt: 0
+  out_path: ''
+  node: ''
+  already: true
+  stopped: true
+purpose-review:
+  verdict: 問題なし
+  reason: 要約は依頼の範囲を狭めていない
+  findings: []
+purpose-review-accept:
+  ok: true
+  done: true
+  give_up: true
+  reason: ''
+  reason_file: ''
+local-review-prep:
+  prompt_file: board/prompts/r1/p1.local_review.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.local_review.json
+  node: p1.local_review
+  already: false
+  stopped: false
+local-review:
+  material:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  simplify_carried: false
+  findings:
+  - skill: /code-review
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:code-reviewer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: /simplify
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: /security-review
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:silent-failure-hunter
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:type-design-analyzer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:pr-test-analyzer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+local-review-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.local_review
+  status: ''
+consistency-bypass-prep:
+  prompt_file: board/prompts/r1/p1.consistency_bypass.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.consistency_bypass.json
+  node: p1.consistency_bypass
+  already: false
+  stopped: false
+consistency-bypass:
+  consistency:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  bypass:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  findings: []
+  bypass_findings: []
+  seen: stats.py と test_stats.py の全部
+  unseen: 無し（リポジトリは 2 ファイル）
+consistency-bypass-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.consistency_bypass
+  status: ''
+hygiene-prep:
+  prompt_file: board/prompts/r1/p1.hygiene.md
+  prompt_text: 'お前は文脈を持たない読み手。（試験の stub: 本文に $ARTIFACTS_DIR と $mat-route.output.why を含む——置き換え直されないことを見る）
+
+    ```diff
+
+    diff --git a/stats.py b/stats.py
+
+    -    return sum(xs) / (len(xs) - 1)
+
+    +    return sum(xs) / len(xs)
+
+    ```
+
+    '
+  attempt: 1
+  out_path: board/out/r1/p1.hygiene.json
+  node: p1.hygiene
+  already: false
+  stopped: false
+hygiene:
+  findings: []
+  seen: 差分の全部（stats.py の 1 行と notes.md）
+hygiene-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.hygiene
+  status: ''
+external-standards-prep:
+  prompt_file: board/prompts/r1/p1.external_standards.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.external_standards.json
+  node: p1.external_standards
+  already: false
+  stopped: false
+external-standards:
+  material:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  findings: []
+  seen: statistics の公式文書
+  unseen: 無し
+  web_refetched: true
+  rankings:
+  - problem: 算術平均の分母
+    source: https://docs.python.org/3/library/statistics.html
+    ranked:
+    - statistics.fmean を使う
+    - sum(xs) / len(xs) を自前で書く
+    diff_at: sum(xs) / len(xs) を自前で書く
+    why_not_higher: 種は標準の関数に寄せる前の形で、分母の取り違えだけを直す差分だから
+external-standards-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.external_standards
+  status: ''
+procedure-trace-prep:
+  prompt_file: board/prompts/r1/p1.procedure_trace.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.procedure_trace.json
+  node: p1.procedure_trace
+  already: false
+  stopped: false
+procedure-trace:
+  material:
+    status: clean
+    checked: notes.md の手順を読み、書かれたコマンドを写しで動かした
+  findings: []
+  unmeasured: []
+procedure-trace-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.procedure_trace
+  status: ''
+gate-efficacy-prep:
+  prompt_file: board/prompts/r1/p1.gate_efficacy.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.gate_efficacy.json
+  node: p1.gate_efficacy
+  already: false
+  stopped: false
+gate-efficacy:
+  material:
+    status: not_run
+    reason: 差分は検証ゲートを足していない——撃てる腕が無い
+  arms: []
+gate-efficacy-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.gate_efficacy
+  status: ''
+test-double-fidelity-prep:
+  prompt_file: board/prompts/r1/p1.test_double_fidelity.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.test_double_fidelity.json
+  node: p1.test_double_fidelity
+  already: false
+  stopped: false
+test-double-fidelity:
+  material:
+    status: clean
+    checked: 代役は無い（test_stats.py は実物の関数を呼ぶ）
+  mismatches: []
+test-double-fidelity-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.test_double_fidelity
+  status: ''
+main-path-observation-prep:
+  prompt_file: board/prompts/r1/p1.main_path_observation.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.main_path_observation.json
+  node: p1.main_path_observation
+  already: false
+  stopped: false
+main-path-observation:
+  material:
+    status: clean
+    checked: python3 -c で mean を 1 回呼んだ
+  observed:
+  - path: stats.mean([1, 2, 3])
+    value: '2.0'
+main-path-observation-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.main_path_observation
+  status: ''
+provenance-prep:
+  prompt_file: board/prompts/r1/p1.provenance.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.provenance.json
+  node: p1.provenance
+  already: false
+  stopped: false
+provenance:
+  material:
+    status: clean
+    checked: 差分に『正本は X』の主張は無い
+  claims: []
+provenance-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.provenance
+  status: ''
+gathering__collect:
+  ok: true
+  reason: ''
+  ran:
+  - p0.prior_decisions
+  - p1.local_review
+  - p1.consistency_bypass
+  - p1.hygiene
+  - p1.external_standards
+  - p1.procedure_trace
+  - p1.gate_efficacy
+  - p1.test_double_fidelity
+  - p1.main_path_observation
+  - p1.provenance
+  skipped:
+  - node: p0.purpose_review
+    why: 目的の文と一緒に入る（absent）
+  materials:
+    prior_decisions: clean
+    local_review: clean
+    consistency_bypass: clean
+    hygiene: clean
+    external_standards: clean
+    procedure_trace: clean
+    gate_efficacy: clean
+    test_double_fidelity: clean
+    main_path_observation: clean
+    provenance: clean
+  snapshot:
+    rev: 0123456789abcdef0123456789abcdef01234567
+    diff_file: board/diff-r1.patch
+    changed_files:
+    - stats.py
+    changed_files_file: board/changed-r1.txt
+    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
+    request_wheres: []
+  exit_file: board/r1/material-exit.json
 judging__intake:
   ok: true
   reason: ''
@@ -244,6 +643,8 @@ h-plan:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 planning__plan-snap:
   ok: true
   go: true
@@ -336,6 +737,8 @@ h-gate:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 h-fix:
   ok: true
   stop: false
@@ -357,6 +760,8 @@ h-fix:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 fixing__ignored-before:
   ok: true
   count: 0
@@ -498,6 +903,8 @@ h-mid:
   runtime_go: false
   holdout_go: false
   mid_note: '中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）'
+  purpose_file: ''
+  mat_go: false
 h-review:
   ok: true
   stop: false
@@ -519,6 +926,8 @@ h-review:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 reviewing__cut:
   ok: true
   files:
@@ -562,6 +971,8 @@ h-refix:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 refixing__refix-prep:
   ok: true
   owed: 1
@@ -664,6 +1075,8 @@ h-tests:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 testing__run:
   ok: true
   green: true
@@ -693,10 +1106,12 @@ h-final:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
 h-eyes:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -714,6 +1129,245 @@ h-eyes:
   runtime_go: false
   holdout_go: false
   mid_note: ''
+  purpose_file: ''
+  mat_go: false
+eyeing__eyes-enter:
+  ok: true
+  round: 1
+  stopped: false
+  asking: false
+  ready:
+  - r1-comments
+  - r2-design
+  - r3-coherence
+  - r4-scope
+  snapshot_file: board/r1/eyes-snapshot.json
+  why: ''
+eyeing__r1-comments-route:
+  go: true
+  node: r1.comment_candidates
+  why: r1.comment_candidates が待っている
+  stopped: false
+r1-comments-prep:
+  prompt: （r1.comment_candidates の描いた指示書）
+  prompt_file: board/prompts/r1/r1.comment_candidates.md
+  node: r1.comment_candidates
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r1-comments:
+  candidates: []
+  kept: []
+r1-comments-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r1.comment_candidates
+  reason_file: ''
+eyeing__r1-minimality-route:
+  go: true
+  node: r1.minimality
+  why: r1.minimality が待っている
+  stopped: false
+r1-minimality-prep:
+  prompt: （r1.minimality の描いた指示書）
+  prompt_file: board/prompts/r1/r1.minimality.md
+  node: r1.minimality
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r1-minimality:
+  status: pass
+  reason: 累積差分は最小。台帳に逃げ道なし
+  deletions: []
+  ledger_audit: []
+  increments: []
+r1-minimality-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r1.minimality
+  reason_file: ''
+eyeing__r2-design-route:
+  go: true
+  node: r2.design
+  why: r2.design が待っている
+  stopped: false
+r2-design-prep:
+  prompt: （r2.design の描いた指示書）
+  prompt_file: board/prompts/r1/r2.design.md
+  node: r2.design
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-design:
+  question_stands: true
+  reason: 問いは立っている
+  design: 上限は入口 1 箇所で掛ける
+r2-design-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.design
+  reason_file: ''
+eyeing__r2-compare-route:
+  go: true
+  node: r2.compare
+  why: r2.compare が待っている
+  stopped: false
+r2-compare-prep:
+  prompt: （r2.compare の描いた指示書）
+  prompt_file: board/prompts/r1/r2.compare.md
+  node: r2.compare
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-compare:
+  status: pass
+  reason: 構造は一致
+  differences: []
+r2-compare-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.compare
+  reason_file: ''
+eyeing__premise-check-route:
+  go: false
+  node: stop.premise_check
+  why: 'stop.premise_check: na'
+  stopped: false
+premise-check-prep:
+  prompt: ''
+  prompt_file: ''
+  node: ''
+  attempt: 0
+  already: true
+  role_def: ''
+  role_def_missing: ''
+premise-check:
+  key: 識別子を別に持つか
+  assumption: 1 デプロイ＝1 リポジトリ
+  assumption_false: false
+  evidence: README に複数デプロイの記述が無い
+  verdict: escalate
+  reason: 実測で反証できない
+premise-check-accept:
+  ok: true
+  done: true
+  give_up: true
+  skipped: true
+  reason: ''
+  node: ''
+  reason_file: ''
+eyeing__r3-coherence-route:
+  go: true
+  node: r3.coherence
+  why: r3.coherence が待っている
+  stopped: false
+r3-coherence-prep:
+  prompt: （r3.coherence の描いた指示書）
+  prompt_file: board/prompts/r1/r3.coherence.md
+  node: r3.coherence
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r3-coherence:
+  status: pass
+  reason: 横断で揃っている
+r3-coherence-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r3.coherence
+  reason_file: ''
+eyeing__r4-scope-route:
+  go: true
+  node: r4.hidden_scope
+  why: r4.hidden_scope が待っている
+  stopped: false
+r4-scope-prep:
+  prompt: （r4.hidden_scope の描いた指示書）
+  prompt_file: board/prompts/r1/r4.hidden_scope.md
+  node: r4.hidden_scope
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r4-scope:
+  status: pass
+  reason: 導入・露呈した横断リスクなし
+  capability_inventory:
+    fired: false
+  policy_conflicts: []
+  surfaced: []
+r4-scope-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r4.hidden_scope
+  reason_file: ''
+eyeing__eyes-collect:
+  ok: true
+  reason: ''
+  complete: true
+  asking: false
+  stopped: false
+  eyes:
+    r1-comments: done
+    r1-minimality: done
+    r2-design: done
+    r2-compare: done
+    r3-coherence: done
+    r4-scope: done
+    premise-check: na
+  gave_up: []
+  after_fix:
+    rev: acc5e6c2327b89f81356f7b71020f3347cdded0c
+    diff_file: board/diff-r1-after-fix.patch
+    changed_files:
+    - src/a.py
+    - src/b.py
+    diff_lines: 9
+  open_units: 0
+  r1_refire: true
+  r2_refire: true
+  purpose_known: true
+  purpose_unusable: ''
+  reviews:
+    R1:
+      status: pass
+      reason: 累積差分は最小。台帳に逃げ道なし
+    R2:
+      status: pass
+      reason: 構造は一致
+    R3:
+      status: pass
+      reason: 横断で揃っている
+    R4:
+      status: pass
+      reason: 導入・露呈した横断リスクなし
+  premise:
+    facts_to_add: []
+  retaken_for_reviews: board/diff-r1-after-fix.patch
+  exit_file: board/r1/eyes-exit.json
 report:
   ok: true
   outcome: fixed
@@ -722,6 +1376,111 @@ report:
   next_request_file: board/next-request.json
   tests_green: true
   validator_exit: 0
+  ai_report_go: false
+reporting__rp-route1:
+  next: report-items
+  node: report.human_items
+  why: report.human_items が ready
+report-items-prep:
+  prompt_file: board/prompts/r3/report.human_items.md
+  prompt: ''
+  attempt: 1
+  node: report.human_items
+  facts_file: ''
+  already: false
+report-items:
+  text: 'レビューは 3 周で収束し、直す物は残っていない。
+
+    直した欠陥は 1 件で、テストは緑。
+
+    次の周に回した物は無い。'
+report-items-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report.human_items
+  record_invalid: false
+reporting__rp-route2:
+  next: report-cold
+  node: report.cold_check
+  why: report.cold_check が ready
+report-cold-prep:
+  prompt_file: board/prompts/r3/report.cold_check.md
+  prompt: お前は文脈を持たない初見の読み手。……（描いた本文）
+  attempt: 1
+  node: report.cold_check
+  facts_file: ''
+  already: false
+report-cold:
+  verdict: pass
+  stops: []
+  guessed: []
+  decidable: true
+report-cold-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report.cold_check
+  record_invalid: false
+reporting__rp-route3:
+  next: report-write
+  node: report
+  why: report が ready
+report-write-prep:
+  prompt_file: board/prompts/r3/report.md
+  prompt: ''
+  attempt: 1
+  node: report
+  facts_file: board/r3/report-facts.md
+  already: false
+report-write:
+  text: 'レビューは 3 周で収束し、直す物は残っていない。
+
+    直した欠陥は 1 件で、テストは緑。
+
+    次の周に回した物は無い。
+
+
+    ## 各周の記録
+
+
+    - 周 1: 欠陥 1 件を判定し、直した'
+report-write-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report
+  record_invalid: false
+reporting__collect:
+  ok: true
+  reason: ''
+  report_file: board/report-ai.md
+  text_file: board/out/r3/report.json
+  human_items_file: board/out/r3/report.human_items.json
+  facts_file: board/r3/report-facts.md
+  cold_check:
+    verdict: pass
+    stops: []
+    guessed: []
+    decidable: true
+  record_invalid: false
+result:
+  ok: true
+  outcome: fixed
+  judgment_file: board/judgment.json
+  report_file: board/report.md
+  next_request_file: board/next-request.json
+  tests_green: true
+  validator_exit: 0
+  ai_report_go: false
+  machine_report_file: board/report.md
+  ai_report: null
 fixture:
   expect: failed
   inputs:
@@ -729,5 +1488,7 @@ fixture:
     test_cmd: python3 -m unittest
     adapter: optional
     thickness: 軽量
-  fail-node: start
+  fail-node:
+  - start
+  - result
 exec-code: true
