@@ -6,7 +6,7 @@
 
 読む環境変数（Archon が節の with: から渡す。どれも在ること。値の空は既定の意味）:
 - INPUTS_REQUEST（依頼のファイル。相対なら cwd＝対象の根から）・INPUTS_TEST_CMD・INPUTS_THICKNESS・INPUTS_GATES・
-  INPUTS_MID_GATE・INPUTS_ADAPTER・INPUTS_POLICY_MD
+  INPUTS_FINAL_GATE・INPUTS_ADAPTER・INPUTS_POLICY_MD
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（切符の run_id。空も欠け）
 出口:
 - 通れば entry.start の結果を 1 行の JSON で出して 0
@@ -27,7 +27,7 @@ import script_io  # noqa: E402
 
 # 裁定 TA16: 読む INPUTS_* の組と raw の鍵（Task 17 の試験が YAML の with: の鍵と突き合わせる）
 INPUTS = {"INPUTS_REQUEST": "request", "INPUTS_TEST_CMD": "test_cmd", "INPUTS_THICKNESS": "thickness",
-          "INPUTS_GATES": "gates", "INPUTS_MID_GATE": "mid_gate", "INPUTS_ADAPTER": "adapter",
+          "INPUTS_GATES": "gates", "INPUTS_FINAL_GATE": "final_gate", "INPUTS_ADAPTER": "adapter",
           "INPUTS_POLICY_MD": "policy_md"}
 RUN_ID_ENV = "WORKFLOW_ID"
 NON_EMPTY = (script_io.ARTIFACTS_ENV, RUN_ID_ENV)

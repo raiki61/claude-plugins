@@ -404,7 +404,7 @@ class BoardCase(unittest.TestCase):
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "request.json"
         req.write_text((SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
-        entry.start(self.board, self.repo, {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "",
+        entry.start(self.board, self.repo, {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
                                             "adapter": "", "policy_md": ""}, run_id="run-12")
         pr = {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"}
         self.take("p0.parallel_pr", pr)
@@ -663,7 +663,7 @@ class TestAccept(BoardCase):
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "request.json"
         req.write_text((SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
-        entry.start(self.board, self.repo, {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "",
+        entry.start(self.board, self.repo, {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "",
                                             "adapter": "", "policy_md": ""}, run_id="run-12")
         before = board_shas(self.board)
         dup, invented = load("fix2_ok"), load("fix2_ok")

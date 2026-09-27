@@ -131,7 +131,7 @@ class EdgeBase(unittest.TestCase):
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
         self.art = self.tmp / "art"
         self.board = self.art / "board"
-        raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "", "adapter": "", "policy_md": ""}
+        raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "", "policy_md": ""}
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
 
@@ -338,6 +338,11 @@ class FinalGateCase(EdgeBase):
         b = entry.open_board(self.board, allow_halted=True)
         self.assertEqual(b.work(line_edge.FINAL_GATE_FILE).read_text(encoding="utf-8"), text)
 
+    def test_final_gate_words_match_entry(self):
+        """ラインの入力 final_gate の語は、start（entry.check_inputs）が受ける語と境の節が読む語で同じ（C18。mid_gate は無い）"""
+        self.assertEqual(entry.FINAL_GATES, line_edge.FINAL_GATES)
+        self.assertFalse(hasattr(entry, "MID_GATES"))
+
     def test_final_default_is_always(self):
         tests = self.closed()
         self.assertTrue(self.edge("final", tests=tests, final_gate="")["ask"])
@@ -458,7 +463,7 @@ class EntryMidCase(EdgeBase):
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
         self.art = self.tmp / "art"
         self.board = self.art / "board"
-        raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "", "adapter": "", "policy_md": ""}
+        raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "", "policy_md": ""}
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
         self.assertTrue({"p0.parallel_pr", "p0.premises"} <= set(entry.open_board(self.board).ready()))
         got = self.edge("entry")

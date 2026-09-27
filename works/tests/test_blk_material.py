@@ -169,7 +169,7 @@ def _build_normal(into: pathlib.Path, table: NodeTable = None):
 def _build_entry(into: pathlib.Path):
     repo = linekit.seed_repo(into / "repo", declared=True)
     req = TE.request_file(into / "req" / "request.json")
-    raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "", "adapter": "", "policy_md": ""}
+    raw = {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "", "policy_md": ""}
     bd = into / "art" / "board"
     entry.start(bd, repo, raw, run_id="run-mat")
     for nid, reply in (("p0.parallel_pr", TE.pr_reply()), ("p0.premises", TE.PREMISES_REPLY)):

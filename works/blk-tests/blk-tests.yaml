@@ -7,6 +7,11 @@ inputs:
   cmd:
     required: true
     description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行。自分のプロセスグループで走り、止めるときは木ごと止める）
+  mode:
+    default: plain
+    description: |
+      形。plain（既定。1 本目と線 C の mutgate の約束のまま。盤面を開かない）・mid・final（最後のテスト。盤面の p4.ci を
+      entry.run_ci で走らせる。宣言が無く cmd も空なら by: role_needed で、ラインが blk-ci を回す）。scripts/run_tests.py の冒頭
 
 returns: run
 outcome_field: ok
@@ -26,6 +31,7 @@ nodes:
     runtime: uv
     with:
       cmd: $INPUTS.cmd
+      mode: $INPUTS.mode
     timeout: 1728000000
     output_format:
       type: object
@@ -35,3 +41,14 @@ nodes:
         ok: {type: boolean}
         green: {type: boolean}
         log: {type: string}
+        # mid・final だけが足す欄（plain は出さない。1 本目の必須の欄は変えない）
+        suites:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, exit]
+            properties:
+              name: {type: string}
+              exit: {type: integer}
+        by: {type: string, enum: [mid, engine, role, role_needed]}

@@ -62,7 +62,7 @@ class BoardCase(unittest.TestCase):
             req.write_text((SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
             cls.board = cls.tmp / "art" / "board"
             entry.start(cls.board, cls.repo, {"request": str(req), "test_cmd": "", "thickness": "", "gates": "",
-                                              "mid_gate": "", "adapter": "", "policy_md": ""}, run_id="run-6")
+                                              "final_gate": "", "adapter": "", "policy_md": ""}, run_id="run-6")
         finally:
             env.stop()
             engine_util.GIT_CWD = cls._git_cwd

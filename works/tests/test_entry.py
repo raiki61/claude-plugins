@@ -414,7 +414,7 @@ class StartCaseBase(unittest.TestCase):
 
     def raw(self, **kw):
         req = request_file(self.tmp / "req" / "request.json")
-        return {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "", "adapter": "",
+        return {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "",
                 "policy_md": "", **kw}
 
     def start(self, repo, raw=None, **kw):
@@ -424,18 +424,18 @@ class StartCaseBase(unittest.TestCase):
 
 class CheckInputsCase(StartCaseBase):
     def test_inputs_defaults(self):
-        """依頼だけ → thickness 標準・gates ""・mid_gate always・adapter ""。返りに thickness_decider が無い"""
+        """依頼だけ → thickness 標準・gates ""・final_gate always・adapter ""。返りに thickness_decider が無い"""
         repo = self.seed()
         got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
         self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
-                                    "mid_gate", "adapter", "policy_md"})
-        self.assertEqual((got["thickness"], got["gates"], got["mid_gate"], got["adapter"], got["test_cmd"], got["policy_md"]),
+                                    "final_gate", "adapter", "policy_md"})
+        self.assertEqual((got["thickness"], got["gates"], got["final_gate"], got["adapter"], got["test_cmd"], got["policy_md"]),
                          ("標準", "", "always", "", "", ""))
         self.assertEqual(len(got["items"]), 2)
         self.assertEqual(got["request_file"], str((self.tmp / "r.json").resolve()))
         self.assertIn("mean", got["request_text"])
         self.assertEqual(entry.THICKNESS, ("軽量", "標準", "重厚"))
-        self.assertEqual(entry.MID_GATES, ("always", "when_needed"))
+        self.assertEqual(entry.FINAL_GATES, ("always", "when_needed"))
         self.assertEqual(entry.ADAPTER_MODES, ("", "optional"))
         self.assertEqual(entry.GATES, ("", "merge"))
 
@@ -460,7 +460,7 @@ class CheckInputsCase(StartCaseBase):
 
     def test_unknown_words_refused(self):
         repo = self.seed()
-        for key in ("thickness", "mid_gate", "adapter", "gates"):
+        for key in ("thickness", "final_gate", "adapter", "gates"):
             with self.subTest(key):
                 with self.assertRaises(entry.InputRefused) as cm:
                     entry.check_inputs(self.raw(**{key: "x"}), repo)
@@ -471,7 +471,7 @@ class CheckInputsCase(StartCaseBase):
         with self.assertRaises(entry.InputRefused) as cm:
             entry.check_inputs(self.raw(gates="x"), repo)
         self.assertIn("gates=merge", str(cm.exception))
-        for key, ok in (("mid_gate", "when_needed"), ("adapter", "optional"), ("gates", "merge")):
+        for key, ok in (("final_gate", "when_needed"), ("adapter", "optional"), ("gates", "merge")):
             with self.subTest(ok=ok):
                 self.assertEqual(entry.check_inputs(self.raw(**{key: ok}), repo)[key], ok)
 
@@ -681,7 +681,7 @@ class StartCase(StartCaseBase):
     def test_start_refuses_before_board(self):
         """入力の拒みは盤面の置き場を作る前（軽量・知らない語・読めない依頼）"""
         repo = self.seed()
-        for raw in (self.raw(thickness="軽量"), self.raw(mid_gate="x"), {"request": str(self.tmp / "nowhere.json")}):
+        for raw in (self.raw(thickness="軽量"), self.raw(final_gate="x"), {"request": str(self.tmp / "nowhere.json")}):
             with self.subTest(raw):
                 with self.assertRaises(entry.InputRefused):
                     self.start(repo, raw)
@@ -731,17 +731,17 @@ class StartCase(StartCaseBase):
 
     def test_start_result_and_inputs_copy(self):
         repo = self.seed(declared=True)
-        got = self.start(repo, test_cmd=SEED_CMD, mid_gate="when_needed", adapter="optional")
+        got = self.start(repo, test_cmd=SEED_CMD, final_gate="when_needed", adapter="optional")
         b = entry.open_board(self.board)
         self.assertEqual(got["base_rev"], linekit.git(repo, "rev-parse", "HEAD"))
-        self.assertEqual((got["test_cmd"], got["mid_gate"], got["adapter"], got["thickness"], got["gates"]),
+        self.assertEqual((got["test_cmd"], got["final_gate"], got["adapter"], got["thickness"], got["gates"]),
                          (SEED_CMD, "when_needed", "optional", "標準", ""))
         self.assertEqual((got["policy_paste"], got["policy_path"]), ("", ""))
         self.assertIsNone(b.state["inputs"]["gates"])
         doc = json.loads(b.work("start.json").read_text(encoding="utf-8"))
         self.assertEqual(doc["run_id"], "run-7")
         self.assertEqual(doc["test_cmd"], SEED_CMD)
-        self.assertEqual(doc["mid_gate"], "when_needed")
+        self.assertEqual(doc["final_gate"], "when_needed")
         self.assertEqual(doc["request_file"], self.raw()["request"])
 
     def test_declared_adapter(self):
@@ -879,7 +879,7 @@ class StartScriptCase(StartCaseBase):
     def env(self, repo, **kw):
         req = request_file(self.tmp / "req" / "request.json")
         base = {"INPUTS_REQUEST": str(req), "INPUTS_TEST_CMD": "", "INPUTS_THICKNESS": "", "INPUTS_GATES": "",
-                "INPUTS_MID_GATE": "", "INPUTS_ADAPTER": "", "INPUTS_POLICY_MD": "", "ARTIFACTS_DIR": str(self.tmp / "art"),
+                "INPUTS_FINAL_GATE": "", "INPUTS_ADAPTER": "", "INPUTS_POLICY_MD": "", "ARTIFACTS_DIR": str(self.tmp / "art"),
                 "WORKFLOW_ID": "wf-1", "WORKS_ADAPTER_HOME": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"}
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         env.update(base)

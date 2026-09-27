@@ -151,7 +151,7 @@ LINE = "darkfactory"
 ORIGIN = "works/darkfactory"   # 依頼の出どころ（record.process.request_entry.origin）
 THICKNESS = ("軽量", "標準", "重厚")
 THICKNESS_DEFAULT = "標準"
-MID_GATES = ("always", "when_needed")
+FINAL_GATES = ("always", "when_needed")   # 最後の人の関所の開き方（C18・P1-R3。line_edge.FINAL_GATES と同じ語）
 ADAPTER_MODES = ("", "optional")
 GATES = ("", "merge")
 LIGHT_REFUSED = "軽量は受けない: graph で省けない節を省くことになる（持ち主の決定 2026-09-27）"
@@ -176,9 +176,9 @@ def _word(raw: dict, key: str) -> str:
 
 
 def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
-    """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, mid_gate, adapter, policy_md} を返す。
+    """ラインの入力を確かめて {request_file, items, request_text, test_cmd, thickness, gates, final_gate, adapter, policy_md} を返す。
     盤面は作らない。拒む物（InputRefused）: 依頼が読めない・JSON の配列でない・依頼の型（写しの RL の REQUEST_SCHEMA）に
-    合わない、thickness が軽量・重厚・知らない値、mid_gate・adapter・gates が語の外（gates の文は写しの RL の check_inputs）、
+    合わない、thickness が軽量・重厚・知らない値、final_gate・adapter・gates が語の外（gates の文は写しの RL の check_inputs）、
     名指した方針の文書が無い。test_cmd が空で宣言（.review-checks.json）も無い run は拒まない（裁定 R52: graphloops と同じく
     p0.local_checks・p4.ci が任せ先の役に落ち、役がリポジトリを読んでテストの走らせ方を探す）。
     相対のパス（依頼・方針の文書）は対象の根 repo から"""
@@ -190,9 +190,9 @@ def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
         raise InputRefused(HEAVY_REFUSED)
     if thickness not in THICKNESS:
         raise InputRefused(f"thickness={thickness!r} は知らない値（{' / '.join(THICKNESS)}。受けるのは {THICKNESS_DEFAULT} だけ）")
-    mid_gate = _word(raw, "mid_gate") or MID_GATES[0]
-    if mid_gate not in MID_GATES:
-        raise InputRefused(f"mid_gate={mid_gate!r} は知らない値（{' / '.join(MID_GATES)}）")
+    final_gate = _word(raw, "final_gate") or FINAL_GATES[0]
+    if final_gate not in FINAL_GATES:
+        raise InputRefused(f"final_gate={final_gate!r} は知らない値（{' / '.join(FINAL_GATES)}）")
     adapter = _word(raw, "adapter")
     if adapter not in ADAPTER_MODES:
         raise InputRefused(f"adapter={adapter!r} は知らない値（空か optional）")
@@ -227,7 +227,7 @@ def check_inputs(raw: dict, repo: pathlib.Path) -> dict:
             raise InputRefused(f"名指した方針の文書 {pol} が無い（policy_md。人の方針の文書を名指すなら先に置く）")
         pol = str(pp)
     return {"request_file": str(path.resolve()), "items": items, "request_text": text, "test_cmd": _word(raw, "test_cmd"),
-            "thickness": thickness, "gates": gates, "mid_gate": mid_gate, "adapter": adapter, "policy_md": pol}
+            "thickness": thickness, "gates": gates, "final_gate": final_gate, "adapter": adapter, "policy_md": pol}
 
 
 def board_rules():
@@ -427,7 +427,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
        （Archon の再開）で前の控えの test_cmd と違えば InputRefused（止められた run を別の道で黙って続けない）
     4. _drain（盤面の約束 1 の輪。CI の節は run_ci、p0.parallel_pr は prcheck.run_helper。止められた test_cmd は走らせ直す）
     5. 切符（ticket.write）を書き、r1/start.json を結果つきで書き直す
-    返り {ok, base_rev, test_cmd, policy_paste, policy_path, mid_gate, adapter, thickness, gates, ci_role_go, pr_go, head_line}。
+    返り {ok, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, thickness, gates, ci_role_go, pr_go, head_line}。
     ci_role_go は CI の節（p0.local_checks）が任せ先に落ちたまま待っている（test_cmd も宣言も無い。裁定 R52）。pr_go は _pr_go の
     3 値——"pending" の run は、CI の役の後に resume_after_ci が測る"""
     repo = pathlib.Path(repo).resolve()
@@ -441,7 +441,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
                                stop_after_round=1, **open_kwargs(LINE, table))
     except Reject as e:
         raise InputRefused(f"盤面が入力を受けない: {e}") from None
-    keep = {k: inp[k] for k in ("request_file", "test_cmd", "thickness", "gates", "mid_gate", "adapter", "policy_md")}
+    keep = {k: inp[k] for k in ("request_file", "test_cmd", "thickness", "gates", "final_gate", "adapter", "policy_md")}
     work = b.work(START_FILE)
     if work.is_file():
         prev = json.loads(work.read_text(encoding="utf-8"))
@@ -465,7 +465,7 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
     if go["ci_role_go"]:
         head += "・修正前のテスト: 宣言も test_cmd も無い——任せ先の役がリポジトリから走らせ方を探す"
     out = {"ok": True, "base_rev": base_rev, "test_cmd": inp["test_cmd"], "policy_paste": pol["paste"],
-           "policy_path": pol["path"], "mid_gate": inp["mid_gate"], "adapter": inp["adapter"], "thickness": inp["thickness"],
+           "policy_path": pol["path"], "final_gate": inp["final_gate"], "adapter": inp["adapter"], "thickness": inp["thickness"],
            "gates": inp["gates"], **go, "head_line": head}
     _write_json(work, {**doc, **go, "head_line": head})
     return out

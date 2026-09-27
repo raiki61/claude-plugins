@@ -174,8 +174,14 @@ class TestTestsBlock(RepoCase):
         # 木ごと止める殻を pack の中から引くので、パスを持たない bash の節ではなく名前付きの script の節
         self.assertEqual((node.get("script"), node.get("runtime")), ("run_tests", "uv"))
         self.assertNotIn("bash", node)
-        self.assertEqual(node["with"], {"cmd": "$INPUTS.cmd"})
-        self.assertEqual(sorted(node["output_format"]["required"]), ["green", "log", "ok"])
+        self.assertEqual(node["with"], {"cmd": "$INPUTS.cmd", "mode": "$INPUTS.mode"})
+        self.assertEqual(sorted(node["output_format"]["required"]), ["green", "log", "ok"])   # 1 本目の必須の欄のまま
+        # 形 mode は既定 plain（線 C の mutgate の include は with: に mode を書かない）。mid・final の欄は任意で足す（〔線A計〕T17）
+        self.assertEqual(wf["inputs"]["mode"].get("default"), "plain")
+        self.assertNotIn("required", wf["inputs"]["mode"])
+        props = node["output_format"]["properties"]
+        self.assertEqual(props["by"], {"type": "string", "enum": ["mid", "engine", "role", "role_needed"]})
+        self.assertEqual(props["suites"]["type"], "array")
 
     def test_green_command(self):
         out = self.run_tests("python3 -c 'print(\"走った\")' && test -f stats.py")   # cwd は対象リポジトリ
