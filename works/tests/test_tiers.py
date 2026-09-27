@@ -5,6 +5,7 @@
 - 段の読み込み（TierLoader）: 段ごとの discover のテストを合わせると、ちょうど全部の discover のテスト
 - run.sh: 既定は全部を従来の discover で、fast・heavy は tiers.py で回し、unittest の引数（-k など）をそのまま渡す。
   知らない値は 1 行で終了コード 2。全部と heavy は枠の台本（WORKS_TESTSLOT）を TESTSLOT_N=4 で通し、fast は通さない。
+  枠の置き場は台本の約束 TESTSLOT_DIR で、run.sh はそこを試し・祖先を探し・台本へ渡す（試験は一時フォルダに向ける）。
   台本が無い・枠の置き場に書けないときは 1 行出して枠なしで回し、祖先が枠を持っていれば取り直さない。
   uv と枠の台本は偽物に差し替える（本物のテスト一式は回さない）
 """
@@ -26,9 +27,10 @@ echo "uv DWB=${PYTHONDONTWRITEBYTECODE-} cwd=$(pwd) $*" >> "$FAKE_LOG"
 exit "${FAKE_UV_RC:-0}"
 """
 
-# 本物と同じ形（隣の testslots/slot-1 に自分の pid を置いてからコマンドを回す）の偽物
+# 本物と同じ約束（置き場は TESTSLOT_DIR。その下の slot-1 に自分の pid を置いてからコマンドを回す）の偽物。
+# 本物は TESTSLOT_DIR が無ければ自分の既定を使うが、偽物は無ければ止まる（run.sh が渡し忘れたら赤にする）
 FAKE_SLOT = """#!/bin/sh
-d="$(dirname "$0")/testslots/slot-1"
+d="${TESTSLOT_DIR:?}/slot-1"
 mkdir -p "$d" && echo $$ > "$d/pid"
 echo "slot N=${TESTSLOT_N-} $*" >> "$FAKE_LOG"
 "$@"
@@ -113,16 +115,17 @@ class RunShCase(unittest.TestCase):
         self.slot = tmp / "ops" / "testslot.sh"
         self.slot.parent.mkdir()
         self.slot.write_text(FAKE_SLOT)
+        self.slots = tmp / "slots"   # 台本の隣ではない所に置き、run.sh が TESTSLOT_DIR を見なければ外れるようにする
         self.log = tmp / "log"
-        self.env = {k: v for k, v in os.environ.items() if k not in ("WORKS_TESTS", "TESTSLOT_N")}
+        self.env = {k: v for k, v in os.environ.items() if k not in ("WORKS_TESTS", "TESTSLOT_N", "TESTSLOT_DIR")}
         self.env.update(PATH=f"{bin_}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_LOG=str(self.log),
-                        WORKS_TESTSLOT=str(self.slot))
+                        WORKS_TESTSLOT=str(self.slot), TESTSLOT_DIR=str(self.slots))
 
     def run_sh(self, *args, argv0=(), **env):
         e = dict(self.env)
         e.update(env)
         return subprocess.run([*argv0, "sh", str(RUN_SH), *args], env=e, capture_output=True, text=True,
-                              stdin=subprocess.DEVNULL, timeout=60)
+                              stdin=subprocess.DEVNULL)
 
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
@@ -177,7 +180,7 @@ class RunShCase(unittest.TestCase):
 
     @unittest.skipIf(os.geteuid() == 0, "root は書けない置き場を作れない")
     def test_unwritable_slot_dir_runs_without_slot(self):
-        slots = self.slot.parent / "testslots"
+        slots = self.slots
         slots.mkdir()
         slots.chmod(0o500)
         self.addCleanup(slots.chmod, 0o700)
@@ -198,7 +201,8 @@ class RunShCase(unittest.TestCase):
         self.assertEqual(len(calls), 2, calls)
         self.assertTrue(calls[0].startswith("slot N="), calls[0])
         self.assert_uv(calls[1], "tests/tiers.py heavy -k x")
-        self.assertFalse((self.slot.parent / "testslots" / "slot-1").exists())
+        self.assertFalse((self.slots / "slot-1").exists())
+        self.assertEqual([x.name for x in self.slot.parent.iterdir()], ["testslot.sh"])   # 台本のフォルダには何も作らない
 
     def test_script_is_posix_sh(self):
         dash = shutil.which("dash")
