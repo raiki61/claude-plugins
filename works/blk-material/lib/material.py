@@ -70,7 +70,9 @@ NODE_ROLE = {n: r for r, n in ROLES.items()}
 # 役の形（graph の run_by と delegate から。graphloops の engine の起こし方に合わせる）
 #   inspector:    Read・Grep・Glob（道具つきの役の plain）
 #   isolated:     道具なし・本文を貼る（遮断系。engine は stdin で渡す）
-#   investigator: Read・Grep・Glob・Bash・WebSearch・WebFetch。Bash は sandbox の中（網は gh の読みの GitHub だけ）
+#   investigator: Read・Grep・Glob・Bash・WebSearch・WebFetch。Bash は sandbox の中で網を閉じ（allowedDomains []。Archon が捨てる
+#                 strictAllowlist は包みが足す）、読むだけの口 works-gh だけを sandbox の外に出す（graphloops の SANDBOX_BASE の
+#                 excludedCommands gh と同じ考え。書く形は口の一覧と旗 no-post が止める）。issue・検索・Web は WebFetch・WebSearch
 #   skill:        回す側の会話で skill と agent のレンズを起こす（p1.local_review）。investigator の道具に Skill・Agent を足す
 #   delegate:     任せ先（graph の delegate）。engine の DELEGATE_TOOLS と delegate_settings（allowWrite ['/']・網）
 POSTURE = {
@@ -87,15 +89,15 @@ _TOOLS = {
     "delegate": ("Read", "Grep", "Glob", "Bash", "WebSearch", "WebFetch"),
 }
 TOOLS = {r: _TOOLS[p] for r, p in POSTURE.items()}
-_GITHUB = ["github.com", "api.github.com"]
+# 網を閉じた Bash の役の sandbox。GitHub の宛先を許すと、sandbox の中のコードが読むだけの口を迂回して書ける（graphloops の role_run の注記）
+_CLOSED = {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
+           "excludedCommands": ["works-gh:*"], "network": {"allowedDomains": []}}
 # YAML の sandbox（tests/test_blk_material.py が YAML と突き合わせる）
 SANDBOX = {
     "inspector": {"enabled": True, "allowUnsandboxedCommands": False},
     "isolated": {"enabled": True, "allowUnsandboxedCommands": False},
-    "investigator": {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
-                     "enableWeakerNetworkIsolation": True, "network": {"allowedDomains": _GITHUB}},
-    "skill": {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
-              "enableWeakerNetworkIsolation": True, "network": {"allowedDomains": _GITHUB}},
+    "investigator": _CLOSED,
+    "skill": _CLOSED,
     "delegate": {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
                  "enableWeakerNetworkIsolation": True, "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
                  "filesystem": {"allowWrite": ["/"]}},

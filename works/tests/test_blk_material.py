@@ -52,6 +52,8 @@ PROPOSED_ROWS = {nid: {"by": "role", "where": WHERE} for nid in (
     "p1.procedure_trace", "p1.gate_efficacy", "p1.test_double_fidelity", "p1.main_path_observation", "p1.provenance")}
 LENSES = [r for r, n in material.ROLES.items() if n.startswith("p1.")]
 YAML_PATH = BLK / "blk-material.yaml"
+# 網を閉じ、読むだけの口 works-gh だけを sandbox の外に出す役（graphloops の investigator と、回す側の会話で走る局所レビュー）
+EXCLUDED_ROLES = {"prior-decisions", "external-standards", "procedure-trace", "local-review"}
 
 
 def proposed_table() -> NodeTable:
@@ -339,6 +341,78 @@ class ShapeCase(unittest.TestCase):
                 else:
                     self.assertIn(f"${role}-prep.output.prompt_file", text)
                 self.assertNotIn("$LOOP_PREV", text)   # 拒否の理由は prep が指示書の頭に置く（R44）
+
+    def test_no_role_opens_a_host_network(self):
+        """網: 任せ先（graphloops の任せ先と同じ `*`）のほかは、どの役もどの宛先にも網を開けない（GitHub も）。
+        Bash を持つ役は網を閉じ、sandbox の外に出すのは読むだけの口 works-gh だけ（graphloops の investigator の SANDBOX_BASE と
+        同じ考え。Archon が捨てる strictAllowlist は包みが足す——test_adapter の NetworkCase）"""
+        doc = yaml.safe_load(YAML_PATH.read_text(encoding="utf-8"))
+        ais = {n["id"]: n for lp in doc["nodes"] if "loop_group" in lp for n in lp["loop_group"]["nodes"] if "command" in n}
+        self.assertEqual(set(ais), set(material.ROLES))
+        for role, ai in ais.items():
+            with self.subTest(role):
+                sb = ai["sandbox"]
+                self.assertNotIn("github", json.dumps(sb))
+                net = sb.get("network")
+                if material.POSTURE[role] == "delegate":
+                    self.assertEqual(net["allowedDomains"], ["*"])
+                    continue
+                self.assertNotIn("enableWeakerNetworkIsolation", sb)
+                if "Bash" in material.TOOLS[role]:
+                    self.assertEqual(net, {"allowedDomains": []})
+                    self.assertEqual(sb["excludedCommands"], ["works-gh:*"])
+                else:
+                    self.assertIsNone(net)
+                    self.assertNotIn("excludedCommands", sb)
+
+    def test_works_gh_exclusion_is_gated_by_no_post(self):
+        """sandbox の外に出る works-gh は、読む形だけを通す口のまま: 除外を持つ役は印に旗 no-post（包みが口を PATH の頭に置き、
+        本物の gh を permissions.deny で拒む）を持ち、除外は口の名だけ（gh は外に出さない）。口は書く形を本物の gh に渡さない。
+        包みはこの役の sandbox の網を strictAllowlist で閉じる"""
+        sys.path.insert(0, str(CORE))
+        import adapter
+        bindir = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, str(bindir), True)
+        gh, log = bindir / "gh", bindir / "gh.log"
+        gh.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$FAKE_GH_LOG\"\n")
+        gh.chmod(0o755)
+        env = dict(os.environ, WORKS_REAL_GH=str(gh), FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
+        env.pop("WORKS_GH_ACTIVE", None)
+        shim = adapter.NO_POST_BIN / "works-gh"
+        self.assertEqual({r for r in material.ROLES if "excludedCommands" in material.SANDBOX[material.POSTURE[r]]},
+                         EXCLUDED_ROLES)
+        for role in material.ROLES:
+            sb = material.SANDBOX[material.POSTURE[role]]
+            if "excludedCommands" not in sb:
+                continue
+            with self.subTest(role):
+                self.assertEqual(sb["excludedCommands"], ["works-gh:*"])
+                self.assertIn("no-post", material.FLAGS[role])
+                argv = ["--json-schema", json.dumps(material.output_format(role)), "--settings", json.dumps({"sandbox": sb})]
+                out, strict = adapter.strict_network(argv)
+                self.assertIs(strict, True)
+                self.assertEqual(json.loads(out[-1])["sandbox"]["network"], {"allowedDomains": [], "strictAllowlist": True})
+        for args in (["pr", "view", "12", "-R", "o/r"], ["repo", "view", "o/r"]):
+            r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        before = log.read_text()
+        for args in (["issue", "create", "-R", "o/r", "-t", "x"], ["api", "repos/o/r/issues", "-X", "POST"],
+                     ["pr", "comment", "12", "-R", "o/r", "-b", "x"], ["pr", "merge", "12", "-R", "o/r"]):
+            with self.subTest(args=args):
+                r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True)
+                self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertEqual(log.read_text(), before)   # 書く形は本物の gh を起こさない
+
+    def test_command_roles_use_bare_works_gh_and_web_tools(self):
+        """網を閉じた Bash の役の指示: gh は素の名 works-gh で 1 つのコマンドとして打たせ（除外に当たる形。変数・つなぎは sandbox の
+        中で走り網に出られない）、issue・検索・Web は WebFetch・WebSearch で読ませる"""
+        for role in EXCLUDED_ROLES:
+            with self.subTest(role):
+                text = (BLK / "commands" / f"{role}.md").read_text(encoding="utf-8")
+                self.assertIn("`works-gh`", text)
+                self.assertIn("WebFetch・WebSearch で読め", text)
+                self.assertNotIn("$WORKS_GH", text)
+                self.assertNotIn("網は GitHub", text)
 
     def test_scripts_missing_env_exit_2(self):
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}

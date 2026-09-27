@@ -13,7 +13,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     包みが守るので、output_format の印に旗 no-tree-write を持つ
   - blk-material/blk-material.yaml の Bash を持つ役（素材集め。本線 R3）: graphloops の起こし方と同じ道具（investigator・任せ先は
     Read・Grep・Glob・Bash・WebSearch・WebFetch、局所レビューはそれに Skill・Agent）。任せ先（graph の delegate を持つ 4 節）の
-    sandbox は DELEGATE_SANDBOX、investigator と局所レビューは網を GitHub（gh の読み）だけに開く MATERIAL_SANDBOX。どれも印に旗
+    sandbox は DELEGATE_SANDBOX、investigator と局所レビューは網を閉じて読むだけの口 works-gh だけを sandbox の外に出す
+    MATERIAL_SANDBOX。どれも印に旗
     no-tree-write（本物の作業ツリーは包みが守る）。局所レビューは利用者の設定のプラグイン（pr-review-toolkit の agent のレンズ）を
     起こすので settingSources [user]（graphloops はこの節を回す側の会話で走らせ、利用者の設定を読む）
 - AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
@@ -49,10 +50,12 @@ DELEGATE_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfU
                     "filesystem": {"allowWrite": ["/"]}}
 # 決まりの外れの表: (フォルダ, ファイル, 節) → tools（持ってよい道具。None は道具の決まりの外）・sandbox（その形そのもの。
 # 無ければ狭い形）・flag（印に要る旗）。外れを足す時は行を 1 つ足す（ほかの行と決まりの式は変えない）
-# 素材集めの investigator と局所レビューの sandbox（Bash の網は gh の読みの GitHub だけ。graphloops の investigator は網を閉じ gh を
-# sandbox の外で許す形——Archon は bypassPermissions で起こすので、gh を外に出すと書く gh まで通る。書く gh は包みの旗 no-post が止める）
+# 素材集めの investigator と局所レビューの sandbox（graphloops の investigator の SANDBOX_BASE と同じ考え）: 網は閉じ（allowedDomains []。
+# Archon が捨てる strictAllowlist は包みが足す）、読むだけの口 works-gh だけを sandbox の外で走らせる（excludedCommands。書く gh は
+# 口の許す物の一覧と包みの旗 no-post の permissions.deny が止める）。GitHub の宛先を許すと、sandbox の中のコードが読むだけの口を
+# 迂回して書ける（graphloops の role_run の注記）
 MATERIAL_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
-                    "enableWeakerNetworkIsolation": True, "network": {"allowedDomains": ["github.com", "api.github.com"]}}
+                    "excludedCommands": ["works-gh:*"], "network": {"allowedDomains": []}}
 _MAT_TOOLS = READ_ONLY_TOOLS | {"Bash", "WebSearch", "WebFetch"}
 _MATERIAL = {
     **{n: {"tools": _MAT_TOOLS, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"}

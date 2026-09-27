@@ -91,7 +91,7 @@ nodes:
         provenance:
           type: boolean
 
-  # p0.prior_decisions（investigator）: Bash は sandbox の中（網は GitHub だけ）。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("prior-decisions")（写しの schema に印）を貼った物
+  # p0.prior_decisions（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("prior-decisions")（写しの schema に印）を貼った物
   - id: prior-decisions-loop
     depends_on:
     - mat-route
@@ -152,11 +152,10 @@ nodes:
           enabled: true
           allowUnsandboxedCommands: false
           failIfUnavailable: true
-          enableWeakerNetworkIsolation: true
+          excludedCommands:
+          - 'works-gh:*'
           network:
-            allowedDomains:
-            - github.com
-            - api.github.com
+            allowedDomains: []
         idle_timeout: 1728000000
         output_format:
           description: 'works-node: prior-decisions no-post no-tree-write'
@@ -395,7 +394,7 @@ nodes:
             status:
               type: string
 
-  # p1.local_review（skill）: 回す側の会話の skill・agent のレンズを起こす。利用者の設定のプラグイン（pr-review-toolkit）を読むので settingSources に user。output_format は material.output_format("local-review")（写しの schema に印）を貼った物
+  # p1.local_review（skill）: 回す側の会話の skill・agent のレンズを起こす。Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。利用者の設定のプラグイン（pr-review-toolkit）を読むので settingSources に user。output_format は material.output_format("local-review")（写しの schema に印）を貼った物
   - id: local-review-loop
     depends_on:
     - mat-route
@@ -463,11 +462,10 @@ nodes:
           enabled: true
           allowUnsandboxedCommands: false
           failIfUnavailable: true
-          enableWeakerNetworkIsolation: true
+          excludedCommands:
+          - 'works-gh:*'
           network:
-            allowedDomains:
-            - github.com
-            - api.github.com
+            allowedDomains: []
         idle_timeout: 1728000000
         output_format:
           description: 'works-node: local-review no-post no-tree-write'
@@ -911,7 +909,7 @@ nodes:
             status:
               type: string
 
-  # p1.external_standards（investigator）: Bash は sandbox の中（網は GitHub だけ）。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("external-standards")（写しの schema に印）を貼った物
+  # p1.external_standards（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("external-standards")（写しの schema に印）を貼った物
   - id: external-standards-loop
     depends_on:
     - mat-route
@@ -972,11 +970,10 @@ nodes:
           enabled: true
           allowUnsandboxedCommands: false
           failIfUnavailable: true
-          enableWeakerNetworkIsolation: true
+          excludedCommands:
+          - 'works-gh:*'
           network:
-            allowedDomains:
-            - github.com
-            - api.github.com
+            allowedDomains: []
         idle_timeout: 1728000000
         output_format:
           description: 'works-node: external-standards no-post no-tree-write'
@@ -1112,7 +1109,7 @@ nodes:
             status:
               type: string
 
-  # p1.procedure_trace（investigator）: Bash は sandbox の中（網は GitHub だけ）。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("procedure-trace")（写しの schema に印）を貼った物
+  # p1.procedure_trace（investigator）: Bash は sandbox の中で網を閉じ（包みが strictAllowlist を足す）、読むだけの口 works-gh だけを外に出す。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("procedure-trace")（写しの schema に印）を貼った物
   - id: procedure-trace-loop
     depends_on:
     - mat-route
@@ -1173,11 +1170,10 @@ nodes:
           enabled: true
           allowUnsandboxedCommands: false
           failIfUnavailable: true
-          enableWeakerNetworkIsolation: true
+          excludedCommands:
+          - 'works-gh:*'
           network:
-            allowedDomains:
-            - github.com
-            - api.github.com
+            allowedDomains: []
         idle_timeout: 1728000000
         output_format:
           description: 'works-node: procedure-trace no-post no-tree-write'
