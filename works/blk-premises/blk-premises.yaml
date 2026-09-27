@@ -1,0 +1,104 @@
+name: blk-premises
+description: |
+  前提の実測のブロック（graphloops の節 p0.premises。判定の前に置く）。人の修正依頼（findings の JSON の配列）に書かれた
+  数値・規模・件数・在る／無いの主張（各行の measured を含む）を、実測役が run の作業ツリーでコマンドを走らせて測り、
+  制約の一覧 {constraints: [{text, measured_how, kind: 実測|仮説, measured_output}]} で返す。受け付けは写した
+  graphloops の規則（measured_needs_output: kind=実測 は実行したコマンドと出力が要る）に通るまで同じ会話で出し直させる
+  （上限 3 回）。ラインから include で使う。出口は盤面の premises.json のパスと、判定役に貼る制約の要約。
+
+# 線 A がラインに入れる時の約束（配線は線 A の Task 17。この枝ではラインに入れない）:
+# - include の id は premising（ブロックの中の節の id と重ねない。Ruling R17）。判定（judging）の前に置き、
+#   judging は depends_on: [premising] にする。既定の trigger_rule（all_success）なので、このブロックが落ちれば
+#   判定役は起きない。落ちるのは: 依頼が読めない・規則が拒む（intake）／受け付けが 3 回とも拒む（collect が
+#   premises.json を見つけられない）
+# - 判定役には $premising.output.constraints_summary（1 行 1 制約の文）を貼り、全文は $premising.output.constraints_file
+#   （盤面の premises.json）を Read させる。kind=仮説 の制約は所与として使わない、と判定の指示書に書く
+# - 渡す with: は request（ラインの $INPUTS.request）と base_rev（$base.output.rev）。判定のブロックと同じ依頼のファイル
+# - 依頼を盤面の request.json に積むのは判定のブロックの intake だけ（このブロックの intake は型を確かめるだけで積まない）
+
+inputs:
+  request:
+    required: true
+    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版。受け付けは版として引けるかだけを見る。空なら受け付けの時の HEAD（Ruling R2）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 依頼の型を graphloops の add と同じ規則で確かめ（盤面には積まない）、実測役を起こす前の作業ツリーの写しを盤面の
+  # premises-snapshot.json に置く。読めない・JSON でない・規則が拒むなら終了コード 1 で run を止める（AI を起こす前に止める）
+  - id: intake
+    script: intake
+    runtime: uv
+    timeout: 1728000000
+    with:
+      request: $INPUTS.request
+
+  # 実測役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
+  - id: premises-loop
+    depends_on: [intake]
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $premises-accept.output.ok = true
+      nodes:
+        - id: premises
+          command: premises
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（JSON だけを返す約束。graphloops の --setting-sources ""）
+          # 測るためにコマンドを走らせる（graphloops では writer が回す節）。Bash はサンドボックスの中だけで、書く道具
+          # （Edit・Write）は持たない。作業ツリーを変えれば受け付けが写しと比べて拒む
+          allowed_tools: [Read, Grep, Glob, Bash]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # role_schema("p0.premises") を 1 度出して貼った物（tests/test_blk_premises.py が一致を見る）
+          output_format:
+            type: object
+            required: [constraints]
+            additionalProperties: false
+            properties:
+              constraints:
+                type: array
+                items:
+                  type: object
+                  required: [text, measured_how, kind]
+                  additionalProperties: false
+                  properties:
+                    text: {type: string}
+                    measured_how: {type: string}
+                    kind:
+                      type: string
+                      enum: [実測, 仮説]
+                    measured_output: {type: string, minLength: 1}
+        - id: premises-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [premises]
+          with:
+            reply: {from: "$premises.output"}
+            base_rev: $INPUTS.base_rev
+          output_format:
+            type: object
+            properties:
+              ok: {type: boolean}
+              reason: {type: string}
+              constraints_file: {type: string}
+            required: [ok, reason, constraints_file]
+
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の premises.json から出口を組む。
+  # 受け付けを通った返答が無ければ終了コード 1（run を止め、判定役を起こさない）
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [premises-loop]
+    output_format:
+      type: object
+      properties:
+        ok: {type: boolean}
+        constraints_file: {type: string}
+        constraints_summary: {type: string}
+      required: [ok, constraints_file, constraints_summary]

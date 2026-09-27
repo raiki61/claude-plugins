@@ -50,6 +50,7 @@ MOD = {
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
     "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None),
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
+    "premises": (4, "blk-premises"),
 }
 # 共有の模块の中に居る上の層の名前（割る前の当座。V2）: 模块 → (層, 持ち主, 名前の組)
 PARTS = {
@@ -115,6 +116,7 @@ KNOWN = {
     "up entry -> prcheck": "V11",
     "cycle entry prcheck": "V11",
     "private purpose -> accept": "V12",
+    "private premises -> accept": "V12",   # wip/works-premises の merge で入った同じ形（accept の _guard・_in_repo・_rev・_write_board）
 }
 
 

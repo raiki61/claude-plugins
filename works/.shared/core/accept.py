@@ -2,7 +2,7 @@
 
 Archon を知らない関数だけを出す。ブロックの script の節がこれを呼び、結果をそのまま出口にする。
 - check_request: 依頼（findings の配列）を rules の add に通し、盤面の request.json に積む
-- check_judge:   判定役（p2.diagnose）の返答。作業ツリー → 型 → rules の judge_output。通れば盤面に judgment.json
+- check_judge:   判定役（p2.diagnose）の返答。作業ツリーと HEAD（tree_unchanged）→ 型 → rules の judge_output。通れば盤面に judgment.json
                  （check_fix と同じく、番号で指せという案内は名前を写せに戻す。_name_hints）
 - check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units（番号で指せという案内は key を写せに戻す。_name_hints）
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
@@ -11,9 +11,10 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - snapshot_tree: 作業ツリーの写し（git が無視するファイルも入れる。依頼の受け付けと差分を切る節が盤面に置き、
                  check_judge・check_delta が突き合わせる）
 - tree_state・tree_change・tree_moved: 読むだけの役（blk-pr・blk-ci・entry.take・rejudge.take）を起こす前後の作業ツリーの姿
-                 （snapshot_tree に HEAD・枝を足した物）と、その違いの文（R47。check_judge・check_delta の突き合わせも tree_change で言う）
+                 （HEAD を持つ snapshot_tree に枝を足した物）と、その違いの文（R47。check_judge・check_delta の突き合わせも tree_change で言う）
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
-- cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置く（blk-delta の節 cut）
+- cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置き、前の周の審査の返答を消す（blk-delta の節 cut）
+- tree_unchanged: 読むだけの役（判定役・実測役）が作業ツリーと HEAD を変えていないかの見張り（check_judge と premises が呼ぶ）
 
 check_* は全部 dict を返し、例外で拒まない。拒否は {"ok": False, "reason": str}。
 git は全部 repo を cwd にして呼ぶ。HEAD をその場で読むのは base_rev が空のときだけ（空なら repo の HEAD を版にする）。
@@ -49,7 +50,7 @@ GRAPH_PATH = _GL / "graphs" / "review-loop.json"
 VALIDATOR = CORE / "scripts" / "review-record.py"
 REQUEST_FILE = "request.json"        # 依頼のバッチの一覧（rules の REQUEST_SCHEMA の形）
 JUDGMENT_FILE = "judgment.json"      # 受け付けた判定の返答（judge_output が正規化した後の姿）
-SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "ignored": [str], "diff_sha256": str}
+SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "ignored": [str], "diff_sha256": str, "head": str}
 DIFF_FILE = "fix.diff"                   # 修正の差分（cut_delta が書き、審査役が読む）
 DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
 JUDGE_SNAPSHOT_FILE = "judge-snapshot.json"   # 判定役を起こす前（依頼の受け付けの時）の作業ツリー。形は SNAPSHOT_FILE と同じ
@@ -77,10 +78,11 @@ def _name_hints(e: Reject) -> Reject:
     return Reject(msg)
 
 
-SNAPSHOT_KEYS = ("porcelain", "ignored", "diff_sha256")
+SNAPSHOT_KEYS = ("porcelain", "ignored", "diff_sha256", "head")
 SNAPSHOT_SCHEMA = {"type": "object", "required": list(SNAPSHOT_KEYS), "properties": {
     "porcelain": {"type": "string"}, "ignored": {"type": "array", "items": {"type": "string"}},
-    "diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+    "diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "head": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"}}}
 
 
 # ---------------------------------------------------------------- graph と rules
@@ -272,33 +274,48 @@ def _ignored_entries(repo) -> list:
     return sorted(out)
 
 
-def snapshot_tree(repo: pathlib.Path) -> dict:
-    """作業ツリーの写し {"porcelain": str, "ignored": [str], "diff_sha256": str}。依頼の受け付けが盤面の judge-snapshot.json に、
+def snapshot_tree(repo: pathlib.Path, *, skip_bytecode: bool = False) -> dict:
+    """作業ツリーの写し {"porcelain": str, "ignored": [str], "diff_sha256": str, "head": str}。依頼の受け付けが盤面の judge-snapshot.json に、
     差分を切る節が delta-snapshot.json に置き、読むだけの役（判定・審査）の受け付けが今の写しと突き合わせる。
     porcelain は git status --porcelain（未追跡は 1 本ずつ）。ignored は git が無視するパス（_ignored_entries。
     差分には載らないが、後の節——テスト——の緑赤を左右する物も在るので、読むだけの役が足しても見逃さない）。
     diff_sha256 は HEAD からの差分（--binary）と、未追跡のファイルの名前と中身・無視されるパスの名前と stat の印
     （_ignored_digests。中身は読まない）を続けた sha256——名前が同じまま中身だけ変わっても違う値になる。フォルダ（入れ子の
-    git リポジトリ・無視されるフォルダ）は中を辿って続ける（_entry_digest）。git が効かなければ Reject を投げる"""
+    git リポジトリ・無視されるフォルダ）は中を辿って続ける（_entry_digest）。
+    作業ツリーの姿は『基準のコミット＋そこからの差分』の組なので、head（git rev-parse HEAD）も持つ——HEAD 相対の
+    porcelain と diff_sha256 だけでは、役が作った物を commit すると両方が元の値に戻って見張りを素通りする。
+    skip_bytecode（測るために Bash を持つ実測役の見張り）は、どの欄からもバイトコード（_is_bytecode）を除く——
+    テストを走らせただけで出来る物は変化に数えない。git が効かなければ Reject を投げる"""
     repo = pathlib.Path(repo)
+    keep = (lambda name: not _is_bytecode(name)) if skip_bytecode else (lambda name: True)
+    head = _git(repo, "rev-parse", "--verify", "HEAD").strip()
     porcelain = _git(repo, "status", "--porcelain", "--untracked-files=all")
-    h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", binary=True))
+    if skip_bytecode:
+        porcelain = "".join(f"{ln}\n" for ln in porcelain.splitlines() if keep(_porcelain_path(ln)))
+    spec = ("--", *_NO_BYTECODE) if skip_bytecode else ()
+    h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", *spec, binary=True))
     for name in sorted(n for n in _git(repo, "ls-files", "--others", "--exclude-standard", "-z", binary=True).split(b"\0") if n):
+        if not keep(os.fsdecode(name)):
+            continue
         p = repo / os.fsdecode(name).rstrip("/")
         h.update(b"\0untracked\0" + name + b"\0" + _entry_digest(p))
-    ignored = _ignored_entries(repo)
+    ignored = [n for n in _ignored_entries(repo) if keep(n)]
     for name, digest in zip(ignored, _ignored_digests(repo, ignored)):
         h.update(b"\0ignored\0" + os.fsencode(name) + b"\0" + digest)
-    return {"porcelain": porcelain, "ignored": ignored, "diff_sha256": h.hexdigest()}
+    return {"porcelain": porcelain, "ignored": ignored, "diff_sha256": h.hexdigest(), "head": head}
 
 
-def _assert_same_tree(repo, snap, name, since, role):
+def _assert_same_tree(repo, snap, name, since, rule, redo="", skip_bytecode=False):
     """盤面の写し snap（name から読んだ snapshot_tree の形）と今の作業ツリーが同じでなければ Reject。since は『〜から』の句、
-    role は読むだけの役。違いの文は共通の tree_change（SNAPSHOT_KEYS の欄だけ。R47）"""
-    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {name} ")
-    moved = tree_change(snap, snapshot_tree(repo), SNAPSHOT_KEYS)
+    rule は拒否の文に入れる役の約束、redo は古い形の写しを取り直す所。違いの文は共通の tree_change（SNAPSHOT_KEYS の欄だけ。R47）。
+    HEAD が動いた（commit・reset・checkout）ときは、その 1 行を頭に置く"""
+    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {name}（古い形なら{redo}から写しを取り直せ）" if redo else f"盤面の {name} ")
+    now = snapshot_tree(repo, skip_bytecode=skip_bytecode)
+    moved = tree_change(snap, now, SNAPSHOT_KEYS)
+    if snap["head"] != now["head"]:
+        moved.insert(0, f"HEAD が動いた（写した時 {snap['head'][:12]} / 今 {now['head'][:12]}——commit・reset・checkout をした）")
     if moved:
-        raise Reject(f"{since}から作業ツリーが変わった——{role}は読むだけの役で、作業ツリーを変えてはいけない（{'・'.join(moved)}）")
+        raise Reject(f"{since}から作業ツリーが変わった——{rule}（{'・'.join(moved)}）")
 
 
 TREE_KEYS = ("porcelain", "diff_sha256", "ignored", "head", "ref")
@@ -356,9 +373,18 @@ def tree_moved(before: dict, repo: pathlib.Path) -> list:
     return tree_change(before, now)
 
 
+def _porcelain_path(line: str) -> str:
+    """git status --porcelain の 1 行のパス（改名は後ろの名。引用符は外す）"""
+    path = line[3:].split(" -> ")[-1]
+    return path[1:-1] if len(path) >= 2 and path[0] == path[-1] == '"' else path
+
+
 def _names(repo, cmd, *args) -> list:
     """git <cmd> -z <args> が出すパスの一覧（NUL 区切り。日本語などの名前も引用符や \\ の書き換え無しでそのまま）"""
     return [os.fsdecode(n) for n in _git(repo, cmd, "-z", *args, binary=True).split(b"\0") if n]
+
+
+_NO_BYTECODE = (":(top)", ":(top,exclude,glob)**/*.pyc", ":(top,exclude,glob)**/__pycache__/**")   # git の pathspec で _is_bytecode と同じ物を除く
 
 
 def _is_bytecode(name: str) -> bool:
@@ -386,7 +412,7 @@ def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
     追跡しているファイルは git diff --binary <rev>、未追跡のファイルは 1 本ずつ git diff --no-index /dev/null <名>
     （どちらも core.quotePath=false で、日本語の名前を \\346… に書き換えずに載せる）
     （未追跡のフォルダ＝入れ子の git リポジトリは差分に載せず、files に `sub/` の 1 本で出す）。
-    盤面に fix.diff と、切った時の作業ツリーの写し delta-snapshot.json（Ruling R3）を置く。
+    盤面に fix.diff と、切った時の作業ツリーの写し delta-snapshot.json（Ruling R3）を置き、前の周の delta-review.json を消す。
     {"ok": True, "files", "diff_file"} を返す。版が引けない・git が効かないときは Reject を投げる（拒否を dict で返さない）"""
     repo = pathlib.Path(repo)
     rev = _rev(repo, base_rev)
@@ -408,6 +434,7 @@ def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
         diff += r.stdout
     board = pathlib.Path(board)
     board.mkdir(parents=True, exist_ok=True)
+    (board / DELTA_REVIEW_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
     path = board / DIFF_FILE
     path.write_bytes(diff)
     _write_board(board, SNAPSHOT_FILE, snapshot_tree(repo))
@@ -431,23 +458,31 @@ def check_request(items: list, board: pathlib.Path, reason: str) -> dict:
     return _guard(run)
 
 
-def _judge_tree_unchanged(repo, board):
-    """判定役が作業ツリーを変えていないか（Ruling R3・R14）。盤面に judge-snapshot.json（依頼の受け付けの時の写し）が
-    在れば、今の作業ツリーがその写しと同じかを見る（依頼のファイルが対象の中で未追跡・変更中でも通る。git が無視する
-    ファイルの増減・書き換えも見る）。無ければ作業ツリーが綺麗（git status --porcelain --ignored が空。無視される
-    ファイルも無い）であることを求める。違えば Reject"""
-    snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
+def tree_unchanged(repo, board, snapshot_file, rev, rule, redo, dirty_hint="", changed_hint="", *, skip_bytecode=False):
+    """読むだけの役（判定役・実測役）が作業ツリーと履歴を変えていないか（Ruling R3・R14）。見張りはこの 1 つで、
+    check_judge と premises.check_premises が同じ物を呼ぶ。盤面に snapshot_file（役を起こす前の snapshot_tree）が在れば、
+    今の作業ツリーがその写しと同じか（HEAD・git が無視するパスも含めて。_assert_same_tree）を見る（依頼のファイルが対象の
+    中で未追跡・変更中でも通る）。無ければ作業ツリーが綺麗（git status --porcelain --ignored が空。無視されるファイルも無い）で
+    HEAD が数える版 rev のままであることを求める。skip_bytecode はどちらの分岐でもバイトコードを数えない（測るために
+    テストを走らせる実測役。写しも同じ skip_bytecode で取る）。違えば Reject。
+    rule は拒否の文に入れる役の約束、redo は古い写しを取り直す所、dirty_hint・changed_hint は拒否の文に足す案内"""
+    snap = _read_board(board, snapshot_file)
     if snap is None:
-        dirty = _git(repo, "status", "--porcelain", "--ignored").splitlines()
+        dirty = [ln for ln in _git(repo, "status", "--porcelain", "--ignored").splitlines()
+                 if not (skip_bytecode and _is_bytecode(_porcelain_path(ln)))]
         if dirty:
-            raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
+            raise Reject(f"作業ツリーに変更が在る——{rule}{dirty_hint}"
                          f"（git status --porcelain --ignored: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
+        head = _git(repo, "rev-parse", "--verify", "HEAD").strip()
+        if head != rev:
+            raise Reject(f"HEAD が数える版から動いた（版 {rev[:12]} / 今 {head[:12]}）——{rule}。commit・reset・checkout で"
+                         "履歴を動かしてはいけない")
         return
-    _assert_same_tree(repo, snap, JUDGE_SNAPSHOT_FILE, "依頼を受け付けた後", "判定役")
+    _assert_same_tree(repo, snap, snapshot_file, "依頼を受け付けた後", f"{rule}{changed_hint}", redo, skip_bytecode)
 
 
 def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
-    """判定役の返答を受け付ける。作業ツリーが変わっていれば拒む（_judge_tree_unchanged。判定役は読むだけ）→ 型（graph の p2.diagnose の
+    """判定役の返答を受け付ける。作業ツリーか HEAD が変わっていれば拒む（tree_unchanged。判定役は読むだけ）→ 型（graph の p2.diagnose の
     schema）→ rules の judge_output（記録の process.request_findings に盤面の request.json を入れて渡す）。
     通れば盤面の judgment.json に書く。{"ok", "reason", "open_units", "judgment_file"}"""
     def run():
@@ -455,7 +490,7 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
         pathlib.Path(board).mkdir(parents=True, exist_ok=True)
         with _in_repo(repo_p):
             rev = _rev(repo_p, base_rev)
-            _judge_tree_unchanged(repo_p, board)
+            tree_unchanged(repo_p, board, JUDGE_SNAPSHOT_FILE, rev, "判定役は読むだけの役で、作業ツリーを変えてはいけない", "依頼の受け付け")
             _type_errors(reply, role_schema("p2.diagnose"), "判定の返答")
             rules = _rules()
             rec = rules.init_record(None, None)
@@ -510,7 +545,7 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             rev = _rev(repo_p, base_rev)
             snap = _read_board(board, SNAPSHOT_FILE)
             if snap is not None:
-                _assert_same_tree(repo_p, snap, SNAPSHOT_FILE, "差分を切った後", "審査役")
+                _assert_same_tree(repo_p, snap, SNAPSHOT_FILE, "差分を切った後", "審査役は読むだけの役で、作業ツリーを変えてはいけない")
             _type_errors(reply, role_schema("p3.delta_review"), "差分の審査の返答")
             rules = _rules()
             st = rules.DELTA_PASSES[1].state_key

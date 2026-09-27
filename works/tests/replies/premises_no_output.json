@@ -1,0 +1,9 @@
+{
+ "constraints": [
+  {
+   "text": "CI の定義はリポジトリに無い",
+   "measured_how": "覚えている構成から",
+   "kind": "実測"
+  }
+ ]
+}
