@@ -6,7 +6,9 @@
 - none:      手 32 の後（異議の無い修正を受けた盤面）から settle する（p2.rejudge・p2.rejudge_third は na）
 - exhausted: 手 33（台本が loop.py patch で異議を置いた手）の後に、往復の数 loop.rejudge_rounds を今の周の 3 に、record.process.rejudge に 3 行を置いて settle する
   （0.21.0 の規則でも第三の目が出る盤面。規則が出す時だけ第三の目の段が回ることを見る）
-表は NodeTable.everything（再審の 2 節は role）。1 つの盤面を作るのに 5〜10 秒かかる（p3.fix の受け付けと settle の機械の節）ので、
+表は 1 本目のラインの本物の表（darkfactory/nodes.json。再審の 2 節は role・where blk-rejudge）。作った盤面の state.works に
+line・table_sha を置くので、rejudge は本物の entry.open_board で開く（試験の差し替えの口は無い）。修正役の返答は、盤面の決まり
+（役の返答の前に mark_launched(節, 試行)）どおり、起こした印を置いてから受ける。1 つの盤面を作るのに 5〜10 秒かかる（p3.fix の受け付けと settle の機械の節）ので、
 種類ごとに 1 度だけ作って置き場ごと控え、試験ごとに同じパスへ戻す（盤面は絶対パスを持つので別の置き場へは写せない）。
 
 包みの家（WORKS_ADAPTER_HOME）は試験ごとの一時の置き場。put_session が判定役の会話の id と起動の行を置く。
@@ -29,10 +31,10 @@ for _p in (str(HERE), str(CORE)):
         sys.path.insert(0, _p)
 
 import boardreplay as br  # noqa: E402
-from board import GRAPH_SHA, DiskBoard, NodeTable, graph_expanded  # noqa: E402
+import entry  # noqa: E402
 import rejudge  # noqa: E402
 
-TABLE = NodeTable.everything(graph_expanded(), GRAPH_SHA)
+TABLE = entry.load_table("darkfactory")
 SCENARIO, RUN, FIX_SEQ, PATCH_SEQ = "test_rejudge_path", "1", 32, 33
 UNIT_A = "src/a.py:f — 上限が効かない経路がある"
 UNIT_B = "src/b.py:g — 定数の重複"
@@ -40,11 +42,6 @@ UNIT_B = "src/b.py:g — 定数の重複"
 
 def load(name):
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
-
-
-def opener(d, *, repo=None, allow_halted=False):
-    """試験の盤面を開く口（rejudge.OPENER に差す）。盤面は state.works.line を持たないので表は everything"""
-    return DiskBoard.open(d, table=TABLE, repo=repo, allow_halted=allow_halted)
 
 
 def _run_steps():
@@ -56,6 +53,7 @@ def _build(kind, into):
     if kind == "objection":
         board_dir, repo = br.restore(rs, FIX_SEQ, "before", into)
         b = br.board_from_memory(br.memory_at(rs, FIX_SEQ, "before"), board_dir, TABLE)
+        b.mark_launched("p3.fix", b.rd["instances"]["p3.fix"]["attempts"])
         b.done("p3.fix", load("fix2_rejudge_requested"))
     elif kind == "none":
         board_dir, repo = br.restore(rs, FIX_SEQ, "after", into)
@@ -69,6 +67,7 @@ def _build(kind, into):
         br.board_from_memory(mem, board_dir, TABLE).settle()
     else:
         raise ValueError(kind)
+    patch_state(board_dir, lambda st: st["works"].update(line=TABLE.line, table_sha=TABLE.sha()))
     return board_dir, repo
 
 

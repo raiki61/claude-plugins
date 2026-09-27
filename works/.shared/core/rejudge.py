@@ -17,9 +17,7 @@
 - collect:        出口。回した後も再審の節が ready のまま（輪が 3 回とも拒まれた・engine の順とずれた）なら盤面を止める（by works:rejudge）
 - actual_costs:   継いだ起動の表示の費用から、同じ会話のそれまでの実額を引く（再開した会話の total_cost_usd は累積）
 
-まだこの枝に無い部品の代わり（入った時に差し替える。報告の「合わせる時に替える物」）:
-- 盤面を開く口: entry.open_board（Task 3）が在ればそれ、無ければ _open_shim（同じ約束の小さな写し。board_hook は読まない）
-- 印: node_marker.mark・strip（Task 2）が在ればそれ、無ければ _mark・_strip（同じ形の文字列）
+盤面は entry.open_board（Task 3）で開き、印は node_marker（Task 2）で付ける。まだこの枝に無い部品の代わり（入った時に差し替える）:
 - 包みの置き場: adapter.session_path・launches_path・read_launches（Task 5）が在ればそれ、無ければ _AdapterShim（同じ式。家の既定も
   ${XDG_STATE_HOME:-~/.local/state}/works/adapter）
 - 受け付けの口: entry.take（Task 9）が入ったら take はそれに委ねる
@@ -39,13 +37,15 @@ _CORE = pathlib.Path(__file__).resolve().parent
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
-from board import BoardGap, DiskBoard, NodeTable, graph_expanded, rules_module  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
+from board import BoardGap, DiskBoard, graph_expanded, rules_module  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
 import engine.util as _util  # noqa: E402
 from engine import pointers as _pointers  # noqa: E402
 from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
 from engine.rules import validator_module  # noqa: E402
 from engine.util import TERMINAL_STATUS, AnswerReject, dump, now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
+import entry  # noqa: E402
+import node_marker  # noqa: E402
 import script_io  # noqa: E402
 
 CONT = "judge"   # 再審の役が続きとして起きる会話（包みの印の continue=）
@@ -70,13 +70,9 @@ GIVE_UP_AFTER = 3
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
 ADAPTER_HOME_ENV = "WORKS_ADAPTER_HOME"
 PROMPTS_COPY = _CORE / "gl-prompts"
-PACK = _CORE.parents[1]
-MARK_PREFIX = "works-node: "
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 # 修正役に貼った番号の書き方（no N・No.N・#N・N 番）。全角の数字も \d に当たる
 _NUMBERS = (re.compile(r"(?<![A-Za-z])no\.?\s*(\d+)", re.IGNORECASE), re.compile(r"[#＃]\s*(\d+)"), re.compile(r"(\d+)\s*番"))
-
-OPENER = None   # 盤面を開く口の差し替え（試験だけが差す。形は open_board と同じ）
 
 
 # ---------------------------------------------------------------- まだこの枝に無い部品の代わり
@@ -132,55 +128,9 @@ def adapter_module():
     return adapter
 
 
-def _mark(schema, name, cont=None):
-    try:
-        import node_marker
-    except ImportError:
-        if "description" in schema:
-            raise ValueError(f"schema の一番上に description が既に在る: {schema['description']!r}")
-        return {"description": MARK_PREFIX + name + (f" continue={cont}" if cont else ""), **json.loads(json.dumps(schema))}
-    return node_marker.mark(schema, name, cont=cont)
-
-
-def strip_mark(schema):
-    """印の description を外した写し"""
-    try:
-        import node_marker
-    except ImportError:
-        out = json.loads(json.dumps(schema))
-        if str(out.get("description", "")).startswith(MARK_PREFIX):
-            del out["description"]
-        return out
-    return node_marker.strip(schema)
-
-
-def _open_shim(board_dir, repo, allow_halted):
-    """entry.open_board の小さな写し: state.works.line の <line>/nodes.json を読み、縛りと表の sha を当てて開く"""
-    d = pathlib.Path(board_dir)
-    try:
-        st = json.loads((d / "state.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        raise BoardGap(f"{d / 'state.json'} を読めない: {e}") from None
-    line = ((st.get("works") or {}) if isinstance(st, dict) else {}).get("line")
-    if not (isinstance(line, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", line)):
-        raise BoardGap(f"盤面 {d} の state.works.line が読めない（{line!r}）")
-    table = NodeTable.load(PACK / line / "nodes.json")
-    errs = table.check(graph_expanded(), table.graph_sha)
-    if errs:
-        raise BoardGap(f"節の表 {line}/nodes.json が縛りに当たる: " + "; ".join(errs))
-    if st["works"].get("table_sha") != table.sha():
-        raise BoardGap(f"盤面 {d} の表の sha が今の {line}/nodes.json と違う")
-    return DiskBoard.open(d, table=table, repo=repo, allow_halted=allow_halted)
-
-
 def open_board(board_dir, *, repo=None, allow_halted=False) -> DiskBoard:
-    """盤面を開く（entry.open_board が在ればそれ）。repo を渡せば写しの git の置き場（util.GIT_CWD）をそこに向ける"""
-    if OPENER is not None:
-        return OPENER(board_dir, repo=repo, allow_halted=allow_halted)
-    try:
-        import entry
-    except ImportError:
-        return _open_shim(board_dir, repo, allow_halted)
+    """盤面を開く（entry.open_board: ラインの表・表の sha・board_hook）。repo を渡せば写しの git の置き場（util.GIT_CWD）をそこに
+    向ける（entry.open_board は盤面の inputs.cwd に向ける）"""
     b = entry.open_board(board_dir, allow_halted=allow_halted)
     if repo is not None:
         _util.GIT_CWD = str(pathlib.Path(repo).resolve())
@@ -250,7 +200,7 @@ def output_format(node) -> dict:
     p = next((x for x in passes() if x["node"] == node), None)
     if p is None:
         raise BoardGap(f"節 {node} は写しの再審の節に無い")
-    return _mark(_accept.role_schema(node), p["role"], cont=p["cont"])
+    return node_marker.mark(_accept.role_schema(node), p["role"], cont=p["cont"])
 
 
 def unit_fields(graph=None, node=None) -> list:
@@ -462,8 +412,8 @@ def prep(board_dir, role, repo) -> dict:
     if not before.exists():
         _write_json(before, {"node": nid, "units": b.record.get("units") or [], "objection": objection(b, nid),
                              "numbered_keys": numbered_keys(b)})
-    m = b.mark_launched(nid)
-    return {"prompt_file": str(path), "attempt": m["attempts"], "out_path": inst["out_path"], "node": nid,
+    m = b.mark_launched(nid, inst["attempts"])   # 描いた試行に印（盤面は印の無い返答を受けない）
+    return {"prompt_file": str(path), "attempt": m["attempt"], "out_path": m["out_path"], "node": nid,
             "already": m["already"]}
 
 
@@ -705,3 +655,8 @@ def actual_costs(launches, shown) -> list:
         out.append({"node": r.get("node"), "at": r.get("at"), "session": sid, "mode": mode, "shown": v, "actual": actual,
                     "note": note})
     return out
+
+
+def strip_mark(schema):
+    """印の description を外した写し（node_marker.strip）"""
+    return node_marker.strip(schema)

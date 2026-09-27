@@ -6,7 +6,7 @@
 - スクリプト: 別のプロセスで Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）に回す。予定の状態（拒否・止めた・回す物が
   無い）は終了コード 0 で 1 行、配線の誤り（環境変数の欠け・BoardGap）だけ 2
 - 筋書き（fixtures/）が 4 本在り、期待の形が設計 11.2 どおりか。Archon で回すのは dev/check.sh（workflow test）
-盤面は tests/rejudgekit.py の手本の盤面。子のプロセスは tests/rejudge_child.py を通して、表を everything にした盤面を開く。
+盤面は tests/rejudgekit.py の手本の盤面（1 本目のラインの本物の表）。スクリプトは子のプロセスで直に回し、本物の entry.open_board で開く。
 """
 import importlib.util
 import json
@@ -30,7 +30,6 @@ from engine.schema import validate_schema  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BLK = ROOT / "blk-rejudge"
-CHILD = pathlib.Path(__file__).resolve().parent / "rejudge_child.py"
 DEADLINE = 1728000000
 BOARDS = None
 
@@ -213,15 +212,15 @@ class ScriptCase(unittest.TestCase):
             finally:
                 del os.environ[rejudge.ADAPTER_HOME_ENV]
 
-    def run_script(self, name, drop=(), direct=False, **inputs):
+    def run_script(self, name, drop=(), **inputs):
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         env.update({rejudge.ADAPTER_HOME_ENV: self._home.name, "ARTIFACTS_DIR": str(self.bd.parent),
                     "PYTHONDONTWRITEBYTECODE": "1"})
         env.update({f"INPUTS_{k.upper()}": v for k, v in inputs.items()})
         for k in drop:
             env.pop(k, None)
-        argv = [str(BLK / "scripts" / f"{name}.py")] if direct else [str(CHILD), str(BLK / "scripts" / f"{name}.py")]
-        r = subprocess.run([sys.executable, *argv], cwd=str(self.repo), env=env, capture_output=True, text=True)
+        r = subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=str(self.repo), env=env,
+                           capture_output=True, text=True)
         if r.returncode == 0:
             lines = r.stdout.splitlines()
             self.assertEqual(len(lines), 1, r.stdout + r.stderr)
@@ -319,13 +318,9 @@ class ScriptCase(unittest.TestCase):
 
     def test_scripts_exit_two_on_wiring(self):
         self.board("none")
-        # 試験の入口を通さずに直に回す（スクリプトが rejudge を最初に import しても読み込める）
-        rc, _, err = self.run_script("route", drop=("ARTIFACTS_DIR",), direct=True)
+        rc, _, err = self.run_script("route", drop=("ARTIFACTS_DIR",))
         self.assertEqual(rc, 2, err)
         self.assertIn("ARTIFACTS_DIR", err)
-        rc, _, err = self.run_script("collect", direct=True)   # 表の無い手本の盤面は本物の口では開けない（BoardGap）
-        self.assertEqual(rc, 2, err)
-        self.assertIn("state.works.line", err)
         rc, _, err = self.run_script("prep")                   # INPUTS_ROLE が無い
         self.assertEqual(rc, 2)
         self.assertIn("INPUTS_ROLE", err)

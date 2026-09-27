@@ -7,7 +7,7 @@
 - 単位の差分: 異議に名指されていない単位の変化・ラベルを下げた単位を記録する（柵は足さない）
 - 出口: collect は回した後も再審の節が ready なら盤面を止める
 - 費用: 継いだ起動の表示から判定役の会話の累積を引く
-盤面は手本 test_rejudge_path から作る（tests/rejudgekit.py）。期待は写しの形ごとに EXPECT に置く——写し直しで形が
+盤面は手本 test_rejudge_path から 1 本目のラインの本物の表で作り、rejudge は本物の entry.open_board で開く（tests/rejudgekit.py）。期待は写しの形ごとに EXPECT に置く——写し直しで形が
 変われば test_shape_known が落ち、ここを書き換える所が目に入る。
 """
 import json
@@ -59,9 +59,6 @@ class _Case(unittest.TestCase):
         env = mock.patch.dict(os.environ, {rejudge.ADAPTER_HOME_ENV: self._home.name})
         env.start()
         self.addCleanup(env.stop)
-        op = mock.patch.object(rejudge, "OPENER", kit.opener)
-        op.start()
-        self.addCleanup(op.stop)
 
     def board(self, kind="objection", session=True):
         self.bd, self.repo = BOARDS.fresh(kind)
@@ -321,6 +318,16 @@ class RenderPrepCase(_Case):
         self.assertTrue(got.startswith(rejudge.REJECT_HEADING), got[:200])
         self.assertIn("$rj-route1.output.next と $LOOP_PREV.x", got)
         self.assertTrue(got.endswith(first), "拒否の節の後ろは描き直した指示書そのまま（拒否の節を積み重ねない）")
+
+    def test_prep_marks_the_drawn_attempt(self):
+        """prep は描いた instance の試行の番号で起こした印を置く（盤面は mark_launched(節, 試行) を求め、印の無い返答を受けない）"""
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        got = rejudge.prep(self.bd, "rejudge", self.repo)
+        inst = kit.state(self.bd)["rounds"][-1]["instances"]["p2.rejudge"]
+        self.assertEqual(got["attempt"], inst["attempts"])
+        self.assertEqual(got["out_path"], inst["out_path"])
+        self.assertTrue(inst["launched_at"])
 
     def test_prep_without_pending_is_gap(self):
         self.board("none")
