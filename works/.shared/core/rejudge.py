@@ -21,7 +21,7 @@
 - 包みの置き場: adapter.session_path・launches_path・read_launches（Task 5）が在ればそれ、無ければ _AdapterShim（同じ式。家の既定も
   ${XDG_STATE_HOME:-~/.local/state}/works/adapter）
 - 受け付けの口: entry.take（Task 9）が入ったら take はそれに委ねる
-- 指示書: 写し（graphloops/）は指示書を持たないので、同じ commit から写した gl-prompts/ を使う。写しに prompts/ が入れば写しを先に使う
+- 指示書: 写し（graphloops/）の指示書は TDD 版の tdd/ だけなので、同じ commit から写した gl-prompts/ を使う。写しに同じ指示書が在れば写しを先に使う
 """
 import datetime
 import functools
