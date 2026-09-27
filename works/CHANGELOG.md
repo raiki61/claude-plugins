@@ -6,6 +6,8 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-28
+
 ### Changed
 
 - 入れ方を、Claude Code のプラグインを 4 つ入れる（works・superpowers・coldwrite・pr-review-toolkit）だけにした。リポジトリの clone も、その場所を置く環境変数も要らない。`/works` スキルの行は、入れたプラグインの置き場の `dev/use.sh`・`stop.sh`・`report.sh` を起こす。
