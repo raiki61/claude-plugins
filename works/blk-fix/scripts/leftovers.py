@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""修正役の後始末（blk-fix だけの物。節ではなく、ignored_before・clean・assert_changed が import する模块）。
+"""修正役の後始末（blk-fix だけの物。節ではなく、ignored_before・clean・assert_changed・collect が import する模块）。
 
 - ARCHON_PREFIX:      .archon/ の下は修正役の仕事でない（assert_changed は数えず、clean は消さない。決まりはここの 1 本）
 - git・git_names:     git を呼ぶ手続き（-z で読むパスの一覧も。Unreadable・GIT_TIMEOUT と合わせて、blk-fix の正本はここの 1 本）

@@ -17,13 +17,11 @@ import os
 import pathlib
 import sys
 
-sys.dont_write_bytecode = True
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
+
+from leftovers import Unreadable  # noqa: E402   blk-fix の Unreadable の正本（同じフォルダ（sys.path[0]）の模块）
 
 CHANGES_FILE = "changes.json"
-
-
-class Unreadable(Exception):
-    pass
 
 
 def env_json(name):
