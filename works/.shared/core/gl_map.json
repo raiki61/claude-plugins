@@ -78,6 +78,12 @@
     "note": "役を起こす前の tree_state と今の作業ツリーの違いの文（今の姿が引けなければその 1 行）。blk-pr・blk-ci・entry.take・rejudge.take の読むだけの役の確かめの共通の 1 本（裁定 R47）。gl へ移さない。"
   },
   {
+    "works": "accept.tree_unchanged",
+    "gl": "",
+    "status": "works-only",
+    "note": "判定役・実測役（blk-judge・blk-premises）の受け付けの見張り: 役を起こす前の snapshot_tree（HEAD を持つ）と今を比べ、写しが無ければ作業ツリーが綺麗で HEAD が数える版のままかを見る（台帳 R3・R14、wip/works-premises の自分食い 14・21 件目から）。実測役だけバイトコードを数えない。gl へ移さない。"
+  },
+  {
     "works": "entry.take",
     "gl": "gl accept <節> と effects",
     "status": "ready",

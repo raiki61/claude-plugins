@@ -119,8 +119,8 @@ class EdgeBase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def judged(self, name="judge_ok"):
-        """start → 並行 PR の任せ先・前提の役 → 判定（name の見本）を受けた盤面（p2.fix_plan が待つ）"""
+    def premised(self):
+        """start → 並行 PR の任せ先・前提の役を受けた盤面（p2.diagnose が待つ）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True)
@@ -131,7 +131,20 @@ class EdgeBase(unittest.TestCase):
         entry.start(self.board, self.repo, raw, run_id=RUN_ID)
         self.take("p0.parallel_pr", {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"})
         self.take("p0.premises", {"constraints": []})
+
+    def judged(self, name="judge_ok"):
+        """前提の役まで受け、判定（name の見本）を受けた盤面（p2.fix_plan が待つ）"""
+        self.premised()
         return self.take("p2.diagnose", linekit.reply(name))
+
+    def judge_exit(self, name="judge_ok", reply=None):
+        """判定のブロックの出口（collect の形）。judgment_file は見本の返答（か reply）を書いた盤面の外のファイル"""
+        body = linekit.reply(name) if reply is None else reply
+        path = self.tmp / "judge-out" / "judgment.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        units = [u["key"] for u in body.get("units") or [] if isinstance(u, dict)] if isinstance(body, dict) else []
+        return {"ok": True, "open_units": units, "need_fix": bool(units), "judgment_file": str(path), "one_shot": "x"}
 
     def planned(self, review="plan_review_regression"):
         """判定・修正案・事前審査を受けた盤面。既定の事前審査は regression の穴を持つ（p2.human_gate が人に聞く）"""
@@ -486,6 +499,73 @@ class GoCase(EdgeBase):
                     self.assertIsInstance(got[k], bool)
                 for k in OUT_KEYS - {"ok", "stop", "go", "ask"}:
                     self.assertIsInstance(got[k], str)
+
+
+class PlanEdgeCase(EdgeBase):
+    """h-plan（計画 P1 Task 23・〔線A計〕T10b）: 判定の渡し替えと、直す物が無い周の締め"""
+
+    def done_rows(self, nid):
+        return [r for r in trace_rows(self.board, "done") if r.get("instance") == nid]
+
+    def test_plan_goes_when_units_open(self):
+        """判定のブロックの出口を h-plan に渡す → 盤面の p2.diagnose が done（判定の返答そのまま）、go True"""
+        self.premised()
+        judged = self.judge_exit()
+        got = self.edge("plan", judged=judged)
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual(b.node_state("p2.diagnose"), "done")
+        self.assertIn("p2.fix_plan", b.ready())
+        self.assertEqual(len(self.done_rows("p2.diagnose")), 1)
+        self.assertEqual(got["judgment_file"], judged["judgment_file"])
+
+    def test_bridge_skips_when_done(self):
+        """盤面に p2.diagnose が今の周に在る → 2 度受けない（読めない judgment_file でも読まない。trace の done は 1 行）"""
+        self.judged()
+        judged = {**self.judge_exit(), "judgment_file": str(self.tmp / "nowhere.json")}
+        for _ in range(2):
+            got = self.edge("plan", judged=judged)
+            self.assertEqual((got["go"], got["stop"]), (True, False))
+        self.assertEqual(len(self.done_rows("p2.diagnose")), 1)
+
+    def test_bridge_rejected_stops_before_writer(self):
+        """盤面の型に合わない judgment.json → stop True、state.stop.by "works:judge-bridge"、p2.fix_plan は起きない"""
+        self.premised()
+        got = self.edge("plan", judged=self.judge_exit(reply={"units": "壊れた"}))
+        self.assertEqual((got["stop"], got["go"]), (True, False))
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], line_edge.JUDGE_BRIDGE_BY)
+        self.assertIn("盤面が判定を受けない", st["stop"]["reason"])
+        b = entry.open_board(self.board, allow_halted=True)
+        self.assertEqual((b.node_state("p2.diagnose"), b.ready()), ("stopped", []))   # 受けずに止めた（待ちは stopped）
+
+    def test_bridge_unreadable_or_missing_stops(self):
+        """判定の出口が届かない（None）・judgment_file が読めない → 同じく by works:judge-bridge で止める（fail closed）"""
+        for judged in (None, {"ok": True, "open_units": [], "need_fix": False, "judgment_file": "/nowhere/judgment.json"}):
+            with self.subTest(judged=judged):
+                self._tmp.cleanup()
+                self._tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
+                self.tmp = pathlib.Path(self._tmp.name)
+                self.premised()
+                got = self.edge("plan", judged=judged)
+                self.assertEqual((got["stop"], got["go"]), (True, False))
+                self.assertEqual(self.state()["stop"]["by"], line_edge.JUDGE_BRIDGE_BY)
+
+    def test_no_fix_closes_round(self):
+        """直す物の無い判定 → go False、p3.fix が空の返答で done、ready に p4.ci、trace に works:empty-fix（TA6）"""
+        self.premised()
+        got = self.edge("plan", judged=self.judge_exit("judge_no_fix"))
+        self.assertEqual((got["go"], got["stop"]), (False, False), got)
+        b = entry.open_board(self.board)
+        self.assertEqual((b.node_state("p2.fix_plan"), b.node_state("p3.fix")), ("na", "done"))
+        self.assertEqual(b.output_of_round("p3.fix", b.round)["changes"], [])
+        self.assertIn("p4.ci", b.ready())
+        rows = [r for r in trace_rows(self.board) if r.get("by") == line_edge.EMPTY_FIX_BY]
+        self.assertEqual([(r["node"], r["round"]) for r in rows], [("p3.fix", b.round)])
+        self.assertFalse(self.edge("mid")["go"])
+        again = self.edge("plan", judged=self.judge_exit("judge_no_fix"))   # Archon の再開で呼び直しても 2 度渡さない
+        self.assertEqual((again["go"], again["stop"]), (False, False))
+        self.assertEqual(len(self.done_rows("p3.fix")), 1)
 
 
 class ReadyCase(unittest.TestCase):

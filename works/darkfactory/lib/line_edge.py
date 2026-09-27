@@ -2,7 +2,7 @@
 使うのは darkfactory/scripts/edge.py だけ。止め札そのもの（置く・読む）は共有の .shared/core/halt.py。
 
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める
-- plan_edge(b, …): h-plan の固有の仕事（この版は判定の出口の控えと go だけ。Task 10b が足す）
+- plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 """
 import json
@@ -39,6 +39,7 @@ FLAG_SEEN_OP = "stop_flag_seen"              # 止め札を見て止めた境の
 AFTER_HALT_OP = "stop_flag_after_halt"       # 止まった後に見た止め札の trace の行（b.stop は呼ばない。M3）
 EMPTY_FIX_OP = "empty_fix"                   # 直す物の無い周に機械が p3.fix の空の返答を渡した印の trace の行（T10b が書く。TA6）
 EMPTY_FIX_BY = "works:empty-fix"
+JUDGE_BRIDGE_BY = "works:judge-bridge"       # 判定のブロックの出口を盤面が受けなかった時の state.stop.by（h-plan）
 JUDGED_FILE = "judged.json"                  # h-plan が受けた判定のブロックの出口の控え（b.work。後ろの境の節が運ぶ。M4）
 GATE_FILE = "gate.md"                        # policy-gate の文（b.work）
 MID_GATE_FILE = "mid-gate.md"                # mid-gate の文（b.work）
@@ -212,12 +213,65 @@ def _mid_gate_text(b, mid: dict, repo, run_id: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _done_this_round(b, nid: str) -> bool:
+    info = b.state["outputs"].get(nid)
+    return b.node_state(nid) == "done" and bool(info) and info.get("round") == b.round
+
+
+def _hand(b, board_dir, nid: str, reply: dict, repo) -> dict:
+    """機械が役の返答を盤面へ渡す（判定のブロックが受けた判定・直す物が無い周の空の修正）。待っている試行に起こした印を置いてから
+    entry.take（盤面の決まり 2）。待っている instance が無ければ BoardGap（線の順の誤り）"""
+    inst = next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+    if inst is None:
+        raise _gap(f"{nid} が盤面で待っていない（線の順の誤り。state: {b.node_state(nid)}）")
+    b.mark_launched(nid, inst.get("attempts", 1))
+    return entry.take(board_dir, nid, reply, repo)
+
+
+def _judgment(judged) -> tuple:
+    """判定のブロックの出口から (判定の返答, 読めない理由)。読めれば理由は空"""
+    path = judged.get("judgment_file") if isinstance(judged, dict) else None
+    if not isinstance(path, str) or not path:
+        return None, "判定のブロックの出口（judgment_file）が届かない"
+    try:
+        doc = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return None, f"判定のファイル {path} が読めない（{type(e).__name__}: {e}）"
+    if not isinstance(doc, dict):
+        return None, f"判定のファイル {path} が JSON のオブジェクトでない（{type(doc).__name__}）"
+    return doc, ""
+
+
 def plan_edge(b, board_dir, repo, *, run_id: str, adapter_mode: str, judged) -> dict:
-    """h-plan の固有の仕事（edge の手順 5）。この版は判定の出口の控え（M4）と「p2.fix_plan が ready なら go」だけ。
-    包みの確かめ・判定の渡し替え・直す物が無い周の締めは計画 Task 10b が足す"""
+    """h-plan の固有の仕事（edge の手順 5。計画 P1 Task 23・裁定 TA3・TA6）。包みの確かめはここに置かない（h-judge。P1-R9）。順:
+    1. judged（判定のブロックの出口）を b.work(JUDGED_FILE) に控える（後ろの境の節が judgment_file・open_units を返す。M4）
+    2. 盤面の p2.diagnose が今の周に済んでいなければ、judged の judgment_file を読んで entry.take(p2.diagnose)。出口が届かない・
+       読めない・盤面が受けない（ok False）なら b.stop("盤面が判定を受けない: …", by=JUDGE_BRIDGE_BY) で stop。済んでいれば
+       渡さない（Archon の再開・盤面で判定を受けた後も同じ）
+    3. p2.fix_plan が ready なら go。p3.fix が ready で p2.fix_plan が na（直す物が無い周）なら、機械が空の返答
+       （entry.empty_fix_reply）を渡して trace_empty_fix、go False"""
     if judged is not None:
         _write_json(b.work(JUDGED_FILE), judged)
-    return {"go": GO_NODE["plan"] in b.ready(), **_carried(b)}
+    carried = _carried(b)
+    if not _done_this_round(b, "p2.diagnose"):
+        reply, why = _judgment(judged)
+        if not why:
+            got = _hand(b, board_dir, "p2.diagnose", reply, repo)
+            why = "" if got["ok"] else got["reason"]
+        if why:
+            reason = f"盤面が判定を受けない: {why}"
+            entry.open_board(pathlib.Path(board_dir)).stop(reason, by=JUDGE_BRIDGE_BY)
+            return {"stop": True, "go": False, "why": reason, **carried}
+        b = entry.open_board(pathlib.Path(board_dir))
+    ready = b.ready()
+    if GO_NODE["plan"] in ready:
+        return {"go": True, **carried}
+    if GO_NODE["fix"] in ready and b.node_state("p2.fix_plan") == "na":
+        got = _hand(b, board_dir, GO_NODE["fix"], entry.empty_fix_reply(), repo)
+        if not got["ok"]:
+            raise _gap(f"盤面が直す物の無い周の空の修正を受けない: {got['reason']}")
+        trace_empty_fix(entry.open_board(pathlib.Path(board_dir)))
+    return {"go": False, **carried}
 
 
 def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, mid_gate: str, judged: dict | None = None,
