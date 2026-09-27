@@ -45,10 +45,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # core の模块の層と持ち主（.shared/core からの相対。.py は除く）。表に無い core の模块は unassigned で赤
 MOD = {
     "tree_run": (1, None), "script_io": (1, None), "node_marker": (1, None), "versions": (1, None),
+    "changemap": (1, None),   # attention の変更の地図の部品の写し（COPIED_FROM.changemap。works の物を何も知らない）
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "no-post-bin/works-gh": (2, None),
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
     "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None), "rolekit": (3, None), "report": (3, None),
+    "impact": (3, None),      # 変更の周りの地図（役が共有して読む。まだどのブロックにも配線しない）
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
     "premises": (4, "blk-premises"),
 }
