@@ -318,6 +318,8 @@ class TestAssertChanged(ScriptCase):
 # 2 行に分けない・判定の前に修正を受けない・出口の 1 本目の欄）を、本物の盤面の done("p3.fix") の上で確かめる。
 JUDGE = "judge_ok"
 MEAN, CLAMP = (u["key"] for u in load(JUDGE)["units"])
+DEFERRED = "stats.py mean: 分母の式の書き方が他の統計の関数と揃っていない"
+INVENTED = "stats.py median: 判定に無い作り話の単位"
 PREMISES_REPLY = {"constraints": []}
 PLAN_REVIEW_OK = {"faces": [], "shrink": [], "faces_none": "案の 2 か所を stats.py で読み、穴も別案も無いと確かめた",
                   "reason": "分母と戻り値を 1 行ずつ直す案で、足す物も狭める物も無い"}
@@ -335,15 +337,27 @@ def plan_reply(narrows=()):
                       "narrows": list(narrows)}]}
 
 
+def extra_row(key):
+    """fix2_ok の mean の直しの行を写し、unit_key を key に替えた行。先行例は判定の行を採らず problem・source を書き、覆いの
+    問いは mean と同じ how・counts を書く（写しの fix_covers_open_units はこの行も数え直して通す——義務に無い key を見ない）"""
+    row = json.loads(json.dumps(load("fix2_ok")["changes"][0]))
+    row["unit_key"] = key
+    row["precedent"] = {"verdict": "adopt", "reason": "算術平均の定義どおりに割る、標準の実装と同じ形",
+                        "problem": "算術平均の分母", "source": "Python 標準ライブラリ statistics.mean"}
+    row["coverage"] = {"how": load(JUDGE)["units"][0]["class_query"]["how"], "counts": "defects"}
+    return row
+
+
 def pending_attempt(b, nid):
     inst = next(i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending")
     return inst.get("attempts", 1)
 
 
-def launch(board, nid):
-    """ブロックの snap の節の代わり: 待っている試行に起こした印を置く（盤面は印の無い返答を受けない）"""
+def launch(board, nid, numbered=False):
+    """ブロックの snap の節の代わり: 待っている試行に起こした印を置く（盤面は印の無い返答を受けない）。numbered なら描いた一覧の
+    控え（pointer_rows の pointers）も渡す（番号で指した返答を盤面が名前に戻せる）"""
     b = entry.open_board(board)
-    b.mark_launched(nid, pending_attempt(b, nid))
+    b.mark_launched(nid, pending_attempt(b, nid), pointers=b.pointer_rows(nid)["pointers"] if numbered else None)
 
 
 # 写しの rules が拒否でも書く盤面の隣のファイル: 数える問いの量（count-budget.json。「差し戻しの done は盤面を保存しないので、
@@ -377,8 +391,8 @@ class BoardCase(unittest.TestCase):
         self.assertTrue(got["ok"], got)
         return got
 
-    def judged(self):
-        """判定を受けた盤面（start → 並行 PR の任せ先・前提の役 → 判定）"""
+    def judged(self, judge=None):
+        """判定を受けた盤面（start → 並行 PR の任せ先・前提の役 → 判定。judge が無ければ judge_ok）"""
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "request.json"
         req.write_text((SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
@@ -387,18 +401,18 @@ class BoardCase(unittest.TestCase):
         pr = {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"}
         self.take("p0.parallel_pr", pr)
         self.take("p0.premises", PREMISES_REPLY)
-        self.take("p2.diagnose", load(JUDGE))
+        self.take("p2.diagnose", judge or load(JUDGE))
 
-    def fix_ready(self, narrows=(), answer=None):
+    def fix_ready(self, narrows=(), answer=None, judge=None, numbered=False):
         """p3.fix が待ち、起こした印の在る盤面（修正案 → 事前審査。narrows なら p2.human_gate が聞き、answer で答える）"""
-        self.judged()
+        self.judged(judge)
         self.take("p2.fix_plan", plan_reply(narrows))
         got = self.take("p2.plan_review", PLAN_REVIEW_OK)
         if answer is not None:
             self.assertTrue(got["asking"], got)
             entry.open_board(self.board).answer(*answer)
         self.assertIn("p3.fix", entry.open_board(self.board).settle()["ready"])
-        launch(self.board, "p3.fix")
+        launch(self.board, "p3.fix", numbered)
 
     def edit_tree(self, subs):
         path = self.repo / "stats.py"
@@ -479,7 +493,8 @@ class TestRecount(BoardCase):
         self.assert_rejected(reply, "直していない", CLAMP)
 
     def test_human_notes_recorded_before_fix(self):
-        """関所で continue "x" を答えた盤面 → 人の答えが record.process.human_items に在り（p3.fix の reads）、受け付けが通る"""
+        """関所で continue "x" を答えた盤面 → 人の答えが record.process.human_items に在り（p3.fix の reads。役に届く口）、
+        その記録の在る盤面で受け付けが通り、記録は変わらない（写しの受け付けの規則は human_items を読まない——読んだかは見ない）"""
         note = 'x の範囲だけ通す: "引用" と $(date) と改行\n'
         self.fix_ready(narrows=NARROWS, answer=("continue", note))
         items = entry.open_board(self.board).record["process"]["human_items"]
@@ -545,14 +560,67 @@ class TestAccept(BoardCase):
         self.edit_tree(FIXED)
         reply = load("fix2_ok")
         reply["changes"].append(reply["changes"][0])
+        self.assert_script_rejected(reply, "同じ unit_key", MEAN)
+
+    def assert_script_rejected(self, reply, *words):
+        """子で起こした受け付けが役に返す（0・ok False・changes 空・理由の本文は reason_file）。盤面は書かない・p3.fix は待ちのまま"""
+        before = board_shas(self.board)
         code, out, err = self.run_it(reply)
         self.assertEqual(code, 0, err)
         r = json.loads(out)
-        self.assertFalse(r["ok"])
-        self.assertIn(MEAN, r["reason"])
+        self.assertFalse(r["ok"], r)
         self.assertEqual(r["changes"], [])
-        self.assertEqual(pathlib.Path(r["reason_file"]).read_text(encoding="utf-8"), r["reason"])
+        for w in words:
+            self.assertIn(w, r["reason"])
+        reason_file = pathlib.Path(r["reason_file"])
+        self.assertEqual(reason_file.read_text(encoding="utf-8"), r["reason"])
+        after = board_shas(self.board)
+        self.assertIsNotNone(after.pop(str(reason_file.relative_to(self.board)), None),
+                             "理由の本文は盤面の置き場の予約の名前（reject-<関数>-<連番>.txt）")
+        self.assertEqual(after, before, "拒んだ受け付けは盤面を書かない（理由の本文の他）")
         self.assertEqual(entry.open_board(self.board).node_state("p3.fix"), "pending")
+        return r
+
+    def test_rejects_deferred_unit_key(self):
+        """判定が defer にした単位（開いていない単位）の key の行を足した返答 → 拒む（1 本目の fix_plan_covers_units の
+        unknown = got - opened。写しの fix_covers_open_units は義務に無い key を拒まないので works の受け付けが見る）"""
+        judge = load(JUDGE)
+        later = {**judge["units"][0], "key": DEFERRED, "label": "suggest", "disposition": "defer",
+                 "reason": "事実: mean の分母の式は 1 行で書けるが、他の統計の関数と書き方を揃える話は今の周の範囲の外。反証: "
+                           "揃えないと読み違える箇所を当たったが、stats.py の中で同じ式は mean の 1 か所だけ"}
+        judge["units"].append(later)
+        self.fix_ready(judge=judge)
+        self.edit_tree(FIXED)
+        units = {u["key"]: (u["label"], u["disposition"]) for u in entry.open_board(self.board).record["units"]}
+        self.assertEqual(units[DEFERRED], ("suggest", "defer"), "盤面の記録に defer の単位が在る（開いていない）")
+        reply = load("fix2_ok")
+        reply["changes"].append(extra_row(DEFERRED))
+        self.assert_script_rejected(reply, DEFERRED, "今の周に直す単位に無い")
+
+    def test_rejects_invented_unit_key(self):
+        """判定に無い作り話の key の行を足した返答 → 拒む（同じく 1 本目の unknown）"""
+        self.fix_ready()
+        self.edit_tree(FIXED)
+        reply = load("fix2_ok")
+        reply["changes"].append(extra_row(INVENTED))
+        self.assert_script_rejected(reply, INVENTED, "今の周に直す単位に無い")
+
+    def test_numbered_unit_keys_resolved_before_works_checks(self):
+        """番号で指した unit_key（graph の pointers）は盤面の控えで名前に戻してから works の 2 つの検査に当てる:
+        番号だけの返答は通り、同じ単位を番号と名前で 2 行に書いた返答は重なりとして拒む"""
+        self.fix_ready(numbered=True)
+        self.edit_tree(FIXED)
+        dup = load("fix2_ok")
+        dup["changes"].append({**dup["changes"][0], "unit_key": 1})
+        self.assert_script_rejected(dup, "同じ unit_key", MEAN)
+        numbered = load("fix2_ok")
+        for no, c in enumerate(numbered["changes"], 1):
+            c["unit_key"] = no
+        code, out, err = self.run_it(numbered)
+        self.assertEqual(code, 0, err)
+        r = json.loads(out)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual([c["unit_key"] for c in r["changes"]], [MEAN, CLAMP], "出口の changes は名前")
 
     def test_v1_reply_rejected_by_graph_schema(self):
         """1 本目の形の返答（changes の unit_key・files・what だけ）は graph の型に合わない → 役に返す（ok False・0）"""
@@ -571,11 +639,16 @@ class TestAccept(BoardCase):
         entry.start(self.board, self.repo, {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "",
                                             "adapter": "", "policy_md": ""}, run_id="run-12")
         before = board_shas(self.board)
-        code, out, err = self.run_it(load("fix2_ok"))
-        self.assertEqual((code, out), (2, ""))
-        self.assertEqual(len(err.strip().splitlines()), 1, err)
-        self.assertIn("p3.fix", err)
-        self.assertEqual(board_shas(self.board), before)
+        dup, invented = load("fix2_ok"), load("fix2_ok")
+        dup["changes"].append(dup["changes"][0])
+        invented["changes"][0]["unit_key"] = INVENTED
+        for name, reply in (("fix2_ok", load("fix2_ok")), ("重なり", dup), ("作り話の key", invented)):
+            with self.subTest(name):   # works だけの検査も、盤面が p3.fix を待っていなければ役に返さない（回す側の誤り）
+                code, out, err = self.run_it(reply)
+                self.assertEqual((code, out), (2, ""))
+                self.assertEqual(len(err.strip().splitlines()), 1, err)
+                self.assertIn("p3.fix", err)
+                self.assertEqual(board_shas(self.board), before)
 
     def test_missing_env(self):
         self.repo = linekit.seed_repo(self.tmp / "repo")

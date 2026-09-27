@@ -27,7 +27,13 @@
     "works": "blk-fix/scripts/accept.py:check_unique_units",
     "gl": "",
     "status": "works-only",
-    "note": "同じ unit_key を 2 行以上に分けた修正の返答を拒む（1 本目の決まり。1 本目は check_fix が fix_plan_covers_units に読み替えて拒んでいた）。写しの p3.fix の受け付け fix_covers_open_units は重なりを拒まないので、盤面の done の前に blk-fix の受け付けのスクリプトが見る（線 A Task 12。裁定 TA25）。"
+    "note": "同じ unit_key を 2 行以上に分けた修正の返答を拒む（1 本目の決まり。1 本目は check_fix が fix_plan_covers_units に読み替えて拒んでいた）。写しの p3.fix の受け付け fix_covers_open_units は重なりを拒まないので、盤面の done の前に blk-fix の受け付けのスクリプトが見る。盤面が p3.fix を待っている時だけ、番号で指した key を盤面の控えで名前に戻してから当てる（線 A Task 12。裁定 TA25）。"
+  },
+  {
+    "works": "blk-fix/scripts/accept.py:check_opened_units",
+    "gl": "",
+    "status": "works-only",
+    "note": "今の周に開いた単位（検証器の is_open）に無い unit_key を書いた修正の返答を拒む（判定が defer にした単位・判定に無い key。1 本目の決まりで、1 本目は check_fix が fix_plan_covers_units の unknown = got - opened で拒んでいた）。写しの fix_covers_open_units は義務の単位の書き落としだけを見て義務に無い key を拒まないので、check_unique_units と同じく盤面の done の前に blk-fix の受け付けのスクリプトが見る（graphloops の上に 1 本目の拒否を足す側。線 A Task 12 の直し。裁定 TA25）。"
   },
   {
     "works": "accept.check_delta",
