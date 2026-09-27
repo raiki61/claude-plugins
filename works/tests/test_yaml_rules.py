@@ -5,7 +5,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
 - AI の節（prompt: か command: を持つ節）は idle_timeout: 1728000000・output_format・
   sandbox: {enabled: true, allowUnsandboxedCommands: false} を持つ（Ruling R12。Bash がサンドボックスの外へ出る道を閉じる）
 - AI の節の allowed_tools は [Read, Grep, Glob] の部分集合（無ければ全部の道具を持つので違反）。
-  外れてよいのは blk-fix/blk-fix.yaml の節 fix（書く役）だけ
+  外れてよいのは blk-fix/blk-fix.yaml の節 fix（書く役）と、blk-premises/blk-premises.yaml の節 premises（測る役。
+  [Read, Grep, Glob, Bash] の部分集合まで。測るためにコマンドを走らせるが書く道具は持たない。Bash はサンドボックスの中）だけ
 - AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
   書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
   skills: を持つ節だけは [project] も許す（skills は読む元が要る）
@@ -28,12 +29,14 @@ TESTS = pathlib.Path(__file__).resolve().parent
 DEADLINE = 1728000000                     # 20 日（ms）
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob"}
 WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい唯一の節: (フォルダ, ファイル, 節)
+MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 読む道具に Bash だけを足してよい唯一の節（測る役）
+MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash"}
 AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
 QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種類
 # 役の節: (フォルダ, ファイル, 節)。どれもブロックの最初の AI の節で、輪（loop_group）の 1 周目の新しい会話で起きる
 ROLES = (("blk-judge", "blk-judge.yaml", "judge"), ("blk-fix", "blk-fix.yaml", "fix"),
-         ("blk-delta", "blk-delta.yaml", "review"))
+         ("blk-delta", "blk-delta.yaml", "review"), ("blk-premises", "blk-premises.yaml", "premises"))
 
 
 # 違反の見本（yaml_bad の stem）→ 出るべき違反の文面の一部。狙いの検査が壊れて別の検査が偶然 1 件出しても赤になるように、
@@ -48,6 +51,7 @@ BAD_EXPECT = {
                                       "（{'enabled': True}）",
     "approval_with_timeout": "節 gate: approval の節に期限（timeout・idle_timeout）を書いた",
     "fix_outside_blk_fix": "節 fix: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash', 'Edit', 'Write']）",
+    "measure_outside_blk_premises": "節 premises: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash']）",
     "loop_body_timeout": "節 judge-loop の中の節 accept: bash の節の timeout が 1728000000 でない（120000）",
     "loop_no_max": "節 judge-loop: loop_group の max_iterations が 3 でない（None）",
     "loop_no_until_bash": "節 judge-loop: loop_group に until_bash が無い",
@@ -69,7 +73,16 @@ def _kind(node):
     return None
 
 
-def _check_node(node, where, writer_ok, out):
+def _allowed_tools(place, nid):
+    """(フォルダ, ファイル) の節 nid が持ってよい道具の集合。None は決まりの外（書く役）"""
+    if place == WRITER[:2] and nid == WRITER[2]:
+        return None
+    if place == MEASURER[:2] and nid == MEASURER[2]:
+        return MEASURE_TOOLS
+    return READ_ONLY_TOOLS
+
+
+def _check_node(node, where, place, out):
     if not isinstance(node, dict):
         out.append(f"{where}: 節が表（mapping）でない")
         return
@@ -96,12 +109,13 @@ def _check_node(node, where, writer_ok, out):
         if not (isinstance(sb, dict) and sb.get("enabled") is True and sb.get("allowUnsandboxedCommands") is False):
             out.append(f"{at}: AI の節の sandbox が {{enabled: true, allowUnsandboxedCommands: false}} でない（{sb!r}）")
         tools = node.get("allowed_tools")
-        if not (writer_ok and nid == WRITER[2]):
+        allowed = _allowed_tools(place, nid)
+        if allowed is not None:
             if not isinstance(tools, list):
                 out.append(f"{at}: AI の節に allowed_tools が無い（無ければ全部の道具を持つ）")
-            elif not set(tools) <= READ_ONLY_TOOLS:
-                out.append(f"{at}: AI の節の allowed_tools が {sorted(READ_ONLY_TOOLS)} の外を持つ"
-                           f"（{sorted(set(tools) - READ_ONLY_TOOLS)}）")
+            elif not set(tools) <= allowed:
+                out.append(f"{at}: AI の節の allowed_tools が {sorted(allowed)} の外を持つ"
+                           f"（{sorted(set(tools) - allowed)}）")
         ss = node.get("settingSources", "（無し）")
         if not (ss == [] or ("skills" in node and ss == ["project"])):
             out.append(f"{at}: AI の節の settingSources が [] でない（{ss!r}。skills: を持つ節だけ [project] も可）")
@@ -117,15 +131,15 @@ def _check_node(node, where, writer_ok, out):
             out.append(f"{at}: loop_group の max_iterations が 3 でない（{g.get('max_iterations')!r}）")
         if not (isinstance(g.get("until_bash"), str) and g["until_bash"].strip()):
             out.append(f"{at}: loop_group に until_bash が無い")
-        _check_nodes(g.get("nodes"), f"{at} の中の", writer_ok, out)
+        _check_nodes(g.get("nodes"), f"{at} の中の", place, out)
 
 
-def _check_nodes(nodes, where, writer_ok, out):
+def _check_nodes(nodes, where, place, out):
     if not isinstance(nodes, list) or not nodes:
         out.append(f"{where}nodes が無い")
         return
     for n in nodes:
-        _check_node(n, where, writer_ok, out)
+        _check_node(n, where, place, out)
 
 
 def check_file(path: pathlib.Path) -> list:
@@ -135,8 +149,7 @@ def check_file(path: pathlib.Path) -> list:
     out = []
     if not isinstance(doc, dict):
         return [f"{path.name}: 工程の YAML が表でない"]
-    writer_ok = (path.parent.name, path.name) == WRITER[:2]
-    _check_nodes(doc.get("nodes"), f"{path.name}: ", writer_ok, out)
+    _check_nodes(doc.get("nodes"), f"{path.name}: ", (path.parent.name, path.name), out)
     return out
 
 
@@ -186,6 +199,31 @@ class YamlRulesCase(unittest.TestCase):
             p = pathlib.Path(tmp) / "blk-fix" / "blk-fix.yaml"
             p.write_text(body.replace("id: fix", "id: accept-fix"), encoding="utf-8")
             self.assertOneRule(check_file(p), f"blk-fix.yaml: 節 accept-fix: {outside}", "blk-fix/accept-fix")
+
+    def test_measurer_allowed_only_in_blk_premises(self):
+        body = (TESTS / "yaml_bad" / "measure_outside_blk_premises.yaml").read_text(encoding="utf-8")
+        read_only = "AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash']）"
+        with tempfile.TemporaryDirectory() as tmp:
+            for folder, name, want in (("blk-premises", "blk-premises.yaml", None),
+                                       ("blk-judge", "blk-premises.yaml", read_only),
+                                       ("blk-premises", "other.yaml", read_only),
+                                       ("blk-fix", "blk-fix.yaml", read_only)):   # 書く役の置き場でも節の名前が違えば外
+                p = pathlib.Path(tmp) / folder / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(body, encoding="utf-8")
+                with self.subTest(f"{folder}/{name}"):
+                    if want is None:
+                        self.assertEqual(check_file(p), [])
+                    else:
+                        self.assertOneRule(check_file(p), f"{name}: 節 premises: {want}", f"{folder}/{name}")
+            p = pathlib.Path(tmp) / "blk-premises" / "blk-premises.yaml"
+            # 測る役でも書く道具は外
+            p.write_text(body.replace("[Read, Grep, Glob, Bash]", "[Read, Grep, Glob, Bash, Edit, Write]"), encoding="utf-8")
+            self.assertOneRule(check_file(p), "blk-premises.yaml: 節 premises: AI の節の allowed_tools が "
+                               "['Bash', 'Glob', 'Grep', 'Read'] の外を持つ（['Edit', 'Write']）", "premises + Edit")
+            # blk-premises の中でも premises 以外の節は読むだけの道具に限る
+            p.write_text(body.replace("id: premises", "id: premises-accept"), encoding="utf-8")
+            self.assertOneRule(check_file(p), f"blk-premises.yaml: 節 premises-accept: {read_only}", "premises-accept")
 
     def test_setting_sources_project_only_with_skills(self):
         base = ("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n"
