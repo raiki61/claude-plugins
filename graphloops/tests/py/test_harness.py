@@ -17,6 +17,7 @@ import time
 
 import glharness
 import pytest
+import waves
 
 HERE = pathlib.Path(__file__).resolve().parent
 REVIEW_VALIDATOR = glharness.PLUGIN.parent / "scripts" / "review-record.py"
@@ -306,6 +307,7 @@ RMTREE_ROOTS = ("graphloops", "tests", "scripts")   # リポジトリの根か�
 # 関数の中に消す口が増えた・名前が変わって見つからない（並行の run が熱いファイルの関数を改名した）のどちらも黙って緩まない
 RMTREE_ALLOWED = {
     ("graphloops/tests/parallel.py", "rm"): (1, "範囲の守り（gettempdir より深い所だけを消す）を持つ台本の正本"),
+    ("graphloops/tests/py/waves.py", "_wipe"): (1, "範囲の守り（控えの置き場より深い所だけを消す）を持つ波の写し戻し"),
     ("graphloops/tests/py/test_harness.py", "_rmtree_refs"): (5, "名前への参照を探すこの柵の本体"),
     ("graphloops/engine/commands.py", "launch_one"): (3, "同じ関数が mkdtemp で作った任せ先の作業場"),
     ("graphloops/engine/commands.py", "cmd_init"): (1, "同じ関数が exist_ok=False で作ったばかりの盤面（rules の入口が拒んだ回）"),
@@ -361,7 +363,8 @@ def _rmtree_violations(counts, allowed):
 
 
 def test_rmtree_is_reached_only_from_named_sites():
-    """消す口（rmtree）に届いてよいのは、範囲の守りを持つ台本の正本と、同じ関数の中で自分が作った物を消す名指しの所だけ。
+    """消す口（rmtree）に届いてよいのは、範囲の守りを持つ名指しの口（台本の正本 parallel.rm と、波の写し戻しの waves._wipe）と、
+    同じ関数の中で自分が作った物を消す名指しの所だけ。
     graphloops・tests・scripts の全部を見る——0.21.0 の事故（既定値から計算した親を消した）の層だけに柵を立てると、
     新しい消す口が守りを素通りする"""
     counts, scanned = _rmtree_refs(glharness.PLUGIN.parent)
@@ -384,4 +387,16 @@ def test_rmtree_fence_is_red_in_each_root(tmp_path, top, rel, body):
     (tmp_path / rel).write_text(body, encoding="utf-8")
     counts, _ = _rmtree_refs(tmp_path)
     assert _rmtree_violations(counts, {("graphloops/engine/commands.py", "launch_one"): (1, "x")})
+
+
+@pytest.mark.small
+@pytest.mark.parametrize("target", ["root-itself", "sibling", "dotdot"])
+def test_wave_wipe_refuses_a_path_not_below_its_root(tmp_path, target):
+    root = tmp_path / "root"
+    (root / "w").mkdir(parents=True)
+    (tmp_path / "keep").mkdir()
+    path = {"root-itself": root, "sibling": tmp_path / "keep", "dotdot": root / "w" / ".." / ".." / "keep"}[target]
+    with pytest.raises(ValueError):
+        waves._wipe(path, root)
+    assert (tmp_path / "keep").is_dir() and (root / "w").is_dir()
 
