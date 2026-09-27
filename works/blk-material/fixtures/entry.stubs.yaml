@@ -24,6 +24,7 @@ prior-decisions-prep:
   out_path: board/out/r1/p0.prior_decisions.json
   node: p0.prior_decisions
   already: false
+  stopped: false
 prior-decisions:
   material:
     status: clean
@@ -36,6 +37,7 @@ prior-decisions-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p0.prior_decisions

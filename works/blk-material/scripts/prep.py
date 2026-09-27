@@ -3,7 +3,8 @@
 # dependencies = []
 # ///
 """役を起こす前の支度（material.prep）: 本線の指示書を盤面から描き（拒否の後は理由を頭に）、起こした印を置く。
-出口 {prompt_file, prompt_text, attempt, out_path, node, already}（prompt_text は道具を持たない役だけ）"""
+出口 {prompt_file, prompt_text, attempt, out_path, node, already, stopped}（prompt_text は道具を持たない役だけ。
+盤面が止まっていれば描かず stopped: true——役の節は when: で飛ぶ）"""
 import sys
 from pathlib import Path
 

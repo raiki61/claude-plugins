@@ -16,8 +16,11 @@ p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle�
 - take:    旗の役の包みの柵（adapter 空の run）→ 作業ツリーを route の姿と比べる → 盤面の done（写しの schema・post_check・
            writes・check_record・settle）。拒否は material-rejects.json に積み、GIVE_UP_AFTER 回目で done・give_up
            （輪を max_iterations で落とさない。R50）
-- collect: 出口。回した後も待っている節が在れば（3 回とも拒まれた）盤面を止めて ok: False。本線の R3 の出口
-           （snapshot と materials）を組む
+- collect: 出口。回した後も待っている節が在れば（3 回とも拒まれた）盤面を止めて ok: False（諦めた目は全部名指す）。
+           本線の R3 の出口（snapshot と materials）を組む
+- 止まった盤面: 同じ波の 1 本の目が盤面を止めた（包みの柵）後は、並んで走る他の目の prep・take・refuse は盤面を書かずに
+           stopped: true を返す（prep は役を起こさせず、受け付けは done で輪を抜けさせ、拒否に数えない）。止めるのは
+           stop_once（もう止まった盤面には何も足さない）。輪が落ちずに collect まで届き、collect が止めた理由を返す
 
 盤面を書く口（route の settle・prep の印・take の done・collect の settle）は、盤面の置き場の錠（fcntl.flock）の中で開いて
 書く。Archon は同じ層の輪を同時に回すので、受け付けが並んで盤面を保存すると版の突き合わせ（BoardConflict）で落ちる
@@ -119,6 +122,7 @@ EXIT = "material-exit.json"
 LOCK = ".works-material.lock"
 PROMPTS_COPY = CORE / "gl-prompts"
 EXIT_KEYS = ("ok", "reason", "ran", "skipped", "materials", "snapshot", "exit_file")
+PREP_KEYS = ("prompt_file", "prompt_text", "attempt", "out_path", "node", "already", "stopped")   # prep の出口（YAML と突き合わせる）
 SNAPSHOT_KEYS = {"rev": "reviewed_revision", "diff_file": "diff_file", "changed_files": "changed_files",
                  "changed_files_file": "changed_files_file", "diff_stat": "diff_stat", "request_wheres": "request_wheres"}
 
@@ -179,6 +183,24 @@ def _stopped(b) -> dict | None:
     return None
 
 
+def stop_once(b, reason: str, by: str) -> dict:
+    """盤面を止める。もう止まっている盤面（同じ波の別の目が先に止めた）には何も足さず、今の止め札を返す——写しの stop は
+    2 度目を Reject にするので、並ぶ目の 2 本目の柵の落ちで輪の節が落ちないように。呼ぶのは盤面の錠の中だけ（確かめと止めが
+    割り込まれない）"""
+    stop = _stopped(b)
+    if stop:
+        return stop
+    b.stop(reason, by=by)
+    return _stopped(b) or {}
+
+
+def _stopped_take(b, nid: str) -> dict:
+    """止まった盤面に届いた返答の出口: 受けず・盤面を書かず・拒否に数えず、done で輪を抜けさせる（collect が止めた理由を返す）"""
+    stop = _stopped(b) or {}
+    return {"ok": False, "done": True, "give_up": False, "stopped": True, "node": nid, "status": "",
+            "reason": f"盤面は止まっている（{stop.get('by')}: {stop.get('reason', '')}）——{nid} の返答は受けない"}
+
+
 def _waiting(b, nid: str) -> dict:
     inst = b.rd["instances"].get(nid)
     if not (inst and inst.get("status") == "pending"):
@@ -230,7 +252,7 @@ def route(board_dir, repo, mode: str) -> dict:
                 bad = str(e)
             if bad:
                 reason = f"包みの確かめが通らない: 旗 no-tree-write の素材集めの役を起こさない（{bad}）"
-                b.stop(reason, by=FENCE_BY)
+                stop_once(b, reason, by=FENCE_BY)
                 return {"ok": True, "stopped": True, "why": reason, "snapshot_file": "", **off}
         p = b.work(SNAPSHOT)
         doc = _read_json(p)
@@ -291,10 +313,14 @@ def render(b, nid: str, purpose_file: str = "") -> str:
 
 
 def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
-    """役を起こす前の支度。返り {prompt_file, prompt_text, attempt, out_path, node, already}（prompt_text は PASTE の役だけ）"""
+    """役を起こす前の支度。返り PREP_KEYS（prompt_text は PASTE の役だけ）。盤面が止まっていれば（同じ波の別の目が止めた）
+    描かず・印を置かず stopped: true（役の節は when: で飛び、受け付けが止まった旨の done を出す）"""
     nid = _node(role)
     with _locked(board_dir):
-        b = _open(board_dir, repo)
+        b = _open(board_dir, repo, allow_halted=True)
+        if _stopped(b):
+            return {"prompt_file": "", "prompt_text": "", "attempt": 0, "out_path": "", "node": nid, "already": False,
+                    "stopped": True}
         inst = _waiting(b, nid)
         text = render(b, nid, purpose_file)
         last = _rejects(b, nid)[-1:]
@@ -308,7 +334,7 @@ def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
         _write_json(b.work(prepared_name(role)), {"node": nid, "at": adapter.now()})
         m = b.mark_launched(nid, inst.get("attempts", 1))
     return {"prompt_file": str(path), "prompt_text": text if role in PASTE else "", "attempt": m["attempt"],
-            "out_path": m["out_path"], "node": nid, "already": m["already"]}
+            "out_path": m["out_path"], "node": nid, "already": m["already"], "stopped": False}
 
 
 # ---------------------------------------------------------------- take
@@ -322,7 +348,7 @@ def _reject(b, nid: str, reason: str) -> dict:
     rows.append({"node": nid, "attempt": inst.get("attempts", 1), "at": now(), "reason": reason})
     _write_json(b.work(REJECTS), rows)
     give_up = sum(1 for r in rows if r.get("node") == nid) >= GIVE_UP_AFTER
-    return {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": nid, "status": ""}
+    return {"ok": False, "done": give_up, "give_up": give_up, "stopped": False, "reason": reason, "node": nid, "status": ""}
 
 
 def _peers(b, nid: str) -> list:
@@ -340,10 +366,13 @@ def _status(reply) -> str:
 
 
 def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
-    """役の返答を受け付ける。返り {ok, done, give_up, reason, node, status}。mode は入力 adapter（YAML の with:）"""
+    """役の返答を受け付ける。返り {ok, done, give_up, stopped, reason, node, status}。mode は入力 adapter（YAML の with:）。
+    盤面が止まっていれば（同じ波の別の目が止めた）受けずに stopped: true の done（_stopped_take）"""
     nid, mode = _node(role), _mode(mode)
     with _locked(board_dir):
-        b = _open(board_dir, repo)
+        b = _open(board_dir, repo, allow_halted=True)
+        if _stopped(b):
+            return _stopped_take(b, nid)
         _refuse_halted(b)
         _waiting(b, nid)
         if mode == "" and role in FLAGS:
@@ -353,8 +382,9 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
             why = adapter.fenced_launch(pathlib.Path(repo), role, prepared["at"])
             if why:
                 reason = f"包みの柵が素材集めの役（{role}）の起動に掛かっていない: {why}——返答を受けず盤面を止める"
-                b.stop(reason, by=FENCE_BY)
-                return {"ok": False, "done": True, "give_up": False, "reason": reason, "node": nid, "status": ""}
+                stop_once(b, reason, by=FENCE_BY)
+                return {"ok": False, "done": True, "give_up": False, "stopped": False, "reason": reason, "node": nid,
+                        "status": ""}
         snap = _read_json(b.work(SNAPSHOT))
         if not (isinstance(snap, dict) and set(TREE_KEYS) <= set(snap)):
             raise BoardGap(f"{b.work(SNAPSHOT)} が無い・形が違う——mat-route が先に走る")
@@ -369,14 +399,17 @@ def take(board_dir, role: str, reply: dict, repo, mode: str) -> dict:
             b.done(nid, reply)
         except AnswerReject as e:
             return _reject(b, nid, str(e))
-    return {"ok": True, "done": True, "give_up": False, "reason": "", "node": nid, "status": _status(reply)}
+    return {"ok": True, "done": True, "give_up": False, "stopped": False, "reason": "", "node": nid, "status": _status(reply)}
 
 
 def refuse(board_dir, role: str, reason: str) -> dict:
-    """返答を受け付けの前に拒む（読めない返答）。拒否の文は take の拒否と同じく material-rejects.json に積む"""
+    """返答を受け付けの前に拒む（読めない返答。役の節を飛ばした周の null もここに来る）。拒否の文は take の拒否と同じく
+    material-rejects.json に積む。盤面が止まっていれば take と同じく stopped: true の done"""
     nid = _node(role)
     with _locked(board_dir):
-        b = _open(board_dir)
+        b = _open(board_dir, allow_halted=True)
+        if _stopped(b):
+            return _stopped_take(b, nid)
         _waiting(b, nid)
         return _reject(b, nid, reason)
 
@@ -398,14 +431,18 @@ def collect(board_dir) -> dict:
             ready = b.settle()["ready"]
             waiting = [n for n in ROLES.values() if n in ready]
             if waiting:
-                nid = waiting[0]
-                rejects = _rejects(b, nid)
-                if (b.rd["instances"].get(nid) or {}).get("launched_at") and rejects:
-                    reason = f"{nid} の返答が {len(rejects)} 回とも受け付けで拒まれた（最後の拒否: {rejects[-1]['reason']}）"
-                else:
-                    reason = f"回した後も素材集めの節 {waiting} が待っている（route の後に ready が変わったか、輪が回らなかった）"
+                parts, unran = [], []
+                for nid in waiting:   # 諦めた目は全部名指す（先頭の 1 本だけにしない）
+                    rejects = _rejects(b, nid)
+                    if (b.rd["instances"].get(nid) or {}).get("launched_at") and rejects:
+                        parts.append(f"{nid} の返答が {len(rejects)} 回とも受け付けで拒まれた（最後の拒否: {rejects[-1]['reason']}）")
+                    else:
+                        unran.append(nid)
+                if unran:
+                    parts.append(f"回した後も素材集めの節 {unran} が待っている（route の後に ready が変わったか、輪が回らなかった）")
+                reason = "／".join(parts)
                 ok = False
-                b.stop(reason, by=STOP_BY)
+                stop_once(b, reason, by=STOP_BY)
         ran = [n for n in ROLES.values() if n in b.rd["done"]]
         skipped = [{"node": n, "why": str(_why_not(b, n))} for n in ROLES.values() if n not in b.rd["done"]]
         mats = {k: (v or {}).get("status", "") for k, v in (b.record.get("materials") or {}).items() if isinstance(v, dict)}

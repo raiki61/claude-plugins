@@ -25,6 +25,7 @@ provenance-prep:
   out_path: board/out/r1/p1.provenance.json
   node: p1.provenance
   already: false
+  stopped: false
 provenance:
   material:
     status: found
@@ -35,6 +36,7 @@ provenance-accept:
   ok: false
   done: true
   give_up: true
+  stopped: false
   reason: 'p1.provenance: 記録の整合が取れない（found なのに claims が 0 行）'
   reason_file: board/reject-take_provenance-3.txt
   node: p1.provenance

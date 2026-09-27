@@ -27,6 +27,7 @@ prior-decisions-prep:
   out_path: board/out/r1/p0.prior_decisions.json
   node: p0.prior_decisions
   already: false
+  stopped: false
 prior-decisions:
   material:
     status: clean
@@ -39,6 +40,7 @@ prior-decisions-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p0.prior_decisions
@@ -50,6 +52,7 @@ local-review-prep:
   out_path: board/out/r1/p1.local_review.json
   node: p1.local_review
   already: false
+  stopped: false
 local-review:
   material:
     status: clean
@@ -88,6 +91,7 @@ local-review-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.local_review
@@ -99,6 +103,7 @@ consistency-bypass-prep:
   out_path: board/out/r1/p1.consistency_bypass.json
   node: p1.consistency_bypass
   already: false
+  stopped: false
 consistency-bypass:
   consistency:
     status: clean
@@ -114,6 +119,7 @@ consistency-bypass-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.consistency_bypass
@@ -137,6 +143,7 @@ hygiene-prep:
   out_path: board/out/r1/p1.hygiene.json
   node: p1.hygiene
   already: false
+  stopped: false
 hygiene:
   findings: []
   seen: 差分の全部（stats.py の 1 行と notes.md）
@@ -144,6 +151,7 @@ hygiene-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.hygiene
@@ -155,6 +163,7 @@ external-standards-prep:
   out_path: board/out/r1/p1.external_standards.json
   node: p1.external_standards
   already: false
+  stopped: false
 external-standards:
   material:
     status: clean
@@ -175,6 +184,7 @@ external-standards-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.external_standards
@@ -186,6 +196,7 @@ procedure-trace-prep:
   out_path: board/out/r1/p1.procedure_trace.json
   node: p1.procedure_trace
   already: false
+  stopped: false
 procedure-trace:
   material:
     status: clean
@@ -196,6 +207,7 @@ procedure-trace-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.procedure_trace
@@ -207,6 +219,7 @@ gate-efficacy-prep:
   out_path: board/out/r1/p1.gate_efficacy.json
   node: p1.gate_efficacy
   already: false
+  stopped: false
 gate-efficacy:
   material:
     status: not_run
@@ -216,6 +229,7 @@ gate-efficacy-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.gate_efficacy
@@ -227,6 +241,7 @@ test-double-fidelity-prep:
   out_path: board/out/r1/p1.test_double_fidelity.json
   node: p1.test_double_fidelity
   already: false
+  stopped: false
 test-double-fidelity:
   material:
     status: clean
@@ -236,6 +251,7 @@ test-double-fidelity-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.test_double_fidelity
@@ -247,6 +263,7 @@ main-path-observation-prep:
   out_path: board/out/r1/p1.main_path_observation.json
   node: p1.main_path_observation
   already: false
+  stopped: false
 main-path-observation:
   material:
     status: clean
@@ -258,6 +275,7 @@ main-path-observation-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.main_path_observation
@@ -269,6 +287,7 @@ provenance-prep:
   out_path: board/out/r1/p1.provenance.json
   node: p1.provenance
   already: false
+  stopped: false
 provenance:
   material:
     status: clean
@@ -278,6 +297,7 @@ provenance-accept:
   ok: true
   done: true
   give_up: false
+  stopped: false
   reason: ''
   reason_file: ''
   node: p1.provenance

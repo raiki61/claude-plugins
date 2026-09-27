@@ -66,12 +66,29 @@ def proposed_table() -> NodeTable:
 
 
 TABLE = proposed_table()
+# 目的の節がラインに入った後の表（p0.purpose を blk-purpose の役、p0.purpose_review を素材集めの役に）。目的の審査の筋を通す
+PURPOSE_ROWS = {"p0.purpose": {"by": "role", "where": "blk-purpose"}, "p0.purpose_review": {"by": "role", "where": WHERE}}
+
+
+def purpose_table() -> NodeTable:
+    raw = json.loads((ROOT / LINE / "nodes.json").read_text(encoding="utf-8"))
+    for nid, row in {**PROPOSED_ROWS, **PURPOSE_ROWS}.items():
+        raw["nodes"][nid] = dict(row)
+    d = pathlib.Path(tempfile.mkdtemp(prefix="works-mat-table-"))
+    (d / "nodes.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    t = NodeTable.load(d / "nodes.json")
+    shutil.rmtree(d, ignore_errors=True)
+    return t
+
+
+PURPOSE_TABLE = purpose_table()
+_TABLE_NOW = [TABLE]   # 試験の表の差し替え（PurposeCase だけが PURPOSE_TABLE に替える）
 
 
 def _patched_table(line: str = LINE, *a, **kw):
     if line != LINE:
         raise BoardGap(f"試験の表は {LINE} だけ（{line!r}）")
-    return TABLE
+    return _TABLE_NOW[0]
 
 
 # ---------------------------------------------------------------- 役の返答の見本（写しの schema と post_check に通る形）
@@ -113,14 +130,28 @@ def good_reply(nid: str) -> dict:
 
 
 # ---------------------------------------------------------------- 盤面
-def _build_normal(into: pathlib.Path):
+PURPOSE_REPLY = {"purpose_text": "標本分散の分母の取り違えを直す", "source": "③writer の要約",
+                 "known_weaknesses": [], "source_files": []}
+
+
+def _build_purpose(into: pathlib.Path):
+    """目的の節がラインに在る盤面（PURPOSE_TABLE）。p0.purpose は writer の要約（③）で、1 周目なので目的の審査が待つ"""
+    bd, repo = _build_normal(into, table=PURPOSE_TABLE)
+    TE.launch(bd, "p0.purpose")
+    got = entry.take(bd, "p0.purpose", PURPOSE_REPLY, repo)
+    assert got["ok"], got
+    return bd, repo
+
+
+def _build_normal(into: pathlib.Path, table: NodeTable = None):
+    table = table or TABLE
     repo = linekit.seed_repo(into / "repo", declared=True)
     p = repo / "stats.py"
     p.write_text(p.read_text(encoding="utf-8").replace("(len(xs) - 1)", "len(xs)"), encoding="utf-8")
     (repo / "notes.md").write_text("# 手順\n\n1. python3 -m unittest test_stats\n", encoding="utf-8")
     bd = into / "art" / "board"
-    b = DiskBoard.create(bd, repo=repo, table=TABLE, inputs={}, request_text="素材集めの試験", stop_after_round=1,
-                         **entry.open_kwargs(LINE, TABLE))
+    b = DiskBoard.create(bd, repo=repo, table=table, inputs={}, request_text="素材集めの試験", stop_after_round=1,
+                         **entry.open_kwargs(LINE, table))
     b.settle()
     inst = TE.pending_inst(b, "p0.base")
     b.mark_launched("p0.base", inst["attempts"])
@@ -156,7 +187,7 @@ class Boards:
     def fresh(self, kind):
         into, snap = self.root / kind, self.root / f"{kind}.snap"
         if kind not in self.made:
-            self.made[kind] = {"normal": _build_normal, "entry": _build_entry}[kind](into)
+            self.made[kind] = {"normal": _build_normal, "entry": _build_entry, "purpose": _build_purpose}[kind](into)
             shutil.copytree(into, snap, symlinks=True)
         else:
             shutil.rmtree(into)
@@ -270,18 +301,27 @@ class ShapeCase(unittest.TestCase):
                 prep, ai, acc = inner[f"{role}-prep"], inner[role], inner[f"{role}-accept"]
                 self.assertEqual((prep["script"], prep["timeout"], prep["with"]),
                                  ("prep", 1728000000, {"role": role, "purpose_file": "$INPUTS.purpose_file"}))
+                self.assertEqual(set(prep["output_format"]["required"]), set(material.PREP_KEYS))
+                self.assertEqual(set(prep["output_format"]["properties"]), set(material.PREP_KEYS))
                 self.assertEqual(ai["command"], role)
                 self.assertTrue((BLK / "commands" / f"{role}.md").is_file())
                 self.assertEqual(ai["idle_timeout"], 1728000000)
                 self.assertEqual(ai["depends_on"], [f"{role}-prep"])
+                # 盤面が止まった後の周（同じ波の他の目が止めた）は役を起こさない。受け付けは飛ばした役の返答（null）で
+                # 止まった旨の done を出し、輪を抜ける
+                self.assertEqual(ai["when"], f"${role}-prep.output.stopped == false")
                 self.assertEqual(ai["output_format"], material.output_format(role))
                 self.assertEqual(ai["allowed_tools"], list(material.TOOLS[role]))
                 self.assertEqual(ai.get("settingSources"), list(material.SETTING_SOURCES.get(role, ())))
                 self.assertEqual(ai.get("skills"), material.SKILLS.get(role))
                 self.assertEqual(ai["sandbox"], material.SANDBOX[material.POSTURE[role]])
-                self.assertEqual((acc["script"], acc["timeout"], acc["depends_on"]), ("accept", 1728000000, [role]))
-                self.assertEqual(acc["with"], {"role": role, "reply": {"from": f"${role}.output"}, "adapter": "$INPUTS.adapter"})
+                self.assertEqual((acc["script"], acc["timeout"], acc["depends_on"]),
+                                 ("accept", 1728000000, [f"{role}-prep", role]))
+                self.assertEqual(acc["trigger_rule"], "none_failed_min_one_success")
+                self.assertEqual(acc["with"], {"role": role, "reply": {"from": f"${role}.output", "if_skipped": None},
+                                               "adapter": "$INPUTS.adapter"})
                 self.assertEqual(set(acc["output_format"]["required"]), {"ok", "done", "give_up", "reason", "reason_file"})
+                self.assertIn("stopped", acc["output_format"]["properties"])
         col = nodes["collect"]
         self.assertEqual(set(col["depends_on"]), {"mat-route", *(f"{r}-loop" for r in material.ROLES)})
         self.assertEqual(col["trigger_rule"], "none_failed_min_one_success")
@@ -535,6 +575,149 @@ class TakeCase(_Case):
         b = entry.open_board(bd)
         for role in roles:
             self.assertEqual(b.node_state(material.ROLES[role]), "done", role)
+
+    def test_collect_names_every_waiting_node(self):
+        """2 本の目が諦めたら、collect の理由は 2 本とも名指す（先頭の 1 本だけにしない）"""
+        bd, repo = self.board("normal")
+        r = material.route(bd, repo, "optional")
+        bad = {"provenance": good_reply("p1.provenance"), "test-double-fidelity": good_reply("p1.test_double_fidelity")}
+        bad["provenance"]["claims"] = "壊れた"
+        bad["test-double-fidelity"]["mismatches"] = "壊れた"
+        for role in material.ROLES:
+            if r[material.route_key(role)] and role not in bad:
+                self.assertTrue(self.run_role(role)["ok"], role)
+        for _ in range(material.GIVE_UP_AFTER):
+            for role, reply in bad.items():
+                self.run_role(role, reply)
+        out = material.collect(bd)
+        self.assertFalse(out["ok"])
+        for nid in ("p1.provenance", "p1.test_double_fidelity"):
+            self.assertIn(nid, out["reason"])
+
+
+def _board_bytes(bd: pathlib.Path) -> dict:
+    """盤面の state.json・record.json と out/ の中身（止まった後の受け付けが盤面を書かないことを見る）"""
+    got = {n: (bd / n).read_bytes() for n in ("state.json", "record.json") if (bd / n).is_file()}
+    got.update(TE.board_shas(bd / "out") if (bd / "out").exists() else {})
+    return got
+
+
+class StoppedBoardCase(_Case):
+    """同じ波の 1 本の目が盤面を止めた後も、並んで走る他の目の輪は普通に抜け（done・stopped）、collect が出口を返す"""
+
+    def _fenced_wave(self, roles):
+        bd, repo = self.board("normal")
+        import ticket
+        ticket.write(bd, repo, "run-mat")
+        r = material.route(bd, repo, "")
+        self.assertFalse(r["stopped"], r)
+        for role in roles:
+            material.prep(bd, role, repo, "")
+        return bd, repo
+
+    def test_peers_in_flight_after_mid_wave_stop(self):
+        bd, repo = self._fenced_wave(["provenance", "hygiene", "gate-efficacy", "consistency-bypass"])
+        first = material.take(bd, "provenance", good_reply("p1.provenance"), repo, "")   # 柵の記録が無い→止める
+        self.assertEqual((first["ok"], first["done"]), (False, True))
+        before = _board_bytes(bd)
+        for role, mode in (("hygiene", ""), ("gate-efficacy", ""), ("consistency-bypass", "optional")):
+            with self.subTest(role):
+                got = material.take(bd, role, good_reply(material.ROLES[role]), repo, mode)
+                self.assertEqual((got["ok"], got["done"], got["give_up"], got["stopped"]), (False, True, False, True), got)
+                self.assertIn(material.FENCE_BY, got["reason"])
+        # 読めない返答（飛ばした役の null）の受け付けも止まった旨の done
+        got = material.refuse(bd, "gate-efficacy", "返答が JSON のオブジェクトでない（NoneType）")
+        self.assertEqual((got["done"], got["stopped"]), (True, True))
+        # 輪の 2 周目の支度（または遅れて起きた目の支度）は役を起こさない印を返す
+        prep = material.prep(bd, "test-double-fidelity", repo, "")
+        self.assertIs(prep["stopped"], True)
+        self.assertEqual(set(prep), set(material.PREP_KEYS))
+        self.assertEqual(_board_bytes(bd), before)   # 止まった後の受け付けと支度は盤面を書かない
+        b = entry.open_board(bd, allow_halted=True)
+        self.assertEqual(material._read_json(b.work(material.REJECTS), []), [])   # 止まった旨は拒否の回数に積まない
+        out = material.collect(bd)
+        self.assertFalse(out["ok"])
+        self.assertIn(material.FENCE_BY, out["reason"])
+        self.assertIn("柵", out["reason"])
+
+    def test_accept_script_on_stopped_board_exits_0(self):
+        """スクリプトの入口: 飛ばした役の返答（null）でも、止まった盤面なら 0 で done・stopped を出す（輪の節を落とさない）"""
+        bd, repo = self._fenced_wave(["provenance", "gate-efficacy"])
+        material.take(bd, "provenance", good_reply("p1.provenance"), repo, "")
+        import contextlib
+        import io
+        env = {"ARTIFACTS_DIR": str(bd.parent), "INPUTS_ROLE": "gate-efficacy", "INPUTS_REPLY": "null", "INPUTS_ADAPTER": ""}
+        buf = io.StringIO()
+        old = os.getcwd()
+        os.chdir(repo)
+        try:
+            with mock.patch.dict("os.environ", env), contextlib.redirect_stdout(buf):
+                rc = material.main_accept()
+        finally:
+            os.chdir(old)
+        self.assertEqual(rc, 0)
+        out = json.loads(buf.getvalue())
+        self.assertEqual((out["done"], out["stopped"], out["ok"]), (True, True, False))
+
+    def test_two_concurrent_fence_failures(self):
+        """旗の役 2 本が同時に柵の確かめで落ちても、どちらも 0 で done を返し、盤面の止め札は 1 つだけ"""
+        roles = ["provenance", "gate-efficacy"]
+        bd, repo = self._fenced_wave(roles)
+        drv = (f"import sys, json; sys.dont_write_bytecode = True; sys.path[:0] = {[str(CORE), str(BLK / 'lib'), str(TESTS)]!r}\n"
+               "from unittest import mock\n"
+               "import entry, material, test_blk_material as T\n"
+               "role = sys.argv[1]\n"
+               "with mock.patch.object(entry, 'load_table', T._patched_table):\n"
+               "    got = material.take(sys.argv[2], role, T.good_reply(material.ROLES[role]), sys.argv[3], '')\n"
+               "print(json.dumps(got, ensure_ascii=False))\n")
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        procs = [subprocess.Popen([sys.executable, "-c", drv, role, str(bd), str(repo)], stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True, env=env, cwd=str(repo)) for role in roles]
+        outs = []
+        for p in procs:
+            out, err = p.communicate()
+            self.assertEqual(p.returncode, 0, err)
+            outs.append(json.loads(out))
+        self.assertTrue(all(o["done"] and not o["ok"] for o in outs), outs)
+        self.assertEqual(sorted(bool(o.get("stopped")) for o in outs), [False, True])   # 1 本が止め、1 本は止まった盤面を見る
+        st = entry.open_board(bd, allow_halted=True).state
+        self.assertEqual((st.get("stop") or st.get("halted") or {}).get("by"), material.FENCE_BY)
+
+    def test_stop_is_idempotent(self):
+        """もう止まった盤面に止め札を重ねない（記録も変えず、例外も出さない）"""
+        bd, repo = self._fenced_wave(["provenance"])
+        material.take(bd, "provenance", good_reply("p1.provenance"), repo, "")
+        before = _board_bytes(bd)
+        b = entry.open_board(bd, allow_halted=True)
+        got = material.stop_once(b, "2 本目の柵の落ち", by=material.FENCE_BY)
+        self.assertEqual(got.get("by"), material.FENCE_BY)
+        self.assertNotIn("2 本目", got.get("reason", ""))
+        self.assertEqual(_board_bytes(bd), before)
+
+
+class PurposeCase(_Case):
+    """目的の節がラインに入った後: 目的の審査（p0.purpose_review）が route・prep・take を通り、盤面の目的で描かれる"""
+
+    def setUp(self):
+        super().setUp()
+        _TABLE_NOW[0] = PURPOSE_TABLE
+
+    def tearDown(self):
+        _TABLE_NOW[0] = TABLE
+        super().tearDown()
+
+    def test_purpose_review_runs_its_path(self):
+        bd, repo = self.board("purpose")
+        r = material.route(bd, repo, "optional")
+        self.assertIs(r["purpose_review"], True, r["why"])
+        got = material.prep(bd, "purpose-review", repo, "")
+        text = pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(PURPOSE_REPLY["purpose_text"], text)           # 盤面の目的（purpose_file ではない）
+        self.assertNotIn(material.PURPOSE_MISSING, text)
+        reply = {"verdict": "問題なし", "reason": "要約は依頼の範囲を狭めていない", "findings": []}
+        took = material.take(bd, "purpose-review", reply, repo, "optional")
+        self.assertTrue(took["ok"], took)
+        self.assertEqual(entry.open_board(bd).node_state("p0.purpose_review"), "done")
 
 
 if __name__ == "__main__":

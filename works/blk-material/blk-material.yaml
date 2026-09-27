@@ -7,6 +7,8 @@ description: |
   役は同じ層で並んで走り（graphloops の engine が P1 の役を並べて起こすのと同じ）、受け付けは盤面の錠の中で 1 本ずつ書く。
   指示書は本線の a1202d0 の指示書を engine と同じ描き方で描いた物（prep が盤面の prompts/r<N>/ に書く。拒否の後は理由を頭に置く。R44）。
   拒否されたら同じ会話で出し直させ、3 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（R50）。collect が盤面を止める。
+  同じ波の 1 本の目が盤面を止めた後は、他の目の支度が stopped を返して役を飛ばし、受け付けが止まった旨の done で輪を抜ける
+  （輪を落とさず collect まで届き、collect が止めた理由を返す）。
   機械の節 p1.worktree_before・p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle・start）が回す。
   ラインから include で使う。前に p0.local_checks・p0.parallel_pr・p0.premises を済ませておく（P1 の目の依存）。
   出口 collect: {ok, reason, ran, skipped, materials, snapshot, exit_file}（本線の R3 の出口 snapshot・materials を含む）。
@@ -116,6 +118,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -129,10 +132,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: prior-decisions
         command: prior-decisions
         depends_on:
         - prior-decisions-prep
+        when: $prior-decisions-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -220,11 +227,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - prior-decisions-prep
         - prior-decisions
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: prior-decisions
           reply:
             from: $prior-decisions.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -240,6 +250,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -277,6 +289,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -290,10 +303,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: purpose-review
         command: purpose-review
         depends_on:
         - purpose-review-prep
+        when: $purpose-review-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -343,11 +360,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - purpose-review-prep
         - purpose-review
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: purpose-review
           reply:
             from: $purpose-review.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -363,6 +383,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -400,6 +422,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -413,10 +436,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: local-review
         command: local-review
         depends_on:
         - local-review-prep
+        when: $local-review-prep.output.stopped == false
         settingSources:
         - user
         allowed_tools:
@@ -519,11 +546,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - local-review-prep
         - local-review
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: local-review
           reply:
             from: $local-review.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -539,6 +569,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -576,6 +608,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -589,10 +622,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: consistency-bypass
         command: consistency-bypass
         depends_on:
         - consistency-bypass-prep
+        when: $consistency-bypass-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -715,11 +752,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - consistency-bypass-prep
         - consistency-bypass
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: consistency-bypass
           reply:
             from: $consistency-bypass.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -735,6 +775,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -772,6 +814,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -785,10 +828,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: hygiene
         command: hygiene
         depends_on:
         - hygiene-prep
+        when: $hygiene-prep.output.stopped == false
         settingSources: []
         allowed_tools: []
         sandbox:
@@ -829,11 +876,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - hygiene-prep
         - hygiene
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: hygiene
           reply:
             from: $hygiene.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -849,6 +899,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -886,6 +938,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -899,10 +952,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: external-standards
         command: external-standards
         depends_on:
         - external-standards-prep
+        when: $external-standards-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -1020,11 +1077,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - external-standards-prep
         - external-standards
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: external-standards
           reply:
             from: $external-standards.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -1040,6 +1100,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -1077,6 +1139,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -1090,10 +1153,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: procedure-trace
         command: procedure-trace
         depends_on:
         - procedure-trace-prep
+        when: $procedure-trace-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -1176,11 +1243,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - procedure-trace-prep
         - procedure-trace
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: procedure-trace
           reply:
             from: $procedure-trace.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -1196,6 +1266,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -1233,6 +1305,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -1246,10 +1319,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: gate-efficacy
         command: gate-efficacy
         depends_on:
         - gate-efficacy-prep
+        when: $gate-efficacy-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -1335,11 +1412,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - gate-efficacy-prep
         - gate-efficacy
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: gate-efficacy
           reply:
             from: $gate-efficacy.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -1355,6 +1435,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -1392,6 +1474,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -1405,10 +1488,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: test-double-fidelity
         command: test-double-fidelity
         depends_on:
         - test-double-fidelity-prep
+        when: $test-double-fidelity-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -1489,11 +1576,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - test-double-fidelity-prep
         - test-double-fidelity
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: test-double-fidelity
           reply:
             from: $test-double-fidelity.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -1509,6 +1599,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -1546,6 +1638,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -1559,10 +1652,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: main-path-observation
         command: main-path-observation
         depends_on:
         - main-path-observation-prep
+        when: $main-path-observation-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -1639,11 +1736,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - main-path-observation-prep
         - main-path-observation
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: main-path-observation
           reply:
             from: $main-path-observation.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -1659,6 +1759,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
@@ -1696,6 +1798,7 @@ nodes:
           - out_path
           - node
           - already
+          - stopped
           properties:
             prompt_file:
               type: string
@@ -1709,10 +1812,14 @@ nodes:
               type: string
             already:
               type: boolean
+            stopped:
+              type: boolean
+      # 同じ波の別の目が盤面を止めた後の周は役を起こさない（受け付けが止まった旨の done を出して輪を抜ける）
       - id: provenance
         command: provenance
         depends_on:
         - provenance-prep
+        when: $provenance-prep.output.stopped == false
         settingSources: []
         allowed_tools:
         - Read
@@ -1790,11 +1897,14 @@ nodes:
         runtime: uv
         timeout: 1728000000
         depends_on:
+        - provenance-prep
         - provenance
+        trigger_rule: none_failed_min_one_success   # 役を飛ばした周（盤面が止まっていた）も走り、done を出す
         with:
           role: provenance
           reply:
             from: $provenance.output
+            if_skipped: null
           adapter: $INPUTS.adapter
         output_format:
           type: object
@@ -1810,6 +1920,8 @@ nodes:
             done:
               type: boolean
             give_up:
+              type: boolean
+            stopped:
               type: boolean
             reason:
               type: string
