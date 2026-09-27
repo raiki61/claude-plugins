@@ -1,0 +1,23 @@
+{
+  "faces": [
+    {
+      "key": "stats.py clamp: docstring が境の値の扱いを書いていない",
+      "kind": "contract_drift",
+      "where": "stats.py",
+      "cite": "下限を下回った値は lo を",
+      "why": "docstring は 2 つの枝だけを書き、x が lo か hi に等しい境の値をそのまま返す約束が読む側に見えない"
+    }
+  ],
+  "checks": [
+    {
+      "key": "stats.py clamp: docstring が下限の枝の約束を書いていない",
+      "closed": true,
+      "why": "docstring に下限を下回った値は lo を返すと書かれ、下限の枝の約束のずれは塞がった"
+    },
+    {
+      "key": "stats.py clamp: docstring が上限の枝の約束を書いていない",
+      "closed": true,
+      "why": "docstring に上限と下限の両方の枝が書かれ、事前審査のずれは塞がった"
+    }
+  ]
+}

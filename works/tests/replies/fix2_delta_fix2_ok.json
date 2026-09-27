@@ -1,0 +1,9 @@
+{
+  "handled": [
+    {
+      "key": "stats.py clamp: docstring が境の値の扱いを書いていない",
+      "handled": "declared",
+      "how": "境の値（x == lo・x == hi）は本体が x をそのまま返し、2 つの枝の約束の外側で自明なので書き足さない"
+    }
+  ]
+}

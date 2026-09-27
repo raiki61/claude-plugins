@@ -3,7 +3,7 @@
 - YAML に書いた審査役の返答の型が、受け付けの規則が前提にする型（graph の p3.delta_review）と同じか（設計書 5.4 節）
 - blk-tests の節 run のスクリプト（scripts/run_tests.py）を、Archon を通さずに環境変数だけ与えて走らせ、緑も赤も ok: true で出るか。
   止められたらテストのコマンドが起こした孫まで止まるか（.shared/core/tree_run.py）
-- blk-delta の cut・collect のスクリプトを、使い捨ての対象リポジトリで起こして盤面と出口を見る
+- blk-delta の支度・受け付け・出口（refix の口とスクリプト）を、差分の審査の前まで進めた盤面（test_blk_refix.DeltaBoardCase）で見る
 - 作業ツリーの写し（snapshot_tree）が、未追跡のフォルダ（入れ子の git リポジトリ）で落ちないか
 筋書き（fixtures/*.stubs.yaml）は dev/check.sh が Archon で回す。
 """
@@ -30,7 +30,10 @@ REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
 SEED = ROOT / "dev" / "target-seed"
 sys.path.insert(0, str(CORE))
 
-from accept import check_delta, role_schema, snapshot_tree  # noqa: E402
+from accept import role_schema, snapshot_tree  # noqa: E402
+from board import BoardGap  # noqa: E402
+import policy  # noqa: E402
+import refix  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 
@@ -103,19 +106,25 @@ class TestDeltaSchema(unittest.TestCase):
         review = find_node(workflow("blk-delta")["nodes"], "review")
         self.assertEqual(validate_schema(load("delta_bad_cite"), review["output_format"]), [])
 
-    def test_delta_prompt_asks_for_empty_checks(self):
-        # 1 本目は修正役が「塞いだ」と言う穴を持たないので、checks の行は全部拒まれる
+    def test_delta_prompt_asks_for_checks_of_absorbed(self):
+        # 2 本目: 修正役が事前審査の穴に absorbed（塞いだ）と答えた物を 1 件ずつ検算させる（0.21.0 の p3.delta_review）。
+        # 事前審査の穴と修正役の plan_faces は支度（cut）が盤面から brief に書き、役はそれを読む
         body = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
-        self.assertIn("checks: []", body)
+        for word in ("checks", "absorbed", "closed", "out.p2.plan_review", "out.p3.fix.plan_faces", "faces_none"):
+            self.assertIn(word, body)
+        self.assertNotIn("checks: []", body)
         self.assertNotIn("{{", body)
 
     def test_delta_prompt_reads_block_outputs(self):
         # Ruling R16: 指示書の本文は同じブロックの節の出力を直に読む（include が節の名を付け替える）。
-        # 宣言していない $INPUTS.<名> は Archon 0.11.1 の include が読み込みで拒むので、節の with: で束ねない
+        # 拒否の理由は reason_file のパスだけ（裁定 R44）。$INPUTS は読まない——1 本目の blk-delta の YAML（Task 17 まで替えない）は
+        # 入口 policy_paste を持たず、宣言の無い $INPUTS はラインの include の読み込みで拒まれる。人の方針の本文は支度（cut）が
+        # brief の policy に書き、指示書はそれを読ませる（TA10 の「読む役には本文を届ける」）
         body = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
-        refs = re.findall(r"\$[A-Za-z_][A-Za-z0-9_.-]*", body)
-        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.review-accept.output.reason_file", "$cut.output.diff_file",
-                                             "$cut.output.files"])
+        refs = re.findall(r"\$[A-Za-z_][A-Za-z0-9_.-]*[A-Za-z0-9_]", body)
+        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.review-accept.output.reason_file",
+                                             "$cut.output.brief_file", "$cut.output.diff_file", "$cut.output.files"])
+        self.assertIn("`policy.paste`", body)
         review = find_node(workflow("blk-delta")["nodes"], "review")
         self.assertNotIn("with", review)
 
@@ -322,6 +331,7 @@ import contextlib  # noqa: E402
 
 import entry as real_entry  # noqa: E402
 import test_board_engine_run as ER  # noqa: E402
+import test_blk_refix as RF  # noqa: E402
 from engine import declared  # noqa: E402
 
 DECL_BROKEN = {"suite": []}
@@ -623,125 +633,191 @@ class TestTestsModes(ER.EngineRunCase):
                 self.assertIn("entry", err)
                 self.assertEqual(ER.disk_bytes(b), before)
 
-# ---------------------------------------------------------------- blk-delta の cut
-class TestCut(RepoCase):
-    def fix(self):
-        (self.repo / "stats.py").write_text((self.repo / "stats.py").read_text().replace("return lo\n    return x", "return hi\n    return x"))
-        (self.repo / "helper.py").write_text("def helper():\n    return 1\n")
+# ---------------------------------------------------------------- blk-delta の支度・受け付け・出口（盤面の上。線 A Task 13）
+# 1 本目の cut・accept・collect（偽の盤面の fix.diff・delta-review.json）は盤面の機械の節と refix の口に替わった。1 本目の試験の
+# 主張（未追跡・日本語の名前が差分に載る・触ったファイルの外の穴を拒む・読むだけの役の変化を拒む・受け付けていない出口は
+# 組まない・環境変数の欠け）は、盤面の上で同じく確かめる（test_blk_refix.DeltaBoardCase の盤面）
+class TestDeltaBoard(RF.DeltaBoardCase):
+    def test_cut_reads_board_fix_delta(self):
+        """p3.fix を受けた盤面 → cut(1) の diff_file は盤面の loop.fix_delta.file、files は stats.py（名前を組み立てない）。
+        役に見せる材料（事前審査の穴と修正役の plan_faces）を brief に書き、写しを撮り、起こした印を置く"""
+        repo = self.fixed()
+        got = refix.cut(self.board, 1, repo)
+        b = real_entry.open_board(self.board)
+        d = b.loop_state["fix_delta"]
+        self.assertEqual((got["ok"], got["diff_file"], got["files"], got["rev"]), (True, d["file"], ["stats.py"], d["rev"]))
+        patch = pathlib.Path(got["diff_file"]).read_text(encoding="utf-8")
+        self.assertIn("-    return sum(xs) / (len(xs) - 1)", patch)   # 周の頭に固めた版から
+        brief = json.loads(pathlib.Path(got["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual([f["key"] for f in brief["reads"]["out.p2.plan_review"]["faces"]], [RF.PR_KEY])
+        self.assertEqual([(r["key"], r["handled"]) for r in brief["reads"]["out.p3.fix.plan_faces"]], [(RF.PR_KEY, "absorbed")])
+        self.assertEqual(got["must"], [got["brief_file"], d["file"]])
+        self.assertEqual(brief["policy"], policy.brief(b))   # 方針の本文と写しの置き場（方針の文書が無い run は両方空）
+        self.assertEqual(json.loads(b.work(refix.snapshot_name(1)).read_text(encoding="utf-8")), snapshot_tree(repo))
+        self.assertTrue(b.rd["instances"]["p3.delta_review"].get("launched_at"))
+        self.assertEqual(refix.cut(self.board, 1, repo)["diff_file"], d["file"])   # 呼び直しても同じ（印は前の物）
 
-    def test_cut_writes_diff_snapshot_and_files(self):
-        self.fix()
-        r = self.run_script("blk-delta", "cut", base_rev=self.base)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        out = json.loads(r.stdout)
-        self.assertEqual(out, {"ok": True, "files": ["helper.py", "stats.py"], "diff_file": str(self.board / "fix.diff")})
-        diff = (self.board / "fix.diff").read_text(encoding="utf-8")
-        self.assertIn("+        return hi", diff)
-        self.assertIn("+def helper():", diff)       # 未追跡のファイルも差分に載る
-        self.assertEqual(json.loads((self.board / "delta-snapshot.json").read_text()), snapshot_tree(self.repo))
-        # 切った直後の作業ツリーのままなら、受け付けは写しとの突き合わせを通る
-        self.assertTrue(check_delta(load("delta_ok"), self.board, self.base, self.repo)["ok"])
+    def test_review_faces_make_owed(self):
+        """fix2_delta_review_faces（穴 1 件・塞がっていない検算 1 件）→ settle の後 loop.delta_owed に 2 件、ready に
+        p3.delta_fix、collect_delta の owed ≥ 1"""
+        repo, got = self.reviewed("fix2_delta_review_faces")
+        self.assertIn("p3.delta_fix", got["ready"])
+        b = real_entry.open_board(self.board)
+        self.assertEqual({r["key"] for r in b.loop_state["delta_owed"]["rows"]}, {RF.F1, RF.PR_KEY})
+        out = refix.collect_delta(self.board)
+        self.assertEqual((out["faces"], out["owed"]), (1, 2))
 
-    def test_cut_empty_base_rev_means_head(self):
-        self.fix()
-        r = self.run_script("blk-delta", "cut", base_rev="")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["files"], ["helper.py", "stats.py"])
+    def test_review_none_skips_refix(self):
+        """fix2_delta_review_none（faces_none・検算は塞がった）→ ready に p3.delta_fix が無い、owed 0"""
+        repo, got = self.reviewed("fix2_delta_review_none")
+        self.assertNotIn("p3.delta_fix", got["ready"])
+        self.assertIn("p4.ci", got["ready"])
+        self.assertEqual((refix.collect_delta(self.board)["owed"], refix.route(self.board)["owed"]), (0, 0))
 
-    def test_cut_clean_tree(self):
-        r = self.run_script("blk-delta", "cut", base_rev="")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["files"], [])
-        self.assertEqual((self.board / "fix.diff").read_text(), "")
+    def test_review_policy_kind_rejected(self):
+        """regression・policy の語の穴 → ok False（事前審査だけの kind。修正の後の後退・方針は R4 と関所の担当）。盤面は前のまま"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        before = RF.TE.board_shas(self.board)
+        for kind in ("policy", "regression"):
+            with self.subTest(kind):
+                reply = load("fix2_delta_review_policy_kind")
+                reply["faces"][0]["kind"] = kind
+                got = refix.accept_review(reply, self.board, "", repo, n=1)
+                self.assertFalse(got["ok"])
+                self.assertIn(kind, got["reason"])
+                self.assertEqual(RF.TE.board_shas(self.board), before)
 
-    def test_cut_skips_bytecode(self):
-        # 種の .gitignore が無く、テストがバイトコードを作った作業ツリー。追跡している .pyc が変わっても差分に載せない
-        git(self.repo, "rm", "-q", ".gitignore")
-        (self.repo / "old.pyc").write_bytes(b"\x00old")
-        git(self.repo, "add", "old.pyc")
-        git(self.repo, "commit", "-q", "-m", "no ignore")
-        base = git(self.repo, "rev-parse", "HEAD")
-        (self.repo / "old.pyc").write_bytes(b"\x00new")
-        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
-        subprocess.run([sys.executable, "-m", "unittest", "-q", "test_stats"], cwd=str(self.repo), env=env,
-                       capture_output=True, timeout=120)
-        self.assertTrue(list(self.repo.rglob("*.pyc")))                  # バイトコードは本当に出来た
-        self.fix()
-        r = self.run_script("blk-delta", "cut", base_rev=base)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["files"], ["helper.py", "stats.py"])
-        diff = (self.board / "fix.diff").read_text(encoding="utf-8", errors="replace")
-        self.assertNotIn(".pyc", diff)
-        self.assertNotIn("__pycache__", diff)
+    def test_review_readonly_tree_changed(self):
+        """写しの後に作業ツリーを変える → ok False（読むだけの役が作業ツリーを変えた）。戻せば通る"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        (repo / "stray.txt").write_text("審査役が書いた\n", encoding="utf-8")
+        got = refix.accept_review(load("fix2_delta_review_none"), self.board, "", repo, n=1)
+        self.assertFalse(got["ok"])
+        self.assertTrue(got["reason"].startswith(real_entry.READONLY_MOVED), got["reason"])
+        self.assertIn("stray.txt", got["reason"])
+        (repo / "stray.txt").unlink()
+        self.assertTrue(refix.accept_review(load("fix2_delta_review_none"), self.board, "", repo, n=1)["ok"])
 
-    def test_seed_ignores_bytecode(self):
-        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
-        subprocess.run([sys.executable, "-m", "unittest", "-q", "test_stats"], cwd=str(self.repo), env=env,
-                       capture_output=True, timeout=120)
-        self.assertEqual(git(self.repo, "status", "--porcelain", "--untracked-files=all"), "")
+    def test_review_face_outside_touched_files_rejected(self):
+        """触っていないファイルの穴・今の姿に無い cite → ok False（写しの delta_review_output の文）。1 本目の bad-cite と同じ主張"""
+        repo = self.fixed()
+        refix.cut(self.board, 1, repo)
+        for where, cite, word in (("test_stats.py", "import unittest", "触ったファイルでない"),
+                                  ("stats.py", "return hi + 1", "今の姿に無い")):
+            with self.subTest(where=where, cite=cite):
+                reply = load("fix2_delta_review_faces")
+                reply["faces"][0].update(where=where, cite=cite)
+                got = refix.accept_review(reply, self.board, "", repo, n=1)
+                self.assertFalse(got["ok"])
+                self.assertIn(word, got["reason"])
 
-    def test_cut_and_accept_japanese_name(self):
-        # 日本語の名前も git の引用（"\346\227\245..."）でなく、そのままの名前で files と受け付けに乗る
-        (self.repo / "日本.py").write_text("def 日付():\n    return 1\n", encoding="utf-8")
-        (self.repo / "stats.py").write_text((self.repo / "stats.py").read_text() + "\n# 直した\n")
-        git(self.repo, "add", "日本.py")                                   # 追跡している側（diff --name-only）
-        (self.repo / "未追跡.py").write_text("x = 1\n", encoding="utf-8")  # 未追跡の側（ls-files）
-        r = self.run_script("blk-delta", "cut", base_rev=self.base)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["files"], sorted(["stats.py", "日本.py", "未追跡.py"]))
-        self.assertIn("未追跡.py", (self.board / "fix.diff").read_text(encoding="utf-8"))
-        for where, cite in (("日本.py", "def 日付():"), ("未追跡.py", "x = 1")):
-            reply = {"faces": [{"key": f"{where} 使われない物", "kind": "dead_path", "where": where, "cite": cite,
-                                "why": "どこからも呼ばれない物を修正が足している"}], "checks": []}
-            res = check_delta(reply, self.board, self.base, self.repo)
-            self.assertTrue(res["ok"], res["reason"])
+    def test_delta_exit_keeps_v1_fields(self):
+        """collect_delta の鍵 ⊇ {ok, faces, review_file, diff_file}（1 本目の出口）。足すのは owed・fix_rev・reads_file"""
+        repo, _ = self.reviewed("fix2_delta_review_faces")
+        out = refix.collect_delta(self.board)
+        self.assertEqual(set(out), {"ok", "faces", "review_file", "diff_file", "owed", "fix_rev", "reads_file"})
+        b = real_entry.open_board(self.board)
+        self.assertEqual(out["review_file"], str(self.board / b.state["outputs"]["p3.delta_review"]["file"]))
+        self.assertEqual((out["diff_file"], out["fix_rev"]), (b.loop_state["fix_delta"]["file"], b.loop_state["fix_delta"]["rev"]))
+        self.assertEqual(json.loads(pathlib.Path(out["review_file"]).read_text(encoding="utf-8"))["faces"][0]["key"], RF.F1)
+        self.assertEqual(out["reads_file"], "")
+        yaml_collect = find_node(workflow("blk-delta")["nodes"], "collect")["output_format"]
+        self.assertLessEqual(set(yaml_collect["required"]), set(out))
 
-    def test_cut_bad_base_rev_stops_the_run(self):
-        r = self.run_script("blk-delta", "cut", base_rev="no-such-rev")
-        self.assertEqual(r.returncode, 1)
-        self.assertEqual(r.stdout, "")
-        self.assertIn("no-such-rev", r.stderr)
+    def test_cut_removes_stale_outputs(self):
+        """新しい審査の前に、前の試みの自分の出力（brief・reads-review.json、1 本目が盤面の根に書いた delta-review.json・
+        fix.diff・delta-snapshot.json）を消す。出口は盤面の今の周の返答だけを数え、前の審査の穴を数えない（自分食いの 1 本目の穴）"""
+        repo = self.fixed()
+        b = real_entry.open_board(self.board)
+        stale = {"faces": [{"key": f"前の審査の穴 {i}"} for i in range(5)], "checks": []}
+        planted = [self.board / name for name in ("delta-review.json", "fix.diff", "delta-snapshot.json")]
+        planted += [b.work("reads-review.json"), b.work("review1-brief.json")]
+        for p in planted:
+            p.write_text(json.dumps(stale, ensure_ascii=False), encoding="utf-8")
+        got = refix.cut(self.board, 1, repo)
+        self.assertEqual([p for p in planted if p.exists() and str(p) != got["brief_file"]], [])
+        self.assertNotIn("前の審査の穴", pathlib.Path(got["brief_file"]).read_text(encoding="utf-8"))
+        with self.assertRaises(BoardGap):   # まだ受け付けていない審査の出口は組まない（前の試みの物を数えない）
+            refix.collect_delta(self.board)
+        refix.accept_review(load("fix2_delta_review_none"), self.board, "", repo, n=1)
+        out = refix.collect_delta(self.board)
+        self.assertEqual((out["faces"], out["reads_file"]), (0, ""))
 
-    def test_cut_missing_env(self):
+    def test_cut_untracked_japanese_bytecode(self):
+        """修正が足した未追跡のファイルと日本語の名前も、盤面の差分と files にそのままの名前で載り、その cite は受け付けを通る。
+        テストが作ったバイトコード（種の .gitignore が無視する）は載らない。入れ子の git リポジトリ（未追跡）でも写しは落ちない"""
+        def extra(repo):
+            (repo / "日本.py").write_text("def 日付():\n    return 1\n", encoding="utf-8")
+            git(repo, "add", "日本.py")                                    # 追跡している側
+            (repo / "未追跡.py").write_text("x = 1\n", encoding="utf-8")   # 未追跡の側
+            sub = repo / "sub"
+            sub.mkdir()
+            (sub / "a.txt").write_text("a\n")
+            git(sub, "init", "-q")
+            git(sub, "add", "-A")
+            git(sub, "commit", "-q", "-m", "sub")
+            env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+            subprocess.run([sys.executable, "-m", "unittest", "-q", "test_stats"], cwd=str(repo), env=env,
+                           capture_output=True, stdin=subprocess.DEVNULL)
+            self.assertTrue(list(repo.rglob("*.pyc")))                    # バイトコードは本当に出来た
+        repo = self.fixed(before_fix=extra)
+        got = refix.cut(self.board, 1, repo)
+        self.assertTrue(got["ok"], got)
+        self.assertTrue({"stats.py", "日本.py", "未追跡.py"} <= set(got["files"]), got["files"])
+        self.assertFalse([f for f in got["files"] if f.endswith(".pyc") or "__pycache__" in f], got["files"])
+        patch = pathlib.Path(got["diff_file"]).read_text(encoding="utf-8", errors="replace")
+        # 差分のファイルは写しの RL の fix_delta が書く（git diff のまま）。日本語のパスは git の既定（core.quotepath）で
+        # 8 進の引用になる——1 本目の cut（字のまま）との差で、名前の正本は files（-z で引いた字のまま）。中身は載る
+        quoted = '"b/' + "".join(f"\\{b:03o}" for b in "未追跡".encode("utf-8")) + '.py"'
+        self.assertIn(quoted, patch)
+        self.assertIn("+x = 1", patch)
+        self.assertIn("+def 日付():", patch)
+        self.assertNotIn(".pyc", patch)
+        reply = {"faces": [{"key": f"{where} 使われない物", "kind": "dead_path", "where": where, "cite": cite,
+                            "why": "どこからも呼ばれない物を修正が足している"} for where, cite in
+                           (("日本.py", "def 日付():"), ("未追跡.py", "x = 1"))],
+                 "checks": load("fix2_delta_review_none")["checks"]}
+        res = refix.accept_review(reply, self.board, "", repo, n=1)
+        self.assertTrue(res["ok"], res.get("reason"))
+
+    def test_delta_scripts(self):
+        """cut・accept・collect をスクリプトで。受けていない出口（collect）・支度に要る物が無い（cut）・環境変数の欠けは 2 で
+        標準出力は空。中身の拒否は 0 と 1 行（reason_file つき）"""
+        repo = self.fixed()
+        r = self.run_script("blk-delta", "collect", repo)
+        self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
         env_less = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
-        r = subprocess.run([sys.executable, str(ROOT / "blk-delta" / "scripts" / "cut.py")], cwd=str(self.repo),
-                           env={**env_less, "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True, timeout=120)
-        self.assertEqual(r.returncode, 2)
-        self.assertEqual(r.stdout, "")
-
-
-# ---------------------------------------------------------------- blk-delta の accept と collect
-class TestAcceptCollect(RepoCase):
-    def test_accept_then_collect_counts_faces(self):
-        (self.repo / "stats.py").write_text((self.repo / "stats.py").read_text().replace("return lo\n    return x", "return hi + 1\n    return x"))
-        reply = json.dumps(load("delta_bad_cite"), ensure_ascii=False)   # stats.py を触ったので cite は今の姿に在る
-        r = self.run_script("blk-delta", "accept", reply=reply, base_rev=self.base)
+        r = subprocess.run([sys.executable, str(ROOT / "blk-delta" / "scripts" / "cut.py")], cwd=str(repo),
+                           env={**env_less, "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL)
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+        r = self.run_script("blk-delta", "cut", repo)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["ok"], True, r.stdout)
-        self.assertEqual(self.run_script("blk-delta", "cut", base_rev=self.base).returncode, 0)
-        r = self.run_script("blk-delta", "collect")
+        self.assertEqual(json.loads(r.stdout)["files"], ["stats.py"])
+        bad = load("fix2_delta_review_faces")
+        bad["faces"][0]["where"] = "test_stats.py"
+        r = self.run_script("blk-delta", "accept", repo, reply=json.dumps(bad, ensure_ascii=False), base_rev="")
         self.assertEqual(r.returncode, 0, r.stderr)
-        out = json.loads(r.stdout)
-        # 出口は穴の数と、run の後に人が見る審査の返答・修正の差分のパス（I4）
-        self.assertEqual(out, {"ok": True, "faces": 1, "review_file": str(self.board / "delta-review.json"),
-                               "diff_file": str(self.board / "fix.diff")})
-        self.assertTrue(pathlib.Path(out["diff_file"]).exists())
-        collect = find_node(workflow("blk-delta")["nodes"], "collect")
-        self.assertEqual(validate_schema(out, collect["output_format"]), [])
-        self.assertEqual(sorted(collect["output_format"]["required"]), ["diff_file", "faces", "ok", "review_file"])
-
-    def test_accept_rejects_face_outside_touched_files(self):
-        r = self.run_script("blk-delta", "accept", reply=json.dumps(load("delta_bad_cite")), base_rev="")
+        got = json.loads(r.stdout)
+        self.assertFalse(got["ok"])
+        self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), got["reason"])
+        r = self.run_script("blk-delta", "accept", repo, reply=json.dumps(load("fix2_delta_review_faces"), ensure_ascii=False),
+                            base_rev="")
+        self.assertTrue(json.loads(r.stdout)["ok"], r.stdout)
+        r = self.run_script("blk-delta", "collect", repo)
         self.assertEqual(r.returncode, 0, r.stderr)
-        out = json.loads(r.stdout)
-        self.assertFalse(out["ok"])
-        self.assertTrue(out["reason"])
-        self.assertFalse((self.board / "delta-review.json").exists())   # 拒んだ返答は盤面に残さない
-
-    def test_collect_without_accepted_review_fails(self):
-        r = self.run_script("blk-delta", "collect")
-        self.assertEqual(r.returncode, 1)
-        self.assertEqual(r.stdout, "")
+        self.assertEqual({k: json.loads(r.stdout)[k] for k in ("ok", "faces", "owed")}, {"ok": True, "faces": 1, "owed": 2})
+        r = self.run_script("blk-delta", "cut", repo)                    # 審査は済んだ（待っていない）→ 配線の誤り
+        self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
+        for name, inputs in (("cut", ()), ("accept", ("INPUTS_REPLY", "INPUTS_BASE_REV")), ("collect", ()),
+                             ("reads", ("INPUTS_MUST",))):
+            with self.subTest(name):
+                src = (ROOT / "blk-delta" / "scripts" / f"{name}.py").read_text(encoding="utf-8")
+                m = re.search(r"^INPUTS = (\(.*?\))", src, re.M)
+                self.assertEqual(eval(m.group(1)), inputs)   # noqa: S307（自分のリポジトリの定数の字）
+        self.assertFalse([*CORE.rglob("__pycache__")])
 
 
 # ---------------------------------------------------------------- snapshot_tree と未追跡のフォルダ
@@ -758,16 +834,6 @@ class TestSnapshotNestedRepo(RepoCase):
         self.assertEqual(before, snapshot_tree(self.repo))   # 同じ姿なら同じ写し
         (sub / "a.txt").write_text("b\n")                    # 入れ子の中身が変われば写しも変わる
         self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
-
-    def test_cut_and_accept_with_nested_repo(self):
-        sub = self.repo / "sub"
-        sub.mkdir()
-        (sub / "a.txt").write_text("a\n")
-        git(sub, "init", "-q")
-        r = self.run_script("blk-delta", "cut", base_rev="")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("sub/", json.loads(r.stdout)["files"])
-        self.assertTrue(check_delta(load("delta_ok"), self.board, "", self.repo)["ok"])
 
 
 if __name__ == "__main__":
