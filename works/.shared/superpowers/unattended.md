@@ -1,6 +1,6 @@
 # 借りた superpowers のスキルを無人の役で読むときの読み替え
 
-対象は superpowers 6.4.2 の写し（`6.4.2/skills/` の 5 本）。写しは直さない。スキルの文が人（your human partner）や調整役（下請けの AI を起こす親の会話）を前提にしている所は、works の無人の役ではこのファイルの決まりで読み替える。スキルの文とこのファイルがぶつかったら、このファイルが勝つ。さらに、役の指示書（`blk-*/commands/*.md`）と節の `output_format` は、このファイルより勝つ。
+対象は superpowers 6.4.2 の写し（`6.4.2/skills/` の 5 本）。写しは直さない。スキルの文が人（your human partner）や調整役（下請けの AI を起こす親の会話）を前提にしている所は、works の無人の役ではこのファイルの決まりで読み替える。スキルの文とこのファイルがぶつかったら、このファイルが勝つ。さらに、役の指示書（`blk-*/commands/*.md` と、支度の節が組んで役に読ませる指示書）と節の `output_format` は、このファイルより勝つ。
 
 ## 読み方
 
@@ -12,7 +12,7 @@
 
 ## 義務の単位の行き先（修正役。どの決まりもこれに従う）
 
-修正役の指示書 `blk-fix/commands/fix.md` と同じ行。受け付け（`fix_covers_open_units`）は、直す義務の単位が `changes` に無ければ、`not_done` に理由を書いても拒む。
+修正の決まりの正本 `blk-fix/rules/common.md`（機械が修正役と TDD の輪の役の指示書に組み込む）と同じ行。受け付け（`fix_covers_open_units`）は、直す義務の単位が `changes` に無ければ、`not_done` に理由を書いても拒む。
 
 - **義務の単位の行き先**: 直す義務の単位（[block] と do-now）は、必ず直して `changes` に 1 行で載せる。判定の前提・人の方針・直し方に疑いが残っても、方針に反しない範囲で一番ましな直しを載せ（根を塞げなければ `root_or_symptom` を symptom にして why に理由を書く）、疑いの理由は `rejudge_requested` に書く（判定役が次に読み直す）。`not_done` に書けるのは、受け付けが免除する単位（問いの台帳で fork の出どころか depends に挙がった単位）と、義務の外の単位だけ。
 
@@ -32,11 +32,11 @@
 
 ## POLICY 人の決めたこと・方針とぶつかる
 
-自分の判断で通さない。修正役は「義務の単位の行き先」に従う: 直す義務の単位は、方針に反しない範囲の直しを `changes` に載せ、どの方針の項とぶつかるかを `rejudge_requested` に書く。義務の外の単位なら `not_done` に書く。手直しは `declared` の `how` に書く。方針の文書は書き換えない（`blk-fix/commands/fix.md`・`blk-refix/commands/refix.md` と同じ）。
+自分の判断で通さない。修正役は「義務の単位の行き先」に従う: 直す義務の単位は、方針に反しない範囲の直しを `changes` に載せ、どの方針の項とぶつかるかを `rejudge_requested` に書く。義務の外の単位なら `not_done` に書く。手直しは `declared` の `how` に書く。方針の文書は書き換えない（`blk-fix/rules/common.md`・`blk-refix/commands/refix.md` と同じ）。
 
 ## COMMIT commit・push・PR・merge
 
-修正役は commit しない。`git add`・`git commit`・`git stash`・`git reset`・`git checkout` で作業ツリーや履歴を動かさず、差分は作業ツリーに残したまま返す（`blk-fix/commands/fix.md` と同じ）。push・PR・merge は役の仕事ではない（線の後ろのブロックと人の関所が持つ）。「commit の前に確かめる」は「返答を返す前に確かめる」と読む。
+修正役は commit しない。`git add`・`git commit`・`git stash`・`git reset`・`git checkout` で作業ツリーや履歴を動かさず、差分は作業ツリーに残したまま返す（`blk-fix/rules/common.md` と同じ）。push・PR・merge は役の仕事ではない（線の後ろのブロックと人の関所が持つ）。「commit の前に確かめる」は「返答を返す前に確かめる」と読む。
 
 ## SP-REF `superpowers:` の名前での参照
 

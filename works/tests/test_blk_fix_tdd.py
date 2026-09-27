@@ -117,7 +117,9 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(g["until_bash"], "test $tdd-step.output.done = true", "印で抜ける（R50）")
         self.assertEqual([n["id"] for n in g["nodes"]], ["tdd-prep", "tdd", "tdd-step"])
         prep, role, step = g["nodes"]
-        self.assertEqual(prep["with"], {"state_file": "$tdd-start.output.state_file"})
+        self.assertEqual(prep["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",
+                                        "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
+                                        "notes_file": "$INPUTS.notes_file"})
         self.assertEqual(role["depends_on"], ["tdd-prep"])
         self.assertEqual(step["depends_on"], ["tdd"])
         self.assertEqual(step["with"], {"reply": {"from": "$tdd.output"}, "state_file": "$tdd-start.output.state_file"})
@@ -128,12 +130,14 @@ class TestYaml(unittest.TestCase):
 
     def test_tdd_role_node(self):
         role = find_node(block()["nodes"], "tdd")
-        self.assertEqual(role["command"], "tdd")
+        self.assertNotIn("command", role)
+        self.assertIn("`$tdd-prep.output.prompt_file` を Read で", role["prompt"])
         self.assertEqual(role["settingSources"], ["user"])
         self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
         of = role["output_format"]
+        self.assertEqual(of["description"], "works-node: tdd", "包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ")
         self.assertIs(of["additionalProperties"], False)
         self.assertEqual(of["required"], ["phase"])
         self.assertEqual(of["properties"]["phase"]["enum"], list(tddloop.PHASES))
@@ -150,18 +154,17 @@ class TestYaml(unittest.TestCase):
         self.assertEqual(out["properties"]["tdd"]["type"], "object")
 
     def test_prompts(self):
-        body = (BLK / "commands" / "tdd.md").read_text(encoding="utf-8")
-        self.assertIn("$tdd-prep.output.prompt_file", body)
-        self.assertIn("$INPUTS.judgment_file", body)
-        self.assertNotIn("$LOOP_PREV", body, "理由は指示書のファイルで渡す（R44）")
-        self.assertIn("git commit", body)
-        fix = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
-        self.assertIn("$tdd-start.output.summary_file", fix)
+        """役の指示は 1 行（tdd-prep が組んだ指示書を読む）。理由は指示書のファイルで渡す（R44）。輪の後の修正役は輪の結果を読む"""
+        role = find_node(block()["nodes"], "tdd")
+        self.assertNotIn("$LOOP_PREV", role["prompt"])
+        fix_prep = find_node(block()["nodes"], "fix-prep")
+        self.assertEqual(fix_prep["with"]["summary_file"], "$tdd-start.output.summary_file")
 
     def test_script_inputs(self):
         import ast
         import re
-        want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS"), "tdd_prep": ("INPUTS_STATE_FILE",),
+        want = {"tdd_start": ("INPUTS_TDD_SUITE", "INPUTS_OPEN_UNITS"), "tdd_prep": ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE",
+                                                                                       "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE"),
                 "tdd_step": ("INPUTS_REPLY", "INPUTS_STATE_FILE"),
                 "accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD")}
@@ -289,6 +292,33 @@ class TestStart(LoopCase):
         for w in ("route", MEAN, CLAMP, str(self.suite)):
             self.assertIn(w, prompt)
         self.assertEqual(git(self.repo, "status", "--porcelain"), "", "元の結末を取っても作業ツリーは変わらない")
+
+    def test_prompt_is_composed_from_the_shared_rules(self):
+        """tdd-prep の指示書: 修正の決まりの正本の核・TDD の読み替え・今の段の約束（今の段だけ）・今の段の指示。next.md は full の
+        写しで、隣に full・delta・控え。2 回目の delta は変わった物と決まりの sha256 の 1 行だけ（正本の核を載せない）"""
+        import fixrules
+        core = fixrules.sections(fixrules.SHARED)["core-fix"]
+        out = tddloop.prep(self.state, {"judgment_file": "/b/j.json"}, self.repo)
+        prompt = pathlib.Path(out["prompt_file"])
+        full = prompt.read_text(encoding="utf-8")
+        for s in (core, fixrules.sections(fixrules.SHARED)["core-keep"], "## この輪での読み替え", "- **route**:",
+                  "## この段ですること", "`/b/j.json`"):
+            self.assertIn(s, full)
+        self.assertNotIn("- **test**:", full, "今の段の約束だけ")
+        self.assertEqual(fixrules.beside(prompt, fixrules.FULL).read_text(encoding="utf-8"), full)
+        self.assertEqual(fixrules.beside(prompt, fixrules.DELTA).read_text(encoding="utf-8"), full, "1 回目の delta は full")
+        first = json.loads(fixrules.beside(prompt, fixrules.VARIANTS).read_text(encoding="utf-8"))
+        self.route()
+        tddloop.prep(self.state, {"judgment_file": "/b/j.json"}, self.repo)
+        full2 = prompt.read_text(encoding="utf-8")
+        delta2 = fixrules.beside(prompt, fixrules.DELTA).read_text(encoding="utf-8")
+        self.assertIn(core, full2, "既定（prompt_file）は full")
+        self.assertNotIn(core, delta2)
+        self.assertIn(first["rules_sha"], delta2)
+        for s in ("- **test**:", "## この段ですること", "段 test"):
+            self.assertIn(s, delta2)
+        side = json.loads(fixrules.beside(prompt, fixrules.VARIANTS).read_text(encoding="utf-8"))
+        self.assertEqual((side["iteration"], side["delta_is_full"]), (2, False))
 
     def test_second_start_gets_its_own_state(self):
         again = tddloop.start(self.board, self.repo, str(self.suite), OPEN)
@@ -455,9 +485,16 @@ class TestUnitLoop(LoopCase):
         got = json.loads(out)
         self.assertEqual((got["ok"], got["done"]), (False, False))
         self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), got["reason"])
-        code, out, err = run_script("tdd_prep", self.repo, {"INPUTS_STATE_FILE": self.state})
+        env = {"INPUTS_STATE_FILE": self.state, "INPUTS_JUDGMENT_FILE": "/b/j.json", "INPUTS_PLAN_FILE": "",
+               "INPUTS_POLICY_PATH": "", "INPUTS_NOTES_FILE": ""}
+        code, out, err = run_script("tdd_prep", self.repo, env)
         self.assertEqual(code, 0, err)
-        self.assertTrue(pathlib.Path(json.loads(out)["prompt_file"]).is_file())
+        prompt = pathlib.Path(json.loads(out)["prompt_file"]).read_text(encoding="utf-8")
+        self.assertIn(got["reason"].split("\n")[0], prompt, "拒んだ理由は次の指示書に届く")
+        self.assertIn("`/b/j.json`", prompt)
+        code, out, err = run_script("tdd_prep", self.repo, {k: v for k, v in env.items() if k != "INPUTS_NOTES_FILE"})
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("INPUTS_NOTES_FILE", err)
 
 
 if __name__ == "__main__":

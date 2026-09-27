@@ -2,11 +2,13 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""TDD の輪の指示書（blk-fix の節 tdd-prep。輪の中で役 tdd の前。中身は tddloop.prep）。
+"""TDD の輪の指示書（blk-fix の節 tdd-prep。輪の中で役 tdd の前。中身は tddloop.prep → fixrules）。
 
-読む環境変数: INPUTS_STATE_FILE（tdd-start の state_file）。今の段・今の単位・前の回に拒んだ理由を状態の置き場の next.md に書き、
-{"prompt_file"} を 1 行出して 0。役はそのパスを Read する（理由の本文を $LOOP_PREV で貼らない。R44）。
-状態が読めない・輪が済んでいる: 標準エラーに 1 行出して 2。
+読む環境変数: INPUTS_STATE_FILE（tdd-start の state_file）と run の値 INPUTS_JUDGMENT_FILE・INPUTS_PLAN_FILE・INPUTS_POLICY_PATH・
+INPUTS_NOTES_FILE（空でよい）。修正の決まりの正本・TDD の決まり・今の段・前の回に拒んだ理由・run の値を組み、状態の置き場の
+next.md（full の写し）と隣の 2 つの形に書き、{"prompt_file"} を 1 行出して 0。役はそのパスを Read する（理由の本文を
+$LOOP_PREV で貼らない。R44）。cwd（対象の worktree）の差分から変更の種類を選ぶ。
+環境変数が欠けた・状態が読めない・輪が済んでいる: 標準エラーに 1 行出して 2。
 """
 import sys
 from pathlib import Path
@@ -19,15 +21,17 @@ import os  # noqa: E402
 
 import tddloop  # noqa: E402
 
-INPUTS = ("INPUTS_STATE_FILE",)
+INPUTS = ("INPUTS_STATE_FILE", "INPUTS_JUDGMENT_FILE", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH", "INPUTS_NOTES_FILE")
 
 
 def main() -> int:
-    if not os.environ.get("INPUTS_STATE_FILE"):
-        print("tdd-prep: 環境変数が無い・空: INPUTS_STATE_FILE", file=sys.stderr)
+    lack = [n for n in INPUTS if n not in os.environ] + ([] if os.environ.get(INPUTS[0]) else [INPUTS[0]])
+    if lack:
+        print(f"tdd-prep: 環境変数が無い・空: {', '.join(dict.fromkeys(lack))}", file=sys.stderr)
         return 2
+    values = {n[len("INPUTS_"):].lower(): os.environ[n] for n in INPUTS[1:]}
     try:
-        out = tddloop.prep(os.environ["INPUTS_STATE_FILE"])
+        out = tddloop.prep(os.environ[INPUTS[0]], values, Path.cwd())
     except (tddloop.Broken, OSError) as e:
         print(f"tdd-prep: {' '.join(str(e).split())}", file=sys.stderr)
         return 2

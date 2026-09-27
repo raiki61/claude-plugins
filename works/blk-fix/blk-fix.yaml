@@ -5,6 +5,8 @@ description: |
   TDD の輪を回し（tdd-start → tdd-loop。振り分け → 単位ごとにテスト・赤（機械）・直し・緑（機械）・整え・確かめ直し（機械）。
   実行器が無い run は輪を飛ばし、今と同じに動く）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
   changes に行を書くだけ）、
+  2 つの役（tdd・fix）の指示書は、その前の script の節（tdd-prep・fix-prep）が修正の決まりの正本（rules/common.md）と道ごとの決まりと
+  run の値から機械で組む（lib/fixrules.py。裁定 R65。役の節の指示は「組んだ指示書を Read で読め」の 1 行）、
   返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回）、修正役が残した git が
   無視するファイル（テストを回して出来た __pycache__ など）のうち控えに無かった物だけを消し（clean。後のテストの節を
   生成物の無い木で回す）、申告したファイルが実際に変わったかを確かめ（assert-changed。何も変えずに済んだと言えば
@@ -20,7 +22,7 @@ inputs:
   base_rev:
     default: ""
     description: 周の頭で固めた版。触ったファイルはこの版からの差分で数える。空はその場の HEAD
-  # 線 A（仕様 3.2）の入口。指示書（commands/fix.md）が読む。どれも空でよい（節の配線の切り替えは Task 17）
+  # 線 A（仕様 3.2）の入口。fix-prep・tdd-prep が指示書に組む（パスを書き、役が Read する）。どれも空でよい
   plan_file:
     default: ""
     description: 盤面が受けた修正案（p2.fix_plan）のファイルのパス。事前審査（p2.plan_review）の返答は同じフォルダ。空は修正案の無い run
@@ -86,12 +88,18 @@ nodes:
       fresh_context: false
       until_bash: test $tdd-step.output.done = true
       nodes:
+        # 指示書を組む（tddloop.prep → fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段・run の値）。next.md は
+        # full の写しで、隣に next.full.md・next.delta.md・next.variants.json（会話の続きの起動で包みが delta を選ぶ）
         - id: tdd-prep
           script: tdd_prep
           runtime: uv
           timeout: 1728000000
           with:
             state_file: $tdd-start.output.state_file
+            judgment_file: $INPUTS.judgment_file
+            plan_file: $INPUTS.plan_file
+            policy_path: $INPUTS.policy_path
+            notes_file: $INPUTS.notes_file
           output_format:
             type: object
             additionalProperties: false
@@ -100,13 +108,15 @@ nodes:
               prompt_file: {type: string}
 
         - id: tdd
-          command: tdd
+          prompt: 指示書 `$tdd-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
+          # 印 works-node: tdd（包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ）
           output_format:
+            description: 'works-node: tdd'
             type: object
             additionalProperties: false
             required: [phase]
@@ -161,15 +171,39 @@ nodes:
       fresh_context: false
       until_bash: test $fix-accept.output.ok = true
       nodes:
+        # 指示書を組み（fixrules.prep: 修正の決まりの正本・直す役の決まり・run の値。prompt_file は full の写しで、隣に .full.md・
+        # .delta.md・.variants.json）、起こした印を置く（盤面は印の無い返答を受けない）。
+        # 同じ試行の出し直しなら、前の回の受け付けが書いた拒否の理由のファイルを指示書の 1 行目で名指す（理由の文は貼らない。R44）
+        - id: fix-prep
+          script: fix_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            judgment_file: $INPUTS.judgment_file
+            open_units: $INPUTS.open_units
+            plan_file: $INPUTS.plan_file
+            policy_path: $INPUTS.policy_path
+            notes_file: $INPUTS.notes_file
+            summary_file: $tdd-start.output.summary_file
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, attempt, out_path, node, already, variants_file]
+            properties:
+              prompt_file: {type: string}      # full の写し（役の節の 1 行が Read させる。包みの無い起動の既定）
+              attempt: {type: integer}
+              out_path: {type: string}
+              node: {type: string}
+              already: {type: boolean}
+              variants_file: {type: string}    # 2 つの形の控え <名>.variants.json {full, delta, rules_sha, iteration, sections}
+
         - id: fix
-          command: fix
+          prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
+          depends_on: [fix-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # 前の周の拒否の理由は、指示書（commands/fix.md）が $LOOP_PREV.fix-accept.output.reason_file（盤面のファイルのパス）を
-          # 直に読み、役がそのファイルを Read する（Ruling R16）。理由の本文を $LOOP_PREV で貼ると、中の $… が置き換えに通る。
-          # include は輪の中の節の id（fix-accept）を付け替えない——輪の中で解ける。宣言していない $INPUTS.<名> は読み込みで拒まれる
           # recount.FIX_OUTPUT_FORMAT（写しの p3.fix の schema に印 works-node: fix）を貼った物（tests/test_blk_fix.py が一致を見る）
           output_format:
             description: 'works-node: fix'
@@ -528,7 +562,8 @@ nodes:
           type: array
           items: {type: string}
 
-  # 読んだ証拠（受け付けの条件にしない。今の周の reads-fix.json。collect が reads_file で出口に出す）。機械が渡したパスは判定のファイル
+  # 読んだ証拠（受け付けの条件にしない。今の周の reads-fix.json。collect が reads_file で出口に出す）。機械が渡したパスは判定のファイルと、
+  # fix-prep が今の周に組んだ指示書（fixrules.reads_more。輪の外の節は輪の中の出力を引けないので盤面の置き場から）
   - id: fix-reads
     script: reads
     runtime: uv
