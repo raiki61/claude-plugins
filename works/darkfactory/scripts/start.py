@@ -8,6 +8,8 @@
 - INPUTS_REQUEST（依頼のファイル。相対なら cwd＝対象の根から）・INPUTS_TEST_CMD・INPUTS_THICKNESS・INPUTS_GATES・
   INPUTS_FINAL_GATE・INPUTS_ADAPTER・INPUTS_POLICY_MD
 - ARTIFACTS_DIR（空も欠け。盤面は その下の board/）・WORKFLOW_ID（切符の run_id。空も欠け）
+版の控え: 入力を確かめる前（拒む run でも）に <ARTIFACTS_DIR>/versions.json を書く（versions.snapshot。盤面の外）。
+書けなくても run は止めず、標準エラーに 1 行出す
 出口:
 - 通れば entry.start の結果を 1 行の JSON で出して 0
 - 入力を受けない（entry.InputRefused。CI・並行 PR の engine の拒みも含む）: 標準エラーに理由を 1 行出して 1
@@ -43,6 +45,12 @@ def main() -> int:
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
+    import versions
+    try:
+        versions.write(Path(os.environ[script_io.ARTIFACTS_ENV]),
+                       versions.snapshot(Path(__file__).resolve().parents[2], run_id=os.environ[RUN_ID_ENV]))
+    except OSError as e:   # 版の控えは run を止めない（止めずに 1 行で知らせる）
+        print(f"版の控え {versions.FILE} を書けない: {type(e).__name__}: {_line(e)}", file=sys.stderr)
     import entry
     import tree_run
     from board import BoardGap

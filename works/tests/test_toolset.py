@@ -53,7 +53,9 @@ def save(p, v):
     p.write_text(json.dumps(v, indent=2))
 st, km, ip = cfg / "settings.json", cfg / "plugins" / "known_marketplaces.json", cfg / "plugins" / "installed_plugins.json"
 a = sys.argv[1:]
-if a[:3] == ["plugin", "marketplace", "add"]:
+if a == ["--version"]:
+    print("9.9.9 (Claude Code)")
+elif a[:3] == ["plugin", "marketplace", "add"]:
     src = pathlib.Path(a[3])
     name = json.loads((src / ".claude-plugin" / "marketplace.json").read_text())["name"]
     s = load(st, {}); s.setdefault("extraKnownMarketplaces", {})[name] = {"source": {"source": "directory", "path": str(src)}}; save(st, s)

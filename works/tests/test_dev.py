@@ -116,6 +116,11 @@ class TestDevShell(unittest.TestCase):
                 self.assertFalse((pack / d).exists())
             self.assertEqual(list(pack.rglob("__pycache__")), [])
             self.assertEqual(list(pack.rglob(".DS_Store")), [])
+            # 出どころの控え（run ごとの版の控え versions.json が読む）: 写した元の works の commit と手元の書き換えの有無
+            src = json.loads((pack / ".works-source.json").read_text(encoding="utf-8"))
+            self.assertEqual(src["rev"], git(ROOT, "rev-parse", "HEAD"))
+            self.assertEqual(src["dirty"], git(ROOT, "status", "--porcelain", "--", ".") != "")
+            self.assertEqual(src["from"], str(ROOT))
             self.assertEqual(git(tmp, "status", "--porcelain"), "")  # 全部 commit 済み
             self.assertEqual(run_tests(tmp).returncode, 1)  # 仕込んだバグで赤
 
@@ -261,11 +266,13 @@ class TestDevShell(unittest.TestCase):
             fake_archon = dev_home / "bin" / "archon-darwin-arm64"
             skills_seen = tmp / "skills.txt"
             settings_seen = tmp / "settings.txt"
+            env_seen = tmp / "env.txt"
             fake_archon.write_text(
                 "#!/bin/sh\n"
                 f'printf \'%s\\n\' "${{TITLE_GENERATION_MODEL-(unset)}}" "$*" > "{seen}"\n'
                 f'ls "$CLAUDE_CONFIG_DIR/skills" > "{skills_seen}" 2>&1\n'
                 f'cat "$CLAUDE_CONFIG_DIR/settings.json" > "{settings_seen}" 2>/dev/null || true\n'
+                f'printf \'%s\\n\' "${{WORKS_ARCHON_VERSION-(unset)}}" "${{WORKS_CLAUDE_VERSION-(unset)}}" > "{env_seen}"\n'
             )
             fake_bin = tmp / "fake-bin"
             # 隔離した設定に coldwrite を入れる claude（dev/toolset.py が PATH から引く）は偽物（本物は起こさない）
@@ -290,6 +297,7 @@ class TestDevShell(unittest.TestCase):
             self.skills_seen = skills_seen.read_text().split() if skills_seen.exists() else None
             self.settings_seen = (json.loads(settings_seen.read_text())
                                   if settings_seen.exists() and settings_seen.read_text() else None)
+            self.env_seen = env_seen.read_text().splitlines() if env_seen.exists() else None
             self.claude_calls = ([json.loads(ln)["argv"] for ln in claude_calls.read_text().splitlines()]
                                  if claude_calls.exists() else [])
             return (result, config.read_text() if config.exists() else None,
@@ -336,11 +344,23 @@ class TestDevShell(unittest.TestCase):
                          {"coldwrite@works-local": True, "pr-review-toolkit@works-local": True})
         self.assertEqual([c[:3] for c in self.claude_calls],
                          [["plugin", "marketplace", "add"], ["plugin", "install", "coldwrite@works-local"],
-                          ["plugin", "install", "pr-review-toolkit@works-local"]])
+                          ["plugin", "install", "pr-review-toolkit@works-local"], ["--version"]])
         result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(self.skills_seen), sorted(BORROW))
         self.assertIsNone(self.settings_seen)
+        self.assertEqual(self.claude_calls, [])
+
+    def test_archon_sh_passes_versions_to_run(self):
+        """run ごとの版の控え（versions.json。線の start が書く）へ、Archon の版と本物の claude の --version を env で渡す。
+        認証の要らない道は claude を起こさない"""
+        result, _, _ = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        want = re.search(r'^ARCHON_VERSION="([^"]+)"', (DEV / "archon.sh").read_text(), re.M).group(1)
+        self.assertEqual(self.env_seen, [want, "9.9.9 (Claude Code)"])
+        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.env_seen, [want, "(unset)"])
         self.assertEqual(self.claude_calls, [])
 
     def test_archon_sh_stops_when_isolated_config_leaks_into_user_scope(self):

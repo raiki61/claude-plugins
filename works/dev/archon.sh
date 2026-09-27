@@ -149,6 +149,15 @@ else
   python3 "$TOOLSET" install --claude "$REAL_CLAUDE" "$CLAUDE_CONFIG_DIR"
 fi
 
+# run ごとの版の控え（<ARTIFACTS_DIR>/versions.json。線の start が .shared/core/versions.py で書く）へ渡す版。
+# claude の --version は設定を読み書きしない（2.1.283 で確かめた）。認証の要らない道は claude を起こさない
+WORKS_ARCHON_VERSION="$ARCHON_VERSION"
+export WORKS_ARCHON_VERSION
+if [ "${WORKS_DEV_NO_AUTH:-}" != "1" ]; then
+  WORKS_CLAUDE_VERSION="$("$REAL_CLAUDE" --version 2>/dev/null | head -n 1)" || WORKS_CLAUDE_VERSION=""
+  export WORKS_CLAUDE_VERSION
+fi
+
 ARCHON_TELEMETRY_DISABLED=1
 DO_NOT_TRACK=1
 export ARCHON_TELEMETRY_DISABLED DO_NOT_TRACK
