@@ -7,7 +7,8 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units（番号で指せという案内は key を写せに戻す。_name_hints）
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
 - role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）。
-                 番号で指す欄（pointers）は名前の型のまま、修正差分のレビューは事前審査だけの kind を落とす
+                 番号で指す欄（pointers）は、番号を貼る役（numbered=True）だけ engine の型（番号か名前）に広げ、ほかは名前の型のまま。
+                 修正差分のレビューは事前審査だけの kind を落とす
 - snapshot_tree: 作業ツリーの写し（git が無視するファイルも入れる。依頼の受け付けと差分を切る節が盤面に置き、
                  check_judge・check_delta が突き合わせる）
 - tree_state・tree_change・tree_moved: 読むだけの役（blk-pr・blk-ci・entry.take・rejudge.take）を起こす前後の作業ツリーの姿
@@ -63,7 +64,7 @@ FIX_SCHEMA = {"type": "object", "required": ["changes"], "properties": {
     "changes": {"type": "array", "items": {"type": "object", "required": ["unit_key"], "properties": {
         "unit_key": {"type": "string", "minLength": 1}}}}}}
 # rules の拒否文のうち、番号で指せという案内（graphloops 0.21.0 の pointers 向け）と、works での言い換え。
-# works の役には番号を振った一覧を貼らず、その欄は名前（文字列）だけを通す（role_schema・FIX_SCHEMA）。
+# 判定役・修正役には番号を振った一覧を貼らず、その欄は名前（文字列）だけを通す（role_schema・FIX_SCHEMA）。
 # 役は拒否文を次の試行で読むので、番号で指せと返すと直す術の無い案内になる
 NUMBER_HINTS = (
     ("（写さずに、貼られた単位の no で指せ）", "（判定の key を字面のまま写せ）"),   # fix_plan_covers_units（修正）
@@ -115,8 +116,9 @@ def _strip_notes(x):
 
 def _unpointed(graph):
     """節の pointers（engine が一覧に振った番号で役に指させる欄。engine/pointers.py）を外した graph の写し。
-    works の役には番号を振った一覧を貼らず、番号を名前に戻す engine の段も無い——expand_refs が pointers の位置の型を
-    [integer, string] に広げると、役が書いた番号が名前に戻らないまま rules に届く。外せば名前（文字列）の型のまま残る"""
+    番号を貼らない役（判定・修正・差分の審査など。起こす時に番号の控えを固めない）では、番号を名前に戻す控えが無い——
+    expand_refs が pointers の位置の型を [integer, string] に広げると、board が必ず拒む整数を型が通す。
+    外せば名前（文字列）の型のまま残る"""
     return {**graph, "nodes": {nid: {k: v for k, v in n.items() if k != "pointers"} for nid, n in graph["nodes"].items()}}
 
 
@@ -133,16 +135,18 @@ def _drop_plan_only_kinds(node, schema):
 
 
 @functools.lru_cache(maxsize=None)
-def _role_schema_json(node):
-    schema = _strip_notes(expand_refs(_unpointed(_graph()))["nodes"][node]["schema"])
+def _role_schema_json(node, numbered):
+    graph = _graph() if numbered else _unpointed(_graph())
+    schema = _strip_notes(expand_refs(graph)["nodes"][node]["schema"])
     return json.dumps(_drop_plan_only_kinds(node, schema), ensure_ascii=False)
 
 
-def role_schema(node: str) -> dict:
+def role_schema(node: str, numbered: bool = False) -> dict:
     """graph の節（"p2.diagnose" か "p3.delta_review"）の schema。$ref を開き、注記を落とした写しを返す。
-    pointers の位置は名前（文字列）の型のまま（_unpointed）。修正差分のレビューは事前審査だけの語を kind から落とす
-    （_drop_plan_only_kinds）"""
-    return json.loads(_role_schema_json(node))
+    numbered は番号を貼って控えを固める役（mark_launched(pointers=)。board が番号を名前に戻す）で、pointers の位置を
+    engine の widen のまま番号か名前の型に開く。ほかは名前（文字列）の型のまま（_unpointed）。修正差分のレビューは
+    事前審査だけの語を kind から落とす（_drop_plan_only_kinds）"""
+    return json.loads(_role_schema_json(node, numbered))
 
 
 # ---------------------------------------------------------------- git と盤面のファイル

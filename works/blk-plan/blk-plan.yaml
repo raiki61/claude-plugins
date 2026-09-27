@@ -84,7 +84,7 @@ nodes:
           allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # planblk.output_format("plan")（写しの p2.fix_plan の schema に印 works-node: plan）を貼った物（tests/test_blk_plan.py が一致を見る）
+          # planblk.output_format("plan")（写しの p2.fix_plan の schema に印 works-node: plan）を貼った物。番号の欄は番号でも返せる（tests/test_blk_plan.py が一致を見る）
           output_format:
             description: 'works-node: plan'
             type: object
@@ -110,8 +110,9 @@ nodes:
                       type: array
                       minItems: 1
                       items:
-                        type: string
+                        type: [integer, string]
                         minLength: 1
+                        minimum: 1
                     approach:
                       type: string
                       minLength: 20
@@ -270,8 +271,9 @@ nodes:
                       type: array
                       minItems: 1
                       items:
-                        type: string
+                        type: [integer, string]
                         minLength: 1
+                        minimum: 1
                     kind:
                       type: string
                       enum:
@@ -314,8 +316,9 @@ nodes:
                       type: array
                       minItems: 1
                       items:
-                        type: string
+                        type: [integer, string]
                         minLength: 1
+                        minimum: 1
                     alternative:
                       type: string
                       minLength: 20

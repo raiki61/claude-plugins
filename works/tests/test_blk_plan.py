@@ -90,7 +90,7 @@ class YamlCase(unittest.TestCase):
         for role, of in got.items():
             with self.subTest(role):
                 self.assertEqual(of, planblk.output_format(role))
-                self.assertEqual(node_marker.strip(of), accept.role_schema(planblk.NODE_OF[role]))
+                self.assertEqual(node_marker.strip(of), accept.role_schema(planblk.NODE_OF[role], numbered=True))
                 self.assertEqual(of["description"], f"works-node: {role}")
 
     def test_loops_fresh_single_ai_and_give_up(self):
@@ -379,13 +379,44 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(inst["pointers"], b.pointer_rows("p2.fix_plan")["pointers"])
 
     def test_plan_reply_by_number(self):
-        """役が no の整数で指した案も通る（描いた番号の控えを mark_launched に固めた）"""
+        """役が no の整数で指した案も通る（描いた番号の控えを mark_launched に固めた）。返答は役の output_format を通る物だけ"""
         self.judged()
         self.ok("snap", role="plan")
         plan = linekit.reply("plan_ok")
         plan["plan"][0]["unit_keys"] = [1, 2]
+        self.assertEqual(validate_schema(plan, node_marker.strip(planblk.output_format("plan"))), [])
         _, got = self.round_of("plan", plan)
         self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        b = entry.open_board(self.board)
+        saved = json.loads((self.board / b.state["outputs"]["p2.fix_plan"]["file"]).read_text(encoding="utf-8"))
+        self.assertEqual(set(saved["plan"][0]["unit_keys"]), {UNIT_MEAN, UNIT_CLAMP})
+
+    def test_plan_review_reply_by_number(self):
+        """事前審査の役も faces・shrink の unit_keys を no の整数で指せ、受けた返答では key に戻る"""
+        self.judged()
+        self.planned()
+        self.ok("snap", role="plan-review")
+        review = linekit.reply("plan_review_regression")
+        review["faces"][0]["unit_keys"] = [1]
+        self.assertEqual(validate_schema(review, node_marker.strip(planblk.output_format("plan-review"))), [])
+        _, got = self.round_of("plan-review", review)
+        self.assertTrue(got["ok"], self.reason_of(got) if got.get("reason_file") else got)
+        b = entry.open_board(self.board)
+        saved = json.loads((self.board / b.state["outputs"]["p2.plan_review"]["file"]).read_text(encoding="utf-8"))
+        self.assertIn(saved["faces"][0]["unit_keys"][0], {UNIT_MEAN, UNIT_CLAMP})
+
+    def test_plan_reply_by_number_string_rejected(self):
+        """文字列の "1" は番号ではなく名前として扱われて拒まれ、拒否文は no（整数）で指せと案内する（key を写せに言い換えない）"""
+        self.judged()
+        self.ok("snap", role="plan")
+        plan = linekit.reply("plan_ok")
+        plan["plan"][0]["unit_keys"] = ["1", "2"]
+        self.assertEqual(validate_schema(plan, node_marker.strip(planblk.output_format("plan"))), [])
+        _, got = self.round_of("plan", plan)
+        self.assertEqual((got["ok"], got["done"]), (False, False))
+        reason = self.reason_of(got)
+        self.assertIn("no で指せ", reason)
+        self.assertNotIn("key を字面のまま写せ", reason)
 
     def test_reject_reason_by_file(self):
         """2 回目の plan-prep の頭の行に前の拒否の理由のファイル（reject-take_p2_fix_plan-1.txt）のパス。文は貼らない（R44）"""
