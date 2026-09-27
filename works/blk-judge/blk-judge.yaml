@@ -2,7 +2,8 @@ name: blk-judge
 description: |
   判定のブロック。人の修正依頼（findings の JSON の配列）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ
   （ラインの盤面が在れば、凍結した目的の文と素材も盤面から描いて読ませる。judge-brief）、
-  受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回）。ラインから include で使う。
+  受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回。ラインの盤面が在れば受け付けは盤面の p2.diagnose の done——本線と同じ）。
+  ラインから include で使う。
   出口は盤面の judgment.json のパスと、直す義務の残る単位の key の一覧と、直す物が在るか（need_fix）。
 
 inputs:
@@ -36,8 +37,9 @@ nodes:
       request: $INPUTS.request
 
   # 判定役を起こす前に、ラインの盤面から本線の判定の「入力」の節（凍結した目的・素材の 15 欄・P1 の所見・前の決定の突合・
-  # 依頼・差分・観点の正本）を engine の描き方で描き、判定役が Read するファイルに置く（R61 judgeread）。ラインの盤面が無ければ
-  # （ブロックを単独で回した）空。盤面の p2.diagnose が待っていなければ 2（線の順の誤り）
+  # 依頼・差分・観点の正本）と問いの台帳の段を engine の描き方で描き、判定役が Read するファイルに置く（R61 judgeread・run 27）。
+  # 作業ツリーの姿と起こした印も置く（受け付けが盤面へ渡す）。ラインの盤面が無ければ（ブロックを単独で回した）空。
+  # 盤面の p2.diagnose が待っていなければ 2（線の順の誤り）
   - id: judge-brief
     script: brief
     runtime: uv
@@ -51,13 +53,14 @@ nodes:
         ok: {type: boolean}
         materials_file: {type: string}
 
-  # 判定役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
+  # 判定役 → 受け付け。受け付けが拒めば、拒んだ理由のファイルのパスを渡して同じ会話で出し直させる（R44）。
+  # 輪は受け付けの done（通った時か 3 回目の拒否）で抜ける（max_iterations で落とさない。R50）
   - id: judge-loop
     depends_on: [judge-brief]
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $judge-accept.output.ok = true
+      until_bash: test $judge-accept.output.done = true
       nodes:
         - id: judge
           command: diagnose
@@ -223,12 +226,14 @@ nodes:
             type: object
             properties:
               ok: {type: boolean}
+              done: {type: boolean}           # 輪を抜ける旗（通った時か 3 回目の拒否。R50）
               reason: {type: string}
-              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io・rolekit）
               open_units: {type: array, items: {type: string}}
-            required: [ok, reason, reason_file, open_units]
+            required: [ok, done, reason, reason_file, open_units]
 
-  # loop_group の出力は型を持てないので、輪の後ろで盤面の judgment.json から出口を組む
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の judgment.json から出口を組む。受け付けを通った判定が無ければ
+  # （輪が 3 回とも拒んで抜けた）ラインの盤面は最後の拒否の文で止めて ok: false、単独の run は 1
   - id: collect
     script: collect
     runtime: uv

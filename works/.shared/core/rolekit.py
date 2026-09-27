@@ -10,7 +10,7 @@
 - accept_role:    出し直しの輪の受け付け（entry.take）。拒否は理由の本文を盤面の reject-take_<節>-<連番>.txt に書き
                   （entry.main_take と同じ名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
                   （輪を max_iterations で落とさない。裁定 R50）
-- main_accept:    accept_role の節の入口（INPUTS_REPLY・ARTIFACTS_DIR）
+- main_accept:    accept_role の節の入口（INPUTS_REPLY・ARTIFACTS_DIR。after で出口の欄を足せる）
 - script_main:    ブロックのスクリプトの入口（ARTIFACTS_DIR と INPUTS_* を読み、fn の返りを 1 行の JSON で出す。fence なら
                   盤面のパスに $ の柵、take なら受け付けの返りに reason_file を足す）
 - parse_reply:    役の返答（$<役>.output の JSON の文字列）を dict に
@@ -166,9 +166,10 @@ def accept_role(board_dir: pathlib.Path, nid: str, raw: str, repo: pathlib.Path,
 
 
 def main_accept(nid: str, *, snapshot_name: str | None = None, give_up_after: int = GIVE_UP_AFTER,
-                reply_env: str = "INPUTS_REPLY") -> int:
+                reply_env: str = "INPUTS_REPLY", after=None) -> int:
     """accept_role の節の入口。INPUTS_REPLY と ARTIFACTS_DIR（盤面は $ARTIFACTS_DIR/board。script_io.board_dir の柵）を読み、
-    1 行の JSON を出して 0（拒否も 0）。環境変数の欠け・BoardGap・Reject・思わぬ誤りは標準出力に何も出さず標準エラーに 1 行で 2"""
+    1 行の JSON を出して 0（拒否も 0）。after(盤面, 返り) -> 返り は出す前に当てる（ブロックが出口の欄を足す）。
+    環境変数の欠け・BoardGap・Reject・思わぬ誤りは標準出力に何も出さず標準エラーに 1 行で 2"""
     if reply_env not in os.environ:
         print(f"環境変数が無い: {reply_env}", file=sys.stderr)
         return 2
@@ -178,6 +179,8 @@ def main_accept(nid: str, *, snapshot_name: str | None = None, give_up_after: in
     try:
         out = accept_role(board, nid, os.environ[reply_env], pathlib.Path.cwd(), snapshot_name=snapshot_name,
                           give_up_after=give_up_after)
+        if after is not None:
+            out = after(board, out)
     except (BoardGap, Reject) as e:
         print(f"{nid} の受け付けを回せない（{type(e).__name__}）: {' '.join(str(e).split())}", file=sys.stderr)
         return 2

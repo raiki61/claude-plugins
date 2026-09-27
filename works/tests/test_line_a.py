@@ -325,5 +325,77 @@ class JudgeReadsCase(LineBase):
             judgebrief.brief(got["board_dir"], got["board_dir"].parent.parent / "repo")
 
 
+# run 27（2026-09-27）の事実: 並行 PR の検査が対象を解決できず、素材 parallel_pr が awaiting_human のまま判定に届いた。判定の
+# 指示書は awaiting を使うなと言い、ブロックの受け付け（記憶の中の空の記録）は通し、盤面（本線と同じ judge_output）だけが
+# 「awaiting_human なのに台帳に kind=awaiting で無い」と拒んで、境の節 h-plan が run を止めた
+PR_AWAITING = {**linekit.reply("pr_no_conflicts"), "material": {
+    "status": "awaiting_human",
+    "reason": "1 段で対象リポジトリを解決できない。枝に upstream が無く、origin はローカルの bare リポジトリ（run 27 と同じ形）"}}
+AWAITING_Q = {"key": "parallel_pr: 並行 PR の衝突を確かめられない", "kind": "awaiting", "status": "held",
+              "reason": "origin がローカルの bare リポジトリで open な PR を引けない。人が並行の PR の有無を確かめる",
+              "origin": "parallel_pr"}
+
+
+def judge_awaiting():
+    return {**linekit.reply("judge_ok"), "questions": [AWAITING_Q]}
+
+
+class JudgeAwaitingCase(LineBase):
+    """素材が awaiting_human の盤面で、判定役の指示書・受け付けが本線（p2.diagnose の問いの台帳の決まりと judge_output）と
+    同じことを言う（run 27 の再発防止）"""
+
+    def run_awaiting(self, judge):
+        return self.run_line(replies={**replies(), "pr-check": PR_AWAITING, "judge": judge})
+
+    def test_brief_renders_mainline_question_ledger(self):
+        """判定の材料に本線の問いの台帳の決まりが描かれる: awaiting_human の素材に awaiting を必ず載せる文と、検証器の表から
+        描いた kind の全部（awaiting・premise・unverifiable を含む）。穴は残らない"""
+        got = self.run_awaiting(judge_awaiting())
+        text = pathlib.Path(got["judge_brief"]["materials_file"]).read_text(encoding="utf-8")
+        for needle in ("素材が awaiting_human なら awaiting を必ず載せろ", "awaiting（origin は素材名",
+                       "premise（origin は R1〜R4", "unverifiable（origin は R1〜R4", "parallel_pr", "awaiting_human"):
+            with self.subTest(needle):
+                self.assertIn(needle, text)
+        self.assertNotIn("{{", text)
+
+    def test_awaiting_reply_is_accepted_and_bridge_takes_it(self):
+        """kind=awaiting で parallel_pr を載せた判定は、ブロックの受け付けが盤面へ渡して通り、h-plan は止めない"""
+        got = self.run_awaiting(judge_awaiting())
+        self.assertEqual([t["ok"] for t in got["judge_takes"]], [True])
+        self.assertIs(got["out"]["judging"]["ok"], True)
+        self.assertIs(got["out"]["h-plan"]["stop"], False, got["out"]["h-plan"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertNotEqual((b.state.get("stop") or {}).get("by"), line_edge.JUDGE_BRIDGE_BY)
+        self.assertIn(("awaiting", "parallel_pr"), [(q["kind"], q.get("origin")) for q in b.record["questions"]])
+        self.assertIn("planning", got["trail"])
+
+    def test_reply_without_awaiting_goes_back_to_judge(self):
+        """awaiting の無い判定（run 27 の返答の形）は受け付けが拒んで判定役へ返す（理由はファイルで。R44）——線は止めない。
+        直した 2 回目は通る"""
+        got = self.run_awaiting([linekit.reply("judge_ok"), judge_awaiting()])
+        first, second = got["judge_takes"]
+        self.assertEqual((first["ok"], first["done"]), (False, False))
+        why = pathlib.Path(first["reason_file"]).read_text(encoding="utf-8")
+        self.assertIn("素材 'parallel_pr' が awaiting_human なのに台帳に kind=awaiting で無い", why)
+        self.assertIs(second["ok"], True)
+        self.assertIs(got["out"]["h-plan"]["stop"], False, got["out"]["h-plan"])
+        self.assertIn("planning", got["trail"])
+
+    def test_judge_gives_up_without_failing_the_run(self):
+        """3 回とも awaiting を欠けば、輪は done で抜け（max_iterations に当てない。R50）、出口が最後の拒否の文で盤面を止めて
+        ok false。h-plan は止まった盤面を見て止める（判定の渡し替えで止めるのではない）"""
+        got = self.run_awaiting(linekit.reply("judge_ok"))
+        takes = got["judge_takes"]
+        self.assertEqual([(t["ok"], t["done"]) for t in takes], [(False, False), (False, False), (False, True)])
+        self.assertIs(got["out"]["judging"]["ok"], False)
+        self.assertIs(got["out"]["h-plan"]["stop"], True)
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        stop = b.state.get("stop") or {}
+        self.assertEqual(stop.get("by"), "works:judge", stop)
+        self.assertIn("3 回とも", stop.get("reason", ""))
+        self.assertIn("kind=awaiting", stop.get("reason", ""))
+        self.assertNotIn("planning", got["trail"])
+
+
 if __name__ == "__main__":
     unittest.main()

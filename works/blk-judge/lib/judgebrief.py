@@ -1,13 +1,16 @@
-"""blk-judge の支度 judge-brief の芯（R61 judgeread）。判定役に、本線の判定（graph の p2.diagnose）が読む物——凍結した目的の文・
-素材の 15 欄・P1 の目の所見・前の決定の突合・目的の監査・人の依頼・対象差分・観点の正本——を渡す。
+"""blk-judge の支度 judge-brief の芯（R61 judgeread・run 27）。判定役に、本線の判定（graph の p2.diagnose）が読む物——凍結した目的の文・
+素材の 15 欄・P1 の目の所見・前の決定の突合・目的の監査・人の依頼・対象差分・観点の正本——と、本線の問いの台帳の決まりを渡す。
 
 描き方は engine と同じ（rolekit.render_body。graph の reads だけ・番号の穴の縛り）で、描く本文は本線の指示書の写し
-gl-prompts/prompts/review-loop/p2.diagnose.md の「## 入力」の節から「## 手順」の前まで（欠けた素材を materials_missing で名指す
-決まりの 1 文を含む）。手順・出力の決まりは blk-judge の commands/diagnose.md のまま（受け付けは v1 の check_judge）。
+gl-prompts/prompts/review-loop/p2.diagnose.md の 2 か所: 「## 入力」の節から「## 手順」の前まで（欠けた素材を materials_missing で
+名指す決まりの 1 文を含む）と、「問いの台帳（questions）」の段から「**前の周の R1 最小性」の段の前まで（kind・status・書ける欄は
+検証器の表 {{validator.*}} から描く。素材が awaiting_human なら awaiting を必ず載せる決まり）。手順・出力の決まりは blk-judge の
+commands/diagnose.md のまま。受け付けは盤面の p2.diagnose の done（judgetake。本線と同じ judge_output）。
 
 - brief: ラインの盤面（$ARTIFACTS_DIR/board/state.json）が無ければ（ブロックを単独で回した）{ok, materials_file: ""}。在れば
   盤面の p2.diagnose が待っていること（待っていなければ BoardGap——線の順の誤り。黙って空にしない）。描いた本文を今の周の
-  作業ファイル judge-materials.md に書き、パスを返す。盤面へは書かない（受けるのはラインの h-plan）
+  作業ファイル judge-materials.md に書き、判定役を起こす前の作業ツリーの姿を今の周の judge-tree.json に置き（entry.snapshot。
+  受け付けが比べる）、待っている試行に起こした印を置く（描く → 印 → 起こす。盤面の決まり 2）。パスを返す
 """
 import pathlib
 import sys
@@ -20,36 +23,39 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
+import judgetake  # noqa: E402
 import rolekit  # noqa: E402
 
-NODE = "p2.diagnose"
+NODE = judgetake.NODE
 BRIEF_FILE = "judge-materials.md"
 START, END = "## 入力", "## 手順"
+LEDGER_START, LEDGER_END = "問いの台帳（questions）", "**前の周の R1 最小性"   # 問いの台帳の決まりの段（本線の同じ指示書）
+LEDGER_HEAD = "## 問いの台帳（本線の判定の指示書の同じ段。kind・status・書ける欄はここが正本）\n\n"
 HEAD = ("# 判定の材料（盤面から描いた物）\n\n"
-        "本線の判定の指示書（graphloops の p2.diagnose.md）の「入力」の節を、この run の盤面から engine と同じ描き方で描いた物。"
+        "本線の判定の指示書（graphloops の p2.diagnose.md）の「入力」の節と問いの台帳の段を、この run の盤面から engine と同じ描き方で描いた物。"
         "値が貼ってある欄はそのまま読め。パス（対象差分・観点の正本など）は Read で読め。手順と返す JSON の形は、お前を起こした"
         "指示書のとおり。")
 
 
-def section(text: str) -> str:
-    """指示書の本文から「## 入力」の行から「## 手順」の行の前まで。どちらかの見出しが無ければ BoardGap（写しが替わった）"""
+def section(text: str, start_at: str = START, end_at: str = END) -> str:
+    """指示書の本文から start_at で始まる行から end_at で始まる行の前まで。どちらかの行が無ければ BoardGap（写しが替わった）"""
     lines = text.splitlines(keepends=True)
-    start = next((i for i, ln in enumerate(lines) if ln.startswith(START)), None)
-    end = next((i for i, ln in enumerate(lines) if ln.startswith(END)), None)
+    start = next((i for i, ln in enumerate(lines) if ln.startswith(start_at)), None)
+    end = next((i for i, ln in enumerate(lines) if ln.startswith(end_at)), None)
     if start is None or end is None or end <= start:
-        raise BoardGap(f"{NODE} の指示書に「{START}」と「{END}」の見出しがこの順に無い（写しが替わった）")
+        raise BoardGap(f"{NODE} の指示書に「{start_at}」と「{end_at}」で始まる行がこの順に無い（写しが替わった）")
     return "".join(lines[start:end]).rstrip("\n") + "\n"
 
 
 def template(b) -> str:
-    """盤面の graph の p2.diagnose の指示書（rolekit.prompt_graph_path と同じ引き方）の「入力」の節"""
+    """盤面の graph の p2.diagnose の指示書（rolekit.prompt_graph_path と同じ引き方）の「入力」の節と問いの台帳の段"""
     n = b.nodes[NODE]
-    path = rolekit.prompt_graph_path(b, n).parent / n["prompt_file"]
-    return section(path.read_text(encoding="utf-8"))
+    text = (rolekit.prompt_graph_path(b, n).parent / n["prompt_file"]).read_text(encoding="utf-8")
+    return section(text) + "\n" + LEDGER_HEAD + section(text, LEDGER_START, LEDGER_END)
 
 
-def brief(board_dir, repo=None) -> dict:
-    """judge-brief。返り {ok: True, materials_file}（盤面が無ければ空）。repo は script_main の口を揃えるだけ（盤面が inputs.cwd を持つ）"""
+def brief(board_dir, repo) -> dict:
+    """judge-brief。返り {ok: True, materials_file}（盤面が無ければ空）。repo は対象リポジトリ（作業ツリーの姿を取る）"""
     d = pathlib.Path(board_dir)
     if not (d / "state.json").is_file():
         return {"ok": True, "materials_file": ""}
@@ -64,4 +70,6 @@ def brief(board_dir, repo=None) -> dict:
     tmp = p.with_name(p.name + ".tmp")
     tmp.write_text(HEAD + "\n\n" + body, encoding="utf-8")
     tmp.replace(p)
+    entry.snapshot(d, judgetake.TREE_FILE, pathlib.Path(repo))
+    entry.open_board(d).mark_launched(NODE, inst.get("attempts", 1))
     return {"ok": True, "materials_file": str(p)}

@@ -250,6 +250,7 @@ class LineRun:
         self.out, self.trail = {}, []
         self.eyes_roles = []   # blk-eyes が起こした目の役（起こした順）
         self.judge_brief = None   # blk-judge の支度（judge-brief）の出口
+        self.judge_takes = []     # blk-judge の受け付け（judge-accept）の返り（回した順）
         self.mat_roles = []    # blk-material が起こした役（起こした順）
 
     # -- 盤面の口
@@ -361,15 +362,22 @@ class LineRun:
         return material.collect(self.board)
 
     def blk_judge(self):
-        """blk-judge の支度（judge-brief: 盤面の材料を描く）は本物で回し、判定役の返答は replies["judge"]"""
+        """blk-judge の中の節の順（支度 judge-brief → 判定役と受け付け judge-accept の輪 → 出口 collect）を本物の口で回す。
+        判定役の返答は replies["judge"]（1 つか、回ごとの返答の列。列が尽きたら最後の物を繰り返す）。輪は受け付けの done で
+        抜ける（R50）。受け付けの返りは judge_takes に積む"""
         if str(ROOT / "blk-judge" / "lib") not in sys.path:
             sys.path.insert(0, str(ROOT / "blk-judge" / "lib"))
         import judgebrief
+        import judgetake
         self.judge_brief = judgebrief.brief(self.board, self.repo)
-        body = self.replies["judge"]
-        units = [u["key"] for u in body.get("units") or [] if u.get("label") != "info"]
-        return {"ok": True, "open_units": units, "need_fix": bool(units), "judgment_file": self._file("judgment.json", body),
-                "one_shot": body.get("one_shot", "")}
+        bodies = self.replies["judge"] if isinstance(self.replies["judge"], list) else [self.replies["judge"]]
+        for i in range(judgetake.GIVE_UP_AFTER):
+            body = bodies[min(i, len(bodies) - 1)]
+            got = judgetake.accept(self.board, json.dumps(body, ensure_ascii=False), self.repo)
+            self.judge_takes.append(got)
+            if got["done"]:
+                break
+        return judgetake.collect(self.board)
 
     def blk_plan(self):
         import entry
@@ -483,9 +491,10 @@ class LineRun:
                 self.trail.append(nid)
         rep = self.out["result"]
         return {"outcome": rep["outcome"], "report": rep, "board_dir": self.board, "trail": self.trail, "out": self.out,
-                "eyes_roles": self.eyes_roles, "mat_roles": self.mat_roles, "judge_brief": self.judge_brief}
+                "eyes_roles": self.eyes_roles, "mat_roles": self.mat_roles, "judge_brief": self.judge_brief,
+                "judge_takes": self.judge_takes}
 
 
 def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None) -> dict:
-    """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles, mat_roles, judge_brief}"""
+    """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles, mat_roles, judge_brief, judge_takes}"""
     return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits).run()

@@ -624,6 +624,7 @@ judge:
     reason: 上限を超えた値は hi を返す。lo を返す形の先行例は無い
 judge-accept:
   ok: true
+  done: true
   reason: ''
   reason_file: ''
   open_units:

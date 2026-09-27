@@ -1,8 +1,9 @@
 # 判定役が毎回同じ悪い返答（not_found の先行例に searched が無い）を返し、受け付けが拒む筋書き。
 # judge の中身は tests/replies/judge_notfound_no_searched.json と同じ。
-# 本番の run では輪が上限（3 回）で judge-loop が落ちる。dry-run は until_bash を回さず輪を 1 回で済んだと
-# みなす（Archon 0.11.1: "assumed complete after 1 iteration(s) — 'until_bash' is not executed in a dry run"）ので、
-# 筋書きでは受け付けが judgment.json を書かなかったことを collect が見つけて落ちる。どちらでも出口は返らない。
+# 本番の run では 3 回目の拒否で受け付けが done を出して輪を抜ける（max_iterations で落とさない。R50）。dry-run は
+# until_bash を回さず輪を 1 回で済んだとみなす（Archon 0.11.1: "assumed complete after 1 iteration(s) — 'until_bash' is
+# not executed in a dry run"）。どちらでも、単独の run（ラインの盤面が無い）では受け付けが judgment.json を書かなかったことを
+# collect が見つけて落ちる（ラインの盤面が在れば collect が盤面を止めて ok: false）。
 fixture:
   expect: failed
   fail-node: collect

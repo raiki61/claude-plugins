@@ -183,6 +183,25 @@ class AcceptCase(Base):
         self.assertEqual((code, out), (2, ""))
         self.assertIn("INPUTS_REPLY", err)
 
+    def test_main_accept_after_adds_fields(self):
+        """after(盤面, 返り) は出す前に当たる（blk-judge が judgment_file・open_units を足す）。after の誤りも 2"""
+        env = {"ARTIFACTS_DIR": str(self.tmp), "INPUTS_REPLY": "{}"}
+        seen = []
+
+        def after(board, out):
+            seen.append(board)
+            return {**out, "extra": 1}
+        with mock.patch.object(rolekit.entry, "take", return_value={"ok": False, "reason": "x"}):
+            code, out, _ = call(rolekit.main_accept, "p9.role", env=env, after=after)
+        self.assertEqual((code, json.loads(out)["extra"]), (0, 1))
+        self.assertEqual(seen, [(self.tmp / "board").resolve()])
+
+        def broken(board, out):
+            raise BoardGap("出口を組めない")
+        with mock.patch.object(rolekit.entry, "take", return_value={"ok": False, "reason": "x"}):
+            code, out, err = call(rolekit.main_accept, "p9.role", env=env, after=broken)
+        self.assertEqual((code, out), (2, ""), err)
+
 
 class ScriptMainCase(Base):
     def test_script_main_exit_codes(self):

@@ -97,7 +97,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(g["depends_on"], ["judge-brief"])
         lg = g["loop_group"]
         self.assertEqual((lg["max_iterations"], lg["fresh_context"], lg["until_bash"]),
-                         (3, False, "test $judge-accept.output.ok = true"))
+                         (3, False, "test $judge-accept.output.done = true"))   # 通った時か 3 回目の拒否で抜ける（R50）
         self.assertEqual([n["id"] for n in lg["nodes"]], ["judge", "judge-accept"])
         judge = find_node(self.y, "judge")
         self.assertEqual(judge["command"], "diagnose")
@@ -106,7 +106,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(judge["idle_timeout"], DEADLINE)
         acc = find_node(self.y, "judge-accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$judge.output"}, "base_rev": "$INPUTS.base_rev"})
-        self.assertEqual(sorted(acc["output_format"]["required"]), ["ok", "open_units", "reason", "reason_file"])
+        self.assertEqual(sorted(acc["output_format"]["required"]), ["done", "ok", "open_units", "reason", "reason_file"])
         self.assertEqual(find_node(self.y, "collect")["depends_on"], ["judge-loop"])
 
     def test_diagnose_prompt_wires_request_and_retry_reason(self):
@@ -121,6 +121,14 @@ class YamlCase(unittest.TestCase):
         self.assertNotIn("{{", text, "engine の穴が残っている")
         # 素材を読む判定は、欠けた素材を materials_missing で名指す（本線の p2.diagnose と同じ。空の決め打ちにしない）
         self.assertNotIn("`materials_missing` と `carried_r1` は空の配列にせよ", text)
+
+    def test_diagnose_prompt_defers_question_ledger_to_mainline(self):
+        """盤面の材料が在る時の問いの台帳の決まりは、材料のファイルに描いた本線の文（p2.diagnose の「問いの台帳」の節）が正本。
+        指示書は awaiting・premise・unverifiable を一律に禁じない（run 27: awaiting_human の素材に awaiting を載せられず線が止まった）"""
+        text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
+        self.assertNotIn("premise・unverifiable・awaiting はこのブロックでは使わない", text)
+        self.assertIn("問いの台帳", text)
+        self.assertIn("盤面の材料が無い時", text)
 
     def test_fixtures(self):
         want = {
@@ -245,6 +253,16 @@ class ScriptCase(unittest.TestCase):
         got = json.loads(r.stdout)
         self.assertIs(got["ok"], True, got["reason"])
         self.assertTrue((self.board / "judgment.json").exists())
+
+    def test_standalone_accept_done_on_third_reject(self):
+        """盤面の無い単独の run でも、受け付けは done を出す: 拒否 1・2 回目は偽、3 回目で真（輪を max_iterations で落とさない。
+        R50）。通れば真"""
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        bad = json.dumps(load("judge_notfound_no_searched"))
+        dones = [json.loads(self.run_script("accept", INPUTS_REPLY=bad, INPUTS_BASE_REV="").stdout)["done"] for _ in range(3)]
+        self.assertEqual(dones, [False, False, True])
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
+        self.assertEqual((got["ok"], got["done"]), (True, True))
 
     def test_accept_passes_with_untracked_request_in_repo(self):
         # Ruling R14: 依頼のファイルが対象の中で未追跡でも、intake の時から作業ツリーが変わっていなければ通す

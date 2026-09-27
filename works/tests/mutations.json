@@ -240,6 +240,30 @@
      "FinalGateCase.test_final_gate_note_roundtrip"
     ]
    }
+  },
+  {
+   "id": "jw1",
+   "title": "判定の材料に本線の問いの台帳の段（awaiting_human の素材に awaiting を載せる決まり）を描く（run 27）",
+   "file": "blk-judge/lib/judgebrief.py",
+   "old": "    return section(text) + \"\\n\" + LEDGER_HEAD + section(text, LEDGER_START, LEDGER_END)",
+   "new": "    return section(text)",
+   "tests": {
+    "tests/test_line_a.py": [
+     "JudgeAwaitingCase.test_brief_renders_mainline_question_ledger"
+    ]
+   }
+  },
+  {
+   "id": "jw2",
+   "title": "判定の輪が 3 回とも拒まれたら出口が最後の拒否の文で盤面を止める（by works:judge。R50・run 27）",
+   "file": "blk-judge/lib/judgetake.py",
+   "old": "        b.stop(reason, by=STOP_BY)",
+   "new": "        pass",
+   "tests": {
+    "tests/test_line_a.py": [
+     "JudgeAwaitingCase.test_judge_gives_up_without_failing_the_run"
+    ]
+   }
   }
  ],
  "dropped": []
