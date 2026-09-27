@@ -1,0 +1,257 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py next を呼ぶ直前（1465）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.consistency_bypass.json": {},
+  "out/r1/p1.external_standards.json": {},
+  "out/r1/p1.hygiene.json": {},
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.provenance.json": {},
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {
+   "tree_before": {
+    "rev": "7e4507d6939ad3ca7bfe90bb075983902fd3321b"
+   }
+  },
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/p3.fix.json": {},
+  "out/r1/p3.fix_delta.json": {},
+  "out/r1/p3.lane_merge.json": {},
+  "out/r1/p3.tdd_green.json": {},
+  "out/r1/p3.tdd_red.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {
+   "units": [
+    {
+     "route": "tdd",
+     "tests": [
+      "_s16_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     ]
+    }
+   ]
+  },
+  "record.json": {
+   "base": "_s17_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "materials": {},
+   "units": [
+    {
+     "label": "block"
+    },
+    {
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s23_xxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "round": 1,
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.provenance": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.external_standards": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {},
+      "p2.fix_plan": {},
+      "p2.plan_review": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.tdd_start": {},
+      "p3.tdd_tests": {},
+      "p3.tdd_red": {},
+      "p3.fix": {},
+      "p3.tdd_green": {},
+      "p3.fix_delta": {},
+      "p3.delta_review": {}
+     },
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "cwd": "<REPO>"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p3.tdd_tests": {
+     "file": "out/r1/p3.tdd_tests.json",
+     "round": 1
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "mutation_decl": {
+     "text": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "tdd": {
+     "round": 1,
+     "red": "_s18_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_delta": {
+     "round": 1,
+     "files": [
+      "src/a.py",
+      "tests/__pycache__/test_limit.cpython-314.pyc",
+      "tests/test_limit.py"
+     ]
+    }
+   }
+  }
+ },
+ "repo": {
+  ".review-checks.json": {
+   "suite": [
+    {
+     "name": "suite",
+     "argv": [
+      "_s22_xxxxxxxxxxxx"
+     ]
+    }
+   ]
+  }
+ },
+ "config": {},
+ "input": {},
+ "git": {
+  "[[\"rev-parse\", \"--path-format=absolute\", \"--git-path\", \"index\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   }
+  ],
+  "[[\"update-index\", \"-q\", \"--really-refresh\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"add\", \"-A\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"write-tree\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": "7d97d0dfbdf5aae4c09af2c19104f208958824be\n"
+   }
+  ],
+  "[[\"rev-parse\", \"HEAD\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "eb50cad5e23435607be592b9bd9e9464feb1962e\n"
+   }
+  ],
+  "[[\"commit-tree\", \"7d97d0dfbdf5aae4c09af2c19104f208958824be\", \"-p\", \"eb50cad5e23435607be592b9bd9e9464feb1962e\", \"-m\", \"graphloops gates r1\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "e1bcbbe634d30f1e65fb92e61e722c95f2f6034c\n"
+   }
+  ],
+  "[[\"diff\", \"--name-only\", \"-z\", \"7e4507d6939ad3ca7bfe90bb075983902fd3321b\", \"e1bcbbe634d30f1e65fb92e61e722c95f2f6034c\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "src/a.py\u0000tests/__pycache__/test_limit.cpython-314.pyc\u0000tests/test_limit.py\u0000"
+   }
+  ],
+  "[[\"rev-parse\", \"--show-toplevel\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   }
+  ],
+  "_s13_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   }
+  ],
+  "_s6_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   }
+  ],
+  "_s14_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "worktree <REPO>\nHEAD eb50cad5e23435607be592b9bd9e9464feb1962e\nbranch refs/heads/main\n\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "worktree <REPO>\nHEAD eb50cad5e23435607be592b9bd9e9464feb1962e\nbranch refs/heads/main\n\n"
+   }
+  ]
+ }
+}

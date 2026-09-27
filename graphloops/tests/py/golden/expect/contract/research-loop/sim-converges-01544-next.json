@@ -1,0 +1,52 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": null,
+  "p3.rederiver_compare": null,
+  "p3.sampling": null
+ },
+ "check_record": {
+  "p1.checker": [],
+  "p1.record_check": [],
+  "p2.integrate": [],
+  "p3.cold_reader": [],
+  "p3.rederiver_compare": []
+ },
+ "command": {
+  "exit": 0,
+  "out": {
+   "status": "running",
+   "round": 3,
+   "thickness": "標準",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "ready": [
+    {
+     "id": "p2.integrate",
+     "node": "p2.integrate",
+     "mode": "runner"
+    }
+   ],
+   "notes": [
+    "converge: next_round——ゲート未 pass: cold_reader: redesign-needed（2 周目の要求が未解消）"
+   ]
+  },
+  "err": ""
+ },
+ "record": {
+  "convergence.consecutive_zero": 1,
+  "convergence.rounds_total": 2
+ },
+ "board": {
+  "rd.done": [
+   "p1.record_check"
+  ],
+  "rd.empty": [
+   "p1.checker",
+   "p1.refuter"
+  ],
+  "rd.na.p3.cartographer_compare": "<消えた>",
+  "round": 3
+ }
+}

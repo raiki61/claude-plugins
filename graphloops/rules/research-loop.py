@@ -159,13 +159,13 @@ CONDS = {"constraints_self_written": constraints_self_written, "generation_due":
          "no_new_discrepancies": no_new_discrepancies, "rederiver_compare_due": rederiver_compare_due, "sampling_due": sampling_due}
 # rules が盤面の loop（b.loop_state）に書く名前の決まった鍵（review と同じ意味。形の正本は graph の state_schema で、周ごとに
 # 名前の変わる扇の控え sampled_r<周> は state_schema の patternProperties だけが持つ）。graphcheck が state_schema と両向きで突き合わせる
-LOOP_KEYS = frozenset({"stuck_hint", "stuck_ids", "rederiver_redesign_rounds", "load_zero_reason"})
-# そのうち条件と節の reads が読んでよい物（graphcheck が cond_reads・reads と突き合わせる。以前の LOOP_KEYS の絞りを残す）
-LOOP_READS = frozenset({"stuck_hint"})
+LOOP_KEYS = frozenset({"stuck_hint", "stuck_ids", "rederiver_redesign_rounds"})
 # 周（b.rd）に持つ鍵のうち、条件が読んでよい物（graphcheck が cond_reads と突き合わせる）
 ROUND_KEYS = frozenset({"new_discrepancies"})
 # このループの節は engine の鍵と説明の鍵だけを書く（graphcheck の検査 15。宣言が無いと照らせないので空で置く）
 NODE_KEYS = NODE_NOTE_KEYS = frozenset()
+# 記録の欄のうち rules が writes の外で書く物（on_init が書く方針の文書の置き場）——穴が record.<欄> を読むとき、完全一致で照らす
+RECORD_KEYS = ("process.policy.path",)
 
 
 # ---------------------------------------------------------------- 記録の形に固有の書き込み
@@ -478,12 +478,6 @@ def cartographer_count(b, nid, out, item):
         raise Reject("cartographer 比較係の整合: 結論に影響する盲点があるのに pass")
 
 
-
-def load_zero_reason(b, nid, out, item):
-    if out.get("load_zero_reason"):
-        b.loop_state["load_zero_reason"] = out["load_zero_reason"]
-
-
 # 読了の確かめ。**engine が回す側のセッションの転写を読み、文書の本文が会話に入った痕跡を探す。**
 # 回す側に何かを書かせて確かめる形（末尾の一文の逐語引用）は、末尾に到達したことしか示せなかった。
 # 転写には道具の結果がそのまま残るので、Read でも cat でも sed でも、本文が会話に入れば痕跡が残る
@@ -731,7 +725,8 @@ def claims_intake(b, nid, out, item):
     memo = b.dir / "read-through.json"
     scope = [b.round, doc, size, str(tp), hook]
     try:
-        cached = read_json(memo) if memo.is_file() else None
+        # read_json は読めないと die（SystemExit）で抜け、下の except に届かないので使わない
+        cached = json.loads(memo.read_text(encoding="utf-8")) if memo.is_file() else None
     except Exception:                       # noqa: BLE001 — 写しが読めないなら走査し直すだけ
         cached = None
     # **写しに当たっても、この節の出力から出る一言は出す。** 早期 return にしていたとき、
@@ -827,7 +822,6 @@ def clear_stuck_hint(b, nid, out, item):
 
 POST_CHECKS = {"refuter_consistency": refuter_consistency, "cold_reader_consistency": cold_reader_consistency,
                "cartographer_count": cartographer_count,
-               "load_zero_reason": load_zero_reason,
                "claims_intake": claims_intake, "clear_stuck_hint": clear_stuck_hint}
 
 
@@ -927,8 +921,9 @@ def finalize(b):
     if not any(c.get("load_bearing") for c in rec["claims"]):
         # 役が返さなかった欄を機械が埋めない——柵が要求するのは理由であって『理由が無い旨』ではない。
         # 埋めていたとき、検証器の非空検査は既定文で通り、欄が空だったことが記録から消えていた。
-        if ls.get("load_zero_reason"):
-            proc["load_zero_reason"] = ls["load_zero_reason"]
+        why = (b.latest_output("p0.clusters") or {}).get("load_zero_reason")
+        if why:
+            proc["load_zero_reason"] = why
     else:
         proc.pop("load_zero_reason", None)
     policy_input.record_change(b, git, proc)

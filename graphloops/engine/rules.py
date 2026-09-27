@@ -9,6 +9,7 @@ import pathlib
 from . import declared
 from .schema import validate_schema
 from .role_run import run_tree
+from .hist import HIST_ABSENT, hist_reads
 from .util import READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, pick, read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, write_json
 
 _VALIDATORS = {}
@@ -48,7 +49,7 @@ def validator_module(b):
 INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
           "git": git, "git_bytes": git_bytes, "sha": sha, "hook_evidence": hook_evidence, "read_capped": read_capped, "READ_CAP": READ_CAP, "repo_root": repo_root, "grep": _grep, "run_count": run_count, "sum_counts": sum_counts,
           "validator_module": validator_module, "validate_schema": validate_schema, "cond_reads": cond_reads,
-          "run_tree": run_tree,
+          "run_tree": run_tree, "hist_reads": hist_reads, "HIST_ABSENT": HIST_ABSENT,
           "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME}
 
 

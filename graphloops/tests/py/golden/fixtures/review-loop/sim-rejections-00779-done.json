@@ -1,0 +1,49 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_rejections が loop.py done を呼ぶ直前（779）",
+ "command": [
+  "done",
+  "--node",
+  "p0.base",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "record.json": {},
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s2_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "instances": {
+      "p0.base": {
+       "node": "p0.base",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"base_sha\": \"deadbeef\", \"method\": \"3 HEAD~1\", \"commits\": 1, \"merge_commit\": false, \"intent_to_add\": [], \"touches_gates\": false, \"touches_external_seams\": false, \"touches_user_path\": false, \"touches_security_surface\": false, \"material\": {\"status\": \"clean\", \"checked\": \"HEAD~1 で決めた。BASE=15042e6。対象差分は 1 コミット分\"}}"
+  }
+ },
+ "git": {
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 128,
+    "_s3_xx": ""
+   }
+  ]
+ }
+}

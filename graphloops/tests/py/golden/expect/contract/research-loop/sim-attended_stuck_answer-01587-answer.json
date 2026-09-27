@@ -1,0 +1,48 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": null,
+  "p3.rederiver_compare": null,
+  "p3.sampling": null
+ },
+ "check_record": {
+  "p1.checker": [],
+  "p1.record_check": [],
+  "p1.refuter": [],
+  "p2.integrate": [],
+  "p3.cold_reader": [],
+  "p3.rederiver_compare": [],
+  "p3.sampling": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok 答え 'escalate' を記録した。続きは loop.py next\n",
+  "err": ""
+ },
+ "record": {
+  "process.human_items": [
+   {
+    "round": 2,
+    "kinds": [
+     "stuck"
+    ],
+    "asked": [
+     "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "answer": "escalate"
+   }
+  ],
+  "thickness": "重厚"
+ },
+ "board": {
+  "pending_human": null,
+  "rd.done": [],
+  "rd.na.p0.generation": "<消えた>",
+  "rd.na.p0.independence_review": "<消えた>",
+  "rd.na.p3.cartographer": "<消えた>",
+  "rd.na.p3.cartographer_compare": "<消えた>",
+  "round": 3
+ }
+}

@@ -6,9 +6,11 @@ import pathlib
 from .rules import load_rules, registry, validator_module
 from . import util
 from .util import BoardConflict, Reject, die, get_path, read_json, write_json, now
+from .filelock import board_lock
 from .schema import load_graph, validate_schema
 from .validator import run_validator
 from .render import Renderer
+from . import hist as histmod
 
 
 def empty_round(n):
@@ -19,19 +21,21 @@ def empty_round(n):
 # engine は宣言した欄だけが見える入れ物（CondView）を渡して（真偽, 理由の文）を受け取る。以前は graph の JSON の上の
 # 小さな言語（all / any / not / path+op+default / builtin）を engine が解釈し、graphcheck が同じ言語を検査していた
 # ——綴り違い・default の読み落とし・prev. の検査漏れのたびに検査を継ぎ足し、loop.・record. の葉は最後まで検査の外だった。
-# 条件の文脈で読める前置き。Board.cond はこの表から条件の文脈を組み（engine の ctx から引き、cur だけ足す）、graphcheck が
-# import して宣言の頭がこの中に在るかを見る（写しを作らない）。cur.<節> は「今の周にその節が出した出力」（out.<節> は周を問わない
-# 最新、prev.<節> は前の周までの最新）。照らす宣言を持たない前置き（inputs・run・thickness・item）は条件から読ませない
+# 条件の文脈で読める前置き。Board.cond はこの表で engine の ctx を切り出し、graphcheck が import して宣言の頭がこの中に在るかを見る
+# （写しを作らない）。cur.<節> は「今の周にその節が出した出力」（out.<節> は周を問わない最新、prev.<節> は前の周までの最新）。
+# inputs は init で固まり run の途中で書き換えない入力（graphcheck が graph の inputs の宣言で照らす）。hist は履歴から作る
+# 読み取り専用の値（rules の HIST。graphcheck が graph の hist_schema で照らす）。照らす宣言を持たない
+# 前置き（run・thickness・item）は条件から読ませない
 COND_NODE_HEADS = ("out", "prev", "cur")   # 下に <節>.<欄> を持つ前置き（graphcheck が節の schema で照らす）
-COND_HEADS = ("record", *COND_NODE_HEADS, "round", "rd", "loop")
+COND_HEADS = ("record", *COND_NODE_HEADS, "round", "rd", "loop", "inputs", "hist")
 _MISSING = object()
 
 
 class CondView:
     """条件の関数に渡す入れ物。**宣言した欄だけが見える。**
 
-    `v(path, default)` で読む。宣言した path そのものか、その下（宣言 `loop.last_material` は
-    `loop.last_material.x.status` を読める）だけ通し、宣言の外は die。解決できない path は default を
+    `v(path, default)` で読む。宣言した path そのものか、その下（宣言 `hist.last_material` は
+    `hist.last_material.x.status` を読める）だけ通し、宣言の外は die。解決できない path は default を
     渡していれば default、無ければ die——偽に倒すと綴り違いが『条件が成り立たない』に化け、走らなかった節の
     素材に事実と逆の理由が書かれたまま収束まで通る（実測: cond の path を 1 文字変えても graphcheck は exit 0、
     回すと gate_efficacy が『検証ゲートを新設していない』で not_applicable になった）。
@@ -153,6 +157,12 @@ class Board:
         if self.halted_at_read and not self.allow_halted:
             raise Reject(f"この run は周の途中の問いで止めた（halted: {(self.state.get('halted') or {}).get('node')}）——盤面は書かない"
                          "（止めた run の記録は進めない。手当ては loop.py patch）")
+        # 比べてから書くまでを盤面の錠の下で不可分にする（別のプロセスが間に書くと後勝ちで先の受け付けが消えた）。入口（loop.py）が
+        # 同じ錠を先に取っていれば入れ子で通る
+        with board_lock(self.dir):
+            self._save_locked()
+
+    def _save_locked(self):
         cur = read_json(self.dir / "state.json").get("rev", 0)
         if cur != self.seen_rev:
             # **名乗る範囲は保護できる範囲まで。** 守っているのは盤面の 2 本（state.json / record.json）で、
@@ -161,10 +171,14 @@ class Board:
             raise BoardConflict(f"盤面が読んだ後に進んでいる（読んだ版 {self.seen_rev} ／ いまの版 {cur}）——別のプロセスが"
                                 "同じ run を回している。**盤面（state.json / record.json）は書いていない**が、out/ には"
                                 "この呼び出しの書き込みが残りうる（trace.jsonl の行は、保存まで控えた呼び出しなら書いていない）。"
-                                "1 つの盤面に 2 人で付くな（続けるなら next からやり直せ）")
+                                "loop.py の書き手は盤面の錠の下で読むので、これは錠を通らない書き手（loop.py を通さない呼び出し・"
+                                "錠を持たない版の engine）が間に書いた形（続けるなら next からやり直せ）")
         self.seen_rev += 1
         self.state["rev"] = self.seen_rev
         self._loop_drift()
+        table = registry(self.rules, "HIST")
+        if table:
+            histmod.write_control(self, table)   # 控え（正本でない）。state.hist_drift も同じ呼び出しで積むので state より先に
         write_json(self.dir / "record.json", self.record)
         write_json(self.dir / "state.json", self.state)
         # 保存まで控えていた trace の行（_board_update が当て直す間は書かない——当て直しのたびに行が重なる）
@@ -182,7 +196,7 @@ class Board:
             return
         try:
             errs = validate_schema(self.state.get("loop") or {}, sch, "loop")
-        except Exception as e:  # noqa: BLE001 — 照らせなかったことも痕跡にする（黙って 0 件にしない）
+        except Exception as e:  # noqa: BLE001
             errs = [f"loop を state_schema で照らせなかった（{type(e).__name__}: {e}）"]
         rows = self.state.setdefault("loop_drift", [])
         for e in errs:
@@ -238,6 +252,14 @@ class Board:
     def loop_state(self):
         """rules が自分の都合で持つ状態の置き場。engine は中身を解さず、形を graph の state_schema で照らして外れを痕跡に残すだけ（save）。"""
         return self.state.setdefault("loop", {})
+
+    def hist(self, name):
+        """履歴から作る読み取り専用の値 hist.<name>（rules の HIST の関数。無い周は HIST_ABSENT）。覚えない——周の記録と
+        節の出力は同じ呼び出しの中でも書き足されるので、引くたびに作る"""
+        fn = registry(self.rules, "HIST").get(name)
+        if fn is None:
+            raise KeyError(f"hist.{name}: rules の HIST に無い")
+        return histmod.compute(self, name, fn, self.__dict__.setdefault("_hist_stack", []))
 
     def new_round(self):
         self.state["round"] += 1
@@ -341,8 +363,7 @@ class Board:
         fn = registry(self.rules, "CONDS").get(name)
         if fn is None:
             die(f"cond '{name}' が rules の CONDS に無い（graph の cond には関数の名前だけを書く）")
-        full = {**self.ctx(), "cur": {nid: self.output_of_round(nid, self.round) for nid, info in self.state["outputs"].items()
-                                     if info.get("round") == self.round}}
+        full = self.ctx()
         ctx = {h: full[h] for h in COND_HEADS}
         return run_cond(name, fn, ctx, lambda: validator_module(self), self.state, overlay)
 
@@ -453,11 +474,15 @@ class Board:
         raise KeyError(f"{path}: ref: にできるのは record・out.<節>・prev.<節>・raw だけ")
 
     def ctx(self, item=None):
+        """プロンプトの穴・条件・pointers の from・delegate.result_to が引く文脈。cur.<節> は今の周にその節が出した出力だけ
+        （前の周の値を今の周の値と読まない。out.<節> は周を問わない最新）"""
         return {
             "record": self.record, "inputs": self.state["inputs"], "item": item or {}, "out": self.outputs(),
             "prev": self.outputs(before_round=self.round),
+            "cur": {nid: self.output_of_round(nid, self.round) for nid, info in self.state["outputs"].items() if info.get("round") == self.round},
             "thickness": self.state["thickness"], "round": self.round, "rd": self.rd, "loop": self.loop_state,
             "run": {"id": self.state["run_id"], "dir": str(self.dir), "loop": self.state["loop_name"]},
+            "hist": histmod.HistView(self, registry(self.rules, "HIST")),
             "validator": self.validator_tables(),
         }
 

@@ -1,0 +1,64 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_converges が loop.py done を呼ぶ直前（1525）",
+ "command": [
+  "done",
+  "--node",
+  "p3.rederiver",
+  "--output",
+  "<INPUT>/out.json"
+ ],
+ "files": {
+  "out/r1/p0.claims.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.question.json": {},
+  "out/r1/p0.terms.json": {},
+  "out/r1/p5.internal.json": {},
+  "record.json": {
+   "claims": [],
+   "gates": {
+    "rederiver": {}
+   }
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s0_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.question": {},
+      "p0.claims": {},
+      "p0.terms": {},
+      "p0.prior_decisions": {},
+      "p5.internal": {}
+     },
+     "instances": {
+      "p3.rederiver": {
+       "node": "p3.rederiver",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": "標準",
+   "inputs": {},
+   "outputs": {},
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.json": {
+   "question_stands": true,
+   "verdict": "pass",
+   "reason": "_s2_xxxx",
+   "derivation": "_s1_xxxxxxxxx"
+  }
+ },
+ "session": "gl-std-session",
+ "git": {}
+}

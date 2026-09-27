@@ -3,12 +3,14 @@
 
 bash の台本は、環境に道具や OS の機能が無くて走らない検査を「# SKIP <能力>: <理由>」の印つきの行で出して件数に入れ、root の
 tests/run.sh が合格と別に一覧にする（TAP 14 の SKIP 指示子。FAIL_ON_SKIP=1 で、SKIP_ALLOW に能力の名前が無い見送りを失敗に数える）。
-ここで飛ばしを常に失敗に数えるのは、この置き場のテストが環境で分かれず 3 つの OS で全部走る前提だから——ここでの飛ばしは
-環境の見送りでなく、テストが黙って消えた印になる。環境で分かれるテストを足すなら、この柵ごと見直す。
+ここでの飛ばしは既定で失敗に数える——この置き場のテストは 3 つの OS で全部走る前提で、黙った飛ばしはテストが消えた印になる。
+OS に無い能力を見るテスト（POSIX の信号でプロセスグループを止める等）だけは、bash の側と同じ宣言で見送れる: 飛ばしの理由を
+「SKIP <能力>: <理由>」の形で書き、その能力が環境変数 SKIP_ALLOW（CI が OS ごとに渡す許しの一覧。正本は CI の設定の
+matrix の skip_allow で、tests/run.sh の見送りと同じ値を読む。既定は空）に在るときだけ許す。許した見送りは一覧で出す。
 
-1. **飛ばしは失敗。** テスト単位の skip・skipif・xfail（pytest_runtest_logreport）と、モジュール丸ごとの
+1. **飛ばしは失敗（宣言して許した見送りを除く）。** テスト単位の skip・skipif・xfail（pytest_runtest_logreport）と、モジュール丸ごとの
    skip(allow_module_level=True)・importorskip（pytest_collectreport）の両方を拾う。後者を見ないと、import できない
-   モジュールがテストごと消えても緑になる。xfail も「走らせたが結果を見ない」ので飛ばしに数える。
+   モジュールがテストごと消えても緑になる。xfail も「走らせたが結果を見ない」ので飛ばしに数え、許しの対象にしない。
 2. **件数の柵。** 置き場の中で集めたテストの数を、件数の定数と != で突き合わせる。下限（<）にしないのは bash 側と
    同じ理由——テストを消した変更が緑で通る。数えるのは pytest_itemcollected（-k・-m・--deselect・--sw・testmon の
    選び直しより前）なので、集めた後で絞る回は柵を付けたまま突き合わせてよい。
@@ -32,12 +34,16 @@ worker では今の数え方（collectstart・itemcollected・add_sim_checks・r
 
 状態は config ごとの登録物に持つ（モジュールの大域に置くと、pytester で内側に回した pytest と数が混ざる）。
 """
+import os
 import pathlib
+import re
 
 import pytest
 
 
 NAME = "graphloops-fence"
+# 宣言つきの見送りの理由の頭（bash の側の「# SKIP <能力>:」と同じ能力の名前の形。skipif の理由は「Skipped: 」が前に付く）
+SKIP_DECL = re.compile(r"^(?:Skipped: )?SKIP ([a-z0-9][a-z0-9-]*): ")
 
 
 def install(config, root, expected):
@@ -69,6 +75,8 @@ class Fence:
         self.deselected = 0
         self.workers = []   # controller が受け取った worker ごとの結果（-n の回だけ）
         self.skipped = []
+        self.allowed = []   # 宣言して許した見送り（SKIP_ALLOW に能力が在る）
+        self.skip_allow = set(os.environ.get("SKIP_ALLOW", "").split())
         self.notes = []
         self.problems = []
 
@@ -91,14 +99,19 @@ class Fence:
         got = getattr(node, "workeroutput", {}).get(NAME)
         self.workers.append(got if got is not None else {"lost": str(error or "結果が届かない")})
 
+    def _skip(self, report):
+        why = _why(report)
+        m = None if hasattr(report, "wasxfail") else SKIP_DECL.match(why)
+        (self.allowed if m and m.group(1) in self.skip_allow else self.skipped).append(f"{report.nodeid}: {why}")
+
     def pytest_collectreport(self, report):
         # モジュール丸ごとの飛ばしは収集の段で起き、テストの報告（runtest_logreport）には現れない
         if report.skipped:
-            self.skipped.append(f"{report.nodeid}: {_why(report)}")
+            self._skip(report)
 
     def pytest_runtest_logreport(self, report):
         if report.skipped:
-            self.skipped.append(f"{report.nodeid}: {_why(report)}")
+            self._skip(report)
 
     def pytest_sessionfinish(self, session):
         if hasattr(session.config, "workerinput"):   # worker は数えて controller へ渡すだけ（判定は controller）
@@ -108,7 +121,10 @@ class Fence:
             return
         collected, modules, sim_checks, reached, deselected = self._totals()
         if self.skipped:
-            self.problems.append(f"飛ばされたテストが {len(self.skipped)} 件（飛ばしは失敗扱い）: " + " / ".join(self.skipped[:5]))
+            self.problems.append(f"飛ばされたテストが {len(self.skipped)} 件（飛ばしは失敗扱い。見送るなら理由を SKIP <能力>: の形にし、"
+                                 "その OS の SKIP_ALLOW に能力を足す）: " + " / ".join(self.skipped[:5]))
+        if self.allowed:
+            self.notes.append(f"見送り {len(self.allowed)} 件（SKIP_ALLOW で許した）: " + " / ".join(self.allowed))
         files = {p.resolve() for pat in session.config.getini("python_files") for p in self.root.rglob(pat)}
         full = modules == files
         if not full:

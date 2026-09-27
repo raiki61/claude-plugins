@@ -1,0 +1,89 @@
+{
+ "cond": {
+  "constraints_self_written": [
+   false,
+   "surveyor が自書した問い・制約は 0 件"
+  ],
+  "generation_due": [
+   true,
+   "初回"
+  ],
+  "no_new_discrepancies": "die: cond 'no_new_discrepancies' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "rederiver_compare_due": "die: cond 'rederiver_compare_due' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "sampling_due": [
+   false,
+   "round=1（2 周目以降だけ）"
+  ]
+ },
+ "loop": {},
+ "outputs": {
+  "out/r1/p0.claims.json": {
+   "claims": [
+    {
+     "id": "A",
+     "claim": "_s3_x",
+     "load_bearing": true
+    },
+    {
+     "id": "B",
+     "claim": "_s4_x",
+     "load_bearing": false
+    },
+    {
+     "id": "C",
+     "claim": "_s5_x",
+     "load_bearing": false
+    },
+    {
+     "id": "D",
+     "claim": "_s6_x",
+     "load_bearing": false
+    }
+   ],
+   "judgments": [
+    {
+     "text": "好み"
+    }
+   ],
+   "judgments_as_facts": [],
+   "open_questions": []
+  }
+ },
+ "calls": [
+  [
+   "CONDS",
+   "constraints_self_written",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "generation_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "no_new_discrepancies",
+   "die"
+  ],
+  [
+   "CONDS",
+   "rederiver_compare_due",
+   "die"
+  ],
+  [
+   "CONDS",
+   "sampling_due",
+   "偽"
+  ],
+  [
+   "HOOKS",
+   "check_record",
+   "一覧なし"
+  ],
+  [
+   "POST_CHECKS",
+   "claims_intake",
+   "返った"
+  ]
+ ]
+}

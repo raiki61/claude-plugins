@@ -1,0 +1,86 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": "die: cond 'no_new_discrepancies' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "p3.rederiver_compare": "die: cond 'rederiver_compare_due' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+ },
+ "check_record": {
+  "p0.claims": [],
+  "p0.clusters": [],
+  "p0.prior_decisions": [],
+  "p0.question": [],
+  "p0.terms": [],
+  "p3.rederiver": [],
+  "p5.internal": []
+ },
+ "command": {
+  "exit": 0,
+  "out": {
+   "status": "running",
+   "round": 1,
+   "thickness": "標準",
+   "run_id": "_s5_xxxxxxxxxxx",
+   "ready": [
+    {
+     "id": "_s6_xxxxxxxxxx",
+     "node": "p1.checker",
+     "mode": "agent",
+     "item": {
+      "key": "c2",
+      "claims": [
+       {
+        "id": "C",
+        "claim": "_s16_",
+        "load_bearing": false
+       },
+       {
+        "id": "D",
+        "claim": "_s15_",
+        "load_bearing": false
+       }
+      ]
+     }
+    },
+    {
+     "id": "_s4_xxxxxxxxxxxx",
+     "node": "p1.checker",
+     "mode": "agent",
+     "item": {
+      "key": "c1",
+      "claims": [
+       {
+        "id": "B",
+        "claim": "_s17_",
+        "load_bearing": false
+       }
+      ]
+     }
+    },
+    {
+     "id": "p1.refuter[A]",
+     "node": "p1.refuter",
+     "mode": "agent",
+     "item": {
+      "id": "A",
+      "verdict": "確証",
+      "evidence": "e",
+      "sources": [
+       "_s10_xxxx"
+      ],
+      "conditions": "c",
+      "load_bearing": true,
+      "key": "A",
+      "mode": "confirm"
+     }
+    }
+   ],
+   "notes": []
+  },
+  "err": ""
+ },
+ "record": {},
+ "board": {}
+}

@@ -253,8 +253,19 @@ class Run:
     def state(self):
         return json.loads((self.dir / "state.json").read_text(encoding="utf-8"))
 
+    def hist(self):
+        """履歴から作る値の控え（盤面の hist.json の values）。正本でない——engine が盤面を保存するたびに周の記録と節の出力から作り直す。
+        盤面を直接読む人と AI が読む口を、台本も同じく読む"""
+        p = self.dir / "hist.json"
+        return json.loads(p.read_text(encoding="utf-8"))["values"] if p.is_file() else {}
+
     def round_file(self, n):
         return json.loads((self.dir / "rounds" / f"round-{n}.json").read_text(encoding="utf-8"))
+
+    def output(self, node):
+        """節の最新の出力（盤面の state.outputs が指す out/r<周>/<節>.json）。無ければ None"""
+        info = self.state()["outputs"].get(node)
+        return json.loads((self.dir / info["file"]).read_text(encoding="utf-8")) if info else None
 
 
 # ---------------------------------------------------------------- 台本
@@ -308,7 +319,7 @@ def answers(run, scenario, rnd):
     unit_block = {"key": "src/a.py:f — 上限が効かない経路がある", "label": "block", "class_query": CQ()}  # 母数 1（sites 1 と揃う）
     unit_donow = {"key": "src/b.py:g — 定数の重複", "label": "suggest", "disposition": "do-now", "class_query": CQ(1)}
     rec = run.record()
-    prev_q = run.state().get("loop", {}).get("prev_questions", [])
+    prev_q = run.hist().get("prev_questions", [])
 
     def units_for(rnd):
         if blocks_forever:
@@ -383,7 +394,7 @@ def answers(run, scenario, rnd):
     now_fix = [f for f in rec["process"].get("fixes") or [] if f.get("round") == rnd]
     absorbed = [r["key"] for r in (now_fix[-1].get("plan_faces") if now_fix else []) or [] if r["handled"] == "absorbed"]
     fixed_now = [r["key"] for r in rec["process"].get("delta_fix") or [] if r["handled"] == "fixed"] if opened else []
-    prev_decl = run.state().get("loop", {}).get("prev_declared_faces") or []
+    prev_decl = run.hist().get("prev_declared_faces") or []
     table = {
         "p0.base": lambda it: {"base_sha": base, "method": "3 HEAD~1", "commits": 1, "merge_commit": False, "intent_to_add": [],
                                "touches_gates": scenario == "gates", "touches_external_seams": False, "touches_user_path": scenario == "awaiting",
@@ -469,9 +480,9 @@ def answers(run, scenario, rnd):
                                     + [{"key": c["key"], "handled": "declared", "how": "塞がっていなかった写しは次の周の判定に回す（検査用）"}
                                        for c in (rec["process"].get("delta_review") or {}).get("checks") or [] if c["closed"] is False]},
         # 変異の検算の線: 回す側は受領（線の結果の置き場）だけを返して待たない。線の結果は台本が必要な周に置き場へ書く
-        "p3.delta_gates": lambda it: {"lane": run.state()["loop"]["gates_cut"]["result"]},
+        "p3.delta_gates": lambda it: {"lane": run.output("p3.gates_cut")["result"]},
         # 最後の関門: この周に固めた最終の版を撃ち、見逃しは無い（証拠のそろった腕 1 本）
-        "p4.final_gates": lambda it: {"rev": run.state()["loop"]["gates_cut"]["rev"], "arms": [PROVEN_ARM], "handled": [], "patch": "",
+        "p4.final_gates": lambda it: {"rev": run.output("p3.gates_cut")["rev"], "arms": [PROVEN_ARM], "handled": [], "patch": "",
                                       "suite": {"command": "pytest（検査用）", "exit": 0}},
         "p4.ci": lambda it: {"material": CLEAN("pytest 緑")},
         "p4.scalars": lambda it: {"scalars": {"comment_ratio_pct": 10, "doc_lines": 1}},
@@ -857,7 +868,7 @@ def test_launch_delegate_background_lane():
     run = Run("delegatebg")
     nx = drive(run, "std", stop_at=lambda n: any(i["node"] == "p3.delta_gates" for i in n["ready"]))
     inst = next(i for i in nx["ready"] if i["node"] == "p3.delta_gates")
-    cut = run.state()["loop"]["gates_cut"]
+    cut = run.output("p3.gates_cut")
     check(inst["launch"].get("background") and inst["launch"].get("result_path") == cut["result"],
           f"背景の任せ先は launch に線の置き場を持つ（{inst['launch'].get('result_path')}）")
     bindir = run.tmp / "fakebin"
@@ -1122,10 +1133,17 @@ def test_prev_fix_faces_scalar():
             if out.get("one_shot"):
                 return {**out, "one_shot": f"{inst['node']}-R{rnd}"}
     nx = drive(run, "runaway", hook=hook3, stop_at=lambda n: n["round"] == 4)
-    pos = run.state()["loop"].get("prev_one_shot") or {}
+    pos = run.hist().get("prev_one_shot") or {}
     check(nx["round"] == 4 and pos.get("round") == 3 and pos.get("text") == "p2.diagnose-R3",
           f"p2.history を省いた周の次は、その周の p2.diagnose の一撃を渡す（{pos.get('round')} / {pos.get('text')}）")
     rm(run.tmp)
+
+
+def with_hist(rules, b):
+    """偽の盤面に b.hist を付ける——履歴から作る値を、台本が loop_state に置いた値で代える（本物の盤面は周の記録と節の出力から
+    作る。作り方は graphloops/tests/py/test_hist.py が見る）"""
+    b.hist = lambda name: b.loop_state.get(name, rules.HIST_ABSENT)
+    return b
 
 
 def test_scalar_names_fixed():
@@ -1150,7 +1168,7 @@ def test_scalar_names_fixed():
     drive(run, "std", stop_at=lambda n: n["round"] == 2)
     sc = run.round_file(1).get("scalars") or {}
     base = run.base
-    want = sh(run.repo, "git", "diff", "--numstat", base, run.state()["loop"]["gates_cut"]["rev"], "--", "*.md").stdout.split()
+    want = sh(run.repo, "git", "diff", "--numstat", base, run.output("p3.gates_cut")["rev"], "--", "*.md").stdout.split()
     check(sc.get("x_arms_fired") == 12 and isinstance(sc.get("added_lines"), int) and sc["added_lines"] > 0
           and sc.get("doc_lines") == int(want[0]) == 3,
           f"固定の数値は engine が数え（added_lines・doc_lines=.md の追加行 3）、x_ は p3.fix の値が載る（{sc}）")
@@ -1508,17 +1526,16 @@ def test_held_fork_stops_exempting():
     プロンプトが「fork の出どころは実装するな」と言う所で機械が「実装しろ」と言い、writer の手が
     無くなった（実測 2026-09-16: judge が [block] として名指しした）。義務は動ける役の手前に置く。
 
-    **持ち越しは機械（on_new_round）に作らせる。** 手で prev_questions を patch していたとき、それを
-    書く経路を 1 度も通っておらず、その 1 行を消す退行が緑で通った（実測 2026-09-16）。
+    **持ち越しは機械（hist.prev_questions。前の周の記録から作る）に作らせる。** 手で prev_questions を patch していたとき、それを
+    作る経路を 1 度も通っておらず、その 1 行を消す退行が緑で通った（実測 2026-09-16）。
     """
     print("台本: held の fork の免除は 1 周で切れる（escalate なら続く）")
     at = lambda node, rnd: (lambda nx: nx["round"] == rnd and any(i["node"] == node for i in nx["ready"]))
     # forkhold は毎周 held、forkesc は 2 周目に escalate へ上げる。どちらも出どころは同じ unit
     run = Run("forkhold")
     drive(run, "forkhold", stop_at=at("p2.diagnose", 2))
-    ls = run.state()["loop"]
-    check(any(x.get("kind") == "fork" for x in (ls.get("prev_questions") or [])),
-          "持ち越しは機械（on_new_round）が写した——台本が手で置いたのではない")
+    check(any(x.get("kind") == "fork" for x in (run.hist().get("prev_questions") or [])),
+          "持ち越しは機械（hist）が前の周の記録から作った——台本が手で置いたのではない")
     nx = run.next()
     jd = next(i for i in nx["ready"] if i["node"] == "p2.diagnose")
     t = answers(run, "forkhold", 2)
@@ -2050,8 +2067,8 @@ def test_fix_counts_by_engine():
     unit = {"key": "k", "label": "block"}
     board = tmp / ".git" / "gl-board"   # 本物の run と同じく git dir の下（作業ツリーの外）——作業場と一緒に消える
     board.mkdir()
-    b = types.SimpleNamespace(round=1, loop_state={}, dir=board, rd={"instances": {}}, nodes={}, output_of_round=lambda n, r: None,
-                              state={"validator": str(VALIDATOR), "inputs": {"review_rev": snap}},
+    b = types.SimpleNamespace(round=1, loop_state={"reviewed_revision": snap}, dir=board, rd={"instances": {}}, nodes={}, output_of_round=lambda n, r: None,
+                              state={"validator": str(VALIDATOR), "inputs": {}},
                               record={"units": [unit], "questions": [], "materials": {},
                                       "process": {"diagnosis": {"units": [{**unit, "class_query": {"how": how, "counts": "defects", "total": 2}}]}}})
     change = {"unit_key": "k", "what": "直した", "files": ["t.py"], "root_or_symptom": {"kind": "root", "why": "根に当てた（検査用）"},
@@ -2334,6 +2351,7 @@ def test_judge_output_needs_precedents_schema():
     b = types.SimpleNamespace(round=1, loop_state={}, dir=tmp, record={"materials": {}, "units": [], "questions": []},
                               state={"validator": str(VALIDATOR), "inputs": {}},
                               graph={"nodes": {"p2.diagnose": {"schema": {"properties": {}}, "reads": []}}})
+    with_hist(rules, b)
     try:
         rules.POST_CHECKS["judge_output"](b, "p2.diagnose", {"units": [], "questions": [], "one_shot_closes": []}, None)
         got = "通った"
@@ -2776,9 +2794,9 @@ def test_premise_resolved():
     check(any(q["kind"] == "premise" and q["status"] == "resolved" for q in r2["questions"]), "2 周目: judge が回し直した R2 を見て premise を resolved に確定")
     cons = run.record()["process"].get("constraints", [])
     check(any("上限を持たない" in c["text"] and c["kind"] == "実測" for c in cons), "検算の実測が制約に足されている（facts_to_add の行き先）")
-    # 強制再発火の旗は使ったら消える——以前は条件式の最右に pop を置いていたので、周 2 で機構が変わる（左が真）と
-    # 短絡で pop に届かず、周 3（何も変わらない）でも R2 を回し直した
-    check("r2_refire_forced" not in st.get("loop", {}), "強制再発火の旗は周 2 で消費される（機構の変化で短絡しても残らない）")
+    # 強制再発火の旗は前の周の検算の出力だけから作る——以前は loop の旗を条件式の最右で pop していたので、周 2 で機構が変わる
+    # （左が真）と短絡で pop に届かず、周 3（何も変わらない）でも R2 を回し直した
+    check(run.hist().get("r2_refire_forced") is False, "強制再発火の旗は周 2 にだけ効き、周 3 には効かない（前の周の検算の出力から作る）")
     r3 = run.round_file(3)
     check(r3["reviews"]["R2"]["status"] == "carried_over", f"3 周目: 何も変わらないので R2 は持ち越し（{r3['reviews']['R2']['status']}）")
     rm(run.tmp)
@@ -2867,7 +2885,7 @@ def test_frozen_review_revision():
             run.done(inst["id"], a(inst))
     rev = run.state()["loop"].get("reviewed_revision")
     check(rev and len(rev) == 40, f"周の頭で版が固まる（{rev}）")
-    check(run.state()["inputs"].get("review_rev") == rev, "固定した版が役へ渡る入力に載る")
+    check("review_rev" not in run.state()["inputs"], "固定した版は run の入力に書かない（入力は init で固まる。正本は loop.reviewed_revision）")
     show = lambda r: subprocess.run(["git", "show", f"{r}:src/a.py"], cwd=run.repo,
                                     capture_output=True, text=True, encoding="utf-8", timeout=120)
     check(show(rev).stdout == before, "固定した版は周の頭の中身を持つ（BASE でも HEAD でもない）")
@@ -2899,8 +2917,9 @@ def test_frozen_review_revision():
     mod.git = _passthrough
     class _B:
         loop_state, state, round, dir = {}, {"inputs": {}}, 1, run.tmp
-    mod._freeze_revision(_B())
-    check(_B.state["inputs"].get("review_rev"), "_freeze_revision は版を入力に載せる")
+    got = mod._freeze_revision(_B())
+    check(got and _B.loop_state.get("reviewed_revision") == got and _B.state["inputs"] == {},
+          "_freeze_revision は版を loop.reviewed_revision 1 か所に書き、run の入力は書き換えない")
     src_rules = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
     check("if not suffix:\n        _freeze_revision" not in src_rules,
           "版の固定は接尾辞で分岐しない（P3 の後の取り直しでも走る）")
@@ -2981,7 +3000,7 @@ def test_frozen_review_revision():
         bb = type("_BB", (), {"loop_state": {}, "state": {"inputs": {}}, "round": 1, "dir": run.tmp})()
         try:
             mod._freeze_revision(bb)
-            got = bb.state["inputs"].get("review_rev")
+            got = bb.loop_state.get("reviewed_revision")
         except RuntimeError as e:
             got = "止まった: " + str(e)
         if want == "止まる":
@@ -3044,13 +3063,15 @@ def test_loop_state_notes_have_readers():
 
     射程は `ls.setdefault("<名前>", []).append(` の形に絞る（注記を溜める欄だけ）。
     単発の `ls["x"] = …` は返り値や cond から読まれる形が多く、同じ規則では縛れない。
+    周をまたいで溜める注記（前提のドリフト drift_notes）は履歴から作る値（hist）に移したので、loop に溜める欄はもう無い——
+    在るなら新しく足した欄で、記録へ写す行が要る。hist の注記も記録へ写す行を持つ
     """
     print("loop_state: 注記を溜める欄には、記録へ写す行が在る（書いて誰も読まない欄を作らない）")
     src = (PLUGIN / "rules" / "review-loop.py").read_text(encoding="utf-8")
     names = sorted(set(re.findall(r'ls\.setdefault\(\s*"([a-z_]+)"\s*,\s*\[\]\s*\)\.append\(', src)))
-    check(len(names) >= 2, f"注記を溜める欄が {len(names)} 件（{names}）")
     for n in names:
         check(f'proc["{n}"]' in src, f"{n} は記録へ写される（proc[\"{n}\"] が在る）")
+    check('proc["drift_notes"] = _hist(b, "drift_notes"' in src, "hist の注記（drift_notes）は記録へ写される")
 
 
 def test_freeze_revision_on_real_intent_to_add():
@@ -3083,7 +3104,7 @@ def test_freeze_revision_on_real_intent_to_add():
     before_status = sh(run.repo, "git", "status", "--porcelain").stdout
     bb = type("_BB", (), {"loop_state": {}, "state": {"inputs": {}}, "round": 1, "dir": run.tmp})()
     mod._freeze_revision(bb)
-    rev = bb.state["inputs"].get("review_rev")
+    rev = bb.loop_state.get("reviewed_revision")
     check(rev and len(rev) == 40, f"intent-to-add でも 40 桁の版を返す（{rev}）")
     listed = sh(run.repo, "git", "ls-tree", "-r", "--name-only", rev).stdout.split()
     check("src/new.py" in listed, f"**未追跡だった新規ファイルがその版に載る**（{listed}）")
@@ -3146,7 +3167,7 @@ def test_freeze_revision_keeps_tracked_ignored():
     status_before = sh(r, "git", "status", "--porcelain").stdout
     bb = type("_BB", (), {"loop_state": {}, "state": {"inputs": {}}, "round": 1, "dir": r / ".git"})()
     mod._freeze_revision(bb)
-    rev = bb.state["inputs"].get("review_rev")
+    rev = bb.loop_state.get("reviewed_revision")
     names = sh(r, "git", "ls-tree", "-r", "--name-only", rev).stdout.split()
     blob = lambda path: sh(r, "git", "rev-parse", f"{rev}:{path}").stdout.strip()
     now = lambda path: sh(r, "git", "hash-object", path).stdout.strip()
@@ -3197,15 +3218,15 @@ def test_review_rev_paragraph_is_uniform():
     1 枚だけ版の無い形に戻っても、残りが正しいので誰も気づかない。
 
     **射程は graph から導く**（手で並べた一覧にすると、節が増えた周に一覧だけ古くなる）。
-    縛るのは `inputs.review_rev` を reads に持つ節だけ——修正・CI・規模の節は
+    縛るのは `loop.reviewed_revision` を reads に持つ節だけ——修正・CI・規模の節は
     **生きた木を見るのが正しい**ので、同じ縛りを当てると直すべきでない所が赤くなる
     （最初に全プロンプトへ当てて 5 枚が赤くなった）。
     逐語でなく不変条件で見るのは、節ごとに違ってよい前後（観点の正本・差分の置き場）を固定しないため。
     """
     print("読む版: 固定した版を読む節は、生きた木のパスに必ず版を添える（射程は graph の reads から導く）")
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
-    tail, hole = "（読む版: `{{inputs.review_rev}}`）", "{{inputs.cwd}}"
-    nodes = [(k, v) for k, v in g["nodes"].items() if "inputs.review_rev" in (v.get("reads") or [])]
+    tail, hole = "（読む版: `{{loop.reviewed_revision}}`）", "{{inputs.cwd}}"
+    nodes = [(k, v) for k, v in g["nodes"].items() if "loop.reviewed_revision" in (v.get("reads") or [])]
     check(len(nodes) >= 7, f"固定した版を読む節が {len(nodes)} 件（graph の reads から数えた）")
     for nid, v in sorted(nodes):
         md = (PLUGIN / "graphs" / v["prompt_file"]).resolve()
@@ -4051,6 +4072,20 @@ def test_stop_after_round():
     halts = [json.loads(x) for x in (run.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if '"halted"' in x]
     check([(x.get("op"), x.get("by"), x.get("round")) for x in halts] == [("halted", "stop_after_round", 1)],
           f"止めたことは trace にも 1 行残る（{halts}）")
+    # 止めた run を次の周へ進める口（loop.py resume）——盤面の手当て（patch）なしで 2 周目を開き、1 周目の試行を起こし直さない
+    r1 = run.state()["rounds"][0]["instances"]
+    r = run.cmd("resume", "--reason", "検査: 続ける", "--stop-after-round", "2")
+    st = run.state()
+    check(r.returncode == 0 and st["round"] == 2 and st["status"] == "running" and "halted" not in st and st["rounds"][0]["instances"] == r1
+          and not st.get("patches"), f"resume が 2 周目を開き、1 周目の試行はそのまま（{r.stderr[-300:]}・周 {st['round']}）")
+    last = drive(run, "std")
+    st = run.state()
+    check(last["status"] == "stopped" and st["halted"]["by"] == "stop_after_round" and st["halted"]["round"] == 2
+          and [x["prev_halted"]["round"] for x in st["resumes"]] == [1],
+          f"続けた run は新しい止め周（2 周目）の締めで止まり、続けた痕跡が盤面に残る（{st.get('halted')}・{st.get('resumes')}）")
+    run.cmd("finalize")
+    check([x["reason"] for x in run.record()["process"].get("resumes", [])] == ["検査: 続ける"],
+          "続けた痕跡は記録の process.resumes にも写る（halted は最後の止めだけになるので）")
     rm(run.tmp)
     # N より前の周は止めずに開く（3 周で収束する筋書きを 2 周目の締めの後で止める）
     run = Run("stop2", init_args=["--stop-after-round", "2"])
@@ -4091,7 +4126,8 @@ def test_gates_merge():
     proc = run.record()["process"]
     check(last["status"] == "stopped" and proc.get("stop_reason") == "gates_deferred" and proc.get("outcome") == "stopped",
           f"収束する筋書きでも converge は収束を名乗らず gates_deferred で止まる（{last['status']}・{proc.get('stop_reason')}）")
-    check(not {"p3.delta_gates", "p4.final_gates"} & seen and not st["loop"].get("lanes") and st["loop"].get("gates") == "merge",
+    check(not {"p3.delta_gates", "p4.final_gates"} & seen and not st["loop"].get("lanes") and st["inputs"].get("gates") == "merge"
+          and "gates" not in st["loop"],
           f"線と関門の instance は出ず、線の台帳は空（出た {sorted({'p3.delta_gates', 'p4.final_gates'} & seen)}・lanes {st['loop'].get('lanes')}）")
     na = [r["na"] for r in st["rounds"]]
     check(all("gates=merge" in n.get("p3.delta_gates", "") for n in na) and "gates=merge" in na[-1].get("p4.final_gates", ""),
@@ -4151,18 +4187,23 @@ def test_gates_merge():
 
 
 def test_launch_wait_wording():
-    """**launch の待ち方の案内**が完了の知らせに頼らせない（next の how・手順書 2 本・loop.py の使い方の 4 か所）。
-    知らせを待った回す側が起こされずに止まった（実測 2026-09-25）。1 か所が戻ると回す側はそちらを読む"""
-    print("launch の待ち方: 4 か所とも『手番を終えるな』で、完了の知らせを待てと書かない")
+    """**待ち方の案内**が完了の知らせに頼らせない。手順書 2 本の既定の回し方は `loop.py run` を前景で打ち、終了コードで次の手を
+    決める形で、LLM に見に行きのループを書かせない（残骸のループが 17〜24 時間残った。実測 2026-09-26）。next の how と
+    loop.py の使い方も、会話からは launch を打たずに run に任せる形を案内する（背景の launch を見に行く旧い形を残さない）。
+    知らせを待った回す側が起こされずに止まった（実測 2026-09-25）"""
+    print("待ち方: 手順書は run の作法（20 は打ち直す・13 は handoff・手番を終えるのは 0・11・12・14）で、見に行きのループを書かせない")
     run = Run("waitword")
     how = run.next()["how"]
-    texts = {"next の how": how,
-             "review-graph.md": (PLUGIN / "commands" / "review-graph.md").read_text(encoding="utf-8"),
-             "research-graph.md": (PLUGIN / "commands" / "research-graph.md").read_text(encoding="utf-8"),
-             "loop.py": (PLUGIN / "scripts" / "loop.py").read_text(encoding="utf-8")}
-    for name, x in texts.items():
-        check("手番を終え" in x and "知らせを待て" not in x and "必ず知らせる" not in x,
-              f"{name}: launch を立てたら手番を終えずに見に行けと書き、完了の知らせを待てとは書かない")
+    books = {name: (PLUGIN / "commands" / name).read_text(encoding="utf-8") for name in ("review-graph.md", "research-graph.md")}
+    for name, x in books.items():
+        check("loop.py\" run --dir <DIR>" in x and "**20**" in x and "**13**" in x and "ここで初めて手番を終えてよい" in x
+              and "seq 1 54" not in x and "run_in_background" not in x and "知らせを待て" not in x,
+              f"{name}: 既定の回し方は run の作法で、見に行きのループの例と背景実行の案内を持たない")
+    for name, x in {"next の how": how, "loop.py": (PLUGIN / "scripts" / "loop.py").read_text(encoding="utf-8")}.items():
+        check("run に任せ" in x or "loop.py run --dir <DIR> を前景で打て" in x,
+              f"{name}: 会話からは launch を打たずに run に任せよと書く")
+        check("seq 1 54" not in x and "見に行くコマンド" not in x and "知らせを待て" not in x and "必ず知らせる" not in x,
+              f"{name}: 背景の launch を見に行くループの旧い案内を持たず、完了の知らせを待てとは書かない")
     rm(run.tmp)
 
 
@@ -4191,9 +4232,9 @@ def test_surviving_branches():
     # ② 前提の問いの差し替え——外すのは kind=premise かつ origin=R2 の行だけ
     keep = [{"key": "他の問い", "kind": "fork", "origin": "u1", "status": "held", "reason": "x", "options": ["a", "b"]},
             {"key": "別の前提", "kind": "premise", "origin": "R1", "status": "held", "reason": "y"}]
-    b = types.SimpleNamespace(round=2, loop_state={},
+    b = with_hist(rules, types.SimpleNamespace(round=2, loop_state={},
                               record={"questions": [dict(q) for q in keep]
-                                      + [{"key": "古い前提", "kind": "premise", "origin": "R2", "status": "held", "reason": "z"}]})
+                                      + [{"key": "古い前提", "kind": "premise", "origin": "R2", "status": "held", "reason": "z"}]}))
     rules.premise_question(b, "stop.premise_check",
                            {"key": "新しい前提", "verdict": "resolved", "reason": "検算した", "resolution": "仮定は偽", "facts_to_add": []}, None)
     got = {q["key"] for q in b.record["questions"]}
@@ -4202,9 +4243,9 @@ def test_surviving_branches():
     # 前の周から台帳に残る R2 の前提の行は外さない（外すと、判定の受け付けを通った後の記録の段で『前の周の問いが今の周の
     # 台帳に無い』に当たる）。同じ key の行は差し替える（重複の key は検証器が落とす）
     held = lambda k: {"key": k, "kind": "premise", "origin": "R2", "status": "held", "reason": "z"}
-    b = types.SimpleNamespace(round=2, state={"validator": str(VALIDATOR)},
+    b = with_hist(rules, types.SimpleNamespace(round=2, state={"validator": str(VALIDATOR)},
                               loop_state={"prev_questions": [held("引き継いだ前提"), held("差し替える前提")]},
-                              record={"questions": [held("引き継いだ前提"), held("差し替える前提"), held("この周の古い前提")]})
+                              record={"questions": [held("引き継いだ前提"), held("差し替える前提"), held("この周の古い前提")]}))
     rules.premise_question(b, "stop.premise_check", {"key": "差し替える前提", "verdict": "escalate", "reason": "検算した"}, None)
     got = [(q["key"], q["status"]) for q in b.record["questions"]]
     check(sorted(got) == sorted([("引き継いだ前提", "held"), ("差し替える前提", "escalate")]),
@@ -4259,7 +4300,7 @@ def test_open_unit_and_hit_arm():
 
     # ② 覆いの腕の切り分け——st=found で手前の腕は黙る。この腕は「赤も緑も見た腕」にだけ当たる
     chk = rules.POST_CHECKS["gate_arms_all_red"]
-    b = types.SimpleNamespace(round=2, loop_state={}, record={}, state={"validator": str(VALIDATOR)}, dir=PLUGIN)
+    b = with_hist(rules, types.SimpleNamespace(round=2, loop_state={}, record={}, state={"validator": str(VALIDATOR)}, dir=PLUGIN))
 
     def arms_out(rows, st="found"):
         return {"arms": rows, "material": {"status": st, "count": 1, "detail": "x"}}
@@ -4294,16 +4335,19 @@ def test_open_unit_and_hit_arm():
     check(mv(1.2, 101, 150) == (False, False), f"2/3 を超えるなら動いていない（{mv(1.2, 101, 150)}）")
     check(mv(None, 100, None) == (False, False), f"前の周が無ければ減ったとは言わない（{mv(None, 100, None)}）")
     # 組み込み: 行数の動きが R2 の回し直しに届く（関数の腕だけでは、呼ぶ側の `or shrank` を消しても緑だった）
-    rf = rules._r2_refire
+    rf = lambda rnd, fix, ratio, lines, ls: rules._r2_refire(with_hist(rules, types.SimpleNamespace(round=rnd, loop_state=ls)), fix, ratio, lines)
     check(rf(2, {}, 0.7, 100, {"diff_lines_by_round": {"1": 150}}) is True, "2 周目に前の周の 2/3 以下へ減ったら R2 を回し直す")
     check(rf(2, {}, 1.6, 160, {"diff_lines_by_round": {"1": 150}}) is True, "R1 の時点の 1.5 倍を超えたら R2 を回し直す")
     check(rf(2, {}, 1.0, 150, {"diff_lines_by_round": {"1": 150}}) is False, "行数が動かず機構も前提も変わらなければ回し直さない")
-    walk = {}
-    rf(1, {}, None, 150, walk)
-    check(rf(2, {}, 1.0, 100, walk) is True and walk["diff_lines_by_round"] == {"1": 150, "2": 100},
-          f"周ごとの行数は _r2_refire 自身が盤面に書き、次の周がそれと比べる（空の盤面から 2 周。{walk}）")
-    ls = {"diff_lines_by_round": {"1": 150}, "r2_refire_forced": True}
-    check(rf(2, {}, 1.0, 150, ls) is True and "r2_refire_forced" not in ls, "強制の旗は効いて消費される")
+    check(rf(2, {}, 1.0, 150, {"diff_lines_by_round": {"1": 150}, "r2_refire_forced": True}) is True, "強制の旗が立った周は回し直す")
+    # 周ごとの行数と強制の旗は、周ごとの節の出力から作る（p4.assemble の diff_lines・前の周の stop.premise_check）
+    outs = {("p4.assemble", 1): {"diff_lines": 150}, ("p4.assemble", 2): {"diff_lines": 100}, ("p4.assemble", 3): {},
+            ("stop.premise_check", 2): {"verdict": "resolved", "facts_to_add": ["実測"]}}
+    h = lambda rnd: types.SimpleNamespace(round=rnd, output=lambda nid, n: outs.get((nid, n)))
+    check(rules.hist_diff_lines_by_round(h(3)) == {"1": 150, "2": 100},
+          f"周ごとの行数は p4.assemble の出力から作り、行数の無い旧い出力の周は載せない（{rules.hist_diff_lines_by_round(h(3))}）")
+    check(rules.hist_r2_refire_forced(h(3)) is True and rules.hist_r2_refire_forced(h(4)) is False and rules.hist_r2_refire_forced(h(1)) is False,
+          "強制の旗は前の周の検算が resolved で実測を返した周だけ（次の周には効かない）")
     check(run([unred], st="awaiting_human") is None, f"赤を見ていない腕が在っても awaiting_human なら通る——{run([unred], st='awaiting_human')}")
 
 
@@ -4394,9 +4438,9 @@ def test_delta_conditions():
     board = tmp / ".git" / "gl-board"   # 本物の run と同じく git dir の下（作業ツリーの外）——作業場と一緒に消える
     board.mkdir()
     outs = {}
-    b = types.SimpleNamespace(round=2, loop_state={}, dir=board, state={"validator": str(VALIDATOR), "inputs": {}},
+    b = with_hist(rules, types.SimpleNamespace(round=2, loop_state={}, dir=board, state={"validator": str(VALIDATOR), "inputs": {}},
                               record={"units": [], "questions": []}, porcelain=lambda: "",
-                              output_of_round=lambda n, r: outs.get(n) if r == 2 else None)
+                              output_of_round=lambda n, r: outs.get(n) if r == 2 else None))
 
     def at(ls, o=None):
         b.loop_state = ls
@@ -4416,8 +4460,17 @@ def test_delta_conditions():
           "修正差分: 手直しの差分が在れば 2 回目を起こす")
     check(holds(rules.delta_review2_due, {}, {"p3.delta_fix": {"handled": [{"key": "k1", "handled": "fixed"}]}}),
           "修正差分: 手直しの差分が無くても、手直しが直したと言う穴が在れば 2 回目を起こす")
-    check(rules._delta_owed(at({}), 1) == set() and rules._delta_owed(at({"delta_owed": {"round": 1, "rows": [{"key": "k"}]}}), 1) == set(),
-          "手直しの義務: 義務の値が無い盤面・前の周の値しか無い盤面では、答える義務は空（起こさない）")
+    check(rules._delta_owed(at({}), 1) == set() and rules._delta_owed(at({"delta_owed": {"round": 2, "rows": [{"key": "k"}]}}), 1) == set(),
+          "手直しの義務: 今の周の義務の節の出力が無ければ空（loop に残った旧い版の値は読まない）")
+    check(rules._delta_owed(at({}, {"p3.delta_owed": {"ok": True, "owed": 1, "rows": [{"key": "k"}]}}), 1) == {"k"},
+          "手直しの義務: 今の周の義務の節（p3.delta_owed）の出力の rows を読む")
+    try:
+        rules._delta_owed(at({}, {"p3.delta_owed": {"ok": True, "owed": 1}}), 1)
+        got = "通った"
+    except Reject as e:
+        got = str(e)
+    check("rows" in got and "out.p3.delta_owed.rows" in got,
+          f"手直しの義務: 出力が在るのに rows が無い（旧い版の出力）なら 0 件に倒さず、手当ての口を名乗って止まる（{got[:80]}）")
     # 周をまたぐ変更の検出: 前の周の頭の版が無ければ測れない（None）、在れば今の木との差（未追跡も入る）
     check(rules._files_changed_since(at({}), 1) is None, "周をまたぐ変更: 前の周の頭の版が無い周は『測れない』（None）")
     (tmp / "b.py").write_text("B = 1\n", encoding="utf-8")
@@ -4503,6 +4556,16 @@ def test_delta_conditions():
     finally:
         rules._take_diff = real_take
     check(not r["ok"] and "木の id が取れない" in " ".join(r["problems"]), f"作業ツリーの保護: 固めた版の木の id が取れない回は止める（{r}）")
+    # 突合の基準は節の出力（p1.worktree_before の出力の tree_before。受理して取り直した回は p1.worktree_after の出力が先）
+    base0 = {"porcelain": [], "stash": "", "tree": "t0"}
+    check(rules._baseline(at({}, {"p1.worktree_before": {"ok": True, "tree_before": base0}})) == base0
+          and rules._baseline(at({}, {"p1.worktree_before": {"ok": True, "tree_before": base0},
+                                      "p1.worktree_after": {"ok": False, "tree_before": {**base0, "tree": "t1"}}}))["tree"] == "t1"
+          and rules._baseline(at({"tree_before": base0}, {})) == {},
+          "作業ツリーの保護: 突合の基準は今の周の節の出力から引き、取り直した基準が先（loop に残った旧い値は読まない）")
+    r = rules.worktree_compare(at({}, {"p1.worktree_before": {"ok": True, "diff_file": "", "changed_files": [], "stat": ""}}), "p1.worktree_after")
+    check(not r["ok"] and "tree_before" in " ".join(r["problems"]) and "patch --path out.p1.worktree_before.tree_before" in " ".join(r["problems"]),
+          f"作業ツリーの保護: 基準を出力に載せる前の版の出力しか無ければ、一致に倒さず手当ての口を名乗って止まる（{r}）")
     V = rules.validator_module(b)
     b.record = {"units": [{"key": u, "label": "block"} for u in ("u1", "u2", "u3")],
                 "questions": [{"key": "q", "kind": "fork", "status": V.ASKING[0], "origin": "u1", "depends": ["u2"]}]}
@@ -4572,10 +4635,10 @@ def test_lane_rules():
     board = tmp / ".git" / "gl-board"
     (board / "lanes").mkdir(parents=True)
     outs = {}
-    b = types.SimpleNamespace(round=2, loop_state={}, dir=board, nodes=graph["nodes"], graph=graph,
+    b = with_hist(rules, types.SimpleNamespace(round=2, loop_state={}, dir=board, nodes=graph["nodes"], graph=graph,
                               state={"validator": str(VALIDATOR), "inputs": {}},
                               record={"units": [], "questions": [], "materials": {}, "process": {}},
-                              output_of_round=lambda n, r: outs.get(n) if r == 2 else None)
+                              output_of_round=lambda n, r: outs.get(n) if r == 2 else None))
     good = lambda rev, **k: {"rev": rev, "arms": [_lane_arm("ok"), _lane_arm("miss", red_confirmed=False)],
                              "handled": [{"key": "arm:miss", "handled": "defect", "how": "変異した方が仕様に合う（検査用）"}],
                              "patch": "", "suite": {"command": "bash run.sh", "exit": 0}, **k}
@@ -4704,7 +4767,8 @@ def test_lane_rules():
     subprocess.run(["git", "add", "-A"], cwd=tmp, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "y"], cwd=tmp, capture_output=True)
     snap = rules._snapshot("検査用")
-    b.loop_state = {"gates_cut": {"round": 2, "rev": snap, "files": []}}
+    b.loop_state = {}
+    outs["p3.gates_cut"] = {"ok": True, "rev": snap, "files": []}
     P = lambda: "; ".join(rules._final_gate_problems(b))
     check("撃っていない" in P(), f"最後の関門: 関門の結果が無い周は通らない（{P()[:60]}）")
     outs["p4.final_gates"] = good(snap, handled=[{"key": "arm:miss", "handled": "equivalent", "how": "どの入力でも同じ値になる（検査用）"}])
@@ -4714,11 +4778,12 @@ def test_lane_rules():
     outs["p4.final_gates"] = good(snap, handled=[{"key": "arm:miss", "handled": "equivalent", "how": "どの入力でも同じ値になる（検査用）"}])
     (tmp / "a.py").write_text("A = 2\n", encoding="utf-8")
     check("古い" in P(), f"最後の関門: 撃った版の後にコードが変われば、関門の結果は古い（{P()[:80]}）")
-    b.loop_state = {"gates_cut": {"round": 1, "rev": snap, "files": []}}
-    check("撃っていない" in P(), "最後の関門: 前の周に固めた版の結果は数えない")
+    outs.pop("p3.gates_cut")
+    check("撃っていない" in P(), "最後の関門: 今の周の p3.gates_cut の出力が無ければ（前の周に固めた版しか無ければ）結果は数えない")
     # 撃てた腕が 0 本の関門は通さず人に諮る（converge が聞く）。人が continue した同じ木なら通る
     (tmp / "a.py").write_text("A = 1\n", encoding="utf-8")
-    b.loop_state = {"gates_cut": {"round": 2, "rev": snap, "files": []}}
+    b.loop_state = {}
+    outs["p3.gates_cut"] = {"ok": True, "rev": snap, "files": []}
     outs["p4.final_gates"] = good(snap, arms=[], handled=[])
     check(P() == rules.FINAL_GATE_EMPTY, f"最後の関門: 撃てた腕が 0 本なら通さず、人に諮る印だけを返す（{P()[:80]}）")
     tree = subprocess.run(["git", "rev-parse", f"{snap}^{{tree}}"], cwd=tmp, capture_output=True, text=True, encoding="utf-8").stdout.strip()
@@ -4739,15 +4804,15 @@ def test_lane_rules():
     rules._route_lane_defects(b, [row])
     batch = (b.record["process"].get("request_findings") or [{}])[-1]
     check(batch.get("origin") == rules.LANE_ORIGIN and batch["findings"][0]["where"] == row["key"]
-          and batch["findings"][0]["text"].startswith(rules.LANE_PROVENANCE) and not b.loop_state.get("prev_declared_faces"),
+          and batch["findings"][0]["text"].startswith(rules.LANE_PROVENANCE),
           f"線の defect は人の依頼の入口（request_findings）に出どころつきで積む（{batch}）")
     b.record["process"]["request_findings"] = "型崩れ"
     rules._route_lane_defects(b, [row])
-    check(b.record["process"]["request_findings"] == "型崩れ" and not b.loop_state.get("prev_declared_faces"),
+    check(b.record["process"]["request_findings"] == "型崩れ",
           "依頼の欄が崩れていて積めない回は触らずに戻る（同じ行は on_new_round が宣言の穴に載せてある）")
     # 受領: 名乗る置き場がこの周の線の置き場と違えば拒む（別の置き場に書いた線は誰も読まない）
     from engine.util import Reject  # noqa: E402
-    b.loop_state = {"gates_cut": {"round": 2, "result": str(board / "lanes" / "r2.json")}}
+    outs["p3.gates_cut"] = {"ok": True, "result": str(board / "lanes" / "r2.json")}
     for lane_path, want in ((str(board / "lanes" / "r2.json"), "通った"), (str(board / "lanes" / "other.json"), "置き場")):
         try:
             rules.POST_CHECKS["lane_receipt"](b, "p3.delta_gates", {"lane": lane_path}, None)
@@ -4760,18 +4825,17 @@ def test_lane_rules():
     r = rules.gates_cut(b, "p3.gates_cut")
     check(not r["ok"] and "頭の版が無い" in " ".join(r["problems"]), f"線の範囲: 周の頭の版が無い周は止まる（{r}）")
     b.loop_state = {"head_revs": {"2": head}}
-    r = rules.gates_cut(b, "p3.gates_cut")
-    cut = b.loop_state["gates_cut"]
-    check(r["ok"] and "a.py" in cut["files"] and cut["rev"] in b.loop_state["lanes"] and cond_call(rules.gates_cut_nonempty, {"loop": b.loop_state, "round": b.round})[0]
-          and cut["result"].startswith(str(board / "lanes")) and cut["reply_schema"].get("required"),
-          f"線の範囲: 周の頭からこの版までの変更を置き、線の置き場と結果の型を渡す（{cut.get('files')}）")
+    cut = rules.gates_cut(b, "p3.gates_cut")
+    check(cut["ok"] and "a.py" in cut["files"] and cut["rev"] in b.loop_state["lanes"] and cond_call(rules.gates_cut_nonempty, {"cur": {"p3.gates_cut": cut}})[0]
+          and cut["result"].startswith(str(board / "lanes")) and cut["reply_schema"].get("required") and "gates_cut" not in b.loop_state
+          and cut["from"] == head,
+          f"線の範囲: 周の頭からこの版までの変更と、線の置き場と結果の型を節の出力で返す（loop には置かない。{cut.get('files')}）")
     (tmp / "a.py").write_text("A = 1\n", encoding="utf-8")
     subprocess.run(["git", "checkout", "-q", "--", "."], cwd=tmp, capture_output=True)
     b.loop_state = {"head_revs": {"2": rules._snapshot("検査用")}}
-    rules.gates_cut(b, "p3.gates_cut")
-    check(not cond_call(rules.gates_cut_nonempty, {"loop": b.loop_state, "round": b.round})[0] and not b.loop_state.get("lanes"), "線の範囲: 周の頭から変わっていなければ線を立てない")
-    b.loop_state["gates_cut"]["round"] = 1
-    check(not cond_call(rules.gates_cut_nonempty, {"loop": b.loop_state, "round": b.round})[0], "線の範囲: 前の周に固めた範囲では線を立てない")
+    cut = rules.gates_cut(b, "p3.gates_cut")
+    check(not cond_call(rules.gates_cut_nonempty, {"cur": {"p3.gates_cut": cut}})[0] and not b.loop_state.get("lanes"), "線の範囲: 周の頭から変わっていなければ線を立てない")
+    check(not cond_call(rules.gates_cut_nonempty, {"cur": {}})[0], "線の範囲: 今の周に範囲を固めていなければ（前の周の出力しか無ければ）線を立てない")
     rm(tmp)
 
 
@@ -4796,7 +4860,7 @@ def test_lane_end_to_end():
                    "patch": lane["patch"], "suite": {"command": "pytest（検査用）", "exit": 0}}
             pathlib.Path(lane["result"]).write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
             seen["lane_written"] = True
-            check(not any("線 r1" in r["key"] for r in st["loop"].get("prev_declared_faces") or []),
+            check(not any("線 r1" in r["key"] for r in run_.hist().get("prev_declared_faces") or []),
                   "並行の線: 2 周目の頭では 1 周目の線はまだ走っている——判定に渡る物は無い（周は線を待たずに進んだ）")
         if inst["node"] == "p4.final_gates":
             seen["gate_calls"] += 1
@@ -4938,7 +5002,8 @@ def test_tdd_gives_up_without_dead_end():
     h2 = json.loads((run.dir / "out" / "r2" / "p2.history.json").read_text(encoding="utf-8"))
     check(any("TDD の赤の確認が上限で通らなかった" in r["key"] for r in h2.get("declared_routed") or []),
           f"諦めた理由は次の周の判定役に穴の行として届く（{[r['key'] for r in h2.get('declared_routed') or []][:3]}）")
-    check(bool((run.state().get("loop") or {}).get("tdd_gave_up")), "TDD を諦めた盤面は loop に tdd_gave_up を書いた")
+    check(bool(run.hist().get("tdd_gave_up")) and "tdd_gave_up" not in (run.state().get("loop") or {}),
+          "TDD を諦めた盤面は、諦めた確認の節の出力から hist.tdd_gave_up が作られる（loop には書かない）")
     loop_shape_held(run, "TDD を諦めた流れ")
     rm(run.tmp)
 
@@ -5337,7 +5402,7 @@ def test_escalate_ratchet():
     esc = rules.escalate_on_thrash
 
     def board(ls):
-        return types.SimpleNamespace(round=6, loop_state=ls, record={"process": {}})
+        return with_hist(rules, types.SimpleNamespace(round=6, loop_state=ls, record={"process": {}}))
 
     b = board({})
     esc(b)
@@ -5379,8 +5444,11 @@ def test_rejudge_edge():
     rules = load_rules(PLUGIN / "graphs" / "review-loop.json", g)
     conds, checks = rules.CONDS, rules.POST_CHECKS
 
-    b = types.SimpleNamespace(round=3, loop_state={})
-    held = lambda name, b: cond_call(conds[name], {"round": b.round, "loop": b.loop_state})[0]
+    # 往復の回数は、その周に受け付けた擦り合わせの節の数（hist.rejudge_rounds。周の rd から作る）
+    count = lambda rnd, done: rules.hist_rejudge_rounds(types.SimpleNamespace(round=rnd, rd=lambda n: {"done": dict.fromkeys(done)}))
+    b = types.SimpleNamespace(round=3, loop_state={}, done=())
+    held = lambda name, b: cond_call(conds[name], {"round": b.round, "loop": b.loop_state,
+                                                   "hist": {"rejudge_rounds": count(b.round, b.done)}})[0]
     check(not held("rejudge_open", b) and not held("rejudge_exhausted", b),
           "異議が無ければ往復の節は開かない（常設しない）")
     b.loop_state["rejudge_requested"] = {"round": 2, "text": "前の周の異議"}
@@ -5389,6 +5457,7 @@ def test_rejudge_edge():
     check(held("rejudge_open", b) and not held("rejudge_exhausted", b), "今の周の異議で往復の節が開く")
 
     # 確かめずに採る／退ける返答は拒む（依頼者の条件 1: 反論は新しい事実を伴うときだけ）
+    b.hist = lambda name: rules.HIST_ABSENT
     for bad in ("", "なし", "確認した"):
         try:
             checks["rejudge_output"](b, "p2.rejudge", {"verdict": "採る", "new_facts": bad, "units": []}, None)
@@ -5396,31 +5465,29 @@ def test_rejudge_edge():
         except Exception as e:  # rules に差し込まれた Reject は別の module 実体になりうる——型名で見る
             check(type(e).__name__ == "Reject" and "new_facts" in str(e),
                   f"new_facts が空同然（{bad!r}）なら拒む（{type(e).__name__}）")
-    check(int(b.loop_state.get("rejudge_rounds") or 0) == 0, "拒まれた返答は往復に数えない")
+    check(count(3, ()) == {"round": 3, "n": 0}, "拒まれた返答は往復に数えない（受け付けた節が無い）")
 
     # 決着しない返答（一部採る）は異議を降ろさず、往復だけ数える
     checks["rejudge_output"](b, "p2.rejudge", {"verdict": "一部採る", "new_facts": "該当行を自分で読み、片方の根拠だけ現物で確かめられた。もう片方は再現できず争点が残る", "units": []}, None)
-    check(b.loop_state["rejudge_rounds"] == {"round": 3, "n": 1} and "rejudge_requested" in b.loop_state,
+    b.done = ("p2.rejudge",)
+    check(count(3, b.done) == {"round": 3, "n": 1} and "rejudge_requested" in b.loop_state,
           "決着しない返答は往復を 1 つ数え、異議は降りない（回数は周とセットで持つ）")
-    for _ in range(2):
-        checks["rejudge_output"](b, "p2.rejudge", {"verdict": "一部採る", "new_facts": "同じく現物に当たったが、片方の根拠だけが確かめられ、争点は解けないまま残った", "units": []}, None)
-    check(not held("rejudge_open", b) and held("rejudge_exhausted", b),
-          f"上限（{rules.REJUDGE_MAX}）に達すると往復の節は閉じ、第三の目が開く（常設でなくここでだけ立つ）")
+    over = cond_call(conds["rejudge_open"], {"round": 3, "loop": b.loop_state, "hist": {"rejudge_rounds": {"round": 3, "n": rules.REJUDGE_MAX}}})[0]
+    exhausted = cond_call(conds["rejudge_exhausted"], {"round": 3, "loop": b.loop_state, "hist": {"rejudge_rounds": {"round": 3, "n": rules.REJUDGE_MAX}}})[0]
+    check(not over and exhausted, f"上限（{rules.REJUDGE_MAX}）に達すると往復の節は閉じ、第三の目が開く（常設でなくここでだけ立つ）")
 
     # **上限は run 全体でなく 1 周に掛かる。** 以前は回数が周をまたいで積まれたので、どこか 1 周で使い切ると
     # run の残り全部で往復の節が開かず、新しい異議は 1 回目からいきなり第三の目に行った（＝常設しないという
     # 名乗りが破れる）。**次の周に同じ盤面で異議を出すと、往復がまた開く**ことを見る
-    b.round = 4
+    b.round, b.done = 4, ()
     b.loop_state["rejudge_requested"] = {"round": 4, "text": "次の周の新しい異議"}
     check(held("rejudge_open", b) and not held("rejudge_exhausted", b),
           "前の周で上限まで往復しても、次の周の異議では往復の節がまた開く（上限は周ごと）")
-    checks["rejudge_output"](b, "p2.rejudge", {"verdict": "一部採る", "new_facts": "次の周の争点について現物に当たり、片方だけ確かめられた", "units": []}, None)
-    check(b.loop_state["rejudge_rounds"] == {"round": 4, "n": 1}, "周が変わると往復の回数は 1 から数え直す")
-    b.round, b.loop_state["rejudge_requested"] = 3, {"round": 3, "text": "今の周の異議"}
-    b.loop_state["rejudge_rounds"] = {"round": 3, "n": rules.REJUDGE_MAX}
+    check(count(4, ("p2.rejudge",)) == {"round": 4, "n": 1}, "周が変わると往復の回数は 1 から数え直す")
 
     # 決着する返答は異議を降ろす
-    b2 = types.SimpleNamespace(round=3, loop_state={"rejudge_requested": {"round": 3, "text": "x"}})
+    b2 = types.SimpleNamespace(round=3, loop_state={"rejudge_requested": {"round": 3, "text": "x"}}, done=(),
+                               hist=lambda name: rules.HIST_ABSENT)
     checks["rejudge_output"](b2, "p2.rejudge", {"verdict": "退ける", "new_facts": "現物に当たって再現を試みたが、回す側が挙げた事実は再現しなかったので退ける", "units": []}, None)
     check("rejudge_requested" not in b2.loop_state and not held("rejudge_open", b2),
           "採る／退けるで決着すれば異議は降り、往復の節は閉じる")
@@ -5525,7 +5592,9 @@ def test_reviews_see_the_fix():
     after = pathlib.Path(ls["diff_file"]).read_text(encoding="utf-8")
     check("after-fix" in ls["diff_file"], f"R に渡る写しが P3 の後のもの（{pathlib.Path(ls['diff_file']).name}）")
     check("# fixed in round 1" in after, "取り直した写しに、P3 が実際に書いた行が入っている")
-    check(ls.get("retaken_for_reviews"), "取り直したことが盤面に残る（痕跡なしで差し替えない）")
+    retaken = (run.output("p4.assemble") or {}).get("retaken") or {}
+    check(retaken.get("file") == ls["diff_file"] and "retaken_for_reviews" not in ls,
+          f"取り直したことが p4.assemble の出力に残る（痕跡なしで差し替えない。loop には置かない）（{retaken}）")
     base = run.dir / "diff-r1.patch"
     check(base.is_file() and "# fixed in round 1" not in base.read_text(encoding="utf-8"),
           "周の基準点（diff-r1.patch）は上書きされていない（次の周の持ち越しの無効化がこれを読む）")
@@ -5622,9 +5691,9 @@ def test_cond_truth_tables():
 
     E = {"request_entry": {"origin": "人の依頼（検査）"}}
 
-    def c(rnd=1, entry=False, loop=None, fix=None, base=None, purpose=None, **extra):
-        """文脈を組む: 入口の印・loop・前の周の p3.fix の申告・p0.base の申告・p0.purpose"""
-        ctx = {"round": rnd, "record": {"process": dict(E) if entry else {}}, "loop": dict(loop or {}),
+    def c(rnd=1, entry=False, loop=None, fix=None, base=None, purpose=None, hist=None, **extra):
+        """文脈を組む: 入口の印・loop・履歴から作る値（hist）・前の周の p3.fix の申告・p0.base の申告・p0.purpose"""
+        ctx = {"round": rnd, "record": {"process": dict(E) if entry else {}}, "loop": dict(loop or {}), "hist": dict(hist or {}),
                "prev": {"p3.fix": dict(fix)} if fix else {}, "out": {}}
         if base is not None:
             ctx["out"]["p0.base"] = base
@@ -5662,29 +5731,32 @@ def test_cond_truth_tables():
                               (c(entry=True, base={"touches_gates": True}), False), (c(entry=True, loop={"escalated": {"round": 1}}), True),
                               (c(), "die"), (c(entry=True), False), (c(base={"touches_gates": 1}), True),
                               # 合流でまとめる run（gates=merge）は、ゲートを触った初回の周・前の周の P3 が触った周・昇格した周のどれでも撃たない
-                              (c(base={"touches_gates": True}, loop={"gates": "merge"}), False),
-                              (c(2, loop={**touched, "gates": "merge"}), False),
-                              (c(entry=True, loop={"escalated": {"round": 1}, "gates": "merge"}), False)],
+                              (c(base={"touches_gates": True}, inputs={"gates": "merge"}), False),
+                              (c(2, loop=touched, inputs={"gates": "merge"}), False),
+                              (c(entry=True, loop={"escalated": {"round": 1}}, inputs={"gates": "merge"}), False),
+                              # run の入力の写しが loop に残る旧い盤面でも、読むのは入力だけ
+                              (c(base={"touches_gates": True}, loop={"gates": "merge"}), True)],
         "test_double_fidelity_due": [(c(base={"touches_external_seams": True}), True), (c(base={"touches_external_seams": False}), False),
                                      (c(2, base={"touches_external_seams": False}, fix={"seams_changed": True}), False),
                                      (c(entry=True, base={"touches_external_seams": True}), False),
                                      (c(entry=True, loop={"escalated": {"round": 1}}), True)],
         "main_path_observation_due": [(c(base={"touches_user_path": True}), True), (c(2, base={"touches_user_path": True}), False),
-                                      (c(2, base={"touches_user_path": True}, loop={"last_material": {"main_path_observation": {"status": "awaiting_human"}}}), True),
-                                      (c(2, base={"touches_user_path": True}, loop={"last_material": {"main_path_observation": {"status": "clean"}}}), False),
+                                      (c(2, base={"touches_user_path": True}, hist={"last_material": {"main_path_observation": {"status": "awaiting_human"}}}), True),
+                                      (c(2, base={"touches_user_path": True}, hist={"last_material": {"main_path_observation": {"status": "clean"}}}), False),
                                       (c(2, base={"touches_user_path": False}, loop=touched), True),
                                       (c(entry=True, base={"touches_user_path": True}, loop={"escalated": {"round": 1}}), False)],
         "provenance_due": [(c(), True), (c(entry=True), False), (c(2), False), (c(2, fix={"claims_changed": True}), False), (c(2, loop=touched), True)],
         "after_first_round": [(c(), False), (c(2), True)],
         "parallel_pr_due": [(c(), True), (c(2), False), (c(2, entry=True, loop={"request_fixed_at": 1}), True),
                             (c(3, entry=True, loop={"request_fixed_at": 1}), False), (c(2, loop={"request_fixed_at": 1}), False)],
-        "spec_flow": [(c(), False), (c(loop={"flow": "spec"}), True), (c(loop={"flow": "other"}), False)],
-        "spec_revise_due": [(c(loop={"flow": "spec"}, out={"spec.review": {"faces": [{"key": "k"}]}}), True),
-                            (c(loop={"flow": "spec"}, out={"spec.review": {"faces": []}}), False),
-                            (c(loop={"flow": "spec"}), False), (c(out={"spec.review": {"faces": [{"key": "k"}]}}), False)],
-        "gates_cut_nonempty": [(c(2, loop={"gates_cut": {"round": 2, "files": ["a.py"]}}), True),
-                               (c(2, loop={"gates_cut": {"round": 1, "files": ["a.py"]}}), False),
-                               (c(2, loop={"gates_cut": {"round": 2, "files": []}}), False), (c(2), False)],
+        "spec_flow": [(c(), False), (c(inputs={"flow": "spec"}), True), (c(inputs={"flow": "other"}), False), (c(loop={"flow": "spec"}), False)],
+        "spec_revise_due": [(c(inputs={"flow": "spec"}, out={"spec.review": {"faces": [{"key": "k"}]}}), True),
+                            (c(inputs={"flow": "spec"}, out={"spec.review": {"faces": []}}), False),
+                            (c(inputs={"flow": "spec"}), False), (c(out={"spec.review": {"faces": [{"key": "k"}]}}), False)],
+        "gates_cut_nonempty": [(c(2, cur={"p3.gates_cut": {"files": ["a.py"]}}), True),
+                               (c(2, out={"p3.gates_cut": {"files": ["a.py"]}}), False),
+                               (c(2, cur={"p3.gates_cut": {"files": []}}), False), (c(2), False),
+                               (c(2, loop={"gates_cut": {"round": 2, "files": ["a.py"]}}), False)],
         "would_converge": [(c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}, **ENG(2)}), True),
                            (c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}}), False),
                            (c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}},
@@ -5694,12 +5766,12 @@ def test_cond_truth_tables():
                            (c(2, cur={"p4.record": {"branch": "next_round"}}, record={"materials": {"local_checks": {"status": "clean"}}}), False),
                            (c(2, record={"materials": {"local_checks": {"status": "clean"}}}), False),
                            (c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {}}), False)],
-        "gates_merge": [(c(), False), (c(loop={"gates": "merge"}), True), (c(loop={"gates": "other"}), False)],
-        "lane_due": [(c(2, loop={"gates_cut": {"round": 2, "files": ["a.py"]}}), True),
-                     (c(2, loop={"gates": "merge", "gates_cut": {"round": 2, "files": ["a.py"]}}), False),
-                     (c(2, loop={"gates_cut": {"round": 2, "files": []}}), False)],
+        "gates_merge": [(c(), False), (c(inputs={"gates": "merge"}), True), (c(inputs={"gates": "other"}), False), (c(loop={"gates": "merge"}), False)],
+        "lane_due": [(c(2, cur={"p3.gates_cut": {"files": ["a.py"]}}), True),
+                     (c(2, inputs={"gates": "merge"}, cur={"p3.gates_cut": {"files": ["a.py"]}}), False),
+                     (c(2, cur={"p3.gates_cut": {"files": []}}), False)],
         "final_gate_due": [(c(2, cur={"p4.record": {"branch": "converged"}}, record={"materials": {"local_checks": {"status": "clean"}}, **ENG(2)}), True),
-                           (c(2, loop={"gates": "merge"}, cur={"p4.record": {"branch": "converged"}},
+                           (c(2, inputs={"gates": "merge"}, cur={"p4.record": {"branch": "converged"}},
                               record={"materials": {"local_checks": {"status": "clean"}}, **ENG(2)}), False),
                            (c(2, cur={"p4.record": {"branch": "next_round"}}, record={"materials": {"local_checks": {"status": "clean"}}}), False)],
         "units_open": [(c(record={"units": []}), False), (c(record={"units": [{"label": "block"}]}), True),
@@ -5712,24 +5784,28 @@ def test_cond_truth_tables():
                              (c(2, cur={"p3.fix": {"plan_faces": [{"key": "k", "handled": "declared"}]}}), False)],
         "delta_review2_due": [(c(2, loop={"fix_delta2": {"round": 2, "files": ["a.py"]}}), True),
                               (c(2, cur={"p3.delta_fix": {"handled": [{"key": "k", "handled": "fixed"}]}}), True), (c(2), False)],
-        "delta_faces_open": [(c(2, loop={"delta_owed": {"round": 2, "rows": [{"key": "k"}]}}), True),
-                             (c(2, loop={"delta_owed": {"round": 1, "rows": [{"key": "k"}]}}), False),
-                             (c(2, loop={"delta_owed": {"round": 2, "rows": []}}), False)],
-        "delta2_faces_open": [(c(2, loop={"delta_owed2": {"round": 2, "rows": [{"key": "k"}]}}), True), (c(2), False)],
+        "delta_faces_open": [(c(2, cur={"p3.delta_owed": {"rows": [{"key": "k"}]}}), True),
+                             (c(2, out={"p3.delta_owed": {"rows": [{"key": "k"}]}}), False),
+                             (c(2, cur={"p3.delta_owed": {"rows": []}}), False),
+                             (c(2, loop={"delta_owed": {"round": 2, "rows": [{"key": "k"}]}}), False),
+                             # 義務の行を出力に載せる前の版の出力（rows が無い）は 0 件に倒さず止まる
+                             (c(2, cur={"p3.delta_owed": {"ok": True, "owed": 1}}), "die")],
+        "delta2_faces_open": [(c(2, cur={"p3.delta_owed2": {"rows": [{"key": "k"}]}}), True), (c(2), False)],
         "delta_fixed": [(c(2, cur={"p3.delta_fix": {"handled": [{"key": "k", "handled": "fixed"}]}}), True),
                         (c(2, cur={"p3.delta_fix": {"handled": [{"key": "k", "handled": "declared"}]}}), False), (c(2), False)],
         "r1_refire": [(c(), True), (c(loop={"r1_refire": False}), False), (c(loop={"r1_refire": True}), True)],
-        "r2_design_due": [(c(), True), (c(loop={"r2_refire": False}), False), (c(loop={"purpose_known": False}), False)],
+        "r2_design_due": [(c(), True), (c(cur={"p4.assemble": {"r2_refire": False}}), False), (c(loop={"purpose_known": False}), False),
+                          (c(loop={"r2_refire": False}), True)],
         "r2_compare_due": [(c(), False), (c(out={"r2.design": {"question_stands": True}}), True),
-                           (c(out={"r2.design": {"question_stands": True}}, loop={"r2_refire": False}), False),
+                           (c(out={"r2.design": {"question_stands": True}}, cur={"p4.assemble": {"r2_refire": False}}), False),
                            (c(out={"r2.design": {"question_stands": True}}, loop={"purpose_known": False}), False)],
         "overview_due": [(c(), True), (c(loop={"open_units": 2}), False), (c(loop={"open_units": 2, **touched}), True)],
         "r2_premise_invalid": [(c(), False), (c(record={"reviews": {"R2": {"status": "premise-invalid"}}}), True),
                                (c(record={"reviews": {"R2": {"status": "pass"}}}), False)],
         "rejudge_open": [(c(3), False), (c(3, loop={"rejudge_requested": {"round": 3}}), True),
-                         (c(3, loop={"rejudge_requested": {"round": 3}, "rejudge_rounds": {"round": 3, "n": 3}}), False)],
+                         (c(3, loop={"rejudge_requested": {"round": 3}}, hist={"rejudge_rounds": {"round": 3, "n": 3}}), False)],
         "rejudge_exhausted": [(c(3, loop={"rejudge_requested": {"round": 3}}), False),
-                              (c(3, loop={"rejudge_requested": {"round": 3}, "rejudge_rounds": {"round": 3, "n": 3}}), True)],
+                              (c(3, loop={"rejudge_requested": {"round": 3}}, hist={"rejudge_rounds": {"round": 3, "n": 3}}), True)],
         "touches_procedures": [(c(loop={"changed_files": ["scripts/x.py"]}), True), (c(loop={"changed_files": ["a.py"]}), False), (c(), False)],
         "gates_touched": [(c(base={"touches_gates": True}), True), (c(base={"touches_gates": False}, fix={"gates_changed": True}), True),
                           (c(base={"touches_gates": False}), False)],
@@ -5878,6 +5954,38 @@ def literal_loop_writes(*names):
     return {a or b for a, b in re.findall(r'(?:ls|loop_state)(?:\[\s*"([a-z_0-9]+)"\s*\]\s*=[^=]|\.setdefault\(\s*"([a-z_0-9]+)")', src)}
 
 
+def test_patch_node_output():
+    """**節の出力の手当て**: 条件と rules が読む値の置き場が loop から節の出力へ移ったので、loop.py patch が out.<節>.<欄> で
+    その節の最新の出力の欄を書き換える（痕跡は state.patches）。節の schema に合わない値は書かない"""
+    print("手当て: loop.py patch --path out.<節>.<欄> が節の最新の出力を書き換え、schema に合わない値は拒む")
+    run = Run("patchout")
+    drive(run, "std", stop_at=lambda nx: "p3.delta_owed" in run.state()["outputs"])
+    info = run.state()["outputs"]["p3.delta_owed"]
+    f = run.dir / info["file"]
+    rows = [{"key": "手で足した義務（検査用）", "from": "p3.delta_review", "text": "検査用"}]
+    val = run.tmp / "rows.json"
+    val.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    r = run.cmd("patch", "--path", "out.p3.delta_owed.rows", "--file", str(val), "--reason", "検査: 義務の行を手で直す")
+    got = json.loads(f.read_text(encoding="utf-8"))
+    check(r.returncode == 0 and got["rows"] == rows and run.state()["patches"][-1]["path"] == "out.p3.delta_owed.rows",
+          f"手当て: 節の最新の出力の欄を書き換え、痕跡を state.patches に残す（rc={r.returncode}・{r.stderr[-160:]}）")
+    val.write_text(json.dumps("行でない"), encoding="utf-8")
+    r = run.cmd("patch", "--path", "out.p3.delta_owed.rows", "--file", str(val), "--reason", "検査: 形を外す")
+    check(r.returncode != 0 and "schema に合わない" in r.stderr and json.loads(f.read_text(encoding="utf-8"))["rows"] == rows,
+          f"手当て: 節の schema に合わない値は書かない（{r.stderr[-160:]}）")
+    r = run.cmd("patch", "--path", "out.p9.no_such.x", "--file", str(val), "--reason", "検査: 無い節")
+    check(r.returncode != 0 and "出力が無い" in r.stderr, f"手当て: 出力の無い節は名乗って止まる（{r.stderr[-160:]}）")
+    # 消す（--delete）も節の出力に当たる: 必須の欄を消した形は schema で拒み、無い欄は当たらないと言い、出力まるごとは消さない
+    r = run.cmd("patch", "--path", "out.p3.delta_owed.rows", "--delete", "--reason", "検査: 必須の欄を消す")
+    check(r.returncode != 0 and "schema に合わない" in r.stderr and json.loads(f.read_text(encoding="utf-8"))["rows"] == rows,
+          f"手当て: 節の出力の欄を消した形も schema で照らし、外れれば書かない（{r.stderr[-160:]}）")
+    r = run.cmd("patch", "--path", "out.p3.delta_owed.no_such", "--delete", "--reason", "検査: 無い欄を消す")
+    check(r.returncode == 1 and "当たらない" in r.stderr, f"手当て: 節の出力の無い欄は消さずに拒む（rc={r.returncode}・{r.stderr[-160:]}）")
+    r = run.cmd("patch", "--path", "out.p3.delta_owed", "--delete", "--reason", "検査: 出力まるごと")
+    check(r.returncode == 1 and "まるごと" in r.stderr and f.is_file(), f"手当て: 節の出力まるごとは消さない（{r.stderr[-160:]}）")
+    rm(run.tmp)
+
+
 def test_loop_keys_declared():
     """**rules が盤面の loop に書いた鍵は、全部 LOOP_KEYS に宣言されている。** graphcheck は条件の読む loop.<鍵> を
     この宣言と突き合わせるので、宣言が書く側から離れると、正しい条件が落ちるか綴り違いが通る。回した盤面の鍵で確かめる。
@@ -5889,15 +5997,24 @@ def test_loop_keys_declared():
     rules = load_rules(gp, json.loads(gp.read_text(encoding="utf-8")))
     run = Run("loopkeys")
     drive(run, "std")
+    rounds = [str(rd["round"]) for rd in run.state()["rounds"]]
+    vo = run.record()["process"].get("validator_outputs") or {}
+    check(sorted(vo) == rounds and all(vo.values()), f"検証器の出力は周の締めが記録へ直接書く（周 {sorted(vo)}・盤面の周 {rounds}）")
     keys = set(run.state().get("loop") or {})
     check(len(keys) >= 20 and keys <= set(rules.LOOP_KEYS), f"盤面の loop の鍵 {len(keys)} 件が全部宣言に在る（宣言の外: {sorted(keys - set(rules.LOOP_KEYS))}）")
     loop_shape_held(run, "既定の流れ")
     # 照らしが効いていること: 形を外した値を盤面の手当てで書くと、保存の時に痕跡が出て、run は止まらない
-    bad = run.tmp / "bad-gates.json"
+    bad = run.tmp / "bad-mutation-decl.json"
     bad.write_text("5", encoding="utf-8")
-    r = run.cmd("patch", "--path", "state.loop.gates", "--file", str(bad), "--reason", "検査: loop の形を外す")
+    r = run.cmd("patch", "--path", "state.loop.mutation_decl", "--file", str(bad), "--reason", "検査: loop の形を外す")
     drift = [x.get("error", "") for x in run.state().get("loop_drift") or []]
-    check(r.returncode == 0 and any("loop.gates" in e for e in drift), f"形を外した書き込みは保存の時に痕跡に残り、止めない（rc={r.returncode}・{drift[:2]}）")
+    check(r.returncode == 0 and any("loop.mutation_decl" in e for e in drift), f"形を外した書き込みは保存の時に痕跡に残り、止めない（rc={r.returncode}・{drift[:2]}）")
+    # 旧い盤面の鍵（節の出力へ移した鍵・run の入力の写し）が loop に残っていても、保存は止めずに痕跡だけ残す（人の決定: 警告して通す）
+    old = run.tmp / "old-flow.json"
+    old.write_text('"spec"', encoding="utf-8")
+    r = run.cmd("patch", "--path", "state.loop.flow", "--file", str(old), "--reason", "検査: 旧い盤面の鍵")
+    drift = [x.get("error", "") for x in run.state().get("loop_drift") or []]
+    check(r.returncode == 0 and any("'flow'" in e for e in drift), f"旧い盤面の鍵は保存の時に痕跡に残り、止めない（rc={r.returncode}・{drift[-1:]}）")
     rm(run.tmp)
     # 仕様の道（flow=spec）の盤面も: 承認待ち・周の途中の答え・承認後のテストの改変の鍵
     run = Run("loopkeys-spec", init_args=("--input", "flow=spec"))
@@ -5913,14 +6030,14 @@ def test_loop_keys_declared():
         return None
     drive(run, "spec", hook=weaken)
     seen |= set(run.state().get("loop") or {})
-    check({"spec_pending", "in_round_answers", "spec_changed"} <= seen and seen <= set(rules.LOOP_KEYS),
+    check("in_round_answers" in seen and not {"spec_pending", "spec_changed", "flow"} & seen and seen <= set(rules.LOOP_KEYS),
           f"仕様の道の盤面の loop の鍵も全部宣言に在る（宣言の外: {sorted(seen - set(rules.LOOP_KEYS))}）")
     loop_shape_held(run, "仕様の道")
     rm(run.tmp)
-    # 逆向き: 宣言の鍵は全部 rules のどこかで書かれている（宣言だけ残った古い鍵を、条件が default 付きで読む形を残さない）。
+    # 宣言 → 書く所: 宣言の鍵は全部 rules のどこかで書かれている（宣言だけ残った古い鍵を、条件が default 付きで読む形を残さない）。
     # 台本が通らない分岐（昇格・往復）で書く鍵もあるので、書く字面で見る。修正差分の往復の鍵は DELTA_PASSES から組む
-    dyn = {k for p in rules.DELTA_PASSES.values() for k in (p.state_key, p.owed_key)}
-    # 逆向きも字面で: rules の本文が書く鍵は全部宣言に在る（通しの台本が通らない分岐——人の方針の変化・昇格——で書いて消える鍵も拾う）。
+    dyn = {p.state_key for p in rules.DELTA_PASSES.values()}
+    # 書く所 → 宣言（字面）: rules の本文が書く鍵は全部宣言に在る（通しの台本が通らない分岐——人の方針の変化・昇格——で書いて消える鍵も拾う）。
     # TDD の版は元の rules に足すので元の本文も合わせて見る。research は周ごとに名前の変わる控え（sampled_r<周>）を state_schema の型で持つ
     for names, gname in ((("review-loop",), "review-loop"), (("review-loop", "review-loop-tdd"), "review-loop-tdd"), (("research-loop",), "research-loop")):
         gpath = PLUGIN / "graphs" / f"{gname}.json"
@@ -5929,7 +6046,7 @@ def test_loop_keys_declared():
         declared = set(r_.LOOP_KEYS)
         unwritten = sorted(declared - wrote - dyn)
         check(not unwritten, f"{gname}: LOOP_KEYS の鍵は全部 rules が書いている（書く所の無い宣言: {unwritten}）")
-        check(len(wrote) >= 4 and wrote <= declared, f"{gname}: rules が字面で書く loop の鍵 {len(wrote)} 件は全部 LOOP_KEYS に在る（宣言の外: {sorted(wrote - declared)}）")
+        check(len(wrote) >= 3 and wrote <= declared, f"{gname}: rules が字面で書く loop の鍵 {len(wrote)} 件は全部 LOOP_KEYS に在る（宣言の外: {sorted(wrote - declared)}）")
 # ---------------------------------------------------------------- 仕様の道（init --input flow=spec）
 SPEC_TESTS = {  # 受け入れ条件のテスト（台本のリポジトリに書く）。修正（p3.fix の台本が src/a.py に足す 1 行）が入ると緑になる
     "AC1": ("tests/test_spec_entry.py", "ac_entry_starts_at_judge",
@@ -6166,7 +6283,7 @@ def test_spec_stop_and_changes():
     run.cmd("patch", "--path", "process.request_findings", "--file", str(bad), "--reason", "台本: 依頼の欄の型崩れ")
     run.cmd("answer", "--text", "continue")
     r = run.cmd("next")
-    held = run.state()["loop"].get("spec_pending")
+    held = (run.output("spec.approve") or {}).get("pending")
     check(held is not None and "spec" not in run.record()["process"],
           f"仕様の道: 固定が拒んだ回は、承認待ちの仕様を消さず記録にも固定しない（{r.stdout[-200:]} {r.stderr[-200:]}）")
     good = run.tmp / "good.json"
@@ -6401,9 +6518,10 @@ def test_human_gate():
     run.cmd("answer", "--text", "continue", "--note", "確かめた（検査用）")
     pol = run.record()["process"]["policy"]
     check(len(pol["amendments"]) == 1 and pol["path"] == str(policy_default(run).resolve()) and len(pol["sha256"] or "") == 64
-          and run.state()["inputs"]["policy_md"] == pol["path"] and "WRITER-POLICY" in pathlib.Path(pol["copy"]).read_text(encoding="utf-8")
+          and run.state()["inputs"].get("policy_md") is None and "WRITER-POLICY" in pathlib.Path(pol["copy"]).read_text(encoding="utf-8")
           and pol["amendments"][0]["diff_file"] == diff,
-          "関所: 通した方針の文書の変更は新しい版（写しも）を固定し直し、以後の節に届く（履歴は amendments）")
+          "関所: 通した方針の文書の変更は新しい版（写しも）を記録に固定し直し（以後の節は record.process.policy.path を読む。"
+          "run の入力は init のまま書き換えない）、履歴は amendments")
     asked = {"LOST-1": 0, "CONFLICT-1": 0}
     kinds = set()
     for _ in range(6):

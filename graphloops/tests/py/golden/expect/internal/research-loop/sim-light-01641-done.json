@@ -1,0 +1,108 @@
+{
+ "cond": {
+  "constraints_self_written": [
+   false,
+   "surveyor が自書した問い・制約は 0 件"
+  ],
+  "generation_due": [
+   true,
+   "初回"
+  ],
+  "no_new_discrepancies": [
+   false,
+   "この周の新規相違は 1 件"
+  ],
+  "rederiver_compare_due": [
+   false,
+   "この周の新規相違は 1 件"
+  ],
+  "sampling_due": [
+   false,
+   "round=1（2 周目以降だけ）"
+  ]
+ },
+ "loop": {},
+ "outputs": {
+  "out/r1/p2.integrate.json": {
+   "root_causes": [],
+   "corrections": [
+    {
+     "text": "_s8_xxx",
+     "claim_ids": [
+      "B"
+     ]
+    }
+   ],
+   "applied": [
+    {
+     "claim_id": "B",
+     "stable_key": "B:逆",
+     "where": "_s6_xxxxx"
+    }
+   ],
+   "numbers": [
+    {
+     "value": "4 件",
+     "source": "記録"
+    }
+   ],
+   "terms": [],
+   "new_claims": [],
+   "recheck_ids": [],
+   "claim_updates": [
+    {
+     "id": "B",
+     "claim": "_s17_"
+    }
+   ],
+   "document_changed": true
+  }
+ },
+ "calls": [
+  [
+   "CONDS",
+   "constraints_self_written",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "generation_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "no_new_discrepancies",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "rederiver_compare_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "sampling_due",
+   "偽"
+  ],
+  [
+   "HOOKS",
+   "check_record",
+   "一覧なし"
+  ],
+  [
+   "WRITE_OPS",
+   "add_claims",
+   "返った"
+  ],
+  [
+   "WRITE_OPS",
+   "claim_updates",
+   "返った"
+  ],
+  [
+   "WRITE_OPS",
+   "flag_recheck",
+   "返った"
+  ]
+ ]
+}

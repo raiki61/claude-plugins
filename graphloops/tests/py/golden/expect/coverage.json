@@ -1,0 +1,1045 @@
+{
+ "review-loop": {
+  "CONDS": {
+   "after_first_round": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "delta2_faces_open": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "delta_faces_open": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "delta_fixed": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "delta_review2_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "delta_review_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "external_standards_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "final_gate_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "fix_delta_nonempty": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "gate_efficacy_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "gates_cut_nonempty": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "gates_merge": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "gates_touched": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "lane_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "main_path_observation_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "not_request_entry": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "overview_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "parallel_pr_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "prior_decisions_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "procedure_trace_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "provenance_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "purpose_review_due": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "r1_refire": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "r2_compare_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "r2_design_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "r2_premise_invalid": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "rejudge_exhausted": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge_open": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "request_entry": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "seams_touched": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "security_surface_touched": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "spec_flow": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "spec_revise_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "test_double_fidelity_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "touches_procedures": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "units_open": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "user_path_touched": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "would_converge": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   }
+  },
+  "POST_CHECKS": {
+   "base_valid": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "cold_check_note": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "delta_fix_output": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "delta_review_output": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "external_rankings": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "final_gates_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "fix_covers_open_units": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "fix_plan_covers_units": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "gate_arms_all_red": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "judge_output": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "lane_receipt": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "local_review_covers_lenses": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "main_path_observed": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "measured_needs_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "plan_review_output": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "purpose_findings_cited": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "r2_design": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "r4_inventory": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "rejudge_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "spec_review_output": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "spec_revise_output": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "spec_write_output": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   }
+  },
+  "BUILTINS": {
+   "assemble": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "converge": {
+    "covered": [
+     "decision=ask",
+     "decision=converged",
+     "decision=next_round",
+     "decision=stopped"
+    ]
+   },
+   "delta_owed": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "fix_delta": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "fix_units": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "gates_cut": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "human_gate": {
+    "covered": [
+     "decision=ask",
+     "ok=True"
+    ]
+   },
+   "lane_merge": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "record_round": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "scalars": {
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+   },
+   "spec_approve": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "spec_check": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "spec_freeze": {
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+   },
+   "worktree_compare": {
+    "covered": [
+     "ok=False",
+     "ok=True"
+    ]
+   },
+   "worktree_snapshot": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   }
+  },
+  "ENGINE_RUNS": {
+   "declared_checks": {
+    "covered": [
+     "plan=fallback",
+     "plan=sha",
+     "返った"
+    ]
+   },
+   "parallel_pr": {
+    "called": [
+     "plan=fallback"
+    ]
+   }
+  },
+  "FAN_OUT": {},
+  "WRITE_OPS": {
+   "material_from_findings": {
+    "called": [
+     "返った"
+    ]
+   },
+   "premise_question": {
+    "called": [
+     "返った"
+    ]
+   }
+  },
+  "HOOKS": {
+   "add": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "answer_detail": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "check_inputs": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "check_record": {
+    "covered": [
+     "一覧あり",
+     "一覧なし"
+    ]
+   },
+   "finalize": {
+    "called": [
+     "返った"
+    ]
+   },
+   "init_record": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_answer": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_answer_in_round": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_init": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_new_round": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_stop": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_unattended": {
+    "called": [
+     "返った"
+    ]
+   }
+  }
+ },
+ "review-loop-tdd": {
+  "CONDS": {
+   "after_first_round": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "delta2_faces_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "delta_faces_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "delta_fixed": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "delta_review2_due": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "delta_review_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "external_standards_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "final_gate_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "fix_delta_nonempty": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "gate_efficacy_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "gates_cut_nonempty": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "gates_merge": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "gates_touched": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "lane_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "main_path_observation_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "not_request_entry": {
+    "uncovered": "片側だけ（見えた結果: 真）"
+   },
+   "overview_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "parallel_pr_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "prior_decisions_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "procedure_trace_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "provenance_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "purpose_review_due": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "r1_refire": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "r2_compare_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "r2_design_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "r2_premise_invalid": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge_exhausted": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "request_entry": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "seams_touched": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "security_surface_touched": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "spec_flow": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "spec_revise_due": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "tdd_named": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "tdd_red_passed": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "test_double_fidelity_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "touches_procedures": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "units_open": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "user_path_touched": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "would_converge": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   }
+  },
+  "POST_CHECKS": {
+   "base_valid": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "cold_check_note": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "delta_fix_output": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "delta_review_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "external_rankings": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "final_gates_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "fix_covers_open_units": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "fix_plan_covers_units": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "gate_arms_all_red": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "judge_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "lane_receipt": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "local_review_covers_lenses": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "main_path_observed": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "measured_needs_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "plan_review_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "purpose_findings_cited": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "r2_design": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "r4_inventory": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "rejudge_output": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "spec_review_output": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "spec_revise_output": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "spec_write_output": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "tdd_tests_output": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   }
+  },
+  "BUILTINS": {
+   "assemble": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "converge": {
+    "covered": [
+     "decision=converged",
+     "decision=next_round"
+    ]
+   },
+   "delta_owed": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "fix_delta": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "fix_units": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "gates_cut": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "human_gate": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "lane_merge": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "record_round": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "scalars": {
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+   },
+   "spec_approve": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "spec_check": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "spec_freeze": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "tdd_green": {
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+   },
+   "tdd_red": {
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+   },
+   "tdd_start": {
+    "uncovered": "締め口で止めた（git 以外の子プロセスを起こす・録った git に無い）"
+   },
+   "worktree_compare": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   },
+   "worktree_snapshot": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   }
+  },
+  "ENGINE_RUNS": {
+   "declared_checks": {
+    "called": [
+     "plan=sha"
+    ]
+   },
+   "parallel_pr": {
+    "called": [
+     "plan=fallback"
+    ]
+   }
+  },
+  "FAN_OUT": {},
+  "WRITE_OPS": {
+   "material_from_findings": {
+    "called": [
+     "返った"
+    ]
+   },
+   "premise_question": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   }
+  },
+  "HOOKS": {
+   "add": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "answer_detail": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "check_inputs": {
+    "called": [
+     "返った"
+    ]
+   },
+   "check_record": {
+    "called": [
+     "一覧なし"
+    ]
+   },
+   "finalize": {
+    "called": [
+     "返った"
+    ]
+   },
+   "init_record": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_answer": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "on_answer_in_round": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "on_init": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_new_round": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_stop": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "on_unattended": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   }
+  }
+ },
+ "research-loop": {
+  "CONDS": {
+   "constraints_self_written": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "generation_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "no_new_discrepancies": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "rederiver_compare_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   },
+   "sampling_due": {
+    "covered": [
+     "偽",
+     "真"
+    ]
+   }
+  },
+  "POST_CHECKS": {
+   "cartographer_count": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "claims_intake": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "clear_stuck_hint": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "cold_reader_consistency": {
+    "uncovered": "片側だけ（見えた結果: 返った）"
+   },
+   "refuter_consistency": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   }
+  },
+  "BUILTINS": {
+   "converge": {
+    "covered": [
+     "decision=ask",
+     "decision=converged",
+     "decision=next_round",
+     "decision=stopped"
+    ]
+   },
+   "count_check": {
+    "uncovered": "片側だけ（見えた結果: ok=True）"
+   }
+  },
+  "ENGINE_RUNS": {},
+  "FAN_OUT": {
+   "claims_needing_refute": {
+    "covered": [
+     "一覧あり",
+     "一覧なし"
+    ]
+   },
+   "clusters_needing_check": {
+    "covered": [
+     "一覧あり",
+     "一覧なし"
+    ]
+   },
+   "sampling_pick": {
+    "uncovered": "片側だけ（見えた結果: 一覧あり）"
+   }
+  },
+  "WRITE_OPS": {
+   "add_claims": {
+    "called": [
+     "返った"
+    ]
+   },
+   "claim_updates": {
+    "called": [
+     "返った"
+    ]
+   },
+   "clusters_from_ids": {
+    "covered": [
+     "拒む",
+     "返った"
+    ]
+   },
+   "cold_reader_round": {
+    "called": [
+     "返った"
+    ]
+   },
+   "decisions_from_details": {
+    "called": [
+     "返った"
+    ]
+   },
+   "flag_recheck": {
+    "called": [
+     "返った"
+    ]
+   },
+   "rederiver_first_verdict": {
+    "called": [
+     "返った"
+    ]
+   },
+   "sampling_overturn": {
+    "called": [
+     "返った"
+    ]
+   }
+  },
+  "HOOKS": {
+   "add": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "check_record": {
+    "covered": [
+     "一覧あり",
+     "一覧なし"
+    ]
+   },
+   "finalize": {
+    "called": [
+     "返った"
+    ]
+   },
+   "init_record": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_answer": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_init": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_stop": {
+    "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
+   },
+   "on_thickness": {
+    "called": [
+     "返った"
+    ]
+   },
+   "on_unattended": {
+    "called": [
+     "返った"
+    ]
+   }
+  }
+ }
+}

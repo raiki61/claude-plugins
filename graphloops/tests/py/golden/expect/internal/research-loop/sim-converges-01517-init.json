@@ -1,0 +1,16 @@
+{
+ "loop": {},
+ "outputs": {},
+ "calls": [
+  [
+   "HOOKS",
+   "init_record",
+   "返った"
+  ],
+  [
+   "HOOKS",
+   "on_init",
+   "返った"
+  ]
+ ]
+}

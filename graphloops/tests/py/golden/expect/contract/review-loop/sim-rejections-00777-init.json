@@ -1,0 +1,39 @@
+{
+ "command": {
+  "exit": 0,
+  "out": "{\n \"dir\": \"<RUN>\",\n \"run_id\": \"20260101-000000\",\n \"loop\": \"review-loop\",\n \"thickness\": null,\n \"thickness_decider\": null,\n \"max_rounds\": 5,\n \"validator\": \"<ROOT>/scripts/review-record.py\",\n \"overview\": \"コード変更を、採点役と実装役を分けて収束まで回す。P0 で基準点・目的・前提・並行 PR・先行議論を固定し（once）、P1 で 9 系統の素材を新しい context の役が集め（機械が前後で作業ツリーを突き合わせ、走らせなかった欄も機械が埋める）、P2 で judge が根本ユニットとラベルと問いの台帳を確定し（2 周目以降は同じ judge に履歴と前の台帳を後から渡す）、P2 の後に writer が修正案を出して別の judge が書く前に穴を予測し、P3 で writer が [block] と do-now を直して閉鎖を実証し（予測された穴には key ごとに答える）、直後にこの周の修正だけの差分を inspector が見て（塞いだと言う穴の検算も）、挙がった穴を同じ周で直し、手直しにもう 1 回だけ同じレビューを当て、残した穴は次の周の判定者が 1 件ずつ振り分け、修正と手直しが済んだ版で変異の検算とテストの書き足しを並行の線として背景で立て（周の締めは待たない。線の結果は書き終えた後の周の頭と修正の前に合流する）、P4 で CI と scalar を取り、機械が R1/R2 の再発火と [block] 0 を数え、R1〜R4 の独立の目を回し、周の記録を組んで検証器（review-record.py）にディレクトリごと渡す。検証器の 3 分岐（止めて聞け／帰属する分は待て／前提不成立）を機械が読んで次の周か停止か人に聞く。収束を言う前に、最終のコードで変異の検算を撃ち直し、見逃しが全部等価でテスト一式が緑のときだけ収束する。今ある能力を減らす・狭める変更と人の方針（run をまたいで効く人の決まり。在れば各節に届く）とぶつかる変更は、修正の前と周の記録の前の関所で人に聞く（役は代償として決めない）。上限 5 周。writer は判定を一切しない\",\n \"next\": \"python3 <PLUGIN>/scripts/loop.py next --dir <RUN>\"\n}\n",
+  "err": ""
+ },
+ "record": {
+  "base": null,
+  "materials": {},
+  "process": {
+   "human_items": [],
+   "human_answers": [],
+   "policy": {
+    "path": null,
+    "sha256": null,
+    "copy": null,
+    "amendments": []
+   }
+  },
+  "questions": [],
+  "reviews": {},
+  "round": 1,
+  "scalars": {},
+  "units": []
+ },
+ "board": {
+  "halted": null,
+  "pending_human": null,
+  "rd": {
+   "done": [],
+   "na": {},
+   "skipped": {},
+   "empty": [],
+   "stopped": {}
+  },
+  "round": 1,
+  "status": "running"
+ }
+}

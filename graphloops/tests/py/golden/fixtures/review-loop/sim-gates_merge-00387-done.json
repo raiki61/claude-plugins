@@ -1,0 +1,79 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_gates_merge が loop.py done を呼ぶ直前（387）",
+ "command": [
+  "done",
+  "--node",
+  "p1.hygiene",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": true,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s1_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.local_review": {}
+     },
+     "instances": {
+      "p1.hygiene": {
+       "node": "p1.hygiene",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "gates": "merge"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"findings\": [], \"seen\": \"差分の追加行すべて\"}"
+  }
+ },
+ "git": {}
+}

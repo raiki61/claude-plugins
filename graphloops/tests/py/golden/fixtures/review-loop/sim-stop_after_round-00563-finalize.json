@@ -1,0 +1,293 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_stop_after_round が loop.py finalize を呼ぶ直前（563）",
+ "command": [
+  "finalize"
+ ],
+ "files": {
+  "out/r1/converge.json": {},
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.consistency_bypass.json": {},
+  "out/r1/p1.external_standards.json": {},
+  "out/r1/p1.hygiene.json": {},
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.provenance.json": {},
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_gates.json": {},
+  "out/r1/p3.delta_owed.json": {
+   "rows": []
+  },
+  "out/r1/p3.delta_owed2.json": {
+   "rows": []
+  },
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/p3.fix.json": {},
+  "out/r1/p3.fix_delta.json": {},
+  "out/r1/p3.gates_cut.json": {
+   "files": [
+    "_s26_xxx"
+   ]
+  },
+  "out/r1/p3.lane_merge.json": {},
+  "out/r1/p4.assemble.json": {},
+  "out/r1/p4.ci.json": {},
+  "out/r1/p4.record.json": {},
+  "out/r1/p4.scalars.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r1.minimality.json": {},
+  "out/r1/r2.compare.json": {},
+  "out/r1/r2.design.json": {
+   "question_stands": true
+  },
+  "out/r1/r4.human_gate.json": {},
+  "record.json": {
+   "materials": {},
+   "units": [
+    {
+     "label": "block"
+    },
+    {
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {
+    "R2": {
+     "status": "pass",
+     "reason": "_s29_"
+    }
+   },
+   "questions": [],
+   "process": {
+    "validator_outputs": {},
+    "notices": [
+     "宣言 .review-checks.json に mutation の段が無い——変異の検算の役は対象リポジトリの側を探して撃った。宣言に足せば毎回探さずに済む（役が撃った呼び方は、ゲートの検算の素材と記録の process.lanes に在る）",
+     "変異の検算の線 r1@8fb400374ace の結果がまだ来ていない（running）——待つか、止めて線の台帳に書くか"
+    ]
+   }
+  },
+  "rounds/round-1.json": {
+   "base": "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "round": 1,
+   "materials": {
+    "base_determination": {
+     "status": "clean",
+     "checked": "_s13_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_checks": {
+     "status": "clean",
+     "checked": "_s5_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_review": {
+     "status": "found",
+     "count": 1,
+     "detail": "_s16_xxxxxxxxxxxxxxxxxxx"
+    },
+    "hygiene": {
+     "status": "clean",
+     "checked": "_s25_xxxx"
+    },
+    "provenance": {
+     "status": "clean",
+     "checked": "_s27_xx"
+    },
+    "parallel_pr": {
+     "status": "clean",
+     "checked": "_s17_xxxxxxxxxxxxxxxxx"
+    },
+    "prior_decisions": {
+     "status": "clean",
+     "checked": "_s14_xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "consistency": {
+     "status": "clean",
+     "checked": "_s19_xxxxxxxxxxxxx"
+    },
+    "bypass": {
+     "status": "clean",
+     "checked": "_s18_xxxxxxxxxxxxxx"
+    },
+    "external_standards": {
+     "status": "clean",
+     "checked": "_s20_xxxxxxxxxxxxx"
+    },
+    "procedure_trace": {
+     "status": "not_applicable",
+     "reason": "_s9_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "gate_efficacy": {
+     "status": "not_applicable",
+     "reason": "_s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "test_double_fidelity": {
+     "status": "not_applicable",
+     "reason": "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "main_path_observation": {
+     "status": "not_applicable",
+     "reason": "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_closure": {
+     "status": "clean",
+     "checked": "_s24_xxxxxxxxx"
+    }
+   },
+   "units": [
+    {
+     "key": "_s15_xxxxxxxxxxxxxxxxxxxx",
+     "label": "block"
+    },
+    {
+     "key": "_s21_xxxxxxxxxxxxx",
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {
+    "R1": {
+     "status": "pass",
+     "reason": "_s22_xxxxxxxxxxx"
+    },
+    "R2": {
+     "status": "pass",
+     "reason": "_s29_"
+    },
+    "R3": {
+     "status": "not_applicable",
+     "reason": "_s8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "R4": {
+     "status": "not_applicable",
+     "reason": "_s8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+   },
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s23_xxxxxxxxxx",
+   "status": "stopped",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.provenance": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.external_standards": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {},
+      "p2.fix_plan": {},
+      "p2.plan_review": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.fix": {},
+      "p3.fix_delta": {},
+      "p3.delta_review": {},
+      "p3.delta_owed": {},
+      "p3.delta_owed2": {},
+      "p3.gates_cut": {},
+      "p4.scalars": {},
+      "p3.delta_gates": {},
+      "p4.ci": {},
+      "p4.assemble": {},
+      "r4.human_gate": {},
+      "r1.comment_candidates": {},
+      "r2.design": {},
+      "r1.minimality": {},
+      "r2.compare": {},
+      "p4.record": {},
+      "converge": {}
+     },
+     "skipped": {},
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p3.gates_cut": {
+     "file": "out/r1/p3.gates_cut.json",
+     "round": 1
+    },
+    "r2.design": {
+     "file": "out/r1/r2.design.json",
+     "round": 1
+    }
+   },
+   "loop": {
+    "mutation_decl": {
+     "text": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_delta": {
+     "round": 1,
+     "files": [
+      "_s26_xxx"
+     ]
+    },
+    "lanes": {
+     "8fb400374acef41aa451859023e5d610f924b921": {
+      "round": 1,
+      "result": "<RUN>/lanes/r1-8fb400374ace.json",
+      "state": "running"
+     }
+    },
+    "open_units": 2
+   },
+   "halted": {
+    "node": "converge",
+    "round": 1,
+    "by": "stop_after_round",
+    "reason": "_s6_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s28_x": "_s30_"
+   }
+  ]
+ }
+}

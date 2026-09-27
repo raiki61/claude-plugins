@@ -1,0 +1,26 @@
+{
+ "loop": {
+  "mutation_decl": {
+   "declared": false,
+   "text": "対象リポジトリの宣言（.review-checks.json）に mutation の段が無い——在りかと呼び方は対象リポジトリの側（README・CONTRIBUTING・CI 定義・対象リポジトリの REVIEW.md など）が名指しする物を探せ（このプロンプトは道具の名前と引数の綴りを持たない）"
+  }
+ },
+ "outputs": {},
+ "calls": [
+  [
+   "HOOKS",
+   "check_inputs",
+   "返った"
+  ],
+  [
+   "HOOKS",
+   "init_record",
+   "返った"
+  ],
+  [
+   "HOOKS",
+   "on_init",
+   "返った"
+  ]
+ ]
+}

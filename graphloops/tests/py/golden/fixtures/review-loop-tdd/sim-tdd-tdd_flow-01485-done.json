@@ -1,0 +1,152 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py done を呼ぶ直前（1485）",
+ "command": [
+  "done",
+  "--node",
+  "p2.diagnose",
+  "--output",
+  "<INPUT>/out.txt",
+  "--agent-id",
+  "judge-1"
+ ],
+ "files": {
+  "out/r1/converge.json": {},
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_gates.json": {},
+  "out/r1/p3.delta_owed.json": {},
+  "out/r1/p3.delta_owed2.json": {},
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/p3.fix.json": {},
+  "out/r1/p3.fix_delta.json": {},
+  "out/r1/p3.gates_cut.json": {},
+  "out/r1/p3.lane_merge.json": {},
+  "out/r1/p3.tdd_green.json": {},
+  "out/r1/p3.tdd_red.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {},
+  "out/r1/p4.assemble.json": {},
+  "out/r1/p4.ci.json": {},
+  "out/r1/p4.record.json": {},
+  "out/r1/p4.scalars.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r1.minimality.json": {},
+  "out/r1/r2.compare.json": {},
+  "out/r1/r2.design.json": {
+   "question_stands": true
+  },
+  "out/r1/r4.human_gate.json": {},
+  "out/r2/p0.prior_decisions.json": {},
+  "out/r2/p1.consistency_bypass.json": {},
+  "out/r2/p1.external_standards.json": {},
+  "out/r2/p1.gate_efficacy.json": {},
+  "out/r2/p1.hygiene.json": {},
+  "out/r2/p1.local_review.json": {},
+  "out/r2/p1.main_path_observation.json": {},
+  "out/r2/p1.procedure_trace.json": {},
+  "out/r2/p1.provenance.json": {},
+  "out/r2/p1.test_double_fidelity.json": {},
+  "out/r2/p1.worktree_after.json": {},
+  "out/r2/p1.worktree_before.json": {},
+  "record.json": {
+   "materials": {},
+   "units": [],
+   "reviews": {},
+   "questions": [],
+   "process": {
+    "carried_r1": [],
+    "diagnosis": {
+     "framing": "根本は上限の欠落",
+     "one_shot": "上限を 1 箇所に寄せる"
+    }
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "round": 2,
+   "rounds": [
+    {
+     "done": {
+      "p1.worktree_before": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.external_standards": {},
+      "p1.procedure_trace": {},
+      "p1.gate_efficacy": {},
+      "p1.test_double_fidelity": {},
+      "p1.main_path_observation": {},
+      "p1.provenance": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.worktree_after": {}
+     },
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {
+      "p2.diagnose": {
+       "node": "p2.diagnose",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "r2.design": {
+     "file": "out/r1/r2.design.json",
+     "round": 1
+    }
+   },
+   "done_ever": {
+    "p0.purpose": 1
+   },
+   "loop": {
+    "engine_zero": {
+     "keys": []
+    },
+    "prev_fix_files": [
+     "src/a.py",
+     "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "_s2_xxxxxxxxxxxxxxx"
+    ]
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"units\": [], \"questions\": [], \"precedents\": [], \"framing\": \"根本は上限の欠落\", \"one_shot\": \"上限を 1 箇所に寄せる\", \"one_shot_closes\": [], \"materials_missing\": [], \"carried_r1\": [], \"router\": [{\"key\": \"src/a.py:f — 上限が効かない経路がある\", \"route\": \"②閉じた\", \"note\": \"grep で確認\"}]}"
+  }
+ },
+ "git": {}
+}

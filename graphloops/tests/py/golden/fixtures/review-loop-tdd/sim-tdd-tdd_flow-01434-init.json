@@ -1,0 +1,22 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py init を呼ぶ直前（1434）",
+ "command": [
+  "init",
+  "--loop",
+  "review-loop-tdd",
+  "--request",
+  "この変更をレビュー",
+  "--dir",
+  "<RUN>",
+  "--validator",
+  "<ROOT>/scripts/review-record.py"
+ ],
+ "files": {},
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {}
+}

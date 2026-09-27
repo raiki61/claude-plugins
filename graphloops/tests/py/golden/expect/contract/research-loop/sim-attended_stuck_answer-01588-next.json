@@ -1,0 +1,38 @@
+{
+ "applicable": {
+  "p0.generation": null,
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "die: cond 'no_new_discrepancies' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "p3.cold_reader": "die: cond 'no_new_discrepancies' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "p3.rederiver_compare": "die: cond 'rederiver_compare_due' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "p3.sampling": "die: cond 'sampling_due' の欄 'rd.item_counts.p1.checker' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）"
+ },
+ "check_record": {},
+ "command": {
+  "exit": 0,
+  "out": {
+   "status": "running",
+   "round": 3,
+   "thickness": "重厚",
+   "run_id": "_s0_xxxxxxxxxxx",
+   "ready": [
+    {
+     "id": "p0.generation",
+     "node": "p0.generation",
+     "mode": "runner"
+    },
+    {
+     "id": "p3.cartographer",
+     "node": "p3.cartographer",
+     "mode": "cli"
+    }
+   ],
+   "notes": []
+  },
+  "err": ""
+ },
+ "record": {},
+ "board": {
+  "rd.na.p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件"
+ }
+}

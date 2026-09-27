@@ -1,0 +1,176 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_converges が loop.py next を呼ぶ直前（1550）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "items/r3/p3.sampling__sample__.json": {
+   "key": "sample"
+  },
+  "out/r1/p0.claims.json": {
+   "claims": [
+    {
+     "id": "D",
+     "claim": "_s13_",
+     "load_bearing": false
+    }
+   ],
+   "judgments": [],
+   "judgments_as_facts": [],
+   "open_questions": []
+  },
+  "out/r1/p0.clusters.json": {
+   "clusters": [
+    {
+     "key": "c2",
+     "claim_ids": [
+      "D"
+     ]
+    }
+   ]
+  },
+  "out/r1/p0.prior_decisions.json": {
+   "checked": true,
+   "searched": [],
+   "settled_points": [],
+   "overlaps": [],
+   "reopen_proposals": []
+  },
+  "out/r1/p0.question.json": {
+   "question": "_s7_xxxxxx",
+   "domain": "_s10_xx",
+   "constraints": [
+    {
+     "text": "_s5_xxxxxxx",
+     "source": "依頼文",
+     "origin": "独立出典",
+     "breaks_if_false": "_s12_x"
+    }
+   ],
+   "thickness": "標準",
+   "thickness_decider": "既定",
+   "thickness_reason": "_s11_xx"
+  },
+  "out/r1/p0.terms.json": {
+   "terms": []
+  },
+  "out/r1/p1.refuter__B__.json": {},
+  "out/r1/p3.rederiver.json": {
+   "question_stands": true,
+   "verdict": "pass",
+   "reason": "_s9_xxxx",
+   "derivation": "_s4_xxxxxxxxx"
+  },
+  "out/r1/p5.internal.json": {
+   "facts": [],
+   "corrections": []
+  },
+  "out/r2/converge.json": {},
+  "out/r2/p1.checker__c1__.json": {},
+  "out/r3/p1.record_check.json": {},
+  "out/r3/p2.integrate.json": {},
+  "out/r3/p3.cold_reader.json": {},
+  "out/r3/p3.rederiver_compare.json": {},
+  "out/r3/p3.sampling__sample__.json": {},
+  "record.json": {
+   "claims": [
+    {
+     "id": "D",
+     "verdict": "確証",
+     "sources": [
+      "_s6_xxxxxxx"
+     ],
+     "conditions": "_s14_"
+    }
+   ],
+   "gates": {
+    "rederiver": {
+     "verdict": "pass"
+    },
+    "cold_reader": {
+     "rounds": [
+      {
+       "verdict": "pass"
+      }
+     ]
+    }
+   },
+   "sampling": {},
+   "convergence": {
+    "consecutive_zero": 1
+   },
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s3_xxxxxxxxxxx",
+   "status": "running",
+   "round": 3,
+   "rounds": [
+    {
+     "round": 3,
+     "done": {
+      "p1.record_check": {},
+      "p2.integrate": {},
+      "p3.rederiver_compare": {},
+      "p3.cold_reader": {}
+     },
+     "na": {
+      "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+      "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+      "p3.cartographer": "active_in: 標準 段では走らせない（重厚 だけ）",
+      "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）"
+     },
+     "skipped": {},
+     "empty": [
+      "p1.checker",
+      "p1.refuter"
+     ],
+     "instances": {
+      "_s2_xxxxxxxxxxxxxxx": {
+       "node": "p3.sampling",
+       "item": {
+        "key": "sample"
+       },
+       "status": "done"
+      }
+     },
+     "item_counts": {
+      "p1.checker": 0
+     },
+     "new_discrepancies": 0
+    }
+   ],
+   "thickness": "標準",
+   "inputs": {
+    "document": "<REPO>/mitate.md"
+   },
+   "outputs": {
+    "p3.rederiver": {
+     "file": "out/r1/p3.rederiver.json",
+     "round": 1
+    }
+   },
+   "done_ever": {
+    "p0.question": 1,
+    "p0.claims": 1,
+    "p0.terms": 1,
+    "p0.prior_decisions": 1,
+    "p5.internal": 1,
+    "p3.rederiver": 1,
+    "p0.clusters": 1
+   },
+   "loop": {
+    "sampled_r3": []
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "session": "gl-std-session",
+ "git": {}
+}

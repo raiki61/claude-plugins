@@ -1,0 +1,77 @@
+{
+ "cond": {
+  "constraints_self_written": [
+   false,
+   "surveyor が自書した問い・制約は 0 件"
+  ],
+  "generation_due": [
+   false,
+   "初回でなく、手詰まり（stuck）の後でもない"
+  ],
+  "no_new_discrepancies": [
+   true,
+   "この周の新規相違は 0 件"
+  ],
+  "rederiver_compare_due": [
+   true,
+   "この周の新規相違は 0 件・rederiver の判定は pass"
+  ],
+  "sampling_due": [
+   true,
+   "この周の P1 の照合対象は 0 件"
+  ]
+ },
+ "loop": {},
+ "outputs": {
+  "out/r2/p3.sampling__sample__.json": {
+   "findings": [
+    {
+     "id": "B",
+     "verdict": "確証",
+     "evidence": "再検証",
+     "sources": [
+      "_s4_xxxxxxx"
+     ],
+     "conditions": "同じ"
+    }
+   ]
+  }
+ },
+ "calls": [
+  [
+   "CONDS",
+   "constraints_self_written",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "generation_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "no_new_discrepancies",
+   "真"
+  ],
+  [
+   "CONDS",
+   "rederiver_compare_due",
+   "真"
+  ],
+  [
+   "CONDS",
+   "sampling_due",
+   "真"
+  ],
+  [
+   "HOOKS",
+   "check_record",
+   "一覧なし"
+  ],
+  [
+   "WRITE_OPS",
+   "sampling_overturn",
+   "返った"
+  ]
+ ]
+}

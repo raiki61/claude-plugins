@@ -137,8 +137,9 @@ def expand_refs(graph):
         return {k: walk(v, seen) for k, v in x.items()}
     out = {k: v for k, v in graph.items() if k != "$defs"}
     out["nodes"] = walk(graph.get("nodes", {}), frozenset())
-    if "state_schema" in graph:   # 盤面の loop の形（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
-        out["state_schema"] = walk(graph["state_schema"], frozenset())
+    for top in ("state_schema", "hist_schema"):   # 盤面の loop の形と hist の値の形（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
+        if top in graph:
+            out[top] = walk(graph[top], frozenset())
     # 番号で指す欄（pointers）の型も同じ入口で広げる——graph に型を手で書かせず、宣言の誤りはここで ValueError
     from .pointers import widen
     widen(out["nodes"])
@@ -272,9 +273,12 @@ def schema_at(schema, parts):
 
 # engine が読む語の全部。これ以外（oneOf / not / format / uniqueItems、綴り違い）は validate_schema が黙って無視するので、
 # graph に書いても効かない。graphcheck がこの集合で節の schema を走査して落とす（注記で守るのをやめ、仕組みで守る）。
-# note / description は説明のための欄で、検査には使わないが書いてよい。
+# note / description は説明のための欄で、検査には使わないが書いてよい。writeOnly は JSON Schema 2020-12 の注記語（validation §9.4）で、
+# 型検査には使わない——graph の state_schema の最上位の鍵にだけ書き、graphcheck が「rules だけが読み書きし、条件・節の reads・
+# プロンプトの穴は読まない鍵」として読む（それ以外の場所に書けば graphcheck が落とす）
 KNOWN_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties", "patternProperties", "additionalProperties", "items",
-                            "minItems", "maxItems", "minimum", "maximum", "minLength", "maxLength", "pattern", "note", "description"})
+                            "minItems", "maxItems", "minimum", "maximum", "minLength", "maxLength", "pattern", "note", "description",
+                            "writeOnly"})
 
 
 # 節の鍵のうち engine（と graphcheck の実行の形の検査）が読む物と、人が読むための説明の鍵。ループ固有の鍵は rules が NODE_KEYS

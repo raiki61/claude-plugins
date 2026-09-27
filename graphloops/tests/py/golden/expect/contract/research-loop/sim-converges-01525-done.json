@@ -1,0 +1,40 @@
+{
+ "applicable": {
+  "p0.generation": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+  "p3.cartographer_compare": "active_in: 標準 段では走らせない（重厚 だけ）",
+  "p3.cold_reader": "die: cond 'no_new_discrepancies' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "p3.rederiver_compare": "die: cond 'rederiver_compare_due' の欄 'rd.new_discrepancies' が解決できない（綴り違いか、その欄をまだ誰も書いていない。意図して未書き込みを見るなら default を渡せ）",
+  "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+ },
+ "check_record": {
+  "p0.claims": [],
+  "p0.prior_decisions": [],
+  "p0.question": [],
+  "p0.terms": [],
+  "p5.internal": []
+ },
+ "command": {
+  "exit": 0,
+  "out": "ok p3.rederiver を受け付けた（読んだ先: --output <INPUT>/out.json）。続きは loop.py next（run _s0_xxxxxxxxxxx）\n",
+  "err": ""
+ },
+ "record": {
+  "gates.rederiver.provisional": {
+   "verdict": "pass",
+   "reason": "_s2_xxxx"
+  },
+  "gates.rederiver.reason": "導出（p3.rederiver）の判定は暫定——文書との突合が確定させるまで緑と数えない（突合が走らないまま止まった run ではこのまま残る）。暫定の判定: pass（_s2_xxxx）",
+  "gates.rederiver.status": "not_run"
+ },
+ "board": {
+  "rd.done": [
+   "p0.claims",
+   "p0.prior_decisions",
+   "p0.question",
+   "p0.terms",
+   "p3.rederiver",
+   "p5.internal"
+  ]
+ }
+}

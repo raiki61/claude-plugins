@@ -1,0 +1,223 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_light が loop.py next を呼ぶ直前（1644）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/converge.json": {},
+  "out/r1/p0.claims.json": {
+   "claims": [
+    {
+     "id": "D",
+     "claim": "_s18_",
+     "load_bearing": false
+    }
+   ],
+   "judgments": [],
+   "judgments_as_facts": [],
+   "open_questions": []
+  },
+  "out/r1/p0.clusters.json": {
+   "clusters": [
+    {
+     "key": "c2",
+     "claim_ids": [
+      "D"
+     ]
+    }
+   ]
+  },
+  "out/r1/p0.question.json": {
+   "question": "_s11_xxxxx",
+   "domain": "_s13_xx",
+   "constraints": [
+    {
+     "text": "_s6_xxxxxxx",
+     "source": "依頼文",
+     "origin": "独立出典",
+     "breaks_if_false": "_s15_x"
+    }
+   ],
+   "thickness": "軽量",
+   "thickness_decider": "依頼者指定",
+   "thickness_reason": "_s14_xx"
+  },
+  "out/r1/p0.terms.json": {
+   "terms": []
+  },
+  "out/r1/p1.checker__c2__.json": {},
+  "out/r1/p1.record_check.json": {},
+  "out/r1/p1.refuter__A__.json": {},
+  "out/r1/p1.refuter__B__.json": {},
+  "out/r1/p2.integrate.json": {},
+  "out/r1/p5.adapt.json": {},
+  "record.json": {
+   "question": "_s11_xxxxx",
+   "thickness": "軽量",
+   "thickness_decider": "依頼者指定",
+   "constraints": [
+    {
+     "text": "_s6_xxxxxxx",
+     "source": "依頼文",
+     "origin": "独立出典",
+     "breaks_if_false": "_s15_x"
+    }
+   ],
+   "clusters": [
+    {
+     "key": "c1",
+     "claims_submitted": 2
+    },
+    {
+     "key": "c2",
+     "claims_submitted": 2
+    }
+   ],
+   "claims": [
+    {
+     "id": "A",
+     "claim": "_s19_",
+     "load_bearing": true,
+     "cluster": "c1",
+     "verdict": "確証",
+     "sources": [
+      "_s7_xxxxxxx"
+     ],
+     "conditions": "_s22_",
+     "refuted": true
+    },
+    {
+     "id": "B",
+     "claim": "_s23_",
+     "load_bearing": false,
+     "cluster": "c1",
+     "verdict": "相違",
+     "sources": [
+      "_s8_xxxxxxx"
+     ],
+     "correction": "_s12_xxx",
+     "refuted": true,
+     "recheck": true
+    },
+    {
+     "id": "C",
+     "claim": "_s20_",
+     "load_bearing": false,
+     "cluster": "c2",
+     "verdict": "留保",
+     "sources": [
+      "_s9_xxxxxxx"
+     ],
+     "correction": "_s16_x",
+     "refuted": false
+    },
+    {
+     "id": "D",
+     "claim": "_s18_",
+     "load_bearing": false,
+     "cluster": "c2",
+     "verdict": "確証",
+     "sources": [
+      "_s10_xxxxxx"
+     ],
+     "conditions": "_s22_",
+     "refuted": false
+    }
+   ],
+   "corrections": [],
+   "terms": [],
+   "numbers": [],
+   "gates": {
+    "rederiver": {
+     "status": "not_applicable"
+    },
+    "cold_reader": {
+     "status": "not_applicable"
+    },
+    "cartographer": {
+     "status": "not_applicable"
+    }
+   },
+   "sampling": {
+    "status": "not_applicable"
+   },
+   "convergence": {
+    "rounds_total": 1,
+    "consecutive_zero": 0,
+    "outcome": "stopped",
+    "stopped_reason": "軽量段: 1 ラウンドで打ち切り（収束の宣言はしない。判定の集計と結論・残件だけを出す）"
+   },
+   "process": {
+    "rerolls": 0,
+    "unrefuted_load_bearing": []
+   },
+   "decisions": {
+    "decide_now": [],
+    "poc": [],
+    "human_only": [
+     "_s24_"
+    ]
+   }
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s5_xxxxxxxxxxx",
+   "status": "stopped",
+   "round": 1,
+   "rounds": [
+    {
+     "round": 1,
+     "done": {
+      "p0.question": {},
+      "p0.claims": {},
+      "p0.terms": {},
+      "p0.clusters": {},
+      "p1.checker": {},
+      "p1.refuter": {},
+      "p1.record_check": {},
+      "p2.integrate": {},
+      "converge": {},
+      "p5.adapt": {}
+     },
+     "na": {
+      "p0.independence_review": "cond constraints_self_written: surveyor が自書した問い・制約は 0 件",
+      "p0.prior_decisions": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+      "p5.internal": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+      "p3.rederiver": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+      "p3.cartographer": "active_in: 軽量 段では走らせない（重厚 だけ）",
+      "p0.generation": "active_in: 軽量 段では走らせない（重厚 だけ）",
+      "p3.rederiver_compare": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+      "p3.cartographer_compare": "active_in: 軽量 段では走らせない（重厚 だけ）",
+      "p3.cold_reader": "active_in: 軽量 段では走らせない（標準/重厚 だけ）",
+      "p3.sampling": "cond sampling_due: round=1（2 周目以降だけ）"
+     },
+     "skipped": {},
+     "empty": [],
+     "instances": {},
+     "new_discrepancies": 1
+    }
+   ],
+   "thickness": "軽量",
+   "inputs": {
+    "lang": "依頼文の言語（利用者の言語）"
+   },
+   "outputs": {},
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "session": "gl-light-session",
+ "git": {
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s17_x": "_s21_"
+   }
+  ]
+ }
+}

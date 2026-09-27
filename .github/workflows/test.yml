@@ -60,6 +60,8 @@ jobs:
       # -n（pytest-xdist）でプロセス単位に並べる。柵は worker の数えた値を controller が集めて当てる（fence.py）
       - name: pytest
         shell: bash
+        env:
+          SKIP_ALLOW: ${{ matrix.skip_allow }}
         run: |
           python -m pip install pytest==9.1.1 pytest-xdist==3.8.0
           python -m pytest -n auto graphloops/tests/py

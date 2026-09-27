@@ -1,0 +1,497 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_gates_merge が loop.py next を呼ぶ直前（373）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "base_sha": "_s31_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "method": "3 HEAD~1",
+   "commits": 1,
+   "merge_commit": false,
+   "intent_to_add": [],
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false,
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.local_checks.json": {
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {
+   "constraints": []
+  },
+  "out/r1/p0.purpose.json": {
+   "purpose_text": "_s49_xxxxxxxxxxxx",
+   "source": "①PR 説明",
+   "known_weaknesses": [],
+   "source_files": []
+  },
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r1.minimality.json": {},
+  "out/r1/r2.compare.json": {},
+  "out/r1/r2.design.json": {},
+  "out/r2/converge.json": {},
+  "out/r2/p0.prior_decisions.json": {},
+  "out/r2/p1.external_standards.json": {},
+  "out/r2/p1.main_path_observation.json": {},
+  "out/r2/p1.procedure_trace.json": {},
+  "out/r2/p1.provenance.json": {},
+  "out/r2/p1.test_double_fidelity.json": {},
+  "out/r2/p2.history.json": {
+   "declared_routed": []
+  },
+  "out/r2/p3.fix.json": {},
+  "out/r2/p4.record.json": {},
+  "out/r2/r4.human_gate.json": {},
+  "out/r3/p1.consistency_bypass.json": {},
+  "out/r3/p1.hygiene.json": {},
+  "out/r3/p1.local_review.json": {},
+  "out/r3/p1.worktree_after.json": {},
+  "out/r3/p1.worktree_before.json": {},
+  "out/r3/p2.diagnose.json": {},
+  "out/r3/p2.fix_units.json": {},
+  "out/r3/p2.history.json": {},
+  "out/r3/p2.human_gate.json": {},
+  "out/r3/p3.delta_owed.json": {
+   "rows": []
+  },
+  "out/r3/p3.delta_owed2.json": {
+   "rows": []
+  },
+  "out/r3/p3.fix.json": {},
+  "out/r3/p3.fix_delta.json": {},
+  "out/r3/p3.gates_cut.json": {},
+  "out/r3/p3.lane_merge.json": {},
+  "out/r3/p4.assemble.json": {
+   "r2_refire": false
+  },
+  "out/r3/p4.ci.json": {},
+  "out/r3/p4.scalars.json": {},
+  "out/r3/r3.coherence.json": {},
+  "out/r3/r4.hidden_scope.json": {},
+  "record.json": {
+   "base": "_s31_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "materials": {
+    "local_review": {
+     "status": "clean",
+     "checked": "_s39_xxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "hygiene": {
+     "status": "clean",
+     "checked": "_s56_xxxx"
+    },
+    "consistency": {
+     "status": "clean",
+     "checked": "_s46_xxxxxxxxxxxxx"
+    },
+    "bypass": {
+     "status": "clean",
+     "checked": "_s45_xxxxxxxxxxxxxx"
+    },
+    "base_determination": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "_s17_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_checks": {
+     "status": "clean",
+     "checked": "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "parallel_pr": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "_s6_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "prior_decisions": {
+     "status": "carried_over",
+     "from_round": 2,
+     "reason": "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "external_standards": {
+     "status": "carried_over",
+     "from_round": 2,
+     "reason": "_s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "procedure_trace": {
+     "status": "not_applicable",
+     "reason": "_s27_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "gate_efficacy": {
+     "status": "not_applicable",
+     "reason": "_s9_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "test_double_fidelity": {
+     "status": "not_applicable",
+     "reason": "_s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "main_path_observation": {
+     "status": "not_applicable",
+     "reason": "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "provenance": {
+     "status": "carried_over",
+     "from_round": 2,
+     "reason": "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_closure": {
+     "status": "not_applicable",
+     "reason": "_s55_xxxxx"
+    }
+   },
+   "units": [],
+   "scalars": {
+    "added_lines": 5,
+    "comment_lines": 1,
+    "comment_ratio_pct": 20,
+    "doc_lines": 0
+   },
+   "reviews": {
+    "R3": {
+     "status": "pass",
+     "reason": "_s57_xxx"
+    },
+    "R4": {
+     "status": "pass",
+     "reason": "_s52_xxxxxxxxx"
+    }
+   },
+   "questions": [],
+   "process": {
+    "human_items": [],
+    "checks": {
+     "p4.ci": {
+      "round": 3,
+      "by": "engine"
+     }
+    },
+    "validator_outputs": {},
+    "notices": []
+   }
+  },
+  "rounds/round-1.json": {
+   "base": "_s31_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "round": 1,
+   "materials": {
+    "base_determination": {
+     "status": "clean",
+     "checked": "_s33_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_checks": {
+     "status": "clean",
+     "checked": "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_review": {
+     "status": "found",
+     "count": 1,
+     "detail": "_s41_xxxxxxxxxxxxxxxxxxx"
+    },
+    "hygiene": {
+     "status": "clean",
+     "checked": "_s56_xxxx"
+    },
+    "provenance": {
+     "status": "clean",
+     "checked": "_s58_xx"
+    },
+    "parallel_pr": {
+     "status": "clean",
+     "checked": "_s42_xxxxxxxxxxxxxxxxx"
+    },
+    "prior_decisions": {
+     "status": "clean",
+     "checked": "_s38_xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "consistency": {
+     "status": "clean",
+     "checked": "_s46_xxxxxxxxxxxxx"
+    },
+    "bypass": {
+     "status": "clean",
+     "checked": "_s45_xxxxxxxxxxxxxx"
+    },
+    "external_standards": {
+     "status": "clean",
+     "checked": "_s47_xxxxxxxxxxxxx"
+    },
+    "procedure_trace": {
+     "status": "not_applicable",
+     "reason": "_s27_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "gate_efficacy": {
+     "status": "not_applicable",
+     "reason": "_s9_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "test_double_fidelity": {
+     "status": "not_applicable",
+     "reason": "_s7_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "main_path_observation": {
+     "status": "not_applicable",
+     "reason": "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_closure": {
+     "status": "clean",
+     "checked": "_s53_xxxxxxxxx"
+    }
+   },
+   "units": [
+    {
+     "key": "_s40_xxxxxxxxxxxxxxxxxxxx",
+     "label": "block"
+    },
+    {
+     "key": "_s48_xxxxxxxxxxxxx",
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {
+    "R1": {
+     "status": "pass",
+     "reason": "_s50_xxxxxxxxxxx"
+    },
+    "R2": {
+     "status": "pass",
+     "reason": "_s60_"
+    },
+    "R3": {
+     "status": "not_applicable",
+     "reason": "_s23_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "R4": {
+     "status": "not_applicable",
+     "reason": "_s23_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+   },
+   "questions": [],
+   "scalars": {
+    "added_lines": 5,
+    "comment_lines": 1,
+    "comment_ratio_pct": 20,
+    "doc_lines": 0
+   }
+  },
+  "rounds/round-2.json": {
+   "base": "_s31_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "round": 2,
+   "materials": {
+    "local_review": {
+     "status": "clean",
+     "checked": "_s39_xxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "hygiene": {
+     "status": "clean",
+     "checked": "_s56_xxxx"
+    },
+    "external_standards": {
+     "status": "clean",
+     "checked": "_s47_xxxxxxxxxxxxx"
+    },
+    "procedure_trace": {
+     "status": "clean",
+     "checked": "_s43_xxxxxxxxxxxxxxxxx"
+    },
+    "test_double_fidelity": {
+     "status": "not_applicable",
+     "reason": "_s54_xxxxxxxxx"
+    },
+    "main_path_observation": {
+     "status": "clean",
+     "checked": "_s44_xxxxxxxxxxxxxxx"
+    },
+    "provenance": {
+     "status": "clean",
+     "checked": "_s58_xx"
+    },
+    "prior_decisions": {
+     "status": "clean",
+     "checked": "_s38_xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "consistency": {
+     "status": "clean",
+     "checked": "_s46_xxxxxxxxxxxxx"
+    },
+    "bypass": {
+     "status": "clean",
+     "checked": "_s45_xxxxxxxxxxxxxx"
+    },
+    "base_determination": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "_s17_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_checks": {
+     "status": "clean",
+     "checked": "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "parallel_pr": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "_s6_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "gate_efficacy": {
+     "status": "not_applicable",
+     "reason": "_s9_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_closure": {
+     "status": "not_applicable",
+     "reason": "_s55_xxxxx"
+    }
+   },
+   "units": [],
+   "reviews": {
+    "R3": {
+     "status": "pass",
+     "reason": "_s57_xxx"
+    },
+    "R4": {
+     "status": "pass",
+     "reason": "_s52_xxxxxxxxx"
+    },
+    "R1": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "再発火の条件（機構の追加・置換／前提のドリフト／行数が R1 の時点の 1.5 倍・前の周の 2/3 以下／台帳の変化）に当たらない"
+    },
+    "R2": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "再発火の条件（機構の追加・置換／前提のドリフト／行数が R1 の時点の 1.5 倍・前の周の 2/3 以下／台帳の変化）に当たらない"
+    }
+   },
+   "questions": [],
+   "scalars": {
+    "added_lines": 5,
+    "comment_lines": 1,
+    "comment_ratio_pct": 20,
+    "doc_lines": 0,
+    "faces_created_by_prev_fix": 0
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s51_xxxxxxxxxx",
+   "status": "running",
+   "round": 3,
+   "rounds": [
+    {
+     "round": 3,
+     "done": {
+      "p1.worktree_before": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.consistency_bypass": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.history": {},
+      "p2.fix_units": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.fix": {},
+      "p3.fix_delta": {},
+      "p3.delta_owed": {},
+      "p3.delta_owed2": {},
+      "p3.gates_cut": {},
+      "p4.scalars": {},
+      "p4.ci": {},
+      "p4.assemble": {},
+      "r3.coherence": {},
+      "r4.hidden_scope": {}
+     },
+     "na": {
+      "spec.write": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.review": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "p1.external_standards": "cond external_standards_due: 初回か、機構を足した／変えた周か、前の周の P3 が何かを直した周——成り立たない（round=3・前の周の P3 が触ったファイルは 0 件）",
+      "p1.procedure_trace": "cond procedure_trace_due: 差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立たない（round=3・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 0 件）",
+      "p1.gate_efficacy": "cond gate_efficacy_due: 変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）",
+      "p1.test_double_fidelity": "cond test_double_fidelity_due: 差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=3・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 0 件）",
+      "p1.main_path_observation": "cond main_path_observation_due: 差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立たない（round=3・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 0 件）",
+      "p1.provenance": "cond provenance_due: 初回か、前の周の P3 が何かを直した周——成り立たない（round=3・前の周の P3 が触ったファイルは 0 件）",
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+      "p0.parallel_pr": "cond parallel_pr_due: 入口の印（process.request_entry）が無い——通常の run",
+      "p0.prior_decisions": "cond prior_decisions_due: 初回か、前の周の P3 がリポジトリの外に決定記録を書き足した周、または前の周の P3 が何かを直した周（昇格した周も）——成り立たない（round=3・前の周の P3 が触ったファイルは 0 件）",
+      "p2.fix_plan": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+      "p2.plan_review": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+      "p3.delta_review": "cond delta_review_due: この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件",
+      "p3.delta_fix": "cond delta_faces_open: 修正差分のレビューと検算が挙げた、手直しが答える義務は 0 件",
+      "p3.fix_delta2": "cond delta_fixed: 手直しが今の周に直した（fixed）穴は 0 件",
+      "p3.delta_review2": "cond delta_review2_due: 手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件",
+      "p3.delta_fix2": "cond delta2_faces_open: 手直しの差分のレビューが挙げた、2 回目の手直しが答える義務は 0 件",
+      "p2.rejudge": "cond rejudge_open: 回す側は今の周に異議を出していない",
+      "p2.rejudge_third": "cond rejudge_exhausted: 回す側は今の周に異議を出していない",
+      "p3.delta_gates": "cond lane_due: 変異の検算は合流した版でまとめて 1 回撃つ（init --input gates=merge）",
+      "spec.check": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "r1.comment_candidates": "cond r1_refire: R1 の再発火条件に当たらない（前の周から台帳も差分も変わっていない）",
+      "r1.minimality": "cond r1_refire: R1 の再発火条件に当たらない（前の周から台帳も差分も変わっていない）",
+      "r2.design": "cond r2_design_due: R2 の再発火条件に当たらない",
+      "r2.compare": "cond r2_compare_due: R2 の再発火条件に当たらない",
+      "stop.premise_check": "cond r2_premise_invalid: R2 の判定は None"
+     },
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "lang": "依頼文の言語（利用者の言語）",
+    "cwd": "<REPO>",
+    "gates": "merge"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p4.assemble": {
+     "file": "out/r3/p4.assemble.json",
+     "round": 3
+    },
+    "p2.history": {
+     "file": "out/r3/p2.history.json",
+     "round": 3
+    }
+   },
+   "done_ever": {
+    "p0.base": 1,
+    "p0.local_checks": 1,
+    "p0.premises": 1,
+    "p0.purpose": 1
+   },
+   "loop": {
+    "r1_refire": false
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "_s32_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s59_x": "_s61_"
+   }
+  ]
+ }
+}

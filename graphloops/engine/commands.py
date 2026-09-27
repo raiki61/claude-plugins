@@ -11,6 +11,7 @@ import tempfile
 import threading
 
 from . import pointers
+from . import hist as histmod
 from . import declared
 from . import intake
 from .advance import ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, open_next_round
@@ -216,10 +217,10 @@ def cmd_next(a):
                 "——engine が役を claude -p で起こし（engine_run なら宣言のコマンドを走らせ）、子の終了を直接待ち、返答を out_path に書き、受け付け（done）まで済ませる。"
                 "engine_run の結果は engine が終了コードから組む——done は拒まれる。"
                 "拒まれたら同じ会話（--resume）に続きを頼む。時間の上限は無い。"
-                "launch は役が終わるまで戻らず、前景だと Bash の上限（10 分）で切られるので Bash の背景実行に回す——**回したら手番を終えるな**。"
-                "背景の出力のファイル（ハーネスが返す置き場。自分でリダイレクトしない）に launch の要約（\"launched\"）が出るまで、"
-                "前景で 1 回 10 分未満の見に行くコマンドを繰り返せ（例: for i in $(seq 1 54); do grep -q '\"launched\"' <出力のファイル> && break; sleep 10; done）。"
-                "完了の知らせを待たない（知らせで起こされずに止まった。実測 2026-09-25）。先頭が sleep のコマンドは Bash が拒み、上限の無い until ループは止まらないので使わない。"
+                "launch は役が終わるまで戻らず、前景だと Bash の上限（10 分）で切られる——会話からは launch を打たずに loop.py run --dir <DIR> を前景で打て"
+                "（回し手が launch を立てて子の終了を待ち、run は会話に返す節・人の答え待ち・周の止め・終わりでだけ戻る。終了コードの表は手順書の『回す』）。"
+                "端末や CI で待てるなら launch を直に打ってよいが、回し手が居る間に launch を自分で打つな（同じ節を 2 本で起こさない）。"
+                "完了の知らせを待たない（知らせで起こされずに止まった。実測 2026-09-25）。"
                 "返るのは 1 件 1 行の要約だけで、役の返答の本文は回す側に流れない。"
                 "自分の Bash から claude を起こすな（出力をファイルに落とす綴りは auto mode の分類器が止める。実測 2026-09-15）。"
                 "Agent ツールで起こすな（CLAUDE.md と git status が注入される——Agent の子の git status は止められない。engine は道具ゼロの子をリポジトリの外で起こす。返答の本文が回す側に入る）。"
@@ -455,7 +456,9 @@ def _delegate_refusal(inst, launch, board):
     return None
 
 
-BOARD_LOCK = threading.Lock()  # 同じ launch の中で並列に起こした役が、盤面を 1 本ずつ開いて書く錠
+# 同じ launch の中で並列に起こした役が、盤面を 1 本ずつ開いて書く錠。scripts/loop.py の入口は盤面を書くコマンドで、
+# これをプロセスをまたぐ盤面の錠（engine/filelock.board_lock）に差し替える
+BOARD_LOCK = threading.Lock()
 
 
 CONFLICT_RETRIES = 3
@@ -466,7 +469,7 @@ def _retry_on_conflict(d, step, allow_halted=False):
     CONFLICT_RETRIES 回まで当て直す（Kubernetes client-go の retry.RetryOnConflict と同じ形）。保存は step の中でも後でもよい
     （_board_update は後で、launch の受け付けは accept_output の中で）。launch の印付けと締め、relaunch、stop はどれも
     別のプロセスと同じ盤面を書きうる。step は盤面の外に書かないか、書くなら（stop の on_stop が周の記録を書く）当て直すたびに
-    読み直した盤面から組み直して上書きし、済んだかは盤面の事実で決める（負けた試行が外に残した物を『済んだ』と読まない）。trace の行は保存まで控えるので、当て直しても重ならない。BOARD_LOCK はスレッドの錠で、プロセスをまたいでは効かない。
+    読み直した盤面から組み直して上書きし、済んだかは盤面の事実で決める（負けた試行が外に残した物を『済んだ』と読まない）。trace の行は保存まで控えるので、当て直しても重ならない。BOARD_LOCK は既定ではスレッドの錠で、loop.py から呼ぶときは盤面の錠（プロセスをまたぐ）に差し替わっている。
     allow_halted は止めた run の盤面に書いてよい帳簿の書き込み（launch の締め）の印——Board.save が見る"""
     with BOARD_LOCK:
         for n in range(CONFLICT_RETRIES):
@@ -539,14 +542,15 @@ def _isolated_cwd(d, inst):
 def _still_mine(d, inst):
     def still_mine():
         # 盤面を読むだけ（書かない）——途中で盤面に書く口を増やすと、別のプロセスとの競りで波ごと落ちる
-        try:
-            cur = read_json(pathlib.Path(d) / "state.json")["rounds"][-1]["instances"].get(inst["id"]) or {}
-        except (OSError, ValueError, KeyError, IndexError, TypeError):
-            return True   # 読めない回は止めない（止める向きの誤りは、健全な役を殺す）
         # 人が止めた（loop.py stop）試行も自分の物でない——止めた後に続きの往復の子を起こさない。背景の任せ先は受領を done
         # してから起こすので、done のままが自分の試行
         mine = ("pending", "done") if (inst.get("launch") or {}).get("background") else ("pending",)
-        return cur.get("out_path") == inst["out_path"] and cur.get("status", "pending") in mine
+        try:
+            # util.read_json は読めないと die（SystemExit）で抜け、下の except に届かないので使わない
+            cur = json.loads((pathlib.Path(d) / "state.json").read_text(encoding="utf-8"))["rounds"][-1]["instances"].get(inst["id"]) or {}
+            return cur.get("out_path") == inst["out_path"] and cur.get("status", "pending") in mine
+        except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+            return True   # 読めない回（形の違う盤面も）は止めない（止める向きの誤りは、健全な役を殺す）
     return still_mine
 
 
@@ -1335,17 +1339,27 @@ def cmd_add(a):
 
 
 def cmd_patch(a):
-    """記録（既定。record. 接頭も同じ）か盤面（state. 接頭）の手当て——書く（--file）か消す（--delete）。痕跡は state.patches と trace に残る。
+    """記録（既定。record. 接頭も同じ）か盤面（state. 接頭）か節の出力（out.<節>.<欄>）の手当て——書く（--file）か消す（--delete）。痕跡は state.patches と trace に残る。
 
     盤面も許すのは、run の途中で graph と雛形が変わると rules の私有の鍵が足りずに next が止まり、
     記録側の手当てでは届かないから（実測 2026-09-12: 雛形が新しい loop_state の鍵を読み、回す側が
     state.json を手で書き換えて続けた——手当ての口が盤面の壊れ方を覆っていなかった）。
+    節の出力も許すのは、条件と rules が読む値の置き場が loop から節の出力（out/r<周>/<節>.json）へ移ったから——
+    書くのはその節の最新の出力のファイルで、節が schema を持てば書いた後の形を照らし、外れれば書かない。
     """
     b = Board(resolve_dir(a))
     b.allow_halted = True   # 手当ては止めた run にも当てられる（痕跡は patches に残る）
     if (a.file is None) == (not a.delete):
         raise Reject("--file（書く）か --delete（消す）のどちらか 1 つを渡せ")
-    if a.path.startswith("state."):
+    derived = _derived_patch_target(b, a.path)
+    if derived:
+        fn = registry(b.rules, "HIST").get(derived)
+        routes = "／".join(histmod.repair_routes(fn)) if fn else f"hist.{derived} は rules の HIST に無い"
+        raise Reject(f"{a.path} は履歴から作り直す値 hist.{derived}（rules の HIST）で、書いても次に引くとき作り直されて効かない——"
+                     f"直すなら値の元を: {routes}（控え {b.dir / 'hist.json'} は正本でなく、書き戻す口も無い）")
+    if a.path.startswith("out."):
+        target, path, shown = None, a.path[len("out."):], a.path   # 節の出力のファイル（_patch_output）
+    elif a.path.startswith("state."):
         target, path, shown = b.state, a.path[len("state."):], a.path
     else:
         # 記録は接頭なしでも record. 付きでも同じ場所を指す（board.ref の綴りと同じ）。接頭をそのまま鍵にしていた頃、
@@ -1357,7 +1371,9 @@ def cmd_patch(a):
     if "" in path.split("."):
         raise Reject(f"--path {a.path} に空の区切りがある——空の名前の鍵を作らない（欄を名指しせよ）")
     try:
-        if a.delete:
+        if target is None:
+            _patch_output(b, path, None if a.delete else read_json(a.file), delete=a.delete)
+        elif a.delete:
             del_path(target, path)
         else:
             set_path(target, path, read_json(a.file))
@@ -1368,6 +1384,41 @@ def cmd_patch(a):
     b.trace("patch", path=a.path, **({"delete": True} if a.delete else {}), reason=a.reason)
     b.save()
     print(f"ok {shown} を{'消した' if a.delete else '手当てした'}（痕跡は state.patches と trace に残る）")
+
+
+def _derived_patch_target(b, path):
+    """手当ての path が hist の値を指すなら、その名前（hist.<名>、または rules の HIST に在る名前の state.loop.<名>）。指さなければ None"""
+    for head in ("hist.", "state.loop."):
+        if path.startswith(head):
+            key = path[len(head):].split(".", 1)[0]
+            if head == "hist." or key in registry(b.rules, "HIST"):
+                return key
+    return None
+
+
+def _patch_output(b, rest, value, delete=False):
+    """節の最新の出力（state.outputs の指すファイル）の欄 rest（<節>.<欄>。節の名前の点は最長一致で取る）を value にする
+    （delete なら欄を消す。無い欄は KeyError）"""
+    nid = b.node_of(rest)
+    info = b.state["outputs"].get(nid) if nid else None
+    if info is None:
+        die(f"patch: out.{rest} の節に出力が無い（節の名前か、まだ出力を書いていない節）")
+    field = rest[len(nid) + 1:]
+    f = pathlib.Path(b._out_path(info["file"]))
+    out = read_json(f)
+    if field and delete:
+        del_path(out, field)
+    elif field:
+        set_path(out, field, value)
+    elif delete:
+        raise Reject(f"--path out.{nid} は節の出力まるごと——消す欄を名指しせよ（out.{nid}.<欄>）")
+    else:
+        out = value
+    sch = b.nodes[nid].get("schema")
+    errs = validate_schema(out, sch) if isinstance(sch, dict) else []
+    if errs:
+        die(f"patch: 書いた後の out.{nid} が節の schema に合わない（書いていない）: " + "; ".join(errs[:5]))
+    write_json(f, out)
 
 
 # ---------------------------------------------------------------- finalize / status / record

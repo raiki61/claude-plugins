@@ -17,8 +17,9 @@ RULES = load_rules(GRAPH, load_graph(GRAPH)[0])
 VALIDATOR = str(REPO / "scripts" / "review-record.py")
 
 
-def board(tmp_path, *, outputs=None, latest=None, record=None, loop_state=None, inputs=None, rnd=1, max_rounds=5):
-    """rules が読む分だけの盤面の偽物。outputs は周の出力（output_of_round）、latest は最新の出力（latest_output）"""
+def board(tmp_path, *, outputs=None, latest=None, record=None, loop_state=None, inputs=None, rnd=1, max_rounds=5, hist=None):
+    """rules が読む分だけの盤面の偽物。outputs は周の出力（output_of_round）、latest は最新の出力（latest_output）、
+    hist は履歴から作る値（b.hist。無い名前は HIST_ABSENT）"""
     outputs, latest = outputs or {}, latest or {}
     rec = {"base": None, "materials": {}, "units": [], "questions": [], "process": {}}
     rec.update(record or {})
@@ -26,7 +27,8 @@ def board(tmp_path, *, outputs=None, latest=None, record=None, loop_state=None, 
         round=rnd, dir=tmp_path, record=rec, loop_state=dict(loop_state or {}),
         state={"validator": VALIDATOR, "max_rounds": max_rounds, "inputs": dict(inputs or {})},
         output_of_round=lambda nid, r: outputs.get(nid), latest_output=lambda nid: latest.get(nid),
-        cond=lambda name, overlay=None: (name == RULES.ENTRY_BUILTIN, "偽物"))
+        cond=lambda name, overlay=None: (name == RULES.ENTRY_BUILTIN, "偽物"),
+        hist=lambda name: (hist or {}).get(name, RULES.HIST_ABSENT))
 
 
 def fake_git(table):
@@ -91,7 +93,7 @@ def test_scalars_without_cut_or_base_records_why(tmp_path):
 
 def test_scalars_records_why_when_numstat_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(RULES, "git", fake_git({}))   # _repo_root も git の diff も引けない
-    b = board(tmp_path, record={"base": "b" * 40}, loop_state={"gates_cut": {"round": 1, "rev": "c" * 40}},
+    b = board(tmp_path, record={"base": "b" * 40}, outputs={"p3.gates_cut": {"ok": True, "rev": "c" * 40}},
               inputs={"scripts_dir": script(tmp_path, "echo 'scalars: added_lines=3 comment_lines=1 comment_ratio_pct=33'\n")})
     got = RULES.scalars(b, "p4.scalars")
     assert got["scalars"] == {"added_lines": 3, "comment_lines": 1, "comment_ratio_pct": 33}
@@ -283,8 +285,16 @@ def test_on_answer_in_round_without_kinds(tmp_path):
 
 
 def test_spec_freeze_without_repo(no_repo):
-    b = board(no_repo, loop_state={"spec_pending": {"requirements": [], "acceptance": []}})
+    b = board(no_repo, outputs={"spec.approve": {"pending": {"requirements": [], "acceptance": [], "out_of_scope": []}}})
     assert RULES.spec_freeze(b, "spec.freeze") == {"ok": True}
+
+
+def test_spec_freeze_needs_the_approved_pending(no_repo):
+    """承認の問い（spec.approve）の今の周の出力に pending が無ければ固定しない——前の版の loop の値は読まない"""
+    b = board(no_repo, loop_state={"spec_pending": {"requirements": [], "acceptance": []}})
+    got = RULES.spec_freeze(b, "spec.freeze")
+    assert got["ok"] is False and "pending" in got["problems"][0]
+    assert "spec" not in b.record["process"]
 
 
 def test_spec_check_without_repo(no_repo):
@@ -298,8 +308,8 @@ LEDGER = {"defer_ledger": {"u1": {"reason": "構造的な理由", "round": 1}},
           "prev_questions": [{"key": "q0", "kind": "fork", "status": "held", "origin": "u1", "reason": "r", "options": ["a", "b"]}]}
 
 
-def judge_reject(tmp_path, nid, out, loop_state=None):
-    b = board(tmp_path, loop_state=loop_state, rnd=2)
+def judge_reject(tmp_path, nid, out, hist=None):
+    b = board(tmp_path, hist=hist, rnd=2)
     b.graph = load_graph(GRAPH)[0]
     with pytest.raises(Reject) as e:
         RULES.judge_output(b, nid, out, None)
@@ -381,7 +391,7 @@ def test_history_rules_only_where_history_is_read(tmp_path):
 
 
 def test_rejudge_rejects_reopened_defer(tmp_path):
-    b = board(tmp_path, loop_state=LEDGER, rnd=2)
+    b = board(tmp_path, hist=LEDGER, rnd=2)
     out = {"new_facts": "回す側が出した事実を、作業ツリーの現物を読み直して自分で確かめた", "verdict": "採る", **reopened_block()}
     with pytest.raises(Reject, match="reopen_evidence が無い: u1"):
         RULES.rejudge_output(b, "p2.rejudge", out, None)
@@ -390,7 +400,7 @@ def test_rejudge_rejects_reopened_defer(tmp_path):
 
 
 def test_history_rules_leave_machine_rows_to_record(tmp_path):
-    b = board(tmp_path, loop_state={"prev_questions": [{"key": "R2 が取れない", "kind": "unverifiable", "origin": "R2", "status": "held",
+    b = board(tmp_path, hist={"prev_questions": [{"key": "R2 が取れない", "kind": "unverifiable", "origin": "R2", "status": "held",
                                                         "reason": "r"}]}, rnd=2)
     nd = load_graph(GRAPH)[0]["nodes"]["p2.history"]
     assert RULES._history_rules(b, VAL, nd, {"units": [], "questions": []}) == []
@@ -453,7 +463,7 @@ def test_finalize_writes_the_policy_change_after_the_last_gate(tmp_path, monkeyp
 
 def test_gates_merge_says_which_way_the_run_shoots():
     """合流でまとめる run はそう言い、そうでない run は『この run で撃つ』と言う——理由の文が真偽と食い違わない"""
-    assert RULES.gates_merge(View({"loop.gates": "merge"})) == (True, RULES.GATES_MERGE_WHY)
+    assert RULES.gates_merge(View({"inputs.gates": "merge"})) == (True, RULES.GATES_MERGE_WHY)
     ok, why = RULES.gates_merge(View({}))
     assert ok is False and "この run で撃つ" in why
 
@@ -493,6 +503,15 @@ def test_sha_file_of_what_cannot_be_read_is_none(tmp_path):
 
 def test_spec_flow_says_which_way_the_run_goes():
     """仕様の道を選んだ run はそう言い、選んでいない run は今の流れのままと言う——理由の文が真偽と食い違わない"""
-    assert RULES.spec_flow(View({"loop.flow": "spec"})) == (True, "仕様の道を選んだ run（flow=spec）")
+    assert RULES.spec_flow(View({"inputs.flow": "spec"})) == (True, "仕様の道を選んだ run（flow=spec）")
     ok, why = RULES.spec_flow(View({}))
     assert ok is False and "今の流れのまま" in why
+
+
+def test_history_rules_follow_the_graph_reads():
+    """周をまたぐ規則を当てるかは節の reads で決まる——出荷の graph の履歴を読む判定（p2.history）には 3 本とも当たり、履歴を見せない
+    判定（p2.diagnose）には当たらない。reads の綴りを変えて規則が黙って外れる形（fail-open）をここで落とす"""
+    nodes = load_graph(GRAPH)[0]["nodes"]
+    assert RULES.history_rules_for(nodes["p2.history"]) == set(RULES.HISTORY_RULE_READS)
+    assert RULES.history_rules_for(nodes["p2.diagnose"]) == set()
+    assert all(path in nodes["p2.history"]["reads"] for path in RULES.HISTORY_RULE_READS.values())

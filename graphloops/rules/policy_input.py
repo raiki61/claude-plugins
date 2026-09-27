@@ -49,13 +49,25 @@ def snapshot(b, path):
     return sha, str(copy)
 
 
-def locate(b, git):
-    """いま読むべき方針の文書のパス（無ければ None）: init で名指しした物、無ければ既定の置き場に在る物"""
-    named = b.state["inputs"].get("policy_md")
-    if named:
-        return named
+def _default_present(b, git):
+    """既定の置き場に文書が在ればそのパス（無ければ None）。在る物だけを返す——無いパスを役へ渡すと『無い』でなく『読めない』と出る"""
     p = default_path(git, b.state["inputs"]["cwd"])
     return str(p) if p and p.is_file() else None
+
+
+def locate(b, git):
+    """init の時点で読む方針の文書のパス（無ければ None）: init で名指しした物、無ければ既定の置き場に在る物"""
+    return b.state["inputs"].get("policy_md") or _default_present(b, git)
+
+
+def watched(b, git, pol):
+    """init の後に見張る文書のパス（無ければ None）: 固定した版（pol の path・sha256。init と、関所で人が変更を通した時に固定し直す——
+    文書の消滅を通したら path も sha256 も None）が在ればその置き場。無ければ、関所を通る前は init の時点の置き場（locate）、
+    通った後は既定の置き場に在る物。役へ渡す置き場も同じ pol の path なので、見張る先と渡す先は割れない。
+    run の入力 inputs.policy_md は init で固まり書き換えない"""
+    if pol.get("sha256"):
+        return pol.get("path")
+    return _default_present(b, git) if pol.get("amendments") else locate(b, git)
 
 
 def resolve(b, git, Reject):
@@ -84,7 +96,7 @@ def change(b, git, pol):
     変わっていれば {path, from, to, from_copy, to_copy, diff_file}（今の版の写しと差分のファイルを盤面に置く）。
     固定した版の写しが引けない（init の時点で文書が無かった、でなく写しが消えた・写しを取らない版で init した盤面）なら、
     空から比べた差分で中身を偽らず、diff_file を None にして diff_missing に理由を書く"""
-    path = locate(b, git)
+    path = watched(b, git, pol)
     to, to_copy = snapshot(b, path)
     frm = pol.get("sha256")
     if to == frm:

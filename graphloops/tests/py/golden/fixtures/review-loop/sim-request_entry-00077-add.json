@@ -1,0 +1,45 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_request_entry が loop.py add を呼ぶ直前（77）",
+ "command": [
+  "add",
+  "--file",
+  "<INPUT>/bad.json",
+  "--reason",
+  "検査"
+ ],
+ "files": {
+  "record.json": {},
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s0_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {},
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "bad.json": [
+   {
+    "where": "x",
+    "text": "y",
+    "severity": "block"
+   }
+  ]
+ },
+ "git": {}
+}

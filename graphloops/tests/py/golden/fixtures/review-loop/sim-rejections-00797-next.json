@@ -1,0 +1,151 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_rejections が loop.py next を呼ぶ直前（797）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "base_sha": "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "method": "3 HEAD~1",
+   "commits": 1,
+   "merge_commit": false,
+   "intent_to_add": [],
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false,
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.local_checks.json": {
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {
+   "constraints": []
+  },
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "purpose_text": "_s15_xxxxxxxxxxxx",
+   "source": "①PR 説明",
+   "known_weaknesses": [],
+   "source_files": []
+  },
+  "out/r1/p1.consistency_bypass.json": {},
+  "out/r1/p1.external_standards.json": {},
+  "out/r1/p1.hygiene.json": {},
+  "out/r1/p1.local_review.json": {},
+  "out/r1/p1.provenance.json": {},
+  "out/r1/p1.worktree_before.json": {
+   "tree_before": {
+    "porcelain": [],
+    "stash": "",
+    "tree": "_s11_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "rev": "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  },
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s16_xxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.local_review": {},
+      "p1.consistency_bypass": {},
+      "p1.external_standards": {},
+      "p1.provenance": {},
+      "p1.hygiene": {}
+     },
+     "na": {
+      "p1.procedure_trace": "cond procedure_trace_due: 差分に手順書・スクリプト・CI 定義があって初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分に手順書・スクリプト・CI 定義が無い・前の周の P3 が触ったファイルは 0 件）",
+      "p1.gate_efficacy": "cond gate_efficacy_due: 差分がゲートを新設・変更していて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も検証ゲートに触れない（p0.base.touches_gates・p3.fix.gates_changed）・前の周の P3 が触ったファイルは 0 件）",
+      "p1.test_double_fidelity": "cond test_double_fidelity_due: 差分が外部との継ぎ目に触れていて初回の周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も外部との継ぎ目に触れない（p0.base.touches_external_seams・p3.fix.seams_changed）・前の周の P3 が触ったファイルは 0 件）",
+      "p1.main_path_observation": "cond main_path_observation_due: 差分が利用者から見える経路を変え、初回か前の周に人待ちだった周、または前の周の P3 が何かを直した周——成り立たない（round=1・差分も前の周の修正も利用者から見える経路に触れない（p0.base.touches_user_path・p3.fix.path_changed）・前の周の P3 が触ったファイルは 0 件）",
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ"
+     },
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p1.worktree_before": {
+     "file": "out/r1/p1.worktree_before.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "[[\"status\", \"--porcelain\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": " M src/a.py\n"
+   }
+  ],
+  "[[\"rev-parse\", \"--path-format=absolute\", \"--git-path\", \"index\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   }
+  ],
+  "[[\"update-index\", \"-q\", \"--really-refresh\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"add\", \"-A\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"write-tree\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": "9725f100fd68990fd1f1cc5cda24d45fb1b27527\n"
+   }
+  ],
+  "[[\"stash\", \"list\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ]
+ }
+}

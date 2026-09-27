@@ -1,0 +1,126 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_request_entry が loop.py next を呼ぶ直前（168）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "base_sha": "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "method": "4 依頼者の名指し",
+   "commits": 0,
+   "merge_commit": false,
+   "intent_to_add": [],
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false,
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.local_checks.json": {
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {
+   "constraints": []
+  },
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "purpose_text": "_s12_xxxxxxxxxxxx",
+   "source": "①PR 説明",
+   "known_weaknesses": [],
+   "source_files": []
+  },
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "record.json": {
+   "base": "_s10_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "materials": {},
+   "units": [],
+   "reviews": {},
+   "questions": [],
+   "process": {
+    "request_entry": {
+     "origin": "_s14_xxxxxx"
+    },
+    "diagnosis": {}
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s13_xxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "round": 1,
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {}
+     },
+     "na": {
+      "spec.write": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.review": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "p1.local_review": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+      "p1.hygiene": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+      "p1.procedure_trace": "cond procedure_trace_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、手順の追跡を起こさない",
+      "p1.gate_efficacy": "cond gate_efficacy_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、ゲートの検算を起こさない",
+      "p1.test_double_fidelity": "cond test_double_fidelity_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起こさない",
+      "p1.main_path_observation": "cond main_path_observation_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、主経路の観察を起こさない",
+      "p1.provenance": "cond provenance_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、出典の確かめを起こさない",
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+      "p1.consistency_bypass": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+      "p1.external_standards": "cond external_standards_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、外部標準の照合を起こさない"
+     },
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "cwd": "<REPO>",
+    "review_md": "<ROOT>/REVIEW.md"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "_s11_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s15_x": "_s16_"
+   }
+  ]
+ }
+}

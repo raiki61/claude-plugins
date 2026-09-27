@@ -1,0 +1,69 @@
+{
+ "command": {
+  "exit": 0,
+  "out": "{\n \"dir\": \"<RUN>\",\n \"run_id\": \"20260101-000000\",\n \"loop\": \"research-loop\",\n \"thickness\": \"標準\",\n \"thickness_decider\": \"既定\",\n \"max_rounds\": 4,\n \"validator\": \"<ROOT>/scripts/research-record.py\",\n \"overview\": \"見立て文書の『外部に照合できる主張』を棚卸しし（P0）、一次情報で判定させ（P1: checker→相違と荷重確証だけ refuter）、訂正を統合し（P2）、新規の相違がゼロの周にだけ独立の目のゲート（P3: rederiver・cold-reader・重厚なら cartographer）を回し、連続 2 周ゼロ＋ゲート全 pass で収束（P4）、最後に自ドメインへ適応して 3 分類の決定を出す（P5）。回す側（surveyor）は棚卸し・統合・適応の判断作業だけをし、判定は一切しない。判定・件数・連続カウント・上限・止める条件は駆動器が持つ\",\n \"next\": \"python3 <PLUGIN>/scripts/loop.py next --dir <RUN>\"\n}\n",
+  "err": ""
+ },
+ "record": {
+  "claims": [],
+  "clusters": [],
+  "constraints": [],
+  "convergence": {
+   "rounds_total": 1,
+   "consecutive_zero": 0,
+   "outcome": null
+  },
+  "corrections": [],
+  "decisions": {
+   "decide_now": [],
+   "poc": [],
+   "human_only": []
+  },
+  "gates": {
+   "rederiver": {
+    "status": "not_applicable",
+    "reason": "未実行"
+   },
+   "cold_reader": {
+    "status": "not_applicable",
+    "reason": "未実行"
+   },
+   "cartographer": {
+    "status": "not_applicable",
+    "reason": "未実行"
+   }
+  },
+  "numbers": [],
+  "process": {
+   "rerolls": 0,
+   "unrefuted_load_bearing": [],
+   "human_items": [],
+   "policy": {
+    "path": null,
+    "sha256": null,
+    "copy": null
+   }
+  },
+  "question": "",
+  "sampling": {
+   "status": "not_applicable",
+   "reason": "未実行"
+  },
+  "terms": [],
+  "thickness": "標準",
+  "thickness_decider": "既定"
+ },
+ "board": {
+  "halted": null,
+  "pending_human": null,
+  "rd": {
+   "done": [],
+   "na": {},
+   "skipped": {},
+   "empty": [],
+   "stopped": {}
+  },
+  "round": 1,
+  "status": "running"
+ }
+}

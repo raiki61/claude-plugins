@@ -1,0 +1,102 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_spec_flow が loop.py done を呼ぶ直前（1223）",
+ "command": [
+  "done",
+  "--node",
+  "spec.revise",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/spec.review.json": {
+   "faces": [
+    {
+     "key": "_s3_xxxxxxxx"
+    }
+   ]
+  },
+  "out/r1/spec.write.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s2_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p0.purpose": {},
+      "spec.write": {},
+      "spec.review": {}
+     },
+     "instances": {
+      "spec.revise": {
+       "node": "spec.revise",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "flow": "spec"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "spec.review": {
+     "file": "out/r1/spec.review.json",
+     "round": 1
+    }
+   }
+  }
+ },
+ "repo": {
+  "tests/test_spec_entry.py": {
+   "<text-file>": "# ac_entry_starts_at_judge\n# Given 判定から入る run  When 修正が入った  Then 判定から入る run は、修正が入るまで P1 の役を起こさない（検査用）\nimport pathlib, sys\nopen('<TMP>/spec-ran-AC1', 'a').write('ran\\n')\nsys.exit(0 if 'fixed' in pathlib.Path('src/a.py').read_text(encoding='utf-8') else 1)\n"
+  },
+  "tests/test_spec_p1_returns.py": {
+   "<text-file>": "# ac_p1_runs_after_fix\n# Given 判定から入る run  When 修正が入った  Then 2 周目以降は P1 を通常どおり走らせる（検査用）\nimport pathlib, sys\nopen('<TMP>/spec-ran-AC2', 'a').write('ran\\n')\nsys.exit(0 if 'fixed' in pathlib.Path('src/a.py').read_text(encoding='utf-8') else 1)\n"
+  }
+ },
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"spec\": {\"requirements\": [{\"key\": \"R1\", \"text\": \"判定から入る run は修正が入るまで P1 を起こさない\"}, {\"key\": \"R2\", \"text\": \"2 周目以降は P1 を通常どおり走らせる\"}], \"acceptance\": [{\"key\": \"AC1\", \"requirement\": \"R1\", \"file\": \"tests/test_spec_entry.py\", \"name\": \"ac_entry_starts_at_judge\", \"run\": \"\\\"/opt/homebrew/opt/python@3.14/bin/python3.14\\\" tests/test_spec_entry.py\"}, {\"key\": \"AC2\", \"requirement\": \"R2\", \"file\": \"tests/test_spec_p1_returns.py\", \"name\": \"ac_p1_runs_after_fix\", \"run\": \"\\\"/opt/homebrew/opt/python@3.14/bin/python3.14\\\" tests/test_spec_p1_returns.py\"}], \"out_of_scope\": []}, \"handled\": []}"
+  }
+ },
+ "git": {
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s4_xx": "<REPO>\n"
+   }
+  ]
+ }
+}

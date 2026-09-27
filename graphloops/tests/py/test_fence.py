@@ -70,3 +70,29 @@ def test_selected_run_still_fails_on_skip(inner):
     r = inner({"test_ok": PASSING, "test_skip": "import pytest\n@pytest.mark.skip\ndef test_b():\n    pass\n"}, 2, "-k", "test_")
     assert r.ret == pytest.ExitCode.TESTS_FAILED
     r.stdout.fnmatch_lines(["*飛ばされたテストが 1 件*"])
+
+
+DECLARED = "import pytest\n@pytest.mark.skipif(True, reason='SKIP process-group: POSIX の物')\ndef test_b():\n    pass\n"
+
+
+def test_declared_skip_passes_only_when_its_capability_is_allowed(inner, monkeypatch):
+    # 宣言つきの見送りは、能力が SKIP_ALLOW に在るときだけ許して一覧に出す。無い・別の能力・既定（空）なら今までどおり失敗
+    monkeypatch.setenv("SKIP_ALLOW", "posix-mode process-group")
+    r = inner({"test_ok": PASSING, "test_skip": DECLARED}, 2)
+    assert r.ret == pytest.ExitCode.OK
+    r.stdout.fnmatch_lines(["*見送り 1 件（SKIP_ALLOW で許した）*process-group*"])
+
+
+@pytest.mark.parametrize("allow", [pytest.param("", id="default-empty"), pytest.param("fifo", id="other-capability")])
+def test_declared_skip_fails_when_its_capability_is_not_allowed(inner, monkeypatch, allow):
+    monkeypatch.setenv("SKIP_ALLOW", allow)
+    r = inner({"test_ok": PASSING, "test_skip": DECLARED}, 2)
+    assert r.ret == pytest.ExitCode.TESTS_FAILED
+    r.stdout.fnmatch_lines(["*飛ばされたテストが 1 件*"])
+
+
+def test_declared_xfail_is_not_allowed(inner, monkeypatch):
+    # xfail は走らせて結果を見ない形なので、理由が宣言の形でも許さない
+    monkeypatch.setenv("SKIP_ALLOW", "process-group")
+    r = inner({"test_ok": PASSING, "test_x": "import pytest\n@pytest.mark.xfail(reason='SKIP process-group: x')\ndef test_b():\n    assert 0\n"}, 2)
+    assert r.ret == pytest.ExitCode.TESTS_FAILED

@@ -1,0 +1,245 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_request_entry が loop.py next を呼ぶ直前（172）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "base_sha": "a194d956259fb61575c903e4ea842db06c8451a4",
+   "method": "4 依頼者の名指し",
+   "commits": 0,
+   "merge_commit": false,
+   "intent_to_add": [],
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false,
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.local_checks.json": {
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {
+   "constraints": []
+  },
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "purpose_text": "_s35_xxxxxxxxxxxx",
+   "source": "①PR 説明",
+   "known_weaknesses": [],
+   "source_files": []
+  },
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p3.delta_owed.json": {
+   "rows": []
+  },
+  "out/r1/p3.delta_owed2.json": {
+   "rows": []
+  },
+  "out/r1/p3.fix.json": {},
+  "out/r1/p3.fix_delta.json": {},
+  "out/r1/p3.gates_cut.json": {},
+  "out/r1/p3.lane_merge.json": {},
+  "out/r1/p4.ci.json": {},
+  "out/r1/p4.scalars.json": {},
+  "record.json": {
+   "base": "a194d956259fb61575c903e4ea842db06c8451a4",
+   "materials": {},
+   "units": [],
+   "reviews": {},
+   "questions": [],
+   "process": {
+    "request_findings": [
+     {
+      "round": 1,
+      "origin": "_s39_xxxxxx",
+      "findings": [
+       {
+        "where": "_s40_xxxxx",
+        "text": "_s31_xxxxxxxxxxxxxxxxxxxxxxx"
+       }
+      ]
+     },
+     {
+      "round": 1,
+      "origin": "_s38_xxxxxxx",
+      "findings": [
+       {
+        "where": "_s41_xxxxx",
+        "text": "_s33_xxxxxxxxxxxxxxxxxx"
+       }
+      ]
+     },
+     {
+      "round": 1,
+      "origin": "_s37_xxxxxxxx",
+      "findings": [
+       {
+        "where": "_s40_xxxxx",
+        "text": "_s34_xxxxxxxxxxxxxxxxxx"
+       }
+      ]
+     }
+    ],
+    "request_entry": {
+     "origin": "_s39_xxxxxx"
+    },
+    "constraints": []
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s36_xxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "round": 1,
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.fix": {},
+      "p3.fix_delta": {},
+      "p3.delta_owed": {},
+      "p3.delta_owed2": {},
+      "p3.gates_cut": {},
+      "p4.scalars": {},
+      "p4.ci": {}
+     },
+     "na": {
+      "spec.write": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.review": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "p1.local_review": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+      "p1.hygiene": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+      "p1.procedure_trace": "cond procedure_trace_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、手順の追跡を起こさない",
+      "p1.gate_efficacy": "cond gate_efficacy_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、ゲートの検算を起こさない",
+      "p1.test_double_fidelity": "cond test_double_fidelity_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、代役の忠実さの確かめを起こさない",
+      "p1.main_path_observation": "cond main_path_observation_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、主経路の観察を起こさない",
+      "p1.provenance": "cond provenance_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、出典の確かめを起こさない",
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+      "p1.consistency_bypass": "cond not_request_entry: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、P1 の役を起こさない",
+      "p1.external_standards": "cond external_standards_due: 判定から入る run の周（入口の印が在り、修正がまだ 1 ファイルも入っていない）のため、外部標準の照合を起こさない",
+      "p2.history": "cond after_first_round: round=1",
+      "p2.fix_plan": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+      "p2.plan_review": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+      "p3.delta_review": "cond delta_review_due: この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件",
+      "p3.delta_fix": "cond delta_faces_open: 修正差分のレビューと検算が挙げた、手直しが答える義務は 0 件",
+      "p3.fix_delta2": "cond delta_fixed: 手直しが今の周に直した（fixed）穴は 0 件",
+      "p3.delta_review2": "cond delta_review2_due: 手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件",
+      "p3.delta_fix2": "cond delta2_faces_open: 手直しの差分のレビューが挙げた、2 回目の手直しが答える義務は 0 件",
+      "p2.rejudge": "cond rejudge_open: 回す側は今の周に異議を出していない",
+      "p2.rejudge_third": "cond rejudge_exhausted: 回す側は今の周に異議を出していない",
+      "p3.delta_gates": "cond lane_due: この周のコードは周の頭から 0 ファイル変わった",
+      "spec.check": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま"
+     },
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "cwd": "<REPO>",
+    "review_md": "<ROOT>/REVIEW.md"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "request_wheres": [
+     "_s40_xxxxx",
+     "_s41_xxxxx",
+     "_s40_xxxxx"
+    ],
+    "changed_files": [],
+    "diff_lines": 0
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "[[\"rev-parse\", \"--path-format=absolute\", \"--git-path\", \"index\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   }
+  ],
+  "[[\"update-index\", \"-q\", \"--really-refresh\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"add\", \"-A\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"write-tree\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": "512e57d057ae65137bc5a9501e949c3e21845e06\n"
+   }
+  ],
+  "[[\"rev-parse\", \"HEAD\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "a194d956259fb61575c903e4ea842db06c8451a4\n"
+   }
+  ],
+  "[[\"commit-tree\", \"512e57d057ae65137bc5a9501e949c3e21845e06\", \"-p\", \"a194d956259fb61575c903e4ea842db06c8451a4\", \"-m\", \"graphloops review r1\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "a16086e3045e8e37d2c71a1ad653436118a6e7cb\n"
+   }
+  ],
+  "[[\"diff\", \"a194d956259fb61575c903e4ea842db06c8451a4\", \"a16086e3045e8e37d2c71a1ad653436118a6e7cb\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"diff\", \"--numstat\", \"-z\", \"a194d956259fb61575c903e4ea842db06c8451a4\", \"a16086e3045e8e37d2c71a1ad653436118a6e7cb\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ]
+ }
+}

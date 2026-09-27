@@ -1,0 +1,64 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_stop_midround が loop.py done を呼ぶ直前（1417）",
+ "command": [
+  "done",
+  "--node",
+  "p0.premises",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": [],
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s1_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {}
+     },
+     "instances": {
+      "p0.premises": {
+       "node": "p0.premises",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"constraints\": [{\"text\": \"呼び出し元は 1 箇所\", \"measured_how\": \"grep -c 'f(' src/\", \"measured_output\": \"src/a.py:1\", \"kind\": \"実測\"}]}"
+  }
+ },
+ "git": {}
+}

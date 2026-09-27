@@ -1,0 +1,91 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_spec_flow が loop.py answer を呼ぶ直前（1227）",
+ "command": [
+  "answer",
+  "--text",
+  "continue",
+  "--note",
+  "承認（検査用の目印 APPROVE-5c1）"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/spec.approve.json": {},
+  "out/r1/spec.review.json": {
+   "faces": [
+    {}
+   ]
+  },
+  "out/r1/spec.revise.json": {},
+  "out/r1/spec.write.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": []
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s0_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p0.purpose": {},
+      "spec.write": {},
+      "spec.review": {},
+      "spec.revise": {}
+     },
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "flow": "spec"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "spec.review": {
+     "file": "out/r1/spec.review.json",
+     "round": 1
+    }
+   },
+   "done_ever": {},
+   "pending_human": {
+    "node": "spec.approve",
+    "kinds": [
+     "spec_approval"
+    ],
+    "in_round": true,
+    "options": [
+     "continue"
+    ]
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {}
+}

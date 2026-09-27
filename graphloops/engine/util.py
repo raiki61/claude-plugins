@@ -340,8 +340,23 @@ COUNT_HOW_SCHEMA = {
     "note": "同じ形を全部引く問いを欄で書く。argv は engine が決まった形で組む（git grep -I --no-color -c|-l -F|-E [-i] [-w] [--untracked] "
             "-e <語>… [版] -- <パス>…）。数える版は書かない（版は呼び元が決める）。シェルもパイプも通らない",
 }
+# 機械の節（rules の BUILTINS）の返りのうち engine が読んで動く欄の形——ok の偽の理由・待ちに戻した節・周の遷移・人に聞く問い
+# （advance.run_driver_node と cmd_answer が読む）。形の正本は engine で、graph の機械の節の schema が engine#/<名前> で引く
+# （ループごとの graph に写さない）。節ごとの成功の欄は graph の節の schema が持つ
+DRIVER_DEFS = {
+    "driver_problems": {"type": "array", "items": {"type": "string"}, "description": "ok が偽の回の理由（engine が notes に出す）"},
+    "driver_rewound": {"type": "array", "items": {"type": "string"}, "description": "rules が待ちに戻した節の名前（engine が戻ったかを確かめる）"},
+    # 語の集合は run_driver_node の分岐が正本（知らない語はそこで止める）。enum に写すと検証器の語彙（結末）と同じ語が
+    # graph の enum の検査（graphcheck 13）で写しと読まれる
+    "driver_decision": {"type": "string", "minLength": 1, "description": "周の遷移（ask・next_round・continue と終わりの状態）"},
+    "driver_ask": {"type": "object", "additionalProperties": False, "required": ["kinds", "question", "items", "options"],
+                   "description": "人に聞く問い（engine が pending_human に写し、answer が options と items を読む）",
+                   "properties": {"kinds": {"type": "array", "items": {"type": "string"}}, "question": {"type": "string"},
+                                  "items": {"type": "array", "items": {"type": "string"}},
+                                  "options": {"type": "array", "items": {"type": "string"}}, "in_round": {"type": "boolean"}}},
+}
 # graph の schema が "$ref" で引ける engine の定義（engine/schema.py の expand_refs が展開する）
-ENGINE_DEFS = {"count_how": COUNT_HOW_SCHEMA}
+ENGINE_DEFS = {"count_how": COUNT_HOW_SCHEMA, **DRIVER_DEFS}
 
 
 def count_argv(how, rev=None):

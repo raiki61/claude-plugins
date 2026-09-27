@@ -1,0 +1,71 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_rejections が loop.py done を呼ぶ直前（1672）",
+ "command": [
+  "done",
+  "--node",
+  "p1.refuter[A]",
+  "--output",
+  "<INPUT>/out.json"
+ ],
+ "files": {
+  "items/r1/p1.refuter__A__.json": {},
+  "out/r1/p0.claims.json": {},
+  "out/r1/p0.clusters.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.question.json": {},
+  "out/r1/p0.terms.json": {},
+  "out/r1/p1.checker__c1__.json": {},
+  "out/r1/p3.rederiver.json": {},
+  "out/r1/p5.internal.json": {},
+  "record.json": {
+   "claims": []
+  },
+  "state.json": {
+   "loop_name": "research-loop",
+   "run_id": "_s0_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.question": {},
+      "p0.prior_decisions": {},
+      "p0.claims": {},
+      "p0.terms": {},
+      "p5.internal": {},
+      "p3.rederiver": {},
+      "p0.clusters": {}
+     },
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {
+      "p1.refuter[A]": {
+       "node": "p1.refuter",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": "標準",
+   "inputs": {},
+   "outputs": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.json": {
+   "id": "A",
+   "mode": "confirm",
+   "upheld": true,
+   "verdict": "相違",
+   "refuter_reasoning": "x",
+   "sources": []
+  }
+ },
+ "session": "gl-neg-session",
+ "git": {}
+}

@@ -1,0 +1,34 @@
+{
+ "format": 1,
+ "loop": "research-loop",
+ "origin": "simulate",
+ "source": "simulate.py の test_converges が loop.py init を呼ぶ直前（1517）",
+ "command": [
+  "init",
+  "--loop",
+  "research-loop",
+  "--request",
+  "この見立ては正しいか",
+  "--document",
+  "<REPO>/mitate.md",
+  "--dir",
+  "<RUN>",
+  "--validator",
+  "<ROOT>/scripts/research-record.py"
+ ],
+ "files": {},
+ "repo": {
+  "mitate.md": {}
+ },
+ "config": {},
+ "input": {},
+ "session": "gl-std-session",
+ "git": {
+  "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "_s1_xx": "_s2_x"
+   }
+  ]
+ }
+}

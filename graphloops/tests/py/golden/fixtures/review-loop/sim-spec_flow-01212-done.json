@@ -1,0 +1,64 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_spec_flow が loop.py done を呼ぶ直前（1212）",
+ "command": [
+  "done",
+  "--node",
+  "p0.base",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": [],
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s4_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {},
+     "instances": {
+      "p0.base": {
+       "node": "p0.base",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "flow": "spec"
+   },
+   "outputs": {},
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"base_sha\": \"01bb8891e04fbae1add2170b7200cbfa6cd1f5ca\", \"method\": \"3 HEAD~1\", \"commits\": 1, \"merge_commit\": false, \"intent_to_add\": [], \"touches_gates\": false, \"touches_external_seams\": false, \"touches_user_path\": false, \"touches_security_surface\": false, \"material\": {\"status\": \"clean\", \"checked\": \"HEAD~1 で決めた。BASE=01bb889。対象差分は 1 コミット分\"}}"
+  }
+ },
+ "git": {
+  "[[\"cat-file\", \"-e\", \"01bb8891e04fbae1add2170b7200cbfa6cd1f5ca^{commit}\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"rev-parse\", \"01bb8891e04fbae1add2170b7200cbfa6cd1f5ca\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "01bb8891e04fbae1add2170b7200cbfa6cd1f5ca\n"
+   }
+  ]
+ }
+}

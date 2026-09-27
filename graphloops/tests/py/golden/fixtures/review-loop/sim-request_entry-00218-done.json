@@ -1,0 +1,87 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_request_entry が loop.py done を呼ぶ直前（218）",
+ "command": [
+  "done",
+  "--node",
+  "p1.gate_efficacy",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.procedure_trace.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": [],
+   "process": {
+    "request_entry": {
+     "origin": "_s2_xxxxxxx"
+    }
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s1_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p1.procedure_trace": {}
+     },
+     "instances": {
+      "p1.gate_efficacy": {
+       "node": "p1.gate_efficacy",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    }
+   },
+   "done_ever": {},
+   "loop": {
+    "escalated": {
+     "why": "検査"
+    }
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"material\": {\"status\": \"clean\", \"checked\": \"新設ゲートの腕ごとに写しの上で退行を注入して赤を確認\"}, \"arms\": [{\"gate\": \"上限の検査\", \"arm\": \"limit=None の経路\", \"red_confirmed\": true, \"control_green\": true, \"hit_evidence\": \"分岐が書く理由文字列を一意の印に替えた写しで、印が記録に出ることを確認した\"}]}"
+  }
+ },
+ "git": {}
+}

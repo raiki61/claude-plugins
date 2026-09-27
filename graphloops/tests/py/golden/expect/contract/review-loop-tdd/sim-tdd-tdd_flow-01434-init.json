@@ -1,0 +1,9 @@
+{
+ "command": {
+  "exit": 2,
+  "out": "",
+  "err": "NG この loop に要る入力が無い（init で止める——以前は 2 手先の穴埋めで初めて落ち、盤面を捨てるしかなかった）: --input tdd_suite=…（節 p3.tdd_tests の穴 {{inputs.tdd_suite}}）\n"
+ },
+ "record": {},
+ "board": {}
+}

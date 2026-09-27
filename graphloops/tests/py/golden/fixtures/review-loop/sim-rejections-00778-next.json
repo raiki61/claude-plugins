@@ -1,0 +1,70 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_rejections が loop.py next を呼ぶ直前（778）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "record.json": {
+   "process": {}
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s4_xxxxxxxxxxx",
+   "status": "running",
+   "round": 1,
+   "rounds": [
+    {
+     "round": 1,
+     "done": {},
+     "na": {},
+     "skipped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "inputs": {
+    "request": "_s5_xxxxx",
+    "cwd": "<REPO>"
+   },
+   "outputs": {},
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "[[\"rev-parse\", \"--show-toplevel\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   }
+  ],
+  "_s1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   }
+  ],
+  "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git\n"
+   }
+  ],
+  "_s2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "worktree <REPO>\nHEAD afe49e09dbf4ada13851c206f99a93dd7035ea19\nbranch refs/heads/main\n\n"
+   }
+  ]
+ }
+}

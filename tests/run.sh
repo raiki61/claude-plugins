@@ -3148,6 +3148,10 @@ want = ["- name: tests/run.sh", "shell: bash", "env:", 'FAIL_ON_SKIP: "1"', "SKI
 assert rs == want, (f"{wf}: tests/run.sh の段が、見送りを失敗に数えて OS ごとの許しの一覧を渡す形（{want}）と違う——"
                     f"env の値・run: の頭の代入・shell:・if:・continue-on-error: のどれでも見送りが黙って緑になる: {rs}")
 assert not any(x.startswith(("if:", "continue-on-error:")) for x in head), f"{wf}: ジョブ全体に if: か continue-on-error: が在る（見送りの失敗ごと外れる）: {head}"
+# pytest の柵（graphloops/tests/py/fence.py）も同じ許しの一覧で宣言つきの見送りを許す——同じ matrix の値を渡し、写しを持たない
+ps = step("pytest")
+assert "env:" in ps and "SKIP_ALLOW: ${{ matrix.skip_allow }}" in ps, (f"{wf}: pytest の段が OS ごとの許しの一覧"
+    f"（SKIP_ALLOW: ${{{{ matrix.skip_allow }}}}）を渡していない——Windows の宣言つきの見送りが失敗に数えられる／固定の値だと他の OS で許しすぎる: {ps}")
 # **engine が走らせる宣言は CI の段の写し**（手元は pytest を uv で入れ、CI は pip で入れるので語は揃わない）。名前だけ突き合わせる
 # ——宣言に在って CI に無い段は、CI が回していない物を engine だけが回している。逆向き（CI の段を宣言が持たない）は許す:
 # shellcheck は CI だけが段として回し、手元では tests/run.sh が在れば回す任意の道具

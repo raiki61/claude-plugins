@@ -1,0 +1,24 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_gates_merge が loop.py init を呼ぶ直前（454）",
+ "command": [
+  "init",
+  "--loop",
+  "review-loop",
+  "--request",
+  "この変更をレビュー",
+  "--dir",
+  "<RUN>",
+  "--validator",
+  "<ROOT>/scripts/review-record.py",
+  "--input",
+  "gate=merge"
+ ],
+ "files": {},
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {}
+}

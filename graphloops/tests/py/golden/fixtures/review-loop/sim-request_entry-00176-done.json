@@ -1,0 +1,126 @@
+{
+ "format": 1,
+ "loop": "review-loop",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_request_entry が loop.py done を呼ぶ直前（176）",
+ "command": [
+  "done",
+  "--node",
+  "r4.hidden_scope",
+  "--output",
+  "<INPUT>/out.txt"
+ ],
+ "files": {
+  "out/r1/p0.base.json": {
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false
+  },
+  "out/r1/p0.local_checks.json": {},
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {},
+  "out/r1/p0.prior_decisions.json": {},
+  "out/r1/p0.purpose.json": {
+   "source": "①PR 説明"
+  },
+  "out/r1/p1.worktree_after.json": {},
+  "out/r1/p1.worktree_before.json": {},
+  "out/r1/p2.diagnose.json": {},
+  "out/r1/p2.fix_units.json": {},
+  "out/r1/p2.human_gate.json": {},
+  "out/r1/p3.delta_owed.json": {
+   "rows": []
+  },
+  "out/r1/p3.delta_owed2.json": {
+   "rows": []
+  },
+  "out/r1/p3.fix.json": {},
+  "out/r1/p3.fix_delta.json": {},
+  "out/r1/p3.gates_cut.json": {},
+  "out/r1/p3.lane_merge.json": {},
+  "out/r1/p4.assemble.json": {},
+  "out/r1/p4.ci.json": {},
+  "out/r1/p4.scalars.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r2.design.json": {
+   "question_stands": true
+  },
+  "out/r1/r3.coherence.json": {},
+  "record.json": {
+   "materials": {},
+   "reviews": {},
+   "questions": [],
+   "process": {
+    "request_entry": {
+     "origin": "_s2_xxxxxxx"
+    }
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s1_xxxxxxxxxxx",
+   "round": 1,
+   "rounds": [
+    {
+     "done": {
+      "p0.base": {},
+      "p0.local_checks": {},
+      "p0.premises": {},
+      "p1.worktree_before": {},
+      "p0.purpose": {},
+      "p0.parallel_pr": {},
+      "p0.prior_decisions": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.fix_units": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.fix": {},
+      "p3.fix_delta": {},
+      "p3.delta_owed": {},
+      "p3.delta_owed2": {},
+      "p3.gates_cut": {},
+      "p4.scalars": {},
+      "p4.ci": {},
+      "p4.assemble": {},
+      "r1.comment_candidates": {},
+      "r2.design": {},
+      "r3.coherence": {}
+     },
+     "instances": {
+      "r4.hidden_scope": {
+       "node": "r4.hidden_scope",
+       "status": "pending"
+      }
+     }
+    }
+   ],
+   "thickness": null,
+   "inputs": {},
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "r2.design": {
+     "file": "out/r1/r2.design.json",
+     "round": 1
+    }
+   },
+   "done_ever": {}
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {
+  "out.txt": {
+   "<text-file>": "{\"status\": \"pass\", \"reason\": \"導入・露呈した横断リスクなし\", \"capability_inventory\": {\"fired\": false}, \"policy_conflicts\": [], \"surfaced\": []}"
+  }
+ },
+ "git": {}
+}

@@ -1,0 +1,543 @@
+{
+ "format": 1,
+ "loop": "review-loop-tdd",
+ "origin": "simulate",
+ "source": "simulate_review.py の test_tdd_flow が loop.py next を呼ぶ直前（1494）",
+ "command": [
+  "next"
+ ],
+ "files": {
+  "out/r1/converge.json": {},
+  "out/r1/p0.base.json": {
+   "base_sha": "e2e303838f308a70b0c6ce1569fd53de4b628d4e",
+   "method": "3 HEAD~1",
+   "commits": 1,
+   "merge_commit": false,
+   "intent_to_add": [],
+   "touches_gates": false,
+   "touches_external_seams": false,
+   "touches_user_path": false,
+   "touches_security_surface": false,
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.local_checks.json": {
+   "material": {
+    "status": "clean"
+   }
+  },
+  "out/r1/p0.parallel_pr.json": {},
+  "out/r1/p0.premises.json": {
+   "constraints": []
+  },
+  "out/r1/p0.purpose.json": {
+   "purpose_text": "_s67_xxxxxxxxxxxx",
+   "source": "①PR 説明",
+   "known_weaknesses": [],
+   "source_files": []
+  },
+  "out/r1/p2.fix_plan.json": {},
+  "out/r1/p2.plan_review.json": {},
+  "out/r1/p3.delta_gates.json": {},
+  "out/r1/p3.delta_review.json": {},
+  "out/r1/p3.tdd_green.json": {},
+  "out/r1/p3.tdd_red.json": {},
+  "out/r1/p3.tdd_start.json": {},
+  "out/r1/p3.tdd_tests.json": {},
+  "out/r1/p4.record.json": {},
+  "out/r1/r1.comment_candidates.json": {},
+  "out/r1/r1.minimality.json": {},
+  "out/r1/r2.compare.json": {},
+  "out/r1/r2.design.json": {},
+  "out/r1/r4.human_gate.json": {},
+  "out/r2/p0.prior_decisions.json": {},
+  "out/r2/p1.consistency_bypass.json": {},
+  "out/r2/p1.external_standards.json": {},
+  "out/r2/p1.gate_efficacy.json": {},
+  "out/r2/p1.hygiene.json": {},
+  "out/r2/p1.local_review.json": {},
+  "out/r2/p1.main_path_observation.json": {},
+  "out/r2/p1.procedure_trace.json": {},
+  "out/r2/p1.provenance.json": {},
+  "out/r2/p1.test_double_fidelity.json": {},
+  "out/r2/p1.worktree_after.json": {},
+  "out/r2/p1.worktree_before.json": {},
+  "out/r2/p2.diagnose.json": {},
+  "out/r2/p2.fix_units.json": {},
+  "out/r2/p2.history.json": {
+   "declared_routed": []
+  },
+  "out/r2/p2.human_gate.json": {},
+  "out/r2/p3.delta_owed.json": {
+   "rows": []
+  },
+  "out/r2/p3.delta_owed2.json": {
+   "rows": []
+  },
+  "out/r2/p3.fix.json": {},
+  "out/r2/p3.fix_delta.json": {},
+  "out/r2/p3.gates_cut.json": {},
+  "out/r2/p3.lane_merge.json": {},
+  "out/r2/p4.assemble.json": {
+   "r2_refire": false
+  },
+  "out/r2/p4.ci.json": {},
+  "out/r2/p4.scalars.json": {},
+  "out/r2/r3.coherence.json": {},
+  "out/r2/r4.hidden_scope.json": {},
+  "record.json": {
+   "base": "e2e303838f308a70b0c6ce1569fd53de4b628d4e",
+   "materials": {
+    "local_review": {
+     "status": "clean",
+     "checked": "_s51_xxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "hygiene": {
+     "status": "clean",
+     "checked": "_s74_xxxx"
+    },
+    "external_standards": {
+     "status": "clean",
+     "checked": "_s64_xxxxxxxxxxxxx"
+    },
+    "procedure_trace": {
+     "status": "clean",
+     "checked": "_s58_xxxxxxxxxxxxxxxxx"
+    },
+    "gate_efficacy": {
+     "status": "clean",
+     "checked": "_s54_xxxxxxxxxxxxxxxxxxxxx"
+    },
+    "test_double_fidelity": {
+     "status": "not_applicable",
+     "reason": "_s70_xxxxxxxxx"
+    },
+    "main_path_observation": {
+     "status": "clean",
+     "checked": "_s61_xxxxxxxxxxxxxxx"
+    },
+    "provenance": {
+     "status": "clean",
+     "checked": "_s78_xx"
+    },
+    "prior_decisions": {
+     "status": "clean",
+     "checked": "_s50_xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "consistency": {
+     "status": "clean",
+     "checked": "_s65_xxxxxxxxxxxxx"
+    },
+    "bypass": {
+     "status": "clean",
+     "checked": "_s62_xxxxxxxxxxxxxx"
+    },
+    "base_determination": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "_s17_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_checks": {
+     "status": "clean",
+     "checked": "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "parallel_pr": {
+     "status": "carried_over",
+     "from_round": 1,
+     "reason": "_s3_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_closure": {
+     "status": "not_applicable",
+     "reason": "_s73_xxxxx"
+    }
+   },
+   "units": [],
+   "scalars": {
+    "added_lines": 11,
+    "comment_lines": 2,
+    "comment_ratio_pct": 18,
+    "doc_lines": 0
+   },
+   "reviews": {
+    "R3": {
+     "status": "pass",
+     "reason": "_s75_xxx"
+    },
+    "R4": {
+     "status": "pass",
+     "reason": "_s71_xxxxxxxxx"
+    }
+   },
+   "questions": [],
+   "process": {
+    "human_items": [],
+    "tdd": {
+     "rounds": {
+      "1": {
+       "lane_missed": null,
+       "lane_arms": null,
+       "lane_state": "running"
+      }
+     }
+    },
+    "validator_outputs": {},
+    "lanes": [
+     {
+      "round": 1,
+      "rev": "e8621d3b90562abf786ee0d04f77f2ad7ba96734",
+      "state": "running",
+      "arms": null,
+      "open": []
+     }
+    ],
+    "notices": [
+     "宣言 .review-checks.json に mutation の段が無い——変異の検算の役は対象リポジトリの側を探して撃った。宣言に足せば毎回探さずに済む（役が撃った呼び方は、ゲートの検算の素材と記録の process.lanes に在る）",
+     "変異の検算の線 r1@e8621d3b9056 の結果がまだ来ていない（running）——待つか、止めて線の台帳に書くか"
+    ]
+   }
+  },
+  "rounds/round-1.json": {
+   "base": "e2e303838f308a70b0c6ce1569fd53de4b628d4e",
+   "round": 1,
+   "materials": {
+    "base_determination": {
+     "status": "clean",
+     "checked": "_s44_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_checks": {
+     "status": "clean",
+     "checked": "_s12_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "local_review": {
+     "status": "found",
+     "count": 1,
+     "detail": "_s56_xxxxxxxxxxxxxxxxxxx"
+    },
+    "hygiene": {
+     "status": "clean",
+     "checked": "_s74_xxxx"
+    },
+    "provenance": {
+     "status": "clean",
+     "checked": "_s78_xx"
+    },
+    "parallel_pr": {
+     "status": "clean",
+     "checked": "_s59_xxxxxxxxxxxxxxxxx"
+    },
+    "prior_decisions": {
+     "status": "clean",
+     "checked": "_s50_xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "consistency": {
+     "status": "clean",
+     "checked": "_s65_xxxxxxxxxxxxx"
+    },
+    "bypass": {
+     "status": "clean",
+     "checked": "_s62_xxxxxxxxxxxxxx"
+    },
+    "external_standards": {
+     "status": "clean",
+     "checked": "_s64_xxxxxxxxxxxxx"
+    },
+    "procedure_trace": {
+     "status": "not_applicable",
+     "reason": "_s28_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "gate_efficacy": {
+     "status": "not_applicable",
+     "reason": "_s8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "test_double_fidelity": {
+     "status": "not_applicable",
+     "reason": "_s4_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "main_path_observation": {
+     "status": "not_applicable",
+     "reason": "_s9_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "fix_closure": {
+     "status": "clean",
+     "checked": "_s72_xxxxxxxxx"
+    }
+   },
+   "units": [
+    {
+     "key": "_s55_xxxxxxxxxxxxxxxxxxxx",
+     "label": "block"
+    },
+    {
+     "key": "_s66_xxxxxxxxxxxxx",
+     "label": "suggest",
+     "disposition": "do-now"
+    }
+   ],
+   "reviews": {
+    "R1": {
+     "status": "pass",
+     "reason": "_s68_xxxxxxxxxxx"
+    },
+    "R2": {
+     "status": "pass",
+     "reason": "_s80_"
+    },
+    "R3": {
+     "status": "not_applicable",
+     "reason": "_s24_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "R4": {
+     "status": "not_applicable",
+     "reason": "_s24_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+   },
+   "questions": [],
+   "scalars": {
+    "added_lines": 11,
+    "comment_lines": 2,
+    "comment_ratio_pct": 18,
+    "doc_lines": 0
+   }
+  },
+  "state.json": {
+   "loop_name": "review-loop",
+   "run_id": "_s69_xxxxxxxxxx",
+   "status": "running",
+   "round": 2,
+   "rounds": [
+    {
+     "round": 2,
+     "done": {
+      "p1.worktree_before": {},
+      "p1.local_review": {},
+      "p1.hygiene": {},
+      "p1.external_standards": {},
+      "p1.procedure_trace": {},
+      "p1.gate_efficacy": {},
+      "p1.test_double_fidelity": {},
+      "p1.main_path_observation": {},
+      "p1.provenance": {},
+      "p0.prior_decisions": {},
+      "p1.consistency_bypass": {},
+      "p1.worktree_after": {},
+      "p2.diagnose": {},
+      "p2.history": {},
+      "p2.fix_units": {},
+      "p2.human_gate": {},
+      "p3.lane_merge": {},
+      "p3.fix": {},
+      "p3.fix_delta": {},
+      "p3.delta_owed": {},
+      "p3.delta_owed2": {},
+      "p3.gates_cut": {},
+      "p4.scalars": {},
+      "p4.ci": {},
+      "p4.assemble": {},
+      "r3.coherence": {},
+      "r4.hidden_scope": {}
+     },
+     "na": {
+      "spec.write": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.review": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.revise": "cond spec_revise_due: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.approve": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "spec.freeze": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "p0.purpose_review": "cond purpose_review_due: 目的テキストの出典が ①PR 説明——監査するのは writer が要約した目的（③）だけ",
+      "p0.parallel_pr": "cond parallel_pr_due: 入口の印（process.request_entry）が無い——通常の run",
+      "p2.fix_plan": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+      "p2.plan_review": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+      "p3.tdd_start": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+      "p3.tdd_tests": "cond units_open: 今の周に直す単位（[block]・do-now）が 0 件",
+      "p3.tdd_red": "cond tdd_named: この周のテストだけを書く段が名指ししたテストは 0 件",
+      "p2.rejudge": "cond rejudge_open: 回す側は今の周に異議を出していない",
+      "p2.rejudge_third": "cond rejudge_exhausted: 回す側は今の周に異議を出していない",
+      "p3.tdd_green": "cond tdd_red_passed: この周のテストだけを書く段が名指ししたテストは 0 件",
+      "p3.delta_review": "cond delta_review_due: この周の修正の差分は 0 ファイル、修正が塞いだと言う事前審査の穴は 0 件",
+      "p3.delta_fix": "cond delta_faces_open: 修正差分のレビューと検算が挙げた、手直しが答える義務は 0 件",
+      "p3.fix_delta2": "cond delta_fixed: 手直しが今の周に直した（fixed）穴は 0 件",
+      "p3.delta_review2": "cond delta_review2_due: 手直しの差分は 0 ファイル、手直しが直したと言う穴は 0 件",
+      "p3.delta_fix2": "cond delta2_faces_open: 手直しの差分のレビューが挙げた、2 回目の手直しが答える義務は 0 件",
+      "p3.delta_gates": "cond lane_due: この周のコードは周の頭から 0 ファイル変わった",
+      "spec.check": "cond spec_flow: 仕様の道を選んでいない run（init --input flow=spec が無い）——今の流れのまま",
+      "r1.comment_candidates": "cond r1_refire: R1 の再発火条件に当たらない（前の周から台帳も差分も変わっていない）",
+      "r1.minimality": "cond r1_refire: R1 の再発火条件に当たらない（前の周から台帳も差分も変わっていない）",
+      "r2.design": "cond r2_design_due: R2 の再発火条件に当たらない",
+      "r2.compare": "cond r2_compare_due: R2 の再発火条件に当たらない",
+      "stop.premise_check": "cond r2_premise_invalid: R2 の判定は None"
+     },
+     "skipped": {},
+     "stopped": {},
+     "empty": [],
+     "instances": {}
+    }
+   ],
+   "thickness": null,
+   "max_rounds": 5,
+   "inputs": {
+    "cwd": "<REPO>",
+    "review_md": "<ROOT>/REVIEW.md"
+   },
+   "outputs": {
+    "p0.base": {
+     "file": "out/r1/p0.base.json",
+     "round": 1
+    },
+    "p0.purpose": {
+     "file": "out/r1/p0.purpose.json",
+     "round": 1
+    },
+    "p4.assemble": {
+     "file": "out/r2/p4.assemble.json",
+     "round": 2
+    },
+    "p2.history": {
+     "file": "out/r2/p2.history.json",
+     "round": 2
+    }
+   },
+   "done_ever": {
+    "p0.base": 1,
+    "p0.local_checks": 1,
+    "p0.premises": 1,
+    "p0.purpose": 1
+   },
+   "loop": {
+    "mutation_decl": {
+     "declared": false,
+     "text": "対象リポジトリの宣言（.review-checks.json）に mutation の段が無い——在りかと呼び方は対象リポジトリの側（README・CONTRIBUTING・CI 定義・対象リポジトリの REVIEW.md など）が名指しする物を探せ（このプロンプトは道具の名前と引数の綴りを持たない）"
+    },
+    "changed_files": [
+     "src/a.py",
+     "src/b.py",
+     "tests/__pycache__/test_limit.cpython-314.pyc",
+     "tests/test_limit.py"
+    ],
+    "request_wheres": [],
+    "diff_lines": 13,
+    "lanes": {
+     "e8621d3b90562abf786ee0d04f77f2ad7ba96734": {
+      "round": 1,
+      "result": "<RUN>/lanes/r1-e8621d3b9056.json",
+      "state": "running"
+     }
+    },
+    "lanes_bad_delivered": [],
+    "prev_fix_files": [
+     "src/a.py",
+     "tests/__pycache__/test_limit.cpython-314.pyc",
+     "tests/test_limit.py"
+    ],
+    "open_units": 0,
+    "r1_refire": false,
+    "purpose_unusable": null,
+    "purpose_known": true
+   }
+  }
+ },
+ "repo": {},
+ "config": {},
+ "input": {},
+ "git": {
+  "_s43_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "_s81_"
+   }
+  ],
+  "_s45_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>\n"
+   }
+  ],
+  "[[\"rev-parse\", \"--path-format=absolute\", \"--git-path\", \"index\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "<REPO>/.git/index\n"
+   }
+  ],
+  "[[\"update-index\", \"-q\", \"--really-refresh\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   },
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"add\", \"-A\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   },
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"write-tree\"], {\"GIT_INDEX_FILE\": \"<TMPFILE>\"}]": [
+   {
+    "rc": 0,
+    "stdout": "7d97d0dfbdf5aae4c09af2c19104f208958824be\n"
+   },
+   {
+    "rc": 0,
+    "stdout": "7d97d0dfbdf5aae4c09af2c19104f208958824be\n"
+   }
+  ],
+  "_s6_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"stash\", \"list\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": ""
+   }
+  ],
+  "[[\"status\", \"--porcelain\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": " M src/a.py\n?? tests/\n"
+   }
+  ],
+  "[[\"rev-parse\", \"HEAD\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "eb50cad5e23435607be592b9bd9e9464feb1962e\n"
+   }
+  ],
+  "[[\"commit-tree\", \"7d97d0dfbdf5aae4c09af2c19104f208958824be\", \"-p\", \"eb50cad5e23435607be592b9bd9e9464feb1962e\", \"-m\", \"graphloops review r3\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "7417fccf503b07ede7c0b9bb51f1cf31e8ad554b\n"
+   }
+  ],
+  "[[\"diff\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"7417fccf503b07ede7c0b9bb51f1cf31e8ad554b\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "_s0_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  ],
+  "[[\"diff\", \"--numstat\", \"-z\", \"e2e303838f308a70b0c6ce1569fd53de4b628d4e\", \"7417fccf503b07ede7c0b9bb51f1cf31e8ad554b\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "4\t2\tsrc/a.py\u00002\t0\tsrc/b.py\u0000-\t-\ttests/__pycache__/test_limit.cpython-314.pyc\u00005\t0\ttests/test_limit.py\u0000"
+   }
+  ],
+  "[[\"rev-parse\", \"7417fccf503b07ede7c0b9bb51f1cf31e8ad554b^{tree}\"], {}]": [
+   {
+    "rc": 0,
+    "stdout": "7d97d0dfbdf5aae4c09af2c19104f208958824be\n"
+   }
+  ]
+ }
+}
