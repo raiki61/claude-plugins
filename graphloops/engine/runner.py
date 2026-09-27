@@ -64,13 +64,21 @@ def _read_json(p, default):
         return default
 
 
+def _handoff_why(i):
+    """会話に返す節の理由（盤面の汎用の印だけから決める）"""
+    if (i.get("launch") or {}).get("background"):
+        return "背景の任せ先——受領の done と背景の launch は会話がする（回し手は立てない）"
+    return i.get("runner_unlaunched") or ("engine が起こす語（launch）を持たない節——skill を呼ぶ節・Agent で起こす任せ先・"
+                                          "init --engine-runners の無い run の回す側の節は会話がこなす")
+
+
 def classify(st):
     """盤面から止まった種類と、その材料を組む ——{kind, handoff, needs_human, launchable, running}。
     kind が busy なら止まる所ではない（起こせる節か走っている節が在る）。材料は汎用の印だけ（節の名前・段を持たない）"""
     rd = st["rounds"][-1]
     pending = [i for i in rd["instances"].values() if i.get("status") == "pending"]
     launch = lambda i: i.get("launch") or {}   # noqa: E731
-    handoff = [i for i in pending if not i.get("launch") or launch(i).get("background")]
+    handoff = [{**i, "handoff_why": _handoff_why(i)} for i in pending if not i.get("launch") or launch(i).get("background")]
     launchable = [i for i in pending if i.get("launch") and not launch(i).get("background") and not i.get("launched_at")]
     running = [i for i in pending if i.get("launch") and i.get("launch_state") == "running"]
     # 起こして終わったのに受け付けていない試行（柵の拒否・子が落ちた・拒否が上限まで続いた・盤面の競りで書けなかった）
@@ -179,13 +187,18 @@ class _Runner:
         """落ちた launch の試行を拾い直す: 置き場に返答が在れば受け付け、無ければ起こし直す（次の next の後に起こす）。
         同じ試行が 2 度落ちたら拾わず人に渡す。返すのは拾えなかった理由（拾えたら None）"""
         iid = inst["id"]
-        if (inst.get("launch") or {}).get("edits"):
-            # 本物の作業ツリーを書き換える子は、途中まで書いて落ちうる。新しい会話で起こし直すと途中の編集を知らずに重ねるので、
-            # 拾い直さずに人に渡す（人が作業ツリーを見て、relaunch か同じ会話の続きかを決める）
-            return f"'{iid}' は作業ツリーを書き換える節で、launch が受け付けの前に落ちた——自動では起こし直さない（作業ツリーを確かめてから relaunch）"
         if iid in self.recovered:
             return f"'{iid}' は回し手が起こし直した後も launch が締めの前に落ちた"
         self.recovered.add(iid)
+        if (inst.get("launch") or {}).get("edits"):
+            # 本物の作業ツリーを書き換える子は、途中まで書いて落ちうる。新しい会話で起こし直すと途中の編集を知らずに重ねるので、
+            # 前の試行の子を止め切った後で作業ツリーと HEAD が起こした時点と同じと測れたときだけ起こし直し（relaunch --if-untouched）、
+            # それ以外は人に渡す（人が作業ツリーを見て、relaunch か同じ会話の続きかを決める）
+            rc, _o, err = _cli(self.d, "relaunch", "--node", iid, "--if-untouched", "--reason",
+                               "回し手が起こした launch が受け付けの前に落ちた。作業ツリーと HEAD は起こした時点のまま（loop.py run が拾い直す）")
+            _trace(self.d, "recover", instance=iid, how="relaunch_if_untouched", exit=rc)
+            return None if rc == 0 else (f"'{iid}' は作業ツリーを書き換える節で、launch が受け付けの前に落ちた——自動では起こし直さない"
+                                         f"（{err.strip()[-400:]}。作業ツリーを確かめてから relaunch）")
         out = pathlib.Path(inst.get("out_path") or "")
         if inst.get("mode") != "engine_run" and out.is_file() and out.stat().st_size:
             rc, _o, _e = _cli(self.d, "done", "--node", iid)

@@ -349,7 +349,7 @@
     },
     "tree_before": {
      "$ref": "#/$defs/worktree_baseline",
-     "description": "P1 の前後の突合の基準（git status・stash の一覧・固めた版の木の id）"
+     "description": "P1 の前後の突合の基準（git status・固めた版の木の id）"
     },
     "changed_since_prev_round": {
      "type": "array",
@@ -430,7 +430,8 @@
      }
     },
     "stash": {
-     "type": "string"
+     "type": "string",
+     "description": "旧い出力だけが持つ（今の rules は取らない・比べない）"
     },
     "tree": {
      "type": "string"
@@ -442,7 +443,6 @@
    },
    "required": [
     "porcelain",
-    "stash",
     "tree"
    ]
   },

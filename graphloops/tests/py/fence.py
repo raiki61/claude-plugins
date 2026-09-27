@@ -22,8 +22,8 @@ matrix の skip_allow で、tests/run.sh の見送りと同じ値を読む。既
 3. **検査の件数の柵と到達の柵**（盤面を回す台本を載せる土台の分。expect_sim で期待値を渡した置き場だけ）。台本の
    check が走った件数（conftest.py が各テストの前後の差で数えて add_sim_checks に渡す）を期待値と != で突き合わせ、
    到達した値（reach）の集合の大きさを期待値と != で突き合わせる——bash の台本の EXPECTED_CHECKS と VOCAB_REACHED・
-   DELIVERY_SEEN と同じ意図。当てるのは件数の柵と同じ全件の回で、しかも -k・-m・--deselect で 1 件も選び外さなかった回
-   だけ（選び外すと走る検査が減るのは正しい）。外した回は理由を 1 行出す。
+   DELIVERY_SEEN と同じ意図。当てるのは件数の柵と同じ全件の回で、しかも -k・-m・--deselect で 1 件も選び外さず、集めるだけ
+   （--collect-only）でもない回だけ（選び外すと走る検査が減るのは正しい。集めるだけの回は 1 件も走らない）。外した回は理由を 1 行出す。
 
 **pytest-xdist（-n）の下でも同じ数え方にする。** controller は自分で集めず、worker が集めて走らせる（xdist の How it works）。
 worker では今の数え方（collectstart・itemcollected・add_sim_checks・reach）をそのまま動かし、結果を config.workeroutput に
@@ -59,6 +59,12 @@ def add_sim_checks(config, n):
     config.pluginmanager.get_plugin(NAME).sim_checks += n
 
 
+def collected_all(config):
+    """この session（-n の回は worker ごと）が置き場のテストのファイルを全部集めたか——件数の柵を当てる回と同じ判定"""
+    f = config.pluginmanager.get_plugin(NAME)
+    return f.modules == f.files(config)
+
+
 def reach(config, value):
     config.pluginmanager.get_plugin(NAME).reached.add(str(value))
 
@@ -82,6 +88,10 @@ class Fence:
 
     def _inside(self, path):
         return pathlib.Path(path).resolve().is_relative_to(self.root)
+
+    def files(self, config):
+        """置き場のテストのファイル（python_files の形で glob）"""
+        return {p.resolve() for pat in config.getini("python_files") for p in self.root.rglob(pat)}
 
     def pytest_collectstart(self, collector):
         if isinstance(collector, pytest.Module) and self._inside(collector.path):
@@ -125,7 +135,7 @@ class Fence:
                                  "その OS の SKIP_ALLOW に能力を足す）: " + " / ".join(self.skipped[:5]))
         if self.allowed:
             self.notes.append(f"見送り {len(self.allowed)} 件（SKIP_ALLOW で許した）: " + " / ".join(self.allowed))
-        files = {p.resolve() for pat in session.config.getini("python_files") for p in self.root.rglob(pat)}
+        files = self.files(session.config)
         full = modules == files
         if not full:
             self.notes.append(f"件数の柵を外した（置き場のテストのファイル {len(files)} 本のうち {len(modules & files)} 本だけを集めた）")
@@ -133,7 +143,9 @@ class Fence:
             self.problems.append(f"集めたテストが {collected} 件（{self.expected} 件を期待）——テストの消滅か、件数の更新漏れ")
         if self.expected_sim is not None and full:
             want_checks, want_reached = self.expected_sim
-            if deselected:
+            if session.config.option.collectonly:
+                self.notes.append("検査の件数の柵と到達の柵を外した（集めるだけの回——テストを走らせていない）")
+            elif deselected:
                 self.notes.append(f"検査の件数の柵と到達の柵を外した（{deselected} 件のテストを選び外した）")
             else:
                 if sim_checks != want_checks:

@@ -144,6 +144,7 @@
   "p3.tdd_tests": {
    "stage": "P3",
    "run_by": "writer",
+   "declared_files": "test_files[]",
    "deps": [
     "p3.tdd_start",
     "p2.fix_units"
@@ -163,7 +164,10 @@
     "inputs.cwd",
     "inputs.tdd_suite",
     "cur.p3.tdd_start",
-    "hist.tdd_retry"
+    "hist.tdd_retry",
+    "record.process.policy.path",
+    "record.process.checks",
+    "inputs.request"
    ],
    "post_check": "tdd_tests_output",
    "pointers": [
@@ -176,7 +180,13 @@
    ],
    "schema": {
     "$ref": "../blocks/review-loop/fix-tdd/exit.schema.json#/properties/p3.tdd_tests"
-   }
+   },
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md",
+    "../prompts/review-loop/test-scope.md",
+    "../prompts/declared-files.md"
+   ]
   },
   "p3.tdd_red": {
    "stage": "P3",
@@ -220,12 +230,16 @@
     "cur.p3.tdd_red",
     "hist.tdd_retry",
     "record.process.policy.path",
-    "record.process.human_items"
+    "record.process.human_items",
+    "record.process.checks",
+    "inputs.request"
    ],
    "prompt_append": [
     "../prompts/review-loop/tdd/p3.fix.md",
     "../prompts/policy-path.md",
-    "../prompts/policy.md"
+    "../prompts/policy.md",
+    "../prompts/review-loop/test-scope.md",
+    "../prompts/declared-files.md"
    ]
   },
   "p3.tdd_green": {

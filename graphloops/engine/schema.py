@@ -383,7 +383,7 @@ KNOWN_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties", "
 # 誰も読まなくなった鍵で、書いても黙って効かないので graphcheck が落とす（KNOWN_KEYWORDS と同じ閉じた集合。JSON Schema の
 # additionalProperties: false と同じ形）。ENGINE_NODE_KEYS の各鍵を engine か graphcheck が読んでいることは pytest が見る
 ENGINE_NODE_KEYS = frozenset({
-    "active_in", "agent_type", "applies_cond", "builtin", "cond", "delegate", "deps", "engine_run", "fan_out", "forbidden_inputs",
+    "active_in", "agent_type", "applies_cond", "builtin", "cond", "declared_files", "delegate", "deps", "engine_run", "fan_out", "forbidden_inputs",
     "fresh_context", "instance_deps", "once", "optional", "outputs", "pointers", "post_check", "pre", "prompt_append", "prompt_file",
     "read_file", "reads", "run_by", "runner_judgment_by_design", "same_context_as", "save_text_as", "schema", "skills", "text", "thickness_from",
     "thickness_reason_from", "verdict_is_copy", "writes"})

@@ -135,15 +135,24 @@ expect_output() {
     case $got in *$'\r') got=${got:0:${#got} - 1};; esac
     ran=$((ran + 1))
     note_skips "$got"
+    # **赤の行は検査の名前と食い違いだけにし、捕った出力は次の行から貼る。** 同じ行に続けると、出力の
+    # 1 行目（多くは先に走った台本の見出し）が赤の中身に読める（実測: 0.21.4 の取りまとめ）。字下げしない
+    # のは、行頭の「  FAIL 」で名前を拾う tests/mutate.py の読み方を、今までの 2 行目以降と同じに保つため
     if [ "$got_exit" != "$want_exit" ]; then
-        echo "  FAIL $desc — exit $want_exit を期待したが $got_exit: $got"
+        echo "  FAIL $desc — exit $want_exit を期待したが $got_exit$(got_where "$got")"
+        [ -n "$got" ] && printf '%s\n' "$got"
         fail=1
     elif [ "$want" = "$ANY_OUTPUT" ] || [[ "$got" == *"$want"* ]]; then
         echo "  ok   $desc"
     else
-        echo "  FAIL $desc — 出力に '$want' が無い: $got"
+        echo "  FAIL $desc — 出力に '$want' が無い$(got_where "$got")"
+        [ -n "$got" ] && printf '%s\n' "$got"
         fail=1
     fi
+}
+
+got_where() {
+    if [ -n "$1" ]; then echo "（出力は下の行）"; else echo "（出力は空）"; fi
 }
 
 # 終了コードだけを見る検査。`expect_output` に番兵を渡して委譲する（実行・集計・出力整形を二重に持たない。番兵の理由は上の定義位置）。
@@ -167,6 +176,23 @@ case "$guard_probe" in
         echo "  FAIL 期待メッセージが空の呼び出しが赤にならない: $guard_probe"
         fail=1 ;;
 esac
+
+# **赤の行の形の腕。** 赤の 1 行目に捕った出力の本文が続かず、本文は次の行から行頭で出る。副シェルで本体を汚さない。
+fail_probe=$( fail=0; ran=0
+              expect_output 1 "x" "終了コードの腕" printf '別の台本の見出し\n'
+              expect_output 0 "無い語" "出力の腕" printf '別の台本の見出し\n'
+              expect_output 1 "x" "空の腕" true )
+ran=$((ran + 1))
+want_probe=$'  FAIL 終了コードの腕 — exit 1 を期待したが 0（出力は下の行）\n別の台本の見出し\n'
+want_probe+=$'  FAIL 出力の腕 — 出力に \'無い語\' が無い（出力は下の行）\n別の台本の見出し\n'
+want_probe+='  FAIL 空の腕 — exit 1 を期待したが 0（出力は空）'
+if [ "$fail_probe" = "$want_probe" ]; then
+    echo "  ok   赤の行は検査の名前と食い違いだけで、捕った出力は次の行から出る"
+else
+    echo "  FAIL 赤の行の形が違う（出力は下の行）"
+    printf '%s\n' "$fail_probe"
+    fail=1
+fi
 
 # **見送りの拾い手自身の腕。** 行頭が「  ok   」で印を含む行だけを拾い（理由の無い印も拾う——拾い損ねは合格に化ける）、
 # 行の途中の印は拾わない。副シェルで本体を汚さない。
@@ -2148,7 +2174,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=596
+EXPECTED_CHECKS=597
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

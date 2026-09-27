@@ -39,6 +39,7 @@ import threading
 import time
 
 from . import checks_cache
+from .util import lone_surrogate_at
 
 RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why}\n\n"
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
@@ -222,7 +223,8 @@ def runner_permission(edits, cwd=None, board_dir=None, protected=None, top=None)
       前提を測る節（p0.premises）が測るコマンドを走らせられるように、investigator と同じ形にそろえる（人の答え 2026-09-27）。
     - 書き換える節（edits が真）: sandbox が使えて edit_deny が決まるときだけ。許すのは Read・Glob・Grep・パスで縛った Edit と
       Write・READ_COMMANDS の前置で、sandbox の中のコマンドは聞かずに通す（SANDBOX_BASE。テスト一式を走らせて閉鎖を確かめる）。
-      書けるのは作業ツリーの根の中と sandbox の既定の一時ディレクトリだけで、.git・ほかの作業ツリー・盤面・利用者の設定は OS が
+      書けるのは作業ツリーの根の中と sandbox の一時ディレクトリ（子ごとの専用の置き場の扱いは
+      commands.py の CHILD_TMP_PARENT の段が正本）だけで、.git・ほかの作業ツリー・盤面・利用者の設定は OS が
       止める——git commit・stash・checkout は index か共通の .git に書くので止まる。通信の許可は空（gh の token を読めても外へ書けない）。
       sandbox が使えない場（Windows・bwrap の無い Linux）は None——Bash 抜きの書く子に黙って落とさない。"""
     if not edits:
@@ -958,11 +960,16 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
             elif bad or rc != 0:
                 got["why"] = bad or f"子が exit {rc} で終わった"
             else:
-                pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-                pathlib.Path(out_path).write_text(text, encoding="utf-8")
-                run["bytes"] = len(text.encode("utf-8"))
+                # 本文に孤立サロゲート（包みの JSON の \ud800 の類の逃がし）が在ると UTF-8 で書けない——書かずに、受け付けの拒否と同じ
+                # 道で役に返す（外から来た字の検めの正本は util.lone_surrogate_at）
+                broken = lone_surrogate_at(text)
+                if broken is None:
+                    pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+                    pathlib.Path(out_path).write_text(text, encoding="utf-8")
+                    run["bytes"] = len(text.encode("utf-8"))
                 try:
-                    reason = accept(text) if accept else None
+                    reason = (f"返答の本文の{broken}に孤立サロゲート（UTF-8 で書けない字）がある——その字を消すか正しい字に直して返し直せ"
+                              if broken else accept(text) if accept else None)
                 except (Exception, SystemExit) as e:  # 役のせいでない失敗——続きを頼んでも直らない
                     reason, got["why"] = None, f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
                 else:

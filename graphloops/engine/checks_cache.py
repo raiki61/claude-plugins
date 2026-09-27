@@ -51,6 +51,7 @@ import subprocess
 import tempfile
 
 from . import declared
+from .util import worktree_tree
 
 RERUN_ENV = "GRAPHLOOPS_RERUN_CHECKS"
 # 指紋から外す環境変数（上の注記の「入れない物」）。2026-09-27 に同じ機械の loop.py launch 3 本と回す側のシェルの環境を
@@ -85,39 +86,6 @@ def cwd_git(cwd):
     return run
 
 
-def worktree_tree(git, why=None):
-    """作業ツリーの今の姿の木の id ——（木, None）か（None, (何が, 手掛かり)）。git は util.git と同じ呼び口。
-    rules の _worktree_tree（周に採点する版の固定と前後の突合）と、使い回しの指紋が同じここを引く——『同じ中身』の意味を割らない。
-
-    **本物の index を一時 index に写してから** `add -A` する。空の一時 index から始めていたとき、追跡中だが .gitignore に
-    当たるファイルは `add -A` に拾われず、版から落ちて『削除』に見えた（実測 2026-09-25: 別のリポジトリの run で、判定役が
-    これを根拠に誤った [block] を出した）。写しは stat の情報も持つので、`add -A` は変わったファイルだけをハッシュする。
-    写しの上で `--really-refresh` を打つのは assume-unchanged の印を外すため——印を持ったままだと、git はそのファイルを
-    見ずに古い中身で版を作る。本物の index は読むだけで書かない"""
-    why = [] if why is None else why
-    tmp = tempfile.mkdtemp(prefix="graphloops-index-")
-    idx = pathlib.Path(tmp) / "index"
-    env = {"GIT_INDEX_FILE": str(idx)}
-    try:
-        real = git("rev-parse", "--path-format=absolute", "--git-path", "index", why=why)
-        if real is None or not real.strip():
-            return None, ("本物の index の場所を git rev-parse --git-path で引けない", "git 2.31 以上か、リポジトリの中で呼んでいるかを確かめよ")
-        try:
-            shutil.copy2(real.strip(), idx)   # 時刻ごと写す——index の時刻が新しくなると、同じ秒に書き換えたファイル（racy git）を綺麗と見誤る
-        except FileNotFoundError:
-            pass   # index がまだ無い（init の直後で 1 度も add していない）＝追跡中のファイルが無いので、空から始めて落ちる物が無い
-        except OSError as e:
-            return None, (f"本物の index を写せない: {e}", None)
-        if git("update-index", "-q", "--really-refresh", env=env, why=why) is None or git("add", "-A", env=env, why=why) is None:
-            return None, ("一時 index への git update-index / add -A が失敗した", None)
-        tree = git("write-tree", env=env, why=why)
-        if tree is None or not tree.strip():
-            return None, ("git write-tree が木を返さない", None)
-        return tree.strip(), None
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
 def child_env():
     """宣言の一式の子に渡す環境——使い回しを切る旗だけを外す（一式の中のテストが engine の旗を見て振る舞いを変えない）"""
     return {k: v for k, v in os.environ.items() if k != RERUN_ENV}
@@ -149,9 +117,9 @@ def plan(steps, cwd):
     if not common or not common.strip():
         return None, "共有の .git（git rev-parse --git-common-dir）が引けない"
     why = []
-    tree, bad = worktree_tree(git, why)
+    tree = worktree_tree(why, git_fn=git)
     if tree is None:
-        return None, f"作業ツリーの木の id が取れない（{bad[0]}。git の言い分: {' / '.join(why) or '無し'}）"
+        return None, f"作業ツリーの木の id が取れない（{' / '.join(why) or '理由は無し'}）"
     env = child_env()
     material = {"format": FORMAT, "tree": tree, "steps_sha": sha,
                 "os": platform.system(), "machine": platform.machine(), "kernel": platform.release(),
@@ -213,7 +181,7 @@ def store(p, steps, runs, log_dir):
     """全段が緑で、回す前後の木の id が同じなら置き場に書く ——（書いた置き場か None, 書かない理由）"""
     if len(runs) != len(steps) or any(r.get("exit") != 0 for r in runs):
         return None, "赤か起こせない段を含む一式は書かない（落ちた一式は毎回回し直す）"
-    tree, _bad = worktree_tree(cwd_git(p["cwd"]))
+    tree = worktree_tree(git_fn=cwd_git(p["cwd"]))
     if tree != p["material"]["tree"]:
         return None, f"回している間に作業ツリーが変わった（木 {p['material']['tree'][:12]} → {str(tree)[:12]}）ので書かない"
     final = pathlib.Path(p["entry"])

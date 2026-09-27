@@ -1707,7 +1707,7 @@ def test_rejections():
     nx = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {"ready": ["?"], "notes": [r.stderr]}
     check(not nx["ready"] and any("取れない" in n and "突き合わせられない" in n for n in nx["notes"]), "git が無い場では P1 の前後の突合が『測れない』で止まる（一致に倒さない）")
     # writer 自身の変更（engine をその場で直した等）は、done と同じく理由を添えて通せる——痕跡は git_mismatches に
-    # accepted。stash で退避しても stash の一覧が突合に入るので通らない。通す道が無いと engine を直しながら回す
+    # accepted。stash で退避しても作業ツリーの姿が変わるので通らない。通す道が無いと engine を直しながら回す
     # run はここで永久に止まる（実測 2026-09-12: 同じ note を返す next が 10 回続いた）
     r = run.cmd("next", "--accept-tree-change", "writer の変更（検査用）")
     nx = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip().startswith("{") else {"ready": [], "notes": [r.stderr]}
@@ -2254,6 +2254,10 @@ def test_graphcheck_review_shapes():
     broken(lambda b: b["nodes"]["p1.local_review"].__setitem__("delegate", {"model": "sonnet", "why": "検査用"}), "skills を持つ節に delegate は書けない",
            "graphcheck: skill を呼ぶ節を任せ先に渡せない（入れ子の委任は完了の知らせが届かない）")
     broken(lambda b: b["launch"].pop("delegate"), "launch.delegate.argv が無い", "graphcheck: 任せ先を縛って起こす語が無い graph は落ちる")
+    broken(lambda b: b["nodes"]["p3.delta_fix"].pop("declared_files"), "launch.runner.edits の節に declared_files が無い",
+           "graphcheck: 作業ツリーを書き換える節の申告の欄が無い")
+    broken(lambda b: b["nodes"]["p3.fix"].__setitem__("declared_files", "changes.0.files"), "は回す側の節の schema の文字列の葉を指せ",
+           "graphcheck: 受け付けの読み手が空を読む申告の欄の綴り")
     broken(lambda b: b["nodes"]["p3.delta_gates"]["delegate"].pop("result_to"), "delegate.result_to",
            "graphcheck: 背景の任せ先が返答の置き場を名指ししない")
     broken(lambda b: b["launch"]["delegate"]["argv"].append("{sandbox_json}"), "を engine は埋められない",
@@ -3564,8 +3568,11 @@ def test_claim_mismatch():
     r2 = run.round_file(2)
     check(r2["materials"]["provenance"]["status"] == "carried_over",
           f"申告だけで実際に触っていなければ provenance は持ち越し（{r2['materials']['provenance']['status']}）——以前は申告の 1 語で全素材が再発火した")
-    mm = run.record()["process"].get("fix_claim_mismatch")
-    check(mm == [{"round": 1, "claimed_not_in_diff": ["src/zzz.py"]}], f"申告と差分の食い違いは記録の process に周付きで残る（{mm}）")
+    mm = run.record()["process"].get("fix_claim_mismatch") or [{}]
+    check(len(mm) == 1 and mm[0].get("round") == 1 and mm[0].get("claimed_not_in_diff") == ["src/zzz.py"],
+          f"申告と差分の食い違いは記録の process に周付きで残る（{mm}）")
+    check(any(r.get("instance") == "p3.fix" and "src/zzz.py" in (r.get("unwritten") or []) for r in mm[0].get("by_instance") or []),
+          f"受け付けが残した申告の食い違い（申告したのに変わっていない）が by_instance に載る（{mm}）")
     rm(run.tmp)
 
 
@@ -4567,13 +4574,15 @@ def test_delta_conditions():
     except Reject as e:
         got = str(e)
     check("'k' に応答が無い" in got, f"手直しの義務: 今の周の義務の節（p3.delta_owed）の出力の rows を読む（{got[:60]}）")
+    face = {"key": "穴1", "kind": "k", "where": "w", "cite": "c", "why": "y"}
     try:
-        fix(at({}, {"p3.delta_owed": {"ok": True, "owed": 1}}), "p3.delta_fix", none, None)
+        fix(at({}, {"p3.delta_owed": {"ok": True, "owed": 1}, "p3.delta_review": {"faces": [face]}}), "p3.delta_fix", none, None)
         got = "通った"
     except Reject as e:
         got = str(e)
-    check("rows" in got and "out.p3.delta_owed.rows" in got,
-          f"手直しの義務: 出力が在るのに rows が無い（旧い版の出力）なら 0 件に倒さず、手当ての口を名乗って止まる（{got[:80]}）")
+    trace = [u["trigger"] for u in b.state.get("unevaluable", [])]
+    check("'穴1' に応答が無い" in got and "p3.delta_owed.rows" in trace,
+          f"手直しの義務: 出力が在るのに rows が無い（旧い版の出力）なら 0 件に倒さず、差分レビューの出力から数え直して痕跡を残す（{got[:60]}・{trace}）")
     # 周をまたぐ変更の検出: 前の周の頭の版が無ければ測れない（None）、在れば今の木との差（未追跡も入る）
     check(rules._files_changed_since(at({}), 1) is None, "周をまたぐ変更: 前の周の頭の版が無い周は『測れない』（None）")
     (tmp / "b.py").write_text("B = 1\n", encoding="utf-8")
@@ -5917,8 +5926,10 @@ def test_cond_truth_tables():
                              (c(2, out={"p3.delta_owed": {"rows": [{"key": "k"}]}}), False),
                              (c(2, cur={"p3.delta_owed": {"rows": []}}), False),
                              (c(2, loop={"delta_owed": {"round": 2, "rows": [{"key": "k"}]}}), False),
-                             # 義務の行を出力に載せる前の版の出力（rows が無い）は 0 件に倒さず止まる
-                             (c(2, cur={"p3.delta_owed": {"ok": True, "owed": 1}}), "die")],
+                             # 義務の行を出力に載せる前の版の出力（rows が無い）は 0 件に倒さず、差分レビューの出力から数え直す
+                             (c(2, cur={"p3.delta_owed": {"ok": True, "owed": 1},
+                                        "p3.delta_review": {"faces": [{"key": "k", "kind": "k", "where": "w", "cite": "c", "why": "y"}]}}), True),
+                             (c(2, cur={"p3.delta_owed": {"ok": True, "owed": 1}}), False)],
         "delta2_faces_open": [(c(2, cur={"p3.delta_owed2": {"rows": [{"key": "k"}]}}), True), (c(2), False)],
         "delta_fixed": [(c(2, cur={"p3.delta_fix": {"handled": [{"key": "k", "handled": "fixed"}]}}), True),
                         (c(2, cur={"p3.delta_fix": {"handled": [{"key": "k", "handled": "declared"}]}}), False), (c(2), False)],

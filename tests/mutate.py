@@ -146,6 +146,9 @@ PYTEST_WORKERS = "4"   # ファイル単位・一式で撃つ回の -n。node id
 # 印の写しの pytest の回だけ、テストの node id（pytest.ini の置き場から見た形）を運ぶ環境変数。書くのは graphloops/tests/py/conftest.py、
 # 読むのは mark_write の印の 4 つ目の欄（揃いは graphloops/tests/py/test_mutate_mark.py が縛る）。回の外の印（収集の時の import）は ?
 PYTEST_MARK = "GL_MARK_PYTEST"
+# 写しの中で起こす子に立てる環境変数（child_env が渡す）。graphloops の台帳（graphloops/tests/py/ledger.py の MUTATE_COPY）が読み、
+# 前の版の無い素の写しでは見張りの突合を見送る——赤にすると control の pytest が赤になり、pytest の殺しが証拠から落ちる
+COPY_MARK = "GL_MUTATE_COPY"
 # node id を並べた引数がこの字数を超える腕は、テストのファイル単位に落とす（Windows の cmd の 8191 字・CreateProcess の 32767 字の手前）
 ARGV_MAX = 8000
 PYTEST_RED = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - .*)?$")   # -ra の短い要約の行（pytest.ini の addopts）
@@ -687,7 +690,7 @@ NO_BG_GIT = tuple(x for k, v in NO_BG_GIT_CFG for x in ("-c", f"{k}={v}"))
 
 def child_env(cwd, env):
     """写しの中で起こす子の環境: TMPDIR・TMP・TEMP を写しの作業場の tmp に、PYTHONPYCACHEPREFIX をその下の pycache に向け、
-    git の自動の後始末を切る（NO_BG_GIT_CFG の設定を環境で）。
+    git の自動の後始末を切り（NO_BG_GIT_CFG の設定を環境で）、写しの中の回の印（COPY_MARK）を立てる。
     写しの中の台本・入れ子の実行器・後片付けを壊した変異体の一時物も、作業場の tmp ごと腕ごとに消える。.pyc を写しの木の外に出すのは、
     Python の既定の無効化が元のファイルの mtime（秒）とサイズしか見ず、使い回す写しで同じ秒に同じサイズの腕が続くと前の腕の
     バイトコードで撃つから。写しでない cwd（台本が直に呼ぶ回）の環境は変えない"""
@@ -703,7 +706,7 @@ def child_env(cwd, env):
     cfg = {"GIT_CONFIG_COUNT": str(n + len(NO_BG_GIT_CFG))}
     for i, (k, v) in enumerate(NO_BG_GIT_CFG, n):
         cfg.update({f"GIT_CONFIG_KEY_{i}": k, f"GIT_CONFIG_VALUE_{i}": v})
-    return {**base_env, "TMPDIR": str(tmp), "TMP": str(tmp), "TEMP": str(tmp), "PYTHONPYCACHEPREFIX": str(tmp / "pycache"), **cfg}
+    return {**base_env, "TMPDIR": str(tmp), "TMP": str(tmp), "TEMP": str(tmp), "PYTHONPYCACHEPREFIX": str(tmp / "pycache"), COPY_MARK: "1", **cfg}
 
 
 def run_group(argv, cwd, env=None, failfast=False):

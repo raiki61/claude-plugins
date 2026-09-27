@@ -81,12 +81,8 @@ class CondView:
         return self.__validator
 
     def unevaluable(self, trigger, why):
-        """条件の部品 trigger が測れなかった痕跡（同じ周に同じ trigger は 1 行だけ——1 回の next で条件は何度も評価される）"""
-        if self.__state is None:
-            return
-        rnd, seen = self.__state.get("round"), self.__state.setdefault("unevaluable", [])
-        if not any(u["trigger"] == trigger and u["round"] == rnd for u in seen):
-            seen.append({"trigger": trigger, "round": rnd, "why": why})
+        """条件の部品 trigger が測れなかった痕跡（util.note_unevaluable）"""
+        util.note_unevaluable(self.__state, trigger, why)
 
 
 def run_cond(name, fn, ctx, validator=None, state=None, overlay=None):
@@ -516,6 +512,17 @@ class Board:
             from .util import porcelain as _p
             self.__dict__["_porcelain"] = _p()
         return self.__dict__["_porcelain"]
+
+    def worktree_tree(self, why=None):
+        """作業ツリーの中身の木の id（util.worktree_tree）。porcelain と同じく、この盤面＝この 1 プロセスの中では 1 回だけ取る。
+        None = 固められない（why に git の言い分を足す。呼ぶたびに同じ言い分）"""
+        if "_worktree_tree" not in self.__dict__:
+            said = []
+            self.__dict__["_worktree_tree"] = (util.worktree_tree(said), said)
+        tree, said = self.__dict__["_worktree_tree"]
+        if why is not None:
+            why.extend(said)
+        return tree
 
     def validator_tables(self):
         """検証器が「プロンプトに貼る用」として宣言した表（`PROMPT_TABLES`）。**写させないための口。**

@@ -40,6 +40,17 @@ def test_mark_names_the_running_test_and_reads_back_as_pytest_cover(tmp_path, mo
     assert mutate.read_hits(hits)[0] == ["a0"]
 
 
+@pytest.mark.small
+def test_copies_carry_the_mark_the_ledger_reads(tmp_path, monkeypatch):
+    """写しの中の子にだけ立つ印の名前が、台帳（ledger.py）の読む名前と揃う——台帳は写しの中で見張りの突合を見送る（素の写しに
+    前の版は無い。赤にすると control の pytest が赤になり、pytest の殺しが証拠から落ちる）"""
+    import ledger
+    assert ledger.MUTATE_COPY == mutate.COPY_MARK
+    monkeypatch.setattr(mutate, "_SCRATCH", {str(tmp_path / "repo")})
+    assert mutate.child_env(tmp_path / "repo", {})[mutate.COPY_MARK] == "1"
+    assert mutate.child_env(tmp_path / "other", {}) == {}
+
+
 def _res(marker_rc):
     """pytest だけが通した腕（台本の覆いが無い）の行を並べた --out"""
     py = {"rc": 0, "how": "nodes"}

@@ -7,7 +7,9 @@ loop.py をどう呼ぶか（口）だけ:
 - inproc: 台本のモジュールの ``subprocess`` の名前を ``SubprocessShim`` に差し替え、argv の頭が ``[sys.executable, loop.py]`` の
   ``subprocess.run`` だけを同じプロセスの ``loop.cli()`` に回す。台本の Run.cmd も、Run を通らない直の呼び出しも同じ 1 か所を
   通るので、台本を変えずに口だけが替わる。``Popen`` は子プロセスのまま（loop.py を Popen で起こす腕は信号を送るため）で、
-  inproc の回に loop.py を Popen で起こしたら警告を出す——1 本の台本の中で 2 つの口が混ざったことを黙らせない
+  inproc の回に loop.py を Popen で起こしたら警告を出す——1 本の台本の中で 2 つの口が混ざったことを黙らせない。
+  差し替えるのは台本のモジュールの名前だけなので、engine が自分で起こす子（git・検証器・宣言の走らせる語・launch）は子プロセスの
+  まま走る——inproc で回すテストも medium（SIZES）で、small を名乗れるのは子を消す世界の口（testplan の T3）の後
 
 同じプロセスで呼ぶ口は、呼ぶたびに engine の大域の状態（``RESTORED`` の表）を呼ぶ前の値に戻す。子プロセスの口は毎回まっさらな
 プロセスで始まるので、戻さないと 2 つの口が違う物を検査する。signal の口を差し替えるので、主スレッドからしか呼べない

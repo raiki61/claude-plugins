@@ -8,7 +8,7 @@ import types
 import pytest
 
 from conftest import PLUGIN, REPO
-from engine.board import Board
+from engine.board import Board, run_cond
 from engine.rules import load_rules
 from engine.schema import load_graph
 from engine.util import Reject
@@ -602,9 +602,139 @@ def test_converge_asks_when_the_ci_node_was_skipped(tmp_path):
     assert got["decision"] == "ask" and got["ask"]["kinds"] == ["ci_unverified"] and "回す側が省いた: 人の命令" in got["ask"]["question"]
 
 
+# ---------------------------------------------------------------- 旧い版の義務の出力（rows の無い p3.delta_owed）
+REVIEW_OUT = {"faces": [{"key": "穴1", "kind": "k", "where": "w", "cite": "c", "why": "y"}],
+              "checks": [{"key": "検1", "closed": False, "why": "y"}, {"key": "検2", "closed": True, "why": "y"}]}
+
+
+@pytest.mark.parametrize("name, n", [("delta_faces_open", 1), ("delta2_faces_open", 2)])
+def test_owed_output_without_rows_counts_from_the_review_and_warns(name, n):
+    """旧い版の rules が書いた義務の出力（rows が無い）で止めず、差分レビューの出力から同じ式で数え直し、痕跡を残す
+    （人の方針: 旧い盤面は警告して通す。義務を黙って 0 件にしない）。engine と同じ入れ物（board.run_cond の CondView）で呼ぶ
+    ——差分レビューの出力を読む宣言（cond_reads）が欠ければ、ここで落ちる"""
+    p = RULES.DELTA_PASSES[n]
+
+    def cond(owed):
+        state = {"round": 2}
+        ctx = {"round": 2, "record": {"process": {}}, "loop": {}, "hist": {}, "prev": {}, "out": {}, "cur": {p.owed: owed, p.review: REVIEW_OUT}}
+        return run_cond(name, RULES.CONDS[name], ctx, state=state), state
+    (ok, why), state = cond({"ok": True, "owed": 2})
+    assert ok is True and "2 件" in why and state["unevaluable"][0]["trigger"] == p.owed + ".rows"
+    (ok, _why), state = cond({"ok": True, "owed": 0, "rows": []})
+    assert ok is False and "unevaluable" not in state
+
+
+def test_owed_acceptance_without_rows_recounts_instead_of_refusing(tmp_path):
+    b = board(tmp_path, outputs={"p3.delta_owed": {"ok": True, "owed": 2}, "p3.delta_review": REVIEW_OUT})
+    b.state["round"] = 1
+    handled = [{"key": "穴1", "handled": "fixed", "files": ["a.py"]}]
+    got = call(b, RULES.delta_fix_output, "p3.delta_fix", {"handled": handled}, None)
+    assert got["ok"] is False and "'検1' に応答が無い" in got["reason"]   # 数え直した義務（穴1・検1）で答え合わせる
+    assert b.state["unevaluable"][0]["trigger"] == "p3.delta_owed.rows"
+
+
+def stop_board(tmp_path, monkeypatch, *, done, changed="", rnd=1, head=True, stopped=None):
+    """p0.local_checks が clean を置き、p4.ci（既定）を人が止めた周。周の頭の版と今の木の差の名前を changed（git diff -z の出力）で返す。
+    節の状態は done・stopped から引き、それ以外は待ち"""
+    stopped = stopped or {"p4.ci": "人が止めた（loop.py stop）: 検査"}
+    b = board(tmp_path, record={"materials": {"local_checks": {"status": "clean", "checked": "修正前"}}}, rnd=rnd,
+              hist={"head_revs": {str(rnd): "HEAD0"} if head else {}, "last_seen": {"local_checks": rnd - 1} if rnd > 1 else {}})
+    b.graph = load_graph(GRAPH)[0]
+    b.nodes = b.graph["nodes"]
+    b.rd = {"done": {n: {} for n in done}, "stopped": stopped, "na": {}, "skipped": {}}
+    b.node_state = lambda nid: "done" if nid in b.rd["done"] else "stopped" if nid in stopped else "pending"
+    monkeypatch.setattr(RULES, "git", fake_git({("diff",): changed}))
+    monkeypatch.setattr(RULES, "_worktree_tree", lambda: "T1")
+    return b
+
+
+def landed(b):
+    """止めた周の記録の組み方（_stopped_round_record）と同じ順で、素材の欄が着地した値"""
+    RULES._drop_stopped_materials(b)
+    RULES.fill_materials(b)
+    return b.record["materials"]["local_checks"]
+
+
+@pytest.mark.parametrize("head", [True, False])   # 周の頭の版を固める前に止めた周（P1 より前）も、書き換える節はまだ走っていない
+def test_stop_before_the_fix_keeps_the_round_head_ci(tmp_path, monkeypatch, head):
+    """修正の前に止めた周は、周の頭の CI がその周の CI（作業ツリーが動いていない。人の関所の条件 5）"""
+    b = stop_board(tmp_path, monkeypatch, done=["p0.local_checks", "p1.worktree_before"], head=head)
+    assert landed(b)["status"] == "clean"
+
+
+@pytest.mark.parametrize("done, changed, rnd", [(["p0.local_checks", "p3.fix"], "", 1),   # 書き換える節が済んだ
+                                                (["p0.local_checks"], "a.py\0", 1),      # 書き換える節は済んでいないが木が動いた
+                                                (["p0.local_checks"], None, 1),          # 木の差が取れない（動いた側に倒す）
+                                                (["p0.local_checks", "p3.fix"], "", 2)])  # 2 周目も前の周の値の持ち越しに落ちない
+def test_stop_after_the_tree_moved_lands_the_stopped_fact(tmp_path, monkeypatch, done, changed, rnd):
+    """CI の節を止めた周で作業ツリーが p0.local_checks の後に動いていれば、修正前の CI を周の CI として残さず、止めた事実と
+    『この周の CI は確かめていない』が記録に着地する（省いた周とそろえる）"""
+    b = stop_board(tmp_path, monkeypatch, done=done, changed=changed, rnd=rnd)
+    got = landed(b)
+    assert got["status"] == "not_run" and "人が止めた" in got["reason"] and "この周の CI は確かめていない" in got["reason"]
+
+
+def test_stopped_node_that_is_not_the_ci_gets_no_ci_note(tmp_path, monkeypatch):
+    b = stop_board(tmp_path, monkeypatch, done=["p0.local_checks"], stopped={"p0.parallel_pr": "人が止めた: 検査"})
+    assert RULES.stopped_material(b, "p0.parallel_pr")["reason"] == "人が止めた: 検査——この周に節 p0.parallel_pr は走っていない"
+    assert "CI" in RULES.skipped_material(types.SimpleNamespace(nodes=b.nodes, rd={"skipped": {"p4.ci": "x"}}), "p4.ci")["reason"]
+    assert "CI" not in RULES.skipped_material(types.SimpleNamespace(nodes=b.nodes, rd={"skipped": {"p0.parallel_pr": "x"}}), "p0.parallel_pr")["reason"]
+
+
 @pytest.mark.parametrize("origin", ["", None])
 def test_origin_of_a_kind_without_origin_is_seen_by_presence(tmp_path, origin):
     """出どころを持てない種類（field）の origin は、空でも在れば判定の受け付けで拒む（検証器と同じ述語。通すと p4.record で止まった）"""
     out = reopened_block()
     out["questions"] = [{"key": "q1", "kind": "field", "status": "held", "origin": origin, "reason": "r"}]
     assert "（field）は origin / depends を持てない" in judge_reject(tmp_path, "p2.diagnose", out)
+
+
+# ---------------------------------------------------------------- P1 の前後の突合（worktree_snapshot・worktree_compare）
+def test_worktree_compare_does_not_compare_the_shared_stash(tmp_path, monkeypatch):
+    """refs/stash は全作業ツリーで共有する（並行の run も動かす）——旧い出力の基準に stash の一覧が残っていても、比べるのは並びと
+    中身の木の id だけ"""
+    snap = ["?? x.py"]
+    b = board(tmp_path, outputs={"p1.worktree_before": {"ok": True, "tree_before": {"porcelain": snap, "stash": "stash@{0}: 並行の run",
+                                                                                     "tree": "t" * 40}}})
+    b.porcelain = lambda: snap
+    monkeypatch.setattr(RULES, "_worktree_tree", lambda: "t" * 40)
+    monkeypatch.setattr(RULES, "fill_materials", lambda b: None)
+    got = RULES.worktree_compare(b, "p1.worktree_after")
+    assert got["ok"] is True, got
+
+
+def test_worktree_snapshot_does_not_read_the_stash_list(tmp_path, monkeypatch):
+    """P1 の前の基準は stash の一覧を取らない——取れない場でも止まらず、基準の出力にも載せない"""
+    asked = []
+
+    def git(*args, env=None):
+        asked.append(args)
+        return None if args[:1] == ("stash",) else "t" * 40
+    monkeypatch.setattr(RULES, "git", git)
+    monkeypatch.setattr(RULES, "_take_diff", lambda b: {"ok": True, "snapshot": {"rev": "r" * 40}})
+    b = board(tmp_path)
+    b.porcelain = lambda: []
+    got = RULES.worktree_snapshot(b, "p1.worktree_before", head=False)
+    assert got["ok"] is True and "stash" not in got["tree_before"] and not [a for a in asked if a[:1] == ("stash",)]
+
+
+# ---------------------------------------------------------------- 書く子の痕跡を判定者へ届ける（on_new_round の fix_claim_mismatch）
+def test_writer_traces_carry_outside_tmp_and_unmeasured_rows_of_the_round():
+    """申告の食い違い（kind=declared）に加えて、作業ツリーの外に残った物（outside_tmp。測れなかった回を含む）と、申告の突合・一時の
+    置き場の確かめが測れなかった印を、その周の分だけ届ける。道具つきの役の並びだけの突合の印（.tree_before_id）は書く子の物でないので
+    載せない"""
+    state = {"git_mismatches": [
+        {"instance": "p3.fix", "kind": "declared", "undeclared": ["a.py"], "unwritten": [], "overlapping": [], "round": 1, "at": "x"},
+        {"instance": "p3.fix", "kind": "outside_tmp", "dir": "/tmp/gl-w-1", "measured": False, "files": 0, "bytes": 0, "sample": [],
+         "note": "空", "round": 1},
+        {"instance": "p3.fix", "kind": "outside_tmp", "measured": True, "files": 1, "bytes": 1, "sample": ["x"], "note": "n", "round": 2},
+        {"where": "P1", "round": 1, "diff": ["porcelain"]}],
+        "unevaluable": [{"trigger": "p3.fix.declared_files", "round": 1, "why": "木が無い"},
+                        {"trigger": "child_tmp_probe", "round": 1, "why": "確かめられない"},
+                        {"trigger": "p1.hygiene.tree_before_id", "round": 1, "why": "並びだけ"},
+                        {"trigger": "p3.delta_fix.declared_files", "round": 2, "why": "次の周"}]}
+    got = RULES._writer_traces(state, 1)
+    assert got["by_instance"] == [{"instance": "p3.fix", "undeclared": ["a.py"], "unwritten": [], "overlapping": []}]
+    assert got["outside_tmp"] == [{"instance": "p3.fix", "measured": False, "files": 0, "bytes": 0, "sample": [], "note": "空"}]
+    assert got["unmeasured"] == [{"trigger": "p3.fix.declared_files", "why": "木が無い"}, {"trigger": "child_tmp_probe", "why": "確かめられない"}]
+    assert RULES._writer_traces({}, 1) == {}

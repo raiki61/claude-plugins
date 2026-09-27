@@ -2860,7 +2860,7 @@
   {
    "id": "LX1",
    "title": "diff の接頭辞を明示する",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/util.py",
    "suite": "graphloops",
    "old": "\"--src-prefix=a/\", \"--dst-prefix=b/\", ",
    "new": "",
@@ -3830,7 +3830,7 @@
   {
    "id": "WT1",
    "title": "版は本物の index の写しから組む（追跡中の .gitignore 対象を落とさない）",
-   "file": "graphloops/engine/checks_cache.py",
+   "file": "graphloops/engine/util.py",
    "suite": "graphloops",
    "old": "            shutil.copy2(real.strip(), idx)",
    "new": "            pass",
@@ -3844,10 +3844,10 @@
   {
    "id": "WT2",
    "title": "写しの assume-unchanged の印を外す",
-   "file": "graphloops/engine/checks_cache.py",
+   "file": "graphloops/engine/util.py",
    "suite": "graphloops",
-   "old": "        if git(\"update-index\", \"-q\", \"--really-refresh\", env=env, why=why) is None or git(\"add\", \"-A\", env=env, why=why) is None:",
-   "new": "        if git(\"add\", \"-A\", env=env, why=why) is None:",
+   "old": "        if g(\"update-index\", \"-q\", \"--really-refresh\", env=env, why=said) is None or g(\"add\", \"-A\", env=env, why=said) is None:",
+   "new": "        if g(\"add\", \"-A\", env=env, why=said) is None:",
    "expect": "assume-unchanged の印を付けたファイルも",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3858,7 +3858,7 @@
   {
    "id": "WT3",
    "title": "index の無いリポジトリは空から始める",
-   "file": "graphloops/engine/checks_cache.py",
+   "file": "graphloops/engine/util.py",
    "suite": "graphloops",
    "old": "            pass   # index がまだ無い",
    "new": "            return None, (\"検査用\", None)  # index がまだ無い",
@@ -3872,7 +3872,7 @@
   {
    "id": "WT4",
    "title": "本物の index の場所が引けなければ止まる",
-   "file": "graphloops/engine/checks_cache.py",
+   "file": "graphloops/engine/util.py",
    "suite": "graphloops",
    "old": "        if real is None or not real.strip():",
    "new": "        if real is None:",
@@ -3880,6 +3880,34 @@
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_frozen_review_revision"
+    ]
+   }
+  },
+  {
+   "id": "OV1",
+   "title": "作業ツリーへ書きうる手は書く権限の一覧で数える（graph の runners の役名で数えない）",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if x[\"node\"] in (((b.graph.get(\"launch\") or {}).get(\"runner\") or {}).get(\"edits\") or []):",
+   "new": "    if x[\"node\"] in (((b.graph.get(\"launch\") or {}).get(\"runner\") or {}).get(\"edits\") or []) or x.get(\"run_by\") in (b.graph.get(\"runners\") or []):",
+   "expect": "investigator の instance の前後で作業ツリーが変わると exit 1",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_rejections"
+    ]
+   }
+  },
+  {
+   "id": "BI1",
+   "title": "書く子の申告の食い違いの行を判定者へ届ける",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    got = {\"by_instance\": [{k: r.get(k) for k in WRITER_TRACE_KEYS[\"declared\"]} for r in rows if r.get(\"kind\") == \"declared\"],",
+   "new": "    got = {\"by_instance\": [],",
+   "expect": "受け付けが残した申告の食い違い（申告したのに変わっていない）が by_instance に載る",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_claim_mismatch"
     ]
    }
   },
@@ -3966,8 +3994,8 @@
    "title": "起こし直しは作業ツリーの基準点を引き継ぐ",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "        new[\"tree_before\"] = prev[\"tree_before\"]",
-   "new": "        pass",
+   "old": "            new[k] = prev[k]",
+   "new": "            pass",
    "expect": "relaunch: 作業ツリーの基準点は",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -6362,15 +6390,71 @@
   },
   {
    "id": "OR1",
-   "title": "義務の行の無い旧い出力を 0 件に倒さない",
+   "title": "義務の行の無い旧い出力を 0 件に倒さない（受け付けの側）",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if owed is not None and \"rows\" not in owed:",
-   "new": "    if False:",
+   "old": "    asked = _owed_keys(v, DELTA_PASS_OF[nid])",
+   "new": "    asked = _owed_key_set((v(\"cur.\" + DELTA_PASSES[DELTA_PASS_OF[nid]].owed, None) or {}).get(\"rows\"))",
    "expect": "手直しの義務: 出力が在るのに rows が無い",
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_delta_conditions"
+    ]
+   }
+  },
+  {
+   "id": "OR2",
+   "title": "義務の行の無い旧い出力を 0 件に倒さない（条件の側）",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if \"rows\" not in out:\n        v.unevaluable(p.owed + \".rows\"",
+   "new": "    if False:\n        v.unevaluable(p.owed + \".rows\"",
+   "expect": "test_cond_truth_tables が例外で抜けた: KeyError: 'rows'",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_cond_truth_tables"
+    ]
+   }
+  },
+  {
+   "id": "OR3",
+   "title": "手直しの条件は差分レビューの出力を読むと宣言する（旧い出力の数え直し）",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "@cond_reads(\"cur.\" + DELTA_PASSES[1].owed, \"cur.\" + DELTA_PASSES[1].review)",
+   "new": "@cond_reads(\"cur.\" + DELTA_PASSES[1].owed)",
+   "expect": "delta_faces_open の行 4: 期待 True・実際 die",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_cond_truth_tables"
+    ]
+   }
+  },
+  {
+   "id": "GD1",
+   "title": "作業ツリーを書き換える節は申告の欄を持つ",
+   "file": "graphloops/scripts/graphcheck.py",
+   "suite": "graphloops",
+   "old": "            if nid in (runner_spec.get(\"edits\") or []):",
+   "new": "            if False:",
+   "expect": "graphcheck: 作業ツリーを書き換える節の申告の欄が無い",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_graphcheck_review_shapes"
+    ]
+   }
+  },
+  {
+   "id": "GD2",
+   "title": "申告の欄の綴りは受け付けの読み手と同じ口で引く",
+   "file": "graphloops/scripts/graphcheck.py",
+   "suite": "graphloops",
+   "old": "        leaf = pointers._schema_at(v.get(\"schema\") or {}, at) if isinstance(at, str) else None",
+   "new": "        leaf = schema_at(v.get(\"schema\") or {}, at.replace(\"[]\", \".0\").split(\".\"))[0] if isinstance(at, str) else None",
+   "expect": "graphcheck: 受け付けの読み手が空を読む申告の欄の綴り",
+   "tests": {
+    "graphloops/tests/simulate_review.py": [
+     "test_graphcheck_review_shapes"
     ]
    }
   },

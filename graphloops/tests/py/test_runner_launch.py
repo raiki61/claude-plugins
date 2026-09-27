@@ -4,6 +4,7 @@
 作業ツリー・盤面・利用者の設定は denyWrite。関数を直に呼ぶ検査で、実物の claude は起こさない（実物で拒まれることの確かめは
 docs/graphloops-rearchitecture.md の手順 H の実測の段落）。
 """
+import argparse
 import json
 import os
 import pathlib
@@ -14,7 +15,8 @@ import types
 import pytest
 
 from conftest import PLUGIN, REPO
-from engine import advance, commands, role_run, runner, util
+from engine import advance, commands, declared, role_run, runner, util
+from engine.board import Board
 from engine.rules import load_rules
 from engine.schema import load_graph
 
@@ -151,13 +153,26 @@ def test_runner_refusal_rebuilds_the_fence_and_refuses_a_widened_tool_list(repo,
 
 def test_git_state_guard_rejects_a_moved_head(repo, tmp_path):
     seen = []
-    guard = commands._git_state_guard(lambda text: seen.append(text))
+    guard = commands._git_state_guard(lambda text: seen.append(text), tmp_path, "p3.fix")
     assert guard("ok") is None and seen == ["ok"]
     (repo / "b.txt").write_text("b\n")
     assert guard("still-ok") is None                                   # 作業ツリーのファイルは変えてよい
     git(repo, "add", "b.txt")
     git(repo, "commit", "-q", "-m", "by the child")
     assert "HEAD" in (guard("late") or "") and seen == ["ok", "still-ok"]
+
+
+def test_git_state_guard_accepts_shared_refs_moved_by_another_run_with_a_trace(repo, tmp_path):
+    """stash と作業ツリーの一覧は全作業ツリーで共有する（git-worktree の REFS 節）——並行の run が動かしても受け付け、trace に残す"""
+    seen = []
+    guard = commands._git_state_guard(lambda text: seen.append(text), tmp_path, "p3.fix")
+    (repo / "a.txt").write_text("並行の run の編集\n", encoding="utf-8")
+    git(repo, "stash", "push", "-q", "-m", "並行の run")
+    git(repo, "worktree", "add", "-q", str(tmp_path / "late"), "-b", "late")
+    assert guard("ok") is None and seen == ["ok"]
+    rows = [json.loads(line) for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(r["op"], r["instance"], r["moved"]) for r in rows] == [("git_shared_moved", "p3.fix", ["stash", "worktrees"])]
+    assert guard("again") is None and len((tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()) == 1
 
 
 # ---------------------------------------------------------------- 狭める形（comment-analyzer）
@@ -200,10 +215,63 @@ def test_graph_declares_the_runner_words_and_the_narrow_values():
 
 
 # ---------------------------------------------------------------- 回し手・記録
-def test_recover_does_not_relaunch_a_tree_editing_child(tmp_path):
+@pytest.mark.parametrize("rc", [0, 1])
+def test_recover_relaunches_a_tree_editing_child_only_if_untouched_and_once(tmp_path, monkeypatch, rc):
+    """書き換える子の launch が受け付けの前に居なくなったら、relaunch --if-untouched を 1 回だけ打つ（触っていないと測れなければ
+    engine が拒み、人に渡す）。同じ試行が 2 度落ちたら拾わない"""
+    got = []
+    monkeypatch.setattr(runner, "_cli", lambda d, *a: (got.append(a), (rc, "", "作業ツリーが起こした時点と違う"))[1])
     r = runner._Runner(tmp_path)
-    why = r.recover({"id": "p3.fix", "launch": {"kind": "runner", "edits": True}, "out_path": str(tmp_path / "o.json")})
-    assert why and "自動では起こし直さない" in why and "p3.fix" not in r.recovered
+    inst = {"id": "p3.fix", "launch": {"kind": "runner", "edits": True}, "out_path": str(tmp_path / "o.json")}
+    tmp_path.joinpath("o.json").write_text("{}", encoding="utf-8")   # 置き場に返答が在っても done で拾わない
+    why = r.recover(inst)
+    assert [a[:4] for a in got] == [("relaunch", "--node", "p3.fix", "--if-untouched")]
+    assert (why is None) if rc == 0 else ("自動では起こし直さない" in why and "起こした時点と違う" in why)
+    again = r.recover(inst)
+    assert again and "起こし直した後も" in again and len(got) == 1
+
+
+def test_classify_names_why_each_node_is_handed_back():
+    st = {"status": "running", "round": 1, "rounds": [{"round": 1, "instances": {
+        "lane": {"id": "lane", "status": "pending", "launch": {"kind": "delegate", "background": True}},
+        "p1.local_review": {"id": "p1.local_review", "status": "pending"},
+        "p3.fix": {"id": "p3.fix", "status": "pending", "runner_unlaunched": "sandbox が立たない"}}}]}
+    why = {i["id"]: i["handoff_why"] for i in runner.classify(st)["handoff"]}
+    assert "背景の任せ先" in why["lane"] and "skill" in why["p1.local_review"] and why["p3.fix"] == "sandbox が立たない"
+
+
+def _touched_prev(repo, tmp_path, monkeypatch, order):
+    monkeypatch.setattr(commands, "stop_marks", lambda marks: (order.append("stop"), [])[1])
+    real = commands.worktree_tree
+    monkeypatch.setattr(commands, "worktree_tree", lambda *a: (order.append("compare"), real(*a))[1])
+    return {"id": "p3.fix", "out_path": str(tmp_path / "o.json"), "tree_before_id": util.worktree_tree(),
+            "launch_head": list(commands._own_git_marks())}
+
+
+def test_relaunch_if_untouched_stops_the_old_child_before_comparing(repo, tmp_path, monkeypatch):
+    order = []
+    prev = _touched_prev(repo, tmp_path, monkeypatch, order)
+    commands._refuse_touched(prev, ["mark"])
+    assert order == ["stop", "compare"]
+
+
+@pytest.mark.parametrize("touch, want", [
+    (lambda repo, prev: (repo / "a.txt").write_text("途中まで書いた\n", encoding="utf-8"), "起こした時点と違う"),
+    (lambda repo, prev: (git(repo, "commit", "-q", "--allow-empty", "-m", "x"), None)[1], "起こした時点と違う"),
+    (lambda repo, prev: prev.pop("launch_head"), "盤面に無い"),
+])
+def test_relaunch_if_untouched_refuses_when_it_cannot_say_untouched(repo, tmp_path, monkeypatch, touch, want):
+    prev = _touched_prev(repo, tmp_path, monkeypatch, [])
+    touch(repo, prev)
+    with pytest.raises(util.Reject, match=want):
+        commands._refuse_touched(prev, ["mark"])
+
+
+def test_relaunch_if_untouched_refuses_when_the_old_child_cannot_be_stopped(repo, tmp_path, monkeypatch):
+    prev = _touched_prev(repo, tmp_path, monkeypatch, [])
+    monkeypatch.setattr(commands, "stop_marks", lambda marks: ["止まらない"])
+    with pytest.raises(util.Reject, match="止め切れない"):
+        commands._refuse_touched(prev, ["mark"])
 
 
 def test_classify_launches_runner_nodes_but_hands_back_background_lanes():
@@ -247,3 +315,117 @@ def test_init_flag_decides_whether_runner_nodes_get_a_launch(tmp_path, flag):
         assert base["launch"]["form"] in ("sandbox", "read_only") and any("--engine-runners" in n for n in out["notes"])
     else:
         assert "launch" not in base                          # 旗の無い run は今どおり会話がこなす
+
+
+@pytest.fixture
+def real_board(tmp_path, monkeypatch):
+    """本物の init の盤面（review-loop。宣言の一式を持つリポジトリ）と、engine の git の向き先"""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / declared.DECL_NAME).write_text(json.dumps({"suite": [{"name": "ok", "argv": [sys.executable, "-c", "print(1)"]}]}), encoding="utf-8")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "base")
+    (repo / "a.py").write_text("x = 2\n", encoding="utf-8")
+    d = tmp_path / "st"
+    r = loop(repo, "init", "--loop", "review-loop", "--request", "検査", "--dir", str(d), "--validator", str(REPO / "scripts" / "review-record.py"))
+    assert r.returncode == 0, r.stderr
+    monkeypatch.setattr(util, "GIT_CWD", str(repo))
+    return repo, d
+
+
+def test_emit_and_reissue_carry_the_tree_base_of_a_declaring_node(real_board):
+    """declared_files を持つ節は出す時点の木の id を持ち、周の基準は最初の試行で決まる。起こし直しは前の試行の基準と、まだ片付けて
+    いない専用の一時の置き場の記録を写し、前の版の engine が出した（木の id の無い）試行からは新しい id も周の基準も作らない"""
+    repo, d = real_board
+    assert loop(repo, "next", "--dir", str(d)).returncode == 0
+    b = Board(d)
+    b.nodes["p0.base"]["declared_files"] = "requirements[].key"
+    first = advance.emit_instance(b, "p0.base")
+    assert first["tree_before_id"] == util.worktree_tree() == b.rd["tree_base"]["p0.base"]
+    first["child_tmp"] = {"dir": "/tmp/gl-w-left", "at": first["emitted_at"]}
+    (repo / "a.py").write_text("x = 3\n", encoding="utf-8")
+    b.__dict__.pop("_worktree_tree", None)   # 同じ盤面の中の木の写しを捨て、今の木で出し直させる
+    again = commands.reissue(b, first, "起こし直し")
+    assert again["tree_before_id"] == first["tree_before_id"] == b.rd["tree_base"]["p0.base"]
+    assert again["attempt_log"][-1]["prev_emitted_rev"] == first["emitted_rev"] and again["child_tmp"] == first["child_tmp"]
+    b.rd["tree_base"].pop("p0.base")
+    old = {k: v for k, v in first.items() if k != "tree_before_id"}
+    fresh = commands.reissue(b, old, "前の版の試行")
+    assert "tree_before_id" not in fresh and "p0.base" not in b.rd["tree_base"]
+
+
+def test_guarded_role_gets_the_tree_id_when_emitted(real_board):
+    """道具つきの役（graph の tree_guard_roles）の節は、出す時点で並び（tree_before）と中身の木の id（tree_before_id）の両方を持つ"""
+    repo, d = real_board
+    assert loop(repo, "next", "--dir", str(d)).returncode == 0
+    b = Board(d)
+    b.graph["tree_guard_roles"] = ["writer"]
+    inst = advance.emit_instance(b, "p0.base")
+    assert "declared_files" not in b.nodes["p0.base"]
+    assert inst["tree_before"] == util.porcelain() and inst["tree_before_id"] == util.worktree_tree()
+
+
+def test_emit_without_a_tree_id_keeps_the_git_reason(real_board, monkeypatch):
+    """出す時に木の id が取れない回は止めずに痕跡を残し、痕跡に git の言い分を添える"""
+    repo, d = real_board
+    assert loop(repo, "next", "--dir", str(d)).returncode == 0
+    b = Board(d)
+    b.graph["tree_guard_roles"] = ["writer"]
+    monkeypatch.setattr(util, "worktree_tree", lambda why=None: (why.append("fatal: 出す時の言い分"), None)[1])
+    inst = advance.emit_instance(b, "p0.base")
+    u, = [u for u in b.state["unevaluable"] if u["trigger"] == "p0.base.tree_before_id"]
+    assert "tree_before_id" not in inst and "出す時の言い分" in u["why"]
+
+
+@pytest.mark.parametrize("touched", [False, True])
+def test_launch_records_the_head_and_relaunch_if_untouched_compares_it(real_board, monkeypatch, touched):
+    """launch は書き換える子の起こした時点の HEAD・枝（launch_head）を盤面に残し、本物の loop.py relaunch --if-untouched はそれと
+    木の id を比べて、触っていなければ起こし直し、触っていれば新しい試行を作らずに拒む"""
+    repo, d = real_board
+    assert loop(repo, "next", "--dir", str(d)).returncode == 0
+    st = json.loads((d / "state.json").read_text(encoding="utf-8"))
+    inst = st["rounds"][-1]["instances"]["p0.base"]
+    inst["launch"] = {"kind": "runner", "edits": True, "argv": ["claude", "-p"], "stdin": inst["prompt_file"]}
+    inst["tree_before_id"] = util.worktree_tree()
+    (d / "state.json").write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(commands, "launch_one", lambda d_, i, m, cwd: {
+        "id": i["id"], "node": i["node"], "out_path": i["out_path"], "ok": False, "why": "子が落ちた", "session_id": None,
+        "superseded": False, "resumes": 0, "rejections": [], "done": None, "stderr": ""})
+    monkeypatch.setattr(commands, "mark_launch_failures", lambda *a: None)
+    commands.cmd_launch(argparse.Namespace(dir=str(d), node="p0.base"))
+    assert Board(d).rd["instances"]["p0.base"]["launch_head"] == list(commands._own_git_marks())
+    if touched:
+        (repo / "a.py").write_text("途中まで書いた\n", encoding="utf-8")
+    r = loop(repo, "relaunch", "--node", "p0.base", "--reason", "回し手が拾い直す", "--if-untouched", "--dir", str(d))
+    after = Board(d).rd["instances"]["p0.base"]
+    if touched:
+        assert r.returncode == 1 and "起こした時点と違う" in r.stderr and after.get("attempts", 1) == 1
+    else:
+        assert r.returncode == 0, r.stderr
+        assert after["attempts"] == 2
+
+
+def test_skip_every_round_skips_the_node_before_it_is_emitted(real_board, tmp_path):
+    repo, d = real_board
+    r = loop(repo, "skip", "--node", "p0.base", "--reason", "x", "--every-round", "--dir", str(d))
+    assert r.returncode == 1 and "optional でない" in r.stderr
+    f = tmp_path / "preset.json"
+    f.write_text(json.dumps({"p0.local_checks": "CI で回す"}, ensure_ascii=False), encoding="utf-8")
+    assert loop(repo, "patch", "--path", "state.preset_skips", "--file", str(f), "--reason", "検査", "--dir", str(d)).returncode == 0
+    r = loop(repo, "next", "--dir", str(d))
+    assert r.returncode == 0, r.stderr
+    assert "p0.local_checks" not in [i["id"] for i in json.loads(r.stdout)["ready"]]
+    st = json.loads((d / "state.json").read_text(encoding="utf-8"))
+    assert st["rounds"][-1]["skipped"] == {"p0.local_checks": "CI で回す"}
+    traced = [json.loads(x) for x in (d / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert any(t.get("op") == "skip" and t.get("node") == "p0.local_checks" and t.get("by") == "every_round" for t in traced)
+
+
+def test_skip_every_round_is_kept_on_the_board_and_applies_now(real_board):
+    repo, d = real_board
+    r = loop(repo, "skip", "--node", "p0.local_checks", "--reason", "CI で回す", "--every-round", "--dir", str(d))
+    assert r.returncode == 0, r.stderr
+    st = json.loads((d / "state.json").read_text(encoding="utf-8"))
+    assert st["preset_skips"] == {"p0.local_checks": "CI で回す"} and st["rounds"][-1]["skipped"] == {"p0.local_checks": "CI で回す"}

@@ -11,7 +11,7 @@
     loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
     loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・任せ先・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（役が終わるまで戻らない——会話からは打たずに run に任せる。端末・CI なら直に打ってよい。任せ先は sandbox の中）
     loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
-    loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る。engine が走らせる CI の節も人の命令で省ける——理由は記録に残り、収束の前に人に聞かれる）
+    loop.py skip   --node <節> --reason <理由> [--every-round]   # optional の節を省く（報告に「省略」と載る。engine が走らせる CI の節も人の命令で省ける——理由は記録に残り、収束の前に人に聞かれる。--every-round は run の間ずっと）
     loop.py answer --text <答え> [--note <本文>] [--detail <json>] [--by human|driver]  # 人に聞く番のとき（本文は次の周の再審に渡る。--detail は rules が受ける構造の値。--by は打ち手の申告で trace に残る）
     loop.py stop   --reason <理由>                       # 走っている run を人がその時点で止める（理由は記録に残り、graph が宣言する後始末の節——報告——だけが走る）
     loop.py children [--dir] [--stop --reason <理由> [--include-running]]   # 盤面の印から、この run が起こした子の残りを一覧する（信号なし）・止める
@@ -110,6 +110,8 @@ def main():
     s.add_argument("--dir")
     s.add_argument("--node", required=True)
     s.add_argument("--reason", required=True)
+    s.add_argument("--if-untouched", action="store_true",
+                   help="前の試行の子を先に止め切り、作業ツリーの木と HEAD・枝が起こした時点と同じときだけ起こし直す（違えば新しい試行を作らずに拒む。回し手が居なくなった launch の書き換える子を拾い直す口）")
     s.set_defaults(fn=c.cmd_relaunch)
 
     s = sub.add_parser("done")
@@ -125,6 +127,8 @@ def main():
     s.add_argument("--dir")
     s.add_argument("--node", required=True)
     s.add_argument("--reason", required=True)
+    s.add_argument("--every-round", action="store_true",
+                   help="run の間ずっと省く（next が節を出す前に、周ごとに同じ理由で省く。今の周に待っていればその場で省く。init の直後に打てば回し手が起こす前に効く）")
     s.set_defaults(fn=c.cmd_skip)
 
     s = sub.add_parser("answer")
@@ -197,25 +201,25 @@ def main():
     a.fn(a)
 
 
-# 盤面・記録・trace に書き込まれる値の引数。ファイルのパスだけの引数（--file・--output・--detail・--export・--dir）は、
-# 復号できないバイトを含む名前でも読めれば通っていたので検めない（人の決定 2026-09-27: 狭めない）
-WRITTEN_ARGS = ("reason", "note", "text", "path", "node", "request", "what", "to", "input", "unfenced_delegates", "graph",
-                "validator", "document", "set_url")
+# 検めない引数——ファイルのパスだけの引数。復号できないバイトを含む名前でも読めれば通っていたので検めない（人の決定 2026-09-27:
+# 狭めない）。**外す側を名指す**: 検める側を並べていたとき、表に無い --lang・--accept-tree-change・--agent-id が盤面に書かれて
+# UnicodeEncodeError（exit 2）に倒れた。引数を足せば、名指さなくても検めの中に入る
+PATH_ONLY_ARGS = ("file", "output", "detail", "export", "dir", "data_dir")
 
 
 def refuse_broken_args(a):
-    """書き込まれる値に孤立サロゲート（POSIX の Python が復号できない argv のバイトを写した字。PEP 383）が在れば、盤面を読む前に
+    """文字列の引数に孤立サロゲート（POSIX の Python が復号できない argv のバイトを写した字。PEP 383）が在れば、盤面を読む前に
     exit 1 で拒む。素通りさせると、UTF-8 で書く所（盤面・trace）で UnicodeEncodeError になり、想定外の例外（exit 2）に倒れた
     （実測 2026-09-27: 呼び元のシェルで全角の字が変数名の直後に続き、字の頭のバイトが変数名に食われた）"""
-    for name in WRITTEN_ARGS:
-        vals = getattr(a, name, None)
+    for name, vals in sorted(vars(a).items()):
+        if name in PATH_ONLY_ARGS:
+            continue
         for v in vals if isinstance(vals, list) else [vals]:
             if not isinstance(v, str) or (name == "request" and v.startswith("@")):
                 continue
-            try:
-                v.encode("utf-8")
-            except UnicodeEncodeError as e:
-                raise Reject(f"--{name.replace('_', '-')} の {e.start + 1} 字目に UTF-8 として読めないバイトがある——"
+            where = util.lone_surrogate_at(v, f"--{name.replace('_', '-')}")
+            if where is not None:
+                raise Reject(f"{where}に UTF-8 として読めないバイトがある——"
                              "呼び元のシェルが字を壊している（変数の直後に全角の字を続けるなら ${VAR} と書く・heredoc は 'EOF' で展開しない）")
 
 
