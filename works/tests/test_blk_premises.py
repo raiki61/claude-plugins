@@ -187,7 +187,9 @@ class RepoCase(unittest.TestCase):
         self._tmp.cleanup()
 
     def run_script(self, name, **env):
-        e = dict(os.environ, ARTIFACTS_DIR=str(self.art), **env)
+        # 子の環境は節の INPUTS_* と ARTIFACTS_DIR を継がせずに作る（Archon の節の中で回しても入力欠けの試験が同じに振る舞う）
+        base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
+        e = {**base, "ARTIFACTS_DIR": str(self.art), **env}
         return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=self.repo, env=e,
                               capture_output=True, text=True, timeout=300)
 
@@ -399,7 +401,7 @@ class ScriptCase(RepoCase):
         self.assertIn("形", r.stderr)
 
     def test_collect_missing_env(self):
-        e = {k: v for k, v in os.environ.items() if k != "ARTIFACTS_DIR"}
+        e = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
         r = subprocess.run([sys.executable, str(BLK / "scripts" / "collect.py")], cwd=self.repo, env=e,
                            capture_output=True, text=True, timeout=300)
         self.assertEqual(r.returncode, 2)

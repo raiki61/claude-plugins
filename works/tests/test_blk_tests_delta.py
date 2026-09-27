@@ -307,6 +307,14 @@ class TestCut(RepoCase):
         self.assertEqual(json.loads(r.stdout)["files"], [])
         self.assertEqual((self.board / "fix.diff").read_text(), "")
 
+    def test_cut_removes_stale_review(self):
+        # 前の周の審査の返答が盤面に残ると、この周の受け付けが通らなくても collect が拾う。入口で消す
+        self.board.mkdir(parents=True, exist_ok=True)
+        (self.board / "delta-review.json").write_text('{"faces": []}', encoding="utf-8")
+        r = self.run_script("blk-delta", "cut", base_rev="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse((self.board / "delta-review.json").exists())
+
     def test_cut_skips_bytecode(self):
         # 種の .gitignore が無く、テストがバイトコードを作った作業ツリー。追跡している .pyc が変わっても差分に載せない
         git(self.repo, "rm", "-q", ".gitignore")
@@ -367,11 +375,12 @@ class TestCut(RepoCase):
 class TestAcceptCollect(RepoCase):
     def test_accept_then_collect_counts_faces(self):
         (self.repo / "stats.py").write_text((self.repo / "stats.py").read_text().replace("return lo\n    return x", "return hi + 1\n    return x"))
+        # ラインの順（cut → accept → collect）。cut は前の周の delta-review.json を消すので、accept より前に置く
+        self.assertEqual(self.run_script("blk-delta", "cut", base_rev=self.base).returncode, 0)
         reply = json.dumps(load("delta_bad_cite"), ensure_ascii=False)   # stats.py を触ったので cite は今の姿に在る
         r = self.run_script("blk-delta", "accept", reply=reply, base_rev=self.base)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["ok"], True, r.stdout)
-        self.assertEqual(self.run_script("blk-delta", "cut", base_rev=self.base).returncode, 0)
         r = self.run_script("blk-delta", "collect")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout)

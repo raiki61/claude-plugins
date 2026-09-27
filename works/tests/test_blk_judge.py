@@ -154,7 +154,9 @@ class ScriptCase(unittest.TestCase):
         self._tmp.cleanup()
 
     def run_script(self, name, **env):
-        e = dict(os.environ, ARTIFACTS_DIR=str(self.art), **env)
+        # 子の環境は節の INPUTS_* と ARTIFACTS_DIR を継がせずに作る（Archon の節の中で回しても入力欠けの試験が同じに振る舞う）
+        base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
+        e = {**base, "ARTIFACTS_DIR": str(self.art), **env}
         return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=self.repo, env=e,
                               capture_output=True, text=True, timeout=300)
 
@@ -265,6 +267,18 @@ class ScriptCase(unittest.TestCase):
         r = check_judge(load("judge_ok"), self.board, "", self.repo)
         self.assertIs(r["ok"], False)
         self.assertIn("extra.txt", r["reason"])
+
+    def test_check_judge_without_snapshot_rejects_head_moved_from_base_rev(self):
+        # 写しが無い分岐でも、判定役が作った物を commit して porcelain を空に戻す道を HEAD と版で塞ぐ
+        base = git(self.repo, "rev-parse", "HEAD").strip()
+        self.board.mkdir(parents=True)
+        (self.repo / "extra.txt").write_text("x\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "判定役が commit した")
+        r = check_judge(load("judge_ok"), self.board, base, self.repo)
+        self.assertIs(r["ok"], False)
+        self.assertIn("HEAD", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
 
     # ---- collect
     def test_collect_builds_exit(self):

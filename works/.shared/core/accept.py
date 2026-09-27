@@ -2,7 +2,7 @@
 
 Archon を知らない関数だけを出す。ブロックの script の節がこれを呼び、結果をそのまま出口にする。
 - check_request: 依頼（findings の配列）を rules の add に通し、盤面の request.json に積む
-- check_judge:   判定役（p2.diagnose）の返答。作業ツリー → 型 → rules の judge_output。通れば盤面に judgment.json
+- check_judge:   判定役（p2.diagnose）の返答。作業ツリーと HEAD（tree_unchanged）→ 型 → rules の judge_output。通れば盤面に judgment.json
                  （check_fix と同じく、番号で指せという案内は名前を写せに戻す。_name_hints）
 - check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units（番号で指せという案内は key を写せに戻す。_name_hints）
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
@@ -10,7 +10,8 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
                  番号で指す欄（pointers）は名前の型のまま、修正差分のレビューは事前審査だけの kind を落とす
 - snapshot_tree: 作業ツリーの写し（差分を切る節が盤面の delta-snapshot.json に置き、check_delta が突き合わせる）
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
-- cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置く（blk-delta の節 cut）
+- cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置き、前の周の審査の返答を消す（blk-delta の節 cut）
+- tree_unchanged: 読むだけの役（判定役・実測役）が作業ツリーと HEAD を変えていないかの見張り（check_judge と premises が呼ぶ）
 
 check_* は全部 dict を返し、例外で拒まない。拒否は {"ok": False, "reason": str}。
 git は全部 repo を cwd にして呼ぶ。HEAD をその場で読むのは base_rev が空のときだけ（空なら repo の HEAD を版にする）。
@@ -332,7 +333,7 @@ def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
     追跡しているファイルは git diff --binary <rev>、未追跡のファイルは 1 本ずつ git diff --no-index /dev/null <名>
     （どちらも core.quotePath=false で、日本語の名前を \\346… に書き換えずに載せる）
     （未追跡のフォルダ＝入れ子の git リポジトリは差分に載せず、files に `sub/` の 1 本で出す）。
-    盤面に fix.diff と、切った時の作業ツリーの写し delta-snapshot.json（Ruling R3）を置く。
+    盤面に fix.diff と、切った時の作業ツリーの写し delta-snapshot.json（Ruling R3）を置き、前の周の delta-review.json を消す。
     {"ok": True, "files", "diff_file"} を返す。版が引けない・git が効かないときは Reject を投げる（拒否を dict で返さない）"""
     repo = pathlib.Path(repo)
     rev = _rev(repo, base_rev)
@@ -354,6 +355,7 @@ def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
         diff += r.stdout
     board = pathlib.Path(board)
     board.mkdir(parents=True, exist_ok=True)
+    (board / DELTA_REVIEW_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
     path = board / DIFF_FILE
     path.write_bytes(diff)
     _write_board(board, SNAPSHOT_FILE, snapshot_tree(repo))
@@ -377,25 +379,32 @@ def check_request(items: list, board: pathlib.Path, reason: str) -> dict:
     return _guard(run)
 
 
-def _judge_tree_unchanged(repo, board):
-    """判定役が作業ツリーを変えていないか（Ruling R3・R14）。盤面に judge-snapshot.json（依頼の受け付けの時の写し）が
-    在れば、今の作業ツリーがその写しと同じかを見る（依頼のファイルが対象の中で未追跡・変更中でも通る）。
-    無ければ作業ツリーが綺麗（git status --porcelain が空）であることを求める。違えば Reject"""
-    snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
+def tree_unchanged(repo, board, snapshot_file, rev, rule, redo, dirty_hint="", changed_hint=""):
+    """読むだけの役（判定役・実測役）が作業ツリーと履歴を変えていないか（Ruling R3・R14）。見張りはこの 1 つで、
+    check_judge と premises.check_premises が同じ物を呼ぶ。盤面に snapshot_file（役を起こす前の写し）が在れば、今の
+    作業ツリーがその写しと丸ごと（HEAD を含めて。commit で HEAD を動かしても見える）同じかを見る（依頼のファイルが
+    対象の中で未追跡・変更中でも通る）。無ければ作業ツリーが綺麗（バイトコードを除いた git status --porcelain が空）で
+    HEAD が数える版 rev のままであることを求める。バイトコードは数えない（snapshot_tree）。違えば Reject。
+    rule は拒否の文に入れる役の約束、redo は古い写しを取り直す所、dirty_hint・changed_hint は拒否の文に足す案内"""
+    snap = _read_board(board, snapshot_file)
     if snap is None:
-        dirty = snapshot_tree(repo)["porcelain"].splitlines()
+        now = snapshot_tree(repo)
+        dirty = now["porcelain"].splitlines()
         if dirty:
-            raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
+            raise Reject(f"作業ツリーに変更が在る——{rule}{dirty_hint}"
                          f"（git status --porcelain: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
+        if now["head"] != rev:
+            raise Reject(f"HEAD が数える版から動いた（版 {rev[:12]} / 今 {now['head'][:12]}）——{rule}。commit・reset・checkout で"
+                         "履歴を動かしてはいけない")
         return
-    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {JUDGE_SNAPSHOT_FILE}（古い形なら依頼の受け付けから写しを取り直せ）")
+    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {snapshot_file}（古い形なら{redo}から写しを取り直せ）")
     changed = tree_change(snap, repo)
     if changed:
-        raise Reject(f"依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない（{changed}）")
+        raise Reject(f"依頼を受け付けた後から作業ツリーが変わった——{rule}{changed_hint}（{changed}）")
 
 
 def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
-    """判定役の返答を受け付ける。作業ツリーが変わっていれば拒む（_judge_tree_unchanged。判定役は読むだけ）→ 型（graph の p2.diagnose の
+    """判定役の返答を受け付ける。作業ツリーか HEAD が変わっていれば拒む（tree_unchanged。判定役は読むだけ）→ 型（graph の p2.diagnose の
     schema）→ rules の judge_output（記録の process.request_findings に盤面の request.json を入れて渡す）。
     通れば盤面の judgment.json に書く。{"ok", "reason", "open_units", "judgment_file"}"""
     def run():
@@ -403,7 +412,7 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
         pathlib.Path(board).mkdir(parents=True, exist_ok=True)
         with _in_repo(repo_p):
             rev = _rev(repo_p, base_rev)
-            _judge_tree_unchanged(repo_p, board)
+            tree_unchanged(repo_p, board, JUDGE_SNAPSHOT_FILE, rev, "判定役は読むだけの役で、作業ツリーを変えてはいけない", "依頼の受け付け")
             _type_errors(reply, role_schema("p2.diagnose"), "判定の返答")
             rules = _rules()
             rec = rules.init_record(None, None)
