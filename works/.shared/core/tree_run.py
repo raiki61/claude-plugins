@@ -33,6 +33,7 @@ KILL_GRACE = 2    # SIGTERM から SIGKILL までの猶予（秒）。Archon の
                   # 同じ 5 秒だと、SIGTERM を無視する孫へ SIGKILL を送る前に殻が Archon に殺され、孫が残った（試し P11）
 POLL = 0.2        # 信号と親の替わりを見る間隔（秒）
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+PS_TIMEOUT = 1.0  # 全プロセスの表（ps）を待つ上限（秒）。超えたら表を読めない回として扱う（stop_group の上限の勘定）
 REUSE_SLACK = 2.0   # 開始時刻の読みの誤差（ps の etime は秒の切り捨て）。長を起こした時刻よりこれを超えて後に始まった物は別物
 _Proc = collections.namedtuple("_Proc", "pid ppid pgid uid started stat")   # ps の 1 行（started は開始時刻のエポック秒）
 
@@ -46,14 +47,14 @@ class Stopped(Exception):
 
 
 def _answers(send, target):
-    """信号 0 の問い: 相手が居る（届く・EPERM）なら真、居なければ偽"""
+    """信号 0 の問い: 相手が居る（届く・EPERM）なら真、居なければ偽。ほかの誤りは上げる（本線 role_run._answers と同じ）"""
     try:
         send(target, 0)
+        return True
     except ProcessLookupError:
         return False
-    except OSError:
+    except PermissionError:
         return True
-    return True
 
 
 def parse_etime(s):
@@ -75,7 +76,9 @@ def _ps_all():
     now = time.time()
     try:
         r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,uid=,etime=,stat="], stdin=subprocess.DEVNULL,
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=PS_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None, f"ps が {PS_TIMEOUT} 秒の内に答えない"
     except (OSError, subprocess.SubprocessError) as e:
         return None, f"ps を起こせない（{e}）"
     rows = {}
@@ -145,50 +148,60 @@ def stop_group(p, first=signal.SIGTERM, born=None):
     （数え上げ→送る→数え直し）で、猶予は KILL_GRACE、送る列は (first と SIGTERM) → SIGKILL:
     回ごとに仲間を数え上げ、生きた仲間が居なければ戻る。居れば、生きた仲間が属するグループのうち長が仲間のグループと
     p のグループへは killpg（数えた後に増えた子にも届く）、残りの仲間へは 1 本ずつ送り、数えた生きた仲間が消えるまで
-    KILL_GRACE 秒待つ（長は待つ間に回収する）。SIGKILL の後に数え直して生きた仲間が残れば名指しの理由を返す。
-    ps が読めない回は p のグループへだけ送り、グループが空になるまで待つ（外へ出た子孫は確かめていないと返す）。
+    待つ（長は待つ間に回収する）。SIGKILL の後に数え直して生きた仲間が残れば名指しの理由を返す。
+    **上限**: 最初の回の待ちは止め始めから KILL_GRACE 秒で切る（ps を待った分も含める）。ps は PS_TIMEOUT 秒で切り、
+    1 度でも表を読めなければ、以後の回は ps を起こさずに直ちに送る——送り先は p のグループと、前の回に数えて待ち終えても
+    消えたのを見ていない仲間（番号は同じ相手のまま）。これで SIGKILL は止め始めから KILL_GRACE + PS_TIMEOUT 秒の内に出る
+    （＋殻が信号に気づくまでの POLL。Archon の cancel の 5 秒より前）。表を読めなかった回は、外へ出た子孫を確かめていないと返す。
     born は長の番号の再利用の目印で、長を回収した後にだけ効かせる（回収していない子の番号は再利用されない）"""
-    def wait(done):
-        end = time.monotonic() + KILL_GRACE
+    t0 = time.monotonic()
+
+    def wait(done, end):
         while time.monotonic() < end:
             p.poll()
             if done():
                 return
             time.sleep(0.05)
 
-    def count():
-        p.poll()
-        return _tree_members(p.pid, known, born if p.returncode is not None else None)
+    def watch(pids, group=False):
+        """待つ間に消えたのを見た番号を pids から外していく done（group なら p のグループが空になるのも待つ）"""
+        def done():
+            pids.difference_update([pid for pid in list(pids) if not _answers(os.kill, pid)])
+            return not pids and not (group and _answers(os.killpg, p.pid))
+        return done
 
-    known = {}
-    for sigs in ((first, signal.SIGTERM), (signal.SIGKILL,), ()):   # 空の回は送らずに数え直して判定だけ
+    known, blind, pending = {}, None, set()   # blind: 表を読めなかった理由（以後は ps を起こさない）
+    for i, sigs in enumerate(((first, signal.SIGTERM), (signal.SIGKILL,), ())):   # 空の回は送らずに数え直して判定だけ
         sigs = tuple(dict.fromkeys(sigs))
-        members, why = count()
-        if members is None:
+        end = t0 + KILL_GRACE if i == 0 else None
+        if blind is None:
+            p.poll()
+            members, why = _tree_members(p.pid, known, born if p.returncode is not None else None)
+            if members is None:
+                blind = why
+        if blind is not None:
             if not sigs:
-                return f"止める相手を数え上げられない（{why}）——グループ {p.pid} の外へ出た子孫を確かめていない"
-            for sig in sigs:
-                try:
-                    os.killpg(p.pid, sig)
-                except OSError:
-                    pass   # 既に空（ProcessLookupError は OSError の派生）
-            wait(lambda: not _answers(os.killpg, p.pid))
-            continue
-        known.update({pid: m.started for pid, m in members.items()})
-        live = _live(members)
-        if not live:
-            return why
-        if not sigs:
-            return f"グループ {p.pid} の木が SIGKILL の後も残っている（{_name(live)}）"
-        groups = {m.pgid for m in live.values() if m.pgid in members or m.pgid == p.pid}
-        targets = [(os.killpg, g) for g in sorted(groups)] + [(os.kill, pid) for pid, m in live.items() if m.pgid not in groups]
+                return f"止める相手を数え上げられない（{blind}）——グループ {p.pid} の外へ出た子孫を確かめていない"
+            targets = [(os.killpg, p.pid)] + [(os.kill, pid) for pid in sorted(pending)]
+            done = watch(pending, group=True)
+        else:
+            known.update({pid: m.started for pid, m in members.items()})
+            live = _live(members)
+            if not live:
+                return why
+            if not sigs:
+                return f"グループ {p.pid} の木が SIGKILL の後も残っている（{_name(live)}）"
+            groups = {m.pgid for m in live.values() if m.pgid in members or m.pgid == p.pid}
+            targets = [(os.killpg, g) for g in sorted(groups)] + [(os.kill, pid) for pid, m in live.items() if m.pgid not in groups]
+            pending = set(live)
+            done = watch(pending)
         for sig in sigs:
             for send, target in targets:
                 try:
                     send(target, sig)
                 except OSError:
                     pass   # 間に消えた・送れない（送れない相手は数え直しで残りとして名指しする）
-        wait(lambda: not any(_answers(os.kill, pid) for pid in live))
+        wait(done, end if end is not None else time.monotonic() + KILL_GRACE)
     return None   # 届かない（最後の回は必ず返す）
 
 

@@ -81,15 +81,36 @@ class TreeRunCase(unittest.TestCase):
         self.pidf = self.tmp / "pgid"
         self.marker = self.tmp / "late"
         self.env = {k: v for k, v in os.environ.items() if k not in ("INPUTS_CMD", "PYTHONDONTWRITEBYTECODE")}
-        self.started = []   # このテストが起こした物（後片付けで止める pgid・pid）
+        # このテストが起こした物（後片付けで止める Popen・pgid・pid）。pgid・pid は消えたと確かめた時点で外す——
+        # 確かめた後に同じ番号が別のプロセスに再利用されても、後片付けで送らない。Popen は回収済みなら送らない
+        self.started = []
 
     def tearDown(self):
         for kind, n in self.started:
             try:
-                (os.killpg if kind == "pg" else os.kill)(n, signal.SIGKILL)
-            except OSError:
+                if kind == "popen":
+                    if n.poll() is None:
+                        n.kill()
+                        n.wait(5)
+                else:
+                    (os.killpg if kind == "pg" else os.kill)(n, signal.SIGKILL)
+            except (OSError, subprocess.SubprocessError):
                 pass
         self._tmp.cleanup()
+
+    def group_gone(self, pgid, within):
+        """group_gone と同じ。空と確かめたら後片付けの対象から外す"""
+        gone = group_gone(pgid, within)
+        if gone and ("pg", pgid) in self.started:
+            self.started.remove(("pg", pgid))
+        return gone
+
+    def pid_gone(self, pid, within):
+        """pid_gone と同じ。消えたと確かめたら後片付けの対象から外す"""
+        gone = pid_gone(pid, within)
+        if gone and ("pid", pid) in self.started:
+            self.started.remove(("pid", pid))
+        return gone
 
     def cli(self, *args):
         return [sys.executable, str(TREE_RUN), *args]
@@ -97,7 +118,7 @@ class TreeRunCase(unittest.TestCase):
     def start(self, cmd, **kw):
         p = subprocess.Popen(self.cli("--", cmd), env=self.env, cwd=str(self.tmp), stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
-        self.started.append(("pid", p.pid))
+        self.started.append(("popen", p))
         return p
 
     def wait_pgid(self):
@@ -137,7 +158,7 @@ class TreeRunCase(unittest.TestCase):
         pgid = self.wait_pgid()
         p.send_signal(signal.SIGTERM)
         self.assertEqual(p.wait(10), 128 + signal.SIGTERM)
-        self.assertTrue(group_gone(pgid, 2), "孫が残った")
+        self.assertTrue(self.group_gone(pgid, 2), "孫が残った")
         time.sleep(4)
         self.assertFalse(self.marker.exists(), "止めた後に孫が書いた")
 
@@ -148,16 +169,17 @@ class TreeRunCase(unittest.TestCase):
         t0 = time.monotonic()
         p.send_signal(signal.SIGINT)
         self.assertEqual(p.wait(10), 128 + signal.SIGINT)
-        self.assertTrue(group_gone(pgid, 1))
-        # 猶予（KILL_GRACE）より十分短く終わる。猶予まで待ったなら SIGTERM を送っていない
-        self.assertLess(time.monotonic() - t0, tree_run.KILL_GRACE / 2, "SIGKILL の猶予まで待った（SIGTERM を送っていない）")
+        self.assertTrue(self.group_gone(pgid, 1))
+        # 猶予（KILL_GRACE）より短く終わる。猶予まで待ったなら SIGTERM を送っていない。上限は猶予の 3/4: 止める手順は
+        # ps を 2 回起こす（数え上げと数え直し）ので、負荷の高い機械（load average 100 前後）では半分の 1 秒を越えることがある
+        self.assertLess(time.monotonic() - t0, tree_run.KILL_GRACE * 0.75, "SIGKILL の猶予まで待った（SIGTERM を送っていない）")
 
     def test_sigterm_ignoring_grandchild_is_killed(self):
         p = self.start(f"echo $$ > {self.pidf}; (trap '' TERM; sleep 300) & wait")
         pgid = self.wait_pgid()
         p.send_signal(signal.SIGTERM)
         self.assertEqual(p.wait(15), 128 + signal.SIGTERM)
-        self.assertTrue(group_gone(pgid, 1), "SIGTERM を無視する孫が残った")
+        self.assertTrue(self.group_gone(pgid, 1), "SIGTERM を無視する孫が残った")
 
     def test_sigterm_ignoring_grandchild_is_killed_before_archon_kills_tree_run(self):
         # Archon の cancel は持ち主のグループへ SIGTERM を送り、5 秒（TERMINATION_GRACE_MS）待って SIGKILL を送る。
@@ -169,7 +191,7 @@ class TreeRunCase(unittest.TestCase):
         pgid = self.wait_pgid()
         t0 = time.monotonic()
         p.send_signal(signal.SIGTERM)
-        self.assertTrue(group_gone(pgid, archon_grace), "Archon の猶予の内に孫が消えなかった")
+        self.assertTrue(self.group_gone(pgid, archon_grace), "Archon の猶予の内に孫が消えなかった")
         self.assertLess(time.monotonic() - t0, archon_grace)
         self.assertEqual(p.wait(10), 128 + signal.SIGTERM)
 
@@ -179,7 +201,7 @@ class TreeRunCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         pid = read_int(self.pidf)
         self.started.append(("pid", pid))
-        self.assertTrue(pid_gone(pid, 2), "背景の孫が残った")
+        self.assertTrue(self.pid_gone(pid, 2), "背景の孫が残った")
 
     def test_parent_death_stops_tree(self):
         # 殻の親（Archon が起こす uv の代わり）が kill -9 で消えたら、殻は親の替わりに気づいて木ごと止める
@@ -197,8 +219,9 @@ class TreeRunCase(unittest.TestCase):
         w.kill()
         w.wait(5)
         w.stdout.close()
-        self.assertTrue(group_gone(pgid, 8), "親が消えた後に孫が残った")
-        self.assertTrue(pid_gone(tree_pid, 8), "殻が残った")
+        self.assertTrue(self.group_gone(pgid, 8), "親が消えた後に孫が残った")
+        self.assertTrue(self.pid_gone(tree_pid, 8), "殻が残った")
+        self.assertTrue(self.group_gone(w.pid, 2), "殻の親のグループが残った")
         time.sleep(3)
         self.assertFalse(self.marker.exists(), "親が消えた後に孫が書いた")
 
@@ -246,22 +269,23 @@ class TreeRunCase(unittest.TestCase):
         gpid = self.wait_pid(gpidf)
         self.assertEqual(os.getsid(gpid), gpid, "孫が setsid していない（試験の前提）")
         p.send_signal(signal.SIGTERM)
-        self.assertTrue(pid_gone(gpid, tree_run.KILL_GRACE + 1), "setsid で出た孫が残った")
+        self.assertTrue(self.pid_gone(gpid, tree_run.KILL_GRACE + 1), "setsid で出た孫が残った")
         self.assertEqual(p.wait(10), 128 + signal.SIGTERM)
-        self.assertTrue(group_gone(pgid, 1))
+        self.assertTrue(self.group_gone(pgid, 1))
 
     def test_sigterm_ignoring_setsid_grandchild_is_killed_before_archon_kills_tree_run(self):
         # setsid で出て SIGTERM も無視する孫も、Archon の cancel の猶予（5 秒）より前に SIGKILL で消える
         archon_grace = 5.0
         gpidf = self.tmp / "gpid"
         p = self.start(f"echo $$ > {self.pidf}; {self.setsid_sleeper(gpidf, ignore_term=True)} & wait")
-        self.wait_pgid()
+        pgid = self.wait_pgid()
         gpid = self.wait_pid(gpidf)
         t0 = time.monotonic()
         p.send_signal(signal.SIGTERM)
-        self.assertTrue(pid_gone(gpid, archon_grace), "Archon の猶予の内に setsid で出た孫が消えなかった")
+        self.assertTrue(self.pid_gone(gpid, archon_grace), "Archon の猶予の内に setsid で出た孫が消えなかった")
         self.assertLess(time.monotonic() - t0, archon_grace)
         self.assertEqual(p.wait(10), 128 + signal.SIGTERM)
+        self.assertTrue(self.group_gone(pgid, 1))
 
     def test_zombie_only_group_does_not_hide_live_members(self):
         # コマンドの sh（グループ G の長）が緑で終わった時、G に残るのはゾンビ Z だけ。Z の親 A は setpgid で別のグループへ
@@ -280,12 +304,38 @@ class TreeRunCase(unittest.TestCase):
                 "time.sleep(300)\n")
         p = self.start(f"echo $$ > {self.pidf}; {sys.executable} -c {shlex.quote(body)} & "
                        f"while [ ! -s {apidf} ]; do sleep 0.05; done; exit 0")
-        self.wait_pgid()
+        pgid = self.wait_pgid()
         apid = self.wait_pid(apidf)
         t0 = time.monotonic()
         self.assertEqual(p.wait(15), 0)
         self.assertLess(time.monotonic() - t0, tree_run.KILL_GRACE * 1.5, "ゾンビだけのグループで猶予を使い切った")
-        self.assertTrue(pid_gone(apid, 1), "ゾンビだけのグループの向こうの生きた仲間が残った")
+        self.assertTrue(self.pid_gone(apid, 1), "ゾンビだけのグループの向こうの生きた仲間が残った")
+        self.assertTrue(self.group_gone(pgid, 2))
+
+    # ------------------------------------------------ ps が遅い・壊れている
+    def test_slow_or_failing_ps_still_stops_before_archon_kills_tree_run(self):
+        # ps が固まる・失敗する場でも、止める手順は Archon の cancel の猶予（5 秒）の内に SIGTERM を無視する孫へ SIGKILL を
+        # 届ける。ps を待つのは PS_TIMEOUT 秒までで、読めなければグループへ直ちに送り、以後の回は ps を起こさない
+        archon_grace = 5.0
+        for name, body in (("slow", "exec sleep 8"), ("failing", "echo 壊れた >&2; exit 1")):
+            with self.subTest(name):
+                fake = self.tmp / f"bin-{name}"
+                fake.mkdir()
+                (fake / "ps").write_text(f"#!/bin/sh\n{body}\n")
+                (fake / "ps").chmod(0o755)
+                pidf = self.tmp / f"pgid-{name}"
+                env = {**self.env, "PATH": f"{fake}{os.pathsep}{self.env.get('PATH', '')}"}
+                p = subprocess.Popen(self.cli("--", f"echo $$ > {pidf}; (trap '' TERM; sleep 300) & wait"), env=env,
+                                     cwd=str(self.tmp), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+                self.started.append(("popen", p))
+                pgid = read_int(pidf)
+                self.started.append(("pg", pgid))
+                t0 = time.monotonic()
+                p.send_signal(signal.SIGTERM)
+                self.assertTrue(self.group_gone(pgid, archon_grace), "ps が使えない場で、Archon の猶予の内に孫が消えなかった")
+                self.assertLess(time.monotonic() - t0, archon_grace)
+                self.assertEqual(p.wait(15), 128 + signal.SIGTERM)
 
     # ------------------------------------------------ pack を汚さない
     def test_no_bytecode_in_pack(self):
