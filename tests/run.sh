@@ -19,6 +19,9 @@ PY_BIN=$(command -v python3 || command -v python || true)
 # 効いていると `assert` が 1 つ残らず消え、**全部が無条件に緑になる**。環境変数 1 つで検証が
 # 丸ごと空振りする形なので、外して、外れたことを確かめる。
 unset PYTHONOPTIMIZE
+# 止める猶予の環境変数（graphloops/engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を
+# 走らせると値を継ぎ、既定の 5 秒を前提に子を止める検査がその下でだけ崩れる（読めない値なら engine の import で全部落ちる）
+unset GL_KILL_GRACE
 # **番人自身に `assert` を使うな。** 最適化が効いていると `assert __debug__` ごと消えるので、
 # 番人が常に通る（実測: この形で書いたとき、最適化を効かせた写しが 529 件すべて緑になった）。
 # 検査したい当のものを、検査の道具に使わない——値を印字して外から見る。

@@ -93,7 +93,8 @@ NO_TEST = "に当たる台本が 1 本も無い"   # graphloops/tests/parallel.p
 # 持ち越しの指紋に入れる台本（腕の結果を決める検査の側）。壊す側のファイルは腕ごとに足す
 DRIVERS = ("tests/run.sh", "graphloops/tests/run.sh", "graphloops/tests/parallel.py") + SCRIPTS
 # 止める信号を受けたとき、起こした子のグループへ SIGTERM → SIGKILL を送る間の猶予（秒）。engine（graphloops/engine/role_run.py の
-# KILL_GRACE）がこの実行器を止めるときは SIGTERM の 5 秒後に SIGKILL を送るので、2 段の猶予と写しの掃除がその前に済む幅にする
+# KILL_GRACE。既定 5 秒、GL_KILL_GRACE で選べる）がこの実行器を止めるときは、その猶予の後に SIGKILL を送るので、2 段の猶予と
+# 写しの掃除がその猶予より短く済む幅にする
 STOP_GRACE = 1
 # 印の写しで『どの台本が行を通したか』を読む書式。正本は graphloops/tests/parallel.py（TEST_THREAD・TAG）で、ここはその写し
 # （揃いは tests/run.sh の mut-owner の検査が縛る）。同じプロセスの中はスレッドの名前、子のプロセスは作業場の名前の印で見分ける

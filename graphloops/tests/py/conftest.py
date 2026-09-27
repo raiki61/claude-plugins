@@ -10,6 +10,7 @@
 """
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -25,6 +26,9 @@ if REPO is None:
     raise RuntimeError(f"{PLUGIN} の上に scripts/review-record.py が無い——リポジトリの根が見つからない")
 
 pytest_plugins = ("pytester", "glharness")
+# 止める猶予の環境変数（engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を走らせると値を継ぎ、
+# 既定の 5 秒を前提に子を止める検査が、その下でだけ崩れる（読めない値なら engine の import で全部落ちる）
+os.environ.pop("GL_KILL_GRACE", None)
 
 # graphcheck を同じプロセスで呼ぶ口（変異の道具 mutmut が差し替えた engine を見るため。別プロセスで走らせる検査は bash 側）
 _spec = importlib.util.spec_from_file_location("graphcheck", PLUGIN / "scripts" / "graphcheck.py")
@@ -53,7 +57,7 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 581
+EXPECTED_ITEMS = 598
 # 全件を回したときに台本の check が走るべき件数と、到達すべき値の数（fence.py の 3）。上げるときも下げるときも実測値を書く
 EXPECTED_SIM_CHECKS = 5
 EXPECTED_SIM_REACHED = 2

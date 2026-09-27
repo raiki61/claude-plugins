@@ -104,7 +104,7 @@ def stop(board_dir, reason, include_running=False):
     止めた事実は盤面の trace.jsonl に op=children_stop の 1 行で残す。返すのは survey の行に結果（stopped / skipped / left）を足した物"""
     if not (reason or "").strip():
         raise Reject("止める理由が空——--reason に、なぜ止めるかを書け（盤面の trace に残る）")
-    rows = survey(board_dir)
+    rows, todo = survey(board_dir), []
     for row in rows:
         if row["state"] in ("gone", "unreadable") or row.get("why"):
             row["result"] = "skipped"
@@ -113,7 +113,10 @@ def stop(board_dir, reason, include_running=False):
             row.update(result="skipped", skip_why=f"{row['state']}・instance {row['instance_status']} の印は --include-running のときだけ止める"
                                                   "（受け付けの前の試行は relaunch・stop の持ち分——盤面を先に書いてから止める）")
             continue
-        why = role_run.stop_group(pathlib.Path(board_dir) / row["mark"])
+        todo.append(row)
+    # 印ごとの木も同時に止める（role_run._at_once——1 本ずつ待つと所要時間が猶予×印の数に伸びる）
+    whys = role_run._at_once(lambda r: role_run.stop_group(pathlib.Path(board_dir) / r["mark"]), todo)
+    for row, why in zip(todo, whys):
         row.update(result="left" if why else "stopped", **({"stop_why": why} if why else {}))
     with open(pathlib.Path(board_dir) / "trace.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"t": now(), "op": "children_stop", "reason": reason, "include_running": include_running,

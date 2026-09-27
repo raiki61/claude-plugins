@@ -3,6 +3,9 @@
 # 役割 agent も LLM も使わない——確かめるのは engine・rules・graph の噛み合わせと、記録が
 # convergence-loops の検証器を通ること。役の判断の質は実走で見る。
 set -uo pipefail
+# 止める猶予の環境変数（graphloops/engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を
+# 走らせると値を継ぎ、既定の 5 秒を前提に子を止める検査がその下でだけ崩れる（読めない値なら engine の import で全部落ちる）
+unset GL_KILL_GRACE
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY_BIN=$(command -v python3 || command -v python || true)
 [ -n "$PY_BIN" ] || { echo "python3 / python が PATH に無い"; exit 2; }
