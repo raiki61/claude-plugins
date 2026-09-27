@@ -39,6 +39,8 @@ TDD の修正の段が使うテストの実行器（ラインの入力 `tdd_suit
 
 開発の家（`WORKS_DEV_HOME`。既定は `$TMPDIR/works-dev`）・使い捨ての対象・その origin は、Claude Code の一時フォルダ（`/private/tmp/claude-*`・`/tmp/claude-*`）の下に置けない。サンドボックスの中の Bash がそこへ書けるためで、`dev/` の殻はその下に解けるパスを終了コード 2 で拒む（設計書 7 節）。
 
+run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/versions.json` に書く（`.shared/core/versions.py`。入力を拒む run でも書く）: pack の中身の sha256・写した元の works の commit と手元の書き換えの有無（`dev/lib.sh` が pack の写しに置く `.works-source.json`）・`VERSION`・graphloops の写しの行・借りた物の版（`$CLAUDE_CONFIG_DIR/.works-toolset.json`）・Archon の版と Claude Code の `--version`（`archon.sh` が env の `WORKS_ARCHON_VERSION`・`WORKS_CLAUDE_VERSION` で渡す）。分からない値は null にして、`unknown` に理由を書く。模型は Archon が run の `metadata.model_bindings` に残す。
+
 ## 層と依存の向き
 
 正本は試験 `works/tests/test_layers.py`（裁定 R59）。下は要約で、食い違えば試験が正しい。上の層は下の層だけを知ってよい（import も、ライン・include の id・ほかのブロックの名前を文字列で書くことも）。

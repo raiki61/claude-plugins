@@ -44,7 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # core の模块の層と持ち主（.shared/core からの相対。.py は除く）。表に無い core の模块は unassigned で赤
 MOD = {
-    "tree_run": (1, None), "script_io": (1, None), "node_marker": (1, None),
+    "tree_run": (1, None), "script_io": (1, None), "node_marker": (1, None), "versions": (1, None),
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "no-post-bin/works-gh": (2, None),
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),

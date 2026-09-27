@@ -14,6 +14,20 @@ works_dev_copy_pack() {
     cp -R "$_entry" "$2/"
   done
   find "$2" \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 | xargs -0 rm -rf
+  # 出どころの控え <pack>/.works-source.json（{rev, dirty, from}）。run ごとの版の控え versions.json（線の start が
+  # .shared/core/versions.py で書く）が読む。写しは git を持たないので、写す時に元の commit と手元の書き換えの有無を残す
+  # （git の外から写した時は rev・dirty が null）
+  SRC_DIR="$1" python3 -c '
+import json, os, subprocess, sys
+src = os.environ["SRC_DIR"]
+def git(*a):
+    r = subprocess.run(["git", "-C", src, *a], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+rev = git("rev-parse", "HEAD")
+status = git("status", "--porcelain", "--", ".") if rev else None
+doc = {"rev": rev, "dirty": None if status is None else status != "", "from": os.path.abspath(src)}
+sys.stdout.write(json.dumps(doc, ensure_ascii=False) + "\n")
+' >"$2/.works-source.json"
 }
 
 # works_dev_show_run <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]:
