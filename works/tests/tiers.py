@@ -33,6 +33,7 @@ FAST = frozenset({
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
+    "test_rolekit",         # P1 Task 13: 役の節の共通の口を偽の盤面と mock で見る（git・子のプロセスなし）
     "test_sp_skills",       # superpowers の写し: 写しと元（プラグインのキャッシュ）を読んで比べる・sh を起こす（git なし）
     "test_script_io",       # 2 秒（python を 1 本起こすだけ。git は使わない）
     "test_tiers",           # 8 秒（偽の uv・枠の台本で run.sh を起こす）
@@ -54,6 +55,7 @@ HEAVY = frozenset({
     "test_blk_eyes",        # 独立の目（R11）: golden の盤面の再生（boardreplay）・一時の pack の写し・スクリプトを子で起こす
     "test_blk_ci",          # 線 A: 試験ごとの種の git（linekit.seed_repo）・スクリプトを子で起こす
     "test_blk_fix",         # 線 A Task 12: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
+    "test_blk_plan",        # P1 Task 25: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
     "test_blk_pr",          # 線 A: 試験ごとの git のリポジトリ・golden の盤面の再生（boardreplay）
     "test_blk_premises",    # 前提の実測: 試験ごとの git のリポジトリ（git init・commit）・スクリプトを子で起こす
     "test_blk_material",    # 素材集め（R3）: 種の git（linekit.seed_repo）で盤面を 2 種類作る（クラスに 1 回）・スクリプトを子で起こす

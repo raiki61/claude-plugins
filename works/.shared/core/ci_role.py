@@ -38,7 +38,7 @@ run が宣言した包みの形（start の控えの adapter。entry.declared_ad
 - collect:  出口。写しを消す。with: で届いた形が包み無し（optional）なら知らせ NO_ADAPTER_NOTE を note に出す。節を受けていれば素材の status と green、p0.local_checks なら
             entry.resume_after_ci で start の輪に戻って pr_go。受けていなければ（3 回とも拒まれた）最後の拒否の文で盤面を止めて
             （by works:ci）ok: false
-スクリプトの入口は rejudge.script_main（環境変数の欠け・BoardGap・写しの Reject は終了コード 2）。
+スクリプトの入口は rolekit.script_main（環境変数の欠け・BoardGap・写しの Reject は終了コード 2）。
 """
 import json
 import os
@@ -62,7 +62,7 @@ from engine.rules import validator_module  # noqa: E402
 from engine.util import AnswerReject, now, safe_name  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
-from rejudge import parse_reply, script_main  # noqa: E402,F401  （スクリプトの入口と返答の読み方は再審のブロックと同じ物）
+from rolekit import parse_reply, script_main  # noqa: E402,F401  （スクリプトの入口と返答の読み方は共通の rolekit）
 
 NODES = ("p0.local_checks", "p4.ci")   # 写しの graph の CI の節（engine_run.builtin が declared_checks）
 ROLE = "ci"                             # YAML の役の節の id と包みの印の名

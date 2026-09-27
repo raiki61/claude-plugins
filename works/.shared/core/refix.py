@@ -35,12 +35,11 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap, rules_module  # noqa: E402
 import engine.util as _util  # noqa: E402
-from engine.util import Reject  # noqa: E402
 import accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
 import policy  # noqa: E402
-import script_io  # noqa: E402
+import rolekit  # noqa: E402
 
 PASS_KEYS = ("cut", "review", "owed", "fix", "state_key", "owed_key")
 REVIEW_ROLE = {1: "review", 2: "review2"}   # 審査役の名（印 works-node の名・reads-<役>.json）
@@ -311,31 +310,9 @@ def own_module(mod, script: str) -> bool:
 
 
 # ---------------------------------------------------------------- スクリプトの入口
-def script_main(fn, inputs=()) -> int:
-    """blk-delta・blk-refix の受け付けでないスクリプトの入口。ARTIFACTS_DIR（空も欠け）と inputs（INPUTS_* の名前）を読み、
-    fn(盤面の置き場, repo=cwd, {名前: 値}) の返りを 1 行の JSON で出して 0。返りが {ok: False}（支度が盤面に要る物を
-    見つけない＝配線の誤り）・BoardGap・写しの Reject（止めた run・git が効かない）・環境変数の欠けは、標準出力に何も出さず
-    標準エラーに 1 行で 2（役に返しても直らない。TA19）"""
-    missing = [x for x in (script_io.ARTIFACTS_ENV, *inputs) if x not in os.environ]
-    if script_io.ARTIFACTS_ENV not in missing and not os.environ[script_io.ARTIFACTS_ENV]:
-        missing.append(script_io.ARTIFACTS_ENV)
-    if missing:
-        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
-        return 2
-    board = pathlib.Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
-    try:
-        out = fn(board, pathlib.Path.cwd(), {x: os.environ[x] for x in inputs})
-    except (BoardGap, Reject) as e:
-        print(f"{type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    except Exception as e:   # 思わぬ誤りも 1 行と 2（traceback を出さない）
-        print(f"内部の誤り: {type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    if isinstance(out, dict) and out.get("ok") is False:
-        print(f"配線の誤り: {' '.join(str(out.get('reason', '')).split())}", file=sys.stderr)
-        return 2
-    script_io._emit(out)
-    return 0
+# blk-delta・blk-refix の受け付けでないスクリプトの入口（rolekit.script_main）。返りが {ok: False}（支度が盤面に要る物を
+# 見つけない＝配線の誤り）も 2（役に返しても直らない。TA19）
+script_main = functools.partial(rolekit.script_main, not_ok_is_wiring=True)
 
 
 def pass_of(raw: str) -> int:
