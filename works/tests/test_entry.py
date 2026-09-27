@@ -914,5 +914,279 @@ class StartScriptCase(StartCaseBase):
         self.assertIn("壊れた", err)
 
 
+
+# ---------------------------------------------------------------- 盤面に受ける共通の口（計画 Task 9。裁定 TA6・TA11・TA19）
+# take は役の返答を盤面の done に渡す。写しの AnswerReject（中身の誤り）だけを {ok: False} で役に返し、盤面は書かない。
+# ほかの Reject（止めた run など）と BoardGap は投げ直す（受け付けのスクリプトは終了コード 2）。読むだけの役の作業ツリーの
+# 確かめは、役を起こす前に snapshot が今の周の置き場に写した accept.snapshot_tree と比べる（1 本目の写しの比べ）
+import hashlib  # noqa: E402
+
+from engine.util import AnswerReject, Reject  # noqa: E402
+
+JUDGE_SNAP = "judge-tree.json"
+
+
+def board_shas(d) -> dict:
+    """盤面の置き場の全部のファイルの sha256（拒んだ受け付けが何も書かないことを見る）"""
+    d = pathlib.Path(d)
+    return {str(p.relative_to(d)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(d.rglob("*")) if p.is_file()}
+
+
+def launch(board_dir, nid) -> dict:
+    """ブロックの snap の節の代わり: 待っている試行に起こした印を置く（盤面は印の無い返答を受けない）"""
+    b = entry.open_board(board_dir)
+    return b.mark_launched(nid, pending_inst(b, nid).get("attempts", 1))
+
+
+def pr_reply() -> dict:
+    """p0.parallel_pr の任せ先の役の返答（交差 0 件）。works だけの欄 excluded は blk-pr の受け付けが外してから盤面に渡す"""
+    return {k: v for k, v in linekit.reply("pr_no_conflicts").items() if k != "excluded"}
+
+
+PREMISES_REPLY = {"constraints": []}
+
+
+def halt(board_dir):
+    """周の途中の問いで止めた run（state.halted）にする。欄の形は DiskBoard.stop・engine の run_driver_node が書く物と同じ"""
+    p = pathlib.Path(board_dir) / "state.json"
+    st = json.loads(p.read_text(encoding="utf-8"))
+    st["halted"] = {"node": "p2.human_gate", "round": st["round"], "by": "works:test", "reason": "試験で止めた"}
+    p.write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def plan_reply(unit_keys) -> dict:
+    return {"plan": [{"unit_keys": unit_keys, "approach": "mean の分母を len(xs) に直す（算術平均の定義どおり）",
+                      "adds": [], "removes": [], "shrink_first": "足す物は無い。分母の式を 1 か所直すだけで足りる",
+                      "narrows": []}]}
+
+
+class TakeCaseBase(StartCaseBase):
+    def judge_ready(self):
+        """p2.diagnose が待っている盤面（start の後、前提の役と並行 PR の任せ先の役の返答を take で渡した）。置き場は
+        $ARTIFACTS_DIR/board の形（self.art / board）。返りは対象リポジトリ"""
+        repo = self.seed(declared=True)
+        self.art = self.tmp / "art"
+        self.board = self.art / "board"
+        entry.start(self.board, repo, self.raw(), run_id="run-7")
+        for nid, reply in (("p0.parallel_pr", pr_reply()), ("p0.premises", PREMISES_REPLY)):
+            launch(self.board, nid)
+            got = entry.take(self.board, nid, reply, repo)
+            self.assertTrue(got["ok"], got)
+        self.assertIn("p2.diagnose", entry.open_board(self.board).settle()["ready"])
+        return repo
+
+    def judged(self, name="judge_ok"):
+        """判定（name の見本）を受けた盤面"""
+        repo = self.judge_ready()
+        launch(self.board, "p2.diagnose")
+        got = entry.take(self.board, "p2.diagnose", linekit.reply(name), repo)
+        self.assertTrue(got["ok"], got)
+        return repo, got
+
+
+class TakeCase(TakeCaseBase):
+    def test_take_accepts_and_reports_ready(self):
+        repo, got = self.judged()
+        self.assertEqual(set(got), {"ok", "reason", "ready", "asking", "halted", "out_file"})
+        self.assertEqual((got["ok"], got["reason"], got["asking"], got["halted"]), (True, "", False, False))
+        self.assertIn("p2.fix_plan", got["ready"])
+        b = entry.open_board(self.board)
+        self.assertEqual(got["out_file"], b.state["outputs"]["p2.diagnose"]["file"])
+        self.assertTrue((self.board / got["out_file"]).is_file())
+        self.assertEqual(b.node_state("p2.diagnose"), "done")
+
+    def test_take_reject_leaves_board(self):
+        repo = self.judge_ready()
+        launch(self.board, "p2.diagnose")
+        before = board_shas(self.board)
+        bad = linekit.reply("judge_ok")
+        bad["units"] = "壊れた"
+        got = entry.take(self.board, "p2.diagnose", bad, repo)
+        self.assertEqual(set(got), {"ok", "reason"})
+        self.assertFalse(got["ok"])
+        self.assertIn("型に合わない", got["reason"])
+        self.assertEqual(board_shas(self.board), before)
+        self.assertEqual(entry.open_board(self.board).node_state("p2.diagnose"), "pending")
+
+    def test_take_readonly_tree_changed(self):
+        """読むだけの役を起こす前の写し（snapshot）と今の作業ツリーが違えば ok False・盤面は前のまま。戻せば通る"""
+        repo = self.judge_ready()
+        launch(self.board, "p2.diagnose")
+        snap = entry.snapshot(self.board, JUDGE_SNAP, repo)
+        self.assertEqual(snap, entry.open_board(self.board).work(JUDGE_SNAP))
+        import accept
+        self.assertEqual(set(json.loads(snap.read_text(encoding="utf-8"))), set(accept.SNAPSHOT_KEYS))
+        (repo / "stray.txt").write_text("役が書いた\n", encoding="utf-8")
+        before = board_shas(self.board)
+        got = entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name=JUDGE_SNAP)
+        self.assertFalse(got["ok"])
+        self.assertTrue(got["reason"].startswith("読むだけの役が作業ツリーを変えた: "), got["reason"])
+        self.assertIn("stray.txt", got["reason"])
+        self.assertEqual(board_shas(self.board), before)
+        (repo / "stray.txt").unlink()
+        got = entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name=JUDGE_SNAP)
+        self.assertTrue(got["ok"], got)
+
+    def test_take_gap_raises(self):
+        """表で absent の節・写しの無い snapshot_name・印の無い試行は BoardGap（回す側の誤り。役に返さない）"""
+        repo = self.judge_ready()
+        with self.assertRaises(BoardGap):
+            entry.take(self.board, "p0.purpose", {"text": "目的"}, repo)
+        with self.assertRaises(BoardGap):   # 印（mark_launched）の無い試行の返答
+            entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo)
+        launch(self.board, "p2.diagnose")
+        with self.assertRaises(BoardGap):   # 役を起こす前の写しが無い
+            entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name="nowhere.json")
+
+    def test_take_on_halted_raises_not_role_reject(self):
+        """止めた run（halted）への受け付けは写しの Reject のまま投げ直す（AnswerReject でない。役に返さない）"""
+        repo = self.judge_ready()
+        launch(self.board, "p2.diagnose")
+        halt(self.board)
+        before = board_shas(self.board)
+        bad_snap = entry.open_board(self.board, allow_halted=True).work(JUDGE_SNAP)
+        for snap in (None, JUDGE_SNAP):
+            with self.subTest(snapshot_name=snap):
+                if snap:
+                    bad_snap.write_text("{}", encoding="utf-8")   # 形の崩れた写しより先に止めた run を拒む
+                with self.assertRaises(Reject) as cm:
+                    entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name=snap)
+                self.assertNotIsInstance(cm.exception, AnswerReject)
+                self.assertIn("止めた", str(cm.exception))
+        bad_snap.unlink()
+        self.assertEqual(board_shas(self.board), before)
+
+    def test_take_on_stopped_raises(self):
+        """止め札（b.stop）で止めた run: 待っていた instance は stopped で、受け付けは BoardGap（役に返さない）"""
+        repo = self.judge_ready()
+        launch(self.board, "p2.diagnose")
+        entry.open_board(self.board).stop("試験で止める", by="works:test")
+        with self.assertRaises(BoardGap):
+            entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo)
+
+    def test_take_pointer_integer_rejected(self):
+        """番号の控えを固めずに起こした p2.fix_plan に unit_keys の整数 → engine の番号の文で ok False（盤仕様 BL17）"""
+        repo, _ = self.judged()
+        launch(self.board, "p2.fix_plan")
+        before = board_shas(self.board)
+        got = entry.take(self.board, "p2.fix_plan", plan_reply([1]), repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("p2.fix_plan", got["reason"])
+        self.assertIn("unit_keys", got["reason"])
+        self.assertEqual(board_shas(self.board), before)
+
+    def test_empty_fix_passes_rule(self):
+        """直す義務 0 件の周（judge_no_fix → p2.fix_plan は条件で na）で、機械が渡す p3.fix の空の返答が写しの schema と
+        fix_covers_open_units を通る。settle の後 p4.ci が待ち、差分の審査は na（TA6）"""
+        empty = entry.empty_fix_reply()
+        self.assertEqual(empty["changes"], [])
+        self.assertEqual(empty["fix_closure"]["status"], "not_applicable")
+        self.assertEqual(set(empty), set(GRAPH["nodes"]["p3.fix"]["schema"]["required"]))
+        self.assertIsNot(entry.empty_fix_reply(), empty)
+        repo, got = self.judged("judge_no_fix")
+        b = entry.open_board(self.board)
+        self.assertIn("p2.fix_plan", b.rd["na"])
+        self.assertIn("p3.fix", got["ready"])
+        launch(self.board, "p3.fix")
+        got = entry.take(self.board, "p3.fix", empty, repo)
+        self.assertTrue(got["ok"], got)
+        self.assertIn("p4.ci", got["ready"])
+        b = entry.open_board(self.board)
+        self.assertIn("p3.delta_review", b.rd["na"])
+        self.assertEqual(b.record["materials"]["fix_closure"]["status"], "not_applicable")
+
+
+class TakeRoundTwoCase(unittest.TestCase):
+    """周 2 の盤面（手本 test_converges の Run 1 の周 2 の p2.diagnose の受け付けの前）で take。out_file は out/r2/ の下
+    （ブロックは周の番号を仮定しない。TA17）"""
+
+    def setUp(self):
+        import boardreplay as R
+        self.R = R
+        self._tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        cwd = engine_util.GIT_CWD
+        self.addCleanup(setattr, engine_util, "GIT_CWD", cwd)
+        env = mock.patch.dict(os.environ, R.git_env())
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_take_round_two(self):
+        R = self.R
+        rs = R.load_runs("test_converges")["1"]
+        s = next(s for s in rs if s["kind"] == "accept" and s["node"] == "p2.diagnose"
+                 and R.memory_at(rs, s["seq"], "before")["state"]["round"] == 2)
+        board_dir, repo = R.restore(rs, s["seq"], "before", self.tmp)
+        table = entry.load_table()
+        R.board_from_memory(R.memory_at(rs, s["seq"], "before"), board_dir, table)
+        st = json.loads((board_dir / "state.json").read_text(encoding="utf-8"))
+        st["works"].update(line=table.line, table_sha=table.sha())
+        (board_dir / "state.json").write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        b = entry.open_board(board_dir)
+        self.assertEqual(b.round, 2)
+        R.mark(b, "p2.diagnose")
+        got = entry.take(board_dir, "p2.diagnose", R.reply(s, b), repo)
+        self.assertTrue(got["ok"], got)
+        self.assertTrue(got["out_file"].startswith("out/r2/"), got["out_file"])
+
+
+class MainTakeCase(TakeCaseBase):
+    """受け付けのスクリプトとして子で起こす（script_io.main と同じ環境変数の約束）。中身の拒否は 0 で 1 行（reason_file つき）、
+    止めた盤面・BoardGap・環境変数の欠けは 2（標準出力は空・標準エラーに 1 行）"""
+
+    def run_take(self, repo, nid, reply, **env):
+        code = (f"import sys; sys.path.insert(0, {str(CORE)!r}); import entry; "
+                f"sys.exit(entry.main_take({nid!r}))")
+        base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+        base.update({"INPUTS_REPLY": json.dumps(reply, ensure_ascii=False), "INPUTS_BASE_REV": "",
+                     "ARTIFACTS_DIR": str(self.art), "PYTHONDONTWRITEBYTECODE": "1"})
+        base.update(env)
+        base = {k: v for k, v in base.items() if v is not None}
+        return subprocess.run([sys.executable, "-c", code], cwd=repo, env=base, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL)
+
+    def test_main_take_exit_codes(self):
+        repo = self.judge_ready()
+        launch(self.board, "p2.diagnose")
+        # 中身の拒否: 0 と 1 行。理由の本文は reason_file に（役へは $LOOP_PREV でパスだけを渡す。裁定 R44）
+        r = self.run_take(repo, "p2.diagnose", {"units": "壊れた"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(len(lines), 1)
+        got = json.loads(lines[0])
+        self.assertFalse(got["ok"])
+        self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), got["reason"])
+        # 読めない返答も 0 と 1 行
+        r = self.run_take(repo, "p2.diagnose", None, INPUTS_REPLY="{壊れた")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(json.loads(r.stdout)["ok"])
+        # 通る: 0 と 1 行。reason_file は空
+        r = self.run_take(repo, "p2.diagnose", linekit.reply("judge_ok"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["reason_file"], "")
+        self.assertIn("p2.fix_plan", got["ready"])
+        # BoardGap（表で absent の節）: 2
+        r = self.run_take(repo, "p0.purpose", {"text": "目的"})
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+        self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
+        # 環境変数の欠け: 2
+        for name in ("INPUTS_REPLY", "INPUTS_BASE_REV", "ARTIFACTS_DIR"):
+            with self.subTest(name):
+                r = self.run_take(repo, "p2.fix_plan", plan_reply(["x"]), **{name: None})
+                self.assertEqual((r.returncode, r.stdout), (2, ""))
+                self.assertIn(name, r.stderr)
+        # 止めた盤面: 2
+        launch(self.board, "p2.fix_plan")
+        halt(self.board)
+        r = self.run_take(repo, "p2.fix_plan", plan_reply(["x"]))
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+        self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
+        self.assertIn("止めた", r.stderr)
+        self.assertFalse([*CORE.rglob("__pycache__")])
+
+
 if __name__ == "__main__":
     unittest.main()

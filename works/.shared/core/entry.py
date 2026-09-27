@@ -10,6 +10,11 @@
 - run_ci(b, nid, *, test_cmd): CI の節を run_engine で走らせ、返りを全部扱う（start と blk-tests の final が使う）
 - start(board_dir, repo, raw, *, run_id): 入力の確かめ → 盤面を開く → 修正前のテストの記録 → 方針の文 → 切符
 - resume_after_ci(b): 任せ先の CI の役が p0.local_checks を渡した後、ラインが start の輪（run_engine → settle）に戻る口
+- snapshot(board_dir, name, repo): 読むだけの役を起こす前に、作業ツリーの写し（accept.snapshot_tree）を今の周の b.work(name) に
+- take(board_dir, nid, reply, repo, *, snapshot_name): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
+  （写しの AnswerReject だけを {ok: False} で役に返す。裁定 TA19）
+- main_take(nid, *, snapshot_name): ブロックの受け付けのスクリプトの入口（script_io.main の環境変数の約束と出口）
+- empty_fix_reply(): 直す義務 0 件の周に機械が渡す p3.fix の空の返答（裁定 TA6）
 
 ブロックのスクリプトは open_board で盤面を開く。線 B のライン（darkfactory-rounds）でも同じブロックが同じ口で動く。
 """
@@ -30,7 +35,9 @@ if str(_CORE) not in sys.path:
 from board import GRAPH_SHA, BoardGap, BoardMismatch, DiskBoard, NodeTable, graph_expanded  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import engine.util as _util  # noqa: E402
-from engine.util import Reject, safe_name  # noqa: E402
+from engine.commands import _refuse_halted  # noqa: E402  （board.py と同じ入口の拒み。写しの engine の関数）
+from engine.util import AnswerReject, Reject, safe_name  # noqa: E402
+import accept  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
 import ticket  # noqa: E402
@@ -423,3 +430,93 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
            "gates": inp["gates"], **go, "head_line": head}
     _write_json(work, {**doc, **go, "head_line": head})
     return out
+
+
+
+# ---------------------------------------------------------------- 盤面に受ける共通の口（計画 Task 9。裁定 TA6・TA11・TA19）
+READONLY_MOVED = "読むだけの役が作業ツリーを変えた: "   # take の作業ツリーの拒否の文の頭（1 本目の読むだけの役の拒否の文を後ろに続ける）
+
+
+def snapshot(board_dir: pathlib.Path, name: str, repo: pathlib.Path) -> pathlib.Path:
+    """読むだけの役を起こす前に、作業ツリーの写し（accept.snapshot_tree。1 本目と同じ写し。TA11）を今の周の作業ファイル
+    b.work(name) に書き、そのパスを返す。take(…, snapshot_name=name) がこれと今の作業ツリーを比べる。git が効かなければ Reject"""
+    b = open_board(board_dir)
+    p = b.work(name)
+    _write_json(p, accept.snapshot_tree(pathlib.Path(repo)))
+    return p
+
+
+def _tree_moved(b, name: str, repo: pathlib.Path) -> str:
+    """b.work(name) の写しと今の作業ツリーの違いを述べる文（同じなら空）。比べは 1 本目の読むだけの役の検査
+    （accept._assert_same_tree。SNAPSHOT_KEYS の組を丸ごと比べ、git が無視するパスの増減も言う）。写しが無い・形が違うのは
+    snapshot が走っていない回す側の誤りで BoardGap"""
+    p = b.work(name)
+    try:
+        snap = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise BoardGap(f"作業ツリーの写し {p} が読めない（読むだけの役を起こす前に snapshot が走っていない）: {e}") from None
+    errs = validate_schema(snap, accept.SNAPSHOT_SCHEMA)
+    if errs:
+        raise BoardGap(f"作業ツリーの写し {p} の形が違う: " + "; ".join(errs))
+    try:
+        accept._assert_same_tree(pathlib.Path(repo), snap, name, "役を起こす前", "この役")
+    except Reject as e:   # 違った・git が引けなくなった（役を起こす前は引けた）: どちらも役が作業ツリーを変えた
+        return str(e)
+    return ""
+
+
+def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, snapshot_name: str | None = None) -> dict:
+    """役の返答を盤面に渡す（各ブロックの受け付けが使う 1 つの口）。順:
+    1. 盤面を開く（open_board）。止めた run はここで Reject（役に返さない。作業ツリーの比べより先）
+    2. snapshot_name が在れば、役を起こす前の写し（snapshot）と今の作業ツリーを比べ、違えば
+       {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: …"}（盤面は書かない。TA11）
+    3. b.done(nid, reply)（写しの schema → 番号の読み替え → post_check → writes → check_record → 保存 → settle）
+    通れば {"ok": True, "reason": "", "ready", "asking", "halted", "out_file"}（out_file は state.outputs[nid]["file"]。
+    盤面の置き場からの相対。周を仮定しない）。写しの AnswerReject（返答の中身の誤り）だけを {"ok": False, "reason": 文} に
+    する（盤面は書かれない。入れ物は捨てる——盤仕様 4.1）。ほかの Reject（止めた run への書き込みなど）と BoardGap（表で
+    受けない節・印の無い試行・写しの欠け）は投げ直す（回す側の誤りで、役に返しても直らない。TA19）。
+    DiskBoard.edit は使わない（done の中で保存される）。起こした印（mark_launched）は役を起こす前にブロックの snap の節が置く"""
+    b = open_board(board_dir)
+    _refuse_halted(b)
+    if snapshot_name is not None:
+        moved = _tree_moved(b, snapshot_name, repo)
+        if moved:
+            return {"ok": False, "reason": READONLY_MOVED + moved}
+    try:
+        p = b.done(nid, reply)
+    except AnswerReject as e:
+        return {"ok": False, "reason": str(e)}
+    return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
+            "out_file": b.state["outputs"][nid]["file"]}
+
+
+def main_take(nid: str, *, snapshot_name: str | None = None) -> int:
+    """ブロックの受け付けのスクリプトの入口。script_io.main（INPUTS_REPLY・INPUTS_BASE_REV・ARTIFACTS_DIR。盤面は
+    $ARTIFACTS_DIR/board）でそのまま take を呼ぶ: 中身の拒否（読めない返答を含む）は終了コード 0 の 1 行で、reason_file に
+    理由の本文のパス（役へは $LOOP_PREV でパスだけを渡す。裁定 R44）。環境変数の欠けは script_io.main の 2。
+    take が投げた BoardGap・Reject（止めた run など。TA19）と思わぬ誤りは、標準出力に何も出さずに標準エラーに 1 行で 2"""
+    import script_io
+
+    def fn(reply, board, base_rev, repo):
+        return take(board, nid, reply, repo, snapshot_name=snapshot_name)
+    fn.__name__ = f"take_{nid}"   # reason_file の名前（reject-take_<節>-<連番>.txt。script_io が英数字以外を _ にする）
+    try:
+        return script_io.main(fn)
+    except (BoardGap, Reject) as e:
+        print(f"{nid} の受け付けを回せない（{type(e).__name__}）: {' '.join(str(e).split())}", file=sys.stderr)
+    except Exception as e:   # 思わぬ誤りも 1 行と 2（traceback を出さない。start.py と同じ）
+        print(f"{nid} の受け付けの内部の誤り: {type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
+    return 2
+
+
+EMPTY_FIX_REASON = "直す義務 0 件の周（p2.fix_plan が条件で na）——修正の役を起こさず、機械が空の返答を渡した"
+
+
+def empty_fix_reply() -> dict:
+    """直す義務 0 件の周に機械が渡す p3.fix の返答（TA6）。changes は空、fix_closure は not_applicable（写しの graph の
+    p3.fix は na_self_ok を宣言し、fix_covers_open_units は changes が空なら義務 0 件の周を通す）、他の必須の欄は空の値。
+    呼ぶたびに新しい dict"""
+    return {"changes": [], "fix_closure": {"status": "not_applicable", "reason": EMPTY_FIX_REASON},
+            "gates_changed": False, "interactions": [], "mechanism_changed": False, "not_done": [], "path_changed": False,
+            "plan_faces": [], "premise_drift": False, "seams_changed": False, "security_surface_changed": False,
+            "wrote_refs": []}
