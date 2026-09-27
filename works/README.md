@@ -56,7 +56,10 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 - 印の無い起動で見分けられない形（`--json-schema` が 2 つ、読めない JSON）は、足さずに素通しし、stderr に警告を 1 行出す。
 - 印のある起動は柵なしで起こさない: `--settings` を読めない・混ぜられない、切符のファイルが在るのに読めない、会話の id を記録できない時は、claude を起こさずに 1 行を出して終了コード 3 で止まる。
 - 印の跡（`works-node:`）が `--json-schema` のどこかに在るのに、一番上の `description` の印として読めない起動（知らない旗・大文字・余分な空白・入れ子の `description`・印を持つ `--json-schema` が 2 つ・壊れた JSON）は素通しせず、claude を起こさずに 1 行を出して終了コード 3 で止まる（黙って新しい会話で再審させず、柵を落とさない）。印の文法は `node_marker.parse` と同じ。
-- 印に `no-post` を持つ起動（並行 PR の任せ先の役）は、`permissions.deny` に `gh` の書き込みの語を足す（`gh api` は丸ごと。ほかに `gh pr comment`・`review`・`edit`・`create`・`close`・`merge`・`ready`・`reopen`・`checkout`、`gh issue comment`・`create`・`edit`・`close`、`gh label`）。
+- 印に `no-post` を持つ起動（並行 PR の任せ先の役。読むだけ）は、gh を許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので、規則だけでは「gh を拒んで一部だけ許す」と書けない。そこで次の 3 つを組み合わせる。
+  - `permissions.deny` で gh を丸ごと拒む（`Bash(gh:*)`・PATH の上の本物の gh の絶対パスの全部の綴り・`Bash(git push:*)`）。
+  - 読む 4 つの形だけを通す口 `.shared/core/no-post-bin/works-gh` を、env の `WORKS_GH`（絶対パス）で役に渡す。通すのは `pr list`・`pr view`・`pr diff` を `-R <OWNER/REPO>` 付きで、と `repo view <OWNER/REPO>`。`--web` は拒む。役は `"$WORKS_GH" pr view 12 -R o/r` の形で呼ぶ。
+  - 同じ口を PATH の頭に `gh` の名でも置く。`command gh`・`xargs gh`・`sh -c "gh …"` のように、前方一致の規則をすり抜ける呼び方も同じ一覧を通る。
 - SDK が `--resume <id> --fork-session` で継ぐ起動（Archon が輪の中の節を続ける形）は、新しい会話の id が argv に出ないので、包みが `--session-id=<uuid>` を足してその id を記録する（元の id を記録すると、後の再審が古い会話を継ぐ）。
 - 柵（線の `start` が切符 `<家>/tickets/<cwd の hash>.json` を書いた run だけ）: 切符の守る場所（共通の `.git`・ほかの worktree・盤面など）に、起動の時に引き直す `CLAUDE_CONFIG_DIR` と `git worktree list` の今の worktree を足し、`/var` と `/private/var`・`/tmp` と `/private/tmp` の両方の綴りで `permissions.deny`（`Edit(//<場所>/**)`・`Write(…)`）に足す。これで Bash・Edit・Write が止まる。SDK が sandbox の塊を渡した起動は `sandbox.filesystem.denyWrite` にも足す（これだけでは Bash しか止まらない）。役の cwd の worktree 自身は守らない（切符に在る `<cwd>/.git` は守る）。
 - 起動ごとに `<家>/launches/<cwd の hash>.jsonl` に 1 行（時刻 `at`・節の名・足したか・柵の数・会話の id と継ぎ方と元の id `from`）を書く。引数の本文は書かない。再審の前の確かめは `adapter.session_path`・`adapter.last_launch` でこれを読む。

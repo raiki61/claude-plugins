@@ -34,7 +34,9 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    SIGINT・SIGTERM・SIGHUP を受けた時（か直下の親が替わった時）と claude が終わった後に、溜めた仲間ごと
    tree_run.stop_group（数え上げ→送る→数え直し。TERM → KILL_GRACE → KILL）で止める。信号で止めた時は LINGER 待ってから
    128+信号で抜ける（すぐ死ぬと Archon の run が running のまま固まる。試し P17）。上限は tree_run と同じ勘定。
-5. **印 no-post**（並行 PR の任せ先の役）: permissions.deny に gh の書き込みの語（NO_POST_DENY）を足す（切符に依らない）。
+5. **印 no-post**（並行 PR の任せ先の役。切符に依らない）: gh は丸ごと拒み（permissions.deny の `Bash(gh:*)`・本物の gh の
+   絶対パスの全部の綴り・`Bash(git push:*)`）、読む 4 つの形（pr list・pr view・pr diff を -R 付きで、repo view <OWNER/REPO>）
+   だけを通す口 no-post-bin/works-gh を env の WORKS_GH で渡し、PATH の頭に同じ口を gh の名で置く（NO_POST_DENY の注記）。
 6. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
    会話の id を記録できない時は、claude を起こさずに 1 行を出して止まる（fail closed）。
 
@@ -62,6 +64,7 @@ import re
 import shlex
 import signal
 import subprocess
+import sys
 import time
 import uuid
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
@@ -78,14 +81,12 @@ SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 
 _NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
 FLAGS = ("no-post",)                   # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）
-# no-post の起動の permissions.deny に足す gh の書き込みの語（計画 Task 5 の NO_POST_DENY）
-# gh api は丸ごと拒む（-X・-f・--field・graphql がパスの後ろのどこに来ても前方一致の規則では拾えないため）
-NO_POST_DENY = ("Bash(gh api:*)",
-                "Bash(gh pr comment:*)", "Bash(gh pr review:*)", "Bash(gh pr edit:*)", "Bash(gh pr create:*)",
-                "Bash(gh pr close:*)", "Bash(gh pr merge:*)", "Bash(gh pr ready:*)", "Bash(gh pr reopen:*)",
-                "Bash(gh pr checkout:*)",
-                "Bash(gh issue comment:*)", "Bash(gh issue create:*)", "Bash(gh issue edit:*)", "Bash(gh issue close:*)",
-                "Bash(gh label:*)")
+# 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
+# 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
+# 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
+# gh の名で置き、前方一致をすり抜ける呼び方（command gh・xargs gh・sh -c "gh …"）も同じ一覧に通す。git push も拒む
+NO_POST_DENY = ("Bash(gh:*)", "Bash(git push:*)")
+NO_POST_BIN = pathlib.Path(__file__).resolve().parent / "no-post-bin"
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 
 
@@ -114,7 +115,8 @@ class Plan(NamedTuple):
     tools_empty: bool               # `--tools ""`（題の生成か、道具を持たない役）
     session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
-    fence: Optional[dict] = None    # {deny_write, permissions_deny}（フックを足した起動だけ）
+    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?}（フックを足した起動だけ）
+    env: Optional[dict] = None      # 子の env に上書きする物（no-post の起動だけ）
 
 
 def marker_text(name: str, cont: Optional[str] = None, flags: Sequence[str] = ()) -> str:
@@ -319,15 +321,47 @@ def _load_settings(value: str) -> dict:
     return data
 
 
-def _with_hook(argv: List[str], command: str, protected: Sequence[str], no_post: bool = False) -> Tuple[List[str], dict]:
+def find_gh(path_env: str) -> List[str]:
+    """PATH の上の本物の gh の絶対パス（no-post-bin の口は除く。前から順に、重なりは 1 つ）"""
+    out = []
+    skip = os.path.realpath(str(NO_POST_BIN))
+    for d in path_env.split(os.pathsep):
+        if not d or not os.path.isabs(d) or os.path.realpath(d) == skip:
+            continue
+        c = os.path.join(d, "gh")
+        if os.path.isfile(c) and os.access(c, os.X_OK) and c not in out:
+            out.append(c)
+    return out
+
+
+def no_post_rules(gh_paths: Sequence[str]) -> List[str]:
+    """no-post の起動の permissions.deny: NO_POST_DENY と、本物の gh の絶対パス（綴り・realpath・/private の別名の全部）"""
+    rules = list(NO_POST_DENY)
+    for g in gh_paths:
+        for p in spellings(g):
+            r = f"Bash({p}:*)"
+            if r not in rules:
+                rules.append(r)
+    return rules
+
+
+def no_post_env(env, gh_paths: Sequence[str]) -> dict:
+    """no-post の起動の子の env の差し替え: PATH の頭に口の置き場、WORKS_GH（口）、WORKS_REAL_GH（口が起こす本物の gh）"""
+    return {"PATH": str(NO_POST_BIN) + os.pathsep + env.get("PATH", ""),
+            "WORKS_GH": str(NO_POST_BIN / "works-gh"),
+            "WORKS_REAL_GH": gh_paths[0] if gh_paths else ""}
+
+
+def _with_hook(argv: List[str], command: str, protected: Sequence[str],
+               no_post: Optional[Sequence[str]] = None) -> Tuple[List[str], dict]:
     found = find_opt(argv, "--settings")
     if len(found) > 1:
         raise Unrecognised("--settings が 2 つ以上")
     doc = merge_settings(_load_settings(found[0][2]), hook_settings(command)) if found else hook_settings(command)
     n_write, n_deny = add_fences(doc, protected) if protected else (0, 0)
     fence = {"deny_write": n_write, "permissions_deny": n_deny}
-    if no_post:
-        fence["no_post"] = add_deny(doc, NO_POST_DENY)
+    if no_post is not None:
+        fence["no_post"] = add_deny(doc, no_post_rules(no_post))
     text = json.dumps(doc, ensure_ascii=False)
     if not found:
         return argv + ["--settings", text], fence
@@ -484,9 +518,10 @@ def _tools_empty(argv: Sequence[str]) -> bool:
 
 def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
-         protected: Optional[Callable[[], Sequence[str]]] = None) -> Plan:
+         protected: Optional[Callable[[], Sequence[str]]] = None, env=None) -> Plan:
     """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書かない）。
-    protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ空、在るのに読めなければ BadTicket）"""
+    protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ空、在るのに読めなければ BadTicket）。
+    env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）"""
     argv = list(argv)
     tools_empty = _tools_empty(argv)
     try:
@@ -536,12 +571,15 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     record.append((session_path(cwd, node, home_dir), sid))
 
     # 2. Read のフックと柵。印のある起動は、柵を足せなければ起こさない（fail closed）
+    env = os.environ if env is None else env
+    gh = find_gh(env.get("PATH", "")) if "no-post" in marker.flags else None
     try:
         places = protected() if protected else []
-        out, fence = _with_hook(out, command, places, "no-post" in marker.flags)
+        out, fence = _with_hook(out, command, places, gh)
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
-    return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence)
+    child_env = no_post_env(env, gh) if gh is not None else None
+    return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env)
 
 
 def _refuse(argv, node, cont, tools_empty, why) -> Plan:
@@ -575,7 +613,7 @@ def _stop(p, known, born, first=signal.SIGTERM) -> None:
         sys.stderr.write(f"works claude-adapter: 木を止め切れない: {why}\n")
 
 
-def supervise(argv: Sequence[str]) -> int:
+def supervise(argv: Sequence[str], env_over: Optional[dict] = None) -> int:
     """argv（本物の claude と引数）を新しいセッションで起こして待ち、終了コードを返す（信号で死んだら 128+信号）。
     待つ間は POLL ごとに仲間を数えて溜める。止める信号を受けたか直下の親が替わったら、溜めた仲間ごと木を止め
     （tree_run.stop_group）、LINGER 待って 128+信号（親の替わりは SIGHUP）を返す。claude が自分で終わった後も
@@ -586,7 +624,8 @@ def supervise(argv: Sequence[str]) -> int:
     ppid = os.getppid()
     known: Dict[int, float] = {}
     born = time.time()
-    p = subprocess.Popen(list(argv), start_new_session=True)
+    env = dict(os.environ, **env_over) if env_over else None
+    p = subprocess.Popen(list(argv), start_new_session=True, env=env)
     stopped = False
     try:
         while True:

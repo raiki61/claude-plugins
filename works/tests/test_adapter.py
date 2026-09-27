@@ -370,22 +370,86 @@ class AdapterCase(unittest.TestCase):
                 row = self.e.launches()[-1]
                 self.assertEqual((row["mode"], row["session"]["mode"]), ("refused", "refused"))
 
-    def test_no_post_denies_gh_writes(self):
-        r = self.e.run(sdk_argv("works-node: pr-check no-post"))
+    def _fake_gh_bin(self):
+        """PATH に置く偽の本物の gh（受けた argv を FAKE_GH_LOG に 1 行ずつ）"""
+        bindir = self.e.tmp / "gh-bin"
+        bindir.mkdir(exist_ok=True)
+        gh = bindir / "gh"
+        gh.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$FAKE_GH_LOG\"\n")
+        gh.chmod(0o755)
+        return bindir, gh
+
+    def test_no_post_is_an_allowlist(self):
+        # 読むだけの役の gh は許す物の一覧で組む（deny は allow に勝つので、gh を丸ごと拒み、読む口 works-gh を渡す）
+        bindir, gh = self._fake_gh_bin()
+        path = str(bindir) + os.pathsep + os.environ["PATH"]
+        r = self.e.run(sdk_argv("works-node: pr-check no-post"), PATH=path)
         self.assertEqual(r.returncode, 0, r.stderr)
-        s, _ = self._hook_settings(self.e.child()["argv"])
-        for rule in adapter.NO_POST_DENY:
-            self.assertIn(rule, s["permissions"]["deny"])
-        # gh api は丸ごと（-X・-f・--field・graphql がパスの後ろに来ても拾えるように）。ほかの書き込みの語も
-        for rule in ("Bash(gh api:*)", "Bash(gh pr comment:*)", "Bash(gh pr ready:*)", "Bash(gh pr reopen:*)",
-                     "Bash(gh pr checkout:*)", "Bash(gh issue edit:*)", "Bash(gh issue close:*)", "Bash(gh label:*)"):
-            self.assertIn(rule, s["permissions"]["deny"])
-        self.assertFalse([r for r in s["permissions"]["deny"] if r.startswith("Bash(gh api ")], "gh api の一部だけの規則は要らない")
-        self.assertEqual(self.e.launches()[-1]["fence"]["no_post"], len(adapter.NO_POST_DENY))
-        # 印に no-post の無い起動には足さない
-        self.e.run(sdk_argv("works-node: pr-check"))
+        child = self.e.child()
+        s, _ = self._hook_settings(child["argv"])
+        deny = s["permissions"]["deny"]
+        self.assertIn("Bash(gh:*)", deny)
+        self.assertIn("Bash(git push:*)", deny)
+        self.assertIn(f"Bash({gh}:*)", deny)                                           # 本物の gh の絶対パス
+        self.assertIn(f"Bash(/var/{str(gh)[len('/private/var/'):]}:*)", deny)          # /private の別名の綴りも
+        self.assertFalse([x for x in s.get("permissions", {}).get("allow", []) if "gh" in x], "allow では一部を許せない")
+        # 子の env: PATH の頭に口、WORKS_GH は口、WORKS_REAL_GH は本物の gh
+        env = child["env"]
+        self.assertEqual(env["PATH"].split(os.pathsep)[0], str(adapter.NO_POST_BIN))
+        self.assertEqual(env["WORKS_GH"], str(adapter.NO_POST_BIN / "works-gh"))
+        self.assertEqual(env["WORKS_REAL_GH"], str(gh))
+        # PATH の上の gh は全部（手元の本物の gh も）絶対パスで拒む
+        self.assertEqual(self.e.launches()[-1]["fence"]["no_post"], len(adapter.no_post_rules(adapter.find_gh(path))))
+        for g in adapter.find_gh(path):
+            self.assertIn(f"Bash({g}:*)", deny)
+        # 印に no-post の無い起動は、gh の柵も env の差し替えも無い
+        r = self.e.run(sdk_argv("works-node: pr-check"), PATH=path)
         s, _ = self._hook_settings(self.e.child()["argv"])
         self.assertNotIn("permissions", s)
+        self.assertEqual(self.e.child()["env"]["PATH"], path)
+        self.assertNotIn("WORKS_GH", self.e.child()["env"])
+
+    def test_works_gh_passes_only_read_forms(self):
+        bindir, gh = self._fake_gh_bin()
+        log = self.e.tmp / "gh.log"
+        env = dict(os.environ, WORKS_REAL_GH=str(gh), FAKE_GH_LOG=str(log), PYTHONDONTWRITEBYTECODE="1")
+        allowed = [["pr", "list", "-R", "o/r"], ["pr", "list", "--repo=o/r", "--json", "number"],
+                   ["pr", "view", "12", "-R", "o/r", "--comments"], ["pr", "diff", "12", "--repo", "github.com/o/r"],
+                   ["repo", "view", "o/r", "--json", "name"]]
+        refused = [[], ["api", "repos/o/r/issues", "-X", "POST"], ["api", "graphql", "-f", "query=x"],
+                   ["pr", "comment", "12", "-R", "o/r", "-b", "x"], ["pr", "edit", "12", "-R", "o/r"],
+                   ["pr", "update-branch", "12", "-R", "o/r"], ["pr", "checkout", "12", "-R", "o/r"],
+                   ["pr", "view", "12"], ["pr", "list"], ["pr", "view", "12", "-R", "o/r", "--web"],
+                   ["repo", "view"], ["repo", "view", "--web", "o/r"], ["repo", "set-default", "o/r"],
+                   ["issue", "create"], ["label", "create", "x"], ["workflow", "run", "x"], ["secret", "set", "X"],
+                   ["release", "delete", "v1"], ["alias", "set", "x", "y"], ["auth", "token"]]
+        for shim in (adapter.NO_POST_BIN / "works-gh", adapter.NO_POST_BIN / "gh"):
+            for args in allowed:
+                with self.subTest(shim=shim.name, args=args):
+                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    self.assertEqual(log.read_text().splitlines()[-1], " ".join(args))
+            for args in refused:
+                with self.subTest(shim=shim.name, args=args):
+                    before = log.read_text() if log.exists() else ""
+                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(r.returncode, 2, r.stderr)
+                    self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                    self.assertEqual(log.read_text() if log.exists() else "", before)   # 本物の gh を起こさない
+
+    def test_works_gh_refuses_without_real_gh(self):
+        for real in ("", "/no/such/gh", str(adapter.NO_POST_BIN / "works-gh"), str(adapter.NO_POST_BIN / "gh")):
+            with self.subTest(real):
+                env = dict(os.environ, WORKS_REAL_GH=real)
+                r = subprocess.run([str(adapter.NO_POST_BIN / "works-gh"), "pr", "list", "-R", "o/r"], env=env,
+                                   capture_output=True, text=True, timeout=60)   # 口と gh が互いを起こす輪で固まらない
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn("本物の gh", r.stderr)
+
+    def test_find_gh_skips_the_shim(self):
+        bindir, gh = self._fake_gh_bin()
+        got = adapter.find_gh(os.pathsep.join([str(adapter.NO_POST_BIN), "relative", str(bindir), str(bindir)]))
+        self.assertEqual(got, [str(gh)])
 
     # --- 設定のマージ ----------------------------------------------------------------------------------------
     def _hook_settings(self, argv):
@@ -844,6 +908,16 @@ class StopCase(unittest.TestCase):
         # tree_run の上限の勘定（信号に気づくまで POLL、SIGKILL まで KILL_GRACE + PS_TIMEOUT、抜けるまで LINGER）が
         # Archon の cancel の猶予 5 秒より前
         self.assertLess(adapter.POLL + adapter.KILL_GRACE + adapter.PS_TIMEOUT + adapter.LINGER, 5)
+
+    def test_stop_failure_is_reported_not_crashed(self):
+        # tree_run.stop_group が止め切れない理由を返した時、包みは標準エラーに 1 行を出して続ける（NameError で落ちない）
+        import io
+        from unittest import mock
+        err = io.StringIO()
+        with mock.patch.object(adapter.tree_run, "stop_group", return_value="孫が SIGKILL の後も残っている"), \
+                mock.patch("sys.stderr", err):
+            adapter._stop(object(), {}, 0.0)
+        self.assertEqual(err.getvalue().splitlines(), ["works claude-adapter: 木を止め切れない: 孫が SIGKILL の後も残っている"])
 
     def test_stop_uses_tree_run(self):
         # 止め方は tree_run.stop_group（数え上げ→送る→数え直し）。弱い写しを持たない（M4）
