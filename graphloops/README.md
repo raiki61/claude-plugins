@@ -28,12 +28,16 @@ engine はループの節名も記録の欄名も持たない。graph が名前�
 
 利用者の環境で踏んだ問題を、会話を貼って運ばなくても 1 件 1 行で残す（設計は [docs/feedback/intake.md](../docs/feedback/intake.md) の段階 1・2。リポジトリのルート基準で、プラグインとして入れた実体には無い）。記録器は `engine/intake.py` の 1 本で、来歴（プラグインの名前・版・取れればコミット・run の番号と周）はそこだけが組む。
 
-- **自動で残る物**: `loop.py` が非 0 で終わった呼び出し（日常の拒否 exit 1 も含む。`loop.py run` の日常の止まり方——10・11・13・20——は残さない）と、`loop.py launch` で役が落ちた・拒否が上限まで続いた行（launch 自身は exit 0 のまま。行は終了コードの代わりに落ち方の種類を持ち、鍵もそれで分かれる——`commands.launch_cause`）。`loop.py` を通らない物（`with-auth.py`・`graphcheck.py`・`parallel-pr.py`・フックの `record-read.py`）は残らない
+- **自動で残る物**: `loop.py` が非 0 で終わった呼び出し（日常の拒否 exit 1 も含む。`loop.py run` の日常の止まり方——10・11・13・20——は残さない）と、`loop.py launch` で役が落ちた・拒否が上限まで続いた行（launch 自身は exit 0 のまま。行は終了コードの代わりに落ち方の種類を持ち、鍵もそれで分かれる——`commands.launch_cause`）。`loop.py` を通らない物（`with-auth.py`・`graphcheck.py`・`parallel-pr.py`・`quality-ledger.py`・フックの `record-read.py`）は残らない
 - **手で残す口**: `/graphloops:intake <1 行>`。たまった分は `export <書き出し先>` で 1 ファイルにまとめて手渡す。届け先を `set-url <URL>` で決めると `send` で POST する（`{"text": 要約, "records": 行}`。受けを立てる段 3 は作っていない）。どれも `loop.py intake` の旗
 - **置き場**: Claude Code の持続の置き場 `${CLAUDE_PLUGIN_DATA}` の `intake.jsonl`（更新で消えない。アンインストールの最後の 1 回では消える）。Bash のコマンドには渡らないので、自動の口は engine の置き場 `<plugins>/cache/<marketplace>/<plugin>/<version>` から Claude Code と同じ規則で `<plugins>/data/<plugin>-<marketplace>` を導く。`--plugin-dir` で読んだ回・checkout から直に走らせた回は導けないので、自動の行は残らない（手の口は手順書の本文が置き場を渡すので残る）
 - **欄と秘匿**: 既定は構造化した欄だけ——プラグインの名前・版・取れればコミット・OS と Python の版・呼び口（節の id まで。項目の鍵とパスは落とす）・終了コード・例外の型と上げた関数・run の番号と周・人が書いた 1 行。本文・差分・記録の中身は残さない。同じ問題を数える鍵は版を含まない。標準エラーの頭は環境変数 `GRAPHLOOPS_INTAKE_STDERR=1` のときだけ残し、書き出しと送る本文からは既定で落とす
 - **止めない**: 残す処理は何が起きても、元の終了コードと出力を変えない。認証もネットワークも使わない（使うのは利用者が明示に呼ぶ send だけで、期限は付けない）
 - **報告の頭**: `save_text_as` の節（両ループの最終報告）を保存するとき、engine が 1 行目に来歴（`graphloops <版> (<commit>) / <loop> run <run_id> / round <周> / graph <sha>`）を刻む
+
+## run の質を版ごとに数える（scripts/quality-ledger.py）
+
+「グラフの質は版を追って良くなっているか」に数で答える口。盤面を横断して読み、run ごとの 1 行（`--runs` で JSON Lines）と engine の版ごとの集計（既定は文、`--json` で JSON）を出す: `python3 graphloops/scripts/quality-ledger.py [根 ...]`。根の既定は cwd のリポジトリの共有の git ディレクトリで、本体と linked worktree の盤面を拾う（`init --dir` で外に作った盤面は、その親を根に渡したときだけ数える）。数えるのは盤面に書かれた値そのもの——周の判定（R1〜R4。機械が埋めた行と据え置きの行は検証器と rules の述語で除く）・状態と止めた訳・関所の答え（答えを打った者は盤面に記録が無い）・受け付けの結果と拒否の理由の頭・起こし直し・経過と役の実行時間・費用（会話ごとの最大の和）・running の最後の痕跡からの経過。読むだけで盤面にも plugin の置き場にも書かず、壊れた盤面は「読めない」と数え、置き場は根からの相対で出す。R1〜R4 の数の分母は閉じた周（`rounds/round-<N>.json` 1 本が 1 周）で、機械の行と据え置きの行を除いた周だけを数え（除いた行の数は別に出す）、周はその周を回した engine の版に帰属させる。欄と数え方の正本は台本の docstring。これは既存の盤面を読む表示で、run をまたいだ記録を作る決定（[docs/adr/0061-cross-run-record.md](../docs/adr/0061-cross-run-record.md)。未実装）の記録ではない。
 
 ## 検査
 
