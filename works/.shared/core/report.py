@@ -8,13 +8,14 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - OUTCOMES・COST_FIELD_VERIFIED
 - gate_record(b) -> {exit, accepted, tail, traces, round_closed}
 - decide_outcome(b, gate, *, tests=None, judged=None) -> OUTCOMES の 1 つ
-- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2）・head_stop(b, *, interrupted=None)（冒頭 3）・
+- head_decisions(b, gate, …)（冒頭 1）・head_entry(b, start, *, mid=None)（冒頭 2）・head_stop(b, *, interrupted=None, failed=None)（冒頭 3）・
   head_reads(board_dir, run_id, *, ci=None)（冒頭 4）・head_where(b)（冒頭 5）・head_cost(board_dir, run_id, *, events, launches)・
   absent_lines(b)（末尾の「このラインに無い節」）
 - declared_downgrades(line) -> [{node, what, versus}]（PACK/<line>/downgrades.json。無ければ []）
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from}]
 - next_request(b, *, tests=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
-- build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None) -> dict
+- build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None,
+  failed=None) -> dict
 - final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
@@ -74,7 +75,7 @@ WHERE = (("判定", "p2.diagnose"), ("修正案", "p2.fix_plan"), ("事前審査
          ("手直し 2 回目", "p3.delta_fix2"), ("最後のテスト", "p4.ci"))
 DIFFS = (("修正の差分", "fix_delta"), ("手直しの差分", "fix_delta2"))
 REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
-INTERRUPTED_HEAD = "run が途中で終わった: 取り消し・abandon・役の出し直しの上限のどれか"
+INTERRUPTED_HEAD = "run が途中で終わった"
 AI_FIRST_NODE = "report.human_items"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）
 AI_REPORT_KEYS = ("ok", "reason", "report_file", "cold_check", "record_invalid")   # 最後の出口に写す AI の報告の欄
 
@@ -451,11 +452,17 @@ def absent_lines(b) -> list:
             for r in rows if isinstance(r, dict)]
 
 
-def head_stop(b, *, interrupted: str | None = None) -> list:
-    """冒頭 3: 止めたか（止め札・関所の stop・機械の止め。理由と止めた所）。interrupted は Archon の run の状態"""
+def head_stop(b, *, interrupted: str | None = None, failed: list | None = None) -> list:
+    """冒頭 3: 止めたか（止め札・関所の stop・機械の止め。理由と止めた所）。interrupted は Archon の run の状態（線の中は
+    分からないので空）、failed は落ちた節 [{node, error}]（reads.failed_nodes）。落ちた節が在れば節ごとに名前と誤りの文の
+    1 行目を出し、無ければ Archon の run の状態を出す"""
     lines = []
     if interrupted is not None:
-        lines.append(f"{INTERRUPTED_HEAD}。Archon の run の状態は {interrupted or '（不明）'}")
+        for f in failed or []:
+            error = (str(f.get("error") or "").strip().splitlines() or ["（誤りの文が無い）"])[0]
+            lines.append(f"{INTERRUPTED_HEAD}: 節 {f.get('node')} が落ちた（誤り: {error}）")
+        if not failed:
+            lines.append(f"{INTERRUPTED_HEAD}。Archon の run の状態は {interrupted or '（不明）'}")
     by, reason, info = _stop_info(b)
     if by.startswith(REQUEST_BY):
         seen = _trace_rows(b, FLAG_SEEN_OP)
@@ -660,17 +667,20 @@ def _finish_fields(b, judged, outcome) -> dict:
 
 
 def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | None, mid: dict | None = None,
-          ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None) -> dict:
+          ci: dict | None = None, run_id: str = "", events=None, launches=None, interrupted: str | None = None,
+          failed: list | None = None) -> dict:
     """gate_record → decide_outcome → 部品で <盤面>/report.md と <盤面>/next-request.json を書き、1 本目の finish の欄に
     report_file・next_request_file・tests_green・validator_exit と、書き出しの節が読む export_input {outcome, report_file,
-    board_dir} を足して返す。interrupted（Archon の run の状態の語。空も可）を渡せば結末は interrupted（dev の report.sh）。
+    board_dir} を足して返す。interrupted（Archon の run の状態の語。空も可）を渡せば結末は interrupted（線の中の報告の節は
+    落ちた節 failed と空、dev の report.sh は run の状態）。
     record_invalid の時は冒頭 1 に検証器の出力の末尾と痕跡。盤面を開けなければ BoardGap"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     gate = gate_record(b)
     # 盤面が報告の役の節を出したか（表で role のラインだけ。止めた run・収束した run で出る。周を締めて止めた 1 周の run では
     # 出ない）。待ちのままでも結末は替えない——報告の役の節の待ちは「終わっていない」ではない（計画 P1 Task 34）
-    ai_go = AI_FIRST_NODE in b.ready()
+    # 途中で終わった run は機械の報告だけ（AI の報告の役は最後まで来た盤面を前提にする）
+    ai_go = AI_FIRST_NODE in b.ready() and interrupted is None
     outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged)
     items = next_request(b, tests=tests)
     req_p, rep_p = board_dir / NEXT_REQUEST_FILE, board_dir / REPORT_FILE
@@ -678,7 +688,7 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     rid = run_id or _start_doc(b, start).get("run_id") or ""
     body = [f"# 報告（run {rid or '—'}）: {outcome}", ""]
     parts = (head_decisions(b, gate, tests=tests, outcome=outcome, next_items=items, next_file=str(req_p)),
-             head_entry(b, start, mid=mid), head_stop(b, interrupted=interrupted), head_reads(board_dir, rid, ci=ci),
+             head_entry(b, start, mid=mid), head_stop(b, interrupted=interrupted, failed=failed), head_reads(board_dir, rid, ci=ci),
              head_where(b))
     for title, rows in zip(HEADINGS, parts):
         body += [title, "", *[r if r.startswith("  ") else f"- {r}" for r in rows], ""]

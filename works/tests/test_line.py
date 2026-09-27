@@ -30,7 +30,8 @@ import linekit  # noqa: E402
 import line_edge  # noqa: E402
 
 DEADLINE = 1728000000
-# いつも走る節（start・境の節・機械の報告 report・出口 result）
+# when: で飛ばされない節（start・境の節・機械の報告 report・出口 result）。上流が落ちた後でも走るのは all_done の
+# report・result だけで、境の節は none_failed_min_one_success なので飛ばされる（落ちた run の読み手は if_skipped で受ける）
 ALWAYS = {"start", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}
 REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き（TA16）
 FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
@@ -232,13 +233,13 @@ class LineShapeCase(unittest.TestCase):
                         self.assertIsNone(v["if_skipped"])
 
     def test_join_after_skippable_has_trigger_rule(self):
-        """when: を持つ節に依る節は trigger_rule: none_failed_min_one_success（前の段が飛ばされても走る）。出口 result だけは
-        all_done（AI の報告のブロックが落ちても機械の報告で出口を出す）"""
+        """when: を持つ節に依る節は trigger_rule: none_failed_min_one_success（前の段が飛ばされても走る）。機械の報告 report と
+        出口 result だけは all_done（上流の節が落ちた run でも報告を残し、AI の報告のブロックが落ちても機械の報告で出口を出す）"""
         skippable = {n["id"] for n in line()["nodes"] if "when" in n}
         for n in line()["nodes"]:
             if set(n.get("depends_on") or []) & skippable:
                 with self.subTest(n["id"]):
-                    want = linekit.ALL_DONE if n["id"] == "result" else linekit.NFMOS
+                    want = linekit.ALL_DONE if n["id"] in ("report", "result") else linekit.NFMOS
                     self.assertEqual(n.get("trigger_rule"), want)
 
     def test_gates_have_reject_and_text_by_path(self):
@@ -357,7 +358,7 @@ class LineFixturesCase(unittest.TestCase):
         f = self.fixtures()
         self.assertEqual(f["start-refused"]["fixture"]["expect"], "failed")
         # 出口 result は all_done で走り、機械の報告が無いので落ちる（報告の無い run を成功と言わない）
-        self.assertEqual(f["start-refused"]["fixture"]["fail-node"], ["start", "result"])
+        self.assertEqual(f["start-refused"]["fixture"]["fail-node"], ["start", "report", "result"])
         self.assertEqual(f["start-refused"]["fixture"]["inputs"]["thickness"], "軽量")
         for name, outcome in (("standard", "fixed"), ("no-fix", "no_fix_needed"), ("policy-stop", "stopped_by_human"),
                               ("final-stop", "stopped_by_human"), ("stop-flag", "stopped_by_request"), ("rejudge", "fixed"),

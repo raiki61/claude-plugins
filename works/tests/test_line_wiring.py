@@ -11,6 +11,7 @@
 import collections
 import json
 import pathlib
+import re
 import unittest
 
 import yaml
@@ -153,6 +154,21 @@ class FixtureStubKeysCase(unittest.TestCase):
                 for k in sorted(keys):
                     self.assertTrue(any(k in s for s in sets) and any(k not in s for s in sets),
                                     f"{k} はどの筋書きでも揃っている（か、どこにも無い）。MAY_LACK から消す")
+
+
+class ReportAfterFailureCase(unittest.TestCase):
+    def test_report_runs_after_failed_upstream(self):
+        """機械の報告 report は上流の節が落ちた run でも走り（all_done。run 30・31 では飛ばされ、result が $report.output の
+        binding で落ちて報告が残らなかった）、start のほかの節の出力は落ちても飛ばされても if_skipped: null で受ける"""
+        n = next(n for n in line()["nodes"] if n["id"] == "report")
+        self.assertEqual(n.get("trigger_rule"), "all_done")
+        for k, v in (n.get("with") or {}).items():
+            src = v.get("from") if isinstance(v, dict) else v if isinstance(v, str) else ""
+            if set(re.findall(r"\$([A-Za-z][\w-]*)\.output", src)) - {"start"}:
+                with self.subTest(k):
+                    self.assertIsInstance(v, dict)
+                    self.assertIn("if_skipped", v)
+                    self.assertIsNone(v["if_skipped"])
 
 
 if __name__ == "__main__":
