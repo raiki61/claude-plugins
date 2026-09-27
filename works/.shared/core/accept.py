@@ -278,9 +278,25 @@ def _ignored_entries(repo) -> list:
             continue
         if f[:1] in (b"R", b"C") or f[1:2] in (b"R", b"C"):   # Y が R は intent-to-add を伴う作業ツリーの rename
             skip = True
-        elif f.startswith(b"!! "):
+        elif f.startswith(b"!! ") and not _cli_owned_only(repo, os.fsdecode(f[3:])):
             out.append(os.fsdecode(f[3:]))
     return sorted(out)
+
+
+def _cli_owned_only(repo, entry: str) -> bool:
+    """entry（_ignored_entries の 1 本）が CLI_OWNED の下か、中身が全部 CLI_OWNED の下のフォルダ（git が `.claude/` に畳んだ時）か"""
+    if entry.startswith(CLI_OWNED):
+        return True
+    if not entry.endswith("/") or not any(c.startswith(entry) for c in CLI_OWNED):
+        return False
+    root = pathlib.Path(repo)
+    return all(f"{p.relative_to(root).as_posix()}/".startswith(CLI_OWNED) or p.relative_to(root).as_posix().startswith(CLI_OWNED)
+               for p in (root / entry).rglob("*") if not p.is_dir() or not any(p.iterdir()))
+
+
+# Claude Code（2.1.283）が役の cwd に作る自分の控えのフォルダ。役の書いた物ではないので、作業ツリーの見張りは数えない
+# （台帳 R62: 自分食い 23 件目で、読むだけの役が空の .claude/.cc-writes/ を理由に 3 回拒まれた）。同じ .claude/ の下のほかの物は見る
+CLI_OWNED = (".claude/.cc-writes/",)
 
 
 def _porcelain_path(line: str) -> str:

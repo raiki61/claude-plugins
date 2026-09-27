@@ -183,6 +183,8 @@ class LineIdsCase(unittest.TestCase):
         # 模擬実行は輪の中の節を名前空間の付かない id で stub に引く（tests/test_line.py の stub_keys）
         others = set()
         for n in self.line["nodes"]:
+            if n.get("include") == "blk-premises":   # 線に配線した自分（切り替えの後）は数えない
+                continue
             if "include" in n:
                 b = yaml.safe_load((ROOT / n["include"] / f"{n['include']}.yaml").read_text(encoding="utf-8"))
                 others |= {m["id"] for x in b["nodes"] for m in (x.get("loop_group") or {}).get("nodes") or []}

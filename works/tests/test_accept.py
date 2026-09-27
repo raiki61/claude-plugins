@@ -270,6 +270,18 @@ class TestDelta(AcceptCase):
         pyc.write_bytes(b"b")
         self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
 
+    def test_snapshot_skips_cli_write_ledger(self):
+        # Claude Code 2.1.283 が役の cwd に作る空のフォルダ .claude/.cc-writes/（台帳 R62・自分食い 23 件目で読むだけの役が 3 回拒まれた）
+        (self.repo / ".gitignore").write_text(".claude/\n")
+        git(self.repo, "add", ".gitignore")
+        git(self.repo, "commit", "-qm", "ignore")
+        before = snapshot_tree(self.repo)
+        (self.repo / ".claude" / ".cc-writes").mkdir(parents=True)
+        (self.repo / ".claude" / ".cc-writes" / "w").write_bytes(b"x")
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / ".claude" / "other").write_bytes(b"x")    # 同じ .claude/ の下でも、ほかの物は見る
+        self.assertNotEqual(snapshot_tree(self.repo), before)
+
     def test_delta_rejects_plan_only_kind(self):
         # graphloops 0.21.0 の face_kind は事前審査と共有で regression・policy・precedent を含むが、修正差分のレビューでは拒む語
         self.fix_stats()
