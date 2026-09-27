@@ -606,13 +606,17 @@ class DeclaredCase(unittest.TestCase):
         for word in prcheck.GH_DENY + prcheck.GIT_DENY:
             self.assertIn(f"`{word}`", forbid[0])
         self.assertIn("`gh api`（読むだけの形も含めて丸ごと", forbid[0])
-        # 指示書の中の gh のコマンド（`gh …`）は全部、-R <owner/repo> を付けた読む語か、禁じる語か、使うなと名指した gh repo view
-        for cmd in re.findall(r"`(gh [^`]*)`", text):
-            if cmd in prcheck.GH_DENY or cmd == "gh repo view":
-                continue
-            self.assertTrue(cmd.startswith(prcheck.GH_READ), cmd)
+        # 読む gh は包みの許す物の口（"$WORKS_GH"。素の gh は包みが拒む）を通す。指示書の "$WORKS_GH" のコマンドは全部、
+        # GH_READ の語で -R <owner/repo> つき（2・5・6 段と、打ってよい物の一覧の 3 つ）。素の `gh …` は禁じる語か、使うなと名指した gh repo view だけ
+        self.assertEqual((prcheck.GH_ENV, prcheck.GH_WRAPPER), ("WORKS_GH", '"$WORKS_GH"'))
+        wrapped = re.findall(r'`("\$WORKS_GH" [^`]*)`', text)
+        self.assertEqual(len(wrapped), 6, wrapped)
+        for cmd in wrapped:
+            self.assertTrue(cmd.startswith(tuple(f"{prcheck.GH_WRAPPER} {w} " for w in prcheck.GH_READ)), cmd)
             self.assertIn(" -R <owner/repo>", cmd, cmd)
-        self.assertEqual(len([c for c in re.findall(r"`(gh [^`]*)`", text) if c.startswith(prcheck.GH_READ)]), 6)
+        for cmd in re.findall(r"`(gh [^`]*)`", text):
+            self.assertTrue(cmd in prcheck.GH_DENY or cmd == "gh repo view", cmd)
+        self.assertIn("素の `gh`", text)
         self.assertIn("$pr-snap.output.brief_file", text)
         self.assertIn("$LOOP_PREV.pr-accept.output.reason", text)
 
