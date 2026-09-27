@@ -1,0 +1,21 @@
+{
+ "constraints": [
+  {
+   "text": "stats.py の mean は sum(xs) / (len(xs) - 1) を返す（分母が len(xs) - 1）",
+   "measured_how": "grep -n で stats.py の len(xs) - 1 の行を引いた",
+   "kind": "実測",
+   "measured_output": "$ grep -n 'len(xs) - 1' stats.py\n3:- mean: 分母が len(xs) - 1 になっている（正しくは len(xs)）。\n9:    return sum(xs) / (len(xs) - 1)"
+  },
+  {
+   "text": "test_stats.py の 3 件のうち 2 件が赤（依頼の test_mean_of_three と test_clamp_above_range）",
+   "measured_how": "PYTHONDONTWRITEBYTECODE=1 で python3 -m unittest test_stats を対象の根で走らせた",
+   "kind": "実測",
+   "measured_output": "$ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest test_stats\nRan 3 tests in 0.001s\n\nFAILED (failures=2)"
+  },
+  {
+   "text": "clamp は lo <= hi の引数でしか呼ばれない",
+   "measured_how": "対象の中の呼び手は test_stats.py だけで、対象の外の呼び手はこの作業ツリーでは測れない",
+   "kind": "仮説"
+  }
+ ]
+}

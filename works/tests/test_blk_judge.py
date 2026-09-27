@@ -248,6 +248,16 @@ class ScriptCase(unittest.TestCase):
         got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
         self.assertIs(got["ok"], False)
 
+    def test_accept_rejects_commit_after_intake(self):
+        # HEAD 相対の porcelain と差分だけでは commit が素通りする。写しの head で見る
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        (self.repo / "extra.txt").write_text("x\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "commit した")
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
+        self.assertIs(got["ok"], False)
+        self.assertIn("HEAD が動いた", got["reason"])
+
     def test_check_judge_without_snapshot_needs_clean_tree(self):
         # 写しが無いとき（intake を通らない呼び方）は今までどおり作業ツリーが綺麗であることを求める
         self.board.mkdir(parents=True)
@@ -255,6 +265,18 @@ class ScriptCase(unittest.TestCase):
         r = check_judge(load("judge_ok"), self.board, "", self.repo)
         self.assertIs(r["ok"], False)
         self.assertIn("extra.txt", r["reason"])
+
+    def test_check_judge_without_snapshot_rejects_head_moved_from_base_rev(self):
+        # 写しが無い分岐でも、判定役が作った物を commit して porcelain を空に戻す道を HEAD と版で塞ぐ
+        base = git(self.repo, "rev-parse", "HEAD").strip()
+        self.board.mkdir(parents=True)
+        (self.repo / "extra.txt").write_text("x\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "判定役が commit した")
+        r = check_judge(load("judge_ok"), self.board, base, self.repo)
+        self.assertIs(r["ok"], False)
+        self.assertIn("HEAD", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
 
     # ---- collect
     def test_collect_builds_exit(self):
@@ -290,6 +312,18 @@ class ScriptCase(unittest.TestCase):
         got = json.loads(r.stdout)
         self.assertIs(got["ok"], True, got["reason"])
         self.assertEqual(got["open_units"], [])
+
+    def test_stale_judgment_not_collected_after_rejected_loop(self):
+        # 同じ盤面で 2 度目に回し、この回の受け付けが拒んだら、前の呼び出しの judgment.json を拾わずに collect が落ちる
+        self.board.mkdir(parents=True)
+        (self.board / "judgment.json").write_text(json.dumps(load("judge_ok"), ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        self.assertFalse((self.board / "judgment.json").exists())
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_notfound_no_searched")), INPUTS_BASE_REV="").stdout)
+        self.assertIs(got["ok"], False)
+        r = self.run_script("collect")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("judgment.json", r.stderr)
 
     def test_collect_without_judgment(self):
         r = self.run_script("collect")

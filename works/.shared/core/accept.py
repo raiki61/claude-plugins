@@ -13,7 +13,7 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - tree_state・tree_change・tree_moved: 読むだけの役（blk-pr・blk-ci・entry.take・rejudge.take）を起こす前後の作業ツリーの姿
                  （snapshot_tree に HEAD・枝を足した物）と、その違いの文（R47。check_judge・check_delta の突き合わせも tree_change で言う）
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
-- cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置く（blk-delta の節 cut）
+- cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置き、前の周の審査の返答を消す（blk-delta の節 cut）
 
 check_* は全部 dict を返し、例外で拒まない。拒否は {"ok": False, "reason": str}。
 git は全部 repo を cwd にして呼ぶ。HEAD をその場で読むのは base_rev が空のときだけ（空なら repo の HEAD を版にする）。
@@ -386,7 +386,7 @@ def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
     追跡しているファイルは git diff --binary <rev>、未追跡のファイルは 1 本ずつ git diff --no-index /dev/null <名>
     （どちらも core.quotePath=false で、日本語の名前を \\346… に書き換えずに載せる）
     （未追跡のフォルダ＝入れ子の git リポジトリは差分に載せず、files に `sub/` の 1 本で出す）。
-    盤面に fix.diff と、切った時の作業ツリーの写し delta-snapshot.json（Ruling R3）を置く。
+    盤面に fix.diff と、切った時の作業ツリーの写し delta-snapshot.json（Ruling R3）を置き、前の周の delta-review.json を消す。
     {"ok": True, "files", "diff_file"} を返す。版が引けない・git が効かないときは Reject を投げる（拒否を dict で返さない）"""
     repo = pathlib.Path(repo)
     rev = _rev(repo, base_rev)
@@ -408,6 +408,7 @@ def cut_delta(board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
         diff += r.stdout
     board = pathlib.Path(board)
     board.mkdir(parents=True, exist_ok=True)
+    (board / DELTA_REVIEW_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
     path = board / DIFF_FILE
     path.write_bytes(diff)
     _write_board(board, SNAPSHOT_FILE, snapshot_tree(repo))
