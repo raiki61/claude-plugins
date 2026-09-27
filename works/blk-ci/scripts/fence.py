@@ -4,7 +4,7 @@
 # ///
 """役を起こす前に、run が宣言した包みの形（start の控えの adapter）を読む（ci_role.fence）。包みを宣言した run は切符を見て進み、
 包み無しの run は知らせ note を残して進む。宣言が読めない・切符が無ければ盤面を止めて go: false（YAML が役の輪を飛ばす）。
-出口 {go, reason, note}。節が任せ先に落ちて待っていないなら 2（ci_role.script_main）"""
+出口 {go, reason, note, adapter}（adapter は読んだ形。YAML が with: で ci-accept と collect に渡す）。節が任せ先に落ちて待っていないなら 2（ci_role.script_main）"""
 import sys
 from pathlib import Path
 

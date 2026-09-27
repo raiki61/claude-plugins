@@ -3,7 +3,8 @@
 # dependencies = []
 # ///
 """ブロックの出口を組む（ci_role.collect）: 写しを消し、節を受けていれば {ok: true, status, green, pr_go}、受けていなければ
-盤面を止めて ok: false。出口 {ok, reason, node, status, green, pr_go}"""
+盤面を止めて ok: false。出口 {ok, reason, node, status, green, pr_go, note}。
+INPUTS_ADAPTER は ci-fence が読んだ包みの形（YAML の with: で $ci-fence.output.adapter。note はこれから出す。再審査 N8）"""
 import sys
 from pathlib import Path
 
@@ -11,11 +12,11 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（script_io の注意）
 import ci_role  # noqa: E402
 
-INPUTS = ("INPUTS_NODE",)   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_ci.py が見る）
+INPUTS = ("INPUTS_NODE", "INPUTS_ADAPTER")   # 読む INPUTS_*（YAML の with: の鍵と同じ。tests/test_blk_ci.py が見る）
 
 
 def run(board, repo, env):
-    return ci_role.collect(board, env["INPUTS_NODE"])
+    return ci_role.collect(board, env["INPUTS_NODE"], env["INPUTS_ADAPTER"])
 
 
 if __name__ == "__main__":

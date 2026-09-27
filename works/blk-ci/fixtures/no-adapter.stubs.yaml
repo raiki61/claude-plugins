@@ -6,6 +6,7 @@ ci-fence:
   go: true
   reason: ''
   note: '包み無し（adapter: optional）: CI の任せ先の役は graphloops の任せ先と同じ守り（sandbox だけ。作業ツリーの柵は無い）で走った'
+  adapter: optional
 ci-snap:
   ok: true
   snapshot_file: board/r1/ci-snapshot-p0.local_checks.json

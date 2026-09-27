@@ -6,7 +6,7 @@ description: |
   役（opus）はリポジトリの CI の定義を読み、テスト・lint を作業ツリーの写しの上で走らせて素材（material）を返す。走らせられなければ
   緑を仮定しない（p0 は awaiting_human、p4 は not_run）。定義が無ければ理由つきの not_applicable（graph の na_self_ok）。
   役の sandbox は graphloops の任せ先と同じ形（allowWrite ['/']・網）で、書き込みの守りは包みが印の旗 no-tree-write を見て足す（裁定 R56）。
-  ci-fence は run が宣言した包みの形（start の控えの adapter）を読む（裁定 R58）。包みを宣言した run は、受け付けが役の起動に柵が掛かったかを
+  ci-fence は run が宣言した包みの形（start の控えの adapter）を役を起こす前に 1 回だけ読み（裁定 R58）、with: で受け付けと出口に渡す（再審査 N8）。包みを宣言した run は、受け付けが役の起動に柵が掛かったかを
   包みの記録で見る。包み無しを宣言した run（adapter: optional）は graphloops の任せ先と同じ守り（sandbox だけ）で回し、知らせを出口の note に出す。
   宣言が読めなければ ci-fence が盤面を止めて役を起こさない。
   受け付けは写しの graph の schema・post_check・記録の検査をそのまま当て、役を起こす前と後で本物の作業ツリー（porcelain・差分・
@@ -26,7 +26,8 @@ outcome_field: ok
 
 nodes:
   # run が宣言した包みの形を読む（起こす claude の道は script から見ない。裁定 R58）。包みを宣言した run は切符を見て進み、
-  # 包み無しの run は知らせ note を残して進む。宣言が読めない・切符が無ければ盤面を止めて go: false、役の輪を飛ばす
+  # 包み無しの run は知らせ note を残して進む。宣言が読めない・切符が無ければ盤面を止めて go: false、役の輪を飛ばす。
+  # 読んだ形は adapter に出し、ci-accept と collect へ with: で渡す（役を起こした後に start の控えを読み直さない。再審査 N8）
   - id: ci-fence
     script: fence
     runtime: uv
@@ -36,11 +37,12 @@ nodes:
     output_format:
       type: object
       additionalProperties: false
-      required: [go, reason, note]
+      required: [go, reason, note, adapter]
       properties:
         go: {type: boolean}
         reason: {type: string}
         note: {type: string}
+        adapter: {type: string, enum: ['', optional]}   # entry.ADAPTER_MODES。読めない時は厳しい方の空
 
   # 役を起こす前の本物の作業ツリーの姿（受け付けが比べる）と、テストを走らせる写し（写しの engine の copy_worktree。一時の置き場の下）
   - id: ci-snap
@@ -145,6 +147,7 @@ nodes:
           with:
             node: $INPUTS.node
             reply: {from: "$ci.output"}
+            adapter: $ci-fence.output.adapter   # 役を起こす前に固めた包みの形（Archon の節の出力は役から書き換えられない）
           output_format:
             type: object
             required: [ok, done, give_up, reason]
@@ -166,6 +169,7 @@ nodes:
     trigger_rule: none_failed_min_one_success
     with:
       node: $INPUTS.node
+      adapter: $ci-fence.output.adapter   # ci-fence はいつも走る（飛ばされない）ので、輪が飛ばされても読める
     output_format:
       type: object
       required: [ok, reason, node, status, green, pr_go, note]

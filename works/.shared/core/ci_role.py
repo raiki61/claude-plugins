@@ -18,22 +18,24 @@ git とシェルと Claude の設定・Archon の家の設定と DB・pack）を
 ~/.config・~/.claude・Archon の家・Linux では ~/.gitconfig も——に書ける。これは graphloops の任せ先と同じ晒され方（sandbox だけ）で、
 包み無しの run はそれを宣言して回す（裁定 R58。仕様 5.1）。包みが起動の道に在るかを script から写して見ることはしない（Archon の
 claude の解決と食い違い、居ないのに居ると言う形と、写しの pack で居るのに居ないと言う形が両方ある。再審査 N4〜N6）。見るのは
-run が宣言した包みの形（start の控えの adapter。entry.declared_adapter）だけ:
+run が宣言した包みの形（start の控えの adapter。entry.declared_adapter）だけで、読むのは役を起こす前の ci-fence の 1 回だけ。
+読んだ形は ci-fence の出力 adapter に出し、YAML の with: で ci-accept と collect へ渡す（Archon の節の出力は役から書き換えられない。
+役を起こした後に start の控えを読み直すと、包みの居ない起動の役が控えを書き換えて柵の確かめを飛ばせる。再審査 N8）:
 - fence:    ci-fence。包みを宣言した run（adapter が空）は切符を見て進む（無ければ盤面を止める。包みは切符の無い旗の役を起こさない）。
-            包み無しを宣言した run（adapter: optional）は進み、知らせ NO_ADAPTER_NOTE を盤面の作業ファイル ci-note-<節>.json と
-            出口に残す。宣言が読めなければ盤面を止め（by works:adapter）、YAML が役の輪を飛ばす（fail closed）
-- take の頭: 包みを宣言した run だけ、包みの起動の記録で、この試行の役の起動が包みを通り柵 no_tree_write が掛かったか
-            （adapter.fenced_launch）を見る。無ければ・宣言が読めなければ、拒否でなく盤面を止める（起きた後で気づく線。包みの
-            無い起動は記録も書き換えうるので確証ではない）。包み無しの run では柵を求めない
+            包み無しを宣言した run（adapter: optional）は進み、知らせ NO_ADAPTER_NOTE を出す。宣言が読めなければ盤面を止め
+            （by works:adapter）、YAML が役の輪を飛ばす（fail closed。出力 adapter は厳しい方の空）
+- take の頭: with: で届いた形が包みを宣言した run（空）なら、包みの起動の記録で、この試行の役の起動が包みを通り柵 no_tree_write が
+            掛かったか（adapter.fenced_launch）を見る。無ければ・届いた形が宣言の語でなければ、拒否でなく盤面を止める（起きた後で
+            気づく線。包みの無い起動は記録も書き換えうるので確証ではない）。包み無しの run では柵を求めない
 受け付けの作業ツリーの比べ（accept.tree_state: porcelain・差分・git が無視するパス・HEAD・枝）は、どちらの run でも偽の緑を防ぐ。
 
-- fence:    ci-fence（上）。返り {go, reason, note}
+- fence:    ci-fence（上）。返り {go, reason, note, adapter}
 - snapshot: ci-snap。節が任せ先に落ちて待っているか確かめ、作業ツリーの姿（と写しの置き場）を今の周の ci-snapshot-<節>.json に
 - prep:     ci-prep。blk-ci/prompts/<節>.md の穴（<<名>>）を埋めた指示書を描き、この周のこの節の拒否が在れば最後の拒否の文を
             頭に置き（REJECT_HEADING。$LOOP_PREV で貼らない——裁定 R44）、起こした印（mark_launched）を置く
 - take:     ci-accept。作業ツリーの比べ → 盤面の done（写しの schema・post_check・check_record がそのまま当たる）。拒否は
             ci-rejects.json に積み、GIVE_UP_AFTER 回目の拒否で done・give_up（輪を max_iterations で落とさない。裁定 R50）
-- collect:  出口。写しを消す。ci-fence の知らせを note に出す。節を受けていれば素材の status と green、p0.local_checks なら
+- collect:  出口。写しを消す。with: で届いた形が包み無し（optional）なら知らせ NO_ADAPTER_NOTE を note に出す。節を受けていれば素材の status と green、p0.local_checks なら
             entry.resume_after_ci で start の輪に戻って pr_go。受けていなければ（3 回とも拒まれた）最後の拒否の文で盤面を止めて
             （by works:ci）ok: false
 スクリプトの入口は rejudge.script_main（環境変数の欠け・BoardGap・写しの Reject は終了コード 2）。
@@ -82,11 +84,6 @@ REJECTS = "ci-rejects.json"
 def prepared_name(node: str) -> str:
     """ci-prep が試行ごとに書き直す、役を起こす直前の時刻（adapter.now の形）。受け付けはこれより後の包みの起動を見る"""
     return f"ci-prepared-{safe_name(node)}.json"
-
-
-def note_name(node: str) -> str:
-    """ci-fence が残す、run が宣言した包みの形と包み無しの知らせ（報告と出口が読む）"""
-    return f"ci-note-{safe_name(node)}.json"
 
 
 def snapshot_name(node: str) -> str:
@@ -149,11 +146,11 @@ def _declared(b):
 
 
 def fence(board_dir, node: str, repo) -> dict:
-    """役を起こす前に、run が宣言した包みの形を読む（起こす claude の道は見ない。裁定 R58）。
-    - 包みを宣言した run（adapter が空）: 切符が在れば {go: True, reason: "", note: ""}。無ければ盤面を止める
-    - 包み無しを宣言した run（adapter: optional）: {go: True, reason: "", note: NO_ADAPTER_NOTE}
-    - 宣言が読めない: 盤面を止めて（by FENCE_BY）{go: False, reason, note: ""}。YAML は go が偽なら役の輪を飛ばす
-    進む時は宣言と知らせを ci-note-<節>.json に残す"""
+    """役を起こす前に、run が宣言した包みの形を読む（起こす claude の道は見ない。裁定 R58）。出力 adapter は読んだ形で、YAML が
+    with: で ci-accept と collect に渡す（役を起こした後に控えを読み直さない。再審査 N8）。
+    - 包みを宣言した run（adapter が空）: 切符が在れば {go: True, reason: "", note: "", adapter: ""}。無ければ盤面を止める
+    - 包み無しを宣言した run（adapter: optional）: {go: True, reason: "", note: NO_ADAPTER_NOTE, adapter: "optional"}
+    - 宣言が読めない: 盤面を止めて（by FENCE_BY）{go: False, reason, note: "", adapter: ""}。YAML は go が偽なら役の輪を飛ばす"""
     b = _open(board_dir, repo)
     _waiting(b, node)
     mode, why = _declared(b)
@@ -166,10 +163,12 @@ def fence(board_dir, node: str, repo) -> dict:
     if why:
         reason = f"包みの確かめが通らない: CI の任せ先の役（{node}）を起こさない（{why}）"
         b.stop(reason, by=FENCE_BY)
-        return {"go": False, "reason": reason, "note": ""}
-    note = NO_ADAPTER_NOTE if mode == "optional" else ""
-    _write_json(b.work(note_name(node)), {"node": node, "adapter": mode, "note": note})
-    return {"go": True, "reason": "", "note": note}
+        return {"go": False, "reason": reason, "note": "", "adapter": ""}
+    return {"go": True, "reason": "", "note": _note(mode), "adapter": mode}
+
+
+def _note(mode: str) -> str:
+    return NO_ADAPTER_NOTE if mode == "optional" else ""
 
 
 # ---------------------------------------------------------------- ci-snap
@@ -263,8 +262,9 @@ def _reject(b, node: str, reason: str) -> dict:
     return {"ok": False, "done": give_up, "give_up": give_up, "reason": reason, "node": node, "status": ""}
 
 
-def take(board_dir, node: str, reply: dict, repo) -> dict:
-    """役の返答を受け付ける。順: 包みを宣言した run ならこの試行の役の起動に包みの柵が掛かったか（無ければ・宣言が読めなければ
+def take(board_dir, node: str, reply: dict, repo, mode: str) -> dict:
+    """役の返答を受け付ける。mode は ci-fence が読んだ包みの形（YAML の with: で届く。start の控えは読み直さない——再審査 N8）。
+    順: 包みを宣言した run（mode が空）ならこの試行の役の起動に包みの柵が掛かったか（無ければ・mode が宣言の語でなければ
     盤面を止めて done。包み無しの run では見ない） → 本物の作業ツリーを
     ci-snap の姿と比べる → 盤面の done（写しの schema・post_check・check_record）。
     拒否（作業ツリーの変化・写しの AnswerReject）は {ok: False, done, give_up, reason} で返し、盤面の層のファイルは書かない
@@ -276,8 +276,10 @@ def take(board_dir, node: str, reply: dict, repo) -> dict:
     prepared = _read_json(b.work(prepared_name(node)))
     if not (isinstance(prepared, dict) and prepared.get("at")):
         raise BoardGap(f"{b.work(prepared_name(node))} が無い——ci-prep が先に走る（役の起動の記録と突き合わせられない）")
-    mode, why = _declared(b)
-    if mode == "":
+    why = ""
+    if mode not in entry.ADAPTER_MODES:
+        why = f"ci-fence が渡した包みの形 adapter={mode!r} は宣言の語（空か optional）でない"
+    elif mode == "":
         why = adapter.fenced_launch(pathlib.Path(repo), ROLE, prepared["at"])
         if why:
             why = f"包みの柵が CI の任せ先の役の起動に掛かっていない: {why}"
@@ -317,19 +319,20 @@ def _drop_copy(snap) -> None:
         shutil.rmtree(real, ignore_errors=True)
 
 
-def collect(board_dir, node: str) -> dict:
-    """ブロックの出口 {ok, reason, node, status, green, pr_go, note}。写しを消す。note は ci-fence の知らせ（包み無しの run だけ）。
+def collect(board_dir, node: str, mode: str) -> dict:
+    """ブロックの出口 {ok, reason, node, status, green, pr_go, note}。写しを消す。mode は ci-fence が読んだ包みの形（YAML の with: で
+    届く。再審査 N8）で、note は包み無し（optional）の知らせ NO_ADAPTER_NOTE か空。mode が宣言の語でなければ BoardGap（配線の誤り）。
     - 節を受けた: status は素材の status、green は clean か。p0.local_checks なら entry.resume_after_ci で start の輪に戻り
       （p0.parallel_pr などを走らせて settle）、pr_go（True・False・"pending"）をラインに渡す。p4.ci の pr_go は False
     - 受けていない（輪が 3 回とも拒まれた）: 最後の拒否の文で盤面を止めて（by works:ci）ok: false
     - 受けていないのに盤面が既に止まっている: ok: false（止めた理由を reason に）。受けた後に止まった（p4.ci の後の
       stop_after_round）は受けた扱い"""
+    if mode not in entry.ADAPTER_MODES:
+        raise BoardGap(f"ci-fence が渡した包みの形 adapter={mode!r} は宣言の語（空か optional）でない——blk-ci の with: を確かめる")
     b = _open(board_dir, allow_halted=True)
     _node(node)
     _drop_copy(_read_json(b.work(snapshot_name(node))))
-    rec = _read_json(b.work(note_name(node)), {})
-    note = rec.get("note") if isinstance(rec, dict) and isinstance(rec.get("note"), str) else ""
-    out = {"ok": False, "reason": "", "node": node, "status": "", "green": False, "pr_go": False, "note": note}
+    out = {"ok": False, "reason": "", "node": node, "status": "", "green": False, "pr_go": False, "note": _note(mode)}
     inst = b.rd["instances"].get(node) or {}
     stop = b.state.get("stop") or b.state.get("halted")
     if inst.get("status") != "done" and stop:

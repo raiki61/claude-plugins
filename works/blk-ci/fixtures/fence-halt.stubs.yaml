@@ -6,6 +6,7 @@ ci-fence:
   go: false
   reason: '包みの確かめが通らない: CI の任せ先の役（p0.local_checks）を起こさない（run が宣言した包みの形（adapter）が読めない: start の控え board/r1/start.json の adapter=None は宣言の語（空か optional）でない）'
   note: ''
+  adapter: ''
 collect:
   ok: false
   reason: '盤面は止まっている（works:adapter: 包みの確かめが通らない: CI の任せ先の役（p0.local_checks）を起こさない（run が宣言した包みの形（adapter）が読めない: start の控え board/r1/start.json の adapter=None は宣言の語（空か optional）でない））'

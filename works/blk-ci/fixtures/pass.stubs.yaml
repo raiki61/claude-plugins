@@ -6,6 +6,7 @@ ci-fence:
   go: true
   reason: ''
   note: ''
+  adapter: ''
 ci-snap:
   ok: true
   snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
