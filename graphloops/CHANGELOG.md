@@ -6,6 +6,8 @@ graphloops の版ごとの、利用者に効く違いを新しい順に並べる
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-27
+
 ### Added
 
 - `loop.py skip --every-round`: optional の節を run の間ずっと、出す前に省く（回し切りの口）。

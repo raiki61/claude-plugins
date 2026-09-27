@@ -222,7 +222,7 @@
   | graphloops--v0.2.0 | fd4fd5a |
   | graphloops--v0.1.0 | 4c1fc14 |
 
-- 今の版の tag: graphloops--v0.21.5・convergence-loops--v0.41.0（上の 2 つの表の先頭の行）と、gates--v0.11.4・coldwrite--v0.1.4・attention--v0.25.2。後の 3 本は、この行を足した版上げの commit（main の 97c464c の次の commit）に付ける。gates・coldwrite・attention の表の先頭の行（gates--v0.11.3・coldwrite--v0.1.3・attention--v0.25.1）は 1 つ前の版で、今の版ではない。
+- 今の版の tag: graphloops--v0.22.0（この行を書き換えた版上げの commit に付ける。graphloops の表の先頭の graphloops--v0.21.5 は 1 つ前の版）・convergence-loops--v0.41.0（上の表の先頭の行）と、gates--v0.11.4・coldwrite--v0.1.4・attention--v0.25.2。後の 3 本は、この行を足した版上げの commit（main の 97c464c の次の commit）に付ける。gates・coldwrite・attention の表の先頭の行（gates--v0.11.3・coldwrite--v0.1.3・attention--v0.25.1）は 1 つ前の版で、今の版ではない。
 
 ## 見直す条件
 
