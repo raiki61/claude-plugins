@@ -2,29 +2,39 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""テストのコマンドを 1 回走らせる節（blk-tests の run）。
+"""テストを走らせる節（blk-tests の run）。形は INPUTS_MODE で選ぶ: plain（既定）・mid・final（仕様 3.5・裁定 TA4・TA5）。
 
-INPUTS_CMD（節の with: の cmd）を対象リポジトリの根（cwd）で `bash -c` に渡し、標準出力と標準エラーを盤面の
-tests.log に置き、標準入力は閉じる（入力待ちで止まらない）。コマンドは本文に差し込まず環境変数のまま渡すので、
-値がシェルの記号を含んでもデータのまま届く。PYTHONDONTWRITEBYTECODE=1 を立て、テストが作業ツリーに __pycache__ を
-作って修正の差分に紛れ込むのを止める。
-走らせるのは tree_run（.shared/core）——コマンドを自分のプロセスグループで起こし、run が止められたら（SIGINT・SIGTERM・
-SIGHUP、直下の親の uv が消えた）テストが背景に起こした孫まで木ごと止める。
-テストのコマンドには uv run の外の環境を渡す（tree_run.outside_env。決まりの正本はそこ）。Archon は script の節を `uv run <このファイル>` で起こし、
-uv は PATH の頭に自分の python の bin（PEP 723 の塊が作る ~/.cache/uv の下の環境。塊が外れて対象が pyproject.toml を
-持てば対象の .venv/bin）を足し、VIRTUAL_ENV・UV_RUN_RECURSION_DEPTH を立てる。そのまま渡すと `python3 -m pytest` が uv の python を掴んで偽の赤になる
-（bash の節だった頃は Archon の素の環境で走った）。
+plain（既定。1 本目と線 C の mutgate の約束のまま。INPUTS_MODE が無い・空の呼び出しもこれ）:
+  INPUTS_CMD（節の with: の cmd）を対象リポジトリの根（cwd）で `bash -c` に渡し、標準出力と標準エラーを
+  $ARTIFACTS_DIR/board/tests.log に置き、標準入力は閉じる（入力待ちで止まらない）。盤面は開かない。コマンドは本文に
+  差し込まず環境変数のまま渡すので、値がシェルの記号を含んでもデータのまま届く。
+  出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。コマンドが空・空白だけなら何も
+  走らせずに 1（緑と言わない）。
+mid（中の関所のためのテスト。盤面の節には書かない）:
+  盤面（$ARTIFACTS_DIR/board）を entry.open_board で開き、対象の根の宣言 .review-checks.json（写しの engine/declared.py の
+  読み方）の suite が読めれば段を 1 つずつ shell を通さずに、宣言が無ければ cmd を `bash -c` で走らせる。宣言が在るのに
+  読めなければ engine と同じく走らせない（cmd にも落とさない）。ログは b.work("mid-tests.log")、結果は
+  b.work("mid-tests.json")。走れなかった回（読めない宣言・宣言も cmd も無い）は green: false で理由をログと結果に残す。
+final（最後のテスト。盤面の p4.ci）:
+  entry.run_ci(b, "p4.ci", test_cmd=cmd)（engine が宣言を走らせるか、任せ先に落ちたら cmd を走らせた素材を done）→ settle。
+  green は p4.ci が置いた素材 materials.local_checks の status が clean か。ログは run_ci の返りの log（周の番号を組み立てない）。
+  宣言が無く cmd も空（任せ先に落とせない）・run_ci が拒んだ（CiRefused）は終了コード 1 で理由を stderr。
+mid・final の出口は plain の欄に suites（段ごとの {name, exit}）と by（mid・engine・role）を足す。どの形も赤で止めない
+（ok: true・green: false）——赤を人の関所に見せるのがこの段の仕事。
 
-出口: {"ok": true, "green": <終了コードが 0 か>, "log": <tests.log のパス>} を 1 行。赤（信号で死んだ回も）でも ok: true
-——赤を人の関所に見せるのがこの段の仕事で、赤で run を止めない。
-コマンドが空・空白だけなら何も走らせずに 1（緑と言わない）。ARTIFACTS_DIR が欠け・空なら 2。
-止められた回は木を止め終えてから、出口を出さずに 128+信号で終わる。
+どの形も走らせるのは tree_run（.shared/core）——自分のプロセスグループで起こし、run が止められたら（SIGINT・SIGTERM・
+SIGHUP、直下の親の uv が消えた）テストが背景に起こした孫まで木ごと止める。止められた回は木を止め終えてから、出口を出さずに
+128+信号で終わる。テストには uv run の外の環境を渡す（tree_run.outside_env。PYTHONDONTWRITEBYTECODE=1 も立てる。決まりの
+正本はそこ）。Archon は script の節を `uv run <このファイル>` で起こすので、そのまま渡すと `python3 -m pytest` が uv の
+python を掴んで偽の赤になる。
+ARTIFACTS_DIR が欠け・空、知らない形、盤面の口が読めない・盤面の誤り（BoardGap・止めた run への書き込み）は 2（回す側の誤り）。
 """
 import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
+import json  # noqa: E402
 import os  # noqa: E402
 import subprocess  # noqa: E402
 
@@ -32,29 +42,139 @@ import script_io  # noqa: E402
 import tree_run  # noqa: E402
 
 CMD_ENV = "INPUTS_CMD"
+MODE_ENV = "INPUTS_MODE"
+INPUTS = (CMD_ENV, MODE_ENV)   # 裁定 TA16: 読む INPUTS_* の組（Task 17 の試験が YAML の with: の鍵と突き合わせる）
+MODES = ("plain", "mid", "final")
 LOG_NAME = "tests.log"
+MID_LOG = "mid-tests.log"
+MID_RESULT = "mid-tests.json"
+CI_NODE = "p4.ci"
+
+
+class Refused(Exception):
+    """final が走らせられない（終了コード 1。文は人に向けた 1 行）"""
+
+
+def _run(argv, log_f, cwd=None) -> int:
+    """argv を tree_run で走らせ、標準出力と標準エラーを log_f に。止められたら tree_run.Stopped が上がる"""
+    return tree_run.run(argv, stdin=subprocess.DEVNULL, stdout=log_f, stderr=subprocess.STDOUT, cwd=cwd,
+                        env=tree_run.outside_env(os.environ))
+
+
+def run_plain(cmd: str, artifacts: Path) -> dict:
+    board = artifacts / script_io.BOARD_DIR
+    board.mkdir(parents=True, exist_ok=True)
+    log = board / LOG_NAME
+    with open(log, "wb") as f:
+        code = _run(["bash", "-c", cmd], f)
+    return {"ok": True, "green": code == 0, "log": str(log)}
+
+
+def _repo_root(b) -> Path:
+    """対象の根（engine の run_engine と同じ引き方。盤面を開いた時に inputs.cwd へ向いた git）。引けなければ inputs.cwd"""
+    from engine import util
+    return Path(util.repo_root() or b.state["inputs"]["cwd"])
+
+
+def run_mid(b, cmd: str) -> dict:
+    """中の関所のためのテスト。盤面の state・record・trace は書かない（作業ファイルは今の周の b.work の 2 つだけ）"""
+    from engine import declared
+    root = _repo_root(b)
+    log, res = b.work(MID_LOG), b.work(MID_RESULT)
+    d = declared.read(root)
+    suites, doc = [], {"by": "mid"}
+    with open(log, "wb") as f:
+        def note(text):
+            f.write((text + "\n").encode("utf-8"))
+            f.flush()   # 子が同じファイルに書く前に
+
+        if d is not None and "error" in d:
+            doc.update(source="none", reason=f"宣言が読めないので走らせない（engine と同じ。cmd にも落とさない）: {d['error']}")
+            note(doc["reason"])
+        elif d is not None:
+            doc.update(source="declared", sha=d["sha"])
+            for s in d["steps"]:
+                note(f"== {s['name']}: {json.dumps(s['argv'], ensure_ascii=False)}")
+                try:
+                    code = _run(list(s["argv"]), f, cwd=str(root))
+                except OSError as e:   # 起こせない語（無いコマンドなど）は赤（engine の tree_runner は exit None）
+                    note(f"起こせない: {e}")
+                    code = None
+                note(f"== {s['name']}: exit {code}")
+                suites.append({"name": s["name"], "exit": code})
+        elif cmd.strip():
+            doc["source"] = "cmd"
+            code = _run(["bash", "-c", cmd], f, cwd=str(root))
+            suites.append({"name": "cmd", "exit": code})
+        else:
+            doc.update(source="none", reason=f"走らせる物が無い: 対象の根に {declared.DECL_NAME} が無く、テストのコマンドも空")
+            note(doc["reason"])
+    green = bool(suites) and all(s["exit"] == 0 for s in suites)
+    doc.update(green=green, suites=suites, log=str(log))
+    tmp = res.with_name(res.name + ".tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, res)
+    return {"ok": True, "green": green, "log": str(log), "suites": suites, "by": "mid"}
+
+
+def run_final(b, cmd: str, *, run_ci, refused=()) -> dict:
+    """最後のテスト（盤面の p4.ci）→ settle。宣言が無く cmd も空なら盤面を書かずに Refused。run_ci の拒否（refused）も Refused"""
+    from engine import declared
+    if declared.read(_repo_root(b)) is None and not cmd.strip():
+        raise Refused(f"テストを飛ばさない: 対象の根に {declared.DECL_NAME} が無く（任せ先に落ちる）、テストのコマンドも空")
+    try:
+        ci = run_ci(b, CI_NODE, test_cmd=cmd)
+    except refused as e:
+        raise Refused(f"最後のテスト（{CI_NODE}）を走らせられない: {e}") from None
+    material = b.record.get("materials", {}).get("local_checks") or {}
+    check = b.record.get("process", {}).get("checks", {}).get(CI_NODE) or {}
+    suites = [{"name": r["name"], "exit": r["exit"]} for r in check.get("runs") or []] if ci["by"] == "engine" else []
+    b.settle()
+    return {"ok": True, "green": material.get("status") == "clean", "log": ci["log"], "suites": suites, "by": ci["by"]}
 
 
 def main() -> int:
     if not os.environ.get(script_io.ARTIFACTS_ENV):
         print(f"環境変数が無い: {script_io.ARTIFACTS_ENV}", file=sys.stderr)
         return 2
+    artifacts = Path(os.environ[script_io.ARTIFACTS_ENV])
+    mode = os.environ.get(MODE_ENV) or "plain"
+    if mode not in MODES:
+        print(f"知らない形 {MODE_ENV}={mode!r}（{' / '.join(MODES)}）", file=sys.stderr)
+        return 2
     cmd = os.environ.get(CMD_ENV, "")
-    if not cmd.strip():
-        print("テストのコマンドが空", file=sys.stderr)
-        return 1
-    board = Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
-    board.mkdir(parents=True, exist_ok=True)
-    log = board / LOG_NAME
-    env = tree_run.outside_env(os.environ)
     try:
-        with open(log, "wb") as f:
-            code = tree_run.run(["bash", "-c", cmd], stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT, env=env)
+        if mode == "plain":
+            if not cmd.strip():
+                print("テストのコマンドが空", file=sys.stderr)
+                return 1
+            out = run_plain(cmd, artifacts)
+        else:
+            try:
+                import entry
+            except ImportError as e:
+                print(f"盤面の口 entry が読めない（mid・final は盤面を使う）: {e}", file=sys.stderr)
+                return 2
+            from board import BoardGap
+            from engine.util import Reject
+            try:
+                b = entry.open_board(artifacts / script_io.BOARD_DIR)
+                if mode == "mid":
+                    out = run_mid(b, cmd)
+                else:
+                    out = run_final(b, cmd, run_ci=entry.run_ci, refused=entry.CiRefused)
+            except Refused as e:
+                print(str(e), file=sys.stderr)
+                return 1
+            except (BoardGap, Reject) as e:
+                print(f"盤面の誤り: {e}", file=sys.stderr)
+                return 2
     except tree_run.Stopped as e:
         print(f"止められた（信号 {e.signum}）。テストのコマンドは木ごと止めた", file=sys.stderr)
         return 128 + e.signum
-    script_io._emit({"ok": True, "green": code == 0, "log": str(log)})
+    script_io._emit(out)
     return 0
 
 
-sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())
