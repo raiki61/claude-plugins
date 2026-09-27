@@ -43,6 +43,11 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    allowUnsandboxedCommands: false・failIfUnavailable: true）を渡していない起動・切符の無い起動・根が git から引けない
    起動は起こさない（役が書く道は Bash だけで守りは denyWrite だけ。
    盤面・pack・git の設定の守りは切符にしか無い）。切符の「役の cwd の worktree 自身は除く」はそのまま（書く役の fix のため）
+6b. **旗 isolated**（独立の目の道具ゼロの役 blind-judge）: 子を Git の外の置き場 `<一時の置き場>/works-isolated-<cwd の hash>`
+   で起こす（graphloops の commands._isolated_cwd と同じ。claude は cwd が Git のリポジトリの外なら git status の写しを system
+   prompt に入れない——公式 'Absent outside a Git repository'。CLAUDE.md は YAML の settingSources: [] が外す）。置き場は run
+   ごとに同じ（claude の会話の置き場は cwd ごとなので、出し直しの --resume が同じ会話を引ける）。会話の id・起動の記録の鍵は
+   Archon の cwd（run の worktree）のまま。道具を持つ起動（`--tools ""` でない）・置き場が Git の中の起動は起こさない
 7. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
    会話の id を記録できない時は、claude を起こさずに 1 行を出して止まる（fail closed）。
 
@@ -87,8 +92,10 @@ SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 
 _NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
 # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）。no-tree-write: 役の cwd の worktree を柵に足す（裁定 R56）
-FLAGS = ("no-post", "no-tree-write")
+FLAGS = ("no-post", "no-tree-write", "isolated")
 NO_TREE_WRITE = "no-tree-write"
+ISOLATED = "isolated"
+ISOLATED_PREFIX = "works-isolated-"
 # 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
 # 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
@@ -123,8 +130,9 @@ class Plan(NamedTuple):
     tools_empty: bool               # `--tools ""`（題の生成か、道具を持たない役）
     session: Optional[dict]         # {mode: new|sdk-resume|sdk-session|sdk-fork|continued|refused, id, of?, from?}
     record: List[Tuple[pathlib.Path, str]]   # 子を起こす前に書く (id のファイル, id)
-    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?}（フックを足した起動だけ）
+    fence: Optional[dict] = None    # {deny_write, permissions_deny, no_post?, isolated?}（フックを足した起動だけ）
     env: Optional[dict] = None      # 子の env に上書きする物（no-post の起動だけ）
+    cwd: Optional[str] = None       # 子の cwd（旗 isolated の起動だけ。None なら包みの cwd のまま）
 
 
 def marker_text(name: str, cont: Optional[str] = None, flags: Sequence[str] = ()) -> str:
@@ -592,6 +600,25 @@ def _tools_empty(argv: Sequence[str]) -> bool:
         return False
 
 
+def isolated_place(cwd, env=None) -> pathlib.Path:
+    """旗 isolated の子の cwd: <一時の置き場（env の TMPDIR か tempfile の既定）>/works-isolated-<cwd の hash>"""
+    import tempfile
+    env = os.environ if env is None else env
+    root = env.get("TMPDIR") or tempfile.gettempdir()
+    return pathlib.Path(os.path.realpath(root)) / (ISOLATED_PREFIX + cwd_key(cwd))
+
+
+def _inside_git(path: pathlib.Path) -> bool:
+    """path が Git の作業ツリーの中か（git が引けない・外なら偽。GIT_DIR などの env は落とす——live_worktrees と同じ）"""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
+    try:
+        r = subprocess.run(["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True,
+                           env=env)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and r.stdout.strip() == "true"
+
+
 def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
          protected: Optional[Callable[[], Sequence[str]]] = None, env=None) -> Plan:
@@ -657,8 +684,21 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own:
         fence["no_tree_write"] = own[0]
+    child_cwd = None
+    if ISOLATED in marker.flags:
+        if not tools_empty:
+            return _refuse(argv, node, cont, tools_empty, "旗 isolated は道具ゼロの役（--tools \"\"）だけに付く")
+        place = isolated_place(cwd, env)
+        try:
+            place.mkdir(mode=0o700, parents=True, exist_ok=True)
+        except OSError as e:
+            return _refuse(argv, node, cont, tools_empty, f"Git の外の置き場を作れない（{place}: {e}）")
+        if _inside_git(place):
+            return _refuse(argv, node, cont, tools_empty, f"Git の外の置き場が Git の作業ツリーの中にある（{place}）")
+        child_cwd = str(place)
+        fence["isolated"] = child_cwd
     child_env = no_post_env(env, gh) if gh is not None else None
-    return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env)
+    return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env, child_cwd)
 
 
 def _refuse(argv, node, cont, tools_empty, why) -> Plan:
@@ -692,7 +732,7 @@ def _stop(p, known, born, first=signal.SIGTERM) -> None:
         sys.stderr.write(f"works claude-adapter: 木を止め切れない: {why}\n")
 
 
-def supervise(argv: Sequence[str], env_over: Optional[dict] = None) -> int:
+def supervise(argv: Sequence[str], env_over: Optional[dict] = None, cwd: Optional[str] = None) -> int:
     """argv（本物の claude と引数）を新しいセッションで起こして待ち、終了コードを返す（信号で死んだら 128+信号）。
     待つ間は POLL ごとに仲間を数えて溜める。止める信号を受けたか直下の親が替わったら、溜めた仲間ごと木を止め
     （tree_run.stop_group）、LINGER 待って 128+信号（親の替わりは SIGHUP）を返す。claude が自分で終わった後も
@@ -704,7 +744,7 @@ def supervise(argv: Sequence[str], env_over: Optional[dict] = None) -> int:
     known: Dict[int, float] = {}
     born = time.time()
     env = dict(os.environ, **env_over) if env_over else None
-    p = subprocess.Popen(list(argv), start_new_session=True, env=env)
+    p = subprocess.Popen(list(argv), start_new_session=True, env=env, cwd=cwd)   # cwd は旗 isolated の起動だけ
     stopped = False
     try:
         while True:
