@@ -365,8 +365,7 @@ def ref_run_ci(b, nid, *, test_cmd, runner=None):
     return {"by": "role", "log": str(log)}
 
 
-def never_run_ci(*a, **kw):
-    raise AssertionError("run_ci を呼んではいけない")
+REAL_RUN_CI = real_entry.run_ci   # 本物の run_ci（call が real_entry.run_ci を差し替える前に取っておく）
 
 
 class TestTestsModes(ER.EngineRunCase):
@@ -551,14 +550,36 @@ class TestTestsModes(ER.EngineRunCase):
                 self.assertEqual(after.record["materials"]["local_checks"]["status"], status)
                 self.assertEqual(after.node_state("p4.ci"), "done")
 
-    def test_final_empty_cmd_on_fallback_fails(self):
-        # 宣言が無く cmd も空 → 任せ先に落とせない。終了コード 1・理由を stderr、盤面は書かない
+    def test_final_empty_cmd_on_fallback_role_needed(self):
+        # 宣言が無く cmd も空 → 拒まない（裁定 R52）。run_ci の role_needed をそのまま出口の by に出し、緑と言わない。
+        # p4.ci は任せ先に落ちたまま待ち、ラインが blk-ci（CI の任せ先の役）を回す。起こした印は置かない（blk-ci の prep が置く）
         b = self.mode_board(decl=None)
-        before = ER.disk_bytes(b)
-        rc, out, err = self.call(b, "final", " ", run_ci=never_run_ci)
-        self.assertEqual((rc, out), (1, None))
-        self.assertIn(ER.DECL, err)
-        self.assertEqual(ER.disk_bytes(b), before)
+        rc, out, err = self.call(b, "final", " ", run_ci=REAL_RUN_CI)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out, {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"})
+        after = self.reopen(b)
+        inst = after.rd["instances"]["p4.ci"]
+        self.assertEqual(inst["status"], "pending")
+        self.assertIn(ER.DECL, inst["engine_fallback"])
+        self.assertFalse(inst.get("launched_at"))
+        self.assertIn("p4.ci", after.settle()["ready"])
+
+    def test_final_role_needed_never_reuses_earlier_result(self):
+        # Task 7 の審査 I2: 宣言は在るが cmd が空で、engine がそれでも任せ先に落ちた（組んだ返答を受け付けが拒んだ等）→
+        # 修正前の素材（周の頭の local_checks。ここでは clean）を最後の結果に使わない。出口は role_needed で緑と言わない
+        def fall(b, nid, *, test_cmd, runner=None):
+            orig = b.run_engine
+            b.run_engine = lambda n, **kw: orig(n, plan={"fallback": "engine が組んだ返答を受け付けが拒んだ（試験）"}, **kw)
+            return REAL_RUN_CI(b, nid, test_cmd=test_cmd, runner=runner)
+
+        b = self.mode_board(decl=ER.GREEN)
+        self.assertEqual(b.record["materials"]["local_checks"]["status"], "clean", "前提: 修正前の素材は緑")
+        rc, out, err = self.call(b, "final", "", run_ci=fall)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((out["green"], out["by"], out["suites"], out["log"]), (False, "role_needed", [], ""))
+        after = self.reopen(b)
+        self.assertEqual(after.rd["instances"]["p4.ci"]["status"], "pending")
+        self.assertTrue(after.rd["instances"]["p4.ci"]["engine_fallback"])
 
     def test_final_ci_refused(self):
         # run_ci が拒んだ（2 度とも relaunch・why だけの返り）→ 終了コード 1、stderr に why

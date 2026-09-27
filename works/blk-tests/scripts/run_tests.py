@@ -18,8 +18,9 @@ mid（中の関所のためのテスト。盤面の節には書かない）:
 final（最後のテスト。盤面の p4.ci）:
   entry.run_ci(b, "p4.ci", test_cmd=cmd)（engine が宣言を走らせるか、任せ先に落ちたら cmd を走らせた素材を done）→ settle。
   green は p4.ci が置いた素材 materials.local_checks の status が clean か。ログは run_ci の返りの log（周の番号を組み立てない）。
-  宣言が無く cmd も空（任せ先に落とせない）・run_ci が拒んだ（CiRefused）は終了コード 1 で理由を stderr。
-mid・final の出口は plain の欄に suites（段ごとの {name, exit}）と by（mid・engine・role）を足す。どの形も赤で止めない
+  任せ先に落ちて cmd も空（run_ci の role_needed）なら、素材を読まずに green: false・by: role_needed・log は空——p4.ci は
+  任せ先に落ちたまま待ち、ラインが blk-ci（CI の任せ先の役）を回す（裁定 R52）。run_ci が拒んだ（CiRefused）は終了コード 1 で理由を stderr。
+mid・final の出口は plain の欄に suites（段ごとの {name, exit}）と by（mid・engine・role・role_needed）を足す。どの形も赤で止めない
 （ok: true・green: false）——赤を人の関所に見せるのがこの段の仕事。
 
 どの形も走らせるのは tree_run（.shared/core）——自分のプロセスグループで起こし、run が止められたら（SIGINT・SIGTERM・
@@ -118,14 +119,16 @@ def run_mid(b, cmd: str) -> dict:
 
 
 def run_final(b, cmd: str, *, run_ci, refused=()) -> dict:
-    """最後のテスト（盤面の p4.ci）→ settle。宣言が無く cmd も空なら盤面を書かずに Refused。run_ci の拒否（refused）も Refused"""
-    from engine import declared
-    if declared.read(_repo_root(b)) is None and not cmd.strip():
-        raise Refused(f"テストを飛ばさない: 対象の根に {declared.DECL_NAME} が無く（任せ先に落ちる）、テストのコマンドも空")
+    """最後のテスト（盤面の p4.ci）→ settle。run_ci の拒否（refused）は Refused。
+    run_ci が role_needed（任せ先に落ちて cmd も空。宣言が無い時も、宣言が在るのに engine が落ちた時も）なら、盤面の素材を
+    読まずに green: false・by: role_needed を返す（ラインが blk-ci を回して p4.ci を渡す。裁定 R52）——素材はまだ修正前の
+    周の頭の物で、それを最後の結果にすると修正後のテストを走らせずに緑と言う（Task 7 の審査 I2）"""
     try:
         ci = run_ci(b, CI_NODE, test_cmd=cmd)
     except refused as e:
         raise Refused(f"最後のテスト（{CI_NODE}）を走らせられない: {e}") from None
+    if ci["by"] == "role_needed":
+        return {"ok": True, "green": False, "log": "", "suites": [], "by": "role_needed"}
     material = b.record.get("materials", {}).get("local_checks") or {}
     check = b.record.get("process", {}).get("checks", {}).get(CI_NODE) or {}
     suites = [{"name": r["name"], "exit": r["exit"]} for r in check.get("runs") or []] if ci["by"] == "engine" else []
