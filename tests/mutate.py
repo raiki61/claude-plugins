@@ -60,7 +60,8 @@ core で使えず、子のプロセスにテストの名前を運ばないので
 status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と、実際に落ちた検査 killedBy。共通形式の外の欄は
 empty（撃てた腕 0 本の理由）・partial（撃つ途中の版。腕 1 本ごとに書き直す）・pending（期限で撃たずに残った腕）・pruned（1 行 1 本と
 効かない行の規則で作らなかった自動の腕と理由）・marker_unhealthy（印の写しが赤で、通らない行を決めなかった理由。そのとき通らなかった
-自動の腕と、台本の覆いが無く pytest だけで撃って緑だった腕は status が Pending で unrunnable に理由）・worktree_moved（基点を写した後に作業ツリーで変わった、腕の結果を決めるファイル。
+自動の腕と、台本の覆いが無く pytest だけで撃って緑だった腕は status が Pending で unrunnable に理由。summary.uncovered（覆いの無い行の
+自動の腕。status NoCoverage から数える）はこの回だけ null）・worktree_moved（基点を写した後に作業ツリーで変わった、腕の結果を決めるファイル。
 撃った結果は基点の版の物で、終了コードと証拠には使わない）の 6 つと、印の写しの detail（赤の回の検査ごとの本文と出力の末尾）と、腕ごとの cover（印の写しで行を通した台本。? は帰属できない印）と
 attribution（赤の出どころ: narrowed＝絞った台本から / unrelated＝絞った台本は緑で一式の確かめ直しだけ赤 / unattributed＝一式だけで撃った /
 pytest＝行を通した pytest のテストから / pytest_whole＝pytest 一式だけで撃った / pytest_unrelated＝絞った pytest は緑で pytest 一式の確かめ直しだけ赤）と、
@@ -830,8 +831,7 @@ def run_pytest(repo, args, failfast=False):
 
 def narrow_why(a):
     """自動の腕を回す台本（台本 → 関数名）と、絞れないときの理由 ——(台本 か None, 理由)。絞るのは、印の写しで行を通した台本が全部
-    分かり、行が関数の本体に在るときだけ。理由は cover_why の理由と、台本の一覧（SCRIPTS）の外の台本（outside_scripts）。
-    理由の件数は evaluate が数える"""
+    分かり、行が関数の本体に在るときだけ。理由の件数は evaluate が数える"""
     cov, why = cover_why(a, "cover")
     if why:
         return None, why
@@ -1112,6 +1112,7 @@ def evaluate(res, sel):
     m = res["marker"]
     fresh = [r for r in res["arms"] if not r.get("carried")]
     exp = {x["id"]: x.get("expect") for x in sel}
+    sel_by = {x["id"]: x for x in sel}
     if m.get("rc", 0) != 0:
         res["marker_unhealthy"] = MARKER_RED.format(rc=m.get("rc"))
     # control の pytest が赤の回は、pytest の段の赤を証拠にしない（台本で殺した腕の証拠は残す——回ごとは落とさない）
@@ -1120,7 +1121,6 @@ def evaluate(res, sel):
         # 印を差した行を台本も pytest も一度も通らない。印の写しが赤の回は途中で止まった記録なので、通らなかったとは言えない
         if r.get("status") == "Survived" and m.get("rc", 0) == 0 and r["id"] in m["placed"] and r["id"] not in m["seen"]:
             r["status"] = "NoCoverage"
-        # 同じ理由で、印の写しの台本が赤の回は『台本が行を通さなかった』とも言えない——pytest だけで撃って緑だった腕を Survived にしない
         if r.get("pytest_only") and m.get("rc", 0) != 0:
             del r["pytest_only"]
             if r.get("status") == "Survived":
@@ -1137,6 +1137,9 @@ def evaluate(res, sel):
                       "skipped": [r["id"] for r in fresh if r.get("status") == "Ignored"],   # 撃てない腕は status だけで持つ（旗の 2 系統にしない）
                       "unrunnable": [r["id"] for r in fresh if r.get("unrunnable")],
                       "unhit": sorted(set(m["placed"]) - set(m["seen"])),
+                      # 覆いの無い行の自動の腕（status NoCoverage から数える）。台本の印の写しが赤の回は NoCoverage を付けないので数えない（null）
+                      "uncovered": ([r["id"] for r in fresh if r.get("status") == "NoCoverage" and "auto" in sel_by.get(r["id"], {})]
+                                    if m.get("rc", 0) == 0 else None),
                       "no_evidence": [r["id"] for r in fresh if r.get("status") == "Killed" and not r["evidence"]],
                       # 赤の出どころ（one の attribution）と、一式で確かめていない緑。証拠と終了コードには使わず、見える形にだけする
                       "unrelated": [r["id"] for r in fresh if r.get("attribution") == "unrelated"],
@@ -1189,6 +1192,30 @@ def reusable(prev_path):
     return {r["id"]: r for r in prev.get("arms", []) if proven(r) and r.get("fingerprint")}
 
 
+def pytest_off(res):
+    """pytest の覆いを使っていない理由（段を足さなかった・印の写しの pytest が緑でない）。使っていれば空"""
+    return res.get("pytest_stage") or ((res.get("marker") or {}).get("pytest") or {}).get("why") or ""
+
+
+def coverage_lines(res):
+    """覆いの 2 行（印を差したが通らない腕・覆いの無い行の件数）。印字と --gate-efficacy が同じ文を使う。台本の印の写しが赤の回は
+    通ったかを決めていないと言い、覆いの無い行は数えられない（理由）と言う。pytest の覆いを使っていない回は、台本だけで決めた覆いと添える"""
+    s, py = res.get("summary") or {}, pytest_off(res)
+    unhit, unc = s.get("unhit") or [], s.get("uncovered", [])
+    lines = []
+    if unc is None:
+        if unhit:
+            lines.append(f"印の写しが赤で、通ったかを決めていない腕: {' '.join(unhit)}")
+        lines.append(f"覆いの無い行は数えられない（{res.get('marker_unhealthy') or '印の写しが赤'}）")
+        return lines
+    only = f"（pytest の覆いを使っていない: {py}。台本だけで決めた覆い）" if py else ""
+    if unhit:
+        lines.append(f"印を差したが通らなかった腕{only}: {' '.join(unhit)}")
+    if unc:
+        lines.append(f"覆いの無い行（台本も pytest も通らない）の自動の腕 {len(unc)} 本{only}: {' '.join(unc)}")
+    return lines
+
+
 def gate_efficacy(res):
     """--out の結果を p1.gate_efficacy の返答（material と arms）に組む。判定は proven と healthy だけで、終了コードと同じ。
     この Python では撃てない腕（Ignored）は腕の行に入れず、名前を material に書く（終了コードも Ignored では落とさない）"""
@@ -1211,9 +1238,12 @@ def gate_efficacy(res):
     if res.get("pruned"):
         note += f"（1 行 1 本・効かない行で撃たなかった自動の腕 {len(res['pruned'])} 本は --out の pruned に理由つき）"
     # pytest の段が外れた回は、関門が台本だけの撃ち方に落ちたことを判定役に見せる（人の決定: 変異の関門は pytest を中心にする）
-    py_off = res.get("pytest_stage") or ((res.get("marker") or {}).get("pytest") or {}).get("why")
+    py_off = pytest_off(res)
     if py_off:
         note += f"（pytest の段を使っていない: {py_off}。自動の腕も台本だけで撃った）"
+    unc = (res.get("summary") or {}).get("uncovered", [])
+    if unc is None or unc:
+        note += f"（{coverage_lines(res)[-1]}）"
     if not arms:
         return {"material": {"status": "not_run", "reason": (res.get("empty") or "撃てた腕が 0 本") + note}, "arms": arms}
     short = [x["arm"] for x, r in zip(arms, shot) if not (ok and proven(r))]
@@ -1358,8 +1388,8 @@ def main():
           + (f" / 撃てない {len(skipped)}: {' '.join(skipped)}" if skipped else "")
           + (f" / 走り切らない {len(unrun)}: {' '.join(unrun)}" if unrun else "")
           + (f" / 持ち越し {len(carried)}" if carried else ""))
-    if unhit:
-        print(f"印を差したが通らなかった腕: {' '.join(unhit)}")
+    for line in coverage_lines(res):
+        print(line)
     if noev:
         print(f"赤だが当たりの証拠が無い腕（expect を宣言した腕は、落ちた検査に expect が無い）: {' '.join(noev)}")
     if s["unrelated"] or s["unattributed"] or s["narrowed_green"]:
