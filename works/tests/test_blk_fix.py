@@ -758,6 +758,29 @@ class TestCollect(BoardCase):
         self.assertIn("p3.fix", err)
 
 
+class TestLeftoversModule(unittest.TestCase):
+    """後始末の模块 leftovers は .shared/core に置く（構造の調べ V13。scripts/ の下の .py は全部スクリプトとして拾われる）"""
+
+    def test_leftovers_lives_in_core_not_scripts(self):
+        self.assertFalse((BLK / "scripts" / "leftovers.py").exists())
+        self.assertTrue((CORE / "leftovers.py").is_file())
+
+    def test_leftovers_is_stdlib_only(self):
+        tree = ast.parse((CORE / "leftovers.py").read_text(encoding="utf-8"))
+        names = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+        names |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.level == 0}
+        self.assertTrue(names)
+        self.assertEqual(sorted(names - set(sys.stdlib_module_names)), [], "標準ライブラリだけ（pack の core の他の模块も読まない）")
+        self.assertFalse(any(isinstance(n, ast.ImportFrom) and n.level for n in ast.walk(tree)))
+
+    def test_leftovers_callers_import_from_core(self):
+        for name in ("ignored_before", "clean", "assert_changed"):
+            with self.subTest(name):
+                src = (BLK / "scripts" / f"{name}.py").read_text(encoding="utf-8")
+                self.assertIn('".shared" / "core"', src)
+                self.assertRegex(src, r"(?m)^from leftovers import ")
+
+
 class TestCleanIgnored(ScriptCase):
     """修正役の前に git が無視するファイルを控え（ignored_before）、後で増えた物だけを消す（clean）"""
 

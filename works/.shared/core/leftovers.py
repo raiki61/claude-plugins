@@ -1,14 +1,10 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
-"""修正役の後始末（blk-fix だけの物。節ではなく、ignored_before・clean・assert_changed・collect が import する模块）。
+"""修正役の後始末（blk-fix の節 ignored_before・clean・assert_changed が import する模块。節ではないので scripts/ でなくここに置く）。
 
 - ARCHON_PREFIX:      .archon/ の下は修正役の仕事でない（assert_changed は数えず、clean は消さない。決まりはここの 1 本）
 - git・git_names:     git を呼ぶ手続き（-z で読むパスの一覧も。Unreadable・GIT_TIMEOUT と合わせて、blk-fix の正本はここの 1 本）
 - record_ignored:     修正役の前の git が無視するファイルと未追跡のフォルダを盤面の fix-ignored-before.json に控える（節 ignored-before）
 - remove_new_ignored: 控えに無かった無視されるファイルだけを消す（節 clean）
-失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリだけ（pack の core を読まない）。
+失敗は Unreadable を投げる。git は全部 repo を cwd にして呼ぶ。標準ライブラリだけ（core の他の模块も読まない。tests/test_blk_fix が縛る）。
 """
 import json
 import os

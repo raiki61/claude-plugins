@@ -18,7 +18,8 @@ sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ 
 import json  # noqa: E402
 import os  # noqa: E402
 
-from leftovers import Unreadable, record_ignored  # noqa: E402   同じフォルダ（sys.path[0]）の模块
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
+from leftovers import Unreadable, record_ignored  # noqa: E402   .shared/core の模块（V13）
 
 
 def main() -> int:

@@ -70,11 +70,19 @@ class TestGlMap(unittest.TestCase):
                       "blk-pr/scripts/accept.py:check_no_post",
                       "blk-fix/scripts/accept.py:check_unique_units",
                       "blk-fix/scripts/accept.py:check_opened_units",
-                      "blk-fix/scripts/leftovers.py:ignored_files",
-                      "blk-fix/scripts/leftovers.py:record_ignored",
-                      "blk-fix/scripts/leftovers.py:remove_new_ignored"):
+                      "leftovers.ignored_files",
+                      "leftovers.record_ignored",
+                      "leftovers.remove_new_ignored"):
             self.assertIn(works, by)
             self.assertEqual(by[works]["status"], "works-only", works)
+
+    def test_leftovers_rows_name_core_functions(self):
+        """後始末の 3 行は .shared/core/leftovers.py の公開の関数を指す（V13 で blk-fix/scripts から移した）"""
+        rows = [r["works"] for r in load_map() if "leftovers" in r["works"]]
+        self.assertEqual(sorted(rows), ["leftovers.ignored_files", "leftovers.record_ignored", "leftovers.remove_new_ignored"])
+        have = public_functions(CORE / "leftovers.py")
+        for w in rows:
+            self.assertIn(w[len("leftovers."):], have, w)
 
     def test_no_branch_placeholder_rows(self):
         """合流を待つ枝の控えの行（works が <枝>:… の形）は残さない。入った関数は置き場の行に分ける。"""
