@@ -39,6 +39,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from gitkit import committed_copy
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
 
@@ -487,10 +489,8 @@ class TestDevShell(unittest.TestCase):
         runs_json（省略時は working_path・output_root の止まった run を 1 本）を返す。
         戻り値は (結果, 元のリポジトリ, 呼び出しの記録)。"""
         src = tmp / "src"
-        shutil.copytree(ROOT, src / "works", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
-        subprocess.run(["git", "init", "-q", str(src)], check=True)
-        subprocess.run(["git", "-C", str(src), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(src), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
+        # works/ を src/works に写して commit した git（型の写し。gitkit）
+        committed_copy(src, ROOT, sub="works", ignore=("__pycache__", "*.pyc", ".DS_Store"))
         # commit していない物は clone にも pack にも入らない
         (src / "uncommitted.txt").write_text("手元だけの変更\n")
         with (src / "works" / "archon-plugin.json").open("a") as f:
