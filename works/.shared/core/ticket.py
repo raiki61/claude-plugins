@@ -8,9 +8,13 @@
 - `git worktree list` のほかの worktree と元の作業ツリー。**役の cwd の worktree 自身は除く**（役はそこに書く）
 - 盤面・包みの家・pack の置き場（works 自身）
 - git とシェルの設定（`~/.gitconfig`・`~/.config/git`・`~/.bashrc`・`~/.zshrc`・`~/.profile`）と Claude の設定の置き場
-  （`~/.claude`）。環境変数で置き場を替えている時は、その先（`$XDG_CONFIG_HOME/git`・`$CLAUDE_CONFIG_DIR`）も足す
-どの場所も綴り（渡された・git が返した形）と realpath の両方を入れ（macOS の /var と /private/var のように、
-symlink を通した綴りで書かれても外さないため）、重複を除いて並べる。git が引けなければ TicketError。
+  （`~/.claude`）。一覧は HOME_FILES（シェルの起動ファイル・`~/.claude.json`・`~/.config/gh` も入る）。環境変数で置き場を
+  替えている時は、その先（`$XDG_CONFIG_HOME/{git,gh}`・`$CLAUDE_CONFIG_DIR`）も足す
+- 役の worktree 自身の `.git`（linked worktree では gitdir を指す 1 行のファイル）
+どの場所も綴り（渡された・git が返した形）と realpath の両方、さらに macOS の /var・/tmp・/etc は /private の有る無しの
+両方を入れ（git は realpath で返すので、/var の綴りは機械で足す）、重複を除いて並べる。git を呼ぶときは
+`git rev-parse --local-env-vars` の環境変数を外す。git が引けなければ TicketError。役の worktree が守る場所の中に
+入れ子（守る場所が worktree の祖先か同じ）なら、黙って塞がずに TicketError（理由 1 行）。
 """
 import datetime
 import hashlib
@@ -21,12 +25,20 @@ import subprocess
 import tempfile
 
 PACK = pathlib.Path(__file__).resolve().parents[2]   # works/（.shared/core/ticket.py の 2 つ上）
-HOME_FILES = (".gitconfig", ".config/git", ".bashrc", ".zshrc", ".profile", ".claude")
-GIT_ENV_DROP = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")   # 外から漏れると -C の先でなく別のリポジトリを見る
+# HOME の下で守る物（データの一覧。試験が 1 つずつ在るかを見る）。Edit・Write の道具には OS の柵が掛からないので、
+# ここが permissions.deny の唯一の守りになる。シェルの起動ファイルは、書き換えると持ち主の次のシェルで柵の外で走る
+HOME_FILES = (
+    ".gitconfig", ".config/git", ".config/gh",                                  # git と gh の設定（gh は別名と認証）
+    ".bashrc", ".bash_profile", ".bash_login", ".zshrc", ".zshenv", ".zprofile", ".profile",   # シェルの起動ファイル
+    ".claude", ".claude.json",                                                  # Claude の設定（.claude.json は MCP の登録）
+)
+XDG_FILES = ("git", "gh")   # $XDG_CONFIG_HOME が在る時、その下で守る物
+# git rev-parse --local-env-vars が引けない時に外す物。外から漏れると -C の先でなく別のリポジトリを見る
+GIT_ENV_FALLBACK = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
 
 class TicketError(Exception):
-    """守る場所を git から引けない（git でない cwd・git が無い）。"""
+    """守る場所を git から引けない（git でない cwd・git が無い）、または役の worktree が守る場所の中にある。"""
 
 
 def home() -> pathlib.Path:
@@ -46,8 +58,17 @@ def ticket_path(cwd: pathlib.Path) -> pathlib.Path:
     return home() / "tickets" / f"{_key(cwd)}.json"
 
 
-def _git(cwd, *args) -> str:
-    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_DROP}
+def _local_env_vars() -> tuple:
+    """git が「リポジトリに固有」とする環境変数の名前（git rev-parse --local-env-vars）。引けなければ GIT_ENV_FALLBACK。"""
+    try:
+        done = subprocess.run(["git", "rev-parse", "--local-env-vars"], check=True, capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError):
+        return GIT_ENV_FALLBACK
+    names = tuple(done.stdout.split())
+    return names or GIT_ENV_FALLBACK
+
+
+def _git(cwd, env, *args) -> str:
     try:
         done = subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True, env=env)
     except (OSError, subprocess.CalledProcessError) as e:
@@ -56,27 +77,43 @@ def _git(cwd, *args) -> str:
     return done.stdout
 
 
+def _spellings(path: str) -> set:
+    """同じ場所を指す綴り: そのもの・realpath と、macOS の /var・/tmp・/etc（/private の下への symlink）の
+    /private の有る無しの両方。/private を足す・落とすのは、足した・落とした綴りの realpath が同じ時だけ。"""
+    out = {path, os.path.realpath(path)}
+    for q in list(out):
+        alt = q[len("/private"):] if q.startswith("/private/") else "/private" + q
+        if os.path.realpath(alt) == os.path.realpath(q):
+            out.add(alt)
+    return out
+
+
 def protected_paths(repo_cwd: pathlib.Path, board_dir: pathlib.Path) -> list[str]:
     cwd = os.path.abspath(repo_cwd)
-    common = _git(cwd, "rev-parse", "--git-common-dir").strip()
-    gitdir = _git(cwd, "rev-parse", "--absolute-git-dir").strip()
-    own = os.path.realpath(_git(cwd, "rev-parse", "--show-toplevel").strip())
-    trees = [line[len("worktree "):] for line in _git(cwd, "worktree", "list", "--porcelain").splitlines()
+    drop = set(_local_env_vars())
+    env = {k: v for k, v in os.environ.items() if k not in drop}
+    common = _git(cwd, env, "rev-parse", "--git-common-dir").strip()
+    gitdir = _git(cwd, env, "rev-parse", "--absolute-git-dir").strip()
+    top = _git(cwd, env, "rev-parse", "--show-toplevel").strip()
+    own = os.path.realpath(top)
+    trees = [line[len("worktree "):] for line in _git(cwd, env, "worktree", "list", "--porcelain").splitlines()
              if line.startswith("worktree ")]
-    places = [os.path.join(cwd, common), gitdir]
+    places = [os.path.join(cwd, common), gitdir, os.path.join(top, ".git")]   # 最後は役の worktree の .git（ファイル）
     places += [t for t in trees if os.path.realpath(t) != own]
     places += [os.path.abspath(board_dir), str(home()), str(PACK)]
     user = os.path.expanduser("~")
     places += [os.path.join(user, name) for name in HOME_FILES]
     if os.environ.get("XDG_CONFIG_HOME"):
-        places.append(os.path.join(os.environ["XDG_CONFIG_HOME"], "git"))
+        places += [os.path.join(os.environ["XDG_CONFIG_HOME"], name) for name in XDG_FILES]
     if os.environ.get("CLAUDE_CONFIG_DIR"):
         places.append(os.environ["CLAUDE_CONFIG_DIR"])
     out = set()
     for p in places:
-        spelled = os.path.normpath(os.path.abspath(p))
-        out.add(spelled)
-        out.add(os.path.realpath(spelled))
+        out |= _spellings(os.path.normpath(os.path.abspath(p)))
+    for p in sorted(out):
+        real = os.path.realpath(p)
+        if own == real or own.startswith(real.rstrip("/") + "/"):
+            raise TicketError(f"役の worktree {own} が守る場所 {real} の中にある（塞ぐと役が自分の worktree に書けない）")
     return sorted(out)
 
 

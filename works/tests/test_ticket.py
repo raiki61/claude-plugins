@@ -101,12 +101,101 @@ class TicketCase(unittest.TestCase):
     def test_protected_has_pack_and_settings(self):
         fake_home = self.tmp / "user"
         fake_home.mkdir()
-        with mock.patch.dict(os.environ, {"HOME": str(fake_home)}):
+        env = {"HOME": str(fake_home)}
+        with mock.patch.dict(os.environ, env):
+            for name in ("XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR"):
+                os.environ.pop(name, None)
             got = ticket.protected_paths(self.wt1, self.board)
         self.assertIn(self.real(ROOT), got)
-        for name in (".gitconfig", ".config/git", ".bashrc", ".zshrc", ".profile", ".claude"):
+        names = (".gitconfig", ".config/git", ".config/gh", ".bashrc", ".bash_profile", ".bash_login",
+                 ".zshrc", ".zshenv", ".zprofile", ".profile", ".claude", ".claude.json")
+        self.assertEqual(sorted(ticket.HOME_FILES), sorted(names), "一覧はデータで持ち、試験の名前と同じ")
+        for name in names:
             with self.subTest(name=name):
                 self.assertIn(str(fake_home / name), got)
+
+    def test_protected_has_own_dot_git_file(self):
+        # linked worktree の .git は gitdir を指す 1 行のファイル。書き換えると後の git が別のリポジトリを見る
+        self.assertTrue((self.wt1 / ".git").is_file())
+        got = ticket.protected_paths(self.wt1, self.board)
+        self.assertIn(self.real(self.wt1 / ".git"), got)
+        got = ticket.protected_paths(self.main, self.board)
+        self.assertIn(self.real(self.main / ".git"), got)
+
+    def test_protected_follows_config_env(self):
+        # 設定の置き場を環境変数で替えている時は、その先も守る
+        xdg = self.tmp / "xdg"
+        claude = self.tmp / "claude-conf"
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg), "CLAUDE_CONFIG_DIR": str(claude)}):
+            got = ticket.protected_paths(self.wt1, self.board)
+        self.assertIn(str(xdg / "git"), got)
+        self.assertIn(str(xdg / "gh"), got)
+        self.assertIn(str(claude), got)
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": "", "CLAUDE_CONFIG_DIR": ""}):
+            got = ticket.protected_paths(self.wt1, self.board)
+        self.assertNotIn(str(xdg / "git"), got)
+        self.assertNotIn(str(claude), got)
+
+    def test_git_local_env_is_stripped(self):
+        # git の「リポジトリに固有」の環境変数が外から漏れても、答えは cwd の worktree のもの
+        other = self.tmp / "other"
+        other.mkdir()
+        git(other, "init", "-q")
+        clean = ticket.protected_paths(self.wt1, self.board)
+        leak = {"GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other),
+                "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.worktree", "GIT_CONFIG_VALUE_0": str(other)}
+        with mock.patch.dict(os.environ, leak):
+            self.assertEqual(ticket.protected_paths(self.wt1, self.board), clean)
+        names = ticket._local_env_vars()
+        for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_CONFIG_PARAMETERS",
+                     "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY"):
+            self.assertIn(name, names)
+
+    def test_git_local_env_fallback(self):
+        # git rev-parse --local-env-vars が引けない時は、既定の 4 つを外す
+        with mock.patch.object(ticket.subprocess, "run", side_effect=OSError("no git")):
+            self.assertEqual(set(ticket._local_env_vars()), set(ticket.GIT_ENV_FALLBACK))
+        self.assertEqual(set(ticket.GIT_ENV_FALLBACK), {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"})
+
+    def test_nested_worktree_raises(self):
+        # 役の worktree が守る場所（ここでは元の作業ツリー）の中に入れ子なら、黙って塞がずに理由 1 行で止める
+        repo = self.tmp / "nest"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        (repo / "a.txt").write_text("a\n")
+        git(repo, "add", "a.txt")
+        git(repo, "commit", "-q", "-m", "init")
+        inner = repo / ".worktrees" / "wt"
+        git(repo, "worktree", "add", "-q", "-b", "in", str(inner))
+        with self.assertRaises(ticket.TicketError) as cm:
+            ticket.protected_paths(inner, self.board)
+        self.assertNotIn("\n", str(cm.exception))
+        self.assertIn(os.path.realpath(repo), str(cm.exception))
+        # 盤面が役の worktree を含む時も同じ
+        with self.assertRaises(ticket.TicketError):
+            ticket.protected_paths(self.wt1, self.repo_tmp)
+
+    def test_spellings_private_prefix(self):
+        # macOS の /var・/tmp・/etc は /private の下への symlink。どちらの綴りも同じ場所なら両方を返す
+        if os.path.realpath("/var") != "/private/var":
+            self.skipTest("/var が /private/var への symlink でない")
+        for spelled in ("/private/var/folders/x/y", "/var/folders/x/y", "/private/tmp/z", "/tmp/z"):
+            with self.subTest(spelled=spelled):
+                got = ticket._spellings(spelled)
+                bare = spelled[len("/private"):] if spelled.startswith("/private/") else spelled
+                self.assertEqual(got, {bare, "/private" + bare})
+        self.assertEqual(ticket._spellings("/Users/u/x"), {"/Users/u/x"})
+        self.assertEqual(ticket._spellings("/private/nope/x"), {"/private/nope/x"}, "実在の symlink でない /private は足さない")
+
+    def test_git_derived_paths_have_both_spellings(self):
+        # git は realpath（/private/var/...）で返すが、/var/... の綴りも入る
+        if not str(self.repo_tmp).startswith(("/var/", "/tmp/")) or self.real(self.repo_tmp) == str(self.repo_tmp):
+            self.skipTest("使い捨てのリポジトリが /var・/tmp の綴りの下にない")
+        got = ticket.protected_paths(self.wt1, self.board)
+        for p in (self.wt2, self.main, self.main / ".git", self.main / ".git" / "worktrees" / "wt1", self.wt1 / ".git"):
+            with self.subTest(p=str(p)):
+                self.assertIn(str(p), got)
+                self.assertIn(self.real(p), got)
 
     def test_protected_both_spellings(self):
         # 綴り（symlink を通した道）と realpath が違う場所は両方。/var と /private/var と同じ形を自分で作る
