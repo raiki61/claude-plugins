@@ -15,7 +15,6 @@
 - snapshot(board_dir, name, repo): 読むだけの役を起こす前に、作業ツリーの姿（accept.tree_state）を今の周の b.work(name) に
 - take(board_dir, nid, reply, repo, *, snapshot_name): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
   （写しの AnswerReject だけを {ok: False} で役に返す。裁定 TA19）
-- main_take(nid, *, snapshot_name): ブロックの受け付けのスクリプトの入口（script_io.main の環境変数の約束と出口）
 - empty_fix_reply(): 直す義務 0 件の周に機械が渡す p3.fix の空の返答（裁定 TA6）
 
 ブロックのスクリプトは open_board で盤面を開く。線 B のライン（darkfactory-rounds）でも同じブロックが同じ口で動く。
@@ -530,25 +529,6 @@ def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, 
         return {"ok": False, "reason": str(e)}
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
             "out_file": b.state["outputs"][nid]["file"]}
-
-
-def main_take(nid: str, *, snapshot_name: str | None = None) -> int:
-    """ブロックの受け付けのスクリプトの入口。script_io.main（INPUTS_REPLY・INPUTS_BASE_REV・ARTIFACTS_DIR。盤面は
-    $ARTIFACTS_DIR/board）でそのまま take を呼ぶ: 中身の拒否（読めない返答を含む）は終了コード 0 の 1 行で、reason_file に
-    理由の本文のパス（役へは $LOOP_PREV でパスだけを渡す。裁定 R44）。環境変数の欠けは script_io.main の 2。
-    take が投げた BoardGap・Reject（止めた run など。TA19）と思わぬ誤りは、標準出力に何も出さずに標準エラーに 1 行で 2"""
-    import script_io
-
-    def fn(reply, board, base_rev, repo):
-        return take(board, nid, reply, repo, snapshot_name=snapshot_name)
-    fn.__name__ = f"take_{nid}"   # reason_file の名前（reject-take_<節>-<連番>.txt。script_io が英数字以外を _ にする）
-    try:
-        return script_io.main(fn)
-    except (BoardGap, Reject) as e:
-        print(f"{nid} の受け付けを回せない（{type(e).__name__}）: {' '.join(str(e).split())}", file=sys.stderr)
-    except Exception as e:   # 思わぬ誤りも 1 行と 2（traceback を出さない。start.py と同じ）
-        print(f"{nid} の受け付けの内部の誤り: {type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
-    return 2
 
 
 EMPTY_FIX_REASON = "直す義務 0 件の周（p2.fix_plan が条件で na）——修正の役を起こさず、機械が空の返答を渡した"

@@ -8,7 +8,7 @@
 - compose:        指示書の部分を繋ぎ、前の拒否の理由のファイルを頭の 1 行で名指す（render_prompt と、本線の写しでない指示書を
                   スクリプトが組むブロックが使う）
 - accept_role:    出し直しの輪の受け付け（entry.take）。拒否は理由の本文を盤面の reject-take_<節>-<連番>.txt に書き
-                  （entry.main_take と同じ名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
+                  （script_io が理由の本文を書く名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
                   （輪を max_iterations で落とさない。裁定 R50）
 - main_accept:    accept_role の節の入口（INPUTS_REPLY・ARTIFACTS_DIR。after で出口の欄を足せる）
 - gave_up:        出口（collect）の諦めの腕: この周のこの節の拒否が give_up_after 件あれば、最後の拒否の文で盤面を止める

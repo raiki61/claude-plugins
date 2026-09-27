@@ -124,7 +124,7 @@ def main_accept(fn=accept_fix, *, finish=None) -> int:
     """節 fix-accept のスクリプトの入口。script_io.main（INPUTS_REPLY・INPUTS_BASE_REV・ARTIFACTS_DIR）で fn を呼ぶ:
     中身の拒否（読めない返答を含む）は終了コード 0 の 1 行で、reason_file に理由の本文のパス（裁定 R44）。
     環境変数の欠けは script_io.main の 2。fn が投げた BoardGap・Reject（判定の前・止めた run など。TA19）と思わぬ誤りは、
-    標準出力に何も出さずに標準エラーに 1 行で 2（entry.main_take と同じ分け方）。finish は script_io.main に渡す"""
+    標準出力に何も出さずに標準エラーに 1 行で 2（rolekit.main_accept と同じ分け方）。finish は script_io.main に渡す"""
     import script_io
     try:
         return script_io.main(fn, finish=finish)
