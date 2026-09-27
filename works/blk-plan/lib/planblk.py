@@ -24,6 +24,7 @@ if str(_CORE) not in sys.path:
 import accept  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
+import libdocs  # noqa: E402
 import node_marker  # noqa: E402
 import reads  # noqa: E402
 import rolekit  # noqa: E402
@@ -69,13 +70,24 @@ def _given(value) -> str:
     return "" if value is None or str(value).strip() in NONE_WORDS else str(value)
 
 
-def head(role: str, excluded_file: str = "") -> str:
-    """指示書の頭（役の定義と、並行 PR の外した範囲のパス）"""
+def head(role: str, excluded_file: str = "", lib_docs: str = "") -> str:
+    """指示書の頭（役の定義と、並行 PR の外した範囲のパスと、ライブラリの今の文書の節 libdocs.section）"""
     text = HEAD[role]
     ex = _given(excluded_file)
     if ex:
         text += f"\n\n{EXCLUDED_HEAD}: {ex}（先に Read で読め。そこに挙がった範囲は、ほかの PR が扱う）"
+    if lib_docs:
+        text += "\n\n" + lib_docs
     return text
+
+
+def lib_section(b, repo) -> str:
+    """判定の単位のファイルが使うライブラリの今の文書の節（同じ周の 2 つ目の役は盤面の控えを読み、網に出ない）"""
+    out = (b.state.get("outputs") or {}).get("p2.diagnose") or {}
+    judgment = str(pathlib.Path(b.dir) / out["file"]) if out.get("file") else ""
+    files, why = libdocs.unit_files(repo, judgment) if judgment else ([], "判定の出力が盤面に無い")
+    text = libdocs.section(b, repo, files)
+    return text + (f"\n- 単位のファイルの引き: {why}" if why else "")
 
 
 # ---------------------------------------------------------------- 節
@@ -93,7 +105,7 @@ def prep(board_dir, role: str, repo, excluded_file: str = "") -> dict:
     """<役>-prep: 描く → 番号の控え → 起こした印。返り {prompt_file, attempt, out_path, node, already}"""
     nid = role_node(role)
     b = entry.open_board(pathlib.Path(board_dir))
-    path = rolekit.render_prompt(b, nid, head=head(role, excluded_file))
+    path = rolekit.render_prompt(b, nid, head=head(role, excluded_file, lib_section(b, pathlib.Path(repo))))
     ptrs = b.pointer_rows(nid)["pointers"]
     inst = _pending(b, nid)
     m = b.mark_launched(nid, inst.get("attempts", 1), pointers=ptrs)

@@ -34,6 +34,7 @@ from engine.schema import validate_schema  # noqa: E402
 import entry  # noqa: E402
 import linekit  # noqa: E402
 import node_marker  # noqa: E402
+import libdocs  # noqa: E402
 import planblk  # noqa: E402
 import rolekit  # noqa: E402
 
@@ -364,7 +365,10 @@ class ScriptCase(unittest.TestCase):
         b = entry.open_board(self.board)
         self.assertEqual(pathlib.Path(prep["prompt_file"]), b.work(rolekit.prompt_name("p2.fix_plan")))
         want, _ = rolekit.render_body(b, "p2.fix_plan")
-        self.assertEqual(got, planblk.head("plan") + "\n\n" + want)
+        self.assertEqual(got, planblk.head("plan", "", planblk.lib_section(b, self.repo)) + "\n\n" + want)
+        # 種（stats.py・test_stats.py）は標準ライブラリとリポジトリの中の物だけ: 網に出ず、取らないことを書く
+        self.assertIn(libdocs.TITLE, got)
+        self.assertIn("Context7 から取る物は無い（0 本）", got)
         copy = (CORE / "gl-prompts" / "prompts" / "review-loop" / "p2.fix_plan.md").read_text(encoding="utf-8")
         self.assertIn(copy.splitlines()[0], got)                     # 本線の見出し「# P2-10 修正案」
         self.assertIn("この工程が在る理由", got)
