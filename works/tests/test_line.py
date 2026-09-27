@@ -96,6 +96,9 @@ NO_INPUTS_CONSTANT = frozenset({
 })
 # 印（works-node）をまだ持たない役（包みが会話を節の名で分けられない。減らす方向にだけ変える）
 UNMARKED_ROLES = frozenset()
+# 表（nodes.json）が役・任せ先（role・engine_run）に置いた節のうち、置き場（where）のブロックがまだラインに include されていない物
+# {表の節: 理由}。減らす方向にだけ変える（配線したら消す。run 28 は p2.rejudge の blk-rejudge を配線し忘れ、最後のテストが出なかった）
+NOT_WIRED_YET = {}
 
 
 def stub_keys():
@@ -266,6 +269,32 @@ class LineShapeCase(unittest.TestCase):
             if "include" in n:
                 inner |= {m["id"] for m, _ in walk(block(n["include"])["nodes"])}
         self.assertEqual({n["id"] for n in line()["nodes"]} & inner, set())
+
+    def test_table_role_nodes_are_wired(self):
+        """表が role・engine_run（任せ先が role の物を含む）に置いた節は、置き場（where）にラインから届く: where がブロックなら
+        darkfactory.yaml がそのブロックを include し、そうでなければ where はラインの節の id（start など）。
+        届かない節は NOT_WIRED_YET に理由つきで名指す（減らす方向だけ）"""
+        table = json.loads((LINE / "nodes.json").read_text(encoding="utf-8"))["nodes"]
+        ids = {n["id"] for n in line()["nodes"]}
+        included = {n["include"] for n in line()["nodes"] if "include" in n}
+        unreached = {}
+        for nid, row in table.items():
+            if row["by"] not in ("role", "engine_run"):
+                continue
+            where = row.get("where")
+            with self.subTest(nid):
+                self.assertTrue(where, "role・engine_run の節は where を持つ")
+                if where.startswith("blk-"):
+                    self.assertTrue((ROOT / where / f"{where}.yaml").is_file(), f"置き場のブロック {where} が無い")
+                    if where not in included:
+                        unreached[nid] = where
+                else:
+                    self.assertIn(where, ids, f"where {where} がラインの節に無い")
+        self.assertEqual(set(unreached), set(NOT_WIRED_YET),
+                         f"表の置き場のブロックがラインに include されていない: {unreached}（配線するか、"
+                         "NOT_WIRED_YET に理由つきで名指す。配線した節は NOT_WIRED_YET から消す）")
+        for nid, why in NOT_WIRED_YET.items():
+            self.assertTrue(why.strip(), f"NOT_WIRED_YET の {nid} に理由が無い")
 
     def test_stub_keys_are_unique(self):
         keys = stub_keys()
