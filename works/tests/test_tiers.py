@@ -9,6 +9,9 @@
   台本が無い・枠の置き場に書けないときは 1 行出して枠なしで回し、祖先が枠を持っていれば取り直さない。
   uv と枠の台本は偽物に差し替える（本物のテスト一式は回さない）
 """
+import ast
+import contextlib
+import io
 import os
 import pathlib
 import shutil
@@ -42,11 +45,11 @@ exit $rc
 UV_ARGS = "run --no-project --with pyyaml python3"
 
 
-def test_ids(suite):
+def collect_ids(suite):
     out = set()
     for t in suite:
         if isinstance(t, unittest.TestSuite):
-            out |= test_ids(t)
+            out |= collect_ids(t)
         else:
             out.add(t.id())
     return out
@@ -68,7 +71,7 @@ class TierListCase(unittest.TestCase):
     def test_glob_matches_discover(self):
         # modules() の glob が discover の届く範囲と同じ（tests/ の下に package が在ると discover は潜る）
         self.assertEqual([p for p in TESTS.rglob("__init__.py")], [])
-        mods = {tid.split(".")[0] for tid in test_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))}
+        mods = {tid.split(".")[0] for tid in collect_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))}
         self.assertEqual(mods - set(tiers.modules()), set())
 
     def test_problems_names_each_fault(self):
@@ -84,9 +87,9 @@ class TierListCase(unittest.TestCase):
             self.assertIn("ファイルが無い", got)
 
     def test_loader_splits_discover_exactly(self):
-        full = test_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))
-        fast = test_ids(tiers.TierLoader(tiers.FAST).discover(str(TESTS), tiers.PATTERN))
-        heavy = test_ids(tiers.TierLoader(tiers.HEAVY).discover(str(TESTS), tiers.PATTERN))
+        full = collect_ids(unittest.TestLoader().discover(str(TESTS), tiers.PATTERN))
+        fast = collect_ids(tiers.TierLoader(tiers.FAST).discover(str(TESTS), tiers.PATTERN))
+        heavy = collect_ids(tiers.TierLoader(tiers.HEAVY).discover(str(TESTS), tiers.PATTERN))
         self.assertTrue(fast and heavy)
         self.assertEqual(fast & heavy, set())
         self.assertEqual(fast | heavy, full)
@@ -101,6 +104,44 @@ class TierListCase(unittest.TestCase):
                 mock.patch("sys.stderr") as err:
             self.assertEqual(tiers.main(["tiers.py", "fast"]), 2)
             self.assertIn("test_new", "".join(c.args[0] for c in err.write.call_args_list))
+
+
+class TierPathsCase(unittest.TestCase):
+    """dev/tdd-suite.sh（pytest で回す TDD の実行器）が段のファイルを引く口 `python3 tests/tiers.py paths <段>`"""
+
+    def test_paths_are_the_tier_files_from_works_root(self):
+        for tier, mods in tiers.TIERS.items():
+            with self.subTest(tier):
+                got = tiers.paths(tier)
+                self.assertEqual(got, sorted(f"tests/{m}.py" for m in mods))
+                for p in got:
+                    self.assertTrue((TESTS.parent / p).is_file(), p)
+
+    def test_main_paths_prints_one_per_line(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(tiers.main(["tiers.py", "paths", "fast"]), 0)
+        self.assertEqual(out.getvalue().splitlines(), tiers.paths("fast"))
+
+    def test_no_module_level_test_functions(self):
+        """pytest は一番外の def test_* も試験として拾うが、unittest は拾わない（両方で数が揃うように、道具の関数は test_ で始めない）"""
+        found = []
+        for p in sorted(TESTS.glob(tiers.PATTERN)):
+            for n in ast.parse(p.read_text(encoding="utf-8")).body:
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.startswith("test"):
+                    found.append(f"{p.name}:{n.name}")
+        self.assertEqual(found, [])
+
+    def test_main_paths_refuses_unknown_tier_and_bad_list(self):
+        with mock.patch("sys.stderr"), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(tiers.main(["tiers.py", "paths", "slow"]), 2)
+            self.assertEqual(tiers.main(["tiers.py", "paths"]), 2)
+        self.assertEqual(out.getvalue(), "")
+        with mock.patch.object(tiers, "modules", return_value=sorted(tiers.FAST | tiers.HEAVY | {"test_new"})), \
+                mock.patch("sys.stderr") as err, contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(tiers.main(["tiers.py", "paths", "fast"]), 2)
+            self.assertIn("test_new", "".join(c.args[0] for c in err.write.call_args_list))
+        self.assertEqual(out.getvalue(), "")
 
 
 class RunShCase(unittest.TestCase):

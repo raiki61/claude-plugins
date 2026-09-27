@@ -22,10 +22,12 @@ import json
 import os
 import posixpath
 import sys
+from pathlib import Path
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 
-from leftovers import ARCHON_PREFIX, Unreadable, git, git_names  # noqa: E402   .archon/ の決まりと git の呼び方の正本（clean と同じ物。同じフォルダの模块）
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
+from leftovers import ARCHON_PREFIX, Unreadable, git, git_names  # noqa: E402   .archon/ の決まりと git の呼び方の正本（clean と同じ物。.shared/core の模块）
 
 
 def touched(base_rev):

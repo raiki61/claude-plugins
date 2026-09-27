@@ -96,21 +96,21 @@
     "note": "このラインは申し送りを投稿しない（conflicts[].handed_over が真なら拒む。持ち主の決定 2026-09-27）。graphloops に無い works だけの検査。TA25 のとおりブロックの受け付けのスクリプトに置く。"
   },
   {
-    "works": "blk-fix/scripts/leftovers.py:ignored_files",
+    "works": "leftovers.ignored_files",
     "gl": "",
     "status": "works-only",
-    "note": "git が無視する未追跡のファイルの一覧（git ls-files --others --ignored --exclude-standard）。record_ignored と remove_new_ignored が使う。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
+    "note": "git が無視する未追跡のファイルの一覧（git ls-files --others --ignored --exclude-standard）。record_ignored と remove_new_ignored が使う。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移し、V13 で .shared/core/leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
   },
   {
-    "works": "blk-fix/scripts/leftovers.py:record_ignored",
+    "works": "leftovers.record_ignored",
     "gl": "",
     "status": "works-only",
-    "note": "修正役の前に、無視されるファイルと未追跡のフォルダを盤面の fix-ignored-before.json に控える（blk-fix の節 ignored-before）。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
+    "note": "修正役の前に、無視されるファイルと未追跡のフォルダを盤面の fix-ignored-before.json に控える（blk-fix の節 ignored-before）。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移し、V13 で .shared/core/leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
   },
   {
-    "works": "blk-fix/scripts/leftovers.py:remove_new_ignored",
+    "works": "leftovers.remove_new_ignored",
     "gl": "",
     "status": "works-only",
-    "note": "控えに無かった無視されるファイルだけを消す（blk-fix の節 clean。.archon/ の下と、前から在ったフォルダは残す）。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
+    "note": "控えに無かった無視されるファイルだけを消す（blk-fix の節 clean。.archon/ の下と、前から在ったフォルダは残す）。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移し、V13 で .shared/core/leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
   }
 ]

@@ -2,6 +2,7 @@
 
 run.sh が WORKS_TESTS=fast|heavy のときに `python3 tests/tiers.py <段> [unittest の引数]` で起こす
 （WORKS_TESTS が空なら run.sh は従来どおり全部を unittest discover で回し、ここを通らない）。
+TDD の実行器 dev/tdd-suite.sh（pytest で回す）は `python3 tests/tiers.py paths <段>` で段のファイルの一覧を引く。
 fast と heavy は重ならず、合わせるとちょうど全部（tests/test_*.py）になる。どのモジュールも FAST か HEAVY の
 どちらかに書く。書き忘れ・両方に書いた・消したモジュールが残っている、のどれかがあると、段を選んだ実行は
 終了コード 2 で止まり、test_tiers も赤になる（新しい重いテストが黙って fast に入らないように）。
@@ -67,6 +68,7 @@ HEAVY = frozenset({
     "test_line",            # 5 秒（負荷 64）git init
     "test_script_headers",  # 5 秒（負荷 64）git・uv run
     "test_tree_run",        # 20 秒（負荷 62）プロセスの木
+    "test_tdd_suite",       # TDD の実行器 dev/tdd-suite.sh: uv run で本物の pytest を起こす（偽の小さな試験だけを回す）
 })
 
 TIERS = {"fast": FAST, "heavy": HEAVY}
@@ -107,7 +109,22 @@ class TierLoader(unittest.TestLoader):
         return super().loadTestsFromModule(module, *args, **kwargs)
 
 
+def paths(tier):
+    """段のモジュールのファイル（works の根から。名前の順）。dev/tdd-suite.sh が pytest に渡す"""
+    return sorted(f"{TESTS.name}/{m}.py" for m in TIERS[tier])
+
+
 def main(argv):
+    if len(argv) >= 2 and argv[1] == "paths":
+        if len(argv) != 3 or argv[2] not in TIERS:
+            print("tiers: 使い方: python3 tests/tiers.py paths <fast|heavy>", file=sys.stderr)
+            return 2
+        bad = problems()
+        if bad:
+            print("tiers: " + " / ".join(bad), file=sys.stderr)
+            return 2
+        print("\n".join(paths(argv[2])))
+        return 0
     if len(argv) < 2 or argv[1] not in TIERS:
         print("tiers: 段は fast か heavy（使い方: python3 tests/tiers.py <段> [unittest の引数]）", file=sys.stderr)
         return 2
