@@ -1,0 +1,141 @@
+{
+ "description": "S6 独立の目のゲート の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p3.cartographer_compare": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "verdict",
+    "reason",
+    "spots"
+   ],
+   "properties": {
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "pass",
+      "redesign-needed"
+     ]
+    },
+    "reason": {
+     "type": "string",
+     "minLength": 1
+    },
+    "spots": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "aspect",
+       "affects_conclusion"
+      ],
+      "properties": {
+       "aspect": {
+        "type": "string"
+       },
+       "affects_conclusion": {
+        "type": "boolean"
+       },
+       "note": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p3.cold_reader": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "verdict",
+    "findings"
+   ],
+   "properties": {
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "pass",
+      "redesign-needed"
+     ]
+    },
+    "findings": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "kind",
+       "where",
+       "text"
+      ],
+      "properties": {
+       "kind": {
+        "type": "string",
+        "enum": [
+         "再現不能",
+         "前提の省略",
+         "経緯の混入",
+         "断定調の仮説",
+         "冗長",
+         "未定義語"
+        ]
+       },
+       "where": {
+        "type": "string"
+       },
+       "text": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p3.rederiver_compare": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "verdict",
+    "reason",
+    "differences"
+   ],
+   "properties": {
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "pass",
+      "redesign-needed"
+     ]
+    },
+    "reason": {
+     "type": "string",
+     "minLength": 1
+    },
+    "differences": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "kind",
+       "text"
+      ],
+      "properties": {
+       "kind": {
+        "type": "string",
+        "enum": [
+         "構造",
+         "表現"
+        ]
+       },
+       "text": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

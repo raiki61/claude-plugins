@@ -1,0 +1,14 @@
+{
+ "description": "R8 再審（BLOCKS.md 3 節）。回す側の異議を判定役が同じ周に再審する（上限は rules の REJUDGE_MAX）",
+ "nodes": [
+  "p2.rejudge",
+  "p3.rejudge_reply",
+  "p2.rejudge2",
+  "p3.rejudge_reply2",
+  "p2.rejudge3",
+  "p2.rejudge_third"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

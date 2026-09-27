@@ -127,6 +127,7 @@ def test_new_form_write_ops_return_the_value_and_the_engine_puts_it_where_the_op
 def test_graphcheck_wants_writes_to_on_new_form_write_ops(tmp_path):
     shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp_path / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp_path / "blocks")
     (tmp_path / "graphs").mkdir()
     f = tmp_path / "rules" / "review-loop.py"
     src = f.read_text(encoding="utf-8")
@@ -146,6 +147,7 @@ def test_direct_loop_writes_are_found():
 def test_graphcheck_refuses_direct_loop_writes_in_rules_that_declare_reducers(tmp_path):
     shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp_path / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp_path / "blocks")
     (tmp_path / "graphs").mkdir()
     f = tmp_path / "rules" / "review-loop.py"
     f.write_text(f.read_text(encoding="utf-8") + "\n\ndef _sneak(b):\n    b.loop_state['outcome'] = 'x'\n", encoding="utf-8")

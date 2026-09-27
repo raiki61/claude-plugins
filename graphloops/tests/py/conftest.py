@@ -39,6 +39,7 @@ def sandbox(tmp_path_factory):
     (tmp / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     return tmp
 
 
@@ -51,7 +52,7 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 506
+EXPECTED_ITEMS = 537
 
 
 def pytest_configure(config):

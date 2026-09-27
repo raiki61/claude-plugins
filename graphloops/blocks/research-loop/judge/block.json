@@ -1,0 +1,8 @@
+{
+ "description": "S3 判定（BLOCKS.md 3 節）。確かめ・反証・記録の突合（出す物は記録の claims）",
+ "nodes": [
+  "p1.checker",
+  "p1.refuter",
+  "p1.record_check"
+ ]
+}

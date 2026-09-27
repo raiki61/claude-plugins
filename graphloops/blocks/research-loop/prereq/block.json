@@ -1,0 +1,12 @@
+{
+ "description": "S1 前提（BLOCKS.md 3 節）。問い・用語・独立性の審査・過去の決定",
+ "nodes": [
+  "p0.question",
+  "p0.terms",
+  "p0.independence_review",
+  "p0.prior_decisions"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

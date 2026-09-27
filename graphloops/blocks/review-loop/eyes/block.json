@@ -1,0 +1,17 @@
+{
+ "description": "R11 独立の目（BLOCKS.md 3 節）。修正後の撮り直し（p4.assemble）と R1〜R4・人の関所 r4.human_gate",
+ "nodes": [
+  "p4.assemble",
+  "r1.comment_candidates",
+  "r1.minimality",
+  "r2.design",
+  "r2.compare",
+  "r3.coherence",
+  "r4.hidden_scope",
+  "r4.human_gate",
+  "stop.premise_check"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

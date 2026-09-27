@@ -1,0 +1,138 @@
+{
+ "description": "R1 前提 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p0.base": {
+   "type": "object",
+   "required": [
+    "base_sha",
+    "method",
+    "commits",
+    "merge_commit",
+    "intent_to_add",
+    "touches_gates",
+    "touches_external_seams",
+    "touches_user_path",
+    "touches_security_surface",
+    "material"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "base_sha": {
+     "type": "string",
+     "minLength": 7
+    },
+    "method": {
+     "type": "string",
+     "enum": [
+      "1 未コミット変更あり→HEAD",
+      "2 上流との分岐点",
+      "3 HEAD~1",
+      "4 依頼者の名指し"
+     ]
+    },
+    "commits": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "merge_commit": {
+     "type": "boolean"
+    },
+    "intent_to_add": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "touches_gates": {
+     "type": "boolean"
+    },
+    "touches_external_seams": {
+     "type": "boolean"
+    },
+    "touches_user_path": {
+     "type": "boolean"
+    },
+    "touches_security_surface": {
+     "type": "boolean"
+    },
+    "material": {
+     "type": "object",
+     "required": [
+      "status"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "status": {
+       "type": "string",
+       "enum": [
+        "found",
+        "clean",
+        "carried_over",
+        "not_applicable",
+        "awaiting_human",
+        "not_run"
+       ]
+      },
+      "count": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "detail": {
+       "type": "string"
+      },
+      "checked": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      },
+      "from_round": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    }
+   }
+  },
+  "p0.purpose": {
+   "type": "object",
+   "required": [
+    "purpose_text",
+    "source",
+    "known_weaknesses",
+    "source_files"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "purpose_text": {
+     "type": "string",
+     "minLength": 1
+    },
+    "source": {
+     "type": "string",
+     "enum": [
+      "①PR 説明",
+      "②計画・タスク記述",
+      "③writer の要約",
+      "目的不明"
+     ]
+    },
+    "known_weaknesses": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "source_files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "note": "目的テキストの出典にしたファイル（リポジトリ相対）。前の周の P3 がここを触った周だけ、目的監査が走り直す（目的テキストは動かさない）"
+    }
+   }
+  }
+ }
+}

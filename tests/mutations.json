@@ -337,13 +337,12 @@
   {
    "id": "e17",
    "title": "where を必須の欄にする",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "properties",
      "wrote_refs",
      "items",
@@ -361,13 +360,12 @@
   {
    "id": "e18",
    "title": "target の長さに上限（maxLength）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "properties",
      "wrote_refs",
      "items",
@@ -386,13 +384,12 @@
   {
    "id": "e19",
    "title": "申告の件数に上限（maxItems）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "properties",
      "wrote_refs"
     ],
@@ -408,13 +405,12 @@
   {
    "id": "e20",
    "title": "wrote_refs を必須の欄にする",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "required"
     ],
     "remove": "wrote_refs"
@@ -482,10 +478,10 @@
   {
    "id": "f03",
    "title": "kind を必須の欄にする（schema）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
-   "old": "       \"required\": [\n        \"kind\",\n        \"target\",\n        \"where\"\n       ],",
-   "new": "       \"required\": [\n        \"target\",\n        \"where\"\n       ],",
+   "old": "      \"required\": [\n       \"kind\",\n       \"target\",\n       \"where\"\n      ],",
+   "new": "      \"required\": [\n       \"target\",\n       \"where\"\n      ],",
    "expect": "主経路: kind を落とした申告は型で落ちる",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -590,9 +586,9 @@
   {
    "id": "f11",
    "title": "where の長さに上限（schema）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
-   "old": "\"maxLength\": 300,\n         \"note\": \"その指しを**書き込んだファイル**",
+   "old": "\"maxLength\": 300,\n        \"note\": \"その指しを**書き込んだファイル**",
    "new": "\"note\": \"その指しを**書き込んだファイル**",
    "expect": "主経路: 301 字の where は型で落ちる",
    "tests": {
@@ -1263,13 +1259,12 @@
   {
    "id": "A16",
    "title": "その場で足す規模の数値の名前は型で固定する（未知の名前を拒む）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "properties",
      "x_scalars"
     ],
@@ -4715,7 +4710,7 @@
   {
    "id": "TN2",
    "title": "道具名の柵: グラフの注記に実行器の引数が紛れ込めば赤",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/check/exit.schema.json",
    "suite": "root",
    "old": "実行器の返答の形を組む口が組んだ腕の行をそのまま",
    "new": "実行器の --gate-efficacy が組んだ腕の行をそのまま",

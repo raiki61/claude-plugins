@@ -12,8 +12,9 @@ from conftest import PLUGIN, REVIEW_GRAPH_PATH, REVIEW_VALIDATOR as VALIDATOR, g
 GRAPH = json.loads(REVIEW_GRAPH_PATH.read_text(encoding="utf-8"))
 
 
-def class_query(g):
-    return g["$defs"]["class_query"]["properties"]
+def engine_ref_site(g):
+    """engine の定義を $ref で引く所（graph の $defs に本文が残る定義。数える問いの型はブロックの出口のファイルへ移った）"""
+    return g["$defs"]["fix_delta_reply"]["properties"]
 
 
 def self_ref(g):
@@ -22,13 +23,16 @@ def self_ref(g):
 
 
 def typo_under_pattern_properties(g):
+    # 出口の節 p3.fix の schema はブロックの出口のファイルに在る——壊すために本文を graph に直に戻す
+    blk = json.loads((PLUGIN / "blocks" / "review-loop" / "fix" / "exit.schema.json").read_text(encoding="utf-8"))
+    g["nodes"]["p3.fix"]["schema"] = blk["properties"]["p3.fix"]
     pp = g["nodes"]["p3.fix"]["schema"]["properties"]["x_scalars"]["patternProperties"]
     pp["^x_[a-z0-9_]+$"]["minimun"] = 0
 
 
 @pytest.mark.parametrize("breaks,want", [
-    pytest.param(lambda g: class_query(g).__setitem__("how", {"$ref": "engine#/count_hwo"}), "が引けない", id="unresolvable-ref"),
-    pytest.param(lambda g: class_query(g).__setitem__("how", {"$ref": "engine#/count_how", "type": "string"}), "他の語が並んでいる",
+    pytest.param(lambda g: engine_ref_site(g).__setitem__("problems", {"$ref": "engine#/driver_problemz"}), "が引けない", id="unresolvable-ref"),
+    pytest.param(lambda g: engine_ref_site(g).__setitem__("problems", {"$ref": "engine#/driver_problems", "type": "array"}), "他の語が並んでいる",
                  id="ref-overridden-by-siblings"),
     pytest.param(self_ref, "自分を引いている", id="self-ref"),
     pytest.param(typo_under_pattern_properties, "'minimun'", id="typo-under-pattern-properties"),
@@ -77,6 +81,7 @@ def test_graphcheck_requires_rules_node_keys(tmp_path):
     (tmp_path / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp_path / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp_path / "blocks")
     rp = tmp_path / "rules" / "review-loop.py"
     src = rp.read_text(encoding="utf-8")
     rp.write_text(src.replace("NODE_KEYS = frozenset({", "NODE_KEYS_GONE = frozenset({", 1), encoding="utf-8")

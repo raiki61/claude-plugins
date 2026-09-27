@@ -1,0 +1,10 @@
+{
+ "description": "R2 仕様を固める（BLOCKS.md 3 節）。仕様から入る流れ（flow=spec）だけで走る。差し込み口 spec",
+ "nodes": [
+  "spec.write",
+  "spec.review",
+  "spec.revise",
+  "spec.approve",
+  "spec.freeze"
+ ]
+}

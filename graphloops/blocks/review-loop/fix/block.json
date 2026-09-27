@@ -1,0 +1,10 @@
+{
+ "description": "R6 修正（BLOCKS.md 3 節）。既定の修正。外枠 p3.lane_merge と中身 p3.fix。差し込み口 fix（TDD 版は fix-tdd に差し替える）",
+ "nodes": [
+  "p3.lane_merge",
+  "p3.fix"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

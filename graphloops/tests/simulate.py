@@ -115,10 +115,11 @@ def record_vocab(node, output):
 
 def vocab_coverage():
     """graph が宣言する判定語彙のうち、台本が返したものの数と、返していないものの一覧。"""
-    g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
+    sys.path.insert(0, str(PLUGIN))
+    from engine.schema import load_graph  # noqa: E402 — 出口の節の schema はブロックのファイルに在る。engine と同じく展開した形で数える
+    g = load_graph(PLUGIN / "graphs" / "research-loop.json")[0]
     enums = {}
 
-    sys.path.insert(0, str(PLUGIN))
     from engine.schema import walk_schema as engine_walk  # noqa: E402 — schema の走査は engine の 1 本（patternProperties の下にも降りる）
 
     def walk_schema(nid, sch):
@@ -1080,6 +1081,7 @@ def test_graphcheck():
     (tmp / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     # 読む欄の宣言を壊した条件の関数を、写しの rules にだけ足す（graph の cond がその名前を指したときに graphcheck が落とすか）
     bad_conds = {"bad_field": ("out.p1.checker.findingz",), "bad_prev": ("prev.p1.checker.findingz",), "bad_loop": ("loop.stuck_hintz",),
                  "bad_record": ("record.constraintz",), "bad_head": ("rounds",), "bad_rd": ("rd.new_discrepanciez",),
@@ -1252,6 +1254,7 @@ def test_bad_builtin():
     _td_tmp, tmp = parallel.workspace("gl-bb-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     (tmp / "graphs").mkdir()
     r = (tmp / "rules" / "research-loop.py")
     r.write_text(r.read_text(encoding="utf-8") +
@@ -2628,6 +2631,7 @@ def test_optional_writes_declared():
     _td_tmp, tmp = parallel.workspace("gl-optw-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     (tmp / "graphs").mkdir()
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     nid = next(k for k, v in g["nodes"].items()
@@ -2692,6 +2696,7 @@ def test_answer_vocabulary():
     _td_tmp, tmp = parallel.workspace("gl-ansopt-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     (tmp / "graphs").mkdir()
     rp = tmp / "rules" / "research-loop.py"
     rp.write_text(rp.read_text(encoding="utf-8").replace(
@@ -2882,6 +2887,7 @@ def test_graphcheck_sets_derived():
     _td_tmp, tmp = parallel.workspace("gl-acck-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     (tmp / "graphs").mkdir()
     gp = tmp / "graphs" / "research-loop.json"
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
@@ -3136,6 +3142,7 @@ def test_frozen_schema_drift():
     _td_tmp, tmp = parallel.workspace("gl-frozen-graph-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     (tmp / "graphs").mkdir()
     gp = tmp / "graphs" / "research-loop.json"
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
@@ -3162,11 +3169,14 @@ def test_frozen_schema_drift():
     frozen_outputs_stale(b, notes)
     check(not notes and not b.state.get("stale_frozen"), f"control: graph を締める前は鳴らない（{notes[:1]}）")
 
-    # 凍った出力が持ちえない欄を、その節の schema に足す（5 周目に source_files を足したのと同じ形）
-    sch = g["nodes"][node]["schema"]
+    # 凍った出力が持ちえない欄を、その節の schema に足す（5 周目に source_files を足したのと同じ形）。出口の節の schema の正本は
+    # ブロックの出口のファイル（graph はそこを $ref で指す）なので、そこに足す
+    ep = tmp / "blocks" / "research-loop" / "prereq" / "exit.schema.json"
+    ex = json.loads(ep.read_text(encoding="utf-8"))
+    sch = ex["properties"][node]
     sch["required"] = list(sch.get("required", [])) + ["source_files"]
     sch.setdefault("properties", {})["source_files"] = {"type": "array", "items": {"type": "string"}}
-    gp.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+    ep.write_text(json.dumps(ex, ensure_ascii=False), encoding="utf-8")
 
     b2 = Board(run.dir)
     notes2 = []
@@ -3289,6 +3299,7 @@ def test_unresolved_role():
         _td_tmp, tmp = parallel.workspace(f"gl-{name}-")
         shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
         shutil.copytree(PLUGIN / "rules", tmp / "rules")
+        shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
         (tmp / "graphs").mkdir()
         src = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
         gp = tmp / "graphs" / "g.json"
@@ -3333,6 +3344,7 @@ def test_unresolved_role():
         _td_tmp, tmp = parallel.workspace(f"gl-{name}-")
         shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
         shutil.copytree(PLUGIN / "rules", tmp / "rules")
+        shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
         (tmp / "graphs").mkdir()
         g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
         mutate(g)
@@ -4127,6 +4139,7 @@ def test_input_existence():
     _td_tmp, tmp = parallel.workspace("gl-inp-")
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     (tmp / "graphs").mkdir()
     g = json.loads((PLUGIN / "graphs" / "research-loop.json").read_text(encoding="utf-8"))
     for nid, n in g["nodes"].items():           # 貼る穴（file:）を 1 つ残らずパス渡しへ寄せた graph
