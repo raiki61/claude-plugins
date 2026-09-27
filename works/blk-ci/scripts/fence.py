@@ -2,8 +2,9 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""役を起こす前に、包みが Archon の起動の道に在り切符が在るかを見る（ci_role.fence）。無ければ盤面を止めて go: false
-（YAML が役の輪を飛ばす）。出口 {go, reason}。節が任せ先に落ちて待っていないなら 2（ci_role.script_main）"""
+"""役を起こす前に、run が宣言した包みの形（start の控えの adapter）を読む（ci_role.fence）。包みを宣言した run は切符を見て進み、
+包み無しの run は知らせ note を残して進む。宣言が読めない・切符が無ければ盤面を止めて go: false（YAML が役の輪を飛ばす）。
+出口 {go, reason, note}。節が任せ先に落ちて待っていないなら 2（ci_role.script_main）"""
 import sys
 from pathlib import Path
 
@@ -15,7 +16,7 @@ INPUTS = ("INPUTS_NODE",)   # 読む INPUTS_*（YAML の with: の鍵と同じ�
 
 
 def run(board, repo, env):
-    return ci_role.fence(board, env["INPUTS_NODE"], repo)   # 包みの道は os.environ（Archon が継ぐ env）から
+    return ci_role.fence(board, env["INPUTS_NODE"], repo)
 
 
 if __name__ == "__main__":

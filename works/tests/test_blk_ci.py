@@ -8,8 +8,11 @@ graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engin
 - YAML の形: 役の output_format が ci_role.OUTPUT_FORMAT（写しの schema に印 works-node: ci）・輪は fresh_context で AI の節は 1 つ・
   上限は GIVE_UP_AFTER・役の道具は Read・Grep・Glob・Bash・sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ形で、
   本物の作業ツリーは包みが印の旗 no-tree-write を見て守る（裁定 R56）・スクリプトの INPUTS_* と with: が同じ
-- 包みの確かめ（再審査 N1）: 最初の節 ci-fence が包みが Archon の起動の道に在ること（adapter.launch_path）と切符を見て、
-  無ければ盤面を止めて役を起こさない。受け付けは包みの起動の記録で、この試行の役の起動に柵 no_tree_write が掛かったかを見る
+- 包みの確かめ（裁定 R58）: 最初の節 ci-fence は run が宣言した包みの形（start の控えの adapter）を読む。包みを宣言した run
+  （adapter が空）は切符を見て進み、受け付けが包みの起動の記録で、この試行の役の起動に柵 no_tree_write が掛かったかを見る
+  （無ければ盤面を止める）。包み無しを宣言した run（adapter: optional）は graphloops と同じ守り（sandbox だけ）で進み、
+  包み無しの知らせを残す。宣言が読めなければ盤面を止める。起こす claude の道を script から写して見ることはしない
+  （写しの pack で必ず止める・Archon と食い違う。再審査 N4〜N6）
 - スクリプト: Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）の子のプロセスで回す。盤面は本物の入口 entry.start（test_cmd も
   宣言も無い run → p0.local_checks が任せ先に落ちたまま待つ）で作り、本物の entry.open_board で開く。予定の状態（拒否・諦め）は
   終了コード 0 で 1 行、配線の誤り（環境変数の欠け・BoardGap）だけ 2
@@ -93,13 +96,18 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(list(self.top), ["ci-fence", "ci-snap", "ci-loop", "collect"])
 
     def test_fence_first(self):
-        """包みが起動の道に無ければ役を起こさない（再審査 N1 の (b)）: 最初の節 ci-fence が見て、偽なら ci-snap から後を飛ばし、
-        出口だけが走る（止めた盤面の理由を出す）"""
+        """run が宣言した包みの形が読めない・包みを宣言した run で切符が無ければ役を起こさない（裁定 R58）: 最初の節 ci-fence が
+        見て、偽なら ci-snap から後を飛ばし、出口だけが走る（止めた盤面の理由を出す）"""
         self.assertNotIn("depends_on", self.top["ci-fence"])
         self.assertEqual(self.top["ci-snap"]["depends_on"], ["ci-fence"])
         self.assertEqual(self.top["ci-snap"]["when"], "$ci-fence.output.go == true")
         self.assertEqual(self.top["collect"]["depends_on"], ["ci-fence", "ci-loop"])
         self.assertEqual(self.top["collect"]["trigger_rule"], "none_failed_min_one_success")
+        # 包み無しの知らせ（裁定 R58）は ci-fence と出口の欄 note
+        for nid in ("ci-fence", "collect"):
+            fmt = self.top[nid]["output_format"]
+            self.assertIn("note", fmt["required"], nid)
+            self.assertEqual(fmt["properties"]["note"], {"type": "string"}, nid)
 
     def test_output_format_is_marked_copy_schema(self):
         """役の output_format は写しの p0.local_checks と p4.ci の schema（同じ形）に印 works-node: ci を付けた物"""
@@ -176,15 +184,22 @@ class YamlCase(unittest.TestCase):
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
-        self.assertEqual(set(fx), {"pass.stubs.yaml", "reject.stubs.yaml", "give-up.stubs.yaml", "no-adapter.stubs.yaml"})
+        self.assertEqual(set(fx), {"pass.stubs.yaml", "reject.stubs.yaml", "give-up.stubs.yaml", "no-adapter.stubs.yaml",
+                                   "fence-halt.stubs.yaml"})
         reached = ["ci-fence", "ci-snap", "ci-prep", "ci", "ci-accept", "collect"]
-        n = fx.pop("no-adapter.stubs.yaml")
-        self.assertEqual(n["fixture"]["reached"], ["ci-fence", "collect"])
-        self.assertIs(n["ci-fence"]["go"], False)
-        self.assertIs(n["collect"]["ok"], False)
-        self.assertIn("包みが通っていない", n["collect"]["reason"])
+        h = fx.pop("fence-halt.stubs.yaml")   # 宣言が読めない → 盤面を止めて役を起こさない
+        self.assertEqual(h["fixture"]["reached"], ["ci-fence", "collect"])
+        self.assertIs(h["ci-fence"]["go"], False)
+        self.assertIs(h["collect"]["ok"], False)
+        self.assertIn("adapter", h["collect"]["reason"])
+        n = fx["no-adapter.stubs.yaml"]      # 包み無しの宣言 → graphloops と同じ守りで回し、知らせを出口に出す
+        self.assertEqual(n["ci-fence"]["note"], ci_role.NO_ADAPTER_NOTE)
+        self.assertEqual(n["collect"]["note"], ci_role.NO_ADAPTER_NOTE)
+        self.assertIs(n["collect"]["ok"], True)
         for name, f in fx.items():
             with self.subTest(name):
+                if name != "no-adapter.stubs.yaml":
+                    self.assertEqual((f["ci-fence"]["note"], f["collect"]["note"]), ("", ""))
                 self.assertIs(f["ci-fence"]["go"], True)
                 self.assertEqual(f["fixture"]["expect"], "completed")
                 self.assertEqual(f["fixture"]["reached"], reached)
@@ -207,13 +222,14 @@ class YamlCase(unittest.TestCase):
 class ScriptCase(unittest.TestCase):
     """本物の入口 entry.start で p0.local_checks が任せ先に落ちたまま待つ盤面を作り、ブロックのスクリプトを子のプロセスで回す"""
 
+    adapter_mode = ""   # run の入力 adapter（"" は包みを通す run、"optional" は包み無しで回す run）
+
     def setUp(self):
         self._old_cwd = engine_util.GIT_CWD
         self.addCleanup(setattr, engine_util, "GIT_CWD", self._old_cwd)
         self.tmp = pathlib.Path(tempfile.mkdtemp(dir=linekit.work_home()))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        env = mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home"),
-                                           "CLAUDE_BIN_PATH": str(ADAPTER_BIN)})   # 包みが Archon の起動の道に在る
+        env = mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home")})
         env.start()
         self.addCleanup(env.stop)
         self.fenced = True   # prep の後に、包みが節 ci を柵つきで起こした記録を置く（Archon と包みの代わり）
@@ -222,7 +238,7 @@ class ScriptCase(unittest.TestCase):
         req.parent.mkdir()
         req.write_text((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"), encoding="utf-8")
         self.art = self.tmp / "art"
-        got = entry.start(self.art / "board", self.repo, {"request": str(req)}, run_id="run-27")
+        got = entry.start(self.art / "board", self.repo, {"request": str(req), "adapter": self.adapter_mode}, run_id="run-27")
         self.assertTrue(got["ci_role_go"])
         self.board = self.art / "board"
         self.addCleanup(self.drop_copies)
@@ -319,34 +335,98 @@ class ScriptCase(unittest.TestCase):
         ci_role._drop_copy({"top": str(mine)})
         self.assertFalse(mine.exists())
 
-    def test_fence_passes_with_adapter(self):
-        got = self.ok("fence", node="p0.local_checks")
-        self.assertEqual((got["go"], got["reason"]), (True, ""), got)
-        self.assertFalse(self.opened().state.get("stop"))
+    def test_fence_declared_adapter_ignores_launch_path(self):
+        """包みを宣言した run（adapter が空）→ go。起こす claude の道（env の CLAUDE_BIN_PATH・Archon の設定）を script から
+        写して見ない（裁定 R58）: 写しの pack（dogfood・real-run・plugin install）の包み・包みでない claude・何も無い、の
+        どれでも同じ。柵が掛かったかは受け付けが包みの起動の記録で見る（test_accept_halts_without_fenced_launch）"""
+        self.assertFalse(hasattr(adapter, "launch_path"), "Archon の claude の解決を写した確かめは消した（再審査 N4〜N6）")
+        copied = self.tmp / "copied-pack" / ".shared" / "core" / "claude-adapter"   # 写しの pack の包み（N5）
+        copied.parent.mkdir(parents=True)
+        shutil.copy2(ADAPTER_BIN, copied)
+        for env in ({"CLAUDE_BIN_PATH": str(copied)}, {"CLAUDE_BIN_PATH": "/bin/false"}, {"CLAUDE_BIN_PATH": ""}):
+            with self.subTest(env), mock.patch.dict(os.environ, env):
+                got = self.ok("fence", node="p0.local_checks")
+                self.assertEqual(got, {"go": True, "reason": "", "note": ""})
+                self.assertFalse(self.opened().state.get("stop"))
 
-    def test_fence_stops_without_adapter(self):
-        """包みが起動の道に無い（env も設定も包みを指さない）・切符が無い → go false、盤面を止め（by works:adapter）、出口は ok false"""
-        ah = self.tmp / "archon-home"
-        ah.mkdir()
-        rc, got, err = self.run_script("fence", drop=("CLAUDE_BIN_PATH",), node="p0.local_checks", ARCHON_HOME=str(ah))
-        self.assertEqual(rc, 0, err)
-        self.assertIs(got["go"], False)
-        self.assertIn("包みが通っていない", got["reason"])
-        st = self.opened().state
-        self.assertEqual(st["stop"]["by"], ci_role.FENCE_BY)
+    def test_fence_no_adapter_runs_with_note(self):
+        """包み無しを宣言した run（adapter: optional）→ go。graphloops と同じ守り（sandbox だけ・作業ツリーの柵無し）で走る
+        知らせを出口と盤面の作業ファイルに残す（黙って下げない）。受け付けは包みの柵を求めないが、作業ツリーの比べはする"""
+        self.adapter_mode = "optional"
+        self.setUp()
+        self.fenced = False   # 包みの起動の記録は無い
+        got = self.ok("fence", node="p0.local_checks")
+        self.assertEqual((got["go"], got["reason"], got["note"]), (True, "", ci_role.NO_ADAPTER_NOTE), got)
+        for word in ("包み無し", "graphloops", "sandbox"):
+            self.assertIn(word, ci_role.NO_ADAPTER_NOTE)
+        self.assertFalse(self.opened().state.get("stop"))
+        rec = json.loads(self.opened().work(ci_role.note_name("p0.local_checks")).read_text(encoding="utf-8"))
+        self.assertEqual((rec["node"], rec["adapter"], rec["note"]), ("p0.local_checks", "optional", ci_role.NO_ADAPTER_NOTE))
+        self.ok("snap", node="p0.local_checks")
+        self.ok("prep", node="p0.local_checks")
+        reply = json.dumps(linekit.reply("ci_found"), ensure_ascii=False)
+        (self.repo / "new.txt").write_text("x\n", encoding="utf-8")
+        got = self.ok("accept", node="p0.local_checks", reply=reply)
+        self.assertEqual((got["ok"], got["done"]), (False, False), got)
+        self.assertIn("作業ツリーを変えた", got["reason"])
+        (self.repo / "new.txt").unlink()
+        got = self.ok("accept", node="p0.local_checks", reply=reply)
+        self.assertTrue(got["ok"], got)
         out = self.ok("collect", node="p0.local_checks")
-        self.assertIs(out["ok"], False)
-        self.assertIn("包みが通っていない", out["reason"])
+        self.assertEqual((out["ok"], out["status"], out["note"]), (True, "found", ci_role.NO_ADAPTER_NOTE), out)
+
+    def break_start(self, how):
+        """start の控え（今の周の start.json）の adapter を読めなくする"""
+        path = self.opened().work(entry.START_FILE)
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if how == "gone":
+            path.unlink()
+        elif how == "broken":
+            path.write_text("{壊れ", encoding="utf-8")
+        elif how == "no-key":
+            path.write_text(json.dumps({k: v for k, v in doc.items() if k != "adapter"}), encoding="utf-8")
+        else:
+            path.write_text(json.dumps({**doc, "adapter": how}), encoding="utf-8")
+
+    def test_mode_unreadable_halts(self):
+        """run が宣言した包みの形が読めない → ci-fence は盤面を止めて（by works:adapter）go false・出口は ok false。
+        ci-fence の後に読めなくなっても、受け付けは返答を受けずに盤面を止める（fail closed）"""
+        for how in ("gone", "broken", "no-key", "maybe"):
+            with self.subTest(fence=how):
+                self.setUp()
+                self.break_start(how)
+                got = self.ok("fence", node="p0.local_checks")
+                self.assertIs(got["go"], False)
+                self.assertIn("adapter", got["reason"])
+                self.assertEqual(self.opened().state["stop"]["by"], ci_role.FENCE_BY)
+                out = self.ok("collect", node="p0.local_checks")
+                self.assertIs(out["ok"], False)
+                self.assertIn("adapter", out["reason"])
+            with self.subTest(accept=how):
+                self.setUp()
+                self.ok("fence", node="p0.local_checks")
+                self.ok("snap", node="p0.local_checks")
+                self.ok("prep", node="p0.local_checks")
+                self.break_start(how)
+                got = self.ok("accept", node="p0.local_checks", reply=json.dumps(linekit.reply("ci_found"), ensure_ascii=False))
+                self.assertEqual((got["ok"], got["done"]), (False, True), got)
+                self.assertIn("adapter", got["reason"])
+                b = self.opened()
+                self.assertEqual(b.state["stop"]["by"], ci_role.FENCE_BY)
+                self.assertNotEqual(b.node_state("p0.local_checks"), "done", "返答は受けない")
 
     def test_fence_stops_without_ticket(self):
+        """包みを宣言した run で切符が無い → 包みは旗 no-tree-write の役を起こさない（Archon が起こし直して節が落ちる）ので、
+        先に盤面を止める"""
         adapter.ticket_path(self.repo).unlink()
         got = self.ok("fence", node="p0.local_checks")
         self.assertIs(got["go"], False)
         self.assertIn("切符", got["reason"])
+        self.assertEqual(self.opened().state["stop"]["by"], ci_role.FENCE_BY)
 
     def test_accept_halts_without_fenced_launch(self):
-        """役の起動が包みを通っていない・柵 no_tree_write が掛かっていない → 受け付けは拒否でなく盤面を止め、輪を抜ける
-        （再審査 N1 の (a)。起きた後で気づく 2 本目の線）"""
+        """包みを宣言した run（adapter が空）で、役の起動が包みを通っていない・柵 no_tree_write が掛かっていない → 受け付けは
+        拒否でなく盤面を止め、輪を抜ける（再審査 N1 の (a)・裁定 R58 の「気づく」）"""
         for over in (None, {"fence": {"deny_write": 3}}):
             with self.subTest(over):
                 self.setUp()
@@ -474,6 +554,8 @@ class P4Case(unittest.TestCase):
     def test_final_role_needed_then_blk_ci_submits_p4(self):
         b = self.case.mode_board(decl=None)
         repo = self.case.repo(b)
+        # 手本の盤面には start の控えが無い: 包みを宣言した run の控え（adapter が空）を置く
+        b.work(entry.START_FILE).write_text(json.dumps({"adapter": ""}), encoding="utf-8")
         self.assertEqual(entry.run_ci(b, "p4.ci", test_cmd="")["by"], "role_needed")
         snap = ci_role.snapshot(b.dir, "p4.ci", repo)
         prep = ci_role.prep(b.dir, "p4.ci", repo)
@@ -485,7 +567,7 @@ class P4Case(unittest.TestCase):
         got = ci_role.take(b.dir, "p4.ci", reply, repo)
         self.assertTrue(got["ok"], got)
         out = ci_role.collect(b.dir, "p4.ci")
-        self.assertEqual((out["ok"], out["status"], out["green"], out["pr_go"]), (True, "clean", True, False))
+        self.assertEqual((out["ok"], out["status"], out["green"], out["pr_go"], out["note"]), (True, "clean", True, False, ""))
         after = entry.open_board(b.dir, allow_halted=True)
         self.assertEqual(after.record["process"]["checks"]["p4.ci"]["by"], "role")
         self.assertEqual(after.record["materials"]["local_checks"]["status"], "clean")

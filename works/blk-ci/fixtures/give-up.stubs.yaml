@@ -6,6 +6,7 @@
 ci-fence:
   go: true
   reason: ''
+  note: ''
 ci-snap:
   ok: true
   snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
@@ -34,6 +35,7 @@ collect:
   status: ''
   green: false
   pr_go: false
+  note: ''
 fixture:
   expect: completed
   reached:

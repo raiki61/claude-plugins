@@ -719,6 +719,28 @@ class StartCase(StartCaseBase):
         self.assertEqual(doc["mid_gate"], "when_needed")
         self.assertEqual(doc["request_file"], self.raw()["request"])
 
+    def test_declared_adapter(self):
+        """run が宣言した包みの形は start の控え（r<N>/start.json の adapter）から読む（blk-ci が読む。裁定 R58）。
+        控えが無い・壊れた・鍵が無い・語の外は ValueError（読む側が fail closed で止める）"""
+        repo = self.seed(declared=True)
+        self.start(repo, test_cmd=SEED_CMD, adapter="optional")
+        b = entry.open_board(self.board)
+        self.assertEqual(entry.declared_adapter(b), "optional")
+        path = b.work(entry.START_FILE)
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        path.write_text(json.dumps({**doc, "adapter": ""}), encoding="utf-8")
+        self.assertEqual(entry.declared_adapter(b), "")
+        for text in ("{壊れ", "[]", json.dumps({k: v for k, v in doc.items() if k != "adapter"}),
+                     json.dumps({**doc, "adapter": "maybe"}), json.dumps({**doc, "adapter": None})):
+            with self.subTest(text[:40]):
+                path.write_text(text, encoding="utf-8")
+                with self.assertRaises(ValueError) as cm:
+                    entry.declared_adapter(b)
+                self.assertIn("adapter", str(cm.exception))
+        path.unlink()
+        with self.assertRaises(ValueError):
+            entry.declared_adapter(b)
+
     def test_start_parallel_pr_by_helper(self):
         """p0.parallel_pr は prcheck.run_helper で回す（run_ci でない）。種は remote を持たないので任せ先に落ち、pr_go が真。
         start は印を置かない（blk-pr の pr-snap が置く）"""
