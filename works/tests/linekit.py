@@ -10,11 +10,16 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 
 TESTS = pathlib.Path(__file__).resolve().parent
 ROOT = TESTS.parent
 SEED = ROOT / "dev" / "target-seed"
 REPLIES = TESTS / "replies"
+CORE = ROOT / ".shared" / "core"
+sys.dont_write_bytecode = True
+if str(CORE) not in sys.path:
+    sys.path.insert(0, str(CORE))
 GIT_ID = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "-c", "init.defaultBranch=main"]
 DECLARATION = {"suite": [{"name": "suite", "argv": ["python3", "-m", "unittest", "test_stats"]}]}
 BROKEN_DECLARATION = {"suite": []}   # 宣言の書式の誤り（suite は 1 段以上）。engine は読めずに任せ先へ落とす
@@ -54,9 +59,17 @@ def reply(name: str) -> dict:
     return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
 
 
+CLAUDE_TMP = ("/private/tmp/claude-", "/tmp/claude-")   # Claude Code の一時フォルダ（dev/guard.sh と同じ決まり）
+
+
 def work_home() -> pathlib.Path:
-    """${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/single/（作って返す）"""
+    """${WORKS_DEV_HOME:-$HOME/.cache/works-dev}/single/（作って返す）。Claude Code の一時フォルダの下に解決される置き場は、
+    作る前に BoardGap で拒む（サンドボックスの Bash が書ける所に使い捨ての物を置かない）"""
+    from board import BoardGap   # 盤面の層の誤りの型（.shared/core を sys.path に足してある）
     base = os.environ.get("WORKS_DEV_HOME") or str(pathlib.Path.home() / ".cache" / "works-dev")
     home = pathlib.Path(base) / "single"
+    for p in (str(home), str(home.resolve())):
+        if p.startswith(CLAUDE_TMP):
+            raise BoardGap(f"work_home: {home} が Claude Code の一時フォルダの下にある（{home.resolve()}）。WORKS_DEV_HOME を別の場所にする")
     home.mkdir(parents=True, exist_ok=True)
     return home

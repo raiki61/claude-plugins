@@ -66,21 +66,30 @@ class TableCase(unittest.TestCase):
                 self.assertFalse(e.where)
 
     def test_later_rows_take_the_owner_answers(self):
-        """持ち主の答え（2026-09-27）の行: 前提の実測・並行 PR・同じ周の再審。ブロックの名が where に在る"""
+        """持ち主の答え（2026-09-27）の行: 前提の実測・並行 PR・同じ周の再審。where はブロックの名だけ、持ち方の説明は reason"""
         pre = self.nodes["p0.premises"]
         self.assertEqual((pre.by, pre.fallback), ("role", ""))
-        self.assertIn("blk-premises", pre.where)
+        self.assertEqual(pre.where, "blk-premises")
         pr = self.nodes["p0.parallel_pr"]
         self.assertEqual((pr.by, pr.fallback), ("engine_run", "role"))
-        self.assertIn("start", pr.where)
-        self.assertIn("blk-pr", pr.where)
-        self.assertIn("投稿しない", pr.where)
+        self.assertEqual(pr.where, "start")
+        self.assertIn("blk-pr", pr.reason)
+        self.assertIn("投稿しない", pr.reason)
         for nid in ("p2.rejudge", "p2.rejudge_third"):
             with self.subTest(nid):
                 self.assertEqual(self.nodes[nid].by, "role")
-                self.assertIn("blk-rejudge", self.nodes[nid].where)
-        self.assertIn("会話を継ぐ", self.nodes["p2.rejudge"].where)
-        self.assertIn("新しい会話", self.nodes["p2.rejudge_third"].where)
+                self.assertEqual(self.nodes[nid].where, "blk-rejudge")
+        self.assertIn("会話を継ぐ", self.nodes["p2.rejudge"].reason)
+        self.assertIn("新しい会話", self.nodes["p2.rejudge_third"].reason)
+
+    def test_where_is_a_plain_block_name(self):
+        """where はブロックの名か start だけ（線 B の表と合流の時に比べる。説明の文は reason に置く）。absent と builtin は書かない"""
+        for nid, e in self.nodes.items():
+            with self.subTest(nid):
+                if e.by in ("absent", "builtin"):
+                    self.assertEqual(e.where, "")
+                else:
+                    self.assertRegex(e.where, r"\A(?:start|blk-[a-z0-9]+(?:-[a-z0-9]+)*)\Z")
 
     def test_purpose_declared_absent(self):
         """目的の文は線 B が足す（線 A には入らない）。一緒に入る目的の審査・前の決定も absent"""
@@ -97,13 +106,13 @@ class TableCase(unittest.TestCase):
         for nid in roles:
             with self.subTest(nid):
                 self.assertTrue(self.nodes[nid].where.startswith("blk-"), self.nodes[nid].where)
-        self.assertIn("blk-judge", self.nodes["p2.diagnose"].where)
-        self.assertIn("h-plan", self.nodes["p2.diagnose"].where)
+        self.assertEqual(self.nodes["p2.diagnose"].where, "blk-judge")
+        self.assertIn("h-plan", self.nodes["p2.diagnose"].reason)
 
     def test_machine_and_builtin_rows(self):
         """機械の節は p0.base だけ（start の begin）。graph の driver の 17 節は全部 builtin・auto"""
         self.assertEqual({n for n, e in self.nodes.items() if e.by == "machine"}, {"p0.base"})
-        self.assertIn("start", self.nodes["p0.base"].where)
+        self.assertEqual(self.nodes["p0.base"].where, "start")
         drivers = {n for n, g in GRAPH["nodes"].items() if g.get("run_by") == "driver"}
         self.assertEqual(len(drivers), 17)
         builtins = {n for n, e in self.nodes.items() if e.by == "builtin"}
@@ -115,7 +124,7 @@ class TableCase(unittest.TestCase):
             with self.subTest(nid):
                 e = self.nodes[nid]
                 self.assertEqual((e.by, e.fallback), ("engine_run", "machine"))
-                self.assertIn(where, e.where)
+                self.assertEqual(e.where, where)
         self.assertEqual({n for n, e in self.nodes.items() if e.by == "engine_run"},
                          {"p0.local_checks", "p0.parallel_pr", "p4.ci"})
 
@@ -273,6 +282,18 @@ class BoardCase(unittest.TestCase):
             hook.write_text("def board_kwargs(table):\n"
                             "    return {'validator_runner': lambda b, target: 'second'}\n", encoding="utf-8")
             self.assertEqual(entry.open_board(d).run_validator(), "second")
+            # overrides も渡る（RL の大域の名前を差し替え、state.works.overrides に理由が残る）
+            hook.write_text("def probe(*a, **k):\n    return []\n"
+                            "def board_kwargs(table):\n"
+                            "    return {'overrides': {'_final_gate_problems': (probe, 'hook の試験')}}\n", encoding="utf-8")
+            b = entry.open_board(d)
+            self.assertEqual(b.rules._final_gate_problems.__name__, "probe")
+            self.assertIn({"name": "_final_gate_problems", "reason": "hook の試験"}, b.state["works"]["overrides"])
+            # board_kwargs の中で落ちた例外も BoardGap（スクリプトは終了コード 2。TA19）
+            hook.write_text("def board_kwargs(table):\n    raise ValueError('hook の中の誤り')\n", encoding="utf-8")
+            with self.assertRaises(BoardGap) as cm:
+                entry.open_board(d)
+            self.assertIn("hook の中の誤り", str(cm.exception))
             # 知らない鍵は BoardGap
             hook.write_text("def board_kwargs(table):\n    return {'validator_runner': None, 'bogus': 1}\n", encoding="utf-8")
             with self.assertRaises(BoardGap) as cm:
@@ -308,6 +329,15 @@ class LinekitCase(unittest.TestCase):
         self.assertIsInstance(linekit.reply("judge_ok"), dict)
         self.assertTrue(str(linekit.work_home()).endswith("/single"))
         self.assertFalse(str(linekit.work_home().resolve()).startswith("/private/tmp/claude-"))
+
+    def test_work_home_refuses_claude_tmp(self):
+        """WORKS_DEV_HOME が Claude Code の一時フォルダの下なら、作る前に BoardGap（1 行）"""
+        for base in ("/private/tmp/claude-works-test-0/home", "/tmp/claude-works-test-0/home"):
+            with self.subTest(base), mock.patch.dict("os.environ", {"WORKS_DEV_HOME": base}):
+                with self.assertRaises(BoardGap) as cm:
+                    linekit.work_home()
+                self.assertNotIn("\n", str(cm.exception))
+                self.assertFalse(pathlib.Path(base).exists())
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 - load_table(line):   PACK/<line>/nodes.json を読み、盤面の層の縛り 1〜5（NodeTable.check）を当てる。破れは全部を 1 つの BoardGap に
 - open_board(dir):    盤面の state.works.line から表を引き、表の sha が state.works.table_sha と合わなければ BoardMismatch。
                       ラインの置き場の board_hook.py（在れば）の board_kwargs(table) の返りを DiskBoard.open に渡す
-- hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）。盤面を作る側（start）も同じ物を DiskBoard.create に渡す
+- hook_kwargs(line):  board_hook.py の読み込みだけ（無ければ {}）。盤面を作る側（start）も同じ物を DiskBoard.begin に渡す
 
 ブロックのスクリプトは open_board で盤面を開く。線 B のライン（darkfactory-rounds）でも同じブロックが同じ口で動く。
 """
@@ -64,7 +64,12 @@ def hook_kwargs(line: str, table: NodeTable | None = None) -> dict:
     fn = getattr(mod, "board_kwargs", None)
     if not callable(fn):
         raise BoardGap(f"{path} に board_kwargs(table) が無い")
-    kw = fn(table)
+    try:
+        kw = fn(table)
+    except BoardGap:
+        raise
+    except Exception as e:   # hook の中の誤りも内部の誤り（スクリプトは終了コード 2。TA19）
+        raise BoardGap(f"{path} の board_kwargs が落ちた: {e!r}") from e
     if not isinstance(kw, dict):
         raise BoardGap(f"{path} の board_kwargs の返りが dict でない: {type(kw).__name__}")
     unknown = sorted(set(kw) - set(HOOK_KEYS))
