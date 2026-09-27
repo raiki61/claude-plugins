@@ -398,6 +398,7 @@ class AdapterCase(unittest.TestCase):
         self.assertEqual(env["PATH"].split(os.pathsep)[0], str(adapter.NO_POST_BIN))
         self.assertEqual(env["WORKS_GH"], str(adapter.NO_POST_BIN / "works-gh"))
         self.assertEqual(env["WORKS_REAL_GH"], str(gh))
+        self.assertEqual(env["WORKS_GH_ACTIVE"], "")
         # PATH の上の gh は全部（手元の本物の gh も）絶対パスで拒む
         self.assertEqual(self.e.launches()[-1]["fence"]["no_post"], len(adapter.no_post_rules(adapter.find_gh(path))))
         for g in adapter.find_gh(path):
@@ -426,13 +427,13 @@ class AdapterCase(unittest.TestCase):
         for shim in (adapter.NO_POST_BIN / "works-gh", adapter.NO_POST_BIN / "gh"):
             for args in allowed:
                 with self.subTest(shim=shim.name, args=args):
-                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True, timeout=60)
+                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True)
                     self.assertEqual(r.returncode, 0, r.stderr)
                     self.assertEqual(log.read_text().splitlines()[-1], " ".join(args))
             for args in refused:
                 with self.subTest(shim=shim.name, args=args):
                     before = log.read_text() if log.exists() else ""
-                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True, timeout=60)
+                    r = subprocess.run([str(shim), *args], env=env, capture_output=True, text=True)
                     self.assertEqual(r.returncode, 2, r.stderr)
                     self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
                     self.assertEqual(log.read_text() if log.exists() else "", before)   # 本物の gh を起こさない
@@ -442,9 +443,26 @@ class AdapterCase(unittest.TestCase):
             with self.subTest(real):
                 env = dict(os.environ, WORKS_REAL_GH=real)
                 r = subprocess.run([str(adapter.NO_POST_BIN / "works-gh"), "pr", "list", "-R", "o/r"], env=env,
-                                   capture_output=True, text=True, timeout=60)   # 口と gh が互いを起こす輪で固まらない
+                                   capture_output=True, text=True)
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("本物の gh", r.stderr)
+
+    def test_works_gh_cannot_recurse(self):
+        # 本物の gh と取り違えた物が、別の置き場から口（PATH の頭の gh）を起こし直しても輪にならない（期限に頼らず、
+        # 2 度目に口へ入った所で拒む）。取り違えた物は起こされた回数を数え、4 回目で 99 を返して輪を自分で断つ（試験の底）
+        fwd = self.e.tmp / "fwd-gh"
+        count = self.e.tmp / "count"
+        fwd.write_text("#!/bin/sh\necho x >> \"$COUNT\"\n"
+                       "[ \"$(wc -l < \"$COUNT\")\" -ge 4 ] && exit 99\n"
+                       f'exec "{adapter.NO_POST_BIN / "gh"}" "$@"\n')
+        fwd.chmod(0o755)
+        env = dict(os.environ, WORKS_REAL_GH=str(fwd), COUNT=str(count))
+        env.pop("WORKS_GH_ACTIVE", None)
+        r = subprocess.run([str(adapter.NO_POST_BIN / "gh"), "pr", "list", "-R", "o/r"], env=env,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertEqual(count.read_text().count("x"), 1)   # 取り違えた物は 1 度だけ起き、口の 2 度目で止まった
+        self.assertIn("起こし直された", r.stderr)
 
     def test_find_gh_skips_the_shim(self):
         bindir, gh = self._fake_gh_bin()
@@ -826,18 +844,11 @@ class AdapterCase(unittest.TestCase):
             self.assertEqual(p.stat().st_mode & 0o077, 0, p)
 
 
-def gone(pgid, within):
-    """グループ pgid が within 秒の内に空になれば真（試験の中の待ちの上限。試験の外は縛らない）"""
-    end = time.monotonic() + within
-    while time.monotonic() < end:
-        try:
-            os.killpg(pgid, 0)
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            pass
-        time.sleep(0.05)
-    return False
+def gone(pid):
+    """pid がもう居ない（ゾンビも居ないと数える）。待たずにその場で 1 度だけ見る。
+    包みは tree_run.stop_group で数え直して仲間が消えたのを見てから抜けるので、抜けた後に見れば足りる"""
+    r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+    return r.returncode != 0 or r.stdout.strip().startswith("Z") or not r.stdout.strip()
 
 
 class StopCase(unittest.TestCase):
@@ -883,7 +894,7 @@ class StopCase(unittest.TestCase):
         rc = p.wait()
         took = time.monotonic() - t0
         self.assertEqual(rc, code, p.stderr.read())
-        self.assertTrue(gone(self.grandchild, 0.5), "SIGTERM を無視する孫（別のセッション）が残った")
+        self.assertTrue(gone(self.grandchild), "SIGTERM を無視する孫（別のセッション）が残った")
         self.assertLess(took, 5.0)                       # Archon の cancel の猶予より前に抜ける
         self.assertGreaterEqual(took, adapter.LINGER)    # すぐ死なない（Archon の run が running で固まる穴。試し P17）
 
@@ -898,7 +909,7 @@ class StopCase(unittest.TestCase):
         p = self.start(stay=False)
         rc = p.wait()
         self.assertEqual(rc, 0, p.stderr.read())
-        self.assertTrue(gone(self.grandchild, 0.5), "claude が残した孫が残った")
+        self.assertTrue(gone(self.grandchild), "claude が残した孫が残った")
 
     def test_constants_come_from_tree_run(self):
         import tree_run
@@ -933,7 +944,7 @@ class StopCase(unittest.TestCase):
         p = self.start(stay=False, orphan=True)
         rc = p.wait()
         self.assertEqual(rc, 0, p.stderr.read())
-        self.assertTrue(gone(self.grandchild, 0.5), "見回りの間に孤児になった孫が残った")
+        self.assertTrue(gone(self.grandchild), "見回りの間に孤児になった孫が残った")
 
 
 def git(cwd, *args):

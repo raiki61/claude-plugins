@@ -349,7 +349,8 @@ def no_post_env(env, gh_paths: Sequence[str]) -> dict:
     """no-post の起動の子の env の差し替え: PATH の頭に口の置き場、WORKS_GH（口）、WORKS_REAL_GH（口が起こす本物の gh）"""
     return {"PATH": str(NO_POST_BIN) + os.pathsep + env.get("PATH", ""),
             "WORKS_GH": str(NO_POST_BIN / "works-gh"),
-            "WORKS_REAL_GH": gh_paths[0] if gh_paths else ""}
+            "WORKS_REAL_GH": gh_paths[0] if gh_paths else "",
+            "WORKS_GH_ACTIVE": ""}   # 外から漏れた口の輪止めの印で、役の口が全部拒まれないように空にする
 
 
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],

@@ -36,6 +36,10 @@ def repo_flag(args):
 
 
 def main(argv):
+    # 輪の断ち方は期限でなく形で: 口は本物の gh を起こす前に WORKS_GH_ACTIVE を立てる。本物の gh は口を呼ばないので、
+    # これが立った env で口に入るのは、WORKS_REAL_GH が（置き場の外からでも）口へ回っている時だけ。その 2 度目で拒む
+    if os.environ.get("WORKS_GH_ACTIVE"):
+        return refuse("口が本物の gh の代わりに起こし直された（WORKS_REAL_GH が口へ回っている）")
     if len(argv) < 2 or (argv[0], argv[1]) not in ALLOWED:
         return refuse(" ".join(argv[:2]) or "引数が無い")
     rest = argv[2:]
@@ -55,6 +59,7 @@ def main(argv):
     if not (os.path.isabs(real) and os.path.isfile(real) and os.access(real, os.X_OK)) \
             or os.path.dirname(os.path.realpath(real)) == here:
         return refuse(f"本物の gh が無い（WORKS_REAL_GH={real!r}）")
+    os.environ["WORKS_GH_ACTIVE"] = "1"
     os.execv(real, [real] + list(argv))
 
 
