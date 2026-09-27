@@ -8,6 +8,7 @@ fixture:
   fail-node: collect
   reached:
   - intake
+  - judge-brief
   - judge
   - judge-accept
   inputs:
