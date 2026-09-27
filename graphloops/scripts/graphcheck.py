@@ -753,6 +753,15 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         for k in ("model", "effort"):
             if not runner_spec.get(k):
                 errs.append(f"launch.runner に '{k}' が無い（回す側の節を起こす語の {{{k}}} を埋められない）")
+    # 申告の突合（commands._declared_guard）の申告の欄は、回す側の節の schema の文字列の配列を指す（外れると突合が黙って空を読む）
+    for nid, v in nodes.items():
+        at = v.get("declared_files")
+        if at is None:
+            continue
+        leaf = schema_at(v.get("schema") or {}, at.replace("[]", ".0").split("."))[0] if isinstance(at, str) else None
+        if v.get("run_by") not in set(g.get("runners") or []) or not (
+                isinstance(leaf, dict) and leaf.get("type") == "array" and (leaf.get("items") or {}).get("type") == "string"):
+            errs.append(f"{nid}: declared_files {at!r} は回す側の節の schema の文字列の配列を指せ（申告の突合が空を読む）")
     narrow = (launch.get("tooled") or {}).get("narrow")
     if narrow is not None:
         tools = narrow.get("tools") if isinstance(narrow, dict) else None

@@ -592,6 +592,61 @@ def test_converge_asks_when_the_ci_node_was_skipped(tmp_path):
     assert got["decision"] == "ask" and got["ask"]["kinds"] == ["ci_unverified"] and "回す側が省いた: 人の命令" in got["ask"]["question"]
 
 
+# ---------------------------------------------------------------- 旧い版の義務の出力（rows の無い p3.delta_owed）
+REVIEW_OUT = {"faces": [{"key": "穴1", "kind": "k", "where": "w", "cite": "c", "why": "y"}],
+              "checks": [{"key": "検1", "closed": False, "why": "y"}, {"key": "検2", "closed": True, "why": "y"}]}
+
+
+@pytest.mark.parametrize("cond, n", [(RULES.delta_faces_open, 1), (RULES.delta2_faces_open, 2)])
+def test_owed_output_without_rows_counts_from_the_review_and_warns(cond, n):
+    """旧い版の rules が書いた義務の出力（rows が無い）で止めず、差分レビューの出力から同じ式で数え直し、痕跡を残す
+    （人の方針: 旧い盤面は警告して通す。義務を黙って 0 件にしない）"""
+    p = RULES.DELTA_PASSES[n]
+    v = View({f"cur.{p.owed}": {"ok": True, "owed": 2}, f"cur.{p.review}": REVIEW_OUT})
+    ok, why = cond(v)
+    assert ok is True and "2 件" in why and v.unevaluated[0][0] == p.owed + ".rows"
+    v = View({f"cur.{p.owed}": {"ok": True, "owed": 0, "rows": []}, f"cur.{p.review}": REVIEW_OUT})
+    assert cond(v)[0] is False and v.unevaluated == []
+
+
+def test_owed_acceptance_without_rows_recounts_instead_of_refusing(tmp_path):
+    b = board(tmp_path, outputs={"p3.delta_owed": {"ok": True, "owed": 2}, "p3.delta_review": REVIEW_OUT})
+    b.state["round"] = 1
+    assert RULES._delta_owed(b, 1) == {"穴1", "検1"}
+    assert b.state["unevaluable"][0]["trigger"] == "p3.delta_owed.rows"
+
+
+def stop_board(tmp_path, monkeypatch, *, done, head_tree="T0", now_tree="T0"):
+    """p0.local_checks が clean を置き、p4.ci を人が止めた周。周の頭の版の木 head_tree と今の木 now_tree を偽物で返す"""
+    b = board(tmp_path, record={"materials": {"local_checks": {"status": "clean", "checked": "修正前"}}},
+              hist={"head_revs": {"1": "HEAD0"}})
+    b.graph = load_graph(GRAPH)[0]
+    b.nodes = b.graph["nodes"]
+    b.rd = {"done": {n: {} for n in done}, "stopped": {"p4.ci": "人が止めた（loop.py stop）: 検査"}}
+    monkeypatch.setattr(RULES, "git", fake_git({("rev-parse", "HEAD0^{tree}"): head_tree + "\n"}))
+    monkeypatch.setattr(RULES, "_worktree_tree", lambda: now_tree)
+    return b
+
+
+def test_stop_before_the_fix_keeps_the_round_head_ci(tmp_path, monkeypatch):
+    """修正の前に止めた周は、周の頭の CI がその周の CI（作業ツリーが動いていない）"""
+    b = stop_board(tmp_path, monkeypatch, done=["p0.local_checks", "p1.worktree_before"])
+    RULES._drop_stopped_materials(b)
+    assert b.record["materials"]["local_checks"]["status"] == "clean"
+
+
+@pytest.mark.parametrize("done, now_tree", [(["p0.local_checks", "p3.fix"], "T0"),   # 書き換える節が済んだ
+                                            (["p0.local_checks"], "T1"),             # 書き換える節は済んでいないが木が動いた
+                                            (["p0.local_checks"], None)])            # 木が取れない（動いた側に倒す）
+def test_stop_after_the_tree_moved_drops_the_pre_fix_ci(tmp_path, monkeypatch, done, now_tree):
+    """CI の節を止めた周で作業ツリーが p0.local_checks の後に動いていれば、修正前の CI を周の CI として残さない（省いた周とそろえる）"""
+    b = stop_board(tmp_path, monkeypatch, done=done, now_tree=now_tree)
+    if now_tree is None:
+        monkeypatch.setattr(RULES, "_worktree_tree", lambda: (_ for _ in ()).throw(Reject("取れない")))
+    RULES._drop_stopped_materials(b)
+    assert "local_checks" not in b.record["materials"]
+
+
 @pytest.mark.parametrize("origin", ["", None])
 def test_origin_of_a_kind_without_origin_is_seen_by_presence(tmp_path, origin):
     """出どころを持てない種類（field）の origin は、空でも在れば判定の受け付けで拒む（検証器と同じ述語。通すと p4.record で止まった）"""

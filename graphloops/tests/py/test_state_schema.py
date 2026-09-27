@@ -62,11 +62,11 @@ def nested_required_hole(g, sandbox):
 
 
 def output_hole(g, sandbox):
-    g["nodes"]["p3.delta_fix"]["prompt_file"] = prompt_copy(sandbox, "p3.delta_fix", "{{cur.p3.delta_owed.rows}}", "{{cur.p3.delta_owed.rowz}}")
+    g["nodes"]["p3.delta_fix"]["prompt_file"] = prompt_copy(sandbox, "p3.delta_fix", "{{?cur.p3.delta_owed.rows}}", "{{cur.p3.delta_owed.rowz}}")
 
 
 def output_hole_not_an_ancestor(g, sandbox):
-    g["nodes"]["p3.delta_fix"]["prompt_file"] = prompt_copy(sandbox, "p3.delta_fix", "{{cur.p3.delta_owed.rows}}",
+    g["nodes"]["p3.delta_fix"]["prompt_file"] = prompt_copy(sandbox, "p3.delta_fix", "{{?cur.p3.delta_owed.rows}}",
                                                             "{{cur.p3.delta_owed.rows}}{{cur.p4.assemble.lines_ratio}}")
     g["nodes"]["p3.delta_fix"]["reads"].append("cur.p4.assemble.lines_ratio")
 
@@ -98,7 +98,7 @@ def nested_optional_hole(g, sandbox):
 
 
 def pick_field(g, sandbox):
-    g["nodes"]["p3.delta_fix"]["prompt_file"] = prompt_copy(sandbox, "p3.delta_fix", "{{cur.p3.delta_owed.rows}}",
+    g["nodes"]["p3.delta_fix"]["prompt_file"] = prompt_copy(sandbox, "p3.delta_fix", "{{?cur.p3.delta_owed.rows}}",
                                                             "{{cur.p3.delta_owed.rows | pick key,fromm}}")
 
 

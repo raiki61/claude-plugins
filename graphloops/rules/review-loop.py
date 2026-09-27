@@ -11,7 +11,6 @@ import pathlib
 import posixpath
 import re
 import shutil
-import tempfile
 from typing import NamedTuple
 
 _pspec = importlib.util.spec_from_file_location("graphloops_rules_policy_input", pathlib.Path(__file__).with_name("policy_input.py"))
@@ -832,9 +831,13 @@ def _owed_rows(b, n):
     （実測 2026-09-24: 4 周目は検算 172 分と見逃しへの手直し 167 分で、周の約 8 時間のうち約 5.7 時間を締めの待ちが占めた。
     見逃し 109 本の手直しがコードに触れたのは docstring の 1 行だけ）。**計算はここ 1 本**で、値を置くのは delta_owed（driver）の出力だけ"""
     p = DELTA_PASSES[n]
-    rv = b.output_of_round(p.review, b.round) or {}
-    rows = [{"key": f["key"], "from": p.review, "text": f"{f['kind']} {f['where']}:「{f['cite']}」——{f['why']}"} for f in rv.get("faces") or []]
-    rows += [{"key": c["key"], "from": f"{p.review}.checks", "text": f"塞いだと言われたが、差分で塞がっていない——{c['why']}"}
+    return _owed_rows_from(p.review, b.output_of_round(p.review, b.round) or {})
+
+
+def _owed_rows_from(review, rv):
+    """差分レビューの節 review の出力 rv から義務の行を出す式の正本（盤面を読まない。条件の側も同じ物を呼ぶ）"""
+    rows = [{"key": f["key"], "from": review, "text": f"{f['kind']} {f['where']}:「{f['cite']}」——{f['why']}"} for f in rv.get("faces") or []]
+    rows += [{"key": c["key"], "from": f"{review}.checks", "text": f"塞いだと言われたが、差分で塞がっていない——{c['why']}"}
              for c in rv.get("checks") or [] if c["closed"] is False]
     return rows
 
@@ -847,19 +850,21 @@ def delta_owed(b, nid):
     return {"ok": True, "owed": len(rows), "rows": rows}
 
 
-OWED_ROWS_MISSING = ("{node} の今の周の出力に rows（手直しが答える義務）が無い——義務の行を出力に載せる前の版の rules が書いた出力。"
-                     "黙って 0 件に倒さない: loop.py patch --path out.{node}.rows --file <行の JSON> で義務の行を書いてから続けよ")
+OWED_ROWS_MISSING = ("{node} の今の周の出力に rows（手直しが答える義務）が無い（義務の行を出力に載せる前の版の rules が書いた出力）"
+                     "——止めず、差分レビューの出力から数え直した（黙って 0 件に倒さない）")
 
 
 def _delta_owed(b, n):
     """n 回目の手直しが答える義務の key——義務の節（DeltaPass.owed）が今の周に出した出力だけ（前の周の値は読まない）。
-    手直しを起こす条件（delta_faces_open）・手直しの答え合わせ（delta_fix_output）がここから引き、答えは _declared_faces で次の周へ渡る"""
+    手直しを起こす条件（delta_faces_open）・手直しの答え合わせ（delta_fix_output）がここから引き、答えは _declared_faces で次の周へ渡る。
+    rows の無い旧い出力は、条件の側（_owed_keys）と同じく差分レビューの出力から数え直し、痕跡を残す（人の方針: 旧い盤面は警告して通す）"""
     node = DELTA_PASSES[n].owed
     out = b.output_of_round(node, b.round)
     if out is None:
         return set()
     if "rows" not in out:
-        raise Reject(OWED_ROWS_MISSING.format(node=node))
+        note_unevaluable(b.state, node + ".rows", OWED_ROWS_MISSING.format(node=node))
+        return _owed_key_set(_owed_rows(b, n))
     return _owed_key_set(out["rows"])
 
 
@@ -904,19 +909,26 @@ def delta_review2_due(v):
 
 
 def _owed_keys(v, n):
-    """_delta_owed の条件の側（宣言した欄だけで読む）。出力が在るのに rows が無い（旧い版の出力）なら default に倒さず止まる"""
-    node = "cur." + DELTA_PASSES[n].owed
-    return set() if v(node, None) is None else _owed_key_set(v(node + ".rows"))
+    """_delta_owed の条件の側（宣言した欄だけで読む）。出力が在るのに rows が無い（旧い版の出力）なら止めず、差分レビューの出力から
+    同じ式（_owed_rows_from）で数え直し、測れなかった痕跡を残す"""
+    p = DELTA_PASSES[n]
+    out = v("cur." + p.owed, None)
+    if out is None:
+        return set()
+    if "rows" not in out:
+        v.unevaluable(p.owed + ".rows", OWED_ROWS_MISSING.format(node=p.owed))
+        return _owed_key_set(_owed_rows_from(p.review, v("cur." + p.review, None) or {}))
+    return _owed_key_set(out["rows"])
 
 
-@cond_reads("cur." + DELTA_PASSES[1].owed)
+@cond_reads("cur." + DELTA_PASSES[1].owed, "cur." + DELTA_PASSES[1].review)
 def delta_faces_open(v):
     """1 回目の手直しを起こすか（条件の関数）: 答える義務が在るか"""
     k = len(_owed_keys(v, 1))
     return bool(k), f"修正差分のレビューと検算が挙げた、手直しが答える義務は {k} 件"
 
 
-@cond_reads("cur." + DELTA_PASSES[2].owed)
+@cond_reads("cur." + DELTA_PASSES[2].owed, "cur." + DELTA_PASSES[2].review)
 def delta2_faces_open(v):
     """2 回目の手直しを起こすか（条件の関数）: 答える義務が在るか"""
     k = len(_owed_keys(v, 2))
@@ -983,10 +995,9 @@ def gates_cut(b, nid):
         snap = _snapshot(f"graphloops gates r{b.round}")
     except Reject as e:
         return {"ok": False, "problems": [str(e)]}
-    names = git("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", frm, snap)
-    if names is None:
+    files = tree_names_between(frm, snap, git_fn=git)
+    if files is None:
         return {"ok": False, "problems": [f"git diff {frm[:12]} {snap[:12]} が取れない——線が撃つ範囲を測れない"]}
-    files = [x for x in names.split("\0") if x]
     d = b.dir / "lanes"
     d.mkdir(exist_ok=True)
     tag = f"r{b.round}-{snap[:12]}"
@@ -1133,9 +1144,10 @@ def _lane_result(b, lane):
     p = pathlib.Path(lane["result"])
     if not p.is_file():
         return None, []
-    # engine の read_json は読めないと die する——線の結果は engine の外で書かれるので、壊れた 1 本で周を止めない
+    # engine の read_json は読めないと die する——線の結果は engine の外で書かれるので、壊れた 1 本で周を止めない。
+    # 読み口は engine の外から来た JSON の正本（loads_outside。孤立サロゲートも読めない側に倒す）
     try:
-        out = json.loads(p.read_text(encoding="utf-8"))
+        out = loads_outside(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         return None, [f"結果が読めない（{e}）"]
     if not isinstance(out, dict):
@@ -1696,8 +1708,7 @@ def _files_changed_since(b, prev_round):
         now = _worktree_tree()
     except Reject:
         return None
-    names = git("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", prev, now)
-    return None if names is None else sorted(x for x in names.split("\0") if x)
+    return tree_names_between(prev, now, git_fn=git)
 
 
 def numstat_totals(text):
@@ -1746,9 +1757,7 @@ def numstat_totals(text):
 # 指示書のうち差分の外の本文（指示書・目的・独立設計・観点の節・schema の断り）に残す分のバイト。
 # 実測 2026-09-27: golden の run の r2.compare で 12,629 バイト、p1.hygiene の指示書・観点の節・schema で約 5,800 バイト
 PASTE_ROOM = 64_000
-# rules の git diff は全部これを付ける（例外を作らない）。利用者の diff.noprefix・diff.mnemonicPrefix・diff.srcPrefix/dstPrefix で見出しが、
-# color.ui=always・diff.external で本文が、diff.relative で範囲と綴りが変わる（_added_md_links が前置きの設定で 1 件も拾わずに通った実測）
-DIFF_FIXED_ARGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative")
+# rules の git diff は全部 DIFF_FIXED_ARGS（engine が差し込む。正本と理由は engine の util）を付ける（例外を作らない）
 
 
 def _attr_env(base):
@@ -1968,37 +1977,13 @@ def _freeze_revision(b):
 
 
 def _worktree_tree():
-    """作業ツリーの今の姿の木の id（未追跡の新規ファイルも含め、追跡していない .gitignore の対象は除く）。固められなければ Reject。
-    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。
-
-    **本物の index を一時 index に写してから** `add -A` する。空の一時 index から始めていたとき、追跡中だが .gitignore に
-    当たるファイルは `add -A` に拾われず、版から落ちて『削除』に見えた（実測 2026-09-25: 別のリポジトリの run で、判定役が
-    これを根拠に誤った [block] を出した）。写しは stat の情報も持つので、`add -A` は変わったファイルだけをハッシュする。
-    写しの上で `--really-refresh` を打つのは assume-unchanged の印を外すため——印を持ったままだと、git はそのファイルを
-    見ずに古い中身で版を作る。本物の index は読むだけで書かない"""
-    tmp = tempfile.mkdtemp(prefix="graphloops-index-")
-    idx = pathlib.Path(tmp) / "index"
-    env = {"GIT_INDEX_FILE": str(idx)}
-    why = []   # git が言った失敗の理由（util.git の why）。止める文に添える
-    try:
-        real = git("rev-parse", "--path-format=absolute", "--git-path", "index", why=why)
-        if real is None or not real.strip():
-            raise _unfrozen("本物の index の場所を git rev-parse --git-path で引けない", why,
-                            "git 2.31 以上か、リポジトリの中で呼んでいるかを確かめよ")
-        try:
-            shutil.copy2(real.strip(), idx)   # 時刻ごと写す——index の時刻が新しくなると、同じ秒に書き換えたファイル（racy git）を綺麗と見誤る
-        except FileNotFoundError:
-            pass   # index がまだ無い（init の直後で 1 度も add していない）＝追跡中のファイルが無いので、空から始めて落ちる物が無い
-        except OSError as e:
-            raise Reject(f"この周に採点する版を固定できない（本物の index を写せない: {e}）")
-        if git("update-index", "-q", "--really-refresh", env=env, why=why) is None or git("add", "-A", env=env, why=why) is None:
-            raise _unfrozen("一時 index への git update-index / add -A が失敗した", why)
-        tree = git("write-tree", env=env, why=why)
-        if tree is None or not tree.strip():
-            raise _unfrozen("git write-tree が木を返さない", why)
-        return tree.strip()
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    """作業ツリーの今の姿の木の id。固められなければ Reject。測り方の正本は engine の worktree_tree（engine の作業ツリーの突合と
+    同じ 1 本）で、ここは止める文に直す包み。git はこのモジュールの git を渡す（台本が差し替えて落ち方を試す口）"""
+    why = []
+    tree = worktree_tree(why, git_fn=git)
+    if tree is None:
+        raise _unfrozen(why[0] if why else "作業ツリーの木を固められない", why[1:])
+    return tree
 
 
 def _unfrozen(what, why, hint=None):
@@ -2054,12 +2039,11 @@ def fix_delta(b, nid):
     except Reject as e:
         return {"ok": False, "problems": [str(e)]}
     raw = git_bytes("diff", *DIFF_FIXED_ARGS, rev, snap, env=_attr_env(b.record.get("base")))
-    names = git("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", rev, snap)
-    if raw is None or names is None:
+    files = tree_names_between(rev, snap, git_fn=git)
+    if raw is None or files is None:
         return {"ok": False, "problems": [f"git diff {rev[:12]} {snap[:12]} が取れない——修正の差分を測れない"]}
     f = b.dir / f"{DELTA_PASSES[n].stem}-r{b.round}.patch"
     f.write_bytes(raw)
-    files = [x for x in names.split("\0") if x]
     # 検算させる行（塞いだと言われた行）も同じ値に置く——役に貼る一覧・指せる番号・受け付けと起こす条件が同じここを読む
     claimed = _closed_rows(b.output_of_round("p3.fix" if n == 1 else DELTA_PASSES[n - 1].fix, b.round), n)
     return {"ok": True, "delta": {"file": str(f), "files": files, "rev": snap, "claimed": claimed}}
@@ -2109,9 +2093,9 @@ def _changed_since_prev_round(b, rev):
     if b.round == 1:
         return []
     prev = _hist(b, "head_revs", {}).get(str(b.round - 1))
-    names = git("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", prev, rev) if prev else None
+    names = tree_names_between(prev, rev, git_fn=git)
     if names is not None:
-        return sorted(x for x in names.split("\0") if x)
+        return names
     return sorted({f for c in (b.output_of_round("p3.fix", b.round - 1) or {}).get("changes", []) for f in c.get("files", [])})
 
 
@@ -2281,7 +2265,8 @@ def fill_materials(b):
                 mats[mat] = skipped_material(b, nid)
                 continue
             if state == "stopped":   # 人が止めた（loop.py stop）——省いた（回す側の判断）とは別の事実として書く
-                mats[mat] = {"status": "not_run", "reason": f"{b.rd['stopped'][nid]}——この周に節 {nid} は走っていない"}
+                ci = "——この周の CI は確かめていない" if n.get("engine_run") else ""
+                mats[mat] = {"status": "not_run", "reason": f"{b.rd['stopped'][nid]}——この周に節 {nid} は走っていない{ci}"}
                 continue
             applies = n.get("applies_cond")
             ap_ok, ap_why = b.cond(applies) if applies is not None else (True, "")
@@ -4365,13 +4350,7 @@ def _stopped_round_record(b, reason):
     rec0 = copy.deepcopy(b.record)
     # 周の締めで検証器に落ちた回の周の記録が残っていれば外す——止めた周は閉じた周として hist が読むので、組む前の古い記録を読ませない
     (b.dir / "rounds" / f"round-{b.round}.json").unlink(missing_ok=True)
-    # 止めた節の素材に機械が先に置いた仮の値（P1 の時点の fix_closure など）は、止めた事実で書き直す——同じ素材を書く節が
-    # この周に済んでいれば（p0.local_checks と p4.ci の local_checks）その値を残す
-    ran = {m for nid, n in b.nodes.items() if nid in b.rd["done"] for m in n.get("materials", [])}
-    for nid in b.rd.get("stopped", {}):
-        for mat in b.nodes[nid].get("materials", []):
-            if mat not in ran:
-                b.record["materials"].pop(mat, None)
+    _drop_stopped_materials(b)
     fill_materials(b)
     out = record_round(b, None, stopped_reason=reason)
     if out.get("ok"):
@@ -4379,6 +4358,37 @@ def _stopped_round_record(b, reason):
     b.record = rec0
     (b.dir / "rounds" / f"round-{b.round}.json").unlink(missing_ok=True)
     return "止めた周の記録が検証器を通らない: " + "; ".join(out.get("problems") or [])[-800:]
+
+
+def _drop_stopped_materials(b):
+    """止めた節の素材に機械が先に置いた仮の値（P1 の時点の fix_closure など）を外す（fill_materials が止めた事実で埋め直す）。
+    同じ素材を書く節がこの周に済んでいれば（p0.local_checks と p4.ci の local_checks）その値を残す——ただし engine が走らせる
+    CI の節を止めた周で、前の CI の節の後に作業ツリーが動いていれば、残っているのは修正前の CI なので外す（省いた周の on_skip と
+    同じ不変条件: この周の CI は、最後の CI の節が確かめた値だけ）"""
+    ran = {m for nid, n in b.nodes.items() if nid in b.rd["done"] for m in n.get("materials", [])}
+    stopped = b.rd.get("stopped", {})
+    moved = any(b.nodes[nid].get("engine_run") for nid in stopped) and _tree_moved_since_checks(b)
+    for nid in stopped:
+        for mat in b.nodes[nid].get("materials", []):
+            if mat not in ran or (moved and b.nodes[nid].get("engine_run")):
+                b.record["materials"].pop(mat, None)
+
+
+def _tree_moved_since_checks(b):
+    """この周の頭の CI（p0.local_checks）の後に作業ツリーが動いたか——作業ツリーを書き換える節（graph の launch.runner.edits）が
+    この周に済んだ、または周の頭の版の木と今の木が違う。木を測れなければ動いた側に倒す（修正前の CI を今の周の CI と言わない）"""
+    edits = ((getattr(b, "graph", None) or {}).get("launch") or {}).get("runner", {}).get("edits") or []
+    if any(nid in b.rd["done"] for nid in edits):
+        return True
+    head = _hist(b, "head_revs", {}).get(str(b.round))
+    if not head:
+        return False   # 周の頭の版を固める前に止めた（P1 より前）——書き換える節もまだ走っていない
+    was = git("rev-parse", f"{head}^{{tree}}")
+    try:
+        now = _worktree_tree()
+    except Reject:
+        return True
+    return was is None or was.strip() != now
 
 
 # ---------------------------------------------------------------- 仕様の道（選んだときだけ）

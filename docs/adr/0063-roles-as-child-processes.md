@@ -26,6 +26,7 @@
 
 - 期限を外せた（[0007](0007-no-deadlines.md)）。
 - 定義が道具の一覧を持たない役（comment-analyzer）・ファイルを書く道具を持つ役は engine が起こさず、回す側が Agent ツールで起こす形が残る。
+- 補足（09-27）: 上の残りは 0.21.4 で変わった（comment-analyzer は読むだけに狭めて engine が起こし、書き換える節も `--engine-runners` で engine が起こす）。[0066](0066-engine-launches-runner-nodes.md) に継いだ。
 
 ## 見直す条件
 

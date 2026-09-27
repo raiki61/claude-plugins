@@ -63,7 +63,7 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0015](0015-engine-runs-command-nodes.md) | 走らせて写すだけの節は engine が走らせる（手順 3b） | 採用 | 2026-09-25 |
 | [0016](0016-drop-checks-approval-gate.md) | テストの宣言の人の承認（allow-checks）を外し、走らせる直前に宣言を読み直す | 採用 | 2026-09-25 |
 | [0017](0017-keep-spec-approval-gate.md) | 仕様の承認の関門（spec.approve）は残す | 採用 | 2026-09-26 |
-| [0018](0018-delegates-in-sandbox.md) | 任せ先は既定で OS の sandbox の中で起こし、外すのは人が run ごとに明示したときだけ | 採用 | 2026-09-25 |
+| [0018](0018-delegates-in-sandbox.md) | 任せ先は既定で OS の sandbox の中で起こし、外すのは人が run ごとに明示したときだけ | 採用 | 2026-09-25（09-27 に補足） |
 | [0019](0019-mutation-testing-google-style.md) | 変異テストは Google 型（差分ごとに意味のある少数に絞る）で撃つ | 採用 | 2026-09-26 |
 | [0020](0020-mutation-after-merge.md) | 変異テストは並べた run の中では撃たず、合流した版でまとめて撃つ | 採用 | 2026-09-25（09-26 に補足） |
 | [0021](0021-parallel-lanes-and-final-gate.md) | 後から追いつかせる検算は並行の線に置き、最後の関門は収束の前に置く | 採用 | 2026-09-25 |
@@ -108,6 +108,7 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0060](0060-findings-beyond-diff.md) | 差分の外（全体・運用）に及ぶ指摘も出してよい | 採用 | 2026-09-26 |
 | [0061](0061-cross-run-record.md) | run をまたいだ記録を持つ（1 run 1 ファイル・手元だけ） | 採用 | 2026-09-26 |
 | [0062](0062-test-migration-policy.md) | テストの移し替えの方針（壊した行を通った台本だけ回す段から始める） | 採用 | 2026-09-26 |
-| [0063](0063-roles-as-child-processes.md) | 役は engine が claude -p の子プロセスとして起こし、子の終了を直接待つ（手順 1） | 採用 | 2026-09-25 |
+| [0063](0063-roles-as-child-processes.md) | 役は engine が claude -p の子プロセスとして起こし、子の終了を直接待つ（手順 1） | 採用 | 2026-09-25（09-27 に補足） |
 | [0064](0064-refer-by-number.md) | 役は一覧を番号で指し、engine が名前に戻す（手順 2） | 採用 | 2026-09-25 |
 | [0065](0065-roles-without-user-settings.md) | engine が起こす役には利用者の CLAUDE.md・設定・フックを読ませない | 採用 | 2026-09-25 |
+| [0066](0066-engine-launches-runner-nodes.md) | 回す側の節と comment-analyzer も engine が claude -p で起こす（手順 H3） | 採用 | 2026-09-27 |

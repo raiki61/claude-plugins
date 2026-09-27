@@ -25,6 +25,8 @@ import hashlib
 import json
 import pathlib
 
+from .util import loads_outside
+
 
 DECL_NAME = ".review-checks.json"
 DECL_KEYS = ("suite",)   # 宣言の最上位の必須の鍵
@@ -49,7 +51,7 @@ def steps_sha(steps):
 def parse(text):
     """宣言の本文を読む ——（steps, 誤り）。steps は [{name, argv[, keep_background]}]。誤りがあれば steps は None"""
     try:
-        d = json.loads(text)
+        d = loads_outside(text)
     except ValueError as e:
         return None, f"JSON として読めない（{e}）"
     if not isinstance(d, dict) or not set(DECL_KEYS) <= set(d):
@@ -107,7 +109,7 @@ def read(root):
     if err:
         return {"error": f"{DECL_NAME}: {err}"}
     out = {"steps": steps, "sha": steps_sha(steps)}
-    top = json.loads(text)
+    top = loads_outside(text)
     unknown = sorted(set(top) - set(DECL_KEYS + OPTIONAL_KEYS))
     if unknown:
         out["unknown"] = unknown

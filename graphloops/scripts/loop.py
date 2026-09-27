@@ -197,25 +197,26 @@ def main():
     a.fn(a)
 
 
-# 盤面・記録・trace に書き込まれる値の引数。ファイルのパスだけの引数（--file・--output・--detail・--export・--dir）は、
-# 復号できないバイトを含む名前でも読めれば通っていたので検めない（人の決定 2026-09-27: 狭めない）
-WRITTEN_ARGS = ("reason", "note", "text", "path", "node", "request", "what", "to", "input", "unfenced_delegates", "graph",
-                "validator", "document", "set_url")
+# 検めない引数——ファイルのパスだけの引数。復号できないバイトを含む名前でも読めれば通っていたので検めない（人の決定 2026-09-27:
+# 狭めない）。**外す側を名指す**: 検める側を並べていたとき、表に無い --lang・--accept-tree-change・--agent-id が盤面に書かれて
+# UnicodeEncodeError（exit 2）に倒れた。引数を足せば、名指さなくても検めの中に入る
+PATH_ONLY_ARGS = ("file", "output", "detail", "export", "dir", "data_dir")
 
 
 def refuse_broken_args(a):
-    """書き込まれる値に孤立サロゲート（POSIX の Python が復号できない argv のバイトを写した字。PEP 383）が在れば、盤面を読む前に
+    """文字列の引数に孤立サロゲート（POSIX の Python が復号できない argv のバイトを写した字。PEP 383）が在れば、盤面を読む前に
     exit 1 で拒む。素通りさせると、UTF-8 で書く所（盤面・trace）で UnicodeEncodeError になり、想定外の例外（exit 2）に倒れた
-    （実測 2026-09-27: 呼び元のシェルで全角の字が変数名の直後に続き、字の頭のバイトが変数名に食われた）"""
-    for name in WRITTEN_ARGS:
-        vals = getattr(a, name, None)
+    （実測 2026-09-27: 呼び元のシェルで全角の字が変数名の直後に続き、字の頭のバイトが変数名に食われた）。
+    外すのは PATH_ONLY_ARGS と、@ で始まる --request（ファイルのパス）だけ"""
+    for name, vals in sorted(vars(a).items()):
+        if name in PATH_ONLY_ARGS:
+            continue
         for v in vals if isinstance(vals, list) else [vals]:
             if not isinstance(v, str) or (name == "request" and v.startswith("@")):
                 continue
-            try:
-                v.encode("utf-8")
-            except UnicodeEncodeError as e:
-                raise Reject(f"--{name.replace('_', '-')} の {e.start + 1} 字目に UTF-8 として読めないバイトがある——"
+            where = util.lone_surrogate_at(v, f"--{name.replace('_', '-')}")
+            if where is not None:
+                raise Reject(f"{where}に UTF-8 として読めないバイトがある——"
                              "呼び元のシェルが字を壊している（変数の直後に全角の字を続けるなら ${VAR} と書く・heredoc は 'EOF' で展開しない）")
 
 

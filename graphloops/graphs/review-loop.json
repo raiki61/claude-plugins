@@ -4764,6 +4764,7 @@
   "p3.fix": {
    "stage": "P3",
    "run_by": "writer",
+   "declared_files": "changes[].files",
    "deps": [
     "p2.history",
     "p2.plan_review",
@@ -5378,6 +5379,7 @@
    "prompt_file": "../prompts/review-loop/p3.delta_fix.md",
    "reads": [
     "cur.p3.delta_owed",
+    "out.p3.delta_review",
     "cur.p3.fix_delta.delta.file",
     "inputs.cwd",
     "record.process.policy.path"
@@ -5524,6 +5526,7 @@
    "prompt_file": "../prompts/review-loop/p3.delta_fix2.md",
    "reads": [
     "cur.p3.delta_owed2",
+    "out.p3.delta_review2",
     "cur.p3.fix_delta2.delta.file",
     "inputs.cwd",
     "record.process.policy.path"

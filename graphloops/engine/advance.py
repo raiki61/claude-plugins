@@ -7,7 +7,8 @@ from . import intake, pointers
 from .render import FILE_CAP, Renderer, node_prompt
 from .rules import hook, registry
 from .schema import graph_text, validate_schema
-from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, die, dump, get_path, now, protected_paths, read_json, repo_root, safe_name, sha, write_json
+from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, die, dump, get_path, note_unevaluable, now, protected_paths, read_json, repo_root,
+                   safe_name, sha, write_json)
 from .role_run import DELEGATE_TOOLS, RUNNER_READ_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path, read_rule, runner_permission, tooled_permission
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
@@ -580,10 +581,21 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
             b.state.setdefault("context_lost", []).append({"instance": iid, "round": b.round, "reason": inst["context_lost"]})
     if n["run_by"] in b.graph.get("tree_guard_roles", []):
         # 1 回の next の中では取り直さない（扇の節では項目数ぶん同じ写しを取っていた）——memo は盤面が持つ。
+        # porcelain は状態コードとパスだけなので、既に M のファイルの中身の書き換えは中身の木の id（tree_before_id）で見る
         snap = b.porcelain()
         if snap is None:
             die(f"{iid}: git status が取れない——{n['run_by']} の作業ツリー保護（前後の突合）ができない場所からは回せない（リポジトリの中で next を呼べ）")
         inst["tree_before"] = snap
+    if n["run_by"] in b.graph.get("tree_guard_roles", []) or n.get("declared_files"):
+        tree = b.worktree_tree()
+        if tree is None:
+            # 止めずに痕跡を残す——受け付けは木の id の無い instance を状態コードとパスの並びだけで突き合わせ、申告の突合は見送る
+            note_unevaluable(b.state, f"{iid}.tree_before_id", "作業ツリーの木の id が取れない——中身の書き換えと申告の突合は測れない")
+        else:
+            inst["tree_before_id"] = tree
+            if n.get("declared_files"):
+                # 申告の突合の周の基準は、この周にこの節を最初に出した時点——差し戻し・起こし直しで取り直さない（申告は周の累計）
+                b.rd.setdefault("tree_base", {}).setdefault(nid, tree)
     b.rd["instances"][iid] = inst
     b.trace("emit", instance=iid, sha=inst["prompt_sha"])
     return inst

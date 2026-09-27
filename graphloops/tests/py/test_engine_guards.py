@@ -562,8 +562,8 @@ def test_answer_leaves_the_declared_hand_in_the_trace(monkeypatch, by, want):
     assert row["by"] == want and set(row["observed"]) == {"claudecode_env", "stdin_tty"}
 
 
-def test_loop_refuses_broken_bytes_only_in_written_values():
-    """盤面・trace に書く値の引数の読めないバイト（孤立サロゲート）は Reject で拒む。ファイルのパスだけの引数は検めない"""
+def test_loop_refuses_broken_bytes_except_in_path_only_args():
+    """文字列の引数の読めないバイト（孤立サロゲート）は Reject で拒む。ファイルのパスだけの引数は検めない"""
     from glharness import loop_module
     loop = loop_module()
     with pytest.raises(Reject, match="--reason の 2 字目"):

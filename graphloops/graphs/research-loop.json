@@ -215,7 +215,7 @@
    "2 ラウンド目以降の P1 は『判定の無い主張』と『recheck の付いた主張』だけ（駆動器の fan_out が選ぶ）。抜き取り検査だけが例外",
    "同一ラウンドで checker / refuter / ゲートを回し直さない（done は 1 instance に 1 回。やり直しは次の周）",
    "判定は checker と refuter の返答から駆動器が記録に写す。回す側の節の writes は verdict / refuted / gates / sampling / convergence に触れない（graphcheck が見る）",
-   "investigator の前後で駆動器が git status --porcelain を突き合わせる。差があれば done を拒む（--accept-tree-change 理由 で痕跡付きで通せる）",
+   "investigator の前後で駆動器が git status --porcelain と作業ツリーの中身の木の id を突き合わせる。差があれば done を拒む（--accept-tree-change 理由 で痕跡付きで通せる）",
    "問い・制約（P0-1）は once——結果を見てから動かさない。制約の追加・緩和・削除が要るなら新しい run",
    "各判定者の生の verdict と理由は out/ に残り、report の節に全部渡される（要約で丸めない）"
   ],

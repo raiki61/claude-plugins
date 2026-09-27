@@ -33,6 +33,7 @@
 - 本物の claude で `git reset --hard`・`checkout`・`touch` が全部拒まれ、写しの上でテスト・CI の仕事は通ることを確かめた。
 - docker を使う run など囲いが邪魔なときは、人が run ごとに外す。
 - 残り: 書き込みの許可範囲が / のまま（名指ししていない所には書ける）・写しは .gitignore の対象を持たないので依存を入れ直す・comment-analyzer は今も Agent ツールで起こし柵が無い・回す側が sandbox の中のときの入れ子は未実測・Linux と WSL2 は未実測。
+- 補足（09-27）: 残りの「comment-analyzer は今も Agent ツールで起こし柵が無い」は 0.21.4 で閉じた（読むだけに狭めて engine が起こす）。[0066](0066-engine-launches-runner-nodes.md) に継いだ。
 
 ## 見直す条件
 

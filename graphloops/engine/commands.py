@@ -4,6 +4,7 @@ import functools
 import json
 import os
 import pathlib
+import posixpath
 import re
 import shutil
 import sys
@@ -20,7 +21,9 @@ from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
-from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, Reject, TERMINAL_STATUS, copy_worktree, die, dump, get_path, git, has_path, now, porcelain, protected_paths, read_json, repo_root, safe_name, set_path, del_path, sha, waiting, write_json
+from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS, copy_worktree,
+                   die, dump, get_path, git, has_path, loads_outside, note_unevaluable, now, porcelain, protected_paths, read_input_json, read_json,
+                   repo_root, safe_name, set_path, del_path, sha, tree_names_between, waiting, worktree_tree, write_json)
 from .role_run import DELEGATE_TOOLS, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path, probe_group, read_grant_path, read_rule, run_role, run_steps, runner_permission, stop_group, tooled_permission
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
@@ -739,6 +742,53 @@ def _git_state_guard(accept):
     return guarded
 
 
+# 書き換える子の専用の一時の置き場を作る親——短い綴りに置く（Claude Code は長い CLAUDE_CODE_TMPDIR を捨てて OS の一時ディレクトリに
+# 落とす: code.claude.com/docs/en/sandboxing の Temporary directories）。無い場（Windows）は OS の一時ディレクトリ
+CHILD_TMP_PARENT = "/tmp"
+CHILD_TMP_SAMPLE = 20   # 記録に残す専用の置き場の中のファイル名の数（件数とバイト数は全部を数える）
+
+
+def _child_tmp_dir():
+    """専用の置き場を作る。短い親に作れなければ（engine 自身が sandbox の中で /tmp に書けない等）OS の一時ディレクトリに、そこにも
+    作れなければ None（今までの共有の置き場のまま起こし、測れていないことを痕跡に残す——起こすのは止めない）"""
+    for parent in (CHILD_TMP_PARENT, None):
+        try:
+            return pathlib.Path(os.path.realpath(tempfile.mkdtemp(prefix="gl-w-", dir=parent)))
+        except OSError:
+            continue
+    return None
+
+
+def _note_child_tmp(d, inst, tmp, session_id):
+    """書き換える子の専用の一時の置き場を数えて痕跡（state.git_mismatches の kind=outside_tmp。記録の process に写る）に残し、置き場を消す。
+    中身が空なら、専用の置き場が効いた印が無い（claude が CLAUDE_CODE_TMPDIR を捨てて共有の置き場を使った）——『書いていない』と
+    『測れていない』を同じ 0 にしないため measured=false で残す。子の会話の置き場（<作業ディレクトリの綴り>/<session_id>/）は claude
+    自身の物なので数えから外す。それ以外にも claude 自身の作業ファイルが混ざりうる（仕分けは実物で未実測）。tmp が None は専用の置き場を
+    作れなかった回（共有の置き場のまま起こした）"""
+    files, size, measured = [], 0, False
+    for p in sorted(tmp.rglob("*")) if tmp else []:
+        measured = True
+        rel = p.relative_to(tmp)
+        if not p.is_file() or p.is_symlink() or (session_id and session_id in rel.parts[:2]):
+            continue
+        files.append(rel.as_posix())
+        size += p.stat().st_size
+    if tmp:
+        shutil.rmtree(tmp, ignore_errors=True)
+    row = {"instance": inst["id"], "kind": "outside_tmp", "dir": str(tmp) if tmp else None, "measured": measured, "files": len(files),
+           "bytes": size, "sample": files[:CHILD_TMP_SAMPLE],
+           "note": ("作業ツリーの外（子の専用の一時の置き場）に残った物。claude 自身の作業ファイルを含みうる" if measured else
+                    "専用の一時の置き場が空か作れない——CLAUDE_CODE_TMPDIR が効いた印が無く、共有の置き場へ書いた物は測れていない")}
+
+    def put(b):
+        row["round"] = b.round
+        b.state.setdefault("git_mismatches", []).append(row)
+    try:
+        _board_update(d, put, allow_halted=True)
+    except (Reject, SystemExit):
+        pass   # 盤面が進んで書けない（止めた・起こし直した）——痕跡のために launch を落とさない
+
+
 def launch_one(d, inst, max_resumes, cwd=None):
     """1 節を起こして受け付けまで済ませる（run_role）。返すのは回す側と記録に見せる 1 件ぶんの要約だけ——役の返答の
     本文は回す側の会話に流さない。cwd は子の作業ディレクトリ（レビュー対象の作業ツリー）——dontAsk の子は作業ディレクトリの
@@ -773,6 +823,16 @@ def launch_one(d, inst, max_resumes, cwd=None):
             shutil.rmtree(work, ignore_errors=True)
             return {**got, "ok": False, "why": str(e)}
         env = {**os.environ, "TMPDIR": str(work / "tmp"), "GRAPHLOOPS_KEEP": str(work / "keep")}
+    child_tmp = None
+    if launch.get("kind") == "runner" and launch.get("edits"):
+        # 作業ツリーを書き換える子の sandbox が書ける一時の置き場（Claude Code の利用者ごとの一時の置き場）を、共有の置き場から
+        # 子ごとの専用の置き場へ移す（CLAUDE_CODE_TMPDIR）——作業ツリーの外に書いた物を、終わった後に数えて記録に残すため
+        child_tmp = _child_tmp_dir()
+        if child_tmp is None:
+            _note_child_tmp(d, inst, None, None)
+        else:
+            env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(child_tmp), "TMPDIR": str(child_tmp)}
+    r = None
     try:
         r = run_role(launch["argv"], launch["stdin"], out_path,
                      accept=role_accept, resume_argv=launch.get("resume_argv"), max_resumes=0 if background else max_resumes,
@@ -786,6 +846,8 @@ def launch_one(d, inst, max_resumes, cwd=None):
                 shutil.rmtree(work / part, ignore_errors=True)
             if not any((work / "keep").iterdir()):
                 shutil.rmtree(work, ignore_errors=True)
+        if child_tmp:
+            _note_child_tmp(d, inst, child_tmp, (r or {}).get("session_id"))
     if background and r["ok"]:
         # 線の結果は書き終えた物だけが置き場に在る（読む側は .tmp を読まない）。返答は役の返答と同じ読み方（parse_output——
         # 囲いの ```json も解く）で JSON に直してから置く。読めなければ本文のまま置き、読む側（rules）が使えない結果として扱う
@@ -979,7 +1041,9 @@ def parse_output(text):
             continue
         tried.add(cand)
         try:
-            return json.loads(cand)
+            return loads_outside(cand)
+        except BrokenJSON as e:
+            raise AnswerReject(f"返答の{e}——その字を消すか正しい字に直して返し直せ") from e
         except json.JSONDecodeError as e:
             errs.append((label, cand, e))
     # **どれが原因かを engine が断定しない。** 候補は素の str で、元テキストのどこから切ったかを
@@ -1098,6 +1162,99 @@ def pending_instance(b, node):
     return inst
 
 
+def _now_tree():
+    tree = worktree_tree()
+    if tree is None:
+        raise Reject("作業ツリーの木の id が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）")
+    return tree
+
+
+def _tree_guard(b, node, inst, accept_tree_change):
+    """道具つきの役（graph の tree_guard_roles）の前後の突合。状態コードとパスの並び（porcelain）か、中身の木の id（tree_before_id）の
+    どちらかが違えば、役の区間に作業ツリーが変わった。木の id だけが違い（既に在るファイルの中身だけが変わった）、同じ波に作業ツリーへ
+    書きうる手（engine が走らせる節・回す側の節＝graph の runners）が居るなら、帰属を断定せずに記録だけ残して通す——他の手の書き込みで役の
+    受け付けを拒まない（人の答え 2026-09-27）。木の id を持たない instance（前の版の engine が出した）は並びだけで比べ、痕跡を残す"""
+    after = porcelain()
+    if after is None:
+        raise Reject("git status が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）")
+    before_id = inst.get("tree_before_id")
+    if before_id is None:
+        note_unevaluable(b.state, f"{node}.tree_before_id", "instance に作業ツリーの木の id が無い——状態コードとパスの並びだけで突き合わせた")
+    now_id = None if before_id is None else _now_tree()
+    moved, rewritten = after != inst["tree_before"], now_id != before_id
+    if not (moved or rewritten):
+        return
+    diff = sorted(set(after or []) ^ set(inst["tree_before"] or []))
+    content = tree_names_between(before_id, now_id) or [] if rewritten else []
+    # 同じ波に保護対象の instance が複数在ると、誰が汚したかはこの突合では決まらない（基準点は全員ほぼ同時刻の
+    # グローバルな git status で、done を呼んだ順に検出される）。**帰属を断定せず、同じ波の一覧を記録に残す。**
+    others = {i: x for i, x in b.rd["instances"].items() if i != node and x["status"] == "pending"}
+    peers = sorted(i for i, x in others.items() if "tree_before" in x)
+    runners = set(b.graph.get("runners") or [])
+    writers = sorted(i for i, x in others.items() if b.nodes[x["node"]].get("engine_run") or x.get("run_by") in runners)
+    row = {"instance": node, "diff": diff, "content": content, "round": b.round, "concurrent_guarded": peers, "concurrent_writers": writers}
+    if not moved and writers and not accept_tree_change:
+        b.state.setdefault("git_mismatches", []).append({**row, "accepted": "同じ波に作業ツリーへ書きうる手が居る——中身の書き換えの帰属は断定しない"})
+        return
+    if not accept_tree_change:
+        who = f"（同じ波で保護対象の instance が他に {len(peers)} 件走っている: {peers}——変えたのがこの instance とは限らない）" if peers else ""
+        raise Reject(f"{inst['run_by']} の前後で作業ツリーが変わっている: {diff + [f'中身 {p}' for p in content]}{who}。"
+                     "戻してから done し直すか、自分の変更なら --accept-tree-change <理由>")
+    b.state.setdefault("git_mismatches", []).append({**row, "accepted": accept_tree_change})
+
+
+def _declared_guard(b, node, inst, at, output, accept_tree_change):
+    """書き換える節の申告（返答の at の位置のファイル名）と、作業ツリーで中身が変わったファイルの両方向の突合。
+    - 書いたのに申告に無い: この instance の区間（出した時点。起こし直しは前の試行の基準を引き継ぐ）に変わったのに、申告に無い
+    - 申告したのに変わっていない: この周にこの節を最初に出した時点から今までに変わっていない（申告は周の累計なので、差し戻しで
+      取り直した instance も前の試行の分を申告してよい）。改名・削除で今の木に無いファイルは変わった側に数える
+    どちらかが在れば役に返す（engine が起こした子は同じ会話に出し直させる）。会話の writer は --accept-tree-change <理由> で痕跡つきで
+    通せる（state.git_mismatches の kind=declared）。木の id を持たない instance は測れないので痕跡だけ残して通す"""
+    base_inst = inst.get("tree_before_id")
+    base_round = (b.rd.get("tree_base") or {}).get(inst["node"]) or base_inst
+    if base_inst is None:
+        note_unevaluable(b.state, f"{node}.declared_files", "instance に作業ツリーの木の id が無い——申告と作業ツリーの突合は測れない")
+        return
+    now_id = _now_tree()
+    wrote, wrote_round = tree_names_between(base_inst, now_id), tree_names_between(base_round, now_id)
+    if wrote is None or wrote_round is None:
+        raise Reject("作業ツリーの木の差が取れない——申告と作業ツリーを突き合わせられない（一致とは言えない）")
+    declared = _declared_paths(output, at)
+    undeclared = sorted(set(wrote) - declared)
+    unwritten = sorted(p for p in declared - set(wrote_round) if not _gone_since(base_round, now_id, p))
+    if not (undeclared or unwritten):
+        return
+    if accept_tree_change:
+        b.state.setdefault("git_mismatches", []).append({"instance": node, "kind": "declared", "undeclared": undeclared, "unwritten": unwritten,
+                                                        "accepted": accept_tree_change, "round": b.round})
+        return
+    raise AnswerReject(f"{at} の申告と、この節の区間に作業ツリーで中身が変わったファイルが合わない"
+                       + (f"——書いたのに申告に無い: {undeclared[:20]}" if undeclared else "")
+                       + (f"——申告したのに変わっていない: {unwritten[:20]}" if unwritten else "")
+                       + "。申告はリポジトリの根からの相対パスで、この周に書いたファイルを全部（テストが作ったファイルも）書け。"
+                       "自分の書き込みでないファイルが混ざっているなら、会話の writer は --accept-tree-change <理由> で痕跡つきで通せる")
+
+
+def _declared_paths(output, at):
+    """返答の at の位置のファイル名を、リポジトリの根からの相対の POSIX 形にそろえた集合（'./a.py'・絶対パス・\\ 区切りを同じ名前にする）"""
+    root = repo_root()
+    out = set()
+    for v in pointers.values_at(output, at):
+        for p in v if isinstance(v, list) else [v]:
+            if not isinstance(p, str) or not p.strip():
+                continue
+            p = p.strip().replace("\\", "/")
+            if os.path.isabs(p) and root:
+                p = os.path.relpath(os.path.realpath(p), os.path.realpath(root)).replace(os.sep, "/")
+            out.add(posixpath.normpath(p))
+    return out
+
+
+def _gone_since(base, now_id, path):
+    """path が基準の木に在って今の木に無い（消した・改名した）か——改名は差の名前に新しい側しか出ないので、古い側の申告を拾う"""
+    return git("cat-file", "-e", f"{base}:{path}") is not None and git("cat-file", "-e", f"{now_id}:{path}") is None
+
+
 def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=None):
     """返答の本文を受け付けて盤面と記録に写す（done の中身。loop.py launch も同じここを呼ぶ）。返すのは回す側に見せる 1 行。
 
@@ -1133,20 +1290,10 @@ def accept_output(b, node, text, read_from, agent_id=None, accept_tree_change=No
     item = load_item(inst, b.dir)
     # 作業ツリーの前後突合（書き換えを塞ぐのは定義でも自制でもなくこの突合）
     if "tree_before" in inst:
-        after = porcelain()
-        if after is None:
-            raise Reject("git status が取れない——作業ツリーの突合ができない場所から done している（リポジトリの中で呼べ）")
-        if after != inst["tree_before"]:
-            diff = sorted(set(after or []) ^ set(inst["tree_before"] or []))
-            # 同じ波に保護対象の instance が複数在ると、誰が汚したかはこの突合では決まらない（基準点は全員ほぼ同時刻の
-            # グローバルな git status で、done を呼んだ順に検出される）。**帰属を断定せず、同じ波の一覧を記録に残す。**
-            peers = sorted(i for i, x in b.rd["instances"].items()
-                           if i != node and "tree_before" in x and x["status"] == "pending")
-            who = f"（同じ波で保護対象の instance が他に {len(peers)} 件走っている: {peers}——変えたのがこの instance とは限らない）" if peers else ""
-            if not accept_tree_change:
-                raise Reject(f"{inst['run_by']} の前後で作業ツリーが変わっている: {diff}{who}。戻してから done し直すか、自分の変更なら --accept-tree-change <理由>")
-            b.state.setdefault("git_mismatches", []).append({"instance": node, "diff": diff, "accepted": accept_tree_change,
-                                                            "round": b.round, "concurrent_guarded": peers})
+        _tree_guard(b, node, inst, accept_tree_change)
+    # 書き換える節の申告（graph の declared_files）と、作業ツリーで中身が変わったファイルの両方向の突合
+    if n.get("declared_files"):
+        _declared_guard(b, node, inst, n["declared_files"], output, accept_tree_change)
     # 扇の被覆（返した答えが項目を全部覆っているか。欠けは『なし』ではない）
     remaining = None
     cover = n.get("fan_out", {}).get("cover")
@@ -1273,7 +1420,7 @@ def cmd_answer(a):
         take = hook(b.rules, "answer_detail")
         if not take:
             raise Reject("この loop は答えに添える値（--detail）を受けない")
-        ph["detail"] = take(b, ph, ans, read_json(a.detail))
+        ph["detail"] = take(b, ph, ans, read_input_json(a.detail))
     fn = hook(b.rules, "on_answer_in_round" if in_round else "on_answer")
     if fn:
         fn(b, ph, ans)
@@ -1434,7 +1581,7 @@ def cmd_add(a):
     fn = hook(b.rules, "add")
     if not fn:
         raise Reject("このループの rules は add を受け付けない")
-    got = fn(b, read_json(a.file), a.reason)
+    got = fn(b, read_input_json(a.file), a.reason)
     msg, redraw = (got, []) if isinstance(got, str) else (got["msg"], got.get("redraw") or [])
     bad = [x for x in redraw if (b.rd["instances"].get(x) or {}).get("status") != "pending"]
     if bad:
@@ -1492,11 +1639,11 @@ def cmd_patch(a):
     made = None
     try:
         if target is None:
-            made = _patch_output(b, path, None if a.delete else read_json(a.file), delete=a.delete)
+            made = _patch_output(b, path, None if a.delete else read_input_json(a.file), delete=a.delete)
         elif a.delete:
             del_path(target, path)
         else:
-            made = set_path(target, path, read_json(a.file))
+            made = set_path(target, path, read_input_json(a.file))
     except KeyError as e:
         raise Reject(f"{shown} に当たらない: {e}")
     made_kw = {"made_parent": made} if made else {}
@@ -1602,7 +1749,7 @@ def cmd_relaunch(a):
     engine が起こしていない試行（Agent で起こした役・任せ先）は engine がプロセスを持たないので、回す側が前の試行を止めてから relaunch する。
     **前の試行を締め出す**: 新しい試行は別の out_path（.a<試行>）を持ち、前の置き場に在った物は .stale-a<試行> へ退ける。
     前の試行が遅れて書いても、done は今の試行の置き場しか読まない（Temporal の task token が試行ごとに一意なのと同じ）。
-    作業ツリーの基準点（tree_before）は前の試行の物を引き継ぐ——取り直すと、前の試行が書き換えた作業ツリーが基準に入り、突合を素通りする"""
+    作業ツリーの基準点（tree_before・tree_before_id）は前の試行の物を引き継ぐ——取り直すと、前の試行が書き換えた作業ツリーが基準に入り、突合を素通りする"""
     d = resolve_dir(a)
 
     def handed_prev(b):
@@ -1661,7 +1808,7 @@ def stop_marks(marks):
 def reissue(b, prev, reason):
     """待っている instance を、同じ節・同じ項目の新しい試行として出し直す（プロンプトを今の盤面で描き直す）——新しい instance を返す。
     relaunch（起こし直し）と add（起こす前の判定役に積んだ依頼を届ける）が呼ぶ。新しい試行は別の out_path（.a<試行>）を持つ。
-    作業ツリーの基準点（tree_before）は前の試行の物を引き継ぐ。**盤面の外には書かない**（relaunch が _board_update の当て直しの
+    作業ツリーの基準点（tree_before・tree_before_id）は前の試行の物を引き継ぐ。**盤面の外には書かない**（relaunch が _board_update の当て直しの
     中から呼ぶ）——前の置き場に在った物を .stale-a<試行> へ退けるのは、呼び出し側が retire_out で"""
     old = pathlib.Path(prev["out_path"])
     item = load_item(prev, b.dir)
@@ -1669,8 +1816,12 @@ def reissue(b, prev, reason):
     suffix = prev["id"][len(nid + (f"[{item['key']}]" if item else "")):]
     n = prev.get("attempts", 1)
     new = emit_instance(b, nid, item, suffix=suffix, attempt=n + 1)
-    if "tree_before" in prev:
-        new["tree_before"] = prev["tree_before"]
+    if "tree_before" in prev or "tree_before_id" in prev:
+        for k in ("tree_before", "tree_before_id"):   # 前の試行が木の id を持たない（前の版の engine）なら、新しい id も持たせない
+            if k in prev:
+                new[k] = prev[k]
+            else:
+                new.pop(k, None)
     new["attempt_log"] = (prev.get("attempt_log") or []) + [{"at": new["emitted_at"], "reason": reason,
                                                              "prev_emitted_at": prev["emitted_at"], "prev_out_path": str(old)}]
     return new

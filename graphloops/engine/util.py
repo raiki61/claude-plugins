@@ -70,6 +70,52 @@ def read_json(path):
         die(f"{path}: 読めない（{e}）")
 
 
+def lone_surrogate_at(value, where=""):
+    """値（文字列・入れ子の辞書と配列）の中の孤立サロゲートの在り処（' 3 字目' ・'.changes[0].files[1] の 2 字目' の形）。無ければ None。
+    孤立サロゲートは、POSIX の Python が復号できない argv のバイトを写した字（PEP 383）か、JSON の \\ud800 の類の逃がし（Python の json は
+    字として受ける。RFC 7493 I-JSON 2.1 は MUST NOT）で、UTF-8 で書く所（盤面・記録・trace）で UnicodeEncodeError に倒れる"""
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as e:
+            return f"{where} の {e.start + 1} 字目"
+        return None
+    items = value.items() if isinstance(value, dict) else enumerate(value) if isinstance(value, list) else ()
+    for k, v in items:
+        if isinstance(k, str) and lone_surrogate_at(k) is not None:
+            return f"{where} の鍵"
+        got = lone_surrogate_at(v, f"{where}.{k}" if isinstance(k, str) else f"{where}[{k}]")
+        if got is not None:
+            return got
+    return None
+
+
+class BrokenJSON(ValueError):
+    """外から来た JSON の値に孤立サロゲートが在る（loads_outside）。JSON として読めない（json.JSONDecodeError）と同じく ValueError"""
+
+
+def _refuse_lone_surrogates(obj):
+    where = lone_surrogate_at(obj)
+    if where is not None:
+        raise BrokenJSON(f"値の{where}に孤立サロゲート（\\ud800 の類の逃がし）がある——UTF-8 で書けない（RFC 7493 I-JSON 2.1）")
+    return obj
+
+
+def loads_outside(text):
+    """外から来た JSON の本文を読む口（役の返答・任せ先の線の結果・対象リポジトリの宣言）。json.loads の後、値の中の孤立サロゲートを
+    BrokenJSON で拒む——読む口ごとに検めを足さず、ここを通す（ファイルで渡す入力は read_input_json）"""
+    return _refuse_lone_surrogates(json.loads(text))
+
+
+def read_input_json(path):
+    """人や回す側が渡す入力のファイル（add --file・patch --file・answer --detail）を読む。読めなければ read_json と同じく止め、
+    孤立サロゲートを持つなら Reject（直して呼び直せる）。盤面そのもの（engine が書いた state.json・record.json）は read_json で読む"""
+    try:
+        return _refuse_lone_surrogates(read_json(path))
+    except BrokenJSON as e:
+        raise Reject(f"{path}: {e}") from e
+
+
 def write_json(path, obj):
     pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
     tmp = str(path) + ".tmp"
@@ -156,6 +202,69 @@ def git_bytes(*args, env=None):
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout if r.returncode == 0 else None
+
+
+# git diff は全部これを付ける（例外を作らない）。利用者の diff.noprefix・diff.mnemonicPrefix・diff.srcPrefix/dstPrefix で見出しが、
+# color.ui=always・diff.external で本文が、diff.relative で範囲と綴りが変わる（rules の _added_md_links が前置きの設定で 1 件も拾わずに通った実測）
+DIFF_FIXED_ARGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative")
+
+
+def tree_names_between(frm, to, git_fn=None):
+    """2 つの版（commit か木の id）の差のファイル名——リポジトリの根からの相対の POSIX 形で並べた一覧。None = 取れない。
+    版どうしの差の名前を出す所（engine の作業ツリーの突合・rules の周の差・TDD の段の差）は全部ここを通す"""
+    names = (git_fn or git)("diff", *DIFF_FIXED_ARGS, "--name-only", "-z", frm, to) if frm and to else None
+    return None if names is None else sorted(x for x in names.split("\0") if x)
+
+
+def worktree_tree(why=None, git_fn=None):
+    """作業ツリーの今の姿の木の id（未追跡の新規ファイルも含め、追跡していない .gitignore の対象は除く）。固められなければ None で、
+    why に何が落ちたか（頭の 1 件）と git の言い分を足す。中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。
+
+    **本物の index を一時 index に写してから** `add -A` する。空の一時 index から始めていたとき、追跡中だが .gitignore に
+    当たるファイルは `add -A` に拾われず、版から落ちて『削除』に見えた（実測 2026-09-25: 別のリポジトリの run で、判定役が
+    これを根拠に誤った [block] を出した）。写しは stat の情報も持つので、`add -A` は変わったファイルだけをハッシュする。
+    写しの上で `--really-refresh` を打つのは assume-unchanged の印を外すため——印を持ったままだと、git はそのファイルを
+    見ずに古い中身で版を作る。本物の index は読むだけで書かない。git_fn は呼び元の git（rules が差し替えて試す口）"""
+    import shutil
+    import tempfile
+    g = git_fn or git
+    why = [] if why is None else why
+    said = []   # git が言った理由（git の why）
+
+    def fail(what):
+        why[:0] = [what, *said]
+        return None
+    tmp = tempfile.mkdtemp(prefix="graphloops-index-")
+    idx = pathlib.Path(tmp) / "index"
+    env = {"GIT_INDEX_FILE": str(idx)}
+    try:
+        real = g("rev-parse", "--path-format=absolute", "--git-path", "index", why=said)
+        if real is None or not real.strip():
+            return fail("本物の index の場所を git rev-parse --git-path で引けない（git 2.31 以上か、リポジトリの中で呼んでいるかを確かめよ）")
+        try:
+            shutil.copy2(real.strip(), idx)   # 時刻ごと写す——index の時刻が新しくなると、同じ秒に書き換えたファイル（racy git）を綺麗と見誤る
+        except FileNotFoundError:
+            pass   # index がまだ無い（init の直後で 1 度も add していない）＝追跡中のファイルが無いので、空から始めて落ちる物が無い
+        except OSError as e:
+            return fail(f"本物の index を写せない: {e}")
+        if g("update-index", "-q", "--really-refresh", env=env, why=said) is None or g("add", "-A", env=env, why=said) is None:
+            return fail("一時 index への git update-index / add -A が失敗した")
+        tree = g("write-tree", env=env, why=said)
+        if tree is None or not tree.strip():
+            return fail("git write-tree が木を返さない")
+        return tree.strip()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def note_unevaluable(state, trigger, why):
+    """測れなかった痕跡を盤面の state.unevaluable に残す口（同じ周に同じ trigger は 1 行だけ——1 回の next で条件は何度も
+    評価される）。条件の入れ物（board.CondView）と rules の受け付けの側が同じここを通る"""
+    if state is None:
+        return
+    rnd, seen = state.get("round"), state.setdefault("unevaluable", [])
+    if not any(u["trigger"] == trigger and u["round"] == rnd for u in seen):
+        seen.append({"trigger": trigger, "round": rnd, "why": why})
 
 
 def porcelain():

@@ -27,7 +27,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
    **人から直す依頼を持って来たなら**、最初の `next` の前に、下の「[判定から入る（人の修正依頼）](#判定から入る人の修正依頼)」の手順で依頼を `add` せよ——run が判定から入るのは 1 周目の P1 より前の `add` だけで、最初の `next` の前が確実である。
 
-   回し役なしで回すなら `--engine-runners` を足す（下の「[回し役なしで回す](#回し役なしで回す)」）。人の方針「テスト（今だけ）」「変異テストは CI だけ」の間は、`--input gates=merge` も足せ——付けない run では、ゲートの検算と最後の関門の任せ先が手元で変異の実行器（e2e の一式を走らせる）を撃つ。
+   回し役なしで回すなら `--engine-runners` を足す（下の「[回し役なしで回す](#回し役なしで回す)」）。対象リポジトリの決まりが変異テストを手元で撃たせない（CI か合流の後に限る）なら、`--input gates=merge` も足せ——付けない run では、ゲートの検算と最後の関門の任せ先が手元で変異の実行器を撃つ。
 
    返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 2）。名指しが既定の導線である。
 
@@ -110,7 +110,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 4. 10 なら `ask` を人に見せ（上の手順 3「人に聞く番」）、`loop.py answer` してから 2 へ
 5. 0・11・12・14 で手番を終える——0 は `report.md`、11 は周の止め（続けるなら `loop.py resume`）、12・14 は `detail`・`needs_human` を読む
 
-engine が writer の節をどう起こすか（正本は engine の `role_run.runner_permission`、理由は graph の `launch.runner.why`）: 読むだけの節（基準点・前提・目的・修正案・報告）は道具つきの役（investigator）と同じ形で、前提を測るコマンドは sandbox の中で走る。作業ツリーを書き換える節（graph の `launch.runner.edits`: 修正・手直し・仕様）は、`dontAsk`・パスで縛った `Edit(./**)`・`Write(./**)`・sandbox の中の Bash で起こり、書けるのは作業ツリーの根の中と一時ディレクトリだけ——`.git`・ほかの作業ツリー・盤面・利用者の git とシェルの設定は OS が止める。子は本物の作業ツリー（盤面の `inputs.cwd`）で動き、修正はそこに入る。engine は起こす前後で git の状態（HEAD・枝・stash・作業ツリーの一覧）を突き合わせ、違えば受け付けない。書き換える節の子が落ちたら回し手は自動で起こし直さず 14 で渡す——作業ツリーを確かめてから `relaunch` せよ。sandbox が立たない場（Windows・bwrap の無い Linux）と、作業ツリーが別の作業ツリーの下に在る形（`<repo>/.claude/worktrees/<名前>`）では、書き換える節は `launch` を持たず 13 で会話に返る（instance の `runner_unlaunched` が理由）。**子は git の index に書けないので `git add -N` を打てない**——基準点の `intent_to_add` のパスは、局所レビューの skill を呼ぶ前にあなたが `git add -N` せよ（engine の周の版は未追跡も載せるので、差分と規模には要らない）。子ではフックが動かないので、子の読了は `reads.jsonl` に載らない（記録の `loop.wrote_refs_reads` の `unrecorded` と報告の人向けの項目に出る）。子は別の役を起こせないので、修正の先行例の Web の調べは判定者の行を採るか、調べていないと書く。
+engine が writer の節をどう起こすか（正本は engine の `role_run.runner_permission`、理由は graph の `launch.runner.why`）: 読むだけの節（基準点・前提・目的・修正案・報告）は道具つきの役（investigator）と同じ形で、前提を測るコマンドは sandbox の中で走る。作業ツリーを書き換える節（graph の `launch.runner.edits`: 修正・手直し・仕様）は、`dontAsk`・パスで縛った `Edit(./**)`・`Write(./**)`・sandbox の中の Bash で起こり、書けるのは作業ツリーの根の中と一時ディレクトリだけ——`.git`・ほかの作業ツリー・盤面・利用者の git とシェルの設定は OS が止める。一時ディレクトリは子ごとの専用の置き場（`CLAUDE_CODE_TMPDIR`）で、子が終わった後に engine が中身を数えて痕跡（記録の `process.git_mismatches` の `kind: outside_tmp`）に残し、置き場を消す（空なら「専用の置き場が効いた印が無い＝測れていない」と残す）。子は本物の作業ツリー（盤面の `inputs.cwd`）で動き、修正はそこに入る。engine は起こす前後で git の状態（HEAD・枝・stash・作業ツリーの一覧）を突き合わせ、違えば受け付けない。修正の節（graph の `declared_files` を持つ節）の返答は、申告したファイル（`changes[].files`）と、その節の区間に作業ツリーで中身が変わったファイルが両方向で合わないと受け付けられない（書いたのに申告に無い・申告したのに変わっていない。子なら同じ会話に出し直させ、会話の writer は `done --accept-tree-change <理由>` で痕跡つきで通せる）。書き換える節の子が落ちたら回し手は自動で起こし直さず 14 で渡す——作業ツリーを確かめてから `relaunch` せよ。sandbox が立たない場（Windows・bwrap の無い Linux）と、作業ツリーが別の作業ツリーの下に在る形（`<repo>/.claude/worktrees/<名前>`）では、書き換える節は `launch` を持たず 13 で会話に返る（instance の `runner_unlaunched` が理由）。**子は git の index に書けないので `git add -N` を打てない**——基準点の `intent_to_add` のパスは、局所レビューの skill を呼ぶ前にあなたが `git add -N` せよ（engine の周の版は未追跡も載せるので、差分と規模には要らない）。子ではフックが動かないので、子の読了は `reads.jsonl` に載らない（記録の `loop.wrote_refs_reads` の `unrecorded` と報告の人向けの項目に出る）。子は別の役を起こせないので、修正の先行例の Web の調べは判定者の行を採るか、調べていないと書く。
 
 ## 判定から入る（人の修正依頼）
 
@@ -169,7 +169,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop review-loop --reques
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" init --loop review-loop-tdd --input tdd_suite=<実行ファイル> --request "<何をレビューするか>"
 ```
 
-`tdd_suite` は、JUnit XML の書き先を第 1 引数に受けてテスト一式を走らせる実行ファイル（例: テストの実行器に JUnit XML の書き先として `$1` を渡す 1 行のシェルスクリプト。`.py` なら engine の Python で走る）。engine はリポジトリのルートで走らせ、書かれた XML をテスト 1 件ごとに読む。無ければ init が盤面を作る前に止まる。JUnit を出さないテスト（このリポジトリなら bash の台本）で確かめる単位は、名指しできないので direct に回る。
+`tdd_suite` は、JUnit XML の書き先を第 1 引数に受けてテスト一式を走らせる実行ファイル（例: テストの実行器に JUnit XML の書き先として `$1` を渡す 1 行のシェルスクリプト。`.py` なら engine の Python で走る）。engine はリポジトリのルートで走らせ、書かれた XML をテスト 1 件ごとに読む。無ければ init が盤面を作る前に止まる。JUnit を出さないテストで確かめる単位は、名指しできないので direct に回る。
 
 流れ（graph は `graphs/review-loop-tdd.json`。今の `graphs/review-loop.json` の差分だけを持つ）:
 
