@@ -936,7 +936,7 @@
     "spec.revise"
    ],
    "preamble": "あなたはレビューループを回す engine から、回す側（writer）の 1 つの節を任された子で、claude -p として動いている。会話の相手はいない。\n- 作業ディレクトリ（cwd）はレビュー対象の本物の作業ツリーである。指示書が直せと言う物は、ここのファイルを Edit・Write で直せ。作業ツリーの外・.git・盤面の置き場には書けない（権限と OS の sandbox が拒む）。拒まれたら別の書き方を探さず、書けなかったことを返答に書け。\n- git の書き込み（add・commit・stash・checkout・reset・worktree・branch）は打つな。index も共通の .git も書けず、engine が起こす前後で git の状態を突き合わせて違えば受け付けない。未追跡の新規ファイルは engine が周の版に載せる（指示書の git add -N は打てない——打てなかったパスは intent_to_add に書くだけにし、打っていないと detail に書け）。\n- コマンド（テスト・lint・計器・git の読み）は Bash で走らせてよい。OS の sandbox の中で走り、外への通信は無い（網から依存を取って走らせる語は落ちる。手元に在る実行器で確かめよ）。\n- 別の役（Agent）は起こせない。指示書が investigator に Web を調べさせろと言う所は、判定者の先行例の行を採る（from_judge_row）か、調べていないことを not_found と searched に正直に書け。\n- 人の方針の文書の置き場が指示書に在れば、先に Read で全部読め。\n- 返答は、指示書が求めた JSON だけを最後のメッセージとして返せ。置き場のファイル（out_path）には書くな——engine があなたの返答を置き場に書き、受け付けに回す。受け付けが拒んだら、理由が同じ会話に届く。\n",
-   "why": "回す側の節（graph の runners の節のうち、任せ先・skill・走らせるだけの宣言を持たない物: 基準点・前提・目的・修正案・修正・手直し・報告・仕様）も、init --engine-runners の run では engine が claude -p で起こす（advance.runner_launch_spec。手順 H の H3）。回す側の会話が自分で書いていた頃、1 周 30〜45 万トークンを使い、知らせ待ちで止まる・手で写す・柵の注意を入れ忘れる、が起きた（2026-09-27 の run）。権限は engine が決める（role_run.runner_permission。graph は語の並び・前置きの文・モデルだけを持つ）: 読むだけの節は道具つきの役（investigator）と同じ形（sandbox か read_only）で、前提を測るコマンドを sandbox の中で走らせられる。作業ツリーを書き換える節（edits）は dontAsk・パスで縛った Edit(./**)・Write(./**)・読むだけの gh の前置で、Bash は OS の sandbox の中だけ——書けるのは作業ツリーの根と一時ディレクトリで、.git・ほかの作業ツリー・盤面・利用者の git とシェルの設定・engine 自身は denyWrite（util.protected_paths から根だけを外す）。前提の実験（scratchpad/headless-spike/FINDINGS.md、2026-09-25）: acceptEdits は許可の無い rm・touch を通し、縛りの無い Edit・Write は外に書け、テストの実行器が読み込む設定のファイルと git diff --output= は Bash から外と .git に書けた——許可の字面では縛れないので OS の境界に置く。sandbox が立たない場は起こさず会話に返す（Bash 抜きの書く子に黙って落とさない）。git の状態（HEAD・枝・stash・作業ツリーの一覧）は起こす前後で突き合わせ、違えば受け付けない。作業ツリーを書き換える子は落ちても自動で起こし直さない（途中の編集を知らない新しい会話が重ねて書く）。CLAUDE.md は読ませない（--setting-sources \"\"。道具つきの役と同じ理由）ので、フックも動かず、子の読了は reads.jsonl に載らない——記録の loop.wrote_refs_reads と報告の人向けの項目に、記録が無いことを書く。skill を呼ぶ節（局所レビュー）と背景の任せ先（変異の検算の線）は今どおり会話に返す（人の答え 2026-09-27: 変異は CI だけ）。"
+   "why": "回す側の節（graph の runners の節のうち、任せ先・skill・走らせるだけの宣言を持たない物: 基準点・前提・目的・修正案・修正・手直し・報告・仕様）も、init --engine-runners の run では engine が claude -p で起こす（advance.runner_launch_spec。手順 H の H3）。回す側の会話が自分で書いていた頃、1 周 30〜45 万トークンを使い、知らせ待ちで止まる・手で写す・柵の注意を入れ忘れる、が起きた（2026-09-27 の run）。権限は engine が決める（role_run.runner_permission。graph は語の並び・前置きの文・モデルだけを持つ）: 読むだけの節は道具つきの役（investigator）と同じ形（sandbox か read_only）で、前提を測るコマンドを sandbox の中で走らせられる。作業ツリーを書き換える節（edits）は dontAsk・パスで縛った Edit(./**)・Write(./**)・読むだけの gh の前置で、Bash は OS の sandbox の中だけ——書けるのは作業ツリーの根と一時ディレクトリで、.git・ほかの作業ツリー・盤面・利用者の git とシェルの設定・engine 自身は denyWrite（util.protected_paths から根だけを外す）。前提の実験（scratchpad/headless-spike/FINDINGS.md、2026-09-25）: acceptEdits は許可の無い rm・touch を通し、縛りの無い Edit・Write は外に書け、テストの実行器が読み込む設定のファイルと git diff --output= は Bash から外と .git に書けた——許可の字面では縛れないので OS の境界に置く。sandbox が立たない場は起こさず会話に返す（Bash 抜きの書く子に黙って落とさない）。この作業ツリーの git の状態（HEAD・枝）は起こす前後で突き合わせ、違えば受け付けない（全作業ツリーで共有する stash と作業ツリーの一覧は並行の run も動かすので、違っても受け付けて trace に残す——子が共通の .git に書くことは sandbox が止める）。作業ツリーを書き換える子は落ちても、前の試行の子を止め切った後で作業ツリーと HEAD・枝が起こした時点と同じと測れたときだけ 1 回起こし直す（途中の編集を知らない新しい会話が重ねて書かない）。CLAUDE.md は読ませない（--setting-sources \"\"。道具つきの役と同じ理由）ので、フックも動かず、子の読了は reads.jsonl に載らない——記録の loop.wrote_refs_reads と報告の人向けの項目に、記録が無いことを書く。skill を呼ぶ節（局所レビュー）と背景の任せ先（変異の検算の線）は今どおり会話に返す（人の答え 2026-09-27: 変異は CI だけ）。"
   }
  },
  "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
@@ -3165,7 +3165,10 @@
     "hist.snapshot.diff_file",
     "hist.snapshot.changed_files",
     "inputs.review_md",
-    "inputs.cwd"
+    "inputs.cwd",
+    "record.process.policy.path",
+    "record.process.checks",
+    "inputs.request"
    ],
    "schema": {
     "type": "object",
@@ -3268,7 +3271,12 @@
     "procedure_trace"
    ],
    "carry_reason": "手順書・スクリプト・CI に変更が無い周は前の判定を持ち越す",
-   "escalate_note": "同じクラスが周をまたいで戻った run では条件に関わらず走る（rules の escalate_on_thrash。下げるのは人の手当てだけ）"
+   "escalate_note": "同じクラスが周をまたいで戻った run では条件に関わらず走る（rules の escalate_on_thrash。下げるのは人の手当てだけ）",
+   "prompt_append": [
+    "../prompts/policy-path.md",
+    "../prompts/policy.md",
+    "../prompts/review-loop/test-scope.md"
+   ]
   },
   "p1.gate_efficacy": {
    "stage": "P1",
@@ -3757,6 +3765,7 @@
     "validator",
     "prev.p3.fix.wrote_refs_reads",
     "prev.p3.fix.coverage_after",
+    "record.process.fix_claim_mismatch",
     "record.process.policy.path"
    ],
    "pointers": [
@@ -4764,7 +4773,7 @@
   "p3.fix": {
    "stage": "P3",
    "run_by": "writer",
-   "declared_files": "changes[].files",
+   "declared_files": "changes[].files[]",
    "deps": [
     "p2.history",
     "p2.plan_review",
@@ -4791,7 +4800,9 @@
     "out.p2.plan_review",
     "cur.p3.lane_merge",
     "record.process.policy.path",
-    "record.process.human_items"
+    "record.process.human_items",
+    "record.process.checks",
+    "inputs.request"
    ],
    "pointers": [
     {
@@ -5258,7 +5269,8 @@
    "na_self_ok": "その周に修正が 0 件なら閉鎖の実証は対象が無い（fix_covers_open_units が changes 非空との食い違いを別に拒む）",
    "prompt_append": [
     "../prompts/policy-path.md",
-    "../prompts/policy.md"
+    "../prompts/policy.md",
+    "../prompts/review-loop/test-scope.md"
    ]
   },
   "p3.fix_delta": {
@@ -5367,6 +5379,7 @@
   "p3.delta_fix": {
    "stage": "P3",
    "run_by": "writer",
+   "declared_files": "handled[].files[]",
    "deps": [
     "p3.delta_owed"
    ],
@@ -5382,7 +5395,9 @@
     "out.p3.delta_review",
     "cur.p3.fix_delta.delta.file",
     "inputs.cwd",
-    "record.process.policy.path"
+    "record.process.policy.path",
+    "record.process.checks",
+    "inputs.request"
    ],
    "pointers": [
     {
@@ -5405,7 +5420,8 @@
    },
    "prompt_append": [
     "../prompts/policy-path.md",
-    "../prompts/policy.md"
+    "../prompts/policy.md",
+    "../prompts/review-loop/test-scope.md"
    ]
   },
   "p3.fix_delta2": {
@@ -5514,6 +5530,7 @@
   "p3.delta_fix2": {
    "stage": "P3",
    "run_by": "writer",
+   "declared_files": "handled[].files[]",
    "deps": [
     "p3.delta_owed2"
    ],
@@ -5529,7 +5546,9 @@
     "out.p3.delta_review2",
     "cur.p3.fix_delta2.delta.file",
     "inputs.cwd",
-    "record.process.policy.path"
+    "record.process.policy.path",
+    "record.process.checks",
+    "inputs.request"
    ],
    "pointers": [
     {
@@ -5552,7 +5571,8 @@
    },
    "prompt_append": [
     "../prompts/policy-path.md",
-    "../prompts/policy.md"
+    "../prompts/policy.md",
+    "../prompts/review-loop/test-scope.md"
    ]
   },
   "p3.gates_cut": {
@@ -7076,6 +7096,7 @@
   "spec.write": {
    "stage": "P0",
    "run_by": "writer",
+   "declared_files": "acceptance[].file",
    "deps": [
     "p0.base",
     "p0.local_checks"
@@ -7249,6 +7270,7 @@
   "spec.revise": {
    "stage": "P0",
    "run_by": "writer",
+   "declared_files": "spec.acceptance[].file",
    "deps": [
     "spec.review"
    ],

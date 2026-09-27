@@ -303,6 +303,7 @@ RMTREE_ALLOWED = {
     ("graphloops/tests/py/test_harness.py", "_rmtree_refs"): (5, "名前への参照を探すこの柵の本体"),
     ("graphloops/engine/commands.py", "launch_one"): (3, "同じ関数が mkdtemp で作った任せ先の作業場"),
     ("graphloops/engine/commands.py", "_note_child_tmp"): (1, "launch_one が _child_tmp_dir（mkdtemp）で作った書き換える子の専用の一時の置き場"),
+    ("graphloops/engine/commands.py", "_probe_child_tmp"): (2, "同じ関数が mkdtemp で作った確かめの子の作業場と専用の一時の置き場"),
     ("graphloops/engine/commands.py", "cmd_init"): (1, "同じ関数が exist_ok=False で作ったばかりの盤面（rules の入口が拒んだ回）"),
     ("graphloops/engine/util.py", "worktree_tree"): (1, "同じ関数が mkdtemp で作った一時の置き場"),
     ("tests/catchup-switch-case.py", "_worktree"): (1, "TemporaryDirectory の下に同じ関数が足した worktree"),

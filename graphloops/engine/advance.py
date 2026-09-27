@@ -593,8 +593,9 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
             note_unevaluable(b.state, f"{iid}.tree_before_id", "作業ツリーの木の id が取れない——中身の書き換えと申告の突合は測れない")
         else:
             inst["tree_before_id"] = tree
-            if n.get("declared_files"):
-                # 申告の突合の周の基準は、この周にこの節を最初に出した時点——差し戻し・起こし直しで取り直さない（申告は周の累計）
+            if n.get("declared_files") and attempt == 1:
+                # 申告の突合の周の基準は、この周にこの節を最初に出した時点——差し戻し・起こし直しで取り直さない（申告は周の累計）。
+                # 起こし直し（attempt > 1）の時点の木は、前の版の engine が出した試行でも基準に置かない
                 b.rd.setdefault("tree_base", {}).setdefault(nid, tree)
     b.rd["instances"][iid] = inst
     b.trace("emit", instance=iid, sha=inst["prompt_sha"])
@@ -774,6 +775,19 @@ def open_next_round(b, nid):
     return True
 
 
+def skip_node(b, nid, reason, by=None):
+    """optional の節を省く（loop.py skip と、run の間ずっと省く口 skip --every-round の周ごとの当て直しが同じここを通る）"""
+    b.rd["skipped"][nid] = reason
+    for i in b.rd["instances"].values():
+        if i["node"] == nid and i["status"] == "pending":
+            i["status"] = "skipped"
+    b.state["done_ever"][nid] = b.round
+    fn = hook(b.rules, "on_skip")
+    if fn:
+        fn(b, nid, reason)
+    b.trace("skip", node=nid, reason=reason, **({"by": by} if by else {}))
+
+
 def advance(b):
     """機械の節を走らせ、周の終わりなら次の周を開く。回す側に渡す節が出るまで（または止まるまで）進める。"""
     notes = []
@@ -796,6 +810,12 @@ def advance(b):
                 why = b.applicable(nid)
                 if why:
                     b.rd["na"][nid] = why
+                    progressed = True
+                    continue
+                preset = (b.state.get("preset_skips") or {}).get(nid)
+                if preset is not None and n.get("optional"):
+                    # 出す前に省く——出た瞬間に回し手が起こすので、出た後の skip では間に合わない
+                    skip_node(b, nid, preset, by="every_round")
                     progressed = True
                     continue
             if n["run_by"] == "driver":

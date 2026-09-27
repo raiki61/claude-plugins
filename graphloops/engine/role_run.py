@@ -199,7 +199,8 @@ def runner_permission(edits, cwd=None, board_dir=None, protected=None, top=None)
     - 書き換える節（edits が真）: sandbox が使えて edit_deny が決まるときだけ。許すのは Read・Glob・Grep・パスで縛った Edit と
       Write・READ_COMMANDS の前置で、sandbox の中のコマンドは聞かずに通す（SANDBOX_BASE。テスト一式を走らせて閉鎖を確かめる）。
       書けるのは作業ツリーの根の中と sandbox の一時ディレクトリ（commands.launch_one が子ごとの専用の置き場を CLAUDE_CODE_TMPDIR で
-      渡し、終わった後に数えて痕跡に残す）だけで、.git・ほかの作業ツリー・盤面・利用者の設定は OS が
+      渡し、終わった後に数えて痕跡に残す。専用の置き場が sandbox の中で書けない版は run に 1 回の確かめで見つけ、共有の置き場のまま
+      起こす）だけで、.git・ほかの作業ツリー・盤面・利用者の設定は OS が
       止める——git commit・stash・checkout は index か共通の .git に書くので止まる。通信の許可は空（gh の token を読めても外へ書けない）。
       sandbox が使えない場（Windows・bwrap の無い Linux）は None——Bash 抜きの書く子に黙って落とさない。"""
     if not edits:

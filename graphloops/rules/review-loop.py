@@ -573,9 +573,15 @@ def on_new_round(b):
         if cur and not (why_cur or why_past):
             rec["process"]["request_history"] = past + cur
             rec["process"]["request_findings"] = []
-    if measured is not None and set(claimed) - set(measured):
-        # 申告したが差分に現れないファイル——盤面に置くだけでは誰も読まないので、記録の process に周付きで残す（判定者と報告が読める）
-        rec["process"].setdefault("fix_claim_mismatch", []).append({"round": b.round - 1, "claimed_not_in_diff": sorted(set(claimed) - set(measured))})
+    stale = sorted(set(claimed) - set(measured)) if measured is not None else []
+    # 書き換える節の受け付けが残した申告の食い違い（engine の state.git_mismatches の kind=declared。両方向と区間に重なった書き手）。
+    # 盤面の行が記録に写るのは報告の時点なので、判定者が読めるよう周の頭でファイルの一覧だけを載せる
+    by_instance = [{k: r.get(k) for k in ("instance", "undeclared", "unwritten", "overlapping")} for r in b.state.get("git_mismatches") or []
+                   if r.get("kind") == "declared" and r.get("round") == b.round - 1]
+    if stale or by_instance:
+        # 申告と差分の食い違い——盤面に置くだけでは誰も読まないので、記録の process に周付きで残す（判定者と報告が読める）
+        rec["process"].setdefault("fix_claim_mismatch", []).append({"round": b.round - 1, "claimed_not_in_diff": stale,
+                                                                    **({"by_instance": by_instance} if by_instance else {})})
     escalate_on_thrash(b)
 
 
@@ -1626,7 +1632,8 @@ LEGACY_LOOP_KEYS = ("diff_file", "changed_files", "changed_files_file", "reviewe
 # 記録の欄のうち rules が writes の外で書く物（add が書く入口の印・依頼の一覧・止める口 on_stop が書く止めた所と理由・on_init と関所が書く
 # 方針の文書の置き場・assemble が積む目的の監査の読み捨て）——条件と穴が record.<欄> を読むとき、完全一致で照らす
 RECORD_KEYS = ("process.request_entry", "process.request_findings", "process.request_history", "process.checks",
-               "process.scalars_unmeasured", "process.halted", "process.notices", "process.policy.path", "process.purpose_review_stale")
+               "process.scalars_unmeasured", "process.halted", "process.notices", "process.policy.path", "process.purpose_review_stale",
+               "process.fix_claim_mismatch")
 ENTRY_OFF = {"record.process.request_entry": None}   # 入口の印を外す重ね書き（_entry_skipped）——印が無い文脈は _entry_marked が偽
 
 
@@ -2129,7 +2136,7 @@ def _baseline(b):
 def worktree_compare(b, nid):
     """P1 の後: 作業ツリーが変わっていないこと（どの道具が汚したかを当てるのでなく機械で突き合わせる）。
 
-    **射程は git が映す範囲だけ**——porcelain・stash・版の木の id はいずれも .git/ 配下・追跡していない .gitignore 対象・
+    **射程は git が映す範囲だけ**——porcelain・版の木の id はいずれも .git/ 配下・追跡していない .gitignore 対象・
     リポジトリの外（$HOME 等）を映さない。役が .git/hooks/ や ~/.claude/settings.json を書いても緑で通る。
     これは**事故の検知**であって権限の強制ではない（この run 自身の生成物 .git/graphloops/… も射程の外）。
     走らせなかった素材の欄も、ここで機械が埋める（条件外＝not_applicable／持ち越し＝carried_over／
@@ -2145,23 +2152,24 @@ def worktree_compare(b, nid):
         tree = _worktree_tree()
     except Reject:
         tree = None
-    got = {"stash": git("stash", "list"), "tree": tree}
     # 返りには、この回の後に効いている審査対象（snapshot）も必ず載せる——撮り直した後に撃ち直した材料の後で再び走るこの節が
     # 出力を書き直しても、撮り直した差分が周の頭の古い値に戻らない（hist.snapshot がここを読む）
     cur_snap = _current_snapshot(b)
     baseline_after = {"tree_before": before, **({"snapshot": cur_snap} if cur_snap else {})} if before else {}
-    if snap is None or any(v is None for v in got.values()) or before.get("porcelain") is None:
+    if snap is None or tree is None or before.get("porcelain") is None:
         return {"ok": False, **baseline_after, "problems": ["git status / 作業ツリーの木が取れない——作業ツリーの前後を突き合わせられない（一致とは言えない）"]}
-    now = {"porcelain": snap, "stash": got["stash"].strip(), "tree": got["tree"]}
+    # stash の一覧は比べない——refs/stash は全作業ツリーで共有し（git-worktree の REFS 節）、並行の run も動かす。役が共通の .git に
+    # 書くことは sandbox の denyWrite が止める（engine の _git_state_guard と同じ分け方）
+    now = {"porcelain": snap, "tree": tree}
     problems = []
-    for k in ("porcelain", "stash", "tree"):
+    for k in ("porcelain", "tree"):
         if before.get(k) != now[k]:
             problems.append(f"{k}: {before.get(k)!r} → {now[k]!r}")
     if problems:
         # writer 自身の変更（engine をその場で直した等）は、done と同じく理由を添えて通せる——痕跡は
         # process.git_mismatches に accepted として残る。通す道が無いと、engine を直しながら回す run は
         # ここで永久に止まる（実測 2026-09-12: P1 の途中で done の読み取りを直したら next が 10 回同じ note を返した。
-        # stash で退避しても stash の一覧が突合に入っているので通らない）。受け付けたら基準を今の姿に置き直す。
+        # stash で退避しても作業ツリーの姿が変わるので通らない）。受け付けたら基準を今の姿に置き直す。
         accepted = getattr(b, "accept_tree_change", None)
         entry = {"where": "P1", "round": b.round, "diff": problems, "accepted": accepted}
         # **痕跡は取り直しより先に積む。** 取り直しが失敗した回だけ「作業ツリーが変わって受理した」事実が
@@ -2215,14 +2223,27 @@ def _rewind_materials(b, nid):
     return back, old
 
 
+def _is_ci_node(n):
+    """この周の CI を確かめる節——engine が走らせる節で、素材 local_checks を書く（p0.local_checks・p4.ci）。『この周の CI は確かめていない』
+    を付けるかを決める述語の正本（skipped_material・stopped_material・_drop_stopped_materials が引く）"""
+    return bool(n.get("engine_run")) and "local_checks" in (n.get("materials") or [])
+
+
 def skipped_material(b, nid):
-    """省いた節（loop.py skip）の素材の値。engine が走らせる CI の節（engine_run）は条件外で書く——not_run は検証器が阻害に数え、
+    """省いた節（loop.py skip）の素材の値。engine が走らせる節（engine_run）は条件外で書く——not_run は検証器が阻害に数え、
     省いた周は収束にも CI の問い（_converge の ci_unverified）にも届かず、上限まで空回りした（事前審査 2026-09-27）。条件外なら
     阻害にならず、収束の手前で ci_unverified が理由つきで人に聞く（黙って緑にはしない——収束は CI が engine の clean のときだけ）"""
     why = f"回す側が省いた: {b.rd['skipped'].get(nid, '')}"
     if b.nodes[nid].get("engine_run"):
-        return {"status": "not_applicable", "reason": f"{why}（engine が走らせる節 {nid} を走らせていない——この周の CI は確かめていない）"}
+        ci = "——この周の CI は確かめていない" if _is_ci_node(b.nodes[nid]) else ""
+        return {"status": "not_applicable", "reason": f"{why}（engine が走らせる節 {nid} を走らせていない{ci}）"}
     return {"status": "not_run", "reason": why}
+
+
+def stopped_material(b, nid):
+    """人が止めた（loop.py stop）節の素材の値——省いた（回す側の判断）とは別の事実として書く"""
+    ci = "——この周の CI は確かめていない" if _is_ci_node(b.nodes[nid]) else ""
+    return {"status": "not_run", "reason": f"{b.rd['stopped'][nid]}——この周に節 {nid} は走っていない{ci}"}
 
 
 def on_skip(b, nid, reason):
@@ -2264,9 +2285,8 @@ def fill_materials(b):
             if state == "skipped":
                 mats[mat] = skipped_material(b, nid)
                 continue
-            if state == "stopped":   # 人が止めた（loop.py stop）——省いた（回す側の判断）とは別の事実として書く
-                ci = "——この周の CI は確かめていない" if n.get("engine_run") else ""
-                mats[mat] = {"status": "not_run", "reason": f"{b.rd['stopped'][nid]}——この周に節 {nid} は走っていない{ci}"}
+            if state == "stopped":
+                mats[mat] = stopped_material(b, nid)
                 continue
             applies = n.get("applies_cond")
             ap_ok, ap_why = b.cond(applies) if applies is not None else (True, "")
@@ -4362,33 +4382,31 @@ def _stopped_round_record(b, reason):
 
 def _drop_stopped_materials(b):
     """止めた節の素材に機械が先に置いた仮の値（P1 の時点の fix_closure など）を外す（fill_materials が止めた事実で埋め直す）。
-    同じ素材を書く節がこの周に済んでいれば（p0.local_checks と p4.ci の local_checks）その値を残す——ただし engine が走らせる
-    CI の節を止めた周で、前の CI の節の後に作業ツリーが動いていれば、残っているのは修正前の CI なので外す（省いた周の on_skip と
-    同じ不変条件: この周の CI は、最後の CI の節が確かめた値だけ）"""
+    同じ素材を書く節がこの周に済んでいれば（p0.local_checks と p4.ci の local_checks）その値を残す——ただし CI の節を止めた周で、
+    前の CI の節の後に作業ツリーが動いていれば、残っているのは修正前の CI なので、止めた事実の値を直に置く（省いた周の on_skip と
+    同じ不変条件: この周の CI は、最後の CI の節が確かめた値だけ。fill_materials は節の順に回り、先に済んだ CI の節が同じ素材を
+    埋めるので、外すだけでは止めた事実に届かない）"""
     ran = {m for nid, n in b.nodes.items() if nid in b.rd["done"] for m in n.get("materials", [])}
     stopped = b.rd.get("stopped", {})
-    moved = any(b.nodes[nid].get("engine_run") for nid in stopped) and _tree_moved_since_checks(b)
+    moved = any(_is_ci_node(b.nodes[nid]) for nid in stopped) and _tree_moved_since_checks(b)
     for nid in stopped:
         for mat in b.nodes[nid].get("materials", []):
-            if mat not in ran or (moved and b.nodes[nid].get("engine_run")):
+            if moved and _is_ci_node(b.nodes[nid]):
+                b.record["materials"][mat] = stopped_material(b, nid)
+            elif mat not in ran:
                 b.record["materials"].pop(mat, None)
 
 
 def _tree_moved_since_checks(b):
     """この周の頭の CI（p0.local_checks）の後に作業ツリーが動いたか——作業ツリーを書き換える節（graph の launch.runner.edits）が
-    この周に済んだ、または周の頭の版の木と今の木が違う。木を測れなければ動いた側に倒す（修正前の CI を今の周の CI と言わない）"""
+    この周に済んだ、または周の頭の版と今の木が違う。木を測れなければ動いた側に倒す（修正前の CI を今の周の CI と言わない）"""
     edits = ((getattr(b, "graph", None) or {}).get("launch") or {}).get("runner", {}).get("edits") or []
     if any(nid in b.rd["done"] for nid in edits):
         return True
-    head = _hist(b, "head_revs", {}).get(str(b.round))
-    if not head:
+    if not _hist(b, "head_revs", {}).get(str(b.round)):
         return False   # 周の頭の版を固める前に止めた（P1 より前）——書き換える節もまだ走っていない
-    was = git("rev-parse", f"{head}^{{tree}}")
-    try:
-        now = _worktree_tree()
-    except Reject:
-        return True
-    return was is None or was.strip() != now
+    changed = _files_changed_since(b, b.round)
+    return changed is None or bool(changed)
 
 
 # ---------------------------------------------------------------- 仕様の道（選んだときだけ）

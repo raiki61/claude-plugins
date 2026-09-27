@@ -392,6 +392,18 @@ def test_run_role_without_resume_argv_stops_after_a_rejection(tmp_path):
 
 
 
+def test_run_role_sends_back_a_reply_with_a_lone_surrogate_without_writing_it(tmp_path):
+    """包みの JSON の \\ud800 の類の逃がしは、読むと孤立サロゲートになり UTF-8 で書けない——置き場に書かず、受け付けに渡さず、拒否と
+    同じ道で役に返す"""
+    prompt = tmp_path / "p.md"
+    prompt.write_text("指示書", encoding="utf-8")
+    env = json.dumps({"type": "result", "subtype": "success", "result": '{"a": "x\ud800"}', "session_id": "s-1"})   # ASCII の逃がしで書く
+    seen = []
+    r = role_run.run_role([sys.executable, "-c", f"print({env!r})"], prompt, tmp_path / "out.json", accept=seen.append)
+    assert not r["ok"] and seen == [] and not (tmp_path / "out.json").exists()
+    assert len(r["rejections"]) == 1 and "孤立サロゲート" in r["rejections"][0]
+
+
 def test_kill_all_says_which_tree_it_could_not_stop(monkeypatch, capsys):
     """止め切れなかった木は理由を標準エラーに出す（黙って止めたことにしない）"""
     class Fake:

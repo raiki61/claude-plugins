@@ -563,7 +563,6 @@ def test_answer_leaves_the_declared_hand_in_the_trace(monkeypatch, by, want):
 
 
 def test_loop_refuses_broken_bytes_except_in_path_only_args():
-    """文字列の引数の読めないバイト（孤立サロゲート）は Reject で拒む。ファイルのパスだけの引数は検めない"""
     from glharness import loop_module
     loop = loop_module()
     with pytest.raises(Reject, match="--reason の 2 字目"):

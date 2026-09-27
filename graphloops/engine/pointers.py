@@ -104,6 +104,12 @@ def values_at(output, at):
     return [box[k] for box, k in _slots(output, _segs(at))]
 
 
+def rewrite_at(output, at, fn):
+    """返答の中の at の位置の値を fn(値) に置き換える（output を書き換える。resolve と同じく受け付けの中で呼ぶ）"""
+    for box, k in _slots(output, _segs(at)):
+        box[k] = fn(box[k])
+
+
 def resolve(output, ptrs, snap):
     """返答の中の番号を名前に置き換える（output を書き換える）。拒む理由の一覧を返す（空なら全部置き換えた）"""
     errs = []

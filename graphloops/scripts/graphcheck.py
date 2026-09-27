@@ -92,6 +92,7 @@ from engine.render import TOKEN, Renderer, node_prompt, strip_prefix  # noqa: E4
 from engine.rules import HOOKS, load_rules as engine_load_rules, registry  # noqa: E402
 from engine.validator import ENGINE_ACCEPT_KEYS, agent_def, agent_tools, find_plugin_path  # noqa: E402
 from engine.util import read_json  # noqa: E402
+from engine import pointers  # noqa: E402 — 返答の中の位置の綴り（declared_files）は受け付けの読み手と同じ口で引く
 
 
 def schema_patterns(schema):
@@ -753,15 +754,24 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         for k in ("model", "effort"):
             if not runner_spec.get(k):
                 errs.append(f"launch.runner に '{k}' が無い（回す側の節を起こす語の {{{k}}} を埋められない）")
-    # 申告の突合（commands._declared_guard）の申告の欄は、回す側の節の schema の文字列の配列を指す（外れると突合が黙って空を読む）
+    # 申告の突合（commands._record_declared）の申告の欄は、回す側の節の schema の文字列の葉を指す（外れると突合が黙って空を読む）。
+    # 位置の綴りは受け付けの読み手（pointers.values_at）と同じ pointers._schema_at で引く。作業ツリーを書き換える節（launch.runner.edits）
+    # は申告を持つ——書く節の一覧と突合の対象を 1 つの正本にそろえる。申告が無いことと旧い綴り（文字列の配列の葉）は記録が欠けるだけなので、
+    # 持ち込みの graph の init は止めない（上位互換。init からは WARN）
+    node_errs = []   # 単体の graphcheck と台本では NG、init では WARN（下の検査 15 以降も同じ一覧に足す）
     for nid, v in nodes.items():
         at = v.get("declared_files")
         if at is None:
+            if nid in (runner_spec.get("edits") or []):
+                node_errs.append(f"{nid}: launch.runner.edits の節に declared_files が無い——範囲外の書き込みが記録に残らない")
             continue
-        leaf = schema_at(v.get("schema") or {}, at.replace("[]", ".0").split("."))[0] if isinstance(at, str) else None
-        if v.get("run_by") not in set(g.get("runners") or []) or not (
-                isinstance(leaf, dict) and leaf.get("type") == "array" and (leaf.get("items") or {}).get("type") == "string"):
-            errs.append(f"{nid}: declared_files {at!r} は回す側の節の schema の文字列の配列を指せ（申告の突合が空を読む）")
+        leaf = pointers._schema_at(v.get("schema") or {}, at) if isinstance(at, str) else None
+        if v.get("run_by") not in set(g.get("runners") or []) or not isinstance(leaf, dict):
+            errs.append(f"{nid}: declared_files {at!r} は回す側の節の schema の文字列の葉を指せ（申告の突合が空を読む）")
+        elif leaf.get("type") == "array" and (leaf.get("items") or {}).get("type") == "string":
+            node_errs.append(f"{nid}: declared_files {at!r} は旧い綴り（文字列の配列）——末尾に [] を足して文字列の葉を指せ")
+        elif leaf.get("type") != "string":
+            errs.append(f"{nid}: declared_files {at!r} は回す側の節の schema の文字列の葉を指せ（申告の突合が空を読む）")
     narrow = (launch.get("tooled") or {}).get("narrow")
     if narrow is not None:
         tools = narrow.get("tools") if isinstance(narrow, dict) else None
@@ -847,7 +857,6 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         errs.append(rules)
         rules = None
     # 15. 節の鍵は閉じた集合（engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和）
-    node_errs = []
     if rules is not None and any(getattr(rules, n, None) is None for n in ("NODE_KEYS", "NODE_NOTE_KEYS")):
         node_errs.append("rules が NODE_KEYS / NODE_NOTE_KEYS（このループが節に書く鍵の宣言）を持たない——節の知らない鍵を照らせない")
     elif not rules_unreadable:
