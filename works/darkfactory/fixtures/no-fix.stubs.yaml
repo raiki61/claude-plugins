@@ -27,6 +27,7 @@ judge:
 judge-accept:
   ok: true
   reason: ''
+  reason_file: ''
   open_units: []
 judging__collect:
   ok: true

@@ -8,6 +8,7 @@
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -129,9 +130,11 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_fix_prompt(self):
         body = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
-        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$LOOP_PREV.fix-accept.output.reason",
+        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$LOOP_PREV.fix-accept.output.reason_file",
                   "git commit", "テスト", "unit_key"):
             self.assertIn(s, body)
+        # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す）。パスだけを貼って Read させる
+        self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", body), ["$LOOP_PREV.fix-accept.output.reason_file"])
         # 前の周の理由は指示書の本文で $LOOP_PREV から直に読む。Archon 0.11.1 の include は本文の $LOOP_PREV の節の名を
         # 付け替えるが、宣言していない $INPUTS.prev_reason は読み込みで拒む（Ruling R16）。節の with: で束ねない
         self.assertNotIn("$INPUTS.prev_reason", body)
@@ -268,7 +271,7 @@ class TestAccept(ScriptCase):
         self.judged()
         code, out, _ = self.run_it(load("fix_ok"))
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out), {"ok": True, "reason": "", "changes": load("fix_ok")["changes"]})
+        self.assertEqual(json.loads(out), {"ok": True, "reason": "", "reason_file": "", "changes": load("fix_ok")["changes"]})
 
     def test_rejects_uncovered_unit(self):
         self.judged()

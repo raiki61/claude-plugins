@@ -5,10 +5,10 @@
 - 判定のファイル: `$INPUTS.judgment_file`——**まず Read で全部読め**。`units` の各単位の `key`・`label`・`disposition`・`reason`（事実と反証）・`origin_analysis`（出自）・`class_query`（同じ形を全部引く問い）と、`framing`・`one_shot`・`questions` が在る
 - 直す義務の単位の key（JSON の配列）: `$INPUTS.open_units`
 
-前の回の受け付けが拒んだ理由（初回は空。空でなければ、まずこれを直して出し直せ）:
+前の回の受け付けが拒んだ理由を書いたファイル（初回は空。空でなければ、まずそのファイルを Read で読み、書かれた理由を直して出し直せ。理由の本文はファイルにだけ在る）:
 
 ```
-$LOOP_PREV.fix-accept.output.reason
+$LOOP_PREV.fix-accept.output.reason_file
 ```
 
 ## 直し方
