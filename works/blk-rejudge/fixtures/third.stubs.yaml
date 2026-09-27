@@ -1,0 +1,60 @@
+# 筋書き third: 規則が第三の目を出した盤面（0.21.0 の規則では実際には出ない道を、形だけ通す）。再審の段は rj-route1 が
+# rejudge-third を返すので飛び、rj-route2 も rejudge-third を返して第三の目の輪が回る（会話は確かめない。新しい会話）。
+# 役の返答は tests/replies/rejudge_third_ok.json と同じ中身。
+rj-snap:
+  ok: true
+  snapshot_file: board/r1/rejudge-snapshot.json
+rj-route1:
+  next: rejudge-third
+  node: p2.rejudge_third
+  why: p2.rejudge_third が ready
+  stopped: false
+rj-route2:
+  next: rejudge-third
+  node: p2.rejudge_third
+  why: p2.rejudge_third が ready
+  stopped: false
+rejudge-third-prep:
+  prompt_file: board/prompts/r1/p2.rejudge_third.md
+  attempt: 1
+  out_path: board/out/r1/p2.rejudge_third.json
+  node: p2.rejudge_third
+  already: false
+rejudge-third:
+  verdict: 退ける
+  new_facts: 往復を読み、争点を g からの直の呼び出しの有無に絞った。g の 12 行目は上限を通る共通経路を呼んでおり、直の呼び出しは無かった
+  reason: 回す側の根拠は現物で確かめられなかったので退ける
+  units:
+  - key: src/a.py:f — 上限が効かない経路がある
+    label: block
+  - key: src/b.py:g — 定数の重複
+    label: suggest
+    disposition: do-now
+rejudge-third-accept:
+  ok: true
+  reason: ok p2.rejudge_third を受け付けた
+  node: p2.rejudge_third
+  verdict: 退ける
+collect:
+  ok: true
+  reason: ''
+  passes: 1
+  verdicts:
+  - 退ける
+  unsettled:
+    text: ''
+    settled: true
+  new_open_units: []
+  unnamed_changed: []
+  diff_file: board/r1/rejudge-diff.json
+  reads_file: ''
+fixture:
+  expect: completed
+  reached:
+  - rj-snap
+  - rj-route1
+  - rj-route2
+  - rejudge-third-prep
+  - rejudge-third
+  - rejudge-third-accept
+  - collect

@@ -38,8 +38,8 @@ _CORE = pathlib.Path(__file__).resolve().parent
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
-import engine.util as _util  # noqa: E402  （board が写しの engine を sys.path に入れる。board より後に置けない名前は無い）
-from board import BoardGap, DiskBoard, NodeTable, graph_expanded, rules_module  # noqa: E402
+from board import BoardGap, DiskBoard, NodeTable, graph_expanded, rules_module  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
+import engine.util as _util  # noqa: E402
 from engine import pointers as _pointers  # noqa: E402
 from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
 from engine.rules import validator_module  # noqa: E402
@@ -590,6 +590,55 @@ def collect(board_dir) -> dict:
            "reads_file": str(reads_p) if reads_p.exists() else ""}
     _write_json(b.work(EXIT_NAME), out)
     return out
+
+
+# ---------------------------------------------------------------- ブロックのスクリプトの入口
+ARTIFACTS_ENV = "ARTIFACTS_DIR"
+
+
+def _emit(obj) -> None:
+    out = sys.stdout
+    if hasattr(out, "reconfigure"):
+        out.reconfigure(encoding="utf-8")
+    out.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    out.flush()
+
+
+def script_main(fn, inputs=()) -> int:
+    """blk-rejudge のスクリプトの入口。環境変数 ARTIFACTS_DIR（空も欠け）と inputs（INPUTS_* の名前）を読み、
+    fn(盤面の置き場 $ARTIFACTS_DIR/board, repo=cwd, {名前: 値}) の返りを 1 行の JSON で出して 0。予定の状態（拒否・止めた・
+    回す物が無い）は fn が dict で返す。0 でないのは配線の誤りだけ: 環境変数の欠け・BoardGap・写しの Reject（止めた run への
+    書き込み・git が効かない など）は標準エラーに 1 行出して 2（Archon が起こし直す道に乗せない。標準出力には何も出さない）"""
+    missing = [n for n in (ARTIFACTS_ENV, *inputs) if n not in os.environ]
+    if ARTIFACTS_ENV not in missing and not os.environ[ARTIFACTS_ENV]:
+        missing.append(ARTIFACTS_ENV)
+    if missing:
+        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    board_dir = pathlib.Path(os.environ[ARTIFACTS_ENV]) / "board"
+    try:
+        out = fn(board_dir, pathlib.Path.cwd(), {n: os.environ[n] for n in inputs})
+    except (BoardGap, _util.Reject) as e:
+        print(f"{type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
+        return 2
+    _emit(out)
+    return 0
+
+
+def refuse(board_dir, nid, reason) -> dict:
+    """返答を受け付けの前に拒む（読めない返答）。拒否の文は take の拒否と同じく rejudge-rejects.json に積む"""
+    return _reject(open_board(board_dir), nid, reason)
+
+
+def parse_reply(raw):
+    """役の返答（Archon が $<役>.output を JSON の文字列で渡す）を dict に。読めなければ (None, 理由)"""
+    try:
+        reply = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return None, f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）"
+    if not isinstance(reply, dict):
+        return None, f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"
+    return reply, ""
 
 
 # ---------------------------------------------------------------- 費用
