@@ -1,0 +1,402 @@
+{
+ "about": "works の柵の変異の腕の一覧（軽い段。実行器は dev/selfcheck.py）。行の型は本流 tests/mutations.json と同じ（決定 C16: 腕 = 検査 1 つが捕まえるはずの故意の欠陥 1 つ）。file は works の根から。old は file の中にちょうど 1 か所在る字列で、new に置き換える。tests は捕まえるはずの試験をちょうど 1 本（{tests/<モジュール>.py: [\"<クラス>.<試験>\"]}）。実行器は pack を写して 1 腕ずつ壊し、その 1 本だけを tests/run.sh -k で回して FAIL を見る。old が無い腕は NOT_INJECTED（古い腕）で赤。本流の欄のうち suite・expect・marker は使わない（名指しの試験 1 本だけを回すので、落ちた試験の名がそのまま当たりの証拠）。dropped は外した腕と理由",
+ "arms": [
+  {
+   "id": "ro1",
+   "title": "読むだけの役の作業ツリーの見張り（共通の tree_moved）が違いを返す",
+   "file": ".shared/core/accept.py",
+   "old": "    return tree_change(before, now)\n",
+   "new": "    return []\n",
+   "tests": {
+    "tests/test_entry.py": [
+     "TakeCase.test_take_readonly_tree_changed"
+    ]
+   }
+  },
+  {
+   "id": "ro2",
+   "title": "git が無視するパスのうち Claude Code の控え（CLI_OWNED）だけを見張りから外す",
+   "file": ".shared/core/accept.py",
+   "old": "        elif f.startswith(b\"!! \") and not _cli_owned_only(repo, os.fsdecode(f[3:])):",
+   "new": "        elif f.startswith(b\"!! \"):",
+   "tests": {
+    "tests/test_accept.py": [
+     "TestDelta.test_snapshot_skips_cli_write_ledger"
+    ]
+   }
+  },
+  {
+   "id": "ro3",
+   "title": "畳まれた .claude/ は中身が全部 CLI_OWNED の時だけ外す（ほかの物は見る）",
+   "file": ".shared/core/accept.py",
+   "old": "    return all(_cli_owned(leaf) for leaf in leaves)",
+   "new": "    return True",
+   "tests": {
+    "tests/test_accept.py": [
+     "TestDelta.test_snapshot_skips_cli_write_ledger"
+    ]
+   }
+  },
+  {
+   "id": "ro4",
+   "title": "Claude Code の控え（.claude/.cc-writes）は深さを問わず外す（根だけでない。run 30）",
+   "file": ".shared/core/accept.py",
+   "old": "    return any(parts[i:i + len(CLI_OWNED_PARTS)] == list(CLI_OWNED_PARTS) for i in range(len(parts)))",
+   "new": "    return parts[:len(CLI_OWNED_PARTS)] == list(CLI_OWNED_PARTS)",
+   "tests": {
+    "tests/test_accept.py": [
+     "TestDelta.test_snapshot_skips_nested_cli_write_ledger"
+    ]
+   }
+  },
+  {
+   "id": "fx1",
+   "title": "修正の受け付けが同じ unit_key を 2 行に分けた返答を拒む",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "        if k in seen and k not in dup:",
+   "new": "        if False:",
+   "tests": {
+    "tests/test_blk_fix.py": [
+     "TestAccept.test_rejects_duplicate_unit_key"
+    ]
+   }
+  },
+  {
+   "id": "fx2",
+   "title": "修正の受け付けが今の周に開いていない unit_key（defer にした単位）を拒む",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "    return list(dict.fromkeys(k for k in keys if k not in opened))",
+   "new": "    return []",
+   "tests": {
+    "tests/test_blk_fix.py": [
+     "TestAccept.test_rejects_deferred_unit_key"
+    ]
+   }
+  },
+  {
+   "id": "fx3",
+   "title": "輪の後の修正役が、輪で凍ったテストのファイルを変えたら拒む（frozen_problems）",
+   "file": "blk-fix/lib/tddloop.py",
+   "old": "    moved = [f for f, h in st[\"frozen\"].items() if now[f] != h]",
+   "new": "    moved = []",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestUnitLoop.test_happy_path"
+    ]
+   }
+  },
+  {
+   "id": "fx4",
+   "title": "修正の受け付けが .archon/ の下（pack の写し）を申告した・変えた返答を拒む（run 26）",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "        if pack:\n",
+   "new": "        if False:\n",
+   "tests": {
+    "tests/test_blk_fix.py": [
+     "TestAccept.test_rejects_declared_pack_copy"
+    ]
+   }
+  },
+  {
+   "id": "fx5",
+   "title": "assert-changed が通らない時に run を落とさず盤面を止める（R50。run 26）",
+   "file": "blk-fix/scripts/assert_changed.py",
+   "old": "            b.stop(reason, by=STOP_BY)",
+   "new": "            pass",
+   "tests": {
+    "tests/test_blk_fix.py": [
+     "TestGiveUpOnBoard.test_unchanged_declared_file_halts_board"
+    ]
+   }
+  },
+  {
+   "id": "td1",
+   "title": "TDD の赤の段: 名指しのテストがもう通るなら拒む（red_problems）",
+   "file": "blk-fix/lib/tddloop.py",
+   "old": "    probs = rules().red_problems(tests, cases, code, st[\"baseline\"])",
+   "new": "    probs = []",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestUnitLoop.test_red_rejects_already_passing_test"
+    ]
+   }
+  },
+  {
+   "id": "td2",
+   "title": "TDD の直す段: 赤の時から凍ったテストのファイルを書き換えたら拒む",
+   "file": "blk-fix/lib/tddloop.py",
+   "old": "    if moved:\n        return [f\"テストのファイルを赤の時から書き換えた",
+   "new": "    if False:\n        return [f\"テストのファイルを赤の時から書き換えた",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestUnitLoop.test_fix_rejects_frozen_test_change"
+    ]
+   }
+  },
+  {
+   "id": "td3",
+   "title": "TDD の緑の段: 名指しのテストが緑にならなければ拒む（green_problems）",
+   "file": "blk-fix/lib/tddloop.py",
+   "old": "    return rules().green_problems(u[\"tests\"], cases, code, st[\"baseline\"], st[\"baseline_exit\"])",
+   "new": "    return []",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestUnitLoop.test_green_gives_up_and_restores_unit_head"
+    ]
+   }
+  },
+  {
+   "id": "gu1",
+   "title": "TDD の輪: 段の RETRY_MAX 回目の拒否で諦めて direct に回す（give-up）",
+   "file": "blk-fix/lib/tddloop.py",
+   "old": "        if st[\"tries\"] >= retry_max():",
+   "new": "        if False:",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestRoute.test_route_gives_up_after_retry_max_to_all_direct"
+    ]
+   }
+  },
+  {
+   "id": "gu2",
+   "title": "TDD の輪: max_iterations に届く周で done の印を立てて抜ける（R50）",
+   "file": "blk-fix/lib/tddloop.py",
+   "old": "    if not st[\"done\"] and st[\"iterations\"] >= MAX_ITERATIONS:",
+   "new": "    if False:",
+   "tests": {
+    "tests/test_blk_fix_tdd.py": [
+     "TestUnitLoop.test_budget_ends_loop_before_max_iterations"
+    ]
+   }
+  },
+  {
+   "id": "gu3",
+   "title": "役の受け付け: 3 回目の拒否で done・give_up を立てる（R50。輪を max_iterations に当てない）",
+   "file": ".shared/core/rolekit.py",
+   "old": "    give_up = sum(1 for r in rows if isinstance(r, dict) and r.get(\"node\") == nid) >= give_up_after",
+   "new": "    give_up = False",
+   "tests": {
+    "tests/test_rolekit.py": [
+     "AcceptCase.test_gives_up_on_third_reject"
+    ]
+   }
+  },
+  {
+   "id": "ad1",
+   "title": "包み: 旗 isolated を道具を持つ役に付けたら起こさない",
+   "file": ".shared/core/adapter.py",
+   "old": "        if not tools_empty:\n            return _refuse(argv, node, cont, tools_empty, \"旗 isolated",
+   "new": "        if False:\n            return _refuse(argv, node, cont, tools_empty, \"旗 isolated",
+   "tests": {
+    "tests/test_adapter.py": [
+     "IsolatedCase.test_isolated_with_tools_refused"
+    ]
+   }
+  },
+  {
+   "id": "ad2",
+   "title": "包み: 旗 isolated の置き場が Git の中なら起こさない",
+   "file": ".shared/core/adapter.py",
+   "old": "        if _inside_git(place):",
+   "new": "        if False:",
+   "tests": {
+    "tests/test_adapter.py": [
+     "IsolatedCase.test_isolated_place_inside_git_refused"
+    ]
+   }
+  },
+  {
+   "id": "ad3",
+   "title": "包み: 起動の env の CLAUDE_CONFIG_DIR を書けない場所（deny・denyWrite）に足す",
+   "file": ".shared/core/adapter.py",
+   "old": "    if env.get(\"CLAUDE_CONFIG_DIR\"):",
+   "new": "    if False:",
+   "tests": {
+    "tests/test_adapter.py": [
+     "FenceCase.test_claude_config_dir_from_launch_env"
+    ]
+   }
+  },
+  {
+   "id": "ts1",
+   "title": "隔離した Claude の設定の柵: settings.json の許す鍵の外を名指しで拒む",
+   "file": "dev/toolset.py",
+   "old": "sorted(set(st) - SETTINGS_KEYS)",
+   "new": "sorted(set())",
+   "tests": {
+    "tests/test_toolset.py": [
+     "GuardCase.test_guard_refuses_foreign"
+    ]
+   }
+  },
+  {
+   "id": "fg1",
+   "title": "最後の関所の stop・reject で盤面を止める（state.stop.by human:final-gate）",
+   "file": "darkfactory/lib/line_edge.py",
+   "old": "                _stop_board(b, at, reason, FINAL_GATE_BY)",
+   "new": "                pass",
+   "tests": {
+    "tests/test_edge.py": [
+     "FinalGateCase.test_final_gate_stop_and_reject"
+    ]
+   }
+  },
+  {
+   "id": "fg2",
+   "title": "最後の関所の一言を human_items に 1 バイトも変えずに残す",
+   "file": "darkfactory/lib/line_edge.py",
+   "old": "\"answer\": answer, \"note\": text, \"node\": FINAL_GATE_BY}",
+   "new": "\"answer\": answer, \"note\": \" \".join(text.split()), \"node\": FINAL_GATE_BY}",
+   "tests": {
+    "tests/test_edge.py": [
+     "FinalGateCase.test_final_gate_note_roundtrip"
+    ]
+   }
+  },
+  {
+   "id": "jw1",
+   "title": "判定の材料に本線の問いの台帳の段（awaiting_human の素材に awaiting を載せる決まり）を描く（run 27）",
+   "file": "blk-judge/lib/judgebrief.py",
+   "old": "    return section(text) + \"\\n\" + LEDGER_HEAD + section(text, LEDGER_START, LEDGER_END)",
+   "new": "    return section(text)",
+   "tests": {
+    "tests/test_line_a.py": [
+     "JudgeAwaitingCase.test_brief_renders_mainline_question_ledger"
+    ]
+   }
+  },
+  {
+   "id": "jw2",
+   "title": "判定の輪が 3 回とも拒まれたら出口が最後の拒否の文で盤面を止める（by works:judge。R50・run 27）",
+   "file": "blk-judge/lib/judgetake.py",
+   "old": "        b.stop(reason, by=STOP_BY)",
+   "new": "        pass",
+   "tests": {
+    "tests/test_line_a.py": [
+     "JudgeAwaitingCase.test_judge_gives_up_without_failing_the_run"
+    ]
+   }
+  },
+  {
+   "id": "wt1",
+   "title": "使用許諾が MIT・Apache-2.0・BSD の外の MCP を隔離した設定に入れない（Context7。持ち主 2026-09-28）",
+   "file": "dev/toolset.py",
+   "old": "        if lic not in LICENCES_OK:",
+   "new": "        if False:",
+   "tests": {
+    "tests/test_toolset.py": [
+     "McpCase.test_licence_not_ok_refuses_and_writes_nothing"
+    ]
+   }
+  },
+  {
+   "id": "wt2",
+   "title": "借りる MCP は web を持つ役の起動にだけ渡す（道具ゼロ・読むだけの目に web の口を開けない）",
+   "file": ".shared/core/adapter.py",
+   "old": "    if no_tools or WEB_TOOL not in _tools(argv):",
+   "new": "    if no_tools:",
+   "tests": {
+    "tests/test_adapter.py": [
+     "McpCase.test_roles_without_web_do_not"
+    ]
+   }
+  },
+  {
+   "id": "wt3",
+   "title": "Context7 から取れなかった物を盤面に控えない（次の周に取り直す。数で言う）",
+   "file": ".shared/core/libdocs.py",
+   "old": "            if got[\"status\"] in (\"ok\", \"not_found\"):\n                board.work(",
+   "new": "            if True:\n                board.work(",
+   "tests": {
+    "tests/test_libdocs.py": [
+     "SectionCase.test_failure_is_declared_by_number_and_not_cached"
+    ]
+   }
+  },
+  {
+   "id": "wt4",
+   "title": "判定役の道具が本線の judge の定義（web を含む）より少なくならない",
+   "file": "blk-judge/blk-judge.yaml",
+   "old": "          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]",
+   "new": "          allowed_tools: [Read, Grep, Glob]",
+   "tests": {
+    "tests/test_tool_parity.py": [
+     "ToolParityCase.test_each_role_has_at_least_the_mainline_tools"
+    ]
+   }
+  },
+  {
+   "id": "wt5",
+   "title": "借りる MCP は既定で役に渡さない（WORKS_CONTEXT7_MCP=on の時だけ。役の問いが対象のコードの字を外へ運びうる。controller の裁定 2026-09-28）",
+   "file": ".shared/core/adapter.py",
+   "old": "    if str(env.get(ENV_MCP, \"\")).strip().lower() != \"on\":",
+   "new": "    if False:",
+   "tests": {
+    "tests/test_adapter.py": [
+     "McpCase.test_off_by_default"
+    ]
+   }
+  },
+  {
+   "id": "cf1",
+   "title": "食い違いの申し出の名指しの行がファイルの中に在るかを確かめる（無い所を指す申し出は普通の拒否。持ち主 2026-09-28）",
+   "file": ".shared/core/conflict.py",
+   "old": "    if b > n:",
+   "new": "    if b > n + 10 ** 9:",
+   "tests": {
+    "tests/test_blk_fix_conflict.py": [
+     "TestAcceptConflict.test_fake_citation_is_a_normal_reject"
+    ]
+   }
+  },
+  {
+   "id": "cf2",
+   "title": "名指しの在る食い違いの申し出は拒否に数えず、その単位を止めて輪を抜ける（parked。3 回目の起動でも）",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "        return reply, {\"ok\": True, \"parked\": True, \"reason\": \"\", \"changes\": []}",
+   "new": "        return reply, {\"ok\": False, \"parked\": True, \"reason\": \"止めた\", \"changes\": []}",
+   "tests": {
+    "tests/test_blk_fix_conflict.py": [
+     "TestAcceptConflict.test_valid_conflict_parks_unit_and_is_not_a_reject"
+    ]
+   }
+  },
+  {
+   "id": "rj1",
+   "title": "修正役の異議の周は h-rejudge が再審のブロックを回す（回さないと p2.rejudge が待ったままで p4.ci が出ず、最後のテストが走らない。run 28）",
+   "file": "darkfactory/lib/line_edge.py",
+   "old": "        return {**out, **rejudge_edge(board_dir, repo)}",
+   "new": "        return out",
+   "tests": {
+    "tests/test_edge.py": [
+     "RejudgeEdgeCase.test_rejudge_edge_go"
+    ]
+   }
+  },
+  {
+   "id": "lw1",
+   "title": "表が役・任せ先に置いた節の置き場のブロックをラインが include しているかを速い段で見る（run 28 は blk-rejudge の配線を忘れ、最後のテストが出なかった）",
+   "file": "darkfactory/darkfactory.yaml",
+   "old": "    include: blk-rejudge\n",
+   "new": "    include: blk-rejudge-unwired\n",
+   "tests": {
+    "tests/test_line_wiring.py": [
+     "TableWiringCase.test_table_role_nodes_are_wired"
+    ]
+   }
+  },
+  {
+   "id": "lw2",
+   "title": "同じ節の stub はどの筋書きでも同じ鍵の組を持つ（run 28 の merge の後、3 本の筋書きが輪の受け付けの done を欠いたまま残った）",
+   "file": "darkfactory/fixtures/conflict-ask.stubs.yaml",
+   "old": "premises-accept:\n  ok: true\n  done: true\n",
+   "new": "premises-accept:\n  ok: true\n",
+   "tests": {
+    "tests/test_line_wiring.py": [
+     "FixtureStubKeysCase.test_same_node_stubs_share_keys"
+    ]
+   }
+  }
+ ],
+ "dropped": []
+}

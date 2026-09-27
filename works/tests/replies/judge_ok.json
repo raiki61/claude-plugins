@@ -1,0 +1,71 @@
+{
+ "framing": "依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する",
+ "one_shot": "mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す",
+ "units": [
+  {
+   "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+   "label": "block",
+   "disposition": "do-now",
+   "reason": "事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも 2 を期待する",
+   "origin_analysis": "算術平均と不偏分散の分母の取り違え",
+   "class_query": {
+    "how": {
+     "patterns": [
+      "(len(xs) - 1)"
+     ],
+     "fixed": true,
+     "paths": [
+      "stats.py"
+     ],
+     "count": "lines"
+    },
+    "counts": "defects",
+    "total": 1
+   }
+  },
+  {
+   "key": "stats.py clamp: 上限を超えた値に lo を返す",
+   "label": "block",
+   "disposition": "do-now",
+   "reason": "事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する",
+   "origin_analysis": "下限の枝を写したときに戻り値を直し忘れた形",
+   "class_query": {
+    "how": {
+     "patterns": [
+      "return lo"
+     ],
+     "fixed": true,
+     "paths": [
+      "stats.py"
+     ],
+     "count": "lines"
+    },
+    "counts": "population",
+    "total": 2
+   }
+  }
+ ],
+ "questions": [],
+ "materials_missing": [],
+ "carried_r1": [],
+ "one_shot_closes": [
+  "stats.py mean: 分母が len(xs) - 1 になっている",
+  "stats.py clamp: 上限を超えた値に lo を返す"
+ ],
+ "precedents": [
+  {
+   "key": "stats.py mean: 分母が len(xs) - 1 になっている",
+   "problem": "数列の算術平均を求める",
+   "source": "Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る",
+   "verdict": "adopt",
+   "reason": "分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない"
+  },
+  {
+   "key": "stats.py clamp: 上限を超えた値に lo を返す",
+   "problem": "値を下限と上限の間に収める",
+   "source": "numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える",
+   "verdict": "adopt",
+   "reason": "上限を超えた値は hi を返す。lo を返す形の先行例は無い"
+  }
+ ]
+}

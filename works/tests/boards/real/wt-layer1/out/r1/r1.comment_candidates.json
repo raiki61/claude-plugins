@@ -1,0 +1,122 @@
+{
+  "candidates": [
+    {
+      "where": "graphloops/engine/role_run.py:399（_stop_tree の中、if members is None: の直下）",
+      "comment": "# 表が読めない——止める番号のグループへだけ送り、その消滅を待つ。外へ出た子孫は確かめられない",
+      "same_content_at": "同じ関数の docstring（role_run.py:360 付近『表が読めない回は止める番号のグループへだけ送り、外へ出た子孫を確かめられないと返す（止まったと言わない）』）。消滅を待つ部分は直下のコードの group_gone() を待つループ。確かめられない部分は return の文（role_run.py:403 と :446 の『外へ出た子孫を確かめていない』）にある",
+      "reason": "コードをなぞっているだけのコメント。数行上の docstring とほぼ同じ文で、why を運んでいない。docstring と二重に持つと、片方だけ直されて食い違う余地が生まれる"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:118",
+      "comment": "m.unlink()   # 確かめた直後に子が終わり、launch の側が印を消した",
+      "same_content_at": "同じテストの docstring（test_role_run_stop.py:112『確かめた後に子が終わって印が消えても』）と、テスト名 test_stop_group_reads_the_reuse_mark_before_probing",
+      "reason": "6 行上の docstring が同じ場面を言っている。増えているのは『launch の側が』だけで、これは _spawn の docstring（role_run.py:499『子が終わったら消す』）にある事実"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2046",
+      "comment": "# SIGTERM を無視する孫も止まる——長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL を送る",
+      "same_content_at": "8 行下の check のメッセージ（simulate.py:2054『run_tree: SIGTERM を無視する孫も、木が消えたかを数え直して SIGKILL で止める』）",
+      "reason": "check のメッセージとほぼ同じ文。この差分で両方を同じ言い回しに書き換えており、二重に保守されている。メッセージに無いのは『長（sh）が先に終わっても』だけなので、この句を check のメッセージへ移せばコメントは消せる"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:233（test_stop_group_posix_unreadable_table_is_not_stopped の docstring の中の語）",
+      "comment": "今どおり",
+      "same_content_at": "同じ docstring の『グループへは…送る』と、_stop_tree の docstring（role_run.py:360 付近『表が読めない回は止める番号のグループへだけ送り』）",
+      "reason": "編集の実況の引き金にあたる。『今どおり』は書き換える前の実装（グループにだけ送っていた版）との比較で、差分を知らない読み手には何と同じなのかが分からない。この語を消して『グループ pgid へは送るが』とすれば事実はすべて残る"
+    }
+  ],
+  "kept": [
+    {
+      "where": "graphloops/engine/role_run.py:252（p.gl_born の行のコメント）",
+      "fact": "gl_born は、長（プロセスグループの先頭プロセス）の番号が止める間に別のプロセスへ再利用されたかを見分ける目印で、_tree_members の born に渡る。名前からは用途が読めないので運ぶ意味がある"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:267（_Proc の行のコメント）",
+      "fact": "_Proc は ps の 1 行で、started は経過時間ではなく開始時刻のエポック秒（now - etime）である。フィールド名だけでは単位が分からない"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:271（_ps_all の docstring）",
+      "fact": "_started_at と同じ ps を使う理由は依存（psutil）を足さないため。ただし『全プロセスの表 {pid: _Proc}』は不正確で、実際の返り値は (rows, None) の組。『(表, None)。読めなければ (None, 理由)』と直すべき"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:290-306（_tree_members の docstring）",
+      "fact": "プロセスグループは子孫が抜けられるので、仲間をグループ・セッション・親子の鎖の 3 つで拾う理由（実測つき）。環境変数の印（Jenkins 方式）を退けた理由。拾えないもの（二重 fork の daemon 化）。同じ利用者でセッションが読めないプロセスがあれば止まったと言わないこと。別の手を退けた理由と限界を運んでいて、コードからは読めない"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:350-361（_stop_tree の docstring）",
+      "fact": "送る前に数え上げ、送った後に数え直す理由（systemd の cgroup と違い、プロセスグループからは抜けられる）。ゾンビだけのグループへの killpg を macOS が EPERM で拒むので、EPERM を『生きている』と読まないこと。生きた仲間への EPERM は待たずに返すこと。ただし『仲間が長のグループ』は『長が仲間であるグループ』（コードは m.pgid in members）と書いた方が誤読されにくい。最終行は 1 行が長すぎるので折り返すとよい"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:614-615（stop_group の docstring に足した 2 行）",
+      "fact": "born（印の更新時刻）を probe_group より先に読む理由（後で読むと、子が終わって印が消えた回に目印を失う）。ただし根拠の『印は試行ごとに 1 度だけ書く』は事実と違う。run_steps（role_run.py:689）は同じ pgid_file を段ごとに _spawn で書き直す。stat と probe_group の間に段が替わると、born が古い段の時刻のまま新しい長に当たり、reused と判定されてグループとセッションを拾わない。いまは still_mine の順序（_spawn の docstring）で新しい段が自分で止まるので、壊れる余地があるだけで今壊れてはいない。直すなら、この根拠を『段ごとに書き直されても still_mine が拾う』に改めるか、born を probe_group と同じ読みから取る"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:26",
+      "fact": "Broken.communicate が 2 回目以降に普通に待つのは、止める口（_stop_tree → _tree_members → _ps_all）が、差し替えた Popen を通して ps を起こすため。コードだけでは分岐の理由が分からない"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:83-84（posix の docstring）",
+      "fact": "固定具 posix は数え上げの答え（members(sent)）と送った記録（sent）で POSIX の代役を作り、eperm で sandbox からの EPERM を真似る。ただし sent の要素は (宛先, 信号) ではなく (種別 pg|pid, 宛先, 信号) の 3 つ組。また差し替えるのは os だけでなく、_tree_members・STOP_SIGNALS・KILL_GRACE・probe_group も替える。この 2 点は直すべき"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:103（test_stop_group_posix_group_already_gone の docstring）",
+      "fact": "木の仲間が居なければ信号を送らず、止まったと数えて印を消す。テスト名の group_already_gone は、仲間を木で数えるようになった今は tree_already_gone の方が docstring と合う"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:112（test_stop_group_reads_the_reuse_mark_before_probing の docstring）",
+      "fact": "再利用の目印を probe_group より先に読む意図と、それが守る場面（確かめた後に印が消えても、_stop_tree に born が渡る）"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:126（zombies_only の docstring）",
+      "fact": "ゾンビだけなら止まったと数える理由は、macOS がゾンビだけのグループへの killpg を EPERM で拒むため"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:135（eperm_on_a_live_member の docstring）",
+      "fact": "生きた仲間に送れないのは sandbox の中から別のグループへ送った形で、そのときは待たずに原因を言い、印を残す"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:145（signals_members_outside_the_group の docstring）",
+      "fact": "送り分けの規則。長が仲間であるグループには killpg、それ以外の仲間には 1 本ずつ送る。『長の居ないグループ』は、長が生きていても仲間でない場合を含むので『長が仲間でないグループ』の方が正確"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:220（watches_the_tree の docstring）",
+      "fact": "送った後は数え直して仲間の消滅で止まったと判定し、消えなければ残った仲間を名指しする"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:243（members_of の docstring）",
+      "fact": "_tree_members を、表と getsid を差し替えて呼ぶ口。sessions の値に例外を入れると getsid がそれを上げる、という固定具の約束を運ぶ"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:255-256 と 258-262（follows_group_session_and_parents の docstring と各行のコメント）",
+      "fact": "表の各行が、setpgid で抜けた孫・setsid で抜けた孫とその子・長が死んだ後の孤児・番号が再利用された別物・同じ開始時刻の仲間のどれを表すか。数字だけの固定データの意味は、このコメントにしか無い"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:271-272（ignores_a_reused_leader_number の docstring）",
+      "fact": "長の番号に born より後に始まったプロセスが居れば再利用とみなし、グループとセッションでは拾わない。無関係なプロセスに SIGKILL を送らないため"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:280（unreadable_session_of_the_same_user の docstring）",
+      "fact": "同じ利用者でセッションが読めないプロセスがあれば理由を返し、他の利用者のものは問わない"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2001-2002（escaped の docstring）",
+      "fact": "返り値は (長の Popen, 孫の pid)。escape の 2 つの値が現実のどの形（ジョブ制御つきのシェルによる setpgid と、setsid）を模すか。leader_stays の意味"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2011（reap の docstring）",
+      "fact": "検査が赤でも、固定具のプロセスを残さず片づけるための後始末である"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2023-2024",
+      "fact": "直後の待ちループが長のゾンビ化を待つ理由。macOS はゾンビだけのグループへの killpg を EPERM で拒み、その場面を作るため。後半の『送れないとは言わず…止まったと数える』は 2030 行の check メッセージと重なるので、前半だけに縮めてよい"
+    },
+    {
+      "where": "graphloops/tests/py/conftest.py:53",
+      "fact": "EXPECTED_ITEMS は上げるときも下げるときも実測値で書く、という更新の決まり"
+    },
+    {
+      "where": "graphloops/tests/run.sh:10-12",
+      "fact": "EXPECTED_CHECKS を下限（-lt）でなく一致（-ne）で比べる理由と、それを確かめた実測（台本を消しても緑になった）"
+    }
+  ]
+}

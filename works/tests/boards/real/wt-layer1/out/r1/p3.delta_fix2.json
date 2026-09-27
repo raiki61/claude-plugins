@@ -1,0 +1,14 @@
+{
+  "handled": [
+    {
+      "key": "session-match-lacks-reuse-time-check",
+      "handled": "fixed",
+      "how": "stop_group が再利用の目印（印の更新時刻 born）を probe_group より先に読むようにした（印が無ければ止める物は無いので None、読めなければ probe_group と同じ形の『読めない』を返す）。印は試行ごとに 1 度だけ書くので、先に読んだ時刻は probe_group が見る物と同じで、確かめた後に子が終わって印が消えても born は _stop_tree に渡る——born=None に落ちる道は stop_group から無くなった（_kill は Popen の gl_born を引くので競合しない）。pytest に test_stop_group_reads_the_reuse_mark_before_probing（probe_group の直後に印を消しても _stop_tree に印の時刻が渡る）を足し（382→383 件、conftest の定数も）、写しで『probe の後に stat し、失敗なら None』の元の形を注入して赤、戻して緑を確かめた。pytest 383 件緑（穴の行と検算の行は同じ key なので 1 件で答える）",
+      "files": [
+        "graphloops/engine/role_run.py",
+        "graphloops/tests/py/test_role_run_stop.py",
+        "graphloops/tests/py/conftest.py"
+      ]
+    }
+  ]
+}

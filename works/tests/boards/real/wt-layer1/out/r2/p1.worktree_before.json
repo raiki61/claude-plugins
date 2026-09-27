@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "diff_file": "/Users/p03623/src/claude-plugins/.git/worktrees/wt-layer1/graphloops/review-loop/20260926-103145/diff-r2.patch",
+  "changed_files": [
+    "graphloops/engine/role_run.py",
+    "graphloops/tests/py/conftest.py",
+    "graphloops/tests/py/test_role_run_stop.py",
+    "graphloops/tests/run.sh",
+    "graphloops/tests/simulate.py",
+    "tests/mutations.json"
+  ],
+  "stat": "6 files changed, 385 insertions(+), 53 deletions(-)"
+}

@@ -1,0 +1,379 @@
+"""判定のブロック（blk-judge）の検査。
+
+- YAML の口: 判定役の節の output_format が受け付けの規則の型（role_schema("p2.diagnose")）と同じか、良い返答の見本が
+  YAML の output_format を通るか（設計書 5.4 節）。入口・出口・輪の形がブリーフどおりか
+- つなぎのスクリプト: intake（依頼を読んで check_request。拒めば終了コード 1）・accept（check_judge を script_io で包む）・
+  collect（盤面の judgment.json から出口を組む）を別のプロセスで回す
+- 筋書き（fixtures/）が 3 本在り、期待の形がブリーフどおりか。Archon で回すのは dev/check.sh（workflow test）
+"""
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+import yaml
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+BLK = ROOT / "blk-judge"
+CORE = ROOT / ".shared" / "core"
+REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
+SEED = ROOT / "dev" / "target-seed"
+sys.path.insert(0, str(CORE))
+
+from accept import JUDGE_SNAPSHOT_FILE, check_judge, role_schema, tree_state  # noqa: E402
+from engine.schema import validate_schema  # noqa: E402
+from gitkit import committed_copy, git  # noqa: E402
+from node_marker import strip  # noqa: E402
+
+DEADLINE = 1728000000
+
+
+def load(name):
+    return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def workflow():
+    return yaml.safe_load((BLK / "blk-judge.yaml").read_text(encoding="utf-8"))
+
+
+def find_node(y, nid):
+    """節を id で引く。loop_group の中の節も辿る"""
+    def walk(nodes):
+        for n in nodes or []:
+            if n.get("id") == nid:
+                return n
+            if "loop_group" in n:
+                hit = walk(n["loop_group"].get("nodes"))
+                if hit is not None:
+                    return hit
+        return None
+    n = walk(y.get("nodes"))
+    if n is None:
+        raise AssertionError(f"節 {nid} が無い")
+    return n
+
+
+class YamlCase(unittest.TestCase):
+    def setUp(self):
+        self.y = workflow()
+
+    def test_judge_output_format_matches_role_schema(self):
+        # 一番上の description は節の印（works-node: judge）。外すと graph の schema と同じ（裁定 TA20）
+        self.assertEqual(strip(find_node(self.y, "judge")["output_format"]), role_schema("p2.diagnose"))
+
+    def test_judge_ok_sample_passes_yaml_output_format(self):
+        self.assertEqual(validate_schema(load("judge_ok"), find_node(self.y, "judge")["output_format"]), [])
+
+    def test_signature(self):
+        self.assertEqual(self.y["name"], "blk-judge")
+        self.assertEqual(set(self.y["inputs"]), {"request", "base_rev", "policy_paste", "premises_file"})   # 後の 2 つは tests/test_policy.py が見る
+        self.assertIs(self.y["inputs"]["request"].get("required"), True)
+        self.assertEqual(self.y["inputs"]["base_rev"].get("default"), "")   # Ruling R2
+        self.assertEqual(self.y["returns"], "collect")
+        self.assertEqual(self.y["outcome_field"], "ok")
+        fmt = find_node(self.y, "collect")["output_format"]
+        self.assertEqual(fmt["properties"], {
+            "ok": {"type": "boolean"}, "open_units": {"type": "array", "items": {"type": "string"}},
+            "need_fix": {"type": "boolean"},
+            "judgment_file": {"type": "string"}, "one_shot": {"type": "string"}})
+        self.assertEqual(sorted(fmt["required"]), ["judgment_file", "need_fix", "ok", "one_shot", "open_units"])
+
+    def test_nodes_and_loop(self):
+        ids = [n["id"] for n in self.y["nodes"]]
+        self.assertEqual(ids, ["intake", "judge-brief", "judge-loop", "collect"])
+        intake = find_node(self.y, "intake")
+        self.assertEqual(intake["script"], "intake")
+        self.assertEqual(intake["with"], {"request": "$INPUTS.request"})
+        brief = find_node(self.y, "judge-brief")
+        self.assertEqual((brief["script"], brief["depends_on"], brief["timeout"]), ("brief", ["intake"], DEADLINE))
+        self.assertNotIn("with", brief)   # 読むのは盤面だけ（INPUTS を読まない）
+        self.assertEqual(sorted(brief["output_format"]["required"]), ["go", "materials_file", "ok"])
+        g = find_node(self.y, "judge-loop")
+        self.assertEqual(g["depends_on"], ["judge-brief"])
+        # 止まった盤面（同じ境の節の後ろの素材集めが止めた。run 30）では支度が go 偽を出し、判定役を起こさない
+        self.assertEqual(g["when"], "$judge-brief.output.go == true")
+        lg = g["loop_group"]
+        self.assertEqual((lg["max_iterations"], lg["fresh_context"], lg["until_bash"]),
+                         (3, False, "test $judge-accept.output.done = true"))   # 通った時か 3 回目の拒否で抜ける（R50）
+        self.assertEqual([n["id"] for n in lg["nodes"]], ["judge", "judge-accept"])
+        judge = find_node(self.y, "judge")
+        self.assertEqual(judge["command"], "diagnose")
+        self.assertEqual(judge["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
+        self.assertEqual(judge["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
+        self.assertEqual(judge["idle_timeout"], DEADLINE)
+        acc = find_node(self.y, "judge-accept")
+        self.assertEqual(acc["with"], {"reply": {"from": "$judge.output"}, "base_rev": "$INPUTS.base_rev"})
+        self.assertEqual(sorted(acc["output_format"]["required"]), ["done", "ok", "open_units", "reason", "reason_file"])
+        col = find_node(self.y, "collect")
+        self.assertEqual((col["depends_on"], col["trigger_rule"]), (["judge-brief", "judge-loop"], "none_failed_min_one_success"))
+
+    def test_diagnose_prompt_wires_request_and_retry_reason(self):
+        text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
+        for needle in ("$INPUTS.request", "$LOOP_PREV.judge-accept.output.reason_file", "$judge-brief.output.materials_file",
+                       "materials_missing", "one_shot_closes", "class_query",
+                       "precedents", "searched", "questions", "反証"):
+            with self.subTest(needle):
+                self.assertIn(needle, text)
+        # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す）。パスだけを貼って Read させる
+        self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", text), ["$LOOP_PREV.judge-accept.output.reason_file"])
+        self.assertNotIn("{{", text, "engine の穴が残っている")
+        # 素材を読む判定は、欠けた素材を materials_missing で名指す（本線の p2.diagnose と同じ。空の決め打ちにしない）
+        self.assertNotIn("`materials_missing` と `carried_r1` は空の配列にせよ", text)
+
+    def test_diagnose_prompt_defers_question_ledger_to_mainline(self):
+        """盤面の材料が在る時の問いの台帳の決まりは、材料のファイルに描いた本線の文（p2.diagnose の「問いの台帳」の節）が正本。
+        指示書は awaiting・premise・unverifiable を一律に禁じない（run 27: awaiting_human の素材に awaiting を載せられず線が止まった）"""
+        text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
+        self.assertNotIn("premise・unverifiable・awaiting はこのブロックでは使わない", text)
+        self.assertIn("問いの台帳", text)
+        self.assertIn("盤面の材料が無い時", text)
+
+    def test_fixtures(self):
+        want = {
+            "pass": {"expect": "completed", "inputs": {"request": "request_ok.json"}},
+            "bad-reply": {"expect": "failed", "fail-node": "collect"},
+            "bad-request": {"expect": "failed", "fail-node": "intake", "inputs": {"request": "missing.json"}},
+        }
+        for name, decl in want.items():
+            with self.subTest(name):
+                f = yaml.safe_load((BLK / "fixtures" / f"{name}.stubs.yaml").read_text(encoding="utf-8"))
+                self.assertIs(f["exec-code"], True)
+                for k, v in decl.items():
+                    self.assertEqual(f["fixture"][k], v)
+        self.assertEqual(yaml.safe_load((BLK / "fixtures" / "pass.stubs.yaml").read_text(encoding="utf-8"))["judge"],
+                         load("judge_ok"))
+        self.assertEqual(yaml.safe_load((BLK / "fixtures" / "bad-reply.stubs.yaml").read_text(encoding="utf-8"))["judge"],
+                         load("judge_notfound_no_searched"))
+
+    def test_seed_has_request(self):
+        # Ruling R1: 筋書きの依頼は種に置く（中身は返答の見本と同じ）
+        self.assertEqual(json.loads((SEED / "request_ok.json").read_text(encoding="utf-8")), load("request_ok"))
+
+
+class ScriptCase(unittest.TestCase):
+    """スクリプトを別のプロセスで回す。cwd は種を写した使い捨ての git リポジトリ"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = pathlib.Path(self._tmp.name)
+        self.repo = tmp / "repo"
+        committed_copy(self.repo, SEED)   # 種を写して commit した git（型の写し。gitkit）
+        self.art = tmp / "art"
+        self.board = self.art / "board"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_script(self, name, **env):
+        # 走らせる側（ラインの script の節）の INPUTS_*・ARTIFACTS_DIR は継がない。欠けを確かめる試験が継いだ値を見ないように
+        base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
+        e = dict(base, ARTIFACTS_DIR=str(self.art), **env)
+        return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=self.repo, env=e,
+                              capture_output=True, text=True, timeout=300)
+
+    # ---- intake
+    def test_intake_accepts_request(self):
+        r = self.run_script("intake", INPUTS_REQUEST="request_ok.json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIs(json.loads(r.stdout)["ok"], True)
+        batches = json.loads((self.board / "request.json").read_text(encoding="utf-8"))
+        self.assertEqual(batches[0]["findings"], load("request_ok"))
+
+    def test_intake_accepts_absolute_path_outside_repo(self):
+        # 依頼は対象の外に置いて絶対パスで渡せる（Archon は run ごとの worktree を origin から切るので、
+        # 対象の中の commit していない依頼はそこに無い）
+        outside = pathlib.Path(self._tmp.name) / "outside" / "依頼.json"
+        outside.parent.mkdir()
+        shutil.copy(REPLIES / "request_ok.json", outside)
+        r = self.run_script("intake", INPUTS_REQUEST=str(outside))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"ok": True, "reason": "", "request": str(outside)})
+        batches = json.loads((self.board / "request.json").read_text(encoding="utf-8"))
+        self.assertEqual(batches[0]["findings"], load("request_ok"))
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")   # 対象の作業ツリーは汚さない
+
+    def test_intake_missing_file(self):
+        r = self.run_script("intake", INPUTS_REQUEST="missing.json")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("missing.json", r.stderr)
+        self.assertEqual(r.stderr.strip().count("\n"), 0, "理由は 1 行")
+
+    def test_intake_invalid_json(self):
+        (self.repo / "broken.json").write_text("{not json", encoding="utf-8")
+        r = self.run_script("intake", INPUTS_REQUEST="broken.json")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("JSON", r.stderr)
+
+    def test_intake_rejected_by_rules(self):
+        shutil.copy(REPLIES / "request_extra_key.json", self.repo / "bad.json")
+        r = self.run_script("intake", INPUTS_REQUEST="bad.json")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("severity", r.stderr)
+        self.assertFalse((self.board / "request.json").exists())
+
+    def test_intake_missing_env(self):
+        r = self.run_script("intake")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("INPUTS_REQUEST", r.stderr)
+
+    def test_intake_stores_judge_snapshot(self):
+        r = self.run_script("intake", INPUTS_REQUEST="request_ok.json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # 判定役を起こす前の姿は共通の tree_state（HEAD・枝も持つ。R47）。役が commit すれば写しの head で見える
+        self.assertEqual(json.loads((self.board / JUDGE_SNAPSHOT_FILE).read_text(encoding="utf-8")),
+                         tree_state(self.repo))
+
+    # ---- brief（盤面の材料）
+    def test_brief_without_board_is_empty(self):
+        """ブロックを単独で回した（ラインの盤面 state.json が無い）なら材料のファイルは空（判定は依頼だけで回る）"""
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        r = self.run_script("brief")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"ok": True, "go": True, "materials_file": ""})
+
+    def test_brief_missing_env(self):
+        base = {k: v for k, v in os.environ.items() if k != "ARTIFACTS_DIR"}
+        r = subprocess.run([sys.executable, str(BLK / "scripts" / "brief.py")], cwd=self.repo, env=base,
+                           capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ARTIFACTS_DIR", r.stderr)
+
+    # ---- accept
+    def test_accept_good_and_bad_reply(self):
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_notfound_no_searched")), INPUTS_BASE_REV="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], False)
+        self.assertIn("searched", got["reason"])
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], True, got["reason"])
+        self.assertTrue((self.board / "judgment.json").exists())
+
+    def test_standalone_accept_done_on_third_reject(self):
+        """盤面の無い単独の run でも、受け付けは done を出す: 拒否 1・2 回目は偽、3 回目で真（輪を max_iterations で落とさない。
+        R50）。通れば真"""
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        bad = json.dumps(load("judge_notfound_no_searched"))
+        dones = [json.loads(self.run_script("accept", INPUTS_REPLY=bad, INPUTS_BASE_REV="").stdout)["done"] for _ in range(3)]
+        self.assertEqual(dones, [False, False, True])
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
+        self.assertEqual((got["ok"], got["done"]), (True, True))
+
+    def test_accept_passes_with_untracked_request_in_repo(self):
+        # Ruling R14: 依頼のファイルが対象の中で未追跡でも、intake の時から作業ツリーが変わっていなければ通す
+        shutil.copy(REPLIES / "request_ok.json", self.repo / "my_request.json")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="my_request.json").returncode, 0)
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="")
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], True, got["reason"])
+
+    def test_accept_rejects_file_added_after_intake(self):
+        shutil.copy(REPLIES / "request_ok.json", self.repo / "my_request.json")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="my_request.json").returncode, 0)
+        (self.repo / "extra.txt").write_text("読むだけの役が書いた\n", encoding="utf-8")
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="")
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], False)
+        self.assertIn("extra.txt", got["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_accept_rejects_untracked_content_changed_after_intake(self):
+        shutil.copy(REPLIES / "request_ok.json", self.repo / "my_request.json")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="my_request.json").returncode, 0)
+        (self.repo / "my_request.json").write_text("[]\n", encoding="utf-8")   # 名前は同じで中身だけ変わる
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
+        self.assertIs(got["ok"], False)
+
+    def test_accept_rejects_commit_after_intake(self):
+        # HEAD 相対の porcelain と差分だけでは commit が素通りする。写しの head で見る
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        (self.repo / "extra.txt").write_text("x\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "commit した")
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
+        self.assertIs(got["ok"], False)
+        self.assertIn("head: 役を起こす前", got["reason"])   # 共通の tree_change の文（R47）
+
+    def test_check_judge_without_snapshot_needs_clean_tree(self):
+        # 写しが無いとき（intake を通らない呼び方）は今までどおり作業ツリーが綺麗であることを求める
+        self.board.mkdir(parents=True)
+        (self.repo / "extra.txt").write_text("x\n", encoding="utf-8")
+        r = check_judge(load("judge_ok"), self.board, "", self.repo)
+        self.assertIs(r["ok"], False)
+        self.assertIn("extra.txt", r["reason"])
+
+    def test_check_judge_without_snapshot_rejects_head_moved_from_base_rev(self):
+        # 写しが無い分岐でも、判定役が作った物を commit して porcelain を空に戻す道を HEAD と版で塞ぐ
+        base = git(self.repo, "rev-parse", "HEAD").strip()
+        self.board.mkdir(parents=True)
+        (self.repo / "extra.txt").write_text("x\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "判定役が commit した")
+        r = check_judge(load("judge_ok"), self.board, base, self.repo)
+        self.assertIs(r["ok"], False)
+        self.assertIn("HEAD", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    # ---- collect
+    def test_collect_builds_exit(self):
+        self.board.mkdir(parents=True)
+        (self.board / "judgment.json").write_text(json.dumps(load("judge_ok"), ensure_ascii=False), encoding="utf-8")
+        r = self.run_script("collect")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual(got, {
+            "ok": True,
+            "open_units": [u["key"] for u in load("judge_ok")["units"] if u["label"] == "block"],
+            "need_fix": True,
+            "judgment_file": str(self.board / "judgment.json"),
+            "one_shot": load("judge_ok")["one_shot"],
+        })
+        self.assertEqual(validate_schema(got, find_node(workflow(), "collect")["output_format"]), [])
+
+    def test_collect_no_fix_needed(self):
+        # Ruling R21: 直す義務の残る単位が 1 つも無ければ need_fix: false（ラインは修正から後を飛ばす）
+        self.board.mkdir(parents=True)
+        (self.board / "judgment.json").write_text(json.dumps(load("judge_no_fix"), ensure_ascii=False),
+                                                  encoding="utf-8")
+        r = self.run_script("collect")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["open_units"], got["need_fix"]), ([], False))
+        self.assertEqual(validate_schema(got, find_node(workflow(), "collect")["output_format"]), [])
+
+    def test_no_fix_sample_is_accepted(self):
+        # 見本 judge_no_fix（依頼の件は再現しない）は受け付けを通り、open_units が空になる
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        r = self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_no_fix")), INPUTS_BASE_REV="")
+        got = json.loads(r.stdout)
+        self.assertIs(got["ok"], True, got["reason"])
+        self.assertEqual(got["open_units"], [])
+
+    def test_stale_judgment_not_collected_after_rejected_loop(self):
+        # 同じ盤面で 2 度目に回し、この回の受け付けが拒んだら、前の呼び出しの judgment.json を拾わずに collect が落ちる
+        self.board.mkdir(parents=True)
+        (self.board / "judgment.json").write_text(json.dumps(load("judge_ok"), ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        self.assertFalse((self.board / "judgment.json").exists())
+        got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_notfound_no_searched")), INPUTS_BASE_REV="").stdout)
+        self.assertIs(got["ok"], False)
+        r = self.run_script("collect")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("judgment.json", r.stderr)
+
+    def test_collect_without_judgment(self):
+        r = self.run_script("collect")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("judgment.json", r.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

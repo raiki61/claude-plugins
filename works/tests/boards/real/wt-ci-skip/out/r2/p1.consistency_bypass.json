@@ -1,0 +1,14 @@
+{
+  "consistency": {
+    "status": "clean",
+    "checked": "skip()/skip_line() の全呼び出し箇所（simulate.py・simulate_review.py・catchup-switch-case.py・run.sh 埋め込みPython）のシグネチャ追従、mutations.json 新規5〜7腕のold文字列と実コードの逐語一致、mutate.pyのexpect判定ロジック、README.mdのSKIP_ALLOW既定値記述との一致。windowsのskip_allowにsymlinkが無い点は疑い検証したが、同ファイル内の未ガードsymlink_to呼び出し（既存CI運用と矛盾しないこと）から自己反証で殺し、提出候補から除外した"
+  },
+  "bypass": {
+    "status": "clean",
+    "checked": "shellcheck-pyのpip導入（既存pytest導入手順との同型性）、git_runs_shのshlex.quote使用（自作クオート不使用）、SKIP_ALLOW集計ロジックが既存の単一集約点アーキテクチャ（root tests/run.sh 1箇所）を継承していること"
+  },
+  "findings": [],
+  "bypass_findings": [],
+  "seen": "diff-r2.patch全文。固定版(fd895879)での: .github/workflows/test.yml全文、tests/run.sh（1-200行、report_skips/skip_capability/skip_probe周辺、CI_LINT_OK python検査ブロック3060-3110付近、mutations突合部3270-3300付近）、README.md該当節（190-201行）、tests/mutations.json（5940-6030行、CL/SK系新規エントリと前後のCL1-3・dropped）、graphloops/tests/parallel.py・simulate.py・simulate_review.py・py/fence.py・py/test_fence.pyのdiffハンクとgrepによるskip()呼び出し全箇所、tests/catchup-switch-case.pyのdiffハンク（git_runs_sh定義・呼び出し2箇所）、simulate_review.py内の他のsymlink_to呼び出し（2501・2586行）とその例外処理の有無",
+  "unseen": "tests/run.sh・graphloops/tests/simulate.py・simulate_review.py・tests/catchup-switch-case.pyの全文（diff外の行は未読、grep該当箇所のみ抜き読み）。tests/mutations.json全体（今回追加分と直前の数十件のみ確認、ファイル全体は未走査）。実際のGitHub Actions windows-latestランナー上でのsymlink作成権限・shellcheck-pyのインストール成否・skip_probeテストの実行結果は、Bashツールが無く実行環境も無いため未実測（すべて静的読解のみ）。graphloops/tests/run.sh・graphloops/README.md・.review-checks.json等、CI_LINT_OK検査が参照する周辺ファイルは未読"
+}

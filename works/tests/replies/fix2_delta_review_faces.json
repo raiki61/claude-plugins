@@ -1,0 +1,18 @@
+{
+  "faces": [
+    {
+      "key": "stats.py clamp: docstring が下限の枝の約束を書いていない",
+      "kind": "contract_drift",
+      "where": "stats.py",
+      "cite": "上限を超えた値は hi を返す",
+      "why": "修正が足した docstring は上限の枝だけを書き、下限を下回った値に lo を返す約束が読む側に見えない"
+    }
+  ],
+  "checks": [
+    {
+      "key": "stats.py clamp: docstring が上限の枝の約束を書いていない",
+      "closed": false,
+      "why": "docstring は上限の枝を書いたが下限の枝を書いておらず、事前審査が言った約束のずれが片方残る"
+    }
+  ]
+}

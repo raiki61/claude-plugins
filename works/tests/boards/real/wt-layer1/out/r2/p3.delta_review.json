@@ -1,0 +1,95 @@
+{
+  "faces": [
+    {
+      "key": "communicate-midreap-skips-unsure-filter",
+      "kind": "entrance",
+      "where": "graphloops/engine/role_run.py",
+      "cite": "            why = _stop_tree(p.pid, leader=p)\n            if why:\n                print(f\"NG 終わった子の木の残りを止め切れない（pid {p.pid}）: {why}\", file=sys.stderr)",
+      "why": "穴10（normal-end-keeps-mark-on-unreadable-session）の直しは _reap にだけ `if why and not why.startswith(UNSURE)` を足した。だが _communicate は長が終わっても管が閉じない回に同じ _stop_tree(p.pid, leader=p) をその場で呼び、返った why をこの UNSURE の濾過なしにそのまま『止め切れない』として印字する（role_run.py:509-513）。UNSURE は _tree_members が『自分の物か決められない同じ利用者の読めないプロセスが在る』ときに、対象の木が実際には空（_live が空）でも返す理由なので、_stop_tree の `if not live: return why` を通って上がる。sandbox 環境などで同ユーザーの読めないセッションが常在すれば、管を継ぐ孫を持つ段や役の往復のたびに、実際には木が空でも毎回この NG が出る——穴10 が閉じたのと同じ誤検知の集合が、_reap でなく _communicate という別の入口から今も出る。ログの誤字だけで機能上の失敗は起こさないが、修正が『UNSURE は失敗と数えない』という約束を _reap の 1 か所にしか反映しておらず、同じ _stop_tree の呼び出しがもう 1 か所（_communicate 内）に残っている。"
+    },
+    {
+      "key": "commands-relaunch-docstring-stale-pgid-cleanup-timing",
+      "kind": "contract_drift",
+      "where": "graphloops/engine/role_run.py",
+      "cite": "隣（pgid_path）に書き、試行の終わりに木の残りを止めてから消す——別のプロセスが試行を木ごと止める口",
+      "why": "この周の修正で pgid の印は『子が終わったら消す』から『試行の終わりに木の残りを止めてから消す』に変わった（role_run.py 冒頭の docstring と _spawn・_end_attempt の実装）。だが差分に含まれない graphloops/engine/commands.py の cmd_relaunch の docstring は今も『role_run.pgid_path。role_run が書き、子が終わると消す）に持つ』と書いたままで、古い（reap=True の既定で試行の終わりまで印が残る）挙動を説明していない。relaunch は probe_group（今は _probe 経由）で印を読んで新しい試行を作るかを決める側であり、いつ印が消えるかの理解が古いまま実装に置き去りにされている——読む側（docstring）が変わった実装に追随していない、宣言と実装のずれ。"
+    }
+  ],
+  "checks": [
+    {
+      "key": "send-target-drops-leader-group-killpg",
+      "closed": true,
+      "why": "role_run.py:429 の groups 計算に `or m.pgid == pgid` が入り、生きた仲間が居る限り止める番号のグループにも killpg を送り続ける。新設の test_stop_tree_keeps_signalling_the_group_after_the_leader_is_reaped（test_role_run_stop.py）で確認できる。"
+    },
+    {
+      "key": "reuse-check-bias-remains-in-started-at",
+      "closed": true,
+      "why": "_started_at の POSIX 分岐で `now = time.time()` が subprocess.run の呼び出し前（role_run.py:589-591）に動き、_ps_all と同じ形に揃った。"
+    },
+    {
+      "key": "denied-early-return-still-races-zombie-eperm",
+      "closed": true,
+      "why": "denied の早抜けは、数え直した相手（still）にその対象（グループか pid）の生きた仲間が実在するときだけに絞られた（role_run.py:440-445）。間にゾンビだけになった相手は `still` に一致せず素通りして wait/SIGKILL に進む。新設 test_stop_tree_eperm_on_a_member_that_then_left_is_not_a_failure で確認。"
+    },
+    {
+      "key": "tests-patch-probe-group-not-probe",
+      "closed": true,
+      "why": "test_role_run_stop.py の stop_group 系フィクスチャ（test_stop_group_windows・posix）が probe_group ではなく _probe を差し替える形に変わっている（role_run.py の stop_group も _probe を呼ぶ）。"
+    },
+    {
+      "key": "restore-pgid-arm-red-only-on-macos",
+      "closed": true,
+      "why": "宛先に {pgid} を戻す変異腕は追加されていないが、代わりに OS 非依存の pytest test_stop_tree_skips_a_zombie_only_group が posix() のモックで送り先の字面を検査しており、macOS 限定にならない赤を持つ。"
+    },
+    {
+      "key": "reap-per-step-not-per-attempt",
+      "closed": true,
+      "why": "run_steps は _end_attempt を finally で試行の終わりに 1 回だけ呼び、段ごとの _spawn には trees=None が渡らない限り都度は刈らない。keep_background の段は trees=None で _communicate の途中刈り取りも試行終わりの _reap も両方効かない。管を継いだ場合だけ _communicate がその場で刈るが、これは trees が有効（reap 対象）な段に限られ、keep_background 宣言時は素通りする（role_run.py:509, 745-759 で確認）。"
+    },
+    {
+      "key": "run-tree-timeout-no-longer-bounds-call",
+      "closed": true,
+      "why": "_communicate の deadline が呼び出し全体（管の EOF まで）を縛り、締め切りを過ぎたら subprocess.TimeoutExpired を上げて run_tree の except 節が _kill で木を止める（role_run.py:472-485, 498-516）——BASE の communicate(timeout=) と同じ範囲。"
+    },
+    {
+      "key": "normal-end-reap-masks-stop-group-and-kill-all-arms",
+      "closed": true,
+      "why": "simulate.py の sleeper() 呼び出し（stop_group・kill_all の検査）が reap=False を渡すようになり、run_role が trees=None で回るため試行終わりの刈り取りが孫を代わりに止めない（simulate.py:1937, 1961）。"
+    },
+    {
+      "key": "wait-and-reap-reimplements-communicate",
+      "closed": true,
+      "why": "_wait_and_reap 相当のスレッド実装は無く、_communicate は p.communicate を短い間隔（POLL=0.5秒）で呼び直す標準ライブラリの約束の形になっている（role_run.py:491-516）。文字の復号・EPIPE・shutdown の join は標準ライブラリのまま。"
+    },
+    {
+      "key": "normal-end-keeps-mark-on-unreadable-session",
+      "closed": true,
+      "why": "_reap が `if why and not why.startswith(UNSURE): whys.append(...)` で UNSURE 始まりの理由を止め切れなかったと数えない（role_run.py:519-529）——ただし _communicate 内の同じ _stop_tree 呼び出しにはこの濾過が無く、別経路で同じ誤検知が残る（faces の communicate-midreap-skips-unsure-filter を参照）。"
+    },
+    {
+      "key": "jenkins-warn-and-proceed-half-dropped",
+      "closed": true,
+      "why": "run_tree の timeout が呼び出し全体（管の EOF まで）を縛るようになり（no=7）、_spawn は長が終われば木の残りをその場か試行の終わりに止めるので、管の待ちが残るのは数え上げで拾えない子孫が管を握る回だけに縮んだ——Jenkins の『警告して進む』半分を要求する場面が実質消えたという主張は実装と整合する。"
+    },
+    {
+      "key": "mutmut-on-role-run-sends-real-signals",
+      "closed": true,
+      "why": "graphloops/setup.cfg の only_mutate は engine/schema.py のままで、role_run.py は追加されていない。"
+    },
+    {
+      "key": "exitstack-kills-recorded-bare-pids",
+      "closed": true,
+      "why": "simulate.py の ExitStack コールバック（held）は保持している Popen（長）だけを kill・wait し、番号だけの孫へは送らない。孫は自前の sleep 120 で終わる。keep_background の検査だけが、直後に自分で読んだ pid に対して 1 回 os.kill(gp, 9) するだけで、任意の再利用され得る番号への送信ではない。"
+    },
+    {
+      "key": "communicate-retry-instead-of-threads",
+      "closed": true,
+      "why": "_communicate は shrink の別案どおり communicate(timeout=短い間隔) の呼び直しで実装されている（no=9 と同一の変更点）。"
+    },
+    {
+      "key": "drop-only-mutate-role-run",
+      "closed": true,
+      "why": "(v) の only_mutate 追加は行われておらず（no=13 と同一の検算）、代わりに RR18〜RR20 の simulate 変異腕と test_ps_all_* の pytest が pytest 専用分岐の赤を持つ。"
+    }
+  ]
+}

@@ -1,0 +1,427 @@
+"""受け付けの口（.shared/core/accept.py）の検査。
+
+良い返答の見本が通り、悪い見本（拒む理由が 1 つだけになるように作った物）が ok: False で拒まれるかを、
+dev/target-seed/ を一時ディレクトリの git に写した使い捨ての対象リポジトリで見る。見本は tests/replies/ に在る。
+"""
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+CORE = ROOT / ".shared" / "core"
+REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
+SEED = ROOT / "dev" / "target-seed"
+sys.path.insert(0, str(CORE))
+
+from accept import (_ignored_entries, check_delta, check_fix, check_judge, check_request, role_schema,  # noqa: E402
+                    snapshot_tree, tree_change, tree_state)
+from gitkit import committed_copy, git  # noqa: E402
+
+FIXED_STATS = '''"""直した後の姿。"""
+
+
+def mean(xs):
+    return sum(xs) / len(xs)
+
+
+def clamp(x, lo, hi):
+    if x < lo:
+        return lo
+    if x > hi:
+        return hi
+    return x
+'''
+
+
+def load(name):
+    return json.loads((REPLIES / f"{name}.json").read_text())
+
+
+class AcceptCase(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp = pathlib.Path(self._tmp.name)
+        self.repo = tmp / "repo"
+        self.base = committed_copy(self.repo, SEED)   # 種を写して commit した git（型の写し。gitkit）
+        self.board = tmp / "board"
+        self.board.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def judged(self):
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+        return r
+
+
+class TestIntake(AcceptCase):
+    def test_intake_accepts_request(self):
+        r = check_request(load("request_ok"), self.board, "持ち主")
+        self.assertTrue(r["ok"], r["reason"])
+        batches = json.loads((self.board / "request.json").read_text())
+        self.assertEqual(batches, [{"round": 1, "origin": "持ち主", "findings": load("request_ok")}])
+
+    def test_add_reads_nodes_and_runners_of_scratch_board(self):
+        # 0.21.0 の add は、積んだ欄を読む待ちの instance を b.nodes の reads と b.is_runner で振り分ける（他へ渡した物は描き直し、
+        # 回す側の節は言うだけ）。今の works は instances が空でこの道を通らない——受け付けの入れ物（DiskBoard.scratch）の
+        # nodes・is_runner が engine と同じ振り分けになるかを、instance を 3 つ持たせて見る
+        import accept
+        rules = accept._rules()
+        b = accept.DiskBoard.scratch(self.board, review_rev="", record=rules.init_record(None, None))
+        self.assertFalse(b.is_runner(b.nodes["p2.diagnose"]))   # judge
+        self.assertTrue(b.is_runner(b.nodes["report"]))          # writer（graph の runners）
+        none = str(self.board / "まだ無い返答.json")
+        b.rd["instances"] = {i: {"id": i, "node": n, "status": "pending", "out_path": none}
+                             for i, n in (("p2.diagnose#1", "p2.diagnose"), ("report#1", "report"), ("p3.fix#1", "p3.fix"))}
+        r = rules.add(b, load("request_ok"), "持ち主")
+        self.assertEqual(r["redraw"], ["p2.diagnose#1"])   # 依頼を読む・回す側でない・まだ起きていない
+        self.assertIn("report#1 は起きた後か回す側の節なので描き直していない", r["msg"])
+        self.assertNotIn("p3.fix#1", r["msg"])               # 依頼の欄を読まない節は触らない
+
+    def test_intake_rejects_unknown_key(self):
+        r = check_request(load("request_extra_key"), self.board, "持ち主")
+        self.assertFalse(r["ok"])
+        self.assertIn("severity", r["reason"])
+        self.assertFalse((self.board / "request.json").exists())
+
+    def test_intake_rejects_non_list(self):
+        r = check_request({"where": "stats.py", "text": "x"}, self.board, "持ち主")
+        self.assertFalse(r["ok"])
+
+
+class TestJudge(AcceptCase):
+    def test_judge_accepts_good_reply(self):
+        check_request(load("request_ok"), self.board, "持ち主")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+        self.assertTrue((self.board / "judgment.json").exists())
+        self.assertEqual(r["judgment_file"], str(self.board / "judgment.json"))
+        self.assertEqual(sorted(r["open_units"]), sorted(u["key"] for u in load("judge_ok")["units"] if u["label"] == "block"))
+
+    def test_judge_empty_base_rev_reads_head(self):
+        # Ruling R2: base_rev が空なら repo の HEAD をその場で読む
+        r = check_judge(load("judge_ok"), self.board, "", self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+
+    def test_judge_missing_units(self):
+        no_units = load("judge_ok")
+        del no_units["units"]
+        r = check_judge(no_units, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("units", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_judge_rejects_precedent_without_searched(self):
+        r = check_judge(load("judge_notfound_no_searched"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("searched", r["reason"])
+
+    def test_judge_rejects_dirty_tree(self):
+        (self.repo / "extra.txt").write_text("読むだけの役が書いた\n")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("extra.txt", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_judge_rejects_ignored_file_without_snapshot(self):
+        # 写しが無い時も、git が無視するファイル（__pycache__ など）を読むだけの役が作れば拒む
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("__pycache__", r["reason"])
+
+    def test_judge_rejects_ignored_file_after_snapshot(self):
+        # 依頼の受け付けの時の写し（judge-snapshot.json）の後に、git が無視するファイルが増えた・書き換わったら拒む。
+        # 前から在った無視されるファイルは、変わっていなければ通る
+        (self.repo / "__pycache__").mkdir()
+        old = self.repo / "__pycache__" / "old.pyc"
+        old.write_bytes(b"old")
+        (self.board / "judge-snapshot.json").write_text(json.dumps(snapshot_tree(self.repo)))
+        self.assertTrue(check_judge(load("judge_ok"), self.board, self.base, self.repo)["ok"])
+        (self.repo / ".env.pyc").write_bytes(b"x")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn(".env.pyc", r["reason"])
+        (self.repo / ".env.pyc").unlink()
+        old.write_bytes(b"new")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"], "無視されるファイルの中身の書き換えも拒む")
+        self.assertIn("作業ツリー", r["reason"])
+
+    def test_judge_carried_r1_tells_to_copy_the_where(self):
+        # graphloops 0.21.0 の _carried_r1_accounted は、前の周の R1 の削除候補に無い where を拒むとき『貼られた行の no で指せ』と
+        # 案内する。works の判定役には番号の一覧を貼らないので、where を字面のまま写せと返す。
+        # 今の works は 1 周だけで盤面に前の周の R1 が無く、この道は通らない——前の周の R1 を持つ盤面を差して通す
+        import accept
+        scratch = accept.DiskBoard.scratch
+
+        def prev_r1_board(*a, **kw):
+            b = scratch(*a, **kw)
+            b.new_round()
+            b.state["outputs"] = {"r1.minimality": {"round": 1}}
+            b.outputs = lambda before_round=None: {"r1.minimality": {"deletions": [{"where": "stats.py:3"}]}}
+            return b
+
+        reply = load("judge_ok")
+        reply["carried_r1"] = [{"where": "stats.py:4", "disposition": "decline", "why": "削除すると mean が壊れる"},
+                               {"where": "stats.py:3", "disposition": "decline", "why": "削除すると mean が壊れる"}]
+        with mock.patch.object(accept.DiskBoard, "scratch", prev_r1_board):
+            r = check_judge(reply, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("carried_r1[0] の where 'stats.py:4'", r["reason"])
+        self.assertIn("削除候補の where を字面のまま写せ", r["reason"])
+        self.assertNotIn("no で指せ", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_judge_rejects_non_object(self):
+        r = check_judge("units", self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+
+
+class TestFix(AcceptCase):
+    def test_fix_accepts_covering_reply(self):
+        self.judged()
+        r = check_fix(load("fix_ok"), self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+
+    def test_fix_rejects_uncovered_unit(self):
+        self.judged()
+        r = check_fix(load("fix_missing_unit"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        covered = {c["unit_key"] for c in load("fix_missing_unit")["changes"]}
+        missing = [u["key"] for u in load("judge_ok")["units"] if u["key"] not in covered]
+        self.assertEqual(len(missing), 1)
+        self.assertIn(missing[0], r["reason"])
+
+    def test_fix_unknown_key_tells_to_copy_the_key(self):
+        # graphloops 0.21.0 の拒否文は『貼られた単位の no で指せ』（番号の一覧を貼る graphloops の役向け）。works の修正役には
+        # 番号の一覧が無く、unit_key は文字列だけを通すので、判定の key を字面のまま写せと返す
+        self.judged()
+        reply = load("fix_ok")
+        reply["changes"][0]["unit_key"] += "（写し違い）"
+        r = check_fix(reply, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("判定の key を字面のまま写せ", r["reason"])
+        self.assertNotIn("no で指せ", r["reason"])
+
+    def test_fix_without_judgment(self):
+        r = check_fix(load("fix_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("judgment.json", r["reason"])
+
+
+class TestDelta(AcceptCase):
+    def fix_stats(self):
+        (self.repo / "stats.py").write_text(FIXED_STATS)
+
+    def test_delta_accepts_good_reply(self):
+        self.fix_stats()
+        r = check_delta(load("delta_ok"), self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+
+    def test_delta_rejects_uncited_face(self):
+        self.fix_stats()
+        r = check_delta(load("delta_bad_cite"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("cite", r["reason"])
+
+    def test_delta_face_on_untracked_file(self):
+        # 触ったファイルは未追跡も含む（修正が足したファイルを審査が指せる）
+        self.fix_stats()
+        (self.repo / "helper.py").write_text("def helper():\n    return 1\n")
+        reply = {"faces": [{"key": "helper.py 使われない関数", "kind": "dead_path", "where": "helper.py",
+                            "cite": "def helper():", "why": "どこからも呼ばれない関数を修正が足している"}], "checks": []}
+        r = check_delta(reply, self.board, self.base, self.repo)
+        self.assertTrue(r["ok"], r["reason"])
+
+    def test_delta_rejects_tree_changed_after_snapshot(self):
+        # Ruling R3: cut が盤面に置いた写しと、受け付けの時の作業ツリーが違えば拒む
+        self.fix_stats()
+        (self.board / "delta-snapshot.json").write_text(json.dumps(snapshot_tree(self.repo)))
+        self.assertTrue(check_delta(load("delta_ok"), self.board, self.base, self.repo)["ok"])
+        with open(self.repo / "stats.py", "a") as f:
+            f.write("# 審査役が書いた\n")
+        r = check_delta(load("delta_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("作業ツリー", r["reason"])
+
+    def test_delta_rejects_ignored_file_after_snapshot(self):
+        self.fix_stats()
+        (self.board / "delta-snapshot.json").write_text(json.dumps(snapshot_tree(self.repo)))
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        r = check_delta(load("delta_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("__pycache__/", r["reason"])
+
+    def test_snapshot_sees_ignored_content(self):
+        (self.repo / "__pycache__").mkdir()
+        pyc = self.repo / "__pycache__" / "stats.cpython-314.pyc"
+        pyc.write_bytes(b"a")
+        before = snapshot_tree(self.repo)
+        self.assertEqual(before["ignored"], ["__pycache__/"])
+        self.assertEqual(before["porcelain"], "", "porcelain は無視されるファイルを映さない（だから ignored が要る）")
+        pyc.write_bytes(b"b")
+        self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
+
+    def test_snapshot_skips_cli_write_ledger(self):
+        # Claude Code 2.1.283 が役の cwd に作る空のフォルダ .claude/.cc-writes/（台帳 R62・自分食い 23 件目で読むだけの役が 3 回拒まれた）
+        (self.repo / ".gitignore").write_text(".claude/\n")
+        git(self.repo, "add", ".gitignore")
+        git(self.repo, "commit", "-qm", "ignore")
+        before = snapshot_tree(self.repo)
+        (self.repo / ".claude" / ".cc-writes").mkdir(parents=True)
+        (self.repo / ".claude" / ".cc-writes" / "w").write_bytes(b"x")
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / ".claude" / "other").write_bytes(b"x")    # 同じ .claude/ の下でも、ほかの物は見る
+        self.assertNotEqual(snapshot_tree(self.repo), before)
+
+    def test_snapshot_skips_nested_cli_write_ledger(self):
+        # run 30: 役の Bash が cd した先（works/docs/specs）にも Claude Code が空の .claude/.cc-writes/ を作り、git の全体の除外
+        # （.claude/.cc-writes/）で `!! works/docs/specs/.claude/.cc-writes/` に出た。深さを問わず数えない
+        (self.repo / "docs" / "specs").mkdir(parents=True)
+        (self.repo / "docs" / "specs" / "a.md").write_text("a\n")
+        (self.repo / ".gitignore").write_text(".claude/.cc-writes/\n")
+        git(self.repo, "add", ".gitignore", "docs")
+        git(self.repo, "commit", "-qm", "ignore")
+        before = snapshot_tree(self.repo)
+        (self.repo / "docs" / "specs" / ".claude" / ".cc-writes").mkdir(parents=True)
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / "docs" / "specs" / ".claude" / ".cc-writes" / "settings.json.tmp.0a1b2c3d").write_bytes(b"x")
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / "docs" / "specs" / ".claude" / "other").write_bytes(b"x")    # 同じ .claude/ の下でも、ほかの物は見る
+        self.assertNotEqual(snapshot_tree(self.repo), before)
+
+    def test_snapshot_skips_nested_collapsed_cli_dir(self):
+        # 対象の .gitignore が .claude/ を無視すると、git は深い所の物も `<dir>/.claude/` に畳む。中身が控えのフォルダだけなら数えない
+        (self.repo / "docs").mkdir()
+        (self.repo / "docs" / "a.md").write_text("a\n")
+        (self.repo / ".gitignore").write_text(".claude/\n")
+        git(self.repo, "add", ".gitignore", "docs")
+        git(self.repo, "commit", "-qm", "ignore")
+        before = snapshot_tree(self.repo)
+        (self.repo / "docs" / ".claude" / ".cc-writes").mkdir(parents=True)
+        (self.repo / "docs" / ".claude" / ".cc-writes" / "w.tmp.0a1b2c3d").write_bytes(b"x")
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / "docs" / ".claude" / "settings.local.json").write_bytes(b"{}")
+        self.assertNotEqual(snapshot_tree(self.repo), before)
+
+    def test_snapshot_skips_untracked_cli_write_ledger(self):
+        # 除外の規則が無い対象: 空の控えは git に出ないが、書きかけの一時ファイルが残ると未追跡に出る。これも数えない。
+        # Claude Code は全体の除外（~/.config/git/ignore）に **/.claude/.cc-writes/ を足すので、ここではそれを読ませない
+        git(self.repo, "config", "core.excludesFile", os.devnull)
+        before = snapshot_tree(self.repo)
+        (self.repo / "sub" / ".claude" / ".cc-writes").mkdir(parents=True)
+        (self.repo / "sub" / ".claude" / ".cc-writes" / "x.json.tmp.0a1b2c3d").write_bytes(b"x")
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / "sub" / "real.txt").write_text("x\n")
+        self.assertNotEqual(snapshot_tree(self.repo), before)
+
+    def test_delta_rejects_plan_only_kind(self):
+        # graphloops 0.21.0 の face_kind は事前審査と共有で regression・policy・precedent を含むが、修正差分のレビューでは拒む語
+        self.fix_stats()
+        for kind in ("regression", "policy", "precedent"):
+            reply = {"faces": [{"key": f"stats.py の {kind} の穴", "kind": kind, "where": "stats.py", "cite": "def clamp(x, lo, hi):",
+                                "why": "修正差分のレビューが事前審査だけの語で穴を挙げている"}], "checks": []}
+            r = check_delta(reply, self.board, self.base, self.repo)
+            self.assertFalse(r["ok"], kind)
+            # 型の段で拒む（役の型の enum に無い語）。rules の段の拒否文（works に無い r4.human_gate を指す）まで行かせない
+            self.assertIn(f"値 '{kind}' が語彙", r["reason"])
+            self.assertNotIn("事前審査だけの語", r["reason"])
+            self.assertNotIn("r4.human_gate", r["reason"])
+            self.assertFalse((self.board / "delta-review.json").exists())
+
+    def test_snapshot_sees_untracked_content(self):
+        (self.repo / "new.txt").write_text("a\n")
+        before = snapshot_tree(self.repo)
+        (self.repo / "new.txt").write_text("b\n")
+        self.assertEqual(before["porcelain"], snapshot_tree(self.repo)["porcelain"])
+        self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
+
+
+class TestTreeState(AcceptCase):
+    """読むだけの任せ先の役（blk-pr・blk-ci）の前後の作業ツリーの姿（tree_state）と、その違いの文（tree_change）"""
+
+    def test_change_names_content_when_porcelain_is_same(self):
+        # 既に変えてあるファイルの中身をさらに書き換えた: porcelain の行は同じまま。違いは差分の中身だと言う（審査 M4）
+        with open(self.repo / "stats.py", "a") as f:
+            f.write("# 前から在った変更\n")
+        before = tree_state(self.repo)
+        with open(self.repo / "stats.py", "a") as f:
+            f.write("# 役が書いた\n")
+        moved = tree_change(before, tree_state(self.repo))
+        self.assertTrue(moved)
+        self.assertFalse([m for m in moved if m.startswith("git status --porcelain")], moved)
+        self.assertTrue([m for m in moved if "中身が変わった" in m], moved)
+
+    def test_change_ignored_only_has_no_porcelain_noise(self):
+        # 無視されるパスだけが増えた: porcelain の空の行（『前 [] / 今 []』）を出さない（審査 M4）
+        before = tree_state(self.repo)
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        moved = tree_change(before, tree_state(self.repo))
+        self.assertFalse([m for m in moved if m.startswith("git status --porcelain")], moved)
+        self.assertTrue([m for m in moved if "増えた ['__pycache__/']" in m], moved)
+
+    def test_change_shows_porcelain_when_it_differs(self):
+        before = tree_state(self.repo)
+        (self.repo / "new.txt").write_text("x\n")
+        moved = tree_change(before, tree_state(self.repo))
+        self.assertIn("git status --porcelain: 役を起こす前 [] / 今 ['?? new.txt']", moved)
+        self.assertEqual(tree_change(before, before), [])
+
+    def test_ignored_entries_skip_origin_of_worktree_rename(self):
+        # 作業ツリーの rename（intent-to-add を伴う。Y の欄が R）は元の名前の欄が続く。X だけ見ると元の名前を読み違える（審査 M5）
+        (self.repo / "!! old.txt").write_text("a\nb\nc\nd\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "old")
+        (self.repo / "!! old.txt").rename(self.repo / "new.txt")
+        git(self.repo, "add", "-N", "new.txt")
+        z = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain", "-z"], capture_output=True, check=True).stdout
+        self.assertTrue(z.startswith(b" R new.txt\0!! old.txt\0"), z)
+        self.assertEqual(_ignored_entries(self.repo), [])
+
+
+class TestRoleSchema(unittest.TestCase):
+    def test_role_schema_resolves_refs(self):
+        self.assertNotIn("$ref", json.dumps(role_schema("p2.diagnose")))
+
+    def test_role_schema_drops_notes_but_keeps_note_fields(self):
+        s = role_schema("p2.diagnose")
+        self.assertNotIn("note", s)
+        self.assertNotIn("note", s["properties"]["units"]["items"]["properties"]["class_query"]["properties"]["how"])
+        # router の行は note という名前の欄を必須に持つ——注記と一緒に欄まで落とすと、どの行も型を通らない
+        router = s["properties"]["router"]["items"]
+        self.assertIn("note", router["required"])
+        self.assertIn("note", router["properties"])
+
+    def test_pointer_fields_stay_names(self):
+        # graphloops 0.21.0 は pointers の位置（番号で指す欄）の型を [integer, string] に広げる。既定（numbered=False）は
+        # 番号の控えを固めない役の型で、番号を名前に戻す段が無いので、名前（文字列）の型のまま役に渡す
+        where = role_schema("p2.diagnose")["properties"]["carried_r1"]["items"]["properties"]["where"]
+        self.assertEqual(where, {"type": "string", "minLength": 1})
+        key = role_schema("p3.delta_review")["properties"]["checks"]["items"]["properties"]["key"]
+        self.assertEqual(key, {"type": "string", "minLength": 8})
+        # 番号を貼る節も、numbered を渡さなければ名前の型のまま（開くのは planblk.output_format だけ）
+        keys = role_schema("p2.fix_plan")["properties"]["plan"]["items"]["properties"]["unit_keys"]["items"]
+        self.assertEqual(keys, {"type": "string", "minLength": 1})
+
+    def test_delta_kinds_exclude_plan_only(self):
+        kind = role_schema("p3.delta_review")["properties"]["faces"]["items"]["properties"]["kind"]
+        self.assertEqual(kind["enum"], ["copy", "entrance", "contract_drift", "dead_path", "scope_creep"])
+
+    def test_good_replies_pass_role_schema(self):
+        from engine.schema import validate_schema
+        self.assertEqual(validate_schema(load("judge_ok"), role_schema("p2.diagnose")), [])
+        self.assertEqual(validate_schema(load("delta_ok"), role_schema("p3.delta_review")), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

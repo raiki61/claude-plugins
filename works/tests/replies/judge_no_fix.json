@@ -1,0 +1,21 @@
+{
+ "framing": "依頼の 2 件はどちらも既に直っていて、stats.py の mean と clamp は依頼の期待どおりの値を返す",
+ "one_shot": "直す物は無い",
+ "units": [
+  {
+   "key": "stats.py mean: 依頼の件は再現しない",
+   "label": "info",
+   "reason": "事実: stats.py の mean は sum(xs) / len(xs) を返し、mean([1, 2, 3]) は 2.0。反証: 別の入力で分母が変わる枝を探したが無い"
+  },
+  {
+   "key": "stats.py clamp: 依頼の件は再現しない",
+   "label": "info",
+   "reason": "事実: stats.py の clamp は x > hi の枝で hi を返し、clamp(15, 0, 10) は 10。反証: 下限の枝との取り違えを探したが無い"
+  }
+ ],
+ "questions": [],
+ "materials_missing": [],
+ "carried_r1": [],
+ "one_shot_closes": [],
+ "precedents": []
+}

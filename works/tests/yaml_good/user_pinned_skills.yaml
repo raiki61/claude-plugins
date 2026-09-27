@@ -1,0 +1,12 @@
+# 守った見本: settingSources: [user] の節が、借りたスキルの一覧に在るスキルだけを宣言する
+name: good-user-pinned-skills
+description: 守った見本
+nodes:
+  - id: fix
+    prompt: 直せ
+    allowed_tools: [Read, Grep, Glob]
+    skills: [test-driven-development, systematic-debugging, verification-before-completion]
+    settingSources: [user]
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
+    idle_timeout: 1728000000
+    output_format: {type: object}

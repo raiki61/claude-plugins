@@ -1,0 +1,8 @@
+# 節 run を本当に走らせる（stub なし）。コマンドは種の stats.py が作業ツリーの根に在るかを見る——緑で終わり、出口の型を通る。
+# コマンドが節に届かなければ（INPUTS_CMD が空・欠け）節は落ちるので、completed はコマンドが届いて走った印になる
+fixture:
+  inputs:
+    cmd: "test -f stats.py"
+  expect: completed
+  reached: [run]
+exec-code: true

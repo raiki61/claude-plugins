@@ -1,0 +1,80 @@
+"""blk-judge の支度 judge-brief の芯（R61 judgeread・run 27）。判定役に、本線の判定（graph の p2.diagnose）が読む物——凍結した目的の文・
+素材の 15 欄・P1 の目の所見・前の決定の突合・目的の監査・人の依頼・対象差分・観点の正本——と、本線の問いの台帳の決まりを渡す。
+
+描き方は engine と同じ（rolekit.render_body。graph の reads だけ・番号の穴の縛り）で、描く本文は本線の指示書の写し
+gl-prompts/prompts/review-loop/p2.diagnose.md の 2 か所: 「## 入力」の節から「## 手順」の前まで（欠けた素材を materials_missing で
+名指す決まりの 1 文を含む）と、「問いの台帳（questions）」の段から「**前の周の R1 最小性」の段の前まで（kind・status・書ける欄は
+検証器の表 {{validator.*}} から描く。素材が awaiting_human なら awaiting を必ず載せる決まり）。手順・出力の決まりは blk-judge の
+commands/diagnose.md のまま。受け付けは盤面の p2.diagnose の done（judgetake。本線と同じ judge_output）。
+
+- brief: ラインの盤面（$ARTIFACTS_DIR/board/state.json）が無ければ（ブロックを単独で回した）{ok, go: true, materials_file: ""}。
+  盤面が止まっていれば（同じ境の節の後ろの素材集めが止めた。run 30）何も書かずに go: false（判定役を起こさない。blk-material の
+  支度と同じ形）。止まっていなければ盤面の p2.diagnose が待っていること（待っていなければ BoardGap——線の順の誤り。黙って空にしない）。描いた本文を今の周の
+  作業ファイル judge-materials.md に書き、判定役を起こす前の作業ツリーの姿を今の周の judge-tree.json に置き（entry.snapshot。
+  受け付けが比べる）、待っている試行に起こした印を置く（描く → 印 → 起こす。盤面の決まり 2）。パスを返す
+"""
+import pathlib
+import sys
+
+sys.dont_write_bytecode = True
+
+_CORE = pathlib.Path(__file__).resolve().parents[2] / ".shared" / "core"
+if str(_CORE) not in sys.path:
+    sys.path.insert(0, str(_CORE))
+
+from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
+import entry  # noqa: E402
+import judgetake  # noqa: E402
+import rolekit  # noqa: E402
+
+NODE = judgetake.NODE
+BRIEF_FILE = "judge-materials.md"
+START, END = "## 入力", "## 手順"
+LEDGER_START, LEDGER_END = "問いの台帳（questions）", "**前の周の R1 最小性"   # 問いの台帳の決まりの段（本線の同じ指示書）
+LEDGER_HEAD = "## 問いの台帳（本線の判定の指示書の同じ段。kind・status・書ける欄はここが正本）\n\n"
+HEAD = ("# 判定の材料（盤面から描いた物）\n\n"
+        "本線の判定の指示書（graphloops の p2.diagnose.md）の「入力」の節と問いの台帳の段を、この run の盤面から engine と同じ描き方で描いた物。"
+        "値が貼ってある欄はそのまま読め。パス（対象差分・観点の正本など）は Read で読め。手順と返す JSON の形は、お前を起こした"
+        "指示書のとおり。")
+
+
+def section(text: str, start_at: str = START, end_at: str = END) -> str:
+    """指示書の本文から start_at で始まる行から end_at で始まる行の前まで。どちらかの行が無ければ BoardGap（写しが替わった）"""
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, ln in enumerate(lines) if ln.startswith(start_at)), None)
+    end = next((i for i, ln in enumerate(lines) if ln.startswith(end_at)), None)
+    if start is None or end is None or end <= start:
+        raise BoardGap(f"{NODE} の指示書に「{start_at}」と「{end_at}」で始まる行がこの順に無い（写しが替わった）")
+    return "".join(lines[start:end]).rstrip("\n") + "\n"
+
+
+def template(b) -> str:
+    """盤面の graph の p2.diagnose の指示書（rolekit.prompt_graph_path と同じ引き方）の「入力」の節と問いの台帳の段"""
+    n = b.nodes[NODE]
+    text = (rolekit.prompt_graph_path(b, n).parent / n["prompt_file"]).read_text(encoding="utf-8")
+    return section(text) + "\n" + LEDGER_HEAD + section(text, LEDGER_START, LEDGER_END)
+
+
+def brief(board_dir, repo) -> dict:
+    """judge-brief。返り {ok: True, go, materials_file}（盤面が無ければ go 真で空）。止まった盤面は go 偽（判定役の輪は when: で
+    飛び、出口 collect が止まった盤面を ok 偽で渡す）。repo は対象リポジトリ（作業ツリーの姿を取る）"""
+    d = pathlib.Path(board_dir)
+    if not (d / "state.json").is_file():
+        return {"ok": True, "go": True, "materials_file": ""}
+    b = entry.open_board(d, allow_halted=True)
+    if b.state.get("halted") or b.state.get("stop"):
+        # 同じ境の節（h-mat）の後ろの前のブロック（素材集め）が盤面を止めた（run 30）。役を起こさず、出口が止まった盤面を渡す
+        return {"ok": True, "go": False, "materials_file": ""}
+    inst = b.rd["instances"].get(NODE)
+    if not inst or inst.get("status") != "pending":
+        raise BoardGap(f"盤面の {NODE} が待っていない（{b.node_state(NODE)}）——判定の支度を回す所でない（線の順の誤り）")
+    body, snap = rolekit.render_body(b, NODE, template=template(b), schema_note=False)
+    if any(row.get("names") for row in snap):
+        raise BoardGap(f"{NODE} の番号の穴（{snap}）が在る——前の周の R1 の削除候補を番号で指す形を、このブロックの受け付けは受けない")
+    p = b.work(BRIEF_FILE)
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(HEAD + "\n\n" + body, encoding="utf-8")
+    tmp.replace(p)
+    entry.snapshot(d, judgetake.TREE_FILE, pathlib.Path(repo))
+    entry.open_board(d).mark_launched(NODE, inst.get("attempts", 1))
+    return {"ok": True, "go": True, "materials_file": str(p)}

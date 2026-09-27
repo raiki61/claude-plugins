@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""読むだけの gh（印 no-post の役の起動だけに包みが渡す口。標準ライブラリだけ・Python 3.9 でも動く形）。
+
+通すのは次の 4 つの形だけで、ほかは本物の gh を起こさずに 1 行を出して終了コード 2:
+- `pr list -R <OWNER/REPO> …`・`pr view <番号か枝> -R <OWNER/REPO> …`・`pr diff <番号か枝> -R <OWNER/REPO> …`
+  （`-R`・`--repo`・`--repo=` のどれか。対象の repo を名指しさせ、cwd の remote に頼らない）
+- `repo view <OWNER/REPO> …`（gh の repo view は -R を持たないので、repo は位置の引数で名指しする）
+どの形でも `-w`・`--web`（ブラウザを開く）は拒む。本物の gh は env の WORKS_REAL_GH（包みが起動の時に PATH から引く。
+この口自身は使わない）。
+
+包みはこの口を 2 つの名で置く: `works-gh`（役が呼ぶ名。env の WORKS_GH が絶対パス）と、PATH の頭に置く `gh`
+（`command gh`・`xargs gh`・`sh -c "gh …"` など、permissions.deny の `Bash(gh:*)` の前方一致をすり抜ける呼び方の受け皿）。
+"""
+import os
+import re
+import sys
+
+ALLOWED = {("pr", "list"), ("pr", "view"), ("pr", "diff"), ("repo", "view")}
+REPO_RE = re.compile(r"(?:[A-Za-z0-9.-]+/)?[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+
+
+def refuse(why):
+    sys.stderr.write(f"works-gh: 通さない（読むだけの役に許すのは pr list・pr view・pr diff（-R 付き）と repo view <OWNER/REPO>）: {why}\n")
+    return 2
+
+
+def repo_flag(args):
+    for i, a in enumerate(args):
+        if a in ("-R", "--repo") and i + 1 < len(args):
+            return args[i + 1]
+        if a.startswith("--repo=") or a.startswith("-R="):
+            return a.split("=", 1)[1]
+        if a.startswith("-R") and len(a) > 2:
+            return a[2:]
+    return None
+
+
+def main(argv):
+    # 輪の断ち方は期限でなく形で: 口は本物の gh を起こす前に WORKS_GH_ACTIVE を立てる。本物の gh は口を呼ばないので、
+    # これが立った env で口に入るのは、WORKS_REAL_GH が（置き場の外からでも）口へ回っている時だけ。その 2 度目で拒む
+    if os.environ.get("WORKS_GH_ACTIVE"):
+        return refuse("口が本物の gh の代わりに起こし直された（WORKS_REAL_GH が口へ回っている）")
+    if len(argv) < 2 or (argv[0], argv[1]) not in ALLOWED:
+        return refuse(" ".join(argv[:2]) or "引数が無い")
+    rest = argv[2:]
+    if any(a in ("-w", "--web") or a.startswith("--web=") for a in rest):
+        return refuse("--web は使わない")
+    if argv[0] == "pr":
+        repo = repo_flag(rest)
+        if not repo or not REPO_RE.match(repo):
+            return refuse(f"gh {argv[0]} {argv[1]} に -R <OWNER/REPO> が無い")
+    else:
+        pos = [a for a in rest if not a.startswith("-")]
+        if not pos or not REPO_RE.match(pos[0]):
+            return refuse("gh repo view に <OWNER/REPO> が無い")
+    real = os.environ.get("WORKS_REAL_GH", "")
+    here = os.path.dirname(os.path.realpath(__file__))
+    # この置き場の物（口自身・PATH の頭に置く gh）を本物と取り違えると、口と gh が互いを起こし続ける
+    if not (os.path.isabs(real) and os.path.isfile(real) and os.access(real, os.X_OK)) \
+            or os.path.dirname(os.path.realpath(real)) == here:
+        return refuse(f"本物の gh が無い（WORKS_REAL_GH={real!r}）")
+    os.environ["WORKS_GH_ACTIVE"] = "1"
+    os.execv(real, [real] + list(argv))
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

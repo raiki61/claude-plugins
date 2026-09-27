@@ -1,0 +1,7 @@
+# 違反: script の節に timeout が無い（Archon の既定は 120 秒）
+name: bad-script-no-timeout
+description: 違反の見本
+nodes:
+  - id: accept
+    script: accept
+    runtime: uv

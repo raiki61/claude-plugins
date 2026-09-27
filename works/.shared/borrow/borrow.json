@@ -1,0 +1,28 @@
+{
+  "superpowers": {
+    "kind": "skills",
+    "skills": [
+      "test-driven-development",
+      "systematic-debugging",
+      "verification-before-completion",
+      "receiving-code-review",
+      "requesting-code-review"
+    ]
+  },
+  "coldwrite": {
+    "kind": "plugin",
+    "marketplace": "raiki61"
+  },
+  "pr-review-toolkit": {
+    "kind": "plugin",
+    "pinned": true
+  },
+  "context7": {
+    "kind": "mcp",
+    "transport": "http",
+    "url": "https://mcp.context7.com/mcp",
+    "licence": "MIT",
+    "version": "e275a848a420",
+    "source": "https://github.com/upstash/context7（master e275a848a420e0d11c2822f61201ee005bfd1133・packages/mcp 4.1.1。LICENSE は MIT。2026-09-28 に確かめた）"
+  }
+}

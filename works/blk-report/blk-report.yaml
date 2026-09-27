@@ -1,0 +1,302 @@
+name: blk-report
+description: |
+  報告と初見検査のブロック（本線 review-graph の R13。graph の節 report.human_items → report.cold_check → report＋finalize）。
+  周の締め（converge）の後か、人が run を止めた後に、盤面が報告の節を出す。3 つの役を graph の順に回す:
+  1. report-items（書き手。読むだけ）: 報告の頭——平易な 3 行と、人が決めること——だけを書く
+  2. report-cold（初見の読み手。道具を一切持たない）: 1 の本文だけを貼られて読み、止まった所・推測で埋めた所・この本文だけで
+     決められるかを返す。盤面・記録・差分の置き場は渡さない（本線の X3。注記であって門ではない——写しの cold_check_note）
+  3. report-write（書き手。読むだけ）: 初見検査の詰まりを直した頭と、記録から写す本文の全部を書く。数の出どころは盤面から
+     機械が組んだ事実（線 A の機械の報告を machine_report で渡せばそれ）で、出口の報告の最後に機械がそのまま付ける
+  どの役を回すかは盤面の ready だけで決まる（rp-route<k>）。report を出す前の検証器の関所（pre: finalize）は盤面の settle が
+  踏み、通らなければ report の役は起きない。指示書は本線 a1202d0 の写し（prompts/）を盤面の値で描いた物で、持ち主の書式の
+  決まり（冒頭 3 行・セルに文を入れない など）は commands/ の側に足す。ラインから include で使う（まだどのラインにも配線していない）。
+  出口 collect: 盤面の report-ai.md（来歴の 1 行＋本文＋機械の事実）と、初見検査の結果。AI の報告を作れなかった時も、理由と
+  受けた分と機械の事実を付けた報告を書いて ok: false。
+
+inputs:
+  machine_report:
+    default: ""
+    description: |
+      線 A の機械の報告（Task 15 の report.md）のパス。空なら盤面から機械が数えた事実を使う。どちらも書き手の数の出どころで、
+      出口の報告の最後に字のまま付く
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 段 1: report.human_items — 報告の頭を書く（書き手。拒否の後の出し直しは同じ会話）
+  - id: rp-route1
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    with:
+      role: report-items
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [next, node, why]
+      properties:
+        next: {type: string}
+        node: {type: string}
+        why: {type: string}
+
+  - id: report-items-loop
+    depends_on: [rp-route1]
+    when: "$rp-route1.output.next == 'report-items'"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $report-items-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: report-items-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: report-items
+            machine_report: $INPUTS.machine_report
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, prompt, attempt, node, facts_file, already]
+            properties:
+              prompt_file: {type: string}
+              prompt: {type: string}
+              attempt: {type: integer}
+              node: {type: string}
+              facts_file: {type: string}
+              already: {type: boolean}
+        - id: report-items
+          command: report-items
+          depends_on: [report-items-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）（持ち主の書式の決まりは commands/ に写した）
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # report_roles.output_format("report-items")（本文の型に印）を貼った物（tests/test_blk_report.py が一致を見る）
+          output_format:
+            description: 'works-node: report-items'
+            type: object
+            required: [text]
+            additionalProperties: false
+            properties:
+              text: {type: string, minLength: 1}
+        - id: report-items-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [report-items]
+          with:
+            role: report-items
+            reply: {from: "$report-items.output"}
+          output_format:
+            type: object
+            required: [ok, done, give_up, reason, reason_file, node, record_invalid]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io。裁定 R44）
+              node: {type: string}
+              record_invalid: {type: boolean}
+
+  # 段 2: report.cold_check — 初見の読み手（道具ゼロ・毎回新しい会話）。描いた本文そのものを指示に貼る
+  - id: rp-route2
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [rp-route1, report-items-loop]
+    trigger_rule: none_failed_min_one_success   # 前の段の輪は飛ばされうる。その欄は読まない
+    with:
+      role: report-cold
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [next, node, why]
+      properties:
+        next: {type: string}
+        node: {type: string}
+        why: {type: string}
+
+  - id: report-cold-loop
+    depends_on: [rp-route2]
+    when: "$rp-route2.output.next == 'report-cold'"
+    loop_group:
+      max_iterations: 3
+      fresh_context: true
+      until_bash: test $report-cold-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: report-cold-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: report-cold
+            machine_report: $INPUTS.machine_report
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, prompt, attempt, node, facts_file, already]
+            properties:
+              prompt_file: {type: string}
+              prompt: {type: string}
+              attempt: {type: integer}
+              node: {type: string}
+              facts_file: {type: string}
+              already: {type: boolean}
+        - id: report-cold
+          command: report-cold
+          depends_on: [report-cold-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: []           # 道具を一切持たない（本線の cold-reader の tools: []。貼られた本文だけを読む）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # report_roles.output_format("report-cold")（写しの report.cold_check の schema に印）を貼った物（tests/test_blk_report.py が一致を見る）
+          output_format:
+            description: 'works-node: report-cold'
+            type: object
+            required: [verdict, stops, guessed, decidable]
+            additionalProperties: false
+            properties:
+              verdict:
+                type: string
+                enum: [pass, redesign-needed]
+              stops:
+                type: array
+                items: {type: string}
+              guessed:
+                type: array
+                items: {type: string}
+              decidable: {type: boolean}
+        - id: report-cold-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [report-cold]
+          with:
+            role: report-cold
+            reply: {from: "$report-cold.output"}
+          output_format:
+            type: object
+            required: [ok, done, give_up, reason, reason_file, node, record_invalid]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io。裁定 R44）
+              node: {type: string}
+              record_invalid: {type: boolean}
+
+  # 段 3: report — 報告の本文の全部（書き手。盤面の settle が検証器の関所を通した時だけ ready）
+  - id: rp-route3
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [rp-route2, report-cold-loop]
+    trigger_rule: none_failed_min_one_success
+    with:
+      role: report-write
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [next, node, why]
+      properties:
+        next: {type: string}
+        node: {type: string}
+        why: {type: string}
+
+  - id: report-write-loop
+    depends_on: [rp-route3]
+    when: "$rp-route3.output.next == 'report-write'"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $report-write-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: report-write-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: report-write
+            machine_report: $INPUTS.machine_report
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, prompt, attempt, node, facts_file, already]
+            properties:
+              prompt_file: {type: string}
+              prompt: {type: string}
+              attempt: {type: integer}
+              node: {type: string}
+              facts_file: {type: string}
+              already: {type: boolean}
+        - id: report-write
+          command: report-write
+          depends_on: [report-write-prep]
+          settingSources: [user]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # report_roles.output_format("report-write")（本文の型に印）を貼った物（tests/test_blk_report.py が一致を見る）
+          output_format:
+            description: 'works-node: report-write'
+            type: object
+            required: [text]
+            additionalProperties: false
+            properties:
+              text: {type: string, minLength: 1}
+        - id: report-write-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [report-write]
+          with:
+            role: report-write
+            reply: {from: "$report-write.output"}
+          output_format:
+            type: object
+            required: [ok, done, give_up, reason, reason_file, node, record_invalid]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io。裁定 R44）
+              node: {type: string}
+              record_invalid: {type: boolean}
+
+  # 出口。AI の報告を作れなかった時も、理由と受けた分と機械の事実を付けた報告を書いて ok: false
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [rp-route3, report-write-loop]
+    trigger_rule: none_failed_min_one_success
+    with:
+      machine_report: $INPUTS.machine_report
+    output_format:
+      type: object
+      required: [ok, reason, report_file, text_file, human_items_file, facts_file, cold_check, record_invalid]
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        report_file: {type: string}
+        text_file: {type: string}
+        human_items_file: {type: string}
+        facts_file: {type: string}
+        cold_check:
+          type: object
+          required: [verdict, stops, guessed, decidable]
+          properties:
+            verdict: {type: string}
+            stops:
+              type: array
+              items: {type: string}
+            guessed:
+              type: array
+              items: {type: string}
+            decidable: {type: boolean}
+        record_invalid: {type: boolean}

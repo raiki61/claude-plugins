@@ -1,0 +1,16 @@
+{
+  "material": {
+    "status": "found",
+    "count": 1,
+    "detail": "外部との継ぎ目は graphloops/engine/role_run.py の _ps_all()（新設・subprocess.run([\"ps\",\"-A\",\"-o\",\"pid=,ppid=,pgid=,uid=,etime=,stat=\"])）。実物の ps を叩いて 1 件のサンプルを取ろうとしたが、この代役セッションの Bash サンドボックスが `ps -A -o ...=`（`=` 付きの no-header 形。単一 pid の `ps -o etime=,... -p $pid` も含む）を承認要求つきで自動拒否し、承認面が無いため実行できなかった（`ps -A` や `ps aux` は素通しで OS 側の Operation not permitted に落ちるのと対照的——ツール側が `-o field=` 形だけを個別に止めている）。そのため実行結果でなく、この同じ macOS ホストの `man ps`（1 次資料）で照合した: `uid` キーワードは `-f -u` を付けない限り数値の実効 UID（`int(f[3])` の前提と一致）、`state`（`stat` の別名）の先頭文字 `Z` がゾンビ（`_live()` の `stat.startswith(\"Z\")` と一致）、`etime` は既存 `parse_etime()`（この diff の前から `_started_at()` が単一 pid 向けに使っており、今回はその関数を変えずに複数行の新しい列 (`pid,ppid,pgid,uid`) の後ろに再利用しているだけ）。フィールドの意味自体に矛盾は見当たらなかったが、テスト側の代役の形を実物のテキスト出力と突き合わせる経路が無いことが分かったので、そこを mismatches に書いた。"
+  },
+  "mismatches": [
+    {
+      "where": "graphloops/engine/role_run.py:_ps_all()（270行目付近）と graphloops/tests/py/test_role_run_stop.py の _tree_members 系テスト（members_of・posix ヘルパ）",
+      "text": "_ps_all() が実物の `ps -A -o pid=,ppid=,pgid=,uid=,etime=,stat=` の標準出力テキストを `line.split()` で 6 列に割り、先頭 4 列を桁チェックし、`parse_etime` で経過時間を秒に変換する——この『生テキスト → _Proc』の変換そのものを検証する単体テストが無い。新設テスト（test_tree_members_*・posix()）はすべて `_tree_members`/`_ps_all` を丸ごと monkeypatch し、`_Proc` を直接組み立てて渡しているので、変換ロジックを一切通らない。この変換を実際に通す経路は graphloops/tests/simulate.py の escaped()/reap() を使う新設ブロック（unmocked で実プロセスに対して `_kill`/`stop_group` を呼ぶ）だけであり、それは実行環境で `ps -A -o ...=` が通ることに依存する。",
+      "mechanism": "test_role_run_stop.py: members_of() は role_run._ps_all を `lambda: ({r.pid: r for r in rows}, None)` に差し替え、posix() は _tree_members そのものを差し替える（monkeypatch.setattr(role_run, \"_tree_members\", lambda pgid, known=None, born=None: (members(sent), None))）。どちらも _ps_all() 内の subprocess.run 呼び出し・r.stdout.splitlines()・line.split()・parse_etime・digit フィルタを一度も実行しない。",
+      "measured": "diff とテストファイル全文を読み、_ps_all を直接叩く単体テストが無いことを確認。実物の ps 呼び出しは、この代役セッションの Bash ツール自体が `-o field=`（no-header）形を承認要求つきで拒否したため実行できず（`ps -A` `ps aux` は通って OS の Operation not permitted に落ちるのに対し、`ps -A -o pid=,stat=` 等は承認要求で即拒否）、代わりに man ps（同じホスト）でフィールド意味（uid=数値・state 先頭 Z=zombie・etime 書式）を照合し、既存 parse_etime との整合は確認できた。",
+      "false_positive_if": "simulate.py の escaped()/reap() ブロックが CI・開発機など `ps -A -o ...=` が普通に通る環境で継続的に走っており、そこでの failure がレビューに上がる運用になっているなら、実物との整合はその統合テストで担保されており、単体テスト側に変換ロジック専用のケースが無いこと自体は許容されたトレードオフである可能性がある。"
+    }
+  ]
+}

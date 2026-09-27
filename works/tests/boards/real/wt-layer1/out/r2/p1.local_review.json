@@ -1,0 +1,263 @@
+{
+  "material": {
+    "status": "found",
+    "count": 30,
+    "detail": "7 レンズを全部起こし 30 件。中心は 1 件で、4 レンズ（/code-review・code-reviewer・silent-failure-hunter・/simplify の高度）が独立に再現した: macOS の stop_group で長がゾンビ・外へ出た孫が SIGTERM を無視（または遅れて終わる）と、killpg(pgid) の EPERM で SIGKILL の前に『信号を送れない』で抜け、孫が残り印も残る（今壊れている）。ほかに再利用の判定の返り値落ち（groups に pgid を無条件に入れる）・born の二重読み・時計依存の誤判定・テストの穴（known.update・_ps_all の失敗の分岐・拒否文）・効率（ps -A の繰り返し）"
+  },
+  "findings": [
+    {
+      "skill": "/code-review",
+      "invoked": true,
+      "items": [
+        {
+          "where": "graphloops/engine/role_run.py:418",
+          "text": "送り先のグループに止める番号 pgid を必ず入れるので、長がゾンビのグループへの killpg が macOS で EPERM になり denied が立つ。生きた仲間が 1 つでも残れば SIGKILL を送る前に『グループ N に信号を送れない』で抜け、SIGTERM を無視する（か遅れて終わる）外の孫が残り、印も残る。",
+          "mechanism": "groups={pgid}|… が無条件。XNU の killpg1 はゾンビだけのグループを EPERM で拒む。435-438 行は送った直後に数え直すので、SIGTERM を受けたばかりの孫がまだ生きて見え、即 return する。長は起こした側の communicate が孫の握る管で待つ間ゾンビのまま残る。",
+          "measured": "実測（macOS、KILL_GRACE=1、自分の pid だけ）: SIGTERM を無視する孫で why='グループ 47xxx に信号を送れない（[Errno 1] Operation not permitted）'、0.57 秒で戻り孫は生存。0.5 秒で終わる孫でも同じ why で印が残った。simulate の新しい検査は孫が SIGTERM で即死する形だけを試している。",
+          "false_positive_if": "Linux（ゾンビだけのグループへの killpg が通る）と、長を自分で回収する _kill の道では起きない。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:418",
+          "text": "番号の再利用を見つけても（reused=True）、groups に pgid を入れたまま killpg(pgid, sig) を送る。再利用の判定が守ろうとしている無関係なプロセスのグループへ SIGKILL が届く。表が読めない予備の道も pgid に無条件で送る。",
+          "mechanism": "reused は _tree_members の局所で返り値に載らず、_stop_tree は {pgid} を無条件に宛先へ入れる。known から入った生きた孫が live に残ると 2 回目の信号が killpg(N, SIGKILL) になる。",
+          "measured": "未実測（番号が一周する状況を作れなかった）。",
+          "false_positive_if": "KILL_GRACE の数秒以内に番号が一周して再利用される必要があり、確率は低い。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:323",
+          "text": "_kill の道でも、再利用の判定を壁時計の born と ps の etime から逆算した開始時刻で比べる。時計が 2 秒を超えて進むと再利用と誤判定し、1 本も送らずに None（止まった）を返す。",
+          "mechanism": "Linux の etime は起動からの経過時間なので、started=time.time()-etime は壁時計のステップ補正の分ずれる。1 回目は known が空なので found=∅ → None。差分前の _kill は時計に依存しなかった。",
+          "measured": "未実測（時計をずらせない）。",
+          "false_positive_if": "macOS の ps は開始時刻を壁時計で持つ。数秒のステップ補正は稀。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:617",
+          "text": "stop_group は born（印の mtime）と probe_group の中身を別々の stat で読む。間に印が次の試行の物へ書き換わると古い born と新しい pgid の組になり、新しい長を再利用と誤判定して止めずに印を消す。",
+          "mechanism": "probe_group は written を読んで返さない。_spawn は段・往復ごとに同じ印を書き直す。",
+          "measured": "未実測。",
+          "false_positive_if": "窓はミリ秒単位。relaunch は別の out_path を使うので起きにくい。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:417",
+          "text": "同じ利用者でセッションの番号を読めないプロセスが 1 つでもあると、木が全部止まっていても why が返り、stop_group は印を消さず relaunch・stop が毎回『止め切れない』になる。",
+          "mechanism": "_tree_members は木の外の、getsid が PermissionError の同じ uid のプロセスも lost に入れ、_stop_tree は live が空でも return why する。",
+          "measured": "未実測（macOS の素の環境では出なかった）。",
+          "false_positive_if": "XNU と素の Linux の getsid は同じ uid に EPERM を返さない。LSM・sandbox の下だけ。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:273",
+          "text": "ps が無い・全プロセスの表を読めない環境では、木が止まっていても _kill が必ず理由の文を返すようになった（差分前は None）。run_tree の時間切れは必ず tree_left 付きになり、kill_all も NG を出す。",
+          "mechanism": "_ps_all が None → 予備の道の return（403・453 行）。",
+          "measured": "実測: PATH=/nonexistent で run_tree(['/bin/sleep','30'], timeout=0.5) → tree_left='止める相手を数え上げられない（ps を起こせない…）——グループ 53604 は居ないが、外へ出た子孫を確かめていない'。",
+          "false_positive_if": "意図した保守側への倒し方とも読める。probe_group は元から ps が要る。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:273",
+          "text": "_ps_all の subprocess.run に timeout が無い（_started_at は timeout=30）。信号の口（install_stop_handlers → kill_all → _stop_tree）の中で ps が止まると engine 全体が止まる。",
+          "mechanism": "_ps_all は _started_at の ps の呼びを写したが timeout を落とした。",
+          "measured": "未実測。",
+          "false_positive_if": "ps が固まることは極めて稀。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:444",
+          "text": "待ちのループの exists() は os.kill(pid,0) でゾンビも生きていると数える。回収されない仲間が残ると毎回 KILL_GRACE を丸ごと待つ。",
+          "mechanism": "stop_group は長を回収しないので、ゾンビの長が残ると 5 秒待ち、SIGKILL を送ってさらに 5 秒待つ。",
+          "measured": "未実測。",
+          "false_positive_if": "差分前の alive() も同じで悪化ではない。正しさに影響しない。"
+        },
+        {
+          "where": "graphloops/tests/simulate.py:2008",
+          "text": "escaped() は int(leader.stdout.readline()) を検査の外で読む。孫が何も出力しないと ValueError で test_role_run の残りが走らない。leader.stdout を閉じない。",
+          "mechanism": "readline() が '' → int('') で例外。",
+          "measured": "未実測。",
+          "false_positive_if": "posix の条件で囲まれ、setpgid・setsid の失敗はまず無い。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:400",
+          "text": "_stop_tree は信号ごとの数え上げ・拒否後の数え直し・最後の確認で毎回 ps -A と全プロセスへの getsid を繰り返し、kill_all は木を 1 本ずつ順に処理するので費用が直列に積み上がる。",
+          "mechanism": "木 1 本につき _tree_members を 3〜4 回呼ぶ。",
+          "measured": "未実測。",
+          "false_positive_if": "絶対量は小さく、止める道は頻繁には通らない。"
+        }
+      ]
+    },
+    {
+      "skill": "pr-review-toolkit:code-reviewer",
+      "invoked": true,
+      "items": [
+        {
+          "where": "graphloops/engine/role_run.py:418 と 435-439",
+          "text": "今壊れている（macOS のみ・再現済み）。stop_group で長がゾンビのまま、グループの外へ出た孫が生きているとき、SIGTERM の直後に『グループ X に信号を送れない（EPERM）』を返し、SIGKILL へ進まず印も消さない。孫が SIGTERM を無視すれば木が残り続け、stop・relaunch は毎回失敗する。遅れて終わる孫でも、止まったのに失敗と報告し印が残る。直し方: killpg の送り先を生きた仲間が属するグループだけに絞る（groups = {m.pgid for m in live.values() if m.pgid == pgid or m.pgid in members}）か、EPERM を受けたグループに生きた仲間が居なければ denied にしない。simulate のゾンビの検査に SIGTERM を無視する孫の腕を足す。",
+          "mechanism": "418 行で pgid を無条件に入れ、ゾンビだけのグループへの killpg が macOS で EPERM になり denied が必ず立つ。435 行は送った直後に数え直すので孫がまだ生きて見え、KILL_GRACE を待たず次の SIGKILL にも進まずに返る。",
+          "measured": "mktemp -d の下で作業ツリーの role_run を import し stop_group を呼んだ（KILL_GRACE=2、自分の pid だけ後始末）。既定の SIGTERM → why=None。0.5 秒かけて終わる handler → why='グループ 26477 に信号を送れない（[Errno 1] Operation not permitted）'（0.58 秒）、孫は消えたが印は残った。SIG_IGN → 同じ理由（0.34 秒）、孫は生存、印も残った。",
+          "false_positive_if": "stop_group の呼び出し時点で長のゾンビが必ず回収済みなら入らない。今の _spawn は communicate なので成り立たない。Linux では再現しない。"
+        }
+      ]
+    },
+    {
+      "skill": "/simplify",
+      "invoked": true,
+      "items": [
+        {
+          "where": "graphloops/engine/role_run.py:617",
+          "text": "（再利用・単純化・高度の 3 観点が同じ所を挙げた）stop_group が印の mtime（born）を probe_group より先に自分で stat する。同じ値を probe_group が written として読んで捨てている。二重の読みのために順番の注釈と専用テスト（test_stop_group_reads_the_reuse_mark_before_probing）が増えた。probe_group が (pgid, written, why) を返す（内部の _probe に寄せる）か共通の _read_mark にすれば読みは 1 回になり、順番の縛りも専用テストも消える。再利用の判定式（started > written + REUSE_SLACK）も 604 行と 323 行の 2 か所に在る。",
+          "mechanism": "probe_group が written を返さないので、呼ぶ側が順番で補っている。",
+          "measured": "未実測（読み）。probe_group の呼び元は commands.py:1381・role_run.py:622・test_role_run_stop.py:57 の 3 つ。",
+          "false_positive_if": "probe_group の 2 つ組の返り値を固定したいなら当たらない。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:373-389・406-412・440-446",
+          "text": "exists() と group_gone() は信号 0 を送って例外を真偽に写す同じ関数（反転しているだけ）。KILL_GRACE の待ちのループも表が読めない道と通常の道で 2 回写してあり、leader.poll の null 確認は 3 回。1 つの wait(done) と 1 つの _answers(send, target) に寄せれば約 20 行減り、EPERM を生きていると読む規則が 1 か所になる。",
+          "mechanism": "予備の道を足したときにループを条件で引数化せず写した。",
+          "measured": "未実測。grep で time.monotonic() + KILL_GRACE は 406・440 行、sleep(0.05) は 412・446 行だけ。",
+          "false_positive_if": "予備の道の待ち方がすぐ分かれる予定なら当たらない。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:419-434",
+          "text": "送って最初の EPERM を記録する try/except が killpg のループと kill のループで写してあり、表が読めない道にも 3 つ目の変種がある。宛先の一覧 [(os.killpg, g, 'グループ g'), (os.kill, pid, 'pid n')] を 1 つのループで送れば 1 本になる。",
+          "mechanism": "2 つのループは送る関数とラベルだけが違う。",
+          "measured": "未実測。",
+          "false_positive_if": "表が読めない道は ProcessLookupError で別の文を返すので 1 分岐は残る。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:447-453",
+          "text": "ループの後の最後の数え直しは、各回の頭（数え上げ→None の処理→_live→空なら return）の写し。『数え上げられない』の文も 403 と 449 に 2 つ。for sig in (*STOP_SIGNALS, None) で最後の回を送らずに判定だけにすれば 1 本になる。",
+          "mechanism": "最後の確認はループの頭から送りを除いた物。",
+          "measured": "未実測。",
+          "false_positive_if": "最後の文（SIGKILL の後も残る＋名指し）が違うので 1 分岐は残り、節約は小さい。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:273-283",
+          "text": "_ps_all が _started_at と同じ ps の呼びと etime→開始時刻の変換（now - parse_etime）を写し、既に食い違っている（_started_at は timeout=30、_ps_all は timeout 無し）。ps の呼びの設定（timeout・encoding・SubprocessError）と変換を小さな共有の関数に寄せる。",
+          "mechanism": "_ps_all を _started_at の隣に新しく書いたとき、parse_etime だけを共有して呼びの設定と変換を写した。",
+          "measured": "未実測。273-274 行と 539 行の引数は timeout=30 だけが違う。",
+          "false_positive_if": "全表の読みを意図して遅くてよいとしたなら、または Windows の分岐と GONE/None の区別で共有が不自然なら当たらない。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:204・397",
+          "text": "（効率）kill_all が木を 1 本ずつ止め、1 本ごとに ps -A を 2〜3 回起こすので、止める信号を受けてから抜けるまでが木の数に比例する。_stop_tree 1 回は 0.06 秒から 0.70 秒（約 12 倍）になった。安い代わり: 信号の回ごとに表を 1 回だけ取り全木で共有する／プロセスの中で表を読む（Linux は /proc、macOS は sysctl KERN_PROC_ALL を ctypes で）。",
+          "mechanism": "_stop_tree は信号の回ごとに _tree_members→_ps_all で ps -A を fork・exec し直す。",
+          "measured": "mktemp -d の下で nice -n 19 で実測: _popen の sh -c 'sleep 60 & sleep 60 & wait' 4 本に kill_all → 3.484 秒・_ps_all 8 回。ps -A の中央値は約 250 ms（全 736 プロセス）。SIGTERM で止まる木の _stop_tree: 新 0.702 秒・旧 0.060 秒。",
+          "false_positive_if": "並列の launch が無く LIVE が常に 1 本なら無害。熱い経路（正常に終わる run_tree・_spawn）には乗らない。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:622",
+          "text": "（効率）stop_group で probe_group の _started_at（ps -o etime= -p）と _stop_tree の最初の _ps_all（ps -A）が同じ長の行を 2 回読む。1 回の stop_group で約 50〜80 ms の無駄。",
+          "mechanism": "_ps_all の rows[pgid].started に同じ値が在るのに使わない。",
+          "measured": "ps -o etime= -p の中央値 52 ms。重複を通しでは測っていない。",
+          "false_positive_if": "stop_group は relaunch と stop の手動操作でしか呼ばれず、実害はほぼ無い。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:252・393",
+          "text": "（高度）Popen に gl_born を後付けして再利用の目印にしているのは、待ちの間の leader.poll() が長を回収して番号を空けるから。生存の判定を表の stat（_live と同じ Z は死）に揃えるか、長を os.waitid(..., WNOWAIT) で回収せずに見て回収を _kill の p.wait まで遅らせれば、長の番号は止める間ずっと埋まったままで、_kill の経路では gl_born と getattr が要らない。",
+          "mechanism": "poll が番号を空ける→空いた番号の再利用を防ぐ目印が要る、という連鎖。",
+          "measured": "未実測。この macOS の python3 に os.waitid が在ることだけ確認。",
+          "false_positive_if": "XNU がゾンビの pid と同じ番号のグループ・セッションを新しく作れる場合、または poll が別の理由でも要る場合。"
+        },
+        {
+          "where": "graphloops/tests/py/test_role_run_stop.py:26",
+          "text": "（効率）test_run_tree_kills_the_tree_when_waiting_breaks が本物の ps -A を 2 回起こし 1 件で 1.03 秒。この件の狙いは『待ちが破れたら止めて同じ例外を上げる』なので、_tree_members を差し替えれば ps は起きない。",
+          "mechanism": "_stop_tree を差し替えず、Broken.communicate に ps を素通しする分岐を足した。",
+          "measured": "pytest --durations で call 1.03 秒。",
+          "false_positive_if": "本物の ps を通すこと自体を狙いにしているなら当たらない。"
+        }
+      ],
+      "failed": "修正を禁じた形で呼んだ（4 観点——再利用・単純化・効率・高度——を別々に起こし、指摘だけを受け取った。作業ツリーは変えていない）。重なる指摘は 1 行にまとめた"
+    },
+    {
+      "skill": "/security-review",
+      "invoked": true,
+      "items": [],
+      "failed": "起こしたが所見なし（確信度 8 以上 0 件）。見た物: _ps_all の ps 出力の読み方（列は数字と stat だけで偽装できない）・_tree_members の拾い方 3 つ（外のプロセスが後から他人のセッションやグループに入る道は OS に無い）・印ファイルの書き換え（書けるのは同じ利用者で権限の境界を越えない）・番号の再利用（理論上の競合で届く先も同じ利用者）"
+    },
+    {
+      "skill": "pr-review-toolkit:silent-failure-hunter",
+      "invoked": true,
+      "items": [
+        {
+          "where": "graphloops/engine/role_run.py:418-438",
+          "text": "今壊れている（macOS の stop_group の経路）。長がゾンビで外へ出た生きた孫がいると、SIGTERM を 1 回送っただけで諦め、SIGKILL は送らず孫は生き残る。理由も『信号を送れない（EPERM）』で原因を取り違える。simulate.py の検査が緑なのは SIGTERM ですぐ死ぬ孫が数え直しの ps（約 0.4 秒）より先に消える競合に頼っているだけ。直し方: (a) killpg の送り先を生きた仲間を持つグループだけにする (b) denied の後も KILL_GRACE だけ待ってから数え直し、次の信号へ進む。",
+          "mechanism": "418 行の groups は必ず pgid を含み、ゾンビだけのグループへの killpg は XNU で EPERM。435-438 行は猶予なしに数え直し、_live(again) が真で SIGKILL の前に return する。",
+          "measured": "mktemp -d の下で実測（macOS、自分の pid だけ）。SIGTERM で死ぬ孫: why=None（0.51 秒）。SIGTERM を無視する孫: why='グループ 21281 に信号を送れない（[Errno 1] Operation not permitted）'、0.45 秒で戻り孫は生存、印も残った。os.killpg(ゾンビだけのグループ, 0) が PermissionError になることも確かめた。",
+          "false_positive_if": "Linux か、in-process の _kill の経路（leader.poll が長を回収する）なら当たらない。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:323（+277・393・416-417）",
+          "text": "壊れる余地（発火条件は未実測）。番号の再利用の判定が誤って真になると、_stop_tree は信号を 1 本も送らずに None を返し、stop_group は印を消し、run_tree の時間切れは tree_left=None になる。_kill の経路で長が未回収の間は再利用はあり得ないのに判定を当てている。直し方: (a) leader が生きていて未回収なら reused を見ない (b) 277 行の now を ps の前に取る。",
+          "mechanism": "277 行は ps が終わった後の now から切り捨ての etime を引くので、started は端数と ps の遅れだけ後ろにずれる。Linux では壁時計のステップ分も足される。合計が REUSE_SLACK（2 秒）を超えると reused が真 → 初回は known も空で members={} → None。",
+          "measured": "結果の側は実測: sleep 60 を start_new_session で起こし _stop_tree(p.pid, leader=p, born=time.time()-2.6) → why=None・送った信号 []・長は生存。発火条件（負荷時の ps の遅れが 1 秒超・Linux の時計の飛び）は未実測。空いた手元の ps の所要は 0.153 秒。",
+          "false_positive_if": "ps の遅れと切り捨ての端数を足しても実運用で 2 秒を超えないと保証できる場合。"
+        }
+      ]
+    },
+    {
+      "skill": "pr-review-toolkit:type-design-analyzer",
+      "invoked": true,
+      "items": [
+        {
+          "where": "graphloops/engine/role_run.py:418（原因は 323・338）",
+          "text": "今壊れている（まれ）。長の番号が再利用されたという判定が _tree_members の返り値 (dict, 理由) から落ち、_stop_tree は groups = {pgid} | ... で止める番号を必ず宛先に入れる。2 回目以降の信号で再利用が分かった回も、番号を拾った無関係なプロセスのグループへ killpg(pgid, SIGKILL) が届き、docstring の『無関係なプロセスがその番号で setsid した形に送らない』が守られない。最小案: groups = {m.pgid for m in live.values() if m.pgid == pgid or m.pgid in members}。構造で直すなら _tree_members に『送ってよいグループ』まで返させる。",
+          "mechanism": "reused は局所変数で found を空にするだけで返り値に載らない。_stop_tree は再利用を知らないまま {pgid} を入れる。",
+          "measured": "偽の ps と偽の os で実測: 1 回目は長 4242 と setsid で抜けた孫 5000、2 回目は 4242 を無関係なプロセスが再利用（started=900 > born=100+2）。_stop_tree(4242, born=100.0) の送信は [('killpg',4242,15),('killpg',5000,15),('killpg',4242,9),('killpg',5000,9)] で、再利用後の 4242 へ SIGKILL が届いた。実機の再利用の競りは未実測。",
+          "false_positive_if": "OS が KILL_GRACE の数秒の間に番号を使い回さないと保証できる場合（docstring とのずれは残る）。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:615-625（stop_group）",
+          "text": "今は壊れていない。born と pgid を同じ印の 2 回の読み（stat と probe_group）から取り、組が揃う前提は docstring の『印は試行ごとに 1 度だけ書く』だけだが事実と違う（run_role は往復ごとに、run_steps は段ごとに _spawn が書き直す）。2 回の読みの間に往復が替わると新しい子を『再利用』と判定して信号を送らず None を返し印を消す。最小の直し: probe_group が同じ読みの written を返す (pgid, written, why)。",
+          "mechanism": "stat の後に probe_group で読み直す間に _spawn が印を書き直すと reused が真になり found が空になる。",
+          "measured": "偽の ps で実測: mtime 60 秒前の印を置き、probe_group の差し替えで印を新しい番号 5555（started=今）に書き直すと、stop_group は why=None・送った信号 []・印は消えた。実運用では still_mine の偽で次の往復が自分を止めるので困らない。still_mine が盤面を読めない回は両方の守りが外れる（未実測）。",
+          "false_positive_if": "stat と probe_group の間の数ミリ秒に往復の切り替わりが重なり、さらに still_mine が盤面を読めない必要がある。"
+        }
+      ]
+    },
+    {
+      "skill": "pr-review-toolkit:pr-test-analyzer",
+      "invoked": true,
+      "items": [
+        {
+          "where": "graphloops/engine/role_run.py:414",
+          "text": "前の回に数えた仲間を次の回へ持ち越す known.update がどのテストでも検査されていない。setsid でグループの外へ出て SIGTERM を無視する孫を、SIGTERM で死ぬ長の下に起こし、_kill が None を返し孫も消えることを確かめる台本を simulate の escaped() の並びに足すべき。",
+          "mechanism": "長が SIGTERM で死んで回収されると setsid した孫は親が 1 になり、グループもセッションも違うので 2 回目は known からしか拾えない。known.update が無いと仲間が空になり SIGKILL を送らずに None を返す。",
+          "measured": "一時 clone で実測: 元のコードは why=None で孫は消えた。known.update を pass に替えると why=None のまま孫が生き残った。同じ変異で pytest 33 件と simulate の test_role_run 31 件は全件緑。",
+          "false_positive_if": "別の suite がこの形を既に覆っている場合（test_role_run_stop.py と simulate.py の test_role_run には無いことを確かめ済み）。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:284",
+          "text": "_ps_all が ps の失敗（exit 非 0・表が空）を拒む分岐にテストが無い。消しても何も赤くならない。",
+          "mechanism": "この分岐が無いと rows が {} になり、_tree_members は ({}, None)、_stop_tree は信号を送らず None を返す。",
+          "measured": "一時 clone で PATH の先頭に偽の ps（exit 1）を置き sleep する子に _kill: 元は『止める相手を数え上げられない（ps が全プロセスの表を返さない（exit 1: ps: denied））…』で子は止まった。条件を if False にすると why=None で子は生存。pytest・simulate は全件緑。",
+          "false_positive_if": "ps が失敗する状況が実運用で起こり得ない場合（docstring 自身が sandbox を想定している）。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:403",
+          "text": "表が読めず送ろうとしたらグループがもう居ない回の拒否文（『…グループ {pgid} は居ないが、外へ出た子孫を確かめていない』）に単体テストが無い。",
+          "mechanism": "この return が None に化けても stop_group は印を消して『止まった』と言う。",
+          "measured": "一時 clone で 403 行を return None に替えても pytest 33 件・simulate 31 件は緑。",
+          "false_positive_if": "表が読めない回は呼び手が別の手で確かめ直すと設計で決まっている場合（docstring はそう書いていない）。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:393",
+          "text": "長の番号の再利用の目印 born の配線（_popen の gl_born・_stop_tree が leader から引く所）が検査されていない。",
+          "mechanism": "born が None だと reused は常に偽。",
+          "measured": "一時 clone で 393 行を pass に替えても pytest・simulate は全件緑。再利用の競合そのものは未実測。",
+          "false_positive_if": "_kill の経路で番号の再利用が構造上起きない場合（待つ間の leader.poll で回収するので保証は無い）。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:437",
+          "text": "『送れなかったが数え直すと生きた仲間が居ない』分岐と『数え直しで表が読めない（again is None）』分岐に単体テストが無い。前者は macOS の EPERM 頼みの simulate だけ、後者はどこにも無い。",
+          "mechanism": "again is None が落ちると表が読めないまま None を返して印を消す。",
+          "measured": "一時 clone（macOS）で if True: に替えると simulate が 1 件赤、pytest は緑。if _live(again or {}): に替えると両方緑で生き残った。Linux は未実測。",
+          "false_positive_if": "変異と CI が macOS でしか回らない場合（後者の穴は残る）。"
+        },
+        {
+          "where": "graphloops/engine/role_run.py:621",
+          "text": "stop_group に足した拒否文『{pgid_file}: 読めない（{e}）』にテストが無い。",
+          "mechanism": "この return が None に化けても、止める試みをせずに『止まった』を返す。",
+          "measured": "一時 clone で return None に替えても pytest・simulate は緑。印が無い回の FileNotFoundError→None は simulate が覆っている。",
+          "false_positive_if": "印の置き場が常に書ける場所で stat が権限で落ちない場合。"
+        }
+      ]
+    }
+  ],
+  "simplify_carried": false
+}

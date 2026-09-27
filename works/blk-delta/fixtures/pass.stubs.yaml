@@ -1,0 +1,29 @@
+# 審査役が穴 0 件と答え（tests/replies/delta_ok.json と同じ中身）、輪を抜けて集める節まで届く配線を見る。
+# 受け付け（review-accept）と集める節（collect）は盤面（$ARTIFACTS_DIR/board の state.json。同じ run の start と前のブロックが
+# 作る物）を要るので、このブロック単体の run では stub する（線 A Task 13。受け付けと出口の中身は tests/test_blk_tests_delta.py の
+# TestDeltaBoard が盤面の上で見る）。cut も同じく盤面を要るので stub で置く
+cut:
+  ok: true
+  files: []
+  diff_file: fix.diff
+review:
+  faces: []
+  checks: []
+  faces_none: "stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い"
+review-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+collect:
+  ok: true
+  faces: 0
+  review_file: board/out/p3.delta_review.json
+  diff_file: board/fix-delta.patch
+review-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）
+  ok: true
+  reads_file: ""
+fixture:
+  expect: completed
+  reached: [cut, delta-loop, collect]
+exec-code: true

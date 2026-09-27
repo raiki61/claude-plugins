@@ -1,0 +1,16 @@
+{
+  "base_sha": "4233aa8",
+  "method": "4 依頼者の名指し",
+  "commits": 0,
+  "merge_commit": false,
+  "intent_to_add": [],
+  "touches_gates": true,
+  "touches_external_seams": false,
+  "touches_user_path": false,
+  "touches_security_surface": true,
+  "material": {
+    "status": "found",
+    "count": 0,
+    "detail": "BASE=4233aa8（0.21.0 の候補。回す側の指示で名指し。HEAD と同じ commit）。判定から入る run なので差分は 0 コミット・空が普通。依頼は CI の定義（.github/workflows/test.yml）と tests/run.sh の見送りの数え方を変えうるので、ゲートに触れる（touches_gates=true）。外部の CI への入出力（workflow が道具を入れる）に触れうるので security_surface は迷って true"
+  }
+}

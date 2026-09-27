@@ -1,0 +1,12 @@
+fa59bc903774  claude-plugins-official/pr-review-toolkit/fa59bc903774  pr-review-toolkit（Anthropic。Apache-2.0）のプラグインのキャッシュ（${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/cache/ からの相対パス。gitCommitSha fa59bc9037741ecfa131aa27938272605710d7b2）。写しは直さない
+# 素材集めの局所レビューのレンズ（agent。graph の p1.local_review の skills）を、隔離した設定に dev/toolset.py が手元の marketplace から入れる（P1-R8）
+.claude-plugin/plugin.json
+LICENSE
+README.md
+agents/code-reviewer.md
+agents/code-simplifier.md
+agents/comment-analyzer.md
+agents/pr-test-analyzer.md
+agents/silent-failure-hunter.md
+agents/type-design-analyzer.md
+commands/review-pr.md

@@ -1,0 +1,63 @@
+# 筋書き settled: 判定役の会話の続きで再審し、1 回で「採る」と決着する。第三の目の段は rj-route2 が回す物を返さないので飛ぶ。
+# 役の返答は tests/replies/rejudge_settled.json と同じ中身（tests/test_blk_rejudge.py が一致を見る）。スクリプトの節は全部 stub
+# （盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_rejudge.py が子のプロセスで回す）。
+rj-snap:
+  ok: true
+  snapshot_file: board/r1/rejudge-snapshot.json
+rj-route1:
+  next: rejudge
+  node: p2.rejudge
+  why: p2.rejudge が ready
+  stopped: false
+rejudge-prep:
+  prompt_file: board/prompts/r1/p2.rejudge.md
+  attempt: 1
+  out_path: board/out/r1/p2.rejudge.json
+  node: p2.rejudge
+  already: false
+rejudge:
+  verdict: 採る
+  new_facts: src/a.py を読み、g から f への直の呼び出しが上限を通らないことを確かめた（g の 12 行目）。修正は共通経路の片方だけに上限を掛けている
+  reason: 回す側が挙げた道を現物で確かめ、単位の見立てはそのまま（処方の足りない道は修正役に返す）
+  units:
+  - key: src/a.py:f — 上限が効かない経路がある
+    label: block
+    reason: 上限が 2 つの入口の片方にしか掛かっていない（g からの直の呼び出しを確かめた）
+  - key: src/b.py:g — 定数の重複
+    label: suggest
+    disposition: do-now
+rejudge-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ok p2.rejudge を受け付けた
+  node: p2.rejudge
+  verdict: 採る
+rj-route2:
+  next: ''
+  node: ''
+  why: '再審の節が ready に無い（p2.rejudge: done・p2.rejudge_third: cond rejudge_exhausted: 今の周の異議に往復 1 回（上限 3））'
+  stopped: false
+collect:
+  ok: true
+  reason: ''
+  passes: 1
+  verdicts:
+  - 採る
+  unsettled:
+    text: ''
+    settled: true
+  new_open_units: []
+  unnamed_changed: []
+  diff_file: board/r1/rejudge-diff.json
+  reads_file: ''
+fixture:
+  expect: completed
+  reached:
+  - rj-snap
+  - rj-route1
+  - rejudge-prep
+  - rejudge
+  - rejudge-accept
+  - rj-route2
+  - collect

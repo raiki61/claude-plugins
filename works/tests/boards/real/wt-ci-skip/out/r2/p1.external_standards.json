@@ -1,0 +1,41 @@
+{
+  "material": {
+    "status": "clean",
+    "checked": "diff-r2.patch 全体（.github/workflows/test.yml, README.md, graphloops/tests/parallel.py・py/fence.py・simulate.py・simulate_review.py, tests/catchup-switch-case.py, tests/mutations.json, tests/run.sh）を読み、CI での shellcheck 導入手段（pip の shellcheck-py 固定）・GIT_SSH_COMMAND の Windows パス引用（shlex.quote + セパレータ変換）・SKIP 行への能力名タグ付け（TAP 由来の書式）の3点を一次情報（PyPI・koalaman/shellcheck 公式 wiki・pre-commit エコシステム・buildkite/git-lfs の実障害と修正・TAP14 仕様）に当てた。手元の依存の使い残しは、リポジトリ内の全プラグイン manifest（graphloops/attention/gates/coldwrite/.claude-plugin の plugin.json）と .review-checks.json、ローカルの plugin catalog（installed_plugins.json・plugin-catalog-cache.json）を shellcheck/lint 関連語で検索したが該当なし。tool-versions 系ファイル（.tool-versions・mise.toml・Dockerfile）も root に無い。"
+  },
+  "findings": [],
+  "seen": "diff-r2.patch 全文。.github/workflows/test.yml の全文（変更後の実ファイル）。tests/run.sh の SKIP_ALLOW 実装部と冒頭の前提部。リポジトリ root の全プラグイン manifest（graphloops・.claude-plugin・attention・gates・coldwrite の plugin.json）と .review-checks.json。ローカル plugin キャッシュ（installed_plugins.json・plugin-catalog-cache.json）を shellcheck 語で検索。一次情報: PyPI shellcheck-py の release メタデータ、shellcheck-py の GitHub リポジトリ説明、koalaman/shellcheck 公式 wiki の GitHub-Actions ページ、pre-commit 公式 hooks 一覧での shellcheck-py の扱い、buildkite/agent PR #4381（GIT_SSH_COMMAND の Windows パス破損の実修正）、git-lfs issue #1895（GIT_SSH_COMMAND の引用の扱い）、TAP version 14 仕様書（SKIP directive の自由書式規定と YAML Diagnostic ブロックの非標準化の明記）。",
+  "unseen": "graphloops/tests/py/fence.py・conftest.py の件数柵の内部ロジックは深追いしていない（今回の3ファイルの問題クラスと無関係と判断し、行数レベルの再読はしていない）。actions/checkout@v5・actions/setup-python@v5 のバージョン当否は、この diff が触っていない行なので確認していない。gates/attention/coldwrite プラグイン自体の中身（plugin.json 以外のファイル）は開いていない——manifest の dependencies 欄と catalog 検索で shellcheck 関連の宣言が無いことを見て打ち切った。GitHub Actions の problem matcher（shellcheck の注釈を PR 差分に出す公式的な仕組み）は存在を知っているが、能力を減らす話ではなく機能追加の余地に過ぎないため深追いしていない。",
+  "web_refetched": true,
+  "rankings": [
+    {
+      "problem": "GitHub Actions で 3 OS（ubuntu/macOS/Windows）に shellcheck 本体をそろえて入れる手段",
+      "source": "koalaman/shellcheck 公式 wiki (GitHub-Actions ページ, WebFetch 2026-09-26): 'ShellCheck is pre-installed on GitHub's Ubuntu runners'。cross-platform 案内は無く、marketplace action か公式リリースバイナリの直接ダウンロードのみ言及。加えて shellcheck-py (PyPI, リリース 2025-08-09 時点で最新 0.11.0.1) は pre-commit 公式 hooks 一覧に 'shellcheck-py/shellcheck-py' として掲載され、月間430万DL。",
+      "ranked": [
+        "koalaman/shellcheck の GitHub Releases から版を固定してバイナリを直接取得する（公式が唯一 cross-platform かつ版固定を案内する経路）",
+        "GitHub Actions marketplace の専用 action（ludeeus/action-shellcheck 等、cross-platform 対応を謳い widely used）",
+        "shellcheck-py（PyPI wrapper。pre-commit 公式 hooks 一覧にも載る、python 系ツールチェーンでの確立した代替）",
+        "ubuntu の既定にだけ頼り他 OS は見送る（元の状態）"
+      ],
+      "diff_at": "shellcheck-py（PyPI wrapper。pre-commit 公式 hooks 一覧にも載る、python 系ツールチェーンでの確立した代替）",
+      "why_not_higher": "公式 wiki 自体が cross-platform 手段を案内していないため『公式の唯一解』は存在しない。marketplace action より1段下だが、リポジトリ既存の慣習（pytest==9.1.1 と同じ pip 版固定パターン）に揃え、pre-commit エコシステムで公式に認知された代替を使っており、劣化した自作再発明ではない。"
+    },
+    {
+      "problem": "GIT_SSH_COMMAND に Windows のバックスラッシュ path を渡すときの引用",
+      "source": "buildkite/agent PR #4381（'SUP-8144: Fix Windows SSH key path corruption in GIT_SSH_COMMAND'）: 'Using POSIX single-quote escaping is the solution... same approach already used by gitCredentialHelperCommand'。GIT_SSH_COMMAND は全 OS で git 同梱の POSIX 系シェル（MSYS sh.exe）が解釈するため、cmd.exe 流の引用ではバックスラッシュが失われる。",
+      "ranked": [
+        "パス区切りを / に変換したうえで POSIX 一重引用（shlex.quote 相当）で包む（buildkite が同じ不具合を実修正した形）",
+        "cmd.exe 流の引用や無変換のまま渡す（既知の不具合を再現する）"
+      ],
+      "diff_at": "パス区切りを / に変換したうえで POSIX 一重引用（shlex.quote 相当）で包む（buildkite が同じ不具合を実修正した形）"
+    },
+    {
+      "problem": "SKIP 行に「欠けた能力の名前」という構造化データをどう載せるか",
+      "source": "TAP version 14 仕様書（WebFetch 2026-09-26): SKIP directive の説明文は 'any text after' として自由書式と規定。YAML Diagnostic ブロックは存在するが 'the data structure represented by a YAML Diagnostic block has not been standardized'（構造そのものが未標準化）。",
+      "ranked": [
+        "SKIP の説明文（自由書式と明記されている）の頭に能力名を置く独自の軽量規約"
+      ],
+      "diff_at": "SKIP の説明文（自由書式と明記されている）の頭に能力名を置く独自の軽量規約"
+    }
+  ]
+}

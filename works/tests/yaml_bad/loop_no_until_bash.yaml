@@ -1,0 +1,12 @@
+# 違反: loop_group に until_bash が無い
+name: bad-loop-no-until-bash
+description: 違反の見本
+nodes:
+  - id: judge-loop
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      nodes:
+        - id: accept
+          bash: echo ok
+          timeout: 1728000000

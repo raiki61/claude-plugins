@@ -1,0 +1,85 @@
+# 筋書き plan-rejected: 修正案の受け付けが 1 回目の返答を拒む（done: false）。輪の形だけを見る。
+# 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1。線 C の MG25）。だから輪の後ろの stub は、
+# 出し直した返答が通った後の姿。拒否の後に輪が回り直す式と 3 回目の諦めは tests/test_blk_plan.py の test_give_up_ends_loop が、
+# Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
+plan-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/plan-snapshot.json
+plan-prep:
+  prompt_file: board/r1/prompt-p2.fix_plan.md
+  attempt: 1
+  out_path: board/out/r1/p2.fix_plan.json
+  node: p2.fix_plan
+  already: false
+plan:
+  plan:
+  - unit_keys:
+    - 'stats.py mean: 分母が len(xs) - 1 になっている'
+    - 'stats.py clamp: 上限を超えた値に lo を返す'
+    approach: mean の分母を len(xs) に、clamp の上限の枝を hi に直す（定義どおり）
+    adds: []
+    removes: []
+    shrink_first: 足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる
+    narrows: []
+plan-accept:
+  ok: false
+  done: false
+  give_up: false
+  reason: 受け付けが拒んだ
+  reason_file: board/reject-take_p2_fix_plan-1.txt
+  node: p2.fix_plan
+plan-review-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/plan-review-snapshot.json
+plan-review-prep:
+  prompt_file: board/r1/prompt-p2.plan_review.md
+  attempt: 1
+  out_path: board/out/r1/p2.plan_review.json
+  node: p2.plan_review
+  already: false
+plan-review:
+  faces: []
+  shrink: []
+  faces_none: 案の 2 か所を stats.py で読み、写し・入口・後退・方針の穴も別案も無いと確かめた
+  reason: 分母と戻り値を 1 行ずつ直す案で、足す物も狭める物も無い
+plan-review-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: p2.plan_review
+  ready:
+  - p3.fix
+  asking: false
+  halted: false
+  out_file: out/r1/p2.plan_review.json
+plan-reads:
+  ok: true
+  reads_file: board/r1/reads-plan-block.json
+collect:
+  ok: true
+  plan_file: board/out/r1/p2.fix_plan.json
+  review_file: board/out/r1/p2.plan_review.json
+  asks_human: false
+  gate_kinds: []
+  reads_file: board/r1/reads-plan-block.json
+  gave_up: false
+  reason_file: ''
+fixture:
+  inputs:
+    judgment_file: board/judgment.json
+  expect: completed
+  reached:
+  - plan-snap
+  - plan-prep
+  - plan
+  - plan-accept
+  - plan-review-snap
+  - plan-review-prep
+  - plan-review
+  - plan-review-accept
+  - plan-reads
+  - collect

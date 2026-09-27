@@ -1,0 +1,85 @@
+# 筋書き pass: 仕様の道の run（flow=spec）で、writer が要件 1 件と受け入れ条件のテスト 1 件を書き、審査が穴を 1 件挙げ、writer が
+# declared で答えて直し、人が関所で承認して、spec.freeze が受け入れ条件の run（承認の時点で exit 1）を記録に固める。
+# スクリプトの節は全部 stub（盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_spec.py が子のプロセスで回す）。
+# 関所 spec-gate は stub を取らず、模擬実行では自動で通る（--pause-at-gates 無し）。答えは spec-answer の stub に書く。
+write-route: {go: true, node: spec.write, why: spec.write が ready}
+write-prep:
+  prompt_file: board/prompts/r1/spec.write.md
+  attempt: 1
+  out_path: board/out/r1/spec.write.json
+  node: spec.write
+  already: false
+spec-write:
+  requirements:
+  - {key: R1, text: mean は 3 つの数の平均を返す}
+  acceptance:
+  - {key: A1, requirement: R1, file: test_spec_accept.py, name: test_mean_is_middle, run: python3 -m unittest test_spec_accept}
+  out_of_scope: []
+write-accept: {ok: true, done: true, give_up: false, reason: '', node: spec.write}
+review-route: {go: true, node: spec.review, why: spec.review が ready}
+review-prep:
+  prompt_file: board/prompts/r1/spec.review.md
+  attempt: 1
+  out_path: board/out/r1/spec.review.json
+  node: spec.review
+  already: false
+spec-review:
+  faces:
+  - {key: F1, kind: missing, where: R1, why: 空の列の平均をどう扱うかが要件にも受け入れ条件にも無い（例外か 0 か）}
+  reason: 要件 R1 と受け入れ条件 A1 を読み、境目の入力を確かめた
+review-accept: {ok: true, done: true, give_up: false, reason: '', node: spec.review}
+revise-route: {go: true, node: spec.revise, why: spec.revise が ready}
+revise-prep:
+  prompt_file: board/prompts/r1/spec.revise.md
+  attempt: 1
+  out_path: board/out/r1/spec.revise.json
+  node: spec.revise
+  already: false
+spec-revise:
+  spec:
+    requirements:
+    - {key: R1, text: mean は 3 つの数の平均を返す}
+    acceptance:
+    - {key: A1, requirement: R1, file: test_spec_accept.py, name: test_mean_is_middle, run: python3 -m unittest test_spec_accept}
+    out_of_scope: [空の列の平均（依頼に無い。今の実装の ZeroDivisionError のまま）]
+  handled:
+  - {key: F1, handled: declared, how: 空の列は依頼の範囲の外と決め、out_of_scope に理由つきで足した}
+revise-accept: {ok: true, done: true, give_up: false, reason: '', node: spec.revise}
+spec-ask:
+  ask: true
+  stop: false
+  gate_text: "修正の前の関所（盤面の問い spec.approve・種類: spec_approval）\n\n仕様（要件と受け入れ条件）を承認するか。…\n"
+  why: ''
+spec-answer: {answered: true, decision: approve, stop: false, why: ''}
+collect:
+  ok: true
+  reason: ''
+  spec_file: board/r1/spec.json
+  tests:
+  - {file: test_spec_accept.py, sha: 0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0}
+  approved_by: human:spec-gate
+  approval_note: 受け入れ条件 A1 で進めてよい
+  frozen_rev: 1f0e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c
+  requirements: 1
+  acceptance: 1
+  faces: 1
+  handled: 1
+fixture:
+  expect: completed
+  reached:
+  - write-route
+  - write-prep
+  - spec-write
+  - write-accept
+  - review-route
+  - review-prep
+  - spec-review
+  - review-accept
+  - revise-route
+  - revise-prep
+  - spec-revise
+  - revise-accept
+  - spec-ask
+  - spec-gate
+  - spec-answer
+  - collect

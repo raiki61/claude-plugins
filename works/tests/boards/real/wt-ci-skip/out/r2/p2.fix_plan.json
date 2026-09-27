@@ -1,0 +1,82 @@
+{
+  "plan": [
+    {
+      "unit_keys": [
+        "リポジトリの .sh の改行: Windows の checkout で CRLF になり、Windows に入れた shellcheck が SC1017 で赤"
+      ],
+      "approach": "リポジトリのルートに .gitattributes を新設し、『*.sh text eol=lf』の 1 行だけを書く（git の gitattributes 文書の例そのまま）。Windows の checkout の core.autocrlf より優先して .sh が LF で取り出され、3 OS に入れた shellcheck の SC1017 とそれに続く構文の誤りが消える。CI の定義（test.yml）は触らない。手元で『git ls-files --eol』で 5 本の .sh が i/lf かつ attr text eol=lf になることを確かめる。",
+      "adds": [
+        {
+          "kind": "config",
+          "name": ".gitattributes（*.sh text eol=lf）",
+          "canonical": "新設。リポジトリの改行の宣言の正本（git 公式文書の例）。追跡されている .sh は 5 本（blob は既に LF なので再正規化で差分は出ない）"
+        }
+      ],
+      "removes": [],
+      "shrink_first": "足さない形を先に考えた。(a) Windows の一覧に shellcheck を書き install を ubuntu に戻す: 人の決定（見送り自体を無くす）に反する。(b) shellcheck に --exclude=SC1017: CR の後の構文の誤り（SC1073 など）が残る。(c) checkout の前に core.autocrlf=false の段: .sh 以外の全ファイルの改行が Windows で変わり、0.20.3 の Windows の直しの前提を動かしうる。1 行の宣言が最小。",
+      "narrows": []
+    },
+    {
+      "unit_keys": [
+        "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える"
+      ],
+      "approach": "posix でしか走らない 6 か所で、飛ばす check 1 件につき 1 回、既存の skip(desc, \"process-group\", reason) を呼ぶ（TAP 14 の検査点ごとの SKIP）。(1) simulate.py の run_role の子の木の枝（if os.name == \"posix\"、check 13 件）に else を足し、13 件の desc（f 文字列の実測値を除いた固定の文）で skip。(2) test_relaunch_live_launch と (3) test_stop_signal_guards の先頭の『if os.name != \"posix\": return』を、3 件ずつ skip してから return に。(4) relaunch の前の試行の子（if child is not None）と (5) 前の relaunch が残した子（if stale_child is not None）に else を足し、それぞれ 2 件・1 件を skip。(6) simulate_review.py の test_stop_signal_stops_test_runner_tree の return の前に 1 件を skip。計 23 件で、Windows でも計画の件数が 1932 に揃う（EXPECTED_CHECKS は変えない）。能力の名前はどれもプロセスグループで子の木を止めることに頼るので process-group とし、Windows の skip_allow に既に在るので一覧は変えない。理由の文は各ファイルに 1 つの定数（POSIX_GROUP_WHY）に置き、6 か所で共有する。",
+      "adds": [
+        {
+          "kind": "other",
+          "name": "simulate.py・simulate_review.py の skip の呼び 23 件（6 か所）",
+          "canonical": "既存の skip()（parallel.skip_line）を使う。新しい口は足さない"
+        },
+        {
+          "kind": "other",
+          "name": "simulate.py と simulate_review.py の定数 POSIX_GROUP_WHY（見送りの理由の文）",
+          "canonical": "新設。同じファイルの 6 か所・1 か所で共有する理由の文。2 ファイルの台本は別のモジュールなので各 1 つ"
+        }
+      ],
+      "removes": [
+        "simulate.py の 2 か所と simulate_review.py の 1 か所の、行も件数も出さない『return』だけの枝（skip してから return に置き換える）"
+      ],
+      "shrink_first": "消す形として EXPECTED_CHECKS を OS ごとの値にする案を考えた——件数の柵の意味（計画の件数は OS によらず同じ）を崩し、見送りの名前での許しも効かなくなるので採らない。枝の条件を能力で問う形（hasattr(os, 'killpg')）への書き換えは挙動を変えずに行を増やすだけなので、この周では足さない。skip の desc を posix の枝の check と 1 か所で共有する仕組み（登録簿）は作らない——posix の枝に check を足して skip を足し忘れれば、Windows の件数の柵（-ne）が赤にする（fail-closed。原因の文は遠い）。",
+      "narrows": []
+    },
+    {
+      "unit_keys": [
+        "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている"
+      ],
+      "approach": "R1 の削除候補 7 件と言い換え 1 件を範囲どおりに直す。test.yml の tests/run.sh の段の注記（env の言い直し）を削る。tests/run.sh の CI_LINT_OK の『見送りを CI で失敗に数える…』の注記を削る。simulate.py・simulate_review.py の skip の docstring から今回足した『欠けた能力の名前つきで』だけを削る。skip_probe の行末注記の括弧『（SKIP_ALLOW の無い FAIL_ON_SKIP=1 の今までの意味）』を削る。skip_probe の注記の 2 文目を削る。report_skips の注記の 2 文目以降（README の写し）を削る。catchup-switch-case.py の応答の無い origin の注記の括弧の後半『git が sh を起こせない環境では見送る』を削る。『付けなかった OS』→『条件から外れた OS』。test.yml:44 の括弧『（同じ .sh を 3 回見ても指摘は変わらない）』を人の決定の理由（二重に走るのは数秒で、能力は減らない）に差し替える。",
+      "adds": [
+        {
+          "kind": "doc",
+          "name": "test.yml の独立の shellcheck の段の注記の理由の差し替え",
+          "canonical": "人の決定 2026-09-26（ubuntu の独立の段は残す）"
+        }
+      ],
+      "removes": [
+        "注記 7 件（上の approach のとおり、範囲を限って）"
+      ],
+      "shrink_first": "消すだけの直し。足すのは実測で崩れた理由の差し替え 1 か所だけ（括弧ごと削ると、独立の段を残す理由がどこにも無くなる）。",
+      "narrows": []
+    },
+    {
+      "unit_keys": [
+        "tests/run.sh CI_LINT_OK: tests/run.sh の段の env の行が在るかだけを見て、run: の上書き・continue-on-error・if: で見送りの失敗が無効になっても緑"
+      ],
+      "approach": "tests/run.sh の CI_LINT_OK の Python で、既存の step(\"tests/run.sh\") が返す段の行に assert を 2 つ足す。(a) run: の行がちょうど『run: bash tests/run.sh』（run: の頭で FAIL_ON_SKIP=0 などの代入で env を上書きできない）。(b) 段が if: と continue-on-error: の行を持たない（段を OS で外す・失敗を無視する形を拒む）。変異の腕を 3 本足す（CL7: run: に FAIL_ON_SKIP=0 の代入、CL8: continue-on-error: true、CL9: if: matrix.os == 'ubuntu-latest'）——撃たない（変異テストは合流後）。写しの test.yml に 3 形を当てて赤、元で CI_LINT_OK を手で確かめる。",
+      "adds": [
+        {
+          "kind": "guard",
+          "name": "CI_LINT_OK の assert 2 つ（run: の行の完全一致・if:/continue-on-error: が無い）",
+          "canonical": "既存の CI_LINT_OK（tests/run.sh の PYCI）と step() を広げる"
+        },
+        {
+          "kind": "arm",
+          "name": "tests/mutations.json の腕 CL7・CL8・CL9",
+          "canonical": "既存の腕の一覧に足す（expect は既存の CI_LINT_OK の検査名の頭）"
+        }
+      ],
+      "removes": [],
+      "shrink_first": "YAML の構文解析器を入れる案は stdlib に無く手元の検査に依存を増やすので採らない。matrix.include の中身（どの OS が何を許すか）を assert する案は、決着済みの原則『どの環境で見送りを許すかは実装側で決めない』に反するので採らない（判定どおり）。既存の step() に 2 行足すのが最小。",
+      "narrows": []
+    }
+  ]
+}

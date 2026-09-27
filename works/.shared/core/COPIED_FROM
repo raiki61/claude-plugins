@@ -1,0 +1,33 @@
+a1202d0  graphloops 0.21.0（前の写しは fbd40e3 = 0.20.3）
+graphloops/engine/__init__.py
+graphloops/engine/advance.py
+graphloops/engine/board.py
+graphloops/engine/commands.py
+graphloops/engine/declared.py  # 0.21.0 で足した: engine/rules.py が import する
+graphloops/engine/intake.py  # 0.21.0 で足した: engine/advance.py・commands.py が import する
+graphloops/engine/pointers.py  # 0.21.0 で足した: engine/advance.py・commands.py・render.py・schema.py が import する
+graphloops/engine/record.py
+graphloops/engine/render.py
+graphloops/engine/role_run.py
+graphloops/engine/rules.py
+graphloops/engine/schema.py
+graphloops/engine/util.py
+graphloops/engine/validator.py
+graphloops/rules/review-loop.py
+graphloops/rules/policy_input.py  # 0.21.0 で足した: rules/review-loop.py が読み込む（方針の入力。後の作業でも使う）
+graphloops/graphs/review-loop.json
+scripts/review-record.py
+scripts/record_common.py
+scripts/comment-ratio.sh  # 盤面の層で足した: 検証器の scalars（コメントの比率）が走らせる
+REVIEW.md  # 盤面の層で足した: 検証器が審査の決まりとして読む
+graphloops/scripts/parallel-pr.py  # 盤面の層で足した: engine が走らせる節 p0.parallel_pr の helper
+graphloops/graphs/review-loop-tdd.json  # 修正の段の TDD で足した: 盤面の層が節の表の graph で選ぶ TDD 版の graph（review-loop.json を extends）
+graphloops/rules/review-loop-tdd.py  # 修正の段の TDD で足した。works の手直し 1 か所: SUITE_TIMEOUT = 1800 → 1728000（一式 1 回の上限を 20 日に。works の期限は 20 日だけ。tests/test_core_copy.py の DEVIATIONS）
+graphloops/prompts/review-loop/tdd/p3.delta_review.md  # 修正の段の TDD で足した: TDD 版の graph の指示書（graph の置き場からの相対 ../prompts/）
+graphloops/prompts/review-loop/tdd/p3.fix.md  # 同上
+graphloops/prompts/review-loop/tdd/p3.tdd_tests.md  # 同上
+agents/judge.md  # 役の定義を pack に持つ（run 31）: 隔離した CLAUDE_CONFIG_DIR に convergence-loops が無く、engine の agent_def が引けずに独立の目の支度が BoardGap で落ちた。本線の engine は隣の plugin の agents/ を読むので、同じ commit の定義を core/agents/ に写し rolekit.agent_def が引く
+agents/blind-judge.md  # 同上
+agents/inspector.md  # 同上
+agents/investigator.md  # 同上
+agents/cold-reader.md  # 同上

@@ -1,0 +1,18 @@
+{
+  "faces": [
+    {
+      "key": "stats.py mean: 空の列の扱いの方針とぶつかる",
+      "kind": "policy",
+      "where": "stats.py",
+      "cite": "return sum(xs) / len(xs)",
+      "why": "空の列で ZeroDivisionError になり、空の列は 0 を返すという方針とぶつかるかもしれない"
+    }
+  ],
+  "checks": [
+    {
+      "key": "stats.py clamp: docstring が上限の枝の約束を書いていない",
+      "closed": true,
+      "why": "clamp の docstring に上限を超えた値は hi を返すと書かれ、事前審査が言った約束のずれは塞がった"
+    }
+  ]
+}

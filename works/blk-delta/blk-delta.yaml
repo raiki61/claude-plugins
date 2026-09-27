@@ -1,0 +1,179 @@
+name: blk-delta
+description: |
+  修正差分の審査のブロック。修正を受けた盤面が切った差分（機械の節 p3.fix_delta）を審査役（読むだけ）に見せ、修正が新しく
+  作った穴（写し・塞がない入口・宣言と実装のずれ）と、修正が塞いだと言う事前審査の穴の検算を返させ、盤面の受け付けの規則に
+  通るまで同じ会話で出し直させる（上限 3 回）。義務の組み立ては盤面の機械の節 p3.delta_owed。
+  ラインから include で使う。出口は受け付けた穴の数・審査の返答と修正の差分のパス・手直しが答える義務の数ほか。
+  スクリプトは盤面（線 A Task 13）。役の印と読んだ証拠の節は〔線A計〕T17 で足した。人の方針は支度（cut）が brief に書く。
+
+inputs:
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版。空なら差分を切る時の HEAD（Ruling R2）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 盤面の loop.fix_delta の差分のパスと触ったファイルを出し、役に見せる材料（brief）・作業ツリーの写し・起こした印を置く。
+  # 盤面に今の周の差分が無い・審査の節が待っていないときは終了コード 2 で run を止める（審査役を起こさない。配線の誤り）
+  - id: cut
+    script: cut
+    runtime: uv
+    timeout: 1728000000
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, files, diff_file]
+      properties:
+        ok: {type: boolean}
+        files: {type: array, items: {type: string}}
+        diff_file: {type: string}
+        # 線 A Task 13 の cut（refix.cut）が足す欄。指示書が $cut.output.brief_file を読むので宣言する（宣言の無い欄への参照は
+        # 読み込みで拒まれる）。1 本目の欄の形を保つため任意にする。入口・節の組み替えは Task 17
+        rev: {type: string}
+        brief_file: {type: string}
+        must: {type: array, items: {type: string}}
+
+  # 審査役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
+  - id: delta-loop
+    depends_on: [cut]
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $review-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
+      nodes:
+        - id: review
+          command: delta-review
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # 指示書（commands/delta-review.md）は $cut.output.* と $LOOP_PREV.review-accept.output.reason_file を直に読む（Ruling R16）。
+          # 拒否の理由の本文は reason_file のファイルにだけ置く（本文を $LOOP_PREV で貼ると、中の $… が置き換えに通る）。
+          # include は $cut を reviewing__cut に付け替えるが、輪の中の節の id（review-accept）は付け替えない——輪の中で解ける。
+          # 宣言していない $INPUTS.<名> は読み込みで拒まれる
+          # refix.output_format("review")（写しの p3.delta_review の schema に印 works-node: review）を貼った物（tests/test_blk_tests_delta.py が一致を見る）
+          output_format:
+            description: 'works-node: review'
+            type: object
+            additionalProperties: false
+            required:
+            - faces
+            - checks
+            properties:
+              faces:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - kind
+                  - where
+                  - cite
+                  - why
+                  properties:
+                    key:
+                      type: string
+                      minLength: 8
+                    kind:
+                      type: string
+                      enum:
+                      - copy
+                      - entrance
+                      - contract_drift
+                      - dead_path
+                      - scope_creep
+                    where:
+                      type: string
+                      minLength: 1
+                    cite:
+                      type: string
+                      minLength: 4
+                    why:
+                      type: string
+                      minLength: 20
+              faces_none:
+                type: string
+              checks:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - closed
+                  - why
+                  properties:
+                    key:
+                      type: string
+                      minLength: 8
+                    closed:
+                      type: boolean
+                    why:
+                      type: string
+                      minLength: 20
+        - id: review-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [review]
+          with:
+            reply: {from: "$review.output"}
+            base_rev: $INPUTS.base_rev
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [ok, done, reason, reason_file]   # rolekit.accept_role の返り（通れば entry.take の欄も）
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              node: {type: string}
+              reason: {type: string}
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。rolekit.accept_role）
+              review_file: {type: string}
+              # 通った時の entry.take の欄（blk-refix の受け付けと同じ。run 25 はこれが無くて落ちた。tests/test_script_contract.py）
+              ready: {type: array, items: {type: string}}
+              asking: {type: boolean}
+              halted: {type: boolean}
+              out_file: {type: string}
+
+  # 読んだ証拠（受け付けの条件にしない。今の周の reads-review.json）。機械が渡したパスは brief と差分
+  - id: review-reads
+    script: reads
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [delta-loop]
+    with:
+      must: '["$cut.output.brief_file", "$cut.output.diff_file"]'
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, reads_file]
+      properties:
+        ok: {type: boolean}
+        sources: {type: object}
+        missing: {type: array, items: {type: string}}
+        reads_file: {type: string}
+
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の今の周の審査の返答から出口を組む
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [review-reads]
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, faces, review_file, diff_file]
+      properties:
+        ok: {type: boolean}
+        faces: {type: integer, minimum: 0}
+        review_file: {type: string}
+        diff_file: {type: string}
+        # 線 A Task 13 の collect（refix.collect_delta）が足す欄（1 本目の 4 つの欄は必須のまま）
+        owed: {type: integer, minimum: 0}
+        fix_rev: {type: string}
+        reads_file: {type: string}

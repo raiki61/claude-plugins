@@ -1,0 +1,16 @@
+{
+  "faces": [],
+  "faces_none": "手直しの差分 1 行（clamp の docstring）と clamp の本体・test_stats.py を読んだ。docstring は 2 つの枝の約束を本体と同じに書き、ずれは無い",
+  "checks": [
+    {
+      "key": "stats.py clamp: docstring が下限の枝の約束を書いていない",
+      "closed": true,
+      "why": "docstring に下限を下回った値は lo を返すと書かれ、下限の枝の約束のずれは塞がった"
+    },
+    {
+      "key": "stats.py clamp: docstring が上限の枝の約束を書いていない",
+      "closed": true,
+      "why": "docstring に上限と下限の両方の枝が書かれ、事前審査のずれは塞がった"
+    }
+  ]
+}

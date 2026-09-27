@@ -1,0 +1,35 @@
+{
+  "findings": [
+    {
+      "where": "tests/catchup-switch-case.py: _none(tmp) 内、os.environ[\"GIT_SSH_COMMAND\"] の設定・catchup.FETCH_TIMEOUT の差し替えから del/復元まで",
+      "text": "os.environ[\"GIT_SSH_COMMAND\"] の設定と catchup.FETCH_TIMEOUT の書き換えが、対称の復元（del / 元の値への戻し）まで try/finally で保護されていない。間の call(repo, node(...)) が例外を投げた場合、両方とも復元されないまま関数を抜ける。",
+      "mechanism": "set → (例外の可能性がある呼び出し) → 復元、という直線的な並びで、finally も with も無い。os.environ はプロセス全体の状態、catchup.FETCH_TIMEOUT はモジュールグローバル状態であり、後続の別テストや同一プロセス内の別コードが汚れた値を読む経路がある。",
+      "false_positive_if": "call() がこの経路で例外を投げないことが保証されている（内部で全ての例外を握り潰す実装になっている）場合、あるいはこのケースの実行が使い捨てのサブプロセス単位で他コードと状態を共有しない場合は実害が無い。diff にはそれを裏付ける情報が無い。"
+    },
+    {
+      "where": "tests/catchup-switch-case.py: 新設の git_runs_sh(tmp)",
+      "text": "subprocess.run([*GIT, ...], capture_output=True) にタイムアウトが無い。git のエイリアス起動が何らかの理由で止まる（認証プロンプト待ち等）と、この呼び出しごとテストスイート全体が無期限に止まる。",
+      "mechanism": "外部プロセス呼び出し（git）に timeout= が渡されていない。OSError だけを捕まえており、待ちの上限に対する防御が無い。",
+      "false_positive_if": "呼び出し元の call() や上位のテストランナーが全体に対する外側のタイムアウトを持っている場合は、この 1 箇所が単独でハングの原因にはならない可能性がある（diff からは確認できない）。"
+    },
+    {
+      "where": "tests/mutations.json の CL4〜CL6・SK1〜SK4 のエントリ全般",
+      "text": "これらは「どの文字列をどう変えたら赤くなるべきか」という宣言でしかなく、この diff の中にはそれを実際に適用して結果を判定する実行器（engine）のコードが含まれていない。宣言が存在すること自体は、柵が実際に赤くなることの証拠にならない。",
+      "mechanism": "観点にある『赤を確認していない検査はまだ複数残っている』『赤は覆いの証拠にならない』という基準に照らすと、この JSON エントリの新設だけでは fail-closed 性は未実証。expect 文字列も自由記述の説明文であり、機械的な照合の厳密さ（部分一致かどうか）が diff からは分からない。",
+      "false_positive_if": "この JSON を読んで実際に文字列置換→テスト実行→終了コード確認まで行う専用の実行器が別に存在し、CI か手元で定期的に回っている場合は、この指摘は当たらない。"
+    },
+    {
+      "where": "graphloops/tests/simulate.py・simulate_review.py・tests/run.sh 内の複数の直書き SKIP 行（例: outfile の 0600、shellcheck の見送り、run_group の見送り、catchup-switch-case.py の 2 箇所）",
+      "text": "見送り行の生成経路が一本化されていない。skip()/skip_line() を経由する箇所と、'  ok   ... # SKIP <能力>: <理由>' という文字列を手書きしている箇所（run.sh の shellcheck 見送り、outfile の 0600、run_group、catchup-switch-case.py の 2 箇所）が混在している。",
+      "mechanism": "手書き箇所は書式（能力名の正規表現・コロン区切り）を毎回人手で正しく再現する必要があり、共有ヘルパーによる一元的な保証を受けない。新設された SK1〜SK4・skip_probe の自己テストは run.sh の拾い手のロジックを合成入力で検査しているだけで、これら実際の手書き発生源そのものを 1 箇所ずつ壊して赤になることを確認する回帰テストは diff 中に見当たらない。",
+      "false_positive_if": "能力名が誤って書かれても skip_capability() が名無し扱いにして FAIL_ON_SKIP=1 下では必ず失敗側に倒れる設計（fail-closed）になっているため、書式ミスの実害は『許されるべき見送りが誤って失敗に数えられる』という安全側の失敗に留まり、緑に化ける方向の実害は無い可能性が高い。この点で観点④の『柵が名乗った範囲より狭い』の典型的な悪い形（緑への漏れ）には該当しない可能性がある。"
+    },
+    {
+      "where": ".github/workflows/test.yml: install shellcheck 段（python -m pip install shellcheck-py==0.11.0.1）",
+      "text": "PyPI からのインストールという外部 I/O にタイムアウトや失敗時の上限の指定が見当たらない（pip 自体の既定の再試行・タイムアウト任せ）。",
+      "mechanism": "shell: bash の run: で pip install を呼ぶだけで、コマンド自体に --timeout や CI ステップの timeout-minutes が付与されていない。",
+      "false_positive_if": "GitHub Actions のジョブ全体または pip の既定動作に十分な上限があり、実務上は無視できる程度であれば、この指摘は重要度が低い。"
+    }
+  ],
+  "seen": "渡された diff 全体（.github/workflows/test.yml、README.md、graphloops/tests/parallel.py・simulate.py・simulate_review.py・py/fence.py、tests/catchup-switch-case.py、tests/mutations.json、tests/run.sh）を通読した。省略せず全ハンクを見た。ただし: (1) call()・case() ハーネス本体、node()、mutate.py、review-checks.json、mutations.json の実行器（engine）本体はこの diff に含まれておらず未読——それらの実装が上記の懸念を打ち消している可能性は判定できない。(2) 道具（shell・python 実行環境）を一切持たないため、skip_probe の自己テストや CI_LINT_OK の Python 断片、run.sh の新設ロジックは静的に文字列とロジックを追っただけで、実行して赤/緑を確認してはいない。(3) diff に現れていない既存コード（各 @case のテアダウン処理、GIT ヘルパー本体の既存タイムアウトの有無など）は見えないため、対称性・タイムアウトについての指摘は diff に現れた新規コードの範囲に限定した仮説である。"
+}

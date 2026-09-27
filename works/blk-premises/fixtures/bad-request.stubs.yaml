@@ -1,0 +1,7 @@
+# 依頼のファイルが無い。intake が終了コード 1 で止め、実測役は起きない。
+fixture:
+  expect: failed
+  fail-node: intake
+  inputs:
+    request: missing.json
+exec-code: true

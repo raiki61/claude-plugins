@@ -1,0 +1,12 @@
+# 違反: settingSources: [user] の節が、借りたスキルの一覧（.shared/borrow/borrow.json の superpowers.skills）に無いスキルを宣言する
+name: bad-user-skills-not-pinned
+description: 違反の見本
+nodes:
+  - id: judge
+    prompt: 判定せよ
+    allowed_tools: [Read, Grep, Glob]
+    skills: [test-driven-development, brainstorming]
+    settingSources: [user]
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
+    idle_timeout: 1728000000
+    output_format: {type: object}

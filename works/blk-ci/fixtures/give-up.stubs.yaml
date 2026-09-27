@@ -1,0 +1,50 @@
+# 筋書き give-up: 受け付けが役の返答を 3 回拒み、3 回目に諦めの印（done: true・give_up: true）を出す。collect は節が待ちのまま
+# 残った盤面を見て、最後の拒否の文で盤面を止め（by works:ci）、ok: false を返す（輪は max_iterations で落ちないので、collect まで届く）。
+# 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1）。だからこの筋書きは、輪が抜けた後の配線
+# （collect）しか見ない。3 回目の拒否で輪が抜ける式（until_bash の done）は tests/test_blk_ci.py の
+# test_gives_up_after_three_rejections が、Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
+ci-fence:
+  go: true
+  reason: ''
+  note: ''
+  adapter: ''
+ci-snap:
+  ok: true
+  snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
+  copy_dir: /var/folders/ab/cd/T/works-ci-p0.local_checks-abcd1234/work
+ci-prep:
+  prompt_file: board/prompts/r1/p0.local_checks.md
+  attempt: 1
+  out_path: board/out/r1/p0.local_checks.json
+  node: p0.local_checks
+  already: false
+ci:
+  material:
+    status: clean
+    checked: たぶん緑（途中の件数を読んだ）
+ci-accept:
+  ok: false
+  done: true
+  give_up: true
+  reason: '読むだけの役が作業ツリーを変えた: CI の任せ先はテストを写しの上で走らせ、対象の作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（git status --porcelain: 役を起こす前 [] / 今 [''?? .coverage'']・HEAD からの差分・未追跡のファイル・git が無視するパスのどれかの中身が変わった（diff_sha256））'
+  node: p0.local_checks
+  status: ''
+collect:
+  ok: false
+  reason: 'p0.local_checks の返答が 3 回とも受け付けで拒まれた（最後の拒否: 読むだけの役が作業ツリーを変えた: …）'
+  node: p0.local_checks
+  status: ''
+  green: false
+  pr_go: false
+  note: ''
+fixture:
+  expect: completed
+  reached:
+  - ci-fence
+  - ci-snap
+  - ci-prep
+  - ci
+  - ci-accept
+  - collect
+  inputs:
+    node: p0.local_checks

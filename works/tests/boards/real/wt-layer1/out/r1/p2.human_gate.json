@@ -1,0 +1,19 @@
+{
+  "decision": "ask",
+  "reason": "human_gate",
+  "ask": {
+    "kinds": [
+      "regression"
+    ],
+    "in_round": true,
+    "question": "今ある能力を減らす・狭める変更、人の方針とぶつかる変更、または方針の文書そのものの変更が挙がった。役は代償として決めない——人が決める。通すなら continue --note <通す範囲と条件>（答えは記録の process.human_items に残り、修正役に届く。方針の文書の変更を通すと、その版を固定し直す）。通さないなら stop（run をここで止める。直す向きを決めてから新しい run で）",
+    "items": [
+      "事前審査の穴 [regression] seen-pid-reuse-signals-unrelated: BASE は、グループが在る限り番号が再利用されない killpg だけに送っていた。だから木の外へ信号が届かないことが OS に保証されていた。案は seen の pid を回をまたいで持ち越し、os.kill を送り、長として killpg し、子孫を辿る起点にする。どれも pid の番号だけで同一性を見るので、SIGTERM の回に死んだ仲間の番号が KILL_GRACE の間に再利用されると、無関係なプロセスとその子孫、そのグループまで SIGKILL が届く。起きる確率は低いが、依頼の出どころ（pkill -f が別の run を止めた）と同じ種類の誤射で、既定の安全装置が狭まる。番号＋開始時刻で同一性を持つ正本は、既に _started_at・REUSE_SLACK（psutil と同じ形）に在る。",
+      "事前審査の穴 [regression] eperm-cause-lost-and-slower: BASE の sandbox の中の EPERM は、その場で『信号を送れない（Operation not permitted）』と返っていた。回す側は理由から、権限（sandbox の境界）の問題だと読めた。案では EPERM の後も KILL_GRACE を 2 回待ち（約 10 秒）、『生きた仲間が残る（pid・pgid・stat）』とだけ返すので、原因（送れなかったのか、送っても死ななかったのか）が理由から消える。回す側の診断の手段が狭まる。role_run.py:150 の実測の記録（stop_group の台本 1 件が EPERM）も、台本が 3 本増えて待ち方も変わるので古くなる。"
+    ],
+    "options": [
+      "continue",
+      "stop"
+    ]
+  }
+}

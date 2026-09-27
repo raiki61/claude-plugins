@@ -1,0 +1,30 @@
+a1202d0  graphloops 0.21.0 の指示書（同じ周の再審・修正案・事前審査・素材集め・独立の目を描く分だけ。rolekit.render_body・blk-material の lib・blk-eyes の lib/eyes.py が engine の node_prompt に渡す）
+prompts/policy-paste.md
+prompts/policy-path.md  # blk-plan で足した: p2.fix_plan の prompt_append
+prompts/policy.md
+prompts/review-loop/p2.fix_plan.md  # blk-plan で足した（P1 計画 Task 25）
+prompts/review-loop/p2.plan_review.md  # blk-plan で足した（P1 計画 Task 25）
+prompts/review-loop/p2.diagnose.md  # blk-judge で足した: 「入力」の節だけを盤面から描いて判定役に Read させる（R61 judgeread）
+prompts/review-loop/p2.rejudge.md
+prompts/review-loop/p2.rejudge_third.md
+prompts/review-loop/p0.prior_decisions.md
+prompts/review-loop/p0.purpose_review.md
+prompts/review-loop/p1.local_review.md
+prompts/review-loop/p1.consistency_bypass.md
+prompts/review-loop/p1.hygiene.md
+prompts/review-loop/p1.external_standards.md
+prompts/review-loop/p1.procedure_trace.md
+prompts/review-loop/p1.gate_efficacy.md
+prompts/review-loop/p1.test_double_fidelity.md
+prompts/review-loop/p1.main_path_observation.md
+prompts/review-loop/p1.provenance.md
+prompts/review-loop/r1.comment_candidates.md
+prompts/review-loop/r1.minimality.md
+prompts/review-loop/r2.compare.md
+prompts/review-loop/r2.design.md
+prompts/review-loop/r3.coherence.md
+prompts/review-loop/r4.hidden_scope.md
+prompts/review-loop/stop.premise_check.md
+# 置き場は本線の graphloops/ の下の同じパス（git show a1202d0:graphloops/<行>）。1 バイトも変えない（tests/test_rejudge.py が見る）。
+# rejudge.render は指示書ごとに写し（../graphloops/prompts）を先に見る。写しの prompts/ は今 TDD 版の review-loop/tdd/ だけ
+# （../COPIED_FROM）なので、ここの指示書は写しに無い。写しに同じ指示書が入ったら（写し直し）、この置き場を消してよい。

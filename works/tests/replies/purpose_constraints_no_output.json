@@ -1,0 +1,9 @@
+{
+ "constraints": [
+  {
+   "text": "test_stats.py のテストは 2 件で、どちらも赤",
+   "measured_how": "python3 -m unittest test_stats を回した",
+   "kind": "実測"
+  }
+ ]
+}

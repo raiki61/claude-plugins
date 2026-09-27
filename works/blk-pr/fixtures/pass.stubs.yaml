@@ -1,0 +1,32 @@
+# 筋書き pass: 任せ先の役 pr-check が交差 0 件を返し（tests/replies/pr_no_conflicts.json と同じ中身）、受け付け（stub）が通し、
+# 読んだ証拠と集める節（stub）が出口を組む。pr-snap・pr-accept・pr-reads・collect は盤面（start が作り、p0.parallel_pr が任せ先に
+# 落ちた物）を開くので、このブロック単体の run では stub する（実物は tests/test_blk_pr.py が本物の盤面で回す）
+pr-snap:
+  ok: true
+  snapshot_file: board/r1/pr-snapshot.json
+  brief_file: board/r1/pr-brief.json
+  attempt: 1
+  out_path: board/out/r1/p0.parallel_pr.json
+pr-check: {"material": {"status": "clean", "checked": "remote が GitHub でないので同等のコマンド（glab mr list -R o/r）で open な MR 2 件を引き、自分の MR を除いて、変更ファイルの集合 stats.py と交差 0 件（打ち切りなし）"}, "repo": "o/r", "listed": 2, "truncated": false, "conflicts": [], "excluded": []}
+pr-accept:
+  ok: true
+  done: true
+  reason: ""
+  reason_file: ""
+pr-reads:
+  ok: true
+  reads_file: ""
+collect:
+  ok: true
+  reason: ""
+  pr_file: board/out/r1/p0.parallel_pr.json
+  conflicts: 0
+  drafts: 0
+  material_status: clean
+  excluded: 0
+  excluded_file: board/r1/pr-excluded.json
+  reads_file: ""
+fixture:
+  expect: completed
+  reached: [pr-snap, pr-loop, collect]
+exec-code: true

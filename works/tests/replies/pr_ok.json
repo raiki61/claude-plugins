@@ -1,0 +1,29 @@
+{
+ "material": {
+  "status": "found",
+  "count": 1,
+  "detail": "PR #7 が stats.py の mean を同じく書き換えている（gh pr diff 7 -R o/r の hunk @@ -1,3 +1,4 @@）。申し送りの下書きを conflicts[0].note に書いた（投稿していない）"
+ },
+ "repo": "o/r",
+ "listed": 2,
+ "truncated": false,
+ "conflicts": [
+  {
+   "pr": "7",
+   "files": [
+    "stats.py"
+   ],
+   "handed_over": false,
+   "note": "PR #7 の担当へ: この run（判定から入る run）も stats.py の mean を直します。#7 の hunk @@ -1,3 +1,4 @@ と同じ行です。どちらを先に入れるか決めてください。"
+  }
+ ],
+ "excluded": [
+  {
+   "pr": "7",
+   "file": "stats.py",
+   "start": 1,
+   "end": 2,
+   "why": "PR #7 の hunk @@ -1,3 +1,4 @@ が mean の同じ行を書き換える（この run の依頼 1 件目と同じ所）"
+  }
+ ]
+}

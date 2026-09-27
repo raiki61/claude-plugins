@@ -1,0 +1,44 @@
+{
+  "plan": [
+    {
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_stop_tree/stop_group — 止める範囲がプロセスグループだけで、グループの外へ出た子孫を刈らず、消えたことを確かめずに『止まった』と返す",
+        "graphloops/engine/role_run.py::_stop_tree.alive — macOS でゾンビだけのグループへの killpg の EPERM を『生きている』『送れない』と数え、止まった木を止め切れないと報告する"
+      ],
+      "approach": "graphloops/engine/role_run.py の POSIX の止める口 _stop_tree(pgid, leader=None) を『数え上げてから送り、同じ数え上げで確かめる』形に替える。新しい関数 _tree_members(pgid, seen=()) が ps -A -o pid=,ppid=,pgid=,stat=（_started_at が既に使う ps。依存を足さない）で全プロセスを 1 回読み、各 pid に os.getsid を当てて、(a) pgid が止める番号のもの、(b) セッション番号が止める番号のもの（ジョブ制御つきのシェル＝set -m・setpgid で別のグループへ移った孫はセッションを抜けないので拾える。長が死んで ppid が 1 に付け替わった後も拾える）、(c) (a)(b) と前に見た pid（seen）から親子の鎖（ppid）で辿れる子孫（setsid で新しいセッションへ抜けた孫。鎖が切れる前に拾うため、信号の前に数える）を集め、呼んだ自分と自分の祖先は除く。返すのは {pid: (pgid, stat)}。_stop_tree は STOP_SIGNALS ごとに: 数え上げる→止める番号のグループと、長（pgid==pid）が仲間に居るグループへ killpg、それ以外の仲間へ os.kill→KILL_GRACE の刻みで待つ（安い問い: 見た pid への kill 0 と leader.poll。上限は今の KILL_GRACE だけで、期限は足さない）→数え直し。数え直しで残りがゾンビ（stat が Z）だけなら止まった（None）。これで単位 2 の『macOS でゾンビだけのグループへの killpg が EPERM』は、EPERM のとき即『送れない』を返さずに数え直し、ゾンビだけなら居ないと数える（EPERM を一律に居ないと読み替えない——sandbox の中の本物の EPERM は、数え直しで生きた仲間が残るので今どおり理由を返す）。SIGKILL の後も生きた仲間が残れば、その pid・pgid・stat を名指しした理由を返す（fail-closed）。止める番号のグループが最初から居ない（ProcessLookupError）ときも、セッションに残った孫が居れば止めに行く（今は即 None）。ps が使えない・読めないときは今の形（止める番号のグループだけへ送り、killpg(pgid,0) で確かめる）に落とし、今の能力を減らさない。Windows（taskkill /T）は変えない。判定役が採った Jenkins の環境変数の印は、この機械（macOS 26.6.2）で測ったところ他のプロセスの環境が読めない（ps -A -E にも sysctl KERN_PROCARGS2 にも自分が起こした子の環境が出ない。argv だけ）ので採らない——判定の処方の『読めないときは止まったにせず理由を返す』に沿って、読める印（セッション番号と親子の鎖）に替える。セッション番号は OS が子孫に継がせる印で、setsid を呼ばない限り抜けられず、同じ利用者なら os.getsid で読めることを実測した（set -m の孫: pgid は自分、sid は起こした子の番号のまま、長を止めた後 ppid 1 でも sid は残る）。docstring の『systemd の KillMode=control-group と同じ形』は、プロセスグループは抜けられる・cgroup は抜けられない違いと、何で拾うか（セッション・親子の鎖）を書いた why に直す。stop_group・_kill・kill_all・run_tree・relaunch・loop.py stop は全部 _stop_tree を通るので、呼び元は変えない（probe_group の開始時刻での再利用の見分けも変えない）。",
+      "adds": [
+        {
+          "kind": "function",
+          "name": "role_run._tree_members(pgid, seen=())——止める相手の数え上げ（グループ・セッション・親子の鎖、自分と祖先は除く）",
+          "canonical": "新設。止める相手の集合の正本を 1 つにする（_stop_tree の送り先と確かめの両方がここを引く）"
+        },
+        {
+          "kind": "function",
+          "name": "role_run._stop_tree の POSIX の本体の書き換え（数え上げ→送る→待つ→数え直し。ゾンビだけなら止まった・生きた仲間が残れば名指しの理由）",
+          "canonical": "既存の _stop_tree（relaunch・stop・_kill・kill_all・run_tree の唯一の止める口）"
+        },
+        {
+          "kind": "doc",
+          "name": "_stop_tree・_kill・_popen の docstring（KillMode=control-group の比喩を、抜けられるグループと拾い方の why に直す）",
+          "canonical": "role_run.py の docstring（コードの隣）"
+        },
+        {
+          "kind": "test",
+          "name": "graphloops/tests/simulate.py の stop_group の節に 3 本: ① ジョブ制御で別のグループへ移った孫（setpgid）が stop_group・kill_all で止まる ② setsid で新しいセッションへ抜けた孫が止まる ③ 長を回収しない（ゾンビだけの）グループと、そのセッションに残った孫——stop_group が None を返し孫も消える（今の形は EPERM か『SIGKILL の後も残っている』で赤）。加えて、数え上げを差し替えて生きた仲間が残る形で、名指しの理由が返ることを 1 本",
+          "canonical": "既存の simulate.py の stop_group の台本（1946 行付近）に並べる"
+        },
+        {
+          "kind": "test",
+          "name": "graphloops/tests/fakeclaude.py の FAKE_MODE sleep に、孫が自分のグループへ移る（FAKE_ESCAPE=pgrp）・新しいセッションへ抜ける（FAKE_ESCAPE=session）変種",
+          "canonical": "既存の fakeclaude.py の sleep の型（代役の孫がグループに残る形しか無かった）"
+        }
+      ],
+      "removes": [
+        "_stop_tree の docstring の『systemd の KillMode=control-group と同じ形』の誤った比喩",
+        "_stop_tree が killpg の PermissionError を即『信号を送れない』で返す分岐（数え直しの後の名指しの理由に吸収）"
+      ],
+      "shrink_first": "足さずに閉じる形を先に考えた: ①EPERM を居ないと読み替えるだけ（1 行）は、sandbox の中の本物の EPERM で fail-open になるので落ちる（判定の反証どおり）。②killpg(pgid,0) の問いを消して長の回収だけにするのは、stop_group が親でないので回収できず落ちる。③グループの外は諦めて主張を狭めるのは目的に反する。止める相手を数える正本が今は無い（killpg の 1 問だけ）ので、関数を 1 本足してそこを正本にし、_stop_tree の確かめの問い（alive）と EPERM の分岐をそこへ寄せて消す。足すのは数え上げ 1 本で、柵（呼び元の検査）は足さない。新しい依存も足さない（ps と os.getsid だけ。psutil・srt は要らない——利用者の入れ方は変わらない）。",
+      "narrows": []
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "handled": [
+    {
+      "key": "windows-skip-allow-list-omits-symlink-capability",
+      "handled": "declared",
+      "how": "誤検知として残す。現物: GitHub Actions run 36206449136（main 32dfd94）の windows-latest のログ（scratchpad/ci-0202-windows.log の 1605 行）で『  ok   リンク: symlink のディレクトリを経由するリンクは実体で引いて届く』が見送りでなく合格で出ており、同じログの見送り 10 件の一覧（2232-2242 行）にも symlink は無い。Windows の runner では os.symlink が成功している（via_symlink が真）。人の決定は『本当にその OS でできない物だけをその OS の一覧に書く』なので、実際に走っている symlink を一覧に書くのはその決定に反する——書けば、将来 runner で symlink が作れなくなったときに黙って緑になる。理由の文の『Windows は既定で権限を持たない』は一般の Windows の手元の話で、CI の runner の事実ではない（見送るのは試して作れなかったときだけで、OS の名前では決めていない）。一覧の中身が実際の見送りと合っているかは、CI が一覧に無い見送りを赤にすることで見ている（許しすぎは見えないので、既定を空にし、一覧は実測で見送られた物だけにした）。push 後の CI で確かめる項目として問いの台帳の field に既に在る。"
+    }
+  ]
+}

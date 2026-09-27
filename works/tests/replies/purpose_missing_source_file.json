@@ -1,0 +1,8 @@
+{
+ "purpose_text": "stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞いに直す",
+ "source": "②計画・タスク記述",
+ "known_weaknesses": [],
+ "source_files": [
+  "docs/plan.md"
+ ]
+}

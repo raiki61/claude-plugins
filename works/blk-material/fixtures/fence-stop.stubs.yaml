@@ -1,0 +1,60 @@
+# 筋書き fence-stop: 包みを宣言した run（adapter 空）で切符が無い。mat-route が盤面を止めて stopped を返し、どの輪も when: で
+# 飛ぶ（役の stub を置かない——走れば stub の無い節で落ちる）。collect は止まった盤面を見て ok: false。
+mat-route:
+  ok: true
+  stopped: true
+  why: '包みの確かめが通らない: 旗 no-tree-write の素材集めの役を起こさない（切符が無い）'
+  snapshot_file: ''
+  prior_decisions: false
+  purpose_review: false
+  local_review: false
+  consistency_bypass: false
+  hygiene: false
+  external_standards: false
+  procedure_trace: false
+  gate_efficacy: false
+  test_double_fidelity: false
+  main_path_observation: false
+  provenance: false
+collect:
+  ok: false
+  reason: '盤面は止まっている（works:adapter: 包みの確かめが通らない）'
+  ran: []
+  skipped:
+  - node: p0.prior_decisions
+    why: cond ...
+  - node: p0.purpose_review
+    why: 目的の文と一緒に入る（absent）
+  - node: p1.local_review
+    why: cond ...
+  - node: p1.consistency_bypass
+    why: cond ...
+  - node: p1.hygiene
+    why: cond ...
+  - node: p1.external_standards
+    why: cond ...
+  - node: p1.procedure_trace
+    why: cond ...
+  - node: p1.gate_efficacy
+    why: cond ...
+  - node: p1.test_double_fidelity
+    why: cond ...
+  - node: p1.main_path_observation
+    why: cond ...
+  - node: p1.provenance
+    why: cond ...
+  materials: {}
+  snapshot:
+    rev: 0123456789abcdef0123456789abcdef01234567
+    diff_file: board/diff-r1.patch
+    changed_files:
+    - stats.py
+    changed_files_file: board/changed-r1.txt
+    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
+    request_wheres: []
+  exit_file: board/r1/material-exit.json
+fixture:
+  expect: completed
+  reached:
+  - mat-route
+  - collect

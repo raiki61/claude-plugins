@@ -1,0 +1,13 @@
+# 違反: loop_group の中の節の timeout が 20 日でない（中の節も辿るかの見本）
+name: bad-loop-body-timeout
+description: 違反の見本
+nodes:
+  - id: judge-loop
+    loop_group:
+      max_iterations: 3
+      until_bash: test $accept.output.ok = true
+      fresh_context: false
+      nodes:
+        - id: accept
+          bash: echo ok
+          timeout: 120000

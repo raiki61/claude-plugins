@@ -1,0 +1,1770 @@
+# 筋書き no-fix: 判定が直す物を残さない（need_fix: false）。h-plan が修正を機械の空の返答で埋め（go 偽）、修正案・修正・
+# 差分の審査・手直しは when: で飛ぶ。最後のテストは周を締めるので回り、報告は no_fix_needed
+# 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
+# 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
+start:
+  ok: true
+  base_rev: 0123456789abcdef0123456789abcdef01234567
+  test_cmd: python3 -m unittest
+  policy_paste: ''
+  policy_path: ''
+  final_gate: always
+  adapter: optional
+  thickness: 標準
+  gates: ''
+  ci_role_go: false
+  pr_go: false
+  head_line: '入口: 判定から（依頼 2 件）・段: 標準（既定）・gates: 空'
+ci-checking__ci-fence:
+  go: true
+  reason: ''
+  note: ''
+  adapter: ''
+ci-checking__ci-snap:
+  ok: true
+  snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
+  copy_dir: /var/folders/ab/cd/T/works-ci-p0.local_checks-abcd1234/work
+ci-prep:
+  prompt_file: board/prompts/r1/p0.local_checks.md
+  attempt: 1
+  out_path: board/out/r1/p0.local_checks.json
+  node: p0.local_checks
+  already: false
+ci:
+  material:
+    status: found
+    count: 2
+    detail: 'CI の定義が無いので、リポジトリの test_stats.py を python3 -m unittest test_stats で写しの上で走らせた: exit 1。FAIL: test_mean_of_three（2 を期待して 3.0）・test_clamp_above_range（10
+      を期待して 15）'
+    checked: 写しの上で python3 -m unittest test_stats（終わるまで待った。3 件中 2 件が赤）
+ci-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  node: p0.local_checks
+  status: found
+ci-checking__collect:
+  ok: true
+  reason: ''
+  node: p0.local_checks
+  status: found
+  green: false
+  pr_go: false
+  note: ''
+h-entry:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: ''
+  open_units: ''
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: true
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+pr-checking__pr-snap:
+  ok: true
+  snapshot_file: board/r1/pr-snapshot.json
+  brief_file: board/r1/pr-brief.json
+  attempt: 1
+  out_path: board/out/r1/p0.parallel_pr.json
+pr-check:
+  material:
+    status: clean
+    checked: remote が GitHub でないので同等のコマンド（glab mr list -R o/r）で open な MR 2 件を引き、自分の MR を除いて、変更ファイルの集合 stats.py と交差 0 件（打ち切りなし）
+  repo: o/r
+  listed: 2
+  truncated: false
+  conflicts: []
+  excluded: []
+pr-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+pr-checking__pr-reads:
+  ok: true
+  reads_file: ''
+pr-checking__collect:
+  ok: true
+  reason: ''
+  pr_file: board/out/r1/p0.parallel_pr.json
+  conflicts: 0
+  drafts: 0
+  material_status: clean
+  excluded: 0
+  excluded_file: board/r1/pr-excluded.json
+  reads_file: ''
+premising__intake:
+  ok: true
+  reason: ''
+  request: request_ok.json
+  go: true
+premises:
+  constraints:
+  - text: stats.py の mean は sum(xs) / (len(xs) - 1) を返す（分母が len(xs) - 1）
+    measured_how: grep -n で stats.py の len(xs) - 1 の行を引いた
+    kind: 実測
+    measured_output: '$ grep -n ''len(xs) - 1'' stats.py
+
+      3:- mean: 分母が len(xs) - 1 になっている（正しくは len(xs)）。
+
+      9:    return sum(xs) / (len(xs) - 1)'
+  - text: test_stats.py の 3 件のうち 2 件が赤（依頼の test_mean_of_three と test_clamp_above_range）
+    measured_how: PYTHONDONTWRITEBYTECODE=1 で python3 -m unittest test_stats を対象の根で走らせた
+    kind: 実測
+    measured_output: '$ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest test_stats
+
+      Ran 3 tests in 0.001s
+
+
+      FAILED (failures=2)'
+  - text: clamp は lo <= hi の引数でしか呼ばれない
+    measured_how: 対象の中の呼び手は test_stats.py だけで、対象の外の呼び手はこの作業ツリーでは測れない
+    kind: 仮説
+premises-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  constraints_file: ''
+premising__collect:
+  ok: true
+  premises_file: ''
+  constraints_file: ''
+  constraints_summary: ''
+  constraints: 0
+  measured: 0
+  hypotheses: 0
+  claims: 0
+  claims_hypothesis: 0
+  reads_file: ''
+h-judge:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: ''
+  open_units: ''
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: board/out/r1/p0.premises.json
+  pr_go: false
+  premises_go: false
+  purpose_go: true
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+purposing__intake: {}
+purpose:
+  purpose_text: stats.py の mean と clamp を、関数名・docstring・テストが期待する振る舞い（算術平均・上限を超えた値は上限に収める）に直し、test_stats.py の赤 2 件を緑にする
+  source: ②計画・タスク記述
+  known_weaknesses: []
+  source_files:
+  - request_ok.json
+purpose-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  purpose_file: ''
+purposing__collect:
+  ok: true
+  purpose_file: ''
+  purpose_text: ''
+  source: ''
+h-mat:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: ''
+  open_units: ''
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: board/out/r1/p0.purpose.json
+  mat_go: true
+gathering__mat-route:
+  ok: true
+  stopped: false
+  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards: 回す・p1.procedure_trace:
+    回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance: 回す'
+  snapshot_file: board/r1/material-snapshot.json
+  prior_decisions: true
+  purpose_review: false
+  local_review: true
+  consistency_bypass: true
+  hygiene: true
+  external_standards: true
+  procedure_trace: true
+  gate_efficacy: true
+  test_double_fidelity: true
+  main_path_observation: true
+  provenance: true
+prior-decisions-prep:
+  prompt_file: board/prompts/r1/p0.prior_decisions.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p0.prior_decisions.json
+  node: p0.prior_decisions
+  already: false
+  stopped: false
+prior-decisions:
+  material:
+    status: clean
+    checked: 決定記録（ADR・台帳・issue）はリポジトリに無い
+  checked: true
+  searched:
+  - リポジトリの全部（2 ファイル）
+  settled: []
+prior-decisions-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p0.prior_decisions
+  status: ''
+purpose-review-prep:
+  prompt_file: ''
+  prompt_text: ''
+  attempt: 0
+  out_path: ''
+  node: ''
+  already: true
+  stopped: true
+purpose-review:
+  verdict: 問題なし
+  reason: 要約は依頼の範囲を狭めていない
+  findings: []
+purpose-review-accept:
+  ok: true
+  done: true
+  give_up: true
+  reason: ''
+  reason_file: ''
+local-review-prep:
+  prompt_file: board/prompts/r1/p1.local_review.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.local_review.json
+  node: p1.local_review
+  already: false
+  stopped: false
+local-review:
+  material:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  simplify_carried: false
+  findings:
+  - skill: /code-review
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:code-reviewer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: /simplify
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: /security-review
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:silent-failure-hunter
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:type-design-analyzer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+  - skill: pr-review-toolkit:pr-test-analyzer
+    items: []
+    failed: 起こしたが所見なし（差分 stats.py の 1 行を見た）
+    invoked: true
+local-review-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.local_review
+  status: ''
+consistency-bypass-prep:
+  prompt_file: board/prompts/r1/p1.consistency_bypass.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.consistency_bypass.json
+  node: p1.consistency_bypass
+  already: false
+  stopped: false
+consistency-bypass:
+  consistency:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  bypass:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  findings: []
+  bypass_findings: []
+  seen: stats.py と test_stats.py の全部
+  unseen: 無し（リポジトリは 2 ファイル）
+consistency-bypass-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.consistency_bypass
+  status: ''
+hygiene-prep:
+  prompt_file: board/prompts/r1/p1.hygiene.md
+  prompt_text: 'お前は文脈を持たない読み手。（試験の stub: 本文に $ARTIFACTS_DIR と $mat-route.output.why を含む——置き換え直されないことを見る）
+
+    ```diff
+
+    diff --git a/stats.py b/stats.py
+
+    -    return sum(xs) / (len(xs) - 1)
+
+    +    return sum(xs) / len(xs)
+
+    ```
+
+    '
+  attempt: 1
+  out_path: board/out/r1/p1.hygiene.json
+  node: p1.hygiene
+  already: false
+  stopped: false
+hygiene:
+  findings: []
+  seen: 差分の全部（stats.py の 1 行と notes.md）
+hygiene-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.hygiene
+  status: ''
+external-standards-prep:
+  prompt_file: board/prompts/r1/p1.external_standards.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.external_standards.json
+  node: p1.external_standards
+  already: false
+  stopped: false
+external-standards:
+  material:
+    status: clean
+    checked: 差分 stats.py の 1 行と新しい notes.md を読んだ
+  findings: []
+  seen: statistics の公式文書
+  unseen: 無し
+  web_refetched: true
+  rankings:
+  - problem: 算術平均の分母
+    source: https://docs.python.org/3/library/statistics.html
+    ranked:
+    - statistics.fmean を使う
+    - sum(xs) / len(xs) を自前で書く
+    diff_at: sum(xs) / len(xs) を自前で書く
+    why_not_higher: 種は標準の関数に寄せる前の形で、分母の取り違えだけを直す差分だから
+external-standards-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.external_standards
+  status: ''
+procedure-trace-prep:
+  prompt_file: board/prompts/r1/p1.procedure_trace.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.procedure_trace.json
+  node: p1.procedure_trace
+  already: false
+  stopped: false
+procedure-trace:
+  material:
+    status: clean
+    checked: notes.md の手順を読み、書かれたコマンドを写しで動かした
+  findings: []
+  unmeasured: []
+procedure-trace-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.procedure_trace
+  status: ''
+gate-efficacy-prep:
+  prompt_file: board/prompts/r1/p1.gate_efficacy.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.gate_efficacy.json
+  node: p1.gate_efficacy
+  already: false
+  stopped: false
+gate-efficacy:
+  material:
+    status: not_run
+    reason: 差分は検証ゲートを足していない——撃てる腕が無い
+  arms: []
+gate-efficacy-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.gate_efficacy
+  status: ''
+test-double-fidelity-prep:
+  prompt_file: board/prompts/r1/p1.test_double_fidelity.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.test_double_fidelity.json
+  node: p1.test_double_fidelity
+  already: false
+  stopped: false
+test-double-fidelity:
+  material:
+    status: clean
+    checked: 代役は無い（test_stats.py は実物の関数を呼ぶ）
+  mismatches: []
+test-double-fidelity-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.test_double_fidelity
+  status: ''
+main-path-observation-prep:
+  prompt_file: board/prompts/r1/p1.main_path_observation.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.main_path_observation.json
+  node: p1.main_path_observation
+  already: false
+  stopped: false
+main-path-observation:
+  material:
+    status: clean
+    checked: python3 -c で mean を 1 回呼んだ
+  observed:
+  - path: stats.mean([1, 2, 3])
+    value: '2.0'
+main-path-observation-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.main_path_observation
+  status: ''
+provenance-prep:
+  prompt_file: board/prompts/r1/p1.provenance.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.provenance.json
+  node: p1.provenance
+  already: false
+  stopped: false
+provenance:
+  material:
+    status: clean
+    checked: 差分に『正本は X』の主張は無い
+  claims: []
+provenance-accept:
+  ok: true
+  done: true
+  give_up: false
+  stopped: false
+  reason: ''
+  reason_file: ''
+  node: p1.provenance
+  status: ''
+gathering__collect:
+  ok: true
+  reason: ''
+  ran:
+  - p0.prior_decisions
+  - p1.local_review
+  - p1.consistency_bypass
+  - p1.hygiene
+  - p1.external_standards
+  - p1.procedure_trace
+  - p1.gate_efficacy
+  - p1.test_double_fidelity
+  - p1.main_path_observation
+  - p1.provenance
+  skipped:
+  - node: p0.purpose_review
+    why: 目的の文と一緒に入る（absent）
+  materials:
+    prior_decisions: clean
+    local_review: clean
+    consistency_bypass: clean
+    hygiene: clean
+    external_standards: clean
+    procedure_trace: clean
+    gate_efficacy: clean
+    test_double_fidelity: clean
+    main_path_observation: clean
+    provenance: clean
+  snapshot:
+    rev: 0123456789abcdef0123456789abcdef01234567
+    diff_file: board/diff-r1.patch
+    changed_files:
+    - stats.py
+    changed_files_file: board/changed-r1.txt
+    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
+    request_wheres: []
+  exit_file: board/r1/material-exit.json
+judging__intake:
+  ok: true
+  reason: ''
+  request: request_ok.json
+judging__judge-brief:
+  ok: true
+  go: true
+  materials_file: board/r1/judge-materials.md
+judge:
+  framing: 依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する
+  one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
+  units:
+  - key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    label: block
+    disposition: do-now
+    reason: '事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも
+      2 を期待する'
+    origin_analysis: 算術平均と不偏分散の分母の取り違え
+    class_query:
+      how:
+        patterns:
+        - (len(xs) - 1)
+        fixed: true
+        paths:
+        - stats.py
+        count: lines
+      counts: defects
+      total: 1
+  - key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    label: block
+    disposition: do-now
+    reason: '事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する'
+    origin_analysis: 下限の枝を写したときに戻り値を直し忘れた形
+    class_query:
+      how:
+        patterns:
+        - return lo
+        fixed: true
+        paths:
+        - stats.py
+        count: lines
+      counts: population
+      total: 2
+  questions: []
+  materials_missing: []
+  carried_r1: []
+  one_shot_closes:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  precedents:
+  - key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    problem: 数列の算術平均を求める
+    source: 'Python 標準ライブラリ statistics.mean（https://docs.python.org/3/library/statistics.html#statistics.mean）: 総和をデータ点の数で割る'
+    verdict: adopt
+    reason: 分母はデータ点の数 len(xs)。len(xs) - 1 は statistics.variance（標本分散）の分母で、平均には使わない
+  - key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    problem: 値を下限と上限の間に収める
+    source: 'numpy.clip（https://numpy.org/doc/stable/reference/generated/numpy.clip.html）: 上限を超えた値は上限に置き換える'
+    verdict: adopt
+    reason: 上限を超えた値は hi を返す。lo を返す形の先行例は無い
+judge-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+judging__collect:
+  ok: true
+  open_units: []
+  need_fix: false
+  judgment_file: board/judgment.json
+  one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
+h-plan:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+planning__plan-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/plan-snapshot.json
+plan-prep:
+  prompt_file: board/r1/prompt-p2.fix_plan.md
+  attempt: 1
+  out_path: board/out/r1/p2.fix_plan.json
+  node: p2.fix_plan
+  already: false
+plan:
+  plan:
+  - unit_keys:
+    - 'stats.py mean: 分母が len(xs) - 1 になっている'
+    - 'stats.py clamp: 上限を超えた値に lo を返す'
+    approach: mean の分母を len(xs) に、clamp の上限の枝を hi に直す（定義どおり）
+    adds: []
+    removes: []
+    shrink_first: 足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる
+    narrows: []
+plan-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: p2.fix_plan
+  ready:
+  - p2.plan_review
+  asking: false
+  halted: false
+  out_file: out/r1/p2.fix_plan.json
+planning__plan-review-snap:
+  ok: true
+  go: true
+  snapshot_file: board/r1/plan-review-snapshot.json
+plan-review-prep:
+  prompt_file: board/r1/prompt-p2.plan_review.md
+  attempt: 1
+  out_path: board/out/r1/p2.plan_review.json
+  node: p2.plan_review
+  already: false
+plan-review:
+  faces: []
+  shrink: []
+  faces_none: 案の 2 か所を stats.py で読み、写し・入口・後退・方針の穴も別案も無いと確かめた
+  reason: 分母と戻り値を 1 行ずつ直す案で、足す物も狭める物も無い
+plan-review-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: p2.plan_review
+  ready:
+  - p3.fix
+  asking: false
+  halted: false
+  out_file: out/r1/p2.plan_review.json
+planning__plan-reads:
+  ok: true
+  reads_file: board/r1/reads-plan-block.json
+planning__collect:
+  ok: true
+  plan_file: board/out/r1/p2.fix_plan.json
+  review_file: board/out/r1/p2.plan_review.json
+  asks_human: false
+  gate_kinds: []
+  reads_file: board/r1/reads-plan-block.json
+  gave_up: false
+  reason_file: ''
+h-gate:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+h-fix:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+fixing__ignored-before:
+  ok: true
+  count: 0
+  file: board/fix-ignored-before.json
+fixing__tdd-start:
+  go: false
+  reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
+  suite: ''
+  state_file: ''
+  summary_file: ''
+tdd-prep:
+  prompt_file: ''
+tdd:
+  phase: route
+  units: []
+tdd-step:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  phase: done
+fix-prep:
+  prompt_file: board/r1/prompt-p3.fix.md
+  attempt: 1
+  out_path: board/out/r1/p3.fix.json
+  node: p3.fix
+  already: false
+  variants_file: board/r1/prompt-p3.fix.variants.json
+  iteration: 1
+fix:
+  changes:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    what: mean の分母を len(xs) - 1 から len(xs) に直した（算術平均の定義どおり）。python3 -m unittest test_stats で test_mean_of_three が緑
+    files:
+    - stats.py
+    closure:
+      mechanism: mean が総和をデータ点の数より 1 少ない数で割り、算術平均でなく不偏分散の分母で平均を出していた
+      fix_mechanism: 分母をデータ点の数 len(xs) にして、算術平均の定義に揃えた
+      verified_how: 分母を len(xs) - 1 に戻す退行を注入して test_mean_of_three の赤を見て、復元して緑を見た
+      sites:
+      - site: stats.py mean の return 行（分母）
+        red_seen: true
+    precedent:
+      verdict: adopt
+      reason: '判定者の先行例の行（stats.py mean: 分母が len(xs) - 1 になっている）の statistics.mean をそのまま採った'
+      from_judge_row: true
+    root_or_symptom:
+      kind: root
+      why: 分母の取り違えそのものを直した
+    bypass_tried: 修正を残したまま mean([5]) と mean([1.5, 2.5]) と mean([-1, 1]) を呼んだ——どれも算術平均を返した
+    breaks:
+      how: git grep -n 'mean(' -- '*.py'
+      result: mean を呼ぶのは test_stats.py の 1 か所だけで、python3 -m unittest test_stats が 3 件とも緑
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    what: clamp の x > hi の枝の戻り値を lo から hi に直した。python3 -m unittest test_stats で test_clamp_above_range が緑
+    files:
+    - stats.py
+    closure:
+      mechanism: 下限の枝を写して上限の枝を作ったとき、戻り値を lo のまま残した
+      fix_mechanism: 上限の枝は hi を返し、下限の枝は lo を返す形に揃えた
+      verified_how: 'return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5, 0, 10) が 0 を返すことを見た'
+      sites:
+      - site: stats.py clamp の x > hi の枝
+        red_seen: true
+      - site: stats.py clamp の x < lo の枝（正しく lo を返す。直す必要が無いことを確かめた）
+        red_seen: false
+    precedent:
+      verdict: adopt
+      reason: '判定者の先行例の行（stats.py clamp: 上限を超えた値に lo を返す）の numpy.clip をそのまま採った'
+      from_judge_row: true
+    root_or_symptom:
+      kind: root
+      why: 上限の枝の戻り値の取り違えそのものを直した
+    bypass_tried: 修正を残したまま clamp(10, 0, 10)・clamp(11, 0, 10)・clamp(-1, 0, 10) を呼んだ——境目の値もそれぞれ 10・10・0 を返した
+    breaks:
+      how: git grep -n 'clamp(' -- '*.py'
+      result: clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑
+  not_done: []
+  interactions:
+  - surface: stats.py
+    checked: mean の分母の修正と clamp の上限の枝の修正は別の関数の別の行で、一方が他方を不要にせず、当てる順序でも結果は変わらない
+  fix_closure:
+    status: clean
+    checked: 2 つの単位とも退行を注入して赤を見て、復元して緑を見た
+  mechanism_changed: false
+  premise_drift: false
+  gates_changed: false
+  seams_changed: false
+  security_surface_changed: false
+  path_changed: false
+  wrote_refs: []
+  plan_faces: []
+fix-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  changes:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    files:
+    - stats.py
+    what: mean の分母を len(xs) に直した
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    files:
+    - stats.py
+    what: clamp の上限の枝で hi を返すように直した
+# 食い違いの申し出が無い run: conflict-check は go 偽で、裁定の輪と 2 回目の修正の輪は飛ぶ（輪の中の stub は使われない）
+fixing__conflict-check:
+  go: false
+  count: 0
+  file: ''
+rule-prep:
+  prompt_file: board/r1/prompt-rule.md
+  iteration: 1
+rule:
+  rulings:
+  - id: c1-1
+    decision: fix_code_as
+    text: 依頼は算術平均。test_mean_of_three の期待は正しいので、コードの分母を len(xs) に直せ
+    limits:
+    - stats.py:9
+rule-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  rulings_file: board/r1/conflict-rulings.md
+  counts:
+    parked: 1
+    unruled: 0
+    fix_test_scope: 0
+    fix_code_as: 1
+    ask_human: 0
+fix-ruled-prep:
+  prompt_file: board/r1/prompt-p3.fix-ruled.md
+  attempt: 1
+  out_path: board/out/r1/p3.fix.json
+  node: p3.fix
+  already: true
+  variants_file: board/r1/prompt-p3.fix-ruled.variants.json
+  iteration: 1
+fix-ruled:
+  changes:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    what: mean の分母を len(xs) - 1 から len(xs) に直した（算術平均の定義どおり）。python3 -m unittest test_stats で test_mean_of_three が緑
+    files:
+    - stats.py
+    closure:
+      mechanism: mean が総和をデータ点の数より 1 少ない数で割り、算術平均でなく不偏分散の分母で平均を出していた
+      fix_mechanism: 分母をデータ点の数 len(xs) にして、算術平均の定義に揃えた
+      verified_how: 分母を len(xs) - 1 に戻す退行を注入して test_mean_of_three の赤を見て、復元して緑を見た
+      sites:
+      - site: stats.py mean の return 行（分母）
+        red_seen: true
+    precedent:
+      verdict: adopt
+      reason: '判定者の先行例の行（stats.py mean: 分母が len(xs) - 1 になっている）の statistics.mean をそのまま採った'
+      from_judge_row: true
+    root_or_symptom:
+      kind: root
+      why: 分母の取り違えそのものを直した
+    bypass_tried: 修正を残したまま mean([5]) と mean([1.5, 2.5]) と mean([-1, 1]) を呼んだ——どれも算術平均を返した
+    breaks:
+      how: git grep -n 'mean(' -- '*.py'
+      result: mean を呼ぶのは test_stats.py の 1 か所だけで、python3 -m unittest test_stats が 3 件とも緑
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    what: clamp の x > hi の枝の戻り値を lo から hi に直した。python3 -m unittest test_stats で test_clamp_above_range が緑
+    files:
+    - stats.py
+    closure:
+      mechanism: 下限の枝を写して上限の枝を作ったとき、戻り値を lo のまま残した
+      fix_mechanism: 上限の枝は hi を返し、下限の枝は lo を返す形に揃えた
+      verified_how: 'return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5,
+        0, 10) が 0 を返すことを見た'
+      sites:
+      - site: stats.py clamp の x > hi の枝
+        red_seen: true
+      - site: stats.py clamp の x < lo の枝（正しく lo を返す。直す必要が無いことを確かめた）
+        red_seen: false
+    precedent:
+      verdict: adopt
+      reason: '判定者の先行例の行（stats.py clamp: 上限を超えた値に lo を返す）の numpy.clip をそのまま採った'
+      from_judge_row: true
+    root_or_symptom:
+      kind: root
+      why: 上限の枝の戻り値の取り違えそのものを直した
+    bypass_tried: 修正を残したまま clamp(10, 0, 10)・clamp(11, 0, 10)・clamp(-1, 0, 10) を呼んだ——境目の値もそれぞれ 10・10・0 を返した
+    breaks:
+      how: git grep -n 'clamp(' -- '*.py'
+      result: clamp を呼ぶのは test_stats.py の 2 か所だけで、python3 -m unittest test_stats が 3 件とも緑
+  not_done: []
+  interactions:
+  - surface: stats.py
+    checked: mean の分母の修正と clamp の上限の枝の修正は別の関数の別の行で、一方が他方を不要にせず、当てる順序でも結果は変わらない
+  fix_closure:
+    status: clean
+    checked: 2 つの単位とも退行を注入して赤を見て、復元して緑を見た
+  mechanism_changed: false
+  premise_drift: false
+  gates_changed: false
+  seams_changed: false
+  security_surface_changed: false
+  path_changed: false
+  wrote_refs: []
+  plan_faces: []
+fix-ruled-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  changes:
+  - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
+    files:
+    - stats.py
+    what: mean の分母を len(xs) に直した
+  - unit_key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    files:
+    - stats.py
+    what: clamp の上限の枝で hi を返すように直した
+fixing__clean:
+  ok: true
+  removed:
+  - __pycache__/test_stats.cpython-314.pyc
+fixing__assert-changed:
+  ok: true
+  files:
+  - stats.py
+fixing__fix-reads:
+  ok: true
+  reads_file: ''
+fixing__collect:
+  ok: true
+  files:
+  - stats.py
+  changes_file: board/changes.json
+  removed:
+  - __pycache__/test_stats.cpython-314.pyc
+  tdd:
+    ran: false
+    suite: ''
+    reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
+    units: []
+h-rejudge:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+rejudging__rj-snap:
+  ok: true
+  snapshot_file: board/r1/rejudge-snapshot.json
+rejudging__rj-route1:
+  next: rejudge
+  node: p2.rejudge
+  why: p2.rejudge が ready
+  stopped: false
+rejudge-prep:
+  prompt_file: board/prompts/r1/p2.rejudge.md
+  attempt: 1
+  out_path: board/out/r1/p2.rejudge.json
+  node: p2.rejudge
+  already: false
+rejudge:
+  verdict: 採る
+  new_facts: src/a.py を読み、g から f への直の呼び出しが上限を通らないことを確かめた（g の 12 行目）。修正は共通経路の片方だけに上限を掛けている
+  reason: 回す側が挙げた道を現物で確かめ、単位の見立てはそのまま（処方の足りない道は修正役に返す）
+  units:
+  - key: src/a.py:f — 上限が効かない経路がある
+    label: block
+    reason: 上限が 2 つの入口の片方にしか掛かっていない（g からの直の呼び出しを確かめた）
+  - key: src/b.py:g — 定数の重複
+    label: suggest
+    disposition: do-now
+rejudge-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ok p2.rejudge を受け付けた
+  node: p2.rejudge
+  verdict: 採る
+rejudging__rj-route2:
+  next: ''
+  node: ''
+  why: '再審の節が ready に無い（p2.rejudge: done・p2.rejudge_third: cond rejudge_exhausted: 今の周の異議に往復 1 回（上限 3））'
+  stopped: false
+rejudge-third-prep:
+  prompt_file: board/prompts/r1/p2.rejudge_third.md
+  attempt: 1
+  out_path: board/out/r1/p2.rejudge_third.json
+  node: p2.rejudge_third
+  already: false
+rejudge-third:
+  verdict: 退ける
+  new_facts: 往復を読み、争点を g からの直の呼び出しの有無に絞った。g の 12 行目は上限を通る共通経路を呼んでおり、直の呼び出しは無かった
+  reason: 回す側の根拠は現物で確かめられなかったので退ける
+  units:
+  - key: src/a.py:f — 上限が効かない経路がある
+    label: block
+  - key: src/b.py:g — 定数の重複
+    label: suggest
+    disposition: do-now
+rejudge-third-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ok p2.rejudge_third を受け付けた
+  node: p2.rejudge_third
+  verdict: 退ける
+rejudging__collect:
+  ok: true
+  reason: ''
+  passes: 1
+  verdicts:
+  - 採る
+  unsettled:
+    text: ''
+    settled: true
+  new_open_units: []
+  unnamed_changed: []
+  diff_file: board/r1/rejudge-diff.json
+  reads_file: ''
+h-mid:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: '中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）'
+  purpose_file: ''
+  mat_go: false
+h-review:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+reviewing__cut:
+  ok: true
+  files:
+  - stats.py
+  diff_file: board/fix.diff
+review:
+  faces: []
+  checks: []
+  faces_none: stats.py の差分 2 行を読んだ。mean の分母と clamp の上限の枝だけが変わり、写し・入口・宣言とのずれは無い
+review-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  review_file: board/delta-review.json
+reviewing__review-reads:
+  ok: true
+  reads_file: ''
+reviewing__collect:
+  ok: true
+  faces: 0
+  review_file: board/delta-review.json
+  diff_file: board/fix.diff
+h-refix:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+refixing__refix-prep:
+  ok: true
+  owed: 1
+  diff_file: board/r1/fix-delta.patch
+  brief_file: board/r1/refix1-brief.json
+  must:
+  - board/r1/refix1-brief.json
+refix:
+  handled:
+  - key: 'stats.py clamp: docstring が下限の枝の約束を書いていない'
+    handled: fixed
+    how: clamp の docstring を下限を下回った値は lo を、上限を超えた値は hi を返すに書き直した
+    files:
+    - stats.py
+  - key: 'stats.py clamp: docstring が上限の枝の約束を書いていない'
+    handled: fixed
+    how: 同じ docstring の書き直しで、上限と下限の両方の枝の約束を書いた
+    files:
+    - stats.py
+refix-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+refixing__route1:
+  review2: false
+  refix2: false
+  owed: 1
+  owed2: 0
+refixing__cut2:
+  ok: true
+  files: []
+  diff_file: ''
+  rev: ''
+  brief_file: ''
+  must: []
+review2:
+  faces: []
+  faces_none: 手直しの差分 1 行（clamp の docstring）と clamp の本体・test_stats.py を読んだ。docstring は 2 つの枝の約束を本体と同じに書き、ずれは無い
+  checks:
+  - key: 'stats.py clamp: docstring が下限の枝の約束を書いていない'
+    closed: true
+    why: docstring に下限を下回った値は lo を返すと書かれ、下限の枝の約束のずれは塞がった
+  - key: 'stats.py clamp: docstring が上限の枝の約束を書いていない'
+    closed: true
+    why: docstring に上限と下限の両方の枝が書かれ、事前審査のずれは塞がった
+review2-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+refixing__route2:
+  review2: false
+  refix2: false
+  owed: 1
+  owed2: 0
+refixing__refix2-prep:
+  ok: true
+  owed: 0
+  diff_file: ''
+  brief_file: ''
+  must: []
+refix2:
+  handled:
+  - key: 'stats.py clamp: docstring が境の値の扱いを書いていない'
+    handled: declared
+    how: 境の値（x == lo・x == hi）は本体が x をそのまま返し、2 つの枝の約束の外側で自明なので書き足さない
+refix2-accept:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+refixing__refix-reads:
+  ok: true
+  reads_files: {}
+refixing__collect:
+  ok: true
+  handled_file: board/out/r1/p3.delta_fix.json
+  review2_file: ''
+  owed2: 0
+  fixed2: 0
+  files: []
+  reads_file: ''
+  reads_files: {}
+h-tests:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+testing__run:
+  ok: true
+  green: true
+  log: board/r1/p4.ci.log
+  suites:
+  - name: suite
+    exit: 0
+  by: engine
+h-final:
+  ok: true
+  stop: false
+  go: false
+  ask: true
+  gate_text: （文）
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: board/r1/final-gate.md
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+h-eyes:
+  ok: true
+  stop: false
+  go: true
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+eyeing__eyes-enter:
+  ok: true
+  round: 1
+  stopped: false
+  asking: false
+  ready:
+  - r1-comments
+  - r2-design
+  - r3-coherence
+  - r4-scope
+  snapshot_file: board/r1/eyes-snapshot.json
+  why: ''
+eyeing__r1-comments-route:
+  go: true
+  node: r1.comment_candidates
+  why: r1.comment_candidates が待っている
+  stopped: false
+r1-comments-prep:
+  prompt: （r1.comment_candidates の描いた指示書）
+  prompt_file: board/prompts/r1/r1.comment_candidates.md
+  node: r1.comment_candidates
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r1-comments:
+  candidates: []
+  kept: []
+r1-comments-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r1.comment_candidates
+  reason_file: ''
+eyeing__r1-minimality-route:
+  go: true
+  node: r1.minimality
+  why: r1.minimality が待っている
+  stopped: false
+r1-minimality-prep:
+  prompt: （r1.minimality の描いた指示書）
+  prompt_file: board/prompts/r1/r1.minimality.md
+  node: r1.minimality
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r1-minimality:
+  status: pass
+  reason: 累積差分は最小。台帳に逃げ道なし
+  deletions: []
+  ledger_audit: []
+  increments: []
+r1-minimality-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r1.minimality
+  reason_file: ''
+eyeing__r2-design-route:
+  go: true
+  node: r2.design
+  why: r2.design が待っている
+  stopped: false
+r2-design-prep:
+  prompt: （r2.design の描いた指示書）
+  prompt_file: board/prompts/r1/r2.design.md
+  node: r2.design
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-design:
+  question_stands: true
+  reason: 問いは立っている
+  design: 上限は入口 1 箇所で掛ける
+r2-design-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.design
+  reason_file: ''
+eyeing__r2-compare-route:
+  go: true
+  node: r2.compare
+  why: r2.compare が待っている
+  stopped: false
+r2-compare-prep:
+  prompt: （r2.compare の描いた指示書）
+  prompt_file: board/prompts/r1/r2.compare.md
+  node: r2.compare
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r2-compare:
+  status: pass
+  reason: 構造は一致
+  differences: []
+r2-compare-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r2.compare
+  reason_file: ''
+eyeing__premise-check-route:
+  go: false
+  node: stop.premise_check
+  why: 'stop.premise_check: na'
+  stopped: false
+premise-check-prep:
+  prompt: ''
+  prompt_file: ''
+  node: ''
+  attempt: 0
+  already: true
+  role_def: ''
+  role_def_missing: ''
+premise-check:
+  key: 識別子を別に持つか
+  assumption: 1 デプロイ＝1 リポジトリ
+  assumption_false: false
+  evidence: README に複数デプロイの記述が無い
+  verdict: escalate
+  reason: 実測で反証できない
+premise-check-accept:
+  ok: true
+  done: true
+  give_up: true
+  skipped: true
+  reason: ''
+  node: ''
+  reason_file: ''
+eyeing__r3-coherence-route:
+  go: true
+  node: r3.coherence
+  why: r3.coherence が待っている
+  stopped: false
+r3-coherence-prep:
+  prompt: （r3.coherence の描いた指示書）
+  prompt_file: board/prompts/r1/r3.coherence.md
+  node: r3.coherence
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r3-coherence:
+  status: pass
+  reason: 横断で揃っている
+r3-coherence-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r3.coherence
+  reason_file: ''
+eyeing__r4-scope-route:
+  go: true
+  node: r4.hidden_scope
+  why: r4.hidden_scope が待っている
+  stopped: false
+r4-scope-prep:
+  prompt: （r4.hidden_scope の描いた指示書）
+  prompt_file: board/prompts/r1/r4.hidden_scope.md
+  node: r4.hidden_scope
+  attempt: 1
+  already: false
+  role_def: ''
+  role_def_missing: ''
+r4-scope:
+  status: pass
+  reason: 導入・露呈した横断リスクなし
+  capability_inventory:
+    fired: false
+  policy_conflicts: []
+  surfaced: []
+r4-scope-accept:
+  ok: true
+  done: true
+  give_up: false
+  skipped: false
+  reason: ''
+  node: r4.hidden_scope
+  reason_file: ''
+eyeing__eyes-collect:
+  ok: true
+  reason: ''
+  complete: true
+  asking: false
+  stopped: false
+  eyes:
+    r1-comments: done
+    r1-minimality: done
+    r2-design: done
+    r2-compare: done
+    r3-coherence: done
+    r4-scope: done
+    premise-check: na
+  gave_up: []
+  after_fix:
+    rev: acc5e6c2327b89f81356f7b71020f3347cdded0c
+    diff_file: board/diff-r1-after-fix.patch
+    changed_files:
+    - src/a.py
+    - src/b.py
+    diff_lines: 9
+  open_units: 0
+  r1_refire: true
+  r2_refire: true
+  purpose_known: true
+  purpose_unusable: ''
+  reviews:
+    R1:
+      status: pass
+      reason: 累積差分は最小。台帳に逃げ道なし
+    R2:
+      status: pass
+      reason: 構造は一致
+    R3:
+      status: pass
+      reason: 横断で揃っている
+    R4:
+      status: pass
+      reason: 導入・露呈した横断リスクなし
+  premise:
+    facts_to_add: []
+  retaken_for_reviews: board/diff-r1-after-fix.patch
+  exit_file: board/r1/eyes-exit.json
+report:
+  ok: true
+  outcome: no_fix_needed
+  judgment_file: board/judgment.json
+  report_file: board/report.md
+  next_request_file: board/next-request.json
+  tests_green: false
+  validator_exit: 0
+  ai_report_go: true
+reporting__rp-route1:
+  next: report-items
+  node: report.human_items
+  why: report.human_items が ready
+report-items-prep:
+  prompt_file: board/prompts/r3/report.human_items.md
+  prompt: ''
+  attempt: 1
+  node: report.human_items
+  facts_file: ''
+  already: false
+report-items:
+  text: 'レビューは 3 周で収束し、直す物は残っていない。
+
+    直した欠陥は 1 件で、テストは緑。
+
+    次の周に回した物は無い。'
+report-items-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report.human_items
+  record_invalid: false
+reporting__rp-route2:
+  next: report-cold
+  node: report.cold_check
+  why: report.cold_check が ready
+report-cold-prep:
+  prompt_file: board/prompts/r3/report.cold_check.md
+  prompt: お前は文脈を持たない初見の読み手。……（描いた本文）
+  attempt: 1
+  node: report.cold_check
+  facts_file: ''
+  already: false
+report-cold:
+  verdict: pass
+  stops: []
+  guessed: []
+  decidable: true
+report-cold-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report.cold_check
+  record_invalid: false
+reporting__rp-route3:
+  next: report-write
+  node: report
+  why: report が ready
+report-write-prep:
+  prompt_file: board/prompts/r3/report.md
+  prompt: ''
+  attempt: 1
+  node: report
+  facts_file: board/r3/report-facts.md
+  already: false
+report-write:
+  text: 'レビューは 3 周で収束し、直す物は残っていない。
+
+    直した欠陥は 1 件で、テストは緑。
+
+    次の周に回した物は無い。
+
+
+    ## 各周の記録
+
+
+    - 周 1: 欠陥 1 件を判定し、直した'
+report-write-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report
+  record_invalid: false
+reporting__collect:
+  ok: true
+  reason: ''
+  report_file: board/report-ai.md
+  text_file: board/out/r3/report.json
+  human_items_file: board/out/r3/report.human_items.json
+  facts_file: board/r3/report-facts.md
+  cold_check:
+    verdict: pass
+    stops: []
+    guessed: []
+    decidable: true
+  record_invalid: false
+result:
+  ok: true
+  outcome: no_fix_needed
+  judgment_file: board/judgment.json
+  report_file: board/report-ai.md
+  next_request_file: board/next-request.json
+  tests_green: false
+  validator_exit: 0
+  ai_report_go: true
+  machine_report_file: board/report.md
+  ai_report:
+    ok: true
+    reason: ''
+    report_file: board/report-ai.md
+    text_file: board/out/r3/report.json
+    human_items_file: board/out/r3/report.human_items.json
+    facts_file: board/r3/report-facts.md
+    cold_check:
+      verdict: pass
+      stops: []
+      guessed: []
+      decidable: true
+    record_invalid: false
+fixture:
+  expect: completed
+  inputs:
+    request: request_ok.json
+    test_cmd: python3 -m unittest
+    adapter: optional
+  reached:
+  - start
+  - h-entry
+  - premising__collect
+  - h-judge
+  - purposing__collect
+  - h-mat
+  - gathering__collect
+  - judging__collect
+  - h-plan
+  - h-gate
+  - h-fix
+  - h-rejudge
+  - h-mid
+  - h-review
+  - h-refix
+  - h-tests
+  - testing__run
+  - h-final
+  - h-eyes
+  - eyeing__eyes-collect
+  - report
+  - reporting__collect
+  - result
+exec-code: true

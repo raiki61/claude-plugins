@@ -1,0 +1,57 @@
+{
+  "constraints": [
+    {
+      "text": "この作業ツリー（HEAD 4233aa8）の engine は、子を start_new_session=True（POSIX では setsid）で新しいプロセスグループに起こし（role_run._popen）、止めるのはそのグループへの killpg の SIGTERM→SIGKILL と、グループの消滅を KILL_GRACE=5 秒ずつ待つ形（role_run._stop_tree）だけである。環境変数の印・グループの外へ出た孫を探す手段・Linux の親の死の通知（PR_SET_PDEATHSIG）は無い。",
+      "measured_how": "grep で起こす口と止める口を列挙",
+      "kind": "実測",
+      "measured_output": "$ grep -n \"setpgid\\|os.setsid\\|preexec_fn\\|PR_SET_PDEATHSIG\\|GRAPHLOOPS_\" graphloops/engine/*.py\ngraphloops/engine/intake.py:26:DETAIL_ENV = \"GRAPHLOOPS_INTAKE_STDERR\" ...\ngraphloops/engine/commands.py:623/635: GRAPHLOOPS_KEEP（任せ先の置き場。印ではない）\n$ grep -n \"start_new_session\\|killpg\" graphloops/engine/role_run.py\n247: grp = ({\"start_new_session\": True} if os.name == \"posix\" ...\n286: os.killpg(pgid, 0)\n295: os.killpg(pgid, sig)"
+    },
+    {
+      "text": "ジョブ制御つきのシェル（set -m）が背景に回した孫は自分のプロセスグループに移り、起こした子のグループを SIGTERM・SIGKILL で止めても生き残る（この機械・macOS で再現）。",
+      "measured_how": "mktemp -d の下で python3 から bash -c 'set -m; sleep 300 & echo GC=$!; wait' を start_new_session で起こし、そのグループを killpg で止めて孫の生存を os.kill(gc,0) で見た（孫は pid 指定で止めた）",
+      "kind": "実測",
+      "measured_output": "$ python3 exp2.py\nbash pid/pgid 74493 74493 gc 74913 gc pgid 74913\nkillpg 9 [Errno 3] No such process\ngrandchild ALIVE after group stop; env mark?\nkilled gc by pid"
+    },
+    {
+      "text": "macOS では、グループの長が終わって回収されていない（ゾンビ）だけのグループへの killpg は EPERM（Operation not permitted）で拒まれる。_stop_tree は PermissionError を『信号を送れない』理由として返し、alive() は PermissionError を生きていると数えるので、長を回収しない別のプロセス（stop_group）からは、実際には止まった木を『止め切れない』と報告しうる。",
+      "measured_how": "mktemp -d の下で bash を start_new_session で起こし、killpg SIGTERM の 0.5 秒後（wait 前）に killpg SIGKILL を送った",
+      "kind": "実測",
+      "measured_output": "$ python3 exp.py\nchild pid/pgid/sid ['66771', '66771', '66771'] parent pgid 66622\nbash pid 66922 gc 67509 gc pgid 66922\n  File \".../exp.py\", line 15, in <module>\n    try: os.killpg(p.pid, signal.SIGKILL)\nPermissionError: [Errno 1] Operation not permitted\n$ ps -o pid,pgid,stat,command -p 67509,66922\n  PID  PGID STAT COMMAND   （どちらも居ない）"
+    },
+    {
+      "text": "この機械の回す側の Bash の中では start_new_session（setsid）は通り、子は自分の pid と同じ pgid・sid を持つ。『child setpgid: Operation not permitted』は setsid の失敗ではなく、ジョブ制御つきのシェルの側の警告である可能性が高い（sandbox の中の engine の子で setsid が拒まれるかは未測）。",
+      "measured_how": "上の exp.py の 1 段目の出力。sandbox の中の engine の子では測っていない",
+      "kind": "仮説"
+    },
+    {
+      "text": "このリポジトリのコード（*.py・*.sh・*.md・*.json）に pkill・killall・mutate-auto_ の語は無い。pkill -f の巻き込みは回す側・取りまとめ役（AI）が手で打った止め方で、コードの止める口ではない。",
+      "measured_how": "grep",
+      "kind": "実測",
+      "measured_output": "$ grep -rn \"pkill\\|killall\\|mutate-auto_\" --include=*.py --include=*.sh --include=*.md --include=*.json .\n（0 件）"
+    },
+    {
+      "text": "台本の消す口は parallel.rm（一時の置き場より深いパスだけを消し、外は ValueError）に集まり、simulate.py・simulate_review.py の rm はそこを呼ぶ。engine の側の shutil.rmtree は commands.py の 4 か所（任せ先の mkdtemp の置き場 work とその下、init が拒まれた時の盤面の置き場 d）で、範囲の外を拒む守りは無い（消す先は engine が直前に作ったパス）。tests/mutate.py の rmtree も 3 か所（守り無し）。",
+      "measured_how": "grep -rn rmtree と grep def rm",
+      "kind": "実測",
+      "measured_output": "$ grep -rn rmtree graphloops/engine graphloops/scripts scripts tests/*.py\ngraphloops/engine/commands.py:633/646/648/1591: shutil.rmtree(..., ignore_errors=True)\ntests/mutate.py:359/371/424: shutil.rmtree(d, ignore_errors=True)\n$ grep -n \"def rm(\" graphloops/tests/*.py\ngraphloops/tests/parallel.py:91 / simulate.py:83（parallel.rm を呼ぶ）/ simulate_review.py:91"
+    },
+    {
+      "text": "tests/mutate.py の止める形は、この作業ツリー（4233aa8）では run_group の中の killpg（時間切れ・failfast）だけで、止める信号を受けた時に子を止める手当ては無い。並行の wip/mutsample（20fc0a2、土台 a2695cf）が _LIVE・stop_groups・install_stop_handlers（SIGTERM→SIGKILL をグループへ）を tests/mutate.py に足している——この run は同じ所を二重に作らない。",
+      "measured_how": "sed で run_group を読み、git diff a2695cf 20fc0a2 -- tests/mutate.py を grep",
+      "kind": "実測",
+      "measured_output": "$ git diff a2695cf 20fc0a2 -- tests/mutate.py | grep -n \"signal\\|killpg\\|LIVE\\|def \"\n56:+_LIVE, _LOCK = set(), threading.Lock()   # 生きている子（Popen）。止める信号で木ごと止める先\n69:+def stop_groups():\n80:+            os.killpg(p.pid, 0)\n86:+    for sig in (signal.SIGTERM, signal.SIGKILL):\n101:+def install_stop_handlers():\n$ git merge-base 4233aa8 20fc0a2\na2695cf2a31de7870584df35c02c5aa3fa6925b4"
+    },
+    {
+      "text": "psutil はこの機械の python3 に入っていない（入れれば依存が 1 つ増える）。node・npx は mise の shim で在る。",
+      "measured_how": "python3 -c 'import psutil'・which",
+      "kind": "実測",
+      "measured_output": "$ python3 -c \"import psutil\"\nModuleNotFoundError: No module named 'psutil'\n$ which srt npx node\n/Users/p03623/.local/share/mise/shims/npx\n/Users/p03623/.local/share/mise/shims/node"
+    },
+    {
+      "text": "stop_group・_stop_tree の既存の台本は graphloops/tests/simulate.py に在る（孫まで止まる・印が無ければ素通り・止め切れない理由を返す）。",
+      "measured_how": "grep",
+      "kind": "実測",
+      "measured_output": "$ grep -n \"stop_group\\|_stop_tree\" graphloops/tests/simulate.py\n1951: why = role_run.stop_group(str(mark))\n1955: check(... \"stop_group では孫（前置の層の先の claude に当たる）まで止まる\")\n1957: check(role_run.stop_group(str(mark)) is None, \"印が無ければ止める物は無い\")\n2233: orig = R._stop_tree"
+    }
+  ]
+}

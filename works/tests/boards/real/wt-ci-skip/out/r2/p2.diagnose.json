@@ -1,0 +1,295 @@
+{
+  "units": [
+    {
+      "key": "リポジトリの .sh の改行: Windows の checkout で CRLF になり、Windows に入れた shellcheck が SC1017 で赤",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "①事実: GitHub Actions run 36221181354 の windows-latest で『FAIL shellcheck が指摘を出した』。追跡されている .sh の 5 本すべてに SC1017（Literal carriage return）が出た。ubuntu と macOS は SHELLCHECK_OK。作業ツリーに .gitattributes は無い（Glob で 0 件）。追跡されている *.sh は graphloops/tests/run.sh・scripts/comment-ratio.sh・tests/coldread-case.sh・tests/destgate-case.sh・tests/run.sh の 5 本で、ログの 5 本と一致する。②影響: この差分が test.yml に足した install shellcheck 段（OS の条件なし）が原因で、Windows の CI が今赤い。③この PR が持ち込んだ欠陥なので、この PR で回収する。反証として依頼の false_positive_if（checkout が LF で、中身に CR が在る）を当てた。ubuntu と macOS は同じ blob で緑なので、blob に CR は無い。CR は checkout の変換でしか付かないので、反証は成り立たない。零処方は 2 つあり、どちらも落ちる。(a) Windows の一覧に shellcheck を足して install を ubuntu に戻す案は、人の決定（macOS と Windows にも shellcheck を入れて見送り自体を無くす）に反する。(b) --exclude=SC1017 は CR の後の SC1073・SC1050 などの構文の誤りを消せない。世界の解（git の gitattributes 文書の例『*.sh text eol=lf』）が 1 行で閉じるので、それを採る。Windows の Git Bash は LF の台本を読める（ubuntu・macOS と同じ blob）。能力を減らす処方ではない。",
+      "reopen_evidence": "eol=lf を入れた後の push で、windows-latest の tests/run.sh に SC1017 が 1 件でも残るか、SHELLCHECK_OK 以外の shellcheck の赤が出たら再開する（Git Bash の path の形など、別の原因）。",
+      "origin_analysis": "①ロジックの正否: shellcheck は正しく指摘している。検査の側は正しい。②出自: 手順の不成立。1 周目の修正は、Windows で shellcheck が走る前提（改行）を手元の macOS でしか確かめなかった。実行観測（CI）でのみ現れる欠陥で、1 周目は『Windows 用の shellcheck が Git Bash の path と改行で落ちないか』を懸念として残したまま進んだ。③ラベルは block。",
+      "why_chain": [
+        "なぜ赤いか: Windows の runner の checkout は core.autocrlf=true の既定で .sh に CR を付け、この差分がそこへ shellcheck を持ち込んだ",
+        "なぜ持ち込めたか: リポジトリに改行の宣言（.gitattributes）が無く、改行が各 clone の設定任せだった。bash は CR を許すので、これまで表に出なかった",
+        "なぜ手元で見えなかったか: 手元の実行観測は macOS だけで、Windows の checkout の変換は push するまで観測できない（push はこの run で禁止）"
+      ],
+      "prescriptions": [
+        "零処方 1（落ちる）: Windows の skip_allow に shellcheck を書き、install を ubuntu に戻す——人の決定 2026-09-26 09:00 に反する",
+        "零処方 2（落ちる）: shellcheck に --exclude=SC1017——CR の後に続く構文の誤り（SC1073/SC1050/SC1072/SC1140）が残る",
+        "採る: リポジトリのルートに .gitattributes を置き、『*.sh text eol=lf』の 1 行を書く（git の gitattributes 文書の例そのまま）。CI の定義は触らない。これが外れれば Windows の CI の shellcheck（tests/run.sh の中）が SC1017 で赤になるので、別の柵は要らない",
+        "採らない: checkout の前に core.autocrlf=false を設定する段——.sh 以外の全ファイルの改行が Windows で変わり、並行して直した Windows の緑（0.20.3）の前提を動かしうる。範囲が .sh より広い"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "."
+          ],
+          "paths": [
+            "*.sh"
+          ],
+          "count": "files"
+        },
+        "counts": "population",
+        "total": 5,
+        "note": "eol=lf が効くべき追跡されている .sh の本数（CI のログで SC1017 が出た 5 本と一致）。.gitattributes が無いことは grep では数えられないので、母集団で持つ。修正後も 5 のまま"
+      }
+    },
+    {
+      "key": "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "defer 台帳のキーと同じ欠陥。1 周目は、並行する線 wip/windows-green との衝突という構造上の理由で defer にした。その理由は人の決定（2026-09-26: windows-green は 0.20.3 で出たので、見送りの方針の持ち主であるこの run が持つ）で消えたので、do-now に戻す。①事実（固定した版を読んだ）: 次の 6 か所の OS の枝が、Windows で見送りの行も件数も出さない。simulate.py:1920 の if os.name == \"posix\" の中に check 13 件。2026 の test_relaunch_live_launch は return で check 3 件を飛ばす。2248 の test_stop_signal_guards は return で check 3 件を飛ばす。3011 の枝は子を立てず、3028・3030 の check 2 件が飛ぶ。3053 の枝では 3066 の check 1 件が飛ぶ。simulate_review.py:6020 は return で check 1 件を飛ばす。計 23 件。graphloops/tests/run.sh:13 の EXPECTED_CHECKS=1932 は 61 行で -ne で比べるので、Windows では件数が合わずに赤になる。②影響: 凍結した目的は『本当にその OS でできない物（Windows のプロセスのまとまりの停止など）だけを、その OS の一覧に書く』。人が挙げたその例そのものが行を出さないので、一覧で名指せない。目的が閉じない。0.20.3 が合流しても、この 23 件ぶん Windows の件数の柵が割れ続ける。反証として『件数の柵が赤にするので黙って緑ではない』を当てた。赤にはなるが、原因が『件数の更新漏れ』という遠い文になる。人の例を一覧で扱えないことは変わらないので、殺せない。simulate.py:1523 と simulate_review.py:707 の nt の枝も読んだ。これらは実行形式を差し替えるだけで検査を飛ばさないので、対象外。tests/run.sh の 3016・3611 は既に見送りの行を出している。",
+      "reopen_evidence": "修正後の Windows の CI で graphloops の件数が 1932 に合わず、差がこの 23 件に帰せるとき。または見送りの一覧に process-group 以外の、一覧に無い名前が出たとき。",
+      "origin_analysis": "①ロジックの正否: posix でしか走らない検査を Windows で走らせない判断は正しい。②出自: 標準機構の迂回。0.20.2 で見送りの口（skip()・parallel.skip_line）ができる前に書かれた OS の枝が、その口を通っていない（近傍の 812・813・1932・2568・2583 は skip() を通っている）。③ラベルは block。",
+      "why_chain": [
+        "なぜ行が出ないか: 枝が return するか、check を if の中に閉じるだけで、else に skip() を持たない",
+        "なぜ残ったか: 0.20.2 で見送りの口ができたとき、置き換えの対象を『理由の文を出していた箇所』から集めたので、黙って抜ける枝は集合に入らなかった",
+        "なぜ気づかれなかったか: Windows の件数の割れは、土台に Windows の直し（0.20.3）が入っていないことによる既知の赤に紛れていた"
+      ],
+      "prescriptions": [
+        "零処方（採る）: 既存の skip(desc, capability, reason) を、飛ばす check 1 件につき 1 回呼ぶ（TAP 14 と同じく、走らない検査点ごとに ok # SKIP を 1 行ずつ出す）。6 か所の計 23 件。件数は OS によらず同じになるので、EXPECTED_CHECKS は変えない。能力の名前は、どれもプロセスグループで子の木を止めることに頼るので process-group を使う。Windows の skip_allow には既に在るので、一覧は変えない。別の名前を立てるなら、その名前を Windows の一覧に足す理由（その OS で本当にできない）を書く",
+        "任意: 枝の条件を os.name でなく能力で問う（例: hasattr(os, 'killpg')）。catchup の git_runs_sh と同じ向き。必須ではない",
+        "採らない: EXPECTED_CHECKS を OS ごとの値にする——件数の柵の意味（計画の件数は OS によらず同じ）を崩し、見送りの名前での許しも効かなくなる"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "if os\\.name (!=|==) \"posix\":"
+          ],
+          "paths": [
+            "graphloops/tests/simulate.py",
+            "graphloops/tests/simulate_review.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 6,
+        "note": "posix 限定の枝の数（simulate.py 1920・2026・2248・3011・3053、simulate_review.py 6020）。各枝の else で skip() を通せば閉じる。枝そのものは残りうるので population"
+      }
+    },
+    {
+      "key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている",
+      "label": "suggest",
+      "disposition": "do-now",
+      "reason": "人の依頼（R1 最小性の削除候補 7 件と言い換え 1 件を直す）を受け、固定した版で在り処を全部確かめた。test.yml:51、tests/run.sh:63-64・163-164・179・3103・3108、simulate.py:76、simulate_review.py:84、catchup-switch-case.py:362 に実在する。7 件とも、他所に在る事実の写しか、合流後に腐る実況（『今までの意味』）で、REVIEW.md『導線を作る手段の優先順位』が注記に許す why と公開 API の docstring のどちらにも当たらない。言い換え（『付けなかった OS』→『条件から外れた OS』）は誤読（if: を付け忘れた OS と読める）を防ぐ。加えて test.yml:44 の理由の括弧『同じ .sh を 3 回見ても指摘は変わらない』は、今回の CI の実測（Windows だけ SC1017 で指摘が変わった）で崩れた。独立の段を残す人の決定（2026-09-26）の理由は『二重に走るのは数秒で、能力は減らない』なので、括弧はその理由に差し替える。段の構造は変えない（人の決定）。",
+      "reopen_evidence": "直した後の版で、下の問いの件数が 0 でないとき。",
+      "origin_analysis": "①ロジックは無関係（注記だけ）。②出自: 読みにくさ。注記を既定の修正手段にしたので、README の段落・テスト名・assert の文と同じ事実が 3〜4 か所に写った。③ラベルは suggest do-now。",
+      "why_chain": [
+        "なぜ写しが積もったか: 外から叩く面（SKIP_ALLOW）の説明を README に寄せる前に、実装の各所にも書いた",
+        "なぜ崩れた理由が残ったか: 独立の段の理由の文が、差分の後の実態（3 OS の tests/run.sh が同じ検査を回す）と実測（OS で指摘が変わる）に合わせて見直されなかった"
+      ],
+      "prescriptions": [
+        "零処方（採る）: 削除候補 1〜7 を R1 の範囲どおりに削る。候補 3 は今回足した語『欠けた能力の名前つきで』だけ、候補 5 は 2 文目だけ、候補 6 は 2 文目以降だけ",
+        "tests/run.sh:3103 の『付けなかった OS』を『条件から外れた OS』に言い換える",
+        "test.yml:44 の括弧『（同じ .sh を 3 回見ても指摘は変わらない）』を、人の決定の理由（二重に走るのは数秒で、能力は減らない）に差し替えるか、括弧ごと削る"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "見送りを失敗に数え、許すのは OS ごとの一覧",
+            "見送りを CI で失敗に数える。",
+            "欠けた能力の名前つきで合格と別の印",
+            "今までの意味",
+            "既定では fail を立てず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW",
+            "名前の無い見送り・名前の形でない物を含む",
+            "FAIL_ON_SKIP=1 のとき、欠けてよい能力の一覧 SKIP_ALLOW",
+            "に名前の在る見送りだけを失敗から除く。FAIL_ON_SKIP の無い既定は一覧に出すだけ",
+            "git が sh を起こせない環境では見送る",
+            "付けなかった OS",
+            "同じ .sh を 3 回見ても指摘は変わらない"
+          ],
+          "fixed": true,
+          "paths": [
+            ".github/workflows/test.yml",
+            "tests/run.sh",
+            "graphloops/tests/simulate.py",
+            "graphloops/tests/simulate_review.py",
+            "tests/catchup-switch-case.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "defects",
+        "total": 12,
+        "note": "test.yml 44・51、tests/run.sh 63・64・163・164・179・3103・3108、simulate.py 76、simulate_review.py 84、catchup 362。全部直せば 0"
+      }
+    },
+    {
+      "key": "tests/run.sh CI_LINT_OK: tests/run.sh の段の env の行が在るかだけを見て、run: の上書き・continue-on-error・if: で見送りの失敗が無効になっても緑",
+      "label": "suggest",
+      "disposition": "do-now",
+      "reason": "①事実: 固定した版の tests/run.sh 3106-3108 は、段 tests/run.sh の行の中に FAIL_ON_SKIP: \"1\" と SKIP_ALLOW: ${{ matrix.skip_allow }} が在るかしか見ない（silent-failure-hunter が写しを 3 通りに書き換えて、3 つとも CI_LINT_OK を実測した）。次の 3 つはどれも柵を通るが、CI で見送りの失敗を無効にする。run: を FAIL_ON_SKIP=0 bash tests/run.sh にする（bash の代入が env に勝つ）。continue-on-error: true を足す。if: matrix.os == 'ubuntu-latest' を足す。柵の名（テスト名）は『tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す』で、覆いが名乗りより狭い（REVIEW.md の検証機構の fail-open ④）。この差分が足した柵の穴なので、この PR で回収する。殺した近傍の指摘は 3 つ。(a) matrix.include の中身（どの OS が何を許すか）を assert する案は、決着済みの原則『どの環境で見送りを許すかは実装側で決めない——CI の定義か人が渡す』に反するので落とす。(b) 『FAIL_ON_SKIP: 1』（引用符なし）で偽の赤になるのは fail-closed なので落とす。(c) 名前の無い段（- run:）が直前の段に混ざるのは、混ざる向きが偽の赤（if: の混入）か、意図して env を動かす編集に限られるので、この単位には入れない。",
+      "reopen_evidence": "直した後、写しの test.yml で段 tests/run.sh の run: を『FAIL_ON_SKIP=0 bash tests/run.sh』に、または continue-on-error: true・if: を足しても CI_LINT_OK が出るとき。",
+      "origin_analysis": "①ロジックの正否: 在るべき行の在否は正しく見ている。②出自: 検証機構の fail-open（④ 覆いの狭さ）。『消されたら気づく』だけを問い、『どう騙すか（無効化の入口）』を入口ごとに数えていない。③ラベルは suggest do-now（敵対的でない編集——デバッグで run: に代入を足す等——でも踏める入口）。",
+      "why_chain": [
+        "なぜ狭いか: 見送りを CI で失敗に数える入口は env・run: の代入・段の条件・失敗の握り潰しの 4 つあるのに、柵は env の 1 つだけを見る",
+        "なぜ数えなかったか: 柵の腕（CL4〜CL6）を env と install 段の 3 入口だけに作った"
+      ],
+      "prescriptions": [
+        "零処方（採る）: 既存の step() が返す段の行に対して、assert を 2 つ足す。段 tests/run.sh の run: の行がちょうど『run: bash tests/run.sh』であること。if: と continue-on-error: の行を持たないこと。腕も足す（run: に FAIL_ON_SKIP=0 の代入・continue-on-error: true・if: の 3 本。この run では撃たない——変異は合流後）",
+        "採らない: YAML の構文解析器を入れる——stdlib に無く、手元の検査の依存を増やす。今の穴は段の中の行の在否で閉じる"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "in rs, f",
+            "rs = step("
+          ],
+          "fixed": true,
+          "paths": [
+            "tests/run.sh"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 3,
+        "note": "段 tests/run.sh を取り出す 1 行と、その段への assert の行（今 2 本）。直すと assert が増えるので population"
+      }
+    },
+    {
+      "key": ".github/workflows/test.yml windows-latest の skip_allow: symlink が一覧に無く、symlink の見送りが出れば赤",
+      "label": "info",
+      "reason": "反証が成り立ったので落とす（人の依頼どおり誤検知として閉じる）。手順トレースの隔離フレームの観察は、自らの false_positive_if に『windows-latest が既定で symlink を作れるなら、この分岐は発火しない』を挙げていた。GitHub Actions run 36221181354 の windows-latest の実測は『見送り 6 件、全部 SKIP_ALLOW で許した（posix-mode 1・fifo 3・read-permission 1・process-group 1）、symlink の見送りは出ていない』。simulate_review.py の fifo（2583）と read-permission（2568）が数えられているので、同じ台本は走っている。symlink の見送りが出ないのは、runner で symlink を作れたからである。人の方針（本当にできない物だけを書く）の上でも、一覧に足さないのが正しい。simulate_review.py:1932 の理由の文『Windows は既定で権限を持たない』は BASE から在る文で、この差分の外。直す単位にしない。"
+    },
+    {
+      "key": "tests/run.sh 自動の腕の本命: 撃つ途中の --out を 0.1 秒ごとに覗く検査が、腕が覗く間より速く撃ち終わると None で赤",
+      "label": "info",
+      "reason": "この run の範囲外と明示する（人の依頼どおり）。tests/run.sh:3980-3998 の検査は、使い捨ての mini repo の腕 norm1・norm2 で mutate.py を起こす。--out に partial の途中の形が現れるのを 0.1 秒ごとに覗き、先に子が終われば seen_mid=None のまま assert で落ちる。tests/mutations.json の腕は読まない。この差分は mutate.py にもこの検査にも触れない（変更ファイルに無い）。依頼の false_positive_if（この差分が --out の書き方に触れている）は、変更ファイルの一覧と差分本文で否定できる。土台 0.21.0 の mutate.py の揺れか退行で、既存かつこの変更と無関係なので、この run では直さない。"
+    },
+    {
+      "key": "tests/run.sh report_skips: 使われなかった許しの名前を知らせない",
+      "label": "nit",
+      "reason": "type-design-analyzer の指摘。反証を試みたところ、実害の経路がほぼ殺せた。許しは、その能力が実行時に本当に欠けたときに出る見送りにしか効かない（見送りの分岐は能力の有無で入る）。使われない名前が一覧に残っても、許すのはその OS で本当に欠けた能力の見送りだけになる。名前の打ち間違いは、見送りが許されずに赤になるので、既に捕まる。実測した Windows では 4 名とも使われた。残る実害は、欠けていない能力の名前を別の直せる見送りに流用する場合で、コードレビューの領分。世界の例（mypy warn_unused_ignores・pytest xfail_strict）もどれも opt-in の厳しさで、既定の振る舞いではない。"
+    },
+    {
+      "key": "tests/run.sh skip_capability・skip_probe: 名前の形の正規表現が locale の照合に頼り、自己検査が人向けの文言から件数を抜く",
+      "label": "nit",
+      "reason": "どちらも fail-closed で、黙って緑になる経路が無い。[a-z] が大文字を含む locale で走れば、skip_probe の skip_part（Fifo を一覧に置いて denied=4 を期待）が赤になる。文言を直したときの件数の抜き出しの失敗も赤になる。今の glibc・macOS では [a-z] は符号の範囲で比べられる（macOS の bash 5.3 と LC_ALL=C で Fifo が弾かれたことをレンズが実測）。直すなら LC_ALL=C か [[:lower:][:digit:]]、report_skips が件数を変数に残す形。"
+    },
+    {
+      "key": "差分の小さい重複・到達しない分岐（CI_LINT_OK の 3 通りの解析・skip_capability の 1 行化・git_runs_sh の except OSError）",
+      "label": "nit",
+      "reason": "/simplify の 3 件。どれも挙動を変えず、読み手を誤らせる具体例も無い。except OSError は、今の呼び順では make_repo が先に git を起こすので届かない。ただし git が無い環境で False に倒す防御として害は無い。"
+    },
+    {
+      "key": "tests/catchup-switch-case.py _none・手書きの見送りの行: 差し替えた環境変数の復元が finally に無く、見送りの行を skip_line を通さず手で書く",
+      "label": "nit",
+      "reason": "衛生観点の 2 件。環境変数と FETCH_TIMEOUT を差し替えて戻す形は BASE から在り、この差分は値の引用を変えただけ。例外の経路では、その case が既に赤になる。手書きの見送りの行（tests/run.sh の 3 か所と catchup の 2 か所）は、別の台本や bash の中で parallel.py を import しない場所にある。能力の名前の書き損じは、許されない見送りとして赤に倒れる（fail-closed）。印そのものの書き損じが合格に化ける穴は BASE から在り、この差分が広げていない。"
+    }
+  ],
+  "questions": [
+    {
+      "key": "push 後の 3 OS の CI で、Windows の shellcheck が eol=lf で SHELLCHECK_OK になり、graphloops の件数と見送りの名前が一覧と合うことを確かめる",
+      "kind": "field",
+      "status": "held",
+      "reason": "push と gh workflow run はこの run で禁じられているので、観測は版を出した後の push でしかできない。確かめる物は 3 つ。(1) Windows の tests/run.sh の shellcheck の検査が CRLF 以外の原因（Git Bash の path の形等）で赤にならないか。(2) posix 限定の枝を skip() に通した後の Windows の見送りが、一覧（posix-mode process-group fifo read-permission）の名前だけか。(3) 0.20.3 の Windows の直しと合流した版で、graphloops の件数が 1932 に合うか。手元（macOS）では、どれも赤でも緑でも発火しない分岐である。"
+    },
+    {
+      "key": "posix 限定の枝の見送り化をどちらの線で直すか",
+      "kind": "split",
+      "status": "decided",
+      "reason": "1 周目は、並行する線 wip/windows-green との衝突を理由に保留した。",
+      "resolution": "人の推しの決定（2026-09-26）で決着した。wip/windows-green は 0.20.3 で出たので、見送りの方針の持ち主であるこの run が持つ。欠陥は、この周の do-now の単位（posix 限定の枝のキー）でまだ開いている。"
+    }
+  ],
+  "framing": "この周の直す単位は 2 つの根から出ている。(1) Windows でしか起きないこと（checkout の改行の変換）を、手元の macOS の実行観測で確かめたつもりになった根。3 OS に shellcheck を入れた 1 周目の修正が、改行の宣言の無いリポジトリで Windows の CI を赤にした（block、世界の解は gitattributes の *.sh text eol=lf）。(2) 0.20.2 の見送りの口（skip()）より前に書かれた posix 限定の枝が、口を通らずに黙って抜ける根。人の例（Windows のプロセスのまとまりの停止）そのものが許しの一覧で名指せず、目的が閉じない（block、既存の skip() を検査点ごとに当てる零処方）。ほかは 2 つ。注記の写しと、実測で崩れた理由の片づけ（R1 の 7 件と言い換え、test.yml:44 の括弧）。この差分が足した柵 CI_LINT_OK の入口の数え漏れ（run: の代入・continue-on-error・if:）。殺した指摘は次のとおり。symlink の一覧漏れ（CI の実測で見送りが出ない）。catchup の台本の CRLF（CI の実測で none・hook が緑。Git for Windows の bash が CR を許す）。git_runs_sh と pip へのタイムアウトの付け足し（人の方針『期限・タイムアウトを足さない』に反する）。mutations.json は宣言にすぎないという指摘（変異の検算は人の指示で合流後の 1 回）。include の中身を assert する案（決着済み『見送りを許す環境は実装側で決めない』）。独立の shellcheck の段の重複（人が残すと決めた）。mutate.py の途中の --out の赤は、この差分が触れない土台の揺れで、範囲外。",
+  "one_shot": "リポジトリのルートに .gitattributes を置き、*.sh を text eol=lf にする（git の gitattributes 文書の例そのまま）。Windows の checkout の CR が消え、3 OS に入れた shellcheck の SC1017 の赤がまるごと消える。組み合わせも見た。posix 限定の枝の処方（skip() を当てる）とは互いを含まず、どちらかがもう片方を不要にすることもないので、一撃は 1 つの単位だけを閉じる。",
+  "materials_missing": [],
+  "carried_r1": [
+    {
+      "where": ".github/workflows/test.yml:51",
+      "disposition": "promote",
+      "unit_key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている"
+    },
+    {
+      "where": "tests/run.sh:3108",
+      "disposition": "promote",
+      "unit_key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:76 と graphloops/tests/simulate_review.py:84 の docstring のうち、今回足した『欠けた能力の名前つきで』",
+      "disposition": "promote",
+      "unit_key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている"
+    },
+    {
+      "where": "tests/run.sh:179 の行末コメントの括弧（『SKIP_ALLOW の無い FAIL_ON_SKIP=1 の今までの意味』）",
+      "disposition": "promote",
+      "unit_key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている"
+    },
+    {
+      "where": "tests/run.sh:163-164 の skip_probe の注記の 2 文目（『既定では fail を立てず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送り（名前の無い見送り・名前の形でない物を含む）だけを失敗に数える』）",
+      "disposition": "promote",
+      "unit_key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている"
+    },
+    {
+      "where": "tests/run.sh:63-64 の 2 文目以降（『FAIL_ON_SKIP=1 のとき、欠けてよい能力の一覧 SKIP_ALLOW（空白かカンマ区切り。既定は空＝何も許さない）に名前の在る見送りだけを失敗から除く。FAIL_ON_SKIP の無い既定は一覧に出すだけ』）",
+      "disposition": "promote",
+      "unit_key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている"
+    },
+    {
+      "where": "tests/catchup-switch-case.py:362 の括弧の中の『git が sh を起こせない環境では見送る』",
+      "disposition": "promote",
+      "unit_key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている"
+    }
+  ],
+  "router": [
+    {
+      "key": "shellcheck は3 OS のうち 1 本（ubuntu）だけで独立した段として回す",
+      "route": "② 新証拠が理由に答えた。人が別の理由で決め直したので、構造は残して注記の理由を差し替える",
+      "note": "記録された理由『同じ .sh を 3 回見ても指摘は変わらない』は、再開条件『3 OS で指摘が食い違う具体例』に当たった（run 36221181354 で Windows だけ SC1017）。人は 2026-09-26 に『二重に走るのは数秒で、能力は減らない』という理由で独立の段を残すと決めた。段は残し、test.yml:44 の理由の文を人の理由に差し替える（注記の単位に含めた）"
+    },
+    {
+      "key": "どの環境で見送りを許すかは実装側（台本自身）が決めない",
+      "route": "① 記録された理由がまだ束縛する。落とす",
+      "note": "include の中身（どの OS が何を許すか）を CI_LINT_OK で assert する案は、台本が許す環境を決めることになる。理由（見送りの静かな固定化を防ぐ）は今も成り立つ"
+    },
+    {
+      "key": "見送り（SKIP）の集計場所は tests/run.sh 1 か所に一元化する",
+      "route": "① 記録された理由がまだ束縛する",
+      "note": "posix 限定の枝の処方は、新しい集計を作らず既存の skip() を通すことで、この原則に従う"
+    }
+  ],
+  "reburn_causes": [
+    {
+      "key": ".github/workflows/test.yml windows-latest の skip_allow: symlink が一覧に無く、symlink の見送りが出れば赤",
+      "cause": "レビュアー",
+      "note": "1 周目の審査役と今周の手順トレースが、CI の実測の無いまま同じ仮説を出した。今周は CI の実測（symlink の見送り 0 件）で閉じる"
+    },
+    {
+      "key": "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える",
+      "cause": "コード",
+      "note": "1 周目に defer にした欠陥。defer の構造上の理由（並行する線）が人の決定で消えたので、今周に回収する"
+    }
+  ],
+  "one_shot_closes": [
+    "リポジトリの .sh の改行: Windows の checkout で CRLF になり、Windows に入れた shellcheck が SC1017 で赤"
+  ],
+  "precedents": [
+    {
+      "key": "リポジトリの .sh の改行: Windows の checkout で CRLF になり、Windows に入れた shellcheck が SC1017 で赤",
+      "problem": "シェルの台本が Windows の checkout で CRLF になり、静的検査と実行が壊れる",
+      "source": "https://git-scm.com/docs/gitattributes（eol 属性の節と例『*.sh text eol=lf』）／ https://docs.github.com/en/get-started/git-basics/configuring-git-to-handle-line-endings（text eol=lf: 『must keep LF endings, even on Windows』）／ https://www.shellcheck.net/wiki/SC1017",
+      "verdict": "adopt",
+      "reason": "git の公式文書の例がこのままの 1 行で、core.autocrlf より優先してリポジトリの全利用者に効く。SC1017 の wiki の処方（dos2unix 等での変換）は、checkout 時の変換を止めればそもそも要らない"
+    },
+    {
+      "key": "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える",
+      "problem": "環境で走らない検査を、計画の件数を変えずに見送りとして報告する",
+      "source": "TAP version 14 specification（https://testanything.org/tap-version-14-specification.html）の Directives の節——SKIP は検査点 1 つごとに『ok N # SKIP 理由』",
+      "verdict": "adopt",
+      "reason": "リポジトリは既にこの形（parallel.skip_line）に乗っている。黙って抜ける枝を検査点ごとの skip() に置き換えるだけで、計画の件数（EXPECTED_CHECKS）も能力の名前での許しも保てる"
+    },
+    {
+      "key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている",
+      "problem": "同じ事実を運ぶ注記が複数か所に写り、片方だけ直ると食い違う",
+      "source": "対象リポジトリの REVIEW.md『導線を作る手段の優先順位』（注記は別解を退けた理由と、外から呼ばれる面の docstring だけ）",
+      "verdict": "adopt",
+      "reason": "外から叩く面（SKIP_ALLOW）の正本は README の段落で、ほかの写しは消す。実測で崩れた理由の文は、人が決め直した理由に差し替える"
+    },
+    {
+      "key": "tests/run.sh CI_LINT_OK: tests/run.sh の段の env の行が在るかだけを見て、run: の上書き・continue-on-error・if: で見送りの失敗が無効になっても緑",
+      "problem": "CI の定義の方針（見送りを失敗に数える）を、行単位の手書きの検査で守る",
+      "source": "https://github.com/rhysd/actionlint（ワークフローの構文・式・run: の shellcheck を見る lint。リポジトリ固有の方針は見ない）",
+      "verdict": "adapt",
+      "reason": "定番の lint は、方針（この段がこの env で素のまま走る）を検査しない。YAML の構文解析器は stdlib に無く、手元の検査の依存を増やす。既存の段の切り出し（step()）に assert を 2 つ足し、無効化の入口ごとに腕を置く形で閉じる"
+    }
+  ]
+}

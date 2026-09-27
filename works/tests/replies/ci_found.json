@@ -1,0 +1,1 @@
+{"material": {"status": "found", "count": 2, "detail": "CI の定義が無いので、リポジトリの test_stats.py を python3 -m unittest test_stats で写しの上で走らせた: exit 1。FAIL: test_mean_of_three（2 を期待して 3.0）・test_clamp_above_range（10 を期待して 15）", "checked": "写しの上で python3 -m unittest test_stats（終わるまで待った。3 件中 2 件が赤）"}}

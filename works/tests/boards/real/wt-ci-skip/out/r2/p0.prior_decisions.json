@@ -1,0 +1,49 @@
+{
+  "material": {
+    "status": "found",
+    "count": 4,
+    "detail": "対象差分が触れる CI 見送り機構は、既存の決定を上書きするのではなく b728ce1（graphloops 0.20.2）で確立した仕組みの延長。当該コミットが導入した原則:「環境で走れない検査は # SKIP の行で出し、tests/run.sh 1 か所だけが拾う・数える・一覧にする・FAIL_ON_SKIP=1 で失敗に数える」「どの環境で見送りを許すかは実装側で決めない——CI の定義か人が渡す」。対象差分（5981270）はこれを保った上で、能力名の付与と OS 別許可リスト（既定は空）を追加しており、コミット本文に「人の決定 2026-09-26 09:00（OS ごとの許しの一覧・既定は空・macOS と Windows に shellcheck）」と明記——決定記録そのものが差分の直前コミットに存在する。加えて 06862b1（0.20.3）に未解決のまま残された作業項目が1件ある。"
+  },
+  "checked": true,
+  "searched": [
+    "git log --oneline -30 (直近履歴)",
+    "git diff 4233aa8..HEAD --stat（対象差分の全体像）",
+    "git diff 4233aa8..HEAD -- tests/run.sh .github/workflows/test.yml README.md tests/catchup-switch-case.py tests/mutations.json（差分の中身）",
+    "docs/ 配下で skip|shellcheck|allow.?list|OS 別|見送り を grep（loop-contract.md・graphloops-rearchitecture.md・graphloops-prior-art.md がヒット、いずれも別件）",
+    "graphloops/prompts/review-loop/p0.prior_decisions.md, graphloops/prompts/research-loop/p0.prior_decisions.md（本件に該当する記載なし）",
+    "git log --all --oneline | grep -iE 'ci|shellcheck|skip|workflow'（CI 緑化の系譜: 12cbfb2, 9ff43fb, b728ce1, 06862b1, 5981270）",
+    "各コミットの本文全文（git log -1 --format=%B）: 12cbfb2, 9ff43fb, 06862b1, b728ce1, 4233aa8, 5981270",
+    "docs/loop-contract.md 内の windows|R1|R2|写しへ LF 関連の記述（2026-09-13・2026-09-16 の作業記録はあるが、本件の SKIP_ALLOW 機構より前の別種の Windows 赤）",
+    "gh pr list / gh issue list（api.github.com への通信がサンドボックスの許可一覧に無く Forbidden で失敗——GitHub 側の棄却済み議論は確認できていない）"
+  ],
+  "settled": [
+    {
+      "topic": "見送り（SKIP）の集計場所は tests/run.sh 1 か所に一元化する",
+      "decision": "各台本は「# SKIP <理由>」の行を出すだけで、拾う・数える・一覧化・FAIL_ON_SKIP=1 での失敗判定はすべて tests/run.sh のみが行う。層ごとに一覧を作らない",
+      "reason": "層ごとに集計すると同じ見送りを二重に数える。合格行と見分かない「ok」だけで出すと、道具や OS 機能が無い CI が黙って緑になり止める口が無かった（既に踏んだ不具合）",
+      "revisit": "見送りの発生源が増えて1か所の集計では表現できなくなったとき",
+      "where": "tests/run.sh 冒頭コメント（b728ce1 で導入、対象差分でも維持）"
+    },
+    {
+      "topic": "どの環境で見送りを許すかは実装側（台本自身）が決めない",
+      "decision": "見送りを許容する主体は CI 定義（.github/workflows/test.yml）か、人が明示的に渡す環境変数（SKIP_ALLOW / FAIL_ON_SKIP）に限る。台本のロジックの中に OS 名でハードコードした許可を書かない",
+      "reason": "台本自身が「この OS では仕方ない」と判断すると、見送りが静かに固定化し、後で本当に直せる見送りかどうかの見直しが働かなくなる",
+      "revisit": "N/A（対象差分もこの原則の上で SKIP_ALLOW を matrix に外出ししており、踏襲されている）",
+      "where": "tests/run.sh のコメント（b728ce1 由来、対象差分でも同じ文言を維持: 「どの OS で見送りを許すかは実装側で決めない」）"
+    },
+    {
+      "topic": "shellcheck は3 OS のうち 1 本（ubuntu）だけで独立した段として回す",
+      "decision": "静的検査そのもの（`find ... | xargs shellcheck`）を実行する段は ubuntu-latest 限定のまま。深さは tests/run.sh 内の検査と同じ -S warning に揃える",
+      "reason": "同じ .sh を3回見ても指摘は変わらない。深さを揃えないと『手元で緑・CIで赤』の逆転が起き、どちらが正本か分からなくなる",
+      "revisit": "3 OS で shellcheck の指摘が食い違う具体例が見つかったとき",
+      "where": ".github/workflows/test.yml のコメント（対象差分内。旧文言を維持しつつ、道具のインストール自体は3 OS 共通にする変更を追加）"
+    },
+    {
+      "topic": "対象差分（能力名付き見送り・OS 別 SKIP_ALLOW・shellcheck の3 OS 導入）そのものの採否",
+      "decision": "採用。OS ごとの許可一覧は既定空、macOS と Windows にも shellcheck を入れる",
+      "reason": "コミット本文に明記: 「人の決定 2026-09-26 09:00」",
+      "revisit": "N/A（既に人が確定済みの決定として対象差分の直前コミットに記録されている）",
+      "where": "コミット 5981270 の本文"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# 違反: AI の節の settingSources が []（役は隔離した設定の置き場を [user] で読む。[] では coldwrite のフックも借りたスキルも読まない）
+name: bad-ai-empty-setting-sources
+description: 違反の見本
+nodes:
+  - id: judge
+    prompt: 判定せよ
+    allowed_tools: [Read, Grep, Glob]
+    settingSources: []
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
+    idle_timeout: 1728000000
+    output_format: {type: object}

@@ -1,0 +1,15 @@
+{
+ "constraints": [
+  {
+   "text": "stats.py の mean は sum(xs) / (len(xs) - 1) を返す（分母が len(xs) - 1）",
+   "measured_how": "grep -n で stats.py の len(xs) - 1 の行を引いた",
+   "kind": "実測",
+   "measured_output": "$ grep -n 'len(xs) - 1' stats.py\n9:    return sum(xs) / (len(xs) - 1)"
+  },
+  {
+   "text": "test_stats.py:12 の依頼の実測（本番の入力で 3 件に 1 件が赤）は、この作業ツリーに本番の入力が無く測り直せない",
+   "measured_how": "本番の入力は対象の外に在り、この作業ツリーでは測れない",
+   "kind": "仮説"
+  }
+ ]
+}

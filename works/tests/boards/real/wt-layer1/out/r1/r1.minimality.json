@@ -1,0 +1,44 @@
+{
+  "status": "redesign-needed",
+  "reason": "【読んだもの】累積差分の patch と作業ツリー。Bash が無いので git show a28b18b は打てていない。作業ツリーの該当行は patch の + 側と一字一句同じだった（role_run.py:252・:399・:617、test_role_run_stop.py:118・:233、simulate.py:2046）ので、それを固定した版として読んだ。問いの台帳が空なので、問いへの逃げ道は無い。\n\n【主な処方は最小で、正当化もされている】木の仲間を拾う印は 3 つ（グループ・セッションの番号・親子の鎖）ある。どれも変異の腕（RR3・RR15・RR16）と実物の検査（setpgid の孫・setsid の孫・ゾンビのグループ）で赤を見ている。環境変数の印を採らなかった理由も書いてある（macOS で他のプロセスの環境が読めないという実測）。ゾンビの扱いの _live（RR9）、known の開始時刻の照合、長の番号の再利用の見分け（born）もそれぞれ、落ちる形が pytest で名指しされている。psutil を足さず ps と getsid で済ませた点も、目的の『依存を足すかは判定役』に沿っている。小さな症状パッチを積み重ねて、1 つの根で済むものを散らした形も見当たらない。\n\n【redesign が要る点は 1 つ】stop_group（role_run.py:614-621）は、再利用の目印 born を probe_group より先に別の stat で読む。その正当化は docstring の『印は試行ごとに 1 度だけ書くので、先に読んだ時刻は probe_group が見る物と同じ』だが、これは事実と違う。run_steps（role_run.py:689）は段ごとに、役の往復（role_run.py:722-725）は再開ごとに、同じ印を _spawn（role_run.py:507）で書き直す。stat と probe_group の間に段が替わると、次のようになる:\n- born は古い段の時刻のまま、新しい長に当たる\n- _tree_members は reused と判定し、グループもセッションも拾わない\n- 仲間は 0 のまま None（止まった）が返り、stop_group は印を消す\nいまは止める側が盤面を先に書き、新しい段が still_mine で自分を止める順序（_spawn の docstring）に守られている。今壊れてはいない。ただ、None が『自分で数えて確かめた』ではなく still_mine に頼っていることを、偽の根拠が隠している。\n\nもっと小さく、正しい形がある。probe_group は同じ印の mtime を既に written として読んでいる（role_run.py:591）ので、born をその同じ読みから受け取ればよい。そうすれば先読みの stat（6 行）と偽の根拠（2 行）が消える。書き手は、この形と、根拠を『書き直されても still_mine が拾う』と書き直す形を比べ、どちらかを理由つきで選べ。\n\n【説明と実物のずれ（注記を足すのでなく、本文を直す）】\n- _ps_all の docstring（role_run.py:271）は返り値を『{pid: _Proc}』と書くが、実際は (表, None)／(None, 理由) の組\n- 固定具 posix の docstring（test_role_run_stop.py:83-84）は sent を『(宛先, 信号)』と書くが、実際は (種別, 宛先, 信号) の 3 つ組。os のほかに _tree_members・STOP_SIGNALS・KILL_GRACE・probe_group も差し替えている\n- テスト名 test_stop_group_posix_group_already_gone は、docstring に合わせて tree_already_gone にする\n- 送り分けのテスト（test_role_run_stop.py:145）の『長の居ないグループ』は『長が仲間でないグループ』にする\n\n【コメント】削除候補 4 件はどれも、名指しされた同じ内容の在り処が実在した。deletions のとおり削る。\n\n【R1 の範囲外で気づいたこと】根本ユニット 4（TERM を無視する固定具 tree-deaf の後片付け。do-now）と、単位 1 の P2-9 で足された処方（長が正常に終わった回にも残りを刈る）は、この差分に入っていない。この差分は simulate.py:2046・2054 の文言を直しただけで、後片付けは足していない。修正の記録は pytest を 380 件と書いているが、差分の conftest の EXPECTED_ITEMS は 383。数えると 374 + 9 で、差分の方が合う。記録の方が食い違っている。",
+  "deletions": [
+    {
+      "where": "graphloops/engine/role_run.py:399（_stop_tree の if members is None: の直下のコメント『# 表が読めない——止める番号のグループへだけ送り、その消滅を待つ。外へ出た子孫は確かめられない』）",
+      "why": "同じ関数の docstring（role_run.py:360『表が読めない回は止める番号のグループへだけ送り、外へ出た子孫を確かめられないと返す』）と同じ内容。消滅を待つことは直下の group_gone のループが、確かめていないことは :403・:449 の返す文が言っている。他所に無い事実を運んでいない"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:118（m.unlink() の行末コメント『# 確かめた直後に子が終わり、launch の側が印を消した』）",
+      "why": "6 行上の docstring（:112『確かめた後に子が終わって印が消えても』）と同じ場面を言っている。増えているのは『launch の側が』だけで、これは _spawn の docstring（role_run.py:499『子が終わったら消す』）と finally（:519-520）にある"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2046（『# SIGTERM を無視する孫も止まる——長（sh）が先に終わっても、木が消えたかを数え直して SIGKILL を送る』）",
+      "why": "8 行下の check のメッセージ（:2054）とほぼ同じ文。この差分で両方を同じ言い回しに書き換えており、二重に保守されている。メッセージに無い句『長（sh）が先に終わっても』だけを check のメッセージへ移してから、コメントを消す（移さずに消すと、その句の事実が落ちる）"
+    },
+    {
+      "where": "graphloops/tests/py/test_role_run_stop.py:233（test_stop_group_posix_unreadable_table_is_not_stopped の docstring の語『今どおり』）",
+      "why": "書き換える前の実装との比較を言う、編集の実況。差分を知らない読み手には、何と同じなのかが分からない。この語を消して『グループ pgid へは送るが』とすれば、事実はすべて残る"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:614-615（stop_group の docstring の『（印は試行ごとに 1 度だけ書くので、先に読んだ時刻は probe_group が見る物と同じ）』）と、:616-621 の先読みの stat",
+      "why": "根拠が事実と違う。run_steps（:689）と役の往復（:722-725）が同じ印を段・往復ごとに書き直す。より小さい代わりもある: probe_group は同じ mtime を written として既に読んでいる（:591）ので、born をそこから受け取れば、先読みと偽の根拠がまとめて消える。どちらかを選び直すまで、この増分は正当化されていない"
+    }
+  ],
+  "ledger_audit": [
+    "問いの台帳は空（[]）。監査の対象になる split も fork も無い。",
+    "台帳の外で、修正の rejudge_requested ② が『長が正常に終わった回に外へ出た孫を刈るか』を人に上げる候補として挙げていた。これは渡された根本ユニット 1 の P2-9 の再判定が決めている（世界の解で決まる、消費者が見当たらないので人に上げない）。人に上げたまま置き去りの逃げ道にはなっていない。ただし処方は未実装で、次の周の do-now に残る。"
+  ],
+  "increments": [
+    "role_run.py の _ps_all（+17 行）: 全プロセスの表を 1 回の ps で読む口で、他所に無い（_started_at は 1 pid ずつ）。正当。ただし docstring の返り値の記述が誤っている（{pid: _Proc} ではなく組）。直す",
+    "role_run.py の _tree_members（+50 行、うち docstring 18 行）: 3 つの印・known の開始時刻の照合・reused・自分と祖先の除外・読めないセッション。どの分岐にも、RR15・RR16 と pytest 3 本、または実物の検査が対応している。docstring は抜けられるグループの why・Jenkins 方式を退けた実測・拾えない物を運び、コードからは導けない。正当",
+    "role_run.py の _live・_name（+6 行）: _live は RR9 が撃つ分岐で正当。_name は 1 か所でしか使わない 1 行の整形で、呼ぶ所へ畳めるが、名前が意味を運ぶので保護してよい",
+    "role_run.py の _stop_tree の本体（+約 60 行・-約 25 行）: 数え上げ→送り分け→待ち→数え直しと EPERM の分岐は、pytest 4 本と simulate 3 本で撃たれる。正当。ただし exists と group_gone の 2 つの補助と、2 つの待ちループ（:411-418 と :440-446）はほぼ同じ形で、述語 1 つを渡す待ちに集約でき、約 8 行減る。直さなくても通るが、集約の候補",
+    "role_run.py の _popen の gl_born（+2 行）: 長を回収した後の番号の再利用を、_kill の道で見分ける目印。行のコメントが用途を運ぶ。正当",
+    "role_run.py の stop_group の先読み（+8 行、うち docstring 2 行）: 正当化されていない。根拠の『印は試行ごとに 1 度だけ書く』は偽（run_steps :689・役の往復 :722-725）。probe_group の written（:591）から born を取る形の方が小さく、正しい。deletions と reason を参照",
+    "test_role_run_stop.py（+約 120 行・-約 30 行）: 新しい 9 件（再利用の目印を先に読む・ゾンビだけ・生きた仲間への EPERM・グループの外への送り分け・表が読めない・拾い方・番号の再利用 2 件・読めないセッション）は、どれも別の分岐を撃ち、他所に同じ検査は無い。正当。ただし固定具 posix の docstring は sent の形と差し替える物を誤って述べている。テスト名 group_already_gone と『長の居ないグループ』は本文とずれている。直す",
+    "simulate.py（+38 行・-2 行）: 実物のプロセスで外へ出た孫（setpgid・setsid）とゾンビだけのグループを確かめる 3 本と、escaped・reap の補助。pytest の代役では OS の実際の振る舞い（XNU の EPERM・セッションの継承）を見られないので、他所に無い。正当。:2046 のコメントは check のメッセージと重なる（deletions）",
+    "tests/mutations.json（+28 行・RR3・RR9 の付け替え）: RR15・RR16 は新しい分岐に錨を下ろす腕で、書き手が注入して赤を見た記録がある。RR9 の付け替えは、前の錨が今の口では等価変異になる理由が添えてある。正当",
+    "conftest.py・run.sh の件数の定数（各 1 行）: 実測値を書く決まりに従っている。ただし修正の記録は 380 件と書き、差分は 383（374 + 新しい 9 件）。記録の側が食い違っている",
+    "scalar: added 350・comment 64（18%）。コメントの多くは kept の表どおり why・実測・限界を運んでいる。削る 4 件（うち 1 件は句を移す）と、stop_group の根拠 1 か所のほかに、正当化できない単調増は見つからなかった"
+  ],
+  "candidates_note": "前段の候補 4 件は、作業ツリー（patch の + 側と一致）で在り処と重複先の実在を確かめ、4 件とも削る。git show で a28b18b を直に読む道具（Bash）は無く、作業ツリーの内容が patch と一致することで代えた。kept の表のうち、stop_group の docstring の根拠（:614-615）は run_steps :689 と役の往復 :722-725 を読んで偽と確かめたので、deletions に上げた。_ps_all・固定具 posix・テスト名・『長の居ないグループ』の不正確さも確かめたが、これらは消すのでなく本文を直す対象なので、reason と increments に書いた。外への検索はしていない（判定に要る一次情報はすべてリポジトリの中にあった）。"
+}

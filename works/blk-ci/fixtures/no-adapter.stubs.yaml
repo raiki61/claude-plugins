@@ -1,0 +1,51 @@
+# 筋書き no-adapter: 包み無しを宣言した run（入力 adapter: optional。start の控えの adapter）。ci-fence は進み（go: true）、
+# 包み無しの知らせ（ci_role.NO_ADAPTER_NOTE）を note に出す。役は graphloops の任せ先と同じ守り（sandbox だけ・作業ツリーの
+# 柵は無い）で走り、受け付けは包みの柵を求めない（作業ツリーの比べはする）。出口 collect も note を出す（裁定 R58）。
+# 中身は pass と同じ。スクリプトの節は全部 stub（中身は tests/test_blk_ci.py の test_fence_no_adapter_runs_with_note が回す）。
+ci-fence:
+  go: true
+  reason: ''
+  note: '包み無し（adapter: optional）: CI の任せ先の役は graphloops の任せ先と同じ守り（sandbox だけ。作業ツリーの柵は無い）で走った'
+  adapter: optional
+ci-snap:
+  ok: true
+  snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
+  copy_dir: /var/folders/ab/cd/T/works-ci-p0.local_checks-abcd1234/work
+ci-prep:
+  prompt_file: board/prompts/r1/p0.local_checks.md
+  attempt: 1
+  out_path: board/out/r1/p0.local_checks.json
+  node: p0.local_checks
+  already: false
+ci:
+  material:
+    status: found
+    count: 2
+    detail: 'CI の定義が無いので、リポジトリの test_stats.py を python3 -m unittest test_stats で写しの上で走らせた: exit 1。FAIL: test_mean_of_three（2 を期待して 3.0）・test_clamp_above_range（10 を期待して 15）'
+    checked: 写しの上で python3 -m unittest test_stats（終わるまで待った。3 件中 2 件が赤）
+ci-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  node: p0.local_checks
+  status: found
+collect:
+  ok: true
+  reason: ''
+  node: p0.local_checks
+  status: found
+  green: false
+  pr_go: false
+  note: '包み無し（adapter: optional）: CI の任せ先の役は graphloops の任せ先と同じ守り（sandbox だけ。作業ツリーの柵は無い）で走った'
+fixture:
+  expect: completed
+  reached:
+  - ci-fence
+  - ci-snap
+  - ci-prep
+  - ci
+  - ci-accept
+  - collect
+  inputs:
+    node: p0.local_checks

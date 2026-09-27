@@ -1,0 +1,494 @@
+name: blk-spec
+description: |
+  仕様を固めるブロック（本線 ops/blocks/BLOCKS.md の R2「仕様を固める」、差し込み口 spec）。仕様の道（run の入力 flow=spec。写しの graph
+  a1202d0 の spec.* の節）を回す: writer が要件と受け入れ条件のテストを書き（spec-write）、別の目の judge が抜け・曖昧さ・範囲の外を
+  挙げ（spec-review。読むだけ）、穴が在れば writer が key ごとに答えて直す（spec-revise）。その後、盤面の機械の節 spec.approve が
+  仕様・穴・答え・各受け入れ条件の run のコマンドの字面を人に聞き（周の途中の問い）、関所 spec-gate で人が承認すると、機械の節
+  spec.freeze が run を走らせて承認の時点の終了コードを取り、仕様を記録に固め、受け入れ条件を判定への依頼として積む。
+  回すかどうかは盤面の ready だけで決め（route）、受け付けの検査・問いの文・固める中身は全部写しの rules の物。
+  人の関所は線 A の policy-gate と同じ仕組み（文は境の節の at gate と同じ手順、答えの語は approve・continue・stop・reject）。
+  関所を持つので、include するラインは interactive: true。ラインは修正前の CI（p0.local_checks）が済んだ後にこのブロックを回す。
+  出口 collect: 固めた仕様のファイル・テストの {file, sha}・承認した人と一言・固めた版・件数。固まらなければ ok: false。
+
+# 人の関所（spec-gate）を持つので interactive（Archon は宣言の無い工程の approval を警告し、いずれ拒む。#2738）
+interactive: true
+
+inputs:
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版（ラインの口を他のブロックと揃える。スクリプトは読まない——版は盤面が持つ）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # spec.write（writer）: 要件と、要件ごとの受け入れ条件のテストを対象リポジトリに書く。テスト以外は書かない（指示書）
+  - id: write-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    with:
+      role: write
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, node, why]
+      properties:
+        go: {type: boolean}
+        node: {type: string}
+        why: {type: string}
+
+  # 出し直しの輪。拒否の後は新しい会話で、前の拒否の文は write-prep が指示書の頭に書く（$LOOP_PREV で貼らない。R44）。
+  # GIVE_UP_AFTER 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（max_iterations で落とさない。R50）
+  - id: write-loop
+    depends_on: [write-route]
+    when: "$write-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: true
+      until_bash: test $write-accept.output.done = true
+      nodes:
+        - id: write-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: write
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, attempt, out_path, node, already]
+            properties:
+              prompt_file: {type: string}
+              attempt: {type: integer}
+              out_path: {type: string}
+              node: {type: string}
+              already: {type: boolean}
+        - id: spec-write
+          command: spec-write
+          depends_on: [write-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # specblk.output_format("write")（写しの graph の spec.write の schema に印 works-node: spec-write）を貼った物（tests/test_blk_spec.py が一致を見る）
+          output_format:
+            description: 'works-node: spec-write'
+            type: object
+            additionalProperties: false
+            required:
+            - requirements
+            - acceptance
+            - out_of_scope
+            properties:
+              requirements:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - text
+                  properties:
+                    key:
+                      type: string
+                      minLength: 1
+                    text:
+                      type: string
+                      minLength: 4
+              acceptance:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - requirement
+                  - file
+                  - name
+                  - run
+                  properties:
+                    key:
+                      type: string
+                      minLength: 1
+                    requirement:
+                      type: string
+                      minLength: 1
+                    file:
+                      type: string
+                      minLength: 1
+                    name:
+                      type: string
+                      minLength: 1
+                    run:
+                      type: string
+                      minLength: 1
+              out_of_scope:
+                type: array
+                items:
+                  type: string
+        - id: write-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [spec-write]
+          with:
+            role: write
+            reply: {from: "$spec-write.output"}
+          output_format:
+            type: object
+            required: [ok, done, give_up, reason, node]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              node: {type: string}
+
+  # spec.review（judge。書いた目と別の新しい会話・読むだけ）: 抜け・曖昧さ・範囲の外を挙げる。受け付けが作業ツリーの変化を拒む
+  - id: review-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [write-route, write-loop]
+    trigger_rule: none_failed_min_one_success   # 前の輪は飛ばされうる。その欄は読まない
+    with:
+      role: review
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, node, why]
+      properties:
+        go: {type: boolean}
+        node: {type: string}
+        why: {type: string}
+
+  # 出し直しの輪。拒否の後は新しい会話で、前の拒否の文は review-prep が指示書の頭に書く（$LOOP_PREV で貼らない。R44）。
+  # GIVE_UP_AFTER 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（max_iterations で落とさない。R50）
+  - id: review-loop
+    depends_on: [review-route]
+    when: "$review-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: true
+      until_bash: test $review-accept.output.done = true
+      nodes:
+        - id: review-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: review
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, attempt, out_path, node, already]
+            properties:
+              prompt_file: {type: string}
+              attempt: {type: integer}
+              out_path: {type: string}
+              node: {type: string}
+              already: {type: boolean}
+        - id: spec-review
+          command: spec-review
+          depends_on: [review-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # specblk.output_format("review")（写しの graph の spec.review の schema に印 works-node: spec-review）を貼った物（tests/test_blk_spec.py が一致を見る）
+          output_format:
+            description: 'works-node: spec-review'
+            type: object
+            additionalProperties: false
+            required:
+            - faces
+            - reason
+            properties:
+              faces:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - kind
+                  - where
+                  - why
+                  properties:
+                    key:
+                      type: string
+                      minLength: 2
+                    kind:
+                      type: string
+                      enum:
+                      - missing
+                      - ambiguous
+                      - out_of_scope
+                    where:
+                      type: string
+                      minLength: 1
+                    why:
+                      type: string
+                      minLength: 20
+              faces_none:
+                type: string
+              reason:
+                type: string
+                minLength: 20
+        - id: review-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [spec-review]
+          with:
+            role: review
+            reply: {from: "$spec-review.output"}
+          output_format:
+            type: object
+            required: [ok, done, give_up, reason, node]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              node: {type: string}
+
+  # spec.revise（writer）: 審査が穴を挙げた時だけ ready（写しの条件 spec_revise_due）。穴に key ごとに答え、直した仕様の全体を返す
+  - id: revise-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [review-route, review-loop]
+    trigger_rule: none_failed_min_one_success   # 前の輪は飛ばされうる。その欄は読まない
+    with:
+      role: revise
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, node, why]
+      properties:
+        go: {type: boolean}
+        node: {type: string}
+        why: {type: string}
+
+  # 出し直しの輪。拒否の後は新しい会話で、前の拒否の文は revise-prep が指示書の頭に書く（$LOOP_PREV で貼らない。R44）。
+  # GIVE_UP_AFTER 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（max_iterations で落とさない。R50）
+  - id: revise-loop
+    depends_on: [revise-route]
+    when: "$revise-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: true
+      until_bash: test $revise-accept.output.done = true
+      nodes:
+        - id: revise-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: revise
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, attempt, out_path, node, already]
+            properties:
+              prompt_file: {type: string}
+              attempt: {type: integer}
+              out_path: {type: string}
+              node: {type: string}
+              already: {type: boolean}
+        - id: spec-revise
+          command: spec-revise
+          depends_on: [revise-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # specblk.output_format("revise")（写しの graph の spec.revise の schema に印 works-node: spec-revise）を貼った物（tests/test_blk_spec.py が一致を見る）
+          output_format:
+            description: 'works-node: spec-revise'
+            type: object
+            additionalProperties: false
+            required:
+            - spec
+            - handled
+            properties:
+              spec:
+                type: object
+                additionalProperties: false
+                required:
+                - requirements
+                - acceptance
+                - out_of_scope
+                properties:
+                  requirements:
+                    type: array
+                    minItems: 1
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - key
+                      - text
+                      properties:
+                        key:
+                          type: string
+                          minLength: 1
+                        text:
+                          type: string
+                          minLength: 4
+                  acceptance:
+                    type: array
+                    minItems: 1
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - key
+                      - requirement
+                      - file
+                      - name
+                      - run
+                      properties:
+                        key:
+                          type: string
+                          minLength: 1
+                        requirement:
+                          type: string
+                          minLength: 1
+                        file:
+                          type: string
+                          minLength: 1
+                        name:
+                          type: string
+                          minLength: 1
+                        run:
+                          type: string
+                          minLength: 1
+                  out_of_scope:
+                    type: array
+                    items:
+                      type: string
+              handled:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                  - key
+                  - handled
+                  - how
+                  properties:
+                    key:
+                      type: string
+                      minLength: 2
+                    handled:
+                      type: string
+                      enum:
+                      - absorbed
+                      - declared
+                    how:
+                      type: string
+                      minLength: 20
+        - id: revise-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [spec-revise]
+          with:
+            role: revise
+            reply: {from: "$spec-revise.output"}
+          output_format:
+            type: object
+            required: [ok, done, give_up, reason, node]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              node: {type: string}
+
+  # 関所を開くか・文。盤面は直す役の後（か審査の後）の settle で spec.approve を回し、周の途中の問い（pending_human）で止まっている。
+  # 文は線 A の境の節 h-gate（at gate）と同じ手順の gate_text（r<N>/gate.md にも置く）。止め札が在れば盤面を止めて ask false
+  - id: spec-ask
+    script: ask
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [revise-route, revise-loop]
+    trigger_rule: none_failed_min_one_success
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ask, stop, gate_text, why]
+      properties:
+        ask: {type: boolean}
+        stop: {type: boolean}
+        gate_text: {type: string}
+        why: {type: string}
+
+  # 人の承認（線 A の policy-gate と同じ語。approve は continue と、reject は stop と同じ）。一言は記録の process.spec.approval に残る
+  - id: spec-gate
+    depends_on: [spec-ask]
+    when: "$spec-ask.output.ask == true"
+    approval:
+      message: |
+        $spec-ask.output.gate_text
+        （仕様の承認の一言は、記録の process.human_items ではなく process.spec.approval に残る。承認すると受け入れ条件の run を
+        作業ツリーで走らせ、承認の時点の終了コードを記録に固める。止めると仕様を固めずに run を止める——仕様を直してから新しい run で）
+      decisions:
+        - {id: approve}
+        - {id: continue}
+        - {id: stop}
+        - {id: reject}
+      # decisions を書いた関所の出口はいつも {decision, text}（capture_response は Archon が捨てる古い鍵なので書かない）
+
+  # 関所の答えを盤面に渡す（continue の後の settle で spec.freeze が走る）。関所が飛ばされた回は null で届く
+  - id: spec-answer
+    script: answer
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [spec-ask, spec-gate]
+    trigger_rule: none_failed_min_one_success
+    with:
+      gate: {from: "$spec-gate.output", if_skipped: null}
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [answered, decision, stop, why]
+      properties:
+        answered: {type: boolean}
+        decision: {type: string}
+        stop: {type: boolean}
+        why: {type: string}
+
+  # 出口。固まった仕様を盤面の r<N>/spec.json に写す。固まっていなければ理由つきで ok: false（諦めた輪は盤面を止める。by works:spec）
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [spec-answer]
+    output_format:
+      type: object
+      required: [ok, reason, spec_file, tests, approved_by, approval_note, frozen_rev, requirements, acceptance, faces, handled]
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        spec_file: {type: string}         # record.process.spec の写し（要件・受け入れ条件と sha256・承認の時点の終了コード・承認）
+        tests:                            # 受け入れ条件のテストのファイルごとに 1 行。sha は承認の時点の sha256（読めなければ null）
+          type: array
+          items:
+            type: object
+            required: [file, sha]
+            properties:
+              file: {type: string}
+              sha: {type: [string, 'null']}
+        approved_by: {type: string}       # human:spec-gate（固まらなければ空）
+        approval_note: {type: string}
+        frozen_rev: {type: string}        # 固めた時の HEAD（テストは未コミット。同一性は sha で持つ）
+        requirements: {type: integer, minimum: 0}
+        acceptance: {type: integer, minimum: 0}
+        faces: {type: integer, minimum: 0}      # 仕様の審査が挙げた穴の数
+        handled: {type: integer, minimum: 0}    # 直す役が答えた穴の数

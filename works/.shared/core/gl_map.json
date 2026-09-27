@@ -1,0 +1,123 @@
+[
+  {
+    "works": "accept.role_schema",
+    "gl": "gl exit <節>",
+    "status": "missing",
+    "note": "役の schema から注記（note の語）を外す口が gl に無い。gl exit（本線 d1b863f の graphloops/scripts/gl.py:159）は $ref を開くが注記を残し、番号の欄も [integer, string] に広げたまま返す。--strip-notes は 3-6 の続き（wip/fn-shape2 の commit 前の差分、engine/schema.py の strip_notes）で入りかけ。番号を貼らない役の番号の欄を広げない _unpointed（番号を貼って控えを固める役は numbered=True で広げたまま）・事前審査だけの語を落とす _drop_plan_only_kinds・印（node_marker）は works に残す。"
+  },
+  {
+    "works": "accept.check_request",
+    "gl": "",
+    "status": "missing",
+    "note": "依頼に依らない検査の口（依頼を盤面の写しに当てる口）が gl に無い（本線 d1b863f の gl.py は cond・accept・machine・exit の 4 つ）。3-6 の続きで gl request が入りかけ（commit 前）。gl は engine 形の盤面（state.json）が要り、v1 の平らな置き場では読めない（exit 2）。盤面の層に乗れば DiskBoard.begin が add と同じ型で依頼を記録するので不要になる。"
+  },
+  {
+    "works": "accept.check_judge",
+    "gl": "gl accept p2.diagnose",
+    "status": "missing",
+    "note": "判定の受け付けは本線でまだ旧い形（judge_output、本線 d1b863f の rules:2783）。gl accept は旧い形を呼ばず called: false, form: legacy を返す（d1b863f gl.py:100-103）。3-6 の続き・3-8 待ち。入った後も作業ツリーの見張り・拒否文の名前向けの言い換え（NUMBER_HINTS）・open_units の数えと judgment.json の書き込みは works に残る。"
+  },
+  {
+    "works": "accept.check_fix",
+    "gl": "gl accept p3.fix",
+    "status": "ready",
+    "note": "見込み。3-6 で新しい形に移った（fix_plan_covers_units、本線 d1b863f の rules:3363。今は gl accept p2.fix_plan で呼べる）。p3.fix の本来の受け付け fix_covers_open_units（rules:2945）は旧い形で、3-8 で修正の出口を出来事の形にする時に替わる。本線の案は単位を番号 unit で指し、works は名前 unit_key で指す（名前も受けるよう頼むかは持ち主の判断）。"
+  },
+  {
+    "works": "blk-fix/scripts/accept.py:check_unique_units",
+    "gl": "",
+    "status": "works-only",
+    "note": "同じ unit_key を 2 行以上に分けた修正の返答を拒む（1 本目の決まり。1 本目は check_fix が fix_plan_covers_units に読み替えて拒んでいた）。写しの p3.fix の受け付け fix_covers_open_units は重なりを拒まないので、盤面の done の前に blk-fix の受け付けのスクリプトが見る。盤面が p3.fix を待っている時だけ、番号で指した key を盤面の控えで名前に戻してから当てる（線 A Task 12。裁定 TA25）。"
+  },
+  {
+    "works": "blk-fix/scripts/accept.py:check_opened_units",
+    "gl": "",
+    "status": "works-only",
+    "note": "今の周に開いた単位（検証器の is_open）に無い unit_key を書いた修正の返答を拒む（判定が defer にした単位・判定に無い key。1 本目の決まりで、1 本目は check_fix が fix_plan_covers_units の unknown = got - opened で拒んでいた）。写しの fix_covers_open_units は義務の単位の書き落としだけを見て義務に無い key を拒まないので、check_unique_units と同じく盤面の done の前に blk-fix の受け付けのスクリプトが見る（graphloops の上に 1 本目の拒否を足す側。線 A Task 12 の直し。裁定 TA25）。"
+  },
+  {
+    "works": "blk-fix/scripts/accept.py:check_pack_copy",
+    "gl": "",
+    "status": "works-only",
+    "note": "修正役が .archon/ の下（Archon の置き場。自分食いの run では線を動かしている pack の写し .archon/workflows/works/**）を changes[].files に申告した・修正役の前の控え（節 ignored-before の fix-ignored-before.json の archon）から中身を変えた返答を拒む（run 26: 修正役が元の works/** と写しを同じに直して申告し、assert-changed が落ちた）。本線は pack の写しを対象の作業ツリーに置かないので gl へ移さない。役の起こし方の側は切符（ticket.protected_paths）が役の worktree の .archon を守る"
+  },
+  {
+    "works": "accept.check_delta",
+    "gl": "gl accept p3.delta_review",
+    "status": "ready",
+    "note": "見込み。delta_review_output は本線 d1b863f で新しい形（rules:3422）で、今の gl で呼べる唯一の受け付け。gl は盤面の p3.fix_delta の出力の delta.files を読むので、差分を盤面で切った後に移す。3-5（27a818a）で DeltaPass.state_key が消えたため、今の accept.py は写し直した時に落ちる（今は壊れていない）。読むだけの役の見張り（delta-snapshot）は works に残す。"
+  },
+  {
+    "works": "accept.cut_delta",
+    "gl": "",
+    "status": "missing",
+    "note": "差分を切る段が gl に無い。機械の節 p3.fix_delta（fix_delta、本線 d1b863f の rules:1844）は旧い形で、gl machine は called: false（d1b863f gl.py:132-134）。3-8 待ち。本線は作業ツリーを一時 index で固めて rev を返し、置き場は fix-delta-r<周>.patch（works は fix.diff、rev を返さない）。盤面の層の settle で切れば gl を待たずに本線と同じ切り方になる。"
+  },
+  {
+    "works": "accept.touched_files",
+    "gl": "",
+    "status": "missing",
+    "note": "差分を切る段の一部。本線では p3.fix_delta の出力の delta.files に当たる（本線 d1b863f で gl から呼べない。3-8 待ち）。バイトコードを名前で除くのは works の決まりで、本線は gitignore だけに頼る。差分を盤面で切れば要らなくなる。"
+  },
+  {
+    "works": "accept.snapshot_tree",
+    "gl": "",
+    "status": "works-only",
+    "note": "読むだけの役（判定・審査）が作業ツリーを変えていないかを受け付けで比べる（台帳 R3・R14、線 A の TA11）。本線は役を sandbox で起こし、gl accept は作業ツリーの門を当てない（本線 d1b863f の gl.py）。近い p1.worktree_before・p1.worktree_compare は周の頭の版を固める物で目的が違う。gl へ移さない。"
+  },
+  {
+    "works": "accept.tree_state",
+    "gl": "",
+    "status": "works-only",
+    "note": "読むだけの任せ先の役（blk-pr・blk-ci）を起こす前後に比べる作業ツリーの姿（snapshot_tree に HEAD・枝を足した物。裁定 R47、wip/works-a27 から）。本線は役を sandbox で起こし、gl accept は作業ツリーの門を当てない（本線 d1b863f の gl.py）。gl へ移さない。"
+  },
+  {
+    "works": "accept.tree_change",
+    "gl": "",
+    "status": "works-only",
+    "note": "tree_state の 2 つの違いを人に向けた文にする（porcelain・head・ref・git が無視するパスの増減・diff_sha256。裁定 R47、wip/works-a27 から）。読むだけの役の拒否の文の共通の部品。gl へ移さない。"
+  },
+  {
+    "works": "accept.tree_moved",
+    "gl": "",
+    "status": "works-only",
+    "note": "役を起こす前の tree_state と今の作業ツリーの違いの文（今の姿が引けなければその 1 行）。blk-pr・blk-ci・entry.take・rejudge.take の読むだけの役の確かめの共通の 1 本（裁定 R47）。gl へ移さない。"
+  },
+
+  {
+    "works": "entry.take",
+    "gl": "gl accept <節> と effects",
+    "status": "ready",
+    "note": "盤面の done（線 A の受け付けの共通の入口）。本線 d1b863f の gl accept は新しい形の規則だけを当て、effects を返す（盤面には書かない）。載せ替えは、盤面の層が engine の commands.post_check（check_reply）を通す形になった後（写し直しへの依存の 3）。旧い形の規則の節は、その規則が本線で新しい形に移るまで gl で当たらない。"
+  },
+  {
+    "works": "blk-premises/scripts/accept.py:check_claims",
+    "gl": "",
+    "status": "works-only",
+    "note": "依頼の実測を測り直した制約が在るか（request_claims_covered）。graphloops に無い works だけの検査。TA25 のとおり accept.py にも gl にも入れず、ブロックの受け付けのスクリプトに置く。"
+  },
+  {
+    "works": "blk-pr/scripts/accept.py:check_no_post",
+    "gl": "",
+    "status": "works-only",
+    "note": "このラインは申し送りを投稿しない（conflicts[].handed_over が真なら拒む。持ち主の決定 2026-09-27）。graphloops に無い works だけの検査。TA25 のとおりブロックの受け付けのスクリプトに置く。"
+  },
+  {
+    "works": "leftovers.ignored_files",
+    "gl": "",
+    "status": "works-only",
+    "note": "git が無視する未追跡のファイルの一覧（git ls-files --others --ignored --exclude-standard）。record_ignored と remove_new_ignored が使う。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移し、V13 で .shared/core/leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
+  },
+  {
+    "works": "leftovers.record_ignored",
+    "gl": "",
+    "status": "works-only",
+    "note": "修正役の前に、無視されるファイルと未追跡のフォルダを盤面の fix-ignored-before.json に控える（blk-fix の節 ignored-before）。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移し、V13 で .shared/core/leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
+  },
+  {
+    "works": "leftovers.remove_new_ignored",
+    "gl": "",
+    "status": "works-only",
+    "note": "控えに無かった無視されるファイルだけを消す（blk-fix の節 clean。.archon/ の下と、前から在ったフォルダは残す）。graphloops に無い works だけの物（wip/archon-pack の 1cef6a7 で足し、0b851c8 で accept.py から blk-fix の leftovers.py へ移し、V13 で .shared/core/leftovers.py へ移した）。本線は role_run でファイルを消さないので gl へ移さない。"
+  }
+]

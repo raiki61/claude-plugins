@@ -1,0 +1,53 @@
+# 筋書き give-up: 書く役の返答が受け付けで 3 回とも拒まれ（受け入れ条件のテストのファイルが無い）、3 回目に諦めの印（done: true・
+# give_up: true）を出す。後ろの route は spec.review・spec.revise が ready でないので go: false、関所は開かない（ask: false）。
+# collect は最後の拒否の文で盤面を止め（by works:spec）、ok: false を返す（輪は max_iterations で落ちないので、collect まで届く）。
+# 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1）。だからこの筋書きは、輪が抜けた後の配線
+# （route・ask・answer・collect）しか見ない。3 回目の拒否で輪が抜ける式（until_bash の done）は tests/test_blk_spec.py の
+# test_give_up_after_three が、Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
+write-route: {go: true, node: spec.write, why: spec.write が ready}
+write-prep:
+  prompt_file: board/prompts/r1/spec.write.md
+  attempt: 1
+  out_path: board/out/r1/spec.write.json
+  node: spec.write
+  already: false
+spec-write:
+  requirements:
+  - {key: R1, text: mean は 3 つの数の平均を返す}
+  acceptance:
+  - {key: A1, requirement: R1, file: missing_test.py, name: test_mean_is_middle, run: python3 -m unittest missing_test}
+  out_of_scope: []
+write-accept:
+  ok: false
+  done: true
+  give_up: true
+  reason: 'spec.write: acceptance ''A1'' のテストのファイル missing_test.py が読めない（無い）——対象リポジトリに先に書け'
+  node: spec.write
+review-route: {go: false, node: spec.review, why: spec.review は pending}
+revise-route: {go: false, node: spec.revise, why: spec.revise は pending}
+spec-ask: {ask: false, stop: false, gate_text: '', why: ''}
+spec-answer: {answered: false, decision: '', stop: false, why: 関所は開かなかった}
+collect:
+  ok: false
+  reason: 'spec.write の返答が 3 回とも受け付けで拒まれた（最後の拒否: spec.write: acceptance ''A1'' のテストのファイル missing_test.py が読めない（無い）——対象リポジトリに先に書け）'
+  spec_file: ''
+  tests: []
+  approved_by: ''
+  approval_note: ''
+  frozen_rev: ''
+  requirements: 0
+  acceptance: 0
+  faces: 0
+  handled: 0
+fixture:
+  expect: completed
+  reached:
+  - write-route
+  - write-prep
+  - spec-write
+  - write-accept
+  - review-route
+  - revise-route
+  - spec-ask
+  - spec-answer
+  - collect

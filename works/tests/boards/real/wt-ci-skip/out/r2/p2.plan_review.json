@@ -1,0 +1,65 @@
+{
+  "faces": [
+    {
+      "key": "posix の枝の見送りに付ける名前 process-group が、実際に欠けている能力と合わない",
+      "unit_keys": [
+        "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える"
+      ],
+      "kind": "policy",
+      "where": "graphloops/tests/simulate.py の SIGNAL_PROBE（2214-2241）と test_stop_signal_guards（2248）、1920 の枝の check 1957・2017、test_relaunch_live_launch（2026）。照合先は graphloops/engine/role_run.py:247-248・264-280・416、README.md:199、.github/workflows/test.yml:20",
+      "why": "案は 23 件すべてを「プロセスグループで子の木を止めることに頼る」として process-group にまとめている。しかし製品側には Windows で木を止める道がある。role_run.py は Windows では CREATE_NEW_PROCESS_GROUP で起こし、taskkill /T /F で木を止め（264-280）、開始時刻は CIM の FILETIME で見る（parse_cim）。つまり Windows でも木は止められ、そのテストが書かれていないだけである。さらに、プロセスグループを要らない検査も混ざっている。SIGNAL_PROBE の 3 件のうち、錠の再入は kill_all を呼ぶだけで、止め切れない理由を運ぶ件は _stop_tree を差し替えている。止める信号の後の StopSignal の件が要るのは sh だけである。1957（印が無ければ stop_group は None）は OS によらない。2017（run_tree の標準入力）が要るのも sh である。test_relaunch_live_launch は Windows にも対応した fakeclaude（fakeclaude.py:79）を使い、relaunch の Windows の道（taskkill）をそのまま通る。これらに process-group の名前を付けると、Windows の skip_allow がそれを許し、taskkill の道が一度も確かめられないまま CI が緑になる。これは README.md:199 と test.yml:20 が書く方針『その OS で本当にできない物だけを一覧に書く』とぶつかる。逆に、人は『Windows のプロセスのまとまりの停止』を『できない物』の例に挙げている。その前提が role_run の Windows の道と食い違うので、どちらを採るかは人が決めることになる。このまま書けば、次の周で『名前つきの許しが、走っていない Windows の実装を隠す』として、この単位と同じ種類の block に挙がる見込みが高い",
+      "severity": "block"
+    },
+    {
+      "key": "CI_LINT_OK の柵が、ジョブ単位の continue-on-error・if: と段の shell: を見ない",
+      "unit_keys": [
+        "tests/run.sh CI_LINT_OK: tests/run.sh の段の env の行が在るかだけを見て、run: の上書き・continue-on-error・if: で見送りの失敗が無効になっても緑"
+      ],
+      "kind": "entrance",
+      "where": "tests/run.sh:3090-3102（steps の組み立てと step()）と、案の assert (a)(b)",
+      "why": "『tests/run.sh の段の見送りの失敗を無効にする』集合への入口を先に数えた。(1) 段の env の値（既存の assert 2 つが見る）、(2) run: の行頭での代入（案の a）、(3) 段の continue-on-error:、(4) 段の if:（この 2 つは案の b）、(5) 段の shell: の差し替え（例: 何もしない殻を shell: に書く。env: に BASH_ENV を足して代入を注ぐ形もある）、(6) ジョブ単位の continue-on-error:（matrix の値を式で書く形も含む）と if:。(6) の行は最初の『- uses:』より前に在る。steps がまだ空なので、3097 の elif steps: で捨てられ、step() には届かない。案が塞ぐのは (2)〜(4) だけで、(5)(6) が残る。silent-failure-hunter が前の周に試した写しの書き換えと同じやり方で、次の周にも挙がりうる",
+      "severity": "suggest",
+      "no_add": "段の単位の入口は、鍵ごとの assert を足さずに 1 つで閉じられる。既存の `in` の assert 2 つと案の (a)(b) を、段の注記を除いた行の完全一致 1 つに置き換える: rs == [\"- name: tests/run.sh\", \"shell: bash\", \"env:\", 'FAIL_ON_SKIP: \"1\"', \"SKIP_ALLOW: ${{ matrix.skip_allow }}\", \"run: bash tests/run.sh\"]。これで (1)〜(5) を 1 本の assert が覆い、柵の本数はむしろ減る。(6) のジョブ単位の行は step() の外にある。段の柵を広げて塞ぐと、入口がまた 1 つ増える。柵の名乗りを『段』に限ったまま残すと宣言するのが、足さない形である"
+    },
+    {
+      "key": "単位 3 が消す注記の場所に、単位 4 の assert の理由が同じ場所へ戻る",
+      "unit_keys": [
+        "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている",
+        "tests/run.sh CI_LINT_OK: tests/run.sh の段の env の行が在るかだけを見て、run: の上書き・continue-on-error・if: で見送りの失敗が無効になっても緑"
+      ],
+      "kind": "contract_drift",
+      "where": "tests/run.sh:3108（単位 3 が消す『見送りを CI で失敗に数える…』）と、その直下の 3109-3111（単位 4 が assert を足す場所）",
+      "why": "2 つの案が同じ数行を同時に触る。単位 4 の assert (b) が拒むのは、if:（OS で段を外す）と continue-on-error:（失敗を無視する）である。修正役がその理由を注記で添えると、単位 3 が写しとして消した注記とほぼ同じ内容が同じ場所に戻る。次の周の最小性の監査は、それを『消した写しの再発』として挙げる。理由は assert の失敗の文（既存の 3110-3111 と同じ形）に持たせ、注記は書かないと、2 つの案の間で揃えておく必要がある",
+      "severity": "suggest"
+    },
+    {
+      "key": "POSIX_GROUP_WHY が simulate_review.py では 1 回しか使われず、周りの書き方とも違う",
+      "unit_keys": [
+        "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える"
+      ],
+      "kind": "scope_creep",
+      "where": "案の adds『simulate.py と simulate_review.py の定数 POSIX_GROUP_WHY』。比べた先は simulate.py:812-813、simulate_review.py:1932・2568・2583",
+      "why": "今ある skip の呼びは、理由の文をその場に字で書いている（fifo は同じ文を 2 回書いている）。simulate_review.py で使う場所は 6020 の 1 か所だけなので、そこに定数を置いても共有するものが無い。simulate.py の側では、同じ理由の文 1 つを 5 か所に配ることになる。一つ目の穴の答え次第では、一部の名前が sh になったり、Windows で走るようになったりする。そのとき、共有された 1 つの文が間違った場所に残る",
+      "severity": "suggest"
+    }
+  ],
+  "shrink": [
+    {
+      "key": "CI_LINT_OK の段の検査を、段の行の完全一致 1 つにまとめる",
+      "unit_keys": [
+        "tests/run.sh CI_LINT_OK: tests/run.sh の段の env の行が在るかだけを見て、run: の上書き・continue-on-error・if: で見送りの失敗が無効になっても緑"
+      ],
+      "alternative": "既存の assert 2 つ（3110-3111 の `in`）と、案の (a) run: の完全一致・(b) if:/continue-on-error: が無いことを、step(\"tests/run.sh\") が返す行の並びとの完全一致 1 つに置き換える。腕は CL7〜CL9 を残し、どれも同じ 1 本の assert で落ちることを見る",
+      "why": "assert を 4 つ持つ代わりに 1 つで済み、案が塞がない shell: の差し替えや env への鍵の追加も同時に閉じる。今の段の中身は 6 行で固定しており（test.yml:52-57）、段を意図して変える編集は、同じ差分でこの 1 行を直せば済む（fail-closed）"
+    },
+    {
+      "key": "OS によらない検査は posix の囲いから出し、見送りの数を減らす",
+      "unit_keys": [
+        "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える"
+      ],
+      "alternative": "23 件を一律に skip にしない。プロセスグループも sh も要らない検査を囲いから出して、Windows でも走らせる。該当するのは、SIGNAL_PROBE のうち錠の再入と _stop_tree を差し替える件、1920 の枝のうち印が無いときの stop_group（1957）である。sh だけが要る件（SIGNAL_PROBE の StopSignal、run_tree の 2006・2015・2017）は、要るのは sh だと分かる名前で見送る。本当にプロセスグループと POSIX の信号に頼る物だけを process-group で見送る。simulate_review.py:6020 は 128+SIGTERM で抜けることを見ているので、これに当たる",
+      "why": "skip の呼びと理由の定数が減り、許しの一覧が『本当にできない物だけ』という方針に沿う。ただし Windows で本当に緑になるかは、手元の macOS では確かめられない。Windows の CI での実測が要る（改行の単位と同じ根がある）。見送りの名前を sh にすると、Windows の一覧に sh が無いので赤になりうる。一覧を変えるかどうかは、人が決めることになる"
+    }
+  ],
+  "reason": "作業ツリーの HEAD（5981270。refs/heads/wip/ci-skip）は、指定の読む版 fd89587 と違う。git のオブジェクトは読めなかったので、作業ツリーを読んだ。判定者が引いた行番号（simulate.py の 1920・2026・2248・3011・3053、simulate_review.py の 6020、tests/run.sh の 3109-3111、test.yml の 44・51）は作業ツリーでも同じ位置にあり、中身の差は無いと見ている。確かめたこと: .gitattributes は無い。追跡されている .sh はちょうど 5 本。git の gitattributes 文書には『*.sh text eol=lf』の例と、eol が core.autocrlf より優先されることが載っている。GitHub の文書には『must keep LF endings, even on Windows』と、core.autocrlf を上書きすることが載っている。TAP 14 では SKIP を計画の件数に数える。actionlint は run: に shellcheck をかけるが、リポジトリ固有の方針の規則は持たない。先行例の 4 行はどれも出典が在り、単位の問題に当たっている。単位 1 は 1 行の宣言で、穴は見つからなかった。確かめたのは次のとおり: バイナリの判定（review-loop.py:3364 は w/-text だけを見る）、mutate.py の写し、changemap.py の .gitattributes の扱い（diff ドライバだけ）、ルートのファイルを数える柵が無いこと。単位 2 は、件数の数え（check 13・3・3・2・1・1、計 23）と skip() の形（件数に入れる）が案と一致した。ただし role_run.py に Windows の木の止め方（taskkill /T /F）がある。process-group で一律に許すと、方針の『本当にできない物だけ』とぶつかる。人の挙げた例が前提にしている事実とも食い違うので、人の判断に回す。単位 3 は、消す 7 件の中身が README.md:199 と code に残っていることを確かめた（空白かカンマ区切り・既定は空・git_runs_sh の枝）。穴は、単位 4 と同じ場所を触る 1 点だけ。単位 4 は、入口を 6 つ数えた。案はそのうち 3 つを塞ぎ、段の shell: とジョブ単位の行が残る。段の中身を完全一致で見る形なら、柵を減らして閉じられる。対象の名前が要るので引いていない調べ: GitHub Actions run 36221181354 の Windows のログ（graphloops の件数の柵が今も赤かどうか、sh が PATH に在るか）は、外への検索では引いていない。案の『Windows でも 1932 に揃う』は、Windows の CI で実測するまで確かめられない"
+}

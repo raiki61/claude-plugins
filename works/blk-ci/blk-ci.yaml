@@ -1,0 +1,184 @@
+name: blk-ci
+description: |
+  CI の任せ先の役のブロック（裁定 R52）。graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engine が宣言
+  （.review-checks.json）を走らせられない時に任せ先の役へ落ちる。works では test_cmd も空の run で、start の ci_role_go
+  （p0.local_checks）か blk-tests の final の by: role_needed（p4.ci）が真の時に、ラインが include で node を渡して回す。
+  役（opus）はリポジトリの CI の定義を読み、テスト・lint を作業ツリーの写しの上で走らせて素材（material）を返す。走らせられなければ
+  緑を仮定しない（p0 は awaiting_human、p4 は not_run）。定義が無ければ理由つきの not_applicable（graph の na_self_ok）。
+  役の sandbox は graphloops の任せ先と同じ形（allowWrite ['/']・網）で、書き込みの守りは包みが印の旗 no-tree-write を見て足す（裁定 R56）。
+  ci-fence は run が宣言した包みの形（start の控えの adapter）を役を起こす前に 1 回だけ読み（裁定 R58）、with: で受け付けと出口に渡す（再審査 N8）。包みを宣言した run は、受け付けが役の起動に柵が掛かったかを
+  包みの記録で見る。包み無しを宣言した run（adapter: optional）は graphloops の任せ先と同じ守り（sandbox だけ）で回し、知らせを出口の note に出す。
+  宣言が読めなければ ci-fence が盤面を止めて役を起こさない。
+  受け付けは写しの graph の schema・post_check・記録の検査をそのまま当て、役を起こす前と後で本物の作業ツリー（porcelain・差分・
+  git が無視するパス・HEAD・枝）が変わっていれば拒む（包みの無い run の保険）。3 回とも拒まれたら輪を抜け、collect が盤面を止める（再審のブロックと同じ形。裁定 R50）。
+  出口 collect: {ok, reason, node, status, green, pr_go, note}。pr_go は p0.local_checks の後に start の輪へ戻って測った値（entry.resume_after_ci）。
+
+inputs:
+  node:
+    required: true
+    description: CI の節の名前（p0.local_checks か p4.ci）。任せ先に落ちて待っている節だけを渡す（待っていなければ ci-snap が 2 で落ちる）
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版（ラインの口を他のブロックと揃える。スクリプトは読まない——版は盤面が持つ）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # run が宣言した包みの形を読む（起こす claude の道は script から見ない。裁定 R58）。包みを宣言した run は切符を見て進み、
+  # 包み無しの run は知らせ note を残して進む。宣言が読めない・切符が無ければ盤面を止めて go: false、役の輪を飛ばす。
+  # 読んだ形は adapter に出し、ci-accept と collect へ with: で渡す（役を起こした後に start の控えを読み直さない。再審査 N8）
+  - id: ci-fence
+    script: fence
+    runtime: uv
+    timeout: 1728000000
+    with:
+      node: $INPUTS.node
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, reason, note, adapter]
+      properties:
+        go: {type: boolean}
+        reason: {type: string}
+        note: {type: string}
+        adapter: {type: string, enum: ['', optional]}   # entry.ADAPTER_MODES。読めない時は厳しい方の空
+
+  # 役を起こす前の本物の作業ツリーの姿（受け付けが比べる）と、テストを走らせる写し（写しの engine の copy_worktree。一時の置き場の下）
+  - id: ci-snap
+    script: snap
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [ci-fence]
+    when: "$ci-fence.output.go == true"
+    with:
+      node: $INPUTS.node
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, snapshot_file, copy_dir]
+      properties:
+        ok: {type: boolean}
+        snapshot_file: {type: string}
+        copy_dir: {type: string}
+
+  # 出し直しの輪。拒否の後は新しい会話で、前の拒否の文は ci-prep が指示書の頭に書く（$LOOP_PREV で貼らない。裁定 R44）。
+  # 3 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（max_iterations で落とさない。裁定 R50）
+  - id: ci-loop
+    depends_on: [ci-snap]
+    loop_group:
+      max_iterations: 3
+      fresh_context: true
+      until_bash: test $ci-accept.output.done = true
+      nodes:
+        - id: ci-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            node: $INPUTS.node
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file, attempt, out_path, node, already]
+            properties:
+              prompt_file: {type: string}
+              attempt: {type: integer}
+              out_path: {type: string}
+              node: {type: string}
+              already: {type: boolean}
+        - id: ci
+          command: ci
+          depends_on: [ci-prep]
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob, Bash, WebSearch, WebFetch]   # Bash はテストを走らせるため。Edit・Write は無い（作業ツリーの変化は受け付けが拒む）
+          # graphloops の任せ先（role_run.delegate_settings）と同じ形（裁定 R56）: 依存の導入（~/.cache・網）と localhost のテストを
+          # 通す。本物の作業ツリーは包みが印の旗 no-tree-write を見て起動ごとに denyWrite に足す（run ごとの場所は YAML に書けない）。
+          # 包み無しの run は graphloops と同じ晒され方で、保険は受け付けの作業ツリーの比べ（役は盤面も書ける。仕様 5.1 の「包み無し」）
+          sandbox:
+            enabled: true
+            allowUnsandboxedCommands: false
+            failIfUnavailable: true
+            enableWeakerNetworkIsolation: true
+            network: {allowedDomains: ['*'], allowLocalBinding: true}
+            filesystem: {allowWrite: ['/']}
+          idle_timeout: 1728000000
+          # ci_role.OUTPUT_FORMAT（写しの p0.local_checks・p4.ci の schema に印 works-node: ci と旗 no-tree-write）を貼った物
+          # （tests/test_blk_ci.py が一致を見る）
+          output_format:
+            description: 'works-node: ci no-tree-write'
+            type: object
+            required:
+            - material
+            additionalProperties: false
+            properties:
+              material:
+                type: object
+                required:
+                - status
+                additionalProperties: false
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - found
+                    - clean
+                    - carried_over
+                    - not_applicable
+                    - awaiting_human
+                    - not_run
+                  count:
+                    type: integer
+                    minimum: 0
+                  detail:
+                    type: string
+                  checked:
+                    type: string
+                  reason:
+                    type: string
+                  from_round:
+                    type: integer
+                    minimum: 1
+        - id: ci-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [ci]
+          with:
+            node: $INPUTS.node
+            reply: {from: "$ci.output"}
+            adapter: $ci-fence.output.adapter   # 役を起こす前に固めた包みの形（Archon の節の出力は役から書き換えられない）
+          output_format:
+            type: object
+            required: [ok, done, give_up, reason]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              give_up: {type: boolean}
+              reason: {type: string}
+              node: {type: string}
+              status: {type: string}
+
+  # 出口。写しを消す。節を受けていなければ（3 回とも拒まれた）最後の拒否の文で盤面を止めて ok: false。
+  # ci-fence が偽なら輪は飛ばされるので、輪の欄を読まずに合流する（止めた盤面の理由を reason に出す）
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [ci-fence, ci-loop]
+    trigger_rule: none_failed_min_one_success
+    with:
+      node: $INPUTS.node
+      adapter: $ci-fence.output.adapter   # ci-fence はいつも走る（飛ばされない）ので、輪が飛ばされても読める
+    output_format:
+      type: object
+      required: [ok, reason, node, status, green, pr_go, note]
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        node: {type: string}
+        status: {type: string}
+        green: {type: boolean}
+        pr_go:
+          type: [boolean, string]   # p0.local_checks の後の p0.parallel_pr: true・false・"pending"（entry._pr_go の 3 値）
+        note: {type: string}        # 包み無しの run の知らせ（ci_role.NO_ADAPTER_NOTE）。包みを宣言した run は空

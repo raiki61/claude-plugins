@@ -1,0 +1,7 @@
+# 違反: bash の節の timeout が 20 日（1728000000）でない（25 日。2^31-1 ms を超え、Archon の実行で即失敗する）
+name: bad-timeout-25days
+description: 違反の見本
+nodes:
+  - id: run
+    bash: echo hi
+    timeout: 2160000000

@@ -10,3 +10,6 @@ __pycache__/
 .pytest_cache/
 mutants/
 .testmondata
+
+# works/tests/test_dev.py の試験の一時フォルダ（TMPDIR が Claude Code の一時フォルダの下の時だけ使う。終われば消える）
+.works-test-tmp/

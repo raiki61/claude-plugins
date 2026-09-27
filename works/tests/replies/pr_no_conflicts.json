@@ -1,0 +1,11 @@
+{
+ "material": {
+  "status": "clean",
+  "checked": "remote が GitHub でないので同等のコマンド（glab mr list -R o/r）で open な MR 2 件を引き、自分の MR を除いて、変更ファイルの集合 stats.py と交差 0 件（打ち切りなし）"
+ },
+ "repo": "o/r",
+ "listed": 2,
+ "truncated": false,
+ "conflicts": [],
+ "excluded": []
+}

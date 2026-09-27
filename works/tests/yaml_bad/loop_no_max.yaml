@@ -1,0 +1,12 @@
+# 違反: loop_group に max_iterations が無い
+name: bad-loop-no-max
+description: 違反の見本
+nodes:
+  - id: judge-loop
+    loop_group:
+      until_bash: test $accept.output.ok = true
+      fresh_context: false
+      nodes:
+        - id: accept
+          bash: echo ok
+          timeout: 1728000000

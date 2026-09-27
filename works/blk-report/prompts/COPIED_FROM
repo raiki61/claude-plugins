@@ -1,0 +1,6 @@
+a1202d0  graphloops 0.21.0 の最終報告の指示書（report.human_items・report.cold_check・report。lib/report_roles.py の render が描く）
+review-loop/report.human_items.md
+review-loop/report.cold_check.md
+review-loop/report.md
+# 置き場は本線の graphloops/prompts/ の下の同じパス（git show a1202d0:graphloops/prompts/<行>）。1 バイトも変えない（tests/test_blk_report.py が見る）。
+# 写し（.shared/core/graphloops）を写し直すときは、この 3 本も同じ commit から写し直す。持ち主の書式の決まりは commands/ の側に足す（写しは変えない）。

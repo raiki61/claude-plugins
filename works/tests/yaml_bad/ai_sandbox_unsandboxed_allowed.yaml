@@ -1,0 +1,11 @@
+# 違反: AI の節の sandbox が allowUnsandboxedCommands: false を持たない（Bash がサンドボックスの外へ出られる。Ruling R12）
+name: bad-ai-sandbox-unsandboxed-allowed
+description: 違反の見本
+nodes:
+  - id: judge
+    prompt: 判定せよ
+    settingSources: [user]
+    allowed_tools: [Read, Grep, Glob]
+    sandbox: {enabled: true}
+    idle_timeout: 1728000000
+    output_format: {type: object}

@@ -1,0 +1,254 @@
+name: blk-judge
+description: |
+  判定のブロック。人の修正依頼（findings の JSON の配列）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ
+  （ラインの盤面が在れば、凍結した目的の文と素材も盤面から描いて読ませる。judge-brief）、
+  受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回。ラインの盤面が在れば受け付けは盤面の p2.diagnose の done——本線と同じ）。
+  ラインから include で使う。
+  出口は盤面の judgment.json のパスと、直す義務の残る単位の key の一覧と、直す物が在るか（need_fix）。
+
+inputs:
+  request:
+    required: true
+    description: 人の修正依頼（findings の JSON の配列）のファイルのパス。対象リポジトリの根からの相対か絶対
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版。空なら受け付けの時の HEAD（Ruling R2）
+  policy_paste:
+    default: ""
+    # 渡すときは前の節の出力の欄の直の参照（$<節>.output.<欄>）1 つにする（tests/test_policy.py が見る）。run の入力や
+    # $INPUTS 経由で渡すと、Archon が差し込んだ後に指示書全体を置き換え直し、方針の中の $CONTEXT・$<節>.output が消えるか、
+    # 走っていない節への $<節>.output.<欄> で判定役の節が落ちる（Task 2 の直し 1 の試し。Archon v0.11.1 の dry-run）
+    description: 人の方針（固めた版の本文。役は代償として決めない）。空なら方針の文書は無い（仕様 3.1）
+  premises_file:
+    default: ""
+    description: 前提の実測のファイル（盤面の p0.premises の出力）。空なら無い（仕様 3.6）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 依頼の型を graphloops の add と同じ規則で確かめ、盤面の request.json に積む。
+  # 読めない・JSON でない・規則が拒むなら終了コード 1 で run を止める（AI を起こす前に止める）
+  - id: intake
+    script: intake
+    runtime: uv
+    timeout: 1728000000
+    with:
+      request: $INPUTS.request
+
+  # 判定役を起こす前に、ラインの盤面から本線の判定の「入力」の節（凍結した目的・素材の 15 欄・P1 の所見・前の決定の突合・
+  # 依頼・差分・観点の正本）と問いの台帳の段を engine の描き方で描き、判定役が Read するファイルに置く（R61 judgeread・run 27）。
+  # 作業ツリーの姿と起こした印も置く（受け付けが盤面へ渡す）。ラインの盤面が無ければ（ブロックを単独で回した）空。
+  # 盤面が止まっていれば（同じ境の節の後ろの素材集めが止めた。run 30）go: false で判定役を起こさない。
+  # 止まっていない盤面で p2.diagnose が待っていなければ 2（線の順の誤り）
+  - id: judge-brief
+    script: brief
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [intake]
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, go, materials_file]
+      properties:
+        ok: {type: boolean}
+        go: {type: boolean}
+        materials_file: {type: string}
+
+  # 判定役 → 受け付け。受け付けが拒めば、拒んだ理由のファイルのパスを渡して同じ会話で出し直させる（R44）。
+  # 輪は受け付けの done（通った時か 3 回目の拒否）で抜ける（max_iterations で落とさない。R50）
+  - id: judge-loop
+    depends_on: [judge-brief]
+    when: "$judge-brief.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $judge-accept.output.done = true
+      nodes:
+        - id: judge
+          command: diagnose
+          settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # node_marker.mark(role_schema("p2.diagnose"), "judge") を 1 度出して貼った物（tests/test_blk_judge.py が印を外して一致を見る）。
+          # 一番上の description は節の印（包みが argv の --json-schema から読む。裁定 TA20）で、返答の型の検査には効かない
+          output_format:
+            description: "works-node: judge"
+            type: object
+            required: [units, questions, framing, one_shot, materials_missing, carried_r1, one_shot_closes, precedents]
+            additionalProperties: false
+            properties:
+              units:
+                type: array
+                items:
+                  type: object
+                  required: [key, label]
+                  additionalProperties: true
+                  properties:
+                    key: {type: string, minLength: 1}
+                    label:
+                      type: string
+                      enum: [block, suggest, nit, question, info]
+                    disposition:
+                      type: string
+                      enum: [do-now, defer]
+                    reason: {type: string}
+                    reopen_evidence: {type: string}
+                    origin_analysis: {type: string}
+                    why_chain:
+                      type: array
+                      items: {type: string}
+                    prescriptions:
+                      type: array
+                      items: {type: string}
+                    closed_note: {type: string}
+                    class_query:
+                      type: object
+                      required: [how, counts, total]
+                      additionalProperties: false
+                      properties:
+                        how:
+                          type: object
+                          required: [patterns, paths, count]
+                          additionalProperties: false
+                          properties:
+                            patterns:
+                              type: array
+                              minItems: 1
+                              maxItems: 20
+                              items: {type: string, minLength: 1, pattern: '^[^\n\r\x00]+$'}
+                            fixed: {type: boolean}
+                            paths:
+                              type: array
+                              minItems: 1
+                              maxItems: 50
+                              items: {type: string, minLength: 1, pattern: '^[^\n\r\x00]+$'}
+                            count:
+                              type: string
+                              enum: [lines, files]
+                            untracked: {type: boolean}
+                            ignore_case: {type: boolean}
+                            word: {type: boolean}
+                        counts:
+                          type: string
+                          enum: [defects, population]
+                        total: {type: integer, minimum: 0}
+                        note: {type: string}
+              questions:
+                type: array
+                items:
+                  type: object
+                  required: [key, kind, status, reason]
+                  additionalProperties: false
+                  properties:
+                    key: {type: string, minLength: 1}
+                    kind:
+                      type: string
+                      enum: [fork, split, rule, stuck, thrash, premise, unverifiable, awaiting, field]
+                    status:
+                      type: string
+                      enum: [held, decided, resolved, escalate]
+                    reason: {type: string}
+                    resolution: {type: string}
+                    options:
+                      type: array
+                      items: {type: string}
+                    depends:
+                      type: array
+                      items: {type: string}
+                    origin: {type: string}
+              framing: {type: string}
+              one_shot: {type: string}
+              materials_missing:
+                type: array
+                items: {type: string}
+              carried_r1:
+                type: array
+                items:
+                  type: object
+                  required: [where, disposition]
+                  additionalProperties: false
+                  properties:
+                    where: {type: string, minLength: 1}
+                    disposition:
+                      type: string
+                      enum: [promote, decline]
+                    unit_key: {type: string}
+                    why: {type: string}
+              router:
+                type: array
+                items:
+                  type: object
+                  required: [key, route, note]
+                  additionalProperties: false
+                  properties:
+                    key: {type: string}
+                    route: {type: string}
+                    note: {type: string}
+              reburn_causes:
+                type: array
+                items:
+                  type: object
+                  required: [key, cause]
+                  additionalProperties: false
+                  properties:
+                    key: {type: string}
+                    cause:
+                      type: string
+                      enum: [コード, レビュアー, 規約, 前の周の修正]
+                    note: {type: string}
+              one_shot_closes:
+                type: array
+                items: {type: string}
+              precedents:
+                type: array
+                items:
+                  type: object
+                  required: [key, problem, source, verdict, reason]
+                  additionalProperties: false
+                  properties:
+                    key: {type: string, minLength: 1}
+                    problem: {type: string, minLength: 4}
+                    source: {type: string}
+                    verdict:
+                      type: string
+                      enum: [adopt, adapt, does_not_apply, not_found]
+                    reason: {type: string, minLength: 4}
+                    searched: {type: string}
+                    undecided_because: {type: string}
+        - id: judge-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [judge]
+          with:
+            reply: {from: "$judge.output"}
+            base_rev: $INPUTS.base_rev
+          output_format:
+            type: object
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}           # 輪を抜ける旗（通った時か 3 回目の拒否。R50）
+              reason: {type: string}
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io・rolekit）
+              open_units: {type: array, items: {type: string}}
+            required: [ok, done, reason, reason_file, open_units]
+
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の judgment.json から出口を組む。受け付けを通った判定が無ければ
+  # （輪が 3 回とも拒んで抜けた・止まった盤面で輪が飛んだ）ラインの盤面は（止まっていなければ最後の拒否の文で止めて）ok: false、単独の run は 1
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [judge-brief, judge-loop]
+    trigger_rule: none_failed_min_one_success   # 止まった盤面では輪が飛ぶ（支度の go 偽）
+    output_format:
+      type: object
+      properties:
+        ok: {type: boolean}
+        open_units: {type: array, items: {type: string}}
+        need_fix: {type: boolean}
+        judgment_file: {type: string}
+        one_shot: {type: string}
+      required: [ok, open_units, need_fix, judgment_file, one_shot]

@@ -1,0 +1,16 @@
+{
+ "faces": [
+  {
+   "key": "clamp の上限の入口が 2 つ在る",
+   "unit_keys": [
+    "stats.py clamp: 上限を超えた値に lo を返す"
+   ],
+   "kind": "entrance",
+   "where": "stats.py clamp",
+   "why": "上限の枝を直しても、呼び手が同じ集合へ別の経路で入れば、直した枝を通らない",
+   "severity": "block"
+  }
+ ],
+ "shrink": [],
+ "reason": "入口の穴を 1 件挙げた（柵を足さずに閉じる形は書いていない）"
+}

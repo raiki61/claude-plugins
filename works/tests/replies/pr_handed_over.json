@@ -1,0 +1,21 @@
+{
+ "material": {
+  "status": "found",
+  "count": 1,
+  "detail": "PR #7 が stats.py の mean を同じく書き換えている。担当の PR に申し送った"
+ },
+ "repo": "o/r",
+ "listed": 2,
+ "truncated": false,
+ "conflicts": [
+  {
+   "pr": "7",
+   "files": [
+    "stats.py"
+   ],
+   "handed_over": true,
+   "note": "gh pr comment 7 -R o/r で申し送った"
+  }
+ ],
+ "excluded": []
+}

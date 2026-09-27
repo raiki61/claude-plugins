@@ -1,0 +1,76 @@
+{
+  "faces": [
+    {
+      "key": "ci-lint-existing-S-warning-assert-rejects-pip-install",
+      "unit_keys": [
+        "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない",
+        ".github/workflows/test.yml shellcheck: macOS と Windows の CI に shellcheck が無く、tests/run.sh の shellcheck の検査が見送りになる"
+      ],
+      "kind": "contract_drift",
+      "where": "tests/run.sh:3045-3048（PYCI の CI_LINT_OK。runs の抜き出しと assert all(\"-S warning\" in r for r in hits)）",
+      "why": "今の CI_LINT_OK の検査は、run: の行の残りに『shellcheck』を含む段をすべて hits に集める。そのうえで、hits の全部が『-S warning』を持つことを assert している。案 (e) が足す段は『python -m pip install shellcheck-py==0.11.0.1』で、語 shellcheck を含むが -S warning を持たない。このため、書いた瞬間に CI_LINT_OK が赤になる。案 (f) は assert を『足す』とだけ書いていて、この既存の assert をどう直すかが案に無い。もう 1 つ罠がある。この読み手は run: の行の同じ行にある残りしか見ない。pytest の段と同じ『run: |』のブロックに pip install を置くと、その中身は検査から見えない。その場合、足す assert（shellcheck-py の段が在る）が何を見ても当たらないか、書き方しだいでは注記の語で通ってしまう。hits の条件を『shellcheck を起こす行』（例: xargs や shellcheck -S の形）に絞るか、pip の段を 1 行の run: にしてその形を明示する。どちらかを案に入れておくこと。",
+      "severity": "block"
+    },
+    {
+      "key": "ci-lint-env-assert-word-presence-passes-on-comment",
+      "unit_keys": [
+        "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない"
+      ],
+      "kind": "contract_drift",
+      "where": "tests/run.sh の PYCI に足す assert（(f): tests/run.sh の段が FAIL_ON_SKIP: \"1\" と SKIP_ALLOW を持つこと・shellcheck-py の段に if: が無いこと）／.github/workflows/test.yml の書き直す注記",
+      "why": "このリポジトリは『語が在るか』で見る柵を一度退けている。tests/run.sh:3043-3044 に、段を消しても注記に残った同じ語で柵が通ったという実測の記録（腕 f5）がある。env: と if: は run: の行ではないので、既存の『run: の行だけを見る』手が使えない。そのうえ案 (e) は test.yml の注記を新しい構成に書き直すので、注記に FAIL_ON_SKIP や SKIP_ALLOW の語が入る見込みが高い。txt 全体への部分一致で書くと、env を消しても注記で緑のまま残る。env を job の階層に置く書き方でも、段の env を見る assert とは食い違う。assert は、『- name: tests/run.sh』から次の『- name:』までの段の範囲で、コメント行を除いて見る形にする。env を段と job のどちらに置くかは、案の中で 1 つに決めておくこと。",
+      "severity": "suggest"
+    },
+    {
+      "key": "catchup-git-ssh-command-backslash-path-on-windows",
+      "unit_keys": [
+        "tests/catchup-switch-case.py _hook・応答の無い origin: 見送りの条件が sh の有無を確かめず、OS の名前で決まる"
+      ],
+      "kind": "contract_drift",
+      "where": "tests/catchup-switch-case.py:355-363（_none の応答の無い origin の枝。os.environ[\"GIT_SSH_COMMAND\"] = slow）と :677（tempfile.TemporaryDirectory の tmp）",
+      "why": "条件を HAVE_SH に替えると、Windows の CI（Git for Windows の bash の下で sh は PATH に在る）でこの枝が初めて走る。ところが slow は、Windows の一時ディレクトリの中の、逆斜線を含む path（C:\\Users\\…\\slow-ssh）である。git は GIT_SSH_COMMAND をシェルで解釈する（run-command の prepare_shell_cmd は、逆斜線などの特殊文字を含む命令を sh -c に渡す）。そのため逆斜線が escape として食われ、命令が見つからない。git fetch は FETCH_TIMEOUT を待たずにすぐ失敗し、出力は『git fetch が失敗』になる。『timeout』の判定が偽になって SWITCH_NG、つまり Windows で赤になる。これは catchup 本体の欠陥ではなく、台本の組み方の欠陥である。案は見送りの条件を差し替えるだけで、枝の中身（OS の path をそのまま命令文字列に入れる形）を Windows に合わせていない。slow を shlex.quote する、または前向きの斜線に直して渡す手当てを、同じ差分に入れるべき。",
+      "severity": "block"
+    },
+    {
+      "key": "have-sh-lookup-diverges-from-cited-try-precedent",
+      "unit_keys": [
+        "tests/catchup-switch-case.py _hook・応答の無い origin: 見送りの条件が sh の有無を確かめず、OS の名前で決まる"
+      ],
+      "kind": "precedent",
+      "where": "案 2 の HAVE_SH（shutil.which(\"sh\")）と、先行例の行 3（test.support.os_helper.can_symlink）",
+      "why": "出典は在る。ただし文書は can_symlink を『Return True if the OS supports symbolic links』とだけ書いていて、試して確かめるとは書いていない（試す形は CPython の実装の側の性質である）。判定者の理由（実際に使えるかを確かめて決める）と、案の HAVE_SH（PATH を引くだけ）は形が違う。加えて、この 2 件で sh を要るのは PATH の sh ではない。git が hook と GIT_SSH_COMMAND を起こすときの sh である。Git for Windows は、同梱の sh で hook を起こす。したがって PATH を引く形は両向きに外れる。PowerShell や cmd の下で PATH に sh が無くても、hook は走れるのに見送る。PATH に sh が在っても、上の逆斜線の件のように走れない。先行例に合わせるなら、『実際にその操作を 1 回試す』形（例: subprocess で sh -c true を起こし、OSError なら無いとみなす）にする。あるいは HAVE_SH が見るものを『PATH に sh が在る』と正直に書き、先行例の verdict を adapt の理由ごと直す。",
+      "severity": "suggest"
+    },
+    {
+      "key": "regrtest-precedent-does-not-fail-on-skip",
+      "unit_keys": [
+        "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない"
+      ],
+      "kind": "precedent",
+      "where": "先行例の行 1（docs.python.org/3/library/test.html の requires・ResourceDenied・-u）と、判定 no 1 の reason『CI が -u で明示したときだけ厳しくする』",
+      "why": "出典は在り、『見送りに資源の名前を持たせ、走らせる側が名前の一覧で範囲を決める』という点は当たっている。ただし向きと効き目が違う。-u は『使ってよい資源』の一覧で、許していない資源の検査は ResourceDenied（unittest.SkipTest の子）で見送られる。-u を渡しても、見送りが失敗に変わるわけではない。案の SKIP_ALLOW は『欠けてよい能力』の一覧で、一覧に無い見送りを失敗に数える（fail-closed）。この意味づけは出典に無く、案が独自に足したものである。README.md:199 や tests/run.sh:54 の書き直しで、regrtest を失敗の扱いの根拠として名指ししないこと。名指しするなら『名前で分類する形だけを借りた』と限って書くこと。",
+      "severity": "suggest"
+    },
+    {
+      "key": "capability-name-rule-held-in-two-languages",
+      "unit_keys": [
+        "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない"
+      ],
+      "kind": "copy",
+      "where": "graphloops/tests/parallel.py の skip_line（(c) の ValueError の形の検査）と tests/run.sh の skip_capability（(b)、形でなければ空）",
+      "why": "名前の形 [a-z0-9][a-z0-9-]* を、Python と bash の 2 か所がそれぞれ持つことになる。手書きの行（tests/run.sh の 3 か所と catchup の 2 か所）は Python の検査を通らないので、許すか拒むかを実際に決めているのは bash の側だけである。Python の側の検査は、片方だけを緩めたり締めたりした周に食い違いを生む。そのうえ、食い違いを見る腕は案に無い。skip_py は正しい名前 1 つしか流さないからである。bash の側は形の崩れた名前を名前の無い見送りとして失敗に倒すので、Python の ValueError を消しても fail-closed は保たれる。消すか、残すなら skip_py に形の崩れた名前も流して、両側が同じく拒むことを見る。",
+      "severity": "suggest"
+    }
+  ],
+  "shrink": [
+    {
+      "key": "drop-ubuntu-standalone-shellcheck-step",
+      "unit_keys": [
+        ".github/workflows/test.yml shellcheck: macOS と Windows の CI に shellcheck が無く、tests/run.sh の shellcheck の検査が見送りになる"
+      ],
+      "alternative": "test.yml の独立した shellcheck の段（if: matrix.os == 'ubuntu-latest'）を消す。shellcheck を回す正本を、tests/run.sh の中の検査（3 OS で走り、同じ -S warning で、同じ版の shellcheck-py を使い、FAIL_ON_SKIP=1 で見送れない）の 1 本にする。CI_LINT_OK の『shellcheck を回す run: の段が在り -S warning を持つ』assert は、『shellcheck-py を版を固定して if: 無しで入れる段が在る』と『tests/run.sh の段が FAIL_ON_SKIP=1 を持つ』に置き換える。",
+      "why": "案のあとでは、同じ .sh を同じ深さと同じ版で、ubuntu では 2 回、3 OS 合わせて 4 回見ることになる。独立した段を残す理由として記録されている『3 回見ても指摘は変わらない』は、案の側がすでに崩している。消せば、穴 ci-lint-existing-S-warning-assert-rejects-pip-install が段ごと消え、shellcheck を回す場所も 1 か所になる。ただし、決着済みの論点『shellcheck は ubuntu の 1 本だけで回す』と README.md:207 の『shellcheck は CI だけが段として回す』の文を変えることになるので、採るかは人が決める。"
+    }
+  ],
+  "reason": "読んだもの: tests/run.sh（note_skips・report_skips・skip_probe・skip_py・2982・3026・3549・PYCI）、.github/workflows/test.yml、.review-checks.json、graphloops/tests/parallel.py、simulate.py・simulate_review.py の skip と見送りを出す場所、graphloops/tests/run.sh、tests/catchup-switch-case.py（_none・_hook・main）、fence.py の docstring、README.md:199・207、tests/mutations.json（見送り関係の腕は無い）。道具に git が無いので、読む版 0ade250 の git show でなく作業ツリーを読んだ。案はまだ書かれていないので、作業ツリーは読む版と同じとみなした（git status では clean）。\n\n穴 3 件の要点:\n- 既存の CI_LINT_OK の assert（shellcheck を含む run: はすべて -S warning を持つ）が、案の足す pip の段と正面から食い違う。\n- 新しく足す env と if: の assert は、注記の語で通る形になりやすい。このリポジトリには同じ失敗の実測の記録がある。\n- 単位 3 の条件を差し替えると、Windows で GIT_SSH_COMMAND に逆斜線の path が渡り、timeout の判定が赤になる。\n\n先行例の行 1 と 3 は、出典は在るが、案の形（fail-closed の許しの一覧、PATH を引く形）の裏づけにはなっていない。shellcheck-py 0.11.0.1 の出典（Windows x86-64・macOS arm64 と x86-64・manylinux のホイール）と、GitHub の matrix.include の使い方は当たっている。\n\n穴にしなかったもの:\n- Windows の checkout の行末（CRLF なら shellcheck は SC1017 で落ちる）: 公開の報告では runner の Git の既定が autocrlf=true とされる。しかし CRLF なら bash tests/run.sh 自体が set の行で落ちるはずで、Windows の CI では run.sh が走って見送りの行を出している。したがって LF で取り出されているとみて、穴にしなかった。CI のログは見ていない。\n- 後退（BASE との比較）: FAIL_ON_SKIP の未指定と =1 の意味、手元の既定、skip_line の呼び手（simulate.py と simulate_review.py の skip だけ）を確かめた。案の narrows に無いまま消える能力は見つからなかった。ubuntu の shellcheck の版は 0.9.0 から 0.11.0.1 に上がるが、手元は 0.11.0 ですでに通っている。\n- 人の方針: この周には文書が無い。判定の reason が引く人の決定（本当にできない物だけを一覧に書く、shellcheck は見送り自体を無くす）とも、案はぶつからない。\n\n外への問い合わせは、第三者の名前と一般語だけで引いた（GitHub の Windows runner の行末、Git for Windows の bash と CRLF、PyPI の shellcheck-py、docs.python.org の test.support）。対象の名前が要るので引いていない調べは無い。"
+}

@@ -1,0 +1,288 @@
+{
+  "changes": [
+    {
+      "unit_key": "リポジトリの .sh の改行: Windows の checkout で CRLF になり、Windows に入れた shellcheck が SC1017 で赤",
+      "what": "リポジトリのルートに .gitattributes を新設し『*.sh text eol=lf』の 1 行だけを書いた（git の gitattributes 文書の例）。CI の定義は触っていない。",
+      "closure": {
+        "mechanism": "Windows の runner の checkout は core.autocrlf=true で .sh を CRLF にし、1 周目に 3 OS へ入れた shellcheck が SC1017 とそれに続く構文の誤りで赤になった。リポジトリに改行の宣言が無かった。",
+        "fix_mechanism": "eol=lf の属性は core.autocrlf より優先し、どの clone でも .sh を LF で取り出す。",
+        "verified_how": "(1) git ls-files --eol '*.sh' で 5 本とも i/lf w/lf attr/text eol=lf。(2) mktemp -d の下に使い捨ての repo を作り、tests/destgate-case.sh の写しを commit して git -c core.autocrlf=true clone: .gitattributes 無しでは .sh に CR 13 行・shellcheck -S warning rc=1（赤）、.gitattributes を足した commit の clone では .sh の CR 0 行・shellcheck rc=0（緑）。同じ clone の .txt は CR のまま（.sh 以外の改行は動かさない）。(3) Windows の runner での効き目は push 後の CI で親が確かめる（問いの台帳の field）。",
+        "sites": [
+          {
+            "site": ".gitattributes の *.sh text eol=lf（autocrlf=true の clone で赤→緑）",
+            "red_seen": true
+          }
+        ]
+      },
+      "files": [
+        ".gitattributes"
+      ],
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "判定者の名指した根（改行が各 clone の設定任せ）に、リポジトリの宣言を置いた。"
+      },
+      "bypass_tried": "修正を残したまま破りに行った: core.autocrlf=true の clone（Windows の既定と同じ変換）で .sh に CR が付くかを見た→付かない。.sh 以外（.txt）は変わらないことも見た（0.20.3 の Windows の直しの前提を動かさない）。eol=crlf の個別の設定や .git/info/attributes の上書きは、人が意図して入れる物で CI には無い。破れた形は見つからなかった。",
+      "breaks": {
+        "how": "git ls-files --eol（全ファイルの属性の変化）／git ls-files '*.sh'（対象の本数）",
+        "result": "属性が変わるのは .sh の 5 本だけで、blob は既に LF（i/lf）なので再正規化の差分は出ない。bash graphloops/tests/run.sh と FAIL_ON_SKIP=1 bash tests/run.sh は緑（件数は fix_closure）。"
+      },
+      "precedent": {
+        "verdict": "adopt",
+        "reason": "判定者の先行例の行（単位 1: git の gitattributes 文書の例『*.sh text eol=lf』と GitHub の改行の案内）をそのまま採った。",
+        "from_judge_row": true
+      },
+      "coverage": {
+        "remaining": "母数 5 は eol=lf が効くべき .sh の本数（population）。1 行の属性（*.sh）が 5 本全部に当たることを git ls-files --eol で確かめた（5 本とも attr/text eol=lf）。赤→緑を clone で見たのは代表の 1 本（destgate-case.sh の写し）で、残り 4 本は同じ属性の同じ変換なので 1 本ずつは見ていない。Windows の runner での実物は push 後の CI で親が確かめる。",
+        "how": {
+          "patterns": [
+            "."
+          ],
+          "paths": [
+            "*.sh"
+          ],
+          "count": "files"
+        }
+      }
+    },
+    {
+      "unit_key": "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える",
+      "what": "posix でしか走らない 6 か所の 23 件を、人の関所の答え（2026-09-26、推しの 1）どおりに分けた。OS に依らない 3 件は囲いから出して全 OS で走らせる: 印が無いときの stop_group（simulate.py の run_role の枝の外へ移し、使い捨ての置き場 no-mark.json.pgid で見る）と、SIGNAL_PROBE の錠の再入・_stop_tree の差し替え（差し替えの件の子を sh から sys.executable の sleep に替えた）。残る 20 件は、posix の信号とプロセスグループで孫の生死を見る台本の作りに頼るので、既存の skip(desc, \"process-group\", reason) で 1 件ずつ見送る（run_role の枝 12・test_relaunch_live_launch 3・SIGNAL_PROBE の StopSignal 1・test_relaunch の前の試行の子 2 と前の relaunch が残した子 1・simulate_review の test_stop_signal_stops_test_runner_tree 1）。理由の文はその場に書き、定数は作っていない。Windows の許しの一覧・EXPECTED_CHECKS は変えていない。",
+      "closure": {
+        "mechanism": "0.20.2 の見送りの印より前に書かれた OS の枝が skip() を通らず、Windows で行も件数も出さずに抜けた。許しの一覧が名指せず、件数の柵が遠い文で割れた。",
+        "fix_mechanism": "posix 以外では飛ばす check 1 件ごとに能力の名前 process-group の見送りの行を出し、計画の件数を OS に依らず揃える。OS に依らない検査は囲いの外で走る。",
+        "verified_how": "(1) 台本を import して os を name=nt の代役に差し替え、該当の台本だけを直列に走らせる探り（scratchpad/ci-skip-ntprobe.py）で、posix と nt の件数を比べた: test_role_run 27/27（nt で見送り 12）・test_relaunch_live_launch 3/3（3）・test_stop_signal_guards 3/3（1）・test_relaunch 23/23（3）・simulate_review の test_stop_signal_stops_test_runner_tree 1/1（1）。FAIL・例外 0。見送りは計 20、囲いから出した 3 件は両方で走った。(2) bash graphloops/tests/run.sh が 1932 件すべて緑（EXPECTED_CHECKS=1932 のまま）。(3) Windows の実機で囲いから出した 3 件が通るかは push 後の CI で親が確かめる（人の答えの条件）。",
+        "sites": [
+          {
+            "site": "simulate.py test_role_run の posix の枝（else の見送り 12 と囲いの外の stop_group）",
+            "red_seen": false
+          },
+          {
+            "site": "simulate.py test_relaunch_live_launch の見送り 3",
+            "red_seen": false
+          },
+          {
+            "site": "simulate.py test_stop_signal_guards と SIGNAL_PROBE（StopSignal の件だけ posix）",
+            "red_seen": false
+          },
+          {
+            "site": "simulate.py test_relaunch の前の試行の子の else 2・前の relaunch が残した子の else 1",
+            "red_seen": false
+          },
+          {
+            "site": "simulate_review.py test_stop_signal_stops_test_runner_tree の見送り 1",
+            "red_seen": false
+          }
+        ]
+      },
+      "files": [
+        "graphloops/tests/simulate.py",
+        "graphloops/tests/simulate_review.py"
+      ],
+      "coverage": {
+        "remaining": "母数 6 か所（population）の枝は残る。6 か所とも見送りの行を出すか囲いの外で走る形にした。赤を 1 か所ずつ作っていないのは、posix の手元では else が発火しないため——nt の代役の探りで件数の一致を実測した。Windows の taskkill /T /F の道のテストは人の答えどおり別の依頼（親が残りの一覧に積む）。",
+        "how": {
+          "patterns": [
+            "if os\\.name (!=|==) \"posix\":"
+          ],
+          "paths": [
+            "graphloops/tests/simulate.py",
+            "graphloops/tests/simulate_review.py"
+          ],
+          "count": "lines"
+        }
+      },
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "黙って抜ける枝（根）を、見送りの印の仕組みに通した。"
+      },
+      "bypass_tried": "修正を残したまま破りに行った: (a) nt の代役で走らせて件数が posix と同じか→同じ（上の表）。(b) 見送りの行が root の拾い手に名前 process-group で拾われ、Windows の一覧で許されるか→ skip は parallel.skip_line を通るので『# SKIP process-group: …』の形（1 周目の skip_py の腕が同じ形を見ている）。(c) posix の枝に check を足して else の skip を足し忘れた場合→ Windows の件数の柵（-ne）が赤（fail-closed、原因の文は遠い）。これは判定の残した懸念と同じで、登録簿は作っていない。",
+      "breaks": {
+        "how": "grep -rn 'os.name' graphloops/tests/simulate.py graphloops/tests/simulate_review.py／grep -rn ' skip(\"' graphloops/tests/*.py／python3 tests/mutate.py --check",
+        "result": "os.name の枝は nt の実行形式の差し替え（simulate.py:1523・simulate_review.py:707）を除いて全部、見送りか囲いの外の形。skip の呼び手は全部 3 引数。mutate.py --check 432 腕で欠け 0。"
+      },
+      "precedent": {
+        "verdict": "adopt",
+        "reason": "判定者の先行例の行（単位 2: TAP 14 の検査点ごとの SKIP）をそのまま採り、人の関所の答えで分け方を決めた。",
+        "from_judge_row": true
+      }
+    },
+    {
+      "unit_key": "CI の見送りの差分の注記: 他所の写し・変更前の実況・実測で崩れた理由の注記が残っている",
+      "what": "R1 の削除候補 7 件と言い換え 1 件を範囲どおりに直した（test.yml の tests/run.sh の段の注記を削除・tests/run.sh の CI_LINT_OK の『見送りを CI で失敗に数える』の注記を削除・simulate.py と simulate_review.py の skip の docstring から『欠けた能力の名前つきで』を削除・skip_probe の行末の『今までの意味』を削除・skip_probe の注記の 2 文目を削除・report_skips の注記の 2 文目以降を削除・catchup の注記の括弧の後半を削除・『付けなかった OS』→『条件から外れた OS』）。test.yml の独立の shellcheck の段の理由『同じ .sh を 3 回見ても指摘は変わらない』（実測で崩れた）を人の決定の理由（二重に走るのは数秒で、段を残しても能力は減らない）に差し替えた。",
+      "closure": {
+        "mechanism": "注記が他所（README・テスト名・assert の文）の写しか、合流後に腐る実況か、実測で崩れた理由だった。",
+        "fix_mechanism": "写しと実況を消し、崩れた理由は人の決定の理由に差し替えた。",
+        "verified_how": "判定者の class_query の 11 語を git grep -F で数え直して全部 0（defects）。FAIL_ON_SKIP=1 bash tests/run.sh が 586 件すべて緑（文書の定数の実在検査を含む）。",
+        "sites": [
+          {
+            "site": "注記 7 か所と言い換え 1 か所と理由の差し替え 1 か所",
+            "red_seen": false
+          }
+        ]
+      },
+      "files": [
+        ".github/workflows/test.yml",
+        "tests/run.sh",
+        "graphloops/tests/simulate.py",
+        "graphloops/tests/simulate_review.py",
+        "tests/catchup-switch-case.py"
+      ],
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "写しそのものを消した。"
+      },
+      "bypass_tried": "消した事実の正本がまだ在るかを引いた: SKIP_ALLOW の区切り・既定は README.md:199 に在る。skip_probe の意図はテスト名に在る。『include に無い OS は空』は test.yml の matrix の注記に在る。どれも残っている。単位 4 の assert には理由の注記を足さず、理由は assert の失敗の文に持たせた（事前審査の穴 3）。",
+      "breaks": {
+        "how": "git grep -F -e <class_query の 11 語>（残り）／FAIL_ON_SKIP=1 bash tests/run.sh（DOC_SYMBOLS_OK と README の語の検査）",
+        "result": "残り 0。一式は緑。"
+      },
+      "precedent": {
+        "verdict": "adopt",
+        "reason": "判定者の先行例の行（単位 3: REVIEW.md『導線を作る手段の優先順位』）をそのまま採った。",
+        "from_judge_row": true
+      },
+      "coverage": {
+        "remaining": "class_query の 11 語は全部 0（defects を塞いだ）。",
+        "how": {
+          "patterns": [
+            "見送りを失敗に数え、許すのは OS ごとの一覧",
+            "見送りを CI で失敗に数える。",
+            "欠けた能力の名前つきで合格と別の印",
+            "今までの意味",
+            "既定では fail を立てず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW",
+            "名前の無い見送り・名前の形でない物を含む",
+            "FAIL_ON_SKIP=1 のとき、欠けてよい能力の一覧 SKIP_ALLOW",
+            "に名前の在る見送りだけを失敗から除く。FAIL_ON_SKIP の無い既定は一覧に出すだけ",
+            "git が sh を起こせない環境では見送る",
+            "付けなかった OS",
+            "同じ .sh を 3 回見ても指摘は変わらない"
+          ],
+          "fixed": true,
+          "paths": [
+            ".github/workflows/test.yml",
+            "tests/run.sh",
+            "graphloops/tests/simulate.py",
+            "graphloops/tests/simulate_review.py",
+            "tests/catchup-switch-case.py"
+          ],
+          "count": "lines"
+        }
+      }
+    },
+    {
+      "unit_key": "tests/run.sh CI_LINT_OK: tests/run.sh の段の env の行が在るかだけを見て、run: の上書き・continue-on-error・if: で見送りの失敗が無効になっても緑",
+      "what": "tests/run.sh の CI_LINT_OK で、段 tests/run.sh の行（注記と空行を除く）を期待の並び（- name: tests/run.sh／shell: bash／env:／FAIL_ON_SKIP: \"1\"／SKIP_ALLOW: ${{ matrix.skip_allow }}／run: bash tests/run.sh）との完全一致 1 つで見るようにした（事前審査の別案 5）。既存の in の assert 2 本はこれに畳んだ。ジョブの頭（最初の段より前の行）に if: と continue-on-error: が無いことも見る（事前審査の穴 2）。変異の腕を 5 本足した（CL7 run: の頭の FAIL_ON_SKIP=0・CL8 段の continue-on-error・CL9 段の if:・CL10 ジョブの continue-on-error・CL11 段の shell: の差し替え）。撃っていない。",
+      "closure": {
+        "mechanism": "柵が段の env の行の在否だけを見て、run: の頭の代入・shell:・if:・continue-on-error:（段とジョブ）で見送りの失敗が無効になっても緑だった。",
+        "fix_mechanism": "段の行を完全一致で見るので、env の値・run: の頭・shell:・段の if:/continue-on-error: のどれを変えても赤。ジョブの頭の if:/continue-on-error: も別の assert が拒む。",
+        "verified_how": "CI_LINT_OK の Python を写して、test.yml の写しに腕の old→new を 1 本ずつ当てた: CL2〜CL11 の 10 本とも AssertionError（赤）、元の test.yml は CI_LINT_OK。FAIL_ON_SKIP=1 bash tests/run.sh で CI の設定の検査は ok。",
+        "sites": [
+          {
+            "site": "CI_LINT_OK の段 tests/run.sh の完全一致（CL4・CL6・CL7・CL8・CL9・CL11）",
+            "red_seen": true
+          },
+          {
+            "site": "CI_LINT_OK のジョブの頭の if:/continue-on-error:（CL10）",
+            "red_seen": true
+          }
+        ]
+      },
+      "files": [
+        "tests/run.sh",
+        "tests/mutations.json"
+      ],
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "柵の名乗り（見送りを失敗に数える段）と覆いの狭さの食い違い（根）を、段の形を丸ごと見る 1 本で閉じた。"
+      },
+      "bypass_tried": "修正を残したまま破りに行った: 腕の 5 形に加え、env に BASH_ENV を足す（段の行が増えるので完全一致で赤）・段の順を入れ替える（同じく赤）。matrix の値を式で continue-on-error に書く形はジョブの頭の行で拒む。破れなかった形: 別の段で tests/run.sh を FAIL_ON_SKIP=0 で走らせ直す——CI の赤は元の段が持つので見送りの失敗は消えない。matrix.include の中身は判定どおり見ない（どの環境で許すかは実装側で決めない）。",
+      "breaks": {
+        "how": "grep -n 'step(\\|in rs\\|steps' tests/run.sh（同じ段の切り分けを使う箇所）／python3 tests/mutate.py --check",
+        "result": "段の切り分けを使うのは install の段の検査と tests/run.sh の段の検査だけで、空行を除いたのは段の中身に影響しない（実物の test.yml に段の中の空行は無い）。既存の腕 CL2〜CL6 の字列は今の版に在り、写しで全部赤。"
+      },
+      "precedent": {
+        "verdict": "adapt",
+        "reason": "判定者の先行例の行（単位 4: actionlint は方針を見ないので既存の step() に assert を足す）を採り、事前審査の別案 5 で完全一致 1 本に畳んだ。",
+        "from_judge_row": true
+      },
+      "coverage": {
+        "remaining": "段 tests/run.sh を取り出す 1 行と assert（population）。in の assert 2 本を完全一致 1 本に畳み、ジョブの頭の assert を 1 本足した。",
+        "how": {
+          "patterns": [
+            "in rs, f",
+            "rs = step("
+          ],
+          "fixed": true,
+          "paths": [
+            "tests/run.sh"
+          ],
+          "count": "lines"
+        }
+      }
+    }
+  ],
+  "not_done": [],
+  "fix_closure": {
+    "status": "found",
+    "count": 4,
+    "detail": "直した単位 4 件（block 2・do-now の suggest 2）。確かめ: FAIL_ON_SKIP=1 bash tests/run.sh 586 件すべて緑（見送り 0・件数の定数 586 のまま）。bash graphloops/tests/run.sh 1932 件すべて緑。pytest 374 passed。graphcheck（review-loop・research-loop・review-loop-tdd）ok。python3 tests/mutate.py --check 432 腕で欠け 0・重複 0（腕を 5 本足した。変異テストは撃っていない——合流後にまとめて撃つ方針）。shellcheck -S warning tests/run.sh 通る。",
+    "checked": "tests/run.sh・graphloops/tests/run.sh・pytest・graphcheck 3 本・mutate.py --check・nt の代役の探り・autocrlf=true の clone"
+  },
+  "mechanism_changed": true,
+  "premise_drift": false,
+  "gates_changed": true,
+  "seams_changed": false,
+  "security_surface_changed": true,
+  "path_changed": false,
+  "interactions": [
+    {
+      "surface": ".github/workflows/test.yml",
+      "checked": "単位 3（注記の削除と理由の差し替え）と単位 4（CI_LINT_OK が段の行を完全一致で見る）。段 tests/run.sh の注記を消したのは段の行の外（注記の行は完全一致の対象から除く）なので、単位 4 の期待の並びに影響しない。順序で結果は変わらない。"
+    },
+    {
+      "surface": "tests/run.sh",
+      "checked": "単位 3 が CI_LINT_OK の注記を消した場所に、単位 4 の assert が入った。理由は assert の失敗の文に持たせ、注記は戻していない（事前審査の穴 3）。report_skips・skip_probe の注記の削除は単位 4 の範囲と重ならない。"
+    },
+    {
+      "surface": "graphloops/tests/simulate.py",
+      "checked": "単位 2（posix の枝の見送り）と単位 3（skip の docstring の語の削除）。skip の引数と動きは変えていないので、単位 2 の呼びに影響しない。"
+    },
+    {
+      "surface": "graphloops/tests/simulate_review.py",
+      "checked": "単位 2（1 件の見送り）と単位 3（docstring）。同上。"
+    }
+  ],
+  "wrote_refs": [],
+  "plan_faces": [
+    {
+      "key": "posix の枝の見送りに付ける名前 process-group が、実際に欠けている能力と合わない",
+      "handled": "absorbed",
+      "how": "人の関所の答え（2026-09-26、推しの 1）どおりに分けた。OS に依らない 3 件（印が無いときの stop_group・SIGNAL_PROBE の錠の再入と _stop_tree の差し替え）は囲いから出して全 OS で走らせ、残り 20 件だけを process-group で見送る。Windows の taskkill の道のテストは別の依頼（親が積む）。"
+    },
+    {
+      "key": "CI_LINT_OK の柵が、ジョブ単位の continue-on-error・if: と段の shell: を見ない",
+      "handled": "absorbed",
+      "how": "段 tests/run.sh の行を完全一致で見るので shell: の差し替え（BASH_ENV を env に足す形も）は赤。ジョブの頭の if:/continue-on-error: は別の assert で拒む。腕 CL10（ジョブ）・CL11（shell:）を足し、写しで赤を見た。"
+    },
+    {
+      "key": "単位 3 が消す注記の場所に、単位 4 の assert の理由が同じ場所へ戻る",
+      "handled": "absorbed",
+      "how": "単位 4 の assert に注記を付けず、理由は assert の失敗の文に持たせた。単位 3 が消した注記は戻っていない（class_query の語の残り 0）。"
+    },
+    {
+      "key": "POSIX_GROUP_WHY が simulate_review.py では 1 回しか使われず、周りの書き方とも違う",
+      "handled": "absorbed",
+      "how": "定数 POSIX_GROUP_WHY は作らず、理由の文はその場に書いた（周りの skip の呼びと同じ書き方）。見送る件ごとに何に頼るかを括弧で添えた。"
+    },
+    {
+      "key": "CI_LINT_OK の段の検査を、段の行の完全一致 1 つにまとめる",
+      "handled": "absorbed",
+      "how": "既存の in の assert 2 本と案の (a)(b) を、段の行の完全一致 1 本に畳んだ。腕 CL4・CL6〜CL9・CL11 は同じ 1 本で赤になることを写しで見た。"
+    },
+    {
+      "key": "OS によらない検査は posix の囲いから出し、見送りの数を減らす",
+      "handled": "absorbed",
+      "how": "OS に依らない検査を囲いから出した（別案のうち人の答えが名指した 3 件）。sh だけが要る件（StopSignal・run_tree）を sh の名前で見送る部分は、人の答えが process-group で見送ると決めたので採っていない。"
+    }
+  ]
+}

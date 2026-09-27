@@ -1,0 +1,25 @@
+{
+ "plan": [
+  {
+   "unit_keys": [
+    "stats.py mean: 分母が len(xs) - 1 になっている",
+    "stats.py clamp: 上限を超えた値に lo を返す"
+   ],
+   "approach": "mean の分母を len(xs) に、clamp の上限の枝を hi に直す",
+   "adds": [],
+   "removes": [],
+   "shrink_first": "足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる",
+   "narrows": []
+  },
+  {
+   "unit_keys": [
+    "stats.py mean: 分母が len(xs) - 1 になっている"
+   ],
+   "approach": "mean の分母を len(xs) に直す（上の案と重なる）",
+   "adds": [],
+   "removes": [],
+   "shrink_first": "足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる",
+   "narrows": []
+  }
+ ]
+}

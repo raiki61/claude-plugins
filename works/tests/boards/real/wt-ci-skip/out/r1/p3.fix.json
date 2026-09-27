@@ -1,0 +1,275 @@
+{
+  "changes": [
+    {
+      "unit_key": "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない",
+      "what": "見送りの行に欠けた能力の名前を持たせ（『  ok   <検査> # SKIP <能力>: <理由>』）、tests/run.sh の拾い手 1 か所（新しい skip_capability と report_skips）が、FAIL_ON_SKIP=1 のとき環境変数 SKIP_ALLOW（空白かカンマ区切り。既定は空）に名前の在る見送りだけを失敗から除く。名前の無い見送り・名前の形でない物・一覧に無い名前は失敗（fail-closed）。FAIL_ON_SKIP の無い既定（一覧に出すだけ）と、SKIP_ALLOW の無い FAIL_ON_SKIP=1（全部を失敗）は今までと同じ。Python の正本 parallel.skip_line(desc, capability, reason) と simulate.py・simulate_review.py の skip(desc, capability, reason) が名前を渡し、手書きの行（tests/run.sh の posix-mode・process-group）にも名前を入れた。test.yml は 3 OS とも tests/run.sh の段に FAIL_ON_SKIP: \"1\" と SKIP_ALLOW: ${{ matrix.skip_allow }} を渡し、matrix.include で windows-latest だけに skip_allow: \"posix-mode process-group fifo read-permission\"（Windows の CI のログで実際に見送られ、OS の機能として無い物だけ）。CI_LINT_OK が tests/run.sh の段の範囲（注記の行を除く）で FAIL_ON_SKIP と SKIP_ALLOW の行を見る。拾い手の腕（skip_probe）を 5 つの場合（既定・一覧が空・一部許す・一覧だけ・全部許す）に広げ、skip_py が Python の行から名前を読めることを見る。変異の腕 SK1〜SK4・CL4・CL6 を tests/mutations.json に足した。README.md・tests/run.sh の注記・parallel.py と fence.py の docstring を新しい口に合わせた。",
+      "closure": {
+        "mechanism": "見送りの行の理由が自由文で、拾い手の許す口が FAIL_ON_SKIP=1 の全部か無しかだけだった。CI は Windows の本当に無い能力の見送りまで失敗にしてしまうので FAIL_ON_SKIP を渡せず、道具が無くて走らなかった検査も黙って緑になった。",
+        "fix_mechanism": "行が能力の名前を持ち、拾い手が名前ごとに許すか決める。CI は 3 OS とも FAIL_ON_SKIP=1 を渡し、許すのは matrix の OS ごとの一覧（include の無い OS は空）に名前の在る物だけ。一覧に無い名前・名前の無い見送りは赤になる。",
+        "verified_how": "(1) tests/run.sh の冒頭（拾い手と腕まで）を写して走らせ、skip_probe・skip_py の 2 腕が ok。report_skips を直接呼び、SKIP_ALLOW=fifo で『fifo の見送り＋名前無しの見送り』が fail=1（失敗に数えた 1 件）、『fifo の見送りだけ』が fail=0。LC_ALL=C でも同じ。(2) 退行を 1 か所ずつ注入して赤→戻して緑: SK1（一覧の突き合わせを外す）・SK2（名前の形を見ない）・SK3（FAIL_ON_SKIP の無い既定で失敗に数える）・SK4（Python の行が名前を持たない）の 4 本とも、宣言した検査（見送りの拾い手が期待と違う／Python の台本の見送りの行を…）で赤、写しを戻した control は緑。(3) CI_LINT_OK の Python を写して、test.yml の写しに 1 か所ずつ退行を注入: FAIL_ON_SKIP を \"0\" に・FAIL_ON_SKIP の行を注記に・SKIP_ALLOW を固定値に・env を job の階層へ移す、の 4 つとも AssertionError、元の test.yml は CI_LINT_OK。(4) 全体: FAIL_ON_SKIP=1 bash tests/run.sh・bash graphloops/tests/run.sh・pytest・python3 tests/mutate.py --check（下の件数）。",
+        "sites": [
+          {
+            "site": "tests/run.sh report_skips の許しの突き合わせ（[ \"$a\" = \"$cap\" ] && allowed=1）",
+            "red_seen": true
+          },
+          {
+            "site": "tests/run.sh skip_capability の名前の形の検査",
+            "red_seen": true
+          },
+          {
+            "site": "tests/run.sh report_skips の FAIL_ON_SKIP=1 の条件",
+            "red_seen": true
+          },
+          {
+            "site": "graphloops/tests/parallel.py skip_line の名前の欄",
+            "red_seen": true
+          },
+          {
+            "site": ".github/workflows/test.yml tests/run.sh の段の FAIL_ON_SKIP: \"1\"（CI_LINT_OK が見る）",
+            "red_seen": true
+          },
+          {
+            "site": ".github/workflows/test.yml tests/run.sh の段の SKIP_ALLOW: ${{ matrix.skip_allow }}（CI_LINT_OK が見る）",
+            "red_seen": true
+          }
+        ]
+      },
+      "files": [
+        ".github/workflows/test.yml",
+        "tests/run.sh",
+        "graphloops/tests/parallel.py",
+        "graphloops/tests/simulate.py",
+        "graphloops/tests/simulate_review.py",
+        "graphloops/tests/py/fence.py",
+        "README.md",
+        "tests/mutations.json"
+      ],
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "判定者の名指した根（見送りに名前が無いので許す単位を誰も書けない）に、名前の欄と名前で許す口を置いた。CI の既定が空の一覧なので、今日たまたま道具が無くて走らなかった検査は名前が一覧に無く赤になる。"
+      },
+      "bypass_tried": "修正を残したまま破りに行った: (a) 名前の無い見送り『丁 # SKIP』・理由だけの『甲 # SKIP 理由』→ 一覧に何を入れても失敗に数えた。(b) 名前の形でない『Fifo』を SKIP_ALLOW に入れて許そうとした → 形の検査で名前無し扱いになり失敗。(c) 一覧に無い名前『symlink』（形は正しい）→ 失敗。(d) SKIP_ALLOW だけ渡して FAIL_ON_SKIP を渡さない → 一覧に出すだけ（fail=0）で今までの既定と同じ。(e) カンマと空白の混ぜ書き『fifo, sh,Fifo』→ fifo と sh だけ許した。(f) 行の途中の印『x  ok   丙 # SKIP fifo: 理由』→ 拾わない（今まで通り）。(g) test.yml で env を job の階層へ移す・FAIL_ON_SKIP の行を注記にする → CI_LINT_OK が段の範囲の注記を除いた行だけを見るので赤。破れた形は見つからなかった。",
+      "breaks": {
+        "how": "grep -rn \"FAIL_ON_SKIP\\|# SKIP\\|skip_line\\|SKIP_MARK\\|report_skips\\|note_skips\" --include=*.py --include=*.sh --include=*.md --include=*.yml .（動きを述べた文の洗い出し）／grep -rn \"[^_a-z]skip(\\|skip_line(\" --include=*.py .（skip の呼び手）／python3 tests/mutate.py --check（腕の字列が今の版に在るか）",
+        "result": "skip の呼び手は simulate.py の 2 か所・simulate_review.py の 3 か所・tests/run.sh の skip_py の 1 か所で、全部新しい引数に合わせた（grep の残り 0）。bash graphloops/tests/run.sh は 1932 件すべて緑（件数の柵 EXPECTED_CHECKS=1932 は変わらない）。FAIL_ON_SKIP=1 bash tests/run.sh と pytest と mutate.py --check の結果は fix_closure に書く。動きを述べた文: README.md:199・tests/run.sh の 40-42 と 54 の注記・parallel.py の SKIP_MARK と skip_line の docstring・fence.py の docstring を直した。simulate.py・simulate_review.py の skip の docstring も名前つきに直した。"
+      },
+      "precedent": {
+        "verdict": "adapt",
+        "reason": "判定者の先行例の行（単位 1: CPython の test.support.requires と regrtest の -u、TAP 14 の SKIP の説明文、GitHub Actions の matrix.include）をそのまま採った。事前審査の指摘どおり、借りたのは『見送りに名前を持たせ、走らせる側が名前の一覧を渡す』形だけで、一覧に無い見送りを失敗に数える意味づけは人の決定（2026-09-26 09:00）から来ている。README と注記に regrtest を失敗の扱いの根拠として書いていない。",
+        "from_judge_row": true
+      },
+      "coverage": {
+        "remaining": "母数 10 は見送りの行を出す場所の全数（population）で、10 か所とも能力の名前を持たせた（grep で『# SKIP <名前>:』か skip(…, \"<名前>\", …) の形の行が 10）。閉鎖を赤で実証した site 6 件は、名前で許すか決める側（拾い手・名前の形・FAIL_ON_SKIP の条件・Python の行の正本・CI の 2 つの設定）で、出す側の 10 か所は 1 か所ずつ赤を作っていない——出す側が名前を落としても、拾い手が名前無しとして FAIL_ON_SKIP=1 の下で失敗に倒すので、出す側の 1 か所ずつの退行は fail-closed に倒れる（skip_probe の名前無しの場合が見ている）。Windows でだけ出る 7 か所の名前が一覧と一致するかは push 後の CI で見る（問いの台帳の field）。",
+        "how": {
+          "patterns": [
+            " skip\\(\"",
+            "print\\(\".*# SKIP ",
+            "sc_skip=\".*# SKIP "
+          ],
+          "paths": [
+            "tests/run.sh",
+            "tests/catchup-switch-case.py",
+            "graphloops/tests/simulate.py",
+            "graphloops/tests/simulate_review.py"
+          ],
+          "count": "lines"
+        }
+      }
+    },
+    {
+      "unit_key": ".github/workflows/test.yml shellcheck: macOS と Windows の CI に shellcheck が無く、tests/run.sh の shellcheck の検査が見送りになる",
+      "what": ".github/workflows/test.yml の setup-python の後に、3 OS とも OS の条件無しで『python -m pip install shellcheck-py==0.11.0.1』の段（install shellcheck）を置いた。手元の shellcheck 0.11.0 と版が揃い、ubuntu の独立した shellcheck の段もこの版を使う。tests/run.sh の shellcheck の見送りの行を『# SKIP shellcheck: shellcheck が手元に無い（CI は 3 OS とも入れる…）』に直し、CI_LINT_OK は、道具を起こす run: の行だけを shellcheck の段として数え（入れる段の shellcheck-py は当たらない）、版を固定して入れる段が if: 無しで在ることを見る。変異の腕 CL5 を足した。",
+      "closure": {
+        "mechanism": "shellcheck は runner の既定で ubuntu にしか無く、tests/run.sh の中の同じ検査が macOS と Windows で見送られていた。CI_LINT_OK は独立した段が在るかしか見ないので、見送りは緑のまま残った。",
+        "fix_mechanism": "3 OS に同じ版を PyPI のホイールで入れるので、見送り自体が無くなる。shellcheck は Windows の許しの一覧にも書かないので、入れる段が消えたり OS の条件が付いたりすれば、その OS で tests/run.sh が赤になり、CI_LINT_OK も赤になる。",
+        "verified_how": "(1) PyPI の JSON で shellcheck-py 0.11.0.1 に win_amd64・macosx_11_0_arm64・macosx_10_9_x86_64・manylinux のホイールが在ることを確かめた（curl https://pypi.org/pypi/shellcheck-py/json）。(2) CI_LINT_OK の Python を写して、test.yml の写しに 1 か所ずつ退行を注入: 入れる段に if: を付ける・版の固定を外す・入れる段を echo にする・-S warning を外す・shellcheck を回す段を消す、の 5 つとも AssertionError、元の test.yml は CI_LINT_OK。(3) YAML として読み、matrix と段の並びが意図どおり（include は windows-latest に skip_allow を足すだけ）。(4) 手元の shellcheck -S warning tests/run.sh が通る。CI での実際の効き目は push が禁じられているので確かめていない（問いの台帳の field）。",
+        "sites": [
+          {
+            "site": ".github/workflows/test.yml install shellcheck の段（版の固定と OS の条件無し。CI_LINT_OK が見る）",
+            "red_seen": true
+          },
+          {
+            "site": "tests/run.sh CI_LINT_OK の shellcheck を回す段の数え方（hits）と -S warning の突き合わせ",
+            "red_seen": true
+          }
+        ]
+      },
+      "files": [
+        ".github/workflows/test.yml",
+        "tests/run.sh",
+        "tests/mutations.json"
+      ],
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "人の決定どおり、道具で無くせる見送りは道具を入れて無くした。許しの一覧に shellcheck を書く形（症状を許す形）は採っていない。"
+      },
+      "bypass_tried": "修正を残したまま破りに行った: (a) 入れる段に if: matrix.os == 'ubuntu-latest' を付けた → CI_LINT_OK が赤。(b) 版の固定を外した（shellcheck-py だけ）→ 赤。(c) 入れる段を消した（echo に置換）→ 赤。(d) 注記に『pip install shellcheck-py==0.11.0.1』の語が残る形 → 注記の行は段の範囲から除くので通らない。(e) 入れる段の語 shellcheck-py が既存の『shellcheck を含む run: は全部 -S warning』の assert に当たる事前審査の指摘 → 道具を起こす形（前が空白か行頭・後が空白か行末）だけを数えるので、入れる段は当たらず、回す段の -S warning 外しは赤のまま。破れた形は見つからなかった。",
+      "breaks": {
+        "how": "grep -n \"shellcheck\" .github/workflows/test.yml tests/run.sh tests/mutations.json README.md（同じ段・同じ検査を共有する箇所）／python3 tests/mutate.py --check（CL2・CL3 の字列が今の版に在るか）",
+        "result": "既存の腕 CL2（-S warning を外す）・CL3（回す段を消す）の字列は今の版に 1 か所ずつ在り、写しで注入すると CI_LINT_OK が赤（上の (2)）。独立した shellcheck の段（ubuntu だけ）は残した——決着済みの論点を変えない。README.md:207 の『shellcheck は CI だけが段として回す』の文とも食い違わない。"
+      },
+      "precedent": {
+        "verdict": "adopt",
+        "reason": "判定者の先行例の行（単位 2: PyPI の shellcheck-py 0.11.0.1 のホイールと runner-images の既定の道具の一覧）をそのまま採った。",
+        "from_judge_row": true
+      },
+      "coverage": {
+        "remaining": "母数 4（shellcheck の段の名前・OS の条件・run と、それに頼る見送りの理由の行）は population で、修正後も段は残す。独立した ubuntu の段と if: の条件は決着済みの論点どおり残した（事前審査の別案 7 を人に上げる候補として報告する）。見送りの理由の行は名前 shellcheck つきに直した。",
+        "how": {
+          "patterns": [
+            "^ *- name: shellcheck",
+            "^ *if: matrix\\.os",
+            "^ *run: .*shellcheck",
+            "SKIP shellcheck"
+          ],
+          "paths": [
+            ".github/workflows/test.yml",
+            "tests/run.sh"
+          ],
+          "count": "lines"
+        }
+      }
+    },
+    {
+      "unit_key": "tests/catchup-switch-case.py _hook・応答の無い origin: 見送りの条件が sh の有無を確かめず、OS の名前で決まる",
+      "what": "tests/catchup-switch-case.py の 3 か所（応答の無い origin の見送り・hook の見送り・hook の判定から外す条件）を、os.name でなく新しい git_runs_sh(tmp) で決める。git_runs_sh は git に sh の別名（alias.shprobe=!exit 0）を 1 回起こさせて、起こせるかを試す——hook と GIT_SSH_COMMAND を sh で起こすのは PATH の sh でなく git なので、同じ経路で試す。起こせないときだけ『# SKIP sh: …』で見送る。事前審査の指摘どおり、GIT_SSH_COMMAND に渡す script の path を前向きの斜線に直して shlex.quote で引用した（Windows の逆斜線の path を sh が escape として食う形を塞ぐ）。Windows の許しの一覧に sh は書かない。",
+      "closure": {
+        "mechanism": "見送りの条件が OS の名前（os.name）で、理由の文（sh が無いことがある）と食い違っていた。sh を起こせる Windows でも検査が走らず、許しの一覧に名前を書けば確かめていない不能を許すことになった。",
+        "fix_mechanism": "git が sh を起こせるかを実際に試して決める。起こせる環境（Git for Windows を含む）では検査が走り、起こせない環境では名前 sh つきで見送り、CI では一覧に無いので赤になる。",
+        "verified_how": "(1) python3 tests/catchup-switch-case.py none と hook が手元（macOS）で SWITCH_OK（git_runs_sh が真で、応答の無い origin の FETCH_TIMEOUT の切りと hook の言い分が実際に検査された）。(2) 逆斜線と空白を含む path（sp ace\\x …/slow-ssh）で、引用した GIT_SSH_COMMAND は script を起こし、引用しない形は起こせなかった（git ls-remote で確かめた）。(3) os.name の残り 0（grep -n os.name tests/catchup-switch-case.py）。",
+        "sites": [
+          {
+            "site": "tests/catchup-switch-case.py _none の応答の無い origin の枝の条件と GIT_SSH_COMMAND の引用",
+            "red_seen": false
+          },
+          {
+            "site": "tests/catchup-switch-case.py _hook の見送りと note の条件",
+            "red_seen": false
+          }
+        ]
+      },
+      "files": [
+        "tests/catchup-switch-case.py"
+      ],
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "条件を能力の有無を試す形にしたので、条件と理由の食い違い（根）が消えた。"
+      },
+      "bypass_tried": "修正を残したまま破りに行った: (a) script の置き場に空白と逆斜線を含む path を使った → 引用で script が起きた（引用しない形は起きない）。(b) git が sh を起こせない環境は手元で作れない（macOS の git は /bin/sh を絶対パスで起こす）ので、見送りの枝の実際の出力は確かめていない。見送りの行の形は skip_capability が名前 sh を読む形（『# SKIP sh: …』）で、root の拾い手の腕が同じ形を検査している。",
+      "breaks": {
+        "how": "grep -n \"os.name\\|GIT_SSH_COMMAND\\|# SKIP\" tests/catchup-switch-case.py／grep -n \"catchup-switch-case.py\" tests/run.sh（この台本を呼ぶ場所）",
+        "result": "os.name の残り 0。tests/run.sh はこの台本を case ごとに呼び SWITCH_OK を見る——none と hook は手元で SWITCH_OK。Windows で git が sh を起こせて検査が走ったとき緑になるかは、push 後の CI で確かめる（問いの台帳の field）。"
+      },
+      "precedent": {
+        "verdict": "adapt",
+        "reason": "判定者の先行例の行（単位 3: CPython の test.support.os_helper の能力を確かめて見送る関数）を採った。事前審査の指摘を受けて、PATH を引く形（shutil.which）でなく、その操作を 1 回試す形にした——sh を起こすのは git なので、git に sh の別名を起こさせて試す。",
+        "from_judge_row": true
+      },
+      "coverage": {
+        "remaining": "os.name の 3 行は 0 になった。Windows で git が sh を起こせて検査が走ったときの緑は、手元で再現できないので push 後の CI で見る（問いの台帳の field）。",
+        "how": {
+          "patterns": [
+            "os.name"
+          ],
+          "fixed": true,
+          "paths": [
+            "tests/catchup-switch-case.py"
+          ],
+          "count": "lines"
+        }
+      }
+    }
+  ],
+  "not_done": [
+    {
+      "unit_key": "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える",
+      "why": "fork の出どころ（問いの台帳の split『posix 限定の枝の見送り化をどちらの線で直すか』。並行の wip/windows-green の範囲と重なるので人が決める）。判定も defer。"
+    }
+  ],
+  "fix_closure": {
+    "status": "found",
+    "count": 3,
+    "detail": "直した単位 3 件（block 2・do-now の suggest 1）。確かめ: FAIL_ON_SKIP=1 bash tests/run.sh が 586 件すべて緑（見送り 0 件。件数の定数 EXPECTED_CHECKS=586 は変わらない。1 回目は README.md が環境変数の名前を裸のコード表記で書いて文書の定数の実在検査が赤——コマンドの形の表記に直して 2 回目で緑）。bash graphloops/tests/run.sh が 1932 件すべて緑。pytest（uv run --no-project --with pytest==9.1.1 python -m pytest graphloops/tests/py）374 passed。graphcheck（review-loop・research-loop・review-loop-tdd）ok。python3 tests/mutate.py --check が 427 腕で欠け 0・重複 0（腕を 7 本足した。変異テストは撃っていない——合流後にまとめて撃つ方針）。退行の注入は写しの上で手で行った（SK1〜SK4・CL_LINT の 9 形、全部赤→元で緑）。",
+    "checked": "tests/run.sh・graphloops/tests/run.sh・pytest・graphcheck 3 本・mutate.py --check"
+  },
+  "mechanism_changed": true,
+  "premise_drift": false,
+  "gates_changed": true,
+  "seams_changed": true,
+  "security_surface_changed": true,
+  "path_changed": false,
+  "interactions": [
+    {
+      "surface": ".github/workflows/test.yml",
+      "checked": "単位 1（tests/run.sh の段の env と matrix.include）と単位 2（install shellcheck の段）は別の段を触る。①一方が他方を不要にしない——許しの一覧に shellcheck を書かないので、道具を入れる段が無ければ macOS と Windows が赤、入れる段だけなら見送りは緑のまま（判定の one_shot のとおり対で閉じる）。②順序で結果は変わらない。③組み合わせて生まれる状態: 入れる段が落ちた（pip の失敗）とき、その段で job が止まるので tests/run.sh は走らない——黙って緑にはならない。",
+      "combined_effect": "3 OS とも見送り 0 件の見込み（Windows は一覧の 4 つの名前だけ）で、一覧の外の見送りは赤になる。"
+    },
+    {
+      "surface": "tests/run.sh",
+      "checked": "単位 1 は拾い手・腕・posix-mode と process-group の行、単位 2 は shellcheck の見送りの行と CI_LINT_OK。①不要にしない（CI_LINT_OK の新しい assert は両方の設定を見る）。②順序は無関係。③shellcheck の見送りの行の名前 shellcheck は Windows の一覧に無いので、単位 2 の段が外れると単位 1 の拾い手が赤にする——2 つが互いの覆いになる。"
+    },
+    {
+      "surface": "tests/mutations.json",
+      "checked": "単位 1 の腕（SK1〜SK4・CL4・CL6）と単位 2 の腕（CL5）は id が重ならず、old の字列も別（mutate.py --check で 427 腕の字列と証拠の口が在り、id の重複 0）。"
+    }
+  ],
+  "wrote_refs": [
+    {
+      "kind": "file",
+      "target": ".github/workflows/test.yml",
+      "where": "README.md"
+    },
+    {
+      "kind": "text",
+      "cite": "skip_allow",
+      "target": ".github/workflows/test.yml",
+      "where": "README.md"
+    },
+    {
+      "kind": "text",
+      "cite": "SKIP_ALLOW",
+      "target": "tests/run.sh",
+      "where": ".github/workflows/test.yml"
+    }
+  ],
+  "plan_faces": [
+    {
+      "key": "ci-lint-existing-S-warning-assert-rejects-pip-install",
+      "handled": "absorbed",
+      "how": "CI_LINT_OK の hits を『道具を起こす run: の行』（shellcheck の前が行頭か空白・|・;・&、後が空白か行末）に絞った。入れる段は 1 行の run:（python -m pip install shellcheck-py==<版>）にし、その形を fullmatch で見る。既存の -S warning の assert はそのまま効く（CL2・CL3 の字列で写しに注入して赤を確かめた）。"
+    },
+    {
+      "key": "ci-lint-env-assert-word-presence-passes-on-comment",
+      "handled": "absorbed",
+      "how": "test.yml を段ごとに切り、注記の行（# で始まる行）を除いた段の中身だけを見る。env は段の階層に 1 つに決め、tests/run.sh の段の行に FAIL_ON_SKIP: \"1\" と SKIP_ALLOW: ${{ matrix.skip_allow }} が在るかを行の一致で見る。注記に同じ語が在っても通らず、env を job の階層へ移すと赤になることを写しで確かめた。"
+    },
+    {
+      "key": "catchup-git-ssh-command-backslash-path-on-windows",
+      "handled": "absorbed",
+      "how": "GIT_SSH_COMMAND に渡す path を slow.replace(os.sep, \"/\") で前向きに直し、shlex.quote で引用した。空白と逆斜線を含む path で、引用した形は script が起き、引用しない形は起きないことを手元で確かめた。Windows での実際の緑は push 後の CI で見る（field の問い）。"
+    },
+    {
+      "key": "have-sh-lookup-diverges-from-cited-try-precedent",
+      "handled": "absorbed",
+      "how": "PATH を引く形（shutil.which）をやめ、git に sh の別名（alias.shprobe=!exit 0）を 1 回起こさせて試す git_runs_sh にした。hook と GIT_SSH_COMMAND を sh で起こすのは git なので、同じ経路で試す。precedent の reason にもそう書いた。"
+    },
+    {
+      "key": "regrtest-precedent-does-not-fail-on-skip",
+      "handled": "absorbed",
+      "how": "README.md・tests/run.sh の注記・docstring で regrtest を失敗の扱いの根拠として名指ししていない。precedent の reason に『借りたのは名前で分類する形だけで、一覧に無い見送りを失敗に数える意味づけは人の決定から』と限って書いた。"
+    },
+    {
+      "key": "capability-name-rule-held-in-two-languages",
+      "handled": "absorbed",
+      "how": "Python の側の名前の形の検査（ValueError）は入れず、名前の形を見るのは tests/run.sh の skip_capability の 1 か所だけにした。skip_py は Python の行から名前 fifo を読めることを見る。形の崩れた名前は拾い手が名前無しとして失敗に倒す（skip_probe の Fifo の場合）。"
+    },
+    {
+      "key": "drop-ubuntu-standalone-shellcheck-step",
+      "handled": "declared",
+      "how": "採らない。独立した shellcheck の段（ubuntu だけ）を消すのは、決着済みの論点『shellcheck は ubuntu の 1 本だけで回す』と README.md:207 の文を変える。事前審査自身が『採るかは人が決める』と書いており、この run の目的（見送りで CI が止まらない問題）には要らない。重複は ubuntu で同じ .sh を 2 回見るだけで、害は実行時間だけ。人に上げる候補として報告に書く。"
+    }
+  ],
+  "x_scalars": {
+    "x_skip_sites": 10
+  }
+}

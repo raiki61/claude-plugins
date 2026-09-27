@@ -1,0 +1,11 @@
+{
+ "material": {
+  "status": "clean",
+  "checked": "決定記録（ADR・台帳・issue）はリポジトリに無い"
+ },
+ "checked": true,
+ "searched": [
+  "リポジトリの全部（2 ファイル）"
+ ],
+ "settled": []
+}
