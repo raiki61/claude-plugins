@@ -20,6 +20,7 @@
 
 口:
 - events_for(run_id) -> list | None
+- failed_nodes(events) -> [{node, error}]（最後の状態が落ちた節。機械の報告の冒頭 3）
 - node_path(include, loop, node) -> str
 - collect(board_dir, role, node_path, must_read, events, *, repo=None) -> {ok: True, sources, missing, reads_file}
 - adapter_seen(board_dir, run_id, *, repo=None) -> {seen, merged, passthrough, whys}
@@ -78,6 +79,21 @@ def events_for(run_id: str):
         return None
     events = doc.get("events") if isinstance(doc, dict) else None
     return events if isinstance(events, list) else None
+
+
+NODE_STATES = ("node_started", "node_completed", "node_failed", "node_skipped", "node_skipped_prior_success")
+
+
+def failed_nodes(events) -> list:
+    """最後の状態が node_failed の節 [{node, error}]（出来事の順。出し直しで後に済んだ節は数えない）。行の形（step_name・
+    data.error）は Archon v0.11.1 の run 31（ae78d2fe）の出来事の実物で確かめた。events が None・空なら []"""
+    last = {}
+    for e in events or []:
+        if isinstance(e, dict) and e.get("event_type") in NODE_STATES and e.get("step_name"):
+            last.pop(e["step_name"], None)
+            last[e["step_name"]] = e
+    return [{"node": name, "error": str((e.get("data") or {}).get("error") or "")}
+            for name, e in last.items() if e.get("event_type") == "node_failed"]
 
 
 def node_path(include: str, loop: str, node: str) -> str:

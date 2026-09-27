@@ -631,7 +631,8 @@ class ScriptCase(ReportBase):
     def run_script(self, art=None, **env_over):
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
         env.update({"INPUTS_JUDGED": "null", "INPUTS_TESTS": "null", "INPUTS_START": "null", "INPUTS_MID": "null",
-                    "INPUTS_CI": "null", "ARTIFACTS_DIR": str(art or self.art), "WORKFLOW_ID": RUN_ID,
+                    "INPUTS_CI": "null", "INPUTS_EYES": json.dumps({"go": False}), "INPUTS_EYEING": "null",
+                    "ARTIFACTS_DIR": str(art or self.art), "WORKFLOW_ID": RUN_ID,
                     "PYTHONDONTWRITEBYTECODE": "1"})
         env.update(env_over)
         env = {k: v for k, v in env.items() if v is not None}
@@ -644,7 +645,8 @@ class ScriptCase(ReportBase):
         spec = importlib.util.spec_from_file_location("_report_script", SCRIPT)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI"))
+        self.assertEqual(mod.INPUTS, ("INPUTS_JUDGED", "INPUTS_TESTS", "INPUTS_START", "INPUTS_MID", "INPUTS_CI",
+                                      "INPUTS_EYES", "INPUTS_EYEING"))
         r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_TESTS=json.dumps(RED),
                             INPUTS_MID=json.dumps({"go": False, "mid_note": "枠のみ"}), INPUTS_CI="")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -653,6 +655,22 @@ class ScriptCase(ReportBase):
         self.assertEqual(out["outcome"], "record_invalid")
         self.assertEqual(out["export_input"]["board_dir"], str(self.board.resolve()))
         self.assertIn("中の検査の枠: 枠のみ", pathlib.Path(out["report_file"]).read_text(encoding="utf-8"))
+
+    def test_script_interrupted_by_missing_exit_marks(self):
+        """上流の節が落ちた run（run 30・31 の形）: 出来事が取れなくても、h-eyes の出口が無い・目を回すと言ったのに blk-eyes の
+        出口が無いなら、結末 interrupted の報告と次の依頼を書き、冒頭 3 に届かなかった節を出す。AI の報告は回さない"""
+        self.judged()
+        for eyes, node in (("null", "h-eyes"), (json.dumps({"go": True}), "eyeing")):
+            with self.subTest(node):
+                r = self.run_script(INPUTS_JUDGED=json.dumps(judged_out(self.board)), INPUTS_EYES=eyes,
+                                    INPUTS_EYEING="null")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                out = json.loads(r.stdout)
+                self.assertEqual(out["outcome"], "interrupted")
+                self.assertIs(out["ai_report_go"], False)
+                self.assertTrue(pathlib.Path(out["next_request_file"]).is_file())
+                h = heads(pathlib.Path(out["report_file"]).read_text(encoding="utf-8"))
+                self.assertIn(f"{report.INTERRUPTED_HEAD}: 節 {node} が落ちた", h[H3])
 
     def test_script_errors(self):
         """盤面が開けない → 1（stderr に 1 行・stdout は空）。環境変数の欠け・読めない JSON → 2"""

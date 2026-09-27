@@ -10,7 +10,7 @@
 - INPUTS_AI:      AI の報告のブロック（blk-report）の collect の出口。文字列 null と空は「回らなかった」。回ったが失敗した節の
                   出口が JSON で読めなければ、機械の報告を選び、読めなかった事実を ai_report.reason に書く（黙らない）
 出口:
-- final_result の結果を 1 行の JSON で出して 0
+- final_result の結果を 1 行の JSON で出して 0。結末 interrupted（上流の節が落ちた run）は同じく出してから 1
 - 環境変数が欠けた・INPUTS_MACHINE が読めない・形が違う: 標準エラーに 1 行出して 2
 """
 import sys
@@ -58,6 +58,10 @@ def main() -> int:
         print(f"result: {_line(e)}", file=sys.stderr)
         return 2
     script_io._emit(out)
+    if out.get("outcome") == "interrupted":
+        # 報告と下書きは書いた。Archon の run の状態は failed のままにして、殻と人が状態の語で落ちた run を見分けられるようにする
+        print(f"result: run が途中で終わった（報告: {out.get('report_file')}）", file=sys.stderr)
+        return 1
     return 0
 
 

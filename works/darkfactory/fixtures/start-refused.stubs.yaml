@@ -1,6 +1,6 @@
 # 筋書き start-refused: 手厚さ 軽量 を渡す → start（本物）が入力を受けず 1 で止まる（AI を起こす前。持ち主の決定
-# 2026-09-27）。後ろの節には届かない。出口 result は all_done で走るが、機械の報告が無いので 2 で落ちる（報告の無い run を
-# 成功と言わない）
+# 2026-09-27）。後ろの節には届かない。報告の節 report と出口 result は all_done で走るが、盤面が無いので報告を組めずに
+# どちらも落ちる（報告の無い run を成功と言わない。自分食い 32 件目で report を all_done にした）
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 ci-checking__ci-fence:
@@ -1724,5 +1724,6 @@ fixture:
     thickness: 軽量
   fail-node:
   - start
+  - report
   - result
 exec-code: true

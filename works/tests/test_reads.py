@@ -233,6 +233,23 @@ class EventsForTest(unittest.TestCase):
             self.assertIsNone(reads.events_for(""), "run の id が無ければ呼ばない")
 
 
+class FailedNodesTest(unittest.TestCase):
+    def test_last_state_failed_with_error(self):
+        """最後の状態が node_failed の節だけを、誤りの文と一緒に（run 31 の出来事の形。出し直しで後に済んだ節は数えない）"""
+        def ev(kind, step, error=None):
+            return {"event_type": kind, "step_name": step, "data": {"error": error} if error else {}}
+        events = [ev("workflow_started", None), ev("node_started", "a"), ev("node_failed", "a", "一度目"),
+                  ev("node_started", "a"), ev("node_completed", "a"),
+                  ev("node_started", "eyeing__r1-minimality-loop.r1-minimality-prep"),
+                  ev("node_failed", "eyeing__r1-minimality-loop.r1-minimality-prep",
+                     "Script node 'r1-minimality-prep' failed [exit 2]: BoardGap: …"),
+                  ev("node_skipped", "report")]
+        self.assertEqual(reads.failed_nodes(events),
+                         [{"node": "eyeing__r1-minimality-loop.r1-minimality-prep",
+                           "error": "Script node 'r1-minimality-prep' failed [exit 2]: BoardGap: …"}])
+        self.assertEqual(reads.failed_nodes(None), [])
+
+
 class AdapterSeenTest(BoardCase):
     def rows(self, cwd, *rows):
         p = adapter.launches_path(cwd)

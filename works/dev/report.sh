@@ -1,9 +1,10 @@
 #!/bin/sh
 # works/dev/report.sh <run-id>
 #
-# 途中で終わった darkfactory の run（取り消し・abandon・役の出し直しの上限で落ちた run）の盤面から、機械の報告を組む
-# （P1 計画 Task 27・〔線A計〕T15 の M8）。ラインの最後の報告の節が走らなかった run に使う。
-# 結末は interrupted で、冒頭 3 に「run が途中で終わった: …。Archon の run の状態は <状態>」の 1 行。記録の関所（report.gate_record:
+# 途中で終わった darkfactory の run の盤面から、機械の報告を組む（P1 計画 Task 27・〔線A計〕T15 の M8）。ラインの最後の
+# 報告の節が走らなかった run（取り消し・abandon で Archon が止めた run）に使う。上流の節が落ちた run は、報告の節が all_done で
+# 走って線の中で組む。
+# 結末は interrupted で、冒頭 3 に「run が途中で終わった。Archon の run の状態は <状態>」の 1 行。記録の関所（report.gate_record:
 # settle → finalize → 検証器）は同じく通し、通らなければ冒頭 1 に出す。report.md・next-request.json は盤面の置き場に書く。
 # 出口: report.build の結果を 1 行の JSON で出して 0。
 # 盤面の場所は stop.sh と同じ組み方（`archon workflow get <run> --json` の output_root + /artifacts/runs/<run-id>/board）。

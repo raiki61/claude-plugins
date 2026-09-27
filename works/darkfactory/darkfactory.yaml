@@ -800,19 +800,23 @@ nodes:
     with:
       base_rev: $start.output.base_rev
 
-  # いつも走る機械の報告。report.md と次の run の依頼の下書き next-request.json。ai_report_go は盤面が報告の役の節を出したか
+  # いつも走る機械の報告。report.md と次の run の依頼の下書き next-request.json。ai_report_go は盤面が報告の役の節を出したか。
+  # 上流の節が落ちた run でも走る（all_done。Airflow の teardown と同じ。Ruling R21 の改め: run 30・31 は飛ばされて報告が残らなかった）。
+  # start のほかの節の出力は落ちても飛ばされても if_skipped: null で受ける。start が落ちた run は盤面が無く、ここも落ちる
   - id: report
     script: report
     runtime: uv
     timeout: 1728000000
     depends_on: [start, h-eyes, eyeing]
-    trigger_rule: none_failed_min_one_success
+    trigger_rule: all_done
     with:
       judged: {from: $judging.output, if_skipped: null}
       tests: {from: $testing.output, if_skipped: null}
       start: {from: $start.output}
-      mid: {from: $h-mid.output}
+      mid: {from: $h-mid.output, if_skipped: null}
       ci: {from: $ci-checking.output, if_skipped: null}
+      eyes: {from: $h-eyes.output, if_skipped: null}
+      eyeing: {from: $eyeing.output, if_skipped: null}
     output_format:
       type: object
       required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]

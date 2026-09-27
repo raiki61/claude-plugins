@@ -214,10 +214,13 @@ LINE_ORDER = [
     _edge("h-eyes", "eyes", ["start", "h-final", "final-gate"], gate=_skippable("$final-gate.output")),
     {"id": "eyeing", "kind": "include", "block": "blk-eyes", "depends_on": ["h-eyes"], "when": "$h-eyes.output.go == true",
      "with": {"base_rev": "$start.output.base_rev"}},
-    {"id": "report", "kind": "script", "script": "report", "depends_on": ["start", "h-eyes", "eyeing"], "trigger_rule": NFMOS,
+    # 機械の報告は上流の節が落ちた run でも走る（all_done）。start のほかの出力は落ちても飛ばされても null で受ける
+    {"id": "report", "kind": "script", "script": "report", "depends_on": ["start", "h-eyes", "eyeing"],
+     "trigger_rule": ALL_DONE,
      "with": {"judged": _skippable("$judging.output"), "tests": _skippable("$testing.output"),
-              "start": {"from": "$start.output"}, "mid": {"from": "$h-mid.output"},
-              "ci": _skippable("$ci-checking.output")}},
+              "start": {"from": "$start.output"}, "mid": _skippable("$h-mid.output"),
+              "ci": _skippable("$ci-checking.output"), "eyes": _skippable("$h-eyes.output"),
+              "eyeing": _skippable("$eyeing.output")}},
     {"id": "reporting", "kind": "include", "block": "blk-report", "depends_on": ["report"],
      "when": "$report.output.ai_report_go == true", "with": {"machine_report": "$report.output.report_file"}},
     # 出口（returns）。AI の報告のブロックが落ちても機械の報告で出口を出す（all_done: 前の節の成否に依らず走る）
