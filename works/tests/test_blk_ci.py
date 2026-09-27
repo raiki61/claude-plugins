@@ -146,7 +146,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(role["command"], "ci")
         self.assertTrue((BLK / "commands" / "ci.md").is_file())
         self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Bash"])   # Edit・Write は無い
-        self.assertEqual(role["settingSources"], [])
+        self.assertEqual(role["settingSources"], ["user"])
         self.assertNotIn("context", role)
         self.assertEqual(role["idle_timeout"], DEADLINE)
         # sandbox は graphloops の任せ先の形そのもの（写しの engine の delegate_settings）から、起動ごとの denyWrite（包みが旗を見て

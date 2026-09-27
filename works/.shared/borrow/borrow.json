@@ -1,0 +1,16 @@
+{
+  "superpowers": {
+    "kind": "skills",
+    "skills": [
+      "test-driven-development",
+      "systematic-debugging",
+      "verification-before-completion",
+      "receiving-code-review",
+      "requesting-code-review"
+    ]
+  },
+  "coldwrite": {
+    "kind": "plugin",
+    "marketplace": "raiki61"
+  }
+}

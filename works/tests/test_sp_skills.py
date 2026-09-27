@@ -15,15 +15,12 @@
   前提にする言い回しの目印（TRIGGERS）に当たる行を全部、行の索引に 1 行ずつ持つ（パス・行番号・読み替えの決まりの名・
   その行の文そのもの）。索引に無い行・索引にあるのに今の写しに無い行・文が違う行は赤。新しい版の写しが人への問いを
   足したり行を動かしたりすると、ここが赤くなり、読み替えを見直させる。
-- 写し入れ（works/dev/skills.sh <Claude の設定の置き場>）: 写しの skills/<名>/ を <置き場>/skills/<名>/ へバイトのまま写す。
-  同じ名前の古い物は入れ替え、ほかの名前の物には触らない。dev/archon.sh が隔離した CLAUDE_CONFIG_DIR へ毎回呼ぶ
-  （呼ぶことの検査は tests/test_dev.py の test_archon_sh_installs_borrowed_skills）。
+- 写し入れ: dev/toolset.py が写しの skills/<名>/ を隔離した CLAUDE_CONFIG_DIR の skills/<名>/ へバイトのまま写す
+  （検査は tests/test_toolset.py、archon.sh が呼ぶことは tests/test_dev.py の test_archon_sh_installs_borrowed_skills）。
 """
 import os
 import pathlib
 import re
-import subprocess
-import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -228,87 +225,6 @@ class UnattendedOverlayCase(unittest.TestCase):
 
     def test_overlay_names_the_pinned_version(self):
         self.assertIn(f"superpowers {pinned().name}", OVERLAY.read_text(encoding="utf-8").split("\n", 3)[2])
-
-
-def install(dest):
-    return subprocess.run(["sh", str(ROOT / "dev" / "skills.sh"), str(dest)], capture_output=True, text=True)
-
-
-class InstallCase(unittest.TestCase):
-    def test_install_copies_every_borrowed_skill_byte_for_byte(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            r = install(tmp)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            dest = pathlib.Path(tmp) / "skills"
-            self.assertEqual({p.name for p in dest.iterdir()}, set(BORROW))
-            for n in BORROW:
-                src = pinned() / "skills" / n
-                self.assertEqual(files_under(dest / n), files_under(src), n)
-                for rel in files_under(src):
-                    with self.subTest(f"{n}/{rel}"):
-                        a, b = dest / n / rel, src / rel
-                        self.assertEqual(a.read_bytes(), b.read_bytes())
-                        self.assertFalse(a.is_symlink())
-                        self.assertEqual(os.access(a, os.X_OK), os.access(b, os.X_OK))
-
-    def test_install_restores_exec_bit(self):
-        """中身が同じでも実行の権限だけずれた写しは直す（diff -r は権限を見ない）"""
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(install(tmp).returncode, 0)
-            f = pathlib.Path(tmp) / "skills" / "systematic-debugging" / "find-polluter.sh"
-            f.chmod(0o644)
-            r = install(tmp)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertTrue(os.access(f, os.X_OK))
-
-    def test_install_refuses_config_that_leaks_into_user_scope(self):
-        """settingSources: [user] は置き場の CLAUDE.md・設定・rules・agents・commands・plugins も読ませるので、
-        どれかが在れば名前を出して終了コード 2（何も写さない）。借りる一覧の外のスキルが在っても止める"""
-        cases = [("CLAUDE.md", "file"), ("settings.json", "file"), ("settings.local.json", "file"),
-                 ("rules", "dir"), ("agents", "dir"), ("commands", "dir"), ("plugins", "dir"), ("skills/mine", "dir")]
-        for name, kind in cases:
-            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
-                p = pathlib.Path(tmp) / name
-                if kind == "dir":
-                    p.mkdir(parents=True)
-                    if name.startswith("skills/"):
-                        (p / "SKILL.md").write_text("x\n", encoding="utf-8")
-                else:
-                    p.write_text("x\n", encoding="utf-8")
-                r = install(tmp)
-                self.assertEqual(r.returncode, 2, r.stderr)
-                self.assertIn(name.split("/")[-1], r.stderr)
-                self.assertFalse((pathlib.Path(tmp) / "skills" / "test-driven-development").exists(), "止まる前に写した")
-        # 設定でない物（Claude Code が自分で書く状態のファイル）は止めない
-        with tempfile.TemporaryDirectory() as tmp:
-            for n in ("remote-settings.json", "policy-limits.json"):
-                (pathlib.Path(tmp) / n).write_text("{}\n", encoding="utf-8")
-            (pathlib.Path(tmp) / "projects").mkdir()
-            r = install(tmp)
-            self.assertEqual(r.returncode, 0, r.stderr)
-
-    def test_install_replaces_stale_copy(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            dest = pathlib.Path(tmp) / "skills"
-            stale = dest / "test-driven-development"
-            stale.mkdir(parents=True)
-            (stale / "SKILL.md").write_text("古い\n", encoding="utf-8")
-            (stale / "extra.md").write_text("余分\n", encoding="utf-8")
-            r = install(tmp)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(files_under(stale), files_under(pinned() / "skills" / "test-driven-development"))
-            self.assertEqual((stale / "SKILL.md").read_bytes(),
-                             (pinned() / "skills" / "test-driven-development" / "SKILL.md").read_bytes())
-            self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(BORROW), "作業の一時の置き場が残っている")
-            # 2 回目（中身が同じ）も緑で、中身は変わらない
-            r = install(tmp)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(BORROW))
-
-    def test_install_usage(self):
-        r = subprocess.run(["sh", str(ROOT / "dev" / "skills.sh")], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("usage: skills.sh", r.stderr)
 
 
 if __name__ == "__main__":
