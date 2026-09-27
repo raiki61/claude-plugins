@@ -59,7 +59,7 @@ def _line_dir(line) -> pathlib.Path:
     return PACK / line
 
 
-def load_table(line: str = "darkfactory") -> NodeTable:
+def load_table(line: str) -> NodeTable:
     """PACK/<line>/nodes.json を読む。形の誤りは NodeTable.load の BoardGap、縛り 1〜5 の破れと line の違いは全部を並べた BoardGap"""
     path = _line_dir(line) / TABLE_NAME
     table = NodeTable.load(path)

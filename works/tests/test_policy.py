@@ -145,7 +145,7 @@ class BriefCase(unittest.TestCase):
             pol = self.repo / ".git" / "graphloops" / "policy.md"
             pol.parent.mkdir(parents=True, exist_ok=True)
             pol.write_text(text, encoding="utf-8")
-        return DiskBoard.create(self.tmp / "board", repo=self.repo, table=entry.load_table(), inputs={}, request_text="依頼")
+        return DiskBoard.create(self.tmp / "board", repo=self.repo, table=entry.load_table("darkfactory"), inputs={}, request_text="依頼")
 
     def test_brief_paste_and_path(self):
         b = self.board("# 方針\n\n- テストを消さない\n")
