@@ -24,6 +24,12 @@
     "note": "見込み。3-6 で新しい形に移った（fix_plan_covers_units、本線 d1b863f の rules:3363。今は gl accept p2.fix_plan で呼べる）。p3.fix の本来の受け付け fix_covers_open_units（rules:2945）は旧い形で、3-8 で修正の出口を出来事の形にする時に替わる。本線の案は単位を番号 unit で指し、works は名前 unit_key で指す（名前も受けるよう頼むかは持ち主の判断）。"
   },
   {
+    "works": "blk-fix/scripts/accept.py:check_unique_units",
+    "gl": "",
+    "status": "works-only",
+    "note": "同じ unit_key を 2 行以上に分けた修正の返答を拒む（1 本目の決まり。1 本目は check_fix が fix_plan_covers_units に読み替えて拒んでいた）。写しの p3.fix の受け付け fix_covers_open_units は重なりを拒まないので、盤面の done の前に blk-fix の受け付けのスクリプトが見る（線 A Task 12。裁定 TA25）。"
+  },
+  {
     "works": "accept.check_delta",
     "gl": "gl accept p3.delta_review",
     "status": "ready",

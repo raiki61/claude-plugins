@@ -11,7 +11,7 @@ Archon を起こす・golden を再生する・プロセスの木を起こす・
 （負荷の高い機械では git と子のプロセスが遅れの元になる）。種の git を tests/gitkit.py の型（プロセスに 1 回だけ作る）の
 写しで配るだけなら、試験ごとに作るに当たらない。段は使う物の形で分ける（決まっていて、読めば確かめられる）。
 fast は秒の上限ではない（負荷の高い機械では fast の中の git・子のプロセスも遅れる）。下の秒は目安で、2026-09-27 に
-nice -n 19 で 1 本ずつ測った（負荷は各行）。gitkit を使う 5 本（accept・blk_fix・blk_judge・blk_tests_delta・dev）は、
+nice -n 19 で 1 本ずつ測った（負荷は各行）。gitkit を使う 5 本（accept・blk_fix（線 A Task 12 で盤面を作るので heavy へ移した）・blk_judge・blk_tests_delta・dev）は、
 gitkit に替えた後の値（前と続けて回した組。計測の shim 込み）。
 """
 import os
@@ -24,7 +24,6 @@ PATTERN = "test_*.py"   # run.sh の discover と同じ
 
 # 秒は 1 本ずつ回した壁時計（負荷は測った時の 1 分平均）
 FAST = frozenset({
-    "test_blk_fix",         # 5.2 秒（負荷 12）種の git は gitkit の型の写し・スクリプトを子で起こす
     "test_blk_judge",       # 3.8 秒（負荷 15）種の git は gitkit の型の写し・スクリプトを子で起こす
     "test_core_copy",       # 1〜3 秒
     "test_core_verbatim",   # 写しと元の commit のバイト一致（git show で読むだけ。リポジトリを作らない）
@@ -48,6 +47,7 @@ HEAVY = frozenset({
     "test_board_round_note",# 盤面の層: golden の盤面・再生・種の git
     "test_board_steps",     # 盤面の層: golden の盤面・再生・種の git
     "test_board_table",     # 盤面の層: golden の盤面・再生・種の git
+    "test_blk_fix",         # 線 A Task 12: 試験ごとの種の git（linekit.seed_repo）と盤面（entry.start）・スクリプトを子で起こす
     "test_blk_pr",          # 線 A: 試験ごとの git のリポジトリ・golden の盤面の再生（boardreplay）
     "test_blk_rejudge",     # 線 A: golden の盤面の再生（rejudgekit）・スクリプトを子で起こす
     "test_entry",           # 線 A: 試験ごとの種の git（linekit.seed_repo）・プロセスの木（tree_run）
