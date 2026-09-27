@@ -15,8 +15,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     Read・Grep・Glob・Bash・WebSearch・WebFetch、局所レビューはそれに Skill・Agent）。任せ先（graph の delegate を持つ 4 節）の
     sandbox は DELEGATE_SANDBOX、investigator と局所レビューは網を閉じて読むだけの口 works-gh だけを sandbox の外に出す
     MATERIAL_SANDBOX。どれも印に旗
-    no-tree-write（本物の作業ツリーは包みが守る）。局所レビューは利用者の設定のプラグイン（pr-review-toolkit の agent のレンズ）を
-    起こすので settingSources [user]（graphloops はこの節を回す側の会話で走らせ、利用者の設定を読む）
+    no-tree-write（本物の作業ツリーは包みが守る）。局所レビューも settingSources は []（下の [user] の決まり。利用者の設定の
+    プラグイン pr-review-toolkit の agent のレンズは、開発の殻の外の入れ方ができるまで読ませない）
 - AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
   書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
   skills: を持つ節だけは [project] も許す（skills は読む元が要る）。[user] は、skills: を持ち、その全部が借りた superpowers の
@@ -64,8 +64,7 @@ _MATERIAL = {
        for n in ("gate-efficacy", "test-double-fidelity", "main-path-observation", "provenance")},
     **{n: {"tools": _MAT_TOOLS, "sandbox": MATERIAL_SANDBOX, "flag": "no-tree-write"}
        for n in ("prior-decisions", "external-standards", "procedure-trace")},
-    "local-review": {"tools": _MAT_TOOLS | {"Skill", "Agent"}, "sandbox": MATERIAL_SANDBOX, "flag": "no-tree-write",
-                     "setting_sources": ["user"]},
+    "local-review": {"tools": _MAT_TOOLS | {"Skill", "Agent"}, "sandbox": MATERIAL_SANDBOX, "flag": "no-tree-write"},
 }
 EXCEPTIONS = {
     WRITER: {"tools": None},
@@ -178,10 +177,7 @@ def _check_node(node, where, place, out):
                            f"（{sorted(set(tools) - allowed)}）")
         ss = node.get("settingSources", "（無し）")
         skills = node.get("skills")
-        row_ss = EXCEPTIONS.get((*place, nid), {}).get("setting_sources")
-        if row_ss is not None and ss == row_ss:
-            pass   # 例外の表の行が決めた settingSources（blk-material の局所レビューの [user] など）
-        elif ss == ["user"]:
+        if ss == ["user"]:
             if not (isinstance(skills, list) and skills):
                 out.append(f"{at}: AI の節の settingSources が [user] なのに skills: が無い"
                            "（[user] は借りたスキルを読むためだけに許す）")
