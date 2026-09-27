@@ -11,6 +11,11 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   - blk-ci/blk-ci.yaml の節 ci（CI の任せ先の役。裁定 R52・R56）: 読む道具に Bash だけ（テストを走らせる。Edit・Write は持たない）。
     sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ広い形（allowWrite ['/']・網）そのもので、本物の作業ツリーは
     包みが守るので、output_format の印に旗 no-tree-write を持つ
+  - blk-material/blk-material.yaml の Bash を持つ役（素材集め。本線 R3）: graphloops の起こし方と同じ道具（investigator・任せ先は
+    Read・Grep・Glob・Bash・WebSearch・WebFetch、局所レビューはそれに Skill・Agent）。任せ先（graph の delegate を持つ 4 節）の
+    sandbox は DELEGATE_SANDBOX、investigator と局所レビューは網を GitHub（gh の読み）だけに開く MATERIAL_SANDBOX。どれも印に旗
+    no-tree-write（本物の作業ツリーは包みが守る）。局所レビューは利用者の設定のプラグイン（pr-review-toolkit の agent のレンズ）を
+    起こすので settingSources [user]（graphloops はこの節を回す側の会話で走らせ、利用者の設定を読む）
 - AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
   書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
   skills: を持つ節だけは [project] も許す（skills は読む元が要る）
@@ -44,9 +49,23 @@ DELEGATE_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfU
                     "filesystem": {"allowWrite": ["/"]}}
 # 決まりの外れの表: (フォルダ, ファイル, 節) → tools（持ってよい道具。None は道具の決まりの外）・sandbox（その形そのもの。
 # 無ければ狭い形）・flag（印に要る旗）。外れを足す時は行を 1 つ足す（ほかの行と決まりの式は変えない）
+# 素材集めの investigator と局所レビューの sandbox（Bash の網は gh の読みの GitHub だけ。graphloops の investigator は網を閉じ gh を
+# sandbox の外で許す形——Archon は bypassPermissions で起こすので、gh を外に出すと書く gh まで通る。書く gh は包みの旗 no-post が止める）
+MATERIAL_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
+                    "enableWeakerNetworkIsolation": True, "network": {"allowedDomains": ["github.com", "api.github.com"]}}
+_MAT_TOOLS = READ_ONLY_TOOLS | {"Bash", "WebSearch", "WebFetch"}
+_MATERIAL = {
+    **{n: {"tools": _MAT_TOOLS, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"}
+       for n in ("gate-efficacy", "test-double-fidelity", "main-path-observation", "provenance")},
+    **{n: {"tools": _MAT_TOOLS, "sandbox": MATERIAL_SANDBOX, "flag": "no-tree-write"}
+       for n in ("prior-decisions", "external-standards", "procedure-trace")},
+    "local-review": {"tools": _MAT_TOOLS | {"Skill", "Agent"}, "sandbox": MATERIAL_SANDBOX, "flag": "no-tree-write",
+                     "setting_sources": ["user"]},
+}
 EXCEPTIONS = {
     WRITER: {"tools": None},
     CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
+    **{("blk-material", "blk-material.yaml", n): row for n, row in _MATERIAL.items()},
 }
 AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
@@ -149,7 +168,8 @@ def _check_node(node, where, place, out):
                 out.append(f"{at}: AI の節の allowed_tools が {sorted(allowed)} の外を持つ"
                            f"（{sorted(set(tools) - allowed)}）")
         ss = node.get("settingSources", "（無し）")
-        if not (ss == [] or ("skills" in node and ss == ["project"])):
+        row_ss = EXCEPTIONS.get((*place, nid), {}).get("setting_sources")
+        if not (ss == [] or ("skills" in node and ss == ["project"]) or (row_ss is not None and ss == row_ss)):
             out.append(f"{at}: AI の節の settingSources が [] でない（{ss!r}。skills: を持つ節だけ [project] も可）")
     else:
         if has_t or has_it:

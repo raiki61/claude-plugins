@@ -1,0 +1,1904 @@
+name: blk-material
+description: |
+  素材集めのブロック（本線 graphloops の BLOCKS.md の R3「素材集め」、差し込み口 material）。判定の前に、差分を P1 の目 9 本
+  （局所レビュー・整合性と迂回・衛生・外部標準照合・手順トレース・ゲートの実効性・代役の忠実性・主経路の観測・根拠の出所）と
+  先行議論の突合・目的の審査に見せ、素材（material）を集める。回すかどうかは盤面の ready（写しの graph の条件と節の表）だけで
+  決まり、ブロックは条件を持たない（判定から入る run の 1 周目は写しの条件で P1 の目が na になり、先行議論の突合だけが回る）。
+  役は同じ層で並んで走り（graphloops の engine が P1 の役を並べて起こすのと同じ）、受け付けは盤面の錠の中で 1 本ずつ書く。
+  指示書は本線の a1202d0 の指示書を engine と同じ描き方で描いた物（prep が盤面の prompts/r<N>/ に書く。拒否の後は理由を頭に置く。R44）。
+  拒否されたら同じ会話で出し直させ、3 回目の拒否で受け付けが done（give_up）を出して輪を抜ける（R50）。collect が盤面を止める。
+  機械の節 p1.worktree_before・p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle・start）が回す。
+  ラインから include で使う。前に p0.local_checks・p0.parallel_pr・p0.premises を済ませておく（P1 の目の依存）。
+  出口 collect: {ok, reason, ran, skipped, materials, snapshot, exit_file}（本線の R3 の出口 snapshot・materials を含む）。
+
+inputs:
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版（ラインの口を他のブロックと揃える。スクリプトは読まない——版は盤面が持つ）
+  adapter:
+    default: ""
+    description: |
+      run が宣言した包みの形（線の start の出口 adapter。空は包みを通す run、optional は包み無しで回す run）。空の run は、
+      Bash を持つ役（旗 no-post・no-tree-write）を回す前に切符を確かめ、受け付けで役の起動に包みの柵が掛かったかを見る
+  purpose_file:
+    default: ""
+    description: |
+      目的の文のファイル（blk-purpose の出口 purpose_file）。盤面に p0.purpose が無いラインで、指示書の目的の欄を埋める。
+      空なら「目的の文はこの run に無い」と書く（目的を作らない）
+
+returns: collect
+outcome_field: ok
+
+nodes:
+  # 盤面を settle し、ready の素材集めの節の役に真を立てる。役を起こす前の作業ツリーの姿を周に 1 度置く。
+  # 包みを宣言した run で切符が無ければ盤面を止めて stopped（どの輪も when: で飛ぶ）
+  - id: mat-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    with:
+      adapter: $INPUTS.adapter
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - ok
+      - stopped
+      - why
+      - snapshot_file
+      - prior_decisions
+      - purpose_review
+      - local_review
+      - consistency_bypass
+      - hygiene
+      - external_standards
+      - procedure_trace
+      - gate_efficacy
+      - test_double_fidelity
+      - main_path_observation
+      - provenance
+      properties:
+        ok:
+          type: boolean
+        stopped:
+          type: boolean
+        why:
+          type: string
+        snapshot_file:
+          type: string
+        prior_decisions:
+          type: boolean
+        purpose_review:
+          type: boolean
+        local_review:
+          type: boolean
+        consistency_bypass:
+          type: boolean
+        hygiene:
+          type: boolean
+        external_standards:
+          type: boolean
+        procedure_trace:
+          type: boolean
+        gate_efficacy:
+          type: boolean
+        test_double_fidelity:
+          type: boolean
+        main_path_observation:
+          type: boolean
+        provenance:
+          type: boolean
+
+  # p0.prior_decisions（investigator）: Bash は sandbox の中（網は GitHub だけ）。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("prior-decisions")（写しの schema に印）を貼った物
+  - id: prior-decisions-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.prior_decisions == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $prior-decisions-accept.output.done = true
+      nodes:
+      - id: prior-decisions-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: prior-decisions
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: prior-decisions
+        command: prior-decisions
+        depends_on:
+        - prior-decisions-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - WebSearch
+        - WebFetch
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+          failIfUnavailable: true
+          enableWeakerNetworkIsolation: true
+          network:
+            allowedDomains:
+            - github.com
+            - api.github.com
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: prior-decisions no-post no-tree-write'
+          type: object
+          required:
+          - material
+          - checked
+          - searched
+          - settled
+          additionalProperties: false
+          properties:
+            material:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            checked:
+              type: boolean
+            searched:
+              type: array
+              items:
+                type: string
+            settled:
+              type: array
+              items:
+                type: object
+                required:
+                - topic
+                - decision
+                - reason
+                - revisit
+                additionalProperties: false
+                properties:
+                  topic:
+                    type: string
+                  decision:
+                    type: string
+                  reason:
+                    type: string
+                  revisit:
+                    type: string
+                  where:
+                    type: string
+      - id: prior-decisions-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - prior-decisions
+        with:
+          role: prior-decisions
+          reply:
+            from: $prior-decisions.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p0.purpose_review（inspector）: 読むだけ（Read・Grep・Glob）。output_format は material.output_format("purpose-review")（写しの schema に印）を貼った物
+  - id: purpose-review-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.purpose_review == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $purpose-review-accept.output.done = true
+      nodes:
+      - id: purpose-review-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: purpose-review
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: purpose-review
+        command: purpose-review
+        depends_on:
+        - purpose-review-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: purpose-review'
+          type: object
+          required:
+          - verdict
+          - reason
+          - findings
+          additionalProperties: false
+          properties:
+            verdict:
+              type: string
+              enum:
+              - 問題なし
+              - 狭めている
+            reason:
+              type: string
+            findings:
+              type: array
+              items:
+                type: object
+                required:
+                - text
+                - cite
+                - hits
+                additionalProperties: false
+                properties:
+                  text:
+                    type: string
+                    minLength: 1
+                  cite:
+                    type: string
+                    minLength: 1
+                  hits:
+                    type: integer
+                    minimum: 0
+      - id: purpose-review-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - purpose-review
+        with:
+          role: purpose-review
+          reply:
+            from: $purpose-review.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.local_review（skill）: 回す側の会話の skill・agent のレンズを起こす。利用者の設定のプラグイン（pr-review-toolkit）を読むので settingSources に user。output_format は material.output_format("local-review")（写しの schema に印）を貼った物
+  - id: local-review-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.local_review == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $local-review-accept.output.done = true
+      nodes:
+      - id: local-review-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: local-review
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: local-review
+        command: local-review
+        depends_on:
+        - local-review-prep
+        settingSources:
+        - user
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - WebSearch
+        - WebFetch
+        - Skill
+        - Agent
+        skills:
+        - code-review
+        - simplify
+        - security-review
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+          failIfUnavailable: true
+          enableWeakerNetworkIsolation: true
+          network:
+            allowedDomains:
+            - github.com
+            - api.github.com
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: local-review no-post no-tree-write'
+          type: object
+          required:
+          - material
+          - findings
+          - simplify_carried
+          additionalProperties: false
+          properties:
+            material:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            simplify_carried:
+              type: boolean
+            findings:
+              type: array
+              items:
+                type: object
+                required:
+                - skill
+                - items
+                additionalProperties: false
+                properties:
+                  skill:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - where
+                      - text
+                      additionalProperties: false
+                      properties:
+                        where:
+                          type: string
+                        text:
+                          type: string
+                        mechanism:
+                          type: string
+                        measured:
+                          type: string
+                        false_positive_if:
+                          type: string
+                  invoked:
+                    type: boolean
+                  failed:
+                    type: string
+      - id: local-review-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - local-review
+        with:
+          role: local-review
+          reply:
+            from: $local-review.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.consistency_bypass（inspector）: 読むだけ（Read・Grep・Glob）。output_format は material.output_format("consistency-bypass")（写しの schema に印）を貼った物
+  - id: consistency-bypass-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.consistency_bypass == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $consistency-bypass-accept.output.done = true
+      nodes:
+      - id: consistency-bypass-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: consistency-bypass
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: consistency-bypass
+        command: consistency-bypass
+        depends_on:
+        - consistency-bypass-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: consistency-bypass'
+          type: object
+          required:
+          - consistency
+          - bypass
+          - findings
+          - bypass_findings
+          - seen
+          - unseen
+          additionalProperties: false
+          properties:
+            consistency:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            bypass:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            findings:
+              type: array
+              items:
+                type: object
+                required:
+                - where
+                - text
+                additionalProperties: false
+                properties:
+                  where:
+                    type: string
+                  text:
+                    type: string
+                  mechanism:
+                    type: string
+                  measured:
+                    type: string
+                  false_positive_if:
+                    type: string
+            bypass_findings:
+              type: array
+              items:
+                type: object
+                required:
+                - where
+                - text
+                additionalProperties: false
+                properties:
+                  where:
+                    type: string
+                  text:
+                    type: string
+                  mechanism:
+                    type: string
+                  measured:
+                    type: string
+                  false_positive_if:
+                    type: string
+            seen:
+              type: string
+            unseen:
+              type: string
+      - id: consistency-bypass-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - consistency-bypass
+        with:
+          role: consistency-bypass
+          reply:
+            from: $consistency-bypass.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.hygiene（isolated）: 道具なし（遮断系）。指示書の本文は prep の prompt_text を指示に貼る（graphloops は stdin で渡す）。output_format は material.output_format("hygiene")（写しの schema に印）を貼った物
+  - id: hygiene-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.hygiene == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $hygiene-accept.output.done = true
+      nodes:
+      - id: hygiene-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: hygiene
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: hygiene
+        command: hygiene
+        depends_on:
+        - hygiene-prep
+        settingSources: []
+        allowed_tools: []
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: hygiene'
+          type: object
+          required:
+          - findings
+          - seen
+          additionalProperties: false
+          properties:
+            findings:
+              type: array
+              items:
+                type: object
+                required:
+                - where
+                - text
+                additionalProperties: false
+                properties:
+                  where:
+                    type: string
+                  text:
+                    type: string
+                  mechanism:
+                    type: string
+                  measured:
+                    type: string
+                  false_positive_if:
+                    type: string
+            seen:
+              type: string
+      - id: hygiene-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - hygiene
+        with:
+          role: hygiene
+          reply:
+            from: $hygiene.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.external_standards（investigator）: Bash は sandbox の中（網は GitHub だけ）。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("external-standards")（写しの schema に印）を貼った物
+  - id: external-standards-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.external_standards == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $external-standards-accept.output.done = true
+      nodes:
+      - id: external-standards-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: external-standards
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: external-standards
+        command: external-standards
+        depends_on:
+        - external-standards-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - WebSearch
+        - WebFetch
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+          failIfUnavailable: true
+          enableWeakerNetworkIsolation: true
+          network:
+            allowedDomains:
+            - github.com
+            - api.github.com
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: external-standards no-post no-tree-write'
+          type: object
+          required:
+          - material
+          - findings
+          - seen
+          - unseen
+          - web_refetched
+          - rankings
+          additionalProperties: false
+          properties:
+            material:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            findings:
+              type: array
+              items:
+                type: object
+                required:
+                - where
+                - text
+                additionalProperties: false
+                properties:
+                  where:
+                    type: string
+                  text:
+                    type: string
+                  mechanism:
+                    type: string
+                  measured:
+                    type: string
+                  false_positive_if:
+                    type: string
+            seen:
+              type: string
+            unseen:
+              type: string
+            web_refetched:
+              type: boolean
+            rankings:
+              type: array
+              items:
+                type: object
+                required:
+                - problem
+                - source
+                - ranked
+                - diff_at
+                additionalProperties: false
+                properties:
+                  problem:
+                    type: string
+                    minLength: 4
+                  source:
+                    type: string
+                    minLength: 4
+                  ranked:
+                    type: array
+                    minItems: 1
+                    items:
+                      type: string
+                      minLength: 1
+                  diff_at:
+                    type: string
+                    minLength: 1
+                  why_not_higher:
+                    type: string
+            rankings_none:
+              type: string
+      - id: external-standards-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - external-standards
+        with:
+          role: external-standards
+          reply:
+            from: $external-standards.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.procedure_trace（investigator）: Bash は sandbox の中（網は GitHub だけ）。旗 no-post・no-tree-write で包みが gh の書き込みと作業ツリーを止める。output_format は material.output_format("procedure-trace")（写しの schema に印）を貼った物
+  - id: procedure-trace-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.procedure_trace == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $procedure-trace-accept.output.done = true
+      nodes:
+      - id: procedure-trace-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: procedure-trace
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: procedure-trace
+        command: procedure-trace
+        depends_on:
+        - procedure-trace-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - WebSearch
+        - WebFetch
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+          failIfUnavailable: true
+          enableWeakerNetworkIsolation: true
+          network:
+            allowedDomains:
+            - github.com
+            - api.github.com
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: procedure-trace no-post no-tree-write'
+          type: object
+          required:
+          - material
+          - findings
+          - unmeasured
+          additionalProperties: false
+          properties:
+            material:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            findings:
+              type: array
+              items:
+                type: object
+                required:
+                - where
+                - text
+                additionalProperties: false
+                properties:
+                  where:
+                    type: string
+                  text:
+                    type: string
+                  mechanism:
+                    type: string
+                  measured:
+                    type: string
+                  false_positive_if:
+                    type: string
+            unmeasured:
+              type: array
+              items:
+                type: string
+      - id: procedure-trace-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - procedure-trace
+        with:
+          role: procedure-trace
+          reply:
+            from: $procedure-trace.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.gate_efficacy（delegate）: graphloops の任せ先と同じ sandbox（allowWrite ['/']・網）。旗 no-tree-write で包みが作業ツリーを止める（R56）。output_format は material.output_format("gate-efficacy")（写しの schema に印）を貼った物
+  - id: gate-efficacy-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.gate_efficacy == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $gate-efficacy-accept.output.done = true
+      nodes:
+      - id: gate-efficacy-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: gate-efficacy
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: gate-efficacy
+        command: gate-efficacy
+        depends_on:
+        - gate-efficacy-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - WebSearch
+        - WebFetch
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+          failIfUnavailable: true
+          enableWeakerNetworkIsolation: true
+          network:
+            allowedDomains:
+            - '*'
+            allowLocalBinding: true
+          filesystem:
+            allowWrite:
+            - /
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: gate-efficacy no-post no-tree-write'
+          type: object
+          required:
+          - material
+          - arms
+          additionalProperties: false
+          properties:
+            material:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            arms:
+              type: array
+              items:
+                type: object
+                required:
+                - gate
+                - arm
+                - red_confirmed
+                - control_green
+                - hit_evidence
+                additionalProperties: false
+                properties:
+                  gate:
+                    type: string
+                  arm:
+                    type: string
+                  red_confirmed:
+                    type: boolean
+                  control_green:
+                    type: boolean
+                  note:
+                    type: string
+                  hit_evidence:
+                    type: string
+      - id: gate-efficacy-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - gate-efficacy
+        with:
+          role: gate-efficacy
+          reply:
+            from: $gate-efficacy.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.test_double_fidelity（delegate）: graphloops の任せ先と同じ sandbox（allowWrite ['/']・網）。旗 no-tree-write で包みが作業ツリーを止める（R56）。output_format は material.output_format("test-double-fidelity")（写しの schema に印）を貼った物
+  - id: test-double-fidelity-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.test_double_fidelity == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $test-double-fidelity-accept.output.done = true
+      nodes:
+      - id: test-double-fidelity-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: test-double-fidelity
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: test-double-fidelity
+        command: test-double-fidelity
+        depends_on:
+        - test-double-fidelity-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - WebSearch
+        - WebFetch
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+          failIfUnavailable: true
+          enableWeakerNetworkIsolation: true
+          network:
+            allowedDomains:
+            - '*'
+            allowLocalBinding: true
+          filesystem:
+            allowWrite:
+            - /
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: test-double-fidelity no-post no-tree-write'
+          type: object
+          required:
+          - material
+          - mismatches
+          additionalProperties: false
+          properties:
+            material:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            mismatches:
+              type: array
+              items:
+                type: object
+                required:
+                - where
+                - text
+                additionalProperties: false
+                properties:
+                  where:
+                    type: string
+                  text:
+                    type: string
+                  mechanism:
+                    type: string
+                  measured:
+                    type: string
+                  false_positive_if:
+                    type: string
+      - id: test-double-fidelity-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - test-double-fidelity
+        with:
+          role: test-double-fidelity
+          reply:
+            from: $test-double-fidelity.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.main_path_observation（delegate）: graphloops の任せ先と同じ sandbox（allowWrite ['/']・網）。旗 no-tree-write で包みが作業ツリーを止める（R56）。output_format は material.output_format("main-path-observation")（写しの schema に印）を貼った物
+  - id: main-path-observation-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.main_path_observation == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $main-path-observation-accept.output.done = true
+      nodes:
+      - id: main-path-observation-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: main-path-observation
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: main-path-observation
+        command: main-path-observation
+        depends_on:
+        - main-path-observation-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - WebSearch
+        - WebFetch
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+          failIfUnavailable: true
+          enableWeakerNetworkIsolation: true
+          network:
+            allowedDomains:
+            - '*'
+            allowLocalBinding: true
+          filesystem:
+            allowWrite:
+            - /
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: main-path-observation no-post no-tree-write'
+          type: object
+          required:
+          - material
+          - observed
+          additionalProperties: false
+          properties:
+            material:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            observed:
+              type: array
+              items:
+                type: object
+                required:
+                - path
+                - value
+                additionalProperties: false
+                properties:
+                  path:
+                    type: string
+                    minLength: 1
+                  value:
+                    type: string
+                    minLength: 1
+      - id: main-path-observation-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - main-path-observation
+        with:
+          role: main-path-observation
+          reply:
+            from: $main-path-observation.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # p1.provenance（delegate）: graphloops の任せ先と同じ sandbox（allowWrite ['/']・網）。旗 no-tree-write で包みが作業ツリーを止める（R56）。output_format は material.output_format("provenance")（写しの schema に印）を貼った物
+  - id: provenance-loop
+    depends_on:
+    - mat-route
+    when: $mat-route.output.provenance == true
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $provenance-accept.output.done = true
+      nodes:
+      - id: provenance-prep
+        script: prep
+        runtime: uv
+        timeout: 1728000000
+        with:
+          role: provenance
+          purpose_file: $INPUTS.purpose_file
+        output_format:
+          type: object
+          additionalProperties: false
+          required:
+          - prompt_file
+          - prompt_text
+          - attempt
+          - out_path
+          - node
+          - already
+          properties:
+            prompt_file:
+              type: string
+            prompt_text:
+              type: string
+            attempt:
+              type: integer
+            out_path:
+              type: string
+            node:
+              type: string
+            already:
+              type: boolean
+      - id: provenance
+        command: provenance
+        depends_on:
+        - provenance-prep
+        settingSources: []
+        allowed_tools:
+        - Read
+        - Grep
+        - Glob
+        - Bash
+        - WebSearch
+        - WebFetch
+        sandbox:
+          enabled: true
+          allowUnsandboxedCommands: false
+          failIfUnavailable: true
+          enableWeakerNetworkIsolation: true
+          network:
+            allowedDomains:
+            - '*'
+            allowLocalBinding: true
+          filesystem:
+            allowWrite:
+            - /
+        idle_timeout: 1728000000
+        output_format:
+          description: 'works-node: provenance no-post no-tree-write'
+          type: object
+          required:
+          - material
+          - claims
+          additionalProperties: false
+          properties:
+            material:
+              type: object
+              required:
+              - status
+              additionalProperties: false
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - found
+                  - clean
+                  - carried_over
+                  - not_applicable
+                  - awaiting_human
+                  - not_run
+                count:
+                  type: integer
+                  minimum: 0
+                detail:
+                  type: string
+                checked:
+                  type: string
+                reason:
+                  type: string
+                from_round:
+                  type: integer
+                  minimum: 1
+            claims:
+              type: array
+              items:
+                type: object
+                required:
+                - claim
+                - exists_at_base
+                - evidence
+                additionalProperties: false
+                properties:
+                  claim:
+                    type: string
+                  exists_at_base:
+                    type: boolean
+                  evidence:
+                    type: string
+      - id: provenance-accept
+        script: accept
+        runtime: uv
+        timeout: 1728000000
+        depends_on:
+        - provenance
+        with:
+          role: provenance
+          reply:
+            from: $provenance.output
+          adapter: $INPUTS.adapter
+        output_format:
+          type: object
+          required:
+          - ok
+          - done
+          - give_up
+          - reason
+          - reason_file
+          properties:
+            ok:
+              type: boolean
+            done:
+              type: boolean
+            give_up:
+              type: boolean
+            reason:
+              type: string
+            reason_file:
+              type: string
+            node:
+              type: string
+            status:
+              type: string
+
+  # 出口。輪は飛ばされうる（when:）ので、輪の欄を読まずに合流する。回した後も待っている素材集めの節が在れば盤面を止めて ok: false
+  - id: collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on:
+    - mat-route
+    - prior-decisions-loop
+    - purpose-review-loop
+    - local-review-loop
+    - consistency-bypass-loop
+    - hygiene-loop
+    - external-standards-loop
+    - procedure-trace-loop
+    - gate-efficacy-loop
+    - test-double-fidelity-loop
+    - main-path-observation-loop
+    - provenance-loop
+    trigger_rule: none_failed_min_one_success
+    output_format:
+      type: object
+      required:
+      - ok
+      - reason
+      - ran
+      - skipped
+      - materials
+      - snapshot
+      - exit_file
+      properties:
+        ok:
+          type: boolean
+        reason:
+          type: string
+        ran:
+          type: array
+          items:
+            type: string
+        skipped:
+          type: array
+          items:
+            type: object
+            required:
+            - node
+            - why
+            properties:
+              node:
+                type: string
+              why:
+                type: string
+        materials:
+          type: object
+          additionalProperties:
+            type: string
+        snapshot:
+          type: object
+          required:
+          - rev
+          - diff_file
+          - changed_files
+          - changed_files_file
+          - diff_stat
+          - request_wheres
+          properties:
+            rev:
+              type: string
+            diff_file:
+              type: string
+            changed_files:
+              type: array
+              items:
+                type: string
+            changed_files_file:
+              type: string
+            diff_stat:
+              type: string
+            request_wheres:
+              type: array
+              items:
+                type: string
+        exit_file:
+          type: string

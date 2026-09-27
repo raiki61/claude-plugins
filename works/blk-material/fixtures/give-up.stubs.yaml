@@ -1,0 +1,86 @@
+# 筋書き give-up: 根拠の出所検査の役の返答を受け付けが 3 回拒み、3 回目に諦めの印（done: true・give_up: true）を出す。
+# 輪は max_iterations で落ちないので collect まで届き、collect は待ちのまま残った節を見て盤面を止め、ok: false を返す（R50）。
+# 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1）。3 回目の拒否で done が立つことは
+# tests/test_blk_material.py の test_rejected_reply_retries_then_gives_up が盤面の上で見る。
+mat-route:
+  ok: true
+  stopped: false
+  why: 'p0.prior_decisions: cond ...・p0.purpose_review: cond ...・p1.local_review: cond ...・p1.consistency_bypass: cond ...・p1.hygiene: cond ...・p1.external_standards: cond ...・p1.procedure_trace: cond ...・p1.gate_efficacy: cond ...・p1.test_double_fidelity: cond ...・p1.main_path_observation: cond ...・p1.provenance: 回す'
+  snapshot_file: board/r1/material-snapshot.json
+  prior_decisions: false
+  purpose_review: false
+  local_review: false
+  consistency_bypass: false
+  hygiene: false
+  external_standards: false
+  procedure_trace: false
+  gate_efficacy: false
+  test_double_fidelity: false
+  main_path_observation: false
+  provenance: true
+provenance-prep:
+  prompt_file: board/prompts/r1/p1.provenance.md
+  prompt_text: ''
+  attempt: 1
+  out_path: board/out/r1/p1.provenance.json
+  node: p1.provenance
+  already: false
+provenance:
+  material:
+    status: found
+    count: 1
+    detail: 正本の主張が差分の内側を指す
+  claims: []
+provenance-accept:
+  ok: false
+  done: true
+  give_up: true
+  reason: 'p1.provenance: 記録の整合が取れない（found なのに claims が 0 行）'
+  reason_file: board/reject-take_provenance-3.txt
+  node: p1.provenance
+  status: ''
+collect:
+  ok: false
+  reason: 'p1.provenance の返答が 3 回とも受け付けで拒まれた（最後の拒否: p1.provenance: 記録の整合が取れない）'
+  ran: []
+  skipped:
+  - node: p0.prior_decisions
+    why: cond ...
+  - node: p0.purpose_review
+    why: 目的の文と一緒に入る（absent）
+  - node: p1.local_review
+    why: cond ...
+  - node: p1.consistency_bypass
+    why: cond ...
+  - node: p1.hygiene
+    why: cond ...
+  - node: p1.external_standards
+    why: cond ...
+  - node: p1.procedure_trace
+    why: cond ...
+  - node: p1.gate_efficacy
+    why: cond ...
+  - node: p1.test_double_fidelity
+    why: cond ...
+  - node: p1.main_path_observation
+    why: cond ...
+  - node: p1.provenance
+    why: cond ...
+  materials: {}
+  snapshot:
+    rev: 0123456789abcdef0123456789abcdef01234567
+    diff_file: board/diff-r1.patch
+    changed_files:
+    - stats.py
+    changed_files_file: board/changed-r1.txt
+    diff_stat: 1 files changed, 1 insertions(+), 1 deletions(-)
+    request_wheres: []
+  exit_file: board/r1/material-exit.json
+fixture:
+  expect: completed
+  reached:
+  - mat-route
+  - provenance-prep
+  - provenance
+  - provenance-accept
+  - collect
