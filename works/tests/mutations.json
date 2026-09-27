@@ -74,6 +74,30 @@
    }
   },
   {
+   "id": "fx4",
+   "title": "修正の受け付けが .archon/ の下（pack の写し）を申告した・変えた返答を拒む（run 26）",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "        if pack:\n",
+   "new": "        if False:\n",
+   "tests": {
+    "tests/test_blk_fix.py": [
+     "TestAccept.test_rejects_declared_pack_copy"
+    ]
+   }
+  },
+  {
+   "id": "fx5",
+   "title": "assert-changed が通らない時に run を落とさず盤面を止める（R50。run 26）",
+   "file": "blk-fix/scripts/assert_changed.py",
+   "old": "            b.stop(reason, by=STOP_BY)",
+   "new": "            pass",
+   "tests": {
+    "tests/test_blk_fix.py": [
+     "TestGiveUpOnBoard.test_unchanged_declared_file_halts_board"
+    ]
+   }
+  },
+  {
    "id": "td1",
    "title": "TDD の赤の段: 名指しのテストがもう通るなら拒む（red_problems）",
    "file": "blk-fix/lib/tddloop.py",
