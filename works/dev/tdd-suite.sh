@@ -7,6 +7,8 @@
 # 後ろの引数は pytest にそのまま足す（-k などで段の中を絞る）。書き先の相対パスは呼ぶ側の cwd から。
 # 終了コードは pytest のまま（0 = 全部通った・1 = 落ちた試験が在る・…）。書き先が無い・段の値が違う・段の一覧が崩れている
 # ときは、標準エラーに 1 行出して 2（pytest を起こさない）。.pytest_cache とバイトコードは作らない。
+# 読み込みで落ちるモジュールが在っても一式を止めない（--continue-on-collection-errors。落ちたモジュールは error で載り、
+# 他の試験の結末も書かれる。止まると「元で通っていた他のテストは緑のまま」を確かめられない）。
 # heavy は run.sh と違い、重いテストの枠（testslot）を通さない。
 out=${1-}
 if [ -z "$out" ]; then
@@ -28,4 +30,4 @@ PYTHONDONTWRITEBYTECODE=1
 export PYTHONDONTWRITEBYTECODE
 files=$(uv run --no-project python3 tests/tiers.py paths "$tier") || exit 2
 # shellcheck disable=SC2086  # 段のファイルは tests/test_*.py の名前（空白を含まない）。1 本ずつ別の引数にする
-exec uv run --no-project --with pyyaml --with pytest python3 -m pytest -p no:cacheprovider --junitxml="$out" $files "$@"
+exec uv run --no-project --with pyyaml --with pytest python3 -m pytest -p no:cacheprovider --continue-on-collection-errors --junitxml="$out" $files "$@"

@@ -114,6 +114,20 @@ class TddSuiteCase(unittest.TestCase):
         for name, (cls, _) in got.items():
             self.assertTrue(cls.endswith("test_fake.FakeCase"), (name, cls))
 
+    def test_collection_error_does_not_hide_other_outcomes(self):
+        # 読み込みで落ちるモジュール（赤の段で、まだ無い名前を一番外で import するテストなど）が 1 本在っても、一式を止めずに
+        # 他の試験の結末も書く（止まると「元で通っていた他のテストは緑のまま」を確かめられない）。落ちたモジュールは error で載る
+        (self.root / "tests" / "test_broken.py").write_text("from fakekit import MISSING  # noqa: F401\n", encoding="utf-8")
+        (self.root / "tests" / "tiers.py").write_text(
+            FAKE_TIERS.replace('["tests/test_fake.py"]', '["tests/test_broken.py", "tests/test_fake.py"]'), encoding="utf-8")
+        out = self.caller / "junit.xml"
+        r = self.run_suite(out)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        got = {n: o for n, (_, o) in self.outcomes(out).items()}
+        broken = [n for n in got if n.endswith("test_broken")]   # 読み込みの失敗の行は classname が空で、name がモジュールの名前
+        self.assertEqual([got.pop(n) for n in broken], ["error"], got)
+        self.assertEqual(got, {"test_pass": "passed", "test_fail": "failure", "test_error": "failure", "test_skip": "skipped"})
+
     def test_heavy_tier_by_env(self):
         out = self.caller / "junit.xml"
         r = self.run_suite(out, WORKS_TDD_TIER="heavy")
