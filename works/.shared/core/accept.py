@@ -9,6 +9,8 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）。
                  番号で指す欄（pointers）は名前の型のまま、修正差分のレビューは事前審査だけの kind を落とす
 - snapshot_tree: 作業ツリーの写し（差分を切る節が盤面の delta-snapshot.json に置き、check_delta が突き合わせる）
+- tree_state・tree_change: 読むだけの任せ先の役（blk-pr・blk-ci）を起こす前後の作業ツリーの姿（snapshot_tree に git が無視する
+                 パス・HEAD・枝を足した物）と、その違いの文
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
 - cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置く（blk-delta の節 cut）
 
@@ -234,6 +236,58 @@ def snapshot_tree(repo: pathlib.Path) -> dict:
         p = pathlib.Path(repo) / os.fsdecode(name).rstrip("/")
         h.update(b"\0untracked\0" + name + b"\0" + _entry_digest(p))
     return {"porcelain": porcelain, "diff_sha256": h.hexdigest()}
+
+
+def _ignored_entries(repo) -> list:
+    """git が無視するパス（repo の根から。名前の順）。git status --porcelain -z --ignored=matching（git-status(1)）の `!!` の行で、
+    丸ごと無視されるフォルダ（`__pycache__/`・`.venv/` など）は `dir/` の 1 本に畳まれる"""
+    fields = _git(repo, "status", "--porcelain", "-z", "--ignored=matching", "--untracked-files=all", binary=True).split(b"\0")
+    out, skip = [], False
+    for f in fields:
+        if skip or not f:   # 名前の変わった行（R・C）は、元の名前がもう 1 つの欄で続く
+            skip = False
+            continue
+        if f[:1] in (b"R", b"C"):
+            skip = True
+        elif f.startswith(b"!! "):
+            out.append(os.fsdecode(f[3:]))
+    return sorted(out)
+
+
+TREE_KEYS = ("porcelain", "diff_sha256", "ignored", "head", "ref")
+
+
+def tree_state(repo: pathlib.Path) -> dict:
+    """読むだけの任せ先の役（blk-pr の並行 PR・blk-ci の CI）を起こす前後に比べる作業ツリーの姿 {TREE_KEYS}:
+    snapshot_tree（porcelain・diff_sha256）に、git が無視するパスの一覧 ignored（_ignored_entries。増減だけを見る——中身は
+    読まない。無視されるファイルは差分に載らないが、後の節のテストの緑赤を左右しうる）・HEAD の sha head・枝 ref
+    （symbolic-ref。切り離した HEAD は空）を足した物。snapshot_tree は今の HEAD からの差分しか見ないので、枝の切り替え
+    （gh pr checkout・git checkout）は head・ref で見る。HEAD が引けない・git が効かなければ Reject"""
+    repo = pathlib.Path(repo)
+    try:
+        head = _git(repo, "rev-parse", "--verify", "-q", "HEAD").strip()
+    except Reject:
+        raise Reject(f"git rev-parse HEAD が引けない（{repo}）") from None
+    try:
+        ref = _git(repo, "symbolic-ref", "-q", "HEAD").strip()
+    except Reject:   # 切り離した HEAD（symbolic-ref -q は 1 で終わる）
+        ref = ""
+    return {"ignored": _ignored_entries(repo), **snapshot_tree(repo), "head": head, "ref": ref}
+
+
+def tree_change(before: dict, now: dict) -> list:
+    """tree_state の 2 つの違いを人に向けた文の一覧で（同じなら空）。porcelain は頭の 5 行、ignored は増えた・消えたパスの頭の 5 本"""
+    if all(before.get(k) == now.get(k) for k in TREE_KEYS):
+        return []
+    out = [f"git status --porcelain: 役を起こす前 {before['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}"]
+    for k in ("head", "ref"):
+        if before[k] != now[k]:
+            out.append(f"{k}: 役を起こす前 {before[k] or '（切り離した HEAD）'} / 今 {now[k] or '（切り離した HEAD）'}")
+    added = sorted(set(now["ignored"]) - set(before["ignored"]))
+    gone = sorted(set(before["ignored"]) - set(now["ignored"]))
+    if added or gone:
+        out.append(f"git が無視するパス: 増えた {added[:5]} 消えた {gone[:5]}")
+    return out
 
 
 def _names(repo, cmd, *args) -> list:

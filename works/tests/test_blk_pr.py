@@ -419,6 +419,30 @@ class AcceptCase(PrCase):
         (self.repo / "stats.py").write_text("def mean(xs):\n    return sum(xs)\n", encoding="utf-8")
         self.assertFalse(prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)["ok"])
 
+    def test_ignored_paths_added_or_removed_rejected(self):
+        """pr-snap の後に git が無視するパスを足す・消す（porcelain は綺麗なまま）→ ok false、文に増えた・消えたパス。
+        作業ツリーの写しは accept.tree_state（blk-ci の受け付けと同じ 1 本）"""
+        b = self.fallen()
+        (self.repo / ".git" / "info" / "exclude").write_text("build/\nold.cache\n", encoding="utf-8")
+        (self.repo / "old.cache").write_text("x\n", encoding="utf-8")
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        before = board_shas(b.dir)
+        (self.repo / "build").mkdir()
+        (self.repo / "build" / "out.o").write_text("x\n", encoding="utf-8")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+        self.assertFalse(got["ok"])
+        self.assertIn("作業ツリーを変えた", got["reason"])
+        self.assertIn("build/", got["reason"])
+        self.assertEqual(board_shas(b.dir), before)
+        shutil.rmtree(self.repo / "build")
+        (self.repo / "old.cache").unlink()
+        got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+        self.assertFalse(got["ok"])
+        self.assertIn("old.cache", got["reason"])
+        (self.repo / "old.cache").write_text("x\n", encoding="utf-8")
+        self.assertTrue(prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)["ok"])
+
     def test_head_move_rejected(self):
         """pr-snap の後に別の commit へ checkout（gh pr checkout と同じ動き。作業ツリーは綺麗なまま）→ ok false、
         文に HEAD の動き。枝だけ替える（同じ commit の別の枝・切り離した HEAD）も拒む。元に戻せば通る"""
