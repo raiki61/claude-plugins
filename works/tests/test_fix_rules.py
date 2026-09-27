@@ -13,6 +13,7 @@
 """
 import json
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -108,6 +109,31 @@ class TestSharedSource(unittest.TestCase):
         self.assertIn(fixrules.sections(fixrules.PRINCIPLES)["principles"], ruler)
         for w in ("`c1-1`", "`/b/r1/conflicts.json`", "fix_test_scope", "fix_code_as", "ask_human", "review-graph"):
             self.assertIn(w, ruler)
+
+    def test_questions_for_the_human_go_to_the_conflict_exit(self):
+        """人への問い・人にしか決められない疑いは食い違いの出口（which_is_right unknown → 裁定役 → ask_human）へ、rejudge_requested は
+        判定のフレーミングへの異議だけ（finaltests の懸念 1: 読み替えが人への問いを rejudge_requested に書かせ、判定への異議と
+        混ぜていた。包み無しの run はそこで再審できずに止まる）。組んだ修正役・TDD の輪の役の指示書の両方が言い、正本と読み替えと
+        README に、問い・疑い・方針のぶつかりを rejudge_requested へ送る文が残らない"""
+        ask = "人に聞きたいこと・人にしか決められない疑いの行き先はここ"
+        only = "`rejudge_requested` は判定のフレーミング（単位の切り方・根の見立て・disposition）への異議だけの欄"
+        sec = fixrules.sections(fixrules.SHARED)
+        self.assertIn(ask, sec["core-conflict"])
+        self.assertIn(only, sec["core-fix"])
+        self.assertIn("`which_is_right` を unknown", sec["core-conflict"])
+        old = re.compile(r"(疑い|疑いの理由|何が要るか|ぶつかるか|人に聞きたいこと)(は|を)\s*`rejudge_requested`\s*に書")
+        prompts = {"fix": fixrules.fix_prompt(VALUES, kinds={}),
+                   "tdd": fixrules.tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "fix", "## 今の段", title="# t", kinds={})}
+        for name, text in prompts.items():
+            with self.subTest(name):
+                self.assertIn(ask, text)
+                self.assertIn(only, text)
+                self.assertEqual(old.findall(text), [])
+        for rel in (".shared/superpowers/unattended.md", "README.md"):
+            with self.subTest(rel):
+                text = (ROOT / rel).read_text(encoding="utf-8")
+                self.assertEqual(old.findall(text), [], "人への問い・疑いを rejudge_requested へ送る文が残った")
+                self.assertIn("which_is_right", text)
 
     def test_every_rules_file_is_cut_into_sections(self):
         for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
