@@ -19,10 +19,17 @@ EXPECTED_TESTS=166
 fail=0
 ran=0
 tests=0   # 走った台本の本数（各模擬実行が自分で数えて出す値を足す）
+# **組（shard）に分けた回**（CI が GL_SHARD_TOTAL・GL_SHARD_INDEX などを渡す。約束の正本は parallel.py の shard_spec）は、
+# 台本を組の分だけ走らせ、下の件数の柵の代わりに件数を名簿に書く。和の検算は CI のまとめの job（parallel.py merge）の 1 か所。
+# 指定が無い回（手元の 1 本）は今までどおり全台本を走らせ、ここの柵で突き合わせる
+shard=$("$PY_BIN" "$ROOT/graphloops/tests/parallel.py" index) || { echo "graphloops: 組の指定が読めない: $shard"; exit 2; }
+shard=${shard%$'\r'}   # Windows の Python の出力の CRLF（残すと組でない回と組 0 の回で比較が外れ、graph の検査を飛ばす）
 # **走査対象はファイル集合から導く。** 名前を手で並べていたとき、5 本目の graph を足してもその 1 本は
 # 誰も検査せず、for が回る回数が変わらないので件数の柵（EXPECTED_CHECKS）も発火しなかった
 # （実測 2026-09-13: 壊した graph を 5 本目に置いて exit 0・全件緑）。
+# graph の形は組 0 だけで見る（どの組でも見ると、和が組の数だけ重なる）
 for gf in "$ROOT"/graphloops/graphs/*.json; do
+    [ -z "$shard" ] || [ "$shard" = 0 ] || break
     # 検証器は名前の -loop より前で引く（差し替えの版 review-loop-tdd.json も元と同じ review-record.py を使う）
     name="$(basename "$gf")"; g="${name%%-loop*}"
     v="$ROOT/scripts/$g-record.py"
@@ -58,6 +65,12 @@ run_sim() {
 SIMS=("$ROOT/graphloops/tests/simulate.py" "$ROOT/graphloops/tests/simulate_review.py")
 for sim in "${SIMS[@]}"; do run_sim "$sim"; done
 
+if [ -n "$shard" ]; then
+    [ "$fail" -eq 0 ] || exit 1
+    "$PY_BIN" "$ROOT/graphloops/tests/parallel.py" counts --checks "$ran" --tests "$tests" || exit 2
+    echo "graphloops: 組 $shard で $ran 件すべて緑（件数と全台本の和で見る検査は CI のまとめの job が検算する）"
+    exit 0
+fi
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
     echo "graphloops: 検査が $ran 件走った（$EXPECTED_CHECKS 件を期待）——台本の空振りか、件数の更新漏れ"
     exit 2

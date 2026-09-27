@@ -44,10 +44,10 @@ RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why
 KILL_GRACE = 5  # 止める信号の間の猶予（秒）
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGKILL) if os.name == "posix" else ()  # 試行の木を止める信号の列（_kill と stop_group）
 SUPERSEDED = "起こし直された古い試行か、人が止めた試行——次の手は要らない（起こし直しなら新しい試行は relaunch が作った物で、その launch を待つ。人が止めたなら次は next）"
-# engine の中から起こす子に持たせない道具（ファイルを書く道具）。道具つきの役の**能力の上限**——道具ゼロの役が
-# 「何も実行できない」と言えるのと同じく、engine が起こす子は「ファイルを書く道具を持たない」と言える形にする。
-# 役の定義にこれが在れば engine は起こさない（回す側が Agent で起こす）。値は graph でなく engine が持つ——graph の書き換えで
-# 起こせる物が広がらないように（commands.launch_refusal の注記）
+# ファイルを書く道具。**役の定義**にこれが在れば engine は起こさない（回す側が Agent で起こす）——役の定義は別のプラグインが
+# 配る物で、書く範囲の縛りを持たない。engine が書く道具を渡すのは、回す側の節を起こす形（runner_permission の edit）の 1 つだけで、
+# そのときも道具はパスで縛った形（Edit(./**)・Write(./**)）でしか許さず、書ける場所は OS の sandbox が決める。値は graph でなく
+# engine が持つ——graph の書き換えで起こせる物が広がらないように（commands.launch_refusal の注記）
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 # コマンドを走らせる道具。これを持つ役には、道具ごとでなくコマンドの形ごとに許す（READ_COMMANDS）
 COMMAND_TOOLS = ("Bash",)
@@ -161,6 +161,53 @@ def tooled_permission(tools, cwd=None, board_dir=None):
         return {"form": "read_only", "permission_mode": "dontAsk", "allowed_tools": allowed, "settings": "{}"}
     settings = {"sandbox": {**SANDBOX_BASE, "filesystem": {"denyWrite": deny}}}
     return {"form": "sandbox", "permission_mode": "dontAsk", "allowed_tools": allowed,
+            "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True)}
+
+
+# MultiEdit・NotebookEdit は渡さない（縛った形の実測が無い）
+RUNNER_READ_TOOLS = ("Read", "Glob", "Grep", "Bash")
+RUNNER_EDIT_TOOLS = RUNNER_READ_TOOLS + ("Edit", "Write")
+BOUND_WRITE = "(./**)"   # 書く道具を作業ディレクトリの下に縛る許可の綴り（前提の実験 W6: 縛りの無い Edit・Write は外に書けた）
+
+
+def edit_deny(protected, top):
+    """作業ツリーを書き換える子の sandbox が書き込みを拒む場所——util.protected_paths から、子が書く作業ツリーの根（綴りと実体）
+    だけを外し、根の下の .git を足した一覧。書けないなら None: 守る場所が引けない・根が引けない・守る場所のどれかが根の祖先
+    （<repo>/.claude/worktrees/<名前> の形。denyWrite は allowWrite より優先されるので、祖先を名指しすると根の中にも書けず、
+    外すと祖先の本体に書ける）"""
+    if not protected or not top:
+        return None
+    roots = {os.path.abspath(top), os.path.realpath(top)}
+    rest = [p for p in protected if p not in roots]
+    for p in rest:
+        for r in roots:
+            if r.startswith(p.rstrip(os.sep) + os.sep):
+                return None
+    dot_git = {q for r in roots for q in (os.path.join(r, ".git"),)}
+    return sorted(set(rest) | dot_git)
+
+
+def runner_permission(edits, cwd=None, board_dir=None, protected=None, top=None):
+    """回す側の節を engine が起こす形——{form, tools, permission_mode, allowed_tools, settings}。起こせないなら None（会話に返す）。
+    **起こす側（advance.runner_launch_spec）と柵（commands._runner_refusal）が同じここを引く**。
+
+    - 読むだけの節（edits が偽）: 道具つきの役と同じ tooled_permission(RUNNER_READ_TOOLS)——sandbox が使える場は sandbox の形
+      （計器は OS の境界の中で聞かずに通り、作業ツリー・.git・盤面への書き込みと外への通信は止まる）、使えない場は read_only。
+      前提を測る節（p0.premises）が測るコマンドを走らせられるように、investigator と同じ形にそろえる（人の答え 2026-09-27）。
+    - 書き換える節（edits が真）: sandbox が使えて edit_deny が決まるときだけ。許すのは Read・Glob・Grep・パスで縛った Edit と
+      Write・READ_COMMANDS の前置で、sandbox の中のコマンドは聞かずに通す（SANDBOX_BASE。テスト一式を走らせて閉鎖を確かめる）。
+      書けるのは作業ツリーの根の中と sandbox の既定の一時ディレクトリだけで、.git・ほかの作業ツリー・盤面・利用者の設定は OS が
+      止める——git commit・stash・checkout は index か共通の .git に書くので止まる。通信の許可は空（gh の token を読めても外へ書けない）。
+      sandbox が使えない場（Windows・bwrap の無い Linux）は None——Bash 抜きの書く子に黙って落とさない。"""
+    if not edits:
+        perm = tooled_permission(list(RUNNER_READ_TOOLS), cwd, board_dir)
+        return {**perm, "tools": list(RUNNER_READ_TOOLS)}
+    deny = edit_deny(protected, top) if sandbox_available() else None
+    if deny is None:
+        return None
+    allowed = ["Read", "Glob", "Grep"] + [t + BOUND_WRITE for t in ("Edit", "Write")] + [f"Bash({c}:*)" for c in READ_COMMANDS]
+    settings = {"sandbox": {**SANDBOX_BASE, "filesystem": {"denyWrite": deny}}}
+    return {"form": "edit", "tools": list(RUNNER_EDIT_TOOLS), "permission_mode": "dontAsk", "allowed_tools": allowed,
             "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True)}
 
 

@@ -487,3 +487,87 @@ def test_copy_worktree_needs_a_repository_root(tmp_path, monkeypatch):
     monkeypatch.setattr(util, "repo_root", lambda *a, **k: None)
     with pytest.raises(Reject, match="作業ツリーのルートを引けない"):
         util.copy_worktree(tmp_path / "copy")
+
+
+# ---------------------------------------------------------------- 省く口・手当ての口・答えの打ち手・引数の字（回す側が patch で逃げていた所）
+class DriverBoard(FakeBoard):
+    """skip・patch・answer が触る欄を足した差し替え（trace の欄も残す）"""
+    def __init__(self, instances=None, rules=None, state=None):
+        super().__init__(instances=instances, rules=rules, state={"done_ever": {}, **(state or {})},
+                         nodes={"p4.ci": {"optional": True, "engine_run": {"builtin": "declared_checks"}}})
+        self.rd.update(skipped={}, done={})
+        self.round, self.record, self.rows = 1, {}, []
+
+    def node_state(self, nid):
+        return "pending"
+
+    def trace(self, op, **kw):
+        self.traced.append(op)
+        self.rows.append(kw)
+
+
+def drive(monkeypatch, fb):
+    monkeypatch.setattr(commands, "Board", lambda d: fb)
+    monkeypatch.setattr(commands, "resolve_dir", lambda a: "d")
+
+
+def test_skip_refuses_a_node_being_launched(monkeypatch):
+    """起こし中の engine が走らせる節は省かない——省いた印の後に子の結果が届くと、同じ周に 2 つの結末が書かれる"""
+    fb = DriverBoard({"p4.ci": {"id": "p4.ci", "node": "p4.ci", "status": "pending", "launch_state": "running"}})
+    drive(monkeypatch, fb)
+    with pytest.raises(Reject, match="起こし中"):
+        commands.cmd_skip(argparse.Namespace(node="p4.ci", reason="r", dir=None))
+    assert fb.rd["skipped"] == {} and fb.state["done_ever"] == {}
+
+
+def test_skip_hands_the_node_and_reason_to_the_rules(monkeypatch):
+    seen = []
+    fb = DriverBoard({"p4.ci": {"id": "p4.ci", "node": "p4.ci", "status": "pending", "launch_state": "ended"}},
+                     rules=types.SimpleNamespace(on_skip=lambda b, nid, why: seen.append((nid, why))))
+    drive(monkeypatch, fb)
+    commands.cmd_skip(argparse.Namespace(node="p4.ci", reason="人の命令", dir=None))
+    assert seen == [("p4.ci", "人の命令")] and fb.rd["skipped"] == {"p4.ci": "人の命令"}
+    assert fb.rd["instances"]["p4.ci"]["status"] == "skipped" and fb.state["done_ever"] == {"p4.ci": 1}
+
+
+def test_set_path_says_which_parent_it_made():
+    d = {"done_ever": {"p0.base": 1}}
+    assert util.set_path(d, "done_ever.p0.base", 2) is None and d["done_ever"] == {"p0.base": 2}
+    assert util.set_path(d, "done_ever.p4.ci", 1) == "done_ever.p4" and d["done_ever"]["p4"] == {"ci": 1}
+    assert util.set_path(d, "done_ever.p4.ci", 3) is None
+
+
+def test_patch_says_when_it_made_a_parent(monkeypatch, tmp_path, capsys):
+    """点を含む鍵（p4.ci）を割って親を新設した手当ては ok だけで黙らない——痕跡にも新設した親が残る"""
+    fb = DriverBoard()
+    drive(monkeypatch, fb)
+    f = tmp_path / "v.json"
+    f.write_text("1", encoding="utf-8")
+    commands.cmd_patch(argparse.Namespace(path="state.done_ever.p4.ci", file=str(f), delete=False, reason="r", dir=None))
+    out = capsys.readouterr().out
+    assert "親 'done_ever.p4' を新設した" in out and fb.state["patches"][-1]["made_parent"] == "done_ever.p4"
+    assert fb.rows[-1]["made_parent"] == "done_ever.p4"
+    f.write_text(json.dumps({"p4.ci": 1}), encoding="utf-8")
+    commands.cmd_patch(argparse.Namespace(path="state.done_ever", file=str(f), delete=False, reason="r", dir=None))
+    assert "新設" not in capsys.readouterr().out and "made_parent" not in fb.state["patches"][-1]
+
+
+@pytest.mark.parametrize("by,want", [("driver", "driver"), (None, "未申告")])
+def test_answer_leaves_the_declared_hand_in_the_trace(monkeypatch, by, want):
+    fb = DriverBoard(state={"pending_human": {"node": "p2.human_gate", "options": ["continue", "stop"], "in_round": True,
+                                              "kinds": ["regression"], "items": []}})
+    drive(monkeypatch, fb)
+    commands.cmd_answer(argparse.Namespace(text="continue", note="n", detail=None, by=by, dir=None))
+    row = fb.rows[fb.traced.index("answer")]
+    assert row["by"] == want and set(row["observed"]) == {"claudecode_env", "stdin_tty"}
+
+
+def test_loop_refuses_broken_bytes_only_in_written_values():
+    """盤面・trace に書く値の引数の読めないバイト（孤立サロゲート）は Reject で拒む。ファイルのパスだけの引数は検めない"""
+    from glharness import loop_module
+    loop = loop_module()
+    with pytest.raises(Reject, match="--reason の 2 字目"):
+        loop.refuse_broken_args(argparse.Namespace(reason="a\udce3b"))
+    with pytest.raises(Reject, match="--input"):
+        loop.refuse_broken_args(argparse.Namespace(input=["k=ok", "k=\udce3"]))
+    loop.refuse_broken_args(argparse.Namespace(reason="正しい字", file="a\udce3", detail="b\udcff", output="c\udce3", request="@d\udce3"))

@@ -7,8 +7,8 @@ from . import intake, pointers
 from .render import FILE_CAP, Renderer, node_prompt
 from .rules import hook, registry
 from .schema import graph_text, validate_schema
-from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, die, dump, get_path, now, protected_paths, read_json, safe_name, sha, write_json
-from .role_run import DELEGATE_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path, read_rule, tooled_permission
+from .util import ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, die, dump, get_path, now, protected_paths, read_json, repo_root, safe_name, sha, write_json
+from .role_run import DELEGATE_TOOLS, RUNNER_READ_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path, read_rule, runner_permission, tooled_permission
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -45,10 +45,33 @@ PROMPT_GROWTH_RATIO = float(os.environ.get("GL_PROMPT_GROWTH_RATIO") or 1.5)
 
 def tooled_launchable(d):
     """道具つきの役を engine が起こせるか。起こせないのは、定義が道具の一覧を持たない（全部の道具を継ぐ）役・
-    ファイルを書く道具を持つ役・モデルか effort を名指ししない役——どれも回す側が Agent で起こす。
-    何でもできる子を engine の中から起こさない（能力の上限は role_run.WRITE_TOOLS の注記）。"""
+    ファイルを書く道具を持つ役・モデルか effort を名指ししない役——どれも回す側が Agent で起こす（道具の一覧とモデルを持たない
+    定義は、graph が launch.tooled.narrow を宣言していれば narrowed_def が狭めてから渡す）。
+    役の定義を経て書く道具を持つ子を engine の中から起こさない（能力の上限は role_run.WRITE_TOOLS の注記）。"""
     return ("*" not in d["tools"] and not any(x in WRITE_TOOLS for x in d["tools"])
             and d.get("model") not in (None, "", "inherit") and bool(d.get("effort")))
+
+
+# 狭める形（launch.tooled.narrow）が渡してよい道具の上限。値は graph でなく engine が持つ——graph の書き換えで広がらないように
+NARROW_TOOLS = RUNNER_READ_TOOLS
+
+
+def narrowed_def(d, narrow):
+    """道具の一覧を持たない（全部を継ぐ）か、モデルを名指ししない（inherit）役の定義を、graph の launch.tooled.narrow
+    （{tools, model, effort}）で読むだけに狭めた写し。狭めない定義・狭められない定義はそのまま返す（書く道具を持つ定義は狭めない
+    ——書く仕事の役を読むだけで黙って起こさない）。狭めた写しは narrowed に元の道具とモデルを持つ（instance と柵が読む）。
+    公式の sub-agents 文書は tools を省いた定義が全部の道具を継ぐと言い、--tools がそれを狭めるかは書いていないので、--agent と
+    --plugin-dir で起こす形は採らず、役の本文を system prompt に足す今の起こし方に載せる"""
+    if not d or not isinstance(narrow, dict):
+        return d
+    wide = "*" in d["tools"] or d.get("model") in (None, "", "inherit")
+    if not wide or any(x in WRITE_TOOLS for x in d["tools"]):
+        return d
+    tools = list(narrow.get("tools") or [])
+    if not tools or not set(tools) <= set(NARROW_TOOLS) or not narrow.get("model") or not narrow.get("effort"):
+        return d
+    return {**d, "tools": tools, "model": narrow["model"], "effort": narrow["effort"],
+            "narrowed": {"tools": d["tools"], "model": d.get("model")}}
 
 
 def launch_cwd(b):
@@ -157,6 +180,9 @@ def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
     if tools:
         launch["tools"] = tools
         launch["form"] = form  # sandbox / read_only / plain（role_run.tooled_permission）。trace の role_run 行にも写る
+    if d.get("narrowed"):
+        # 狭めた値（柵は起こす瞬間に役の定義を読み直し、この値が narrowed_def の上限の中に在るときだけ当てて突き合わせる）
+        launch["narrowed"] = {"tools": tools, "model": d["model"], "effort": d["effort"], "from": d["narrowed"]}
     if not found:
         launch["missing"] = argv[len(via)]  # この環境では起こせない。回す側と記録に見えるようにしておく
     return launch
@@ -211,6 +237,51 @@ def delegate_launch_spec(b, inst, n, ctx):
         except (KeyError, TypeError):
             die(f"{inst['id']}: delegate.result_to {delegate.get('result_to')!r} がこの節の材料から引けない（graph を直せ）")
         launch["background"] = True
+    return launch
+
+
+def runner_launch_spec(b, inst, n):
+    """回す側の節（graph の runners の節）を engine の中で起こす語。起こさないなら None（会話に返す）。
+
+    起こすのは init --engine-runners の run で、graph が launch.runner を宣言し、節が任せ先・skill・走らせるだけの宣言を持たない
+    ときだけ。節が作業ツリーを書き換えるか（graph の launch.runner.edits に名がある）で権限の形が分かれる（role_run.runner_permission）。
+    子は盤面の inputs.cwd（本物の作業ツリー）で起こし、修正は会話の writer と同じくそこに入る——作業ツリーの前後の突合と修正の
+    前後の数え方はそのまま効く。書けない形（sandbox が立たない・守る場所が引けない）は理由を instance の runner_unlaunched に残して
+    会話に返す。権限の値は engine が決め、graph は語の並び・前置きの文・モデルと effort だけを持つ（launch.delegate と同じ線）"""
+    spec = b.graph.get("launch", {}).get("runner")
+    if not spec or not b.state.get("engine_runners") or n.get("delegate") or n.get("skills") or n.get("engine_run"):
+        return None
+    edits = inst["node"] in (spec.get("edits") or [])
+    cwd = launch_cwd(b)
+    perm = runner_permission(edits, cwd, b.dir, protected_paths([b.dir]) if edits else None, repo_root() if edits else None)
+    if perm is None:
+        inst["runner_unlaunched"] = ("作業ツリーを書き換える子を縛れない（sandbox が立たない・守る場所が引けない・作業ツリーの根が別の"
+                                     "作業ツリーの下に在る）——会話に返す")
+        return None
+    rdir = b.dir / "roles"
+    rdir.mkdir(parents=True, exist_ok=True)
+    role_file = rdir / "runner.txt"
+    role_file.write_text(spec.get("preamble") or "", encoding="utf-8")
+    sub = dict.fromkeys(LAUNCH_HOLES, "")
+    sub.update(model=spec.get("model") or "", effort=spec.get("effort") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
+               out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
+               tools=",".join(perm["tools"]), allowed_tools=",".join(perm["allowed_tools"]),
+               permission_mode=perm["permission_mode"], settings=perm["settings"])
+    import shutil  # 起こす節でだけ要る
+    via = [a.format(**sub) for a in (spec.get("via") or [])]
+
+    def resolve(words):
+        argv = [a.format(**sub) for a in words]
+        found = shutil.which(argv[0])
+        return via + (([found] + argv[1:]) if found else argv), found
+
+    argv, found = resolve(spec["argv"])
+    launch = {"kind": "runner", "argv": argv, "stdin": inst["prompt_file"],
+              "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None,
+              "tools": perm["tools"], "form": perm["form"], "edits": edits,
+              "model": spec.get("model") or "", "effort": spec.get("effort") or ""}
+    if not found:
+        launch["missing"] = argv[len(via)]
     return launch
 
 
@@ -368,7 +439,7 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         # 報告の next で同じ出力を 209 回読み直していた（実測 2026-09-12）
     # 道具ゼロの役は別プロセスの CLI へ標準入力で流すので、Agent ツールの貼る先の上限が無い＝切らない（cap=None）。
     atype = None if b.is_runner(n) else agent_type_of(b, n)
-    role_def = agent_def(atype) if atype else None
+    role_def = narrowed_def(agent_def(atype), b.graph.get("launch", {}).get("tooled", {}).get("narrow")) if atype else None
     role_def_missing = None
     if atype and ":" in atype and role_def is None:
         # 「定義が読めない」を「道具を持つ役」と同じ False に潰さない——遮断系かどうかが分からないまま Agent ツール
@@ -474,6 +545,10 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
                 inst["launch"] = spec
     if runner and n.get("engine_run"):
         plan_engine_run(b, nid, n, inst, engine_fallback)
+    if runner and not inst.get("launch") and not inst.get("unfenced"):
+        spec = runner_launch_spec(b, inst, n)
+        if spec:
+            inst["launch"] = spec
     same = n.get("same_context_as")
     if same and isolated:
         die(f"{iid}: 遮断系（道具ゼロ）の役に same_context_as は使えない——前の節の文脈を持ち込むと、渡された物しか知らない読み手という遮断が崩れる（graph を直せ）")

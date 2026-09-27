@@ -202,12 +202,14 @@ def set_path(obj, path, value):
     その名前の鍵が新設され、patch は ok を返した。当たっていない手当てが 2 回成功と報告され、
     検証器が別の理由で落ちて初めて分かった）。
 
-    辿り方は `_step`＝get_path と同じ 1 本。**作ってよいのは葉 1 つだけ**——親が辿れない綴りは
+    辿り方は `_step`＝get_path と同じ 1 本。**作ってよいのは葉と、その親の 1 段まで**——それより上が辿れない綴りは
     落とす。以前は途中の辞書を何段でも作ったので、点を含む鍵を指す綴りが「既存の鍵の隣に
     新しい入れ子」を黙って生やす形だった（どちらの読みも成り立つ綴りで、機械が片方を勝手に選んでいた）。
+    親の 1 段の新設も同じ曖昧さを持つ（`done_ever.p4.ci` は『p4.ci の 1 語』とも『p4 の下の ci』とも読める）ので、
+    新設した親の綴り（作らなければ None）を返し、呼び元が黙らずに言う（実測 2026-09-27: 入れ子になった手当てに patch が ok だけを返した）。
     リストの添字は**既に在る要素だけ**を指せる——リストを伸ばす手当ては、順序の意味を回す側が決める。
     """
-    cur, last = _parent(obj, path, create=True)
+    cur, last, made = _parent(obj, path, create=True)
     if isinstance(cur, list):
         if not (last.isdigit() and int(last) < len(cur)):
             raise KeyError(path)
@@ -216,19 +218,20 @@ def set_path(obj, path, value):
         cur[last] = value
     else:
         raise KeyError(path)
+    return made
 
 
 def del_path(obj, path):
     """`set_path` と同じ綴りで辿り、在る辞書の鍵を 1 つ消す（JSON Patch の remove と同じく、無い場所は落とす）。
     リストの要素は消さない——順序の意味は回す側が決める（set_path がリストを伸ばさないのと同じ理由）"""
-    cur, last = _parent(obj, path, create=False)
+    cur, last, _ = _parent(obj, path, create=False)
     if not (isinstance(cur, dict) and last in cur):
         raise KeyError(f"{path}: 消す鍵が無い（辞書の在る鍵だけを消せる）")
     del cur[last]
 
 
 def _parent(obj, path, create):
-    """set_path・del_path が辿る唯一の式 ——（親, 最後の鍵）。辿り方は `_step`＝get_path と同じ 1 本で、
+    """set_path・del_path が辿る唯一の式 ——（親, 最後の鍵, 新設した親の綴りか None）。辿り方は `_step`＝get_path と同じ 1 本で、
     create が真なら葉の親を 1 段だけ作ってよい"""
     # **角括弧は受けない。** `questions[1]` は get_path が読めない綴りで、黙って通すと
     # その名前の鍵が新設される（今回の事故そのもの）。書けない綴りはここで落とす。
@@ -243,7 +246,7 @@ def _parent(obj, path, create):
         # 新設していた。get_path は元の場所を読み続けるので、当たらない手当てが ok を返した。
         rest = ".".join(parts[i:])
         if isinstance(cur, dict) and rest in cur:
-            return cur, rest
+            return cur, rest, None
         nxt = _step(cur, parts, i, len(parts) - 1)
         if nxt is not None:
             cur, i = nxt
@@ -251,13 +254,12 @@ def _parent(obj, path, create):
         if not isinstance(cur, dict) or not create:
             raise KeyError(path)
         if i != len(parts) - 2:
-            # 作るのは葉 1 つまで。2 段以上の新設は「点を含む 1 つの鍵」との区別が付かない
             raise KeyError(f"{path}: '{'.'.join(parts[:i + 1])}' から先が辿れない——"
-                           f"作ってよいのは葉 1 つだけ（親を先に作るか、既に在る綴りを指せ）。"
+                           f"作ってよいのは葉とその親の 1 段まで（親を先に作るか、既に在る綴りを指せ）。"
                            f"2 段以上を黙って作ると、点を含む 1 つの鍵と区別が付かない")
-        cur = cur.setdefault(parts[i], {})
-        i += 1
-    return cur, parts[-1]
+        cur[parts[i]] = {}   # 辿れなかった（_step が外した）ので、ここに在るのは新設だけ
+        return cur[parts[i]], parts[-1], ".".join(parts[:i + 1])
+    return cur, parts[-1], None
 
 
 def has_path(obj, path):

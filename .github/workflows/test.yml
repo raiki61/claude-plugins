@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+# **job は 3 種**（2026-09-27）: 重い筋書きの台本の一式を OS × 組（shard）に分けて並べる test、pytest の置き場を丸ごと回す pytest、
+# 全組の名簿を集めて件数の和と全台本の和で見る検査を 1 か所で当てる shards。1 job に閉じていた頃は Windows が 18 分で律速だった
+# （tests/run.sh 962 秒のうち graphloops の台本が 808 秒。runner の CPU は 4 で、job の中の並列はそこで頭打ち）。
+# 組の数 4 は macOS の同時実行の枠 5（組 4＋pytest 1）と全体の枠 20（組 12＋pytest 3＋まとめ 1）から。
 jobs:
   test:
     strategy:
@@ -15,11 +19,13 @@ jobs:
       # 「他の OS では通っていた」ことが分かって初めて原因が絞れた。
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: &os [ubuntu-latest, macos-latest, windows-latest]
+        # 組の番号は 0..N-1 を欠けなく並べ、N を下の段の GL_SHARD_TOTAL に書く（食い違えば tests/run.sh の CI_LINT_OK が赤にする）
+        shard: [0, 1, 2, 3]
         # **欠けてよい能力の一覧（tests/run.sh の SKIP_ALLOW）は OS ごとに書き、既定は空。** include に無い OS は何も許さない。
         # 書くのはその OS で本当にできない物だけ——道具で無くせる見送り（shellcheck）は道具を入れて無くす。
         # 名前は見送りの行の「# SKIP <能力>:」の頭。一覧に無い名前の見送りは、下の FAIL_ON_SKIP=1 で赤になる
-        include:
+        include: &skip_allow
           - os: windows-latest
             skip_allow: "posix-mode process-group fifo read-permission"
     runs-on: ${{ matrix.os }}
@@ -44,16 +50,40 @@ jobs:
       # 独立した段は 3 OS のうち 1 本だけで回す（tests/run.sh の中の同じ検査と ubuntu で二重に走るのは数秒で、段を残しても能力は減らない）。深さは tests/run.sh の
       # 手元の検査と同じ -S warning——片方だけ深くすると、手元で緑・CI で赤（またはその逆）になって、どちらが正本か分からなくなる。
       - name: shellcheck
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.shard == 0
         shell: bash
         run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning
       # shell: bash を明示しないと Windows では PowerShell になり、pipefail も付かない。
+      # 組の指定は段の env で渡す（runner の文脈は job の env では使えない）。tests/run.sh は graphloops の 1 検査にだけ渡す
       - name: tests/run.sh
         shell: bash
         env:
+          GL_SHARD_TOTAL: "4"
+          GL_SHARD_INDEX: ${{ matrix.shard }}
+          GL_SHARD_GROUP: ${{ matrix.os }}
+          GL_SHARD_MANIFEST: ${{ runner.temp }}/gl-shard
           FAIL_ON_SKIP: "1"
           SKIP_ALLOW: ${{ matrix.skip_allow }}
         run: bash tests/run.sh
+      # 組の名簿（件数・台本の本数・全台本の和で見る検査の到達）を shards へ渡す。名前は組ごとに別（v4 は同じ名前を複数の job から上げられない）
+      - name: upload shard manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: gl-shard-${{ matrix.os }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/gl-shard
+          if-no-files-found: error
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: *os
+        include: *skip_allow
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       # **pytest の置き場（graphloops/tests/py/）を丸ごと回す。** 依存は開発の間だけで、ここで入れる（README の必須には
       # 足さない）。版を固定するのは、手元と CI で柵（fence.py）が使う pytest のフックの振る舞いを揃えるため。
       # 置き場を丸ごと渡すので件数の柵（conftest.py の EXPECTED_ITEMS ほか）が当たる——パスを絞ると柵が外れる。
@@ -65,3 +95,21 @@ jobs:
         run: |
           python -m pip install pytest==9.1.1 pytest-xdist==3.8.0
           python -m pytest -n auto graphloops/tests/py
+  # **全組を待って和を検算する。** 組は自分の分しか数えないので、件数の柵（EXPECTED_CHECKS・EXPECTED_TESTS）と全台本の和で見る
+  # 検査（判定語彙の到達・渡し方の当たり）はここでしか当たらない。--groups は test の matrix の os と同じ並び（CI_LINT_OK が縛る）
+  shards:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: download shard manifests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gl-shard-*
+          path: gl-shards
+      - name: shards
+        shell: bash
+        run: python graphloops/tests/parallel.py merge --groups ubuntu-latest,macos-latest,windows-latest gl-shards/*

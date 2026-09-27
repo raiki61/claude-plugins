@@ -1028,10 +1028,22 @@ def _mutation_ran(b):
     return bool(b.loop_state.get("lanes")) or any(n in b.state.get("outputs", {}) for n in ("p1.gate_efficacy", "p4.final_gates"))
 
 
+UNRECORDED_READS = ("engine が claude -p で起こした子（init --engine-runners）ではフックが動かず、子の Read は reads.jsonl に"
+                    "載らない——items の none・absent は『読んでいない』でなく『記録が無い』かもしれない")
+
+
+def _reads_unrecorded(b, nid):
+    """修正役を engine が起こした周の読了の記録に、記録されない事実を添える（黙って空にしない。人の答え 2026-09-27）"""
+    inst = b.rd["instances"].get(nid) or {}
+    return {"unrecorded": UNRECORDED_READS} if (inst.get("launch") or {}).get("kind") == "runner" else {}
+
+
 def notices(b):
     """機械が知った『人が見るべき事実』の一覧（記録の process.notices へ。報告の人向けの項目が 1 項ずつ挙げる）。
     写しを持たず、呼ぶたびに正本（engine の init の知らせ・宣言の読み・線の台帳）から組み直す——宣言を直せば次に組むとき消える"""
     out = [f"init: {n}" for n in b.state.get("notes") or []]
+    if b.state.get("engine_runners"):
+        out.append("回す側の節は engine が起こした（init --engine-runners）: " + UNRECORDED_READS)
     md = b.loop_state.get("mutation_decl") or {}
     if md.get("unknown"):
         out.append(f"宣言 {DECL_NAME} にこの engine が読まない最上位の段 {md['unknown']} が在る——綴り違いなら宣言を直せ"
@@ -2219,6 +2231,30 @@ def _rewind_materials(b, nid):
     return back, old
 
 
+def skipped_material(b, nid):
+    """省いた節（loop.py skip）の素材の値。engine が走らせる CI の節（engine_run）は条件外で書く——not_run は検証器が阻害に数え、
+    省いた周は収束にも CI の問い（_converge の ci_unverified）にも届かず、上限まで空回りした（事前審査 2026-09-27）。条件外なら
+    阻害にならず、収束の手前で ci_unverified が理由つきで人に聞く（黙って緑にはしない——収束は CI が engine の clean のときだけ）"""
+    why = f"回す側が省いた: {b.rd['skipped'].get(nid, '')}"
+    if b.nodes[nid].get("engine_run"):
+        return {"status": "not_applicable", "reason": f"{why}（engine が走らせる節 {nid} を走らせていない——この周の CI は確かめていない）"}
+    return {"status": "not_run", "reason": why}
+
+
+def on_skip(b, nid, reason):
+    """loop.py skip の直後。engine が走らせる節の素材は省いた時点で書き直す——同じ素材（local_checks）を書く 2 節のうち後の p4.ci を
+    省いた周に、前の p0.local_checks の値（修正前の CI）が残って今の周の CI に見えないように（fill_materials は在る値を上書きしない）。
+    後で走った節は自分の値で上書きする"""
+    n = b.nodes[nid]
+    if not n.get("engine_run"):
+        return
+    val = skipped_material(b, nid)
+    for w in n.get("writes", []):
+        if w.get("from") == "material" and w.get("op") == "set":
+            head, key = w["to"].split(".", 1)
+            b.record.setdefault(head, {})[key] = dict(val)
+
+
 def fill_materials(b):
     """走らせなかった素材の欄を機械が埋める。条件外＝not_applicable／前の判定を流用＝carried_over／
     前が awaiting_human・not_run（流用できない値）＝同じ値をもう一度（今も待っている記録）／それ以外＝not_run。"""
@@ -2242,7 +2278,7 @@ def fill_materials(b):
                                        "——依頼の外を見る目はこの周に無い（判定役と修正前後の審査だけが見る）"}
                 continue
             if state == "skipped":
-                mats[mat] = {"status": "not_run", "reason": f"回す側が省いた: {b.rd['skipped'].get(nid, '')}"}
+                mats[mat] = skipped_material(b, nid)
                 continue
             if state == "stopped":   # 人が止めた（loop.py stop）——省いた（回す側の判断）とは別の事実として書く
                 mats[mat] = {"status": "not_run", "reason": f"{b.rd['stopped'][nid]}——この周に節 {nid} は走っていない"}
@@ -3060,7 +3096,7 @@ def judge_output(b, nid, out, item):
                 errs.append(f"questions[{i}] の {fld} は素材名: {val}")
             elif dom == "review" and val not in V.REVIEWS:
                 errs.append(f"questions[{i}] の {fld} は R1〜R4: {val}")
-        if domain == "none" and (q.get("origin") or q.get("depends")):
+        if domain == "none" and V.targets(q):
             errs.append(f"questions[{i}]（{kind}）は origin / depends を持てない")
         for d in q.get("depends", []) or []:
             if d not in keys | defer:
@@ -3298,7 +3334,7 @@ def fix_covers_open_units(b, nid, out, item):
     # 次の周の判定役が読む（graph の reads に prev.p3.fix.wrote_refs_reads）。**拒否には使わない**。**周を刻み、
     # 空の周も必ず書く**——前の周の値が『この周の材料』として読まれないため（p2.diagnose は同じ周の p3.fix より
     # 前に走る）
-    out["wrote_refs_reads"] = {"round": b.round, "items": reads}
+    out["wrote_refs_reads"] = {"round": b.round, "items": reads, **_reads_unrecorded(b, nid)}
     out["coverage_after"] = {"round": b.round, "items": afters}
     if errs:
         # **機械が支える範囲だけを言う。** 以前は「申告を消して通すな」と添えていたが、消した周を見る

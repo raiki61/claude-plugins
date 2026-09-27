@@ -6479,8 +6479,8 @@
    "title": "CI の突合: ジョブ全体が失敗を無視すれば赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
-   "old": "    runs-on: ${{ matrix.os }}\n",
-   "new": "    runs-on: ${{ matrix.os }}\n    continue-on-error: true\n",
+   "old": "    runs-on: ${{ matrix.os }}\n    steps:\n      - uses: actions/checkout@v5\n      # **README",
+   "new": "    runs-on: ${{ matrix.os }}\n    continue-on-error: true\n    steps:\n      - uses: actions/checkout@v5\n      # **README",
    "expect": "CI の設定が shellcheck を回す"
   },
   {
@@ -6490,6 +6490,87 @@
    "suite": "root",
    "old": "      - name: tests/run.sh\n        shell: bash\n",
    "new": "      - name: tests/run.sh\n        shell: sh -c 'exit 0' {0}\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL13",
+   "title": "CI の突合: 和を検算する shards の job を if: で飛ばせば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "  shards:\n    needs: test\n",
+   "new": "  shards:\n    if: false\n    needs: test\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL14",
+   "title": "CI の突合: pytest の job を if: で飛ばせば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "  pytest:\n    strategy:\n",
+   "new": "  pytest:\n    if: false\n    strategy:\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL15",
+   "title": "CI の突合: 組の総数が matrix の組の数と食い違えば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "GL_SHARD_TOTAL: \"4\"",
+   "new": "GL_SHARD_TOTAL: \"3\"",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL16",
+   "title": "CI の突合: 組の番号が欠ければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "shard: [0, 1, 2, 3]",
+   "new": "shard: [0, 1, 3]",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL17",
+   "title": "CI の突合: 組の名簿が無くても緑の upload なら赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          if-no-files-found: error\n",
+   "new": "",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL18",
+   "title": "CI の突合: shards が組を待たなければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "    needs: test\n",
+   "new": "",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL19",
+   "title": "CI の突合: shards の --groups から OS が欠ければ赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "--groups ubuntu-latest,macos-latest,windows-latest",
+   "new": "--groups ubuntu-latest,macos-latest",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL20",
+   "title": "CI の突合: 名簿を 1 つの置き場に重ねて落とせば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "          path: gl-shards\n",
+   "new": "          path: gl-shards\n          merge-multiple: true\n",
+   "expect": "CI の設定が shellcheck を回す"
+  },
+  {
+   "id": "CL21",
+   "title": "CI の突合: pytest の job が os の一覧を写しで持てば赤",
+   "file": ".github/workflows/test.yml",
+   "suite": "root",
+   "old": "        os: *os\n",
+   "new": "        os: [ubuntu-latest, macos-latest, windows-latest]\n",
    "expect": "CI の設定が shellcheck を回す"
   },
   {

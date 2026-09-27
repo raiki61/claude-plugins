@@ -798,7 +798,18 @@
     "{python}",
     "{plugin_root}/scripts/with-auth.py"
    ],
-   "why": "道具つきの役（judge・inspector・investigator）も engine が claude -p で起こす（loop.py launch）。回す側と役の間に中継の AI を挟んでいたとき、書いていないのに『書いた』と返す・続きの返答が回す側の文脈へ戻る・入れ子の起動で完了の知らせが迷って 7 時間止まる、が起きた（実測 2026-09-24〜25）。綴りは道具ゼロの役と同じ形にする: 役の本文は engine が agents/<役>.md から盤面の roles/<役>.txt に写して system prompt に足し、道具・モデル・effort・権限は argv に並べる。--agents の定義ファイルで起こす形は採らない——定義ファイルは permissionMode や hooks を持てるので、権限を決める事実が engine の柵（argv だけを読む）の外に移る。権限は engine が役の定義の道具から決めて明示する（engine の role_run.tooled_permission。graph は権限を配らない）——-p の開始の権限は起こした側の設定を継ぐので、書かなければ回す側の設定（bypassPermissions 等）が子に移る。聞く先は置かない（--permission-prompts none）。**CLAUDE.md は読ませない（--setting-sources \"\"）**: (1) 役が見る物は graph の reads が宣言した物だけにする——観点（REVIEW.md）は reads で明示して渡している。(2) 利用者の CLAUDE.md は回す側に向けた出力の作法で、JSON だけを返す契約とぶつかる（実測 2026-09-25・haiku: user,project,local を読ませると CLAUDE.md の『返答の最初の語は目印にせよ』が返答の頭に付き、\"\" では付かなかった）。(3) 利用者とプラグインのフックが子で発火しないので、盤面の reads.jsonl は回す側の読みだけになり、役の読みが修正役の読了の証拠に混ざらない。代わりに、プロジェクトの CLAUDE.md に書いた規約も役には届かない（役に要る規約は reads で渡す）。投稿の門番（gates の PreToolUse:Bash）も子には当たらないが、権限は先に許した物だけが通る dontAsk で、コマンドを走らせる役（investigator）には Bash を丸ごと許さず、読むだけのコマンドの前置（engine の role_run.READ_COMMANDS: gh の issue・pr の list と view・pr diff・search・repo view と git remote get-url。書く旗を持たない物だけ）を明示で許す——分類器（auto）に任せていたときは読むだけの gh まで拒まれ、GitHub を WebFetch で読むしかなかった（非公開のリポジトリの issue・PR が読めない）。gh api は許さない（引数を付けると既定が POST になり、前置では縛れない）。**既にある計器（テスト一式・計器の台本）は OS の sandbox の中でだけ動かす**（--settings の sandbox。人の方針 2026-09-25: 上位互換——計器を捨てた形は手順を動かして確かめる観点を『未実測』に落とした）。前置の一覧に計器を足す形は採らない: テストの実行器を許すと、作業ツリーに置いたテストの設定ファイル（conftest.py 等）から任意のコードが走り、git diff --output= も作業ディレクトリの外や .git に書けた（実測 2026-09-25・haiku・claude 2.1.282。字面の許可は後ろの引数も中のコードも縛れない）。sandbox の形（値の正本は role_run.SANDBOX_BASE と protected_paths）: 中のコマンドは dontAsk の下でも聞かずに通し（autoAllowBashIfSandboxed）、外へ出る口を閉じ（allowUnsandboxedCommands false）、sandbox が起きなければ起動で落とす（failIfUnavailable true——既定の false は警告だけ出して sandbox の外で走る）。書き込みを止める場所（denyWrite）は、自分を含む作業ツリーの根の全部・共有の .git（linked worktree の gitdir と盤面を含む）・盤面の置き場で、書けるのは一時ディレクトリだけ——cwd を書ける場所に残すと、計器がレビュー対象の未コミットの変更を壊せ、前後の突合は検知しても戻さない。通信の許可は空（strictAllowlist）——sandbox の中のコードはディスク全体を読める（gh の token も）ので、GitHub の宛先を許すと READ_COMMANDS を迂回して書く gh が打てる。gh は excludedCommands で sandbox の外に出して前置の関門に掛ける（つないだ gh は除外に当たらず sandbox の中で通信が無く止まる。PyPI から取る uv run --with も止まる）。sandbox を使えない環境（Windows・bwrap が名前空間を作れない Linux 等。role_run.sandbox_available）では今の読むだけの形に落とす——起こさない形にすると、読むだけで走っていた investigator まで止まる（上位互換に反する）。どちらの形で起こしたかは instance の launch.form と trace の role_run 行に残る。書く gh・> で書き出す形は、どちらの形でも拒まれるか止まる（実測は tooled_permission の docstring）。作業ディレクトリの外の git は拒まれるので、engine は子を盤面の inputs.cwd で起こす。resume は同じ会話を --resume で再開する語で、受け付けに拒まれたときと same_context_as の節が使う（権限と設定の旗は毎回明示する）。engine が起こさない役（定義が道具の一覧を持たない・ファイルを書く道具を持つ・モデルか effort を名指ししない）は launch を持たず、回す側が Agent で起こす。"
+   "why": "道具つきの役（judge・inspector・investigator）も engine が claude -p で起こす（loop.py launch）。回す側と役の間に中継の AI を挟んでいたとき、書いていないのに『書いた』と返す・続きの返答が回す側の文脈へ戻る・入れ子の起動で完了の知らせが迷って 7 時間止まる、が起きた（実測 2026-09-24〜25）。綴りは道具ゼロの役と同じ形にする: 役の本文は engine が agents/<役>.md から盤面の roles/<役>.txt に写して system prompt に足し、道具・モデル・effort・権限は argv に並べる。--agents の定義ファイルで起こす形は採らない——定義ファイルは permissionMode や hooks を持てるので、権限を決める事実が engine の柵（argv だけを読む）の外に移る。権限は engine が役の定義の道具から決めて明示する（engine の role_run.tooled_permission。graph は権限を配らない）——-p の開始の権限は起こした側の設定を継ぐので、書かなければ回す側の設定（bypassPermissions 等）が子に移る。聞く先は置かない（--permission-prompts none）。**CLAUDE.md は読ませない（--setting-sources \"\"）**: (1) 役が見る物は graph の reads が宣言した物だけにする——観点（REVIEW.md）は reads で明示して渡している。(2) 利用者の CLAUDE.md は回す側に向けた出力の作法で、JSON だけを返す契約とぶつかる（実測 2026-09-25・haiku: user,project,local を読ませると CLAUDE.md の『返答の最初の語は目印にせよ』が返答の頭に付き、\"\" では付かなかった）。(3) 利用者とプラグインのフックが子で発火しないので、盤面の reads.jsonl は回す側の読みだけになり、役の読みが修正役の読了の証拠に混ざらない。代わりに、プロジェクトの CLAUDE.md に書いた規約も役には届かない（役に要る規約は reads で渡す）。投稿の門番（gates の PreToolUse:Bash）も子には当たらないが、権限は先に許した物だけが通る dontAsk で、コマンドを走らせる役（investigator）には Bash を丸ごと許さず、読むだけのコマンドの前置（engine の role_run.READ_COMMANDS: gh の issue・pr の list と view・pr diff・search・repo view と git remote get-url。書く旗を持たない物だけ）を明示で許す——分類器（auto）に任せていたときは読むだけの gh まで拒まれ、GitHub を WebFetch で読むしかなかった（非公開のリポジトリの issue・PR が読めない）。gh api は許さない（引数を付けると既定が POST になり、前置では縛れない）。**既にある計器（テスト一式・計器の台本）は OS の sandbox の中でだけ動かす**（--settings の sandbox。人の方針 2026-09-25: 上位互換——計器を捨てた形は手順を動かして確かめる観点を『未実測』に落とした）。前置の一覧に計器を足す形は採らない: テストの実行器を許すと、作業ツリーに置いたテストの設定ファイル（conftest.py 等）から任意のコードが走り、git diff --output= も作業ディレクトリの外や .git に書けた（実測 2026-09-25・haiku・claude 2.1.282。字面の許可は後ろの引数も中のコードも縛れない）。sandbox の形（値の正本は role_run.SANDBOX_BASE と protected_paths）: 中のコマンドは dontAsk の下でも聞かずに通し（autoAllowBashIfSandboxed）、外へ出る口を閉じ（allowUnsandboxedCommands false）、sandbox が起きなければ起動で落とす（failIfUnavailable true——既定の false は警告だけ出して sandbox の外で走る）。書き込みを止める場所（denyWrite）は、自分を含む作業ツリーの根の全部・共有の .git（linked worktree の gitdir と盤面を含む）・盤面の置き場で、書けるのは一時ディレクトリだけ——cwd を書ける場所に残すと、計器がレビュー対象の未コミットの変更を壊せ、前後の突合は検知しても戻さない。通信の許可は空（strictAllowlist）——sandbox の中のコードはディスク全体を読める（gh の token も）ので、GitHub の宛先を許すと READ_COMMANDS を迂回して書く gh が打てる。gh は excludedCommands で sandbox の外に出して前置の関門に掛ける（つないだ gh は除外に当たらず sandbox の中で通信が無く止まる。PyPI から取る uv run --with も止まる）。sandbox を使えない環境（Windows・bwrap が名前空間を作れない Linux 等。role_run.sandbox_available）では今の読むだけの形に落とす——起こさない形にすると、読むだけで走っていた investigator まで止まる（上位互換に反する）。どちらの形で起こしたかは instance の launch.form と trace の role_run 行に残る。書く gh・> で書き出す形は、どちらの形でも拒まれるか止まる（実測は tooled_permission の docstring）。作業ディレクトリの外の git は拒まれるので、engine は子を盤面の inputs.cwd で起こす。resume は同じ会話を --resume で再開する語で、受け付けに拒まれたときと same_context_as の節が使う（権限と設定の旗は毎回明示する）。engine が起こさない役（ファイルを書く道具を持つ・モデルか effort を名指ししない——道具の一覧かモデルを持たない定義は narrow の値で読むだけに狭めて起こす）は launch を持たず、回す側が Agent で起こす。",
+   "narrow": {
+    "tools": [
+     "Read",
+     "Glob",
+     "Grep",
+     "Bash"
+    ],
+    "model": "sonnet",
+    "effort": "high",
+    "why": "定義が道具の一覧を持たない（全部の道具を継ぐ）かモデルを名指ししない役（pr-review-toolkit:comment-analyzer）を、engine が読むだけの形に狭めて起こす値（advance.narrowed_def。道具の上限は engine の NARROW_TOOLS）。回す側が Agent ツールで起こしていた頃、その子は全部の道具を持ったまま柵（sandbox・--setting-sources \"\"）の外で動き、返答の < > が &lt; &gt; に化けた（ops/frictions.jsonl、2026-09-27）。--agent と --plugin-dir で起こす形は採らない——公式の sub-agents 文書は tools を省いた定義が全部を継ぐと言い、--tools がそれを狭めるかは書いていない。Bash は読むだけの形（sandbox か read_only）で渡す——r1.comment_candidates の指示書は周に固めた版を git show で読ませる。書く道具を持つ定義は狭めない（起こさない）。人の答え 2026-09-27: 道具を読むだけに絞るのは可"
+   }
   },
   "delegate": {
    "argv": [
@@ -859,7 +870,74 @@
   "input_budget_bytes": 2060000,
   "input_budget_why": "役の入力の上限（約 100 万トークン）をバイトに直した値。rules が本文を貼る役（道具ゼロの役）に渡す差分をこれと比べ、差分がここから指示書の差分の外の本文の分（rules の PASTE_ROOM）と read_room_bytes を引いた値を超えた周だけ、節を要約に替えた写しを渡す（要約した節の本文は、節の read_file で渡す全文の写しを Read で読める）。予算の内なら全文を貼る。根拠は実測 2026-09-27: wip/golden の run の r2.compare で、標準入力に 1 回だけ渡した 2,149,613 バイトの指示書が『request ~1,041,145 tokens (limit 1,000,000)』で落ちた。約 2.06 バイト/トークンで、上限の 100 万トークンは約 2,064,000 バイト。比は内容で変わるので、上限の手前で落ちる周も、超えても通った周も在りうる——実測で変えるときはこの値を書き換える。予算の単位はバイト（人の決定 2026-09-27。wip/big-diff2 の台帳の問い A・B・C——比がトークンの数え方で変わる件——をバイトのまま今の形で決着。トークンで数える口・予算を下げる形・上限で落ちた試行を縮退で起こし直す口は足していない）。",
   "read_room_bytes": 400000,
-  "read_room_why": "本文を貼る役が Read で読む本文と返答を入れる余白（バイト）。貼る写しを予算いっぱいまで詰めると、要約した節を Read で読んだ結果と返答が同じ会話の文脈に積まれて上限を超える（事前審査 2026-09-27）。先行例: PR-Agent は最後の要求の後にモデルが足す分を先に予算から引く。要約した節は Read で読めるので、余白のために貼る量を減らしても本文を見られなくなる周は無い（人の関所の答え 2026-09-27）。約 20 万トークン分"
+  "read_room_why": "本文を貼る役が Read で読む本文と返答を入れる余白（バイト）。貼る写しを予算いっぱいまで詰めると、要約した節を Read で読んだ結果と返答が同じ会話の文脈に積まれて上限を超える（事前審査 2026-09-27）。先行例: PR-Agent は最後の要求の後にモデルが足す分を先に予算から引く。要約した節は Read で読めるので、余白のために貼る量を減らしても本文を見られなくなる周は無い（人の関所の答え 2026-09-27）。約 20 万トークン分",
+  "runner": {
+   "argv": [
+    "claude",
+    "-p",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "{tools}",
+    "--allowedTools",
+    "{allowed_tools}",
+    "--permission-mode",
+    "{permission_mode}",
+    "--settings",
+    "{settings}",
+    "--permission-prompts",
+    "none",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
+   ],
+   "resume": [
+    "claude",
+    "-p",
+    "--resume",
+    "{session_id}",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--tools",
+    "{tools}",
+    "--allowedTools",
+    "{allowed_tools}",
+    "--permission-mode",
+    "{permission_mode}",
+    "--settings",
+    "{settings}",
+    "--permission-prompts",
+    "none",
+    "--setting-sources",
+    "",
+    "--append-system-prompt-file",
+    "{role_file}",
+    "--output-format",
+    "json"
+   ],
+   "via": [
+    "{python}",
+    "{plugin_root}/scripts/with-auth.py"
+   ],
+   "model": "opus",
+   "effort": "high",
+   "edits": [
+    "p3.fix",
+    "p3.delta_fix",
+    "p3.delta_fix2",
+    "spec.write",
+    "spec.revise"
+   ],
+   "preamble": "あなたはレビューループを回す engine から、回す側（writer）の 1 つの節を任された子で、claude -p として動いている。会話の相手はいない。\n- 作業ディレクトリ（cwd）はレビュー対象の本物の作業ツリーである。指示書が直せと言う物は、ここのファイルを Edit・Write で直せ。作業ツリーの外・.git・盤面の置き場には書けない（権限と OS の sandbox が拒む）。拒まれたら別の書き方を探さず、書けなかったことを返答に書け。\n- git の書き込み（add・commit・stash・checkout・reset・worktree・branch）は打つな。index も共通の .git も書けず、engine が起こす前後で git の状態を突き合わせて違えば受け付けない。未追跡の新規ファイルは engine が周の版に載せる（指示書の git add -N は打てない——打てなかったパスは intent_to_add に書くだけにし、打っていないと detail に書け）。\n- コマンド（テスト・lint・計器・git の読み）は Bash で走らせてよい。OS の sandbox の中で走り、外への通信は無い（網から依存を取って走らせる語は落ちる。手元に在る実行器で確かめよ）。\n- 別の役（Agent）は起こせない。指示書が investigator に Web を調べさせろと言う所は、判定者の先行例の行を採る（from_judge_row）か、調べていないことを not_found と searched に正直に書け。\n- 人の方針の文書の置き場が指示書に在れば、先に Read で全部読め。\n- 返答は、指示書が求めた JSON だけを最後のメッセージとして返せ。置き場のファイル（out_path）には書くな——engine があなたの返答を置き場に書き、受け付けに回す。受け付けが拒んだら、理由が同じ会話に届く。\n",
+   "why": "回す側の節（graph の runners の節のうち、任せ先・skill・走らせるだけの宣言を持たない物: 基準点・前提・目的・修正案・修正・手直し・報告・仕様）も、init --engine-runners の run では engine が claude -p で起こす（advance.runner_launch_spec。手順 H の H3）。回す側の会話が自分で書いていた頃、1 周 30〜45 万トークンを使い、知らせ待ちで止まる・手で写す・柵の注意を入れ忘れる、が起きた（2026-09-27 の run）。権限は engine が決める（role_run.runner_permission。graph は語の並び・前置きの文・モデルだけを持つ）: 読むだけの節は道具つきの役（investigator）と同じ形（sandbox か read_only）で、前提を測るコマンドを sandbox の中で走らせられる。作業ツリーを書き換える節（edits）は dontAsk・パスで縛った Edit(./**)・Write(./**)・読むだけの gh の前置で、Bash は OS の sandbox の中だけ——書けるのは作業ツリーの根と一時ディレクトリで、.git・ほかの作業ツリー・盤面・利用者の git とシェルの設定・engine 自身は denyWrite（util.protected_paths から根だけを外す）。前提の実験（scratchpad/headless-spike/FINDINGS.md、2026-09-25）: acceptEdits は許可の無い rm・touch を通し、縛りの無い Edit・Write は外に書け、テストの実行器が読み込む設定のファイルと git diff --output= は Bash から外と .git に書けた——許可の字面では縛れないので OS の境界に置く。sandbox が立たない場は起こさず会話に返す（Bash 抜きの書く子に黙って落とさない）。git の状態（HEAD・枝・stash・作業ツリーの一覧）は起こす前後で突き合わせ、違えば受け付けない。作業ツリーを書き換える子は落ちても自動で起こし直さない（途中の編集を知らない新しい会話が重ねて書く）。CLAUDE.md は読ませない（--setting-sources \"\"。道具つきの役と同じ理由）ので、フックも動かず、子の読了は reads.jsonl に載らない——記録の loop.wrote_refs_reads と報告の人向けの項目に、記録が無いことを書く。skill を呼ぶ節（局所レビュー）と背景の任せ先（変異の検算の線）は今どおり会話に返す（人の答え 2026-09-27: 変異は CI だけ）。"
+  }
  },
  "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
  "record": {
@@ -1747,6 +1825,7 @@
   "p0.local_checks": {
    "stage": "P0",
    "run_by": "writer",
+   "optional": true,
    "deps": [],
    "source": "P0 ＞ 2. CI のテスト・lint をローカル実行",
    "does": "CI のテスト・lint をローカル実行。実行できなければ awaiting_human（緑を仮定しない）",
@@ -5121,6 +5200,9 @@
         "items": {
          "type": "object"
         }
+       },
+       "unrecorded": {
+        "type": "string"
        }
       },
       "description": "修正が書いた指しの指し先の読了の記録（受け付けの時に engine が書く——役は書かない）。次の周の判定が prev.p3.fix で読む"
@@ -5574,6 +5656,7 @@
   "p4.ci": {
    "stage": "P4",
    "run_by": "writer",
+   "optional": true,
    "deps": [
     "p3.fix",
     "p2.rejudge",
@@ -7448,7 +7531,8 @@
  "exec": true,
  "rules": "../rules/review-loop.py",
  "tree_guard_roles": [
-  "investigator"
+  "investigator",
+  "comment-analyzer"
  ],
  "raw_for_report": [
   "p0.purpose_review",

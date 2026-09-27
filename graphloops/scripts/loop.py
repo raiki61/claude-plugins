@@ -4,14 +4,15 @@
 使い方（回す側が呼ぶ順）:
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--stop-after-round N] [--dir <置き場>] [--validator <path>]
+                   [--engine-runners]               # 回す側の節も engine が起こす（回し役の要らない回し方）
                    [--unfenced-delegates <理由>]   # 任せ先を sandbox で縛らない（人が明示したときだけ）
     loop.py run    [--dir] [--foreground]               # 回し手が engine の起こせる節を回し続け、止まる所でだけ戻る（前景で打つ。下の終了コード）
     loop.py resume --reason <理由> (--stop-after-round N | --no-stop-after-round)   # init --stop-after-round で止めた run を次の周へ進める
     loop.py next   [--dir] [--accept-tree-change 理由]   # 走らせてよい節をプロンプトごと JSON で返す（何度呼んでもよい。P1 後の作業ツリー突合を自分の変更として通すときは理由を添える）
     loop.py launch [--node <節>] [--dir]                # launch を持つ節（役・任せ先・走らせるだけの engine_run）を engine が起こし、返答を置き場へ書いて受け付けまで済ませる（役が終わるまで戻らない——会話からは打たずに run に任せる。端末・CI なら直に打ってよい。任せ先は sandbox の中）
     loop.py done   --node <節[鍵]> (--output <返答.json> | --stdin | 置き場 out_path) [--agent-id <id>] [--accept-tree-change 理由]
-    loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る）
-    loop.py answer --text <答え> [--note <本文>] [--detail <json>]  # 人に聞く番のとき（本文は次の周の再審に渡る。--detail は rules が受ける構造の値）
+    loop.py skip   --node <節> --reason <理由>          # optional の節を省く（報告に「省略」と載る。engine が走らせる CI の節も人の命令で省ける——理由は記録に残り、収束の前に人に聞かれる）
+    loop.py answer --text <答え> [--note <本文>] [--detail <json>] [--by human|driver]  # 人に聞く番のとき（本文は次の周の再審に渡る。--detail は rules が受ける構造の値。--by は打ち手の申告で trace に残る）
     loop.py stop   --reason <理由>                       # 走っている run を人がその時点で止める（理由は記録に残り、graph が宣言する後始末の節——報告——だけが走る）
     loop.py children [--dir] [--stop --reason <理由> [--include-running]]   # 盤面の印から、この run が起こした子の残りを一覧する（信号なし）・止める
                                                      # （既定で止めるのは launch が居なくなった後の止め残しだけ。走っている試行と受け付けの前の instance は --include-running のときだけ）
@@ -74,6 +75,9 @@ def main():
     s.add_argument("--dir")
     s.add_argument("--validator")
     s.add_argument("--lang")
+    s.add_argument("--engine-runners", action="store_true",
+                   help="回す側の節（修正・修正案・手直し・基準点・前提・目的・報告など、任せ先と skill を持たない節）も engine が claude -p で起こす"
+                        "（loop.py run が止まる所でだけ戻る。付けなければ今どおり会話がこなす）")
     s.add_argument("--unfenced-delegates", metavar="REASON",
                    help="任せ先（delegate）を sandbox で縛らず、回す側が Agent ツールで起こす（人が run ごとに明示したときだけ。理由は盤面に残る）")
     s.set_defaults(fn=c.cmd_init)
@@ -128,6 +132,7 @@ def main():
     s.add_argument("--text", required=True)
     s.add_argument("--note", help="人の答えの本文（次の周の再審に渡る）")
     s.add_argument("--detail", help="答えに添える構造の値の JSON のファイル（受ける形は rules の answer_detail。受けない loop では拒む）")
+    s.add_argument("--by", choices=("human", "driver"), help="打ち手の申告（人か回す側の AI か）。trace の answer の行に残る。無ければ『未申告』")
     s.set_defaults(fn=c.cmd_answer)
 
     s = sub.add_parser("stop", help="走っている run を人がその時点で止める（人に聞いていない時点でも。理由は必須で記録に残る。起こし中の役の子は木ごと止める）")
@@ -176,6 +181,7 @@ def main():
     s.set_defaults(fn=c.cmd_intake)
 
     a = p.parse_args()
+    refuse_broken_args(a)
     install_stop_handlers()   # 全コマンド——next・done の builtin も子（テスト一式）を起こす
     if a.cmd in BOARD_WRITERS + BOARD_SHARERS or a.cmd == "run":
         a.dir = c.resolve_dir(a)
@@ -189,6 +195,28 @@ def main():
                 a.fn(a)
             return
     a.fn(a)
+
+
+# 盤面・記録・trace に書き込まれる値の引数。ファイルのパスだけの引数（--file・--output・--detail・--export・--dir）は、
+# 復号できないバイトを含む名前でも読めれば通っていたので検めない（人の決定 2026-09-27: 狭めない）
+WRITTEN_ARGS = ("reason", "note", "text", "path", "node", "request", "what", "to", "input", "unfenced_delegates", "graph",
+                "validator", "document", "set_url")
+
+
+def refuse_broken_args(a):
+    """書き込まれる値に孤立サロゲート（POSIX の Python が復号できない argv のバイトを写した字。PEP 383）が在れば、盤面を読む前に
+    exit 1 で拒む。素通りさせると、UTF-8 で書く所（盤面・trace）で UnicodeEncodeError になり、想定外の例外（exit 2）に倒れた
+    （実測 2026-09-27: 呼び元のシェルで全角の字が変数名の直後に続き、字の頭のバイトが変数名に食われた）"""
+    for name in WRITTEN_ARGS:
+        vals = getattr(a, name, None)
+        for v in vals if isinstance(vals, list) else [vals]:
+            if not isinstance(v, str) or (name == "request" and v.startswith("@")):
+                continue
+            try:
+                v.encode("utf-8")
+            except UnicodeEncodeError as e:
+                raise Reject(f"--{name.replace('_', '-')} の {e.start + 1} 字目に UTF-8 として読めないバイトがある——"
+                             "呼び元のシェルが字を壊している（変数の直後に全角の字を続けるなら ${VAR} と書く・heredoc は 'EOF' で展開しない）")
 
 
 def cli():

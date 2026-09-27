@@ -546,3 +546,55 @@ def test_history_rules_follow_the_graph_reads():
     assert RULES.history_rules_for(nodes["p2.history"]) == set(RULES.HISTORY_RULE_READS)
     assert RULES.history_rules_for(nodes["p2.diagnose"]) == set()
     assert all(path in nodes["p2.history"]["reads"] for path in RULES.HISTORY_RULE_READS.values())
+
+
+# ---------------------------------------------------------------- engine が走らせる CI の節を人の命令で省く（on_skip・skipped_material）
+def skip_board(tmp_path, record=None, skipped=None):
+    b = board(tmp_path, record=record, outputs={"p4.record": {"branch": "converged"}})
+    b.nodes = load_graph(GRAPH)[0]["nodes"]
+    b.rd = {"skipped": dict(skipped or {})}
+    return b
+
+
+def test_ci_nodes_are_optional_and_the_comment_role_is_guarded():
+    g = load_graph(GRAPH)[0]
+    assert g["nodes"]["p0.local_checks"]["optional"] and g["nodes"]["p4.ci"]["optional"]
+    assert {g["nodes"]["r1.comment_candidates"]["run_by"], "investigator"} <= set(g["tree_guard_roles"])
+
+
+def test_on_skip_writes_every_ci_field_with_the_reason(tmp_path):
+    b = skip_board(tmp_path, skipped={"p0.local_checks": "人の命令"})
+    RULES.on_skip(b, "p0.local_checks", "人の命令")
+    for got in (b.record["materials"]["local_checks"], b.record["process"]["baseline_checks"]):
+        assert got["status"] == "not_applicable" and "回す側が省いた: 人の命令" in got["reason"] and "p0.local_checks" in got["reason"]
+
+
+def test_on_skip_of_p4_ci_overwrites_the_value_p0_left(tmp_path):
+    b = skip_board(tmp_path, record={"materials": {"local_checks": {"status": "clean", "checked": "修正前"}}},
+                   skipped={"p4.ci": "人の命令"})
+    RULES.on_skip(b, "p4.ci", "人の命令")
+    assert b.record["materials"]["local_checks"]["status"] == "not_applicable"
+
+
+def test_skipped_role_node_stays_not_run(tmp_path):
+    b = skip_board(tmp_path, skipped={"p1.procedure_trace": "理由"})
+    RULES.on_skip(b, "p1.procedure_trace", "理由")
+    assert b.record["materials"] == {}
+    assert RULES.skipped_material(b, "p1.procedure_trace") == {"status": "not_run", "reason": "回す側が省いた: 理由"}
+
+
+def test_converge_asks_when_the_ci_node_was_skipped(tmp_path):
+    """省いた CI は阻害に数えず（上限まで空回りしない）、収束の手前で理由つきで人に聞く（黙って緑にしない）"""
+    b = skip_board(tmp_path, skipped={"p4.ci": "人の命令"})
+    RULES.on_skip(b, "p4.ci", "人の命令")
+    assert not VAL.STATUS[b.record["materials"]["local_checks"]["status"]].blocks
+    got = RULES.converge(b, "p4.converge")
+    assert got["decision"] == "ask" and got["ask"]["kinds"] == ["ci_unverified"] and "回す側が省いた: 人の命令" in got["ask"]["question"]
+
+
+@pytest.mark.parametrize("origin", ["", None])
+def test_origin_of_a_kind_without_origin_is_seen_by_presence(tmp_path, origin):
+    """出どころを持てない種類（field）の origin は、空でも在れば判定の受け付けで拒む（検証器と同じ述語。通すと p4.record で止まった）"""
+    out = reopened_block()
+    out["questions"] = [{"key": "q1", "kind": "field", "status": "held", "origin": origin, "reason": "r"}]
+    assert "（field）は origin / depends を持てない" in judge_reject(tmp_path, "p2.diagnose", out)

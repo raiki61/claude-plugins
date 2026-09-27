@@ -82,7 +82,7 @@ sys.path.insert(0, str(PLUGIN_ROOT))
 # 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
 from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of  # noqa: E402
 from engine.hist import LOOKUP_HEADS as HIST_LOOKUP_HEADS  # noqa: E402
-from engine.advance import ENGINE_PRE, LAUNCH_HOLES  # noqa: E402
+from engine.advance import ENGINE_PRE, LAUNCH_HOLES, NARROW_TOOLS  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import DOC_NODE_KEYS, ENGINE_NODE_KEYS, extends_path, end_anchored, load_graph, schema_at, unknown_keywords, walk_schema  # noqa: E402
 DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この graph が任せ先に書ける名前: Claude Code の subagent の model の別名
@@ -743,7 +743,22 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         errs.append(f"道具ゼロの役 {sorted(used & set(isolated))} を使うのに launch.isolated.argv が無い"
                     "——Agent ツールで起こすと CLAUDE.md が注入され、遮断が成立しない")
     launch = g.get("launch") or {}
-    for kind in ("isolated", "isolated_read", "tooled", "delegate"):
+    runner_spec = launch.get("runner") or {}
+    if runner_spec:
+        # 書き換える節の名指しは回す側の節だけ（役の節・機械の節を名指しても engine は起こさない——書いても効かない）
+        runners = set(g.get("runners") or [])
+        bad = [x for x in runner_spec.get("edits") or [] if (nodes.get(x) or {}).get("run_by") not in runners]
+        if bad or not isinstance(runner_spec.get("edits", []), list):
+            errs.append(f"launch.runner.edits の {bad} は回す側（runners）の節でない——作業ツリーを書き換える子として起こす節の名前だけを書け")
+        for k in ("model", "effort"):
+            if not runner_spec.get(k):
+                errs.append(f"launch.runner に '{k}' が無い（回す側の節を起こす語の {{{k}}} を埋められない）")
+    narrow = (launch.get("tooled") or {}).get("narrow")
+    if narrow is not None:
+        tools = narrow.get("tools") if isinstance(narrow, dict) else None
+        if not (isinstance(tools, list) and tools and set(tools) <= set(NARROW_TOOLS)) or not narrow.get("model") or not narrow.get("effort"):
+            errs.append(f"launch.tooled.narrow は {{tools（{list(NARROW_TOOLS)} の中）, model, effort}}——engine の上限の外の値は狭める形として使われない")
+    for kind in ("isolated", "isolated_read", "tooled", "delegate", "runner"):
         spec = launch.get(kind) or {}
         if not spec:
             continue

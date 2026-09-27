@@ -179,6 +179,10 @@ class _Runner:
         """落ちた launch の試行を拾い直す: 置き場に返答が在れば受け付け、無ければ起こし直す（次の next の後に起こす）。
         同じ試行が 2 度落ちたら拾わず人に渡す。返すのは拾えなかった理由（拾えたら None）"""
         iid = inst["id"]
+        if (inst.get("launch") or {}).get("edits"):
+            # 本物の作業ツリーを書き換える子は、途中まで書いて落ちうる。新しい会話で起こし直すと途中の編集を知らずに重ねるので、
+            # 拾い直さずに人に渡す（人が作業ツリーを見て、relaunch か同じ会話の続きかを決める）
+            return f"'{iid}' は作業ツリーを書き換える節で、launch が受け付けの前に落ちた——自動では起こし直さない（作業ツリーを確かめてから relaunch）"
         if iid in self.recovered:
             return f"'{iid}' は回し手が起こし直した後も launch が締めの前に落ちた"
         self.recovered.add(iid)

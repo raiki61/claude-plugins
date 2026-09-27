@@ -7,6 +7,18 @@
    "note": "テスト一式を走らせる実行ファイル。JUnit XML の書き先を第 1 引数に受け、リポジトリのルートで走る（init --input tdd_suite=<パス>）。無ければ init が止まる"
   }
  },
+ "launch": {
+  "runner": {
+   "edits": [
+    "p3.fix",
+    "p3.delta_fix",
+    "p3.delta_fix2",
+    "spec.write",
+    "spec.revise",
+    "p3.tdd_tests"
+   ]
+  }
+ },
  "hist_schema": {
   "properties": {
    "tdd_gave_up": {

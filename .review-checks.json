@@ -1,6 +1,5 @@
 {
   "suite": [
-    {"name": "tests/run.sh", "argv": ["bash", "tests/run.sh"]},
     {"name": "pytest", "argv": ["uv", "run", "--no-project", "--with", "pytest==9.1.1", "--with", "pytest-xdist==3.8.0", "python", "-m", "pytest", "-n", "auto", "graphloops/tests/py"]}
   ],
   "mutation": {"argv": ["python3", "tests/mutate.py"], "arms": "tests/mutations.json"}
