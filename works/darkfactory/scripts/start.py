@@ -12,7 +12,8 @@
 - 通れば entry.start の結果を 1 行の JSON で出して 0
 - 入力を受けない（entry.InputRefused。CI・並行 PR の engine の拒みも含む）: 標準エラーに理由を 1 行出して 1
   （AI を起こす前に run を止める。1 本目の intake と同じ）。標準出力には何も出さない
-- 環境変数が欠けた・盤面の誤り（BoardGap・Reject）: 標準エラーに 1 行出して 2
+- 環境変数が欠けた・盤面の誤り（BoardGap・Reject。任せ先の素材を受け付けが拒んだ AnswerReject も）・思わぬ誤り:
+  標準エラーに 1 行出して 2
 - 止められた（tree_run.Stopped。テストのコマンドは木ごと止めた）: 128+信号
 """
 import sys
@@ -59,6 +60,9 @@ def main() -> int:
     except tree_run.Stopped as e:
         print(f"止められた（信号 {e.signum}）。テストのコマンドは木ごと止めた", file=sys.stderr)
         return 128 + e.signum
+    except Exception as e:   # 思わぬ誤りも 1 行と 2（入力の拒みの 1 と混ぜない。traceback を出さない）
+        print(f"start の内部の誤り: {type(e).__name__}: {_line(e)}", file=sys.stderr)
+        return 2
     script_io._emit(out)
     return 0
 
