@@ -34,7 +34,7 @@ _CORE = pathlib.Path(__file__).resolve().parent
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
-from board import GRAPH_SHA, BoardGap, BoardMismatch, DiskBoard, NodeTable, graph_expanded  # noqa: E402
+from board import BoardGap, BoardMismatch, DiskBoard, NodeTable, graph_expanded, graph_path, graph_sha  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import engine.util as _util  # noqa: E402
 from engine.commands import _refuse_halted  # noqa: E402  （board.py と同じ入口の拒み。写しの engine の関数）
@@ -63,7 +63,7 @@ def load_table(line: str = "darkfactory") -> NodeTable:
     """PACK/<line>/nodes.json を読む。形の誤りは NodeTable.load の BoardGap、縛り 1〜5 の破れと line の違いは全部を並べた BoardGap"""
     path = _line_dir(line) / TABLE_NAME
     table = NodeTable.load(path)
-    errs = table.check(graph_expanded(), GRAPH_SHA)
+    errs = table.check(graph_expanded(graph_path(table.graph)), graph_sha(table.graph))   # 表が名指す graph（無ければ既定）
     if table.line != line:
         errs.append(f"表の line {table.line} がラインの置き場の名前 {line} と違う")
     if errs:

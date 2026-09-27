@@ -179,6 +179,22 @@ class OpenRealCase(TmpCase):
         with self.assertRaises(BoardMismatch):
             DiskBoard.open(d, table=wrong)
 
+    def test_table_with_other_graph_refused(self):
+        """表が名指す graph（TDD 版）が盤面を作った graph（review-loop.json）と違えば開かない。文に両方の graph_sha"""
+        d = real_copy(self.tmp, "wt-ci-skip")
+        tdd_path = GRAPH_PATH.with_name("review-loop-tdd.json")
+        tdd_sha = sha(graph_text(tdd_path))
+        tdd = NodeTable.everything(graph_expanded(tdd_path), tdd_sha, "review-loop-tdd.json")
+        before = (d / "state.json").read_bytes()
+        with self.assertRaises(BoardMismatch) as cm:
+            DiskBoard.open(d, table=tdd)
+        self.assertIn(GRAPH_SHA, str(cm.exception))
+        self.assertIn(tdd_sha, str(cm.exception))
+        self.assertEqual((d / "state.json").read_bytes(), before)
+        # 表の graph_sha だけを合わせても、graph の名前が違えば開かない（表の graph_sha はその表の graph と照らす）
+        with self.assertRaises(BoardMismatch):
+            DiskBoard.open(d, table=dataclasses.replace(full_table(), graph="review-loop-tdd.json"))
+
     def test_paths_rewritten_in_memory(self):
         d = real_copy(self.tmp, "wt-layer1")
         st = read(d / "state.json")

@@ -227,5 +227,60 @@ class NodeTableCase(unittest.TestCase):
         self.assertTrue(issubclass(BoardGap, Exception))
 
 
+TDD_PATH = CORE / "graphloops" / "graphs" / "review-loop-tdd.json"
+TDD_SHA = sha(graph_text(TDD_PATH))
+
+
+class GraphChoiceCase(unittest.TestCase):
+    """表の graph の欄（仕様 tdd-spec 5 節）: 表が写しの graphs の下の graph を名指す。無ければ review-loop.json"""
+
+    def write_table(self, d, **top):
+        doc = json.loads((TABLES / "entry-line.json").read_text(encoding="utf-8"))
+        doc.update(top)
+        p = pathlib.Path(d) / "nodes.json"
+        p.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+        return p
+
+    def test_absent_graph_is_default_and_sha_unchanged(self):
+        # 今の表は graph の欄を持たない——既定の review-loop.json で、表の sha は欄を足す前と同じ（盤面の table_sha を崩さない）
+        t = NodeTable.load(TABLES / "entry-line.json")
+        self.assertEqual(t.graph, "review-loop.json")
+        self.assertEqual(t.sha(), "de7512ad57c6")
+        self.assertEqual(NodeTable.load(ROOT / "darkfactory" / "nodes.json").graph, "review-loop.json")
+        self.assertEqual(NodeTable.everything(GRAPH, GRAPH_SHA).graph, "review-loop.json")
+        # 既定の値を書いても書かなくても同じ表・同じ sha
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(NodeTable.load(self.write_table(d, graph="review-loop.json")).sha(), t.sha())
+
+    def test_tdd_table_names_tdd_graph(self):
+        t = NodeTable.load(TABLES / "tdd-line.json")
+        self.assertEqual(t.graph, "review-loop-tdd.json")
+        self.assertEqual(t.graph_sha, TDD_SHA)
+        tdd = json.loads(TDD_PATH.read_text(encoding="utf-8"))
+        from board import graph_expanded
+        self.assertEqual(t.check(graph_expanded(TDD_PATH), TDD_SHA), [])
+        for nid in tdd["nodes"]:
+            self.assertIn(nid, t.nodes)
+        self.assertEqual({n: t.nodes[n].by for n in ("p3.tdd_start", "p3.tdd_tests", "p3.tdd_red", "p3.tdd_green")},
+                         {"p3.tdd_start": "builtin", "p3.tdd_tests": "role", "p3.tdd_red": "builtin", "p3.tdd_green": "builtin"})
+        # graph が違えば同じ節の振りでも別の表（sha が違う）
+        self.assertNotEqual(t.sha(), dataclasses.replace(t, graph="review-loop.json").sha())
+        self.assertEqual(NodeTable.everything(graph_expanded(TDD_PATH), TDD_SHA, "review-loop-tdd.json").graph,
+                         "review-loop-tdd.json")
+
+    def test_unknown_graph_refused(self):
+        # 写しの graphs の下に無い名前・パスの形の名前・文字列でない値は、読む時も直に組む時も BoardGap
+        with tempfile.TemporaryDirectory() as d:
+            for bad in ("nope.json", "../graphs/review-loop.json", "graphs/review-loop.json", "", "review-loop", 1, None):
+                with self.subTest(bad=bad):
+                    with self.assertRaises(BoardGap) as cm:
+                        NodeTable.load(self.write_table(d, graph=bad))
+                    self.assertIn("写しの graphs", str(cm.exception))   # 知らない欄としてでなく、名前として拒む
+        for bad in ("nope.json", "../rules/review-loop.py"):
+            with self.subTest(direct=bad):
+                with self.assertRaises(BoardGap):
+                    NodeTable("x", GRAPH_SHA, {}, bad)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -200,6 +200,20 @@ class LoadTableCase(unittest.TestCase):
         self.assertIn("darkfactory", str(cm.exception))
         self.assertIn("other", str(cm.exception))
 
+    def test_table_checked_against_its_graph(self):
+        """表が名指す graph（仕様 tdd-spec 5 節）で縛りを当てる。TDD 版の表は TDD 版の graph で通り、graph の欄を落とすと
+        既定の graph と照らして拒む（TDD の 4 節が graph に無い・graph_sha が違う）"""
+        doc = json.loads((ROOT / "tests" / "boards" / "tables" / "tdd-line.json").read_text(encoding="utf-8"))
+        self.put(doc, line="tdd-line")
+        with mock.patch.object(entry, "PACK", self.pack):
+            self.assertEqual(entry.load_table("tdd-line").graph, "review-loop-tdd.json")
+            del doc["graph"]
+            self.put(doc, line="tdd-line")
+            with self.assertRaises(BoardGap) as cm:
+                entry.load_table("tdd-line")
+        self.assertIn("p3.tdd_red", str(cm.exception))
+        self.assertIn(board.GRAPH_SHA, str(cm.exception))
+
     def test_missing_or_odd_line(self):
         with mock.patch.object(entry, "PACK", self.pack):
             for line in ("nowhere", "../darkfactory", "", "a/b"):

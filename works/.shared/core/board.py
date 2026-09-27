@@ -8,6 +8,7 @@
 - base_output:             p0.base の返答を機械が組む（begin が受け付けに渡す。仕様 5 節）
 - tree_runner:             run_engine の既定の runner（works の tree_run で 1 段ずつ。返りの行は engine の run_steps と同じ鍵）
 - rules_module・graph_expanded: 盤面なしで写しの RL と graph を読む口（仕様 4.1 の末尾）
+- graph_path・graph_sha:   節の表が名指す graph（写しの graphs の下のファイル名）のパスと sha
 
 ラインの約束（線 A・B のラインがこの盤面を回すときに守ること。engine の loop.py の回し方と同じ強さにするため）:
 1. 始めは DiskBoard.begin。返りの Progress.run_engine の節（engine が走らせる節で、まだ任せ先に落ちていない物）は全部
@@ -30,8 +31,12 @@
 7. 役の返答が Reject（engine の AnswerReject と同じ文）で拒まれたら、その入れ物は捨て、盤面を開き直して役に返す
 
 節の表のファイル（<ライン>/nodes.json）の形:
-  {"line": str, "graph_sha": str, "nodes": {節: {"by": str, "run"?, "fallback"?, "skippable"?, "reason"?, "where"?, "comes_with"?}}}
-読むとき（load）は形だけを見る。graph との突き合わせ（縛り 1〜5）は check が誤りの文の一覧で返す。
+  {"line": str, "graph"?: str, "graph_sha": str,
+   "nodes": {節: {"by": str, "run"?, "fallback"?, "skippable"?, "reason"?, "where"?, "comes_with"?}}}
+graph はラインが回す graph（写しの graphs の下のファイル名。無ければ review-loop.json）。盤面の作る・開く・graph_sha の照合・
+RL の読み込み・表の縛りは、全部この graph で行う。1 つの盤面は作った時の graph でしか開かない（state.graph_sha の照合）。
+v1 の受け付けの入れ物（scratch）は表を持たないので review-loop.json のまま。
+読むとき（load）は形と graph の名前だけを見る。graph との突き合わせ（縛り 1〜5）は check が誤りの文の一覧で返す。
 """
 import contextlib
 import dataclasses
@@ -73,9 +78,11 @@ from engine.validator import finalize as _finalize_record, report_accepts  # noq
 import tree_run  # noqa: E402
 
 CORE_DIR = CORE
-GRAPH_PATH = _GL / "graphs" / "review-loop.json"      # 写しの graph
+GRAPHS_DIR = _GL / "graphs"                           # 写しの graph の置き場（節の表の graph はこの下のファイル名）
+DEFAULT_GRAPH = "review-loop.json"                    # 表が graph を名指さない時の graph（v1 の scratch もこれ）
+GRAPH_PATH = GRAPHS_DIR / DEFAULT_GRAPH               # 既定の写しの graph
 VALIDATOR_PATH = CORE / "scripts" / "review-record.py"  # 写しの RR（検証器）
-GRAPH_SHA = _util.sha(graph_text(GRAPH_PATH))         # 盤面の state.graph_sha と比べる値（engine の init と同じ求め方）
+GRAPH_SHA = _util.sha(graph_text(GRAPH_PATH))         # 既定の graph の sha（盤面の state.graph_sha と比べる値。engine の init と同じ求め方）
 BOARD_VERSION = 1                                     # state.works.board_version。知らない版の盤面は開かない
 LANG_DEFAULT = "依頼文の言語（利用者の言語）"          # engine の cmd_init が inputs.lang に置く既定の文
 
@@ -114,6 +121,25 @@ class Progress(TypedDict):
     notes: list
 
 
+# ---------------------------------------------------------------- 表が名指す graph
+def _graph_names() -> list:
+    return sorted(p.name for p in GRAPHS_DIR.glob("*.json") if p.is_file())
+
+
+def graph_path(name: str = DEFAULT_GRAPH) -> pathlib.Path:
+    """節の表の graph の名前 → 写しの graph のパス。名前は写しの graphs の下に在る .json のファイル名だけ
+    （パスの形・在らない名前・文字列でない値は BoardGap。表が写しの外の graph を指さない）"""
+    names = _graph_names()
+    if not isinstance(name, str) or name not in names:
+        raise BoardGap(f"graph {name!r} は写しの graphs の下の graph の名前でない（在る物: {', '.join(names)}）")
+    return GRAPHS_DIR / name
+
+
+def graph_sha(name: str = DEFAULT_GRAPH) -> str:
+    """表の graph の sha（engine の init と同じ求め方。盤面の state.graph_sha・表の graph_sha と比べる値）"""
+    return GRAPH_SHA if name == DEFAULT_GRAPH else _util.sha(graph_text(graph_path(name)))
+
+
 # ---------------------------------------------------------------- 節の表
 BY = ("role", "machine", "engine_run", "builtin", "absent")
 RUNS = ("auto", "explicit")                 # builtin の節の回し方（auto は settle がその場で、explicit はラインが run_builtin で）
@@ -136,6 +162,7 @@ class NodeEntry:
 
 _ENTRY_FIELDS = {f.name: f for f in dataclasses.fields(NodeEntry)}
 _TOP_KEYS = ("line", "graph_sha", "nodes")
+_OPTIONAL_TOP_KEYS = ("graph",)
 
 
 def _no_duplicate_keys(pairs):
@@ -179,12 +206,14 @@ _KIND_WORD = {"driver": "機械の節（run_by: driver）", "engine_run": "engin
 
 @dataclasses.dataclass(frozen=True)
 class NodeTable:
-    """節の表。nodes は読むだけの Mapping（表の順を保つ）"""
+    """節の表。nodes は読むだけの Mapping（表の順を保つ）。graph は写しの graphs の下のファイル名（graph_path で引く）"""
     line: str
     graph_sha: str
     nodes: Mapping[str, NodeEntry]
+    graph: str = DEFAULT_GRAPH
 
     def __post_init__(self):
+        graph_path(self.graph)   # 知らない graph の名前は BoardGap
         nodes = dict(self.nodes)
         for nid, e in nodes.items():
             if not isinstance(e, NodeEntry):
@@ -204,7 +233,7 @@ class NodeTable:
         try:
             if not isinstance(doc, dict):
                 raise BoardGap("表が object でない")
-            unknown = sorted(set(doc) - set(_TOP_KEYS))
+            unknown = sorted(set(doc) - set(_TOP_KEYS) - set(_OPTIONAL_TOP_KEYS))
             if unknown:
                 raise BoardGap(f"知らない欄: {', '.join(unknown)}")
             for k in _TOP_KEYS:
@@ -216,14 +245,16 @@ class NodeTable:
             if not isinstance(doc["nodes"], dict):
                 raise BoardGap("nodes が object でない")
             nodes = {nid: _entry(nid, raw) for nid, raw in doc["nodes"].items()}
+            graph = doc.get("graph", DEFAULT_GRAPH)
+            graph_path(graph)
         except BoardGap as e:
             raise BoardGap(f"節の表 {path}: {e}") from None
-        return cls(doc["line"], doc["graph_sha"], nodes)
+        return cls(doc["line"], doc["graph_sha"], nodes, graph)
 
     @classmethod
-    def everything(cls, graph: dict, graph_sha: str) -> "NodeTable":
+    def everything(cls, graph: dict, graph_sha: str, name: str = DEFAULT_GRAPH) -> "NodeTable":
         """graph の全部の節をラインが持つ表（手本の再生用）。機械の節は builtin/auto、
-        engine が走らせる節は engine_run（任せ先は p0.parallel_pr が role、他は machine）、残りは role"""
+        engine が走らせる節は engine_run（任せ先は p0.parallel_pr が role、他は machine）、残りは role。name は graph の名前"""
         nodes = {}
         for nid, g in graph["nodes"].items():
             kind = _graph_kind(g)
@@ -233,7 +264,7 @@ class NodeTable:
                 nodes[nid] = NodeEntry(by="engine_run", fallback="role" if nid in JUDGED_FALLBACK else "machine")
             else:
                 nodes[nid] = NodeEntry(by="role")
-        return cls("everything", graph_sha, nodes)
+        return cls("everything", graph_sha, nodes, name)
 
     def check(self, graph: dict, graph_sha: str) -> list[str]:
         """仕様 4.2 の縛り 1〜5 を当て、破った物の文の一覧を返す（空なら通る）。graph は写しの graph の dict、
@@ -287,11 +318,13 @@ class NodeTable:
                 for nid, e in self.nodes.items() if e.by == "absent"]
 
     def sha(self) -> str:
-        """表の中身の sha（engine の util.sha と同じ 12 桁）。既定の欄は数えないので、書き方によらず同じ表なら同じ値"""
+        """表の中身の sha（engine の util.sha と同じ 12 桁）。既定の欄は数えないので、書き方によらず同じ表なら同じ値
+        （graph も既定の review-loop.json なら数えない——graph の欄を足す前の表・盤面の table_sha と同じ値）"""
         nodes = {nid: {k: v for k, v in dataclasses.asdict(e).items()
                        if k == "by" or v != _ENTRY_FIELDS[k].default}
                  for nid, e in self.nodes.items()}
-        doc = {"line": self.line, "graph_sha": self.graph_sha, "nodes": nodes}
+        doc = {"line": self.line, "graph_sha": self.graph_sha, "nodes": nodes,
+               **({"graph": self.graph} if self.graph != DEFAULT_GRAPH else {})}
         return _util.sha(json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
 
 
@@ -425,12 +458,13 @@ def _refuse_unowned(nid, n) -> None:
 
 
 def _check_table(table: "NodeTable") -> None:
-    """節の表の縛り 1〜5（仕様 4.2）。表の graph_sha の違いは BoardMismatch、他の破れは BoardGap"""
+    """節の表の縛り 1〜5（仕様 4.2）を表の graph に当てる。表の graph_sha の違いは BoardMismatch、他の破れは BoardGap"""
     if not isinstance(table, NodeTable):
         raise BoardGap(f"節の表が NodeTable でない: {type(table).__name__}")
-    if table.graph_sha != GRAPH_SHA:
-        raise BoardMismatch(f"節の表の graph_sha {table.graph_sha} が写しの graph の {GRAPH_SHA} と違う")
-    errs = table.check(graph_expanded(), GRAPH_SHA)
+    want = graph_sha(table.graph)
+    if table.graph_sha != want:
+        raise BoardMismatch(f"節の表の graph_sha {table.graph_sha} が写しの graph {table.graph} の {want} と違う")
+    errs = table.check(graph_expanded(graph_path(table.graph)), want)
     if errs:
         raise BoardGap("節の表が graph と合わない: " + "; ".join(errs))
 
@@ -455,6 +489,7 @@ class DiskBoard(_EngineBoard):
         写しのパスに記憶の中だけで読み替え（仕様 4.4 の 4）、overrides を当てる（4.4 の 5）。scratch の入れ物は GIT_CWD を触らない"""
         self.dir = pathlib.Path(d)
         self.state = state
+        self._graph_path = graph_path(table.graph) if table is not None else GRAPH_PATH   # scratch は表を持たない（既定の graph）
         self._rewrite_paths()
         if not scratch:
             _util.GIT_CWD = (self.state.get("inputs") or {}).get("cwd")
@@ -481,7 +516,7 @@ class DiskBoard(_EngineBoard):
     def _rewrite_paths(self):
         """state の pack のパス（graph・validator・inputs.scripts_dir・inputs.review_md）を今の写しのパスにする。
         Archon は run ごとに pack を写すので、盤面が持つパスは古い写しを指しうる。ディスクは書かない（保存すれば今のパスで残る）"""
-        self.state["graph"] = str(GRAPH_PATH)
+        self.state["graph"] = str(self._graph_path)
         self.state["validator"] = str(VALIDATOR_PATH)
         inputs = self.state.get("inputs")
         if isinstance(inputs, dict):
@@ -520,14 +555,18 @@ class DiskBoard(_EngineBoard):
     @classmethod
     def open(cls, d, *, table, repo=None, overrides=None, validator_runner=None, allow_halted=False) -> "DiskBoard":
         """盤面を開く（仕様 4.4 の順: graph_sha → board_version → 検証器の包みの宣言 → 表の縛り → パスの読み替え → overrides）。
+        graph_sha は表の graph（table.graph）の sha と照らす——盤面を作った時と別の graph を名指す表では開かない。
         util.GIT_CWD は inputs.cwd（repo を渡せばそれ）。state.works.core を今の写しで書き直す（保存すれば残る）。
         包みを渡して作った盤面（state.works.validator_hook。create が書く）を validator_runner 無しで開けば BoardGap
         （包みの無い盤面を包みつきで開くのは拒まない）"""
         d = pathlib.Path(d)
         state = _read_json(d / "state.json")
-        got = state.get("graph_sha")
-        if got != GRAPH_SHA:
-            raise BoardMismatch(f"盤面 {d} の graph_sha {got} が写しの graph の {GRAPH_SHA} と違う（別の版の graph で作った盤面は開かない）")
+        if not isinstance(table, NodeTable):
+            raise BoardGap(f"節の表が NodeTable でない: {type(table).__name__}")
+        got, want = state.get("graph_sha"), graph_sha(table.graph)
+        if got != want:
+            raise BoardMismatch(f"盤面 {d} の graph_sha {got} が写しの graph {table.graph} の {want} と違う"
+                                "（別の版・別の graph で作った盤面は開かない）")
         works = state.get("works")
         version = works.get("board_version") if isinstance(works, dict) else None
         if version != BOARD_VERSION:
@@ -565,8 +604,9 @@ class DiskBoard(_EngineBoard):
             raise BoardGap(f"--stop-after-round は 1 以上（{stop_after_round}）——止める周の番号で、その周の締めの後で止まる")
         if type(unattended) is not bool:
             raise BoardGap(f"unattended は真偽（{unattended!r}）")
-        graph = graph_expanded()
-        rules = load_rules(str(GRAPH_PATH), graph)
+        gpath = graph_path(table.graph)
+        graph = graph_expanded(gpath)
+        rules = load_rules(str(gpath), graph)
         # 1〜2: inputs に engine と同じ既定を足し、パスの入力を絶対にし、RL と graph の選ぶ入力の値を確かめる
         ins = {"request": request_text, "document": None, "lang": LANG_DEFAULT, "cwd": str(pathlib.Path(repo).resolve()),
                **(inputs or {})}
@@ -590,7 +630,7 @@ class DiskBoard(_EngineBoard):
             record = hook(rules, "init_record")(None, None)
             state = {
                 "loop_name": graph["loop"], "run_id": datetime.datetime.now().astimezone().strftime("%Y%m%d-%H%M%S"),
-                "graph": str(GRAPH_PATH), "graph_sha": GRAPH_SHA,
+                "graph": str(gpath), "graph_sha": graph_sha(table.graph),
                 "created": now(), "status": "running", "round": 1, "rounds": [empty_round(1)],
                 "thickness": None, "max_rounds": max_rounds if max_rounds is not None else max_rounds_for(graph, None),
                 "unattended": unattended,

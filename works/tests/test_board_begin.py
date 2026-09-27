@@ -22,7 +22,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import boardreplay as R  # noqa: E402  （board と写しの engine を sys.path に足す）
-from board import (BoardGap, DiskBoard, NodeEntry, NodeTable, base_output, graph_expanded)  # noqa: E402
+from board import (BoardGap, BoardMismatch, DiskBoard, NodeEntry, NodeTable, base_output, graph_expanded)  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine.board import Board as EngineBoard  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
@@ -30,6 +30,8 @@ from engine.util import Reject  # noqa: E402
 
 TABLES = HERE / "boards" / "tables"
 ENTRY = NodeTable.load(TABLES / "entry-line.json")
+TDD = NodeTable.load(TABLES / "tdd-line.json")   # entry-line に TDD 版の graph（review-loop-tdd.json）と TDD の 4 節を足した表
+TDD_BUILTINS = ("tdd_start", "tdd_red", "tdd_green")
 GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 GREEN = {"suite": [{"name": "suite", "argv": [sys.executable, "-c", "print('1 passed')"]}]}
 ITEMS = [{"where": "a.txt", "text": "上限を掛けたい（検査用の依頼）"}]
@@ -113,6 +115,57 @@ class BeginCase(unittest.TestCase):
         # ディスクから開き直しても同じ
         again = DiskBoard.open(b.dir, table=ENTRY)
         self.assertEqual(again._progress([])["ready"], ["p2.diagnose"])
+
+    def test_begin_with_tdd_graph(self):
+        """表が TDD 版の graph を名指せば、盤面はその graph で作られ・開かれ、RL は TDD の機械の節と返答の検査を持つ。
+        別の graph の表では開かない（作った時の graph でしか開かない）"""
+        b, p = self.begin(table=TDD)
+        self.assertEqual(pathlib.Path(b.state["graph"]).name, "review-loop-tdd.json")
+        self.assertEqual(b.state["graph_sha"], TDD.graph_sha)
+        for name in TDD_BUILTINS:
+            self.assertIn(name, b.rules.BUILTINS)
+        self.assertIn("tdd_tests_output", b.rules.POST_CHECKS)
+        self.assertEqual(b.nodes["p3.tdd_tests"]["post_check"], "tdd_tests_output")
+        self.assertEqual(p["ready"], ["p0.local_checks"])
+        self.assertEqual(self.to_judge(b, p)["ready"], ["p2.diagnose"])
+        again = DiskBoard.open(b.dir, table=TDD)
+        self.assertEqual(pathlib.Path(again.state["graph"]).name, "review-loop-tdd.json")
+        for name in TDD_BUILTINS:
+            self.assertIn(name, again.rules.BUILTINS)
+        self.assertIn("tdd_tests_output", again.rules.POST_CHECKS)
+        # 今の表（graph は既定の review-loop.json）では開かない。盤面の置き場は 1 バイトも書かない
+        before = (b.dir / "state.json").read_bytes()
+        with self.assertRaises(BoardMismatch) as cm:
+            DiskBoard.open(b.dir, table=ENTRY)
+        self.assertIn(TDD.graph_sha, str(cm.exception))
+        self.assertEqual((b.dir / "state.json").read_bytes(), before)
+        # 逆も同じ: 既定の graph で作った盤面を TDD の表では開かない
+        plain, _ = self.begin("plain")
+        self.assertEqual(pathlib.Path(plain.state["graph"]).name, "review-loop.json")
+        self.assertNotIn("tdd_start", plain.rules.BUILTINS)
+        with self.assertRaises(BoardMismatch):
+            DiskBoard.open(plain.dir, table=TDD)
+        with self.assertRaises(BoardMismatch):
+            self.begin("plain", table=TDD)   # 同じ置き場の呼び直しも別の graph の表では続けない
+
+    def test_tdd_retry_rewinds_on_board(self):
+        """仕様 tdd-spec 8 節の未確認 1 の盤面の側: 写しの RL の _retry（赤・緑の確認が落ちた時に前の節を待ちに戻す）が、
+        DiskBoard の上で engine の rewind として効き、engine の run_driver_node が受ける形（戻した節が待ち・確認の節の依存が
+        済んでいない）になる。RETRY_MAX 回目は諦め（ok・gave_up）。役の返答を通す本物の流れではなく、済んだ印を直に置いて呼ぶ"""
+        b, _ = self.begin(table=TDD)
+        b.rd["done"]["p3.tdd_tests"] = {"at": "t"}
+        t = b.rules._tdd(b)
+        out = b.rules._retry(b, t, "red", "p3.tdd_tests", ["検査の理由"])
+        self.assertEqual(out, {"ok": False, "problems": ["検査の理由"], "rewound": ["p3.tdd_tests"]})
+        self.assertEqual(b.node_state("p3.tdd_tests"), "pending")
+        self.assertFalse(b.deps_ok("p3.tdd_red"))
+        for _ in range(b.rules.RETRY_MAX - 1):
+            b.rd["done"]["p3.tdd_tests"] = {"at": "t"}
+            out = b.rules._retry(b, t, "red", "p3.tdd_tests", ["検査の理由"])
+        self.assertEqual(out["gave_up"], "red")
+        self.assertTrue(out["ok"])
+        self.assertEqual(b.loop_state["tdd_gave_up"], [{"round": 1, "step": "red", "problems": ["検査の理由"]}])
+        b.save()
 
     def test_begin_p1_na_like_engine(self):
         b, p = self.begin()
