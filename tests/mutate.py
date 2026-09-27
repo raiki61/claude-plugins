@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """変異の腕を撃つ実行器。腕の一覧は tests/mutations.json（リポジトリに置き、柵を直す差分が同じ変更で腕も直す）。
 
-腕 1 本ごとにリポジトリの写しを一時ディレクトリに作り、その写しの上で 1 か所だけ壊して台本を走らせ、赤になるかを見る（走らせるのは、
-腕の tests か印の写しで行を通した台本が分かればその台本だけ、分からなければ台本一式）。
+並列で撃つ作業（worker）ごとにリポジトリの写しを一時ディレクトリに 1 つ持ち、腕 1 本ごとにその写しの上で 1 か所だけ壊して台本を走らせ、
+赤になるかを見て、基点から戻して次の腕に使い回す（走らせるのは、腕の tests か印の写しで行を通した台本が分かればその台本だけ、
+分からなければ台本一式。写しの使い回しは下の『写しの置き場』）。
 **本物の作業ツリーは触らない。** 壊していない写しでも 1 本走らせて緑を確かめ（control）、全腕の印を 1 つの写しに入れて
 走らせ、守る行を実際に通ったかを見る（marker）。赤・control の緑・当たりの証拠の 3 つがそろって、その腕は覆いの証拠になる。
 当たりの証拠は、expect を宣言した腕なら「実際に落ちた検査（killedBy）に expect が在る」こと、宣言しない腕なら印が出たこと。
@@ -18,10 +19,11 @@ JS / TS / C# / Scala の AST の演算子（https://stryker-mutator.io/docs/muta
 
 自動の腕（--auto: auto_targets・auto_arms_for・auto_marker）は Python の AST で壊すので、上の理由は当たらない。cosmic-ray には
 差分の行に絞る cr-filter-git と、全変異に共通のテストのコマンドが在り、そこは同じ機能である。それでも使わない理由は 3 つ
-（2026-09-25 に一次情報で確かめた）。(1) 作業ツリーをその場で書き換える: 変異は src/cosmic_ray/mutating.py の
-MutationVisitor.mutate_path が対象ファイルを開いて上書きし、util.py の restore_contents が finally で書き戻す。写しを作る仕組みは無く、
-分散実行で衝突しないのは各 worker が別に用意した複製を持つ前提（公式 tutorials/distributed）。review-loop は P1 の前後で作業ツリーを
-突き合わせ、書き換えを止めるので、写しは結局こちらで作ることになる。(2) 通らない行を撃つ前に外す口が無い: 公式の filter は
+（2026-09-25 に一次情報で確かめた）。(1) 写しを作る仕組みを持たない: 変異は src/cosmic_ray/mutating.py の
+MutationVisitor.mutate_path が対象ファイルを開いて上書きし、util.py の restore_contents が finally で書き戻す。分散実行で衝突しないのは
+各 worker が別に用意した複製を持つ前提（公式 tutorials/distributed）。review-loop は P1 の前後で作業ツリーを突き合わせ、書き換えを
+止めるので、worker ごとの複製は結局こちらで作る——この実行器はその形（worker ごとの写しに当てて戻す）をそのまま採り、戻した後の
+照合（cosmic-ray は照合しない）を足している。(2) 通らない行を撃つ前に外す口が無い: 公式の filter は
 cr-filter-pragma・cr-filter-operators・cr-filter-git だけで（how-tos/filters）、被覆で未到達の変異を除く物は無い。自動の腕は印の写し
 1 回で通らない行を外し（NoCoverage。印の写しが緑の回だけ）、撃つ数を減らす。(3) どの検査が落ちたかを残さない: src/cosmic_ray/work_item.py の WorkResult が
 持つのは test_outcome・worker_outcome・生の output・diff で、落ちた検査の名前（killedBy）を持たない。自動の腕も一覧の腕と同じ --out に
@@ -49,6 +51,7 @@ graphloops/README.md の「検査」節）。この実行器は、上に書い�
     python3 tests/mutate.py --confirm-survivors        # 絞った台本が緑の腕を台本一式で確かめ直す（版を出す前の関門・週 1 回の全腕）
     python3 tests/mutate.py --deadline-at <ISO 時刻>   # その時刻までに書き終える（残った腕は pending。--reuse で続きから）
     python3 tests/mutate.py --gate-efficacy r.json     # --out の結果を review-loop の p1.gate_efficacy の返答の形で印字
+    python3 tests/mutate.py --fresh-copy               # 写しを使い回さず、腕 1 本ごとに基点から作り直す（照合を疑うときの確かめ）
 
 --out の形は変異テストの報告の共通形式（mutation-testing-report-schema。Stryker ほかが使う）に寄せる: 腕ごとに
 status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と、実際に落ちた検査 killedBy。共通形式の外の欄は
@@ -63,7 +66,14 @@ attribution（赤の出どころ: narrowed＝絞った台本から / unrelated�
 （flock。Windows は msvcrt.locking。どちらも無い OS はロック無しで、前の起動の根を拾わない）。起動の頭で作業ツリーを根の下の基点に
 1 回だけ写し、腕・control・印の写しは全部基点から作る（同じ回の写しが同じ版を見る）。--auto と --changed-since の差分・腕の字列の
 検査も基点から取る（本物の index を写した一時の index と GIT_WORK_TREE で、基点を git の作業ツリーとして読む）。写しの中で
-起こす子には TMPDIR を写しの作業場の下に向けて渡す（入れ子の実行器・台本の一時物も作業場ごと消える）。根は終わるときに消し、
+起こす子には TMPDIR と PYTHONPYCACHEPREFIX を写しの作業場の tmp の下に向けて渡し（入れ子の実行器・台本の一時物と .pyc が写しの木に
+残らない）、git の自動の後始末（切り離して走る maintenance・gc）を切る。**腕の写しは worker ごとに使い回す**（lease）: 腕を撃ち終えたら、壊したファイルと写しの腕の一覧を基点から戻し、作業場の
+tmp と .pytest_cache を消し、写しの中（.git を除く）の項目の集合・字列・実行の許可と、写しの .git（index と objects を除く）を作った時の控えと
+照合し、1 つでも違えば写しを捨てて次の腕で作り直す。子のグループを殺した腕（時間切れ・failfast・止める信号）・例外で抜けた腕・写しの
+置き場を cwd に持つプロセスが残った腕の写しも捨てる。09-27 の実測依頼（写しの大量の書き込みを fseventsd が追い、関門の最中に CPU を
+使い切った）で、腕ごとに写しを作って捨てる形から移した。**照合の外に残る道**: killpg の外へ逃げた子（setsid）が cwd を写しの外に
+置いたまま写しへ書く形は見えない（cwd を読む口の無い Windows では cwd の確かめもしない）。疑うなら --fresh-copy で腕ごとに作り直す。
+根は終わるときに消し、
 SIGKILL などで残った根は、次の起動がロックの解けた物だけを消す（期限で死とみなさない。旧形式の mutate-<tag>-* は触らない）。
 
 終了コード: 0 = 撃った腕（1 本以上）が全部、赤・当たりの証拠つきで control が緑（--check なら全腕の字列と証拠の口が在る）
@@ -73,6 +83,7 @@ import argparse
 import atexit
 import collections
 import concurrent.futures as cf
+import contextlib
 import copy as copymod
 import datetime
 import hashlib
@@ -417,6 +428,11 @@ _RUN = {"root": None, "lock": None, "fd": None}
 _BASES = {}
 _BASE_GIT = {}
 _SCRATCH = set()          # copy が作った写しの repo。run_group はここで起こす子にだけ、写しの下の TMPDIR を渡す
+_POOL = {}                # 基点の鍵 → 次の腕を待つ写し [(repo, 作業場, .git の控え)]（lease だけが出し入れする）
+_SPOILED = set()          # 子のグループを殺した写しの repo（run_group の killpg が足し、lease が捨てる）
+COPIES = collections.Counter()   # lease の数: made（作った）・reused（使い回した）・discarded:<理由>
+_BASE_VIEW = {}           # 基点の鍵 → 基点の項目（tree_view。照合の相手で、起動の中で 1 回だけ読む）
+FRESH = False             # --fresh-copy: 写しを使い回さず腕ごとに作り直す（main が立てる）
 _ROOT_LOCK = threading.RLock()
 
 
@@ -515,6 +531,9 @@ def release_root():
             _BASES.clear()
             _BASE_GIT.clear()
             _SCRATCH.clear()
+            _POOL.clear()
+            _SPOILED.clear()
+            _BASE_VIEW.clear()
 
 
 def scratch_dir(tag):
@@ -604,7 +623,7 @@ def copy(tag):
         (d / "tmp").mkdir()
         # tests/run.sh は git の中で走る前提の検査を持つ——写しに素の repo を作る（コミットは 1 つ）
         for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=m", "-c", "user.email=m@m", "commit", "-qm", "x"]):
-            subprocess.run(["git", *c], cwd=repo, capture_output=True)
+            subprocess.run(["git", *NO_BG_GIT, *c], cwd=repo, capture_output=True)
         with _ROOT_LOCK:
             _SCRATCH.add(str(repo))
         return repo, d
@@ -613,13 +632,32 @@ def copy(tag):
         raise
 
 
+# git の自動の後始末（commit の後に切り離して走る maintenance・gc）を写しの中で起こさない。切り離した git は腕の後も写しの .git に
+# 書き続けうる（使い回す写しでは次の腕への漏れ）ので、lease は写しの置き場を cwd に持つプロセスが残れば写しを捨てる——止めないと
+# 捨ててばかりになる（2026-09-27 の実測: 負荷の高い機械で copy の直後の 15 回中 8 回、git 2.50.1 の maintenance が残った）
+NO_BG_GIT_CFG = (("maintenance.auto", "false"), ("gc.auto", "0"))   # 正本。git の -c（NO_BG_GIT）と子の環境（child_env）の両方がここから組む
+NO_BG_GIT = tuple(x for k, v in NO_BG_GIT_CFG for x in ("-c", f"{k}={v}"))
+
+
 def child_env(cwd, env):
-    """写しの中で起こす子の環境: TMPDIR・TMP・TEMP を写しの作業場の tmp に向ける。写しの中の台本・入れ子の実行器・後片付けを
-    壊した変異体の一時物も、作業場ごと消える。写しでない cwd（台本が直に呼ぶ回）の環境は変えない"""
+    """写しの中で起こす子の環境: TMPDIR・TMP・TEMP を写しの作業場の tmp に、PYTHONPYCACHEPREFIX をその下の pycache に向け、
+    git の自動の後始末を切る（NO_BG_GIT_CFG の設定を環境で）。
+    写しの中の台本・入れ子の実行器・後片付けを壊した変異体の一時物も、作業場の tmp ごと腕ごとに消える。.pyc を写しの木の外に出すのは、
+    Python の既定の無効化が元のファイルの mtime（秒）とサイズしか見ず、使い回す写しで同じ秒に同じサイズの腕が続くと前の腕の
+    バイトコードで撃つから。写しでない cwd（台本が直に呼ぶ回）の環境は変えない"""
     if str(cwd) not in _SCRATCH:
         return env
-    tmp = str(pathlib.Path(cwd).parent / "tmp")
-    return {**(os.environ if env is None else env), "TMPDIR": tmp, "TMP": tmp, "TEMP": tmp}
+    tmp = pathlib.Path(cwd).parent / "tmp"
+    base_env = os.environ if env is None else env
+    try:
+        n = int(base_env.get("GIT_CONFIG_COUNT") or 0)
+    except ValueError:
+        n = 0
+    # 呼び手が積んだ GIT_CONFIG_* の後ろに積む（base_git と同じ）。写しの中の台本が作る git（作業場の下）にも同じく効かせる
+    cfg = {"GIT_CONFIG_COUNT": str(n + len(NO_BG_GIT_CFG))}
+    for i, (k, v) in enumerate(NO_BG_GIT_CFG, n):
+        cfg.update({f"GIT_CONFIG_KEY_{i}": k, f"GIT_CONFIG_VALUE_{i}": v})
+    return {**base_env, "TMPDIR": str(tmp), "TMP": str(tmp), "TEMP": str(tmp), "PYTHONPYCACHEPREFIX": str(tmp / "pycache"), **cfg}
 
 
 def run_group(argv, cwd, env=None, failfast=False):
@@ -641,6 +679,9 @@ def run_group(argv, cwd, env=None, failfast=False):
     late = {"v": False}
 
     def killpg():
+        # 殺した子の孫はグループの外へ逃げていて、写しに書き続けうる——その写しは使い回さない（lease が捨てる）
+        with _LOCK:
+            _SPOILED.add(str(cwd))
         # グループが先に自然終了していると ProcessLookupError（pgid を使い回されていれば PermissionError）が飛ぶ。
         # 握り潰さないと腕 1 本の競合で実行器ごと落ち、--out を書く前に全部の結果を失う（実測 2026-09-24、failfast の直後）
         try:
@@ -722,6 +763,140 @@ def run_selected(repo, tests, failfast=False):
     return {"rc": bad[0] if bad else 0, "failed": failed, "tail": [], "selected": True}
 
 
+PYTEST_CACHE = ".pytest_cache"   # 写しの中で pytest が書く控え。前の腕の失敗の記録を次の腕に渡さないよう、腕ごとに消す
+
+
+def tree_view(top, skip=()):
+    """top の下の項目 ——{相対パス: ("d",) / ("l", 指し先) / ("f", 中身, 実行の許可)}。skip は top の直下で見ない名前"""
+    out = {}
+
+    def walk(d, rel):
+        with os.scandir(d) as it:
+            for e in it:
+                r = f"{rel}{e.name}"
+                if not rel and e.name in skip:
+                    continue
+                if e.is_symlink():
+                    out[r] = ("l", os.readlink(e.path))
+                elif e.is_dir():
+                    out[r] = ("d",)
+                    walk(e.path, r + "/")
+                else:
+                    with open(e.path, "rb") as f:
+                        out[r] = ("f", f.read(), e.stat(follow_symlinks=False).st_mode & 0o111)
+    walk(top, "")
+    return out
+
+
+def lingering(d):
+    """作業場 d の下を cwd に持つプロセスが残っているか ——True / False / None（この OS で確かめる口が無い）。
+    Linux は /proc の cwd、macOS は libproc の proc_pidinfo（PROC_PIDVNODEPATHINFO。psutil の Process.cwd と同じ口）を読む。
+    読めないプロセス（他の利用者の物）は飛ばす。lsof は 1 回 1 秒を超え（2026-09-27 の実測）、腕ごとに打つには重い"""
+    top = os.path.realpath(d)
+    under = lambda p: p == top or p.startswith(top + os.sep)
+    if os.path.isdir("/proc/self"):
+        for pid in os.listdir("/proc"):
+            if pid.isdigit():
+                try:
+                    if under(os.path.realpath(os.readlink(f"/proc/{pid}/cwd"))):
+                        return True
+                except OSError:
+                    pass
+        return False
+    if sys.platform != "darwin":
+        return None
+    import ctypes
+    try:
+        lib = ctypes.CDLL("/usr/lib/libproc.dylib")
+    except OSError:
+        return None
+    n = lib.proc_listallpids(None, 0)
+    pids = (ctypes.c_int * (n + 64))()
+    n = lib.proc_listallpids(pids, ctypes.sizeof(pids))
+    # struct proc_vnodepathinfo: 先頭が cwd の vnode_info_path（vnode_info 152 バイト＋パス 1024 バイト）、続いて root の同じ形
+    size, info = 2352, ctypes.create_string_buffer(2352)
+    for pid in pids[:max(n, 0)]:
+        if pid > 0 and lib.proc_pidinfo(pid, 9, ctypes.c_uint64(0), info, size) == size:
+            if under(os.path.realpath(info.raw[152:1176].split(b"\0", 1)[0].decode("utf-8", "replace"))):
+                return True
+    return False
+
+
+def restored_why(repo, d, a, gitsnap):
+    """腕を撃ち終えた写しを基点に戻し、照合する ——使い回せなければ理由、使い回せるなら ""。戻すのは腕が壊したファイルと写しの
+    腕の一覧（one が空にする）だけで、ほかに違う項目が 1 つでも在れば戻さずに捨てる側へ倒す（台本が写しへ書いた物を黙って直さない）"""
+    if str(repo) in _SPOILED:
+        return "子のグループを殺した"
+    if lingering(d):
+        return "写しの置き場を cwd に持つプロセスが残った"
+    b = base()
+    for rel in {a["file"], "tests/mutations.json"} if a else ():
+        if (b / rel).is_file():
+            shutil.copy2(b / rel, repo / rel)   # 中身と mtime と許可を基点に戻す
+    shutil.rmtree(d / "tmp", ignore_errors=True)
+    shutil.rmtree(repo / PYTEST_CACHE, ignore_errors=True)
+    if (d / "tmp").exists():
+        return "作業場の tmp を消せない"
+    (d / "tmp").mkdir()
+    want = _BASE_VIEW.get(str(b))
+    if want is None:
+        want = _BASE_VIEW.setdefault(str(b), tree_view(b))
+    got = tree_view(repo, skip=(".git",))
+    if got != want:
+        diff = sorted(set(got) ^ set(want)) or sorted(k for k in got if got[k] != want[k])
+        return f"写しの中身が基点と違う（{diff[0]} ほか {len(diff) - 1} 件）"
+    if tree_view(repo / ".git", skip=("index", "objects")) != gitsnap:
+        return "写しの .git が作った時と違う"
+    g = lambda *x: subprocess.run(["git", *NO_BG_GIT, *x], cwd=repo, capture_output=True).returncode
+    if g("update-index", "-q", "--refresh") or g("diff-index", "--cached", "--quiet", "HEAD"):
+        return "写しの index が HEAD と違う"
+    return ""
+
+
+
+@contextlib.contextmanager
+def lease(tag, a=None):
+    """腕に写しを貸す唯一の口 ——with の中で (写しの repo, 作業場)。棚に写しが在れば使い回し、無ければ copy で作る。
+    抜けるときに restored_why で戻して照合し、通れば棚へ返し、通らない・例外・止める信号なら作業場ごと捨てる。
+    --fresh-copy（FRESH）なら毎回作って毎回捨てる（BASE の形）。copy が作っていない写し（台本が差し替えた copy の物）は照合せずに捨てる"""
+    key = str(ROOT)
+    with _ROOT_LOCK:
+        shelf = _POOL.get(key) or []
+        got = shelf.pop() if shelf and not FRESH else None
+    if got is None:
+        repo, d = copy(tag)
+        gitsnap = tree_view(repo / ".git", skip=("index", "objects")) if str(repo) in _SCRATCH else None
+    else:
+        repo, d, gitsnap = got
+    with _ROOT_LOCK:
+        COPIES["made" if got is None else "reused"] += 1
+    why = "例外か止める信号で抜けた"
+    try:
+        yield repo, d
+        try:
+            why = ("--fresh-copy" if FRESH else "copy の外で作った写し" if gitsnap is None else
+                   "止める信号" if STOPPING.is_set() else restored_why(repo, d, a, gitsnap))
+        except OSError as e:   # 戻せない・読めない（開いたままのファイル・消えた作業場）は使い回さないだけで、腕の結果は変えない
+            why = f"戻す途中で {type(e).__name__}"
+    finally:
+        with _LOCK:
+            _SPOILED.discard(str(repo))
+        if why:
+            shutil.rmtree(d, ignore_errors=True)
+            with _ROOT_LOCK:
+                COPIES[f"discarded:{why}"] += 1
+                _SCRATCH.discard(str(repo))
+        else:
+            with _ROOT_LOCK:
+                _POOL.setdefault(key, []).append((repo, d, gitsnap))
+
+
+def copies_line():
+    """lease の数を 1 行で（写しの使い回しが実際に効いたか——毎回捨てていれば書き込みは減っていない）"""
+    return "写し: 作った {} / 使い回した {}".format(COPIES["made"], COPIES["reused"]) + "".join(
+        f" / 捨てた（{k.split(':', 1)[1]}） {v}" for k, v in sorted(COPIES.items()) if k.startswith("discarded:"))
+
+
 CONFIRM = False   # --confirm-survivors: 絞った台本が緑の腕を台本一式で確かめ直す（main が立てる）
 
 
@@ -760,8 +935,7 @@ def one(a):
                 "tail": [f"Python {mx} 以前でしか撃てない（今は {sys.version_info[0]}.{sys.version_info[1]}）"]}
     if STOPPING.is_set():
         raise Stopped(0)   # 止める信号の後に取り出された腕は写しも作らない
-    repo, d = copy(a["id"])
-    try:
+    with lease(a["id"], a) as (repo, _d):
         mutate(repo, a)
         # 写しの腕の一覧は空にする（marker_run と同じ）——壊した字列は写しの一覧から見て 0 か所なので、写しの tests/run.sh が
         # 走らせる --check が必ず赤になり、生き残った変異を Killed と書いていた
@@ -791,8 +965,6 @@ def one(a):
         return {"id": a["id"], "title": a["title"], "status": "Killed" if red else "Survived", "own": own,
                 **r, "killedBy": r["failed"][:20], "failed": r["failed"][:3],
                 **({"attribution": why} if why else {}), **({"cover": a["cover"]} if "cover" in a else {})}
-    finally:
-        shutil.rmtree(d, ignore_errors=True)
 
 
 def control(suites, selected=None):
@@ -1065,6 +1237,8 @@ def main():
     ap.add_argument("--every-node", action="store_true", help="--auto の腕を 1 行 1 本に畳まず、効かない行の腕も作る（Google 型に絞る前の撃ち方）")
     ap.add_argument("--confirm-survivors", action="store_true", help="絞った台本（腕の tests・自動の腕の行を通した台本）が緑の腕を、"
                     "台本一式で確かめ直す。版を出す前の関門と週 1 回の全腕で付ける")
+    ap.add_argument("--fresh-copy", action="store_true", help="写しを worker ごとに使い回さず、腕 1 本ごとに基点から作り直す"
+                    "（使い回しの照合を疑うときの確かめ・新旧の撃ち比べ）")
     a = ap.parse_args()
     if a.gate_efficacy:
         print(json.dumps(gate_efficacy(json.loads(pathlib.Path(a.gate_efficacy).read_text(encoding="utf-8"))), ensure_ascii=False, indent=1))
@@ -1090,8 +1264,9 @@ def main():
             print(f"NG 腕 {i}: {why}——柵を直したなら、同じ変更でこの腕も今の字列に直せ")
         print(f"{len(arms)} 腕のうち字列か証拠の口の無い腕 {len(bad)}・id の重複 {len(dup)}")
         sys.exit(1 if bad or dup else 0)
-    global CONFIRM
+    global CONFIRM, FRESH
     CONFIRM = a.confirm_survivors
+    FRESH = a.fresh_copy
     autos, pruned = [], []
     view = (ROOT, None)   # 差分を取る木と git の環境。差分を取る回は基点（写しと差分が同じ版を指す）
     if a.auto or a.changed_since:
@@ -1150,7 +1325,8 @@ def main():
     try:
         skipped_late = shoot(a, res, fire, sel, fps, late, pend)
     except Stopped as e:
-        # 子のグループは信号の口（stop_groups）が止め、写しは腕ごとの finally が、根は atexit が消す（shoot が走っている腕の終わりを待つ）。
+        # 子のグループは信号の口（stop_groups）が止め、走っていた腕の写しは lease が捨て、棚に残った写しと根は atexit が消す
+        # （shoot が走っている腕の終わりを待つ）。
         # 撃てた腕までの --out は腕ごとに書いてある
         print(f"NG 止める信号（{e.signum}）を受けた——起こした子のグループと写しを片付けて抜ける（撃てた腕までの --out は残る）",
               file=sys.stderr, flush=True)
@@ -1178,6 +1354,7 @@ def main():
     if s["unrelated"] or s["unattributed"] or s["narrowed_green"]:
         print(f"赤の出どころ: 絞った台本は緑で一式だけ赤 {len(s['unrelated'])}（揺れか台本の関数の外の検査）: {' '.join(s['unrelated'])}"
               f" / 台本一式だけで撃った赤 {len(s['unattributed'])} / 一式で確かめていない緑 {len(s['narrowed_green'])}")
+    print(copies_line())
     res["summary"]["carried"] = [x["id"] for x in carried]
     moved = worktree_moved(sel)
     if moved:
