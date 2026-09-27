@@ -1,0 +1,11 @@
+{
+  "faces": [],
+  "faces_none": "stats.py の差分 3 行（mean の分母・clamp の上限の戻り値・clamp の docstring）と、呼び元の test_stats.py を読んだ。写し・入口・宣言とのずれは無い",
+  "checks": [
+    {
+      "key": "stats.py clamp: docstring が上限の枝の約束を書いていない",
+      "closed": true,
+      "why": "clamp の docstring に上限を超えた値は hi を返すと書かれ、事前審査が言った約束のずれは塞がった"
+    }
+  ]
+}

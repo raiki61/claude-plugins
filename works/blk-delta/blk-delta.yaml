@@ -1,8 +1,10 @@
 name: blk-delta
 description: |
-  修正差分の審査のブロック。周の頭で固めた版からの差分を切って盤面に置き、審査役（読むだけ）に修正が新しく作った穴
-  （写し・塞がない入口・宣言と実装のずれ）を探させ、受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回）。
-  ラインから include で使う。出口は受け付けた穴の数と、審査の返答（delta-review.json）・修正の差分（fix.diff）のパス。
+  修正差分の審査のブロック。修正を受けた盤面が切った差分（機械の節 p3.fix_delta）を審査役（読むだけ）に見せ、修正が新しく
+  作った穴（写し・塞がない入口・宣言と実装のずれ）と、修正が塞いだと言う事前審査の穴の検算を返させ、盤面の受け付けの規則に
+  通るまで同じ会話で出し直させる（上限 3 回）。義務の組み立ては盤面の機械の節 p3.delta_owed。
+  ラインから include で使う。出口は受け付けた穴の数・審査の返答と修正の差分のパス・手直しが答える義務の数ほか。
+  スクリプトは盤面（線 A Task 13）に替わった。入口・節の組み替えと読んだ証拠の節は Task 17。
 
 inputs:
   base_rev:
@@ -13,8 +15,8 @@ returns: collect
 outcome_field: ok
 
 nodes:
-  # git diff <base_rev>（未追跡のファイルも）を盤面の fix.diff に、切った時の作業ツリーの写しを delta-snapshot.json に置く。
-  # 版が引けないときは終了コード 1 で run を止める（審査役を起こさない）
+  # 盤面の loop.fix_delta の差分のパスと触ったファイルを出し、役に見せる材料（brief）・作業ツリーの写し・起こした印を置く。
+  # 盤面に今の周の差分が無い・審査の節が待っていないときは終了コード 2 で run を止める（審査役を起こさない。配線の誤り）
   - id: cut
     script: cut
     runtime: uv
@@ -29,6 +31,11 @@ nodes:
         ok: {type: boolean}
         files: {type: array, items: {type: string}}
         diff_file: {type: string}
+        # 線 A Task 13 の cut（refix.cut）が足す欄。指示書が $cut.output.brief_file を読むので宣言する（宣言の無い欄への参照は
+        # 読み込みで拒まれる）。1 本目の欄の形を保つため任意にする。入口・節の組み替えは Task 17
+        rev: {type: string}
+        brief_file: {type: string}
+        must: {type: array, items: {type: string}}
 
   # 審査役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
   - id: delta-loop
@@ -95,7 +102,7 @@ nodes:
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               review_file: {type: string}
 
-  # loop_group の出力は型を持てないので、輪の後ろで盤面の delta-review.json から出口を組む
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の今の周の審査の返答から出口を組む
   - id: collect
     script: collect
     runtime: uv
@@ -110,3 +117,7 @@ nodes:
         faces: {type: integer, minimum: 0}
         review_file: {type: string}
         diff_file: {type: string}
+        # 線 A Task 13 の collect（refix.collect_delta）が足す欄（1 本目の 4 つの欄は必須のまま）
+        owed: {type: integer, minimum: 0}
+        fix_rev: {type: string}
+        reads_file: {type: string}

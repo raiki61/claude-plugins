@@ -2,9 +2,9 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""輪の後ろで出口を組む節（refix.collect_delta）。1 本目の {ok, faces, review_file, diff_file} に owed（手直しが答える義務の数。
-盤面の機械の節 p3.delta_owed が組んだ loop.delta_owed）・fix_rev（修正後に固めた版）・reads_file を足して 1 行。
-数えるのは盤面の今の周に受けた返答だけ（前の周・前の試みの返答は数えない）。受けていなければ標準エラーに 1 行で 2"""
+"""blk-refix の出口を組む節（refix.collect_refix）: {ok, handled_file, review2_file, owed2, fixed2, files, reads_file}
+（review2_file は 2 回目の審査を回さなかった run では空。fixed2 は報告の次の run の依頼の下書きへ渡す数。T15）。
+手直しの返答が盤面の今の周に無ければ標準エラーに 1 行で 2"""
 import sys
 from pathlib import Path
 
@@ -16,7 +16,7 @@ INPUTS = ()   # 読む INPUTS_*（YAML の with: の鍵と同じ。TA16）
 
 
 def run(board, repo, env):
-    return refix.collect_delta(board)
+    return refix.collect_refix(board)
 
 
 if __name__ == "__main__":

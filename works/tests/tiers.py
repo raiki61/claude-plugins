@@ -49,6 +49,7 @@ HEAVY = frozenset({
     "test_board_steps",     # 盤面の層: golden の盤面・再生・種の git
     "test_board_table",     # 盤面の層: golden の盤面・再生・種の git
     "test_blk_pr",          # 線 A: 試験ごとの git のリポジトリ・golden の盤面の再生（boardreplay）
+    "test_blk_refix",       # 線 A: 試験ごとの種の git（linekit.seed_repo）で盤面を差分の審査まで進める・スクリプトを子で起こす
     "test_blk_rejudge",     # 線 A: golden の盤面の再生（rejudgekit）・スクリプトを子で起こす
     "test_entry",           # 線 A: 試験ごとの種の git（linekit.seed_repo）・プロセスの木（tree_run）
     "test_policy",          # 線 A: 試験ごとの種の git（linekit.seed_repo）

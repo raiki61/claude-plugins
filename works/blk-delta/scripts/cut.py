@@ -2,38 +2,25 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""差分を切る節（accept.cut_delta）。修正が触った物を、審査役が読む形で盤面（$ARTIFACTS_DIR/board/）に置く:
-fix.diff（修正の差分）と delta-snapshot.json（切った時の作業ツリーの写し。受け付けが突き合わせる。Ruling R3）。
-出口: {"ok": true, "files": [触ったファイル], "diff_file": <fix.diff のパス>} を 1 行。
-base_rev が空なら repo の HEAD（Ruling R2）。版が引けない・git が効かないときは標準エラーに理由を出して 1
-（審査役を起こさずに run を止める）。環境変数が欠けたときは 2。
-"""
+"""1 回目の差分の審査役を起こす前の支度（refix.cut(n=1)。blk-delta の節 cut）。
+差分を切るのは盤面の機械の節 p3.fix_delta（写しの RL の fix_delta。修正を受けた後の settle）で、ここは盤面の loop.fix_delta の
+ファイルと触ったファイルを出し、役に見せる材料（事前審査の穴と修正役の plan_faces）を review1-brief.json に書き、読むだけの役の
+前の作業ツリーの写し（review1-snapshot.json）を撮り、起こした印を置く。前の試みの自分の出力は先に消す。
+出口: {"ok": true, "files", "diff_file", "rev", "brief_file", "must"} を 1 行。盤面に今の周の差分が無い・審査の節が待っていない・
+環境変数の欠け・止めた run は標準エラーに 1 行で 2（配線の誤り。TA19）"""
 import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
-import os  # noqa: E402
+import refix  # noqa: E402
 
-import script_io  # noqa: E402
-from accept import Reject, cut_delta  # noqa: E402
-
-
-def main() -> int:
-    missing = [n for n in (script_io.BASE_REV_ENV, script_io.ARTIFACTS_ENV) if n not in os.environ]
-    if script_io.ARTIFACTS_ENV not in missing and not os.environ[script_io.ARTIFACTS_ENV]:
-        missing.append(script_io.ARTIFACTS_ENV)   # 空だと盤面が対象リポジトリの board/ になる
-    if missing:
-        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
-        return 2
-    board = Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
-    try:
-        out = cut_delta(board, os.environ[script_io.BASE_REV_ENV], Path.cwd())
-    except Reject as e:
-        print(f"差分を切れない: {e}", file=sys.stderr)
-        return 1
-    script_io._emit(out)
-    return 0
+INPUTS = ()   # 読む INPUTS_*（YAML の with: の鍵と同じ。TA16）
 
 
-sys.exit(main())
+def run(board, repo, env):
+    return refix.cut(board, 1, repo)
+
+
+if __name__ == "__main__":
+    sys.exit(refix.script_main(run, INPUTS))
