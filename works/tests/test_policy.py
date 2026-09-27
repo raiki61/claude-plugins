@@ -114,5 +114,61 @@ class JudgeBlockPolicyCase(unittest.TestCase):
         self.assertEqual(strip(fmt), role_schema("p2.diagnose"))
 
 
+
+# ---------------------------------------------------------------- start が組む方針の文（計画 Task 7。policy.brief）
+# 方針の文書の固定は盤面を作る時の写しの on_init（policy_input.resolve: 共通の git の置き場の graphloops/policy.md を盤面の
+# policy/<sha256>.md に写す）。brief はその写し（record.process.policy.copy）から役に貼る本文と置き場を組むだけ
+import json  # noqa: E402
+import tempfile  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "tests"))
+import entry  # noqa: E402
+import engine.util as engine_util  # noqa: E402
+import linekit  # noqa: E402
+import policy  # noqa: E402
+from board import DiskBoard  # noqa: E402
+
+
+class BriefCase(unittest.TestCase):
+    def setUp(self):
+        self._old_cwd = engine_util.GIT_CWD
+        self._tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.repo = linekit.seed_repo(self.tmp / "repo")
+
+    def tearDown(self):
+        engine_util.GIT_CWD = self._old_cwd
+        self._tmp.cleanup()
+
+    def board(self, text=None):
+        if text is not None:
+            pol = self.repo / ".git" / "graphloops" / "policy.md"
+            pol.parent.mkdir(parents=True, exist_ok=True)
+            pol.write_text(text, encoding="utf-8")
+        return DiskBoard.create(self.tmp / "board", repo=self.repo, table=entry.load_table(), inputs={}, request_text="依頼")
+
+    def test_brief_paste_and_path(self):
+        b = self.board("# 方針\n\n- テストを消さない\n")
+        got = policy.brief(b)
+        self.assertEqual(got["paste"], "# 方針\n\n- テストを消さない\n")
+        path = pathlib.Path(got["path"])
+        self.assertEqual(path.parent, b.dir / "policy")
+        self.assertEqual(path.read_text(encoding="utf-8"), got["paste"])
+        self.assertEqual(got["path"], b.record["process"]["policy"]["copy"])
+
+    def test_brief_capped(self):
+        """5 万バイトの方針 → paste は 40000 バイト以下で、続きの置き場を言う"""
+        b = self.board("あ" * 16667 + "\n")   # 3 バイト × 16667 = 50001 バイト
+        got = policy.brief(b)
+        self.assertEqual(policy.PASTE_CAP, 40000)
+        self.assertLessEqual(len(got["paste"].encode("utf-8")), policy.PASTE_CAP)
+        self.assertIn("続きは", got["paste"])
+        self.assertIn(got["path"], got["paste"])
+        self.assertTrue(got["paste"].startswith("あ" * 1000))
+
+    def test_brief_empty_without_policy(self):
+        self.assertEqual(policy.brief(self.board()), {"paste": "", "path": ""})
+
+
 if __name__ == "__main__":
     unittest.main()
