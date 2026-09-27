@@ -22,7 +22,7 @@ CORE = pathlib.Path(__file__).resolve().parent
 if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
-from accept import SNAPSHOT_SCHEMA, _guard, _in_repo, _read_board, _rev, _write_board, snapshot_tree  # noqa: E402
+from accept import SNAPSHOT_SCHEMA, _guard, _in_repo, _read_board, _rev, _write_board, snapshot_tree, tree_change  # noqa: E402
 from board import DiskBoard  # noqa: E402
 from engine.rules import registry  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
@@ -33,25 +33,30 @@ PREMISES_FILE = "premises.json"                     # 受け付けた実測役�
 PREMISES_SNAPSHOT_FILE = "premises-snapshot.json"   # 実測役を起こす前の作業ツリー。形は accept.SNAPSHOT_FILE と同じ
 
 
-def _tree_unchanged(repo, board):
+def _tree_unchanged(repo, board, rev):
     """実測役が作業ツリーを変えていないか。実測役は測るために Bash を持つが、作業ツリーは変えない約束
     （後ろの判定のブロックはこの後の作業ツリーを写し、修正の差分は版からの差分で数える——ここで残った物は修正役の差分に混じる）。
-    盤面に premises-snapshot.json が在ればそれと比べ、無ければ作業ツリーが綺麗であることを求める。違えば Reject"""
+    盤面に premises-snapshot.json が在ればそれと丸ごと（HEAD を含めて。commit で HEAD を動かしても見える）比べ、
+    無ければ作業ツリーが綺麗で HEAD が数える版 rev のままであることを求める。バイトコードは数えない（snapshot_tree）。違えば Reject"""
     snap = _read_board(board, PREMISES_SNAPSHOT_FILE)
     if snap is None:
-        dirty = snapshot_tree(repo)["porcelain"].splitlines()
+        now = snapshot_tree(repo)
+        dirty = now["porcelain"].splitlines()
         if dirty:
             raise Reject("作業ツリーに変更が在る——実測役は作業ツリーを変えてはいけない。測るときに作った物を消してから出し直せ"
                          f"（git status --porcelain: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
+        if now["head"] != rev:
+            raise Reject(f"HEAD が数える版から動いた（版 {rev[:12]} / 今 {now['head'][:12]}）——実測役は commit・reset・checkout で"
+                         "履歴を動かしてはいけない")
         return
     errs = validate_schema(snap, SNAPSHOT_SCHEMA)
     if errs:
-        raise Reject(f"盤面の {PREMISES_SNAPSHOT_FILE} の型が合わない: " + "; ".join(errs[:10]))
-    now = snapshot_tree(repo)
-    if now != {k: snap[k] for k in ("porcelain", "diff_sha256")}:
+        raise Reject(f"盤面の {PREMISES_SNAPSHOT_FILE} の型が合わない（古い形なら intake から写しを取り直せ）: " + "; ".join(errs[:10]))
+    changed = tree_change(snap, repo)
+    if changed:
         raise Reject("依頼を受け付けた後から作業ツリーが変わった——実測役は作業ツリーを変えてはいけない。測るときに作った物"
-                     "（出力のファイル・キャッシュ）を消すか元に戻してから出し直せ（出力は $TMPDIR に置く）"
-                     f"（git status --porcelain: 受け付けた時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}）")
+                     "（出力のファイル・キャッシュ）は rm で消し、書き換えた追跡中のファイルは git restore -- <path> で戻してから"
+                     f"出し直せ（出力は $TMPDIR に置く）（{changed}）")
 
 
 def check_premises(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
@@ -64,7 +69,7 @@ def check_premises(reply: dict, board: pathlib.Path, base_rev: str, repo: pathli
         pathlib.Path(board).mkdir(parents=True, exist_ok=True)
         with _in_repo(repo_p):
             rev = _rev(repo_p, base_rev)
-            _tree_unchanged(repo_p, board)
+            _tree_unchanged(repo_p, board, rev)
             b = DiskBoard.scratch(board, review_rev=rev)
             node = b.nodes[PREMISES_NODE]
             errs = validate_schema(reply, node["schema"])

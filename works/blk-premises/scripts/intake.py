@@ -6,6 +6,8 @@
 check_request（graphloops の add と同じ規則）に使い捨ての置き場で通す——盤面の request.json には積まない（積むのは判定の
 ブロックの intake だけ。ここで積むと同じ依頼が 2 度積まれる）。続けて、実測役を起こす前の作業ツリーの写し（snapshot_tree）を
 盤面の premises-snapshot.json に置く。受け付け（check_premises）はこれと今の作業ツリーを比べる。
+写しを置くのと同じ所で、盤面に前の呼び出しが残した premises.json を消す——受け付けが 3 回とも拒んだ時に collect が
+古い制約を拾って ok を出さないように（graphloops の once の『凍った出力の再利用』は線 A の b.done から付く。ここでは作らない）。
 
 - 通れば {"ok": true, "reason": "", "request": <読んだパス>} を 1 行出して 0
 - ファイルが読めない・JSON として読めない・規則が拒む・作業ツリーの写しが取れない: 標準エラーに理由を 1 行出して 1（run を AI の前で止める）
@@ -22,7 +24,7 @@ import tempfile  # noqa: E402
 
 from accept import check_request, snapshot_tree  # noqa: E402
 from engine.util import Reject  # noqa: E402
-from premises import PREMISES_SNAPSHOT_FILE  # noqa: E402
+from premises import PREMISES_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
 
 REQUEST_ENV = "INPUTS_REQUEST"
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
@@ -62,6 +64,7 @@ def main() -> int:
         return _stop(f"作業ツリーの写しが取れない（{e}）")
     board = Path(os.environ[ARTIFACTS_ENV]) / "board"
     board.mkdir(parents=True, exist_ok=True)
+    (board / PREMISES_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
     (board / PREMISES_SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({"ok": True, "reason": "", "request": rel}, ensure_ascii=False), flush=True)

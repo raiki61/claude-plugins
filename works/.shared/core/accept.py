@@ -45,7 +45,7 @@ GRAPH_PATH = _GL / "graphs" / "review-loop.json"
 VALIDATOR = CORE / "scripts" / "review-record.py"
 REQUEST_FILE = "request.json"        # 依頼のバッチの一覧（rules の REQUEST_SCHEMA の形）
 JUDGMENT_FILE = "judgment.json"      # 受け付けた判定の返答（judge_output が正規化した後の姿）
-SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "diff_sha256": str}
+SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "diff_sha256": str, "head": str}
 DIFF_FILE = "fix.diff"                   # 修正の差分（cut_delta が書き、審査役が読む）
 DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
 JUDGE_SNAPSHOT_FILE = "judge-snapshot.json"   # 判定役を起こす前（依頼の受け付けの時）の作業ツリー。形は SNAPSHOT_FILE と同じ
@@ -70,8 +70,9 @@ def _name_hints(e: Reject) -> Reject:
     for by_number, by_name in NUMBER_HINTS:
         msg = msg.replace(by_number, by_name)
     return Reject(msg)
-SNAPSHOT_SCHEMA = {"type": "object", "required": ["porcelain", "diff_sha256"], "properties": {
-    "porcelain": {"type": "string"}, "diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+SNAPSHOT_SCHEMA = {"type": "object", "required": ["porcelain", "diff_sha256", "head"], "additionalProperties": False, "properties": {
+    "porcelain": {"type": "string"}, "diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "head": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"}}}
 
 
 # ---------------------------------------------------------------- graph と rules
@@ -261,21 +262,49 @@ def _entry_digest(p: pathlib.Path) -> bytes:
 
 
 def snapshot_tree(repo: pathlib.Path) -> dict:
-    """作業ツリーの写し {"porcelain": str, "diff_sha256": str}。差分を切る節が盤面の delta-snapshot.json に置く。
+    """作業ツリーの写し {"porcelain": str, "diff_sha256": str, "head": str}。差分を切る節が盤面の delta-snapshot.json に置く。
+    作業ツリーの姿は『基準のコミット＋そこからの差分』の組なので、head（git rev-parse HEAD）も持つ——HEAD 相対の
+    porcelain と diff_sha256 だけでは、役が作った物を commit すると両方が元の値に戻って見張りを素通りする。
     porcelain は git status --porcelain（未追跡は 1 本ずつ）。diff_sha256 は HEAD からの差分（--binary）と、未追跡の
     ファイルの名前と中身を続けた sha256——名前が同じまま中身だけ変わっても違う値になる。未追跡のフォルダ（入れ子の
-    git リポジトリ）は中身を辿って続ける（_entry_digest）。git が効かなければ Reject を投げる"""
-    porcelain = _git(repo, "status", "--porcelain", "--untracked-files=all")
-    h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", binary=True))
+    git リポジトリ）は中身を辿って続ける（_entry_digest）。どれもバイトコード（_is_bytecode）を除く——修正の差分の側
+    （_touched）と同じく、テストを走らせただけで出来る物は変化に数えない。git が効かなければ Reject を投げる"""
+    head = _git(repo, "rev-parse", "--verify", "HEAD").strip()
+    lines = _git(repo, "status", "--porcelain", "--untracked-files=all").splitlines()
+    porcelain = "".join(f"{ln}\n" for ln in lines if not _is_bytecode(_porcelain_path(ln)))
+    h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", "--", *_NO_BYTECODE, binary=True))
     for name in sorted(n for n in _git(repo, "ls-files", "--others", "--exclude-standard", "-z", binary=True).split(b"\0") if n):
+        if _is_bytecode(os.fsdecode(name)):
+            continue
         p = pathlib.Path(repo) / os.fsdecode(name).rstrip("/")
         h.update(b"\0untracked\0" + name + b"\0" + _entry_digest(p))
-    return {"porcelain": porcelain, "diff_sha256": h.hexdigest()}
+    return {"porcelain": porcelain, "diff_sha256": h.hexdigest(), "head": head}
+
+
+def _porcelain_path(line: str) -> str:
+    """git status --porcelain の 1 行のパス（改名は後ろの名。引用符は外す）"""
+    path = line[3:].split(" -> ")[-1]
+    return path[1:-1] if len(path) >= 2 and path[0] == path[-1] == '"' else path
+
+
+def tree_change(snap: dict, repo: pathlib.Path):
+    """写し snap（SNAPSHOT_SCHEMA の型を確かめた物）と今の作業ツリーが違えば、違いを述べる 1 文。同じなら None。
+    写しは丸ごと（porcelain・diff_sha256・head の組）で比べる。見張り（premises・judge・delta）が同じ物を使う"""
+    now = snapshot_tree(repo)
+    if now == snap:
+        return None
+    what = f"git status --porcelain: 写した時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}"
+    if now["head"] != snap["head"]:
+        what = f"HEAD が動いた（写した時 {snap['head'][:12]} / 今 {now['head'][:12]}——commit・reset・checkout をした）。{what}"
+    return what
 
 
 def _names(repo, cmd, *args) -> list:
     """git <cmd> -z <args> が出すパスの一覧（NUL 区切り。日本語などの名前も引用符や \\ の書き換え無しでそのまま）"""
     return [os.fsdecode(n) for n in _git(repo, cmd, "-z", *args, binary=True).split(b"\0") if n]
+
+
+_NO_BYTECODE = (":(top)", ":(top,exclude,glob)**/*.pyc", ":(top,exclude,glob)**/__pycache__/**")   # git の pathspec で _is_bytecode と同じ物を除く
 
 
 def _is_bytecode(name: str) -> bool:
@@ -354,16 +383,15 @@ def _judge_tree_unchanged(repo, board):
     無ければ作業ツリーが綺麗（git status --porcelain が空）であることを求める。違えば Reject"""
     snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
     if snap is None:
-        dirty = _git(repo, "status", "--porcelain").splitlines()
+        dirty = snapshot_tree(repo)["porcelain"].splitlines()
         if dirty:
             raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
                          f"（git status --porcelain: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
         return
-    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {JUDGE_SNAPSHOT_FILE} ")
-    now = snapshot_tree(repo)
-    if now != {k: snap[k] for k in ("porcelain", "diff_sha256")}:
-        raise Reject("依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない"
-                     f"（git status --porcelain: 受け付けた時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}）")
+    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {JUDGE_SNAPSHOT_FILE}（古い形なら依頼の受け付けから写しを取り直せ）")
+    changed = tree_change(snap, repo)
+    if changed:
+        raise Reject(f"依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない（{changed}）")
 
 
 def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
@@ -430,11 +458,10 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             rev = _rev(repo_p, base_rev)
             snap = _read_board(board, SNAPSHOT_FILE)
             if snap is not None:
-                _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {SNAPSHOT_FILE} ")
-                now = snapshot_tree(repo_p)
-                if now != {k: snap[k] for k in ("porcelain", "diff_sha256")}:
-                    raise Reject("差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない"
-                                 f"（git status --porcelain: 切った時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}）")
+                _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {SNAPSHOT_FILE}（古い形なら差分を切り直して写しを取り直せ）")
+                changed = tree_change(snap, repo_p)
+                if changed:
+                    raise Reject(f"差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない（{changed}）")
             _type_errors(reply, role_schema("p3.delta_review"), "差分の審査の返答")
             rules = _rules()
             st = rules.DELTA_PASSES[1].state_key

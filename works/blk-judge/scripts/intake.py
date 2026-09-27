@@ -6,6 +6,8 @@
 check_request（graphloops の add と同じ規則）に通して盤面（$ARTIFACTS_DIR/board/）の request.json に積む。
 続けて、判定役を起こす前の作業ツリーの写し（snapshot_tree）を盤面の judge-snapshot.json に置く。受け付け（check_judge）は
 これと今の作業ツリーを比べる（Ruling R14。依頼のファイルが対象の中で未追跡でも、判定役が変えていなければ通る）。
+写しを置くのと同じ所で、盤面に前の呼び出しが残した judgment.json を消す——受け付けが 3 回とも拒んだ時に collect が
+古い判定を拾って ok を出さないように。
 
 - 通れば {"ok": true, "reason": "", "request": <読んだパス>} を 1 行出して 0
 - ファイルが読めない・JSON として読めない・規則が拒む・作業ツリーの写しが取れない: 標準エラーに理由を 1 行出して 1（run を AI の前で止める）
@@ -19,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import json  # noqa: E402
 import os  # noqa: E402
 
-from accept import JUDGE_SNAPSHOT_FILE, check_request, snapshot_tree  # noqa: E402
+from accept import JUDGE_SNAPSHOT_FILE, JUDGMENT_FILE, check_request, snapshot_tree  # noqa: E402
 from engine.util import Reject  # noqa: E402
 
 REQUEST_ENV = "INPUTS_REQUEST"
@@ -58,6 +60,7 @@ def main() -> int:
         snap = snapshot_tree(Path.cwd())
     except (Reject, OSError) as e:
         return _stop(f"作業ツリーの写しが取れない（{e}）")
+    (board / JUDGMENT_FILE).unlink(missing_ok=True)   # 前の呼び出しの残り。collect が拾えるのはこの呼び出しの受け付けが書いた物だけ
     (board / JUDGE_SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({"ok": True, "reason": "", "request": rel}, ensure_ascii=False), flush=True)

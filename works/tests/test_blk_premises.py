@@ -242,6 +242,53 @@ class CheckCase(RepoCase):
         self.assertIn("measure.log", r["reason"])
         self.assertFalse((self.board / PREMISES_FILE).exists())
 
+    def test_rejects_commit_after_intake(self):
+        # 実測役は Bash を持つ。作った物を commit すると HEAD 相対の porcelain と差分は元に戻るが、写しの head で見える
+        self.snapshot()
+        (self.repo / "measure.log").write_text("x\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "役が commit した")
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+        r = check_premises(load("premises_ok"), self.board, "", self.repo)
+        self.assertIs(r["ok"], False)
+        self.assertIn("HEAD が動いた", r["reason"])
+        self.assertFalse((self.board / PREMISES_FILE).exists())
+
+    def test_without_snapshot_rejects_head_moved_from_base_rev(self):
+        base = git(self.repo, "rev-parse", "HEAD").strip()
+        self.board.mkdir(parents=True)
+        (self.repo / "measure.log").write_text("x\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "役が commit した")
+        r = check_premises(load("premises_ok"), self.board, base, self.repo)
+        self.assertIs(r["ok"], False)
+        self.assertIn("HEAD", r["reason"])
+
+    def test_bytecode_not_counted_without_gitignore(self):
+        # 対象の .gitignore が __pycache__/ と *.pyc を除いていなくても、測るために試験を回して出来たバイトコードでは拒まない
+        # （修正の差分の側の _is_bytecode と同じ定義）
+        (self.repo / ".gitignore").unlink()
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "no gitignore")
+        self.snapshot()
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-312.pyc").write_bytes(b"\0bytecode")
+        (self.repo / "loose.pyc").write_bytes(b"\0bytecode")
+        self.assertIn("pyc", git(self.repo, "status", "--porcelain", "--untracked-files=all"))
+        r = check_premises(load("premises_ok"), self.board, "", self.repo)
+        self.assertIs(r["ok"], True, r["reason"])
+        self.board.joinpath(PREMISES_SNAPSHOT_FILE).unlink()   # 写しが無い時の分岐も同じ
+        self.assertIs(check_premises(load("premises_ok"), self.board, "", self.repo)["ok"], True)
+
+    def test_old_snapshot_without_head_rejected(self):
+        self.board.mkdir(parents=True)
+        snap = snapshot_tree(self.repo)
+        del snap["head"]
+        (self.board / PREMISES_SNAPSHOT_FILE).write_text(json.dumps(snap), encoding="utf-8")
+        r = check_premises(load("premises_ok"), self.board, "", self.repo)
+        self.assertIs(r["ok"], False)
+        self.assertIn("取り直せ", r["reason"])
+
     def test_without_snapshot_needs_clean_tree(self):
         self.board.mkdir(parents=True)
         (self.repo / "extra.txt").write_text("x\n", encoding="utf-8")
@@ -304,6 +351,19 @@ class ScriptCase(RepoCase):
         self.assertIs(got["ok"], True, got["reason"])
         self.assertEqual(validate_schema(got, find_node(workflow(), "premises-accept")["output_format"]), [])
         self.assertTrue((self.board / PREMISES_FILE).exists())
+
+    def test_stale_premises_not_collected_after_rejected_loop(self):
+        # 同じ盤面で 2 度目に回し、この回の受け付けが全部拒んだら、前の呼び出しの premises.json を拾わずに collect が落ちる
+        self.board.mkdir(parents=True)
+        (self.board / PREMISES_FILE).write_text(json.dumps(load("premises_ok"), ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        self.assertFalse((self.board / PREMISES_FILE).exists())
+        for _ in range(3):
+            got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("premises_no_output")), INPUTS_BASE_REV="").stdout)
+            self.assertIs(got["ok"], False)
+        r = self.run_script("collect")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(PREMISES_FILE, r.stderr)
 
     # ---- collect
     def test_collect_builds_exit(self):

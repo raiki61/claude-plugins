@@ -8,7 +8,7 @@
 - open_units: 直す義務の残る単位（検証器の is_open＝[block] か do-now の [suggest]）の key。check_judge と同じ述語
 - need_fix: open_units が 1 つでも在るか。false ならラインは修正から後を飛ばして finish で終える（Ruling R21。
   直す物が無いという判定は失敗ではない）
-- judgment.json が無い・読めない・形が崩れている: 標準エラーに理由を 1 行出して 1（受け付けを通らずに輪を抜けたことになる）
+- judgment.json が無い・読めない・形が崩れている: 標準エラーに理由を 1 行出して 1（受け付けを通らずに輪を抜けたことになる。前の呼び出しの残りは intake が消すので、在ればこの呼び出しの受け付けが書いた物）
 - ARTIFACTS_DIR が欠けた（空も欠け）: 標準エラーに名前を出して 2
 """
 import sys
