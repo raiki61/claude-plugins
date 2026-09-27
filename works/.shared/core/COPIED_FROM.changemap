@@ -1,0 +1,3 @@
+742a61d  attention の変更の地図の部品（/catchup と /what-am-i-doing が共用する changemap。仕様は attention/docs/catchup-spec.md の 5.4・5.7・6・7・8 節）。impact.py（変更の周りの地図）の土台
+changemap.py  attention/scripts/lib/changemap.py  # works の手直し 1 か所: run の timeout=15 → 1728000（git の呼び出しの上限を 20 日に。works の期限は 20 日だけ。tests/test_impact.py の DEVIATIONS）
+# 行の形は「写しのパス（この置き場から）  元のパス（git show <1 行目の commit>:<元のパス>）」。写しは直さない（手直しは DEVIATIONS と注記に載せた物だけ）。育てる分は impact.py に書く

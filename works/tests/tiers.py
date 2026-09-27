@@ -31,6 +31,7 @@ FAST = frozenset({
     "test_gl_map",          # 線 A: 対応表の JSON と accept.py を読むだけ
     "test_gitkit",          # 1 秒未満（gitkit の型を 1 回作って 2 回写す）
     "test_layers",          # 層と依存の向き（裁定 R59）: pack のファイルと YAML を読むだけ
+    "test_impact",          # 変更の周りの地図: 種の git は gitkit の型の写し・git ls-files と diff を読む（子のプロセスは git だけ）
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
     "test_rolekit",         # P1 Task 13: 役の節の共通の口を偽の盤面と mock で見る（git・子のプロセスなし）
