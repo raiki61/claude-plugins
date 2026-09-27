@@ -1,0 +1,10 @@
+{
+ "description": "R12 周の締め（BLOCKS.md 3 節）。周の記録・検証器・収束の判定（周の輪）",
+ "nodes": [
+  "p4.record",
+  "converge"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

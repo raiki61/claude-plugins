@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from conftest import REVIEW_GRAPH_PATH, run_graphcheck
+from conftest import PLUGIN, REVIEW_GRAPH_PATH, run_graphcheck
 from engine.util import Reject
 from engine.rules import load_rules
 from engine.schema import load_graph
@@ -20,6 +20,13 @@ def lens(g, name):
     return next(e for e in g["nodes"][NID]["skills"] if e["skill"] == name)
 
 
+def base_schema(g):
+    """出口の節 p0.base の schema はブロックの出口のファイルに在る——壊すために本文を graph に直に戻す"""
+    blk = json.loads((PLUGIN / "blocks" / "review-loop" / "prereq" / "exit.schema.json").read_text(encoding="utf-8"))
+    g["nodes"]["p0.base"]["schema"] = blk["properties"]["p0.base"]
+    return g["nodes"]["p0.base"]["schema"]
+
+
 def test_graphcheck_accepts_the_shipped_graph(sandbox):
     ok, out = run_graphcheck(sandbox, copy.deepcopy(GRAPH))
     assert ok, out[-300:]
@@ -30,7 +37,7 @@ def test_graphcheck_accepts_the_shipped_graph(sandbox):
     pytest.param(lambda g: lens(g, "/simplify").__setitem__("applies_cond", "security_surface_touched"), "対で持つ", id="true-with-cond"),
     pytest.param(lambda g: lens(g, "/security-review").__setitem__("applies_cond", "no_such_cond"), "CONDS の名前でない", id="unknown-cond"),
     pytest.param(lambda g: lens(g, "/security-review").__setitem__("applies_cond", 1), "applies_cond は文字列", id="cond-not-string"),
-    pytest.param(lambda g: g["nodes"]["p0.base"]["schema"]["properties"].pop("touches_security_surface"),
+    pytest.param(lambda g: base_schema(g)["properties"].pop("touches_security_surface"),
                  "applies_cond（cond 'security_surface_touched'）", id="cond-reads-undeclared-field"),
     # 評価は消費する節を出す時点なので、その節の祖先に無い節の出力を読む条件は落ちる
     pytest.param(lambda g: lens(g, "/security-review").__setitem__("applies_cond", "purpose_review_due"),

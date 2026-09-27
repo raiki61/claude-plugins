@@ -299,7 +299,7 @@ def tdd_green(b, nid):
 def tdd_tests_output(b, nid, out, item):
     """テストだけを書く段の返答: 直す義務の単位を全部 1 度だけ、tdd（名指しのテストが 1 件以上）か direct（理由）に振る。
     書きにくさの旗を立てたなら note を書く"""
-    owed = base._owed_shown(b)
+    owed = base._owed_shown(base._view(b, base._owed_shown))
     rows = out.get("units") or []
     errs = base._keys_once([{"key": r["unit_key"]} for r in rows], "units")
     got = {r["unit_key"] for r in rows}
@@ -357,7 +357,7 @@ def on_new_round(b):
     """今の流れの周の頭。旧い版の rules が loop に積んだ TDD の値の写しと盤面（tdd）も外す（hist と節の出力から読む）"""
     base.on_new_round(b)
     for k in (*(HIST.keys() - base.HIST.keys()), "tdd"):
-        b.loop_state.pop(k, None)
+        write_loop(b, k, "overwrite", None)
 
 
 def tdd_effect(b):

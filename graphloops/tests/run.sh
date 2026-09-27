@@ -3,6 +3,9 @@
 # 役割 agent も LLM も使わない——確かめるのは engine・rules・graph の噛み合わせと、記録が
 # convergence-loops の検証器を通ること。役の判断の質は実走で見る。
 set -uo pipefail
+# 止める猶予の環境変数（graphloops/engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を
+# 走らせると値を継ぎ、既定の 5 秒を前提に子を止める検査がその下でだけ崩れる（読めない値なら engine の import で全部落ちる）
+unset GL_KILL_GRACE
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY_BIN=$(command -v python3 || command -v python || true)
 [ -n "$PY_BIN" ] || { echo "python3 / python が PATH に無い"; exit 2; }
@@ -10,11 +13,11 @@ PY_BIN=$(command -v python3 || command -v python || true)
 # 走った検査の件数。root の tests/run.sh の EXPECTED_CHECKS と同じ理由で `-ne`——下限（-lt）だと
 # 台本を 1 本消しても「0 件失敗」のまま緑で通る（実測: simulate.py から test_light を消しても exit 0）。
 # 上げるときも下げるときも実測値を書く。
-EXPECTED_CHECKS=2050
+EXPECTED_CHECKS=1938
 # **台本の本数も別に数える。** 件数だけだと、腕を消した編集が『組み替えたため』の説明とともに
 # 下がった値で通る（実測 2026-09-19: 読了の台本 1 本が領域の置き換えで消え、645 → 642 の減少が
 # 通って覆いが 4 本消えた。次の周の全腕注入で 1 周遅れて露見した）。関数の消滅は件数と別の信号にする
-EXPECTED_TESTS=166
+EXPECTED_TESTS=157
 
 fail=0
 ran=0

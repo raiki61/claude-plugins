@@ -1,0 +1,422 @@
+{
+ "description": "R8 再審 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p2.rejudge": {
+   "type": "object",
+   "required": [
+    "verdict",
+    "new_facts",
+    "units"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "採る",
+      "退ける",
+      "一部採る"
+     ]
+    },
+    "new_facts": {
+     "type": "string",
+     "minLength": 20,
+     "note": "回す側が出した新しい事実を、自分で確かめた結果。確かめずに採るな・退けるな"
+    },
+    "reason": {
+     "type": "string"
+    },
+    "units": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "label"
+      ],
+      "additionalProperties": true,
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 1
+       },
+       "label": {
+        "type": "string",
+        "enum": [
+         "block",
+         "suggest",
+         "nit",
+         "question",
+         "info"
+        ]
+       },
+       "disposition": {
+        "type": "string",
+        "enum": [
+         "do-now",
+         "defer"
+        ]
+       },
+       "reason": {
+        "type": "string"
+       },
+       "reopen_evidence": {
+        "type": "string"
+       },
+       "origin_analysis": {
+        "type": "string"
+       },
+       "why_chain": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "prescriptions": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "closed_note": {
+        "type": "string"
+       },
+       "class_query": {
+        "$ref": "#/$defs/class_query"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p2.rejudge_third": {
+   "type": "object",
+   "required": [
+    "verdict",
+    "new_facts",
+    "units"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "採る",
+      "退ける",
+      "一部採る"
+     ]
+    },
+    "new_facts": {
+     "type": "string",
+     "minLength": 20,
+     "note": "回す側が出した新しい事実を、自分で確かめた結果。確かめずに採るな・退けるな"
+    },
+    "reason": {
+     "type": "string"
+    },
+    "units": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "label"
+      ],
+      "additionalProperties": true,
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 1
+       },
+       "label": {
+        "type": "string",
+        "enum": [
+         "block",
+         "suggest",
+         "nit",
+         "question",
+         "info"
+        ]
+       },
+       "disposition": {
+        "type": "string",
+        "enum": [
+         "do-now",
+         "defer"
+        ]
+       },
+       "reason": {
+        "type": "string"
+       },
+       "reopen_evidence": {
+        "type": "string"
+       },
+       "origin_analysis": {
+        "type": "string"
+       },
+       "why_chain": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "prescriptions": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "closed_note": {
+        "type": "string"
+       },
+       "class_query": {
+        "$ref": "#/$defs/class_query"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p3.rejudge_reply": {
+   "type": "object",
+   "required": [
+    "reason"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "rejudge_requested": {
+     "type": "string",
+     "note": "新しい事実を伴う再異議（空か無ければ取り下げ——往復はここで止まり、決着しなかった分は次の周の p2.history が再審する）"
+    },
+    "reason": {
+     "type": "string",
+     "minLength": 10,
+     "note": "再異議なら判定役の答えのどこに新しい事実で答えるか、取り下げなら取り下げる理由"
+    }
+   }
+  },
+  "p2.rejudge2": {
+   "type": "object",
+   "required": [
+    "verdict",
+    "new_facts",
+    "units"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "採る",
+      "退ける",
+      "一部採る"
+     ]
+    },
+    "new_facts": {
+     "type": "string",
+     "minLength": 20,
+     "note": "回す側が出した新しい事実を、自分で確かめた結果。確かめずに採るな・退けるな"
+    },
+    "reason": {
+     "type": "string"
+    },
+    "units": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "label"
+      ],
+      "additionalProperties": true,
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 1
+       },
+       "label": {
+        "type": "string",
+        "enum": [
+         "block",
+         "suggest",
+         "nit",
+         "question",
+         "info"
+        ]
+       },
+       "disposition": {
+        "type": "string",
+        "enum": [
+         "do-now",
+         "defer"
+        ]
+       },
+       "reason": {
+        "type": "string"
+       },
+       "reopen_evidence": {
+        "type": "string"
+       },
+       "origin_analysis": {
+        "type": "string"
+       },
+       "why_chain": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "prescriptions": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "closed_note": {
+        "type": "string"
+       },
+       "class_query": {
+        "$ref": "#/$defs/class_query"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p3.rejudge_reply2": {
+   "type": "object",
+   "required": [
+    "reason"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "rejudge_requested": {
+     "type": "string",
+     "note": "新しい事実を伴う再異議（空か無ければ取り下げ——往復はここで止まり、決着しなかった分は次の周の p2.history が再審する）"
+    },
+    "reason": {
+     "type": "string",
+     "minLength": 10,
+     "note": "再異議なら判定役の答えのどこに新しい事実で答えるか、取り下げなら取り下げる理由"
+    }
+   }
+  },
+  "p2.rejudge3": {
+   "type": "object",
+   "required": [
+    "verdict",
+    "new_facts",
+    "units"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "verdict": {
+     "type": "string",
+     "enum": [
+      "採る",
+      "退ける",
+      "一部採る"
+     ]
+    },
+    "new_facts": {
+     "type": "string",
+     "minLength": 20,
+     "note": "回す側が出した新しい事実を、自分で確かめた結果。確かめずに採るな・退けるな"
+    },
+    "reason": {
+     "type": "string"
+    },
+    "units": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "label"
+      ],
+      "additionalProperties": true,
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 1
+       },
+       "label": {
+        "type": "string",
+        "enum": [
+         "block",
+         "suggest",
+         "nit",
+         "question",
+         "info"
+        ]
+       },
+       "disposition": {
+        "type": "string",
+        "enum": [
+         "do-now",
+         "defer"
+        ]
+       },
+       "reason": {
+        "type": "string"
+       },
+       "reopen_evidence": {
+        "type": "string"
+       },
+       "origin_analysis": {
+        "type": "string"
+       },
+       "why_chain": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "prescriptions": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "closed_note": {
+        "type": "string"
+       },
+       "class_query": {
+        "$ref": "#/$defs/class_query"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "$defs": {
+  "class_query": {
+   "type": "object",
+   "required": [
+    "how",
+    "counts",
+    "total"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "how": {
+     "$ref": "engine#/count_how"
+    },
+    "counts": {
+     "$ref": "../fix/exit.schema.json#/$defs/counts"
+    },
+    "total": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "note": {
+     "type": "string"
+    }
+   },
+   "note": "同じ形を全部引ける機械の問い（how）と、数えるものの向き（counts）と、そのとき出た件数（total）。how は直す site になる行を全部数える形で書く——根の 1 行だけを数えると、修正役が塞ぐ site の数が母数を超えて拒まれる。1 site しか無いことの証明も total: 1 で書く。engine が how をこの周に固定した版（判定役が読んだのと同じ版）で走らせ、記録には engine が数えた件数を残す。修正役の修正の後は、同じ how を作業ツリーで数え直す"
+  }
+ }
+}

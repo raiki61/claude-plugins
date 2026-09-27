@@ -1,0 +1,11 @@
+{
+ "description": "R9 検算（変異）（BLOCKS.md 3 節）。並行の線（p3.gates_cut・p3.delta_gates）と最後の関門（p4.final_gates）の 2 か所で使う。差し込み口 check",
+ "nodes": [
+  "p3.gates_cut",
+  "p3.delta_gates",
+  "p4.final_gates"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

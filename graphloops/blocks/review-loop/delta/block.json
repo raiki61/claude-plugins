@@ -1,0 +1,16 @@
+{
+ "description": "R7 修正差分の審査と手直し（BLOCKS.md 3 節）。同じ形を 2 回使う（rules の DELTA_PASSES）",
+ "nodes": [
+  "p3.fix_delta",
+  "p3.delta_review",
+  "p3.delta_owed",
+  "p3.delta_fix",
+  "p3.fix_delta2",
+  "p3.delta_review2",
+  "p3.delta_owed2",
+  "p3.delta_fix2"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

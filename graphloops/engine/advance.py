@@ -3,7 +3,7 @@ import os
 import pathlib
 import sys
 
-from . import intake, pointers
+from . import effects, intake, pointers
 from .render import FILE_CAP, Renderer, node_prompt
 from .rules import hook, registry
 from .schema import graph_text, validate_schema
@@ -604,7 +604,10 @@ def run_driver_node(b, nid, n, notes):
     fn = registry(b.rules, "BUILTINS").get(n["builtin"])
     if not fn:
         die(f"builtin '{n['builtin']}' が rules に無い")
-    out = fn(b, nid)
+    new, out = b.rule(n["builtin"], fn, nid)
+    if new and isinstance(out, dict) and "effects" in out:
+        # 新しい形の関数は run の状態への書き込みを effects で頼む——出力（節の schema で照らす返り）には残さない
+        effects.apply_effects(b.loop_state, out.pop("effects"), b.graph.get("state_schema"), f"builtin {n['builtin']}")
     f = b.dir / "out" / f"r{b.round}" / (safe_name(nid) + ".json")
     write_json(f, out)
     # 返りの形は節の schema（在れば）で照らす——後の節・条件・rules がこの出力の欄を名前で読む（役の返答と同じ扱い）。

@@ -104,13 +104,29 @@
    false,
    "R2 の判定は None"
   ],
+  "rejudge2_open": [
+   false,
+   "回す側は今の周に 2 回目の異議を出していない"
+  ],
+  "rejudge3_open": [
+   false,
+   "回す側は今の周に 3 回目の異議を出していない"
+  ],
   "rejudge_exhausted": [
    false,
-   "回す側は今の周に異議を出していない"
+   "今の周の 3 回目の擦り合わせの答えは 無い"
   ],
   "rejudge_open": [
    false,
-   "回す側は今の周に異議を出していない"
+   "回す側は今の周に 1 回目の異議を出していない"
+  ],
+  "rejudge_reply2_due": [
+   false,
+   "今の周の 2 回目の擦り合わせの答えは 無い"
+  ],
+  "rejudge_reply_due": [
+   false,
+   "今の周の 1 回目の擦り合わせの答えは 無い"
   ],
   "request_entry": [
    false,
@@ -312,12 +328,32 @@
   ],
   [
    "CONDS",
+   "rejudge2_open",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "rejudge3_open",
+   "偽"
+  ],
+  [
+   "CONDS",
    "rejudge_exhausted",
    "偽"
   ],
   [
    "CONDS",
    "rejudge_open",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "rejudge_reply2_due",
+   "偽"
+  ],
+  [
+   "CONDS",
+   "rejudge_reply_due",
    "偽"
   ],
   [
@@ -388,7 +424,7 @@
   [
    "POST_CHECKS",
    "gate_arms_all_red",
-   "返った"
+   "ok=True"
   ]
  ]
 }

@@ -118,17 +118,15 @@ def _patch(b, path, value, tmp_path):
 
 def test_patched_rejudge_reaches_the_next_round(tmp_path):
     """回す側が loop.py patch で出した異議（修正の出口 out.p3.fix.rejudge_requested）は、同じ周の擦り合わせを開き、決着しなければ
-    次の周の hist.prev_rejudge に届く。往復の回数は受け付けた擦り合わせの節の数で、周ごと"""
+    次の周の hist.prev_rejudge に届く。往復は今の周の出力だけを読むので、周ごとに 1 回目から"""
     b = make(tmp_path, 2, [rd(1), rd(2)], outs={("p3.fix", 2): FIX_OK})
     r = _patch(b, "out.p3.fix.rejudge_requested", "patch で出した異議", tmp_path)
     assert r.returncode == 0, r.stderr
     b = board_mod.Board(b.dir)
     assert b.cond("rejudge_open")[0] is True
-    b.state["rounds"][1]["done"]["p2.rejudge"] = True
-    assert b.hist("rejudge_rounds") == {"round": 2, "n": 1}
     b.state["rounds"].append(rd(3))
     b.state["round"] = 3
-    assert b.hist("prev_rejudge") == {"round": 2, "text": "patch で出した異議"} and b.hist("rejudge_rounds") == {"round": 3, "n": 0}
+    assert b.hist("prev_rejudge") == {"round": 2, "text": "patch で出した異議"}
     assert b.cond("rejudge_open")[0] is False   # 前の周の異議では同じ周の往復は開かない
 
 
@@ -140,6 +138,24 @@ def test_rejudge_from_the_fix_reply_until_settled(tmp_path):
     assert b.hist("prev_rejudge") == {"round": 1, "text": "返答で出した異議"}
     outs[("p2.rejudge", 1)] = {"verdict": "退ける"}
     assert make(tmp_path / "settled", 2, [rd(1), rd(2)], outs=outs).hist("prev_rejudge") is None
+
+
+@pytest.mark.parametrize("trail, want", [
+    ({("p2.rejudge", 1): "一部採る"}, "1 回目"),                                                   # 再異議の口が走らなかった——未決
+    ({("p2.rejudge", 1): "一部採る", ("p3.rejudge_reply", 1): None}, None),                        # 取り下げた——決着
+    ({("p2.rejudge", 1): "一部採る", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "採る"}, None),
+    ({("p2.rejudge", 1): "一部採る", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "一部採る",
+      ("p3.rejudge_reply2", 1): "3 回目", ("p2.rejudge3", 1): "一部採る", ("p2.rejudge_third", 1): "一部採る"}, "3 回目"),
+    ({("p2.rejudge", 1): "一部採る", ("p3.rejudge_reply", 1): "2 回目", ("p2.rejudge2", 1): "一部採る",
+      ("p3.rejudge_reply2", 1): "3 回目", ("p2.rejudge3", 1): "一部採る", ("p2.rejudge_third", 1): "退ける"}, None),
+])
+def test_rejudge_trail_carries_the_last_unsettled_objection(tmp_path, trail, want):
+    """往復は 3 回まで（REJUDGE_PASSES）。次の周へ届くのは、決着しなかった周の最後の異議だけ"""
+    outs = {("p3.fix", 1): {"rejudge_requested": "1 回目"}}
+    for (nid, n), val in trail.items():
+        outs[(nid, n)] = {"verdict": val} if nid.startswith("p2.") else {"reason": "理由を書いた", **({"rejudge_requested": val} if val else {})}
+    got = make(tmp_path, 2, [rd(1), rd(2)], outs=outs).hist("prev_rejudge")
+    assert got == ({"round": 1, "text": want} if want else None)
 
 
 def test_lane_rows_are_read_from_the_round_head_output(tmp_path):
@@ -187,6 +203,24 @@ def test_old_outputs_are_read_as_exits_with_a_mark(tmp_path):
     assert snap["from_old_output"] and snap["rev"] == "h" * 40 and snap["changed_files_file"] == str(d / "changed-r2.txt")
     assert fixed["from_old_output"] and fixed["changed_files"] == ["a.py", "b.py"] and fixed["diff_file"].endswith("-after-fix.patch")
     assert snap["paste_file"] == snap["diff_file"] and fixed["paste_file"] == fixed["diff_file"]
+
+
+@pytest.mark.parametrize("entry, prev_fix, reqs, want", [
+    ({"origin": "人"}, [], "ok", ["x.py: f"]),            # 入口の印が在り、前の周の修正がファイルを変えていない
+    ({"origin": "人"}, ["src/a.py"], "ok", []),           # 前の周の修正がファイルを変えた——入口の周は終わった
+    (None, [], "ok", []),                                 # 印の無い run
+    ({"origin": "人"}, [], "broken", []),                 # 依頼の一覧の型が崩れている——_requests と同じく読まない
+])
+def test_request_wheres_from_an_old_snapshot_rebuild_the_entry(tmp_path, entry, prev_fix, reqs, want):
+    """依頼の where の一覧は hist.request_wheres の 1 本。旧い版の周の頭の出力（entry を持たない）でも、入口の周かを履歴
+    （入口の印と、前の周までの修正の申告）から組み直す——旧い盤面の入口の周で P0 の範囲が空にならない"""
+    outs = {("p1.worktree_before", 2): {"ok": True, "diff_file": "/d/diff-r2.patch", "changed_files": [], "stat": "",
+                                        "tree_before": {"porcelain": [], "stash": "", "tree": "t" * 40}},
+            ("p3.fix", 1): {"changes": [{"files": prev_fix}]}}
+    batch = [{"round": 2, "origin": "人", "findings": [{"where": "x.py: f", "text": "t"}]}] if reqs == "ok" else [{"round": 2}]
+    proc = {"request_findings": batch, **({"request_entry": entry} if entry else {})}
+    b = make(tmp_path, 2, [rd(1), rd(2)], outs=outs, record={"materials": {}, "units": [], "questions": [], "process": proc})
+    assert b.hist("snapshot")["from_old_output"] and b.hist("request_wheres") == want
 
 
 def test_head_revs_prefer_rev_and_read_old_outputs_by_tree(tmp_path):

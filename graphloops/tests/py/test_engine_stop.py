@@ -53,7 +53,7 @@ def test_still_mine_false_for_stopped_attempt(tmp_path):
 def test_graphcheck_refuses_bad_stop_decl(tmp_path, decl, why):
     """stop.node は在る機械の節で、下流に報告の節（pre=finalize）を持つ——p1.worktree_after は機械の節だが、下流の報告は
     p2 以降を経るので届く。届かない宣言の形は、報告の節の pre を外した写しで作る"""
-    for sub in ("graphs", "prompts", "rules"):
+    for sub in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / sub, tmp_path / sub)
     gp = tmp_path / "graphs" / "review-loop.json"
     g = json.loads(gp.read_text(encoding="utf-8"))

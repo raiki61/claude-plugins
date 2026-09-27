@@ -35,6 +35,8 @@ class FakeBoard:
     def is_runner(self, n):
         return False
 
+    rule = Board.rule   # 規則の関数を呼ぶ口は本物（旧い形の関数は盤面そのもので呼ぶ）
+
 
 def test_board_update_gives_up_after_retries(monkeypatch):
     """版の衝突は読み直して当て直すが、上限を超えたら黙って None を返さず衝突を上げる"""

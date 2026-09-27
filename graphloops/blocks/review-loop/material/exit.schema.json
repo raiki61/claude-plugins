@@ -1,0 +1,467 @@
+{
+ "description": "R3 素材集め の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p0.prior_decisions": {
+   "type": "object",
+   "required": [
+    "material",
+    "checked",
+    "searched",
+    "settled"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "material": {
+     "type": "object",
+     "required": [
+      "status"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "status": {
+       "type": "string",
+       "enum": [
+        "found",
+        "clean",
+        "carried_over",
+        "not_applicable",
+        "awaiting_human",
+        "not_run"
+       ]
+      },
+      "count": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "detail": {
+       "type": "string"
+      },
+      "checked": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      },
+      "from_round": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    },
+    "checked": {
+     "type": "boolean"
+    },
+    "searched": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "settled": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "topic",
+       "decision",
+       "reason",
+       "revisit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "topic": {
+        "type": "string"
+       },
+       "decision": {
+        "type": "string"
+       },
+       "reason": {
+        "type": "string"
+       },
+       "revisit": {
+        "type": "string"
+       },
+       "where": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p1.main_path_observation": {
+   "type": "object",
+   "required": [
+    "material",
+    "observed"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "material": {
+     "type": "object",
+     "required": [
+      "status"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "status": {
+       "type": "string",
+       "enum": [
+        "found",
+        "clean",
+        "carried_over",
+        "not_applicable",
+        "awaiting_human",
+        "not_run"
+       ]
+      },
+      "count": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "detail": {
+       "type": "string"
+      },
+      "checked": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      },
+      "from_round": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    },
+    "observed": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "path",
+       "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "path": {
+        "type": "string",
+        "minLength": 1
+       },
+       "value": {
+        "type": "string",
+        "minLength": 1
+       }
+      }
+     }
+    }
+   }
+  },
+  "p1.provenance": {
+   "type": "object",
+   "required": [
+    "material",
+    "claims"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "material": {
+     "type": "object",
+     "required": [
+      "status"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "status": {
+       "type": "string",
+       "enum": [
+        "found",
+        "clean",
+        "carried_over",
+        "not_applicable",
+        "awaiting_human",
+        "not_run"
+       ]
+      },
+      "count": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "detail": {
+       "type": "string"
+      },
+      "checked": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      },
+      "from_round": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    },
+    "claims": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "claim",
+       "exists_at_base",
+       "evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "claim": {
+        "type": "string"
+       },
+       "exists_at_base": {
+        "type": "boolean"
+       },
+       "evidence": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p1.test_double_fidelity": {
+   "type": "object",
+   "required": [
+    "material",
+    "mismatches"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "material": {
+     "type": "object",
+     "required": [
+      "status"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "status": {
+       "type": "string",
+       "enum": [
+        "found",
+        "clean",
+        "carried_over",
+        "not_applicable",
+        "awaiting_human",
+        "not_run"
+       ]
+      },
+      "count": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "detail": {
+       "type": "string"
+      },
+      "checked": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      },
+      "from_round": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    },
+    "mismatches": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "where",
+       "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "where": {
+        "type": "string"
+       },
+       "text": {
+        "type": "string"
+       },
+       "mechanism": {
+        "type": "string"
+       },
+       "measured": {
+        "type": "string"
+       },
+       "false_positive_if": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p1.worktree_after": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "problems": {
+     "$ref": "engine#/driver_problems"
+    },
+    "rewound": {
+     "$ref": "engine#/driver_rewound"
+    },
+    "materials": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "tree_before": {
+     "$ref": "#/$defs/worktree_baseline",
+     "description": "この回の後に効いている突合の基準（作業ツリーの変化を受理して取り直した回は新しい基準）"
+    },
+    "snapshot": {
+     "$ref": "#/$defs/snapshot",
+     "description": "この回の後に効いている周の頭の審査対象（作業ツリーの変化を受理して撮り直した回は新しい版）"
+    }
+   }
+  },
+  "p1.worktree_before": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "problems": {
+     "$ref": "engine#/driver_problems"
+    },
+    "snapshot": {
+     "$ref": "#/$defs/snapshot",
+     "description": "周の頭に固めた審査対象（素材集めのブロックの出口。hist.snapshot が読む）"
+    },
+    "tree_before": {
+     "$ref": "#/$defs/worktree_baseline",
+     "description": "P1 の前後の突合の基準（git status・stash の一覧・固めた版の木の id）"
+    },
+    "changed_since_prev_round": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "前の周の P3 が触ったファイル（前の周の頭の版からこの周の頭の版の差。測れなければ前の周の p3.fix の申告。1 周目は []）"
+    },
+    "lane_rows": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/declared_face"
+     },
+     "description": "この周の頭に並行の線から判定へ渡した行（渡した時点で組み、書き換えない。hist.prev_declared_faces が読む）"
+    }
+   }
+  }
+ },
+ "$defs": {
+  "snapshot": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "rev",
+    "diff_file",
+    "changed_files",
+    "changed_files_file",
+    "stat"
+   ],
+   "properties": {
+    "rev": {
+     "type": "string",
+     "description": "固めた版（役に渡す読む版）"
+    },
+    "diff_file": {
+     "type": "string",
+     "description": "BASE → 版の差分の写し"
+    },
+    "changed_files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "changed_files_file": {
+     "type": "string",
+     "description": "変更ファイルの一覧の写し（1 行 1 ファイル）"
+    },
+    "stat": {
+     "type": "string"
+    },
+    "diff_lines": {
+     "type": "integer",
+     "description": "差分の行数（追加＋削除）"
+    },
+    "entry": {
+     "type": "boolean",
+     "description": "判定から入る run の周か（周の頭で測る。hist.request_wheres が読む）"
+    },
+    "from_old_output": {
+     "type": "boolean",
+     "description": "旧い版の rules が書いた出力から hist が読み替えた値の印"
+    },
+    "paste_file": {
+     "type": "string",
+     "description": "本文を貼る役（p1.hygiene・r2.compare）に渡す差分の写し。普通は diff_file と同じパスで、入力の予算を超えた周だけ節を要約に替えた別の写し（rules の _paste_copy）。旧い出力は hist が diff_file で埋める"
+    }
+   }
+  },
+  "worktree_baseline": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "porcelain": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "stash": {
+     "type": "string"
+    },
+    "tree": {
+     "type": "string"
+    },
+    "rev": {
+     "type": "string",
+     "description": "固めた版（周の頭の版。hist.head_revs が読む。旧い出力には無い）"
+    }
+   },
+   "required": [
+    "porcelain",
+    "stash",
+    "tree"
+   ]
+  },
+  "declared_face": {
+   "type": "object",
+   "properties": {
+    "key": {
+     "type": "string"
+    },
+    "from": {
+     "type": "string"
+    },
+    "how": {
+     "type": "string"
+    },
+    "unverified": {
+     "type": "boolean"
+    }
+   }
+  }
+ }
+}

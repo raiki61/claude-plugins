@@ -138,6 +138,9 @@
 - **履歴から作る見方 hist. を足す（2026-09-25、人が承認）**: イベントソーシングの projection と Temporal の Query の意味で定義する（読み取り専用・いつでも作り直せる・履歴に何も足さない）。盤面から写しの 20 鍵が消える。盤面を直接読む人と AI のために、engine が『正本でない・作り直せる』印を付けた控えを盤面の隣に書き出す。last_seen・last_material は定義を『閉じた周の記録＋今の周の素材集めの出口』にして突き合わせ直してから移す。
 - **実施（2026-09-26、手順 3 の 3-4 の run・判定から入る 1 周目）**: engine に `engine/hist.py` を足した。値の定義は rules の `HIST`（名前付きの関数。読む物を `hist_reads` で宣言し、engine は宣言した物だけ——閉じた周の記録・周ごとの節の出力・周の rd・宣言した loop./record. の欄——を見せる）、形は graph の最上位の `hist_schema`。条件・節の reads・プロンプトの穴から `hist.<名>` で読め、graphcheck が名前と形を照らす（検査 17）。C2 の 20 鍵を loop から外し、周の境目（on_new_round）は記録への書き込みと run の状態（B）だけを持つ。元が履歴に無かった 2 つは書く節の出力に載せた（p4.assemble の diff_lines・突合の基準 tree_before の rev）。線から判定へ渡した行は副作用を持つ出来事なので、線の台帳の行に渡した周と行を残し、hist はそこを読む。回す側の異議は loop.rejudge_requested に置いたまま周をまたぎ、hist.prev_rejudge が前の周の分を読む（patch で出した異議も届く）。`request_fixed_at` は元の実測（周の境目の作業ツリーの差）が履歴に残らないので移さず、一方向の旗のまま。控えは盤面の `hist.json`（`canonical: false`。保存のたびに作り直す。値が hist_schema から外れたら `state.hist_drift`）で、`loop.py patch` は hist の値（`hist.<名>`・`state.loop.<HIST の名前>`）を拒み、関数が読む物の宣言から値の元を直す道（節の最新の出力・今の周の記録・run の状態）を案内する——閉じた周の記録から作る部分は直す口が無いと言う（過去の周の記録を直す口は足さない。関所の答え 2026-09-26）。旧い盤面の loop に残る C2 の写しは読まず、周の境目で外す（それまでは state_schema の外として痕跡に残る）。
 - **実施（2026-09-27、手順 3 の 3-5 の run・判定から入る 1 周目）**: ブロックの出口の値（振り分け A の 18 鍵）を盤面の loop から各節の出力（schema 付き）へ移した。周の頭の審査対象は p1.worktree_before の `snapshot`（撮り直した回は p1.worktree_after の `snapshot`。読む口は `hist.snapshot`）、修正後は p4.assemble の `after_fix`（`hist.after_fix`）、前の周の P3 が触ったファイルは p1.worktree_before の `changed_since_prev_round`（周の境目で測る。関所の答え 2026-09-27）、線から判定へ渡した行は同じ節の `lane_rows`（渡す時点で組み、後から書き換えない）、判定の engine_zero は判定の出力、読了の記録と覆いの数え直しと回す側の異議は p3.fix の出力（異議の手当ては `loop.py patch --path out.p3.fix.rejudge_requested`）、修正差分は切り出しの節の `delta`、合流は p3.lane_merge の出力、TDD の赤・緑の証拠は 3 つの機械の節の出力。hist は書き換えられる loop を読まない（`LOOKUP_HEADS` から外した）。旧い盤面は人の決定どおり開けて進められる: 旧い鍵は state_schema の外として保存の時に警告（`state.loop_drift` と trace）を残し、次の周の頭で外す。今の周の旧い形の出力は hist が印 `from_old_output` つきで読み替え、欄の無い出力を読む条件は安全な側（再発火する側）へ倒して `state.unevaluable` に残す。state_schema に無い鍵への `loop.py patch --path state.loop.<鍵>` は、書いても効かないので拒み、節の出力を直す口を案内する。
+- **実施（2026-09-27、手順 3 の 3-6 の run・判定から入る 1 周目。段に割った 1 段目）**: 規則の関数の新しい形を入れた。engine の包み `Board.rule` が、読む欄を `cond_reads` で宣言した関数を読み口（条件と同じ `CondView`。宣言した欄だけ見え、読んだ値は写し）で呼び、宣言の無い旧い形の関数は盤面で呼ぶ（新旧を読み分ける）。受け付けは `{ok, reason, note, reply, effects}` を返し、拒否は `ok: false`（engine が役に返す拒否に戻す）、`reply` は補った返答で節の schema で照らし直す——`base_valid` は完全な SHA を補い、記録の base は graph の writes が書く（受け付けの関数が記録を書く例外が 1 つ減った）。run の状態（B の 10 鍵）は graph の state_schema の鍵ごとの合わせ方 `x-reducer` と effect の口（`engine/effects.py`。旧い形の関数は差し込まれる `write_loop`）だけで書き、graphcheck が rules の本文の直の書き込みを落とす（合わせ方を宣言していない research-loop は今のまま）。`loop.py patch` は飛ばした合わせ方を `state.patches` の `bypass` に残す。外の土台から呼ぶ口 `scripts/gl.py`（cond・accept・machine・exit）を置いた——盤面にも作業ツリーにも書かず、effects を当てる口は `loop.py` の 1 本のまま（関所の答え 2026-09-27）。移したのは受け付け 22 本のうち 18 本と機械の節 `delta_owed`。新旧の一致はこの機械の盤面 80 本で確かめてから旧を消した（`replay_boards.py sweep --old-rules`: 盤面が受け付けた返答と機械の節の出力の計 778 件に新旧の関数を当て、食い違い 0。新旧とも拒む 179 件は盤面を作った版の型や柵が今と違う物。条件の再生の食い違い 153 件は、この変更の前から在る旧い版の盤面の物で、変更の前後で同じ）。**次の run に渡した物**: 受け付けの `judge_output`・`fix_covers_open_units`（盤面の隣に数えた量を書く）・`local_review_covers_lenses`・`r2_design`（記録を条件つきで書く）、`WRITE_OPS` の 2 本と人の答え（`on_answer`・`on_answer_in_round`・関所の `human_gate`——記録へ書く effect の語彙を graph の writes と揃えるかが未決）、機械の節 13 本（作業ツリーと git を書く）、周の境目・記録の整合・`finalize`・`add`・`on_stop`・`on_unattended`、research-loop と review-loop-tdd の関数。
+- **同じ run で閉じた 3-5 の残り**: 同じ周の擦り合わせを `REJUDGE_PASSES` で 3 回に展開し、回ごとに回す側が再異議を書く口（`p3.rejudge_reply`・`p3.rejudge_reply2`）を置いた——往復が 1 回にしかならず第三の目が立たなかった（台本は 3 往復させて第三の目が立つのを見る）。依頼の where は `hist.request_wheres` の 1 本にし、旧い版の周の頭の出力でも入口の周かを履歴から組み直す。再生の道具から rules の読み替えの写しを消し、本番の読み替えを通った印を数える。修正後の関所は頭を除いた本文で照らし、同じ周の修正前の関所で人が通した本文を聞き直さない（修正前の関所は周ごとに毎回聞く——関所の答え 2026-09-27）。
+- **実施（2026-09-27、手順 3 の 3-7 の run・判定から入る 1 周目）**: ブロックの約束の置き場 `graphloops/blocks/` を足した（review 13・research 8・TDD の差し替え fix-tdd・共有 3）。`block.json` は `description`・`nodes`・`exit` だけで、出口の型 `exit.schema.json` は、ほかのブロックの節が読む節の出力の型を節の名前を鍵に並べた物——今の graph の節の schema を移し、graph は `$ref` で指す（正本は 1 つ。展開した後の graph は前と同じ）。出口の型が使う graph の `$defs`（snapshot・face_kind・counts・verdict・class_query・lane_reply・gate_arm ほか）は持ち主のブロックの出口のファイルへ移し、graph に残る使い手の分は別名の `$ref` にした。入口は手で持たず、graphcheck（検査 18）が読む側（reads・cond_reads・hist_reads・pointers・result_to）から導いて示す。ブロックのファイルの参照は重ねの前に各ファイルの置き場から展開する（差し替えの版が出口の型に欄を重ねる能力を残す。関所の答え 2026-09-27）。graph の同一性（graph_sha）は引いたブロックのファイルを含む。**設計（BLOCKS.md）と違う所**: 出口は集める節 1 つの schema（`ok` を持つ）でなく節ごとに束ねた形（集める節を足すと振り分けが変わるので足していない。Archon の `output_format` へは節ごとに写す）／ブロックに分けた graph を今の graph と並べて置くのでなく、今の graph がその場でブロックを指す（展開した後の姿が同じなので、並べる理由の『判定の一致を確かめてから替える』が要らない）／`run_reads`・`run_writes`・`x-reducer`・`gates`・`loops`・`slot`・`uses` は置いていない（rules の書き込みと照らせない写しになる。run の状態の書き方は 3-6）。並列の上書きは graph が宣言する書き込み（writes.to・outputs の loop.<鍵>）だけを照らし、条件つきの組（p2.rejudge と p2.rejudge_third の record.units）は印字だけで人に渡した。共有の核は、両ループで同じ名前・同じ型の欄だけ（名前の割れた欄を揃えるのは記録の欄の名前を変えることになるので範囲の外）。
 ### 手順 3b: コマンドを打つだけの節を engine の組み込みにする
 - 節の単位でなく、節の中の「走らせる・数える」を engine に、「読む・決める」を役に分ける（当初は変異テストの 2 節と、CI と数値を写す 2 節を、節ごと LLM から外すと書いていた——判定で範囲を直した）。
 - **実施（2026-09-25、判定から入る run・1 周目）**。任せ先（haiku）が走り切る前の件数で clean と書く・CI の一部の系統を飛ばす・規模の数値を写し違える、が 1 周目で止めた run の全部で出た件を受けて:
@@ -153,12 +156,12 @@
 ### 手順 3a: 条件（cond）を Python の関数にする（2026-09-25、人が承認）
 - 原則: JSON には「何を約束するか」（指示書・読み込み・返答の型・書き込み先）を置き、「どう判断するか」（条件・算術）は Python の関数に置く。
 - 条件は rules の名前付きの関数にし、graph には名前だけを書く。関数は（真偽, 理由の文）を返し、読む欄を宣言する。graphcheck は宣言を読んで「前の節の出力として実在するか」を実行前に確かめ、engine は宣言した欄だけが見える入れ物を渡して、宣言外を読んだらその場で落とす（今は検査の外の `loop.`・`record.` の葉も検査に入る）。
-- 条件ごとの真偽表を書き（実施では台本 simulate_review.py・simulate.py の test_cond_truth_tables に置いた。下の実施の項）、変異は既製の道具に任せる（graph の JSON の条件を壊す手書きの腕 13 本が要らなくなる）。
+- 条件ごとの真偽表を書き（実施では台本 simulate_review.py・simulate.py の test_cond_truth_tables に置いた。下の実施の項。research の分は後にテストの移し替えの段 S2b で pytest の `graphloops/tests/py/test_research_rules.py` へ移した）、変異は既製の道具に任せる（graph の JSON の条件を壊す手書きの腕 13 本が要らなくなる）。
 - 移し替えは、review-graph の run 20260924-081523 の 5 周分の盤面で新旧の評価が全部一致することを確かめてから切り替える。
 - 次の候補: 書き込みの宣言（writes）も同じ考え方で検討する。
 - **実施（2026-09-25、判定から入る run）**。上の計画と違えた点と、確かめた範囲:
   - 条件は `rules/<loop>.py` の `CONDS`（数は rules の CONDS が正本）。読む欄は `cond_reads(...)` で宣言し、engine は `Board.cond(名前)` から `run_cond` を通して宣言した欄だけの入れ物（`CondView`）を渡す。graph の `cond` と `applies_cond` は名前だけになり、`when` は関数の返す理由に移った。loop の鍵の名前は `rules` の `LOOP_KEYS`、形は graph の最上位の `state_schema`（JSON Schema）が正本で、graphcheck が両者を両向きでそろえ、条件・節の `reads` と `outputs`・プロンプトの穴が読む `loop.<…>` を `state_schema` の木で最後の欄まで照らす。engine は盤面を保存する時に `state_schema` で照らし、外れを `state.loop_drift` に残す（止めない。記録の `process.loop_drift` と報告に出る）。旧い評価器（engine の eval_cond と op の表・graphcheck の check_cond と check_cond_paths・rules の _without_entry）は消した。入口で外れたかは、同じ関数を入口の印を外した重ね書きの文脈でもう一度評価して決める。
-  - 真偽表は pytest でなく今の台本（`graphloops/tests/simulate_review.py`・`simulate.py` の `test_cond_truth_tables`）に置いた——この版に pytest の土台が無いため。
+  - 真偽表は pytest でなく今の台本（`graphloops/tests/simulate_review.py`・`simulate.py` の `test_cond_truth_tables`）に置いた——この版に pytest の土台が無いため。research の分（`simulate.py`）は、pytest の土台が入った後の移し替えの段 S2b で `graphloops/tests/py/test_research_rules.py` の `test_cond_truth_table` に移した（review の分はまだ台本に在る）。
   - 手書きの腕は消さずに付け替えた（EN1・EN2・EN4・EN6〜EN9・EN14・EJ4〜EJ9・LP2。graph の JSON の木を壊していた 7 本は rules の各条件の行を壊す形に）。既製の道具に任せるのは変異テストの道具の移行（下の「作り直しと独立に進められるもの」）と一緒に。
   - 新旧の突き合わせは、本体の `.git/graphloops/review-loop/` の 9 run（36 周）に旧（3643420 の engine と graph）と新を当てた。周ごとの文脈は、rounds を r 周までに切り、出力を r 周までに done した instance から組み直した近似で、loop と record は最終の値しか残っていない——歴史の再現ではなく、同じ入力に新旧を当てた一致である。結果は 1,188 評価で真偽の不一致 0（旧が落ちた 1 件は新も同じ欄で落ちる）。loop と record の欄を同じ種で揺らした盤面（各周 40 通り、48,708 評価）でも真偽の不一致 0。research-loop の盤面は置き場に 1 本も無いので、research の条件（6 節・関数 5 個）は、真偽表と、種つきで揺らした文脈 5,000 通り（30,000 評価）に旧の eval_cond と新の関数を当てた突き合わせ（不一致 0）で確かめた。
 
@@ -226,7 +229,7 @@
 
 
 ### 作り直しと独立に進められるもの
-- 変異テストの道具（`tests/mutate.py` の自動モード）を既製品（cosmic-ray）に寄せる。このリポジトリで動かして比べる実測から始める。
+- 変異テストの道具（`tests/mutate.py` の自動モード）を既製品（cosmic-ray）に寄せる。このリポジトリで動かして比べる実測から始める。（2026-09-27 に向きを変えた: 人の決定『変異の関門は pytest を中心にする』で、自動モードは自前の実行器のまま pytest の段を持つ——印の写しで行を通した pytest のテストを先に撃つ。既製品に寄せない理由は `tests/mutate.py` の冒頭）
 - 修正差分の検算の指示書（`graphloops/prompts/review-loop/p3.delta_gates.md`）が、このリポジトリの道具名 `tests/mutate.py` を直接書いている。プラグインが特定のリポジトリに縛られるので、対象側の `REVIEW.md` が名指しする道具を使う書き方に直す。
 
 ## 6. 人が決めること
@@ -286,7 +289,7 @@
 列の外（空きがあれば並行で）:
 - 人の操作を待つもの: 変異テストの CI（.github/workflows/mutation.yml）の初回の手動実行（この環境の gh には権限が無い。人が `gh workflow run mutation.yml --ref main` か GitHub の画面から）。
 - 判定が先送りにした問い 2 件を、別の依頼として判定から流す: 非公開の対象で Web の検索語に固有名を入れない方針／REVIEW.md に待ちの生存の観点を足すか（姉妹プラグインと共有する文書なので、共有先への影響も見る。2026-09-25 の合流で観点の一覧に 1 行足した）。
-- テストを pytest に移す作業（触った所から。bash 側は同じ変更で消す）と、変異テストの道具の既製品への寄せ（pytest がある所は mutmut）。
+- テストを pytest に移す作業（触った所から。bash 側は同じ変更で消す）と、変異テストの道具の既製品への寄せ（pytest がある所は mutmut）。（2026-09-27: 差分の行の変異は `tests/mutate.py` が pytest も撃つ形に変えた。mutmut はモジュールを丸ごと撃つ道具として残し、撃つのは CI。載せる workflow は別の変更）
 - docs/graphloops-prior-art.md への訂正の記録（乗り換えを決めた後に 1 回で）。
 - writes の宣言を関数に移すかの検討（条件を関数にした後）。
 
@@ -310,7 +313,7 @@
 11. 開発手法をブロックとして載せる（手順 5）: TDD・仕様駆動・検算を並行の線に出す版・不変条件のテストへの昇格・既製の静的解析・指示書のゴールデンテスト・性質ベースのテスト。足すたびに効き目を測る。
 
 ### 作り直しと独立に進めるもの
-12. 変異テストの道具（tests/mutate.py の自動モード）を既製品に寄せる（3 の測定から。テストの pytest 化と一緒に）。
+12. 変異テストの道具（tests/mutate.py の自動モード）を既製品に寄せる（3 の測定から。テストの pytest 化と一緒に）。（2026-09-27 に向きを変えた: 自動モードは自前の実行器のまま、行を通した pytest のテストを先に撃つ。人の決定『変異の関門は pytest を中心にする』）
 13. graphloops/prompts/review-loop/p3.delta_gates.md が、このリポジトリの道具名 tests/mutate.py を直接書いている漏れを直す。（2026-09-25 済み: p1.gate_efficacy と同じく、実行器は対象リポジトリの REVIEW.md が名指しする物を使い、一覧を持たないリポジトリは手で撃つ書き方にした）
 14. docs/graphloops-prior-art.md（2026-09-12 の載せ替えの見立て）に、今回の見直し（崩れた前提・LangGraph の試作・行数の見積もり・保留の判断）を訂正の記録として足す。
 

@@ -1,0 +1,8 @@
+{
+ "description": "R4 判定（BLOCKS.md 3 節）。根本の単位と問いの台帳を確定する（出す物は記録の units・questions）",
+ "nodes": [
+  "p2.diagnose",
+  "p2.history",
+  "p2.fix_units"
+ ]
+}

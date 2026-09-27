@@ -1,0 +1,231 @@
+{
+ "description": "R11 独立の目 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p4.assemble": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "problems": {
+     "$ref": "engine#/driver_problems"
+    },
+    "open_units": {
+     "type": "integer"
+    },
+    "r1_refire": {
+     "type": "boolean"
+    },
+    "r2_refire": {
+     "type": "boolean"
+    },
+    "lines_ratio": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "ledger_changed": {
+     "type": "boolean"
+    },
+    "purpose_known": {
+     "type": "boolean"
+    },
+    "retaken": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "file": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "file"
+     ],
+     "description": "R1〜R4 に渡すために取り直した写しの痕跡（after_fix.diff_file と同じ置き場）"
+    },
+    "diff_lines": {
+     "type": "integer",
+     "description": "P3 の後の対象差分の行数（hist.diff_lines_by_round・hist.lines_at_r1 が読む）"
+    },
+    "after_fix": {
+     "$ref": "../material/exit.schema.json#/$defs/snapshot",
+     "description": "修正の後に撮り直した審査対象（独立の目の入口の出口。周の頭の snapshot と別の欄。hist.after_fix が読む）"
+    },
+    "purpose_unusable": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "目的の出典が R2 に使えない理由（目的不明・狭めている。使えるなら null）"
+    }
+   }
+  },
+  "r1.minimality": {
+   "type": "object",
+   "required": [
+    "status",
+    "reason",
+    "deletions",
+    "ledger_audit",
+    "increments"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "status": {
+     "type": "string",
+     "enum": [
+      "pass",
+      "redesign-needed",
+      "unverifiable"
+     ]
+    },
+    "reason": {
+     "type": "string",
+     "minLength": 1
+    },
+    "deletions": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "where",
+       "why"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "where": {
+        "type": "string",
+        "minLength": 1,
+        "note": "照合される側（p2.diagnose.carried_r1[].where）は minLength を持つのに、正本のこちらが持たないと、空文字が schema を通ったうえで数える口から黙って落ち、次の周の judge はその候補について 1 行も書かなくてよくなる（実測 2026-09-16・静的）"
+       },
+       "why": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "ledger_audit": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "increments": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "candidates_note": {
+     "type": "string"
+    }
+   }
+  },
+  "r3.coherence": {
+   "type": "object",
+   "required": [
+    "status",
+    "reason"
+   ],
+   "properties": {
+    "status": {
+     "type": "string",
+     "enum": [
+      "pass",
+      "redesign-needed",
+      "unverifiable"
+     ]
+    },
+    "reason": {
+     "type": "string",
+     "minLength": 1
+    }
+   }
+  },
+  "r4.hidden_scope": {
+   "type": "object",
+   "required": [
+    "status",
+    "reason",
+    "capability_inventory",
+    "policy_conflicts",
+    "surfaced"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "status": {
+     "type": "string",
+     "enum": [
+      "pass",
+      "redesign-needed",
+      "unverifiable"
+     ]
+    },
+    "reason": {
+     "type": "string",
+     "minLength": 1
+    },
+    "capability_inventory": {
+     "type": "object",
+     "required": [
+      "fired"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "fired": {
+       "type": "boolean"
+      },
+      "lost": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "note": {
+       "type": "string"
+      }
+     }
+    },
+    "policy_conflicts": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "surfaced": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "where",
+       "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "where": {
+        "type": "string"
+       },
+       "text": {
+        "type": "string"
+       },
+       "mechanism": {
+        "type": "string"
+       },
+       "measured": {
+        "type": "string"
+       },
+       "false_positive_if": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

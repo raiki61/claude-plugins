@@ -200,7 +200,7 @@ def test_graph_without_state_schema_keeps_the_old_checks_and_warns_on_init(sandb
 # ---------------------------------------------------------------- 差し替えの版（extends）と research
 @pytest.fixture()
 def place(tmp_path):
-    for d in ("prompts", "rules"):
+    for d in ("prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     (tmp_path / "graphs").mkdir()
     return tmp_path

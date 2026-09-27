@@ -150,7 +150,9 @@
       "r2.compare": "cond r2_compare_due: R2 のゼロベース再導出が、問いは立っていないと言った",
       "p4.final_gates": "cond final_gate_due: 検証器の阻害なしか、この周の CI の緑（engine が走らせた物）が欠ける"
      },
+     "skipped": {},
      "stopped": {},
+     "empty": [],
      "instances": {}
     }
    ],

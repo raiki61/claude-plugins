@@ -1,0 +1,16 @@
+{
+ "description": "X1 の核: 突き合わせたか・何を探したか",
+ "type": "object",
+ "required": [
+  "checked",
+  "searched"
+ ],
+ "properties": {
+  "checked": {
+   "type": "boolean"
+  },
+  "searched": {
+   "type": "array"
+  }
+ }
+}

@@ -2,6 +2,8 @@
 
 並行作業を**見渡して、戻る**ための道具。見渡す 1 本と、戻り方 2 本——**失われているものが違う。**
 
+版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（tag の名前と付ける commit・変更の記録を書き足す段）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
+
 | コマンド | いつ使うか | 失われているもの |
 |---|---|---|
 | `/whose-turn` | 全件を一度に見渡すとき | **今どこに何が残っていて、誰の番か** |

@@ -26,6 +26,9 @@ for v in GL_SHARD_TOTAL GL_SHARD_INDEX GL_SHARD_GROUP GL_SHARD_MANIFEST; do
     [ -n "${!v+x}" ] && GL_SHARD_ENV+=("$v=${!v}")
     unset "$v"
 done
+# 止める猶予の環境変数（graphloops/engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を
+# 走らせると値を継ぎ、既定の 5 秒を前提に子を止める検査がその下でだけ崩れる（読めない値なら engine の import で全部落ちる）
+unset GL_KILL_GRACE
 # **番人自身に `assert` を使うな。** 最適化が効いていると `assert __debug__` ごと消えるので、
 # 番人が常に通る（実測: この形で書いたとき、最適化を効かせた写しが 529 件すべて緑になった）。
 # 検査したい当のものを、検査の道具に使わない——値を印字して外から見る。
@@ -1676,10 +1679,43 @@ def _bad_version(d):
 assert _bad_version({}) and _bad_version({"version": ""}) and _bad_version({"version": "1.2"}) \
     and _bad_version({"version": "v1.2.3"}), "版の柵が、宣言の欠けや形の違いを拾えていない"
 assert _bad_version({"version": "0.15.0"}) is None, "版の柵が、正しい宣言まで拾っている"
-for sub in sorted(p2.parent.parent for p2 in root.glob("*/.claude-plugin/plugin.json")):
+# **配る plugin の一覧は marketplace.json の plugins[] から導く。** `*/.claude-plugin` の glob だけでは、根が ./ の
+# plugin（リポジトリのルート）が網から落ちる。glob の列挙も残し、一覧に無い置き場も今どおり照らす。
+_dist = {}
+for p in mk["plugins"]:
+    src = p.get("source")
+    assert isinstance(src, str) and src.startswith("./"), \
+        f"marketplace.json の {p.get('name')} の source が ./ で始まる置き場でない: {src!r}（検査は手元の置き場だけを照らせる）"
+    _dist[p["name"]] = (root/src).resolve()
+for sub in sorted({*_dist.values(), *(p2.parent.parent.resolve() for p2 in root.glob("*/.claude-plugin/plugin.json"))}):
+    _pj = (sub/".claude-plugin/plugin.json").relative_to(root.resolve()).as_posix()
     d = json.loads((sub/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
     why = _bad_version(d)
-    assert why is None, f"{sub.name}/.claude-plugin/plugin.json: {why}"
+    assert why is None, f"{_pj}: {why}"
+
+# **配る plugin の今の版は、それぞれの根の変更の記録（CHANGELOG.md）に見出しを持つ。** 版を上げて記録を書き忘れると、
+# 利用者が手元の版の番号から中身へ辿れない（手順は docs/releasing.md）。射程は見出しが在ることまで——中身が Unreleased
+# に残った形は見ない。
+def _changelog_gap(version, text):
+    """版 version の見出しが記録の本文 text に無い理由（在れば None）。ファイルが無いときは空の本文を渡す。"""
+    if not _re.search(rf"^## \[{_re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}(?: \[YANKED\])?[ \t]*$", text, _re.M):
+        return f"## [{version}] - YYYY-MM-DD の見出しが無い"
+    return None
+assert _changelog_gap("0.2.0", "") and _changelog_gap("0.2.0", "## [0.2.0]\n") \
+    and _changelog_gap("0.2.0", "## [Unreleased]\n") and _changelog_gap("0.2.0", "## [0.1.0] - 2026-01-01\n") \
+    and _changelog_gap("0.2.0", "## [0x2x0] - 2026-01-01\n") and _changelog_gap("0.2.0", "- ## [0.2.0] - 2026-01-01\n"), \
+    "記録の見出しの柵が、見出しの欠け・日付の欠け・別の版を拾えていない"
+assert _changelog_gap("0.2.0", "# t\n\n## [Unreleased]\n\n## [0.2.0] - 2026-01-01\n") is None \
+    and _changelog_gap("0.2.0", "## [0.2.0] - 2026-01-01 [YANKED]\n") is None, \
+    "記録の見出しの柵が、正しい見出しまで拾っている"
+for name, sub in sorted(_dist.items()):
+    d = json.loads((sub/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+    assert d.get("name") == name, \
+        f"marketplace.json の {name} の source が指す plugin.json の name が {d.get('name')!r}（記録と tag の名前を取り違える）"
+    _cl = sub/"CHANGELOG.md"
+    why = _changelog_gap(d["version"], _cl.read_text(encoding="utf-8") if _cl.is_file() else "")
+    assert why is None, \
+        f"{_cl.relative_to(root.resolve()).as_posix()}（{name}）: {why}（版を上げた commit で見出しを足す。手順は docs/releasing.md）"
 
 # 局所レビューの依存は公式の宣言機構で入れる。宣言が消えると pr-review-toolkit が
 # 入らないまま「欠陥の観点が 1 つ静かに欠けたレビュー」が通るので、宣言の実在を検査する。
@@ -1997,7 +2033,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=591
+EXPECTED_CHECKS=595
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3427,19 +3463,25 @@ expect_output 0 "no_evidence=b,e d=NoCoverage a=True c=True" "expect を宣言�
     "$PY_BIN" "$WORK/mut-eval.py" "$ROOT/tests"
 # 時間切れの腕は赤でなく『走り切らない』（壊した行と無関係の打ち切りを赤と数えない）
 cat > "$WORK/mut-timeout.py" <<'PYTO'
-import pathlib, sys, tempfile
+import contextlib, pathlib, sys, tempfile
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
 sys.path.insert(0, sys.argv[1])
 import mutate
 d = pathlib.Path(tempfile.mkdtemp()); (d / "repo" / "t").mkdir(parents=True); (d / "repo" / "t" / "f.py").write_text("x = 1\n")
-mutate.copy = lambda tag: (d / "repo", d)
+leased = []
+# one が写しを得る口（lease）を差し替える——差し替えが経路から外れれば leased=0 で赤
+@contextlib.contextmanager
+def fake_lease(tag, a=None):
+    leased.append(tag)
+    yield d / "repo", d
+mutate.lease = fake_lease
 mutate.run_group = lambda *a, **k: ("timeout", "")
 r = mutate.one({"id": "t1", "title": "t", "file": "t/f.py", "suite": "root", "old": "x = 1", "new": "x = 2"})
-print(f"status={r['status']} killed={r['status'] == 'Killed'} unrunnable={r.get('unrunnable')}")
+print(f"status={r['status']} killed={r['status'] == 'Killed'} unrunnable={r.get('unrunnable')} leased={len(leased)}")
 PYTO
-expect_output 0 "status=Timeout killed=False unrunnable=時間切れ" "時間切れの腕は赤でなく走り切らない（Timeout）" \
+expect_output 0 "status=Timeout killed=False unrunnable=時間切れ leased=1" "時間切れの腕は赤でなく走り切らない（Timeout）" \
     "$PY_BIN" "$WORK/mut-timeout.py" "$ROOT/tests"
 # 版から変わったファイルには、未追跡の新しいファイルも入る（git diff は未追跡を出さない）
 mkdir -p "$WORK/chg" && git -C "$WORK/chg" init -q && printf 'a\n' > "$WORK/chg/a.txt" && git -C "$WORK/chg" add -A \
@@ -3656,7 +3698,7 @@ expect_output 0 "ids=True cover=['?', 'simulate.py~test_probe'] ws_plain=False t
     "$PY_BIN" "$WORK/mut-owner.py" "$ROOT/tests" "$ROOT/graphloops/tests"
 # Google 型の絞り（1 行 1 本・効かない行）と、行を通した台本だけで撃つ・一式での確かめ直しは --confirm-survivors の回だけ・赤の出どころ
 cat > "$WORK/mut-narrow.py" <<'PYNAR'
-import pathlib, sys, tempfile
+import contextlib, pathlib, sys, tempfile
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8")
@@ -3682,7 +3724,12 @@ print(f"one_per_line={max(per_line.values()) == 1} line6={kinds6} every={len(eve
 d = pathlib.Path(tempfile.mkdtemp())
 (d / "repo").mkdir()
 calls = []
-mutate.copy = lambda tag: (d / "repo", d)
+leased = []
+@contextlib.contextmanager
+def fake_lease(tag, a=None):
+    leased.append(tag)
+    yield d / "repo", d
+mutate.lease = fake_lease
 mutate.mutate = lambda repo, a: None
 state = {"sel": 0, "full": 1}
 mutate.run_selected = lambda repo, tests, failfast=False: calls.append(("sel", tests, failfast)) or {"rc": state["sel"], "failed": ["F sel"] if state["sel"] else [], "tail": [], "selected": True}
@@ -3717,11 +3764,127 @@ s = mutate.evaluate(res, [{"id": "u1"}, {"id": "g1"}])
 g = mutate.gate_efficacy({**res, "summary": s})
 out.append(f"evidence={bool(res['arms'][0]['evidence'])} unrelated={s['unrelated']} narrowed_green={s['narrowed_green']} pruned={s['pruned']}"
            f" note={'確かめていない' in g['arms'][1].get('note', '')} material={'pruned' in g['material'].get('detail', '')}")
+out.append(f"leased={len(leased)}")
 print(" ".join(out))
 PYNAR
 expect_output 0 "one_per_line=True line6=['cond'] every=11>5 pruned=6==6 why=['1 行 1 本', '効かない行'] arid=['log.debug', 'logging.info', 'time.sleep'] module_line=False fn_line=True
-narrow=['sel'] tests={'graphloops/tests/simulate.py': ['test_a'], 'graphloops/tests/simulate_review.py': ['test_b']} failfast=True status=Survived selected=True unknown=['full'] module=['full'] outside=['full'] confirm=['sel', 'full'] Killed unrelated red_narrow=['sel'] narrowed red_full=unattributed evidence=True unrelated=['u1'] narrowed_green=['g1'] pruned=1 note=True material=True" "Google 型の絞り: 自動の腕は 1 行 1 本（cond を残す）・効かない行（ログ・待ち）は作らず pruned に理由つき（--every-node 相当で全部）。行を通した台本が全部分かる関数の中の行だけ、その台本で撃つ（? ・import の時の行・一覧の外の台本は一式）。一式の確かめ直しは --confirm-survivors の回だけで、赤の出どころは記録に残り証拠は外さない。--gate-efficacy は一式で確かめていない緑と pruned を言う" \
+narrow=['sel'] tests={'graphloops/tests/simulate.py': ['test_a'], 'graphloops/tests/simulate_review.py': ['test_b']} failfast=True status=Survived selected=True unknown=['full'] module=['full'] outside=['full'] confirm=['sel', 'full'] Killed unrelated red_narrow=['sel'] narrowed red_full=unattributed evidence=True unrelated=['u1'] narrowed_green=['g1'] pruned=1 note=True material=True leased=7" "Google 型の絞り: 自動の腕は 1 行 1 本（cond を残す）・効かない行（ログ・待ち）は作らず pruned に理由つき（--every-node 相当で全部）。行を通した台本が全部分かる関数の中の行だけ、その台本で撃つ（? ・import の時の行・一覧の外の台本は一式）。一式の確かめ直しは --confirm-survivors の回だけで、赤の出どころは記録に残り証拠は外さない。--gate-efficacy は一式で確かめていない緑と pruned を言う" \
     "$PY_BIN" "$WORK/mut-narrow.py" "$ROOT/tests"
+cat > "$WORK/mut-pytest.py" <<'PYPYT'
+import json, os, pathlib, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+out = []
+# 1) 起こし方の頭（版の固定）は、宣言の suite の段のどれかの頭と同じで、その段は置き場を丸ごと渡す
+decl = json.loads((pathlib.Path(sys.argv[2]) / ".review-checks.json").read_text(encoding="utf-8"))
+out.append("decl_bound=" + str(any(s["argv"][:len(mutate.PYTEST)] == mutate.PYTEST and s["argv"][-1] == mutate.PYDIR for s in decl["suite"])))
+# 2) 撃ち方の選び方（基点に置き場のテストのファイルが 2 本）
+b = pathlib.Path(tempfile.mkdtemp())
+(b / mutate.PYDIR).mkdir(parents=True)
+for f in ("test_a.py", "test_b.py"):
+    (b / mutate.PYDIR / f).write_text("", encoding="utf-8")
+mutate.base = lambda: b
+auto = {"start": 0, "end": 0, "new": "False", "stmt": False, "in_function": True}
+arm = lambda pc, cover=None, **k: {"id": "auto:graphloops/engine/x.py:6:7:cond", "title": "cond: a", "file": "graphloops/engine/x.py",
+                                   "suite": "graphloops", "auto": {**auto, **k}, **({"pytest_cover": pc} if pc else {}),
+                                   **({"cover": cover} if cover else {})}
+pick = lambda *a, **k: mutate.pytest_pick(arm(*a, **k))
+out.append(f"nodes={pick(['test_a.py::t1', 'test_a.py::t2'])} all_files={pick(['test_a.py::t1', 'test_b.py::u'])[1]}"
+           f" long={pick(['test_a.py::t' + 'x' * 9000])} unknown={pick(['test_a.py::t1', '?'])} import={pick(['test_a.py::t1'], in_function=False)}"
+           f" none={pick(None)} list={mutate.pytest_pick({'id': 'l1'})}")
+# 3) pytest の赤の読み方と起こし方（node id なら -n 0、-x は failfast の回だけ、印の変数は子に渡さない）
+seen = {}
+def fake_group(argv, cwd, env=None, failfast=False):
+    seen.update(argv=argv, env=env)
+    return seen["ret"]
+mutate.run_group = fake_group
+os.environ[mutate.PYTEST_MARK] = "?"
+reads = []
+for ret in ((1, "x\nFAILED test_a.py::t1 - AssertionError: y\nERROR test_b.py::u\n"), (1, "件数の柵\n"), (2, "ERROR test_a.py\n"), (2, ""), (5, ""), (4, ""), (0, "")):
+    seen["ret"] = ret
+    r = mutate.run_pytest(pathlib.Path("."), [mutate.PYDIR + "/test_a.py::t1"], failfast=True)
+    reads.append(f"{r['rc']}:{','.join(r['failed'])}")
+del os.environ[mutate.PYTEST_MARK]
+n_nodes, x_nodes, mark_env = seen["argv"][seen["argv"].index("-n") + 1], "-x" in seen["argv"], mutate.PYTEST_MARK in seen["env"]
+mutate.run_pytest(pathlib.Path("."), [mutate.PYDIR])
+out.append(f"reads={reads} n_nodes={n_nodes} x={x_nodes} n_whole={seen['argv'][seen['argv'].index('-n') + 1]} x_whole={'-x' in seen['argv']}"
+           f" mark_env={mark_env}")
+# 4) one の撃ち分け: 台本と pytest の走らせ方を差し替え、呼ばれた順を見る
+d = pathlib.Path(tempfile.mkdtemp())
+(d / "repo").mkdir()
+calls, state = [], {}
+mutate.copy = lambda tag: (d / "repo", d)
+mutate.mutate = lambda repo, a: None
+def fake_py(repo, args, failfast=False):
+    whole = args == [mutate.PYDIR]
+    calls.append("pyall" if whole else "py")
+    rc = state["pyall" if whole else "py"]
+    return {"rc": rc, "failed": ["test_a.py::t1"] if rc == 1 else [], "tail": []}
+mutate.run_pytest = fake_py
+mutate.run_selected = lambda repo, tests, failfast=False: calls.append("sel") or {"rc": state["sel"], "failed": ["F sel"] if state["sel"] else [], "tail": [], "selected": True}
+mutate.run_suite = lambda repo, suite, failfast=False, env=None: calls.append("full") or {"rc": state["full"], "failed": ["F full"] if state["full"] else [], "tail": []}
+def shot(pc, cover=("simulate.py~test_a",), stage=True, confirm=False, py=0, pyall=0, sel=0, full=0):
+    calls.clear(); mutate.PYTEST_STAGE = stage; mutate.CONFIRM = confirm; state.update(py=py, pyall=pyall, sel=sel, full=full)
+    r = mutate.one(arm(pc, list(cover) if cover else None))
+    return f"{'+'.join(calls)}:{r['status']}:{r.get('attribution')}"
+P = ["test_a.py::t1"]
+out.append("one=" + " ".join([
+    shot(P, py=1),                                    # pytest が赤 → 打ち切り
+    shot(["?"], pyall=1),                             # 帰属できない → pytest 一式で赤
+    shot(P, sel=1),                                   # pytest が緑 → 台本の道も撃つ（台本だけが殺す腕を残す）
+    shot(P),                                          # 両方緑
+    shot(P, confirm=True, pyall=1),                   # 確かめ直し: 台本一式も緑 → pytest 一式で赤
+    shot(P, cover=None),                              # 台本は通らない → 台本は撃たない
+    shot(P, cover=None, py="no-test"),                # 台本は通らず pytest も撃てない
+    shot(P, py="no-test", sel=1),                     # pytest が撃てない → 台本の道
+    shot(P, stage=False, sel=1),                      # pytest の段を足さない回は今のまま
+]))
+calls.clear(); mutate.PYTEST_STAGE = True; mutate.CONFIRM = False; state.update(py=0, pyall=0, sel=0, full=0)
+g = mutate.one(arm(P, ["simulate.py~test_a"]))
+o = mutate.one(arm(P, None))
+out.append(f"flags=sel:{g.get('selected')}/pysel:{g.get('pytest_selected')}/how:{g['pytest']['how']} only:{o.get('pytest_only')}/pysel:{o.get('pytest_selected')}")
+# 5) evaluate: control の pytest が赤の回は、pytest の赤だけを証拠にしない（台本の赤は残し、回は健全のまま）
+res = {"marker": {"placed": ["k1", "k2", "g1", "n1"], "seen": ["k1", "k2", "g1"], "script_seen": ["k1"], "pytest_seen": ["k2", "g1"], "rc": 0},
+       "control": {"root": {"rc": 0}, "pytest": {"rc": 1}},
+       "arms": [{"id": "k1", "title": "t", "status": "Killed", "own": False, "attribution": "narrowed"},
+                {"id": "k2", "title": "t", "status": "Killed", "own": False, "attribution": "pytest"},
+                {"id": "g1", "title": "t", "status": "Survived", "own": False, "pytest_only": True, "pytest_selected": True,
+                 "pytest": {"how": "nodes"}},
+                {"id": "n1", "title": "t", "status": "Survived", "own": False}]}
+s = mutate.evaluate(res, [{"id": i} for i in ("k1", "k2", "g1", "n1")])
+st = {r["id"]: (r["status"], bool(r["evidence"])) for r in res["arms"]}
+gate = {x["arm"].split()[0]: x.get("note", "") for x in mutate.gate_efficacy(res)["arms"]}
+out.append(f"eval={st} control_ok={s['control_ok']} py_ctl={s['pytest_control_ok']} by_pytest={s['by_pytest']} only={s['pytest_only']}"
+           f" how={s['pytest_how']} pysel_green={s['pytest_narrowed_green']} narrowed_green={s['narrowed_green']}")
+py_off = [("pytest の段を使っていない" in mutate.gate_efficacy(r)["material"].get("detail", "")) for r in
+          ({**res, "pytest_stage": "uv が PATH に無い"}, {**res, "marker": {**res["marker"], "pytest": {"rc": 1, "why": "印の写しの pytest が緑でない"}}}, res)]
+out.append(f"gate_g1={gate['g1']} gate_k2={gate['k2']} py_off={py_off}")
+# 6) 持ち越しの指紋: pytest の置き場と宣言を直すと自動の腕だけ撃ち直す（一覧の腕は pytest を撃たないので持ち越す）
+fr = pathlib.Path(tempfile.mkdtemp())
+(fr / mutate.PYDIR).mkdir(parents=True)
+(fr / "x.py").write_text("x = 1\n", encoding="utf-8")
+la, aa = {"id": "l1", "file": "x.py"}, {"id": "a1", "file": "x.py", "auto": dict(auto)}
+fps = lambda: (mutate.fingerprint(fr, la), mutate.fingerprint(fr, aa))
+f0 = fps()
+(fr / mutate.PYDIR / "test_z.py").write_text("", encoding="utf-8")
+f1 = fps()
+(fr / ".review-checks.json").write_text("{}", encoding="utf-8")
+f2 = fps()
+out.append(f"fp_list_kept={f0[0] == f1[0] == f2[0]} fp_auto_moved={f0[1] != f1[1] != f2[1]}")
+print("\n".join(out))
+PYPYT
+expect_output 0 "decl_bound=True
+nodes=(['graphloops/tests/py/test_a.py::t1', 'graphloops/tests/py/test_a.py::t2'], 'nodes') all_files=files long=(['graphloops/tests/py/test_a.py'], 'files') unknown=(['graphloops/tests/py'], 'unknown_owner') import=(['graphloops/tests/py'], 'import_time') none=(None, 'no_cover') list=(None, 'not_auto')
+reads=['1:test_a.py::t1,test_b.py::u', '1:pytest の柵（fence）が赤', '2:test_a.py', 'no-test:', 'no-test:', 'no-test:', '0:'] n_nodes=0 x=True n_whole=4 x_whole=False mark_env=False
+one=py:Killed:pytest pyall:Killed:pytest_whole py+sel:Killed:narrowed py+sel:Survived:None py+sel+full+pyall:Killed:pytest_unrelated py:Survived:None py:RuntimeError:None py+sel:Killed:narrowed sel:Killed:narrowed
+flags=sel:True/pysel:True/how:nodes only:True/pysel:True
+eval={'k1': ('Killed', True), 'k2': ('Killed', False), 'g1': ('Survived', False), 'n1': ('NoCoverage', False)} control_ok=True py_ctl=False by_pytest=['k2'] only=['g1', 'k2'] how={'nodes': 1} pysel_green=['g1'] narrowed_green=[]
+gate_g1=Survived（台本は行を通さないので撃っていない。絞った pytest だけで緑。pytest 一式では確かめていない——--confirm-survivors で確かめ直せる） gate_k2=pytest の赤だが、壊していない写しの pytest も赤（control） py_off=[True, True, False]
+fp_list_kept=True fp_auto_moved=True" "pytest の段: 起こし方の頭は宣言の pytest の段と同じ版。行を通したテストの node id で絞り（長すぎる・全ファイルに及ぶならファイル単位、帰属できない・import の時の行は一式）、赤と読むのは rc 1 と ERROR の在る rc 2 だけ。pytest が赤なら打ち切り、緑・撃てないなら今の台本の道を必ず撃つ（台本が通らない行は撃たない）。確かめ直しは pytest 一式も。control の pytest が赤の回は pytest の赤だけを証拠にせず、--gate-efficacy は台本を撃っていない緑と、pytest の段が外れた回をそう言う。pytest の置き場と宣言は自動の腕の指紋にだけ入る" \
+    "$PY_BIN" "$WORK/mut-pytest.py" "$ROOT/tests" "$ROOT"
 # 腕の写しは版に入るファイルだけで、写しの腕の一覧は空（写しの --check が壊した字列で赤になり、生き残りを Killed と書かない）
 cat > "$WORK/mut-copy.py" <<'PYCOPY'
 import json, pathlib, subprocess, sys, tempfile
@@ -3750,6 +3913,146 @@ print(f"arms_in_copy={len(seen['arms'])} git={seen['git']} status={r['status']}"
 PYCOPY
 expect_output 0 "arms_in_copy=0 git=True status=Killed" "腕の写しは腕の一覧を空にして台本を走らせ、.gitignore に当たる物は写さない（写しの --check で赤を作らない）" \
     "$PY_BIN" "$WORK/mut-copy.py" "$ROOT/tests"
+# 写しの使い回し（lease）: 腕を撃った写しは基点に戻して照合し、次の腕へ渡す。前の腕の状態（壊した字列・.pyc・一時物）が次の腕に
+# 漏れれば偽の赤・偽の緑になるので、漏れの道ごとに、使い回すか捨てるかを見る
+cat > "$WORK/mut-lease.py" <<'PYLEASE'
+import os, pathlib, subprocess, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+tempfile.tempdir = str(pathlib.Path(tempfile.mkdtemp()))
+src = pathlib.Path(tempfile.mkdtemp()) / "src"
+(src / "tests").mkdir(parents=True)
+(src / "tests" / "mutations.json").write_text('{"arms": [{"id": "z1"}]}\n', encoding="utf-8")
+(src / "a.py").write_text("X = 1\n", encoding="utf-8")
+(src / "b.txt").write_text("p\n", encoding="utf-8")
+(src / ".gitignore").write_text(".pytest_cache/\n__pycache__/\n", encoding="utf-8")
+# 写しの台本: 前の腕の一時物が見えたら赤、a.X が 1 でなければ赤（読んだ値を出す）
+py = pathlib.Path(sys.executable).as_posix()
+(src / "tests" / "run.sh").write_text(
+    'if [ -e "$TMPDIR/leak" ]; then echo "  FAIL leak"; exit 1; fi\n: > "$TMPDIR/leak"\n'
+    f'"{py}" -c "import a, sys; a.X == 1 or print(\'  FAIL got=%d\' % a.X); sys.exit(a.X != 1)"\n', encoding="utf-8", newline="\n")
+subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)
+mutate.ROOT = src
+arm = lambda i, f, old, new: {"id": i, "title": i, "file": f, "suite": "root", "old": old, "new": new}
+# 同じファイルに同じ大きさの腕を続ける——.pyc が写しの木に残れば、2 本目は前の腕のバイトコードを読みうる（mtime の秒とサイズが同じ）
+rs = [mutate.one(x) for x in (arm("a1", "a.py", "X = 1", "X = 2"), arm("a2", "a.py", "X = 1", "X = 3"), arm("a3", "b.txt", "p", "q"))]
+out = [" ".join(f"{r['id']}={r['status']}:{','.join(r['killedBy']) or '-'}" for r in rs),
+       f"made={mutate.COPIES['made']} reused={mutate.COPIES['reused']}"]
+def after(fn):
+    mutate.COPIES.clear()
+    try:
+        with mutate.lease("t") as (repo, d):
+            fn(repo, d)
+    except RuntimeError:
+        pass
+    k = [k for k in mutate.COPIES if k.startswith("discarded:")]
+    return k[0].split(":", 1)[1].split("（")[0] if k else "kept"
+git = lambda *a: (lambda repo, d: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=repo, capture_output=True, check=True))
+def boom(repo, d):
+    raise RuntimeError("検査用")
+def stray_proc(repo, d):
+    stray_proc.p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], cwd=repo,
+                                    **({"start_new_session": True} if os.name == "posix" else {}))
+cases = {"stray": lambda repo, d: (repo / "stray.txt").write_text("x", encoding="utf-8"),
+         "emptydir": lambda repo, d: (repo / "emptydir").mkdir(),
+         "edit": lambda repo, d: (repo / "b.txt").write_text("z\n", encoding="utf-8"),
+         "pytest_cache": lambda repo, d: ((repo / ".pytest_cache" / "v").mkdir(parents=True), (repo / ".pytest_cache" / "v" / "x").write_text("1")),
+         "branch": git("checkout", "-q", "-b", "other"), "config": git("config", "x.y", "z"), "tag": git("tag", "t1"),
+         "failfast": lambda repo, d: mutate.run_group([mutate.BASH, "-c", "echo '  FAIL x'; sleep 30"], repo, failfast=True),
+         "raise": boom}
+out.append(" ".join(f"{k}={after(f)}" for k, f in cases.items()))
+# cwd を読む口の無い OS（Windows）は確かめない（tests/mutate.py の docstring が照合の外と書く）。実行の許可も Windows には無い
+left = after(stray_proc)
+stray_proc.p.kill()
+mode = after(lambda repo, d: os.chmod(repo / "b.txt", 0o755))
+out.append(f"lingering_ok={left.startswith('写しの置き場を cwd に') if os.name == 'posix' else True}"
+           f" mode_ok={mode.startswith('写しの中身が基点と違う') if os.name == 'posix' else True}")
+with mutate.lease("f"):   # 棚に使い回せる写しを 1 つ置いてから、--fresh-copy がそれを使わないことを見る
+    pass
+mutate.FRESH = True
+mutate.COPIES.clear()
+for _ in range(2):
+    with mutate.lease("f"):
+        pass
+out.append(f"fresh_made={mutate.COPIES['made']} fresh_reused={mutate.COPIES['reused']} line={mutate.copies_line()}")
+print("\n".join(out))
+PYLEASE
+expect_output 0 "a1=Killed:got=2 a2=Killed:got=3 a3=Survived:-
+made=1 reused=2
+stray=写しの中身が基点と違う emptydir=写しの中身が基点と違う edit=写しの中身が基点と違う pytest_cache=kept branch=写しの .git が作った時と違う config=写しの .git が作った時と違う tag=写しの .git が作った時と違う failfast=子のグループを殺した raise=例外か止める信号で抜けた
+lingering_ok=True mode_ok=True
+fresh_made=2 fresh_reused=0 line=写し: 作った 2 / 使い回した 0 / 捨てた（--fresh-copy） 2" "写しの使い回し: 腕の写しは基点に戻して次の腕へ渡し（.pyc と一時物は写しの外で腕ごとに消え、同じ大きさの腕が続いても前の腕を読まない）、余分な項目・空のディレクトリ・戻していない字列・.git の refs と config・子のグループを殺した腕・例外・残ったプロセスでは捨てる。.pytest_cache は消して使い回す。--fresh-copy は毎回作る" \
+    "$PY_BIN" "$WORK/mut-lease.py" "$ROOT/tests"
+# 撃ち比べ（--same-as）: 使い回しで撃った報告と、腕ごとに作り直して撃った結果を突き合わせる。撃たずに、選び方・比べ方・main の配線を見る
+cat > "$WORK/mut-sameas.py" <<'PYSAME'
+import json, os, pathlib, subprocess, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+ok = {"summary": {"control_ok": True, "copies": {"made": 2, "reused": 5}}, "control": {"root": {"rc": 0}}, "marker": {"rc": 0}}
+row = lambda i, st, f="a.py", ev="印": {"id": i, "status": st, "file": f, "evidence": ev if st == "Killed" else ""}
+# 選ばない腕（揺れうる t1・持ち越しの c1・撃てない i1・今の一覧に無い x9）を、選ぶ腕より前に置く——並びで選んでいれば当たる
+prev = {**ok, "arms": [row("k1", "Killed"), row("t1", "Timeout"), {**row("c1", "Killed"), "carried": True}, row("i1", "Ignored"),
+                       row("x9", "Killed"), row("s1", "Survived"), row("k2", "Killed", "b.py"), row("k3", "Killed")]}
+out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1'})}"]
+same = {**ok, "arms": [row("k1", "Killed"), row("s1", "Survived")]}
+out.append(f"same={mutate.same_as_diff(prev, same)}")
+cases = {"status": {**ok, "arms": [row("k1", "Survived")]},
+         "evidence": {**ok, "arms": [row("k1", "Killed", ev="")]},
+         "missing": {**ok, "arms": [row("zz", "Killed")]},
+         "none_shot": {**ok, "arms": [{**row("k1", "Killed"), "carried": True}]},
+         "unhealthy_now": {**same, "summary": {"control_ok": False}}}
+for k, res in cases.items():
+    out.append(f"{k}={len(mutate.same_as_diff(prev, res))}")
+for k, pv in {"partial": {**prev, "partial": True}, "no_reuse": {**prev, "summary": {"control_ok": True, "copies": {"made": 7, "reused": 0}}},
+              "old_report": {**prev, "summary": {"control_ok": True}},
+              "unhealthy_prev": {**prev, "summary": {"control_ok": False, "copies": {"made": 2, "reused": 5}}}}.items():
+    out.append(f"{k}={len(mutate.same_as_diff(pv, same))}")
+# main の配線: --same-as は FRESH を立て、--only が無ければ前の報告から選んだ腕だけを撃ち、突き合わせで終了コードを決める
+src = pathlib.Path(tempfile.mkdtemp()) / "src"
+(src / "tests").mkdir(parents=True)
+(src / "a.py").write_text("A = 1\nB = 2\n", encoding="utf-8")
+arms = [{"id": i, "title": i, "file": "a.py", "suite": "root", "old": o, "new": "Z = 0", "marker": {"where": "before"}} for i, o in (("k1", "A = 1"), ("s1", "B = 2"))]
+(src / "tests" / "mutations.json").write_text(json.dumps({"arms": arms}), encoding="utf-8")
+subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)
+tempfile.tempdir = str(pathlib.Path(tempfile.mkdtemp()))
+mutate.ROOT, mutate.ARMS_FILE = src, src / "tests" / "mutations.json"
+seen = {}
+def fake_shoot(a, res, fire, sel, fps, late, pend):
+    seen.update(fresh=mutate.FRESH, fire=sorted(x["id"] for x in fire))
+    res["arms"] += [{**row(x["id"], {"k1": "Killed", "s1": flip}[x["id"]]), "title": x["id"], "own": False, "failed": []} for x in fire]
+    res["control"], res["marker"] = {"root": {"rc": 0}}, {"rc": 0, "placed": [], "seen": ["k1"], "cover": {}, "skipped": {}}
+    return []
+mutate.shoot = fake_shoot
+rep = pathlib.Path(tempfile.mkdtemp()) / "prev.json"
+rep.write_text(json.dumps({**ok, "arms": [row("k1", "Killed"), row("s1", "Survived")]}), encoding="utf-8")
+codes = []
+for flip in ("Survived", "Killed"):
+    sys.argv = ["mutate.py", "--same-as", str(rep), "--out", str(rep.with_name("fresh.json"))]
+    mutate.FRESH = False
+    try:
+        mutate.main()
+    except SystemExit as e:
+        codes.append(e.code)
+out.append(f"main_fresh={seen['fresh']} fire={seen['fire']} codes={codes}")
+print(" ".join(out))
+PYSAME
+expect_output 0 "pick=['k1', 'k3', 's1', 'k2'] same=[] status=1 evidence=1 missing=1 none_shot=1 unhealthy_now=1 partial=1 no_reuse=1 old_report=1 unhealthy_prev=1 main_fresh=True fire=['k1', 's1'] codes=[0, 1]" "撃ち比べ: 同じファイルを壊す赤の組・生き残り・赤を 4 本まで選び（持ち越し・撃てない・揺れうる腕・今の一覧に無い腕は選ばない）、status と当たりの証拠の有無が食い違う・腕が欠ける・撃てた腕が 0 本・どちらかが不健全・前の報告が途中か使い回していないなら食い違い。--same-as は腕ごとに作り直して選んだ腕だけを撃ち、一致で 0" \
+    "$PY_BIN" "$WORK/mut-sameas.py" "$ROOT/tests"
+expect_output 0 "ok" "週 1 回の変異の CI が、既定の段の後で必ず撃ち比べの段を走らせ、その報告も残す" "$PY_BIN" -c "
+import sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+i = t.index('--same-as mutation-report.json')
+assert t.index('--out mutation-report.json') < i, '撃ち比べが既定の段より前に在る'
+step = t[t.rindex('- name:', 0, i):i]
+assert 'if: always()' in step, '撃ち比べの段が既定の段の赤で飛ばされる'
+assert 'fresh-report.json' in t[t.index('upload-artifact'):], '撃ち比べの報告を残していない'
+print('ok')" "$ROOT/.github/workflows/mutation.yml"
 
 cat > "$WORK/mut-root.py" <<'PYROOT'
 import contextlib, io, json, os, pathlib, subprocess, sys, tempfile, time
@@ -4700,6 +5003,7 @@ NOT_RATCHET = {
     "EXPECT_HEAD": "tests/mutate.py が expect の頭を台本の本文に探す字数。件数の突合ではない",
     "TAIL": "tests/mutate.py が --deadline-at の期限の手前に残す幅（秒）。件数の突合ではない",
     "STOP_GRACE": "tests/mutate.py が止める信号で子のグループへ送る信号の間の猶予（秒）。件数の突合ではない",
+    "ARGV_MAX": "tests/mutate.py が pytest の node id を並べる引数の字数の上限（超えればテストのファイル単位に落とす）。件数の突合ではない",
 }
 DECLARED = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*[0-9]+", re.M)
 RATCHETS = []

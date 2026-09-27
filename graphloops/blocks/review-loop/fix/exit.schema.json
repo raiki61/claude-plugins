@@ -1,0 +1,438 @@
+{
+ "description": "R6 修正 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p3.fix": {
+   "type": "object",
+   "required": [
+    "changes",
+    "fix_closure",
+    "gates_changed",
+    "interactions",
+    "mechanism_changed",
+    "not_done",
+    "path_changed",
+    "plan_faces",
+    "premise_drift",
+    "seams_changed",
+    "security_surface_changed",
+    "wrote_refs"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "changes": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "breaks",
+       "bypass_tried",
+       "closure",
+       "files",
+       "root_or_symptom",
+       "unit_key",
+       "what",
+       "precedent"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "unit_key": {
+        "type": "string"
+       },
+       "what": {
+        "type": "string"
+       },
+       "closure": {
+        "type": "object",
+        "required": [
+         "mechanism",
+         "fix_mechanism",
+         "verified_how",
+         "sites"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "mechanism": {
+          "type": "string"
+         },
+         "fix_mechanism": {
+          "type": "string"
+         },
+         "verified_how": {
+          "type": "string"
+         },
+         "sites": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "required": [
+            "site",
+            "red_seen"
+           ],
+           "additionalProperties": false,
+           "properties": {
+            "site": {
+             "type": "string"
+            },
+            "red_seen": {
+             "type": "boolean"
+            }
+           }
+          }
+         }
+        }
+       },
+       "files": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "type": "string"
+        }
+       },
+       "coverage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+         "how": {
+          "$ref": "engine#/count_how"
+         },
+         "counts": {
+          "$ref": "#/$defs/counts"
+         },
+         "remaining": {
+          "type": "string"
+         }
+        },
+        "note": "覆いの母数。how＝同じ形を全部引ける機械の問い。**判定者が class_query を持つ単位は how を書かなくてよい**——書かなければ engine が判定者の how を補い、取りこぼしていると思うときだけ作り直した how を書く。判定者が class_query を持たない単位だけ how と counts を書く。**修正の前後の件数は engine が数える**——修正前は判定者が読んだのと同じ固定の版で、修正後は同じ世界（未追跡も含め、.gitignore に当たる物は外す）で。向き（counts）は判定者の値を使い、判定者が class_query を持たない単位だけこの欄の counts を使う。件数（total）は書かない——engine が数える。**塞いだ数は closure.sites から機械が数える**。sites が母数に届かないなら remaining に残した理由を書く（how を書かずに remaining だけでもよい）"
+       },
+       "root_or_symptom": {
+        "type": "object",
+        "required": [
+         "kind",
+         "why"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "kind": {
+          "type": "string",
+          "enum": [
+           "root",
+           "symptom"
+          ]
+         },
+         "why": {
+          "type": "string",
+          "minLength": 1
+         }
+        },
+        "note": "判定者が名指した根に対して、この修正は根を塞いだのか症状を塞いだのか。symptom なら why に「なぜ今それで止めるか」（根に当てるのが設計作業だから等）"
+       },
+       "bypass_tried": {
+        "type": "string",
+        "minLength": 1,
+        "note": "**修正を残したまま**それを破りに行った入力と結果（自己反証）。『修正を外したら赤くなった』は不在の検知であって完全性の証拠にならない——実測 2026-09-13: 判定文の全文一致を『判定行だけ見る』に狭めた修正が、外すと赤くなる検査を持ちながら、改行 1 つで破れた"
+       },
+       "breaks": {
+        "type": "object",
+        "required": [
+         "how",
+         "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "how": {
+          "type": "string",
+          "minLength": 1
+         },
+         "result": {
+          "type": "string",
+          "minLength": 1
+         },
+         "accepted": {
+          "type": "string"
+         }
+        },
+        "note": "この修正が壊しうる面を機械で引いた問い（how＝同じ経路・同じ不変条件を共有する箇所を出すコマンド）と、壊れていないことの確認（result）。壊すと分かっていて通すなら accepted に理由——実測 2026-09-13: CI 未確認の収束を塞いだ修正が、同じ関数の暴走ガードを飛び越す分岐を足していた"
+       },
+       "precedent": {
+        "type": "object",
+        "required": [
+         "verdict",
+         "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "problem": {
+          "type": "string"
+         },
+         "source": {
+          "type": "string"
+         },
+         "verdict": {
+          "$ref": "#/$defs/verdict"
+         },
+         "reason": {
+          "type": "string",
+          "minLength": 4
+         },
+         "searched": {
+          "type": "string"
+         },
+         "from_judge_row": {
+          "type": "boolean"
+         }
+        },
+        "note": "この修正の先行例。from_judge_row: true＝判定者の先行例の行（process.precedents の同じ unit_key の行）をそのまま採った（verdict はその行の値）。そうでなければ problem と source（not_found なら searched）が要る。機構を新しく作るなら、世界の解が無い・使えない理由を reason に出典つきで。problem の下限（4 字）は rules の fix_covers_open_units が持つ——from_judge_row が真なら要らない条件付きの必須で、engine の型検査に if/then が無いので schema には書かない"
+       }
+      },
+      "note": "files は、その修正で実際に触ったファイルのリポジトリ相対パス。持ち越し（carried_over）の再発火は役の自己申告 1 欄でなくこれで決める——前の周の P3 が素材の見る対象を直したのに再発火せず、閉じた欠陥が次の周に新規の [block] として生き返った（実測 2026-09-12: p1.provenance が carried_over のまま r1 の主張を運んだ）"
+     }
+    },
+    "not_done": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "unit_key",
+       "why"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "unit_key": {
+        "type": "string"
+       },
+       "why": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "fix_closure": {
+     "type": "object",
+     "required": [
+      "status"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "status": {
+       "type": "string",
+       "enum": [
+        "found",
+        "clean",
+        "carried_over",
+        "not_applicable",
+        "awaiting_human",
+        "not_run"
+       ]
+      },
+      "count": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "detail": {
+       "type": "string"
+      },
+      "checked": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      },
+      "from_round": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    },
+    "mechanism_changed": {
+     "type": "boolean"
+    },
+    "premise_drift": {
+     "type": "boolean"
+    },
+    "premise_drift_note": {
+     "type": "string"
+    },
+    "gates_changed": {
+     "type": "boolean"
+    },
+    "seams_changed": {
+     "type": "boolean"
+    },
+    "security_surface_changed": {
+     "type": "boolean"
+    },
+    "path_changed": {
+     "type": "boolean"
+    },
+    "decision_records_changed": {
+     "type": "boolean"
+    },
+    "rejudge_requested": {
+     "type": "string"
+    },
+    "interactions": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "surface",
+       "checked"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "surface": {
+        "type": "string",
+        "minLength": 1
+       },
+       "checked": {
+        "type": "string",
+        "minLength": 1
+       },
+       "combined_effect": {
+        "type": "string"
+       }
+      }
+     },
+     "note": "**2 つ以上の修正が触った面**ごとに 1 件。surface＝その面（ファイル・関数・不変条件）、checked＝突き合わせて確かめたこと（一方が他方を不要にしないか・順序で結果が変わらないか・組み合わせて初めて生まれる状態が無いか）。**面の一覧と、面ごとにどの修正が触ったかは機械が changes[].files から出す**ので、面を書き落とすと拒まれる（触った修正の一覧は書かない）——修正どうしの干渉を『1 件ずつ見る』では捕れない（実測 2026-09-13: 非 UTF-8 を読めるようにした 1 つの修正が、同じ git ラッパーを共有する突合の側に穴を開けた）"
+    },
+    "wrote_refs": {
+     "type": "array",
+     "maxItems": 50,
+     "items": {
+      "type": "object",
+      "required": [
+       "kind",
+       "target",
+       "where"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "kind": {
+        "type": "string",
+        "enum": [
+         "file",
+         "text"
+        ],
+        "note": "file はファイルそのものを指した指し（『docs/foo.md を見よ』）——engine は target が版に在るかだけを見る。text はファイルの中の節名・見出し・引用を指した指し——cite が target の中に在るかを数える"
+       },
+       "cite": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "note": "kind が text のとき要る。指し先の中に在るはずの字列そのまま（字面で数える）。引用符や記号も含めて 1 行分を写す"
+       },
+       "target": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300,
+        "note": "その指しが**指しているファイル**（リポジトリ相対の正規形。次の周の版に入るファイル——.gitignore に当たる物は他の人の手元に無いので拒む）。engine はこのファイルの中だけを数える——リポジトリ全体を数えると、同じ名前が別の文書に在るだけで通り、主張より弱い検査になる"
+       },
+       "where": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300,
+        "note": "その指しを**書き込んだファイル**（target と同じ規律: リポジトリ相対の正規形で、版に入るファイル。外れていれば拒む）。target と同じファイルなら（目次から本文の節へ、など）そう書けばよい——拒まれない。ただし書いた行そのものに cite が当たって通るので、engine はその行に印を付けて次の周の判定役に見せる"
+       }
+      }
+     },
+     "note": "**この周に新しく書いた指しのうち申告したもの**（engine が引くのは申告された行だけ。Markdown のリンクは申告に依らず差分から拾って引く（拾う形の範囲は rules の MD_LINK の注記））（他の文書の節名・見出し・ファイル名・引用）1 件につき 1 行。kind（file か text）・target（指しているファイル）・where（書き込んだファイル）を出し、text なら cite（書いた字列）も出す。engine は file なら target が版に在るかを、text なら**その target の中だけ**に cite が在るかを引き直し、無ければ done を拒む（指し先のファイルが版に無い回は別の文で拒む）。cite は 1 行 1 件。他所から写したものも含めて挙げる。新しい指しを書いていない周は空配列"
+    },
+    "plan_faces": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "key",
+       "handled",
+       "how"
+      ],
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 8
+       },
+       "handled": {
+        "type": "string",
+        "enum": [
+         "absorbed",
+         "declared"
+        ]
+       },
+       "how": {
+        "type": "string",
+        "minLength": 20
+       }
+      }
+     },
+     "note": "事前審査（p2.plan_review）の faces と shrink の key ごとに 1 行。absorbed はどう取り込んだか、declared は残す理由。事前審査が走らなかった周は空"
+    },
+    "x_scalars": {
+     "type": "object",
+     "additionalProperties": false,
+     "patternProperties": {
+      "^x_[a-z0-9_]+$": {
+       "type": "number"
+      }
+     },
+     "note": "その場で足す規模の数値（x_ で始まる名前 → 数。OpenAPI の Specification Extensions の x- と同じ形）。固定の 4 つ（added_lines・comment_lines・comment_ratio_pct・doc_lines）は engine が数える（p4.scalars）——ここに書くのは x_ だけ。周をまたいで同じ名前を使え"
+    },
+    "wrote_refs_reads": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "items": {
+       "type": "array",
+       "items": {
+        "type": "object"
+       }
+      },
+      "unrecorded": {
+       "type": "string"
+      }
+     },
+     "description": "修正が書いた指しの指し先の読了の記録（受け付けの時に engine が書く——役は書かない）。次の周の判定が prev.p3.fix で読む"
+    },
+    "coverage_after": {
+     "type": "object",
+     "properties": {
+      "round": {
+       "type": "integer"
+      },
+      "items": {
+       "type": "array",
+       "items": {
+        "type": "object"
+       }
+      }
+     },
+     "description": "覆いの母数の修正後の数え直し（受け付けの時に engine が書く——役は書かない）。次の周の判定が prev.p3.fix で読む"
+    }
+   }
+  }
+ },
+ "$defs": {
+  "counts": {
+   "type": "string",
+   "enum": [
+    "defects",
+    "population"
+   ],
+   "note": "defects＝欠陥の形そのものを数える（直せば減る。修正後の件数 after が 0 でなければ塞いだと言えない）／population＝直す対象の母集団を数える（直しても減らない）"
+  },
+  "verdict": {
+   "type": "string",
+   "enum": [
+    "adopt",
+    "adapt",
+    "does_not_apply",
+    "not_found"
+   ],
+   "note": "adopt＝そのまま採る／adapt＝手を入れて採る／does_not_apply＝当たらない／not_found＝見つからない（searched が要る）"
+  }
+ }
+}

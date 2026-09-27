@@ -6,21 +6,28 @@ rules は engine を import しない。差し込む道具は下の INJECT の�
 import importlib.util
 import pathlib
 
-from . import declared
+from . import checks_cache, declared
 from .schema import validate_schema
 from .role_run import run_tree
 from .hist import HIST_ABSENT, hist_reads
+from .effects import write_loop
 from .util import READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, pick, read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, write_json
 
 _VALIDATORS = {}
 
 
 def cond_reads(*paths):
-    """条件の関数が読む欄の宣言（rules が CONDS の関数に付ける）。宣言の外を読むと CondView がその場で落とす"""
+    """条件と規則の関数が読む欄の宣言（rules が CONDS と、読み口を受ける新しい形の受け付け・機械の節の関数に付ける）。宣言の外を
+    読むと CondView がその場で落とす。宣言を持つ受け付け・機械の節の関数は engine が読み口で呼ぶ（Board.rule）"""
     def deco(fn):
         fn.reads = tuple(paths)
         return fn
     return deco
+
+
+def takes_view(fn):
+    """規則の関数が読み口を受ける新しい形か（cond_reads の印を持つか）——見分けの正本。engine・gl・graphcheck・再生の道具が呼ぶ"""
+    return isinstance(getattr(fn, "reads", None), tuple)
 
 
 def validator_module(b):
@@ -49,8 +56,9 @@ def validator_module(b):
 INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
           "git": git, "git_bytes": git_bytes, "sha": sha, "hook_evidence": hook_evidence, "read_capped": read_capped, "READ_CAP": READ_CAP, "repo_root": repo_root, "grep": _grep, "run_count": run_count, "sum_counts": sum_counts,
           "validator_module": validator_module, "validate_schema": validate_schema, "cond_reads": cond_reads,
-          "run_tree": run_tree, "hist_reads": hist_reads, "HIST_ABSENT": HIST_ABSENT,
-          "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME}
+          "run_tree": run_tree, "hist_reads": hist_reads, "HIST_ABSENT": HIST_ABSENT, "write_loop": write_loop,
+          "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME, "worktree_tree": checks_cache.worktree_tree,
+          "CHECKS_RERUN_ENV": checks_cache.RERUN_ENV}
 
 
 def load_rules(graph_path, graph):

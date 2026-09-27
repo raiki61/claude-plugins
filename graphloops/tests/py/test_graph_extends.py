@@ -140,7 +140,7 @@ def test_graph_text_covers_the_base(tmp_path):
 ])
 def test_graphcheck_rejects_an_overlay_that_drops_base_items(tmp_path, patch, words):
     """差し替えの版は元の節から何も落とさない——配列の置き換えと null の削除は重ね方（RFC 7396）の正規の形なので、graphcheck が止める"""
-    for d in ("graphs", "prompts", "rules"):
+    for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     over = json.loads((tmp_path / "graphs" / "review-loop-tdd.json").read_text(encoding="utf-8"))
     for nid, v in patch.items():   # null も字面のまま書く（重ねるのは load_graph の仕事）
@@ -167,7 +167,7 @@ def test_shipped_tdd_graph_keeps_every_base_dep_and_read():
 ])
 def test_graphcheck_takes_a_chain_on_the_tdd_graph(tmp_path, patch, words):
     """TDD の版の上にもう 1 段重ねた版を graphcheck が受け、根元から中間が継いだ要素を葉が落とせば止める（突合は直接の親の重ねた姿と）"""
-    for d in ("graphs", "prompts", "rules"):
+    for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     leaf = write(tmp_path / "graphs" / "review-loop-chain.json", {"extends": "review-loop-tdd.json", "nodes": patch})
     lines = []
@@ -180,12 +180,12 @@ def test_graphcheck_takes_a_chain_on_the_tdd_graph(tmp_path, patch, words):
 
 @pytest.mark.parametrize("patch,words", [
     pytest.param({"tree_guard_roles": []}, "tree_guard_roles を落とした", id="top-level-array"),
-    pytest.param({"$defs": {"lane_reply": {"required": ["rev"]}}}, "p4.final_gates.schema.required を落とした", id="def-required-drops-items"),
+    pytest.param({"$defs": {"lane_reply": {"required": ["rev"]}}}, "p3.delta_gates.result_schema.required を落とした", id="def-required-drops-items"),
     pytest.param({"inputs": {"review_md": None}}, "inputs.review_md を消した", id="null-removes-an-input"),
 ])
 def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patch, words):
     """節の外（最上位の配列・$defs・inputs）も同じ重ね方で黙って消えうる——graph の全体を元と突き合わせる"""
-    for d in ("graphs", "prompts", "rules"):
+    for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     over = json.loads((tmp_path / "graphs" / "review-loop-tdd.json").read_text(encoding="utf-8"))
     for k, v in patch.items():   # 版が既に持つ object の鍵には 1 段だけ重ねる（版の $defs を丸ごと差し替えない）
@@ -206,7 +206,7 @@ def test_graphcheck_rejects_an_overlay_that_drops_top_level_items(tmp_path, patc
 ])
 def test_graphcheck_rejects_broken_nodes(tmp_path, node, patch, words):
     """足した静的検査は、赤くなる例を 1 つずつ持つ（driver の節の条件名・prompt_append・読む欄の節）"""
-    for d in ("graphs", "prompts", "rules"):
+    for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     g = json.loads((tmp_path / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     g["nodes"][node].update({k: v for k, v in patch.items() if v is not None})
@@ -218,7 +218,7 @@ def test_graphcheck_rejects_broken_nodes(tmp_path, node, patch, words):
 
 def test_graphcheck_rejects_a_cond_reading_an_unknown_node(tmp_path):
     """条件の関数が宣言した読む欄の節が graph に無い——綴り違いの節名は実行の前に落ちる"""
-    for d in ("graphs", "prompts", "rules"):
+    for d in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / d, tmp_path / d)
     rules = tmp_path / "rules" / "review-loop.py"
     rules.write_text(rules.read_text(encoding="utf-8") + (

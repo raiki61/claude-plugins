@@ -1,0 +1,27 @@
+{
+ "description": "X2 の 2 段目（突き合わせ）の核",
+ "type": "object",
+ "required": [
+  "reason",
+  "differences"
+ ],
+ "properties": {
+  "reason": {
+   "type": "string"
+  },
+  "differences": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ }
+}

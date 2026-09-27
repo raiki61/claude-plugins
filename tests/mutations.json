@@ -125,6 +125,143 @@
     "GM3"
    ],
    "why": "消した: 合流でまとめて撃つ入力は gates=merge の 1 通りに揃えた（2026-09-26、人の決定）——gates=at_merge の実装ごと外した。gates=merge の腕は RC1〜RC6"
+  },
+  {
+   "id": "e13",
+   "title": "申告 1 件の長さに上限（maxLength）",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "        if \"maxLength\" in schema and len(value) > schema[\"maxLength\"]:\n",
+   "new": "        if False:\n",
+   "marker": {
+    "where": "after"
+   },
+   "expect": "maxLength: 上限を超えた字列は落とす",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_units"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_types[maxLength-over]"
+   ]
+  },
+  {
+   "id": "e14",
+   "title": "maxLength は素の長さで測る",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "if \"maxLength\" in schema and len(value) > schema[\"maxLength\"]:",
+   "new": "if \"maxLength\" in schema and len(value.strip()) > schema[\"maxLength\"]:",
+   "marker": {
+    "where": "after",
+    "cond": "len(value.strip()) <= schema['maxLength']"
+   },
+   "expect": "maxLength: 前後の空白も数える",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_units"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_types[maxLength-counts-spaces]"
+   ]
+  },
+  {
+   "id": "S01",
+   "title": "patternProperties の名前を受ける",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "            for s in hit:\n                errs += validate_schema(v, s, f\"{path}.{k}\")",
+   "new": "            for s in []:\n                errs += validate_schema(v, s, f\"{path}.{k}\")",
+   "expect": "patternProperties: 形に合う名前も値の型は見る",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_pattern_properties"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_pattern_properties_checks_value_type"
+   ]
+  },
+  {
+   "id": "SC1",
+   "title": "字クラスの閉じは位置で決める",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "        elif ch == \"]\" and i != first:",
+   "new": "        elif ch == \"]\" and pat[i - 1] != \"[\":",
+   "expect": "pattern: エスケープした [ の直後の ] はクラスを閉じ",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_end_anchored"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_end_anchored[escaped-open-bracket-then-close]"
+   ]
+  },
+  {
+   "id": "SC2",
+   "title": "[^ の直後の ] はクラスの中の字",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "                first = i + 2 if pat[i + 1:i + 2] == \"^\" else i + 1",
+   "new": "                first = i + 1",
+   "expect": "test_schema_end_anchored が例外で抜けた",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_end_anchored"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_end_anchored[bracket-first-in-negated-class]"
+   ]
+  },
+  {
+   "id": "SC3",
+   "title": "未展開の $ref は拒む",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "    if \"$ref\" in schema:",
+   "new": "    if False:",
+   "expect": "未展開の $ref は何でも通すのでなく拒む",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_refs_fail_closed"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_unexpanded_ref_is_rejected"
+   ]
+  },
+  {
+   "id": "SC4",
+   "title": "engine#/$defs/ の綴りは名乗りの外",
+   "file": "graphloops/engine/schema.py",
+   "suite": "graphloops",
+   "old": "            elif src == \"engine\":\n                table, key = ENGINE_DEFS, name   #",
+   "new": "            elif src == \"engine\":\n                table, key = ENGINE_DEFS, name.replace(\"$defs/\", \"\", 1)   #",
+   "expect": "engine#/$defs/",
+   "tests": {
+    "graphloops/tests/simulate.py": [
+     "test_schema_refs_fail_closed"
+    ]
+   },
+   "why": "S2b（simulate.py の small 8 本と test_converges を pytest へ移した変更）で、この腕が当てにしていた bash の台本の関数を消した。今の実行器 tests/mutate.py は pytest を回せず（SCRIPTS は simulate.py・simulate_review.py だけ）、expect の頭も台本の本文に無くなったので撃てない。tests を pytest の node id に付け替えると素の python で走って偽の Survived になるので付け替えない。殺すはずのテストは kill_by（graphloops/tests/py/ の node id）。wip/mut-pytest（mutate.py に pytest の口を足す変更）が入った時点で、tests を kill_by に、expect を pytest の側の文面に替えて arms へ戻す。旧の側（BASE の bash の台本）でも絞って撃っていない——未撃ち（合流後 CI。人の方針: 変異は手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_schema.py::test_ref_outside_the_two_spellings_is_rejected[engine-defs-engine-name]"
+   ]
+  },
+  {
+   "id": "q02",
+   "why": "守る分岐（依頼の where を範囲にするのは入口の周だけ）は rules の request_wheres(b) を消して hist.request_wheres の 1 本に寄せ（手順 3 の 3-6）、その検査は pytest（test_hist の test_request_wheres_from_an_old_snapshot_rebuild_the_entry）に移った——実行器が pytest を撃つ口を持つまで腕を外す"
   }
  ],
  "arms": [
@@ -393,41 +530,6 @@
    }
   },
   {
-   "id": "e13",
-   "title": "申告 1 件の長さに上限（maxLength）",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "        if \"maxLength\" in schema and len(value) > schema[\"maxLength\"]:\n",
-   "new": "        if False:\n",
-   "marker": {
-    "where": "after"
-   },
-   "expect": "maxLength: 上限を超えた字列は落とす",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_units"
-    ]
-   }
-  },
-  {
-   "id": "e14",
-   "title": "maxLength は素の長さで測る",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "if \"maxLength\" in schema and len(value) > schema[\"maxLength\"]:",
-   "new": "if \"maxLength\" in schema and len(value.strip()) > schema[\"maxLength\"]:",
-   "marker": {
-    "where": "after",
-    "cond": "len(value.strip()) <= schema['maxLength']"
-   },
-   "expect": "maxLength: 前後の空白も数える",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_units"
-    ]
-   }
-  },
-  {
    "id": "e15",
    "title": "指摘側: 版全体に 0 件なら拒む",
    "file": "graphloops/rules/review-loop.py",
@@ -464,13 +566,12 @@
   {
    "id": "e17",
    "title": "where を必須の欄にする",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "properties",
      "wrote_refs",
      "items",
@@ -488,13 +589,12 @@
   {
    "id": "e18",
    "title": "target の長さに上限（maxLength）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "properties",
      "wrote_refs",
      "items",
@@ -513,13 +613,12 @@
   {
    "id": "e19",
    "title": "申告の件数に上限（maxItems）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "properties",
      "wrote_refs"
     ],
@@ -535,13 +634,12 @@
   {
    "id": "e20",
    "title": "wrote_refs を必須の欄にする",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "required"
     ],
     "remove": "wrote_refs"
@@ -609,10 +707,10 @@
   {
    "id": "f03",
    "title": "kind を必須の欄にする（schema）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
-   "old": "       \"required\": [\n        \"kind\",\n        \"target\",\n        \"where\"\n       ],",
-   "new": "       \"required\": [\n        \"target\",\n        \"where\"\n       ],",
+   "old": "      \"required\": [\n       \"kind\",\n       \"target\",\n       \"where\"\n      ],",
+   "new": "      \"required\": [\n       \"target\",\n       \"where\"\n      ],",
    "expect": "主経路: kind を落とした申告は型で落ちる",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -717,9 +815,9 @@
   {
    "id": "f11",
    "title": "where の長さに上限（schema）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
-   "old": "\"maxLength\": 300,\n         \"note\": \"その指しを**書き込んだファイル**",
+   "old": "\"maxLength\": 300,\n        \"note\": \"その指しを**書き込んだファイル**",
    "new": "\"note\": \"その指しを**書き込んだファイル**",
    "expect": "主経路: 301 字の where は型で落ちる",
    "tests": {
@@ -1390,13 +1488,12 @@
   {
    "id": "A16",
    "title": "その場で足す規模の数値の名前は型で固定する（未知の名前を拒む）",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/fix/exit.schema.json",
    "suite": "graphloops",
    "json": {
     "path": [
-     "nodes",
+     "properties",
      "p3.fix",
-     "schema",
      "properties",
      "x_scalars"
     ],
@@ -1831,20 +1928,6 @@
    }
   },
   {
-   "id": "S01",
-   "title": "patternProperties の名前を受ける",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "            for s in hit:\n                errs += validate_schema(v, s, f\"{path}.{k}\")",
-   "new": "            for s in []:\n                errs += validate_schema(v, s, f\"{path}.{k}\")",
-   "expect": "patternProperties: 形に合う名前も値の型は見る",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_pattern_properties"
-    ]
-   }
-  },
-  {
    "id": "P01",
    "title": "inspector は本文を貼る",
    "file": "graphloops/engine/validator.py",
@@ -2159,8 +2242,8 @@
    "title": "指紋に壊すファイル",
    "file": "tests/mutate.py",
    "suite": "root",
-   "old": "    for f in (a[\"file\"],) + DRIVERS:",
-   "new": "    for f in DRIVERS:",
+   "old": "    for f in (a[\"file\"],) + drivers_of(root, a):",
+   "new": "    for f in drivers_of(root, a):",
    "expect": "持ち越すのは赤で証拠つきの腕だけ"
   },
   {
@@ -2242,7 +2325,7 @@
    "title": "主経路の観測は観測した値が要る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if st in validator_module(b).OBSERVED_STATUS and not out.get(\"observed\"):",
+   "old": "    if st in v.validator.OBSERVED_STATUS and not out.get(\"observed\"):",
    "new": "    if False:",
    "expect": "主経路の観測: 見たと言う状態なのに観測した値が無ければ exit 1",
    "tests": {
@@ -2380,7 +2463,7 @@
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
    "expect": "修正の件数: 修正役が population と書いても判定者の defects で数え",
-   "old": "coverage（修正前）\", cov[\"how\"], root, rev=_head_rev(b))",
+   "old": "coverage（修正前）\", cov[\"how\"], root, rev=_head_rev(_view(b, _head_rev)))",
    "new": "coverage（修正前）\", cov[\"how\"], root, rev=None)",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -2548,7 +2631,7 @@
    "file": "tests/mutate.py",
    "suite": "root",
    "expect": "持ち越すのは赤で証拠つきの腕だけ",
-   "old": "    for f in (a[\"file\"],) + DRIVERS:",
+   "old": "    for f in (a[\"file\"],) + drivers_of(root, a):",
    "new": "    for f in (a[\"file\"],):"
   },
   {
@@ -3039,7 +3122,7 @@
    "title": "腕 0 行で見たと言う状態は拒む",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if not arms and st in validator_module(b).OBSERVED_STATUS:",
+   "old": "    if not arms and st in v.validator.OBSERVED_STATUS:",
    "new": "    if False:",
    "expect": "腕 0 行で見たと言う状態（clean）は拒み",
    "tests": {
@@ -3221,7 +3304,7 @@
    "title": "出した後に増えた deps が済む前の done は拒む",
    "file": "graphloops/engine/commands.py",
    "suite": "graphloops",
-   "old": "    if not b.deps_met(nid):",
+   "old": "    if not b.deps_met(inst[\"node\"]):",
    "new": "    if False:",
    "expect": "engine: 増えた deps が済む前の done は拒む",
    "tests": {
@@ -3454,7 +3537,7 @@
    "title": "修正が入った次の周から P1 が戻る",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "        ls.setdefault(\"request_fixed_at\", b.round - 1)",
+   "old": "        write_loop(b, \"request_fixed_at\", \"set_once\", b.round - 1)",
    "new": "        pass",
    "expect": "入口: 修正が入った次の周は P1 が修正差分を見る",
    "tests": {
@@ -3747,7 +3830,7 @@
   {
    "id": "WT1",
    "title": "版は本物の index の写しから組む（追跡中の .gitignore 対象を落とさない）",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/checks_cache.py",
    "suite": "graphloops",
    "old": "            shutil.copy2(real.strip(), idx)",
    "new": "            pass",
@@ -3761,7 +3844,7 @@
   {
    "id": "WT2",
    "title": "写しの assume-unchanged の印を外す",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/checks_cache.py",
    "suite": "graphloops",
    "old": "        if git(\"update-index\", \"-q\", \"--really-refresh\", env=env, why=why) is None or git(\"add\", \"-A\", env=env, why=why) is None:",
    "new": "        if git(\"add\", \"-A\", env=env, why=why) is None:",
@@ -3775,10 +3858,10 @@
   {
    "id": "WT3",
    "title": "index の無いリポジトリは空から始める",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/checks_cache.py",
    "suite": "graphloops",
    "old": "            pass   # index がまだ無い",
-   "new": "            raise Reject(\"検査用\")  # index がまだ無い",
+   "new": "            return None, (\"検査用\", None)  # index がまだ無い",
    "expect": "test_freeze_revision_keeps_tracked_ignored が例外で抜けた",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -3789,7 +3872,7 @@
   {
    "id": "WT4",
    "title": "本物の index の場所が引けなければ止まる",
-   "file": "graphloops/rules/review-loop.py",
+   "file": "graphloops/engine/checks_cache.py",
    "suite": "graphloops",
    "old": "        if real is None or not real.strip():",
    "new": "        if real is None:",
@@ -3797,62 +3880,6 @@
    "tests": {
     "graphloops/tests/simulate_review.py": [
      "test_frozen_review_revision"
-    ]
-   }
-  },
-  {
-   "id": "SC1",
-   "title": "字クラスの閉じは位置で決める",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "        elif ch == \"]\" and i != first:",
-   "new": "        elif ch == \"]\" and pat[i - 1] != \"[\":",
-   "expect": "pattern: エスケープした [ の直後の ] はクラスを閉じ",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_end_anchored"
-    ]
-   }
-  },
-  {
-   "id": "SC2",
-   "title": "[^ の直後の ] はクラスの中の字",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "                first = i + 2 if pat[i + 1:i + 2] == \"^\" else i + 1",
-   "new": "                first = i + 1",
-   "expect": "test_schema_end_anchored が例外で抜けた",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_end_anchored"
-    ]
-   }
-  },
-  {
-   "id": "SC3",
-   "title": "未展開の $ref は拒む",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "    if \"$ref\" in schema:",
-   "new": "    if False:",
-   "expect": "未展開の $ref は何でも通すのでなく拒む",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_refs_fail_closed"
-    ]
-   }
-  },
-  {
-   "id": "SC4",
-   "title": "engine#/$defs/ の綴りは名乗りの外",
-   "file": "graphloops/engine/schema.py",
-   "suite": "graphloops",
-   "old": "            elif src == \"engine\":\n                table, key = ENGINE_DEFS, name   #",
-   "new": "            elif src == \"engine\":\n                table, key = ENGINE_DEFS, name.replace(\"$defs/\", \"\", 1)   #",
-   "expect": "engine#/$defs/",
-   "tests": {
-    "graphloops/tests/simulate.py": [
-     "test_schema_refs_fail_closed"
     ]
    }
   },
@@ -4457,8 +4484,8 @@
    "title": "線の範囲は今の周の出力だけ",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    c = b.output_of_round(\"p3.gates_cut\", b.round)",
-   "new": "    c = b.latest_output(\"p3.gates_cut\")",
+   "old": "    return _cut_ok(b.output_of_round(\"p3.gates_cut\", b.round))",
+   "new": "    return _cut_ok(b.latest_output(\"p3.gates_cut\"))",
    "expect": "最後の関門: 今の周の p3.gates_cut の出力が無ければ",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -4671,20 +4698,6 @@
    }
   },
   {
-   "id": "q02",
-   "title": "修正が入った後の周は依頼の where を範囲に足さない",
-   "file": "graphloops/rules/review-loop.py",
-   "suite": "graphloops",
-   "old": "    if not b.cond(ENTRY_BUILTIN)[0]:\n        return []",
-   "new": "    if False:\n        return []",
-   "expect": "入口: 依頼の where を P0 の範囲にするのは入口の周だけ",
-   "tests": {
-    "graphloops/tests/simulate_review.py": [
-     "test_request_entry"
-    ]
-   }
-  },
-  {
    "id": "q03",
    "title": "最初に修正が入った次の周だけ並行 PR を見直す",
    "file": "graphloops/rules/review-loop.py",
@@ -4874,7 +4887,7 @@
   {
    "id": "TN2",
    "title": "道具名の柵: グラフの注記に実行器の引数が紛れ込めば赤",
-   "file": "graphloops/graphs/review-loop.json",
+   "file": "graphloops/blocks/review-loop/check/exit.schema.json",
    "suite": "root",
    "old": "実行器の返答の形を組む口が組んだ腕の行をそのまま",
    "new": "実行器の --gate-efficacy が組んだ腕の行をそのまま",
@@ -5028,8 +5041,8 @@
    "title": "穴を挙げない仕様の審査に faces_none を求める",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if not faces and blank(out.get(\"faces_none\"), 20):\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    if errs:\n        raise Reject(f\"{nid}: \" + \"; \".join(errs))\n\n\ndef spec_revise_output",
-   "new": "    if False:\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    if errs:\n        raise Reject(f\"{nid}: \" + \"; \".join(errs))\n\n\ndef spec_revise_output",
+   "old": "    if not faces and blank(out.get(\"faces_none\"), 20):\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    return _refused(nid, errs) if errs else _accepted()\n\n\n@cond_reads(\"out.spec.review\")",
+   "new": "    if False:\n        errs.append(\"穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け\")\n    return _refused(nid, errs) if errs else _accepted()\n\n\n@cond_reads(\"out.spec.review\")",
    "expect": "仕様の道: 穴を挙げない審査は",
    "tests": {
     "graphloops/tests/simulate_review.py": [
@@ -5245,8 +5258,8 @@
    "title": "起こした直後に起こし直されていたら自分で止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "        if still_mine is not None and not still_mine():",
-   "new": "        if False:",
+   "old": "        if still_mine is not None and not still_mine():\n            raise Superseded\n        out, err",
+   "new": "        if False:\n            raise Superseded\n        out, err",
    "expect": "起こし直された試行は子を止めて返る",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5678,7 +5691,7 @@
    "title": "人が認めた木なら 0 本の関門を通す",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "            b.loop_state[\"final_gate_empty_ok\"] = (tree or \"\").strip() or None",
+   "old": "            write_loop(b, \"final_gate_empty_ok\", \"overwrite\", (tree or \"\").strip() or None)",
    "new": "            pass",
    "expect": "人が認めた木なら",
    "tests": {
@@ -5935,8 +5948,8 @@
    "title": "宣言の段の木の残りを試行の終わりに止める",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "        _end_attempt(trees, pgid_file)\n    return runs",
-   "new": "        pass\n    return runs",
+   "old": "        _end_attempt(trees, pgid_file)\n    if cp:",
+   "new": "        pass\n    if cp:",
    "expect": "run_steps: 段の背景",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -5977,7 +5990,7 @@
    "title": "諮る分岐は止めた理由を立てる",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "        b.loop_state[\"stop_reason\"] = ((out.get(\"ask\") or {}).get(\"kinds\") or [out.get(\"reason\")])[0]",
+   "old": "        write_loop(b, \"stop_reason\", \"overwrite\", ((out.get(\"ask\") or {}).get(\"kinds\") or [out.get(\"reason\")])[0])",
    "new": "        pass",
    "expect": "諮る前に止めた理由（stop_reason）を立てる",
    "tests": {
@@ -6352,7 +6365,7 @@
    "title": "義務の行の無い旧い出力を 0 件に倒さない",
    "file": "graphloops/rules/review-loop.py",
    "suite": "graphloops",
-   "old": "    if \"rows\" not in out:",
+   "old": "    if owed is not None and \"rows\" not in owed:",
    "new": "    if False:",
    "expect": "手直しの義務: 出力が在るのに rows が無い",
    "tests": {
@@ -6437,6 +6450,24 @@
    "old": "    if [ \"${FAIL_ON_SKIP:-}\" = 1 ] && [ \"$denied\" -gt 0 ]; then",
    "new": "    if [ \"$denied\" -gt 0 ]; then",
    "expect": "見送りの拾い手が期待と違う"
+  },
+  {
+   "id": "VH1",
+   "title": "記録の見出しの柵: 見出しを探さずに通せば赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "    if not _re.search(rf\"^## \\[{_re.escape(version)}\\] - \\d{{4}}-\\d{{2}}-\\d{{2}}(?: \\[YANKED\\])?[ \\t]*$\", text, _re.M):",
+   "new": "    if False and not _re.search(rf\"^## \\[{_re.escape(version)}\\] - \\d{{4}}-\\d{{2}}-\\d{{2}}(?: \\[YANKED\\])?[ \\t]*$\", text, _re.M):",
+   "expect": "marketplace.json / plugin.json が必須の欄を持つ"
+  },
+  {
+   "id": "VH2",
+   "title": "記録の見出しの柵: 行頭に錨を置かなければ赤",
+   "file": "tests/run.sh",
+   "suite": "root",
+   "old": "rf\"^## \\[{_re.escape(version)}",
+   "new": "rf\"## \\[{_re.escape(version)}",
+   "expect": "marketplace.json / plugin.json が必須の欄を持つ"
   },
   {
    "id": "SK4",

@@ -10,6 +10,7 @@
 """
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -25,6 +26,9 @@ if REPO is None:
     raise RuntimeError(f"{PLUGIN} の上に scripts/review-record.py が無い——リポジトリの根が見つからない")
 
 pytest_plugins = ("pytester", "glharness")
+# 止める猶予の環境変数（engine/role_run.py の GRACE_ENV）は外して走る——外の土台の下で engine がこの一式を走らせると値を継ぎ、
+# 既定の 5 秒を前提に子を止める検査が、その下でだけ崩れる（読めない値なら engine の import で全部落ちる）
+os.environ.pop("GL_KILL_GRACE", None)
 
 # graphcheck を同じプロセスで呼ぶ口（変異の道具 mutmut が差し替えた engine を見るため。別プロセスで走らせる検査は bash 側）
 _spec = importlib.util.spec_from_file_location("graphcheck", PLUGIN / "scripts" / "graphcheck.py")
@@ -41,6 +45,7 @@ def sandbox(tmp_path_factory):
     (tmp / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
     return tmp
 
 
@@ -53,10 +58,27 @@ def run_graphcheck(sandbox, g):
     return ok, "\n".join(map(str, lines))
 
 # 全件を回したときに集まるべきテストの数。上げるときも下げるときも実測値を書く
-EXPECTED_ITEMS = 1019
+EXPECTED_ITEMS = 1224
 # 全件を回したときに台本の check が走るべき件数と、到達すべき値の数（fence.py の 3）。上げるときも下げるときも実測値を書く
-EXPECTED_SIM_CHECKS = 5
+EXPECTED_SIM_CHECKS = 28
 EXPECTED_SIM_REACHED = 2
+
+
+# 変異の実行器（リポジトリの根の tests/mutate.py）の印の写しの pytest の回だけ立つ環境変数。立っていれば、各テストの間その値を
+# テストの node id にする——印は行を通したテストをこの値で名指す（子のプロセスにも環境で届く）。名前の正本は tests/mutate.py の
+# PYTEST_MARK（揃いは test_mutate_mark.py が縛る）
+MUTATE_MARK = "GL_MARK_PYTEST"
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    if MUTATE_MARK not in os.environ:
+        return (yield)
+    os.environ[MUTATE_MARK] = item.nodeid
+    try:
+        return (yield)
+    finally:
+        os.environ[MUTATE_MARK] = "?"
 
 
 def pytest_configure(config):

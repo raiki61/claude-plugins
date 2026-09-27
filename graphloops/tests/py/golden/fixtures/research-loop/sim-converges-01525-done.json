@@ -2,7 +2,7 @@
  "format": 1,
  "loop": "research-loop",
  "origin": "simulate",
- "source": "simulate.py の test_converges が loop.py done を呼ぶ直前（1525）",
+ "source": "py/test_sim_research.py の test_converges が loop.py done を呼ぶ直前（1525）",
  "command": [
   "done",
   "--node",

@@ -1,5 +1,9 @@
-"""記録への書き込み。汎用の op（set / append / merge_by_id）は engine が、記録の形に固有の op は rules が持つ。"""
-from .rules import registry
+"""記録への書き込み。汎用の op（set / append / merge_by_id）は engine が、記録の形に固有の op は rules が持つ。
+
+rules の op のうち読み口を受ける新しい形（cond_reads の印を持つ物）は、書く値を返すだけで記録を直に書かない。書き先は op が writes_to
+（graph の writes の to を {to} に埋める記録の path の型）で名乗り、ここがそこに置く——記録への書き込みの口を増やさず、書き先の正本は
+graph の writes の宣言（graphcheck が照らし、巻き戻しが見る）のまま。旧い形の op（盤面を受け取る物）は今までどおり盤面で呼ぶ。"""
+from .rules import registry, takes_view
 from .util import Reject, die, get_path, has_path, pick, set_path
 
 ENGINE_WRITE_OPS = ("set", "append", "merge_by_id")  # engine が持つ op。graphcheck はこれを import して照合する（写さない）
@@ -66,4 +70,15 @@ def apply_writes(b, nid, output, item):
                 else:
                     raise Reject(f"{nid}: 記録に無い {key}='{it[key]}' を書こうとしている（新規は許可されていない）")
         else:
-            ops[op](b, nid, src, {**w, "_item": item})  # 扇の項目も渡す（記録を書く op が item を要ることがある）
+            fn = ops[op]
+            new, got = b.rule(op, fn, nid, src, {**w, "_item": item})  # 扇の項目も渡す（記録を書く op が item を要ることがある）
+            if new:
+                set_path(b.record, writes_to(fn, op, w), got)
+
+
+def writes_to(fn, op, w):
+    """新しい形の rules の op が値を置く記録の path（op の writes_to に graph の writes の to を埋めた物）"""
+    tmpl = getattr(fn, "writes_to", None)
+    if not isinstance(tmpl, str) or not tmpl:
+        die(f"writes.op '{op}' は新しい形（読み口を受ける）なのに writes_to（値を置く記録の path の型）を名乗らない（rules の欠陥）")
+    return tmpl.format(to=w.get("to", ""))

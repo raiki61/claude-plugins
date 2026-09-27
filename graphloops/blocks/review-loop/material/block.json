@@ -1,0 +1,22 @@
+{
+ "description": "R3 素材集め（BLOCKS.md 3 節）。周の頭の審査対象を固め、素材（レンズ）を集める。差し込み口 material",
+ "nodes": [
+  "p1.worktree_before",
+  "p0.parallel_pr",
+  "p0.prior_decisions",
+  "p0.purpose_review",
+  "p1.local_review",
+  "p1.consistency_bypass",
+  "p1.hygiene",
+  "p1.external_standards",
+  "p1.procedure_trace",
+  "p1.gate_efficacy",
+  "p1.test_double_fidelity",
+  "p1.main_path_observation",
+  "p1.provenance",
+  "p1.worktree_after"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

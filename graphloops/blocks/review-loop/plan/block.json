@@ -1,0 +1,11 @@
+{
+ "description": "R5 修正案と事前審査（BLOCKS.md 3 節）。書く前の案を別の目が叩き、後退・方針の穴を人の関所 p2.human_gate に上げる",
+ "nodes": [
+  "p2.fix_plan",
+  "p2.plan_review",
+  "p2.human_gate"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

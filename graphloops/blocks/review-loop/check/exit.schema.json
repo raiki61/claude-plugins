@@ -1,0 +1,157 @@
+{
+ "description": "R9 検算（変異） の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p3.gates_cut": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "problems": {
+     "$ref": "engine#/driver_problems"
+    },
+    "from": {
+     "type": "string",
+     "description": "線が撃つ範囲の起点（この周の頭の版）"
+    },
+    "rev": {
+     "type": "string",
+     "description": "この周のコードの最後の姿（線・最後の関門・規模の数値が同じ版を見る）"
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "result": {
+     "type": "string",
+     "description": "線の結果の置き場（p3.delta_gates の delegate.result_to）"
+    },
+    "reply_schema": {
+     "type": "object",
+     "description": "線の結果の型（p3.delta_gates の result_schema）"
+    }
+   }
+  },
+  "p4.final_gates": {
+   "$ref": "#/$defs/lane_reply"
+  }
+ },
+ "$defs": {
+  "lane_reply": {
+   "type": "object",
+   "required": [
+    "rev",
+    "arms",
+    "handled",
+    "patch"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "rev": {
+     "type": "string",
+     "minLength": 7,
+     "note": "撃った版（名指しされた版をそのまま）。途中の版の結果は、その版の結果でしかない"
+    },
+    "arms": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/gate_arm"
+     },
+     "note": "実行器の返答の形を組む口が組んだ腕の行をそのまま。赤・対照の緑・当たりの証拠のどれかが欠けた腕が見逃し"
+    },
+    "handled": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "handled",
+       "how"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 5,
+        "note": "arm:<腕の名前>——見逃した腕ごとに 1 行"
+       },
+       "handled": {
+        "type": "string",
+        "enum": [
+         "tests_added",
+         "equivalent",
+         "needs_test",
+         "defect"
+        ],
+        "note": "tests_added＝テストを足してその腕の赤を見た（最後の関門では使えない）／equivalent＝振る舞いの変わらない変異（理由）／needs_test＝テストが要るが足していない／defect＝テストでは閉じない（コードの欠陥の疑い）。needs_test と defect は次の周の判定へ渡る"
+       },
+       "how": {
+        "type": "string",
+        "minLength": 10
+       }
+      }
+     },
+     "note": "見逃した腕（arms で証拠の欠けた腕）の全部に 1 度だけ答える。見逃しの無い腕に行を書かない"
+    },
+    "patch": {
+     "type": "string",
+     "note": "足したテストの patch の置き場（名指しの版から。足さなければ空）。テスト一式の件数の定数の行は入れない——合流した周の修正が実測に合わせる"
+    },
+    "suite": {
+     "type": "object",
+     "required": [
+      "command",
+      "exit"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "command": {
+       "type": "string",
+       "minLength": 1
+      },
+      "exit": {
+       "type": "integer"
+      }
+     },
+     "note": "読まない欄（取り下げた）。テスト一式の緑は役の申告で受けない——線の足したテストは合流した周の p4.ci、最後の関門の版は同じ周の p4.ci を engine が走らせる。書いてある古い線の結果を型で落とさないために欄だけ残す"
+    }
+   }
+  },
+  "gate_arm": {
+   "type": "object",
+   "required": [
+    "gate",
+    "arm",
+    "red_confirmed",
+    "control_green",
+    "hit_evidence"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "gate": {
+     "type": "string"
+    },
+    "arm": {
+     "type": "string"
+    },
+    "red_confirmed": {
+     "type": "boolean"
+    },
+    "control_green": {
+     "type": "boolean"
+    },
+    "note": {
+     "type": "string"
+    },
+    "hit_evidence": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

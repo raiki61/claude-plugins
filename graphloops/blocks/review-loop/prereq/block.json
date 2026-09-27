@@ -1,0 +1,12 @@
+{
+ "description": "R1 前提（BLOCKS.md 3 節）。基準点・CI の基準・前提・目的を固める（周をまたいで once）",
+ "nodes": [
+  "p0.base",
+  "p0.local_checks",
+  "p0.premises",
+  "p0.purpose"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

@@ -20,7 +20,7 @@ class Reject(Exception):
 
 
 def board(tmp_path, named=None, outs=None, human_items=()):
-    return types.SimpleNamespace(state={"inputs": {"cwd": str(tmp_path), "policy_md": named}}, round=1, loop_state={}, dir=tmp_path / "state",
+    return types.SimpleNamespace(state={"inputs": {"cwd": str(tmp_path), "policy_md": named}}, round=1, loop_state={}, dir=tmp_path / "state", graph=G,
                                  record={"process": {"human_items": list(human_items)}},
                                  output_of_round=lambda nid, rnd: (outs or {}).get(nid))
 
@@ -73,6 +73,20 @@ def test_r4_gate_does_not_reask_passed_rows(tmp_path):
               {"answer": "stop", "asked": ["R4 が BASE から消えたと見た能力: Y", "R4 が見た人の方針とのぶつかり: Q"]}]
     got = RULES._r4_gate_items(board(tmp_path, outs=outs, human_items=passed))
     assert got == [("regression", "R4 が BASE から消えたと見た能力: Y"), ("policy", "R4 が見た人の方針とのぶつかり: Q")]
+
+
+def test_r4_gate_compares_bodies_across_gates_in_the_same_round(tmp_path):
+    """修正後の関所は頭を除いた本文で照らす: この周の修正前の関所で人が通した本文を R4 が写しても聞き直さない（key が「: 」を
+    含んでも本文が 1 つに決まる）。前の周に修正前の関所で通した本文は照らさない——修正前の関所は周ごとに毎回聞く（人の決定 2026-09-27）"""
+    plan = {"p2.fix_plan": {"plan": [{"narrows": [{"what": "能力 A", "why": "理由"}]}]},
+            "p2.plan_review": {"faces": [{"kind": "regression", "key": "k: 含む", "why": "後退の本文"}]}}
+    asked = [row for _, row in RULES._plan_gate_items(board(tmp_path, outs=plan))]
+    assert asked == ["修正案 1 が狭める能力: 能力 A——理由", "事前審査の穴 [regression] 「k: 含む」: 後退の本文"]
+    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["能力 A——理由", "後退の本文", "新しい"]}}}
+    same = [{"round": 1, "node": "p2.human_gate", "answer": "continue", "asked": asked}]
+    assert RULES._r4_gate_items(board(tmp_path, outs=outs, human_items=same)) == [("regression", "R4 が BASE から消えたと見た能力: 新しい")]
+    earlier = [{**same[0], "round": 0}]
+    assert len(RULES._r4_gate_items(board(tmp_path, outs=outs, human_items=earlier))) == 3
 
 
 def test_r4_must_answer_policy_conflicts():

@@ -28,6 +28,7 @@
 import collections
 import datetime
 import json
+import math
 import os
 import pathlib
 import shutil
@@ -37,11 +38,36 @@ import sys
 import threading
 import time
 
+from . import checks_cache
+
 RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why}\n\n"
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
                "理由が中身の整合（記録の整合・項目の過不足など）なら、理由が指す所だけを直せ。"
                "どちらも、最初の指示が求めた形の返答だけを出し直せ（前後に文を付けない）。")
-KILL_GRACE = 5  # 止める信号の間の猶予（秒）
+# 止める信号の間の猶予（秒）の既定。claude -p が SIGTERM で自分の子（Bash の木）を止め終える幅として置いた
+DEFAULT_KILL_GRACE = 5
+GRACE_ENV = "GL_KILL_GRACE"
+
+
+def _grace_from_env(environ):
+    """止める信号の間の猶予（秒）を環境から決める。無い・空なら既定。読めない値（数でない・負・非有限）は黙って既定に
+    落とさず誤りにする——外の土台の猶予に合わせて短くしたつもりの値が 5 秒に戻ると、外の土台が先に SIGKILL を送り、
+    SIGTERM を無視する孫が残る（直したはずの欠陥が警告なしに戻る）。0 は許す（猶予を置かずに SIGKILL を送る）"""
+    raw = environ.get(GRACE_ENV)
+    if raw is None or not raw.strip():
+        return DEFAULT_KILL_GRACE
+    try:
+        v = float(raw)
+    except ValueError:
+        v = None
+    if v is None or not math.isfinite(v) or v < 0:
+        raise ValueError(f"環境変数 {GRACE_ENV} の値 {raw!r} は猶予の秒として読めない（0 以上の有限の数。無ければ既定の "
+                         f"{DEFAULT_KILL_GRACE} 秒）")
+    return v
+
+
+# 読むのは import の時 1 回。テストは monkeypatch.setattr(role_run, "KILL_GRACE", …) で差し替える（使う側は呼ぶ時に大域を読む）
+KILL_GRACE = _grace_from_env(os.environ)
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGKILL) if os.name == "posix" else ()  # 試行の木を止める信号の列（_kill と stop_group）
 SUPERSEDED = "起こし直された古い試行か、人が止めた試行——次の手は要らない（起こし直しなら新しい試行は relaunch が作った物で、その launch を待つ。人が止めたなら次は next）"
 # ファイルを書く道具。**役の定義**にこれが在れば engine は起こさない（回す側が Agent で起こす）——役の定義は別のプラグインが
@@ -837,9 +863,24 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
     返すのは段ごとの {name, argv, exit, wall_s, out, err, tail}（exit が None なら起こせなかった——error に理由）。
     もう自分の物でなければ（still_mine が偽——起こし直された・人が止めた）Superseded を上げる。
     正常に終わった段の木の残り（外へ出た背景のプロセス）は、試行（全段）の終わりに 1 回まとめて止める。段の宣言の
-    keep_background（engine/declared.py）が真の段は止めない——試行の外で使う背景のプロセスを残す逃げ道（次の段までは宣言が無くても残る）"""
+    keep_background（engine/declared.py）が真の段は止めない——試行の外で使う背景のプロセスを残す逃げ道（次の段までは宣言が無くても残る）
+
+    宣言と一致する一式は、同じ指紋の緑が在れば段を起こさずに使い回す（engine/checks_cache.py。当たった行は reused を持ち、
+    出力は log_dir に写す）。どの行も使い回しの判断を cache に 1 行で持つ"""
     log_dir = pathlib.Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
+    cp, why = checks_cache.plan(steps, cwd)
+    if cp:
+        hit, why = checks_cache.lookup(cp, steps, log_dir)
+        if hit is not None:
+            if still_mine is not None and not still_mine():
+                raise Superseded
+            for r in hit:
+                r["cache"] = f"使い回し: {r['reused']['at']} の緑（{r['reused']['from']}）"
+            return hit
+        why = f"外れ: {why}"
+    else:
+        why = f"対象外: {why}"
     runs, trees = [], []
     try:
         for i, s in enumerate(steps):
@@ -847,8 +888,8 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
             base = log_dir / f"{i + 1}"
             row = {"name": s["name"], "argv": list(s["argv"]), "out": str(base) + ".out", "err": str(base) + ".err"}
             try:
-                rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, pgid_file=pgid_file, still_mine=still_mine,
-                                      trees=None if s.get("keep_background") else trees)
+                rc, out, err = _spawn(list(s["argv"]), b"", cwd=cwd, env=checks_cache.child_env(), pgid_file=pgid_file,
+                                      still_mine=still_mine, trees=None if s.get("keep_background") else trees)
             except OSError as e:
                 rc, out, err = None, b"", str(e).encode("utf-8")
                 row["error"] = str(e)
@@ -858,6 +899,11 @@ def run_steps(steps, cwd, log_dir, pgid_file=None, still_mine=None):
             runs.append(row)
     finally:
         _end_attempt(trees, pgid_file)
+    if cp:
+        entry, bad = checks_cache.store(cp, steps, runs, log_dir)
+        why += f"／書いた: {entry}" if entry else f"／{bad}"
+    for r in runs:
+        r["cache"] = why
     return runs
 
 

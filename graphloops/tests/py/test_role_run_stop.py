@@ -3,6 +3,7 @@
 子プロセスを本当に止める端から端までの形は tests/simulate.py の test_role_run が見る。"""
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import types
@@ -400,6 +401,36 @@ def test_kill_all_says_which_tree_it_could_not_stop(monkeypatch, capsys):
     monkeypatch.setattr(role_run, "_kill", lambda p: "検査用の止め切れない理由")
     role_run.kill_all()
     assert "NG 子の木を止め切れない（pid 4242）: 検査用の止め切れない理由" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("raw,want", [(None, 5), ("", 5), (" ", 5), ("2", 2.0), ("0.5", 0.5), ("0", 0.0)])
+def test_grace_from_env_reads_the_seconds(raw, want):
+    """GL_KILL_GRACE が無い・空なら既定の 5 秒（今の振る舞い）、在ればその秒。0 は猶予を置かない選択として許す"""
+    assert role_run._grace_from_env({} if raw is None else {"GL_KILL_GRACE": raw}) == want
+
+
+@pytest.mark.parametrize("raw", ["abc", "-1", "nan", "inf"])
+def test_grace_from_env_refuses_unreadable_values(raw):
+    """読めない値は黙って既定に落とさず、変数の名前を言って誤りにする——外の土台に合わせたつもりの値が 5 秒に戻ると、
+    直したはずの孫の残りが警告なしに戻る"""
+    with pytest.raises(ValueError, match="GL_KILL_GRACE"):
+        role_run._grace_from_env({"GL_KILL_GRACE": raw})
+
+
+def test_kill_grace_is_read_from_the_environment_at_import():
+    """engine を import した時の KILL_GRACE が環境の値になる（呼び手が外の土台に合わせて選ぶ口）。無ければ 5、読めなければ
+    import が誤りで落ちる"""
+    plugin = pathlib.Path(role_run.__file__).resolve().parents[1]
+
+    def run(extra):
+        env = {k: v for k, v in os.environ.items() if k != "GL_KILL_GRACE"}
+        env.update(extra, PYTHONIOENCODING="utf-8")   # 拒否の文（日本語）を子が Windows の既定コーデックで書き損じない
+        return subprocess.run([sys.executable, "-c", "from engine import role_run; print(role_run.KILL_GRACE)"],
+                              cwd=plugin, env=env, capture_output=True, text=True, encoding="utf-8")
+    assert run({}).stdout.strip() == "5"
+    assert run({"GL_KILL_GRACE": "1.5"}).stdout.strip() == "1.5"
+    bad = run({"GL_KILL_GRACE": "x"})
+    assert bad.returncode != 0 and "GL_KILL_GRACE" in bad.stderr
 
 
 def test_stop_handler_marks_stopping_then_raises(monkeypatch):

@@ -145,10 +145,22 @@
      "真"
     ]
    },
+   "rejudge2_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge3_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
    "rejudge_exhausted": {
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "rejudge_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge_reply2_due": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge_reply_due": {
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "request_entry": {
@@ -212,33 +224,33 @@
   "POST_CHECKS": {
    "base_valid": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "cold_check_note": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "delta_fix_output": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "delta_review_output": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "external_rankings": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "final_gates_output": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "fix_covers_open_units": {
     "covered": [
@@ -248,12 +260,12 @@
    },
    "fix_plan_covers_units": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "gate_arms_all_red": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "judge_output": {
     "covered": [
@@ -262,24 +274,24 @@
     ]
    },
    "lane_receipt": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "local_review_covers_lenses": {
     "uncovered": "片側だけ（見えた結果: 返った）"
    },
    "main_path_observed": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "measured_needs_output": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "plan_review_output": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "purpose_findings_cited": {
@@ -289,27 +301,27 @@
     "uncovered": "片側だけ（見えた結果: 返った）"
    },
    "r4_inventory": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "rejudge_output": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "spec_review_output": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "spec_revise_output": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    },
    "spec_write_output": {
     "covered": [
-     "拒む",
-     "返った"
+     "ok=False",
+     "ok=True"
     ]
    }
   },
@@ -394,7 +406,7 @@
    },
    "premise_question": {
     "called": [
-     "返った"
+     "一覧あり"
     ]
    }
   },
@@ -587,10 +599,22 @@
    "r2_premise_invalid": {
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
+   "rejudge2_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge3_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
    "rejudge_exhausted": {
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "rejudge_open": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge_reply2_due": {
+    "uncovered": "片側だけ（見えた結果: 偽）"
+   },
+   "rejudge_reply_due": {
     "uncovered": "片側だけ（見えた結果: 偽）"
    },
    "request_entry": {
@@ -647,49 +671,49 @@
   },
   "POST_CHECKS": {
    "base_valid": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "cold_check_note": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "delta_fix_output": {
     "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
    },
    "delta_review_output": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "external_rankings": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "final_gates_output": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "fix_covers_open_units": {
     "uncovered": "片側だけ（見えた結果: 返った）"
    },
    "fix_plan_covers_units": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "gate_arms_all_red": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "judge_output": {
     "uncovered": "片側だけ（見えた結果: 返った）"
    },
    "lane_receipt": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "local_review_covers_lenses": {
     "uncovered": "片側だけ（見えた結果: 返った）"
    },
    "main_path_observed": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "measured_needs_output": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "plan_review_output": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "purpose_findings_cited": {
     "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"
@@ -698,7 +722,7 @@
     "uncovered": "片側だけ（見えた結果: 返った）"
    },
    "r4_inventory": {
-    "uncovered": "片側だけ（見えた結果: 返った）"
+    "uncovered": "片側だけ（見えた結果: ok=True）"
    },
    "rejudge_output": {
     "uncovered": "どの固定具でも呼ばれていない（入口が固定具に無い）"

@@ -1,0 +1,14 @@
+{
+ "description": "S6 独立の目のゲート（BLOCKS.md 3 節）。隔離した再導出・地図・初見の読み手・抜き取り",
+ "nodes": [
+  "p3.rederiver",
+  "p3.rederiver_compare",
+  "p3.cartographer",
+  "p3.cartographer_compare",
+  "p3.cold_reader",
+  "p3.sampling"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

@@ -13,6 +13,7 @@ from engine.schema import load_graph
 
 GRAPH = PLUGIN / "graphs" / "review-loop.json"
 RULES = load_rules(GRAPH, load_graph(GRAPH)[0])
+STATE_SCHEMA = load_graph(GRAPH)[0]["state_schema"]   # 写しの記録（diff_paste_log）は合わせ方の口（write_loop）で書く
 read_room = 1000   # 台本の read_room_bytes
 
 
@@ -56,7 +57,7 @@ def repo(tmp_path, monkeypatch):
 
 def board(tmp_path, budget, base=None):
     launch = {} if budget is None else {"input_budget_bytes": budget, "read_room_bytes": read_room}
-    return types.SimpleNamespace(round=1, dir=tmp_path, loop_state={}, graph={"launch": launch}, record={"base": base})
+    return types.SimpleNamespace(round=1, dir=tmp_path, loop_state={}, graph={"launch": launch, "state_schema": STATE_SCHEMA}, record={"base": base})
 
 
 def full_copy(tmp_path, raw):

@@ -1,0 +1,6 @@
+{
+ "description": "S5 統合（BLOCKS.md 3 節）。判定を文書へ統合する",
+ "nodes": [
+  "p2.integrate"
+ ]
+}

@@ -8,12 +8,14 @@ import types
 import pytest
 
 from conftest import PLUGIN, REPO
+from engine.board import Board
 from engine.rules import load_rules
 from engine.schema import load_graph
 from engine.util import Reject
 
 GRAPH = PLUGIN / "graphs" / "review-loop.json"
-RULES = load_rules(GRAPH, load_graph(GRAPH)[0])
+G = load_graph(GRAPH)[0]
+RULES = load_rules(GRAPH, G)
 VALIDATOR = str(REPO / "scripts" / "review-record.py")
 
 
@@ -23,12 +25,23 @@ def board(tmp_path, *, outputs=None, latest=None, record=None, loop_state=None, 
     outputs, latest = outputs or {}, latest or {}
     rec = {"base": None, "materials": {}, "units": [], "questions": [], "process": {}}
     rec.update(record or {})
-    return types.SimpleNamespace(
-        round=rnd, dir=tmp_path, record=rec, loop_state=dict(loop_state or {}),
+    b = types.SimpleNamespace(
+        round=rnd, dir=tmp_path, record=rec, loop_state=dict(loop_state or {}), graph=G,
         state={"validator": VALIDATOR, "max_rounds": max_rounds, "inputs": dict(inputs or {})},
         output_of_round=lambda nid, r: outputs.get(nid), latest_output=lambda nid: latest.get(nid),
         cond=lambda name, overlay=None: (name == RULES.ENTRY_BUILTIN, "偽物"),
         hist=lambda name: (hist or {}).get(name, RULES.HIST_ABSENT))
+    # 読み口（engine の Board.view と同じ入れ物）。新しい形の規則の関数と、旧い形の関数が読み口で呼ぶ補助が読む
+    ctx = {"record": rec, "out": latest, "cur": outputs, "prev": {}, "round": rnd, "rd": {}, "loop": b.loop_state,
+           "inputs": b.state["inputs"], "hist": dict(hist or {})}
+    b.ctx = lambda: ctx
+    b.view = types.MethodType(Board.view, b)   # engine の読み口の組み立てそのもの
+    return b
+
+
+def call(b, fn, *args):
+    """新しい形の規則の関数を、宣言した読み口で呼ぶ（engine の Board.rule と同じ）"""
+    return fn(b.view(fn.__name__, fn.reads), *args)
 
 
 def fake_git(table):
@@ -129,9 +142,9 @@ AWAITING = [{"kind": "awaiting", "status": "held", "origin": "local_checks", "ke
 
 
 @pytest.mark.parametrize("launch,runs,words", [
-    pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": 0, "wall_s": 1}], "走らせた結果: engine が宣言", id="clean-checked"),
+    pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": 0, "wall_s": 1}], "確かめた結果: engine が宣言", id="clean-checked"),
     pytest.param({"sha": "a" * 40}, [{"name": "t", "exit": 1, "wall_s": 1, "tail": "赤の末尾"}], "t の末尾: 赤の末尾", id="found-detail"),
-    pytest.param({"blocked": "承認されていない"}, [], "走らせた結果: 承認されていない", id="blocked-reason"),
+    pytest.param({"blocked": "承認されていない"}, [], "確かめた結果: 承認されていない", id="blocked-reason"),
 ])
 def test_checks_reply_keeps_result_under_awaiting_question(tmp_path, launch, runs, words):
     b = board(tmp_path, record={"questions": AWAITING})
@@ -158,8 +171,7 @@ def test_github_repo_blank_upstream_falls_back_to_origin(monkeypatch):
 
 
 def entry_board(tmp_path):
-    return board(tmp_path, record={"process": {"request_findings": [
-        {"round": 1, "origin": "人", "findings": [{"where": "src/a.py: 3 行目", "text": "直せ"}]}]}})
+    return board(tmp_path, hist={"request_wheres": ["src/a.py: 3 行目"]})
 
 
 def test_pr_files_takes_tracked_paths_named_by_where(tmp_path, monkeypatch):
@@ -194,8 +206,8 @@ def test_parallel_pr_reply_failed_run_shows_why(tmp_path, run, words):
 # ---------------------------------------------------------------- 修正案（fix_plan_covers_units）
 def test_fix_plan_rejects_unknown_unit_key(tmp_path):
     b = board(tmp_path, record={"units": [{"key": "K1", "label": "block"}]})
-    with pytest.raises(Reject, match="今の周に直す単位に無い key"):
-        RULES.fix_plan_covers_units(b, "p2.fix_plan", {"plan": [{"unit_keys": ["K1", "写した key"]}]}, None)
+    got = call(b, RULES.fix_plan_covers_units, "p2.fix_plan", {"plan": [{"unit_keys": ["K1", "写した key"]}]}, None)
+    assert got["ok"] is False and "今の周に直す単位に無い key" in got["reason"]
 
 
 # ---------------------------------------------------------------- 修正の入口（fix_units・_owed_shown）
@@ -231,8 +243,8 @@ def test_fix_acceptance_answers_against_the_shown_rows(tmp_path):
     b = fix_board(tmp_path)
     RULES.fix_units(b, "p2.fix_units")
     b.record["questions"] = []   # 見せた後に台帳が変わっても、答え合わせは見せた値で行う（今の台帳なら K4 も義務）
-    assert RULES._owed_shown(b) == {"K1", "K2"}
-    RULES.fix_plan_covers_units(b, "p2.fix_plan", {"plan": [{"unit_keys": ["K1", "K2"]}]}, None)
+    assert call(b, RULES._owed_shown) == {"K1", "K2"}
+    assert call(b, RULES.fix_plan_covers_units, "p2.fix_plan", {"plan": [{"unit_keys": ["K1", "K2"]}]}, None)["ok"] is True
     b.record["questions"] = [{**FORK, "origin": "K2"}]   # 今の台帳なら K2 は待ってよいが、見せた行では義務
     with pytest.raises(Reject, match="K2"):
         RULES.fix_covers_open_units(b, "p3.fix", {"changes": [{"unit_key": "K1"}], "not_done": [{"unit_key": "K2", "why": "待つ"}]}, None)
@@ -241,7 +253,7 @@ def test_fix_acceptance_answers_against_the_shown_rows(tmp_path):
 def test_owed_shown_without_rows_of_this_round_reads_owed_units(tmp_path):
     b = fix_board(tmp_path, rnd=2)
     b.loop_state["fix_units"] = {"round": 1, "rows": [{"key": "K3", "owed": True}]}
-    assert RULES._owed_shown(b) == RULES._owed_units(b) == {"K1", "K2"}
+    assert call(b, RULES._owed_shown) == call(b, RULES._owed_units) == {"K1", "K2"}
 
 
 @pytest.mark.parametrize("graph, node", [("review-loop.json", "p2.fix_plan"), ("review-loop.json", "p3.fix"),
@@ -282,7 +294,7 @@ def test_spec_errors_rejects_missing_test_name(no_repo):
 
 @pytest.mark.parametrize("review", [pytest.param(None, id="no-review"), pytest.param({"faces": []}, id="no-faces")])
 def test_spec_revise_output_without_review_faces(no_repo, review):
-    RULES.spec_revise_output(board(no_repo, latest={"spec.review": review}), "spec.revise", {"handled": [], "spec": SPEC}, None)
+    assert call(board(no_repo, latest={"spec.review": review}), RULES.spec_revise_output, "spec.revise", {"handled": [], "spec": SPEC}, None)["ok"]
 
 
 def test_spec_approve_without_review_or_revise(no_repo):
@@ -347,7 +359,7 @@ def test_human_excluded_units_leave_owed(tmp_path):
     rows = [{"round": 1, "node": "p2.human_gate", "answer": "continue", "excluded": [{"unit": "u1", "why": "人の理由"}]},
             {"round": 0, "node": "p2.human_gate", "answer": "continue", "excluded": [{"unit": "u2", "why": "前の周"}]}]
     b = board(tmp_path, record={"units": GATE_UNITS, "process": {"human_items": rows}})
-    assert RULES._owed_units(b) == {"u2"}
+    assert call(b, RULES._owed_units) == {"u2"}
 
 
 @pytest.mark.parametrize("node,ans,detail,want", [
@@ -367,7 +379,7 @@ def test_answer_detail_names_units_and_reaches_ledger(tmp_path):
     got = RULES.answer_detail(b, {"node": "p2.human_gate"}, "continue", {"exclude": [{"unit": 2, "why": "この周は\n触らない"}]})
     assert got == {"exclude": [{"unit": "u2", "why": "この周は 触らない"}]}
     RULES.human_gate_answered(b, {"node": "p2.human_gate", "items": [], "detail": got}, "continue")
-    assert b.record["process"]["human_items"][-1]["excluded"] == got["exclude"] and RULES._owed_units(b) == {"u1"}
+    assert b.record["process"]["human_items"][-1]["excluded"] == got["exclude"] and call(b, RULES._owed_units) == {"u1"}
 
 
 def test_fail_layers_cover_every_function_that_fails():
@@ -405,10 +417,10 @@ def test_history_rules_only_where_history_is_read(tmp_path):
 def test_rejudge_rejects_reopened_defer(tmp_path):
     b = board(tmp_path, hist=LEDGER, rnd=2)
     out = {"new_facts": "回す側が出した事実を、作業ツリーの現物を読み直して自分で確かめた", "verdict": "採る", **reopened_block()}
-    with pytest.raises(Reject, match="reopen_evidence が無い: u1"):
-        RULES.rejudge_output(b, "p2.rejudge", out, None)
+    got = call(b, RULES.rejudge_output, "p2.rejudge", out, None)
+    assert got["ok"] is False and "reopen_evidence が無い: u1" in got["reason"]
     out["units"][0]["reopen_evidence"] = "新しい実測"
-    RULES.rejudge_output(b, "p2.rejudge", out, None)
+    assert call(b, RULES.rejudge_output, "p2.rejudge", out, None) == {"ok": True}
 
 
 def test_history_rules_leave_machine_rows_to_record(tmp_path):
@@ -456,9 +468,8 @@ def test_delta_review_sends_human_kinds_to_the_gate(tmp_path, kind):
     """修正差分のレビューが人に聞く語（後退・方針とのぶつかり）を挙げたら、その語はこの節の物でないと返す——
     ファイルの照合まで流して別の理由で落とさない"""
     face = {"key": "k1", "kind": kind, "where": "a.py", "cite": "x", "why": "理由"}
-    with pytest.raises(Reject) as e:
-        RULES.delta_review_output(board(tmp_path), "p3.delta_review", {"faces": [face]}, None)
-    assert "修正の後の後退" in str(e.value) and "修正が触ったファイルでない" not in str(e.value)
+    got = call(board(tmp_path), RULES.delta_review_output, "p3.delta_review", {"faces": [face]}, None)
+    assert got["ok"] is False and "修正の後の後退" in got["reason"] and "修正が触ったファイルでない" not in got["reason"]
 
 
 @pytest.mark.parametrize("n,src,field,word", [(1, "p3.fix", "plan_faces", "absorbed"), (2, "p3.delta_fix", "handled", "fixed")])
@@ -472,12 +483,11 @@ def test_delta_review_checks_only_the_claimed_rows(tmp_path, n, src, field, word
     ptr = load_graph(GRAPH)[0]["nodes"][nid]["pointers"]
     assert [f for p in ptr if p["at"] == "checks[].key" for f in p["from"]] == [f"cur.{cut}.delta.claimed"]
     b = board(tmp_path, outputs={src: {field: rows}, cut: {"ok": True, "delta": {"file": "f", "files": [], "rev": "r", "claimed": claimed}}})
-    with pytest.raises(Reject) as e:
-        RULES.delta_review_output(b, nid, {"faces": [], "faces_none": "差分が無く、検算する申告だけを見た（検査用）",
-                                           "checks": [{"key": "残す穴", "closed": True, "why": "w"}]}, None)
-    assert "塞いだと言われた穴に無い" in str(e.value) and "塞いだ穴" in str(e.value)
-    RULES.delta_review_output(b, nid, {"faces": [], "faces_none": "差分が無く、検算する申告だけを見た（検査用）",
-                                       "checks": [{"key": "塞いだ穴", "closed": True, "why": "w"}]}, None)
+    got = call(b, RULES.delta_review_output, nid, {"faces": [], "faces_none": "差分が無く、検算する申告だけを見た（検査用）",
+                                                   "checks": [{"key": "残す穴", "closed": True, "why": "w"}]}, None)
+    assert got["ok"] is False and "塞いだと言われた穴に無い" in got["reason"] and "塞いだ穴" in got["reason"]
+    assert call(b, RULES.delta_review_output, nid, {"faces": [], "faces_none": "差分が無く、検算する申告だけを見た（検査用）",
+                                                    "checks": [{"key": "塞いだ穴", "closed": True, "why": "w"}]}, None)["ok"] is True
 
 
 def test_finalize_writes_the_policy_change_after_the_last_gate(tmp_path, monkeypatch):
@@ -514,9 +524,9 @@ def test_parallel_pr_reply_blocked_launch_is_not_run(tmp_path):
 
 
 def test_rejudge_exhausted_needs_an_objection_this_round():
-    """往復が上限まで数えられていても、今の周に回す側の異議が無ければ第三の目を立てない"""
-    ok, why = RULES.rejudge_exhausted(View({"round": 2, "loop.rejudge_rounds": {"round": 2, "n": RULES.REJUDGE_MAX}}))
-    assert ok is False and "異議を出していない" in why
+    """今の周に最後の擦り合わせの答えが無ければ（回す側が今の周に異議を出していなければ）第三の目を立てない"""
+    ok, why = RULES.rejudge_exhausted(View({"round": 2}))
+    assert ok is False and "答えは 無い" in why
 
 
 def test_spec_check_without_a_fixed_spec_says_so(tmp_path):

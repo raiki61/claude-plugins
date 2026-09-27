@@ -8,6 +8,8 @@ name: mutation
 # 既製の mutmut（pytest が覆うモジュールを丸ごと自動で撃つ）はここで回さない。生き残りの数で落とす形は作れず（文言だけの変異が
 # 残る）、報告だけのジョブは誰も読まないので、手元で撃って生き残りを pytest 側のテストで殺す道具として使う（回し方は
 # graphloops/README.md の「検査」節）。落とす柵はこの workflow が撃つ手書きの腕の側に在る
+# 実行器は写しを worker ごとに使い回す。それが腕ごとに写しを作り直す形と同じ判定を出すことを、同じジョブの 2 段目で撃ち比べる
+# （既定の段の報告から腕を 4 本まで選び、--fresh-copy で撃って status と当たりの証拠を突き合わせる。結果は fresh-report.json）
 on:
   schedule:
     - cron: "17 3 * * 1"
@@ -32,9 +34,17 @@ jobs:
         shell: bash
         # --confirm-survivors: 絞った台本（腕の tests）が緑の腕を台本一式で確かめ直す（週 1 回の全腕は、既定で外した確かめ直しを残す）
         run: python3 tests/mutate.py -j 4 --confirm-survivors --out mutation-report.json
+      - name: 写しの使い回しと腕ごとの作り直しの撃ち比べ
+        if: always()
+        shell: bash
+        # 既定の段が赤でも撃ち比べる（関門の赤と使い回しの食い違いは別の事実）。腕の選び方と比べ方の正本は tests/mutate.py の
+        # same_as_pick・same_as_diff。既定の段の報告が無い・途中の版・使い回していない回は、比べる意味が無いので赤
+        run: python3 tests/mutate.py -j 4 --confirm-survivors --same-as mutation-report.json --out fresh-report.json
       - name: 結果を残す（次の撃ち直しの --reuse に使える）
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mutation-report
-          path: mutation-report.json
+          path: |
+            mutation-report.json
+            fresh-report.json

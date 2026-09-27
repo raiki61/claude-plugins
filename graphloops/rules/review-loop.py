@@ -11,7 +11,6 @@ import pathlib
 import posixpath
 import re
 import shutil
-import tempfile
 from typing import NamedTuple
 
 _pspec = importlib.util.spec_from_file_location("graphloops_rules_policy_input", pathlib.Path(__file__).with_name("policy_input.py"))
@@ -131,7 +130,7 @@ def add(b, items, reason):
     if opened:
         proc["request_entry"] = {"origin": reason}
     wrote = ["record.process.request_findings", *(["record.process.request_entry"] if opened else []),
-             *(["hist.request_wheres"] if request_wheres(b) else [])]
+             *(["hist.request_wheres"] if _hist(b, "request_wheres") else [])]
     # 積んだ欄を読む節（正本は graph の reads）の、待っている instance。起きていない他へ渡した物は描き直し、起きた物・回す側の節は言う
     near = lambda r, w: r == w or w.startswith(r + ".") or r.startswith(w + ".")
     readers = [i for i in b.rd["instances"].values()
@@ -187,16 +186,6 @@ def entry_first_fix(v):
     return at == rnd - 1, f"判定から入る run で、最初に修正が入った周は {at}（今は {rnd} 周目）"
 
 
-def request_wheres(b):
-    """判定から入る run の周に、この周の判定に届く依頼の where の一覧（範囲を差分から取る P0 の節——先行議論・並行 PR——の
-    範囲の読み口。判定から入る run の周は差分が空なので、依頼の where を範囲にする）。そうでない周は []——
-    差分が在る周の範囲は差分で、依頼の where を足さない。正本は process.request_findings（_requests が型を当てる）"""
-    if not b.cond(ENTRY_BUILTIN)[0]:
-        return []
-    reqs, _ = _requests(b, "request_findings")
-    return [f["where"] for x in reqs for f in x["findings"]]
-
-
 def _entry_skipped(b, n):
     """na の節が入口のせいで外れたか——入口の周で、同じ条件が今は偽で、入口の印を外した文脈（ENTRY_OFF）なら真。
     節の集合は graph の cond が正本（ここに節の名前を並べない）。条件の書き方に依らない——同じ 1 本の関数を 2 回評価する
@@ -228,7 +217,12 @@ def _declared_faces(out_of, rnd):
 # ここは値の定義だけを持ち、何も書かない。関数は読む物を hist_reads で宣言し、engine は宣言した物だけを見せる。
 # 形の正本は graph の hist_schema（graphcheck が HIST の名前と両向きで照らす）
 RECORD_NODE = "p4.record"
-REJUDGE_NODES = ("p2.rejudge", "p2.rejudge_third")
+# 同じ周の擦り合わせの往復（回 → (異議を書く節, 擦り合わせの節)）。依頼者の指定（2026-09-13）: 往復は 3 回まで許し、3 回とも決着しなければ
+# 新しい別の目（REJUDGE_THIRD）が会話に参加して判定する。**節の名前の対応はこの表だけが持つ**（DELTA_PASSES と同じ形）——1 回ごとに
+# 回す側が再異議を書く出口（p3.rejudge_reply・p3.rejudge_reply2）が無かった頃は、往復が 1 回にしかならず第三の目が立たなかった
+REJUDGE_PASSES = {1: ("p3.fix", "p2.rejudge"), 2: ("p3.rejudge_reply", "p2.rejudge2"), 3: ("p3.rejudge_reply2", "p2.rejudge3")}
+REJUDGE_THIRD = "p2.rejudge_third"
+SETTLED = ("採る", "退ける")   # 擦り合わせが決着した答え（一部採る は決着していない）
 CARRIED_REVIEW = "（round {round} と同じ。持ち越せない値なので今も諮っている記録として書く）"
 _CARRIED_REVIEW_TAIL = re.compile(re.escape(CARRIED_REVIEW).replace(re.escape("{round}"), r"\d+") + "$")
 
@@ -236,6 +230,11 @@ _CARRIED_REVIEW_TAIL = re.compile(re.escape(CARRIED_REVIEW).replace(re.escape("{
 def _hist(b, name, default=None):
     v = b.hist(name)
     return default if v is HIST_ABSENT else v
+
+
+def _view(b, fn):
+    """旧い形の関数（盤面を受け取る物）が、読み口を受ける補助（読む欄を cond_reads で宣言した関数）を呼ぶときの読み口"""
+    return b.view(fn.__name__, fn.reads)
 
 
 def _closed(h):
@@ -373,15 +372,32 @@ def hist_prev_one_shot(h):
             "absent": f"round {n} の判定に one_shot が無い（この周は検算する対象が無い——『届かなかった』ではない。届かない形なら engine が止める）"}
 
 
-@hist_reads("out.p3.fix", *(f"out.{n}" for n in REJUDGE_NODES))
+def _rejudge_trail(out_of):
+    """その周の往復の成り行き ——(最後の異議の文, 決着したか)。out_of(節) はその周の節の出力。異議が無い・再異議の口で取り下げた・
+    採る／退けるで答えた回で決着、擦り合わせか再異議の口が走らなかった・3 回とも一部採るで第三の目も決着しなかったなら未決"""
+    text = None
+    for src, judge in REJUDGE_PASSES.values():
+        got = out_of(src)
+        if got is None and text is not None:
+            return text, False   # 決着しなかった回の後に、再異議の口が走らなかった
+        obj = (got or {}).get("rejudge_requested")
+        if not obj:
+            return text, True
+        text = obj
+        verdict = (out_of(judge) or {}).get("verdict")
+        if verdict is None or verdict in SETTLED:
+            return text, verdict is not None
+    return text, (out_of(REJUDGE_THIRD) or {}).get("verdict") in SETTLED
+
+
+@hist_reads(*dict.fromkeys(f"out.{n}" for p in REJUDGE_PASSES.values() for n in p), f"out.{REJUDGE_THIRD}")
 def hist_prev_rejudge(h):
-    """前の周の回す側の異議で、同じ周の擦り合わせで決着しなかった物（p2.history が再審する）。異議の正本は前の周の p3.fix の出力の
-    rejudge_requested（修正役の返答か、loop.py patch --path out.p3.fix.rejudge_requested）で、決着はその周の擦り合わせの verdict"""
+    """前の周の回す側の異議で、同じ周の擦り合わせで決着しなかった物（p2.history が再審する）。異議の正本は前の周の p3.fix の出力と
+    再異議の節の出力の rejudge_requested（修正役の返答か、loop.py patch --path out.<節>.rejudge_requested）で、決着は擦り合わせの verdict"""
     if h.round == 1:
         return HIST_ABSENT
     n = h.round - 1
-    text = (h.output("p3.fix", n) or {}).get("rejudge_requested")
-    settled = any((h.output(nid, n) or {}).get("verdict") in ("採る", "退ける") for nid in REJUDGE_NODES)
+    text, settled = _rejudge_trail(lambda nid: h.output(nid, n))
     return {"round": n, "text": text} if text and not settled else None
 
 
@@ -401,12 +417,6 @@ def hist_prev_own_precedents(h):
         n -= 1
     return rows
 
-
-@hist_reads("rd")
-def hist_rejudge_rounds(h):
-    """今の周の擦り合わせの往復の回数（受け付けた擦り合わせの節の数）。回数は「その周の往復」で、周が変われば 0 から"""
-    done = (h.rd(h.round) or {}).get("done", {})
-    return {"round": h.round, "n": sum(1 for nid in REJUDGE_NODES if nid in done)}
 
 
 @hist_reads("out.stop.premise_check")
@@ -470,19 +480,34 @@ def _with_paste(snap):
     return snap if "paste_file" in snap else {**snap, "paste_file": snap["diff_file"]}
 
 
-def _upcast_snapshot(out, rnd):
+def _upcast_snapshot(h, out):
     """旧い版の rules が書いた p1.worktree_before の出力（差分の一式が出力の上の段にあり、snapshot の欄が無い）から snapshot を組む。
-    組めなければ None。読み替えた印 from_old_output を付ける（人の決定 2026-09-27: 旧い盤面は警告して通す）"""
+    組めなければ None。読み替えた印 from_old_output を付ける（人の決定 2026-09-27: 旧い盤面は警告して通す）。旧い出力は入口の周か
+    （entry）を持たないので、履歴から組む: 入口の印が型どおりに在り、前の周までの P3 がどの周もファイルを変えていない"""
     if not isinstance(out.get("diff_file"), str):
         return None
     tb = out.get("tree_before") or {}
     f = pathlib.Path(out["diff_file"])
     return {"rev": tb.get("rev") or tb.get("tree") or "", "diff_file": out["diff_file"], "changed_files": out.get("changed_files") or [],
             "changed_files_file": str(f.with_name(f.name.replace("diff-", "changed-", 1).replace(".patch", ".txt"))),
-            "stat": out.get("stat") or "", "paste_file": out["diff_file"], "from_old_output": True}
+            "stat": out.get("stat") or "", "entry": _entry_from_history(h), "paste_file": out["diff_file"], "from_old_output": True}
 
 
-@hist_reads("out.p1.worktree_before", "out.p1.worktree_after")
+def _entry_from_history(h):
+    """入口の周か（周の頭で測る request_entry と同じ意味）を履歴だけで決める——入口の印と、前の周までの P3 が変えたファイル
+    （周の頭の節が測った changed_since_prev_round、それも無い旧い出力なら修正の申告 changes[].files）"""
+    if validate_schema(h("record.process.request_entry"), ENTRY_SCHEMA):
+        return False
+    for n in range(2, h.round + 1):
+        head = h.output("p1.worktree_before", n) or {}
+        moved = head["changed_since_prev_round"] if isinstance(head.get("changed_since_prev_round"), list) else \
+            [f for c in (h.output("p3.fix", n - 1) or {}).get("changes") or [] for f in c.get("files") or []]
+        if moved:
+            return False
+    return True
+
+
+@hist_reads("out.p1.worktree_before", "out.p1.worktree_after", "out.p3.fix", "record.process.request_entry")
 def hist_snapshot(h):
     """この周に効いている周の頭の審査対象（素材集めのブロックの出口）——作業ツリーの変化を受理して撮り直した回の p1.worktree_after の
     snapshot、無ければ p1.worktree_before の snapshot。周の頭の節が今の周にまだ走っていなければ無い"""
@@ -490,7 +515,7 @@ def hist_snapshot(h):
         out = h.output(node, h.round) or {}
         if out.get("snapshot"):
             return _with_paste(out["snapshot"])
-    old = _upcast_snapshot(h.output("p1.worktree_before", h.round) or {}, h.round)
+    old = _upcast_snapshot(h, h.output("p1.worktree_before", h.round) or {})
     return HIST_ABSENT if old is None else old
 
 
@@ -521,10 +546,10 @@ def hist_request_wheres(h):
     snap = h.hist("snapshot")
     if snap is HIST_ABSENT:
         return HIST_ABSENT
-    if not snap.get("entry"):
-        return []
-    reqs = h("record.process.request_findings", []) or []
-    return [f["where"] for x in reqs if isinstance(x, dict) for f in x.get("findings") or [] if isinstance(f, dict) and "where" in f]
+    reqs = h("record.process.request_findings", [])
+    if not snap.get("entry") or reqs is None or validate_schema(reqs, REQUEST_SCHEMA):
+        return []   # 型の崩れた一覧は _requests と同じく読まない（add が次の積みを拒んで直させる）
+    return [f["where"] for x in reqs for f in x["findings"]]
 
 
 HIST = {"prev_questions": hist_prev_questions, "prev_units": hist_prev_units, "prev_scalars": hist_prev_scalars,
@@ -534,7 +559,7 @@ HIST = {"prev_questions": hist_prev_questions, "prev_units": hist_prev_units, "p
         "defer_ledger": hist_defer_ledger, "last_review": hist_last_review, "last_seen": hist_last_seen,
         "last_material": hist_last_material, "lines_at_r1": hist_lines_at_r1, "diff_lines_by_round": hist_diff_lines_by_round,
         "drift_notes": hist_drift_notes, "r2_refire_forced": hist_r2_refire_forced, "head_revs": hist_head_revs,
-        "rejudge_rounds": hist_rejudge_rounds, "snapshot": hist_snapshot, "after_fix": hist_after_fix,
+        "snapshot": hist_snapshot, "after_fix": hist_after_fix,
         "request_wheres": hist_request_wheres}
 HIST_KEYS = frozenset(HIST)
 
@@ -543,7 +568,7 @@ def on_new_round(b):
     """次の周の入口を組む。周をまたぐ値は履歴から作る（hist.<名>。HIST）ので、ここは写しを積まず、記録への書き込みと
     run の状態（B）だけを持つ: 記録を空にする・前の周の実測を制約に足す・入口の周の終わり・依頼の履歴への移し・申告と差分の食い違い・
     ラチェット"""
-    rec, ls = b.record, b.loop_state
+    rec = b.record
     rec["round"] = b.round
     mutation_decl(b)   # 周の修正が宣言を書き換えた周も、次の周の役は今の宣言を読む
     rec["materials"] = {}
@@ -552,7 +577,8 @@ def on_new_round(b):
     rec["reviews"] = {}
     rec["questions"] = []
     for k in (*LEGACY_LOOP_KEYS, *HIST_KEYS):
-        ls.pop(k, None)   # 旧い版の rules が loop に積んだ写しと出口の値——今の rules は節の出力と hist から読むので、読まずに外す（人の決定: 警告して通す）
+        # 旧い版の rules が loop に積んだ写しと出口の値——今の rules は節の出力と hist から読むので、読まずに外す（人の決定: 警告して通す）
+        write_loop(b, k, "overwrite", None)
     # 前の周の stop.premise_check が resolved で返した実測を制約に足す（この周の R2 を回し直す旗は hist.r2_refire_forced が同じ出力から作る）。
     # 読むのは前の周の出力だけ（out. の最新は読まない——stop.premise_check を走らせなかった周の次に、2 周前の実測を足さない）
     pc = b.output_of_round("stop.premise_check", b.round - 1) or {}
@@ -565,7 +591,7 @@ def on_new_round(b):
     claimed = sorted({f for c in (b.output_of_round("p3.fix", b.round - 1) or {}).get("changes", []) for f in c.get("files", [])})
     measured = _files_changed_since(b, b.round - 1)
     if claimed if measured is None else measured:
-        ls.setdefault("request_fixed_at", b.round - 1)  # 最初に修正が入った周——入口の周はここで終わる（request_entry が読む。戻さない）
+        write_loop(b, "request_fixed_at", "set_once", b.round - 1)  # 最初に修正が入った周——入口の周はここで終わる（request_entry が読む）
     # 前の周の依頼は判定済み（その扱いは units と台帳を通して p2.history が運ぶ）——この周の判定役に渡すのは、この周に積む依頼だけ。
     # 入口の周が続く間（修正がまだ 0 行）は移さない: P1 の素材が無い判定役から、依頼まで取り上げない
     if not b.cond(ENTRY_BUILTIN)[0]:
@@ -588,8 +614,7 @@ def escalate_on_thrash(b):
     引き金は判定者が機械可読で返す 2 欄（kind=thrash の問い・reburn_causes）。下げるのは人の手当てだけ
     （loop.py patch state.loop.escalated）——回す側が自分で浅くできると、作業を減らして得する側が深さを決める。
     """
-    ls = b.loop_state
-    if ls.get("escalated"):
+    if b.loop_state.get("escalated"):
         return  # 一度上げたら run の残り全部で効く（ラチェット）
     # **引き金は機械が持つ 2 つ。どちらかで上がる。**
     #
@@ -610,7 +635,7 @@ def escalate_on_thrash(b):
     stalled = len(hist) >= STALL_ROUNDS and all(hist[i] >= hist[i - 1] for i in range(1, len(hist)))
     if not reburn and not stalled:
         return
-    ls["escalated"] = {
+    write_loop(b, "escalated", "set_once", {
         "round": b.round,
         # 前の周の判定文をここに入れない——p2.diagnose は履歴を渡さない節で、why に問いの key を入れると隔離が破れる
         "reburn_count": len(reburn),
@@ -621,8 +646,8 @@ def escalate_on_thrash(b):
                 "——閉じる速さが開く速さを上回っていない"),
         "effects": ["零処方の優先を外す（クラスを消す設計の処方を第一候補に並べさせる）",
                     "深さで切っている 4 節（p0.prior_decisions・p1.procedure_trace・p1.gate_efficacy・p1.test_double_fidelity）を条件に関わらず走らせる"],
-    }
-    b.record["process"]["escalated"] = ls["escalated"]
+    })
+    b.record["process"]["escalated"] = b.loop_state["escalated"]
 
 
 PROCEDURE_PATTERNS = (r"README", r"\.md$", r"\.sh$", r"^scripts/", r"^\.github/workflows/", r"Makefile", r"Dockerfile",
@@ -634,9 +659,6 @@ def touches_procedures(v):
     files = v("hist.snapshot.changed_files", [])
     hit = sorted({f for f in files for p in PROCEDURE_PATTERNS if re.search(p, f)})
     return bool(hit), (f"差分に手順書・スクリプト・CI 定義が {len(hit)} 件" if hit else "差分に手順書・スクリプト・CI 定義が無い")
-
-
-PREV_FIX = "cur.p1.worktree_before.changed_since_prev_round"   # 前の周の P3 が触ったファイル（周の頭の機械の節の出口）
 
 
 def _prev_fix_files(v, trigger):
@@ -761,41 +783,38 @@ def blank(s, min_len):
     return t.lower() in EMPTY or len(t) < min_len
 
 STALL_ROUNDS = 3  # [block] の件数がこの周数だけ減らなければ、ラチェットが上がる（クラスを同定しない引き金）
-REJUDGE_MAX = 3  # 往復の上限。依頼者の指定（2026-09-13）: 2〜3 回まで許し、超えたら新しい別の目が会話に参加して判定する
 
 
-@cond_reads("cur.p3.fix.rejudge_requested", "hist.rejudge_rounds", "round")
-def _rejudge(v):
-    """今の周に回す側が出した異議と、**その周の**往復の回数。
-
-    **異議と回数は同じ尺度で持つ。** 以前は異議だけを周で絞り、回数は run 全体の通し番号を素通しで返していた
-    （回数は rejudge_output が増やすだけで、周の頭で数え直していなかった）。
-    帰結: **どれか 1 周で上限まで往復すると、run の残り全部で p2.rejudge が 1 度も発火せず、新しい異議は
-    1 回目からいきなり第三の目へ行く**——rejudge_exhausted の注記は「第三の目は常設しない」と書くのに、
-    上限を超えた後は事実上の常設になる（実測 2026-09-13: 生きている盤面で述語を直接呼び、
-    rejudge_rounds=3 ＋ 今の周に初めての異議 → rejudge_open=False / rejudge_exhausted=True を確認）。
-    graph の `when` も述語の docstring も「その周」と名乗っていたので、**名乗りの側でなく実装を合わせる**。
-    """
-    rnd = v("round")
-    text = v("cur.p3.fix.rejudge_requested", None)
-    n = v("hist.rejudge_rounds", None) or {}
-    return ({"round": rnd, "text": text} if text else {}), (int(n.get("n") or 0) if n.get("round") == rnd else 0)
-
-
-@cond_reads(*_rejudge.reads)
-def rejudge_open(v):
-    """回す側が今の周に異議を出し、往復が上限未満か（条件の関数）。
+def _rejudge_open(k):
+    """k 回目の擦り合わせを開くか（条件の関数を作る）: 今の周に、その回の異議を書く節が異議を出した。
 
     **異議を次の周へ送らない口。** 以前は rejudge_requested を次の周の p2.history が読む形しか無く、
     同じ周に閉じる辺が graph に 0 本だった——実運用では engine の外の会話で往復が起き、記録にも trace にも
-    残らなかった（実測 2026-09-13: この run で往復が 5 回起き、残ったのは loop.py patch を通した 1 件だけ。
-    そのうち 2 回は engine のコードが判定の最中に変わる重さだったのに、盤面は何も止めなかった）。
+    残らなかった（実測 2026-09-13: この run で往復が 5 回起き、残ったのは loop.py patch を通した 1 件だけ）。
     依頼者の指定の 4 条件のうち、ここが担うのは「往復が記録に残る」——done が trace.jsonl と state に残す。
-    """
-    r, n = _rejudge(v)
-    if not r:
-        return False, "回す側は今の周に異議を出していない"
-    return n < REJUDGE_MAX, f"今の周の異議に往復 {n} 回（上限 {REJUDGE_MAX}）"
+    読むのは今の周の出力だけなので、前の周の異議では開かず、どの周も 1 回目から数える"""
+    src = REJUDGE_PASSES[k][0]
+
+    @cond_reads(f"cur.{src}.rejudge_requested")
+    def fn(v):
+        obj = v(f"cur.{src}.rejudge_requested", None)
+        return bool(obj), (f"回す側が今の周に {k} 回目の異議を出した" if obj else f"回す側は今の周に {k} 回目の異議を出していない")
+    return fn
+
+
+def _unsettled(k):
+    """k 回目の擦り合わせが今の周に答え、決着しなかった（一部採る）か（条件の関数を作る）。再異議の口（k=1・2）と第三の目（k=3）が読む"""
+    judge = REJUDGE_PASSES[k][1]
+
+    @cond_reads(f"cur.{judge}.verdict")
+    def fn(v):
+        verdict = v(f"cur.{judge}.verdict", None)
+        return verdict is not None and verdict not in SETTLED, f"今の周の {k} 回目の擦り合わせの答えは {verdict or '無い'}"
+    return fn
+
+
+rejudge_open, rejudge2_open, rejudge3_open = (_rejudge_open(k) for k in REJUDGE_PASSES)
+rejudge_reply_due, rejudge_reply2_due = _unsettled(1), _unsettled(2)
 
 
 @cond_reads("record.units")
@@ -826,41 +845,29 @@ def _delta_of(b, n):
     return (b.output_of_round(DELTA_PASSES[n].cut, b.round) or {}).get("delta")
 
 
-def _owed_rows(b, n):
+def _owed_rows(rv, n):
     """n 回目の手直しが答える義務——[{key, from, text}]。差分レビューの穴と塞がっていない検算（closed=false）だけ。
     **変異の検算（p3.delta_gates）の見逃しは入れない**——検算は周の締めを止めない並行の線で、見逃しへの答えも線が持つ
     （実測 2026-09-24: 4 周目は検算 172 分と見逃しへの手直し 167 分で、周の約 8 時間のうち約 5.7 時間を締めの待ちが占めた。
     見逃し 109 本の手直しがコードに触れたのは docstring の 1 行だけ）。**計算はここ 1 本**で、値を置くのは delta_owed（driver）の出力だけ"""
     p = DELTA_PASSES[n]
-    rv = b.output_of_round(p.review, b.round) or {}
     rows = [{"key": f["key"], "from": p.review, "text": f"{f['kind']} {f['where']}:「{f['cite']}」——{f['why']}"} for f in rv.get("faces") or []]
     rows += [{"key": c["key"], "from": f"{p.review}.checks", "text": f"塞いだと言われたが、差分で塞がっていない——{c['why']}"}
              for c in rv.get("checks") or [] if c["closed"] is False]
     return rows
 
 
-def delta_owed(b, nid):
-    """手直しの前: 答える義務を 1 本の値（この節の出力の rows）に組む（driver の builtin）。
+@cond_reads(*dict.fromkeys("cur." + p.review for p in DELTA_PASSES.values()))
+def delta_owed(v, nid):
+    """手直しの前: 答える義務を 1 本の値（この節の出力の rows）に組む（機械の節）。
     **手直しの役に見せる値と、手直しを起こす条件・答え合わせが引く値を同じ物にする**——義務を rules が、見せる物を graph の reads と
     プロンプトが別々に持っていたとき、4 周目に義務へ足した成分（塞がっていない検算）が役に 1 度も見えず、答えるべき key を知る道が無かった"""
-    rows = _owed_rows(b, DELTA_PASS_OF[nid])
+    rows = _owed_rows(v("cur." + DELTA_PASSES[DELTA_PASS_OF[nid]].review, None) or {}, DELTA_PASS_OF[nid])
     return {"ok": True, "owed": len(rows), "rows": rows}
 
 
 OWED_ROWS_MISSING = ("{node} の今の周の出力に rows（手直しが答える義務）が無い——義務の行を出力に載せる前の版の rules が書いた出力。"
                      "黙って 0 件に倒さない: loop.py patch --path out.{node}.rows --file <行の JSON> で義務の行を書いてから続けよ")
-
-
-def _delta_owed(b, n):
-    """n 回目の手直しが答える義務の key——義務の節（DeltaPass.owed）が今の周に出した出力だけ（前の周の値は読まない）。
-    手直しを起こす条件（delta_faces_open）・手直しの答え合わせ（delta_fix_output）がここから引き、答えは _declared_faces で次の周へ渡る"""
-    node = DELTA_PASSES[n].owed
-    out = b.output_of_round(node, b.round)
-    if out is None:
-        return set()
-    if "rows" not in out:
-        raise Reject(OWED_ROWS_MISSING.format(node=node))
-    return _owed_key_set(out["rows"])
 
 
 def _owed_key_set(rows):
@@ -875,8 +882,12 @@ def fix_delta_nonempty(v):
     return bool(n), f"この周の修正の差分は {n} ファイル"
 
 
+_CLAIMED_READS = ("cur.p3.fix", *("cur." + p.fix for p in DELTA_PASSES.values() if not p.last))
+
+
 def _claimed_closed_from(v, n):
-    """_claimed_closed の条件の側（宣言した欄だけで読む）。切り出しの出力が無い・delta に claimed が無い（旧い版の rules が書いた出力）なら、
+    """n 回目の差分レビューが検算する『塞いだ』と言われた穴の key——1 回目は修正が absorbed と答えた事前審査の穴、2 回目は手直しが
+    fixed と答えた穴（読む欄は _CLAIMED_READS）。切り出しの出力が無い・delta に claimed が無い（旧い版の rules が書いた出力）なら、
     塞いだと言った返答から引く（検算を落とす側へ倒さない）"""
     delta = (v("cur." + DELTA_PASSES[n].cut, None) or {}).get("delta")
     if "claimed" not in (delta or {}):
@@ -930,13 +941,8 @@ def delta_fixed(v):
     return bool(k), f"手直しが今の周に直した（fixed）穴は {k} 件"
 
 
-@cond_reads(*_rejudge.reads)
-def rejudge_exhausted(v):
-    """往復が上限に達しても決着しない周か（条件の関数）。**第三の目は常設しない**——ここでだけ立つ。"""
-    r, n = _rejudge(v)
-    if not r:
-        return False, "回す側は今の周に異議を出していない"
-    return n >= REJUDGE_MAX, f"今の周の異議に往復 {n} 回（上限 {REJUDGE_MAX}）"
+rejudge_exhausted = _unsettled(len(REJUDGE_PASSES))
+rejudge_exhausted.__doc__ = "3 回の擦り合わせがどれも決着しなかった周か（条件の関数）。**第三の目は常設しない**——ここでだけ立つ"
 
 
 # ---------------------------------------------------------------- 変異の検算の並行の線と最後の関門
@@ -975,7 +981,6 @@ def gates_cut(b, nid):
     線を台帳（loop.lanes。版 → 置き場）に載せる。
     固め方は採点する版と同じ _snapshot 1 本。**撃つ範囲は周の頭から**——修正（p3.fix）だけでなく 1 回目・2 回目の手直しが
     足した分岐も入る（以前は 2 回目の手直しをどの周の撃ち手も撃たず、次の周の頭の自動の腕で拾っていた）"""
-    ls = b.loop_state
     frm = _hist(b, "head_revs", {}).get(str(b.round))
     if not frm:
         return {"ok": False, "problems": [f"{nid}: この周の頭の版が無い（p1.worktree_before が固める）——線が撃つ範囲の起点が決まらない"]}
@@ -995,7 +1000,7 @@ def gates_cut(b, nid):
     # 結果の patch の欄で名指しする（lane_merge はその欄を読む）。結果そのものは engine が置き場へ置く（launch の result_to）
     cut = {"from": frm, "rev": snap, "files": files, "result": str(d / f"{tag}.json")}
     if files and not _gates_merged(b):   # 合流でまとめる run は線を立てない（台帳に running の線を載せない）
-        ls.setdefault("lanes", {})[snap] = {"round": b.round, **{k: v for k, v in cut.items() if k != "files"}, "state": "running"}
+        write_loop(b, "lanes", "merge_by_key", {snap: {"round": b.round, **{k: v for k, v in cut.items() if k != "files"}, "state": "running"}})
     return {"ok": True, **cut, "reply_schema": _lane_schema(b)}
 
 
@@ -1020,7 +1025,7 @@ def mutation_decl(b):
     unknown = (d or {}).get("unknown") or []
     if unknown:
         text += f"（宣言にこの engine が読まない最上位の段 {unknown} が在る——mutation の綴り違いなら、在りかは宣言の側に在る）"
-    b.loop_state["mutation_decl"] = {"declared": bool(m), "text": text, **({"unknown": unknown} if unknown else {})}
+    write_loop(b, "mutation_decl", "overwrite", {"declared": bool(m), "text": text, **({"unknown": unknown} if unknown else {})})
 
 
 def _mutation_ran(b):
@@ -1073,10 +1078,14 @@ def _lane_schema(b):
     return b.nodes["p3.delta_gates"]["result_schema"]
 
 
+def _cut_ok(c):
+    """p3.gates_cut の出力のうち、線の範囲を固められた物（固められなかった回・無い回は None）"""
+    return c if c and c.get("ok") else None
+
+
 def _gates_cut(b):
     """この周に固めた線の範囲（p3.gates_cut の今の周の出力。前の周の値・固められなかった回は None）"""
-    c = b.output_of_round("p3.gates_cut", b.round)
-    return c if c and c.get("ok") else None
+    return _cut_ok(b.output_of_round("p3.gates_cut", b.round))
 
 
 @cond_reads("cur.p3.gates_cut")
@@ -1105,7 +1114,7 @@ def lane_due(v):
     return (False, why) if merged else gates_cut_nonempty(v)
 
 
-def _lane_errors(b, out, rev, final):
+def _lane_errors(out, rev, final):
     """線（final=False）・最後の関門（final=True）の返答の整合——型の後に当てる。見逃した腕に全部 1 度だけ答え、
     撃った版が名乗りどおり。最後の関門は作業ツリーに書かない（tests_added と patch を持たない）"""
     errs = []
@@ -1141,7 +1150,7 @@ def _lane_result(b, lane):
     if not isinstance(out, dict):
         return None, [f"結果が JSON のオブジェクトでない（{type(out).__name__}）"]
     errs = validate_schema(out, _lane_schema(b))
-    return out, errs or _lane_errors(b, out, lane["rev"], final=False)
+    return out, errs or _lane_errors(out, lane["rev"], final=False)
 
 
 LANE_DEFECT = "_defect"   # _lane_faces の行の印（deliver_lanes が依頼の入口へも積む行を選び、周の頭の節の出力に置く前に外す）
@@ -1207,13 +1216,12 @@ def _lane_faces(b):
     走っている線は渡さない（次の周の頭でもう一度見る）"""
     rows = []
     good, bad = _lanes(b)
-    told = b.loop_state.setdefault("lanes_bad_delivered", [])
-    told_revs = {x if isinstance(x, str) else x.get("rev") for x in told}   # 版だけの行は渡した周が分からない旧い印
+    told_revs = {x if isinstance(x, str) else x.get("rev") for x in b.loop_state.get("lanes_bad_delivered") or []}   # 版だけの行は渡した周が分からない旧い印
     for rev, why in bad:
         if rev not in told_revs:
             row = {"key": f"線 @{str(rev)[:12]}: 台帳の行が読めない", "from": "p3.delta_gates",
                    "how": f"{why}——線の台帳（loop.lanes）の手当て（loop.py patch）を確かめよ。この行は合流も要約もしない"}
-            told.append({"rev": rev, "round": b.round, "row": row})
+            write_loop(b, "lanes_bad_delivered", "append", [{"rev": rev, "round": b.round, "row": row}])
             rows.append(row)
     declared_mut = (b.loop_state.get("mutation_decl") or {}).get("declared")
     for rev, lane in good:
@@ -1239,7 +1247,7 @@ def _lane_faces(b):
                 got += [{"key": f"{tag}: {r['key']}", "from": "p3.delta_gates", "how": f"{r['handled']}: {r['how']}",
                          **({LANE_DEFECT: True} if r["handled"] == "defect" else {})}
                         for r in out["handled"] if r["handled"] in LANE_OPEN]
-        lane["delivered"] = b.round
+        write_loop(b, "lanes", "merge_by_key", {rev: {"delivered": b.round}})
         rows += got
     return rows
 
@@ -1256,19 +1264,19 @@ def lane_merge(b, nid):
         if out is None and not errs:
             continue
         if errs:
-            lane["state"] = "unusable"
+            write_loop(b, "lanes", "merge_by_key", {rev: {"state": "unusable"}})
             continue
         patch = out.get("patch") or ""
         if not patch or not pathlib.Path(patch).is_file() or not (read_capped(patch, READ_CAP)[0] or b"").strip():
-            lane["state"] = "merged"
+            write_loop(b, "lanes", "merge_by_key", {rev: {"state": "merged"}})
             continue
         if git("apply", "--check", patch) is None:
-            lane.update(state="conflict", why="git apply の試し当てが通らない", patch=patch)
+            write_loop(b, "lanes", "merge_by_key", {rev: {"state": "conflict", "why": "git apply の試し当てが通らない", "patch": patch}})
             conflicts.append({"rev": rev, "round": lane["round"], "patch": patch})
             continue
         if git("apply", patch) is None:
             return {"ok": False, "problems": [f"{nid}: {patch} は試し当てを通ったのに git apply が落ちた——作業ツリーを確かめよ"]}
-        lane["state"] = "merged"
+        write_loop(b, "lanes", "merge_by_key", {rev: {"state": "merged"}})
         merged.append({"rev": rev, "round": lane["round"], "patch": patch})
     return {"ok": True, "merged": len(merged), "conflicts": len(conflicts), "merged_rows": merged, "conflict_rows": conflicts}
 
@@ -1629,7 +1637,8 @@ CONDS = {
     "delta_fixed": delta_fixed, "delta_review2_due": delta_review2_due, "delta2_faces_open": delta2_faces_open,
     "r1_refire": r1_refire, "r2_design_due": r2_design_due, "r2_compare_due": r2_compare_due,
     "overview_due": overview_due, "r2_premise_invalid": r2_premise_invalid,
-    "rejudge_open": rejudge_open, "rejudge_exhausted": rejudge_exhausted,
+    "rejudge_open": rejudge_open, "rejudge2_open": rejudge2_open, "rejudge3_open": rejudge3_open,
+    "rejudge_reply_due": rejudge_reply_due, "rejudge_reply2_due": rejudge_reply2_due, "rejudge_exhausted": rejudge_exhausted,
     "gates_cut_nonempty": gates_cut_nonempty, "would_converge": would_converge,
     "gates_merge": gates_merge, "lane_due": lane_due, "final_gate_due": final_gate_due,
     # 素材の applies_cond（走った節が『条件に当たらない』を名乗れるか）が指す部品
@@ -1641,8 +1650,11 @@ CONDS = {
 
 
 # ---------------------------------------------------------------- 記録の形に固有の書き込み
-def material_from_findings(b, nid, src, w):
-    """役の返答（findings と seen）を素材 1 つに写す。
+# 読み口を受ける新しい形の op は、書く値を返すだけ（記録を直に書かない）。書き先は op が writes_to（graph の writes の to を {to} に
+# 埋める記録の path の型）で名乗り、engine の apply_writes がそこに置く——書き先の正本は graph の writes の宣言のまま
+@cond_reads()
+def material_from_findings(v, nid, src, w):
+    """役の返答（findings と seen）を素材 1 つにする。
 
     以前は割った塊ごとの返答を畳む形だった（merge_material_chunks）。扇を落としたので畳む相手が 1 つに
     なり、「何片に割ったか」を素材に書く欄（split）も意味を失った。
@@ -1652,11 +1664,12 @@ def material_from_findings(b, nid, src, w):
     if findings:
         m["count"] = len(findings)
         m["detail"] = " / ".join(f"{f.get('where', '')}: {f.get('text', '')}" for f in findings)
-    b.record["materials"][w["to"]] = m
+    return m
 
 
-def premise_question(b, nid, src, w):
-    """R2 の premise-invalid を、立った周に judge が検算した結果を台帳に載せる。"""
+@cond_reads("record.questions", "hist.prev_questions")
+def premise_question(v, nid, src, w):
+    """R2 の premise-invalid を、立った周に judge が検算した結果を台帳に載せた、台帳の全体を返す。"""
     q = {"key": src["key"], "kind": "premise", "origin": "R2", "status": src["verdict"], "reason": src["reason"]}
     if src["verdict"] == "resolved":
         # 検証器は「R2 が premise-invalid の周」に未決（held / escalate）の premise の行を要求する——resolved で
@@ -1670,18 +1683,19 @@ def premise_question(b, nid, src, w):
     # 消すのは同じ key の行と、この周に書いた R2 の前提の行だけ。前の周から台帳に残っている行（判定者が再審して引き継いだ物）を消すと、
     # この節は前の周の台帳を読まない別の目なので key が揃う保証が無く、検証器の『前の周の問いが今の周の台帳に無い』
     # （dropped_questions）に周の記録の段で初めて当たる——判定の受け付けで同じ規則を当てても、後の書き手が消せば届かない
-    prev = _hist(b, "prev_questions", [])
-    kept = {x.get("key") for x in prev if x.get("status") in validator_module(b).TRACKED} if prev else set()
-    b.record["questions"] = [x for x in b.record["questions"]
-                             if not (x.get("kind") == "premise" and x.get("origin") == "R2"
-                                     and (x.get("key") not in kept or x.get("key") == q["key"]))]
-    b.record["questions"].append(q)
+    prev = v("hist.prev_questions", None) or []
+    kept = {x.get("key") for x in prev if x.get("status") in v.validator.TRACKED} if prev else set()
+    return [x for x in v("record.questions", []) if not (x.get("kind") == "premise" and x.get("origin") == "R2"
+                                                       and (x.get("key") not in kept or x.get("key") == q["key"]))] + [q]
 
 
-WRITE_OPS = {"material_from_findings": material_from_findings, "premise_question": premise_question}# op ごとに、to を素材の名前として読むか（writes_material）を名乗る。graphcheck は WRITE_OPS の全 op にこの名乗りを求め、
+WRITE_OPS = {"material_from_findings": material_from_findings, "premise_question": premise_question}
+# op ごとに、to を素材の名前として読むか（writes_material）を名乗る。graphcheck は WRITE_OPS の全 op にこの名乗りを求め、
 # 真の op の書き先を節の materials の宣言と照合する——名前の表を別に持つと、op を足した周に表への追記を忘れても黙って通る
 material_from_findings.writes_material = True
 premise_question.writes_material = False
+material_from_findings.writes_to = "materials.{to}"
+premise_question.writes_to = "questions"
 
 
 # ---------------------------------------------------------------- 機械の節
@@ -1820,7 +1834,6 @@ def _paste_copy(b, raw, full, snap, names):
     if len(raw) <= limit:
         return str(full)
     row = {"round": b.round, "diff": full.name, "bytes": len(raw), "limit": limit, "summarized": [], "still_over": True}
-    b.loop_state.setdefault("diff_paste_log", []).append(row)
     base = b.record.get("base")
     base_gen = _generated_paths(base, names) if base else set()
     new_gen = _generated_paths(snap, names)
@@ -1865,6 +1878,7 @@ def _paste_copy(b, raw, full, snap, names):
     row.update(paste_bytes=len(body), still_over=len(body) > limit, file=str(out))
     if row["still_over"]:
         row["why"] = "要約できる節を全部替えても予算を超える——起こすのは止めない"
+    write_loop(b, "diff_paste_log", "append", [row])
     return str(out)
 
 
@@ -1969,36 +1983,12 @@ def _freeze_revision(b):
 
 def _worktree_tree():
     """作業ツリーの今の姿の木の id（未追跡の新規ファイルも含め、追跡していない .gitignore の対象は除く）。固められなければ Reject。
-    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。
-
-    **本物の index を一時 index に写してから** `add -A` する。空の一時 index から始めていたとき、追跡中だが .gitignore に
-    当たるファイルは `add -A` に拾われず、版から落ちて『削除』に見えた（実測 2026-09-25: 別のリポジトリの run で、判定役が
-    これを根拠に誤った [block] を出した）。写しは stat の情報も持つので、`add -A` は変わったファイルだけをハッシュする。
-    写しの上で `--really-refresh` を打つのは assume-unchanged の印を外すため——印を持ったままだと、git はそのファイルを
-    見ずに古い中身で版を作る。本物の index は読むだけで書かない"""
-    tmp = tempfile.mkdtemp(prefix="graphloops-index-")
-    idx = pathlib.Path(tmp) / "index"
-    env = {"GIT_INDEX_FILE": str(idx)}
+    中身が同じなら id も同じなので、前後の突合はこの id を比べるだけで済む。手順の正本は engine の worktree_tree"""
     why = []   # git が言った失敗の理由（util.git の why）。止める文に添える
-    try:
-        real = git("rev-parse", "--path-format=absolute", "--git-path", "index", why=why)
-        if real is None or not real.strip():
-            raise _unfrozen("本物の index の場所を git rev-parse --git-path で引けない", why,
-                            "git 2.31 以上か、リポジトリの中で呼んでいるかを確かめよ")
-        try:
-            shutil.copy2(real.strip(), idx)   # 時刻ごと写す——index の時刻が新しくなると、同じ秒に書き換えたファイル（racy git）を綺麗と見誤る
-        except FileNotFoundError:
-            pass   # index がまだ無い（init の直後で 1 度も add していない）＝追跡中のファイルが無いので、空から始めて落ちる物が無い
-        except OSError as e:
-            raise Reject(f"この周に採点する版を固定できない（本物の index を写せない: {e}）")
-        if git("update-index", "-q", "--really-refresh", env=env, why=why) is None or git("add", "-A", env=env, why=why) is None:
-            raise _unfrozen("一時 index への git update-index / add -A が失敗した", why)
-        tree = git("write-tree", env=env, why=why)
-        if tree is None or not tree.strip():
-            raise _unfrozen("git write-tree が木を返さない", why)
-        return tree.strip()
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    tree, bad = worktree_tree(git, why)
+    if tree is None:
+        raise _unfrozen(bad[0], why, bad[1])
+    return tree
 
 
 def _unfrozen(what, why, hint=None):
@@ -2407,9 +2397,10 @@ def _stuck_unrouted(b, V, out):
             "このユニットを origin に持つ未決の問い（stuck か fork）を questions に載せよ" for _, k in V.stuck_unlisted(prev + [cand])]
 
 
-def _defer_ledger(b):
+@cond_reads("hist.defer_ledger")
+def _defer_ledger(v):
     """defer 台帳（hist.defer_ledger: key → {reason, round}）を、検証器の述語が読む形（key → (理由, 周)）にする"""
-    return {k: (v.get("reason"), v.get("round")) for k, v in _hist(b, "defer_ledger", {}).items()}
+    return {k: (x.get("reason"), x.get("round")) for k, x in (v("hist.defer_ledger", None) or {}).items()}
 
 
 # 判定の受け付けで周をまたぐ規則を当てるかは、節がその規則の入力を読むか（graph の reads）で決める。当てる規則 → 読む入力
@@ -2430,7 +2421,7 @@ def _history_rules(b, V, nd, out):
     rules = history_rules_for(nd)
     errs = []
     if "reopened" in rules:
-        errs += V.reopened_without_evidence(out.get("units") or [], _defer_ledger(b))
+        errs += V.reopened_without_evidence(out.get("units") or [], _defer_ledger(_view(b, _defer_ledger)))
     if "dropped" in rules:
         # kind=unverifiable の行は除く: R が今の周も unverifiable なら周の記録の段で機械が同じ key で立て直す（record_round）ので、
         # 判定の時点では落としてよいかが決まらない（R はこの後に走る）。落としたまま R が通った周は、記録の段の検証器が止める
@@ -2546,8 +2537,8 @@ def converge(b, nid):
     判定で outcome が決まってから、機械の知らせを記録へ組む（報告の人向けの項目が読む）"""
     out = _converge(b, nid)
     if out.get("decision") == "ask":
-        b.loop_state["outcome"] = "stopped"
-        b.loop_state["stop_reason"] = ((out.get("ask") or {}).get("kinds") or [out.get("reason")])[0]
+        write_loop(b, "outcome", "overwrite", "stopped")
+        write_loop(b, "stop_reason", "overwrite", ((out.get("ask") or {}).get("kinds") or [out.get("reason")])[0])
     b.record["process"]["notices"] = notices(b)
     return out
 
@@ -2556,11 +2547,10 @@ def _converge(b, nid):
     V = validator_module(b)
     rec_out = b.output_of_round("p4.record", b.round) or {}
     branch = rec_out.get("branch")
-    ls = b.loop_state
     ci = b.record["materials"].get("local_checks", {})
     asking = [q for q in b.record["questions"] if q["status"] in V.ASKING]
     # 線の台帳の要約を記録に残す——止めた run の報告からも、走り終えていない線と閉じなかった見逃しが見える
-    if ls.get("lanes"):
+    if b.loop_state.get("lanes"):
         b.record["process"]["lanes"] = lane_summary(b)
     # 暴走ガードは全部の分岐に掛かる——converged/found の早期 return の後ろに置いていたとき、CI が赤のまま上限を越えて
     # 回り続けた（実測 2026-09-13: round 9 / max 5 で running）。収束する周（阻害なし・CI 緑・最後の関門が通る）だけは上限より優先して収束させる。
@@ -2569,8 +2559,8 @@ def _converge(b, nid):
     if _would_converge(b) and _gates_merged(b):
         # 関門の他が全部そろったが、関門は合流した版で撃つ run——収束を名乗らずに止める（上限の柵より先に。関門を撃たない
         # まま next_round にすると、関門が撃っていないことを理由に上限まで回る）
-        ls["outcome"] = "stopped"
-        ls["stop_reason"] = "gates_deferred"
+        write_loop(b, "outcome", "overwrite", "stopped")
+        write_loop(b, "stop_reason", "overwrite", "gates_deferred")
         return {"decision": "stopped", "reason": f"検証器は阻害なし・CI 緑だが、{GATES_MERGE_WHY}——収束を言うのは、"
                                                 "合流した版を gates=merge 無しの run で回し、最後の関門が通った時だけ"}
     gate = _final_gate_problems(b) if _would_converge(b) else None
@@ -2605,7 +2595,7 @@ def _converge(b, nid):
             "options": ["continue", "stop"],
         }}
     if will_converge:
-        ls["outcome"] = "converged"
+        write_loop(b, "outcome", "overwrite", "converged")
         return {"decision": "converged", "reason": f"検証器が連続 2 ラウンド阻害なし・CI 緑（local_checks clean: {(ci.get('checked') or '')[:80]}）・"
                                                   "最後の関門（最終のコードで撃ち直した変異の見逃しが全部等価）が通った。"
                                                   "残った指摘は意図的に受容した設計判断として理由を明示して終える"}
@@ -2752,7 +2742,13 @@ def checks_reply(b, nid, launch, runs):
         m = {"status": cant, "reason": launch["blocked"]}
         _checks_note(b, nid, by="engine", blocked=launch["blocked"])
     else:
-        summary = "; ".join(f"{r['name']}: exit {r['exit']}（{r['wall_s']} 秒）" for r in runs)
+        # 使い回した段（engine/checks_cache.py）は、元の結果を作った時刻と run（盤面の置き場）と元の所要を書く——走らせたと偽らない
+        summary = "; ".join(f"{r['name']}: exit {r['exit']}（使い回し: {r['reused'].get('at')} に {r['reused'].get('from')} で緑・"
+                            f"元の所要 {r['reused'].get('wall_s')} 秒・置き場 {r['reused'].get('entry')}）" if r.get("reused")
+                            else f"{r['name']}: exit {r['exit']}（{r['wall_s']} 秒）" for r in runs)
+        reused = [r for r in runs if r.get("reused")]
+        ran = (f"確かめた（使い回し: {len(reused)} 段は同じ指紋の過去の緑で、この周には走らせていない。必ず走らせるなら "
+               f"launch の環境に {CHECKS_RERUN_ENV}=1）" if reused else "走らせた")
         broken = [r for r in runs if r["exit"] is None]
         red = [r for r in runs if r["exit"] not in (0, None)]
         if broken:
@@ -2761,7 +2757,7 @@ def checks_reply(b, nid, launch, runs):
             m = {"status": "found", "count": len(red),
                  "detail": f"engine が宣言 {DECL_NAME} を走らせた: {summary} ／ " + " ／ ".join(f"{r['name']} の末尾: {r['tail'][-600:]}" for r in red)}
         else:
-            m = {"status": "clean", "checked": f"engine が宣言 {DECL_NAME}（sha {launch['sha'][:12]}）の {len(runs)} 段を走らせた: {summary}"}
+            m = {"status": "clean", "checked": f"engine が宣言 {DECL_NAME}（sha {launch['sha'][:12]}）の {len(runs)} 段を{ran}: {summary}"}
         # 宣言に engine の読まない最上位の段が在る: 知っている段は走らせたうえで、判定の前（p0）なら人待ちにする——綴り違い
         # （mutations）を run の頭で捕まえる守りを、段を拒んでいた頃から減らさない（人の決定 2026-09-26）。p4.ci は人待ちを新しく立てない
         root = None if after_judge else _repo_root()
@@ -2769,15 +2765,16 @@ def checks_reply(b, nid, launch, runs):
         if unknown and not broken:
             m = {"status": "awaiting_human",
                  "reason": (f"宣言 {DECL_NAME} にこの engine が読まない最上位の段 {unknown} が在る——綴り違いなら宣言を直す、"
-                            f"意図した段なら続けてよいかを人に確かめる。知っている段は走らせた: {summary}"
+                            f"意図した段なら続けてよいかを人に確かめる。知っている段は{ran}: {summary}"
                             + (f" ／ 赤: {', '.join(r['name'] for r in red)}" if red else ""))[:1500]}
         _checks_note(b, nid, by="engine", sha=launch.get("sha"), **({"unknown": unknown} if unknown else {}),
-                     runs=[{k: r.get(k) for k in ("name", "argv", "exit", "wall_s", "out", "err")} for r in runs])
+                     **({"reused": True} if reused else {}),
+                     runs=[{k: r[k] for k in ("name", "argv", "exit", "wall_s", "out", "err", "reused", "cache") if k in r} for r in runs])
     if after_judge and m["status"] != "awaiting_human":
         V = validator_module(b)
         if _awaiting_origins(V, b.record["questions"], {**b.record["materials"], "local_checks": m}, "questions"):
             m = {"status": "awaiting_human", "reason": ("台帳に local_checks を出どころにする人待ちの問いが在る（閉じるのは次の周の判定者）——"
-                                                       f"engine が走らせた結果: {m.get('checked') or m.get('detail') or m.get('reason')}")[:1500]}
+                                                       f"engine が確かめた結果: {m.get('checked') or m.get('detail') or m.get('reason')}")[:1500]}
     return {"reply": {"material": m}}
 
 
@@ -2803,7 +2800,7 @@ def _pr_files(b):
     files = [ln.strip() for ln in pathlib.Path(f).read_text(encoding="utf-8").splitlines() if ln.strip()] if f and pathlib.Path(f).is_file() else []
     if files:
         return files
-    wheres = request_wheres(b)
+    wheres = _hist(b, "request_wheres") or []
     tracked = (git("ls-files", "-z") or "").split("\0")
     return sorted({t for t in tracked if t and any(t in w for w in wheres)})
 
@@ -2850,14 +2847,26 @@ ENGINE_RUNS = {"declared_checks": {"plan": checks_plan, "reply": checks_reply, "
 
 
 # ---------------------------------------------------------------- 節ごとの整合（post_check）
-# 多くは out を検査して Reject を投げるだけだが、例外が 2 つ在る: base_valid は record.base を、r2_design は
-# reviews.R2（premise-invalid）を書く。record の書き込みは本来 WRITE_OPS の仕事で、この 2 つは「検査の結果で
-# 初めて決まる値」なので post_check に置いている（見出しが「out を検査するだけ」と名乗っていたのは事実と違った）。
-def base_valid(b, nid, out, item):
+# 新しい形（読み口を受け、{ok, reason, note, reply, effects} を返す。拒否も例外でなく ok: false）へ移した関数は、読む欄を cond_reads で
+# 宣言する（engine の包み Board.rule が新旧を読み分ける）。旧い形（盤面を受けて Reject を投げる）の関数は移し終えるまで残す
+
+
+def _accepted(note=None, reply=None):
+    return {"ok": True, **({"note": note} if note else {}), **({"reply": reply} if reply is not None else {})}
+
+
+def _refused(nid, errs):
+    return {"ok": False, "reason": f"{nid}: " + "; ".join(errs)}
+
+
+@cond_reads()
+def base_valid(v, nid, out, item):
+    """BASE はこのリポジトリのコミット。受け付ける返答の base_sha は完全な SHA に補う——記録の base は graph の writes が
+    この欄から書く（受け付けの関数は記録を書かない）"""
     sha = out["base_sha"]
     if not re.fullmatch(r"[0-9a-f]{7,40}", sha) or git("cat-file", "-e", f"{sha}^{{commit}}") is None:
-        raise Reject(f"BASE '{sha}' がこのリポジトリのコミットでない")
-    b.record["base"] = git("rev-parse", sha).strip()
+        return {"ok": False, "reason": f"BASE '{sha}' がこのリポジトリのコミットでない"}
+    return _accepted(reply={**out, "base_sha": git("rev-parse", sha).strip()})
 
 
 ONE_LINE_FIELDS = ("key", "reason")
@@ -3043,7 +3052,7 @@ def judge_output(b, nid, out, item):
                             "——1 site しか無いなら total: 1 でそう示せ")
             else:
                 # 判定役が読んだのと同じ版（この周に固定した版）で数える。修正役の after は作業ツリーで数える
-                got, why = _run_query(b, f"units[{i}].class_query", cq["how"], root, rev=_head_rev(b))
+                got, why = _run_query(b, f"units[{i}].class_query", cq["how"], root, rev=_head_rev(_view(b, _head_rev)))
                 if why:
                     errs.append(why)
                 elif got == 0 and cq["total"] != 0:
@@ -3150,23 +3159,25 @@ def judge_output(b, nid, out, item):
         return " / ".join(notes)
 
 
-def _owed_units(b):
+@cond_reads("record.units", "record.questions", "record.process.human_items", "round")
+def _owed_units(v):
     """今の周に直す義務の単位の key——開いた単位（検証器の is_open）から、人に諮っている fork の出どころ・depends を除いた物。
     修正の側の節に見せる義務の印（fix_units）がこの 1 本から引き、修正案・TDD のテスト・修正の受け付けはその印から引く
     （2 か所で計算していた頃は、修正案の側だけ免除が抜けていた）"""
-    V = validator_module(b)
+    V = v.validator
     exempt = set()
-    for q in b.record["questions"]:
+    for q in v("record.questions", []):
         if q.get("kind") == "fork" and q.get("status") in V.ASKING:
             exempt.add(q.get("origin"))
             exempt.update(q.get("depends", []) or [])
-    return {u["key"] for u in b.record["units"] if V.is_open(u)} - exempt - _human_excluded(b)
+    return {u["key"] for u in v("record.units", []) if V.is_open(u)} - exempt - _human_excluded(v)
 
 
-def _human_excluded(b):
+def _human_excluded(v):
     """この周の修正の前の関所（p2.human_gate）で、人が直す義務から外した単位の key（answer_detail が受けた exclude）"""
-    return {r["unit"] for h in (b.record.get("process") or {}).get("human_items") or []
-            if h.get("round") == b.round and h.get("node") == "p2.human_gate" and h.get("answer") == "continue"
+    rnd = v("round")
+    return {r["unit"] for h in v("record.process.human_items", None) or []
+            if h.get("round") == rnd and h.get("node") == "p2.human_gate" and h.get("answer") == "continue"
             for r in h.get("excluded") or []}
 
 
@@ -3177,11 +3188,11 @@ def fix_units(b, nid):
     **見せる値と答え合わせの値を同じ物にする**（delta_owed と同じ形）——3 節の受け付けは義務の集合をこの値から引く（_owed_shown）。
     長い本文（判定の理由・why_chain・処方・母数の問い）は貼らず、指示書が記録の置き場を指す。同じ単位の表を record.units と
     判定の写し process.diagnosis の 2 つの穴から全文で貼っていた頃、修正の指示書が 6.4〜11 万バイトになった（2026-09-26）"""
-    owed = _owed_units(b)
+    owed = _owed_units(_view(b, _owed_units))
     cq = {u.get("key") for u in ((b.record.get("process") or {}).get("diagnosis") or {}).get("units") or [] if u.get("class_query")}
     rows = [{**{k: u[k] for k in ("key", "label", "disposition") if k in u}, "owed": u["key"] in owed,
              "has_class_query": u["key"] in cq} for u in b.record["units"]]
-    b.loop_state["fix_units"] = {"round": b.round, "rows": rows}
+    write_loop(b, "fix_units", "overwrite", {"round": b.round, "rows": rows})
     return {"ok": True, "units": len(rows), "owed": sum(r["owed"] for r in rows)}
 
 
@@ -3194,11 +3205,12 @@ def _in_round(d, rnd):
     return d if d.get("round") == rnd else None
 
 
-def _owed_shown(b):
+@cond_reads(*_owed_units.reads, "loop.fix_units")
+def _owed_shown(v):
     """修正の側の受け付けが引く義務の key——fix_units が今の周に置いた行のうち owed の物（役に見せた値そのもの）。
     置いていない盤面（fix_units の節を持たない graph で始めた run）は _owed_units をその場で引く"""
-    d = _in_round(b.loop_state.get("fix_units"), b.round)
-    return _owed_units(b) if d is None else {r["key"] for r in d.get("rows") or [] if r.get("owed")}
+    d = _in_round(v("loop.fix_units", None), v("round"))
+    return _owed_units(v) if d is None else {r["key"] for r in d.get("rows") or [] if r.get("owed")}
 
 
 def fix_covers_open_units(b, nid, out, item):
@@ -3210,7 +3222,7 @@ def fix_covers_open_units(b, nid, out, item):
     changed = {c["unit_key"] for c in out["changes"]}
     waiting = {c["unit_key"]: c["why"] for c in out.get("not_done", [])}
     missing = [f"{k}（理由: {waiting[k]}）——義務の印（owed）が真の単位は直す義務がある（待ってよいのは人に諮っている fork の出どころ・depends と、人が関所で外した単位だけ）"
-               if k in waiting else k for k in sorted(_owed_shown(b) - changed)]
+               if k in waiting else k for k in sorted(_owed_shown(_view(b, _owed_shown)) - changed)]
     if missing:
         raise Reject("直していない [block] / do-now がある（writer の裁量で defer に覆せない。待ってよいのは fork の出どころ・depends と、"
                      "人が関所で外した単位だけ。異議は新しい judge に再判定させる）: " + "; ".join(missing))
@@ -3297,7 +3309,7 @@ def fix_covers_open_units(b, nid, out, item):
         remaining = "" if blank(cov.get("remaining"), 10) else cov["remaining"].strip()
         if root is None:
             root = _repo_root() or ""
-        total, why = _run_query(b, f"{c['unit_key'][:60]}: coverage（修正前）", cov["how"], root, rev=_head_rev(b))
+        total, why = _run_query(b, f"{c['unit_key'][:60]}: coverage（修正前）", cov["how"], root, rev=_head_rev(_view(b, _head_rev)))
         if why:
             raise Reject(why)
         closed = len(c.get("closure", {}).get("sites", []) or [])  # 塞いだ数は closure.sites から機械が数える（二度書かせない）
@@ -3330,7 +3342,7 @@ def fix_covers_open_units(b, nid, out, item):
     # docstring、採った道と落とした道は docs/feedback/review-loop-remaining-findings.md の『設計の記録: 修正側の裏取り』が正本）。
     # **申告が空でも通す**——`if refs:` で囲っていた頃、いちばん多い周（新しい指しを書かなかった周）は
     # 関数に入らず、読了の記録が前の周の値のまま残った。不変条件は、それが守る経路の上に置く
-    errs, reads = _cite_errors(b, nid, out.get("wrote_refs") or [], None, "wrote_refs")
+    errs, reads = _cite_errors(b.dir, nid, out.get("wrote_refs") or [], None, "wrote_refs")
     # 次の周の判定役が読む（graph の reads に prev.p3.fix.wrote_refs_reads）。**拒否には使わない**。**周を刻み、
     # 空の周も必ず書く**——前の周の値が『この周の材料』として読まれないため（p2.diagnose は同じ周の p3.fix より
     # 前に走る）
@@ -3495,18 +3507,21 @@ def _md_link_errors(base, root):
     return errs
 
 
-def main_path_observed(b, nid, out, item):
+@cond_reads()
+def main_path_observed(v, nid, out, item):
     """主経路の観測: 見たと言う状態（found / clean）は、観測した値（observed）を 1 つ以上持つ。本文に『未観測』と書いたまま
     状態を『異常なし』にした返答が、周の最後の検証まで見つからなかった（実走の申し送り 2026-09-24）——文の言い回しでなく、
     観測の欄の有無で見る。動かせなかったなら awaiting_human か not_run"""
     st = (out.get("material") or {}).get("status")
     # 空白だけの行は型（observed[].path / value の minLength。前後の空白を除いて測る）が落とすので、ここは行の有無だけ見る
-    if st in validator_module(b).OBSERVED_STATUS and not out.get("observed"):
-        raise Reject(f"{nid}: status={st} なのに観測した値（observed）が 1 つも無い——動かして観測した経路と値を observed に書け。"
-                     "動かせなかったなら awaiting_human（何を待つか）か not_run（なぜ飛ばしたか）")
+    if st in v.validator.OBSERVED_STATUS and not out.get("observed"):
+        return _refused(nid, [f"status={st} なのに観測した値（observed）が 1 つも無い——動かして観測した経路と値を observed に書け。"
+                              "動かせなかったなら awaiting_human（何を待つか）か not_run（なぜ飛ばしたか）"])
+    return _accepted()
 
 
-def external_rankings(b, nid, out, item):
+@cond_reads()
+def external_rankings(v, nid, out, item):
     """外部標準照合の順位の行: 差分が乗る選択肢（diff_at）は ranked のどれかで、最上位でないなら上位を採れない理由が要る。
     特徴の一致だけで『定番と同型』と判定した形（実測 2026-09-24: 3 周続けて clean、実際は下位の順位）を型で塞ぐ"""
     errs = []
@@ -3517,31 +3532,36 @@ def external_rankings(b, nid, out, item):
             errs.append(f"rankings[{i}] の diff_at '{r['diff_at'][:40]}' が ranked に無い——一次情報が推す選択肢のどれに乗るかを、ranked の綴りのまま書け")
         elif r["diff_at"] != r["ranked"][0] and blank(r.get("why_not_higher"), 10):
             errs.append(f"rankings[{i}]: 差分は最上位（{r['ranked'][0][:40]}）でなく '{r['diff_at'][:40]}' に乗るのに、上位を採れない理由（why_not_higher）が無い")
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    return _refused(nid, errs) if errs else _accepted()
 
 
 def r2_design(b, nid, out, item):
+    """旧い形のまま残す受け付け（記録の reviews.R2 を条件つきで書く。記録を書く effect の語彙を決めるまで——次の run）"""
     if not out["question_stands"]:
         b.record["reviews"]["R2"] = {"status": "premise-invalid", "reason": out.get("premise_invalid_reason") or out["reason"]}
 
 
-def r4_inventory(b, nid, out, item):
+@cond_reads()
+def r4_inventory(v, nid, out, item):
     inv = out.get("capability_inventory", {})
     if inv.get("fired") and "lost" not in inv:
-        raise Reject("R4: BASE 能力インベントリが発火する差分なのに『消えた能力』の明示返答（lost）が無い")
+        return _refused(nid, ["R4: BASE 能力インベントリが発火する差分なのに『消えた能力』の明示返答（lost）が無い"])
+    return _accepted()
 
 
-def cold_check_note(b, nid, out, item):
+@cond_reads()
+def cold_check_note(v, nid, out, item):
     """初見検査の結果を report の節に渡す**注記**——門ではない。cold-reader は report.human_items の本文を読み、その後の
-    report の節が詰まりを直す設計（graph の deps: human_items → cold_check → report）なので、非 pass をここで Reject
-    すると正直な判定を拒んで直す道が無くなる。直したかは機械では見ない（writer の申告）。verdict と stops は
+    report の節が詰まりを直す設計（graph の deps: human_items → cold_check → report）なので、非 pass をここで拒むと
+    正直な判定を拒んで直す道が無くなる。直したかは機械では見ない（writer の申告）。verdict と stops は
     process.cold_check に残し（finalize が report.cold_check の出力から組む。_cold_check_summary）、報告と人が見られるようにする。"""
     if out["verdict"] != "pass":
-        return f"初見検査で詰まりがある（{len(out.get('stops', []))} 箇所）。report の節で直してから出す（直したかは機械では見ない）"
+        return _accepted(note=f"初見検査で詰まりがある（{len(out.get('stops', []))} 箇所）。report の節で直してから出す（直したかは機械では見ない）")
+    return _accepted()
 
 
-def measured_needs_output(b, nid, out, item):
+@cond_reads()
+def measured_needs_output(v, nid, out, item):
     """kind=実測 の制約は、実行したコマンドと出力（measured_output）を持て。
 
     『実測』の札だけが検算なしで信頼値に昇格し、誤った事実がゼロベースで疑う役に所与として渡る
@@ -3550,11 +3570,13 @@ def measured_needs_output(b, nid, out, item):
     """
     bad = [c["text"][:60] for c in out.get("constraints", []) if c.get("kind") == "実測" and not (c.get("measured_output") or "").strip()]
     if bad:
-        raise Reject(f"{nid}: kind=実測 なのに measured_output（実行したコマンドと出力）が無い制約がある: {bad}"
-                     "——コマンドと出力を示せないものは kind=仮説 に落とせ")
+        return _refused(nid, [f"kind=実測 なのに measured_output（実行したコマンドと出力）が無い制約がある: {bad}"
+                              "——コマンドと出力を示せないものは kind=仮説 に落とせ"])
+    return _accepted()
 
 
-def gate_arms_all_red(b, nid, out, item):
+@cond_reads()
+def gate_arms_all_red(v, nid, out, item):
     """赤を見ていない腕が 1 つでも在れば clean を名乗らせない（赤は覆いの証拠にならない、の裏側）。
 
     柵の実効性を確かめる節そのものが自己申告で緑を名乗れる形だった（実測: 26 腕中 24 腕しか赤を見て
@@ -3564,8 +3586,8 @@ def gate_arms_all_red(b, nid, out, item):
     st = out.get("material", {}).get("status")
     # 腕 0 行は『撃てた腕が無い』回だけ——見たと言う状態（found / clean）を 0 行で名乗らせない。型の minItems で縛っていた頃は、
     # 実行器が正直に返す not_run（撃てた腕 0 本）まで型で落ちた
-    if not arms and st in validator_module(b).OBSERVED_STATUS:
-        raise Reject(f"{nid}: status={st} なのに腕が 0 行——撃った腕を行にするか、撃てた腕が無いなら not_run（理由つき）で書け")
+    if not arms and st in v.validator.OBSERVED_STATUS:
+        return _refused(nid, [f"status={st} なのに腕が 0 行——撃った腕を行にするか、撃てた腕が無いなら not_run（理由つき）で書け"])
     # applies_cond が真で走った節の not_applicable は check_record の表（status × 機械の事実）が拒む——ここには写さない
     unred = [a["arm"] for a in arms if not a.get("red_confirmed")]
     nocontrol = [a["arm"] for a in arms if not a.get("control_green")]
@@ -3584,18 +3606,18 @@ def gate_arms_all_red(b, nid, out, item):
     # 通すのは人の起動待ちだけ（名乗った理由どおり）。not_run も収束を止める状態だが、赤を見ていない腕を抱えた返答に
     # 是正の文（found にして腕を書け）を届ける
     if st != "found" and _unproven(arms) and st != "awaiting_human":
-        raise Reject(f"{nid}: 赤を見ていない腕 {unred} / 壊していない写しで緑を確かめていない腕 {nocontrol} / "
-                     f"守る行を通ったことを測っていない腕 {nohit} が在るのに status=clean"
-                     "——未達は found（count と detail に腕を書く）、人の起動待ちなら awaiting_human（reason に何を待つか）")
+        return _refused(nid, [f"赤を見ていない腕 {unred} / 壊していない写しで緑を確かめていない腕 {nocontrol} / "
+                              f"守る行を通ったことを測っていない腕 {nohit} が在るのに status=clean"
+                              "——未達は found（count と detail に腕を書く）、人の起動待ちなら awaiting_human（reason に何を待つか）"])
     # **status に依らず、腕ごとに当てる**: 赤も control 緑も見た腕が、守る行を通ったことを測っていないなら、
     # その腕は「覆いの証拠」として数えられない。他の腕が未赤でも外さない——外していた頃は、撃てない腕が 1 本
     # 在るだけで 13 腕の印の欠けが素通りした（台本の『撃てない腕が在っても…腕ごとに拒む』の腕）
     proven = [a["arm"] for a in arms if a.get("red_confirmed") and a.get("control_green") and blank(a.get("hit_evidence"), 10)]
     if proven:
-        nohit = proven
-        raise Reject(f"{nid}: 腕 {nohit} は赤も control の緑も見ているが、**その腕が守る行を通ったこと**を測っていない"
-                     "（hit_evidence）——赤は柵の不在の検知であって、この腕がその柵に当たった証拠にならない。"
-                     "分岐が書く値を一意の印に替え、その印が出力か記録に現れることを確かめて hit_evidence に書け")
+        return _refused(nid, [f"腕 {proven} は赤も control の緑も見ているが、**その腕が守る行を通ったこと**を測っていない"
+                              "（hit_evidence）——赤は柵の不在の検知であって、この腕がその柵に当たった証拠にならない。"
+                              "分岐が書く値を一意の印に替え、その印が出力か記録に現れることを確かめて hit_evidence に書け"])
+    return _accepted()
 
 
 def _keys_once(rows, label):
@@ -3608,10 +3630,11 @@ def _keys_once(rows, label):
     return errs
 
 
-def fix_plan_covers_units(b, nid, out, item):
+@cond_reads(*_owed_shown.reads)
+def fix_plan_covers_units(v, nid, out, item):
     """修正案は今の周に直す単位を全部、どれか 1 つの案に入れる。**書き落とした単位は事前審査に届かない**"""
-    V = validator_module(b)
-    want, opened = _owed_shown(b), {u["key"] for u in b.record["units"] if V.is_open(u)}
+    V = v.validator
+    want, opened = _owed_shown(v), {u["key"] for u in v("record.units", []) if V.is_open(u)}
     got = [k for p in out["plan"] for k in p["unit_keys"]]
     errs = []
     unknown = sorted(set(got) - opened)   # 免除の単位（fork の出どころ）は入れても入れなくてもよい
@@ -3623,13 +3646,13 @@ def fix_plan_covers_units(b, nid, out, item):
     dup = sorted({k for k in got if got.count(k) > 1})
     if dup:
         errs.append(f"2 つの案に入った単位 {[k[:40] for k in dup[:3]]}——1 単位は 1 案")
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    return _refused(nid, errs) if errs else _accepted()
 
 
-def plan_review_output(b, nid, out, item):
+@cond_reads("cur.p2.fix_plan")
+def plan_review_output(v, nid, out, item):
     """事前審査の穴は案の単位を指し、key は一意。穴も別案も無いなら、何を確かめて無いと言えるか（faces_none）を書く"""
-    planned = {k for p in (b.output_of_round("p2.fix_plan", b.round) or {}).get("plan") or [] for k in p["unit_keys"]}
+    planned = {k for p in (v("cur.p2.fix_plan", None) or {}).get("plan") or [] for k in p["unit_keys"]}
     rows = (out.get("faces") or []) + (out.get("shrink") or [])
     errs = _keys_once(rows, "faces・shrink")
     for i, r in enumerate(rows):
@@ -3642,8 +3665,7 @@ def plan_review_output(b, nid, out, item):
     # （実測 2026-09-24: 3 周目の事前審査に従って参照形式の入口を足したら、4 周目に『入口を足し続けている』と挙がった）
     errs += [f"faces の '{f['key'][:40]}'（entrance）に no_add（柵や入口を足さずに閉じる形。無理なら無理な理由）が無い"
              for f in out.get("faces") or [] if f["kind"] == "entrance" and blank(f.get("no_add"), 20)]
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    return _refused(nid, errs) if errs else _accepted()
 
 
 def _plan_face_errors(b, out):
@@ -3672,20 +3694,12 @@ def _claimed_key_set(d):
     return {r["key"] for r in (d or {}).get("claimed") or []}
 
 
-def _claimed_closed(b, n):
-    """n 回目の差分レビューが検算する『塞いだ』と言われた穴の key——fix_delta が今の周に置いた claimed だけ（役に貼り・番号で
-    指させる一覧と同じ値。p3.delta_owed と同じ形）。出力・claimed の無い回は _claimed_closed_from と同じく返答から引く"""
-    d = _delta_of(b, n)
-    if "claimed" not in (d or {}):
-        return {r["key"] for r in _closed_rows(b.output_of_round("p3.fix" if n == 1 else DELTA_PASSES[n - 1].fix, b.round), n)}
-    return _claimed_key_set(d)
-
-
-def delta_review_output(b, nid, out, item):
+@cond_reads(*dict.fromkeys(("cur." + p.cut for p in DELTA_PASSES.values())), *_CLAIMED_READS)
+def delta_review_output(v, nid, out, item):
     """修正差分のレビューの穴は、この周の修正が触ったファイルの中に在る字列を指す。無いなら faces_none。
-    『塞いだ』と言われた穴は 1 件ずつ検算し（checks）、塞がっていないもの（closed=false）は手直しの節が同じ key で答える（_delta_owed）"""
+    『塞いだ』と言われた穴は 1 件ずつ検算し（checks）、塞がっていないもの（closed=false）は手直しの節が同じ key で答える（delta_owed）"""
     n = DELTA_PASS_OF[nid]
-    d = _delta_of(b, n) or {}
+    d = (v("cur." + DELTA_PASSES[n].cut, None) or {}).get("delta") or {}
     files, root = set(d.get("files") or []), pathlib.Path(_repo_root() or ".")
     faces = out.get("faces") or []
     errs = _keys_once(faces, "faces")
@@ -3704,28 +3718,33 @@ def delta_review_output(b, nid, out, item):
             errs.append(f"faces[{i}] の cite '{f['cite'][:40]}' が {f['where']} の今の姿に無い——在る字列を写せ")
     if not faces and blank(out.get("faces_none"), 20):
         errs.append("穴を挙げないなら faces_none に何を読んで無いと言えるかを書け")
-    claimed, checks = _claimed_closed(b, n), out.get("checks") or []
+    claimed, checks = _claimed_closed_from(v, n), out.get("checks") or []
     errs += _keys_once(checks, "checks")
     errs += [f"checks の key '{r['key'][:40]}' は塞いだと言われた穴に無い" for r in checks if r["key"] not in claimed]
     errs += [f"塞いだと言われた穴 '{k[:40]}' に検算が無い——差分で塞がったか（closed）を 1 件ずつ書け"
              for k in sorted(claimed - {r["key"] for r in checks})]
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    return _refused(nid, errs) if errs else _accepted()
 
 
-def delta_fix_output(b, nid, out, item):
-    """修正差分のレビューが挙げた穴に key ごとに 1 度だけ答える。fixed は触ったファイルを書く"""
-    asked = _delta_owed(b, DELTA_PASS_OF[nid])   # 差分レビューの穴と塞がっていない検算（変異の見逃しは並行の線が答える）
+@cond_reads(*dict.fromkeys("cur." + p.owed for p in DELTA_PASSES.values()))
+def delta_fix_output(v, nid, out, item):
+    """修正差分のレビューが挙げた穴に key ごとに 1 度だけ答える。fixed は触ったファイルを書く。答える義務は義務の節（DeltaPass.owed）が
+    今の周に出した出力の rows（差分レビューの穴と塞がっていない検算。変異の見逃しは並行の線が答える）"""
+    node = DELTA_PASSES[DELTA_PASS_OF[nid]].owed
+    owed = v("cur." + node, None)
+    if owed is not None and "rows" not in owed:
+        return _refused(nid, [OWED_ROWS_MISSING.format(node=node)])
+    asked = _owed_key_set((owed or {}).get("rows"))
     rows = out["handled"]
     errs = _keys_once(rows, "handled")
     errs += [f"handled の key '{r['key'][:40]}' は修正差分のレビューに無い" for r in rows if r["key"] not in asked]
     errs += [f"穴 '{k[:40]}' に応答が無い" for k in sorted(asked - {r["key"] for r in rows})]
     errs += [f"handled '{r['key'][:40]}' は fixed なのに files が空" for r in rows if r["handled"] == "fixed" and not r.get("files")]
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    return _refused(nid, errs) if errs else _accepted()
 
 
-def rejudge_output(b, nid, out, item):
+@cond_reads(*_defer_ledger.reads)
+def rejudge_output(v, nid, out, item):
     """擦り合わせの返答: **新しい事実を自分で確かめたこと**を要求する。
 
     依頼者の指定の条件 1（反論は新しい事実を伴うときだけ通す）と 3（判定を確定する権限は移らない）を機械で持つ。
@@ -3734,14 +3753,13 @@ def rejudge_output(b, nid, out, item):
     """
     fact = (out.get("new_facts") or "").strip()
     if blank(fact, 20):
-        raise Reject(f"{nid}: new_facts が空同然——回す側が出した事実を**自分で確かめた結果**を書け"
-                     "（確かめずに採る／退けるのは、どちらも判定を都合よく使うことになる）")
+        return _refused(nid, ["new_facts が空同然——回す側が出した事実を**自分で確かめた結果**を書け"
+                              "（確かめずに採る／退けるのは、どちらも判定を都合よく使うことになる）"])
     # 再審は units だけを書く（questions は書かない）ので、当てられるのは units だけで決まる defer の再浮上だけ。拒否文が defer の
     # 理由を名指すので、台帳を読まない再審の役にも直す手が在る
-    ledger = _defer_ledger(b)
-    errs = validator_module(b).reopened_without_evidence(out.get("units") or [], ledger) if ledger else []
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    ledger = _defer_ledger(v)
+    errs = v.validator.reopened_without_evidence(out.get("units") or [], ledger) if ledger else []
+    return _refused(nid, errs) if errs else _accepted()
 
 
 def local_review_covers_lenses(b, nid, out, item):
@@ -3804,7 +3822,14 @@ def local_review_covers_lenses(b, nid, out, item):
         raise Reject("宣言したレンズと findings の行が合わない:\n" + "\n".join("  - " + e for e in errs))
 
 
-def purpose_findings_cited(b, nid, out, item):
+@cond_reads("hist.snapshot")
+def _head_rev(v):
+    """この周に固めた周の頭の版（hist.snapshot の rev。周の頭の節がまだ走っていなければ None）——判定・修正・目的監査の数え直しが読む版"""
+    return (v("hist.snapshot", None) or {}).get("rev") or None
+
+
+@cond_reads(*_head_rev.reads)
+def purpose_findings_cited(v, nid, out, item):
     """**指摘は、作業ツリーで引ける根拠を連れて来る**（境界で検査する。信じて後で棄却しない）。
 
     目的の監査の指摘が素の文字列だったとき、**リポジトリに 1 件も無い字列を根拠にした指摘が 5 周
@@ -3819,17 +3844,16 @@ def purpose_findings_cited(b, nid, out, item):
     # **根拠 0 件の『狭めている』を通さない。** findings が空だと 0 回ループして合格していた——
     # 裏取りの柵を入れた意味が、いちばん効くべき場合（根拠を書かずに判定だけ出す回）で消える。
     if out.get("verdict") == "狭めている" and not rows:
-        raise Reject(f"{nid}: 『狭めている』のに findings が空——**判定には作業ツリーで引ける根拠を 1 件以上付けろ**"
-                     "（欠落を指摘したいなら、欠けている場所の周辺に実在する字列を cite にして、"
-                     "そこに在るべき物が無いことを text に書く）")
-    errs, _ = _cite_errors(b, nid, rows, _head_rev(b), "findings")
+        return _refused(nid, ["『狭めている』のに findings が空——**判定には作業ツリーで引ける根拠を 1 件以上付けろ**"
+                              "（欠落を指摘したいなら、欠けている場所の周辺に実在する字列を cite にして、"
+                              "そこに在るべき物が無いことを text に書く）"])
+    try:
+        errs, _ = _cite_errors(None, nid, rows, _head_rev(v), "findings")
+    except Reject as e:
+        return {"ok": False, "reason": str(e)}
     if errs:
-        raise Reject(f"{nid}: 指摘の根拠が作業ツリーで裏取りできない: " + "; ".join(errs))
-
-
-def _head_rev(b):
-    """この周に固めた周の頭の版（hist.snapshot の rev。周の頭の節がまだ走っていなければ None）——判定・修正・目的監査の数え直しが読む版"""
-    return (_hist(b, "snapshot") or {}).get("rev") or None
+        return {"ok": False, "reason": f"{nid}: 指摘の根拠が作業ツリーで裏取りできない: " + "; ".join(errs)}
+    return _accepted()
 
 
 def _repo_root():
@@ -4003,7 +4027,7 @@ CITE_LABELS = {"findings": {"what": "指摘の根拠", "target": False},
                "wrote_refs": {"what": "修正が書いた指し", "target": True}}
 
 
-def _cite_errors(b, nid, rows, rev, label):
+def _cite_errors(evidence_dir, nid, rows, rev, label):
     """**申告された字列を、現物で数え直す** ——（errs, reads）。reads は指し先ごとの読了の記録（target の呼び元だけ）。
 
     **指摘する側と修正する側が同じ関数を呼ぶ。** 以前この数え直しは指摘側（findings）の中に埋まっていて、
@@ -4134,7 +4158,7 @@ def _cite_errors(b, nid, rows, rev, label):
                     errs.append((i, f"{label}[{i}]: 指し先 '{rel}' は版には在るが、作業ツリーで数えられない（{why}）"
                                     "——消した・置き換えた指し先なら、書いた指しの方を直せ"))
                     continue
-            state, hwhy = hook_evidence(b.dir, str(full), cache=cache, data=data)
+            state, hwhy = hook_evidence(evidence_dir, str(full), cache=cache, data=data)
             reads.append({"kind": rk, "cite": cite[:60] or None, "target": rel, "where": wrel,
                           "self": wrel == rel, "state": state, "why": hwhy})
             if rk == "text" and cite.encode("utf-8") not in data:
@@ -4168,19 +4192,21 @@ def _count_in_version(nid, what, label, i, row, cite, rev, probed, errs):
         errs.append((i, f"{label}[{i}]: '{cite[:40]}' の件数の申告 {row.get('hits')} が数え直し {hits} と違う"))
 
 
-def lane_receipt(b, nid, out, item):
+@cond_reads("cur.p3.gates_cut")
+def lane_receipt(v, nid, out, item):
     """線を立てた受領: 名乗る置き場がこの周に固めた線の置き場と同じか。**線の結果はここでは待たない**——受領は線を立てた事実だけで、
     結果は線が書き終えた後の周の頭（_lane_faces）と修正の前（lane_merge）が置き場から読む"""
-    cut = _gates_cut(b) or {}
+    cut = _cut_ok(v("cur.p3.gates_cut", None)) or {}
     if out["lane"] != cut.get("result"):
-        raise Reject(f"{nid}: 受領の置き場 {out['lane']!r} がこの周の線の置き場 {cut.get('result')!r} と違う——プロンプトが名指す置き場で線を立てよ")
+        return _refused(nid, [f"受領の置き場 {out['lane']!r} がこの周の線の置き場 {cut.get('result')!r} と違う——プロンプトが名指す置き場で線を立てよ"])
+    return _accepted()
 
 
-def final_gates_output(b, nid, out, item):
+@cond_reads("cur.p3.gates_cut")
+def final_gates_output(v, nid, out, item):
     """最後の関門の返答の整合: この周に固めた最終の版を撃ち、見逃しに全部 1 度だけ答え、作業ツリーに書かない"""
-    errs = _lane_errors(b, out, (_gates_cut(b) or {}).get("rev") or "", final=True)
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    errs = _lane_errors(out, (_cut_ok(v("cur.p3.gates_cut", None)) or {}).get("rev") or "", final=True)
+    return _refused(nid, errs) if errs else _accepted()
 
 
 POST_CHECKS = {"main_path_observed": main_path_observed, "external_rankings": external_rankings, "purpose_findings_cited": purpose_findings_cited, "gate_arms_all_red": gate_arms_all_red, "rejudge_output": rejudge_output, "measured_needs_output": measured_needs_output, "base_valid": base_valid, "judge_output": judge_output, "fix_covers_open_units": fix_covers_open_units,
@@ -4308,13 +4334,13 @@ def on_answer(b, ph, ans):
                                                "answer": ans, "note": ph.get("note", "")})
     if ans == "continue":
         entry = {"round": b.round, "kinds": kinds, "note": ph.get("note", ""), "asked": ph["items"]}
-        b.loop_state.pop("outcome", None)
-        b.loop_state.pop("stop_reason", None)
+        write_loop(b, "outcome", "overwrite", None)
+        write_loop(b, "stop_reason", "overwrite", None)
         if "final_gate_empty" in kinds:
             # 人が 0 本で収束してよいと答えた木——同じ木を撃った関門だけが 0 本で通る（木が変われば聞き直す）
             cut = _gates_cut(b) or {}
             tree = git("rev-parse", f"{cut.get('rev', '')}^{{tree}}") if cut.get("rev") else None
-            b.loop_state["final_gate_empty_ok"] = (tree or "").strip() or None
+            write_loop(b, "final_gate_empty_ok", "overwrite", (tree or "").strip() or None)
             if b.state["max_rounds"] <= b.round:   # 上限の周の答え——同じ木の関門を撃つ次の周を 1 つ開ける
                 _extend_one_round(b, entry)
         if "max_rounds" in kinds:
@@ -4342,8 +4368,9 @@ def on_stop(b, info):
     engine は盤面の保存が衝突すると読み直した盤面にこれを当て直す。周の記録のファイルは盤面の外なので、周の締めが済んだかは
     ファイルの有無でなく盤面（周の記録を組む節が済んだか）で決め、済んでいなければ当て直すたびに今の盤面から組み直して上書きする
     ——負けた試行が残したファイルを『済んだ』と読むと、記録と周の記録が割れる"""
-    rec, ls = b.record, b.loop_state
-    ls["outcome"], ls["stop_reason"] = "stopped", "stop"
+    rec = b.record
+    write_loop(b, "outcome", "overwrite", "stopped")
+    write_loop(b, "stop_reason", "overwrite", "stop")
     rec["process"]["halted"] = info
     if info.get("unanswered"):
         ua = info["unanswered"]
@@ -4459,32 +4486,32 @@ def _spec_errors(spec):
     return errs
 
 
-def spec_write_output(b, nid, out, item):
+@cond_reads()
+def spec_write_output(v, nid, out, item):
     errs = _spec_errors(out)
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    return _refused(nid, errs) if errs else _accepted()
 
 
-def spec_review_output(b, nid, out, item):
+@cond_reads()
+def spec_review_output(v, nid, out, item):
     faces = out.get("faces") or []
     errs = _keys_once(faces, "faces")
     if not faces and blank(out.get("faces_none"), 20):
         errs.append("穴を挙げないなら faces_none に何を確かめて無いと言えるかを書け")
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    return _refused(nid, errs) if errs else _accepted()
 
 
-def spec_revise_output(b, nid, out, item):
+@cond_reads("out.spec.review")
+def spec_revise_output(v, nid, out, item):
     """審査の穴に key ごとに 1 度だけ答える（語彙は事前審査への答え plan_faces と同じ absorbed / declared）"""
-    asked = {f["key"] for f in (b.latest_output("spec.review") or {}).get("faces") or []}
+    asked = {f["key"] for f in (v("out.spec.review", None) or {}).get("faces") or []}
     rows = out["handled"]
     errs = _keys_once(rows, "handled")
     errs += [f"handled の key '{r['key'][:40]}' は仕様の審査に無い" for r in rows if r["key"] not in asked]
     errs += [f"仕様の審査の '{k[:40]}' に応答が無い——absorbed（どう取り込んだか）か declared（残す理由）で答えろ"
              for k in sorted(asked - {r["key"] for r in rows})]
     errs += _spec_errors(out["spec"])
-    if errs:
-        raise Reject(f"{nid}: " + "; ".join(errs))
+    return _refused(nid, errs) if errs else _accepted()
 
 
 def _spec_run(root, cmd):
@@ -4524,8 +4551,8 @@ def spec_approve(b, nid):
 def on_answer_in_round(b, ph, ans):
     """周の途中の問いへの答え（engine の cmd_answer が in_round の問いにだけ呼ぶ）。今の流れの on_answer とは別の口で、
     CI への指示として読まれる process.human_answers には積まない"""
-    b.loop_state.setdefault("in_round_answers", []).append(
-        {"round": b.round, "node": ph["node"], "kinds": ph.get("kinds") or [], "answer": ans, "note": ph.get("note", "")})
+    write_loop(b, "in_round_answers", "append",
+               [{"round": b.round, "node": ph["node"], "kinds": ph.get("kinds") or [], "answer": ans, "note": ph.get("note", "")}])
     if ph["node"] in HUMAN_GATES:
         human_gate_answered(b, ph, ans)
     if ans == "continue" and "spec_changed" in (ph.get("kinds") or []):
@@ -4617,23 +4644,47 @@ HUMAN_FACE_KINDS = ("regression", "policy")
 PLAN_ONLY_FACE_KINDS = HUMAN_FACE_KINDS + ("precedent",)
 
 
+# 関所の行の頭（組み立てと剥がしの正本）。頭の後ろが本文で、人が通した行と聞く行は本文どうしで照らす——R4 の指示書は同じ単位
+# （頭の後ろの文）を写させる。事前審査の穴の頭は key を「」で囲む（key が「: 」を含んでも頭の終わりが 1 つに決まる）
+GATE_HEADS = {"narrows": "修正案 {n} が狭める能力: ", "face": "事前審査の穴 [{kind}] 「{key}」: ",
+              "lost": "R4 が BASE から消えたと見た能力: ", "policy_conflicts": "R4 が見た人の方針とのぶつかり: "}
+_GATE_HEAD_RES = tuple(re.compile("^" + re.escape(h).replace(r"\{n\}", r"\d+").replace(r"\{kind\}", r"[a-z_]+").replace(r"\{key\}", r".*?"))
+                       for h in GATE_HEADS.values())
+
+
+def _gate_body(row):
+    """関所の行から頭を除いた本文（頭が表のどれにも当たらない行——方針の文書の変化——は行そのもの）"""
+    for rx in _GATE_HEAD_RES:
+        m = rx.match(row)
+        if m:
+            return row[m.end():]
+    return row
+
+
 def _plan_gate_items(b):
     items = []
     for i, p in enumerate((b.output_of_round("p2.fix_plan", b.round) or {}).get("plan") or []):
-        items += [("regression", f"修正案 {i + 1} が狭める能力: {n['what']}——{n['why']}") for n in p.get("narrows") or []]
-    items += [(f["kind"], f"事前審査の穴 [{f['kind']}] {f['key']}: {f['why']}")
+        items += [("regression", GATE_HEADS["narrows"].format(n=i + 1) + f"{n['what']}——{n['why']}") for n in p.get("narrows") or []]
+    items += [(f["kind"], GATE_HEADS["face"].format(kind=f["kind"], key=f["key"]) + f["why"])
               for f in (b.output_of_round("p2.plan_review", b.round) or {}).get("faces") or [] if f["kind"] in HUMAN_FACE_KINDS]
     return items
 
 
-R4_ROWS = (("regression", "lost", "R4 が BASE から消えたと見た能力: "), ("policy", "policy_conflicts", "R4 が見た人の方針とのぶつかり: "))
+R4_ROWS = (("regression", "lost"), ("policy", "policy_conflicts"))
+
+
+def _passed_bodies(b):
+    """修正後の関所が聞き直さない本文: 人が continue で通した修正後の関所の行（どの周でも）と、この周の修正前の関所の行。
+    修正前の関所で前の周に通した本文は外さない（人の決定 2026-09-27: 修正前の関所は周ごとに毎回聞く）"""
+    return {_gate_body(a) for h in b.record["process"]["human_items"] if h.get("answer") == "continue"
+            and (h.get("node") != "p2.human_gate" or h.get("round") == b.round) for a in h.get("asked") or []}
 
 
 def _r4_gate_items(b):
-    passed = {a for h in b.record["process"]["human_items"] if h.get("answer") == "continue" for a in h.get("asked") or []}
+    passed = _passed_bodies(b)
     out = b.output_of_round("r4.hidden_scope", b.round) or {}
     got = {"lost": (out.get("capability_inventory") or {}).get("lost") or [], "policy_conflicts": out.get("policy_conflicts") or []}
-    return [(kind, row) for kind, field, head in R4_ROWS for row in (head + x for x in got[field]) if row not in passed]
+    return [(kind, GATE_HEADS[field] + x) for kind, field in R4_ROWS for x in got[field] if x not in passed]
 
 
 HUMAN_GATES = {"p2.human_gate": _plan_gate_items, "r4.human_gate": _r4_gate_items}
@@ -4644,14 +4695,14 @@ def human_gate(b, nid):
     rows = HUMAN_GATES[nid](b)
     ch = policy_input.change(b, git, b.record["process"].get("policy") or {})
     if ch:
-        b.loop_state["policy_change"] = ch
+        write_loop(b, "policy_change", "overwrite", ch)
         rows.append(("policy_changed", policy_input.change_row(ch)))
     if not rows:
         return {"ok": True}
     kinds = sorted({k for k, _ in rows})
     exclude = ""
     if nid == "p2.human_gate":
-        owed = _owed_units(b)
+        owed = _owed_units(_view(b, _owed_units))
         listed = "／".join(f"{i}. {u['key']}" for i, u in enumerate(b.record["units"], 1) if u["key"] in owed)
         exclude = ("直す義務の単位をこの周の修正から外すなら、continue に --detail <JSON のファイル>（{\"exclude\": [{\"unit\": <番号か key>, "
                    f"\"why\": <理由>}}]}}）を添える（外した単位と理由は記録に残り、修正役と次の周の判定役に届く）。直す義務の単位: {listed}。")
@@ -4672,7 +4723,7 @@ def answer_detail(b, ph, ans, detail):
     rows = detail.get("exclude") if isinstance(detail, dict) and set(detail) == {"exclude"} else None
     if not isinstance(rows, list) or not rows or any(not isinstance(r, dict) or set(r) != {"unit", "why"} for r in rows):
         raise Reject('--detail の形: {"exclude": [{"unit": <番号か key>, "why": <理由>}]}（空でない配列。ほかの鍵は受けない）')
-    units, owed, out = b.record["units"], _owed_units(b), []
+    units, owed, out = b.record["units"], _owed_units(_view(b, _owed_units)), []
     for r in rows:
         u = r["unit"]
         key = units[u - 1]["key"] if isinstance(u, int) and not isinstance(u, bool) and 1 <= u <= len(units) else u
@@ -4693,7 +4744,8 @@ def human_gate_answered(b, ph, ans):
         # 人が外した単位を、修正の側に見せる義務の印（fix_units の owed）からも外す——修正の受け付けは見せた値から義務を引く
         # （_owed_shown）ので、組み直さないと外した単位を直さない修正が拒まれる
         fix_units(b, ph["node"])
-    ch = b.loop_state.pop("policy_change", None)
+    ch = b.loop_state.get("policy_change")
+    write_loop(b, "policy_change", "overwrite", None)
     if ans == "continue" and ch and "policy_changed" in (ph.get("kinds") or []):
         pol = b.record["process"]["policy"]
         pol.setdefault("amendments", []).append({**ch, "round": b.round, "note": ph.get("note", "")})

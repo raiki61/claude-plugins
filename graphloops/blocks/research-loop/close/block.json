@@ -1,0 +1,6 @@
+{
+ "description": "S7 締め（BLOCKS.md 3 節）。収束の判定（周の輪）",
+ "nodes": [
+  "converge"
+ ]
+}

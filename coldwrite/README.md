@@ -5,6 +5,8 @@ Write ツールで書き込まれる文書を、書き込みの前に coldreader
 出口(gh への投稿)で見る gates/coldread の姉妹で、こちらは書く時点で見る。
 設計の経緯と実測は `docs/coldread-gate-next.md`「乗り換え先の案 2」。
 
+版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（tag の名前と付ける commit・変更の記録を書き足す段）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
+
 ## 仕組み
 
 prompt 型フック(Claude Code 本体の LLM 判定フック)だけで出来ていて、自作コードを持たない。

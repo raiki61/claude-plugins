@@ -130,6 +130,9 @@ SIM_TESTS = {
                         "test_stop_midround", "test_tdd_flow"],
     "simulate": ["test_converges", "test_attended_stuck_answer", "test_unattended_stuck", "test_light", "test_rejections"],
 }
+# pytest へ移した筋書き（台本のモジュール, 関数名）→ 移した先の pytest のモジュール（graphloops/tests/py/ の下）。移した先の関数は
+# gl_script の代わりに「種類 → 台本のモジュール」を受けるので、差し替えるのは今までどおり台本のモジュールの Run.cmd
+MOVED = {("simulate", "test_converges"): "test_sim_research"}
 
 
 def snapshot_simulate(work):
@@ -159,7 +162,7 @@ def snapshot_simulate(work):
                             shutil.copy(src, d / "input" / src.name)
                         argv[i] = f"<INPUT>/{src.name}"
                 env = kw.get("env") or getattr(self, "env", None) or {}
-                meta = {"module": _mod, "test": CURRENT[0], "n": n, "argv": argv, "tmp": str(self.tmp), "dir": str(self.dir),
+                meta = {"module": _mod, "file": CURRENT[1], "test": CURRENT[0], "n": n, "argv": argv, "tmp": str(self.tmp), "dir": str(self.dir),
                         "repo": str(self.repo), "cfg": str(getattr(self, "cfg", "") or ""),
                         "session": (env or {}).get("CLAUDE_CODE_SESSION_ID") or ga.SESSION,
                         "loop": json.loads((pathlib.Path(self.dir) / "state.json").read_text(encoding="utf-8"))["loop_name"]
@@ -169,17 +172,28 @@ def snapshot_simulate(work):
             return _orig(self, *args, **kw)
         mod.Run.cmd = cmd
         for t in tests:
-            CURRENT[0] = f"{modname}.{t}"
-            print(f"  台本 {CURRENT[0]} を回す", flush=True)
+            fn, where = scenario(mod, modname, t)
+            CURRENT[:] = [f"{modname}.{t}", where]
+            print(f"  台本 {CURRENT[0]}（{where}）を回す", flush=True)
             try:
-                getattr(mod, t)()
+                fn()
             except Exception as e:  # noqa: BLE001 — 台本の失敗は写しの材料の欠けで、ここでは止めない
                 print(f"    台本が例外で終わった（写しはそこまで）: {type(e).__name__}: {e}")
         mod.Run.cmd = orig
     return snaps
 
 
-CURRENT = [""]
+CURRENT = ["", ""]
+
+
+def scenario(mod, modname, t):
+    """筋書きの関数と、その置き場（固定具の source に載る）。台本にも移した先にも無い名前は、写しが黙って 0 件にならないよう止める"""
+    if hasattr(mod, t):
+        return getattr(mod, t), f"{modname}.py"
+    if (modname, t) in MOVED:
+        moved = __import__(MOVED[(modname, t)])
+        return (lambda: getattr(moved, t)(lambda kind: mod)), f"py/{MOVED[(modname, t)]}.py"
+    sys.exit(f"筋書き {modname}.{t} が台本にも移した先（MOVED）にも無い")
 
 
 def _loop_of_init(argv):
@@ -198,7 +212,7 @@ def sim_candidate(d):
         roots.append((meta["cfg"], "<CFG>"))
     roots += [(meta["tmp"], "<TMP>"), (ga.PLUGIN, "<PLUGIN>"), (ga.ROOT, "<ROOT>")]
     fx = {"format": ga.fixture_format, "loop": meta["loop"], "origin": "simulate",
-          "source": f"{meta['module']}.py の {meta['test'].split('.', 1)[1]} が loop.py {meta['argv'][0]} を呼ぶ直前（{meta['n']}）",
+          "source": f"{meta.get('file') or meta['module'] + '.py'} の {meta['test'].split('.', 1)[1]} が loop.py {meta['argv'][0]} を呼ぶ直前（{meta['n']}）",
           "command": sanitize(meta["argv"], roots),
           "files": sanitize(read_tree(d / "board", SKIP_DIRS), roots), "repo": sanitize(read_tree(d / "repo"), roots),
           "config": sanitize(read_tree(d / "config"), roots), "input": sanitize(read_tree(d / "input"), roots),
@@ -547,7 +561,7 @@ def main():
     sub.add_parser("check", help="今の固定具を評価し直して期待値と突き合わせる（別の PYTHONHASHSEED で回すと、走らせるたびに変わる物が分かる）")
     s = sub.add_parser("snap")
     s.add_argument("--work", required=True, help="台本の途中の状態を写す置き場（<work>/snaps）")
-    s.add_argument("--tests", help="台本を絞る（simulate_review.test_x,simulate.test_y）。既定は SIM_TESTS の全部")
+    s.add_argument("--tests", help="台本を絞る（simulate_review.test_x,simulate.test_y。pytest へ移した筋書きも元の台本の名前で指す——MOVED）。既定は SIM_TESTS の全部")
     a = p.parse_args()
     if a.cmd == "expect":
         write_expectations(a.contract)

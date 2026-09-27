@@ -1,0 +1,128 @@
+{
+ "description": "R5 修正案と事前審査 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p2.plan_review": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "faces",
+    "shrink",
+    "reason"
+   ],
+   "properties": {
+    "faces": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "key",
+       "unit_keys",
+       "kind",
+       "where",
+       "why",
+       "severity"
+      ],
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 8
+       },
+       "unit_keys": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "kind": {
+        "$ref": "#/$defs/face_kind"
+       },
+       "where": {
+        "type": "string",
+        "minLength": 4
+       },
+       "why": {
+        "type": "string",
+        "minLength": 20
+       },
+       "severity": {
+        "type": "string",
+        "enum": [
+         "block",
+         "suggest"
+        ]
+       },
+       "no_add": {
+        "type": "string",
+        "note": "kind が entrance の穴には必須: 柵や入口を足さずに閉じる形（消す・まとめる・世界の解の道具に任せる）。無理なら無理な理由"
+       }
+      }
+     }
+    },
+    "shrink": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "key",
+       "unit_keys",
+       "alternative",
+       "why"
+      ],
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 8
+       },
+       "unit_keys": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "alternative": {
+        "type": "string",
+        "minLength": 20
+       },
+       "why": {
+        "type": "string",
+        "minLength": 20
+       }
+      }
+     }
+    },
+    "faces_none": {
+     "type": "string",
+     "note": "穴も別案も無いときに、何を確かめて無いと言えるか"
+    },
+    "reason": {
+     "type": "string",
+     "minLength": 20
+    }
+   }
+  }
+ },
+ "$defs": {
+  "face_kind": {
+   "type": "string",
+   "enum": [
+    "copy",
+    "entrance",
+    "contract_drift",
+    "dead_path",
+    "scope_creep",
+    "regression",
+    "policy",
+    "precedent"
+   ],
+   "note": "修正が作る穴の種類。事前審査（p2.plan_review）と修正差分のレビュー（p3.delta_review）が同じ語彙で書く。人に聞く語の正本は rules の HUMAN_FACE_KINDS。precedent も事前審査だけの語で、事前審査だけの語の一覧と理由の正本は rules の PLAN_ONLY_FACE_KINDS"
+  }
+ }
+}

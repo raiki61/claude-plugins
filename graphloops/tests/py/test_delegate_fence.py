@@ -373,6 +373,7 @@ def test_graphcheck_background_delegate_without_reads_is_ng_not_a_crash(tmp_path
     (tmp_path / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp_path / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp_path / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp_path / "blocks")
     path = tmp_path / "graphs" / "review-loop.json"
     path.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     lines = []

@@ -2,6 +2,8 @@
 
 外に出る操作を、検査が通るまで止める PreToolUse フックを配る。現在の門番は 2 本——coldread(通じやすさ)と destgate(宛先の許可制)。
 
+版ごとの変更は [CHANGELOG.md](CHANGELOG.md) に在る。版の出し方（tag の名前と付ける commit・変更の記録を書き足す段）は [docs/releasing.md](../docs/releasing.md)（リポジトリのルート基準で、プラグインとして入れた実体には無い。clone か GitHub で見る: https://github.com/raiki61/claude-plugins）。
+
 ## coldread — 外部投稿の門番
 
 gh で GitHub へ本文を投稿するコマンド(issue/PR のコメント・本文、release notes、gist 等)を
