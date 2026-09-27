@@ -11,6 +11,15 @@ inputs:
   base_rev:
     default: ""
     description: 周の頭で固めた版。空なら受け付けの時の HEAD（Ruling R2）
+  policy_paste:
+    default: ""
+    # 渡すときは前の節の出力の欄の直の参照（$<節>.output.<欄>）1 つにする（tests/test_policy.py が見る）。run の入力や
+    # $INPUTS 経由で渡すと、Archon が差し込んだ後に指示書全体を置き換え直し、方針の中の $CONTEXT・$<節>.output が消えるか、
+    # 走っていない節への $<節>.output.<欄> で判定役の節が落ちる（Task 2 の直し 1 の試し。Archon v0.11.1 の dry-run）
+    description: 人の方針（固めた版の本文。役は代償として決めない）。空なら方針の文書は無い（仕様 3.1）
+  premises_file:
+    default: ""
+    description: 前提の実測のファイル（盤面の p0.premises の出力）。空なら無い（仕様 3.6）
 
 returns: collect
 outcome_field: ok
@@ -39,8 +48,10 @@ nodes:
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # role_schema("p2.diagnose") を 1 度出して貼った物（tests/test_blk_judge.py が一致を見る）
+          # node_marker.mark(role_schema("p2.diagnose"), "judge") を 1 度出して貼った物（tests/test_blk_judge.py が印を外して一致を見る）。
+          # 一番上の description は節の印（包みが argv の --json-schema から読む。裁定 TA20）で、返答の型の検査には効かない
           output_format:
+            description: "works-node: judge"
             type: object
             required: [units, questions, framing, one_shot, materials_missing, carried_r1, one_shot_closes, precedents]
             additionalProperties: false

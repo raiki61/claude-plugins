@@ -26,6 +26,7 @@ sys.path.insert(0, str(CORE))
 
 from accept import JUDGE_SNAPSHOT_FILE, check_judge, role_schema, snapshot_tree  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+from node_marker import strip  # noqa: E402
 
 DEADLINE = 1728000000
 GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
@@ -65,14 +66,15 @@ class YamlCase(unittest.TestCase):
         self.y = workflow()
 
     def test_judge_output_format_matches_role_schema(self):
-        self.assertEqual(find_node(self.y, "judge")["output_format"], role_schema("p2.diagnose"))
+        # 一番上の description は節の印（works-node: judge）。外すと graph の schema と同じ（裁定 TA20）
+        self.assertEqual(strip(find_node(self.y, "judge")["output_format"]), role_schema("p2.diagnose"))
 
     def test_judge_ok_sample_passes_yaml_output_format(self):
         self.assertEqual(validate_schema(load("judge_ok"), find_node(self.y, "judge")["output_format"]), [])
 
     def test_signature(self):
         self.assertEqual(self.y["name"], "blk-judge")
-        self.assertEqual(set(self.y["inputs"]), {"request", "base_rev"})
+        self.assertEqual(set(self.y["inputs"]), {"request", "base_rev", "policy_paste", "premises_file"})   # 後の 2 つは tests/test_policy.py が見る
         self.assertIs(self.y["inputs"]["request"].get("required"), True)
         self.assertEqual(self.y["inputs"]["base_rev"].get("default"), "")   # Ruling R2
         self.assertEqual(self.y["returns"], "collect")
