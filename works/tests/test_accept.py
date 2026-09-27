@@ -5,6 +5,7 @@ dev/target-seed/ を一時ディレクトリの git に写した使い捨ての�
 """
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,8 +17,9 @@ REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
 SEED = ROOT / "dev" / "target-seed"
 sys.path.insert(0, str(CORE))
 
-from accept import check_delta, check_fix, check_judge, check_request, role_schema, snapshot_tree  # noqa: E402
-from gitkit import committed_copy  # noqa: E402
+from accept import (_ignored_entries, check_delta, check_fix, check_judge, check_request, role_schema,  # noqa: E402
+                    snapshot_tree, tree_change, tree_state)
+from gitkit import committed_copy, git  # noqa: E402
 
 FIXED_STATS = '''"""直した後の姿。"""
 
@@ -288,6 +290,49 @@ class TestDelta(AcceptCase):
         (self.repo / "new.txt").write_text("b\n")
         self.assertEqual(before["porcelain"], snapshot_tree(self.repo)["porcelain"])
         self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
+
+
+class TestTreeState(AcceptCase):
+    """読むだけの任せ先の役（blk-pr・blk-ci）の前後の作業ツリーの姿（tree_state）と、その違いの文（tree_change）"""
+
+    def test_change_names_content_when_porcelain_is_same(self):
+        # 既に変えてあるファイルの中身をさらに書き換えた: porcelain の行は同じまま。違いは差分の中身だと言う（審査 M4）
+        with open(self.repo / "stats.py", "a") as f:
+            f.write("# 前から在った変更\n")
+        before = tree_state(self.repo)
+        with open(self.repo / "stats.py", "a") as f:
+            f.write("# 役が書いた\n")
+        moved = tree_change(before, tree_state(self.repo))
+        self.assertTrue(moved)
+        self.assertFalse([m for m in moved if m.startswith("git status --porcelain")], moved)
+        self.assertTrue([m for m in moved if "中身が変わった" in m], moved)
+
+    def test_change_ignored_only_has_no_porcelain_noise(self):
+        # 無視されるパスだけが増えた: porcelain の空の行（『前 [] / 今 []』）を出さない（審査 M4）
+        before = tree_state(self.repo)
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        moved = tree_change(before, tree_state(self.repo))
+        self.assertFalse([m for m in moved if m.startswith("git status --porcelain")], moved)
+        self.assertTrue([m for m in moved if "増えた ['__pycache__/']" in m], moved)
+
+    def test_change_shows_porcelain_when_it_differs(self):
+        before = tree_state(self.repo)
+        (self.repo / "new.txt").write_text("x\n")
+        moved = tree_change(before, tree_state(self.repo))
+        self.assertIn("git status --porcelain: 役を起こす前 [] / 今 ['?? new.txt']", moved)
+        self.assertEqual(tree_change(before, before), [])
+
+    def test_ignored_entries_skip_origin_of_worktree_rename(self):
+        # 作業ツリーの rename（intent-to-add を伴う。Y の欄が R）は元の名前の欄が続く。X だけ見ると元の名前を読み違える（審査 M5）
+        (self.repo / "!! old.txt").write_text("a\nb\nc\nd\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "old")
+        (self.repo / "!! old.txt").rename(self.repo / "new.txt")
+        git(self.repo, "add", "-N", "new.txt")
+        z = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain", "-z"], capture_output=True, check=True).stdout
+        self.assertTrue(z.startswith(b" R new.txt\0!! old.txt\0"), z)
+        self.assertEqual(_ignored_entries(self.repo), [])
 
 
 class TestRoleSchema(unittest.TestCase):

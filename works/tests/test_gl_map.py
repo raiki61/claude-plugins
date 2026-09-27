@@ -65,7 +65,7 @@ class TestGlMap(unittest.TestCase):
     def test_works_only_checks_listed(self):
         """graphloops に無い works だけの検査は works-only。"""
         by = {r["works"]: r for r in load_map()}
-        for works in ("accept.snapshot_tree",
+        for works in ("accept.snapshot_tree", "accept.tree_state", "accept.tree_change",
                       "blk-premises/scripts/accept.py:check_claims",
                       "blk-pr/scripts/accept.py:check_no_post",
                       "blk-fix/scripts/leftovers.py:ignored_files",

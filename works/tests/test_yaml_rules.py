@@ -4,8 +4,13 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
 - bash・script の節は timeout: 1728000000（20 日）を持つ。2^31-1 ms を超える値は Archon の検査を通るのに実行で即失敗する
 - AI の節（prompt: か command: を持つ節）は idle_timeout: 1728000000・output_format・
   sandbox: {enabled: true, allowUnsandboxedCommands: false} を持つ（Ruling R12。Bash がサンドボックスの外へ出る道を閉じる）
-- AI の節の allowed_tools は [Read, Grep, Glob] の部分集合（無ければ全部の道具を持つので違反）。
-  外れてよいのは blk-fix/blk-fix.yaml の節 fix（書く役）だけ
+- AI の節の allowed_tools は [Read, Grep, Glob] の部分集合（無ければ全部の道具を持つので違反）。sandbox は狭める鍵
+  （NARROW_SANDBOX_KEYS: enabled・allowUnsandboxedCommands・failIfUnavailable）だけを持つ。
+  外れてよいのは表 EXCEPTIONS の節だけ（どの節が・どの道具と・どの sandbox の形を持ってよいかを 1 つの表に置く）:
+  - blk-fix/blk-fix.yaml の節 fix（書く役）: 道具の決まりの外
+  - blk-ci/blk-ci.yaml の節 ci（CI の任せ先の役。裁定 R52・R56）: 読む道具に Bash だけ（テストを走らせる。Edit・Write は持たない）。
+    sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ広い形（allowWrite ['/']・網）そのもので、本物の作業ツリーは
+    包みが守るので、output_format の印に旗 no-tree-write を持つ
 - AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
   書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
   skills: を持つ節だけは [project] も許す（skills は読む元が要る）
@@ -16,6 +21,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
 違反の見本は tests/yaml_bad/（1 本 1 違反。どの決まりに引っかかるべきかは BAD_EXPECT に置き、件数だけでなく文面で照合する）、
 守った見本は tests/yaml_good/。YAML を読むのはテストだけ（PyYAML は run.sh が足す）。
 """
+import json
 import pathlib
 import tempfile
 import unittest
@@ -28,12 +34,26 @@ TESTS = pathlib.Path(__file__).resolve().parent
 DEADLINE = 1728000000                     # 20 日（ms）
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob"}
 WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい唯一の節: (フォルダ, ファイル, 節)
+CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
+NARROW_SANDBOX_KEYS = {"enabled", "allowUnsandboxedCommands", "failIfUnavailable"}   # 狭める鍵（書き込み・網を広げない）
+# graphloops の任せ先の sandbox（写しの engine の role_run.delegate_settings）から、起動ごとの denyWrite（包みが足す）と
+# autoAllowBashIfSandboxed（Archon は bypassPermissions で起こすので要らない）を除いた形。tests/test_blk_ci.py が写しの関数と突き合わせる
+DELEGATE_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
+                    "enableWeakerNetworkIsolation": True,
+                    "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
+                    "filesystem": {"allowWrite": ["/"]}}
+# 決まりの外れの表: (フォルダ, ファイル, 節) → tools（持ってよい道具。None は道具の決まりの外）・sandbox（その形そのもの。
+# 無ければ狭い形）・flag（印に要る旗）。外れを足す時は行を 1 つ足す（ほかの行と決まりの式は変えない）
+EXCEPTIONS = {
+    WRITER: {"tools": None},
+    CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
+}
 AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
 QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種類
 # 役の節: (フォルダ, ファイル, 節)。どれもブロックの最初の AI の節で、輪（loop_group）の 1 周目の新しい会話で起きる
 ROLES = (("blk-judge", "blk-judge.yaml", "judge"), ("blk-fix", "blk-fix.yaml", "fix"),
-         ("blk-delta", "blk-delta.yaml", "review"))
+         ("blk-delta", "blk-delta.yaml", "review"), CI_ROLE)
 
 
 # 違反の見本（yaml_bad の stem）→ 出るべき違反の文面の一部。狙いの検査が壊れて別の検査が偶然 1 件出しても赤になるように、
@@ -47,6 +67,7 @@ BAD_EXPECT = {
     "ai_sandbox_unsandboxed_allowed": "節 judge: AI の節の sandbox が {enabled: true, allowUnsandboxedCommands: false} でない"
                                       "（{'enabled': True}）",
     "approval_with_timeout": "節 gate: approval の節に期限（timeout・idle_timeout）を書いた",
+    "bash_outside_blk_ci": "節 ci: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash']）",
     "fix_outside_blk_fix": "節 fix: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash', 'Edit', 'Write']）",
     "loop_body_timeout": "節 judge-loop の中の節 accept: bash の節の timeout が 1728000000 でない（120000）",
     "loop_no_max": "節 judge-loop: loop_group の max_iterations が 3 でない（None）",
@@ -55,6 +76,8 @@ BAD_EXPECT = {
     "readonly_with_edit": "節 judge: AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Edit']）",
     "script_no_timeout": "節 accept: script の節の timeout が 1728000000 でない（None）",
     "timeout_25days": "節 run: bash の節の timeout が 1728000000 でない（2160000000）",
+    "wide_sandbox_outside_blk_ci": "節 judge: AI の節の sandbox が広げる鍵を持つ"
+                                   "（['enableWeakerNetworkIsolation', 'filesystem', 'network']。",
 }
 
 
@@ -69,7 +92,28 @@ def _kind(node):
     return None
 
 
-def _check_node(node, where, writer_ok, out):
+def _allowed_tools(place, nid):
+    """(フォルダ, ファイル) の節 nid が持ってよい道具の集合。None は決まりの外（書く役）"""
+    return EXCEPTIONS.get((*place, nid), {}).get("tools", READ_ONLY_TOOLS)
+
+
+def _check_sandbox(sb, node, at, row, out):
+    """sandbox の形: 表の行が形を持てばその形そのもの（と印の旗）、無ければ狭める鍵だけ"""
+    want = row.get("sandbox")
+    if want is None:
+        extra = sorted(set(sb) - NARROW_SANDBOX_KEYS) if isinstance(sb, dict) else []
+        if extra:
+            out.append(f"{at}: AI の節の sandbox が広げる鍵を持つ（{extra}。広い sandbox は表 EXCEPTIONS の節だけ）")
+        return
+    if sb != want:
+        out.append(f"{at}: AI の節の sandbox が表の形でない（{sb!r}。表は {want!r}）")
+    desc = (node.get("output_format") or {}).get("description") if isinstance(node.get("output_format"), dict) else None
+    words = desc.split(" ") if isinstance(desc, str) and desc.startswith("works-node: ") else []
+    if row["flag"] not in words[2:]:
+        out.append(f"{at}: 広い sandbox の節の印に旗 {row['flag']} が無い（{desc!r}。包みが本物の作業ツリーを守れない）")
+
+
+def _check_node(node, where, place, out):
     if not isinstance(node, dict):
         out.append(f"{where}: 節が表（mapping）でない")
         return
@@ -95,13 +139,15 @@ def _check_node(node, where, writer_ok, out):
         sb = node.get("sandbox")
         if not (isinstance(sb, dict) and sb.get("enabled") is True and sb.get("allowUnsandboxedCommands") is False):
             out.append(f"{at}: AI の節の sandbox が {{enabled: true, allowUnsandboxedCommands: false}} でない（{sb!r}）")
+        _check_sandbox(sb, node, at, EXCEPTIONS.get((*place, nid), {}), out)
         tools = node.get("allowed_tools")
-        if not (writer_ok and nid == WRITER[2]):
+        allowed = _allowed_tools(place, nid)
+        if allowed is not None:
             if not isinstance(tools, list):
                 out.append(f"{at}: AI の節に allowed_tools が無い（無ければ全部の道具を持つ）")
-            elif not set(tools) <= READ_ONLY_TOOLS:
-                out.append(f"{at}: AI の節の allowed_tools が {sorted(READ_ONLY_TOOLS)} の外を持つ"
-                           f"（{sorted(set(tools) - READ_ONLY_TOOLS)}）")
+            elif not set(tools) <= allowed:
+                out.append(f"{at}: AI の節の allowed_tools が {sorted(allowed)} の外を持つ"
+                           f"（{sorted(set(tools) - allowed)}）")
         ss = node.get("settingSources", "（無し）")
         if not (ss == [] or ("skills" in node and ss == ["project"])):
             out.append(f"{at}: AI の節の settingSources が [] でない（{ss!r}。skills: を持つ節だけ [project] も可）")
@@ -117,15 +163,15 @@ def _check_node(node, where, writer_ok, out):
             out.append(f"{at}: loop_group の max_iterations が 3 でない（{g.get('max_iterations')!r}）")
         if not (isinstance(g.get("until_bash"), str) and g["until_bash"].strip()):
             out.append(f"{at}: loop_group に until_bash が無い")
-        _check_nodes(g.get("nodes"), f"{at} の中の", writer_ok, out)
+        _check_nodes(g.get("nodes"), f"{at} の中の", place, out)
 
 
-def _check_nodes(nodes, where, writer_ok, out):
+def _check_nodes(nodes, where, place, out):
     if not isinstance(nodes, list) or not nodes:
         out.append(f"{where}nodes が無い")
         return
     for n in nodes:
-        _check_node(n, where, writer_ok, out)
+        _check_node(n, where, place, out)
 
 
 def check_file(path: pathlib.Path) -> list:
@@ -135,8 +181,7 @@ def check_file(path: pathlib.Path) -> list:
     out = []
     if not isinstance(doc, dict):
         return [f"{path.name}: 工程の YAML が表でない"]
-    writer_ok = (path.parent.name, path.name) == WRITER[:2]
-    _check_nodes(doc.get("nodes"), f"{path.name}: ", writer_ok, out)
+    _check_nodes(doc.get("nodes"), f"{path.name}: ", (path.parent.name, path.name), out)
     return out
 
 
@@ -186,6 +231,77 @@ class YamlRulesCase(unittest.TestCase):
             p = pathlib.Path(tmp) / "blk-fix" / "blk-fix.yaml"
             p.write_text(body.replace("id: fix", "id: accept-fix"), encoding="utf-8")
             self.assertOneRule(check_file(p), f"blk-fix.yaml: 節 accept-fix: {outside}", "blk-fix/accept-fix")
+
+    def test_bash_reader_only_in_blk_ci(self):
+        """Bash を足してよいのは blk-ci/blk-ci.yaml の節 ci だけ。そこでも書く道具（Edit・Write）は持てない"""
+        body = (TESTS / "yaml_bad" / "bash_outside_blk_ci.yaml").read_text(encoding="utf-8")
+        narrow = "sandbox: {enabled: true, allowUnsandboxedCommands: false}"
+        self.assertIn(narrow, body)
+        # 表の節 ci の形（広い sandbox と旗）にした同じ節
+        wide = body.replace(narrow, "sandbox: " + json.dumps(DELEGATE_SANDBOX)).replace(
+            "output_format: {type: object}", "output_format: {type: object, description: 'works-node: ci no-tree-write'}")
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = "AI の節の allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash']）"
+            for folder, name, want in (("blk-ci", "blk-ci.yaml", None), ("blk-judge", "blk-ci.yaml", outside),
+                                       ("blk-ci", "other.yaml", outside)):
+                p = pathlib.Path(tmp) / folder / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(wide if want is None else body, encoding="utf-8")
+                with self.subTest(f"{folder}/{name}"):
+                    if want is None:
+                        self.assertEqual(check_file(p), [])
+                    else:
+                        self.assertOneRule(check_file(p), f"{name}: 節 ci: {want}", f"{folder}/{name}")
+            p = pathlib.Path(tmp) / "blk-ci" / "blk-ci.yaml"
+            # blk-ci の ci でも書く道具は持てない
+            p.write_text(wide.replace("[Read, Grep, Glob, Bash]", "[Read, Grep, Glob, Bash, Edit]"), encoding="utf-8")
+            self.assertOneRule(check_file(p), "blk-ci.yaml: 節 ci: AI の節の allowed_tools が ['Bash', 'Glob', 'Grep', 'Read'] の外を持つ（['Edit']）",
+                               "blk-ci/ci+Edit")
+            # blk-ci の中でも ci 以外の節は読むだけの道具に限る
+            p.write_text(body.replace("id: ci", "id: ci-accept"), encoding="utf-8")
+            self.assertOneRule(check_file(p), f"blk-ci.yaml: 節 ci-accept: {outside}", "blk-ci/ci-accept")
+
+    def test_wide_sandbox_only_in_table(self):
+        """広い sandbox（graphloops の任せ先と同じ形）を持ってよいのは表 EXCEPTIONS の節だけで、形は表のとおり、
+        印に旗 no-tree-write を持つ（包みが本物の作業ツリーを守る。裁定 R56）"""
+        real = yaml.safe_load((ROOT / "blk-ci" / "blk-ci.yaml").read_text(encoding="utf-8"))
+        loop = next(n for n in real["nodes"] if n["id"] == "ci-loop")
+        ci = next(m for m in loop["loop_group"]["nodes"] if m["id"] == "ci")
+        self.assertEqual(ci["sandbox"], EXCEPTIONS[("blk-ci", "blk-ci.yaml", "ci")]["sandbox"])
+        with tempfile.TemporaryDirectory() as tmp:
+            p = pathlib.Path(tmp) / "blk-ci" / "blk-ci.yaml"
+            p.parent.mkdir()
+
+            def found(**change):
+                node = dict(ci, **change)
+                doc = {"name": "x", "nodes": [node]}
+                p.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+                return check_file(p)
+            self.assertEqual(found(), [])
+            self.assertOneRule(found(sandbox={"enabled": True, "allowUnsandboxedCommands": False}),
+                               "blk-ci.yaml: 節 ci: AI の節の sandbox が表の形でない", "狭い sandbox")
+            wider = dict(ci["sandbox"], excludedCommands=["git"])
+            self.assertOneRule(found(sandbox=wider), "blk-ci.yaml: 節 ci: AI の節の sandbox が表の形でない", "鍵を足した")
+            self.assertOneRule(found(output_format=dict(ci["output_format"], description="works-node: ci")),
+                               "blk-ci.yaml: 節 ci: 広い sandbox の節の印に旗 no-tree-write が無い", "旗なし")
+            # 同じ節を表の外（別のフォルダ）に置くと、Bash と広い sandbox の 2 つが外れる
+            q = pathlib.Path(tmp) / "blk-judge" / "blk-ci.yaml"
+            q.parent.mkdir()
+            q.write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
+            p.unlink()
+            out = check_file(q)
+            self.assertEqual(len(out), 2, out)
+            self.assertTrue(any("広げる鍵を持つ" in f for f in out), out)
+            self.assertTrue(any("allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash']）" in f for f in out), out)
+
+    def test_failIfUnavailable_is_not_wide(self):
+        """failIfUnavailable（sandbox が立たない場で素通しにしない）は狭める鍵なので、どの AI の節も持ってよい"""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = pathlib.Path(tmp) / "w.yaml"
+            p.write_text("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n    settingSources: []\n"
+                         "    sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}\n"
+                         "    idle_timeout: 1728000000\n    output_format: {type: object}\n", encoding="utf-8")
+            self.assertEqual(check_file(p), [])
 
     def test_setting_sources_project_only_with_skills(self):
         base = ("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n"

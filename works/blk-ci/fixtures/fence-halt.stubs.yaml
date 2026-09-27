@@ -1,0 +1,23 @@
+# 筋書き fence-halt: run が宣言した包みの形（start の控え r<N>/start.json の adapter）が読めない（控えが無い・壊れた・語の外）。
+# ci-fence が盤面を止め（by works:adapter。fail closed）、go: false で役の輪（ci-snap から ci-accept）を飛ばし、出口だけが走って ok: false。
+# 包みを宣言した run で切符が無い時も同じ形。起こす claude の道は script から見ない（裁定 R58）。
+# スクリプトの節は全部 stub（中身は tests/test_blk_ci.py の test_mode_unreadable_halts が子のプロセスで回す）。
+ci-fence:
+  go: false
+  reason: '包みの確かめが通らない: CI の任せ先の役（p0.local_checks）を起こさない（run が宣言した包みの形（adapter）が読めない: start の控え board/r1/start.json の adapter=None は宣言の語（空か optional）でない）'
+  note: ''
+collect:
+  ok: false
+  reason: '盤面は止まっている（works:adapter: 包みの確かめが通らない: CI の任せ先の役（p0.local_checks）を起こさない（run が宣言した包みの形（adapter）が読めない: start の控え board/r1/start.json の adapter=None は宣言の語（空か optional）でない））'
+  node: p0.local_checks
+  status: ''
+  green: false
+  pr_go: false
+  note: ''
+fixture:
+  expect: completed
+  reached:
+  - ci-fence
+  - collect
+  inputs:
+    node: p0.local_checks

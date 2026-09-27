@@ -1,6 +1,7 @@
 """包みの切符（.shared/core/ticket.py）の検査。
 
-- 守る場所: 共通の .git・この worktree の gitdir の実体・ほかの worktree と元の作業ツリー・盤面・包みの家（home()）が入り、
+- 守る場所: 共通の .git・この worktree の gitdir の実体・ほかの worktree と元の作業ツリー・盤面・包みの家（home()）・
+  Archon の家の設定と DB など（ARCHON_FILES）が入り、
   役の cwd の worktree 自身は入らない
 - 綴りと realpath が違う場所（symlink を通した綴り。macOS の /var と /private/var と同じ形）は両方が入る
 - 書く → 読むで同じ中身が返り、置き場は home()/tickets/<cwd の realpath の sha256 の先頭 16 桁>.json
@@ -113,6 +114,45 @@ class TicketCase(unittest.TestCase):
         for name in names:
             with self.subTest(name=name):
                 self.assertIn(str(fake_home / name), got)
+
+    def test_protected_has_archon_home_entries(self):
+        """Archon の家（ARCHON_HOME、無ければ ~/.archon）の設定・DB・env・家の workflows/commands/scripts を守る（再審査 N3）。
+        設定の claudeBinaryPath を書き換えられると次の run から包みが外れる。家そのものは守らない（run の worktree が
+        家の workspaces・worktrees の下に在るので、塞ぐと役が自分の worktree に書けない）"""
+        names = ("config.yaml", "archon.db", "archon.db-wal", "archon.db-shm", "archon.db-journal", ".env", "workflows",
+                 "commands", "scripts", "credential-key", "install.json", ".archon",
+                 "plugins")   # archon plugin install で入れた pack の置き場（env-loader の getPluginsPath。再審査 N7）
+        self.assertEqual(sorted(ticket.ARCHON_FILES), sorted(names), "一覧はデータで持ち、試験の名前と同じ")
+        ah = self.tmp / "archon-home"
+        with mock.patch.dict(os.environ, {"ARCHON_HOME": str(ah)}):
+            got = ticket.protected_paths(self.wt1, self.board)
+        for name in names:
+            with self.subTest(name=name):
+                self.assertIn(self.real(ah / name), got)
+        self.assertNotIn(self.real(ah), got)
+        fake_home = self.tmp / "user2"
+        fake_home.mkdir()
+        with mock.patch.dict(os.environ, {"HOME": str(fake_home), "ARCHON_HOME": ""}):
+            got = ticket.protected_paths(self.wt1, self.board)
+        self.assertIn(str(fake_home / ".archon" / "config.yaml"), got)
+        self.assertIn(str(fake_home / ".archon" / "archon.db"), got)
+        # ARCHON_HOME の頭の ~ は Archon と同じく HOME に開く
+        with mock.patch.dict(os.environ, {"HOME": str(fake_home), "ARCHON_HOME": "~/ah"}):
+            got = ticket.protected_paths(self.wt1, self.board)
+        self.assertIn(str(fake_home / "ah" / "config.yaml"), got)
+
+    def test_worktree_under_archon_home_is_fine(self):
+        """Archon の run の worktree（<家>/workspaces/<owner>/<repo>/worktrees/…）でも切符を書ける（家の中身を名指しで守るので
+        入れ子の拒否に掛からない）"""
+        ah = self.tmp / "archon-home"
+        wt = ah / "workspaces" / "o" / "r" / "worktrees" / "wt3"
+        wt.parent.mkdir(parents=True)
+        git(self.main, "worktree", "add", "-q", "-b", "b3", str(wt))
+        self.addCleanup(git, self.main, "worktree", "remove", "--force", str(wt))
+        with mock.patch.dict(os.environ, {"ARCHON_HOME": str(ah)}):
+            got = ticket.protected_paths(wt, self.board)
+        self.assertIn(self.real(ah / "config.yaml"), got)
+        self.assertNotIn(self.real(wt), got)
 
     def test_protected_has_own_dot_git_file(self):
         # linked worktree の .git は gitdir を指す 1 行のファイル。書き換えると後の git が別のリポジトリを見る

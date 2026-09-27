@@ -1,0 +1,3 @@
+#!/bin/sh
+# 印 no-post の役の PATH の頭に置く gh（works-gh へ回す。説明は works-gh の頭）
+exec "$(dirname "$0")/works-gh" "$@"

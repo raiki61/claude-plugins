@@ -1,0 +1,52 @@
+# 筋書き reject: 役がテストを本物の作業ツリーで走らせ、__pycache__/ を残した（git が無視するパスが増えた）。受け付けは拒み
+# （ok: false・done: false）、輪は 2 回目で新しい会話の役に拒否の文を指示書の頭で渡す。collect は 2 回目で通った後の出口。
+# 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1）。だからこの筋書きは、拒否の形と輪の後の配線
+# （collect）しか見ない。拒否の後の出し直しと、拒否の文が次の指示書の頭に届くことは tests/test_blk_ci.py の
+# test_gives_up_after_three_rejections・test_tree_change_rejected が、Archon と同じ順でスクリプトを回して見る。
+ci-fence:
+  go: true
+  reason: ''
+  note: ''
+ci-snap:
+  ok: true
+  snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
+  copy_dir: /var/folders/ab/cd/T/works-ci-p0.local_checks-abcd1234/work
+ci-prep:
+  prompt_file: board/prompts/r1/p0.local_checks.md
+  attempt: 1
+  out_path: board/out/r1/p0.local_checks.json
+  node: p0.local_checks
+  already: false
+ci:
+  material:
+    status: found
+    count: 2
+    detail: 'CI の定義が無いので、リポジトリの test_stats.py を python3 -m unittest test_stats で写しの上で走らせた: exit 1。FAIL: test_mean_of_three（2 を期待して 3.0）・test_clamp_above_range（10 を期待して 15）'
+    checked: 写しの上で python3 -m unittest test_stats（終わるまで待った。3 件中 2 件が赤）
+ci-accept:
+  ok: false
+  done: false
+  give_up: false
+  reason: '読むだけの役が作業ツリーを変えた: CI の任せ先はテストを写し /var/folders/ab/cd/T/works-ci-p0.local_checks-abcd1234/work の上で走らせ、対象の作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（変えた物を元に戻し、写しの上で走らせ直せ）（git が無視するパス:
+    増えた [''__pycache__/''] 消えた []・HEAD からの差分・未追跡のファイル・git が無視するパスのどれかの中身が変わった（diff_sha256））'
+  node: p0.local_checks
+  status: ''
+collect:
+  ok: true
+  reason: ''
+  node: p0.local_checks
+  status: found
+  green: false
+  pr_go: false
+  note: ''
+fixture:
+  expect: completed
+  reached:
+  - ci-fence
+  - ci-snap
+  - ci-prep
+  - ci
+  - ci-accept
+  - collect
+  inputs:
+    node: p0.local_checks

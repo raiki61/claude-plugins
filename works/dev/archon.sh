@@ -18,6 +18,31 @@ WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 works_dev_refuse_claude_tmp archon.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 works_dev_refuse_claude_tmp archon.sh "対象（cwd）" "$(pwd -P)"
 
+# Claude の包み（works/.shared/core/claude-adapter。README の「Claude の包み」）。WORKS_DEV_ADAPTER=1 で入れる（既定は入れない）。
+# 入れる時は、認証を使う実行で隔離した Archon の設定に claudeBinaryPath（包み）を書き、本物の claude を WORKS_REAL_CLAUDE で
+# 包みに渡し、env の CLAUDE_BIN_PATH（Archon では設定より強い）を外す。包みの家（会話の id・読んだ記録・起動の記録）は
+# WORKS_ADAPTER_HOME（既定は $WORKS_DEV_HOME/adapter）。役の sandbox の Bash から書けない所に置く（guard.sh）。
+WORKS_ADAPTER="$(cd "$(dirname "$0")/.." && pwd -P)/.shared/core/claude-adapter"
+case "${WORKS_DEV_ADAPTER:-}" in
+  "" | 0) WORKS_DEV_ADAPTER="" ;;
+  1)
+    WORKS_ADAPTER_HOME="${WORKS_ADAPTER_HOME:-$WORKS_DEV_HOME/adapter}"
+    case "$WORKS_ADAPTER_HOME" in
+      /*) ;;
+      *)
+        # 相対だと包みは起動ごとに止まり、Archon が起こし直しを繰り返す。殻で先に拒む
+        echo "archon.sh: WORKS_ADAPTER_HOME は絶対パスにする（受けた値: ${WORKS_ADAPTER_HOME}）" >&2
+        exit 2
+        ;;
+    esac
+    works_dev_refuse_claude_tmp archon.sh "WORKS_ADAPTER_HOME" "$WORKS_ADAPTER_HOME"
+    ;;
+  *)
+    echo "archon.sh: WORKS_DEV_ADAPTER は 1（包みを入れる）か空・0（入れない）。受けた値: ${WORKS_DEV_ADAPTER}" >&2
+    exit 2
+    ;;
+esac
+
 # 認証に既定の口座は無い（Ruling R20）。順は
 #   1. CLAUDE_CODE_OAUTH_TOKEN があればそれを使う。
 #   2. 無ければ WORKS_KEYCHAIN_ITEM の名の keychain の項目を読む。
@@ -90,6 +115,24 @@ assistants:
 EOF
   TITLE_GENERATION_MODEL="${TITLE_GENERATION_MODEL:-$WORKS_DEV_MODEL}"
   export TITLE_GENERATION_MODEL
+  if [ -n "$WORKS_DEV_ADAPTER" ]; then
+    # 本物の claude: WORKS_REAL_CLAUDE、CLAUDE_BIN_PATH（包み自身を差していれば使わない）、PATH の順（関数・別名は飛ばす）
+    if [ -z "${WORKS_REAL_CLAUDE:-}" ] && [ -n "${CLAUDE_BIN_PATH:-}" ] &&
+      [ "$(works_dev_real "$CLAUDE_BIN_PATH")" != "$WORKS_ADAPTER" ]; then
+      WORKS_REAL_CLAUDE="$CLAUDE_BIN_PATH"
+    fi
+    if [ -z "${WORKS_REAL_CLAUDE:-}" ]; then
+      WORKS_REAL_CLAUDE="$(command -v claude || true)"
+      case "$WORKS_REAL_CLAUDE" in /*) ;; *) WORKS_REAL_CLAUDE="" ;; esac
+    fi
+    if [ -z "$WORKS_REAL_CLAUDE" ]; then
+      echo "archon.sh: 包みが起こす本物の claude が見つからない。WORKS_REAL_CLAUDE か CLAUDE_BIN_PATH に絶対パスを設定する" >&2
+      exit 2
+    fi
+    echo "    claudeBinaryPath: $WORKS_ADAPTER" >>"$ARCHON_HOME/config.yaml"
+    unset CLAUDE_BIN_PATH
+    export WORKS_REAL_CLAUDE WORKS_ADAPTER_HOME
+  fi
 fi
 
 ARCHON_TELEMETRY_DISABLED=1

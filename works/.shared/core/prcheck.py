@@ -32,8 +32,7 @@ PACK = CORE.parents[1]
 if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
-import subprocess  # noqa: E402
-from accept import SNAPSHOT_KEYS, role_schema, snapshot_tree  # noqa: E402
+from accept import TREE_KEYS, role_schema, tree_change, tree_state  # noqa: E402
 from board import GRAPH_PATH, BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import AnswerReject, Reject  # noqa: E402
@@ -60,7 +59,7 @@ def _output_format():
 
 
 OUTPUT_FORMAT = _output_format()
-SNAPSHOT = "pr-snapshot.json"   # 役を起こす前の作業ツリーの写し（accept.snapshot_tree の形に head・ref を足した物）
+SNAPSHOT = "pr-snapshot.json"   # 役を起こす前の作業ツリーの写し（accept.tree_state の形）
 EXCLUDED = "pr-excluded.json"   # 受け付けた外す hunk {node, excluded}（collect の excluded_file）
 # 読む gh は包みの読む口を通す: 印 no-post の起動に、包み（.shared/adapter）が素の gh を拒み（permissions.deny Bash(gh:*) と
 #   本物の gh のパス）、許す物だけを通す口のパスを環境変数 WORKS_GH に置く。口が通すのは pr list・pr view・pr diff の -R つきと
@@ -134,21 +133,6 @@ def run_helper(b, *, runner=None) -> dict:
 
 
 # ---------------------------------------------------------------- blk-pr の節
-def _git_out(repo, *args) -> tuple:
-    r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    return r.returncode, r.stdout.strip()
-
-
-def _tree_state(repo: pathlib.Path) -> dict:
-    """作業ツリーの写し（accept.snapshot_tree）に、HEAD の sha と枝（symbolic-ref。切り離した HEAD は空）を足した物。
-    snapshot_tree は今の HEAD からの差分しか見ないので、枝の切り替え（gh pr checkout・git checkout）が見えない"""
-    code, head = _git_out(repo, "rev-parse", "--verify", "-q", "HEAD")
-    if code != 0:
-        raise Reject(f"git rev-parse HEAD が引けない（{repo}）")
-    code, ref = _git_out(repo, "symbolic-ref", "-q", "HEAD")
-    return {**snapshot_tree(repo), "head": head, "ref": ref if code == 0 else ""}
-
-
 def _anchored(excluded: list, repo) -> list:
     """外す hunk ごとに、受け付けた時の行の中身 text（start〜end。改行つき）と、その行のバイトの sha256 を足した写し。
     行の番号は後の周の修正でずれるので、後の役・受け付けは中身で引き直す（review-graph は同じ writer が中身で覚えている）"""
@@ -213,7 +197,7 @@ def snapshot(board_dir, repo, *, opener=None) -> dict:
     base = b.record.get("base") or (b.record.get("process", {}).get("base") or {}).get("base_sha")
     brief = {"node": NODE, "cwd": str(repo), "base": base, "changed_files": b.rules._pr_files(b),
              "request_wheres": b.rules.request_wheres(b), "fallback": inst["engine_fallback"]}
-    snap = _write(b.work(SNAPSHOT), _tree_state(repo))
+    snap = _write(b.work(SNAPSHOT), tree_state(repo))
     out = _write(b.work(BRIEF), brief)
     # pr-snap は役を起こす前の最後の節: 起こした印を今の試行に置く（盤面のラインの約束 2。印の無い試行の返答は done が受けない）。
     # 同じ試行への 2 度目は前の印を返す（Archon の再開で pr-snap が走り直しても）
@@ -232,22 +216,20 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
         raise BoardGap(f"{snap_p} が無い——pr-snap が走っていない（役を起こす前の写しと比べられない）")
     try:
         snap = json.loads(snap_p.read_text(encoding="utf-8"))
-        before = {k: snap[k] for k in (*SNAPSHOT_KEYS, "head", "ref")}   # 写しの鍵は accept と同じ（ignored も見る）
+        before = {k: snap[k] for k in TREE_KEYS}
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise BoardGap(f"{snap_p} が読めない: {e}") from None
     repo = pathlib.Path(repo)
     try:
-        now = _tree_state(repo)
+        now = tree_state(repo)
     except Reject as e:   # 役を起こす前は引けた（pr-snap が写した）——引けなくなったのは役が HEAD を動かしたから（checkout --orphan など）
         return {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: 作業ツリー・HEAD が引けなくなった"
                 f"（checkout・switch・stash・reset・gh pr checkout を打つな）: {e}"}
-    if now != before:
-        moved = [f"{k}: 役を起こす前 {before[k] or '（切り離した HEAD）'} / 今 {now[k] or '（切り離した HEAD）'}"
-                 for k in ("head", "ref") if now[k] != before[k]]
-        return {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: 並行 PR の任せ先は読むだけの役で、作業ツリー・HEAD・枝を変えてはいけない"
-                "（checkout・switch・stash・reset・gh pr checkout を打つな）"
-                f"（git status --porcelain: 役を起こす前 {before['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}"
-                + "".join(f"・{m}" for m in moved) + "）"}
+    moved = tree_change(before, now)
+    if moved:
+        return {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: 並行 PR の任せ先は読むだけの役で、作業ツリー・HEAD・枝・"
+                "git が無視するファイルを変えてはいけない（checkout・switch・stash・reset・gh pr checkout を打つな）（"
+                + "・".join(moved) + "）"}
     # 写しの schema を先に当てる（型の崩れた conflicts を外す hunk の検査が読んで落ちないように。拒みの文は盤面の done と同じ形）
     errs = validate_schema({k: v for k, v in reply.items() if k != "excluded"}, role_schema(NODE))
     if errs:

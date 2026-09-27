@@ -35,12 +35,14 @@ r = runs[0]
 # 承認・続きも AI の節を回すので認証が要る。変数の代入はその単純コマンドにだけ掛かるので、cd の後・sh の直前に置く。
 # 呼び手が WORKS_KEYCHAIN_ITEM で回したなら項目名（秘密ではない）を載せ、そのまま打てば通るようにする。
 # トークン（CLAUDE_CODE_OAUTH_TOKEN）だけで回したなら値は出さず、export した殻で打つよう 1 行で案内する。
+# 包みを入れた run（WORKS_DEV_ADAPTER=1）は続きのコマンドにも付ける（archon.sh は認証を使う実行のたびに設定を書き直す）
 item = os.environ.get("WORKS_KEYCHAIN_ITEM", "")
 auth = "WORKS_KEYCHAIN_ITEM={} ".format(shlex.quote(item)) if item else ""
-go = "cd {} && {}WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} sh {} workflow".format(
+adapter = "WORKS_DEV_ADAPTER=1 " if os.environ.get("WORKS_DEV_ADAPTER") == "1" else ""
+go = "cd {} && {}WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}sh {} workflow".format(
     shlex.quote(os.environ["DIR"]), auth, shlex.quote(os.environ["WORKS_DEV_HOME"]),
     shlex.quote(os.environ["WORKS_DEV_MODEL"]), shlex.quote(os.environ["CLAUDE_BIN_PATH"]),
-    shlex.quote(os.environ["ARCHON_SH"]))
+    adapter, shlex.quote(os.environ["ARCHON_SH"]))
 diff = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board", "fix.diff")
 print("run id:", r.get("id"))
 print("状態:", r.get("status"))

@@ -48,6 +48,18 @@
     "note": "読むだけの役（判定・審査）が作業ツリーを変えていないかを受け付けで比べる（台帳 R3・R14、線 A の TA11）。本線は役を sandbox で起こし、gl accept は作業ツリーの門を当てない（本線 d1b863f の gl.py）。近い p1.worktree_before・p1.worktree_compare は周の頭の版を固める物で目的が違う。gl へ移さない。"
   },
   {
+    "works": "accept.tree_state",
+    "gl": "",
+    "status": "works-only",
+    "note": "読むだけの任せ先の役（blk-pr・blk-ci）を起こす前後に比べる作業ツリーの姿（snapshot_tree に HEAD・枝を足した物。裁定 R47、wip/works-a27 から）。本線は役を sandbox で起こし、gl accept は作業ツリーの門を当てない（本線 d1b863f の gl.py）。gl へ移さない。"
+  },
+  {
+    "works": "accept.tree_change",
+    "gl": "",
+    "status": "works-only",
+    "note": "tree_state の 2 つの違いを人に向けた文にする（porcelain・head・ref・git が無視するパスの増減・diff_sha256。裁定 R47、wip/works-a27 から）。読むだけの役の拒否の文の共通の部品。gl へ移さない。"
+  },
+  {
     "works": "entry.take",
     "gl": "gl accept <節> と effects",
     "status": "ready",

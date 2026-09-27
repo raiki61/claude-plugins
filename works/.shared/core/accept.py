@@ -10,6 +10,8 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
                  番号で指す欄（pointers）は名前の型のまま、修正差分のレビューは事前審査だけの kind を落とす
 - snapshot_tree: 作業ツリーの写し（git が無視するファイルも入れる。依頼の受け付けと差分を切る節が盤面に置き、
                  check_judge・check_delta が突き合わせる）
+- tree_state・tree_change: 読むだけの任せ先の役（blk-pr・blk-ci）を起こす前後の作業ツリーの姿（snapshot_tree に HEAD・枝を
+                 足した物）と、その違いの文
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
 - cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置く（blk-delta の節 cut）
 
@@ -260,10 +262,10 @@ def _ignored_entries(repo) -> list:
     fields = _git(repo, "status", "--porcelain", "-z", "--ignored=matching", "--untracked-files=all", binary=True).split(b"\0")
     out, skip = [], False
     for f in fields:
-        if skip or not f:   # 名前の変わった行（R・C）は、元の名前がもう 1 つの欄で続く
+        if skip or not f:   # 名前の変わった行（X か Y が R・C）は、元の名前がもう 1 つの欄で続く
             skip = False
             continue
-        if f[:1] in (b"R", b"C"):
+        if f[:1] in (b"R", b"C") or f[1:2] in (b"R", b"C"):   # Y が R は intent-to-add を伴う作業ツリーの rename
             skip = True
         elif f.startswith(b"!! "):
             out.append(os.fsdecode(f[3:]))
@@ -301,6 +303,47 @@ def _assert_same_tree(repo, snap, name, since, role):
     ign = f" / git が無視するパス: 増えた {added[:5]} 消えた {gone[:5]}" if added or gone else ""
     raise Reject(f"{since}から作業ツリーが変わった——{role}は読むだけの役で、作業ツリーを変えてはいけない"
                  f"（git status --porcelain: 写した時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}{ign}）")
+
+
+TREE_KEYS = ("porcelain", "diff_sha256", "ignored", "head", "ref")
+
+
+def tree_state(repo: pathlib.Path) -> dict:
+    """読むだけの任せ先の役（blk-pr の並行 PR・blk-ci の CI）を起こす前後に比べる作業ツリーの姿 {TREE_KEYS}:
+    snapshot_tree（porcelain・git が無視するパスの一覧 ignored・diff_sha256。無視されるパスの stat の印も diff_sha256 に入る——
+    無視されるファイルは差分に載らないが、後の節のテストの緑赤を左右しうる）に、HEAD の sha head・枝 ref
+    （symbolic-ref。切り離した HEAD は空）を足した物。snapshot_tree は今の HEAD からの差分しか見ないので、枝の切り替え
+    （gh pr checkout・git checkout）は head・ref で見る。HEAD が引けない・git が効かなければ Reject"""
+    repo = pathlib.Path(repo)
+    try:
+        head = _git(repo, "rev-parse", "--verify", "-q", "HEAD").strip()
+    except Reject:
+        raise Reject(f"git rev-parse HEAD が引けない（{repo}）") from None
+    try:
+        ref = _git(repo, "symbolic-ref", "-q", "HEAD").strip()
+    except Reject:   # 切り離した HEAD（symbolic-ref -q は 1 で終わる）
+        ref = ""
+    return {**snapshot_tree(repo), "head": head, "ref": ref}
+
+
+def tree_change(before: dict, now: dict) -> list:
+    """tree_state の 2 つの違いを人に向けた文の一覧で（同じなら空）。porcelain は違う時だけ頭の 5 行、ignored は増えた・
+    消えたパスの頭の 5 本。diff_sha256 が違えば（porcelain の行が同じままの中身の書き換えも）その 1 行を足す"""
+    if all(before.get(k) == now.get(k) for k in TREE_KEYS):
+        return []
+    out = []
+    if before["porcelain"] != now["porcelain"]:
+        out.append(f"git status --porcelain: 役を起こす前 {before['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}")
+    for k in ("head", "ref"):
+        if before[k] != now[k]:
+            out.append(f"{k}: 役を起こす前 {before[k] or '（切り離した HEAD）'} / 今 {now[k] or '（切り離した HEAD）'}")
+    added = sorted(set(now["ignored"]) - set(before["ignored"]))
+    gone = sorted(set(before["ignored"]) - set(now["ignored"]))
+    if added or gone:
+        out.append(f"git が無視するパス: 増えた {added[:5]} 消えた {gone[:5]}")
+    if before["diff_sha256"] != now["diff_sha256"]:
+        out.append("HEAD からの差分・未追跡のファイル・git が無視するパスのどれかの中身が変わった（diff_sha256）")
+    return out
 
 
 def _names(repo, cmd, *args) -> list:

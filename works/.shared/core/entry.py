@@ -276,7 +276,7 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
       git の根で test_cmd → done）→ {by: "role", log}
     - fallback で test_cmd が空 → {by: "role_needed", log: "", why}。意味は「この節の素材はこの呼び出しで何も渡していない。
       呼び手が任せ先の役を回して渡す」だけ——**前の結果（記録に残る p0 の local_checks など）を使ってよい、ではない**。
-      節は任せ先に落ちたまま待ち、印も置かない（裁定 R52。役のブロックは後の Task。役が渡した後の続きは resume_after_ci）
+      節は任せ先に落ちたまま待ち、印も置かない（裁定 R52。役のブロックは blk-ci。役が渡した後の続きは resume_after_ci——blk-ci の collect が呼ぶ）
     - ok: False で relaunch も fallback も無い（why だけ。対象の根が引けない）→ CiRefused"""
     got = b.run_engine(nid, runner=runner)
     if got.get("relaunch"):
@@ -371,6 +371,20 @@ def resume_after_ci(b, *, test_cmd: str = "", runner=None) -> dict:
 
 # ---------------------------------------------------------------- start（線 A の仕様 4 節）
 START_FILE = "start.json"
+
+
+def declared_adapter(b) -> str:
+    """run が宣言した包みの形: start が今の周の START_FILE に控えた入力 adapter（ADAPTER_MODES の値。"" は包みを通す run、
+    "optional" は包み無しで回す run）。控えが無い・読めない・鍵が無い・語の外は ValueError（読む側が fail closed で止める）"""
+    path = b.work(START_FILE)
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ValueError(f"start の控え {path} から adapter を読めない（{type(e).__name__}: {e}）") from None
+    mode = doc.get("adapter") if isinstance(doc, dict) else None
+    if not isinstance(mode, str) or mode not in ADAPTER_MODES:
+        raise ValueError(f"start の控え {path} の adapter={mode!r} は宣言の語（空か optional）でない")
+    return mode
 
 
 def _write_json(path: pathlib.Path, doc: dict) -> None:
