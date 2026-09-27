@@ -563,12 +563,14 @@ class TestDevShell(unittest.TestCase):
         fake.write_text(
             "#!/bin/sh\n"
             f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "$@"; echo; }} >> "{log}"\n'
+            f'case "$1 $2" in "workflow run") printf \'%s\\n\' "${{WORKS_DEV_ADAPTER-(unset)}}" > "{tmp / 'adapter-env.txt'}" ;; esac\n'
             f'case "$*" in "workflow runs --json") cat "{tmp / 'runs.json'}" ;; esac\n'
             "exit 0\n"
         )
         env = self._env(TMPDIR=str(tmp), WORKS_DEV_HOME=str(tmp / "dev-home"), WORKS_DEV_ARCHON=str(fake),
                         CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", CLAUDE_BIN_PATH="/usr/bin/true")
         env.pop("WORKS_DEV_NO_AUTH", None)
+        env.pop("WORKS_DEV_ADAPTER", None)   # 既定（包みを通す）を見る。試験ごとに env_kw で渡す
         for name, value in env_kw.items():
             if value is None:
                 env.pop(name, None)
@@ -621,9 +623,11 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(calls, [
                 [str(repo), "", "workflow", "run", "darkfactory",
                  "--input", f"request={dog / 'request.json'}", "--input", "test_cmd=python3 -m unittest -q",
-                 "--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=optional", "--input", "final_gate=always"],
+                 "--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=", "--input", "final_gate=always"],
                 [str(repo), "1", "workflow", "runs", "--json"],
             ])
+            # 既定は包みを通す（持ち主 2026-09-28）: archon.sh に WORKS_DEV_ADAPTER=1 を渡し、ラインには adapter=（包みを求める）
+            self.assertEqual((tmp / "adapter-env.txt").read_text(), "1\n")
 
             out = result.stdout
             self.assertIn("run id: run-1", out)
@@ -632,10 +636,27 @@ class TestDevShell(unittest.TestCase):
             for verb in ("approve", "reject", "resume"):
                 self.assertIn(f"workflow {verb} run-1", out)
             self.assertIn("WORKS_DEV_MODEL=opus", out)
+            for verb in ("approve", "resume"):   # 続きのコマンドも包みを通す（archon.sh は打つたびに設定を書き直す）
+                self.assertRegex(out, rf"WORKS_DEV_ADAPTER=1 sh [^\n]* workflow {verb} run-1")
             # 差分は run の worktree の git diff --binary <周の頭の版>（P1 Task 29）。worktree が無ければ書かずに知らせる
             self.assertIn(f"git -C {src.resolve()} apply {dog / 'run-run-1.diff'}", out)
             self.assertIn("run の worktree（/wt/run-1）が無いので書いていない", out)
             self.assertNotIn("注意", out)   # 差分も worktree も .archon/ に触れていない
+
+    def test_dogfood_adapter_switch_falls_back_to_optional(self):
+        """WORKS_DEV_ADAPTER=0（か空）で包みを外し、ラインには adapter=optional を渡す（包みの無い run を h-judge が止めない）。
+        1 は既定と同じ。ほかの値は archon.sh が拒む（ここでは偽の Archon なので値がそのまま届くことだけを見る）"""
+        for value, want_env, want_input in (("0", "0", "adapter=optional"), ("", "", "adapter=optional"),
+                                            ("1", "1", "adapter=")):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                (tmp / "req.json").write_text("[]\n")
+                result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                                   WORKS_DEV_ADAPTER=value)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(want_input, calls[0])
+                self.assertEqual((tmp / "adapter-env.txt").read_text(), want_env + "\n")
+                self.assertEqual("WORKS_DEV_ADAPTER=1 " in result.stdout, value == "1")
 
     def test_dogfood_warns_when_fix_touches_pack_copy(self):
         """修正が works/ でなく pack の写し（.archon/workflows/works）を書き換えたら、取り込まないよう 1 行で注意する。

@@ -12,8 +12,9 @@
 #   5. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）と、run の worktree の差分
 #      （git diff --binary <周の頭の版>。<dir>/run-<id>.diff）をこのリポジトリへ git apply で取り込むコマンドを出す。
 #      修正が pack の写し（.archon/）に触れていれば 1 行で注意する。
-#   入力: tdd_suite=works/dev/tdd-suite.sh（WORKS_DOGFOOD_TDD_SUITE で替える・空で輪を飛ばす）・adapter=optional（WORKS_DEV_ADAPTER=1
-#   の run は空＝包みを求める）・final_gate=always（WORKS_DOGFOOD_FINAL_GATE で when_needed に）。
+#   入力: tdd_suite=works/dev/tdd-suite.sh（WORKS_DOGFOOD_TDD_SUITE で替える・空で輪を飛ばす）・adapter は空＝包みを求める
+#   （既定。WORKS_DEV_ADAPTER=0 か空で包みを外すと adapter=optional）・final_gate=always（WORKS_DOGFOOD_FINAL_GATE で when_needed に）。
+# 包み（claude-adapter）は既定で通す（持ち主 2026-09-28。archon.sh に WORKS_DEV_ADAPTER=1 を渡し、続きのコマンドにも付ける）。
 # <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（既定は opus。書くのは archon.sh）。
 # 認証は archon.sh と同じ（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM。既定の口座は無い）。
@@ -31,7 +32,9 @@ WORKS_DIR="$(cd "$DEV_DIR/.." && pwd -P)"
 ARCHON="${WORKS_DEV_ARCHON:-$DEV_DIR/archon.sh}"
 WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 WORKS_DEV_MODEL="${WORKS_DEV_MODEL:-opus}"
-export WORKS_DEV_HOME WORKS_DEV_MODEL
+# 包みは既定で通す。WORKS_DEV_ADAPTER=0 か空を明示した時だけ外す（値の検査は archon.sh）
+WORKS_DEV_ADAPTER="${WORKS_DEV_ADAPTER-1}"
+export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER
 
 # 開発の家・置き場が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"
@@ -116,7 +119,7 @@ echo "対象: ${REPO}（${REV} の上に pack を置いた枝 dogfood-base）"
 cd "$REPO"
 set +e
 # 修正の段の TDD の輪の実行器（この clone の works/dev/tdd-suite.sh。WORKS_DOGFOOD_TDD_SUITE を空にすれば輪を飛ばす）。
-# 包みを入れない run（WORKS_DEV_ADAPTER が 1 でない）は adapter=optional で回す（h-judge が包みの無い run を止めないように。報告に出る）
+# 包みを外した run（WORKS_DEV_ADAPTER が 1 でない）は adapter=optional で回す（h-judge が包みの無い run を止めないように。報告に出る）
 TDD_SUITE="${WORKS_DOGFOOD_TDD_SUITE-works/dev/tdd-suite.sh}"
 if [ "${WORKS_DEV_ADAPTER:-}" = 1 ]; then ADAPTER_MODE=""; else ADAPTER_MODE="optional"; fi
 sh "$ARCHON" workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
