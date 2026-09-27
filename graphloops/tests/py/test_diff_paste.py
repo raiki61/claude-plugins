@@ -214,7 +214,7 @@ def test_added_md_links_read_attributes_from_base(tmp_path, repo):
 
 
 def test_notices_name_the_summarized_rows(tmp_path):
-    b = types.SimpleNamespace(state={}, loop_state={"diff_paste_log": [
+    b = types.SimpleNamespace(state={}, record={"process": {}}, loop_state={"diff_paste_log": [
         {"round": 2, "diff": "diff-r2-after-fix.patch", "bytes": 3, "limit": 1, "still_over": False,
          "summarized": [{"path": "gen/a.json", "added": 1, "deleted": 0, "bytes": 2, "lines": [1, 3], "tier": "base_generated"},
                         {"path": "lib.py", "added": 1, "deleted": 0, "bytes": 2, "lines": [4, 6], "tier": "other"}]},

@@ -272,7 +272,7 @@ def test_launch_one_removes_the_work_place_when_the_copy_fails(repo, tmp_path, m
     tmp = tmp_path / "tmpdir"
     tmp.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
-    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None: None)
+    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None, state=None: None)
 
     def boom(dst):
         pathlib.Path(dst).mkdir()
@@ -422,7 +422,7 @@ def test_launch_one_background_delegate_has_no_deadline_and_places_the_answer(re
     tmp = tmp_path / "tmpdir"
     tmp.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
-    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None: None)
+    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None, state=None: None)
     board = tmp_path / "board"
     board.mkdir()
     prompt = tmp_path / "p.md"

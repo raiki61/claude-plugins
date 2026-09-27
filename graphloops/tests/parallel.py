@@ -31,6 +31,8 @@ _buf = threading.local()
 
 
 SKIP_MARK = " # SKIP"   # 見送りの行の印（TAP 14 の SKIP 指示子）。root の tests/run.sh の note_skips がこの印で拾う
+# engine が起こした子の環境の印（run_all が読む）。名前の正本は engine/role_run.py の ENGINE_CHILD_ENV（揃いは test_engine_guards が縛る）
+ENGINE_CHILD = "GRAPHLOOPS_ENGINE_CHILD"
 
 
 def skip_line(desc, capability, reason):
@@ -188,7 +190,14 @@ def run_all(tests):
     例外は握り潰さない。溜めた行を全部出してから最初の 1 本を投げ直す。直列版と違うのは、
     例外が出ても残りの台本が走りきる点——落ちた 1 本で他が全部見えなくなるのを避ける
     （途中で止まった台本のぶん件数は足りなくなるので、件数の柵がどちらにせよ赤くする）。
+
+    engine が起こした子（環境の ENGINE_CHILD）からは、GL_TEST_ONLY で絞らない回を走らせない——台本（simulate.py・simulate_review.py）は
+    run.sh を通さずに直に起こせるので、run.sh の頭の拒みだけでは一式の大半が走る。どの台本もここを通る
     """
+    if os.environ.get(ENGINE_CHILD) and not os.environ.get("GL_TEST_ONLY"):
+        print(f"  FAIL engine が起こした子（環境の {ENGINE_CHILD}）からは台本の一式を走らせない（人の方針: 手元で e2e の一式を回さない。"
+              "CI で回る）——変更に関わる筋書きを GL_TEST_ONLY=<台本の名前>,… で数件に絞れ", flush=True)
+        raise SystemExit(2)
     n = workers(len(tests))
     if n == 1:
         for fn in tests:

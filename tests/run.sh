@@ -4,6 +4,14 @@
 #
 # set -e は使わない——各ケースの終了コードを検査するのが目的で、
 # 非ゼロで即死すると検査そのものが成立しない。
+#
+# graphloops の engine が起こした子（役・任せ先・書く子。環境に GRAPHLOOPS_ENGINE_CHILD が立つ）からは走らせない——人の方針
+# 『テスト（今だけ）』: 手元で e2e の一式を回さない（CI で回す）。宣言の deny は sh -c や絶対パスの呼びに当たらないので入口でも拒む。
+# 方針を解くときにこの段を消す（docs/adr/0069-engine-launches-skill-node-and-lanes.md の結果）
+if [ -n "${GRAPHLOOPS_ENGINE_CHILD:-}" ]; then
+    echo "tests/run.sh: engine が起こした子からは走らせない（人の方針: 手元で e2e の一式を回さない。CI で回る）——手元は pytest の一式か、変更に関わる筋書きを GL_TEST_ONLY で数件" >&2
+    exit 2
+fi
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

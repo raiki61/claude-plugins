@@ -8,10 +8,10 @@ import pathlib
 
 from . import checks_cache, declared
 from .schema import validate_schema
-from .role_run import run_tree
+from .role_run import lane_failure, run_tree
 from .hist import HIST_ABSENT, hist_reads
 from .effects import write_loop
-from .util import (DIFF_FIXED_ARGS, LANE_FAILED, READ_CAP, HandBack, Reject, _grep, die, git, git_bytes, hook_evidence, loads_outside, note_unevaluable, pick,
+from .util import (DIFF_FIXED_ARGS, LANE_FAILED, READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, loads_outside, note_unevaluable, pick,
                    read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, tree_names_between, worktree_tree, write_json)
 
 _VALIDATORS = {}
@@ -54,13 +54,13 @@ def validator_module(b):
 # rules に差し込む道具の正本。**消費者が 0 の鍵は置かない**——get_path / set_path / has_path は同梱の rules 2 本から
 # 一度も呼ばれておらず、『rules が記録の任意の場所を path で読み書きしてよい』と読める面だけを開いていた
 # （記録を書く経路を writes に寄せる方針と逆向き）。使う日に戻せる
-INJECT = {"Reject": Reject, "HandBack": HandBack, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
+INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": read_json, "write_json": write_json,
           "git": git, "git_bytes": git_bytes, "sha": sha, "hook_evidence": hook_evidence, "read_capped": read_capped, "READ_CAP": READ_CAP, "repo_root": repo_root, "grep": _grep, "run_count": run_count, "sum_counts": sum_counts,
           "validator_module": validator_module, "validate_schema": validate_schema, "cond_reads": cond_reads,
           "run_tree": run_tree, "hist_reads": hist_reads, "HIST_ABSENT": HIST_ABSENT, "write_loop": write_loop,
           "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME, "note_unevaluable": note_unevaluable,
           "worktree_tree": worktree_tree, "tree_names_between": tree_names_between, "DIFF_FIXED_ARGS": DIFF_FIXED_ARGS,
-          "loads_outside": loads_outside, "CHECKS_RERUN_ENV": checks_cache.RERUN_ENV, "LANE_FAILED": LANE_FAILED}
+          "loads_outside": loads_outside, "CHECKS_RERUN_ENV": checks_cache.RERUN_ENV, "LANE_FAILED": LANE_FAILED, "lane_failure": lane_failure}
 
 
 def load_rules(graph_path, graph):

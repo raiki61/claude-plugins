@@ -28,7 +28,8 @@
 
 終了コード: 0 = 受け付けた / 1 = 受け付けない（返答が型に合わない・節が待ち状態でない等。直して
 呼び直す） / 2 = 盤面・グラフ・引数が読めない。run だけは止まった種類も返す（値の表の正本は engine/runner.py の CODES）:
-0 = 終わった / 10 = 人の答え待ち / 11 = 指定の周で止めた / 12 = 進めない / 13 = 会話に返す節がある / 14 = 人が確かめる事がある /
+0 = 終わった / 10 = 人の答え待ち / 11 = 指定の周で止めた / 12 = 進めない / 13 = 会話に返す節がある（回し役なしの run では engine の
+不具合） / 14 = 人が確かめる事がある /
 20 = まだ回っている（見守りの上限。回し手と子は止めない）
 
 盤面を書くコマンドは、盤面の置き場の錠（engine/filelock.py）の下で走る——回し手と会話と人が同じ盤面を同時に書いても、
@@ -46,7 +47,7 @@ for _s in (sys.stdout, sys.stderr):
 from engine import commands as c  # noqa: E402
 from engine import children, filelock, intake, resume, runner, util  # noqa: E402
 from engine.role_run import StopSignal, install_stop_handlers  # noqa: E402
-from engine.util import BoardConflict, HandBack, Reject, die  # noqa: E402
+from engine.util import BoardConflict, Reject, die  # noqa: E402
 
 
 # 盤面を読んでから書くまでを丸ごと盤面の錠の下で走らせるコマンド（短い。next は機械の節も走らせるので長くなりうるが、その間は
@@ -79,7 +80,8 @@ def main():
                    help="回す側の節（修正・修正案・手直し・基準点・前提・目的・報告・局所レビューなど、任せ先を持たない節）も engine が claude -p で"
                         "起こす（既定。loop.py run が止まる所でだけ戻る）。--no-engine-runners で会話がこなす道を選ぶ（人の決定 2026-09-27 で消す予定）")
     s.add_argument("--unfenced-delegates", metavar="REASON",
-                   help="任せ先（delegate）を sandbox で縛らず、回す側が Agent ツールで起こす（人が run ごとに明示したときだけ。理由は盤面に残る）")
+                   help="任せ先（delegate）を sandbox で縛らずに起こす（回し役なしの run は engine が sandbox の外で、--no-engine-runners の run は"
+                        "回す側が Agent ツールで起こす。人が run ごとに明示したときだけ。理由は盤面に残る）")
     s.set_defaults(fn=c.cmd_init)
 
     for name, fn in (("next", c.cmd_next), ("status", c.cmd_status), ("record", c.cmd_record), ("finalize", c.cmd_finalize)):
@@ -233,7 +235,7 @@ def cli():
     標準エラーを変えない）。exit 1 の日常の拒否も残す——同じ鍵の件数が「どの拒否が多いか」になる"""
     try:
         main()
-    except (Reject, HandBack) as e:
+    except Reject as e:
         intake.failed(sys.argv[1:], 1, e, e.__traceback__, str(e))
         die(str(e), 1)
     except BoardConflict as e:

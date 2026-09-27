@@ -74,9 +74,15 @@ def _receipt(g):
                  "当てうる（別 plugin の役）", id="append-dup-in-other-plugin-node"),
     pytest.param(lambda g: _receipt(g).__setitem__("receipt", {"lane": 1}), "delegate.receipt は", id="receipt-off-schema"),
     pytest.param(lambda g: _receipt(g).__setitem__("background", False), "delegate.receipt は", id="receipt-without-background"),
+    # launch.runner を宣言する graph では、どの節も engine が起こす語を宣言から組める（会話に返す 13 を engine の不具合だけにする）
+    pytest.param(lambda g: _receipt(g).pop("receipt"), "背景の任せ先に delegate.receipt が無い", id="background-without-receipt"),
+    pytest.param(lambda g: g["launch"].pop("delegate"), "任せ先を持つのに launch.delegate が無い", id="delegate-without-launch"),
+    pytest.param(lambda g: g["nodes"]["p4.ci"].pop("delegate"), "engine_run の節に delegate が無い", id="engine-run-without-delegate"),
+    pytest.param(lambda g: g["launch"].pop("tooled"), "を起こす launch.tooled が無い", id="role-without-tooled"),
 ])
 def test_graphcheck_rejects_append_and_receipt_shapes(sandbox, breaks, want):
-    """起こす子の形ごとの段（launch.append）と背景の線の受領の形（delegate.receipt）の静的な検査は、赤くなる例を 1 つずつ持つ"""
+    """起こす子の形ごとの段（launch.append）と背景の線の受領の形（delegate.receipt）と、回し役なしの run で起こす語を組めない節の静的な
+    検査は、赤くなる例を 1 つずつ持つ"""
     g = copy.deepcopy(GRAPH)
     breaks(g)
     ok, out = run_graphcheck(sandbox, g)
@@ -103,10 +109,16 @@ def test_graphcheck_holds_the_runner_paste_fence_on_appended_sections(sandbox):
 
 
 class FakeBoard:
-    """local_review_covers_lenses が触る面だけ"""
-    def __init__(self, skills):
+    """local_review_covers_lenses と notices が触る面だけ。origin は受け付けが instance に置く返答の出どころ（commands.reply_origin）"""
+    def __init__(self, skills, origin=None, rnd=1, outputs=None):
         self.graph = {"nodes": {NID: {"skills": [{k: v for k, v in e.items() if k not in ("applies", "applies_why")} for e in skills]}}}
-        self.rd = {"instances": {NID: {"node": NID, "status": "pending", "skills": skills}}}
+        self.rd = {"instances": {NID: {"node": NID, "status": "pending", "skills": skills, **({"reply_origin": origin} if origin else {})}}}
+        self.round, self.state, self.loop_state = rnd, {}, {"outcome": "converged"}
+        self.record = {"process": {}}
+        self.outs = outputs or {}
+
+    def output_of_round(self, node, rnd):
+        return self.outs.get((node, rnd))
 
 
 def cond_lens(**kw):
@@ -141,47 +153,66 @@ def test_covers_lenses_reads_the_evaluated_applies(lens_decl, out, rejected):
         assert RULES.local_review_covers_lenses(b, NID, out, None) is None
 
 
-@pytest.mark.parametrize("launch_state,handed_back", [
-    pytest.param("running", True, id="engine-child-hands-back"),
-    pytest.param("ended", False, id="conversation-after-handback-is-accepted"),
-    pytest.param(None, False, id="conversation-run-is-accepted"),
+@pytest.mark.parametrize("status,t_invoked,want", [
+    pytest.param("clean", False, "必須のレンズなのに invoked が true でない", id="required-not-invoked"),
+    pytest.param("awaiting_human", True, "awaiting_human にできない", id="awaiting-human"),
+    pytest.param("awaiting_human", False, "必須のレンズなのに", id="awaiting-human-and-required-not-invoked"),
+    pytest.param("clean", True, None, id="required-invoked"),
 ])
-def test_awaiting_human_from_an_engine_child_goes_back_to_the_conversation(launch_state, handed_back):
-    """engine が起こした子が起こせないレンズを awaiting_human で返したら、受け付けずに会話へ返す（HandBack）——人を起こし手にしない。
-    会話が返した awaiting_human は今までどおり受け付ける"""
-    b = FakeBoard([cond_lens(applies=True, applies_why="w"), UNCOND])
-    if launch_state:
-        b.rd["instances"][NID].update(launch={"kind": "runner", "skill": True, "on_fail": "handoff"}, launch_state=launch_state)
-    out = answer(False, status="awaiting_human")
-    if handed_back:
-        with pytest.raises(RULES.HandBack, match="/s（理由）"):
-            RULES.local_review_covers_lenses(b, NID, out, None)
-    else:
-        assert RULES.local_review_covers_lenses(b, NID, out, None) is None
-    all_invoked = answer(True)
-    all_invoked["findings"][1]["invoked"] = True
-    assert RULES.local_review_covers_lenses(b, NID, all_invoked, None) is None   # 起こせた返答は子でも受け付ける
-
-
-@pytest.mark.parametrize("cond_applies,t_invoked,handed_back", [
-    pytest.param(True, False, True, id="required-not-invoked"),
-    pytest.param(False, True, False, id="cond-not-applicable-needs-no-invoked"),
-    pytest.param(True, True, False, id="all-invoked"),
-])
-def test_engine_child_hands_back_when_a_lens_that_applies_was_not_invoked(cond_applies, t_invoked, handed_back):
-    """engine の子の返答は、当たるレンズ（必須と、条件が真の周の条件付き）の行に invoked: true が無ければ、awaiting_human を書き忘れても
-    会話に返す。条件外の周の条件付きのレンズ（失敗欄に『非該当』）には求めない。会話が done で返した返答には今までどおり求めない"""
-    b = FakeBoard([cond_lens(applies=cond_applies, applies_why="w"), UNCOND])
-    b.rd["instances"][NID].update(launch={"kind": "runner", "skill": True, "on_fail": "handoff"}, launch_state="running")
-    out = answer(cond_applies)
+def test_engine_child_reply_needs_required_lenses_and_no_awaiting_human(status, t_invoked, want):
+    """engine が起こした子の返答は、必須のレンズの行に invoked: true を求め、awaiting_human を拒む——拒みは同じ会話への続き（上限で人に渡る）。
+    会話に返す手番は持たない。同じ返答を会話が渡したなら、今までどおり受け付ける"""
+    out = answer(True, status=status)
     out["findings"][1]["invoked"] = t_invoked
-    if handed_back:
-        with pytest.raises(RULES.HandBack, match="/t（起こしたが所見なし）"):
-            RULES.local_review_covers_lenses(b, NID, out, None)
+    child = FakeBoard([cond_lens(applies=True, applies_why="w"), UNCOND], origin="engine_child")
+    if want:
+        with pytest.raises(Reject, match=want):
+            RULES.local_review_covers_lenses(child, NID, out, None)
     else:
+        assert RULES.local_review_covers_lenses(child, NID, out, None) is None
+    conv = FakeBoard([cond_lens(applies=True, applies_why="w"), UNCOND], origin="conversation")
+    assert RULES.local_review_covers_lenses(conv, NID, out, None) is None
+
+
+@pytest.mark.parametrize("applies", [True, False])
+def test_engine_child_reply_without_an_optional_lens_is_accepted_and_listed(applies):
+    """条件が真の周の条件付きのレンズを engine の子が起こさなかった行は、拒まずに受け付けて記録の unverified_lenses に積み、報告の知らせに
+    『未確認のレンズ』として並べる（人の関所の答え 2026-09-27 の 3 周目の条件 3）。受け付け直しても同じ周・同じ節の行は重ならない。
+    条件外の周のレンズは積まない"""
+    b = FakeBoard([cond_lens(applies=applies, applies_why="w"), UNCOND], origin="engine_child")
+    out = answer(False)
+    out["findings"][1]["invoked"] = True
+    for _ in range(2):
         assert RULES.local_review_covers_lenses(b, NID, out, None) is None
-    b.rd["instances"][NID]["launch_state"] = "ended"
-    assert RULES.local_review_covers_lenses(b, NID, out, None) is None
+    rows = b.record["process"].get("unverified_lenses")
+    assert rows == ([{"round": 1, "node": NID, "skill": "/s", "why": "理由"}] if applies else [])
+    assert any(x.startswith("未確認のレンズ r1 /s") for x in RULES.notices(b)) == applies
+
+
+SIMPLIFY = {"skill": "/simplify", "required": True}
+
+
+@pytest.mark.parametrize("rnd,outs,accepted", [
+    pytest.param(2, {("p1.worktree_before", 2): {"changed_since_prev_round": []}}, True, id="nothing-changed-since-last-round"),
+    pytest.param(2, {("p1.worktree_before", 2): {"changed_since_prev_round": ["a.py"]}}, False, id="a-file-changed"),
+    pytest.param(2, {("p1.worktree_before", 2): {}}, False, id="change-not-measured"),
+    pytest.param(2, {("p1.worktree_before", 2): {"changed_since_prev_round": []}, ("p1.worktree_after", 2): {"snapshot": {}}}, False,
+                 id="retaken-in-round"),
+    pytest.param(1, {("p1.worktree_before", 1): {"changed_since_prev_round": []}}, False, id="first-round"),
+])
+def test_engine_child_may_carry_simplify_only_when_engine_sees_no_change(rnd, outs, accepted):
+    """/simplify の持ち越し（指示書: 直前の周から対象差分にロジックの変更が無い）は、engine が確かめられる周——周の頭の版が前の周から
+    1 ファイルも変わっていない——だけ、engine の子の返答でも受け付ける（人の関所の答え 2026-09-27 の 3 周目の条件 1）"""
+    b = FakeBoard([SIMPLIFY], origin="engine_child", rnd=rnd, outputs=outs)
+    out = {"material": {"status": "clean"}, "simplify_carried": True,
+           "findings": [{"skill": "/simplify", "items": [], "failed": "持ち越し: 前の周から変更なし", "invoked": False}]}
+    if accepted:
+        assert RULES.local_review_covers_lenses(b, NID, out, None) is None
+    else:
+        with pytest.raises(Reject, match="持ち越しは"):
+            RULES.local_review_covers_lenses(b, NID, out, None)
+    with pytest.raises(Reject, match="必須のレンズなのに"):
+        RULES.local_review_covers_lenses(b, NID, {**out, "simplify_carried": False}, None)   # 持ち越すと言わない行は起こし直させる
 
 
 def test_fix_record_keeps_the_declarations_the_cond_reads_across_rounds():

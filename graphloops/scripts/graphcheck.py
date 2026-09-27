@@ -91,10 +91,11 @@ PLUGIN_ROOT = HERE.parent
 
 sys.path.insert(0, str(PLUGIN_ROOT))
 # 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
-from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of  # noqa: E402
+from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of, runner_node  # noqa: E402
 from engine.effects import REDUCER_KEY, REDUCERS, declares_reducers  # noqa: E402
 from engine.hist import LOOKUP_HEADS as HIST_LOOKUP_HEADS  # noqa: E402
-from engine.advance import APPEND_TO, ENGINE_PRE, LAUNCH_HOLES, NARROW_TOOLS, agent_type_in, fill_receipt, node_appends, node_reads  # noqa: E402
+from engine.advance import (APPEND_TO, ENGINE_PRE, LAUNCH_HOLES, NARROW_TOOLS, agent_type_in, fill_receipt, narrowed_def, node_appends,  # noqa: E402
+                            node_reads, tooled_launchable)
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import DOC_NODE_KEYS, ENGINE_NODE_KEYS, extends_path, end_anchored, load_graph, schema_at, unknown_keywords, walk_schema  # noqa: E402
 DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この graph が任せ先に書ける名前: Claude Code の subagent の model の別名
@@ -202,10 +203,40 @@ def agent_names(g):
 def appended(g, n):
     """節に当たる launch.append の段——engine と同じ advance.node_appends で引く ——(段, 当たりが決まるか)。別 plugin の役は、その plugin が
     入った機械でだけ定義が読めて当たりが変わるので、段を当てずに『決まらない』と返す"""
-    atype = None if n.get("run_by") in (g.get("runners") or []) else agent_type_in(g, n)
+    atype = None if runner_node(g, n) else agent_type_in(g, n)
     if atype and ":" in atype and atype.rpartition(":")[0] != g.get("plugin"):
         return [], False
     return node_appends(g, n), True
+
+
+def unlaunched_nodes(g, nodes):
+    """launch.runner を宣言する graph（回し役なしの run を既定に持つ）で、engine が起こす語を宣言から組めない節——会話に返す手番（13）を
+    engine の不具合だけにするための静的な縛り。見るのは宣言の欠けだけで、起こす条件そのもの（sandbox・定義の読み・守る場所）は起こす側の
+    関数（advance）が起こす時に決める（副作用を持つ起こす側を、盤面の無い検査から呼ばない）。別 plugin の役は、その plugin が入った機械で
+    だけ定義が決まるので見ない（起こせなければ emit が理由を unlaunched に書き、人に渡る）"""
+    launch, errs = g.get("launch") or {}, []
+    narrow = (launch.get("tooled") or {}).get("narrow")
+    for nid, v in nodes.items():
+        dg = v.get("delegate")
+        if (dg or v.get("engine_run")) and not launch.get("delegate"):
+            errs.append(f"{nid}: 任せ先を持つのに launch.delegate が無い——回し役なしの run で起こす語を組めず、会話に返る")
+        if v.get("engine_run") and not dg:
+            errs.append(f"{nid}: engine_run の節に delegate が無い——engine の組んだ返答を使えない回の任せ先が無く、会話に返る")
+        if isinstance(dg, dict) and dg.get("background") and not isinstance(dg.get("receipt"), dict):
+            errs.append(f"{nid}: 背景の任せ先に delegate.receipt が無い——回し手が線を立てられず、会話に返る")
+        if v.get("run_by") == "driver" or runner_node(g, v):
+            continue
+        atype = agent_type_in(g, v)
+        d = agent_def(atype) if atype.rpartition(":")[0] == g.get("plugin") else None
+        if d is None:
+            continue
+        form = "isolated" if d["tools"] == [] else "tooled"
+        if not launch.get(form):
+            errs.append(f"{nid}: 役 {atype} を起こす launch.{form} が無い——回し役なしの run で起こす語を組めず、会話に返る")
+        elif form == "tooled" and not tooled_launchable(narrowed_def(d, narrow)):
+            errs.append(f"{nid}: 役 {atype} は engine が起こせない形（道具の一覧を持たない・書く道具を持つ・モデルか effort を名指さない）"
+                        "——回し役なしの run で起こせず、人に止まる")
+    return errs
 
 
 def unused_reads(nid, node, holes):
@@ -1047,6 +1078,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         for k in ("model", "effort"):
             if not runner_spec.get(k):
                 errs.append(f"launch.runner に '{k}' が無い（回す側の節を起こす語の {{{k}}} を埋められない）")
+        errs += unlaunched_nodes(g, nodes)
     # 申告の突合（commands._record_declared）の申告の欄は、回す側の節の schema の文字列の葉を指す（外れると突合が黙って空を読む）。
     # 位置の綴りは受け付けの読み手（pointers.values_at）と同じ pointers._schema_at で引く。作業ツリーを書き換える節（launch.runner.edits）
     # は申告を持つ——書く節の一覧と突合の対象を 1 つの正本にそろえる。申告が無いことと旧い綴り（文字列の配列の葉）は記録が欠けるだけなので、

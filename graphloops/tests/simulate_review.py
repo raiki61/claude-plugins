@@ -914,23 +914,35 @@ def test_launch_delegate_background_lane():
 
 
 def test_unfenced_delegates_only_when_named():
-    """柵を外すのは人が init --unfenced-delegates で明示した run だけ。外した事実は盤面と next の notes に残る"""
-    print("柵を外す口: init --unfenced-delegates の run だけ任せ先が launch を持たず、外した事実と理由が盤面と notes に出る")
+    """柵を外すのは人が init --unfenced-delegates で明示した run だけ。外した事実は盤面と next の notes に残る。回し役なしの run（既定）では
+    engine が sandbox の外で起こし（会話に Agent で起こさせる手番を持たない）、会話で回す run では今までどおり launch を持たない"""
+    print("柵を外す口: init --unfenced-delegates の run だけ任せ先が柵を外した形になり、外した事実と理由が盤面と notes に出る")
     run = Run("unfenced", checks=None)   # 宣言が無いので p0.local_checks は任せ先の節として出る（宣言が在れば engine_run）
-    d2 = run.tmp / "s-unfenced"
-    r = subprocess.run([PY, str(LOOP), "init", "--loop", "review-loop", "--request", "q", "--dir", str(d2),
-                        "--validator", str(VALIDATOR), "--unfenced-delegates", "docker を使う CI（検査用）"],
-                       cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
-    check(r.returncode == 0, f"柵を外した run を init できる（{r.stderr[-120:]}）")
-    r = subprocess.run([PY, str(LOOP), "next", "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
-    nx = json.loads(r.stdout) if r.returncode == 0 else {"ready": [], "notes": []}
-    inst = next((i for i in nx["ready"] if i["node"] == "p0.local_checks"), {})
-    st = json.loads((d2 / "state.json").read_text(encoding="utf-8"))
-    trace = (d2 / "trace.jsonl").read_text(encoding="utf-8")
-    check(not inst.get("launch") and (inst.get("unfenced") or {}).get("reason") == "docker を使う CI（検査用）"
-          and st.get("unfenced_delegates", {}).get("reason") == "docker を使う CI（検査用）" and "unfenced_delegates" in trace
-          and any("柵" in n for n in nx.get("notes") or []),
-          f"外した run の任せ先は launch を持たず unfenced を持ち、外した事実が state・trace・notes に残る（{inst.get('launch')}）")
+
+    def unfenced_next(name, *flags):
+        d2 = run.tmp / name
+        r = subprocess.run([PY, str(LOOP), "init", "--loop", "review-loop", "--request", "q", "--dir", str(d2),
+                            "--validator", str(VALIDATOR), "--unfenced-delegates", "docker を使う CI（検査用）", *flags],
+                           cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+        check(r.returncode == 0, f"柵を外した run を init できる（{flags}: {r.stderr[-120:]}）")
+        r = subprocess.run([PY, str(LOOP), "next", "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+        nx = json.loads(r.stdout) if r.returncode == 0 else {"ready": [], "notes": []}
+        inst = next((i for i in nx["ready"] if i["node"] == "p0.local_checks"), {})
+        st = json.loads((d2 / "state.json").read_text(encoding="utf-8"))
+        trace = (d2 / "trace.jsonl").read_text(encoding="utf-8")
+        check((inst.get("unfenced") or {}).get("reason") == "docker を使う CI（検査用）"
+              and st.get("unfenced_delegates", {}).get("reason") == "docker を使う CI（検査用）" and "unfenced_delegates" in trace
+              and any("柵" in n for n in nx.get("notes") or []),
+              f"外した事実が instance・state・trace・notes に残る（{flags}）")
+        return d2, inst
+
+    _d, inst = unfenced_next("s-unfenced")
+    argv = (inst.get("launch") or {}).get("argv") or []
+    settings = json.loads(argv[argv.index("--settings") + 1]) if "--settings" in argv else {"sandbox": "?"}
+    check((inst.get("launch") or {}).get("kind") == "delegate" and "sandbox" not in settings,
+          f"回し役なしの run では engine が柵を外した形（sandbox の設定を持たない）で起こす（{settings}）")
+    d2, inst = unfenced_next("s-unfenced-conv", "--no-engine-runners")
+    check(not inst.get("launch"), f"会話で回す run の任せ先は launch を持たない（{inst.get('launch')}）")
     r = subprocess.run([PY, str(LOOP), "launch", "--node", inst.get("id") or "p0.local_checks", "--dir", str(d2)], cwd=run.repo,
                        capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode == 1 and "起こせる節が無い" in r.stderr,
@@ -5449,8 +5461,11 @@ def test_vocab_not_copied():
     check("{{validator.question_kinds}}" in tpl, "プロンプトは種類の表を穴で受ける")
     check("{{validator.question_fields}}" in tpl, "書ける欄の一覧も穴で受ける")
 
+    # 節の他の穴（record.* 等）は reads の外なので、語彙の穴だけを取り出して埋める（simulate.py の研究の語彙の検査と同じ形）
+    holes = "\n".join(ln for ln in tpl.splitlines() if "{{validator." in ln)
+
     def render(tables):
-        return Renderer({"validator": tables}, ["validator"]).render(tpl[tpl.index("問いの台帳（questions）"):])
+        return Renderer({"validator": tables}, ["validator"]).render(holes)
 
     got = render(V.PROMPT_TABLES)
     missing = [k for k in V.QUESTION_KINDS if k not in got]

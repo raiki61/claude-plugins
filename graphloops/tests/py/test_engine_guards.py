@@ -3,13 +3,16 @@
 import argparse
 import json
 import os
+import shutil
 import signal
+import subprocess
+import sys
 import types
 
 import pytest
 
 from conftest import REPO
-from engine import commands, util
+from engine import commands, role_run, util
 from engine.advance import run_driver_node
 from engine.board import Board
 from engine.util import BoardConflict, Reject
@@ -193,7 +196,7 @@ def test_launch_without_recorded_cwd_uses_callers_cwd(tmp_path, monkeypatch, sta
     monkeypatch.setattr(commands, "kill_all", lambda: None)
     monkeypatch.setattr(signal, "signal", lambda *a: None)
     got = []
-    monkeypatch.setattr(commands, "launch_one", lambda d, i, m, cwd: got.append(cwd) or {"id": i["id"], "ok": True, "out_path": "o"})
+    monkeypatch.setattr(commands, "launch_one", lambda d, i, m, cwd, state=None: got.append(cwd) or {"id": i["id"], "ok": True, "out_path": "o"})
     commands.cmd_launch(argparse.Namespace(dir=str(tmp_path), node=None))
     assert got == [os.getcwd()]
 
@@ -391,11 +394,12 @@ def test_launch_settle_logs_failed_only_without_rejections(tmp_path, monkeypatch
         def trace(self, op, **kw):
             rows.append({"op": op, **kw})
     fb = Tracing(instances={"p1.x": inst})
+    fb.state["rounds"] = [fb.rd]   # 締めは全周から試行を引く
     monkeypatch.setattr(commands, "Board", lambda d: fb)
     monkeypatch.setattr(commands, "_board_update", lambda d, fn, **k: fn(fb))
     monkeypatch.setattr(commands, "kill_all", lambda: None)
     monkeypatch.setattr(signal, "signal", lambda *a: None)
-    monkeypatch.setattr(commands, "launch_one", lambda d, i, m, cwd: {"id": "p1.x", "ok": False, "out_path": "o", "why": "受け付けが拒んだ: y",
+    monkeypatch.setattr(commands, "launch_one", lambda d, i, m, cwd, state=None: {"id": "p1.x", "ok": False, "out_path": "o", "why": "受け付けが拒んだ: y",
                                                                       "rejections": ["x", "y"], "resumes": 1, "stderr": "e" * 300})
     commands.cmd_launch(argparse.Namespace(dir=str(tmp_path), node=None))
     assert [x["kind"] for x in inst["attempt_log"]] == ["resume", "rejected"]
@@ -614,3 +618,59 @@ def test_loop_refuses_broken_bytes_except_in_path_only_args():
     with pytest.raises(Reject, match="--input"):
         loop.refuse_broken_args(argparse.Namespace(input=["k=ok", "k=\udce3"]))
     loop.refuse_broken_args(argparse.Namespace(reason="正しい字", file="a\udce3", detail="b\udcff", output="c\udce3", request="@d\udce3"))
+
+
+# ---------------------------------------------------------------- engine の子の印で拒む入口（人の方針『テスト（今だけ）』『変異テストは手元で撃たない』）
+# 入口の拒みを外す退行の注入で、手元の e2e・変異が本当に走り出さないよう、どの検査も入口の段だけを起こすか、外れても撃つ物が無い呼びにする
+def _unmarked():
+    return {k: v for k, v in os.environ.items() if k != role_run.ENGINE_CHILD_ENV}
+
+
+@pytest.mark.parametrize("script", [REPO / "tests" / "run.sh", REPO / "graphloops" / "tests" / "run.sh"], ids=["tests", "graphloops"])
+def test_e2e_entrances_refuse_an_engine_child_before_anything_runs(script):
+    lines = script.read_text(encoding="utf-8").splitlines()
+    start = next((i for i, x in enumerate(lines) if x.startswith("if ") and role_run.ENGINE_CHILD_ENV in x), None)
+    assert start is not None, f"{script} の頭に engine の子の印を見る拒みが無い"
+    assert not [x for x in lines[:start] if x.strip() and not x.lstrip().startswith("#")], "拒みより前に走る行がある"
+    guard = "\n".join(lines[start:lines.index("fi", start) + 1])
+    bash = shutil.which("bash") or "bash"
+    marked = subprocess.run([bash, "-c", guard], env={**os.environ, role_run.ENGINE_CHILD_ENV: "1"}, capture_output=True, text=True,
+                            encoding="utf-8")
+    assert marked.returncode == 2 and "engine が起こした子からは走らせない" in marked.stderr
+    assert subprocess.run([bash, "-c", guard], env=_unmarked(), capture_output=True).returncode == 0   # CI（印なし）は走る
+
+
+def test_mutate_refuses_all_but_check_in_an_engine_child(tmp_path):
+    mut = REPO / "tests" / "mutate.py"
+    marked = {**os.environ, role_run.ENGINE_CHILD_ENV: "1"}
+    shot = subprocess.run([sys.executable, str(mut), "--only", "__engine_child_probe__", "--out", str(tmp_path / "o.json")], env=marked,
+                          cwd=REPO, capture_output=True, text=True, encoding="utf-8")
+    assert shot.returncode == 2 and "--check のほかを走らせない" in shot.stderr
+    check = subprocess.run([sys.executable, str(mut), "--check"], env=marked, cwd=REPO, capture_output=True, text=True, encoding="utf-8")
+    assert "--check のほかを走らせない" not in check.stderr
+
+
+def test_scenario_runner_refuses_an_unnarrowed_suite_in_an_engine_child(monkeypatch):
+    import parallel
+    ran = []
+
+    def test_probe():
+        ran.append(1)
+    monkeypatch.setenv(role_run.ENGINE_CHILD_ENV, "1")
+    monkeypatch.delenv("GL_TEST_ONLY", raising=False)
+    with pytest.raises(SystemExit) as e:
+        parallel.run_all([test_probe])
+    assert e.value.code == 2 and ran == []
+    monkeypatch.setenv("GL_TEST_ONLY", "test_probe")   # 変更に関わる筋書きを名指しした数件は通る（人の方針）
+    monkeypatch.setenv("GL_TEST_WORKERS", "1")
+    parallel.run_all([test_probe])
+    assert ran == [1]
+
+
+def test_engine_child_mark_has_one_name_everywhere():
+    import importlib.util
+    import parallel
+    spec = importlib.util.spec_from_file_location("mutate_for_mark", REPO / "tests" / "mutate.py")
+    mutate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mutate)
+    assert mutate.ENGINE_CHILD == parallel.ENGINE_CHILD == role_run.ENGINE_CHILD_ENV

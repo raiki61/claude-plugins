@@ -19,8 +19,7 @@
      （engine は盤面の trace.jsonl）に JSON Lines で 1 起動 1 行残す。
   4. accept(本文) で受け付けを検査する。拒まれたら、理由を添えて**同じ会話**に続きを頼む（resume_argv の
      {session_id} を埋めて起こし、理由の文を標準入力で渡す）。新しい会話で起こし直すと、役は前の返答を
-     覚えておらず、同じ判定を出し直す保証が無い。返答を受け付けに回せずに終わった回（役が誤りで終わった・exit が正）も、
-     別の文（CRASH_NOTE）で同じ会話に 1 回だけ続きを頼む。
+     覚えておらず、同じ判定を出し直す保証が無い。
 
 返り値は呼び出し側が盤面に写す値だけ（本文は含めない——回す側の会話に役の返答を流し込まないため）。
 
@@ -40,17 +39,17 @@ import threading
 import time
 
 from . import checks_cache
-from .util import HandBack, lone_surrogate_at, waiting
+from .util import LANE_FAILED, lone_surrogate_at, waiting
 
 RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why}\n\n"
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
                "理由が中身の整合（記録の整合・項目の過不足など）なら、理由が指す所だけを直せ。"
                "どちらも、最初の指示が求めた形の返答だけを出し直せ（前後に文を付けない）。")
-# 返答を受け付けに回せずに終わった回（包みを解けない・役が誤りで終わった・exit が正）の続きの文。拒みの文（RESUME_NOTE）と分ける
-# ——途中で終わった書く子に『形だけ直せ』を送ると、編集を終えずに返答だけを出し直させる
-CRASH_NOTE = ("前の往復は返答を受け付けに回せないまま終わった（{why}）。やりかけの仕事があれば続けて終え、"
-              "最初の指示が求めた形の返答だけを出せ（前後に文を付けない）。")
-CRASH_RESUMES = 1   # 受け付けに回せずに終わった回に続きを頼む回数（拒みの続きの上限 max_resumes とは別に数える）
+# run_role が起こす子（役・回す側の節・skill の節・任せ先・線・確かめの子）の環境に足す印。子の Bash と Agent の子に継がれる。対象リポジトリの
+# 入口（テスト一式・変異の実行器の台本）はこれを見て、engine の子から走らせてはいけない形を拒める——公式の permissions の文書は Bash の
+# deny を境界と呼ばない（sh -c・絶対パスは当たらない）ので、宣言の deny の後ろに入口の拒みを置く。engine が宣言から走らせる一式
+# （run_steps）には足さない
+ENGINE_CHILD_ENV = "GRAPHLOOPS_ENGINE_CHILD"
 # 止める信号の間の猶予（秒）の既定。claude -p が SIGTERM で自分の子（Bash の木）を止め終える幅として置いた
 DEFAULT_KILL_GRACE = 5
 GRACE_ENV = "GL_KILL_GRACE"
@@ -109,10 +108,16 @@ _LIVE_LOCK = threading.RLock()   # 信号の口（kill_all）が、錠を持つ�
 _STOPPING = threading.Event()     # 止める信号を受けた——以後に起こした子はすぐ止める（止め始めた後に子を増やさない）
 
 
-# 入れ子の sandbox（子の Bash が sandbox の初期化で落ちる）と測った run の外し方——会話に返す理由・柵の拒み・next の notes が同じ文を出す
+# 入れ子の sandbox（子の Bash が sandbox の初期化で落ちる）と測った run の外し方
 SANDBOX_DOWN_HOW = ("起こす側の sandbox から loop.py を外す（Claude Code の設定の sandbox.excludedCommands）か、sandbox の外で loop.py run を打ち、"
                     "loop.py relaunch --node <節> --reason <理由> --reprobe で測り直せ（任せ先の柵を外すのは持ち主が init --unfenced-delegates で"
                     "明示したときだけ）")
+
+
+def sandbox_down_why(probe):
+    """確かめの記録（盤面の state.child_tmp_probe）が入れ子の sandbox と測っていれば、理由と外し方の文（ほかは None）——起こす時の拒み
+    （commands.launch_one）・next の知らせ・前の版の盤面の会話に返す理由が同じここを引く"""
+    return f"{probe.get('why')}——{SANDBOX_DOWN_HOW}" if (probe or {}).get("sandbox") is False else None
 
 
 def sandbox_available():
@@ -202,7 +207,6 @@ def repo_deny(cwd):
 
 
 def _with_deny(settings, deny):
-    """sandbox の設定（dict）に、対象リポジトリの deny を permissions.deny として足した写し（deny が空なら足さない）"""
     return {**settings, "permissions": {"deny": list(deny)}} if deny else dict(settings)
 
 
@@ -278,8 +282,8 @@ def edit_deny(protected, top):
 
 
 def runner_permission(edits, cwd=None, board_dir=None, protected=None, top=None, deny=()):
-    """回す側の節を engine が起こす形——{form, tools, permission_mode, allowed_tools, settings}。起こせないなら None（会話に返す）。
-    **起こす側（advance.runner_launch_spec）と柵（commands._runner_refusal）が advance.runner_form を通して同じここを引く**。
+    """回す側の節を engine が起こす形——{form, tools, permission_mode, allowed_tools, settings}。起こせないなら None（起こせない理由は
+    instance の unlaunched に残る）。
 
     - 読むだけの節（edits が偽）: 道具つきの役と同じ tooled_permission(RUNNER_READ_TOOLS)——sandbox が使える場は sandbox の形
       （計器は OS の境界の中で聞かずに通り、作業ツリー・.git・盤面への書き込みと外への通信は止まる）、使えない場は read_only。
@@ -312,10 +316,8 @@ SKILL_ENV = {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0"}
 
 def skill_permission(cwd=None, board_dir=None, deny=()):
     """skill の節を engine が起こす形——{form, tools, permission_mode, allowed_tools, settings}。sandbox の形のときだけ返し、立たない場
-    （read_only）は None（会話に返す）。値は道具つきの役と同じ tooled_permission(SKILL_TOOLS)——Skill・Agent は先に許し、Bash は sandbox の
-    中だけ、作業ツリー・.git・盤面は denyWrite。**起こす側（advance.runner_launch_spec）と柵（commands._runner_refusal）が advance.runner_form を
-    通して同じここを引く**。
-    Agent で起こす子は親と同じ sandbox の設定を使う（公式の sandboxing の文書）"""
+    （read_only）は None。値は道具つきの役と同じ tooled_permission(SKILL_TOOLS)——Skill・Agent は先に許し、Bash は sandbox の
+    中だけ、作業ツリー・.git・盤面は denyWrite。Agent で起こす子は親と同じ sandbox の設定を使う（公式の sandboxing の文書）"""
     perm = tooled_permission(list(SKILL_TOOLS), cwd, board_dir, deny)
     return {**perm, "tools": list(SKILL_TOOLS)} if perm["form"] == "sandbox" else None
 
@@ -361,6 +363,14 @@ def delegate_permission():
     sandbox の中の python3・git status・作業ディレクトリへの書き込みは通り、sandbox を切った設定（enabled: false。管理者の設定が
     切った場を写した）では Bash が全部拒まれた。dontAsk は sandbox の中のコマンドまで拒むので採らない（同日の実測）"""
     return "default", [t for t in DELEGATE_TOOLS if t not in COMMAND_TOOLS]
+
+
+def unfenced_delegate_permission(deny=()):
+    """持ち主が init --unfenced-delegates で柵を外した run の任せ先の形 (permission_mode, allowed_tools, settings)。起こす側
+    （advance.delegate_launch_spec）と柵（commands._delegate_refusal）が同じここを引く。sandbox の設定を持たず、道具（DELEGATE_TOOLS）を
+    全部先に許す——柵の中でできない仕事（docker・sandbox の立たない場）のために外した run で、Bash は sandbox の外で走る（人の決定
+    2026-09-25）。対象リポジトリの宣言した deny だけは写す。聞く先は無い（--permission-prompts none）"""
+    return "dontAsk", list(DELEGATE_TOOLS), json.dumps(_with_deny({}, deny), sort_keys=True, separators=(",", ":"))
 
 
 def delegate_settings(protected, deny=()):
@@ -424,28 +434,27 @@ SUMMARY_KEYS = ("session_id", "num_turns", "duration_ms", "duration_api_ms", "to
 
 
 def session_costs(rows, group=lambda row: None):
-    """trace の op=role_run の行から、会話（session_id）ごとの total_cost_usd の最大を group(行) ごとに足した ——{group の値: 米ドル}。
-    total_cost_usd は会話の累計（続きを頼むたびに増える）なので、行を足さず会話ごとの最大を取る。会話の組は最初に見た行の group に付ける。
+    """trace の op=role_run の行の費用を group(行) ごとに足した ——{group の値: 米ドル}。total_cost_usd は会話（session_id）の累計で、
+    続きを頼むたびと、同じ会話を続ける節（same_context_as）で前の節の分を含んで増える（公式の cost-tracking の文書）。そこで行の順に、
+    その会話のそれまでの最大との差（負なら 0）を、その行の group に付ける——費用を生んだ節に付き、合計は会話ごとの最大の和と同じ。
+    前の値を最後の行でなく最大で持つのは、落ちた回の行が 0 を返しうるから（0 の次の行で累計を二重に数えない）。
     **数えるのは engine が起こした子だけ**（op=role_run の行を書くのは run_role）——会話そのものと、会話が Agent で起こした役は入らない"""
-    sessions = {}
+    high, out = {}, collections.defaultdict(float)
     for r in rows:
         sid, cost = r.get("session_id"), r.get("total_cost_usd")
         if r.get("op") == "role_run" and sid and isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            prev = sessions.get(sid)
-            sessions[sid] = (prev[0] if prev else group(r), max(cost, prev[1] if prev else cost))
-    out = collections.defaultdict(float)
-    for g, c in sessions.values():
-        out[g] += c
+            prev = high.get(sid, 0)
+            out[group(r)] += max(0, cost - prev)
+            high[sid] = max(prev, cost)
     return dict(out)
 
 
-COST_WHAT = ("engine が起こした子の total_cost_usd を会話ごとの最大で足した値（米ドル）——会話そのもの・会話が Agent で起こした役・"
-             "会話がこなした節の分は入らない。trace の読めない行（skipped）は数えていない")
+COST_WHAT = ("engine が起こした子の total_cost_usd（会話の累計）を、行ごとにその会話のそれまでの最大との差にして足した値（米ドル）——"
+             "続ける節の分はその節に付く。会話そのもの・会話が Agent で起こした役・会話がこなした節の分は入らない。trace の読めない行（skipped）は数えていない")
 
 
-def trace_costs(trace_path):
-    """盤面の trace.jsonl から、engine が起こした子の費用 ——{usd, by_node, skipped, what}（session_costs を節ごとに）。読めない行
-    （JSON でない・辞書でない）は数えずに skipped に件数を出し、trace が無ければ None。status と run の報告が見せる"""
+def trace_rows(trace_path):
+    """盤面の trace.jsonl の行 ——(辞書の行の一覧, 読めない行の数)。読めない行（JSON でない・辞書でない）は数えるだけ。trace が無ければ None"""
     try:
         lines = pathlib.Path(trace_path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -460,6 +469,16 @@ def trace_costs(trace_path):
             rows.append(r)
         elif line.strip():
             skipped += 1
+    return rows, skipped
+
+
+def trace_costs(trace_path):
+    """盤面の trace.jsonl から、engine が起こした子の費用 ——{usd, by_node, skipped, what}（session_costs を節ごとに）。読めない行は
+    数えずに skipped に件数を出し、trace が無ければ None。status と run の報告が見せる"""
+    got = trace_rows(trace_path)
+    if got is None:
+        return None
+    rows, skipped = got
     by = session_costs(rows, group=lambda r: str(r.get("node")))
     return {"usd": round(sum(by.values()), 4), "by_node": {k: round(v, 4) for k, v in sorted(by.items())}, "skipped": skipped,
             "what": COST_WHAT}
@@ -906,6 +925,35 @@ def group_alive(mark):
     return True if os.name != "posix" else _answers(os.killpg, pgid)
 
 
+def mark_launch(result_path):
+    """背景の線の launch そのもののプロセスグループの印（pgid_path(result_path)）を書く。書くのは線の launch（commands.cmd_launch）が
+    起こした印を盤面に書く前、消すのは締めと落ちた印の後——印が在って launch も子も居なければ、launch が締めの前に落ちた（lane_failure）。
+    Windows はグループの生死を確かめない（group_alive）ので書かない"""
+    if os.name != "posix":
+        return None
+    p = pgid_path(result_path)
+    pathlib.Path(p).write_text(json.dumps({"pgid": os.getpgrp(), "owner": os.getpid()}), encoding="utf-8")
+    return p
+
+
+def lane_failure(result_path):
+    """背景の線が結果を書かずに終わった理由（結果が在る・まだ走っているなら None）——結果の置き場の落ちた印（util.LANE_FAILED。launch が
+    書く）か、launch の印（mark_launch）が在るのに launch も子（pgid_path(<結果>.tmp)）も居ないこと（締めの前に launch が落ちた）。後者は
+    書く側の出口ごとに印を足さず、読む時に導く——launch を立てた回し手が先に抜けた後の落ちも、読む側（run の報告と rules の線の読み）に出る。
+    生死を確かめられない回（None）は落ちたと言わない"""
+    p = pathlib.Path(result_path)
+    if p.is_file():
+        try:
+            body = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None   # 結果の形の検めは読む側（rules）の仕事
+        return body.get(LANE_FAILED) if isinstance(body, dict) else None
+    mark = pgid_path(result_path)
+    if pathlib.Path(mark).is_file() and group_alive(mark) is False and group_alive(pgid_path(str(result_path) + ".tmp")) is False:
+        return "線の launch が結果を書かずに、締めの前に居なくなった（run.log を見よ）"
+    return None
+
+
 def liveness(inst):
     """待っている instance の経過と試行の回数（util.waiting）に、engine が起こして走っている試行なら子のグループが生きているか（alive）を
     足した値——status と run の報告が同じここを引く"""
@@ -1058,11 +1106,9 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
     prompt_file 指示書（標準入力で渡す）
     out_path    返答の本文の置き場
     accept      accept(本文) -> None（受け付けた）| str（拒んだ理由——役に返して出し直させる）。
-                役のせいでない失敗（盤面が読めない等）は例外で投げよ——続きを頼まずに止まり、why に載る。
-                util.HandBack を投げたら続きを頼まずに止まり、返り値に handback: True を足す（節を会話に返す）
+                役のせいでない失敗（盤面が読めない等）は例外で投げよ——続きを頼まずに止まり、why に載る
     resume_argv 拒まれたときに同じ会話を続ける語。'{session_id}' の語を会話の番号で埋める。None なら続けない
-    max_resumes 拒まれて続きを頼む回数の上限。0 でなければ、返答を受け付けに回せずに終わった回（包みを解けない・役が誤りで
-                終わった・exit が正）にも CRASH_RESUMES 回まで CRASH_NOTE で続きを頼む（信号で止まった回・起こせない回は頼まない）
+    max_resumes 続きを頼む回数の上限
     log_path    実行の要約を JSON Lines で足す先（1 起動 1 行・op は role_run。engine は盤面の trace.jsonl を渡す）
     meta        要約の各行に添える値（instance・周など。呼び出し側の語彙で、この関数は読まない）
     cwd / env   子の作業ディレクトリと環境（None なら呼び出し側のもの）
@@ -1070,18 +1116,16 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
 
     正常に終わった往復の木の残りは、試行の終わりに 1 回まとめて止める（_end_attempt）
 
-    返り値: {"ok", "why", "session_id", "superseded", "accepted", "runs": [要約…], "rejections": [理由…], "resumes": 拒みの続きの回数,
-            "crashes": [受け付けに回せずに続きを頼んだ理由…]}
+    返り値: {"ok", "why", "session_id", "superseded", "accepted", "runs": [要約…], "rejections": [理由…]}
     """
     with open(prompt_file, "rb") as fh:
         stdin = fh.read()
-    got = {"ok": False, "why": None, "session_id": None, "superseded": False, "accepted": None, "runs": [], "rejections": [],
-           "resumes": 0, "crashes": []}
+    got = {"ok": False, "why": None, "session_id": None, "superseded": False, "accepted": None, "runs": [], "rejections": []}
     cur = list(argv)
+    env = {**(os.environ if env is None else env), ENGINE_CHILD_ENV: "1"}
     trees = []
-    kind = "first"
     try:
-        for turn in range(max_resumes + (CRASH_RESUMES if max_resumes else 0) + 1):
+        for turn in range(max_resumes + 1):
             started = time.time()
             try:
                 rc, out, err = _spawn(cur, stdin, cwd=cwd, env=env, pgid_file=pgid_path(out_path), still_mine=still_mine, trees=trees)
@@ -1093,19 +1137,18 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
             text, summary, bad = unwrap(out)
             if summary.get("session_id"):
                 got["session_id"] = summary["session_id"]
-            run = {"turn": turn + 1, "kind": kind, "exit": rc,
+            run = {"turn": turn + 1, "kind": "first" if turn == 0 else "resume", "exit": rc,
                    "wall_s": round(time.time() - started, 1), **summary,
                    "stderr": err.decode("utf-8", "replace").strip()[-600:]}
             if bad or rc not in (0, None):
                 # 受け付けに回らなかった回（解けなかった・子が exit 0 以外で終わった）は、何が返ったかを後から読めるように
                 # 標準出力の頭を残す。包みでない出力が exit 0 以外と重なる回は、ここにしか残らない（out_path に書かず why にも載らない）
                 run["stdout_head"] = out.decode("utf-8", "replace").strip()[:600]
-            stop, crashed = True, None
+            stop = True
             if rc is None:
                 got["why"] = f"起こせない: {run['stderr']}"
             elif bad or rc != 0:
                 got["why"] = bad or f"子が exit {rc} で終わった"
-                crashed = got["why"] if rc >= 0 else None   # 負の exit は信号で止まった回——続きを頼まない
             else:
                 # 本文に孤立サロゲート（包みの JSON の \ud800 の類の逃がし）が在ると UTF-8 で書けない——書かずに、受け付けの拒否と同じ
                 # 道で役に返す（外から来た字の検めの正本は util.lone_surrogate_at）
@@ -1117,8 +1160,6 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
                 try:
                     reason = (f"返答の本文の{broken}に孤立サロゲート（UTF-8 で書けない字）がある——その字を消すか正しい字に直して返し直せ"
                               if broken else accept(text) if accept else None)
-                except HandBack as e:
-                    reason, got["why"], got["handback"] = None, f"会話に返す: {e}", True
                 except (Exception, SystemExit) as e:  # 役のせいでない失敗——続きを頼んでも直らない
                     reason, got["why"] = None, f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
                 else:
@@ -1135,20 +1176,12 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps({"t": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
                                         "op": "role_run", **(meta or {}), **run}, ensure_ascii=False) + "\n")
-            # 続きを頼むのは「役が返したが拒まれた」ときと「受け付けに回せずに終わった」ときだけ。起動の失敗・受け付けの検査の失敗は、
+            # 続きを頼むのは「役が返したが拒まれた」ときだけ。起動の失敗・受け付けの検査の失敗は、
             # 同じ会話に頼んでも直らない（続ける会話が無いか、役のせいでない）
-            if not (resume_argv and got["session_id"]):
-                break
-            if crashed and max_resumes and len(got["crashes"]) < CRASH_RESUMES:
-                got["crashes"].append(crashed)
-                kind, note = "crash_resume", CRASH_NOTE.format(why=crashed)
-            elif not stop and got["resumes"] < max_resumes:
-                got["resumes"] += 1
-                kind, note = "resume", RESUME_NOTE.format(why=got["rejections"][-1])
-            else:
+            if stop or not (resume_argv and got["session_id"]) or turn == max_resumes:
                 break
             cur = [a.replace("{session_id}", got["session_id"]) for a in resume_argv]
-            stdin = note.encode("utf-8")
+            stdin = RESUME_NOTE.format(why=got["rejections"][-1]).encode("utf-8")
     finally:
         _end_attempt(trees, pgid_path(out_path))
     return got

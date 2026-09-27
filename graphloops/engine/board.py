@@ -18,6 +18,13 @@ def empty_round(n):
     return {"round": n, "done": {}, "na": {}, "skipped": {}, "stopped": {}, "empty": [], "instances": {}, "item_counts": {}}
 
 
+def runner_node(graph, n):
+    """n が回す側の節か。盤面の無い読み（advance.node_appends・graphcheck）も Board.is_runner と同じここを引く。
+    役の名前は engine に書かない——graph の runners が正本（util.py の宣言）。以前は "skill" をここで足していたので、
+    回す側の集合が engine（runners ∪ {skill}）と graphcheck（runners だけ）でずれ、柵の対象が 1 語ぶん狭かった"""
+    return n.get("run_by") in (graph.get("runners") or [])
+
+
 # 節の条件（cond）は rules の名前付きの関数（CONDS）で、graph には名前だけを書く。関数は読む欄を宣言し（cond_reads）、
 # engine は宣言した欄だけが見える入れ物（CondView）を渡して（真偽, 理由の文）を受け取る。以前は graph の JSON の上の
 # 小さな言語（all / any / not / path+op+default / builtin）を engine が解釈し、graphcheck が同じ言語を検査していた
@@ -234,9 +241,7 @@ class Board:
         return self.graph.get("thickness", {}).get("tiers") or []
 
     def is_runner(self, n):
-        # 役の名前は engine に書かない——graph の runners が正本（util.py の宣言）。以前は "skill" をここで足していたので、
-        # 回す側の集合が engine（runners ∪ {skill}）と graphcheck（runners だけ）でずれ、柵の対象が 1 語ぶん狭かった
-        return n["run_by"] in self.runners
+        return runner_node(self.graph, n)
 
     # -- 周
     @property

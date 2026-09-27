@@ -23,11 +23,14 @@ class AnswerReject(Reject):
     作業ツリーが変わった・前段が済んでいない）は役に返しても直らないので、続きを頼まずに回す側へ上げる。"""
 
 
-class HandBack(Exception):
-    """engine が起こした子の返答を受け付けずに、節を会話に返す（rules の受け付けが投げる）。子の環境で起こせない物があった返答で、
-    子に続きを頼んでも直らず、人の答えも要らない——会話が自分でこなせば済む（Reject・AnswerReject の派生にしない: 受け付けの
-    post_check が Reject を AnswerReject に読み替え、役に続きを頼む拒みになる）。会話が done で返した返答には投げない。
-    捕まえた口（launch の締め・done）が instance の attempt_log に kind: handback を書き、振り分けはその語だけで決まる（runner.classify）"""
+# 回し役なしの run の盤面の印（state.engine_runners.handoff）。この版の init が書き、会話に返す（13）のは engine の不具合（盤面の矛盾）
+# だけになる——engine が起こせない節は理由（instance の unlaunched）を持って人に渡る（runner.classify）。印の無い盤面（前の版で始めた run・
+# --no-engine-runners の run）は今までどおり会話がこなす節を返す（人の関所の答え 2026-09-27 の 3 周目の条件 2: 旧い盤面は警告して通す）
+HANDOFF_DEFECTS = "defects"
+
+
+def defects_only(state):
+    return (state.get("engine_runners") or {}).get("handoff") == HANDOFF_DEFECTS
 
 
 # 背景の線が結果を書かずに終わった印の鍵（結果の置き場の {LANE_FAILED: 理由}）。書くのは write_lane_failed だけ
@@ -36,7 +39,8 @@ LANE_FAILED = "lane_failed"
 
 def write_lane_failed(path, why):
     """背景の線の結果の置き場に、落ちた印を書く（置き場が既に在れば書かない——書き終えた結果を上書きしない）。書けたら True。
-    書き手は線の launch そのもの（commands.cmd_launch）か、launch を起こせなかった回し手だけなので、置き場を取り合う相手は居ない"""
+    書き手は線の launch そのもの（commands.cmd_launch）か、launch を起こせなかった回し手だけなので、置き場を取り合う相手は居ない。
+    launch が印を書く前に居なくなった回は、読む側が導く（role_run.lane_failure）"""
     p = pathlib.Path(path)
     if p.exists():
         return False
@@ -47,6 +51,17 @@ def write_lane_failed(path, why):
     except OSError:
         return False
     return True
+
+
+def find_attempt(rounds, iid, out_path):
+    """周の表（state.rounds）の全部から、id と置き場（out_path）が一致する試行の instance（無ければ None）。置き場は試行ごとに一意
+    （relaunch は .a<試行> の新しい置き場を作る。Temporal の task token と同じ）なので、周をまたいで走る背景の線の試行も、今の周の表に
+    依らずに引ける——今の周の表で引いていたとき、周が進んだ後に落ちた線を『起こし直された古い試行』と読み、落ちた印を書かなかった"""
+    for rd in reversed(rounds):
+        inst = rd["instances"].get(iid)
+        if inst is not None and inst.get("out_path") == out_path:
+            return inst
+    return None
 
 
 class BoardConflict(SystemExit):

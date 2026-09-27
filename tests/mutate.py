@@ -149,6 +149,9 @@ PYTEST_MARK = "GL_MARK_PYTEST"
 # 写しの中で起こす子に立てる環境変数（child_env が渡す）。graphloops の台帳（graphloops/tests/py/ledger.py の MUTATE_COPY）が読み、
 # 前の版の無い素の写しでは見張りの突合を見送る——赤にすると control の pytest が赤になり、pytest の殺しが証拠から落ちる
 COPY_MARK = "GL_MUTATE_COPY"
+# graphloops の engine が起こした子（役・任せ先・書く子）の環境の印。立っていれば --check のほかを拒む（main）。名前の正本は
+# graphloops/engine/role_run.py の ENGINE_CHILD_ENV（揃いは graphloops/tests/py/test_engine_guards.py が縛る）
+ENGINE_CHILD = "GRAPHLOOPS_ENGINE_CHILD"
 # node id を並べた引数がこの字数を超える腕は、テストのファイル単位に落とす（Windows の cmd の 8191 字・CreateProcess の 32767 字の手前）
 ARGV_MAX = 8000
 PYTEST_RED = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - .*)?$")   # -ra の短い要約の行（pytest.ini の addopts）
@@ -1515,6 +1518,10 @@ def main():
     if a.gate_efficacy:
         print(json.dumps(gate_efficacy(json.loads(pathlib.Path(a.gate_efficacy).read_text(encoding="utf-8"))), ensure_ascii=False, indent=1))
         sys.exit(0)
+    if os.environ.get(ENGINE_CHILD) and not a.check:
+        print(f"NG engine が起こした子（環境の {ENGINE_CHILD}）からは --check のほかを走らせない——人の方針: 変異テストは手元の機械で"
+              "撃たない（撃つのは CI）。手元で許すのは --check と、変異を殺すテストを書いた直後の単体テストだけ", file=sys.stderr)
+        sys.exit(2)
     global ARMS_FILE
     if a.arms_file:
         ARMS_FILE = pathlib.Path(a.arms_file)

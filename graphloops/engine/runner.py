@@ -26,9 +26,9 @@ import subprocess
 import sys
 import time
 
-from . import filelock
-from .role_run import group_alive, liveness, pgid_path, trace_costs
-from .util import LANE_FAILED, Reject, now, write_lane_failed
+from . import filelock, intake
+from .role_run import group_alive, lane_failure, liveness, pgid_path, trace_costs
+from .util import Reject, defects_only, now, write_json, write_lane_failed
 
 LOOP = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "loop.py"
 WATCH_LIMIT_S = 540   # 見守りが会話へ戻る上限（人の決定 2026-09-25 ①）。回し手と子は止めない
@@ -40,16 +40,19 @@ MARKS = "runner-launch"   # 回し手が立てた launch の子の印（role_run
 TERMINAL = ("converged", "stopped")
 # run だけが返す終了コード（人の決定 2026-09-25 ④）。今の 0/1/2 の意味は run 以外で変えない
 CODES = {"done": 0, "awaiting_human": 10, "round_limit": 11, "stuck": 12, "handoff": 13, "needs_human": 14, "still_running": 20}
-# 日常の流れで返る値——入口（loop.py）が踏んだ問題として利用者の環境に残さない
+# 日常の流れで返る値——入口（loop.py）が踏んだ問題として利用者の環境に残さない。13（会話に返す）は回し役なしの盤面でだけ engine の
+# 不具合（盤面の矛盾）で、その 13 は回し手の層が残す（_note_defect。前の版の盤面と会話で回す run の 13 は日常の止まり方）
 QUIET_CODES = frozenset({10, 11, 13, 20})
 HOW = {
     "done": "run は終わった（status・halted・stop_reason を見よ）。報告の節が書いた本文は盤面の report.md",
     "awaiting_human": "ask を人に見せ（手順書の『聞き方』）、答えを loop.py answer で返してから run を打ち直せ",
     "round_limit": "init --stop-after-round の周で止めた。続けるなら loop.py resume --reason <理由> --stop-after-round <N>",
     "stuck": "detail を読め——直してから run を打ち直す（作業ツリーの突合なら next --accept-tree-change、回し手の信号なら打ち直すだけ）",
-    "handoff": "handoff の節を各行の handoff_why と手順書どおりにこなし、done してから run を打ち直せ。回し手は起こせる節を回し続けている",
-    "needs_human": ("needs_human を人に見せよ（起こし直すなら、作業ツリーを書き換える節は作業ツリーを確かめてから loop.py relaunch、"
-                    "置き場の返答を受け付けるなら done、起こせない役は人に渡す）"),
+    "handoff": ("handoff の節を各行の handoff_why どおりにこなし（返答は別のファイルに書いて done --node <id> --output <file>）、"
+                "run を打ち直せ。回し役なしの run の 13 は engine の不具合（盤面の矛盾）——記録器に残る。回し手は起こせる節を回し続けている"),
+    "needs_human": ("needs_human の各行の why を読み、推しで済む物は会話がこなせ（起こし直すなら、作業ツリーを書き換える節は作業ツリーを"
+                    "確かめてから loop.py relaunch。外し方を名指した理由なら当ててから relaunch --reprobe。engine が起こした子の返答を"
+                    "会話が引き取るなら、返答を別のファイルに書いて done --output）——人に上げるのは取捨だけ"),
     "still_running": "回し手が回している。何もせずに run を打ち直せ",
 }
 
@@ -74,22 +77,36 @@ def _last_reason(i):
     return _last(i, "reason") or "起こしたが受け付けていない"
 
 
-def _handoff_why(i):
+def _handoff_why(i, st):
     """会話に返す節の理由（盤面の汎用の印だけから決める）"""
     launch = i.get("launch") or {}
+    if defects_only(st):
+        what = ("受領の形（launch.receipt）を持たない背景の線" if launch.get("background")
+                else "engine が起こす語（launch）も、起こせない理由（unlaunched）も持たない節")
+        return (f"盤面の矛盾（engine の不具合）: {what}——回し役なしの run では、どの節も engine が起こすか、起こせない理由を人に渡す"
+                "（graphcheck が graph の側を縛る）。会話は done --output でこなして進め、記録器に残った行を報せよ")
+    old = "（前の版の engine で始めた盤面——今までどおり会話がこなす）" if st.get("engine_runners") else ""
     if launch.get("background"):
-        return "背景の任せ先（受領の形を持たない旧い盤面）——受領の done と背景の launch は会話がする（回し手は立てない）"
-    if _last(i, "kind") == "handback":
-        return f"engine が起こした子が受け付けまで届かなかった（{_last_reason(i)}）——会話がこの節をこなして done する"
-    return i.get("runner_unlaunched") or ("engine が起こす語（launch）を持たない節——Agent で起こす任せ先（init --unfenced-delegates）・"
-                                          "init --no-engine-runners の run の回す側の節は会話がこなす")
+        return f"背景の任せ先（受領の形を持たない旧い盤面）——受領の done と背景の launch は会話がする（回し手は立てない）{old}"
+    if i.get("launch_state") == "ended":
+        return f"engine が起こした子が受け付けまで届かなかった（{_last_reason(i)}）——会話がこの節をこなして done する{old}"
+    why = i.get("unlaunched") or i.get("runner_unlaunched") or ("engine が起こす語（launch）を持たない節——Agent で起こす任せ先"
+                                                                  "（init --unfenced-delegates）・init --no-engine-runners の run の回す側の節は会話がこなす")
+    return why + old
+
+
+def _handed_back(i, st):
+    """前の版の盤面で、起こして終わった試行を会話に返すか——受け付けが返した語（handback）・skill の節（前の版の launch.on_fail: handoff）・
+    入れ子の sandbox の場で起こさなかった書き換える節（前の版は emit で会話に返した。締めの印 env）"""
+    launch = i.get("launch") or {}
+    return not defects_only(st) and (_last(i, "kind") == "handback" or launch.get("skill") or bool(_last(i, "env") and launch.get("edits")))
 
 
 def classify(st):
     """盤面から止まった種類と、その材料を組む ——{kind, handoff, needs_human, launchable, running, lanes}。
     kind が busy なら止まる所ではない（起こせる節か走っている節か、回し手が立てる線が在る）。材料は汎用の印だけ（節の名前・段を持たない）。
-    起こして終わったのに受け付けていない試行は、attempt_log の最後の語が handback なら会話に返し、ほかは人に渡す——振り分けは
-    ここ 1 か所で、語を書くのは launch の締め（commands.cmd_launch の settle）と done の受け付け（commands.cmd_done）。
+    回し役なしの盤面（defects_only）では、起こして終わったのに受け付けていない試行と、起こせない理由（unlaunched）を持つ節は人に渡し（14）、
+    launch も理由も持たない節だけが盤面の矛盾として会話に返る（13）。前の版の盤面は今までどおり（人の関所の答え 2026-09-27 の 3 周目の条件 2）。
     人の答え待ち・止めた run では線を立てない"""
     rd = st["rounds"][-1]
     pending = [i for i in rd["instances"].values() if i.get("status") == "pending"]
@@ -98,13 +115,16 @@ def classify(st):
     halted = st.get("halted") or {}
     lanes = [] if halted or st.get("pending_human") else [
         i for i in pending if launch(i).get("background") and launch(i).get("receipt") is not None and not i.get("launched_at")]
-    handoff = [{**i, "handoff_why": _handoff_why(i)} for i in pending
-               if not i.get("launch") or (launch(i).get("background") and launch(i).get("receipt") is None)
-               or (i in ended and _last(i, "kind") == "handback")]
+    unlaunched = [i for i in pending if not i.get("launch") and i.get("unlaunched")] if defects_only(st) else []
+    handoff = [{**i, "handoff_why": _handoff_why(i, st)} for i in pending
+               if not i.get("launch") and i not in unlaunched or (launch(i).get("background") and launch(i).get("receipt") is None)
+               or (i in ended and _handed_back(i, st))]
     launchable = [i for i in pending if i.get("launch") and not launch(i).get("background") and not i.get("launched_at")]
     running = [i for i in pending if i.get("launch") and i.get("launch_state") == "running"]
-    # 起こして終わったのに受け付けていない試行（柵の拒否・子が落ちた・拒否が上限まで続いた・盤面の競りで書けなかった）
-    needs = [{"id": i["id"], "why": _last_reason(i)} for i in ended if _last(i, "kind") != "handback"]
+    # 起こして終わったのに受け付けていない試行（柵の拒否・子が落ちた・拒否が上限まで続いた・盤面の競りで書けなかった）と、engine が
+    # 起こせない理由を emit が書いた節
+    needs = ([{"id": i["id"], "why": _last_reason(i)} for i in ended if not _handed_back(i, st)]
+             + [{"id": i["id"], "why": i["unlaunched"]} for i in unlaunched])
     if st.get("pending_human"):
         kind = "awaiting_human"
     elif halted.get("by") == "stop_after_round":
@@ -186,7 +206,7 @@ class _Runner:
         （待たない——周の締めも次の周も線を待たない）。会話が手順書どおりにしていた 2 手を、同じ CLI で打つだけ。返すのは立てられなかった
         理由（立てたら None）。止め方の正本は手順書の『線を止めるとき』（線の子の印から親を辿って止める）"""
         iid = inst["id"]
-        pathlib.Path(inst["out_path"]).write_text(json.dumps(inst["launch"]["receipt"], ensure_ascii=False), encoding="utf-8")
+        write_json(inst["out_path"], inst["launch"]["receipt"])
         rc, _o, err = _cli(self.d, "done", "--node", iid)
         if rc != 0:
             return f"'{iid}' の受領を受け付けられない（done exit {rc}: {err.strip()[-400:]}）"
@@ -231,9 +251,6 @@ class _Runner:
             _trace(self.d, "recover", instance=iid, how="done", exit=rc)
             if rc == 0:
                 return None
-            cur = read_state(self.d)["rounds"][-1]["instances"].get(iid) or {}
-            if cur.get("launch_state") == "ended" and _last(cur, "kind") == "handback":
-                return None   # 受け付けが節を会話に返した（classify が handoff に出す）——子を起こし直さない
         rc, _o, err = _cli(self.d, "relaunch", "--node", iid, "--reason", "回し手が起こした launch が受け付けの前に落ちた（loop.py run が拾い直す）")
         _trace(self.d, "recover", instance=iid, how="relaunch", exit=rc)
         return None if rc == 0 else f"'{iid}' を起こし直せない（relaunch exit {rc}: {err.strip()[-400:]}）"
@@ -408,13 +425,14 @@ def watch(d):
 
 
 def lanes_failed(st):
-    """結果の置き場に落ちた印（util.LANE_FAILED）を持つ背景の線——[{id, round, why}]。線は周を越えて走るので全周を見る"""
+    """結果を書かずに終わった背景の線（role_run.lane_failure）——[{id, round, why}]。線は周を越えて走るので全周を見る"""
     out = []
     for rd in st["rounds"]:
         for i in rd["instances"].values():
-            body = _read_json((i.get("launch") or {}).get("result_path") or "", None) if (i.get("launch") or {}).get("background") else None
-            if isinstance(body, dict) and LANE_FAILED in body:
-                out.append({"id": i["id"], "round": rd["round"], "why": body[LANE_FAILED]})
+            launch = i.get("launch") or {}
+            why = lane_failure(launch["result_path"]) if launch.get("background") and launch.get("result_path") else None
+            if why:
+                out.append({"id": i["id"], "round": rd["round"], "why": why})
     return out
 
 
@@ -438,6 +456,15 @@ def report(d, kind, c, detail=None, code=None):
     print(json.dumps(out, ensure_ascii=False))
 
 
+@intake.quiet
+def _note_defect(d, kind, c):
+    """回し役なしの盤面の 13 は engine の不具合（盤面の矛盾）——記録器に 1 行残す（入口は 13 を日常の止まり方として残さない）"""
+    st = read_state(d)
+    if kind == "handoff" and defects_only(st):
+        intake.record("auto", intake.where_of(["run"]), exc="board_contradiction", func="runner.classify", state=st,
+                      detail="; ".join(f"{i['id']}: {i['handoff_why']}" for i in c["handoff"]))
+
+
 def cmd_run(a, d):
     """loop.py run の入口。d は入口が解決した盤面の置き場"""
     if not (pathlib.Path(d) / "state.json").is_file():
@@ -451,8 +478,10 @@ def cmd_run(a, d):
                 report(d, "signal", c, "回し手は信号で止まった（起こし済みの子の終わりを待った。新しい子は起こしていない）", code=128 + r.signum)
                 sys.exit(128 + r.signum)
             report(d, kind, c, r.detail)
+            _note_defect(d, kind, c)
             sys.exit(CODES[kind])
     kind, c, detail = watch(d)
     report(d, kind, c, detail)
+    _note_defect(d, kind, c)
     sys.exit(CODES[kind])
 

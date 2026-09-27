@@ -21,7 +21,7 @@ linked worktree の盤面（<共有>/worktrees/<名>/graphloops/<loop>/<run_id>/
 - 関所の答え: trace の answer の値と kinds をそのまま数える。答えを打った者は盤面に記録が無い
 - 受け付け: trace の role_run の accepted の値（True / False / None / 欄なし）をそのまま数え、False の行は why の頭の句で数える
   （頭の句は、絶対パス・家の置き場・ログイン名を伏せてから切って束ねる——パスだけ違う頭は 1 つに束ねられる）
-- 費用: role_run の total_cost_usd は会話の累計なので、会話（session_id）ごとの最大を足す
+- 費用: role_run の total_cost_usd は会話の累計なので、engine の role_run.session_costs（会話ごとの前の最大との差を足す）で数える
 - 時間: 経過（trace の最初と最後の時刻の差。人待ち・止めた間を含む）と、役の実行の合計（role_run の wall_s の和）
 - 走っている run: status が running でも生きているとは限らないので、最後の痕跡（trace の最後の時刻）からの経過を出す
 
@@ -388,7 +388,7 @@ def render(agg, total, roots_note):
         el, idle = a["elapsed_min"], a["since_last_trace_min"]
         lines.append(f"時間: 経過の中央値 {el['median']} 分（{el['n']} 本。人待ち・止めた間を含む）・役の実行の合計 "
                      f"{round(a['role_wall_s'] / 3600, 1)} 時間・running の最後の痕跡からの経過の中央値 {idle['median']} 分（{idle['n']} 本）")
-        lines.append(f"費用: {a['cost_usd']} USD（会話ごとの最大の和）")
+        lines.append(f"費用: {a['cost_usd']} USD（engine が起こした子の会話の累計の増え分の和）")
         if a["unreadable_parts"]:
             lines.append(f"一部が読めない run: {a['unreadable_parts']}（--runs の unreadable_parts）")
     return "\n".join(lines)
