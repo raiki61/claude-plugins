@@ -1098,8 +1098,14 @@ class FenceCase(unittest.TestCase):
         self.assertNotIn(str(self.e.cwd), self.settings()["sandbox"]["filesystem"]["denyWrite"])
 
     def test_no_tree_write_without_sandbox_refused(self):
-        """SDK が sandbox の塊を渡さない（か enabled でない）起動は起こさない: 役の書く道は Bash だけで、守りは denyWrite だけ"""
-        for settings in (None, '{"permissions": {"deny": []}}', '{"sandbox": {"enabled": false}}'):
+        """SDK が sandbox の塊を渡さない・enabled でない・allowUnsandboxedCommands が false でない・failIfUnavailable が true でない
+        起動は起こさない: 役の書く道は Bash だけで、守りは sandbox の denyWrite だけ"""
+        for settings in (None, '{"permissions": {"deny": []}}', '{"sandbox": {"enabled": false}}',
+                         # sandbox の外で Bash を走らせる道・sandbox が立たない場で素通しになる道が開いている（再審査 N2）
+                         '{"sandbox": {"enabled": true, "allowUnsandboxedCommands": true, "failIfUnavailable": true}}',
+                         '{"sandbox": {"enabled": true, "allowUnsandboxedCommands": false, "failIfUnavailable": false}}',
+                         '{"sandbox": {"enabled": true, "failIfUnavailable": true}}',
+                         '{"sandbox": {"enabled": true, "allowUnsandboxedCommands": false}}'):
             with self.subTest(settings):
                 r = self.e.run(sdk_argv("works-node: ci no-tree-write", settings=settings))
                 self.assertEqual(r.returncode, 3, r.stderr)

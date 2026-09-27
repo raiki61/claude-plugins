@@ -39,8 +39,9 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    だけを通す口 no-post-bin/works-gh を env の WORKS_GH で渡し、PATH の頭に同じ口を gh の名で置く（NO_POST_DENY の注記）。
 6. **旗 no-tree-write**（CI の任せ先の役。裁定 R56）: 役の sandbox は graphloops の任せ先と同じ allowWrite ['/']（依存の
    置き場・網を今までどおり使う）なので、本物の作業ツリーは包みが守る。役の cwd の worktree の根（`git rev-parse
-   --show-toplevel`。全部の綴り）を 3 の柵（denyWrite・permissions.deny）に足す。SDK が sandbox の塊（enabled: true）を
-   渡していない起動・切符の無い起動・根が git から引けない起動は起こさない（役が書く道は Bash だけで守りは denyWrite だけ。
+   --show-toplevel`。全部の綴り）を 3 の柵（denyWrite・permissions.deny）に足す。SDK が sandbox の塊（enabled: true・
+   allowUnsandboxedCommands: false・failIfUnavailable: true）を渡していない起動・切符の無い起動・根が git から引けない
+   起動は起こさない（役が書く道は Bash だけで守りは denyWrite だけ。
    盤面・pack・git の設定の守りは切符にしか無い）。切符の「役の cwd の worktree 自身は除く」はそのまま（書く役の fix のため）
 7. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
    会話の id を記録できない時は、claude を起こさずに 1 行を出して止まる（fail closed）。
@@ -457,6 +458,9 @@ def _no_tree_write_places(argv: Sequence[str], cwd, ticketed: bool) -> List[str]
     if not (isinstance(sandbox, dict) and sandbox.get("enabled") is True):
         raise Unrecognised("旗 no-tree-write の役に SDK が sandbox の塊（enabled: true）を渡していない——作業ツリーを守る"
                            "denyWrite を足す先が無い")
+    if not (sandbox.get("allowUnsandboxedCommands") is False and sandbox.get("failIfUnavailable") is True):
+        raise Unrecognised("旗 no-tree-write の役の sandbox が allowUnsandboxedCommands: false・failIfUnavailable: true でない——"
+                           "sandbox の外で走る Bash・sandbox が立たない場の素通しには denyWrite が効かない")
     if not ticketed:
         raise Unrecognised("旗 no-tree-write の役に切符が無い——allowWrite ['/'] の下で盤面・pack・git の設定を守れない")
     top = own_worktree(cwd)
