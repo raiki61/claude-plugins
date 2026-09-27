@@ -350,8 +350,51 @@ class AcceptCase(PrCase):
         got = prcheck.collect(b.dir, opener=opener)
         self.assertEqual((got["ok"], got["excluded"]), (True, 1))
         self.assertEqual(pathlib.Path(got["excluded_file"]), opener(b.dir).work(prcheck.EXCLUDED))
-        self.assertEqual(json.loads(pathlib.Path(got["excluded_file"]).read_text(encoding="utf-8")),
-                         {"node": prcheck.NODE, "excluded": reply("pr_ok.json")["excluded"]})
+        doc = json.loads(pathlib.Path(got["excluded_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(doc["node"], prcheck.NODE)
+        self.assertEqual([{k: h[k] for k in ("pr", "file", "start", "end", "why")} for h in doc["excluded"]],
+                         reply("pr_ok.json")["excluded"])
+
+    def test_malformed_reply_bounced_not_crashed(self):
+        """型の崩れた返答（conflicts の pr が配列・note が数）→ 例外でなく ok false（型の文）で役に返す。盤面は前のまま。
+        外す hunk の検査より先に写しの schema を当てる"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        before = board_shas(b.dir)
+        base = reply("pr_ok.json")
+        row = base["conflicts"][0]
+        for bad in (dict(base, conflicts=[dict(row, pr=["7"])], excluded=[]),
+                    dict(base, conflicts=[dict(row, note=5)]),
+                    dict(base, conflicts=[dict(row, files="stats.py")])):
+            got = prcheck.take(b.dir, bad, self.repo, opener=opener)
+            self.assertFalse(got["ok"], bad)
+            self.assertIn("型", got["reason"])
+            self.assertEqual(board_shas(b.dir), before)
+
+    def test_excluded_carries_content_anchor(self):
+        """外す hunk ごとに、受け付けた時の行の中身（text）とその sha256 と、写しの HEAD を pr-excluded.json に残す
+        （後の周の修正で行がずれても、後の役が中身で引き直せる）"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        self.assertTrue(prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)["ok"])
+        doc = json.loads(opener(b.dir).work(prcheck.EXCLUDED).read_text(encoding="utf-8"))
+        text = "def mean(xs):\n    return sum(xs)\n"
+        self.assertEqual(doc["head"], self.git("rev-parse", "HEAD").strip())
+        h = doc["excluded"][0]
+        self.assertEqual({k: h[k] for k in ("pr", "file", "start", "end")}, {"pr": "7", "file": "stats.py", "start": 1, "end": 2})
+        self.assertEqual(h["text"], text)
+        self.assertEqual(h["sha256"], hashlib.sha256(text.encode("utf-8")).hexdigest())
+
+    def test_unborn_head_after_role_is_reply_reject(self):
+        """役が HEAD を生まれていない枝にした（checkout --orphan）→ 回す側の誤り（例外）でなく ok false"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        before = board_shas(b.dir)
+        self.git("checkout", "-q", "--orphan", "newroot")
+        got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+        self.assertFalse(got["ok"])
+        self.assertIn("作業ツリーを変えた", got["reason"])
+        self.assertEqual(board_shas(b.dir), before)
 
     def test_excluded_checked(self):
         """外す hunk の誤り → ok false（役に返す）、盤面は前のまま: 欄が無い・PR が conflicts に無い・ファイルが交差に無い・

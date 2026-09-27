@@ -19,6 +19,7 @@ excluded に並べ、受け付けが確かめて今の周の pr-excluded.json �
 盤面を開く口は線 A の entry.open_board（Task 3）。ここでは opener で差し替えられる（試験は節の表を渡して開く）。
 take は entry.take（Task 9）と同じ約束の、このブロックだけの形（Task 9 が入ったら entry.take に寄せる。報告の配線の残り）。
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -61,8 +62,10 @@ def _output_format():
 OUTPUT_FORMAT = _output_format()
 SNAPSHOT = "pr-snapshot.json"   # 役を起こす前の作業ツリーの写し（accept.snapshot_tree の形に head・ref を足した物）
 EXCLUDED = "pr-excluded.json"   # 受け付けた外す hunk {node, excluded}（collect の excluded_file）
-# 役が打ってよい gh の語（全部 -R <owner/repo> を付ける）と、打ってはいけない語。gh api は読むだけの形でも丸ごと禁じる
-# （-f・-F・--input で既定が POST になり、-X は道の後ろにも書けるので、語の頭で柵を組めない）
+# GH_READ: 役が打ってよい gh の語（全部 -R <owner/repo> を付ける）。包みの柵（Task 5）はこれを正本にした許す物の一覧
+#   （既定で拒む形）で組む——禁じる物の一覧は読むだけの役にとって完全にならない（gh pr update-branch・git push など）。
+# GH_DENY: 指示書が名指して禁じる語（役に向けた念押し。柵の正本ではない）。gh api は読むだけの形も含めて丸ごと禁じる
+#   （-f・-F・--input で既定が POST になり、-X は道の後ろにも書けるので、語の頭で柵を組めない）
 GH_READ = ("gh pr list", "gh pr view", "gh pr diff")
 GH_DENY = ("gh api", "gh pr comment", "gh pr review", "gh pr edit", "gh pr create", "gh pr close", "gh pr merge",
            "gh pr ready", "gh pr reopen", "gh pr checkout", "gh issue comment", "gh issue create", "gh issue edit",
@@ -141,8 +144,18 @@ def _tree_state(repo: pathlib.Path) -> dict:
     return {**snapshot_tree(repo), "head": head, "ref": ref if code == 0 else ""}
 
 
+def _anchored(excluded: list, repo) -> list:
+    """外す hunk ごとに、受け付けた時の行の中身 text（start〜end。改行つき）と、その行のバイトの sha256 を足した写し。
+    行の番号は後の周の修正でずれるので、後の役・受け付けは中身で引き直す（review-graph は同じ writer が中身で覚えている）"""
+    out = []
+    for h in excluded:
+        raw = b"".join((pathlib.Path(repo) / h["file"]).read_bytes().splitlines(keepends=True)[h["start"] - 1:h["end"]])
+        out.append({**h, "text": raw.decode("utf-8", "replace"), "sha256": hashlib.sha256(raw).hexdigest()})
+    return out
+
+
 def check_excluded(reply: dict, repo) -> list:
-    """外す hunk（excluded）の誤りの一覧（空なら通す）: 型・start <= end・PR が conflicts に在りファイルがその行の files に在る・
+    """外す hunk（excluded）の誤りの一覧（空なら通す。返答の残りは写しの schema を通った後に呼ぶ）: 型・start <= end・PR が conflicts に在りファイルがその行の files に在る・
     ファイルが今の作業ツリーに在り end が行の数を超えない・外す hunk を持つ PR の行に申し送りの下書き（note）が在る"""
     ex = reply.get("excluded")
     if ex is None:
@@ -214,7 +227,11 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise BoardGap(f"{snap_p} が読めない: {e}") from None
     repo = pathlib.Path(repo)
-    now = _tree_state(repo)
+    try:
+        now = _tree_state(repo)
+    except Reject as e:   # 役を起こす前は引けた（pr-snap が写した）——引けなくなったのは役が HEAD を動かしたから（checkout --orphan など）
+        return {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: 作業ツリー・HEAD が引けなくなった"
+                f"（checkout・switch・stash・reset・gh pr checkout を打つな）: {e}"}
     if now != before:
         moved = [f"{k}: 役を起こす前 {before[k] or '（切り離した HEAD）'} / 今 {now[k] or '（切り離した HEAD）'}"
                  for k in ("head", "ref") if now[k] != before[k]]
@@ -222,15 +239,19 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
                 "（checkout・switch・stash・reset・gh pr checkout を打つな）"
                 f"（git status --porcelain: 役を起こす前 {before['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}"
                 + "".join(f"・{m}" for m in moved) + "）"}
+    # 写しの schema を先に当てる（型の崩れた conflicts を外す hunk の検査が読んで落ちないように。拒みの文は盤面の done と同じ形）
+    errs = validate_schema({k: v for k, v in reply.items() if k != "excluded"}, role_schema(NODE))
+    if errs:
+        return {"ok": False, "reason": "返答が型に合わない（直して返し直す）:\n" + "\n".join(f"  - {e}" for e in errs)}
     errs = check_excluded(reply, repo)
     if errs:
         return {"ok": False, "reason": "外す hunk（excluded）が合わない: " + "; ".join(errs)}
-    excluded = reply["excluded"]
+    excluded = _anchored(reply["excluded"], repo)
     try:
         p = b.done(NODE, {k: v for k, v in reply.items() if k != "excluded"})
     except AnswerReject as e:
         return {"ok": False, "reason": str(e)}
-    _write(b.work(EXCLUDED), {"node": NODE, "excluded": excluded})
+    _write(b.work(EXCLUDED), {"node": NODE, "head": now["head"], "excluded": excluded})
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
             "out_file": b.state["outputs"][NODE]["file"]}
 
