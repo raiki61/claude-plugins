@@ -39,6 +39,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from gitkit import GIT_ID, committed_copy, git
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
 
@@ -80,13 +82,6 @@ def tearDownModule():
             BASETEMP_PARENT.rmdir()   # 空の時だけ消える
         except OSError:
             pass
-
-
-def git(cwd, *args):
-    result = subprocess.run(
-        ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True
-    )
-    return result.stdout.strip()
 
 
 def run_tests(cwd):
@@ -478,8 +473,6 @@ class TestDevShell(unittest.TestCase):
                 self.assertIn("workflow test works", args)   # 赤でも残りは回す
 
     # ---- dogfood.sh（works 自身のリポジトリを対象にラインを回す）。AI の要らない所だけを偽の Archon で見る
-    GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
-
     def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root="/out", runs_json=None, **env_kw):
         """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon で回す。
         src には commit していない物（根の未追跡・works/ の中の書き換えと未追跡）を残す。
@@ -487,10 +480,8 @@ class TestDevShell(unittest.TestCase):
         runs_json（省略時は working_path・output_root の止まった run を 1 本）を返す。
         戻り値は (結果, 元のリポジトリ, 呼び出しの記録)。"""
         src = tmp / "src"
-        shutil.copytree(ROOT, src / "works", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
-        subprocess.run(["git", "init", "-q", str(src)], check=True)
-        subprocess.run(["git", "-C", str(src), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(src), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
+        # works/ を src/works に写して commit した git（型の写し。gitkit）
+        committed_copy(src, ROOT, sub="works", ignore=("__pycache__", "*.pyc", ".DS_Store"))
         # commit していない物は clone にも pack にも入らない
         (src / "uncommitted.txt").write_text("手元だけの変更\n")
         with (src / "works" / "archon-plugin.json").open("a") as f:
@@ -587,7 +578,7 @@ class TestDevShell(unittest.TestCase):
             subprocess.run(["git", "init", "-q", str(wt)], check=True)
             (wt / ".archon" / "workflows" / "works" / "a.yaml").write_text("x\n")
             subprocess.run(["git", "-C", str(wt), "add", "-A"], check=True)
-            subprocess.run(["git", "-C", str(wt), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
+            subprocess.run(["git", "-C", str(wt), *GIT_ID, "commit", "-q", "-m", "base"], check=True)
             board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
             board.mkdir(parents=True)
             cases = {

@@ -9,7 +9,6 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,9 +26,9 @@ sys.path.insert(0, str(CORE / "graphloops"))
 
 from accept import check_judge  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+from gitkit import committed_copy, git  # noqa: E402
 
 DEADLINE = 1728000000
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
 def load(name):
@@ -50,10 +49,6 @@ def find_node(nodes, nid):
             if found is not None:
                 return found
     return None
-
-
-def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
 def run_script(name, repo, env):
@@ -161,11 +156,7 @@ class ScriptCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = pathlib.Path(self._tmp.name)
         self.repo = tmp / "repo"
-        shutil.copytree(SEED, self.repo)
-        git(self.repo, "init", "-q")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-q", "-m", "seed")
-        self.base = git(self.repo, "rev-parse", "HEAD")
+        self.base = committed_copy(self.repo, SEED)   # 種を写して commit した git（型の写し。gitkit）
         self.artifacts = tmp / "artifacts"
         self.board = self.artifacts / "board"
         self.board.mkdir(parents=True)
