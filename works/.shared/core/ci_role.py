@@ -10,13 +10,19 @@ Read・Grep・Glob とテストを走らせる Bash を持ち、Edit・Write は
 COPY_PREFIX で始まるフォルダに作る。
 
 守り（裁定 R56。graphloops の任せ先と同じ能力）: YAML の役の sandbox は graphloops の delegate_settings と同じ形（allowWrite ['/']・
-網・failIfUnavailable）で、依存の導入（~/.cache・網）と localhost のテストが通る。本物の作業ツリーは包み（claude-adapter）が守る:
-役の印の旗 no-tree-write を見て、役の cwd の worktree の根を起動ごとに denyWrite・permissions.deny に足し、sandbox・切符の無い
-起動は起こさない。受け付けは、役を起こす前と後の本物の作業ツリーの姿（accept.tree_state: porcelain・差分・git が無視するパス・
-HEAD・枝）を比べ、変わっていれば拒む——包みの無い run の保険（偽の緑を防ぐ 2 本目の線）。
-包みの無い run（入力 adapter: optional）の穴: 役の Bash は盤面（$ARTIFACTS_DIR/board）も書けるので、ci-snapshot-<節>.json を
-書き換えて作業ツリーの比べをすり抜けられる（仕様 5.1 の「包み無し」の宣言に書いた）。
+網・failIfUnavailable）で、依存の導入（~/.cache・網）と localhost のテストが通る。書き込みの守りは全部包み（claude-adapter）が
+足す: 役の印の旗 no-tree-write を見て、役の cwd の worktree の根と切符の守る場所（盤面・共通の .git・ほかの worktree・
+git とシェルと Claude の設定・Archon の家の設定と DB・pack）を起動ごとに denyWrite・permissions.deny に足し、sandbox・切符の
+無い起動は起こさない。包みが居なければ、役の Bash は Claude Code の既定の拒否（.gitconfig・シェルの起動ファイル・.git/hooks・
+.git/config など。macOS は全域、Linux は cwd の下だけ）の外の全部——本物の作業ツリー・盤面・共通の .git の refs と objects・
+~/.config・~/.claude・Archon の家・Linux では ~/.gitconfig も——に書ける。だから包みの無い役を起こさない（再審査 N1。仕様 5.1）:
+- fence:    ci-fence。役を起こす前に、包みが Archon の起動の道に在ること（adapter.launch_path: env の CLAUDE_BIN_PATH か
+            設定の claudeBinaryPath が包み）と切符を見る。無ければ盤面を止め（by works:adapter）、YAML が役の輪を飛ばす
+- take の頭: 包みの起動の記録で、この試行の役の起動が包みを通り柵 no_tree_write が掛かったか（adapter.fenced_launch）を見る。
+            無ければ拒否でなく盤面を止める（起きた後で気づく 2 本目の線。包みの無い起動は記録も書き換えうるので確証ではない）
+受け付けの作業ツリーの比べ（accept.tree_state: porcelain・差分・git が無視するパス・HEAD・枝）は偽の緑を防ぐ 3 本目の線。
 
+- fence:    ci-fence（上）。返り {go, reason}
 - snapshot: ci-snap。節が任せ先に落ちて待っているか確かめ、作業ツリーの姿（と写しの置き場）を今の周の ci-snapshot-<節>.json に
 - prep:     ci-prep。blk-ci/prompts/<節>.md の穴（<<名>>）を埋めた指示書を描き、この周のこの節の拒否が在れば最後の拒否の文を
             頭に置き（REJECT_HEADING。$LOOP_PREV で貼らない——裁定 R44）、起こした印（mark_launched）を置く
@@ -41,6 +47,7 @@ if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
 from accept import TREE_KEYS, role_schema, tree_change, tree_state  # noqa: E402
+import adapter  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import engine.util as _util  # noqa: E402
 from engine.rules import validator_module  # noqa: E402
@@ -55,12 +62,18 @@ NO_TREE_WRITE = "no-tree-write"         # 印の旗: 包みが役の cwd の作�
 OUTPUT_FORMAT = node_marker.mark(role_schema(NODES[0]), ROLE, flags=(NO_TREE_WRITE,))   # 2 つの節の schema は同じ形
 GIVE_UP_AFTER = 3                       # 輪の max_iterations と同じ数（tests/test_blk_ci.py が YAML と突き合わせる）
 STOP_BY = "works:ci"
+FENCE_BY = "works:adapter"               # 包みが無い・柵が掛かっていない時の止め札の by（線の h-judge の包みの確かめと同じ）
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
 COPY_PREFIX = "works-ci-"               # 写しの置き場（一時の置き場の直下の <COPY_PREFIX><節>-XXXX）の頭。出口はこの形の物だけ消す
 PROMPTS = PACK / "blk-ci" / "prompts"
 HOLES = ("node", "root", "copy", "tmp", "fallback")   # 2 つの指示書が両方持つ穴（<<名>>）
 P4_HOLES = ("base", "answers", "questions")          # p4.ci の指示書だけの穴
 REJECTS = "ci-rejects.json"
+
+
+def prepared_name(node: str) -> str:
+    """ci-prep が試行ごとに書き直す、役を起こす直前の時刻（adapter.now の形）。受け付けはこれより後の包みの起動を見る"""
+    return f"ci-prepared-{safe_name(node)}.json"
 
 
 def snapshot_name(node: str) -> str:
@@ -111,6 +124,27 @@ def _snap(b, node: str) -> dict:
     if not (isinstance(doc, dict) and set(TREE_KEYS) <= set(doc) and doc.get("copy")):
         raise BoardGap(f"{b.work(snapshot_name(node))} が無い・形が違う——ci-snap が先に走る（役を起こす前の作業ツリーと比べられない）")
     return doc
+
+
+# ---------------------------------------------------------------- ci-fence
+def fence(board_dir, node: str, repo, env=None) -> dict:
+    """役を起こす前に、包みが Archon の起動の道に在り（adapter.launch_path）切符が在るかを見る。無ければ盤面を止めて
+    （by FENCE_BY）{go: False, reason}。在れば {go: True, reason: ""}。YAML は go が偽なら役の輪を飛ばす"""
+    b = _open(board_dir, repo)
+    _waiting(b, node)
+    lp = adapter.launch_path(pathlib.Path(repo), env)
+    why = "" if lp["ok"] else lp["why"]
+    if not why:
+        try:
+            if adapter.read_ticket(pathlib.Path(repo)) is None:
+                why = f"切符が無い（{adapter.ticket_path(pathlib.Path(repo))}。線の start が書く）——包みは旗 no-tree-write の役を起こさない"
+        except adapter.BadTicket as e:
+            why = str(e)
+    if why:
+        reason = f"包みが通っていない: CI の任せ先の役（{node}）を起こさない（{why}）"
+        b.stop(reason, by=FENCE_BY)
+        return {"go": False, "reason": reason}
+    return {"go": True, "reason": ""}
 
 
 # ---------------------------------------------------------------- ci-snap
@@ -182,6 +216,7 @@ def prep(board_dir, node: str, repo) -> dict:
     path = b.dir / "prompts" / f"r{b.round}" / (safe_name(node) + ".md")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+    _write_json(b.work(prepared_name(node)), {"node": node, "at": adapter.now()})
     m = b.mark_launched(node, inst.get("attempts", 1))
     return {"prompt_file": str(path), "attempt": m["attempt"], "out_path": m["out_path"], "node": node,
             "already": m["already"]}
@@ -204,13 +239,22 @@ def _reject(b, node: str, reason: str) -> dict:
 
 
 def take(board_dir, node: str, reply: dict, repo) -> dict:
-    """役の返答を受け付ける。順: 本物の作業ツリーを ci-snap の姿と比べる → 盤面の done（写しの schema・post_check・check_record）。
+    """役の返答を受け付ける。順: この試行の役の起動に包みの柵が掛かったか（無ければ盤面を止めて done） → 本物の作業ツリーを
+    ci-snap の姿と比べる → 盤面の done（写しの schema・post_check・check_record）。
     拒否（作業ツリーの変化・写しの AnswerReject）は {ok: False, done, give_up, reason} で返し、盤面の層のファイルは書かない
     （拒否の文は作業ファイル ci-rejects.json に積む）。ほかの Reject（止めた run など）・BoardGap は投げる（回す側の誤り）。
     通れば {ok: True, done: True, give_up: False, reason: "", node, status}"""
     b = _open(board_dir, repo)
     _waiting(b, node)
     snap = _snap(b, node)
+    prepared = _read_json(b.work(prepared_name(node)))
+    if not (isinstance(prepared, dict) and prepared.get("at")):
+        raise BoardGap(f"{b.work(prepared_name(node))} が無い——ci-prep が先に走る（役の起動の記録と突き合わせられない）")
+    why = adapter.fenced_launch(pathlib.Path(repo), ROLE, prepared["at"])
+    if why:
+        reason = f"包みの柵が CI の任せ先の役の起動に掛かっていない——返答を受けず盤面を止める（{why}）"
+        b.stop(reason, by=FENCE_BY)
+        return {"ok": False, "done": True, "give_up": False, "reason": reason, "node": node, "status": ""}
     before = {k: snap[k] for k in TREE_KEYS}
     try:
         now_tree = tree_state(pathlib.Path(repo))

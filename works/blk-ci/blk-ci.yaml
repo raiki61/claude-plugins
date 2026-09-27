@@ -5,7 +5,8 @@ description: |
   （p0.local_checks）か blk-tests の final の by: role_needed（p4.ci）が真の時に、ラインが include で node を渡して回す。
   役（opus）はリポジトリの CI の定義を読み、テスト・lint を作業ツリーの写しの上で走らせて素材（material）を返す。走らせられなければ
   緑を仮定しない（p0 は awaiting_human、p4 は not_run）。定義が無ければ理由つきの not_applicable（graph の na_self_ok）。
-  役の sandbox は graphloops の任せ先と同じ形（allowWrite ['/']・網）で、本物の作業ツリーは包みが印の旗 no-tree-write を見て守る（裁定 R56）。
+  役の sandbox は graphloops の任せ先と同じ形（allowWrite ['/']・網）で、書き込みの守りは包みが印の旗 no-tree-write を見て足す（裁定 R56）。
+  包みが Archon の起動の道に無ければ ci-fence が盤面を止めて役を起こさず、受け付けは役の起動に柵が掛かったかを包みの記録で見る（再審査 N1）。
   受け付けは写しの graph の schema・post_check・記録の検査をそのまま当て、役を起こす前と後で本物の作業ツリー（porcelain・差分・
   git が無視するパス・HEAD・枝）が変わっていれば拒む（包みの無い run の保険）。3 回とも拒まれたら輪を抜け、collect が盤面を止める（再審のブロックと同じ形。裁定 R50）。
   出口 collect: {ok, reason, node, status, green, pr_go}。pr_go は p0.local_checks の後に start の輪へ戻って測った値（entry.resume_after_ci）。
@@ -22,11 +23,29 @@ returns: collect
 outcome_field: ok
 
 nodes:
+  # 包みが Archon の起動の道に在り切符が在るか（adapter.launch_path）。無ければ盤面を止めて go: false、役の輪を飛ばす。
+  # 役の sandbox は allowWrite ['/'] で、書き込みの守りは全部包みが足すので、包みの無い役は起こさない（再審査 N1）
+  - id: ci-fence
+    script: fence
+    runtime: uv
+    timeout: 1728000000
+    with:
+      node: $INPUTS.node
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, reason]
+      properties:
+        go: {type: boolean}
+        reason: {type: string}
+
   # 役を起こす前の本物の作業ツリーの姿（受け付けが比べる）と、テストを走らせる写し（写しの engine の copy_worktree。一時の置き場の下）
   - id: ci-snap
     script: snap
     runtime: uv
     timeout: 1728000000
+    depends_on: [ci-fence]
+    when: "$ci-fence.output.go == true"
     with:
       node: $INPUTS.node
     output_format:
@@ -134,12 +153,14 @@ nodes:
               node: {type: string}
               status: {type: string}
 
-  # 出口。写しを消す。節を受けていなければ（3 回とも拒まれた）最後の拒否の文で盤面を止めて ok: false
+  # 出口。写しを消す。節を受けていなければ（3 回とも拒まれた）最後の拒否の文で盤面を止めて ok: false。
+  # ci-fence が偽なら輪は飛ばされるので、輪の欄を読まずに合流する（止めた盤面の理由を reason に出す）
   - id: collect
     script: collect
     runtime: uv
     timeout: 1728000000
-    depends_on: [ci-loop]
+    depends_on: [ci-fence, ci-loop]
+    trigger_rule: none_failed_min_one_success
     with:
       node: $INPUTS.node
     output_format:

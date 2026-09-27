@@ -531,6 +531,134 @@ def add_fences(settings: dict, paths: Sequence[str]) -> Tuple[int, int]:
     return n_write, n_deny
 
 
+# --- 包みが起動の道に在るか・起動に柵が掛かったか（CI の任せ先の役の前後の節が使う。再審査 N1） ----------------------
+SELF_BIN = pathlib.Path(__file__).resolve().parent / "claude-adapter"
+_CONF_KEY = re.compile(r"([A-Za-z0-9_.-]+):(?:\s+(.*))?\Z")
+
+
+def _config_binary(path: pathlib.Path) -> Tuple[Optional[str], Optional[str]]:
+    """Archon の設定のファイルの assistants.claude.claudeBinaryPath を (値, 読めない理由) で。ファイルが無い・鍵が無ければ
+    (None, None)。読むのはブロックの形（空白の字下げ・`key: value`）だけで、それ以外の形で claudeBinaryPath が出れば
+    読めない理由を返す（読み違えて「入っている」と言わない。fail closed）"""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None, None
+    except (OSError, UnicodeDecodeError) as e:
+        return None, f"{path} が読めない（{e}）"
+    if "claudeBinaryPath" not in text:
+        return None, None
+    bad = f"{path} の claudeBinaryPath を読める形でない（ブロックの形の assistants: → claude: → claudeBinaryPath: <パス> だけを読む）"
+    stack: List[Tuple[int, str]] = []
+    found = None
+    for raw in text.splitlines():
+        body = raw.rstrip()
+        if not body.strip() or body.lstrip().startswith("#"):
+            continue
+        if "\t" in body[:len(body) - len(body.lstrip())]:
+            return None, bad
+        indent = len(body) - len(body.lstrip(" "))
+        m = _CONF_KEY.match(body.strip())
+        if not m:
+            if "claudeBinaryPath" in body:
+                return None, bad
+            continue
+        key, val = m.group(1), (m.group(2) or "")
+        val = re.sub(r"\s+#.*\Z", "", val).strip()
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        where = [k for _, k in stack] + [key]
+        if "claudeBinaryPath" in val:
+            return None, bad
+        if key == "claudeBinaryPath" and where == ["assistants", "claude", "claudeBinaryPath"]:
+            if found is not None or not val or val[0] in "{[|>&*!":
+                return None, bad
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+                val = val[1:-1]
+            found = val
+        elif not val:
+            stack.append((indent, key))
+    return found, None
+
+
+def launch_path(cwd, env=None) -> dict:
+    """Archon が claude として起こす実行ファイルがこの包みか。{ok, path, source, why}。順は Archon v0.11.1 の binary-resolver
+    （packages/providers/src/claude/binary-resolver.ts）と同じ: env の CLAUDE_BIN_PATH、無ければ設定の
+    assistants.claude.claudeBinaryPath（リポジトリの <cwd>/.archon/config.yaml が $ARCHON_HOME/config.yaml より強い。
+    ARCHON_HOME が無ければ ~/.archon）。値の頭の ~ は開き、realpath で比べる。読めない設定は入っていない扱い（fail closed）。
+    Archon の開発の形（コンパイルしていない）は設定を読まないが、works はコンパイル版だけを使う（dev/archon.sh）"""
+    env = os.environ if env is None else env
+    me = os.path.realpath(str(SELF_BIN))
+    got = {"ok": False, "path": None, "source": None, "why": ""}
+    if env.get("CLAUDE_BIN_PATH"):
+        path, source = env["CLAUDE_BIN_PATH"], "CLAUDE_BIN_PATH"
+    else:
+        user = env.get("HOME") or os.path.expanduser("~")
+        archon = env.get("ARCHON_HOME") or os.path.join(user, ".archon")
+        if archon.startswith("~"):
+            archon = user + archon[1:]
+        path = None
+        for conf in (pathlib.Path(cwd) / ".archon" / "config.yaml", pathlib.Path(archon) / "config.yaml"):
+            val, why = _config_binary(conf)
+            if why:
+                got["why"] = why
+                return got
+            if val:
+                path = val
+                break
+        if not path:
+            got["why"] = ("env の CLAUDE_BIN_PATH も設定の assistants.claude.claudeBinaryPath も無い——Archon は包みでない claude を"
+                          f"起こす（包みは {me}）")
+            return got
+        source = "config"
+    if path.startswith("~"):
+        path = (env.get("HOME") or os.path.expanduser("~")) + path[1:]
+    real = os.path.realpath(path)
+    got.update(path=real, source=source)
+    if real != me:
+        got["why"] = f"Archon が起こす claude（{source}: {path}）が包み（{me}）でない"
+        return got
+    got["ok"] = True
+    return got
+
+
+def _at(s) -> Optional[datetime.datetime]:
+    try:
+        t = datetime.datetime.fromisoformat(str(s))
+    except ValueError:
+        return None
+    return t if t.tzinfo else None
+
+
+def fenced_launch(cwd, node: str, since: str, home_dir=None) -> Optional[str]:
+    """since（時差つきの ISO 8601）より後の節 node の起動が、包みを通り（mode merged）、柵 no_tree_write が cwd の worktree の根
+    だったか。全部よければ None、でなければ理由の 1 文。起こさなかった起動（refused）は害が無いので数えないが、merged が
+    1 つも無ければ理由を返す。印の無い起動（題の生成など）は node が無いので見ない"""
+    top = own_worktree(cwd)
+    if top is None:
+        return f"{cwd} の worktree の根が git から引けない"
+    start = _at(since)
+    if start is None:
+        return f"試行の時刻が読めない（{since!r}）"
+    rows = [r for r in read_launches(cwd, home_dir)
+            if r.get("node") == node and (_at(r.get("at")) or start) > start]
+    where = launches_path(cwd, home_dir)
+    if not rows:
+        return f"包みの起動の記録（{where}）にこの試行の節 {node} の起動が無い（包みを通らずに起こされた）"
+    root = os.path.realpath(top)
+    for r in rows:
+        mode = r.get("mode")
+        if mode == "refused":
+            continue
+        mark = (r.get("fence") or {}).get("no_tree_write") if isinstance(r.get("fence"), dict) else None
+        if mode != "merged" or not isinstance(mark, str) or os.path.realpath(mark) != root:
+            return (f"節 {node} の起動（{r.get('at')}・{mode}）に柵 no_tree_write（{root}）が掛かっていない"
+                    f"（fence: {r.get('fence')!r}。記録 {where}）")
+    if not any(r.get("mode") == "merged" for r in rows):
+        return f"節 {node} は包みに拒まれ、起こされていない（記録 {where}）"
+    return None
+
+
 def _strip_session_flags(argv: List[str]) -> List[str]:
     out, i = [], 0
     while i < len(argv):

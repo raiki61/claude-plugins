@@ -1,0 +1,21 @@
+# 筋書き no-adapter: 包みが Archon の起動の道に無い（env の CLAUDE_BIN_PATH も設定の claudeBinaryPath も包みを指さない）。
+# ci-fence が盤面を止め（by works:adapter）、go: false で役の輪（ci-snap から ci-accept）を飛ばし、出口だけが走って ok: false。
+# 役の sandbox は allowWrite ['/'] で書き込みの守りは全部包みが足すので、包みの無い役は起こさない（再審査 N1）。
+# スクリプトの節は全部 stub（中身は tests/test_blk_ci.py の test_fence_stops_without_adapter が子のプロセスで回す）。
+ci-fence:
+  go: false
+  reason: '包みが通っていない: CI の任せ先の役（p0.local_checks）を起こさない（env の CLAUDE_BIN_PATH も設定の assistants.claude.claudeBinaryPath も無い——Archon は包みでない claude を起こす）'
+collect:
+  ok: false
+  reason: '盤面は止まっている（works:adapter: 包みが通っていない: CI の任せ先の役（p0.local_checks）を起こさない（env の CLAUDE_BIN_PATH も設定の assistants.claude.claudeBinaryPath も無い——Archon は包みでない claude を起こす））'
+  node: p0.local_checks
+  status: ''
+  green: false
+  pr_go: false
+fixture:
+  expect: completed
+  reached:
+  - ci-fence
+  - collect
+  inputs:
+    node: p0.local_checks

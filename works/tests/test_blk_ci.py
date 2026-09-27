@@ -8,6 +8,8 @@ graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engin
 - YAML の形: 役の output_format が ci_role.OUTPUT_FORMAT（写しの schema に印 works-node: ci）・輪は fresh_context で AI の節は 1 つ・
   上限は GIVE_UP_AFTER・役の道具は Read・Grep・Glob・Bash・sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ形で、
   本物の作業ツリーは包みが印の旗 no-tree-write を見て守る（裁定 R56）・スクリプトの INPUTS_* と with: が同じ
+- 包みの確かめ（再審査 N1）: 最初の節 ci-fence が包みが Archon の起動の道に在ること（adapter.launch_path）と切符を見て、
+  無ければ盤面を止めて役を起こさない。受け付けは包みの起動の記録で、この試行の役の起動に柵 no_tree_write が掛かったかを見る
 - スクリプト: Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）の子のプロセスで回す。盤面は本物の入口 entry.start（test_cmd も
   宣言も無い run → p0.local_checks が任せ先に落ちたまま待つ）で作り、本物の entry.open_board で開く。予定の状態（拒否・諦め）は
   終了コード 0 で 1 行、配線の誤り（環境変数の欠け・BoardGap）だけ 2
@@ -40,10 +42,23 @@ import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from accept import role_schema  # noqa: E402
 from engine.role_run import delegate_settings  # noqa: E402
+import adapter  # noqa: E402
 import ci_role  # noqa: E402
 import node_marker  # noqa: E402
 
 BLK = ROOT / "blk-ci"
+ADAPTER_BIN = ROOT / ".shared" / "core" / "claude-adapter"
+
+
+def fenced_row(repo, **over):
+    """包みが節 ci を柵つきで起こした時の起動の記録の 1 行（adapter.launch_row の形の要る所だけ）を、env の包みの家に書く"""
+    top = os.path.realpath(linekit.git(repo, "rev-parse", "--show-toplevel"))
+    row = {"at": adapter.now(), "node": "ci", "mode": "merged", "fence": {"no_tree_write": top}}
+    row.update(over)
+    path = adapter.launches_path(repo)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
 DEADLINE = 1728000000
 
 
@@ -75,7 +90,16 @@ class YamlCase(unittest.TestCase):
         self.assertTrue(self.y["inputs"]["node"].get("required"))
         self.assertEqual((self.y["returns"], self.y["outcome_field"]), ("collect", "ok"))
         self.assertNotIn("model", yaml.safe_dump(self.y))
-        self.assertEqual(list(self.top), ["ci-snap", "ci-loop", "collect"])
+        self.assertEqual(list(self.top), ["ci-fence", "ci-snap", "ci-loop", "collect"])
+
+    def test_fence_first(self):
+        """包みが起動の道に無ければ役を起こさない（再審査 N1 の (b)）: 最初の節 ci-fence が見て、偽なら ci-snap から後を飛ばし、
+        出口だけが走る（止めた盤面の理由を出す）"""
+        self.assertNotIn("depends_on", self.top["ci-fence"])
+        self.assertEqual(self.top["ci-snap"]["depends_on"], ["ci-fence"])
+        self.assertEqual(self.top["ci-snap"]["when"], "$ci-fence.output.go == true")
+        self.assertEqual(self.top["collect"]["depends_on"], ["ci-fence", "ci-loop"])
+        self.assertEqual(self.top["collect"]["trigger_rule"], "none_failed_min_one_success")
 
     def test_output_format_is_marked_copy_schema(self):
         """役の output_format は写しの p0.local_checks と p4.ci の schema（同じ形）に印 works-node: ci を付けた物"""
@@ -113,8 +137,8 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(want["filesystem"].pop("denyWrite"), [])
         self.assertIs(want.pop("autoAllowBashIfSandboxed"), True)
         self.assertEqual(role["sandbox"], want)
-        # 輪の後ろの出口は輪の欄を読まずに合流する
-        self.assertEqual(self.top["collect"]["depends_on"], ["ci-loop"])
+        # 輪の後ろの出口は輪の欄を読まずに合流する（ci-fence が偽なら輪は飛ばされる）
+        self.assertIn("ci-loop", self.top["collect"]["depends_on"])
 
     def test_script_inputs_match_with(self):
         for n, _ in walk(self.y["nodes"]):
@@ -152,10 +176,16 @@ class YamlCase(unittest.TestCase):
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
-        self.assertEqual(set(fx), {"pass.stubs.yaml", "reject.stubs.yaml", "give-up.stubs.yaml"})
-        reached = ["ci-snap", "ci-prep", "ci", "ci-accept", "collect"]
+        self.assertEqual(set(fx), {"pass.stubs.yaml", "reject.stubs.yaml", "give-up.stubs.yaml", "no-adapter.stubs.yaml"})
+        reached = ["ci-fence", "ci-snap", "ci-prep", "ci", "ci-accept", "collect"]
+        n = fx.pop("no-adapter.stubs.yaml")
+        self.assertEqual(n["fixture"]["reached"], ["ci-fence", "collect"])
+        self.assertIs(n["ci-fence"]["go"], False)
+        self.assertIs(n["collect"]["ok"], False)
+        self.assertIn("包みが通っていない", n["collect"]["reason"])
         for name, f in fx.items():
             with self.subTest(name):
+                self.assertIs(f["ci-fence"]["go"], True)
                 self.assertEqual(f["fixture"]["expect"], "completed")
                 self.assertEqual(f["fixture"]["reached"], reached)
                 self.assertEqual(validate_schema(f["ci"], ci_role.OUTPUT_FORMAT), [])
@@ -182,9 +212,11 @@ class ScriptCase(unittest.TestCase):
         self.addCleanup(setattr, engine_util, "GIT_CWD", self._old_cwd)
         self.tmp = pathlib.Path(tempfile.mkdtemp(dir=linekit.work_home()))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        env = mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home")})
+        env = mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": str(self.tmp / "adapter-home"),
+                                           "CLAUDE_BIN_PATH": str(ADAPTER_BIN)})   # 包みが Archon の起動の道に在る
         env.start()
         self.addCleanup(env.stop)
+        self.fenced = True   # prep の後に、包みが節 ci を柵つきで起こした記録を置く（Archon と包みの代わり）
         self.repo = linekit.seed_repo(self.tmp / "repo")
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir()
@@ -211,6 +243,8 @@ class ScriptCase(unittest.TestCase):
             env.pop(k, None)
         r = subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=str(self.repo), env=env,
                            capture_output=True, text=True)
+        if r.returncode == 0 and name == "prep" and self.fenced:
+            fenced_row(self.repo)
         if r.returncode == 0:
             lines = r.stdout.splitlines()
             self.assertEqual(len(lines), 1, r.stdout + r.stderr)
@@ -284,6 +318,52 @@ class ScriptCase(unittest.TestCase):
         mine = pathlib.Path(tempfile.mkdtemp(prefix=ci_role.COPY_PREFIX + "p0.local_checks-"))
         ci_role._drop_copy({"top": str(mine)})
         self.assertFalse(mine.exists())
+
+    def test_fence_passes_with_adapter(self):
+        got = self.ok("fence", node="p0.local_checks")
+        self.assertEqual((got["go"], got["reason"]), (True, ""), got)
+        self.assertFalse(self.opened().state.get("stop"))
+
+    def test_fence_stops_without_adapter(self):
+        """包みが起動の道に無い（env も設定も包みを指さない）・切符が無い → go false、盤面を止め（by works:adapter）、出口は ok false"""
+        ah = self.tmp / "archon-home"
+        ah.mkdir()
+        rc, got, err = self.run_script("fence", drop=("CLAUDE_BIN_PATH",), node="p0.local_checks", ARCHON_HOME=str(ah))
+        self.assertEqual(rc, 0, err)
+        self.assertIs(got["go"], False)
+        self.assertIn("包みが通っていない", got["reason"])
+        st = self.opened().state
+        self.assertEqual(st["stop"]["by"], ci_role.FENCE_BY)
+        out = self.ok("collect", node="p0.local_checks")
+        self.assertIs(out["ok"], False)
+        self.assertIn("包みが通っていない", out["reason"])
+
+    def test_fence_stops_without_ticket(self):
+        adapter.ticket_path(self.repo).unlink()
+        got = self.ok("fence", node="p0.local_checks")
+        self.assertIs(got["go"], False)
+        self.assertIn("切符", got["reason"])
+
+    def test_accept_halts_without_fenced_launch(self):
+        """役の起動が包みを通っていない・柵 no_tree_write が掛かっていない → 受け付けは拒否でなく盤面を止め、輪を抜ける
+        （再審査 N1 の (a)。起きた後で気づく 2 本目の線）"""
+        for over in (None, {"fence": {"deny_write": 3}}):
+            with self.subTest(over):
+                self.setUp()
+                self.fenced = False
+                self.ok("snap", node="p0.local_checks")
+                self.ok("prep", node="p0.local_checks")
+                if over is not None:
+                    fenced_row(self.repo, **over)
+                got = self.ok("accept", node="p0.local_checks", reply=json.dumps(linekit.reply("ci_found"), ensure_ascii=False))
+                self.assertEqual((got["ok"], got["done"]), (False, True), got)
+                self.assertIn("柵", got["reason"])
+                b = self.opened()
+                self.assertEqual(b.state["stop"]["by"], ci_role.FENCE_BY)
+                self.assertNotEqual(b.node_state("p0.local_checks"), "done", "返答は受けない")
+                self.assertEqual(b.record["materials"]["local_checks"]["status"], "not_run", "役の返答（found）は受けない")
+                out = self.ok("collect", node="p0.local_checks")
+                self.assertIs(out["ok"], False)
 
     def test_not_applicable_accepted(self):
         """CI の定義が無い（na_self_ok）→ 理由つきの not_applicable を受ける"""
@@ -385,6 +465,11 @@ class P4Case(unittest.TestCase):
         self.case = TD.TestTestsModes("test_final_by_engine")
         self.case.setUp()
         self.addCleanup(self.case.doCleanups)
+        self._home = tempfile.TemporaryDirectory()
+        self.addCleanup(self._home.cleanup)
+        env = mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": self._home.name})
+        env.start()
+        self.addCleanup(env.stop)
 
     def test_final_role_needed_then_blk_ci_submits_p4(self):
         b = self.case.mode_board(decl=None)
@@ -392,6 +477,7 @@ class P4Case(unittest.TestCase):
         self.assertEqual(entry.run_ci(b, "p4.ci", test_cmd="")["by"], "role_needed")
         snap = ci_role.snapshot(b.dir, "p4.ci", repo)
         prep = ci_role.prep(b.dir, "p4.ci", repo)
+        fenced_row(repo)   # 包みが節 ci を柵つきで起こした
         prompt = pathlib.Path(prep["prompt_file"]).read_text(encoding="utf-8")
         self.assertIn("p4.ci", prompt)
         self.assertIn(str(repo.resolve()), prompt)

@@ -2,6 +2,9 @@
 # 受け付けが 1 回で通す。collect は写しを消し、start の輪に戻って（entry.resume_after_ci）pr_go を出す。
 # 役の返答は tests/replies/ci_found.json と同じ中身（tests/test_blk_ci.py が一致を見る）。スクリプトの節は全部 stub
 # （盤面は dry-run の対象に無い。スクリプトの中身は tests/test_blk_ci.py が子のプロセスで回す）。
+ci-fence:
+  go: true
+  reason: ''
 ci-snap:
   ok: true
   snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
@@ -35,6 +38,7 @@ collect:
 fixture:
   expect: completed
   reached:
+  - ci-fence
   - ci-snap
   - ci-prep
   - ci

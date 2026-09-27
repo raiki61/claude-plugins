@@ -1149,6 +1149,117 @@ class FenceCase(unittest.TestCase):
         self.assertIn(f"Write(/{self.board}/**)", self.settings()["permissions"]["deny"])
 
 
+class LaunchPathCase(unittest.TestCase):
+    """包みが Archon の起動の道（claude の実行ファイル）に入っているか（launch_path）。Archon v0.11.1 の binary-resolver と同じ順:
+    env の CLAUDE_BIN_PATH、無ければ設定の assistants.claude.claudeBinaryPath（リポジトリの .archon/config.yaml が
+    $ARCHON_HOME/config.yaml より強い）。読めない形の設定は入っていない扱い（fail closed）。CI の任せ先の役を起こす前の節が使う"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = pathlib.Path(self._tmp.name).resolve()
+        self.ah = self.tmp / "archon-home"
+        self.ah.mkdir()
+        self.cwd = self.tmp / "wt"
+        self.cwd.mkdir()
+        self.env = {"HOME": str(self.tmp / "user"), "ARCHON_HOME": str(self.ah)}
+
+    def conf(self, where, text):
+        where.mkdir(parents=True, exist_ok=True)
+        (where / "config.yaml").write_text(text, encoding="utf-8")
+
+    def check(self, **env):
+        return adapter.launch_path(self.cwd, dict(self.env, **env))
+
+    def test_env_wins(self):
+        got = self.check(CLAUDE_BIN_PATH=str(ADAPTER))
+        self.assertEqual((got["ok"], got["source"]), (True, "CLAUDE_BIN_PATH"), got)
+        self.conf(self.ah, f"assistants:\n  claude:\n    claudeBinaryPath: {ADAPTER}\n")
+        got = self.check(CLAUDE_BIN_PATH=str(FAKE))   # env が設定より強い（Archon と同じ）
+        self.assertFalse(got["ok"])
+        self.assertIn("CLAUDE_BIN_PATH", got["why"])
+
+    def test_global_config(self):
+        got = self.check()
+        self.assertFalse(got["ok"])
+        self.assertIn("claudeBinaryPath", got["why"])
+        self.conf(self.ah, f"# 開発の設定\nassistants:\n  claude:\n    model: opus\n    claudeBinaryPath: '{ADAPTER}'  # 包み\n")
+        got = self.check()
+        self.assertEqual((got["ok"], got["source"]), (True, "config"), got)
+        self.assertEqual(got["path"], os.path.realpath(ADAPTER))
+
+    def test_repo_config_overrides_global(self):
+        self.conf(self.ah, f"assistants:\n  claude:\n    claudeBinaryPath: {ADAPTER}\n")
+        self.conf(self.cwd / ".archon", f"assistants:\n  claude:\n    claudeBinaryPath: {FAKE}\n")
+        self.assertFalse(self.check()["ok"])
+        self.conf(self.cwd / ".archon", "assistants:\n  claude:\n    model: opus\n")
+        self.assertTrue(self.check()["ok"])
+
+    def test_default_archon_home(self):
+        home = self.tmp / "user"
+        self.conf(home / ".archon", f"assistants:\n  claude:\n    claudeBinaryPath: {ADAPTER}\n")
+        self.assertTrue(self.check(ARCHON_HOME="")["ok"])
+
+    def test_unreadable_shapes_fail_closed(self):
+        for text in (f"assistants: {{claude: {{claudeBinaryPath: {ADAPTER}}}}}\n",
+                     f"assistants:\n\tclaude:\n\t\tclaudeBinaryPath: {ADAPTER}\n",
+                     f"assistants:\n  claude:\n    claudeBinaryPath: {ADAPTER}\n    claudeBinaryPath: {ADAPTER}\n",
+                     f"assistants:\n  claude:\n    claudeBinaryPath: &x {ADAPTER}\n"):
+            with self.subTest(text):
+                self.conf(self.ah, text)
+                got = self.check()
+                self.assertFalse(got["ok"])
+        # 別の所の claudeBinaryPath は Archon が読まない（入っていない）
+        self.conf(self.ah, f"assistants:\n  codex:\n    claudeBinaryPath: {ADAPTER}\n")
+        self.assertFalse(self.check()["ok"])
+
+
+class FencedLaunchCase(unittest.TestCase):
+    """節の起動が包みを通り、柵 no_tree_write（役の cwd の worktree の根）が掛かったか（fenced_launch。起動の記録から）"""
+
+    def setUp(self):
+        self.e = Env(self)
+        git(self.e.cwd, "init", "-q")
+        self.top = os.path.realpath(self.e.cwd)
+        self.since = adapter.now()
+
+    def row(self, **over):
+        r = {"at": adapter.now(), "node": "ci", "mode": "merged", "fence": {"no_tree_write": self.top}}
+        r.update(over)
+        p = adapter.launches_path(self.e.cwd, self.e.home)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(r) + "\n")
+
+    def why(self):
+        return adapter.fenced_launch(self.e.cwd, "ci", self.since, self.e.home)
+
+    def test_fenced_launch_ok(self):
+        self.row(at="2000-01-01T00:00:00.000000+00:00", fence={})   # 試行より前の起動は見ない
+        self.row(mode="refused", fence=None)                         # 起こさなかった起動は害が無い
+        self.row()
+        self.assertIsNone(self.why())
+
+    def test_missing_launch(self):
+        self.assertIn("起動が無い", self.why())
+        self.row(node="judge")
+        self.assertIn("起動が無い", self.why())
+
+    def test_unfenced_or_wrong_root(self):
+        for bad in ({"fence": {"deny_write": 3}}, {"fence": {"no_tree_write": "/elsewhere"}}, {"mode": "passthrough"}):
+            with self.subTest(bad):
+                p = adapter.launches_path(self.e.cwd, self.e.home)
+                if p.exists():
+                    p.unlink()
+                self.row()
+                self.row(**bad)
+                self.assertIn("柵", self.why())
+
+    def test_only_refused(self):
+        self.row(mode="refused", fence=None)
+        self.assertIn("起こされていない", self.why())
+
+
 class DevWiringCase(unittest.TestCase):
     """dev の殻 archon.sh の WORKS_DEV_ADAPTER=1: 隔離した Archon の設定に claudeBinaryPath（包み）を書き、
     本物の claude は WORKS_REAL_CLAUDE で包みに渡し、env の CLAUDE_BIN_PATH（設定より強い）を外す"""

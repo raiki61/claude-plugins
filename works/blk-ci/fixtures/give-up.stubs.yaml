@@ -3,6 +3,9 @@
 # 注意: dry-run は until_bash を回さず、輪を 1 回で済んだとみなす（Archon 0.11.1）。だからこの筋書きは、輪が抜けた後の配線
 # （collect）しか見ない。3 回目の拒否で輪が抜ける式（until_bash の done）は tests/test_blk_ci.py の
 # test_gives_up_after_three_rejections が、Archon と同じ順でスクリプトを回し、until_bash の式を sh で評価して見る。
+ci-fence:
+  go: true
+  reason: ''
 ci-snap:
   ok: true
   snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
@@ -34,6 +37,7 @@ collect:
 fixture:
   expect: completed
   reached:
+  - ci-fence
   - ci-snap
   - ci-prep
   - ci
