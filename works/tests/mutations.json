@@ -312,6 +312,18 @@
      "ToolParityCase.test_each_role_has_at_least_the_mainline_tools"
     ]
    }
+  },
+  {
+   "id": "wt5",
+   "title": "借りる MCP は既定で役に渡さない（WORKS_CONTEXT7_MCP=on の時だけ。役の問いが対象のコードの字を外へ運びうる。controller の裁定 2026-09-28）",
+   "file": ".shared/core/adapter.py",
+   "old": "    if str(env.get(ENV_MCP, \"\")).strip().lower() != \"on\":",
+   "new": "    if False:",
+   "tests": {
+    "tests/test_adapter.py": [
+     "McpCase.test_off_by_default"
+    ]
+   }
   }
  ],
  "dropped": []

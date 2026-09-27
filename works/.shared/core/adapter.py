@@ -73,7 +73,9 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 10. **借りる MCP を渡す**（印のある起動だけ）: Archon の役の節は周りの MCP（利用者・プラグインの MCP）を読まない
    （SDK が `--strict-mcp-config` を付ける。Archon v0.11.1 の providers/claude/provider.ts の strictMcpConfig）。開発の殻が
    隔離した設定の置き場に書く `works-mcp.json`（dev/toolset.py が許す一覧 borrow.json の使用許諾を確かめて書く。Context7）を、
-   web を持つ起動（`--tools` に WebFetch が在る）にだけ `--mcp-config=<ファイル>` で渡す（web を読む道具と同じ扱い。
+   env の WORKS_CONTEXT7_MCP が on の時だけ（既定は渡さない。役が書く問いに対象のコードの字が載り、外のサービスへ出うるため。
+   controller の裁定 2026-09-28。持ち主が決めるまで安全側）、web を持つ起動（`--tools` に WebFetch が在る）にだけ
+   `--mcp-config=<ファイル>` で渡す（web を読む道具と同じ扱い。
    道具ゼロ・web を持たない役には渡さない）。SDK が自分の `--mcp-config` を渡した起動は触らない。ファイルが読めない時は
    渡さずに起動の記録の fence.mcp に理由を書く（足す物なので、渡せなくても役は起こす）
 
@@ -127,6 +129,7 @@ ISOLATED = "isolated"
 ISOLATED_PREFIX = "works-isolated-"
 MCP_FILE = "works-mcp.json"        # dev/toolset.py の MCP_FILE と同じ（隔離した設定の置き場の下）
 WEB_TOOL = "WebFetch"              # これを持つ起動にだけ借りる MCP を渡す
+ENV_MCP = "WORKS_CONTEXT7_MCP"     # on の時だけ借りる MCP を渡す（既定は渡さない）
 # 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
 # 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
@@ -798,6 +801,8 @@ def mcp_config(argv: List[str], env, no_tools: bool) -> Optional[Tuple[List[str]
     path = pathlib.Path(cfg) / MCP_FILE if cfg else None
     if path is None or not path.is_file():
         return None
+    if str(env.get(ENV_MCP, "")).strip().lower() != "on":
+        return argv, {"skipped": f"既定では渡さない（{ENV_MCP}=on の時だけ渡す）"}
     if no_tools or WEB_TOOL not in _tools(argv):
         return argv, {"skipped": "web を持たない役（--tools に WebFetch が無い）には渡さない"}
     try:

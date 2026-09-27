@@ -19,7 +19,7 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
 - kind "mcp"（Context7。transport・url・licence）: 使用許諾が LICENCES_OK（MIT・Apache-2.0・BSD）の時だけ、<置き場>/works-mcp.json
   （{"mcpServers": {名: {type, url}}}）に載せる。許諾が外れなら何も写さずに止まる。Archon の役の節は周りの MCP（利用者・
   プラグインの MCP）を読まない（strictMcpConfig）ので、包み（.shared/core/adapter.py の 10）がこのファイルを web を持つ役の
-  起動に --mcp-config で渡す。
+  起動に --mcp-config で渡す（既定は渡さない。env の WORKS_CONTEXT7_MCP=on の時だけ）。
 - 柵（guard）: 一覧の外を名前で並べる。CLAUDE.md・rules/・agents/・commands/・output-styles/・settings.json 以外の
   settings*.json・一覧の外のスキル・settings.json の鍵が {enabledPlugins, extraKnownMarketplaces} の外・一覧の外の有効な
   プラグイン・入れたプラグイン（plugins/installed_plugins.json）・marketplace（settings.json と plugins/known_marketplaces.json）・

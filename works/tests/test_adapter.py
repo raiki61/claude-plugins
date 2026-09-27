@@ -1314,7 +1314,8 @@ class IsolatedCase(unittest.TestCase):
 class McpCase(unittest.TestCase):
     """10. 借りる MCP（Context7）: Archon の役の節は周りの MCP を読まない（--strict-mcp-config）。隔離した設定の置き場の
     works-mcp.json（dev/toolset.py が使用許諾を確かめて書く）を、web を持つ（--tools に WebFetch が在る）印のある起動にだけ
-    --mcp-config で渡す。道具ゼロ・web を持たない役・SDK が自分の --mcp-config を渡した起動・印の無い起動には渡さない"""
+    --mcp-config で渡す。道具ゼロ・web を持たない役・SDK が自分の --mcp-config を渡した起動・印の無い起動には渡さない。
+    渡すのは env の WORKS_CONTEXT7_MCP=on の時だけ（既定は渡さない。役の書く問いが対象のコードの字を外へ運びうる。controller の裁定）"""
 
     WEB = "Read,Grep,Glob,WebSearch,WebFetch"
 
@@ -1326,8 +1327,8 @@ class McpCase(unittest.TestCase):
         self.file.write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": "https://mcp.context7.com/mcp"}}}),
                              encoding="utf-8")
 
-    def run_(self, desc, tools, extra=()):
-        r = self.e.run(sdk_argv(desc, tools=tools, extra=extra), CLAUDE_CONFIG_DIR=str(self.cfg))
+    def run_(self, desc, tools, extra=(), switch="on"):
+        r = self.e.run(sdk_argv(desc, tools=tools, extra=extra), CLAUDE_CONFIG_DIR=str(self.cfg), WORKS_CONTEXT7_MCP=switch)
         self.assertEqual(r.returncode, 0, r.stderr)
         return self.e.child()["argv"]
 
@@ -1336,6 +1337,13 @@ class McpCase(unittest.TestCase):
         self.assertEqual(opt(argv, "--mcp-config"), [str(self.file)])
         self.assertIn("--strict-mcp-config", argv)
         self.assertEqual(self.e.launches()[-1]["fence"]["mcp"], {"file": str(self.file), "servers": ["context7"]})
+
+    def test_off_by_default(self):
+        for switch in (None, "", "off", "1", "yes"):
+            with self.subTest(switch=switch):
+                argv = self.run_("works-node: judge", self.WEB, switch=switch)
+                self.assertEqual(opt(argv, "--mcp-config"), [])
+                self.assertIn("WORKS_CONTEXT7_MCP=on", self.e.launches()[-1]["fence"]["mcp"]["skipped"])
 
     def test_roles_without_web_do_not(self):
         for desc, tools in (("works-node: review", "Read,Grep,Glob"), ("works-node: r2-design isolated", "")):
