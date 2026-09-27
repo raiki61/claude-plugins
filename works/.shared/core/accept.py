@@ -3,9 +3,11 @@
 Archon を知らない関数だけを出す。ブロックの script の節がこれを呼び、結果をそのまま出口にする。
 - check_request: 依頼（findings の配列）を rules の add に通し、盤面の request.json に積む
 - check_judge:   判定役（p2.diagnose）の返答。作業ツリー → 型 → rules の judge_output。通れば盤面に judgment.json
-- check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units
+                 （check_fix と同じく、番号で指せという案内は名前を写せに戻す。_name_hints）
+- check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units（番号で指せという案内は key を写せに戻す。_name_hints）
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
-- role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）
+- role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）。
+                 番号で指す欄（pointers）は名前の型のまま、修正差分のレビューは事前審査だけの kind を落とす
 - snapshot_tree: 作業ツリーの写し（git が無視するファイルも入れる。依頼の受け付けと差分を切る節が盤面に置き、
                  check_judge・check_delta が突き合わせる）
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
@@ -36,7 +38,8 @@ if str(_GL) not in sys.path:
     sys.path.insert(0, str(_GL))
 
 import engine.util as _util  # noqa: E402
-from engine.rules import load_rules, validator_module  # noqa: E402
+from engine.board import COND_HEADS, run_cond  # noqa: E402
+from engine.rules import load_rules, registry, validator_module  # noqa: E402
 from engine.schema import expand_refs, validate_schema  # noqa: E402
 from engine.util import Reject  # noqa: E402
 
@@ -55,6 +58,23 @@ RACY_NS = 2_000_000_000   # ファイルの時刻の細かさの上限（FAT の
 FIX_SCHEMA = {"type": "object", "required": ["changes"], "properties": {
     "changes": {"type": "array", "items": {"type": "object", "required": ["unit_key"], "properties": {
         "unit_key": {"type": "string", "minLength": 1}}}}}}
+# rules の拒否文のうち、番号で指せという案内（graphloops 0.21.0 の pointers 向け）と、works での言い換え。
+# works の役には番号を振った一覧を貼らず、その欄は名前（文字列）だけを通す（role_schema・FIX_SCHEMA）。
+# 役は拒否文を次の試行で読むので、番号で指せと返すと直す術の無い案内になる
+NUMBER_HINTS = (
+    ("（写さずに、貼られた単位の no で指せ）", "（判定の key を字面のまま写せ）"),   # fix_plan_covers_units（修正）
+    ("写さずに、貼られた行の no で指せ", "削除候補の where を字面のまま写せ"),       # _carried_r1_accounted（判定の carried_r1）
+)
+
+
+def _name_hints(e: Reject) -> Reject:
+    """rules の拒否の番号で指せという案内を、名前を写せに言い換えた Reject にする（ほかの文はそのまま）"""
+    msg = str(e)
+    for by_number, by_name in NUMBER_HINTS:
+        msg = msg.replace(by_number, by_name)
+    return Reject(msg)
+
+
 SNAPSHOT_KEYS = ("porcelain", "ignored", "diff_sha256")
 SNAPSHOT_SCHEMA = {"type": "object", "required": list(SNAPSHOT_KEYS), "properties": {
     "porcelain": {"type": "string"}, "ignored": {"type": "array", "items": {"type": "string"}},
@@ -89,20 +109,42 @@ def _strip_notes(x):
     return out
 
 
+def _unpointed(graph):
+    """節の pointers（engine が一覧に振った番号で役に指させる欄。engine/pointers.py）を外した graph の写し。
+    works の役には番号を振った一覧を貼らず、番号を名前に戻す engine の段も無い——expand_refs が pointers の位置の型を
+    [integer, string] に広げると、役が書いた番号が名前に戻らないまま rules に届く。外せば名前（文字列）の型のまま残る"""
+    return {**graph, "nodes": {nid: {k: v for k, v in n.items() if k != "pointers"} for nid, n in graph["nodes"].items()}}
+
+
+def _drop_plan_only_kinds(node, schema):
+    """修正差分のレビューの節（rules の DELTA_PASS_OF の review）なら、faces[].kind の enum から事前審査だけの語
+    （rules の PLAN_ONLY_FACE_KINDS）を落とす。graph の $defs.face_kind は事前審査と共有の enum で、その語は
+    delta_review_output が拒む——役の型に残すと、受け付けが必ず拒む語を型が通す"""
+    rules = _rules()
+    if not any(node == p.review for p in rules.DELTA_PASSES.values()):
+        return schema
+    kind = schema["properties"]["faces"]["items"]["properties"]["kind"]
+    kind["enum"] = [k for k in kind["enum"] if k not in rules.PLAN_ONLY_FACE_KINDS]
+    return schema
+
+
 @functools.lru_cache(maxsize=None)
 def _role_schema_json(node):
-    return json.dumps(_strip_notes(expand_refs(_graph())["nodes"][node]["schema"]), ensure_ascii=False)
+    schema = _strip_notes(expand_refs(_unpointed(_graph()))["nodes"][node]["schema"])
+    return json.dumps(_drop_plan_only_kinds(node, schema), ensure_ascii=False)
 
 
 def role_schema(node: str) -> dict:
-    """graph の節（"p2.diagnose" か "p3.delta_review"）の schema。$ref を開き、注記を落とした写しを返す"""
+    """graph の節（"p2.diagnose" か "p3.delta_review"）の schema。$ref を開き、注記を落とした写しを返す。
+    pointers の位置は名前（文字列）の型のまま（_unpointed）。修正差分のレビューは事前審査だけの語を kind から落とす
+    （_drop_plan_only_kinds）"""
     return json.loads(_role_schema_json(node))
 
 
 # ---------------------------------------------------------------- 盤面の入れ物
 class _Board:
-    """rules が読む盤面の口だけを持つ入れ物（dir・round・state・record・loop_state・graph・rd・node_state・output_of_round）。
-    1 本目は 1 周だけ回すので round は 1、判定役はまだ起きていない（node_state は pending）"""
+    """rules が読む盤面の口だけを持つ入れ物（dir・round・state・record・loop_state・graph・nodes・rd・node_state・
+    output_of_round・is_runner・cond）。1 本目は 1 周だけ回すので round は 1、判定役はまだ起きていない（node_state は pending）"""
 
     def __init__(self, board, review_rev, record=None, loop_state=None, outputs=None):
         self.dir = pathlib.Path(board)
@@ -112,6 +154,7 @@ class _Board:
         self.loop_state = loop_state or {}
         self._outputs = outputs or {}
         self.graph = _graph()
+        self.nodes = self.graph["nodes"]
         self.rd = {"instances": {}}
 
     def node_state(self, nid):
@@ -119,6 +162,20 @@ class _Board:
 
     def output_of_round(self, nid, rnd):
         return self._outputs.get(nid) if rnd == self.round else None
+
+    def is_runner(self, n):
+        """回す側の節か（engine の Board.is_runner と同じ式: graph の runners が正本）"""
+        return n["run_by"] in self.graph.get("runners", [])
+
+    def cond(self, name, overlay=None):
+        """rules の条件の関数 name を呼ぶ（engine の Board.cond と同じ run_cond を通す）——(真偽, 理由の文)。
+        文脈は engine の条件の文脈の頭（COND_HEADS）と同じ鍵。出力は周が 1 つだけなので out と cur が同じ、prev は空"""
+        fn = registry(_rules(), "CONDS").get(name)
+        if fn is None:
+            raise Reject(f"cond '{name}' が rules の CONDS に無い")
+        cur = dict(self._outputs)
+        ctx = {"record": self.record, "out": cur, "prev": {}, "cur": cur, "round": self.round, "rd": self.rd, "loop": self.loop_state}
+        return run_cond(name, fn, {h: ctx[h] for h in COND_HEADS}, lambda: validator_module(self), None, overlay)
 
 
 # ---------------------------------------------------------------- git と盤面のファイル
@@ -391,7 +448,10 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
                 rec["process"]["request_findings"] = req
             b = _Board(board, rev, record=rec)
             out = copy.deepcopy(reply)   # judge_output は 1 行の欄と class_query を正規化する（返答の元は触らない）
-            note = rules.POST_CHECKS["judge_output"](b, "p2.diagnose", out, None)
+            try:
+                note = rules.POST_CHECKS["judge_output"](b, "p2.diagnose", out, None)
+            except Reject as e:
+                raise _name_hints(e)
             V = validator_module(b)
             opened = [u["key"] for u in out["units"] if V.is_open(u)]
             path = _write_board(board, JUDGMENT_FILE, out)
@@ -415,7 +475,10 @@ def check_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pat
             rec["units"], rec["questions"] = judgment.get("units") or [], judgment.get("questions") or []
             b = _Board(board, rev, record=rec)
             plan = {"plan": [{"unit_keys": [c["unit_key"]]} for c in reply["changes"]]}
-            rules.POST_CHECKS["fix_plan_covers_units"](b, "p3.fix", plan, None)
+            try:
+                rules.POST_CHECKS["fix_plan_covers_units"](b, "p3.fix", plan, None)
+            except Reject as e:
+                raise _name_hints(e)
         return {"ok": True, "reason": ""}
     return _guard(run)
 

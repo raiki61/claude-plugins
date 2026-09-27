@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CORE = ROOT / ".shared" / "core"
@@ -72,6 +73,23 @@ class TestIntake(AcceptCase):
         self.assertTrue(r["ok"], r["reason"])
         batches = json.loads((self.board / "request.json").read_text())
         self.assertEqual(batches, [{"round": 1, "origin": "持ち主", "findings": load("request_ok")}])
+
+    def test_add_reads_nodes_and_runners_of_fake_board(self):
+        # 0.21.0 の add は、積んだ欄を読む待ちの instance を b.nodes の reads と b.is_runner で振り分ける（他へ渡した物は描き直し、
+        # 回す側の節は言うだけ）。今の works は instances が空でこの道を通らない——偽の盤面の nodes・is_runner が engine と
+        # 同じ振り分けになるかを、instance を 3 つ持たせて見る
+        import accept
+        rules = accept._rules()
+        b = accept._Board(self.board, "", record=rules.init_record(None, None))
+        self.assertFalse(b.is_runner(b.nodes["p2.diagnose"]))   # judge
+        self.assertTrue(b.is_runner(b.nodes["report"]))          # writer（graph の runners）
+        none = str(self.board / "まだ無い返答.json")
+        b.rd["instances"] = {i: {"id": i, "node": n, "status": "pending", "out_path": none}
+                             for i, n in (("p2.diagnose#1", "p2.diagnose"), ("report#1", "report"), ("p3.fix#1", "p3.fix"))}
+        r = rules.add(b, load("request_ok"), "持ち主")
+        self.assertEqual(r["redraw"], ["p2.diagnose#1"])   # 依頼を読む・回す側でない・まだ起きていない
+        self.assertIn("report#1 は起きた後か回す側の節なので描き直していない", r["msg"])
+        self.assertNotIn("p3.fix#1", r["msg"])               # 依頼の欄を読まない節は触らない
 
     def test_intake_rejects_unknown_key(self):
         r = check_request(load("request_extra_key"), self.board, "持ち主")
@@ -144,6 +162,32 @@ class TestJudge(AcceptCase):
         self.assertFalse(r["ok"], "無視されるファイルの中身の書き換えも拒む")
         self.assertIn("作業ツリー", r["reason"])
 
+    def test_judge_carried_r1_tells_to_copy_the_where(self):
+        # graphloops 0.21.0 の _carried_r1_accounted は、前の周の R1 の削除候補に無い where を拒むとき『貼られた行の no で指せ』と
+        # 案内する。works の判定役には番号の一覧を貼らないので、where を字面のまま写せと返す。
+        # 今の works は 1 周だけで盤面に前の周の R1 が無く、この道は通らない——前の周の R1 を持つ盤面を差して通す
+        import accept
+
+        class PrevR1Board(accept._Board):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                self.round = 2
+                self.state["outputs"] = {"r1.minimality": {"round": 1}}
+
+            def outputs(self, before_round=None):
+                return {"r1.minimality": {"deletions": [{"where": "stats.py:3"}]}}
+
+        reply = load("judge_ok")
+        reply["carried_r1"] = [{"where": "stats.py:4", "disposition": "decline", "why": "削除すると mean が壊れる"},
+                               {"where": "stats.py:3", "disposition": "decline", "why": "削除すると mean が壊れる"}]
+        with mock.patch.object(accept, "_Board", PrevR1Board):
+            r = check_judge(reply, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("carried_r1[0] の where 'stats.py:4'", r["reason"])
+        self.assertIn("削除候補の where を字面のまま写せ", r["reason"])
+        self.assertNotIn("no で指せ", r["reason"])
+        self.assertFalse((self.board / "judgment.json").exists())
+
     def test_judge_rejects_non_object(self):
         r = check_judge("units", self.board, self.base, self.repo)
         self.assertFalse(r["ok"])
@@ -163,6 +207,17 @@ class TestFix(AcceptCase):
         missing = [u["key"] for u in load("judge_ok")["units"] if u["key"] not in covered]
         self.assertEqual(len(missing), 1)
         self.assertIn(missing[0], r["reason"])
+
+    def test_fix_unknown_key_tells_to_copy_the_key(self):
+        # graphloops 0.21.0 の拒否文は『貼られた単位の no で指せ』（番号の一覧を貼る graphloops の役向け）。works の修正役には
+        # 番号の一覧が無く、unit_key は文字列だけを通すので、判定の key を字面のまま写せと返す
+        self.judged()
+        reply = load("fix_ok")
+        reply["changes"][0]["unit_key"] += "（写し違い）"
+        r = check_fix(reply, self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("判定の key を字面のまま写せ", r["reason"])
+        self.assertNotIn("no で指せ", r["reason"])
 
     def test_fix_without_judgment(self):
         r = check_fix(load("fix_ok"), self.board, self.base, self.repo)
@@ -224,6 +279,20 @@ class TestDelta(AcceptCase):
         pyc.write_bytes(b"b")
         self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
 
+    def test_delta_rejects_plan_only_kind(self):
+        # graphloops 0.21.0 の face_kind は事前審査と共有で regression・policy・precedent を含むが、修正差分のレビューでは拒む語
+        self.fix_stats()
+        for kind in ("regression", "policy", "precedent"):
+            reply = {"faces": [{"key": f"stats.py の {kind} の穴", "kind": kind, "where": "stats.py", "cite": "def clamp(x, lo, hi):",
+                                "why": "修正差分のレビューが事前審査だけの語で穴を挙げている"}], "checks": []}
+            r = check_delta(reply, self.board, self.base, self.repo)
+            self.assertFalse(r["ok"], kind)
+            # 型の段で拒む（役の型の enum に無い語）。rules の段の拒否文（works に無い r4.human_gate を指す）まで行かせない
+            self.assertIn(f"値 '{kind}' が語彙", r["reason"])
+            self.assertNotIn("事前審査だけの語", r["reason"])
+            self.assertNotIn("r4.human_gate", r["reason"])
+            self.assertFalse((self.board / "delta-review.json").exists())
+
     def test_snapshot_sees_untracked_content(self):
         (self.repo / "new.txt").write_text("a\n")
         before = snapshot_tree(self.repo)
@@ -244,6 +313,18 @@ class TestRoleSchema(unittest.TestCase):
         router = s["properties"]["router"]["items"]
         self.assertIn("note", router["required"])
         self.assertIn("note", router["properties"])
+
+    def test_pointer_fields_stay_names(self):
+        # graphloops 0.21.0 は pointers の位置（番号で指す欄）の型を [integer, string] に広げる。works の役には番号を振った
+        # 一覧を貼らず、番号を名前に戻す段も無いので、名前（文字列）の型のまま役に渡す
+        where = role_schema("p2.diagnose")["properties"]["carried_r1"]["items"]["properties"]["where"]
+        self.assertEqual(where, {"type": "string", "minLength": 1})
+        key = role_schema("p3.delta_review")["properties"]["checks"]["items"]["properties"]["key"]
+        self.assertEqual(key, {"type": "string", "minLength": 8})
+
+    def test_delta_kinds_exclude_plan_only(self):
+        kind = role_schema("p3.delta_review")["properties"]["faces"]["items"]["properties"]["kind"]
+        self.assertEqual(kind["enum"], ["copy", "entrance", "contract_drift", "dead_path", "scope_creep"])
 
     def test_good_replies_pass_role_schema(self):
         from engine.schema import validate_schema

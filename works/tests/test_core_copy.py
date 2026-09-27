@@ -6,6 +6,7 @@ Task 9: works のスキル（SKILL.md の frontmatter と本文の起動名）�
 """
 import json
 import pathlib
+import subprocess
 import sys
 import unittest
 
@@ -26,7 +27,31 @@ class TestCoreCopy(unittest.TestCase):
         self.assertTrue(hasattr(rules, "add"))
 
     def test_copied_from_names_commit(self):
-        self.assertIn("fbd40e3", (CORE / "COPIED_FROM").read_text())
+        lines = (CORE / "COPIED_FROM").read_text().splitlines()
+        self.assertEqual(lines[0].split()[0], "a1202d0")   # graphloops 0.21.0
+
+    def test_copied_from_lists_existing_files(self):
+        """COPIED_FROM の 2 行目以降に並ぶ写した物が、全部 core の下に在る（0.21.0 で足した 4 本を含む）"""
+        listed = [ln.split()[0] for ln in (CORE / "COPIED_FROM").read_text().splitlines()[1:] if ln.strip() and not ln.startswith("#")]
+        for rel in ("graphloops/engine/declared.py", "graphloops/engine/intake.py", "graphloops/engine/pointers.py",
+                    "graphloops/rules/policy_input.py"):
+            self.assertIn(rel, listed)
+        for rel in listed:
+            self.assertTrue((CORE / rel).is_file(), rel)
+        # 検証器が読む物（盤面の層の scalars の段が要る。0.21.0 の写しで足した）
+        for rel in ("scripts/comment-ratio.sh", "REVIEW.md", "graphloops/scripts/parallel-pr.py"):
+            self.assertIn(rel, listed)
+
+    def test_copies_are_byte_identical_to_the_commit(self):
+        """COPIED_FROM に並ぶ写しは、1 行目の commit の同じパスの中身とバイト単位で同じ（写しは直さない）"""
+        lines = (CORE / "COPIED_FROM").read_text().splitlines()
+        commit = lines[0].split()[0]
+        listed = [ln.split()[0] for ln in lines[1:] if ln.strip() and not ln.startswith("#")]
+        for rel in listed:
+            with self.subTest(rel):
+                src = subprocess.run(["git", "-C", str(ROOT), "show", f"{commit}:{rel}"],
+                                     capture_output=True, check=True).stdout
+                self.assertEqual((CORE / rel).read_bytes(), src)
 
     def test_manifest(self):
         m = json.loads((ROOT / "archon-plugin.json").read_text())
