@@ -61,6 +61,7 @@ HEAVY = frozenset({
     "test_edge",            # 線 A: 試験ごとの種の git（linekit.seed_repo）・golden の盤面の再生（boardreplay）・スクリプトを子で起こす
     "test_policy",          # 線 A: 試験ごとの種の git（linekit.seed_repo）
     "test_rejudge",         # 線 A: golden の盤面の再生（rejudgekit）・git
+    "test_report",          # P1 Task 27: 試験ごとの種の git（linekit.seed_repo）で盤面を周の締めまで進める・スクリプトと sh を子で起こす
     "test_reads",           # 線 A Task 6: 種の git（linekit.seed_repo）と盤面（entry.start。クラスに 1 回）・フックとスクリプトを子で起こす
     "test_ticket",          # 線 A: git のリポジトリと worktree 2 つを作る（クラスに 1 回）
     "test_accept",          # 15.3 秒（負荷 15）うち 11.5 秒は受け付けの racy-git の待ち（accept.py。決まった秒）

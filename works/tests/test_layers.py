@@ -48,7 +48,7 @@ MOD = {
     "adapter": (2, None), "ticket": (2, None), "claude-adapter": (2, None), "record-read": (2, None),
     "no-post-bin/works-gh": (2, None),
     "board": (3, None), "accept": (3, None), "policy": (3, None), "entry": (3, None), "halt": (3, None),
-    "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None),
+    "refix": (3, None), "recount": (3, None), "reads": (3, None), "leftovers": (3, None), "report": (3, None),
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
 }
 # 共有の模块の中に居る上の層の名前（割る前の当座。V2）: 模块 → (層, 持ち主, 名前の組)
@@ -67,7 +67,7 @@ PLANNED_SCRIPTS = frozenset({
     "blk-pr/scripts/accept.py", "blk-pr/scripts/collect.py", "blk-pr/scripts/reads.py", "blk-pr/scripts/snap.py",
     "blk-refix/scripts/accept_refix.py", "blk-refix/scripts/accept_review2.py", "blk-refix/scripts/collect.py",
     "blk-refix/scripts/cut2.py", "blk-refix/scripts/prep.py", "blk-refix/scripts/reads.py", "blk-refix/scripts/route.py",
-    "darkfactory/scripts/edge.py", "darkfactory/scripts/start.py",
+    "darkfactory/scripts/edge.py", "darkfactory/scripts/report.py", "darkfactory/scripts/start.py",
 })
 
 # 破れ（元と先の組）の語と、直し方の案内。KNOWN に置けるのはこの語の行だけ
