@@ -5,8 +5,8 @@ graphloops/tests/simulate.py・simulate_review.py（bash の tests/run.sh が束
 - 台本の check 1 件をテスト 1 件（parametrize の 1 行か 1 関数）に写す。件数の柵（conftest.py の EXPECTED_ITEMS）が check の粒度で数え続け、落ちた検査が 1 件ずつ並ぶ
 - 盤面を端から端まで回す筋書きは、本文を台本の check のまま移し、土台の gl_script で台本のモジュールを借りる。件数は EXPECTED_SIM_CHECKS が数える
 - 途中の盤面に 1 手を当てて確かめる検査（否定検査など）は、控えた波・1 手・手で書いた期待（assert）の形に移す（T1）。波は waves.py が台本の前半を同じプロセスで 1 度だけ回して控え、検査ごとに控えから始める。台本の check は数えない（EXPECTED_SIM_CHECKS は動かない）。行き先は各テストの印 `moved_from` が名乗り、台帳（ledger.py）が台本の check ごとに機械で組む——空欄と、名乗りが check にちょうど 1 件で当たらない物と、末尾の「check ごとの対応（台帳が刷る）」の塊の古びは test_ledger.py が赤にする
-- 上限で止まる・止める・人待ちのように盤面を何周も回して狙いの点を見る筋書きは、given（控えた波）・when（1 手の関数）・then（手で書いた述語）の parametrize の行に移す（T2・層 2）。1 行が台本の check 1 件で、行の印が名乗る。前置きは T1 と同じ waves.py の表に足す
-- 台本→移し先の対応の正本は印 `moved_from` 1 つ。台帳が見張る台本は、印が名乗る台本と前の版の塊に載っていた台本の和で、見張りから外すのは末尾の「外した台本」の一覧への 1 行だけ
+- 上限で止まる・止める・人待ちのように盤面を何周も回して狙いの点を見る筋書きは、出来事の列のデータ（scenes.py の history。台本の関数の中の Run 1 つが打った出来事を元の順に並べる）に書き、行はその列の印を指す（T2・層 2）。行の前置きは印の手前の出来事の全部、when は印の出来事、期待は手で書く述語。1 行が台本の check 1 件で、行の印が名乗る。形の規範は [ADR 0067](../../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md)
+- 台本→移し先の対応の正本は印 `moved_from` 1 つ。台帳が見張る台本は、印が名乗る台本と、基の git の版の塊に載っていた台本の和で、見張りから外すのは末尾の「外した台本」の一覧への 1 行だけ
 - 元の文言は、移した先のテストの名前・docstring・コメントと、下の表の 1 行で運ぶ。表の「元の check」は台本が出していた行の頭（描画した値は元の回の物）
 
 ## S2b（2026-09-27）
@@ -215,7 +215,7 @@ simulate.py の small 8 本と、research の標準の収束（e2e）1 本を移
 
 ## T1（2026-09-27）
 
-否定検査 2 本（simulate_review.py と simulate.py の test_rejections）の check を、控えた波・1 手・手で書いた期待の pytest に移した。**台本はまだ消していない**——台本を消すのは、下の変異の腕の証明が CI で済んだ後の run（testplan の REDESIGN.md 4.2 の 4 条件）。それまでは同じ検査が両方に在り、片方を直したらもう片方も直す。台帳（下の test_ledger.py）は、台本の check が増える・減る・説明の頭が変わるずれを赤にするが、説明はそのままで条件だけが変わったずれは捕まえない（waves.py の前半の手順の写しも見張りは無い）。
+否定検査 2 本（simulate_review.py と simulate.py の test_rejections）の check を、控えた波・1 手・手で書いた期待の pytest に移した。**台本はまだ消していない**——台本を消すのは、下の変異の腕の証明が CI で済んだ後の run（[ADR 0067 の台本を消す 4 条件](../../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md#台本を消す-4-条件)）。それまでは同じ検査が両方に在り、片方を直したらもう片方も直す。台帳（下の test_ledger.py）は、台本の check が増える・減る・説明の頭が変わるずれを赤にするが、説明はそのままで条件だけが変わったずれは捕まえない（waves.py の前半の手順の写しも見張りは無い）。
 
 | 元の台本の関数 | 移した先 |
 |---|---|
@@ -236,9 +236,9 @@ check の数は、末尾の「check ごとの対応（台帳が刷る）」の�
 - PYTHONIOENCODING=cp1252 の下での標準入力の読み（起動時にだけ効く設定。3 OS の通しで windows-latest だけ赤だった腕）
 - loop.py init の argv と、入口の拒否が 0 以外の終了コードになること（2 件）
 
-### 被覆の包含（REDESIGN.md 4.2 の 4）
+### 被覆の包含（台本を消す条件の 4）
 
-道具は cover_moved.py（手で撃つ。pytest の一式には入れない。打ち方と今の測り方は docstring）。T1 の撃ちの時点では、旧い側は台本 2 関数を glharness の inproc の口で 1 回ずつ回して測り（loop.py が同じプロセスに回るので engine の行が測れる。cli の口のまま測ると旧い側が部品の行だけになり、包含が恒真になる）、新しい側は移した先の 2 ファイルを pytest-cov の --cov-context=test で測る（前の回の測りは使い回さない）。波は --gl-prebuild-waves で最初のテストの準備（setup）に全部作らせ、検査の本体（run）と分けて数える。計測器は ctrace（Python 3.14 の既定の sysmon は動的な文脈を持たない）。測る行は graphloops/engine・rules・scripts。
+道具は cover_moved.py（撃つのは CI の手で起こす job .github/workflows/cover-moved.yml。pytest の一式には入れない。打ち方と今の測り方は docstring）。T1 の撃ちの時点では、旧い側は台本 2 関数を glharness の inproc の口で 1 回ずつ回して測り（loop.py が同じプロセスに回るので engine の行が測れる。cli の口のまま測ると旧い側が部品の行だけになり、包含が恒真になる）、新しい側は移した先の 2 ファイルを pytest-cov の --cov-context=test で測る（前の回の測りは使い回さない）。波は --gl-prebuild-waves で最初のテストの準備（setup）に全部作らせ、検査の本体（run）と分けて数える。計測器は ctrace（Python 3.14 の既定の sysmon は動的な文脈を持たない）。測る行は graphloops/engine・rules・scripts。
 
 2026-09-27 の測り（**土台 aa4cdf6 の版の上の値**。0.21.5 の上ではまだ測り直していない——台本も engine も行が動いたので、下の数字を今の版の包含の証明として読まない。測り直しは上の道具を今の版で 1 回撃つ。Python 3.14・coverage 7.16.1・pytest-cov 7.1.0・testslot の枠の中）:
 
@@ -264,7 +264,7 @@ tests/mutations.json で test_rejections を当てにする腕は下の表のと
 1. 口が入った版で、下の腕を 1 本ずつ、tests に「移した先」の node id だけを書いて撃つ（台本は tests から外す）
 2. Killed で、落ちたテストが「移した先」の node id なら、その腕の tests を node id に付け替えてよい。expect は腕の中身の文言のままで、新しいテストの失敗の文面に当たるかを見る（当たらなければ expect を新しいテストの assert の文面に替える）
 3. Survived なら付け替えない。台帳の行に理由を書き、台本を消す run の前に新しいテストを足す
-4. 表の腕が全部付け替わり、前の変異の結果で台本 2 本が殺した自動の腕（REDESIGN.md 4.2 の 3）も新しいテストで殺せたら、台本 2 本を消す run の条件がそろう
+4. 表の腕が全部付け替わり、前の変異の結果で台本 2 本が殺した自動の腕（台本を消す条件の 3）も新しいテストで殺せたら、台本 2 本を消す run の条件がそろう
 
 | 腕 | 撃つファイル | expect（頭） | 殺すはずのテスト（移した先） |
 |---|---|---|---|
@@ -295,44 +295,54 @@ T2 から、台本ごとの表は末尾の「check ごとの対応（台帳が�
 
 ## T2（2026-09-27）
 
-上限で止まる類と、止める・人待ちの筋書き（testplan の REDESIGN.md 4.3 の順の (1)(2)）の台本 14 関数の check を、層 2 の筋書き——given（控えた波）・when（1 手の関数）・then（手で書いた述語）の parametrize の行——に移した。**台本はまだ消していない**（消す条件は T1 と同じ 4.2 の 4 つ。下の変異の腕と被覆の手順を CI で撃った後の run）。それまでは同じ検査が両方に在り、片方を直したらもう片方も直す。
+上限で止まる類と、止める・人待ちの筋書き（移す順の (1)(2)。[ADR 0067 の移す順](../../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md#移す順)）の台本 14 関数の check を、層 2 の筋書き——出来事の列のデータと、その列の印を指す行——に移した。**台本はまだ消していない**（消す条件は T1 と同じ 4 つ。下の変異の腕と被覆の手順を CI で撃った後の run）。それまでは同じ検査が両方に在り、片方を直したらもう片方も直す。
 
 | 元の台本の関数 | 移した先 |
 |---|---|
 | simulate_review.py の test_runaway・test_ci_red_runaway・test_no_new_awaiting_after_judge・test_awaiting・test_awaiting_origin_guards・test_final_gate_empty_asks_human・test_stop_midround・test_stop_after_round・test_human_gate | test_scenarios_review.py（同じ名前の関数。すべて medium・layer2） |
 | simulate.py の test_unattended_stuck・test_attended_stuck_answer・test_gate_arms・test_stopped_before_gates_reports・test_stop_midway | test_scenarios_research.py（同じ名前の関数。すべて medium・layer2） |
 
-check の数は、末尾の塊のこの 14 関数の表の行の数。範囲は判定の推し: test_spec_stop_and_changes（仕様の道。4.3 の (4)）は次の run、test_count_budget・test_stopped_gates_all_thicknesses・test_stop_branch・test_escalate_ratchet・test_stuck_routed_at_judge は Run を作らない規則の検査なので層 1 の仕事で、この段では移していない。
+check の数は、末尾の塊のこの 14 関数の表の行の数。範囲は判定の推し: test_spec_stop_and_changes（仕様の道。移す順の (4)）は次の run、test_count_budget・test_stopped_gates_all_thicknesses・test_stop_branch・test_escalate_ratchet・test_stuck_routed_at_judge は Run を作らない規則の検査なので層 1 の仕事で、この段では移していない。
 
-- **形**: 回し手・役の表・前置きの控え・run_until は作らず、台本の Run・drive（stop_at）・answers・base_answers と waves.py の控えを借りる。前置き（given）は waves.py の WAVES・ROOTS に行を足した（名前の 2 段目が台本の関数の中の Run 1 つ）。台本の関数の中の hook と途中の手（人の答え・patch・stop）は波の手に写した。when も波の手と同じく Python の関数で、行ごとに控えから始めて 1 手を打つ。別の run の値を借りる波（test_final_gate_empty_asks_human の 2 本目の run が 1 本目の諮った周を上限にする）は、WAVES の 3 つ目の欄で借りる波を名指す
-- **台本の check を撃たない**: research の台本の drive は hook が None のとき中で渡し方の検査（check）を撃つので、波の手は何もしない hook（waves.NOHOOK）を渡す。EXPECTED_SIM_CHECKS は変えない（渡し方の検査は台本の側に残る）。渡し忘れは test_walking_a_wave_runs_no_script_check が赤にする（-n の下の件数の柵だけでは、波を作る worker の数で揺れる形でしか見えない）
+- **形**（scenes.py）: 台本の関数の中の Run 1 つを 1 本の列（history）にし、その Run が打った出来事を元の順に並べる（init・next・until・cmd・done・write・look・validate・loop。until は役の表の名前で next と答えを回す run_until）。行は列の印を指すだけで、前置き（given）は印の手前の出来事の全部になる——行が手前の出来事を選んで落とす口を持たない（1 周目の形では、test_stop_after_round の status・finalize・trace の 3 行が、元の関数が先に打った next・status・finalize を落としていた）。期待は Scene（when の返事・その後の盤面・列の途中で印を付けた出来事の返事）を受ける述語で、落ちたときは返事と盤面の要点（digest）を出す
+- **回し手**（Driver）: 出来事を 1 つ受けて（返事, 盤面）を返す。口は glharness.driven の inproc か cli を引数で選ぶ（テストは inproc。T3 の世界の口はここに差し込む）。until は台本の drive を名前で引いて回す——台本を消す run で本体を移す（写すと、写しと台本の drive のずれを見る柵が無い）
+- **役の表**（ROLES）: 名前 → 台本の返答の表（answers・base_answers）と節ごとの手直し（返答の上書き・同じ節への先打ちの出来事・周と 1 度だけの条件）。台本の関数の中の hook の閉包を、この表のデータに書き直した
+- **控え**（Scenes）: 列の接頭辞ごとに作業場をまるごと控え、行はその位置から写し戻して始める。控えるのは init の後・行の位置とその手前・別の列が値を借りる位置（test_final_gate_empty_asks_human の 2 本目の run は、1 本目が諮った周を上限にする——patch の値のファイルが別の列のその印の盤面から読む）
+- **台本の check を撃たない**: research の台本の drive は hook が None のとき中で渡し方の検査（check）を撃つ。回し手はいつも役の表から作った hook を渡す。列を作る手が台本の check を撃つと、回し手の 1 手が例外で止まる（準備の段で撃った check は件数の柵の数えの外で落ちるため。test_scenes.py の test_a_step_that_fires_a_script_check_raises）。EXPECTED_SIM_CHECKS は変えない
+- **元の関数との突き合わせ**: 列が元の関数の出来事を落としていないことは、被覆の道具の --no-cov の回が、元の関数の Run の最後の盤面と、同じ Run の列を端まで打った盤面を glharness.normalize_board と first_difference で比べて見る（返答の中身・世界の手・順の違いは盤面の差として出る）。撃った結果は下の「所要と子の数」
 - **関数の外の check**: test_attended_stuck_answer が呼ぶ loop_shape_held の check は台本の関数の本文に無く台帳に載らない。同じ期待を印の無いテスト test_attended_stuck_answer_keeps_the_loop_shape に写した
-- **大きさと印**: 盤面を回すので全部 medium。inproc の口が同じプロセスに回すのは loop.py だけで、engine が自分で起こす子（git・検証器・宣言の走らせる語・launch）は子プロセスのまま走る——small を名乗れるのは子を消す世界の口（T3）の後。印 layer2 も付けた（手元の反復は `-m "not layer2"` で外せる）
-- **通しに残す物**: test_stop_midround と test_human_gate の主経路（Run("gate")）は通しに残す 10 本（REDESIGN.md 3.6）。印の kept に理由を書いた（cli の口の台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手）
+- **大きさと印**: 盤面を回すので全部 medium（理由は glharness.py の docstring）。印 layer2 も付けた（手元の反復は `-m "not layer2"` で外せる）
+- **通しに残す物**: test_stop_midround と test_human_gate の主経路（Run("gate")）は通しに残す 10 本（[ADR 0067 の通しに残す 10 本](../../../docs/adr/0067-test-migration-layer2-and-removal-conditions.md#通しに残す-10-本)）。印の kept に理由を書いた（cli の口の台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手）
 
 ### 台帳の変わり目
 
-- 見張る台本と移し先のファイルを手で書いた一覧（ledger.py の SCRIPTS・MOVED_FILES）と、被覆の道具の台本→移し先の字の頭の決め打ちを消し、印 `moved_from` 1 つから引く。見張る台本は「印が名乗る台本」と「前の版の塊に載っていた台本」の和から「外した台本」の一覧の台本を引いた集合——印を全部消しても、前の版の塊に載った台本は「名乗るテストが無い」で赤になる。赤を解くのは下の「外した台本」への 1 行（台本と理由）だけ
-- 説明の頭は f 字列の穴を `{式}` と描いた型紙（穴で始まる説明も名乗れる。T1 の頭は前方一致なので名乗りを変えずに当たる）
-- ループの中の check: 回数を字面で読めるループ（字面の tuple・list、関数の中で 1 度だけそれに束ねた名前、両腕が字面の条件式）に限って型紙の 1 行として載せる。if の下に無く、ループに continue・break・return・raise が無い check は、入れ子の回数の積と行き先の本数が一致しないと赤（表の「型紙 ×N」）。if の下に在る・条件式の両腕の長さが違うなど回数が決まらない check は 1 本以上で通し、表に理由を出す。回数を字面で読めないループ（while・関数の呼び出しなど）の中の check は赤のまま
-- 集める段は置き場のテストを全部集める（どのファイルが印を持つかは集めた印が決める）。test_ledger.py も全部集めた回で見る（`pytest graphloops/tests/py -k test_ledger`）。集めるだけの回（--collect-only）は fence.py の検査の件数と到達の柵を外す（1 件も走らない）
-- 綴りを誤った台本（モジュール・関数が無い）は、例外でなく名乗った node id を挙げる問題の 1 行になる
+- 見張る台本と移し先のファイルを手で書いた一覧（ledger.py の SCRIPTS・MOVED_FILES）と、被覆の道具の台本→移し先の字の頭の決め打ちを消し、印 `moved_from` 1 つから引く。見張る台本は「印が名乗る台本」と「**基の git の版**の塊に載っていた台本」の和から「外した台本」の一覧の台本を引いた集合——印を全部消しても、塊の節を消しても、刷り直して貼っても、基の版の塊に載った台本は「名乗るテストが無い」で赤になる。赤を解くのは下の「外した台本」への 1 行（台本と理由）だけ。基は CI では PR の基か push の直前の版（test.yml の pytest の段の GL_LEDGER_BASE。checkout は全履歴）、手元では HEAD と main との merge-base。基を引けない checkout と変異の実行器の写しの中では突合を見送り、見送りの行（`# SKIP ledger-base:`）を pytest の警告に出す（人の関所 2026-09-27 の 2 回目の条件 1・2）
+- ループの中の check と、説明の頭の型紙の規則は ledger.py の docstring（名前に束ねたループは、字面の tuple にちょうど 1 度だけ束ねた物だけを読む）
 
 ### 件数の定数
 
-conftest.py の EXPECTED_ITEMS 1349 → 1485（層 2 の 2 ファイル 111 件——review 72・research 39（印の無い 2 件: 関数の外の check の写しと、波の手が台本の check を撃たないことの柵）、台帳の柵 5 → 26、被覆の道具の選ぶ段の柵 4）。値の正本は conftest.py（pytest --collect-only の実測）。**並行の束 A（wip/bunda）も同じ行を書き換える**——合流した版で --collect-only を数え直して書く。graphloops/tests/run.sh の EXPECTED_CHECKS・EXPECTED_TESTS と EXPECTED_SIM_CHECKS・VOCAB_REACHED は、台本を消していないので変えない。
+conftest.py の EXPECTED_ITEMS 1349 → 1532。内訳は、層 2 の 2 ファイル 110 件（review 72・research 38。印の無い 1 件は関数の外の check の写し）、回し手の部品 test_scenes.py 15、台帳の柵 5 → 46、被覆の道具 4 → 13、fence の集めるだけの回の柵 3、変異の写しの印 1。値の正本は conftest.py（pytest --collect-only の実測）。**並行の束 A（wip/bunda）も同じ行を書き換える**——合流した版で --collect-only を数え直して書く。graphloops/tests/run.sh の EXPECTED_CHECKS・EXPECTED_TESTS と EXPECTED_SIM_CHECKS・VOCAB_REACHED は、台本を消していないので変えない。
 
-### 所要（REDESIGN.md 5.1 の見積もりの置き換え先）
+### 所要と子の数（見積もりの置き換え先）
 
-2026-09-27 に、この木（0.21.5 の上）で、層 2 の 2 ファイルを 1 プロセス（-n 無し・被覆なし）で 1 回ずつ回した実測: test_scenarios_review.py 72 件 134.3 秒、test_scenarios_research.py 38 件 8.8 秒。重いのは上限まで回す波（test_runaway の波 16.6 秒・test_ci_red_runaway の波 12.2 秒——波を作ったテストの所要に載る）。
+2026-09-27 に、この木（0.21.5 の上）で測った。testslot の枠の中で、手元で名指したのは代表の 3 関数だけ（人の方針）。全部の関数の比べは CI の cover-moved の job で撃つ。
 
-- 5.1 の「1 手を同じプロセスで 10〜30 ミリ秒」は、この段の層 2 では成り立たない。波の作りは台本と同じ歩きで、engine の子（git・検証器・走らせる語）はそのまま起きる。子の数は数えていない
-- 旧い側（台本を cli の口と inproc の口で名指しして回す）の所要は測っていない——この run の修正の節では、台本を名指しで走らせるコマンドが権限で拒まれた（問いの台帳の held の問い「層 2 の効き目の実測を撃つ権限」）。比べは人が手元で名指しの数件を撃つか、次の run の許可に入れる
-- 一式の所要はこの段で延びる（台本 14 関数も残り、同じ振る舞いを 2 度確かめる）。pytest-xdist の worker は控えを別々に作るので、同じ波を worker の数まで作り直しうる。延びるのは台本を消す run までの一時の措置（人の関所 2026-09-27 の条件 3）
+旧い側（元の関数を名指しで回す）と層 2 の側（その関数の行が使う列を控えの置き場で端まで 1 度ずつ作る）の比べ（cover_moved.py --no-cov）。子の数は監査イベント subprocess.Popen で数えた（cli の口は子の中の子が見えないので所要だけ）:
+
+| 台本の関数 | 旧い側 cli（秒） | 旧い側 inproc（秒・git／python／他） | 層 2 の列（秒・git／python／他） | 元の関数の Run との突き合わせ |
+|---|---|---|---|---|
+| simulate_review.test_runaway | 29.5 | 16.7・550／12／11 | 16.7・550／12／11 | 1 列とも一致 |
+| simulate_review.test_stop_after_round | 測っていない | 15.9・551／13／11 | 16.4・551／13／11 | 4 列とも一致 |
+| simulate.test_stop_midway | 測っていない | 1.7・38／5／0 | 1.9・38／5／0 | 3 列とも一致 |
+
+- 層 2 の列を作る費用は、inproc の口の旧い側とほぼ同じ（同じ drive を回し、engine の子——git・検証器・走らせる語——も同じ数だけ起きる）。この段の効き目は速さでなく、行が 1 件ずつ独立に落ち、控えを共にし、元の関数の出来事を落とせない形である。子が減るのは世界の口と偽の git（T3）の後
+- 見積もりの「1 手を同じプロセスで 10〜30 ミリ秒」は、この段の層 2 では成り立たない
+- 層 2 の 2 ファイルを 1 プロセス（-n 無し・被覆なし）で 1 回ずつ回した所要: review（72 件）118.7 秒、research（38 件——上の件数の定数の内訳と同じ）8.7 秒
+- 一式の所要はこの段で延びる（台本 14 関数も残り、同じ振る舞いを 2 度確かめる）。pytest-xdist の worker は控えを別々に作るので、同じ列を worker の数まで作り直しうる。延びるのは台本を消す run までの一時の措置（人の関所 2026-09-27 の条件 3）
 
 ### 変異の腕
 
-tests/mutations.json で T2 の台本を当てにする手書きの腕は 12 本。(1) 上限で止まる類の 4 関数（test_runaway・test_ci_red_runaway・test_gate_arms・test_stopped_before_gates_reports）を指す手書きの腕は 0 本で、4.2 の証明は条件 3（自動の腕）と 4（被覆）が担う。手順は T1 の変異の腕の節と同じ（手書きの腕が pytest の node id を撃つ口が入った版で、CI で撃つ）。
+tests/mutations.json で T2 の台本を当てにする手書きの腕は 12 本。(1) 上限で止まる類の 4 関数（test_runaway・test_ci_red_runaway・test_gate_arms・test_stopped_before_gates_reports）を指す手書きの腕は 0 本で、移した期待の強さの証明は台本を消す条件の 3（自動の腕）だけが担う——条件 4（被覆）は行を通したことしか示さない。手順は T1 の変異の腕の節と同じ（手書きの腕が pytest の node id を撃つ口が入った版で、CI で撃つ）。
 
 | 腕 | 撃つファイル | expect（頭） | 殺すはずのテスト（移した先） |
 |---|---|---|---|
@@ -351,13 +361,13 @@ tests/mutations.json で T2 の台本を当てにする手書きの腕は 12 本
 
 ### 被覆の包含
 
-cover_moved.py の台本ごとの比べ（per_script）は、台本を名乗る node id の本体（run）と、そのテストが使った波（fixture wave が user_properties に積み、--junitxml で読む）とその祖先の作り（measure_waves が波ごとの文脈で測る）だけを数える形に替えた——T1 の形のまま 14 関数を足すと、別の台本の移し先と全部の波の作りで数えて嘘の緑を出す。読み込みの行（文脈が空）は全部の台本に渡す（旧い側は同じプロセスで台本を順に回すので、遅れて読む engine の import の行は最初に回した台本の文脈にだけ入る）。
+cover_moved.py が名乗るのは実行の包含（台本の関数が通した行を、移した先のテストの和も通したか）だけで、期待の強さは名乗らない。台本ごとの比べ（per_script）は、台本を名乗る node id の本体（run）と、そのテストが使った前置きの作り（T1 の波とその祖先・層 2 の列の接頭辞。fixture が user_properties に積み、--junitxml で読む）だけを数える。被覆の回（--gl-prebuild-waves）は前置きだけを準備の段で作り、各行の when を本体で打つので、どの行も run の文脈を持つ——「名乗る node id が run の文脈に 1 つも無い台本は赤」の規則はそのまま当てる。
 
-**この新しい道は、この run では 1 度も撃っていない。** 縛ったのは選ぶ段の純粋な関数（select_new・used_waves・waves.lineage）だけで、small のテスト test_cover_moved.py が見る。measure_waves の switch_context・junitxml の読み・波の祖先の和は、最初の撃ち（testslot の枠の中で手で撃つ。台本を消す run の前）で初めて走る。T1 の上の測りも土台 aa4cdf6 の版の値のままで、今の版の包含の証明としては読めない。
+**被覆の回は、この run では撃っていない**（手元に coverage と pytest-cov が無く、人の方針で手元では関数を名指しした数件だけを回す）。撃つのは CI の cover-moved の job（.github/workflows/cover-moved.yml。手で起こす）で、台本を消す run の前に撃つ。縛ったのは選ぶ段の純粋な関数（select_new・used_contexts・lineage）と子の数え方で、test_cover_moved.py と test_scenes.py が見る。--no-cov の回（所要・子の数・元の関数の Run との突き合わせ）は上の 3 関数で撃った。T1 の上の測りも土台 aa4cdf6 の版の値のままで、今の版の包含の証明としては読めない。
 
 ## 外した台本
 
-台帳の見張りから外した台本（``- `<台本>`: <理由>`` の 1 行ずつ。追記だけ。前の版の塊に載っていた台本を見張りから外す口はここだけ）。
+台帳の見張りから外した台本（``- `<台本>`: <理由>`` の 1 行ずつ。追記だけ。基の git の版の塊に載っていた台本を見張りから外す口はここだけ）。
 
 （まだ無い）
 
@@ -516,20 +526,20 @@ cover_moved.py の台本ごとの比べ（per_script）は、台本を名乗る 
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 6729 | 関所: 修正案の narrows が 1 件でもあれば、修正の前に人に聞く（{last.get('ask', {}).g… |  | test_scenarios_review.py::test_human_gate[narrows-ask-before-fix] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6733 | 関所: 人が答えるまで修正の節は出ない |  | test_scenarios_review.py::test_human_gate[no-fix-until-answered] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6734 | 関所: 方針の文書が無い run では、固定する版は無く、判定のプロンプトには方針の段落だけが出る |  | test_scenarios_review.py::test_human_gate[no-policy-document] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6737 | 関所: continue を返す（{r.stderr[-160:]}） |  | test_scenarios_review.py::test_human_gate[answer-continue] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6739 | 関所: 答えは人の答えの台帳（process.human_items）に残る（{hi}） |  | test_scenarios_review.py::test_human_gate[answer-in-human-items] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6742 | 関所: 人の答えの note が同じ周の修正役のプロンプトに届く |  | test_scenarios_review.py::test_human_gate[note-reaches-fix] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6747 | 修正の入口: 単位の行は記録の単位と同じ順で全部載り、義務の印を持つ（{[(r['key'][:20], r['owed… |  | test_scenarios_review.py::test_human_gate[fix-unit-rows] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6750 | 修正の入口: 判定の長い本文（母数の問いなど）は貼らず印だけを載せ、盤面に在る記録の置き場を指す（{refs}） |  | test_scenarios_review.py::test_human_gate[fix-long-bodies-not-pasted] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6753 | 関所: 修正差分の審査は後退の語を使えない（手直しの義務に入れて役に決めさせない。{seen.get('delta', … |  | test_scenarios_review.py::test_human_gate[delta-review-no-regression] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6755 | 関所: 方針の文書が init の後に変わった（役が書いた）なら、修正の後の関所で人に聞く（{last.get('ask… |  | test_scenarios_review.py::test_human_gate[policy-changed-asks] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6759 | 関所: 方針の文書の変化の行は差分のファイルの置き場を載せ（本文は載せない）、差分に変わった中身が在る（{row[-20… |  | test_scenarios_review.py::test_human_gate[policy-row-points-to-diff] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6763 | 関所: 通した方針の文書の変更は新しい版（写しも）を記録に固定し直し（以後の節は record.process.poli… |  | test_scenarios_review.py::test_human_gate[policy-refixed] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6778 | 関所: R4 の lost と方針とのぶつかり（policy_conflicts）は人に聞き、同じ文の行は通した後に聞き… |  | test_scenarios_review.py::test_human_gate[lost-and-conflict-asked-once] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 6780 | 関所: 人が通した後は収束まで進む（{last['status']}） |  | test_scenarios_review.py::test_human_gate[converges] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6729 | 関所: 修正案の narrows が 1 件でもあれば、修正の前に人に聞く（{last.get('ask', {}).g… |  | test_scenarios_review.py::test_human_gate[narrows-ask-before-fix] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6733 | 関所: 人が答えるまで修正の節は出ない |  | test_scenarios_review.py::test_human_gate[no-fix-until-answered] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6734 | 関所: 方針の文書が無い run では、固定する版は無く、判定のプロンプトには方針の段落だけが出る |  | test_scenarios_review.py::test_human_gate[no-policy-document] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6737 | 関所: continue を返す（{r.stderr[-160:]}） |  | test_scenarios_review.py::test_human_gate[answer-continue] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6739 | 関所: 答えは人の答えの台帳（process.human_items）に残る（{hi}） |  | test_scenarios_review.py::test_human_gate[answer-in-human-items] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6742 | 関所: 人の答えの note が同じ周の修正役のプロンプトに届く |  | test_scenarios_review.py::test_human_gate[note-reaches-fix] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6747 | 修正の入口: 単位の行は記録の単位と同じ順で全部載り、義務の印を持つ（{[(r['key'][:20], r['owed… |  | test_scenarios_review.py::test_human_gate[fix-unit-rows] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6750 | 修正の入口: 判定の長い本文（母数の問いなど）は貼らず印だけを載せ、盤面に在る記録の置き場を指す（{refs}） |  | test_scenarios_review.py::test_human_gate[fix-long-bodies-not-pasted] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6753 | 関所: 修正差分の審査は後退の語を使えない（手直しの義務に入れて役に決めさせない。{seen.get('delta', … |  | test_scenarios_review.py::test_human_gate[delta-review-no-regression] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6755 | 関所: 方針の文書が init の後に変わった（役が書いた）なら、修正の後の関所で人に聞く（{last.get('ask… |  | test_scenarios_review.py::test_human_gate[policy-changed-asks] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6759 | 関所: 方針の文書の変化の行は差分のファイルの置き場を載せ（本文は載せない）、差分に変わった中身が在る（{row[-20… |  | test_scenarios_review.py::test_human_gate[policy-row-points-to-diff] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6763 | 関所: 通した方針の文書の変更は新しい版（写しも）を記録に固定し直し（以後の節は record.process.poli… |  | test_scenarios_review.py::test_human_gate[policy-refixed] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6778 | 関所: R4 の lost と方針とのぶつかり（policy_conflicts）は人に聞き、同じ文の行は通した後に聞き… |  | test_scenarios_review.py::test_human_gate[lost-and-conflict-asked-once] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 6780 | 関所: 人が通した後は収束まで進む（{last['status']}） |  | test_scenarios_review.py::test_human_gate[converges] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
 | 6792 | 関所: 事前審査が後退の穴を挙げたら、修正の前に人に聞く（{last.get('ask', {}).get('kinds… |  | test_scenarios_review.py::test_human_gate[plan-review-regression-asks] |  |
 | 6796 | 関所: stop で run がその場で止まり、修正を出さない（{last.get('halted')}） |  | test_scenarios_review.py::test_human_gate[stop-halts-at-gate] |  |
 | 6820 | 関所: --detail で直す義務の単位を外せる（義務に無い単位は拒んで盤面を変えず、受けた分は台帳に key で残る… |  | test_scenarios_review.py::test_human_gate[detail-excludes-unit] |  |
@@ -651,18 +661,18 @@ cover_moved.py の台本ごとの比べ（per_script）は、台本を名乗る 
 
 | 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |
 |---|---|---|---|---|
-| 4050 | 止める: 理由の空は拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[empty-reason] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4054 | 止める: 宣言の在る graph では halted にせず報告へ進む（{r.stdout[-200:]}{r.stde… |  | test_scenarios_review.py::test_stop_midround[declared-graph-goes-to-report] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4057 | 止める: 待ちの節は止めた印（省いた印と別）になる（{sorted(rd['stopped'])[:5]}） |  | test_scenarios_review.py::test_stop_midround[pending-node-marked-stopped] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4060 | 止める: 止めた周の記録は、走らなかった R と素材を止めた事実で書く（{{k: v['status'] for k, … |  | test_scenarios_review.py::test_stop_midround[round-record-says-stopped] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4063 | 止める: 止めた時点で記録に理由が入る（報告の節が読む） |  | test_scenarios_review.py::test_stop_midround[reason-in-record] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4068 | 止める: 止めた節の返答は受け付けない（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[late-reply-rejected] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4070 | 止める: 止まった run は二度止めない（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[no-second-stop] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4072 | 止める: 次の next は報告の節だけを出す（{[i['node'] for i in nx['ready']]}） |  | test_scenarios_review.py::test_stop_midround[next-is-report-only] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4075 | 止める: 報告まで届き、仕上げた記録に止めた口と止めた節が残る（{proc.get('stop_reason')}・{p… |  | test_scenarios_review.py::test_stop_midround[reaches-report] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4086 | 止める: 残ったファイルを済んだと読まず、盤面から周の記録を組み直す（{r.stderr[-160:]}{sorted(… |  | test_scenarios_review.py::test_stop_midround[stale-round-file] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4097 | 止める: 2 周目の判定より前なら前の周の単位と台帳を報告に残す（{r.stderr[-160:]}） |  | test_scenarios_review.py::test_stop_midround[stop-before-round-2-judge] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4109 | 止める: 人に聞いている最中なら、答えないまま外した問いを記録（halted と要人間判断の欄）に残す（{r.stder… |  | test_scenarios_review.py::test_stop_midround[stop-while-asking] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4127 | 止める: 宣言の無い graph は halted（by=stop）で後の節を出さない（{r.stdout[-160:]… |  | test_scenarios_review.py::test_stop_midround[undeclared-graph-halts] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
-| 4130 | 止める: halted の run は『もう止まっている』で拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[halted-run-refuses-stop] | 通しに残す 10 本（testplan の REDESIGN.md 3.6）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4050 | 止める: 理由の空は拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[empty-reason] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4054 | 止める: 宣言の在る graph では halted にせず報告へ進む（{r.stdout[-200:]}{r.stde… |  | test_scenarios_review.py::test_stop_midround[declared-graph-goes-to-report] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4057 | 止める: 待ちの節は止めた印（省いた印と別）になる（{sorted(rd['stopped'])[:5]}） |  | test_scenarios_review.py::test_stop_midround[pending-node-marked-stopped] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4060 | 止める: 止めた周の記録は、走らなかった R と素材を止めた事実で書く（{{k: v['status'] for k, … |  | test_scenarios_review.py::test_stop_midround[round-record-says-stopped] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4063 | 止める: 止めた時点で記録に理由が入る（報告の節が読む） |  | test_scenarios_review.py::test_stop_midround[reason-in-record] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4068 | 止める: 止めた節の返答は受け付けない（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[late-reply-rejected] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4070 | 止める: 止まった run は二度止めない（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[no-second-stop] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4072 | 止める: 次の next は報告の節だけを出す（{[i['node'] for i in nx['ready']]}） |  | test_scenarios_review.py::test_stop_midround[next-is-report-only] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4075 | 止める: 報告まで届き、仕上げた記録に止めた口と止めた節が残る（{proc.get('stop_reason')}・{p… |  | test_scenarios_review.py::test_stop_midround[reaches-report] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4086 | 止める: 残ったファイルを済んだと読まず、盤面から周の記録を組み直す（{r.stderr[-160:]}{sorted(… |  | test_scenarios_review.py::test_stop_midround[stale-round-file] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4097 | 止める: 2 周目の判定より前なら前の周の単位と台帳を報告に残す（{r.stderr[-160:]}） |  | test_scenarios_review.py::test_stop_midround[stop-before-round-2-judge] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4109 | 止める: 人に聞いている最中なら、答えないまま外した問いを記録（halted と要人間判断の欄）に残す（{r.stder… |  | test_scenarios_review.py::test_stop_midround[stop-while-asking] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4127 | 止める: 宣言の無い graph は halted（by=stop）で後の節を出さない（{r.stdout[-160:]… |  | test_scenarios_review.py::test_stop_midround[undeclared-graph-halts] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
+| 4130 | 止める: halted の run は『もう止まっている』で拒む（{r.stderr[-120:]}） |  | test_scenarios_review.py::test_stop_midround[halted-run-refuses-stop] | 通しに残す 10 本（docs/adr/0067）——cli の口で回す台本を、同じ振る舞いの層 2 の筋書きと突き合わせる相手 |
 <!-- ledger:end -->

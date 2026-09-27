@@ -1,0 +1,45 @@
+name: cover-moved
+
+# 層 2 へ移した台本を消す条件の 4（被覆の包含）と、層 2 の効き目（旧い側の cli・inproc の口と層 2 の所要・子の数）・元の関数の
+# Run の盤面との突き合わせを撃つ（graphloops/tests/py/cover_moved.py。規範は docs/adr/0067）。移した台本の関数を全部回すので重く、
+# 手で起こす。手元で撃つのは名指しの数件だけ（人の方針）
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install
+        shell: bash
+        run: python -m pip install pytest==9.1.1 coverage==7.16.1 pytest-cov==7.1.0
+      - name: cover
+        shell: bash
+        env:
+          COVERAGE_CORE: ctrace
+        run: python graphloops/tests/py/cover_moved.py --out cover.json
+      - name: timing inproc
+        if: always()
+        shell: bash
+        run: python graphloops/tests/py/cover_moved.py --no-cov --driver inproc --out timing-inproc.json
+      - name: timing cli
+        if: always()
+        shell: bash
+        run: python graphloops/tests/py/cover_moved.py --no-cov --driver cli --out timing-cli.json
+      - name: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cover-moved
+          path: |
+            cover.json
+            timing-inproc.json
+            timing-cli.json
+          if-no-files-found: warn

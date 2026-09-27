@@ -6,10 +6,11 @@ PASSING = "def test_a():\n    pass\n"
 
 @pytest.fixture
 def inner(pytester):
-    def run(files, expected, *args):
-        # 内側の置き場の conftest も、外側（この置き場の conftest.py）と同じ形で柵を載せる
+    def run(files, expected, *args, sim=None):
+        # 内側の置き場の conftest も、外側（この置き場の conftest.py）と同じ形で柵を載せる（sim は検査の件数と到達の期待値）
         pytester.makeconftest("import fence, pathlib\n\n\ndef pytest_configure(config):\n"
-                              f"    fence.install(config, pathlib.Path(__file__).parent, {expected})\n")
+                              f"    fence.install(config, pathlib.Path(__file__).parent, {expected})\n"
+                              + (f"    fence.expect_sim(config, {sim[0]}, {sim[1]})\n" if sim else ""))
         pytester.makepyfile(**files)
         return pytester.runpytest_inprocess(*args)
     return run
@@ -58,6 +59,18 @@ def test_run_that_skips_files_drops_only_the_count(inner, args):
     r = inner({"test_ok": PASSING, "test_two": PASSING}, 99, *args)
     assert r.ret == pytest.ExitCode.OK
     r.stdout.fnmatch_lines(["*件数の柵を外した（置き場のテストのファイル 2 本のうち 1 本だけを集めた）*"])
+
+
+@pytest.mark.parametrize("expected, args, ret, line", [
+    pytest.param(2, ("--collect-only",), pytest.ExitCode.OK, "*検査の件数の柵と到達の柵を外した（集めるだけの回*", id="collect-only"),
+    pytest.param(3, ("--collect-only",), pytest.ExitCode.TESTS_FAILED, "*集めたテストが 2 件（3 件を期待）*", id="collect-only-keeps-count"),
+    pytest.param(2, (), pytest.ExitCode.TESTS_FAILED, "*台本の検査が 0 件走った（5 件を期待）*", id="run-keeps-sim"),
+])
+def test_collect_only_run_drops_only_the_sim_fences(inner, expected, args, ret, line):
+    # 集めるだけの回は検査を 1 件も走らせない——検査の件数と到達の柵だけを外し、件数の柵は当てる。走らせる回は同じ期待値で赤
+    r = inner({"test_ok": PASSING, "test_two": PASSING}, expected, *args, sim=(5, 0))
+    assert r.ret == ret
+    r.stdout.fnmatch_lines([line])
 
 
 def test_keyword_run_keeps_the_count(inner):

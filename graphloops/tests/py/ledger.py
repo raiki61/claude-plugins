@@ -3,21 +3,26 @@
 - 行き先の名乗りは pytest の印 1 本: ``@pytest.mark.moved_from("<台本のモジュール>.<関数>", "<check の説明の頭>", kept=None)``。
   parametrize の行は ``pytest.param(..., marks=pytest.mark.moved_from(...))``。node id は pytest が振った物を集める段で拾う
   （pytest_itemcollected。-k などで選び外す前）。``kept`` は同じプロセスの検査では見えない物を通し（台本）に残す理由
-- 台本→移し先の対応の正本はこの印 1 つ。見張る台本は、印が名乗る台本と、MIGRATION.md の刷った塊に前の版で載っていた台本の和
-  から、同じ文書の「外した台本」の一覧に在る物を引いた集合（印を消すだけでは見張りから外れない——外すのは一覧への 1 行だけ）
+- 台本→移し先の対応の正本はこの印 1 つ。見張る台本は、印が名乗る台本と、**基の git の版**の MIGRATION.md の刷った塊に載っていた
+  台本の和から、今の文書の「外した台本」の一覧に在る物を引いた集合。基の版と比べるのは、同じ変更で書き換えられる今の文書と比べると、
+  塊の節を消すか刷り直して貼るだけで見張りから外れるから（buf breaking の against と同じ向き）。基は GL_LEDGER_BASE（CI が PR の基か
+  push の直前の版を渡す）、無ければ HEAD と main との merge-base の両方。基を引けない checkout と変異の実行器の写しの中では、見張りの
+  突合を見送り、見送りの行（SKIP ledger-base）を出す
 - 台本の側の正本は台本の本文: 名指しした関数の中の ``check(条件, 説明)`` を ast で全部並べ、説明の頭（字列の定数か、f 字列の
   穴を ``{式}`` と描いた型紙）を持つ。印の頭は、その頭で始まる check がちょうど 1 つだけのときに当たる（0 は名乗りの誤り、2 以上は曖昧）
-- ループの中の check は、回数を字面で読めるループ（字面の tuple・list か、関数の中で 1 度だけそれに束ねた名前。条件式の両腕が
-  字面なら読めるが、長さが違えば回数は決まらない）に限って型紙の 1 行として載せる。if の下に無く、ループの中に continue・break・
-  return・raise が無い check は、入れ子の回数の積と行き先の本数が一致しないと赤。回数が決まらない check は 1 本以上で通し、表に出す。
-  回数を字面で読めないループ（while・関数の呼び出しなど）の中の check は赤のまま
+- ループの中の check は、回数を字面で読めるループ（字面の tuple・list か、関数の中でちょうど 1 度だけ字面の tuple に束ね、ほかに
+  束ね直さない名前。条件式の両腕が字面なら読めるが、長さが違えば回数は決まらない）に限って型紙の 1 行として載せる。if の下に無い
+  check は、入れ子の回数の積と行き先の本数が一致しないと赤。回数が決まらない check は 1 本以上で通し、表に出す。回数を字面で読めない
+  ループ（while・関数の呼び出し・list に束ねた名前など）の中の check は赤のまま
 
 使い方（表を刷る）: ``python3 graphloops/tests/py/ledger.py`` —— 置き場のテストを pytest で全部集めるだけ（走らせない）して、
 MIGRATION.md の ``<!-- ledger:begin -->`` と ``<!-- ledger:end -->`` の間に貼る塊を出す。塊が今の台帳と違えば test_ledger.py が赤になる。
 """
 import ast
+import os
 import pathlib
 import re
+import subprocess
 import sys
 
 import pytest
@@ -27,10 +32,12 @@ TESTS = HERE.parent
 MIGRATION = HERE / "MIGRATION.md"
 MARK = "moved_from"
 BEGIN, END = "<!-- ledger:begin -->", "<!-- ledger:end -->"
-# 回数を字面で読めないループ（読めるかは _times が決める）と、ループの回を飛ばしうる文
+# ループ（回数を字面で読めるかは _times が決める）
 LOOPS = (ast.For, ast.AsyncFor, ast.While, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
-EXITS = (ast.Continue, ast.Break, ast.Return, ast.Raise)
 ENTRIES = pytest.StashKey[list]()
+BASE_ENV = "GL_LEDGER_BASE"
+# 変異の実行器の写しの中の回に立つ環境変数（名前の正本は tests/mutate.py の COPY_MARK。揃いは test_mutate_mark.py が縛る）
+MUTATE_COPY = "GL_MUTATE_COPY"
 
 
 def pytest_configure(config):
@@ -68,12 +75,31 @@ def _literal_len(node):
     return None
 
 
+def _bindings(func, name):
+    """関数の中で name を束ねる・消す所の数（代入・+= などの的・for と内包と with の的・:=・引数・except の as・match の捕まえ・
+    def と class の名前・global・nonlocal・import の別名）"""
+    n = 0
+    for x in ast.walk(func):
+        n += ((isinstance(x, ast.Name) and x.id == name and isinstance(x.ctx, (ast.Store, ast.Del)))
+              or (isinstance(x, ast.arg) and x.arg == name)
+              or (isinstance(x, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and x.name == name)
+              or (isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and x.name == name and x is not func)
+              or (isinstance(x, (ast.Global, ast.Nonlocal)) and name in x.names)
+              or (isinstance(x, (ast.Import, ast.ImportFrom)) and any((a.asname or a.name.split(".")[0]) == name for a in x.names)))
+    return n
+
+
+def _tuple_like(node):
+    """束ねた名前の中身を読むのは tuple だけ（長さを変えられない。list は名前の上の append・添字・別名・受け渡しで長さが変わる）"""
+    return isinstance(node, ast.Tuple) or (isinstance(node, ast.IfExp) and isinstance(node.body, ast.Tuple) and isinstance(node.orelse, ast.Tuple))
+
+
 def _times(iterable, func):
     """ループの回数 ——(回数, 読めたか)。回数 None で読めた＝字面だが長さが決まらない（条件式の両腕の長さが違う）"""
     if isinstance(iterable, ast.Name):
         bound = [a.value for a in ast.walk(func) if isinstance(a, ast.Assign)
                  for t in a.targets if isinstance(t, ast.Name) and t.id == iterable.id]
-        if len(bound) != 1:
+        if len(bound) != 1 or _bindings(func, iterable.id) != 1 or not _tuple_like(bound[0]):
             return None, False
         iterable = bound[0]
     if isinstance(iterable, ast.IfExp):
@@ -81,14 +107,6 @@ def _times(iterable, func):
         return (a if a == b else None), a is not None and b is not None
     n = _literal_len(iterable)
     return n, n is not None
-
-
-def _body_nodes(node):
-    """node の中の節点（中で定義した関数・lambda・class の中には降りない——そこの return はループを抜けない）"""
-    for c in ast.iter_child_nodes(node):
-        yield c
-        if not isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
-            yield from _body_nodes(c)
 
 
 def checks_in(func):
@@ -120,8 +138,6 @@ def checks_in(func):
                     if k is None and ok:
                         why = why or "条件式の両腕で回数が違う"
                     n = None if (k is None or n is None) else n * k
-                if isinstance(up, (ast.For, ast.AsyncFor, ast.While)) and any(isinstance(x, EXITS) for x in _body_nodes(up)):
-                    why = why or "ループの中に continue・break・return・raise が在る"
             node = up
         if looped and not readable:
             unreadable.append(call.lineno)
@@ -156,9 +172,75 @@ def block(text):
     return text.split(BEGIN, 1)[1].split(END, 1)[0].strip("\n")
 
 
-def watched_before(text):
-    """刷った塊に載っている台本（前の版で見張っていた台本）"""
-    return set(SCRIPT_HEADING.findall(block(text) or ""))
+def _git(root, *args):
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def base_revs(root):
+    """前の版として読む基の版: GL_LEDGER_BASE（すべて 0 の sha は無いと読む——新しい枝の最初の push）、無ければ HEAD と main との merge-base"""
+    named = os.environ.get(BASE_ENV, "").strip()
+    if named and named.strip("0"):
+        return [named]
+    revs = ["HEAD"]
+    for ref in ("origin/main", "main"):
+        r = _git(root, "merge-base", "HEAD", ref)
+        if r.returncode == 0:
+            return revs + [r.stdout.strip()]
+    return revs
+
+
+def _format(src):
+    """基の版の ledger.py が定める塊の印と台本の見出しの形 ——(BEGIN, END, 見出しの正規表現)。塊の約束を持たない版（BEGIN が無い）は None。
+    今の版の定数で読まない——同じ変更で印か見出しの形を変えると、基の塊が『無い』と読めて見張りが空になる"""
+    got = {}
+    for n in ast.parse(src).body:
+        if isinstance(n, ast.Assign):
+            names = [t.id for t in n.targets if isinstance(t, ast.Name)] or \
+                    [e.id for t in n.targets if isinstance(t, ast.Tuple) for e in t.elts if isinstance(e, ast.Name)]
+            vals = n.value.elts if isinstance(n.value, ast.Tuple) else [n.value]
+            for k, v in zip(names, vals):
+                got[k] = v
+    if "BEGIN" not in got:
+        return None
+    heading = got.get("SCRIPT_HEADING")
+    parts = [got.get("BEGIN"), got.get("END"), heading.args[0] if isinstance(heading, ast.Call) and heading.args else None]
+    if not all(isinstance(p, ast.Constant) and isinstance(p.value, str) for p in parts):
+        raise ValueError("基の版の ledger.py の BEGIN・END・SCRIPT_HEADING が字面で読めない")
+    return parts[0].value, parts[1].value, re.compile(parts[2].value, re.M)
+
+
+def watched_at(root, rev, here=None):
+    """基の版 rev の塊に載っていた台本（here はリポジトリの根からこの置き場への道）。rev を引けなければ None。塊の約束を持つ版
+    （ledger.py が BEGIN を持つ）なのに MIGRATION.md の塊の印が読めなければ ValueError（『まだ約束が無い』と『読めない』を分ける。
+    見出しは基の版の形で読むので、印の間に見出しが 0 なのは台本を全部外した後の本当に空の塊）"""
+    if _git(root, "rev-parse", "--verify", "-q", f"{rev}^{{commit}}").returncode != 0:
+        return None
+    here = here or HERE.relative_to(pathlib.Path(_git(root, "rev-parse", "--show-toplevel").stdout.strip()).resolve()).as_posix()
+    src = _git(root, "show", f"{rev}:{here}/ledger.py")
+    fmt = _format(src.stdout) if src.returncode == 0 else None
+    if fmt is None:
+        return set()
+    begin, end, heading = fmt
+    doc = _git(root, "show", f"{rev}:{here}/{MIGRATION.name}").stdout
+    if begin not in doc or end not in doc:
+        raise ValueError(f"基の版 {rev[:12]} は塊の約束を持つ（ledger.py の BEGIN）のに、MIGRATION.md の塊の印が読めない")
+    return set(heading.findall(doc.split(begin, 1)[1].split(end, 1)[0]))
+
+
+def watched_before(root=HERE, here=None):
+    """前の版で見張っていた台本（基の版ごとの和）と、見送る理由 ——(台本の集合 か None, 見送る理由 か None)"""
+    if os.environ.get(MUTATE_COPY):
+        return None, "変異の実行器の写しの中の回（写しの素のリポジトリには前の版が無い）"
+    got = [watched_at(root, rev, here) for rev in base_revs(root)]
+    if all(g is None for g in got):
+        return None, f"基の版を引けない（{', '.join(base_revs(root))}。浅い clone・git の無い写しなど）"
+    return set().union(*(g for g in got if g is not None)), None
+
+
+def skip_line(why):
+    """見送りの行（台本の見送りと同じ書き方。能力の名前は ledger-base）"""
+    import parallel
+    return parallel.skip_line("台帳の見張りの突合（前の版で見張っていた台本）", "ledger-base", f"基を引けないので見張りの突合を見送った——{why}")
 
 
 def removed(text):
@@ -181,7 +263,7 @@ def build(found, before=(), gone=()):
         try:
             rows, unreadable = script_checks(script)
         except ValueError as err:
-            problems.append(f"台帳が読めない台本 {script} を名乗る（{err}）: {', '.join(named.get(script, [])[:3]) or '前の版の塊'}")
+            problems.append(f"台帳が読めない台本 {script} を名乗る（{err}）: {', '.join(named.get(script, [])[:3]) or '基の版の塊'}")
             continue
         if script not in named:
             problems.append(f"{script}: 前の版で見張っていた台本を名乗るテストが無い——見張りから外すなら MIGRATION.md の"
@@ -265,9 +347,14 @@ def main(argv):
         print(log[-2000:], file=sys.stderr)
         print(f"集める段が {code} で終わった", file=sys.stderr)
         return 1
-    text = MIGRATION.read_text(encoding="utf-8")
-    table, problems = build(found, watched_before(text), removed(text))
+    gone = removed(MIGRATION.read_text(encoding="utf-8"))
+    table, problems = build(found, (), gone)
     print(render_md(table))
+    before, why = watched_before()
+    if before is None:
+        print(skip_line(why), file=sys.stderr)
+    else:
+        problems += [p for p in build(found, before, gone)[1] if p not in problems]
     for p in problems:
         print("台帳の問題: " + p, file=sys.stderr)
     return 1 if problems else 0

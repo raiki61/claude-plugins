@@ -41,6 +41,7 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 - `HANDOFF.md`・`HANDOFF-log-20260925.md`・`HANDOFF-log-20260926.md`: 引き継ぎのメモと、その時点の決定の記録
 - `merge-request.md`: 合流の run の依頼と、各 run の残り・回す側が推しで決めた分かれ目
 - `blocks/BLOCKS.md`: 手順 3（ブロック分割）の設計書
+- `testplan/REDESIGN.md`（2026-09-27 に読んだ）: テストの設計の作り直しの案（層・回し手・移り方・台本を消す条件）
 
 ## 一覧
 
@@ -112,3 +113,4 @@ graphloops の設計で決まったこと（人が決めたこと・判定を経
 | [0064](0064-refer-by-number.md) | 役は一覧を番号で指し、engine が名前に戻す（手順 2） | 採用 | 2026-09-25 |
 | [0065](0065-roles-without-user-settings.md) | engine が起こす役には利用者の CLAUDE.md・設定・フックを読ませない | 採用 | 2026-09-25 |
 | [0066](0066-release-tags-and-changelog.md) | 版ごとに plugin の tag と変更の記録を残す | 採用 | 2026-09-27 |
+| [0067](0067-test-migration-layer2-and-removal-conditions.md) | テストの移し替えの中身: 層 2 の筋書きの形・通しに残す 10 本・台本を消す 4 条件 | 採用 | 2026-09-27 |
