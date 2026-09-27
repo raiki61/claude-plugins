@@ -1,0 +1,582 @@
+"""同じ周の再審の芯（.shared/core/rejudge.py）の検査。rejudge 設計の 23a（段 1＝写しの graphloops 0.21.0 の規則）。
+
+- 形: 写しの規則の形（shape）・再審の節の並び（passes。数も名も写しから引く）・役の output_format の印
+- 回す: route が盤面の ready だけで次の役を決める。判定役の会話を確かめられなければ役を起こす前に盤面を止める
+- 描く・印: render は engine の描き方（node_prompt → ctx → pointers.snapshot → Renderer）。prep は起こした印を 1 度だけ置く
+- 受け付け: take は写しの規則（schema → rejudge_output → writes → check_record）だけで受け、拒否は ok: False で盤面を書かない
+- 単位の差分: 異議に名指されていない単位の変化・ラベルを下げた単位を記録する（柵は足さない）
+- 出口: collect は回した後も再審の節が ready なら盤面を止める
+- 費用: 継いだ起動の表示から判定役の会話の累積を引く
+盤面は手本 test_rejudge_path から作る（tests/rejudgekit.py）。期待は写しの形ごとに EXPECT に置く——写し直しで形が
+変われば test_shape_known が落ち、ここを書き換える所が目に入る。
+"""
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import rejudgekit as kit  # noqa: E402
+from rejudgekit import UNIT_A, UNIT_B, load  # noqa: E402
+
+import rejudge  # noqa: E402
+from accept import role_schema, snapshot_tree  # noqa: E402
+from board import BoardGap, graph_expanded, rules_module  # noqa: E402
+from engine import pointers  # noqa: E402
+from engine.render import Renderer, node_prompt  # noqa: E402
+from engine.util import dump, safe_name  # noqa: E402
+
+GRAPH = graph_expanded()
+EXPECT = {
+    "0.21.0": {
+        "passes": [{"node": "p2.rejudge", "role": "rejudge", "cont": "judge", "source": "p3.fix"},
+                   {"node": "p2.rejudge_third", "role": "rejudge-third", "cont": None, "source": "p3.fix"}],
+        "third_na": "cond rejudge_exhausted",
+    },
+}
+BOARDS = None
+
+
+def setUpModule():
+    global BOARDS
+    BOARDS = kit.Boards()
+
+
+def tearDownModule():
+    BOARDS.cleanup()
+
+
+class _Case(unittest.TestCase):
+    def setUp(self):
+        self._home = tempfile.TemporaryDirectory()
+        self.addCleanup(self._home.cleanup)
+        env = mock.patch.dict(os.environ, {rejudge.ADAPTER_HOME_ENV: self._home.name})
+        env.start()
+        self.addCleanup(env.stop)
+        op = mock.patch.object(rejudge, "OPENER", kit.opener)
+        op.start()
+        self.addCleanup(op.stop)
+
+    def board(self, kind="objection", session=True):
+        self.bd, self.repo = BOARDS.fresh(kind)
+        if session:
+            self.sid = kit.put_session(self.repo)
+        return self.bd, self.repo
+
+    def work(self, name):
+        return self.bd / f"r{kit.state(self.bd)['round']}" / name
+
+    def run_pass(self, reply, role="rejudge"):
+        """route → snap → prep → take を 1 回。返りは take の返り"""
+        got = rejudge.route(self.bd, self.repo)
+        self.assertEqual(got["next"], role, got)
+        rejudge.snap(self.bd, self.repo)
+        rejudge.prep(self.bd, role, self.repo)
+        return rejudge.take(self.bd, rejudge.node_of(role), reply, self.repo)
+
+
+class ShapeCase(_Case):
+    def test_shape_known(self):
+        self.assertIn(rejudge.shape(), EXPECT, "写しの規則の形が知らない物——写し直した？ EXPECT と 23d の段を足す")
+
+    def test_passes_from_copied_rules(self):
+        self.assertEqual(rejudge.passes(), EXPECT[rejudge.shape()]["passes"])
+        src = (kit.CORE / "rejudge.py").read_text(encoding="utf-8")
+        for word in ('"p3.fix"', "REJUDGE_MAX =", '"p2.diagnose"', "rejudge_open"):
+            self.assertNotIn(word, src, f"{word} は写しから引く（rejudge.py に書かない）")
+
+    def test_passes_3_6_shape_from_table(self):
+        """3-6 の形の規則（REJUDGE_PASSES・REJUDGE_THIRD）からも、表の順に 6 つ並ぶ（写し直しの前に形だけ見る）"""
+        rules = types.SimpleNamespace(REJUDGE_PASSES={1: ("p3.fix", "p2.rejudge"), 2: ("p3.rejudge_reply", "p2.rejudge2"),
+                                                      3: ("p3.rejudge_reply2", "p2.rejudge3")},
+                                      REJUDGE_THIRD="p2.rejudge_third")
+        judge = {"same_context_as": "p2.diagnose"}
+        graph = {"nodes": {"p2.rejudge": judge, "p3.rejudge_reply": {}, "p2.rejudge2": judge, "p3.rejudge_reply2": {},
+                           "p2.rejudge3": judge, "p2.rejudge_third": {"fresh_context": True}}}
+        self.assertEqual(rejudge.shape(rules), "3-6")
+        got = rejudge.passes(rules, graph)
+        self.assertEqual([(p["node"], p["role"], p["cont"], p["source"]) for p in got],
+                         [("p2.rejudge", "rejudge", "judge", "p3.fix"),
+                          ("p3.rejudge_reply", "rejudge-reply", None, "p2.rejudge"),
+                          ("p2.rejudge2", "rejudge2", "judge", "p3.rejudge_reply"),
+                          ("p3.rejudge_reply2", "rejudge-reply2", None, "p2.rejudge2"),
+                          ("p2.rejudge3", "rejudge3", "judge", "p3.rejudge_reply2"),
+                          ("p2.rejudge_third", "rejudge-third", None, "p2.rejudge3")])
+
+    def test_shape_unknown_is_gap(self):
+        with self.assertRaises(BoardGap):
+            rejudge.shape(types.SimpleNamespace())
+
+    def test_role_of_covers_copy(self):
+        g = json.loads(json.dumps(GRAPH))
+        g["nodes"]["p2.rejudge_fourth"] = dict(g["nodes"]["p2.rejudge_third"])
+        with self.assertRaises(BoardGap) as cm:
+            rejudge.passes(graph=g)
+        self.assertIn("p2.rejudge_fourth", str(cm.exception))
+
+    def test_output_formats_marked(self):
+        for p in rejudge.passes():
+            with self.subTest(p["node"]):
+                of = rejudge.output_format(p["node"])
+                self.assertEqual(rejudge.strip_mark(of), role_schema(p["node"]))
+                want = f"works-node: {p['role']}" + (f" continue={p['cont']}" if p["cont"] else "")
+                self.assertEqual(of["description"], want)
+        self.assertEqual(rejudge.output_format("p2.rejudge")["description"], "works-node: rejudge continue=judge")
+        self.assertEqual(rejudge.output_format("p2.rejudge_third")["description"], "works-node: rejudge-third")
+
+    def test_prompt_copies_verbatim(self):
+        """描画に使う指示書の写し（gl-prompts）は、COPIED_FROM の 1 行目の commit の graphloops/ の下とバイト単位で同じ"""
+        base = kit.CORE / "gl-prompts"
+        lines = (base / "COPIED_FROM").read_text(encoding="utf-8").splitlines()
+        commit = lines[0].split()[0]
+        listed = [ln.split()[0] for ln in lines[1:] if ln.strip() and not ln.startswith("#")]
+        self.assertEqual(sorted(listed), sorted(str(p.relative_to(base)) for p in base.rglob("*.md")))
+        probe = subprocess.run(["git", "-C", str(kit.CORE), "cat-file", "-e", f"{commit}^{{commit}}"], capture_output=True)
+        if probe.returncode != 0:
+            self.skipTest(f"このリポジトリから {commit} を引けない")
+        for rel in listed:
+            with self.subTest(rel):
+                src = subprocess.run(["git", "-C", str(kit.CORE), "show", f"{commit}:graphloops/{rel}"],
+                                     capture_output=True, check=True).stdout
+                self.assertEqual((base / rel).read_bytes(), src)
+
+
+class RouteCase(_Case):
+    def test_objection_makes_rejudge_ready(self):
+        self.board("objection")
+        got = rejudge.route(self.bd, self.repo)
+        self.assertEqual((got["next"], got["stopped"]), ("rejudge", False), got)
+        st = kit.state(self.bd)
+        self.assertIn("p2.rejudge", st["rounds"][-1]["instances"])
+        self.assertTrue(st["loop"]["rejudge_requested"]["text"].startswith("判定の単位"))
+
+    def test_third_eye_na_in_021(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        na = kit.state(self.bd)["rounds"][-1]["na"]
+        self.assertTrue(na["p2.rejudge_third"].startswith(EXPECT[rejudge.shape()]["third_na"]), na)
+
+    def test_no_objection_no_rejudge(self):
+        self.board("none")
+        got = rejudge.route(self.bd, self.repo)
+        self.assertEqual((got["next"], got["stopped"]), ("", False), got)
+        na = kit.state(self.bd)["rounds"][-1]["na"]
+        self.assertIn("p2.rejudge", na)
+        self.assertIn("p2.rejudge_third", na)
+        self.assertIn("p2.rejudge", got["why"])
+
+    def _assert_stopped(self, got, why_part):
+        self.assertEqual((got["next"], got["stopped"]), ("", True), got)
+        self.assertIn(why_part, got["why"])
+        st = kit.state(self.bd)
+        self.assertEqual(st["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertIn("判定役の会話", st["stop"]["reason"])
+        inst = st["rounds"][-1]["instances"]["p2.rejudge"]
+        self.assertNotIn("launched_at", inst)
+        self.assertEqual(inst["status"], "stopped")
+        self.assertFalse(self.work(rejudge.SESSION_NAME).exists())
+
+    def test_session_missing_stops(self):
+        self.board("objection", session=False)
+        self._assert_stopped(rejudge.route(self.bd, self.repo), "judge.id")
+
+    def test_session_not_uuid_stops(self):
+        self.board("objection", session=False)
+        kit.put_session(self.repo, sid="not-a-uuid")
+        self._assert_stopped(rejudge.route(self.bd, self.repo), "UUID")
+
+    def test_session_stale_stops(self):
+        import datetime
+        self.board("objection", session=False)
+        kit.put_session(self.repo, at=datetime.datetime(2026, 9, 1, 0, 0))
+        self._assert_stopped(rejudge.route(self.bd, self.repo), "盤面を作る前")
+
+    def test_session_mismatch_stops(self):
+        self.board("objection", session=False)
+        kit.put_session(self.repo, row_id="00000000-0000-4000-8000-000000000001")
+        self._assert_stopped(rejudge.route(self.bd, self.repo), "起動の記録")
+
+    def test_session_no_launch_row_stops(self):
+        self.board("objection", session=False)
+        kit.put_session(self.repo, node="fix")
+        self._assert_stopped(rejudge.route(self.bd, self.repo), "起動の記録")
+
+    def test_session_ok_goes(self):
+        self.board("objection")
+        got = rejudge.route(self.bd, self.repo)
+        self.assertEqual(got["next"], "rejudge")
+        doc = json.loads(self.work(rejudge.SESSION_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(doc["id"], self.sid)
+        self.assertEqual(doc["path"], str(rejudge.adapter_module().session_path(self.repo, "judge")))
+        self.assertTrue(doc["launch_at"])
+
+    def test_session_checked_every_route(self):
+        """確かめは毎回（1 回目で通っても、id が途中で消えれば次の route が止める）"""
+        self.board("objection")
+        self.assertEqual(rejudge.route(self.bd, self.repo)["next"], "rejudge")
+        rejudge.adapter_module().session_path(self.repo, "judge").unlink()
+        self.assertTrue(rejudge.route(self.bd, self.repo)["stopped"])
+
+    def test_stopped_board_routes_nothing(self):
+        self.board("objection", session=False)
+        rejudge.route(self.bd, self.repo)
+        got = rejudge.route(self.bd, self.repo)
+        self.assertEqual((got["next"], got["stopped"]), ("", True), got)
+
+    def test_third_runs_when_board_says(self):
+        """規則が第三の目を出した盤面（往復を今の周の 3 にした盤面）では、会話を確かめずに rejudge-third を回す"""
+        self.board("exhausted", session=False)
+        got = rejudge.route(self.bd, self.repo)
+        self.assertEqual((got["next"], got["stopped"]), ("rejudge-third", False), got)
+        self.assertNotIn("stop", kit.state(self.bd))
+        self.assertFalse(self.work(rejudge.SESSION_NAME).exists())
+        rejudge.snap(self.bd, self.repo)
+        got = rejudge.prep(self.bd, "rejudge-third", self.repo)
+        self.assertIn("第三の目", pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8"))
+        self.assertTrue(rejudge.take(self.bd, "p2.rejudge_third", load("rejudge_third_ok"), self.repo)["ok"])
+        rows = json.loads(self.work(rejudge.DIFF_NAME).read_text(encoding="utf-8"))
+        self.assertEqual([(r["pass"], r["verdict"]) for r in rows], [("rejudge-third", "退ける")])
+        out = rejudge.collect(self.bd)
+        self.assertEqual((out["ok"], out["passes"], out["verdicts"]), (True, 1, ["退ける"]), out)
+
+
+class RenderPrepCase(_Case):
+    def test_render_matches_engine(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        with mock.patch.object(rejudge, "OPENER", kit.opener):
+            b = rejudge.open_board(self.bd, repo=self.repo)
+        path = rejudge.render(b, "p2.rejudge")
+        n = b.nodes["p2.rejudge"]
+        ctx = b.ctx()
+        ctx["node"] = {"skills": []}
+        snap, offsets = pointers.snapshot(ctx, n.get("pointers"))
+        tpl = node_prompt(rejudge.prompt_graph_path(b, n), n)
+        want = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None, numbered=offsets).render(tpl)
+        want += ("\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）。"
+                 '文字列値の中の " は必ず \\" にエスケープしろ——生のまま入れると返答まるごとが'
+                 "読めずに捨てられる:\n" + dump(n["schema"]))
+        got = path.read_text(encoding="utf-8")
+        self.assertEqual(got, want)
+        self.assertEqual(path, self.bd / "prompts" / f"r{b.round}" / (safe_name("p2.rejudge") + ".md"))
+        self.assertIn("## 人の方針", got)              # policy-paste.md
+        self.assertIn("方針が在るなら", got)            # policy.md
+        self.assertIn("判定の単位 src/a.py:f", got)     # 異議の文（loop.rejudge_requested）
+        self.assertIn(UNIT_B, got)
+
+    def test_render_no_numbers_without_pointers(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        b = rejudge.open_board(self.bd, repo=self.repo)
+        self.assertFalse(b.nodes["p2.rejudge"].get("pointers"))
+        got = rejudge.render(b, "p2.rejudge").read_text(encoding="utf-8")
+        self.assertNotIn('"no"', got.split("\n---\n")[0])
+        self.assertNotIn("pointers", kit.state(self.bd)["rounds"][-1]["instances"]["p2.rejudge"])
+
+    def test_render_gap_on_unreadable_hole(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        b = rejudge.open_board(self.bd, repo=self.repo)
+        b.nodes["p2.rejudge"]["reads"] = ["record.units"]   # 穴 loop.rejudge_requested が reads に無い
+        with self.assertRaises(BoardGap):
+            rejudge.render(b, "p2.rejudge")
+
+    def test_prep_marks_once(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        first = rejudge.prep(self.bd, "rejudge", self.repo)
+        at = kit.state(self.bd)["rounds"][-1]["instances"]["p2.rejudge"]["launched_at"]
+        before = self.work("rejudge-units-before-rejudge.json").read_bytes()
+        second = rejudge.prep(self.bd, "rejudge", self.repo)
+        self.assertEqual((first["attempt"], second["attempt"]), (1, 1))
+        self.assertEqual((first["already"], second["already"]), (False, True))
+        self.assertEqual(kit.state(self.bd)["rounds"][-1]["instances"]["p2.rejudge"]["launched_at"], at)
+        self.assertEqual(self.work("rejudge-units-before-rejudge.json").read_bytes(), before)
+        self.assertTrue(pathlib.Path(first["prompt_file"]).is_file())
+        self.assertTrue(first["out_path"].endswith("p2.rejudge.json"))
+        doc = json.loads(before)
+        self.assertEqual([u["key"] for u in doc["units"]], [UNIT_A, UNIT_B])
+        self.assertTrue(doc["objection"].startswith("判定の単位"))
+        self.assertEqual(doc["numbered_keys"], [UNIT_A, UNIT_B])
+
+    def test_prep_without_pending_is_gap(self):
+        self.board("none")
+        rejudge.route(self.bd, self.repo)
+        with self.assertRaises(BoardGap):
+            rejudge.prep(self.bd, "rejudge", self.repo)
+
+
+class TakeCase(_Case):
+    def test_settled_drops_objection(self):
+        self.board("objection")
+        got = self.run_pass(load("rejudge_settled"))
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["verdict"], "採る")
+        st = kit.state(self.bd)
+        self.assertNotIn("rejudge_requested", st["loop"])
+        self.assertEqual(st["loop"]["rejudge_rounds"], {"round": 1, "n": 1})
+        self.assertEqual(len(kit.record(self.bd)["process"]["rejudge"]), 1)
+        b = rejudge.open_board(self.bd, repo=self.repo)
+        self.assertEqual(rejudge.unsettled(b), {"text": "", "settled": True})
+        self.assertEqual(rejudge.route(self.bd, self.repo)["next"], "")
+
+    def test_partial_keeps_objection_021(self):
+        self.board("objection")
+        self.assertTrue(self.run_pass(load("rejudge_partial"))["ok"])
+        st = kit.state(self.bd)
+        self.assertIn("rejudge_requested", st["loop"])
+        got = rejudge.route(self.bd, self.repo)
+        self.assertEqual(got["next"], "", got)     # 0.21.0: 1 周に 1 回。第三の目は na のまま（穴）
+        b = rejudge.open_board(self.bd, repo=self.repo)
+        u = rejudge.unsettled(b)
+        self.assertFalse(u["settled"])
+        self.assertEqual(u["text"], load("fix2_rejudge_requested")["rejudge_requested"])
+
+    def test_empty_facts_rejected(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        rejudge.snap(self.bd, self.repo)
+        rejudge.prep(self.bd, "rejudge", self.repo)
+        before = kit.board_files(self.bd)
+        got = rejudge.take(self.bd, "p2.rejudge", load("rejudge_empty_facts"), self.repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("new_facts", got["reason"])        # 写しの型（minLength 20）が空同然を拒む
+        self.assertEqual(kit.board_files(self.bd), before)
+        self.assertFalse(self.work(rejudge.DIFF_NAME).exists())
+        rows = json.loads(self.work(rejudge.REJECTS_NAME).read_text(encoding="utf-8"))
+        self.assertEqual([r["node"] for r in rows], ["p2.rejudge"])
+
+    def test_type_rejected(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        rejudge.snap(self.bd, self.repo)
+        rejudge.prep(self.bd, "rejudge", self.repo)
+        got = rejudge.take(self.bd, "p2.rejudge", {"verdict": "採る"}, self.repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("型に合わない", got["reason"])
+
+    def test_reopened_defer_rejected(self):
+        self.board("objection")
+        kit.patch_state(self.bd, lambda st: st["loop"].__setitem__(
+            "defer_ledger", {UNIT_B: {"reason": "構造の理由で先送り", "round": 1}}))
+        rejudge.route(self.bd, self.repo)
+        rejudge.snap(self.bd, self.repo)
+        rejudge.prep(self.bd, "rejudge", self.repo)
+        got = rejudge.take(self.bd, "p2.rejudge", load("rejudge_reopen_defer"), self.repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("reopen_evidence が無い", got["reason"])
+
+    def test_tree_changed_rejected(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        rejudge.snap(self.bd, self.repo)
+        rejudge.prep(self.bd, "rejudge", self.repo)
+        (self.repo / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+        before = kit.board_files(self.bd)
+        got = rejudge.take(self.bd, "p2.rejudge", load("rejudge_settled"), self.repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("作業ツリーを変えた", got["reason"])
+        self.assertEqual(kit.board_files(self.bd), before)
+
+    def test_take_without_snapshot_is_gap(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        rejudge.prep(self.bd, "rejudge", self.repo)
+        with self.assertRaises(BoardGap):
+            rejudge.take(self.bd, "p2.rejudge", load("rejudge_settled"), self.repo)
+
+    def test_take_on_stopped_board_is_not_a_reply_error(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        rejudge.snap(self.bd, self.repo)
+        rejudge.prep(self.bd, "rejudge", self.repo)
+        b = rejudge.open_board(self.bd, repo=self.repo)
+        b.stop("試験で止めた", by="test")
+        from engine.util import Reject
+        with self.assertRaises((Reject, BoardGap)):   # 回す側の誤り（スクリプトは終了コード 2）。ok: False にしない
+            rejudge.take(self.bd, "p2.rejudge", load("rejudge_settled"), self.repo)
+
+    def test_unnamed_change_recorded(self):
+        self.board("objection")
+        self.assertTrue(self.run_pass(load("rejudge_partial"))["ok"])
+        rows = json.loads(self.work(rejudge.DIFF_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row["pass"], row["node"], row["verdict"]), ("rejudge", "p2.rejudge", "一部採る"))
+        self.assertEqual(row["unnamed_changed"], [UNIT_B])
+        self.assertEqual(row["lowered"], [])
+        named = {(c["key"], c["field"]): c["named"] for c in row["changed"]}
+        self.assertEqual(named[(UNIT_B, "label")], False)
+        self.assertEqual(named[(UNIT_A, "reason")], True)
+
+
+class DiffCase(unittest.TestCase):
+    BEFORE = [{"key": "k1", "label": "block"}, {"key": "k2", "label": "suggest", "disposition": "do-now"},
+              {"key": "k3", "label": "info"}]
+
+    def test_named_by_number(self):
+        after = [{"key": "k1", "label": "block"}, {"key": "k2", "label": "nit"}, {"key": "k3", "label": "info"}]
+        for text in ("#2 の判定を見直せ", "no 2 は誤り", "No.2 は誤り", "2 番の単位", "２番の単位"):
+            with self.subTest(text):
+                got = rejudge.diff_units(self.BEFORE, after, text, ["k1", "k2", "k3"])
+                self.assertEqual(got["unnamed_changed"], [], got)
+                self.assertTrue(all(c["named"] for c in got["changed"]))
+        got = rejudge.diff_units(self.BEFORE, after, "#12 と #1 を見直せ", ["k1", "k2", "k3"])
+        self.assertEqual(got["unnamed_changed"], ["k2"])
+
+    def test_named_by_key(self):
+        after = [{"key": "k1", "label": "block"}, {"key": "k2", "label": "nit"}, {"key": "k3", "label": "info"}]
+        got = rejudge.diff_units(self.BEFORE, after, "k2 の判定がおかしい", [])
+        self.assertEqual(got["unnamed_changed"], [])
+
+    def test_no_names_all_unnamed(self):
+        after = [{"key": "k1", "label": "suggest", "disposition": "do-now"}, {"key": "k2", "label": "nit"},
+                 {"key": "k3", "label": "info", "reason": "足した"}]
+        got = rejudge.diff_units(self.BEFORE, after, "判定がおかしい", ["k1", "k2", "k3"])
+        self.assertEqual(got["unnamed_changed"], ["k1", "k2", "k3"])
+        self.assertEqual(got["lowered"], ["k1"])
+
+    def test_removed_and_lowered(self):
+        after = [{"key": "k1", "label": "suggest", "disposition": "do-now"}, {"key": "k4", "label": "block"}]
+        got = rejudge.diff_units(self.BEFORE, after, "k1 は block でない", [])
+        kinds = {(c["key"], c["kind"]) for c in got["changed"]}
+        self.assertIn(("k2", "removed"), kinds)
+        self.assertIn(("k3", "removed"), kinds)
+        self.assertIn(("k4", "added"), kinds)
+        self.assertIn(("k1", "changed"), kinds)
+        self.assertEqual(got["lowered"], ["k1"])
+        self.assertEqual(got["unnamed_changed"], ["k2", "k3", "k4"])
+
+    def test_fields_are_the_writes_pick(self):
+        after = [dict(self.BEFORE[0], origin_analysis="書き足した"), self.BEFORE[1], self.BEFORE[2]]
+        self.assertEqual(rejudge.diff_units(self.BEFORE, after, "", [])["changed"], [])
+        self.assertEqual(rejudge.unit_fields(), ["key", "label", "disposition", "reason", "reopen_evidence"])
+
+
+class CollectCase(_Case):
+    def test_collect_settled(self):
+        self.board("objection")
+        self.assertTrue(self.run_pass(load("rejudge_settled"))["ok"])
+        self.assertEqual(rejudge.route(self.bd, self.repo)["next"], "")
+        got = rejudge.collect(self.bd)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual((got["passes"], got["verdicts"]), (1, ["採る"]))
+        self.assertEqual(got["unsettled"], {"text": "", "settled": True})
+        self.assertEqual(got["diff_file"], str(self.work(rejudge.DIFF_NAME)))
+        self.assertEqual(got["reads_file"], "")
+        self.assertEqual(json.loads(self.work(rejudge.EXIT_NAME).read_text(encoding="utf-8")), got)
+
+    def test_new_open_units(self):
+        self.board("objection")
+        reply = load("rejudge_settled")
+        reply["units"].append({"key": "src/c.py:h — 上限の抜け道がもう 1 つ", "label": "block"})
+        reply["units"].append({"key": "src/d.py:i — 読みにくい名前", "label": "nit"})
+        self.assertTrue(self.run_pass(reply)["ok"])
+        got = rejudge.collect(self.bd)
+        self.assertEqual(got["new_open_units"], ["src/c.py:h — 上限の抜け道がもう 1 つ"])
+        self.assertEqual(got["unnamed_changed"], ["src/c.py:h — 上限の抜け道がもう 1 つ", "src/d.py:i — 読みにくい名前"])
+
+    def test_collect_stops_if_still_ready(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        got = rejudge.collect(self.bd)
+        self.assertFalse(got["ok"])
+        self.assertIn("p2.rejudge", got["reason"])
+        st = kit.state(self.bd)
+        self.assertEqual(st["stop"]["by"], rejudge.STOP_BY)
+
+    def test_collect_names_last_rejection(self):
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        rejudge.snap(self.bd, self.repo)
+        for _ in range(3):
+            rejudge.prep(self.bd, "rejudge", self.repo)
+            self.assertFalse(rejudge.take(self.bd, "p2.rejudge", load("rejudge_empty_facts"), self.repo)["ok"])
+        got = rejudge.collect(self.bd)
+        self.assertFalse(got["ok"])
+        self.assertIn("3 回", got["reason"])
+        self.assertIn("$.new_facts", got["reason"])
+        self.assertIn("$.new_facts", kit.state(self.bd)["stop"]["reason"])
+
+    def test_collect_after_session_stop(self):
+        self.board("objection", session=False)
+        self.assertTrue(rejudge.route(self.bd, self.repo)["stopped"])
+        got = rejudge.collect(self.bd)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["passes"], 0)
+        self.assertEqual(kit.state(self.bd)["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertFalse(got["unsettled"]["settled"])
+
+    def test_collect_nothing_to_do(self):
+        self.board("none")
+        rejudge.route(self.bd, self.repo)
+        got = rejudge.collect(self.bd)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual((got["passes"], got["verdicts"], got["diff_file"]), (0, [], ""))
+
+
+class CostCase(unittest.TestCase):
+    J = "aaaaaaaa-0000-4000-8000-000000000001"
+    F = "bbbbbbbb-0000-4000-8000-000000000002"
+
+    @staticmethod
+    def row(node, mode, sid, at, **kw):
+        return {"at": f"2026-09-27T10:00:{at:02d}.000000+09:00", "node": node, "session": {"mode": mode, "id": sid, **kw}}
+
+    def test_actual_costs_subtract(self):
+        launches = [self.row("judge", "new", self.J, 1), self.row("rejudge", "continued", self.J, 2, of="judge", **{"from": self.J})]
+        shown = [{"node": "judge", "cost_usd": 0.0284}, {"node": "rejudge", "cost_usd": 0.0615}]
+        got = rejudge.actual_costs(launches, shown)
+        self.assertEqual([r["node"] for r in got], ["judge", "rejudge"])
+        self.assertAlmostEqual(got[0]["actual"], 0.0284)
+        self.assertAlmostEqual(got[1]["actual"], 0.0331)
+        self.assertIn("引いた", got[1]["note"])
+        self.assertEqual(got[0]["note"], "")
+
+    def test_actual_costs_chain_and_fork(self):
+        launches = [self.row("rejudge2", "continued", self.J, 5, of="judge", **{"from": self.J}),   # 時刻の順に並べ直す
+                    self.row("judge", "new", self.J, 1),
+                    self.row("rejudge", "continued", self.J, 2, of="judge", **{"from": self.J}),
+                    self.row("fix", "sdk-fork", self.F, 3, **{"from": self.J}),
+                    self.row("rejudge-third", "new", "cccccccc-0000-4000-8000-000000000003", 4)]
+        shown = [{"node": "judge", "cost_usd": 0.0284}, {"node": "rejudge", "cost_usd": 0.0615},
+                 {"node": "fix", "cost_usd": 0.0952}, {"node": "rejudge-third", "cost_usd": 0.02},
+                 {"node": "rejudge2", "cost_usd": 0.0900}]
+        got = {r["node"]: r["actual"] for r in rejudge.actual_costs(launches, shown)}
+        self.assertAlmostEqual(got["rejudge"], 0.0331)
+        self.assertAlmostEqual(got["fix"], 0.0952 - 0.0615)
+        self.assertAlmostEqual(got["rejudge-third"], 0.02)
+        self.assertAlmostEqual(got["rejudge2"], 0.0900 - 0.0615)
+
+    def test_actual_costs_missing(self):
+        launches = [self.row("judge", "new", self.J, 1)]
+        for shown in ([], None, [{"node": "judge", "cost_usd": None}]):
+            with self.subTest(shown):
+                got = rejudge.actual_costs(launches, shown)
+                self.assertEqual(len(got), 1)
+                self.assertIsNone(got[0]["actual"])
+                self.assertIn("取れない", got[0]["note"])
+
+    def test_actual_costs_unknown_base(self):
+        """継いだ会話の元の費用が取れなければ、引けないので取れない（表示をそのまま実額にしない）"""
+        launches = [self.row("judge", "new", self.J, 1), self.row("rejudge", "continued", self.J, 2, of="judge", **{"from": self.J})]
+        got = rejudge.actual_costs(launches, [{"node": "rejudge", "cost_usd": 0.0615}])
+        self.assertEqual([r["actual"] for r in got], [None, None])
+
+    def test_refused_launch_has_no_cost(self):
+        launches = [self.row("judge", "new", self.J, 1),
+                    {"at": "2026-09-27T10:00:02.000000+09:00", "node": "rejudge", "session": {"mode": "refused", "id": None, "of": "judge"}},
+                    self.row("rejudge", "continued", self.J, 3, of="judge", **{"from": self.J})]
+        got = rejudge.actual_costs(launches, [{"node": "judge", "cost_usd": 0.0284}, {"node": "rejudge", "cost_usd": 0.0615}])
+        self.assertEqual([r["node"] for r in got], ["judge", "rejudge"])
+        self.assertAlmostEqual(got[1]["actual"], 0.0331)
+
+
+if __name__ == "__main__":
+    unittest.main()
