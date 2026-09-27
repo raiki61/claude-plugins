@@ -1556,8 +1556,7 @@ print('ok')" "$ROOT/commands/review-loop.md"
 expect_output 0 "ok" "ゲートの赤の確認が、本物でなく写しの上で壊すことを要求している" "$PY_BIN" -c "
 import sys, pathlib
 t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-assert 'リポジトリの写しを' in t and 'の下に作り（' in t and '写しの上で壊して' in t, '写しの上で壊す指示が無い'
-assert '基点から戻して中身を照合してから次の腕に使い回す' in t, '写しを使い回すなら戻して照合する、の指示が無い（照合しない使い回しは前の腕を次の腕に漏らす）'
+assert '腕ごとにリポジトリの写しを' in t and 'の下に作り、写しの上で壊して' in t, '写しの上で壊す指示が無い'
 assert 'mktemp -d' in t, '写しの置き場所が指定されていない（リポジトリ内に作ると突合が汚れる）'
 assert '並行起動した grader が全部返ったあとに行え' not in t, '順序の約束だけで塞ぐ古い文面が残っている'
 print('ok')" "$ROOT/commands/review-loop.md"
@@ -1991,7 +1990,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=592
+EXPECTED_CHECKS=594
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。
@@ -3786,6 +3785,73 @@ stray=写しの中身が基点と違う emptydir=写しの中身が基点と違�
 lingering_ok=True mode_ok=True
 fresh_made=2 fresh_reused=0 line=写し: 作った 2 / 使い回した 0 / 捨てた（--fresh-copy） 2" "写しの使い回し: 腕の写しは基点に戻して次の腕へ渡し（.pyc と一時物は写しの外で腕ごとに消え、同じ大きさの腕が続いても前の腕を読まない）、余分な項目・空のディレクトリ・戻していない字列・.git の refs と config・子のグループを殺した腕・例外・残ったプロセスでは捨てる。.pytest_cache は消して使い回す。--fresh-copy は毎回作る" \
     "$PY_BIN" "$WORK/mut-lease.py" "$ROOT/tests"
+# 撃ち比べ（--same-as）: 使い回しで撃った報告と、腕ごとに作り直して撃った結果を突き合わせる。撃たずに、選び方・比べ方・main の配線を見る
+cat > "$WORK/mut-sameas.py" <<'PYSAME'
+import json, os, pathlib, subprocess, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+sys.path.insert(0, sys.argv[1])
+import mutate
+ok = {"summary": {"control_ok": True, "copies": {"made": 2, "reused": 5}}, "control": {"root": {"rc": 0}}, "marker": {"rc": 0}}
+row = lambda i, st, f="a.py", ev="印": {"id": i, "status": st, "file": f, "evidence": ev if st == "Killed" else ""}
+# 選ばない腕（揺れうる t1・持ち越しの c1・撃てない i1・今の一覧に無い x9）を、選ぶ腕より前に置く——並びで選んでいれば当たる
+prev = {**ok, "arms": [row("k1", "Killed"), row("t1", "Timeout"), {**row("c1", "Killed"), "carried": True}, row("i1", "Ignored"),
+                       row("x9", "Killed"), row("s1", "Survived"), row("k2", "Killed", "b.py"), row("k3", "Killed")]}
+out = [f"pick={mutate.same_as_pick(prev, {'k1', 's1', 'k2', 'k3', 'i1', 't1', 'c1'})}"]
+same = {**ok, "arms": [row("k1", "Killed"), row("s1", "Survived")]}
+out.append(f"same={mutate.same_as_diff(prev, same)}")
+cases = {"status": {**ok, "arms": [row("k1", "Survived")]},
+         "evidence": {**ok, "arms": [row("k1", "Killed", ev="")]},
+         "missing": {**ok, "arms": [row("zz", "Killed")]},
+         "none_shot": {**ok, "arms": [{**row("k1", "Killed"), "carried": True}]},
+         "unhealthy_now": {**same, "summary": {"control_ok": False}}}
+for k, res in cases.items():
+    out.append(f"{k}={len(mutate.same_as_diff(prev, res))}")
+for k, pv in {"partial": {**prev, "partial": True}, "no_reuse": {**prev, "summary": {"control_ok": True, "copies": {"made": 7, "reused": 0}}},
+              "old_report": {**prev, "summary": {"control_ok": True}},
+              "unhealthy_prev": {**prev, "summary": {"control_ok": False, "copies": {"made": 2, "reused": 5}}}}.items():
+    out.append(f"{k}={len(mutate.same_as_diff(pv, same))}")
+# main の配線: --same-as は FRESH を立て、--only が無ければ前の報告から選んだ腕だけを撃ち、突き合わせで終了コードを決める
+src = pathlib.Path(tempfile.mkdtemp()) / "src"
+(src / "tests").mkdir(parents=True)
+(src / "a.py").write_text("A = 1\nB = 2\n", encoding="utf-8")
+arms = [{"id": i, "title": i, "file": "a.py", "suite": "root", "old": o, "new": "Z = 0", "marker": {"where": "before"}} for i, o in (("k1", "A = 1"), ("s1", "B = 2"))]
+(src / "tests" / "mutations.json").write_text(json.dumps({"arms": arms}), encoding="utf-8")
+subprocess.run(["git", "init", "-q"], cwd=src, capture_output=True)
+tempfile.tempdir = str(pathlib.Path(tempfile.mkdtemp()))
+mutate.ROOT, mutate.ARMS_FILE = src, src / "tests" / "mutations.json"
+seen = {}
+def fake_shoot(a, res, fire, sel, fps, late, pend):
+    seen.update(fresh=mutate.FRESH, fire=sorted(x["id"] for x in fire))
+    res["arms"] += [{**row(x["id"], {"k1": "Killed", "s1": flip}[x["id"]]), "title": x["id"], "own": False, "failed": []} for x in fire]
+    res["control"], res["marker"] = {"root": {"rc": 0}}, {"rc": 0, "placed": [], "seen": ["k1"], "cover": {}, "skipped": {}}
+    return []
+mutate.shoot = fake_shoot
+rep = pathlib.Path(tempfile.mkdtemp()) / "prev.json"
+rep.write_text(json.dumps({**ok, "arms": [row("k1", "Killed"), row("s1", "Survived")]}), encoding="utf-8")
+codes = []
+for flip in ("Survived", "Killed"):
+    sys.argv = ["mutate.py", "--same-as", str(rep), "--out", str(rep.with_name("fresh.json"))]
+    mutate.FRESH = False
+    try:
+        mutate.main()
+    except SystemExit as e:
+        codes.append(e.code)
+out.append(f"main_fresh={seen['fresh']} fire={seen['fire']} codes={codes}")
+print(" ".join(out))
+PYSAME
+expect_output 0 "pick=['k1', 'k3', 's1', 'k2'] same=[] status=1 evidence=1 missing=1 none_shot=1 unhealthy_now=1 partial=1 no_reuse=1 old_report=1 unhealthy_prev=1 main_fresh=True fire=['k1', 's1'] codes=[0, 1]" "撃ち比べ: 同じファイルを壊す赤の組・生き残り・赤を 4 本まで選び（持ち越し・撃てない・揺れうる腕・今の一覧に無い腕は選ばない）、status と当たりの証拠の有無が食い違う・腕が欠ける・撃てた腕が 0 本・どちらかが不健全・前の報告が途中か使い回していないなら食い違い。--same-as は腕ごとに作り直して選んだ腕だけを撃ち、一致で 0" \
+    "$PY_BIN" "$WORK/mut-sameas.py" "$ROOT/tests"
+expect_output 0 "ok" "週 1 回の変異の CI が、既定の段の後で必ず撃ち比べの段を走らせ、その報告も残す" "$PY_BIN" -c "
+import sys, pathlib
+t = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
+i = t.index('--same-as mutation-report.json')
+assert t.index('--out mutation-report.json') < i, '撃ち比べが既定の段より前に在る'
+step = t[t.rindex('- name:', 0, i):i]
+assert 'if: always()' in step, '撃ち比べの段が既定の段の赤で飛ばされる'
+assert 'fresh-report.json' in t[t.index('upload-artifact'):], '撃ち比べの報告を残していない'
+print('ok')" "$ROOT/.github/workflows/mutation.yml"
 
 cat > "$WORK/mut-root.py" <<'PYROOT'
 import contextlib, io, json, os, pathlib, subprocess, sys, tempfile, time

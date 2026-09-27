@@ -52,6 +52,8 @@ graphloops/README.md の「検査」節）。この実行器は、上に書い�
     python3 tests/mutate.py --deadline-at <ISO 時刻>   # その時刻までに書き終える（残った腕は pending。--reuse で続きから）
     python3 tests/mutate.py --gate-efficacy r.json     # --out の結果を review-loop の p1.gate_efficacy の返答の形で印字
     python3 tests/mutate.py --fresh-copy               # 写しを使い回さず、腕 1 本ごとに基点から作り直す（照合を疑うときの確かめ）
+    python3 tests/mutate.py --same-as r.json           # r.json（既定＝使い回しで撃った --out）から腕を 4 本まで選び、腕ごとに作り直して撃ち、
+                                                       # status と当たりの証拠が同じかを見る（撃ち比べ。--fresh-copy を立てる）
 
 --out の形は変異テストの報告の共通形式（mutation-testing-report-schema。Stryker ほかが使う）に寄せる: 腕ごとに
 status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と、実際に落ちた検査 killedBy。共通形式の外の欄は
@@ -73,11 +75,13 @@ tmp と .pytest_cache を消し、写しの中（.git を除く）の項目の�
 置き場を cwd に持つプロセスが残った腕の写しも捨てる。09-27 の実測依頼（写しの大量の書き込みを fseventsd が追い、関門の最中に CPU を
 使い切った）で、腕ごとに写しを作って捨てる形から移した。**照合の外に残る道**: killpg の外へ逃げた子（setsid）が cwd を写しの外に
 置いたまま写しへ書く形は見えない（cwd を読む口の無い Windows では cwd の確かめもしない）。疑うなら --fresh-copy で腕ごとに作り直す。
+使い回しが腕ごとの作り直しと同じ判定を出すことは、週 1 回の CI（mutation.yml）が --same-as で撃ち比べる（差分テスト。手元では撃たない）。
 根は終わるときに消し、
 SIGKILL などで残った根は、次の起動がロックの解けた物だけを消す（期限で死とみなさない。旧形式の mutate-<tag>-* は触らない）。
 
-終了コード: 0 = 撃った腕（1 本以上）が全部、赤・当たりの証拠つきで control が緑（--check なら全腕の字列と証拠の口が在る）
-/ 1 = そうでない / 2 = 一覧が読めない。時間切れ・台本が 1 本も当たらなかった腕は赤でなく『走り切らない』
+終了コード: 0 = 撃った腕（1 本以上）が全部、赤・当たりの証拠つきで control が緑（--check なら全腕の字列と証拠の口が在る。
+--same-as なら撃ち比べが全部一致——生き残りが在っても 0）/ 1 = そうでない / 2 = 一覧が読めない。時間切れ・台本が 1 本も当たらなかった
+腕は赤でなく『走り切らない』
 """
 import argparse
 import atexit
@@ -679,7 +683,7 @@ def run_group(argv, cwd, env=None, failfast=False):
     late = {"v": False}
 
     def killpg():
-        # 殺した子の孫はグループの外へ逃げていて、写しに書き続けうる——その写しは使い回さない（lease が捨てる）
+        # 殺した子の孫がグループの外へ逃げていれば写しに書き続けうる——居るかを確かめる口が無いので、その写しは使い回さない（lease が捨てる）
         with _LOCK:
             _SPOILED.add(str(cwd))
         # グループが先に自然終了していると ProcessLookupError（pgid を使い回されていれば PermissionError）が飛ぶ。
@@ -823,8 +827,8 @@ def lingering(d):
 
 
 def restored_why(repo, d, a, gitsnap):
-    """腕を撃ち終えた写しを基点に戻し、照合する ——使い回せなければ理由、使い回せるなら ""。戻すのは腕が壊したファイルと写しの
-    腕の一覧（one が空にする）だけで、ほかに違う項目が 1 つでも在れば戻さずに捨てる側へ倒す（台本が写しへ書いた物を黙って直さない）"""
+    """腕を撃ち終えた写しを基点に戻し、照合する ——使い回せなければ理由、使い回せるなら ""。戻す・消す・照合する範囲の正本は
+    モジュールの docstring の『写しの置き場』。照合で違う項目は直さずに捨てる側へ倒す（台本が写しへ書いた物を黙って直さない）"""
     if str(repo) in _SPOILED:
         return "子のグループを殺した"
     if lingering(d):
@@ -832,7 +836,7 @@ def restored_why(repo, d, a, gitsnap):
     b = base()
     for rel in {a["file"], "tests/mutations.json"} if a else ():
         if (b / rel).is_file():
-            shutil.copy2(b / rel, repo / rel)   # 中身と mtime と許可を基点に戻す
+            shutil.copy2(b / rel, repo / rel)
     shutil.rmtree(d / "tmp", ignore_errors=True)
     shutil.rmtree(repo / PYTEST_CACHE, ignore_errors=True)
     if (d / "tmp").exists():
@@ -858,7 +862,7 @@ def restored_why(repo, d, a, gitsnap):
 def lease(tag, a=None):
     """腕に写しを貸す唯一の口 ——with の中で (写しの repo, 作業場)。棚に写しが在れば使い回し、無ければ copy で作る。
     抜けるときに restored_why で戻して照合し、通れば棚へ返し、通らない・例外・止める信号なら作業場ごと捨てる。
-    --fresh-copy（FRESH）なら毎回作って毎回捨てる（BASE の形）。copy が作っていない写し（台本が差し替えた copy の物）は照合せずに捨てる"""
+    --fresh-copy（FRESH）なら毎回作って毎回捨てる。copy が作っていない写し（台本が差し替えた copy の物）は照合せずに捨てる"""
     key = str(ROOT)
     with _ROOT_LOCK:
         shelf = _POOL.get(key) or []
@@ -895,6 +899,59 @@ def copies_line():
     """lease の数を 1 行で（写しの使い回しが実際に効いたか——毎回捨てていれば書き込みは減っていない）"""
     return "写し: 作った {} / 使い回した {}".format(COPIES["made"], COPIES["reused"]) + "".join(
         f" / 捨てた（{k.split(':', 1)[1]}） {v}" for k, v in sorted(COPIES.items()) if k.startswith("discarded:"))
+
+
+def copies_summary():
+    """lease の数を --out の summary.copies へ（撃ち比べが『前の回が写しを使い回したか』を読む）"""
+    return {"made": COPIES["made"], "reused": COPIES["reused"],
+            "discarded": {k.split(":", 1)[1]: v for k, v in sorted(COPIES.items()) if k.startswith("discarded:")}}
+
+
+SAME_AS_STATUS = ("Killed", "Survived", "NoCoverage")   # 撃ち比べる腕の結果（Ignored はどちらでも同じ・Timeout ほかは揺れうる）
+
+
+def same_as_pick(prev, ids, n=4):
+    """撃ち比べる腕を前の報告から選ぶ ——腕の id の一覧。同じファイルを壊す赤の腕の組を 1 つ（使い回した写しで同じファイルを
+    続けて壊す形に近い）、次に生き残り、残りを赤で埋めて n 本まで。今の一覧に在る腕（ids）だけ"""
+    rows = [r for r in prev.get("arms", []) if r.get("id") in ids and not r.get("carried") and r.get("status") in SAME_AS_STATUS]
+    killed = [r for r in rows if r["status"] == "Killed"]
+    by_file = collections.defaultdict(list)
+    for r in killed:
+        by_file[r.get("file", "")].append(r["id"])
+    got = next((v[:2] for _, v in sorted(by_file.items()) if len(v) >= 2), [])
+    got += [r["id"] for r in rows if r["status"] != "Killed"][:1]
+    for r in killed + rows:
+        if len(got) >= n:
+            break
+        if r["id"] not in got:
+            got.append(r["id"])
+    return got[:n]
+
+
+def same_as_diff(prev, res):
+    """撃ち比べ: 前の回（使い回し）と今の回（腕ごとに作り直す）の腕ごとの status と当たりの証拠の有無を突き合わせる ——食い違いの一覧
+    （空なら一致）。killedBy は比べない（台本の FAIL の行が回ごとの一時の置き場のパスを含み、同じ腕でも一致しない）。比べる意味の無い回
+    ——前の報告が途中の版・どちらかの control か印の写しが赤・前の回が写しを使い回していない・撃てた腕が 0 本——も食い違いに数える"""
+    bad = []
+    if prev.get("partial"):
+        bad.append("前の報告が途中の版（partial）")
+    if not healthy(prev):
+        bad.append("前の回の control か印の写しが赤")
+    if not healthy(res):
+        bad.append("今の回の control か印の写しが赤")
+    if ((prev.get("summary") or {}).get("copies") or {}).get("reused", 0) < 1:
+        bad.append("前の回が写しを使い回していない（summary.copies.reused が 0 か無い）——比べる相手になっていない")
+    old = {r.get("id"): r for r in prev.get("arms", [])}
+    shot = [r for r in res.get("arms", []) if not r.get("carried") and r.get("status") != "Ignored"]
+    if not shot:
+        bad.append("撃てた腕が 0 本")
+    for r in shot:
+        o = old.get(r["id"])
+        if o is None:
+            bad.append(f"{r['id']}: 前の報告に無い")
+        elif (o.get("status"), proven(o)) != (r.get("status"), proven(r)):
+            bad.append(f"{r['id']}: 前は {o.get('status')}（証拠 {'有' if proven(o) else '無'}）・今は {r.get('status')}（証拠 {'有' if proven(r) else '無'}）")
+    return bad
 
 
 CONFIRM = False   # --confirm-survivors: 絞った台本が緑の腕を台本一式で確かめ直す（main が立てる）
@@ -1239,6 +1296,8 @@ def main():
                     "台本一式で確かめ直す。版を出す前の関門と週 1 回の全腕で付ける")
     ap.add_argument("--fresh-copy", action="store_true", help="写しを worker ごとに使い回さず、腕 1 本ごとに基点から作り直す"
                     "（使い回しの照合を疑うときの確かめ・新旧の撃ち比べ）")
+    ap.add_argument("--same-as", metavar="REPORT", help="REPORT（写しを使い回して撃った --out）と撃ち比べる: 腕ごとに作り直して"
+                    "（--fresh-copy を立てる）、--only が無ければ REPORT から選んだ 4 本までを撃ち、status と当たりの証拠が同じかを見る")
     a = ap.parse_args()
     if a.gate_efficacy:
         print(json.dumps(gate_efficacy(json.loads(pathlib.Path(a.gate_efficacy).read_text(encoding="utf-8"))), ensure_ascii=False, indent=1))
@@ -1266,7 +1325,16 @@ def main():
         sys.exit(1 if bad or dup else 0)
     global CONFIRM, FRESH
     CONFIRM = a.confirm_survivors
-    FRESH = a.fresh_copy
+    FRESH = a.fresh_copy or bool(a.same_as)
+    same_prev = None
+    if a.same_as:
+        try:
+            same_prev = json.loads(pathlib.Path(a.same_as).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"NG 撃ち比べる報告 {a.same_as} を読めない（{e}）", file=sys.stderr)
+            sys.exit(2)
+        if not a.only:
+            a.only = ",".join(same_as_pick(same_prev, {x["id"] for x in arms})) or "（撃ち比べる腕が無い）"
     autos, pruned = [], []
     view = (ROOT, None)   # 差分を取る木と git の環境。差分を取る回は基点（写しと差分が同じ版を指す）
     if a.auto or a.changed_since:
@@ -1355,12 +1423,17 @@ def main():
         print(f"赤の出どころ: 絞った台本は緑で一式だけ赤 {len(s['unrelated'])}（揺れか台本の関数の外の検査）: {' '.join(s['unrelated'])}"
               f" / 台本一式だけで撃った赤 {len(s['unattributed'])} / 一式で確かめていない緑 {len(s['narrowed_green'])}")
     print(copies_line())
+    res["summary"]["copies"] = copies_summary()
     res["summary"]["carried"] = [x["id"] for x in carried]
     moved = worktree_moved(sel)
     if moved:
         res["worktree_moved"] = moved
         print(f"基点を写した後に作業ツリーで変わったファイル: {' '.join(moved)}（撃った結果は基点の版の物）", file=sys.stderr)
     write_out(a.out, res)
+    if same_prev is not None:
+        bad = same_as_diff(same_prev, res)
+        print(f"撃ち比べ（{a.same_as} と腕ごとの作り直し）: " + ("一致" if not bad else "食い違い " + " / ".join(bad)))
+        sys.exit(1 if bad else 0)
     shot = [r for r in res["arms"] if r.get("status") != "Ignored"]
     sys.exit(0 if shot and not skipped_late and healthy(res) and all(proven(r) for r in shot) else 1)
 
