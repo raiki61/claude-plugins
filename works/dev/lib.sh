@@ -18,9 +18,8 @@ works_dev_copy_pack() {
 
 # works_dev_show_run <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]:
 # 一番新しい darkfactory の run を引き、run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）・
-# 審査した修正の差分（fix.diff。承認して審査が終わった後に在る）を出す。3 つめを渡せば、その差分を git apply で
-# 取り込むコマンドも出し、修正が pack の写し（.archon/）に触れていれば取り込まないよう 1 行で注意する
-# （関所で止まっている間は worktree の変更で、審査の後は fix.diff で見る）。問い合わせは認証が要らないので認証を読ませない。
+# 3 つめを渡せば、run の worktree の git diff --binary <周の頭の版>（未追跡も入れる。P1 Task 29）を <対象の dir の親>/run-<id>.diff に
+# 書き、git apply で取り込むコマンドも出し、修正が pack の写し（.archon/）に触れていれば取り込まないよう 1 行で注意する。問い合わせは認証が要らないので認証を読ませない。
 # 承認・拒否・続きのコマンドは、呼び手の WORKS_KEYCHAIN_ITEM を sh の直前に載せ、export の無い殻でもそのまま打てる形で出す。
 # 修正は対象ではなく、Archon が run ごとに切った worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
 # WORKS_DEV_HOME・WORKS_DEV_MODEL・CLAUDE_BIN_PATH を export 済みで呼ぶ。
@@ -43,7 +42,8 @@ go = "cd {} && {}WORKS_DEV_HOME={} WORKS_DEV_MODEL={} CLAUDE_BIN_PATH={} {}sh {}
     shlex.quote(os.environ["DIR"]), auth, shlex.quote(os.environ["WORKS_DEV_HOME"]),
     shlex.quote(os.environ["WORKS_DEV_MODEL"]), shlex.quote(os.environ["CLAUDE_BIN_PATH"]),
     adapter, shlex.quote(os.environ["ARCHON_SH"]))
-diff = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board", "fix.diff")
+board = os.path.join(r.get("output_root") or "", "artifacts", "runs", r.get("id") or "", "board")
+wp = r.get("working_path") or ""
 print("run id:", r.get("id"))
 print("状態:", r.get("status"))
 print("修正の差分がある worktree:", r.get("working_path"))
@@ -52,17 +52,34 @@ if not item:
 print("進める（承認するとその場で続きを回す）:", go, "approve", r.get("id"))
 print("止める:", go, "reject", r.get("id"))
 print("失敗や中断から続ける:", go, "resume", r.get("id"))
-print("審査した修正の差分（承認して審査が終わった後に在る）:", diff)
 if os.environ["BRING_BACK"]:
+    # 修正の差分は run の worktree の今の姿と周の頭の版（start の控え r<N>/start.json の base_rev）の差（未追跡も入れる。
+    # 盤面の fix.diff は審査の段の物で、手直しの後の姿を持たないので読まない）。一時の index で数え、worktree の index は動かさない
+    import glob, tempfile
+    base = ""
+    for p in sorted(glob.glob(os.path.join(board, "r*", "start.json"))):
+        try:
+            with open(p, encoding="utf-8") as f:
+                base = json.load(f).get("base_rev") or base
+        except (OSError, ValueError):
+            pass
+    diff = os.path.join(os.path.dirname(os.path.abspath(os.environ["DIR"])), "run-{}.diff".format(r.get("id")))
+    if os.path.isdir(wp):
+        base = base or subprocess.run(["git", "-C", wp, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        with tempfile.TemporaryDirectory() as td:
+            env = dict(os.environ, GIT_INDEX_FILE=os.path.join(td, "index"))
+            subprocess.run(["git", "-C", wp, "add", "-A"], env=env, capture_output=True)
+            got = subprocess.run(["git", "-C", wp, "diff", "--cached", "--binary", base], env=env, capture_output=True)
+        with open(diff, "wb") as f:
+            f.write(got.stdout)
+        print("修正の差分（run の worktree と周の頭の版 {} の差。未追跡も入れる）: {}".format(base[:12], diff))
+    else:
+        print("修正の差分: run の worktree（{}）が無いので書いていない".format(wp))
     print("差分を元のリポジトリへ取り込む:", "git -C {} apply {}".format(shlex.quote(os.environ["BRING_BACK"]), shlex.quote(diff)))
     touched = False
     if os.path.isfile(diff):
         with open(diff, encoding="utf-8", errors="replace") as f:
             touched = any(l.startswith(("diff --git a/.archon/", "--- a/.archon/", "+++ b/.archon/")) for l in f)
-    elif os.path.isdir(r.get("working_path") or ""):
-        st = subprocess.run(["git", "-C", r["working_path"], "status", "--porcelain", "--", ".archon"],
-                            capture_output=True, text=True)
-        touched = bool(st.stdout.strip())
     if touched:
         print("注意: 修正が works/ でなく pack の写し（.archon/）に触れている。その部分は元のリポジトリへ取り込まない")
 '

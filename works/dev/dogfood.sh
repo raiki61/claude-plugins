@@ -9,8 +9,11 @@
 #      （Archon は run ごとに切る worktree の元を origin の既定の枝から取るため）。
 #   4. 依頼を <dir>/request.json に写し（依頼の元が後で書き換わっても、回した物が残る）、clone の中で
 #      archon.sh workflow run darkfactory を前景で回す。人の関所で run は止まって戻る。
-#   5. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）と、審査した差分（fix.diff）を
-#      このリポジトリへ git apply で取り込むコマンドを出す。修正が pack の写し（.archon/）に触れていれば 1 行で注意する。
+#   5. run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）と、run の worktree の差分
+#      （git diff --binary <周の頭の版>。<dir>/run-<id>.diff）をこのリポジトリへ git apply で取り込むコマンドを出す。
+#      修正が pack の写し（.archon/）に触れていれば 1 行で注意する。
+#   入力: tdd_suite=works/dev/tdd-suite.sh（WORKS_DOGFOOD_TDD_SUITE で替える・空で輪を飛ばす）・adapter=optional（WORKS_DEV_ADAPTER=1
+#   の run は空＝包みを求める）・final_gate=always（WORKS_DOGFOOD_FINAL_GATE で when_needed に）。
 # <dir> に前の回の repo・origin.git・request.json が在れば、何も書かずに止まる（前の回の依頼を上書きしない）。
 # <dir> の既定は $TMPDIR の下の一時フォルダ。模型は WORKS_DEV_MODEL（既定は opus。書くのは archon.sh）。
 # 認証は archon.sh と同じ（CLAUDE_CODE_OAUTH_TOKEN か WORKS_KEYCHAIN_ITEM。既定の口座は無い）。
@@ -112,7 +115,12 @@ echo "対象: ${REPO}（${REV} の上に pack を置いた枝 dogfood-base）"
 
 cd "$REPO"
 set +e
-sh "$ARCHON" workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2"
+# 修正の段の TDD の輪の実行器（この clone の works/dev/tdd-suite.sh。WORKS_DOGFOOD_TDD_SUITE を空にすれば輪を飛ばす）。
+# 包みを入れない run（WORKS_DEV_ADAPTER が 1 でない）は adapter=optional で回す（h-judge が包みの無い run を止めないように。報告に出る）
+TDD_SUITE="${WORKS_DOGFOOD_TDD_SUITE-works/dev/tdd-suite.sh}"
+if [ "${WORKS_DEV_ADAPTER:-}" = 1 ]; then ADAPTER_MODE=""; else ADAPTER_MODE="optional"; fi
+sh "$ARCHON" workflow run darkfactory --input request="$REQUEST" --input test_cmd="$2" \
+  --input tdd_suite="$TDD_SUITE" --input adapter="$ADAPTER_MODE" --input final_gate="${WORKS_DOGFOOD_FINAL_GATE:-always}"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"

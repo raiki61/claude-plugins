@@ -63,8 +63,10 @@ git -C "$DIR" remote set-head origin -a >/dev/null
 
 cd "$DIR"
 set +e
+# 包みを入れない run（WORKS_DEV_ADAPTER が 1 でない）は adapter=optional（h-judge が包みの無い run を止めないように。報告に出る）
+if [ "${WORKS_DEV_ADAPTER:-}" = 1 ]; then ADAPTER_MODE=""; else ADAPTER_MODE="optional"; fi
 sh "$DEV_DIR/archon.sh" workflow run darkfactory \
-  --input request=request_ok.json --input test_cmd="python3 -m unittest -q"
+  --input request=request_ok.json --input test_cmd="python3 -m unittest -q" --input adapter="$ADAPTER_MODE"
 run_status=$?
 set -e
 echo "workflow run の終了コード: $run_status"

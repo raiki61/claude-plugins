@@ -1,6 +1,6 @@
 ---
 name: works
-description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 判定 → 修正 → テスト → 人の承認 → 修正差分の審査 の順に流す）に回す。「darkfactory に回して」「works で直して」と言われたときに使う。依頼の JSON の書き方・起動の 1 行・人の関所で何を見てどう答えるかだけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。起動・待つ・承認・再開の一般は Archon の archon-cli スキルに任せる。
+description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 報告 の順に流す）に回す。「darkfactory に回して」「works で直して」と言われたときに使う。依頼の JSON の書き方・起動の 1 行・人の関所で何を見てどう答えるかだけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。起動・待つ・承認・再開の一般は Archon の archon-cli スキルに任せる。
 ---
 
 # works
@@ -37,44 +37,43 @@ findings（指摘）の JSON の配列を 1 つのファイルにする。置き
 archon workflow run raiki61/works:darkfactory --input request=<依頼の JSON の絶対パス> --input test_cmd="<テストのコマンド>"
 ```
 
-- `request` は依頼の JSON の**絶対パス**。`test_cmd` は修正の後に回すテストのコマンド（例: `python3 -m unittest -q`）。
+- `request` は依頼の JSON の**絶対パス**。`test_cmd` は最後のテスト（と修正の前のテスト）のコマンド（例: `python3 -m unittest -q`）。空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
+- ほかの入力（どれも省ける）: `final_gate`（`always` 既定・`when_needed`＝最後のテストが緑でない・盤面が人に聞いている・異議が残った時だけ最後の関所を開く）・`adapter`（空は Claude の包みを通した run だけを受ける。包み無しで回すなら `optional`。報告に出る）・`tdd_suite`（JUnit XML を書くテストの実行器。在れば修正の段で単位ごとの TDD の輪を回す）・`policy_md`・`gates`・`thickness`（標準だけ）。
 - どこが直されるか: Archon（v0.11.1）は run ごとに worktree を切り、既定ではその元を **remote の既定の枝**（`origin/<既定の枝>`）にする。今いる枝でも、手元の commit していない変更でもない。だから依頼を対象の中に置いて commit していなければ、run の worktree には無い（相対パスは run の worktree の根から読まれる）。remote の無いリポジトリでは worktree を切れず、run が始まらない。
   - 元を替える: `--from <枝や ref>`（例: `--from origin/my-branch`。remote に在る物を渡す）。worktree の枝の名前を決める: `--branch <名>`。
   - 今の作業ツリーでそのまま回す: `--no-worktree`（隔離しない。`--branch`・`--from` とは一緒に使えない）。
 - 修正は commit されない。Archon の run ごとの worktree の中に、commit していない変更として残る。場所は `archon workflow runs --json` の、その run の `working_path`。
-- 人の関所を持つラインなので `--detach` は使えない。Claude Code から回すときは、前景のコマンドをハーネスの背景タスクとして回す。
-- works の開発中（`works/dev/archon.sh` で project pack として回すとき）は、ラインの名前は `darkfactory` だけ。
+- 最初に起動の関所（`launch`）で止まる。`archon workflow approve <run-id>` で越える（`--detach` を付けると背景で続き、`archon workflow cancel <run-id>` で木ごと止められる）。
+- works の開発中（`works/dev/archon.sh` で project pack として回すとき）は、ラインの名前は `darkfactory` だけ。AI の役は、開発の殻が組む選んだ物だけの Claude の設定（`dev/toolset.py`）を読む。
 
 ## 3. 人の関所で見て答える
 
-テストの後で run が止まる。関所の文面に次の 4 つが出る。
+関所は 3 つ。どれも文言に「全文のファイルのパス」が載るので、そのファイルを読んで答える。
 
-1. 判定の一手（`one_shot`）: 判定役が選んだ最も効く一手。修正がその一手に沿っているかを見る。
-2. 判定のファイル（`judgment.json` のパス）: 単位の一覧と、一手で閉じると見込む単位（`one_shot_closes`）。
-3. テストが緑か（`true` が緑・`false` が赤）。
-4. テストのログのパス。
+1. 起動の関所 `launch`: `archon workflow approve <run-id>` で始まる。
+2. 修正の前の関所 `policy-gate`（要る時だけ）: 修正案が能力を狭める・事前審査が後退や方針の穴を挙げた・方針の文書が変わった時に開く。全文は盤面の `r1/gate.md`。
+   - 通す: `archon workflow respond <run-id> continue "<通す範囲と条件>"`（一言は修正役にファイルで届く）。`approve` も通す。
+   - 止める: `archon workflow respond <run-id> stop "<理由>"`（`reject --reason` も止める）。止めても報告は出る。
+3. 最後の関所 `final-gate`（`final_gate: always` ならいつも）: 最後のテストの緑赤・ログ・差分の置き場・残った異議が全文 `r1/final-gate.md` に在る。
+   - 進める: `archon workflow respond <run-id> continue "<一言>"`。止める: `stop "<理由>"`。どちらでも報告へ進む。
 
 修正の差分そのものは、Archon の run ごとの worktree にある（2 節の `working_path`。`git -C <working_path> diff` で見る）。
+関所で待っている run は `cancel` でなく `respond … stop` で止める。
 
-答え方:
-
-- 進める: `archon workflow approve <run-id>` → 修正差分の審査へ進む。
-- 止める: `archon workflow reject <run-id> "<理由>"` → 審査へ進まない。理由は決まりとして書く（Archon は空でも受け付け、空なら `Rejected` を入れる）。
-
-判定が直す物を 1 つも残さなかった（依頼の件が再現しない・直す義務の無い単位だけ）ときは、修正・テスト・関所・審査を飛ばして run が成功で終わる（結末は `no_fix_needed`）。関所では止まらない。
+判定が直す物を 1 つも残さなかった（依頼の件が再現しない・直す義務の無い単位だけ）ときは、修正案・修正・審査・手直しを飛ばし、最後のテストで周を締めて報告へ行く（結末は `no_fix_needed`）。
 
 ## 4. run の後に見る物
 
-run の出口（最後の節 `finish` の出力）に、見るファイルのパスが載る。
+run の出口（最後の節 `report` の出力）に、見るファイルのパスが載る。
 
-- `outcome`: `fixed`（修正から審査まで回った）か `no_fix_needed`（直す物が無い判定で終わった）。
-- `judgment_file`: 判定（単位・ラベル・一手）。
-- `review_file`: 修正差分の審査の返答（見つけた穴 `faces` と、塞がったかの確かめ `checks`）。`fixed` のときだけ。
-- `diff_file`: 審査した修正の差分。`fixed` のときだけ。
+- `outcome`: `fixed`・`no_fix_needed`・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札 `dev/stop.sh`）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）。
+- `report_file`: 機械が組む短い報告（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）。`next_request_file`: 次の run に渡す依頼の下書き（残った穴・赤）。
+- `judgment_file`・`review_file`・`diff_file`・`faces`: 1 本目と同じ欄（判定・差分の審査の返答・審査した差分・穴の数）。
 - 修正そのもの: Archon の run ごとの worktree（`archon workflow runs --json` の `working_path`）。commit していないので、取り込むかは人が決める。
 
 ## 5. 止めて続ける
 
-- 止める: 前景の run を Ctrl-C（端末が SIGINT を送る）で止める。人の関所を持つラインは外から `cancel` できない。
+- 止め札: `sh works/dev/stop.sh <run-id> "<理由>"`。走っている AI の節は最後まで走り、次の境の節で止まる（報告は出る）。
+- 前景の run は Ctrl-C（端末が SIGINT を送る）で止まる。関所で待っている run は `respond … stop`。
 - 続ける: `archon workflow resume <run-id>` で、済んだ節の続きから回る。
-- 受け付けの出し直しが上限（3 回）を超えたときも run は失敗で止まる。原因を直してから同じく `resume` で続ける。
+- ブロックの中の出し直しが上限（3 回）を超えたときは run が失敗で止まり、報告の節まで届かない。`dev/report.sh` で盤面から報告を組む（結末 `interrupted`）。

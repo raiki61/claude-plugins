@@ -131,8 +131,8 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 
 1. 依頼の JSON を書く（形は `skills/works/SKILL.md`）。置き場所はどこでもよい（殻が写して渡す）。
 2. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/dogfood.sh <依頼の JSON> "<テストのコマンド>" [<dir>]` を前景で打つ。殻は、このリポジトリの今の HEAD（commit 済みの物だけ）を `<dir>/repo` に clone し、works を `.archon/workflows/works` に写して枝 `dogfood-base` に commit し、`<dir>/origin.git` を origin にしてラインを回す。`<dir>` の既定は `$TMPDIR` の下の一時フォルダ。人の関所で止まって戻る。
-3. 実走と同じく、関所の文面と殻が出す worktree を見て、approve のコマンドを打つ。
-4. 審査が終わったら、殻が出す `git -C <このリポジトリ> apply <fix.diff のパス>` で差分を取り込み、手元でテストを回してから commit する。
+3. 起動の関所（`launch`）で止まって戻る。殻が出す approve のコマンドで越える。修正の前の関所（要る時だけ）と最後の関所は `archon workflow respond <run-id> continue "<一言>"`（止めるなら `stop "<理由>"`）で答える（`skills/works/SKILL.md` の 3 節）。殻は入力 `tdd_suite=works/dev/tdd-suite.sh`・`adapter=optional`（`WORKS_DEV_ADAPTER=1` なら包みを求める）・`final_gate=always` を渡す。
+4. 報告まで済んだら、殻が出す `git -C <このリポジトリ> apply <dir>/run-<id>.diff` で差分（run の worktree と周の頭の版の差。手直しも未追跡も入る）を取り込み、手元でテストを回してから commit する。殻を打ち直さずに差分だけ作るなら `git -C <working_path> diff --binary <base_rev>`（`base_rev` は盤面の `r1/start.json`）。
    修正が `works/` でなく pack の写し（`.archon/workflows/works`）を書き換えていたら、その部分は取り込まない（殻は「注意:」の 1 行を出す）。`<dir>` に前の回の `repo`・`origin.git`・`request.json` が在ると、殻は何も書かずに止まる。
 
 ### 結果（2026-09-26・Archon v0.11.1・opus・2 回）

@@ -600,7 +600,8 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual((dog / "request.json").read_text(), request.read_text())
             self.assertEqual(calls, [
                 [str(repo), "", "workflow", "run", "darkfactory",
-                 "--input", f"request={dog / 'request.json'}", "--input", "test_cmd=python3 -m unittest -q"],
+                 "--input", f"request={dog / 'request.json'}", "--input", "test_cmd=python3 -m unittest -q",
+                 "--input", "tdd_suite=works/dev/tdd-suite.sh", "--input", "adapter=optional", "--input", "final_gate=always"],
                 [str(repo), "1", "workflow", "runs", "--json"],
             ])
 
@@ -611,12 +612,14 @@ class TestDevShell(unittest.TestCase):
             for verb in ("approve", "reject", "resume"):
                 self.assertIn(f"workflow {verb} run-1", out)
             self.assertIn("WORKS_DEV_MODEL=opus", out)
-            self.assertIn(f"git -C {src.resolve()} apply /out/artifacts/runs/run-1/board/fix.diff", out)
+            # 差分は run の worktree の git diff --binary <周の頭の版>（P1 Task 29）。worktree が無ければ書かずに知らせる
+            self.assertIn(f"git -C {src.resolve()} apply {dog / 'run-run-1.diff'}", out)
+            self.assertIn("run の worktree（/wt/run-1）が無いので書いていない", out)
             self.assertNotIn("注意", out)   # 差分も worktree も .archon/ に触れていない
 
     def test_dogfood_warns_when_fix_touches_pack_copy(self):
         """修正が works/ でなく pack の写し（.archon/workflows/works）を書き換えたら、取り込まないよう 1 行で注意する。
-        関所では worktree の変更で、審査の後は fix.diff で見る。"""
+        差分は run の worktree と周の頭の版（盤面の r1/start.json の base_rev）の差で、役が commit した変更も未追跡も入る。"""
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = pathlib.Path(tmp_str)
             (tmp / "req.json").write_text("[]\n")
@@ -627,17 +630,16 @@ class TestDevShell(unittest.TestCase):
             subprocess.run(["git", "-C", str(wt), "add", "-A"], check=True)
             subprocess.run(["git", "-C", str(wt), *GIT_ID, "commit", "-q", "-m", "base"], check=True)
             board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
-            board.mkdir(parents=True)
-            cases = {
-                "worktree（関所で止まっている間）": ("wt", None),
-                "fix.diff（審査の後）": (None, "diff --git a/.archon/workflows/works/a.yaml b/.archon/workflows/works/a.yaml\n"),
-            }
-            for why, (touch_wt, diff) in cases.items():
+            (board / "r1").mkdir(parents=True)
+            base = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+            (board / "r1" / "start.json").write_text(json.dumps({"base_rev": base}))
+            cases = {"worktree の書き換え（commit していない）": False, "役が commit した変更（HEAD が動いた）": True}
+            for why, commit in cases.items():
                 with self.subTest(why):
-                    (wt / ".archon" / "workflows" / "works" / "a.yaml").write_text("y\n" if touch_wt else "x\n")
-                    (board / "fix.diff").unlink(missing_ok=True)
-                    if diff:
-                        (board / "fix.diff").write_text(diff)
+                    (wt / ".archon" / "workflows" / "works" / "a.yaml").write_text(f"{why}\n")
+                    if commit:
+                        subprocess.run(["git", "-C", str(wt), "add", "-A"], check=True)
+                        subprocess.run(["git", "-C", str(wt), *GIT_ID, "commit", "-q", "-m", "moved"], check=True)
                     shutil.rmtree(tmp / "src", ignore_errors=True)
                     result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / why),
                                                        working_path=wt, output_root=tmp / "out")

@@ -43,6 +43,8 @@ AI 費用 0 の試し P11〜P13・P16 の結果を書き込んだ（〔試P〕�
 
 ## 2. ラインの形
 
+> **C18 の順に替えた（P1 計画 Task 29。2026-09-28）**: 中の関所（`mid-testing`・`h-midgate`・`mid-gate`）をやめ、最後のテストの後に最後の人の関所を置いた。入力 `mid_gate` は `final_gate`（`always` 既定・`when_needed`）になった（〔台帳〕R26 を持ち主の C18 が上書き。止まる所は保つ）。今の並びは `launch → start → ci-checking → h-entry → pr-checking → premising → h-judge → judging → h-plan → planning → h-gate → policy-gate → h-fix → fixing → h-mid → h-review → reviewing → h-refix → refixing → h-tests → testing(final) → h-final → final-gate → h-eyes → report`。正本は `works/tests/linekit.py` の `LINE_ORDER`（YAML と試験で突き合わせる）。人の一言は `notes_file`（パス）で修正役に届く（R44）。下の図と文は替える前の記録。
+
 ```
 launch(関所) → start → pr-checking(blk-pr。任せ先に落ちた時だけ) → premising(blk-premises) → [h-judge] → judging(blk-judge)
    → [h-plan] → planning(blk-plan) → [h-gate] → policy-gate(関所。要るときだけ)
