@@ -30,7 +30,7 @@ REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
 SEED = ROOT / "dev" / "target-seed"
 sys.path.insert(0, str(CORE))
 
-from accept import role_schema, snapshot_tree  # noqa: E402
+from accept import role_schema, snapshot_tree, tree_state  # noqa: E402
 from board import BoardGap  # noqa: E402
 import policy  # noqa: E402
 import refix  # noqa: E402
@@ -653,7 +653,7 @@ class TestDeltaBoard(RF.DeltaBoardCase):
         self.assertEqual([(r["key"], r["handled"]) for r in brief["reads"]["out.p3.fix.plan_faces"]], [(RF.PR_KEY, "absorbed")])
         self.assertEqual(got["must"], [got["brief_file"], d["file"]])
         self.assertEqual(brief["policy"], policy.brief(b))   # 方針の本文と写しの置き場（方針の文書が無い run は両方空）
-        self.assertEqual(json.loads(b.work(refix.snapshot_name(1)).read_text(encoding="utf-8")), snapshot_tree(repo))
+        self.assertEqual(json.loads(b.work(refix.snapshot_name(1)).read_text(encoding="utf-8")), tree_state(repo))   # entry.snapshot は共通の tree_state の形（R47。HEAD・枝を含む）
         self.assertTrue(b.rd["instances"]["p3.delta_review"].get("launched_at"))
         self.assertEqual(refix.cut(self.board, 1, repo)["diff_file"], d["file"])   # 呼び直しても同じ（印は前の物）
 
