@@ -93,6 +93,14 @@ class RenderCase(Base):
         self.assertIn("方針: ", text)
         self.assertEqual(snap, [])
 
+    def test_render_body_template_and_ctx_hook(self):
+        """template は graph の指示書の代わりの本文（ブロックが持つ写し）、ctx_hook は描く前の ctx を足す（engine が足す欄）"""
+        b = FakeBoard(self.tmp, reads=("record.units", "inputs.policy_md", "validation"))
+        text, _ = rolekit.render_body(b, "p9.role", template="検証: {{validation}}\n",
+                                      ctx_hook=lambda ctx: ctx.update(validation="exit 0"))
+        self.assertTrue(text.startswith("検証: exit 0\n"), text)
+        self.assertTrue(text.endswith(rolekit.SCHEMA_NOTE + dump(b.schema)))
+
     def test_render_needs_pending_instance(self):
         with self.assertRaises(BoardGap):
             rolekit.render_prompt(FakeBoard(self.tmp, pending=False), "p9.role", prompts_dir=self.tmp / "gl")
@@ -188,6 +196,39 @@ class ScriptMainCase(Base):
         self.assertEqual((code, out), (2, ""))
         self.assertIn("ARTIFACTS_DIR", err)
         self.assertIn("INPUTS_X", err)
+
+    def test_script_main_fence(self):
+        """fence なら盤面は script_io.board_dir の値（resolve 済み）で、解決したパスが $ を含めば 2"""
+        seen = []
+
+        def ok(board, repo, got):
+            seen.append(board)
+            return {"go": True}
+        link = self.tmp / "link"
+        link.symlink_to(self.tmp)
+        code, out, _ = call(rolekit.script_main, ok, env={"ARTIFACTS_DIR": str(link)}, fence=True)
+        self.assertEqual((code, json.loads(out)), (0, {"go": True}))
+        self.assertEqual(seen, [self.tmp / "board"])
+        dollar = self.tmp / "a$b"
+        dollar.mkdir()
+        code, out, err = call(rolekit.script_main, ok, env={"ARTIFACTS_DIR": str(dollar)}, fence=True)
+        self.assertEqual((code, out, len(seen)), (2, "", 1))
+        self.assertIn("$", err)
+
+    def test_script_main_take_writes_reason_file(self):
+        """take を与えると、done を持つ返り（受け付け）は script_io.emit_result を通る: 拒否は理由の本文を
+        reject-<take>_<節>-<連番>.txt に書き reason_file を足す。done を持たない返りはそのまま"""
+        env = {"ARTIFACTS_DIR": str(self.tmp)}
+        code, out, _ = call(rolekit.script_main, lambda *_: {"ok": False, "done": False, "reason": REASON, "node": "n1"},
+                            env=env, take="eyes")
+        got = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(pathlib.Path(got["reason_file"]).name, "reject-eyes_n1-1.txt")
+        self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), REASON)
+        code, out, _ = call(rolekit.script_main, lambda *_: {"ok": True, "done": True, "node": "n1"}, env=env, take="eyes")
+        self.assertEqual(json.loads(out)["reason_file"], "")
+        code, out, _ = call(rolekit.script_main, lambda *_: {"go": True}, env=env, take="eyes")
+        self.assertEqual(json.loads(out), {"go": True})
 
     def test_parse_reply(self):
         self.assertEqual(rolekit.parse_reply('{"a": 1}'), ({"a": 1}, ""))

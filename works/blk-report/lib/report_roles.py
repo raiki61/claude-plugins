@@ -13,8 +13,9 @@ works の盤面（DiskBoard）の上で役として回す。どの節をいつ�
 - collect: 出口。report を受けていれば 来歴の 1 行＋書き手の本文＋機械の事実（書き換えずに最後に付ける）を盤面の REPORT_NAME に。
            受けていなければ、なぜ無いか・受けた分の本文・検証器の出力の末尾・機械の事実を付けた報告を書いて ok: false（黙らない）
 
-指示書は本線 a1202d0 の写し（blk-report/prompts/。バイト単位で同じ）。描き方は engine と同じ（Renderer・reads の柵・cap なし）。
+指示書は本線 a1202d0 の写し（blk-report/prompts/。バイト単位で同じ）。描き方は engine と同じ（rolekit.render_body。reads の柵・cap なし）。
 """
+import functools
 import json
 import os
 import pathlib
@@ -29,14 +30,12 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from board import BoardGap, RecordInvalid  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
-import engine.util as _util  # noqa: E402
-from engine.render import ReadsViolation, Renderer  # noqa: E402
 from engine.rules import validator_module  # noqa: E402
-from engine.util import dump, now, safe_name  # noqa: E402
+from engine.util import now, safe_name  # noqa: E402
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
-import script_io  # noqa: E402
+import rolekit  # noqa: E402
 
 # 役の名（YAML の節 id・包みの印の名）→ 写しの graph の節。並びは graph の依存の並び（human_items → cold_check → report）
 ROLES = ("report-items", "report-cold", "report-write")
@@ -195,26 +194,13 @@ def facts_text(b, machine_report="", validation=None) -> str:
 
 # ---------------------------------------------------------------- 描く・印
 def render(b, nid, extra=None) -> str:
-    """engine の emit_instance と同じ描き方（ctx・節の skills・reads の柵・ref・cap なし・schema の断り）。指示書は写しの
-    prompts/ から（prompt_append を持つ節は描けない）。描けない（reads に無い穴・盤面の欄の欠け）は BoardGap"""
+    """engine の emit_instance と同じ描き方（rolekit.render_body: ctx・節の skills・reads の柵・ref・cap なし・schema の断り）。
+    指示書は写しの prompts/ から（prompt_append・pointers を持つ節は描けない）。extra は ctx に足す欄（report の validation）。
+    描けない（待っていない・reads に無い穴・盤面の欄の欠け）は BoardGap"""
     n = b.nodes[nid]
-    inst = b.rd["instances"].get(nid) or {}
     if n.get("prompt_append") or n.get("pointers"):
         raise BoardGap(f"{nid}: prompt_append・pointers を持つ節は blk-report の描き方の外（写し直しで増えた？）")
-    tpl = (PROMPTS / n["prompt_file"].removeprefix("../prompts/")).read_text(encoding="utf-8")
-    ctx = b.ctx()
-    ctx["node"] = {"skills": inst.get("skills") or []}
-    ctx.update(extra or {})
-    r = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None)
-    try:
-        prompt = r.render(tpl)
-    except (KeyError, ReadsViolation, ValueError) as e:
-        raise BoardGap(f"{nid} の指示書を描けない: {e}") from None
-    if n.get("schema"):
-        prompt += ("\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）。"
-                   '文字列値の中の " は必ず \\" にエスケープしろ——生のまま入れると返答まるごとが'
-                   "読めずに捨てられる:\n" + dump(n["schema"]))
-    return prompt
+    return rolekit.render_body(b, nid, prompts_dir=_BLK, ctx_hook=lambda ctx: ctx.update(extra or {}))[0]
 
 
 def _snap_name(role) -> str:
@@ -297,12 +283,9 @@ def accept(board_dir, role, raw, repo) -> dict:
     順: 読む → 書き手の本文のセルの書式（works だけの検査）→ entry.take（書き手は作業ツリーの写しと比べる → 盤面の done）。
     写しの AnswerReject と読むだけの役の変化は拒否（役に返す）。ほかの Reject・BoardGap は投げる（回す側の誤り）"""
     nid = _node(role)
-    try:
-        reply = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return _reject(board_dir, nid, f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）")
-    if not isinstance(reply, dict):
-        return _reject(board_dir, nid, f"返答が JSON のオブジェクトでない（{type(reply).__name__}）")
+    reply, why = rolekit.parse_reply(raw)
+    if reply is None:
+        return _reject(board_dir, nid, why)
     if role != COLD and isinstance(reply.get("text"), str):
         bad = format_problems(reply["text"])
         if bad:
@@ -399,30 +382,7 @@ def collect(board_dir, machine_report="") -> dict:
 
 
 # ---------------------------------------------------------------- スクリプトの入口
-def script_main(fn, inputs=(), *, take=False) -> int:
-    """blk-report のスクリプトの入口。環境変数 ARTIFACTS_DIR（空も欠け）と inputs（INPUTS_* の名前）を読み、
-    fn(盤面の置き場, repo=cwd, {名前: 値}) の返りを 1 行の JSON で出して 0。take なら受け付けの出口（script_io.emit_result。
-    拒否の文を盤面のファイルに書き reason_file を足す）を通す。0 でないのは配線の誤りだけ: 環境変数の欠け・盤面のパスの $・
-    BoardGap・写しの Reject（止めた run への書き込み・git が効かない など）は標準エラーに 1 行出して 2（標準出力には何も出さない）"""
-    missing = [n for n in (script_io.ARTIFACTS_ENV, *inputs) if n not in os.environ]
-    if script_io.ARTIFACTS_ENV not in missing and not os.environ[script_io.ARTIFACTS_ENV]:
-        missing.append(script_io.ARTIFACTS_ENV)
-    if missing:
-        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
-        return 2
-    board = script_io.board_dir()
-    if board is None:
-        return 2
-    try:
-        out = fn(board, pathlib.Path.cwd(), {n: os.environ[n] for n in inputs})
-    except (BoardGap, _util.Reject) as e:
-        print(f"{type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    if take:
-        return script_io.emit_result(board, f"report_{out.get('node', 'take')}", out)
-    line = json.dumps(out, ensure_ascii=False) + "\n"
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
-    sys.stdout.write(line)
-    sys.stdout.flush()
-    return 0
+# blk-report のスクリプトの入口（rolekit.script_main。盤面のパスに $ の柵）。受け付けは take="report" を渡し、拒否の文を
+# 盤面の reject-report_<節>-<連番>.txt に書いて reason_file を足す（script_io.emit_result）。0 でないのは配線の誤りだけ:
+# 環境変数の欠け・盤面のパスの $・BoardGap・写しの Reject・思わぬ誤りは標準エラーに 1 行出して 2（標準出力には何も出さない）
+script_main = functools.partial(rolekit.script_main, fence=True)
