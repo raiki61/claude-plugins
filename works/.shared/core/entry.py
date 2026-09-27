@@ -9,6 +9,7 @@
   （盤面なしで呼べる。線 B の申し送り 2）
 - run_ci(b, nid, *, test_cmd): CI の節を run_engine で走らせ、返りを全部扱う（start と blk-tests の final が使う）
 - start(board_dir, repo, raw, *, run_id): 入力の確かめ → 盤面を開く → 修正前のテストの記録 → 方針の文 → 切符
+- resume_after_ci(b): 任せ先の CI の役が p0.local_checks を渡した後、ラインが start の輪（run_engine → settle）に戻る口
 
 ブロックのスクリプトは open_board で盤面を開く。線 B のライン（darkfactory-rounds）でも同じブロックが同じ口で動く。
 """
@@ -27,8 +28,8 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from board import GRAPH_SHA, BoardGap, BoardMismatch, DiskBoard, NodeTable, graph_expanded  # noqa: E402
-from engine.role_run import _tail  # noqa: E402  （engine が走らせた段の末尾と同じ切り方）
 from engine.schema import validate_schema  # noqa: E402
+import engine.util as _util  # noqa: E402
 from engine.util import Reject, safe_name  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
@@ -204,6 +205,16 @@ def board_rules():
 
 
 # ---------------------------------------------------------------- CI の節（p0.local_checks・p4.ci）
+TAIL_LINES = 20     # 素材の detail に写すログの末尾の行数（engine の role_run.TAIL_LINES と同じ値。private の _tail を import しない）
+TAIL_BYTES = 2000   # その上限（バイト。role_run.TAIL_BYTES と同じ）
+
+
+def _tail(data: bytes) -> str:
+    """ログの末尾（engine の role_run._tail と同じ切り方: 末尾 TAIL_LINES 行の、さらに末尾 TAIL_BYTES 文字）"""
+    text = data.decode("utf-8", "replace").rstrip()
+    return "\n".join(text.splitlines()[-TAIL_LINES:])[-TAIL_BYTES:]
+
+
 def local_checks_material(repo: pathlib.Path, test_cmd: str, log_path: pathlib.Path) -> dict:
     """任せ先に落ちた CI の節に渡す素材 {"material": …} を組む（盤面なしで呼べる公開の口。線 B の申し送り 2）。
     test_cmd を ["bash", "-c", test_cmd] で tree_run に走らせ（対象の根で・標準入力は空・環境は tree_run.outside_env。
@@ -254,10 +265,11 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
     """CI の節 nid（p0.local_checks・p4.ci）を b.run_engine で走らせ、返りを全部扱う（start と blk-tests の final が使う）。
     - relaunch（宣言が計画の後に変わった）は 1 度だけ呼び直す。2 度目も同じなら CiRefused（文に why）
     - ok: engine が受け付けまで済ませた → {by: "engine", log: 全部の段のログ}
-    - fallback（宣言が無い）で任せ先に落ちた: test_cmd が在れば、起こした印（mark_launched）を置いてから local_checks_material を
-      b.done で渡す → {by: "role", log}。test_cmd が空なら素材を作らずに {by: "role_needed", log: "", why}——節は任せ先に
-      落ちたまま ready に残り、任せ先の役（graphloops の p0.local_checks・p4.ci の役と同じく、リポジトリを読んで走らせ方を探す）
-      が渡す（裁定 R52。役のブロックは後の Task）
+    - fallback（宣言が無い・engine の返答を受け付けが拒んだ）で任せ先に落ちた: test_cmd が在れば _ci_by_cmd（起こした印 →
+      git の根で test_cmd → done）→ {by: "role", log}
+    - fallback で test_cmd が空 → {by: "role_needed", log: "", why}。意味は「この節の素材はこの呼び出しで何も渡していない。
+      呼び手が任せ先の役を回して渡す」だけ——**前の結果（記録に残る p0 の local_checks など）を使ってよい、ではない**。
+      節は任せ先に落ちたまま待ち、印も置かない（裁定 R52。役のブロックは後の Task。役が渡した後の続きは resume_after_ci）
     - ok: False で relaunch も fallback も無い（why だけ。対象の根が引けない）→ CiRefused"""
     got = b.run_engine(nid, runner=runner)
     if got.get("relaunch"):
@@ -268,14 +280,22 @@ def run_ci(b, nid: str, *, test_cmd: str, runner=None) -> dict:
         return {"by": "engine", "log": str(_engine_log(b, nid, got.get("runs") or []))}
     if "fallback" not in got:
         raise CiRefused(f"{nid} を engine で走らせられない: {got.get('why')}")
-    inst = next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
-    if inst is None:
+    if not _fell_back(b, nid):
         raise BoardGap(f"{nid} は任せ先に落ちたが待っていない（表の fallback が absent）——CI の節は任せ先を持つ表で回す")
     if not (test_cmd or "").strip():
         return {"by": "role_needed", "log": "", "why": got["fallback"]}
-    b.mark_launched(nid, inst.get("attempts", 1))   # 任せ先の返答の前に起こした印（board.py の頭のラインの約束 2）
+    return _ci_by_cmd(b, nid, test_cmd)
+
+
+def _ci_by_cmd(b, nid: str, test_cmd: str) -> dict:
+    """任せ先に落ちて待っている CI の節に、test_cmd を走らせた素材を渡す。印（mark_launched）を先に置く（board.py の頭のラインの
+    約束 2。同じ試行の 2 度目は前の印を返すので、止められた後の呼び直しでもそのまま走らせ直せる）。走らせる所は engine と同じ
+    git の根（--show-toplevel。引けなければ入力の cwd）"""
+    inst = b.rd["instances"][nid]
+    b.mark_launched(nid, inst.get("attempts", 1))
     log = b.work(safe_name(nid) + ".log")
-    b.done(nid, local_checks_material(pathlib.Path(b.state["inputs"]["cwd"]), test_cmd, log))
+    root = pathlib.Path(_util.repo_root() or b.state["inputs"]["cwd"])
+    b.done(nid, local_checks_material(root, test_cmd, log))
     return {"by": "role", "log": str(log)}
 
 
@@ -288,19 +308,82 @@ def _fell_back(b, nid: str) -> bool:
     return bool(inst and inst.get("status") == "pending" and inst.get("engine_fallback"))
 
 
+def _pr_go(b, got: dict):
+    """pr_go の 3 値: True（任せ先に落ちた。blk-pr を回す）・False（engine で済んだ・このラインに無い）・"pending"（p0.parallel_pr は
+    まだ出ていない——依存の p0.local_checks が任せ先の CI の役を待っている。測っていないので偽と言わない）"""
+    if got["role_needed"]:
+        return True
+    if not got["by"] and b.node_state(prcheck.NODE) == "pending":
+        return "pending"
+    return False
+
+
+def _drain(b, p, *, test_cmd: str, runner=None) -> dict:
+    """盤面の約束 1 の輪: Progress.run_engine の節を全部走らせて settle する、を空になるまで。CI の節は run_ci、p0.parallel_pr は
+    prcheck.run_helper（印は置かない。blk-pr の pr-snap が置く）。任せ先に落ちて待っている CI の節は、test_cmd が在れば
+    走らせて渡す（止められた run の呼び直しで、test_cmd の道を任せ先の役に黙って替えない）。
+    返り {ci_role_go, pr_go}。CiRefused・prcheck.Refused（InputRefused にする）は AI の前で止める"""
+    ran = set()
+    pr = None
+    try:
+        while True:
+            left = [n for n in p["ready"] if _is_ci(b, n) and _fell_back(b, n) and n not in ran] if test_cmd.strip() else []
+            if not p["run_engine"] and not left:
+                break
+            if left:
+                for nid in left:
+                    ran.add(nid)
+                    _ci_by_cmd(b, nid, test_cmd)
+                p = b.settle()
+                continue
+            for nid in p["run_engine"]:
+                if nid in ran:
+                    raise BoardGap(f"{nid} を走らせた後も run_engine に残る（盤面の欠陥）")
+                ran.add(nid)
+                if nid == prcheck.NODE:
+                    pr = prcheck.run_helper(b, runner=runner)
+                elif _is_ci(b, nid):
+                    run_ci(b, nid, test_cmd=test_cmd, runner=runner)
+                else:
+                    raise BoardGap(f"start は engine_run の節 {nid} の回し方を知らない（CI の節と {prcheck.NODE} だけ）")
+            p = b.settle()
+        if pr is None:   # 前に落ちていた・まだ出ていない: 走らせずに盤面から読む
+            pr = prcheck.run_helper(b, runner=runner)
+    except prcheck.Refused as e:
+        raise InputRefused(str(e)) from None
+    return {"ci_role_go": any(_is_ci(b, n) and _fell_back(b, n) for n in p["ready"]), "pr_go": _pr_go(b, pr)}
+
+
+def resume_after_ci(b, *, test_cmd: str = "", runner=None) -> dict:
+    """ラインの約束（裁定 R52 の続き）: start が ci_role_go 真で返した run では、任せ先の CI の役のブロックが p0.local_checks を
+    mark_launched → done で渡した後、ラインはこれで start の輪に戻る（settle → run_engine の節を走らせて settle を空になるまで。
+    p0.parallel_pr は prcheck.run_helper）。返り {ci_role_go, pr_go}（start の返りの同じ欄と同じ意味。pr_go は True・False・
+    "pending"）。役がまだ渡していなければ何も走らせずに同じ値を返す。呼び直しても走らせ直さない"""
+    return _drain(b, b.settle(), test_cmd=test_cmd, runner=runner)
+
+
 # ---------------------------------------------------------------- start（線 A の仕様 4 節）
+START_FILE = "start.json"
+
+
+def _write_json(path: pathlib.Path, doc: dict) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str, runner=None) -> dict:
     """ラインの入口。順:
     1. check_inputs（拒めば盤面を作らずに InputRefused）
     2. DiskBoard.begin（判定から入る 1 周の run。origin works/darkfactory・base_rev は空＝HEAD・stop_after_round=1・
        board_hook.py の overrides・validator_runner）。入口の Reject は InputRefused
-    3. 盤面の約束 1: Progress.run_engine の節を全部走らせて settle する、を空になるまで。CI の節は run_ci（修正前のテストを
-       盤面に記録）、p0.parallel_pr は prcheck.run_helper（落ちても印は置かない。blk-pr の pr-snap が置く）。CiRefused・
-       prcheck.Refused は AI を起こす前に止める（InputRefused）
-    4. 切符（ticket.write）を書き、r1/start.json に入力の控えを置く
+    3. テストを走らせる前に r1/start.json に入力の控えと、宣言が無い時の道 ci_fallback（test_cmd か role）を置く。呼び直し
+       （Archon の再開）で前の控えの test_cmd と違えば InputRefused（止められた run を別の道で黙って続けない）
+    4. _drain（盤面の約束 1 の輪。CI の節は run_ci、p0.parallel_pr は prcheck.run_helper。止められた test_cmd は走らせ直す）
+    5. 切符（ticket.write）を書き、r1/start.json を結果つきで書き直す
     返り {ok, base_rev, test_cmd, policy_paste, policy_path, mid_gate, adapter, thickness, gates, ci_role_go, pr_go, head_line}。
-    ci_role_go は CI の節（p0.local_checks）が任せ先に落ちたまま待っている（test_cmd も宣言も無い。裁定 R52）、pr_go は
-    p0.parallel_pr が任せ先に落ちた（blk-pr を回す）。同じ置き場で呼び直せば begin は盤面を開いて続きから（Archon の再開）"""
+    ci_role_go は CI の節（p0.local_checks）が任せ先に落ちたまま待っている（test_cmd も宣言も無い。裁定 R52）。pr_go は _pr_go の
+    3 値——"pending" の run は、CI の役の後に resume_after_ci が測る"""
     repo = pathlib.Path(repo).resolve()
     board_dir = pathlib.Path(board_dir)
     inp = check_inputs(raw, repo)
@@ -312,47 +395,31 @@ def start(board_dir: pathlib.Path, repo: pathlib.Path, raw: dict, *, run_id: str
                                stop_after_round=1, **hook_kwargs(LINE, table))
     except Reject as e:
         raise InputRefused(f"盤面が入力を受けない: {e}") from None
-    ran = set()
-    pr = None
-    try:
-        while p["run_engine"]:
-            for nid in p["run_engine"]:
-                if nid in ran:
-                    raise BoardGap(f"{nid} を走らせた後も run_engine に残る（盤面の欠陥）")
-                ran.add(nid)
-                if nid == prcheck.NODE:
-                    pr = prcheck.run_helper(b, runner=runner)
-                elif _is_ci(b, nid):
-                    run_ci(b, nid, test_cmd=inp["test_cmd"], runner=runner)
-                else:
-                    raise BoardGap(f"start は engine_run の節 {nid} の回し方を知らない（CI の節と {prcheck.NODE} だけ）")
-            p = b.settle()
-        if pr is None:   # 呼び直し（前の start で落ちていた）: 走らせずに盤面から読む
-            pr = prcheck.run_helper(b, runner=runner)
-    except prcheck.Refused as e:
-        raise InputRefused(str(e)) from None
-    ci_role_go = any(_fell_back(b, nid) for nid in p["ready"] if _is_ci(b, nid))
+    keep = {k: inp[k] for k in ("request_file", "test_cmd", "thickness", "gates", "mid_gate", "adapter", "policy_md")}
+    work = b.work(START_FILE)
+    if work.is_file():
+        prev = json.loads(work.read_text(encoding="utf-8"))
+        if prev.get("test_cmd") != inp["test_cmd"]:
+            raise InputRefused(f"この盤面は test_cmd={prev.get('test_cmd')!r}（宣言が無い時の道: {prev.get('ci_fallback')}）で"
+                               f"始めた——呼び直しの test_cmd={inp['test_cmd']!r} で道を替えない（同じ入力で呼び直す）")
+    base_rev = (b.record.get("base") or "")
+    doc = {**keep, "run_id": run_id, "requests": len(inp["items"]), "base_rev": base_rev,
+           "ci_fallback": "test_cmd" if inp["test_cmd"] else "role"}
+    _write_json(work, doc)
+    go = _drain(b, p, test_cmd=inp["test_cmd"], runner=runner)
     try:
         ticket.write(board_dir, repo, run_id)
     except ticket.TicketError as e:
         raise InputRefused(f"包みの切符を書けない: {e}") from None
     pol = policy.brief(b)
     absent = len(b.state["works"].get("not_in_line") or [])
-    n_items = len(inp["items"])
     thick = inp["thickness"] + ("（既定）" if not _word(raw, "thickness") else "")
-    head = (f"入口: 判定から（依頼 {n_items} 件）・段: {thick}・gates: {inp['gates'] or '空'}・"
+    head = (f"入口: 判定から（依頼 {len(inp['items'])} 件）・段: {thick}・gates: {inp['gates'] or '空'}・"
             f"このラインに無い節: {absent} 個・{prcheck.head_downgrades(LINE)}")
-    if ci_role_go:
+    if go["ci_role_go"]:
         head += "・修正前のテスト: 宣言も test_cmd も無い——任せ先の役がリポジトリから走らせ方を探す"
-    base_rev = (b.record.get("base") or "")
     out = {"ok": True, "base_rev": base_rev, "test_cmd": inp["test_cmd"], "policy_paste": pol["paste"],
            "policy_path": pol["path"], "mid_gate": inp["mid_gate"], "adapter": inp["adapter"], "thickness": inp["thickness"],
-           "gates": inp["gates"], "ci_role_go": ci_role_go, "pr_go": bool(pr["role_needed"]), "head_line": head}
-    keep = {k: inp[k] for k in ("request_file", "test_cmd", "thickness", "gates", "mid_gate", "adapter", "policy_md")}
-    doc = {**keep, "run_id": run_id, "requests": n_items, "base_rev": base_rev, "ci_role_go": ci_role_go,
-           "pr_go": out["pr_go"], "head_line": head}
-    work = b.work("start.json")
-    tmp = work.with_name(work.name + ".tmp")
-    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, work)
+           "gates": inp["gates"], **go, "head_line": head}
+    _write_json(work, {**doc, **go, "head_line": head})
     return out

@@ -438,7 +438,8 @@ class CheckInputsCase(StartCaseBase):
                 with self.assertRaises(entry.InputRefused) as cm:
                     entry.check_inputs(self.raw(**{key: "x"}), repo)
                 self.assertNotIn("\n", str(cm.exception))
-                self.assertIn("x", str(cm.exception))
+                self.assertIn("'x'", str(cm.exception))
+                self.assertIn(key, str(cm.exception))
         # gates の文は写しの RL の check_inputs の文（使えるのは gates=merge）
         with self.assertRaises(entry.InputRefused) as cm:
             entry.check_inputs(self.raw(gates="x"), repo)
@@ -634,6 +635,7 @@ class StartCase(StartCaseBase):
         got = self.start(repo)
         self.assertTrue(got["ok"])
         self.assertTrue(got["ci_role_go"])
+        self.assertEqual(got["pr_go"], "pending")   # p0.parallel_pr は p0.local_checks を待つ（まだ測れない。偽と言わない）
         self.assertIn("任せ先", got["head_line"])
         b = entry.open_board(self.board)
         self.assertNotIn("local_checks", b.record["materials"])
@@ -749,6 +751,81 @@ class StartCase(StartCaseBase):
                          {k: again[k] for k in ("base_rev", "ci_role_go", "pr_go", "head_line")})
 
 
+class ResumeCase(StartCaseBase):
+    def ci_role_done(self, material):
+        """任せ先の CI の役（後の Task のブロック）の代わり: 印を置いて素材を done"""
+        b = entry.open_board(self.board)
+        inst = pending_inst(b, "p0.local_checks")
+        b.mark_launched("p0.local_checks", inst.get("attempts", 1))
+        b.done("p0.local_checks", {"material": material})
+        return entry.open_board(self.board)
+
+    def test_resume_after_ci(self):
+        """ラインの約束: 任せ先の CI の役が p0.local_checks を渡した後、ラインは resume_after_ci で start の輪に戻る
+        （run_engine → settle と p0.parallel_pr の run_helper）。返りの pr_go が測った値になる"""
+        repo = self.seed()
+        self.assertEqual(self.start(repo)["pr_go"], "pending")
+        b = entry.open_board(self.board)
+        still = entry.resume_after_ci(b)   # 役がまだ渡していない: 何も走らせず、同じ値
+        self.assertEqual((still["ci_role_go"], still["pr_go"]), (True, "pending"))
+        b = self.ci_role_done({"status": "found", "count": 1, "detail": "役が走らせた: 赤 2 件"})
+        got = entry.resume_after_ci(b)
+        self.assertEqual((got["ci_role_go"], got["pr_go"]), (False, True))   # 種は remote が無いので任せ先へ
+        b = entry.open_board(self.board)
+        inst = pending_inst(b, "p0.parallel_pr")
+        self.assertTrue(inst.get("engine_fallback"))
+        self.assertFalse(inst.get("launched_at"))
+        self.assertEqual(b.settle()["run_engine"], [])
+        again = entry.resume_after_ci(b)   # 呼び直しても同じ（走らせ直さない）
+        self.assertEqual((again["ci_role_go"], again["pr_go"]), (False, True))
+
+    def test_start_resume_after_cancel_mid_cmd(self):
+        """test_cmd の途中で止められた run を呼び直すと、test_cmd を走らせ直す（任せ先の役に黙って替えない）。
+        選んだ道（test_cmd）はテストを走らせる前に start.json に置く"""
+        import tree_run
+        repo = self.seed()
+
+        def stopped(*a, **kw):
+            doc = json.loads((self.board / "r1" / "start.json").read_text(encoding="utf-8"))
+            self.assertEqual((doc["ci_fallback"], doc["test_cmd"]), ("test_cmd", SEED_CMD))
+            raise tree_run.Stopped(15)
+        with mock.patch.object(entry, "local_checks_material", stopped):
+            with self.assertRaises(tree_run.Stopped):
+                self.start(repo, test_cmd=SEED_CMD)
+        b = entry.open_board(self.board)
+        self.assertTrue(pending_inst(b, "p0.local_checks").get("launched_at"))
+        got = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD), run_id="run-7")
+        self.assertFalse(got["ci_role_go"])
+        b = entry.open_board(self.board)
+        self.assertEqual(b.record["process"]["checks"]["p0.local_checks"]["by"], "role")
+        self.assertEqual(b.record["materials"]["local_checks"]["status"], "found")
+        self.assertIn(got["pr_go"], (True, False))
+
+    def test_start_resume_changed_test_cmd_refused(self):
+        """呼び直しで test_cmd が替わった（空になった）ら、前に選んだ道を黙って替えずに拒む"""
+        import tree_run
+        repo = self.seed()
+        with mock.patch.object(entry, "local_checks_material", mock.Mock(side_effect=tree_run.Stopped(15))):
+            with self.assertRaises(tree_run.Stopped):
+                self.start(repo, test_cmd=SEED_CMD)
+        for cmd in ("", "true"):
+            with self.subTest(cmd):
+                with self.assertRaises(entry.InputRefused) as cm:
+                    entry.start(self.board, repo, self.raw(test_cmd=cmd), run_id="run-7")
+                self.assertIn("test_cmd", str(cm.exception))
+
+    def test_fallback_cmd_runs_from_git_top(self):
+        """任せ先の test_cmd は engine と同じく git の根（--show-toplevel）で走らせる（入力の cwd が下のフォルダでも）"""
+        repo = self.seed()
+        sub = repo / "sub"
+        sub.mkdir()
+        b, p = DiskBoard.begin(self.tmp / "board", repo=sub, table=entry.load_table(), items=[{"where": "stats.py", "text": "x"}],
+                               origin="works/darkfactory", base_rev="", request_text="x", stop_after_round=1)
+        got = entry.run_ci(b, "p0.local_checks", test_cmd="pwd -P")
+        self.assertEqual(got["by"], "role")
+        self.assertIn(f"\n{os.path.realpath(repo)}\n", "\n" + pathlib.Path(got["log"]).read_text(encoding="utf-8"))
+
+
 class StartScriptCase(StartCaseBase):
     def env(self, repo, **kw):
         req = request_file(self.tmp / "req" / "request.json")
@@ -794,6 +871,47 @@ class StartScriptCase(StartCaseBase):
         self.assertEqual(ticket.read(repo)["run_id"], "wf-1")
         self.assertTrue((self.tmp / "art" / "board" / "state.json").is_file())
         self.assertFalse([*CORE.rglob("__pycache__"), *(ROOT / "darkfactory").rglob("__pycache__")])
+
+
+    def main_in_process(self, repo, **kw):
+        """start.py の main を同じプロセスで呼ぶ（entry の中を差し替えるため）。返り (終了コード, stdout, stderr)"""
+        import contextlib
+        import importlib.util
+        import io
+        spec = importlib.util.spec_from_file_location("_works_start_script", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        out, err = io.StringIO(), io.StringIO()
+        old = os.getcwd()
+        os.chdir(repo)
+        try:
+            with mock.patch.dict("os.environ", self.env(repo, **kw), clear=True), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = mod.main()
+        finally:
+            os.chdir(old)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_start_script_fallback_rejected_exit_2(self):
+        """任せ先の素材を受け付けが拒んだ（機械の欠陥）→ 2 と 1 行（入力の拒み 1 と分ける）"""
+        repo = self.seed()
+        bad = mock.Mock(return_value={"material": {"status": "bogus"}})
+        with mock.patch.object(entry, "local_checks_material", bad):
+            rc, out, err = self.main_in_process(repo, INPUTS_TEST_CMD="true")
+        self.assertEqual(rc, 2, err)
+        self.assertEqual(out, "")
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("盤面の誤り", err)
+
+    def test_start_script_unexpected_exit_2_one_line(self):
+        repo = self.seed()
+        with mock.patch.object(entry, "start", mock.Mock(side_effect=RuntimeError("壊れた\n2 行目"))):
+            rc, out, err = self.main_in_process(repo)
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "")
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("RuntimeError", err)
+        self.assertIn("壊れた", err)
 
 
 if __name__ == "__main__":
