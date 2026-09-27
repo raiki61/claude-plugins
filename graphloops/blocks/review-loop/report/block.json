@@ -1,0 +1,8 @@
+{
+ "description": "R13 報告と初見検査（BLOCKS.md 3 節）。報告と初見の読み手",
+ "nodes": [
+  "report.human_items",
+  "report.cold_check",
+  "report"
+ ]
+}

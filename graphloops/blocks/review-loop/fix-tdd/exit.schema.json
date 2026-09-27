@@ -1,0 +1,176 @@
+{
+ "description": "R6 修正（TDD 版）の出口: 既定の修正の出口（p3.fix）を含み、テストを先に書く段と赤・緑の確かめの出力を足す（BLOCKS.md 3.3 R6 の約束）。graph の節の schema はここを $ref で指す",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p3.fix": {
+   "$ref": "../fix/exit.schema.json#/properties/p3.fix"
+  },
+  "p3.tdd_tests": {
+   "$ref": "#/$defs/tdd_tests_reply"
+  },
+  "p3.tdd_red": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "problems": {
+     "$ref": "engine#/driver_problems"
+    },
+    "rewound": {
+     "$ref": "engine#/driver_rewound"
+    },
+    "named": {
+     "type": "integer"
+    },
+    "gave_up": {
+     "type": "string"
+    },
+    "named_tests": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "red_rev": {
+     "type": "string",
+     "description": "赤を確かめた版（緑の確認がテストのファイルの書き換えをこの版から測る）"
+    },
+    "tries": {
+     "type": "integer",
+     "description": "この段の試行の回数（前の試行の出力から累積）"
+    },
+    "suite_made": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "一式を走らせたことで作業ツリーに出来た・変わったファイル（前の試行の出力から累積）"
+    }
+   }
+  },
+  "p3.tdd_green": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "problems": {
+     "$ref": "engine#/driver_problems"
+    },
+    "rewound": {
+     "$ref": "engine#/driver_rewound"
+    },
+    "gave_up": {
+     "type": "string"
+    },
+    "tries": {
+     "type": "integer",
+     "description": "この段の試行の回数（前の試行の出力から累積）"
+    },
+    "suite_made": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "一式を走らせたことで作業ツリーに出来た・変わったファイル（前の試行の出力から累積）"
+    }
+   }
+  }
+ },
+ "$defs": {
+  "tdd_tests_reply": {
+   "type": "object",
+   "required": [
+    "units",
+    "test_files"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "units": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "unit_key",
+       "route"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "unit_key": {
+        "type": "string",
+        "minLength": 1
+       },
+       "route": {
+        "type": "string",
+        "enum": [
+         "tdd",
+         "direct"
+        ],
+        "note": "tdd＝先に落ちるテストを書いた／direct＝先にテストを書けない（文書・指示書・注記だけの直し等）ので今の修正の流れで直す"
+       },
+       "tests": {
+        "type": "array",
+        "items": {
+         "type": "string",
+         "minLength": 1
+        },
+        "note": "名指しのテストの識別子（実行器の書き方: path/test_x.py::test_y）。tdd の道で 1 件以上"
+       },
+       "surface": {
+        "type": "string",
+        "note": "テストが叩いた使う側の呼び口（公開の関数・CLI・ファイルの形）"
+       },
+       "friction": {
+        "type": "object",
+        "required": [
+         "setup_heavy",
+         "reaches_internals",
+         "name_unclear"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "setup_heavy": {
+          "type": "boolean",
+          "note": "準備が重い（盤面・リポジトリ・大きな入力を組まないと呼べない）"
+         },
+         "reaches_internals": {
+          "type": "boolean",
+          "note": "内部の関数・欄を直に叩くか差し替えないと確かめられない"
+         },
+         "name_unclear": {
+          "type": "boolean",
+          "note": "呼び口の名前から意図が読めず、テスト名で補った"
+         },
+         "note": {
+          "type": "string",
+          "note": "旗を 1 つでも立てたら、何が書きにくかったか"
+         }
+        }
+       },
+       "surface_change": {
+        "type": "string",
+        "note": "書きにくさを消すために、実装の前に呼び口・名前をどう直すかの案（実装の段と審査の目に渡る）"
+       },
+       "why": {
+        "type": "string",
+        "note": "direct の道に回す理由"
+       }
+      }
+     }
+    },
+    "test_files": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "minLength": 1
+     },
+     "note": "この段で書いた・書き足したテストのファイル（リポジトリ相対）。赤の確認はこの外に触れていないかを見て、緑の確認は実装の段がここを書き換えていないかを見る"
+    }
+   }
+  }
+ }
+}

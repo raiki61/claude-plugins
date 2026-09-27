@@ -106,6 +106,7 @@ def validate_schema(value, schema, path="$"):
 def expand_refs(graph):
     """graph の schema の中の `"$ref"` を展開した写しを返す（JSON Schema の $defs / $ref と同じ形）。引けるのは
     `#/$defs/<名前>`（graph の最上位の $defs）と `engine#/<名前>`（engine が持つ定義。engine/util.py の ENGINE_DEFS）だけ。
+    ブロックのファイルを指す参照（`../blocks/…json#/…`）はここより前に inline_block_refs が各ファイルで展開している（load_graph）。
     節の pointers（番号で指す欄。engine/pointers.py）の型の広げもここで行う。
     **展開は graph を読む入口（盤面・init・graphcheck）で 1 度だけ行い、型検査は展開後の形だけを見る**。
     引けない $ref は ValueError（黙って空の schema にすると、その欄の型検査が消える）"""
@@ -129,14 +130,15 @@ def expand_refs(graph):
             else:
                 table, key = {}, None
             if key not in table:
-                raise ValueError(f"$ref {ref!r} が引けない（引けるのは #/$defs/<名前> と engine#/<名前>）")
+                raise ValueError(f"$ref {ref!r} が引けない（引けるのは #/$defs/<名前> と engine#/<名前>。ブロックのファイルの参照は"
+                                 "load_graph が graph の置き場から先に展開する）")
             if (src, key) in seen:
                 raise ValueError(f"$ref {ref!r} が自分を引いている")
             return walk(copy.deepcopy(table[key]), seen | {(src, key)})
         return {k: walk(v, seen) for k, v in x.items()}
     out = {k: v for k, v in graph.items() if k != "$defs"}
     out["nodes"] = walk(graph.get("nodes", {}), frozenset())
-    for top in ("state_schema", "hist_schema"):   # 盤面の loop の形と hist の値の形（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
+    for top in ("state_schema", "hist_schema", "blocks", "shared_blocks"):   # 盤面の loop の形と hist の値の形・ブロックの宣言（graph の最上位）も同じ入口で展開する——展開しないと validate_schema が $ref を拒む
         if top in graph:
             out[top] = walk(graph[top], frozenset())
     # 番号で指す欄（pointers）の型も同じ入口で広げる——graph に型を手で書かせず、宣言の誤りはここで ValueError
@@ -174,6 +176,90 @@ def extends_path(path, g):
     return base
 
 
+BLOCKS_DIR = "blocks"   # ブロックの約束の置き場（graph の置き場 graphs/ と並ぶ。rules・prompts と同じく graph からの相対だけで引く）
+
+
+def blocks_root(path):
+    """graph（か差し替えの版）のファイル path から引ける、ブロックのファイルの置き場。**既定の引き先を持たない**——graph だけを
+    別の置き場へ写したなら、blocks/ も同じ置き場へ写す（rules・prompts と同じ）"""
+    return (pathlib.Path(path).resolve().parent.parent / BLOCKS_DIR).resolve()
+
+
+def _pointer(doc, frag, ref):
+    """JSON Pointer（RFC 6901）で doc の中を辿る。frag が空なら doc そのもの"""
+    cur = doc
+    for raw in [p for p in frag.split("/")[1:]] if frag else []:
+        key = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(cur, dict) and key in cur:
+            cur = cur[key]
+        elif isinstance(cur, list) and key.isdigit() and int(key) < len(cur):
+            cur = cur[int(key)]
+        else:
+            raise ValueError(f"$ref {ref!r} の '{key}' が引けない")
+    return cur
+
+
+def inline_block_refs(obj, path, used=None):
+    """ファイル path（graph か差し替えの版）の中の、**ブロックのファイルを指す** `$ref` を展開した写しを返す。
+    参照は JSON Schema 2020-12 Core の URI-reference と同じく、参照する側のファイルの置き場に対して解決する（`../blocks/<loop>/<名>/
+    exit.schema.json#/properties/<節>`）。引ける先は blocks_root の下の .json だけ。ブロックのファイルの中の `#/…` はそのファイル自身の中を
+    引き、`engine#/<名前>` は残す（後で expand_refs が引く）。graph の中の `#/$defs/<名前>` も残す——差し替えの版（extends）は
+    **この展開の後で**元の graph に重ねるので、ブロックへ移した型にも差し替えの版が欄を部分的に重ねられる（人の答え 2026-09-27）。
+    引いたファイルは used（列）に足す——graph の同一性（graph_text）が同じ一覧を読む。引けない・自分を引く・置き場の外は ValueError"""
+    path = pathlib.Path(path).resolve()
+    root = blocks_root(path)
+    used = [] if used is None else used
+    docs = {}
+
+    def load(p):
+        if p not in docs:
+            from .util import read_json
+            if root not in p.parents or p.suffix != ".json":
+                raise ValueError(f"$ref が {p} を指している（引けるのは {root} の下の .json だけ）")
+            if not p.is_file():
+                raise ValueError(f"$ref の先 {p} が無い（graph を別の置き場へ写したなら blocks/ も写す）")
+            docs[p] = read_json(p)
+            if p not in used:
+                used.append(p)
+        return docs[p]
+
+    def walk(x, here, doc, seen):
+        if isinstance(x, list):
+            return [walk(v, here, doc, seen) for v in x]
+        if not isinstance(x, dict):
+            return x
+        ref = x.get("$ref")
+        if isinstance(ref, str):
+            src, _, frag = ref.partition("#")
+            if src == "engine" or (src == "" and doc is None):
+                return dict(x)
+            extra = set(x) - {"$ref", "note", "description"}
+            if extra:
+                raise ValueError(f"$ref {ref!r} に他の語 {sorted(extra)} が並んでいる（展開した定義を上書きしない。足すなら定義の側に）")
+            there = here if src == "" else (here.parent / src).resolve()
+            tdoc = doc if src == "" else load(there)
+            if (there, frag) in seen:
+                raise ValueError(f"$ref {ref!r} が自分を引いている")
+            got = copy.deepcopy(_pointer(tdoc, frag, ref))
+            if not frag and isinstance(got, dict):
+                got.pop("$defs", None)   # ファイル丸ごとを引いたら、中の $defs は引いた先で展開済みなので落とす
+            return walk(got, there, tdoc, seen | {(there, frag)})
+        return {k: walk(v, here, doc, seen) for k, v in x.items()}
+    return walk(obj, path, None, frozenset())
+
+
+def graph_files(path):
+    """graph の同一性に入るファイル: graph・差し替えの元（extends）・展開で引いたブロックのファイル（引いた順）"""
+    from .util import read_json
+    files, used = [pathlib.Path(path)], []
+    base = extends_path(path, read_json(path))
+    if base is not None:
+        files.append(base)
+    for f in files[:]:
+        inline_block_refs(read_json(f), f, used)
+    return files + used
+
+
 def resolve_extends(path, read):
     """graph の差し替えの版を元の graph に重ねた姿（extends の無い graph はそのまま）。重ねは 1 段だけ。
     配列は置き換えなので、足すなら元の要素も書く（落としていないかは graphcheck が見る）"""
@@ -188,14 +274,14 @@ def resolve_extends(path, read):
 
 
 def graph_text(path):
-    """graph の本文（差し替えの版なら元の graph の本文も続ける）——init の後に graph が変わったかを sha で見るため"""
-    from .util import read_json
+    """graph の本文（差し替えの版なら元の graph の本文、ブロックのファイルを引くならその本文も続ける）——init の後に graph が
+    変わったかを sha で見るため。ブロックのファイルだけを書き換えても、型検査が変わるので同じく変化として数える"""
     text = pathlib.Path(path).read_text(encoding="utf-8")
     try:
-        base = extends_path(path, read_json(path))
+        files = graph_files(path)
     except ValueError:
         return text
-    return text if base is None else text + "\n" + base.read_text(encoding="utf-8")
+    return "\n".join([text] + [pathlib.Path(f).read_text(encoding="utf-8") for f in files[1:]])
 
 
 def load_graph(path):
@@ -203,7 +289,7 @@ def load_graph(path):
     理由をどう伝えるか（die か NG の印字か）だけを呼び元が決める"""
     from .util import read_json
     try:
-        return expand_refs(resolve_extends(path, read_json)), ""
+        return expand_refs(resolve_extends(path, lambda p: inline_block_refs(read_json(p), p))), ""
     except ValueError as e:
         return None, f"{path}: {e}"
 

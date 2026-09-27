@@ -1,0 +1,31 @@
+{
+ "description": "X2 独立の目の二段構え（BLOCKS.md 8 節）。1 段目は隔離して導出し、2 段目が突き合わせる。導出の本文の欄（review の design・research の derivation）と結論の欄（review の status・research の verdict）は名前が割れているので核に入れていない。research の地図（p3.cartographer → p3.cartographer_compare）は欄の形が違う（map・spots）ので使い手に数えていない",
+ "parts": {
+  "derive": {
+   "schema": {
+    "$ref": "derive.schema.json"
+   },
+   "users": {
+    "review-loop": [
+     "r2.design"
+    ],
+    "research-loop": [
+     "p3.rederiver"
+    ]
+   }
+  },
+  "compare": {
+   "schema": {
+    "$ref": "compare.schema.json"
+   },
+   "users": {
+    "review-loop": [
+     "r2.compare"
+    ],
+    "research-loop": [
+     "p3.rederiver_compare"
+    ]
+   }
+  }
+ }
+}

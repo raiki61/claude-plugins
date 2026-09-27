@@ -11,6 +11,7 @@
 | engine | `scripts/loop.py` | 盤面・波・扇・条件・穴埋め・型検査・汎用の書き込み・被覆・作業ツリー突合・人に聞く・昇格・痕跡 |
 | graph | `graphs/<loop>.json` | 節・依存・役・prompt_file・schema・writes・cond（条件の関数の名前）・reads。最上位に plugin（役割 agent と検証器を持つ plugin）・runners（回す側の run_by）・thickness.tiers / default / deciders（段）・deliver.path_tools（自分で読める道具） |
 | rules | `rules/<loop>.py` | 記録の初期形・扇の項目の選び方・節の条件（CONDS。読む欄を宣言した関数）・機械の節・整合の後検査・仕上げ |
+| ブロック | `blocks/<loop>/<名>/` | 節のまとまり（`block.json` の `nodes`）と出口の型（`exit.schema.json`。ほかのブロックの節が読む節の出力の型を、節の名前を鍵に並べる）。共有の核の型は `blocks/shared/<名>/`。graph は最上位の `blocks`・`shared_blocks` と、出口の節の `schema` の `$ref` でここを指す |
 
 engine はループの節名も記録の欄名も持たない。graph が名前で指し、engine が名前で rules を呼ぶ。JSON に書けないのは算術（件数の等式・連続カウント・無作為の抜き取り・記録の形に固有の書き込み）だけで、それが rules にある。
 
@@ -73,7 +74,7 @@ cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest m
 
 ## ループを足すには
 
-1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。rules が盤面の loop（`b.loop_state`）に鍵を書くなら、鍵の名前を rules の `LOOP_KEYS` に、形を graph の最上位の `state_schema`（`type: object`・`additionalProperties: false` の JSON Schema。周ごとに名前の変わる鍵は `patternProperties`）に書く——graphcheck が両方をそろえ、loop を読む path を最後の欄まで照らし、engine は保存の時に照らして外れを `state.loop_drift` に残す（止めない）。rules だけが読み書きし、条件・節の `reads`・プロンプトの穴に読ませない鍵には `writeOnly: true` を付ける。1 つのブロックの中で閉じる値は loop に置かず、書く節の出力に載せて `cur.<節>.<欄>` で読む。周をまたぐ値のうち履歴（周の記録・周ごとの節の出力）から作れる物は loop に写さず、rules の `HIST` に読む時に作る関数（読む物を `hist_reads` で宣言）として書き、形を graph の最上位の `hist_schema` に書く——条件・`reads`・穴は `hist.<名>` で読み、engine は盤面を保存するたびに控え `hist.json`（正本でない印つき）を盤面の隣に書き出す。機械の節（`run_by: driver`）も返りの形を `schema` に書く——engine が返りを照らし（外れは止める）、graphcheck が出力を読む欄を照らす。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。
+1. `graphs/<loop>.json` に `exec: true` と `rules` を書き、各節に `prompt_file`・`schema`（か `text: true`）・`reads`・`writes` を足す。rules が盤面の loop（`b.loop_state`）に鍵を書くなら、鍵の名前を rules の `LOOP_KEYS` に、形を graph の最上位の `state_schema`（`type: object`・`additionalProperties: false` の JSON Schema。周ごとに名前の変わる鍵は `patternProperties`）に書く——graphcheck が両方をそろえ、loop を読む path を最後の欄まで照らし、engine は保存の時に照らして外れを `state.loop_drift` に残す（止めない）。rules だけが読み書きし、条件・節の `reads`・プロンプトの穴に読ませない鍵には `writeOnly: true` を付ける。1 つのブロックの中で閉じる値は loop に置かず、書く節の出力に載せて `cur.<節>.<欄>` で読む。周をまたぐ値のうち履歴（周の記録・周ごとの節の出力）から作れる物は loop に写さず、rules の `HIST` に読む時に作る関数（読む物を `hist_reads` で宣言）として書き、形を graph の最上位の `hist_schema` に書く——条件・`reads`・穴は `hist.<名>` で読み、engine は盤面を保存するたびに控え `hist.json`（正本でない印つき）を盤面の隣に書き出す。機械の節（`run_by: driver`）も返りの形を `schema` に書く——engine が返りを照らし（外れは止める）、graphcheck が出力を読む欄を照らす。写しだけの graph（`exec` 無し）は graphcheck の写しの形の検査だけ通ればよい。ブロックの約束を置くなら、`blocks/<loop>/<名>/block.json`（`description`・`nodes`・`exit`）に節を分け、ほかのブロックの節が読む節（`reads`・条件の `cond_reads`・hist の `hist_reads`・`pointers`・`delegate.result_to` で）の schema を `exit.schema.json` の `properties.<節>` へ移して、graph の節の `schema` はそこを `$ref` で指す——graphcheck（検査 18）が所属・出口・並列の上書き・共有の核を照らし、入口は読む側から導いて示す（手で持たない）。
 2. `prompts/<loop>/` に節ごとのプロンプト。散文の手順書の「なぜ」を前書きに残す（指示だけに削ると、規律は守られても判断の質が落ちる）。
 3. `rules/<loop>.py` に `init_record`・`FAN_OUT`・`WRITE_OPS`・`BUILTINS`・`POST_CHECKS`・`check_record`・`finalize`・`on_answer`・`on_unattended`・`on_stop`・`on_thickness`・`add`（要るものだけ）。人が途中で止める口（`loop.py stop`）で報告まで届かせるなら、graph の最上位に `stop`（止めた後に『済んだ』と見なす機械の節。下流に報告の節が要る——graphcheck が見る）を書く。
 4. `tests/simulate.py` に台本を足す（盤面を回す台本の土台はまだそこにしか無い。関数を直に呼ぶ検査なら `tests/py/` に pytest で書く——上の「pytest の置き場」）。
@@ -88,6 +89,7 @@ cd "$tmp/graphloops" && uv run --no-project --with mutmut==3.8.0 --with pytest m
 - 元の指示書に段落を足すなら、節の `prompt_append`（指示書の後ろに続けるファイルの一覧）に書く。元の指示書は写さない。
 - rules を足すなら別のファイルに置き、元の rules を読み込んで表（`CONDS`・`BUILTINS`・`POST_CHECKS`）に足した写しを出す（`rules/review-loop-tdd.py` の頭の形）。元の rules は触らない。
 - どの版で回すかは `init --loop <版の名前>` で選ぶ。元の graph で回す run は、差し替えの版があってもなくても同じに動く。
+- ブロックのファイルを指す `$ref`（`../blocks/…json#/…`）は、重ねる**前に**各ファイルの置き場から展開する（`engine/schema.py` の `inline_block_refs`）。だから出口の節の型も、差し替えの版の `nodes.<節>.schema` に欄を書けば部分的に重なる。graph の `$defs` の別名（ブロックのファイルを指す定義）に重ねた欄は、graph の中の使い手にだけ届き、ブロックのファイルの中の使い手には届かない——出口の節の型を変えるなら節の `schema` に重ねる。ブロックを差し替えるなら `blocks.<名>` を別の `block.json` に向ける（`review-loop-tdd.json` の `fix`）。
 
 残りの 2 本（doctor・firstread）の graph はこの差分に**入れていない**。写しだけのグラフを先に積むと、engine の実行経路に乗らない 1,123 行が凍結した目的の外に残る——実行版を作る周に、回せる形で一緒に入れる（追跡は別 issue）。
 

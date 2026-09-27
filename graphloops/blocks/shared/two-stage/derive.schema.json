@@ -1,0 +1,16 @@
+{
+ "description": "X2 の 1 段目（隔離して導出）の核",
+ "type": "object",
+ "required": [
+  "question_stands",
+  "reason"
+ ],
+ "properties": {
+  "question_stands": {
+   "type": "boolean"
+  },
+  "reason": {
+   "type": "string"
+  }
+ }
+}

@@ -1,0 +1,18 @@
+{
+ "description": "X1 過去の決定の突き合わせ（BLOCKS.md 8 節）。両ループの p0.prior_decisions が核の欄を同じ名前・同じ型で持つ。決着した論点の欄は名前が割れている（review の settled・research の settled_points）ので核に入れていない——名前を揃えるのは記録の欄の名前を変えることになり、この置き場の範囲の外",
+ "parts": {
+  "core": {
+   "schema": {
+    "$ref": "core.schema.json"
+   },
+   "users": {
+    "review-loop": [
+     "p0.prior_decisions"
+    ],
+    "research-loop": [
+     "p0.prior_decisions"
+    ]
+   }
+  }
+ }
+}

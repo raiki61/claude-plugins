@@ -50,6 +50,13 @@
      out.<節>・HIST の hist.<名>・loop./record./inputs. は 12 と同じ照らし）。条件・節の reads・穴の hist.<名>.<欄> は 12 と同じく
      HIST の名前と hist_schema の木で最後の欄まで照らす
 
+ 18. ブロック（graph の最上位の blocks。中身は graphloops/blocks/<loop>/<名>/）: 全部の節がちょうど 1 つのブロックに属す。
+     別のブロックの節が読む節（reads・cond_reads・hist_reads・pointers・delegate.result_to。record.<欄> の受け渡しは数えない）は
+     そのブロックの出口（exit.schema.json の properties）に在り、出口の節は別のブロックから読まれ、graph の中に schema を書かず出口の
+     ファイルを $ref で指す。祖先の関係に無い 2 節が同じ記録の欄・盤面の鍵を上書きの op で書くなら、条件の無い組は NG、条件つきの組は
+     印字だけ（rules の中の b.loop_state への書き込みは照らさない）。共有のブロック（shared_blocks）の核の欄を、このループの使い手が
+     同じ型・必須・enum で持つ。ブロックのファイルを引く graph は blocks を省けない
+
 この一覧は人向けの案内。検査の本体と実行時の見出し（「検査 6〜13」等）は main() の側が正本で、番号を足したらここも直す。
 
 使い方:
@@ -431,6 +438,209 @@ def dropped(base, merged, path=""):
         lost = [x for x in base if x not in got]
         return [f"{path} を落とした: {lost}"] if lost else []
     return []
+
+
+BLOCK_KEYS = frozenset({"description", "nodes", "exit"})   # block.json の鍵（閉じた集合。綴り違いは黙って効かないので落とす）
+APPEND_OPS = frozenset({"append", "merge_by_id"})          # 並列に書いても互いを消さない op。ほかは上書き
+
+
+def _ref_target(ref, here):
+    """ファイル here の中の $ref（ブロックのファイルを指す形）が指す（ファイル, JSON Pointer）。ブロックのファイルでなければ None"""
+    src, _, frag = ref.partition("#")
+    if src in ("", "engine"):
+        return None
+    return (here.parent / src).resolve(), frag
+
+
+def _node_sources(nid, v, nodes, conds, rules):
+    """節が読む前の節の出力: (読む path, 読む節) の列。reads・条件の cond_reads・pointers の from・delegate.result_to の
+    out./cur./prev.<節> と、hist.<名> が hist_reads で（推移的に）読む out.<節>。record.<欄> を通る受け渡しは数えない"""
+    paths = [r for r in v.get("reads") or [] if isinstance(r, str)]
+    named = [v.get(k) for k in ("cond", "applies_cond")] + [e.get("applies_cond") for e in v.get("skills") or [] if isinstance(e, dict)]
+    paths += [r for c in named if isinstance(c, str) and c in conds for r in getattr(conds[c], "reads", ()) or ()]
+    paths += [f for p in v.get("pointers") or [] if isinstance(p, dict) for f in p.get("from") or [] if isinstance(f, str)]
+    rt = (v.get("delegate") or {}).get("result_to") if isinstance(v.get("delegate"), dict) else None
+    paths += [rt] if isinstance(rt, str) else []
+    hist = getattr(rules, "HIST", None) or {} if rules is not None else {}
+    out = []
+
+    def via_hist(name, top, seen):
+        for r in getattr(hist.get(name), "hist_reads", ()) or ():
+            head, _, rest = r.partition(".")
+            if head == "out" and rest in nodes:
+                out.append((f"{top}（hist_reads の {r}）", rest))
+            elif head == "hist" and rest not in seen:
+                via_hist(rest, top, seen | {rest})
+    for p in paths:
+        head, _, rest = p.partition(".")
+        if head in COND_NODE_HEADS:
+            ref = node_of(rest, nodes)
+            if ref is not None:
+                out.append((p, ref))
+        elif head == "hist" and rest:
+            name = rest.split(".")[0]
+            via_hist(name, p, frozenset({name}))
+    return out
+
+
+def block_errors(gpath, g, rules, conds, emit):
+    """18. ブロックの宣言（graph の最上位の blocks。中身は graphloops/blocks/<loop>/<名>/block.json と exit.schema.json）:
+    ①全部の節がちょうど 1 つのブロックに属す ②別のブロックの節が読む節（_node_sources）はそのブロックの出口（exit の properties）に在り、
+    出口に在る節は別のブロックから読まれている——入口は手で持たず、読む側の reads から導いて示す ③出口の節の schema は graph の中に
+    書かず、ブロックの出口のファイルを $ref で指す（正本を 1 つにする）④祖先の関係に無い 2 節が同じ記録の欄（writes.to）か盤面の鍵
+    （outputs の loop.<鍵>）を上書きの op で書かない——条件の無い組は NG、条件つきの組は印字（-- の行）だけ（条件どうしが排他かは機械で決められない。
+    rules の関数の中の b.loop_state への書き込みは宣言の外なので照らさない）⑤共有のブロック（shared_blocks）の核の欄を、このループの
+    使い手の節が同じ型・同じ必須で持つ。ブロックのファイルを引く graph は blocks を省けない（鍵を消して検査を外せない）"""
+    from engine.schema import graph_files, extends_path as _ext
+    errs = []
+    nodes = g["nodes"]
+    gpath = pathlib.Path(gpath)
+    try:
+        files = graph_files(gpath)
+    except ValueError as e:
+        return [f"ブロックのファイルが引けない: {e}"]
+    raws = [(f, read_json(f)) for f in files[:1 + (_ext(gpath, read_json(gpath)) is not None)]]
+    blocks = g.get("blocks")
+    if blocks is None:
+        if len(files) > len(raws):
+            errs.append("graph がブロックのファイル（blocks/）を引くのに、最上位に blocks（ブロックの宣言）が無い——宣言を消すとブロックの検査が外れる")
+        if g.get("shared_blocks") is not None:
+            errs.append("shared_blocks は blocks と一緒に書く")
+        return errs
+    if not isinstance(blocks, dict) or not blocks:
+        return ["blocks はブロックの名前 → block.json への {\"$ref\": …} の空でない辞書"]
+    owner = {}
+    for b, d in blocks.items():
+        if not isinstance(d, dict) or set(d) - BLOCK_KEYS:
+            errs.append(f"ブロック {b}: block.json の鍵は {sorted(BLOCK_KEYS)} だけ（{sorted(set(d) - BLOCK_KEYS) if isinstance(d, dict) else d!r}）")
+            continue
+        ns = d.get("nodes")
+        if not (isinstance(ns, list) and ns and all(isinstance(n, str) for n in ns)):
+            errs.append(f"ブロック {b}: nodes は節の名前の空でない一覧")
+            continue
+        for n in ns:
+            if n not in nodes:
+                errs.append(f"ブロック {b}: 節 {n} が graph に無い")
+            elif n in owner:
+                errs.append(f"節 {n} が 2 つのブロック（{owner[n]}・{b}）に属している")
+            else:
+                owner[n] = b
+        ex = d.get("exit")
+        if ex is not None and not (isinstance(ex, dict) and isinstance(ex.get("properties"), dict)):
+            errs.append(f"ブロック {b}: exit は出口の節の名前を properties の鍵に並べた schema")
+        for n in (ex or {}).get("properties") or {} if isinstance(ex, dict) else {}:
+            if n not in ns:
+                errs.append(f"ブロック {b}: 出口の {n} がこのブロックの節でない")
+    errs += [f"節 {n} がどのブロックにも属さない（graph の最上位の blocks のどれかの nodes に書く）" for n in nodes if n not in owner]
+    if errs:
+        return errs
+    exit_of = {b: set(((d.get("exit") or {}).get("properties")) or {}) for b, d in blocks.items()}
+    # ② 別のブロックが読む節は出口に在る。入口（読む側から導いた物）を示す
+    entry, read_across = {b: set() for b in blocks}, set()
+    for k, v in nodes.items():
+        for path, src in _node_sources(k, v, nodes, conds, rules):
+            if owner[src] == owner[k]:
+                continue
+            read_across.add(src)
+            entry[owner[k]].add(src)
+            if src not in exit_of[owner[src]]:
+                errs.append(f"節 {k}（ブロック {owner[k]}）が {path} で読む {src} が、ブロック {owner[src]} の出口に無い"
+                            f"——出口のファイルの properties に足し、節の schema をそこへの $ref にする")
+    errs += [f"ブロック {b} の出口の {n} を、ほかのブロックのどの節も読まない（reads・cond_reads・hist_reads・pointers・result_to で）——出口から外す"
+             for b, ns in exit_of.items() for n in sorted(ns - read_across)]
+    # ③ 出口の節の schema は出口のファイルへの $ref（graph の中に二重に書かない）。差し替えの版はブロックを差し替えても元のファイルも数える
+    exit_files = {b: set() for b in blocks}
+    for f, raw in raws:
+        for b, d in (raw.get("blocks") or {}).items():
+            t = _ref_target(d.get("$ref", ""), f) if isinstance(d, dict) and isinstance(d.get("$ref"), str) else None
+            if t is None or b not in exit_files:
+                continue
+            braw = read_json(t[0]) if t[0].is_file() else {}
+            e = braw.get("exit")
+            et = _ref_target(e["$ref"], t[0]) if isinstance(e, dict) and isinstance(e.get("$ref"), str) else None
+            if et is not None:
+                exit_files[b].add(et[0])
+    for b, ns in exit_of.items():
+        for n in sorted(ns):
+            raw_sch = next((r["nodes"][n]["schema"] for _, r in reversed(raws) if "schema" in (r.get("nodes") or {}).get(n, {})), None)
+            f = next((f for f, r in reversed(raws) if "schema" in (r.get("nodes") or {}).get(n, {})), None)
+            t = _ref_target(raw_sch["$ref"], f) if isinstance(raw_sch, dict) and isinstance(raw_sch.get("$ref"), str) else None
+            if t is None or t[0] not in exit_files[b] or t[1] != f"/properties/{n}":
+                errs.append(f"出口の節 {n} の schema は graph の中に書かず、ブロック {b} の出口のファイル（{sorted(x.name for x in exit_files[b]) or '無い'}）の "
+                            f"#/properties/{n} を $ref で指す（今: {raw_sch.get('$ref') if isinstance(raw_sch, dict) and '$ref' in raw_sch else '中身を直に書いている'}）")
+    # ④ 並列の上書き
+    anc = {k: ancestors(nodes, k) for k in nodes}
+    writers = {}
+    for k, v in nodes.items():
+        for w in v.get("writes") or []:
+            if isinstance(w, dict) and isinstance(w.get("to"), str) and w.get("op") not in APPEND_OPS:
+                writers.setdefault(f"record.{w['to']}", []).append(k)
+        for o in v.get("outputs") or []:
+            if isinstance(o, str) and o.startswith("loop."):
+                writers.setdefault(o.split()[0].rstrip("（(:"), []).append(k)
+    for to, ws in sorted(writers.items()):
+        for i, a in enumerate(ws):
+            for c in ws[i + 1:]:
+                if a == c or a in anc[c] or c in anc[a]:
+                    continue
+                conded = [n for n in (a, c) if nodes[n].get("cond") or nodes[n].get("applies_cond")]
+                msg = f"節 {a} と {c} は祖先の関係に無く（並んで走りうる）、どちらも {to} を上書きする"
+                if conded:
+                    # NG にも init の警告（WARN）にもしない: 排他の条件の組（p2.rejudge と p2.rejudge_third）で毎回の init に鳴り続ける。印字だけ残す
+                    emit(f"--  {msg}——条件（{', '.join(str(nodes[n].get('cond') or nodes[n].get('applies_cond')) for n in conded)}）が排他かは機械で決められない。人が確かめる")
+                else:
+                    errs.append(f"{msg}（条件も無い）——後に done した方が黙って勝つ。順番を付けるか、上書きでない op にする")
+    # ⑤ 共有のブロック
+    shared = g.get("shared_blocks") or {}
+    for sb, d in shared.items() if isinstance(shared, dict) else []:
+        parts = d.get("parts") if isinstance(d, dict) else None
+        if not (isinstance(parts, dict) and parts) or set(d) - {"description", "parts"}:
+            errs.append(f"共有のブロック {sb}: block.json は description と parts（部分の名前 → {{schema, users}}）だけ")
+            continue
+        mine = 0
+        for pn, part in parts.items():
+            core = part.get("schema") if isinstance(part, dict) else None
+            users = (part.get("users") or {}).get(g.get("loop")) if isinstance(part, dict) and isinstance(part.get("users"), dict) else None
+            if not isinstance(core, dict) or not isinstance(core.get("properties"), dict):
+                errs.append(f"共有のブロック {sb}.{pn}: schema（核の型）が無い")
+                continue
+            for n in users or []:
+                mine += 1
+                sch = (nodes.get(n) or {}).get("schema")
+                if not isinstance(sch, dict):
+                    errs.append(f"共有のブロック {sb}.{pn}: 使い手の節 {n} が graph に無いか schema を持たない")
+                    continue
+                errs += [f"共有のブロック {sb}.{pn}: 使い手の節 {n} の {w}" for w in _core_gaps(core, sch)]
+        if not mine:
+            errs.append(f"共有のブロック {sb}: このループ（{g.get('loop')}）の使い手が 1 つも無い——宣言だけの共有は照らす相手が無い")
+    if not errs:
+        emit(f"ok  ブロック {len(blocks)} 個に節 {len(nodes)} 個が 1 つずつ属し、別のブロックが読む節は全部出口に在る"
+             f"（入口は読む側の reads・cond_reads・hist_reads・pointers・result_to から導いた。record.<欄> の受け渡しは数えない）")
+        for b in blocks:
+            emit(f"    {b}: 節 {len(blocks[b]['nodes'])}・出口 {sorted(exit_of[b]) or 'なし'}・入口 {sorted(entry[b]) or 'なし'}")
+    return errs
+
+
+def _core_gaps(core, sch, at=""):
+    """核の型 core の欄を sch が同じ type・同じ必須・同じ enum で持つか——足りない所の列"""
+    gaps = []
+    props = sch.get("properties") or {}
+    gaps += [f"{at}必須の {k} を必須にしていない" for k in core.get("required") or [] if k not in (sch.get("required") or [])]
+    for k, c in (core.get("properties") or {}).items():
+        s = props.get(k)
+        if not isinstance(s, dict):
+            gaps.append(f"{at}{k} が無い")
+            continue
+        norm = lambda t: sorted([t] if isinstance(t, str) else t or [])
+        if norm(c.get("type")) != norm(s.get("type")):
+            gaps.append(f"{at}{k} の type が {s.get('type')!r}（核は {c.get('type')!r}）")
+        if "enum" in c and sorted(map(str, c["enum"])) != sorted(map(str, s.get("enum") or [])):
+            gaps.append(f"{at}{k} の enum が {s.get('enum')!r}（核は {c['enum']!r}）")
+        if isinstance(c.get("items"), dict) and isinstance(s.get("items"), dict):
+            gaps += _core_gaps(c["items"], s["items"], f"{at}{k}[].")
+        elif isinstance(c.get("items"), dict):
+            gaps.append(f"{at}{k} の items が無い")
+    return gaps
 
 
 def check(gpath, script=None, emit=print, node_keys="ng"):
@@ -866,6 +1076,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             errs.append(f"節 {k}: materials の宣言 {sorted(declared)} と writes の素材の書き先 {sorted(wrote)} が揃わない")
     fan_builtins, node_builtins, post_checks = reg("FAN_OUT"), reg("BUILTINS"), reg("POST_CHECKS")
     conds = dict(registry(rules, "CONDS"))
+    errs += block_errors(gpath, g, rules, conds, emit)
     for nid in g.get("raw_for_report", []):
         if nid not in nodes:
             errs.append(f"raw_for_report に無い節: {nid}")

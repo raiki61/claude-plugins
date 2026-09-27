@@ -1,0 +1,18 @@
+{
+ "description": "X3 初見の読み手（BLOCKS.md 8 節）。経緯を渡さず本文だけを読ませ、通じたかを返す。findings（research）と stops・guessed・decidable（review）はループごとの欄",
+ "parts": {
+  "core": {
+   "schema": {
+    "$ref": "core.schema.json"
+   },
+   "users": {
+    "review-loop": [
+     "report.cold_check"
+    ],
+    "research-loop": [
+     "p3.cold_reader"
+    ]
+   }
+  }
+ }
+}

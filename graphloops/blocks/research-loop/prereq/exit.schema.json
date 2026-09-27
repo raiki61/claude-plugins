@@ -1,0 +1,174 @@
+{
+ "description": "S1 前提 の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p0.prior_decisions": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "checked",
+    "searched",
+    "settled_points",
+    "overlaps",
+    "reopen_proposals"
+   ],
+   "properties": {
+    "checked": {
+     "type": "boolean"
+    },
+    "unchecked_reason": {
+     "type": "string"
+    },
+    "searched": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "settled_points": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "topic",
+       "where",
+       "decision"
+      ],
+      "properties": {
+       "topic": {
+        "type": "string"
+       },
+       "where": {
+        "type": "string"
+       },
+       "decision": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "overlaps": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "topic",
+       "where"
+      ],
+      "properties": {
+       "topic": {
+        "type": "string"
+       },
+       "where": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "reopen_proposals": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "topic",
+       "new_evidence"
+      ],
+      "properties": {
+       "topic": {
+        "type": "string"
+       },
+       "new_evidence": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "p0.question": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "question",
+    "domain",
+    "constraints",
+    "thickness",
+    "thickness_decider",
+    "thickness_reason"
+   ],
+   "properties": {
+    "question": {
+     "type": "string",
+     "minLength": 1
+    },
+    "domain": {
+     "type": "string",
+     "minLength": 1
+    },
+    "constraints": {
+     "type": "array",
+     "minItems": 1,
+     "items": {
+      "type": "object",
+      "required": [
+       "text",
+       "source",
+       "origin",
+       "breaks_if_false"
+      ],
+      "properties": {
+       "text": {
+        "type": "string",
+        "minLength": 1
+       },
+       "source": {
+        "type": "string",
+        "minLength": 1
+       },
+       "origin": {
+        "type": "string",
+        "enum": [
+         "独立出典",
+         "surveyor自書"
+        ]
+       },
+       "breaks_if_false": {
+        "type": "string",
+        "minLength": 1
+       },
+       "confidence_note": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "thickness": {
+     "type": "string",
+     "enum": [
+      "軽量",
+      "標準",
+      "重厚"
+     ]
+    },
+    "thickness_decider": {
+     "type": "string",
+     "enum": [
+      "依頼者指定",
+      "既定"
+     ]
+    },
+    "thickness_reason": {
+     "type": "string",
+     "minLength": 1
+    },
+    "open_questions": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ }
+}

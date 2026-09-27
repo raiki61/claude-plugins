@@ -1,0 +1,31 @@
+{
+ "description": "R12 周の締め の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p4.record": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "ok": {
+     "type": "boolean"
+    },
+    "problems": {
+     "$ref": "engine#/driver_problems"
+    },
+    "exit": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "branch": {
+     "type": "string"
+    },
+    "out": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

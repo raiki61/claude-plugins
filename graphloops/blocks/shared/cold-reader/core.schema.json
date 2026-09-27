@@ -1,0 +1,16 @@
+{
+ "description": "X3 の核: 初見で通じたか",
+ "type": "object",
+ "required": [
+  "verdict"
+ ],
+ "properties": {
+  "verdict": {
+   "type": "string",
+   "enum": [
+    "pass",
+    "redesign-needed"
+   ]
+  }
+ }
+}

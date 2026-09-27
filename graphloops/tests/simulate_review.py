@@ -134,8 +134,8 @@ def record_vocab(node, output):
 def vocab_coverage():
     """graph が宣言する判定語彙のうち、台本が返したものの数と、返していないものの一覧。"""
     sys.path.insert(0, str(PLUGIN))
-    from engine.schema import expand_refs  # noqa: E402 — engine と同じく $ref を展開した形で数える（生の graph では $ref の先の語彙が数えられない）
-    g = expand_refs(json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8")))
+    from engine.schema import load_graph  # noqa: E402 — engine と同じく $ref（ブロックのファイルも）を展開した形で数える（生の graph では $ref の先の語彙が数えられない）
+    g = load_graph(PLUGIN / "graphs" / "review-loop.json")[0]
     enums = {}
 
     sys.path.insert(0, str(PLUGIN))
@@ -1005,7 +1005,7 @@ def test_new_guards():
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     g["nodes"]["p0.local_checks"]["cond"] = "no_such_cond"
     (tmp / "graphs").mkdir()
-    for sub in ("prompts", "rules"):
+    for sub in ("prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / sub, tmp / sub)
     (tmp / "graphs" / "badcond.json").write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
     run = Run("badcond")
@@ -1023,7 +1023,7 @@ def test_pointer_hole_dropped_after_init():
     指せず、受け付けは番号を名前に戻せない。engine は描いた時点で、貼った穴が pointers の from を覆うかを確かめる"""
     print("pointers の from を貼る穴が init の後に指示書から消えたら、その節を出す next で止まる")
     _td_tmp, tmp = parallel.workspace("gl-ptrhole-")
-    for sub in ("graphs", "prompts", "rules"):
+    for sub in ("graphs", "prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / sub, tmp / sub)
     run = Run("ptrhole", graph=tmp / "graphs" / "review-loop.json")
     check(run.init.returncode == 0, f"写した graph で init が通る: {run.init.stderr[-200:]}")
@@ -2086,6 +2086,7 @@ def test_graphcheck_review_shapes():
     (tmp / "graphs").mkdir()
     shutil.copytree(PLUGIN / "prompts", tmp / "prompts")
     shutil.copytree(PLUGIN / "rules", tmp / "rules")
+    shutil.copytree(PLUGIN / "blocks", tmp / "blocks")
 
     def broken(mutate, want, desc):
         bad = json.loads(json.dumps(g))
@@ -2094,12 +2095,19 @@ def test_graphcheck_review_shapes():
         pth.write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
         r = subprocess.run([PY, str(gc), str(pth), str(VALIDATOR)], capture_output=True, text=True, encoding="utf-8", timeout=600)
         check(r.returncode == 1 and want in r.stdout and "Traceback" not in r.stderr, f"{desc}（NG『{want}』で exit 1。{r.stdout.strip()[-80:]}）")
-    cq = lambda b, nid: b["$defs"]["class_query"]["properties"]   # 数える問いの外側の型は $defs の 1 定義（nid は使わない）
+    # engine の定義を引く $ref の在る所（graph の $defs に本文が残る定義）。数える問いの型（class_query）はブロックの出口のファイルへ移った
+    cq = lambda b, nid: b["$defs"]["fix_delta_reply"]["properties"]   # nid は使わない
+
+    def fix_schema(b):
+        """出口の節 p3.fix の schema は graph の中に無く、ブロックの出口のファイルを $ref で指す——壊す検査のために、その本文を graph に直に戻す"""
+        blk = json.loads((tmp / "blocks" / "review-loop" / "fix" / "exit.schema.json").read_text(encoding="utf-8"))
+        b["nodes"]["p3.fix"]["schema"] = blk["properties"]["p3.fix"]
+        return b["nodes"]["p3.fix"]["schema"]
     broken(lambda b: b["deliver"].__setitem__("paste_roles", ["convergence-loops:inspecter"]), "agents/ に無い", "graphcheck: 貼る渡し方の役名の綴り違い")
-    broken(lambda b: b["nodes"]["p3.fix"]["schema"]["properties"]["x_scalars"].__setitem__("patternProperties", {"^x_[a-z0-9_+$": {"type": "number"}}),
+    broken(lambda b: fix_schema(b)["properties"]["x_scalars"].__setitem__("patternProperties", {"^x_[a-z0-9_+$": {"type": "number"}}),
            "正規表現", "graphcheck: 壊れた patternProperties の正規表現")
-    # 数える問いの型は engine の 1 つの定義を $ref で引く——写しは無いので、崩れうるのは参照の側だけ
-    broken(lambda b: cq(b, "p2.rejudge").__setitem__("how", {"$ref": "engine#/count_hwo"}), "が引けない", "graphcheck: 引けない $ref")
+    # engine の定義は $ref で引く——写しは無いので、崩れうるのは参照の側だけ
+    broken(lambda b: cq(b, "p2.rejudge").__setitem__("problems", {"$ref": "engine#/driver_problemz"}), "が引けない", "graphcheck: 引けない $ref")
     broken(lambda b: b["nodes"]["p4.ci"]["delegate"].__setitem__("model", "hiku"), "delegate は", "graphcheck: 任せ先のモデルの綴り違い")
     broken(lambda b: b["nodes"]["p2.diagnose"].__setitem__("delegate", {"model": "haiku", "why": "検査用"}), "回す側の節（runners）にだけ",
            "graphcheck: 役の節に任せ先は書けない")
@@ -2121,13 +2129,13 @@ def test_graphcheck_review_shapes():
         b["nodes"]["p4.final_gates"]["prompt_file"] = "../prompts/review-loop/x-node-hole.md"
         b["nodes"]["p4.final_gates"]["reads"] = ["node.deadline_at"]
     broken(node_hole, "engine が埋めない", "graphcheck: engine が埋めない node の欄の穴")
-    broken(lambda b: cq(b, "p2.rejudge").__setitem__("how", {"$ref": "engine#/count_how", "type": "string"}), "他の語が並んでいる",
+    broken(lambda b: cq(b, "p2.rejudge").__setitem__("problems", {"$ref": "engine#/driver_problems", "type": "array"}), "他の語が並んでいる",
            "graphcheck: 定義を上書きする $ref")
     broken(lambda b: b["$defs"].__setitem__("loop", {"type": "object", "properties": {"x": {"$ref": "#/$defs/loop"}}})
            or b["nodes"]["p4.ci"]["schema"]["properties"].__setitem__("x", {"$ref": "#/$defs/loop"}), "自分を引いている",
            "graphcheck: 自分を引く $ref（展開が止まらない）")
     # 語の検査は patternProperties の値の schema の中まで降りる（走査は engine の walk_schema 1 本）
-    broken(lambda b: b["nodes"]["p3.fix"]["schema"]["properties"]["x_scalars"]["patternProperties"]["^x_[a-z0-9_]+$"].__setitem__("minimun", 0),
+    broken(lambda b: fix_schema(b)["properties"]["x_scalars"]["patternProperties"]["^x_[a-z0-9_]+$"].__setitem__("minimun", 0),
            "'minimun'", "graphcheck: patternProperties の値の中の綴り違いの語")
     # 素材の宣言と書き先: 片方だけに在る素材を両向きで撃つ（書き先だけ＝柵をすり抜ける／宣言だけ＝誰も書かない）
     broken(lambda b: b["nodes"]["p4.ci"].__setitem__("materials", []), "が揃わない", "graphcheck: 書き先に在って宣言に無い素材")
@@ -2177,6 +2185,7 @@ def test_old_expression_graph_board():
     for with_engine in (False, True):
         plug = run.tmp / f"old-plugin-{with_engine}"
         (plug / "graphs").mkdir(parents=True)
+        shutil.copytree(PLUGIN / "blocks", plug / "blocks")   # graph は出口の節の型をブロックのファイルから引く
         if with_engine:
             (plug / "scripts").mkdir()
             (plug / "scripts" / "loop.py").write_text("# 旧い engine の置き場\n", encoding="utf-8")
@@ -3452,7 +3461,7 @@ def test_proxy_to_source():
     # ③ 受理集合は鍵が在れば null でも落ちる（`is not None` で外していたので NG 文が名指しする null が素通りしていた）
     _td_tmp, tmp = parallel.workspace("gl-accept-")
     (tmp / "graphs").mkdir()
-    for sub in ("prompts", "rules"):
+    for sub in ("prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / sub, tmp / sub)
     for key in ("report_accepts_exit", "round_accepts_exit"):
         bad = json.loads(json.dumps(g))
@@ -3954,7 +3963,7 @@ def test_stop_midround():
 
     # 宣言の無い graph（init の版が古い run）: 報告を出さずに止め、そう言う
     _td, gtmp = parallel.workspace("gl-review-nostop-")
-    for sub in ("prompts", "rules", "graphs"):
+    for sub in ("prompts", "rules", "graphs", "blocks"):
         shutil.copytree(PLUGIN / sub, gtmp / sub)
     gp = gtmp / "graphs" / "review-loop.json"
     g = json.loads(gp.read_text(encoding="utf-8"))
@@ -5534,7 +5543,7 @@ def test_big_diff():
     del g["launch"]["tooled"]
     g["nodes"]["p1.procedure_trace"]["reads"].append("file:hist.snapshot.diff_file")
     _td_g, gtmp = parallel.workspace("gl-review-big-path-")
-    for sub in ("prompts", "rules"):
+    for sub in ("prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / sub, gtmp / sub)
     pt = gtmp / "prompts" / "review-loop" / "p1.procedure_trace.md"
     pt.write_text(pt.read_text(encoding="utf-8") + "\n\n{{file:hist.snapshot.diff_file}}\n", encoding="utf-8")
@@ -6198,7 +6207,7 @@ def test_spec_stop_and_changes():
 
     # rules の入口が die（SystemExit）で抜けても、init は置き場を残さない
     _td3, gtmp = parallel.workspace("gl-review-initdie-")
-    for sub in ("prompts", "rules", "graphs"):
+    for sub in ("prompts", "rules", "graphs", "blocks"):
         shutil.copytree(PLUGIN / sub, gtmp / sub)
     rp = gtmp / "rules" / "review-loop.py"
     rp.write_text(rp.read_text(encoding="utf-8").replace("    mutation_decl(b)\n", "    raise SystemExit(2)\n    mutation_decl(b)\n", 1), encoding="utf-8")
@@ -6249,7 +6258,7 @@ def test_spec_stop_and_changes():
 
     # 周の途中の問いに escalate を載せる rules は、問いを立てる時点で落とす（答える人を待ってから拒まない）
     _td2, gtmp = parallel.workspace("gl-review-inround-")
-    for sub in ("prompts", "rules", "graphs"):
+    for sub in ("prompts", "rules", "graphs", "blocks"):
         shutil.copytree(PLUGIN / sub, gtmp / sub)
     rp = gtmp / "rules" / "review-loop.py"
     src = rp.read_text(encoding="utf-8")
@@ -6337,8 +6346,14 @@ def test_spec_default_unchanged():
     for n in g["nodes"].values():
         n["deps"] = [d for d in n.get("deps", []) if d not in spec_nodes]
     _td, gtmp = parallel.workspace("gl-review-spec-base-")
-    for sub in ("prompts", "rules"):
+    for sub in ("prompts", "rules", "blocks"):
         shutil.copytree(PLUGIN / sub, gtmp / sub)
+    # ブロックの宣言からも spec.* を抜く（仕様を固めるブロックと、周の測りの spec.check）
+    g["blocks"].pop("spec")
+    mb = gtmp / "blocks" / "review-loop" / "measure" / "block.json"
+    blk = json.loads(mb.read_text(encoding="utf-8"))
+    blk["nodes"] = [n for n in blk["nodes"] if n not in spec_nodes]
+    mb.write_text(json.dumps(blk, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     (gtmp / "graphs").mkdir()
     old_graph = gtmp / "graphs" / "review-loop.json"
     old_graph.write_text(json.dumps(g, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")

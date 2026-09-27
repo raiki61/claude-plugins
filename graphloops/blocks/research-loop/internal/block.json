@@ -1,0 +1,9 @@
+{
+ "description": "S4 内部の突合（BLOCKS.md 3 節）。内部の文書との突合",
+ "nodes": [
+  "p5.internal"
+ ],
+ "exit": {
+  "$ref": "exit.schema.json"
+ }
+}

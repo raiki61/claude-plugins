@@ -1,0 +1,61 @@
+{
+ "description": "R7 修正差分の審査と手直し の出口: ほかのブロックの節が読む節（reads・条件の cond_reads・hist の hist_reads・pointers・delegate.result_to で）の出力の型を、節の名前を鍵に並べる。graph の節の schema はここを $ref で指す（正本はここだけ）",
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "p3.delta_fix": {
+   "$ref": "#/$defs/delta_fix_reply"
+  },
+  "p3.delta_fix2": {
+   "$ref": "#/$defs/delta_fix_reply"
+  }
+ },
+ "$defs": {
+  "delta_fix_reply": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "handled"
+   ],
+   "properties": {
+    "handled": {
+     "type": "array",
+     "minItems": 1,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "key",
+       "handled",
+       "how"
+      ],
+      "properties": {
+       "key": {
+        "type": "string",
+        "minLength": 8
+       },
+       "handled": {
+        "type": "string",
+        "enum": [
+         "fixed",
+         "declared"
+        ]
+       },
+       "how": {
+        "type": "string",
+        "minLength": 20
+       },
+       "files": {
+        "type": "array",
+        "items": {
+         "type": "string",
+         "minLength": 1
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

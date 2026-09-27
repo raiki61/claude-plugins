@@ -1,0 +1,8 @@
+{
+ "description": "S8 適応・報告・還流（BLOCKS.md 3 節）。適応・報告・還流",
+ "nodes": [
+  "p5.adapt",
+  "report",
+  "reflect"
+ ]
+}

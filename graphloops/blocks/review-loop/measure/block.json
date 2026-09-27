@@ -1,0 +1,8 @@
+{
+ "description": "R10 周の測り（BLOCKS.md 3 節）。CI・規模の数値・仕様のテストの変化",
+ "nodes": [
+  "p4.ci",
+  "p4.scalars",
+  "spec.check"
+ ]
+}
