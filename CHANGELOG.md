@@ -6,6 +6,19 @@ convergence-loops（`/review-loop`・`/research-loop`・`/doctor-loop`・`/first
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-09-27
+
+### Added
+
+- /review-loop の記録の検証器が、判定の時点の食い違いを 3 つ見るようになった: 決着した問いの状態が出どころのユニットの開き具合と食い違う・前の周に後回しと決めたユニットが新しい根拠なしに開き直る・前の周に追っていた問いが台帳から黙って消える。graphloops 0.21 系の判定の受け付けはこの検査を呼ぶので、convergence-loops が古いままだと判定の受け付けで落ちる。
+- /research-loop の記録の検証器が、止まった記録が理由つきで空と申告した欄を受け付ける。
+- 調べ役（investigator）と判定役（judge）に、外へ送る検索語に対象の持ち主の名前（社名・製品名・内部のコード名・リポジトリ名・パス）と対象の本文を載せない規律を足した。
+
+### Changed
+
+- /review-loop・/research-loop・/doctor-loop・/firstread-loop は、人が打ったときか「工程に回して」と言ったときだけ起動する。AI は当たった場面で人に提案する。
+- /review-loop の規模の数値で、文書の行数を変更した文書の追加行（`git diff --numstat` の追加行の合計）で数える。
+
 ## [0.40.0] - 2026-09-24
 
 ### Added
