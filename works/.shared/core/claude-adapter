@@ -120,7 +120,7 @@ def main():
     log_launch(home_dir, cwd, p)
     if p.warn:
         say(f"形が見分けられないので素通しする（{p.why}）")
-    return adapter.supervise([real] + p.argv, p.env)
+    return adapter.supervise([real] + p.argv, p.env, p.cwd)
 
 
 if __name__ == "__main__":

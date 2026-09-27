@@ -16,8 +16,9 @@ import re
 
 PREFIX = "works-node: "
 # no-post: gh の書き込みの語を包みの柵に足す（並行 PR の任せ先の役。仕様 3.8）。
-# no-tree-write: 包みが役の cwd の worktree の根を柵に足し、sandbox・切符の無い起動を拒む（CI の任せ先の役。裁定 R56）
-FLAGS = frozenset({"no-post", "no-tree-write"})
+# no-tree-write: 包みが役の cwd の worktree の根を柵に足し、sandbox・切符の無い起動を拒む（CI の任せ先の役。裁定 R56）。
+# isolated: 包みが道具ゼロの役を Git の外の置き場で起こす（独立の目の blind-judge。graphloops の commands._isolated_cwd）
+FLAGS = frozenset({"no-post", "no-tree-write", "isolated"})
 _NAME = re.compile(r"[a-z0-9-]+")
 _CONT = "continue="
 _ARG = "--json-schema"

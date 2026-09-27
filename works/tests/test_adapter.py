@@ -19,6 +19,8 @@ Archon は Claude Code の実行ファイルを `assistants.claude.claudeBinaryP
   stderr 1 行・終了コード 3（fail closed）
 - 旗 no-tree-write（CI の任せ先の役）: 役の cwd の worktree の根を全部の綴りで柵に足す。sandbox の塊・切符が無い起動は
   起こさない（裁定 R56）
+- 旗 isolated（独立の目の道具ゼロの役 blind-judge）: 子を Git の外の置き場（一時の置き場の works-isolated-<cwd の hash>）で起こす
+  （git status と CLAUDE.md が役に入らない。graphloops の commands._isolated_cwd）。道具を持つ起動・置き場が Git の中なら起こさない
 - 本物の claude が見つからない・包み自身を指す時は 1 行で止まる。名前は .js で終わらない（Archon が --no-env-file を足すため）
 - dev の殻（archon.sh）の WORKS_DEV_ADAPTER=1 が設定の claudeBinaryPath で包みを入れる
 """
@@ -1262,6 +1264,51 @@ class NetworkCase(unittest.TestCase):
         self.assertIn("Bash(gh:*)", s["permissions"]["deny"])
         self.assertTrue(s["hooks"]["PostToolUse"])
         self.assertEqual(self.e.launches()[-1]["mode"], "merged")
+
+
+class IsolatedCase(unittest.TestCase):
+    """旗 isolated: 道具ゼロの役を Git の外の置き場で起こす（graphloops の commands._isolated_cwd と同じ。子の cwd が Git の
+    リポジトリの外なら、claude は git status の写しを system prompt に入れない。公式: 'Absent outside a Git repository'）"""
+
+    def setUp(self):
+        self.e = Env(self)
+        git(self.e.cwd, "init", "-q")   # run の worktree（Git の中）
+
+    def test_isolated_child_runs_outside_git(self):
+        r = self.e.run(sdk_argv("works-node: r2-design isolated", tools=""))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        child = self.e.child()
+        want = pathlib.Path(tempfile.gettempdir()).resolve() / f"works-isolated-{adapter.cwd_key(self.e.cwd)}"
+        self.assertEqual(pathlib.Path(child["cwd"]).resolve(), want)
+        self.assertNotEqual(pathlib.Path(child["cwd"]).resolve(), self.e.cwd.resolve())
+        inside = subprocess.run(["git", "-C", child["cwd"], "rev-parse", "--is-inside-work-tree"], capture_output=True,
+                                text=True)
+        self.assertNotEqual(inside.stdout.strip(), "true", "置き場が Git の中")
+        # 会話の id と起動の記録は run の worktree（Archon の cwd）の鍵のまま（出し直しの --resume は同じ置き場で起きる）
+        self.assertIsNotNone(self.e.session_id("r2-design"))
+        row = self.e.launches()[-1]
+        self.assertEqual(row["fence"]["isolated"], str(want))
+        # 2 回目も同じ置き場（claude の会話の置き場は cwd ごと。--resume が同じ会話を引ける）
+        self.e.run(sdk_argv("works-node: r2-design isolated", tools=""))
+        self.assertEqual(pathlib.Path(self.e.child()["cwd"]).resolve(), want)
+
+    def test_isolated_with_tools_refused(self):
+        r = self.e.run(sdk_argv("works-node: r2-design isolated", tools="Read"))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIsNone(self.e.child(), "道具を持つ役を Git の外で起こさない（道具ゼロの役だけの旗）")
+        self.assertIn("isolated", r.stderr)
+
+    def test_isolated_place_inside_git_refused(self):
+        repo = self.e.tmp / "tmp-in-git"
+        repo.mkdir()
+        git(repo, "init", "-q")
+        r = self.e.run(sdk_argv("works-node: r2-design isolated", tools=""), TMPDIR=str(repo))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIsNone(self.e.child())
+
+    def test_unflagged_role_keeps_cwd(self):
+        self.e.run(sdk_argv("works-node: r3-coherence", tools="Read,Grep,Glob"))
+        self.assertEqual(pathlib.Path(self.e.child()["cwd"]).resolve(), self.e.cwd.resolve())
 
 
 class FencedLaunchCase(unittest.TestCase):

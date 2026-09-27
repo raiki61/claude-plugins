@@ -17,6 +17,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     MATERIAL_SANDBOX。どれも印に旗
     no-tree-write（本物の作業ツリーは包みが守る）。局所レビューも settingSources は []（下の [user] の決まり。利用者の設定の
     プラグイン pr-review-toolkit の agent のレンズは、開発の殻の外の入れ方ができるまで読ませない）
+  - blk-eyes/blk-eyes.yaml の節 r1-minimality・premise-check（独立の目の judge）: 読む道具に web（WebSearch・WebFetch）を足す
+    （graphloops の judge の定義の道具。書く道具と shell は持たない）
 - AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
   書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
   skills: を持つ節だけは [project] も許す（skills は読む元が要る）。[user] は、skills: を持ち、その全部が借りた superpowers の
@@ -66,10 +68,13 @@ _MATERIAL = {
        for n in ("prior-decisions", "external-standards", "procedure-trace")},
     "local-review": {"tools": _MAT_TOOLS | {"Skill", "Agent"}, "sandbox": MATERIAL_SANDBOX, "flag": "no-tree-write"},
 }
+JUDGE_WEB_TOOLS = READ_ONLY_TOOLS | {"WebSearch", "WebFetch"}   # graphloops の judge の定義（agents/judge.md）の道具
 EXCEPTIONS = {
     WRITER: {"tools": None},
     CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
     **{("blk-material", "blk-material.yaml", n): row for n, row in _MATERIAL.items()},
+    ("blk-eyes", "blk-eyes.yaml", "r1-minimality"): {"tools": JUDGE_WEB_TOOLS},
+    ("blk-eyes", "blk-eyes.yaml", "premise-check"): {"tools": JUDGE_WEB_TOOLS},
 }
 # settingSources: [user] で読んでよいスキル: 借りた superpowers のスキルの写しの名前（dev/skills.sh が写す物と同じ置き場から引く）
 SP_SKILLS = frozenset(p.parent.name for p in (ROOT / ".shared" / "superpowers").glob("*/skills/*/SKILL.md"))
@@ -290,6 +295,23 @@ class YamlRulesCase(unittest.TestCase):
             p = pathlib.Path(tmp) / "blk-fix" / "blk-fix.yaml"
             p.write_text(body.replace("id: fix", "id: accept-fix"), encoding="utf-8")
             self.assertOneRule(check_file(p), f"blk-fix.yaml: 節 accept-fix: {outside}", "blk-fix/accept-fix")
+
+    def test_web_reader_only_in_blk_eyes_judges(self):
+        """web の道具（WebSearch・WebFetch）を持ってよいのは独立の目の judge の 2 節だけ（表 EXCEPTIONS）"""
+        body = (TESTS / "yaml_good" / "all_kinds.yaml").read_text(encoding="utf-8")
+        doc = yaml.safe_load(body)
+        ai = next(n for n in doc["nodes"] if "command" in n or "prompt" in n)
+        ai["allowed_tools"] = ["Read", "WebSearch", "WebFetch"]
+        with tempfile.TemporaryDirectory() as tmp:
+            for folder, nid, ok in (("blk-eyes", "r1-minimality", True), ("blk-eyes", "premise-check", True),
+                                    ("blk-eyes", "r3-coherence", False), ("blk-judge", "r1-minimality", False)):
+                ai["id"] = nid
+                p = pathlib.Path(tmp) / folder / "blk-eyes.yaml"
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+                with self.subTest(f"{folder}/{nid}"):
+                    found = [f for f in check_file(p) if "allowed_tools" in f]
+                    self.assertEqual(found == [], ok, found)
 
     def test_bash_reader_only_in_blk_ci(self):
         """Bash を足してよいのは blk-ci/blk-ci.yaml の節 ci だけ。そこでも書く道具（Edit・Write）は持てない"""
