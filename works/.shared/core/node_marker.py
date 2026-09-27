@@ -51,8 +51,7 @@ def mark(schema, name, *, cont=None, flags=()):
     if "description" in schema:
         raise ValueError(f"schema の一番上に description が既に在る: {schema['description']!r}")
     text = PREFIX + " ".join([name] + ([_CONT + cont] if cont is not None else []) + list(flags))
-    got = parse(text)
-    if got is None or len(got["flags"]) != len(flags):
+    if parse(text) is None:
         raise ValueError(f"印として読めない: {text!r}")
     out = {"description": text}
     out.update(copy.deepcopy(schema))
