@@ -8,7 +8,8 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
 - role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）。
                  番号で指す欄（pointers）は名前の型のまま、修正差分のレビューは事前審査だけの kind を落とす
-- snapshot_tree: 作業ツリーの写し（差分を切る節が盤面の delta-snapshot.json に置き、check_delta が突き合わせる）
+- snapshot_tree: 作業ツリーの写し（git が無視するファイルも入れる。依頼の受け付けと差分を切る節が盤面に置き、
+                 check_judge・check_delta が突き合わせる）
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
 - cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置く（blk-delta の節 cut）
 
@@ -24,6 +25,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 
 # pack の中に __pycache__ を作らない。ここで立てて止まるのは下で import する engine・rules・検証器の分だけ。
 # accept.py 自身の .pyc は、この行が動く前に import の時点で書かれるので、止めるのは呼び手（import する前に立てる。
@@ -45,11 +47,12 @@ GRAPH_PATH = _GL / "graphs" / "review-loop.json"
 VALIDATOR = CORE / "scripts" / "review-record.py"
 REQUEST_FILE = "request.json"        # 依頼のバッチの一覧（rules の REQUEST_SCHEMA の形）
 JUDGMENT_FILE = "judgment.json"      # 受け付けた判定の返答（judge_output が正規化した後の姿）
-SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "diff_sha256": str}
+SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリー {"porcelain": str, "ignored": [str], "diff_sha256": str}
 DIFF_FILE = "fix.diff"                   # 修正の差分（cut_delta が書き、審査役が読む）
 DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
 JUDGE_SNAPSHOT_FILE = "judge-snapshot.json"   # 判定役を起こす前（依頼の受け付けの時）の作業ツリー。形は SNAPSHOT_FILE と同じ
 GIT_TIMEOUT = 120
+RACY_NS = 2_000_000_000   # ファイルの時刻の細かさの上限（FAT の 2 秒）。これより新しい mtime は印だけでは信じない
 
 # 修正役の返答のうち、受け付けが読む欄だけの型（役の output_format は blk-fix が持つ。ここは読む欄が在るかだけを見る）
 FIX_SCHEMA = {"type": "object", "required": ["changes"], "properties": {
@@ -70,8 +73,12 @@ def _name_hints(e: Reject) -> Reject:
     for by_number, by_name in NUMBER_HINTS:
         msg = msg.replace(by_number, by_name)
     return Reject(msg)
-SNAPSHOT_SCHEMA = {"type": "object", "required": ["porcelain", "diff_sha256"], "properties": {
-    "porcelain": {"type": "string"}, "diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+
+
+SNAPSHOT_KEYS = ("porcelain", "ignored", "diff_sha256")
+SNAPSHOT_SCHEMA = {"type": "object", "required": list(SNAPSHOT_KEYS), "properties": {
+    "porcelain": {"type": "string"}, "ignored": {"type": "array", "items": {"type": "string"}},
+    "diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
 
 
 # ---------------------------------------------------------------- graph と rules
@@ -242,35 +249,95 @@ def _guard(fn, **on_reject):
         return {"ok": False, "reason": f"受け付けの中で例外（{type(e).__name__}: {e}）", **on_reject}
 
 
-def _entry_digest(p: pathlib.Path) -> bytes:
-    """未追跡の 1 本の中身の sha256。symlink はリンク先の名前、ファイルは中身、フォルダ（入れ子の git リポジトリは
-    git が `sub/` の 1 行で出す）は中の全部の名前と中身を名前の順に続けた物（.git の下は除く）。それ以外（FIFO など）は種類だけ"""
+def _entry_digest(p: pathlib.Path, racy_after=None, marks=None) -> bytes:
+    """未追跡の 1 本の sha256。symlink はリンク先の名前、ファイルは中身、フォルダ（入れ子の git リポジトリは
+    git が `sub/` の 1 行で出す）は中の全部の名前と印を名前の順に続けた物（.git の下は除く）。それ以外（FIFO など）は種類だけ。
+    marks（1 つの要素の list）を渡すと、ファイルは中身を読まず stat の印（mode・大きさ・mtime_ns・ino。git の index と
+    同じ考え——git の Documentation/technical/racy-git.txt）にし、見た mtime_ns の最大を marks[0] に入れる。ただし
+    mtime_ns が racy_after より後（写した時刻に近すぎて、同じ大きさの素早い書き換えを印で見分けられない）のファイルは中身も足す"""
     if p.is_symlink():
         return hashlib.sha256(b"link\0" + os.fsencode(os.readlink(p))).digest()
     if p.is_file():
-        return hashlib.sha256(b"file\0" + p.read_bytes()).digest()
+        if marks is None:
+            return hashlib.sha256(b"file\0" + p.read_bytes()).digest()
+        st = p.stat()
+        marks[0] = max(marks[0], st.st_mtime_ns)
+        h = hashlib.sha256(f"stat\0{st.st_mode} {st.st_size} {st.st_mtime_ns} {st.st_ino}".encode())
+        if st.st_mtime_ns > racy_after:
+            h.update(b"\0racy\0" + p.read_bytes())
+        return h.digest()
     if p.is_dir():
         h = hashlib.sha256(b"dir\0")
         for top, dirs, files in os.walk(p):
             dirs[:] = sorted(d for d in dirs if d != ".git")
             for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
                 q = pathlib.Path(top) / name
-                h.update(os.fsencode(str(q.relative_to(p))) + b"\0" + _entry_digest(q))
+                h.update(os.fsencode(str(q.relative_to(p))) + b"\0" + _entry_digest(q, racy_after, marks))
         return h.digest()
     return hashlib.sha256(b"other\0" if p.exists() else b"gone\0").digest()
 
 
+def _ignored_digests(repo, names) -> list:
+    """git が無視するパス（names）ごとの印（_entry_digest の stat の印。無視されるフォルダ——.venv・node_modules など——は
+    大きいので中身を読まない）。写す時刻から RACY_NS 以内に書かれたファイルが在れば、その書き込みから RACY_NS 過ぎるまで
+    （上限 RACY_NS）待って印を取り直す。待った後の書き換えは、時刻の細かさ（最大でも 2 秒）を越えて mtime が変わるので、
+    印だけで見分けられる。待っても近い物（時計が進んだ mtime）は、racy として中身も足す"""
+    for attempt in range(2):
+        racy_after = time.time_ns() - RACY_NS
+        marks = [0]
+        digests = [_entry_digest(repo / name.rstrip("/"), racy_after, marks) for name in names]
+        if marks[0] <= racy_after or attempt:
+            return digests
+        time.sleep(min(marks[0] - racy_after, RACY_NS) / 1e9 + 0.01)
+
+
+def _ignored_entries(repo) -> list:
+    """git が無視するパス（repo の根から。名前の順）。git status --porcelain -z --ignored=matching（git-status(1)）の `!!` の行で、
+    丸ごと無視されるフォルダ（`__pycache__/`・`.venv/` など）は `dir/` の 1 本に畳まれる"""
+    fields = _git(repo, "status", "--porcelain", "-z", "--ignored=matching", "--untracked-files=all", binary=True).split(b"\0")
+    out, skip = [], False
+    for f in fields:
+        if skip or not f:   # 名前の変わった行（R・C）は、元の名前がもう 1 つの欄で続く
+            skip = False
+            continue
+        if f[:1] in (b"R", b"C"):
+            skip = True
+        elif f.startswith(b"!! "):
+            out.append(os.fsdecode(f[3:]))
+    return sorted(out)
+
+
 def snapshot_tree(repo: pathlib.Path) -> dict:
-    """作業ツリーの写し {"porcelain": str, "diff_sha256": str}。差分を切る節が盤面の delta-snapshot.json に置く。
-    porcelain は git status --porcelain（未追跡は 1 本ずつ）。diff_sha256 は HEAD からの差分（--binary）と、未追跡の
-    ファイルの名前と中身を続けた sha256——名前が同じまま中身だけ変わっても違う値になる。未追跡のフォルダ（入れ子の
-    git リポジトリ）は中身を辿って続ける（_entry_digest）。git が効かなければ Reject を投げる"""
+    """作業ツリーの写し {"porcelain": str, "ignored": [str], "diff_sha256": str}。依頼の受け付けが盤面の judge-snapshot.json に、
+    差分を切る節が delta-snapshot.json に置き、読むだけの役（判定・審査）の受け付けが今の写しと突き合わせる。
+    porcelain は git status --porcelain（未追跡は 1 本ずつ）。ignored は git が無視するパス（_ignored_entries。
+    差分には載らないが、後の節——テスト——の緑赤を左右する物も在るので、読むだけの役が足しても見逃さない）。
+    diff_sha256 は HEAD からの差分（--binary）と、未追跡のファイルの名前と中身・無視されるパスの名前と stat の印
+    （_ignored_digests。中身は読まない）を続けた sha256——名前が同じまま中身だけ変わっても違う値になる。フォルダ（入れ子の
+    git リポジトリ・無視されるフォルダ）は中を辿って続ける（_entry_digest）。git が効かなければ Reject を投げる"""
+    repo = pathlib.Path(repo)
     porcelain = _git(repo, "status", "--porcelain", "--untracked-files=all")
     h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", binary=True))
     for name in sorted(n for n in _git(repo, "ls-files", "--others", "--exclude-standard", "-z", binary=True).split(b"\0") if n):
-        p = pathlib.Path(repo) / os.fsdecode(name).rstrip("/")
+        p = repo / os.fsdecode(name).rstrip("/")
         h.update(b"\0untracked\0" + name + b"\0" + _entry_digest(p))
-    return {"porcelain": porcelain, "diff_sha256": h.hexdigest()}
+    ignored = _ignored_entries(repo)
+    for name, digest in zip(ignored, _ignored_digests(repo, ignored)):
+        h.update(b"\0ignored\0" + os.fsencode(name) + b"\0" + digest)
+    return {"porcelain": porcelain, "ignored": ignored, "diff_sha256": h.hexdigest()}
+
+
+def _assert_same_tree(repo, snap, name, since, role):
+    """盤面の写し snap（name から読んだ物）と今の作業ツリーが同じでなければ Reject。since は『〜から』の句、role は読むだけの役"""
+    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {name} ")
+    now = snapshot_tree(repo)
+    if now == {k: snap[k] for k in SNAPSHOT_KEYS}:
+        return
+    added = sorted(set(now["ignored"]) - set(snap["ignored"]))
+    gone = sorted(set(snap["ignored"]) - set(now["ignored"]))
+    ign = f" / git が無視するパス: 増えた {added[:5]} 消えた {gone[:5]}" if added or gone else ""
+    raise Reject(f"{since}から作業ツリーが変わった——{role}は読むだけの役で、作業ツリーを変えてはいけない"
+                 f"（git status --porcelain: 写した時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}{ign}）")
 
 
 def _names(repo, cmd, *args) -> list:
@@ -350,20 +417,17 @@ def check_request(items: list, board: pathlib.Path, reason: str) -> dict:
 
 def _judge_tree_unchanged(repo, board):
     """判定役が作業ツリーを変えていないか（Ruling R3・R14）。盤面に judge-snapshot.json（依頼の受け付けの時の写し）が
-    在れば、今の作業ツリーがその写しと同じかを見る（依頼のファイルが対象の中で未追跡・変更中でも通る）。
-    無ければ作業ツリーが綺麗（git status --porcelain が空）であることを求める。違えば Reject"""
+    在れば、今の作業ツリーがその写しと同じかを見る（依頼のファイルが対象の中で未追跡・変更中でも通る。git が無視する
+    ファイルの増減・書き換えも見る）。無ければ作業ツリーが綺麗（git status --porcelain --ignored が空。無視される
+    ファイルも無い）であることを求める。違えば Reject"""
     snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
     if snap is None:
-        dirty = _git(repo, "status", "--porcelain").splitlines()
+        dirty = _git(repo, "status", "--porcelain", "--ignored").splitlines()
         if dirty:
             raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
-                         f"（git status --porcelain: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
+                         f"（git status --porcelain --ignored: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
         return
-    _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {JUDGE_SNAPSHOT_FILE} ")
-    now = snapshot_tree(repo)
-    if now != {k: snap[k] for k in ("porcelain", "diff_sha256")}:
-        raise Reject("依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない"
-                     f"（git status --porcelain: 受け付けた時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}）")
+    _assert_same_tree(repo, snap, JUDGE_SNAPSHOT_FILE, "依頼を受け付けた後", "判定役")
 
 
 def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
@@ -421,7 +485,7 @@ def check_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pat
 
 def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
     """審査役の返答を受け付ける。盤面に delta-snapshot.json が在れば、今の作業ツリーがその写しと同じかを先に見る
-    （Ruling R3。無ければこの突き合わせは飛ばす）→ 型（graph の p3.delta_review の schema）→ rules の delta_review_output。
+    （Ruling R3。git が無視するファイルの増減・書き換えも見る。無ければこの突き合わせは飛ばす）→ 型（graph の p3.delta_review の schema）→ rules の delta_review_output。
     触ったファイルは touched_files（git diff --name-only <base_rev> と未追跡のファイル）。
     通れば盤面の delta-review.json に返答を書く。{"ok", "reason", "review_file"}"""
     def run():
@@ -430,11 +494,7 @@ def check_delta(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
             rev = _rev(repo_p, base_rev)
             snap = _read_board(board, SNAPSHOT_FILE)
             if snap is not None:
-                _type_errors(snap, SNAPSHOT_SCHEMA, f"盤面の {SNAPSHOT_FILE} ")
-                now = snapshot_tree(repo_p)
-                if now != {k: snap[k] for k in ("porcelain", "diff_sha256")}:
-                    raise Reject("差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない"
-                                 f"（git status --porcelain: 切った時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}）")
+                _assert_same_tree(repo_p, snap, SNAPSHOT_FILE, "差分を切った後", "審査役")
             _type_errors(reply, role_schema("p3.delta_review"), "差分の審査の返答")
             rules = _rules()
             st = rules.DELTA_PASSES[1].state_key

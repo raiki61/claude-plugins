@@ -69,7 +69,7 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 
 1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/real-run.sh [<dir>]` を前景で打つ。使い捨ての対象を作り、ライン（模型は `WORKS_DEV_MODEL`、既定は opus）を回し、人の関所で止まって戻る。
 2. 関所の文面の「テストが緑か」「テストのログ」と、殻が出す「修正の差分がある worktree」を見る。修正は対象ではなく、Archon が run ごとに切った worktree の中にある。
-3. 殻が出す approve のコマンドを打つ。承認はその場で続き（差分の審査）を回して終わる。`resume` は失敗・中断から続けるときだけ要る。
+3. 殻が出す approve のコマンドを打つ。承認はその場で続き（差分の審査）を回して終わる。`WORKS_KEYCHAIN_ITEM` で起こしたなら、出た行に項目名が載っているので、export していない殻でもそのまま打てる。`CLAUDE_CODE_OAUTH_TOKEN` だけで起こしたなら、値は出さないので、それを export した殻で打つ。`resume` は失敗・中断から続けるときだけ要る。
 
 ### 結果（2026-09-26・Archon v0.11.1・opus・3 回）
 
@@ -111,7 +111,7 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 - 模型は固定しないと黙って変わる。当初は `real-run.sh` だけが模型を設定に書いていたので、`archon.sh workflow run` を直に打つと Claude CLI の既定の模型（sonnet）で回った。今は `archon.sh` が認証を使う実行のたびに書く（開発の回し方の節）。
 - テストのコマンドが確かめるのは、渡した物だけ。ラインにはまだ全体を回す CI の節が無いので、迷ったら全体（`sh works/tests/run.sh`）を渡す。
 - サンドボックスの中の修正役は `tests/test_dev.py` を回せない。サンドボックスの TMPDIR は `/tmp/claude-*` の下で、`guard.sh` がそこを拒むため。修正役は環境のせいの赤を 10 件ほど報告するが、修正の良し悪しとは関係ない。
-- 修正役は run の worktree に `__pycache__` などの git が無視するファイルを残すことがある。fix.diff には載らないので取り込みには響かないが、worktree を直に見るときは混ざっている。
+- 修正役は run の worktree に `__pycache__` などの git が無視するファイルを残すことがある。fix.diff には載らないが、テストの節の緑赤を左右した（自分食いの run で、バイトコードが無いことを見る試験が偽の赤になった）。今は blk-fix が修正役の前に git が無視するファイルを控え（節 `ignored-before`）、修正役の後、テストの前に、控えに無かった物だけを消す（節 `clean`。消した物は関所の文面に出る）。判定・審査の読むだけの検査（作業ツリーの写し）も、git が無視するファイルの増減・書き換えを見る。
 
 ## 足りない所
 

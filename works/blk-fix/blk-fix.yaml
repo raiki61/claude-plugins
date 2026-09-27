@@ -1,9 +1,11 @@
 name: blk-fix
 description: |
   修正のブロック（support workflow。ラインから include で使う）。
-  判定のブロックが受け付けた根本の単位を修正役に直させ（fix）、返答を写した規則で受け付け（fix-accept。
-  拒めば理由を貼って同じ会話で出し直し、上限 3 回）、申告したファイルが実際に変わったかを確かめ（assert-changed。
-  何も変えずに済んだと言えば run が落ちる）、出口に集める（collect）。
+  修正役の前に git が無視するファイルを控え（ignored-before）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix）、
+  返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回）、修正役が残した git が
+  無視するファイル（テストを回して出来た __pycache__ など）のうち控えに無かった物だけを消し（clean。後のテストの節を
+  生成物の無い木で回す）、申告したファイルが実際に変わったかを確かめ（assert-changed。何も変えずに済んだと言えば
+  run が落ちる）、出口に集める（collect。消したパスも並べる）。
 
 inputs:
   judgment_file:
@@ -20,7 +22,21 @@ returns: collect
 outcome_field: ok
 
 nodes:
+  # 修正役の前の git が無視するファイルの控え（盤面の fix-ignored-before.json）。clean はこれに無かった物だけを消す
+  - id: ignored-before
+    script: ignored_before
+    runtime: uv
+    timeout: 1728000000
+    output_format:
+      type: object
+      required: [ok, count, file]
+      properties:
+        ok: {type: boolean}
+        count: {type: integer, minimum: 0}
+        file: {type: string}
+
   - id: fix-loop
+    depends_on: [ignored-before]
     loop_group:
       max_iterations: 3
       fresh_context: false
@@ -68,10 +84,25 @@ nodes:
               reason: {type: string}
               changes: {type: array}
 
+  # 修正役が残した git が無視するファイル（控えに無かった物だけ）を消す。差分には載らないが、テストの緑赤を左右する
+  - id: clean
+    script: clean
+    runtime: uv
+    depends_on: [fix-loop]
+    timeout: 1728000000
+    output_format:
+      type: object
+      required: [ok, removed]
+      properties:
+        ok: {type: boolean}
+        removed:
+          type: array
+          items: {type: string}
+
   - id: assert-changed
     script: assert_changed
     runtime: uv
-    depends_on: [fix-loop]
+    depends_on: [clean]
     timeout: 1728000000
     with:
       base_rev: $INPUTS.base_rev
@@ -93,12 +124,16 @@ nodes:
     with:
       accepted: $fix-loop.output
       changed: {from: "$assert-changed.output"}
+      cleaned: {from: "$clean.output"}
     output_format:
       type: object
-      required: [ok, files, changes_file]
+      required: [ok, files, changes_file, removed]
       properties:
         ok: {type: boolean}
         files:
           type: array
           items: {type: string}
         changes_file: {type: string}
+        removed:
+          type: array
+          items: {type: string}
