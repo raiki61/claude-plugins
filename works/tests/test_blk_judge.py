@@ -25,7 +25,7 @@ REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
 SEED = ROOT / "dev" / "target-seed"
 sys.path.insert(0, str(CORE))
 
-from accept import JUDGE_SNAPSHOT_FILE, check_judge, role_schema, snapshot_tree  # noqa: E402
+from accept import JUDGE_SNAPSHOT_FILE, check_judge, role_schema, tree_state  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from gitkit import committed_copy, git  # noqa: E402
 from node_marker import strip  # noqa: E402
@@ -206,8 +206,9 @@ class ScriptCase(unittest.TestCase):
     def test_intake_stores_judge_snapshot(self):
         r = self.run_script("intake", INPUTS_REQUEST="request_ok.json")
         self.assertEqual(r.returncode, 0, r.stderr)
+        # 判定役を起こす前の姿は共通の tree_state（HEAD・枝も持つ。R47）。役が commit すれば写しの head で見える
         self.assertEqual(json.loads((self.board / JUDGE_SNAPSHOT_FILE).read_text(encoding="utf-8")),
-                         snapshot_tree(self.repo))
+                         tree_state(self.repo))
 
     # ---- accept
     def test_accept_good_and_bad_reply(self):
@@ -256,7 +257,7 @@ class ScriptCase(unittest.TestCase):
         git(self.repo, "commit", "-q", "-m", "commit した")
         got = json.loads(self.run_script("accept", INPUTS_REPLY=json.dumps(load("judge_ok")), INPUTS_BASE_REV="").stdout)
         self.assertIs(got["ok"], False)
-        self.assertIn("HEAD が動いた", got["reason"])
+        self.assertIn("head: 役を起こす前", got["reason"])   # 共通の tree_change の文（R47）
 
     def test_check_judge_without_snapshot_needs_clean_tree(self):
         # 写しが無いとき（intake を通らない呼び方）は今までどおり作業ツリーが綺麗であることを求める

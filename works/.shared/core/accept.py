@@ -2,7 +2,7 @@
 
 Archon を知らない関数だけを出す。ブロックの script の節がこれを呼び、結果をそのまま出口にする。
 - check_request: 依頼（findings の配列）を rules の add に通し、盤面の request.json に積む
-- check_judge:   判定役（p2.diagnose）の返答。作業ツリー → 型 → rules の judge_output。通れば盤面に judgment.json
+- check_judge:   判定役（p2.diagnose）の返答。作業ツリーと HEAD → 型 → rules の judge_output。通れば盤面に judgment.json
                  （check_fix と同じく、番号で指せという案内は名前を写せに戻す。_name_hints）
 - check_fix:     修正役の返答。changes[].unit_key を修正案に読み替えて rules の fix_plan_covers_units（番号で指せという案内は key を写せに戻す。_name_hints）
 - check_delta:   審査役（p3.delta_review）の返答。触ったファイルは git から取り、rules の delta_review_output。通れば盤面に delta-review.json
@@ -11,7 +11,9 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - snapshot_tree: 作業ツリーの写し（git が無視するファイルも入れる。依頼の受け付けと差分を切る節が盤面に置き、
                  check_judge・check_delta が突き合わせる）
 - tree_state・tree_change・tree_moved: 読むだけの役（blk-pr・blk-ci・entry.take・rejudge.take）を起こす前後の作業ツリーの姿
-                 （snapshot_tree に HEAD・枝を足した物）と、その違いの文（R47。check_judge・check_delta の突き合わせも tree_change で言う）
+                 （snapshot_tree に HEAD・枝を足した物）と、その違いの文（R47。check_judge・check_delta の突き合わせも tree_change で言う）。
+                 bytecode=False はバイトコード（_is_bytecode）を姿から除く（測るためにコマンドを走らせる実測役の見張り。premises）
+- guard・in_repo・resolve_rev・read_board・write_board・type_errors: 受け付けの部品の公開の名（ブロックの模块の受け付けが使う）
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
 - cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置き、前の周の審査の返答を消す（blk-delta の節 cut）
 
@@ -214,6 +216,15 @@ def _guard(fn, **on_reject):
         return {"ok": False, "reason": f"受け付けの中で例外（{type(e).__name__}: {e}）", **on_reject}
 
 
+# 受け付けの部品の公開の名（ブロックの模块の受け付け——premises など——が私的な名前を借りずに使う。層の決まり private）
+guard = _guard
+in_repo = _in_repo
+resolve_rev = _rev
+read_board = _read_board
+write_board = _write_board
+type_errors = _type_errors
+
+
 def _entry_digest(p: pathlib.Path, racy_after=None, marks=None) -> bytes:
     """未追跡の 1 本の sha256。symlink はリンク先の名前、ファイルは中身、フォルダ（入れ子の git リポジトリは
     git が `sub/` の 1 行で出す）は中の全部の名前と印を名前の順に続けた物（.git の下は除く）。それ以外（FIFO など）は種類だけ。
@@ -272,21 +283,37 @@ def _ignored_entries(repo) -> list:
     return sorted(out)
 
 
-def snapshot_tree(repo: pathlib.Path) -> dict:
+def _porcelain_path(line: str) -> str:
+    """git status --porcelain の 1 行のパス（改名は後ろの名。引用符は外す）"""
+    path = line[3:].split(" -> ")[-1]
+    return path[1:-1] if len(path) >= 2 and path[0] == path[-1] == '"' else path
+
+
+_NO_BYTECODE = (":(top)", ":(top,exclude,glob)**/*.pyc", ":(top,exclude,glob)**/__pycache__/**")   # git の pathspec で _is_bytecode と同じ物を除く
+
+
+def snapshot_tree(repo: pathlib.Path, *, bytecode: bool = True) -> dict:
     """作業ツリーの写し {"porcelain": str, "ignored": [str], "diff_sha256": str}。依頼の受け付けが盤面の judge-snapshot.json に、
     差分を切る節が delta-snapshot.json に置き、読むだけの役（判定・審査）の受け付けが今の写しと突き合わせる。
     porcelain は git status --porcelain（未追跡は 1 本ずつ）。ignored は git が無視するパス（_ignored_entries。
     差分には載らないが、後の節——テスト——の緑赤を左右する物も在るので、読むだけの役が足しても見逃さない）。
     diff_sha256 は HEAD からの差分（--binary）と、未追跡のファイルの名前と中身・無視されるパスの名前と stat の印
     （_ignored_digests。中身は読まない）を続けた sha256——名前が同じまま中身だけ変わっても違う値になる。フォルダ（入れ子の
-    git リポジトリ・無視されるフォルダ）は中を辿って続ける（_entry_digest）。git が効かなければ Reject を投げる"""
+    git リポジトリ・無視されるフォルダ）は中を辿って続ける（_entry_digest）。git が効かなければ Reject を投げる。
+    bytecode=False はバイトコード（_is_bytecode。__pycache__/ の下と .pyc）を porcelain・差分・未追跡・無視されるパスの
+    どれからも除く（測るために試験を走らせる役が作る物を変化に数えない。修正の差分の側の touched_files と同じ定義）"""
     repo = pathlib.Path(repo)
     porcelain = _git(repo, "status", "--porcelain", "--untracked-files=all")
-    h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", binary=True))
+    if not bytecode:
+        porcelain = "".join(f"{ln}\n" for ln in porcelain.splitlines() if not _is_bytecode(_porcelain_path(ln)))
+    h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", *(() if bytecode else ("--", *_NO_BYTECODE)),
+                            binary=True))
     for name in sorted(n for n in _git(repo, "ls-files", "--others", "--exclude-standard", "-z", binary=True).split(b"\0") if n):
+        if not bytecode and _is_bytecode(os.fsdecode(name)):
+            continue
         p = repo / os.fsdecode(name).rstrip("/")
         h.update(b"\0untracked\0" + name + b"\0" + _entry_digest(p))
-    ignored = _ignored_entries(repo)
+    ignored = [n for n in _ignored_entries(repo) if bytecode or not _is_bytecode(n)]
     for name, digest in zip(ignored, _ignored_digests(repo, ignored)):
         h.update(b"\0ignored\0" + os.fsencode(name) + b"\0" + digest)
     return {"porcelain": porcelain, "ignored": ignored, "diff_sha256": h.hexdigest()}
@@ -306,12 +333,12 @@ TREE_SCHEMA = {"type": "object", "required": list(TREE_KEYS), "properties": {
     **SNAPSHOT_SCHEMA["properties"], "head": {"type": "string"}, "ref": {"type": "string"}}}
 
 
-def tree_state(repo: pathlib.Path) -> dict:
+def tree_state(repo: pathlib.Path, *, bytecode: bool = True) -> dict:
     """読むだけの役（blk-pr の並行 PR・blk-ci の CI・entry.take と rejudge.take が受ける役）を起こす前後に比べる作業ツリーの姿 {TREE_KEYS}:
     snapshot_tree（porcelain・git が無視するパスの一覧 ignored・diff_sha256。無視されるパスの stat の印も diff_sha256 に入る——
     無視されるファイルは差分に載らないが、後の節のテストの緑赤を左右しうる）に、HEAD の sha head・枝 ref
     （symbolic-ref。切り離した HEAD は空）を足した物。snapshot_tree は今の HEAD からの差分しか見ないので、枝の切り替え
-    （gh pr checkout・git checkout）は head・ref で見る。HEAD が引けない・git が効かなければ Reject"""
+    （gh pr checkout・git checkout）は head・ref で見る。HEAD が引けない・git が効かなければ Reject。bytecode は snapshot_tree と同じ"""
     repo = pathlib.Path(repo)
     try:
         head = _git(repo, "rev-parse", "--verify", "-q", "HEAD").strip()
@@ -321,7 +348,7 @@ def tree_state(repo: pathlib.Path) -> dict:
         ref = _git(repo, "symbolic-ref", "-q", "HEAD").strip()
     except Reject:   # 切り離した HEAD（symbolic-ref -q は 1 で終わる）
         ref = ""
-    return {**snapshot_tree(repo), "head": head, "ref": ref}
+    return {**snapshot_tree(repo, bytecode=bytecode), "head": head, "ref": ref}
 
 
 def tree_change(before: dict, now: dict, keys=TREE_KEYS) -> list:
@@ -346,11 +373,12 @@ def tree_change(before: dict, now: dict, keys=TREE_KEYS) -> list:
     return out
 
 
-def tree_moved(before: dict, repo: pathlib.Path) -> list:
+def tree_moved(before: dict, repo: pathlib.Path, *, bytecode: bool = True) -> list:
     """役を起こす前の姿 before（tree_state）と今の作業ツリーの違いの文（tree_change）。今の姿が引けない（HEAD が無い・git が
-    効かない）ときはその 1 行——起こす前は引けたので、役が HEAD を動かした（checkout --orphan など）"""
+    効かない）ときはその 1 行——起こす前は引けたので、役が HEAD を動かした（checkout --orphan など）。bytecode は before を
+    取った時と同じ値を渡す"""
     try:
-        now = tree_state(repo)
+        now = tree_state(repo, bytecode=bytecode)
     except Reject as e:
         return [f"作業ツリー・HEAD が引けなくなった: {e}"]
     return tree_change(before, now)
@@ -432,23 +460,42 @@ def check_request(items: list, board: pathlib.Path, reason: str) -> dict:
     return _guard(run)
 
 
-def _judge_tree_unchanged(repo, board):
+def head_at_rev(repo, rev, role):
+    """HEAD が数える版 rev のままか。動いていれば Reject（写しの無い見張りで、役が作った物を commit して
+    git status を空に戻す道を塞ぐ。dogfood run 21）。role は読むだけの役の名"""
+    head = _git(repo, "rev-parse", "--verify", "-q", "HEAD").strip()
+    if head != rev:
+        raise Reject(f"HEAD が数える版から動いた（版 {rev[:12]} / 今 {head[:12]}）——{role}は作業ツリーと履歴を変えてはいけない"
+                     "（commit・reset・checkout で履歴を動かさない）")
+
+
+def _judge_tree_unchanged(repo, board, rev):
     """判定役が作業ツリーを変えていないか（Ruling R3・R14）。盤面に judge-snapshot.json（依頼の受け付けの時の写し）が
     在れば、今の作業ツリーがその写しと同じかを見る（依頼のファイルが対象の中で未追跡・変更中でも通る。git が無視する
-    ファイルの増減・書き換えも見る）。無ければ作業ツリーが綺麗（git status --porcelain --ignored が空。無視される
-    ファイルも無い）であることを求める。違えば Reject"""
+    ファイルの増減・書き換えも見る）。写しが tree_state の形（intake が置く。HEAD と枝を持つ）なら共通の tree_moved
+    （R47）で HEAD・枝の移動も見る。snapshot_tree の形（前の版の盤面）は porcelain・ignored・diff_sha256 だけを比べる。
+    無ければ作業ツリーが綺麗（git status --porcelain --ignored が空。無視されるファイルも無い）で、HEAD が数える版 rev の
+    ままであることを求める（head_at_rev）。違えば Reject"""
     snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
     if snap is None:
         dirty = _git(repo, "status", "--porcelain", "--ignored").splitlines()
         if dirty:
             raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
                          f"（git status --porcelain --ignored: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
+        head_at_rev(repo, rev, "判定役")
+        return
+    if isinstance(snap, dict) and ("head" in snap or "ref" in snap):
+        _type_errors(snap, TREE_SCHEMA, f"盤面の {JUDGE_SNAPSHOT_FILE} ")
+        moved = tree_moved({k: snap[k] for k in TREE_KEYS}, repo)
+        if moved:
+            raise Reject("依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリー・HEAD・枝・git が"
+                         f"無視するファイルを変えてはいけない（{'・'.join(moved)}）")
         return
     _assert_same_tree(repo, snap, JUDGE_SNAPSHOT_FILE, "依頼を受け付けた後", "判定役")
 
 
 def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path) -> dict:
-    """判定役の返答を受け付ける。作業ツリーが変わっていれば拒む（_judge_tree_unchanged。判定役は読むだけ）→ 型（graph の p2.diagnose の
+    """判定役の返答を受け付ける。作業ツリーか HEAD が変わっていれば拒む（_judge_tree_unchanged。判定役は読むだけ）→ 型（graph の p2.diagnose の
     schema）→ rules の judge_output（記録の process.request_findings に盤面の request.json を入れて渡す）。
     通れば盤面の judgment.json に書く。{"ok", "reason", "open_units", "judgment_file"}"""
     def run():
@@ -456,7 +503,7 @@ def check_judge(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.P
         pathlib.Path(board).mkdir(parents=True, exist_ok=True)
         with _in_repo(repo_p):
             rev = _rev(repo_p, base_rev)
-            _judge_tree_unchanged(repo_p, board)
+            _judge_tree_unchanged(repo_p, board, rev)
             _type_errors(reply, role_schema("p2.diagnose"), "判定の返答")
             rules = _rules()
             rec = rules.init_record(None, None)

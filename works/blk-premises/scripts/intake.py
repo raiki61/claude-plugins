@@ -4,7 +4,7 @@
 # ///
 """依頼の型の確かめと、作業ツリーの写し。INPUTS_REQUEST が指す JSON のファイル（cwd＝対象リポジトリの根からの相対か絶対）を読み、
 check_request（graphloops の add と同じ規則）に使い捨ての置き場で通す——盤面の request.json には積まない（積むのは判定の
-ブロックの intake だけ。ここで積むと同じ依頼が 2 度積まれる）。続けて、実測役を起こす前の作業ツリーの写し（snapshot_tree）を
+ブロックの intake だけ。ここで積むと同じ依頼が 2 度積まれる）。続けて、実測役を起こす前の作業ツリーの姿（共通の tree_state。バイトコードは除く）を
 盤面の premises-snapshot.json に置く。受け付け（check_premises）はこれと今の作業ツリーを比べる。
 写しを置くのと同じ所で、盤面に前の呼び出しが残した premises.json を消す——受け付けが 3 回とも拒んだ時に collect が
 古い制約を拾って ok を出さないように（graphloops の once の『凍った出力の再利用』は線 A の b.done から付く。ここでは作らない）。
@@ -22,7 +22,7 @@ import json  # noqa: E402
 import os  # noqa: E402
 import tempfile  # noqa: E402
 
-from accept import check_request, snapshot_tree  # noqa: E402
+from accept import check_request, tree_state  # noqa: E402
 from engine.util import Reject  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_SNAPSHOT_FILE  # noqa: E402
 
@@ -59,7 +59,7 @@ def main() -> int:
     if not r["ok"]:
         return _stop(f"{rel}: {r['reason']}")
     try:
-        snap = snapshot_tree(Path.cwd())
+        snap = tree_state(Path.cwd(), bytecode=False)
     except (Reject, OSError) as e:
         return _stop(f"作業ツリーの写しが取れない（{e}）")
     board = Path(os.environ[ARTIFACTS_ENV]) / "board"

@@ -27,7 +27,7 @@ REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
 SEED = ROOT / "dev" / "target-seed"
 sys.path.insert(0, str(CORE))
 
-from accept import role_schema, snapshot_tree  # noqa: E402
+from accept import role_schema, tree_state  # noqa: E402
 from board import graph_expanded  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_SNAPSHOT_FILE, check_premises  # noqa: E402
@@ -195,7 +195,7 @@ class RepoCase(unittest.TestCase):
 
     def snapshot(self):
         self.board.mkdir(parents=True, exist_ok=True)
-        (self.board / PREMISES_SNAPSHOT_FILE).write_text(json.dumps(snapshot_tree(self.repo)), encoding="utf-8")
+        (self.board / PREMISES_SNAPSHOT_FILE).write_text(json.dumps(tree_state(self.repo, bytecode=False)), encoding="utf-8")
 
 
 class CheckCase(RepoCase):
@@ -253,7 +253,7 @@ class CheckCase(RepoCase):
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
         r = check_premises(load("premises_ok"), self.board, "", self.repo)
         self.assertIs(r["ok"], False)
-        self.assertIn("HEAD が動いた", r["reason"])
+        self.assertIn("head: 役を起こす前", r["reason"])   # 共通の tree_change の文（R47）
         self.assertFalse((self.board / PREMISES_FILE).exists())
 
     def test_without_snapshot_rejects_head_moved_from_base_rev(self):
@@ -284,7 +284,7 @@ class CheckCase(RepoCase):
 
     def test_old_snapshot_without_head_rejected(self):
         self.board.mkdir(parents=True)
-        snap = snapshot_tree(self.repo)
+        snap = tree_state(self.repo, bytecode=False)
         del snap["head"]
         (self.board / PREMISES_SNAPSHOT_FILE).write_text(json.dumps(snap), encoding="utf-8")
         r = check_premises(load("premises_ok"), self.board, "", self.repo)
@@ -305,6 +305,22 @@ class CheckCase(RepoCase):
         self.assertIn("no-such-rev", r["reason"])
 
 
+class GuardSourceCase(unittest.TestCase):
+    def test_guard_uses_shared_tree_moved(self):
+        """見張りは共通の口（accept.tree_state・tree_moved。R47）を使い、写しの比べを自前で持たない。accept の私的な名前も借りない"""
+        import ast
+        tree = ast.parse((CORE / "premises.py").read_text(encoding="utf-8"))
+        called = {n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", "")
+                  for n in ast.walk(tree) if isinstance(n, ast.Call)}
+        self.assertIn("tree_moved", called)
+        self.assertFalse(called & {"snapshot_tree", "tree_change"}, called)
+        defined = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+        self.assertFalse(defined & {"snapshot_tree", "tree_change", "tree_state", "tree_moved"}, defined)
+        private = [a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module == "accept"
+                   for a in n.names if a.name.startswith("_")]
+        self.assertEqual(private, [])
+
+
 class ScriptCase(RepoCase):
     # ---- intake
     def test_intake_checks_request_and_stores_snapshot(self):
@@ -312,7 +328,7 @@ class ScriptCase(RepoCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), {"ok": True, "reason": "", "request": "request_ok.json"})
         self.assertEqual(json.loads((self.board / PREMISES_SNAPSHOT_FILE).read_text(encoding="utf-8")),
-                         snapshot_tree(self.repo))
+                         tree_state(self.repo, bytecode=False))
         # 依頼を盤面に積むのは判定のブロックの intake だけ（ここで積むと判定の時に同じ依頼が 2 度積まれる）
         self.assertFalse((self.board / "request.json").exists())
 
