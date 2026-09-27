@@ -9,7 +9,8 @@
                   （entry.main_take と同じ名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
                   （輪を max_iterations で落とさない。裁定 R50）
 - main_accept:    accept_role の節の入口（INPUTS_REPLY・ARTIFACTS_DIR）
-- script_main:    受け付けでないスクリプトの入口（ARTIFACTS_DIR と INPUTS_* を読み、fn の返りを 1 行の JSON で出す）
+- script_main:    ブロックのスクリプトの入口（ARTIFACTS_DIR と INPUTS_* を読み、fn の返りを 1 行の JSON で出す。fence なら
+                  盤面のパスに $ の柵、take なら受け付けの返りに reason_file を足す）
 - parse_reply:    役の返答（$<役>.output の JSON の文字列）を dict に
 
 層は L3（盤面と受け付け）。ライン・include の id・ブロックの名前を書かない（tests/test_layers.py）。
@@ -59,17 +60,22 @@ def prompt_graph_path(b, n, prompts_dir: pathlib.Path = PROMPTS_COPY) -> pathlib
     return alt
 
 
-def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_only: bool = True) -> tuple:
+def render_body(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, reads_only: bool = True,
+                template: str | None = None, ctx_hook=None) -> tuple:
     """engine の emit_instance と同じ描き方の本文（cap なし。指示書は役がファイルで読む）と番号の控え（pointers.snapshot の
     名前の列。mark_launched の pointers= に渡す形。pointers を持たない節は空の列）。reads_only が偽なら graph の reads で
-    穴を絞らない。この周に待っている instance が無い・描けない（reads に無い穴・盤面の欄の欠け・番号の穴の欠け）は BoardGap"""
+    穴を絞らない。template は graph の指示書（node_prompt）の代わりに描く本文（ブロックが別の置き場に持つ本線の写し）。
+    ctx_hook(ctx) は描く前に ctx を足す口（engine が足す欄——検証器の結果 validation・ラインに無い節の出力の代わり など）。
+    この周に待っている instance が無い・描けない（reads に無い穴・盤面の欄の欠け・番号の穴の欠け）は BoardGap"""
     n = b.nodes[nid]
     inst = b.rd["instances"].get(nid)
     if not inst or inst.get("status") != "pending":
         raise BoardGap(f"この周に節 {nid} の待っている instance が無い")
-    tpl = node_prompt(prompt_graph_path(b, n, prompts_dir), n)
+    tpl = node_prompt(prompt_graph_path(b, n, prompts_dir), n) if template is None else template
     ctx = b.ctx()
     ctx["node"] = {"skills": inst.get("skills") or []}   # engine と同じく、出した時点の applies を持つ写し（settle が置いた物）
+    if ctx_hook is not None:
+        ctx_hook(ctx)
     snap, offsets = _pointers.snapshot(ctx, n.get("pointers"))
     r = Renderer(ctx, n.get("reads") if reads_only else None, ref=b.ref, cap=None, numbered=offsets)
     try:
@@ -180,19 +186,27 @@ def main_accept(nid: str, *, snapshot_name: str | None = None, give_up_after: in
 
 
 # ---------------------------------------------------------------- スクリプトの入口
-def script_main(fn, inputs=(), *, not_ok_is_wiring: bool = False) -> int:
+def script_main(fn, inputs=(), *, not_ok_is_wiring: bool = False, fence: bool = False, take: str = "") -> int:
     """ブロックのスクリプトの入口。環境変数 ARTIFACTS_DIR（空も欠け）と inputs（INPUTS_* の名前）を読み、
     fn(盤面の置き場 $ARTIFACTS_DIR/board, repo=cwd, {名前: 値}) の返りを 1 行の JSON で出して 0。予定の状態（拒否・止めた・
     回す物が無い）は fn が dict で返す。0 でないのは配線の誤りだけ: 環境変数の欠け・BoardGap・写しの Reject（止めた run への
     書き込み・git が効かない など）・思わぬ誤りは標準出力に何も出さずに標準エラーに 1 行出して 2（Archon が起こし直す道に
-    乗せない。TA19）。not_ok_is_wiring なら返りの {ok: False} も配線の誤りとして 2（支度が盤面に要る物を見つけない節）"""
+    乗せない。TA19）。not_ok_is_wiring なら返りの {ok: False} も配線の誤りとして 2（支度が盤面に要る物を見つけない節）。
+    fence なら盤面の置き場は script_io.board_dir の値（resolve 済み。解決したパスが $ を含めば 2——reason_file のパスが
+    Archon の置き換えに通らないように）。take（名の頭）を与えると、返りが done を持つ時（受け付けの返り）は
+    script_io.emit_result を通す（拒否は理由の本文を盤面の reject-<take>_<節>-<連番>.txt に書き reason_file を足す。裁定 R44）"""
     missing = [n for n in (script_io.ARTIFACTS_ENV, *inputs) if n not in os.environ]
     if script_io.ARTIFACTS_ENV not in missing and not os.environ[script_io.ARTIFACTS_ENV]:
         missing.append(script_io.ARTIFACTS_ENV)
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
-    board_dir = pathlib.Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
+    if fence:
+        board_dir = script_io.board_dir()
+        if board_dir is None:
+            return 2
+    else:
+        board_dir = pathlib.Path(os.environ[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR
     try:
         out = fn(board_dir, pathlib.Path.cwd(), {n: os.environ[n] for n in inputs})
     except (BoardGap, Reject) as e:
@@ -204,6 +218,8 @@ def script_main(fn, inputs=(), *, not_ok_is_wiring: bool = False) -> int:
     if not_ok_is_wiring and isinstance(out, dict) and out.get("ok") is False:
         print(f"配線の誤り: {' '.join(str(out.get('reason', '')).split())}", file=sys.stderr)
         return 2
+    if take and isinstance(out, dict) and "done" in out:
+        return script_io.emit_result(board_dir, f"{take}_{out.get('node', 'take')}", out)
     script_io._emit(out)   # 1 行の出し方は受け付けのスクリプトと同じ
     return 0
 

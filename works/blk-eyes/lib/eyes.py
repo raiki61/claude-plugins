@@ -39,13 +39,12 @@ if str(_CORE) not in sys.path:
 
 from board import BoardGap  # noqa: E402  （写しの engine を sys.path に入れる。engine より先に）
 from engine.advance import agent_type_of  # noqa: E402
-from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
-from engine.util import Reject, dump, now, safe_name  # noqa: E402
+from engine.util import now, safe_name  # noqa: E402
 from engine.validator import agent_def  # noqa: E402
 import accept as _accept  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
-import script_io  # noqa: E402
+import rolekit  # noqa: E402
 
 ENTRY_NODE = "p4.assemble"
 GATE_NODE = "r4.human_gate"
@@ -72,7 +71,7 @@ REJECTS_NAME = "eyes-rejects.json"
 ENTER_NAME = "eyes-enter.json"
 EXIT_NAME = "eyes-exit.json"
 STOP_BY = "works:eyes"
-PROMPTS_COPY = _CORE / "gl-prompts"
+PROMPTS_COPY = rolekit.PROMPTS_COPY
 # 出口の欄（BLOCKS.md 3.3 の R11 の出口に、ブロックの回り方の欄を足した物。並びも固定）
 EXIT_FIELDS = ("ok", "reason", "complete", "asking", "stopped", "eyes", "gave_up", "after_fix", "open_units", "r1_refire",
                "r2_refire", "purpose_known", "purpose_unusable", "reviews", "premise", "retaken_for_reviews", "exit_file")
@@ -238,39 +237,12 @@ def route(board_dir, role, rnd) -> dict:
 
 
 # ---------------------------------------------------------------- 描く
-def prompt_graph_path(b, n) -> pathlib.Path:
-    """node_prompt に渡す graph のパス。写しが指示書を持てば写しの graph、無ければ同じ commit から写した gl-prompts/"""
-    own = pathlib.Path(b.state["graph"])
-    parts = [n["prompt_file"], *(n.get("prompt_append") or [])]
-    if all((own.parent / p).is_file() for p in parts):
-        return own
-    alt = PROMPTS_COPY / "prompts" / own.name
-    missing = [p for p in parts if not (alt.parent / p).is_file()]
-    if missing:
-        raise BoardGap(f"指示書 {missing} が写しにも {PROMPTS_COPY} にも無い")
-    return alt
-
-
 def render(b, nid) -> str:
-    """engine の emit_instance と同じ描き方（node_prompt → ctx → Renderer。reads に無い穴は描けない）。cap は無い（役へは
-    本文を直に渡す。engine が CLI で起こす役と同じ）。返す JSON Schema を engine と同じ文で後ろに付ける"""
-    n = b.nodes[nid]
-    inst = _pending(b, nid)
-    if n.get("pointers"):
+    """engine の emit_instance と同じ描き方（rolekit.render_body。reads に無い穴は描けない・cap なし・schema の断り）。
+    指示書は写しの graph、無ければ同じ commit から写した gl-prompts/。番号で指す一覧（pointers）を持つ節は描かない"""
+    if b.nodes[nid].get("pointers"):
         raise BoardGap(f"{nid} は番号で指す一覧（pointers）を持つ——独立の目の描き方は持たない（写しを見直す）")
-    tpl = node_prompt(prompt_graph_path(b, n), n)
-    ctx = b.ctx()
-    ctx["node"] = {"skills": inst.get("skills") or []}
-    r = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None)
-    try:
-        prompt = r.render(tpl)
-    except (KeyError, ReadsViolation, ValueError) as e:
-        raise BoardGap(f"{nid} の指示書を描けない: {e}") from None
-    if n.get("schema"):
-        prompt += ("\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）。"
-                   '文字列値の中の " は必ず \\" にエスケープしろ——生のまま入れると返答まるごとが'
-                   "読めずに捨てられる:\n" + dump(n["schema"]))
-    return prompt
+    return rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY)[0]
 
 
 def role_definition(b, nid) -> tuple:
@@ -337,15 +309,7 @@ def _reject(board_dir, nid, reason) -> dict:
     return {"ok": False, "done": give_up, "give_up": give_up, "skipped": skipped, "reason": reason, "node": nid}
 
 
-def parse_reply(raw):
-    """役の返答（Archon が $<役>.output を JSON の文字列で渡す）を dict に。読めなければ (None, 理由)"""
-    try:
-        reply = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return None, f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）"
-    if not isinstance(reply, dict):
-        return None, f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"
-    return reply, ""
+parse_reply = rolekit.parse_reply   # 役の返答を dict に。読めなければ (None, 理由)
 
 
 def accept(board_dir, role, raw, repo) -> dict:
@@ -405,29 +369,7 @@ def collect(board_dir, rnd) -> dict:
 
 
 # ---------------------------------------------------------------- スクリプトの入口
-def script_main(fn, inputs=()) -> int:
-    """blk-eyes のスクリプトの入口。ARTIFACTS_DIR（空も欠け。盤面は その下の board/）と inputs（INPUTS_* の名前）を読み、
-    fn(盤面の置き場, repo=cwd, {名前: 値}) の返りを 1 行の JSON で出して 0。受け付け（返りが ok を持つ）は拒否でも 0 で、
-    script_io.emit_result が reason_file（拒否の理由の本文のファイル。裁定 R44）を足す。0 でないのは配線の誤りだけ:
-    環境変数の欠け・BoardGap・写しの Reject（止めた run への書き込みなど）・思わぬ誤りは、標準出力に何も出さず標準エラーに 1 行で 2"""
-    missing = [x for x in (script_io.ARTIFACTS_ENV, *inputs) if x not in os.environ]
-    if script_io.ARTIFACTS_ENV not in missing and not os.environ[script_io.ARTIFACTS_ENV]:
-        missing.append(script_io.ARTIFACTS_ENV)
-    if missing:
-        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
-        return 2
-    board = script_io.board_dir()
-    if board is None:
-        return 2
-    try:
-        out = fn(board, pathlib.Path.cwd(), {x: os.environ[x] for x in inputs})
-    except (BoardGap, Reject) as e:
-        print(f"{type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    except Exception as e:   # 思わぬ誤りも 1 行と 2（traceback を出さない）
-        print(f"内部の誤り: {type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    if "done" in out:
-        return script_io.emit_result(board, f"eyes_{out.get('node', '')}", out)
-    script_io._emit(out)
-    return 0
+# blk-eyes のスクリプトの入口（rolekit.script_main）。盤面のパスに $ の柵（fence）。受け付け（返りが done を持つ）は拒否でも 0 で、
+# script_io.emit_result が reason_file（拒否の理由の本文のファイル reject-eyes_<節>-<連番>.txt。裁定 R44）を足す。
+# 0 でないのは配線の誤りだけ（環境変数の欠け・BoardGap・写しの Reject・思わぬ誤りは標準エラーに 1 行で 2）
+script_main = functools.partial(rolekit.script_main, fence=True, take="eyes")

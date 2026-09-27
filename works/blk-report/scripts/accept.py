@@ -21,4 +21,4 @@ def run(board, repo, env):
 
 
 if __name__ == "__main__":
-    sys.exit(report_roles.script_main(run, INPUTS, take=True))
+    sys.exit(report_roles.script_main(run, INPUTS, take="report"))

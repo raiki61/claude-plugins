@@ -9,7 +9,7 @@ p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle�
            （na・skipped・状態）を why に。役を起こす前の作業ツリーの姿（accept.tree_state。R47）を周に 1 度だけ置く。
            包みを宣言した run（adapter 空）で旗 no-tree-write の役を回すなら切符を確かめ、無ければ盤面を止める（blk-ci の
            ci-fence と同じ守り。宣言は YAML の入力 adapter で受ける——役を起こす前に固まる値）
-- prep:    本線の指示書（gl-prompts の a1202d0 の写し）を engine と同じ描き方（node_prompt → ctx → pointers → Renderer）で
+- prep:    本線の指示書（gl-prompts の a1202d0 の写し）を engine と同じ描き方（rolekit.render_body）で
            $B/prompts/r<N>/<節>.md に描き、この周のこの節の拒否が在れば最後の拒否の文を頭に置き（R44）、起こした印を置く。
            p0.purpose がラインに無い盤面では、目的の欄を入力 purpose_file（blk-purpose の出口）か「目的の文が無い」の文で埋める
            （作らない。PURPOSE_MISSING）。道具を持たない役（PASTE）には本文そのものを prompt_text で渡す
@@ -28,6 +28,7 @@ p1.worktree_after と engine が走らせる p0.parallel_pr は盤面（settle�
 """
 import contextlib
 import fcntl
+import functools
 import json
 import os
 import pathlib
@@ -43,12 +44,11 @@ from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
 import adapter  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import engine.util as _util  # noqa: E402
-from engine import pointers as _pointers  # noqa: E402
 from engine.commands import _refuse_halted  # noqa: E402  （entry.take と同じ入口の拒み。写しの engine の関数）
-from engine.render import ReadsViolation, Renderer, node_prompt  # noqa: E402
-from engine.util import TERMINAL_STATUS, AnswerReject, dump, now, safe_name  # noqa: E402
+from engine.util import TERMINAL_STATUS, AnswerReject, now, safe_name  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
+import rolekit  # noqa: E402
 import script_io  # noqa: E402
 
 # 役の名（YAML の節 id・包みの印の名）→ 写しの graph の節。並びは graph の順
@@ -124,7 +124,7 @@ SNAPSHOT = "material-snapshot.json"
 REJECTS = "material-rejects.json"
 EXIT = "material-exit.json"
 LOCK = ".works-material.lock"
-PROMPTS_COPY = CORE / "gl-prompts"
+PROMPTS_COPY = rolekit.PROMPTS_COPY
 EXIT_KEYS = ("ok", "reason", "ran", "skipped", "materials", "snapshot", "exit_file")
 PREP_KEYS = ("prompt_file", "prompt_text", "attempt", "out_path", "node", "already", "stopped")   # prep の出口（YAML と突き合わせる）
 SNAPSHOT_KEYS = {"rev": "reviewed_revision", "diff_file": "diff_file", "changed_files": "changed_files",
@@ -266,19 +266,6 @@ def route(board_dir, repo, mode: str) -> dict:
 
 
 # ---------------------------------------------------------------- prep
-def _prompt_graph_path(b, n) -> pathlib.Path:
-    """node_prompt に渡す graph のパス。写しが指示書を持てば写しの graph、無ければ同じ commit から写した gl-prompts/"""
-    own = pathlib.Path(b.state["graph"])
-    parts = [n["prompt_file"], *(n.get("prompt_append") or [])]
-    if all((own.parent / p).is_file() for p in parts):
-        return own
-    alt = PROMPTS_COPY / "prompts" / own.name
-    missing = [p for p in parts if not (alt.parent / p).is_file()]
-    if missing:
-        raise BoardGap(f"指示書 {missing} が写しにも {PROMPTS_COPY} にも無い")
-    return alt
-
-
 def _purpose(purpose_file: str) -> dict:
     """p0.purpose がラインに無い盤面で、指示書の out.p0.purpose を埋める値。purpose_file（blk-purpose の出口の purpose.json）が
     在ればその中身、空なら PURPOSE_MISSING（目的を作らない）。読めないのは配線の誤り（BoardGap）"""
@@ -292,24 +279,14 @@ def _purpose(purpose_file: str) -> dict:
 
 
 def render(b, nid: str, purpose_file: str = "") -> str:
-    """engine の emit_instance と同じ描き方の本文（cap なし）。番号の控えは instance に置く。描けなければ BoardGap"""
-    n = b.nodes[nid]
+    """engine の emit_instance と同じ描き方の本文（rolekit.render_body。cap なし）。p0.purpose がラインに無い盤面では目的の欄を
+    _purpose で埋める。番号の控えは instance に置く。描けなければ BoardGap"""
     inst = _waiting(b, nid)
-    tpl = node_prompt(_prompt_graph_path(b, n), n)
-    ctx = b.ctx()
-    ctx["node"] = {"skills": inst.get("skills") or []}   # engine と同じく、出した時点の applies を持つ写し（settle が置いた物）
-    if "p0.purpose" not in ctx["out"]:
-        ctx["out"] = {**ctx["out"], "p0.purpose": _purpose(purpose_file)}
-    snap_, offsets = _pointers.snapshot(ctx, n.get("pointers"))
-    r = Renderer(ctx, n.get("reads"), ref=b.ref, cap=None, numbered=offsets)
-    try:
-        prompt = r.render(tpl)
-    except (KeyError, ReadsViolation, ValueError) as e:
-        raise BoardGap(f"{nid} の指示書を描けない: {e}") from None
-    if n.get("schema"):
-        prompt += ("\n\n---\n返答はこの JSON Schema に合う JSON だけ（前後に文を付けない）。"
-                   '文字列値の中の " は必ず \\" にエスケープしろ——生のまま入れると返答まるごとが'
-                   "読めずに捨てられる:\n" + dump(n["schema"]))
+
+    def fill_purpose(ctx):
+        if "p0.purpose" not in ctx["out"]:
+            ctx["out"] = {**ctx["out"], "p0.purpose": _purpose(purpose_file)}
+    prompt, snap_ = rolekit.render_body(b, nid, prompts_dir=PROMPTS_COPY, ctx_hook=fill_purpose)
     if snap_ and inst.get("pointers") != snap_:
         inst["pointers"] = snap_
         b.save()
@@ -461,30 +438,9 @@ def collect(board_dir) -> dict:
 
 
 # ---------------------------------------------------------------- スクリプトの入口
-def script_main(fn, inputs=()) -> int:
-    """blk-material のスクリプトの入口。ARTIFACTS_DIR（空も欠け）と inputs（INPUTS_* の名）を読み、
-    fn(盤面の置き場, repo=cwd, {名: 値}) の返りを 1 行の JSON で出して 0。欠けた環境変数・BoardGap・写しの Reject
-    （止めた run への書き込み・git が効かない）は標準エラーに 1 行で 2（標準出力には何も出さない）"""
-    missing = [n for n in inputs if n not in os.environ]
-    if not os.environ.get(script_io.ARTIFACTS_ENV):
-        missing.insert(0, script_io.ARTIFACTS_ENV)
-    if missing:
-        print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
-        return 2
-    board = script_io.board_dir()
-    if board is None:
-        return 2
-    try:
-        out = fn(board, pathlib.Path.cwd(), {n: os.environ[n] for n in inputs})
-    except (BoardGap, _util.Reject) as e:
-        print(f"{type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
-        return 2
-    line = json.dumps(out, ensure_ascii=False) + "\n"
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
-    sys.stdout.write(line)
-    sys.stdout.flush()
-    return 0
+# blk-material のスクリプトの入口（rolekit.script_main。盤面のパスに $ の柵）。欠けた環境変数・BoardGap・写しの Reject
+# （止めた run への書き込み・git が効かない）・思わぬ誤りは標準エラーに 1 行で 2（標準出力には何も出さない）
+script_main = functools.partial(rolekit.script_main, fence=True)
 
 
 def main_accept() -> int:
@@ -502,15 +458,8 @@ def main_accept() -> int:
         return 2
     role, raw, mode = (os.environ[n] for n in names)
     try:
-        try:
-            reply = json.loads(raw)
-        except json.JSONDecodeError as e:
-            out = refuse(board, role, f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）")
-        else:
-            if not isinstance(reply, dict):
-                out = refuse(board, role, f"返答が JSON のオブジェクトでない（{type(reply).__name__}）")
-            else:
-                out = take(board, role, reply, pathlib.Path.cwd(), mode)
+        reply, why = rolekit.parse_reply(raw)
+        out = refuse(board, role, why) if reply is None else take(board, role, reply, pathlib.Path.cwd(), mode)
     except (BoardGap, _util.Reject) as e:
         print(f"{type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
         return 2
