@@ -1,17 +1,46 @@
 ---
 name: works
-description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 報告 の順に流す）に回す。「darkfactory に回して」「works で直して」と言われたときに使う。依頼の JSON の書き方・起動の 1 行・人の関所で何を見てどう答えるかだけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。起動・待つ・承認・再開の一般は Archon の archon-cli スキルに任せる。
+description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 報告 の順に流す）に、今いるリポジトリを対象にして回す。「darkfactory に回して」「works で直して」と言われたときに使う。入れ方・依頼の JSON の書き方・起動の 1 行（works/dev/use.sh）・人の関所での答え方・報告と差分の取り込み方だけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。
 ---
 
 # works
 
 darkfactory に回すのは、原因を調べて直し、テストで確かめる必要のある不具合の依頼。誤字・コメント・文言の直しは回さず手で直す。
 
-起動・待つ・承認・再開の一般（run-id の探し方、`wait`、`--json` を付けたときの二段の承認など）は Archon の `archon-cli` スキル（Archon のリポジトリの `.claude/skills/archon-cli/`）に任せる。ここには darkfactory に固有の事だけを書く。
+流れ: 入れる（1 回だけ）→ 依頼の JSON を書く → 対象リポジトリで起動する → 関所で答える → 報告を読む → 差分を対象へ取り込む。
+回すと費用が掛かる（AI を起こすのは 2 節の `start` と、関所で進めた後だけ）。
+
+## 0. 入れる（1 回だけ）
+
+要る物: macOS（Apple silicon。Archon は固定した版の darwin-arm64 の実行ファイル）・git・uv・gh（初回に Archon の実行ファイルを GitHub の release から落とす）・Claude Code の `claude`・認証（`claude setup-token` で作るトークンを `CLAUDE_CODE_OAUTH_TOKEN` に置くか、それを入れた macOS の keychain の項目名を `WORKS_KEYCHAIN_ITEM` に置く）。
+
+1. works のリポジトリを clone し、場所を `WORKS_REPO` に置く。起動の殻と pack はこの clone から使う（Claude Code のプラグインの置き場の写しからは起動できない。隔離した設定に入れる coldwrite をリポジトリから写すため）。
+
+   ```
+   git clone https://github.com/raiki61/claude-plugins "$HOME/src/claude-plugins"
+   export WORKS_REPO="$HOME/src/claude-plugins"
+   ```
+
+2. このスキルを Claude Code に入れる。
+
+   ```
+   claude plugin marketplace add raiki61/claude-plugins   # 登録済みなら: claude plugin marketplace update raiki61
+   claude plugin install works@raiki61
+   ```
+
+   marketplace の works の行が GitHub に届く前は、その回だけ `claude --plugin-dir "$WORKS_REPO/works"` で読める。
+
+3. 対象リポジトリで、AI を起こさずに確かめる（費用なし）。`darkfactory  ok` が出れば入っている。
+
+   ```
+   sh "$WORKS_REPO/works/dev/use.sh" check <対象リポジトリの根>
+   ```
+
+`archon plugin install` で pack を入れて Archon を直に打つ形は、まだ使わない。AI の役が利用者の本物の `~/.claude`（CLAUDE.md・hooks・プラグイン）を読んでしまうため。`use.sh` は Archon を隔離した家で起こし、役には選んだ物だけの設定を読ませる。
 
 ## 1. 依頼の JSON を書く
 
-findings（指摘）の JSON の配列を 1 つのファイルにする。置き場所は対象リポジトリの外でよい（下の 2 節のとおり、起動では絶対パスで渡す）。
+findings（指摘）の JSON の配列を 1 つのファイルにする。置き場所はどこでもよい（起動のときに写して渡す）。
 
 ```json
 [
@@ -31,49 +60,50 @@ findings（指摘）の JSON の配列を 1 つのファイルにする。置き
 
 ## 2. 起動する
 
-対象リポジトリの直下で、前景で打つ。
+前景で打つ。
 
 ```
-archon workflow run raiki61/works:darkfactory --input request=<依頼の JSON の絶対パス> --input test_cmd="<テストのコマンド>"
+sh "$WORKS_REPO/works/dev/use.sh" start <対象リポジトリの根> <依頼の JSON> "<test_cmd>" [<tdd_suite>]
 ```
 
-- `request` は依頼の JSON の**絶対パス**。`test_cmd` は最後のテスト（と修正の前のテスト）のコマンド（例: `python3 -m unittest -q`）。空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
-- ほかの入力（どれも省ける）: `final_gate`（`always` 既定・`when_needed`＝最後のテストが緑でない・盤面が人に聞いている・異議が残った時だけ最後の関所を開く）・`adapter`（空は Claude の包みを通した run だけを受ける。包み無しで回すなら `optional`。報告に出る）・`tdd_suite`（JUnit XML を書くテストの実行器。在れば修正の段で単位ごとの TDD の輪を回す）・`policy_md`・`gates`・`thickness`（標準だけ）。
-- どこが直されるか: Archon（v0.11.1）は run ごとに worktree を切り、既定ではその元を **remote の既定の枝**（`origin/<既定の枝>`）にする。今いる枝でも、手元の commit していない変更でもない。だから依頼を対象の中に置いて commit していなければ、run の worktree には無い（相対パスは run の worktree の根から読まれる）。remote の無いリポジトリでは worktree を切れず、run が始まらない。
-  - 元を替える: `--from <枝や ref>`（例: `--from origin/my-branch`。remote に在る物を渡す）。worktree の枝の名前を決める: `--branch <名>`。
-  - 今の作業ツリーでそのまま回す: `--no-worktree`（隔離しない。`--branch`・`--from` とは一緒に使えない）。
-- 修正は commit されない。Archon の run ごとの worktree の中に、commit していない変更として残る。場所は `archon workflow runs --json` の、その run の `working_path`。
-- 最初に起動の関所（`launch`）で止まる。`archon workflow approve <run-id>` で越える（`--detach` を付けると背景で続き、`archon workflow cancel <run-id>` で木ごと止められる）。
-- works の開発中（`works/dev/archon.sh` で project pack として回すとき）は、ラインの名前は `darkfactory` だけ。AI の役は、開発の殻が組む選んだ物だけの Claude の設定（`dev/toolset.py`）を読む。
+- 対象の条件: commit していない変更・未追跡のファイルが無い（run は対象の今の HEAD から切り、差分はここへ当てる）。remote の `origin` が在る（Archon が worktree を切る前に fetch する）。`/private/tmp` の下でない。どれかに当たると、何もせずに 1 行で止まる。
+- `test_cmd`: 修正の前と最後に回すテストのコマンド（例: `python3 -m unittest -q`・`uv run pytest -q`）。空なら対象の `.review-checks.json` の宣言を回し、宣言も無ければ CI の任せ先の役が走らせ方を探す。
+- `tdd_suite`（省ける）: JUnit XML の書き先を第 1 引数に受ける実行ファイル（対象の根から走る）。在れば修正の段で単位ごとの TDD の輪を回す。省くと、`test_cmd` が pytest の 1 コマンドなら殻がそれに `--junitxml` を足す実行器を書いて渡し、そうでなければ輪を飛ばして直に直す（どちらにしたかを 1 行出す）。
+- 最後の関所は既定でいつも開く。要る時だけにするなら `WORKS_USE_FINAL_GATE=when_needed` を前に付ける。
+- 殻がすること: pack を利用の家（`WORKS_USE_HOME`。既定は `~/.local/state/works/use`）に置き、Archon をその家に隔離して起こす。AI の役はその家に組んだ選んだ物だけの Claude の設定を読み、あなたの `~/.claude` は読まない。対象の作業ツリーには何も書かない。
+- Archon がすること: 対象の `.git` に run の worktree と枝を足す（worktree は利用の家の下）。起動の前に `origin` を fetch し、対象で今いる枝が既定の枝で `origin` より遅れていれば早送りする。
+- 最初に起動の関所（`launch`）で止まって戻り、run id・状態・run の worktree・次に打つ行（進める・答える・止める・続ける）・報告の置き場を出す。
 
 ## 3. 人の関所で見て答える
 
-関所は 3 つ。どれも文言に「全文のファイルのパス」が載るので、そのファイルを読んで答える。
+関所は 3 つ。どれも文言に「全文のファイルのパス」が載るので、そのファイルを読んで答える。打つ行は殻が出した物をそのまま使う（`use.sh show <対象>` でいつでも出し直せる）。
 
-1. 起動の関所 `launch`: `archon workflow approve <run-id>` で始まる。
+1. 起動の関所 `launch`: 「進める」の行（`… workflow approve <run-id>`）で始まる。
 2. 修正の前の関所 `policy-gate`（要る時だけ）: 修正案が能力を狭める・事前審査が後退や方針の穴を挙げた・方針の文書が変わった時に開く。全文は盤面の `r1/gate.md`。
-   - 通す: `archon workflow respond <run-id> continue "<通す範囲と条件>"`（一言は修正役にファイルで届く）。`approve` も通す。
-   - 止める: `archon workflow respond <run-id> stop "<理由>"`（`reject --reason` も止める）。止めても報告は出る。
-3. 最後の関所 `final-gate`（`final_gate: always` ならいつも）: 最後のテストの緑赤・ログ・差分の置き場・残った異議が全文 `r1/final-gate.md` に在る。
-   - 進める: `archon workflow respond <run-id> continue "<一言>"`。止める: `stop "<理由>"`。どちらでも報告へ進む。
+   - 通す: 「答えて進める」の行（`respond <run-id> continue "<通す範囲と条件>"`）。一言は修正役にファイルで届く。`approve` も通す。
+   - 止める: 「関所で止める」の行（`respond <run-id> stop "<理由>"`）。止めても報告は出る。
+3. 最後の関所 `final-gate`: 最後のテストの緑赤・ログ・差分の置き場・残った異議が全文 `r1/final-gate.md` に在る。`continue` でも `stop` でも報告へ進む。
 
-修正の差分そのものは、Archon の run ごとの worktree にある（2 節の `working_path`。`git -C <working_path> diff` で見る）。
-関所で待っている run は `cancel` でなく `respond … stop` で止める。
+関所で待っている run は `cancel` でなく `respond … stop` で止める。判定が直す物を 1 つも残さなかったときは、修正の段を飛ばして報告へ行く（結末は `no_fix_needed`）。
 
-判定が直す物を 1 つも残さなかった（依頼の件が再現しない・直す義務の無い単位だけ）ときは、修正案・修正・審査・手直しを飛ばし、最後のテストで周を締めて報告へ行く（結末は `no_fix_needed`）。
+## 4. 報告を読み、差分を取り込む
 
-## 4. run の後に見る物
+```
+sh "$WORKS_REPO/works/dev/use.sh" show <対象リポジトリの根>
+```
 
-run の出口（最後の節 `report` の出力）に、見るファイルのパスが載る。
+一番新しい run について、状態・報告の置き場・差分のファイルを出す。
 
-- `outcome`: `fixed`・`no_fix_needed`・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札 `dev/stop.sh`）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）。
-- `report_file`: 機械が組む短い報告（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）。`next_request_file`: 次の run に渡す依頼の下書き（残った穴・赤）。
-- `judgment_file`・`review_file`・`diff_file`・`faces`: 1 本目と同じ欄（判定・差分の審査の返答・審査した差分・穴の数）。
-- 修正そのもの: Archon の run ごとの worktree（`archon workflow runs --json` の `working_path`）。commit していないので、取り込むかは人が決める。
+- 報告: 盤面の `report.md`（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）と `next-request.json`（次の run に渡す依頼の下書き）。
+- 結末（run の出口の `outcome`）: `fixed`・`no_fix_needed`・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）。
+- 差分: run の worktree と周の頭の版の差（手直しと未追跡も入る）を、利用の家の `diffs/run-<id>.diff` に書く。修正は commit されない。取り込むかは人が決め、殻が出す `git -C <対象> apply <diff>` の行で当ててから、手元でテストを回して commit する。
+- 片付け: 取り込んだ後、run の worktree と枝は `git -C <対象> worktree remove <worktree>` と `git -C <対象> branch -D <枝>` で消せる（Archon 自身の片付けは `complete <枝>`）。
 
 ## 5. 止めて続ける
 
-- 止め札: `sh works/dev/stop.sh <run-id> "<理由>"`。走っている AI の節は最後まで走り、次の境の節で止まる（報告は出る）。
-- 前景の run は Ctrl-C（端末が SIGINT を送る）で止まる。関所で待っている run は `respond … stop`。
-- 続ける: `archon workflow resume <run-id>` で、済んだ節の続きから回る。
-- ブロックの中の出し直しが上限（3 回）を超えたときは run が失敗で止まり、報告の節まで届かない。`dev/report.sh` で盤面から報告を組む（結末 `interrupted`）。
+- 止め札: 対象の根で `WORKS_DEV_HOME="${WORKS_USE_HOME:-$HOME/.local/state/works/use}" sh "$WORKS_REPO/works/dev/stop.sh" <run-id> "<理由>"`。走っている AI の節は最後まで走り、次の境の節で止まる（報告は出る）。
+- 前景の run は Ctrl-C で止まる。関所で待っている run は `respond … stop`。
+- 続ける: 殻が出した「続ける」の行（`resume <run-id>`）で、済んだ節の続きから回る。
+- ブロックの中の出し直しが上限（3 回）を超えたときは run が失敗で止まり、報告の節まで届かない。対象の根で、止め札と同じ `WORKS_DEV_HOME=…` を前に付けて `sh "$WORKS_REPO/works/dev/report.sh" <run-id>` を打つと、盤面から報告を組む（結末 `interrupted`）。
+
+works 自身の直しは、この殻でなく `works/dev/dogfood.sh` で回す（README の「自分食い」）。

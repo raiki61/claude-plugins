@@ -30,16 +30,18 @@ sys.stdout.write(json.dumps(doc, ensure_ascii=False) + "\n")
 ' >"$2/.works-source.json"
 }
 
-# works_dev_show_run <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ>]:
-# 一番新しい darkfactory の run を引き、run id・状態・修正の差分がある worktree・次に打つコマンド（承認・拒否・続き）・
-# 3 つめを渡せば、run の worktree の git diff --binary <周の頭の版>（未追跡も入れる。P1 Task 29）を <対象の dir の親>/run-<id>.diff に
-# 書き、git apply で取り込むコマンドも出し、修正が pack の写し（.archon/）に触れていれば取り込まないよう 1 行で注意する。問い合わせは認証が要らないので認証を読ませない。
+# works_dev_show_run <呼び手> <archon を呼ぶ殻> <対象の dir> [<差分を取り込むリポジトリ> [<差分の置き場>]]:
+# 一番新しい darkfactory の run を引き、run id・状態・修正の差分がある worktree・次に打つコマンド（承認・関所に答える continue と stop・
+# 拒否・続き）・報告の置き場（盤面の report.md。report の節まで済んだ後に在る）を出す。
+# 4 つめを渡せば、run の worktree の git diff --binary <周の頭の版>（未追跡も入れる。P1 Task 29）を <差分の置き場>（既定は
+# <対象の dir の親>）/run-<id>.diff に書き、git apply で取り込むコマンドも出し、対象に pack の写し（.archon/workflows/works）が在って
+# 修正がその .archon/ に触れていれば取り込まないよう 1 行で注意する。問い合わせは認証が要らないので認証を読ませない。
 # 承認・拒否・続きのコマンドは、呼び手の WORKS_KEYCHAIN_ITEM を sh の直前に載せ、export の無い殻でもそのまま打てる形で出す。
 # 修正は対象ではなく、Archon が run ごとに切った worktree の中にある。関所の文面の「テストのログ」の行が、テストの出力のファイル。
 # WORKS_DEV_HOME・WORKS_DEV_MODEL・CLAUDE_BIN_PATH を export 済みで呼ぶ。
 works_dev_show_run() {
   WORKS_DEV_NO_AUTH=1 sh "$2" workflow runs --json 2>/dev/null |
-    CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" python3 -c '
+    CALLER="$1" ARCHON_SH="$2" DIR="$3" BRING_BACK="${4:-}" DIFF_DIR="${5:-}" python3 -c '
 import json, os, shlex, subprocess, sys
 runs = [r for r in json.load(sys.stdin).get("runs", []) if r.get("workflow_name") == "darkfactory"]
 if not runs:
@@ -64,8 +66,11 @@ print("修正の差分がある worktree:", r.get("working_path"))
 if not item:
     print("認証: 下の 3 つは CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つ（値は出さない。keychain なら WORKS_KEYCHAIN_ITEM=<項目名> を sh の直前に足す）")
 print("進める（承認するとその場で続きを回す）:", go, "approve", r.get("id"))
+print("関所に一言で答えて進める:", go, "respond", r.get("id"), "continue", shlex.quote("<通す範囲と条件>"))
+print("関所で止める（報告は出る）:", go, "respond", r.get("id"), "stop", shlex.quote("<理由>"))
 print("止める:", go, "reject", r.get("id"))
 print("失敗や中断から続ける:", go, "resume", r.get("id"))
+print("報告（report の節まで済んだ後）:", os.path.join(board, "report.md"))
 if os.environ["BRING_BACK"]:
     # 修正の差分は run の worktree の今の姿と周の頭の版（start の控え r<N>/start.json の base_rev）の差（未追跡も入れる。
     # 盤面の fix.diff は審査の段の物で、手直しの後の姿を持たないので読まない）。一時の index で数え、worktree の index は動かさない
@@ -77,7 +82,9 @@ if os.environ["BRING_BACK"]:
                 base = json.load(f).get("base_rev") or base
         except (OSError, ValueError):
             pass
-    diff = os.path.join(os.path.dirname(os.path.abspath(os.environ["DIR"])), "run-{}.diff".format(r.get("id")))
+    diff_dir = os.environ["DIFF_DIR"] or os.path.dirname(os.path.abspath(os.environ["DIR"]))
+    os.makedirs(diff_dir, exist_ok=True)
+    diff = os.path.join(diff_dir, "run-{}.diff".format(r.get("id")))
     if os.path.isdir(wp):
         base = base or subprocess.run(["git", "-C", wp, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         with tempfile.TemporaryDirectory() as td:
@@ -91,7 +98,8 @@ if os.environ["BRING_BACK"]:
         print("修正の差分: run の worktree（{}）が無いので書いていない".format(wp))
     print("差分を元のリポジトリへ取り込む:", "git -C {} apply {}".format(shlex.quote(os.environ["BRING_BACK"]), shlex.quote(diff)))
     touched = False
-    if os.path.isfile(diff):
+    # 注意は対象に pack の写しが在る時だけ（自分食い・使い捨ての対象）。ほかのリポジトリの .archon/ は対象自身の物
+    if os.path.isfile(diff) and os.path.isdir(os.path.join(os.environ["DIR"], ".archon", "workflows", "works")):
         with open(diff, encoding="utf-8", errors="replace") as f:
             touched = any(l.startswith(("diff --git a/.archon/", "--- a/.archon/", "+++ b/.archon/")) for l in f)
     if touched:
