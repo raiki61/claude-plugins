@@ -1,0 +1,33 @@
+{
+  "findings": [
+    {
+      "where": "graphloops/engine/role_run.py: _ps_all() — subprocess.run([\"ps\", \"-A\", ...])",
+      "text": "全プロセスの表を取る ps 呼び出しに timeout が付いていない。ps がハング（NFS 越しの /proc 相当・大量プロセス環境等）すれば、_stop_tree の各信号ごとのループが無期限に止まる。",
+      "mechanism": "subprocess.run(..., capture_output=True, text=True, encoding=..., errors=...) の呼び出しに timeout= 引数が無い。例外処理は OSError / SubprocessError のみで、TimeoutExpired を想定した分岐が無い。",
+      "measured": "コード読み。実行して確かめていない（ps が実際にハングする環境を用意していない）。",
+      "false_positive_if": "呼び出し元（_stop_tree の KILL_GRACE ループや外側の watchdog）に、この関数呼び出し自体を包む別のタイムアウト機構がある場合。diff の範囲にはそれは見当たらない。"
+    },
+    {
+      "where": "graphloops/engine/role_run.py: _stop_tree() の STOP_SIGNALS ループ内 `if not live: return why`",
+      "text": "_tree_members が返す why（『同じ利用者の未読セッションが在り仲間か決められない』等の不確実性の警告）は、その回に live が空だったときだけ呼び出し元へ届く。生きた仲間が居るループの回では why は握り潰され、ループの最後（全信号送信後）に再度 _tree_members を呼んだ結果だけで成功・失敗が決まる。その最後の呼び出しの時点で当該の未読プロセスがたまたま終了・権限が変わっていれば why は None になり、途中で一度も確定できなかった『仲間かどうか不明』な状態が、最終的に「止まった」（why=None）として報告される可能性がある。",
+      "mechanism": "for sig in STOP_SIGNALS: ループの各回で members, why = _tree_members(...) を取り、if not live: return why で早期返却する分岐のみが why を伝える経路。live が非空の回はその回の why を保存も蓄積もせず次の信号へ進む。ループ終了後の最終チェックも新たに _tree_members を呼び直すだけで、ループ中に観測された why の履歴とは無関係。",
+      "measured": "コード読みによる経路追跡のみ。実際に『未読セッション→途中は不明→最後に読めるようになって why=None』という遷移が起きるかは実測していない（権限昇格・プロセス終了のタイミング依存で再現が難しい）。",
+      "false_positive_if": "同じ利用者の未読セッションを持つプロセスが実運用でほぼ発生しない（sandboxed 実行器・単一利用者環境等）なら実害は理論上のみに留まる。また why が一度でも non-None だった履行を呼び出し側の別レイヤ（loop.py 側）が記録・比較しているなら問題にならない——diff にはその形跡は見当たらない。"
+    },
+    {
+      "where": "graphloops/tests/simulate.py: test_role_run() 内、escaped()/reap() を使う 2 つの新設ブロック（setpgid/setsid の孫、ゾンビだけのグループ）",
+      "text": "check(...) の後に reap(leader, gp) を呼んで起こした子・孫プロセスを回収しているが、try/finally や with で保護されていない。check がアサーション失敗（例外）を上げる実装なら、その回の reap() が実行されず、sleep(120) している長・孫プロセスがテスト実行後も残る。",
+      "mechanism": "for escape in (...): leader, gp = escaped(escape); why = role_run._kill(leader); check(...); reap(leader, gp) という並びで、check と reap の間に例外境界の保護が無い。ゾンビだけのグループのブロックも同様（why = role_run.stop_group(...); check(...); reap(leader, gp)）。",
+      "measured": "コード読みのみ。check() の実装（例外を上げるか、真偽値を記録するだけか）は diff に含まれておらず確認できていない。",
+      "false_positive_if": "check() がこのリポジトリで『失敗を記録して例外は上げない』ソフトアサーションとして実装されているなら、reap() は常に実行され、この指摘は成立しない（他の check(...) 呼び出しの並びも同じパターンで書かれていることから、その可能性は高い）。"
+    },
+    {
+      "where": "tests/mutations.json — RR15・RR16 の追加、および「別の口からもグループごと止める」エントリの更新",
+      "text": "_tree_members が仲間を拾う 3 つの印（① row.pgid == pgid の直接一致、② sessions.get(pid) == pgid、③ 親子の鎖の再帰）のうち、②（RR15）と③（RR16）には壊した版が緑にならないことを確かめる新設の変異エントリがある。しかし①（直接一致・found の集合の起点そのもの）を退行させる変異、および同じ diff で新設された `reused`（長の番号の再利用検知）ガードや `denied`（EPERM 時の再確認）分岐を退行させる変異は、この diff の中には見えない。柵（_tree_members・_stop_tree の新ロジック）が名乗る安全範囲に対し、渡された diff だけからは腕の数がその範囲より狭い可能性がある。",
+      "mechanism": "mutations.json は全体の一部の差分しか見ていない（既存の他エントリがこれらの分岐を別の形でカバーしている可能性は否定できない）。diff で見える追加・変更は RR15・RR16・「別の口から」の更新のみ。",
+      "measured": "diff に見える範囲の目視比較のみ。mutations.json 全体は見ていないため、①・reused・denied 分岐に対応する既存エントリが diff の外（変更されていないため diff に出ない箇所）に在るかどうかは確認できていない。",
+      "false_positive_if": "mutations.json の他の箇所（この diff で変更されていない既存エントリ）が、①の直接一致や reused・denied 分岐を既にカバーしている場合。これは diff だけからは判定不能——実行器で当該箇所に退行を注入し、赤くならないことを確かめる必要がある。"
+    }
+  ],
+  "seen": "diff 全体（role_run.py の import 追加・_popen の born 印・_ps_all・_tree_members・_live・_name・_stop_tree の全面書き換え・stop_group、conftest.py の EXPECTED_ITEMS、test_role_run_stop.py の新設・変更テスト全部、run.sh の EXPECTED_CHECKS、simulate.py の escaped/reap を含む新設ブロックと既存 check 文言の更新、mutations.json の変更・追加エントリ）を読んだ。近傍コード・diff に含まれない role_run.py の他の関数（_started_at・STOP_SIGNALS/KILL_GRACE/REUSE_SLACK の定義・parse_etime・run_tree 本体・_kill・probe_group の全文）は渡されていないため見ていない。mutations.json は diff で見えるエントリのみ見た——ファイル全体（他の既存エントリ）は見ていない。simulate.py の check() 関数の実装本体も見ていない。量による打ち切りはしていない——渡された範囲は全部読んだ。"
+}

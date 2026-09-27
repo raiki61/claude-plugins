@@ -1,0 +1,192 @@
+{
+  "changes": [
+    {
+      "unit_key": "graphloops/engine/role_run.py::_stop_tree/stop_group — 止める範囲がプロセスグループだけで、グループの外へ出た子孫を刈らず、消えたことを確かめずに『止まった』と返す",
+      "what": "role_run._stop_tree の POSIX の本体を『数え上げてから送り、送った後に同じ数え上げで確かめる』形に替えた。新しい _ps_all（ps -A -o pid=,ppid=,pgid=,uid=,etime=,stat=）と _tree_members（止める番号のグループ・セッションの番号が止める番号・その 2 つと前に数えた pid——今の表に同じ開始時刻で居るものだけ——から親子の鎖で辿れる子孫。自分と祖先は除く。同じ利用者なのにセッションが読めないプロセスが在れば理由）を足し、信号ごとに数え上げ→止める番号のグループと仲間が長のグループへ killpg、残りの仲間へ os.kill→KILL_GRACE の刻みで待つ→次の信号の前に数え直し、最後に数え直して生きた仲間が残れば名指しの理由を返す。表が読めない回は止める番号のグループへだけ送り、外へ出た子孫を確かめられないと理由を返す。docstring の KillMode=control-group の比喩を、抜けられるグループと拾い方の why に直した。simulate.py に setpgid・setsid で外へ出た孫の検査 2 本、pytest に数え上げ・名指しの理由・表が読めない回の検査を足し、変異の腕 RR3 の字列を今の送り口へ直し、RR16（親子の鎖）を足した。",
+      "closure": {
+        "mechanism": "_stop_tree は起こした時のプロセスグループ 1 つを『試行の木』とみなし、killpg(pgid,0) が ESRCH なら止まったと数えていた。ジョブ制御つきのシェル（setpgid）や setsid で外へ出た孫は信号も確かめも受けず、None（止まった）が返った",
+        "fix_mechanism": "止める相手の集合を _tree_members 1 か所で数え上げ（グループ・セッション・親子の鎖）、送り先と確かめの両方がそこを引く。setpgid で抜けた孫はセッションで、setsid で抜けた孫は（親が生きている間の）親子の鎖で拾う。止まったと言えるのは数え直して生きた仲間が 0 のときだけ",
+        "verified_how": "作業ツリーの写し（mktemp -d の下）で 1 か所ずつ退行を注入して GL_TEST_ONLY=test_role_run を走らせ、赤→元に戻して 31 件緑: RR3（killpg(g) を kill(g) に）→『stop_group では孫…まで止まる』が赤、RR16（親子の鎖を辿らない）→『グループの外へ出た孫（os.setsid()）』が赤、RR15（セッションで数えない）→ゾンビの検査が赤。BASE の role_run.py で同じ 3 形を走らせると setpgid の孫・setsid の孫が残り（gc gone False）、ゾンビの形は『信号を送れない』を返した。修正後は 3 形とも None・孫は消えた",
+        "sites": [
+          {
+            "site": "role_run._tree_members の親子の鎖（todo = list(found)）",
+            "red_seen": true
+          },
+          {
+            "site": "role_run._stop_tree の killpg(g, sig)（仲間が長のグループへ送る口）",
+            "red_seen": true
+          },
+          {
+            "site": "role_run._tree_members のセッションの番号での拾い（sessions.get(pid) == pgid）",
+            "red_seen": true
+          }
+        ]
+      },
+      "files": [
+        "graphloops/engine/role_run.py",
+        "graphloops/tests/simulate.py",
+        "graphloops/tests/py/test_role_run_stop.py",
+        "tests/mutations.json",
+        "graphloops/tests/py/conftest.py",
+        "graphloops/tests/run.sh"
+      ],
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "判定が名指した根（止める相手を起こした時の記録で数え上げ、止めた後に同じ記録で数え直す手段が無い）そのものを、1 つの数え上げの関数で塞いだ。印を環境変数でなくセッションの番号と親子の鎖にしたのは、macOS 26.6.2 で他のプロセスの環境が読めない（ps -A -E にも KERN_PROCARGS2 にも出ない）と実測したため。残る限界（信号より前に親が消え、setsid でセッションも抜けた子孫）は docstring に書き、not_done ではなく plan_faces の 2 に宣言した"
+      },
+      "bypass_tried": "修正を残したまま破りに行った: ①setpgid で自分のグループへ移った孫（長は生存）→止まった ②setsid で新しいセッションへ抜けた孫（長は生存）→止まった ③長が終わって回収されない（ゾンビ）グループと、setpgid で抜けてセッションに残った孫（stop_group・長を回収しない）→None・孫も消え・印も消えた ④TERM を無視する孫（既存の run_tree の検査）→SIGKILL で消えた ⑤前に数えた pid が別の開始時刻の別物に再利用された表（pytest）→起点に入らない ⑥生きた仲間に EPERM（pytest）→待たずに『グループ 4242 に信号を送れない』 ⑦表が読めない（pytest）→止まったと言わず理由 ⑧同じ利用者でセッションが読めない pid（pytest）→理由。破れた形: 信号より前に親が消えて ppid が 1 になり、かつ setsid でセッションも抜けた子孫は拾えない（mktemp の下の実験で確かめていないが、3 つの印のどれにも当たらないので原理上拾えない）——docstring の『拾えない物』に書いた",
+      "breaks": {
+        "how": "git grep -n \"_stop_tree\\|stop_group(\\|_kill(\\|kill_all()\" -- graphloops/engine graphloops/scripts（呼び元: commands.py:741 kill_all・1388 stop_marks→stop_group、role_run の kill_all・_popen・run_tree・_spawn・stop_group）／git grep -n \"KillMode\\|グループの消滅\\|グループが消えるまで\\|SIGKILL の後も残っている\\|信号を送れない\"（動きを述べた文）／git grep -n \"os.killpg\\|PermissionError\" -- graphloops/engine tests/mutate.py",
+        "result": "呼び元は全部 _stop_tree を通るので変えていない。確かめ: bash graphloops/tests/run.sh 1935 件すべて緑（件数の定数 1932→1935）・pytest graphloops/tests/py 380 件緑（定数 374→380）・GL_TEST_ONLY=test_role_run の simulate.py 31 件緑（relaunch・kill_all・still_mine・番号の再利用・開始時刻が取れない回・run_tree の時間切れと TERM を無視する孫・標準入力を閉じる、の既存の検査を含む）・graphcheck 3 本 ok・tests/mutate.py --check 422 腕で字列の無い腕 0・bash tests/run.sh（1 回目は新しい台本の text=True に encoding が無いと SUB_ENCODING_OK が赤→encoding を足し、その検査を単独で緑にしてから一式を走らせ直し、586 件すべて緑）。動きを述べた文: _stop_tree の docstring の KillMode=control-group の比喩を直し、simulate.py の『グループが消えるまで待って SIGKILL』2 行を『木が消えたかを数え直して SIGKILL』に直した。test_engine_guards.py:148 の『グループ 4242 が SIGKILL の後も残っている』は relaunch の代役が返す任意の理由の文で、_stop_tree の出力を字面で見ていないので残した。"
+      },
+      "precedent": {
+        "problem": "子孫が自前のプロセスグループやセッションへ抜けても、ある仕事が起こしたプロセスを全部止め、消えたことを確かめる",
+        "source": "Codex CLI codex-rs/utils/pty/src/process_group.rs（Apache-2.0。killpg が拒まれたらグループの一員を数え上げ、今もそのグループの物にだけ 1 本ずつ送る）／Jenkins ProcessTreeKiller（https://wiki.jenkins.io/display/JENKINS/ProcessTreeKiller。環境変数の印で探す）／Vibe Kanban crates/utils/src/process.rs（起こした時に取った pgid にだけ送る）——いずれも scratchpad/competitors/SURVEY.md の一次情報の出典つきの行",
+        "verdict": "adapt",
+        "reason": "Codex の『数え上げてから 1 本ずつ』と Vibe Kanban の『起こした時の番号にだけ』を採り、数える印を Jenkins の環境変数からセッションの番号と親子の鎖に替えた。環境変数は macOS 26.6.2 で他のプロセスの物が読めない（ps -A -E・sysctl KERN_PROCARGS2 で自分が起こした子の環境が出ない。実測 2026-09-26）。psutil は足さない（ps と os.getsid で足り、利用者の入れ方を変えない）"
+      },
+      "coverage": {
+        "remaining": "母数 6 行のうち、role_run.py の 4 行は全部この修正の中に在る: _popen の start_new_session（起こす形は変えない——木の印になるセッションを作る行そのもの）・docstring の KillMode=control-group（比喩を『cgroup は抜けられないがグループは抜けられる』の why に直した。語は残る）・killpg の 2 行（killpg(pgid,0) は表が読めない回の確かめ、killpg(g,sig) は数え上げた仲間のグループへの送り口として残る）。population なので件数は減らない。tests/mutate.py の 2 行（run_group の start_new_session と killpg）は判定どおり並行の線 wip/mutsample（20fc0a2）の担当で、この周は触らない（二重に作らない。合流で重ねる）",
+        "how": {
+          "patterns": [
+            "os\\.killpg\\(",
+            "start_new_session",
+            "KillMode=control-group"
+          ],
+          "paths": [
+            "graphloops/engine/role_run.py",
+            "tests/mutate.py"
+          ],
+          "count": "lines"
+        }
+      }
+    },
+    {
+      "unit_key": "graphloops/engine/role_run.py::_stop_tree.alive — macOS でゾンビだけのグループへの killpg の EPERM を『生きている』『送れない』と数え、止まった木を止め切れないと報告する",
+      "what": "_stop_tree の確かめを killpg(pgid,0) の errno 1 問から数え直しに替え、仲間がゾンビ（stat が Z）だけなら止まったと数える（_live）。EPERM を一律に居ないとは読まない: 生きた仲間が居て EPERM が返れば、待たずに今と同じ『グループ {g} に信号を送れない（…）』を返す。simulate.py にゾンビだけのグループの検査を足し、変異の腕 RR9 をゾンビの扱いの字列へ、RR15（セッションで拾う）を足した。",
+      "closure": {
+        "mechanism": "macOS はゾンビだけのグループへの killpg を EPERM で拒む（XNU の killpg1）。_stop_tree は EPERM を即『信号を送れない』、alive() は PermissionError を生きていると数えたので、長を回収しない stop_group は止まった木を止め切れないと返し、relaunch と stop が止まった",
+        "fix_mechanism": "信号の前後で ps の表を数え直し、ゾンビを生きた仲間から外す（_live）。EPERM が返った回も数え直してから決め、生きた仲間が残るときだけ『送れない』を返す",
+        "verified_how": "写しで RR9（ゾンビも生きた仲間に数える）を注入→『ゾンビだけのグループの EPERM…』が赤（グループ …に信号を送れない）、戻して緑。BASE の role_run.py では同じ形が『信号を送れない（[Errno 1] Operation not permitted）』を返し孫が残った。pytest で、ゾンビだけ→None・送らない、生きた仲間に EPERM→待たずに理由・送ったのは SIGTERM 1 回、を確かめた",
+        "sites": [
+          {
+            "site": "role_run._live（ゾンビを生きた仲間に数えない）",
+            "red_seen": true
+          },
+          {
+            "site": "role_run._stop_tree の EPERM の分岐（denied→数え直し）",
+            "red_seen": true
+          }
+        ]
+      },
+      "files": [
+        "graphloops/engine/role_run.py",
+        "graphloops/tests/simulate.py",
+        "graphloops/tests/py/test_role_run_stop.py",
+        "tests/mutations.json"
+      ],
+      "root_or_symptom": {
+        "kind": "root",
+        "why": "errno 1 つに 2 つの意味（権限が無い・ゾンビしか居ない）があるのを、数え上げで見分ける形にした。判定の処方どおり"
+      },
+      "bypass_tried": "修正を残したまま: ①ゾンビの長と setpgid で抜けた孫（stop_group）→None・孫も消えた ②生きた仲間への EPERM（pytest。sandbox の中の本物の EPERM の代役）→即『送れない』で印を残す ③ゾンビだけ（pytest）→送らずに None ④Linux の形（ゾンビへの kill が 0 を返す）は、待ちの刻みの後の数え直しでゾンビを外すので None になる（コードの筋で確かめた。Linux では走らせていない）",
+      "breaks": {
+        "how": "git grep -n \"_stop_tree\\|stop_group(\\|_kill(\\|kill_all()\" -- graphloops/engine graphloops/scripts（呼び元: commands.py:741 kill_all・1388 stop_marks→stop_group、role_run の kill_all・_popen・run_tree・_spawn・stop_group）／git grep -n \"KillMode\\|グループの消滅\\|グループが消えるまで\\|SIGKILL の後も残っている\\|信号を送れない\"（動きを述べた文）／git grep -n \"os.killpg\\|PermissionError\" -- graphloops/engine tests/mutate.py",
+        "result": "呼び元は全部 _stop_tree を通るので変えていない。確かめ: bash graphloops/tests/run.sh 1935 件すべて緑（件数の定数 1932→1935）・pytest graphloops/tests/py 380 件緑（定数 374→380）・GL_TEST_ONLY=test_role_run の simulate.py 31 件緑（relaunch・kill_all・still_mine・番号の再利用・開始時刻が取れない回・run_tree の時間切れと TERM を無視する孫・標準入力を閉じる、の既存の検査を含む）・graphcheck 3 本 ok・tests/mutate.py --check 422 腕で字列の無い腕 0・bash tests/run.sh（1 回目は新しい台本の text=True に encoding が無いと SUB_ENCODING_OK が赤→encoding を足し、その検査を単独で緑にしてから一式を走らせ直し、586 件すべて緑）。動きを述べた文: _stop_tree の docstring の KillMode=control-group の比喩を直し、simulate.py の『グループが消えるまで待って SIGKILL』2 行を『木が消えたかを数え直して SIGKILL』に直した。test_engine_guards.py:148 の『グループ 4242 が SIGKILL の後も残っている』は relaunch の代役が返す任意の理由の文で、_stop_tree の出力を字面で見ていないので残した。"
+      },
+      "precedent": {
+        "verdict": "adapt",
+        "reason": "判定者の先行例の行（単位 2・XNU killpg1 と hermes-agent #104696）をそのまま採った——EPERM を一律に読み替えず、ps でメンバーを数えてゾンビだけのときに限って居ないとみなす",
+        "from_judge_row": true
+      },
+      "coverage": {
+        "remaining": "母数 4 行のうち role_run.py の 2 行（PermissionError）はこの修正の中に在る: 生きた仲間への送り口の EPERM（数え直してから『送れない』を返す）と exists() の EPERM（居ると数える——数え直しの前の安い問い）。どちらも EPERM を一律に読み替えないための行として残る。tests/mutate.py の 2 行（run_group の killpg の握り潰し）は並行の線 wip/mutsample の担当で、この周は触らない",
+        "how": {
+          "patterns": [
+            "PermissionError"
+          ],
+          "paths": [
+            "graphloops/engine/role_run.py",
+            "tests/mutate.py"
+          ],
+          "count": "lines"
+        }
+      }
+    }
+  ],
+  "not_done": [
+    {
+      "unit_key": "tests/mutate.py::run_group — 実行器が止める信号を受けても、自前のセッションで起こした腕の子を止めない",
+      "why": "判定どおり defer（並行の線 wip/mutsample 20fc0a2 が tests/mutate.py の止める信号の手当てを持つ。二重に作らず合流で重ねる）。申し送り: 外から SIGKILL された mutate.py が残す start_new_session の腕は、この周の数え上げでも親子の鎖が切れていれば拾えない（plan_faces 2）"
+    }
+  ],
+  "fix_closure": {
+    "status": "found",
+    "count": 2,
+    "detail": "単位 1・2 を 1 つの数え上げ（_tree_members）で閉じた。閉鎖の実証は 5 site を写しで 1 か所ずつ注入して赤→戻して緑（RR3・RR9・RR15・RR16 と EPERM の分岐は pytest）。BASE の role_run.py では同じ 3 形（setpgid の孫・setsid の孫・ゾンビの長）が全部赤"
+  },
+  "mechanism_changed": true,
+  "premise_drift": false,
+  "gates_changed": true,
+  "seams_changed": true,
+  "security_surface_changed": true,
+  "path_changed": false,
+  "rejudge_requested": "次の周の判定に渡したいこと 3 件: ①判定の単位 1 の処方（Jenkins の環境変数の印）は macOS 26.6.2 で成り立たない（他のプロセスの環境が ps -A -E・KERN_PROCARGS2 で読めない。実測 2026-09-26）。この周はセッションの番号と親子の鎖で替えた。単位 3 の defer の理由（印が拾う）も成り立たないので、外から SIGKILL された mutate.py の孤児の腕（setsid で抜け、鎖も切れた物）をどう扱うかを再判定してほしい。②長が正常に終わった回に外へ出た孫を刈らない入口（事前審査の穴 5）——刈るかは能力の取捨で、人に上げる候補。③取りまとめ役の伝言（2026-09-26 13:40 の実測。この周の判定の後に届き add が拒まれた）: graphloops/tests/simulate.py の run_tree の検査の TERM を無視する固定具（tree-deaf.pid）が、run_tree が止め損ねた回に消されず、親の居ないまま 12 本残っていた（古い物 20.5 時間・新しい物 46 分、nice 19 と nice 0 の両方）。台本に finally で記録した pid を SIGKILL する後片付けが無い。依頼の JSON は scratchpad/layer1-fixture-leak.json。この周に足した台本 3 本は後片付け（reap）を持つ",
+  "interactions": [
+    {
+      "surface": "graphloops/engine/role_run.py",
+      "checked": "修正 1（数え上げ・送り分け）と修正 2（ゾンビの扱い・EPERM の分岐）は同じ _stop_tree の同じ数え上げを使う。①一方が他方を不要にしない（1 は外へ出た孫、2 はゾンビの長の EPERM で、別の入口）②当てる順序に依らない（1 本の関数に同時に書いた）③組み合わせで生まれる状態: ゾンビの長＋セッションに残った孫の形で、2 が EPERM を送れないと読まずに数え直し、1 がセッションで孫を拾う——simulate.py のゾンビの検査がこの組を見て緑",
+      "combined_effect": "ゾンビの長と外へ出た孫が同時に在る木（relaunch の実測の形）が、stop_group で止まったと正しく返る"
+    },
+    {
+      "surface": "graphloops/tests/simulate.py",
+      "checked": "修正 1 の setpgid・setsid の検査と修正 2 のゾンビの検査は同じ escaped と reap を使い、互いの固定具を残さない（reap が孫と長を番号で止めて回収）。順序: setpgid→setsid→ゾンビ、どれも mark を最後に消す"
+    },
+    {
+      "surface": "graphloops/tests/py/test_role_run_stop.py",
+      "checked": "同じ代役（posix・members_of）を 2 つの修正の検査が共有する。代役は os を差し替えるので他の検査（Windows の taskkill・probe_group）に漏れない（monkeypatch が戻す）。380 件緑"
+    },
+    {
+      "surface": "tests/mutations.json",
+      "checked": "修正 1 の腕（RR3・RR16）と修正 2 の腕（RR9・RR15）は別の字列で、どれも role_run.py に 1 か所だけ在る（mutate.py --check 緑）。RR15 は修正 1 の機構（セッションで拾う）を修正 2 の検査（ゾンビの形）が殺す——ゾンビの長の下の孫は親子の鎖が切れていてセッションでしか拾えないため。並行の wip/mutsample が変えた腕（tests/mutate.py の 3739 行付近）とは重ならない"
+    }
+  ],
+  "wrote_refs": [],
+  "plan_faces": [
+    {
+      "key": "fallback-keeps-fail-open-when-unreadable",
+      "handled": "absorbed",
+      "how": "今の形へ黙って落ちる分岐を消した。表が読めない回は止める番号のグループへ送るが、必ず『止める相手を数え上げられない（…）——外へ出た子孫を確かめていない』を返す（None にしない）。表の中で同じ利用者なのに getsid が拒まれた pid が 1 つでもあれば同じく理由を返す（他の利用者の物は木の仲間になりえないので問わない）。None に入る道は『数えて生きた仲間が 0』の 1 本だけ。narrows には当たらない: relaunch・stop の前の probe_group が既に ps（_started_at）を要り、ps の無い場では BASE でも relaunch は止まる。launch の中の _kill は理由を NG の行に出すだけで止まらない"
+    },
+    {
+      "key": "orphaned-setsid-descendants-undeclared",
+      "handled": "declared",
+      "how": "信号より前に親が消えて鎖が切れ、かつ setsid でセッションも抜けた子孫（二重 fork の daemon 化・外から SIGKILL された mutate.py が残した start_new_session の腕）は、この周の数え上げでは拾えない——_tree_members の docstring の『拾えない物』に宣言した。BASE も拾えなかった物なので能力の後退ではなく、narrows は空のまま。拾うには Linux の PR_SET_CHILD_SUBREAPER や cgroup、macOS で読める別の印が要り、機構の新設になるので判定を通してから。判定の単位 3 の defer の理由（環境変数の印が拾う）は、この案では成り立たない: mutate.py が止める信号を受けた回は並行の線（wip/mutsample の install_stop_handlers）が腕を止め、SIGKILL された回の孤児の腕だけが残る。次の周の判定に rejudge_requested で渡した"
+    },
+    {
+      "key": "pytest-fakes-and-mutation-anchors-not-updated",
+      "handled": "absorbed",
+      "how": "pytest の 2 本（test_stop_group_posix_group_already_gone・test_stop_group_posix_watches_the_group→_tree）を数え上げの代役（_tree_members を差し替え、os に killpg と kill を持たせる）に書き直し、名指しの理由と送った (宛先, 信号) を見る形にした。test_run_tree_kills_the_tree_when_waiting_breaks は Popen の差し替えが止める口の ps まで壊していたので、最初の 1 本だけを壊す形にした。ゾンビだけ・生きた仲間への EPERM・グループの外の仲間への送り分け・表が読めない回・_tree_members の拾い方 2 本を足した（374→380 件、conftest の定数も合わせた）。変異の腕: RR3 を今の送り口（os.killpg(g, sig)）へ、RR9 を今の口では等価になるので（待ちを早く抜けても次の数え直しが拾う）ゾンビの扱い（_live）へ付け替え、RR15（セッションで拾う）・RR16（親子の鎖）を足した。4 本とも写しで注入して赤→戻して緑を確かめ、tests/mutate.py --check は 422 腕で字列の無い腕 0"
+    },
+    {
+      "key": "seen-pid-reuse-signals-unrelated",
+      "handled": "absorbed",
+      "how": "前に数えた pid（known）は、毎回の新しい表に同じ開始時刻（REUSE_SLACK の誤差）で居るものだけを起点に残す。送り先も毎回の新しい数え上げから作り、番号だけで持ち越した pid には送らない。pytest（test_tree_members_follows_group_session_and_parents）で、開始時刻の違う再利用の番号が起点に入らないことを見る。人の関所の条件①どおり"
+    },
+    {
+      "key": "normal-exit-unlinks-mark-leaving-escapees",
+      "handled": "declared",
+      "how": "長が正常に終わった回（communicate が返った）に外へ出た孫を刈る形は入れていない。刈ると、正常に終わった役やテストの実行器が意図して残した背景のプロセスも止めることになり、今ある使い方を狭めうる——能力の取捨なので、この周の writer は決めない。入口は残る（正常終了の後に印が消え、後の relaunch・stop は素通り）ので、次の周の判定に rejudge_requested で渡した"
+    },
+    {
+      "key": "eperm-cause-lost-and-slower",
+      "handled": "absorbed",
+      "how": "生きた仲間が居るのに EPERM が返ったら、待たずに BASE と同じ文『グループ {g} に信号を送れない（{e}）』を返す（仲間を 1 本ずつ送った先の EPERM は『pid {n} に信号を送れない』）。待つのはゾンビだけと数え直せた回だけ。pytest で送ったのが SIGTERM 1 回だけ・文が BASE と同じことを見る。人の関所の条件②どおり。role_run.py:150 の実測の記録は測った事実のままで、動きを述べた文ではないので残した"
+    },
+    {
+      "key": "jenkins-precedent-inapplicable-on-darwin",
+      "handled": "absorbed",
+      "how": "環境変数の印が macOS で使えないことを、_tree_members の docstring と修正の precedent に実測つきで書いた（ps -A -E・sysctl KERN_PROCARGS2 で自分が起こした子の環境が出ない。2026-09-26・macOS 26.6.2）。次の周の判定が同じ一撃を処方し直さないよう、rejudge_requested にも書いた"
+    }
+  ]
+}

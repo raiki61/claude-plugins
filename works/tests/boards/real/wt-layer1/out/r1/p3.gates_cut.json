@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "rev": "40fa41d2ceda4f12e6dc5407238ad25a8a1fbba3",
+  "files": [
+    "graphloops/engine/role_run.py",
+    "graphloops/tests/py/conftest.py",
+    "graphloops/tests/py/test_role_run_stop.py",
+    "graphloops/tests/run.sh",
+    "graphloops/tests/simulate.py",
+    "tests/mutations.json"
+  ]
+}

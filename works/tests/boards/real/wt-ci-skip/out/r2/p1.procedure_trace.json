@@ -1,0 +1,21 @@
+{
+  "material": {
+    "status": "found",
+    "count": 1,
+    "detail": "CI の Windows matrix の SKIP_ALLOW（\"posix-mode process-group fifo read-permission\"）が、リポジトリ内の skip 呼び出しが実際に使う能力名 symlink を含まない。他の未収載名（sh・shellcheck）は道具導入や Git for Windows 同梱で発火しない設計と確認できたが、symlink はその根拠が外部情報で割れており未確定。"
+  },
+  "findings": [
+    {
+      "where": ".github/workflows/test.yml:23-24 と graphloops/tests/simulate_review.py:1929-1932",
+      "text": "windows-latest の skip_allow に symlink が無い。test_md_links の via_symlink 判定が False になる Windows 環境では、この skip が SKIP_ALLOW に無い能力として denied に数えられ、FAIL_ON_SKIP=1 で tests/run.sh が赤になる。",
+      "mechanism": "tests/run.sh の report_skips は、見送りの capability 名が SKIP_ALLOW の一覧に無ければ無条件に denied としてカウントし、FAIL_ON_SKIP=1 のとき fail=1 にする（tests/run.sh:71-86）。simulate_review.py の test_md_links は os.symlink が OSError を投げたときのみ capability=\"symlink\" で skip を出すが、.github/workflows/test.yml の windows-latest 用 skip_allow はこの名前を含まない。",
+      "measured": "この worktree の macOS サンドボックスでは via_symlink=True 相当の環境しか確認できず、via_symlink=False の分岐と CI 実行そのものは動かせていない。tests/run.sh の skip 集計ロジック自体（skip_probe の自己テスト、tests/run.sh:166-201 を抽出して単体実行）と CI_LINT_OK の Python 検査（抽出して実リポジトリの test.yml に対して実行）はいずれも緑を実測し、report_skips が capability 名の有無でしか許可しない挙動、および test.yml の現状の記述内容自体は確認済み。GitHub ホストの windows-latest ランナーが既定で symlink 作成権限（SeCreateSymbolicLinkPrivilege / Developer Mode）を持つかは web 検索で調べたが、情報源間で矛盾（複数の第三者 issue コメントは『windows-latest は権限を持つ』とする一方、別のコメントは『NETWORK SERVICE アカウントは持たない』とし、後者は自己ホストランナーの文脈だった）。actions/runner-images の公式 README にはこの権限設定の明記が無い。",
+      "false_positive_if": "GitHub ホストの windows-latest ランナーが既定で symlink 作成権限を持っている場合（外部情報の一部はこれを支持）、via_symlink は常に True になりこの skip 分岐自体が発火しないため、この指摘は無害な設定の抜けに過ぎず誤検出になる。"
+    }
+  ],
+  "unmeasured": [
+    "bash tests/run.sh のフル実行（4653 行・数千件規模のスイート）はタイムアウト（300 秒超）でバックグラウンドに退避され、出力ファイルが 0 バイトのまま完了を確認できなかった。skip 集計・CI_LINT_OK の該当区間のみ抽出して個別に実行し緑を確認したのが実測範囲。",
+    "実際の GitHub Actions windows-latest ランナー上での via_symlink（os.symlink の成否）・git_runs_sh（Git for Windows の sh 起動可否）・shellcheck-py インストール後の `command -v shellcheck` 解決は、macOS サンドボックスからは実行できず未実測（tests/catchup-switch-case.py の none/hook ケースはこのマシン上の POSIX git で実行し緑を確認したのみ）。",
+    "tests/mutations.json に新規追加された CL4〜CL6・SK1〜SK4 の実際の変異注入・再実行（mutation runner の起動）は行っていない。各 old/new/expect の対応はコードを読んで論理的に追跡し、期待どおり赤くなるはずと判断したのみで、実際に変異を当てて赤を見てはいない。"
+  ]
+}

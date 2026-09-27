@@ -1,0 +1,135 @@
+{
+  "verdict": "一部採る",
+  "new_facts": "①環境変数の印: 回す側の実測（macOS 26.6.2 で、他のプロセスの環境が ps -E にも KERN_PROCARGS2 にも出ない）は、この役に Bash が無いので自分では再現できなかった。ただし公開の報告と方向が一致する。Darwin の procargs2 は、呼ぶ側の uid でなく、相手の code-signing の制限で環境を隠すことがある（agent-factory #4905・codefly-dev/core #497 など）。私の処方は『印の環境変数が読めることを先に実測し、読めなければ止まったと言わない』を条件にしていた。その実測が否と出たので、主の処方（Jenkins の印）はこの機械で成り立たなかった——私の処方の誤りとして認める。作業ツリーの role_run.py:265-332（_ps_all・_tree_members）を読み、替え方を確かめた。pgid が一致するもの、セッション番号（os.getsid）が一致するもの、前の回に数えた known を開始時刻で照合したもの、この 3 つから親子の鎖で子孫を足している。信号の前に数え、自分と祖先は除き、セッションを読めない同じ利用者のプロセスが在れば理由を返す。セッションで仲間を選ぶ形は pkill -s（セッション番号で相手を選ぶ）と同じ標準の手で、setpgid で抜けた孫もセッションは抜けない（POSIX）。単位 3 について: engine が止める道では、数え上げが信号より前に走り、mutate.py が生きているうちに鎖（mutate.py→腕）が辿れるので、setsid した腕の子も found に入る（_tree_members:318-328）。拾えないのは、engine の停止の外で mutate.py が SIGKILL され、鎖が切れ、腕が自前のセッションに居る場合だけ。単位 3 の defer の理由『印が拾う』は誤りだった。並行の線（scratchpad/wt-mutsample/tests/mutate.py:101-157・426-435）は止める信号の口を足したが、run_group の start_new_session=True（433）はそのまま。つまり外から SIGKILL された回の孤児の腕は、どちらの線も拾わない。②長が正常に終わった回: _spawn（role_run.py の旧 354-372）は communicate が戻れば ended=True で、_kill を通らない。外へ出た孫は刈られない。さらに孫が stdout・stderr の管を継いでいると、communicate は EOF まで戻らず、launch は期限なしで待ち続ける（subprocess の communicate は両方の管の EOF を待つ）。世界の解では、Jenkins が仕事の終わりに残ったプロセスを刈る（daemon を残したい側が BUILD_ID=dontKillMe で外れる、という逃げ道があること自体がその証拠）。systemd も停止の時に単位に残ったプロセスを刈る。役の試行を超えて生き残るプロセスを使う消費者は、graph・rules・engine に見当たらなかった。③固定具の漏れ: 作業ツリーの simulate.py:2046-2054 は、TERM を無視する無限ループ（while :; do sleep 1; done）の固定具を run_tree で起こし、止め損ねたときに pid を SIGKILL する後片付けが無い。コードで確かめた。同じ節の新しい台本（2000-2036）は reap を持つ。ほかの固定具（sleep 37・sleep 120・sleep 60）は自分で終わるので、終わらないのはこの 1 本だけ。さらに、変異の実行器が時間切れで台本のグループを SIGKILL すると、台本の finally は走らない。固定具は run_tree の子のセッションに居て、腕のグループの外に出ている。finally だけでは漏れは閉じない。12 本・20.5 時間という数は取りまとめ役の実測で、私は再現していない。",
+  "reason": "①は事実どおりで、私の処方の誤りを認めて単位 1 と 3 を直す。②は世界の解（Jenkins・systemd は仕事の終わりに残りを刈る）で決まるので、人に上げずに単位 1 の処方として採る。③は新しい単位として立てる。",
+  "units": [
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree/stop_group — 止める範囲がプロセスグループだけで、グループの外へ出た子孫を刈らず、消えたことを確かめずに『止まった』と返す",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "①事実確認済み（固定した版）: _stop_tree は元の pgid への killpg が ProcessLookupError を返せば『止まった』と返し、自前のグループやセッションへ移った子孫を見ない（実測の制約 2: set -m の孫が生き残る）。mutate.py の腕の子（start_new_session）も同じく外へ出る。②影響: relaunch と stop が『止まった』と読み、古い試行の孫が作業ツリーに書き続ける。検証機構の fail-open（REVIEW.md コード衛生④）に当たる。③目的の中心。【P2-9 での訂正】私が書いた主の処方（Jenkins の環境変数の印）は、macOS で他のプロセスの環境が読めず成り立たなかった（回す側の実測。Darwin が code-signing の制限で環境を隠すという公開の報告とも合う）。私の処方の誤りである。回す側が替えた『pgid・セッション番号・前の回の known から親子の鎖』（作業ツリーの role_run.py:287-332）は、pkill -s と同じ標準の手で、setpgid で抜けた孫（セッションは抜けない）と、生きた親から辿れる setsid の孫を拾う。判定はこれを採る。拾えない物（信号より前に鎖が切れ、かつ setsid でセッションも抜けた子孫）が残ることを docstring に書いた点も採る。【P2-9 で足す】長が正常に終わった回にも、同じ数え上げで残りを刈る。外へ出た孫が管を継ぐと communicate が戻らず、launch が期限なしで止まるので、長の終わりを管の EOF と別に見る必要もある。これは世界の解（Jenkins・systemd は仕事の終わりに残りを刈る）で決まり、役の試行を超えて生き残るプロセスを使う消費者はこのリポジトリに見当たらないので、人には上げない（BASE の能力は減らない。減らすと示す消費者が見つかれば、その時に上げる）。",
+      "reopen_evidence": "P2-9（同じ周）: 回す側の実測で環境変数の印が macOS で読めないと分かった。事前審査の穴 5（長が正常に終わった回）",
+      "origin_analysis": "①ロジックの誤り: 『止めた』の条件が元の pgid の消滅だけで、止める相手の集合と一致しない。②出自: 外部標準の読み違い（抜けられない cgroup を、抜けられるプロセスグループで作った）と、検証機構の fail-open。docstring の比喩が誤読を生む。③ラベル: block",
+      "why_chain": [
+        "なぜ外へ出た子孫が黙って残るか: 『止まった』の条件が元の pgid の消滅だけで、子孫を数え上げる手段が無いから",
+        "なぜグループを木とみなしたか: mutate.py の run_group を先例として写し、systemd の control-group と同じと書いた。抜けられる／抜けられないの違いを、実際の抜け道に照らしていなかったから",
+        "なぜゲートが気づかなかったか: 代役の孫（fakeclaude.py sleep）がグループに残る形しか無く、台本が名乗る覆いより実際の覆いが狭いから"
+      ],
+      "prescriptions": [
+        "零処方は落ちる（主張を狭めると目的に反する。pgid の印 1 つではグループの外を指せない）",
+        "世界の解（訂正後）: 仲間の数え上げはセッション番号（pkill -s と同じ）と pgid と親子の鎖で、信号の前に行う。環境変数の印は macOS で読めないので使わない（私の最初の処方の誤り）。ps だけを使い、新しい依存は足さない。今の STOP_SIGNALS と KILL_GRACE で送り、同じ数え上げで確かめ直し、ゾンビを除いて残りが在れば名指しの理由を返す",
+        "長が正常に終わった回も刈る: _spawn の終わり（ended の道）で、子のセッションと、最後に数えた known から、残る仲間を同じ _stop_tree の数え上げで止め、刈った数と相手を要約（trace の role_run の行）に残す。長の終わりは管の EOF と別に待つ（長の wait を先に見て、終わったら残りを刈り、それで管が閉じてから読み終える）。期限は足さない",
+        "守ること: 期限・タイムアウトを足さない。pgid の印・開始時刻での見分け・relaunch と stop が同じ stop_group を通る形を残す。Windows の taskkill /T を減らさない",
+        "ゲート: setpgid と setsid で抜ける孫、親が先に死ぬ型、長が正常に終わって孫が管を継ぐ型を、どの台本も reap を持つ形で赤で確かめる。KillMode=control-group の比喩は why に直す（作業ツリーで直し済み）"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "os\\.killpg\\(",
+            "start_new_session",
+            "KillMode=control-group"
+          ],
+          "paths": [
+            "graphloops/engine/role_run.py",
+            "tests/mutate.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 6,
+        "note": "子を自前のグループやセッションで起こす行と、グループだけに信号を送る・確かめる行の母集団（固定した版で role_run.py 247・268・286・295、mutate.py 276・283）。直しても残りうるので population"
+      }
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_stop_tree.alive — macOS でゾンビだけのグループへの killpg の EPERM を『生きている』『送れない』と数え、止まった木を止め切れないと報告する",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "①事実確認済み: alive()（固定した版の role_run.py:290-291）は PermissionError を『生きている』と数え、信号の口（298-299）は『送れない』と返す。実測の制約 3 で、ゾンビだけのグループが EPERM を返すことを確かめた（XNU の killpg1 はゾンビを飛ばす）。stop_group は長を回収できず、外へ出た孫が管を継ぐと launch の communicate も長を回収しない。②relaunch が『止まるまで launch するな』で止まり、人の stop も誤って止め切れないと返す。③目的の中心。EPERM を一律に『居ない』と読むと、sandbox の中の本物の EPERM（role_run.py:150）で fail-open になるので、その処方は落とす。P2-9 での確認: 作業ツリーの _stop_tree（343-355 の docstring と _live）は、仲間をゾンビを除いて数え、生きた仲間が居るときだけ EPERM を『送れない』と返す形になっている。この単位の処方と合う。",
+      "reopen_evidence": "なし（この周が初めて）",
+      "origin_analysis": "①1 つの errno に 2 つの意味（権限が無い・ゾンビしか居ない）がある darwin の挙動を区別していない。②外部 I/O の返り値の扱いの無防備で、確かめを killpg(pgid, 0) の 1 問で済ませた、単位 1 と同じ根。③block",
+      "why_chain": [
+        "なぜ止まった木を止め切れないと報告するか: 確かめが killpg(pgid, 0) の errno だけで、macOS のゾンビだけのグループが EPERM を返すから",
+        "なぜ errno 1 つで判断したか: 長を回収できる _kill の形を、Popen を持たない stop_group へ流用したから",
+        "なぜ台本が気づかなかったか: stop_group の台本では長がすぐ回収され、回収を遅らせる型が無いから"
+      ],
+      "prescriptions": [
+        "零処方は落ちる（EPERM を一律に読み替えると sandbox の中で fail-open になる。長の回収は、親でない stop_group にはできない）",
+        "世界の解: EPERM のときはメンバーを ps で数え、ゾンビ以外が居なければ『居ない』、居れば今どおり理由を返す。単位 1 の数え上げと同じ関数に載せる",
+        "ゲート: 長の回収を遅らせる型で『止まった』が返ること、sandbox の本物の EPERM では理由が返ることを確かめる"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "PermissionError"
+          ],
+          "paths": [
+            "graphloops/engine/role_run.py",
+            "tests/mutate.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 4,
+        "note": "killpg の EPERM を解釈する行の母集団（固定した版で role_run.py 290・298、mutate.py 280・284）"
+      }
+    },
+    {
+      "key": "tests/mutate.py::run_group — 実行器が止める信号を受けても、自前のセッションで起こした腕の子を止めない",
+      "label": "suggest",
+      "disposition": "defer",
+      "reason": "【P2-9 で再判定】前の理由（engine の環境変数の印が拾う）は、印が macOS で読めないので誤りだった。認めて差し替える。確かめた事実: (a) engine が止める道では、数え上げが信号の前に走り、生きている mutate.py から腕の子へ鎖が辿れるので、setsid した腕も engine が止める（作業ツリーの role_run.py:318-328）。この道は単位 1 で閉じる。(b) 拾えないのは、engine の停止の外（手で打った SIGKILL・OOM など）で mutate.py が SIGKILL された回に残る腕。鎖が切れ（ppid 1）、腕は start_new_session で自前のセッションに居るので、pgid でもセッションでも鎖でも届かない。(c) 並行の線 wip/mutsample（scratchpad/wt-mutsample/tests/mutate.py:101-157・426-435）は run_group を書き換え中で、止める信号の口を足したが、start_new_session=True は残している。SIGKILL は受け取れないので、(b) はその線でも閉じない。defer の構造的理由は『スコープが別（run_group は並行の線が書き換え中の担当の箇所）』で、REVIEW.md の並行 PR の条項に従い、担当の線への申し送りとする。この run で同じ関数を書き換えると、並行の線が挿入した行と隣り合う変更になり、合流で衝突する。申し送る処方ははっきりしているので、岐路としては人に上げない。",
+      "origin_analysis": "①止める信号の道で子を止めない（後始末の非対称）。腕を別のセッションへ切り離すので、外の止め方からも見えない。②衛生違反（後始末漏れ）。止める相手を記録で指す口が無く、手で打つ文字列の止め方（pkill -f）を誘った。③suggest（engine の側の道は単位 1 が閉じる。残りは担当の線）",
+      "prescriptions": [
+        "担当の線への申し送り 1: 腕の子を setsid（start_new_session=True）でなく setpgid（Python の process_group=0）で起こす。腕は自前のグループを持つので、今の時間切れ・failfast の killpg はそのまま効く。セッションは起こした側に残るので、mutate.py が外から SIGKILL されて鎖が切れても、engine のセッションでの数え上げ（pkill -s と同じ形）が孤児の腕を拾う",
+        "申し送り 2: その線の stop_groups の alive() も PermissionError を生きていると数えている（macOS のゾンビだけのグループの EPERM。単位 2 と同じ形）。仲間をゾンビを除いて数える形にする",
+        "申し送り 3: 止める信号の口が片付けを STOP_GRACE の 2 段で待つので、engine の KILL_GRACE（5 秒）の後の SIGKILL と競る。申し送り 1 があれば、競りに負けても engine が腕を拾う"
+      ]
+    },
+    {
+      "key": "graphloops/tests/simulate.py::test_role_run（run_tree の TERM を無視する固定具 tree-deaf）— 止め方が壊れた回に固定具を後片付けせず、親の居ない終わらないプロセスが残る",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "①事実確認済み: simulate.py:2046-2054（作業ツリー。固定した版にも同じ検査が在る）は、TERM を無視する無限ループ（trap '' TERM; while :; do sleep 1; done）の固定具を run_tree で起こし、止め損ねた回に記録した pid を SIGKILL する後片付けを持たない。同じ節で足した台本（2000-2036）は reap を持つので、この 1 本だけが後片付けから漏れている。ほかの固定具（sleep 37・sleep 120・sleep 60）は自分で終わり、終わらないのはこれだけ。②影響: 変異の関門は run_tree と _stop_tree の止め方を壊す腕を必ず撃つので、壊れた腕 1 本ごとに終わらない固定具が 1 本漏れる。取りまとめ役の実測では 12 本・最長 20.5 時間・nice 0 の物も在った（私は再現していない）。③この周の直しは止め方そのものに入り、合流後の変異で壊される。止め方の層のテストの後始末で、目的（止めた子が残る型を再発させない）の内側。反証の試み: finally で pid を SIGKILL するだけでは閉じない。変異の実行器が時間切れで台本のグループを SIGKILL すると、台本の finally は走らない。固定具は run_tree の子のセッションに居て、腕のグループの外に出ているので、その SIGKILL も届かない。",
+      "origin_analysis": "①ロジック: 固定具を消すのが検査の対象（run_tree の止め方）だけで、対象が壊れた回の後片付けが台本に無い。②出自: 衛生違反（資源の対称性——獲得したプロセスを例外や失敗の経路で解放しない）。終わらない固定具を作った点が、漏れを永続にしている。③block",
+      "why_chain": [
+        "なぜ固定具が残るか: 固定具を止める手段が、検査している run_tree の止め方だけだから",
+        "なぜ永続するか: 固定具が TERM を無視し、終わりの無いループで、自分からは終わらないから",
+        "なぜ finally でも足りないか: 変異の実行器の時間切れの SIGKILL は台本の後片付けを走らせず、固定具は腕のグループの外に居るから"
+      ],
+      "prescriptions": [
+        "零処方（第一候補）: 固定具の寿命を有限にする——無限ループを回数つきのループ（例: 検査に要る時間を十分に超える回数の sleep 1）に替える。どの経路で台本が死んでも、固定具は自分で終わる。TERM を無視する性質はそのまま残る",
+        "加えて: 同じ節の reap と同じ形で、記録した pid を finally で SIGKILL する（台本が生きて赤になった回に、次の検査を汚さない）",
+        "同じ形の母集団（止め方の台本の固定具のすべて）に、寿命が有限であることと reap を揃える。新しく足す固定具も同じ形にする"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "tree-deaf\\.pid",
+            "tree-grandchild\\.pid",
+            "FAKE_PID",
+            "start_new_session=True"
+          ],
+          "paths": [
+            "graphloops/tests/simulate.py",
+            "graphloops/tests/fakeclaude.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 9,
+        "note": "止め方の台本がプロセスの固定具を起こす行の母集団（固定した版の見込み: simulate.py 7・fakeclaude.py 2。作業ツリーでは escaped の台本の 1 行が増える）。終わらない固定具は tree-deaf の 1 本。直しても固定具の行は残るので population"
+      }
+    },
+    {
+      "key": "graphloops/tests/simulate_review.py::rm — 計算した親のパスを確かめずに消す（rmtree(\"/\")）",
+      "label": "info",
+      "reason": "欠陥は既に塞がれている（0.20.2 3c2b3a1・0.21.0 c22c63c）。parallel.rm（parallel.py:91-105）は一時の置き場より深いパスだけを消し、外を指せば ValueError を返す。simulate.py と simulate_review.py の rm はそこを呼ぶ。拒む型の台本も simulate.py:4379-4389 にある。残る rmtree（commands.py:633・646・648・1591、tests/mutate.py:359・371・424、simulate_review.py:5460）はどれも、同じ関数が直前に mkdtemp・workspace・mkdir(exist_ok=False) で作ったパスを消す。計算した親や失敗時の既定値を消す入口は 0 件。",
+      "closed_note": "同じ形（失敗時の既定値や計算した親を消す）の残りは 0 件"
+    },
+    {
+      "key": "graphloops/engine/role_run.py::_popen/_stop_tree — 外側を別の実行基盤へ載せ替えても、孫まで止める層は自前で要る（判定の材料）",
+      "label": "info",
+      "reason": "取りまとめ役の伝言で、依頼自身が範囲を広げないと書いている。Archon の実走の報告は独立には確かめていないが、結論（この層はどの道でも自前で要る）は処方を変えない。反証の条件が満たされても、engine が起こす子を止める口はこのリポジトリに残るので、判定は動かない。"
+    }
+  ]
+}

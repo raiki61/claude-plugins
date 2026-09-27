@@ -1,0 +1,75 @@
+{
+  "status": "pass",
+  "reason": "累積差分（4233aa8..0884c75 の patch を全部読んだ）の根本の処方は最小性を満たす。止める相手の数え上げ（_tree_members）、送り先を生きた仲間から作る形、born を同じ源どうしで比べる 3 か所の修正、正常に終わった回の刈り取り、逃げ道の keep_background は、どれも判定の単位に世界の解（Codex の process_group.rs、Jenkins の ProcessTreeKiller／dontKillMe、systemd の KillMode、XNU の killpg1、contextlib.ExitStack）が付いている。1 周目に持ち込んだ `groups = {pgid} |` と born の食い違いは、2 周目に 1 つの根（宛先を数えた生きた仲間から作る。比べる時刻を同じ源に揃える）で閉じた。症状への当て布を積み重ねた形ではない。問いの台帳の fork 1 件は、零処方の『置かない』を選択肢に列挙しており、逃げ道になっていない。\nただし累積差分は最小ではない。検証済みの値打ちを落とさずに削れる所が、コメントの候補 9 件のほかに 4 つある。\n(1) run_steps・run_role の本体を _run_steps（7 引数、runs を外から渡して書き換える）と _role_turns（13 個の位置引数）へ切り出しているのは、try/finally で包むためだけである。その場で包めば関数も長い呼びの行も要らない。\n(2) 公開の run_role の reap 引数を使うのは台本（simulate.py:1948・1980）だけで、本番の呼び元は 0 件（grep で確かめた）。台本の側で role_run._end_attempt を差し替えれば同じことを確かめられる。同じ台本は role_run._started_at をすでに差し替えている。\n(3) probe_group を 2 つ組のまま残すための薄い包みは、『commands.py:1381 を変えない』が理由である。しかし同じ差分で commands.py:1328 を編集しており、この理由は成り立たない。呼び元を 3 つ組の受け方に変えれば、関数が 1 つ減る。\n(4) run_steps の docstring の keep_background の節は、declared.py の注記（README が書式の正本として名指す所）の写しである。\nこれらは deletions に載せた。どれも局所の片付けで、処方の組み直しは要らない。\n読み方の限り: 道具に Bash が無いので `git show <版>:<パス>` は打てなかった。判定の元は指定の patch（固定した版の差分）で、候補の行番号の照合だけ scratchpad の wt-layer1 の作業ツリーで行い、全部一致した。作業ツリーが 0884c75 と同一かは git で確かめていない。外への検索は打っていない。",
+  "deletions": [
+    {
+      "where": "graphloops/tests/py/test_engine_run.py:43（keep_backgrounds の行の末尾の 2〜4 個目の注記）",
+      "why": "候補 1 を採る。削除ではなく移動にする。『空の頭の語』は 41 行目へ、『object でない最上位は型の名前で言う（set(5) で落ちない）』は 37 行目へ、『綴り違いの鍵を名指す（型の名前 dict だけでは直す所が分からない）』は 36 行目へ戻す。patch の 619→620・622 行で、この差分が 41 行目の注記の塊を丸ごと新しい行へ運んだことを確かめた。今は 43 行目の入力の説明と取り違えさせるので、同じ差分で直す"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:634（probe_group の docstring 末尾『中身は _probe』）",
+      "why": "すぐ下の 1 行の本体（_probe を呼ぶ）と、_probe の docstring の頭『probe_group の中身』に同じ事実がある。なお deletions の probe_group の包みの項を採れば、この docstring ごと消える"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:675-676（stop_group の docstring の最後の文『長の番号の再利用の目印（born）は、_probe が番号と同じ読みで返す印の更新時刻』）",
+      "why": "_probe の docstring（640-641 行）が同じ事実を理由つきで持ち、test_stop_group_passes_the_mark_time_read_with_the_number で縛ってある。公開の面の約束ではなく内部の配線の再掲で、理由の抜けた写しになっている"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:568（_spawn の finally の unlink の行の横の注記）",
+      "why": "_spawn の docstring の pgid_file の段落と _end_attempt の docstring に同じ内容がある。しかもこの行がしないこと（消さない側）を説明していて紛らわしい"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:519-520（_reap の docstring のうち『セッションを読めないプロセスが居るだけの理由（UNSURE）は止め切れなかったとは数えない』の節）",
+      "why": "UNSURE を見分けているのは _reap_one で、その docstring（525-527 行）とテスト test_reap_one_does_not_count_an_unreadable_session_as_left に同じ文がある。消すのはこの節だけにし、後ろの why（正常に終わった試行の印を、それだけで残し続けない）は _reap にしか無いので残す"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2077（1 文目『正常に終わった回も、残った背景のプロセス（グループの外へ出た孫）を止める。』）",
+      "why": "2081 行の check の文の言い直し。2 文目の『孫は自分で終わる（sleep 120）』は後始末を書かない理由なので残す"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2082（管を継いだ背景のプロセスの注記）",
+      "why": "2090 行の check の文と腕 RR22 の title をなぞっているだけ"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2091（run_steps の段の注記）",
+      "why": "2100-2101 行の check の文を縮めただけで、情報を足していない"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:2104-2105（1 文目『全プロセスの表が読めない…止まったと言わない。』）",
+      "why": "2129 行の check の文と腕 RR19・RR20 の title の言い直し。2 文目の『PATH を替えるので子のプロセスで走らせる（台本の環境を汚さない）』は、別プロセスにした理由なので残す"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:748 def _run_steps と 797 def _role_turns（切り出した関数の境目）",
+      "why": "切り出しの役目は try/finally で _end_attempt を通すことだけで、その場で本体を包めば同じ振る舞いになる。_role_turns は 13 個の位置引数を並べて受けるので、呼びの行と定義の順が食い違っても気づけない。_run_steps は runs を外から渡して書き換える。どちらも写しの関数 1 つ・長い呼びの行 1 つを足すだけで、他所に無い情報を運ばない。関数をやめ、run_steps・run_role の中で try/finally で包む。RR24 の old の字列（`_end_attempt(trees, pgid_file)\\n    return runs`）は同じ差分で直す"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:766・780（run_role の reap 引数とその説明）と 788・792 の分岐",
+      "why": "本番の呼び元は 0 件で（grep で確かめた。使うのは simulate.py の台本 2 か所だけ）、公開の関数に台本専用のつまみを足している。台本の側で role_run._end_attempt を何もしない物に差し替えれば、同じことを確かめられる。同じ台本は role_run._started_at をすでに差し替えている。RR1・RR3 の赤は、差し替えの形で確かめ直す"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:633-636（probe_group の 2 つ組の包み）",
+      "why": "包みを残す理由は『commands.py:1381 を変えない』だが、同じ累積差分が commands.py:1328 を編集していて成り立たない。呼び元は commands.py:1381 と test_role_run_stop.py:56 の 2 か所だけである。probe_group 自身が 3 つ組を返す形にし（_probe を probe_group に戻す）、呼び元 2 か所を直せば関数が 1 つ減る。RR（開始時刻を確かめられない試行）の old の字列は変わらない"
+    },
+    {
+      "where": "graphloops/engine/role_run.py:736-737（run_steps の docstring の『段の宣言の keep_background…逃げ道（次の段までは宣言が無くても残る）』の節）",
+      "why": "同じ意味の文が declared.py:35-37（README が書式の正本として名指す所）と README.md:210 にもあり、3 つ目の写しになっている。run_steps には『正常に終わった段の木の残りは試行の終わりに 1 回まとめて止める。keep_background の段（engine/declared.py）は除く』だけを残し、逃げ道の意味と『次の段までは残る』は正本に任せる。README は利用者の動線の上で要るので残す"
+    }
+  ],
+  "ledger_audit": [
+    "孤児のあぶり出しをどの層に置くか（fork・held）: 通す。origin は defer した単位（孤児を見つける口の新設）である。零処方の『置かない（源を閉じる）』が選択肢の 1 つ目にあり、台本の層・engine の層の新設と並べて失う物を書いてある。保留の理由も構造的である。機構の新設で、世界の解の cgroup・環境変数の印は macOS で使えない（_tree_members の docstring に実測の記録がある）。決め手は次の周の漏れの実測という測れる条件である。凍結した目的の事故の型は、源の側（固定具の有限化・終わる道の刈り取り・数え上げ）がこの差分で閉じている。この問いを逃げ道にして目的の内側を先送りした形は見当たらない"
+  ],
+  "increments": [
+    "added_lines 350→653（+303）・comment_lines 64→136（+72）。増分ごとの正当化は次のとおり。",
+    "_ps_all・_tree_members・_live・_name・_answers・_stop_tree の書き直し（約 +150 行。docstring の why を含む）: 正当化できる。止める相手を起こした時の記録で数え上げ、止めた後に同じ数え上げで確かめる処方の本体で、他所に無い。macOS の killpg1 の EPERM、環境変数が読めない実測、拾えない物の宣言は why として他所に無い",
+    "_communicate・_reap・_reap_one・_end_attempt と trees の配線（約 +45 行）: 正当化できる。判定の単位 6 の処方（Jenkins の仕事の終わりの刈り取り）の最小の形で、スレッドの作り直しをやめ、communicate の呼び直しという標準ライブラリの約束に寄せてある。腕 RR21・RR22・RR24 が赤を持つ",
+    "_run_steps・_role_turns の切り出し（def と呼びの行で約 +8 行）: 正当化できない。try/finally をその場に置けば要らない。deletions に載せた",
+    "run_role の reap 引数（引数・説明・分岐・台本の注記で約 +5 行）: 正当化できない。台本の側の差し替えで足りる。deletions に載せた",
+    "probe_group の包みと _probe の分割（約 +6 行）: 3 つ組を返す _probe は正当化できる（同じ読みの written を born にする）。2 つ組の包みは、理由（commands.py を変えない）が同じ差分の中で崩れているので正当化できない。deletions に載せた",
+    "keep_background（declared.py の +8 行・README の 1 文・pytest の +16 行・test_readme_names_every_optional_step_key）: 正当化できる。P2-9 で確定した逃げ道の宣言で、README に載っているかをテストで縛るのは『仕組みで縛る』に当たる。run_steps の docstring の写しだけは正当化できず、deletions に載せた",
+    "simulate.py の台本（約 +120 行）: 正当化できる。腕 RR15〜RR24 の expect の字列を持つ実プロセスの検査で、pytest の届かない変異の実行器の赤を担う。検査の文を言い直す注記 4 か所（候補 6〜9）は正当化できず、deletions に載せた",
+    "test_role_run_stop.py（約 +190 行）: 正当化できる。変異の実行器が pytest を走らせないため、born の配線・_probe の written・_ps_all の変換を覆えるのはここだけである（REVIEW.md の fail-open ④）",
+    "tests/mutations.json（RR3・RR9 の付け替えと RR15〜RR24 の追加）と件数の定数（conftest の 398・run.sh の 1949）: 柵の置き場と突合の決まりに従う機械的な増分で、正当化できる",
+    "注記の増分 +72 行: 大半は _tree_members・_stop_tree・_communicate・_ps_all の why（実測・標準ライブラリの約束・採らなかった案の理由）で、他所に無い。deletions の 9 件と run_steps の節を削れば、残る増分はどれも一文で理由を言える"
+  ],
+  "candidates_note": "候補 9 件は、どれも名指しされた『同じ内容の在り処』が patch（固定した版の差分）の中に実在した。行番号は、scratchpad の wt-layer1 の作業ツリーを Grep・Read で照合して一致した（role_run.py:520・568・634・675、test_engine_run.py:43）。候補 1 は削除でなく移動として採った。kept の 33 件は、どれも名指しの事実を他所に持たない（why か、公開の面の約束）ことを patch で確かめた。ただし、kept のどれにも当たらない run_steps の docstring の keep_background の節は、3 つ目の写しとして deletions に足した。Bash が無いので `git show 0884c75:<パス>` は打てず、作業ツリーが固定した版と同一かは確かめていない。判定は patch を元にしている"
+}

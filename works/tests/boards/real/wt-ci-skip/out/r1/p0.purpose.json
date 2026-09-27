@@ -1,0 +1,9 @@
+{
+  "purpose_text": "依頼（人のタスク記述。2026-09-26、そのまま写す）:\n困っていること: CI（.github/workflows/test.yml）の 3 つの OS で、走れない検査（macOS・Windows の shellcheck が無い・Windows の子のまとまりの停止・symlink を作れない など）は、0.20.2 の直しで「見送り」として合格と分けて一覧に出るようになったが、CI はそれで止まらない（FAIL_ON_SKIP=1 は全部か無しかの切り替えで、workflow は触っていない）。今日たまたま道具が無くて走らなかった検査が黙って緑になる。\n\n人の決定（2026-09-26 09:00）: OS ごとに「欠けてよい能力」の一覧を CI が渡す形にし、既定は空（何も許さない）。見送りの行は欠けている能力の名前を持つ。macOS と Windows の CI にも shellcheck を入れて、見送り自体を無くす。本当にその OS でできない物（Windows のプロセスのまとまりの停止など）だけを、その OS の一覧に書く。\n\n守ること（人の方針。全部の run に共通）:\n- 上位互換。今ある能力と使い方を減らさない。能力を減らす・狭める修正案と、人の方針に反する修正案は、判定役・審査の役が代償として決めず、人に聞く分かれ目（awaiting_human）として人に上げる。\n- 期限・タイムアウトを足さない（節の期限・子を時間で止める動作・待ちの期限切れを足さない）。\n- 指示書（graphloops の prompts・手順書）に特定のリポジトリの道具名を書かない。具体的なコマンドは対象リポジトリの側の宣言が持つ。\n- 重い工程（review-graph・research-graph・/review-loop・/research-loop）は人の指示のときだけ起動する。AI は自分の判断で起動せず、提案までにする。ただし、人が言葉で「工程に回して」と頼んだときに AI が起動できる形は残す。\n- 任せ先は既定で sandbox の中で起こす。外すのは人が run ごとに明示したときだけで、外したことは盤面に残る。\n- research-graph は research-loop の上位互換。元にできることを減らさず、元に無い重い能力を足さない。開いた問いは deep-research に自動で任せず依頼者に渡す。案内の文言は元のまま。\n- engine はループ固有の知識を持たない。走っている run は init の版の graph に固定する。\n\n禁じること: push・gh workflow run（CI の結果は版を出した後の push で見る）。この run の中で変異テストを本撃ちしない。\n\n解き方は判定役が決めよ。",
+  "source": "②計画・タスク記述",
+  "known_weaknesses": [
+    "CI の効き目（workflow の変更で本当に macOS・Windows に shellcheck が入り、許しの一覧どおりに赤くなるか）は、push・gh workflow run が禁じられているのでこの run の中では確かめられない。版を出した後の push で見る（依頼の『禁じること』）",
+    "Windows の CI で落ちている 6 件の検査は並行の wip/windows-green が直している範囲で、この run では触らない"
+  ],
+  "source_files": []
+}

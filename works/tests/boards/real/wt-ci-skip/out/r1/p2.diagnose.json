@@ -1,0 +1,199 @@
+{
+  "units": [
+    {
+      "key": "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "反証を試みたが、この指摘は崩れなかった。依頼の false_positive_if（workflow が既に OS ごとの許しの一覧を渡している）を、この周に固定した版で確かめた。.github/workflows/test.yml に FAIL_ON_SKIP も許しの一覧も無い。tests/run.sh:59 は FAIL_ON_SKIP=1 のときだけ SKIPS の全件を失敗に数え、tests/run.sh:51 の拾い手は理由を自由文のまま持つ。能力ごとに許す口は無い。見送りを出す場所は 10 か所ある（tests/run.sh 2982・3026・3549、tests/catchup-switch-case.py 365・551、graphloops/tests/simulate.py 812・813、graphloops/tests/simulate_review.py 1932・2568・2583）。どれも理由の欄は自由文である。既存の口 1 つ（CI に FAIL_ON_SKIP=1 を渡す）で塞ぐ零処方は使えない。Windows では 10 件が全部失敗になり、道具を入れても本当に無い能力（プロセスのまとまり・FIFO・symlink・posix の mode・権限で読みを止めること）の分は赤が消えない。人も 09:00 に全部か無しかを退けている。影響は検証機構の fail-open である（衛生違反。好みの nit ではない）。macOS と ubuntu は見送りを抱えたまま緑になる。凍結した目的の中心なので、この周で直す。人の方針との照合: 上位互換は守れる。FAIL_ON_SKIP=1 の意味（全部を数える）と、未指定のときの手元の既定（一覧に出すだけ）を残し、許しの一覧は FAIL_ON_SKIP=1 のときだけ効く除外として足す。人の言う「既定は空」は CI の OS ごとの一覧の既定と読む。CPython の regrtest も、未指定の手元では資源を使う検査を見送り、CI が -u で明示したときだけ厳しくする。手元の既定まで厳しくすると、shellcheck の無い手元で赤になる。README が「必須でない」と言う道具が、事実上必須に変わる。これは上位互換に反するので採らない。期限は足さない。engine と graphloops の指示書には触れない。",
+      "reopen_evidence": "test.yml が FAIL_ON_SKIP=1 と OS ごとの許しの一覧を tests/run.sh の段に渡し、見送りの行が能力の名前を持ち、一覧に無い名前の見送り（名前の無いものを含む）が FAIL_ON_SKIP=1 の下で fail=1 になることを、tests/run.sh の拾い手の腕が示していれば、この単位は閉じている。",
+      "origin_analysis": "①ロジック: 誤りである。拾い手は見送りを数えるが、許すか拒むかを名前で決められない。②出自: 検証機構の fail-open（衛生違反）と、判断の置き先の死である。fe3055c は「どの OS で許すか」を CI の定義に委ねた（tests/run.sh:54、README.md:199）。しかし、委ね先が判断を書くための語彙（能力の名前）も口も用意しなかった。委ね先の test.yml はその後この判断を一度も持っていない（prior_decisions の grep は 0 件）。③ラベル: block。事実は確認済みで、影響は CI の偽の緑、範囲は凍結した目的そのものである。",
+      "why_chain": [
+        "CI が見送りで止まらないのは、test.yml が FAIL_ON_SKIP を渡していないからである。渡せば Windows の 10 件が全部赤になるので、実際には渡せなかった。",
+        "全部か無しかになるのは、見送りの行の理由が自由文だからである。何が欠けたかを機械が名指せないので、許す単位を作れない。",
+        "この形のまま出たのは、fe3055c が判断を CI 側に委ねたとき、委ね先に口と語彙を渡さず、未決を未決のまま追う記録も無かったからである（prior_decisions は「未決」をコミットメッセージにだけ残している）。"
+      ],
+      "prescriptions": [
+        "零処方（取り下げ）: 使えない。test.yml に FAIL_ON_SKIP が 0 件で、Windows のログに見送り 10 件が出ていることを実測した。",
+        "既存の機構 1 つ（CI に FAIL_ON_SKIP=1 を渡す）: 使えない。本当に欠ける能力の見送りまで失敗に数えるので、Windows が恒常的に赤になる。人も 09:00 にこの形を退けた。",
+        "世界の解を採る（adapt）: CPython の test.support.requires(resource) と regrtest の -u（例: -uall,-audio）を採る。見送りは欠けた資源の名前を持ち、走らせる側が名前の一覧で許す範囲を渡す。行の形は TAP 14 に合わせ、SKIP の後の説明文の頭に能力の名前を置く（例: 「  ok   <検査> # SKIP <能力>: <理由>」）。TAP の説明文の文法から外れない。OS ごとの値は GitHub Actions の strategy.matrix.include で os の値ごとに足す。include の無い OS の値は空で、それがそのまま「既定は空」になる。",
+        "実装の形（最小）: (1) 名前を読み、許すか判断する場所は、tests/run.sh の拾い手と report_skips の 1 か所に置く。未知の名前と名前の無い見送りは、FAIL_ON_SKIP=1 のときに失敗へ倒す（fail-closed）。(2) Python の側で行を作る正本は graphloops/tests/parallel.skip_line に置き、能力の名前を引数に取る。simulate.py と simulate_review.py の skip() は、それをそのまま渡す。(3) bash と Python で手書きしている行（tests/run.sh の 3 か所、tests/catchup-switch-case.py の 2 か所）にも名前を入れる。(4) test.yml の tests/run.sh の段に、3 OS とも FAIL_ON_SKIP=1 を渡す。許しの一覧は matrix.include の値から渡す。Windows の一覧には、本当にできない物（posix の mode・プロセスのまとまり・FIFO・symlink・権限で読みを止めること）だけを書く。macOS と ubuntu は空にする。(5) CI_LINT_OK の検査（tests/run.sh:3035）に、tests/run.sh の段が FAIL_ON_SKIP=1 を持つことの確認を足す。設定ごと消せば覆いが静かに消える形を、既存の shellcheck と同じやり方で塞ぐ。(6) 拾い手の腕（tests/run.sh:140-164）に 4 つの場合を足す: 名前つきで許された見送り／名前つきで許されない見送り／名前の無い見送り／FAIL_ON_SKIP 未指定。件数の定数は同じ差分で実測値に合わせる。README.md:199 と tests/run.sh:54 の文言も同じ差分で直す。"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            " skip\\(\"",
+            "print\\(\".*# SKIP ",
+            "sc_skip=\".*# SKIP "
+          ],
+          "paths": [
+            "tests/run.sh",
+            "tests/catchup-switch-case.py",
+            "graphloops/tests/simulate.py",
+            "graphloops/tests/simulate_review.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 10,
+        "note": "見送りの行を出す場所の全数。どの場所にも能力の名前を入れるので、修正の後も件数は減らない。拾い手（note_skips・report_skips）と行を作る正本（parallel.skip_line）はこの数に入れていない。変える場所として prescriptions に名指しした。"
+      }
+    },
+    {
+      "key": ".github/workflows/test.yml shellcheck: macOS と Windows の CI に shellcheck が無く、tests/run.sh の shellcheck の検査が見送りになる",
+      "label": "block",
+      "disposition": "do-now",
+      "reason": "反証を試みたが、この指摘は崩れなかった。test.yml に shellcheck を入れる段は無い。shellcheck を回す段は if: matrix.os == 'ubuntu-latest' だけである。一次情報も確かめた。runner-images の macOS 15 arm64 と Windows Server 2025 の導入済みの一覧に shellcheck は無い。ubuntu 24.04 の一覧には 0.9.0 がある。依頼の「macOS も」は、実測した制約では仮説のままだったが、この一覧で裏づけた。Windows は、ログに見送りの行が出ていることを実測済みである。U1 の許しの一覧だけを入れると、人の決定（shellcheck は macOS と Windows の一覧に書かず、見送り自体を無くす）により、両 OS が shellcheck の見送りで赤になる。このため U1 と対になる。決着済み論点「shellcheck は ubuntu の 1 本だけで回す」との突合: 記録された理由（同じ .sh を 3 回見ても指摘は変わらない）は、独立した shellcheck の段については今も成り立つ。変えるのはその段ではない。tests/run.sh が各 OS で走らせる検査の前提（道具が在ること）である。したがって両立し、決着を覆さない。版の不揃いにも触れる。ubuntu の既定は 0.9.0、手元は 0.11.0 で、同じ -S warning でも版が違えば指摘が違いうる。test.yml:45 が pytest の版を固定した理由（手元と CI の振る舞いを揃える）と同じ理屈で、3 OS に同じ版を入れる。security_surface: PyPI から入れるので、版を固定する。permissions は contents: read のままでよい。",
+      "reopen_evidence": "test.yml が 3 OS すべてで、tests/run.sh の段より前に、版を固定した shellcheck を入れていること。加えて、tests/run.sh:3026 の見送りの理由（CI の ubuntu の段が回す）が新しい構成に合わせて書き換わっていること。",
+      "origin_analysis": "①ロジック: 誤りである。検査が 3 OS のうち 2 つで走らない。②出自: 実行環境の前提が注記の中で死んでいる。test.yml:33 の「ubuntu の runner には既定で入っている」は、独立した段についての前提である。tests/run.sh の中の検査が他の OS でも走ることは、誰も確かめていなかった。CI_LINT_OK（tests/run.sh:3035-3063）は段が在るかしか見ないので、手元の検査が 2 つの OS で見送られても緑のままになる。③ラベル: block。U1 と揃わないと目的が閉じない。",
+      "why_chain": [
+        "macOS と Windows の runner の既定の道具に shellcheck が無い（runner-images の一覧）。",
+        "気づかれなかったのは、CI_LINT_OK が「CI が shellcheck の段を持つ」ことで覆いを確かめたとみなし、tests/run.sh の中の同じ検査が 2 つの OS で見送られても赤くしないからである。",
+        "見送りが合格と同じ終了コードで終わるので、止める信号が無かった（U1 と同じ根）。"
+      ],
+      "prescriptions": [
+        "零処方（shellcheck の見送りだけを macOS と Windows の許しの一覧に書く）: 人の決定（見送り自体を無くす）に反するので採らない。",
+        "世界の解を採る（adopt）: PyPI の shellcheck-py は win_amd64、macosx arm64 と x86_64、manylinux のホイールを持ち、shellcheck の本体を同梱している（0.11.0.1 は shellcheck 0.11.0 を同梱）。test.yml はすでに pip で pytest の版を固定して入れているので、同じ仕組みで 3 OS に同じ版を入れる。入れる段は tests/run.sh の段より前に置く。ubuntu にも入れれば、setup-python の bin が PATH の先頭に来るので、独立した段も同じ版を使う。",
+        "付随: tests/run.sh:3026 の理由の文と test.yml:33-35 の注記（ubuntu には既定で入っている）を、新しい構成に合わせて直す。"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "^ *- name: shellcheck",
+            "^ *if: matrix\\.os",
+            "^ *run: .*shellcheck",
+            "SKIP shellcheck"
+          ],
+          "paths": [
+            ".github/workflows/test.yml",
+            "tests/run.sh"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 4,
+        "note": "shellcheck の段の構成（名前・OS の条件・run）と、それに頼る見送りの理由の行。修正の後も段は残るので、件数は母集団として数える。"
+      }
+    },
+    {
+      "key": "tests/catchup-switch-case.py _hook・応答の無い origin: 見送りの条件が sh の有無を確かめず、OS の名前で決まる",
+      "label": "suggest",
+      "disposition": "do-now",
+      "reason": "tests/catchup-switch-case.py:355 と :550 は os.name だけで見送りを決めている。一方、理由の文は「sh が無いことがある」と言い、条件と理由が食い違う。GitHub の Windows の runner で test.yml は shell: bash（Git for Windows の bash）を使うので、sh が無いという主張はこの環境では確かめられていない。Git for Windows は hook と GIT_SSH_COMMAND を同梱の sh で起こす。人の決定は「本当にその OS でできない物だけを、その OS の一覧に書く」である。この 2 件に能力の名前 sh を付けて Windows の一覧に書くと、確かめていない不能を許すことになり、人の決定に反する。能力の有無を確かめる形にすれば、sh が在る環境では検査が走る。検査が増えるだけなので上位互換を狭めない。push 後に Windows で赤くなる可能性はあるが、それは人が知りたい情報であり、field の問いに回す。",
+      "reopen_evidence": "2 か所の見送りの条件が、OS の名前ではなく sh を起こせるかを確かめる形になり、sh が在る環境ではその検査が走ること。",
+      "origin_analysis": "①ロジック: 条件と理由が食い違っている。②出自: 見送りの条件を、能力を確かめる形でなく OS の名前で推し量って書いた。同じファイル群の他の場所（simulate_review.py の symlink は実際に作れるかを試し、FIFO は hasattr(os, 'mkfifo') で確かめる）とも、書き方が揃っていない。③ラベル: suggest。U1 で能力の名前を付けるとき、この 2 件は名前の根拠が無い。",
+      "prescriptions": [
+        "零処方（能力の名前 sh で Windows の一覧に書く）: 不能を確かめていないので、人の決定に反する。",
+        "世界の解を採る（adapt）: CPython の test.support.os_helper.can_symlink など、OS の名前でなく能力を確かめる関数で見送りを決める形を採る。ここでは sh を起こせるかを確かめ（例: shutil.which('sh')）、無いときだけ能力の名前 sh つきで見送る。"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "os.name"
+          ],
+          "fixed": true,
+          "paths": [
+            "tests/catchup-switch-case.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "defects",
+        "total": 3,
+        "note": "355・550 が見送りの条件、554 が判定から外す条件である。能力を確かめる形に直せば 0 になる。"
+      }
+    },
+    {
+      "key": "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える",
+      "label": "suggest",
+      "disposition": "defer",
+      "reason": "反証を試みたが、この指摘は崩れなかった。graphloops/tests/simulate.py:2026・2248 と graphloops/tests/simulate_review.py:6020 は、os.name != 'posix' のときに見送りの行も件数も出さずに return する。simulate.py の 1920・3011・3053 も、posix の枝の中にある check を、他の OS では数えずに飛ばす。graphloops/tests/run.sh:13 の件数の柵（EXPECTED_CHECKS=1932、-ne で比べる）は OS によらず 1 つの値なので、Windows では件数が合わず exit 2 になる。黙って緑になるわけではない。ただし U1 の許しの一覧は、行の出ない見送りを名指せない。人が挙げた例「Windows のプロセスのまとまりの停止」もこの枝に含まれる。defer にする構造的な理由: 実測した制約は、Windows の落ち（6 件の検査・FAIL 7 行）を並行する wip/windows-green の範囲とし、この run では触らないとしている。件数の柵が Windows で割れることはその落ちの 1 つでありうるので、同じ場所を 2 本の線が別々の形で直す衝突になりうる。どちらの線で直すかは人が決める。",
+      "reopen_evidence": "wip/windows-green が合流し、その後もこの枝が見送りの行を出していないことが確かめられれば、この周の目的の中で回収する。人が split を退けた場合も同じ。",
+      "origin_analysis": "①ロジック: 検査が行も数も出さずに消える。②出自: 衛生違反（見送りの仕組みの迂回）である。0.20.2 の見送りの印より前に書かれた OS の枝で、印の仕組みを通っていない。③ラベル: suggest（defer）。今は件数の柵が赤にするので黙っては消えない。ただし能力の名前の外にある。",
+      "prescriptions": [
+        "世界の解（U1 と同じ CPython の資源の見送り）: 抜ける枝で、飛ばす check の数だけ能力の名前（プロセスのまとまり）つきの見送りを出す。計画の件数を OS によらず同じにし、Windows の一覧に名前で載せる。"
+      ],
+      "class_query": {
+        "how": {
+          "patterns": [
+            "if os\\.name [!=]= \"posix\":"
+          ],
+          "paths": [
+            "graphloops/tests/simulate.py",
+            "graphloops/tests/simulate_review.py"
+          ],
+          "count": "lines"
+        },
+        "counts": "population",
+        "total": 6,
+        "note": "posix だけで走る枝の数。見送りの行を足しても枝は残るので、件数は母集団として数える。"
+      }
+    }
+  ],
+  "questions": [
+    {
+      "key": "posix 限定の枝の見送り化をどちらの線で直すか",
+      "kind": "split",
+      "status": "held",
+      "reason": "並行する wip/windows-green が Windows の落ちを直しており、実測した制約はその範囲をこの run で触らないとしている。posix 限定の枝が行を出さずに抜ける問題は、Windows で件数の柵が割れる原因の 1 つでありうる。この run（能力の名前つきの見送り）と windows-green が同じ場所を別の形で直すと衝突する。能力の名前の語彙はこの run で決まるので、windows-green の側で直す場合もその語彙に合わせる必要がある。",
+      "origin": "graphloops/tests/simulate.py・simulate_review.py の posix 限定の枝: 走らない検査が見送りの行を出さず、許しの一覧に載らないまま消える"
+    },
+    {
+      "key": "push 後の 3 OS の CI で shellcheck が走り、許しの一覧の外の見送りが 0 件であることを確かめる",
+      "kind": "field",
+      "status": "held",
+      "reason": "push と gh workflow run は禁じられており、この run の中では CI の結果を見られない。push 後に確かめるのは次の点である。(a) macOS と Windows のログで shellcheck が見送りでなく実際に走ること（Windows では checkout の改行が CRLF になり、SC1017 で落ちる危険がある。ただし tests/run.sh 自体が Windows の bash で走っているので、LF で取り出されている見込みは高い）。(b) Windows で見送られる能力の名前が、一覧に書いた物とちょうど一致すること。(c) catchup の 2 件を能力を確かめる形にした後、Windows で走って緑になるか。"
+    }
+  ],
+  "framing": "0.20.2 は見送りを合格と分けて一覧に出したが、「どこで許すか」の判断を CI の定義に委ねたまま、委ね先に口も語彙も渡さなかった（見送りの理由は自由文で、FAIL_ON_SKIP=1 は全部か無しか）。受け手の test.yml はその判断を一度も持たなかった。さらに、shellcheck を ubuntu に任せるという前提が、tests/run.sh の中の検査は他の OS では走らないことを見えなくした。根は 1 つで、見送りに名前が無いので、許す単位を誰も書けない。名前を付け、CI が OS ごとの一覧（既定は空）を渡し、無くせる見送りは道具を入れて無くす。この 3 つで閉じる。条件を OS の名前で推し量っている見送りと、行を出さずに消える枝は、名前を付けるときに同じ根から露呈した。",
+  "one_shot": "見送りの行に能力の名前を持たせ、許すか拒むかの判断を tests/run.sh の拾い手 1 か所にまとめる。test.yml は 3 OS とも FAIL_ON_SKIP=1 と matrix.include の許しの一覧（既定は空）を渡し、同時に 3 OS に同じ版の shellcheck を入れる。この 2 つは揃って初めて閉じる。許しの口だけでは macOS と Windows が shellcheck の見送りで赤になり、道具だけでは残る 9 件の見送りが黙って緑のまま残る。",
+  "one_shot_closes": [
+    "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない",
+    ".github/workflows/test.yml shellcheck: macOS と Windows の CI に shellcheck が無く、tests/run.sh の shellcheck の検査が見送りになる"
+  ],
+  "materials_missing": [],
+  "carried_r1": [],
+  "router": [
+    {
+      "key": "shellcheck をどの OS・深さで回すか",
+      "route": "①記録された理由がまだ束縛する",
+      "note": "独立した shellcheck の段を ubuntu の 1 本に絞る理由（同じ .sh を 3 回見ても冗長）は、今も成り立つ。人の決定は道具を入れることで、段を増やすことではないので両立する。ただし注記の前提（ubuntu には既定で入っている）は版の違い（0.9.0 と手元の 0.11.0）を隠していたので、U2 で注記を書き換える。"
+    },
+    {
+      "key": "見送り検査（SKIP）を CI のどの OS・どの条件で失敗（FAIL_ON_SKIP=1）に数えるか",
+      "route": "②新証拠が理由に答える（再開の提案）",
+      "note": "未決だった判断に、人の決定（2026-09-26 09:00: OS ごとの許しの一覧・既定は空）が答えた。U1 で実装し、tests/run.sh:54 と README.md:199 の文言を同じ差分で決着の形に直す。"
+    },
+    {
+      "key": "CI の matrix.os を 3 OS にし fail-fast: false にするか",
+      "route": "①記録された理由がまだ束縛する",
+      "note": "この周の処方は matrix.include で値を足すだけで、OS の集合と fail-fast には触れない。"
+    },
+    {
+      "key": "setup-python の python-version をどう固定するか",
+      "route": "①記録された理由がまだ束縛する",
+      "note": "この周の処方は Python の版に触れない。"
+    }
+  ],
+  "precedents": [
+    {
+      "key": "tests/run.sh report_skips: 見送りの行に欠けた能力の名前が無く、許す口が全部か無しかなので、CI が見送りを失敗に数えない",
+      "problem": "環境で走れない検査の見送りを名前で分類し、走らせる側が環境ごとに許す範囲を渡す",
+      "source": "https://docs.python.org/3/library/test.html（test.support.requires・ResourceDenied・regrtest の -u、例: -uall,-audio,-largefile）／https://testanything.org/tap-version-14-specification.html（SKIP の後の説明文、見送りを一覧で報告すること）／https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations（strategy.matrix.include で既存の組に値を足す）",
+      "verdict": "adapt",
+      "reason": "CPython は見送りに資源の名前を持たせ、走らせる側が名前の一覧で許す範囲を決める。人の決定（OS ごとの欠けてよい能力の一覧）と同じ形である。手を入れるのは次の 3 点。名前は TAP の説明文の頭に置く。許しの一覧は FAIL_ON_SKIP=1 のときの除外として足し、手元の既定（未指定なら一覧に出すだけ）を残す。OS ごとの値は matrix.include で渡し、include の無い OS は空とする。"
+    },
+    {
+      "key": ".github/workflows/test.yml shellcheck: macOS と Windows の CI に shellcheck が無く、tests/run.sh の shellcheck の検査が見送りになる",
+      "problem": "CI の複数 OS に、同じ版の静的検査の道具を入れる",
+      "source": "https://pypi.org/project/shellcheck-py/（0.11.0.1、win_amd64・macosx arm64 と x86_64・manylinux のホイール）／https://github.com/actions/runner-images（macOS 15 arm64 と Windows 2025 の一覧に shellcheck は無く、Ubuntu 24.04 の一覧は 0.9.0）",
+      "verdict": "adopt",
+      "reason": "test.yml はすでに pip で pytest の版を固定して入れている。同じ仕組みで 3 OS に同じ版の shellcheck を入れられ、手元（0.11.0）と CI の版も揃う。"
+    },
+    {
+      "key": "tests/catchup-switch-case.py _hook・応答の無い origin: 見送りの条件が sh の有無を確かめず、OS の名前で決まる",
+      "problem": "検査の見送りを OS の名前でなく、能力の有無を確かめて決める",
+      "source": "https://docs.python.org/3/library/test.html（test.support.os_helper.can_symlink など、能力を確かめて見送りを決める関数）",
+      "verdict": "adapt",
+      "reason": "CPython は symlink などの見送りを OS の名前でなく、実際に使えるかを確かめて決める。この 2 件では sh を起こせるかを確かめ、無いときだけ能力の名前つきで見送る。"
+    }
+  ]
+}

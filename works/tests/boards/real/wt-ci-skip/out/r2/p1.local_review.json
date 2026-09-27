@@ -1,0 +1,157 @@
+{
+  "material": {
+    "status": "found",
+    "count": 18,
+    "detail": "7 本のレンズを起こした。/code-review high 8 件・code-reviewer 2 件・/simplify（修正を禁じた 4 観点）4 件・/security-review 0 件・silent-failure-hunter 1 件・type-design-analyzer 1 件・pr-test-analyzer 2 件。主な物: Windows の CRLF の checkout で shellcheck が SC1017（今壊れている。依頼 1 と同じ）、catchup の台本の CRLF の見込み（未実測。CI では赤でない）、CI_LINT_OK の柵の穴（run: の上書き・include の中身・段の切り分け）、拾い手の腕のコロンの分岐、許しの一覧の使われない名前、ubuntu の独立の段の重複（人の決定で残す）。"
+  },
+  "simplify_carried": false,
+  "findings": [
+    {
+      "skill": "/code-review",
+      "items": [
+        {
+          "where": "tests/catchup-switch-case.py:368・560（write() のテキストモード）",
+          "text": "git_runs_sh に切り替えたので ssh の代役の script と post-checkout hook が Windows でも走る。write() は newline 指定の無いテキストモードで開くので、Windows では台本が CRLF で書かれ、『sleep 5\\r』『>&2\\r』が壊れる見込み。",
+          "mechanism": "write() が open(path, 'w') で newline を指定しない。",
+          "measured": "未実測（run 36221181354 の Windows では catchup の none・hook は赤でなかった——FAIL 行に無い）",
+          "false_positive_if": "Windows の runner の Python が CRLF で書いても Git for Windows の sh が \\r を許す、または実測で緑（run 36221181354 では catchup の赤は無い）。"
+        },
+        {
+          "where": ".github/workflows/test.yml:24",
+          "text": "Windows の skip_allow に symlink が無い。simulate_review.py の見送りの理由は『Windows は既定で権限を持たない』と書く——runner で作れるなら理由の文が事実と食い違う。",
+          "measured": "run 36221181354 の Windows で symlink の見送りは出ていない"
+        },
+        {
+          "where": "tests/run.sh:3055",
+          "text": "3 OS に shellcheck を入れたので、Windows の CRLF の checkout で SC1017 が出る。.gitattributes に '*.sh text eol=lf' を。",
+          "mechanism": "autocrlf=true の checkout で .sh に \\r が付く",
+          "measured": "run 36221181354 の windows で FAIL shellcheck が指摘を出した（SC1017）"
+        },
+        {
+          "where": "tests/run.sh:61",
+          "text": "skip_capability の =~ ^[a-z0-9][a-z0-9-]*$ は locale 依存（照合順で [a-z] が大文字を含みうる）。[[:lower:][:digit:]] か LC_ALL=C で。",
+          "mechanism": "bash の =~ は OS の regcomp を使う",
+          "measured": "未実測（macOS の bash 5.3 と LC_ALL=C では Fifo は弾かれた）"
+        },
+        {
+          "where": "tests/run.sh:3095",
+          "text": "CI_LINT_OK の段の切り分けが『- name:』『- uses:』だけを段の頭とする。名前の無い段（- run: / - if:）が直前の段に混ざる。"
+        },
+        {
+          "where": "tests/run.sh:3110",
+          "text": "'FAIL_ON_SKIP: \"1\"' in rs は行の完全一致で、同じ意味の YAML の書き方（FAIL_ON_SKIP: 1・行末注記）で偽の赤、env: の外の位置でも通る。"
+        },
+        {
+          "where": ".github/workflows/test.yml:57",
+          "text": "ubuntu だけの独立した shellcheck の段は、tests/run.sh の中の同じ検査と重複する。"
+        },
+        {
+          "where": "tests/run.sh:170",
+          "text": "skip_probe が失敗に数えた件数を report_skips の人向けの文言から正規表現で抜いている。文言を直すと偽の赤。report_skips が件数を変数で残せば一時ファイルと grep が要らない。"
+        }
+      ],
+      "invoked": true
+    },
+    {
+      "skill": "pr-review-toolkit:code-reviewer",
+      "items": [
+        {
+          "where": ".github/workflows/test.yml:41-43（tests/run.sh:3052-3062）",
+          "text": "[block] windows-latest が今赤。Windows にも shellcheck が入り、CRLF の checkout の .sh に SC1017 が 333 件出て『FAIL shellcheck が指摘を出した』。.gitattributes に '*.sh text eol=lf' が定番。Windows で SHELLCHECK_OK が出ることを CI で確かめる必要。",
+          "mechanism": "actions/checkout は Windows の既定の core.autocrlf=true で .sh を CRLF にする。以前は shellcheck が無く見送りだった。",
+          "measured": "run 36221181354 の windows job 108346614901: SC1017 333 件、対象 5 本。ubuntu・macOS は SHELLCHECK_OK。作業ツリーに .gitattributes が無い。",
+          "false_positive_if": "別の PR で .gitattributes か core.autocrlf=false を入れる予定が既にある。"
+        },
+        {
+          "where": ".github/workflows/test.yml:44-49",
+          "text": "[suggest] 独立した shellcheck の段は存在理由をなくしたかもしれない。注記『同じ .sh を 3 回見ても指摘は変わらない』も Windows の実測（CRLF で指摘が変わる）で崩れた。",
+          "measured": "run 36221181354 の ubuntu で独立の段と run.sh の SHELLCHECK_OK が同じ検査を 2 回",
+          "false_positive_if": "Actions の画面で shellcheck の赤を別の段で見せたい意図がある（それでも注記の文は直す対象）。"
+        }
+      ],
+      "invoked": true
+    },
+    {
+      "skill": "/simplify",
+      "items": [
+        {
+          "where": ".github/workflows/test.yml:46",
+          "text": "[単純化・効率] ubuntu だけの独立した shellcheck の段・CI_LINT_OK の hits の assert・腕 CL2/CL3 はまとめて削れるかもしれない。README:207 の文も実態とずれる。",
+          "measured": "find の対象が同じ 5 本であることを写しで確認",
+          "false_positive_if": "CI 画面で lint の赤を別の段で見せる意図がある。"
+        },
+        {
+          "where": "tests/run.sh:3084",
+          "text": "[再利用] CI_LINT_OK の中で同じ test.yml を 3 通り（runs・steps・named）に解析している。runs と named は steps から導ける。",
+          "measured": "実際の test.yml で 3 通りと導出が一致（scratchpad/simp/parsers.py）"
+        },
+        {
+          "where": "tests/run.sh:56",
+          "text": "[単純化] skip_capability と許しの照合はそれぞれ 1 行にできる（bash 3.2 と 5.3 で 15 通り差 0）。[nit]",
+          "measured": "scratchpad/simp/cap.sh",
+          "false_positive_if": "腕 SK1・SK2 の打ち直しの手間が上回る。"
+        },
+        {
+          "where": "tests/catchup-switch-case.py:55",
+          "text": "[単純化] git_runs_sh の except OSError には到達しない（先に make_repo が git を起こす）。[nit]",
+          "measured": "PATH から git を外すと make_repo の FileNotFoundError で落ちる",
+          "false_positive_if": "make_repo より前で git_runs_sh を呼ぶ事例を足す予定がある。"
+        }
+      ],
+      "invoked": true,
+      "failed": "起こした（修正を禁じた形。4 観点を 1 つの役に順に見させ、指摘だけ返させた）"
+    },
+    {
+      "skill": "/security-review",
+      "items": [],
+      "failed": "起こしたが所見なし。差分の CI 設定（pip の版固定・matrix の定数・env 経由）・tests/run.sh の SKIP_ALLOW の扱い（read -ra と文字列比較のみ、eval 無し）・catchup の alias と shlex.quote を見た。確度 2 以下の候補 3 件は誤検知として外した",
+      "invoked": true
+    },
+    {
+      "skill": "pr-review-toolkit:silent-failure-hunter",
+      "items": [
+        {
+          "where": "tests/run.sh:3110-3111",
+          "text": "[suggest] CI_LINT_OK は tests/run.sh の段の env に FAIL_ON_SKIP と SKIP_ALLOW の行が在るかしか見ず、run: の頭で FAIL_ON_SKIP=0 と上書きしても緑。continue-on-error: true や ubuntu だけの if: を段に足しても緑（後の 2 つは既存の穴）。",
+          "mechanism": "step() は段の行の在否だけを判定し、bash は run: の頭の代入を env より優先する。",
+          "measured": "写しの test.yml を 3 通りに書き換えて PYCI を流し、3 つとも CI_LINT_OK",
+          "false_positive_if": "敵対的な編集は PR のレビューで止まると割り切る方針。"
+        }
+      ],
+      "invoked": true
+    },
+    {
+      "skill": "pr-review-toolkit:type-design-analyzer",
+      "items": [
+        {
+          "where": "tests/run.sh:65-86（report_skips）・.github/workflows/test.yml:14",
+          "text": "[suggest] 許しの一覧の名前を検査していない。どの見送りにも当たらなかった名前・形の崩れた値（*）を知らせないので、『本当にできない物だけ』が注記だけの約束。使われなかった許しを報告する形（mypy warn_unused_ignores・ruff RUF100・pytest xfail_strict）が定番。赤にするかは判断が要る。",
+          "mechanism": "report_skips は各見送りの cap が allow に在るかだけを見て、allow を回さない。",
+          "measured": "抜き出して実行: SKIP_ALLOW に 5 名・見送り fifo 1 件で fail=0 で何も言わない。'anything-goes, *, fifo' で見送り 0 件でも空。",
+          "false_positive_if": "許しの一覧を恒久的な許可として意図的に設計している。"
+        }
+      ],
+      "invoked": true
+    },
+    {
+      "skill": "pr-review-toolkit:pr-test-analyzer",
+      "items": [
+        {
+          "where": "tests/run.sh:3111",
+          "text": "CI_LINT_OK は matrix.include の中身を見ない。ubuntu・macOS に skip_allow を足す・windows の一覧に shellcheck や sh を足しても緑。include で skip_allow を持つのは windows-latest だけ・一覧に shellcheck と sh が無いことの assert と腕 CL7 を勧める。重要度 6。",
+          "mechanism": "PYCI は step の env の字列だけを見て include を読まない",
+          "measured": "写しの test.yml を 3 通り書き換えて 3 つとも CI_LINT_OK",
+          "false_positive_if": "許しの一覧の中身は人がレビューで見る方針。"
+        },
+        {
+          "where": "tests/run.sh:59",
+          "text": "skip_capability の『コロンが無ければ名前なし』の分岐を守る入力が skip_probe に無く、消しても緑。消すと『# SKIP fifo』が名前として読まれ許される。skip_in に『  ok   壬 # SKIP fifo』を足し skip_part の期待を denied=5 に。重要度 3。",
+          "mechanism": "skip_in のコロン無しの行は『理由』と空文字だけで、どちらも後の正規表現で弾かれる",
+          "measured": "59 行を : に置き換えた写しでも 2 腕 ok",
+          "false_positive_if": "コロンの無い 1 語の理由を出す見送りを今後も書かないと保証されている。"
+        }
+      ],
+      "invoked": true
+    }
+  ]
+}

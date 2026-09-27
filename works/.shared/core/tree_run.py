@@ -26,6 +26,8 @@ engine/role_run.py（_tree_members・_stop_tree。本線 9f91687 = graphloops 0.
 使い方: `python3 tree_run.py -- <コマンド>`（-- の後の語は空白で繋いで 1 行にし /bin/sh -c で走らせる。
 語が無ければ環境変数 INPUTS_CMD）。終了コードはコマンドの終了コード、信号で死んだら 128+信号、殻が止められたら
 128+受けた信号（直下の親が消えた回は SIGHUP）、コマンドが空なら 2。関数として使う側は run(argv, **Popen の引数) を呼ぶ。
+子に渡す環境は outside_env(os.environ) で uv run の外の形にする（blk-tests の run_tests と盤面の tree_runner。台帳 R23。
+決まりを 1 か所に置くのは、線の CI と engine_run の CI で同じ宣言が片方だけ偽の赤になるのを防ぐため）。
 """
 import collections
 import os
@@ -50,6 +52,35 @@ class Stopped(Exception):
     def __init__(self, signum):
         super().__init__(signum)
         self.signum = signum
+
+
+def outside_env(environ):
+    """uv run が足した物を外した環境（写し。environ は書き換えない）。PYTHONDONTWRITEBYTECODE=1 は立てる——子（テスト）が
+    作業ツリーに __pycache__ を作って修正の差分に紛れ込むのを止める（works の決まり。engine の run_steps は環境をそのまま継ぐ）。
+    外すのは:
+    - PATH の頭の、この python の bin（dirname(sys.executable) か sys.prefix/bin。実体のパスで比べる）。uv は頭に足すので
+      頭だけを見て、同じフォルダは 1 度だけ外す（元の PATH に同じフォルダが在っても後ろの物は残る）
+    - UV_RUN_RECURSION_DEPTH と、sys.prefix を指す VIRTUAL_ENV（uv が起こした環境。対象の .venv もここ）
+    uv run の外で起こされた（UV_RUN_RECURSION_DEPTH が無い）ときは、下の UV_NO_CONFIG のほかは外さない。
+    - UV_NO_CONFIG はいつも外す。利用者が Archon の環境に立てていても、テストのコマンド（`uv run pytest` など）には対象の
+      [tool.uv]（私的な index など）を読ませる。渡すと公開の PyPI から解決して、偽の赤と依存の取り違えの口になる
+    Archon は script の節を `uv run <ファイル>` で起こし、uv は PATH の頭に自分の python の bin を足し、VIRTUAL_ENV・
+    UV_RUN_RECURSION_DEPTH を立てる。そのまま渡すと `python3 -m pytest` が uv の python を掴んで偽の赤になる。
+    限界: 節に deps: を足すと uv は --with の層の bin も足し、それは外れない（今の節は deps を持たない）"""
+    env = dict(environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("UV_NO_CONFIG", None)
+    if env.pop("UV_RUN_RECURSION_DEPTH", None) is None:
+        return env
+    ours = {os.path.realpath(d) for d in (os.path.dirname(sys.executable), os.path.join(sys.prefix, "bin"))}
+    parts = env.get("PATH", "").split(os.pathsep)
+    while parts and parts[0] and os.path.realpath(parts[0]) in ours:
+        ours.discard(os.path.realpath(parts.pop(0)))
+    env["PATH"] = os.pathsep.join(parts)
+    venv = env.get("VIRTUAL_ENV")
+    if venv and os.path.realpath(venv) == os.path.realpath(sys.prefix):
+        del env["VIRTUAL_ENV"]
+    return env
 
 
 def _answers(send, target):

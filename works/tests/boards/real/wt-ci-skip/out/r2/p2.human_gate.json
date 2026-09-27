@@ -1,0 +1,18 @@
+{
+  "decision": "ask",
+  "reason": "human_gate",
+  "ask": {
+    "kinds": [
+      "policy"
+    ],
+    "in_round": true,
+    "question": "今ある能力を減らす・狭める変更、人の方針とぶつかる変更、または方針の文書そのものの変更が挙がった。役は代償として決めない——人が決める。通すなら continue --note <通す範囲と条件>（答えは記録の process.human_items に残り、修正役に届く。方針の文書の変更を通すと、その版を固定し直す）。通さないなら stop（run をここで止める。直す向きを決めてから新しい run で）",
+    "items": [
+      "事前審査の穴 [policy] posix の枝の見送りに付ける名前 process-group が、実際に欠けている能力と合わない: 案は 23 件すべてを「プロセスグループで子の木を止めることに頼る」として process-group にまとめている。しかし製品側には Windows で木を止める道がある。role_run.py は Windows では CREATE_NEW_PROCESS_GROUP で起こし、taskkill /T /F で木を止め（264-280）、開始時刻は CIM の FILETIME で見る（parse_cim）。つまり Windows でも木は止められ、そのテストが書かれていないだけである。さらに、プロセスグループを要らない検査も混ざっている。SIGNAL_PROBE の 3 件のうち、錠の再入は kill_all を呼ぶだけで、止め切れない理由を運ぶ件は _stop_tree を差し替えている。止める信号の後の StopSignal の件が要るのは sh だけである。1957（印が無ければ stop_group は None）は OS によらない。2017（run_tree の標準入力）が要るのも sh である。test_relaunch_live_launch は Windows にも対応した fakeclaude（fakeclaude.py:79）を使い、relaunch の Windows の道（taskkill）をそのまま通る。これらに process-group の名前を付けると、Windows の skip_allow がそれを許し、taskkill の道が一度も確かめられないまま CI が緑になる。これは README.md:199 と test.yml:20 が書く方針『その OS で本当にできない物だけを一覧に書く』とぶつかる。逆に、人は『Windows のプロセスのまとまりの停止』を『できない物』の例に挙げている。その前提が role_run の Windows の道と食い違うので、どちらを採るかは人が決めることになる。このまま書けば、次の周で『名前つきの許しが、走っていない Windows の実装を隠す』として、この単位と同じ種類の block に挙がる見込みが高い"
+    ],
+    "options": [
+      "continue",
+      "stop"
+    ]
+  }
+}

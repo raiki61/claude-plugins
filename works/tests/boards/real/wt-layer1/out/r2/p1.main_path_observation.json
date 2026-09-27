@@ -1,0 +1,29 @@
+{
+  "material": {
+    "status": "found",
+    "count": 1,
+    "detail": "role_run._kill/_stop_tree の主経路（setpgid・setsid でグループの外へ出た孫を止める）を実物のプロセス木で 2 回動かした——孫は killpg 対象外へ抜けたまま生きた状態で _kill(leader) を呼び、_ps_all() の subprocess.run([\"ps\",...]) が本番コードの通り try/except(OSError, SubprocessError) で拾われ、返り値は「止める相手を数え上げられない（ps を起こせない（[Errno 1] Operation not permitted: 'ps'）——グループ 27591 は居ないが、外へ出た子孫を確かめていない」となり、フォールバック分岐（表が読めない→pgid だけへ送る・止まったと嘘をつかない）は設計どおりに動いた（0.1〜0.2 秒で返る）。この環境では ps 自体が exec できない（引数なし・-p 単体・-A のどれでも PermissionError）ため、孫は生き残った（grandchild_gone=False）。\n続けて、この差分が足した実物の統合検査 graphloops/tests/simulate.py を通しで 1 回走らせた（python3 graphloops/tests/simulate.py、他は一切変更していない）。既存の 27 件が ok の後、この差分が足したゾンビだけのグループの検査（2025〜2032 行）が未捕捉の PermissionError: [Errno 1] Operation not permitted: 'ps' を上げてプロセスごと落ちた——line 2027 の while ループが subprocess.run([\"ps\",\"-o\",\"stat=\",...]) を try/except なしで直に呼んでいるため。_ps_all()（本番）は同じ ps 起動を OSError で拾うのに、この新しいテスト自身はそれをしていない。parallel.run_all は raise first で最初の例外をそのまま外へ通すので、この 1 件の失敗が残り約 350 件の検査全部を巻き込んで走らせずに落とす（該当のテスト 1 件が赤になるだけでは済まない）。長・孫（sleep(120)）の回収も reap() まで到達せず取り残された。\n graphloops/tests/py/test_role_run_stop.py の 33 件（モックのみ、実プロセスは使わない）は python3 -m pytest で緑（3.92 秒）——ここは経路のロジックのみの確認で、実行環境固有の欠陥は現れない。"
+  },
+  "observed": [
+    {
+      "path": "role_run._kill(leader) を実物の leader/grandchild（os.setpgid(0,0) で pgid の外へ出た孫）に対して直接呼んだ",
+      "value": "why=\"止める相手を数え上げられない（ps を起こせない（[Errno 1] Operation not permitted: 'ps'））——グループ 27591 は居ないが、外へ出た子孫を確かめていない\" took=0.19s grandchild_gone=False"
+    },
+    {
+      "path": "role_run._kill(leader) を os.setsid() で新しいセッションへ抜けた孫に対して直接呼んだ",
+      "value": "why=\"止める相手を数え上げられない（ps を起こせない（[Errno 1] Operation not permitted: 'ps'））——グループ 28805 は居ないが、外へ出た子孫を確かめていない\" took=0.12s grandchild_gone=False"
+    },
+    {
+      "path": "role_run._ps_all() を直接呼んだ（subprocess.run([\"ps\",\"-A\",...])）",
+      "value": "rows=None why=\"ps を起こせない（[Errno 1] Operation not permitted: 'ps'）\"（ps は引数なし・-p 単体でも同じ PermissionError で、-A に限らない）"
+    },
+    {
+      "path": "python3 graphloops/tests/simulate.py（この差分が足した統合検査を含む全件を通しで実行）",
+      "value": "既存 27 件 ok の後、simulate.py:2027 の subprocess.run([\"ps\",\"-o\",\"stat=\",\"-p\",...]) が未捕捉の PermissionError: [Errno 1] Operation not permitted: 'ps' を上げ、parallel.py:153 の raise first で全体が exit code 0 のまま（トップレベルの try が無いので異常終了扱いにもならず）落ち、残りの検査は 1 件も走らなかった"
+    },
+    {
+      "path": "python3 -m pytest graphloops/tests/py/test_role_run_stop.py -v（モックのみ、_tree_members・_ps_all を差し替えた単体検査）",
+      "value": "33 passed in 3.92s（実プロセス・実 ps を使わない経路はここでは全緑）"
+    }
+  ]
+}

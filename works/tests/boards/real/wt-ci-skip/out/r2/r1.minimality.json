@@ -1,0 +1,69 @@
+{
+  "status": "pass",
+  "reason": "判定は pass。作り直しは要らない。ただし注記を 12 か所削る（deletions）。\n\n【読み方】Bash が無いので `git show 8215273:<path>` は打てない。代わりに、固定した版との差分の写し（diff-r2-after-fix.patch）の + 側を正本として読んだ。worktree の test.yml・tests/run.sh・tests/catchup-switch-case.py・graphloops/tests/parallel.py の該当する範囲が、patch の + 側と行番号まで一致することも確かめた。\n\n【前段の削除候補】8 件とも、名指しされた同じ内容が実在する。\n- test.yml:44 は :47 の if:。\n- run.sh:54 は :56 の関数名と :61 の正規表現。\n- run.sh:163 は :165 の代入と :172 の printf。\n- run.sh:176・179・180 は変数名と期待値（:182-184）。さらに :187 の FAIL の文が、既定・一覧が空・一部許す・一覧だけ・全部許す の 5 つの名前をそのまま持っている。\n- catchup:362 は :377 の検査名、:382 の \"timeout\"、:367-371 の差し替え。\n- parallel.py:35-37 は tests/run.sh:43。\n候補が挙げた期待値の行番号（185-188）は、実際の :182-185 から 3 行ずれている。「付近」の範囲として受ける。\n\n加えて自分で 4 件見つけた。\n- run.sh:177 の skip_on の行末の注記。kept の 177-178 は skip_part（:178）の内訳しか事実として言えておらず、:177 は理由の無いまま残っていた。\n- test.yml:39-40 の「見送りになっていた」は変更前の実況。2 周目の注記の単位が消したのと同じ類で、今の形の帰結は run.sh:3103-3104 に在る。\n- run.sh:3103 の太字の 1 文目は test.yml:40 の写し。\n- README.md:199 の括弧（その OS で本当にできない物だけ…）は、書き換える場所である test.yml:20 の写し。\n\n【処方の最小性】\n- 2 周目は、1 周目の in の assert 2 本を完全一致 1 本に畳んだ（症状パッチの積み増しでなく、集約）。\n- posix の枝は、既存の skip() を当てる零処方を採った。OS に依らない 3 件は囲いから出し、見送りを 23 件から 20 件に減らしている。\n- .gitattributes は 1 行で、Windows の checkout で .sh が CRLF になる根を閉じる。落とした別案 2 つ（Windows の一覧に shellcheck を書く・SC1017 の除外）にも落ちる理由が付いている。\n- 列挙を経ずに足された機構は無い。\n\n【残る nit】作り直しの理由にはしない。\n- simulate.py の見送りの tuple に、check の説明文 18 本が写してある。説明文を変えると、見送りの一覧だけが黙って古くなる。\n- 同じ理由の文が simulate.py の 5 か所に、括弧の違いつきで繰り返されている。1 つのファイルの中の定数に畳める。\n\n【問いの台帳】逃げ道になっている問いは無い。ただ記録に欠けが 2 つある。\n- held の field の問いに「囲いから出した 3 件が Windows の実機で通るか」が無い。修正の verified_how の (3) には在る。\n- posix 限定の 23 件を 3 件と 20 件に分けた人の関所の答えと、taskkill の道のテストを別の依頼に回したことが、台帳に載っていない。\n\n【調べていないこと】外への検索は要らず、1 件も引いていない。対象の名前が要るので引いていない調べも無い。",
+  "deletions": [
+    {
+      "where": ".github/workflows/test.yml:44（前半の文と括弧。後半の「深さは tests/run.sh の手元の検査と同じ -S warning——…」は残す）",
+      "why": "「3 OS のうち 1 本だけで回す」は、直下の :47 の `if: matrix.os == 'ubuntu-latest'` をなぞっているだけ。括弧の「二重に走るのは数秒で、段を残しても能力は減らない」は、段を消しても同じことが言えるので、段を残す理由になっていない。段が要る本当の理由は tests/run.sh:3084-3085 の hits の assert で、shellcheck を起こす run: の段を必須にしている。書くならそれを指す一文にし、それ以外は書かない。段の構造は人の決定どおり変えない。"
+    },
+    {
+      "where": "tests/run.sh:54（前半「拾った見送りの行から能力の名前を出す。名前の形（小文字・数字・-）でなければ空」）",
+      "why": "関数名 skip_capability（:56）の言い直しと、:61 の正規表現 `^[a-z0-9][a-z0-9-]*$` と `&& printf` の日本語への写しになっている。後半（名前の無い見送りと打ち間違いは FAIL_ON_SKIP=1 の下で必ず失敗に倒れる）は why なので残す。"
+    },
+    {
+      "where": "tests/run.sh:163（「引数: … 返り: …」の行）",
+      "why": "引数は :165 の `FAIL_ON_SKIP=$1; SKIP_ALLOW=$2` と :166 の `\"$3\"` に書いてあり、返りの形は :172 の printf の書式そのもの。denied と allowed の意味は、:170 の正規表現と :171 の grep -c が運んでいる。書式を変えると注記だけが古くなる、二重の正本になっている。ラベルが短すぎるなら printf の側のラベルを長くする（名前で解く）。"
+    },
+    {
+      "where": "tests/run.sh:176（行末「# 既定: 一覧に出すだけ」）",
+      "why": "変数名 skip_off、引数 \"\" \"\"、期待値 :182 の `fail=0|denied=0|allowed=0`、:187 の FAIL の文の「既定」が同じことを運んでいる。"
+    },
+    {
+      "where": "tests/run.sh:177（行末「# 一覧が空: 全部を失敗に数える」）",
+      "why": "kept の 177-178 が挙げた事実は skip_part（:178）の内訳だけで、:177 は運ぶ事実を言えないまま残っていた。「一覧が空」は :187 の FAIL の文に、「全部を失敗に数える」は :182 の期待値 `fail=1|denied=6` に在る。:178 の内訳の注記は残す。"
+    },
+    {
+      "where": "tests/run.sh:179（行末「# 一覧だけ渡しても FAIL_ON_SKIP が無ければ失敗にしない」）",
+      "why": "変数名 skip_off_allow、:183 の期待値 `fail=0|denied=0|allowed=2`、:187 の「一覧だけ」の言い直し。"
+    },
+    {
+      "where": "tests/run.sh:180（行末「# 全部許せば緑」）",
+      "why": "変数名 skip_ok、同じ行の引数（許した 2 つの名前の行だけ）、:184 の期待値 `fail=0|denied=0|allowed=2`、:187 の「全部許す」の言い直し。"
+    },
+    {
+      "where": "tests/catchup-switch-case.py:362（1 文目「応答が無ければ FETCH_TIMEOUT 秒で切る（ssh を sleep する script に差し替えて再現）。」）",
+      "why": "「Windows は sh が無いことがある」を外した後に残ったのは、:377 の検査名「応答の無い origin は FETCH_TIMEOUT 秒で切る」、:382 の verdict の鍵 \"timeout\"、:367-371 の差し替え（slow-ssh の sleep 5 と GIT_SSH_COMMAND）の言い直しだけ。2 文目（待つのは実時間なので秒数を縮めて借りる）は why なので残す。"
+    },
+    {
+      "where": "graphloops/tests/parallel.py:35-37（docstring の「合格と同じ『ok』だけで出していたとき、…止める口が無かった。」の 1 文）",
+      "why": "同じ経緯が tests/run.sh:43 に在る。docstring 自身が「拾って数えるのは root の tests/run.sh の 1 か所だけ」と正本を指しており、:31 の SKIP_MARK の注記も run.sh の note_skips を指している。印を分けること・名前を頭に置くこと・数えるのは 1 か所だけであることの文は残す。"
+    },
+    {
+      "where": ".github/workflows/test.yml:39-40（「tests/run.sh の中の同じ検査が macOS と Windows で見送りになっていた。」と「（pytest と同じく版を固定する）」）",
+      "why": "前者は変更前の実況。2 周目の注記の単位が「合流後に腐る実況」として消したのと同じ類になる。今の形での帰結（入れないと見送りになり、SKIP_ALLOW に無い名前なので赤）は tests/run.sh:3103-3104 に在る。後者は、同じ行の「同じ版を入れ」と :43 の `==0.11.0.1` の言い直し。「runner の既定では ubuntu にしか無く（版も手元と違う）」と「3 OS とも PyPI のホイールで同じ版を入れ、見送り自体を無くす」は残す。"
+    },
+    {
+      "where": "tests/run.sh:3103（太字の 1 文目「見送り自体を無くす道具は 3 OS に同じ版で入れる。」）",
+      "why": "test.yml:40 の「3 OS とも PyPI のホイールで同じ版を入れ、見送り自体を無くす」の写しで、:3106-3107 の assert の文（版を固定して入れる段が無い／OS の条件が付いている）も同じことを運んでいる。2 文目（if: を付けると外れた OS で赤になるが原因が遠いので、ここで直接止める）は why なので残す。"
+    },
+    {
+      "where": "README.md:199（括弧「（その OS で本当にできない物だけ。道具で無くせる見送りは道具を入れて無くす）」）",
+      "why": "一覧を書き換える場所である test.yml:20 に同じ決まりが在り、README の同じ文は既に `.github/workflows/test.yml` の matrix（`skip_allow`）を指している。書き換える者の読み筋にあるのは test.yml の側で、README に写すと二重の正本になる。手元で使う者に要る SKIP_ALLOW の既定（空）と区切りの文は残す。"
+    }
+  ],
+  "ledger_audit": [
+    "「push 後の 3 OS の CI で shellcheck が走り、許しの一覧の外の見送りが 0 件であることを確かめる」（field・resolved）: 逃げ道ではない。GitHub Actions run 36221181354 の実測で (a)(b)(c) に答えが出ている。外れた見立て（LF の見込み）は block の単位に上がり、残る確かめは新しい field の問いに引き継がれている。",
+    "「push 後の 3 OS の CI で、Windows の shellcheck が eol=lf で SHELLCHECK_OK になり、…確かめる」（field・held）: 逃げ道ではない。push と gh workflow run が禁じられているので、手元（macOS）で発火しない分岐を観測できるのは push の後だけで、field として正当。ただし記録に欠けが 1 つある。2 周目の修正の verified_how の (3)「囲いから出した 3 件（印が無いときの stop_group・SIGNAL_PROBE の錠の再入・_stop_tree の差し替え）が Windows の実機で通るか」が、確かめる物 (1)〜(3) に入っていない。(3) の件数 1932 は件数の一致しか見ず、この 3 件の合否を覆わない。(4) として足すべき。",
+    "「posix 限定の枝の見送り化をどちらの線で直すか」（split・decided）: origin は凍結した目的の内側（人が挙げた例、Windows のプロセスのまとまりの停止）だが、逃げ道ではない。fork の中身は処方の選択でなく持ち主（並行する wip/windows-green との衝突）で、人が決めた。決まった後は零処方（既存の skip() を当てる）を採っている。この問いに付随する欠けが 1 つある。修正が拠り所にした人の関所の答え（2026-09-26、推しの 1: 23 件を OS に依らない 3 件と process-group で見送る 20 件に分け、Windows の taskkill /T /F の道のテストは別の依頼に回す）が台帳に載っていない。選択肢自体は plan_faces に列挙されている（全部を見送る零処方・sh の名前で見送る案の棄却・taskkill の道のテストを別にする）ので、逃げ道には当たらない。ただし、別の依頼に回した taskkill の道のテストは、台帳か残りの一覧に明記すべき。その答えの本文は入力に無く、中身は修正の報告からしか確かめられない。"
+  ],
+  "increments": [
+    ".gitattributes +1 行（`*.sh text eol=lf`）: 他所に無い情報（改行の宣言）。Windows の checkout で .sh が CRLF になり SC1017 で赤になる根を 1 行で閉じる。零処方 2 つには落ちる理由が付いている（Windows の一覧に shellcheck を書く案は人の決定に反する。--exclude=SC1017 は続く構文の誤りを消せない）。正当。",
+    "graphloops/tests/simulate.py +約 22 行（else の見送り、SIGNAL_PROBE の posix の囲い、stop_group を囲いの外へ移す、sh を sys.executable に替える）: 他所に無い情報は、Windows で走らなかった検査の点ごとの名前と件数。TAP の点ごとの SKIP と EXPECTED_CHECKS の -ne が、計画の件数を OS に依らず揃えることを要る。移した分と sys.executable への差し替えは、見送りを 23 件から 20 件に減らす方向で、正当。コストとして、18 本の説明文が check の説明文の写しになっている（説明文を変えると見送りの一覧だけが古くなる。赤は件数の柵にしか出ない）。同じ理由の文が括弧の違いつきで 5 回繰り返されている（1 ファイルの中の定数に畳める。plan_faces が定数を退けた理由は simulate_review の 1 回だけに当たり、simulate.py の 5 回には当たらない）。どちらも nit で、集約の対象。",
+    "graphloops/tests/simulate_review.py +2 行: point ごとの見送り 1 件。他所に無い。正当。",
+    "tests/run.sh CI_LINT_OK +約 4 行（純増。in の assert 2 本を完全一致 1 本に畳み、head を集めてジョブ単位の if:/continue-on-error: を拒む）: silent-failure-hunter が実測した 3 通りの素通り（run: の頭の代入・continue-on-error・if:）を閉じる、他所に無い判定。症状パッチの積み増しでなく集約。正当。",
+    "tests/mutations.json CL7〜CL11 +45 行: 5 本とも異なる弱め方（run: の頭の代入・段の continue-on-error・段の if:・ジョブの continue-on-error・shell: の差し替え）を 1 本ずつ固定する。完全一致を in の検査に戻す編集が来たとき、どの穴が開いたかを名指せる。単位の reopen_evidence が挙げた形と 1 対 1。正当。",
+    "注記の行: 前の周の 13 から今の 11 に減った（相殺の削除あり）。残る 11 のうち、deletions に挙げた run.sh:163・176・177・179・180・3103、test.yml:39-40・44、catchup:362 は他所に在る情報で、正当化できない増分として削る。parallel.py:35-37・run.sh:54 の前半・README.md:199 の括弧も、累積差分の中の写しとして同じく削る。",
+    "1 周目からの累積（report_skips・skip_capability・skip_probe の 5 つの腕・skip_line の名前の欄・test.yml の matrix.include と env・README の 1 文）: 名前ごとの許しは、人の決定（2026-09-26 09:00）を実装する他所に無い仕組みで、正当。skip_probe の 5 つの腕はそれぞれ異なる場合（既定・一覧が空・一部許す・一覧だけ・全部許す）を固定しており、重複ではない。"
+  ],
+  "candidates_note": "前段の 8 件は全部取れた。「同じ内容の在り処」は patch の + 側と worktree で全部実在を確かめ、8 件とも削る。行番号のずれは 1 つだけ（run.sh の期待値と合格の行を候補は 185-188 付近とするが、実際は :182-185）。「付近」の範囲として受けた。kept のうち tests/run.sh:177-178 は skip_part（:178）の内訳しか事実を言えておらず、:177（skip_on）の注記は運ぶ事実が無いまま残っていたので deletions に足した。kept の test.yml:39-40 と tests/run.sh:3103-3104 は、挙げた事実（道具を入れて見送りを無くす／if: で原因が遠い赤になる）は正しい。ただ同じ注記の中に、変更前の実況と他所の写しが混ざっているので、その部分だけを deletions に挙げた。固定した版を `git show` で直接読めていない（Bash が無い）。代わりに、固定した版との差分の写しを正本として読み、worktree の該当範囲が一致することを確かめた。"
+}

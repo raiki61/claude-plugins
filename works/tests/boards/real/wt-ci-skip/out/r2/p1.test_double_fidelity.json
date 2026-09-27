@@ -1,0 +1,8 @@
+{
+  "material": {
+    "status": "found",
+    "count": 1,
+    "detail": "対象差分は tests/catchup-switch-case.py に git_runs_sh() を足し、GIT_SSH_COMMAND を起こす擬似 ssh（sh script）と post-checkout hook（sh script）という、実物の git 子プロセス起動を模す代役を扱う。この代役の形が実物と合うかを、実物の git（version 2.50.1, Apple Git-155, macOS）で確認した: git -C <tmp> -c alias.shprobe='!exit 0' shprobe の形は alias の '!' 起動が sh を経由することの実測であり、この確認済みの sh 起動能力の下で catchup-switch-case.py の実ケース 'hook'（post-checkout hook が sh で起動し hook-said-no を吐く）と 'none'（GIT_SSH_COMMAND 経由の擬似 ssh が sh で起動しタイムアウト分岐に入る）を実際に走らせ、どちらも SWITCH_OK で終わった。GIT_SSH_COMMAND に足された shlex.quote(...).replace(os.sep, '/') の引用も、空白を含む path を単一引用符で正しく包むことを実測で確認した（'/tmp/some dir/slow-ssh' → '/tmp/some dir/slow-ssh' の単一引用）。代役（擬似 ssh・擬似 hook の #!/bin/sh script）が受ける引数を無視して sleep するだけの形は、タイムアウト分岐の検査という用途では実物の呼ばれ方（引数付きで起動される）と食い違っても検査の正しさに影響しない範囲であり、この診断で崩れは見つからなかった。"
+  },
+  "mismatches": []
+}

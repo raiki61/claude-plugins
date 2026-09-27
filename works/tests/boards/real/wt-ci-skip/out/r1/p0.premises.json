@@ -1,0 +1,44 @@
+{
+  "constraints": [
+    {
+      "text": "CI の定義 .github/workflows/test.yml は 3 OS（ubuntu-latest・macos-latest・windows-latest）の行列で、shellcheck の段は ubuntu だけで回る（if: matrix.os == 'ubuntu-latest'）。workflow は FAIL_ON_SKIP を渡していない",
+      "measured_how": "作業ツリー（4233aa8）の workflow を grep",
+      "kind": "実測",
+      "measured_output": "$ grep -n \"FAIL_ON_SKIP\\|shellcheck\\|if: matrix\" .github/workflows/test.yml\n32:      # **shell の静的検査は定番解（shellcheck）で。** ...\n36:      - name: shellcheck\n37:        if: matrix.os == 'ubuntu-latest'\n39:        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning\n（FAIL_ON_SKIP の行は 0 件。matrix: os: [ubuntu-latest, macos-latest, windows-latest]）"
+    },
+    {
+      "text": "見送りを拾って数え失敗に倒すのは tests/run.sh の 1 か所（note_skips・report_skips）。FAIL_ON_SKIP=1 のときだけ全部の見送りを失敗に数える——全部か無しかで、能力の名前ごとに許す口は無い。見送りの行は『  ok   <検査> # SKIP <理由>』で、理由は自由文（能力の名前の欄は無い）",
+      "measured_how": "tests/run.sh の 40-62 行と graphloops/tests/parallel.py の skip_line を読んだ",
+      "kind": "実測",
+      "measured_output": "$ sed -n 55,62p tests/run.sh\nreport_skips() {\n    [ \"${#SKIPS[@]}\" -gt 0 ] || return 0\n    echo \"見送り ${#SKIPS[@]} 件（この環境で走らなかった検査。FAIL_ON_SKIP=1 で失敗に数える）:\"\n    printf '  - %s\\n' \"${SKIPS[@]}\"\n    if [ \"${FAIL_ON_SKIP:-}\" = 1 ]; then\n        echo \"見送りを失敗に数えた: ${#SKIPS[@]} 件（FAIL_ON_SKIP=1）\"\n        fail=1\n$ sed -n 34,38p graphloops/tests/parallel.py\ndef skip_line(desc, reason):\n    return f\"  ok   {desc}{SKIP_MARK} {reason}\""
+    },
+    {
+      "text": "4233aa8 の見送りの出どころは 10 か所: tests/run.sh 3 か所（2982 posix の mode・3026 shellcheck が無い・3549 run_group のプロセスグループ）、tests/catchup-switch-case.py 2 か所（365・551 Windows に sh が無いことがある）、graphloops/tests/simulate.py 2 か所（812・813 FIFO）、graphloops/tests/simulate_review.py 3 か所（1932 symlink・2568 権限で読みを止められない・2583 FIFO）",
+      "measured_how": "作業ツリーで見送りの印と skip( の呼びを grep",
+      "kind": "実測",
+      "measured_output": "$ grep -rn \"# SKIP \\| skip(\\\"\" --include=*.py --include=*.sh tests graphloops/tests | grep -v ...\ntests/run.sh:2982: ... # SKIP posix でない OS はファイルの mode を持たない\ntests/run.sh:3026: ... # SKIP shellcheck が手元に無い（CI の ubuntu の段が回し、下の CI_LINT_OK がその設定を見る）\ntests/run.sh:3549: ... run_group の腕 # SKIP run_group は posix のプロセスグループ（start_new_session・killpg）に頼る\ngraphloops/tests/simulate_review.py:1932: skip(\"リンク: symlink ...\", \"この環境では symlink を作れない（Windows は既定で権限を持たない）\")\ngraphloops/tests/simulate_review.py:2568: skip(\"開けない指し先は『数えられない』で拒む\", \"root か Windows では権限で読みを止められない\")\ngraphloops/tests/simulate_review.py:2583: skip(\"FIFO に置き換わった指し先は開かずに拒む\", \"この OS には FIFO（os.mkfifo）が無い\")\ngraphloops/tests/simulate.py:812: skip(\"FIFO を読んだ回はフックが記録しない\", ...FIFO...)\ngraphloops/tests/simulate.py:813: skip(\"FIFO は開かずに none\", ...FIFO...)\ntests/catchup-switch-case.py:365: ... # SKIP Windows は ssh の代役に使う sh が無いことがある\ntests/catchup-switch-case.py:551: ... # SKIP Windows は hook の sh が無いことがある"
+    },
+    {
+      "text": "GitHub Actions run 36206449136（main 32dfd94）の windows のログでは見送り 10 件が一覧に出て、shellcheck が無い見送りが 1 件含まれる。同じログに FAIL 行が 7 行あり（6 件の検査の落ち。並行の wip/windows-green が直している範囲で、この run では触らない）",
+      "measured_how": "scratchpad/ci-0202-windows.log を grep",
+      "kind": "実測",
+      "measured_output": "$ grep -n \"見送り 10 件\" ci-0202-windows.log\n2232:... 見送り 10 件（この環境で走らなかった検査。FAIL_ON_SKIP=1 で失敗に数える）:\n2236:...  - リポジトリの .sh が shellcheck -S warning を通る # SKIP shellcheck が手元に無い（CI の ubuntu の段が回し、下の CI_LINT_OK がその設定を見る）\n$ grep -c \"  FAIL \" ci-0202-windows.log\n7"
+    },
+    {
+      "text": "macOS の CI の runner にも shellcheck が無く、同じ見送りが出ている",
+      "measured_how": "macOS のログは手元に無い（依頼の measured は『macOS・ubuntu は緑』とだけ言う）。runner の既定の道具の一覧で確かめていない",
+      "kind": "仮説"
+    },
+    {
+      "text": "この手元（macOS）には shellcheck 0.11.0 が在る",
+      "measured_how": "which と --version",
+      "kind": "実測",
+      "measured_output": "$ which shellcheck; shellcheck --version | head -2\n/opt/homebrew/bin/shellcheck\nShellCheck - shell script analysis tool\nversion: 0.11.0"
+    },
+    {
+      "text": "CI の結果はこの run の中では確かめられない（push・gh workflow run は禁止）。workflow の変更の効き目は、版を出した後の push で見る",
+      "measured_how": "依頼の『禁じること』の文",
+      "kind": "仮説"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "material": {
+    "status": "found",
+    "count": 3,
+    "detail": "role_run.py の「子の木を止める」領域に絞って決着済みの論点を洗った。(1) 期限・タイムアウトに基づく子停止の廃止（deadline_minutes・launch の打ち切り・relaunch の期限条件を全廃、経過時間表示と起こし直し前の旧試行の停止だけ残す）。(2) 環境変数マーキング方式（Jenkins ProcessTreeKiller 型）でプロセス木を識別する案の却下（macOS では他プロセスの環境変数が読めないと実測済み）。(3) 直前の修正（12cbfb2 の _group_alive／killpg sig 0 で EPERM=生存とみなす方式）は、ゾンビだけのグループへの killpg が EPERM を返す macOS の挙動と噛み合わず、対象差分（fdf61df）の _tree_members/_stop_tree（数え上げ→送信→数え直し確認）方式に置き換えられて決着済み。",
+    "checked": "git log --oneline --all -- graphloops/engine/role_run.py の全履歴と主要コミット本文（12cbfb2, 65932c3, 3ae9f82, 529169d, 9ff724e, a2695cf, fdf61df）、docs/graphloops-rearchitecture.md 全体（grep: 止める/_stop_tree/ゾンビ/孫/killpg/EPERM）、REVIEW.md（同 grep、該当なし）、role_run.py 内の TODO/FIXME/後で/検討 の文字列、fdf61df の全差分（role_run.py・conftest.py・test_role_run_stop.py・run.sh・simulate.py・mutations.json）"
+  },
+  "checked": true,
+  "searched": [
+    "git log --oneline --all -- graphloops/engine/role_run.py",
+    "git show -s --format=%B（12cbfb2 65932c3 3ae9f82 529169d 9ff724e a2695cf fdf61df）",
+    "docs/graphloops-rearchitecture.md（grep: 止める/_stop_tree/ゾンビ/孫/killpg/EPERM、および該当行の文脈読み）",
+    "REVIEW.md（grep: 同上、role_run/stop_tree/孫/ゾンビ/killpg、該当なし）",
+    "graphloops/prompts/research-loop/p0.prior_decisions.md・graphloops/prompts/review-loop/p0.prior_decisions.md の存在確認（内容は本題の role_run 停止処理と無関係な汎用テンプレートのため深掘りせず）",
+    "graphloops/engine/role_run.py 内の TODO/FIXME/XXX/後で/検討 の文字列",
+    "git diff 4233aa8..fdf61df -- graphloops/engine/role_run.py（全文）・graphloops/tests/py/conftest.py・graphloops/tests/run.sh・graphloops/tests/simulate.py・tests/mutations.json",
+    "gh pr list（api.github.com への到達を試み、サンドボックスにより拒否——このリポジトリの GitHub 上の PR/issue は確認不能）"
+  ],
+  "settled": [
+    {
+      "topic": "子プロセス（役・任せ先）を止める際に期限（deadline_minutes）やタイムアウトを根拠にするか",
+      "decision": "全廃した。節の期限値・期限切れによる launch の打ち切り・loop.py wait の期限判定・relaunch の期限条件をすべて外し、残すのは経過時間の表示（elapsed_min）と、起こし直す前に必ず旧試行の木を止めることだけ。",
+      "reason": "『止まっても気づかない』問題（完了通知の迷子）は engine が子の終了を直接待つ形で解消済みで、期限は実測に基づかない目安値が『子を止める上限』に流用され、判定役・調べ役の打ち切りや並行線の待つ/待たないの食い違いを生んでいた。",
+      "revisit": "期限を付け直すなら、役を起こす関数が残す所要時間の実測から節ごとに個別に決める（画一的な既定値には戻さない）。子が応答せず動き続ける穴への対応（進捗の有無で見る形）は未着手のまま将来検討とされている。",
+      "where": "docs/graphloops-rearchitecture.md:108-110,267-268（コミット a2695cf, 9ff724e で実装）"
+    },
+    {
+      "topic": "プロセス木の識別に環境変数の目印（Jenkins ProcessTreeKiller 型）を使うか",
+      "decision": "使わない。",
+      "reason": "macOS では ps -E にも KERN_PROCARGS2 にも他プロセスの環境変数が出ず、実測（2026-09-26）で読めないと確認された。",
+      "revisit": "プラットフォーム側の制約が変わらない限り再訪不要。",
+      "where": "graphloops/engine/role_run.py の _tree_members docstring（対象差分 fdf61df 内、コード中の設計注記として記録）"
+    },
+    {
+      "topic": "子の木が『止まった』とみなす条件（killpg の EPERM／ゾンビだけのグループの扱い）",
+      "decision": "直前の修正（12cbfb2）の『killpg(pgid,0) が ProcessLookupError 以外（EPERM 含む）なら生きていると数える』方式は、ゾンビだけのグループへの killpg が macOS で EPERM を返すという実際の挙動と衝突するため、対象差分（fdf61df）で『ps と getsid で仲間を数え上げてから信号を送り、送った後に同じ数え上げで確認する』方式（_ps_all/_tree_members/_stop_tree）に置き換えて決着させた。生きた仲間がいるのに EPERM が返った場合のみ『信号を送れない』と返す。",
+      "reason": "CI の ubuntu 実測で孫が生き残る不具合（12cbfb2 が対応）から、さらに macOS 実測でゾンビのみのグループへの killpg が EPERM で拒まれる事実が判明し、旧方式では誤って『生きている』と扱ってしまうため。",
+      "revisit": "他 OS（Windows 以外の POSIX 系）で killpg の権限エラー挙動がゾンビ判定と異なることが判明した場合。",
+      "where": "graphloops/engine/role_run.py（対象差分 fdf61df）、先行実装は git show 12cbfb2 -- graphloops/engine/role_run.py"
+    }
+  ]
+}

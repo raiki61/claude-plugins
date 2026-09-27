@@ -74,13 +74,13 @@ class TestIntake(AcceptCase):
         batches = json.loads((self.board / "request.json").read_text())
         self.assertEqual(batches, [{"round": 1, "origin": "持ち主", "findings": load("request_ok")}])
 
-    def test_add_reads_nodes_and_runners_of_fake_board(self):
+    def test_add_reads_nodes_and_runners_of_scratch_board(self):
         # 0.21.0 の add は、積んだ欄を読む待ちの instance を b.nodes の reads と b.is_runner で振り分ける（他へ渡した物は描き直し、
-        # 回す側の節は言うだけ）。今の works は instances が空でこの道を通らない——偽の盤面の nodes・is_runner が engine と
-        # 同じ振り分けになるかを、instance を 3 つ持たせて見る
+        # 回す側の節は言うだけ）。今の works は instances が空でこの道を通らない——受け付けの入れ物（DiskBoard.scratch）の
+        # nodes・is_runner が engine と同じ振り分けになるかを、instance を 3 つ持たせて見る
         import accept
         rules = accept._rules()
-        b = accept._Board(self.board, "", record=rules.init_record(None, None))
+        b = accept.DiskBoard.scratch(self.board, review_rev="", record=rules.init_record(None, None))
         self.assertFalse(b.is_runner(b.nodes["p2.diagnose"]))   # judge
         self.assertTrue(b.is_runner(b.nodes["report"]))          # writer（graph の runners）
         none = str(self.board / "まだ無い返答.json")
@@ -167,20 +167,19 @@ class TestJudge(AcceptCase):
         # 案内する。works の判定役には番号の一覧を貼らないので、where を字面のまま写せと返す。
         # 今の works は 1 周だけで盤面に前の周の R1 が無く、この道は通らない——前の周の R1 を持つ盤面を差して通す
         import accept
+        scratch = accept.DiskBoard.scratch
 
-        class PrevR1Board(accept._Board):
-            def __init__(self, *a, **kw):
-                super().__init__(*a, **kw)
-                self.round = 2
-                self.state["outputs"] = {"r1.minimality": {"round": 1}}
-
-            def outputs(self, before_round=None):
-                return {"r1.minimality": {"deletions": [{"where": "stats.py:3"}]}}
+        def prev_r1_board(*a, **kw):
+            b = scratch(*a, **kw)
+            b.new_round()
+            b.state["outputs"] = {"r1.minimality": {"round": 1}}
+            b.outputs = lambda before_round=None: {"r1.minimality": {"deletions": [{"where": "stats.py:3"}]}}
+            return b
 
         reply = load("judge_ok")
         reply["carried_r1"] = [{"where": "stats.py:4", "disposition": "decline", "why": "削除すると mean が壊れる"},
                                {"where": "stats.py:3", "disposition": "decline", "why": "削除すると mean が壊れる"}]
-        with mock.patch.object(accept, "_Board", PrevR1Board):
+        with mock.patch.object(accept.DiskBoard, "scratch", prev_r1_board):
             r = check_judge(reply, self.board, self.base, self.repo)
         self.assertFalse(r["ok"])
         self.assertIn("carried_r1[0] の where 'stats.py:4'", r["reason"])

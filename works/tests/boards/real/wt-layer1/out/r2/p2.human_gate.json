@@ -1,0 +1,22 @@
+{
+  "decision": "ask",
+  "reason": "human_gate",
+  "ask": {
+    "kinds": [
+      "regression"
+    ],
+    "in_round": true,
+    "question": "今ある能力を減らす・狭める変更、人の方針とぶつかる変更、または方針の文書そのものの変更が挙がった。役は代償として決めない——人が決める。通すなら continue --note <通す範囲と条件>（答えは記録の process.human_items に残り、修正役に届く。方針の文書の変更を通すと、その版を固定し直す）。通さないなら stop（run をここで止める。直す向きを決めてから新しい run で）",
+    "items": [
+      "修正案 2 が狭める能力: 長が正常に終わった試行（役・テスト一式・rules の run_tree）が意図して残した背景のプロセスも、試行の終わりに刈られる（BASE では正常に終わった試行の子孫は残った）——判定役が世界の解（Jenkins の ProcessTreeKiller・systemd の停止時の刈り取り）で決め、試行を超えて生き残るプロセスを使う消費者がこのリポジトリに見当たらないとした。ただし今ある使い方を狭める形なので、書き落とさずに挙げる",
+      "事前審査の穴 [regression] send-target-drops-leader-group-killpg: In the _kill path, the leader.poll() just before enumerating (line 396) reaps a leader that died on SIGTERM, so the leader number pgid is no longer in the table or in members. From the SIGKILL round on, the plan's condition removes group pgid from the targets even when it still has live members. Those members are then signalled one pid at a time. The docstring (lines 353-354) says killpg to the group also reaches children that appear after the count; that is lost. With a member that ignores TERM and keeps forking, like the tree-deaf fixture (`while :; do sleep 1; done`), a child forked between the ps and the SIGKILL survives. The final recount then returns a false NG ('SIGKILL の後も残っている'). BASE always sent killpg to group pgid. The judge's world solution is to limit targets to 'groups that a live member belongs to'. Restricting to groups whose leader is a member is narrower than that, and the narrowing is not listed in narrows. If `or m.pgid == pgid` is added (group pgid only while it has a live member, which can't hit the zombie-only EPERM), it keeps the same power to stop members as BASE and still closes unit 1.",
+      "事前審査の穴 [regression] reap-per-step-not-per-attempt: The plan's narrows says 'reaped at the end of the attempt', but the reap is placed at the end of _spawn, which run_steps calls per step. The judge's narrowing said not to reap per step, because a repo's declaration (declared.py: several steps per attempt) can have step 2 use a background process started in step 1, so reap at the end of the attempt. Jenkins' primary source also says 'end of the build' (fetched and confirmed). In BASE, a background process that redirected its output (e.g., `server > log 2>&1 &`) did not hold the pipe, so communicate returned and the process survived into step 2. Under the plan it is killed at the end of step 1. This narrowing is not in narrows.",
+      "事前審査の穴 [regression] run-tree-timeout-no-longer-bounds-call: In BASE, communicate(timeout=SUITE_TIMEOUT / SPEC_RUN_TIMEOUT) bounded the whole call, including pipe EOF. If a runner's descendant held the pipe, it timed out, killed the tree through _kill, and raised TimeoutExpired, so the rules could always report back within the time limit. The plan hands the timeout only to the leader's p.wait. After the leader exits, it reaps and then joins with no limit. The docstring (lines 304-305) names 'descendants it can't pick up' (e.g., double-fork daemons). If one of those holds the pipe, run_tree never returns. The plan says this is 'the same wait as BASE', but for run_tree BASE was bounded. It is a loss of a BASE capability and is not in narrows.",
+      "事前審査の穴 [regression] normal-end-keeps-mark-on-unreadable-session: _tree_members returns a reason whenever a same-user process's session can't be read (lines 336-337), and _stop_tree returns it even when there are no live members. Once the reap runs on every normal end, an environment with even one such process prints NG at the end of every role, step, and run_tree, and keeps the mark. The next relaunch or stop re-stops that mark through attempt_marks (commands.py:1375): probe finds the leader GONE and leans toward stopping on POSIX, so the same reason is returned forever. BASE always removed the mark on a normal end."
+    ],
+    "options": [
+      "continue",
+      "stop"
+    ]
+  }
+}

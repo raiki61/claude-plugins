@@ -1,0 +1,110 @@
+{
+  "material": {
+    "status": "found",
+    "count": 13,
+    "detail": "docs/graphloops-rearchitecture.md と docs/feedback/review-loop-remaining-findings.md に、指す場所（simulate_review.py・role_run.py・mutate.py・_popen/_stop_tree/stop_group）に直結する決着済みの論点と、明示的に未決のまま残された論点が並んでいる。settled に採った 13 件のうち、開いたまま（revisit 条件つき）のものは detail 内の各項目の revisit 欄に理由を書いた。"
+  },
+  "checked": true,
+  "searched": [
+    "git log --oneline -- graphloops/tests/simulate_review.py graphloops/engine/role_run.py tests/mutate.py",
+    "リポジトリ全体の *.md（Glob）と、対象語（simulate_review|role_run|mutate.py|_popen|_stop_tree|stop_group）の grep（37 ファイル該当）",
+    "docs/graphloops-rearchitecture.md 全文（変異テスト・engine_run・期限を外した・gates=merge・mutation.yml の節）",
+    "docs/feedback/review-loop-remaining-findings.md 全文（決めたこと D1〜D3・H1〜H3、残ること R1〜R13）",
+    "commit a2695cf（16/16 止める口）の role_run.py 側 diff と commit message",
+    "graphloops/engine/role_run.py 冒頭のモジュール docstring と定数まわりの注記（未決マーカーの有無）",
+    ".github/workflows/mutation.yml の workflow_dispatch 有無"
+  ],
+  "settled": [
+    {
+      "topic": "役の子プロセスの待ち方に時間の上限（deadline）を付けない",
+      "decision": "2026-09-25、人の依頼で節の deadline_minutes・既定 30 分・期限切れで子を止める動作・loop.py wait・期限を条件にした relaunch の資格を全部外した（run 20260925-115422）。role_run.py の docstring にも明記。",
+      "reason": "所要時間を実測で決めていない値が上限を兼ねると、長く考える役を途中で打ち切ってしまうため。",
+      "revisit": "再訪条件の記載なし（覆すなら理由を足して直す、という文書全体の一般原則のみ）。",
+      "where": "docs/graphloops-rearchitecture.md#期限を外した; graphloops/engine/role_run.py:11-15"
+    },
+    {
+      "topic": "起こし直された古い試行の子を止める仕組み（relaunch・stop_group・_stop_tree・pgid_path）",
+      "decision": "子を起こすたびにプロセスグループ番号を <out_path>.pgid に書き、別プロセス（relaunch、後に loop.py stop も）がその印を読んで木ごと止める。新しい試行を盤面に書いてから印を読む順序（書いてから still_mine を聞く）を固定し、印の再利用は時刻とプロセス開始時刻で見分ける。",
+      "reason": "前置の層 with-auth.py が子の claude を孫として起こすため、層だけ止めると claude が孤児で走り続ける。先に古い試行を止めてから relaunch すると、止められた古い launch の締めと版が競って relaunch が落ちる実測があったため、この順序に決めた。",
+      "revisit": "採用試験（D3, REVIEW.md コード衛生観点）は 2 回中 1 回しか発火しておらず、差は小さいとして『残る課題（実レビューの発火実績で剪定する）』と明記——完全に閉じた論点ではない。",
+      "where": "docs/graphloops-rearchitecture.md#期限を外した; commit a2695cf role_run.py diff; docs/feedback/review-loop-remaining-findings.md D3"
+    },
+    {
+      "topic": "人が途中で止める口（loop.py stop）を、relaunch の停止経路と共有するか別立てにするか",
+      "decision": "共有する。_popen 側の LIVE/止め始めた印はそのまま残し、SUPERSEDED の文言・Superseded 例外・still_mine の docstring を relaunch 専用の言い回しから『起こし直し・人が止める口』の一般化した文に直した。stop_group の docstring にも loop.py stop を明記して両方の呼び出し元を書いた。",
+      "reason": "3-way マージでの衝突解決として、総点検 2 周目の _popen 実装を残しつつ、止める側の意味を一般化する方針を採った（人が止める場合と起こし直しの場合を同じコードパスで扱う）。",
+      "revisit": "記載なし（衝突解決の記録のみで、再訪条件は書かれていない）。",
+      "where": "commit a2695cf コミットメッセージと graphloops/engine/role_run.py 該当 diff"
+    },
+    {
+      "topic": "変異テストの実行器（tests/mutate.py）が期限を待たずに部分結果を返す形",
+      "decision": "ゲート 2 節の『期限を付けるな・通知で待て』をやめ、実行器が腕 1 本ごとに --out を書き直し、--deadline-at の手前で新しい腕を始めずに残りを pending のまま書き終える形にした。",
+      "reason": "4 周目に任せ先が timeout 1800 で全腕を撃ち、見張りのループを 4 本立てて結果の無いまま『書いた』と返す事故が起きたため。",
+      "revisit": "『後日: 2026-09-25 に graph の期限・loop.py wait・期限で子を止める動作は外した。relaunch は前の試行の子を止めてから起こし直す形で残した』と明記——この決定自体が後で部分的に覆されている（期限を外した節を参照）。",
+      "where": "docs/feedback/review-loop-remaining-findings.md R9 節（247 行目付近）"
+    },
+    {
+      "topic": "変異テストを合流の run でまとめて撃つ（gates=merge）",
+      "decision": "各 run が自分の線で変異を撃つと、合流後にまた撃ち直して負荷を食い合う（実測: 4 本が各自撃って負荷 99）ため、init --input gates=merge を選んだ run は p3.delta_gates と p4.final_gates を not_run（理由つき）で閉じ、gates_deferred で止まって合流後に 1 回だけ撃つ形にした。",
+      "reason": "実測された負荷の食い合い（99）を避けるため。",
+      "revisit": "3 周目に別途入れた gates=at_merge（関門を撃たずに収束する形）は 2026-09-26 の人の決定で廃止し、gates=merge の 1 通りに揃えた——この統一自体が最終決定として書かれている。",
+      "where": "docs/graphloops-rearchitecture.md 273 行目"
+    },
+    {
+      "topic": "変異テストの実行器を既製品（cosmic-ray／mutmut）へ寄せるか",
+      "decision": "まだ寄せていない。手順（12・13番）として『このリポジトリで動かして比べる実測から始める』と計画のみ。13 番（p3.delta_gates.md が tests/mutate.py を直接名指しする漏れ）は 2026-09-25 に対象リポジトリの REVIEW.md が名指しする道具を使う書き方に直して解決済み。",
+      "reason": "プラグインが特定リポジトリの道具名に縛られないようにするため（13 番）。12 番（既製品移行）自体は実測してから判断する未着手項目。",
+      "revisit": "12 番（cosmic-ray/mutmut への移行）は明示的に未着手・要実測。pytest 移行と一緒に進める予定と書かれている。",
+      "where": "docs/graphloops-rearchitecture.md 224, 284, 308-309 行目"
+    },
+    {
+      "topic": "role_run.py を engine の起こす関数として、Claude Code Agent 機能でなく claude -p の子プロセスに移した理由",
+      "decision": "Agent 機能で役を起こすと役の返答が回す側の会話に入ってしまい、それを避けるために挟んだ中継 AI が『書いていないのに書いたと返す』『続きの返答が回す側に戻る』『完了の知らせが迷って 7 時間止まる』を実際に起こしたため、engine が claude -p の非対話実行（--agent・--resume・--output-format json・権限の明示）で子プロセスとして起こす形（graphloops/engine/role_run.py）に 2026-09-25 に改めた。",
+      "reason": "実測された 3 つの不具合（誤った完了報告・返答の混入・7時間ハング）。",
+      "revisit": "記載なし。門番は hook にあると付記。",
+      "where": "docs/graphloops-prior-art.md 91 行目"
+    },
+    {
+      "topic": "engine が走らせるだけの節（engine_run）を role_run._spawn と同じ起こし方に統一するか",
+      "decision": "統一した。graph の回す側の節に engine_run: {builtin, why} を書くと ENGINE_RUNS[builtin].plan が走らせる語を返すときだけ mode=engine_run で出て、loop.py launch が役と同じ _spawn（別プロセスグループ・期限なし・relaunch が木ごと止める）で走らせる。",
+      "reason": "節の中の『走らせる・数える』は engine に、『読む・決める』は役に分ける、という判定で決めた区分。当初は変異テストの2節とCI・数値写しの2節を丸ごとLLMから外す案だったが、この判定で範囲を直した。",
+      "revisit": "『残した物（次の手）』として、変異の実行器を engine が撃つ部分（p1.gate_efficacy・p3.delta_gates・p4.final_gates の腕を撃つ段）は腕の自己申告のまま残っており、この run では人の指示で変異テストを起こせず確かめられないため次の run に持ち越しと明記。",
+      "where": "docs/graphloops-rearchitecture.md 138-147 行目"
+    },
+    {
+      "topic": "変異の真偽表テスト（simulate_review.py の test_cond_truth_tables）を pytest でなく今の台本に置く",
+      "decision": "真偽表は pytest でなく graphloops/tests/simulate_review.py・simulate.py の test_cond_truth_tables に置いた。手書きの腕（EN1・EN2・EN4・EN6〜EN9・EN14・EJ4〜EJ9・LP2）は消さずに、graph の JSON の木を壊す形から rules の各条件の行を壊す形に付け替えた。",
+      "reason": "この版に pytest の土台が無いため。",
+      "revisit": "『既製の道具に任せるのは変異テストの道具の移行と一緒に』と明記——テストの pytest 移行が済めば見直す前提。",
+      "where": "docs/graphloops-rearchitecture.md 152, 157-158 行目"
+    },
+    {
+      "topic": "週 1 回の全腕 CI（.github/workflows/mutation.yml）の timeout-minutes",
+      "decision": "未決定・未実測のまま。所要時間は未実測（手元は 24 コアで 21〜35 分の目安のみ）。push 後の最初の手動起動（workflow_dispatch）で測って timeout-minutes を実測に合わせる予定。",
+      "reason": "この環境の gh には手動起動の権限が無く、人の操作待ちだったため。",
+      "revisit": "R4 として明示的に『まだ一度も走っていない』残タスク。ワークフローファイル自体は存在し workflow_dispatch を持つが、実測イベントはまだ発生していない（.github/workflows/mutation.yml で確認）。",
+      "where": "docs/feedback/review-loop-remaining-findings.md R4 節; .github/workflows/mutation.yml"
+    },
+    {
+      "topic": "『待ちの生存』（起こし直しが古い試行の重い処理を止めない・二重に走りうる）を REVIEW.md のコード衛生観点に新設するか",
+      "decision": "新設した（2026-09-25）。置き場は横断リスク観点でなくコード衛生観点。世界の解（AWS Well-Architected REL05-BP05、Temporal の Start-To-Close/Heartbeat/試行数/取消）を根拠に採用試験を実施し、新項目入りが対照より有意に多く発火（2/2 vs 0/2）したため新設の規則に従った。",
+      "reason": "5 周目の R4 が『設計の見直しが要る』と挙げた、relaunch が古い試行の重い処理を止めず二重に走りうる問題が、修正の前後審査で拾われなかったため。",
+      "revisit": "『残ること』として、発火は 2 回中 1 回で差は小さく、採用後は実レビューの発火実績で剪定すると明記。依頼が挙げたもう1件（入れ子起動の完了通知7時間待ち）は差分教材が無く未試験。",
+      "where": "docs/feedback/review-loop-remaining-findings.md D3 節"
+    },
+    {
+      "topic": "role_run._stop_tree の止め方（SIGTERM→SIGKILL の猶予）",
+      "decision": "STOP_SIGNALS = (SIGTERM, SIGKILL)（posix のみ）、KILL_GRACE = 5 秒の猶予で _kill と stop_group が共通に使う。",
+      "reason": "コード上の定数として固定されているのみで、この値を選んだ理由・実測の記載は見た範囲の文書には無い。",
+      "revisit": "理由の記載が無いため、値そのものが再検討対象になり得るかは文書からは判断できない——コードのコメントは『何を』止めるかのみで『なぜこの秒数か』は書いていない。",
+      "where": "graphloops/engine/role_run.py:42-43"
+    },
+    {
+      "topic": "5 周目 R9 で挙げた relaunch/停止処理まわりの設計見直し最優先事項の扱い",
+      "decision": "『役を起こす関数（期限で子の木を止める）と噛み合わせて直す』『並行の裏の任せ先（Agent の背景実行）も同じ形なので、あわせて見る』という優先順位づけの記載があり、その後 a2695cf の commit（16/16 人が途中で止める口）でこの系統の実装が進んだ。",
+      "reason": "5 周目の R4 が挙げた『二重に走りうる』欠陥の設計不備を最優先で塞ぐ方針。",
+      "revisit": "この最優先事項がどこまで完了扱いになったかを明示的に『完了』と書いた記録は見た範囲では見つからなかった——a2695cf のコミットメッセージは『未決の仕上げ・止まった run の暫定のゲート』と自称しており、完全な決着とは書かれていない。次の周の判定で扱われた可能性はあるが、その記録は今回の探索範囲（docs/ と grep 対象）には見当たらなかった。",
+      "where": "docs/graphloops-rearchitecture.md 268 行目; commit a2695cf メッセージ"
+    }
+  ]
+}

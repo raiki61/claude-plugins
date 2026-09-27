@@ -1,0 +1,23 @@
+{
+  "faces": [
+    {
+      "key": "unsure-comment-still-names-only-reap",
+      "kind": "contract_drift",
+      "where": "graphloops/engine/role_run.py",
+      "cite": "UNSURE = \"セッションの番号を読めないプロセスが在り、木の仲間かを決められない\"   # _tree_members の理由の頭（_reap が見分ける）",
+      "why": "no.1 の手直しで UNSURE の濾過は _reap ではなく _reap_one に切り出され、_communicate の途中と _reap の両方がそこを呼ぶ形になった。しかし UNSURE 定数の脇のコメントは直されず『_reap が見分ける』のままで、読み手を _reap だけに向かわせる。_communicate の途中でも同じ濾過が効くという事実がこの 1 行だけ古い記述に取り残された。"
+    }
+  ],
+  "checks": [
+    {
+      "key": "communicate-midreap-skips-unsure-filter",
+      "closed": true,
+      "why": "role_run.py で _communicate の途中の呼び先が _stop_tree 直呼びから _reap_one 経由に統一され、_reap も同じ _reap_one を使う形に揃った。_reap_one は UNSURE で始まる理由を None に潰し NG を出さない実装になっており、test_reap_one_does_not_count_an_unreadable_session_as_left（unsure/left の両ケース）で unsure→None・NG なし、left→理由あり・NG ありを検算している。conftest.py の EXPECTED_ITEMS も 396→398 で新設の 2 パラメータ分と一致。declared.py・README・role_run.py の keep_background の docstring も『次の段までは宣言が無くても残る』に揃え直され、_run_steps の実装（keep_background の段だけ trees=None を渡し、それ以外は試行の終わりまで trees に貯めて 1 回で reap する）と整合する。"
+    },
+    {
+      "key": "commands-relaunch-docstring-stale-pgid-cleanup-timing",
+      "closed": true,
+      "why": "commands.py の cmd_relaunch の docstring が『書き、試行が終わると木の残りを止めてから消す』に直り、実装（role_run._spawn の finally で、trees を渡された正常終了時は pgid_file を即座に消さず、_end_attempt が _reap(trees) を済ませた後にだけ消す）と一致することを確認した。変更は 1 句のみで、diff の指示通り他ファイルには触れていない。"
+    }
+  ]
+}

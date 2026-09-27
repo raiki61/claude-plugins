@@ -1,0 +1,33 @@
+{
+  "material": {
+    "status": "clean",
+    "detail": "実際に `bash tests/run.sh` を通しで走らせ（darwin、非 root、shellcheck 0.11.0 を実入れ済み）、この差分が変えた経路を本物の値で確かめた。skip の許しの仕組み（report_skips/skip_capability）・parallel.skip_line の 3 引数化・CI 設定を読む CI_LINT_OK・実 shellcheck 実行・git_runs_sh 越しの GIT_SSH_COMMAND の shlex.quote 修正のどれも赤は出なかった（見送りも 0 件——この環境では FIFO・symlink・root 権限どれも欠けておらず、能力名つきの見送り分岐そのものは自然発生しない。その分岐の形は台本自身の合成入力による自己検査で実測済み）。",
+    "checked": "同じコピーの上で `nohup bash tests/run.sh > run-default.out 2>&1 &` を起動し実行。558 行目まで進んだ時点で確認した内容: (1) tests/run.sh 自身の skip_probe 自己検査（report_skips・skip_capability を本物のシェル関数として実行、SKIP_ALLOW の一部許し・全許し・既定を突合）が緑、(2) `python3 -c \"...parallel.skip_line('検査','fifo','理由')...\"` を実行して `検査 # SKIP fifo: 理由|cap=fifo` を得て、root の拾い手が能力名を読めることを実測、(3) CI_LINT_OK 検査が実物の .github/workflows/test.yml を解析し、install-shellcheck 段（OS 条件なし）・FAIL_ON_SKIP: \"1\"・SKIP_ALLOW: ${{ matrix.skip_allow }} を確認して緑、(4) `find . -name '*.sh' | xargs shellcheck -S warning` を実機（shellcheck 0.11.0、workflow の shellcheck-py==0.11.0.1 と同じ版）で実行し SHELLCHECK_OK、(5) tests/catchup-switch-case.py の `_none`（GIT_SSH_COMMAND に slow-ssh を渡し、git_runs_sh() で実際に `git -c alias.shprobe=... shprobe` を起こして sh の可否を確かめ、shlex.quote した path で ssh 代役を起動して FETCH_TIMEOUT=0.2s で本当に切れるかを実 git 越しに確認）と `_hook`（同じ git_runs_sh() を使い、post-checkout hook を実際に起こして非 0 終了でも HEAD が移った扱いになるかを確認）の両ケースが緑。残り（グラフ側 graphloops/tests/run.sh の 1932 件、この diff が変えていない既存部分）はこのマシンの重い同時実行負荷で低速化しており完走を待てなかったが、この diff が変えた経路（parallel.skip_line の呼び出し元）は上記 (2) で本物の呼び出し経由で直接確かめてある。"
+  },
+  "observed": [
+    {
+      "path": "tests/run.sh（skip_probe 自己検査、report_skips/skip_capability の実行）",
+      "value": "  ok   見送りの行は行頭の印で拾われ、既定では失敗にせず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送りだけを失敗に数える"
+    },
+    {
+      "path": "graphloops/tests/parallel.py の skip_line(desc, capability, reason) を root から実行",
+      "value": "  ok   Python の台本の見送りの行（parallel.skip_line）を、root の拾い手が 1 件として拾い、能力の名前を読む（実測: 検査 # SKIP fifo: 理由|cap=fifo）"
+    },
+    {
+      "path": ".github/workflows/test.yml を解析する CI_LINT_OK 検査（実物のワークフロー file を読む）",
+      "value": "  ok   CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る"
+    },
+    {
+      "path": "find . -name '*.sh' | xargs shellcheck -S warning（実機の shellcheck 0.11.0）",
+      "value": "  ok   SHELLCHECK_OK リポジトリの .sh が shellcheck -S warning を通る"
+    },
+    {
+      "path": "tests/catchup-switch-case.py _none（git_runs_sh() 経由の実 git・実 sh・GIT_SSH_COMMAND の shlex.quote 修正、FETCH_TIMEOUT=0.2s の実測切れ）",
+      "value": "  ok   catchup --switch: 手元にも origin にも無ければ作らずそう言う（merge 済みなら削除済みと取り方、届かなければ git の言い分、応答が無ければ timeout）"
+    },
+    {
+      "path": "tests/catchup-switch-case.py _hook（git_runs_sh() で post-checkout hook の実起動を判定）",
+      "value": "  ok   catchup --switch: post-checkout hook が非 0 でも HEAD は移っているので移った扱い（終了コードで判定しない）"
+    }
+  ]
+}

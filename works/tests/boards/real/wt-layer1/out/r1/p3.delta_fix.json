@@ -1,0 +1,15 @@
+{
+  "handled": [
+    {
+      "key": "session-match-lacks-reuse-time-check",
+      "handled": "fixed",
+      "how": "長の番号の再利用を born（長を起こした時刻）で見分けるようにした。_popen が起こす直前の時刻を Popen に gl_born として持たせ、_stop_tree は leader からそれを引く。stop_group は印の更新時刻（probe_group と同じ目印——印は子を起こした直後に書く）を born として渡す。_tree_members は、長の番号に born より REUSE_SLACK を超えて後に始まったプロセスが居れば番号は再利用されている（グループもセッションも在る限り番号は再利用されない）とみなし、グループとセッションの一致では拾わない（前の回に開始時刻つきで数えた known と、そこからの親子の鎖だけが残る）。pytest に test_tree_members_ignores_a_reused_leader_number（同じ長→拾う／再利用→拾わない）を足し（380→382 件、conftest の定数も）、写しで『reused = False』を注入して number-reused が赤、戻して緑を確かめた。変異の腕 RR15 の字列を今の行へ直した（mutate.py --check 422 腕で字列の無い腕 0）。simulate.py の test_role_run 31 件緑、pytest 382 件緑。",
+      "files": [
+        "graphloops/engine/role_run.py",
+        "graphloops/tests/py/test_role_run_stop.py",
+        "graphloops/tests/py/conftest.py",
+        "tests/mutations.json"
+      ]
+    }
+  ]
+}

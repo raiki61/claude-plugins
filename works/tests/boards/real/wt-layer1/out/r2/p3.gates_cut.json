@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "rev": "e9efa9e9a8ddd4036bc7903e959cbc61d22dadd4",
+  "files": [
+    "README.md",
+    "graphloops/engine/commands.py",
+    "graphloops/engine/declared.py",
+    "graphloops/engine/role_run.py",
+    "graphloops/tests/py/conftest.py",
+    "graphloops/tests/py/test_engine_run.py",
+    "graphloops/tests/py/test_role_run_stop.py",
+    "graphloops/tests/run.sh",
+    "graphloops/tests/simulate.py",
+    "tests/mutations.json"
+  ]
+}

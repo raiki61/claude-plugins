@@ -1,0 +1,12 @@
+{
+  "handled": [
+    {
+      "key": "unsure-comment-still-names-only-reap",
+      "handled": "fixed",
+      "how": "UNSURE の定数の脇の注記を『_reap_one が見分ける』に直した（_communicate の途中と _reap の両方がそこを通る）",
+      "files": [
+        "graphloops/engine/role_run.py"
+      ]
+    }
+  ]
+}

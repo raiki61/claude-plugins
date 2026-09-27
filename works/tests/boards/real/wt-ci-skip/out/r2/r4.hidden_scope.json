@@ -1,0 +1,13 @@
+{
+  "status": "redesign-needed",
+  "reason": "SKIP_ALLOW を軸にした見送りの許し機構自体は健全（root の拾い手・Python 側の3引数化・CI の matrix 配線まで一貫して実装され、round2 で人が通した process-group の切り分けもこの差分に反映済み）。しかし windows-latest の skip_allow は \"posix-mode process-group fifo read-permission\" の4件で、コード中で実際に使われている能力名 fifo/process-group/symlink/read-permission/posix-mode/shellcheck/sh のうち symlink が抜けている。shellcheck は本差分が3 OSへ pip install で入れるため見送り自体が発生せず、sh は catchup-switch-case.py の git_runs_sh() 実プローブが Git for Windows 同梱の sh を検出して真になるため見送りが発生しない——この2つは本差分の対策で意図的に一覧から外せる。一方 symlink（graphloops/tests/simulate_review.py:1897-1901, skip 呼び出しは 1932）には対策が無く、bare try/except OSError で Windows の symlink 権限不足を素通しに拾って skip(\"...\",\"symlink\",...) を呼ぶだけである。人の決定は「本当にその OS でできない物だけを一覧に書く」であり、symlink 作成の既定不可はまさにコード自身の注記が主張する事実なので、一覧に無いのは実装漏れである。結果、windows-latest では FAIL_ON_SKIP=1 の下で symlink 見送りが SKIP_ALLOW に無い名前として毎回 denied に数えられ、CI が赤で固定される可能性が高い（実機の GitHub Actions windows-latest で実行して確認してはいないため、真偽は「見た範囲」の外——Developer Mode が既定で有効化されている等の事実があれば誤検出になる）。この行を人に聞く分かれ目にする必要はなく、windows-latest の skip_allow に symlink を加える零処方で機械的に解けるので redesign-needed とした。",
+  "capability_inventory": {
+    "fired": true,
+    "lost": [
+      "Windows の CI が symlink 見送りで赤くならない能力: .github/workflows/test.yml の windows-latest 用 skip_allow（\"posix-mode process-group fifo read-permission\"）に symlink が無く、graphloops/tests/simulate_review.py:1897-1901,1932 の symlink 見送りが FAIL_ON_SKIP=1 の下で SKIP_ALLOW に無い名前として必ず失敗に数えられる。Windows が既定で symlink 作成権限を持たないことはコード自身の注記が明言しており、道具を入れて無くせる shellcheck・実プローブで回避できる sh とは違って対策が入っていない"
+    ],
+    "note": "BASE（この差分の前）は FAIL_ON_SKIP を CI に一切渡していなかったため、どの見送りも CI を赤くしなかった。この差分は見送りに能力の名前を持たせ OS ごとの許しの一覧で赤くする仕組みそのものを導入するので、一覧の抜けが直接 CI の可用性を壊す形で棚卸しが発火する対象になる"
+  },
+  "policy_conflicts": [],
+  "surfaced": []
+}

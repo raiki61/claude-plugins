@@ -1,0 +1,9 @@
+{
+  "handled": [
+    {
+      "key": "posix の枝の見送りに付ける名前 process-group が、実際に欠けている能力と合わない",
+      "handled": "declared",
+      "how": "人の関所の答え（2026-09-26、p2.human_gate の continue。記録の process.human_items）どおりに残す。答えの note: OS に依らない検査は囲いから出して全 OS で走らせる（印が無いときの stop_group・SIGNAL_PROBE の錠の再入と _stop_tree の差し替え——この 3 件は実施済み）。posix の信号で孫の生死を見る台本の作りに頼る残りは process-group の名前で見送り、これは人が『できない物』の例に挙げた Windows のプロセスのまとまりの停止と同じ種類とする。Windows の許しの一覧は変えない。今は行も件数も出さずに消えている 23 件を見える見送りにするだけなので隠す物は増えない。Windows の taskkill /T /F の道のテストは別の依頼に回す（親が残りの一覧に積む）。審査役の指摘（Windows の道は role_run に実装済みで、欠けているのはテスト）は事実として正しく、その扱いを人が決めた。この周の範囲を超えて直すと、人が通した範囲を超える。"
+    }
+  ]
+}

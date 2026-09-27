@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "scalars": {
+    "added_lines": 40,
+    "comment_lines": 13,
+    "comment_ratio_pct": 32,
+    "doc_lines": 1,
+    "x_skip_sites": 10
+  }
+}

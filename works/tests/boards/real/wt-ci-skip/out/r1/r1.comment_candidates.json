@@ -1,0 +1,124 @@
+{
+  "candidates": [
+    {
+      "where": ".github/workflows/test.yml:51",
+      "comment": "# 見送りを失敗に数え、許すのは OS ごとの一覧（上の matrix の skip_allow）に名前の在る能力だけ",
+      "same_content_at": "すぐ下の env ブロック（test.yml:53-55 の FAIL_ON_SKIP: 「1」と SKIP_ALLOW: ${{ matrix.skip_allow }}）、同じファイルの matrix の注記 test.yml:19-21（「一覧に無い名前の見送りは、下の FAIL_ON_SKIP=1 で赤になる」）、README.md の「環境（OS・道具・権限）のせいで走れなかった検査は…」の段落（「CI は 3 OS とも FAIL_ON_SKIP=1 を渡し、欠けてよい能力の一覧は OS ごとに…matrix（skip_allow）が持つ」）",
+      "reason": "すぐ下の 2 行の env が何をしているかを言い直しているだけで、理由（why）を運んでいない。理由のほうは 19-21 行の matrix の注記が既に持っている。コメントを剥がしても、FAIL_ON_SKIP: 「1」と SKIP_ALLOW: ${{ matrix.skip_allow }} から同じ説明が読める"
+    },
+    {
+      "where": "tests/run.sh:3108",
+      "comment": "# **見送りを CI で失敗に数える。** 許すのは OS ごとの一覧（matrix の skip_allow。include に無い OS は空）に名前の在る能力だけ",
+      "same_content_at": "直後の 2 つの assert のメッセージ（tests/run.sh:3110-3111 の「tests/run.sh の段が FAIL_ON_SKIP を渡していない（見送りが黙って緑になる）」と「OS ごとの許しの一覧（SKIP_ALLOW: ${{ matrix.skip_allow }}）を渡していない」）、expect_output のテスト名 tests/run.sh:3074（「tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す」）、.github/workflows/test.yml:19 と :51 の注記",
+      "reason": "下の assert が何を確かめるかを言い直しているだけ。意図はテスト名と assert のメッセージが既に運んでいる（REVIEW.md の③「テスト名で意図を運ぶ」）。「include に無い OS は空」は test.yml:19 と同じ内容を写したもので、片方だけ直されると食い違う"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:76 と graphloops/tests/simulate_review.py:84（skip の docstring のうち、今回足した「欠けた能力の名前つきで合格と別の印で出す（parallel.skip_line）」の部分）",
+      "comment": "環境（OS・道具・権限）で走れない検査。件数には入れ（計画の件数は OS に依らず同じ）、欠けた能力の名前つきで合格と別の印で出す（parallel.skip_line）",
+      "same_content_at": "引数名 capability と本体の parallel.line(parallel.skip_line(desc, capability, reason))（simulate.py:80 / simulate_review.py:88）。印と能力の名前の説明は graphloops/tests/parallel.py:35-38 の skip_line の docstring が正本として持つ",
+      "reason": "名前のすぐ隣で名前を言い直している（引数 capability と、呼び出している関数名 skip_line）。しかも 2 つのファイルに同じ文が写してあるので、印の形が変わると 3 か所を直すことになる。「件数には入れ（計画の件数は OS に依らず同じ）」の部分は理由を運んでいるので残し、後ろの部分だけ削る"
+    },
+    {
+      "where": "tests/run.sh:179（行末コメントの括弧の中）",
+      "comment": "# 一覧が空: 全部を失敗に数える（SKIP_ALLOW の無い FAIL_ON_SKIP=1 の今までの意味）",
+      "same_content_at": "「SKIP_ALLOW が空なら何も許さない」は tests/run.sh:63-64 の report_skips の注記（「既定は空＝何も許さない」）と README.md の同じ段落にある。行頭の「一覧が空」という呼び名は、FAIL のメッセージ tests/run.sh:189 の「一覧が空 $skip_on」と同じ",
+      "reason": "「今までの意味」は、この変更の前の状態を指している（編集の実況・移行中の状態への言及）。マージした後の読み手には、いつの「今まで」なのかが分からず、すぐに腐る。括弧の中は削り、残すなら「一覧が空: 全部を失敗に数える」までにする"
+    },
+    {
+      "where": "tests/run.sh:163-164（skip_probe の注記の 2 文目「既定では fail を立てず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送り（名前の無い見送り・名前の形でない物を含む）だけを失敗に数える」）",
+      "comment": "# 行の途中の印は拾わない。既定では fail を立てず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送り # （名前の無い見送り・名前の形でない物を含む）だけを失敗に数える。",
+      "same_content_at": "この検査の ok 行のテスト名 tests/run.sh:187（「見送りの行は行頭の印で拾われ、既定では失敗にせず、FAIL_ON_SKIP=1 のとき SKIP_ALLOW に能力の名前が無い見送りだけを失敗に数える」）、行末コメントの tests/run.sh:180（「名前無し・形でない名前…は失敗」）、report_skips の注記 tests/run.sh:63-64",
+      "reason": "テスト名が同じ文を運んでいて、その写しになっている。「行頭の印だけ拾う・理由の無い印も拾う（拾い損ねは合格に化ける）」の部分と、引数・返り値の形を書いた 165 行は、テスト名に無い事実なので残す"
+    },
+    {
+      "where": "tests/run.sh:63-64（2 文目以降「FAIL_ON_SKIP=1 のとき、欠けてよい能力の一覧 SKIP_ALLOW（空白かカンマ区切り。既定は空＝何も許さない）に名前の在る見送りだけを失敗から除く。FAIL_ON_SKIP の無い既定は一覧に出すだけ」）",
+      "comment": "# どの OS で見送りを許すかは実装側で決めない——CI の定義か人が渡す。FAIL_ON_SKIP=1 のとき、欠けてよい能力の一覧 SKIP_ALLOW # （空白かカンマ区切り。既定は空＝何も許さない）に名前の在る見送りだけを失敗から除く。FAIL_ON_SKIP の無い既定は一覧に出すだけ",
+      "same_content_at": "README.md の「環境（OS・道具・権限）のせいで走れなかった検査は…」の段落（「欠けてよい能力の一覧（空白かカンマ区切り。既定は空＝何も許さない）…名前がその一覧に在る見送りだけを失敗から除く」）。report_skips の本体（read -ra allow <<< 「${list//,/ }」、if [ 「${FAIL_ON_SKIP:-}」 = 1 ] && [ 「$denied」 -gt 0 ]）と、見出しの echo（tests/run.sh:69「FAIL_ON_SKIP=1 で、SKIP_ALLOW に能力の名前が無いものを失敗に数える」）",
+      "reason": "環境変数という外から叩く面の説明は README が正本で、ここはその写しになっている。区切り文字や既定値を変えると 3 か所が食い違う。1 文目（許す OS を実装側で決めない理由）は why なので残す"
+    },
+    {
+      "where": "tests/catchup-switch-case.py:362（括弧の中の「git が sh を起こせない環境では見送る」）",
+      "comment": "# 応答が無ければ FETCH_TIMEOUT 秒で切る（ssh を sleep する script に差し替えて再現。git が sh を起こせない環境では見送る）。",
+      "same_content_at": "直後の分岐 if git_runs_sh(tmp):（tests/catchup-switch-case.py:366）と、else 側の見送りの行（「# SKIP sh: git が ssh の代役の script を起こす sh が無い」）。判定の中身は git_runs_sh の docstring（:50-51）が持つ",
+      "reason": "すぐ下の関数名 git_runs_sh と SKIP の行を言い直している。前半の「ssh を sleep する script に差し替えて再現」と、次の行の「切る秒数は縮めて借りる」は、コードからすぐには読めない手口の説明なので残す"
+    }
+  ],
+  "kept": [
+    {
+      "where": ".github/workflows/test.yml:19-21",
+      "fact": "SKIP_ALLOW は OS ごとに matrix の include に書き、既定は空（include に無い OS は何も許さない）。書いてよいのはその OS で本当にできない能力だけで、道具で無くせる見送りは道具を入れて無くす、という編集する人向けの方針と名前の出どころを運んでいる"
+    },
+    {
+      "where": ".github/workflows/test.yml:38-40",
+      "fact": "shellcheck は runner の既定では ubuntu にしか無く（版も手元と違う）、macOS と Windows で tests/run.sh の検査が見送りになっていたので、PyPI のホイールで同じ版を 3 OS に入れる、という install の段がある理由"
+    },
+    {
+      "where": ".github/workflows/test.yml:44-45",
+      "fact": "shellcheck の段を ubuntu の 1 本だけで回す理由（3 回見ても指摘は変わらない）と、深さを -S warning で手元と揃える理由（どちらが正本か分からなくなるのを防ぐ）"
+    },
+    {
+      "where": "graphloops/tests/parallel.py:35-38",
+      "fact": "見送りの行の形（能力の名前は小文字・数字・- の 1 語で、説明文の頭に置く）の正本。合格と別の印にする理由。数え・許し・失敗の判定は root の tests/run.sh の 1 か所だけで行う理由（二重に数えない）"
+    },
+    {
+      "where": "graphloops/tests/py/fence.py:4-5",
+      "fact": "bash の台本の見送りは「# SKIP <能力>: <理由>」で出て、root が一覧にし、FAIL_ON_SKIP=1 のもとで SKIP_ALLOW に無い名前を失敗に数える。これに対して pytest の置き場では飛ばしを常に失敗にする、という対比の前提"
+    },
+    {
+      "where": "graphloops/tests/simulate.py:76 / graphloops/tests/simulate_review.py:84（前半）",
+      "fact": "見送りも件数に入れる理由（計画の件数は OS に依らず同じ）"
+    },
+    {
+      "where": "tests/catchup-switch-case.py:50-51",
+      "fact": "git が sh を起こせるかは OS の名前で推し量らず、git に sh の alias を起こさせて確かめる。Git for Windows は同梱の sh を使うので、PATH に sh が在るかとは別の問いになる"
+    },
+    {
+      "where": "tests/catchup-switch-case.py:370",
+      "fact": "git は GIT_SSH_COMMAND を sh の命令として読むので、Windows の逆斜線の path を前向きの斜線に直してから引用する必要がある"
+    },
+    {
+      "where": "tests/catchup-switch-case.py:556-557",
+      "fact": "hook の言い分を行に添えるかの判定（note）は、git が hook の sh を起こせない環境では見ないこと。global の core.hooksPath は main() の側で読ませないこと"
+    },
+    {
+      "where": "tests/run.sh:40-43",
+      "fact": "見送りの行の形「ok <検査> # SKIP <能力>: <理由>」（TAP 14 の SKIP 指示子）と Python 側の正本の場所。拾う・数える・許すを 1 か所に集める理由。合格と同じ ok で出していた頃は CI が走らないまま緑になった、という経緯"
+    },
+    {
+      "where": "tests/run.sh:54-55",
+      "fact": "名前の形でない見送りは能力が空になり、FAIL_ON_SKIP=1 のもとで必ず失敗に倒れる（打ち間違いも同じ）。許せない側に倒す設計の意図"
+    },
+    {
+      "where": "tests/run.sh:63（1 文目）",
+      "fact": "どの OS で見送りを許すかは実装側で決めず、CI の定義か人が渡す"
+    },
+    {
+      "where": "tests/run.sh:162-163（1 文目）と 165",
+      "fact": "拾うのは行頭が ok で印を含む行だけで、理由の無い印も拾う（拾い損ねは合格に化ける）。skip_probe の引数と返り値の形（|n|fail|denied|allowed|行）で、期待値の文字列を読むための鍵になる"
+    },
+    {
+      "where": "tests/run.sh:180",
+      "fact": "一部を許す場合の期待値 denied=4 の内訳。名前無しの 2 件、形でない Fifo（一覧に在っても許さない）、一覧に無い symlink が失敗になる"
+    },
+    {
+      "where": "tests/run.sh:178, 181, 182",
+      "fact": "各探り（既定・一覧だけ渡す・全部許す）がどの場面を測っているかの短い呼び名で、変数名 skip_off / skip_off_allow / skip_ok だけでは言い分けられない条件（一覧だけ渡しても FAIL_ON_SKIP が無ければ失敗にしない）を運ぶ"
+    },
+    {
+      "where": "tests/run.sh:192-193",
+      "fact": "Python の skip_line と root の拾い手は印と名前の形で結びついている。片方だけ変えると、見送りが黙って合格に化けるか、許しの一覧が効かなくなる"
+    },
+    {
+      "where": "tests/run.sh:3085",
+      "fact": "shellcheck を数える正規表現が語の境界を見る理由。入れる段の shellcheck-py に当たらないようにするため"
+    },
+    {
+      "where": "tests/run.sh:3089",
+      "fact": "段ごとに切り、注記の行を除いて見る理由。env: と if: は run: の行ではないので、全文の部分一致だと注記の語で通ってしまう"
+    },
+    {
+      "where": "tests/run.sh:3103-3104",
+      "fact": "install の段に if: を付けると、条件から外れた OS で見送りになって赤くはなるが、原因が遠い。それでもこの検査を別に持つ理由（「付けなかった OS」は「条件から外れた OS」と書く方が誤読されにくい）"
+    }
+  ]
+}

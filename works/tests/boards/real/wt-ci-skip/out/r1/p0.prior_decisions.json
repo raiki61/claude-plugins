@@ -1,0 +1,52 @@
+{
+  "material": {
+    "status": "found",
+    "count": 1,
+    "detail": "commit fe3055c（2026-09-26）が tests/run.sh に FAIL_ON_SKIP=1 の仕組みを入れた際、コミットメッセージに『CI のどの OS で入れるかは未決』と明記。tests/run.sh:54 のコメント『どの OS で見送りを許すかは実装側で決めない——CI の定義か人が FAIL_ON_SKIP=1 を渡したときだけ失敗に数える』と README.md:199『既定では数えない。どの環境で数えるかは CI の定義の側で決める』が、この判断を .github/workflows/test.yml 側に明示的に委ねたまま、現在の test.yml には FAIL_ON_SKIP の設定が一切無い（grep 0 件）。他に .github/workflows/test.yml 自体を対象にした ADR・却下済み提案・closed issue は見つからず。"
+  },
+  "checked": true,
+  "searched": [
+    "git log --oneline --all -- .github/workflows/test.yml（c709051 新規作成 〜 19dadb8 まで全 13 コミット、うち test.yml に触れたのは c709051・9d3f57a・91f925e の 3 本）",
+    "git show c709051 / 9d3f57a / 91f925e / 20fc0a2 / b728ce1（test.yml への各変更点の本文とコミットメッセージ）",
+    "git branch -a と git log <各 wip ブランチ> -- .github/workflows/test.yml（wip/ci-green, wip/windows-green, wip/pytest-pilot は main と同じ末尾コミットで、test.yml に未マージの追加変更なし）",
+    "git log --oneline main..wip/ci-skip（差分ゼロ。作業前の作業木）",
+    "git log --all --oneline --grep（ci-skip / skip ci / paths-ignore / docs-only, 大小無視）",
+    "git grep（paths-ignore, workflow_dispatch, FAIL_ON_SKIP, docs-only）を .md と .github 配下に",
+    "docs/graphloops-prior-art.md 全文の CI・決着・保留・棄却のキーワード（主張18が唯一 test.yml に触れる決着済み項目）",
+    "docs/feedback/review-loop-remaining-findings.md（R4 は mutation.yml のタイムアウト未実測——test.yml とは別ファイル、隣接領域として確認のみ）",
+    "README.md 内の test.yml 言及箇所（バッジ、宣言 CI 定義の突合節、FAIL_ON_SKIP の節）",
+    "tests/run.sh の FAIL_ON_SKIP 関連コメントと実装（40〜60行付近）",
+    "現在の .github/workflows/test.yml 全文（インラインコメントに埋め込まれた決定記録 3件: fail-fast=false の理由、python-version 固定の理由と 3.9→3.12 の変更理由、shellcheck を ubuntu 1 本に絞る理由）",
+    "gh pr list / gh issue list（api.github.com への通信がサンドボックスに拒否され実行不能）"
+  ],
+  "settled": [
+    {
+      "topic": "CI の matrix.os を 3 OS（ubuntu/macos/windows）にし fail-fast: false にするか",
+      "decision": "3 OS で fail-fast: false のまま維持",
+      "reason": "手で回していた検証を CI 化した際に直したバグ 2 件が両方 Windows 固有で、fail-fast だと『他の OS では通っていた』という手がかりが消え原因を絞れなかった",
+      "revisit": "3 OS 化のコストが原因追跡の価値を上回ると判断されたとき（現状その兆候の記録なし）",
+      "where": "commit c709051（tests/run.sh 導入時）とファイル内コメント .github/workflows/test.yml:12-14"
+    },
+    {
+      "topic": "setup-python の python-version をどう固定するか（README の必須版と揃えるか runner 既定に任せるか）",
+      "decision": "runner 既定に任せず 1 本固定し、README の『必須』の版と数値を揃える。値は当初 3.9、2026-09-13 に 3.12 へ改訂",
+      "reason": "版を固定しないと『宣言した下限で実際に通るか』を誰も測っていない状態になる（実測: graphcheck.py が 3.9 の graphlib を import しているのに README は 3.8 のままで CI が緑だった）。3.9→3.12 の改訂は、下限を決める条件が『graphlib の追加版』ではなく『開発者の手元と CI が同じ構文を読めること』だと分かったため（手元 3.14 で書いた f-string 入れ子構文が 3.9 でだけ落ち、手元は全件緑のまま CI 3 OS が赤になった。ast.parse の feature_version 指定でもこの差は捕まらない）",
+      "revisit": "README の必須版を上げ下げするとき（tests/run.sh の突合検査が両方向で赤にする）",
+      "where": "commit c709051 → 91f925e、docs/graphloops-prior-art.md:48,120（主張18・決着済み）、README.md、ファイル内コメント .github/workflows/test.yml:16-24"
+    },
+    {
+      "topic": "shellcheck をどの OS・深さで回すか",
+      "decision": "ubuntu-latest の 1 本だけで -S warning を回す（3 OS では回さない）",
+      "reason": "同じ .sh を 3 回見ても指摘は変わらないので冗長。ubuntu runner には既定で shellcheck が入っている。深さを tests/run.sh の手元検査と揃えないと、手元と CI で緑/赤が食い違い正本が分からなくなる",
+      "revisit": "特定 OS だけで再現する shell の挙動差が見つかったとき（現状その事例なし）",
+      "where": "ファイル内コメント .github/workflows/test.yml:27-30（導入は初期コミットではなく後続の変更、個別コミットは特定できず。file blame での追跡は今回未実施）"
+    },
+    {
+      "topic": "見送り検査（SKIP）を CI のどの OS・どの条件で失敗（FAIL_ON_SKIP=1）に数えるか",
+      "decision": "未決。fe3055c で仕組み自体（tests/run.sh の SKIP 拾い・FAIL_ON_SKIP=1）は入れたが、CI 側での有効化は意図的に先送り。現行 .github/workflows/test.yml には FAIL_ON_SKIP の設定が一切無い",
+      "reason": "『どの OS で見送りを許すかは実装側で決めない——CI の定義か人が FAIL_ON_SKIP=1 を渡したときだけ失敗に数える』（tests/run.sh:54 のコメント）。理由の詳細（なぜ即決しなかったか）は記録に無い",
+      "revisit": "test.yml を編集する今回のような run で、この委ねられた判断（どの OS・どのジョブで FAIL_ON_SKIP=1 を渡すか）を人に諮る必要がある",
+      "where": "commit fe3055c のコミットメッセージ、tests/run.sh:40-60 のコメント、README.md:199"
+    }
+  ]
+}

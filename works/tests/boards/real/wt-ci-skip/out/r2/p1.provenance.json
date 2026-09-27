@@ -1,0 +1,14 @@
+{
+  "material": {
+    "status": "found",
+    "count": 1,
+    "detail": "「正本は X」型の事実主張を差分内で走査（キーワード: 正本・規約・合意）。tests/run.sh のコメント「Python の側の正本は graphloops/tests/parallel.py の skip_line」（旧行にも新行にも存在、diff は文言をそのまま維持）が該当。git log -S で BASE 以前（commit 9378fee、BASE 4233aa8 の祖先）から存在することを確認済みで、差分が自ら足した主張を根拠に引用する循環ではない。他に「どちらが正本か分からなくなる」（test.yml コメント、2箇所）は仮定的な記述（〜すると分からなくなる、という警句）であり事実の主張ではないため対象外。「合意済み」「規約は」に一致する記述は本差分に無い。"
+  },
+  "claims": [
+    {
+      "claim": "tests/run.sh のコメント: 「Python の側の正本は graphloops/tests/parallel.py の skip_line」",
+      "exists_at_base": true,
+      "evidence": "git show 4233aa8:tests/run.sh の41行目に同一文言が既にある。git log -S \"正本は graphloops/tests/parallel.py\" で最初の導入は commit 9378fee（BASE の祖先、git merge-base --is-ancestorで確認）。本差分は skip_line の signature（capability 引数追加）を変えているが、この『正本』認定自体は差分より前から存在し、差分が新たに主張して自己引用したものではない。"
+    }
+  ]
+}

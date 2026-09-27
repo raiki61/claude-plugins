@@ -1,0 +1,147 @@
+{
+  "plan": [
+    {
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_stop_tree.alive — macOS でゾンビだけのグループへの killpg の EPERM を『生きている』『送れない』と数え、止まった木を止め切れないと報告する",
+        "graphloops/engine/role_run.py::_tree_members.reused — 長の番号の再利用の見分けが、ps の後に取った時刻・未回収の長・印の別の読みで誤って真になり、信号を送らずに『止まった』を返す",
+        "graphloops/engine/role_run.py::_stop_tree — 生存の問い・KILL_GRACE の待ち・送りの例外処理・最後の数え直しが写しで 2〜3 重"
+      ],
+      "approach": "role_run._stop_tree を、その回の数え上げ（ps の表 1 枚）だけから送り先・再利用の見分け・止まったかの判定を出す形に組み直す（判定の一撃）。(a) 送り先: groups を `{m.pgid for m in live.values() if m.pgid in members}` にし、止める番号 pgid を無条件に入れない（長が生きていれば長自身が pgid==pid の生きた仲間なので入る）。ゾンビだけのグループの EPERM と、再利用された番号への送信が両方消える。表が読めない回の予備の道（止める番号のグループへだけ送る）は BASE の能力なので残す。(b) 再利用の見分け: _ps_all は now を ps を起こす前に取る（started が真の開始時刻を 1 秒以上超えない）。_stop_tree は長の Popen を持ち、まだ回収していない（returncode is None）間は born を _tree_members に渡さない（未回収の子の番号は再利用されない）。stop_group は、probe_group の中身を内部の _probe（(pgid, written, why) を返す）に寄せ、同じ読みの written を born にする。先読みの stat・偽の根拠の句・test_stop_group_reads_the_reuse_mark_before_probing を消す。公開の probe_group の 2 つ組の返り値は変えない（commands.py:1381）。(c) 写しの整理: 信号 0 の生存の問いを 1 つ（_answers）、KILL_GRACE の待ちを 1 つ（wait(done)）、送りを宛先の一覧 [(送る関数, 宛先, 名前)] の 1 つのループにし、最後の数え直しは for sig in (*STOP_SIGNALS, None) の最後の回（送らずに判定だけ）にまとめる。",
+      "adds": [
+        {
+          "kind": "function",
+          "name": "role_run._probe(pgid_file) -> (pgid, written, why)——probe_group の中身（印の読み・開始時刻での見分け）",
+          "canonical": "既存の probe_group の本体を移すだけ。probe_group と stop_group の両方の正本"
+        },
+        {
+          "kind": "test",
+          "name": "simulate.py: escaped(leader_stays=False) で孫が SIGTERM を無視する形（setpgid の孫とゾンビの長）——stop_group が None・孫が消え・印が消える",
+          "canonical": "既存の simulate.py の stop_group の節"
+        },
+        {
+          "kind": "arm",
+          "name": "tests/mutations.json: 送り先に {pgid} を戻す腕（expect は上の検査）。RR3・RR9 の字列を新しい送り口へ直す",
+          "canonical": "既存の目録"
+        },
+        {
+          "kind": "test",
+          "name": "pytest: _stop_tree が未回収の長には born を渡さず、回収した長には gl_born を渡す／stop_group が _probe の written を born に渡す",
+          "canonical": "既存の test_role_run_stop.py"
+        }
+      ],
+      "removes": [
+        "stop_group の先読みの stat と、docstring の『印は試行ごとに 1 度だけ書く』の句",
+        "test_stop_group_reads_the_reuse_mark_before_probing（同じ読みから取るので順序の縛りが無くなる）",
+        "_stop_tree の exists と group_gone の 2 つの生存の問い・2 つの待ちのループ・2 つの送りの try/except・ループの後の最後の数え直しの写し",
+        "groups に pgid を無条件に入れる行"
+      ],
+      "shrink_first": "足さずに閉じる形を先に取った: 送り先は『数えた生きた仲間のグループ』に狭めるだけ（1 行）、再利用の見分けは born を渡す条件を狭め、now の取り方を ps の前へ移し、stop_group の 2 回目の読みを消す。写しは寄せて消す。足す関数は _probe だけで、それも probe_group の本体を移すだけ。",
+      "narrows": []
+    },
+    {
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_spawn/run_tree — 長が正常に終わった回は木の残りを刈らず、管を継いだ孫が居ると終わりの待ちが EOF まで戻らない"
+      ],
+      "approach": "role_run の終わる道（_spawn の ended の道と run_tree の正常な戻り）も、止める道と同じ _stop_tree で木の残りを刈る。communicate を内部の _wait_and_reap(p, stdin_bytes, timeout) に替える: 管の読み（stdout・stderr）と標準入力の書き込みをスレッドに移し、長の終わりを p.wait() で待ち、長が終わったら _stop_tree(p.pid, leader=p) で木の残り（グループ・セッション・親子の鎖の仲間）を刈り、その後で読みのスレッドを join する（外へ出た孫が管を継いでいても、刈れば管が閉じて join が戻る）。印（pgid_file）は刈った後で消す。刈り切れなかったら理由を標準エラーに NG で出し、印は残す（relaunch・stop が止められるように）。時間の上限は足さない——run_tree の既存の timeout（rules が渡す）はそのまま p.wait(timeout) に渡すだけ。数え上げで拾えない子孫（信号より前に鎖が切れ、setsid でセッションも抜けた物）が管を握っていれば join は戻らないが、それは BASE の communicate と同じ待ちで、判定の処方の『管が閉じるのを無期限には待たない（警告を残して進む）』は人の方針『待ちの期限切れを足さない』とぶつかるので採らない（残る待ちは BASE より狭い）。",
+      "adds": [
+        {
+          "kind": "function",
+          "name": "role_run._wait_and_reap(p, stdin_bytes, timeout=None)——管の読みをスレッドに移し、長の終わりの後に木を刈ってから読み終える",
+          "canonical": "新設。_spawn と run_tree の待ちの正本（今は communicate を 2 か所で呼ぶ）"
+        },
+        {
+          "kind": "test",
+          "name": "simulate.py: 長が正常に終わった回に、(i) グループの外へ出た孫が刈られる (ii) 管を継いだ孫が居ても _spawn・run_tree が戻り、孫が刈られる",
+          "canonical": "既存の simulate.py の test_role_run"
+        },
+        {
+          "kind": "arm",
+          "name": "tests/mutations.json: 終わる道の刈り取りを外す腕（expect は上の検査）",
+          "canonical": "既存の目録"
+        }
+      ],
+      "removes": [
+        "_spawn と run_tree の p.communicate の呼び"
+      ],
+      "shrink_first": "零処方（ended の回に _stop_tree を呼ぶだけ）は、管を継いだ孫で communicate が戻らない方を閉じないので単独では足りない（判定どおり）。communicate を 1 つの待ちの口に替え、2 か所の呼びを 1 本にまとめる形にした。",
+      "narrows": [
+        {
+          "what": "長が正常に終わった試行（役・テスト一式・rules の run_tree）が意図して残した背景のプロセスも、試行の終わりに刈られる（BASE では正常に終わった試行の子孫は残った）",
+          "why": "判定役が世界の解（Jenkins の ProcessTreeKiller・systemd の停止時の刈り取り）で決め、試行を超えて生き残るプロセスを使う消費者がこのリポジトリに見当たらないとした。ただし今ある使い方を狭める形なので、書き落とさずに挙げる"
+        }
+      ]
+    },
+    {
+      "unit_keys": [
+        "graphloops/tests/simulate.py::test_role_run（run_tree の TERM を無視する固定具 tree-deaf）— 止め方が壊れた回に固定具を後片付けせず、親の居ない終わらないプロセスが残る"
+      ],
+      "approach": "simulate.py の test_role_run の実プロセスの固定具を、どの道で抜けても残らない形にする。(a) tree-deaf（TERM を無視する孫）は while : を回数の上限つき（120 回の sleep 1）にし、実行器が台本を SIGKILL した回にも自分で終わる。(b) 起こした固定具ごとに contextlib.ExitStack の callback で、記録した pid を SIGKILL して wait し、leader.stdout を閉じる（検査が赤・例外の回にも走る）。(c) ゾンビを待つ ps と escaped() の readline の失敗は check の赤にして、関数を抜けない。",
+      "adds": [
+        {
+          "kind": "test",
+          "name": "simulate.py の test_role_run の固定具の後始末（ExitStack）",
+          "canonical": "既存の台本の中。世界の解は unittest の addCleanup・contextlib.ExitStack"
+        }
+      ],
+      "removes": [
+        "tree-deaf の終わらない while :",
+        "新しい台本の reap（ExitStack の callback に吸収）"
+      ],
+      "shrink_first": "固定具を有限にするのが最小で、それだけで台本が SIGKILL された回の漏れも閉じる。ExitStack は検査が赤の回に次の検査を汚さないため。",
+      "narrows": []
+    },
+    {
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_tree_members/_stop_tree — 数え上げと止め方の入口に、壊すと赤になる検査と変異の腕が無い"
+      ],
+      "approach": "数え上げと止め方の入口ごとに、壊すと赤になる検査と腕を足す。(i) simulate に、SIGTERM で死ぬ長の下で setsid して SIGTERM を無視する孫を _kill が止める検査（known の持ち越し）と腕（known.update を外す）。(ii) simulate に、PATH の先頭に exit 1 の偽の ps を置いた子のプロセスで _kill が None でなく理由を返し、子は止まる検査（子のプロセスで走らせ、台本の環境変数を汚さない）と腕（_ps_all の失敗の分岐を外す）。(iii) 表が読めずグループが居ない回の拒否文の検査（同じ子のプロセスの中）と腕。(iv) pytest に _ps_all の変換の単体テスト（見出しの無い 6 列・etime の書式・読めない行・exit 非 0・時間切れ）。(v) graphloops/setup.cfg の only_mutate に engine/role_run.py を足す（pytest が覆う分岐を mutmut の対象に。撃つのは合流の後）。",
+      "adds": [
+        {
+          "kind": "test",
+          "name": "simulate.py の (i)〜(iii) の検査",
+          "canonical": "既存の simulate.py の test_role_run"
+        },
+        {
+          "kind": "test",
+          "name": "test_role_run_stop.py の _ps_all の変換の単体テスト",
+          "canonical": "既存の pytest"
+        },
+        {
+          "kind": "arm",
+          "name": "tests/mutations.json の known.update・_ps_all の失敗・予備の道の拒否文の腕",
+          "canonical": "既存の目録"
+        },
+        {
+          "kind": "config",
+          "name": "graphloops/setup.cfg の only_mutate に engine/role_run.py",
+          "canonical": "既存の mutmut の設定（今は schema.py だけ）"
+        }
+      ],
+      "removes": [],
+      "shrink_first": "既存の機構（目録の腕・mutmut の only_mutate）に入口を足すだけで、新しい検査の仕組みは作らない。",
+      "narrows": []
+    },
+    {
+      "unit_keys": [
+        "graphloops/engine/role_run.py::_ps_all — 全プロセスの表を取る ps に時間の上限が無い（同じファイルの ps・git・bwrap の呼びは timeout 付き）"
+      ],
+      "approach": "_ps_all の subprocess.run に timeout=30（_started_at と同じ値）を足す。TimeoutExpired は SubprocessError なので既存の except が (None, 理由) に落とし、保守側の予備の道に進む。子を止める期限は足さない。",
+      "adds": [],
+      "removes": [],
+      "shrink_first": "1 語足すだけ。ps の呼びを共有の口に寄せる大きい案は、写しが 2 か所で済むので今はとらない。",
+      "narrows": []
+    },
+    {
+      "unit_keys": [
+        "graphloops/engine/role_run.py・tests — docstring とテスト名が実物とずれ、コードを繰り返す注記が残る"
+      ],
+      "approach": "docstring とテスト名を実物に合わせる: _ps_all の返り値を『(表, None)／(None, 理由)』に、固定具 posix の sent を『(種別, 宛先, 信号)』と差し替える物の一覧に、test_stop_group_posix_group_already_gone を test_stop_group_posix_tree_already_gone に、『長の居ないグループ』を『長が仲間でないグループ』に直す。R1 の削除候補 1（399 行の注記）・2（m.unlink の行末）・4（『今どおり』）は削り、3（simulate 2046 行の注記）は『長（sh）が先に終わっても』を check の文へ移してから削る。",
+      "adds": [],
+      "removes": [
+        "コードを繰り返す注記 4 件"
+      ],
+      "shrink_first": "本文と名前を実物に合わせて直し、コードを繰り返す注記は足さずに削る（新しい注記は書かない）。",
+      "narrows": []
+    }
+  ]
+}
