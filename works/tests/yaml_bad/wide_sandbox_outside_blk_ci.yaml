@@ -1,0 +1,17 @@
+# 違反: graphloops の任せ先と同じ広い sandbox（allowWrite ['/']・網）は、表 EXCEPTIONS の節（blk-ci の ci）の外では持てない
+name: bad-wide-sandbox-outside-blk-ci
+description: 違反の見本
+nodes:
+  - id: judge
+    prompt: 判定せよ
+    settingSources: []
+    allowed_tools: [Read, Grep, Glob]
+    sandbox:
+      enabled: true
+      allowUnsandboxedCommands: false
+      failIfUnavailable: true
+      enableWeakerNetworkIsolation: true
+      network: {allowedDomains: ['*'], allowLocalBinding: true}
+      filesystem: {allowWrite: ['/']}
+    idle_timeout: 1728000000
+    output_format: {type: object, description: 'works-node: judge no-tree-write'}

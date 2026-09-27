@@ -6,7 +6,7 @@
 ci-snap:
   ok: true
   snapshot_file: board/r1/ci-snapshot-p0.local_checks.json
-  copy_dir: /tmp/works-ci/p0.local_checks-abcd1234/work
+  copy_dir: /var/folders/ab/cd/T/works-ci-p0.local_checks-abcd1234/work
 ci-prep:
   prompt_file: board/prompts/r1/p0.local_checks.md
   attempt: 1

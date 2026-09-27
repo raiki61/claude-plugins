@@ -6,9 +6,16 @@ role_needed を返し（start の ci_role_go・blk-tests の final の by）、�
 Read・Grep・Glob とテストを走らせる Bash を持ち、Edit・Write は持たない。
 
 走らせる場所は graphloops の任せ先と同じく作業ツリーの写し（写しの engine の util.copy_worktree。本物と同じ commit に未コミットの
-変更と未追跡のファイルを載せた独立の clone）。写しの置き場は COPY_ROOT の下で、YAML の役の sandbox はそこだけ書き込みを足す
-（Archon の sandbox の設定は節ごとに固定の値なので、置き場の根も固定。run ごとの写しは mkdtemp で分ける）。受け付けは、役を起こす前と
-後の本物の作業ツリーの姿（accept.tree_state: porcelain・差分・git が無視するパス・HEAD・枝）を比べ、変わっていれば拒む。
+変更と未追跡のファイルを載せた独立の clone）。写しは run ごとに利用者の一時の置き場（tempfile.gettempdir()）の直下の
+COPY_PREFIX で始まるフォルダに作る。
+
+守り（裁定 R56。graphloops の任せ先と同じ能力）: YAML の役の sandbox は graphloops の delegate_settings と同じ形（allowWrite ['/']・
+網・failIfUnavailable）で、依存の導入（~/.cache・網）と localhost のテストが通る。本物の作業ツリーは包み（claude-adapter）が守る:
+役の印の旗 no-tree-write を見て、役の cwd の worktree の根を起動ごとに denyWrite・permissions.deny に足し、sandbox・切符の無い
+起動は起こさない。受け付けは、役を起こす前と後の本物の作業ツリーの姿（accept.tree_state: porcelain・差分・git が無視するパス・
+HEAD・枝）を比べ、変わっていれば拒む——包みの無い run の保険（偽の緑を防ぐ 2 本目の線）。
+包みの無い run（入力 adapter: optional）の穴: 役の Bash は盤面（$ARTIFACTS_DIR/board）も書けるので、ci-snapshot-<節>.json を
+書き換えて作業ツリーの比べをすり抜けられる（仕様 5.1 の「包み無し」の宣言に書いた）。
 
 - snapshot: ci-snap。節が任せ先に落ちて待っているか確かめ、作業ツリーの姿（と写しの置き場）を今の周の ci-snapshot-<節>.json に
 - prep:     ci-prep。blk-ci/prompts/<節>.md の穴（<<名>>）を埋めた指示書を描き、この周のこの節の拒否が在れば最後の拒否の文を
@@ -44,11 +51,12 @@ from rejudge import parse_reply, script_main  # noqa: E402,F401  （スクリプ
 
 NODES = ("p0.local_checks", "p4.ci")   # 写しの graph の CI の節（engine_run.builtin が declared_checks）
 ROLE = "ci"                             # YAML の役の節の id と包みの印の名
-OUTPUT_FORMAT = node_marker.mark(role_schema(NODES[0]), ROLE)   # 2 つの節の schema は同じ形（tests/test_blk_ci.py が見る）
+NO_TREE_WRITE = "no-tree-write"         # 印の旗: 包みが役の cwd の作業ツリーを柵に足す（裁定 R56）
+OUTPUT_FORMAT = node_marker.mark(role_schema(NODES[0]), ROLE, flags=(NO_TREE_WRITE,))   # 2 つの節の schema は同じ形
 GIVE_UP_AFTER = 3                       # 輪の max_iterations と同じ数（tests/test_blk_ci.py が YAML と突き合わせる）
 STOP_BY = "works:ci"
 REJECT_HEADING = "## 前の回の受け付けが拒んだ理由"
-COPY_ROOT = "/tmp/works-ci"             # 写しの置き場の根（YAML の役の sandbox.filesystem.allowWrite と同じ。綴りと実体の両方を書く）
+COPY_PREFIX = "works-ci-"               # 写しの置き場（一時の置き場の直下の <COPY_PREFIX><節>-XXXX）の頭。出口はこの形の物だけ消す
 PROMPTS = PACK / "blk-ci" / "prompts"
 HOLES = ("node", "root", "copy", "tmp", "fallback")   # 2 つの指示書が両方持つ穴（<<名>>）
 P4_HOLES = ("base", "answers", "questions")          # p4.ci の指示書だけの穴
@@ -107,10 +115,8 @@ def _snap(b, node: str) -> dict:
 
 # ---------------------------------------------------------------- ci-snap
 def _make_copy(node: str) -> dict:
-    """写しの置き場 COPY_ROOT/<節>-XXXX/ に work（copy_worktree の写し）と tmp を作る。写せなければ写しの Reject"""
-    root = pathlib.Path(COPY_ROOT)
-    root.mkdir(parents=True, exist_ok=True)
-    top = pathlib.Path(tempfile.mkdtemp(prefix=f"{safe_name(node)}-", dir=root))
+    """写しの置き場 <一時の置き場>/<COPY_PREFIX><節>-XXXX/ に work（copy_worktree の写し）と tmp を作る。写せなければ写しの Reject"""
+    top = pathlib.Path(tempfile.mkdtemp(prefix=f"{COPY_PREFIX}{safe_name(node)}-"))
     try:
         work = _util.copy_worktree(top / "work")
         (top / "tmp").mkdir()
@@ -232,10 +238,13 @@ def refuse(board_dir, node: str, reason: str) -> dict:
 
 # ---------------------------------------------------------------- collect
 def _drop_copy(snap) -> None:
-    """写しの置き場を消す（COPY_ROOT の下の物だけ）"""
+    """写しの置き場を消す（一時の置き場の直下の COPY_PREFIX で始まるフォルダだけ。symlink は辿らない）"""
     top = (snap or {}).get("top")
-    if top and os.path.realpath(top).startswith(os.path.realpath(COPY_ROOT) + os.sep):
-        shutil.rmtree(top, ignore_errors=True)
+    if not top or os.path.islink(top):
+        return
+    real = os.path.realpath(top)
+    if os.path.dirname(real) == os.path.realpath(tempfile.gettempdir()) and os.path.basename(real).startswith(COPY_PREFIX):
+        shutil.rmtree(real, ignore_errors=True)
 
 
 def collect(board_dir, node: str) -> dict:

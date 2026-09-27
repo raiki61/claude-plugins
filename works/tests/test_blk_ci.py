@@ -6,7 +6,8 @@ graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engin
 受け付けは役を起こす前と後の作業ツリーの姿（accept.tree_state: porcelain・差分・git が無視するパス・HEAD・枝）を比べる。
 
 - YAML の形: 役の output_format が ci_role.OUTPUT_FORMAT（写しの schema に印 works-node: ci）・輪は fresh_context で AI の節は 1 つ・
-  上限は GIVE_UP_AFTER・役の道具は Read・Grep・Glob・Bash・sandbox は写しの置き場だけ書き込みを足す・スクリプトの INPUTS_* と with: が同じ
+  上限は GIVE_UP_AFTER・役の道具は Read・Grep・Glob・Bash・sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ形で、
+  本物の作業ツリーは包みが印の旗 no-tree-write を見て守る（裁定 R56）・スクリプトの INPUTS_* と with: が同じ
 - スクリプト: Archon と同じ形（cwd は対象・ARTIFACTS_DIR・INPUTS_*）の子のプロセスで回す。盤面は本物の入口 entry.start（test_cmd も
   宣言も無い run → p0.local_checks が任せ先に落ちたまま待つ）で作り、本物の entry.open_board で開く。予定の状態（拒否・諦め）は
   終了コード 0 で 1 行、配線の誤り（環境変数の欠け・BoardGap）だけ 2
@@ -38,6 +39,7 @@ import entry  # noqa: E402
 import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from accept import role_schema  # noqa: E402
+from engine.role_run import delegate_settings  # noqa: E402
 import ci_role  # noqa: E402
 import node_marker  # noqa: E402
 
@@ -79,8 +81,10 @@ class YamlCase(unittest.TestCase):
         """役の output_format は写しの p0.local_checks と p4.ci の schema（同じ形）に印 works-node: ci を付けた物"""
         self.assertEqual(role_schema("p0.local_checks"), role_schema("p4.ci"))
         for nid in ci_role.NODES:
-            self.assertEqual(ci_role.OUTPUT_FORMAT, node_marker.mark(role_schema(nid), ci_role.ROLE))
-        self.assertEqual(node_marker.parse(ci_role.OUTPUT_FORMAT["description"])["name"], "ci")
+            self.assertEqual(ci_role.OUTPUT_FORMAT, node_marker.mark(role_schema(nid), ci_role.ROLE, flags=("no-tree-write",)))
+        # 旗 no-tree-write: 包みが役の cwd の作業ツリーを柵に足す（sandbox は allowWrite ['/']。裁定 R56）
+        self.assertEqual(node_marker.parse(ci_role.OUTPUT_FORMAT["description"]),
+                         {"name": "ci", "cont": None, "flags": frozenset({"no-tree-write"})})
         role = self.top["ci-loop"]["loop_group"]["nodes"][1]
         self.assertEqual(role["output_format"], ci_role.OUTPUT_FORMAT)
         for name in ("ci_found", "ci_not_applicable"):
@@ -103,13 +107,12 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(role["settingSources"], [])
         self.assertNotIn("context", role)
         self.assertEqual(role["idle_timeout"], DEADLINE)
-        sb = role["sandbox"]
-        self.assertEqual((sb["enabled"], sb["allowUnsandboxedCommands"]), (True, False))
-        # 写しの置き場（sandbox の外の作業ディレクトリ）だけ書き込みを足す。綴りと実体の両方（macOS の /tmp → /private/tmp）
-        allow = set(sb["filesystem"]["allowWrite"])
-        self.assertLessEqual({ci_role.COPY_ROOT, os.path.realpath(ci_role.COPY_ROOT)}, allow)
-        self.assertEqual(allow, {ci_role.COPY_ROOT, "/private" + ci_role.COPY_ROOT})
-        self.assertEqual(set(sb["filesystem"]), {"allowWrite"})
+        # sandbox は graphloops の任せ先の形そのもの（写しの engine の delegate_settings）から、起動ごとの denyWrite（包みが旗を見て
+        # 足す）と autoAllowBashIfSandboxed（Archon は bypassPermissions で起こす）を除いた物（裁定 R56）
+        want = json.loads(delegate_settings([]))["sandbox"]
+        self.assertEqual(want["filesystem"].pop("denyWrite"), [])
+        self.assertIs(want.pop("autoAllowBashIfSandboxed"), True)
+        self.assertEqual(role["sandbox"], want)
         # 輪の後ろの出口は輪の欄を読まずに合流する
         self.assertEqual(self.top["collect"]["depends_on"], ["ci-loop"])
 
@@ -135,6 +138,13 @@ class YamlCase(unittest.TestCase):
                 self.assertNotIn("{{", body, "写しの graph の穴（盤面に無い物）は削った")
                 for keep in ("緑を仮定", "終わるまで待て", "not_applicable", "not_run", "carried_over", "系統ごとの終了コード"):
                     self.assertIn(keep, body)
+                # R56 の後は ~/.cache も網も使える: キャッシュの置き場を一時の置き場に強制しない（毎回の取り直しになる）。
+                # 本物は包みが書かせない（graphloops の元の文の趣旨）、包みの無い run では受け付けが拒む（審査 M2）
+                self.assertNotIn("XDG_CACHE_HOME", body)
+                self.assertNotIn("~/.cache などには書けない", body)
+                self.assertIn("本物には書けない", body)
+                self.assertIn("コードに無い赤", body)
+                self.assertIn("受け付け", body)
                 for hole in ci_role.HOLES:
                     self.assertIn(f"<<{hole}>>", body)
         self.assertIn("awaiting_human", (BLK / "prompts" / "p0.local_checks.md").read_text(encoding="utf-8"))
@@ -186,7 +196,7 @@ class ScriptCase(unittest.TestCase):
         self.addCleanup(self.drop_copies)
 
     def drop_copies(self):
-        """出口（collect）まで回さなかった試験の写しを消す（写しの置き場は盤面の外の COPY_ROOT の下）"""
+        """出口（collect）まで回さなかった試験の写しを消す（写しの置き場は盤面の外の一時の置き場の下）"""
         for p in (self.board / "r1").glob("ci-snapshot-*.json"):
             ci_role._drop_copy(json.loads(p.read_text(encoding="utf-8")))
 
@@ -236,7 +246,11 @@ class ScriptCase(unittest.TestCase):
         snap = self.ok("snap", node="p0.local_checks")
         copy = pathlib.Path(snap["copy_dir"])
         self.assertTrue((copy / "stats.py").is_file(), "写しは作業ツリーの今の姿")
-        self.assertTrue(str(copy.resolve()).startswith(os.path.realpath(ci_role.COPY_ROOT) + os.sep))
+        # 写しは run ごとに利用者の一時の置き場（tempfile.gettempdir()）の下（共有の決め打ちの /tmp/works-ci でない。審査 M3）
+        top = copy.parent
+        self.assertEqual(os.path.realpath(top.parent), os.path.realpath(tempfile.gettempdir()))
+        self.assertTrue(top.name.startswith(ci_role.COPY_PREFIX + "p0.local_checks-"), top)
+        self.assertFalse(hasattr(ci_role, "COPY_ROOT"))
         self.assertEqual(linekit.git(copy, "rev-parse", "HEAD"), linekit.git(self.repo, "rev-parse", "HEAD"))
         exited, rounds = self.run_loop("p0.local_checks", linekit.reply("ci_found"))
         self.assertEqual(exited, 1)
@@ -257,6 +271,19 @@ class ScriptCase(unittest.TestCase):
         self.assertEqual(entry.resume_after_ci(b)["pr_go"], out["pr_go"])
         self.assertFalse(copy.exists(), "出口が写しを消す")
         self.assertEqual(linekit.git(self.repo, "status", "--porcelain"), "")
+
+    def test_drop_copy_only_own_temp_dirs(self):
+        """出口が消すのは一時の置き場の直下の works-ci- で始まる写しだけ（盤面の snapshot の top が書き換えられても他を消さない）"""
+        other = self.tmp / "works-ci-p0.local_checks-x"          # 名前は合うが一時の置き場の直下でない
+        other.mkdir()
+        plain = pathlib.Path(tempfile.mkdtemp(prefix="not-ours-"))   # 一時の置き場の直下だが名前が違う
+        self.addCleanup(shutil.rmtree, plain, ignore_errors=True)
+        for top in (other, plain):
+            ci_role._drop_copy({"top": str(top)})
+            self.assertTrue(top.is_dir(), top)
+        mine = pathlib.Path(tempfile.mkdtemp(prefix=ci_role.COPY_PREFIX + "p0.local_checks-"))
+        ci_role._drop_copy({"top": str(mine)})
+        self.assertFalse(mine.exists())
 
     def test_not_applicable_accepted(self):
         """CI の定義が無い（na_self_ok）→ 理由つきの not_applicable を受ける"""
