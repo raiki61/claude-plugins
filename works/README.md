@@ -51,7 +51,7 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 - L7 ライン: `<line>/`（`nodes.json` を持つフォルダ）。ブロックを名前で include してよい
 - L8 `dev/`・L9 `tests/`: 全部を知ってよい。pack の中からは参照しない
 
-ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（模块は `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
+ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（模块は `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`KNOWN` に置けるのは破れの組だけで、「層が決まっていない」類の印（新しい core の模块の `unassigned` など）は置けない。失敗の文が印ごとに直し方（`MOD` に層を足す・`PLANNED_SCRIPTS` に足す など）を言う。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
 
 ## Claude の包み
 
