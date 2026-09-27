@@ -11,6 +11,8 @@
   （`~/.claude`）。一覧は HOME_FILES（シェルの起動ファイル・`~/.claude.json`・`~/.config/gh` も入る）。環境変数で置き場を
   替えている時は、その先（`$XDG_CONFIG_HOME/{git,gh}`・`$CLAUDE_CONFIG_DIR`）も足す
 - 役の worktree 自身の `.git`（linked worktree では gitdir を指す 1 行のファイル）
+- Archon の家（`$ARCHON_HOME`、無ければ `~/.archon`）の設定・DB・env・家の workflows/commands/scripts（ARCHON_FILES。家
+  そのものは run の worktree を中に持つので守らない）
 どの場所も綴り（渡された・git が返した形）と realpath の両方、さらに macOS の /var・/tmp・/etc は /private の有る無しの
 両方を入れ（git は realpath で返すので、/var の綴りは機械で足す）、重複を除いて並べる。git を呼ぶときは
 `git rev-parse --local-env-vars` の環境変数を外す。git が引けなければ TicketError。役の worktree が守る場所の中に
@@ -33,6 +35,11 @@ HOME_FILES = (
     ".claude", ".claude.json",                                                  # Claude の設定（.claude.json は MCP の登録）
 )
 XDG_FILES = ("git", "gh")   # $XDG_CONFIG_HOME が在る時、その下で守る物
+# Archon の家（$ARCHON_HOME、無ければ ~/.archon。Archon の getArchonHome と同じ）の下で守る物。設定（claudeBinaryPath を
+# 書き換えると次の run から包みが外れる）・DB・env・家の workflows/commands/scripts（どのリポジトリの run にも効く）・鍵。
+# 家そのものは守らない: run の worktree・盤面が家の workspaces・worktrees の下に在り、塞ぐと役が自分の worktree に書けない
+ARCHON_FILES = ("config.yaml", "archon.db", "archon.db-wal", "archon.db-shm", "archon.db-journal", ".env",
+                "workflows", "commands", "scripts", "credential-key", "install.json", ".archon")
 # git rev-parse --local-env-vars が引けない時に外す物。外から漏れると -C の先でなく別のリポジトリを見る
 GIT_ENV_FALLBACK = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
@@ -107,6 +114,8 @@ def protected_paths(repo_cwd: pathlib.Path, board_dir: pathlib.Path) -> list[str
         places += [os.path.join(os.environ["XDG_CONFIG_HOME"], name) for name in XDG_FILES]
     if os.environ.get("CLAUDE_CONFIG_DIR"):
         places.append(os.environ["CLAUDE_CONFIG_DIR"])
+    archon = os.path.expanduser(os.environ.get("ARCHON_HOME") or os.path.join(user, ".archon"))
+    places += [os.path.join(archon, name) for name in ARCHON_FILES]
     out = set()
     for p in places:
         out |= _spellings(os.path.normpath(os.path.abspath(p)))
