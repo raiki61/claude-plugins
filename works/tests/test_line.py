@@ -94,7 +94,7 @@ NO_INPUTS_CONSTANT = frozenset({
     "blk-purpose/scripts/intake.py", "blk-purpose/scripts/accept.py", "blk-purpose/scripts/collect.py",
 })
 # 印（works-node）をまだ持たない役（包みが会話を節の名で分けられない。減らす方向にだけ変える）
-UNMARKED_ROLES = frozenset({("blk-premises", "premises")})
+UNMARKED_ROLES = frozenset()
 
 
 def stub_keys():

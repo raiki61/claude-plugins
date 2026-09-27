@@ -55,8 +55,10 @@ nodes:
           allowed_tools: [Read, Grep, Glob, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # role_schema("p0.premises") を 1 度出して貼った物（tests/test_blk_premises.py が一致を見る）
+          # role_schema("p0.premises") を 1 度出して貼り、印 works-node: premises を付けた物（tests/test_blk_premises.py が一致を見る）。
+          # 印で包みが会話を節の名で分け、起動の記録に節の名が残る。旗は付けない（no-tree-write は failIfUnavailable の sandbox が要る）
           output_format:
+            description: 'works-node: premises'
             type: object
             required: [constraints]
             additionalProperties: false

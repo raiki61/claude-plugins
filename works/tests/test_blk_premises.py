@@ -66,7 +66,10 @@ class YamlCase(unittest.TestCase):
         self.y = workflow()
 
     def test_output_format_matches_role_schema(self):
-        self.assertEqual(find_node(self.y, "premises")["output_format"], role_schema(PREMISES_NODE))
+        """写しの p0.premises の schema に印 works-node: premises（包みが会話を節の名で分け、起動の記録に節の名が残る）。
+        旗は付けない（Bash は sandbox の中だけで、no-tree-write の柵の要る sandbox の形 failIfUnavailable を持たない）"""
+        import node_marker
+        self.assertEqual(find_node(self.y, "premises")["output_format"], node_marker.mark(role_schema(PREMISES_NODE), "premises"))
 
     def test_ok_sample_passes_yaml_output_format(self):
         fmt = find_node(self.y, "premises")["output_format"]
