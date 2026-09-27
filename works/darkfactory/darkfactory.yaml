@@ -4,12 +4,12 @@ description: |
   graph と規則。works/.shared/core/board.py）の上で 1 周回す:
   起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 目的の文 → 判定 →
   修正案と事前審査 → 修正の前の人の関所（要る時だけ）→ 修正（TDD の輪）→ 中の検査の枠 → 差分の審査 → 手直し →
-  最後のテスト → 最後の人の関所 → 独立の目 → 報告。
+  最後のテスト → 最後の人の関所 → 独立の目 → 機械の報告 → AI の報告と初見の検査（盤面が報告の節を出した時）→ 出口。
   境の節（h-*。scripts/edge.py を at を替えて使う。いつも走る）が盤面の ready から次のブロックを回すかを決め、関所の答えと
   止め札を盤面へ渡す。when: と関所の文言は、いつも走る節（start・境の節）の欄だけを読む。
-  AI が書く報告・素材集め（P1 の目）・仕様から入る道・再審はこの版のラインに無い
+  素材集め（P1 の目）・仕様から入る道・再審はこの版のラインに無い
   （nodes.json の absent。報告の「このラインに無い節」に出る）。
-  出口はいつも走る節 report: 結末（fixed・no_fix_needed・stopped_by_*・needs_human・record_invalid）と報告のパス。
+  出口は result（機械の報告 report の欄の全部）: 結末（fixed・no_fix_needed・stopped_by_*・needs_human・record_invalid）と最後の報告のパス。
   人の関所があるので interactive。
 
 interactive: true
@@ -40,7 +40,7 @@ inputs:
     default: ""
     description: テストの実行器（JUnit XML の書き先を第 1 引数に受ける実行ファイル。対象の根から）。空なら修正の段の TDD の輪を飛ばす
 
-returns: report
+returns: result
 outcome_field: ok
 
 nodes:
@@ -736,7 +736,7 @@ nodes:
     with:
       base_rev: $start.output.base_rev
 
-  # いつも走る出口（returns）。機械が組む報告 report.md と次の run の依頼の下書き next-request.json
+  # いつも走る機械の報告。report.md と次の run の依頼の下書き next-request.json。ai_report_go は盤面が報告の役の節を出したか
   - id: report
     script: report
     runtime: uv
@@ -763,4 +763,42 @@ nodes:
         next_request_file: {type: string}
         tests_green: {type: boolean}
         validator_exit: {type: integer}
+        ai_report_go: {type: boolean}
+        export_input: {type: object}
+
+  # AI が書く報告と初見の検査（盤面が報告の節を出した run だけ: 人か止め札で止めた・収束した。周を締めて止めた 1 周の run では出ない）
+  - id: reporting
+    include: blk-report
+    depends_on: [report]
+    when: "$report.output.ai_report_go == true"
+    with:
+      machine_report: $report.output.report_file
+
+  # 出口（returns）。機械の報告の欄を全部残し、最後の報告を選ぶ（AI の報告が ok なら report-ai.md、そうでなければ report.md）。AI の報告が落ちても走る（all_done）
+  - id: result
+    script: result
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [report, reporting]
+    trigger_rule: all_done
+    with:
+      machine: {from: $report.output}
+      ai: {from: $reporting.output, if_skipped: null}
+    output_format:
+      type: object
+      required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]
+      properties:
+        ok: {type: boolean}
+        outcome: {type: string, enum: [fixed, no_fix_needed, stopped_by_request, stopped_by_human, stopped_by_line, needs_human, record_invalid, interrupted]}
+        judgment_file: {type: string}
+        review_file: {type: string}
+        diff_file: {type: string}
+        faces: {type: integer, minimum: 0}
+        report_file: {type: string}
+        next_request_file: {type: string}
+        tests_green: {type: boolean}
+        validator_exit: {type: integer}
+        ai_report_go: {type: boolean}
+        machine_report_file: {type: string}
+        ai_report: {type: [object, "null"]}
         export_input: {type: object}

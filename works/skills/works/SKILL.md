@@ -68,7 +68,7 @@ archon workflow run raiki61/works:darkfactory --input request=<依頼の JSON �
 run の出口（最後の節 `report` の出力）に、見るファイルのパスが載る。
 
 - `outcome`: `fixed`・`no_fix_needed`・`stopped_by_human`（関所で止めた）・`stopped_by_request`（止め札 `dev/stop.sh`）・`stopped_by_line`（機械が止めた）・`needs_human`（盤面が人に聞いたまま）・`record_invalid`（周の記録が検証器を通らない）。
-- `report_file`: 機械が組む短い報告（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）。`next_request_file`: 次の run に渡す依頼の下書き（残った穴・赤）。
+- `report_file`: 最後の報告。盤面が報告の節を出した run（人か止め札で止めた・収束した）では AI が書いて初見の読み手が確かめた `report-ai.md`（最後に機械の報告が字のまま付く）、そうでなければ機械が組む短い `report.md`（冒頭に決めてほしいこと・入口・止めた理由・読んだ証拠・置き場）。機械の報告はいつも `machine_report_file`。`next_request_file`: 次の run に渡す依頼の下書き（残った穴・赤）。
 - `judgment_file`・`review_file`・`diff_file`・`faces`: 1 本目と同じ欄（判定・差分の審査の返答・審査した差分・穴の数）。
 - 修正そのもの: Archon の run ごとの worktree（`archon workflow runs --json` の `working_path`）。commit していないので、取り込むかは人が決める。
 

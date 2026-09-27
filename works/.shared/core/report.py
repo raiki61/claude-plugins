@@ -15,6 +15,7 @@ settle → finalize → run_validator を 1 度踏み、受理集合（report_ac
 - cost_rows(events, launches) -> [{node, reported, actual, continued_from}]
 - next_request(b, *, tests=None) -> 次の run に渡す依頼 [{where, text}]（依頼の型のまま）
 - build(board_dir, *, judged, tests, start, mid=None, ci=None, run_id="", events=None, launches=None, interrupted=None) -> dict
+- final_result(machine, ai) -> dict（ラインの出口: 機械の報告の出口に AI の報告の結果を足し、最後の報告のファイルを選ぶ）
 
 盤面の上の名前（最後の関所の答え final-gate-answer.json と止めた口 human:final-gate、止め札の trace の op stop_flag_seen、
 並行 PR の外した範囲 pr-excluded.json、再審の差分 rejudge-diff.json）は書き手の模块（ライン・ブロック）を import せずに
@@ -72,6 +73,8 @@ WHERE = (("判定", "p2.diagnose"), ("修正案", "p2.fix_plan"), ("事前審査
 DIFFS = (("修正の差分", "fix_delta"), ("手直しの差分", "fix_delta2"))
 REFIX_NODES = ("p3.delta_fix", "p3.delta_fix2")
 INTERRUPTED_HEAD = "run が途中で終わった: 取り消し・abandon・役の出し直しの上限のどれか"
+AI_FIRST_NODE = "report.human_items"   # 盤面が報告の役の節を出したか（AI の報告を回すか。ai_report_go）
+AI_REPORT_KEYS = ("ok", "reason", "report_file", "cold_check", "record_invalid")   # 最後の出口に写す AI の報告の欄
 
 
 # ---------------------------------------------------------------- 小道具
@@ -611,6 +614,9 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     gate = gate_record(b)
+    # 盤面が報告の役の節を出したか（表で role のラインだけ。止めた run・収束した run で出る。周を締めて止めた 1 周の run では
+    # 出ない）。待ちのままでも結末は替えない——報告の役の節の待ちは「終わっていない」ではない（計画 P1 Task 34）
+    ai_go = AI_FIRST_NODE in b.ready()
     outcome = "interrupted" if interrupted is not None else decide_outcome(b, gate, tests=tests, judged=judged)
     items = next_request(b, tests=tests)
     req_p, rep_p = board_dir / NEXT_REQUEST_FILE, board_dir / REPORT_FILE
@@ -629,5 +635,22 @@ def build(board_dir, *, judged: dict | None, tests: dict | None, start: dict | N
     _write_text(rep_p, "\n".join(body))
     green = isinstance(tests, dict) and tests.get("ok") is True and tests.get("green") is True
     return {**_finish_fields(b, judged, outcome), "report_file": str(rep_p), "next_request_file": str(req_p),
-            "tests_green": green, "validator_exit": gate["exit"],
+            "tests_green": green, "validator_exit": gate["exit"], "ai_report_go": ai_go,
             "export_input": {"outcome": outcome, "report_file": str(rep_p), "board_dir": str(board_dir)}}
+
+
+def final_result(machine: dict, ai: dict | None) -> dict:
+    """ラインの出口（計画 P1 Task 34）: 機械の報告の出口（build の返り）の欄を全部残し、最後の報告のファイルを選ぶ——AI の報告
+    （報告の役のブロックの出口）が ok ならその report_file、そうでなければ（回らなかった・諦めた・検証器を通らない）機械の
+    report.md。結末（outcome）は機械の報告のまま替えない。足す欄: machine_report_file（機械の報告）・ai_report（AI の報告の
+    出口の AI_REPORT_KEYS か None）。export_input の report_file も選んだ方"""
+    if not isinstance(machine, dict) or not isinstance(machine.get("report_file"), str):
+        raise BoardGap(f"機械の報告の出口が無い・形が違う（{type(machine).__name__}）")
+    ai_ok = isinstance(ai, dict) and ai.get("ok") is True and isinstance(ai.get("report_file"), str) and bool(ai["report_file"])
+    chosen = ai["report_file"] if ai_ok else machine["report_file"]
+    out = {**machine, "report_file": chosen, "machine_report_file": machine["report_file"],
+           "ai_report": {k: ai.get(k) for k in AI_REPORT_KEYS} if isinstance(ai, dict) else None}
+    exp = machine.get("export_input")
+    if isinstance(exp, dict):
+        out["export_input"] = {**exp, "report_file": chosen}
+    return out

@@ -35,7 +35,7 @@ ROLES = {"p0.premises", "p2.diagnose", "p2.fix_plan", "p2.plan_review", "p3.fix"
 # 独立の目（blk-eyes。計画 P1 Task 33）の行（tests/boards/tables/eyes-rows.json の案をそのまま当てた）
 EYES = {"r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare", "r3.coherence", "r4.hidden_scope",
         "stop.premise_check"}
-ROLES |= EYES
+ROLES |= EYES | {"report.human_items", "report.cold_check", "report"}
 
 
 def raw_table() -> dict:
@@ -151,13 +151,13 @@ class TableCase(unittest.TestCase):
         （3 回とも拒まれたら省いて R1 の本体へ。graph: 取れなくても R1 を not_run に倒さない）"""
         self.assertEqual([n for n, e in self.nodes.items() if e.skippable], ["r1.comment_candidates"])
 
-    def test_report_absent_so_record_invalid_unreachable(self):
-        """報告の役の 3 節は absent。graph の pre: finalize の節は report だけ → settle の報告の前の関所（RecordInvalid）は
-        線 A で起きない（代わりの関所は線 A の report.build）"""
+    def test_report_rows_are_blk_report(self):
+        """報告の役の 3 節は blk-report の役（計画 P1 Task 34。ml-report の案の行）。graph の pre: finalize の節は report だけ——
+        その関所（settle の RecordInvalid）は機械の報告の gate_record が受けて record_invalid にする（test_report）"""
         for nid in ("report", "report.human_items", "report.cold_check"):
             with self.subTest(nid):
-                self.assertEqual(self.nodes[nid].by, "absent")
-                self.assertIn("R27", self.nodes[nid].reason)
+                self.assertEqual((self.nodes[nid].by, self.nodes[nid].where), ("role", "blk-report"))
+        self.assertIn("R27", self.nodes["report.human_items"].reason)
         self.assertEqual({n for n, g in GRAPH["nodes"].items() if g.get("pre") == "finalize"}, {"report"})
 
     def test_later_lines_name_their_line(self):

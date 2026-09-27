@@ -129,6 +129,7 @@ def work_home() -> pathlib.Path:
 # （手で 2 か所に書き写したまま放さない。裁定 TA16）。行は {id, kind: script|include|approval, script?, block?, at?,
 # depends_on, trigger_rule?, when?, with: {鍵: 出どころ}}。境の節（script edge）は edge.py の INPUTS を全部受け、使わない物は "null"。
 NFMOS = "none_failed_min_one_success"
+ALL_DONE = "all_done"
 EDGE_INPUTS = ("at", "judged", "premised", "gate", "tests", "adapter", "final_gate")
 
 
@@ -206,6 +207,11 @@ LINE_ORDER = [
      "with": {"judged": _skippable("$judging.output"), "tests": _skippable("$testing.output"),
               "start": {"from": "$start.output"}, "mid": {"from": "$h-mid.output"},
               "ci": _skippable("$ci-checking.output")}},
+    {"id": "reporting", "kind": "include", "block": "blk-report", "depends_on": ["report"],
+     "when": "$report.output.ai_report_go == true", "with": {"machine_report": "$report.output.report_file"}},
+    # 出口（returns）。AI の報告のブロックが落ちても機械の報告で出口を出す（all_done: 前の節の成否に依らず走る）
+    {"id": "result", "kind": "script", "script": "result", "depends_on": ["report", "reporting"], "trigger_rule": ALL_DONE,
+     "with": {"machine": {"from": "$report.output"}, "ai": _skippable("$reporting.output")}},
 ]
 
 
@@ -302,6 +308,28 @@ class LineRun:
             self.eyes_roles += todo
         return eyes.collect(self.board, e["round"])
 
+    def blk_report(self):
+        """blk-report の中の節の順（経路 → 支度 → 役 → 受け付け を 3 役 → 出口）。返答は replies[<役>]（無ければ blk-report の
+        筋書き pass の見本）。replies["report-give-up"] が真なら書き手を 3 回拒ませる（諦めの道）"""
+        import yaml
+        if str(ROOT / "blk-report" / "lib") not in sys.path:
+            sys.path.insert(0, str(ROOT / "blk-report" / "lib"))
+        import report_roles
+        stubs = yaml.safe_load((ROOT / "blk-report" / "fixtures" / "pass.stubs.yaml").read_text(encoding="utf-8"))
+        machine = self.out["report"]["report_file"]
+        for role in report_roles.ROLES:
+            if report_roles.route(self.board, role)["next"] != role:
+                break
+            for _ in range(report_roles.GIVE_UP_AFTER):
+                report_roles.prep(self.board, role, self.repo, machine)
+                body = self.replies.get(role, stubs[role])
+                if role == report_roles.WRITE and self.replies.get("report-give-up"):
+                    body = {"text": "| 列 |\n|---|\n| これは説明の文。セルに入れてはいけない |"}
+                got = report_roles.accept(self.board, role, json.dumps(body, ensure_ascii=False), self.repo)
+                if got["done"]:
+                    break
+        return report_roles.collect(self.board, machine)
+
     def blk_judge(self):
         body = self.replies["judge"]
         units = [u["key"] for u in body.get("units") or [] if u.get("label") != "info"]
@@ -380,7 +408,8 @@ class LineRun:
         import report
         blocks = {"blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-purpose": self.blk_purpose,
                   "blk-judge": self.blk_judge, "blk-plan": self.blk_plan, "blk-fix": self.blk_fix, "blk-delta": self.blk_delta,
-                  "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes}
+                  "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes,
+                  "blk-report": self.blk_report}
         for row in LINE_ORDER:
             nid = row["id"]
             if nid == "launch":
@@ -414,7 +443,10 @@ class LineRun:
                                              start=self._src(w["start"]), mid=self._src(w["mid"]), ci=self._src(w["ci"]),
                                              run_id=RUN_ID, events=[])
                 self.trail.append(nid)
-        rep = self.out["report"]
+            elif nid == "result":
+                self.out[nid] = report.final_result(self.out["report"], self.out.get("reporting"))
+                self.trail.append(nid)
+        rep = self.out["result"]
         return {"outcome": rep["outcome"], "report": rep, "board_dir": self.board, "trail": self.trail, "out": self.out,
                 "eyes_roles": self.eyes_roles}
 

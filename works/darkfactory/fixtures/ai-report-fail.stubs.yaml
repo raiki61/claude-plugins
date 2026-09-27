@@ -1,5 +1,6 @@
-# 筋書き final-stop: 最後の関所の答え stop を h-eyes が盤面へ渡して止め（周の途中なので b.stop。独立の目は
-# 回らない）、機械の報告は stopped_by_human。止めた盤面は報告の役の節を出すので AI の報告（reporting）が回り、出口の報告は report-ai.md
+# 筋書き ai-report-fail: final-stop と同じ道で、AI の報告のブロックが諦めた（collect の ok 偽）。
+# 出口 result は all_done で走り、機械の報告（report.md）を最後の報告に選ぶ（結末は機械の報告のまま）。模擬実行は include の
+# ok 偽を run の失敗にしない（Archon 0.11.1 の workflow test で確かめた）。本物の run で include が落ちても result は all_done で走る
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 start:
@@ -1116,8 +1117,8 @@ report-write-accept:
   node: report
   record_invalid: false
 reporting__collect:
-  ok: true
-  reason: ''
+  ok: false
+  reason: 書き手の返答が 3 回とも拒まれた
   report_file: board/report-ai.md
   text_file: board/out/r3/report.json
   human_items_file: board/out/r3/report.human_items.json
@@ -1132,25 +1133,15 @@ result:
   ok: true
   outcome: stopped_by_human
   judgment_file: board/judgment.json
-  report_file: board/report-ai.md
+  report_file: board/report.md
   next_request_file: board/next-request.json
   tests_green: false
   validator_exit: 0
-  ai_report_go: true
+  ai_report_go: false
   machine_report_file: board/report.md
   ai_report:
-    ok: true
-    reason: ''
-    report_file: board/report-ai.md
-    text_file: board/out/r3/report.json
-    human_items_file: board/out/r3/report.human_items.json
-    facts_file: board/r3/report-facts.md
-    cold_check:
-      verdict: pass
-      stops: []
-      guessed: []
-      decidable: true
-    record_invalid: false
+    ok: false
+    reason: 書き手の返答が 3 回とも拒まれた
 fixture:
   expect: completed
   inputs:

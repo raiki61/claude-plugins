@@ -166,6 +166,48 @@ class OutcomeCase(ReportBase):
         self.assertIn(out["validator_exit"], report.report_accepts(b))
         self.assertTrue(out["tests_green"])
 
+    def test_final_result_picks_report(self):
+        """出口 result: AI の報告が ok なら report-ai.md、そうでなければ（回らない・諦めた・形が違う）機械の report.md。
+        機械の報告の欄は全部残り、結末は替えない。export_input の report_file も選んだ方"""
+        self.full()
+        machine, _, _ = self.build()
+        ai = {"ok": True, "reason": "", "report_file": "/b/report-ai.md", "cold_check": {"verdict": "pass"},
+              "record_invalid": False, "text_file": "x"}
+        got = report.final_result(machine, ai)
+        self.assertLessEqual(set(machine), set(got))
+        self.assertEqual((got["report_file"], got["machine_report_file"]), ("/b/report-ai.md", machine["report_file"]))
+        self.assertEqual(got["export_input"]["report_file"], "/b/report-ai.md")
+        self.assertEqual(got["outcome"], machine["outcome"])
+        self.assertEqual(set(got["ai_report"]), set(report.AI_REPORT_KEYS))
+        for bad in (None, {**ai, "ok": False}, {"ok": True, "report_file": ""}):
+            with self.subTest(bad=bad):
+                got = report.final_result(machine, bad)
+                self.assertEqual(got["report_file"], machine["report_file"])
+                self.assertEqual(got["export_input"]["report_file"], machine["report_file"])
+        with self.assertRaises(BoardGap):
+            report.final_result({"ok": True}, None)
+
+    def test_result_script(self):
+        """darkfactory/scripts/result.py: 1 行の JSON。AI の出口が null・読めない字でも機械の報告を選び、読めない事実は ai_report に"""
+        self.full()
+        machine, _, _ = self.build()
+        script = ROOT / "darkfactory" / "scripts" / "result.py"
+        for ai, want in (("null", None), ("{壊れた", "読めない")):
+            with self.subTest(ai=ai):
+                env = {**os.environ, "INPUTS_MACHINE": json.dumps(machine, ensure_ascii=False), "INPUTS_AI": ai,
+                       "PYTHONDONTWRITEBYTECODE": "1"}
+                r = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                out = json.loads(r.stdout)
+                self.assertEqual(out["report_file"], machine["report_file"])
+                if want:
+                    self.assertIn(want, out["ai_report"]["reason"])
+                else:
+                    self.assertIsNone(out["ai_report"])
+        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+        r = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+
     def test_exit_keeps_finish_fields(self):
         """返りの鍵 ⊇ 1 本目の finish の必須の欄と足した欄、outcome ∈ OUTCOMES、export_input は書き出しの 3 つの鍵"""
         self.full()
@@ -233,7 +275,23 @@ class OutcomeCase(ReportBase):
         self.assertEqual(order[:2], ["settle", "finalize"])
         self.assertEqual(out["outcome"], "stopped_by_request")
         b = entry.open_board(self.board, allow_halted=True)
-        self.assertEqual([n for n in b.nodes if b.node_state(n) == "pending"], [])
+        # 止めた後に残るのは報告の役の節（表で blk-report。計画 P1 Task 34）だけ。その待ちは結末を替えない
+        self.assertEqual([n for n in b.nodes if b.node_state(n) == "pending"], ["report.human_items", "report.cold_check", "report"])
+        self.assertIs(out["ai_report_go"], True)
+
+    def test_record_invalid_from_settle_is_caught(self):
+        """報告の節の関所（settle の RecordInvalid。pre: finalize）は gate_record が受け、同じ検証器が受理集合の外なら
+        record_invalid（fixed を出さない）。報告は書く"""
+        self.fixed()
+        fake = mock.Mock(return_value={"exit": 7, "out": "偽の検証器"})
+
+        def settle(b, *a, **k):
+            raise report.RecordInvalid("report", 7, "偽の検証器")
+        with mock.patch.object(entry, "hook_kwargs", return_value={"validator_runner": fake}), \
+                mock.patch.object(DiskBoard, "settle", settle):
+            out, _, h = self.build()
+        self.assertEqual((out["outcome"], out["validator_exit"]), ("record_invalid", 7))
+        self.assertIs(out["ai_report_go"], False)
 
     def test_stopped_by_request(self):
         """止め札 → stopped_by_request、冒頭 3 に理由と止めた境の節（trace の stop_flag_seen の at）"""

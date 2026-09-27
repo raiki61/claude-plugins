@@ -1034,6 +1034,111 @@ report:
   next_request_file: board/next-request.json
   tests_green: false
   validator_exit: 0
+  ai_report_go: false
+reporting__rp-route1:
+  next: report-items
+  node: report.human_items
+  why: report.human_items が ready
+report-items-prep:
+  prompt_file: board/prompts/r3/report.human_items.md
+  prompt: ''
+  attempt: 1
+  node: report.human_items
+  facts_file: ''
+  already: false
+report-items:
+  text: 'レビューは 3 周で収束し、直す物は残っていない。
+
+    直した欠陥は 1 件で、テストは緑。
+
+    次の周に回した物は無い。'
+report-items-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report.human_items
+  record_invalid: false
+reporting__rp-route2:
+  next: report-cold
+  node: report.cold_check
+  why: report.cold_check が ready
+report-cold-prep:
+  prompt_file: board/prompts/r3/report.cold_check.md
+  prompt: お前は文脈を持たない初見の読み手。……（描いた本文）
+  attempt: 1
+  node: report.cold_check
+  facts_file: ''
+  already: false
+report-cold:
+  verdict: pass
+  stops: []
+  guessed: []
+  decidable: true
+report-cold-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report.cold_check
+  record_invalid: false
+reporting__rp-route3:
+  next: report-write
+  node: report
+  why: report が ready
+report-write-prep:
+  prompt_file: board/prompts/r3/report.md
+  prompt: ''
+  attempt: 1
+  node: report
+  facts_file: board/r3/report-facts.md
+  already: false
+report-write:
+  text: 'レビューは 3 周で収束し、直す物は残っていない。
+
+    直した欠陥は 1 件で、テストは緑。
+
+    次の周に回した物は無い。
+
+
+    ## 各周の記録
+
+
+    - 周 1: 欠陥 1 件を判定し、直した'
+report-write-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ''
+  reason_file: ''
+  node: report
+  record_invalid: false
+reporting__collect:
+  ok: true
+  reason: ''
+  report_file: board/report-ai.md
+  text_file: board/out/r3/report.json
+  human_items_file: board/out/r3/report.human_items.json
+  facts_file: board/r3/report-facts.md
+  cold_check:
+    verdict: pass
+    stops: []
+    guessed: []
+    decidable: true
+  record_invalid: false
+result:
+  ok: true
+  outcome: stopped_by_human
+  judgment_file: board/judgment.json
+  report_file: board/report.md
+  next_request_file: board/next-request.json
+  tests_green: false
+  validator_exit: 0
+  ai_report_go: false
+  machine_report_file: board/report.md
+  ai_report: null
 fixture:
   expect: completed
   inputs:
@@ -1059,4 +1164,5 @@ fixture:
   - h-final
   - h-eyes
   - report
+  - result
 exec-code: true
