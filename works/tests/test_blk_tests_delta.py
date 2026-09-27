@@ -150,7 +150,7 @@ class TestDeltaSchema(unittest.TestCase):
         # 輪の中の節の id はライン全体で一意にする（模擬実行は輪の中の節を名前空間なしの id で stub に引く）
         loop = find_node(workflow("blk-delta")["nodes"], "delta-loop")["loop_group"]
         self.assertEqual([n["id"] for n in loop["nodes"]], ["review", "review-accept"])
-        self.assertEqual(loop["until_bash"], "test $review-accept.output.ok = true")
+        self.assertEqual(loop["until_bash"], "test $review-accept.output.done = true")   # 通った時か 3 回目の拒否で抜ける（R50）
 
     def test_delta_review_sandbox(self):
         # Ruling R12: Bash を持たない役でも、サンドボックスの外へ出る道を閉じる

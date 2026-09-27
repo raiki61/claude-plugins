@@ -34,6 +34,7 @@ import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from accept import role_schema  # noqa: E402
 import prcheck  # noqa: E402
+import rolekit  # noqa: E402
 import script_io  # noqa: E402
 
 REPLIES = HERE / "replies"
@@ -58,7 +59,9 @@ def opener(d, **kw):
 
 
 def board_shas(d):
-    # reject-*.txt は受け付けの出口（script_io.emit_result）が拒否の本文を書く reason_file で、盤面の層のファイルではない
+    # reject-*.txt は受け付け（rolekit.accept_role が script_io._write_reason で書く reject-take_p0_parallel_pr-<連番>.txt）の
+    # 拒否の本文の reason_file で、盤面の層のファイルではない。拒否の控え role-rejects.json（b.work）は数えるので、拒む試験が
+    # 別に外す（盤面の層の変化として見る所で 1 件ずつ）
     d = pathlib.Path(d)
     return {p.relative_to(d).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(d.rglob("*"))
@@ -316,7 +319,9 @@ class AcceptCase(PrCase):
         # 次の周へは本文でなく reason_file（盤面のファイル。中身は本文と字のまま同じ）を渡す
         self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), got["reason"])
         self.assertEqual(pathlib.Path(got["reason_file"]).parent, (self.art / "board").resolve())
-        self.assertEqual(board_shas(b.dir), before)
+        after = board_shas(b.dir)
+        after.pop(b.work(rolekit.REJECTS_NAME).relative_to(b.dir).as_posix())   # 拒否はこの周の控えに積む（3 回目で done。R50）
+        self.assertEqual(after, before)
 
     def test_handover_draft_accepted(self):
         """handed_over false・note つき → 通る。節は済み、ラインの次の段（前提の実測 p0.premises）が待つ。
@@ -503,9 +508,10 @@ class AcceptCase(PrCase):
     def test_accept_script_unreadable_reply(self):
         """返答が JSON でない・オブジェクトでない → 0 で ok false（中身の誤り。役に返す）。本文（返答の頭の生の字。$ が入りうる）は
         reason_file に字のまま書く"""
+        self.fallen()   # 拒否は盤面のこの周の控えに積む（rolekit.accept_role）ので、盤面の在る run で回す
         for raw in ("not json $judge.output.pass", '["$ARTIFACTS_DIR"]'):
             with self.subTest(raw):
-                r = run_script("accept", {"INPUTS_REPLY": raw, "ARTIFACTS_DIR": str(self.tmp)})
+                r = run_script("accept", {"INPUTS_REPLY": raw, "ARTIFACTS_DIR": str(self.art)})
                 self.assertEqual(r.returncode, 0, r.stderr)
                 got = json.loads(r.stdout)
                 self.assertFalse(got["ok"])

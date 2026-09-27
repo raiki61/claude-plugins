@@ -1,8 +1,9 @@
 # 目的の役が毎回同じ悪い返答（source_files が種に無いファイル docs/plan.md を挙げる）を返し、受け付けが拒む筋書き。
 # purpose の中身は tests/replies/purpose_missing_source_file.json と同じ。型（output_format）は通る返答にする——型に
 # 合わない stub は模擬実行が役の節で落とし、受け付けまで届かない。
-# 本番の run では輪が上限（3 回）で purpose-loop が落ちる。dry-run は until_bash を回さず輪を 1 回で済んだと
-# みなす（Archon 0.11.1）ので、筋書きでは受け付けが purpose.json を書かなかったことを collect が見つけて落ちる。
+# 本番の run では 3 回目の拒否で受け付けが done を立て、輪を抜ける（R50）。このブロック単体の run には盤面が無いので、
+# collect が purpose.json を見つけず最後の拒否の文で落ちる（ラインの盤面なら盤面を止めて ok: false）。dry-run は until_bash を
+# 回さず輪を 1 回で済んだとみなす（Archon 0.11.1）ので、筋書きでは 1 回目の拒否の後に collect が見つけずに落ちる。
 fixture:
   expect: failed
   fail-node: collect

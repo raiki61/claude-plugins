@@ -31,6 +31,7 @@ from accept import role_schema, tree_state  # noqa: E402
 from board import graph_expanded  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 import premises  # noqa: E402
+import rolekit  # noqa: E402
 from premises import PREMISES_FILE, PREMISES_NODE, PREMISES_SNAPSHOT_FILE, check_premises  # noqa: E402
 
 DEADLINE = 1728000000
@@ -77,6 +78,13 @@ class YamlCase(unittest.TestCase):
         # 実測なのに出力の無い返答も型は通る（拒むのは型でなく写した規則。受け付けの試験が見る）
         self.assertEqual(validate_schema(load("premises_no_output"), fmt), [])
 
+    def test_stop_by_is_the_line_edge_one(self):
+        """止めた盤面の by はラインの h-judge と同じ 1 つの値（premises.STOP_BY を参照する。字で写さない）"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge
+        self.assertIs(line_edge.PREMISES_BY, premises.STOP_BY)
+        self.assertNotIn(premises.STOP_BY, (BLK / "scripts" / "collect.py").read_text(encoding="utf-8"))
+
     def test_graph_node_names_the_rule(self):
         # 受け付けは graph の節が名指す post_check を引く。名前が変われば写し直しで気づくように、今の名前を固める
         self.assertEqual(graph_expanded()["nodes"][PREMISES_NODE]["post_check"], "measured_needs_output")
@@ -104,7 +112,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(g["depends_on"], ["intake"])
         lg = g["loop_group"]
         self.assertEqual((lg["max_iterations"], lg["fresh_context"], lg["until_bash"]),
-                         (3, False, "test $premises-accept.output.ok = true"))
+                         (3, False, "test $premises-accept.output.done = true"))   # 通った時か 3 回目の拒否で抜ける（R50）
         self.assertEqual([n["id"] for n in lg["nodes"]], ["premises", "premises-accept"])
         role = find_node(self.y, "premises")
         self.assertEqual(role["command"], "premises")
@@ -117,8 +125,10 @@ class YamlCase(unittest.TestCase):
         acc = find_node(self.y, "premises-accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$premises.output"}, "base_rev": "$INPUTS.base_rev"})
         self.assertEqual(acc["depends_on"], ["premises"])
-        self.assertEqual(sorted(acc["output_format"]["required"]), ["constraints_file", "ok", "reason", "reason_file"])
-        self.assertEqual(find_node(self.y, "collect")["depends_on"], ["premises-loop"])
+        self.assertEqual(sorted(acc["output_format"]["required"]), ["constraints_file", "done", "ok", "reason", "reason_file"])
+        self.assertEqual(g["when"], "$intake.output.go == true")   # 止まった盤面では実測役を起こさない
+        coll = find_node(self.y, "collect")
+        self.assertEqual((coll["depends_on"], coll["trigger_rule"]), (["intake", "premises-loop"], "none_failed_min_one_success"))
 
     def test_prompt_measures_request_claims(self):
         """依頼の measured の測り直しの段落（where をそのまま text に・測れなければ仮説）と、本線 a1202d0 の指示書の本文を全部含む。
@@ -353,7 +363,7 @@ class ScriptCase(RepoCase):
     def test_intake_checks_request_and_stores_snapshot(self):
         r = self.run_script("intake", INPUTS_REQUEST="request_ok.json")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout), {"ok": True, "reason": "", "request": "request_ok.json"})
+        self.assertEqual(json.loads(r.stdout), {"ok": True, "reason": "", "request": "request_ok.json", "go": True})
         self.assertEqual(json.loads((self.board / PREMISES_SNAPSHOT_FILE).read_text(encoding="utf-8")),
                          tree_state(self.repo, bytecode=False))
         # 依頼を盤面に積むのは判定のブロックの intake だけ（ここで積むと判定の時に同じ依頼が 2 度積まれる）
@@ -409,6 +419,25 @@ class ScriptCase(RepoCase):
         r = self.run_script("collect")
         self.assertEqual(r.returncode, 1)
         self.assertIn(PREMISES_FILE, r.stderr)
+
+    def test_stopped_line_board_still_clears_leftovers(self):
+        # ラインの盤面が止まっていて intake が go: false で輪を飛ばしても、前の呼び出しの premises.json と拒否の控えは消す
+        # （消さないと collect が古い制約を拾って ok: true を出す）
+        import entry
+        from board import DiskBoard
+        table = entry.load_table("darkfactory")
+        b, _ = DiskBoard.begin(self.board, repo=self.repo, table=table, items=load("request_ok"), origin="works/darkfactory",
+                               base_rev="", request_text="依頼", stop_after_round=1, **entry.open_kwargs("darkfactory", table))
+        b.stop("前のブロックが諦めた", by="works:test")
+        (self.board / PREMISES_FILE).write_text(json.dumps(load("premises_ok"), ensure_ascii=False), encoding="utf-8")
+        rolekit.rejects_path(self.board, PREMISES_NODE).write_text("[]", encoding="utf-8")
+        r = self.run_script("intake", INPUTS_REQUEST="request_ok.json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIs(json.loads(r.stdout)["go"], False)
+        self.assertFalse((self.board / PREMISES_FILE).exists())
+        self.assertFalse(rolekit.rejects_path(self.board, PREMISES_NODE).exists())
+        got = json.loads(self.run_script("collect").stdout)
+        self.assertIs(got["ok"], False)
 
     # ---- 依頼の実測の測り直し（計画 P1 Task 24・仕様 3.6。works だけの検査 check_claims）
     CLAIM = {"where": "test_stats.py:12", "text": "本番の入力で 3 件に 1 件が赤になる", "measured": "3 件に 1 件が赤"}

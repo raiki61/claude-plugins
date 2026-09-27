@@ -81,6 +81,13 @@ class YamlCase(unittest.TestCase):
     def setUp(self):
         self.y = workflow()
 
+    def test_stop_by_is_the_line_edge_one(self):
+        """止めた盤面の by はラインの h-mat と同じ 1 つの値（purpose.STOP_BY を参照する。字で写さない）"""
+        sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+        import line_edge
+        self.assertIs(line_edge.PURPOSE_BY, purpose.STOP_BY)
+        self.assertNotIn(purpose.STOP_BY, (ROOT / "blk-purpose" / "scripts" / "collect.py").read_text(encoding="utf-8"))
+
     def test_purpose_output_format_matches_role_schema(self):
         import node_marker
         fmt = find_node(self.y, "purpose")["output_format"]
@@ -115,7 +122,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(g["depends_on"], ["intake"])
         lg = g["loop_group"]
         self.assertEqual((lg["max_iterations"], lg["fresh_context"], lg["until_bash"]),
-                         (3, False, "test $purpose-accept.output.ok = true"))
+                         (3, False, "test $purpose-accept.output.done = true"))   # 通った時か 3 回目の拒否で抜ける（R50）
         self.assertEqual([n["id"] for n in lg["nodes"]], ["purpose", "purpose-accept"])
         role = find_node(self.y, "purpose")
         self.assertEqual(role["command"], "purpose")
@@ -129,9 +136,9 @@ class YamlCase(unittest.TestCase):
                          ("accept", "uv", DEADLINE, ["purpose"]))
         self.assertEqual(acc["with"], {"reply": {"from": "$purpose.output"}, "base_rev": "$INPUTS.base_rev"})
         self.assertEqual(acc["output_format"]["properties"], {
-            "ok": {"type": "boolean"}, "reason": {"type": "string"}, "reason_file": {"type": "string"},
+            "ok": {"type": "boolean"}, "done": {"type": "boolean"}, "reason": {"type": "string"}, "reason_file": {"type": "string"},
             "purpose_file": {"type": "string"}})
-        self.assertEqual(sorted(acc["output_format"]["required"]), ["ok", "purpose_file", "reason", "reason_file"])
+        self.assertEqual(sorted(acc["output_format"]["required"]), ["done", "ok", "purpose_file", "reason", "reason_file"])
         col = find_node(self.y, "collect")
         self.assertEqual((col["script"], col["runtime"], col["timeout"], col["depends_on"]),
                          ("collect", "uv", DEADLINE, ["purpose-loop"]))
@@ -310,7 +317,7 @@ class ScriptCase(unittest.TestCase):
         self.assertFalse((self.board / purpose.PURPOSE_FILE).exists())
         got = self.accept(load("purpose_ok"))
         # 盤面のパスは script_io.main が一度だけ resolve した値（7d22ce7。macOS の一時の置き場は /private/var の symlink）
-        self.assertEqual(got, {"ok": True, "reason": "", "reason_file": "",
+        self.assertEqual(got, {"ok": True, "done": True, "reason": "", "reason_file": "",
                                "purpose_file": str(self.board.resolve() / purpose.PURPOSE_FILE)})
         self.assertEqual(json.loads((self.board / purpose.PURPOSE_FILE).read_text(encoding="utf-8")), load("purpose_ok"))
 

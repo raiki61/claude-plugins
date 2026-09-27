@@ -9,7 +9,8 @@
 3. INPUTS_CONSTRAINTS_FILE が空でなければ、前提の実測（blk-premises が置く p0.premises の返答）を読み、写しの
    p0.premises の型と post_check に通す（purpose.check_constraints）。空なら前提の実測は無い
 4. 目的の役を起こす前の作業ツリーの姿（accept.tree_state。HEAD・枝つき。裁定 R47）を盤面の purpose-snapshot.json に置く。
-   受け付けは今の作業ツリーとこれを比べる（依頼のファイルが対象の中で未追跡でも、役が変えていなければ通る）
+   受け付けは今の作業ツリーとこれを比べる（依頼のファイルが対象の中で未追跡でも、役が変えていなければ通る）。
+   受け付けの拒否の控え（rolekit.with_done の rejects-p0.purpose.json）も同じ所で消す（前の呼び出しの拒否を数えない）
 
 - 通れば {"ok": true, "reason": "", "request": <依頼のパス>, "constraints_file": <前提のパス（無ければ空）>} を 1 行出して 0
 - どれかが通らない: 標準エラーに理由を 1 行出して 1（run を AI の前で止める）
@@ -24,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import json  # noqa: E402
 import os  # noqa: E402
 
-from purpose import SNAPSHOT_FILE, check_constraints, refuse_if_frozen, tree_state  # noqa: E402
+from purpose import NODE, SNAPSHOT_FILE, check_constraints, refuse_if_frozen, tree_state  # noqa: E402
+import rolekit  # noqa: E402
 from engine.util import Reject  # noqa: E402  purpose の後（purpose を読むと写しの graphloops が sys.path に入る）
 
 REQUEST_ENV = "INPUTS_REQUEST"
@@ -70,6 +72,7 @@ def main() -> int:
     except (Reject, OSError) as e:
         return _stop(f"作業ツリーの写しが取れない（{e}）")
     board.mkdir(parents=True, exist_ok=True)
+    rolekit.clear_rejects(board, NODE)
     (board / SNAPSHOT_FILE).write_text(json.dumps(snap, ensure_ascii=False) + "\n", encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps({"ok": True, "reason": "", "request": rel, "constraints_file": cf}, ensure_ascii=False), flush=True)

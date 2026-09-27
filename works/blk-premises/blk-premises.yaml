@@ -9,8 +9,9 @@ description: |
 # 線 A がラインに入れる時の約束（配線は線 A の Task 17。この枝ではラインに入れない）:
 # - include の id は premising（ブロックの中の節の id と重ねない。Ruling R17）。判定（judging）の前に置き、
 #   judging は depends_on: [premising] にする。既定の trigger_rule（all_success）なので、このブロックが落ちれば
-#   判定役は起きない。落ちるのは: 依頼が読めない・規則が拒む（intake）／受け付けが 3 回とも拒む（collect が
-#   premises.json を見つけられない）
+#   判定役は起きない。落ちるのは: 依頼が読めない・規則が拒む（intake）。受け付けが 3 回とも拒めば、輪は done で抜け、
+#   collect が最後の拒否の文で盤面を止めて ok: false を返す（R50。後ろの境の節が止まった盤面を見て判定役を起こさない）
+# - ラインの盤面がもう止まっていれば（並行 PR の任せ先が諦めた）、intake が go: false を出し、輪（実測役）は飛ぶ
 # - 判定役には $premising.output.constraints_summary（1 行 1 制約の文）を貼り、全文は $premising.output.constraints_file
 #   （盤面の premises.json）を Read させる。kind=仮説 の制約は所与として使わない、と判定の指示書に書く
 # - 線は、このブロックの出口（collect の出力の JSON）を境の節 h-judge の with: premised に渡す。h-judge が盤面の p0.premises に
@@ -31,21 +32,31 @@ outcome_field: ok
 
 nodes:
   # 依頼の型を graphloops の add と同じ規則で確かめ（盤面には積まない）、実測役を起こす前の作業ツリーの写しを盤面の
-  # premises-snapshot.json に置く。読めない・JSON でない・規則が拒むなら終了コード 1 で run を止める（AI を起こす前に止める）
+  # premises-snapshot.json に置く。読めない・JSON でない・規則が拒むなら終了コード 1 で run を止める（AI を起こす前に止める）。
+  # ラインの盤面がもう止まっていれば go: false（実測役を起こさない）
   - id: intake
     script: intake
     runtime: uv
     timeout: 1728000000
     with:
       request: $INPUTS.request
+    output_format:
+      type: object
+      properties:
+        ok: {type: boolean}
+        reason: {type: string}
+        request: {type: string}
+        go: {type: boolean}
+      required: [ok, reason, request, go]
 
   # 実測役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
   - id: premises-loop
     depends_on: [intake]
+    when: "$intake.output.go == true"
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $premises-accept.output.ok = true
+      until_bash: test $premises-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: premises
           command: premises
@@ -88,18 +99,20 @@ nodes:
             type: object
             properties:
               ok: {type: boolean}
+              done: {type: boolean}
               reason: {type: string}
               reason_file: {type: string}
               constraints_file: {type: string}
-            required: [ok, reason, reason_file, constraints_file]
+            required: [ok, done, reason, reason_file, constraints_file]
 
-  # loop_group の出力は型を持てないので、輪の後ろで盤面の premises.json から出口を組む。
-  # 受け付けを通った返答が無ければ終了コード 1（run を止め、判定役を起こさない）
+  # loop_group の出力は型を持てないので、輪の後ろで盤面の premises.json から出口を組む。受け付けを通った返答が無ければ、
+  # ラインの盤面では（3 回とも拒まれた・輪を飛ばした）盤面を止めた ok: false、単独の run では終了コード 1
   - id: collect
     script: collect
     runtime: uv
     timeout: 1728000000
-    depends_on: [premises-loop]
+    depends_on: [intake, premises-loop]
+    trigger_rule: none_failed_min_one_success   # 輪を飛ばした（止まった盤面）時も出口を組む
     output_format:
       type: object
       properties:

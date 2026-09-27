@@ -10,6 +10,7 @@ refix-prep:
 refix: {"handled": [{"key": "stats.py clamp: docstring が下限の枝の約束を書いていない", "handled": "fixed", "how": "clamp の docstring を下限を下回った値は lo を、上限を超えた値は hi を返すに書き直した", "files": ["stats.py"]}, {"key": "stats.py clamp: docstring が上限の枝の約束を書いていない", "handled": "fixed", "how": "同じ docstring の書き直しで、上限と下限の両方の枝の約束を書いた", "files": ["stats.py"]}]}
 refix-accept:
   ok: true
+  done: true
   reason: ""
   reason_file: ""
 route1:

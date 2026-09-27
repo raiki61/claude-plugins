@@ -91,7 +91,7 @@ def _write_reason(board: pathlib.Path, fn, reason: str) -> str:
 def board_dir():
     """ARTIFACTS_DIR の下の盤面を一度だけ resolve した値（シンボリックリンクを辿り、相対なら cwd を足す）。
     ARTIFACTS_DIR が欠け・空、または解決した後のパスが $ を含むときは標準エラーに名前を出して None（呼ぶ側は 2 で終わる）。
-    main と、main を通らない受け付けの入口（prcheck.main_take など）が同じ柵をここで当てる"""
+    main と、main を通らない受け付けの入口（rolekit.main_accept など）が同じ柵をここで当てる"""
     if not os.environ.get(ARTIFACTS_ENV):
         print(f"環境変数が無い: {ARTIFACTS_ENV}", file=sys.stderr)
         return None

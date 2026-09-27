@@ -44,7 +44,7 @@ nodes:
     loop_group:
       max_iterations: 3
       fresh_context: false
-      until_bash: test $purpose-accept.output.ok = true
+      until_bash: test $purpose-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない。R50）
       nodes:
         - id: purpose
           command: purpose
@@ -82,10 +82,11 @@ nodes:
             type: object
             properties:
               ok: {type: boolean}
+              done: {type: boolean}
               reason: {type: string}
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io。裁定 R44）
               purpose_file: {type: string}
-            required: [ok, reason, reason_file, purpose_file]
+            required: [ok, done, reason, reason_file, purpose_file]
 
   # loop_group の出力は型を持てないので、輪の後ろで盤面の purpose.json から出口を組む
   - id: collect

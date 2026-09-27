@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""2 回目の差分の審査役（p3.delta_review2）の返答を盤面に渡す節（refix.accept_review(n=2)）。読むだけの役なので cut2 が
+"""2 回目の差分の審査役（p3.delta_review2）の返答を盤面に渡す節（refix.main_accept_review(2)。3 回目の拒否で done・give_up。R50）。読むだけの役なので cut2 が
 撮った写しと比べる。検査は写しの delta_review_output（手直しが fixed と言う穴を 1 件ずつ検算）。義務（loop.delta_owed2）は
 受けた後の settle で盤面の機械の節 p3.delta_owed2 が組む。中身の拒否は 0 の 1 行、回す側の誤りは 2"""
 import sys

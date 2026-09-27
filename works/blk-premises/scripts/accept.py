@@ -7,6 +7,7 @@
    その where を text にそのまま含む制約が在るか。無ければ拒む（依頼者の測った値を、測り直さずに判定役へ渡さない）。
    依頼の行は intake が盤面に控えた premises-request.json から読む。控えが無ければ確かめられないので拒む（fail closed）
 2. premises.check_premises（作業ツリーと HEAD → 型 → 写しの measured_needs_output。通れば盤面の premises.json）
+出口に輪を抜ける旗 done を足す（rolekit.with_done: 通った時か、この呼び出しの 3 回目の拒否。R50）
 """
 import sys
 from pathlib import Path
@@ -14,7 +15,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（script_io の注意）
 import script_io  # noqa: E402
-from premises import PREMISES_REQUEST_FILE, check_premises, claims, request_items  # noqa: E402
+from premises import PREMISES_NODE, PREMISES_REQUEST_FILE, check_premises, claims, request_items  # noqa: E402
+import rolekit  # noqa: E402
 
 INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV")   # 裁定 TA16: 読む INPUTS_* の組
 
@@ -40,5 +42,9 @@ def accept_premises(reply: dict, board: Path, base_rev: str, repo: Path) -> dict
     return check_premises(reply, board, base_rev, repo)
 
 
+def with_done(out: dict) -> dict:
+    return rolekit.with_done(script_io.board_dir(), PREMISES_NODE, out)
+
+
 if __name__ == "__main__":
-    sys.exit(script_io.main(accept_premises))
+    sys.exit(script_io.main(accept_premises, finish=with_done))

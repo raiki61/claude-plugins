@@ -156,6 +156,27 @@ class AcceptCase(Base):
         self.assertEqual(pathlib.Path(got[0]["reason_file"]).read_text(encoding="utf-8"), REASON)
         self.assertEqual(rolekit.last_reject_file(self.b, "p9.role"), got[-1]["reason_file"])
 
+    def test_give_up_arms_share_text_and_stop_once(self):
+        # 盤面の節の諦め（gave_up）と盤面の節でない諦め（given_up_reason・stop_line）は同じ文を出し、止まった盤面を止め直さない
+        stops = []
+
+        def stop(reason, by):
+            stops.append((reason, by))
+            self.b.state["stop"] = {"reason": reason, "by": by}
+        self.b.stop = stop
+        with mock.patch.object(rolekit.entry, "take", return_value={"ok": False, "reason": REASON}):
+            for _ in range(rolekit.GIVE_UP_AFTER):
+                rolekit.accept_role(self.b.dir, "p9.role", "{}", self.tmp)
+        why = rolekit.gave_up(self.b.dir, "p9.role", by="works:t")
+        for _ in range(rolekit.GIVE_UP_AFTER):
+            rolekit.with_done(self.tmp, "p9.role", {"ok": False, "reason": REASON})
+        self.assertEqual(rolekit.given_up_reason(self.tmp, "p9.role"), why)
+        self.assertIn(" ".join(REASON.split()), why)
+        (self.tmp / "state.json").write_text("{}", encoding="utf-8")   # ラインの盤面の印（on_line）
+        rolekit.stop_line(self.tmp, "別の理由", by="works:t2")
+        self.assertEqual(rolekit.gave_up(self.b.dir, "p9.role", by="works:t3"), why)
+        self.assertEqual(stops, [(why, "works:t")])
+
     def test_unreadable_reply_is_a_reject(self):
         with mock.patch.object(rolekit.entry, "take", side_effect=AssertionError("take を呼んだ")):
             got = rolekit.accept_role(self.b.dir, "p9.role", "{JSON でない", self.tmp)

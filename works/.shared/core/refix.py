@@ -9,8 +9,10 @@
                              返し、役に見せる材料（brief）を書き、読むだけの役の前の作業ツリーの写しを撮り、起こした印を置く
 - prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、印を置く
 - accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる）
+- main_accept_review・main_accept_fix: 受け付けのスクリプトの入口（rolekit.main_accept。3 回目の拒否で done・give_up。R50）
 - route(board):              blk-refix の分かれ道 {review2, refix2, owed, owed2}（盤面の待っている節と義務の数）
-- collect_delta・collect_refix: 出口（1 本目の欄を全部残して足す）
+- collect_delta・collect_refix: 出口（1 本目の欄を全部残して足す）。役が 3 回とも拒まれて輪を抜けたら、最後の拒否の文で
+                             盤面を止めて ok: false（rolekit.gave_up。by は DELTA_BY・REFIX_BY）
 - must(board, role):         読んだ証拠（reads）に渡す「機械が渡したパス」（brief と差分のファイル）
 - script_main(fn, inputs):   ブロックのスクリプトの入口（配線の誤りは標準エラーに 1 行で 2。TA19）
 
@@ -54,6 +56,8 @@ READS = {"review": ("review", "reviewing", "delta-loop", "review"),
          "refix": ("refix", "refixing", "refix-loop", "refix"),
          "review2": ("review2", "refixing", "review2-loop", "review2"),
          "refix2": ("refix2", "refixing", "refix2-loop", "refix2")}
+DELTA_BY = "works:delta"   # 審査役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
+REFIX_BY = "works:refix"   # 手直し・2 回目の審査の役が 3 回とも拒まれて輪を抜けた盤面の state.stop.by
 # 1 本目の blk-delta が盤面の根に書いた物（2 本目は書かない。残っていれば前の試みの出力なので支度が消す）
 V1_OUTPUTS = (accept.DELTA_REVIEW_FILE, accept.DIFF_FILE, accept.SNAPSHOT_FILE)
 
@@ -217,13 +221,14 @@ def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Pa
 
 
 def main_accept_review(n: int) -> int:
-    """審査の受け付けのスクリプトの入口（entry.main_take と同じ約束。中身の拒否は 0 と 1 行、配線の誤りは 2）"""
-    return entry.main_take(_pass(n)["review"], snapshot_name=snapshot_name(n))
+    """審査の受け付けのスクリプトの入口（rolekit.main_accept。中身の拒否は 0 と 1 行、3 回目の拒否で done・give_up、
+    配線の誤りは 2）"""
+    return rolekit.main_accept(_pass(n)["review"], snapshot_name=snapshot_name(n))
 
 
 def main_accept_fix(n: int) -> int:
-    """手直しの受け付けのスクリプトの入口"""
-    return entry.main_take(_pass(n)["fix"])
+    """手直しの受け付けのスクリプトの入口（rolekit.main_accept）"""
+    return rolekit.main_accept(_pass(n)["fix"])
 
 
 # ---------------------------------------------------------------- 分かれ道・出口
@@ -244,13 +249,17 @@ def _reads_file(b, role) -> str:
 
 def collect_delta(board: pathlib.Path) -> dict:
     """blk-delta の出口。1 本目の {ok, faces, review_file, diff_file} に owed（手直しが答える義務の数）・fix_rev（修正後に固めた版）・
-    reads_file を足す。審査の返答が今の周に受けられていなければ BoardGap（輪は受け付けが通った時だけ抜ける＝壊れた run）"""
+    reads_file を足す。審査の返答が今の周に受けられていないのは、3 回とも拒まれた時（rolekit.gave_up が盤面を止め、ok: false・
+    faces 0）か、配線の誤り（拒否が足りない。BoardGap）"""
     p = _pass(1)
     b = entry.open_board(board, allow_halted=True)
     out = b.output_of_round(p["review"], b.round)
-    if out is None:
-        raise BoardGap(f"今の周に {p['review']} の受け付けた返答が無い（前の周・前の試みの返答は数えない）")
     d = _in_round(b, b.loop_state.get(p["state_key"])) or {}
+    if out is None:
+        if not rolekit.gave_up(board, p["review"], by=DELTA_BY):
+            raise BoardGap(f"今の周に {p['review']} の受け付けた返答が無い（前の周・前の試みの返答は数えない）")
+        return {"ok": False, "faces": 0, "review_file": "", "diff_file": d.get("file") or "", "owed": 0,
+                "fix_rev": d.get("rev") or "", "reads_file": _reads_file(b, REVIEW_ROLE[1])}
     return {"ok": True, "faces": len(out.get("faces") or []), "review_file": _out_file(b, p["review"]),
             "diff_file": d.get("file") or "", "owed": len(_owed_rows(b, 1)), "fix_rev": d.get("rev") or "",
             "reads_file": _reads_file(b, REVIEW_ROLE[1])}
@@ -260,16 +269,19 @@ def collect_refix(board: pathlib.Path) -> dict:
     """blk-refix の出口 {ok, handled_file, review2_file, owed2, fixed2, files, reads_file}。review2_file は 2 回目の審査を
     回さなかった run では空。fixed2 は 2 回目の手直しが fixed と言った穴の数（次の run の依頼の下書きへ。T15）。files は
     手直し 2 回が fixed と言った行の files の和。reads_file は手直しの役の読んだ証拠（無ければ空）で、全部の役の分は
-    reads_files。手直しの返答が今の周に受けられていなければ BoardGap"""
+    reads_files。手直し 1・審査 2・手直し 2 のどれかが 3 回とも拒まれて輪を抜けたら、rolekit.gave_up が盤面を止めて ok: false。
+    手直しの返答が今の周に受けられておらず、拒否も足りなければ BoardGap（配線の誤り）"""
     p1, p2 = _pass(1), _pass(2)
     b = entry.open_board(board, allow_halted=True)
     h1 = b.output_of_round(p1["fix"], b.round)
-    if h1 is None:
+    gave = [nid for nid in (p1["fix"], p2["review"], p2["fix"])
+            if b.output_of_round(nid, b.round) is None and rolekit.gave_up(board, nid, by=REFIX_BY)]
+    if h1 is None and not gave:
         raise BoardGap(f"今の周に {p1['fix']} の受け付けた返答が無い")
     h2 = b.output_of_round(p2["fix"], b.round) or {}
-    fixed = [r for h in (h1, h2) for r in h.get("handled") or [] if r.get("handled") == "fixed"]
+    fixed = [r for h in (h1 or {}, h2) for r in h.get("handled") or [] if r.get("handled") == "fixed"]
     roles = [REVIEW_ROLE[2], FIX_ROLE[1], FIX_ROLE[2]]
-    return {"ok": True, "handled_file": _out_file(b, p1["fix"]), "review2_file": _out_file(b, p2["review"]),
+    return {"ok": not gave, "handled_file": _out_file(b, p1["fix"]), "review2_file": _out_file(b, p2["review"]),
             "owed2": len(_owed_rows(b, 2)),
             "fixed2": sum(1 for r in h2.get("handled") or [] if r.get("handled") == "fixed"),
             "files": sorted({f for r in fixed for f in r.get("files") or []}),

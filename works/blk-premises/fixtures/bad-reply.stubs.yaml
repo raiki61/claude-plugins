@@ -1,8 +1,9 @@
 # 実測役が毎回同じ悪い返答（kind=実測 なのに measured_output が無い）を返し、受け付けが写した規則
 # （measured_needs_output）で拒む筋書き。premises の中身は tests/replies/premises_no_output.json と同じ。
-# 本番の run では輪が上限（3 回）で premises-loop が落ちる。dry-run は until_bash を回さず輪を 1 回で済んだと
-# みなす（Archon 0.11.1）ので、筋書きでは受け付けが premises.json を書かなかったことを collect が見つけて落ちる。
-# どちらでも出口は返らない（ラインでは判定役が起きない）。
+# 本番の run では 3 回目の拒否で受け付けが done を立て、輪を抜ける（R50）。このブロック単体の run には盤面が無いので、
+# collect が premises.json を見つけず最後の拒否の文で落ちる（ラインの盤面なら盤面を止めて ok: false。判定役は起きない）。
+# dry-run は until_bash を回さず輪を 1 回で済んだとみなす（Archon 0.11.1）ので、筋書きでは 1 回目の拒否の後に collect が
+# 見つけずに落ちる。
 fixture:
   expect: failed
   fail-node: collect

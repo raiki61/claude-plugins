@@ -11,6 +11,11 @@
                   （entry.main_take と同じ名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
                   （輪を max_iterations で落とさない。裁定 R50）
 - main_accept:    accept_role の節の入口（INPUTS_REPLY・ARTIFACTS_DIR。after で出口の欄を足せる）
+- gave_up:        出口（collect）の諦めの腕: この周のこの節の拒否が give_up_after 件あれば、最後の拒否の文で盤面を止める
+                  （止まっていなければ）。返りは止めた理由（届いていなければ空。呼び手は配線の誤りとして扱う）
+- with_done:      盤面の節でない受け付け（script_io.main の finish）に done を足す。拒否は盤面の根の控え rejects-<名>.json に
+                  積み、通った時か give_up_after 回目の拒否で done（控えは intake が clear_rejects で消す）
+- given_up_reason・stop_line: 盤面の節でない受け付けの出口が、控えの最後の拒否の文を引き、ラインの盤面なら止める
 - script_main:    ブロックのスクリプトの入口（ARTIFACTS_DIR と INPUTS_* を読み、fn の返りを 1 行の JSON で出す。fence なら
                   盤面のパスに $ の柵、take なら受け付けの返りに reason_file を足す）
 - parse_reply:    役の返答（$<役>.output の JSON の文字列）を dict に
@@ -143,14 +148,20 @@ def last_reject_file(b, nid: str) -> str:
 
 
 def accept_role(board_dir: pathlib.Path, nid: str, raw: str, repo: pathlib.Path, *, snapshot_name: str | None = None,
-                give_up_after: int = GIVE_UP_AFTER) -> dict:
+                give_up_after: int = GIVE_UP_AFTER, take=None) -> dict:
     """役の返答 raw（JSON の文字列）を entry.take で盤面に渡す。返り {ok, done, give_up, reason, reason_file, node} と、通れば
     entry.take の欄（ready・asking・halted・out_file）。拒否（読めない返答・写しの AnswerReject・読むだけの役の作業ツリーの変化）は
     理由の本文を盤面の reject-take_<節>-<連番>.txt に字のまま書き、この周の拒否の控えに積む。この周のこの節の拒否が
     give_up_after 回に達したら done・give_up（輪はそこで抜け、出口が盤面を止める）。board_dir は script_io.board_dir が
-    返した値（$ の柵を当てた後）。BoardGap・ほかの Reject（止めた run など）は投げる"""
+    返した値（$ の柵を当てた後）。take(board_dir, reply, repo) -> dict は entry.take の代わりに盤面へ渡す口（ブロックだけの
+    検査を前に置く時。返りは entry.take と同じ形）。BoardGap・ほかの Reject（止めた run など）は投げる"""
     reply, why = parse_reply(raw)
-    out = {"ok": False, "reason": why} if reply is None else entry.take(board_dir, nid, reply, repo, snapshot_name=snapshot_name)
+    if reply is None:
+        out = {"ok": False, "reason": why}
+    elif take is not None:
+        out = take(board_dir, reply, repo)
+    else:
+        out = entry.take(board_dir, nid, reply, repo, snapshot_name=snapshot_name)
     if out.get("ok") is True:
         return {**out, "done": True, "give_up": False, "reason_file": "", "node": nid}
     b = entry.open_board(board_dir)
@@ -166,7 +177,7 @@ def accept_role(board_dir: pathlib.Path, nid: str, raw: str, repo: pathlib.Path,
 
 
 def main_accept(nid: str, *, snapshot_name: str | None = None, give_up_after: int = GIVE_UP_AFTER,
-                reply_env: str = "INPUTS_REPLY", after=None) -> int:
+                reply_env: str = "INPUTS_REPLY", after=None, take=None) -> int:
     """accept_role の節の入口。INPUTS_REPLY と ARTIFACTS_DIR（盤面は $ARTIFACTS_DIR/board。script_io.board_dir の柵）を読み、
     1 行の JSON を出して 0（拒否も 0）。after(盤面, 返り) -> 返り は出す前に当てる（ブロックが出口の欄を足す）。
     環境変数の欠け・BoardGap・Reject・思わぬ誤りは標準出力に何も出さず標準エラーに 1 行で 2"""
@@ -178,7 +189,7 @@ def main_accept(nid: str, *, snapshot_name: str | None = None, give_up_after: in
         return 2
     try:
         out = accept_role(board, nid, os.environ[reply_env], pathlib.Path.cwd(), snapshot_name=snapshot_name,
-                          give_up_after=give_up_after)
+                          give_up_after=give_up_after, take=take)
         if after is not None:
             out = after(board, out)
     except (BoardGap, Reject) as e:
@@ -189,6 +200,88 @@ def main_accept(nid: str, *, snapshot_name: str | None = None, give_up_after: in
         return 2
     script_io._emit(out)
     return 0
+
+
+def _reason_text(path: str) -> str:
+    try:
+        return " ".join(pathlib.Path(path).read_text(encoding="utf-8").split())
+    except OSError as e:
+        return f"理由のファイル {path} が読めない（{type(e).__name__}）"
+
+
+def gave_up(board_dir: pathlib.Path, nid: str, *, by: str, give_up_after: int = GIVE_UP_AFTER) -> str:
+    """出口の諦めの腕（受けた返答の無い節の出口が呼ぶ）。この周のこの節の拒否が give_up_after 件あれば、最後の拒否の文で
+    盤面を止め（もう止まっていれば止め直さない）、止めた理由を返す。届いていなければ空（輪を抜けた理由が拒否でない＝配線の誤り）"""
+    b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)
+    rows = rejects(b, nid)
+    if len(rows) < give_up_after:
+        return ""
+    reason = _gave_up_text(nid, len(rows), _reason_text(str(rows[-1].get('reason_file') or '')))
+    _stop_once(b, reason, by)
+    return reason
+
+
+def _gave_up_text(name: str, count: int, last: str) -> str:
+    """諦めた理由の 1 行（gave_up と given_up_reason が共に使う文の正本）"""
+    return f"{name} の返答が {count} 回とも受け付けで拒まれた（最後の拒否: {' '.join(str(last).split())}）"
+
+
+def _stop_once(b, reason: str, by: str) -> None:
+    """盤面を reason で止める（もう止まっていれば止め直さない。gave_up と stop_line が共に使う）"""
+    if not (b.state.get("halted") or b.state.get("stop")):
+        b.stop(reason, by=by)
+
+
+# ---------------------------------------------------------------- 盤面の節でない受け付けの done
+def rejects_path(board: pathlib.Path, name: str) -> pathlib.Path:
+    """盤面の節でない受け付け name の拒否の控え（盤面の根。[{at, reason}]）"""
+    return pathlib.Path(board) / f"rejects-{safe_name(name)}.json"
+
+
+def clear_rejects(board: pathlib.Path, name: str) -> None:
+    """控えを消す（ブロックの intake が役を起こす前に。前の呼び出しの拒否を数えない）"""
+    rejects_path(board, name).unlink(missing_ok=True)
+
+
+def with_done(board: pathlib.Path, name: str, out: dict, *, give_up_after: int = GIVE_UP_AFTER) -> dict:
+    """script_io.main の finish: 通れば done。拒否は控えに積み、give_up_after 回目で done（輪はそこで抜け、出口が諦めを扱う）"""
+    if out.get("ok") is True:
+        return {**out, "done": True}
+    path = rejects_path(board, name)
+    rows = _read_json(path, [])
+    rows.append({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "reason": str(out.get("reason", ""))})
+    _write_json(path, rows)
+    return {**out, "done": len(rows) >= give_up_after}
+
+
+def given_up_reason(board: pathlib.Path, name: str, *, give_up_after: int = GIVE_UP_AFTER) -> str:
+    """控えの拒否が give_up_after 件あれば、諦めた理由の 1 行（最後の拒否の文）。届いていなければ空"""
+    rows = _read_json(rejects_path(board, name), [])
+    if not isinstance(rows, list) or len(rows) < give_up_after:
+        return ""
+    last = rows[-1].get("reason", "") if isinstance(rows[-1], dict) else ""
+    return _gave_up_text(name, len(rows), last)
+
+
+def on_line(board: pathlib.Path) -> bool:
+    """board がラインの盤面か（state.json が在る）。無ければブロックを単独で回した"""
+    return (pathlib.Path(board) / "state.json").is_file()
+
+
+def line_stopped(board: pathlib.Path) -> str:
+    """ラインの盤面がもう止まっていれば止めた理由（止まっていない・単独の run なら空）"""
+    if not on_line(board):
+        return ""
+    st = entry.open_board(pathlib.Path(board), allow_halted=True).state
+    info = st.get("stop") or st.get("halted")
+    return str((info or {}).get("reason") or "盤面が止まっている") if info else ""
+
+
+def stop_line(board: pathlib.Path, reason: str, *, by: str) -> None:
+    """ラインの盤面を reason で止める（もう止まっていれば止め直さない）。単独の run（盤面が無い）では何もしない"""
+    if not on_line(board):
+        return
+    _stop_once(entry.open_board(pathlib.Path(board), allow_halted=True), reason, by)
 
 
 # ---------------------------------------------------------------- スクリプトの入口
