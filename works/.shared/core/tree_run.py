@@ -14,6 +14,11 @@ engine/role_run.py（_tree_members・_stop_tree。本線 9f91687 = graphloops 0.
   起きた時に既に親が 1（直下の親が先に消えた）なら、替わりを待てないので何も起こさずに止まる。
   見るのは直下の親だけ: uv が生きたまま Archon だけが kill -9 された回は気づかない（bash の節だった頃と同じ限界）。
   PID 1 の殻（コンテナの sh など）の子として手で起こすと、いつも孤児と見なして走らない
+- 止める信号（か親の替わり）で木を止めた後は、すぐ抜けずに LINGER 秒待ってから抜ける。Archon は Ctrl-C を受けると
+  run を failed と書いてから抜けるが、節がすぐ死ぬとその書き込みが確定する前に CLI が抜け、run が running のまま固まって
+  resume できず abandon しか残らなかった（試し P17: すぐ死ぬ節で 3/3、1 秒以上残る節で 5/5 が failed になり resume できた）。
+  上限の勘定: 信号に気づくまで POLL、SIGKILL まで KILL_GRACE + PS_TIMEOUT、抜けるまで LINGER で 0.2 + 2 + 1 + 1 = 4.2 秒。
+  Archon の cancel の猶予 5 秒より前に抜ける。コマンドが自分で終わった回は待たない
 - コマンドが自分で終わった後も、背景に残した孫を同じ手順で止める（節が終わった後に作業ツリーを書く物を残さない）
 抜け道: 数える前に親が消えて親子の鎖が切れ、かつ setsid でセッションも抜けた子孫（二重 fork の daemon 化。コマンドが
 終わった後の `setsid … &` もこの形）は拾えない（本線と同じ限界）。止め切れなかった仲間は標準エラーに名指しする。
@@ -33,6 +38,7 @@ KILL_GRACE = 2    # SIGTERM から SIGKILL までの猶予（秒）。Archon の
                   # 同じ 5 秒だと、SIGTERM を無視する孫へ SIGKILL を送る前に殻が Archon に殺され、孫が残った（試し P11）
 POLL = 0.2        # 信号と親の替わりを見る間隔（秒）
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+LINGER = 1.0      # 止める信号で木を止めた後、抜ける前に待つ秒数（試し P17 の Ctrl-C の穴。モジュールの説明に上限の勘定）
 PS_TIMEOUT = 1.0  # 全プロセスの表（ps）を待つ上限（秒）。超えたら表を読めない回として扱う（stop_group の上限の勘定）
 REUSE_SLACK = 2.0   # 開始時刻の読みの誤差（ps の etime は秒の切り捨て）。長を起こした時刻よりこれを超えて後に始まった物は別物
 _Proc = collections.namedtuple("_Proc", "pid ppid pgid uid started stat")   # ps の 1 行（started は開始時刻のエポック秒）
@@ -207,7 +213,7 @@ def stop_group(p, first=signal.SIGTERM, born=None):
 
 def run(argv, **popen_kw):
     """argv を新しいプロセスグループで起こして終わりを待ち、終了コード（信号で死んだら 128+信号）を返す。
-    待つ間（後始末の間も）に STOP_SIGNALS を受けたか直下の親が替わったら、木ごと止めて Stopped を投げる。
+    待つ間（後始末の間も）に STOP_SIGNALS を受けたか直下の親が替わったら、木ごと止め、LINGER 秒待ってから Stopped を投げる。
     起きた時に既に孤児（親が 1）なら起こさずに Stopped(SIGHUP)。どの道で抜けても木を止めに行き、止め切れなければ
     標準エラーに名指しする（抜け道はモジュールの説明）"""
     got = []
@@ -223,6 +229,11 @@ def run(argv, **popen_kw):
         if why:
             print(f"tree_run: 木を止め切れない: {why}", file=sys.stderr)
 
+    def stopped_by(signum):
+        """木を止め終えた後、LINGER 秒待ってから Stopped を投げる（待つ間に届いた信号は got に溜まるだけ）"""
+        time.sleep(LINGER)
+        return Stopped(signum)
+
     try:
         if ppid == 1:
             raise Stopped(signal.SIGHUP)
@@ -232,7 +243,7 @@ def run(argv, **popen_kw):
             if got or os.getppid() != ppid:
                 signum = got[0] if got else signal.SIGHUP
                 stop(signum)
-                raise Stopped(signum)
+                raise stopped_by(signum)
             try:
                 rc = p.wait(POLL)
                 break
@@ -240,7 +251,7 @@ def run(argv, **popen_kw):
                 continue
         stop()      # 背景に残した孫
         if got:     # 待ち終えた後・後始末の間に届いた止める信号を落とさない
-            raise Stopped(got[0])
+            raise stopped_by(got[0])
         return rc if rc >= 0 else 128 - rc
     finally:
         if p is not None and not stopped:

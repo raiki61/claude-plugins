@@ -168,11 +168,12 @@ class TreeRunCase(unittest.TestCase):
         pgid = self.wait_pgid()
         t0 = time.monotonic()
         p.send_signal(signal.SIGINT)
+        # 木は猶予（KILL_GRACE）より短く消える。猶予まで待ったなら SIGTERM を送っていない。上限は猶予の 3/4: 止める手順は
+        # ps を 2 回起こす（数え上げと数え直し）ので、負荷の高い機械（load average 100 前後）では半分の 1 秒を越えることがある。
+        # 殻が抜けるのは木が消えてから LINGER 後なので、殻の終わりでなく木の消えた時で計る
+        self.assertTrue(self.group_gone(pgid, tree_run.KILL_GRACE * 0.75), "SIGKILL の猶予まで待った（SIGTERM を送っていない）")
+        self.assertLess(time.monotonic() - t0, tree_run.KILL_GRACE * 0.75)
         self.assertEqual(p.wait(10), 128 + signal.SIGINT)
-        self.assertTrue(self.group_gone(pgid, 1))
-        # 猶予（KILL_GRACE）より短く終わる。猶予まで待ったなら SIGTERM を送っていない。上限は猶予の 3/4: 止める手順は
-        # ps を 2 回起こす（数え上げと数え直し）ので、負荷の高い機械（load average 100 前後）では半分の 1 秒を越えることがある
-        self.assertLess(time.monotonic() - t0, tree_run.KILL_GRACE * 0.75, "SIGKILL の猶予まで待った（SIGTERM を送っていない）")
 
     def test_sigterm_ignoring_grandchild_is_killed(self):
         p = self.start(f"echo $$ > {self.pidf}; (trap '' TERM; sleep 300) & wait")
@@ -311,6 +312,43 @@ class TreeRunCase(unittest.TestCase):
         self.assertLess(time.monotonic() - t0, tree_run.KILL_GRACE * 1.5, "ゾンビだけのグループで猶予を使い切った")
         self.assertTrue(self.pid_gone(apid, 1), "ゾンビだけのグループの向こうの生きた仲間が残った")
         self.assertTrue(self.group_gone(pgid, 2))
+
+    # ------------------------------------------------ 止めた後に抜ける前の待ち（試し P17 の Ctrl-C の穴）
+    def test_stop_budget_is_under_archon_grace(self):
+        # 信号に気づくまで POLL、SIGKILL まで KILL_GRACE + PS_TIMEOUT、抜けるまで LINGER。和が Archon の cancel の猶予
+        # （5 秒）より短いこと（0.2 + 2 + 1 + 1 = 4.2 秒）
+        archon_grace = 5.0
+        self.assertGreaterEqual(tree_run.LINGER, 1.0)
+        self.assertLess(tree_run.POLL + tree_run.KILL_GRACE + tree_run.PS_TIMEOUT + tree_run.LINGER, archon_grace)
+
+    def test_stopped_run_lingers_before_exit_within_archon_grace(self):
+        # 止める信号で木を止めた後、殻は LINGER 秒待ってから抜ける（節がすぐ死ぬと Archon の run が running のまま固まる。
+        # 1 秒残ると failed になり resume できた——試し P17）。SIGTERM を無視する孫（猶予を使い切る道）でも、殻が抜けるのは
+        # Archon の猶予（5 秒）より前
+        archon_grace = 5.0
+        for name, cmd in (("quick", "sleep 300 & wait"), ("ignores-term", "(trap '' TERM; sleep 300) & wait")):
+            with self.subTest(name):
+                pidf = self.tmp / f"pgid-{name}"
+                p = subprocess.Popen(self.cli("--", f"echo $$ > {pidf}; {cmd}"), env=self.env, cwd=str(self.tmp),
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.started.append(("popen", p))
+                pgid = read_int(pidf)
+                self.started.append(("pg", pgid))
+                t0 = time.monotonic()
+                p.send_signal(signal.SIGTERM)
+                self.assertTrue(self.group_gone(pgid, archon_grace), "木が消えなかった")
+                t_gone = time.monotonic()
+                self.assertEqual(p.wait(archon_grace), 128 + signal.SIGTERM)
+                t_exit = time.monotonic()
+                self.assertGreaterEqual(t_exit - t_gone, tree_run.LINGER - 0.1, "木を止めた後すぐに抜けた")
+                self.assertLess(t_exit - t0, archon_grace, "Archon の猶予の内に抜けなかった")
+
+    def test_normal_exit_does_not_linger(self):
+        # コマンドが自分で終わった回は待たない（LINGER を大きくしても、すぐ戻る）
+        with mock.patch.object(tree_run, "LINGER", 30, create=True):
+            t0 = time.monotonic()
+            self.assertEqual(tree_run.run(["/bin/sh", "-c", "exit 0"]), 0)
+            self.assertLess(time.monotonic() - t0, 10)
 
     # ------------------------------------------------ ps が遅い・壊れている
     def test_slow_or_failing_ps_still_stops_before_archon_kills_tree_run(self):
