@@ -52,12 +52,12 @@ PACK = CORE.parents[1]
 if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
-from accept import TREE_KEYS, role_schema, tree_change, tree_state  # noqa: E402
+from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
 import adapter  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import engine.util as _util  # noqa: E402
 from engine.rules import validator_module  # noqa: E402
-from engine.util import AnswerReject, Reject, now, safe_name  # noqa: E402
+from engine.util import AnswerReject, now, safe_name  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
 from rejudge import parse_reply, script_main  # noqa: E402,F401  （スクリプトの入口と返答の読み方は再審のブロックと同じ物）
@@ -286,11 +286,7 @@ def take(board_dir, node: str, reply: dict, repo) -> dict:
         b.stop(reason, by=FENCE_BY)
         return {"ok": False, "done": True, "give_up": False, "reason": reason, "node": node, "status": ""}
     before = {k: snap[k] for k in TREE_KEYS}
-    try:
-        now_tree = tree_state(pathlib.Path(repo))
-    except Reject as e:   # 起こす前は引けた——引けなくなったのは役が HEAD を動かしたから
-        return _reject(b, node, f"読むだけの役が作業ツリーを変えた: 作業ツリー・HEAD が引けなくなった: {e}")
-    moved = tree_change(before, now_tree)
+    moved = tree_moved(before, pathlib.Path(repo))   # 共通の比べ（R47。HEAD が引けなくなったのもここで 1 行になる）
     if moved:
         return _reject(b, node, f"読むだけの役が作業ツリーを変えた: CI の任せ先はテストを写し {snap['copy']} の上で走らせ、対象の"
                                 "作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（変えた物を元に戻し、写しの上で走らせ直せ）（"

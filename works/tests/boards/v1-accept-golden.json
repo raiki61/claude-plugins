@@ -729,7 +729,7 @@
   },
   "result": {
    "ok": false,
-   "reason": "依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 写した時 [] / 今 ['?? extra.txt']）",
+   "reason": "依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 役を起こす前 [] / 今 ['?? extra.txt']・HEAD からの差分・未追跡のファイル・git が無視するパスのどれかの中身が変わった（diff_sha256））",
    "open_units": [],
    "judgment_file": ""
   },
@@ -1618,7 +1618,7 @@
   },
   "result": {
    "ok": false,
-   "reason": "差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 写した時 [' M stats.py'] / 今 [' M stats.py']）",
+   "reason": "差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない（HEAD からの差分・未追跡のファイル・git が無視するパスのどれかの中身が変わった（diff_sha256））",
    "review_file": ""
   },
   "files": [

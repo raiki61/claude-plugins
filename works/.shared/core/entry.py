@@ -10,7 +10,7 @@
 - run_ci(b, nid, *, test_cmd): CI の節を run_engine で走らせ、返りを全部扱う（start と blk-tests の final が使う）
 - start(board_dir, repo, raw, *, run_id): 入力の確かめ → 盤面を開く → 修正前のテストの記録 → 方針の文 → 切符
 - resume_after_ci(b): 任せ先の CI の役が p0.local_checks を渡した後、ラインが start の輪（run_engine → settle）に戻る口
-- snapshot(board_dir, name, repo): 読むだけの役を起こす前に、作業ツリーの写し（accept.snapshot_tree）を今の周の b.work(name) に
+- snapshot(board_dir, name, repo): 読むだけの役を起こす前に、作業ツリーの姿（accept.tree_state）を今の周の b.work(name) に
 - take(board_dir, nid, reply, repo, *, snapshot_name): 各ブロックの受け付けが使う 1 つの口。役の返答を盤面の done に渡す
   （写しの AnswerReject だけを {ok: False} で役に返す。裁定 TA19）
 - main_take(nid, *, snapshot_name): ブロックの受け付けのスクリプトの入口（script_io.main の環境変数の約束と出口）
@@ -452,31 +452,30 @@ READONLY_MOVED = "読むだけの役が作業ツリーを変えた: "   # take �
 
 
 def snapshot(board_dir: pathlib.Path, name: str, repo: pathlib.Path) -> pathlib.Path:
-    """読むだけの役を起こす前に、作業ツリーの写し（accept.snapshot_tree。1 本目と同じ写し。TA11）を今の周の作業ファイル
+    """読むだけの役を起こす前に、作業ツリーの姿（accept.tree_state。blk-pr・blk-ci と同じ共通の姿。R47）を今の周の作業ファイル
     b.work(name) に書き、そのパスを返す。take(…, snapshot_name=name) がこれと今の作業ツリーを比べる。git が効かなければ Reject"""
     b = open_board(board_dir)
     p = b.work(name)
-    _write_json(p, accept.snapshot_tree(pathlib.Path(repo)))
+    _write_json(p, accept.tree_state(pathlib.Path(repo)))
     return p
 
 
 def _tree_moved(b, name: str, repo: pathlib.Path) -> str:
-    """b.work(name) の写しと今の作業ツリーの違いを述べる文（同じなら空）。比べは 1 本目の読むだけの役の検査
-    （accept._assert_same_tree。SNAPSHOT_KEYS の組を丸ごと比べ、git が無視するパスの増減も言う）。写しが無い・形が違うのは
+    """b.work(name) の写しと今の作業ツリーの違いを述べる文（同じなら空）。比べと違いの文は共通の accept.tree_moved（R47。
+    porcelain・差分・git が無視するパスの増減・HEAD・枝のどれが変わったかを言う）。写しが無い・形が違うのは
     snapshot が走っていない回す側の誤りで BoardGap"""
     p = b.work(name)
     try:
         snap = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise BoardGap(f"作業ツリーの写し {p} が読めない（読むだけの役を起こす前に snapshot が走っていない）: {e}") from None
-    errs = validate_schema(snap, accept.SNAPSHOT_SCHEMA)
+    errs = validate_schema(snap, accept.TREE_SCHEMA)
     if errs:
         raise BoardGap(f"作業ツリーの写し {p} の形が違う: " + "; ".join(errs))
-    try:
-        accept._assert_same_tree(pathlib.Path(repo), snap, name, "役を起こす前", "この役")
-    except Reject as e:   # 違った・git が引けなくなった（役を起こす前は引けた）: どちらも役が作業ツリーを変えた
-        return str(e)
-    return ""
+    moved = accept.tree_moved({k: snap[k] for k in accept.TREE_KEYS}, pathlib.Path(repo))
+    if not moved:
+        return ""
+    return "この役は読むだけの役で、作業ツリー・HEAD・枝・git が無視するファイルを変えてはいけない（" + "・".join(moved) + "）"
 
 
 def take(board_dir: pathlib.Path, nid: str, reply: dict, repo: pathlib.Path, *, snapshot_name: str | None = None) -> dict:

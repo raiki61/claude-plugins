@@ -32,7 +32,7 @@ PACK = CORE.parents[1]
 if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
-from accept import TREE_KEYS, role_schema, tree_change, tree_state  # noqa: E402
+from accept import TREE_KEYS, role_schema, tree_moved, tree_state  # noqa: E402
 from board import GRAPH_PATH, BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import AnswerReject, Reject  # noqa: E402
@@ -220,12 +220,7 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise BoardGap(f"{snap_p} が読めない: {e}") from None
     repo = pathlib.Path(repo)
-    try:
-        now = tree_state(repo)
-    except Reject as e:   # 役を起こす前は引けた（pr-snap が写した）——引けなくなったのは役が HEAD を動かしたから（checkout --orphan など）
-        return {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: 作業ツリー・HEAD が引けなくなった"
-                f"（checkout・switch・stash・reset・gh pr checkout を打つな）: {e}"}
-    moved = tree_change(before, now)
+    moved = tree_moved(before, repo)   # 共通の比べ（R47。HEAD が引けなくなったのもここで 1 行になる）
     if moved:
         return {"ok": False, "reason": "読むだけの役が作業ツリーを変えた: 並行 PR の任せ先は読むだけの役で、作業ツリー・HEAD・枝・"
                 "git が無視するファイルを変えてはいけない（checkout・switch・stash・reset・gh pr checkout を打つな）（"
@@ -242,7 +237,7 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
         p = b.done(NODE, {k: v for k, v in reply.items() if k != "excluded"})
     except AnswerReject as e:
         return {"ok": False, "reason": str(e)}
-    _write(b.work(EXCLUDED), {"node": NODE, "head": now["head"], "excluded": excluded})
+    _write(b.work(EXCLUDED), {"node": NODE, "head": before["head"], "excluded": excluded})   # 上で比べて同じ（HEAD も起こす前のまま）
     return {"ok": True, "reason": "", "ready": p["ready"], "asking": bool(p["asking"]), "halted": bool(p["halted"]),
             "out_file": b.state["outputs"][NODE]["file"]}
 

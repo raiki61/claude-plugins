@@ -942,7 +942,7 @@ class StartScriptCase(StartCaseBase):
 # ---------------------------------------------------------------- 盤面に受ける共通の口（計画 Task 9。裁定 TA6・TA11・TA19）
 # take は役の返答を盤面の done に渡す。写しの AnswerReject（中身の誤り）だけを {ok: False} で役に返し、盤面は書かない。
 # ほかの Reject（止めた run など）と BoardGap は投げ直す（受け付けのスクリプトは終了コード 2）。読むだけの役の作業ツリーの
-# 確かめは、役を起こす前に snapshot が今の周の置き場に写した accept.snapshot_tree と比べる（1 本目の写しの比べ）
+# 確かめは、役を起こす前に snapshot が今の周の置き場に写した accept.tree_state と比べる（共通の姿と違いの文。R47）
 import hashlib  # noqa: E402
 
 from engine.util import AnswerReject, Reject  # noqa: E402
@@ -1039,7 +1039,7 @@ class TakeCase(TakeCaseBase):
         snap = entry.snapshot(self.board, JUDGE_SNAP, repo)
         self.assertEqual(snap, entry.open_board(self.board).work(JUDGE_SNAP))
         import accept
-        self.assertEqual(set(json.loads(snap.read_text(encoding="utf-8"))), set(accept.SNAPSHOT_KEYS))
+        self.assertEqual(set(json.loads(snap.read_text(encoding="utf-8"))), set(accept.TREE_KEYS))   # 共通の姿 tree_state（R47）
         (repo / "stray.txt").write_text("役が書いた\n", encoding="utf-8")
         before = board_shas(self.board)
         got = entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name=JUDGE_SNAP)
@@ -1048,6 +1048,30 @@ class TakeCase(TakeCaseBase):
         self.assertIn("stray.txt", got["reason"])
         self.assertEqual(board_shas(self.board), before)
         (repo / "stray.txt").unlink()
+        got = entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name=JUDGE_SNAP)
+        self.assertTrue(got["ok"], got)
+
+    def test_take_readonly_branch_and_ignored_changes_named(self):
+        """比べは共通の tree_state・tree_change（R47）: 中身の同じ枝の切り替え（ref だけ変わる）も拒み、拒否の文は変わった欄
+        （ref・git が無視するパスの増えた物）を名指す"""
+        repo = self.judge_ready()
+        launch(self.board, "p2.diagnose")
+        entry.snapshot(self.board, JUDGE_SNAP, repo)
+        linekit.git(repo, "switch", "-q", "-c", "役が切った枝")
+        got = entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name=JUDGE_SNAP)
+        self.assertFalse(got["ok"])
+        self.assertTrue(got["reason"].startswith("読むだけの役が作業ツリーを変えた: "), got["reason"])
+        self.assertIn("ref: 役を起こす前 refs/heads/", got["reason"])
+        self.assertIn("refs/heads/役が切った枝", got["reason"])
+        linekit.git(repo, "switch", "-q", "-")
+        (repo / ".git" / "info").mkdir(exist_ok=True)
+        with open(repo / ".git" / "info" / "exclude", "a", encoding="utf-8") as f:
+            f.write("\n*.役の残り\n")
+        (repo / "x.役の残り").write_text("役が書いた\n", encoding="utf-8")
+        got = entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name=JUDGE_SNAP)
+        self.assertFalse(got["ok"])
+        self.assertIn("git が無視するパス: 増えた ['x.役の残り'] 消えた []", got["reason"])
+        (repo / "x.役の残り").unlink()
         got = entry.take(self.board, "p2.diagnose", linekit.reply("judge_ok"), repo, snapshot_name=JUDGE_SNAP)
         self.assertTrue(got["ok"], got)
 

@@ -306,9 +306,9 @@ def route(board_dir, repo) -> dict:
 
 
 def snap(board_dir, repo) -> dict:
-    """役を起こす前の作業ツリーの写しを rejudge-snapshot.json に（git が効かなければ写しの Reject）"""
+    """役を起こす前の作業ツリーの姿（accept.tree_state。R47）を rejudge-snapshot.json に（git が効かなければ写しの Reject）"""
     b = open_board(board_dir, repo=repo)
-    p = _write_json(b.work(SNAPSHOT_NAME), _accept.snapshot_tree(pathlib.Path(repo)))
+    p = _write_json(b.work(SNAPSHOT_NAME), _accept.tree_state(pathlib.Path(repo)))
     return {"ok": True, "snapshot_file": str(p)}
 
 
@@ -441,12 +441,12 @@ def take(board_dir, nid, reply, repo, *, snapshot_name=SNAPSHOT_NAME) -> dict:
     b = open_board(board_dir, repo=repo)
     p = _pass_of(b, nid)
     saved = _read_json(b.work(snapshot_name))
-    if not isinstance(saved, dict) or not set(_accept.SNAPSHOT_KEYS) <= set(saved):
+    if not isinstance(saved, dict) or not set(_accept.TREE_KEYS) <= set(saved):
         raise BoardGap(f"作業ツリーの写し {b.work(snapshot_name)} が無い・形が違う（rj-snap が先に走る）")
-    tree = _accept.snapshot_tree(pathlib.Path(repo))
-    if tree != {k: saved[k] for k in _accept.SNAPSHOT_KEYS}:   # 写しの鍵は accept と同じ（ignored も見る）
-        return _reject(b, nid, "読むだけの役が作業ツリーを変えた: git status --porcelain が "
-                               f"起こす前 {saved['porcelain'].splitlines()[:5]} / 今 {tree['porcelain'].splitlines()[:5]}")
+    moved = _accept.tree_moved({k: saved[k] for k in _accept.TREE_KEYS}, pathlib.Path(repo))   # 共通の比べ（R47）
+    if moved:
+        return _reject(b, nid, "読むだけの役が作業ツリーを変えた: 再審の役は読むだけの役で、作業ツリー・HEAD・枝・git が無視する"
+                               "ファイルを変えてはいけない（" + "・".join(moved) + "）")
     before_doc = _read_json(b.work(f"{BEFORE_PREFIX}{p['role']}.json"))
     writes_units = "units" in ((b.nodes[nid].get("schema") or {}).get("properties") or {})
     if writes_units and before_doc is None:

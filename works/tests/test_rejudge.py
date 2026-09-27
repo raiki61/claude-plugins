@@ -420,6 +420,35 @@ class TakeCase(_Case):
         self.assertIn("作業ツリーを変えた", got["reason"])
         self.assertEqual(kit.board_files(self.bd), before)
 
+    def test_snap_is_tree_state(self):
+        # 役を起こす前の写しは共通の姿 tree_state（R47。HEAD・枝も持つ）
+        import accept
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        got = rejudge.snap(self.bd, self.repo)
+        self.assertEqual(set(json.loads(pathlib.Path(got["snapshot_file"]).read_text(encoding="utf-8"))), set(accept.TREE_KEYS))
+
+    def test_branch_switch_and_ignored_named(self):
+        # 中身の同じ枝の切り替え（ref だけ変わる）も拒み、拒否の文は変わった欄（ref・git が無視するパス）を名指す（R47）
+        self.board("objection")
+        rejudge.route(self.bd, self.repo)
+        rejudge.snap(self.bd, self.repo)
+        rejudge.prep(self.bd, "rejudge", self.repo)
+        git = ["git", "-C", str(self.repo), "-c", "core.hooksPath=/dev/null"]
+        subprocess.run([*git, "switch", "-q", "-c", "役が切った枝"], check=True, capture_output=True)
+        got = rejudge.take(self.bd, "p2.rejudge", load("rejudge_settled"), self.repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("作業ツリーを変えた", got["reason"])
+        self.assertIn("refs/heads/役が切った枝", got["reason"])
+        subprocess.run([*git, "switch", "-q", "-"], check=True, capture_output=True)
+        (self.repo / ".git" / "info").mkdir(exist_ok=True)
+        with open(self.repo / ".git" / "info" / "exclude", "a", encoding="utf-8") as f:
+            f.write("\n*.役の残り\n")
+        (self.repo / "x.役の残り").write_text("役が書いた\n", encoding="utf-8")
+        got = rejudge.take(self.bd, "p2.rejudge", load("rejudge_settled"), self.repo)
+        self.assertFalse(got["ok"])
+        self.assertIn("git が無視するパス: 増えた ['x.役の残り'] 消えた []", got["reason"])
+
     def test_take_without_snapshot_is_gap(self):
         self.board("objection")
         rejudge.route(self.bd, self.repo)
