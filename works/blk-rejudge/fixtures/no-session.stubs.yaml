@@ -1,0 +1,34 @@
+# 筋書き no-session: 判定役の会話を確かめられず、rj-route1 が盤面を止めて stopped を返す。どの輪も when: で飛び（役の stub を
+# 置かない——走れば stub の無い節で落ちる）、collect は止まった盤面を見て ok: true・passes 0（次の境の節がラインを止める）。
+rj-snap:
+  ok: true
+  snapshot_file: board/r1/rejudge-snapshot.json
+rj-route1:
+  next: ''
+  node: p2.rejudge
+  why: 判定役の会話の id のファイル <包みの家>/sessions/<cwd>/judge.id が無い（包みを通らない run か、判定役に印が無い）
+  stopped: true
+rj-route2:
+  next: ''
+  node: ''
+  why: 盤面は止まっている（works:rejudge-session）
+  stopped: true
+collect:
+  ok: true
+  reason: ''
+  passes: 0
+  verdicts: []
+  unsettled:
+    text: '判定の単位 src/a.py:f — 上限が効かない経路がある について: 修正の後に src/a.py の f へ入る道をもう 1 つ見つけた（呼び出し元の g からの直の呼び出し）。上限は片方の道にしか掛かっておらず、この単位の class_query の数え方も狭い。判定を見直してほしい'
+    settled: false
+  new_open_units: []
+  unnamed_changed: []
+  diff_file: ''
+  reads_file: ''
+fixture:
+  expect: completed
+  reached:
+  - rj-snap
+  - rj-route1
+  - rj-route2
+  - collect

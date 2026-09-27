@@ -1,0 +1,16 @@
+{
+  "verdict": "退ける",
+  "new_facts": "確かめた",
+  "reason": "異議に当たらない",
+  "units": [
+    {
+      "key": "src/a.py:f — 上限が効かない経路がある",
+      "label": "block"
+    },
+    {
+      "key": "src/b.py:g — 定数の重複",
+      "label": "suggest",
+      "disposition": "do-now"
+    }
+  ]
+}
