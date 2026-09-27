@@ -41,6 +41,8 @@
      background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景の節をほかの節が待たない（deps・instance_deps）。
      {{node.<欄>}} は engine が埋める欄（skills）だけ
      背景の節は delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つ節が在れば launch.delegate.argv が在る。
+     delegate.receipt（背景の節の受領の形）は、{result_path} を埋めた値が節の schema に合う object。
+     launch.append の段は当て先の語（APPEND_TO）・在るファイル・段の reads に在る穴だけで書く（穴の読む欄は 8 と同じ照らし）。
  15. 節の鍵が engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和に在る（綴り違いの鍵は黙って効かない）。
      機械の節（driver）は返りの形（schema）を持つ。どちらも init から呼ぶときは NG にせず警告（持ち込みの graph を止めない）
  16. 盤面の loop の形（graph の state_schema。type: object・additionalProperties: false）の鍵と rules の LOOP_KEYS が両向きで一致する。
@@ -91,7 +93,7 @@ sys.path.insert(0, str(PLUGIN_ROOT))
 from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of  # noqa: E402
 from engine.effects import REDUCER_KEY, REDUCERS, declares_reducers  # noqa: E402
 from engine.hist import LOOKUP_HEADS as HIST_LOOKUP_HEADS  # noqa: E402
-from engine.advance import ENGINE_PRE, LAUNCH_HOLES, NARROW_TOOLS  # noqa: E402
+from engine.advance import APPEND_TO, ENGINE_PRE, LAUNCH_HOLES, NARROW_TOOLS, fill_receipt  # noqa: E402
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import DOC_NODE_KEYS, ENGINE_NODE_KEYS, extends_path, end_anchored, load_graph, schema_at, unknown_keywords, walk_schema  # noqa: E402
 DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この graph が任せ先に書ける名前: Claude Code の subagent の model の別名
@@ -316,6 +318,14 @@ def _record_ok(rest, g, rules):
             if first in (sch.get("properties") or {}):
                 return True
     return any(rest == c or c.startswith(rest + ".") for c in exact)
+
+
+def hole_read_checked(core, rules):
+    """プロンプトの穴（接頭を剥いだ core）のうち check_read_path で照らすもの。節のプロンプトと launch.append の段の穴が
+    同じ一覧を引く（片方だけに接頭を写すと、もう片方の綴り違いが黙って通る）。loop. は rules が LOOP_KEYS を持つときだけ
+    （持ち込みの graph を止めない）"""
+    return (core.startswith(("record.", "hist.")) or core.split(".", 1)[0] in COND_NODE_HEADS
+            or core.startswith("loop.") and getattr(rules, "LOOP_KEYS", None) is not None)
 
 
 def check_read_path(path, where, g, rules, errs, before=None, reading=True):
@@ -986,6 +996,16 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 if dg.get("result_to") not in (v.get("reads") or []):
                     errs.append(f"節 {k}: 背景の任せ先は delegate.result_to に返答の置き場（この節の reads のどれか）を名指しする"
                                 "——engine が子の返答をそこへ置く")
+        if isinstance(dg, dict) and "receipt" in dg:
+            # 受領の形は、置き場の穴を埋めた値が節の返答の型に合う object——回し手（runner.start_lane）がそのまま done する
+            rc = dg["receipt"]
+            bad_receipt = not (isinstance(rc, dict) and dg.get("background") is True)
+            if not bad_receipt and isinstance(v.get("schema"), dict):
+                from engine.schema import validate_schema
+                bad_receipt = bool(validate_schema(fill_receipt(rc, "/置き場"), v["schema"]))
+            if bad_receipt:
+                errs.append(f"節 {k}: delegate.receipt は背景の任せ先の受領の返答（{{result_path}} の穴を埋めた値が節の schema に合う object）"
+                            "——回し手がそのまま done する")
         if v.get("skills"):
             # skill（/simplify・/code-review）は中でさらに役を背景で起こす。任せ先の役越しに呼ぶと、孫の完了の知らせが
             # 任せ先に届かないまま待ち続けた（実測 2026-09-25: 局所レビューの任せ先が 7 時間以上戻らなかった）
@@ -1121,6 +1141,29 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     if rules_unreadable:
         errs.append(rules)
         rules = None
+    # 起こす子の形ごとに指示書へ足す段（launch.append。engine の advance.launch_appends が当てる）: 当て先の語・ファイルの実在・
+    # 段の穴が段の reads に在ること（段の reads は当たる節の reads に足される）・穴の読む欄の実在（節のプロンプトの穴と同じ hole_read_checked）
+    appends = launch.get("append")
+    if appends is not None and not isinstance(appends, list):
+        errs.append("launch.append は段（{to, files, reads}）の一覧")
+        appends = []
+    for i, seg in enumerate(appends or []):
+        where = f"launch.append[{i}]"
+        if not (isinstance(seg, dict) and seg.get("to") in APPEND_TO and isinstance(seg.get("files"), list) and seg["files"]
+                and isinstance(seg.get("reads"), list) and all(isinstance(x, str) for x in seg["files"] + seg["reads"])):
+            errs.append(f"{where} は {{to: {'/'.join(APPEND_TO)}, files: [指示書の断片…], reads: [穴が読む欄…]}}")
+            continue
+        for f in seg["files"]:
+            p = gpath.parent / f
+            if not p.is_file():
+                errs.append(f"{where}: {f} が無い")
+                continue
+            for m in TOKEN.finditer(p.read_text(encoding="utf-8")):
+                path = m.group(2).strip()
+                if not Renderer({}, seg["reads"]).allowed(path):
+                    errs.append(f"{where}: {f} の穴 {{{{{path}}}}} が段の reads に無い")
+                elif hole_read_checked(strip_prefix(path), rules) and not rules_unreadable:
+                    check_read_path(strip_prefix(path), f"{where}: {f} の穴 {{{{{path}}}}}", g, rules, errs)
     # 15. 節の鍵は閉じた集合（engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和）
     if rules is not None and any(getattr(rules, n, None) is None for n in ("NODE_KEYS", "NODE_NOTE_KEYS")):
         node_errs.append("rules が NODE_KEYS / NODE_NOTE_KEYS（このループが節に書く鍵の宣言）を持たない——節の知らない鍵を照らせない")
@@ -1340,7 +1383,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             # record.<欄> と loop.<…> の穴も条件の読みと同じ照らし（記録を書く宣言・loop の形の宣言）に通す——省略可の穴（{{?record.…}}）の綴り違いは
             # 実行時に『（この周には無い）』で黙って埋まる。rules が在るのに読めなかった回は照らさない（init_record を
             # 引けず、全部の穴が偽の NG になって本当の原因——rules が読めない——が埋もれる）
-            if (core.startswith(("record.", "hist.")) or core.startswith("loop.") and getattr(rules, "LOOP_KEYS", None) is not None) and not rules_unreadable:
+            if hole_read_checked(core, rules) and not rules_unreadable:
                 check_read_path(core, f"節 {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
             # loop と節の出力の穴の pick の欄も同じ木（state_schema・節の schema）で照らす（util.pick は無い欄を黙って落とす）。
             # 番号で指す欄（pointers）は照らさない
@@ -1360,8 +1403,6 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 for f in (x.strip() for x in m.group(3).split(",") if x.strip()):
                     if at is not None and schema_at(at, [f])[1]:
                         errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} の pick の欄 '{f}' が {owner} に無い")
-            if core.split(".", 1)[0] in COND_NODE_HEADS and not rules_unreadable:
-                check_read_path(core, f"節 {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
             if core.startswith("out.") or core.startswith("cur."):
                 src = node_of(core[4:], nodes)
                 if src is None or src not in anc:

@@ -463,6 +463,47 @@ def test_pointer_resolve_without_a_snapshot_for_a_later_pointer():
     assert pointers.resolve(flag, [{"at": "a", "from": ["x"]}], [{"at": "a", "names": ["n1"]}]) == [] and flag == {"a": True}
 
 
+PTR = [{"at": "plan[].unit_keys[]", "from": ["record.units"]}]
+SNAP = [{"at": "plan[].unit_keys[]", "names": ["graphloops/engine/runner.py _handoff_why: skill の節", "graphloops/engine/role_run.py run_role: 書く子"]}]
+
+
+def test_pointer_hint_names_prefix_candidates_and_the_table():
+    """番号の欄に名前の列に無い文字列（切り詰めて写した key）が残れば、前方一致する no と、no と名前の頭の対応を返す"""
+    from engine import pointers
+    got = pointers.hint({"plan": [{"unit_keys": ["graphloops/engine/runner.py _handoff_why", 2]}]}, PTR, SNAP)
+    assert "前方一致する no: [1]" in got and "  1 = graphloops/engine/runner.py" in got and "  2 = graphloops/engine/role_run.py" in got
+
+
+def test_pointer_hint_without_a_prefix_match_gives_only_the_table():
+    from engine import pointers
+    got = pointers.hint({"plan": [{"unit_keys": ["前の周の key"]}]}, PTR, SNAP)
+    assert "前方一致" not in got and "'前の周の key' は貼った一覧（record.units）の名前に無い" in got and "  2 = " in got
+
+
+@pytest.mark.parametrize("out,snap", [
+    pytest.param({"plan": [{"unit_keys": [1, 2]}]}, SNAP, id="numbers-only"),
+    pytest.param({"plan": [{"unit_keys": [SNAP[0]["names"][0]]}]}, SNAP, id="names-that-match"),
+    pytest.param({"plan": [{"unit_keys": ["x"]}]}, None, id="no-snapshot"),
+])
+def test_pointer_hint_is_none_when_nothing_is_miscopied(out, snap):
+    from engine import pointers
+    assert pointers.hint(out, PTR, snap) is None
+
+
+def test_check_reply_adds_the_hint_to_any_rule_rejection(monkeypatch):
+    """番号の欄の写し違えは、どの規則の拒み（ここでは記録の整合）にも同じ手がかりが添わる——拒みの文を規則ごとに直さない"""
+    def refuse(*_a):
+        raise commands.AnswerReject("今の周に直す単位に無い key")
+    monkeypatch.setattr(commands, "_check_rest", refuse)
+    b = types.SimpleNamespace(nodes={"p2.fix_plan": {"schema": {"type": "object"}, "pointers": PTR}})
+    with pytest.raises(commands.AnswerReject) as e:
+        commands.check_reply(b, "p2.fix_plan", json.dumps({"plan": [{"unit_keys": ["graphloops/engine/runner.py"]}]}), None, SNAP)
+    assert str(e.value).startswith("今の周に直す単位に無い key\n") and "前方一致する no: [1]" in str(e.value)
+    with pytest.raises(commands.AnswerReject) as e:
+        commands.check_reply(b, "p2.fix_plan", json.dumps({"plan": [{"unit_keys": [1]}]}), None, SNAP)
+    assert str(e.value) == "今の周に直す単位に無い key"
+
+
 def test_cond_view_without_state_ignores_unevaluable():
     """盤面の state を持たない入れ物（台本の真偽表・graphcheck）では、測れなかった痕跡を残す先が無いので何もしない"""
     from engine.board import CondView

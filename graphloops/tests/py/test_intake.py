@@ -127,6 +127,46 @@ def test_commit_is_the_plugin_not_the_repo_under_review(tmp_path, monkeypatch):
                               "run_id": "r1", "round": 2, "graph_sha": "g"}) == "graphloops 1.0.0 (abcdef012345) / review-loop run r1 / round 2 / graph g"
 
 
+def _cached(tmp_path, ver, name="graphloops"):
+    root = tmp_path / "plugins" / "cache" / "mkt" / name / ver
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": name, "version": ver}), encoding="utf-8")
+    return root
+
+
+def test_newer_installed_names_a_later_version_beside_the_running_one(tmp_path):
+    old, _new, _older, _other = _cached(tmp_path, "0.9.0"), _cached(tmp_path, "0.10.0"), _cached(tmp_path, "0.2.0"), _cached(tmp_path, "1.0.0", "gates")
+    assert intake.newer_installed(old) == "0.10.0"          # 版は数で並べる（字で並べると 0.2.0 が勝つ）
+    assert intake.newer_installed(tmp_path / "plugins" / "cache" / "mkt" / "graphloops" / "0.10.0") is None
+    assert intake.newer_installed(PLUGIN) is None           # checkout から走る回は比べない
+
+
+def test_init_notices_name_a_missing_declaration_and_a_newer_version(tmp_path, monkeypatch):
+    g = {"nodes": {"p4.ci": {"engine_run": {"builtin": "x"}}, "p0.base": {}}}
+    monkeypatch.setattr(commands, "repo_root", lambda: str(tmp_path))
+    monkeypatch.setattr(intake, "newer_installed", lambda: None)
+    assert any(".review-checks.json が無い" in n for n in commands.init_notices(g))
+    (tmp_path / ".review-checks.json").write_text("{壊れた", encoding="utf-8")
+    assert any("読めない" in n for n in commands.init_notices(g))
+    (tmp_path / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "t", "argv": ["x"]}]}), encoding="utf-8")
+    assert commands.init_notices(g) == []
+    assert commands.init_notices({"nodes": {"p0.base": {}}}) == []   # 走らせるだけの節を持たない graph には言わない
+    monkeypatch.setattr(intake, "newer_installed", lambda: "9.9.9")
+    assert any("新しい版 9.9.9" in n for n in commands.init_notices(g))
+
+
+def test_convergence_loops_dependency_floor_is_met_by_the_repo():
+    """graphloops の依存の下限（version の >=x.y.z）が、同じリポジトリの convergence-loops の版以下——下限の書き損じで graphloops 自身を
+    読み込みの時点で無効にしない（範囲の外なら Claude Code は依存する側を無効にする）"""
+    from conftest import REPO
+    dep = [d for d in json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["dependencies"]
+           if d["name"] == "convergence-loops"]
+    assert len(dep) == 1 and dep[0]["version"].startswith(">=")
+    floor = tuple(int(x) for x in dep[0]["version"][2:].split("."))
+    cl = json.loads((REPO / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert cl["name"] == "convergence-loops" and floor <= tuple(int(x) for x in cl["version"].split("."))
+
+
 def test_manual_row_has_no_key_and_export_hands_over_once(tmp_path):
     data = tmp_path / "data"
     loop("next", "--dir", str(tmp_path / "none"), env={"CLAUDE_PLUGIN_DATA": str(data), intake.DETAIL_ENV: "1"})

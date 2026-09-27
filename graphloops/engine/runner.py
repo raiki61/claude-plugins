@@ -14,8 +14,9 @@ engine が持つ受け付け・起こし方・柵はここに写さない。
   達したら『まだ回っている』で戻る。回し手と子は止めない
 
 止まった種類は盤面だけから決める（classify）。回し手の要約ファイル（runner.json）は回し手の pid・起動時刻と、最後に抜けた
-理由の補足（detail）しか持たない——前の回し手の結果を読んで戻る競りを作らない。背景の線（delegate.background）は回し手が
-立てず、会話に返す（受領の done と背景の launch は今の手順書どおり会話がする）。
+理由の補足（detail）しか持たない——前の回し手の結果を読んで戻る競りを作らない。背景の線（delegate.background）は、engine が受領の形
+（launch.receipt）を組んだ物なら回し手が受領を done して `loop.py launch --node` を切り離して立て、待たない（start_lane）。受領の形を
+持たない旧い盤面の線は会話に返す。
 """
 import json
 import os
@@ -26,7 +27,7 @@ import sys
 import time
 
 from . import filelock
-from .role_run import pgid_path, probe_group
+from .role_run import pgid_path, probe_group, trace_costs
 from .util import Reject, now, waiting
 
 LOOP = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "loop.py"
@@ -46,8 +47,9 @@ HOW = {
     "awaiting_human": "ask を人に見せ（手順書の『聞き方』）、答えを loop.py answer で返してから run を打ち直せ",
     "round_limit": "init --stop-after-round の周で止めた。続けるなら loop.py resume --reason <理由> --stop-after-round <N>",
     "stuck": "detail を読め——直してから run を打ち直す（作業ツリーの突合なら next --accept-tree-change、回し手の信号なら打ち直すだけ）",
-    "handoff": "handoff の節を手順書どおりにこなし（背景の線は受領を done してから launch --node を背景で立て、待たない）、done してから run を打ち直せ。回し手は起こせる節を回し続けている",
-    "needs_human": "needs_human を人に見せよ（起こし直すなら loop.py relaunch、置き場の返答を受け付けるなら done、起こせない役は人に渡す）",
+    "handoff": "handoff の節を各行の handoff_why と手順書どおりにこなし、done してから run を打ち直せ。回し手は起こせる節を回し続けている",
+    "needs_human": ("needs_human を人に見せよ（起こし直すなら、作業ツリーを書き換える節は作業ツリーを確かめてから loop.py relaunch、"
+                    "置き場の返答を受け付けるなら done、起こせない役は人に渡す）"),
     "still_running": "回し手が回している。何もせずに run を打ち直せ",
 }
 
@@ -64,26 +66,38 @@ def _read_json(p, default):
         return default
 
 
+def _last_reason(i):
+    return ((i.get("attempt_log") or [{}])[-1]).get("reason") or "起こしたが受け付けていない"
+
+
 def _handoff_why(i):
     """会話に返す節の理由（盤面の汎用の印だけから決める）"""
-    if (i.get("launch") or {}).get("background"):
-        return "背景の任せ先——受領の done と背景の launch は会話がする（回し手は立てない）"
-    return i.get("runner_unlaunched") or ("engine が起こす語（launch）を持たない節——skill を呼ぶ節・Agent で起こす任せ先・"
+    launch = i.get("launch") or {}
+    if launch.get("background"):
+        return "背景の任せ先（受領の形を持たない旧い盤面）——受領の done と背景の launch は会話がする（回し手は立てない）"
+    if launch.get("on_fail") == "handoff":
+        return f"engine が起こした子が受け付けまで届かなかった（{_last_reason(i)}）——会話がこの節をこなして done する"
+    return i.get("runner_unlaunched") or ("engine が起こす語（launch）を持たない節——Agent で起こす任せ先（init --unfenced-delegates）・"
                                           "init --engine-runners の無い run の回す側の節は会話がこなす")
 
 
 def classify(st):
-    """盤面から止まった種類と、その材料を組む ——{kind, handoff, needs_human, launchable, running}。
-    kind が busy なら止まる所ではない（起こせる節か走っている節が在る）。材料は汎用の印だけ（節の名前・段を持たない）"""
+    """盤面から止まった種類と、その材料を組む ——{kind, handoff, needs_human, launchable, running, lanes}。
+    kind が busy なら止まる所ではない（起こせる節か走っている節か、回し手が立てる線が在る）。材料は汎用の印だけ（節の名前・段を持たない）。
+    起こして終わったのに受け付けていない試行は、launch.on_fail が handoff なら会話に返し（skill の節——会話が自分で起こせる）、
+    ほかは人に渡す——どちらも振り分けはここ 1 か所"""
     rd = st["rounds"][-1]
     pending = [i for i in rd["instances"].values() if i.get("status") == "pending"]
     launch = lambda i: i.get("launch") or {}   # noqa: E731
-    handoff = [{**i, "handoff_why": _handoff_why(i)} for i in pending if not i.get("launch") or launch(i).get("background")]
+    ended = [i for i in pending if i.get("launch") and i.get("launch_state") == "ended"]
+    lanes = [i for i in pending if launch(i).get("background") and launch(i).get("receipt") is not None and not i.get("launched_at")]
+    handoff = [{**i, "handoff_why": _handoff_why(i)} for i in pending
+               if not i.get("launch") or launch(i).get("background") and launch(i).get("receipt") is None
+               or i in ended and launch(i).get("on_fail") == "handoff"]
     launchable = [i for i in pending if i.get("launch") and not launch(i).get("background") and not i.get("launched_at")]
     running = [i for i in pending if i.get("launch") and i.get("launch_state") == "running"]
     # 起こして終わったのに受け付けていない試行（柵の拒否・子が落ちた・拒否が上限まで続いた・盤面の競りで書けなかった）
-    needs = [{"id": i["id"], "why": ((i.get("attempt_log") or [{}])[-1]).get("reason") or "起こしたが受け付けていない"}
-             for i in pending if i.get("launch") and i.get("launch_state") == "ended"]
+    needs = [{"id": i["id"], "why": _last_reason(i)} for i in ended if launch(i).get("on_fail") != "handoff"]
     halted = st.get("halted") or {}
     if st.get("pending_human"):
         kind = "awaiting_human"
@@ -98,13 +112,13 @@ def classify(st):
         kind = "handoff"
     elif needs:
         kind = "needs_human"
-    elif launchable or running:
+    elif launchable or running or lanes:
         kind = "busy"
     elif st.get("status") in TERMINAL:
         kind = "done"
     else:
         kind = "stuck"
-    return {"kind": kind, "handoff": handoff, "needs_human": needs, "launchable": launchable, "running": running}
+    return {"kind": kind, "handoff": handoff, "needs_human": needs, "launchable": launchable, "running": running, "lanes": lanes}
 
 
 def _group_alive(mark):
@@ -162,6 +176,7 @@ class _Runner:
         self.recovered = set()   # この回し手が一度起こし直した instance（同じ物が 2 度落ちたら人に渡す）
         self.detail = None
         self.attempts = {}       # 立てた launch に渡した試行の番号（launch の後も同じ番号のまま印が無ければ、起こしていない）
+        self.lanes = []          # 切り離して立てた線の launch（待たない。終わった物は回収だけする）
 
     def on_signal(self, signum, _frame):
         self.signum = signum   # 起こし済みの子は待つ。新しい子は起こさない
@@ -177,6 +192,22 @@ class _Runner:
         mark.write_text(json.dumps({"pgid": p.pid, "ids": ids}), encoding="utf-8")   # 形は role_run.probe_group が読む印と同じ
         self.child = (p, ids, mark)
         _trace(self.d, "launch", child=p.pid, ids=ids)
+
+    def start_lane(self, inst):
+        """背景の線を立てる: engine が組んだ受領（launch.receipt）を置き場に書いて done し、`loop.py launch --node` を切り離して立てる
+        （待たない——周の締めも次の周も線を待たない）。会話が手順書どおりにしていた 2 手を、同じ CLI で打つだけ。返すのは立てられなかった
+        理由（立てたら None）。止め方の正本は手順書の『線を止めるとき』（線の子の印から親を辿って止める）"""
+        iid = inst["id"]
+        pathlib.Path(inst["out_path"]).write_text(json.dumps(inst["launch"]["receipt"], ensure_ascii=False), encoding="utf-8")
+        rc, _o, err = _cli(self.d, "done", "--node", iid)
+        if rc != 0:
+            return f"'{iid}' の受領を受け付けられない（done exit {rc}: {err.strip()[-400:]}）"
+        with open(self.d / RUN_LOG, "ab") as log:
+            p = subprocess.Popen([sys.executable, str(LOOP), "launch", "--node", iid, "--dir", str(self.d)], stdin=subprocess.DEVNULL,
+                                 stdout=log, stderr=log, **_detached())
+        self.lanes.append(p)
+        _trace(self.d, "lane", instance=iid, child=p.pid)
+        return None
 
     def orphans(self, ids):
         """ids のうち、起こした launch が居なくなったのに running のまま残った試行（launch が締めの前に落ちた）"""
@@ -270,6 +301,7 @@ class _Runner:
     def drive(self):
         """回し手の本体。返すのは止まった種類（信号なら signal）"""
         while True:
+            self.lanes = [p for p in self.lanes if p.poll() is None]   # 終わった線の子を回収する（待たない）
             if self.child:
                 if self.child[0].poll() is None:
                     time.sleep(POLL_S)
@@ -287,6 +319,13 @@ class _Runner:
                 self.detail = f"loop.py next が exit {rc}: {err.strip()[-800:]}"
                 return "stuck"
             c = classify(read_state(self.d))
+            if c["lanes"]:
+                for inst in c["lanes"]:
+                    why = self.start_lane(inst)
+                    if why:
+                        self.detail = why
+                        return "stuck"
+                continue
             if c["launchable"]:
                 self.spawn_launch(c["launchable"])
                 continue
@@ -381,7 +420,10 @@ def report(d, kind, c, detail=None, code=None):
            "run_id": st.get("run_id"), "dir": str(d), "halted": st.get("halted"),
            "stop_reason": (rec.get("process") or {}).get("stop_reason") if isinstance(rec.get("process"), dict) else None,
            "ask": st.get("pending_human"), "handoff": [{**strip(i), **waiting(i)} for i in c["handoff"]],
-           "needs_human": c["needs_human"], "running": [{"id": i["id"], "launched_at": i.get("launched_at"), **waiting(i)} for i in c["running"]],
+           "needs_human": c["needs_human"],
+           "running": [{"id": i["id"], "launched_at": i.get("launched_at"), **waiting(i), "alive": _group_alive(pgid_path(i["out_path"]))}
+                       for i in c["running"]],
+           "cost_usd": trace_costs(d / "trace.jsonl"),
            "engine": st.get("engine"), "runner": {k: info.get(k) for k in ("pid", "started_at")}, "detail": detail,
            "how": HOW.get(kind, "回し手が信号で止まった（一時停止）——続けるなら run を打ち直せ")}
     print(json.dumps(out, ensure_ascii=False))

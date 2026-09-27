@@ -3807,6 +3807,10 @@ def local_review_covers_lenses(b, nid, out, item):
 
     照合の両側は同じ文字列: engine が `{{node.skills}}` で正典をそのまま役へ渡し、ここは同じ配列の
     `skill` を読む。綴りの正規化という段は存在しない（在れば、その規則自体が誰も決めていない未定義物になる）。
+
+    engine が起こした子（launch の試行が走っている instance）の返答で material が awaiting_human なら、受け付けずに節を会話に返す
+    （HandBack）——子の環境（利用者の設定・プラグインを読まない sandbox の子）で起こせなかったレンズを、人でなく会話が起こす。
+    awaiting_human のまま受け付けると P2 へ進まず、会話が起こせていた回まで人が起こし手になる（事前審査 2026-09-27）。
     """
     inst = next((i for i in reversed(list(b.rd["instances"].values())) if i.get("node") == nid and i.get("status") != "done"), None)
     skills = (inst or {}).get("skills") or b.graph["nodes"][nid].get("skills") or []
@@ -3848,6 +3852,10 @@ def local_review_covers_lenses(b, nid, out, item):
                         "material を awaiting_human にせよ")
     if errs:
         raise Reject("宣言したレンズと findings の行が合わない:\n" + "\n".join("  - " + e for e in errs))
+    if awaiting and (inst or {}).get("launch") and inst.get("launch_state") == "running":
+        failed = [f"{r['skill']}（{r.get('failed')}）" for r in rows if r.get("failed") and r.get("invoked") is not True]
+        raise HandBack(f"engine が起こした子が起こせないレンズが在った: {'; '.join(failed) or (out.get('material') or {}).get('reason')}"
+                       "——会話がこの節をこなす（起こせなかったレンズを起こし、done で返す）")
 
 
 @cond_reads("hist.snapshot")

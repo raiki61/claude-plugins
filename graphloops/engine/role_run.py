@@ -39,7 +39,7 @@ import threading
 import time
 
 from . import checks_cache
-from .util import lone_surrogate_at
+from .util import HandBack, lone_surrogate_at
 
 RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why}\n\n"
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
@@ -148,6 +148,39 @@ def protected_paths(cwd, board_dir=None):
     return sorted(paths)
 
 
+REPO_SETTINGS = pathlib.Path(".claude") / "settings.json"   # 対象リポジトリの Claude Code の標準の置き場（作業ツリーの根からの相対）
+
+
+def repo_deny(cwd=None):
+    """対象リポジトリ（cwd を含む作業ツリーの根）が標準の置き場（.claude/settings.json）に宣言した permissions.deny ——(規則の一覧, 読めない理由)。
+    子は利用者の設定を読まない（--setting-sources ""）ので、engine が deny の行だけを子の --settings に写す（公式の sandboxing の文書:
+    auto-allow の形でも『Explicit deny rules are always respected』）。allow・ask・ほかの鍵は読まない。置き場が無い・git の作業ツリーで
+    ない cwd は空。読めない・形が違うときは空に倒さず理由を返す——宣言した deny を黙って落として起こすと、拒むはずの一式が走る（fail-closed。
+    人の答え 2026-09-27 の関所の条件 5）。前置の照合なので、別の綴り（sh で呼ぶ・cd してから呼ぶ）では抜けうる——主な手当ては指示書の段で、
+    これは第二の網"""
+    ok, top, err = _git(cwd or os.getcwd(), "rev-parse", "--show-toplevel")
+    if not ok or not top:
+        return ([], None) if "not a git repository" in err else (None, f"対象リポジトリの根を引けない（{err.strip()[:200]}）——"
+                                                                   f"{REPO_SETTINGS} の permissions.deny を子に写せない")
+    p = pathlib.Path(top[0]) / REPO_SETTINGS
+    if not p.exists():
+        return [], None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return None, f"{p} が読めない（{e}）——このファイルを直せ（permissions.deny を子に写せないので、Bash を持つ子を起こさない）"
+    perms = data.get("permissions", {}) if isinstance(data, dict) else None
+    deny = perms.get("deny", []) if isinstance(perms, dict) else None
+    if not (isinstance(deny, list) and all(isinstance(x, str) and x for x in deny)):
+        return None, f"{p} の permissions.deny が空でない文字列の一覧でない——このファイルを直せ（Bash を持つ子を起こさない）"
+    return list(deny), None
+
+
+def _with_deny(settings, deny):
+    """sandbox の設定（dict）に、対象リポジトリの deny を permissions.deny として足した写し（deny が空なら足さない）"""
+    return {**settings, "permissions": {"deny": list(deny)}} if deny else dict(settings)
+
+
 def tooled_permission(tools, cwd=None, board_dir=None):
     """道具つきの役を起こす形——{form, permission_mode, allowed_tools, settings}。**起こす側（launch_spec）と柵（launch_refusal）が
     同じここを引く**。graph は穴（{permission_mode}・{allowed_tools}・{settings}）を持つだけで、値は役の定義の道具から engine が決める。
@@ -178,17 +211,24 @@ def tooled_permission(tools, cwd=None, board_dir=None):
     （除外に当たらず sandbox の中で通信が無い）・uv run --with（~/.cache/uv に書けない）・macOS の型なし mktemp -d（TMPDIR を見ず
     /var/folders に作る。tests/run.sh は型を渡す）・別のプロセスグループへの信号（simulate.py の stop_group の台本 1 件が EPERM）。
     permission_denials に載った——gh issue create・python3 -c・git diff --output=・git commit。前後で git status は変わらなかった。
-    作業ディレクトリの外の git は dontAsk が拒むので、子は対象の作業ツリーで起こす（commands.launch_one）。"""
+    作業ディレクトリの外の git は dontAsk が拒むので、子は対象の作業ツリーで起こす（commands.launch_one）。
+    Read は裸で許す（作業ディレクトリの外に在る盤面の差分も読める——盤面は linked worktree の .git/worktrees の下に在りうる）。
+
+    Bash を持つ形（sandbox・read_only）は、対象リポジトリの宣言した deny（repo_deny）を settings の permissions.deny に持つ。
+    宣言が読めない回は deny_error に理由を持ち、柵（commands.launch_refusal）が起こさない"""
     allowed = [t for t in tools if t not in COMMAND_TOOLS]
     if len(allowed) == len(tools):
         return {"form": "plain", "permission_mode": "dontAsk", "allowed_tools": allowed, "settings": "{}"}
     allowed += [f"Bash({c}:*)" for c in READ_COMMANDS]
+    denied, bad = repo_deny(cwd)
+    extra = {"deny_error": bad} if bad else {}
     deny = protected_paths(cwd, board_dir) if sandbox_available() else None
     if deny is None:
-        return {"form": "read_only", "permission_mode": "dontAsk", "allowed_tools": allowed, "settings": "{}"}
-    settings = {"sandbox": {**SANDBOX_BASE, "filesystem": {"denyWrite": deny}}}
+        return {"form": "read_only", "permission_mode": "dontAsk", "allowed_tools": allowed,
+                "settings": json.dumps(_with_deny({}, denied), ensure_ascii=False, sort_keys=True) if denied else "{}", **extra}
+    settings = _with_deny({"sandbox": {**SANDBOX_BASE, "filesystem": {"denyWrite": deny}}}, denied)
     return {"form": "sandbox", "permission_mode": "dontAsk", "allowed_tools": allowed,
-            "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True)}
+            "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True), **extra}
 
 
 # MultiEdit・NotebookEdit は渡さない（縛った形の実測が無い）
@@ -234,9 +274,27 @@ def runner_permission(edits, cwd=None, board_dir=None, protected=None, top=None)
     if deny is None:
         return None
     allowed = ["Read", "Glob", "Grep"] + [t + BOUND_WRITE for t in ("Edit", "Write")] + [f"Bash({c}:*)" for c in READ_COMMANDS]
-    settings = {"sandbox": {**SANDBOX_BASE, "filesystem": {"denyWrite": deny}}}
+    denied, bad = repo_deny(cwd)
+    settings = _with_deny({"sandbox": {**SANDBOX_BASE, "filesystem": {"denyWrite": deny}}}, denied)
     return {"form": "edit", "tools": list(RUNNER_EDIT_TOOLS), "permission_mode": "dontAsk", "allowed_tools": allowed,
-            "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True)}
+            "settings": json.dumps(settings, ensure_ascii=False, sort_keys=True), **({"deny_error": bad} if bad else {})}
+
+
+# skill の節（局所レビュー）を engine が起こす子の道具——Skill はレンズの skill を、Agent はレンズの agent を起こす。書く道具は渡さない
+# （/simplify は既定で作業ツリーを書き換えるので、書けない子で起こす）
+SKILL_TOOLS = RUNNER_READ_TOOLS + ("Skill", "Agent")
+# Agent を持つ子の環境に足す値。-p の子は背景の subagent を、既定では 10 分出力が無いと待ちを打ち切って止め、途中の結果を捨てる
+# （公式の headless の文書の CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS。0 で上限なし）——人の方針『期限・タイムアウトを足さない』で外す
+SKILL_ENV = {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0"}
+
+
+def skill_permission(cwd=None, board_dir=None):
+    """skill の節を engine が起こす形——{form, tools, permission_mode, allowed_tools, settings}。sandbox の形のときだけ返し、立たない場
+    （read_only）は None（会話に返す）。値は道具つきの役と同じ tooled_permission(SKILL_TOOLS)——Skill・Agent は先に許し、Bash は sandbox の
+    中だけ、作業ツリー・.git・盤面は denyWrite。**起こす側（advance.runner_launch_spec）と柵（commands._runner_refusal）が同じここを引く**。
+    Agent で起こす子は親と同じ sandbox の設定を使う（公式の sandboxing の文書）"""
+    perm = tooled_permission(list(SKILL_TOOLS), cwd, board_dir)
+    return {**perm, "tools": list(SKILL_TOOLS)} if perm["form"] == "sandbox" else None
 
 
 # 任せ先（graph の delegate を持つ回す側の節）に渡す道具。ファイルを書く道具（WRITE_TOOLS）は渡さない——任せ先が書くのは
@@ -282,8 +340,9 @@ def delegate_permission():
     return "default", [t for t in DELEGATE_TOOLS if t not in COMMAND_TOOLS]
 
 
-def delegate_settings(protected):
+def delegate_settings(protected, deny=()):
     """任せ先の sandbox の設定（--settings に渡す JSON の文字列。並びを固定して、柵が起こす瞬間に組み直して突き合わせる）。
+    deny は対象リポジトリの宣言した permissions.deny（repo_deny）で、在れば permissions.deny に写す。
 
     - denyWrite: protected（util.protected_paths——本物の作業ツリー・gitdir の実体・共通の .git・他の作業ツリー・盤面・
       git とシェルの設定・engine 自身）。allowWrite より優先される（公式の設定の説明: 'takes precedence over allowWrite'）
@@ -293,11 +352,11 @@ def delegate_settings(protected):
     - network.allowedDomains ['*']・enableWeakerNetworkIsolation・allowLocalBinding: 網（依存の導入・gh の読み）と手元のサーバを
       今までどおり使う（実測 2026-09-25・macOS: gh は enableWeakerNetworkIsolation が無いと TLS の検証で落ち、localhost の bind は
       allowLocalBinding で通った）"""
-    return json.dumps({"sandbox": {
+    return json.dumps(_with_deny({"sandbox": {
         "enabled": True, "autoAllowBashIfSandboxed": True, "allowUnsandboxedCommands": False, "failIfUnavailable": True,
         "enableWeakerNetworkIsolation": True,
         "network": {"allowedDomains": ["*"], "allowLocalBinding": True},
-        "filesystem": {"allowWrite": ["/"], "denyWrite": list(protected)}}}, sort_keys=True, separators=(",", ":"))
+        "filesystem": {"allowWrite": ["/"], "denyWrite": list(protected)}}}, deny), sort_keys=True, separators=(",", ":"))
 
 
 def kill_all():
@@ -339,6 +398,45 @@ def install_stop_handlers():
 # 包みの欄のうち要約に残すもの（--output-format json の result の行）。本文（result）は残さない
 SUMMARY_KEYS = ("session_id", "num_turns", "duration_ms", "duration_api_ms", "total_cost_usd", "usage",
                 "subtype", "is_error", "stop_reason")
+
+
+def session_costs(rows, group=lambda row: None):
+    """trace の op=role_run の行から、会話（session_id）ごとの total_cost_usd の最大を group(行) ごとに足した ——{group の値: 米ドル}。
+    total_cost_usd は会話の累計（続きを頼むたびに増える）なので、行を足さず会話ごとの最大を取る。会話の組は最初に見た行の group に付ける。
+    **数えるのは engine が起こした子だけ**（op=role_run の行を書くのは run_role）——会話そのものと、会話が Agent で起こした役は入らない"""
+    sessions = {}
+    for r in rows:
+        sid, cost = r.get("session_id"), r.get("total_cost_usd")
+        if r.get("op") == "role_run" and sid and isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            prev = sessions.get(sid)
+            sessions[sid] = (prev[0] if prev else group(r), max(cost, prev[1] if prev else cost))
+    out = collections.defaultdict(float)
+    for g, c in sessions.values():
+        out[g] += c
+    return dict(out)
+
+
+COST_WHAT = ("engine が起こした子の total_cost_usd を会話ごとの最大で足した値（米ドル）——会話そのもの・会話が Agent で起こした役・"
+             "会話がこなした節の分は入らない")
+
+
+def trace_costs(trace_path):
+    """盤面の trace.jsonl から、engine が起こした子の費用 ——{usd, by_node, what}（session_costs を節ごとに）。読めない行は飛ばし、
+    trace が無ければ None。status と run の報告が見せる"""
+    try:
+        lines = pathlib.Path(trace_path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    rows = []
+    for line in lines:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict):
+            rows.append(r)
+    by = session_costs(rows, group=lambda r: str(r.get("node")))
+    return {"usd": round(sum(by.values()), 4), "by_node": {k: round(v, 4) for k, v in sorted(by.items())}, "what": COST_WHAT}
 
 
 def pgid_path(out_path):
@@ -917,7 +1015,8 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
     prompt_file 指示書（標準入力で渡す）
     out_path    返答の本文の置き場
     accept      accept(本文) -> None（受け付けた）| str（拒んだ理由——役に返して出し直させる）。
-                役のせいでない失敗（盤面が読めない等）は例外で投げよ——続きを頼まずに止まり、why に載る
+                役のせいでない失敗（盤面が読めない等）は例外で投げよ——続きを頼まずに止まり、why に載る。
+                util.HandBack を投げたら続きを頼まずに止まり、返り値に handback: True を足す（節を会話に返す）
     resume_argv 拒まれたときに同じ会話を続ける語。'{session_id}' の語を会話の番号で埋める。None なら続けない
     max_resumes 続きを頼む回数の上限
     log_path    実行の要約を JSON Lines で足す先（1 起動 1 行・op は role_run。engine は盤面の trace.jsonl を渡す）
@@ -970,6 +1069,8 @@ def run_role(argv, prompt_file, out_path, *, accept=None, resume_argv=None, max_
                 try:
                     reason = (f"返答の本文の{broken}に孤立サロゲート（UTF-8 で書けない字）がある——その字を消すか正しい字に直して返し直せ"
                               if broken else accept(text) if accept else None)
+                except HandBack as e:  # 受け付けが節を会話に返した——続きを頼まない
+                    reason, got["why"], got["handback"] = None, f"会話に返す: {e}", True
                 except (Exception, SystemExit) as e:  # 役のせいでない失敗——続きを頼んでも直らない
                     reason, got["why"] = None, f"受け付けの検査が落ちた（{type(e).__name__}: {e}）"
                 else:

@@ -5,6 +5,7 @@
   "dependencies": [
     {
       "name": "convergence-loops",
+      "version": ">=0.41.0",
       "marketplace": "raiki61"
     }
   ]

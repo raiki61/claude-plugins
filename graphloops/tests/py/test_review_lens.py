@@ -52,6 +52,41 @@ def test_graphcheck_rejects_lens_cond_shapes(sandbox, breaks, want):
     assert not ok and want in out, out[-300:]
 
 
+def _append(g):
+    return g["launch"]["append"]
+
+
+def _receipt(g):
+    return g["nodes"]["p3.delta_gates"]["delegate"]
+
+
+@pytest.mark.parametrize("breaks,want", [
+    pytest.param(lambda g: _append(g)[0].__setitem__("to", "everyone"), "launch.append[0] は", id="append-unknown-target"),
+    pytest.param(lambda g: _append(g)[0]["files"].append("../prompts/no-such.md"), "no-such.md が無い", id="append-missing-file"),
+    pytest.param(lambda g: _append(g)[0]["reads"].remove("record.process.checks"), "段の reads に無い", id="append-hole-not-in-reads"),
+    pytest.param(lambda g: _append(g)[0]["files"].append("../prompts/review-loop/request-scope.md"), "段の reads に無い",
+                 id="append-request-needs-its-read"),
+    pytest.param(lambda g: _receipt(g).__setitem__("receipt", {"lane": 1}), "delegate.receipt は", id="receipt-off-schema"),
+    pytest.param(lambda g: _receipt(g).__setitem__("background", False), "delegate.receipt は", id="receipt-without-background"),
+])
+def test_graphcheck_rejects_append_and_receipt_shapes(sandbox, breaks, want):
+    """起こす子の形ごとの段（launch.append）と背景の線の受領の形（delegate.receipt）の静的な検査は、赤くなる例を 1 つずつ持つ"""
+    g = copy.deepcopy(GRAPH)
+    breaks(g)
+    ok, out = run_graphcheck(sandbox, g)
+    assert not ok and want in out, out[-300:]
+
+
+def test_graphcheck_rejects_append_hole_off_loop_keys(sandbox):
+    """段の穴の loop.<鍵> も節のプロンプトの穴と同じ照らし（LOOP_KEYS と state_schema の木）に通る——段の reads に在っても綴り違いは落ちる"""
+    (sandbox / "prompts" / "loop-typo.md").write_text("{{?loop.no_such_key}}\n", encoding="utf-8")
+    g = copy.deepcopy(GRAPH)
+    _append(g)[0]["files"].append("../prompts/loop-typo.md")
+    _append(g)[0]["reads"].append("loop.no_such_key")
+    ok, out = run_graphcheck(sandbox, g)
+    assert not ok and "launch.append[0]: ../prompts/loop-typo.md の穴" in out and "LOOP_KEYS に無い" in out, out[-300:]
+
+
 class FakeBoard:
     """local_review_covers_lenses が触る面だけ"""
     def __init__(self, skills):
@@ -89,6 +124,26 @@ def test_covers_lenses_reads_the_evaluated_applies(lens_decl, out, rejected):
             RULES.local_review_covers_lenses(b, NID, out, None)
     else:
         assert RULES.local_review_covers_lenses(b, NID, out, None) is None
+
+
+@pytest.mark.parametrize("launch_state,handed_back", [
+    pytest.param("running", True, id="engine-child-hands-back"),
+    pytest.param("ended", False, id="conversation-after-handback-is-accepted"),
+    pytest.param(None, False, id="conversation-run-is-accepted"),
+])
+def test_awaiting_human_from_an_engine_child_goes_back_to_the_conversation(launch_state, handed_back):
+    """engine が起こした子が起こせないレンズを awaiting_human で返したら、受け付けずに会話へ返す（HandBack）——人を起こし手にしない。
+    会話が返した awaiting_human は今までどおり受け付ける"""
+    b = FakeBoard([cond_lens(applies=True, applies_why="w"), UNCOND])
+    if launch_state:
+        b.rd["instances"][NID].update(launch={"kind": "runner", "skill": True, "on_fail": "handoff"}, launch_state=launch_state)
+    out = answer(False, status="awaiting_human")
+    if handed_back:
+        with pytest.raises(RULES.HandBack, match="/s（理由）"):
+            RULES.local_review_covers_lenses(b, NID, out, None)
+    else:
+        assert RULES.local_review_covers_lenses(b, NID, out, None) is None
+    assert RULES.local_review_covers_lenses(b, NID, answer(True), None) is None   # 起こせた返答は子でも受け付ける
 
 
 def test_fix_record_keeps_the_declarations_the_cond_reads_across_rounds():

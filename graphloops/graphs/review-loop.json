@@ -936,8 +936,30 @@
     "spec.revise"
    ],
    "preamble": "あなたはレビューループを回す engine から、回す側（writer）の 1 つの節を任された子で、claude -p として動いている。会話の相手はいない。\n- 作業ディレクトリ（cwd）はレビュー対象の本物の作業ツリーである。指示書が直せと言う物は、ここのファイルを Edit・Write で直せ。作業ツリーの外・.git・盤面の置き場には書けない（権限と OS の sandbox が拒む）。拒まれたら別の書き方を探さず、書けなかったことを返答に書け。\n- git の書き込み（add・commit・stash・checkout・reset・worktree・branch）は打つな。index も共通の .git も書けず、engine が起こす前後で git の状態を突き合わせて違えば受け付けない。未追跡の新規ファイルは engine が周の版に載せる（指示書の git add -N は打てない——打てなかったパスは intent_to_add に書くだけにし、打っていないと detail に書け）。\n- コマンド（テスト・lint・計器・git の読み）は Bash で走らせてよい。OS の sandbox の中で走り、外への通信は無い（網から依存を取って走らせる語は落ちる。手元に在る実行器で確かめよ）。\n- 別の役（Agent）は起こせない。指示書が investigator に Web を調べさせろと言う所は、判定者の先行例の行を採る（from_judge_row）か、調べていないことを not_found と searched に正直に書け。\n- 人の方針の文書の置き場が指示書に在れば、先に Read で全部読め。\n- 返答は、指示書が求めた JSON だけを最後のメッセージとして返せ。置き場のファイル（out_path）には書くな——engine があなたの返答を置き場に書き、受け付けに回す。受け付けが拒んだら、理由が同じ会話に届く。\n",
-   "why": "回す側の節（graph の runners の節のうち、任せ先・skill・走らせるだけの宣言を持たない物: 基準点・前提・目的・修正案・修正・手直し・報告・仕様）も、init --engine-runners の run では engine が claude -p で起こす（advance.runner_launch_spec。手順 H の H3）。回す側の会話が自分で書いていた頃、1 周 30〜45 万トークンを使い、知らせ待ちで止まる・手で写す・柵の注意を入れ忘れる、が起きた（2026-09-27 の run）。権限は engine が決める（role_run.runner_permission。graph は語の並び・前置きの文・モデルだけを持つ）: 読むだけの節は道具つきの役（investigator）と同じ形（sandbox か read_only）で、前提を測るコマンドを sandbox の中で走らせられる。作業ツリーを書き換える節（edits）は dontAsk・パスで縛った Edit(./**)・Write(./**)・読むだけの gh の前置で、Bash は OS の sandbox の中だけ——書けるのは作業ツリーの根と一時ディレクトリで、.git・ほかの作業ツリー・盤面・利用者の git とシェルの設定・engine 自身は denyWrite（util.protected_paths から根だけを外す）。前提の実験（scratchpad/headless-spike/FINDINGS.md、2026-09-25）: acceptEdits は許可の無い rm・touch を通し、縛りの無い Edit・Write は外に書け、テストの実行器が読み込む設定のファイルと git diff --output= は Bash から外と .git に書けた——許可の字面では縛れないので OS の境界に置く。sandbox が立たない場は起こさず会話に返す（Bash 抜きの書く子に黙って落とさない）。この作業ツリーの git の状態（HEAD・枝）は起こす前後で突き合わせ、違えば受け付けない（全作業ツリーで共有する stash と作業ツリーの一覧は並行の run も動かすので、違っても受け付けて trace に残す——子が共通の .git に書くことは sandbox が止める）。作業ツリーを書き換える子は落ちても、前の試行の子を止め切った後で作業ツリーと HEAD・枝が起こした時点と同じと測れたときだけ 1 回起こし直す（途中の編集を知らない新しい会話が重ねて書かない）。CLAUDE.md は読ませない（--setting-sources \"\"。道具つきの役と同じ理由）ので、フックも動かず、子の読了は reads.jsonl に載らない——記録の loop.wrote_refs_reads と報告の人向けの項目に、記録が無いことを書く。skill を呼ぶ節（局所レビュー）と背景の任せ先（変異の検算の線）は今どおり会話に返す（人の答え 2026-09-27: 変異は CI だけ）。"
-  }
+   "why": "回す側の節（graph の runners の節のうち、任せ先・走らせるだけの宣言を持たない物: 基準点・前提・目的・修正案・修正・手直し・報告・仕様・局所レビュー）も、init --engine-runners の run では engine が claude -p で起こす（advance.runner_launch_spec。手順 H の H3）。回す側の会話が自分で書いていた頃、1 周 30〜45 万トークンを使い、知らせ待ちで止まる・手で写す・柵の注意を入れ忘れる、が起きた（2026-09-27 の run）。権限は engine が決める（role_run.runner_permission。graph は語の並び・前置きの文・モデルだけを持つ）: 読むだけの節は道具つきの役（investigator）と同じ形（sandbox か read_only）で、前提を測るコマンドを sandbox の中で走らせられる。作業ツリーを書き換える節（edits）は dontAsk・パスで縛った Edit(./**)・Write(./**)・読むだけの gh の前置で、Bash は OS の sandbox の中だけ——書けるのは作業ツリーの根と一時ディレクトリで、.git・ほかの作業ツリー・盤面・利用者の git とシェルの設定・engine 自身は denyWrite（util.protected_paths から根だけを外す）。前提の実験（scratchpad/headless-spike/FINDINGS.md、2026-09-25）: acceptEdits は許可の無い rm・touch を通し、縛りの無い Edit・Write は外に書け、テストの実行器が読み込む設定のファイルと git diff --output= は Bash から外と .git に書けた——許可の字面では縛れないので OS の境界に置く。sandbox が立たない場は起こさず会話に返す（Bash 抜きの書く子に黙って落とさない）。この作業ツリーの git の状態（HEAD・枝）は起こす前後で突き合わせ、違えば受け付けない（全作業ツリーで共有する stash と作業ツリーの一覧は並行の run も動かすので、違っても受け付けて trace に残す——子が共通の .git に書くことは sandbox が止める）。作業ツリーを書き換える子は落ちても、前の試行の子を止め切った後で作業ツリーと HEAD・枝が起こした時点と同じと測れたときだけ 1 回起こし直す（途中の編集を知らない新しい会話が重ねて書かない）。CLAUDE.md は読ませない（--setting-sources \"\"。道具つきの役と同じ理由）ので、フックも動かず、子の読了は reads.jsonl に載らない——記録の loop.wrote_refs_reads と報告の人向けの項目に、記録が無いことを書く。skill を呼ぶ節（局所レビュー）も同じ語で起こす: 道具は Read・Glob・Grep・Bash・Skill・Agent で書く道具は無く、sandbox の形のときだけ起こす（role_run.skill_permission）。前置きに skill_preamble と、プラグインの agent のレンズの定義の置き場を足す——子はプラグインを読まないので、agent のレンズは Agent の汎用の子に定義を読ませて起こす（--plugin-dir でプラグインを読ませる形は採らない: hooks・mcpServers・settings.json・bin/ など、argv の柵の外で子を変える部品まで入る）。Agent の子の待ちの上限は外す（role_run.SKILL_ENV。人の方針: 期限を足さない）。子が起こせないレンズが在った・受け付けまで届かなかった回は、会話に返す（launch.on_fail: handoff）——会話は今までどおり自分で起こせる（人の関所の答え 2026-09-27 の条件 1）。背景の任せ先（変異の検算の線）は、回し手が受領を done して切り離して立てる（runner.start_lane。人の関所の答え 2026-09-27 の条件 3——手元で変異を撃たない方針は、対象リポジトリの permissions.deny と方針の段で守る）。",
+   "skill_preamble": "\nこの節は局所レビュー（skill を呼ぶ節）で、あなたは Skill と Agent を持つ。書く道具は無く、作業ツリーは OS の sandbox が書かせない——修正まで行く道具（/simplify）にも指摘だけを返させよ。\n- 名前が / で始まるレンズは Skill で起こせ。\n- 名前が <plugin>:<役> のレンズ（プラグインの agent）は、この子ではプラグインを読まないので名前では起きない。Agent で汎用の子（general-purpose）を起こし、下の一覧の定義の置き場を Read で読んでその役として振る舞うよう頼み、指示書どおりに対象を渡せ。findings[].skill には宣言の綴りをそのまま書け。\n- あなたは git の index に書けない（git add -N を打てない）。変更ファイルの一覧に在るのに git diff に出ない未追跡の新規ファイルは、git diff を読むレンズには載らないので、そのレンズにはファイルのパスを名指して Read で全文を読ませよ。\n- 起こせなかったレンズは failed に理由を書き、material を awaiting_human にせよ——engine は受け付けずに節を会話に返し、会話が起こし直す。\n"
+  },
+  "append": [
+   {
+    "to": "commands",
+    "files": [
+     "../prompts/policy-path.md",
+     "../prompts/review-loop/test-scope.md"
+    ],
+    "reads": [
+     "record.process.policy.path",
+     "record.process.checks"
+    ]
+   },
+   {
+    "to": "tooled",
+    "files": [
+     "../prompts/board-files.md"
+    ],
+    "reads": []
+   }
+  ],
+  "append_why": "起こす子の形ごとに指示書の末尾へ足す段（advance.launch_appends。節の名前でなく子の形で当てる）。commands はコマンドを走らせる子（回す側の節の全部・任せ先・Bash を持つ役）で、人の方針の置き場と手元で走らせてよい範囲だけを届ける——節ごとの prompt_append で足していたとき、方針が届くのは足した 4 節だけで、任せ先と Bash を持つ P1 の役には届かなかった（束 A r3 で手元の e2e が 2 回走った）。依頼の本文は貼らない（依頼を読まない節に依頼者の見立てを混ぜない。人の関所の答え 2026-09-27 の条件 4）——依頼の守ることは、依頼を読む節だけが prompt_append の request-scope.md で受ける。tooled は道具を持つ子で、盤面のファイルの読み方を届ける。節の prompt_append に同じファイルが在れば足さない"
  },
  "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
  "record": {
@@ -2027,7 +2049,7 @@
     "p1.worktree_before",
     "p0.local_checks"
    ],
-   "source": "P1 ＞ 局所（writer が main session で実行）",
+   "source": "P1 ＞ 局所（skill を呼ぶ。init --engine-runners の run は engine が子で起こし、起こせなければ会話が実行）",
    "inputs": [
     "対象差分",
     "REVIEW.md「指摘の提出基準」（プロンプトに貼る——skill は REVIEW.md を読まない）"
@@ -2804,7 +2826,8 @@
    "prompt_append": [
     "../prompts/policy-path.md",
     "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md"
+    "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md"
    ]
   },
   "p1.gate_efficacy": {
@@ -4060,6 +4083,7 @@
     "../prompts/policy-path.md",
     "../prompts/policy.md",
     "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
   },
@@ -4212,6 +4236,7 @@
     "../prompts/policy-path.md",
     "../prompts/policy.md",
     "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
   },
@@ -4364,6 +4389,7 @@
     "../prompts/policy-path.md",
     "../prompts/policy.md",
     "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
   },
@@ -4405,12 +4431,15 @@
    "outputs": [
     "lanes/r<周>-<版>.json（線の結果。任せ先の返答を engine が置く）"
    ],
-   "note": "回す側は受領（置き場）を返して done し、その後で engine に任せ先を背景で起こさせる（loop.py launch --node）。足したテストの patch は任せ先の写しの側に在り、結果の patch の欄が名指す。線の結果は、書き終えた後の周の頭（周の頭の節 p1.worktree_before が渡した行を出力の lane_rows に置き hist.prev_declared_faces へ——needs_test・defect・使えない結果。defect は依頼の入口 record.process.request_findings にも）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
+   "note": "受領（置き場）を done し、その後で engine に任せ先を背景で起こさせる（loop.py launch --node）——受領の形は delegate.receipt で、engine が {result_path} を置き場で埋め、回し手（loop.py run）が done と launch を打つ。足したテストの patch は任せ先の写しの側に在り、結果の patch の欄が名指す。線の結果は、書き終えた後の周の頭（周の頭の節 p1.worktree_before が渡した行を出力の lane_rows に置き hist.prev_declared_faces へ——needs_test・defect・使えない結果。defect は依頼の入口 record.process.request_findings にも）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
    "delegate": {
     "model": "sonnet",
     "background": true,
     "why": "変異の実行器を走らせ、見逃した腕にテストを足す作業で、周の判断は要らない（テストを書くので haiku でなく sonnet）。背景で走らせ、回す側の周を止めない",
-    "result_to": "cur.p3.gates_cut.result"
+    "result_to": "cur.p3.gates_cut.result",
+    "receipt": {
+     "lane": "{result_path}"
+    }
    },
    "prompt_file": "../prompts/review-loop/p3.delta_gates.md",
    "reads": [

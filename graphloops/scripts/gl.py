@@ -39,7 +39,7 @@ from engine.board import Board  # noqa: E402
 from engine.commands import accept_gate, check_reply  # noqa: E402
 from engine.rules import hook, registry, takes_view  # noqa: E402
 from engine.schema import load_graph, strip_notes, validate_schema  # noqa: E402
-from engine.util import AnswerReject, Reject  # noqa: E402
+from engine.util import AnswerReject, HandBack, Reject  # noqa: E402
 
 
 class Unreadable(Exception):
@@ -131,7 +131,7 @@ def cmd_accept(a):
     seen = {}
     try:
         output, notes, remaining, effs = check_reply(b, nid, text, item, (inst or {}).get("pointers"), seen=seen)
-    except (AnswerReject, Reject) as e:
+    except (AnswerReject, Reject, HandBack) as e:   # HandBack: engine が起こした子の返答を会話に返す拒み（受け付けない）
         return out({"ok": False, "called": bool(fn and seen), "form": form, "reason": str(e), "effects": [], "pending": pending})
     return out({"ok": True, "called": fn is not None, "form": form, "reply": output, "effects": effs, "pending": pending,
                 **({"remaining": remaining} if remaining else {}), **({"note": " / ".join(notes)} if notes else {})})

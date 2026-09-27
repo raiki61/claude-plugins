@@ -43,3 +43,4 @@
   - 作ったら `git push origin <plugin の名前>--v<版>`。
 - 一度 push した tag は動かさない・消さない。tag で固定して入れている利用者が壊れる。
 - どの版に tag が在るかは、リポジトリの tag の一覧（GitHub の tags か `git ls-remote --tags origin`）で確かめる。
+- graphloops は `dependencies` に convergence-loops の版の範囲（下限）を書いている。範囲を書いた依存は、範囲を満たす tag のうち最も高い版から入る（[公式の文書](https://code.claude.com/docs/en/plugins/dependencies)）。convergence-loops の版を上げたら tag を付け遅れない——付けるまで、graphloops と一緒に入れた利用者には前の tag の版が入る。下限を上げるのは、graphloops が新しい版の口を呼ぶようになったときだけ。

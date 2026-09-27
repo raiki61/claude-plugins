@@ -26,7 +26,10 @@ from .schema import graph_text, load_graph, validate_schema
 from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS, copy_worktree,
                    die, dump, get_path, git, has_path, loads_outside, note_unevaluable, now, porcelain, protected_paths, read_input_json, read_json,
                    repo_root, safe_name, set_path, del_path, sha, tree_names_between, waiting, worktree_tree, write_json)
-from .role_run import DELEGATE_TOOLS, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path, probe_group, read_grant_path, read_rule, run_role, run_steps, runner_permission, stop_group, tooled_permission
+from .role_run import (DELEGATE_TOOLS, SKILL_ENV, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path,
+                       probe_group, read_grant_path, read_rule, repo_deny, run_role, run_steps, runner_permission, skill_permission, stop_group,
+                       tooled_permission, trace_costs)
+from .runner import _group_alive
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
@@ -330,8 +333,9 @@ def _parse_flags(words, table):
 
 
 def _settings_refusal(value, want):
-    """--settings の値が engine の値と同じ意味か（よければ None）。トップのキーは engine の値と同じ（sandbox だけか、空）で、
-    permissions・hooks・env などを混ぜた子は起こさない。**denyWrite だけは包含で見る**——守る場所は起こす時に引き直した集合で、
+    """--settings の値が engine の値と同じ意味か（よければ None）。トップのキーは engine の値と同じ（sandbox と、対象リポジトリが deny を
+    宣言していれば permissions。どちらも無ければ空）で、hooks・env などを混ぜた子は起こさない。permissions は engine が組んだ値と
+    同じときだけ通す（allow・ask を混ぜた子は起こさない）。**denyWrite だけは包含で見る**——守る場所は起こす時に引き直した集合で、
     next と launch の間に作業ツリーが消えても通し、増えたら拒む（増えた回は relaunch で引き直す）。"""
     try:
         got = json.loads(value)
@@ -340,7 +344,10 @@ def _settings_refusal(value, want):
     want = json.loads(want)
     if not isinstance(got, dict) or set(got) != set(want):
         return f"--settings のキーが {sorted(got) if isinstance(got, dict) else value[:60]!r}——engine が決めた値は {sorted(want)}"
-    if not want:
+    if got.get("permissions") != want.get("permissions"):
+        return (f"--settings の permissions が {json.dumps(got.get('permissions'), ensure_ascii=False)[:160]}——engine が対象リポジトリの宣言から"
+                f"組んだ値は {json.dumps(want.get('permissions'), ensure_ascii=False)[:160]}（宣言が変わったなら relaunch で組み直せ）")
+    if "sandbox" not in want:
         return None
     gs, ws = got.get("sandbox"), want["sandbox"]
     fs = gs.get("filesystem") if isinstance(gs, dict) else None
@@ -437,7 +444,7 @@ def launch_refusal(inst, cwd=None, board_dir=None):
     if launch.get("missing"):
         return f"この環境に {launch['missing']} が無い（PATH を確かめるか、人が起こす）"
     if launch.get("kind") == "delegate":
-        return _delegate_refusal(inst, launch, board_dir)
+        return _delegate_refusal(inst, launch, board_dir, cwd)
     if launch.get("kind") == "runner":
         return _runner_refusal(inst, launch, cwd, board_dir)
     d = agent_def(inst.get("agent_type") or "")
@@ -450,6 +457,8 @@ def launch_refusal(inst, cwd=None, board_dir=None):
                     "——狭めるのは道具の一覧かモデルを持たない定義を、読むだけの道具（advance.NARROW_TOOLS）へ狭めるときだけ")
         d = nd
     perm = tooled_permission(d["tools"], cwd, board_dir) if d["tools"] else None
+    if (perm or {}).get("deny_error"):
+        return perm["deny_error"]
     read = None if d["tools"] else _read_grant_rule(inst, board_dir)
     for words, resume in ((argv, False), (launch.get("resume_argv"), True)):
         if words:
@@ -467,10 +476,18 @@ def _runner_refusal(inst, launch, cwd, board):
     今の守る場所と揃わなければ起こさない。旗は道具つきの役と同じ許可表（_parse_flags）で見る。書く道具は縛った綴り（Edit(./**)）
     でしか通らない（--allowedTools の一致）。graph の宣言は柵の根拠にしない"""
     edits = bool(launch.get("edits"))
-    perm = runner_permission(edits, cwd, board, protected_paths([board] if board else []) if edits else None,
-                             repo_root() if edits else None)
-    if perm is None:
-        return "作業ツリーを書き換える子を縛れない（sandbox が立たない・守る場所が引けない）——engine は起こさない"
+    if launch.get("skill"):
+        # skill の節（局所レビュー）は Skill・Agent を持つ読むだけの子——書く形と混ぜた instance は起こさない
+        perm = None if edits else skill_permission(cwd, board)
+        if perm is None:
+            return "skill の節の子を sandbox で縛れない（sandbox が立たない・書く形と混ざっている）——engine は起こさない"
+    else:
+        perm = runner_permission(edits, cwd, board, protected_paths([board] if board else []) if edits else None,
+                                 repo_root() if edits else None)
+        if perm is None:
+            return "作業ツリーを書き換える子を縛れない（sandbox が立たない・守る場所が引けない）——engine は起こさない"
+    if perm.get("deny_error"):
+        return perm["deny_error"]
     if sorted(launch.get("tools") or []) != sorted(perm["tools"]):
         return f"回す側の節の道具 {launch.get('tools')}——engine が決めた値は {perm['tools']}"
     want = {**FIXED_VALUES, "--model": launch.get("model") or "", "--effort": launch.get("effort") or "",
@@ -507,14 +524,18 @@ def _runner_refusal(inst, launch, cwd, board):
     return None
 
 
-def _delegate_refusal(inst, launch, board):
+def _delegate_refusal(inst, launch, board, cwd=None):
     """任せ先（kind=delegate）を起こしてよい形か（よければ None）。**sandbox の設定は起こす瞬間に git から組み直して突き合わせる**
     ——next の後に作業ツリーが足された・盤面の argv が書き換えられた、どちらでも名指しが今の守る場所と揃わなければ起こさない。
+    対象リポジトリの宣言した deny（role_run.repo_deny。cwd の作業ツリーの根から引く）も同じく組み直し、読めなければ起こさない。
     旗は役の節と同じ許可表で見る（_parse_flags——表に無い語・別名・2 度目の旗を拒む）。値は engine の値（role_run の
     delegate_permission・delegate_settings、モデルは graph の delegate.model）と一致を見る。graph の宣言は柵の根拠にしない"""
     protected = protected_paths([board] if board else [])
     if board is None or protected is None or launch.get("unprotected"):
         return "守る場所（作業ツリー・gitdir・共通の .git）を git から引けない——任せ先を sandbox で縛れないので起こさない"
+    denied, bad = repo_deny(cwd)
+    if bad:
+        return bad
     mode, allowed = delegate_permission()
     want = {**FIXED_VALUES, "--model": (inst.get("delegate") or {}).get("model") or "", "--tools": ",".join(DELEGATE_TOOLS),
             "--allowedTools": ",".join(allowed), "--permission-mode": mode}
@@ -531,7 +552,7 @@ def _delegate_refusal(inst, launch, board):
             if flag in BARE_FLAGS or flag == "--append-system-prompt-file":
                 continue   # 前置きの文（graph の preamble）は権限を運ばない
             if flag == "--settings":
-                why = _settings_refusal(val, delegate_settings(protected))
+                why = _settings_refusal(val, delegate_settings(protected, denied))
             elif flag == "--resume":
                 sid = inst.get("session_id")
                 ok = {"{session_id}", sid} - {None} if resume else {sid} - {None}
@@ -973,6 +994,8 @@ def launch_one(d, inst, max_resumes, cwd=None):
             shutil.rmtree(work, ignore_errors=True)
             return {**got, "ok": False, "why": str(e)}
         env = {**os.environ, "TMPDIR": str(work / "tmp"), "GRAPHLOOPS_KEEP": str(work / "keep")}
+    if launch.get("skill"):
+        env = {**os.environ, **SKILL_ENV}   # Agent の子の待ちの上限を外す（role_run.SKILL_ENV）
     child_tmp = None
     if launch.get("kind") == "runner" and launch.get("edits"):
         # 作業ツリーを書き換える子の sandbox が書ける一時の置き場（Claude Code の利用者ごとの一時の置き場）を、共有の置き場から
@@ -1019,6 +1042,7 @@ def launch_one(d, inst, max_resumes, cwd=None):
     if work and work.exists():
         got["kept"] = str(work / "keep")   # 任せ先が残した物（返答が名指しするファイル）の置き場
     return {**got, "ok": r["ok"], "why": r["why"], "session_id": r["session_id"], "superseded": r["superseded"],
+            **({"handback": True} if r.get("handback") else {}),
             "resumes": len(r["runs"]) - 1, "rejections": r["rejections"], "done": accept.msg if accept else None,
             # total_cost_usd は会話の累計（続きを頼むたびに増える。実測 2026-09-25・haiku: 0.0137 → 0.0166 → 0.0198）——足さずに最大を取る
             "cost_usd": max((x.get("total_cost_usd") or 0 for x in r["runs"]), default=0) or None,
@@ -1060,7 +1084,7 @@ def mark_launch_failures(results, kinds, state):
     """ok でない行に落ち方（cause）を載せ、記録器に 1 行ずつ渡す。launch は exit 0 で返るので最上段の口を通らない。
     分けそこねた行は cause を持たず、分けそこねた例外そのものを記録器に残す（黙らせず、launch も止めない）。"""
     for r in results:
-        if not r["ok"] and not r.get("superseded") and not r.get("fell_back"):
+        if not r["ok"] and not r.get("superseded") and not r.get("fell_back") and not r.get("handback"):
             try:
                 exc, func = launch_cause(r, kinds.get(r["id"]))
                 r["cause"] = exc
@@ -1149,7 +1173,9 @@ def cmd_launch(a):
             # 起こし直しの回数と理由: 拒まれて同じ会話に続きを頼んだ（resume）・拒まれたまま上限に達した（rejected）
             for j, why in enumerate(r.get("rejections") or []):
                 log.append({"at": now(), "kind": "resume" if j < r["resumes"] else "rejected", "reason": why})
-            if not r["ok"] and r.get("why") and not r.get("rejections"):
+            if r.get("handback"):
+                log.append({"at": now(), "kind": "handback", "reason": r["why"]})   # 会話に返す（runner.classify が launch.on_fail で振る）
+            elif not r["ok"] and r.get("why") and not r.get("rejections"):
                 log.append({"at": now(), "kind": "failed", "reason": r["why"]})
             b.trace("launched", id=r["id"], ok=r["ok"], why=r.get("why"), session_id=r.get("session_id"),
                     resumes=r.get("resumes"), stderr=(r.get("stderr") or "")[-200:])
@@ -1167,6 +1193,8 @@ def cmd_launch(a):
                         "ok でない節は why を読め: 受け付けの拒否が続いた・子が落ちた、なら "
                         "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（前の試行の子は relaunch が止める）。"
                         "why が『起こし直された古い試行』の行は次の手が要らない（起こし直しなら新しい試行の launch を待て。人が止めた試行なら次は next）。"
+                        "why が『会話に返す』の行と、on_fail が handoff の節（skill の節）の ok でない行は、会話がその節をこなして done する"
+                        "（loop.py run なら handoff に出る）。"
                         "cause が launch_auth なら認証が足りていない、launch_child_failed なら認証は足りていて役の側、"
                         "launch_auth_unread なら標準エラーから段が読めなかった（stderr の with-auth: の行で確かめよ）。"
                         "返答は out_path に在る（読むのは要る所だけ）。engine が起こせない節（why が『前置ではない』『旗が無い』"
@@ -1527,6 +1555,18 @@ def check_reply(b, nid, text, item, pointer_list=None, fence=None, seen=None):
         raise AnswerReject(f"{nid}: " + "; ".join(errs))
     if fence:
         fence(output)
+    try:
+        return _check_rest(b, nid, n, output, item, seen)
+    except AnswerReject as e:
+        # 番号の欄に名前の列に無い文字列が残る返答は、どの規則の拒みにも直す材料（候補の no・対応表）を添える（pointers.hint）
+        h = pointers.hint(output, n.get("pointers"), pointer_list)
+        if h:
+            raise AnswerReject(f"{e}\n{h}") from e
+        raise
+
+
+def _check_rest(b, nid, n, output, item, seen):
+    """check_reply の名前戻しより後の鎖（扇の被覆 → 段 → post_check → effects → writes → 記録の整合）"""
     # 扇の被覆（返した答えが項目を全部覆っているか。欠けは『なし』ではない）
     remaining = None
     cover = n.get("fan_out", {}).get("cover")
@@ -1989,8 +2029,11 @@ def cmd_status(a):
         "max_rounds": st["max_rounds"], "stop_after_round": st.get("stop_after_round"), "unattended": st["unattended"],
         "halted": st.get("halted"), "stop": st.get("stop"),
         "this_round": {"done": sorted(b.rd["done"]), "na": b.rd["na"], "skipped": b.rd["skipped"], "stopped": b.rd.get("stopped", {}), "empty": b.rd["empty"],
-                       "pending_instances": [{"id": i["id"], **waiting(i)} for i in b.rd["instances"].values() if i["status"] == "pending"]},
+                       "pending_instances": [{"id": i["id"], **waiting(i),
+                                              **({"alive": _group_alive(pgid_path(i["out_path"]))} if i.get("launch_state") == "running" else {})}
+                                             for i in b.rd["instances"].values() if i["status"] == "pending"]},
         "pending_human": st.get("pending_human"), "validator": st.get("validator"),
+        "cost_usd": trace_costs(b.dir / "trace.jsonl"),
     }))
 
 
@@ -2169,6 +2212,25 @@ def cmd_intake(a):
 
 
 # ---------------------------------------------------------------- init
+def init_notices(g):
+    """init で利用者に知らせる事実（止めない）——走らせるだけの節を持つ graph なのに、対象リポジトリの宣言が無い・読めない、と、
+    Claude Code の置き場にこの run の engine より新しい版が入っている、の 2 つ"""
+    out = []
+    if any(isinstance(n.get("engine_run"), dict) for n in (g.get("nodes") or {}).values()):
+        root = repo_root()
+        decl = declared.read(root) if root else None
+        if decl is None or decl.get("error"):
+            out.append(f"対象リポジトリのルートに {declared.DECL_NAME} が" + ("無い" if decl is None else f"読めない（{decl['error']}）")
+                       + "——テスト一式と CI の節は engine が走らせず任せ先の自己申告になり、収束の前に確かめていない CI を人に聞く。"
+                         f"書式の正本は {PLUGIN_ROOT / 'engine' / 'declared.py'}")
+    newer = intake.newer_installed()
+    if newer:
+        name, ver = intake.plugin_meta()
+        out.append(f"{name} の新しい版 {newer} が入っている——この run は {ver}（{PLUGIN_ROOT}）で回る。"
+                   "新しい版で回すなら Claude Code を開き直してから init し直せ")
+    return out
+
+
 def cmd_init(a):
     graph = a.graph or str(PLUGIN_ROOT / "graphs" / f"{a.loop}.json")
     g, why = load_graph(graph)
@@ -2239,6 +2301,7 @@ def cmd_init(a):
                            f"（宣言済みの入力: {', '.join(sorted(g.get('inputs') or {}))}）" for k in ignored]
     notes += [f"--input {k}=… は rules が埋める入力（graph の inputs の by: rules）で、渡した値は上書きされる（効かない）"
               for k in rules_owned_inputs(g, given)]
+    notes += init_notices(g)
     for n in notes:
         print(f"注意: {n}", file=sys.stderr)
     d.mkdir(parents=True, exist_ok=False)

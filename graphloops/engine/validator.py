@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 
+from .intake import version_key
 from .rules import hook
 from .util import PLUGIN_ROOT, die
 
@@ -71,12 +72,7 @@ def find_plugin_path(rel, plugin, explicit=None, kind="file"):
     hits = glob.glob(str(cfg / "plugins" / "cache" / "*" / plugin / "*" / rel))
     depth = len(pathlib.Path(rel).parts)
 
-    def _ver(p):
-        # 版ディレクトリ名。数値でない部分が混ざっても TypeError で落とさない（比較できる形に揃える）
-        name = pathlib.Path(p).parents[depth - 1].name
-        return [(0, int(x)) if x.isdigit() else (1, x) for x in re.split(r"[.\-]", name)]
-
-    hits.sort(key=_ver, reverse=True)
+    hits.sort(key=lambda p: version_key(pathlib.Path(p).parents[depth - 1].name), reverse=True)   # 版ディレクトリ名の大小
     # 出所（マーケットプレイス）が複数に跨がったら選ばない——明示を求める
     origins = {pathlib.Path(h).parents[depth].parent.name for h in hits}
     if len(origins) > 1:

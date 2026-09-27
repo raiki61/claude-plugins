@@ -49,6 +49,7 @@ PLUGIN = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN))
 
 from engine import schema as schema_mod  # noqa: E402
+from engine import role_run as role_run_mod  # noqa: E402
 from engine import rules as rules_mod  # noqa: E402
 from engine import util as util_mod  # noqa: E402
 from engine import validator as validator_mod  # noqa: E402
@@ -244,7 +245,7 @@ def _read_run(d, where, verdicts, now):
     ev = collections.defaultdict(lambda: {"answers": collections.Counter(), "answer_kinds": collections.Counter(),
                                           "accepted": collections.Counter(), "reject_heads": collections.Counter(),
                                           "relaunched": 0, "launch_not_ok": collections.Counter(), "role_wall_s": 0.0})
-    sessions = {}
+    role_rows = []   # op=role_run の行（その時点の版を添える）——費用の数え方は engine の role_run.session_costs が正本
     times, bad = [], 0
     cur = first
     try:
@@ -273,10 +274,7 @@ def _read_run(d, where, verdicts, now):
                         e["reject_heads"][head_of(t.get("why"))] += 1
                     if isinstance(t.get("wall_s"), (int, float)):
                         e["role_wall_s"] += t["wall_s"]
-                    sid, cost = t.get("session_id"), t.get("total_cost_usd")
-                    if sid and isinstance(cost, (int, float)):
-                        prev = sessions.get(sid)
-                        sessions[sid] = (prev[0] if prev else cur, max(cost, prev[1] if prev else cost))
+                    role_rows.append({**t, "_version": cur})
                 elif op == "relaunched":
                     e["relaunched"] += 1
                 elif op == "launched" and t.get("ok") is False:
@@ -287,9 +285,7 @@ def _read_run(d, where, verdicts, now):
         parts.append(f"trace.jsonl（{type(e).__name__}）")
     if bad:
         parts.append(f"trace.jsonl の読めない行 {bad}")
-    cost = collections.defaultdict(float)
-    for v, c in sessions.values():
-        cost[v] += c
+    cost = role_run_mod.session_costs(role_rows, group=lambda r: r["_version"])
     row["events"] = {v: {k: (dict(x) if isinstance(x, collections.Counter) else round(x, 1) if isinstance(x, float) else x)
                          for k, x in e.items()} for v, e in ev.items()}
     row["cost_usd"] = {v: round(c, 4) for v, c in cost.items()}

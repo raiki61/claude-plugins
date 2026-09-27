@@ -175,6 +175,176 @@ def test_git_state_guard_accepts_shared_refs_moved_by_another_run_with_a_trace(r
     assert guard("again") is None and len((tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()) == 1
 
 
+# ---------------------------------------------------------------- skill の節（局所レビュー）
+def test_skill_form_reads_only_and_needs_the_sandbox(repo, tmp_path, monkeypatch):
+    perm = role_run.skill_permission(str(repo), str(tmp_path / "b"))
+    assert perm["form"] == "sandbox" and {"Skill", "Agent"} <= set(perm["tools"]) and {"Skill", "Agent"} <= set(perm["allowed_tools"])
+    assert not set(role_run.WRITE_TOOLS) & set(perm["tools"]) and "Bash" not in perm["allowed_tools"]
+    assert os.path.realpath(repo) in json.loads(perm["settings"])["sandbox"]["filesystem"]["denyWrite"]   # /simplify も書けない
+    monkeypatch.setattr(role_run, "sandbox_available", lambda: False)
+    assert role_run.skill_permission(str(repo), str(tmp_path / "b")) is None   # 立たない場は会話に返す
+
+
+def _skill_board(tmp_path, repo, lens_def):
+    graph = load_graph(GRAPH)[0]
+    b = types.SimpleNamespace(graph=graph, dir=tmp_path / "b", state={"engine_runners": {"at": "t"}, "inputs": {"cwd": str(repo)}})
+    b.dir.mkdir()
+    inst = {"id": "p1.local_review", "node": "p1.local_review", "prompt_file": str(tmp_path / "p.md"), "out_path": str(tmp_path / "o.json"),
+            "skills": graph["nodes"]["p1.local_review"]["skills"]}
+    return b, inst, graph["nodes"]["p1.local_review"], lens_def
+
+
+def test_skill_node_launches_with_lens_definitions_and_falls_back_to_the_conversation(repo, tmp_path, monkeypatch):
+    b, inst, n, _ = _skill_board(tmp_path, repo, None)
+    monkeypatch.setattr(advance, "agent_def", lambda t: {"body": f"{t} の本文", "tools": ["Read"]})
+    spec = advance.runner_launch_spec(b, inst, n)
+    assert spec["skill"] is True and spec["on_fail"] == "handoff" and spec["edits"] is False and "Agent" in spec["tools"]
+    role = pathlib.Path(spec["argv"][spec["argv"].index("--append-system-prompt-file") + 1]).read_text(encoding="utf-8")
+    lenses = [e["skill"] for e in n["skills"] if ":" in e["skill"]]
+    assert lenses and all(f"- {x}: " in role for x in lenses) and "general-purpose" in role
+    written = sorted(p.read_text(encoding="utf-8") for p in (b.dir / "roles").glob("*.lens.txt"))
+    assert written == sorted(f"{x} の本文" for x in lenses)                   # 子が Read で読む定義の写し
+    monkeypatch.setattr(advance, "agent_def", lambda t: None)                 # レンズの定義が無い環境
+    inst2 = dict(inst)
+    assert advance.runner_launch_spec(b, inst2, n) is None and "定義がこの環境に無い" in inst2["runner_unlaunched"]
+    monkeypatch.setattr(role_run, "sandbox_available", lambda: False)         # sandbox が立たない場
+    inst3 = dict(inst)
+    assert advance.runner_launch_spec(b, inst3, n) is None and "sandbox" in inst3["runner_unlaunched"]
+
+
+def test_skill_refusal_rebuilds_the_skill_form(repo, tmp_path, monkeypatch):
+    stdin = tmp_path / "p.md"
+    stdin.write_text("x")
+    b, inst, n, _ = _skill_board(tmp_path, repo, None)
+    monkeypatch.setattr(advance, "agent_def", lambda t: {"body": "本文", "tools": ["Read"]})
+    spec = {**advance.runner_launch_spec(b, inst, n), "stdin": str(stdin)}
+    assert commands.launch_refusal({"launch": spec}, cwd=str(repo), board_dir=b.dir) is None
+    assert "道具" in commands.launch_refusal({"launch": {**spec, "tools": spec["tools"] + ["Edit"]}}, cwd=str(repo), board_dir=b.dir)
+    assert "縛れない" in commands.launch_refusal({"launch": {**spec, "edits": True}}, cwd=str(repo), board_dir=b.dir)
+    widened = _swap("--allowedTools", lambda v: v + ",Edit")(spec["argv"])
+    assert "--allowedTools" in commands.launch_refusal({"launch": {**spec, "argv": widened}}, cwd=str(repo), board_dir=b.dir)
+    monkeypatch.setattr(role_run, "sandbox_available", lambda: False)
+    assert "縛れない" in commands.launch_refusal({"launch": spec}, cwd=str(repo), board_dir=b.dir)
+
+
+def test_skill_child_gets_no_background_wait_ceiling(repo, tmp_path, monkeypatch):
+    """Agent を持つ子の環境に、背景の subagent の待ちの上限を外す値を渡す（人の方針: 期限を足さない）"""
+    seen = {}
+    monkeypatch.setattr(commands, "launch_refusal", lambda *a: None)
+    monkeypatch.setattr(commands, "run_role", lambda *a, **kw: (seen.update(kw), {"ok": True, "why": None, "session_id": None,
+                                                                                 "superseded": False, "runs": [], "rejections": []})[1])
+    inst = {"id": "p1.local_review", "node": "p1.local_review", "out_path": str(tmp_path / "o.json"),
+            "launch": {"kind": "runner", "skill": True, "argv": ["x"], "stdin": "x"}}
+    commands.launch_one(tmp_path, inst, 0, cwd=str(repo))
+    assert seen["env"]["CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS"] == "0"
+
+
+def test_run_role_stops_without_resuming_when_the_acceptance_hands_back(tmp_path):
+    """受け付けが HandBack を投げたら続きを頼まずに止まり、handback を返す（会話に返す）"""
+    prompt = tmp_path / "p.md"
+    prompt.write_text("x", encoding="utf-8")
+    env = json.dumps({"type": "result", "subtype": "success", "result": "{}", "session_id": "s1"})
+    argv = [sys.executable, "-c", f"print({env!r})"]
+
+    def accept(_text):
+        raise util.HandBack("起こせないレンズ")
+    got = role_run.run_role(argv, str(prompt), str(tmp_path / "o.json"), accept=accept, resume_argv=argv + ["{session_id}"], max_resumes=2)
+    assert got["handback"] is True and got["ok"] is False and len(got["runs"]) == 1 and "起こせないレンズ" in got["why"]
+
+
+# ---------------------------------------------------------------- 対象リポジトリの deny（.claude/settings.json）
+def _declare_deny(repo, text):
+    (repo / ".claude").mkdir(exist_ok=True)
+    (repo / ".claude" / "settings.json").write_text(text, encoding="utf-8")
+
+
+def test_repo_deny_is_copied_into_every_bash_form(repo, tmp_path):
+    _declare_deny(repo, json.dumps({"permissions": {"deny": ["Bash(bash tests/run.sh:*)"], "allow": ["Bash(rm:*)"]}, "hooks": {}}))
+    want = {"deny": ["Bash(bash tests/run.sh:*)"]}
+    tooled = role_run.tooled_permission(["Read", "Bash"], str(repo), str(tmp_path / "b"))
+    edit = _edit_perm(repo, tmp_path / "b")
+    skill = role_run.skill_permission(str(repo), str(tmp_path / "b"))
+    for perm in (tooled, edit, skill):
+        assert json.loads(perm["settings"])["permissions"] == want and "deny_error" not in perm   # allow・hooks は写さない
+    assert json.loads(role_run.delegate_settings(["/p"], role_run.repo_deny(str(repo))[0]))["permissions"] == want
+    assert role_run.tooled_permission(["Read"], str(repo))["settings"] == "{}"                  # Bash を持たない役には要らない
+
+
+@pytest.mark.parametrize("text", ["{壊れた", json.dumps({"permissions": {"deny": "Bash(x)"}}), json.dumps({"permissions": []})])
+def test_unreadable_repo_deny_refuses_bash_children_naming_the_file(repo, tmp_path, text, monkeypatch):
+    """宣言の deny を読めないとき、黙って落として起こさない（fail-closed）——直す 1 か所（ファイル）を名指す。回す側の節の子・任せ先・
+    Bash を持つ道具つきの役の全部で"""
+    _declare_deny(repo, text)
+    denied, why = role_run.repo_deny(str(repo))
+    assert denied is None and "settings.json" in why
+    stdin = tmp_path / "p.md"
+    stdin.write_text("x")
+    launch = _runner_launch(repo, tmp_path / "b", stdin, edits=False)
+    assert "settings.json" in (commands.launch_refusal({"launch": launch}, cwd=str(repo), board_dir=tmp_path / "b") or "")
+    got = commands._delegate_refusal({"delegate": {"model": "sonnet"}}, {"argv": ["x"], "stdin": str(stdin)}, tmp_path / "b", str(repo))
+    assert "settings.json" in (got or "")
+    monkeypatch.setattr(commands, "agent_def", lambda t: {"tools": ["Read", "Bash"], "model": "m", "effort": "e", "body": "b"})
+    tooled = {"agent_type": "p:investigator", "launch": {"kind": "tooled", "argv": ["x"], "stdin": str(stdin)}}
+    assert "settings.json" in (commands.launch_refusal(tooled, cwd=str(repo), board_dir=tmp_path / "b") or "")
+
+
+def test_settings_fence_refuses_a_different_permissions_value(repo, tmp_path):
+    _declare_deny(repo, json.dumps({"permissions": {"deny": ["Bash(bash tests/run.sh:*)"]}}))
+    stdin = tmp_path / "p.md"
+    stdin.write_text("x")
+    good = _runner_launch(repo, tmp_path / "b", stdin, edits=False)
+    assert commands.launch_refusal({"launch": good}, cwd=str(repo), board_dir=tmp_path / "b") is None
+    for perms in ({"deny": []}, {"deny": ["Bash(bash tests/run.sh:*)"], "allow": ["Bash(bash tests/run.sh:*)"]}):
+        bad = _swap("--settings", lambda v: json.dumps({**json.loads(v), "permissions": perms}))(good["argv"])
+        assert "permissions" in (commands.launch_refusal({"launch": {**good, "argv": bad}}, cwd=str(repo), board_dir=tmp_path / "b") or "")
+    dropped = _swap("--settings", lambda v: json.dumps({k: x for k, x in json.loads(v).items() if k != "permissions"}))(good["argv"])
+    assert "キー" in (commands.launch_refusal({"launch": {**good, "argv": dropped}}, cwd=str(repo), board_dir=tmp_path / "b") or "")
+
+
+def test_tooled_roles_keep_a_bare_read_for_board_files_outside_the_tree(repo, tmp_path):
+    """盤面は linked worktree の .git/worktrees の下（作業ディレクトリの外）に在りうる——Read は置き場を縛らずに許す"""
+    for tools in (["Read", "Grep"], ["Read", "Glob", "Grep", "Bash"]):
+        assert "Read" in role_run.tooled_permission(tools, str(repo), str(tmp_path / "b"))["allowed_tools"]
+
+
+# ---------------------------------------------------------------- 見える化（status・run の報告）
+def test_trace_costs_take_each_conversation_max_and_say_what_they_count(tmp_path):
+    rows = [{"op": "role_run", "node": "p3.fix", "session_id": "s1", "total_cost_usd": 0.5},
+            {"op": "role_run", "node": "p3.fix", "session_id": "s1", "total_cost_usd": 0.8},   # 続きの往復（会話の累計）
+            {"op": "role_run", "node": "p2.diagnose", "session_id": "s2", "total_cost_usd": 0.25},
+            {"op": "launched", "node": "p3.fix", "session_id": "s3", "total_cost_usd": 9}]
+    (tmp_path / "trace.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n書きかけ", encoding="utf-8")
+    got = role_run.trace_costs(tmp_path / "trace.jsonl")
+    assert got["usd"] == 1.05 and got["by_node"] == {"p2.diagnose": 0.25, "p3.fix": 0.8} and "会話そのもの" in got["what"]
+    assert role_run.trace_costs(tmp_path / "none.jsonl") is None
+
+
+def test_waiting_shows_the_time_since_launch_only_for_running_children():
+    inst = {"emitted_at": util.now(), "attempts": 2, "launched_at": util.now(), "launch_state": "running"}
+    assert util.waiting(inst) == {"elapsed_min": 0, "attempts": 2, "launched_min": 0}
+    assert "launched_min" not in util.waiting({**inst, "launch_state": "ended"})
+
+
+# ---------------------------------------------------------------- 子の形ごとの段（launch.append）
+@pytest.mark.parametrize("runner_node,tools,want", [
+    pytest.param(True, None, ["../prompts/policy-path.md", "../prompts/review-loop/test-scope.md", "../prompts/board-files.md"], id="runner"),
+    pytest.param(False, ["Read", "Grep", "Bash"], ["../prompts/policy-path.md", "../prompts/review-loop/test-scope.md",
+                                                   "../prompts/board-files.md"], id="bash-role"),
+    pytest.param(False, ["Read", "Grep"], ["../prompts/board-files.md"], id="reading-role"),
+    pytest.param(False, [], [], id="isolated-role"),
+])
+def test_launch_appends_follow_the_child_shape(runner_node, tools, want):
+    b = types.SimpleNamespace(graph=load_graph(GRAPH)[0])
+    role = None if tools is None else {"tools": tools}
+    got = advance.launch_appends(b, {}, role, runner_node)
+    assert [f for seg in got for f in seg["files"]] == want
+    assert "inputs.request" not in [r for seg in got for r in seg["reads"]]   # 依頼の本文は段で配らない（人の関所の条件 4）
+    if want:
+        dup = advance.launch_appends(b, {"prompt_append": ["../prompts/policy-path.md"]}, role, runner_node)
+        assert "../prompts/policy-path.md" not in [f for seg in dup for f in seg["files"]]   # 節の prompt_append に在れば足さない
+    assert advance.launch_appends(b, {}, None, False) == []                   # 定義の読めない役（道具が分からない）
+
+
 # ---------------------------------------------------------------- 狭める形（comment-analyzer）
 WIDE = {"file": "x.md", "tools": ["*"], "model": "inherit", "effort": None, "body": "役の本文"}
 NARROW = {"tools": ["Read", "Glob", "Grep", "Bash"], "model": "sonnet", "effort": "high"}
@@ -234,10 +404,51 @@ def test_recover_relaunches_a_tree_editing_child_only_if_untouched_and_once(tmp_
 def test_classify_names_why_each_node_is_handed_back():
     st = {"status": "running", "round": 1, "rounds": [{"round": 1, "instances": {
         "lane": {"id": "lane", "status": "pending", "launch": {"kind": "delegate", "background": True}},
-        "p1.local_review": {"id": "p1.local_review", "status": "pending"},
+        "p0.base": {"id": "p0.base", "status": "pending"},
+        "p1.local_review": {"id": "p1.local_review", "status": "pending", "launch": {"kind": "runner", "skill": True, "on_fail": "handoff"},
+                            "launch_state": "ended", "attempt_log": [{"kind": "handback", "reason": "会話に返す: 起こせないレンズ"}]},
         "p3.fix": {"id": "p3.fix", "status": "pending", "runner_unlaunched": "sandbox が立たない"}}}]}
-    why = {i["id"]: i["handoff_why"] for i in runner.classify(st)["handoff"]}
-    assert "背景の任せ先" in why["lane"] and "skill" in why["p1.local_review"] and why["p3.fix"] == "sandbox が立たない"
+    c = runner.classify(st)
+    why = {i["id"]: i["handoff_why"] for i in c["handoff"]}
+    assert "背景の任せ先" in why["lane"] and "--engine-runners" in why["p0.base"] and why["p3.fix"] == "sandbox が立たない"
+    assert "起こせないレンズ" in why["p1.local_review"] and c["needs_human"] == []   # 子が届かなかった skill の節は人でなく会話へ
+
+
+def test_classify_hands_an_ended_child_to_a_human_unless_it_falls_back_to_the_conversation():
+    """起こして終わったのに受け付けていない試行の振り分けは classify の 1 か所: launch.on_fail が handoff なら会話、ほかは人"""
+    ended = {"status": "pending", "launch_state": "ended", "attempt_log": [{"kind": "rejected", "reason": "拒みが続いた"}]}
+    st = {"status": "running", "round": 1, "rounds": [{"round": 1, "instances": {
+        "p3.fix": {"id": "p3.fix", **ended, "launch": {"kind": "runner", "edits": True}},
+        "p1.local_review": {"id": "p1.local_review", **ended, "launch": {"kind": "runner", "skill": True, "on_fail": "handoff"}}}}]}
+    c = runner.classify(st)
+    assert c["kind"] == "handoff" and [i["id"] for i in c["handoff"]] == ["p1.local_review"]
+    assert c["needs_human"] == [{"id": "p3.fix", "why": "拒みが続いた"}]
+
+
+def test_classify_leaves_lanes_with_a_receipt_to_the_runner():
+    """受領の形（launch.receipt）を持つ背景の線は会話に返さず、回し手が立てる（busy）"""
+    lane = {"id": "lane", "status": "pending", "launch": {"kind": "delegate", "background": True, "receipt": {"lane": "/r.json"}}}
+    c = runner.classify({"status": "running", "round": 1, "rounds": [{"round": 1, "instances": {"lane": lane}}]})
+    assert c["kind"] == "busy" and c["handoff"] == [] and [i["id"] for i in c["lanes"]] == ["lane"]
+
+
+def test_start_lane_dones_the_receipt_then_detaches_the_launch(tmp_path, monkeypatch):
+    got, spawned = [], []
+    monkeypatch.setattr(runner, "_cli", lambda d, *a: (got.append(a), (0, "", ""))[1])
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda argv, **kw: (spawned.append((argv, kw)), types.SimpleNamespace(pid=7))[1])
+    inst = {"id": "p3.delta_gates", "out_path": str(tmp_path / "o.json"), "launch": {"receipt": {"lane": "/r.json"}}}
+    assert runner._Runner(tmp_path).start_lane(inst) is None
+    assert json.loads((tmp_path / "o.json").read_text(encoding="utf-8")) == {"lane": "/r.json"} and got == [("done", "--node", "p3.delta_gates")]
+    argv, kw = spawned[0]
+    assert argv[-5:] == ["launch", "--node", "p3.delta_gates", "--dir", str(tmp_path)] and kw["stdin"] == subprocess.DEVNULL
+    assert "lane" in (tmp_path / "trace.jsonl").read_text(encoding="utf-8")
+
+
+def test_start_lane_does_not_launch_when_the_receipt_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "_cli", lambda d, *a: (1, "", "受領が違う"))
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **kw: pytest.fail("受領が拒まれたのに線を立てた"))
+    inst = {"id": "p3.delta_gates", "out_path": str(tmp_path / "o.json"), "launch": {"receipt": {"lane": "/r.json"}}}
+    assert "受領が違う" in runner._Runner(tmp_path).start_lane(inst)
 
 
 def _touched_prev(repo, tmp_path, monkeypatch, order):

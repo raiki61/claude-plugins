@@ -185,6 +185,7 @@
     "../prompts/policy-path.md",
     "../prompts/policy.md",
     "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
   },
@@ -239,6 +240,7 @@
     "../prompts/policy-path.md",
     "../prompts/policy.md",
     "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
   },

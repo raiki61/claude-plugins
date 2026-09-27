@@ -23,6 +23,12 @@ class AnswerReject(Reject):
     作業ツリーが変わった・前段が済んでいない）は役に返しても直らないので、続きを頼まずに回す側へ上げる。"""
 
 
+class HandBack(Exception):
+    """engine が起こした子の返答を受け付けずに、節を会話に返す（rules の受け付けが投げる）。子の環境で起こせない物があった返答で、
+    子に続きを頼んでも直らず、人の答えも要らない——会話が自分でこなせば済む（Reject・AnswerReject の派生にしない: 役に返す拒みに
+    読み替えられない）。会話が done で返した返答には投げない"""
+
+
 class BoardConflict(SystemExit):
     """盤面を読んだ後に別のプロセスが盤面を進めていた（Board.save）。die と同じく exit 2 で終わる。別の型にしたのは、
     読み直して当て直してよい失敗（版の衝突）を、ほかの die（記録の書き込みの失敗など）と見分けるため（commands._board_update・
@@ -42,10 +48,13 @@ def now():
 
 
 def waiting(inst):
-    """待っている instance の経過と試行の回数——{elapsed_min, attempts}。**その場で計算し、盤面には書かない**"""
+    """待っている instance の経過と試行の回数——{elapsed_min, attempts}。engine が起こして走っている試行は、起こしてからの経過
+    （launched_min）も足す（子の出力は終わりに 1 回なので、最後の出力からの経過は測れない——止めずに見せるだけ）。
+    **その場で計算し、盤面には書かない**"""
     t = datetime.datetime.fromisoformat(now())
-    return {"elapsed_min": int((t - datetime.datetime.fromisoformat(inst["emitted_at"])).total_seconds() // 60),
-            "attempts": inst.get("attempts", 1)}
+    mins = lambda at: int((t - datetime.datetime.fromisoformat(at)).total_seconds() // 60)   # noqa: E731
+    return {"elapsed_min": mins(inst["emitted_at"]), "attempts": inst.get("attempts", 1),
+            **({"launched_min": mins(inst["launched_at"])} if inst.get("launched_at") and inst.get("launch_state") == "running" else {})}
 
 
 def sha(text):

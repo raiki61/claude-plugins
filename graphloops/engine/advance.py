@@ -9,7 +9,8 @@ from .rules import hook, registry
 from .schema import graph_text, validate_schema
 from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, die, dump, get_path, note_unevaluable, now, protected_paths, read_json, repo_root,
                    safe_name, sha, write_json)
-from .role_run import DELEGATE_TOOLS, RUNNER_READ_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path, read_rule, runner_permission, tooled_permission
+from .role_run import (COMMAND_TOOLS, DELEGATE_TOOLS, RUNNER_READ_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path, read_rule,
+                       repo_deny, runner_permission, skill_permission, tooled_permission)
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -209,11 +210,12 @@ def delegate_launch_spec(b, inst, n, ctx):
     role_file.write_text(spec.get("preamble") or "", encoding="utf-8")
     mode, allowed = delegate_permission()
     protected = protected_paths([b.dir])
+    denied, _bad = repo_deny(launch_cwd(b))   # 読めない宣言は柵（commands._delegate_refusal）が起こす瞬間に拒む
     sub = dict.fromkeys(LAUNCH_HOLES, "")
     sub.update(model=delegate.get("model") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
                out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
                tools=",".join(DELEGATE_TOOLS), allowed_tools=",".join(allowed), permission_mode=mode,
-               settings=delegate_settings(protected or []))
+               settings=delegate_settings(protected or [], denied or ()))
     import shutil  # 起こす節でだけ要る
     via = [a.format(**sub) for a in (spec.get("via") or [])]
 
@@ -238,31 +240,79 @@ def delegate_launch_spec(b, inst, n, ctx):
         except (KeyError, TypeError):
             die(f"{inst['id']}: delegate.result_to {delegate.get('result_to')!r} がこの節の材料から引けない（graph を直せ）")
         launch["background"] = True
+        if isinstance(delegate.get("receipt"), dict):
+            # 受領の形（graph の delegate.receipt）の {result_path} を埋めた返答——回し手が置き場に書いて done し、線を切り離して立てる
+            # （runner._Runner.start_lane）。受領を持たない旧い盤面の背景の節は、今どおり会話に返る
+            launch["receipt"] = fill_receipt(delegate["receipt"], launch["result_path"])
     return launch
+
+
+def fill_receipt(template, result_path):
+    """受領の形の文字列の値の {result_path} を埋めた写し（入れ子の辞書と配列も辿る）"""
+    if isinstance(template, dict):
+        return {k: fill_receipt(v, result_path) for k, v in template.items()}
+    if isinstance(template, list):
+        return [fill_receipt(v, result_path) for v in template]
+    return template.replace("{result_path}", result_path) if isinstance(template, str) else template
+
+
+def lens_files(b, inst):
+    """skill の子に渡すレンズの定義——プラグインの agent（名前が <plugin>:<役>）のレンズごとに、定義の本文を盤面の roles/ に写した置き場。
+    子はプラグインを読まない（--setting-sources ""）ので agent を名前で起こせず、Agent の汎用の子に定義を読ませて起こす（--plugin-dir で
+    プラグインごと読ませる形は採らない——hooks・mcpServers・settings.json・bin/ など argv の柵の外で子を変える部品まで入る）。
+    ({名前: 置き場}, 起こせない理由)"""
+    out = {}
+    for e in inst.get("skills") or []:
+        name = e.get("skill") if isinstance(e, dict) else e
+        if not isinstance(name, str) or ":" not in name:
+            continue
+        d = agent_def(name)
+        if d is None:
+            return None, f"レンズ {name} の定義がこの環境に無い（別 plugin）"
+        f = b.dir / "roles" / (safe_name(name) + ".lens.txt")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(d["body"], encoding="utf-8")
+        out[name] = str(f)
+    return out, None
 
 
 def runner_launch_spec(b, inst, n):
     """回す側の節（graph の runners の節）を engine の中で起こす語。起こさないなら None（会話に返す）。
 
-    起こすのは init --engine-runners の run で、graph が launch.runner を宣言し、節が任せ先・skill・走らせるだけの宣言を持たない
-    ときだけ。節が作業ツリーを書き換えるか（graph の launch.runner.edits に名がある）で権限の形が分かれる（role_run.runner_permission）。
+    起こすのは init --engine-runners の run で、graph が launch.runner を宣言し、節が任せ先・走らせるだけの宣言を持たないときだけ。
+    節が作業ツリーを書き換えるか（graph の launch.runner.edits に名がある）で権限の形が分かれる（role_run.runner_permission）。
+    skill を持つ節（局所レビュー）は Skill と Agent を持つ読むだけの子（role_run.skill_permission。sandbox の形だけ）で起こし、前置きに
+    graph の launch.runner.skill_preamble とレンズの定義の置き場（lens_files）を足す。子が受け付けまで届かなければ会話に返す
+    （on_fail: handoff。runner.classify）——子で起こせないレンズが在っても、会話は今までどおり自分で起こせる。
     子は盤面の inputs.cwd（本物の作業ツリー）で起こし、修正は会話の writer と同じくそこに入る——作業ツリーの前後の突合と修正の
     前後の数え方はそのまま効く。書けない形（sandbox が立たない・守る場所が引けない）は理由を instance の runner_unlaunched に残して
     会話に返す。権限の値は engine が決め、graph は語の並び・前置きの文・モデルと effort だけを持つ（launch.delegate と同じ線）"""
     spec = b.graph.get("launch", {}).get("runner")
-    if not spec or not b.state.get("engine_runners") or n.get("delegate") or n.get("skills") or n.get("engine_run"):
+    if not spec or not b.state.get("engine_runners") or n.get("delegate") or n.get("engine_run"):
         return None
-    edits = inst["node"] in (spec.get("edits") or [])
+    skill = bool(n.get("skills"))
+    edits = not skill and inst["node"] in (spec.get("edits") or [])
     cwd = launch_cwd(b)
-    perm = runner_permission(edits, cwd, b.dir, protected_paths([b.dir]) if edits else None, repo_root() if edits else None)
-    if perm is None:
-        inst["runner_unlaunched"] = ("作業ツリーを書き換える子を縛れない（sandbox が立たない・守る場所が引けない・作業ツリーの根が別の"
-                                     "作業ツリーの下に在る）——会話に返す")
-        return None
     rdir = b.dir / "roles"
     rdir.mkdir(parents=True, exist_ok=True)
-    role_file = rdir / "runner.txt"
-    role_file.write_text(spec.get("preamble") or "", encoding="utf-8")
+    preamble = spec.get("preamble") or ""
+    if skill:
+        perm = skill_permission(cwd, b.dir)
+        lenses, why = lens_files(b, inst) if perm else (None, "sandbox が立たない")
+        if why:
+            inst["runner_unlaunched"] = f"skill の節を子で起こせない（{why}）——会話に返す"
+            return None
+        preamble += spec.get("skill_preamble") or ""
+        if lenses:
+            preamble += "\nレンズの定義の置き場（Agent の子に Read で読ませる）:\n" + "".join(f"- {k}: {v}\n" for k, v in lenses.items())
+    else:
+        perm = runner_permission(edits, cwd, b.dir, protected_paths([b.dir]) if edits else None, repo_root() if edits else None)
+        if perm is None:
+            inst["runner_unlaunched"] = ("作業ツリーを書き換える子を縛れない（sandbox が立たない・守る場所が引けない・作業ツリーの根が別の"
+                                         "作業ツリーの下に在る）——会話に返す")
+            return None
+    role_file = rdir / ("skill.txt" if skill else "runner.txt")
+    role_file.write_text(preamble, encoding="utf-8")
     sub = dict.fromkeys(LAUNCH_HOLES, "")
     sub.update(model=spec.get("model") or "", effort=spec.get("effort") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
                out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
@@ -281,9 +331,27 @@ def runner_launch_spec(b, inst, n):
               "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None,
               "tools": perm["tools"], "form": perm["form"], "edits": edits,
               "model": spec.get("model") or "", "effort": spec.get("effort") or ""}
+    if skill:
+        launch.update(skill=True, on_fail="handoff")
     if not found:
         launch["missing"] = argv[len(via)]
     return launch
+
+
+APPEND_TO = ("commands", "tooled")   # graph の launch.append の段が当たる子の形（graphcheck が import して綴りを照らす）
+
+
+def launch_appends(b, n, role_def, runner):
+    """graph の launch.append の段のうち、この節の子の形に当たる物——[{files, reads}]。**節の名前を見ずに、子の形で決める唯一の口**。
+    節ごとの prompt_append に方針の段を足していたとき、覆いは足した 4 節だけで、任せ先・道具つきの役には届かなかった（2026-09-27）。
+      commands: コマンドを走らせる子——回す側の節の全部（会話・子・任せ先）と、役の定義（狭めた後）の道具に Bash を持つ役
+      tooled:   道具を持つ子——回す側の節の全部と、道具ゼロでない役
+    役の定義が読めない役（別 plugin が入っていない）には当てない（道具が分からない）。節の prompt_append に既に在るファイルは足さない"""
+    tools = [] if runner else (role_def or {}).get("tools") or []
+    hit = {"commands": runner or any(t in COMMAND_TOOLS or t == "*" for t in tools), "tooled": runner or bool(tools)}
+    have = set(n.get("prompt_append") or [])
+    return [{"files": [f for f in seg.get("files") or [] if f not in have], "reads": list(seg.get("reads") or [])}
+            for seg in (b.graph.get("launch") or {}).get("append") or [] if hit.get(seg.get("to"))]
 
 
 def slim_item(item):
@@ -472,7 +540,15 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
     # 遮断系は deliver_mode が paste を返す（道具ゼロなので path_tools を持たない）ため切られる側に回る
     # ——最初にこの 3 つ目を落として台本が 2 件赤くなった（実測 2026-09-13: 45,118 バイトの本文が切られた）
     snap, offsets = pointers.snapshot(ctx, n.get("pointers"))
-    r = Renderer(ctx, n.get("reads"), ref=b.ref,
+    reads = n.get("reads")
+    for seg in launch_appends(b, n, role_def, runner):
+        try:
+            tpl += "".join("\n" + (pathlib.Path(b.state["graph"]).parent / f).read_text(encoding="utf-8") for f in seg["files"])
+        except OSError as e:
+            die(f"{nid}: launch.append のファイルが読めない: {e}")
+        if reads is not None:
+            reads = list(reads) + [x for x in seg["reads"] if x not in reads]
+    r = Renderer(ctx, reads, ref=b.ref,
                  cap=None if (runner or launchable or deliver == "path") else FILE_CAP, numbered=offsets)
     try:
         prompt = r.render(tpl)

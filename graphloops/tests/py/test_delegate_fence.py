@@ -159,7 +159,7 @@ def test_run_role_without_deadline_waits_to_the_end(tmp_path):
 
 def _delegate_board(tmp_path, graph):
     import types
-    return types.SimpleNamespace(graph=graph, dir=tmp_path / "board")
+    return types.SimpleNamespace(graph=graph, dir=tmp_path / "board", state={})
 
 
 def test_delegate_launch_spec_needs_the_graph_words(tmp_path):
@@ -188,7 +188,7 @@ def test_delegate_launch_spec_resolves_claude_on_path(repo, tmp_path, monkeypatc
 def _board(tmp_path, launch):
     import types
     g = {"launch": {"delegate": launch}} if launch is not None else {"launch": {}}
-    return types.SimpleNamespace(graph=g, dir=tmp_path / "board")
+    return types.SimpleNamespace(graph=g, dir=tmp_path / "board", state={})   # 盤面の state（inputs.cwd が無ければ呼んだ場所で起こす）
 
 
 def _inst(tmp_path):
@@ -239,9 +239,12 @@ def test_delegate_launch_spec_background_needs_a_result_place(repo, tmp_path):
     spec = {"argv": [sys.executable]}
     n = {"delegate": {"background": True, "result_to": "loop.lane.result"}}
     got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), n, {"loop": {"lane": {"result": "/r.json"}}})
-    assert got["background"] is True and got["result_path"] == "/r.json"
+    assert got["background"] is True and got["result_path"] == "/r.json" and "receipt" not in got   # 受領の形の無い旧い graph
     with pytest.raises(SystemExit):
         advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), n, {"loop": {}})
+    n["delegate"]["receipt"] = {"lane": "{result_path}", "rows": ["{result_path}", 1]}
+    got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), n, {"loop": {"lane": {"result": "/r.json"}}})
+    assert got["receipt"] == {"lane": "/r.json", "rows": ["/r.json", 1]}   # 回し手がそのまま done する受領
 
 
 def test_delegate_refusal_without_stdin(repo, tmp_path):

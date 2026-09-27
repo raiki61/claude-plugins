@@ -58,6 +58,24 @@ def _installed(root):
     return None
 
 
+def version_key(name):
+    """版の名前（数値でない部分が混ざってもよい）を大小で並べられる形——キャッシュの版選び（validator.find_plugin_path）と同じ並べ方"""
+    return [(0, int(x)) if x.isdigit() else (1, x) for x in re.split(r"[.\-]", name)]
+
+
+@quiet
+def newer_installed(root=PLUGIN_ROOT):
+    """root が Claude Code の入れた置き場なら、同じ plugin の置き場に並ぶ版のうち root より新しい物の最大（無ければ None）。
+    checkout から走る回（--plugin-dir を含む）と、読めない回も None——止めずに知らせるだけの材料"""
+    if not _installed(root):
+        return None
+    cur = plugin_meta(root)[1]
+    here = pathlib.Path(root).resolve()
+    vers = [v for v in (plugin_meta(p)[1] for p in here.parent.iterdir() if p.is_dir() and p != here) if v]
+    best = max(vers, key=version_key, default=None)
+    return best if cur and best and version_key(best) > version_key(cur) else None
+
+
 def data_dir(given=None):
     """残す置き場。明示の値 → 環境変数 CLAUDE_PLUGIN_DATA → 入れた置き場から Claude Code と同じ規則で導く。
 
