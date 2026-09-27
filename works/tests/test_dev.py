@@ -608,6 +608,43 @@ class TestDevShell(unittest.TestCase):
                     self.assertEqual(len(notes), 1, result.stdout)
                     self.assertIn(".archon/", notes[0])
 
+    def test_dogfood_next_commands_carry_keychain_item(self):
+        """README どおり WORKS_KEYCHAIN_ITEM を 1 コマンドの前置で渡して起こしたら、出た承認・拒否・続きの行は
+        項目名を cd の後・sh の直前に載せ、認証の変数を export していない殻でそのまま打って Archon に認証が届くこと。"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                               CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_KEYCHAIN_ITEM="item for test")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = {verb: [l for l in result.stdout.splitlines() if f"workflow {verb} run-1" in l]
+                     for verb in ("approve", "reject", "resume")}
+            for verb, found in lines.items():
+                with self.subTest(verb):
+                    self.assertEqual(len(found), 1, result.stdout)
+                    self.assertRegex(found[0], r"&& WORKS_KEYCHAIN_ITEM='item for test' [^&]* sh ")
+            self.assertNotIn("export", result.stdout)
+            # 出た行を、認証の変数の無い殻で打つ。偽の Archon は届いた項目名と cwd を書く
+            (tmp / "fake-archon.sh").write_text(
+                '#!/bin/sh\nprintf "%s|%s|%s\\n" "${WORKS_KEYCHAIN_ITEM:-}" "$(pwd -P)" "$*"\n')
+            cmd = lines["approve"][0].split(": ", 1)[1]
+            ran = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, env=self._env())
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            self.assertEqual(ran.stdout.strip(),
+                             f"item for test|{(tmp / 'dog' / 'repo').resolve()}|workflow approve run-1")
+
+    def test_dogfood_token_only_names_variable_without_value(self):
+        """トークンだけで起こしたら、値は出さずに CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つよう案内すること。"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            notes = [l for l in result.stdout.splitlines() if l.startswith("認証:")]
+            self.assertEqual(len(notes), 1, result.stdout)
+            self.assertIn("CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つ", notes[0])
+            self.assertNotIn("WORKS_KEYCHAIN_ITEM=", result.stdout.replace("WORKS_KEYCHAIN_ITEM=<項目名>", ""))
+
     def test_dogfood_refuses_used_dir(self):
         """<dir> に前の回の clone か依頼が在れば、何も書かずに 1 行で止まる（前の回の依頼を上書きしない）。"""
         for used in ("repo", "request.json", "origin.git"):
