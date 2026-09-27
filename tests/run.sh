@@ -1669,13 +1669,23 @@ def _bad_version(d):
 assert _bad_version({}) and _bad_version({"version": ""}) and _bad_version({"version": "1.2"}) \
     and _bad_version({"version": "v1.2.3"}), "版の柵が、宣言の欠けや形の違いを拾えていない"
 assert _bad_version({"version": "0.15.0"}) is None, "版の柵が、正しい宣言まで拾っている"
-for sub in sorted(p2.parent.parent for p2 in root.glob("*/.claude-plugin/plugin.json")):
+# **配る plugin の一覧は marketplace.json の plugins[] から導く。** `*/.claude-plugin` の glob だけでは、根が ./ の
+# plugin（リポジトリのルート）が網から落ちる。glob の列挙も残し、一覧に無い置き場も今どおり照らす。
+_dist = {}
+for p in mk["plugins"]:
+    src = p.get("source")
+    assert isinstance(src, str) and src.startswith("./"), \
+        f"marketplace.json の {p.get('name')} の source が ./ で始まる置き場でない: {src!r}（検査は手元の置き場だけを照らせる）"
+    _dist[p["name"]] = (root/src).resolve()
+for sub in sorted({*_dist.values(), *(p2.parent.parent.resolve() for p2 in root.glob("*/.claude-plugin/plugin.json"))}):
+    _pj = (sub/".claude-plugin/plugin.json").relative_to(root.resolve()).as_posix()
     d = json.loads((sub/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
     why = _bad_version(d)
-    assert why is None, f"{sub.name}/.claude-plugin/plugin.json: {why}"
+    assert why is None, f"{_pj}: {why}"
 
-# **graphloops の今の版は、変更の記録に見出しを持つ。** 版を上げて記録を書き忘れると、利用者が手元の版の番号から
-# 中身へ辿れない（手順は docs/releasing.md）。射程は見出しが在ることまで——中身が Unreleased に残った形は見ない。
+# **配る plugin の今の版は、それぞれの根の変更の記録（CHANGELOG.md）に見出しを持つ。** 版を上げて記録を書き忘れると、
+# 利用者が手元の版の番号から中身へ辿れない（手順は docs/releasing.md）。射程は見出しが在ることまで——中身が Unreleased
+# に残った形は見ない。
 def _changelog_gap(version, text):
     """版 version の見出しが記録の本文 text に無い理由（在れば None）。ファイルが無いときは空の本文を渡す。"""
     if not _re.search(rf"^## \[{_re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}(?: \[YANKED\])?[ \t]*$", text, _re.M):
@@ -1688,10 +1698,14 @@ assert _changelog_gap("0.2.0", "") and _changelog_gap("0.2.0", "## [0.2.0]\n") \
 assert _changelog_gap("0.2.0", "# t\n\n## [Unreleased]\n\n## [0.2.0] - 2026-01-01\n") is None \
     and _changelog_gap("0.2.0", "## [0.2.0] - 2026-01-01 [YANKED]\n") is None, \
     "記録の見出しの柵が、正しい見出しまで拾っている"
-_cl = root/"graphloops/CHANGELOG.md"
-why = _changelog_gap(json.loads((root/"graphloops/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"],
-                     _cl.read_text(encoding="utf-8") if _cl.is_file() else "")
-assert why is None, f"graphloops/CHANGELOG.md: {why}（版を上げた commit で見出しを足す。手順は docs/releasing.md）"
+for name, sub in sorted(_dist.items()):
+    d = json.loads((sub/".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+    assert d.get("name") == name, \
+        f"marketplace.json の {name} の source が指す plugin.json の name が {d.get('name')!r}（記録と tag の名前を取り違える）"
+    _cl = sub/"CHANGELOG.md"
+    why = _changelog_gap(d["version"], _cl.read_text(encoding="utf-8") if _cl.is_file() else "")
+    assert why is None, \
+        f"{_cl.relative_to(root.resolve()).as_posix()}（{name}）: {why}（版を上げた commit で見出しを足す。手順は docs/releasing.md）"
 
 # 局所レビューの依存は公式の宣言機構で入れる。宣言が消えると pr-review-toolkit が
 # 入らないまま「欠陥の観点が 1 つ静かに欠けたレビュー」が通るので、宣言の実在を検査する。

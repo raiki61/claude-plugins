@@ -2,7 +2,7 @@
 
 graphloops の版ごとの、利用者に効く違いを新しい順に並べる。形は [Keep a Changelog 1.1.0](https://keepachangelog.com/ja/1.1.0/) に従い、版の番号は [Semantic Versioning](https://semver.org/lang/ja/) の形（x.y.z）で振る。節は Added（足した）・Changed（変えた）・Deprecated（やめる予定）・Removed（消した）・Fixed（直した）・Security（安全の直し）のうち、中身の有るものだけを使う。
 
-版を名指しする git の tag の名前は `graphloops--v<版>`（例: `graphloops--v0.21.1`）の形と決めてあり、その版を上げた commit に人が付ける。どの版に tag が在るかは、リポジトリの tag の一覧（GitHub の tags か `git ls-remote --tags origin`）で確かめる。tag の付け方と、この記録を書き足す段は、リポジトリのルートの `docs/releasing.md` に在る（プラグインとして入れた実体には無いので、clone か GitHub で見る: https://github.com/raiki61/claude-plugins/blob/main/docs/releasing.md）。0.19.0 以前の版はこの記録に無い。git の履歴の「版を上げる」の commit を見る。
+版を名指しする git の tag（例: `graphloops--v0.21.1`）の名前の決まり・付け方・付ける commit の一覧への案内と、この記録を書き足す段は、リポジトリのルートの `docs/releasing.md` に在る（プラグインとして入れた実体には無いので、clone か GitHub で見る: https://github.com/raiki61/claude-plugins/blob/main/docs/releasing.md）。0.19.0 以前の版はこの記録に無い。git の履歴の「版を上げる」の commit を見る。
 
 ## [Unreleased]
 
