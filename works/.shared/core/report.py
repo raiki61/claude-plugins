@@ -38,7 +38,7 @@ if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
 import adapter  # noqa: E402
-from board import BoardGap, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
+from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
 import reads  # noqa: E402
@@ -144,7 +144,7 @@ def _stop_info(b) -> tuple:
     周を締めた盤面では b.stop が拒むので、境の節は止め（最後の関所の stop・reject、止め札）を trace の STOP_AFTER_END_OP の
     行に書く（P1 Task 26）。その最後の行を止めた事実として読む"""
     st = b.state
-    stop, halted = st.get("stop") or {}, st.get("halted") or {}
+    stop, halted = st.get("stop") or {}, _halted(b)
     if stop:
         return str(stop.get("by") or ""), str(stop.get("reason") or ""), stop
     if halted and halted.get("by") != "stop_after_round":
@@ -153,6 +153,12 @@ def _stop_info(b) -> tuple:
     if halted and ended:
         return str(ended[-1].get("by") or ""), str(ended[-1].get("reason") or ""), ended[-1]
     return "", "", {}
+
+
+def _halted(b) -> dict:
+    """盤面の止め（state.halted）。報告の節を出すために退けた周の締めの止め（DiskBoard.report_after_round が state.works に
+    移した物）も同じに読む（結末と冒頭 3 を退ける前と同じにする）"""
+    return b.state.get("halted") or (b.state.get("works") or {}).get(DiskBoard.AFTER_ROUND) or {}
 
 
 def _trace_rows(b, op: str) -> list:
@@ -174,15 +180,19 @@ def _trace_rows(b, op: str) -> list:
 # ---------------------------------------------------------------- 報告の前の関所（TA15）
 def gate_record(b) -> dict:
     """engine の cmd_finalize と同じ順: 止めていない盤面（halted が無い）は先に settle（止め札の後に待ちのまま残る報告の節を
-    片付ける。M9）→ finalize → run_validator（validator_runner の包みが効く口）。settle の RecordInvalid（報告の節を表で持つ
+    片付ける。M9）。周を締めて止めた盤面（halted.by stop_after_round）は b.report_after_round で報告の節を出す（R61 の B。
+    AI の報告を毎回回す）→ finalize → run_validator（validator_runner の包みが効く口）。settle の RecordInvalid（報告の節を表で持つ
     ラインの関所）は捕まえて、同じ検証器を下でもう 1 度回す。
     返り {exit, accepted: exit ∈ report_accepts(b), tail: 出力の末尾, traces: 記録の痕跡の欄（空でない物）,
     round_closed: 今の周に record_round と converge の機械の節が済んだか（止めた印の converge は数えない）}"""
-    if not b.state.get("halted"):
-        try:
+    halted = b.state.get("halted") or {}
+    try:
+        if halted.get("by") == "stop_after_round":
+            b.report_after_round()   # 周を締めて止めた盤面にも報告の節を出す（R61 の B。結末は _halted が退ける前と同じに読む）
+        elif not halted:
             b.settle()
-        except RecordInvalid:
-            pass
+    except RecordInvalid:
+        pass
     b.finalize()
     v = b.run_validator() or {}
     code = v.get("exit")
@@ -431,8 +441,8 @@ def head_stop(b, *, interrupted: str | None = None) -> list:
         lines.append(f"人が止めた（{by}）: {reason}")
     elif by:
         lines.append(f"機械が止めた（{by}）: {reason}。止めた所: {info.get('node') or '—'}・周 {info.get('round')}")
-    elif (b.state.get("halted") or {}).get("by") == "stop_after_round":
-        lines.append(f"止めていない（周の締めの後で止めた: {b.state['halted'].get('reason')}）")
+    elif _halted(b).get("by") == "stop_after_round":
+        lines.append(f"止めていない（周の締めの後で止めた: {_halted(b).get('reason')}）")
     elif interrupted is None:
         lines.append("止めていない")
     return lines

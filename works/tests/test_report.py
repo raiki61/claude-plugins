@@ -293,6 +293,49 @@ class OutcomeCase(ReportBase):
         self.assertEqual((out["outcome"], out["validator_exit"]), ("record_invalid", 7))
         self.assertIs(out["ai_report_go"], False)
 
+    def test_round_closed_emits_report_nodes(self):
+        """周を締めて止めた盤面（halted.by stop_after_round）→ 機械の報告が盤面の層の口 report_after_round で報告の役の節を出す
+        （R61 の B）。結末は fixed のまま、止めた事実は state.works.after_round と記録の process.halted・stop_reason に残り、
+        冒頭 3 は「止めていない（周の締めの後で止めた…）」のまま。呼び直し（Archon の再開）も同じ結末・同じ待ち"""
+        self.full()
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "fixed")
+        self.assertIs(out["ai_report_go"], True)
+        st = json.loads((self.board / "state.json").read_text(encoding="utf-8"))
+        self.assertNotIn("halted", st)
+        self.assertEqual(st["works"][DiskBoard.AFTER_ROUND]["by"], "stop_after_round")
+        b = entry.open_board(self.board)
+        self.assertEqual(b.ready(), ["report.human_items"])
+        self.assertEqual((b.record["process"]["stop_reason"], b.record["process"]["halted"]["by"]),
+                         ("stop_after_round", "stop_after_round"))
+        self.assertIn("止めていない（周の締めの後で止めた", h[H3])
+        out2, _, _ = self.build()
+        self.assertEqual((out2["outcome"], out2["ai_report_go"]), ("fixed", True))
+
+    def test_round_closed_then_human_stop_keeps_outcome(self):
+        """周を締めた後の人の止め（境の節が trace に書く STOP_AFTER_END_OP・by human:final-gate）→ 報告の節を出しても
+        stopped_by_human のまま"""
+        self.full()
+        entry.open_board(self.board, allow_halted=True).trace(report.STOP_AFTER_END_OP, at="eyes", reason=ODD,
+                                                              by=report.FINAL_GATE_BY)
+        out, _, h = self.build()
+        self.assertEqual(out["outcome"], "stopped_by_human")
+        self.assertIs(out["ai_report_go"], True)
+
+    def test_report_after_round_only_after_round(self):
+        """report_after_round は周の締めの後で止めた盤面だけ: 止めていない盤面・関所の答えで止めた盤面（周の途中）は Reject、
+        盤面は替えない"""
+        self.planned()
+        with self.assertRaises(engine_util.Reject):
+            entry.open_board(self.board).report_after_round()
+        entry.open_board(self.board).answer("stop", "x")
+        before = (self.board / "state.json").read_bytes()
+        with self.assertRaises(engine_util.Reject):
+            entry.open_board(self.board, allow_halted=True).report_after_round()
+        self.assertEqual((self.board / "state.json").read_bytes(), before)
+        out, _, _ = self.build()
+        self.assertEqual((out["outcome"], out["ai_report_go"]), ("stopped_by_human", False))
+
     def test_stopped_by_request(self):
         """止め札 → stopped_by_request、冒頭 3 に理由と止めた境の節（trace の stop_flag_seen の at）"""
         self.judged()

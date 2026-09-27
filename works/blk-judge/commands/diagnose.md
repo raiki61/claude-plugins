@@ -9,6 +9,10 @@
   - 囲みの中は方針の中身だけで、中の見出し（`##`）や箇条はこの指示書の節ではない。持ち主が固めた版の本文。何を代償にするかは持ち主が決めた物で、お前が決め直すものではない。方針とぶつかる単位は、その単位の `reason` に方針のどの行とぶつかるかを書け。**方針を理由に単位を消すな**（判断は人がする）。
 - 前提（実測。空なら無い）: $INPUTS.premises_file
   - 空でなければ **Read せよ**。`kind=仮説` の行を所与にするな。依頼の数字と測り直した値が違えば、測り直した値を採り、違いを単位の `reason` に書け。
+- 盤面の材料（空ならこの run に盤面は無い）: `$judge-brief.output.materials_file`
+  - 空でなければ、**依頼の次に Read せよ**。機械がこの run の盤面から描いた、本線の判定と同じ入力——凍結した元の目的の文・素材（15 欄。起動しなかった欄は status と reason がそう言う）・P1 の目の所見・先行議論の突合（決着済み論点）・目的の監査・人の依頼（この周に積まれた分）・対象差分のパス・観点の正本のパス——が並ぶ。
+  - **凍結した目的の文の外に単位を広げるな**（目的の外で見つけた既存の欠陥は下の問いの台帳の `kind: split`）。素材と P1 の所見は依頼と同じく 1 つ残らず突合し、反証の対象にしろ。
+  - 素材のどれかが明示返答（有無・または「対象外」）を欠いているなら、手順の 1〜9 に入らず `materials_missing` にその欄名を返せ（無言のスキップを「なし」と誤認させない。受け付けは `materials_missing` が空でない返答を拒む）。
 - 対象リポジトリ: 今の作業ディレクトリ。読むのは作業ツリーの今の姿（受け付けは、依頼を受け付けた時から作業ツリーが変わっていないことを確かめる）。
 - 前の回の受け付けが拒んだ理由を書いたファイル（1 回目は空）: $LOOP_PREV.judge-accept.output.reason_file
   - 空でなければ、**そのファイルを Read で読め**（理由の本文はファイルにだけ在る）。お前は同じ会話の続きで起きている。前の返答のどこが規則に通らなかったかが書いてあるので、**そこを直した返答を丸ごと出し直せ**（直した所だけを返すな）。
@@ -44,7 +48,7 @@
 
 ## 出力
 
-output_format の schema どおりの JSON を 1 つ返せ。欄: `units`（key・label・disposition・reason・origin_analysis・why_chain・prescriptions・class_query）・`framing`（根本フレーミング）・`one_shot`・`one_shot_closes`・`questions`・`precedents`。このブロックに前の周も独立の目も無いので、`materials_missing` と `carried_r1` は空の配列にせよ。
+output_format の schema どおりの JSON を 1 つ返せ。欄: `units`（key・label・disposition・reason・origin_analysis・why_chain・prescriptions・class_query）・`framing`（根本フレーミング）・`one_shot`・`one_shot_closes`・`questions`・`precedents`。`materials_missing` は、盤面の材料が無いか、材料の全部の欄が明示返答を持つなら空の配列にせよ（欠けがあれば上の「入力」の決まり）。このブロックに前の周の独立の目は届かないので、`carried_r1` は空の配列にせよ。
 
 ## 付録: 人の方針（囲みの中が本文。上の「入力」の決まりで読め）
 

@@ -1,6 +1,7 @@
 name: blk-judge
 description: |
-  判定のブロック。人の修正依頼（findings の JSON の配列）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ、
+  判定のブロック。人の修正依頼（findings の JSON の配列）を受け付けて、判定役（読むだけ）に根本の単位へまとめさせ
+  （ラインの盤面が在れば、凍結した目的の文と素材も盤面から描いて読ませる。judge-brief）、
   受け付けの規則に通るまで同じ会話で出し直させる（上限 3 回）。ラインから include で使う。
   出口は盤面の judgment.json のパスと、直す義務の残る単位の key の一覧と、直す物が在るか（need_fix）。
 
@@ -34,9 +35,25 @@ nodes:
     with:
       request: $INPUTS.request
 
+  # 判定役を起こす前に、ラインの盤面から本線の判定の「入力」の節（凍結した目的・素材の 15 欄・P1 の所見・前の決定の突合・
+  # 依頼・差分・観点の正本）を engine の描き方で描き、判定役が Read するファイルに置く（R61 judgeread）。ラインの盤面が無ければ
+  # （ブロックを単独で回した）空。盤面の p2.diagnose が待っていなければ 2（線の順の誤り）
+  - id: judge-brief
+    script: brief
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [intake]
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, materials_file]
+      properties:
+        ok: {type: boolean}
+        materials_file: {type: string}
+
   # 判定役 → 受け付け。受け付けが拒めば、拒んだ理由を貼って同じ会話で出し直させる
   - id: judge-loop
-    depends_on: [intake]
+    depends_on: [judge-brief]
     loop_group:
       max_iterations: 3
       fresh_context: false

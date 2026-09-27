@@ -85,12 +85,16 @@ class YamlCase(unittest.TestCase):
 
     def test_nodes_and_loop(self):
         ids = [n["id"] for n in self.y["nodes"]]
-        self.assertEqual(ids, ["intake", "judge-loop", "collect"])
+        self.assertEqual(ids, ["intake", "judge-brief", "judge-loop", "collect"])
         intake = find_node(self.y, "intake")
         self.assertEqual(intake["script"], "intake")
         self.assertEqual(intake["with"], {"request": "$INPUTS.request"})
+        brief = find_node(self.y, "judge-brief")
+        self.assertEqual((brief["script"], brief["depends_on"], brief["timeout"]), ("brief", ["intake"], DEADLINE))
+        self.assertNotIn("with", brief)   # 読むのは盤面だけ（INPUTS を読まない）
+        self.assertEqual(sorted(brief["output_format"]["required"]), ["materials_file", "ok"])
         g = find_node(self.y, "judge-loop")
-        self.assertEqual(g["depends_on"], ["intake"])
+        self.assertEqual(g["depends_on"], ["judge-brief"])
         lg = g["loop_group"]
         self.assertEqual((lg["max_iterations"], lg["fresh_context"], lg["until_bash"]),
                          (3, False, "test $judge-accept.output.ok = true"))
@@ -107,13 +111,16 @@ class YamlCase(unittest.TestCase):
 
     def test_diagnose_prompt_wires_request_and_retry_reason(self):
         text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
-        for needle in ("$INPUTS.request", "$LOOP_PREV.judge-accept.output.reason_file", "one_shot_closes", "class_query",
+        for needle in ("$INPUTS.request", "$LOOP_PREV.judge-accept.output.reason_file", "$judge-brief.output.materials_file",
+                       "materials_missing", "one_shot_closes", "class_query",
                        "precedents", "searched", "questions", "反証"):
             with self.subTest(needle):
                 self.assertIn(needle, text)
         # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す）。パスだけを貼って Read させる
         self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", text), ["$LOOP_PREV.judge-accept.output.reason_file"])
         self.assertNotIn("{{", text, "engine の穴が残っている")
+        # 素材を読む判定は、欠けた素材を materials_missing で名指す（本線の p2.diagnose と同じ。空の決め打ちにしない）
+        self.assertNotIn("`materials_missing` と `carried_r1` は空の配列にせよ", text)
 
     def test_fixtures(self):
         want = {
@@ -209,6 +216,21 @@ class ScriptCase(unittest.TestCase):
         # 判定役を起こす前の姿は共通の tree_state（HEAD・枝も持つ。R47）。役が commit すれば写しの head で見える
         self.assertEqual(json.loads((self.board / JUDGE_SNAPSHOT_FILE).read_text(encoding="utf-8")),
                          tree_state(self.repo))
+
+    # ---- brief（盤面の材料）
+    def test_brief_without_board_is_empty(self):
+        """ブロックを単独で回した（ラインの盤面 state.json が無い）なら材料のファイルは空（判定は依頼だけで回る）"""
+        self.assertEqual(self.run_script("intake", INPUTS_REQUEST="request_ok.json").returncode, 0)
+        r = self.run_script("brief")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"ok": True, "materials_file": ""})
+
+    def test_brief_missing_env(self):
+        base = {k: v for k, v in os.environ.items() if k != "ARTIFACTS_DIR"}
+        r = subprocess.run([sys.executable, str(BLK / "scripts" / "brief.py")], cwd=self.repo, env=base,
+                           capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ARTIFACTS_DIR", r.stderr)
 
     # ---- accept
     def test_accept_good_and_bad_reply(self):

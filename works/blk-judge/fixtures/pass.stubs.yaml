@@ -5,6 +5,7 @@ fixture:
   expect: completed
   reached:
   - intake
+  - judge-brief
   - judge
   - judge-accept
   - collect

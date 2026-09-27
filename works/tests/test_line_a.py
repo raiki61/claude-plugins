@@ -159,12 +159,13 @@ class EyesPurposeCase(LineBase):
         self.assertEqual(got["out"]["h-mat"]["purpose_file"], str(b.dir / b.state["outputs"]["p0.purpose"]["file"]))
 
     def test_eyes_after_final_gate(self):
-        """最後の関所の後に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。周は目の後に締まり、結末 fixed"""
+        """最後の関所の後に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。周は目の後に締まり、結末 fixed（締めた盤面にも
+        報告の節が出て AI の報告が回る。R61 の B）"""
         got = self.run_line()
         self.order_ok(got["trail"])
         t = got["trail"]
         self.assertLess(t.index("final-gate"), t.index("eyeing"))
-        self.assertEqual(t[-3:], ["eyeing", "report", "result"])
+        self.assertEqual(t[-4:], ["eyeing", "report", "reporting", "result"])
         self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-design", "r2-compare"})
         b = entry.open_board(got["board_dir"], allow_halted=True)
         for nid in ("r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare"):
@@ -238,15 +239,28 @@ class AiReportCase(LineBase):
         self.assertIs(got["out"]["report"]["ai_report_go"], True)
         self.assertEqual(got["out"]["report"]["outcome"], "stopped_by_human")
 
-    def test_round_closed_run_has_no_ai_report(self):
-        """周を締めて止めた 1 周の run（stop_after_round）→ 盤面は報告の節を出さず、reporting は回らない。最後の報告は機械の
-        report.md（本線の --stop-after-round と同じ。報告に「AI の報告は無い」が分かる）"""
+    def test_round_closed_run_gets_ai_report(self):
+        """周を締めて止めた普通の 1 周の run（stop_after_round）→ 機械の報告が盤面の層の口（report_after_round）で報告の節を
+        出し、reporting が回る（R61 の B。持ち主の裁定）。最後の報告は report-ai.md、結末は fixed のまま"""
         got = self.run_line()
-        self.assertNotIn("reporting", got["trail"])
-        self.assertIs(got["out"]["report"]["ai_report_go"], False)
-        self.assertEqual(pathlib.Path(got["report"]["report_file"]).name, "report.md")
-        self.assertIsNone(got["report"]["ai_report"])
+        self.assertEqual(got["trail"][-3:], ["report", "reporting", "result"])
+        self.assertIs(got["out"]["report"]["ai_report_go"], True)
+        rep = got["report"]
+        self.assertEqual(pathlib.Path(rep["report_file"]).name, "report-ai.md")
+        self.assertIs(rep["ai_report"]["ok"], True)
         self.assertEqual(got["outcome"], "fixed")
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        for nid in ("report.human_items", "report.cold_check", "report"):
+            self.assertEqual(b.node_state(nid), "done", nid)
+        self.assertEqual(b.state["works"]["after_round"]["by"], "stop_after_round")
+
+    def test_no_fix_run_gets_ai_report(self):
+        """直す物の無い 1 周の run も AI の報告が回り、結末は no_fix_needed のまま"""
+        r = replies(review=CLEAN_REVIEW)
+        r["judge"] = linekit.reply("judge_no_fix")
+        got = self.run_line(replies=r, edits={})
+        self.assertIn("reporting", got["trail"])
+        self.assertEqual(got["outcome"], "no_fix_needed")
 
 
 class MaterialCase(LineBase):
@@ -279,6 +293,36 @@ class MaterialCase(LineBase):
         b = entry.open_board(got["board_dir"], allow_halted=True)
         self.assertIn(b.node_state("p0.purpose_review"), ("na", "done"))
         self.assertNotIn("purpose-review", got["mat_roles"])
+
+
+class JudgeReadsCase(LineBase):
+    """判定役が目的の文と素材を読む（R61 judgeread の A。本線の p2.diagnose の reads と同じ所を盤面から描く）"""
+
+    def test_judge_brief_has_purpose_and_materials(self):
+        """判定の支度（judge-brief）が盤面から本線の判定の指示書の「入力」の節を engine の描き方で描く: 凍結した目的・素材の
+        15 欄・前の決定の突合・人の依頼・欠けた素材は materials_missing の決まり。穴も schema も残らない"""
+        got = self.run_line()
+        path = pathlib.Path(got["judge_brief"]["materials_file"])
+        self.assertTrue(path.is_file(), got["judge_brief"])
+        text = path.read_text(encoding="utf-8")
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        purpose = json.loads((b.dir / b.state["outputs"]["p0.purpose"]["file"]).read_text(encoding="utf-8"))["purpose_text"]
+        prior = json.loads((b.dir / b.state["outputs"]["p0.prior_decisions"]["file"]).read_text(encoding="utf-8"))
+        for needle in (purpose, "素材（15 欄）", "prior_decisions", prior["material"]["checked"], "先行議論の突合",
+                       linekit.reply("request_ok")[0]["text"], "materials_missing"):
+            with self.subTest(needle[:30]):
+                self.assertIn(needle, text)
+        self.assertNotIn("{{", text)
+        self.assertNotIn("JSON Schema", text)   # 返答の型は判定役の output_format（YAML）が持つ。材料に schema を貼らない
+        self.assertLess(got["trail"].index("gathering"), got["trail"].index("judging"))
+
+    def test_judge_brief_refuses_after_judged(self):
+        """盤面の p2.diagnose が待っていない（判定を盤面へ渡した後）に支度を回すのは線の順の誤り（BoardGap。黙って空にしない）"""
+        from board import BoardGap
+        got = self.run_line()
+        import judgebrief
+        with self.assertRaises(BoardGap):
+            judgebrief.brief(got["board_dir"], got["board_dir"].parent.parent / "repo")
 
 
 if __name__ == "__main__":

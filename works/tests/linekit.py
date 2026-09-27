@@ -249,6 +249,7 @@ class LineRun:
         self.board = self.tmp / "art" / "board"
         self.out, self.trail = {}, []
         self.eyes_roles = []   # blk-eyes が起こした目の役（起こした順）
+        self.judge_brief = None   # blk-judge の支度（judge-brief）の出口
         self.mat_roles = []    # blk-material が起こした役（起こした順）
 
     # -- 盤面の口
@@ -360,6 +361,11 @@ class LineRun:
         return material.collect(self.board)
 
     def blk_judge(self):
+        """blk-judge の支度（judge-brief: 盤面の材料を描く）は本物で回し、判定役の返答は replies["judge"]"""
+        if str(ROOT / "blk-judge" / "lib") not in sys.path:
+            sys.path.insert(0, str(ROOT / "blk-judge" / "lib"))
+        import judgebrief
+        self.judge_brief = judgebrief.brief(self.board, self.repo)
         body = self.replies["judge"]
         units = [u["key"] for u in body.get("units") or [] if u.get("label") != "info"]
         return {"ok": True, "open_units": units, "need_fix": bool(units), "judgment_file": self._file("judgment.json", body),
@@ -477,9 +483,9 @@ class LineRun:
                 self.trail.append(nid)
         rep = self.out["result"]
         return {"outcome": rep["outcome"], "report": rep, "board_dir": self.board, "trail": self.trail, "out": self.out,
-                "eyes_roles": self.eyes_roles, "mat_roles": self.mat_roles}
+                "eyes_roles": self.eyes_roles, "mat_roles": self.mat_roles, "judge_brief": self.judge_brief}
 
 
 def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None) -> dict:
-    """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles}"""
+    """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles, mat_roles, judge_brief}"""
     return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits).run()

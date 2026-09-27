@@ -567,6 +567,9 @@ judging__intake:
   ok: true
   reason: ''
   request: request_ok.json
+judging__judge-brief:
+  ok: true
+  materials_file: board/r1/judge-materials.md
 judge:
   framing: 依頼の 2 件はどちらも stats.py の算術の取り違えで、テストの赤 2 件にそのまま対応する
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
@@ -1397,7 +1400,7 @@ report:
   next_request_file: board/next-request.json
   tests_green: true
   validator_exit: 0
-  ai_report_go: false
+  ai_report_go: true
 reporting__rp-route1:
   next: report-items
   node: report.human_items
@@ -1495,13 +1498,25 @@ result:
   ok: true
   outcome: fixed
   judgment_file: board/judgment.json
-  report_file: board/report.md
+  report_file: board/report-ai.md
   next_request_file: board/next-request.json
   tests_green: true
   validator_exit: 0
-  ai_report_go: false
+  ai_report_go: true
   machine_report_file: board/report.md
-  ai_report: null
+  ai_report:
+    ok: true
+    reason: ''
+    report_file: board/report-ai.md
+    text_file: board/out/r3/report.json
+    human_items_file: board/out/r3/report.human_items.json
+    facts_file: board/r3/report-facts.md
+    cold_check:
+      verdict: pass
+      stops: []
+      guessed: []
+      decidable: true
+    record_invalid: false
 fixture:
   expect: completed
   inputs:
@@ -1516,5 +1531,6 @@ fixture:
   - h-judge
   - h-mat
   - report
+  - reporting__collect
   - result
 exec-code: true

@@ -484,6 +484,8 @@ class DiskBoard(_EngineBoard):
     """ディスクの盤面（仕様 4.1）。写した engine の Board を継ぎ、engine の属性と関数はそのまま使う。
     上書きするのは __init__・save・run_validator だけ。開く・作るは open・create、v1 の受け付けの入れ物は scratch"""
 
+    AFTER_ROUND = "after_round"   # state.works の欄: report_after_round が退けた周の締めの止め（halted.by stop_after_round の dict）
+
     def __init__(self, d, *, state, record, table, overrides=None, validator_runner=None, allow_halted=False, scratch=False):
         """渡された state・record の dict から組む（engine の Board.__init__ と同じ順）。state の中の pack のパスは
         写しのパスに記憶の中だけで読み替え（仕様 4.4 の 4）、overrides を当てる（4.4 の 5）。scratch の入れ物は GIT_CWD を触らない"""
@@ -1532,11 +1534,46 @@ class DiskBoard(_EngineBoard):
             self._write_round_note(self.round)
         return {"stopped": info, "handed_not_stopped": handed}
 
+    def report_after_round(self) -> Progress:
+        """周を締めて止めた盤面（stop_after_round の締め。halted.by stop_after_round）に、graph の stop の宣言の下流（報告の節。
+        a1202d0 では report.human_items → report.cold_check → report）だけを出す口（works の足し。R61 の B・持ち主の裁定）。
+        engine の --stop-after-round は報告の節を出さない（halted の盤面は settle が後の節を出さず、受け付けも拒む）ので、周を
+        締めた 1 周の run では報告の役が回らなかった。順:
+        1. halted.by が stop_after_round でなければ Reject（盤面は書かない）。allow_halted で開いていなければ BoardGap
+        2. stop の宣言の節（converge）がこの周に機械の節として済んでいる（止めた印の builtin stop でない）こと。無ければ BoardGap。
+           報告の節が表で全部 absent なら出す物が無いので何もしない（halted のまま）
+        3. halted を state.works.after_round へ退ける（止めた事実は消さない——報告の結末・冒頭 3・記録の process.halted が読む）。
+           loop の stop_reason が無ければ stop_after_round を置く（記録の process.stop_reason が退ける前と同じ値になる）。
+           status は stopped のまま。trace に report_after_round の 1 行
+        4. 保存して settle（周の中の他の節は締めで全部済んでいるので、出るのは報告の最初の節）。返りは settle の Progress"""
+        h = self.state.get("halted") or {}
+        if h.get("by") != "stop_after_round":
+            raise Reject(f"周の締めの後で止めた盤面でない（halted: {h.get('by') or '無し'}）——報告の節を出す口はその盤面だけ")
+        if not getattr(self, "allow_halted", False):
+            raise BoardGap("周の締めの後で止めた盤面は allow_halted で開いてから report_after_round を呼ぶ（止めた盤面の保存）")
+        root = (self.graph.get("stop") or {}).get("node")
+        done = (self.rd.get("done") or {}).get(root) if root else None
+        if not done or done.get("builtin") == "stop":
+            raise BoardGap(f"stop の宣言の節 {root} がこの周に済んでいない（{done}）——周を締めた盤面でない")
+        keep = stop_descendants(self.nodes, root)
+        if not any(self._entry(nid).by != "absent" for nid in keep):
+            return self._progress([f"報告の節（{'・'.join(sorted(keep))}）がこのラインに無い——出す物が無い"])
+        self.state.setdefault("works", {})[self.AFTER_ROUND] = h
+        self.state.pop("halted")
+        self.loop_state.setdefault("stop_reason", h["by"])
+        self.trace("report_after_round", round=self.round, nodes=sorted(keep))
+        self.save()
+        return self.settle()
+
     def finalize(self) -> None:
         """記録の仕上げ（engine の validator.finalize: RL の finalize → 周の箱の skipped・stopped と痕跡の欄を process に写す）→ 保存
         （loop.py finalize の記録の部分）。検証器は回さない——回すのは呼び出し側で、必ず self.run_validator（validator_runner の
-        包みが効く口）を通す（settle の pre: finalize の関所がそう呼ぶ）。止めた run に書くなら allow_halted で開いた盤面で"""
+        包みが効く口）を通す（settle の pre: finalize の関所がそう呼ぶ）。止めた run に書くなら allow_halted で開いた盤面で。
+        report_after_round が退けた止め（state.works.after_round）は、RL の finalize が halted から写す process.halted に戻す"""
         _finalize_record(self)
+        after = (self.state.get("works") or {}).get(self.AFTER_ROUND)
+        if after and not self.record["process"].get("halted"):
+            self.record["process"]["halted"] = after
         self.save()
 
     # -- works の周の添え書き（仕様 4.5）
