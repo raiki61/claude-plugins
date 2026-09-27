@@ -44,6 +44,8 @@ bash graphloops/tests/run.sh
 
 `graphcheck` は graph の形（依存の実在と循環・回す側が判定を出していない・検証器の欄が節の出力に現れる・穴が reads に宣言されている・回す側の writes が判定の欄に触れない・名前が engine か rules にある）を見る。`tests/run.sh` はそれに加えて、役の返答を台本で差し替えた模擬実行を端から端まで回す——research は収束・無人の停止・有人の諮り・軽量の打ち切り・拒むべき返答の拒否、review は連続 2 ラウンドの収束・前提不成立で人へ・保留の問いに帰属して人へ・答えを渡して続行・上限で停止・拒むべき返答の拒否（周の記録は本物の検証器 review-record.py にディレクトリ渡しで通す）。役の判断の質は見ない（それは実走）。
 
+**CI では台本を組に分けて回す**（`.github/workflows/test.yml`）: 台本の一式が 1 job の中で律速だった（Windows で 808 秒。runner の CPU は 4 で、job の中の並列はそこで頭打ち）ので、test の job を OS × 組 4 の matrix にし、組ごとに台本の定義順の i 番目を i % 4 の組で走らせる（約束は Bazel の test sharding に倣う。正本は `graphloops/tests/parallel.py` の `shard_spec`・`assign`）。組は件数・台本の本数・全台本の和で見る検査（判定語彙の到達・渡し方の当たり）の到達集合を名簿に書くだけで、件数の柵（`EXPECTED_CHECKS`・`EXPECTED_TESTS`）と和の検査は、全組を待つ shards の job が `parallel.py merge` で 1 か所で当てる（組の欠け・範囲の外の組・名簿の重なりも赤）。組の指定は CI の段が渡す環境変数で、root の `tests/run.sh` は graphloops の 1 検査にだけ渡す。**手元で `bash tests/run.sh`・`bash graphloops/tests/run.sh` を 1 本で回す回は組の指定を持たないので、今までどおり同じファイルの全台本が 1 プロセスの中で同時に走り**、柵もその場で当たる——CI の組では同時に走るのが同じ組の台本どうしに狭まるので、台本どうしの干渉はこの 1 本回しで拾う。
+
 ### pytest の置き場（graphloops/tests/py/）
 
 関数を直に呼ぶ単体の検査は pytest に置く。依存は開発の間だけで、その場で入れる（プラグインの利用者の必須には足さない）。pytest-xdist の `-n` でプロセス単位に並べる（`-n` を外しても同じ柵が当たる）:

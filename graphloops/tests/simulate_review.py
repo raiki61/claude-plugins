@@ -162,7 +162,9 @@ def vocab_coverage():
     total = sum(len(v) for v in enums.values())
     reached = sum(len(v & VOCAB_SEEN.get(k, set())) for k, v in enums.items())
     unreached = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs - VOCAB_SEEN.get(k, set())))
-    return reached, total, unreached
+    # 到達した値そのもの（組に分けた回は、まとめの口がこの和集合の大きさを記録と照らす）
+    keys = sorted(f"{k[0]}.{k[1]}={v}" for k, vs in enums.items() for v in sorted(vs & VOCAB_SEEN.get(k, set())))
+    return reached, total, unreached, keys
 
 
 CHECKS_OK = [{"name": "suite", "argv": [PY, "-c", "print('1 passed')"]}]   # 台本のリポジトリが宣言する走らせる語（緑）
@@ -6611,14 +6613,16 @@ def main():
     # 直列に戻すのは GL_TEST_WORKERS=1——並列でだけ落ちる台本を切り分けるときに使う。
     tests = parallel.collect(globals())
     parallel.run_all(tests)
-    reached, total, unreached = vocab_coverage()
+    reached, total, unreached, keys = vocab_coverage()
     only = bool(os.environ.get("GL_TEST_ONLY"))
-    if not only:   # 台本を絞った回は、全台本の到達を見る検査を当てない
-        check(reached == VOCAB_REACHED,
-              f"判定語彙の到達 {reached}/{total}（記録は {VOCAB_REACHED}）——筋書きを増やしたら数を上げろ。"
-              f"未到達の頭: {unreached[:3]}")
+    if not only:   # 台本を絞った回は、全台本の到達を見る検査を当てない（組に分けた回は名簿に積み、まとめの口が和集合で当てる）
+        ok = parallel.aggregate("判定語彙の到達", "count", keys, VOCAB_REACHED)
+        if ok is not None:
+            check(ok, f"判定語彙の到達 {reached}/{total}（記録は {VOCAB_REACHED}）——筋書きを増やしたら数を上げろ。"
+                      f"未到達の頭: {unreached[:3]}")
     # **本数は「実際に集めて走らせた関数」を数える**（run.sh の grep ではなく）。text を grep すると、
     # 字面だけ変えた（インデントした・改名した）台本が消えても数が合ったままになる
+    parallel.finish(__file__, tests)
     print(f"台本 {len(tests)} 本")
     print(f"\n{ran} 件中 {len(fails)} 件失敗")
     if ran == 0:  # 台本が 1 本も走らないと「0 件中 0 件失敗」が緑に見える——母数 0 は赤

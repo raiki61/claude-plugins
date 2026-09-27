@@ -19,6 +19,13 @@ PY_BIN=$(command -v python3 || command -v python || true)
 # 効いていると `assert` が 1 つ残らず消え、**全部が無条件に緑になる**。環境変数 1 つで検証が
 # 丸ごと空振りする形なので、外して、外れたことを確かめる。
 unset PYTHONOPTIMIZE
+# **組（shard）の指定は graphloops の 1 検査にだけ渡す。** CI の組の job が段の env で渡すが、環境に残すと、写しの上で
+# graphloops/tests/run.sh や台本を起こす他の検査（tests/mutate.py の実行器ほか）まで組の回になって名簿を汚す
+GL_SHARD_ENV=()
+for v in GL_SHARD_TOTAL GL_SHARD_INDEX GL_SHARD_GROUP GL_SHARD_MANIFEST; do
+    [ -n "${!v+x}" ] && GL_SHARD_ENV+=("$v=${!v}")
+    unset "$v"
+done
 # **番人自身に `assert` を使うな。** 最適化が効いていると `assert __debug__` ごと消えるので、
 # 番人が常に通る（実測: この形で書いたとき、最適化を効かせた写しが 529 件すべて緑になった）。
 # 検査したい当のものを、検査の道具に使わない——値を印字して外から見る。
@@ -3106,7 +3113,7 @@ ran=$((ran + 1))
 
 # **柵が CI から消えないことを見る。** 手元に道具が無い環境では上が回らないので、
 # 「CI が回す設定になっている」ことだけは必ず測る（設定ごと消せば静かに覆いが無くなる形を塞ぐ）
-expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る" \
+expect_output 0 "CI_LINT_OK" "CI の設定が shellcheck を回す（手元に道具が無い環境でも覆いが消えない）。3 OS に同じ版の shellcheck を入れ、tests/run.sh の段に FAIL_ON_SKIP=1 と OS ごとの SKIP_ALLOW を渡す。engine が走らせる宣言（.review-checks.json）の段の名前が CI の run を持つ段に在る。台本の組（shard）は 0..N-1 を欠けなく並べて組の数を段に渡し、名簿を組ごとに上げ、shards の job が全組を待って全 OS の和を検算する。どの job の頭にも if: と continue-on-error: が無い" \
     "$PY_BIN" - "$ROOT" <<'PYCI'
 import pathlib, sys
 for _s in (sys.stdout, sys.stderr):
@@ -3122,18 +3129,31 @@ runs = [l.split("run:", 1)[1] for l in txt.splitlines() if l.strip().startswith(
 hits = [r for r in runs if re.search(r"(^|[\s|;&])shellcheck(\s|$)", r)]
 assert hits, f"{wf}: shellcheck を実際に回す run: の段が無い（注記に語が在るだけでは通さない）"
 assert all("-S warning" in r for r in hits), f"{wf}: shellcheck の深さ（-S warning）が手元の検査と揃っていない: {hits}"
-# 段ごとに切って、注記の行を除いた中身だけを見る——env: と if: は run: の行でないので、全文の部分一致だと注記の語で通る
-steps, head = [], []
+# job ごと・段ごとに切って、注記の行を除いた中身だけを見る——env: と if: は run: の行でないので、全文の部分一致だと注記の語で通る。
+# **job の頭（最初の段より前）は job ごとに見る**——1 つ目の job の頭だけを見ていたとき、2 つ目以降の job に if: を足すと
+# その job が skipped のまま緑になった（組の和を検算する shards を足した周に、事前審査が挙げた経路）
+jobs, cur, in_jobs = {}, None, False
 for l in txt.splitlines():
     t = l.strip()
     if not t or t.startswith("#"):
         continue
+    if l.rstrip() == "jobs:":
+        in_jobs = True
+        continue
+    m = re.fullmatch(r"  ([A-Za-z0-9_-]+):", l.rstrip())
+    if in_jobs and m:
+        cur = jobs.setdefault(m.group(1), {"head": [], "steps": []})
+        continue
+    if cur is None:
+        continue
     if t.startswith("- name:") or t.startswith("- uses:"):
-        steps.append([t])
-    elif steps:
-        steps[-1].append(t)
+        cur["steps"].append([t])
+    elif cur["steps"]:
+        cur["steps"][-1].append(t)
     else:
-        head.append(t)
+        cur["head"].append(t)
+assert {"test", "pytest", "shards"} <= set(jobs), f"{wf}: job の test・pytest・shards が揃っていない（{sorted(jobs)}）"
+steps = [s for j in jobs.values() for s in j["steps"]]
 def step(name):
     got = [s for s in steps if s[0] == f"- name: {name}"]
     assert len(got) == 1, f"{wf}: 段 {name} がちょうど 1 つでない（{len(got)} 個）"
@@ -3143,11 +3163,38 @@ def step(name):
 inst = [s for s in steps if any(re.fullmatch(r"run: python -m pip install shellcheck-py==[0-9][0-9.]*", x) for x in s)]
 assert inst, f"{wf}: shellcheck を版を固定して入れる段（run: python -m pip install shellcheck-py==<版>）が無い"
 assert not any(x.startswith("if:") for s in inst for x in s), f"{wf}: shellcheck を入れる段に OS の条件（if:）が付いている: {inst}"
+# **組（shard）の形**: 番号は 0..N-1 を欠けなく並べ、N を段の GL_SHARD_TOTAL と揃える（欠けた組は shards の検算も赤にするが、原因が遠い）
+sh = re.search(r"^\s+shard: \[([0-9, ]+)\]\s*$", txt, re.M)
+assert sh, f"{wf}: test の matrix に組の一覧（shard: [0, 1, ...]）が無い"
+shards = [int(x) for x in sh.group(1).split(",")]
+assert shards == list(range(len(shards))) and len(shards) >= 2, f"{wf}: 組の一覧 {shards} が 0..N-1 の並びでない"
 rs = step("tests/run.sh")
-want = ["- name: tests/run.sh", "shell: bash", "env:", 'FAIL_ON_SKIP: "1"', "SKIP_ALLOW: ${{ matrix.skip_allow }}", "run: bash tests/run.sh"]
-assert rs == want, (f"{wf}: tests/run.sh の段が、見送りを失敗に数えて OS ごとの許しの一覧を渡す形（{want}）と違う——"
+want = ["- name: tests/run.sh", "shell: bash", "env:", f'GL_SHARD_TOTAL: "{len(shards)}"', "GL_SHARD_INDEX: ${{ matrix.shard }}",
+        "GL_SHARD_GROUP: ${{ matrix.os }}", "GL_SHARD_MANIFEST: ${{ runner.temp }}/gl-shard",
+        'FAIL_ON_SKIP: "1"', "SKIP_ALLOW: ${{ matrix.skip_allow }}", "run: bash tests/run.sh"]
+assert rs == want, (f"{wf}: tests/run.sh の段が、組を渡し、見送りを失敗に数えて OS ごとの許しの一覧を渡す形（{want}）と違う——"
                     f"env の値・run: の頭の代入・shell:・if:・continue-on-error: のどれでも見送りが黙って緑になる: {rs}")
-assert not any(x.startswith(("if:", "continue-on-error:")) for x in head), f"{wf}: ジョブ全体に if: か continue-on-error: が在る（見送りの失敗ごと外れる）: {head}"
+assert rs in jobs["test"]["steps"], f"{wf}: tests/run.sh の段が test の job に無い"
+up = step("upload shard manifest")
+assert up in jobs["test"]["steps"] and up == ["- name: upload shard manifest", "uses: actions/upload-artifact@v4", "with:",
+    "name: gl-shard-${{ matrix.os }}-${{ matrix.shard }}", "path: ${{ runner.temp }}/gl-shard", "if-no-files-found: error"], (
+    f"{wf}: 組の名簿を上げる段が、組ごとの名前・名簿の置き場・無ければ赤（if-no-files-found: error）の形でない: {up}")
+os_line = re.search(r"^\s+os: &os \[([^\]]+)\]\s*$", txt, re.M)
+assert os_line, f"{wf}: test の matrix の os が錨（&os）付きの一覧でない（pytest の job が同じ一覧を *os で引く）"
+oses = [x.strip() for x in os_line.group(1).split(",")]
+assert "os: *os" in jobs["pytest"]["head"] and "include: *skip_allow" in jobs["pytest"]["head"], (
+    f"{wf}: pytest の job が test の os と許しの一覧を錨（*os・*skip_allow）で引いていない——写しは片方だけ直る: {jobs['pytest']['head']}")
+assert "needs: test" in jobs["shards"]["head"], f"{wf}: shards の job が needs: test を持たない（組を待たずに検算する）"
+mg = step("shards")
+merge = f"run: python graphloops/tests/parallel.py merge --groups {','.join(oses)} gl-shards/*"
+assert mg in jobs["shards"]["steps"] and merge in mg, f"{wf}: shards の段が、test の os の全部（{oses}）を --groups に渡して検算していない: {mg}"
+dl = step("download shard manifests")
+assert "pattern: gl-shard-*" in dl and "path: gl-shards" in dl and not any(x.startswith("merge-multiple") for x in dl), (
+    f"{wf}: 名簿を組ごとの置き場に落としていない（merge-multiple は組どうしの同名の名簿を上書きする）: {dl}")
+# job の頭の if: と continue-on-error: は全 job で禁じる（skipped の job も、落ちても緑の job も、失敗に数えられない）。段の continue-on-error: も同じ
+for name, j in jobs.items():
+    assert not any(x.startswith(("if:", "continue-on-error:")) for x in j["head"]), f"{wf}: job {name} の頭に if: か continue-on-error: が在る（その job の検査ごと外れる）: {j['head']}"
+assert not any(x.startswith("continue-on-error:") for s in steps for x in s), f"{wf}: continue-on-error: の段が在る（落ちても緑になる）"
 # pytest の柵（graphloops/tests/py/fence.py）も同じ許しの一覧で宣言つきの見送りを許す——同じ matrix の値を渡し、写しを持たない
 ps = step("pytest")
 assert "env:" in ps and "SKIP_ALLOW: ${{ matrix.skip_allow }}" in ps, (f"{wf}: pytest の段が OS ごとの許しの一覧"
@@ -3320,7 +3367,7 @@ expect_output 0 "DOC_SYMBOLS_OK" "文書が名指しする機械の定数が実�
 # 当たる。件数の突合（-ne）は graphloops/tests/run.sh が自分の EXPECTED_CHECKS で持ち、ここは
 # 終了コードとその 1 行だけを見る（件数の正本を 2 か所にしない）。
 expect_output 0 "件すべて緑" "graphloops: graphcheck（在る graph 全部）と模擬実行（収束・停止・諮り・軽量・拒否・柵の腕）が通り、件数が期待どおり" \
-    bash "$ROOT/graphloops/tests/run.sh"
+    env ${GL_SHARD_ENV[@]+"${GL_SHARD_ENV[@]}"} bash "$ROOT/graphloops/tests/run.sh"
 
 # **変異の腕の字列が、今の版に 1 か所ずつ在る。** 腕の一覧（tests/mutations.json）はリポジトリに置き、柵を直す差分が
 # 同じ変更で腕も直す（経緯は tests/mutate.py の docstring）。撃つのは重いので台本では走らせず、字列と証拠の口
@@ -4404,7 +4451,8 @@ root = pathlib.Path(sys.argv[1])
 # 表が持つのは**定数ごとに要求する突合の式**だけで、どのファイルを見るかは宣言（`^名前 =` / `^名前=`）を探す。
 FORMS = {
     "EXPECTED_CHECKS": 'if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then',
-    "VOCAB_REACHED": "    check(reached == VOCAB_REACHED,",
+    # 到達の等値は parallel.judge の count（組の回はまとめの口が和集合で同じ関数を当てる。緩めた退行は test_shards.py が赤にする）
+    "VOCAB_REACHED": '        ok = parallel.aggregate("判定語彙の到達", "count", keys, VOCAB_REACHED)',
     "EXPECTED_TESTS": 'if [ "$tests" -ne "$EXPECTED_TESTS" ]; then',
     # pytest の置き場の件数の定数。突合の != は fence.py の中で、ここは定数を柵に渡す 1 行を固定する
     # （fence.py の != を緩めた退行は、graphloops/tests/py/test_fence.py が両向きの不一致で赤にする）
