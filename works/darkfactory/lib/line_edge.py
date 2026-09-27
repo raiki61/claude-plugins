@@ -62,7 +62,7 @@ JUDGED_FILE = "judged.json"                  # h-plan が受けた判定のブ�
 GATE_FILE = "gate.md"                        # policy-gate の文（b.work）
 NOTES_FILE = "human-notes.md"                # 今の周の人の一言（h-fix が書き、修正役がパスで読む。R44: with: に文を貼らない）
 EMPTY = {"ok": True, "stop": False, "go": False, "ask": False, "gate_text": "", "judgment_file": "", "open_units": "",
-         "plan_file": "", "notes": "", "notes_file": "", "why": "", "premises_file": "",
+         "plan_file": "", "notes": "", "notes_file": "", "why": "", "gate_file": "", "premises_file": "",
          "pr_go": False, "premises_go": False, "purpose_go": False, "spec_go": False,
          "runtime_go": False, "holdout_go": False, "mid_note": ""}
 
@@ -308,7 +308,7 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
         return {}
     text = _final_text(b, head, tests, objection, repo, run_id)
     _write_text(b.work(FINAL_GATE_FILE), text)
-    return {"ask": True, "gate_text": text}
+    return {"ask": True, "gate_text": text, "gate_file": str(b.work(FINAL_GATE_FILE))}
 
 
 def _done_this_round(b, nid: str) -> bool:
@@ -473,7 +473,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
             return out
         text = plan.gate_text(asking, run_id=run_id)
         _write_text(b.work(GATE_FILE), text)
-        return {**out, "ask": True, "gate_text": text}
+        return {**out, "ask": True, "gate_text": text, "gate_file": str(b.work(GATE_FILE))}
     if at == "fix":
         notes = _notes(b)
         notes_file = ""

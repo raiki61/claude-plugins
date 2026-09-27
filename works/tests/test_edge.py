@@ -39,7 +39,7 @@ import plan  # noqa: E402
 
 SCRIPT = ROOT / "darkfactory" / "scripts" / "edge.py"
 RUN_ID = "run-7"
-OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why",
+OUT_KEYS = {"ok", "stop", "go", "ask", "gate_text", "judgment_file", "open_units", "plan_file", "notes", "notes_file", "why", "gate_file",
             "premises_file",
             "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go", "mid_note"}
 BOOL_KEYS = {"stop", "go", "ask", "pr_go", "premises_go", "purpose_go", "spec_go", "runtime_go", "holdout_go"}
@@ -215,6 +215,8 @@ class GateCase(EdgeBase):
         b = entry.open_board(self.board)
         self.assertEqual(b.work(line_edge.GATE_FILE).read_text(encoding="utf-8"), text)
         self.assertEqual(text, plan.gate_text(b.state["pending_human"], run_id=RUN_ID))
+        # 関所の文言は短い定型とこのパスだけを載せる（文そのものは Archon の置き換えに通さない。P1 Task 29 の持ち越し 2）
+        self.assertEqual(got["gate_file"], str(b.work(line_edge.GATE_FILE)))
 
     def test_gate_not_asking_leaves_closed(self):
         """問いの無い盤面（穴の無い事前審査）→ ask False・gate_text 空・gate.md を書かない"""
@@ -340,6 +342,7 @@ class FinalGateCase(EdgeBase):
             self.assertIn(want, text)
         b = entry.open_board(self.board, allow_halted=True)
         self.assertEqual(b.work(line_edge.FINAL_GATE_FILE).read_text(encoding="utf-8"), text)
+        self.assertEqual(got["gate_file"], str(b.work(line_edge.FINAL_GATE_FILE)))
 
     def test_final_gate_words_match_entry(self):
         """ラインの入力 final_gate の語は、start（entry.check_inputs）が受ける語と境の節が読む語で同じ（C18。mid_gate は無い）"""

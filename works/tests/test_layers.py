@@ -61,11 +61,9 @@ L0_TOPS = frozenset({"engine", "rules", "graphs"})   # 写しの graphloops の�
 OUTSIDE = frozenset({"dev", "tests", "docs"})        # pack に入らないフォルダ（dev/lib.sh が除く物）
 
 # ラインが配線する予定の include の id（線 A の仕様 2 節。T17 で darkfactory.yaml に入る）。YAML に入ったら消す
-PLANNED_INCLUDE_IDS = frozenset({"refixing", "pr-checking"})
+PLANNED_INCLUDE_IDS = frozenset()
 # 未配線の節のスクリプト（T17 で YAML の script: に入る）。配線したら消す
-PLANNED_SCRIPTS = frozenset({
-    "darkfactory/scripts/edge.py", "darkfactory/scripts/report.py", "darkfactory/scripts/start.py",
-})
+PLANNED_SCRIPTS = frozenset()
 
 # 破れ（元と先の組）の語と、直し方の案内。KNOWN に置けるのはこの語の行だけ
 VIOLATIONS = {

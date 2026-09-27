@@ -133,14 +133,22 @@ def _start_doc(b, start) -> dict:
     return _read_json(b.dir / "r1" / entry.START_FILE, {}) or {}
 
 
+STOP_AFTER_END_OP = "stop_after_round_end"   # 周を締めた後の止め（最後の関所の stop・止め札）を境の節が trace に書く op（line_edge と同じ語）
+
+
 def _stop_info(b) -> tuple:
-    """(by, reason, 止めた事実の dict)。stop_after_round の締め（halted.by stop_after_round）は止めた事実に数えない"""
+    """(by, reason, 止めた事実の dict)。stop_after_round の締め（halted.by stop_after_round）は止めた事実に数えない。
+    周を締めた盤面では b.stop が拒むので、境の節は止め（最後の関所の stop・reject、止め札）を trace の STOP_AFTER_END_OP の
+    行に書く（P1 Task 26）。その最後の行を止めた事実として読む"""
     st = b.state
     stop, halted = st.get("stop") or {}, st.get("halted") or {}
     if stop:
         return str(stop.get("by") or ""), str(stop.get("reason") or ""), stop
     if halted and halted.get("by") != "stop_after_round":
         return str(halted.get("by") or ""), str(halted.get("reason") or ""), halted
+    ended = _trace_rows(b, STOP_AFTER_END_OP)
+    if halted and ended:
+        return str(ended[-1].get("by") or ""), str(ended[-1].get("reason") or ""), ended[-1]
     return "", "", {}
 
 

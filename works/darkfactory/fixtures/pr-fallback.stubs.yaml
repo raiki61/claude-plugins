@@ -1,5 +1,5 @@
-# 筋書き no-fix: 判定が直す物を残さない（need_fix: false）。h-plan が修正を機械の空の返答で埋め（go 偽）、修正案・修正・
-# 差分の審査・手直しは when: で飛ぶ。最後のテストは周を締めるので回り、報告は no_fix_needed
+# 筋書き pr-fallback: 並行 PR の engine の helper が交差を見つけて任せ先に落ちた（h-entry の pr_go 真）→ pr-checking
+# （blk-pr）が回り、handed_over 偽の下書きで通る
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 start:
@@ -66,7 +66,7 @@ h-entry:
   why: ''
   gate_file: ''
   premises_file: ''
-  pr_go: false
+  pr_go: true
   premises_go: true
   purpose_go: false
   spec_go: false
@@ -230,14 +230,16 @@ judge-accept:
   - 'stats.py clamp: 上限を超えた値に lo を返す'
 judging__collect:
   ok: true
-  open_units: []
-  need_fix: false
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  need_fix: true
   judgment_file: board/judgment.json
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
 h-plan:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -350,12 +352,12 @@ h-gate:
 h-fix:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
+  plan_file: board/out/r1/p2.fix_plan.json
   notes: ''
   notes_file: ''
   why: ''
@@ -491,7 +493,7 @@ fixing__collect:
 h-mid:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -512,7 +514,7 @@ h-mid:
 h-review:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -555,7 +557,7 @@ reviewing__collect:
 h-refix:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -727,11 +729,11 @@ h-eyes:
   mid_note: ''
 report:
   ok: true
-  outcome: no_fix_needed
+  outcome: fixed
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
-  tests_green: false
+  tests_green: true
   validator_exit: 0
 fixture:
   expect: completed
@@ -742,18 +744,8 @@ fixture:
   reached:
   - start
   - h-entry
+  - pr-checking__collect
   - premising__collect
   - h-judge
-  - judging__collect
-  - h-plan
-  - h-gate
-  - h-fix
-  - h-mid
-  - h-review
-  - h-refix
-  - h-tests
-  - testing__run
-  - h-final
-  - h-eyes
   - report
 exec-code: true

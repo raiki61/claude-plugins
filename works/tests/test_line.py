@@ -1,315 +1,370 @@
-"""ライン darkfactory（判定→修正→テスト→人の承認→差分の審査）の検査。
+"""ライン darkfactory（C18 の順。P1 計画 Task 29・〔線A計〕T17）の配線の検査。YAML を読むだけ（FAST）。
 
-- 口（interactive・inputs・returns・outcome_field）と節の並び・配線（include の with:）
-- include の id とブロックの中の節の id がぶつからないこと（Ruling R17）。Archon 0.11.1 の模擬実行は輪（loop_group）の
-  中の節を名前空間の付かない id で stub に引くので、輪の中の節の id もライン全体で一意であること
-- 節 base（bash）を使い捨ての git で実際に起こし、HEAD を {ok, rev} で出すこと
-- 関所（approval）の文にテストの緑赤とログのパス・判定の一手・判定のファイルが載り、返答を取っておくこと
-- 直す物が無い判定（need_fix: false）なら修正から後を when: で飛ばし、いつも走る節 finish で終えること（Ruling R21）。
-  finish のスクリプトを別のプロセスで起こして、出口の形を見る
-- 筋書き（fixtures/）の形: wiring は finish 以外の stub を置ける節を全部 stub し（finish は exec-code で本物を回す）、
-  tests-red はテストの節だけ赤にして完走し、no-fix は判定だけで finish まで届く
+- 口（interactive・inputs・returns・outcome_field）と、節の並び・種類・include 先・境の節の at・with: が linekit.LINE_ORDER と
+  同じ（test_line_order_matches_linekit。手で 2 か所に書き写したまま放さない。裁定 TA16）
+- script の節の with: の鍵を INPUTS_<鍵> にした集合が、そのスクリプトの定数 INPUTS と同じ（線とブロックの全部。TA16）。
+  既定の在る入力は定数 OPTIONAL_INPUTS に名指した物だけ with: に無くてよい
+- when: と関所の文言は、いつも走る節（start・境の節）の欄と $INPUTS だけを読む（TA1。〔試P: P7〕）。飛ばされうる節の出力を
+  script の with: で読むなら if_skipped を持つ（P16）。when: を持つ節に依る節は trigger_rule を持つ
+- include の id はブロックの中の節の id と重ならない（R17）。輪の中の節の id はライン全体で一意（模擬実行の stub の鍵）
+- 関所は decisions に reject を持つ（P8）。役の節は全部印（works-node）を持ち、印の名はブロックをまたいで一意
+- 筋書き（fixtures/）: 本物で回す start の筋書き（standard・start-refused）のほかは、走る script と役の節を全部 stub する。
+  判定の stub の鍵は blk-judge.yaml から組む（test_judging_stubs_follow_block）
 """
+import ast
 import json
 import pathlib
-import os
-import subprocess
+import re
 import sys
-import tempfile
 import unittest
 
 import yaml
 
-from gitkit import GIT_ID
-
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+TESTS = pathlib.Path(__file__).resolve().parent
+ROOT = TESTS.parent
 LINE = ROOT / "darkfactory"
-REPLIES = pathlib.Path(__file__).resolve().parent / "replies"
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(TESTS))
+sys.path.insert(0, str(ROOT / "darkfactory" / "lib"))
+sys.path.insert(0, str(ROOT / ".shared" / "core"))
+import linekit  # noqa: E402
+import line_edge  # noqa: E402
+
 DEADLINE = 1728000000
-BLOCKS = {"judging": "blk-judge", "fixing": "blk-fix", "testing": "blk-tests", "reviewing": "blk-delta"}
-NEED_FIX = "$judging.output.need_fix == true"
-SKIPPABLE = ("fixing", "testing", "gate", "reviewing")
+ALWAYS = {"start"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}   # いつも走る節
+REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き（TA16）
+FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
+            "start-refused", "pr-fallback"}
+# 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}
+OPTIONAL_INPUTS = {}
 
 
-def load_yaml(path):
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+def load(path):
+    return yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
 
 
 def line():
-    return load_yaml(LINE / "darkfactory.yaml")
+    return load(LINE / "darkfactory.yaml")
 
 
 def block(name):
-    return load_yaml(ROOT / name / f"{name}.yaml")
-
-
-def reply(name):
-    return json.loads((REPLIES / f"{name}.json").read_text(encoding="utf-8"))
+    return load(ROOT / name / f"{name}.yaml")
 
 
 def node(nid):
     return next(n for n in line()["nodes"] if n["id"] == nid)
 
 
-def body_ids(nodes):
-    """輪の中の節の id（入れ子も辿る）"""
-    out = []
+def walk(nodes):
+    """(節, 輪の中か) を入れ子も辿って"""
     for n in nodes:
+        yield n, False
         if "loop_group" in n:
-            inner = n["loop_group"]["nodes"]
-            out += [m["id"] for m in inner] + body_ids(inner)
-    return out
+            for m in n["loop_group"]["nodes"]:
+                yield m, True
+
+
+def workflows():
+    """(フォルダ, YAML) の全部（ラインとブロック）"""
+    for p in sorted(ROOT.glob("*/*.yaml")):
+        if p.stem == p.parent.name:
+            yield p.parent, load(p)
+
+
+def script_inputs(path: pathlib.Path):
+    """スクリプトの定数 INPUTS（tuple か dict の鍵。モジュールの頭の文字列の定数の名前も解く）。定数が無ければ None"""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names = {}
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
+            if isinstance(n.value, ast.Constant) and isinstance(n.value.value, str):
+                names[n.targets[0].id] = n.value.value
+            if n.targets[0].id == "INPUTS":
+                if isinstance(n.value, (ast.Tuple, ast.List)):
+                    return {names[e.id] if isinstance(e, ast.Name) else ast.literal_eval(e) for e in n.value.elts}
+                return set(ast.literal_eval(n.value))
+    return None
+
+
+# 定数 INPUTS をまだ持たないスクリプト（裁定 TA16 の縛りの外。減らす方向にだけ変える。持ったら消す）
+NO_INPUTS_CONSTANT = frozenset({
+    "blk-fix/scripts/ignored_before.py", "blk-fix/scripts/clean.py", "blk-fix/scripts/assert_changed.py",
+    "blk-judge/scripts/intake.py", "blk-judge/scripts/accept.py", "blk-judge/scripts/collect.py",
+    "blk-purpose/scripts/intake.py", "blk-purpose/scripts/accept.py", "blk-purpose/scripts/collect.py",
+})
+# 印（works-node）をまだ持たない役（包みが会話を節の名で分けられない。減らす方向にだけ変える）
+UNMARKED_ROLES = frozenset({("blk-premises", "premises"), ("blk-fix", "tdd")})
 
 
 def stub_keys():
-    """模擬実行が stub を引く鍵の一覧（重なりも残す）。Archon 0.11.1 の dry-run.ts: include で入った節は
-    <include の id>__<節の id>、輪の中の節は名前空間の付かない id。approval・loop_group は stub を取らない"""
+    """模擬実行が stub を引く鍵（Archon 0.11.1 の dry-run: include の中の節は <include>__<節>、輪の中は名前空間なしの id。
+    approval・loop_group は stub を取らない）"""
     keys = []
     for n in line()["nodes"]:
         if "include" in n:
-            b = block(n["include"])["nodes"]
-            keys += [f"{n['id']}__{m['id']}" for m in b if "loop_group" not in m]
-            keys += body_ids(b)
-        elif "approval" not in n and "loop_group" not in n:
+            for m, inner in walk(block(n["include"])["nodes"]):
+                if "loop_group" in m:
+                    continue
+                keys.append(m["id"] if inner else f"{n['id']}__{m['id']}")
+        elif "approval" not in n:
             keys.append(n["id"])
     return keys
 
 
-class TestLineShape(unittest.TestCase):
-    def test_line_includes_all_blocks(self):
-        got = {n["include"] for n in line()["nodes"] if "include" in n}
-        self.assertEqual(got, {"blk-judge", "blk-fix", "blk-tests", "blk-delta"})
+def refs(text: str) -> set:
+    return set(re.findall(r"\$([A-Za-z][\w-]*)\.output", text))
 
+
+class LineShapeCase(unittest.TestCase):
     def test_signature(self):
         y = line()
         self.assertEqual(y["name"], "darkfactory")
         self.assertIs(y["interactive"], True)
-        self.assertEqual(set(y["inputs"]), {"request", "test_cmd"})
-        for k in ("request", "test_cmd"):
-            self.assertIs(y["inputs"][k]["required"], True)
-        self.assertEqual(y["returns"], "finish")
-        self.assertEqual(y["outcome_field"], "ok")
-        # returns の先（いつも走る節 finish）が ok を真偽で持つ
-        of = node("finish")["output_format"]
+        self.assertEqual(set(y["inputs"]), {"request", "test_cmd", "thickness", "gates", "final_gate", "adapter", "policy_md",
+                                            "tdd_suite"})
+        self.assertIs(y["inputs"]["request"]["required"], True)
+        for k in set(y["inputs"]) - {"request"}:
+            self.assertEqual(y["inputs"][k].get("default"), "", k)
+        self.assertEqual((y["returns"], y["outcome_field"]), ("report", "ok"))
+        of = node("report")["output_format"]
         self.assertEqual(of["properties"]["ok"], {"type": "boolean"})
-        self.assertEqual(of["properties"]["outcome"], {"type": "string", "enum": ["fixed", "no_fix_needed"]})
-        self.assertEqual(sorted(of["required"]), ["judgment_file", "ok", "outcome"])
+        # 1 本目の finish の欄を全部残す（出口の約束）
+        self.assertLessEqual({"ok", "outcome", "judgment_file"}, set(of["required"]))
         self.assertLessEqual({"review_file", "diff_file", "faces"}, set(of["properties"]))
+        import report
+        self.assertEqual(of["properties"]["outcome"]["enum"], list(report.OUTCOMES))
+        self.assertFalse((LINE / "scripts" / "finish.py").exists(), "finish は report が継いだ")
 
-    def test_nodes_in_order(self):
+    def test_line_order_matches_linekit(self):
         nodes = line()["nodes"]
-        self.assertEqual([n["id"] for n in nodes],
-                         ["base", "judging", "fixing", "testing", "gate", "reviewing", "finish"])
-        self.assertNotIn("depends_on", nodes[0])
-        for prev, cur in zip(nodes[:-1], nodes[1:-1]):
-            with self.subTest(cur["id"]):
-                self.assertEqual(cur["depends_on"], [prev["id"]])
-        for n in nodes:
-            if "include" in n:
-                with self.subTest(n["id"]):
-                    self.assertEqual(n["include"], BLOCKS[n["id"]])
+        self.assertEqual([n["id"] for n in nodes], [r["id"] for r in linekit.LINE_ORDER])
+        for n, r in zip(nodes, linekit.LINE_ORDER):
+            with self.subTest(n["id"]):
+                kind = "approval" if "approval" in n else "include" if "include" in n else "script"
+                self.assertEqual(kind, r["kind"])
+                self.assertEqual(n.get("include"), r.get("block"))
+                self.assertEqual(n.get("script"), r.get("script"))
+                self.assertEqual(n.get("depends_on"), r.get("depends_on"))
+                self.assertEqual(n.get("trigger_rule"), r.get("trigger_rule"))
+                self.assertEqual(n.get("when"), r.get("when"))
+                if kind == "approval":
+                    got = [d["id"] for d in n["approval"].get("decisions") or []]
+                    self.assertEqual(got, r.get("decisions", []))
+                else:
+                    self.assertEqual(n.get("with") or {}, r.get("with") or {})
+                if r.get("at"):
+                    self.assertEqual(n["with"]["at"], r["at"])
 
-    def test_skips_after_judging_when_nothing_to_fix(self):
-        # Ruling R21: 直す物が無い判定は失敗ではない。修正・テスト・関所・審査を飛ばす
-        for nid in SKIPPABLE:
-            with self.subTest(nid):
-                self.assertEqual(node(nid)["when"], NEED_FIX)
-        for nid in ("base", "judging", "finish"):
-            with self.subTest(nid):
-                self.assertNotIn("when", node(nid))
+    def test_edges_use_every_edge_input(self):
+        """境の節は edge.py の INPUTS を全部受ける（使わない物は文字列 null。A-T10a の持ち越し 1）。出口は line_edge.EMPTY の欄"""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("edge_script", LINE / "scripts" / "edge.py")
+        want = script_inputs(LINE / "scripts" / "edge.py")
+        self.assertIsNotNone(spec)
+        for r in linekit.LINE_ORDER:
+            if r.get("script") != "edge":
+                continue
+            with self.subTest(r["id"]):
+                n = node(r["id"])
+                self.assertEqual({f"INPUTS_{k.upper()}" for k in n["with"]}, want)
+                self.assertEqual(n["with"]["at"] in line_edge.AT, True)
+                self.assertEqual(set(n["output_format"]["required"]), set(line_edge.EMPTY))
 
-    def test_finish_node(self):
-        fin = node("finish")
-        self.assertEqual((fin["script"], fin["runtime"], fin["timeout"]), ("finish", "uv", DEADLINE))
-        self.assertEqual(fin["depends_on"], ["judging", "reviewing"])
-        self.assertEqual(fin["trigger_rule"], "none_failed_min_one_success")
-        self.assertEqual(fin["with"], {"judged": {"from": "$judging.output"},
-                                       "review": {"from": "$reviewing.output", "if_skipped": None}})
-        self.assertTrue((LINE / "scripts" / "finish.py").is_file())
-
-    def test_include_with(self):
-        self.assertEqual(node("judging")["with"], {"request": "$INPUTS.request", "base_rev": "$base.output.rev"})
-        self.assertEqual(node("fixing")["with"], {"judgment_file": "$judging.output.judgment_file",
-                                                  "open_units": "$judging.output.open_units",
-                                                  "base_rev": "$base.output.rev"})
-        self.assertEqual(node("testing")["with"], {"cmd": "$INPUTS.test_cmd"})
-        self.assertEqual(node("reviewing")["with"], {"base_rev": "$base.output.rev"})
+    def test_script_inputs_match_with(self):
+        """線とブロックの全部の script の節で、with: の鍵を INPUTS_<大文字> にした集合 == スクリプトの定数 INPUTS（TA16）"""
+        for folder, y in workflows():
+            for n, _ in walk(y["nodes"]):
+                if "script" not in n:
+                    continue
+                path = folder / "scripts" / f"{n['script']}.py"
+                rel = path.relative_to(ROOT).as_posix()
+                with self.subTest(f"{folder.name}/{n['id']}"):
+                    want = script_inputs(path)
+                    if want is None:
+                        self.assertIn(rel, NO_INPUTS_CONSTANT, f"{rel} に定数 INPUTS が無い")
+                        continue
+                    self.assertNotIn(rel, NO_INPUTS_CONSTANT, f"{rel} は定数 INPUTS を持った。NO_INPUTS_CONSTANT から消す")
+                    got = {f"INPUTS_{k.upper()}" for k in (n.get("with") or {})}
+                    optional = OPTIONAL_INPUTS.get((folder.name, n["script"]), set())
+                    self.assertLessEqual(want - got, optional, f"with: に無い INPUTS: {sorted(want - got)}")
+                    self.assertEqual(got - want, set(), f"スクリプトが読まない with: の鍵: {sorted(got - want)}")
 
     def test_include_with_matches_block_inputs(self):
-        # 渡す鍵はブロックが宣言した入力だけ、required の入力は全部渡す
-        for inc, name in BLOCKS.items():
-            with self.subTest(inc):
-                inputs = block(name)["inputs"]
-                given = set(node(inc)["with"])
+        """渡す鍵はブロックが宣言した入力だけ、required の入力は全部渡す"""
+        for n in line()["nodes"]:
+            if "include" not in n:
+                continue
+            with self.subTest(n["id"]):
+                inputs = block(n["include"]).get("inputs") or {}
+                given = set(n.get("with") or {})
                 self.assertLessEqual(given, set(inputs))
                 self.assertLessEqual({k for k, v in inputs.items() if v.get("required")}, given)
 
-    def test_ids_do_not_collide_with_block_nodes(self):
-        # Ruling R17: include の id がブロックの中の節の id と同じだと、ブロックの中の $<id>.output が include を指す
+    def test_when_and_gate_text_read_only_always_run_nodes(self):
+        """when: と関所の文言が読む $<節>.output は、いつも走る節だけ（TA1）。include の with: も同じ（M4）"""
+        for n in line()["nodes"]:
+            texts = [n.get("when") or ""]
+            if "approval" in n:
+                texts.append(n["approval"]["message"])
+            if "include" in n:
+                texts += [v for v in (n.get("with") or {}).values() if isinstance(v, str)]
+            with self.subTest(n["id"]):
+                self.assertLessEqual(set().union(*(refs(t) for t in texts)), ALWAYS)
+
+    def test_script_reads_skippable_with_if_skipped(self):
+        """script の節の with: が when: を持つ節（か関所）の出力を読むなら if_skipped: null（P16）"""
+        skippable = {n["id"] for n in line()["nodes"] if "when" in n}
+        for n in line()["nodes"]:
+            for k, v in (n.get("with") or {}).items():
+                src = v.get("from") if isinstance(v, dict) else v if isinstance(v, str) else ""
+                hit = refs(src) & skippable
+                if hit and "script" in n:
+                    with self.subTest(f"{n['id']}.{k}"):
+                        self.assertIsInstance(v, dict)
+                        self.assertIn("if_skipped", v)
+                        self.assertIsNone(v["if_skipped"])
+
+    def test_join_after_skippable_has_trigger_rule(self):
+        """when: を持つ節に依る節は trigger_rule: none_failed_min_one_success（前の段が飛ばされても走る）"""
+        skippable = {n["id"] for n in line()["nodes"] if "when" in n}
+        for n in line()["nodes"]:
+            if set(n.get("depends_on") or []) & skippable:
+                with self.subTest(n["id"]):
+                    self.assertEqual(n.get("trigger_rule"), linekit.NFMOS)
+
+    def test_gates_have_reject_and_text_by_path(self):
+        """関所は reject を持ち（無いと reject で run が cancelled になり報告が出ない。P8）、文言は置き場（gate_file）だけを載せる"""
+        for gid, edge_id in (("policy-gate", "h-gate"), ("final-gate", "h-final")):
+            with self.subTest(gid):
+                g = node(gid)
+                self.assertEqual([d["id"] for d in g["approval"]["decisions"]], ["approve", "continue", "stop", "reject"])
+                self.assertEqual(g["when"], f"${edge_id}.output.ask == true")
+                self.assertIn(f"${edge_id}.output.gate_file", g["approval"]["message"])
+                self.assertNotIn("gate_text", g["approval"]["message"])
+
+    def test_every_node_has_deadline(self):
+        for n in line()["nodes"]:
+            if "script" in n:
+                with self.subTest(n["id"]):
+                    self.assertEqual((n["runtime"], n["timeout"]), ("uv", DEADLINE))
+            else:
+                self.assertNotIn("timeout", n)
+
+    def test_include_ids_do_not_collide_with_block_nodes(self):
+        """Ruling R17: include の id がブロックの中の節の id と同じだと、ブロックの中の $<id>.output が include を指す"""
         inner = set()
-        for name in BLOCKS.values():
-            b = block(name)["nodes"]
-            inner |= {n["id"] for n in b} | set(body_ids(b))
+        for n in line()["nodes"]:
+            if "include" in n:
+                inner |= {m["id"] for m, _ in walk(block(n["include"])["nodes"])}
         self.assertEqual({n["id"] for n in line()["nodes"]} & inner, set())
 
     def test_stub_keys_are_unique(self):
-        # 輪の中の節は名前空間の付かない id で stub を引く。ブロックをまたいで同じ id があると、1 つの stub が
-        # 型の違う複数の節に当たり、筋書きが書けない（dry-run の --stubs-init も拒む）
         keys = stub_keys()
         self.assertEqual(len(keys), len(set(keys)), sorted(k for k in keys if keys.count(k) > 1))
 
-    def test_base_node(self):
-        base = node("base")
-        self.assertIn("git rev-parse HEAD", base["bash"])
-        self.assertEqual(base["timeout"], DEADLINE)
-        of = base["output_format"]
-        self.assertIs(of["additionalProperties"], False)
-        self.assertEqual(set(of["required"]), {"ok", "rev"})
-        self.assertEqual(of["properties"], {"ok": {"type": "boolean"}, "rev": {"type": "string"}})
+    def test_role_marks_unique(self):
+        """役の節（AI）は全部 output_format に印 works-node: <名> を持ち、印の名はブロックをまたいで一意（包みの会話の置き場が
+        節の名で分かれる）"""
+        seen = {}
+        for n in line()["nodes"]:
+            if "include" not in n:
+                continue
+            for m, _ in walk(block(n["include"])["nodes"]):
+                if "command" not in m and "prompt" not in m:
+                    continue
+                desc = (m.get("output_format") or {}).get("description") or ""
+                with self.subTest(f"{n['include']}/{m['id']}"):
+                    if (n["include"], m["id"]) in UNMARKED_ROLES:
+                        self.assertFalse(desc.startswith("works-node: "), "印を持った。UNMARKED_ROLES から消す")
+                        continue
+                    self.assertTrue(desc.startswith("works-node: "), desc)
+                    name = desc.split(" ")[1]
+                    self.assertNotIn(name, seen, f"印の名 {name} が {seen.get(name)} と重なる")
+                    seen[name] = f"{n['include']}/{m['id']}"
 
-    def test_gate(self):
-        gate = node("gate")
-        self.assertEqual(set(gate), {"id", "approval", "depends_on", "when"})
-        ap = gate["approval"]
-        self.assertIs(ap["capture_response"], True)
-        self.assertNotIn("on_reject", ap)          # 拒めば run を止める
-        for ref in ("$testing.output.green", "$testing.output.log", "$judging.output.one_shot", "$fixing.output.removed",
-                    "$judging.output.judgment_file", "Archon の run ごとの worktree"):
-            self.assertIn(ref, ap["message"])
+    def test_report_reads_edge_stop_words(self):
+        """報告が読む止めの語（周を締めた後の止めの trace の op・最後の関所の答えのファイルと by）が境の節の語と同じ"""
+        import report
+        self.assertEqual(report.STOP_AFTER_END_OP, line_edge.STOP_AFTER_END_OP)
+        self.assertEqual(report.FINAL_GATE_ANSWER, line_edge.FINAL_GATE_ANSWER)
+        self.assertEqual(report.FINAL_GATE_BY, line_edge.FINAL_GATE_BY)
 
-
-class TestBaseNodeRuns(unittest.TestCase):
-    """節 base の bash の本文を、使い捨ての git の根で bash に渡して起こす"""
-
-    def run_base(self, cwd):
-        return subprocess.run(["bash", "-c", node("base")["bash"]], cwd=cwd, capture_output=True, text=True)
-
-    def test_prints_head(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run(["git", *GIT_ID, "init", "-q", tmp], check=True)
-            (pathlib.Path(tmp) / "a.txt").write_text("a\n", encoding="utf-8")
-            subprocess.run(["git", *GIT_ID, "-C", tmp, "add", "-A"], check=True)
-            subprocess.run(["git", *GIT_ID, "-C", tmp, "commit", "-qm", "a"], check=True)
-            head = subprocess.run(["git", "-C", tmp, "rev-parse", "HEAD"], capture_output=True, text=True,
-                                  check=True).stdout.strip()
-            r = self.run_base(tmp)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(json.loads(r.stdout), {"ok": True, "rev": head})
-
-    def test_fails_outside_git(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            r = self.run_base(tmp)
-            self.assertNotEqual(r.returncode, 0)
-            self.assertEqual(r.stdout, "")
+    def test_reads_include_ids_match_line(self):
+        """読んだ証拠の節が Archon の出来事を引く include の id（core の READS）が、線の include の id と同じ（V5〜V7 の当座の形）"""
+        import prcheck
+        import recount
+        import refix
+        ids = {n["id"]: n.get("include") for n in line()["nodes"]}
+        self.assertEqual(ids[recount.READS[1]], "blk-fix")
+        self.assertEqual(ids[prcheck.READS[1]], "blk-pr")
+        for role, (_, inc, _, _) in refix.READS.items():
+            self.assertEqual(ids[inc], "blk-delta" if role == "review" else "blk-refix", role)
+        self.assertEqual(node("planning")["with"]["include_id"], "planning")
 
 
-class TestFinishRuns(unittest.TestCase):
-    """節 finish のスクリプトを別のプロセスで起こす（INPUTS_JUDGED・INPUTS_REVIEW は Archon が with: から渡す JSON の文字列）"""
-
-    JUDGED = {"ok": True, "open_units": ["u"], "need_fix": True, "judgment_file": "/a/board/judgment.json",
-              "one_shot": "直す"}
-    REVIEW = {"ok": True, "faces": 2, "review_file": "/a/board/delta-review.json", "diff_file": "/a/board/fix.diff"}
-
-    def run_it(self, judged, review):
-        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
-        for name, value in (("INPUTS_JUDGED", judged), ("INPUTS_REVIEW", review)):
-            if value is not None:
-                env[name] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-        with tempfile.TemporaryDirectory() as tmp:
-            return subprocess.run([sys.executable, str(LINE / "scripts" / "finish.py")], cwd=tmp, env=env,
-                                  capture_output=True, text=True, timeout=60)
-
-    def assert_out(self, r, want):
-        self.assertEqual(r.returncode, 0, r.stderr)
-        got = json.loads(r.stdout)
-        self.assertEqual(got, want)
-        from engine.schema import validate_schema   # noqa: E402（core は下の setUpModule で path に入る）
-        self.assertEqual(validate_schema(got, node("finish")["output_format"]), [])
-
-    def test_fixed(self):
-        self.assert_out(self.run_it(self.JUDGED, self.REVIEW), {
-            "ok": True, "outcome": "fixed", "judgment_file": "/a/board/judgment.json",
-            "review_file": "/a/board/delta-review.json", "diff_file": "/a/board/fix.diff", "faces": 2})
-
-    def test_no_fix_needed(self):
-        judged = dict(self.JUDGED, open_units=[], need_fix=False)
-        self.assert_out(self.run_it(judged, "null"), {
-            "ok": True, "outcome": "no_fix_needed", "judgment_file": "/a/board/judgment.json"})
-
-    def test_inconsistent_or_unreadable_fails(self):
-        cases = {
-            "need_fix なのに審査が無い": (self.JUDGED, "null"),
-            "直す物が無いのに審査が在る": (dict(self.JUDGED, open_units=[], need_fix=False), self.REVIEW),
-            "判定が JSON でない": ("not json", "null"),
-            "判定に need_fix が無い": ({k: v for k, v in self.JUDGED.items() if k != "need_fix"}, self.REVIEW),
-            "審査の出口が崩れている": (self.JUDGED, {"ok": True, "faces": 0}),
-            "環境変数が無い": (None, None),
-        }
-        for why, (judged, review) in cases.items():
-            with self.subTest(why):
-                r = self.run_it(judged, review)
-                self.assertNotEqual(r.returncode, 0)
-                self.assertEqual(r.stdout, "")
-                self.assertEqual(r.stderr.strip().count("\n"), 0, "理由は 1 行")
-
-
-def setUpModule():
-    sys.path.insert(0, str(ROOT / ".shared" / "core"))
-
-
-class TestLineFixtures(unittest.TestCase):
-    FULL = ("wiring.stubs.yaml", "tests-red.stubs.yaml")
-    JUDGE_ONLY = {"base", "judging__intake", "judge", "judge-accept", "judging__collect"}
-
+class LineFixturesCase(unittest.TestCase):
     def fixtures(self):
-        return {p.name: load_yaml(p) for p in (LINE / "fixtures").glob("*.stubs.yaml")}
+        return {p.name.removesuffix(".stubs.yaml"): load(p) for p in (LINE / "fixtures").glob("*.stubs.yaml")}
 
     def test_fixture_names(self):
-        self.assertEqual(set(self.fixtures()), {"wiring.stubs.yaml", "tests-red.stubs.yaml", "no-fix.stubs.yaml"})
+        self.assertEqual(set(self.fixtures()), FIXTURES)
 
     def test_every_stubbable_node_is_stubbed(self):
-        # include で入った script・bash の節は、模擬実行では呼び手の with: が届かないので本物で回せない。
-        # finish だけは stub せず exec-code で本物を回す（自分の with: は模擬実行でも届く）
+        """本物で回す start のほかは、走りうる script と役の節を全部 stub する（stub の無い節に届くと exec-code で本物が走る）"""
+        keys = set(stub_keys())
         for name, f in self.fixtures().items():
             with self.subTest(name):
-                want = set(stub_keys()) - {"finish"} if name in self.FULL else self.JUDGE_ONLY
-                self.assertEqual(set(f) - {"fixture", "exec-code"}, want)
-                self.assertIs(f["exec-code"], True)
-                self.assertEqual(set(f["fixture"]["inputs"]), {"request", "test_cmd"})
-                self.assertEqual(f["fixture"]["reached"][-1], "finish")
+                want = keys - ({"start"} if name in REAL_START else set())
+                self.assertEqual(want - set(f), set())
+                self.assertEqual("start" in f, name not in REAL_START)
+                self.assertIs(f.get("exec-code"), True)
 
-    def test_role_stubs_are_the_good_samples(self):
-        for name in self.FULL:
-            f = self.fixtures()[name]
+    def test_judging_stubs_follow_block(self):
+        """判定の stub の鍵は blk-judge.yaml から組んだ stub できる節の集合を含む（判定のブロックが節の名前を替えたら赤。TA18 の 4）"""
+        want = set()
+        for m, inner in walk(block("blk-judge")["nodes"]):
+            if "loop_group" not in m:
+                want.add(m["id"] if inner else f"judging__{m['id']}")
+        for name, f in self.fixtures().items():
+            if name == "start-refused":
+                continue
             with self.subTest(name):
-                self.assertEqual(f["judge"], reply("judge_ok"))
-                self.assertEqual(f["fix"], reply("fix2_ok"))
-                self.assertEqual(f["review"], reply("delta_ok"))
-                self.assertIs(f["judging__collect"]["need_fix"], True)
+                self.assertLessEqual(want, set(f))
 
-    def test_no_fix(self):
-        # 判定が直す物を 1 つも残さない。修正から後の stub は置かない（走れば「stub の無い節に届いた」で落ちる）
-        f = self.fixtures()["no-fix.stubs.yaml"]
-        self.assertEqual(f["fixture"]["expect"], "completed")
-        self.assertEqual(f["fixture"]["reached"], ["judging__collect", "finish"])
-        self.assertEqual(f["judge"], reply("judge_no_fix"))
-        self.assertEqual(f["judge-accept"]["open_units"], [])
-        self.assertEqual((f["judging__collect"]["open_units"], f["judging__collect"]["need_fix"]), ([], False))
+    def test_role_stubs_pass_role_output_format(self):
+        """役の stub は役の output_format の必須の欄を持つ（見本の返答を貼った物）"""
+        roles = {}
+        for n in line()["nodes"]:
+            if "include" in n:
+                for m, _ in walk(block(n["include"])["nodes"]):
+                    if "command" in m or "prompt" in m:
+                        roles[m["id"]] = m["output_format"]
+        f = self.fixtures()["policy-continue"]
+        for rid, fmt in roles.items():
+            with self.subTest(rid):
+                self.assertLessEqual(set(fmt.get("required") or []), set(f[rid]))
 
-    def test_wiring(self):
-        f = self.fixtures()["wiring.stubs.yaml"]
-        self.assertEqual(f["fixture"]["expect"], "completed")
-        self.assertEqual(f["fixture"]["reached"], ["gate", "reviewing__collect", "finish"])
-        self.assertIs(f["testing__run"]["green"], True)
-
-    def test_tests_red(self):
-        # テストが赤でも関所は模擬実行で自動で通り（--pause-at-gates 無し）、差分の審査まで完走する
-        f = self.fixtures()["tests-red.stubs.yaml"]
-        self.assertEqual(f["fixture"]["expect"], "completed")
-        self.assertIs(f["testing__run"]["ok"], True)
-        self.assertIs(f["testing__run"]["green"], False)
-        self.assertEqual(f["fixture"]["reached"], ["testing__run", "gate", "reviewing__collect", "finish"])
-        self.assertNotIn("pause-at-gates", f["fixture"])
+    def test_outcomes_and_expectations(self):
+        f = self.fixtures()
+        self.assertEqual(f["start-refused"]["fixture"]["expect"], "failed")
+        self.assertEqual(f["start-refused"]["fixture"]["fail-node"], "start")
+        self.assertEqual(f["start-refused"]["fixture"]["inputs"]["thickness"], "軽量")
+        for name, outcome in (("standard", "fixed"), ("no-fix", "no_fix_needed"), ("policy-stop", "stopped_by_human"),
+                              ("final-stop", "stopped_by_human"), ("stop-flag", "stopped_by_request")):
+            with self.subTest(name):
+                self.assertEqual(f[name]["fixture"]["expect"], "completed")
+                self.assertEqual(f[name]["report"]["outcome"], outcome)
+                self.assertEqual(f[name]["fixture"]["reached"][-1], "report")
+        self.assertIs(f["no-fix"]["judging__collect"]["need_fix"], False)
+        self.assertIs(f["no-fix"]["h-plan"]["go"], False)
+        self.assertIs(f["pr-fallback"]["h-entry"]["pr_go"], True)
+        self.assertIn("pr-checking__collect", f["pr-fallback"]["fixture"]["reached"])
+        self.assertIs(f["final-when-needed-green"]["h-final"]["ask"], False)
+        self.assertEqual(f["final-when-needed-green"]["fixture"]["inputs"]["final_gate"], "when_needed")
+        self.assertIs(f["stop-flag"]["h-review"]["stop"], True)
+        self.assertIs(f["policy-stop"]["h-fix"]["stop"], True)
+        self.assertIs(f["policy-continue"]["h-gate"]["ask"], True)
+        self.assertTrue(f["policy-continue"]["h-fix"]["notes_file"])
 
 
 if __name__ == "__main__":

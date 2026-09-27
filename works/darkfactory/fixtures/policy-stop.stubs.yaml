@@ -1,5 +1,5 @@
-# 筋書き no-fix: 判定が直す物を残さない（need_fix: false）。h-plan が修正を機械の空の返答で埋め（go 偽）、修正案・修正・
-# 差分の審査・手直しは when: で飛ぶ。最後のテストは周を締めるので回り、報告は no_fix_needed
+# 筋書き policy-stop: policy-gate の答え stop（reject も同じ）を h-fix が盤面へ渡して止め（stop 真）、後ろのブロックは
+# 全部飛ぶ。境の節と報告は走り、報告は stopped_by_human
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 start:
@@ -230,14 +230,16 @@ judge-accept:
   - 'stats.py clamp: 上限を超えた値に lo を返す'
 judging__collect:
   ok: true
-  open_units: []
-  need_fix: false
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  need_fix: true
   judgment_file: board/judgment.json
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
 h-plan:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -330,15 +332,15 @@ h-gate:
   ok: true
   stop: false
   go: false
-  ask: false
-  gate_text: ''
+  ask: true
+  gate_text: （文）
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
   notes: ''
   notes_file: ''
   why: ''
-  gate_file: ''
+  gate_file: board/r1/gate.md
   premises_file: ''
   pr_go: false
   premises_go: false
@@ -349,7 +351,7 @@ h-gate:
   mid_note: ''
 h-fix:
   ok: true
-  stop: false
+  stop: true
   go: false
   ask: false
   gate_text: ''
@@ -358,7 +360,7 @@ h-fix:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 人が関所で止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -490,7 +492,7 @@ fixing__collect:
     units: []
 h-mid:
   ok: true
-  stop: false
+  stop: true
   go: false
   ask: false
   gate_text: ''
@@ -499,7 +501,7 @@ h-mid:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 人が関所で止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -508,10 +510,10 @@ h-mid:
   spec_go: false
   runtime_go: false
   holdout_go: false
-  mid_note: '中の検査: 枠のみ（動かす確かめ・holdout は Task 36、変異は後）'
+  mid_note: ''
 h-review:
   ok: true
-  stop: false
+  stop: true
   go: false
   ask: false
   gate_text: ''
@@ -520,7 +522,7 @@ h-review:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 人が関所で止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -554,7 +556,7 @@ reviewing__collect:
   diff_file: board/fix.diff
 h-refix:
   ok: true
-  stop: false
+  stop: true
   go: false
   ask: false
   gate_text: ''
@@ -563,7 +565,7 @@ h-refix:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 人が関所で止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -656,8 +658,8 @@ refixing__collect:
   reads_files: {}
 h-tests:
   ok: true
-  stop: false
-  go: true
+  stop: true
+  go: false
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -665,7 +667,7 @@ h-tests:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 人が関所で止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -685,17 +687,17 @@ testing__run:
   by: engine
 h-final:
   ok: true
-  stop: false
+  stop: true
   go: false
-  ask: true
-  gate_text: （文）
+  ask: false
+  gate_text: ''
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
-  gate_file: board/r1/final-gate.md
+  why: 人が関所で止めた
+  gate_file: ''
   premises_file: ''
   pr_go: false
   premises_go: false
@@ -706,7 +708,7 @@ h-final:
   mid_note: ''
 h-eyes:
   ok: true
-  stop: false
+  stop: true
   go: false
   ask: false
   gate_text: ''
@@ -715,7 +717,7 @@ h-eyes:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 人が関所で止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -727,7 +729,7 @@ h-eyes:
   mid_note: ''
 report:
   ok: true
-  outcome: no_fix_needed
+  outcome: stopped_by_human
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
@@ -746,13 +748,13 @@ fixture:
   - h-judge
   - judging__collect
   - h-plan
+  - planning__collect
   - h-gate
   - h-fix
   - h-mid
   - h-review
   - h-refix
   - h-tests
-  - testing__run
   - h-final
   - h-eyes
   - report

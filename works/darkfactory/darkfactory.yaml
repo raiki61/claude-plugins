@@ -1,9 +1,15 @@
 name: darkfactory
 description: |
-  ダークファクトリーの 1 本目のライン。人の修正依頼を判定役が根本の単位にまとめ（judging）、修正役が直し（fixing）、
-  テストを 1 回走らせ（testing）、人がテストの緑赤とログを見て承認し（gate）、修正の差分を審査役が審査する（reviewing）。
-  判定が直す物を 1 つも残さなければ、修正から後を飛ばす（直す物が無いのは失敗でない。Ruling R21）。
-  出口はいつも走る節 finish: 結末（fixed か no_fix_needed）と、run の後に見るファイル（判定・審査の返答・修正の差分）のパス。
+  ダークファクトリーのライン（C18 の順。P1 計画 Task 28・29）。人の修正依頼を、盤面（graphloops の review-loop の写しの
+  graph と規則。works/.shared/core/board.py）の上で 1 周回す:
+  起動の関所 → start（盤面・CI・並行 PR の engine の節）→ 並行 PR の任せ先 → 前提の実測 → 判定 → 修正案と事前審査 →
+  修正の前の人の関所（要る時だけ）→ 修正（TDD の輪）→ 中の検査の枠 → 差分の審査 → 手直し → 最後のテスト →
+  最後の人の関所 → 報告。
+  境の節（h-*。scripts/edge.py を at を替えて使う。いつも走る）が盤面の ready から次のブロックを回すかを決め、関所の答えと
+  止め札を盤面へ渡す。when: と関所の文言は、いつも走る節（start・境の節）の欄だけを読む。
+  独立の目（R1〜R4）・AI が書く報告・素材集め（P1 の目）・目的の文・仕様から入る道・再審はこの版のラインに無い
+  （nodes.json の absent。報告の「このラインに無い節」に出る）。
+  出口はいつも走る節 report: 結末（fixed・no_fix_needed・stopped_by_*・needs_human・record_invalid）と報告のパス。
   人の関所があるので interactive。
 
 interactive: true
@@ -13,95 +19,665 @@ inputs:
     required: true
     description: 人の修正依頼（findings の JSON の配列）のファイルの絶対パス（対象の外でよい）。相対なら run の worktree の根から
   test_cmd:
-    required: true
-    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行。自分のプロセスグループで走り、止めるときは木ごと止める）
+    default: ""
+    description: テストのコマンド（対象リポジトリの根で bash が走らせる 1 行）。空なら対象の .review-checks.json の宣言を engine が走らせ、宣言も無ければ CI の任せ先の役（blk-ci）
+  thickness:
+    default: ""
+    description: 手厚さ。空は標準（軽量・重厚は受けない。持ち主の決定 2026-09-27）
+  gates:
+    default: ""
+    description: graphloops の gates（空か merge）
+  final_gate:
+    default: ""
+    description: 最後の人の関所。always（空の既定。いつも開く）か when_needed（最後のテストが緑でない・盤面が人に聞いている・止めずに残った異議がある時だけ）
+  adapter:
+    default: ""
+    description: 包み（Claude の包み claude-adapter）。空は包みを通した run だけを受ける（h-judge が確かめる）。optional は包み無しで回し、報告に出す
+  policy_md:
+    default: ""
+    description: 人の方針の文書のパス（空なら既定の置き場。graphloops の policy_md と同じ）
+  tdd_suite:
+    default: ""
+    description: テストの実行器（JUnit XML の書き先を第 1 引数に受ける実行ファイル。対象の根から）。空なら修正の段の TDD の輪を飛ばす
 
-returns: finish
+returns: report
 outcome_field: ok
 
-# include の id はブロックの中の節の id と重ねない（Ruling R17。重ねるとブロックの中の $<id>.output が include を指す）
 nodes:
-  # 周の頭の版を固める。後ろのブロックは全部この版から数える（ラインの中で HEAD を暗に読まない。設計書 8 節）
-  - id: base
-    bash: |
-      rev=$(git rev-parse HEAD) || exit 1
-      printf '{"ok": true, "rev": "%s"}\n' "$rev"
-    timeout: 1728000000
-    output_format:
-      type: object
-      additionalProperties: false
-      required: [ok, rev]
-      properties:
-        ok: {type: boolean}
-        rev: {type: string}
-
-  - id: judging
-    include: blk-judge
-    depends_on: [base]
-    with:
-      request: $INPUTS.request
-      base_rev: $base.output.rev
-
-  # 直す物が無い判定（need_fix: false）なら、ここから関所・審査までを飛ばして finish へ行く（Ruling R21）
-  - id: fixing
-    include: blk-fix
-    depends_on: [judging]
-    when: "$judging.output.need_fix == true"
-    with:
-      judgment_file: $judging.output.judgment_file
-      open_units: $judging.output.open_units
-      base_rev: $base.output.rev
-
-  # 赤でも run を止めない（ok: true・green: false）。緑赤を人の関所に見せる
-  - id: testing
-    include: blk-tests
-    depends_on: [fixing]
-    when: "$judging.output.need_fix == true"
-    with:
-      cmd: $INPUTS.test_cmd
-
-  # 人の承認。拒めば run を止める（修正の差分は Archon の run ごとの worktree に残る）。承認の一言は $gate.output に残す
-  - id: gate
-    depends_on: [testing]
-    when: "$judging.output.need_fix == true"
+  # 起動の関所。archon workflow approve <id> --detach で越えると、run が背景で続き、cancel で木ごと止められる（線 A 仕様 5.3）
+  - id: launch
     approval:
       message: |
-        修正とテストが済んだ。差分の審査へ進めてよいか。
-        - 判定の一手: $judging.output.one_shot
-        - 判定のファイル: $judging.output.judgment_file
-        - 修正役が残した git が無視するファイルで、テストの前に消した物: $fixing.output.removed
-        - テストが緑か: $testing.output.green（true が緑・false が赤）
-        - テストのログ: $testing.output.log
-        修正の差分は Archon の run ごとの worktree にある（commit していない。場所は archon workflow runs --json の
-        working_path）。承認すると審査役が差分を審査する。拒むと run を止める。
-      capture_response: true
+        darkfactory を始める。背景で続けるなら archon workflow approve $WORKFLOW_ID --detach（取り消しは archon workflow cancel $WORKFLOW_ID）。
+        止めるなら archon workflow reject $WORKFLOW_ID --reason "<理由>"。
 
-  - id: reviewing
-    include: blk-delta
-    depends_on: [gate]
-    when: "$judging.output.need_fix == true"
-    with:
-      base_rev: $base.output.rev
-
-  # いつも走る出口（returns）。直した run は審査の返答・修正の差分のパスまで、直す物が無い run は判定のパスだけを出す。
-  # judging に依ることで、修正から後を全部飛ばしても走る（none_failed_min_one_success。どこかが落ちた run では走らない）
-  - id: finish
-    script: finish
+  # 盤面を作り（DiskBoard.begin）、CI と並行 PR の engine の節を回す（entry.start）。入力を受けなければ 1 で止まる（AI の前）
+  - id: start
+    script: start
     runtime: uv
-    depends_on: [judging, reviewing]
-    trigger_rule: none_failed_min_one_success
     timeout: 1728000000
+    depends_on: [launch]
     with:
-      judged: {from: "$judging.output"}
-      review: {from: "$reviewing.output", if_skipped: null}
+      request: $INPUTS.request
+      test_cmd: $INPUTS.test_cmd
+      thickness: $INPUTS.thickness
+      gates: $INPUTS.gates
+      final_gate: $INPUTS.final_gate
+      adapter: $INPUTS.adapter
+      policy_md: $INPUTS.policy_md
+    output_format:
+      type: object
+      required: [ok, base_rev, test_cmd, policy_paste, policy_path, final_gate, adapter, ci_role_go, head_line]
+      properties:
+        ok: {type: boolean}
+        base_rev: {type: string}
+        test_cmd: {type: string}
+        policy_paste: {type: string}
+        policy_path: {type: string}
+        final_gate: {type: string}
+        adapter: {type: string}
+        thickness: {type: string}
+        gates: {type: string}
+        ci_role_go: {type: boolean}
+        head_line: {type: string}
+
+  # CI の任せ先の役（宣言も test_cmd も無い run で p0.local_checks が任せ先に落ちた時だけ。裁定 R52）
+  - id: ci-checking
+    include: blk-ci
+    depends_on: [start]
+    when: "$start.output.ci_role_go == true"
+    with:
+      node: "p0.local_checks"
+      base_rev: $start.output.base_rev
+
+  # 境の節（いつも走る）。盤面の ready から並行 PR・前提の実測を回すかを出す
+  - id: h-entry
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, ci-checking]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "entry"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
     output_format:
       type: object
       additionalProperties: false
-      required: [ok, outcome, judgment_file]
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
       properties:
         ok: {type: boolean}
-        outcome: {type: string, enum: [fixed, no_fix_needed]}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 並行 PR の任せ先（engine が 1〜5 段を済ませられなかった・交差が在った時だけ）
+  - id: pr-checking
+    include: blk-pr
+    depends_on: [h-entry]
+    when: "$h-entry.output.pr_go == true"
+
+  # 前提の実測（p0.premises が待っている時）
+  - id: premising
+    include: blk-premises
+    depends_on: [h-entry, pr-checking]
+    trigger_rule: none_failed_min_one_success
+    when: "$h-entry.output.premises_go == true"
+    with:
+      request: $INPUTS.request
+      base_rev: $start.output.base_rev
+
+  # 包みの確かめと、前提の実測の出口を盤面へ渡す（P1-R9）
+  - id: h-judge
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-entry, premising]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "judge"
+      judged: "null"
+      premised: {from: $premising.output, if_skipped: null}
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 判定
+  - id: judging
+    include: blk-judge
+    depends_on: [h-judge]
+    when: "$h-judge.output.go == true"
+    with:
+      request: $INPUTS.request
+      base_rev: $start.output.base_rev
+      policy_paste: $start.output.policy_paste
+      premises_file: $h-judge.output.premises_file
+
+  # 判定を盤面へ渡し替え、直す物の無い周は修正を機械が空で埋める
+  - id: h-plan
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-judge, judging]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "plan"
+      judged: {from: $judging.output, if_skipped: null}
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 修正案と事前審査
+  - id: planning
+    include: blk-plan
+    depends_on: [h-plan]
+    when: "$h-plan.output.go == true"
+    with:
+      judgment_file: $h-plan.output.judgment_file
+      base_rev: $start.output.base_rev
+      policy_paste: $start.output.policy_paste
+      policy_path: $start.output.policy_path
+      include_id: "planning"
+
+  # 盤面が人に聞いていれば関所を開く（文は r<N>/gate.md。文言には置き場だけを載せる）
+  - id: h-gate
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-plan, planning]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "gate"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 修正の前の人の関所（要る時だけ）。approve・continue は通す、stop・reject は止める（R32）
+  - id: policy-gate
+    depends_on: [h-gate]
+    when: "$h-gate.output.ask == true"
+    approval:
+      message: |
+        修正の前に人に聞くことがある（狭める能力・事前審査の後退と方針の穴・方針の文書の変化）。
+        全文と答え方: $h-gate.output.gate_file（Read して答える）。
+        continue "<通す範囲と条件>" で修正へ、stop "<理由>" で止めて報告へ。approve は continue、reject は stop と同じ。
+      decisions:
+        - {id: approve}
+        - {id: continue}
+        - {id: stop}
+        - {id: reject}
+      # decisions を書いた関所の出口はいつも {decision, text}（capture_response は Archon が捨てる古い鍵なので書かない）
+
+  # 関所の答えを盤面へ（一言は human_items と notes_file）
+  - id: h-fix
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-gate, policy-gate]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "fix"
+      judged: "null"
+      premised: "null"
+      gate: {from: $policy-gate.output, if_skipped: null}
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 修正（テストの実行器 tdd_suite が在れば単位ごとの TDD の輪）
+  - id: fixing
+    include: blk-fix
+    depends_on: [h-fix]
+    when: "$h-fix.output.go == true"
+    with:
+      judgment_file: $h-fix.output.judgment_file
+      open_units: $h-fix.output.open_units
+      plan_file: $h-fix.output.plan_file
+      notes_file: $h-fix.output.notes_file
+      base_rev: $start.output.base_rev
+      policy_path: $start.output.policy_path
+      tdd_suite: $INPUTS.tdd_suite
+
+  # 中の検査の枠（C18。動かす確かめ・holdout・変異はこの版に無い。mid_note が報告に載る）
+  - id: h-mid
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-fix, fixing]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "mid"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 差分の審査を回すか
+  - id: h-review
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-mid]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "review"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 修正差分の審査
+  - id: reviewing
+    include: blk-delta
+    depends_on: [h-review]
+    when: "$h-review.output.go == true"
+    with:
+      base_rev: $start.output.base_rev
+
+  # 手直しを回すか
+  - id: h-refix
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-review, reviewing]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "refix"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 差分の審査の後の手直し（2 往復まで）
+  - id: refixing
+    include: blk-refix
+    depends_on: [h-refix]
+    when: "$h-refix.output.go == true"
+    with:
+      base_rev: $start.output.base_rev
+      policy_paste: $start.output.policy_paste
+      policy_path: $start.output.policy_path
+
+  # 最後のテストを回すか
+  - id: h-tests
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-refix, refixing]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "tests"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 最後のテスト（盤面の p4.ci。graphloops と同じく修正と手直しの全部の後）
+  - id: testing
+    include: blk-tests
+    depends_on: [h-tests]
+    when: "$h-tests.output.go == true"
+    with:
+      cmd: $start.output.test_cmd
+      mode: "final"
+
+  # 最後の人の関所を開くか（final_gate: always か when_needed。C18・P1-R3）
+  - id: h-final
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-tests, testing]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "final"
+      judged: "null"
+      premised: "null"
+      gate: "null"
+      tests: {from: $testing.output, if_skipped: null}
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # 最後の人の関所。continue・approve は報告へ、stop・reject は止めて報告へ
+  - id: final-gate
+    depends_on: [h-final]
+    when: "$h-final.output.ask == true"
+    approval:
+      message: |
+        最後のテストまで済んだ。報告へ進めてよいか。
+        全文（テストの緑赤・ログ・差分の置き場・残った異議）と答え方: $h-final.output.gate_file
+        continue "<一言>" で報告へ、stop "<理由>" で止めて報告へ。approve は continue、reject は stop と同じ。
+      decisions:
+        - {id: approve}
+        - {id: continue}
+        - {id: stop}
+        - {id: reject}
+      # decisions を書いた関所の出口はいつも {decision, text}（capture_response は Archon が捨てる古い鍵なので書かない）
+
+  # 最後の関所の答えを盤面へ（独立の目の枠。この版では go は偽）
+  - id: h-eyes
+    script: edge
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-final, final-gate]
+    trigger_rule: none_failed_min_one_success
+    with:
+      at: "eyes"
+      judged: "null"
+      premised: "null"
+      gate: {from: $final-gate.output, if_skipped: null}
+      tests: "null"
+      adapter: $start.output.adapter
+      final_gate: $INPUTS.final_gate
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [ok, stop, go, ask, gate_text, judgment_file, open_units, plan_file, notes, notes_file, why, gate_file, premises_file, pr_go, premises_go, purpose_go, spec_go, runtime_go, holdout_go, mid_note]
+      properties:
+        ok: {type: boolean}
+        stop: {type: boolean}
+        go: {type: boolean}
+        ask: {type: boolean}
+        gate_text: {type: string}
+        judgment_file: {type: string}
+        open_units: {type: string}
+        plan_file: {type: string}
+        notes: {type: string}
+        notes_file: {type: string}
+        why: {type: string}
+        gate_file: {type: string}
+        premises_file: {type: string}
+        pr_go: {type: boolean}
+        premises_go: {type: boolean}
+        purpose_go: {type: boolean}
+        spec_go: {type: boolean}
+        runtime_go: {type: boolean}
+        holdout_go: {type: boolean}
+        mid_note: {type: string}
+
+  # いつも走る出口（returns）。機械が組む報告 report.md と次の run の依頼の下書き next-request.json
+  - id: report
+    script: report
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [start, h-eyes]
+    trigger_rule: none_failed_min_one_success
+    with:
+      judged: {from: $judging.output, if_skipped: null}
+      tests: {from: $testing.output, if_skipped: null}
+      start: {from: $start.output}
+      mid: {from: $h-mid.output}
+      ci: {from: $ci-checking.output, if_skipped: null}
+    output_format:
+      type: object
+      required: [ok, outcome, judgment_file, report_file, next_request_file, tests_green, validator_exit]
+      properties:
+        ok: {type: boolean}
+        outcome: {type: string, enum: [fixed, no_fix_needed, stopped_by_request, stopped_by_human, stopped_by_line, needs_human, record_invalid, interrupted]}
         judgment_file: {type: string}
         review_file: {type: string}
         diff_file: {type: string}
         faces: {type: integer, minimum: 0}
+        report_file: {type: string}
+        next_request_file: {type: string}
+        tests_green: {type: boolean}
+        validator_exit: {type: integer}
+        export_input: {type: object}

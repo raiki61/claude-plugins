@@ -1,20 +1,7 @@
-# 筋書き no-fix: 判定が直す物を残さない（need_fix: false）。h-plan が修正を機械の空の返答で埋め（go 偽）、修正案・修正・
-# 差分の審査・手直しは when: で飛ぶ。最後のテストは周を締めるので回り、報告は no_fix_needed
+# 筋書き start-refused: 手厚さ 軽量 を渡す → start（本物）が入力を受けず 1 で止まる（AI を起こす前。持ち主の決定
+# 2026-09-27）。後ろの節には届かない
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
-start:
-  ok: true
-  base_rev: 0123456789abcdef0123456789abcdef01234567
-  test_cmd: python3 -m unittest
-  policy_paste: ''
-  policy_path: ''
-  final_gate: always
-  adapter: optional
-  thickness: 標準
-  gates: ''
-  ci_role_go: false
-  pr_go: false
-  head_line: '入口: 判定から（依頼 2 件）・段: 標準（既定）・gates: 空'
 ci-checking__ci-fence:
   go: true
   reason: ''
@@ -230,14 +217,16 @@ judge-accept:
   - 'stats.py clamp: 上限を超えた値に lo を返す'
 judging__collect:
   ok: true
-  open_units: []
-  need_fix: false
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  need_fix: true
   judgment_file: board/judgment.json
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
 h-plan:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -350,12 +339,12 @@ h-gate:
 h-fix:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
+  plan_file: board/out/r1/p2.fix_plan.json
   notes: ''
   notes_file: ''
   why: ''
@@ -491,7 +480,7 @@ fixing__collect:
 h-mid:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -512,7 +501,7 @@ h-mid:
 h-review:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -555,7 +544,7 @@ reviewing__collect:
 h-refix:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -727,33 +716,18 @@ h-eyes:
   mid_note: ''
 report:
   ok: true
-  outcome: no_fix_needed
+  outcome: fixed
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
-  tests_green: false
+  tests_green: true
   validator_exit: 0
 fixture:
-  expect: completed
+  expect: failed
   inputs:
     request: request_ok.json
     test_cmd: python3 -m unittest
     adapter: optional
-  reached:
-  - start
-  - h-entry
-  - premising__collect
-  - h-judge
-  - judging__collect
-  - h-plan
-  - h-gate
-  - h-fix
-  - h-mid
-  - h-review
-  - h-refix
-  - h-tests
-  - testing__run
-  - h-final
-  - h-eyes
-  - report
+    thickness: 軽量
+  fail-node: start
 exec-code: true

@@ -21,8 +21,6 @@ nodes:
     script: cut
     runtime: uv
     timeout: 1728000000
-    with:
-      base_rev: $INPUTS.base_rev
     output_format:
       type: object
       additionalProperties: false

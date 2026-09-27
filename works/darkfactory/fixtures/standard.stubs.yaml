@@ -1,20 +1,8 @@
-# 筋書き no-fix: 判定が直す物を残さない（need_fix: false）。h-plan が修正を機械の空の返答で埋め（go 偽）、修正案・修正・
-# 差分の審査・手直しは when: で飛ぶ。最後のテストは周を締めるので回り、報告は no_fix_needed
+# 筋書き standard: 全部の段が回る（修正案 → 事前審査が人に聞き policy-gate が continue → 修正 → 差分の審査 → 手直し →
+# 最後のテスト → 最後の関所 → 報告 fixed）。start は stub せず本物で回す（with: の INPUTS_* が模擬実行で start.py に届き、
+# 対象（mktarget.sh の種）に本物の盤面を作る。TA16）。後ろの節は全部 stub
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
-start:
-  ok: true
-  base_rev: 0123456789abcdef0123456789abcdef01234567
-  test_cmd: python3 -m unittest
-  policy_paste: ''
-  policy_path: ''
-  final_gate: always
-  adapter: optional
-  thickness: 標準
-  gates: ''
-  ci_role_go: false
-  pr_go: false
-  head_line: '入口: 判定から（依頼 2 件）・段: 標準（既定）・gates: 空'
 ci-checking__ci-fence:
   go: true
   reason: ''
@@ -230,14 +218,16 @@ judge-accept:
   - 'stats.py clamp: 上限を超えた値に lo を返す'
 judging__collect:
   ok: true
-  open_units: []
-  need_fix: false
+  open_units:
+  - 'stats.py mean: 分母が len(xs) - 1 になっている'
+  - 'stats.py clamp: 上限を超えた値に lo を返す'
+  need_fix: true
   judgment_file: board/judgment.json
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
 h-plan:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -330,15 +320,15 @@ h-gate:
   ok: true
   stop: false
   go: false
-  ask: false
-  gate_text: ''
+  ask: true
+  gate_text: （文）
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
   notes: ''
   notes_file: ''
   why: ''
-  gate_file: ''
+  gate_file: board/r1/gate.md
   premises_file: ''
   pr_go: false
   premises_go: false
@@ -350,14 +340,14 @@ h-gate:
 h-fix:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
-  plan_file: ''
-  notes: ''
-  notes_file: ''
+  plan_file: board/out/r1/p2.fix_plan.json
+  notes: clamp の上限は hi でよい
+  notes_file: board/r1/human-notes.md
   why: ''
   gate_file: ''
   premises_file: ''
@@ -491,7 +481,7 @@ fixing__collect:
 h-mid:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -512,7 +502,7 @@ h-mid:
 h-review:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -555,7 +545,7 @@ reviewing__collect:
 h-refix:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -727,11 +717,11 @@ h-eyes:
   mid_note: ''
 report:
   ok: true
-  outcome: no_fix_needed
+  outcome: fixed
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
-  tests_green: false
+  tests_green: true
   validator_exit: 0
 fixture:
   expect: completed
@@ -746,11 +736,15 @@ fixture:
   - h-judge
   - judging__collect
   - h-plan
+  - planning__collect
   - h-gate
   - h-fix
+  - fixing__collect
   - h-mid
   - h-review
+  - reviewing__collect
   - h-refix
+  - refixing__collect
   - h-tests
   - testing__run
   - h-final
