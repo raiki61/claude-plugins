@@ -10,6 +10,9 @@
 - バイトの一致: 写しの元が無ければ飛ばさずに赤にする（tests/test_core_copy.py の test_copies_are_byte_identical_to_the_commit
   と同じ扱い。あちらは元の commit を引けなければ git show が失敗して赤になる）。同じ版の superpowers の checkout を
   WORKS_SP_SOURCE に渡せば、そこを元として比べる。
+  開発の殻 dev/archon.sh は、隔離の前の利用者の設定のキャッシュの元を WORKS_SP_SOURCE で渡す（隔離した設定には
+  スキルの写しだけでキャッシュが無い。渡さないと run の中の最後の試験が環境のせいで赤になる。検査は tests/test_dev.py の
+  test_archon_sh_passes_sp_source_from_the_users_config）。
 - NOTICE（works/NOTICE）: superpowers が MIT であることと、LICENSE の著作権者の行をそのまま持つ。
 - 無人の読み替え（works/.shared/superpowers/unattended.md）: 写しの .md の中で、人か調整役（下請けを起こす親の会話）を
   前提にする言い回しの目印（TRIGGERS）に当たる行を全部、行の索引に 1 行ずつ持つ（パス・行番号・読み替えの決まりの名・

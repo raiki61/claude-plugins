@@ -267,12 +267,14 @@ class TestDevShell(unittest.TestCase):
             skills_seen = tmp / "skills.txt"
             settings_seen = tmp / "settings.txt"
             env_seen = tmp / "env.txt"
+            sp_seen = tmp / "sp-source.txt"
             fake_archon.write_text(
                 "#!/bin/sh\n"
                 f'printf \'%s\\n\' "${{TITLE_GENERATION_MODEL-(unset)}}" "$*" > "{seen}"\n'
                 f'ls "$CLAUDE_CONFIG_DIR/skills" > "{skills_seen}" 2>&1\n'
                 f'cat "$CLAUDE_CONFIG_DIR/settings.json" > "{settings_seen}" 2>/dev/null || true\n'
                 f'printf \'%s\\n\' "${{WORKS_ARCHON_VERSION-(unset)}}" "${{WORKS_CLAUDE_VERSION-(unset)}}" > "{env_seen}"\n'
+                f'printf \'%s\\n\' "${{WORKS_SP_SOURCE-(unset)}}" > "{sp_seen}"\n'
             )
             fake_bin = tmp / "fake-bin"
             # 隔離した設定に coldwrite を入れる claude（dev/toolset.py が PATH から引く）は偽物（本物は起こさない）
@@ -298,6 +300,7 @@ class TestDevShell(unittest.TestCase):
             self.settings_seen = (json.loads(settings_seen.read_text())
                                   if settings_seen.exists() and settings_seen.read_text() else None)
             self.env_seen = env_seen.read_text().splitlines() if env_seen.exists() else None
+            self.sp_seen = sp_seen.read_text().strip() if sp_seen.exists() else None
             self.claude_calls = ([json.loads(ln)["argv"] for ln in claude_calls.read_text().splitlines()]
                                  if claude_calls.exists() else [])
             return (result, config.read_text() if config.exists() else None,
@@ -362,6 +365,26 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.env_seen, [want, "(unset)"])
         self.assertEqual(self.claude_calls, [])
+
+    def test_archon_sh_passes_sp_source_from_the_users_config(self):
+        """借りた superpowers の写しとバイトを比べる試験（tests/test_sp_skills.py）の元を、隔離の前の利用者の設定の
+        プラグインのキャッシュで WORKS_SP_SOURCE に渡す。隔離した設定にはスキルの写しだけでキャッシュが無いので、渡さないと
+        run の中の最後の試験（blk-tests final）が環境のせいで毎回赤になる（自分食い 31 件目）。読むだけで、在るかは見ない
+        （無ければ試験が赤で知らせる）。設定済みならそのまま（入れ子で呼ばれた時に隔離した設定で上書きしない）"""
+        from test_sp_skills import copied_from
+        _, source, _ = copied_from()
+        user_cfg = "/nonexistent/user-claude-config"
+        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR=user_cfg, WORKS_SP_SOURCE="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.sp_seen, f"{user_cfg}/plugins/cache/{source.as_posix()}")
+        home = "/nonexistent/user-home"
+        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="", HOME=home, WORKS_SP_SOURCE="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.sp_seen, f"{home}/.claude/plugins/cache/{source.as_posix()}")
+        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR=user_cfg,
+                                            WORKS_SP_SOURCE="/somewhere/superpowers-checkout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.sp_seen, "/somewhere/superpowers-checkout")
 
     def test_archon_sh_stops_when_isolated_config_leaks_into_user_scope(self):
         """隔離した CLAUDE_CONFIG_DIR に CLAUDE.md（や一覧の外の設定・スキル・プラグイン）が在れば、toolset.py の柵が

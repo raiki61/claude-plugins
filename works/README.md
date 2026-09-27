@@ -79,7 +79,7 @@ AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` �
 - 柵: 一覧の外（CLAUDE.md・rules/・agents/・commands/・output-styles/・settings.json 以外の settings*.json・一覧の外のスキル・settings.json の `enabledPlugins`・`extraKnownMarketplaces` 以外の鍵・ほかのプラグインと marketplace）が在れば、名前を出して終了コード 2 で止まる（`archon.sh` も Archon を起こさない）。Claude Code が自分で書く状態（projects/・.claude.json・backups/・plugins/cache/ など）は見ない。手で確かめるなら `python3 dev/toolset.py guard <置き場>`。
 - **開発の殻の外では隔離されない。** 利用者が自分の Archon で pack を入れる場合、`CLAUDE_CONFIG_DIR` は利用者の本物の `~/.claude` で、`[user]` の節は利用者の CLAUDE.md・hooks・プラグインを読む。殻の外の入れ方（利用者のキャッシュから選ぶ版上げと関門）は P1 計画 Task 21。
 - 無人の読み替え: スキルの文が人（your human partner）や下請けの AI を前提にする所は、`.shared/superpowers/unattended.md` の決まりで読み替える（直す義務の単位は必ず直して `changes` に載せ、判定への異議は `rejudge_requested` に、人に聞きたいことは食い違いの申し出（`which_is_right` は unknown。裁定役が人に回す）に書く。`not_done` は受け付けが免除する単位と義務の外の単位だけ。修正役は commit しない、`superpowers:` の参照は無視、など）。
-- 試験（`tests/test_sp_skills.py`）は写しと元（プラグインのキャッシュ）のバイトの一致を見る。元が無ければ飛ばさずに赤になるので、同じ版の checkout を `WORKS_SP_SOURCE` に渡す。
+- 試験（`tests/test_sp_skills.py`）は写しと元（プラグインのキャッシュ）のバイトの一致を見る。元が無ければ飛ばさずに赤になるので、同じ版の checkout を `WORKS_SP_SOURCE` に渡す。`dev/archon.sh` は隔離の前の利用者の設定のキャッシュを `WORKS_SP_SOURCE` で渡すので、run の中の最後の試験も同じ元と比べる（隔離した設定にはキャッシュが無い）。
 
 ## Claude の包み
 

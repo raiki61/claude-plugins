@@ -85,6 +85,18 @@ fi
 
 chmod +x "$BIN_PATH"
 
+# 借りた superpowers の写しとバイトを比べる試験（tests/test_sp_skills.py）の元を、隔離の前の利用者の設定のプラグインの
+# キャッシュで WORKS_SP_SOURCE に渡す（読むだけ。在るかは見ず、無ければ試験が赤で知らせる）。隔離した設定にはスキルの写し
+# だけでキャッシュが無いので、渡さないと run の中の最後の試験が環境のせいで毎回赤になる。設定済みならそのまま
+# （入れ子で呼ばれた時に、隔離した設定で上書きしない）。キャッシュの根からの相対パスは写しの COPIED_FROM の 1 行目の 2 語目
+if [ -z "${WORKS_SP_SOURCE:-}" ]; then
+  sp_rel="$(awk 'NR == 1 { print $2; exit }' "$(cd "$(dirname "$0")/.." && pwd -P)"/.shared/superpowers/*/COPIED_FROM 2>/dev/null || true)"
+  if [ -n "$sp_rel" ]; then
+    WORKS_SP_SOURCE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/$sp_rel"
+    export WORKS_SP_SOURCE
+  fi
+fi
+
 # HOME・ARCHON_HOME・Claude の設定・XDG_* を全部 WORKS_DEV_HOME の下へ隔離する
 # （keychain はもう読み終えている）。
 HOME="$WORKS_DEV_HOME/home"
