@@ -2,11 +2,16 @@
 
 COPIED_FROM に並ぶ写しは、1 行目の commit（graphloops 0.21.0 = a1202d0）の同じパスとバイト単位で同じ。盤面の層は写しを継ぐ
 （DiskBoard は engine の Board を継ぎ、差し替えは overrides で記憶の中だけ）ので、写しの中身を直していないことをここで縛る。
+例外は tests/test_core_copy.py の DEVIATIONS に並ぶ works の手直し（COPIED_FROM の行の注記にも書く）だけ。
 行の読み方は tests/test_core_copy.py と同じ式（2 行目から、空行と # の行を除き、ln.split()[0]）。
 """
 import pathlib
 import subprocess
+import sys
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from test_core_copy import expected_copy  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CORE = ROOT / ".shared" / "core"
@@ -31,7 +36,7 @@ class CoreVerbatimCase(unittest.TestCase):
             with self.subTest(rel):
                 src = _git("show", f"{COMMIT}:{rel}")
                 self.assertEqual(src.returncode, 0, src.stderr.decode("utf-8", "replace"))
-                self.assertEqual((CORE / rel).read_bytes(), src.stdout)
+                self.assertEqual((CORE / rel).read_bytes(), expected_copy(rel, src.stdout))
 
 
 if __name__ == "__main__":
