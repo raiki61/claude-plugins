@@ -1,0 +1,515 @@
+"""並行 PR の検査 p0.parallel_pr（線 A Task 21。仕様 3.8・裁定 TA8。持ち主の答え 2026-09-27: 案 (a)）の試験。
+
+1〜5 段は盤面の層の run_engine が写しの parallel-pr.py を走らせ（prcheck.run_helper）、任せ先に落ちた時だけ読むだけの役
+pr-check（ブロック blk-pr）が 6 段をする。申し送りは投稿せず、下書きを conflicts[].note に書き handed_over を false で返す。
+
+盤面は使い捨てのリポジトリに DiskBoard.create で作る判定から入る run（依頼 2 件）。節の表は線 A の表に似せた試験の表
+（LINE_TABLE。線 A の nodes.json は Task 3 の物で、この枝にはまだ無い）。本物の gh・GitHub・網には触らない:
+PATH の頭に偽の gh（何を打っても exit 9）を置き、engine の helper は偽の runner で差す。
+"""
+import ast
+import dataclasses
+import hashlib
+import importlib.util
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+sys.dont_write_bytecode = True
+HERE = pathlib.Path(__file__).resolve().parent
+PACK = HERE.parent
+sys.path.insert(0, str(HERE))
+
+import boardreplay as R  # noqa: E402  （board と写しの engine を sys.path に足す）
+from board import GRAPH_PATH, GRAPH_SHA, BoardGap, DiskBoard, NodeEntry, NodeTable  # noqa: E402
+import engine.util as engine_util  # noqa: E402
+from engine.schema import validate_schema  # noqa: E402
+from accept import role_schema  # noqa: E402
+import prcheck  # noqa: E402
+
+REPLIES = HERE / "replies"
+BLOCK = PACK / "blk-pr"
+SCRIPTS = BLOCK / "scripts"
+GRAPH = json.loads(GRAPH_PATH.read_text(encoding="utf-8"))
+
+# 線 A の表（Task 3 の nodes.json）に似せた試験の表: 役・機械・engine_run の節だけを持ち、他の役の節は absent。
+# 違う所: p0.premises は absent（blk-premises は別の作業）、p0.purpose は role（absent にすると、p0.premises の後に
+# p0.purpose_review の条件 purpose_review_due が out.p0.purpose.source を引けずに die する。報告の気がかり）
+KEEP = {"p0.base": dict(by="machine"), "p0.local_checks": dict(by="engine_run", fallback="machine"),
+        "p0.parallel_pr": dict(by="engine_run", fallback="role"), "p0.purpose": dict(by="role"),
+        "p2.diagnose": dict(by="role"), "p2.fix_plan": dict(by="role"), "p2.plan_review": dict(by="role"),
+        "p3.fix": dict(by="role"), "p3.delta_review": dict(by="role"), "p3.delta_fix": dict(by="role"),
+        "p3.delta_review2": dict(by="role"), "p3.delta_fix2": dict(by="role"),
+        "p4.ci": dict(by="engine_run", fallback="machine")}
+
+
+def line_table():
+    full = NodeTable.everything(GRAPH, GRAPH_SHA)
+    nodes = {nid: NodeEntry(**KEEP[nid]) if nid in KEEP else e if e.by == "builtin"
+             else NodeEntry(by="absent", reason="試験の表", comes_with="試験") for nid, e in full.nodes.items()}
+    return dataclasses.replace(full, nodes=nodes, line="darkfactory")
+
+
+LINE_TABLE = line_table()
+REQUEST = json.loads((REPLIES / "request_ok.json").read_text(encoding="utf-8"))
+GREEN = {"suite": [{"name": "suite", "argv": [sys.executable, "-c", "print('1 passed')"]}]}
+
+
+def reply(name):
+    return json.loads((REPLIES / name).read_text(encoding="utf-8"))
+
+
+def opener(d, **kw):
+    return DiskBoard.open(d, table=LINE_TABLE, **kw)
+
+
+def board_shas(d):
+    d = pathlib.Path(d)
+    return {p.relative_to(d).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(d.rglob("*")) if p.is_file() and not p.name.startswith(("pr-snapshot", "pr-brief"))}
+
+
+def helper_out(conflicts):
+    """engine の helper（parallel-pr.py）の代わりに、決めた印字を返す runner（本物の gh を起こさない）"""
+    calls = []
+
+    def runner(steps, cwd, log_dir):
+        calls.append(steps)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        out, err = log_dir / "1.out", log_dir / "1.err"
+        out.write_text(json.dumps({"repo": "o/r", "listed": 2, "truncated": False, "conflicts": conflicts}), encoding="utf-8")
+        err.write_text("", encoding="utf-8")
+        return [{"name": steps[0]["name"], "argv": steps[0]["argv"], "out": str(out), "err": str(err),
+                 "exit": 0, "wall_s": 0.1, "tail": ""}]
+    runner.calls = calls
+    return runner
+
+
+def never(*a, **kw):
+    raise AssertionError(f"runner を呼んではいけない: {a}")
+
+
+CROSSING = [{"pr": "7", "files": ["stats.py"]}]
+GITHUB = "git@github.com:o/r.git"
+_SEEDS = []
+
+
+def _seeds():
+    if not _SEEDS:
+        _SEEDS.append(pathlib.Path(tempfile.mkdtemp(prefix="blk-pr-seeds-")))
+    return _SEEDS[0]
+
+
+def tearDownModule():
+    for d in _SEEDS:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+class PrCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="blk-pr-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        env = mock.patch.dict(os.environ, R.git_env())
+        env.start()
+        self.addCleanup(env.stop)
+        cwd = engine_util.GIT_CWD
+        self.addCleanup(setattr, engine_util, "GIT_CWD", cwd)
+        # 偽の gh を PATH の頭に（本物の gh・GitHub に触らない。何を打っても exit 9）
+        bin_dir = self.tmp / "fake-bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text('#!/bin/sh\necho "fake gh: $*" >&2\nexit 9\n', encoding="utf-8")
+        gh.chmod(0o755)
+        path = mock.patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+        path.start()
+        self.addCleanup(path.stop)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True).stdout
+
+    def build(self, root):
+        """p0.parallel_pr が待っている盤面を root に作る（判定から入る run。p0.base・p0.local_checks・p0.purpose は済み）"""
+        self.repo, self.art = root / "repo", root / "art"
+        self.repo.mkdir(parents=True)
+        self.git("init", "-q")
+        (self.repo / "stats.py").write_text("def mean(xs):\n    return sum(xs)\n", encoding="utf-8")
+        (self.repo / ".review-checks.json").write_text(json.dumps(GREEN), encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "seed")
+        self.git("remote", "add", "origin", GITHUB)
+        b = DiskBoard.create(self.art / "board", repo=self.repo, table=LINE_TABLE, inputs={}, request_text="依頼")
+        b.add_request(REQUEST, "works/darkfactory")
+        b.settle()
+        head = self.git("rev-parse", "HEAD").strip()
+        b.done("p0.base", {"base_sha": head, "method": "4 依頼者の名指し", "commits": 0, "merge_commit": False,
+                           "intent_to_add": [], "touches_gates": False, "touches_external_seams": False,
+                           "touches_user_path": False, "touches_security_surface": False,
+                           "material": {"status": "clean", "checked": "試験"}})
+        self.assertTrue(b.run_engine("p0.local_checks")["ok"])
+        b.done("p0.purpose", {"purpose_text": "依頼の 2 件を直す", "source": "①PR 説明", "known_weaknesses": [],
+                              "source_files": []})
+        self.assertIn(prcheck.NODE, b.settle()["ready"])
+
+    def restore(self, kind):
+        """盤面の種（ready: p0.parallel_pr が待っている・fallen: engine が交差 1 件を見て任せ先に落ちた）を、1 度だけ作って
+        写しておいた物から同じ場所に戻す（盤面は絶対パスを持つので場所を変えない。1 つ作るのに git を何十回も呼ぶため）"""
+        live = _seeds() / "live"
+        pristine = _seeds() / kind
+        if not pristine.exists():
+            shutil.rmtree(live, ignore_errors=True)
+            self.build(live)
+            if kind == "fallen":
+                got = prcheck.run_helper(opener(live / "art" / "board"), runner=helper_out(CROSSING))
+                self.assertTrue(got["role_needed"], got)
+            shutil.copytree(live, pristine, symlinks=True)
+        shutil.rmtree(live, ignore_errors=True)
+        shutil.copytree(pristine, live, symlinks=True)
+        self.repo, self.art = live / "repo", live / "art"
+        return opener(self.art / "board")
+
+    def pr_ready(self, remote=GITHUB):
+        """p0.parallel_pr が待っている盤面。remote を替えれば origin の URL を替える（plan は走らせる時に remote を読む）"""
+        b = self.restore("ready")
+        if remote != GITHUB:
+            self.git("remote", "set-url", "origin", remote)
+        return b
+
+    def fallen(self):
+        """任せ先に落ちた盤面（engine が交差 1 件を見た）"""
+        return self.restore("fallen")
+
+
+class HelperCase(PrCase):
+    def test_helper_by_engine_when_no_crossing(self):
+        """交差 0 → engine の返答で済む（by engine・役は要らない）。素材は clean、節は済み、runner は 1 度だけ"""
+        b = self.pr_ready()
+        runner = helper_out([])
+        got = prcheck.run_helper(b, runner=runner)
+        self.assertEqual(got, {"by": "engine", "role_needed": False, "why": ""})
+        self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(b.rd["instances"][prcheck.NODE]["status"], "done")
+        self.assertEqual(b.record["materials"]["parallel_pr"]["status"], "clean")
+        # 写しの RL は p0.parallel_pr を process.checks に書かない（書くのは CI の節だけ）。by は run_helper の返りで見る
+        self.assertNotIn(prcheck.NODE, b.record["process"].get("checks", {}))
+        self.assertNotIn(prcheck.NODE, b.settle()["ready"])
+
+    def test_fallback_on_crossing_sets_role_needed(self):
+        """交差 1 件 → 任せ先へ（by role・role_needed）。節は待ちのまま engine_fallback を持ち、settle の後も ready に残る"""
+        b = self.pr_ready()
+        got = prcheck.run_helper(b, runner=helper_out(CROSSING))
+        self.assertEqual((got["by"], got["role_needed"]), ("role", True))
+        self.assertIn("交差", got["why"])
+        inst = b.rd["instances"][prcheck.NODE]
+        self.assertEqual((inst["status"], inst["engine_fallback"]), ("pending", got["why"]))
+        self.assertIn(prcheck.NODE, b.settle()["ready"])
+        self.assertNotIn("parallel_pr", b.record["materials"])   # 素材は任せ先が返すまで書かない
+
+    def test_fallback_on_non_github_remote_without_running(self):
+        """remote が GitHub でない → 何も走らせずに任せ先へ（同等のコマンドへの読み替えは役）"""
+        b = self.pr_ready(remote="https://git.example.com/o/r.git")
+        got = prcheck.run_helper(b, runner=never)
+        self.assertEqual((got["by"], got["role_needed"]), ("role", True))
+        self.assertIn("GitHub でない", got["why"])
+
+    def test_fallback_when_gh_missing(self):
+        """gh が無い → 何も走らせずに任せ先へ"""
+        b = self.pr_ready()
+        real = shutil.which
+        with mock.patch("shutil.which", lambda name, *a, **kw: None if name == "gh" else real(name, *a, **kw)):
+            got = prcheck.run_helper(b, runner=never)
+        self.assertEqual((got["by"], got["role_needed"]), ("role", True))
+        self.assertIn("gh", got["why"])
+
+    def test_run_helper_again_after_fallback_does_not_rerun(self):
+        """任せ先に落ちた後に呼び直す（線 B の境の節も同じ関数を呼ぶ）→ 走らせず、同じ答え"""
+        b = self.fallen()
+        why = b.rd["instances"][prcheck.NODE]["engine_fallback"]
+        self.assertEqual(prcheck.run_helper(b, runner=never), {"by": "role", "role_needed": True, "why": why})
+
+    def test_not_ready_returns_empty(self):
+        """ready に無い（済んだ・instance が無い・人に聞いている間）→ {by: "", role_needed: False}、走らせない"""
+        b = self.pr_ready()
+        prcheck.run_helper(b, runner=helper_out([]))
+        self.assertEqual(prcheck.run_helper(b, runner=never), {"by": "", "role_needed": False, "why": ""})
+        b = self.pr_ready()
+        b.state["pending_human"] = {"node": "p2.human_gate"}
+        self.assertEqual(prcheck.run_helper(b, runner=never), {"by": "", "role_needed": False, "why": ""})
+        del b.rd["instances"][prcheck.NODE]
+        b.state.pop("pending_human")
+        self.assertEqual(prcheck.run_helper(b, runner=never), {"by": "", "role_needed": False, "why": ""})
+
+    def test_run_helper_relaunch_once(self):
+        """1 度目 relaunch・2 度目通る → 通る。2 度とも relaunch → Refused（文に why）。why だけの返り → Refused"""
+        b = self.pr_ready()
+        relaunch = {"ok": False, "node": prcheck.NODE, "why": "宣言が変わった", "relaunch": True}
+        ok = {"ok": True, "node": prcheck.NODE, "runs": []}
+        with mock.patch.object(b, "run_engine", side_effect=[relaunch, ok]) as m:
+            self.assertEqual(prcheck.run_helper(b), {"by": "engine", "role_needed": False, "why": ""})
+        self.assertEqual(m.call_count, 2)
+        with mock.patch.object(b, "run_engine", side_effect=[relaunch, relaunch]) as m:
+            with self.assertRaises(prcheck.Refused) as cm:
+                prcheck.run_helper(b)
+        self.assertEqual(m.call_count, 2)
+        self.assertIn("宣言が変わった", str(cm.exception))
+        with mock.patch.object(b, "run_engine", return_value={"ok": False, "node": prcheck.NODE, "why": "根が引けない"}) as m:
+            with self.assertRaises(prcheck.Refused) as cm:
+                prcheck.run_helper(b)
+        self.assertEqual(m.call_count, 1)
+        self.assertIn("根が引けない", str(cm.exception))
+
+    def test_blocked_is_engine_with_reason(self):
+        """交差を取る集合が空（依頼の where が追跡中のパスを名指さない）→ engine が not_run で済ませ、why に理由"""
+        b = self.pr_ready()
+        for batch in b.record["process"]["request_findings"]:
+            for f in batch["findings"]:
+                f["where"] = "nowhere.py"
+        got = prcheck.run_helper(b, runner=never)
+        self.assertEqual((got["by"], got["role_needed"]), ("engine", False))
+        self.assertIn("空", got["why"])
+        self.assertEqual(b.record["materials"]["parallel_pr"]["status"], "not_run")
+
+
+# ---------------------------------------------------------------- 任せ先の役の受け付け
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(f"blk_pr_{name}", SCRIPTS / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def run_script(name, env):
+    full = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
+    full.update(env, PYTHONDONTWRITEBYTECODE="1")
+    return subprocess.run([sys.executable, str(SCRIPTS / f"{name}.py")], env=full, capture_output=True, text=True,
+                          encoding="utf-8", stdin=subprocess.DEVNULL)
+
+
+class AcceptCase(PrCase):
+    def test_reply_samples_fit_schema(self):
+        """見本の 3 つは写しの p0.parallel_pr の schema に合う（handed_over true も型は通る。拒むのは works の検査）"""
+        for name in ("pr_ok.json", "pr_handed_over.json", "pr_no_conflicts.json"):
+            self.assertEqual(validate_schema(reply(name), role_schema(prcheck.NODE)), [], name)
+
+    def test_check_no_post(self):
+        acc = load_script("accept")
+        self.assertEqual(acc.check_no_post(reply("pr_handed_over.json")), ["7"])
+        self.assertEqual(acc.check_no_post(reply("pr_ok.json")), [])
+        self.assertEqual(acc.check_no_post(reply("pr_no_conflicts.json")), [])
+        two = reply("pr_ok.json")
+        two["conflicts"] += [{"pr": "9", "files": ["a"], "handed_over": True}, {"pr": "11", "files": ["b"], "handed_over": True}]
+        self.assertEqual(acc.check_no_post(two), ["9", "11"])
+        self.assertEqual(acc.check_no_post({"conflicts": "x"}), [])
+
+    def test_handed_over_true_rejected(self):
+        """handed_over true が 1 件 → 受け付けのスクリプトが 0 で ok false を 1 行、文に pr と「投稿しない」。盤面は前のまま"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        before = board_shas(b.dir)
+        r = run_script("accept", {"INPUTS_REPLY": json.dumps(reply("pr_handed_over.json")), "ARTIFACTS_DIR": str(self.art)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(len(lines), 1)
+        got = json.loads(lines[0])
+        self.assertFalse(got["ok"])
+        self.assertIn("投稿しない", got["reason"])
+        self.assertIn("持ち主の決定 2026-09-27", got["reason"])
+        self.assertTrue(got["reason"].endswith(": 7"), got["reason"])
+        self.assertEqual(board_shas(b.dir), before)
+
+    def test_handover_draft_accepted(self):
+        """handed_over false・note つき → 通る。P1 の na が付き（consistency_bypass は p0.parallel_pr に依存）、p2.diagnose へ進む"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+        self.assertEqual({k: got[k] for k in ("ok", "reason", "ready", "asking", "halted")},
+                         {"ok": True, "reason": "", "ready": ["p2.diagnose"], "asking": False, "halted": False})
+        self.assertTrue((b.dir / got["out_file"]).is_file())
+        b2 = opener(b.dir)
+        self.assertIn("p1.consistency_bypass", b2.rd["na"])
+        self.assertEqual(b2.record["process"]["parallel_pr"]["conflicts"][0]["note"], reply("pr_ok.json")["conflicts"][0]["note"])
+        self.assertEqual(b2.record["materials"]["parallel_pr"]["status"], "found")
+
+    def test_fallback_role_reads_only(self):
+        """pr-snap の後に作業ツリーを変えて受け付け → ok false、文に「作業ツリーを変えた」、盤面は前のまま"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        before = board_shas(b.dir)
+        (self.repo / "stats.py").write_text("changed\n", encoding="utf-8")
+        got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+        self.assertFalse(got["ok"])
+        self.assertIn("作業ツリーを変えた", got["reason"])
+        self.assertEqual(board_shas(b.dir), before)
+        (self.repo / "new.txt").write_text("x\n", encoding="utf-8")   # 未追跡のファイルを足すのも同じ
+        (self.repo / "stats.py").write_text("def mean(xs):\n    return sum(xs)\n", encoding="utf-8")
+        self.assertFalse(prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)["ok"])
+
+    def test_content_reject_leaves_board(self):
+        """型の崩れた返答 → ok false（写しの型の文）、盤面は前のまま"""
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        before = board_shas(b.dir)
+        bad = reply("pr_ok.json")
+        del bad["listed"]
+        got = prcheck.take(b.dir, bad, self.repo, opener=opener)
+        self.assertFalse(got["ok"])
+        self.assertIn("型", got["reason"])
+        self.assertEqual(board_shas(b.dir), before)
+
+    def test_take_without_snapshot_is_gap(self):
+        """pr-snap が走っていない（写しが無い）→ BoardGap（回す側の誤り。役に返しても直らない）"""
+        b = self.fallen()
+        with self.assertRaises(BoardGap):
+            prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+
+    def test_accept_script_exit_2_on_wiring_error(self):
+        """盤面の無い置き場・環境変数の欠け → 2、標準出力は空（回す側の誤り。TA19）"""
+        empty = self.tmp / "empty-art"
+        empty.mkdir()
+        r = run_script("accept", {"INPUTS_REPLY": json.dumps(reply("pr_ok.json")), "ARTIFACTS_DIR": str(empty)})
+        self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
+        r = run_script("accept", {"ARTIFACTS_DIR": str(empty)})
+        self.assertEqual((r.returncode, r.stdout), (2, ""))
+        self.assertIn("INPUTS_REPLY", r.stderr)
+
+    def test_accept_script_unreadable_reply(self):
+        """返答が JSON でない → 0 で ok false（中身の誤り。役に返す）"""
+        r = run_script("accept", {"INPUTS_REPLY": "not json", "ARTIFACTS_DIR": str(self.tmp)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(json.loads(r.stdout)["ok"])
+
+    def test_no_conflicts_reply_accepted(self):
+        """任せ先の役が同等のコマンドで見て交差 0（GitHub でない remote）→ 通る、素材は clean"""
+        b = self.pr_ready(remote="https://git.example.com/o/r.git")
+        self.assertTrue(prcheck.run_helper(b)["role_needed"])
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        got = prcheck.take(b.dir, reply("pr_no_conflicts.json"), self.repo, opener=opener)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(opener(b.dir).record["materials"]["parallel_pr"]["status"], "clean")
+
+
+# ---------------------------------------------------------------- 写し・渡す物・集める節
+class SnapCollectCase(PrCase):
+    def test_snapshot_and_brief_in_round_work_dir(self):
+        """pr-snap: 作業ツリーの写しと役への渡し物を今の周の作業ファイル（b.work）に書く。渡し物に交差を取る集合と落ちた理由"""
+        b = self.fallen()
+        got = prcheck.snapshot(b.dir, self.repo, opener=opener)
+        self.assertTrue(got["ok"])
+        self.assertEqual(pathlib.Path(got["snapshot_file"]), b.work(prcheck.SNAPSHOT))
+        self.assertEqual(pathlib.Path(got["brief_file"]), b.work(prcheck.BRIEF))
+        brief = json.loads(pathlib.Path(got["brief_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(brief["changed_files"], ["stats.py"])
+        self.assertEqual(brief["cwd"], str(self.repo.resolve()))
+        self.assertEqual(brief["base"], self.git("rev-parse", "HEAD").strip())
+        self.assertEqual(brief["fallback"], b.rd["instances"][prcheck.NODE]["engine_fallback"])
+        self.assertEqual(brief["node"], prcheck.NODE)
+
+    def test_snapshot_refuses_when_not_fallen(self):
+        """任せ先に落ちていない節に pr-snap → BoardGap（start が pr_go を偽にした run では blk-pr を開かない）"""
+        b = self.pr_ready()
+        with self.assertRaises(BoardGap):
+            prcheck.snapshot(b.dir, self.repo, opener=opener)
+
+    def test_collect_counts_and_drafts(self):
+        b = self.fallen()
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        two = reply("pr_ok.json")
+        two["conflicts"].append({"pr": "9", "files": ["stats.py"], "handed_over": False})
+        self.assertTrue(prcheck.take(b.dir, two, self.repo, opener=opener)["ok"])
+        got = prcheck.collect(b.dir)
+        self.assertEqual({k: got[k] for k in ("ok", "conflicts", "drafts", "material_status", "reads_file")},
+                         {"ok": True, "conflicts": 2, "drafts": 1, "material_status": "found", "reads_file": ""})
+        self.assertTrue(pathlib.Path(got["pr_file"]).is_file())
+        self.assertEqual(prcheck.drafts(b.dir), [{"pr": "7", "files": ["stats.py"], "note": two["conflicts"][0]["note"]}])
+        reads = opener(b.dir).work("reads-pr-check.json")
+        reads.write_text("{}", encoding="utf-8")
+        self.assertEqual(prcheck.collect(b.dir)["reads_file"], str(reads))
+
+    def test_collect_script(self):
+        """集める節のスクリプト: ARTIFACTS_DIR の board を読んで 1 行、0。受けていない盤面は ok false"""
+        b = self.fallen()
+        r = run_script("collect", {"ARTIFACTS_DIR": str(self.art)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(json.loads(r.stdout)["ok"])
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+        r = run_script("collect", {"ARTIFACTS_DIR": str(self.art)})
+        got = json.loads(r.stdout)
+        self.assertEqual((got["ok"], got["drafts"]), (True, 1))
+
+
+# ---------------------------------------------------------------- 印・指示書・下げた物の宣言・スクリプトの形
+class DeclaredCase(unittest.TestCase):
+    def test_output_format_marked_no_post(self):
+        """役の output_format は写しの schema に印 works-node: pr-check no-post を付けた物（TA20）"""
+        fmt = prcheck.OUTPUT_FORMAT
+        self.assertEqual(fmt["description"], "works-node: pr-check no-post")
+        self.assertEqual({k: v for k, v in fmt.items() if k != "description"}, role_schema(prcheck.NODE))
+        try:
+            import node_marker   # 線 A Task 2。入った後は印の読み方でも確かめる
+        except ModuleNotFoundError:
+            return
+        self.assertEqual(node_marker.strip(fmt), role_schema(prcheck.NODE))
+        self.assertEqual(node_marker.parse(fmt["description"])["flags"], frozenset({"no-post"}))
+
+    def test_prompt_step6_no_post(self):
+        """指示書は 6 段を持ち、6 段目は投稿せずに下書きを note に・handed_over false。gh は -R、書き込みの gh を打つな"""
+        text = (BLOCK / "commands" / "pr-check.md").read_text(encoding="utf-8")
+        steps = [ln for ln in text.splitlines() if ln[:2] in {f"{i}." for i in range(1, 10)}]
+        self.assertEqual([s[:2] for s in steps], ["1.", "2.", "3.", "4.", "5.", "6."])
+        six = steps[5]
+        for word in ("投稿せず", "note", "`handed_over: false`"):
+            self.assertIn(word, six)
+        self.assertIn("-R", text)
+        forbid = [ln for ln in text.splitlines() if "打つな" in ln]
+        self.assertEqual(len(forbid), 1, forbid)
+        for word in ("gh pr comment", "gh pr review", "gh api -X"):
+            self.assertIn(word, forbid[0])
+        self.assertIn("$pr-snap.output.brief_file", text)
+        self.assertIn("$LOOP_PREV.pr-accept.output.reason", text)
+
+    def test_downgrades_declared(self):
+        """darkfactory/downgrades.json はちょうど 1 行（p0.parallel_pr）。頭の行の部品は「下げている所: 1 個」"""
+        rows = json.loads((PACK / "darkfactory" / "downgrades.json").read_text(encoding="utf-8"))
+        self.assertEqual(rows, [{"node": "p0.parallel_pr",
+                                 "what": "担当の PR へ申し送りを投稿しない（下書きを報告の冒頭 1 に載せる）",
+                                 "versus": "review-graph は任せ先の役が gh で投稿する"}])
+        self.assertEqual(prcheck.downgrades(), rows)
+        self.assertEqual(prcheck.head_downgrades(), "下げている所: 1 個")
+        self.assertIn(rows[0]["node"], GRAPH["nodes"])
+
+    def test_downgrades_shape_checked(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="blk-pr-dg-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "l").mkdir()
+        self.assertEqual(prcheck.downgrades("l", pack=tmp), [])
+        self.assertEqual(prcheck.head_downgrades("l", pack=tmp), "下げている所: 0 個")
+        for bad in ([{"node": "p0.parallel_pr"}], [{"node": "no.such", "what": "w", "versus": "v"}], {"x": 1},
+                    [{"node": "p0.parallel_pr", "what": "", "versus": "v"}]):
+            (tmp / "l" / "downgrades.json").write_text(json.dumps(bad), encoding="utf-8")
+            with self.assertRaises(BoardGap, msg=bad):
+                prcheck.downgrades("l", pack=tmp)
+
+    def test_scripts_declare_inputs(self):
+        """各スクリプトは読む INPUTS_* の名前の組を定数 INPUTS に持つ（TA16。Task 17 が YAML の with: と突き合わせる）"""
+        want = {"snap": (), "accept": ("INPUTS_REPLY",), "reads": ("INPUTS_MUST",), "collect": ()}
+        self.assertEqual(sorted(p.stem for p in SCRIPTS.glob("*.py")), sorted(want))
+        for name, inputs in want.items():
+            tree = ast.parse((SCRIPTS / f"{name}.py").read_text(encoding="utf-8"))
+            got = [ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                   and [getattr(t, "id", None) for t in n.targets] == ["INPUTS"]]
+            self.assertEqual(got, [inputs], name)
+
+    def test_reads_script_names(self):
+        """読んだ証拠の節（pr-reads）が渡す名前: 役 pr-check・include pr-checking・輪 pr-loop・節 pr-check"""
+        self.assertEqual(prcheck.READS, ("pr-check", "pr-checking", "pr-loop", "pr-check"))
+        self.assertIn("reads.main_for(*prcheck.READS)", (SCRIPTS / "reads.py").read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()
