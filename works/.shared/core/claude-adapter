@@ -12,12 +12,14 @@ SDK が組んだ argv に Read のフック・会話の継ぎ・起動ごとの�
 - 置き場: env の WORKS_ADAPTER_HOME（無ければ ${XDG_STATE_HOME:-~/.local/state}/works/adapter）。絶対パスでなければ 1 行を出して終了コード 2
 - 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・会話の id を
   記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
+- 印のある起動は stdin を中継し、最初の指示文で指示書の全文版か差分版を決めてから子へ渡す（adapter.py の頭の 9）
 - 名前を .js で終わらせない（Archon は .js の実行ファイルを bun で起こして --no-env-file を足す）
 uv を通さない（Archon が直に起こす）。標準ライブラリだけ。
 """
 import json
 import os
 import sys
+import threading
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -48,7 +50,10 @@ def real_claude():
 
 
 def log_launch(home_dir, cwd, p):
-    row = adapter.launch_row(p, cwd, os.getpid(), adapter.now())
+    write_row(home_dir, cwd, adapter.launch_row(p, cwd, os.getpid(), adapter.now()))
+
+
+def write_row(home_dir, cwd, row):
     path = adapter.launches_path(cwd, home_dir)
     try:
         os.makedirs(str(path.parent), mode=0o700, exist_ok=True)
@@ -117,10 +122,38 @@ def main():
             os.makedirs(str(sink), mode=0o700, exist_ok=True)
         except OSError as e:
             say(f"読んだ記録の置き場を作れない（{sink}: {e}）")
-    log_launch(home_dir, cwd, p)
-    if p.warn:
-        say(f"形が見分けられないので素通しする（{p.why}）")
-    return adapter.supervise([real] + p.argv, p.env, p.cwd)
+    if p.mode != "merged":
+        log_launch(home_dir, cwd, p)
+        if p.warn:
+            say(f"形が見分けられないので素通しする（{p.why}）")
+        return adapter.supervise([real] + p.argv, p.env, p.cwd)
+    # 印のある起動: stdin を中継し、最初の user の行（指示文）で指示書の版を決めてから子へ渡す（adapter.py の頭の 9）。
+    # 起動の記録は版を決めた時に 1 行で書く（指示文が来ないまま子が終われば、その後に書く）。時刻は起こす前の物
+    row = adapter.launch_row(p, cwd, os.getpid(), adapter.now())
+    lock, done = threading.Lock(), []
+
+    def flush():
+        with lock:
+            if not done:
+                done.append(True)
+                write_row(home_dir, cwd, row)
+
+    def on_line(line):
+        text = adapter.user_text(line)
+        if text is None:
+            return True
+        try:
+            got = adapter.prompt_variant(text, p.session, cwd, home_dir)
+            if got is not None:
+                row["prompt"] = got
+        finally:
+            flush()
+        return False
+
+    try:
+        return adapter.supervise([real] + p.argv, p.env, p.cwd, on_line=on_line)
+    finally:
+        flush()
 
 
 if __name__ == "__main__":

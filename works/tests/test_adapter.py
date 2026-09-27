@@ -1357,6 +1357,263 @@ class FencedLaunchCase(unittest.TestCase):
         self.assertIn("起こされていない", self.why())
 
 
+def user_line(text):
+    """SDK 0.3.282 が prompt の文字列を stdin に書く 1 行（sdk.mjs の Gx。initialize の後に来る）"""
+    return json.dumps({"type": "user", "session_id": "", "message": {"role": "user", "content": [
+        {"type": "text", "text": text}]}, "parent_tool_use_id": None}, ensure_ascii=False) + "\n"
+
+
+INIT_LINE = json.dumps({"request_id": "r0", "type": "control_request",
+                        "request": {"subtype": "initialize", "systemPrompt": []}}) + "\n"
+FULL = "# 共有の規則\n規則の本文 1\n\n# 今の回\n全文版の今の回\n"
+DELTA = "# 今の回\n差分版の今の回\n"
+
+
+class PromptVariantCase(unittest.TestCase):
+    """全文版と差分版（トークンの節約。持ち主の承認）: 輪の中で同じ会話を継ぐ役に、共有の規則を毎回送り直さない。
+    支度のスクリプトが <stem>.full.md・<stem>.delta.md・<stem>.variants.json を書き、指示書（prompt_file）は全文版の写し。
+    包みは印のある起動の指示文（stdin の user の 1 行）から指示書のパスを読み、会話がこの規則（rules_sha）の全文版を
+    前に受け取って読み切った同じ会話（か、その fork）を継ぐ起動にだけ差分版を書く。疑いがあれば全文版"""
+
+    def setUp(self):
+        self.e = Env(self)
+        self.board = self.e.tmp / "board" / "work"
+        self.board.mkdir(parents=True)
+        self.config = self.e.tmp / "claude-config"
+        (self.config / "projects" / "-wt").mkdir(parents=True)
+
+    def prep(self, stem="prompt-judge", rules_sha="r1", iteration=1, full=FULL, delta=DELTA, relative=True):
+        """支度のスクリプトの代わり: 全文版・差分版・variants.json を書き、指示書に全文版を写す"""
+        prompt = self.board / f"{stem}.md"
+        (self.board / f"{stem}.full.md").write_text(full, encoding="utf-8")
+        (self.board / f"{stem}.delta.md").write_text(delta, encoding="utf-8")
+        names = (f"{stem}.full.md", f"{stem}.delta.md") if relative else \
+            (str(self.board / f"{stem}.full.md"), str(self.board / f"{stem}.delta.md"))
+        (self.board / f"{stem}.variants.json").write_text(json.dumps(
+            {"full": names[0], "delta": names[1], "rules_sha": rules_sha, "iteration": iteration,
+             "sections": ["rules", "turn"]}), encoding="utf-8")
+        prompt.write_text(full, encoding="utf-8")
+        return prompt
+
+    def launch(self, desc, prompt, extra=(), text=None, **env):
+        argv = sdk_argv(desc, extra=extra)
+        stdin = INIT_LINE + user_line(text if text is not None else
+                                      f"指示書 `{prompt}` を Read で読み、その指示に従え。返すのは JSON だけ。")
+        r = self.e.run(argv, stdin=stdin, FAKE_CLAUDE_READ=str(prompt), CLAUDE_CONFIG_DIR=str(self.config), **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.e.child()["stdin"], stdin)   # 中継しても 1 バイトも変えない
+        return self.e.child(), self.e.launches()[-1]
+
+    def read_evidence(self, sid, prompt, content=FULL, partial=False, agent=None):
+        """Read のフック（record-read.py）が書く 1 行の代わり: 会話 sid が prompt を content の sha で読んだ"""
+        sink = adapter.reads_dir(self.e.cwd, self.e.home)
+        sink.mkdir(parents=True, exist_ok=True)
+        with open(sink / "reads.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": "x", "session_id": sid, "agent_id": agent, "path": os.path.realpath(prompt),
+                                "file_sha": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                                "bytes": len(content.encode("utf-8")), "partial": partial,
+                                "partial_why": "range" if partial else None, "tool_use_id": "toolu_x"}) + "\n")
+
+    def transcript(self, sid, text='{"type":"user"}\n'):
+        (self.config / "projects" / "-wt" / f"{sid}.jsonl").write_text(text, encoding="utf-8")
+
+    def first(self, desc="works-node: judge", stem="prompt-judge", rules_sha="r1"):
+        """1 回目の起動（新しい会話）で全文版を受け取り、読み切った会話の id"""
+        prompt = self.prep(stem, rules_sha=rules_sha)
+        child, row = self.launch(desc, prompt)
+        sid = row["session"]["id"]
+        self.read_evidence(sid, prompt)
+        self.transcript(sid)
+        return prompt, sid
+
+    def expect(self, row, child, prompt, variant, reason, rules_sha="r1"):
+        self.assertEqual(row["prompt"]["variant"], variant, row["prompt"])
+        self.assertEqual(row["prompt"]["reason"], reason, row["prompt"])
+        self.assertEqual(row["prompt"]["rules_sha"], rules_sha)
+        self.assertEqual(row["prompt"]["file"], os.path.realpath(prompt))
+        want = FULL if variant == "full" else adapter.delta_text(DELTA, self.board / (prompt.stem + ".full.md"))
+        self.assertEqual(child["read"], want)                      # 役が起きた時の指示書の中身
+        self.assertEqual(prompt.read_text(encoding="utf-8"), want)
+
+    def test_first_launch_gets_full(self):
+        prompt = self.prep()
+        child, row = self.launch("works-node: judge", prompt)
+        self.expect(row, child, prompt, "full", "new-session")
+        self.assertEqual(row["prompt"]["iteration"], 1)
+        self.assertEqual(row["prompt"]["full_sha"], hashlib.sha256(FULL.encode("utf-8")).hexdigest())
+
+    def test_resume_of_same_session_gets_delta(self):
+        # Archon の輪（fresh_context: false）の 2 周目: --resume <前の会話> --fork-session。包みが新しい id を決める
+        prompt, sid = self.first()
+        self.prep()   # 支度は周ごとに指示書を全文版で書き直す
+        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
+        self.assertEqual((row["session"]["mode"], row["session"]["from"]), ("sdk-fork", sid))
+        self.expect(row, child, prompt, "delta", "same-session")
+        # 3 周目: 2 周目の fork をさらに継ぐ（全文版を読んだのは 1 周目の会話。fork の鎖で辿る）
+        second = row["session"]["id"]
+        self.transcript(second)
+        self.prep()
+        child, row = self.launch("works-node: judge", prompt, extra=["--resume", second, "--fork-session"])
+        self.expect(row, child, prompt, "delta", "same-session")
+        # SDK が fork せずに同じ会話を再開する形も同じ
+        self.prep()
+        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid])
+        self.expect(row, child, prompt, "delta", "same-session")
+
+    def test_continue_of_session_with_same_rules_gets_delta(self):
+        # 再審（continue=judge）: 判定役の会話がこの規則の全文版を読んでいれば、再審の指示書も差分版でよい
+        _, sid = self.first()
+        prompt = self.prep("prompt-rejudge")
+        child, row = self.launch("works-node: rejudge continue=judge", prompt)
+        self.assertEqual(row["session"]["mode"], "continued")
+        self.expect(row, child, prompt, "delta", "same-session")
+
+    def test_resume_of_other_session_gets_full(self):
+        prompt, sid = self.first()
+        self.prep()
+        other = "dddddddd-0000-4000-8000-000000000001"
+        self.transcript(other)
+        child, row = self.launch("works-node: judge", prompt, extra=["--resume", other, "--fork-session"])
+        self.expect(row, child, prompt, "full", "no-full-record")
+
+    def test_rules_changed_gets_full(self):
+        prompt, sid = self.first()
+        self.prep(rules_sha="r2")
+        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
+        self.expect(row, child, prompt, "full", "rules-changed", rules_sha="r2")
+
+    def test_full_not_read_gets_full(self):
+        prompt = self.prep()
+        _, row = self.launch("works-node: judge", prompt)
+        sid = row["session"]["id"]
+        self.transcript(sid)
+        cases = {"no-read": None, "partial": dict(partial=True), "subagent": dict(agent="a1"),
+                 "other-content": dict(content=DELTA), "other-session": dict(sid="eeeeeeee-0000-4000-8000-000000000001")}
+        for why, kw in cases.items():
+            with self.subTest(why):
+                if kw is not None:
+                    kw = dict(kw)
+                    self.read_evidence(kw.pop("sid", sid), prompt, **kw)
+                self.prep()
+                child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
+                self.expect(row, child, prompt, "full", "full-not-read")
+
+    def test_record_missing_gets_full(self):
+        # 包みの記録が無い会話（前の起動が包みを通っていない・記録が消えた）は、読んだ跡が在っても全文版
+        prompt, sid = self.first()
+        adapter.launches_path(self.e.cwd, self.e.home).unlink()
+        self.prep()
+        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
+        self.expect(row, child, prompt, "full", "no-full-record")
+
+    def test_compacted_or_unseen_transcript_gets_full(self):
+        # 会話が要約された・古い道具の結果が消された（Claude Code 2.1.283 の microcompact）・会話の記録が見えない時は全文版
+        prompt, sid = self.first()
+        marks = {"compacted": '{"type":"system","subtype":"compact_boundary"}\n',
+                 "microcompacted": '{"type":"system","subtype":"microcompact_boundary"}\n',
+                 "cleared": '{"type":"user","message":{"content":[{"type":"tool_result",'
+                            '"content":"[Old tool result content cleared]"}]}}\n'}
+        for why, text in marks.items():
+            with self.subTest(why):
+                self.transcript(sid, text)
+                self.prep()
+                child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
+                self.expect(row, child, prompt, "full", "compacted")
+        (self.config / "projects" / "-wt" / f"{sid}.jsonl").unlink()
+        self.prep()
+        child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
+        self.expect(row, child, prompt, "full", "transcript-missing")
+
+    def test_retry_after_delta_rewrites_full(self):
+        # 差分版を書いた後に、支度を通らずに同じ指示書で新しい会話が起きたら（節の起こし直し）、全文版に戻す
+        prompt, sid = self.first()
+        self.prep()
+        self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
+        child, row = self.launch("works-node: judge", prompt)
+        self.expect(row, child, prompt, "full", "new-session")
+
+    def test_unmarked_launch_untouched(self):
+        prompt, sid = self.first()
+        self.prep()
+        argv = sdk_argv(None, extra=["--resume", sid])
+        stdin = INIT_LINE + user_line(f"指示書 `{prompt}` を Read で読め")
+        r = self.e.run(argv, stdin=stdin, FAKE_CLAUDE_READ=str(prompt), CLAUDE_CONFIG_DIR=str(self.config))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.e.child()["stdin"], stdin)
+        self.assertEqual(prompt.read_text(encoding="utf-8"), FULL)
+        self.assertNotIn("prompt", self.e.launches()[-1])
+
+    def test_no_variants_untouched(self):
+        prompt = self.board / "prompt-plain.md"
+        prompt.write_text("そのままの指示書\n", encoding="utf-8")
+        before = os.stat(prompt)
+        child, row = self.launch("works-node: judge", prompt)
+        self.assertNotIn("prompt", row)
+        self.assertEqual(set(row), {"at", "pid", "cwd", "node", "continue", "mode", "why", "hook", "tools_empty",
+                                    "session", "fence", "strict_net"})
+        self.assertEqual(child["read"], "そのままの指示書\n")
+        after = os.stat(prompt)
+        self.assertEqual((before.st_ino, before.st_mtime_ns), (after.st_ino, after.st_mtime_ns))
+
+    def test_doubtful_shapes_leave_prompt_alone(self):
+        """variants.json が読めない・指示書が 2 つ・指示書が全文版とも差分版とも違う: 指示書に触らず、理由だけを残す"""
+        prompt, sid = self.first()
+        cases = {
+            "variants-bad": lambda: (self.board / "prompt-judge.variants.json").write_text("{", encoding="utf-8"),
+            "variants-bad-shape": lambda: (self.board / "prompt-judge.variants.json").write_text(
+                json.dumps({"full": "prompt-judge.full.md", "delta": "nope.md", "rules_sha": "r1"}), encoding="utf-8"),
+            "prompt-unexpected": lambda: prompt.write_text("手で書き換えた指示書\n", encoding="utf-8"),
+        }
+        for why, spoil in cases.items():
+            with self.subTest(why):
+                self.prep()
+                spoil()
+                before = prompt.read_text(encoding="utf-8")
+                child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"])
+                self.assertIsNone(row["prompt"]["variant"], row["prompt"])
+                self.assertTrue(row["prompt"]["reason"].startswith(why.split("-shape")[0]), row["prompt"])
+                self.assertEqual(prompt.read_text(encoding="utf-8"), before)
+        with self.subTest("several"):
+            self.prep()
+            other = self.prep("prompt-other")
+            child, row = self.launch("works-node: judge", prompt, extra=["--resume", sid, "--fork-session"],
+                                     text=f"`{prompt}` と `{other}` を読め")
+            self.assertEqual((row["prompt"]["variant"], row["prompt"]["reason"]), (None, "several-prompts"))
+            self.assertEqual(prompt.read_text(encoding="utf-8"), FULL)
+
+    def test_relay_forwards_bytes_and_handles_first_user_line_only(self):
+        seen = []
+        src_r, src_w = os.pipe()
+        dst_r, dst_w = os.pipe()
+        data = (INIT_LINE + "raw non-json\n" + user_line("一つ目") + user_line("二つ目") + "tail-no-newline").encode()
+        os.write(src_w, data)
+        os.close(src_w)
+        adapter.relay(src_r, dst_w, lambda line: seen.append(line) or not line.startswith(b'{"type": "user"'))
+        os.close(src_r)
+        got = b""
+        while True:
+            chunk = os.read(dst_r, 65536)
+            if not chunk:
+                break
+            got += chunk
+        os.close(dst_r)
+        self.assertEqual(got, data)
+        self.assertEqual(len(seen), 3)   # initialize・生の行・1 つ目の user（2 つ目の user からは見ない）
+
+    def test_relay_survives_hook_error(self):
+        src_r, src_w = os.pipe()
+        dst_r, dst_w = os.pipe()
+        os.write(src_w, b"a\nb\n")
+        os.close(src_w)
+
+        def boom(_line):
+            raise RuntimeError("x")
+        adapter.relay(src_r, dst_w, boom)
+        os.close(src_r)
+        self.assertEqual(os.read(dst_r, 100), b"a\nb\n")
+        os.close(dst_r)
+
+
 class DevWiringCase(unittest.TestCase):
     """dev の殻 archon.sh の WORKS_DEV_ADAPTER=1: 隔離した Archon の設定に claudeBinaryPath（包み）を書き、
     本物の claude は WORKS_REAL_CLAUDE で包みに渡し、env の CLAUDE_BIN_PATH（設定より強い）を外す"""
