@@ -1,1 +1,4 @@
 *.sh text eol=lf
+# 特徴づけのテストの固定具と期待値（graphloops/tests/golden_make.py が作る。手で書かない）。本文を貼る審査の役の差分が予算を超えた周に、
+# 先に要約へ替える生成データとして宣言する（-diff は付けない——期待値の変化を審査から隠さない）
+graphloops/tests/py/golden/** linguist-generated
