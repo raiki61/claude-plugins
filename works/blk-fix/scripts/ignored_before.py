@@ -4,8 +4,9 @@
 # ///
 """修正役を起こす前の、git が無視するファイルを控える（blk-fix の節 ignored-before。輪の前に 1 回だけ）。
 
-cwd（対象リポジトリの根）の git ls-files --others --ignored --exclude-standard を、盤面（$ARTIFACTS_DIR/board/）の
-fix-ignored-before.json に書く（core の record_ignored）。修正の後の節 clean は、これに無かった物だけを消す。
+cwd（対象リポジトリの根）の git ls-files --others --ignored --exclude-standard と、丸ごと未追跡のフォルダ（空の物も）を、
+盤面（$ARTIFACTS_DIR/board/）の fix-ignored-before.json に書く（leftovers の record_ignored）。修正の後の節 clean は、
+これに無かった物だけを消す（前から在ったフォルダは空になっても残す）。
 - 書けた: {"ok": true, "count", "file"} を 1 行出して 0
 - ARTIFACTS_DIR が無い・空: 標準エラーに名前を出して 2
 - git が効かない・書けない: 標準エラーに理由を 1 行出して 1（修正役の前で止める。控えが無いと後始末ができない）
@@ -14,12 +15,10 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（script_io の注意）
 import json  # noqa: E402
 import os  # noqa: E402
 
-from accept import record_ignored  # noqa: E402
-from engine.util import Reject  # noqa: E402
+from leftovers import Unreadable, record_ignored  # noqa: E402   同じフォルダ（sys.path[0]）の模块
 
 
 def main() -> int:
@@ -29,7 +28,7 @@ def main() -> int:
         return 2
     try:
         out = record_ignored(Path(artifacts) / "board", Path.cwd())
-    except (Reject, OSError) as e:
+    except (Unreadable, OSError) as e:
         print(f"ignored-before: {' '.join(str(e).split())}", file=sys.stderr)
         return 1
     sys.stdout.reconfigure(encoding="utf-8")

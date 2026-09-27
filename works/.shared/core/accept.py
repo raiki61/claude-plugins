@@ -8,7 +8,6 @@ Archon を知らない関数だけを出す。ブロックの script の節が�
 - role_schema:   graph の節の schema を、$ref を開いて注記（note）を落とした JSON Schema にする（役の output_format へ）
 - snapshot_tree: 作業ツリーの写し（git が無視するファイルも入れる。依頼の受け付けと差分を切る節が盤面に置き、
                  check_judge・check_delta が突き合わせる）
-- record_ignored・remove_new_ignored: 修正役の前の git が無視するファイルを控え、後で増えた物だけを消す（blk-fix の節 ignored-before・clean）
 - touched_files: 修正が触ったファイル（差分を切る節と check_delta が同じ物を使う。バイトコードは除く）
 - cut_delta:     修正の差分を盤面の fix.diff に切り、作業ツリーの写しを置く（blk-delta の節 cut）
 
@@ -22,9 +21,9 @@ import hashlib
 import json
 import os
 import pathlib
-import shutil
 import subprocess
 import sys
+import time
 
 # pack の中に __pycache__ を作らない。ここで立てて止まるのは下で import する engine・rules・検証器の分だけ。
 # accept.py 自身の .pyc は、この行が動く前に import の時点で書かれるので、止めるのは呼び手（import する前に立てる。
@@ -49,9 +48,8 @@ SNAPSHOT_FILE = "delta-snapshot.json"   # 差分を切った時の作業ツリ�
 DIFF_FILE = "fix.diff"                   # 修正の差分（cut_delta が書き、審査役が読む）
 DELTA_REVIEW_FILE = "delta-review.json"  # 受け付けた審査の返答（集める節が穴の数を数える）
 JUDGE_SNAPSHOT_FILE = "judge-snapshot.json"   # 判定役を起こす前（依頼の受け付けの時）の作業ツリー。形は SNAPSHOT_FILE と同じ
-IGNORED_BEFORE_FILE = "fix-ignored-before.json"   # 修正役を起こす前の git が無視するファイル {"ignored": [str]}（blk-fix）
-ARCHON_PREFIX = ".archon/"   # Archon が run の作業ツリーに写す工程の置き場。修正役の生成物として消さない
 GIT_TIMEOUT = 120
+RACY_NS = 2_000_000_000   # ファイルの時刻の細かさの上限（FAT の 2 秒）。これより新しい mtime は印だけでは信じない
 
 # 修正役の返答のうち、受け付けが読む欄だけの型（役の output_format は blk-fix が持つ。ここは読む欄が在るかだけを見る）
 FIX_SCHEMA = {"type": "object", "required": ["changes"], "properties": {
@@ -61,8 +59,6 @@ SNAPSHOT_KEYS = ("porcelain", "ignored", "diff_sha256")
 SNAPSHOT_SCHEMA = {"type": "object", "required": list(SNAPSHOT_KEYS), "properties": {
     "porcelain": {"type": "string"}, "ignored": {"type": "array", "items": {"type": "string"}},
     "diff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
-IGNORED_BEFORE_SCHEMA = {"type": "object", "required": ["ignored"], "properties": {
-    "ignored": {"type": "array", "items": {"type": "string"}}}}
 
 
 # ---------------------------------------------------------------- graph と rules
@@ -196,22 +192,46 @@ def _guard(fn, **on_reject):
         return {"ok": False, "reason": f"受け付けの中で例外（{type(e).__name__}: {e}）", **on_reject}
 
 
-def _entry_digest(p: pathlib.Path) -> bytes:
-    """未追跡の 1 本の中身の sha256。symlink はリンク先の名前、ファイルは中身、フォルダ（入れ子の git リポジトリは
-    git が `sub/` の 1 行で出す）は中の全部の名前と中身を名前の順に続けた物（.git の下は除く）。それ以外（FIFO など）は種類だけ"""
+def _entry_digest(p: pathlib.Path, racy_after=None, marks=None) -> bytes:
+    """未追跡の 1 本の sha256。symlink はリンク先の名前、ファイルは中身、フォルダ（入れ子の git リポジトリは
+    git が `sub/` の 1 行で出す）は中の全部の名前と印を名前の順に続けた物（.git の下は除く）。それ以外（FIFO など）は種類だけ。
+    marks（1 つの要素の list）を渡すと、ファイルは中身を読まず stat の印（mode・大きさ・mtime_ns・ino。git の index と
+    同じ考え——git の Documentation/technical/racy-git.txt）にし、見た mtime_ns の最大を marks[0] に入れる。ただし
+    mtime_ns が racy_after より後（写した時刻に近すぎて、同じ大きさの素早い書き換えを印で見分けられない）のファイルは中身も足す"""
     if p.is_symlink():
         return hashlib.sha256(b"link\0" + os.fsencode(os.readlink(p))).digest()
     if p.is_file():
-        return hashlib.sha256(b"file\0" + p.read_bytes()).digest()
+        if marks is None:
+            return hashlib.sha256(b"file\0" + p.read_bytes()).digest()
+        st = p.stat()
+        marks[0] = max(marks[0], st.st_mtime_ns)
+        h = hashlib.sha256(f"stat\0{st.st_mode} {st.st_size} {st.st_mtime_ns} {st.st_ino}".encode())
+        if st.st_mtime_ns > racy_after:
+            h.update(b"\0racy\0" + p.read_bytes())
+        return h.digest()
     if p.is_dir():
         h = hashlib.sha256(b"dir\0")
         for top, dirs, files in os.walk(p):
             dirs[:] = sorted(d for d in dirs if d != ".git")
             for name in sorted(files) + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
                 q = pathlib.Path(top) / name
-                h.update(os.fsencode(str(q.relative_to(p))) + b"\0" + _entry_digest(q))
+                h.update(os.fsencode(str(q.relative_to(p))) + b"\0" + _entry_digest(q, racy_after, marks))
         return h.digest()
     return hashlib.sha256(b"other\0" if p.exists() else b"gone\0").digest()
+
+
+def _ignored_digests(repo, names) -> list:
+    """git が無視するパス（names）ごとの印（_entry_digest の stat の印。無視されるフォルダ——.venv・node_modules など——は
+    大きいので中身を読まない）。写す時刻から RACY_NS 以内に書かれたファイルが在れば、その書き込みから RACY_NS 過ぎるまで
+    （上限 RACY_NS）待って印を取り直す。待った後の書き換えは、時刻の細かさ（最大でも 2 秒）を越えて mtime が変わるので、
+    印だけで見分けられる。待っても近い物（時計が進んだ mtime）は、racy として中身も足す"""
+    for attempt in range(2):
+        racy_after = time.time_ns() - RACY_NS
+        marks = [0]
+        digests = [_entry_digest(repo / name.rstrip("/"), racy_after, marks) for name in names]
+        if marks[0] <= racy_after or attempt:
+            return digests
+        time.sleep(min(marks[0] - racy_after, RACY_NS) / 1e9 + 0.01)
 
 
 def _ignored_entries(repo) -> list:
@@ -235,9 +255,9 @@ def snapshot_tree(repo: pathlib.Path) -> dict:
     差分を切る節が delta-snapshot.json に置き、読むだけの役（判定・審査）の受け付けが今の写しと突き合わせる。
     porcelain は git status --porcelain（未追跡は 1 本ずつ）。ignored は git が無視するパス（_ignored_entries。
     差分には載らないが、後の節——テスト——の緑赤を左右する物も在るので、読むだけの役が足しても見逃さない）。
-    diff_sha256 は HEAD からの差分（--binary）と、未追跡のファイル・無視されるパスの名前と中身を続けた sha256——名前が
-    同じまま中身だけ変わっても違う値になる。フォルダ（入れ子の git リポジトリ・無視されるフォルダ）は中身を辿って続ける
-    （_entry_digest）。git が効かなければ Reject を投げる"""
+    diff_sha256 は HEAD からの差分（--binary）と、未追跡のファイルの名前と中身・無視されるパスの名前と stat の印
+    （_ignored_digests。中身は読まない）を続けた sha256——名前が同じまま中身だけ変わっても違う値になる。フォルダ（入れ子の
+    git リポジトリ・無視されるフォルダ）は中を辿って続ける（_entry_digest）。git が効かなければ Reject を投げる"""
     repo = pathlib.Path(repo)
     porcelain = _git(repo, "status", "--porcelain", "--untracked-files=all")
     h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", binary=True))
@@ -245,8 +265,8 @@ def snapshot_tree(repo: pathlib.Path) -> dict:
         p = repo / os.fsdecode(name).rstrip("/")
         h.update(b"\0untracked\0" + name + b"\0" + _entry_digest(p))
     ignored = _ignored_entries(repo)
-    for name in ignored:
-        h.update(b"\0ignored\0" + os.fsencode(name) + b"\0" + _entry_digest(repo / name.rstrip("/")))
+    for name, digest in zip(ignored, _ignored_digests(repo, ignored)):
+        h.update(b"\0ignored\0" + os.fsencode(name) + b"\0" + digest)
     return {"porcelain": porcelain, "ignored": ignored, "diff_sha256": h.hexdigest()}
 
 
@@ -261,54 +281,6 @@ def _assert_same_tree(repo, snap, name, since, role):
     ign = f" / git が無視するパス: 増えた {added[:5]} 消えた {gone[:5]}" if added or gone else ""
     raise Reject(f"{since}から作業ツリーが変わった——{role}は読むだけの役で、作業ツリーを変えてはいけない"
                  f"（git status --porcelain: 写した時 {snap['porcelain'].splitlines()[:5]} / 今 {now['porcelain'].splitlines()[:5]}{ign}）")
-
-
-def ignored_files(repo) -> list:
-    """git が無視する未追跡のファイル（repo の根から。1 本ずつで、フォルダに畳まない。名前の順）。
-    git ls-files --others --ignored --exclude-standard（git-ls-files(1)）。入れ子の git リポジトリは `sub/` の 1 本"""
-    return sorted(set(_names(repo, "ls-files", "--others", "--ignored", "--exclude-standard", "--full-name", "--", ":/")))
-
-
-def record_ignored(board: pathlib.Path, repo: pathlib.Path) -> dict:
-    """修正役を起こす前の git が無視するファイル（ignored_files）を盤面の fix-ignored-before.json に控える（blk-fix の節
-    ignored-before）。{"ok": True, "count", "file"} を返す。git が効かなければ Reject を投げる"""
-    before = ignored_files(repo)
-    board = pathlib.Path(board)
-    board.mkdir(parents=True, exist_ok=True)
-    path = _write_board(board, IGNORED_BEFORE_FILE, {"ignored": before})
-    return {"ok": True, "count": len(before), "file": str(path)}
-
-
-def remove_new_ignored(board: pathlib.Path, repo: pathlib.Path) -> dict:
-    """修正役が残した、git が無視するファイルを消す（blk-fix の節 clean。テストの節を生成物の無い木で回すため）。
-    今の ignored_files のうち、盤面の fix-ignored-before.json に無かった物（.archon/ の下を除く）だけを消し、それで空に
-    なった親のフォルダも消す。前から在った物は、中身が変わっていても消さない（元に戻す写しが無い。git clean -ffdX を
-    丸ごと走らせると、対象の .venv など前から在った物まで消えてテストが走らなくなる）。
-    {"ok": True, "removed": [消したパス、名前の順]} を返す。控えが無い・読めない・git が効かなければ Reject を投げる（何も消さない）"""
-    repo = pathlib.Path(repo)
-    before = _read_board(board, IGNORED_BEFORE_FILE)
-    if before is None:
-        raise Reject(f"盤面に {IGNORED_BEFORE_FILE} が無い——修正役の前の控えが無いので、どれが修正役の生成物か分からない")
-    _type_errors(before, IGNORED_BEFORE_SCHEMA, f"盤面の {IGNORED_BEFORE_FILE} ")
-    root = repo.resolve()
-    new = sorted(set(ignored_files(repo)) - set(before["ignored"]))
-    removed = []
-    for name in new:
-        if name.startswith(ARCHON_PREFIX):
-            continue
-        p = repo / name.rstrip("/")
-        if p.is_symlink() or p.is_file():
-            p.unlink()
-        elif p.is_dir():
-            shutil.rmtree(p)
-        else:
-            continue
-        removed.append(name)
-        parent = p.parent
-        while parent.resolve() != root and parent.is_dir() and not any(parent.iterdir()):
-            parent.rmdir()
-            parent = parent.parent
-    return {"ok": True, "removed": removed}
 
 
 def _names(repo, cmd, *args) -> list:

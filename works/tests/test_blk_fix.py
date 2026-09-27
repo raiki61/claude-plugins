@@ -368,6 +368,37 @@ class TestCleanIgnored(ScriptCase):
         self.assertEqual((self.repo / "stats.py").read_text(), "x = 1\n")
         self.assertTrue((self.repo / "helper.py").exists())
 
+    def test_keeps_empty_dir_that_was_there_before(self):
+        # 前から在った空のフォルダ（対象の道具が作る build/ など）に修正役が無視されるファイルを置いても、消すのはファイルだけ
+        (self.repo / "build" / "empty").mkdir(parents=True)
+        (self.repo / "src").mkdir()
+        (self.repo / "src" / "keep.txt").write_text("k\n")
+        git(self.repo, "add", "src/keep.txt")
+        git(self.repo, "commit", "-q", "-m", "src")
+        (self.repo / "src" / "cache").mkdir()                   # 追跡しているフォルダの下の、前から在った空のフォルダ
+        self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
+        (self.repo / "build" / "empty" / "x.pyc").write_bytes(b"x")
+        (self.repo / "src" / "cache" / "y.pyc").write_bytes(b"y")
+        (self.repo / "src" / "new" / "__pycache__").mkdir(parents=True)
+        (self.repo / "src" / "new" / "__pycache__" / "z.pyc").write_bytes(b"z")
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["removed"], ["build/empty/x.pyc", "src/cache/y.pyc", "src/new/__pycache__/z.pyc"])
+        self.assertTrue((self.repo / "build" / "empty").is_dir(), "前から在った空のフォルダは残す")
+        self.assertTrue((self.repo / "src" / "cache").is_dir(), "前から在った空のフォルダは残す")
+        self.assertFalse((self.repo / "src" / "new").exists(), "修正役の後に出来たフォルダは消す")
+        self.assertTrue((self.repo / "src" / "keep.txt").exists())
+
+    def test_refuses_old_record_without_dirs(self):
+        # フォルダの控えが無い古い形の控えでは、前から在った空のフォルダを見分けられないので何も消さない
+        (self.board / "fix-ignored-before.json").write_text(json.dumps({"ignored": []}))
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "x.pyc").write_bytes(b"x")
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("dirs", err)
+        self.assertTrue((self.repo / "__pycache__" / "x.pyc").exists())
+
     def test_nothing_left(self):
         self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
         code, out, _ = run_script("clean", self.repo, self.env())

@@ -24,10 +24,11 @@ import posixpath
 import subprocess
 import sys
 
-sys.dont_write_bytecode = True
+sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
+
+from leftovers import ARCHON_PREFIX  # noqa: E402   .archon/ の決まりの正本（clean と同じ物。同じフォルダの模块）
 
 GIT_TIMEOUT = 120
-IGNORED_PREFIX = ".archon/"
 
 
 class Unreadable(Exception):
@@ -60,7 +61,7 @@ def touched(base_rev):
         raise Unreadable(f"base_rev {base_rev!r} が版として引けない")
     files = names("diff", "--name-only", "--no-renames", rev, "--", ":/")
     files += names("ls-files", "--others", "--exclude-standard", "--full-name", "--", ":/")
-    return rev, sorted({f for f in files if f and not f.startswith(IGNORED_PREFIX)})
+    return rev, sorted({f for f in files if f and not f.startswith(ARCHON_PREFIX)})
 
 
 def declared_files(raw):
