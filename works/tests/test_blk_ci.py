@@ -17,7 +17,8 @@ graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engin
   宣言も無い run → p0.local_checks が任せ先に落ちたまま待つ）で作り、本物の entry.open_board で開く。予定の状態（拒否・諦め）は
   終了コード 0 で 1 行、配線の誤り（環境変数の欠け・BoardGap）だけ 2
 - p4.ci: blk-tests の final が role_needed を返した盤面（手本の盤面）で、同じ口を同じプロセスで回す
-- 筋書き（fixtures/）が pass・reject・give-up の 3 本。Archon で回すのは dev/check.sh（workflow test）
+- 筋書き（fixtures/）が pass・reject・give-up・no-adapter（包み無しの宣言）・fence-halt（宣言が読めない）の 5 本。
+  Archon で回すのは dev/check.sh（workflow test）
 """
 import importlib.util
 import json
