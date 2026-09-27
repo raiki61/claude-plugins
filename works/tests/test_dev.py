@@ -260,20 +260,27 @@ class TestDevShell(unittest.TestCase):
             seen = tmp / "seen.txt"
             fake_archon = dev_home / "bin" / "archon-darwin-arm64"
             skills_seen = tmp / "skills.txt"
+            settings_seen = tmp / "settings.txt"
             fake_archon.write_text(
                 "#!/bin/sh\n"
                 f'printf \'%s\\n\' "${{TITLE_GENERATION_MODEL-(unset)}}" "$*" > "{seen}"\n'
                 f'ls "$CLAUDE_CONFIG_DIR/skills" > "{skills_seen}" 2>&1\n'
+                f'cat "$CLAUDE_CONFIG_DIR/settings.json" > "{settings_seen}" 2>/dev/null || true\n'
             )
             fake_bin = tmp / "fake-bin"
-            fake_bin.mkdir()
+            # 隔離した設定に coldwrite を入れる claude（dev/toolset.py が PATH から引く）は偽物（本物は起こさない）
+            from test_toolset import write_fake_claude
+            write_fake_claude(fake_bin)
+            claude_calls = tmp / "claude-calls.jsonl"
             (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{expected}  $3"\n')
             (fake_bin / "shasum").chmod(0o755)
             env = dict(os.environ)
             for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH",
-                         "WORKS_DEV_MODEL", "TITLE_GENERATION_MODEL"):
+                         "WORKS_DEV_MODEL", "TITLE_GENERATION_MODEL", "WORKS_REAL_CLAUDE", "CLAUDE_BIN_PATH",
+                         "WORKS_DEV_ADAPTER"):
                 env.pop(name, None)
-            env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""))
+            env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
+                       FAKE_CLAUDE_LOG=str(claude_calls))
             env.update(overrides)
             result = subprocess.run(["sh", str(DEV / "archon.sh"), "workflow", "run", "x"],
                                     capture_output=True, text=True, env=env)
@@ -281,6 +288,10 @@ class TestDevShell(unittest.TestCase):
             self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
             # exec した時の隔離した CLAUDE_CONFIG_DIR/skills の中身（test_archon_sh_installs_borrowed_skills が見る）
             self.skills_seen = skills_seen.read_text().split() if skills_seen.exists() else None
+            self.settings_seen = (json.loads(settings_seen.read_text())
+                                  if settings_seen.exists() and settings_seen.read_text() else None)
+            self.claude_calls = ([json.loads(ln)["argv"] for ln in claude_calls.read_text().splitlines()]
+                                 if claude_calls.exists() else [])
             return (result, config.read_text() if config.exists() else None,
                     seen.read_text().splitlines() if seen.exists() else None)
 
@@ -314,19 +325,25 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(seen, ["(unset)", "workflow run x"])
 
     def test_archon_sh_installs_borrowed_skills(self):
-        """archon.sh は exec の前に、借りた superpowers のスキルの写しを隔離した CLAUDE_CONFIG_DIR/skills へ写す
-        （dev/skills.sh）。節の settingSources: [user] と skills: で読ませるため。認証の要らない道（validate）も同じ
-        （Archon の validate も同じ置き場でスキルを探す）"""
+        """archon.sh は exec の前に、選んだ物だけの設定を隔離した CLAUDE_CONFIG_DIR に組む（dev/toolset.py）。
+        superpowers の 5 つのスキルは両方の道で skills/ へ写す（Archon の validate も同じ置き場でスキルを探す）。
+        coldwrite は認証を使う道だけで、PATH の claude（ここでは偽物）の plugin の CLI で入れる。認証の要らない道は claude を起こさない"""
         from test_sp_skills import BORROW
-        for env in ({"CLAUDE_CODE_OAUTH_TOKEN": "dummy-token-for-test"}, {"WORKS_DEV_NO_AUTH": "1"}):
-            with self.subTest(sorted(env)):
-                result, _, _ = self._exec_archon_sh(**env)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(sorted(self.skills_seen), sorted(BORROW))
+        result, _, _ = self._exec_archon_sh(CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.skills_seen), sorted(BORROW))
+        self.assertEqual(self.settings_seen["enabledPlugins"], {"coldwrite@works-local": True})
+        self.assertEqual([c[:3] for c in self.claude_calls],
+                         [["plugin", "marketplace", "add"], ["plugin", "install", "coldwrite@works-local"]])
+        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(self.skills_seen), sorted(BORROW))
+        self.assertIsNone(self.settings_seen)
+        self.assertEqual(self.claude_calls, [])
 
     def test_archon_sh_stops_when_isolated_config_leaks_into_user_scope(self):
-        """隔離した CLAUDE_CONFIG_DIR に CLAUDE.md（や設定・借りる一覧の外のスキル）が在れば、skills.sh が名前を出して
-        終了コード 2 で止め、archon.sh は Archon を起こさない（settingSources: [user] の節に読ませない）"""
+        """隔離した CLAUDE_CONFIG_DIR に CLAUDE.md（や一覧の外の設定・スキル・プラグイン）が在れば、toolset.py の柵が
+        名前を出して終了コード 2 で止め、archon.sh は Archon を起こさない（settingSources: [user] の節に読ませない）"""
         def put_claude_md(home):
             (home / "claude-config").mkdir()
             (home / "claude-config" / "CLAUDE.md").write_text("# 文体の決まり\n", encoding="utf-8")

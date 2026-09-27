@@ -55,14 +55,14 @@ TDD の修正の段が使うテストの実行器（ラインの入力 `tdd_suit
 
 ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（模块は `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`KNOWN` に置けるのは破れの組だけで、「層が決まっていない」類の印（新しい core の模块の `unassigned` など）は置けない。失敗の文が印ごとに直し方（`MOD` に層を足す・`PLANNED_SCRIPTS` に足す など）を言う。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
 
-## 借りた superpowers のスキル
+## 選んだ物だけの隔離した Claude の設定（借りた superpowers のスキルと coldwrite）
 
-superpowers（Claude Code のプラグインのスキル集。MIT。表示は `NOTICE`）6.4.2 から、test-driven-development・systematic-debugging・verification-before-completion・receiving-code-review・requesting-code-review の 5 本を `.shared/superpowers/6.4.2/skills/` にバイトのまま写している（元と写したファイルは同じ置き場の `COPIED_FROM`。写しは直さない）。
+AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` が隔離した `$WORKS_DEV_HOME/claude-config`（`CLAUDE_CONFIG_DIR`）を読む。そこに置くのは許す一覧 `.shared/borrow/borrow.json` の物だけで、`dev/toolset.py` が実行のたびに組む。対象の CLAUDE.md（project）は読ませない。
 
-- 読ませ方: AI の節に `skills: [<名>]` と `settingSources: [user]` を書く。Archon は `[user]` のとき `$CLAUDE_CONFIG_DIR/skills/<名>/SKILL.md` を探す。開発の殻 `dev/archon.sh` は、実行のたびに `dev/skills.sh` で写しを隔離した `$WORKS_DEV_HOME/claude-config/skills/` へ写す。
-- YAML の決まり（`tests/test_yaml_rules.py`）: `[user]` は、`skills:` を持ち、その全部が写しに在る節だけに許す。
-- 柵: `[user]` は同じ置き場の CLAUDE.md・settings*.json・rules/・agents/・commands/・plugins/ も読ませる。`dev/skills.sh` は、そのどれかか借りる一覧の外のスキルが隔離した置き場に在れば、名前を出して終了コード 2 で止まる（`archon.sh` も Archon を起こさない）。
-- **実物の線の YAML には、まだ `[user]` を入れない。** 開発の殻の外（利用者が自分の Archon で pack を入れる場合）では `CLAUDE_CONFIG_DIR` が利用者の本物の `~/.claude` で、借りたスキルは無く、利用者の CLAUDE.md と hooks を読む。殻の外の入れ方ができるまで、`[user]` は開発の殻の中の試しだけに使う。
+- superpowers（Claude Code のプラグインのスキル集。MIT。表示は `NOTICE`）6.4.2 から、test-driven-development・systematic-debugging・verification-before-completion・receiving-code-review・requesting-code-review の 5 本を `.shared/superpowers/6.4.2/skills/` にバイトのまま写している（元と写したファイルは同じ置き場の `COPIED_FROM`。写しは直さない）。`toolset.py` はこの 5 本だけを設定の `skills/` へ写す。プラグインとしては入れない（有効にすると SessionStart の hook が using-superpowers を差し込み、無人の役の約束が崩れる）。節は `skills: [<名>]` で名指ししてよく、名前は borrow.json の一覧の中だけ（`tests/test_yaml_rules.py`）。
+- coldwrite（このリポジトリの `coldwrite/`。書く散文の初見検査の PreToolUse:Write のフック）は、設定の中の手元の marketplace `works-local`（`works-marketplace/`）に写し、Claude Code の CLI（`claude plugin marketplace add`・`claude plugin install coldwrite@works-local`）で入れる。中身が変わった時だけ入れ直す。CLI の後に `settings.json` の `enabledPlugins` に載っていなければ止まる。認証の要らない道（`WORKS_DEV_NO_AUTH=1`。validate・テスト）は claude を起こさず、スキルだけを写す。
+- 柵: 一覧の外（CLAUDE.md・rules/・agents/・commands/・output-styles/・settings.json 以外の settings*.json・一覧の外のスキル・settings.json の `enabledPlugins`・`extraKnownMarketplaces` 以外の鍵・ほかのプラグインと marketplace）が在れば、名前を出して終了コード 2 で止まる（`archon.sh` も Archon を起こさない）。Claude Code が自分で書く状態（projects/・.claude.json・backups/・plugins/cache/ など）は見ない。手で確かめるなら `python3 dev/toolset.py guard <置き場>`。
+- **開発の殻の外では隔離されない。** 利用者が自分の Archon で pack を入れる場合、`CLAUDE_CONFIG_DIR` は利用者の本物の `~/.claude` で、`[user]` の節は利用者の CLAUDE.md・hooks・プラグインを読む。殻の外の入れ方（利用者のキャッシュから選ぶ版上げと関門）は P1 計画 Task 21。
 - 無人の読み替え: スキルの文が人（your human partner）や下請けの AI を前提にする所は、`.shared/superpowers/unattended.md` の決まりで読み替える（直す義務の単位は必ず直して `changes` に載せ、人に聞きたいこと・疑いは `rejudge_requested` に書く。`not_done` は受け付けが免除する単位と義務の外の単位だけ。修正役は commit しない、`superpowers:` の参照は無視、など）。
 - 試験（`tests/test_sp_skills.py`）は写しと元（プラグインのキャッシュ）のバイトの一致を見る。元が無ければ飛ばさずに赤になるので、同じ版の checkout を `WORKS_SP_SOURCE` に渡す。
 
@@ -80,7 +80,7 @@ superpowers（Claude Code のプラグインのスキル集。MIT。表示は `N
 包みがすること・しないこと:
 
 - どの節の起動かは、役の `output_format` の一番上の `description` に置く印 `works-node: <節の名>[ continue=<継ぐ節の名>]` で見分ける。SDK がそれを argv の `--json-schema` に載せる。印の無い起動（Archon が run の題を作る `--tools ""` の起動など）は、下の網の閉じのほかは argv を 1 バイトも変えない。
-- 印のある起動には、`--settings` に PostToolUse:Read のフック（`.shared/core/record-read.py`。graphloops の写しで、書く先だけ替えた）を足す。SDK が渡した `--settings`（sandbox）の鍵は上書きしない。`--settings` が無い節にはフックだけの `--settings` を足す。`--setting-sources`・`--model` ほかの旗は触らない（CLAUDE.md を止めるのは YAML の `settingSources: []`）。
+- 印のある起動には、`--settings` に PostToolUse:Read のフック（`.shared/core/record-read.py`。graphloops の写しで、書く先だけ替えた）を足す。SDK が渡した `--settings`（sandbox）の鍵は上書きしない。`--settings` が無い節にはフックだけの `--settings` を足す。`--setting-sources`・`--model` ほかの旗は触らない（CLAUDE.md を止めるのは YAML の `settingSources: [user]` と隔離した設定の柵 `dev/toolset.py`）。
 - 読んだ記録は `<家>/reads/<cwd の hash>/reads.jsonl` に、ファイルの sha と部分読みかを 1 行ずつ書く。形は graphloops のままなので engine の `hook_evidence` がそのまま読む。Claude の子の env には `ARTIFACTS_DIR` が来ないので、run は cwd（Archon が run ごとに切る worktree）で分ける。
 - 判定役（`works-node: judge`）は、包みが `--session-id=<uuid>` を足して起こし、id を `<家>/sessions/<cwd の hash>/judge.id` に書く。SDK が自分で `--resume`・`--session-id` を付けた起動はその id を記録する。
 - 再審（`works-node: rejudge continue=judge`。YAML の節は `context: fresh`）は、SDK の会話の旗を外して `--resume <judge の id>` で起こす（fork しない）。id が無ければ子を起こさず、1 行を出して終了コード 3 で止まる。ただし Archon はこれを落ちた起動として約 12 回起こし直すので、先に script の節で id が在るかを見る。再開した節の費用の表示は判定役の分を重ねて数える（SDK の `total_cost_usd` が累積のため）。

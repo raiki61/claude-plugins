@@ -16,17 +16,16 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     Read・Grep・Glob・Bash・WebSearch・WebFetch、局所レビューはそれに Skill・Agent）。任せ先（graph の delegate を持つ 4 節）の
     sandbox は DELEGATE_SANDBOX、investigator と局所レビューは網を閉じて読むだけの口 works-gh だけを sandbox の外に出す
     MATERIAL_SANDBOX。どれも印に旗
-    no-tree-write（本物の作業ツリーは包みが守る）。局所レビューも settingSources は []（下の [user] の決まり。利用者の設定の
-    プラグイン pr-review-toolkit の agent のレンズは、開発の殻の外の入れ方ができるまで読ませない）
+    no-tree-write（本物の作業ツリーは包みが守る）。局所レビューも settingSources は [user]（下の決まり。pr-review-toolkit の agent のレンズは
+    許す一覧 borrow.json に入るまで読めない）
   - blk-eyes/blk-eyes.yaml の節 r1-minimality・premise-check（独立の目の judge）: 読む道具に web（WebSearch・WebFetch）を足す
     （graphloops の judge の定義の道具。書く道具と shell は持たない）
   - blk-premises/blk-premises.yaml の節 premises（測る役）: 読む道具に Bash だけ（測るためにコマンドを走らせるが書く道具は
     持たない。Bash は狭い sandbox の中。作業ツリーを変えれば受け付けが写しと比べて拒む）
-- AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
-  書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
-  skills: を持つ節だけは [project] も許す（skills は読む元が要る）。[user] は、skills: を持ち、その全部が借りた superpowers の
-  スキルの写し（.shared/superpowers/<版>/skills/。SP_SKILLS）に在る節だけに許す（dev/skills.sh が隔離した CLAUDE_CONFIG_DIR の
-  skills/ に写し、Archon は [user] のときそこを探す）
+- AI の節は settingSources: [user] を持つ（P1 計画 Task 20・裁定 P1-R8）。役は開発の殻が隔離した CLAUDE_CONFIG_DIR だけを読み、
+  そこには許す一覧（.shared/borrow/borrow.json）の物しか無い（dev/toolset.py が組み、柵が一覧の外を拒む）。対象の CLAUDE.md
+  （project）は読ませない。書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す。
+  skills: は書いてもよく、書くなら名前の空でない一覧で、全部が borrow.json の superpowers.skills（SP_SKILLS）に在る
 - approval・include・loop_group の節は期限を持たない。書く期限の欄は上の 2 つだけ（AI の節の timeout・bash の節の idle_timeout も違反）
 - loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る。
   3 でない上限は表 LOOP_MAX の輪だけ（blk-fix の TDD の輪: 単位の数が run ごとに違う。抜けるのは until_bash の印で、
@@ -92,8 +91,9 @@ EXCEPTIONS = {
     ("blk-eyes", "blk-eyes.yaml", "premise-check"): {"tools": JUDGE_WEB_TOOLS},
     MEASURER: {"tools": MEASURE_TOOLS},
 }
-# settingSources: [user] で読んでよいスキル: 借りた superpowers のスキルの写しの名前（dev/skills.sh が写す物と同じ置き場から引く）
-SP_SKILLS = frozenset(p.parent.name for p in (ROOT / ".shared" / "superpowers").glob("*/skills/*/SKILL.md"))
+# skills: に書いてよいスキル: 許す一覧の superpowers のスキル（dev/toolset.py が隔離した設定の skills/ に写す物と同じ一覧）
+SP_SKILLS = frozenset(json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
+                      ["superpowers"]["skills"])
 AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
 QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種類
@@ -110,9 +110,9 @@ BAD_EXPECT = {
     "ai_no_output_format": "節 judge: AI の節に output_format が無い",
     "ai_no_sandbox": "節 judge: AI の節の sandbox が {enabled: true, allowUnsandboxedCommands: false} でない"
                      "（{'enabled': False, ",
-    "ai_no_setting_sources": "節 judge: AI の節の settingSources が [] でない（'（無し）'",
-    "user_skills_not_pinned": "節 judge: AI の節の skills: が借りたスキルの写しの外を持つ（['brainstorming']",
-    "user_without_skills": "節 judge: AI の節の settingSources が [user] なのに skills: が無い",
+    "ai_no_setting_sources": "節 judge: AI の節の settingSources が [user] でない（'（無し）'",
+    "ai_empty_setting_sources": "節 judge: AI の節の settingSources が [user] でない（[]",
+    "user_skills_not_pinned": "節 judge: AI の節の skills: が借りたスキルの一覧の外を持つ（['brainstorming']",
     "ai_sandbox_unsandboxed_allowed": "節 judge: AI の節の sandbox が {enabled: true, allowUnsandboxedCommands: false} でない"
                                       "（{'enabled': True}）",
     "approval_with_timeout": "節 gate: approval の節に期限（timeout・idle_timeout）を書いた",
@@ -199,19 +199,16 @@ def _check_node(node, where, place, out):
                 out.append(f"{at}: AI の節の allowed_tools が {sorted(allowed)} の外を持つ"
                            f"（{sorted(set(tools) - allowed)}）")
         ss = node.get("settingSources", "（無し）")
-        skills = node.get("skills")
-        if ss == ["user"]:
-            if not (isinstance(skills, list) and skills):
-                out.append(f"{at}: AI の節の settingSources が [user] なのに skills: が無い"
-                           "（[user] は借りたスキルを読むためだけに許す）")
-            elif not all(isinstance(k, str) for k in skills):
-                out.append(f"{at}: AI の節の skills: の要素が名前（文字列）でない（{skills!r}）")
+        if ss != ["user"]:
+            out.append(f"{at}: AI の節の settingSources が [user] でない（{ss!r}。役は隔離した設定の置き場"
+                       "（dev/toolset.py が組む、選んだ物だけ）を読む）")
+        if "skills" in node:
+            skills = node["skills"]
+            if not (isinstance(skills, list) and skills and all(isinstance(k, str) for k in skills)):
+                out.append(f"{at}: AI の節の skills: が名前（文字列）の空でない一覧でない（{skills!r}）")
             elif not set(skills) <= SP_SKILLS:
-                out.append(f"{at}: AI の節の skills: が借りたスキルの写しの外を持つ（{sorted(set(skills) - SP_SKILLS)}。"
-                           "[user] で読めるのは .shared/superpowers の写しだけ）")
-        elif not (ss == [] or ("skills" in node and ss == ["project"])):
-            out.append(f"{at}: AI の節の settingSources が [] でない（{ss!r}。skills: を持つ節だけ [project] も可。"
-                       "[user] は借りたスキルだけ）")
+                out.append(f"{at}: AI の節の skills: が借りたスキルの一覧の外を持つ（{sorted(set(skills) - SP_SKILLS)}。"
+                           "書けるのは .shared/borrow/borrow.json の superpowers.skills だけ）")
     else:
         if has_t or has_it:
             out.append(f"{at}: {kind} の節に期限（timeout・idle_timeout）を書いた")
@@ -282,19 +279,44 @@ class YamlRulesCase(unittest.TestCase):
             with self.subTest(str(p.relative_to(ROOT))):
                 self.assertEqual(check_file(p), [])
 
-    def test_pack_lines_do_not_use_user_scope_yet(self):
-        """開発の殻の外の入れ方ができるまで、pack の工程は settingSources: [user] を使わない（README の借りたスキルの節）。
-        殻の外では CLAUDE_CONFIG_DIR が利用者の ~/.claude で、利用者の CLAUDE.md・hooks を読ませてしまう"""
-        def user_nodes(nodes):
+    def test_all_ai_nodes_user_settings(self):
+        """pack の全部の AI の節（輪の中も）が settingSources: [user]（隔離した設定だけを読む。P1 計画 Task 20）。
+        節を 1 つも見つけられない空回りも赤"""
+        def ai_nodes(nodes):
             for n in nodes or []:
                 if isinstance(n, dict):
-                    if n.get("settingSources") == ["user"]:
-                        yield n.get("id")
-                    yield from user_nodes((n.get("loop_group") or {}).get("nodes"))
+                    if _kind(n) in AI_KEYS:
+                        yield n.get("id"), n.get("settingSources")
+                    yield from ai_nodes((n.get("loop_group") or {}).get("nodes"))
+        found = []
         for p in sorted(ROOT.glob("*/*.yaml")):
-            with self.subTest(str(p.relative_to(ROOT))):
-                doc = yaml.safe_load(p.read_text(encoding="utf-8"))
-                self.assertEqual(list(user_nodes(doc.get("nodes"))), [])
+            found += [(p.name, *row) for row in ai_nodes(yaml.safe_load(p.read_text(encoding="utf-8")).get("nodes"))]
+        self.assertGreaterEqual(len(found), 7, found)
+        self.assertEqual([f for f in found if f[2] != ["user"]], [])
+
+    def test_user_scope_only_under_curated_config(self):
+        """[user] を許すのは、節がいつも選んだ物だけの隔離した設定で起きるから（test_pack_lines_do_not_use_user_scope_yet を
+        置き換えた。C21）。Archon を起こすのは dev/archon.sh の exec だけで、その前に CLAUDE_CONFIG_DIR を殻の中の置き場に
+        固定し、どちらの道（認証あり・なし）でも toolset.py install（組む・柵に当たれば set -e で止まる）を通す。
+        殻が組まずに Archon を起こせる形になったら、[user] は利用者の CLAUDE.md・hooks を読みうるので赤。
+        振る舞いは tests/test_dev.py（test_archon_sh_installs_borrowed_skills・test_archon_sh_stops_when_isolated_config_leaks_into_user_scope）
+        と tests/test_toolset.py が縛る"""
+        dev = ROOT / "dev"
+        lines = [ln.strip() for ln in (dev / "archon.sh").read_text(encoding="utf-8").splitlines()
+                 if ln.strip() and not ln.strip().startswith("#")]
+        self.assertIn("set -eu", lines)
+        execs = [i for i, ln in enumerate(lines) if ln.startswith("exec ")]
+        self.assertEqual([lines[i] for i in execs], ['exec "$BIN_PATH" "$@"'])
+        fixed = [i for i, ln in enumerate(lines) if ln == 'CLAUDE_CONFIG_DIR="$WORKS_DEV_HOME/claude-config"']
+        installs = [i for i, ln in enumerate(lines) if ln.startswith('python3 "$TOOLSET" install ')]
+        self.assertEqual(len(fixed), 1, "CLAUDE_CONFIG_DIR を殻の中の置き場に固定していない")
+        self.assertEqual(len(installs), 2, "認証あり・なしの両方の道で toolset.py install を通していない")
+        self.assertTrue(fixed[0] < min(installs) and max(installs) < execs[0], "組む前か、組んだ後の外で Archon を起こす")
+        # ほかの殻は Archon の実行ファイルを直に起こさない（archon.sh を通す）
+        for sh in sorted(dev.glob("*.sh")):
+            if sh.name != "archon.sh":
+                with self.subTest(sh.name):
+                    self.assertNotIn("archon-darwin", sh.read_text(encoding="utf-8"))
 
     def test_writer_allowed_only_in_blk_fix(self):
         body = (TESTS / "yaml_bad" / "fix_outside_blk_fix.yaml").read_text(encoding="utf-8")
@@ -398,7 +420,7 @@ class YamlRulesCase(unittest.TestCase):
         """failIfUnavailable（sandbox が立たない場で素通しにしない）は狭める鍵なので、どの AI の節も持ってよい"""
         with tempfile.TemporaryDirectory() as tmp:
             p = pathlib.Path(tmp) / "w.yaml"
-            p.write_text("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n    settingSources: []\n"
+            p.write_text("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n    settingSources: [user]\n"
                          "    sandbox: {enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true}\n"
                          "    idle_timeout: 1728000000\n    output_format: {type: object}\n", encoding="utf-8")
             self.assertEqual(check_file(p), [])
@@ -428,36 +450,31 @@ class YamlRulesCase(unittest.TestCase):
             p.write_text(body.replace("id: premises", "id: premises-accept"), encoding="utf-8")
             self.assertOneRule(check_file(p), f"blk-premises.yaml: 節 premises-accept: {read_only}", "premises-accept")
 
-    def test_setting_sources_project_only_with_skills(self):
+    def test_setting_sources_user_only(self):
         base = ("nodes:\n  - id: judge\n    prompt: 判定せよ\n    allowed_tools: [Read]\n"
                 "    sandbox: {enabled: true, allowUnsandboxedCommands: false}\n"
                 "    idle_timeout: 1728000000\n    output_format: {type: object}\n")
         with tempfile.TemporaryDirectory() as tmp:
-            bad = "w.yaml: 節 judge: AI の節の settingSources が [] でない"
-            for extra, want in (("    settingSources: []\n", None),
-                                ("    skills: [x]\n    settingSources: [project]\n", None),
-                                ("    skills: [x]\n    settingSources: []\n", None),
-                                ("    settingSources: [project]\n", f"{bad}（['project']。"),
-                                ("    skills: [x]\n    settingSources: [project, user]\n", f"{bad}（['project', 'user']。"),
-                                ("    skills: [x]\n", f"{bad}（'（無し）'"),
+            bad = "w.yaml: 節 judge: AI の節の settingSources が [user] でない"
+            outside = "w.yaml: 節 judge: AI の節の skills: が借りたスキルの一覧の外を持つ"
+            shape = "w.yaml: 節 judge: AI の節の skills: が名前（文字列）の空でない一覧でない"
+            for extra, want in (("    settingSources: [user]\n", None),
                                 ("    skills: [test-driven-development]\n    settingSources: [user]\n", None),
-                                ("    skills: [x]\n    settingSources: [user]\n",
-                                 "w.yaml: 節 judge: AI の節の skills: が借りたスキルの写しの外を持つ（['x']"),
-                                ("    settingSources: [user]\n",
-                                 "w.yaml: 節 judge: AI の節の settingSources が [user] なのに skills: が無い"),
-                                ("    skills: []\n    settingSources: [user]\n",
-                                 "w.yaml: 節 judge: AI の節の settingSources が [user] なのに skills: が無い"),
-                                ("    skills: [{name: test-driven-development}]\n    settingSources: [user]\n",
-                                 "w.yaml: 節 judge: AI の節の skills: の要素が名前（文字列）でない"),
-                                ("    skills: [test-driven-development]\n    settingSources: [project, user]\n",
-                                 f"{bad}（['project', 'user']。")):
+                                ("    settingSources: []\n", f"{bad}（[]。"),
+                                ("    settingSources: [project]\n", f"{bad}（['project']。"),
+                                ("    settingSources: [project, user]\n", f"{bad}（['project', 'user']。"),
+                                ("    skills: [test-driven-development]\n", f"{bad}（'（無し）'。"),
+                                ("    skills: [x]\n    settingSources: [user]\n", f"{outside}（['x']"),
+                                ("    skills: []\n    settingSources: [user]\n", f"{shape}（[]）"),
+                                ("    skills: [{name: test-driven-development}]\n    settingSources: [user]\n", shape)):
                 p = pathlib.Path(tmp) / "w.yaml"
                 p.write_text(base + extra, encoding="utf-8")
                 with self.subTest(extra):
+                    found = check_file(p)
                     if want is None:
-                        self.assertEqual(check_file(p), [])
+                        self.assertEqual(found, [])
                     else:
-                        self.assertOneRule(check_file(p), want, extra)
+                        self.assertOneRule(found, want, extra)
 
 
 def _is_ai(node):
@@ -475,12 +492,12 @@ def _ancestors(nid, by_id):
 
 
 class RoleSessionCase(unittest.TestCase):
-    """役の節は、CLAUDE.md を読んだ前の会話を引き継がない（settingSources: [] が効くのは新しい会話だけ）。
+    """役の節は、CLAUDE.md を読んだ前の会話を引き継がない（settingSources: [user] が効くのは新しい会話だけ）。
 
     輪の中の役に context: fresh は書けない（受け付けが拒んだ時の同じ会話での出し直しが壊れる）。代わりに形で守る:
     役はブロックの輪（loop_group）の中に居て、ブロックの中で役より前（depends_on を辿った先）に AI の節も include も無い。
     Archon は輪の 1 周目をいつも新しい会話で起こし（dag-executor.ts:5069）、include の入口の節は外の会話を
-    引き継がない（dag-executor.ts:10417-10427）。2 周目からの出し直しは、1 周目の settingSources: [] の会話の続き。
+    引き継がない（dag-executor.ts:10417-10427）。2 周目からの出し直しは、1 周目の settingSources: [user] の会話の続き。
     """
 
     def test_role_is_first_ai_node_in_its_block_loop(self):
@@ -494,7 +511,7 @@ class RoleSessionCase(unittest.TestCase):
                 grp = loops[0]
                 inner = {m["id"]: m for m in grp["loop_group"]["nodes"]}
                 role = inner[rid]
-                self.assertEqual(role.get("settingSources"), [])
+                self.assertEqual(role.get("settingSources"), ["user"])
                 self.assertNotIn("context", role, "輪の中の役に context を書くと同じ会話での出し直しが壊れる")
                 before = [inner[a] for a in _ancestors(rid, inner)] + [top[a] for a in _ancestors(grp["id"], top)]
                 self.assertEqual([n["id"] for n in before if _is_ai(n)], [],

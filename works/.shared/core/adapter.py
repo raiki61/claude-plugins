@@ -9,7 +9,8 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
 1. **Read のフック**: `--settings` の JSON に PostToolUse:Read のフック（同じ置き場の record-read.py）を足す。
    SDK は sandbox を持つ節にだけ `--settings {"sandbox":{…}}` を付けるので、在ればマージ（SDK の鍵は上書きしない）、
    無ければフックだけの `--settings` を足す。`--setting-sources`（SDK は `=` でつないで必ず渡す）と `--model` は触らない。
-   CLAUDE.md を止めるのは YAML の `settingSources: []` の役目（Archon の検証と実際を食い違わせない）。
+   CLAUDE.md を止めるのは YAML の `settingSources: [user]` と、開発の殻が組む隔離した設定の柵（dev/toolset.py）の役目
+   （Archon の検証と実際を食い違わせない）。
 2. **会話の継ぎ**: 役の節の output_format（JSON Schema）の一番上の `description` に置いた印
    `works-node: <節の名>[ continue=<継ぐ節の名>][ <旗>…]` を、SDK がそのまま載せる argv の `--json-schema` から読む
    （指示文は claude が initialize に答えるまで stdin に来ないので、起動の前には読めない）。

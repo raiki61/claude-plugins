@@ -101,10 +101,6 @@ mkdir -p "$HOME" "$ARCHON_HOME" "$CLAUDE_CONFIG_DIR" \
 export HOME ARCHON_HOME CLAUDE_CONFIG_DIR
 export XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
 
-# 借りた superpowers のスキルの写しを、隔離した Claude の設定の skills/ へ写す（skills.sh）。節の settingSources: [user] と
-# skills: で読ませるため。認証の要らない道（validate）も同じ置き場でスキルを探すので、毎回写す
-sh "$(cd "$(dirname "$0")" && pwd -P)/skills.sh" "$CLAUDE_CONFIG_DIR"
-
 # 認証を使う（AI を呼びうる）実行は毎回、隔離した Archon の全体設定に既定の模型を書き、run の題を作る
 # 模型も同じにする（TITLE_GENERATION_MODEL。設定済みならそのまま）。書かないと Claude CLI の既定の模型で
 # 黙って回る。模型は WORKS_DEV_MODEL（既定は opus）。works の YAML には model: を書かない——利用者の選択を残すため。
@@ -119,24 +115,38 @@ assistants:
 EOF
   TITLE_GENERATION_MODEL="${TITLE_GENERATION_MODEL:-$WORKS_DEV_MODEL}"
   export TITLE_GENERATION_MODEL
+  # 本物の claude: WORKS_REAL_CLAUDE、CLAUDE_BIN_PATH（包み自身を差していれば使わない）、PATH の順（関数・別名は飛ばす）。
+  # 隔離した設定にプラグインを入れる（下の toolset.py）のにも、包みが起こすのにも使う
+  REAL_CLAUDE="${WORKS_REAL_CLAUDE:-}"
+  if [ -z "$REAL_CLAUDE" ] && [ -n "${CLAUDE_BIN_PATH:-}" ] &&
+    [ "$(works_dev_real "$CLAUDE_BIN_PATH")" != "$WORKS_ADAPTER" ]; then
+    REAL_CLAUDE="$CLAUDE_BIN_PATH"
+  fi
+  if [ -z "$REAL_CLAUDE" ]; then
+    REAL_CLAUDE="$(command -v claude || true)"
+    case "$REAL_CLAUDE" in /*) ;; *) REAL_CLAUDE="" ;; esac
+  fi
+  if [ -z "$REAL_CLAUDE" ]; then
+    echo "archon.sh: 本物の claude（隔離した設定にプラグインを入れる・包みが起こす）が見つからない。WORKS_REAL_CLAUDE か CLAUDE_BIN_PATH に絶対パスを設定する" >&2
+    exit 2
+  fi
   if [ -n "$WORKS_DEV_ADAPTER" ]; then
-    # 本物の claude: WORKS_REAL_CLAUDE、CLAUDE_BIN_PATH（包み自身を差していれば使わない）、PATH の順（関数・別名は飛ばす）
-    if [ -z "${WORKS_REAL_CLAUDE:-}" ] && [ -n "${CLAUDE_BIN_PATH:-}" ] &&
-      [ "$(works_dev_real "$CLAUDE_BIN_PATH")" != "$WORKS_ADAPTER" ]; then
-      WORKS_REAL_CLAUDE="$CLAUDE_BIN_PATH"
-    fi
-    if [ -z "${WORKS_REAL_CLAUDE:-}" ]; then
-      WORKS_REAL_CLAUDE="$(command -v claude || true)"
-      case "$WORKS_REAL_CLAUDE" in /*) ;; *) WORKS_REAL_CLAUDE="" ;; esac
-    fi
-    if [ -z "$WORKS_REAL_CLAUDE" ]; then
-      echo "archon.sh: 包みが起こす本物の claude が見つからない。WORKS_REAL_CLAUDE か CLAUDE_BIN_PATH に絶対パスを設定する" >&2
-      exit 2
-    fi
+    WORKS_REAL_CLAUDE="$REAL_CLAUDE"
     echo "    claudeBinaryPath: $WORKS_ADAPTER" >>"$ARCHON_HOME/config.yaml"
     unset CLAUDE_BIN_PATH
     export WORKS_REAL_CLAUDE WORKS_ADAPTER_HOME
   fi
+fi
+
+# 選んだ物だけの隔離した Claude の設定を組む（toolset.py。P1 計画 Task 20・裁定 P1-R8）。AI の節は全部 settingSources: [user] で
+# ここを読む: superpowers の 5 つのスキルを skills/ へ写し、coldwrite を設定の中の手元の marketplace から claude の plugin の CLI で
+# 入れる。柵が一覧の外（CLAUDE.md・rules/・agents/・ほかのプラグイン・余分な設定の鍵など）を見つければ、名前を出して終了コード 2 で
+# 止まり、Archon を起こさない。認証の要らない道（validate・テスト）は claude を起こさず、スキルだけを写す（validate も同じ置き場で探す）
+TOOLSET="$(cd "$(dirname "$0")" && pwd -P)/toolset.py"
+if [ "${WORKS_DEV_NO_AUTH:-}" = "1" ]; then
+  python3 "$TOOLSET" install --no-plugins "$CLAUDE_CONFIG_DIR"
+else
+  python3 "$TOOLSET" install --claude "$REAL_CLAUDE" "$CLAUDE_CONFIG_DIR"
 fi
 
 ARCHON_TELEMETRY_DISABLED=1

@@ -1,4 +1,4 @@
-# 違反: settingSources: [user] の節が、借りたスキルの写し（.shared/superpowers/<版>/skills/）に無いスキルを宣言する
+# 違反: settingSources: [user] の節が、借りたスキルの一覧（.shared/borrow/borrow.json の superpowers.skills）に無いスキルを宣言する
 name: bad-user-skills-not-pinned
 description: 違反の見本
 nodes:

@@ -1,4 +1,4 @@
-# 守った見本: settingSources: [user] の節が、借りたスキルの写しに在るスキルだけを宣言する
+# 守った見本: settingSources: [user] の節が、借りたスキルの一覧に在るスキルだけを宣言する
 name: good-user-pinned-skills
 description: 守った見本
 nodes:

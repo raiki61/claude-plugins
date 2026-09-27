@@ -116,7 +116,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual([n["id"] for n in lg["nodes"]], ["purpose", "purpose-accept"])
         role = find_node(self.y, "purpose")
         self.assertEqual(role["command"], "purpose")
-        self.assertEqual(role["settingSources"], [])
+        self.assertEqual(role["settingSources"], ["user"])
         self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
