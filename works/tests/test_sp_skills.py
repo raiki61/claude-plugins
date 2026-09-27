@@ -89,5 +89,74 @@ class UnattendedOverlayCase(unittest.TestCase):
         self.assertIn("役は決めない", m.group(0))
 
 
+
+class OverlayDeliveryCase(unittest.TestCase):
+    """無人の読み替えは、借りたスキルを読める役（道具に Skill を持つ役）の指示書に機械で載る（役への直の指示はスキルに勝つ。
+    superpowers の using-superpowers の User Instructions）。盤面は作らず、素材集めの支度（material.prep）の盤面の口を偽物に替えて、
+    書かれた指示書を読む（git・子のプロセスなし）"""
+
+    @staticmethod
+    def _material():
+        import sys
+        for p in (ROOT / ".shared" / "core", ROOT / "blk-material" / "lib"):
+            if str(p) not in sys.path:
+                sys.path.insert(0, str(p))
+        import material
+        return material
+
+    def _prep(self, role: str) -> str:
+        import contextlib
+        import tempfile
+        from unittest import mock
+        material = self._material()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = pathlib.Path(tmp.name)
+        board = mock.Mock(dir=d, round=1)
+        board.work.side_effect = lambda name: d / name
+        board.mark_launched.return_value = {"attempt": 1, "out_path": str(d / "out.json"), "already": False}
+        with mock.patch.object(material, "_locked", lambda _d: contextlib.nullcontext()), \
+                mock.patch.object(material, "_open", return_value=board), \
+                mock.patch.object(material, "_stopped", return_value=None), \
+                mock.patch.object(material, "_waiting", return_value={"attempts": 1}), \
+                mock.patch.object(material, "_rejects", return_value=[]), \
+                mock.patch.object(material, "render", return_value="役の本文\n"):
+            got = material.prep(d, role, None, "")
+        return pathlib.Path(got["prompt_file"]).read_text(encoding="utf-8")
+
+    def test_skill_role_prompt_carries_unattended_overlay(self):
+        """Skill を持つ役（local-review）の指示書は読み替えの全文を含み、Skill を持たない役の指示書は含まない"""
+        material = self._material()
+        overlay = OVERLAY.read_text(encoding="utf-8")
+        self.assertIn("Skill", material.TOOLS["local-review"])
+        text = self._prep("local-review")
+        self.assertIn("役の本文", text)
+        self.assertIn(overlay.strip(), text)
+        self.assertNotIn("Skill", material.TOOLS["consistency-bypass"])
+        self.assertNotIn(overlay.splitlines()[0], self._prep("consistency-bypass"))
+
+    def test_every_node_that_can_read_skills_is_a_role_that_gets_the_overlay(self):
+        """works の YAML の節のうち、借りたスキルを読める節（allowed_tools に Skill か skills: を持つ）は、どれも素材集めの道具の表で
+        Skill を持つ役（指示書に読み替えが載る役）。載せる道の無い節を足したら赤"""
+        import yaml
+        material = self._material()
+
+        def walk(x):
+            if isinstance(x, dict):
+                if "Skill" in (x.get("allowed_tools") or []) or x.get("skills"):
+                    yield x
+                for v in x.values():
+                    yield from walk(v)
+            elif isinstance(x, list):
+                for v in x:
+                    yield from walk(v)
+        found = set()
+        for y in sorted(ROOT.glob("*/*.yaml")):    # pack の YAML の集め方は test_yaml_rules と同じ（darkfactory も含む）
+            for node in walk(yaml.safe_load(y.read_text(encoding="utf-8"))):
+                found.add((y.name, node.get("command") or node.get("id")))
+        self.assertTrue(found)
+        self.assertEqual({c for _, c in found}, {r for r, t in material.TOOLS.items() if "Skill" in t}, found)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ WORKS_DEV_HOME="${WORKS_DEV_HOME:-${TMPDIR:-/tmp}/works-dev}"
 
 # 開発の家と対象（cwd）が Claude Code の一時フォルダの下なら、認証も実行ファイルも触らずに止まる（guard.sh）
 . "$(cd "$(dirname "$0")" && pwd -P)/guard.sh"
+works_dev_abs_claude_config
 works_dev_refuse_claude_tmp archon.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 works_dev_refuse_claude_tmp archon.sh "対象（cwd）" "$(pwd -P)"
 
@@ -87,7 +88,8 @@ chmod +x "$BIN_PATH"
 
 # 借りる物（superpowers のスキル・coldwrite・pr-review-toolkit）は、利用者が Claude Code に入れたプラグインから取る（下の toolset.py）。
 # その一覧（plugins/installed_plugins.json）を読む利用者の設定の置き場を、隔離の前に決めておく（隔離の後の CLAUDE_CONFIG_DIR は
-# 選んだ物だけの設定で、利用者の物ではない）
+# 選んだ物だけの設定で、利用者の物ではない）。相対の値は頭の works_dev_abs_claude_config が絶対に直してある。殻の中から入れ子で
+# 打って隔離の置き場そのものになっていれば、toolset.py が名指しで止める
 USER_CLAUDE_CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
 # HOME・ARCHON_HOME・Claude の設定・XDG_* を全部 WORKS_DEV_HOME の下へ隔離する

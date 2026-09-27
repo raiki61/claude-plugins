@@ -285,7 +285,7 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("sha256", result.stderr)
 
-    def _exec_archon_sh(self, prepare=None, **overrides):
+    def _exec_archon_sh(self, prepare=None, cwd_in_tmp=None, **overrides):
         """偽の shasum（固定の sha256 を出す）で確かめを通し、キャッシュの偽の実行ファイル（受けた
         TITLE_GENERATION_MODEL と引数を記録する）まで exec させる。本物の Archon もネットワークも要らない。
         戻り値は (結果, 隔離した Archon の config.yaml の中身か None, 偽の実行ファイルが記録した行)。"""
@@ -326,7 +326,8 @@ class TestDevShell(unittest.TestCase):
                        FAKE_CLAUDE_LOG=str(claude_calls), CLAUDE_CONFIG_DIR=str(user_cfg))
             env.update(overrides)
             result = subprocess.run(["sh", str(DEV / "archon.sh"), "workflow", "run", "x"],
-                                    capture_output=True, text=True, encoding="utf-8", env=env)
+                                    capture_output=True, text=True, encoding="utf-8", env=env,
+                                    cwd=None if cwd_in_tmp is None else tmp / cwd_in_tmp)
             config = dev_home / "archon-home" / "config.yaml"
             self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
             # exec した時の隔離した CLAUDE_CONFIG_DIR/skills の中身（test_archon_sh_installs_borrowed_skills が見る）
@@ -415,6 +416,17 @@ class TestDevShell(unittest.TestCase):
             result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="", HOME=home)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(self.toolset_rec["coldwrite"]["source"].startswith(str(dot) + os.sep), self.toolset_rec)
+
+    def test_archon_sh_resolves_relative_user_config_before_passing_it(self):
+        """相対の CLAUDE_CONFIG_DIR は、殻を起こした所から絶対パスに直して toolset.py へ渡す（toolset.py は絶対だけを受ける）。
+        記録の source は利用者の設定の中の絶対パス"""
+        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="../user-claude-config",
+                                            cwd_in_tmp="dev-home")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in ("superpowers", "coldwrite", "pr-review-toolkit"):
+            src = self.toolset_rec[name]["source"]
+            self.assertTrue(os.path.isabs(src), self.toolset_rec[name])
+            self.assertTrue(os.path.realpath(src).startswith(os.path.realpath(self.user_cfg) + os.sep), self.toolset_rec[name])
 
     def test_archon_sh_stops_when_borrowed_tools_are_not_installed(self):
         """借りる物が利用者の設定に入っていなければ、1 物 1 行の理由と入れるコマンドを出して終了コード 2 で止まり、

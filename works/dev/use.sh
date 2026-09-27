@@ -48,6 +48,7 @@ refuse() {
 }
 
 . "$DEV_DIR/guard.sh"
+works_dev_abs_claude_config
 works_dev_refuse_claude_tmp use.sh "WORKS_USE_HOME" "$WORKS_USE_HOME"
 
 # 対象の確かめ（Archon を呼ぶ前・何かを写す前）

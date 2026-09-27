@@ -323,6 +323,106 @@ class ResolveCase(unittest.TestCase):
         self.assertEqual(toolset.user_config_dir({}), pathlib.Path(os.path.expanduser("~/.claude")))
 
 
+class ScopeCase(unittest.TestCase):
+    """同じプラグインが複数の scope に入っていれば、Claude Code と同じく local > project > user の行を取る
+    （https://code.claude.com/docs/en/discover-plugins の Which scope wins）。enabledPlugins の無効は拒まずに借り、
+    元が有効だったか無効だったかを記録に残す（人の答え: 利用者は借りる物のフックを普段効かせないために無効にしておく）"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.borrow = toolset.load_borrow(ROOT)
+        self.target = self.tmp / "target"
+        self.target.mkdir()
+        self.user = make_user_config(self.tmp / "user")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def add_rows(self, scope: str) -> pathlib.Path:
+        """scope の行（projectPath は対象）を、別の置き場に入れた物として利用者の installed_plugins.json に足す"""
+        other = make_user_config(self.tmp / scope, scope=scope, project=self.target)
+        ip_path = self.user / "plugins" / "installed_plugins.json"
+        ip = json.loads(ip_path.read_text())
+        for key, rows in json.loads((other / "plugins" / "installed_plugins.json").read_text())["plugins"].items():
+            ip["plugins"][key] = ip["plugins"].get(key, []) + rows
+        ip_path.write_text(json.dumps(ip, indent=2))
+        return other
+
+    def test_project_row_wins_over_user_row(self):
+        project = self.add_rows("project")
+        chosen, _ = toolset.installed_sources(self.user, self.borrow, cwd=self.target)
+        for n in FAKE_INSTALLED:
+            self.assertEqual(chosen[n], installed_dir(project, n), n)
+
+    def test_local_row_wins_over_project_and_user_rows(self):
+        self.add_rows("project")
+        local = self.add_rows("local")
+        chosen, _ = toolset.installed_sources(self.user, self.borrow, cwd=self.target)
+        for n in FAKE_INSTALLED:
+            self.assertEqual(chosen[n], installed_dir(local, n), n)
+
+    def test_disabled_plugin_is_borrowed_and_the_source_state_is_recorded(self):
+        """利用者の settings.json で無効でも借りる。対象の .claude/settings.local.json・settings.json が利用者の値に勝つ。
+        記録の source_enabled は、元で勝った enabledPlugins の値（どこにも鍵が無ければ null）"""
+        _put(self.user / "settings.json", json.dumps({"enabledPlugins": {
+            "coldwrite@raiki61": False, "superpowers@superpowers-marketplace": False}}))
+        _put(self.target / ".claude" / "settings.json", json.dumps({"enabledPlugins": {
+            "superpowers@superpowers-marketplace": True}}))
+        cfg = self.tmp / "claude-config"
+        cfg.mkdir()
+        r = subprocess.run([sys.executable, str(TOOLSET), "install", "--no-plugins", "--user-config", str(self.user), str(cfg)],
+                           capture_output=True, text=True, encoding="utf-8", cwd=self.target,
+                           env={k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rec = json.loads((cfg / toolset.RECORD).read_text())
+        self.assertEqual(rec["coldwrite"]["source"], str(installed_dir(self.user, "coldwrite")))
+        self.assertEqual({n: rec[n].get("source_enabled", "無い") for n in FAKE_INSTALLED},
+                         {"coldwrite": False, "superpowers": True, "pr-review-toolkit": None})
+
+
+class InstalledShapeCase(unittest.TestCase):
+    """installed_plugins.json は Claude Code の内部の状態で、形の約束（文書）が無い。知らない形は『入っていない』に潰さず、
+    形を知らないと名指しして止まる（入れ直しても直らない install のコマンドを勧めない）"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.borrow = toolset.load_borrow(ROOT)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_unknown_shape_stops_with_named_reason_not_as_missing(self):
+        def reshape(ip, how):
+            if how == "version 1":
+                ip["version"] = 1
+            elif how == "version 無し":
+                del ip["version"]
+            elif how == "行が表（古い 1 行の形）":
+                ip["plugins"] = {k: rows[0] for k, rows in ip["plugins"].items()}
+            elif how == "plugins が一覧":
+                ip["plugins"] = [dict(r, key=k) for k, rows in ip["plugins"].items() for r in rows]
+            return ip
+        for how in ("version 1", "version 無し", "行が表（古い 1 行の形）", "plugins が一覧"):
+            with self.subTest(how):
+                user = make_user_config(self.tmp / f"u{len(how)}{how[:3]}")
+                p = user / "plugins" / "installed_plugins.json"
+                p.write_text(json.dumps(reshape(json.loads(p.read_text()), how)))
+                try:
+                    toolset.installed_sources(user, self.borrow)
+                except toolset.ToolsetError as e:
+                    msg = str(e)
+                except Exception as e:   # 形を確かめずに読んで落ちるのも、名指しの理由で止まらない欠陥
+                    self.fail(f"ToolsetError でなく {type(e).__name__}: {e}")
+                else:
+                    self.fail("知らない形なのに止まらなかった")
+                self.assertIn("知らない", msg)
+                self.assertIn(str(p), msg)
+                self.assertNotIn("入っていない", msg)
+                self.assertNotIn("claude plugin install", msg)
+
+
 class InstallCase(Base):
     def test_install_builds_exactly_the_chosen_config(self):
         """一時の置き場に組んだ設定の中身が、ちょうど 5 つのスキル・手元の marketplace の coldwrite と pr-review-toolkit・
@@ -507,6 +607,32 @@ class CliCase(Base):
         r = self.cli("install", "--no-plugins", str(self.cfg), CLAUDE_CONFIG_DIR=str(empty))
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("coldwrite@raiki61", r.stderr)
+
+    def test_cli_refuses_relative_user_config(self):
+        """利用者の設定の置き場は絶対パスだけを受ける（相対は殻が cd の前に直す。cd の後に対象から解くと別の置き場を読む）。
+        --user-config も env の CLAUDE_CONFIG_DIR も、相対なら何も写さずに名指しで止まる（読める置き場が cwd に在っても）"""
+        for args, env in ((["--user-config", "user"], {}), ([], {"CLAUDE_CONFIG_DIR": "user"})):
+            with self.subTest(args=args, env=env):
+                r = subprocess.run([sys.executable, str(TOOLSET), "install", "--no-plugins", *args, str(self.cfg)],
+                                   capture_output=True, text=True, encoding="utf-8", cwd=self.tmp,
+                                   env=dict(os.environ, **{"CLAUDE_CONFIG_DIR": str(self.user), **env}))
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn("絶対", r.stderr)
+                self.assertEqual(files_under(self.cfg), [])
+
+    def test_cli_refuses_user_config_that_is_the_isolated_config(self):
+        """殻の中から入れ子で打つと、利用者の設定の置き場が隔離した置き場そのものになる。『入っていない』でなく、それを名指しして
+        止まる（symlink を挟んでも同じ置き場と見る）"""
+        link = self.tmp / "cfg-link"
+        link.symlink_to(self.cfg)
+        for where in (self.cfg, link):
+            for args, env in ((["--user-config", str(where)], {}), ([], {"CLAUDE_CONFIG_DIR": str(where)})):
+                with self.subTest(where=where.name, args=args):
+                    r = self.cli("install", "--no-plugins", *args, str(self.cfg), **env)
+                    self.assertEqual(r.returncode, 2, r.stderr)
+                    self.assertIn("隔離", r.stderr)
+                    self.assertNotIn("入っていない", r.stderr)
+                    self.assertEqual(files_under(self.cfg), [])
 
     def test_cli_usage(self):
         for args in ([], ["install"], ["install", str(self.cfg)], ["bogus", str(self.cfg)], ["guard"]):

@@ -309,6 +309,8 @@ def prep(board_dir, role: str, repo, purpose_file: str = "") -> dict:
             # 拒否の文は指示書に書く（役は読む）。$LOOP_PREV で貼ると、文の中の $<節>.output.<欄> を Archon が置き換え直す（R44）
             text = (f"{REJECT_HEADING}\n\n前の回の返答は受け付けで拒まれた。下の理由のところを直した返答を丸ごと出し直せ"
                     f"（直した所だけを返すな）:\n\n```text\n{last[0]['reason']}\n```\n\n---\n\n" + text)
+        if "Skill" in TOOLS[role]:
+            text = text.rstrip("\n") + "\n\n---\n\n" + rolekit.skill_overlay()   # 借りたスキルを読める役だけに無人の読み替え
         path = b.dir / "prompts" / f"r{b.round}" / (safe_name(nid) + ".md")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")

@@ -38,6 +38,7 @@ export WORKS_DEV_HOME WORKS_DEV_MODEL WORKS_DEV_ADAPTER
 
 # 開発の家・置き場が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"
+works_dev_abs_claude_config
 works_dev_refuse_claude_tmp dogfood.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 if [ "$#" -ge 3 ]; then
   works_dev_refuse_claude_tmp dogfood.sh "置き場" "$3"

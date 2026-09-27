@@ -7,8 +7,10 @@ AI の節は全部 settingSources: [user] で、dev/archon.sh が隔離した CL
 そこに置くのは許す一覧 .shared/borrow/borrow.json の物だけ。借りる物（superpowers・coldwrite・pr-review-toolkit）は、利用者が
 Claude Code に入れたプラグインから取る（本線の graphloops と同じ。版は Claude Code が今に保つ。works は写しを持たない）:
 - 探す所: 利用者の設定の置き場（--user-config。無ければ env の CLAUDE_CONFIG_DIR、無ければ ~/.claude。隔離した設定ではない。
-  archon.sh は隔離の前の値を渡す）の plugins/installed_plugins.json の <名>@<borrow の marketplace> の行。scope が user の行を先に、
-  次に projectPath が今の cwd（対象リポジトリ）の project・local の行を使い、installPath が在る最初の行に決める。
+  archon.sh は隔離の前の値を渡す。絶対パスだけを受け、隔離した設定の置き場と同じなら名指しして止まる）の plugins/installed_plugins.json の <名>@<borrow の marketplace> の行。Claude Code と同じく
+  local > project > user の scope の行を取る（local・project は projectPath が今の cwd（対象リポジトリ）の行だけ。勝った行の
+  installPath が無ければ下の scope へ落ちずに入っていないとする）。enabledPlugins で無効でも借りる（記録に残すだけ）。
+  installed_plugins.json が知らない形（version が INSTALLED_VERSIONS の外など）なら、入っていないとは言わずに形を名指しして止まる。
 - 確かめるのは、works が名前で頼る物が在ることだけ（中身・版・バイトは見ない。役は読むだけなので、名前が在れば新しい版で動く）:
   superpowers は skills/<スキル>/SKILL.md、pr-review-toolkit は agents/<名>.md（borrow の agents。レンズの名）、coldwrite は
   hooks/hooks.json の hooks.<事象> に matcher が borrow の hooks の物の行。入っていない・名前が無い物は、借りる物ごとに 1 行の
@@ -33,8 +35,9 @@ Claude Code に入れたプラグインから取る（本線の graphloops と�
   works-mcp.json の一覧の外の MCP。
   Claude Code が自分で書く状態（projects/・.claude.json・backups/・remote-settings.json・plugins/cache/ など）は見ない。
   install は組む前と後に柵を当て、当たれば何も写さずに止まる。CLI は 1 行を出して終了コード 2（入っていない物は 1 物 1 行）。
-- 記録 <置き場>/.works-toolset.json: {名: {version, source, sha256, loaded}}（見えるようにするだけ。run ごとの versions.json の
-  borrowed に載る）。version は installed_plugins.json の行の version、source は入れた置き場。
+- 記録 <置き場>/.works-toolset.json: {名: {version, source, sha256, loaded[, source_enabled]}}（見えるようにするだけ。run ごとの
+  versions.json の borrowed に載る）。version は installed_plugins.json の行の version、source は入れた置き場、source_enabled は
+  利用者の側の enabledPlugins の値（CLI の install が載せる。source_enabled を見よ）。
 """
 import hashlib
 import json
@@ -71,17 +74,52 @@ def load_borrow(pack: pathlib.Path) -> dict:
     return json.loads((pathlib.Path(pack) / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
 
 
-def _installed_row(user_config: pathlib.Path, key: str, cwd) -> "dict | None":
-    """利用者の plugins/installed_plugins.json の key の行のうち使う物（user の行、次に projectPath が cwd の project・local の行。
-    installPath が在る最初の行）。無ければ None"""
-    ip = _read_json(pathlib.Path(user_config) / "plugins" / "installed_plugins.json")
-    rows = ((ip.get("plugins") or {}).get(key) if isinstance(ip, dict) else None) or []
-    rows = [r for r in rows if isinstance(r, dict) and isinstance(r.get("installPath"), str)] if isinstance(rows, list) else []
+SCOPES = ("local", "project", "user")      # 勝つ順（Claude Code の discover-plugins の Which scope wins。managed は読まない）
+INSTALLED_VERSIONS = frozenset({2})        # 読める installed_plugins.json の version（形は公式に文書化されていない）
+
+
+def _read_installed(user_config: pathlib.Path) -> dict:
+    """利用者の plugins/installed_plugins.json の plugins（{<名>@<marketplace>: [行]}）。無ければ空。知らない形（version が
+    INSTALLED_VERSIONS の外・plugins が表でない・行の並びが表の一覧でない・JSON として読めない）は『入っていない』に潰さず、
+    形を知らないと名指しして ToolsetError"""
+    p = pathlib.Path(user_config) / "plugins" / "installed_plugins.json"
+    ip = _read_json(p)
+    if ip is None:
+        return {}
+    plugins = ip.get("plugins") if isinstance(ip, dict) else None
+    if (isinstance(ip, dict) and ip.get("version") in INSTALLED_VERSIONS and isinstance(plugins, dict)
+            and all(isinstance(rows, list) and all(isinstance(r, dict) for r in rows) for rows in plugins.values())):
+        return plugins
+    version = ip.get("version") if isinstance(ip, dict) else None
+    raise ToolsetError(f"{p} の形（version {version}）を知らない（読めるのは version "
+                       f"{'・'.join(map(str, sorted(INSTALLED_VERSIONS)))}）。Claude Code の版を確かめ、合う works に更新する")
+
+
+def _installed_row(plugins: dict, key: str, cwd) -> "dict | None":
+    """installed_plugins.json の plugins の key の行のうち、Claude Code が cwd で使う物（SCOPES の順で最初に在る scope の行。
+    local・project は projectPath が cwd の行だけ）。勝った行の installPath が無ければ、下の scope へ落ちずに None"""
+    rows = [r for r in plugins.get(key, []) if isinstance(r.get("installPath"), str)]
     here = os.path.realpath(cwd) if cwd else None
-    pick = [r for r in rows if r.get("scope") == "user"]
-    pick += [r for r in rows if r.get("scope") in ("project", "local") and here and isinstance(r.get("projectPath"), str)
-             and os.path.realpath(r["projectPath"]) == here]
-    return next((r for r in pick if pathlib.Path(r["installPath"]).is_dir()), None)
+    rows = [r for r in rows if r.get("scope") == "user" or (
+        r.get("scope") in ("project", "local") and here and isinstance(r.get("projectPath"), str)
+        and os.path.realpath(r["projectPath"]) == here)]
+    row = min(rows, key=lambda r: SCOPES.index(r["scope"]), default=None)
+    return row if row is not None and pathlib.Path(row["installPath"]).is_dir() else None
+
+
+def source_enabled(user_config: pathlib.Path, key: str, cwd) -> "bool | None":
+    """key が利用者の側で有効か（enabledPlugins。対象の .claude/settings.local.json → .claude/settings.json → 利用者の
+    settings.json の順（SCOPES の順）で最初に鍵を持つ物。Claude Code の Settings precedence。どこにも無ければ None）。無効でも借りる
+    （利用者は借りる物のフックを普段効かせないために無効にしておく）ので、記録に残すだけ"""
+    where = {"local": pathlib.Path(cwd or "") / ".claude" / "settings.local.json",
+             "project": pathlib.Path(cwd or "") / ".claude" / "settings.json",
+             "user": pathlib.Path(user_config) / "settings.json"}
+    for f in [where[s] for s in SCOPES if cwd or s == "user"]:     # _installed_row と同じ SCOPES の順
+        st = _read_json(f)
+        enabled = st.get("enabledPlugins") if isinstance(st, dict) else None
+        if isinstance(enabled, dict) and isinstance(enabled.get(key), bool):
+            return enabled[key]
+    return None
 
 
 def _missing_names(name: str, item: dict, src: pathlib.Path) -> list:
@@ -119,6 +157,7 @@ def installed_sources(user_config: pathlib.Path, borrow: dict, cwd=None) -> tupl
     頼る物が無い借りる物は、借りる物ごとに 1 行の理由と入れるコマンドを並べて ToolsetError（何も写す前に呼ぶ）"""
     user_config = pathlib.Path(user_config)
     chosen, versions, bad = {}, {}, []
+    plugins = _read_installed(user_config) if any(i["kind"] != "mcp" for i in borrow.values()) else {}
     for name, item in borrow.items():
         if item["kind"] == "mcp":
             chosen[name] = item["url"]
@@ -127,7 +166,7 @@ def installed_sources(user_config: pathlib.Path, borrow: dict, cwd=None) -> tupl
         if item["kind"] not in ("skills", "plugin"):
             raise ToolsetError(f"borrow.json の {name} の kind {item['kind']!r} を知らない（skills・plugin・mcp）")
         key = f"{name}@{item['marketplace']}"
-        row = _installed_row(user_config, key, cwd)
+        row = _installed_row(plugins, key, cwd)
         if row is None:
             bad.append(f"{name} が入っていない（{user_config / 'plugins' / 'installed_plugins.json'} に {key} の使える行が無い）。"
                        + _how_to_install(name, item))
@@ -331,10 +370,12 @@ def _install_plugins(cfg: pathlib.Path, srcs: dict, claude_bin: str) -> None:
 
 
 def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin, plugins: bool = True,
-            versions: "dict | None" = None) -> dict:
+            versions: "dict | None" = None, enabled: "dict | None" = None) -> dict:
     """隔離した設定を組む。chosen・versions は installed_sources の返り（versions に無い名は置き場の名・plugin.json の version）。
-    返りと <置き場>/.works-toolset.json は {名: {version, source, sha256, loaded}}"""
+    enabled は 名 → source_enabled の値（渡された名だけ記録に source_enabled として載せる）。
+    返りと <置き場>/.works-toolset.json は {名: {version, source, sha256, loaded[, source_enabled]}}"""
     versions = versions or {}
+    enabled_src = enabled or {}
     cfg = pathlib.Path(config_dir)
     _clean_tmp(cfg)
     bad = guard(cfg, borrow)
@@ -382,8 +423,20 @@ def install(config_dir: pathlib.Path, chosen: dict, borrow: dict, *, claude_bin,
     bad = guard(cfg, borrow)
     if bad:
         raise ToolsetError(_refusal(cfg, bad))
+    for name in rec.keys() & enabled_src.keys():
+        rec[name]["source_enabled"] = enabled_src[name]
     _write_if_changed(cfg / RECORD, json.dumps(rec, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return rec
+
+
+def _check_user_config(user_cfg: pathlib.Path, cfg: pathlib.Path, src: str) -> None:
+    """利用者の設定の置き場は絶対パスで、隔離した設定の置き場と別であること（どちらも何も写す前に名指しで止める）"""
+    if not user_cfg.is_absolute():
+        raise ToolsetError(f"利用者の設定の置き場（{src}）が相対パス（{user_cfg}）。絶対パスで渡す"
+                           "（殻は guard.sh の works_dev_abs_claude_config で cd の前に直す）")
+    if os.path.realpath(user_cfg) == os.path.realpath(cfg):
+        raise ToolsetError(f"利用者の設定の置き場（{src}: {user_cfg}）が隔離した設定の置き場そのもの（殻の中から入れ子で"
+                           "打った？）。CLAUDE_CONFIG_DIR を利用者の物にして回す")
 
 
 def main(argv: list) -> int:
@@ -418,8 +471,13 @@ def main(argv: list) -> int:
             if bad:
                 raise ToolsetError(_refusal(cfg, bad))
         else:
-            chosen, versions = installed_sources(user_cfg or user_config_dir(), borrow, cwd=os.getcwd())
-            install(cfg, chosen, borrow, claude_bin=claude_bin, plugins=not no_plugins, versions=versions)
+            src = "--user-config" if user_cfg else "env の CLAUDE_CONFIG_DIR"
+            user_cfg, here = user_cfg or user_config_dir(), os.getcwd()
+            _check_user_config(user_cfg, cfg, src)
+            chosen, versions = installed_sources(user_cfg, borrow, cwd=here)
+            enabled = {n: source_enabled(user_cfg, f"{n}@{i['marketplace']}", here)
+                       for n, i in borrow.items() if i["kind"] in ("skills", "plugin")}
+            install(cfg, chosen, borrow, claude_bin=claude_bin, plugins=not no_plugins, versions=versions, enabled=enabled)
     except ToolsetError as e:
         print(f"toolset.py: {e}", file=sys.stderr)
         return 2

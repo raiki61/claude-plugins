@@ -21,6 +21,7 @@ export WORKS_DEV_HOME WORKS_DEV_MODEL
 
 # 開発の家・対象・origin が Claude Code の一時フォルダの下なら、認証を確かめる前・何かを作る前に止まる（guard.sh）
 . "$DEV_DIR/guard.sh"
+works_dev_abs_claude_config
 works_dev_refuse_claude_tmp real-run.sh "WORKS_DEV_HOME" "$WORKS_DEV_HOME"
 if [ "$#" -ge 1 ]; then
   works_dev_refuse_claude_tmp real-run.sh "対象" "$1"

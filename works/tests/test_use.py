@@ -12,10 +12,14 @@
 - 止まった後の行: 承認・答える（continue・stop）・報告のパス・差分のファイル（利用の家の下。対象の親には書かない）と対象へ
   git apply する行。show は同じ行を出し直す（清さは求めない）。
 - check: 認証を読まずに validate workflows darkfactory だけを呼ぶ。
+- git でない写し（プラグインのキャッシュの形。tests/・docs/ が無く、Claude Code の印が在る）の works から、写しの use.sh が写しの
+  archon.sh・guard.sh・toolset.py を通して check・start を回せ、元のリポジトリの works を 1 度も指さない（偽物は Archon の実行ファイルと
+  claude だけ）。
 """
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -86,7 +90,7 @@ class UseShell(unittest.TestCase):
             git(t, "remote", "add", "origin", str(self.tmp / "origin.git"))
         return t
 
-    def use(self, *args, cwd=None, **env_kw):
+    def use(self, *args, cwd=None, script=USE, **env_kw):
         env = dict(os.environ)
         for name in ("CLAUDE_CODE_OAUTH_TOKEN", "WORKS_KEYCHAIN_ITEM", "WORKS_DEV_NO_AUTH", "WORKS_DEV_ADAPTER",
                      "WORKS_USE_FINAL_GATE"):
@@ -98,7 +102,7 @@ class UseShell(unittest.TestCase):
                 env.pop(k, None)
             else:
                 env[k] = v
-        r = subprocess.run(["sh", str(USE), *args], capture_output=True, text=True, encoding="utf-8", env=env, cwd=cwd)
+        r = subprocess.run(["sh", str(script), *args], capture_output=True, text=True, encoding="utf-8", env=env, cwd=cwd)
         self.assertNotIn("dummy-token-for-test", r.stdout + r.stderr)
         return r
 
@@ -272,6 +276,88 @@ class UseShell(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.calls(), [[str(t), "1", str(self.home), "validate", "workflows", "darkfactory"]])
         self.assertTrue((self.home / "archon-home" / "workflows" / "works" / "archon-plugin.json").is_file())
+
+    # ---- git でない写し（プラグインのキャッシュ）から
+    def plugin_copy(self):
+        """works/ を git の外の、プラグインのキャッシュの形の置き場へ写し、(写し, 写しの use.sh を回す env) を返す。Archon は写しの
+        archon.sh が exec する実行ファイル（利用の家の bin/ の偽物。偽の shasum で sha256 の確かめを通す）だけを偽物にし、写しの
+        guard.sh・toolset.py は本物を回す。借りる物は偽の利用者の設定から、隔離した設定へ入れるのは偽の claude で"""
+        from test_toolset import make_user_config, write_fake_claude
+        copy = self.tmp / "user-claude-config" / "plugins" / "cache" / "works-mp" / "works" / "9.9.9"
+        shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns("tests", "docs", "__pycache__"))
+        (copy / ".in_use").mkdir()
+        (copy / ".in_use" / "4242").write_text("{}")
+        (copy / ".orphaned_at").write_text("1790054446372")
+        # 写しの borrow.json だけ借りるスキルを 1 本減らす（元の works を読めば 1 本多く写り、見分けられる）
+        borrow = copy / ".shared" / "borrow" / "borrow.json"
+        doc = json.loads(borrow.read_text())
+        self.copy_skills = doc["superpowers"]["skills"] = doc["superpowers"]["skills"][:-1]
+        borrow.write_text(json.dumps(doc))
+        user_cfg = make_user_config(self.tmp / "user-claude-config")
+        sha = re.search(r'^ARCHON_SHA256="([0-9a-f]{64})"', (copy / "dev" / "archon.sh").read_text(), re.M).group(1)
+        fake_bin = self.tmp / "fake-bin"
+        claude = write_fake_claude(fake_bin)
+        (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{sha}  $3"\n')
+        (fake_bin / "shasum").chmod(0o755)
+        self.skills_seen = self.tmp / "skills.txt"
+        binary = self.home / "bin" / "archon-darwin-arm64"
+        binary.parent.mkdir(parents=True)
+        binary.write_text(
+            "#!/bin/sh\n"
+            f'{{ printf \'%s\\t\' "$(pwd -P)" "${{WORKS_DEV_NO_AUTH:-}}" "$WORKS_DEV_HOME" "$@"; echo; }} >> "{self.log}"\n'
+            f'ls "$CLAUDE_CONFIG_DIR/skills" > "{self.skills_seen}"\n'
+            f'case "$*" in "workflow runs --json") cat "{self.runs}" ;; esac\n'
+            "exit 0\n")
+        binary.chmod(0o755)
+        self.claude_log = self.tmp / "claude-calls.jsonl"
+        env = dict(script=copy / "dev" / "use.sh", WORKS_DEV_ARCHON=None, WORKS_REAL_CLAUDE=None, CLAUDE_CONFIG_DIR=str(user_cfg),
+                   CLAUDE_BIN_PATH=str(claude), FAKE_CLAUDE_LOG=str(self.claude_log),
+                   PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+        return copy, env
+
+    def assert_ran_from_copy(self, copy):
+        """pack は写しから置かれ（出どころの控えは git の外として rev・dirty が null）、隔離した設定には写しの borrow.json の
+        スキルが入り、Archon・claude・控えのどれも元のリポジトリの works を指さない"""
+        pack = self.home / "archon-home" / "workflows" / "works"
+        self.assertTrue((pack / "darkfactory" / "darkfactory.yaml").is_file())
+        for d in ("tests", "dev", "docs", ".in_use", ".orphaned_at"):
+            self.assertFalse((pack / d).exists(), d)
+        source = json.loads((pack / ".works-source.json").read_text())
+        self.assertEqual((source["rev"], source["dirty"], source["from"]), (None, None, str(copy)))
+        self.assertEqual(sorted(self.skills_seen.read_text().split()), sorted(self.copy_skills))
+        seen = [self.log.read_text(), (pack / ".works-source.json").read_text(),
+                (self.home / "claude-config" / ".works-toolset.json").read_text()]
+        if self.claude_log.exists():
+            seen.append(self.claude_log.read_text())
+        for text in seen:
+            self.assertNotIn(str(ROOT), text)
+
+    def test_check_from_non_git_copy(self):
+        t = self.target()
+        copy, env = self.plugin_copy()
+        self.assertNotEqual(subprocess.run(["git", "-C", str(copy), "ls-files", "--error-unmatch", "dev/use.sh"],
+                                           capture_output=True).returncode, 0)   # 写しは git の追跡の外
+        r = self.use("check", str(t), CLAUDE_CODE_OAUTH_TOKEN=None, **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(), [[str(t), "1", str(self.home), "validate", "workflows", "darkfactory"]])
+        self.assert_ran_from_copy(copy)
+        self.assertFalse(self.claude_log.exists())   # 認証の要らない道は claude を起こさない
+
+    def test_start_from_non_git_copy(self):
+        t = self.target()
+        head = git(t, "rev-parse", "HEAD")
+        copy, env = self.plugin_copy()
+        r = self.use("start", str(t), str(self.request), "true", "", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        run, runs = self.calls()
+        self.assertEqual(run[:9], [str(t), "", str(self.home), "workflow", "run", "darkfactory", "--from", head, "--input"])
+        self.assertEqual(runs, [str(t), "1", str(self.home), "workflow", "runs", "--json"])
+        self.assert_ran_from_copy(copy)
+        cfg = str(self.home / "claude-config")
+        calls = [json.loads(ln) for ln in self.claude_log.read_text().splitlines()]
+        self.assertIn(["plugin", "install", "coldwrite@works-local"], [c["argv"][:3] for c in calls])
+        self.assertEqual({c["cfg"] for c in calls}, {cfg})   # claude は隔離した設定にだけ入れる
+        self.assertIn("run id: run-1", r.stdout)
 
 
 if __name__ == "__main__":

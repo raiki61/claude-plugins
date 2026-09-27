@@ -2,6 +2,8 @@
 
 対象は、利用者が Claude Code に入れた superpowers のスキルのうち、借りる 5 本（`.shared/borrow/borrow.json` の `skills`。`dev/toolset.py` が隔離した設定の `skills/` に写す）。版は利用者が入れた物に従い、works は写しを持たない。スキルの文が人（your human partner）や調整役（下請けの AI を起こす親の会話）を前提にしている所は、works の無人の役ではこのファイルの決まりで読み替える。スキルの文とこのファイルがぶつかったら、このファイルが勝つ。さらに、役の指示書（`blk-*/commands/*.md` と、支度の節が組んで役に読ませる指示書）と節の `output_format` は、このファイルより勝つ。
 
+このファイルは、借りたスキルを読める役（道具に Skill を持つ役。今は素材集めの局所レビュー）の指示書の末尾に、機械が全文を載せる（`.shared/core/rolekit.py` の `skill_overlay`。superpowers の using-superpowers は、役への直の指示がスキルに勝つと定める）。載ることは `tests/test_sp_skills.py` の `OverlayDeliveryCase` が見張る。
+
 ## 読み方
 
 - 下の見出しが読み替えの決まり。行の番号やスキルの文そのものには結び付けない（スキルは利用者の入れた版で変わる）。当てはまる言い回しを見たら、その決まりで読む。
@@ -41,7 +43,7 @@
 
 ## DISPATCH 下請けの AI を起こす・調整役として振る舞う
 
-起こさない。役の道具に Agent は無い。別の目の審査は、線の別の節（`blk-delta` の審査役など）が新しい会話で受け持つ。`requesting-code-review/code-reviewer.md` をテストの審査役の手引きに使うときは、`Subagent (general-purpose):` の枠と `description:` の行を読み飛ばし、`prompt: |` の中身だけを手引きとして読む。角括弧の埋め草（`[DESCRIPTION]` など）は、engine が渡す材料で埋まる。
+スキルの文に従って下請けを起こさない。Agent を持つ役（素材集めの局所レビュー）が起こすのは、指示書が名指すレンズだけ。ほかの役の道具に Agent は無い。別の目の審査は、線の別の節（`blk-delta` の審査役など）が新しい会話で受け持つ。`requesting-code-review/code-reviewer.md` をテストの審査役の手引きに使うときは、`Subagent (general-purpose):` の枠と `description:` の行を読み飛ばし、`prompt: |` の中身だけを手引きとして読む。角括弧の埋め草（`[DESCRIPTION]` など）は、engine が渡す材料で埋まる。
 
 ## DELEGATE エージェントの報告を信じない
 

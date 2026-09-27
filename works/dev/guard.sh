@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# works/dev/guard.sh — archon.sh・mktarget.sh・real-run.sh・dogfood.sh が . で読む（単独では走らせない）
+# works/dev/guard.sh — archon.sh・mktarget.sh・real-run.sh・dogfood.sh・use.sh が . で読む（単独では走らせない）
 #
 # Claude Code のサンドボックスは、自分の一時フォルダ（/private/tmp/claude-<uid>/。/tmp は macOS では /private/tmp への
 # symlink）への書き込みを Bash に許す。そこに開発の家（WORKS_DEV_HOME）・対象・origin を置くと、サンドボックスの中の
@@ -23,6 +23,15 @@ works_dev_real() {
     _p=$(dirname "$_p")
   done
   printf '%s%s\n' "$(cd "$_p" && pwd -P)" "$_rest"
+}
+
+# works_dev_abs_claude_config: 相対の CLAUDE_CONFIG_DIR（借りる物を探す利用者の設定の置き場）を今の cwd から絶対パスに直して
+# export する。殻は対象へ cd してから archon.sh を起こすので、cd の前に呼ぶ（後だと対象から解かれる。toolset.py は絶対だけを受ける）
+works_dev_abs_claude_config() {
+  case "${CLAUDE_CONFIG_DIR:-}" in
+    "" | /*) ;;
+    *) CLAUDE_CONFIG_DIR="$(pwd -P)/$CLAUDE_CONFIG_DIR"; export CLAUDE_CONFIG_DIR ;;
+  esac
 }
 
 # works_dev_refuse_claude_tmp <呼び手> <何か> <path>: path が Claude Code の一時フォルダの下に解けるなら、

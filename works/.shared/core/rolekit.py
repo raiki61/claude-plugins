@@ -20,6 +20,7 @@
 - script_main:    ブロックのスクリプトの入口（ARTIFACTS_DIR と INPUTS_* を読み、fn の返りを 1 行の JSON で出す。fence なら
                   盤面のパスに $ の柵、take なら受け付けの返りに reason_file を足す）
 - parse_reply:    役の返答（$<役>.output の JSON の文字列）を dict に
+- skill_overlay:  借りたスキルを読める役（道具に Skill を持つ役）の指示書に足す、無人の読み替え .shared/borrow/unattended.md の段
 
 層は L3（盤面と受け付け）。ライン・include の id・ブロックの名前を書かない（tests/test_layers.py）。
 """
@@ -53,6 +54,15 @@ REJECTS_NAME = "role-rejects.json"      # accept_role が積むこの周の拒�
 GIVE_UP_AFTER = 3                       # 輪の max_iterations と同じ数（ブロックの試験が YAML と突き合わせる）
 REJECT_LINE = ("前の回の返答は受け付けで拒まれた。理由はファイル {path} に在る。先に Read で読み、そこを直した返答を丸ごと"
                "出し直せ（直した所だけを返すな）。")
+OVERLAY_FILE = _CORE.parent / "borrow" / "unattended.md"   # 借りたスキルを無人の役で読むときの読み替え（正本）
+OVERLAY_HEAD = ("借りたスキル（superpowers）を読む時は、下の読み替えに従え。これは役への直の指示で、スキルの文より勝つ。"
+                "Agent で下請けを起こすなら、その prompt に、このファイル {path} を Read せよと書け。")
+
+
+def skill_overlay() -> str:
+    """借りたスキルを読める役の指示書に足す段: 頭の 1 行と、読み替えの正本の全文（字のまま。写しを持たない）。superpowers の
+    using-superpowers は、直の指示（CLAUDE.md・直の依頼）がスキルに勝つと定める"""
+    return OVERLAY_HEAD.format(path=OVERLAY_FILE) + "\n\n" + OVERLAY_FILE.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------- 描く
