@@ -29,11 +29,23 @@
    "id": "ro3",
    "title": "畳まれた .claude/ は中身が全部 CLI_OWNED の時だけ外す（ほかの物は見る）",
    "file": ".shared/core/accept.py",
-   "old": "    return all(f\"{p.relative_to(root).as_posix()}/\".startswith(CLI_OWNED)",
-   "new": "    return True or all(f\"{p.relative_to(root).as_posix()}/\".startswith(CLI_OWNED)",
+   "old": "    return all(_cli_owned(leaf) for leaf in leaves)",
+   "new": "    return True",
    "tests": {
     "tests/test_accept.py": [
      "TestDelta.test_snapshot_skips_cli_write_ledger"
+    ]
+   }
+  },
+  {
+   "id": "ro4",
+   "title": "Claude Code の控え（.claude/.cc-writes）は深さを問わず外す（根だけでない。run 30）",
+   "file": ".shared/core/accept.py",
+   "old": "    return any(parts[i:i + len(CLI_OWNED_PARTS)] == list(CLI_OWNED_PARTS) for i in range(len(parts)))",
+   "new": "    return parts[:len(CLI_OWNED_PARTS)] == list(CLI_OWNED_PARTS)",
+   "tests": {
+    "tests/test_accept.py": [
+     "TestDelta.test_snapshot_skips_nested_cli_write_ledger"
     ]
    }
   },

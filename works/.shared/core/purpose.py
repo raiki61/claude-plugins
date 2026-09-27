@@ -18,7 +18,7 @@ import sys
 sys.dont_write_bytecode = True   # accept.py と同じ（下で import する物の .pyc を止める）
 
 from accept import (TREE_KEYS, TREE_SCHEMA, _graph, _guard, _in_repo, _read_board, _rev, _rules,  # noqa: E402
-                    _type_errors, _write_board, role_schema, tree_moved, tree_state, _git)
+                    _type_errors, _write_board, role_schema, tree_moved, tree_state)
 from board import DiskBoard  # noqa: E402  （規則に渡す入れ物は accept.py と同じ盤面の層の scratch）
 from engine.util import Reject  # noqa: E402
 
@@ -53,11 +53,12 @@ def check_constraints(obj, board) -> None:
 def _tree_unchanged(repo, board):
     """目的の役が作業ツリーを変えていないか。盤面に purpose-snapshot.json（intake の時の tree_state）が在れば、共通の比べ
     accept.tree_moved（裁定 R47。porcelain・差分・git が無視するパスの増減・HEAD・枝のどれが変わったかを言う）で今と比べ、
-    無ければ作業ツリーが綺麗（git status --porcelain --ignored が空。accept.py の判定役の確かめと同じ形）であることを求める。
+    無ければ作業ツリーが綺麗（共通の tree_state の porcelain と git が無視するパスが空。前提の実測役の確かめと同じ形）であることを求める。
     違えば Reject"""
     snap = _read_board(board, SNAPSHOT_FILE)
     if snap is None:
-        dirty = _git(repo, "status", "--porcelain", "--ignored").splitlines()
+        now = tree_state(repo)   # 共通の姿（Claude Code の控えのフォルダ accept.CLI_OWNED を数えない。R47）
+        dirty = now["porcelain"].splitlines() + [f"!! {n}" for n in now["ignored"]]
         if dirty:
             raise Reject("作業ツリーに変更が在る——目的の役は読むだけの役で、作業ツリーを変えてはいけない"
                          f"（git status --porcelain --ignored: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")

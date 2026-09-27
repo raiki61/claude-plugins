@@ -4,6 +4,7 @@
 dev/target-seed/ を一時ディレクトリの git に写した使い捨ての対象リポジトリで見る。見本は tests/replies/ に在る。
 """
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -280,6 +281,47 @@ class TestDelta(AcceptCase):
         (self.repo / ".claude" / ".cc-writes" / "w").write_bytes(b"x")
         self.assertEqual(snapshot_tree(self.repo), before)
         (self.repo / ".claude" / "other").write_bytes(b"x")    # 同じ .claude/ の下でも、ほかの物は見る
+        self.assertNotEqual(snapshot_tree(self.repo), before)
+
+    def test_snapshot_skips_nested_cli_write_ledger(self):
+        # run 30: 役の Bash が cd した先（works/docs/specs）にも Claude Code が空の .claude/.cc-writes/ を作り、git の全体の除外
+        # （.claude/.cc-writes/）で `!! works/docs/specs/.claude/.cc-writes/` に出た。深さを問わず数えない
+        (self.repo / "docs" / "specs").mkdir(parents=True)
+        (self.repo / "docs" / "specs" / "a.md").write_text("a\n")
+        (self.repo / ".gitignore").write_text(".claude/.cc-writes/\n")
+        git(self.repo, "add", ".gitignore", "docs")
+        git(self.repo, "commit", "-qm", "ignore")
+        before = snapshot_tree(self.repo)
+        (self.repo / "docs" / "specs" / ".claude" / ".cc-writes").mkdir(parents=True)
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / "docs" / "specs" / ".claude" / ".cc-writes" / "settings.json.tmp.0a1b2c3d").write_bytes(b"x")
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / "docs" / "specs" / ".claude" / "other").write_bytes(b"x")    # 同じ .claude/ の下でも、ほかの物は見る
+        self.assertNotEqual(snapshot_tree(self.repo), before)
+
+    def test_snapshot_skips_nested_collapsed_cli_dir(self):
+        # 対象の .gitignore が .claude/ を無視すると、git は深い所の物も `<dir>/.claude/` に畳む。中身が控えのフォルダだけなら数えない
+        (self.repo / "docs").mkdir()
+        (self.repo / "docs" / "a.md").write_text("a\n")
+        (self.repo / ".gitignore").write_text(".claude/\n")
+        git(self.repo, "add", ".gitignore", "docs")
+        git(self.repo, "commit", "-qm", "ignore")
+        before = snapshot_tree(self.repo)
+        (self.repo / "docs" / ".claude" / ".cc-writes").mkdir(parents=True)
+        (self.repo / "docs" / ".claude" / ".cc-writes" / "w.tmp.0a1b2c3d").write_bytes(b"x")
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / "docs" / ".claude" / "settings.local.json").write_bytes(b"{}")
+        self.assertNotEqual(snapshot_tree(self.repo), before)
+
+    def test_snapshot_skips_untracked_cli_write_ledger(self):
+        # 除外の規則が無い対象: 空の控えは git に出ないが、書きかけの一時ファイルが残ると未追跡に出る。これも数えない。
+        # Claude Code は全体の除外（~/.config/git/ignore）に **/.claude/.cc-writes/ を足すので、ここではそれを読ませない
+        git(self.repo, "config", "core.excludesFile", os.devnull)
+        before = snapshot_tree(self.repo)
+        (self.repo / "sub" / ".claude" / ".cc-writes").mkdir(parents=True)
+        (self.repo / "sub" / ".claude" / ".cc-writes" / "x.json.tmp.0a1b2c3d").write_bytes(b"x")
+        self.assertEqual(snapshot_tree(self.repo), before)
+        (self.repo / "sub" / "real.txt").write_text("x\n")
         self.assertNotEqual(snapshot_tree(self.repo), before)
 
     def test_delta_rejects_plan_only_kind(self):

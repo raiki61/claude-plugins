@@ -283,20 +283,34 @@ def _ignored_entries(repo) -> list:
     return sorted(out)
 
 
+def _cli_owned(path: str) -> bool:
+    """path（リポジトリの根からの相対。末尾の / は問わない）が Claude Code の控えのフォルダ CLI_OWNED（深さを問わず
+    `<どこか>/.claude/.cc-writes`）か、その下か"""
+    parts = path.rstrip("/").split("/")
+    return any(parts[i:i + len(CLI_OWNED_PARTS)] == list(CLI_OWNED_PARTS) for i in range(len(parts)))
+
+
 def _cli_owned_only(repo, entry: str) -> bool:
-    """entry（_ignored_entries の 1 本）が CLI_OWNED の下か、中身が全部 CLI_OWNED の下のフォルダ（git が `.claude/` に畳んだ時）か"""
-    if entry.startswith(CLI_OWNED):
+    """entry（_ignored_entries の 1 本）が CLI_OWNED の下か、中身が全部 CLI_OWNED の下のフォルダ（git が `<dir>/.claude/` に
+    畳んだ時）か。空の `<dir>/.claude/` も数えない（Claude Code が控えのフォルダを作る時に先に作る親）"""
+    if _cli_owned(entry):
         return True
-    if not entry.endswith("/") or not any(c.startswith(entry) for c in CLI_OWNED):
+    if not entry.endswith("/"):
         return False
     root = pathlib.Path(repo)
-    return all(f"{p.relative_to(root).as_posix()}/".startswith(CLI_OWNED) or p.relative_to(root).as_posix().startswith(CLI_OWNED)
-               for p in (root / entry).rglob("*") if not p.is_dir() or not any(p.iterdir()))
+    leaves = [p.relative_to(root).as_posix() for p in (root / entry).rglob("*") if not p.is_dir() or not any(p.iterdir())]
+    if not leaves:
+        return entry.rstrip("/").split("/")[-1] == CLI_OWNED_PARTS[0]
+    return all(_cli_owned(leaf) for leaf in leaves)
 
 
-# Claude Code（2.1.283）が役の cwd に作る自分の控えのフォルダ。役の書いた物ではないので、作業ツリーの見張りは数えない
-# （台帳 R62: 自分食い 23 件目で、読むだけの役が空の .claude/.cc-writes/ を理由に 3 回拒まれた）。同じ .claude/ の下のほかの物は見る
-CLI_OWNED = (".claude/.cc-writes/",)
+# Claude Code（2.1.283）が作る原子的な書き込みの控えのフォルダ（ensureAtomicWriteStagingDirs。sandbox の Bash の cwd・起動の
+# cwd・設定の置き場ごとに `<dir>/.claude/.cc-writes/` を 0700 で作り、全体の除外 ~/.config/git/ignore に **/.claude/.cc-writes/
+# を足す。中は書き込みの間だけの `<名>.tmp.<16 進 8 字>` で、ふだんは空）。役の書いた物ではないので、作業ツリーの見張りは
+# 深さを問わず数えない（台帳 R62: 自分食い 23 件目で根の、run 30 で works/docs/specs/ の下の物で読むだけの役が 3 回拒まれた）。
+# 同じ .claude/ の下のほかの物は見る
+CLI_OWNED_PARTS = (".claude", ".cc-writes")
+CLI_OWNED = "/".join(CLI_OWNED_PARTS) + "/"
 
 
 def _porcelain_path(line: str) -> str:
@@ -320,12 +334,13 @@ def snapshot_tree(repo: pathlib.Path, *, bytecode: bool = True) -> dict:
     どれからも除く（測るために試験を走らせる役が作る物を変化に数えない。修正の差分の側の touched_files と同じ定義）"""
     repo = pathlib.Path(repo)
     porcelain = _git(repo, "status", "--porcelain", "--untracked-files=all")
-    if not bytecode:
-        porcelain = "".join(f"{ln}\n" for ln in porcelain.splitlines() if not _is_bytecode(_porcelain_path(ln)))
+    porcelain = "".join(f"{ln}\n" for ln in porcelain.splitlines()
+                        if not (ln.startswith("?? ") and _cli_owned(_porcelain_path(ln)))
+                        and (bytecode or not _is_bytecode(_porcelain_path(ln))))
     h = hashlib.sha256(_git(repo, "diff", "--binary", "--no-ext-diff", "HEAD", *(() if bytecode else ("--", *_NO_BYTECODE)),
                             binary=True))
     for name in sorted(n for n in _git(repo, "ls-files", "--others", "--exclude-standard", "-z", binary=True).split(b"\0") if n):
-        if not bytecode and _is_bytecode(os.fsdecode(name)):
+        if (not bytecode and _is_bytecode(os.fsdecode(name))) or _cli_owned(os.fsdecode(name)):
             continue
         p = repo / os.fsdecode(name).rstrip("/")
         h.update(b"\0untracked\0" + name + b"\0" + _entry_digest(p))
@@ -490,11 +505,12 @@ def _judge_tree_unchanged(repo, board, rev):
     在れば、今の作業ツリーがその写しと同じかを見る（依頼のファイルが対象の中で未追跡・変更中でも通る。git が無視する
     ファイルの増減・書き換えも見る）。写しが tree_state の形（intake が置く。HEAD と枝を持つ）なら共通の tree_moved
     （R47）で HEAD・枝の移動も見る。snapshot_tree の形（前の版の盤面）は porcelain・ignored・diff_sha256 だけを比べる。
-    無ければ作業ツリーが綺麗（git status --porcelain --ignored が空。無視されるファイルも無い）で、HEAD が数える版 rev の
+    無ければ作業ツリーが綺麗（snapshot_tree の porcelain と git が無視するパスが空）で、HEAD が数える版 rev の
     ままであることを求める（_head_at_rev）。違えば Reject"""
     snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
     if snap is None:
-        dirty = _git(repo, "status", "--porcelain", "--ignored").splitlines()
+        now = snapshot_tree(repo)   # 共通の姿（Claude Code の控えのフォルダ CLI_OWNED を数えない）
+        dirty = now["porcelain"].splitlines() + [f"!! {n}" for n in now["ignored"]]
         if dirty:
             raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
                          f"（git status --porcelain --ignored: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
