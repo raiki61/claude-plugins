@@ -294,6 +294,17 @@ class MainForTest(BoardCase):
             doc = json.loads(pathlib.Path(got["reads_file"]).read_text(encoding="utf-8"))
             self.assertEqual(doc["role"], role)
 
+    def test_block_script_reads_hook_log_from_cwd(self):
+        """スクリプトは repo を渡さず cwd（役の worktree）から包みの置き場を引く: フックの記録が在れば行は read"""
+        brief = self.doc("brief.json")
+        self.hook_read(brief)
+        code, out, err = run_block_script("blk-fix", self.repo, self.env(INPUTS_MUST=json.dumps([brief])))
+        self.assertEqual(code, 0, err)
+        got = json.loads(out)
+        self.assertEqual((got["sources"]["hook"], got["missing"]), (True, []))
+        doc = json.loads(pathlib.Path(got["reads_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(doc["rows"], [{"path": brief, "hook": "read", "event": None}])
+
     def test_main_for_missing_env_is_2(self):
         for name in ("ARTIFACTS_DIR", "WORKFLOW_ID", "INPUTS_MUST"):
             code, out, err = run_block_script("blk-fix", self.repo, self.env(**{name: None}))

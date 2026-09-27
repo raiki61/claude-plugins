@@ -7,7 +7,10 @@
    `<包みの家>/reads/<cwd の hash>/reads.jsonl` に書く（adapter.reads_dir。計画の `$B/reads.jsonl` から T5 で置き場が替わった:
    Claude の子の env に ARTIFACTS_DIR が来ないので run は cwd で分ける）。状態は写しの RL の hook_evidence（read・stale・
    partial・absent・none）をそのまま使う（書き直さない）。役の cwd はこのスクリプトの cwd（Archon は同じ run の節を同じ
-   worktree で起こす）なので、repo を省けば cwd
+   worktree で起こす）なので、repo を省けば cwd。**前提: run ごとに worktree が違う**（仕様 5.1）。フックの記録は cwd ごとで
+   run の時刻では絞らないので、同じ worktree を別の run が使い回すと、前の run が同じ中身を全文読んだ行も read に数える
+   （盤面の中のファイルは run ごとにパスが違うので当たらない）。数え直し（recount）の wrote_refs_reads も同じ置き場を読む
+   （entry.CORE_OVERRIDES）
 2. Archon の出来事: `json.loads($ARCHON_CLI_COMMAND) + ["workflow", "get", <run>, "--verbose", "--events", "--json"]` の
    `events` の tool_called（役には偽れない）。`--verbose` が無いと events が出ない（〔試P: P13〕）。tool_called の行の形は
    Archon v0.11.1 の dag-executor.ts が store に書く形（step_name・data.tool_name・data.tool_input）から写したが、AI の節で
@@ -88,6 +91,7 @@ def _read_paths(events, node_path: str) -> set:
     """events のうち節 node_path の tool_called の Read が読んだファイル（realpath の集合）。周の輪（線 B）の中に置いた
     include は `rounds.` のような外の輪の頭が付くので、名前が node_path と同じか `.<node_path>` で終わる行を数える。
     行の形は推測（data.tool_name == "Read"・data.tool_input.file_path。Archon は 500 字を超える値を切ることがある）。
+    offset・limit 付きの部分読みも数える（出来事の event の真は全文読みの意味でない。全文かはフックの側の partial が言う）。
     P13 の結果で直すのはここだけ"""
     got = set()
     for e in events or []:
@@ -157,7 +161,9 @@ def adapter_seen(board_dir, run_id: str, *, repo=None) -> dict:
     """この run の役の起動が包みを通ったか。{seen, merged, passthrough, whys}。
     包みの起動の記録（adapter.read_launches。T5 の形で行に run の id を持たない）の、repo（省けば cwd。run ごとの worktree）の
     行のうち、盤面を作った時（state.created）以後で tools_empty でない物を数える（前の run が同じ worktree に残した行と、
-    題の生成の起動は数えない）。seen はそういう行が 1 つでも在るか（素通し・拒んだ起動も包みが道に居た証拠）。
+    題の生成の起動は数えない。tools_empty は「題の生成か、道具を持たない役」なので、道具を持たない役の起動も数えない——
+    今の darkfactory の役はどれも Read を持つので当たらない）。seen はそういう行が 1 つでも在るか（素通し・拒んだ起動も
+    包みが道に居た証拠）。前提は collect と同じ run ごとの worktree（同じ worktree で run が重なって走ると行が混ざる）。
     whys は素通しと拒んだ起動の理由（重ねない）と、seen が偽の時の 1 行"""
     repo = pathlib.Path(repo) if repo is not None else pathlib.Path.cwd()
     b = entry.open_board(pathlib.Path(board_dir), allow_halted=True)

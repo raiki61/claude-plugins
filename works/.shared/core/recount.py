@@ -4,7 +4,8 @@
 done("p3.fix") に替える。graph の p3.fix の受け付けの検査は写しの fix_covers_open_units で、盤面の上で次を当てる:
 直す義務の単位（[block] と do-now）を全部覆うか・修正が在るのに閉鎖の実証を黙らせていないか・判定役の class_query を
 修正前の版（state.inputs.review_rev）と修正後の作業ツリーで数え直し、closure.sites の数と母数が合うか・欠陥の形の数が
-減ったか・修正が書いた指し（wrote_refs）を現物で引けるか（読んだ記録は盤面の reads.jsonl から）。
+減ったか・修正が書いた指し（wrote_refs）を現物で引けるか（読んだ記録は包みの置き場 adapter.reads_dir(run の worktree)/reads.jsonl から。
+写しの RL の hook_evidence の置き場を entry.CORE_OVERRIDES が差し替える）。
 数え直した件数は盤面の loop.coverage_after、指しの読了は loop.wrote_refs_reads に残る。
 
 ここに在る物:
