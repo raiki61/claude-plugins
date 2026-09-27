@@ -1,0 +1,14 @@
+{
+ "plan": [
+  {
+   "unit_keys": [
+    "stats.py mean: 分母が len(xs) - 1 になっている"
+   ],
+   "approach": "mean の分母を len(xs) に直す（clamp は触らない）",
+   "adds": [],
+   "removes": [],
+   "shrink_first": "足す物は無い。式と戻り値を 1 か所ずつ直すだけで足りる",
+   "narrows": []
+  }
+ ]
+}
