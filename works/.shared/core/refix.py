@@ -8,7 +8,8 @@
 - cut(board, n, repo):       n 回目の審査役を起こす前の支度。盤面の loop.<state_key>（今の周）の差分のファイルと触ったファイルを
                              返し、役に見せる材料（brief）を書き、読むだけの役の前の作業ツリーの写しを撮り、起こした印を置く
 - prep_fix(board, n, repo):  n 回目の手直しの役を起こす前の支度。義務（loop.<owed_key>）と差分のパスを brief に書き、印を置く
-- accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる）
+- accept_review・accept_fix: 役の返答を盤面に渡す（entry.take。審査は読むだけの役の写しと比べる。手直しは先に書き込みの
+                             記録と突き合わせ、記録の無い変更を盤面の trace に残す）
 - route(board):              blk-refix の分かれ道 {review2, refix2, owed, owed2}（盤面の待っている節と義務の数）
 - collect_delta・collect_refix: 出口（1 本目の欄を全部残して足す）
 - must(board, role):         読んだ証拠（reads）に渡す「機械が渡したパス」（brief と差分のファイル）
@@ -41,6 +42,7 @@ import node_marker  # noqa: E402
 import policy  # noqa: E402
 import protect  # noqa: E402
 import rolekit  # noqa: E402
+import writes  # noqa: E402
 
 PASS_KEYS = ("cut", "review", "owed", "fix", "state_key", "owed_key")
 REVIEW_ROLE = {1: "review", 2: "review2"}   # 審査役の名（印 works-node の名・reads-<役>.json）
@@ -212,8 +214,15 @@ def accept_review(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib
 
 
 def accept_fix(reply: dict, board: pathlib.Path, base_rev: str, repo: pathlib.Path, *, n: int) -> dict:
-    """n 回目の手直しの役の返答（書く役）。entry.take の返り"""
-    return entry.take(board, _pass(n)["fix"], reply, repo)
+    """n 回目の手直しの役の返答（書く役）。entry.take の返り。先に版 base_rev からの変更を書き込みの記録と突き合わせ、
+    記録の無い変更を盤面の trace に残す（writes.check の strict=False。起点は盤面の review_rev。この役の返答の形は写しの graph の schema のままで
+    申告の欄 bash_writes を持たないので、拒まずに報告に出す）"""
+    rev = writes.base_rev(entry.open_board(board), base_rev)
+    got = writes.check(reply, repo, writes.changed(repo, rev), writes.sink(repo), strict=False)
+    out = entry.take(board, _pass(n)["fix"], got["reply"], repo)
+    if out.get("ok") is True:   # 受けた時だけ（拒否では盤面を前のままにする）
+        writes.trace(entry.open_board(board, allow_halted=True), FIX_ROLE[n], got)
+    return out
 
 
 def main_accept_review(n: int) -> int:
@@ -222,8 +231,20 @@ def main_accept_review(n: int) -> int:
 
 
 def main_accept_fix(n: int) -> int:
-    """手直しの受け付けのスクリプトの入口"""
-    return entry.main_take(_pass(n)["fix"])
+    """手直しの受け付けのスクリプトの入口（entry.main_take と同じ約束で accept_fix を呼ぶ）"""
+    import script_io
+    nid = _pass(n)["fix"]
+
+    def fn(reply, board, base_rev, repo):
+        return accept_fix(reply, board, base_rev, repo, n=n)
+    fn.__name__ = f"take_{nid}"
+    try:
+        return script_io.main(fn)
+    except (BoardGap, _util.Reject) as e:
+        print(f"{nid} の受け付けを回せない（{type(e).__name__}）: {' '.join(str(e).split())}", file=sys.stderr)
+    except Exception as e:   # 思わぬ誤りも 1 行と 2（traceback を出さない）
+        print(f"{nid} の受け付けの内部の誤り: {type(e).__name__}: {' '.join(str(e).split())}", file=sys.stderr)
+    return 2
 
 
 # ---------------------------------------------------------------- 分かれ道・出口

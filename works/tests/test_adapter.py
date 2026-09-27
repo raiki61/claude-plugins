@@ -524,7 +524,7 @@ class AdapterCase(unittest.TestCase):
         self.assertEqual(s["sandbox"], sdk["sandbox"])
         self.assertEqual(s["permissions"], sdk["permissions"])
         self.assertEqual(s["hooks"]["Stop"], sdk["hooks"]["Stop"])
-        self.assertEqual([m["matcher"] for m in s["hooks"]["PostToolUse"]], ["Bash", "Read"])
+        self.assertEqual([m["matcher"] for m in s["hooks"]["PostToolUse"]], ["Bash", "Read", "Edit|Write|NotebookEdit"])
 
     def test_no_settings_gets_hook_only(self):
         # sandbox の無い節は SDK が --settings を付けない（〔包試〕の (f)）

@@ -43,6 +43,7 @@ from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
 import reads  # noqa: E402
+import writes  # noqa: E402
 
 PACK = CORE.parents[1]
 OUTCOMES = ("fixed", "no_fix_needed", "stopped_by_request", "stopped_by_human", "stopped_by_line", "needs_human",
@@ -476,7 +477,8 @@ def head_stop(b, *, interrupted: str | None = None) -> list:
 def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
     """冒頭 4: 読んだ証拠（各役の reads-<役>.json）と包みの行。出来事が unverified なら「出来事: 未確認（P13）」。
     包み無し（adapter optional）の run は「包み無し」の行の横に CI の役の知らせ（blk の collect.note）。包みを通す run で起動の
-    記録が無ければ「包みが通っていない」。包みの確かめで止めた盤面は止めた理由。会話を継いだ起動の数。盤面を書かない"""
+    記録が無ければ「包みが通っていない」。書き込みの記録の無い run と拒まずに残した変更（write_lines）。包みの確かめで止めた盤面は
+    止めた理由。会話を継いだ起動の数。盤面を書かない"""
     board_dir = pathlib.Path(board_dir)
     b = entry.open_board(board_dir, allow_halted=True)
     lines, unverified = [], False
@@ -505,11 +507,24 @@ def head_reads(board_dir, run_id: str, *, ci: dict | None = None) -> list:
         else:
             lines.append("包みが通っていない")
         lines += [f"  - {w}" for w in seen["whys"]]
+    lines += write_lines(b)
     by, reason, _ = _stop_info(b)
     if by == ADAPTER_BY:
         lines.append(f"包みの確かめで止めた: {reason}")
     cont = sum(1 for r in _launches(b, repo) if (r.get("session") or {}).get("mode") == "continued")
     lines.append(f"会話を継いだ起動: {cont} 本")
+    return lines
+
+
+def write_lines(b) -> list:
+    """書き込みの出どころの行（writes.trace が盤面の trace に積んだ物）: 記録の無い run と、拒まずに残した記録の無い変更"""
+    none, left = _trace_rows(b, writes.NO_RECORD_OP), _trace_rows(b, writes.LEFT_OP)
+    lines = []
+    if none:
+        lines.append(f"書き込みの記録が無い run（包みが無い起動）: 受け付け {len(none)} 回が書き込みの出どころを突き合わせずに通した")
+    paths = sorted({p for r in left for p in r.get("paths") or [] if isinstance(p, str)})
+    if paths:
+        lines.append(f"書き込みの記録の無い変更（手直しの役。拒まずに残した）: {len(paths)} 件 {paths[:10]}")
     return lines
 
 

@@ -5,7 +5,8 @@
 """TDD の輪の機械の確かめ（blk-fix の節 tdd-step。輪の中で役 tdd の後。中身は tddloop.step）。
 
 読む環境変数: INPUTS_REPLY（役 tdd の返答の JSON）・INPUTS_STATE_FILE（tdd-start の state_file）・ARTIFACTS_DIR（盤面は その下の board/）。
-赤・緑は機械だけが決める（役の申告では決まらない）。食い違いの申し出（phase conflict）が通れば、盤面の控え（conflict.park）に積む。出口は {"ok", "done", "reason", "phase", "reason_file"} の 1 行と 0。
+赤・緑は機械だけが決める（役の申告では決まらない）。段を確かめる前に、前の段の後から変わったファイルを書き込みの記録と返答の欄
+bash_writes に突き合わせる（writes.check。無ければ拒む）。食い違いの申し出（phase conflict）が通れば、盤面の控え（conflict.park）に積む。出口は {"ok", "done", "reason", "phase", "reason_file"} の 1 行と 0。
 拒否の理由の本文は盤面の reject-tdd_step-<連番>.txt（script_io.emit_result）と、次の指示書（tdd-prep）に載る。
 輪は done の印で抜ける（until_bash。R50）。
 環境変数が欠けた・状態が読めない・輪が済んだ後に呼んだ・git が効かない: 標準エラーに 1 行出して 2。
@@ -46,6 +47,7 @@ def main() -> int:
         item = out.pop("conflict", None)
         if item is not None:   # 止めた申し出を盤面の控えと trace に積む（裁定の輪が読む）
             conflict.park(entry.open_board(board), [item], source="tdd")
+        out.pop("writes", None)   # 記録の無い run は輪の後の fix-accept が盤面の trace に積む（同じ worktree の同じ記録）
     except (tddloop.Broken, Unreadable, OSError, BoardGap) as e:
         print(f"tdd-step: {' '.join(str(e).split())}", file=sys.stderr)
         return 2

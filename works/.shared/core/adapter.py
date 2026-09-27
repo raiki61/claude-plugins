@@ -6,7 +6,9 @@ Archon は Claude Code の実行ファイルを `assistants.claude.claudeBinaryP
 本物の Archon v0.11.1・SDK 0.3.282・claude 2.1.283 と確かめた（scratchpad の claude-adapter-probe.md・
 resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の P6e）。
 
-1. **Read のフック**: `--settings` の JSON に PostToolUse:Read のフック（同じ置き場の record-read.py）を足す。
+1. **Read と書き込みのフック**: `--settings` の JSON に PostToolUse:Read のフック（同じ置き場の record-read.py）と、
+   PostToolUse:Edit|Write|NotebookEdit のフック（record-write.py。書いた後の中身の sha を writes_path に残し、書く役の受け付けが
+   版からの変更と突き合わせる。.shared/core/writes.py）を足す。
    SDK は sandbox を持つ節にだけ `--settings {"sandbox":{…}}` を付けるので、在ればマージ（SDK の鍵は上書きしない）、
    無ければフックだけの `--settings` を足す。`--setting-sources`（SDK は `=` でつないで必ず渡す）と `--model` は触らない。
    CLAUDE.md を止めるのは YAML の `settingSources: [user]` と、開発の殻が組む隔離した設定の柵（dev/toolset.py）の役目
@@ -114,6 +116,8 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 import tree_run
 
 ENV_HOME = "WORKS_ADAPTER_HOME"
+WRITE_MATCHER = "Edit|Write|NotebookEdit"   # 書き込みの記録のフック（record-write.py）が掛かる道具
+WRITES_LOG = "writes.jsonl"
 ENV_REAL = "WORKS_REAL_CLAUDE"
 MARK_PREFIX = "works-node:"
 
@@ -276,6 +280,11 @@ def reads_dir(cwd, home_dir=None) -> pathlib.Path:
     return _home_or(home_dir) / "reads" / cwd_key(cwd)
 
 
+def writes_path(cwd, home_dir=None) -> pathlib.Path:
+    """書き込みのフックの記録（reads_dir と同じ置き場）。包みが印のある起動の前に作る——在ることが「記録を取っている run」の印"""
+    return reads_dir(cwd, home_dir) / WRITES_LOG
+
+
 def launches_path(cwd, home_dir=None) -> pathlib.Path:
     """cwd の起動の記録（1 起動 1 行。launch_row の形）"""
     return _home_or(home_dir) / "launches" / f"{cwd_key(cwd)}.jsonl"
@@ -327,9 +336,12 @@ def read_session_id(path: pathlib.Path) -> Optional[str]:
     return text if _ID_RE.match(text) else None
 
 
-def hook_settings(command: str) -> dict:
-    """足す設定。期限は足さない（Claude の既定のまま）"""
-    return {"hooks": {"PostToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": command}]}]}}
+def hook_settings(command: str, write_command: Optional[str] = None) -> dict:
+    """足す設定。期限は足さない（Claude の既定のまま）。write_command が在れば書き込みの記録のフックも足す"""
+    post = [{"matcher": "Read", "hooks": [{"type": "command", "command": command}]}]
+    if write_command:
+        post.append({"matcher": WRITE_MATCHER, "hooks": [{"type": "command", "command": write_command}]})
+    return {"hooks": {"PostToolUse": post}}
 
 
 def hook_command(python: str, recorder, sink) -> str:
@@ -447,11 +459,12 @@ def strict_network(argv: List[str]) -> Tuple[List[str], Optional[bool]]:
 
 
 def _with_hook(argv: List[str], command: str, protected: Sequence[str],
-               no_post: Optional[Sequence[str]] = None) -> Tuple[List[str], dict]:
+               no_post: Optional[Sequence[str]] = None, write_command: Optional[str] = None) -> Tuple[List[str], dict]:
     found = find_opt(argv, "--settings")
     if len(found) > 1:
         raise Unrecognised("--settings が 2 つ以上")
-    doc = merge_settings(_load_settings(found[0][2]), hook_settings(command)) if found else hook_settings(command)
+    ours = hook_settings(command, write_command)
+    doc = merge_settings(_load_settings(found[0][2]), ours) if found else ours
     n_write, n_deny = add_fences(doc, protected) if protected else (0, 0)
     fence = {"deny_write": n_write, "permissions_deny": n_deny}
     if no_post is not None:
@@ -694,9 +707,10 @@ def _inside_git(path: pathlib.Path) -> bool:
 
 def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
-         protected: Optional[Callable[[], Sequence[str]]] = None, env=None) -> Plan:
+         protected: Optional[Callable[[], Sequence[str]]] = None, env=None, write_command: Optional[str] = None) -> Plan:
     """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書かない）。
     protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ None、在るのに読めなければ BadTicket）。
+    write_command は書き込みの記録のフックのコマンド（包みが渡す。無ければ Read のフックだけ）。
     env は起動の env（no-post の起動で本物の gh を PATH から引き、子の PATH を組むのに使う。省けば os.environ）"""
     argv = list(argv)
     tools_empty = _tools_empty(argv)
@@ -761,7 +775,8 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
     try:
         places = protected() if protected else None
         own = _no_tree_write_places(argv, cwd, places is not None) if NO_TREE_WRITE in marker.flags else []
-        out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh)
+        out, fence = _with_hook(out, command, list(places or []) + [p for p in own if p not in (places or [])], gh,
+                                write_command)
     except (Unrecognised, BadTicket) as e:
         return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     if own:
