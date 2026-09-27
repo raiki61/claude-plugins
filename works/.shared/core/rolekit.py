@@ -5,6 +5,8 @@
                   reads だけ・ref・schema の断り）で本文を描き、(本文, 番号の控え) を返す。描けなければ BoardGap
 - render_prompt:  render_body の本文の頭に head（役の定義など）を置き、今の周の作業ファイル prompt-<節>.md に書く。この周に
                   この節の拒否が在れば、最後の拒否の理由のファイルのパスを頭の 1 行で名指す（文は貼らない。裁定 R44）
+- compose:        指示書の部分を繋ぎ、前の拒否の理由のファイルを頭の 1 行で名指す（render_prompt と、本線の写しでない指示書を
+                  スクリプトが組むブロックが使う）
 - accept_role:    出し直しの輪の受け付け（entry.take）。拒否は理由の本文を盤面の reject-take_<節>-<連番>.txt に書き
                   （entry.main_take と同じ名）、この周の拒否の控え role-rejects.json に積み、give_up_after 回目で done・give_up
                   （輪を max_iterations で落とさない。裁定 R50）
@@ -100,16 +102,16 @@ def render_prompt(b, nid: str, *, prompts_dir: pathlib.Path = PROMPTS_COPY, head
     この周にこの節の拒否（accept_role の控え）が在れば、最後の拒否の理由のファイルのパスを 1 行目で名指す（理由の文そのものは
     貼らない——役が Read で読む。裁定 R44）"""
     body, _ = render_body(b, nid, prompts_dir=prompts_dir, reads_only=reads_only)
-    parts = []
-    last = last_reject_file(b, nid)
-    if last:
-        parts.append(REJECT_LINE.format(path=last))
-    if head:
-        parts.append(head.rstrip("\n"))
-    parts.append(body)
     p = b.work(prompt_name(nid))
-    p.write_text("\n\n".join(parts), encoding="utf-8")
+    p.write_text(compose([head.rstrip("\n"), body], reject_file=last_reject_file(b, nid)), encoding="utf-8")
     return p
+
+
+def compose(parts, *, reject_file: str = "") -> str:
+    """役に読ませる指示書の組み立て（AI を通さない）: 空でない部分を字のまま空行 1 つで繋ぐ。reject_file（前の拒否の理由の
+    ファイル）が在れば 1 行目でそのパスを名指す（理由の文そのものは貼らない。裁定 R44）。同じ入力からは同じバイト"""
+    out = [REJECT_LINE.format(path=reject_file)] if reject_file else []
+    return "\n\n".join(out + [s for s in parts if s])
 
 
 # ---------------------------------------------------------------- 受け付け（出し直しの輪）

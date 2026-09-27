@@ -85,6 +85,18 @@ class RenderCase(Base):
         self.assertIn('"key": "u1"', text)
         self.assertTrue(text.endswith(rolekit.SCHEMA_NOTE + dump(b.schema)))
 
+    def test_compose_joins_parts_under_the_reject_line(self):
+        """compose: 空でない部分を空行 1 つで繋ぐ（部分の字は変えない）。reject_file が在れば 1 行目で名指す（R44）。
+        render_prompt もこれで組む（前と同じバイト）"""
+        self.assertEqual(rolekit.compose(["頭", "", "本文\n"]), "頭\n\n本文\n")
+        got = rolekit.compose(["頭"], reject_file="/b/reject-x-1.txt")
+        self.assertEqual(got, rolekit.REJECT_LINE.format(path="/b/reject-x-1.txt") + "\n\n頭")
+        self.assertEqual(rolekit.compose(["頭"], reject_file=""), "頭")
+        b = FakeBoard(self.tmp)
+        body, _ = rolekit.render_body(b, "p9.role", prompts_dir=self.tmp / "gl")
+        p = rolekit.render_prompt(b, "p9.role", prompts_dir=self.tmp / "gl", head="お前は役。\n")
+        self.assertEqual(p.read_text(encoding="utf-8"), "お前は役。\n\n" + body)
+
     def test_render_body_reads_only(self):
         b = FakeBoard(self.tmp, reads=("record.units",))   # 穴 inputs.policy_md が reads に無い
         with self.assertRaises(BoardGap):

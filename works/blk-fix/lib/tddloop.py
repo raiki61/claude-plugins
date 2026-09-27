@@ -3,7 +3,8 @@
 節と関数:
 - tdd-start → start: 入力 tdd_suite（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線と同じ約束）が
   空なら何もせず go: false（全部の単位を今どおり直す）。在れば一式を 1 回走らせて元の結末を取り、盤面の tdd-<k>/ に状態を置く
-- tdd-loop の中: tdd-prep → prep（今の段の指示書を書く）→ 役 tdd（修正役。同じ会話で振り分け・テスト・直し・整えを返す）→
+- tdd-loop の中: tdd-prep → prep（今の段の指示書を fixrules で組んで書く。full と delta の 2 つの形）→ 役 tdd（修正役。
+  同じ会話で振り分け・テスト・直し・整えを返す）→
   tdd-step → step（返答を機械が確かめて段を進める）。段は route → 単位ごとに test → fix → refactor → 次の単位
   - route: 直す義務の単位を全部 1 度だけ tdd か direct（理由 10 字以上）に振る
   - test: 申告したテストのファイルの外に触れていない・写しの red_problems（名指しは failure で落ち、元で通っていた物は緑）
@@ -29,6 +30,7 @@ import tempfile
 sys.dont_write_bytecode = True
 
 import board  # noqa: E402
+import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
 import tree_run  # noqa: E402
 from leftovers import Unreadable, git, git_names  # noqa: E402
 
@@ -227,16 +229,16 @@ DO = {
 }
 
 
-def prep(state_file) -> dict:
-    """節 tdd-prep。今の段の指示書を状態の置き場の next.md に書き、{prompt_file} を返す"""
+def prep(state_file, values: dict | None = None, repo=None) -> dict:
+    """節 tdd-prep。今の段の指示書を組み（fixrules.tdd_render: 修正の決まりの正本・TDD の決まり・今の段の約束・run の値）、状態の
+    置き場の next.md（full の写し）と隣の next.full.md・next.delta.md・next.variants.json に書き、{prompt_file} を返す。
+    values は fixrules.TDD_VALUES の run の値（義務の単位は状態の物を使う。欠けは空）。repo は差分から変更の種類を選ぶ根（None は見ない）"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-prep を呼ぶ番でない）")
     phase = st["phase"]
-    lines = [f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）", ""]
-    if st["reason"]:
-        lines += ["## 前の回の返答を機械が拒んだ理由（直して、この段の返答を丸ごと出し直せ）", "", st["reason"], ""]
-    lines += ["## この段ですること", "", DO[phase], ""]
+    title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
+    lines = ["## この段ですること", "", DO[phase], ""]
     if phase == "route":
         lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in st["open_units"]] + [""]
     else:
@@ -249,9 +251,19 @@ def prep(state_file) -> dict:
             lines += ["この後の tdd の単位（今は手を付けるな）: " + " / ".join(left), ""]
     lines += ["## テストの回し方", "",
               f"リポジトリの根で `{st['exe']} <JUnit XML の書き先>`（書き先は /tmp の下など作業ツリーの外に）。", "",
-              "## 返す JSON", "", RETURN[phase], ""]
+              "## 返す JSON", "", RETURN[phase]]
+    vals = {**{k: "" for k in fixrules.TDD_VALUES}, **(values or {}),
+            "open_units": json.dumps(st["open_units"], ensure_ascii=False)}
     path = pathlib.Path(st["work"]) / PROMPT
-    path.write_text("\n".join(lines), encoding="utf-8")
+    n = st["iterations"] + 1
+
+    def build(kinds, prior, rules_file):
+        try:
+            return fixrules.tdd_render(vals, phase, "\n".join(lines), title=title, reason=st["reason"], kinds=kinds,
+                                       prior=prior, iteration=n, rules_file=rules_file)
+        except fixrules.Unfilled as e:
+            raise Broken(f"TDD の輪の指示書を組めない: {e}")
+    fixrules.write_variants(path, repo, vals, build, n)
     return {"prompt_file": str(path)}
 
 

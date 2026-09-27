@@ -43,7 +43,7 @@ TRIGGERS = re.compile(
     r"|commit|\bpush\b|\bPR\b|pull request|\bmerge"
     r"|superpowers:|subagent|dispatch|spawn|delegat|\bagents?\b|coordinator"
     r"|\bgh\b|github|\bgit (?:rev-parse|log|diff|show|worktree|merge-base)", re.I)
-ROUTING_HEAD = "**義務の単位の行き先**: "   # 読み替えと blk-fix/commands/fix.md が同じ行で持つ決まりの頭
+ROUTING_HEAD = "**義務の単位の行き先**: "   # 読み替えと修正の決まりの正本 blk-fix/rules/common.md が同じ行で持つ決まりの頭
 ROW = re.compile(r"^(?P<path>skills/[^ :]+\.md):(?P<line>[0-9]+) \[(?P<rule>[A-Z0-9-]+)\] (?P<text>.*)$")
 
 
@@ -193,20 +193,20 @@ class UnattendedOverlayCase(unittest.TestCase):
             self.assertIn(word, body)
 
     def test_owed_unit_routing_is_one_rule_in_overlay_and_fix_prompt(self):
-        """直す義務の単位の行き先は 1 つの決まり（行 ROUTING）で、読み替えと修正役の指示書（blk-fix/commands/fix.md。
-        読み替えより勝つ）が同じ行を持つ。義務の単位を not_done で終わらせない（受け付け fix_covers_open_units が拒む）。
-        ASK・THREE-FAILS・POLICY・PUSHBACK と fix.md の方針の項はその行を名指しし、not_done に触れる文は
-        免除か義務の外に限る"""
-        fix = (ROOT / "blk-fix" / "commands" / "fix.md").read_text(encoding="utf-8")
+        """直す義務の単位の行き先は 1 つの決まり（行 ROUTING）で、読み替えと修正の決まりの正本（blk-fix/rules/common.md。
+        機械が修正役の指示書に組み込む。読み替えより勝つ）が同じ行を持つ。義務の単位を not_done で終わらせない（受け付け
+        fix_covers_open_units が拒む）。ASK・THREE-FAILS・POLICY・PUSHBACK と正本の方針の項はその行を名指しし、not_done に
+        触れる文は免除か義務の外に限る"""
+        fix = (ROOT / "blk-fix" / "rules" / "common.md").read_text(encoding="utf-8")
         body = OVERLAY.read_text(encoding="utf-8")
         lines = [ln for ln in fix.splitlines() if ln.startswith(f"- {ROUTING_HEAD}")]
-        self.assertEqual(len(lines), 1, "fix.md に行き先の行がちょうど 1 つ無い")
-        self.assertIn(lines[0], body.splitlines(), "読み替えが fix.md と同じ行き先の行を持たない")
+        self.assertEqual(len(lines), 1, "正本に行き先の行がちょうど 1 つ無い")
+        self.assertIn(lines[0], body.splitlines(), "読み替えが正本と同じ行き先の行を持たない")
         for word in ("`changes`", "`rejudge_requested`", "`not_done`", "fork の出どころ"):
             self.assertIn(word, lines[0])
         policy = [ln for ln in fix.splitlines() if ln.startswith("- 人の方針に反するもの")]
         self.assertEqual(len(policy), 1)
-        parts = {"fix.md の方針の項": policy[0]}
+        parts = {"正本の方針の項": policy[0]}
         for rule in ("ASK", "THREE-FAILS", "POLICY", "PUSHBACK"):
             m = re.search(rf"^## {rule} .*?(?=^## )", body, re.M | re.S)
             parts[rule] = m.group(0)

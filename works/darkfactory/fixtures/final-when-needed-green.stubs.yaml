@@ -391,6 +391,13 @@ tdd-step:
   reason: ''
   reason_file: ''
   phase: done
+fix-prep:
+  prompt_file: board/r1/prompt-p3.fix.md
+  attempt: 1
+  out_path: board/out/r1/p3.fix.json
+  node: p3.fix
+  already: false
+  variants_file: board/r1/prompt-p3.fix.variants.json
 fix:
   changes:
   - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'

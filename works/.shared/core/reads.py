@@ -188,10 +188,11 @@ def _fail(why: str) -> int:
     return 2
 
 
-def main_for(role: str, include: str, loop: str, node: str) -> int:
+def main_for(role: str, include: str, loop: str, node: str, *, more=None) -> int:
     """ブロックの `<役>-reads` の節のスクリプトの入口。ARTIFACTS_DIR（盤面はその下の board/）・WORKFLOW_ID（出来事を読む run）・
-    INPUTS_MUST（読むべきパスの JSON の配列）を読み、collect の結果を 1 行の JSON で出して 0。変数が欠けた（空も欠け）・
-    INPUTS_MUST が文字列の配列でない・盤面を開けない時は、標準出力に何も出さずに標準エラーに 1 行で 2"""
+    INPUTS_MUST（読むべきパスの JSON の配列）を読み、collect の結果を 1 行の JSON で出して 0。more(盤面) が在れば、その返す
+    パスの一覧を読むべきパスに足す（ブロックが盤面の置き場に書いた物。YAML の with: で渡せない輪の中の出力など）。変数が欠けた
+    （空も欠け）・INPUTS_MUST が文字列の配列でない・盤面を開けない時は、標準出力に何も出さずに標準エラーに 1 行で 2"""
     env = {k: os.environ.get(k) for k in (script_io.ARTIFACTS_ENV, RUN_ENV, MUST_ENV)}
     lack = [k for k, v in env.items() if not v]
     if lack:
@@ -204,6 +205,8 @@ def main_for(role: str, include: str, loop: str, node: str) -> int:
         return _fail(f"{MUST_ENV} が文字列の JSON の配列でない: {env[MUST_ENV][:200]!r}")
     board = (pathlib.Path(env[script_io.ARTIFACTS_ENV]) / script_io.BOARD_DIR).resolve()
     try:
+        if more is not None:
+            must = must + [m for m in more(board) if m not in must]
         got = collect(board, role, node_path(include, loop, node), must, events_for(env[RUN_ENV]))
     except BoardGap as e:
         return _fail(f"{role}-reads を回せない（{type(e).__name__}）: {' '.join(str(e).split())}")

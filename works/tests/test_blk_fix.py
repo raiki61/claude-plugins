@@ -2,7 +2,8 @@
 
 - YAML の口（inputs・returns・outcome_field・節の並び）と、修正役の output_format を良い返答の見本（replies/fix_ok.json）が通るか
   （YAML の切り替えは線 A の Task 17。それまで役の output_format は 1 本目のまま。切り替えで貼る値は recount.FIX_OUTPUT_FORMAT）
-- 指示書（commands/fix.md）が差し込みと決まり（commit しない・テストを消さない）を持つか
+- 役の指示書（fix-prep が修正の決まりの正本と直す役の決まりと run の値から組む。fixrules）が値と決まり（commit しない・
+  テストを消さない）を持つか。盤面の上の fix-prep（2 つの形・起こした印・出し直しの理由のファイル・読んだ証拠）
 - 筋書き（fixtures/）の形: pass は受け付け・assert-changed・collect を stub し、no-change は assert-changed を実物で回して落とす
 - 数え直し（線 A Task 12。仕様 3.2）: 受け付けは盤面の done("p3.fix")。写しの fix_covers_open_units が判定役の class_query を
   修正前の版と修正後の作業ツリーで数え直す。盤面は linekit の種で start → 前提・並行 PR・判定・修正案・事前審査を take で渡して作る
@@ -123,7 +124,7 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(g["max_iterations"], 3)
         self.assertIs(g["fresh_context"], False)
         self.assertEqual(g["until_bash"], "test $fix-accept.output.ok = true")
-        self.assertEqual([n["id"] for n in g["nodes"]], ["fix", "fix-accept"])
+        self.assertEqual([n["id"] for n in g["nodes"]], ["fix-prep", "fix", "fix-accept"])
         self.assertEqual(changed["depends_on"], ["clean"])
         self.assertEqual(collect["depends_on"], ["fix-reads"])
         accept = find_node(nodes, "fix-accept")
@@ -138,7 +139,11 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_fix_node(self):
         fix = find_node(block()["nodes"], "fix")
-        self.assertEqual(fix["command"], "fix")
+        self.assertNotIn("command", fix)
+        self.assertEqual(fix["depends_on"], ["fix-prep"])
+        self.assertIn("`$fix-prep.output.prompt_file` を Read で", fix["prompt"])
+        prep = find_node(block()["nodes"], "fix-prep")
+        self.assertEqual((prep["script"], prep["timeout"]), ("fix_prep", DEADLINE))
         self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash"])
         self.assertEqual(fix["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(fix["idle_timeout"], DEADLINE)
@@ -146,30 +151,31 @@ class TestBlockYaml(unittest.TestCase):
         self.assertIs(of["additionalProperties"], False)
         self.assertEqual(of["description"], "works-node: fix")
 
+    def fix_prompt(self):
+        import fixrules
+        return fixrules.fix_prompt({k: f"/b/{k}" for k in fixrules.FIX_VALUES})
+
     def test_fix_prompt(self):
-        body = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
-        for s in ("$INPUTS.judgment_file", "$INPUTS.open_units", "$LOOP_PREV.fix-accept.output.reason_file",
-                  "git commit", "テスト", "unit_key"):
+        """組んだ指示書: run の値は全部パスで埋まり（Archon の $ の置き換えに通さない）、決まり（commit しない・テスト）と欄を持つ"""
+        import fixrules
+        body = self.fix_prompt()
+        for k in fixrules.FIX_VALUES:
+            self.assertIn(f"`/b/{k}`", body)
+        for s in ("git commit", "テスト", "unit_key"):
             self.assertIn(s, body)
-        # 指示書が差し込む $INPUTS は全部ブロックの inputs に在る（宣言していない $INPUTS.<名> は Archon が読み込みで拒む）
-        self.assertLessEqual(set(re.findall(r"\$INPUTS\.([A-Za-z_]\w*)", body)), set(block()["inputs"]))
-        # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す）。パスだけを貼って Read させる
-        self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", body), ["$LOOP_PREV.fix-accept.output.reason_file"])
-        # 前の周の理由は指示書の本文で $LOOP_PREV から直に読む。Archon 0.11.1 の include は本文の $LOOP_PREV の節の名を
-        # 付け替えるが、宣言していない $INPUTS.prev_reason は読み込みで拒む（Ruling R16）。節の with: で束ねない
-        self.assertNotIn("$INPUTS.prev_reason", body)
-        fix = find_node(block()["nodes"], "fix")
-        self.assertNotIn("with", fix)
-        self.assertNotIn("{{", body, "graphloops の engine の穴を残さない")
+        for gone in ("$INPUTS", "$LOOP_PREV", "{{", "<<"):
+            self.assertNotIn(gone, body)
+        # 役の節に with: は無い（run の値は fix-prep の with: で届き、指示書にパスで書かれる）
+        self.assertNotIn("with", find_node(block()["nodes"], "fix"))
 
     def test_fix_prompt_reads_inputs(self):
-        """0.21.0 の p3.fix.md から書き直した指示書: 修正案・人の答え・方針の文書を入口から読み、前の回の拒否の理由は
-        reason_file（パス）で読む（裁定 R44。計画の $LOOP_PREV.fix-accept.output.reason はパスの欄 reason_file に替わった）。
-        返答の欄は graph の p3.fix の schema の欄を名指し、判定の prescriptions（零処方）を先に採らせる"""
-        body = (BLK / "commands" / "fix.md").read_text(encoding="utf-8")
-        for s in ("$INPUTS.plan_file", "$INPUTS.notes_file", "$INPUTS.policy_path", "$LOOP_PREV.fix-accept.output.reason"):
+        """0.21.0 の p3.fix.md から書き直した指示書: 修正案・人の答え・方針の文書・TDD の輪の結果を run の値のパスから読む。
+        前の回の拒否の理由は reason_file（パス）で指示書の頭に（裁定 R44）。返答の欄は graph の p3.fix の schema の欄を名指し、
+        判定の prescriptions（零処方）を先に採らせる"""
+        import fixrules
+        body = self.fix_prompt()
+        for s in ("修正案", "人が関所で答えたこと", "人の方針の文書", "TDD の輪の結果"):
             self.assertIn(s, body)
-        self.assertNotIn("$INPUTS.human_notes", body, "人の一言はファイルのパスで届く（R44。文を貼らない）")
         for field in role_schema("p3.fix")["properties"]:
             if field in ("x_scalars", "decision_records_changed", "premise_drift_note"):
                 continue   # 任意の欄（書く周だけ）。指示書は別の段落で触れる
@@ -181,6 +187,8 @@ class TestBlockYaml(unittest.TestCase):
         # 盤面の無い物を読ませない: engine の穴（{{…}}）・前の周の R1/R4・並行の線の合流は無い
         for gone in ("{{", "prev.r1", "prev.r4", "lane_merge"):
             self.assertNotIn(gone, body)
+        again = fixrules.fix_prompt({k: f"/b/{k}" for k in fixrules.FIX_VALUES}, reject_file="/b/reject-accept_fix-1.txt")
+        self.assertIn("/b/reject-accept_fix-1.txt", again.split("\n")[1])
 
     def test_output_format_constant_matches_graph(self):
         """T17 で YAML の fix に貼る値: 印を外すと graph の p3.fix の schema と同じ。印の名は fix。rejudge_requested の欄は
@@ -199,6 +207,8 @@ class TestBlockYaml(unittest.TestCase):
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
         want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE"),
+                "fix_prep": ("INPUTS_JUDGMENT_FILE", "INPUTS_OPEN_UNITS", "INPUTS_PLAN_FILE", "INPUTS_POLICY_PATH",
+                             "INPUTS_NOTES_FILE", "INPUTS_SUMMARY_FILE"),
                 "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD"),
                 "reads": ("INPUTS_MUST",)}
         for name, inputs in want.items():
@@ -216,6 +226,9 @@ class TestBlockYaml(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(f["fix"], load("fix2_ok"))   # 役の output_format は写しの p3.fix の型（〔線A計〕T17）
                 self.assertIs(f.get("exec-code"), True)
+                # 支度の節は盤面を要るので stub（中身は TestFixPrep）。出口は YAML の output_format の必須の欄
+                self.assertLessEqual(set(find_node(block()["nodes"], "fix-prep")["output_format"]["required"]),
+                                     set(f["fix-prep"]))
         self.assertEqual(fx["pass.stubs.yaml"]["fixture"]["expect"], "completed")
         self.assertIn("assert-changed", fx["pass.stubs.yaml"])
         # collect は盤面を開く（数え直しの後）。このブロック単体の模擬実行には盤面が無いので stub する（出口の 1 本目の欄を持つ）
@@ -413,8 +426,9 @@ class BoardCase(unittest.TestCase):
         self.take("p0.premises", PREMISES_REPLY)
         self.take("p2.diagnose", judge or load(JUDGE))
 
-    def fix_ready(self, narrows=(), answer=None, judge=None, numbered=False):
-        """p3.fix が待ち、起こした印の在る盤面（修正案 → 事前審査。narrows なら p2.human_gate が聞き、answer で答える）"""
+    def fix_ready(self, narrows=(), answer=None, judge=None, numbered=False, launched=True):
+        """p3.fix が待ち、起こした印の在る盤面（修正案 → 事前審査。narrows なら p2.human_gate が聞き、answer で答える）。
+        launched が偽なら印を置かない（fix-prep が置く）"""
         self.judged(judge)
         self.take("p2.fix_plan", plan_reply(narrows))
         got = self.take("p2.plan_review", PLAN_REVIEW_OK)
@@ -422,7 +436,8 @@ class BoardCase(unittest.TestCase):
             self.assertTrue(got["asking"], got)
             entry.open_board(self.board).answer(*answer)
         self.assertIn("p3.fix", entry.open_board(self.board).settle()["ready"])
-        launch(self.board, "p3.fix", numbered)
+        if launched:
+            launch(self.board, "p3.fix", numbered)
 
     def edit_tree(self, subs):
         path = self.repo / "stats.py"
@@ -551,6 +566,123 @@ class TestRecount(BoardCase):
                    "tool_use_id": "toolu_12"}
             (self.board / "reads.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
         self.assertEqual(self.wrote_refs_state(hook), [("test_stats.py", "none")])
+
+
+class TestFixPrep(BoardCase):
+    """支度の節 fix-prep（fixrules.prep）を子で起こす: 2 つの形を並べて書き（prompt_file は full の写し）、起こした印を置く。
+    出し直しでは前の回の受け付けが書いた理由のファイルを名指し、delta は変わった物と決まりの sha256 の 1 行だけ。
+    読んだ証拠の節は組んだ指示書を読むべきパスに足す"""
+
+    def values(self):
+        b = entry.open_board(self.board)
+        return {"judgment_file": str(self.board / b.state["outputs"]["p2.diagnose"]["file"]),
+                "open_units": json.dumps([MEAN, CLAMP], ensure_ascii=False), "plan_file": "", "policy_path": "",
+                "notes_file": "", "summary_file": ""}
+
+    def prep(self, **drop):
+        env = {"ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"],
+               **{f"INPUTS_{k.upper()}": v for k, v in self.values().items()}}
+        return run_script("fix_prep", self.repo, {k: v for k, v in env.items() if k not in drop})
+
+    def reject_by_script(self):
+        full = {"INPUTS_REPLY": json.dumps(load("fix2_ok"), ensure_ascii=False), "INPUTS_BASE_REV": "", "INPUTS_TDD_STATE": "",
+                "ARTIFACTS_DIR": str(self.art), "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]}
+        code, out, err = run_script("accept", self.repo, full)   # 直していない作業ツリー → 数え直しで拒む
+        self.assertEqual(code, 0, err)
+        r = json.loads(out)
+        self.assertFalse(r["ok"], r)
+        return r["reason_file"]
+
+    def test_first_prep_writes_full_and_launches(self):
+        import fixrules
+        self.fix_ready(launched=False)
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        r = json.loads(out)
+        b = entry.open_board(self.board)
+        self.assertEqual(r["prompt_file"], str(b.work("prompt-p3.fix.md")))
+        self.assertEqual((r["node"], r["attempt"], r["already"]), ("p3.fix", 1, False))
+        self.assertTrue(b.rd["instances"]["p3.fix"].get("launched_at"), "起こした印を置く（盤面は印の無い返答を受けない）")
+        prompt = pathlib.Path(r["prompt_file"])
+        full = fixrules.beside(prompt, fixrules.FULL).read_text(encoding="utf-8")
+        self.assertEqual(prompt.read_text(encoding="utf-8"), full, "既定は full")
+        self.assertEqual(fixrules.beside(prompt, fixrules.DELTA).read_text(encoding="utf-8"), full, "1 回目の delta は full")
+        self.assertIn(fixrules.shared().split("\n## テストで")[0], full, "正本の核（直し方）が在る")
+        self.assertIn(self.values()["judgment_file"], full)
+        side = json.loads(pathlib.Path(r["variants_file"]).read_text(encoding="utf-8"))
+        why = {s["id"]: s["why"] for s in side["sections"]}
+        self.assertIn("stats.py", why["evidence-code"], "判定の単位のパスから種類を選んだ（機械の事実）")
+        self.edit_tree(FIXED)
+        self.assertTrue(self.accept(load("fix2_ok"))["ok"], "fix-prep の印の後に受け付けが通る")
+
+    def test_retry_names_the_reject_file_and_writes_delta(self):
+        import fixrules
+        self.fix_ready(launched=False)
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        first = json.loads(pathlib.Path(json.loads(out)["variants_file"]).read_text(encoding="utf-8"))
+        reason_file = self.reject_by_script()
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        r = json.loads(out)
+        self.assertIs(r["already"], True, "同じ試行の出し直し")
+        prompt = pathlib.Path(r["prompt_file"])
+        line = rolekit_reject_line(reason_file)
+        full = prompt.read_text(encoding="utf-8")
+        delta = fixrules.beside(prompt, fixrules.DELTA).read_text(encoding="utf-8")
+        self.assertEqual(full.split("\n")[1], line, "理由の本文は貼らず、パスを見出しの次の 1 行で名指す（R44）")
+        self.assertEqual(delta.split("\n")[1], line)
+        self.assertNotIn(pathlib.Path(reason_file).read_text(encoding="utf-8")[:40], full)
+        self.assertIn(first["rules_sha"], delta)
+        self.assertNotIn(fixrules.sections(fixrules.SHARED)["core-fix"], delta)
+        self.assertIn(fixrules.sections(fixrules.SHARED)["core-fix"], full)
+        side = json.loads(pathlib.Path(r["variants_file"]).read_text(encoding="utf-8"))
+        self.assertEqual((side["iteration"], side["delta_is_full"]), (2, False))
+
+    def test_same_inputs_same_bytes_on_the_board(self):
+        """同じ盤面・同じ値で組み直すと、full はバイト単位で同じ"""
+        import fixrules
+        self.fix_ready(launched=False)
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        prompt = pathlib.Path(json.loads(out)["prompt_file"])
+        one = prompt.read_bytes()
+        fixrules.beside(prompt, fixrules.DELIVERED).unlink()   # この輪の控えを消せば 1 回目と同じ入力
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(prompt.read_bytes(), one)
+
+    def test_reads_cover_the_composed_prompt(self):
+        """読んだ証拠（fix-reads）は、判定のファイルに加えて fix-prep が組んだ指示書を読むべきパスに持つ"""
+        self.fix_ready(launched=False)
+        code, out, err = self.prep()
+        self.assertEqual(code, 0, err)
+        prompt = json.loads(out)["prompt_file"]
+        judgment = self.values()["judgment_file"]
+        code, out, err = run_script("reads", self.repo, {"ARTIFACTS_DIR": str(self.art), "WORKFLOW_ID": "run-12",
+                                                         "INPUTS_MUST": json.dumps([judgment]),
+                                                         "WORKS_ADAPTER_HOME": os.environ["WORKS_ADAPTER_HOME"]})
+        self.assertEqual(code, 0, err)
+        rows = json.loads(pathlib.Path(json.loads(out)["reads_file"]).read_text(encoding="utf-8"))["rows"]
+        self.assertEqual([r["path"] for r in rows], [judgment, prompt])
+
+    def test_not_waiting_is_wiring(self):
+        """盤面が p3.fix を待っていない（判定の直後）→ 2（標準出力は空）"""
+        self.judged()
+        code, out, err = self.prep()
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("p3.fix", err)
+
+    def test_missing_value_is_wiring(self):
+        self.fix_ready(launched=False)
+        code, out, err = self.prep(INPUTS_SUMMARY_FILE=None)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("INPUTS_SUMMARY_FILE", err)
+
+
+def rolekit_reject_line(path):
+    import rolekit
+    return rolekit.REJECT_LINE.format(path=path)
 
 
 class TestAccept(BoardCase):
