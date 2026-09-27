@@ -36,10 +36,11 @@ HOME_FILES = (
 )
 XDG_FILES = ("git", "gh")   # $XDG_CONFIG_HOME が在る時、その下で守る物
 # Archon の家（$ARCHON_HOME、無ければ ~/.archon。Archon の getArchonHome と同じ）の下で守る物。設定（claudeBinaryPath を
-# 書き換えると次の run から包みが外れる）・DB・env・家の workflows/commands/scripts（どのリポジトリの run にも効く）・鍵。
+# 書き換えると次の run から包みが外れる）・DB・env・家の workflows/commands/scripts と archon plugin install で入れた pack の
+# 置き場 plugins（どのリポジトリの run にも効く。同じ家のほかの pack・ほかの commit の works も入る）・鍵。
 # 家そのものは守らない: run の worktree・盤面が家の workspaces・worktrees の下に在り、塞ぐと役が自分の worktree に書けない
 ARCHON_FILES = ("config.yaml", "archon.db", "archon.db-wal", "archon.db-shm", "archon.db-journal", ".env",
-                "workflows", "commands", "scripts", "credential-key", "install.json", ".archon")
+                "workflows", "commands", "scripts", "plugins", "credential-key", "install.json", ".archon")
 # git rev-parse --local-env-vars が引けない時に外す物。外から漏れると -C の先でなく別のリポジトリを見る
 GIT_ENV_FALLBACK = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 

@@ -120,7 +120,8 @@ class TicketCase(unittest.TestCase):
         設定の claudeBinaryPath を書き換えられると次の run から包みが外れる。家そのものは守らない（run の worktree が
         家の workspaces・worktrees の下に在るので、塞ぐと役が自分の worktree に書けない）"""
         names = ("config.yaml", "archon.db", "archon.db-wal", "archon.db-shm", "archon.db-journal", ".env", "workflows",
-                 "commands", "scripts", "credential-key", "install.json", ".archon")
+                 "commands", "scripts", "credential-key", "install.json", ".archon",
+                 "plugins")   # archon plugin install で入れた pack の置き場（env-loader の getPluginsPath。再審査 N7）
         self.assertEqual(sorted(ticket.ARCHON_FILES), sorted(names), "一覧はデータで持ち、試験の名前と同じ")
         ah = self.tmp / "archon-home"
         with mock.patch.dict(os.environ, {"ARCHON_HOME": str(ah)}):
