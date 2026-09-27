@@ -31,6 +31,7 @@ FAST = frozenset({
     "test_gitkit",          # 1 秒未満（gitkit の型を 1 回作って 2 回写す）
     "test_halt",            # 線 A: 止め札を一時の盤面に置く・stop.sh を偽の Archon（sh の台本）で起こす・python を 8 本同時に起こす（git・uv・木なし）
     "test_node_marker",     # 線 A: 印の文字列を組んで読むだけ
+    "test_sp_skills",       # superpowers の写し: 写しと元（プラグインのキャッシュ）を読んで比べる・sh を起こす（git なし）
     "test_script_io",       # 2 秒（python を 1 本起こすだけ。git は使わない）
     "test_tiers",           # 8 秒（偽の uv・枠の台本で run.sh を起こす）
     "test_yaml_rules",      # 3 秒
