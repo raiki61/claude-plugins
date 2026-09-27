@@ -365,11 +365,18 @@ class LineFixturesCase(unittest.TestCase):
                 self.assertEqual(f[name]["report"]["outcome"], outcome)
                 self.assertEqual(f[name]["result"]["outcome"], outcome)
                 self.assertEqual(f[name]["fixture"]["reached"][-1], "result")
-        for name in ("final-stop", "stop-flag"):   # 止めた盤面は報告の役の節を出す（AI の報告が回る。計画 P1 Task 34）
+        # 止めた盤面（計画 P1 Task 34）と、周を締めて止めた普通の run（R61 の B: 報告が report_after_round で報告の節を出す）は
+        # AI の報告が回り、最後の報告は report-ai.md。結末は機械の報告のまま
+        for name in ("final-stop", "stop-flag", "standard", "no-fix", "policy-continue", "pr-fallback",
+                     "final-when-needed-green"):
             with self.subTest(name):
                 self.assertIs(f[name]["report"]["ai_report_go"], True)
                 self.assertIn("reporting__collect", f[name]["fixture"]["reached"])
-        self.assertIs(f["standard"]["report"]["ai_report_go"], False)
+                self.assertEqual(f[name]["result"]["report_file"], "board/report-ai.md")
+                self.assertEqual(f[name]["result"]["outcome"], f[name]["report"]["outcome"])
+        # 周の途中の関所の stop（halted.by answer）は本線と同じく報告の節を出さない
+        self.assertIs(f["policy-stop"]["report"]["ai_report_go"], False)
+        self.assertNotIn("reporting__collect", f["policy-stop"]["fixture"]["reached"])
         # AI の報告が諦めても出口は機械の報告を選ぶ（all_done）
         self.assertIs(f["ai-report-fail"]["reporting__collect"]["ok"], False)
         self.assertEqual(f["ai-report-fail"]["result"]["report_file"], "board/report.md")

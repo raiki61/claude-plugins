@@ -159,12 +159,13 @@ class EyesPurposeCase(LineBase):
         self.assertEqual(got["out"]["h-mat"]["purpose_file"], str(b.dir / b.state["outputs"]["p0.purpose"]["file"]))
 
     def test_eyes_after_final_gate(self):
-        """最後の関所の後に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。周は目の後に締まり、結末 fixed"""
+        """最後の関所の後に独立の目（R1・R2 の筋）が回り、返答が盤面に在る。周は目の後に締まり、結末 fixed（締めた盤面にも
+        報告の節が出て AI の報告が回る。R61 の B）"""
         got = self.run_line()
         self.order_ok(got["trail"])
         t = got["trail"]
         self.assertLess(t.index("final-gate"), t.index("eyeing"))
-        self.assertEqual(t[-3:], ["eyeing", "report", "result"])
+        self.assertEqual(t[-4:], ["eyeing", "report", "reporting", "result"])
         self.assertEqual(set(got["eyes_roles"]), {"r1-comments", "r1-minimality", "r2-design", "r2-compare"})
         b = entry.open_board(got["board_dir"], allow_halted=True)
         for nid in ("r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare"):
@@ -238,15 +239,28 @@ class AiReportCase(LineBase):
         self.assertIs(got["out"]["report"]["ai_report_go"], True)
         self.assertEqual(got["out"]["report"]["outcome"], "stopped_by_human")
 
-    def test_round_closed_run_has_no_ai_report(self):
-        """周を締めて止めた 1 周の run（stop_after_round）→ 盤面は報告の節を出さず、reporting は回らない。最後の報告は機械の
-        report.md（本線の --stop-after-round と同じ。報告に「AI の報告は無い」が分かる）"""
+    def test_round_closed_run_gets_ai_report(self):
+        """周を締めて止めた普通の 1 周の run（stop_after_round）→ 機械の報告が盤面の層の口（report_after_round）で報告の節を
+        出し、reporting が回る（R61 の B。持ち主の裁定）。最後の報告は report-ai.md、結末は fixed のまま"""
         got = self.run_line()
-        self.assertNotIn("reporting", got["trail"])
-        self.assertIs(got["out"]["report"]["ai_report_go"], False)
-        self.assertEqual(pathlib.Path(got["report"]["report_file"]).name, "report.md")
-        self.assertIsNone(got["report"]["ai_report"])
+        self.assertEqual(got["trail"][-3:], ["report", "reporting", "result"])
+        self.assertIs(got["out"]["report"]["ai_report_go"], True)
+        rep = got["report"]
+        self.assertEqual(pathlib.Path(rep["report_file"]).name, "report-ai.md")
+        self.assertIs(rep["ai_report"]["ok"], True)
         self.assertEqual(got["outcome"], "fixed")
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        for nid in ("report.human_items", "report.cold_check", "report"):
+            self.assertEqual(b.node_state(nid), "done", nid)
+        self.assertEqual(b.state["works"]["after_round"]["by"], "stop_after_round")
+
+    def test_no_fix_run_gets_ai_report(self):
+        """直す物の無い 1 周の run も AI の報告が回り、結末は no_fix_needed のまま"""
+        r = replies(review=CLEAN_REVIEW)
+        r["judge"] = linekit.reply("judge_no_fix")
+        got = self.run_line(replies=r, edits={})
+        self.assertIn("reporting", got["trail"])
+        self.assertEqual(got["outcome"], "no_fix_needed")
 
 
 class MaterialCase(LineBase):

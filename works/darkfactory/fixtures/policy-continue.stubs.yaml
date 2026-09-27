@@ -1391,7 +1391,7 @@ report:
   next_request_file: board/next-request.json
   tests_green: true
   validator_exit: 0
-  ai_report_go: false
+  ai_report_go: true
 reporting__rp-route1:
   next: report-items
   node: report.human_items
@@ -1489,13 +1489,25 @@ result:
   ok: true
   outcome: fixed
   judgment_file: board/judgment.json
-  report_file: board/report.md
+  report_file: board/report-ai.md
   next_request_file: board/next-request.json
   tests_green: true
   validator_exit: 0
-  ai_report_go: false
+  ai_report_go: true
   machine_report_file: board/report.md
-  ai_report: null
+  ai_report:
+    ok: true
+    reason: ''
+    report_file: board/report-ai.md
+    text_file: board/out/r3/report.json
+    human_items_file: board/out/r3/report.human_items.json
+    facts_file: board/r3/report-facts.md
+    cold_check:
+      verdict: pass
+      stops: []
+      guessed: []
+      decidable: true
+    record_invalid: false
 fixture:
   expect: completed
   inputs:
@@ -1527,5 +1539,6 @@ fixture:
   - h-eyes
   - eyeing__eyes-collect
   - report
+  - reporting__collect
   - result
 exec-code: true
