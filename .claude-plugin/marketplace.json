@@ -43,7 +43,7 @@
     },
     {
       "name": "works",
-      "description": "人の修正依頼を、今いるリポジトリを対象に生産ライン darkfactory（Archon の上で 判定 → 修正 → 審査 → 最後のテスト → 人の関所 → 報告）に回す /works スキル。起動は clone の works/dev/use.sh（Archon と AI の役を隔離した家で起こす）。",
+      "description": "人の修正依頼を、今いるリポジトリを対象に生産ライン darkfactory（Archon の上で 判定 → 修正 → 審査 → 最後のテスト → 人の関所 → 報告）に回す /works スキル。起動はプラグインの中の dev/use.sh（Archon と AI の役を隔離した家で起こす。リポジトリの clone は要らない）。",
       "source": "./works",
       "strict": false
     }

@@ -1700,12 +1700,14 @@ class DevWiringCase(unittest.TestCase):
             fake_bin.mkdir()
             (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{expected}  $3"\n')
             (fake_bin / "shasum").chmod(0o755)
-            # archon.sh は同じ claude で隔離した設定に coldwrite を入れる（dev/toolset.py）ので、plugin の CLI を真似る偽物
-            from test_toolset import write_fake_claude
+            # archon.sh は同じ claude で隔離した設定に coldwrite を入れる（dev/toolset.py）ので、plugin の CLI を真似る偽物。
+            # 借りる物を取る利用者の設定（隔離の前の CLAUDE_CONFIG_DIR）も偽物
+            from test_toolset import make_user_config, write_fake_claude
             write_fake_claude(fake_bin)
             env = {k: v for k, v in os.environ.items() if not k.startswith(("WORKS_", "CLAUDE_"))}
             env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
-                       CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", FAKE_CLAUDE_LOG=str(tmp / "claude-calls.jsonl"))
+                       CLAUDE_CODE_OAUTH_TOKEN="dummy-token-for-test", FAKE_CLAUDE_LOG=str(tmp / "claude-calls.jsonl"),
+                       CLAUDE_CONFIG_DIR=str(make_user_config(tmp / "user-claude-config")))
             for k, v in overrides.items():
                 if v is None:
                     env.pop(k, None)

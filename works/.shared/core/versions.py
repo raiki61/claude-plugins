@@ -4,7 +4,8 @@ run と同じ置き場 <ARTIFACTS_DIR>/versions.json に 1 つ書き、Archon �
 - snapshot(pack, env=os.environ, *, run_id="") -> dict:
   {schema, run_id, at, works: {source, version, pack_sha256, files}, graphloops_copy, borrowed, archon, claude_code,
    python, platform, unknown}
-  - works.source: dev の殻が pack の写しに置く出どころの控え <pack>/.works-source.json（{rev, dirty, from}）
+  - works.source: dev の殻が pack の写しに置く出どころの控え <pack>/.works-source.json（{rev, dirty, from, version}。
+    元の works が git で追跡されていなければ rev・dirty は null で、version は元の .claude-plugin/plugin.json の version）
   - works.version: <pack>/VERSION の 1 行目（まだ無い版もある）
   - works.pack_sha256・files: 走った pack の中身そのものの印（出どころの控え・__pycache__・*.pyc・.DS_Store を除く、
     相対パスとファイルの sha256 を並べた sha256）。出どころが分からない写しでも中身で突き合わせられる

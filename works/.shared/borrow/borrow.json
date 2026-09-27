@@ -1,6 +1,8 @@
 {
   "superpowers": {
     "kind": "skills",
+    "marketplace": "superpowers-marketplace",
+    "marketplace_repo": "obra/superpowers-marketplace",
     "skills": [
       "test-driven-development",
       "systematic-debugging",
@@ -11,11 +13,25 @@
   },
   "coldwrite": {
     "kind": "plugin",
-    "marketplace": "raiki61"
+    "marketplace": "raiki61",
+    "marketplace_repo": "raiki61/claude-plugins",
+    "hooks": {
+      "PreToolUse": [
+        "Write"
+      ]
+    }
   },
   "pr-review-toolkit": {
     "kind": "plugin",
-    "pinned": true
+    "marketplace": "claude-plugins-official",
+    "marketplace_repo": "anthropics/claude-plugins-official",
+    "agents": [
+      "code-reviewer",
+      "silent-failure-hunter",
+      "type-design-analyzer",
+      "pr-test-analyzer",
+      "comment-analyzer"
+    ]
   },
   "context7": {
     "kind": "mcp",

@@ -7,6 +7,7 @@ Task 9: works のスキル（SKILL.md の frontmatter と本文の起動名）�
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -158,6 +159,19 @@ class TestCoreCopy(unittest.TestCase):
         # ほかのリポジトリの入口は起動の殻 use.sh（入れる・確かめる・起動・差分の出し直し）。Archon を直に打つ形は案内しない
         for line in ('dev/use.sh" check', 'dev/use.sh" start', 'dev/use.sh" show', "claude plugin install works@raiki61"):
             self.assertIn(line, body)
+        # 殻はプラグインの入った置き場から起こす（Claude Code がスキルを読む時に ${CLAUDE_PLUGIN_ROOT} を置き場の絶対パスに
+        # 置き換える）。リポジトリの clone（WORKS_REPO）を前提にしない
+        shells = re.findall(r'sh "([^"]*/dev/[a-z]+\.sh)"', body)
+        self.assertEqual(sorted({pathlib.PurePosixPath(x).name for x in shells}), ["report.sh", "stop.sh", "use.sh"])
+        for x in shells:
+            self.assertTrue(x.startswith("${CLAUDE_PLUGIN_ROOT}/dev/"), x)
+        self.assertNotIn("WORKS_REPO", body)
+        # 借りる 3 つも入れる行が在る（名は borrow.json の <名>@<marketplace>）
+        borrow = json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
+        for name, item in borrow.items():
+            if item["kind"] in ("skills", "plugin"):
+                self.assertIn(f"claude plugin install {name}@{item['marketplace']}", body)
+                self.assertIn(f"claude plugin marketplace add {item['marketplace_repo']}", body)
         self.assertNotIn("archon workflow run raiki61/works:darkfactory", body)
         p = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(p["name"], "works")

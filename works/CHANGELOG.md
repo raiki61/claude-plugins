@@ -6,6 +6,20 @@ works（Archon の上の生産ライン darkfactory の pack と、Claude Code �
 
 ## [Unreleased]
 
+### Changed
+
+- 入れ方を、Claude Code のプラグインを 4 つ入れる（works・superpowers・coldwrite・pr-review-toolkit）だけにした。リポジトリの clone も、その場所を置く環境変数も要らない。`/works` スキルの行は、入れたプラグインの置き場の `dev/use.sh`・`stop.sh`・`report.sh` を起こす。
+- AI の役が借りる superpowers のスキル・coldwrite・pr-review-toolkit を、利用者が Claude Code に入れた版から取るようにした（本線の graphloops と同じ。版は Claude Code が今に保つ）。確かめるのは works が名前で使うスキル・agent・hook が在ることだけ。入っていない物があれば、`use.sh check`・`start` は AI を起こす前に、足りない物ごとの 1 行と入れるコマンドを出して止まる。使った版と置き場は今までどおり `.works-toolset.json` と run ごとの `versions.json` に残る。
+
+### Removed
+
+- works の中に置いていた superpowers（6.4.2）のスキルと pr-review-toolkit の写しと、その使用許諾の表示のファイル（NOTICE）を消した。works は第三者の物を同梱しない。
+
+### Fixed
+
+- Claude Code のプラグインのキャッシュに入った works から `use.sh` を起こすと、coldwrite の元（works の外の marketplace.json）が無くて `check` も `start` も止まっていたのを直した。
+- pack の出どころの控え（`.works-source.json`）が、works が git で追跡されていない時に別のリポジトリの commit を works の版として書くことがあったのを直した。その時は commit を null にし、プラグインの版を書く。
+
 ## [0.2.0] - 2026-09-28
 
 ### Added

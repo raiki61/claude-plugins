@@ -1,6 +1,6 @@
 ---
 name: works
-description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 前提の実測 → 目的の文 → 素材集め → 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 独立の目 → 報告 の順に流す）に、今いるリポジトリを対象にして回す。「darkfactory に回して」「works で直して」と言われたときに使う。入れ方・依頼の JSON の書き方・起動の 1 行（works/dev/use.sh）・人の関所での答え方・報告と差分の取り込み方だけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。
+description: 人の修正依頼を works の生産ライン darkfactory（Archon の上で 前提の実測 → 目的の文 → 素材集め → 判定 → 修正案と事前審査 → 修正 → 差分の審査 → 手直し → 最後のテスト → 人の最後の関所 → 独立の目 → 報告 の順に流す）に、今いるリポジトリを対象にして回す。「darkfactory に回して」「works で直して」と言われたときに使う。入れ方・依頼の JSON の書き方・起動の 1 行（プラグインの中の dev/use.sh）・人の関所での答え方・報告と差分の取り込み方だけを書く。誤字・コメント・文言の直しは回さない（手で直す方が早い）。
 ---
 
 # works
@@ -14,27 +14,26 @@ darkfactory に回すのは、原因を調べて直し、テストで確かめ�
 
 要る物: macOS（Apple silicon。Archon は固定した版の darwin-arm64 の実行ファイル）・git・uv・gh（初回に Archon の実行ファイルを GitHub の release から落とす）・Claude Code の `claude`・認証（`claude setup-token` で作るトークンを `CLAUDE_CODE_OAUTH_TOKEN` に置くか、それを入れた macOS の keychain の項目名を `WORKS_KEYCHAIN_ITEM` に置く）。
 
-1. works のリポジトリを clone し、場所を `WORKS_REPO` に置く。起動の殻と pack はこの clone から使う（Claude Code のプラグインの置き場の写しからは起動できない。隔離した設定に入れる coldwrite をリポジトリから写すため）。
-
-   ```
-   git clone https://github.com/raiki61/claude-plugins "$HOME/src/claude-plugins"
-   export WORKS_REPO="$HOME/src/claude-plugins"
-   ```
-
-2. このスキルを Claude Code に入れる。
+1. プラグインを 4 つ Claude Code に入れる。このスキル（works）と、works の AI の役が借りる 3 つ（superpowers のスキル・coldwrite のフック・pr-review-toolkit の agent）。起動の殻 `dev/use.sh` と pack は works のプラグインの中に在り、Claude Code が入れたプラグインの置き場から使う。借りる 3 つも、あなたが入れた版をそのまま使う。リポジトリの clone は要らない。
 
    ```
    claude plugin marketplace add raiki61/claude-plugins   # 登録済みなら: claude plugin marketplace update raiki61
    claude plugin install works@raiki61
+   claude plugin install coldwrite@raiki61
+   claude plugin marketplace add obra/superpowers-marketplace
+   claude plugin install superpowers@superpowers-marketplace
+   claude plugin install pr-review-toolkit@claude-plugins-official   # marketplace が無ければ先に: claude plugin marketplace add anthropics/claude-plugins-official
    ```
 
-   marketplace の works の行が GitHub に届く前は、その回だけ `claude --plugin-dir "$WORKS_REPO/works"` で読める。
-
-3. 対象リポジトリで、AI を起こさずに確かめる（費用なし）。`darkfactory  ok` が出れば入っている。
+2. 対象リポジトリで、AI を起こさずに確かめる（費用なし）。
 
    ```
-   sh "$WORKS_REPO/works/dev/use.sh" check <対象リポジトリの根>
+   sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" check <対象リポジトリの根>
    ```
+
+   最後の行が `Results: 1 valid, 0 with errors, …` なら入っている。その上に出る `WARNING [skills]` の 3 行（`code-review`・`simplify`・`security-review`）は Claude Code に組み込みのスキルで、出てよい。借りる 3 つのどれかが入っていない（か、works が名前で使うスキル・agent・hook が無い）と、`toolset.py: 借りる物が足りない` の下に足りない物ごとの 1 行と入れるコマンドを出して止まる。そのコマンドで入れてから打ち直す（`start` も AI を起こす前に同じ所で止まる）。
+
+このスキルの行の `use.sh`・`stop.sh`・`report.sh` のパスは、Claude Code がこのスキルを読む時に、入れたプラグインの置き場の絶対パス（`~/.claude/plugins/cache/raiki61/works/<版>/` の形。設定の置き場を変えていればその下）へ置き換えてある。元の文はプラグインのスキルの置き換え CLAUDE_PLUGIN_ROOT で、Bash の環境変数には無い。手で打つ時は、その置き場のパスで打つ。このリポジトリの clone で works 自身を直している時は、clone の `works/dev/use.sh` をそのまま打ってもよい（同じ殻で、pack はその clone の `works/` から写る）。GitHub に届く前の works を試すなら `claude --plugin-dir <clone>/works` で読む。
 
 `archon plugin install` で pack を入れて Archon を直に打つ形は、まだ使わない。AI の役が利用者の本物の `~/.claude`（CLAUDE.md・hooks・プラグイン）を読んでしまうため。`use.sh` は Archon を隔離した家で起こし、役には選んだ物だけの設定を読ませる。
 
@@ -63,7 +62,7 @@ findings（指摘）の JSON の配列を 1 つのファイルにする。置き
 前景で打つ。
 
 ```
-sh "$WORKS_REPO/works/dev/use.sh" start <対象リポジトリの根> <依頼の JSON> "<test_cmd>" [<tdd_suite>]
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" start <対象リポジトリの根> <依頼の JSON> "<test_cmd>" [<tdd_suite>]
 ```
 
 - 対象の条件: commit していない変更・未追跡のファイルが無い（run は対象の今の HEAD から切り、差分はここへ当てる）。remote の `origin` が在る（Archon が worktree を切る前に fetch する）。`/private/tmp` の下でない。どれかに当たると、何もせずに 1 行で止まる。
@@ -92,7 +91,7 @@ sh "$WORKS_REPO/works/dev/use.sh" start <対象リポジトリの根> <依頼の
 ## 4. 報告を読み、差分を取り込む
 
 ```
-sh "$WORKS_REPO/works/dev/use.sh" show <対象リポジトリの根>
+sh "${CLAUDE_PLUGIN_ROOT}/dev/use.sh" show <対象リポジトリの根>
 ```
 
 一番新しい run について、状態・報告の置き場・差分のファイルを出す。
@@ -105,10 +104,10 @@ sh "$WORKS_REPO/works/dev/use.sh" show <対象リポジトリの根>
 
 ## 5. 止めて続ける
 
-- 止め札: 対象の根で `WORKS_DEV_HOME="${WORKS_USE_HOME:-$HOME/.local/state/works/use}" sh "$WORKS_REPO/works/dev/stop.sh" <run-id> "<理由>"`。走っている AI の節は最後まで走り、次の境の節で止まる（報告は出る）。
+- 止め札: 対象の根で `WORKS_DEV_HOME="${WORKS_USE_HOME:-$HOME/.local/state/works/use}" sh "${CLAUDE_PLUGIN_ROOT}/dev/stop.sh" <run-id> "<理由>"`。走っている AI の節は最後まで走り、次の境の節で止まる（報告は出る）。
 - 前景の run は Ctrl-C で止まる。関所で待っている run は `respond … stop`。
 - 続ける: 殻が出した「続ける」の行（`resume <run-id>`）で、済んだ節の続きから回る。
 - 節が落ちた run（ブロックの中の出し直しが上限（3 回）を超えたときを含む）でも報告の節は走り、結末 `interrupted` の `report.md` と `next-request.json` が盤面に残る。冒頭 3 に落ちた節とその誤りの文が出る。run の出口は報告を書いてから 0 でない終了コードで終わるので、Archon の run の状態は失敗のまま。start で落ちた run は盤面が無く、報告も無い。
-- 取り消し・abandon で止めた run は報告の節まで届かない。対象の根で、止め札と同じ `WORKS_DEV_HOME=…` を前に付けて `sh "$WORKS_REPO/works/dev/report.sh" <run-id>` を打つと、盤面から報告を組む（結末 `interrupted`）。
+- 取り消し・abandon で止めた run は報告の節まで届かない。対象の根で、止め札と同じ `WORKS_DEV_HOME=…` を前に付けて `sh "${CLAUDE_PLUGIN_ROOT}/dev/report.sh" <run-id>` を打つと、盤面から報告を組む（結末 `interrupted`）。
 
-works 自身の直しは、この殻でなく `works/dev/dogfood.sh` で回す（README の「自分食い」）。
+works 自身の直しは、この殻でなく clone の `works/dev/dogfood.sh` で回す（README の「自分食い」）。

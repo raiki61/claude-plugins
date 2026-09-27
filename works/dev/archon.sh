@@ -85,17 +85,10 @@ fi
 
 chmod +x "$BIN_PATH"
 
-# 借りた superpowers の写しとバイトを比べる試験（tests/test_sp_skills.py）の元を、隔離の前の利用者の設定のプラグインの
-# キャッシュで WORKS_SP_SOURCE に渡す（読むだけ。在るかは見ず、無ければ試験が赤で知らせる）。隔離した設定にはスキルの写し
-# だけでキャッシュが無いので、渡さないと run の中の最後の試験が環境のせいで毎回赤になる。設定済みならそのまま
-# （入れ子で呼ばれた時に、隔離した設定で上書きしない）。キャッシュの根からの相対パスは写しの COPIED_FROM の 1 行目の 2 語目
-if [ -z "${WORKS_SP_SOURCE:-}" ]; then
-  sp_rel="$(awk 'NR == 1 { print $2; exit }' "$(cd "$(dirname "$0")/.." && pwd -P)"/.shared/superpowers/*/COPIED_FROM 2>/dev/null || true)"
-  if [ -n "$sp_rel" ]; then
-    WORKS_SP_SOURCE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/$sp_rel"
-    export WORKS_SP_SOURCE
-  fi
-fi
+# 借りる物（superpowers のスキル・coldwrite・pr-review-toolkit）は、利用者が Claude Code に入れたプラグインから取る（下の toolset.py）。
+# その一覧（plugins/installed_plugins.json）を読む利用者の設定の置き場を、隔離の前に決めておく（隔離の後の CLAUDE_CONFIG_DIR は
+# 選んだ物だけの設定で、利用者の物ではない）
+USER_CLAUDE_CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
 # HOME・ARCHON_HOME・Claude の設定・XDG_* を全部 WORKS_DEV_HOME の下へ隔離する
 # （keychain はもう読み終えている）。
@@ -151,14 +144,16 @@ EOF
 fi
 
 # 選んだ物だけの隔離した Claude の設定を組む（toolset.py。P1 計画 Task 20・裁定 P1-R8）。AI の節は全部 settingSources: [user] で
-# ここを読む: superpowers の 5 つのスキルを skills/ へ写し、coldwrite を設定の中の手元の marketplace から claude の plugin の CLI で
-# 入れる。柵が一覧の外（CLAUDE.md・rules/・agents/・ほかのプラグイン・余分な設定の鍵など）を見つければ、名前を出して終了コード 2 で
-# 止まり、Archon を起こさない。認証の要らない道（validate・テスト）は claude を起こさず、スキルだけを写す（validate も同じ置き場で探す）
+# ここを読む: 利用者が入れた superpowers の 5 つのスキルを skills/ へ写し、利用者が入れた coldwrite・pr-review-toolkit を設定の中の
+# 手元の marketplace から claude の plugin の CLI で入れる。借りる物が入っていない・works が名前で頼る物が無ければ、借りる物ごとに
+# 理由と入れるコマンドを出して終了コード 2 で止まる。柵が一覧の外（CLAUDE.md・rules/・agents/・ほかのプラグイン・余分な設定の鍵
+# など）を見つければ、名前を出して終了コード 2 で止まる。どちらも Archon を起こさない。認証の要らない道（validate・テスト）は
+# claude を起こさず、スキルだけを写す（validate も同じ置き場で探す。借りる物の確かめは同じ）
 TOOLSET="$(cd "$(dirname "$0")" && pwd -P)/toolset.py"
 if [ "${WORKS_DEV_NO_AUTH:-}" = "1" ]; then
-  python3 "$TOOLSET" install --no-plugins "$CLAUDE_CONFIG_DIR"
+  python3 "$TOOLSET" install --no-plugins --user-config "$USER_CLAUDE_CONFIG" "$CLAUDE_CONFIG_DIR"
 else
-  python3 "$TOOLSET" install --claude "$REAL_CLAUDE" "$CLAUDE_CONFIG_DIR"
+  python3 "$TOOLSET" install --claude "$REAL_CLAUDE" --user-config "$USER_CLAUDE_CONFIG" "$CLAUDE_CONFIG_DIR"
 fi
 
 # run ごとの版の控え（<ARTIFACTS_DIR>/versions.json。線の start が .shared/core/versions.py で書く）へ渡す版。

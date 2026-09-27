@@ -17,7 +17,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     sandbox は DELEGATE_SANDBOX、investigator と局所レビューは網を閉じて読むだけの口 works-gh だけを sandbox の外に出す
     MATERIAL_SANDBOX。どれも印に旗
     no-tree-write（本物の作業ツリーは包みが守る）。局所レビューも settingSources は [user]（下の決まり。pr-review-toolkit の agent のレンズは
-    許す一覧 borrow.json の版を固めた写しから dev/toolset.py が隔離した設定に入れる）
+    利用者が入れた物（許す一覧 borrow.json）から dev/toolset.py が隔離した設定に入れる）
   - 読む道具に web（WebSearch・WebFetch）を足す節（WEB_READERS。本線の run_by が judge か、読むだけの writer か、全部の道具を
     持つ定義を読むだけに狭めた目。書く道具と shell は持たない。tests/test_tool_parity.py が本線の道具以上かを見る）:
     blk-eyes の r1-minimality・premise-check・r1-comments、blk-judge の judge、blk-plan の plan・plan-review、blk-rejudge の

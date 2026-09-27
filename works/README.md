@@ -6,10 +6,15 @@
 
 入口は Claude Code のスキル `skills/works/SKILL.md`（`/works`）。手順の正本はそこで、ここは要点だけ。
 
-1. このリポジトリを clone し、場所を `WORKS_REPO` に置く。起動の殻 `works/dev/use.sh` と pack はこの clone から使う。
-2. スキルを入れる: `claude plugin marketplace add raiki61/claude-plugins`（登録済みなら `claude plugin marketplace update raiki61`）→ `claude plugin install works@raiki61`。marketplace の works の行（リポジトリ直下の `.claude-plugin/marketplace.json`）が GitHub に届く前は `claude --plugin-dir "$WORKS_REPO/works"`。
-3. 対象リポジトリで確かめる（AI を起こさない）: `sh "$WORKS_REPO/works/dev/use.sh" check <対象>`。
-4. 回す: `sh "$WORKS_REPO/works/dev/use.sh" start <対象> <依頼の JSON> "<test_cmd>" [<tdd_suite>]`。関所で止まるたびに次に打つ行が出る。`use.sh show <対象>` で状態・報告の置き場・差分のファイル（`git -C <対象> apply` の行）を出し直す。
+1. プラグインを 4 つ入れる。works と、works の AI の役が借りる 3 つ（superpowers・coldwrite・pr-review-toolkit）。リポジトリの clone は要らない。
+   - `claude plugin marketplace add raiki61/claude-plugins`（登録済みなら `claude plugin marketplace update raiki61`）→ `claude plugin install works@raiki61`・`claude plugin install coldwrite@raiki61`
+   - `claude plugin marketplace add obra/superpowers-marketplace` → `claude plugin install superpowers@superpowers-marketplace`
+   - `claude plugin install pr-review-toolkit@claude-plugins-official`（marketplace `claude-plugins-official`（GitHub の anthropics/claude-plugins-official）が無ければ先に `claude plugin marketplace add anthropics/claude-plugins-official`）
+2. 起動の殻 `dev/use.sh` と pack は、Claude Code が入れたプラグインの置き場（`~/.claude/plugins/cache/raiki61/works/<版>/`）の中に在る。スキルの行は、Claude Code がスキルを読む時にそこの絶対パスへ置き換える形（プラグインのスキルの置き換え CLAUDE_PLUGIN_ROOT）で書いてあるので、`/works` から打てばその置き場の `use.sh` が起きる。
+3. 対象リポジトリで確かめる（AI を起こさない）: `sh <置き場>/dev/use.sh check <対象>`。最後の行が `Results: 1 valid, 0 with errors, …` なら入っている（Claude Code に組み込みのスキル `code-review`・`simplify`・`security-review` の WARNING の 3 行は出てよい）。借りる物が入っていなければ、足りない物ごとに 1 行の理由と入れるコマンドを出して止まる（`start` も AI を起こす前に同じ所で止まる）。
+4. 回す: `sh <置き場>/dev/use.sh start <対象> <依頼の JSON> "<test_cmd>" [<tdd_suite>]`。関所で止まるたびに次に打つ行が出る。`use.sh show <対象>` で状態・報告の置き場・差分のファイル（`git -C <対象> apply` の行）を出し直す。
+
+このリポジトリの clone で works 自身を直している時は、clone の `works/dev/use.sh` をそのまま打ってもよい（同じ殻で、pack はその clone の `works/` から写る）。marketplace の works の行（リポジトリ直下の `.claude-plugin/marketplace.json`）が GitHub に届く前の works を試すなら `claude --plugin-dir <clone>/works`。
 
 `use.sh` の決まり:
 
@@ -18,7 +23,7 @@
 - run の worktree は `--from <対象の HEAD>` で切る。対象に commit していない変更・未追跡のファイルがある・`origin` が無い・`/private/tmp` の下・pack の写し `.archon/workflows/works` がある時は、何もせずに 1 行で止まる。
 - `tdd_suite` を省くと、`test_cmd` が pytest の 1 コマンドの時だけ `--junitxml` を足す実行器を家の `suites/` に書いて渡し、そうでなければ空（直に直す）にして 1 行で知らせる。
 - 差分は家の `diffs/run-<id>.diff`。当てるのは人。
-- Claude Code のプラグインの置き場の写し（`plugins/cache/…/works/<版>/`）からは起動できない。`dev/toolset.py` が coldwrite をリポジトリ直下の marketplace から写すため（写しの親に marketplace.json が無い）。
+- works は自分の置き場（`works/`）の外のリポジトリを読まない。Claude Code はプラグインの置き場だけをキャッシュ（`plugins/cache/raiki61/works/<版>/`）に写し、`.git` も隣のプラグイン（`coldwrite/` など）も写さないため。借りる物は利用者が入れたプラグインから取る（下の「選んだ物だけの隔離した Claude の設定」）。pack に写す時は、Claude Code がキャッシュの版の置き場に置く印（`.in_use/`・`.orphaned_at`）を除く。
 
 `archon plugin install raiki61/claude-plugins/works@<tag>` で入れて Archon を直に打つ形は、tag を打つまで入らず、入れても AI の役が利用者の本物の `~/.claude` を読む（下の「選んだ物だけの隔離した Claude の設定」）ので、まだ使わない。
 
@@ -51,7 +56,7 @@ TDD の修正の段が使うテストの実行器（ラインの入力 `tdd_suit
 
 開発の家（`WORKS_DEV_HOME`。既定は `$TMPDIR/works-dev`）・使い捨ての対象・その origin は、Claude Code の一時フォルダ（`/private/tmp/claude-*`・`/tmp/claude-*`）の下に置けない。サンドボックスの中の Bash がそこへ書けるためで、`dev/` の殻はその下に解けるパスを終了コード 2 で拒む（設計書 7 節）。
 
-run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/versions.json` に書く（`.shared/core/versions.py`。入力を拒む run でも書く）: pack の中身の sha256・写した元の works の commit と手元の書き換えの有無（`dev/lib.sh` が pack の写しに置く `.works-source.json`）・`VERSION`・graphloops の写しの行・借りた物の版（`$CLAUDE_CONFIG_DIR/.works-toolset.json`）・Archon の版と Claude Code の `--version`（`archon.sh` が env の `WORKS_ARCHON_VERSION`・`WORKS_CLAUDE_VERSION` で渡す）。分からない値は null にして、`unknown` に理由を書く。模型は Archon が run の `metadata.model_bindings` に残す。
+run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/versions.json` に書く（`.shared/core/versions.py`。入力を拒む run でも書く）: pack の中身の sha256・写した元の works の commit と手元の書き換えの有無と works の版（`dev/lib.sh` が pack の写しに置く `.works-source.json`。元の works が git で追跡されていない時（プラグインのキャッシュから起こした時）は commit と書き換えの有無が null で、版は `.claude-plugin/plugin.json` の version）・`VERSION`・graphloops の写しの行・借りた物の版（`$CLAUDE_CONFIG_DIR/.works-toolset.json`）・Archon の版と Claude Code の `--version`（`archon.sh` が env の `WORKS_ARCHON_VERSION`・`WORKS_CLAUDE_VERSION` で渡す）。分からない値は null にして、`unknown` に理由を書く。模型は Archon が run の `metadata.model_bindings` に残す。
 
 ## 層と依存の向き
 
@@ -69,17 +74,20 @@ run ごとの版は、線の `start` が盤面の隣 `artifacts/runs/<run id>/ve
 
 ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（模块は `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`KNOWN` に置けるのは破れの組だけで、「層が決まっていない」類の印（新しい core の模块の `unassigned` など）は置けない。失敗の文が印ごとに直し方（`MOD` に層を足す・`PLANNED_SCRIPTS` に足す など）を言う。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
 
-## 選んだ物だけの隔離した Claude の設定（借りた superpowers のスキルと coldwrite）
+## 選んだ物だけの隔離した Claude の設定（借りた superpowers のスキル・coldwrite・pr-review-toolkit）
 
 AI の節は全部 `settingSources: [user]` で、開発の殻 `dev/archon.sh` が隔離した `$WORKS_DEV_HOME/claude-config`（`CLAUDE_CONFIG_DIR`）を読む。そこに置くのは許す一覧 `.shared/borrow/borrow.json` の物だけで、`dev/toolset.py` が実行のたびに組む。対象の CLAUDE.md（project）は読ませない。
 
-- superpowers（Claude Code のプラグインのスキル集。MIT。表示は `NOTICE`）6.4.2 から、test-driven-development・systematic-debugging・verification-before-completion・receiving-code-review・requesting-code-review の 5 本を `.shared/superpowers/6.4.2/skills/` にバイトのまま写している（元と写したファイルは同じ置き場の `COPIED_FROM`。写しは直さない）。`toolset.py` はこの 5 本だけを設定の `skills/` へ写す。プラグインとしては入れない（有効にすると SessionStart の hook が using-superpowers を差し込み、無人の役の約束が崩れる）。節は `skills: [<名>]` で名指ししてよく、名前は borrow.json の一覧の中だけ（`tests/test_yaml_rules.py`）。
-- coldwrite（このリポジトリの `coldwrite/`。書く散文の初見検査の PreToolUse:Write のフック）は、設定の中の手元の marketplace `works-local`（`works-marketplace/`）に写し、Claude Code の CLI（`claude plugin marketplace add`・`claude plugin install coldwrite@works-local`）で入れる。中身が変わった時だけ入れ直す。CLI の後に `settings.json` の `enabledPlugins` に載っていなければ止まる。認証の要らない道（`WORKS_DEV_NO_AUTH=1`。validate・テスト）は claude を起こさず、スキルだけを写す。
+- 借りる物は、利用者が Claude Code に入れたプラグインから取る（本線の graphloops と同じ。版は Claude Code が今に保ち、works は写しを持たない）。探すのは、隔離の前の利用者の設定の置き場（`CLAUDE_CONFIG_DIR`、無ければ `~/.claude`。`archon.sh` が隔離の前に決めて `toolset.py --user-config` で渡す）の `plugins/installed_plugins.json` の `<名>@<marketplace>` の行（scope が user の行、次に `projectPath` が対象リポジトリの行）。
+- 確かめるのは works が名前で頼る物だけ: superpowers の 5 本のスキル（`skills/<名>/SKILL.md`）、pr-review-toolkit の agent のレンズ（`agents/<名>.md`。borrow.json の `agents`。写しの graph が名指しする物を全部含むことを `tests/test_toolset.py` が見る）、coldwrite の `PreToolUse` の `Write` の hook（`hooks/hooks.json`）。中身・版・バイトは見ない（役は読むだけなので、名前が在れば新しい版で動く）。入っていない・名前が無い物は、1 物 1 行の理由と入れるコマンドを出して止まり、Archon を起こさない。
+- superpowers（Claude Code のプラグインのスキル集）から、test-driven-development・systematic-debugging・verification-before-completion・receiving-code-review・requesting-code-review の 5 本だけを設定の `skills/` へバイトのまま写す。プラグインとしては入れない（有効にすると SessionStart の hook が using-superpowers を差し込み、無人の役の約束が崩れる）。節は `skills: [<名>]` で名指ししてよく、名前は borrow.json の一覧の中だけ（`tests/test_yaml_rules.py`）。
+- coldwrite（書く散文の初見検査の PreToolUse:Write のフック）と pr-review-toolkit（素材集めの局所レビューのレンズの agent）は、入れた置き場を設定の中の手元の marketplace `works-local`（`works-marketplace/`）に写し、Claude Code の CLI（`claude plugin marketplace add`・`claude plugin install <名>@works-local`）で入れる。中身が変わった時だけ入れ直す（Claude Code のキャッシュの印 `.in_use/`・`.orphaned_at` は写さず、比べもしない）。CLI の後に `settings.json` の `enabledPlugins` に載っていなければ止まる。認証の要らない道（`WORKS_DEV_NO_AUTH=1`。validate・テスト）は claude を起こさず、スキルだけを写す（借りる物の確かめは同じ）。
+- 入れた版（`installed_plugins.json` の行の version）と置き場と中身の sha256 は、見えるようにするために `.works-toolset.json` に残し、run ごとの `versions.json` の `borrowed` に載る。
 - Context7（ライブラリの今の文書の MCP。upstash/context7・MIT）は、使用許諾が MIT・Apache-2.0・BSD の時だけ設定の置き場の `works-mcp.json` に遠くの口 `https://mcp.context7.com/mcp` を書く（外れなら何も写さずに止まる）。Archon の役の節は周りの MCP を読まない（`--strict-mcp-config`）ので、包みがこのファイルを web を持つ役に `--mcp-config` で渡す（既定は渡さない。`WORKS_CONTEXT7_MCP=on` の時だけ。下の「Claude の包み」）。これとは別に、修正役と修正案の役の支度の節が Context7 の HTTP API から単位のライブラリの文書を取り、指示書の節「ライブラリの今の文書（Context7）」に貼る（`.shared/core/libdocs.py`。鍵は env の `CONTEXT7_API_KEY`、無ければ鍵なしの低い上限。`WORKS_CONTEXT7=off` で網に出ない）。
 - 柵: 一覧の外（CLAUDE.md・rules/・agents/・commands/・output-styles/・settings.json 以外の settings*.json・一覧の外のスキル・settings.json の `enabledPlugins`・`extraKnownMarketplaces` 以外の鍵・ほかのプラグインと marketplace）が在れば、名前を出して終了コード 2 で止まる（`archon.sh` も Archon を起こさない）。Claude Code が自分で書く状態（projects/・.claude.json・backups/・plugins/cache/ など）は見ない。手で確かめるなら `python3 dev/toolset.py guard <置き場>`。
 - **開発の殻の外では隔離されない。** 利用者が自分の Archon で pack を入れる場合、`CLAUDE_CONFIG_DIR` は利用者の本物の `~/.claude` で、`[user]` の節は利用者の CLAUDE.md・hooks・プラグインを読む。殻の外の入れ方（利用者のキャッシュから選ぶ版上げと関門）は P1 計画 Task 21。
-- 無人の読み替え: スキルの文が人（your human partner）や下請けの AI を前提にする所は、`.shared/superpowers/unattended.md` の決まりで読み替える（直す義務の単位は必ず直して `changes` に載せ、判定への異議は `rejudge_requested` に、人に聞きたいことは食い違いの申し出（`which_is_right` は unknown。裁定役が人に回す）に書く。`not_done` は受け付けが免除する単位と義務の外の単位だけ。修正役は commit しない、`superpowers:` の参照は無視、など）。
-- 試験（`tests/test_sp_skills.py`）は写しと元（プラグインのキャッシュ）のバイトの一致を見る。元が無ければ飛ばさずに赤になるので、同じ版の checkout を `WORKS_SP_SOURCE` に渡す。`dev/archon.sh` は隔離の前の利用者の設定のキャッシュを `WORKS_SP_SOURCE` で渡すので、run の中の最後の試験も同じ元と比べる（隔離した設定にはキャッシュが無い）。
+- 無人の読み替え: スキルの文が人（your human partner）や下請けの AI を前提にする所は、`.shared/borrow/unattended.md` の決まりで読み替える（直す義務の単位は必ず直して `changes` に載せ、判定への異議は `rejudge_requested` に、人に聞きたいことは食い違いの申し出（`which_is_right` は unknown。裁定役が人に回す）に書く。`not_done` は受け付けが免除する単位と義務の外の単位だけ。修正役は commit しない、`superpowers:` の参照は無視、など）。
+- 試験は本物のプラグインも利用者の設定も読まない。`tests/test_toolset.py` が偽の利用者の設定（偽のプラグインを入れた形）を作って回すので、プラグインの入っていない CI でも通る。
 
 ## Claude の包み
 

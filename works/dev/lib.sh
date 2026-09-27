@@ -3,29 +3,39 @@
 
 # works_dev_copy_pack <works の dir> <pack の dir>: works/ を project pack として写す。tests/・dev/・docs/ は除く
 # （Archon はドット始まりのフォルダと、直下に YAML の無いフォルダを工程として読まない）。
-# Python のバイトコードキャッシュや OS のゴミファイルは pack に残さない。
+# Python のバイトコードキャッシュや OS のゴミファイル、Claude Code がプラグインのキャッシュの版の置き場に置く印
+# （.in_use/・.orphaned_at。works をプラグインのキャッシュから起こした時に在る）は pack に残さない。
 works_dev_copy_pack() {
   mkdir -p "$2"
   for _entry in "$1"/* "$1"/.[!.]*; do
     [ -e "$_entry" ] || continue
     case "$(basename "$_entry")" in
-      tests | dev | docs | .git) continue ;;
+      tests | dev | docs | .git | .in_use | .orphaned_at) continue ;;
     esac
     cp -R "$_entry" "$2/"
   done
   find "$2" \( -name "__pycache__" -o -name ".DS_Store" -o -name "*.pyc" \) -print0 | xargs -0 rm -rf
-  # 出どころの控え <pack>/.works-source.json（{rev, dirty, from}）。run ごとの版の控え versions.json（線の start が
-  # .shared/core/versions.py で書く）が読む。写しは git を持たないので、写す時に元の commit と手元の書き換えの有無を残す
-  # （git の外から写した時は rev・dirty が null）
+  # 出どころの控え <pack>/.works-source.json（{rev, dirty, from, version}）。run ごとの版の控え versions.json（線の start が
+  # .shared/core/versions.py で書く）が読む。写しは git を持たないので、写す時に元の commit と手元の書き換えの有無を残す。
+  # rev・dirty は、元の works がその git のリポジトリで追跡されている時だけ引く（プラグインのキャッシュ（git の外）から写した時と、
+  # キャッシュを含む別のリポジトリ（設定の置き場を git で持つ人）の中の時は null。別のリポジトリの commit を works の版と偽らない）。
+  # version は元の .claude-plugin/plugin.json の version（無ければ null）。中身そのものの印は versions.json の pack_sha256 が持つ
   SRC_DIR="$1" python3 -c '
 import json, os, subprocess, sys
 src = os.environ["SRC_DIR"]
 def git(*a):
-    r = subprocess.run(["git", "-C", src, *a], capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", src, *a], capture_output=True, text=True, encoding="utf-8")
     return r.stdout.strip() if r.returncode == 0 else None
-rev = git("rev-parse", "HEAD")
+tracked = bool(git("ls-files", "--", ".claude-plugin/plugin.json"))
+rev = git("rev-parse", "HEAD") if tracked else None
 status = git("status", "--porcelain", "--", ".") if rev else None
-doc = {"rev": rev, "dirty": None if status is None else status != "", "from": os.path.abspath(src)}
+try:
+    with open(os.path.join(src, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+        version = json.load(f).get("version")
+except (OSError, ValueError, AttributeError):
+    version = None
+doc = {"rev": rev, "dirty": None if status is None else status != "", "from": os.path.abspath(src),
+       "version": version if isinstance(version, str) else None}
 sys.stdout.write(json.dumps(doc, ensure_ascii=False) + "\n")
 ' >"$2/.works-source.json"
 }

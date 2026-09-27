@@ -121,8 +121,42 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(src["rev"], git(ROOT, "rev-parse", "HEAD"))
             self.assertEqual(src["dirty"], git(ROOT, "status", "--porcelain", "--", ".") != "")
             self.assertEqual(src["from"], str(ROOT))
+            self.assertEqual(src["version"], json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())["version"])
             self.assertEqual(git(tmp, "status", "--porcelain"), "")  # 全部 commit 済み
             self.assertEqual(run_tests(tmp).returncode, 1)  # 仕込んだバグで赤
+
+    def _copy_pack_source(self, works_copy: pathlib.Path) -> tuple:
+        """works_copy から works_dev_copy_pack で pack を写し、(出どころの控え, 写した pack の直下の名) を返す"""
+        pack = works_copy.parent / "pack"
+        subprocess.run(["sh", "-c", '. "$1" && works_dev_copy_pack "$2" "$3"', "_", str(DEV / "lib.sh"),
+                        str(works_copy), str(pack)], check=True, capture_output=True, text=True, encoding="utf-8")
+        return (json.loads((pack / ".works-source.json").read_text(encoding="utf-8")),
+                sorted(p.name for p in pack.iterdir()))
+
+    def test_copy_pack_from_plugin_cache_copy_is_honest(self):
+        """works/ だけを写した置き場（Claude Code のプラグインのキャッシュの形。git の外・.in_use/ と .orphaned_at の印つき）から
+        pack を写すと、出どころの控えは rev・dirty が null（分からない物を埋めない）で、版は plugin.json の version。
+        キャッシュが別の git のリポジトリの中（設定の置き場を git で持つ人）でも、その commit を works の版と偽らない。
+        Claude Code の印は pack に写さない"""
+        version = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())["version"]
+        for inside_repo in (False, True):
+            with self.subTest(inside_repo=inside_repo), tempfile.TemporaryDirectory() as tmp_str:
+                tmp = pathlib.Path(tmp_str)
+                if inside_repo:
+                    git(tmp, "init", "-q")
+                    (tmp / "dotfile").write_text("x\n", encoding="utf-8")
+                    git(tmp, "add", "dotfile")
+                    git(tmp, "commit", "-q", "-m", "dotfiles")
+                copy = tmp / "cache" / "raiki61" / "works" / version
+                shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns("tests", "__pycache__", ".git"))
+                (copy / ".in_use").mkdir()
+                (copy / ".in_use" / "12345").write_text("{}", encoding="utf-8")
+                (copy / ".orphaned_at").write_text("1790054446372", encoding="utf-8")
+                src, names = self._copy_pack_source(copy)
+                self.assertEqual(src, {"rev": None, "dirty": None, "from": str(copy), "version": version})
+                self.assertNotIn(".in_use", names)
+                self.assertNotIn(".orphaned_at", names)
+                self.assertIn(".shared", names)
 
     def test_archon_sh_refuses_wrong_checksum(self):
         """壊れたキャッシュは 1 行で拒み、消せば取り直すと案内する。消すのは人（黙って消さない）。"""
@@ -267,19 +301,19 @@ class TestDevShell(unittest.TestCase):
             skills_seen = tmp / "skills.txt"
             settings_seen = tmp / "settings.txt"
             env_seen = tmp / "env.txt"
-            sp_seen = tmp / "sp-source.txt"
             fake_archon.write_text(
                 "#!/bin/sh\n"
                 f'printf \'%s\\n\' "${{TITLE_GENERATION_MODEL-(unset)}}" "$*" > "{seen}"\n'
                 f'ls "$CLAUDE_CONFIG_DIR/skills" > "{skills_seen}" 2>&1\n'
                 f'cat "$CLAUDE_CONFIG_DIR/settings.json" > "{settings_seen}" 2>/dev/null || true\n'
                 f'printf \'%s\\n\' "${{WORKS_ARCHON_VERSION-(unset)}}" "${{WORKS_CLAUDE_VERSION-(unset)}}" > "{env_seen}"\n'
-                f'printf \'%s\\n\' "${{WORKS_SP_SOURCE-(unset)}}" > "{sp_seen}"\n'
             )
             fake_bin = tmp / "fake-bin"
             # 隔離した設定に coldwrite を入れる claude（dev/toolset.py が PATH から引く）は偽物（本物は起こさない）
-            from test_toolset import write_fake_claude
+            from test_toolset import make_user_config, write_fake_claude
             write_fake_claude(fake_bin)
+            # 借りる物を取る利用者の設定（隔離の前の CLAUDE_CONFIG_DIR）も偽物（本物の利用者の設定は読まない）
+            user_cfg = make_user_config(tmp / "user-claude-config")
             claude_calls = tmp / "claude-calls.jsonl"
             (fake_bin / "shasum").write_text(f'#!/bin/sh\necho "{expected}  $3"\n')
             (fake_bin / "shasum").chmod(0o755)
@@ -289,7 +323,7 @@ class TestDevShell(unittest.TestCase):
                          "WORKS_DEV_ADAPTER"):
                 env.pop(name, None)
             env.update(WORKS_DEV_HOME=str(dev_home), PATH=str(fake_bin) + os.pathsep + env.get("PATH", ""),
-                       FAKE_CLAUDE_LOG=str(claude_calls))
+                       FAKE_CLAUDE_LOG=str(claude_calls), CLAUDE_CONFIG_DIR=str(user_cfg))
             env.update(overrides)
             result = subprocess.run(["sh", str(DEV / "archon.sh"), "workflow", "run", "x"],
                                     capture_output=True, text=True, encoding="utf-8", env=env)
@@ -300,7 +334,9 @@ class TestDevShell(unittest.TestCase):
             self.settings_seen = (json.loads(settings_seen.read_text())
                                   if settings_seen.exists() and settings_seen.read_text() else None)
             self.env_seen = env_seen.read_text().splitlines() if env_seen.exists() else None
-            self.sp_seen = sp_seen.read_text().strip() if sp_seen.exists() else None
+            record = dev_home / "claude-config" / ".works-toolset.json"
+            self.toolset_rec = json.loads(record.read_text()) if record.exists() else None
+            self.user_cfg = user_cfg
             self.claude_calls = ([json.loads(ln)["argv"] for ln in claude_calls.read_text().splitlines()]
                                  if claude_calls.exists() else [])
             return (result, config.read_text() if config.exists() else None,
@@ -366,25 +402,30 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(self.env_seen, [want, "(unset)"])
         self.assertEqual(self.claude_calls, [])
 
-    def test_archon_sh_passes_sp_source_from_the_users_config(self):
-        """借りた superpowers の写しとバイトを比べる試験（tests/test_sp_skills.py）の元を、隔離の前の利用者の設定の
-        プラグインのキャッシュで WORKS_SP_SOURCE に渡す。隔離した設定にはスキルの写しだけでキャッシュが無いので、渡さないと
-        run の中の最後の試験（blk-tests final）が環境のせいで毎回赤になる（自分食い 31 件目）。読むだけで、在るかは見ない
-        （無ければ試験が赤で知らせる）。設定済みならそのまま（入れ子で呼ばれた時に隔離した設定で上書きしない）"""
-        from test_sp_skills import copied_from
-        _, source, _ = copied_from()
-        user_cfg = "/nonexistent/user-claude-config"
-        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR=user_cfg, WORKS_SP_SOURCE="")
+    def test_archon_sh_takes_borrowed_tools_from_the_users_config(self):
+        """借りる物は、隔離の前の利用者の設定（CLAUDE_CONFIG_DIR、無ければ $HOME/.claude）に入れたプラグインから取る
+        （隔離した後の CLAUDE_CONFIG_DIR は選んだ物だけの設定で、利用者の物ではない）。記録の source がそこを指す"""
+        from test_toolset import make_user_config
+        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.sp_seen, f"{user_cfg}/plugins/cache/{source.as_posix()}")
-        home = "/nonexistent/user-home"
-        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="", HOME=home, WORKS_SP_SOURCE="")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.sp_seen, f"{home}/.claude/plugins/cache/{source.as_posix()}")
-        result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR=user_cfg,
-                                            WORKS_SP_SOURCE="/somewhere/superpowers-checkout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.sp_seen, "/somewhere/superpowers-checkout")
+        for name in ("superpowers", "coldwrite", "pr-review-toolkit"):
+            self.assertTrue(self.toolset_rec[name]["source"].startswith(str(self.user_cfg) + os.sep), self.toolset_rec[name])
+        with tempfile.TemporaryDirectory() as home:
+            dot = make_user_config(pathlib.Path(home) / ".claude")
+            result, _, _ = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR="", HOME=home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(self.toolset_rec["coldwrite"]["source"].startswith(str(dot) + os.sep), self.toolset_rec)
+
+    def test_archon_sh_stops_when_borrowed_tools_are_not_installed(self):
+        """借りる物が利用者の設定に入っていなければ、1 物 1 行の理由と入れるコマンドを出して終了コード 2 で止まり、
+        Archon を起こさない（use.sh check・start も同じ所で止まる）"""
+        with tempfile.TemporaryDirectory() as empty:
+            result, _, seen = self._exec_archon_sh(WORKS_DEV_NO_AUTH="1", CLAUDE_CONFIG_DIR=empty)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        for cmd in ("claude plugin install superpowers@superpowers-marketplace", "claude plugin install coldwrite@raiki61",
+                    "claude plugin install pr-review-toolkit@claude-plugins-official"):
+            self.assertIn(cmd, result.stderr)
+        self.assertIsNone(seen, "止めるべき所で Archon を起こした")
 
     def test_archon_sh_stops_when_isolated_config_leaks_into_user_scope(self):
         """隔離した CLAUDE_CONFIG_DIR に CLAUDE.md（や一覧の外の設定・スキル・プラグイン）が在れば、toolset.py の柵が

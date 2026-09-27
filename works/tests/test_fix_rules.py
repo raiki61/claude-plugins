@@ -46,7 +46,7 @@ RUN_TESTS = ("- **プロジェクトのテストを回せ。** 直した単位�
 # 前から在る正本の行の写し（減らす方向にだけ変える。直ったのに残っていれば赤）: (置き場, 行の頭)
 KNOWN_COPIES = {
     # 読み替えが同じ行き先の行を持つ（test_sp_skills が同じ行であることを縛る。読み替えは役に届かない読み物）
-    (".shared/superpowers/unattended.md", "- **義務の単位の行き先**"),
+    (".shared/borrow/unattended.md", "- **義務の単位の行き先**"),
     # 差分の審査への手直し役（blk-refix）の指示書。ブロックはほかのブロックのファイルを読めないので写しのまま
     ("blk-refix/commands/refix.md", "- 作業ツリーの外"),
     ("blk-refix/commands/refix2.md", "- 作業ツリーの外"),
@@ -132,7 +132,7 @@ class TestSharedSource(unittest.TestCase):
                 self.assertIn(ask, text)
                 self.assertIn(only, text)
                 self.assertEqual(old.findall(text), [])
-        for rel in (".shared/superpowers/unattended.md", "README.md"):
+        for rel in (".shared/borrow/unattended.md", "README.md"):
             with self.subTest(rel):
                 text = (ROOT / rel).read_text(encoding="utf-8")
                 self.assertEqual(old.findall(text), [], "人への問い・疑いを rejudge_requested へ送る文が残った")
