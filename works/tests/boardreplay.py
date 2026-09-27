@@ -99,7 +99,8 @@ NOT_REPRODUCED = {
     "instance.item": "扇の項目（a1202d0 の graph に扇の節は無く、engine は扇でない節に null を置く。扇の節は BoardGap）",
     "instance.tree_before": "役ごとの作業ツリーの前後の突合を持たない（v1 の写しが持つ）。突合で拒む手（作業ツリーが変わった）も当てない",
     "instance.attempt_log": "試行の控えは前の試行を出した時刻（prev_emitted_at）を持つ。試行の数 attempts と出し直した置き場 out_path は比べる",
-    "instance.pointers": "一覧を固めた番号の控えを持たない（番号で書いた返答は engine の文で拒む。仕様 BL17）",
+    "instance.pointers": "番号の控えを固める時機が違う（engine は出す時、盤面は起こした印 mark_launched の時。印の無い待っている"
+                         "instance は控えを持たない）。受け付けの手の前の控えが engine と同じかは test_accept_steps が見る（仕様 BL17）",
     "instance.delegate": "任せ先の起動を持たない",
     "instance.launch_state": "engine の launch の子の待ちの印（running → ended）。起こした印そのものは launched_at（在否を比べる）。"
                              "盤面は役の終わりを知らない（役を起こして待つのは Archon とブロックで、終わりは受け付けの done で分かる）",
@@ -522,8 +523,8 @@ def reply(step: Step, board: DiskBoard, names: bool = True) -> dict:
     """accept の手の返答の本文を、accept に渡す dict にする（engine の accept_output と同じ読み方: schema の無い節は本文の
     text）。本文の中の印（役が名指した盤面の置き場など）は、その盤面の置き場の実パスに戻す。
     names=True なら、台本の役が番号で書いた欄を、手本の engine の手の前の instance が固めていた一覧（instance.pointers）で名前に直す
-    （engine は控えで読み替えるが、DiskBoard は控えを持たず番号を拒む〔BL17〕。ラインの役は名前で書く。
-    NOT_REPRODUCED の instance.pointers）。直せない番号はそのまま残す"""
+    （名前で書いた返答の形。DiskBoard は番号も起こした印の時に固めた控えで名前に戻す〔BL17〕ので、names=False の台本のままでも
+    通る——test_accept_steps）。直せない番号はそのまま残す"""
     from engine.commands import parse_output
     from engine.pointers import resolve
     text = Places.of_board(board.dir).untokenize(step["args"]["text"])
@@ -533,7 +534,7 @@ def reply(step: Step, board: DiskBoard, names: bool = True) -> dict:
     out = parse_output(text)
     snap = None
     if names and n.get("pointers"):
-        # 控えは手本の engine の手の前の instance から取る（盤面の instance は控えを持たない。通しの再生でも同じ控えで直す）
+        # 控えは手本の engine の手の前の instance から取る（盤面の控えは起こした印の時に固まるので、印の前でも同じ控えで直す）
         mem = memory_at(step.run_steps, step["seq"], "before")
         snap = (mem["state"]["rounds"][-1]["instances"].get(step["node"]) or {}).get("pointers")
     if snap:

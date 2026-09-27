@@ -736,6 +736,9 @@ class DiskBoard(_EngineBoard):
           （engine の _board_update と同じく CONFLICT_RETRIES 回まで。trace の行は保存まで控える）
         - 同じ試行への二度目は前の印を返して保存しない。印は試行ごと: 描き直し・任せ先への出し直しの新しい試行は印を持たない
         - 起こせなかった試行も印は残る（fail-closed: その周の依頼の締めは閉じたまま。印を外す口は持たない）
+        - graph の pointers を持つ節は、印と同時に、役が番号で指す一覧の名前の列を今の値で instance.pointers に固める（engine の
+          emit_instance が描く時に固めるのと同じ形。裁定 R38）。accept は番号をこの控えで名前に戻す。ラインが貼る一覧の番号は印の後の
+          盤面から振る（engine の pointers.number。印の後に一覧が変わっても、番号は印の時の項目を指す）
         返り {node, id, attempt, out_path, launched_at, already}"""
         if type(attempt) is not int or attempt < 1:
             raise BoardGap(f"mark_launched の試行の番号は 1 以上の整数（{attempt!r}）——描いた instance の attempts を渡す")
@@ -759,6 +762,11 @@ class DiskBoard(_EngineBoard):
             if inst.get("launched_at"):
                 return {**got, "launched_at": inst["launched_at"], "already": True}
             inst["launched_at"] = now()
+            ptrs = self.nodes[nid].get("pointers")
+            if ptrs:
+                # 役が番号で指す一覧の名前の列を、起こす今の値で固める（engine の emit_instance が描く時に固めるのと同じ形。
+                # accept が番号を名前に戻すときに読む唯一の値。仕様 BL17）
+                inst["pointers"] = _pointers.snapshot(self.ctx(), ptrs)[0]
             self.held_trace = []
             self.trace("launch", instance=inst["id"], attempt=now_attempt)
             try:
@@ -843,8 +851,8 @@ class DiskBoard(_EngineBoard):
             raise BoardGap(f"節 '{nid}' は本文を返す節——返答は {{text}} だけ（余分な鍵: {sorted(set(output) - {'text'})}）")
         elif not (isinstance(output, dict) and isinstance(output.get("text"), str) and output["text"].strip()):
             raise AnswerReject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、{inst.get('out_path')} に書けていない）")
-        # 番号で指した欄を名前に戻す。一覧を固めた控え（instance.pointers）を持たないので、番号は engine の文で拒まれる（BL17）
-        errs = _pointers.resolve(output, n.get("pointers"), None)
+        # 番号で指した欄を名前に戻す。控えは mark_launched が固めた instance.pointers（控えの無い instance への番号は engine の文で拒む。BL17）
+        errs = _pointers.resolve(output, n.get("pointers"), inst.get("pointers"))
         if errs:
             raise AnswerReject(f"{nid}: " + "; ".join(errs))
         item = load_item(inst, self.dir)

@@ -143,7 +143,7 @@ b.work(name: str) -> pathlib.Path                           # r<N>/<name>（デ�
   - `Progress` は `{"round": int, "ready": [節], "asking": {...} | None, "halted": {...} | None, "notes": [str]}`。`ready` は依存が済んで待っている、表で `role`・`machine`・`engine_run` の節（ラインが次に作る物）。`asking` は `state.pending_human`。
   - `done`・`run_builtin`・`answer`・`skip` は最後に `settle()` を呼んで、その `Progress` を返す。settle しない記録の部分は内部の口 `_answer_record(ans, note)`・`_skip_record(nid, reason)`（engine の `cmd_answer`・`cmd_skip` と同じ範囲。`cmd_answer` は周の終わりの答えで `open_next_round` を含み、`advance` は含まない）で、1 手ずつの試験が当てる〔再審2 m9〕。
   - **instance の控え**〔審 C1〕: `settle` が節を `ready` に出すとき、engine と同じ id（扇でない節は節の名前）で最小の instance `{id, node, run_by, status: "pending", emitted_at, out_path, skills?}` を `rd["instances"]` に置く（`out_path` は `out/r<N>/<safe_name(id)>.json`。受けるまで在らない＝RL の `_started` は偽）。`skills` は engine の `emit_instance` と同じく、graph の節の `skills` を写し、`applies_cond` を持つ要素だけ `b.cond()` で評価して `applies`・`applies_why` を置く〔再審 N1〕。プロンプトの描画・起動の欄は持たない。`accept` は engine と同じくその instance を `{status: "done", done_at, output_file}` にし、`state.outputs[nid]["instance"]` を書く。
-  - `accept` の順は 1 の 5 と同じ（頭で `halted` の run を拒む〔再審 m7〕）。**ラインの `accept`・`done` は、`engine_fallback` を持たない engine_run の節を `BoardGap` で拒む**（engine の `cmd_done` と同じ。`run_engine` の中の受け付けは内部の口 `_accept_engine_reply` を通るので当たらない〔再審2 m10〕）。番号の読み替えは engine と同じく `pointers.resolve(output, n.get("pointers"), None)` を呼ぶ〔審 I1〕: 役が名前で書けばそのまま通り、整数で書けば「一覧を固めていない instance への番号」として engine の文で拒まれる（graph の型は `expand_refs` で番号も通すので、ここで止める）。
+  - `accept` の順は 1 の 5 と同じ（頭で `halted` の run を拒む〔再審 m7〕）。**ラインの `accept`・`done` は、`engine_fallback` を持たない engine_run の節を `BoardGap` で拒む**（engine の `cmd_done` と同じ。`run_engine` の中の受け付けは内部の口 `_accept_engine_reply` を通るので当たらない〔再審2 m10〕）。番号の読み替えは engine と同じく `pointers.resolve(output, n.get("pointers"), inst.get("pointers"))` を呼ぶ〔審 I1・裁定 R38〕: 控えは `mark_launched` が印と同時に `pointers.snapshot` で固める。役が名前で書けばそのまま通り、番号で書けば控えで名前に戻る。控えの無い instance（古い盤面）への番号は engine の文で拒む。
   - 拒み方は 2 つ:
     - 役の返答の中身が悪い（型・番号・`post_check`・`check_record`）→ `Reject`（engine の `AnswerReject` と同じ文）。盤面は書かない。**拒んだ後のその入れ物は捨てる**（`base_valid`・`r2_design` の `post_check` は記録を書くので、記憶が汚れている。`edit` を抜けて開き直す〔審 M11〕）。
     - ラインの配線が悪い（表で受けられない種類の節・待っている instance が無い・依存が済んでいない）→ `BoardGap`（内部の誤り。スクリプトは終了コード 2）。
@@ -352,7 +352,7 @@ base_output(repo: Path, base_rev: str) -> dict      # p0.base の返答を機械
 3. 開かない: graph の違う実物 35 個と `sim/` 4 個で `BoardMismatch`、文に両方の graph_sha。graph が同じで `state.works` の無い盤面は `board_version` の理由。
 4. 作る: `inputs.rounds_dir` と `process.policy.copy` が最終の置き場の下。入口の検査で拒めば置き場が残らない。
 5. 保存: `edit` の中の例外で盤面が変わらない。`BoardConflict`。`halted` の盤面は `allow_halted` 無しで保存しない。`scratch` は保存しない。
-6. `accept`: instance が `done` になり `state.outputs[nid].instance` が書かれる。`halted` の run では拒む〔再審 m7〕。レンズの条件が偽の周に `invoked: false`・`failed` で返した `p1.local_review` を通す（`inst.skills[].applies` が効く〔再審 N1〕）。判定を受けた後に台帳に無い人待ちの素材を書く `p3.fix` を engine と同じ文で拒む〔審 C1〕。番号で書いた `unit_keys` を拒む〔審 I1〕。型・`post_check` の拒否で盤面が変わらない。absent の節・待っていない節は `BoardGap`。
+6. `accept`: instance が `done` になり `state.outputs[nid].instance` が書かれる。`halted` の run では拒む〔再審 m7〕。レンズの条件が偽の周に `invoked: false`・`failed` で返した `p1.local_review` を通す（`inst.skills[].applies` が効く〔再審 N1〕）。判定を受けた後に台帳に無い人待ちの素材を書く `p3.fix` を engine と同じ文で拒む〔審 C1〕。番号で書いた返答が起こした印の時の控えで名前に戻り、engine と同じ手の後になる。控えの無い instance への番号は engine の文で拒む〔審 I1・裁定 R38〕。型・`post_check` の拒否で盤面が変わらない。absent の節・待っていない節は `BoardGap`。
 7. `settle`: 人に聞いている間の `done` が `p2.human_gate` を走らせ直さない〔審 I3〕。`p4.record` を explicit にしても、`converge` 以降の `na` の付け方が auto と同じ〔審 I8〕。
 8. `run_engine`: 宣言の在る使い捨てのリポジトリで `process.checks["p4.ci"].by == "engine"`。撮った計画の後に宣言を書き換えて当てると `{ok: false, relaunch: true}` で盤面が変わらない。宣言が無ければ `by: "role"` と `engine_fallback`。受け付けが拒んだ時は、読み直した盤面に `by: "role"` が書かれ、他の欄はディスクの前と同じ〔再審 N3〕。`helper` の計画（`p0.parallel_pr`。偽の `gh` と偽の remote）で写しの `parallel-pr.py` が走り、交差が在れば `reply` の `fallback` で任せ先へ落ちる〔再審 N2〕。`Stopped` で盤面を書かない。
 9. 周の添え書き: 表の absent の全部が `rounds/works/round-<N>.json` の `not_in_line` に在る（条件で `na` の周も）。`na` でない absent は `process.skipped` にも在る。
@@ -389,7 +389,7 @@ base_output(repo: Path, base_rev: str) -> dict      # p0.base の返答を機械
   - 時刻: `at`・`t`・`created`・`done_at`・`emitted_at`・`launched_at`
   - 盤面の版: `state.rev`・`run_id`
   - engine の周の頭の痕跡（`graph_changed`・`engine_changed`・`frozen_outputs_stale` を持たないため）: `state.engine`・`engine_changes`・`stale_frozen`・`graph_changes`
-  - instance の起動の欄（描画・起動を持たないため）: `prompt_sha`・`prompt_file`・`launch`（engine_run の `steps`・`sha` は比べる）・`tree_before`・`attempts`・`attempt_log`・`pointers`・`delegate`・`agent_id`・`read_from`（`skills` は比べる〔再審 N1〕）
+  - instance の起動の欄（描画・起動を持たないため）: `prompt_sha`・`prompt_file`・`launch`（engine_run の `steps`・`sha` は比べる）・`tree_before`・`attempts`・`attempt_log`・`pointers`（固める時機が engine は出す時、盤面は起こした印の時。受け付けの前の一致は `test_accept_steps` が見る）・`delegate`・`agent_id`・`read_from`（`skills` は比べる〔再審 N1〕）
   - engine が走らせた節の `checks_fallback` を書いた時機（計画の時機が違うため。周の終わりの値は比べる）
   - 実行の時間: `runs[].wall_s`、ログのパス `runs[].out`・`err`
   - `state.works`（works だけの欄）
@@ -417,7 +417,7 @@ base_output(repo: Path, base_rev: str) -> dict      # p0.base の返答を機械
 - **BL14 線 C は盤面の層を使わず、写しの関数を読むだけ**。`board/mutation/` は予約。
 - **BL15 C の仕分けの役は opus**（台帳 R28）。
 - **BL16 盤面の手本は a1202d0 の台本を撮り直して作る**。`sim/`（fbd40e3）と graph の違う実物は「開かない」の試験に、graph が同じ実物 2 個は読み口の一致と返答の形に使う。
-- **BL17 `accept` は engine と同じく番号の読み替え（`pointers.resolve`）を通す**（1 版の「読み替えない」を改める〔審 I1〕）。一覧を固めた instance を持たないので、番号で書いた返答は engine の文で拒まれ、名前で書いた返答はそのまま通る。
+- **BL17 `accept` は engine と同じく番号の読み替え（`pointers.resolve`）を通す**（1 版の「読み替えない」を改める〔審 I1〕）。控えは `mark_launched` が固める（裁定 R38。engine は出す時に固める）ので、役は番号でも名前でも書ける。控えの無い instance への番号は engine の文で拒む。能力: engine と同じ（前の版より上。写し間違いの拒否が減る）。
 - **BL18 省けるのは graph で optional の節だけ**（1 版の「表が許せば何でも省ける」を改める〔審 I6〕）。engine の `skip` と同じ強さ。optional でない節を手厚さで省く件は 13 節。
 - **BL19 1 周の run は `stop_after_round=1`**。
 - **BL20 engine が走らせる節は、表の種類 `engine_run` と `run_engine` で engine と同じ記録を残す**〔審 C2〕。走らせる所だけ works の `tree_run`（`uv run` の環境を外す。台帳 R23）に替える。能力: 同じ（`by: "engine"` の CI、宣言の sha の突き合わせ、宣言が無ければ任せ先と同じ `by: "role"`）。
