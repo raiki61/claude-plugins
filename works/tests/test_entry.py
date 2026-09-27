@@ -40,7 +40,7 @@ def raw_table() -> dict:
 
 class TableCase(unittest.TestCase):
     def setUp(self):
-        self.table = entry.load_table()
+        self.table = entry.load_table("darkfactory")
         self.nodes = self.table.nodes
 
     def test_table_passes_board_rules(self):
@@ -185,7 +185,7 @@ class LoadTableCase(unittest.TestCase):
         self.put(doc)
         with mock.patch.object(entry, "PACK", self.pack):
             with self.assertRaises(BoardGap) as cm:
-                entry.load_table()
+                entry.load_table("darkfactory")
         msg = str(cm.exception)
         for part in ("p0.base", "p4.ci", "converge"):
             self.assertIn(part, msg)
@@ -223,7 +223,7 @@ class BoardCase(unittest.TestCase):
 
     def create(self, name="board"):
         d = self.tmp / name
-        DiskBoard.create(d, repo=self.repo, table=entry.load_table(), inputs={}, request_text="依頼")
+        DiskBoard.create(d, repo=self.repo, table=entry.load_table("darkfactory"), inputs={}, request_text="依頼")
         return d
 
     def edit_state(self, d, fn):
@@ -573,7 +573,7 @@ class RunCiCase(StartCaseBase):
         (repo / ".review-checks.json").write_text(json.dumps(decl), encoding="utf-8")
         linekit.git(repo, "add", "-A")
         linekit.git(repo, "commit", "-q", "-m", "decl")
-        b, p = DiskBoard.begin(self.tmp / "board", repo=repo, table=entry.load_table(), items=[{"where": "stats.py", "text": "x"}],
+        b, p = DiskBoard.begin(self.tmp / "board", repo=repo, table=entry.load_table("darkfactory"), items=[{"where": "stats.py", "text": "x"}],
                                origin="works/darkfactory", base_rev="", request_text="x", stop_after_round=1)
         self.assertIn("p0.local_checks", p["run_engine"])
         got = entry.run_ci(b, "p0.local_checks", test_cmd="")
@@ -586,7 +586,7 @@ class RunCiCase(StartCaseBase):
     def test_fallback_empty_cmd_role_needed_no_material(self):
         """宣言が無く test_cmd も空 → 任せ先に落ちたまま、偽の素材を渡さず role_needed（裁定 R52）。印も置かない"""
         repo = self.seed()
-        b, p = DiskBoard.begin(self.tmp / "board", repo=repo, table=entry.load_table(), items=[{"where": "stats.py", "text": "x"}],
+        b, p = DiskBoard.begin(self.tmp / "board", repo=repo, table=entry.load_table("darkfactory"), items=[{"where": "stats.py", "text": "x"}],
                                origin="works/darkfactory", base_rev="", request_text="x", stop_after_round=1)
         got = entry.run_ci(b, "p0.local_checks", test_cmd=" ")
         self.assertEqual(got["by"], "role_needed")
@@ -689,7 +689,7 @@ class StartCase(StartCaseBase):
     def test_start_head_line(self):
         repo = self.seed(declared=True)
         got = self.start(repo)
-        absent = len(entry.load_table().absent())
+        absent = len(entry.load_table("darkfactory").absent())
         line = got["head_line"]
         for part in ("判定から", "依頼 2 件", "標準（既定）", "gates: 空", f"このラインに無い節: {absent} 個", "下げている所: 1 個"):
             self.assertIn(part, line)
@@ -843,7 +843,7 @@ class ResumeCase(StartCaseBase):
         repo = self.seed()
         sub = repo / "sub"
         sub.mkdir()
-        b, p = DiskBoard.begin(self.tmp / "board", repo=sub, table=entry.load_table(), items=[{"where": "stats.py", "text": "x"}],
+        b, p = DiskBoard.begin(self.tmp / "board", repo=sub, table=entry.load_table("darkfactory"), items=[{"where": "stats.py", "text": "x"}],
                                origin="works/darkfactory", base_rev="", request_text="x", stop_after_round=1)
         got = entry.run_ci(b, "p0.local_checks", test_cmd="pwd -P")
         self.assertEqual(got["by"], "role")
@@ -1166,7 +1166,7 @@ class TakeRoundTwoCase(unittest.TestCase):
         s = next(s for s in rs if s["kind"] == "accept" and s["node"] == "p2.diagnose"
                  and R.memory_at(rs, s["seq"], "before")["state"]["round"] == 2)
         board_dir, repo = R.restore(rs, s["seq"], "before", self.tmp)
-        table = entry.load_table()
+        table = entry.load_table("darkfactory")
         R.board_from_memory(R.memory_at(rs, s["seq"], "before"), board_dir, table)
         st = json.loads((board_dir / "state.json").read_text(encoding="utf-8"))
         st["works"].update(line=table.line, table_sha=table.sha())

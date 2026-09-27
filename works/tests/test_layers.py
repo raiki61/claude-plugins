@@ -69,10 +69,8 @@ PLANNED_SCRIPTS = frozenset({
 
 # 今ある破れ（減らす方向にだけ変える）。値は structure-survey の V 番号
 KNOWN = {
-    "name entry:load_table 'darkfactory'": "V1",
     "name entry:LINE 'darkfactory'": "V2",
     "name entry:ORIGIN 'works/darkfactory'": "V2",
-    "name prcheck:LINE 'darkfactory'": "V3",
     "up halt -> plan": "V4",
     "name recount:READS 'fixing'": "V5",
     "name refix:READS 'reviewing'": "V6",

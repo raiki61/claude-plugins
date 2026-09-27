@@ -416,7 +416,7 @@ class GoCase(EdgeBase):
             s = next(s for s in rs if s["kind"] == "accept" and s["node"] == "p2.fix_plan"
                      and R.memory_at(rs, s["seq"], "after")["state"]["round"] == 2)
             board_dir, repo = R.restore(rs, s["seq"], "after", self.tmp / "gold")
-            table = entry.load_table()
+            table = entry.load_table("darkfactory")
             R.board_from_memory(R.memory_at(rs, s["seq"], "after"), board_dir, table)
             st = json.loads((board_dir / "state.json").read_text(encoding="utf-8"))
             st["works"].update(line=table.line, table_sha=table.sha())
@@ -503,7 +503,7 @@ class ReadyCase(unittest.TestCase):
         self.addCleanup(env.stop)
 
     def test_line_a_table_has_no_explicit(self):
-        table = entry.load_table()
+        table = entry.load_table("darkfactory")
         self.assertEqual([n for n, e in table.nodes.items() if e.run == "explicit"], [])
 
     def test_ready_keeps_explicit_wall_after_reopen(self):
@@ -526,7 +526,7 @@ class ReadyCase(unittest.TestCase):
 
     def test_ready_empty_while_asking_or_halted(self):
         R = self.R
-        table = entry.load_table()
+        table = entry.load_table("darkfactory")
         rs = R.load_runs("test_human_gate")["1"]
         s = next(s for s in rs if s["kind"] == "builtin" and s["node"] == "p2.human_gate")
         board_dir, _ = R.restore(rs, s["seq"], "after", self.tmp)

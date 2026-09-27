@@ -711,8 +711,8 @@ class DeclaredCase(unittest.TestCase):
         self.assertEqual(rows, [{"node": "p0.parallel_pr",
                                  "what": "担当の PR へ申し送りを投稿しない（下書きを報告の冒頭 1 に載せる）",
                                  "versus": "review-graph は任せ先の役が gh で投稿する"}])
-        self.assertEqual(prcheck.downgrades(), rows)
-        self.assertEqual(prcheck.head_downgrades(), "下げている所: 1 個")
+        self.assertEqual(prcheck.downgrades(LINE), rows)
+        self.assertEqual(prcheck.head_downgrades(LINE), "下げている所: 1 個")
         self.assertIn(rows[0]["node"], GRAPH["nodes"])
 
     def test_downgrades_shape_checked(self):

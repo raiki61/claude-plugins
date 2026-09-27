@@ -40,7 +40,6 @@ import script_io  # noqa: E402
 
 NODE = "p0.parallel_pr"
 ROLE = "pr-check"
-LINE = "darkfactory"
 MARK = "works-node: pr-check no-post"   # node_marker.mark(role_schema(NODE), "pr-check", flags=("no-post",)) と同じ印（Task 2）
 # 本ループのスコープから外す hunk（works だけの欄。写しの schema の conflicts[] は additionalProperties: false で足せないので、
 # 返答の一番上に置き、受け付けが外してから盤面に渡す）。start・end は今の作業ツリーのファイルの行（1 始まり・両端を含む）
@@ -357,7 +356,7 @@ def main_collect() -> int:
 
 
 # ---------------------------------------------------------------- 下げた物の宣言
-def downgrades(line: str = LINE, *, pack: pathlib.Path = PACK) -> list:
+def downgrades(line: str, *, pack: pathlib.Path = PACK) -> list:
     """<pack>/<line>/downgrades.json（[{node, what, versus}]。無ければ []）。形が崩れていれば BoardGap
     （黙って 0 個と数えない）。node は写しの graph の節"""
     p = pathlib.Path(pack) / line / DOWNGRADES
@@ -380,6 +379,6 @@ def downgrades(line: str = LINE, *, pack: pathlib.Path = PACK) -> list:
     return rows
 
 
-def head_downgrades(line: str = LINE, *, pack: pathlib.Path = PACK) -> str:
+def head_downgrades(line: str, *, pack: pathlib.Path = PACK) -> str:
     """報告の頭の行（と start の head_line）の部品「下げている所: K 個」"""
     return f"下げている所: {len(downgrades(line, pack=pack))} 個"
