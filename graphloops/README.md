@@ -26,10 +26,10 @@ engine はループの節名も記録の欄名も持たない。graph が名前�
 
 ### 外の土台の下で回すとき
 
-engine（`loop.py` のどのサブコマンドも）は止める信号（SIGTERM・SIGHUP・SIGINT）を受けると、起こした子の木に SIGTERM を送り、猶予を待ってから残りに SIGKILL を送る。猶予は既定 5 秒で、環境変数 GL_KILL_GRACE（秒。0 以上の有限の数）で選べる。読めない値は engine の起動（import）で誤りになる——黙って 5 秒に戻すと、短くしたつもりの下で孫が警告なしに残る。正本は `engine/role_run.py` の `DEFAULT_KILL_GRACE` と `_grace_from_env`。
+engine（`loop.py` のどのサブコマンドも）は止める信号（SIGTERM・SIGHUP・SIGINT）を受けると、起こした子の木を止める。POSIX では木ごとに SIGTERM を送り、猶予を待ってから残りに SIGKILL を送る（Windows は taskkill /T /F で直ちに止め、猶予は長の回収を待つ上限にしか使わない）。猶予は既定 5 秒で、環境変数 GL_KILL_GRACE（秒。0 以上の有限の数）で選べる。読めない値は engine の起動（import）で誤りになる——黙って 5 秒に戻すと、短くしたつもりの下で孫が警告なしに残る。正本は `engine/role_run.py` の `DEFAULT_KILL_GRACE` と `_grace_from_env`、止める手順の正本は同じファイルの `_stop_tree` と `kill_all`。
 
-- **上限**: engine を子として起こし、取り消すときに SIGTERM の後で SIGKILL を送る土台の下で回すなら、猶予に数え上げ 2 回ぶん（ps を 2 回）を足した値を、その土台の取り消しの猶予より短くせよ。同じか長いと、engine が SIGKILL を送る前に engine 自身が外から SIGKILL で消え、SIGTERM を無視する孫が残る。止める信号の口・試行の終わりの刈り取り・1 つの印の木・`children --stop` の印どうしは、木が何本あっても猶予を 1 回だけ払う（木は同時に止める）。例外は `relaunch`・`stop` が前の試行の印を複数止める回で、印ごとに順に猶予を払う（人が打つ口で、止める信号を受けた時の道ではない）。止める道の ps は猶予で切り、1 度読めなければ以後は ps を起こさずに送るので、ps が固まる回でも SIGKILL は止め始めから猶予の約 2 倍の内に出る——固まる回まで守るなら、猶予を土台の猶予の半分より短くせよ。
-- **下限**: 役（`claude -p`）が SIGTERM で自分の子を止め終える時間より長くせよ。0 は SIGTERM の直後に SIGKILL を送り、止める道の ps も待たない（外へ出た子孫を数えられず、確かめていないと返す）。
+- **上限（保証は無い）**: engine を子として起こし、取り消すときに SIGTERM の後で SIGKILL を送る土台の下で回すなら、猶予をその土台の取り消しの猶予より十分短くせよ。同じか長いと、engine が SIGKILL を送る前に engine 自身が外から SIGKILL で消え、SIGTERM を無視する孫が残る。ただし短くするのは必要だが足りない: GL_KILL_GRACE が縮めるのは待ちの部分だけで、SIGKILL を送り終えるまでの時間は、止める木の本数（木は 1 本ずつ止める）と、木ごとの数え上げ（ps。1 回最大 30 秒で、猶予では縛らない）にも伸びる。外の土台の猶予の内に止め切ることを保証する値は無い（既知の限界。木を同時に止める・ps を縛る直しは別の依頼の候補）。
+- **下限**: 役（`claude -p`）や engine の下で走る実行器が、SIGTERM で自分の子を片付け終える時間より長くせよ。短いと片付けの途中で SIGKILL を受ける。0 は SIGTERM の直後に SIGKILL を送る。
 - **立てる場所**: 土台が engine を起こす環境（`loop.py` のどの呼び出しも継ぐ所）。1 回の呼び出しにだけ立てると、ほかのサブコマンド（`next`・`done`・`relaunch`・`stop`・`children`）は既定のまま止める。
 - **継がれる先**: 値は engine が起こす子へも継がれる。役と任せ先（`claude -p`）は engine を読まないので効かない。このリポジトリのテスト一式（`tests/run.sh`・`graphloops/tests/run.sh`・pytest の `conftest.py`）は外して走る——既定の 5 秒を前提に子を止める検査が、土台の下でだけ崩れないように。
 

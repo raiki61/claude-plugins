@@ -6,7 +6,6 @@ import os
 import pathlib
 import subprocess
 import sys
-import threading
 import time
 
 import pytest
@@ -67,7 +66,7 @@ def test_survey_names_the_instance_and_round_of_each_mark_without_signals(tmp_pa
     for p in (out1, d / "out" / "r2" / "a.json", lane.with_name("x.json.tmp")):
         put(pathlib.Path(role_run.pgid_path(p)), {"pgid": 4242, "owner": 1})
     monkeypatch.setattr(role_run, "_started_at", lambda pid: 100.0)
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: ({}, None))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: ({}, None))
     monkeypatch.setattr(role_run, "_stop_tree", lambda *a, **k: pytest.fail("一覧が信号を送った"))
     rows = {r["mark"]: r for r in children.survey(d)}
     assert {k: (r["round"], r["instance"]) for k, r in rows.items()} == {
@@ -87,7 +86,7 @@ def test_stop_by_default_only_stops_marks_whose_launch_is_gone(tmp_path, monkeyp
     past = time.time() - 60
     os.utime(m, (past, past))
     monkeypatch.setattr(role_run, "_started_at", lambda pid: {4242: past - 1, os.getpid(): past - 10}.get(pid, role_run.GONE))
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: ({}, None))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: ({}, None))
     stopped = []
     monkeypatch.setattr(role_run, "stop_group", lambda f: stopped.append(str(f)))
     rows = children.stop(d, "検査")
@@ -139,7 +138,7 @@ def test_stop_touches_only_marks_under_its_own_board(tmp_path, monkeypatch):
     put(a / "out" / "r1" / "x.json.pgid", {"pgid": 11, "owner": 777})
     other = put(b / "out" / "r1" / "x.json.pgid", {"pgid": 22, "owner": 777})
     monkeypatch.setattr(role_run, "_started_at", lambda pid: role_run.GONE if pid == 777 else 1.0)
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: ({}, None))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: ({}, None))
     stopped = []
     monkeypatch.setattr(role_run, "stop_group", lambda f: stopped.append(pathlib.Path(f)))
     children.stop(a, "検査")
@@ -153,28 +152,10 @@ def test_stop_leaves_marks_of_pending_instances_to_relaunch_and_stop(tmp_path, m
     board(tmp_path, [{"round": 1, "instances": {"a": {"id": "a", "status": "pending", "out_path": str(out)}}}])
     put(pathlib.Path(role_run.pgid_path(out)), {"pgid": 11, "owner": 777})
     monkeypatch.setattr(role_run, "_started_at", lambda pid: role_run.GONE if pid == 777 else 1.0)
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: ({}, None))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: ({}, None))
     stopped = []
     monkeypatch.setattr(role_run, "stop_group", lambda f: stopped.append(f))
     rows = children.stop(d, "検査")
     assert rows[0]["state"] == children.LEFT and rows[0]["result"] == "skipped" and stopped == []
     assert children.stop(d, "検査", include_running=True)[0]["result"] == "stopped"
 
-
-def test_stop_stops_the_trees_of_every_mark_at_once(tmp_path, monkeypatch):
-    """止め残しの印が複数あれば、印ごとの木も同時に止める——1 本ずつ待つと所要時間が猶予×印の数に伸びる。直列に戻ると
-    揃わない Barrier で見る（時間切れを付けて、固まらずに赤で言う）。止め切れなかった印は行ごとに left と理由を持つ"""
-    d = board(tmp_path)
-    for name, pgid in (("a", 11), ("b", 22)):
-        put(d / "out" / "r1" / f"{name}.json.pgid", {"pgid": pgid, "owner": 777})
-    monkeypatch.setattr(role_run, "_started_at", lambda pid: role_run.GONE if pid == 777 else 1.0)
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: ({}, None))
-    gate = threading.Barrier(2, timeout=10)
-
-    def stop_group(f):
-        gate.wait()   # 直列なら 1 本目がここで BrokenBarrierError になり、stop から上がる
-        return "検査用の止め切れない理由" if pathlib.Path(f).name == "b.json.pgid" else None
-    monkeypatch.setattr(role_run, "stop_group", stop_group)
-    rows = {pathlib.Path(r["mark"]).name: r for r in children.stop(d, "検査")}
-    assert rows["a.json.pgid"]["result"] == "stopped"
-    assert rows["b.json.pgid"]["result"] == "left" and rows["b.json.pgid"]["stop_why"] == "検査用の止め切れない理由"

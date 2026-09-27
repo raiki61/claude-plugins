@@ -6,7 +6,6 @@ import os
 import pathlib
 import subprocess
 import sys
-import threading
 import types
 
 import pytest
@@ -30,7 +29,7 @@ def test_run_tree_kills_the_tree_when_waiting_breaks(tmp_path, monkeypatch):
             raise KeyboardInterrupt
 
     monkeypatch.setattr(role_run.subprocess, "Popen", Broken)
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: (None, "検査では数えない"))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (None, "検査では数えない"))
     try:
         with pytest.raises(KeyboardInterrupt):
             role_run.run_tree([sys.executable, "-c", "import time; time.sleep(120)"], cwd=tmp_path, timeout=None)
@@ -108,7 +107,7 @@ def posix(monkeypatch, members, sent, eperm=False):
                 raise PermissionError(1, "Operation not permitted")
         return f
     monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix", killpg=send("pg"), kill=send("pid")))
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: (members(sent), None))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (members(sent), None))
     monkeypatch.setattr(role_run, "STOP_SIGNALS", (15, 9))
     monkeypatch.setattr(role_run, "KILL_GRACE", 0.3)
     monkeypatch.setattr(role_run, "_probe", lambda f: ([(4242, 100.0)], None))
@@ -244,7 +243,7 @@ def test_stop_group_posix_unreadable_table_is_not_stopped(tmp_path, monkeypatch)
     m = mark(tmp_path)
     sent = []
     posix(monkeypatch, lambda s: {}, sent)
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: (None, "ps が無い"))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: (None, "ps が無い"))
     why = role_run.stop_group(str(m))
     assert why.startswith("止める相手を数え上げられない（ps が無い）") and ("pg", 4242, 15) in sent and m.exists()
 
@@ -286,7 +285,7 @@ def test_stop_tree_uses_the_reuse_mark_only_after_the_leader_is_reaped(monkeypat
     """回収していない長の番号は再利用されないので、born（起こした時刻）で見分けない。回収した後だけ gl_born を渡す"""
     seen = []
     posix(monkeypatch, lambda s: {}, [])
-    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None, ps_timeout=None: seen.append(born) or ({}, None))
+    monkeypatch.setattr(role_run, "_tree_members", lambda pgid, known=None, born=None: seen.append(born) or ({}, None))
     assert role_run._stop_tree(4242, leader=Leader(returncode)) is None and seen == [want]
 
 
@@ -343,7 +342,7 @@ def members_of(monkeypatch, rows, sessions, me=100):
         if isinstance(v, BaseException):
             raise v
         return v
-    monkeypatch.setattr(role_run, "_ps_all", lambda timeout=None: ({r.pid: r for r in rows}, None))
+    monkeypatch.setattr(role_run, "_ps_all", lambda: ({r.pid: r for r in rows}, None))
     monkeypatch.setattr(role_run, "os", types.SimpleNamespace(name="posix", getsid=getsid, getpid=lambda: me, getuid=lambda: 501))
     return lambda pgid, known=None, born=None: role_run._tree_members(pgid, known, born)
 
@@ -400,87 +399,6 @@ def test_kill_all_says_which_tree_it_could_not_stop(monkeypatch, capsys):
     monkeypatch.setattr(role_run, "_kill", lambda p: "検査用の止め切れない理由")
     role_run.kill_all()
     assert "NG 子の木を止め切れない（pid 4242）: 検査用の止め切れない理由" in capsys.readouterr().err
-
-
-def test_stop_tree_bounds_the_count_by_the_grace(monkeypatch):
-    """木を止める道の数え上げ（ps）は猶予で縛る——ps が固まっても、SIGKILL を外の土台の猶予の内に届かせる。
-    ほかの道（children の一覧）は今までどおり PS_TIMEOUT"""
-    seen = []
-    posix(monkeypatch, lambda s: {}, [])
-    monkeypatch.setattr(role_run, "_tree_members",
-                        lambda pgid, known=None, born=None, ps_timeout=None: seen.append(ps_timeout) or ({}, None))
-    assert role_run._stop_tree(4242) is None and seen == [0.3]
-    got = ps_answer(monkeypatch, "")
-    role_run._ps_all(0.3)
-    assert got["timeout"] == 0.3
-
-
-def test_stop_tree_after_an_unreadable_table_signals_without_ps(monkeypatch):
-    """1 度でも表を読めなければ、以後の回は ps を起こさずに直ちに送る。送り先はグループと、前の回に数えて消えたのを
-    見ていない仲間（グループの外へ出た子孫も SIGKILL を受ける）。確かめていないので、止まったとは言わない"""
-    sent, calls = [], []
-    tree = {4242: proc(4242), 6000: proc(6000, pgid=7777)}
-    posix(monkeypatch, lambda s: tree, sent)
-
-    def members(pgid, known=None, born=None, ps_timeout=None):
-        calls.append(pgid)
-        return (tree, None) if len(calls) == 1 else (None, "ps が答えない")
-    monkeypatch.setattr(role_run, "_tree_members", members)
-    why = role_run._stop_tree(4242)
-    assert why.startswith("止める相手を数え上げられない（ps が答えない）") and len(calls) == 2
-    assert sent == [("pg", 4242, 15), ("pid", 6000, 15), ("pid", 4242, 9), ("pid", 6000, 9), ("pg", 4242, 9)]
-
-
-def test_kill_all_stops_every_tree_at_once(monkeypatch, capsys):
-    """止める信号の後、生きている木を全部同時に止め始める——1 本ずつ待つと所要時間が猶予×本数に伸び、外の土台の猶予を
-    超えて engine が先に消え、後ろの木が残る。直列に戻ると揃わない Barrier で見る（時間切れを付けて、固まらずに赤で言う）"""
-    class Fake:
-        def __init__(self, pid):
-            self.pid = pid
-    live = [Fake(4242), Fake(4243), Fake(4244)]
-    gate = threading.Barrier(len(live), timeout=10)
-
-    def kill(p):
-        gate.wait()   # 直列なら 1 本目がここで BrokenBarrierError になり、kill_all から上がる
-        return "検査用の止め切れない理由" if p.pid == 4243 else None
-    monkeypatch.setattr(role_run, "LIVE", set(live))
-    monkeypatch.setattr(role_run, "_kill", kill)
-    role_run.kill_all()
-    err = capsys.readouterr().err
-    assert err.count("NG 子の木を止め切れない（pid 4243）: 検査用の止め切れない理由") == 1 and "4242" not in err
-
-
-def test_reap_and_stop_group_stop_their_trees_at_once(tmp_path, monkeypatch):
-    """試行の終わりの刈り取り（_reap）と別のプロセスから止める口（stop_group）も、木を同時に止める。止め切れなかった木は
-    入力の順で返り（_end_attempt が {left: [...]} に書き直す）、stop_group は印を残して理由を返す"""
-    trees = [(4242, 100.0), (4243, 101.0)]
-    gate = threading.Barrier(len(trees), timeout=10)
-
-    def stop(pid, leader=None, born=None):
-        gate.wait()
-        return f"{pid} が残った" if pid == 4243 else None
-    monkeypatch.setattr(role_run, "_reap_one", stop)
-    assert role_run._reap(trees) == [(4243, 101.0)]
-    gate.reset()
-    m = mark(tmp_path)
-    monkeypatch.setattr(role_run, "_probe", lambda f: (trees, None))
-    monkeypatch.setattr(role_run, "_stop_tree", stop)
-    assert role_run.stop_group(str(m)) == "4243 が残った" and m.exists()
-
-
-def test_at_once_waits_for_every_tree_then_raises_the_first_error():
-    """同時に止める途中で 1 本が例外で抜けても、兄弟を待ってから例外を上げる（止めている途中の木を見捨てない）"""
-    done = []
-
-    def stop(x):
-        if x == 1:
-            raise OSError("数え上げが落ちた")
-        done.append(x)
-        return x
-    with pytest.raises(OSError, match="数え上げが落ちた"):
-        role_run._at_once(stop, [0, 1, 2])
-    assert sorted(done) == [0, 2]
-    assert role_run._at_once(stop, [0, 2]) == [0, 2] and role_run._at_once(stop, []) == []
 
 
 @pytest.mark.parametrize("raw,want", [(None, 5), ("", 5), (" ", 5), ("2", 2.0), ("0.5", 0.5), ("0", 0.0)])

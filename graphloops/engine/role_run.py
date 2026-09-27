@@ -42,8 +42,7 @@ RESUME_NOTE = ("受け付けの検査がこの返答を拒んだ。理由:\n{why
                "理由が返答の形（JSON として読めない・型に合わない）なら、判定も中身も変えずに形だけ直せ。"
                "理由が中身の整合（記録の整合・項目の過不足など）なら、理由が指す所だけを直せ。"
                "どちらも、最初の指示が求めた形の返答だけを出し直せ（前後に文を付けない）。")
-# 止める信号の間の猶予（秒）の既定。5 は初出の f0b59f7 から変えていない値で、claude -p が SIGTERM で自分の子（Bash の木）を
-# 止め終える幅として置いた。外の土台の下で回すときは GL_KILL_GRACE で選ぶ（_grace_from_env）
+# 止める信号の間の猶予（秒）の既定。claude -p が SIGTERM で自分の子（Bash の木）を止め終える幅として置いた
 DEFAULT_KILL_GRACE = 5
 GRACE_ENV = "GL_KILL_GRACE"
 
@@ -222,40 +221,13 @@ def delegate_settings(protected):
         "filesystem": {"allowWrite": ["/"], "denyWrite": list(protected)}}}, sort_keys=True, separators=(",", ":"))
 
 
-def _at_once(stop, items):
-    """items の各々に stop を**同時に**当て、返り値を items の順で返す。木を止める直列の繰り返し（kill_all・_reap・
-    stop_group）はどれもこれを通す——1 本ずつ待つと、止める信号の後の所要時間が猶予×木の本数に伸び、外の土台の猶予を
-    超えて engine が先に SIGKILL で消え、後ろの木が丸ごと残る（全部へ先に送って猶予を 1 回だけ払うのは systemd.kill(5) と
-    tests/mutate.py の stop_groups と同じ形）。1 本の木の中の順番（数え上げ→送る→数え直し）は stop（_stop_tree）が持ち、
-    ここは変えない。どれかが例外で抜けたら、全部を待ってから最初の例外を上げる（止めている途中の兄弟を見捨てない）"""
-    items = list(items)
-    if len(items) < 2:
-        return [stop(x) for x in items]
-    got = [None] * len(items)
-    errs = []
-
-    def one(i, x):
-        try:
-            got[i] = stop(x)
-        except BaseException as e:   # 信号の口から起きた回も含め、例外は呼び元のスレッドで上げ直す
-            errs.append(e)
-    threads = [threading.Thread(target=one, args=(i, x), name=f"gl-stop-{i}") for i, x in enumerate(items)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    if errs:
-        raise errs[0]
-    return got
-
-
 def kill_all():
     """生きている子を全部木ごと止める（loop.py が SIGTERM・SIGHUP・SIGINT を受けたとき。install_stop_handlers）。
-    木は同時に止める（_at_once）。止め切れなかった木は理由を標準エラーに出す（黙って止めたことにしない）"""
+    止め切れなかった木は理由を標準エラーに出す（黙って止めたことにしない）"""
     with _LIVE_LOCK:
         live = list(LIVE)
-    whys = _at_once(_kill, live)
-    for p, why in zip(live, whys):
+    for p in live:
+        why = _kill(p)
         if why:
             print(f"NG 子の木を止め切れない（pid {p.pid}）: {why}", file=sys.stderr)
 
@@ -321,17 +293,14 @@ UNSURE = "セッションの番号を読めないプロセスが在り、木の�
 _Proc = collections.namedtuple("_Proc", "pid ppid pgid uid started stat")   # ps の 1 行（started は開始時刻のエポック秒）
 
 
-PS_TIMEOUT = 30   # ps を待つ上限（秒。同じファイルの ps・git と同じ値）。木を止める道では猶予でさらに縛る（_stop_tree）
-
-
-def _ps_all(timeout=PS_TIMEOUT):
+def _ps_all():
     """全プロセスの表 ——({pid: _Proc}, None)。読めなければ (None, 理由)。_started_at と同じ ps（依存を足さない）。
     開始時刻は ps を起こす**前**の時刻から etime を引く——後の時刻から引くと ps の遅れが開始時刻に乗り、番号の再利用の
     見分け（REUSE_SLACK）を誤って真にする"""
     now = time.time()
     try:
         r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,uid=,etime=,stat="], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+                           encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError) as e:
         return None, f"ps を起こせない（{e}）"
     rows = {}
@@ -346,7 +315,7 @@ def _ps_all(timeout=PS_TIMEOUT):
     return rows, None
 
 
-def _tree_members(pgid, known=None, born=None, ps_timeout=PS_TIMEOUT):
+def _tree_members(pgid, known=None, born=None):
     """試行の木の仲間を数え上げる ——({pid: _Proc}, 理由)。表が読めなければ (None, 理由)。
 
     プロセスグループは子孫が抜けられる（ジョブ制御つきのシェルは背景の仕事を setpgid で自分のグループへ移し、setsid は
@@ -364,7 +333,7 @@ def _tree_members(pgid, known=None, born=None, ps_timeout=PS_TIMEOUT):
     **拾えない物**: 信号より前に親が消えて鎖が切れ、かつ setsid でセッションも抜けた子孫（二重 fork の daemon 化・
     外から SIGKILL された実行器が残した自前のセッションの子）。
     セッションの番号を読めない同じ利用者のプロセスが在れば、仲間かどうかを決められないので理由を返す（止まったと言わない）"""
-    rows, why = _ps_all(ps_timeout)
+    rows, why = _ps_all()
     if rows is None:
         return None, why
     uid, sessions, unreadable = os.getuid(), {}, []
@@ -430,9 +399,7 @@ def _stop_tree(pgid, leader=None, born=None):
     子孫が抜けられるので、グループが消えたことは木が消えたことにならない。
     生きた仲間に送った信号が EPERM で拒まれ、数え直しても同じ相手に生きた仲間が居れば、待たずに『信号を送れない』を返す
     （sandbox の中から別のグループへの信号）。
-    表が読めない回は止める番号のグループと、前の回に数えて消えたのを見ていない仲間へ送り、以後の回は ps を起こさない。
-    外へ出た子孫を確かめられないと返す（止まったと言わない）。数え上げの ps は猶予（KILL_GRACE）で切るので、ps が固まっても
-    SIGKILL は止め始めから猶予の約 2 倍の内に出る（外の土台の取り消しの猶予の内に届かせる）。
+    表が読めない回は止める番号のグループへだけ送り、外へ出た子孫を確かめられないと返す（止まったと言わない）。
     長の Popen（leader）を持つなら待つ間に回収する。born は長の番号の再利用の目印で、長を回収した後（か長を持たない
     stop_group）にだけ効かせる——回収していない子の番号は再利用されない。
     Windows はグループへの信号が無いので taskkill /T /F（親子の鎖で木を辿る。根の長が居ないと辿れないので、長が
@@ -462,25 +429,14 @@ def _stop_tree(pgid, leader=None, born=None):
     def count():
         if leader is not None:
             leader.poll()
-        # 数え上げの ps も猶予で縛る——ps が固まっても SIGKILL を止め始めから猶予の約 2 倍の内に送る（外の土台の猶予の内に届かせる）
-        return _tree_members(pgid, known, born if leader is None or leader.returncode is not None else None,
-                             ps_timeout=min(PS_TIMEOUT, KILL_GRACE))
+        return _tree_members(pgid, known, born if leader is None or leader.returncode is not None else None)
 
-    known, blind, pending = {}, None, set()   # blind: 表を読めなかった理由（以後の回は ps を起こさない）
+    known = {}
     for sig in (*STOP_SIGNALS, None):   # None の回は送らずに数え直して判定だけ
-        if blind is None:
-            members, why = count()
-            if members is None:
-                blind = why
-        if blind is not None:
-            why = blind
+        members, why = count()
+        if members is None:
             if sig is None:
                 return f"止める相手を数え上げられない（{why}）——グループ {pgid} の外へ出た子孫を確かめていない"
-            for pid in sorted(pending):   # 前の回に数えて、待ち終えても消えたのを見ていない仲間（グループの外へ出た子孫も）
-                try:
-                    os.kill(pid, sig)
-                except OSError:
-                    pass   # 間に消えた・送れない（数え直せないので、下で確かめていないと返す）
             try:
                 os.killpg(pgid, sig)
             except ProcessLookupError:
@@ -513,7 +469,6 @@ def _stop_tree(pgid, leader=None, born=None):
                 if still is None or any((m.pgid if kind == "pg" else pid) == target for pid, m in still.items()):
                     return f"{label} に信号を送れない（{e}）"
         wait(lambda: not any(_answers(os.kill, pid) for pid in live))
-        pending = {pid for pid in live if _answers(os.kill, pid)}
     return None   # 届かない（最後の回は必ず返す）
 
 
@@ -589,8 +544,7 @@ def _reap(trees):
     [(pid, born)]（空なら止まった・居なかった）。長はもう回収してあるので、番号の再利用は起こした時刻（born）で見分ける。
     セッションを読めないプロセスが居るだけの理由（UNSURE）は止め切れなかったとは数えない——正常に終わった試行の印を、
     それだけで残し続けない"""
-    whys = _at_once(lambda t: _reap_one(t[0], born=t[1]), trees)
-    return [t for t, why in zip(trees, whys) if why]
+    return [(pid, born) for pid, born in trees if _reap_one(pid, born=born)]
 
 
 def _reap_one(pid, leader=None, born=None):
@@ -775,7 +729,7 @@ def stop_group(pgid_file):
     trees, why = _probe(pgid_file)
     if why or not trees:
         return why
-    whys = [w for w in _at_once(lambda t: _stop_tree(t[0], born=t[1]), trees) if w]
+    whys = [w for w in (_stop_tree(pgid, born=born) for pgid, born in trees) if w]
     if not whys:
         pathlib.Path(pgid_file).unlink(missing_ok=True)
     return "; ".join(whys) or None
