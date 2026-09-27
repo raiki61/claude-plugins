@@ -94,6 +94,14 @@ def under_engine_run(step):
     return p is not None and p["kind"] == "engine_run"
 
 
+def strip_pointers(mem):
+    """記憶の instance から engine が出す時に固めた番号の控え（pointers）を外す（盤面が起こした印の時に固めるかを見る。
+    記憶から組んだ盤面は engine の instance の控えをそのまま持つので）"""
+    for rd in mem["state"]["rounds"]:
+        for inst in rd["instances"].values():
+            inst.pop("pointers", None)
+
+
 def run_step(scenario, run, seq):
     rs = R.load_runs(scenario)[str(run)]
     return next(s for s in rs if s["seq"] == seq)
@@ -148,12 +156,26 @@ class StepCase(unittest.TestCase):
 
 class AcceptStepsCase(StepCase):
     def test_accept_steps(self):
-        """kind=accept の通った手の全部: 戻す → 記憶から組む → accept → 手の後と同じ（NOT_REPRODUCED を除く）"""
-        done, bad, named, nested = 0, [], 0, 0
+        """kind=accept の通った手の全部: 戻す → 記憶から組む → accept → 手の後と同じ（NOT_REPRODUCED を除く）。
+        返答は台本のまま（番号で書いた欄も盤面が控えで名前に戻す）。控えは engine の instance の物を外して盤面の起こした印で固め直し、
+        engine が出す時に固めた控えと同じか"""
+        done, bad, named, nested, snaps = 0, [], 0, 0, 0
         for s in accept_steps():
-            b = self.board_before(s)
-            out = R.reply(s, b)
-            named += out != R.reply(s, b, names=False)
+            engine_snap = {}
+
+            def keep_and_strip(mem, s=s, engine_snap=engine_snap):
+                inst = mem["state"]["rounds"][-1]["instances"].get(s["node"]) or {}
+                if "pointers" in inst:
+                    engine_snap["pointers"] = inst["pointers"]
+                strip_pointers(mem)
+            b = self.board_before(s, edit=keep_and_strip)
+            out = R.reply(s, b, names=False)
+            named += out != R.reply(s, b)
+            inst = b.rd["instances"].get(s["node"]) or {}
+            if engine_snap and inst.get("launched_at"):
+                snaps += 1
+                if R.Places.of_board(b.dir).tokenize(inst.get("pointers")) != engine_snap["pointers"]:
+                    bad.append(f"{s.run_steps.scenario} run {s['run']} seq {s['seq']} {s['node']}: 番号の控えが engine と違う")
             if under_engine_run(s):
                 # engine_run の中の受け付け: ラインの accept は任せ先に落ちる前の engine_run の節を拒むので、run_engine の中の口で当てる
                 b._accept_engine_reply(s["node"], out)
@@ -166,12 +188,14 @@ class AcceptStepsCase(StepCase):
                 bad.append(f"{s.run_steps.scenario} run {s['run']} seq {s['seq']} {s['node']}: " + " / ".join(diffs[:5]))
             shutil.rmtree(b.dir.parents[3], ignore_errors=True)
         print(f"\n手本の accept の手: {done} 手を当て、{done - len(bad)} 手が手の後と同じ"
-              f"（うち {named} 手は台本の役が番号で書いた欄を instance の控えで名前に直して当てた。"
+              f"（うち {named} 手は台本の役が番号で書いた欄を、盤面が起こした印の時に固めた控えで名前に戻した。"
+              f"{snaps} 手で控えが engine と同じ。"
               f"{nested} 手は engine_run の中の受け付けで _accept_engine_reply に当てた）", file=sys.stderr)
         self.assertGreater(done, 800)
         self.assertEqual(bad, [], "\n".join(bad[:20]))
         self.assertEqual(named, 1)   # 台本の役が番号で書いた手（p2.plan_review）。撮り直しで増えたら黙って通さない
         self.assertEqual(nested, 71)
+        self.assertEqual(snaps, 179)   # 番号で指す節の受け付けの手。撮り直しで印を置かなくなったら黙って通さない
 
     def test_accept_reject_leaves_board(self):
         """拒まれた accept の手: accept が Reject、文が手本の文と同じ、盤面の置き場の全部のファイルが前のまま。
@@ -224,10 +248,30 @@ class AcceptStepsCase(StepCase):
         self.assertEqual(str(cm.exception), want)
         self.assertEqual(tree_shas(b.dir), before)
 
-    def test_pointer_integer_rejected(self):
-        """p2.fix_plan の plan[].unit_keys を番号で書いた返答は、一覧を固めた控えが無いので engine の番号の文で拒む（仕様 BL17）"""
+    def test_pointer_integer_resolved_like_engine(self):
+        """台本の役が番号で書いた手（test_human_gate run 2 の p2.plan_review。faces[].unit_keys を番号で）: 起こした印の時に固めた控えが
+        engine の instance の控えと同じで、番号のままの返答を受けると手の後が engine と同じ（仕様 BL17・裁定 R38）。名前で書いた返答も通る"""
+        s = run_step("test_human_gate", 2, 206)
+        want = R.memory_at(s.run_steps, s["seq"], "before")["state"]["rounds"][-1]["instances"]["p2.plan_review"]["pointers"]
+        for names in (False, True):
+            with self.subTest(names=names):
+                b = self.board_before(s, edit=strip_pointers)
+                inst = b.rd["instances"]["p2.plan_review"]
+                self.assertEqual(R.Places.of_board(b.dir).tokenize(inst.get("pointers")), want)
+                out = R.reply(s, b, names=names)
+                self.assertEqual(out != R.reply(s, b, names=True), not names)   # 番号のままの返答か
+                b.accept("p2.plan_review", out)
+                self.assertEqual(R.compare(b, s), [])
+
+    def test_pointer_integer_without_snapshot_rejected(self):
+        """控えの無い instance（この変更の前に起こした役・古い盤面）への番号は、engine の番号の文で拒む（黙って通さない）。盤面は書かない"""
         s = first_step("test_converges", "p2.fix_plan")
-        b = self.board_before(s)
+        b = self.board_before(s, edit=strip_pointers)
+        inst = b.rd["instances"]["p2.fix_plan"]
+        self.assertIn("pointers", inst)   # 起こした印の時に固めた
+        del inst["pointers"]
+        b.save()
+        b = DiskBoard.open(b.dir, table=TABLE, repo=R.Places.of_board(b.dir).repo)
         out = R.reply(s, b)
         out["plan"][0]["unit_keys"] = [1]
         errs = engine_pointers.resolve(copy.deepcopy(out), GRAPH["nodes"]["p2.fix_plan"]["pointers"], None)
@@ -237,6 +281,77 @@ class AcceptStepsCase(StepCase):
             b.accept("p2.fix_plan", out)
         self.assertEqual(str(cm.exception), "p2.fix_plan: " + "; ".join(errs))
         self.assertEqual(tree_shas(b.dir), before)
+
+    def test_pointer_snapshot_fixed_at_launch(self):
+        """控えは起こした印の時の一覧を固める: 印の後に一覧（record.units）の並びが変わっても、番号は印の時の項目を指す。
+        同じ試行への二度目の印は控えを作り直さない"""
+        s = first_step("test_converges", "p2.fix_plan")
+        b = self.board_before(s, edit=strip_pointers)
+        named = R.reply(s, b)
+        keys = [u["key"] for u in b.record["units"]]
+        self.assertGreater(len(set(keys)), 1)
+        snap = copy.deepcopy(b.rd["instances"]["p2.fix_plan"]["pointers"])
+        self.assertEqual(snap, [{"at": "plan[].unit_keys[]", "names": keys}])
+        b.record["units"].reverse()
+        self.assertTrue(b.mark_launched("p2.fix_plan", 1)["already"])
+        self.assertTrue(b.mark_launched("p2.fix_plan", 1, pointers=snap)["already"])
+        with self.assertRaises(Reject):   # 起こした後に別の一覧で描き直した（起こした役のプロンプトと番号が合わない）
+            b.mark_launched("p2.fix_plan", 1, pointers=b.pointer_rows("p2.fix_plan")["pointers"])
+        self.assertEqual(b.rd["instances"]["p2.fix_plan"]["pointers"], snap)
+        out = copy.deepcopy(named)
+        for p in out["plan"]:
+            p["unit_keys"] = [keys.index(k) + 1 for k in p["unit_keys"]]
+        self.assertNotEqual(out, named)
+        b.accept("p2.fix_plan", out)
+        got = json.loads((b.dir / "out" / f"r{b.round}" / "p2.fix_plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(got["plan"], named["plan"])
+
+    def test_pointer_rows_number_like_engine(self):
+        """pointer_rows: ラインが貼る一覧の行（engine の pointers.number と同じ no）と、印に渡す控え（engine の出す時の控えと同じ）"""
+        s = first_step("test_converges", "p2.fix_plan")
+        want = R.memory_at(s.run_steps, s["seq"], "before")["state"]["rounds"][-1]["instances"]["p2.fix_plan"]["pointers"]
+        b = self.board_before(s, edit=strip_pointers, mark=False)
+        got = b.pointer_rows("p2.fix_plan")
+        self.assertEqual(R.Places.of_board(b.dir).tokenize(got["pointers"]), want)
+        self.assertEqual(got["rows"], {"record.units": engine_pointers.number(b.record["units"], 0)})
+        self.assertEqual([r["no"] for r in got["rows"]["record.units"]], list(range(1, len(b.record["units"]) + 1)))
+        self.assertEqual(b.pointer_rows("p0.base"), {"pointers": None, "rows": {}})   # 番号で指さない節
+        with self.assertRaises(BoardGap):
+            b.pointer_rows("p9.none")
+
+    def test_pointer_mark_rejects_list_changed_after_draw(self):
+        """描いた後・印の前に一覧が変わったら、mark_launched は Reject（描き直せ）で盤面を書かない。描き直せば印が置け、控えは描いた一覧"""
+        s = first_step("test_converges", "p2.fix_plan")
+        b = self.board_before(s, edit=strip_pointers, mark=False)
+        drawn = b.pointer_rows("p2.fix_plan")["pointers"]
+        b.record["units"].reverse()
+        before = tree_shas(b.dir)
+        with self.assertRaises(Reject) as cm:
+            b.mark_launched("p2.fix_plan", 1, pointers=drawn)
+        self.assertIn("描き直して", str(cm.exception))
+        self.assertEqual(tree_shas(b.dir), before)
+        self.assertNotIn("launched_at", b.rd["instances"]["p2.fix_plan"])
+        redrawn = b.pointer_rows("p2.fix_plan")["pointers"]
+        self.assertNotEqual(redrawn, drawn)
+        self.assertFalse(b.mark_launched("p2.fix_plan", 1, pointers=redrawn)["already"])
+        self.assertEqual(b.rd["instances"]["p2.fix_plan"]["pointers"], redrawn)
+
+    def test_pointer_mark_without_drawn_list(self):
+        """描いた一覧を渡さない印は控えを持たない（番号は受け付けで engine の文で拒む）。番号で指さない節に一覧を渡すのは配線の誤り"""
+        s = first_step("test_converges", "p2.fix_plan")
+        b = self.board_before(s, edit=strip_pointers, mark=False)
+        b.mark_launched("p2.fix_plan", 1)
+        self.assertNotIn("pointers", b.rd["instances"]["p2.fix_plan"])
+        out = R.reply(s, b)
+        out["plan"][0]["unit_keys"] = [1]
+        errs = engine_pointers.resolve(copy.deepcopy(out), GRAPH["nodes"]["p2.fix_plan"]["pointers"], None)
+        with self.assertRaises(Reject) as cm:
+            b.accept("p2.fix_plan", out)
+        self.assertEqual(str(cm.exception), "p2.fix_plan: " + "; ".join(errs))
+        s = first_step("test_converges", "p0.base")
+        b = self.board_before(s, mark=False)
+        with self.assertRaises(BoardGap):
+            b.mark_launched("p0.base", 1, pointers=[])
 
     def test_instance_done_and_output_link(self):
         s = first_step("test_converges", "p0.base")

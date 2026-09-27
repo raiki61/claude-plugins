@@ -15,9 +15,10 @@
    節を通して p0.local_checks を待つので、p0.parallel_pr を engine_run にした表では 2 回目に出る）。run_engine が
    {ok: False, relaunch: True} を返したら（宣言が計画の後に変わった）呼び直す
 2. 役を起こす前に毎回 b.mark_launched(節, 試行) を呼ぶ（試行は待っている instance の attempts）。返りの out_path の試行を起こす
-   （印 → 起こす。engine の launch と同じ順）。Reject（描き直された）なら今の試行で描き直してから呼び直す。印の無い instance の
-   done は BoardGap。Progress.ready に在って run_engine に無い engine_run の節（任せ先に落ちた節）も、表の fallback の持ち主が
-   同じく印を置いてから done で渡す
+   （印 → 起こす。engine の launch と同じ順）。番号で指す節は描く時に b.pointer_rows(節) の rows を貼り、その pointers を
+   mark_launched(節, 試行, pointers=…) に渡す（一覧が描いた後に変わっていれば Reject——描き直す）。Reject（描き直された）なら
+   今の試行で描き直してから呼び直す。印の無い instance の done は BoardGap。Progress.ready に在って run_engine に無い
+   engine_run の節（任せ先に落ちた節）も、表の fallback の持ち主が同じく印を置いてから done で渡す
 3. 同じ役の会話を続ける節（graph の same_context_as）は b.context_of(節) の continue_of の役の会話を Archon の側で続ける。
    continue_of が None なら新しい会話で起こし、そのことを報告に出す（engine の context_lost と同じ）
 4. 役の定義がこの環境に無い（Archon の役の定義が引けない）時は、盤面は知らないので、ラインが起こした形と定義が無かった事実を
@@ -36,6 +37,7 @@ import contextlib
 import dataclasses
 import datetime
 import hashlib
+import io
 import json
 import os
 import pathlib
@@ -638,10 +640,13 @@ class DiskBoard(_EngineBoard):
         settle が P1 の役の節を engine と同じ理由の na にする）。1 周の run（線 A）は stop_after_round=1。
         - p0.base は engine と同じく settle が出した instance に起こした印を置いてから受ける（machine の節。表で machine でなければ
           作る前に BoardGap）
-        - 冪等: 置き場に盤面が既に在れば作らずに開き、記録の最初の依頼のバッチの findings が items と同じ（sha256）なら、済んでいない
-          所（依頼・p0.base）だけを続けて settle して返す。違う依頼・違う表（state.works.table_sha）で作った盤面は BoardGap。
-          依頼の形の誤りなどで途中で止まった begin は置き場を残す（engine の init と add と同じ）ので、直して呼び直せば続きから
-        - 入口の拒み（入力の誤り・止める周・依頼の形・base_rev が引けない）は create・RL の add・base_output の Reject と BoardGap
+        - 冪等: 置き場に盤面が既に在れば作らずに開き、同じ run の呼び直し——記録の最初の依頼のバッチの findings が items と同じ
+          （sha256）・表が同じ（state.works.table_sha）・repo・base_rev・request_text・stop_after_round・max_rounds・inputs が作った時
+          （state.works.begin）と同じ——なら、済んでいない所（依頼・p0.base）だけを続けて settle して返す。どれかが違えば BoardGap
+          （盤面は書かない）。依頼の形の誤りなどで途中で止まった begin は置き場を残す（engine の init と add と同じ）ので、直して
+          呼び直せば続きから
+        - 入口の拒み（入力の誤り・止める周・base_rev が引けない）は create・base_output の Reject と BoardGap で、置き場を残さない。
+          依頼の形の誤りは RL の add の Reject（置き場は残る。上）
         返りの後にラインがすること（仕様 5 節と、この module の頭の「ラインの約束」）: Progress.run_engine の節を全部 run_engine し、
         settle する、を run_engine が空になるまで繰り返す（begin の返りでは版はまだ固まっていない——p1.worktree_before は spec の節を
         通して p0.local_checks を待つ）。任せ先に落ちた節は表の fallback の持ち主が mark_launched → done で渡す"""
@@ -652,14 +657,34 @@ class DiskBoard(_EngineBoard):
             raise BoardGap(f"begin は {BASE_NODE} を機械の返答（base_output）で受ける——表で machine の節にせよ"
                            f"（今は {e.by if e else '表に無い'}）")
         want = _findings_sha(items)
+        base = base_output(repo, base_rev)   # base_rev の誤りは作る前に拒む（置き場を残さない）
+        try:
+            args = json.loads(json.dumps({"repo": str(pathlib.Path(repo).resolve()), "base_rev": (base_rev or "").strip(),
+                                          "request_text": request_text, "stop_after_round": stop_after_round,
+                                          "max_rounds": max_rounds, "inputs": inputs or {}}))
+        except (TypeError, ValueError) as ex:
+            raise BoardGap(f"begin の引数が JSON にならない: {ex}") from None
         if (d / "state.json").exists():
             b = cls.open(d, table=table, repo=repo, overrides=overrides, validator_runner=validator_runner)
-            made = (b.state.get("works") or {}).get("table_sha")
+            works = b.state.get("works") or {}
+            made = works.get("table_sha")
             if made != table.sha():
                 raise BoardGap(f"盤面 {d} は別の表（table_sha {made}）で作った——この表（{table.sha()}）では begin し直さない")
+            batches = (b.record.get("process") or {}).get("request_findings") or []
+            kept = works.get("begin")
+            if kept is None and (batches or b.node_state(BASE_NODE) != "pending"):
+                raise BoardGap(f"盤面 {d} は begin で作った盤面でない（state.works.begin が無い）——begin し直さない")
+            diff = sorted(k for k in args if kept is not None and kept.get(k) != args[k])
+            if diff:
+                raise BoardGap(f"盤面 {d} は別の引数の begin で作った（違う引数: {', '.join(diff)}）——同じ置き場では同じ run の"
+                               "呼び直しだけを受ける")
         else:
             b = cls.create(d, repo=repo, table=table, inputs=inputs, request_text=request_text, max_rounds=max_rounds,
                            stop_after_round=stop_after_round, overrides=overrides, validator_runner=validator_runner)
+            kept = None
+        if kept is None:
+            b.state["works"]["begin"] = args   # 呼び直しの見分け（依頼は記録の最初のバッチの sha256 で見る）
+            b.save()
         batches = (b.record.get("process") or {}).get("request_findings") or []
         if batches:
             got = _findings_sha(batches[0].get("findings"))
@@ -675,7 +700,7 @@ class DiskBoard(_EngineBoard):
             if inst is None:
                 raise BoardGap(f"settle が {BASE_NODE} を出さない（{b.node_state(BASE_NODE)}）")
             b.mark_launched(BASE_NODE, inst.get("attempts", 1))
-            b.accept(BASE_NODE, base_output(repo, base_rev))
+            b.accept(BASE_NODE, base)
         return b, b.settle()
 
     @classmethod
@@ -723,7 +748,29 @@ class DiskBoard(_EngineBoard):
         self.trace("emit", instance=nid)
         return inst
 
-    def mark_launched(self, nid: str, attempt: int) -> dict:
+    def pointer_rows(self, nid: str) -> dict:
+        """ラインが描く時に、役が番号で指す一覧（graph の節の pointers の from）を今の盤面から番号つきで返す（engine の emit_instance が
+        描く時の pointers.snapshot と Renderer の pointers.number と同じ式。ラインが自分で番号を振らないための口。裁定 R38）。
+        返り {pointers: 控え（名前の列。mark_launched の pointers= に渡す）| None, rows: {from のパス: no を足した行}}。
+        pointers を持たない節は {pointers: None, rows: {}}。graph に無い節は BoardGap"""
+        n = self.nodes.get(nid)
+        if n is None:
+            raise BoardGap(f"節 '{nid}' は graph に無い")
+        ptrs = n.get("pointers")
+        if not ptrs:
+            return {"pointers": None, "rows": {}}
+        ctx = self.ctx()
+        snap, offsets = _pointers.snapshot(ctx, ptrs)
+        rows = {}
+        for f, off in offsets.items():
+            try:
+                v = _util.get_path(ctx, f)
+            except KeyError:
+                v = []
+            rows[f] = _pointers.number(v if isinstance(v, list) else [], off)
+        return {"pointers": snap, "rows": rows}
+
+    def mark_launched(self, nid: str, attempt: int, pointers: list | None = None) -> dict:
         """ラインが役を起こす前に、待っている instance の試行 attempt に起こした印（launched_at）を置いて保存する（裁定 BL-R3。engine の
         launch の印付けと同じ欄。RL の _started がこの欄を読み、判定役が起きた後の依頼を拒み・起きた読み手を描き直さない）。
         ラインは役を起こす**前に毎回**、描いた試行の番号（instance の attempts）を渡して呼び、返りの out_path の試行を起こす
@@ -736,15 +783,23 @@ class DiskBoard(_EngineBoard):
           （engine の _board_update と同じく CONFLICT_RETRIES 回まで。trace の行は保存まで控える）
         - 同じ試行への二度目は前の印を返して保存しない。印は試行ごと: 描き直し・任せ先への出し直しの新しい試行は印を持たない
         - 起こせなかった試行も印は残る（fail-closed: その周の依頼の締めは閉じたまま。印を外す口は持たない）
+        - 番号で指す節（graph の pointers）は、ラインが描く時に pointer_rows(節) の rows を貼り、その pointers（描いた一覧の控え）を
+          ここへ pointers= で渡す（描く → 印 → 起こす）。今の盤面の一覧と違えば（描いた後に一覧が変わった）Reject で盤面は書かない
+          ——今の盤面で描き直して印を置き直す。同じなら instance.pointers に固め、accept は番号をこの控えで名前に戻す（engine の
+          emit_instance が描いた ctx で固めるのと同じ不変: 貼った番号と受け付けの読み替えが同じ一覧。裁定 R38）。渡さなければ控えを
+          持たず、番号の返答は受け付けで engine の文で拒まれる（名前は通る）。既に印の在る試行に違う一覧を渡すのも Reject。
+          pointers を持たない節に渡すのは BoardGap
         返り {node, id, attempt, out_path, launched_at, already}"""
         if type(attempt) is not int or attempt < 1:
             raise BoardGap(f"mark_launched の試行の番号は 1 以上の整数（{attempt!r}）——描いた instance の attempts を渡す")
+        if pointers is not None and (nid not in self.nodes or not self.nodes[nid].get("pointers") or not isinstance(pointers, list)):
+            raise BoardGap(f"節 '{nid}' に描いた一覧（pointers=）を渡した——渡すのは graph の pointers を持つ節の pointer_rows の控えだけ")
         for n in range(CONFLICT_RETRIES):
             _refuse_halted(self)
             if nid not in self.nodes:
                 raise BoardGap(f"節 '{nid}' は graph に無い")
             e = self._entry(nid)
-            inst = next((i for i in self.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+            inst = _pending_instance(self, nid)
             fell_back = e.by == "engine_run" and inst is not None and inst.get("engine_fallback") and e.fallback in ("role", "machine")
             if e.by not in ("role", "machine") and not fell_back:
                 raise BoardGap(f"節 '{nid}' は表で {e.by}——起こした印を置くのは役（role・machine）の節と、任せ先に落ちた engine_run の節だけ"
@@ -757,7 +812,17 @@ class DiskBoard(_EngineBoard):
                              "——今の試行で描き直して起こせ（前の試行のプロンプトには後から積んだ物が入っていない）")
             got = {"node": nid, "id": inst["id"], "attempt": now_attempt, "out_path": inst["out_path"]}
             if inst.get("launched_at"):
+                if pointers is not None and pointers != inst.get("pointers"):
+                    raise Reject(f"節 '{nid}' の試行 {now_attempt} は別の一覧で既に起こした——起こした役のプロンプトと番号が合わない"
+                                 "（その試行の返答を待つか、依頼で描き直された新しい試行を描いて起こせ）")
                 return {**got, "launched_at": inst["launched_at"], "already": True}
+            if pointers is not None:
+                # 描いた一覧が今の盤面の一覧と同じ時だけ固める（accept が番号を名前に戻すときに読む唯一の値。仕様 BL17）
+                now_snap = _pointers.snapshot(self.ctx(), self.nodes[nid]["pointers"])[0]
+                if pointers != now_snap:
+                    raise Reject(f"節 '{nid}' の番号で指す一覧が描いた後に変わった（置き場 {inst['out_path']}）——今の盤面で描き直して"
+                                 "（pointer_rows）起こせ（描いた番号のまま起こすと、役の番号が別の項目に戻る）")
+                inst["pointers"] = now_snap
             inst["launched_at"] = now()
             self.held_trace = []
             self.trace("launch", instance=inst["id"], attempt=now_attempt)
@@ -843,8 +908,8 @@ class DiskBoard(_EngineBoard):
             raise BoardGap(f"節 '{nid}' は本文を返す節——返答は {{text}} だけ（余分な鍵: {sorted(set(output) - {'text'})}）")
         elif not (isinstance(output, dict) and isinstance(output.get("text"), str) and output["text"].strip()):
             raise AnswerReject(f"節 '{nid}' の返答が空——本文を返す節に空は受け付けない（役が何も返していないか、{inst.get('out_path')} に書けていない）")
-        # 番号で指した欄を名前に戻す。一覧を固めた控え（instance.pointers）を持たないので、番号は engine の文で拒まれる（BL17）
-        errs = _pointers.resolve(output, n.get("pointers"), None)
+        # 番号で指した欄を名前に戻す。控えは mark_launched が固めた instance.pointers（控えの無い instance への番号は engine の文で拒む。BL17）
+        errs = _pointers.resolve(output, n.get("pointers"), inst.get("pointers"))
         if errs:
             raise AnswerReject(f"{nid}: " + "; ".join(errs))
         item = load_item(inst, self.dir)
@@ -1154,13 +1219,12 @@ class DiskBoard(_EngineBoard):
         """待ちで依存が済んだ節を 1 つ評価する（engine の advance の輪の中身）。返りは何が起きたか:
         na（条件に当たらない）・skipped（表で absent）・ran（機械の節が進んだ）・stop（機械の節が止まった）・
         wall（表で explicit の機械の節。待ちのまま）・emitted（役の節の instance を出した）・waiting（既に出して待っている）。
-        表で absent の節の条件が、このラインに無い節の出力を読む時（_blind_reads）は、条件を測らずに skipped にする——その出力は
-        この run に決して現れず、RL の条件は default の無い読みで die する（例: a1202d0 の p0.purpose_review の purpose_review_due が
-        out.p0.purpose.source を読む。線 A の表は p0.purpose・p0.purpose_review を absent にする）。absent の節は na でも skipped でも
-        走らないので、変わるのは周の箱の箱の名前だけ（理由は表の理由。測らなかった事実は notes と trace の skip の行 unmeasured）"""
+        条件は engine と同じく測る。ただし表で absent の節の条件が、このラインに無い節の出力を default 無しで読んで測れない時
+        （engine の die。_measure_absent）だけは skipped にする（裁定 BL-R1）——その出力はこの run に決して現れない（例: a1202d0 の
+        p0.purpose_review の purpose_review_due が out.p0.purpose.source を読む。線 A の表は p0.purpose・p0.purpose_review を absent に
+        する）。測れた条件（spec.revise・r2.compare など）は engine の na のまま。測れなかった事実は notes と trace の skip の行 unmeasured"""
         e = self._entry(nid)
-        blind = self._blind_reads(nid) if e.by == "absent" else []
-        why = None if blind else self.applicable(nid)
+        why, blind = self._measure_absent(nid) if e.by == "absent" else (self.applicable(nid), None)
         if why:
             self.rd["na"][nid] = why
             return "na"
@@ -1169,8 +1233,8 @@ class DiskBoard(_EngineBoard):
             self.rd["skipped"][nid] = e.reason
             self.state["done_ever"][nid] = self.round
             if blind:
-                self._notes.append(f"{nid}: 条件 {self.nodes[nid]['cond']} は、このラインに無い節 {'・'.join(blind)} の出力を読むので"
-                                   "測らない——このラインに無い節として省いた")
+                self._notes.append(f"{nid}: 条件 {self.nodes[nid]['cond']} は、このラインに無い節 {'・'.join(blind)} の出力が無いと"
+                                   "測れない——このラインに無い節として省いた")
                 self.trace("skip", node=nid, reason=e.reason, unmeasured=blind)
             else:
                 self.trace("skip", node=nid, reason=e.reason)
@@ -1187,6 +1251,27 @@ class DiskBoard(_EngineBoard):
             return "stop"
         self._emit(nid)
         return "emitted"
+
+    def _measure_absent(self, nid: str) -> tuple:
+        """表で absent の節の条件を engine と同じく測る（applicable）。返り (na の理由か None, 測れなかった absent の節の一覧か None)。
+        条件が absent の節の出力を読むと宣言していて（_blind_reads）、測る途中で engine の die（SystemExit）がその出力の読みを名指した
+        時だけ、(None, [節…]) を返す（skipped にする）。die の文は stderr に出さない。他の die はそのまま投げ直す（文も stderr に戻す）"""
+        blind = self._blind_reads(nid)
+        if not blind:
+            return self.applicable(nid), None
+        _util.LAST_DIE = None
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                return self.applicable(nid), None
+        except SystemExit:
+            msg = _util.LAST_DIE or ""
+            hit = [a for a in blind if "が解決できない" in msg
+                   and any(f"の欄 '{h}.{a}'" in msg or f"の欄 '{h}.{a}." in msg for h in ("out", "cur", "prev"))]
+            if not hit:
+                sys.stderr.write(err.getvalue())
+                raise
+            return None, hit
 
     def _blind_reads(self, nid: str) -> list:
         """節の条件（graph の cond）が読むと宣言した欄（RL の cond_reads）のうち、表で absent で出力の無い節の出力

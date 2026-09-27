@@ -197,6 +197,30 @@ class BeginCase(unittest.TestCase):
         with self.assertRaises(BoardGap):
             self.begin(table=with_entry(ENTRY, "p2.history", by="role"))
 
+    def test_begin_resume_refuses_other_args(self):
+        # 同じ置き場の 2 度目の begin は、同じ run の呼び直しだけを受ける: repo・base_rev・止める周・周の上限・inputs・依頼文の
+        # どれかが違えば BoardGap で、盤面は書かない
+        b, _ = self.begin(stop_after_round=1, max_rounds=3, inputs={"gates": "merge"})
+        same = dict(stop_after_round=1, max_rounds=3, inputs={"gates": "merge"})
+        other_repo = make_repo(self.tmp / "other")
+        before = {n: (b.dir / n).read_bytes() for n in ("state.json", "record.json")}
+        for name, kw in (("repo", {"repo": other_repo}), ("base_rev", {"base_rev": "HEAD~1"}),
+                         ("stop_after_round", {"stop_after_round": None}), ("max_rounds", {"max_rounds": 5}),
+                         ("inputs", {"inputs": {}}), ("request_text", {"request_text": "別の依頼文"})):
+            with self.subTest(name), self.assertRaises(BoardGap) as cm:
+                self.begin(**{**same, **kw})
+            self.assertIn(name, str(cm.exception))
+            self.assertEqual({n: (b.dir / n).read_bytes() for n in before}, before, name)
+        b2, _ = self.begin(**same)
+        self.assertEqual(b2.dir, b.dir)
+
+    def test_begin_bad_base_rev_leaves_nothing(self):
+        # base_rev の誤りは入口で拒む（create の前。置き場を残さない）
+        with self.assertRaises(Reject) as cm:
+            self.begin(base_rev="no-such-rev")
+        self.assertIn("no-such-rev", str(cm.exception))
+        self.assertFalse((self.tmp / "art" / "board").exists())
+
     def test_begin_resumes_after_bad_request(self):
         # 依頼の形が悪くて止まった begin は、置き場を残す（engine の init と add と同じ）。直した依頼で呼び直せば続きから
         with self.assertRaises(Reject):
@@ -258,12 +282,18 @@ class BeginCase(unittest.TestCase):
         self.assertNotIn("p2.diagnose", p["ready"])   # p1.consistency_bypass（na）が p0.parallel_pr を待つ
 
     def test_absent_cond_reading_absent_output(self):
-        # p0.purpose_review の条件は、このラインに無い p0.purpose の出力を default 無しで読む（engine なら die）——測らずに省く
+        # p0.purpose_review の条件は、このラインに無い p0.purpose の出力を default 無しで読む（engine なら die）——測れないので省く
         b, p = self.begin()
         self.assertTrue(b.run_engine("p0.local_checks")["ok"])
         p = b.settle()
         self.assertEqual(b.rd["skipped"]["p0.purpose_review"], ENTRY.nodes["p0.purpose_review"].reason)
         self.assertNotIn("p0.purpose_review", b.rd["na"])
+        # 宣言では absent の節の出力を読むが、engine が測れる条件は engine の na のまま（spec.revise は spec_flow で先に偽を返す）
+        self.assertEqual(b._blind_reads("spec.revise"), ["spec.review"])
+        self.assertTrue(b.rd["na"]["spec.revise"].startswith("cond spec_revise_due:"), b.rd["na"].get("spec.revise"))
+        self.assertNotIn("spec.revise", b.rd["skipped"])
+        self.assertNotIn("spec.revise", b.state["done_ever"])
+        self.assertFalse(any(n.startswith("spec.revise:") for n in p["notes"]), p["notes"])
         self.assertTrue(any(n.startswith("p0.purpose_review: 条件 purpose_review_due は、このラインに無い節 p0.purpose")
                             for n in p["notes"]), p["notes"])
         rows = [json.loads(ln) for ln in (b.dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -403,6 +433,16 @@ class SingleRoundCase(unittest.TestCase):
         self.assertIn(read(b.dir / "out" / "r1" / "p4.record.json")["exit"], (0, 1))
         self.assertEqual(b.record["process"]["checks"]["p4.ci"]["by"], "engine")
         self.assertEqual(read(b.dir / "state.json")["halted"]["by"], "stop_after_round")
+        # 宣言では absent の r2.design の出力を読むが default つきで測れる r2.compare は engine の na（skipped でも process.skipped でもない）
+        self.assertTrue(b.rd["na"]["r2.compare"].startswith("cond r2_compare_due:"), b.rd["na"].get("r2.compare"))
+        self.assertNotIn("r2.compare", b.rd["skipped"])
+        self.assertEqual({r["node"]: r["in_round"] for r in note["not_in_line"]}["r2.compare"], "na")
+        self.assertEqual(b.rd["skipped"]["p0.purpose_review"], ENTRY.nodes["p0.purpose_review"].reason)
+        # engine の finalize は周の箱の skipped の全部を process.skipped に写す（validator.finalize）——そこに載らない
+        skipped = {k for rd in b.state["rounds"] for k in rd["skipped"]}
+        self.assertNotIn("r2.compare", skipped)
+        self.assertNotIn("spec.revise", skipped)
+        self.assertIn("p0.purpose_review", skipped)
         # 同じ役の会話を続ける節の続け先は、今の周の済んだ判定役の instance
         self.assertEqual(b.context_of("p2.history"), {"same_context_as": "p2.diagnose", "continue_of": "p2.diagnose"})
 
