@@ -51,6 +51,7 @@ HEAVY = frozenset({
     "test_blk_pr",          # 線 A: 試験ごとの git のリポジトリ・golden の盤面の再生（boardreplay）
     "test_blk_rejudge",     # 線 A: golden の盤面の再生（rejudgekit）・スクリプトを子で起こす
     "test_entry",           # 線 A: 試験ごとの種の git（linekit.seed_repo）・プロセスの木（tree_run）
+    "test_edge",            # 線 A: 試験ごとの種の git（linekit.seed_repo）・golden の盤面の再生（boardreplay）・スクリプトを子で起こす
     "test_policy",          # 線 A: 試験ごとの種の git（linekit.seed_repo）
     "test_rejudge",         # 線 A: golden の盤面の再生（rejudgekit）・git
     "test_ticket",          # 線 A: git のリポジトリと worktree 2 つを作る（クラスに 1 回）

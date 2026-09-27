@@ -1,0 +1,16 @@
+{
+ "faces": [
+  {
+   "key": "clamp の上限の意味が変わる",
+   "unit_keys": [
+    "stats.py clamp: 上限を超えた値に lo を返す"
+   ],
+   "kind": "regression",
+   "where": "stats.py clamp",
+   "why": "上限を超えた値に lo を返す今の振る舞いに頼る呼び手が在れば、hi を返すと結果が変わる",
+   "severity": "block"
+  }
+ ],
+ "shrink": [],
+ "reason": "案は 2 か所の式を直すだけで、足す物も消す物も無い。後退の恐れは clamp の上限の枝の 1 点だけ"
+}
