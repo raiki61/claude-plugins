@@ -33,6 +33,11 @@ collect:
   not_done: 0
   coverage: {}
   reads_file: ""
+  tdd:          # 実行器の無い run（入力 tdd_suite が空）: tdd-start が go: false を返し、tdd-loop は飛ばされる
+    ran: false
+    suite: ""
+    reason: "テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す"
+    units: []
 fixture:
   expect: completed
   reached: [collect]

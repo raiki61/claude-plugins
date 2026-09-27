@@ -11,6 +11,8 @@
    - check_unique_units: 同じ unit_key を 2 行に分けた返答を拒む
    - check_opened_units: 今の周に開いた単位（検証器の is_open）に無い unit_key を拒む（判定が defer にした単位・判定に
      無い key。1 本目の unknown = got - opened。fork の出どころは開いた単位なので通す）
+1b. TDD の輪で緑になった単位のテストのファイルを、輪の後の修正役が変えていないか（INPUTS_TDD_STATE。tddloop.frozen_problems。
+   空・欠けは輪の無い run で見ない）
 2. recount.accept_fix: 盤面の done("p3.fix")。写しの fix_covers_open_units が判定役の class_query を修正前の版と修正後の
    作業ツリーで数え直す（仕様 3.2）。通れば 1 本目の出口のための changes（unit_key・files・what）を足す
 loop_group の外の節は中の節の出力を引けず、輪の出力は最後の周の末端（この節）の出力なので、受け付けた changes を
@@ -22,13 +24,17 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True   # 下の import が pack の中に __pycache__ を作らないように。必ず import より前
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # ブロックの模块（lib/ は Archon が探さない）
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core"))   # 頭に入れる（Ruling R7）
+import os  # noqa: E402
+
 import recount  # noqa: E402
+import tddloop  # noqa: E402
 import entry  # noqa: E402
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
 from engine.rules import validator_module  # noqa: E402
 
-INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV")
+INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE")
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（判定が defer にした単位・判定に無い単位は直さない。"
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
@@ -70,6 +76,9 @@ def check_opened_units(keys: list, opened: set) -> list:
 
 
 def accept_fix(reply, board, base_rev, repo):
+    frozen = tddloop.frozen_problems(os.environ.get("INPUTS_TDD_STATE", ""), repo)
+    if frozen:
+        return {"ok": False, "reason": " / ".join(frozen), "changes": []}
     got = fix_unit_keys(reply, board)
     if got is not None:
         keys, opened = got
