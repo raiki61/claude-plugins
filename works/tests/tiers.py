@@ -38,6 +38,7 @@ FAST = frozenset({
     "test_script_io",       # 2 秒（python を 1 本起こすだけ。git は使わない）
     "test_tiers",           # 8 秒（偽の uv・枠の台本で run.sh を起こす）
     "test_versions",        # run ごとの版の控え: 一時の置き場に書くだけ・start.py を 1 本起こす（git なし）
+    "test_use",           # 起動の殻 dev/use.sh: 種の git（gitkit の型の写し）・偽の Archon（sh の台本）で殻を子で起こす
     "test_toolset",         # 隔離した Claude の設定の組み立てと柵: 一時の置き場に写す・偽の claude（python）を子で起こす（git なし）
     "test_yaml_rules",      # 3 秒
 })
