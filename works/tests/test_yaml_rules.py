@@ -11,6 +11,8 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   - blk-ci/blk-ci.yaml の節 ci（CI の任せ先の役。裁定 R52・R56）: 読む道具に Bash だけ（テストを走らせる。Edit・Write は持たない）。
     sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ広い形（allowWrite ['/']・網）そのもので、本物の作業ツリーは
     包みが守るので、output_format の印に旗 no-tree-write を持つ
+  - blk-eyes/blk-eyes.yaml の節 r1-minimality・premise-check（独立の目の judge）: 読む道具に web（WebSearch・WebFetch）を足す
+    （graphloops の judge の定義の道具。書く道具と shell は持たない）
 - AI の節は settingSources: [] を持つ（役に利用者・対象の CLAUDE.md を読ませない。graphloops の --setting-sources "" と同じ。
   書かなければ Archon は ['project', 'user'] を読ませ、CLAUDE.md の文体の決まりが JSON だけを返す約束を崩す）。
   skills: を持つ節だけは [project] も許す（skills は読む元が要る）
@@ -44,9 +46,12 @@ DELEGATE_SANDBOX = {"enabled": True, "allowUnsandboxedCommands": False, "failIfU
                     "filesystem": {"allowWrite": ["/"]}}
 # 決まりの外れの表: (フォルダ, ファイル, 節) → tools（持ってよい道具。None は道具の決まりの外）・sandbox（その形そのもの。
 # 無ければ狭い形）・flag（印に要る旗）。外れを足す時は行を 1 つ足す（ほかの行と決まりの式は変えない）
+JUDGE_WEB_TOOLS = READ_ONLY_TOOLS | {"WebSearch", "WebFetch"}   # graphloops の judge の定義（agents/judge.md）の道具
 EXCEPTIONS = {
     WRITER: {"tools": None},
     CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
+    ("blk-eyes", "blk-eyes.yaml", "r1-minimality"): {"tools": JUDGE_WEB_TOOLS},
+    ("blk-eyes", "blk-eyes.yaml", "premise-check"): {"tools": JUDGE_WEB_TOOLS},
 }
 AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
@@ -231,6 +236,23 @@ class YamlRulesCase(unittest.TestCase):
             p = pathlib.Path(tmp) / "blk-fix" / "blk-fix.yaml"
             p.write_text(body.replace("id: fix", "id: accept-fix"), encoding="utf-8")
             self.assertOneRule(check_file(p), f"blk-fix.yaml: 節 accept-fix: {outside}", "blk-fix/accept-fix")
+
+    def test_web_reader_only_in_blk_eyes_judges(self):
+        """web の道具（WebSearch・WebFetch）を持ってよいのは独立の目の judge の 2 節だけ（表 EXCEPTIONS）"""
+        body = (TESTS / "yaml_good" / "all_kinds.yaml").read_text(encoding="utf-8")
+        doc = yaml.safe_load(body)
+        ai = next(n for n in doc["nodes"] if "command" in n or "prompt" in n)
+        ai["allowed_tools"] = ["Read", "WebSearch", "WebFetch"]
+        with tempfile.TemporaryDirectory() as tmp:
+            for folder, nid, ok in (("blk-eyes", "r1-minimality", True), ("blk-eyes", "premise-check", True),
+                                    ("blk-eyes", "r3-coherence", False), ("blk-judge", "r1-minimality", False)):
+                ai["id"] = nid
+                p = pathlib.Path(tmp) / folder / "blk-eyes.yaml"
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+                with self.subTest(f"{folder}/{nid}"):
+                    found = [f for f in check_file(p) if "allowed_tools" in f]
+                    self.assertEqual(found == [], ok, found)
 
     def test_bash_reader_only_in_blk_ci(self):
         """Bash を足してよいのは blk-ci/blk-ci.yaml の節 ci だけ。そこでも書く道具（Edit・Write）は持てない"""

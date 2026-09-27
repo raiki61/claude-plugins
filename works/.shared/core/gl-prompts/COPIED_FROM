@@ -1,7 +1,14 @@
-a1202d0  graphloops 0.21.0 の指示書（同じ周の再審を描く分だけ。rejudge.render が engine の node_prompt に渡す）
+a1202d0  graphloops 0.21.0 の指示書（同じ周の再審と独立の目を描く分だけ。rejudge.render・blk-eyes の lib/eyes.py が engine の node_prompt に渡す）
 prompts/policy-paste.md
 prompts/policy.md
 prompts/review-loop/p2.rejudge.md
 prompts/review-loop/p2.rejudge_third.md
+prompts/review-loop/r1.comment_candidates.md
+prompts/review-loop/r1.minimality.md
+prompts/review-loop/r2.compare.md
+prompts/review-loop/r2.design.md
+prompts/review-loop/r3.coherence.md
+prompts/review-loop/r4.hidden_scope.md
+prompts/review-loop/stop.premise_check.md
 # 置き場は本線の graphloops/ の下の同じパス（git show a1202d0:graphloops/<行>）。1 バイトも変えない（tests/test_rejudge.py が見る）。
 # 写し（../graphloops）に prompts/ が入ったら（写し直し）、rejudge.render はそちらを先に使う。その時はこの置き場を消してよい。

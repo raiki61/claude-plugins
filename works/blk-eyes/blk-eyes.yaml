@@ -1,0 +1,1196 @@
+name: blk-eyes
+description: |
+  独立の目のブロック（BLOCKS.md の R11 `gl.eyes.in` → `gl.eyes.out`）。修正の後に、書き手の文脈を持たない別の目が変更全体を見る:
+  R1 冗長と最小性（comment-analyzer の削除候補 → judge）・R2 ゼロベース再導出（道具ゼロの blind-judge が目的だけから設計 →
+  別の blind-judge が差分と突き合わせ。問いが立たなければ judge が前提を実態で検算）・R3 全体整合・R4 見えてないスコープ（inspector）。
+  中の節は写しの graph のまま。入口の機械の節 p4.assemble（修正後の撮り直しと再発火の数え）はこのブロックの前に盤面の settle が
+  回し、eyes-enter はそれが今の周に済んだことを確かめる。どの目を回すか（条件と依存。stop.premise_check の引き金 r2_premise_invalid を
+  含む）は盤面だけが決め、ブロックは盤面の ready の目を起こす。関所の機械の節 r4.human_gate は r4.hidden_scope の受け付けの settle が
+  回し、人に聞いていれば出口は止めずに asking（答えた後にラインがこのブロックへ入り直すと残りの目が回る）。
+  目は筋ごとに縦に並べ、筋どうしは Archon の同じ層で並んで走る。盤面の書き込みはスクリプトが錠（board.lock）で順に並べる。
+  役は毎回新しい会話で起き（輪の 1 回目）、出し直しは同じ会話（graphloops の --resume と同じ）。3 回とも拒まれたら諦めの印で
+  輪を抜け（裁定 R50）、r1.comment_candidates は省いて R1 の本体へ進み（表で skippable。graph: 取れなくても R1 を not_run に倒さない）、
+  ほかの目は collect が盤面を止める。
+  指示書は engine と同じ描き方で描いた graphloops の本文（prep が描き、commands/<役>.md が直の参照 1 つで貼る）。
+  ラインから include で使う（まだ配線しない。線 A の T17 / 線 B）。出口 eyes-collect は EXIT_FIELDS の並び（lib/eyes.py）。
+
+inputs:
+  base_rev:
+    default: ""
+    description: 周の頭で固めた版（ラインの口を他のブロックと揃える。スクリプトは読まない——版は盤面が持つ）
+
+returns: eyes-collect
+outcome_field: ok
+
+nodes:
+  # 入口: p4.assemble が今の周に済んだか（済んでいなければ 2 で止まる）・目を起こす前の作業ツリーの写し・p4.assemble の値の控え
+  - id: eyes-enter
+    script: enter
+    runtime: uv
+    timeout: 1728000000
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - ok
+      - round
+      - stopped
+      - asking
+      - ready
+      - snapshot_file
+      - why
+      properties:
+        ok:
+          type: boolean
+        round:
+          type: integer
+        stopped:
+          type: boolean
+        asking:
+          type: boolean
+        ready:
+          type: array
+          items:
+            type: string
+        snapshot_file:
+          type: string
+        why:
+          type: string
+
+  # r1.comment_candidates（P-R ＞ R1 の前段（コメントの削除候補）。役 pr-review-toolkit:comment-analyzer）
+  - id: r1-comments-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [eyes-enter]
+    with:
+      role: r1-comments
+      round: $eyes-enter.output.round
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - go
+      - node
+      - why
+      - stopped
+      properties:
+        go:
+          type: boolean
+        node:
+          type: string
+        why:
+          type: string
+        stopped:
+          type: boolean
+
+  - id: r1-comments-loop
+    depends_on: [r1-comments-route]
+    when: "$r1-comments-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $r1-comments-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: r1-comments-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: r1-comments
+            round: $eyes-enter.output.round
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - prompt
+            - prompt_file
+            - node
+            - attempt
+            - already
+            - role_def
+            - role_def_missing
+            properties:
+              prompt:
+                type: string
+              prompt_file:
+                type: string
+              node:
+                type: string
+              attempt:
+                type: integer
+              already:
+                type: boolean
+              role_def:
+                type: string
+              role_def_missing:
+                type: string
+        - id: r1-comments
+          command: r1-comments
+          depends_on: [r1-comments-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ。定義（pr-review-toolkit）は全部の道具を持つが、目は作業ツリーを変えない
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # eyes.output_format("r1.comment_candidates")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
+          output_format:
+            description: 'works-node: r1-comments'
+            type: object
+            required:
+            - candidates
+            - kept
+            additionalProperties: false
+            properties:
+              candidates:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - where
+                  - comment
+                  - same_content_at
+                  - reason
+                  additionalProperties: false
+                  properties:
+                    where:
+                      type: string
+                    comment:
+                      type: string
+                    same_content_at:
+                      type: string
+                    reason:
+                      type: string
+              kept:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - where
+                  - fact
+                  additionalProperties: false
+                  properties:
+                    where:
+                      type: string
+                    fact:
+                      type: string
+        - id: r1-comments-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [r1-comments]
+          with:
+            role: r1-comments
+            reply: {from: "$r1-comments.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - ok
+            - done
+            - give_up
+            - skipped
+            - reason
+            - node
+            - reason_file
+            properties:
+              ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
+                type: boolean
+              skipped:
+                type: boolean
+              reason:
+                type: string
+              node:
+                type: string
+              reason_file:
+                type: string
+
+  # r1.minimality（P-R ＞ R1 冗長と最小性（台帳の監査を含む）。役 judge）
+  - id: r1-minimality-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [r1-comments-route, r1-comments-loop]
+    trigger_rule: none_failed_min_one_success   # 前の輪は飛ばされうる（条件で na の目）
+    with:
+      role: r1-minimality
+      round: $eyes-enter.output.round
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - go
+      - node
+      - why
+      - stopped
+      properties:
+        go:
+          type: boolean
+        node:
+          type: string
+        why:
+          type: string
+        stopped:
+          type: boolean
+
+  - id: r1-minimality-loop
+    depends_on: [r1-minimality-route]
+    when: "$r1-minimality-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $r1-minimality-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: r1-minimality-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: r1-minimality
+            round: $eyes-enter.output.round
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - prompt
+            - prompt_file
+            - node
+            - attempt
+            - already
+            - role_def
+            - role_def_missing
+            properties:
+              prompt:
+                type: string
+              prompt_file:
+                type: string
+              node:
+                type: string
+              attempt:
+                type: integer
+              already:
+                type: boolean
+              role_def:
+                type: string
+              role_def_missing:
+                type: string
+        - id: r1-minimality
+          command: r1-minimality
+          depends_on: [r1-minimality-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          allowed_tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]   # 読むだけ（Read・Grep・Glob）＋web。graphloops の judge の定義の道具から書く道具と shell を除いた物
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # eyes.output_format("r1.minimality")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
+          output_format:
+            description: 'works-node: r1-minimality'
+            type: object
+            required:
+            - status
+            - reason
+            - deletions
+            - ledger_audit
+            - increments
+            additionalProperties: false
+            properties:
+              status:
+                type: string
+                enum:
+                - pass
+                - redesign-needed
+                - unverifiable
+              reason:
+                type: string
+                minLength: 1
+              deletions:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - where
+                  - why
+                  additionalProperties: false
+                  properties:
+                    where:
+                      type: string
+                      minLength: 1
+                    why:
+                      type: string
+              ledger_audit:
+                type: array
+                items:
+                  type: string
+              increments:
+                type: array
+                items:
+                  type: string
+              candidates_note:
+                type: string
+        - id: r1-minimality-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [r1-minimality]
+          with:
+            role: r1-minimality
+            reply: {from: "$r1-minimality.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - ok
+            - done
+            - give_up
+            - skipped
+            - reason
+            - node
+            - reason_file
+            properties:
+              ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
+                type: boolean
+              skipped:
+                type: boolean
+              reason:
+                type: string
+              node:
+                type: string
+              reason_file:
+                type: string
+
+  # r2.design（P-R ＞ R2 ゼロベース再導出（独立設計の半分。完全隔離）。役 blind-judge）
+  - id: r2-design-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [eyes-enter]
+    with:
+      role: r2-design
+      round: $eyes-enter.output.round
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - go
+      - node
+      - why
+      - stopped
+      properties:
+        go:
+          type: boolean
+        node:
+          type: string
+        why:
+          type: string
+        stopped:
+          type: boolean
+
+  - id: r2-design-loop
+    depends_on: [r2-design-route]
+    when: "$r2-design-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $r2-design-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: r2-design-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: r2-design
+            round: $eyes-enter.output.round
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - prompt
+            - prompt_file
+            - node
+            - attempt
+            - already
+            - role_def
+            - role_def_missing
+            properties:
+              prompt:
+                type: string
+              prompt_file:
+                type: string
+              node:
+                type: string
+              attempt:
+                type: integer
+              already:
+                type: boolean
+              role_def:
+                type: string
+              role_def_missing:
+                type: string
+        - id: r2-design
+          command: r2-design
+          depends_on: [r2-design-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。包みが旗 isolated を見て Git の外の置き場で起こす（git status が入らない）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # eyes.output_format("r2.design")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
+          output_format:
+            description: 'works-node: r2-design isolated'
+            type: object
+            required:
+            - question_stands
+            - reason
+            - design
+            additionalProperties: false
+            properties:
+              question_stands:
+                type: boolean
+              reason:
+                type: string
+                minLength: 1
+              premise_invalid_reason:
+                type: string
+              design:
+                type: string
+        - id: r2-design-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [r2-design]
+          with:
+            role: r2-design
+            reply: {from: "$r2-design.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - ok
+            - done
+            - give_up
+            - skipped
+            - reason
+            - node
+            - reason_file
+            properties:
+              ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
+                type: boolean
+              skipped:
+                type: boolean
+              reason:
+                type: string
+              node:
+                type: string
+              reason_file:
+                type: string
+
+  # r2.compare（P-R ＞ R2（比較役の半分。verdict を確定するのは比較役で writer ではない）。役 blind-judge）
+  - id: r2-compare-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [r2-design-route, r2-design-loop]
+    trigger_rule: none_failed_min_one_success   # 前の輪は飛ばされうる（条件で na の目）
+    with:
+      role: r2-compare
+      round: $eyes-enter.output.round
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - go
+      - node
+      - why
+      - stopped
+      properties:
+        go:
+          type: boolean
+        node:
+          type: string
+        why:
+          type: string
+        stopped:
+          type: boolean
+
+  - id: r2-compare-loop
+    depends_on: [r2-compare-route]
+    when: "$r2-compare-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $r2-compare-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: r2-compare-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: r2-compare
+            round: $eyes-enter.output.round
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - prompt
+            - prompt_file
+            - node
+            - attempt
+            - already
+            - role_def
+            - role_def_missing
+            properties:
+              prompt:
+                type: string
+              prompt_file:
+                type: string
+              node:
+                type: string
+              attempt:
+                type: integer
+              already:
+                type: boolean
+              role_def:
+                type: string
+              role_def_missing:
+                type: string
+        - id: r2-compare
+          command: r2-compare
+          depends_on: [r2-compare-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          allowed_tools: []   # 道具ゼロ（graphloops の blind-judge の定義）。包みが旗 isolated を見て Git の外の置き場で起こす（git status が入らない）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # eyes.output_format("r2.compare")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
+          output_format:
+            description: 'works-node: r2-compare isolated'
+            type: object
+            required:
+            - status
+            - reason
+            - differences
+            additionalProperties: false
+            properties:
+              status:
+                type: string
+                enum:
+                - pass
+                - redesign-needed
+              reason:
+                type: string
+                minLength: 1
+              differences:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - kind
+                  - text
+                  additionalProperties: false
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                      - 構造
+                      - 表現
+                    text:
+                      type: string
+        - id: r2-compare-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [r2-compare]
+          with:
+            role: r2-compare
+            reply: {from: "$r2-compare.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - ok
+            - done
+            - give_up
+            - skipped
+            - reason
+            - node
+            - reason_file
+            properties:
+              ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
+                type: boolean
+              skipped:
+                type: boolean
+              reason:
+                type: string
+              node:
+                type: string
+              reason_file:
+                type: string
+
+  # stop.premise_check（停止条件 ＞ 前提不成立（立った周に別 context の judge が根拠を検算）。役 judge）
+  - id: premise-check-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [r2-compare-route, r2-compare-loop]
+    trigger_rule: none_failed_min_one_success   # 前の輪は飛ばされうる（条件で na の目）
+    with:
+      role: premise-check
+      round: $eyes-enter.output.round
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - go
+      - node
+      - why
+      - stopped
+      properties:
+        go:
+          type: boolean
+        node:
+          type: string
+        why:
+          type: string
+        stopped:
+          type: boolean
+
+  - id: premise-check-loop
+    depends_on: [premise-check-route]
+    when: "$premise-check-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $premise-check-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: premise-check-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: premise-check
+            round: $eyes-enter.output.round
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - prompt
+            - prompt_file
+            - node
+            - attempt
+            - already
+            - role_def
+            - role_def_missing
+            properties:
+              prompt:
+                type: string
+              prompt_file:
+                type: string
+              node:
+                type: string
+              attempt:
+                type: integer
+              already:
+                type: boolean
+              role_def:
+                type: string
+              role_def_missing:
+                type: string
+        - id: premise-check
+          command: premise-check
+          depends_on: [premise-check-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          allowed_tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]   # 読むだけ（Read・Grep・Glob）＋web。graphloops の judge の定義の道具から書く道具と shell を除いた物
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # eyes.output_format("stop.premise_check")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
+          output_format:
+            description: 'works-node: premise-check'
+            type: object
+            required:
+            - key
+            - assumption
+            - assumption_false
+            - evidence
+            - verdict
+            - reason
+            additionalProperties: false
+            properties:
+              key:
+                type: string
+                minLength: 1
+              assumption:
+                type: string
+              assumption_false:
+                type: boolean
+              evidence:
+                type: string
+              verdict:
+                type: string
+                enum:
+                - resolved
+                - escalate
+              reason:
+                type: string
+                minLength: 1
+              resolution:
+                type: string
+              facts_to_add:
+                type: array
+                items:
+                  type: string
+        - id: premise-check-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [premise-check]
+          with:
+            role: premise-check
+            reply: {from: "$premise-check.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - ok
+            - done
+            - give_up
+            - skipped
+            - reason
+            - node
+            - reason_file
+            properties:
+              ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
+                type: boolean
+              skipped:
+                type: boolean
+              reason:
+                type: string
+              node:
+                type: string
+              reason_file:
+                type: string
+
+  # r3.coherence（P-R ＞ R3 全体整合。役 inspector）
+  - id: r3-coherence-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [eyes-enter]
+    with:
+      role: r3-coherence
+      round: $eyes-enter.output.round
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - go
+      - node
+      - why
+      - stopped
+      properties:
+        go:
+          type: boolean
+        node:
+          type: string
+        why:
+          type: string
+        stopped:
+          type: boolean
+
+  - id: r3-coherence-loop
+    depends_on: [r3-coherence-route]
+    when: "$r3-coherence-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $r3-coherence-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: r3-coherence-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: r3-coherence
+            round: $eyes-enter.output.round
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - prompt
+            - prompt_file
+            - node
+            - attempt
+            - already
+            - role_def
+            - role_def_missing
+            properties:
+              prompt:
+                type: string
+              prompt_file:
+                type: string
+              node:
+                type: string
+              attempt:
+                type: integer
+              already:
+                type: boolean
+              role_def:
+                type: string
+              role_def_missing:
+                type: string
+        - id: r3-coherence
+          command: r3-coherence
+          depends_on: [r3-coherence-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ（graphloops の inspector の定義の道具）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # eyes.output_format("r3.coherence")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
+          output_format:
+            description: 'works-node: r3-coherence'
+            type: object
+            required:
+            - status
+            - reason
+            properties:
+              status:
+                type: string
+                enum:
+                - pass
+                - redesign-needed
+                - unverifiable
+              reason:
+                type: string
+                minLength: 1
+        - id: r3-coherence-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [r3-coherence]
+          with:
+            role: r3-coherence
+            reply: {from: "$r3-coherence.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - ok
+            - done
+            - give_up
+            - skipped
+            - reason
+            - node
+            - reason_file
+            properties:
+              ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
+                type: boolean
+              skipped:
+                type: boolean
+              reason:
+                type: string
+              node:
+                type: string
+              reason_file:
+                type: string
+
+  # r4.hidden_scope（P-R ＞ R4 見えてないスコープ（横断リスク・BASE 能力インベントリ）。役 inspector）
+  - id: r4-scope-route
+    script: route
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [eyes-enter]
+    with:
+      role: r4-scope
+      round: $eyes-enter.output.round
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - go
+      - node
+      - why
+      - stopped
+      properties:
+        go:
+          type: boolean
+        node:
+          type: string
+        why:
+          type: string
+        stopped:
+          type: boolean
+
+  - id: r4-scope-loop
+    depends_on: [r4-scope-route]
+    when: "$r4-scope-route.output.go == true"
+    loop_group:
+      max_iterations: 3
+      fresh_context: false
+      until_bash: test $r4-scope-accept.output.done = true   # 通った時か、3 回目の拒否で諦めた時（max_iterations で落とさない）
+      nodes:
+        - id: r4-scope-prep
+          script: prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            role: r4-scope
+            round: $eyes-enter.output.round
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - prompt
+            - prompt_file
+            - node
+            - attempt
+            - already
+            - role_def
+            - role_def_missing
+            properties:
+              prompt:
+                type: string
+              prompt_file:
+                type: string
+              node:
+                type: string
+              attempt:
+                type: integer
+              already:
+                type: boolean
+              role_def:
+                type: string
+              role_def_missing:
+                type: string
+        - id: r4-scope
+          command: r4-scope
+          depends_on: [r4-scope-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない（graphloops の --setting-sources ""）
+          allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ（graphloops の inspector の定義の道具）
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          # eyes.output_format("r4.hidden_scope")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）
+          output_format:
+            description: 'works-node: r4-scope'
+            type: object
+            required:
+            - status
+            - reason
+            - capability_inventory
+            - policy_conflicts
+            - surfaced
+            additionalProperties: false
+            properties:
+              status:
+                type: string
+                enum:
+                - pass
+                - redesign-needed
+                - unverifiable
+              reason:
+                type: string
+                minLength: 1
+              capability_inventory:
+                type: object
+                required:
+                - fired
+                additionalProperties: false
+                properties:
+                  fired:
+                    type: boolean
+                  lost:
+                    type: array
+                    items:
+                      type: string
+                  note:
+                    type: string
+              policy_conflicts:
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              surfaced:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - where
+                  - text
+                  additionalProperties: false
+                  properties:
+                    where:
+                      type: string
+                    text:
+                      type: string
+                    mechanism:
+                      type: string
+                    measured:
+                      type: string
+                    false_positive_if:
+                      type: string
+        - id: r4-scope-accept
+          script: accept
+          runtime: uv
+          timeout: 1728000000
+          depends_on: [r4-scope]
+          with:
+            role: r4-scope
+            reply: {from: "$r4-scope.output"}
+          output_format:
+            type: object
+            additionalProperties: false
+            required:
+            - ok
+            - done
+            - give_up
+            - skipped
+            - reason
+            - node
+            - reason_file
+            properties:
+              ok:
+                type: boolean
+              done:
+                type: boolean
+              give_up:
+                type: boolean
+              skipped:
+                type: boolean
+              reason:
+                type: string
+              node:
+                type: string
+              reason_file:
+                type: string
+
+  # 出口。入口の周の箱で目の状態を見る。人に聞いていれば止めずに asking。目が残れば（3 回とも拒まれた）盤面を止めて ok: false
+  - id: eyes-collect
+    script: collect
+    runtime: uv
+    timeout: 1728000000
+    depends_on: [r1-minimality-route, r1-minimality-loop, premise-check-route, premise-check-loop, r3-coherence-route, r3-coherence-loop, r4-scope-route, r4-scope-loop]
+    trigger_rule: none_failed_min_one_success
+    with:
+      round: $eyes-enter.output.round
+    output_format:
+      type: object
+      additionalProperties: false
+      required:
+      - ok
+      - reason
+      - complete
+      - asking
+      - stopped
+      - eyes
+      - gave_up
+      - after_fix
+      - open_units
+      - r1_refire
+      - r2_refire
+      - purpose_known
+      - purpose_unusable
+      - reviews
+      - premise
+      - retaken_for_reviews
+      - exit_file
+      properties:
+        ok:
+          type: boolean
+        reason:
+          type: string
+        complete:
+          type: boolean
+        asking:
+          type: boolean
+        stopped:
+          type: boolean
+        eyes:
+          type: object
+          additionalProperties:
+            type: string
+        gave_up:
+          type: array
+          items:
+            type: string
+        after_fix:
+          type: object
+          additionalProperties: false
+          required:
+          - rev
+          - diff_file
+          - changed_files
+          - diff_lines
+          properties:
+            rev:
+              type: string
+            diff_file:
+              type: string
+            changed_files:
+              type: array
+              items:
+                type: string
+            diff_lines:
+              type: integer
+        open_units:
+          type: integer
+        r1_refire:
+          type: boolean
+        r2_refire:
+          type: boolean
+        purpose_known:
+          type: boolean
+        purpose_unusable:
+          type: string
+        reviews:
+          type: object
+          additionalProperties: false
+          required:
+          - R1
+          - R2
+          - R3
+          - R4
+          properties:
+            R1: &id001
+              type:
+              - object
+              - 'null'
+              properties:
+                status:
+                  type: string
+                reason:
+                  type: string
+            R2: *id001
+            R3: *id001
+            R4: *id001
+        premise:
+          type: object
+          additionalProperties: false
+          required:
+          - facts_to_add
+          properties:
+            facts_to_add:
+              type: array
+              items:
+                type: string
+        retaken_for_reviews:
+          type: string
+        exit_file:
+          type: string
