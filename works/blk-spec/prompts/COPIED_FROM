@@ -1,0 +1,6 @@
+a1202d0  graphloops 0.21.0 の仕様の道の指示書（specblk.render が engine の Renderer で描く）
+spec.write.md
+spec.review.md
+spec.revise.md
+# 元は本線の graphloops/prompts/review-loop/<行>（git show a1202d0:graphloops/prompts/review-loop/<行>）。1 バイトも変えない
+# （tests/test_blk_spec.py が見る）。写しの graphloops（.shared/core/COPIED_FROM）と同じ commit から写す——写し直しで一緒に写し直す。
