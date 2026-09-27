@@ -10,28 +10,36 @@ linked worktree の盤面（<共有>/worktrees/<名>/graphloops/<loop>/<run_id>/
 盤面は、その置き場の親を根に渡したときだけ数える（渡さなければ数えない）。worktree を消すと盤面も消えるので数えられない。
 
 数える物は盤面に書かれた値そのもので、台本は語彙を持たない（engine が語を足しても黙って狭くならない）:
-- 周の判定（rounds/round-<N>.json の reviews）: 役が返した判定だけ。機械が埋めた行（検証器の REVIEW_STATUS の
-  machine_written）と、持ち越せない値の据え置き（rules の据え置きの句）は除き、除いた数を別に出す。述語は
-  plugin の検証器と rules から引く（写さない）。述語は今の plugin の物で、旧い版の盤面の周にも同じ述語を当てる
+- 周の判定（rounds/round-<N>.json の reviews）: 盤面の周に在る R の行を 1 行ずつ、重ならない 3 つに分ける。本物（役が
+  返した判定）・除いた行（機械が埋めた行＝検証器の REVIEW_STATUS の machine_written と、持ち越せない値の据え置き＝rules
+  の据え置きの句）・数えられない行（今の検証器の REVIEWS に無い鍵・REVIEW_STATUS に無い値・辞書でない行・述語を
+  引けない graph の周の行。R の鍵→値→数で出す）。周に鍵の無い R はどれにも入らない。R ごとの数の分母はその R の
+  本物の行の数で、閉じた周の数ではない。述語は plugin の検証器と rules から引く（写さない）。述語は今の plugin の
+  物で、旧い版の盤面の周にも同じ述語を当てる（据え置きの句の文言が版で変わっていても見分けられない）
 - 版: 周の判定は周ごとの版（state.engine_changes）に、trace の行は直前の engine_changed の版に帰属させる。
   run の数と状態は最後の版（state.engine）に数え、版をまたいだ run は「版が混在」に数える
 - 関所の答え: trace の answer の値と kinds をそのまま数える。答えを打った者は盤面に記録が無い
 - 受け付け: trace の role_run の accepted の値（True / False / None / 欄なし）をそのまま数え、False の行は why の頭の句で数える
+  （頭の句は、絶対パス・家の置き場・ログイン名を伏せてから切って束ねる——パスだけ違う頭は 1 つに束ねられる）
 - 費用: role_run の total_cost_usd は会話の累計なので、会話（session_id）ごとの最大を足す
 - 時間: 経過（trace の最初と最後の時刻の差。人待ち・止めた間を含む）と、役の実行の合計（role_run の wall_s の和）
 - 走っている run: status が running でも生きているとは限らないので、最後の痕跡（trace の最後の時刻）からの経過を出す
 
 読めない盤面（state.json が無い・JSON でない・形が違う）は落とさずに「読めない」と数え、run の中の一部のファイル・行が
 読めないときはその部分だけを数えない（読めなかった部分は run の行の unreadable_parts に出す）。
-置き場は根からの相対で出し、盤面の絶対パスの欄（state.graph・engine.root・trace の root・stderr）は写さない。
+置き場は根からの相対で出し、盤面の絶対パスの欄（state.graph・engine.root・trace の root・stderr）は写さない。自由文を出す
+所（拒否の理由の頭・launch が ok でない行の頭・述語が引けない注意）は、絶対パスを <絶対パス>、ログイン名を <利用者> に伏せる。
 """
 import argparse
 import collections
+import contextlib
 import datetime
+import getpass
 import importlib.util
 import json
 import os
 import pathlib
+import re
 import statistics
 import subprocess
 import sys
@@ -42,12 +50,15 @@ sys.path.insert(0, str(PLUGIN))
 
 from engine import schema as schema_mod  # noqa: E402
 from engine import rules as rules_mod  # noqa: E402
+from engine import util as util_mod  # noqa: E402
 from engine import validator as validator_mod  # noqa: E402
 
 NO_ENGINE = "版なし（engine の欄が無い盤面）"
 UNREAD_VERSION = "版が読めない"
 UNREADABLE = "読めない盤面"
 HEAD_MAX = 60
+NOT_DICT = "（行が辞書でない）"
+NO_STATUS = "（status の欄が無い）"
 
 
 # ---------------------------------------------------------------- 周の判定の述語（plugin の検証器と rules から引く）
@@ -66,14 +77,21 @@ class Verdicts:
     @staticmethod
     def _load(name, loop):
         path = PLUGIN / "graphs" / (name or f"{loop}.json")
-        graph, err = schema_mod.load_graph(path) if path.is_file() else (None, f"{path.name} が plugin に無い")
-        if graph is None:
-            return {"why": err}
+        if not path.is_file():
+            return {"why": redact(f"{path.name} が plugin に無い")}
+        util_mod.LAST_DIE = None  # 前の graph で die した文面を、この graph の理由として出さない
         try:
-            vpath = validator_mod.find_validator(loop or path.stem, graph.get("plugin"))
-            rules = rules_mod.load_rules(path, graph)
-        except SystemExit as e:  # engine の die は SystemExit——読めないと数えて続ける
-            return {"why": f"検証器か rules が読めない（{e}）"}
+            # 1 本の graph が読めなくても集計を止めない（docstring の『読めない物は落とさず数える』）。engine の die は SystemExit
+            # （Exception の受けを抜ける）で stderr に絶対パス入りの 1 行を印字するので、stderr は捨てて die の文面を伏せて出す。
+            # die を通らない例外（engine の実装の誤りを含む）も同じ注意に丸め、手がかりは例外の型名だけ——追うなら engine を直に呼ぶ
+            with open(os.devnull, "w", encoding="utf-8") as null, contextlib.redirect_stderr(null):
+                graph, err = schema_mod.load_graph(path)
+                if graph is None:
+                    return {"why": redact(err)}
+                vpath = validator_mod.find_validator(loop or path.stem, graph.get("plugin"))
+                rules = rules_mod.load_rules(path, graph)
+        except (SystemExit, Exception) as e:
+            return {"why": f"graph か検証器か rules が読めない（{redact(util_mod.LAST_DIE or type(e).__name__)}）"}
         if not vpath:
             return {"why": "検証器が見つからない"}
         spec = importlib.util.spec_from_file_location("graphloops_ledger_validator", vpath)
@@ -123,9 +141,29 @@ def _ts(s):
         return None
 
 
+_HOME = os.path.expanduser("~")
+try:
+    _USER = getpass.getuser()
+except (OSError, KeyError, ImportError):
+    _USER = ""
+_PATH_CHAR = r"[^\s:：（）()「」『』、，,;\"'`<>\[\]{}]"
+# 前が英数字・_・.・~・- でない / から始まる経路（日本語の直後も当てる）・~/ の経路・ドライブ文字の経路
+_ABS_PATH = re.compile(rf"(?<![A-Za-z0-9_.~-])(?:/{_PATH_CHAR}+|~/{_PATH_CHAR}*|[A-Za-z]:[\\/]{_PATH_CHAR}*)")
+# ログイン名は前後が英数字・_ でない所で伏せる（- は境界に数える: -Users-<名>-src- の形の置き場がある）。短すぎる名は語を壊すので当てない
+_LOGIN = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(_USER)}(?![A-Za-z0-9_])") if len(_USER) >= 3 else None
+
+
+def redact(text):
+    """出力に載せる自由文から、家の置き場・絶対パス・ログイン名を伏せる（束ねる前に当てる）"""
+    s = _ABS_PATH.sub("<絶対パス>", str(text))
+    if len(_HOME) > 1:  # 前が英数字で経路の形に当たらなかった家の置き場
+        s = s.replace(_HOME, "<絶対パス>")
+    return _LOGIN.sub("<利用者>", s) if _LOGIN else s
+
+
 def head_of(why):
-    """拒否の理由の頭の句（最初の行を『（』の手前で切り、『: 』で区切った先頭 2 つ）——語彙を持たずに種類を束ねる"""
-    line = str(why or "").splitlines()[0] if why else ""
+    """拒否の理由の頭の句（伏せた最初の行を『（』の手前で切り、『: 』で区切った先頭 2 つ）——語彙を持たずに種類を束ねる"""
+    line = redact(str(why or "").splitlines()[0]) if why else ""
     for mark in ("（", "("):
         line = line.split(mark, 1)[0]
     return ": ".join(line.split(": ")[:2]).strip()[:HEAD_MAX] or "（理由が空）"
@@ -185,18 +223,19 @@ def _read_run(d, where, verdicts, now):
             parts.append(f"rounds/{f.name}（{type(e).__name__}）")
             continue
         reviews = rec.get("reviews") if isinstance(rec, dict) else None
-        real, held = {}, 0
-        if vd.get("reviews") and isinstance(reviews, dict):
-            for name in vd["reviews"]:
-                rv = reviews.get(name)
-                if not isinstance(rv, dict):
-                    continue
-                st = vd["status"].get(rv.get("status"))
-                if (st is not None and st.machine_written) or (vd["tail"] and vd["tail"].search(str(rv.get("reason") or ""))):
+        real, held, uncountable = {}, 0, collections.defaultdict(collections.Counter)
+        if isinstance(reviews, dict):
+            for name, rv in reviews.items():  # 盤面に在る鍵だけ（周に鍵の無い R はどれにも入らない）
+                status = rv.get("status", NO_STATUS) if isinstance(rv, dict) else NOT_DICT
+                st = vd["status"].get(status) if vd.get("reviews") and isinstance(status, str) else None
+                if name not in (vd.get("reviews") or ()) or st is None:
+                    uncountable[str(name)][status if isinstance(status, str) else str(status)] += 1
+                elif st.machine_written or (vd["tail"] and vd["tail"].search(str(rv.get("reason") or ""))):
                     held += 1
-                    continue
-                real[name] = rv.get("status")
-        rounds.append({"round": n, "version": version_at(n), "reviews": real, "held": held})
+                else:
+                    real[name] = status
+        rounds.append({"round": n, "version": version_at(n), "reviews": real, "held": held,
+                       "uncountable": {k: dict(c) for k, c in uncountable.items()}})
     row["rounds_closed"] = len(rounds)
     row["round_rows"] = rounds
     row["review_filter"] = vd.get("why")
@@ -270,6 +309,7 @@ def aggregate(rows):
         "runs": 0, "mixed_versions": 0, "status": collections.Counter(), "halted_by": collections.Counter(),
         "pending_human": 0, "elapsed_min": [], "since_last_trace_min": [], "rounds_closed": 0,
         "reviews": collections.defaultdict(collections.Counter), "held_review_rows": 0,
+        "uncountable_reviews": collections.defaultdict(collections.Counter), "uncountable_review_rows": 0,
         "answers": collections.Counter(), "answer_kinds": collections.Counter(), "accepted": collections.Counter(),
         "reject_heads": collections.Counter(), "relaunched": 0, "launch_not_ok": collections.Counter(),
         "role_wall_s": 0.0, "cost_usd": 0.0, "unreadable_parts": 0, "review_filter": set()})
@@ -298,6 +338,9 @@ def aggregate(rows):
             b["held_review_rows"] += rr["held"]
             for name, st in rr["reviews"].items():
                 b["reviews"][name][str(st)] += 1
+            for name, c in rr["uncountable"].items():
+                b["uncountable_reviews"][name].update(c)
+                b["uncountable_review_rows"] += sum(c.values())
         for v, e in r["events"].items():
             b = agg[v]
             for k in ("answers", "answer_kinds", "accepted", "reject_heads", "launch_not_ok"):
@@ -308,7 +351,7 @@ def aggregate(rows):
             agg[v]["cost_usd"] += c
     out = {}
     for v, a in agg.items():
-        out[v] = {k: (sorted(x) if isinstance(x, set) else {n: dict(c) for n, c in sorted(x.items())} if k == "reviews"
+        out[v] = {k: (sorted(x) if isinstance(x, set) else {n: dict(c) for n, c in sorted(x.items())} if k in ("reviews", "uncountable_reviews")
                       else dict(x.most_common()) if isinstance(x, collections.Counter) else x) for k, x in a.items()}
         for k in ("elapsed_min", "since_last_trace_min"):
             xs = a[k]
@@ -337,6 +380,10 @@ def render(agg, total, roots_note):
             lines.append(f"{name}（判定 {sum(c.values())}）: {_c(c)}")
         if a["held_review_rows"]:
             lines.append(f"判定から除いた機械の行・据え置きの行: {a['held_review_rows']}")
+        if a["uncountable_review_rows"]:
+            per = " / ".join(f"{name} {_c(c)}" for name, c in a["uncountable_reviews"].items())
+            lines.append(f"数えられない R の行（今の述語が知らない鍵・値・辞書でない行・述語を引けない周）: "
+                         f"{a['uncountable_review_rows']}（{per}）")
         for why in a["review_filter"]:
             lines.append(f"注意: {why}")
         lines.append(f"関所の答え（打った者は記録に無い）: {_c(a['answers'])}（kinds: {_c(a['answer_kinds'])}）")

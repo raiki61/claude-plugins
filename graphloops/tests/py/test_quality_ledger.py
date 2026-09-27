@@ -1,13 +1,19 @@
 """盤面を横断して質の数を束ねる台本（scripts/quality-ledger.py）の検査。盤面は tmp_path に手で組む——読むだけで何も書かないこと・
-壊れた盤面を読めないと数えること・機械が埋めた判定と据え置きを数えないこと・費用を会話ごとの最大で足すこと・置き場を相対で出すこと。"""
+壊れた盤面を読めないと数えること・機械が埋めた判定と据え置きを数えないこと・今の述語が知らない行を数えられないと分けること・
+費用を会話ごとの最大で足すこと・置き場を相対で出し自由文の絶対パスとログイン名を伏せること。"""
+import getpass
 import importlib.util
 import json
+import os
+import types
 
+import golden_adapter as ga
 import pytest
 
 from conftest import PLUGIN, REVIEW_GRAPH_PATH
 from engine import rules as rules_mod
 from engine import schema as schema_mod
+from engine import util as util_mod
 
 _spec = importlib.util.spec_from_file_location("quality_ledger", PLUGIN / "scripts" / "quality-ledger.py")
 ql = importlib.util.module_from_spec(_spec)
@@ -131,3 +137,94 @@ def test_boards_under_any_root_and_multiple_roots(tmp_path, capsys):
     assert ql.main([str(tmp_path / "one"), str(tmp_path / "two"), "--runs"]) == 0
     wheres = [json.loads(line)["where"] for line in capsys.readouterr().out.splitlines()]
     assert wheres == ["根1:graphloops/review-loop/20260101-000000", "根2:anywhere/my-dir"]
+
+
+def test_unknown_review_keys_and_values_are_uncountable_by_key_and_value(tmp_path):
+    board(tmp_path, "r/20260101-000000", state={"engine": engine("0.21.1")},
+          rounds={1: {"reviews": {"R1": {"status": "pass", "reason": "x"}, "R2": {"status": "old-word", "reason": "y"},
+                                  "R3": "文字列", "R4": {"reason": "z"}, "R5": {"status": "pass", "reason": "w"}}},
+                  2: {"reviews": {"R1": {"status": "redesign-needed", "reason": "x"}}}})
+    row = next(iter(rows_of(tmp_path).values()))
+    r1, r2 = row["round_rows"]
+    assert r1["reviews"] == {"R1": "pass"} and r1["held"] == 0
+    assert r1["uncountable"] == {"R2": {"old-word": 1}, "R3": {ql.NOT_DICT: 1}, "R4": {ql.NO_STATUS: 1}, "R5": {"pass": 1}}
+    assert r2["uncountable"] == {}, "周に鍵の無い R（2 周目の R2〜R4）は数えられないに入らない"
+    agg = ql.aggregate([row])
+    a = agg["0.21.1"]
+    assert a["reviews"] == {"R1": {"pass": 1, "redesign-needed": 1}}
+    assert a["uncountable_review_rows"] == 4
+    assert a["uncountable_reviews"]["R2"] == {"old-word": 1}
+    text = ql.render(agg, 1, "根 1 個")
+    assert "数えられない R の行" in text and "old-word 1" in text
+
+
+def test_real_verdicts_match_rules_hist_last_review_round_by_round(tmp_path):
+    """台本の本物の判定と rules の hist_last_review（同じ述語の別の実装）を、辞書の行だけの周 1 本ずつで照らす"""
+    carried = RULES.CARRIED_REVIEW.format(round=1)
+    cases = [{"R1": {"status": "pass", "reason": "x"}, "R2": {"status": "carried_over", "from_round": 1, "reason": "x"}},
+             {"R1": {"status": "old-word", "reason": "x"}, "R3": {"status": "not_applicable", "reason": "z"}},
+             {"R2": {"status": "unverifiable", "reason": "y" + carried}, "R4": {"status": "not_run", "reason": "w"}},
+             {"R1": {"status": "redesign-needed", "reason": "x"}, "R2": {"status": "premise-invalid", "reason": "p"}}]
+    vd = ql.Verdicts().for_graph(None, "review-loop")
+    V = types.SimpleNamespace(REVIEWS=vd["reviews"], REVIEW_STATUS=vd["status"])
+    for i, reviews in enumerate(cases):
+        board(tmp_path, f"p/{i}", state={"engine": engine("0.21.1")}, rounds={1: {"reviews": reviews}})
+        ours = rows_of(tmp_path / "p")[str(i)]["round_rows"][0]["reviews"]
+        h = types.SimpleNamespace(validator=V, round=1, rd=lambda n: {"done": {"p4.record": {}}},
+                                  round_record=lambda n, rec={"reviews": reviews}: rec)
+        theirs = {name: rv["status"] for name, rv in RULES.hist_last_review(h).items()}
+        assert ours == theirs, f"周 {i}: 台本 {ours} / rules {theirs}"
+
+
+def test_free_text_paths_and_login_are_redacted_before_grouping(tmp_path, capsys):
+    user = getpass.getuser()
+    home = os.path.expanduser("~")
+    t = "2026-01-01T00:00:00+09:00"
+    why = "受け付けが拒んだ: {}/unit.py::f: 返答が型に合わない（詳細）"
+    board(tmp_path / "c", "r/20260101-000000", state={"engine": engine("0.21.1"), "graph": "missing-" + user + "-graph.json"},
+          trace=[{"t": t, "op": "engine_changed", "version": "0.21.1"},
+                 {"t": t, "op": "role_run", "session_id": "s1", "accepted": False, "why": why.format(tmp_path / "a")},
+                 {"t": t, "op": "role_run", "session_id": "s2", "accepted": False, "why": why.format(home + "/b")},
+                 {"t": t, "op": "role_run", "session_id": "s3", "accepted": False,
+                  "why": "受け付けが拒んだ: 置き場" + str(tmp_path) + "/x.json が読めない"},
+                 {"t": t, "op": "launched", "ok": False, "why": "projects/-Users-" + user + "-src-x/memory: 落ちた"}],
+          rounds={1: {"reviews": {"R1": {"status": "pass", "reason": "x"}}}})
+    a = ql.aggregate(list(rows_of(tmp_path / "c").values()))["0.21.1"]
+    assert a["reject_heads"]["受け付けが拒んだ: <絶対パス>::f"] == 2, a["reject_heads"]
+    outs = []
+    for flag in ([], ["--runs"], ["--json"]):
+        assert ql.main([str(tmp_path / "c"), *flag]) == 0
+        outs.append(capsys.readouterr().out)
+    out = "\n".join(outs)
+    assert "<絶対パス>" in out and "<利用者>" in out
+    assert str(tmp_path) not in out and home not in out
+    assert "-" + user + "-" not in out
+    assert ga.forbidden_in(out) == []
+
+
+def test_unreadable_plugin_graph_is_a_note_not_a_crash(tmp_path, monkeypatch, capsys):
+    fake = tmp_path / "plugin"
+    (fake / "graphs").mkdir(parents=True)
+    (fake / "graphs" / "broken.json").write_text("{壊れた", encoding="utf-8")
+    monkeypatch.setattr(ql, "PLUGIN", fake)
+    board(tmp_path / "c", "r/20260101-000000", state={"engine": engine("0.21.1"), "graph": "/x/broken.json"},
+          rounds={1: {"reviews": {"R1": {"status": "pass", "reason": "x"}}}})
+    row = next(iter(rows_of(tmp_path / "c").values()))
+    assert "unreadable" not in row
+    assert row["review_filter"].startswith("graph か検証器か rules が読めない")
+    assert str(tmp_path) not in row["review_filter"]
+    assert row["round_rows"][0]["uncountable"] == {"R1": {"pass": 1}}
+    assert ql.main([str(tmp_path / "c")]) == 0
+    got = capsys.readouterr()
+    assert str(tmp_path) not in got.out + got.err
+
+    monkeypatch.setattr(schema_mod, "load_graph", lambda path: (None, f"{path}: $ref が解けない"))
+    why = ql.Verdicts._load("broken.json", "review-loop")["why"]
+    assert why.endswith("$ref が解けない") and str(tmp_path) not in why
+
+    def boom(path):
+        raise RuntimeError("die を通らない")
+    monkeypatch.setattr(schema_mod, "load_graph", boom)
+    util_mod.LAST_DIE = "前の graph の文面"
+    why = ql.Verdicts._load("broken.json", "review-loop")["why"]
+    assert "RuntimeError" in why and "前の graph の文面" not in why
