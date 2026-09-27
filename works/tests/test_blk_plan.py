@@ -103,7 +103,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual([m["id"] for m in g["nodes"]], [f"{role['id']}-prep", role["id"], f"{role['id']}-accept"])
                 self.assertEqual(grp["id"], f"{role['id']}-loop")
                 self.assertEqual(g["until_bash"], f"test ${role['id']}-accept.output.done = true")
-                self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob"])
+                self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
                 self.assertEqual(role["settingSources"], ["user"])
                 self.assertEqual(role["idle_timeout"], DEADLINE)
                 self.assertNotIn("context", role)

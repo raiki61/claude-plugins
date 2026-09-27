@@ -111,7 +111,7 @@ nodes:
           prompt: 指示書 `$tdd-prep.output.prompt_file` を Read で毎回全部読み（回ごとに中身が替わる）、その指示に従え。返すのは指示書の「返す JSON」の形の JSON だけ。
           depends_on: [tdd-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # 印 works-node: tdd（包みが会話を節の名で分け、続きの起動で指示書の形を選ぶ）
@@ -202,7 +202,7 @@ nodes:
           prompt: 指示書 `$fix-prep.output.prompt_file` を Read で全部読み、その指示に従え。返すのは指示書が名指す欄の JSON だけ。
           depends_on: [fix-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # recount.FIX_OUTPUT_FORMAT（写しの p3.fix の schema に印 works-node: fix）を貼った物（tests/test_blk_fix.py が一致を見る）

@@ -36,9 +36,9 @@ READS_INDEX = "reads-plan-block.json"
 NONE_WORDS = ("", "null")               # 入口の「無し」（Archon の入力の既定の空と、ラインが渡す文字列 null）
 EXCLUDED_HEAD = "並行 PR の範囲。触らず、単位に入れない"
 HEAD = {
-    "plan": ("お前は修正案の役（読むだけ）。道具は Read・Grep・Glob だけで、作業ツリーを 1 文字も変えてはいけない（受け付けは起こす前の"
+    "plan": ("お前は修正案の役（読むだけ）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch だけで、作業ツリーを 1 文字も変えてはいけない（受け付けは起こす前の"
              "作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の JSON Schema に合う JSON だけを返せ。"),
-    "plan-review": ("お前は修正案の事前審査の役（読むだけ。判定をした役とは別の目）。道具は Read・Grep・Glob だけで、作業ツリーを 1 文字も"
+    "plan-review": ("お前は修正案の事前審査の役（読むだけ。判定をした役とは別の目）。道具は Read・Grep・Glob と web を引く WebSearch・WebFetch だけで、作業ツリーを 1 文字も"
                     "変えてはいけない（受け付けは起こす前の作業ツリーの写しと比べ、変わっていれば拒む）。下の指示書に従い、指示書の"
                     " JSON Schema に合う JSON だけを返せ。"),
 }

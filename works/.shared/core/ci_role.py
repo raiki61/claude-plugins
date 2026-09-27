@@ -3,7 +3,7 @@
 graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engine が宣言（.review-checks.json）を走らせられない時、graph の役
 （run_by: writer。a1202d0 の指示書 p0.local_checks.md・p4.ci.md）に落ちる。works では test_cmd も空の run で、entry.run_ci が
 role_needed を返し（start の ci_role_go・blk-tests の final の by）、ラインがこのブロックを node: <節> で回す。役は opus で、
-Read・Grep・Glob とテストを走らせる Bash を持ち、Edit・Write は持たない。
+Read・Grep・Glob・WebSearch・WebFetch とテストを走らせる Bash を持ち、Edit・Write は持たない。
 
 走らせる場所は graphloops の任せ先と同じく作業ツリーの写し（写しの engine の util.copy_worktree。本物と同じ commit に未コミットの
 変更と未追跡のファイルを載せた独立の clone）。写しは run ごとに利用者の一時の置き場（tempfile.gettempdir()）の直下の

@@ -42,6 +42,7 @@ FAST = frozenset({
     "test_tiers",           # 8 秒（偽の uv・枠の台本で run.sh を起こす）
     "test_versions",        # run ごとの版の控え: 一時の置き場に書くだけ・start.py を 1 本起こす（git なし）
     "test_use",           # 起動の殻 dev/use.sh: 種の git（gitkit の型の写し）・偽の Archon（sh の台本）で殻を子で起こす
+    "test_tool_parity",     # 役の道具が本線の run_by の定義より少なくないか: YAML と写しの graph を読むだけ
     "test_toolset",         # 隔離した Claude の設定の組み立てと柵: 一時の置き場に写す・偽の claude（python）を子で起こす（git なし）
     "test_yaml_rules",      # 3 秒
     "test_protect",         # 守りのファイルの一覧: git ls-files を読む・種の git は gitkit の型の写し

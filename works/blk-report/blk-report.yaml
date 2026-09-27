@@ -70,7 +70,7 @@ nodes:
           command: report-items
           depends_on: [report-items-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）（持ち主の書式の決まりは commands/ に写した）
-          allowed_tools: [Read, Grep, Glob]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # report_roles.output_format("report-items")（本文の型に印）を貼った物（tests/test_blk_report.py が一致を見る）
@@ -237,7 +237,7 @@ nodes:
           command: report-write
           depends_on: [report-write-prep]
           settingSources: [user]
-          allowed_tools: [Read, Grep, Glob]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # report_roles.output_format("report-write")（本文の型に印）を貼った物（tests/test_blk_report.py が一致を見る）

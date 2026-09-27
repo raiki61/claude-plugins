@@ -152,7 +152,7 @@ class TestBlockYaml(unittest.TestCase):
         self.assertIn("`$fix-prep.output.prompt_file` を Read で", fix["prompt"])
         prep = find_node(block()["nodes"], "fix-prep")
         self.assertEqual((prep["script"], prep["timeout"]), ("fix_prep", DEADLINE))
-        self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash"])
+        self.assertEqual(fix["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch"])
         self.assertEqual(fix["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(fix["idle_timeout"], DEADLINE)
         of = fix["output_format"]

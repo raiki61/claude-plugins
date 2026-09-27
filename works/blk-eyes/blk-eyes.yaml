@@ -129,7 +129,7 @@ nodes:
           command: r1-comments
           depends_on: [r1-comments-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: ["Read", "Grep", "Glob"]   # 読むだけ。定義（pr-review-toolkit）は全部の道具を持つが、目は作業ツリーを変えない
+          allowed_tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]   # 読むだけ＋web。定義（pr-review-toolkit）は全部の道具を持つが、目は作業ツリーを変えないので書く道具と shell を除く
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # eyes.output_format("r1.comment_candidates")（写しの schema に印）を貼った物（tests/test_blk_eyes.py が一致を見る）

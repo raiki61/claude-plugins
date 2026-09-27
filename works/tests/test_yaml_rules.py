@@ -9,7 +9,7 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   外れてよいのは表 EXCEPTIONS の節だけ（どの節が・どの道具と・どの sandbox の形を持ってよいかを 1 つの表に置く）:
   - blk-fix/blk-fix.yaml の節 fix（書く役）: 道具の決まりの外
   - blk-spec/blk-spec.yaml の節 spec-write・spec-revise（仕様の道の writer。受け入れ条件のテストを対象に書く）: 道具の決まりの外
-  - blk-ci/blk-ci.yaml の節 ci（CI の任せ先の役。裁定 R52・R56）: 読む道具に Bash だけ（テストを走らせる。Edit・Write は持たない）。
+  - blk-ci/blk-ci.yaml の節 ci（CI の任せ先の役。裁定 R52・R56）: 読む道具に Bash と web（テストを走らせる。Edit・Write は持たない）。
     sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ広い形（allowWrite ['/']・網）そのもので、本物の作業ツリーは
     包みが守るので、output_format の印に旗 no-tree-write を持つ
   - blk-material/blk-material.yaml の Bash を持つ役（素材集め。本線 R3）: graphloops の起こし方と同じ道具（investigator・任せ先は
@@ -18,9 +18,11 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
     MATERIAL_SANDBOX。どれも印に旗
     no-tree-write（本物の作業ツリーは包みが守る）。局所レビューも settingSources は [user]（下の決まり。pr-review-toolkit の agent のレンズは
     許す一覧 borrow.json の版を固めた写しから dev/toolset.py が隔離した設定に入れる）
-  - blk-eyes/blk-eyes.yaml の節 r1-minimality・premise-check（独立の目の judge）: 読む道具に web（WebSearch・WebFetch）を足す
-    （graphloops の judge の定義の道具。書く道具と shell は持たない）
-  - blk-premises/blk-premises.yaml の節 premises（測る役）: 読む道具に Bash だけ（測るためにコマンドを走らせるが書く道具は
+  - 読む道具に web（WebSearch・WebFetch）を足す節（WEB_READERS。本線の run_by が judge か、読むだけの writer か、全部の道具を
+    持つ定義を読むだけに狭めた目。書く道具と shell は持たない。tests/test_tool_parity.py が本線の道具以上かを見る）:
+    blk-eyes の r1-minimality・premise-check・r1-comments、blk-judge の judge、blk-plan の plan・plan-review、blk-rejudge の
+    rejudge・rejudge-third、blk-purpose の purpose、blk-report の report-items・report-write、blk-spec の spec-review
+  - blk-premises/blk-premises.yaml の節 premises（測る役）: 読む道具に Bash と web（測るためにコマンドを走らせるが書く道具は
     持たない。Bash は狭い sandbox の中。作業ツリーを変えれば受け付けが写しと比べて拒む）
 - AI の節は settingSources: [user] を持つ（P1 計画 Task 20・裁定 P1-R8）。役は開発の殻が隔離した CLAUDE_CONFIG_DIR だけを読み、
   そこには許す一覧（.shared/borrow/borrow.json）の物しか無い（dev/toolset.py が組み、柵が一覧の外を拒む）。対象の CLAUDE.md
@@ -54,7 +56,7 @@ TDD_WRITER = ("blk-fix", "blk-fix.yaml", "tdd")   # TDD の輪の修正役（テ
 LOOP_MAX = {("blk-fix", "blk-fix.yaml", "tdd-loop"): 40}
 CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
 MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 前提の実測の役（読む道具に Bash だけを足す）
-MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash"}
+MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash", "WebSearch", "WebFetch"}
 SPEC_WRITE = ("blk-spec", "blk-spec.yaml", "spec-write")     # 仕様の道の writer（本線 R2。受け入れ条件のテストを書く）
 SPEC_REVISE = ("blk-spec", "blk-spec.yaml", "spec-revise")   # 同じ writer が審査の穴に答えて直す
 REFIX_WRITERS = (("blk-refix", "blk-refix.yaml", "refix"), ("blk-refix", "blk-refix.yaml", "refix2"))   # 差分の審査の後の手直し（〔線A計〕T17）
@@ -84,18 +86,24 @@ _MATERIAL = {
     "local-review": {"tools": _MAT_TOOLS | {"Skill", "Agent"}, "sandbox": MATERIAL_SANDBOX, "flag": "no-tree-write"},
 }
 JUDGE_WEB_TOOLS = READ_ONLY_TOOLS | {"WebSearch", "WebFetch"}   # graphloops の judge の定義（agents/judge.md）の道具
+# 読む道具に web だけを足す節（本線の judge・読むだけの writer・読むだけに狭めた comment-analyzer。持ち主 2026-09-28）
+WEB_READERS = (("blk-eyes", "blk-eyes.yaml", "r1-minimality"), ("blk-eyes", "blk-eyes.yaml", "premise-check"),
+               ("blk-eyes", "blk-eyes.yaml", "r1-comments"), ("blk-judge", "blk-judge.yaml", "judge"),
+               ("blk-plan", "blk-plan.yaml", "plan"), ("blk-plan", "blk-plan.yaml", "plan-review"),
+               ("blk-rejudge", "blk-rejudge.yaml", "rejudge"), ("blk-rejudge", "blk-rejudge.yaml", "rejudge-third"),
+               ("blk-purpose", "blk-purpose.yaml", "purpose"), ("blk-report", "blk-report.yaml", "report-items"),
+               ("blk-report", "blk-report.yaml", "report-write"), ("blk-spec", "blk-spec.yaml", "spec-review"))
 EXCEPTIONS = {
     WRITER: {"tools": None},
     SPEC_WRITE: {"tools": None},
     SPEC_REVISE: {"tools": None},
     TDD_WRITER: {"tools": None},
-    CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
+    CI_ROLE: {"tools": MEASURE_TOOLS, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
     **{("blk-material", "blk-material.yaml", n): row for n, row in _MATERIAL.items()},
-    ("blk-eyes", "blk-eyes.yaml", "r1-minimality"): {"tools": JUDGE_WEB_TOOLS},
-    ("blk-eyes", "blk-eyes.yaml", "premise-check"): {"tools": JUDGE_WEB_TOOLS},
+    **{w: {"tools": JUDGE_WEB_TOOLS} for w in WEB_READERS},
     MEASURER: {"tools": MEASURE_TOOLS},
     **{w: {"tools": None} for w in REFIX_WRITERS},
-    PR_CHECK: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": MATERIAL_SANDBOX, "flag": "no-post"},
+    PR_CHECK: {"tools": MEASURE_TOOLS, "sandbox": MATERIAL_SANDBOX, "flag": "no-post"},
 }
 # skills: に書いてよいスキル: 許す一覧の superpowers のスキル（dev/toolset.py が隔離した設定の skills/ に写す物と同じ一覧）
 SP_SKILLS = frozenset(json.loads((ROOT / ".shared" / "borrow" / "borrow.json").read_text(encoding="utf-8"))
@@ -349,17 +357,19 @@ class YamlRulesCase(unittest.TestCase):
             p.write_text(body.replace("id: fix", "id: accept-fix"), encoding="utf-8")
             self.assertOneRule(check_file(p), f"blk-fix.yaml: 節 accept-fix: {outside}", "blk-fix/accept-fix")
 
-    def test_web_reader_only_in_blk_eyes_judges(self):
-        """web の道具（WebSearch・WebFetch）を持ってよいのは独立の目の judge の 2 節だけ（表 EXCEPTIONS）"""
+    def test_web_reader_only_in_table(self):
+        """web の道具（WebSearch・WebFetch）を持ってよいのは表 EXCEPTIONS の節だけ（読むだけの目・読むだけの本線の審査は持たない）"""
         body = (TESTS / "yaml_good" / "all_kinds.yaml").read_text(encoding="utf-8")
         doc = yaml.safe_load(body)
         ai = next(n for n in doc["nodes"] if "command" in n or "prompt" in n)
         ai["allowed_tools"] = ["Read", "WebSearch", "WebFetch"]
         with tempfile.TemporaryDirectory() as tmp:
             for folder, nid, ok in (("blk-eyes", "r1-minimality", True), ("blk-eyes", "premise-check", True),
-                                    ("blk-eyes", "r3-coherence", False), ("blk-judge", "r1-minimality", False)):
+                                    ("blk-eyes", "r3-coherence", False), ("blk-judge", "r1-minimality", False),
+                                    ("blk-judge", "judge", True), ("blk-delta", "review", False),
+                                    ("blk-refix", "review2", False)):
                 ai["id"] = nid
-                p = pathlib.Path(tmp) / folder / "blk-eyes.yaml"
+                p = pathlib.Path(tmp) / folder / f"{folder}.yaml"
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
                 with self.subTest(f"{folder}/{nid}"):
@@ -389,7 +399,7 @@ class YamlRulesCase(unittest.TestCase):
             p = pathlib.Path(tmp) / "blk-ci" / "blk-ci.yaml"
             # blk-ci の ci でも書く道具は持てない
             p.write_text(wide.replace("[Read, Grep, Glob, Bash]", "[Read, Grep, Glob, Bash, Edit]"), encoding="utf-8")
-            self.assertOneRule(check_file(p), "blk-ci.yaml: 節 ci: AI の節の allowed_tools が ['Bash', 'Glob', 'Grep', 'Read'] の外を持つ（['Edit']）",
+            self.assertOneRule(check_file(p), "blk-ci.yaml: 節 ci: AI の節の allowed_tools が ['Bash', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch'] の外を持つ（['Edit']）",
                                "blk-ci/ci+Edit")
             # blk-ci の中でも ci 以外の節は読むだけの道具に限る
             p.write_text(body.replace("id: ci", "id: ci-accept"), encoding="utf-8")
@@ -426,7 +436,7 @@ class YamlRulesCase(unittest.TestCase):
             out = check_file(q)
             self.assertEqual(len(out), 2, out)
             self.assertTrue(any("広げる鍵を持つ" in f for f in out), out)
-            self.assertTrue(any("allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash']）" in f for f in out), out)
+            self.assertTrue(any("allowed_tools が ['Glob', 'Grep', 'Read'] の外を持つ（['Bash', 'WebFetch', 'WebSearch']）" in f for f in out), out)
 
     def test_failIfUnavailable_is_not_wide(self):
         """failIfUnavailable（sandbox が立たない場で素通しにしない）は狭める鍵なので、どの AI の節も持ってよい"""
@@ -457,7 +467,7 @@ class YamlRulesCase(unittest.TestCase):
             # 測る役でも書く道具は外
             p.write_text(body.replace("[Read, Grep, Glob, Bash]", "[Read, Grep, Glob, Bash, Edit, Write]"), encoding="utf-8")
             self.assertOneRule(check_file(p), "blk-premises.yaml: 節 premises: AI の節の allowed_tools が "
-                               "['Bash', 'Glob', 'Grep', 'Read'] の外を持つ（['Edit', 'Write']）", "premises + Edit")
+                               "['Bash', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch'] の外を持つ（['Edit', 'Write']）", "premises + Edit")
             # blk-premises の中でも premises 以外の節は読むだけの道具に限る
             p.write_text(body.replace("id: premises", "id: premises-accept"), encoding="utf-8")
             self.assertOneRule(check_file(p), f"blk-premises.yaml: 節 premises-accept: {read_only}", "premises-accept")

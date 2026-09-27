@@ -68,7 +68,7 @@ nodes:
           command: spec-write
           depends_on: [write-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # specblk.output_format("write")（写しの graph の spec.write の schema に印 works-node: spec-write）を貼った物（tests/test_blk_spec.py が一致を見る）
@@ -195,7 +195,7 @@ nodes:
           command: spec-review
           depends_on: [review-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # specblk.output_format("review")（写しの graph の spec.review の schema に印 works-node: spec-review）を貼った物（tests/test_blk_spec.py が一致を見る）
@@ -304,7 +304,7 @@ nodes:
           command: spec-revise
           depends_on: [revise-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # specblk.output_format("revise")（写しの graph の spec.revise の schema に印 works-node: spec-revise）を貼った物（tests/test_blk_spec.py が一致を見る）
