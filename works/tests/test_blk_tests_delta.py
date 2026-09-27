@@ -30,8 +30,8 @@ sys.path.insert(0, str(CORE))
 
 from accept import check_delta, role_schema, snapshot_tree  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+from gitkit import committed_copy, git  # noqa: E402
 
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
 def load(name):
@@ -54,10 +54,6 @@ def find_node(nodes, nid):
     return None
 
 
-def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
-
-
 class RepoCase(unittest.TestCase):
     """dev/target-seed/ を写した使い捨ての対象リポジトリと、run の成果物の置き場"""
 
@@ -65,11 +61,7 @@ class RepoCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = pathlib.Path(self._tmp.name)
         self.repo = tmp / "repo"
-        shutil.copytree(SEED, self.repo)
-        git(self.repo, "init", "-q")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-q", "-m", "seed")
-        self.base = git(self.repo, "rev-parse", "HEAD")
+        self.base = committed_copy(self.repo, SEED)   # 種を写して commit した git（型の写し。gitkit）
         self.artifacts = tmp / "artifacts"
         self.artifacts.mkdir()
         self.board = self.artifacts / "board"
