@@ -131,7 +131,7 @@ def cmd_accept(a):
     seen = {}
     try:
         output, notes, remaining, effs = check_reply(b, nid, text, item, (inst or {}).get("pointers"), seen=seen)
-    except (AnswerReject, Reject, HandBack) as e:   # HandBack: engine が起こした子の返答を会話に返す拒み（受け付けない）
+    except (AnswerReject, Reject, HandBack) as e:
         return out({"ok": False, "called": bool(fn and seen), "form": form, "reason": str(e), "effects": [], "pending": pending})
     return out({"ok": True, "called": fn is not None, "form": form, "reply": output, "effects": effs, "pending": pending,
                 **({"remaining": remaining} if remaining else {}), **({"note": " / ".join(notes)} if notes else {})})

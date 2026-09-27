@@ -34,7 +34,20 @@ def repo(tmp_path, monkeypatch):
     git(r, "commit", "-q", "-m", "base")
     git(r, "worktree", "add", "-q", str(tmp_path / "other"), "-b", "other")
     monkeypatch.setattr(util, "GIT_CWD", str(r))
+    monkeypatch.chdir(r)   # プロセスの cwd の .claude/settings.json（走らせたリポジトリの deny）に柵のテストが依らない
     return r
+
+
+def test_delegate_fence_ignores_a_deny_in_the_process_cwd(repo, tmp_path, monkeypatch):
+    """走らせた場所（プロセスの cwd）に deny を持つ .claude/settings.json が在っても、任せ先の柵は対象リポジトリ（cwd を名指した
+    作業ツリー）の宣言だけを読む"""
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / ".claude").mkdir(parents=True)
+    git(elsewhere, "init", "-q")
+    (elsewhere / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"deny": ["Bash(bash tests/run.sh:*)"]}}), encoding="utf-8")
+    monkeypatch.chdir(elsewhere)
+    assert role_run.repo_deny(str(repo)) == ([], None)
+    assert role_run.repo_deny(str(elsewhere))[0] == ["Bash(bash tests/run.sh:*)"]
 
 
 def test_protected_paths_names_tree_gitdirs_worktrees_and_board(repo, tmp_path):

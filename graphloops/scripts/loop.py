@@ -4,7 +4,7 @@
 使い方（回す側が呼ぶ順）:
     loop.py init   --loop research-loop --request @依頼.md [--document 文書] [--input k=v ...] [--thickness 標準]
                    [--decider <graph の thickness.deciders の値>] [--unattended] [--stop-after-round N] [--dir <置き場>] [--validator <path>]
-                   [--engine-runners]               # 回す側の節も engine が起こす（回し役の要らない回し方）
+                   [--no-engine-runners]            # 回す側の節を会話がこなす（既定は engine が起こす——回し役の要らない回し方。消す予定）
                    [--unfenced-delegates <理由>]   # 任せ先を sandbox で縛らない（人が明示したときだけ）
     loop.py run    [--dir] [--foreground]               # 回し手が engine の起こせる節を回し続け、止まる所でだけ戻る（前景で打つ。下の終了コード）
     loop.py resume --reason <理由> (--stop-after-round N | --no-stop-after-round)   # init --stop-after-round で止めた run を次の周へ進める
@@ -46,7 +46,7 @@ for _s in (sys.stdout, sys.stderr):
 from engine import commands as c  # noqa: E402
 from engine import children, filelock, intake, resume, runner, util  # noqa: E402
 from engine.role_run import StopSignal, install_stop_handlers  # noqa: E402
-from engine.util import BoardConflict, Reject, die  # noqa: E402
+from engine.util import BoardConflict, HandBack, Reject, die  # noqa: E402
 
 
 # 盤面を読んでから書くまでを丸ごと盤面の錠の下で走らせるコマンド（短い。next は機械の節も走らせるので長くなりうるが、その間は
@@ -75,9 +75,9 @@ def main():
     s.add_argument("--dir")
     s.add_argument("--validator")
     s.add_argument("--lang")
-    s.add_argument("--engine-runners", action="store_true",
-                   help="回す側の節（修正・修正案・手直し・基準点・前提・目的・報告など、任せ先と skill を持たない節）も engine が claude -p で起こす"
-                        "（loop.py run が止まる所でだけ戻る。付けなければ今どおり会話がこなす）")
+    s.add_argument("--engine-runners", action=argparse.BooleanOptionalAction, default=None,
+                   help="回す側の節（修正・修正案・手直し・基準点・前提・目的・報告・局所レビューなど、任せ先を持たない節）も engine が claude -p で"
+                        "起こす（既定。loop.py run が止まる所でだけ戻る）。--no-engine-runners で会話がこなす道を選ぶ（人の決定 2026-09-27 で消す予定）")
     s.add_argument("--unfenced-delegates", metavar="REASON",
                    help="任せ先（delegate）を sandbox で縛らず、回す側が Agent ツールで起こす（人が run ごとに明示したときだけ。理由は盤面に残る）")
     s.set_defaults(fn=c.cmd_init)
@@ -112,6 +112,8 @@ def main():
     s.add_argument("--reason", required=True)
     s.add_argument("--if-untouched", action="store_true",
                    help="前の試行の子を先に止め切り、作業ツリーの木と HEAD・枝が起こした時点と同じときだけ起こし直す（違えば新しい試行を作らずに拒む。回し手が居なくなった launch の書き換える子を拾い直す口）")
+    s.add_argument("--reprobe", action="store_true",
+                   help="盤面に固めた sandbox と一時の置き場の確かめを消してから出し直す（次の launch が確かめ直す。入れ子の sandbox の外し方を当てた後に打つ）")
     s.set_defaults(fn=c.cmd_relaunch)
 
     s = sub.add_parser("done")
@@ -231,7 +233,7 @@ def cli():
     標準エラーを変えない）。exit 1 の日常の拒否も残す——同じ鍵の件数が「どの拒否が多いか」になる"""
     try:
         main()
-    except Reject as e:
+    except (Reject, HandBack) as e:
         intake.failed(sys.argv[1:], 1, e, e.__traceback__, str(e))
         die(str(e), 1)
     except BoardConflict as e:

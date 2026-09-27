@@ -59,34 +59,93 @@ def test_named_relative_is_resolved_and_missing_is_rejected(tmp_path):
 
 
 def test_plan_gate_lists_narrows_and_only_human_kinds(tmp_path):
-    outs = {"p2.fix_plan": {"plan": [{"narrows": [{"what": "能力 A", "why": "理由"}]}, {"narrows": []}]},
+    outs = {"p2.fix_plan": {"plan": [{"unit_keys": ["u1"], "narrows": [{"what": "能力 A", "why": "理由"}]}, {"unit_keys": ["u2"], "narrows": []}]},
             "p2.plan_review": {"faces": [{"kind": "copy", "key": "写し", "why": "w"}, {"kind": "regression", "key": "後退", "why": "w"},
                                          {"kind": "policy", "key": "方針", "why": "w"}]}}
     got = RULES._plan_gate_items(board(tmp_path, outs=outs))
-    assert [k for k, _ in got] == ["regression", "regression", "policy"] and "能力 A" in got[0][1]
+    assert [k for k, _, _ in got] == ["regression", "regression", "policy"] and "能力 A" in got[0][1]
+    assert len({i for _, _, i in got}) == 3 and all(":" in i for _, _, i in got)
     assert RULES._plan_gate_items(board(tmp_path)) == []   # 事前審査が走らなかった周は聞く行が無い
 
 
-def test_r4_gate_does_not_reask_passed_rows(tmp_path):
+def asked(b, nid, monkeypatch):
+    """human_gate が人に聞く行（素通りなら空）——方針の文書の変化は無く、直す義務の単位も無い盤面として呼ぶ"""
+    monkeypatch.setattr(RULES, "git", lambda *a, **k: None)
+    monkeypatch.setattr(RULES, "_view", lambda b_, fn: None)
+    monkeypatch.setattr(RULES, "_owed_units", lambda v: set())
+    b.record.setdefault("units", [])
+    b.dir = b.dir.parent
+    got = RULES.human_gate(b, nid)
+    return got["ask"]["items"] if got.get("decision") == "ask" else []
+
+
+def test_r4_gate_does_not_reask_passed_rows(tmp_path, monkeypatch):
     outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["X", "Y"]}, "policy_conflicts": ["P", "Q"]}}
     passed = [{"answer": "continue", "asked": ["R4 が BASE から消えたと見た能力: X", "R4 が見た人の方針とのぶつかり: P"]},
               {"answer": "stop", "asked": ["R4 が BASE から消えたと見た能力: Y", "R4 が見た人の方針とのぶつかり: Q"]}]
-    got = RULES._r4_gate_items(board(tmp_path, outs=outs, human_items=passed))
-    assert got == [("regression", "R4 が BASE から消えたと見た能力: Y"), ("policy", "R4 が見た人の方針とのぶつかり: Q")]
+    got = asked(board(tmp_path, outs=outs, human_items=passed), "r4.human_gate", monkeypatch)
+    assert got == ["R4 が BASE から消えたと見た能力: Y", "R4 が見た人の方針とのぶつかり: Q"]
 
 
-def test_r4_gate_compares_bodies_across_gates_in_the_same_round(tmp_path):
-    """修正後の関所は頭を除いた本文で照らす: この周の修正前の関所で人が通した本文を R4 が写しても聞き直さない（key が「: 」を
-    含んでも本文が 1 つに決まる）。前の周に修正前の関所で通した本文は照らさない——修正前の関所は周ごとに毎回聞く（人の決定 2026-09-27）"""
-    plan = {"p2.fix_plan": {"plan": [{"narrows": [{"what": "能力 A", "why": "理由"}]}]},
+def test_gate_rows_passed_once_are_not_reasked_in_any_round_or_gate(tmp_path, monkeypatch):
+    """人が continue で一度通した行は、周と関所を問わず聞き直さない（人の関所 round 2 の答え）——出どころの ID（修正案の狭めは単位と
+    what、事前審査の穴は語と key）が同じなら言い回し（why・本文）が変わっても聞かず、本文が同じ行（R4 が写した狭め・ID の無い旧い盤面の行）
+    も聞かない。what が変わった狭め・key が変わった穴は新しい行として聞く"""
+    plan = {"p2.fix_plan": {"plan": [{"unit_keys": ["u1"], "narrows": [{"what": "能力 A", "why": "理由"}]}]},
             "p2.plan_review": {"faces": [{"kind": "regression", "key": "k: 含む", "why": "後退の本文"}]}}
-    asked = [row for _, row in RULES._plan_gate_items(board(tmp_path, outs=plan))]
-    assert asked == ["修正案 1 が狭める能力: 能力 A——理由", "事前審査の穴 [regression] 「k: 含む」: 後退の本文"]
-    outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["能力 A——理由", "後退の本文", "新しい"]}}}
-    same = [{"round": 1, "node": "p2.human_gate", "answer": "continue", "asked": asked}]
-    assert RULES._r4_gate_items(board(tmp_path, outs=outs, human_items=same)) == [("regression", "R4 が BASE から消えたと見た能力: 新しい")]
-    earlier = [{**same[0], "round": 0}]
-    assert len(RULES._r4_gate_items(board(tmp_path, outs=outs, human_items=earlier))) == 3
+    b1 = board(tmp_path, outs=plan)
+    first = asked(b1, "p2.human_gate", monkeypatch)
+    assert first == ["修正案 1 が狭める能力: 能力 A——理由", "事前審査の穴 [regression] 「k: 含む」: 後退の本文"]
+    ph = {"node": "p2.human_gate", **RULES.human_gate(b1, "p2.human_gate")["ask"]}
+    RULES.human_gate_answered(b1, ph, "continue")
+    items = b1.record["process"]["human_items"]
+    assert items[0]["asked_ids"] == [i for _, _, i in RULES._plan_gate_items(b1)] and len(set(items[0]["asked_ids"])) == 2
+    later = {"p2.fix_plan": {"plan": [{"unit_keys": ["u1"], "narrows": [{"what": "能力 A", "why": "言い換えた理由"},
+                                                                         {"what": "能力 B", "why": "新しい理由"}]}]},
+             "p2.plan_review": {"faces": [{"kind": "regression", "key": "k: 含む", "why": "言い換えた本文"},
+                                          {"kind": "policy", "key": "別の穴", "why": "w"}]}}
+    b2 = board(tmp_path, outs=later, human_items=items)
+    b2.round = 2
+    assert asked(b2, "p2.human_gate", monkeypatch) == ["修正案 1 が狭める能力: 能力 B——新しい理由", "事前審査の穴 [policy] 「別の穴」: w"]
+    r4 = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["能力 A——理由", "後退の本文", "新しい"]}}}
+    legacy = [{"round": 0, "node": "p2.human_gate", "answer": "continue", "asked": first}]   # asked_ids の無い旧い盤面の行
+    assert asked(board(tmp_path, outs=r4, human_items=legacy), "r4.human_gate", monkeypatch) == ["R4 が BASE から消えたと見た能力: 新しい"]
+
+
+def _named(tmp_path, ref, source="gate_answer", unit="u1", request="", findings=()):
+    plan = {"p2.fix_plan": {"plan": [{"unit_keys": ["u1"], "narrows": [{"what": "入れ子の場で書く節を会話に返す", "why": "人が名指した道",
+                                                                        "named": "n1"}]}]},
+            "p2.diagnose": {"named_narrowings": [{"key": "n1", "unit_key": unit, "what": "入れ子の場で書く節を 13 で返す",
+                                                  "source": source, "ref": ref}]}}
+    b = board(tmp_path, outs=plan, human_items=[{"round": 1, "node": "p2.human_gate", "answer": "continue", "asked": ["別の行"]}])
+    b.round = 2
+    b.state["inputs"]["request"] = request
+    b.record["process"]["request_findings"] = [{"findings": [{"text": t} for t in findings]}]
+    return b
+
+
+@pytest.mark.parametrize("ref,source,unit,req,findings,passes", [
+    pytest.param("gate:r1:p2.human_gate", "gate_answer", "u1", "", (), True, id="gate-answer-that-exists"),
+    pytest.param("gate:r2:p2.human_gate", "gate_answer", "u1", "", (), False, id="gate-answer-not-given"),
+    pytest.param("request:入れ子の場は会話に返してよい", "request", "u1", "…入れ子の場は会話に返してよい。", (), True, id="request-quote"),
+    pytest.param("request:入れ子の場は会話に返してよい", "request", "u1", "", ("人の答え: 入れ子の場は会話に返してよい",), True,
+                 id="request-entry-quote"),
+    pytest.param("request:返してよい", "request", "u1", "返してよい", (), False, id="quote-too-short"),
+    pytest.param("gate:r1:p2.human_gate", "gate_answer", "u9", "", (), False, id="named-for-another-unit"),
+])
+def test_named_narrowing_passes_only_when_the_judge_bound_it_to_the_owner(tmp_path, monkeypatch, ref, source, unit, req, findings, passes):
+    """名指しと判じるのは判定役（p2.diagnose の named_narrowings）で、修正案は key を指すだけ——機械は同じ単位に属すことと出どころ
+    （依頼の本文か修正依頼の入口の本文の 10 字以上の引用・人が continue で答えた関所の行）が在ることだけを確かめる。通した狭めは
+    聞かずに記録の gate_named_passes に残り、報告の知らせに並ぶ。結べない狭めは今どおり聞く（人の関所 round 2 の条件 4）"""
+    b = _named(tmp_path, ref, source, unit, req, findings)
+    got = asked(b, "p2.human_gate", monkeypatch)
+    assert (got == []) == passes
+    rows = b.record["process"].get("gate_named_passes") or []
+    assert (len(rows) == 1 and rows[0]["named"]["ref"] == ref and "修正案 1" in rows[0]["row"]) == passes
+    if passes:
+        b.loop_state = {}
+        b.state["notes"] = []
+        assert any("聞かずに通した狭め" in n and ref in n for n in RULES.notices(b))
 
 
 def test_r4_must_answer_policy_conflicts():
@@ -142,11 +201,11 @@ def test_human_kinds_are_face_kinds():
     assert set(RULES.HUMAN_FACE_KINDS) <= set(RULES.PLAN_ONLY_FACE_KINDS) <= set(enum)
 
 
-def test_r4_gate_tolerates_answers_without_asked(tmp_path):
+def test_r4_gate_tolerates_answers_without_asked(tmp_path, monkeypatch):
     """人の答えの行に asked が無くても（手で直した記録）、聞く行の突合で落ちない"""
     outs = {"r4.hidden_scope": {"capability_inventory": {"fired": True, "lost": ["X"]}}}
-    got = RULES._r4_gate_items(board(tmp_path, outs=outs, human_items=[{"answer": "continue"}]))
-    assert got == [("regression", "R4 が BASE から消えたと見た能力: X")]
+    got = asked(board(tmp_path, outs=outs, human_items=[{"answer": "continue"}]), "r4.human_gate", monkeypatch)
+    assert got == ["R4 が BASE から消えたと見た能力: X"]
 
 
 def test_policy_change_without_fixed_policy(tmp_path):
@@ -176,8 +235,8 @@ def test_human_gate_answered_without_kinds(tmp_path):
     b.record["process"]["policy"] = {"path": None, "sha256": None, "amendments": []}
     b.loop_state["policy_change"] = {"path": "p.md", "from": None, "to": "b" * 64}
     RULES.human_gate_answered(b, {"node": "r4.human_gate", "items": ["行"]}, "continue")
-    assert b.record["process"]["human_items"] == [{"round": 1, "kinds": [], "asked": ["行"], "answer": "continue", "note": "",
-                                                   "node": "r4.human_gate"}]
+    assert b.record["process"]["human_items"] == [{"round": 1, "kinds": [], "asked": ["行"], "asked_ids": [RULES._gate_row_id("policy", "行")],
+                                                   "answer": "continue", "note": "", "node": "r4.human_gate"}]
     assert b.record["process"]["policy"] == {"path": None, "sha256": None, "amendments": []} and "policy_change" not in b.loop_state
 
 

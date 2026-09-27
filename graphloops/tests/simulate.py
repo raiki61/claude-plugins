@@ -1656,7 +1656,7 @@ def test_engine_launch():
     me = st["rounds"][-1]["instances"].get(inst["id"], {})
     check(not bad.get("ok") and "誤りで終わった" in (bad.get("why") or "") and "with-auth: auth=" in (bad.get("stderr") or ""),
           f"誤りの包みは受け付けず、層の標準エラーを結果に運ぶ（{bad.get('why')} / {(bad.get('stderr') or '')[:50]}）")
-    check(me.get("status") == "pending" and [x.get("kind") for x in me.get("attempt_log", [])] == ["failed"],
+    check(me.get("status") == "pending" and [x.get("kind") for x in me.get("attempt_log", [])] == ["crash_resume", "failed"],
           f"落ちた起動は盤面の attempt_log に理由つきで残り、節は待ったまま（{me.get('status')} {me.get('attempt_log')}）")
     r = run.cmd("launch", "--node", inst["id"], env=env)
     check("起こし済み" in r.stdout, f"起こした試行は 2 度起こさない——出口は relaunch（{r.stdout[-120:]}）")
@@ -1778,7 +1778,9 @@ def test_role_run():
     check(not r["ok"] and len(r["runs"]) == 1 and "盤面が読めない" in (r["why"] or ""),
           f"受け付けの検査が例外で落ちたら、続きを頼まずに理由を返す（{len(r['runs'])} 起動: {r['why']}）")
     r = role_run.run_role(argv, prompt, out, accept=accept, resume_argv=resume, max_resumes=2, env={**env, "FAKE_MODE": "error"})
-    check(not r["ok"] and len(r["runs"]) == 1 and "誤りで終わった" in (r["why"] or ""), f"誤りの包みは受け付けに回さない（{r['why']}）")
+    check(not r["ok"] and [x["kind"] for x in r["runs"]] == ["first", "crash_resume"] and len(r["crashes"]) == 1 and r["rejections"] == []
+          and "誤りで終わった" in (r["why"] or ""),
+          f"誤りの包みは受け付けに回さず、同じ会話に 1 回だけ続きを頼む（拒みとは別に数える。{r['why']}）")
     # result の無い誤りの包み（公式の SDKResultMessage: 誤りの subtype は result でなく errors を持つ）
     r = role_run.run_role(argv, prompt, out, accept=accept, env={**env, "FAKE_MODE": "error_noresult"})
     one = r["runs"][0] if r["runs"] else {}

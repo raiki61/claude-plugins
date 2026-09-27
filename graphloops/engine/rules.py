@@ -11,7 +11,7 @@ from .schema import validate_schema
 from .role_run import run_tree
 from .hist import HIST_ABSENT, hist_reads
 from .effects import write_loop
-from .util import (DIFF_FIXED_ARGS, READ_CAP, HandBack, Reject, _grep, die, git, git_bytes, hook_evidence, loads_outside, note_unevaluable, pick,
+from .util import (DIFF_FIXED_ARGS, LANE_FAILED, READ_CAP, HandBack, Reject, _grep, die, git, git_bytes, hook_evidence, loads_outside, note_unevaluable, pick,
                    read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, tree_names_between, worktree_tree, write_json)
 
 _VALIDATORS = {}
@@ -60,7 +60,7 @@ INJECT = {"Reject": Reject, "HandBack": HandBack, "pick": pick, "porcelain": por
           "run_tree": run_tree, "hist_reads": hist_reads, "HIST_ABSENT": HIST_ABSENT, "write_loop": write_loop,
           "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME, "note_unevaluable": note_unevaluable,
           "worktree_tree": worktree_tree, "tree_names_between": tree_names_between, "DIFF_FIXED_ARGS": DIFF_FIXED_ARGS,
-          "loads_outside": loads_outside, "CHECKS_RERUN_ENV": checks_cache.RERUN_ENV}
+          "loads_outside": loads_outside, "CHECKS_RERUN_ENV": checks_cache.RERUN_ENV, "LANE_FAILED": LANE_FAILED}
 
 
 def load_rules(graph_path, graph):

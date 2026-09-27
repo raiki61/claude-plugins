@@ -63,9 +63,15 @@ def _receipt(g):
 @pytest.mark.parametrize("breaks,want", [
     pytest.param(lambda g: _append(g)[0].__setitem__("to", "everyone"), "launch.append[0] は", id="append-unknown-target"),
     pytest.param(lambda g: _append(g)[0]["files"].append("../prompts/no-such.md"), "no-such.md が無い", id="append-missing-file"),
-    pytest.param(lambda g: _append(g)[0]["reads"].remove("record.process.checks"), "段の reads に無い", id="append-hole-not-in-reads"),
-    pytest.param(lambda g: _append(g)[0]["files"].append("../prompts/review-loop/request-scope.md"), "段の reads に無い",
+    # 段の穴は、当たる節の本文と reads に入って節のプロンプトの検査に通る（段専用の写しの検査は持たない）
+    pytest.param(lambda g: _append(g)[0]["reads"].remove("record.process.checks"), "プロンプトの穴 {{record.process.checks}} が reads に無い",
+                 id="append-hole-not-in-reads"),
+    pytest.param(lambda g: _append(g)[0]["files"].append("../prompts/review-loop/request-scope.md"), "が reads に無い",
                  id="append-request-needs-its-read"),
+    pytest.param(lambda g: g["nodes"]["p2.fix_plan"].__setitem__("prompt_append", ["../prompts/policy-path.md"]),
+                 "節 p2.fix_plan: prompt_append の ['../prompts/policy-path.md'] は launch.append の段がこの節に当てる", id="append-dup-in-node"),
+    pytest.param(lambda g: g["nodes"]["r1.comment_candidates"].__setitem__("prompt_append", ["../prompts/board-files.md"]),
+                 "当てうる（別 plugin の役）", id="append-dup-in-other-plugin-node"),
     pytest.param(lambda g: _receipt(g).__setitem__("receipt", {"lane": 1}), "delegate.receipt は", id="receipt-off-schema"),
     pytest.param(lambda g: _receipt(g).__setitem__("background", False), "delegate.receipt は", id="receipt-without-background"),
 ])
@@ -84,7 +90,16 @@ def test_graphcheck_rejects_append_hole_off_loop_keys(sandbox):
     _append(g)[0]["files"].append("../prompts/loop-typo.md")
     _append(g)[0]["reads"].append("loop.no_such_key")
     ok, out = run_graphcheck(sandbox, g)
-    assert not ok and "launch.append[0]: ../prompts/loop-typo.md の穴" in out and "LOOP_KEYS に無い" in out, out[-300:]
+    assert not ok and "プロンプトの穴 {{loop.no_such_key}}" in out and "LOOP_KEYS に無い" in out, out[-300:]
+
+
+def test_graphcheck_holds_the_runner_paste_fence_on_appended_sections(sandbox):
+    """回す側の節に本文を貼らない柵は段の穴にも効く——段が当たる回す側の節の本文として同じ検査に通る（段の穴に file: を足すと赤）"""
+    (sandbox / "prompts" / "policy-paste-seg.md").write_text("{{?file:record.process.policy.path}}\n", encoding="utf-8")
+    g = copy.deepcopy(GRAPH)
+    _append(g)[0]["files"].append("../prompts/policy-paste-seg.md")
+    ok, out = run_graphcheck(sandbox, g)
+    assert not ok and "{{file:record.process.policy.path}} は回す側（writer）の節に書けない" in out, out[-300:]
 
 
 class FakeBoard:
@@ -143,7 +158,30 @@ def test_awaiting_human_from_an_engine_child_goes_back_to_the_conversation(launc
             RULES.local_review_covers_lenses(b, NID, out, None)
     else:
         assert RULES.local_review_covers_lenses(b, NID, out, None) is None
-    assert RULES.local_review_covers_lenses(b, NID, answer(True), None) is None   # 起こせた返答は子でも受け付ける
+    all_invoked = answer(True)
+    all_invoked["findings"][1]["invoked"] = True
+    assert RULES.local_review_covers_lenses(b, NID, all_invoked, None) is None   # 起こせた返答は子でも受け付ける
+
+
+@pytest.mark.parametrize("cond_applies,t_invoked,handed_back", [
+    pytest.param(True, False, True, id="required-not-invoked"),
+    pytest.param(False, True, False, id="cond-not-applicable-needs-no-invoked"),
+    pytest.param(True, True, False, id="all-invoked"),
+])
+def test_engine_child_hands_back_when_a_lens_that_applies_was_not_invoked(cond_applies, t_invoked, handed_back):
+    """engine の子の返答は、当たるレンズ（必須と、条件が真の周の条件付き）の行に invoked: true が無ければ、awaiting_human を書き忘れても
+    会話に返す。条件外の周の条件付きのレンズ（失敗欄に『非該当』）には求めない。会話が done で返した返答には今までどおり求めない"""
+    b = FakeBoard([cond_lens(applies=cond_applies, applies_why="w"), UNCOND])
+    b.rd["instances"][NID].update(launch={"kind": "runner", "skill": True, "on_fail": "handoff"}, launch_state="running")
+    out = answer(cond_applies)
+    out["findings"][1]["invoked"] = t_invoked
+    if handed_back:
+        with pytest.raises(RULES.HandBack, match="/t（起こしたが所見なし）"):
+            RULES.local_review_covers_lenses(b, NID, out, None)
+    else:
+        assert RULES.local_review_covers_lenses(b, NID, out, None) is None
+    b.rd["instances"][NID]["launch_state"] = "ended"
+    assert RULES.local_review_covers_lenses(b, NID, out, None) is None
 
 
 def test_fix_record_keeps_the_declarations_the_cond_reads_across_rounds():

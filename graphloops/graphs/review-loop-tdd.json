@@ -182,9 +182,6 @@
     "$ref": "../blocks/review-loop/fix-tdd/exit.schema.json#/properties/p3.tdd_tests"
    },
    "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md",
     "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
@@ -237,9 +234,6 @@
    ],
    "prompt_append": [
     "../prompts/review-loop/tdd/p3.fix.md",
-    "../prompts/policy-path.md",
-    "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md",
     "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]

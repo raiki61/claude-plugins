@@ -48,6 +48,7 @@ sys.dont_write_bytecode = True  # engine・rules・検証器を読むときに p
 PLUGIN = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN))
 
+from engine.intake import version_key  # noqa: E402
 from engine import schema as schema_mod  # noqa: E402
 from engine import role_run as role_run_mod  # noqa: E402
 from engine import rules as rules_mod  # noqa: E402
@@ -357,10 +358,6 @@ def aggregate(rows):
     return out
 
 
-def _vkey(v):
-    return [(0, int(x)) if x.isdigit() else (1, x) for x in v.replace("-", ".").split(".")]
-
-
 def _c(counter, top=None):
     items = list(counter.items())[:top] if top else list(counter.items())
     return " / ".join(f"{k} {n}" for k, n in items) or "なし"
@@ -368,7 +365,7 @@ def _c(counter, top=None):
 
 def render(agg, total, roots_note):
     lines = [f"盤面 {total} 本（{roots_note}）。版は周の判定を周ごとの版、trace の行をその時の版、run の数を最後の版に数える"]
-    for v in sorted(agg, key=_vkey):
+    for v in sorted(agg, key=version_key):
         a = agg[v]
         lines.append(f"\n== {v} ==（run {a['runs']}・閉じた周 {a['rounds_closed']}・版が混在 {a['mixed_versions']}）")
         lines.append(f"状態: {_c(a['status'])}（止めた訳: {_c(a['halted_by'])}・今人待ち {a['pending_human']}）")

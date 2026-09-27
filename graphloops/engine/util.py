@@ -25,8 +25,28 @@ class AnswerReject(Reject):
 
 class HandBack(Exception):
     """engine が起こした子の返答を受け付けずに、節を会話に返す（rules の受け付けが投げる）。子の環境で起こせない物があった返答で、
-    子に続きを頼んでも直らず、人の答えも要らない——会話が自分でこなせば済む（Reject・AnswerReject の派生にしない: 役に返す拒みに
-    読み替えられない）。会話が done で返した返答には投げない"""
+    子に続きを頼んでも直らず、人の答えも要らない——会話が自分でこなせば済む（Reject・AnswerReject の派生にしない: 受け付けの
+    post_check が Reject を AnswerReject に読み替え、役に続きを頼む拒みになる）。会話が done で返した返答には投げない。
+    捕まえた口（launch の締め・done）が instance の attempt_log に kind: handback を書き、振り分けはその語だけで決まる（runner.classify）"""
+
+
+# 背景の線が結果を書かずに終わった印の鍵（結果の置き場の {LANE_FAILED: 理由}）。書くのは write_lane_failed だけ
+LANE_FAILED = "lane_failed"
+
+
+def write_lane_failed(path, why):
+    """背景の線の結果の置き場に、落ちた印を書く（置き場が既に在れば書かない——書き終えた結果を上書きしない）。書けたら True。
+    書き手は線の launch そのもの（commands.cmd_launch）か、launch を起こせなかった回し手だけなので、置き場を取り合う相手は居ない"""
+    p = pathlib.Path(path)
+    if p.exists():
+        return False
+    tmp = p.with_name(p.name + ".failed.tmp")
+    try:
+        tmp.write_text(json.dumps({LANE_FAILED: why}, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, p)   # 読む側は書き終えた物だけを読む
+    except OSError:
+        return False
+    return True
 
 
 class BoardConflict(SystemExit):

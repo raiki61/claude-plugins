@@ -161,7 +161,8 @@
    {
     "to": "commands",
     "files": [
-     "../prompts/policy-path.md"
+     "../prompts/policy-path.md",
+     "../prompts/policy.md"
     ],
     "reads": [
      "record.process.policy.path"
@@ -341,11 +342,7 @@
     "thickness_decider"
    ],
    "thickness_from": "thickness",
-   "thickness_reason_from": "thickness_reason",
-   "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md"
-   ]
+   "thickness_reason_from": "thickness_reason"
   },
   "p0.claims": {
    "stage": "P0",
@@ -1348,10 +1345,6 @@
     "corrections",
     "numbers",
     "claims（安定キー・recheck）"
-   ],
-   "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md"
    ]
   },
   "p3.rederiver": {
@@ -1879,11 +1872,7 @@
    "outputs": [
     "decisions（decide_now・poc・human_only）"
    ],
-   "note": "decisions の 3 配列（文字列）は駆動器が details の text から作る",
-   "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md"
-   ]
+   "note": "decisions の 3 配列（文字列）は駆動器が details の text から作る"
   },
   "report": {
    "stage": "最終報告",

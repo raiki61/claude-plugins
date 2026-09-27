@@ -59,8 +59,12 @@ def _installed(root):
 
 
 def version_key(name):
-    """版の名前（数値でない部分が混ざってもよい）を大小で並べられる形——キャッシュの版選び（validator.find_plugin_path）と同じ並べ方"""
-    return [(0, int(x)) if x.isdigit() else (1, x) for x in re.split(r"[.\-]", name)]
+    """版の名前（数値でない部分が混ざってもよい）を大小で並べられる形。並べ方は SemVer 2.0.0 §11 の優先順位——+ 以降（build）は見ず、
+    - 以降のプレリリースは同じ本体の正式版より下、識別子は数字どうしなら数で、ほかは字で比べて数字を字より下に置き、前が全部等しければ
+    短い方が下。版を並べる所（validator.find_plugin_path・newer_installed・scripts/quality-ledger.py）は全部これを引く"""
+    core, _, pre = name.split("+", 1)[0].partition("-")
+    ids = lambda s: [(0, int(x)) if x.isdigit() else (1, x) for x in s.split(".")]   # noqa: E731
+    return ids(core), ((0, ids(pre)) if pre else (1, []))
 
 
 @quiet

@@ -13,21 +13,22 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 この手順書は、あなたが engine をどう呼ぶかだけを書く。`${CLAUDE_PLUGIN_ROOT}` は Claude Code がこのプラグインの置き場に展開する変数である。
 
-回し方は 2 つある。**回し役の要らない回し方**（`init --engine-runners`。下の「[早見](#早見)」と「[回し役なしで回す](#回し役なしで回す)」）では、writer の節（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill の節も engine が `claude -p` の子として起こし、背景の線も回し手が立てる。あなたは起動・`run` の打ち直し・人の関所への答えと、会話に返った節（13）・人に渡った節（14）の手当てだけをする。旗を付けない run は今までどおり**会話で回す**——このループを回す session が **writer（実装者）**で、それはあなたである。あなたがするのは、基準点・目的・前提の固定、局所レビューの skill の実行、機械が返す節の起動、修正必須の指摘（[block]）と今直すと判定された提案（do-now）の修正と閉鎖の実証（CI の再実行と規模指標は engine が走らせる——宣言の無いリポジトリの CI だけ任せ先）、最終報告の執筆。**ラベル確定・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
+旗の無い `init` は**回し役の要らない回し方**になる（下の「[早見](#早見)」）: writer の節（基準点・目的・前提・修正案・修正・手直し・報告）と局所レビューの skill の節も engine が `claude -p` の子として起こし、背景の線も回し手が立てる。あなたは起動・`run` の打ち直し・人の関所への答えと、会話に返った節（13）・人に渡った節（14）の手当てだけをする。`init --no-engine-runners` の run は今までどおり**会話で回す**（人の決定 2026-09-27 で消す予定の道）——このループを回す session が **writer（実装者）**で、それはあなたである（節のこなし方は「[会話で回す run の節のこなし方](#会話で回す-run-の節のこなし方)」）。どちらの run でも、**ラベル確定・根本診断・収束判定はしない。** 判定は役割 agent が返し、engine がそれを記録に写す。異議があるなら自分で覆さず、次の周の新しい judge に再判定させる。
 
 役割 agent は convergence-loops に同梱の役の定義（`convergence-loops:judge` のように接頭辞付きで指す）と、依存で入る `pr-review-toolkit:comment-analyzer` を使う。役は engine が `loop.py launch` で起こす（役の定義を読んで起こすので、あなたは役の名前を扱わない）。定義が道具の一覧を持たない役（`pr-review-toolkit:comment-analyzer`）も、graph の `launch.tooled.narrow` の値で読むだけ（Read・Glob・Grep と読むだけの Bash）に狭めて engine が起こす。engine が起こせない役だけ、`agent_type` をそのまま Agent の `subagent_type` に渡す。モデル・道具は役の定義が正本で、この手順書にもグラフにも書かない。
 
 ## 早見
 
-回し役なしの run（`init --engine-runners`）の会話の手番はこれで足りる。細部は下の各節に在る。
+回し役なしの run（旗の無い `init`）の会話の手番はこれで足りる——手番の手引きはここ 1 か所で、値の表の正本は engine の `runner.CODES`・`HOW`。細部は下の各節に在る。
 
-1. `init` する（`--engine-runners`、要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[判定から入る](#判定から入る人の修正依頼)）。
-2. `loop.py run --dir <DIR>` を前景で打ち、終了コードで次の手を決める:
+1. `init` する（要れば `--input gates=merge`・`--stop-after-round N`）。返った `dir` を以降の全部の呼び出しに `--dir` で渡す。直す依頼なら最初の `next` の前に `add`（[判定から入る](#判定から入る人の修正依頼)）。run の間ずっと省く optional の節（engine が走らせる CI の節など）は、最初の `run` の前に `loop.py skip --node <節> --reason <理由> --every-round --dir <DIR>` を打つ——回し手は節が出た瞬間に起こすので、出た後の `skip` では間に合わない。CI の節を省いた run は、収束の手前で CI の問いを 1 度だけ人に聞き、答えた後は聞き直さずに、残る阻害が CI 未確認だけの周で止まる（盤面の `stop_reason` が `ci_unverified_stopped`）——省けば回り切るわけではない。
+2. `loop.py run --dir <DIR>` を前景で打ち（540 秒で必ず戻る。完了の知らせに頼らない。端末・CI・台本なら `run --foreground` が止まるまで戻らない）、終了コードで次の手を決める:
    - 20: 何もせずにもう一度 `run`
-   - 13: `handoff` の各行を、その行の `handoff_why` のとおりにこなして `done` し、もう一度 `run`（13 で返る節は「[回し役なしで回す](#回し役なしで回す)」）
+   - 13: `handoff` の各行を、その行の `handoff_why` のとおりにこなして `done` し、もう一度 `run`（13 で返る節と理由は「[回し役なしで回す](#回し役なしで回す)」）
    - 10: `ask` を人に見せ（下の手順 3「人に聞く番」の聞き方）、`answer` してからもう一度 `run`
-   - 14: `needs_human` を人に見せる。作業ツリーを書き換える節（修正・手直し・仕様）の子が落ちた行は、作業ツリーを確かめてから `relaunch`
-   - 0・11・12: 手番を終える（0 なら盤面の `report.md` を依頼者の言語で出す）
+   - 14: `needs_human` を人に見せる。作業ツリーを書き換える節（修正・手直し・仕様）の子が落ちた・拒みが上限まで続いた行（回し手の自動の起こし直し `relaunch --if-untouched` が効かなかった回を含む）は、**作業ツリーを確かめてから** `relaunch`——途中まで書いた編集の上に、それを知らない新しい会話が重ねて書く
+   - 0・11・12: 手番を終える（0 なら盤面の `report.md` を依頼者の言語で出す。11 は周の止めで、続けるなら `loop.py resume`。12 は `detail` を読む）
+   - 1・2（run そのものが拒まれた・盤面が読めない）は標準エラーを読んで直してから、128 以上（信号で止まった）はそのまま、もう一度 `run`——続きは盤面から拾う
 3. 次の周で直せる赤（テストの失敗・受け付けの拒み）は人に上げない——engine が次の周の判定に渡す。人に見せるのは 10 の `ask` と 14 の `needs_human` だけ。
 4. 人が止めてと言ったら `loop.py stop --reason <理由> --dir <DIR>`。
 
@@ -41,7 +42,7 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
    **人から直す依頼を持って来たなら**、最初の `next` の前に、下の「[判定から入る（人の修正依頼）](#判定から入る人の修正依頼)」の手順で依頼を `add` せよ——run が判定から入るのは 1 周目の P1 より前の `add` だけで、最初の `next` の前が確実である。
 
-   回し役なしで回すなら `--engine-runners` を足す（下の「[回し役なしで回す](#回し役なしで回す)」）。対象リポジトリの決まりが変異テストを手元で撃たせない（CI か合流の後に限る）なら、`--input gates=merge` も足せ——付けない run では、ゲートの検算と最後の関門の任せ先が手元で変異の実行器を撃つ。
+   旗が無ければ回し役なしで回る（上の「[早見](#早見)」）。会話で回すなら `--no-engine-runners` を足す（消す予定の道）。対象リポジトリの決まりが変異テストを手元で撃たせない（CI か合流の後に限る）なら、`--input gates=merge` も足せ——付けない run では、ゲートの検算と最後の関門の任せ先が手元で変異の実行器を撃つ。
 
    返ってきた `dir`（盤面の置き場）を **以降の全部の呼び出しに `--dir <DIR>` で渡せ**。省くと engine は `current` から推測するが、同じリポジトリに別の run が在ると取り違えて拒む（別ループの run が並ぶと exit 2）。名指しが既定の導線である。
 
@@ -53,16 +54,11 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" run --dir <DIR>
    ```
 
-   終了コードで次の手を決めよ（値の表の正本は engine の `runner.CODES`）:
-   - **20**（まだ回っている。540 秒で戻る）——何もせずにもう一度 `run`
-   - **13**（会話に返す節がある）——出力の `handoff` の節を、各行の `handoff_why` と下の「旗を付けない run の節のこなし方」の節の種類のとおりにこなして `done` し、もう一度 `run`。回し手は他の節を回し続けている
-   - **10**（人の答え待ち）——`ask` を人に見せ（下の「人に聞く番」）、`answer` してからもう一度 `run`
-   - **0**（終わった）・**11**（init の `--stop-after-round` の周で止めた）・**12**（進めない。`detail` を読む）・**14**（人が確かめる事がある。`needs_human` を人に見せる）——ここで初めて手番を終えてよい
-   - **1・2**（run そのものが拒まれた・盤面が読めない）は標準エラーを読んで直してから、**128 以上**（信号で止まった）はそのまま、もう一度 `run`——続きは盤面から拾う
+   終了コードごとの次の手は上の「[早見](#早見)」の 2（手引きはそこ 1 か所。値の表の正本は engine の `runner.CODES`・`HOW`）。13 で返った節は、各行の `handoff_why` と下の「会話で回す run の節のこなし方」の節の種類のとおりにこなす。回し手は他の節を回し続けている。
 
-   出力は標準出力の最後の 1 行の JSON（`stop`・`code`・`status`・`round`・`handoff`・`needs_human`・`running`・`engine`・回し手の `runner.pid` と起動時刻・`how`）。役の返答の本文は出ない。回し手の出力は盤面の置き場の `run.log`、起こした節と止まった種類は `trace.jsonl` の `op` が `run` の行に残る。**回し手を一時停止する**なら、その pid に SIGTERM を送れ——起こし済みの役の終わりを待ち、新しい役を起こさずに抜ける（続きは `run` か `next` で盤面から）。
+   出力は標準出力の最後の 1 行の JSON（`stop`・`code`・`status`・`round`・`handoff`・`needs_human`・`running`・背景の線の落ちた行 `lanes_failed`・`engine`・回し手の `runner.pid` と起動時刻・`how`）。役の返答の本文は出ない。回し手の出力は盤面の置き場の `run.log`、起こした節と止まった種類は `trace.jsonl` の `op` が `run` の行に残る。**回し手を一時停止する**なら、その pid に SIGTERM を送れ——起こし済みの役の終わりを待ち、新しい役を起こさずに抜ける（続きは `run` か `next` で盤面から）。
 
-   `init --engine-runners` の run の親の手順は下の「[回し役なしで回す](#回し役なしで回す)」。旗を付けない run（会話で回す）で 13 に返る節と、`next`・`ready`・`done` の往復で回すときの節の種類ごとのこなし方は、下の「旗を付けない run の節のこなし方」に在る。
+   13 で返る節と理由は下の「[回し役なしで回す](#回し役なしで回す)」、`next`・`ready`・`done` の往復で回すときの節の種類ごとのこなし方は下の「会話で回す run の節のこなし方」に在る。
 
 3. **人に聞く番**。`next` が `awaiting_human` を返したら、`ask` の中身（問いの台帳で保留のもの）を依頼者に見せて答えをもらい、返す。答えの本文は `--note` に入れる（次の周の judge の再審に渡る）:
 
@@ -87,31 +83,23 @@ allowed-tools: Bash, Agent, Skill, Read, Write, Edit, Grep, Glob
 
 ## 回し役なしで回す
 
-`init --engine-runners` の run: 回し手が writer の節と局所レビューの skill の節も起こし、背景の線（変異の検算）も受領を `done` して切り離して立てる。`run` が 13 で返るのは次の節だけになる（各行の `handoff_why` が理由）:
+回し役なしの run（旗の無い `init`）では、回し手が writer の節と局所レビューの skill の節も起こし、背景の線（変異の検算）も受領を `done` して切り離して立てる。手番は上の「[早見](#早見)」。`run` が 13 で返るのは次の節だけになる（各行の `handoff_why` が理由）:
 
 - sandbox が立たない場（Windows のネイティブ・bwrap の無い Linux）と、作業ツリーが別の作業ツリーの下に在る形（`<repo>/.claude/worktrees/<名前>`）の、作業ツリーを書き換える節（修正・手直し・仕様）——instance の `runner_unlaunched` が理由。sandbox が立たない場では局所レビューも返る
-- 局所レビューの子が受け付けまで届かなかった回——子（利用者の設定とプラグインを読まない sandbox の子）で起こせないレンズが在った・拒みが上限まで続いた・子が落ちた。あなたが今までどおりレンズを起こして `done` する
+- 入れ子の sandbox（Claude Code の sandbox の中で `loop.py run` を打った場。子は起きるが Bash の呼び出しごとに sandbox の初期化で落ちる）と engine の確かめの子が測った run の、作業ツリーを書き換える節と局所レビュー——理由に外し方（起こす側の sandbox から `loop.py` を外す `sandbox.excludedCommands` か、sandbox の外で `run` を打つ）が在る。外した後に `loop.py relaunch --node <id> --reason <理由> --reprobe` で測り直すと engine が起こす。この run の任せ先は起こさずに 14 で同じ理由を返す
+- 局所レビューの子が受け付けまで届かなかった回——子（利用者の設定とプラグインを読まない sandbox の子）で起こせないレンズが在った（当たるレンズの行に `invoked: true` が無い回も）・拒みが上限まで続いた・子が落ちた。あなたが今までどおりレンズを起こして `done` する
 - 受領の形を持たない旧い盤面の背景の線と、`init --unfenced-delegates` の run の任せ先
 
-親の手順は次の 5 つ:
+会話の手番の注意（engine の中の起こし方・一時の置き場・申告の突合・起こし直しの条件の正本は、engine の `role_run.runner_permission`・`role_run.skill_permission`・commands の `CHILD_TMP_PARENT` と `_sandbox_probe` の段の注記と graph の `launch.runner.why`。ここに写さない。14 の手当ては上の早見）:
 
-1. `loop.py init --loop review-loop --engine-runners [--input gates=merge] [--stop-after-round N] --request @依頼.md` で始め、返った `dir` を控える（直す依頼なら最初の `next` の前に `add`）。run の間ずっと省く optional の節（engine が走らせる CI の節など）があれば、最初の `run` の前に `loop.py skip --node <節> --reason <理由> --every-round --dir <DIR>` を打つ——回し手は節が出た瞬間に起こすので、出た後の `skip` では間に合わない。CI の節を省いた run は、検証器が阻害なしになった周の収束で「この周の CI を確かめていない」を毎回人に聞く（10 で戻る。無人なら 14）——省けば止まらずに回り切るわけではない
-2. `loop.py run --dir <DIR>` を前景で打つ（会話からは前景の見守り——540 秒で必ず戻る。完了の知らせに頼らない。端末・CI・台本なら `run --foreground` が止まるまで戻らない）
-3. 20 ならもう一度 2。13 なら `handoff` の節（会話に返る理由は各行の `handoff_why`）をこなして `done` し 2 へ
-4. 10 なら `ask` を人に見せ（上の手順 3「人に聞く番」）、`loop.py answer` してから 2 へ
-5. 0・11・12・14 で手番を終える——0 は `report.md`、11 は周の止め（続けるなら `loop.py resume`）、12・14 は `detail`・`needs_human` を読む
-
-会話の手番の注意（engine の中の起こし方・一時の置き場・申告の突合・起こし直しの条件の正本は、engine の `role_run.runner_permission`・`role_run.skill_permission`・commands の `CHILD_TMP_PARENT` の段の注記と graph の `launch.runner.why`。ここに写さない）:
-
-- 14 で渡った作業ツリーを書き換える節（子が落ちた・拒みが上限まで続いた。回し手の自動の起こし直し `relaunch --if-untouched` が効かなかった回を含む）は、**作業ツリーを確かめてから** `relaunch` せよ——途中まで書いた編集の上に、それを知らない新しい会話が重ねて書く。
 - 子は git の index に書けないので `git add -N` を打てない。局所レビューがあなたに返ったときは、基準点の `intent_to_add` のパスを skill を呼ぶ前にあなたが `git add -N` せよ（engine の周の版は未追跡も載せるので、差分と規模には要らない。engine が起こす局所レビューの子には、変更ファイルの一覧の未追跡のファイルを Read で読ませる）。
 - 子は別の役を起こせないので、修正の先行例の Web の調べは判定者の行を採るか、調べていないと書く（修正の返答の `precedent`）。
 - 子ではフックが動かないので、子の読了は `reads.jsonl` に載らない（記録の `loop.wrote_refs_reads` の `unrecorded` と報告の人向けの項目に出る）。
 - 書き換える節の申告と作業ツリーの食い違い（`process.git_mismatches` の `kind: declared`）と、作業ツリーの外に残った物（`kind: outside_tmp`）は、受け付けたうえで記録に残り、次の周の判定役が読む——あなたは手を打たない。
 
-## 旗を付けない run の節のこなし方
+## 会話で回す run の節のこなし方
 
-**今の回し方もそのまま使える**: `next` を呼び、返った `ready` を全部こなして `done` で返し、`status` が converged か stopped になって `ready` が空になるまで繰り返す（`launch` を持つ節は `loop.py launch` が起こす。`launch` は役が終わるまで戻らないので、会話の Bash から待つなら打たずに `run` に任せよ——回し手が `launch` を立てて終わりを待つ。端末や CI で待てるなら直に打ってよい）。1 つの run で混ぜるときは、回し手が居る間に `launch` を自分で打つな（同じ節を 2 本で起こさない）:
+`init --no-engine-runners` の run（と、回し役なしの run で 13 に返った節）のこなし方。**今の回し方もそのまま使える**: `next` を呼び、返った `ready` を全部こなして `done` で返し、`status` が converged か stopped になって `ready` が空になるまで繰り返す（`launch` を持つ節は `loop.py launch` が起こす。`launch` は役が終わるまで戻らないので、会話の Bash から待つなら打たずに `run` に任せよ——回し手が `launch` を立てて終わりを待つ。端末や CI で待てるなら直に打ってよい）。1 つの run で混ぜるときは、回し手が居る間に `launch` を自分で打つな（同じ節を 2 本で起こさない）:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" next --dir <DIR>
@@ -130,7 +118,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" next --dir <DIR>
   - **自分の Bash から `claude` を起こすな**: 出力をファイルに落とす綴りは auto mode の分類器が『Auto-Mode Bypass』で止める（実測 2026-09-15）。止められても別の綴りを探すな。**Agent ツールで起こすな**——ハーネスが subagent に CLAUDE.md 階層と git status を注入する。CLAUDE.md は役の定義の `omitClaudeMd` で省けるが、git status は止められない（公式文書 code.claude.com/docs/en/sub-agents、2026-09-25 取得: 『Every other built-in and custom subagent loads both, unless its definition sets the omitClaudeMd field to skip the user, project, and local CLAUDE.md files.』『You can't change which subagents receive git status. Only Explore and Plan skip it.』）。役の返答の本文もあなたの文脈に入る。
   - **engine がどう起こすか**は、正本の engine の `role_run.tooled_permission` の docstring（形と実測）と graph の `launch.tooled.why`（理由）を読め——何を起こすかは engine の柵 `launch_refusal` が argv から機械で縛り、graph の宣言は柵の根拠にしない。要点だけ: 子は対話の claude の認証を継がないので前置の層（`scripts/with-auth.py`）が認証を足す。道具ゼロの役は `--tools ""` と `--setting-sources ""` で、道具つきの役は先に許した物だけが通る `dontAsk` と聞く先の無い形で、どちらも利用者の CLAUDE.md を読まない。Bash は OS の sandbox の中だけで動き（使えない環境では読むだけの形。どちらかは instance の `launch.form`）、子は盤面の `inputs.cwd` で起きる
 - **`launch` を持たない agent / agent_continue** —— 役の定義がこの環境に無い・ファイルを書く道具を持つ・モデルか effort を名指ししない役（道具の一覧かモデルを持たない定義は、graph が `launch.tooled.narrow` を宣言していなければここに入る）と、Agent で起こした旧い盤面の続き。engine は起こさないので、`subagent_type` に `agent_type` を渡して Agent ツールで**直接**起こし（`deliver` が `path` なら「`<prompt_file>` を Read し、その指示にそのまま従え。返答は指示どおりの JSON だけ」の 1 文、`paste` なら本文をそのまま貼る。**本文に足すな・削るな・言い換えるな**。作業ツリーと `.git` を書き換えるなという注意も足さない——標準の筋書きでこの道に落ちる `r1.comment_candidates` は指示書の本文が禁止を持ち、持たない指示書の節も足さずに下の前後の比べで見る）、返答を `out_path` に書いて `done --node <id> --agent-id <役の id>`。agent_continue なら `agent_id` に SendMessage で続ける。このときだけ役の返答があなたの文脈に入る。この道の役は engine の柵（sandbox・権限の明示・前後の作業ツリーの突合）の外で動く。起こす前にレビュー対象の作業ツリーで `git status --porcelain` と `git stash list` を写しておき、返ったら `done` の前に同じ 2 つを取って比べよ（stash に逃がした変更は `git status` からは消えるので、stash の一覧も比べる）。違っていたら戻さずに人に渡せ——engine が突き合わせる節は起こす前の姿を engine が持つので戻してよいが、ここで回す側が戻すと、回す側の未コミットの修正まで消しうる（2026-09-25 に任せ先の `git checkout` と `git reset --hard` で消えた）。
-- **runner** —— あなたの仕事。**`delegate` が付いた節は自分でやるな**——その節は `launch` を持ち、engine が任せ先を `claude -p` の子として **OS の sandbox の中で**起こす（`loop.py launch`。`run` なら回し手が役の節と同じく立てて終わりを待つ）。コマンドの出力や読んだ本文があなたの文脈に入らず、周を回す文脈が長持ちする（`delegate.why` が任せてよい理由）。**Agent ツールで起こすな**——Agent の子はあなたの作業ディレクトリと権限をそのまま継ぎ、1 回ごとに sandbox を掛ける口が無い（公式の sandboxing 文書: subagent は親と同じ sandbox の設定を使う）。配布先で、指示書に「作業ツリーのファイルを変えるな」と書いた任せ先が本物の作業ツリーで `git checkout` と `git reset --hard` を打ち、回す側の未コミットの修正を消した（2026-09-25）。engine が起こす任せ先は、作業ディレクトリが本物の写し（作業ツリーの今の姿。`.gitignore` の対象は無い）で、sandbox が本物の作業ツリー・gitdir の実体・共通の `.git`・他の作業ツリー・盤面・利用者の git とシェルの設定・engine 自身への書き込みを拒む。ファイルを書く道具は持たず、sandbox の外に落ちた Bash は聞く先が無く拒まれる。返答は engine が `out_path` に書き、受け付けまで済ませる。**`delegate.background` が真の節は待つな**——受領の形（graph の `delegate.receipt`）を持つ節は、回し手が受領を `done` して `loop.py launch --node <id>` を切り離して立てる（`run` では 13 で返らない。立てた事実は `trace.jsonl` の `op: run` `event: lane` の行、出力は `run.log`）。`next` で手で回すときと、受領の形を持たない旧い盤面（`run` が 13 の `handoff` で返す）では、プロンプトが名指す受領をすぐ `out_path` に書いて `done` し、その後で `loop.py launch --node <id>` を Bash の背景実行で立てよ（シェルの `&` でない）（engine は任せ先の返答を受け付けに回さず、graph の `delegate.result_to` が名指す置き場——盤面の `lanes/`——に置く。期限で止めない）。その節の結果は engine の instance を通らず、書き終えた後の周の機械の節が読む（このループでは変異の検算とテストの書き足しの線 `p3.delta_gates`。周の締めも次の周もこの線を待たない。線の中で閉じなかった見逃しは次の周の判定に、足したテストは修正の前に作業ツリーへ重なる）。任せ先が落ちても周は止まらない——収束を言う前の最後の関門（`p4.final_gates`）が最終のコードで撃ち直す。**線を止めるとき**は、背景の任せ先を止めてから、止めたことを盤面の線の台帳に書け。止める先は、その線を起こした `loop.py launch --node <id>` のプロセスで、止める信号（SIGTERM・SIGINT・SIGHUP）を受けると engine が子を木ごと止めてから抜ける。周ごとの線はどれも同じコマンド行で立つので、コマンド行で探さず、線の版から辿れ——台帳のその版の結果の置き場（`result`）の名前に `.tmp.pgid` を足したファイルが、生きている子のグループの番号（`pgid`）の印で、その番号のプロセスの親が止める先である（印が無ければ子はまだ起きていないか、もう終わっている）。`loop.py stop` と `loop.py relaunch` は背景の線を止めない（stop が止めるのは待っている試行だけで、relaunch は受領を done した節を拒む。線は run の止めから独立させてある）。台帳への書き方: `loop.py patch --path state.loop.lanes.<版>.state` に `"abandoned"`、`--path state.loop.lanes.<版>.why` に理由（どちらも `--reason` に同じ理由。行を丸ごと書き換えると他の欄が消え、その行は読めない行として判定に渡る）。止めた線は後から結果が届いても重ねず、判定へも渡さず、記録の `process.lanes` に `abandoned` と理由で残る（時間で止める形は無い）。止めた線を同じ周に起こし直すな——置き場は版ごとに 1 つで、2 人目の書き手になる（最終の版は最後の関門が BASE から撃ち直す）。**柵の中でできない仕事**（docker を使う・sandbox の立たない場——Windows のネイティブ・bubblewrap の無い Linux。sandbox が立たなければ子は起動時に落ち、`launch` の `why` に出る）が要るなら、迂回を組まず人に渡せ。人が run ごとに明示したときだけ `init --unfenced-delegates "<理由>"` で柵を外せる——そのときだけ任せ先の instance は `launch` の代わりに `unfenced`（外した時刻と理由）を持ち、あなたが `delegate.model` の汎用 agent を Agent ツールで立てて「`<prompt_file>` を Read し、その指示どおりにやれ。返答を `<out_path>` に書き、私には wrote とだけ返せ」の 1 文で渡し、終わったら `done --node <id>`（背景の節は Agent の背景実行で立てて待たずに受領を done）。外した事実は盤面の state と trace と `next` の `notes` に毎回出る。任せ先の節が `launch` も `unfenced` も持たない（graph に `launch.delegate` が無い）なら、柵を組めない——Agent で起こさず人に渡せ。`delegate` の無い runner の節（基準点・目的・前提・修正・報告）は、**`launch` を持っていれば engine が起こす**（`init --engine-runners` の run。上の「回し役なしで回す」）——自分でやるな・自分で直すな（同じ作業ツリーに書き手が 2 人になる）。`launch` を持たなければ、あなたの判断そのものなので自分でやる。`prompt_file` の指示に従って自分でやり、返答の JSON（`report` と `report.human_items` は本文そのもの）を `out_path` に保存する。`launch` を持たない節に `skills` があれば、その skill を**あなたが**呼ぶ（局所レビュー。`launch` を持てば engine が Skill と Agent を持つ読むだけの子で起こし、子が起こせなかったときだけ 13 であなたに返る）——任せ先に skill ごと任せるな（skill は中でさらに役を背景で起こすので、孫の完了の知らせが任せ先に届かず待ち続ける。graph は skills を持つ節に delegate を書けない）。柵を外した run で `background` でない任せ先を Agent ツールで起こすときは**前景で**起こせ——その呼び出しの返りが任せ先の終了で、背景の完了の知らせ（入れ子や上限落ちで消える）に頼らない。任せ先が書かずに返った・落ちたら `loop.py relaunch --node <id> --reason <理由>` で新しい置き場を作って起こし直す（engine は Agent で起こした前の試行を止められないので、前の試行が残っていれば止めてから）。記録や役の返答は本文でなく置き場のパスと 1 行の要約で渡される——要る所だけ Read で読む。
+- **runner** —— あなたの仕事。**`delegate` が付いた節は自分でやるな**——その節は `launch` を持ち、engine が任せ先を `claude -p` の子として **OS の sandbox の中で**起こす（`loop.py launch`。`run` なら回し手が役の節と同じく立てて終わりを待つ）。コマンドの出力や読んだ本文があなたの文脈に入らず、周を回す文脈が長持ちする（`delegate.why` が任せてよい理由）。**Agent ツールで起こすな**——Agent の子はあなたの作業ディレクトリと権限をそのまま継ぎ、1 回ごとに sandbox を掛ける口が無い（公式の sandboxing 文書: subagent は親と同じ sandbox の設定を使う）。配布先で、指示書に「作業ツリーのファイルを変えるな」と書いた任せ先が本物の作業ツリーで `git checkout` と `git reset --hard` を打ち、回す側の未コミットの修正を消した（2026-09-25）。engine が起こす任せ先は、作業ディレクトリが本物の写し（作業ツリーの今の姿。`.gitignore` の対象は無い）で、sandbox が本物の作業ツリー・gitdir の実体・共通の `.git`・他の作業ツリー・盤面・利用者の git とシェルの設定・engine 自身への書き込みを拒む。ファイルを書く道具は持たず、sandbox の外に落ちた Bash は聞く先が無く拒まれる。返答は engine が `out_path` に書き、受け付けまで済ませる。**`delegate.background` が真の節は待つな**——受領の形（graph の `delegate.receipt`）を持つ節は、回し手が受領を `done` して `loop.py launch --node <id>` を切り離して立てる（`run` では 13 で返らない。立てた事実は `trace.jsonl` の `op: run` `event: lane` の行、出力は `run.log`）。`next` で手で回すときと、受領の形を持たない旧い盤面（`run` が 13 の `handoff` で返す）では、プロンプトが名指す受領をすぐ `out_path` に書いて `done` し、その後で `loop.py launch --node <id>` を Bash の背景実行で立てよ（シェルの `&` でない）（engine は任せ先の返答を受け付けに回さず、graph の `delegate.result_to` が名指す置き場——盤面の `lanes/`——に置く。期限で止めない）。その節の結果は engine の instance を通らず、書き終えた後の周の機械の節が読む（このループでは変異の検算とテストの書き足しの線 `p3.delta_gates`。周の締めも次の周もこの線を待たない。線の中で閉じなかった見逃しは次の周の判定に、足したテストは修正の前に作業ツリーへ重なる）。任せ先が落ちても周は止まらない——収束を言う前の最後の関門（`p4.final_gates`）が最終のコードで撃ち直す。**線を止めるとき**は、背景の任せ先を止めてから、止めたことを盤面の線の台帳に書け。止める先は、その線を起こした `loop.py launch --node <id>` のプロセスで、止める信号（SIGTERM・SIGINT・SIGHUP）を受けると engine が子を木ごと止めてから抜ける。周ごとの線はどれも同じコマンド行で立つので、コマンド行で探さず、線の版から辿れ——台帳のその版の結果の置き場（`result`）の名前に `.tmp.pgid` を足したファイルが、生きている子のグループの番号（`pgid`）の印で、その番号のプロセスの親が止める先である（印が無ければ子はまだ起きていないか、もう終わっている）。`loop.py stop` と `loop.py relaunch` は背景の線を止めない（stop が止めるのは待っている試行だけで、relaunch は受領を done した節を拒む。線は run の止めから独立させてある）。台帳への書き方: `loop.py patch --path state.loop.lanes.<版>.state` に `"abandoned"`、`--path state.loop.lanes.<版>.why` に理由（どちらも `--reason` に同じ理由。行を丸ごと書き換えると他の欄が消え、その行は読めない行として判定に渡る）。止めた線は後から結果が届いても重ねず、判定へも渡さず、記録の `process.lanes` に `abandoned` と理由で残る（時間で止める形は無い）。止めた線を同じ周に起こし直すな——置き場は版ごとに 1 つで、2 人目の書き手になる（最終の版は最後の関門が BASE から撃ち直す）。**柵の中でできない仕事**（docker を使う・sandbox の立たない場——Windows のネイティブ・bubblewrap の無い Linux・入れ子の sandbox。立たない場では engine が起こさずに `launch` の `why` に理由と外し方を出す）が要るなら、迂回を組まず人に渡せ。人が run ごとに明示したときだけ `init --unfenced-delegates "<理由>"` で柵を外せる——そのときだけ任せ先の instance は `launch` の代わりに `unfenced`（外した時刻と理由）を持ち、あなたが `delegate.model` の汎用 agent を Agent ツールで立てて「`<prompt_file>` を Read し、その指示どおりにやれ。返答を `<out_path>` に書き、私には wrote とだけ返せ」の 1 文で渡し、終わったら `done --node <id>`（背景の節は Agent の背景実行で立てて待たずに受領を done）。外した事実は盤面の state と trace と `next` の `notes` に毎回出る。任せ先の節が `launch` も `unfenced` も持たない（graph に `launch.delegate` が無い）なら、柵を組めない——Agent で起こさず人に渡せ。`delegate` の無い runner の節（基準点・目的・前提・修正・報告）は、**`launch` を持っていれば engine が起こす**（回し役なしの run。上の「回し役なしで回す」）——自分でやるな・自分で直すな（同じ作業ツリーに書き手が 2 人になる）。`launch` を持たなければ、あなたの判断そのものなので自分でやる。`prompt_file` の指示に従って自分でやり、返答の JSON（`report` と `report.human_items` は本文そのもの）を `out_path` に保存する。`launch` を持たない節に `skills` があれば、その skill を**あなたが**呼ぶ（局所レビュー。`launch` を持てば engine が Skill と Agent を持つ読むだけの子で起こし、子が起こせなかったときだけ 13 であなたに返る）——任せ先に skill ごと任せるな（skill は中でさらに役を背景で起こすので、孫の完了の知らせが任せ先に届かず待ち続ける。graph は skills を持つ節に delegate を書けない）。柵を外した run で `background` でない任せ先を Agent ツールで起こすときは**前景で**起こせ——その呼び出しの返りが任せ先の終了で、背景の完了の知らせ（入れ子や上限落ちで消える）に頼らない。任せ先が書かずに返った・落ちたら `loop.py relaunch --node <id> --reason <理由>` で新しい置き場を作って起こし直す（engine は Agent で起こした前の試行を止められないので、前の試行が残っていれば止めてから）。記録や役の返答は本文でなく置き場のパスと 1 行の要約で渡される——要る所だけ Read で読む。
 
 同じ `ready` に載った節は互いに依存が無い。`launch` を持つ節は 1 回の `launch` でまとめて並列に起こる。runner の節（と `launch` を持たない agent の節）は、返答を保存したら:
 

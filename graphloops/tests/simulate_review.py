@@ -205,7 +205,9 @@ class Run:
             args += ["--input", kv]
         if unattended:
             args.append("--unattended")
-        args += [*(["--graph", str(graph)] if graph else []), *init_args]
+        # 台本は会話で回す筋書き（役の返答を done で返す）——回し役なしの既定を外し、会話で回す道の網を保つ
+        runners = [] if "--engine-runners" in init_args else ["--no-engine-runners"]
+        args += [*(["--graph", str(graph)] if graph else []), *runners, *init_args]
         self.init = self.cmd(*args)
 
     def launch(self, node):

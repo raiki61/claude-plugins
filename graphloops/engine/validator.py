@@ -72,7 +72,7 @@ def find_plugin_path(rel, plugin, explicit=None, kind="file"):
     hits = glob.glob(str(cfg / "plugins" / "cache" / "*" / plugin / "*" / rel))
     depth = len(pathlib.Path(rel).parts)
 
-    hits.sort(key=lambda p: version_key(pathlib.Path(p).parents[depth - 1].name), reverse=True)   # 版ディレクトリ名の大小
+    hits.sort(key=lambda p: version_key(pathlib.Path(p).parents[depth - 1].name), reverse=True)
     # 出所（マーケットプレイス）が複数に跨がったら選ばない——明示を求める
     origins = {pathlib.Path(h).parents[depth].parent.name for h in hits}
     if len(origins) > 1:

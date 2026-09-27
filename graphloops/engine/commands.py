@@ -17,19 +17,19 @@ from . import pointers
 from . import hist as histmod
 from . import declared
 from . import intake
-from .advance import ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, narrowed_def, open_next_round, skip_node
+from .advance import (ENGINE_HELPERS, advance, emit_instance, engine_run_entry, helper_argv, launch_cwd, load_item, narrowed_def, node_appends,
+                      open_next_round, runner_form, sandbox_down, skip_node)
 from .board import Board, empty_round
 from .record import apply_writes
 from .render import TOKEN, node_prompt, strip_prefix
 from .rules import hook, load_rules, registry
 from .schema import graph_text, load_graph, validate_schema
-from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, BrokenJSON, Reject, TERMINAL_STATUS, copy_worktree,
-                   die, dump, get_path, git, has_path, loads_outside, note_unevaluable, now, porcelain, protected_paths, read_input_json, read_json,
-                   repo_root, safe_name, set_path, del_path, sha, tree_names_between, waiting, worktree_tree, write_json)
-from .role_run import (DELEGATE_TOOLS, SKILL_ENV, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission, delegate_settings, kill_all, pgid_path,
-                       probe_group, read_grant_path, read_rule, repo_deny, run_role, run_steps, runner_permission, skill_permission, stop_group,
-                       tooled_permission, trace_costs)
-from .runner import _group_alive
+from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, PLUGIN_ROOT, AnswerReject, BoardConflict, BrokenJSON, HandBack, Reject, TERMINAL_STATUS,
+                   copy_worktree, die, dump, get_path, git, has_path, loads_outside, note_unevaluable, now, porcelain, protected_paths, read_input_json,
+                   read_json, repo_root, safe_name, set_path, del_path, sha, tree_names_between, waiting, worktree_tree, write_json, write_lane_failed)
+from .role_run import (COMMAND_TOOLS, DELEGATE_TOOLS, SANDBOX_DOWN_HOW, SKILL_ENV, SUPERSEDED, WRITE_TOOLS, Superseded, delegate_permission,
+                       delegate_settings, kill_all, liveness, pgid_path, probe_group, read_grant_path, read_rule, repo_deny, run_role, run_steps,
+                       stop_group, tooled_permission, trace_costs)
 from .validator import agent_def, find_validator, finalize, report_accepts, run_validator, env_root, traces
 
 
@@ -108,7 +108,7 @@ def required_inputs_missing(g, graph_path, inputs):
         if not n.get("prompt_file"):
             continue
         try:
-            tpl = node_prompt(graph_path, n, errors="replace")
+            tpl = node_prompt(graph_path, n, errors="replace", segs=node_appends(g, n))
         except OSError:
             continue  # 無い prompt_file は graphcheck の担当
         for m in TOKEN.finditer(tpl):
@@ -211,8 +211,10 @@ def cmd_next(a):
         return
     ready = [i for i in b.rd["instances"].values() if i["status"] == "pending"]
     if b.state.get("engine_runners") and b.graph.get("launch", {}).get("runner"):
-        notes = [*notes, "回す側の節も engine が起こす run（init --engine-runners）——launch を持つ runner の節は自分でやるな。"
-                         "engine が起こした子ではフックが動かないので、子の読了は reads.jsonl に載らない"]
+        notes = [*notes, "回す側の節も engine が起こす run（init の既定。--no-engine-runners の run は会話がこなす）——launch を持つ runner の節は"
+                         "自分でやるな。engine が起こした子ではフックが動かないので、子の読了は reads.jsonl に載らない"]
+    if sandbox_down(b):
+        notes = [*notes, f"書き換える節・skill の節は会話に返り、任せ先は起こさない: {sandbox_down(b)}"]
     if b.state.get("unfenced_delegates"):
         u = b.state["unfenced_delegates"]
         notes = [*notes, f"任せ先の柵（sandbox）を外した run（{u['at']}・理由: {u['reason']}）——任せ先は回す側が Agent で起こし、本物の作業ツリーと .git に書ける"]
@@ -249,7 +251,7 @@ def cmd_next(a):
                 "done してから loop.py launch --node <id> を Bash の背景実行で立てよ（待たない）。任せ先の節が launch も unfenced も持たないなら、"
                 "柵を組めない（graph に launch.delegate が無い）——迂回せず人に渡せ。unfenced を持つ（人が init --unfenced-delegates で柵を外した run）なら、"
                 "delegate.model の汎用 agent を Agent ツールで立てて prompt_file を読ませよ。"
-                "**launch を持つ runner の節（init --engine-runners の run で、任せ先・skills を持たない回す側の節）は engine が起こす**——"
+                "**launch を持つ runner の節（回し役なしの run——init の既定——の、任せ先を持たない回す側の節）は engine が起こす**——"
                 "自分でやるな・自分で直すな（同じ作業ツリーに書き手が 2 人になる）。launch を持たない "
                 "runner は自分でやる（skills があればその skill を呼ぶ。置き場のパスで渡された物は要る所だけ Read）。返答を out_path に保存して "
                 "loop.py done --node <id>（別の場所に置いたなら --output <file>）。ready が空で status が running なら、done の直後にもう一度 next。"
@@ -438,15 +440,17 @@ def launch_refusal(inst, cwd=None, board_dir=None):
     """起こせない理由（起こしてよければ None）。**理由は回す側に見せる**——黙って飛ばさない。
 
     形は instance の自己申告（launch.kind）でなく、**起こす時に読み直した役の定義**と、起こす時に engine が決め直した権限の形
-    （role_run.tooled_permission。守る場所は子が起きる cwd と盤面の置き場から引く）で決める。"""
+    （role_run.tooled_permission。守る場所は子が起きる cwd と盤面の置き場から引く）で決める。対象リポジトリの宣言の deny
+    （role_run.repo_deny）はこの入口で 1 回だけ引き、読めなければ Bash を持つ子（回す側の節・任せ先・Bash を持つ役）を起こさない"""
     launch = inst.get("launch") or {}
     argv = launch.get("argv") or []
     if launch.get("missing"):
         return f"この環境に {launch['missing']} が無い（PATH を確かめるか、人が起こす）"
+    denied, bad = repo_deny(cwd or os.getcwd())   # launch_one は盤面の inputs.cwd を渡す。渡さない呼びは関数を直に呼ぶ検査だけ
     if launch.get("kind") == "delegate":
-        return _delegate_refusal(inst, launch, board_dir, cwd)
+        return bad or _delegate_refusal(inst, launch, board_dir, denied)
     if launch.get("kind") == "runner":
-        return _runner_refusal(inst, launch, cwd, board_dir)
+        return bad or _runner_refusal(inst, launch, cwd, board_dir, denied)
     d = agent_def(inst.get("agent_type") or "")
     if d is None:
         return f"役 {inst.get('agent_type')!r} の定義が読めない——道具の形が決まらないので engine は起こさない"
@@ -456,9 +460,9 @@ def launch_refusal(inst, cwd=None, board_dir=None):
             return (f"狭める形の値 {launch['narrowed'].get('tools')} が役の定義（道具 {d['tools']}・モデル {d.get('model')}）に当たらない"
                     "——狭めるのは道具の一覧かモデルを持たない定義を、読むだけの道具（advance.NARROW_TOOLS）へ狭めるときだけ")
         d = nd
-    perm = tooled_permission(d["tools"], cwd, board_dir) if d["tools"] else None
-    if (perm or {}).get("deny_error"):
-        return perm["deny_error"]
+    if bad and any(t in COMMAND_TOOLS for t in d["tools"]):
+        return bad
+    perm = tooled_permission(d["tools"], cwd, board_dir, denied or ()) if d["tools"] else None
     read = None if d["tools"] else _read_grant_rule(inst, board_dir)
     for words, resume in ((argv, False), (launch.get("resume_argv"), True)):
         if words:
@@ -470,24 +474,15 @@ def launch_refusal(inst, cwd=None, board_dir=None):
     return None
 
 
-def _runner_refusal(inst, launch, cwd, board):
+def _runner_refusal(inst, launch, cwd, board, denied):
     """回す側の節を engine が起こす形（kind=runner）を起こしてよいか（よければ None）。**権限の値は起こす瞬間に
-    role_run.runner_permission から組み直して突き合わせる**——盤面の argv の書き換え・next の後の作業ツリーの足し引きのどちらでも、
-    今の守る場所と揃わなければ起こさない。旗は道具つきの役と同じ許可表（_parse_flags）で見る。書く道具は縛った綴り（Edit(./**)）
-    でしか通らない（--allowedTools の一致）。graph の宣言は柵の根拠にしない"""
-    edits = bool(launch.get("edits"))
-    if launch.get("skill"):
-        # skill の節（局所レビュー）は Skill・Agent を持つ読むだけの子——書く形と混ぜた instance は起こさない
-        perm = None if edits else skill_permission(cwd, board)
-        if perm is None:
-            return "skill の節の子を sandbox で縛れない（sandbox が立たない・書く形と混ざっている）——engine は起こさない"
-    else:
-        perm = runner_permission(edits, cwd, board, protected_paths([board] if board else []) if edits else None,
-                                 repo_root() if edits else None)
-        if perm is None:
-            return "作業ツリーを書き換える子を縛れない（sandbox が立たない・守る場所が引けない）——engine は起こさない"
-    if perm.get("deny_error"):
-        return perm["deny_error"]
+    advance.runner_form から組み直して突き合わせる**（起こす側と同じ 1 本）——盤面の argv の書き換え・next の後の作業ツリーの足し引きの
+    どちらでも、今の守る場所と揃わなければ起こさない。旗は道具つきの役と同じ許可表（_parse_flags）で見る。書く道具は縛った綴り
+    （Edit(./**)）でしか通らない（--allowedTools の一致）。graph の宣言は柵の根拠にしない"""
+    perm = runner_form(bool(launch.get("skill")), bool(launch.get("edits")), cwd, board, denied or ())
+    if perm is None:
+        return ("skill の節の子を sandbox で縛れない（sandbox が立たない・書く形と混ざっている）——engine は起こさない" if launch.get("skill")
+                else "作業ツリーを書き換える子を縛れない（sandbox が立たない・守る場所が引けない）——engine は起こさない")
     if sorted(launch.get("tools") or []) != sorted(perm["tools"]):
         return f"回す側の節の道具 {launch.get('tools')}——engine が決めた値は {perm['tools']}"
     want = {**FIXED_VALUES, "--model": launch.get("model") or "", "--effort": launch.get("effort") or "",
@@ -524,18 +519,18 @@ def _runner_refusal(inst, launch, cwd, board):
     return None
 
 
-def _delegate_refusal(inst, launch, board, cwd=None):
+def _delegate_refusal(inst, launch, board, denied):
     """任せ先（kind=delegate）を起こしてよい形か（よければ None）。**sandbox の設定は起こす瞬間に git から組み直して突き合わせる**
     ——next の後に作業ツリーが足された・盤面の argv が書き換えられた、どちらでも名指しが今の守る場所と揃わなければ起こさない。
-    対象リポジトリの宣言した deny（role_run.repo_deny。cwd の作業ツリーの根から引く）も同じく組み直し、読めなければ起こさない。
+    対象リポジトリの宣言した deny は柵の入口（launch_refusal）が引いた一覧（denied）と突き合わせる。
     旗は役の節と同じ許可表で見る（_parse_flags——表に無い語・別名・2 度目の旗を拒む）。値は engine の値（role_run の
-    delegate_permission・delegate_settings、モデルは graph の delegate.model）と一致を見る。graph の宣言は柵の根拠にしない"""
+    delegate_permission・delegate_settings、モデルは graph の delegate.model）と一致を見る。graph の宣言は柵の根拠にしない。
+    入れ子の sandbox（子の Bash が sandbox の初期化で落ちる）と測った run では、起こさずに外し方を名指す（launch.unsandboxable）"""
     protected = protected_paths([board] if board else [])
     if board is None or protected is None or launch.get("unprotected"):
         return "守る場所（作業ツリー・gitdir・共通の .git）を git から引けない——任せ先を sandbox で縛れないので起こさない"
-    denied, bad = repo_deny(cwd)
-    if bad:
-        return bad
+    if launch.get("unsandboxable"):
+        return f"任せ先を sandbox の中で走らせられない（{launch['unsandboxable']}）"
     mode, allowed = delegate_permission()
     want = {**FIXED_VALUES, "--model": (inst.get("delegate") or {}).get("model") or "", "--tools": ",".join(DELEGATE_TOOLS),
             "--allowedTools": ",".join(allowed), "--permission-mode": mode}
@@ -552,7 +547,7 @@ def _delegate_refusal(inst, launch, board, cwd=None):
             if flag in BARE_FLAGS or flag == "--append-system-prompt-file":
                 continue   # 前置きの文（graph の preamble）は権限を運ばない
             if flag == "--settings":
-                why = _settings_refusal(val, delegate_settings(protected, denied))
+                why = _settings_refusal(val, delegate_settings(protected, denied or ()))
             elif flag == "--resume":
                 sid = inst.get("session_id")
                 ok = {"{session_id}", sid} - {None} if resume else {sid} - {None}
@@ -856,25 +851,31 @@ def _board_name(s):
     return s.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace") if isinstance(s, str) else s
 
 
-# 専用の一時の置き場が sandbox の中で書けるかの確かめ（人の関所の条件 2。anthropics/claude-code#92590: CLAUDE_CODE_TMPDIR を渡すと
-# $TMPDIR が読むだけになる版がある）。結果が決まるまで run に PROBE_TRIES 回まで、書く子と同じ権限の形で、いちばん安いモデルの子を
-# 起こす（人の答え 2026-09-27）
+# 確かめの子（いちばん安いモデル。起こす子と同じ権限の形）で 2 つを測る。結果が決まるまで run に PROBE_TRIES 回まで（人の答え 2026-09-27）:
+# - sandbox: 子の Bash が sandbox の中で走るか。入れ子の sandbox（Claude Code の sandbox の中の engine が起こす子）では子は正常に起き、
+#   Bash の呼び出しごとに sandbox の初期化で落ちる（実測 2026-09-27）。『走らない』と決めるのは、その失敗の文（SANDBOX_INIT_FAILED）が
+#   子の返答・出力に在るときだけ——子が Bash を呼ばなかっただけの回は決まらない（人の関所 round 2 の条件 1）
+# - writable: 専用の一時の置き場が書けるか（人の関所の条件 2。anthropics/claude-code#92590: CLAUDE_CODE_TMPDIR を渡すと $TMPDIR が
+#   読むだけになる版がある）
 PROBE_MODEL = "haiku"
-PROBE_FILE = "gl-probe"
-PROBE_PROMPT = (f"Bash で、環境変数 TMPDIR の指す置き場の直下に {PROBE_FILE} という名前の空のファイルを 1 つ作れ。"
-                "ほかには何もするな。返答は JSON {\"made\": true} か {\"made\": false} だけ")
+PROBE_FILE = "gl-probe"        # $TMPDIR の直下（専用の一時の置き場が書けるか）
+PROBE_RAN = "gl-probe-ran"     # 作業ディレクトリの直下（Bash が走ったか。作業ディレクトリは作業ツリーの外の空の置き場）
+PROBE_PROMPT = (f"Bash を 1 回だけ呼び、touch \"$PWD/{PROBE_RAN}\" \"$TMPDIR/{PROBE_FILE}\" を走らせよ。ほかには何もするな。"
+                "Bash が誤りを返したら、その誤りの文を 1 字も変えずに error に写せ。"
+                "返答は JSON {\"made\": true か false, \"error\": \"Bash の誤りの文（無ければ空）\"} だけ")
+SANDBOX_INIT_FAILED = re.compile(r"sandbox[^\n]{0,80}fail(?:ed)? to initiali[sz]e", re.I)
 PROBE_LOCK = threading.Lock()
 
 
 def _probe_argv(argv):
-    """書く子の語から、確かめの子の語を作る——モデルだけを替え、effort は外す（安いモデルが受けない値を渡さない）。権限・sandbox の形は
-    書く子と同じ"""
+    """起こす子の語から、確かめの子の語を作る——モデルだけを替え、effort（安いモデルが受けない値）と役の前置き（局所レビューの子の
+    前置きはレンズを起こせと言う）は外す。権限・sandbox の形は起こす子と同じ"""
     out, skip = [], 0
     for i, a in enumerate(argv):
         if skip:
             skip -= 1
             continue
-        if a == "--effort":
+        if a in ("--effort", "--append-system-prompt-file"):
             skip = 1
             continue
         out.append(PROBE_MODEL if i and argv[i - 1] == "--model" else a)
@@ -884,66 +885,96 @@ def _probe_argv(argv):
 PROBE_TRIES = 3   # 結果が決まらない確かめ（子が落ちた・起こせない）を run で数える上限（人の答え 2026-09-27 の 3 周目の条件 4）
 
 
-def _child_tmp_writable(d, inst):
-    """専用の一時の置き場が書く子の sandbox の中で書けるか——(True・False・None, 書けない理由)。盤面の state.child_tmp_probe に決まった
-    結果（writable が True か False）が在ればそれを、無ければ確かめの子を起こして決め、盤面に残す（同じ launch の並列の書く子は錠で
-    1 本にまとめる）。子が落ちて決まらない回（None）は固めずに試した回数だけ数え、次の launch で確かめ直す。PROBE_TRIES 回決まらなければ
-    writable=None で固める（共有の置き場のまま）。書けない・決まらない回は、測れていないことを痕跡に 1 行残す"""
+def _probe_record(state):
+    """盤面の state.child_tmp_probe。決まった記録は sandbox の鍵を持つ。旧い盤面の記録（sandbox の鍵が無い）は、専用の置き場に書けた
+    （Bash が走った）ときだけ sandbox も真と読み、ほかは決まっていない扱い（測り直す）"""
+    got = dict(state.get("child_tmp_probe") or {})
+    if "sandbox" not in got and got.get("writable") is True:
+        got["sandbox"] = True
+    return got
+
+
+def _sandbox_probe(d, inst):
+    """子の Bash が sandbox の中で走るか・専用の一時の置き場が書けるか ——{sandbox, writable, at, why}（True・False・None）。盤面に
+    決まった記録（sandbox が真か偽）が在ればそれを、無ければ確かめの子を起こして決め、盤面に残す（同じ launch の並列の子は錠で 1 本に
+    まとめる）。決まらない回（sandbox が None——子が落ちた・Bash を呼ばなかった）は固めずに試した回数だけ数え、次の launch で確かめ直す。
+    PROBE_TRIES 回決まらなければ sandbox=None で固める（静的な判定 role_run.sandbox_available のまま進む）。固めた記録を測り直す口は
+    loop.py relaunch --reprobe。専用の置き場を使えない回は、測れていないことを痕跡（trigger child_tmp_probe）に 1 行残す"""
     with PROBE_LOCK:
-        got = Board(d).state.get("child_tmp_probe") or {}
-        if "writable" in got:
-            return got["writable"], _probe_why(got)
+        got = _probe_record(Board(d).state)
+        if "sandbox" in got:
+            return got
         res = _probe_child_tmp(d, inst)
 
         def put(b):
-            cur = b.state.get("child_tmp_probe") or {}
-            if "writable" in cur:
+            cur = _probe_record(b.state)
+            if "sandbox" in cur:
                 return
             tries = cur.get("tries", 0) + 1
-            if res["writable"] is None and tries < PROBE_TRIES:
+            if res["sandbox"] is None and tries < PROBE_TRIES:
                 b.state["child_tmp_probe"] = {"tries": tries, "at": res["at"], "why": res["why"]}
             else:
                 b.state["child_tmp_probe"] = {**res, "tries": tries}
             if res["writable"] is not True:
-                note_unevaluable(b.state, "child_tmp_probe", f"{_probe_why(res)}——書く子は共有の置き場で起こした。作業ツリーの外の書き込みは"
+                note_unevaluable(b.state, "child_tmp_probe", f"{_probe_why(res)}——作業ツリーの外（専用の一時の置き場）の書き込みは"
                                  f"測れていない（{res['why']}）")
         try:
             _board_update(d, put, allow_halted=True)
         except (Reject, SystemExit, BoardConflict) as e:
-            print(f"graphloops: 一時の置き場の確かめを盤面に書けない（{e}）", file=sys.stderr)
-        return res["writable"], _probe_why(res)
+            print(f"graphloops: sandbox と一時の置き場の確かめを盤面に書けない（{e}）", file=sys.stderr)
+        return res
 
 
 def _probe_why(res):
-    return {True: None, False: "専用の一時の置き場が書く子の sandbox の中で書けない版"}.get(
+    if res.get("sandbox") is False:
+        return "子の Bash が sandbox の初期化で落ちる場"
+    return {True: None, False: "専用の一時の置き場が子の sandbox の中で書けない版"}.get(
         res.get("writable"), f"専用の一時の置き場が書けるかを確かめられない（{res.get('why')}）")
 
 
 def _probe_child_tmp(d, inst):
-    """確かめの子を起こし、専用の置き場に PROBE_FILE が出来たかで決める（子の言い分は信じない）——{writable, at, why}。writable は、
-    子が終わってファイルが在れば True、子が終わったのに無ければ False、子が落ちた・起こせない・置き場を作れない（版のせいと言えない）
-    なら None。作業ディレクトリは作業ツリーの外の空の置き場（sandbox が書かせるのはそこと一時の置き場だけ——確かめの子は作業ツリーに書けない）"""
+    """確かめの子を起こし、作業ディレクトリと専用の置き場にファイルが出来たか（子の言い分は信じない）と、子の返答・出力に sandbox の
+    初期化の失敗の文が在るかで決める ——{sandbox, writable, at, why}。どちらかのファイルが在れば Bash は走った（sandbox 真。writable は
+    専用の置き場のファイルの有無）。どちらも無く失敗の文が在れば sandbox 偽（writable は測れない）。どちらも無く文も無い回・子が落ちた・
+    起こせない・置き場を作れない回は決まらない（None）。作業ディレクトリは作業ツリーの外の空の置き場（確かめの子は作業ツリーに書けない）"""
     tmp = work = None
+    undecided = {"sandbox": None, "writable": None}
     try:
         tmp, work = _child_tmp_dir(), pathlib.Path(tempfile.mkdtemp(prefix="gl-probe-"))
         if tmp is None:
-            return {"writable": None, "at": now(), "why": "専用の置き場を作れない"}
+            return {**undecided, "at": now(), "why": "専用の置き場を作れない"}
         prompt = work / "probe.md"
         prompt.write_text(PROBE_PROMPT, encoding="utf-8")
         r = run_role(_probe_argv(inst["launch"]["argv"]), str(prompt), str(work / "out.json"), cwd=str(work),
                      env={**os.environ, "CLAUDE_CODE_TMPDIR": str(tmp), "TMPDIR": str(tmp)}, log_path=pathlib.Path(d) / "trace.jsonl",
                      meta={"instance": inst["id"], "node": inst["node"], "probe": "child_tmp"})
-        if (tmp / PROBE_FILE).is_file():
-            return {"writable": True, "at": now(), "why": None}
+        made, ran = (tmp / PROBE_FILE).is_file(), (work / PROBE_RAN).is_file()
+        if made or ran:
+            return {"sandbox": True, "writable": made, "at": now(),
+                    "why": None if made else "Bash は走ったが、専用の置き場にファイルが無い"}
+        reply = (work / "out.json").read_text(encoding="utf-8", errors="replace") if (work / "out.json").is_file() else ""
+        said = SANDBOX_INIT_FAILED.search("\n".join([reply] + [f"{x.get('stdout_head') or ''}\n{x.get('stderr') or ''}"
+                                                              for x in r.get("runs") or []]))
+        if said:
+            return {"sandbox": False, "writable": None, "at": now(),
+                    "why": f"確かめの子の Bash が sandbox の初期化で落ちた（{said.group(0)[:200]}）"}
         if r.get("ok"):
-            return {"writable": False, "at": now(), "why": "確かめの子は終わったが、専用の置き場にファイルが無い"}
-        return {"writable": None, "at": now(), "why": f"確かめの子が落ちた（{r.get('why')}）"}
+            return {**undecided, "at": now(), "why": "確かめの子は終わったが、Bash が走った印も sandbox の初期化の失敗の文も無い"}
+        return {**undecided, "at": now(), "why": f"確かめの子が落ちた（{r.get('why')}）"}
     except OSError as e:
-        return {"writable": None, "at": now(), "why": f"確かめの子を起こせない（{e}）"}
+        return {**undecided, "at": now(), "why": f"確かめの子を起こせない（{e}）"}
     finally:
         for p in (work, tmp):
             if p:
                 shutil.rmtree(p, ignore_errors=True)
+
+
+def _engine_runners_run(d):
+    """回す側の節も engine が起こす run か（盤面を読むだけ。読めない盤面は偽）——任せ先の前に確かめの子を起こすかを決める"""
+    try:
+        return bool(json.loads((pathlib.Path(d) / "state.json").read_text(encoding="utf-8")).get("engine_runners"))
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def _record_child_tmp(d, inst, tmp):
@@ -974,6 +1005,14 @@ def launch_one(d, inst, max_resumes, cwd=None):
     if why:
         return {**got, "ok": False, "why": why}
     launch = inst["launch"]
+    writer_or_skill = launch.get("kind") == "runner" and (launch.get("edits") or launch.get("skill"))
+    # 子の Bash が sandbox の中で走るかを、書き換える節・skill の節・（回す側の節も engine が起こす run の）任せ先の前に測る
+    probe = _sandbox_probe(d, inst) if writer_or_skill or (launch.get("kind") == "delegate" and _engine_runners_run(d)) else {}
+    if probe.get("sandbox") is False:
+        down = f"{probe.get('why')}——{SANDBOX_DOWN_HOW}"
+        if writer_or_skill:   # 会話に返す（人の関所 round 2 の答え: 入れ子の sandbox の場で書く節と skill の節は 13、任せ先は 14）
+            return {**got, "ok": False, "handback": True, "why": f"会話に返す: 子を sandbox の中で走らせられない（{down}）"}
+        return {**got, "ok": False, "why": f"任せ先を sandbox の中で走らせられない（{down}）"}
     background = bool(launch.get("background"))
     accept = None if background else _accept_for_launch(d, inst["id"], inst["out_path"])
     role_accept = _git_state_guard(accept, d, inst["id"]) if launch.get("kind") == "runner" and launch.get("edits") else accept
@@ -995,15 +1034,14 @@ def launch_one(d, inst, max_resumes, cwd=None):
             return {**got, "ok": False, "why": str(e)}
         env = {**os.environ, "TMPDIR": str(work / "tmp"), "GRAPHLOOPS_KEEP": str(work / "keep")}
     if launch.get("skill"):
-        env = {**os.environ, **SKILL_ENV}   # Agent の子の待ちの上限を外す（role_run.SKILL_ENV）
+        env = {**os.environ, **SKILL_ENV}
     child_tmp = None
     if launch.get("kind") == "runner" and launch.get("edits"):
         # 作業ツリーを書き換える子の sandbox が書ける一時の置き場（Claude Code の利用者ごとの一時の置き場）を、共有の置き場から
         # 子ごとの専用の置き場へ移す（CLAUDE_CODE_TMPDIR）——作業ツリーの外に書いた物を、終わった後に数えて記録に残すため。
         # 専用の置き場が sandbox の中で書けない版なら、共有の置き場のまま起こす（書く子の中の一時ファイルを作るテストを落とさない）
-        writable, why_not = _child_tmp_writable(d, inst)
-        if not writable:
-            _note_child_tmp(d, inst, None, None, f"{why_not}——共有の置き場で起こした（state.child_tmp_probe）")
+        if not probe.get("writable"):
+            _note_child_tmp(d, inst, None, None, f"{_probe_why(probe)}——共有の置き場で起こした（state.child_tmp_probe）")
         elif (child_tmp := _child_tmp_dir()) is None:
             _note_child_tmp(d, inst, None, None, "専用の一時の置き場を作れない——共有の置き場で起こした")
         elif not _record_child_tmp(d, inst, child_tmp):
@@ -1043,7 +1081,8 @@ def launch_one(d, inst, max_resumes, cwd=None):
         got["kept"] = str(work / "keep")   # 任せ先が残した物（返答が名指しするファイル）の置き場
     return {**got, "ok": r["ok"], "why": r["why"], "session_id": r["session_id"], "superseded": r["superseded"],
             **({"handback": True} if r.get("handback") else {}),
-            "resumes": len(r["runs"]) - 1, "rejections": r["rejections"], "done": accept.msg if accept else None,
+            "resumes": r.get("resumes", len(r["runs"]) - 1), "rejections": r["rejections"], "crashes": r.get("crashes") or [],
+            "done": accept.msg if accept else None,
             # total_cost_usd は会話の累計（続きを頼むたびに増える。実測 2026-09-25・haiku: 0.0137 → 0.0166 → 0.0198）——足さずに最大を取る
             "cost_usd": max((x.get("total_cost_usd") or 0 for x in r["runs"]), default=0) or None,
             "permission_denials": sum(len(x.get("permission_denials") or []) for x in r["runs"]),
@@ -1150,6 +1189,11 @@ def cmd_launch(a):
                 results = list(ex.map(lambda i: launch_one(d, i, max_resumes, cwd), todo))
         else:
             results = []
+    except Exception as e:
+        for i in todo:
+            if (i.get("launch") or {}).get("background") and _still_mine(d, i)():
+                write_lane_failed(i["launch"]["result_path"], f"線の launch が例外で落ちた（{type(e).__name__}: {e}）")
+        raise
     finally:
         kill_all()
 
@@ -1173,8 +1217,11 @@ def cmd_launch(a):
             # 起こし直しの回数と理由: 拒まれて同じ会話に続きを頼んだ（resume）・拒まれたまま上限に達した（rejected）
             for j, why in enumerate(r.get("rejections") or []):
                 log.append({"at": now(), "kind": "resume" if j < r["resumes"] else "rejected", "reason": why})
-            if r.get("handback"):
-                log.append({"at": now(), "kind": "handback", "reason": r["why"]})   # 会話に返す（runner.classify が launch.on_fail で振る）
+            for why in r.get("crashes") or []:
+                log.append({"at": now(), "kind": "crash_resume", "reason": why})
+            # 子が受け付けまで届かなかった試行の語: 受け付けが会話に返した・宣言の on_fail が handoff（skill の節）なら handback
+            if r.get("handback") or (not r["ok"] and (i.get("launch") or {}).get("on_fail") == "handoff"):
+                log.append({"at": now(), "kind": "handback", "reason": r["why"] or "子が受け付けまで届かなかった"})
             elif not r["ok"] and r.get("why") and not r.get("rejections"):
                 log.append({"at": now(), "kind": "failed", "reason": r["why"]})
             b.trace("launched", id=r["id"], ok=r["ok"], why=r.get("why"), session_id=r.get("session_id"),
@@ -1187,14 +1234,18 @@ def cmd_launch(a):
             # 盤面を別のプロセスと競って書けなかった。結果の一覧は回す側に必ず返す（trace にも行は在る）
             for r in results:
                 r["settle"] = "盤面に起こし直しの記録を書けなかった（別のプロセスと競った）"
+    for i, r in zip(todo, results):
+        # 結果を書かずに終わった背景の線（柵が拒んだ・子が落ちた）の落ちた印——起こし直された・人が止めた試行には書かない
+        if (i.get("launch") or {}).get("background") and not r["ok"] and not r.get("superseded") and not r.get("stopped"):
+            write_lane_failed(i["launch"]["result_path"], r.get("why") or "線の子が結果を返さずに終わった")
     mark_launch_failures(results, {i["id"]: (i.get("launch") or {}).get("kind") for i in todo}, b0.state)
     print(dump({"launched": picked + results,
                 "how": ("ok の節は受け付けまで済んでいる（done は要らない）——次は loop.py next。"
                         "ok でない節は why を読め: 受け付けの拒否が続いた・子が落ちた、なら "
                         "loop.py relaunch --node <id> --reason <理由> で起こし直してから launch（前の試行の子は relaunch が止める）。"
                         "why が『起こし直された古い試行』の行は次の手が要らない（起こし直しなら新しい試行の launch を待て。人が止めた試行なら次は next）。"
-                        "why が『会話に返す』の行と、on_fail が handoff の節（skill の節）の ok でない行は、会話がその節をこなして done する"
-                        "（loop.py run なら handoff に出る）。"
+                        "盤面の attempt_log の最後の語が handback の節（受け付けが会話に返した・skill の節の子が届かなかった）は、"
+                        "会話がその節をこなして done する（loop.py run なら handoff に出る）。"
                         "cause が launch_auth なら認証が足りていない、launch_child_failed なら認証は足りていて役の側、"
                         "launch_auth_unread なら標準エラーから段が読めなかった（stderr の with-auth: の行で確かめよ）。"
                         "返答は out_path に在る（読むのは要る所だけ）。engine が起こせない節（why が『前置ではない』『旗が無い』"
@@ -1325,7 +1376,25 @@ def cmd_done(a):
         raise Reject(f"返答が無い——--output か標準入力で渡すか、{inst.get('out_path')} に置け（engine が起こす節は loop.py launch が書く）")
     if inst.get("mode") == "cli" and a.agent_id:
         raise Reject("cli の遮断系は engine が起こすので agent_id は無い（会話の番号は launch が盤面に残す）——--agent-id を渡すな")
-    print(accept_output(b, a.node, text, read_from, agent_id=a.agent_id, accept_tree_change=a.accept_tree_change))
+    try:
+        print(accept_output(b, a.node, text, read_from, agent_id=a.agent_id, accept_tree_change=a.accept_tree_change))
+    except HandBack as e:
+        # engine が起こした子の返答（launch が締めの前に落ち、回し手が置き場から done した）——拒んだ受け付けの途中の書き換えは
+        # 保存せず、読み直した盤面に印だけを書く
+        _mark_handback(b.dir, a.node, inst["out_path"], f"会話に返す: {e}")
+        raise
+
+
+def _mark_handback(d, iid, out_path, why):
+    """受け付けが節を会話に返した印（attempt_log の kind: handback・launch_state: ended）を、読み直した盤面の instance に書く。
+    起こし直された（置き場が違う）・もう待っていない instance には書かない"""
+    def put(b):
+        cur = b.rd["instances"].get(iid) or {}
+        if cur.get("status") == "pending" and cur.get("out_path") == out_path:
+            cur["launch_state"] = "ended"
+            cur.setdefault("attempt_log", []).append({"at": now(), "kind": "handback", "reason": why})
+            b.trace("handback", instance=iid)
+    _board_update(d, put)
 
 
 def _refuse_halted(b):
@@ -2029,9 +2098,7 @@ def cmd_status(a):
         "max_rounds": st["max_rounds"], "stop_after_round": st.get("stop_after_round"), "unattended": st["unattended"],
         "halted": st.get("halted"), "stop": st.get("stop"),
         "this_round": {"done": sorted(b.rd["done"]), "na": b.rd["na"], "skipped": b.rd["skipped"], "stopped": b.rd.get("stopped", {}), "empty": b.rd["empty"],
-                       "pending_instances": [{"id": i["id"], **waiting(i),
-                                              **({"alive": _group_alive(pgid_path(i["out_path"]))} if i.get("launch_state") == "running" else {})}
-                                             for i in b.rd["instances"].values() if i["status"] == "pending"]},
+                       "pending_instances": [{"id": i["id"], **liveness(i)} for i in b.rd["instances"].values() if i["status"] == "pending"]},
         "pending_human": st.get("pending_human"), "validator": st.get("validator"),
         "cost_usd": trace_costs(b.dir / "trace.jsonl"),
     }))
@@ -2055,14 +2122,19 @@ def cmd_relaunch(a):
     engine が起こしていない試行（Agent で起こした役・任せ先）は engine がプロセスを持たないので、回す側が前の試行を止めてから relaunch する。
     **前の試行を締め出す**: 新しい試行は別の out_path（.a<試行>）を持ち、前の置き場に在った物は .stale-a<試行> へ退ける。
     前の試行が遅れて書いても、done は今の試行の置き場しか読まない（Temporal の task token が試行ごとに一意なのと同じ）。
-    作業ツリーの基準点（tree_before・tree_before_id）は前の試行の物を引き継ぐ——取り直すと、前の試行が書き換えた作業ツリーが基準に入り、突合を素通りする"""
+    作業ツリーの基準点（tree_before・tree_before_id）は前の試行の物を引き継ぐ——取り直すと、前の試行が書き換えた作業ツリーが基準に入り、突合を素通りする。
+    --reprobe は盤面に固めた sandbox と一時の置き場の確かめ（state.child_tmp_probe）を消してから出し直す——次の launch が確かめ直す
+    （入れ子の sandbox と測って会話に返した書く節・skill の節も、持ち主が外し方を当てた後にこの口で engine に戻せる）"""
     d = resolve_dir(a)
+    reprobe = getattr(a, "reprobe", False)
 
     def handed_prev(b):
         prev = b.rd["instances"].get(a.node)
         # 起こし直せるのは他へ渡した instance だけ: engine が起こす節（launch）・Agent で起こす役の節・任せ先の付いた節。
-        # 回す側が自分でやる節は起こし直さない（圧縮後に読み直した回す側が、自分の作業を締め出す道になる）
-        handed = prev is not None and (prev.get("launch") or not b.is_runner(b.nodes[prev["node"]]) or b.nodes[prev["node"]].get("delegate"))
+        # 回す側が自分でやる節は起こし直さない（圧縮後に読み直した回す側が、自分の作業を締め出す道になる）。--reprobe は、engine が
+        # 起こせずに会話へ返した節（runner_unlaunched）も出し直す
+        handed = prev is not None and (prev.get("launch") or not b.is_runner(b.nodes[prev["node"]]) or b.nodes[prev["node"]].get("delegate")
+                                       or (reprobe and prev.get("runner_unlaunched")))
         if prev is None or prev["status"] != "pending" or not handed:
             raise Reject(f"'{a.node}' は今の周の、他へ渡して待っている instance でない（起こし直せるのは pending で、役の節か任せ先の付いた節だけ。"
                          "回す側が自分でやる節は起こし直さない）")
@@ -2079,6 +2151,8 @@ def cmd_relaunch(a):
         prev = handed_prev(b)
         if prev["out_path"] != str(old):
             raise Reject(f"'{a.node}' は読んでいる間に別の relaunch で起こし直された（今の置き場は {prev['out_path']}）——新しい試行は作っていない")
+        if reprobe and b.state.pop("child_tmp_probe", None) is not None:
+            b.trace("reprobe", instance=a.node, reason=a.reason)
         new = reissue(b, prev, a.reason)
         b.trace("relaunched", instance=a.node, attempt=new["attempts"], reason=a.reason)
         return dict(new), prev.get("attempts", 1)
@@ -2212,12 +2286,12 @@ def cmd_intake(a):
 
 
 # ---------------------------------------------------------------- init
-def init_notices(g):
+def init_notices(g, root):
     """init で利用者に知らせる事実（止めない）——走らせるだけの節を持つ graph なのに、対象リポジトリの宣言が無い・読めない、と、
-    Claude Code の置き場にこの run の engine より新しい版が入っている、の 2 つ"""
+    Claude Code の置き場にこの run の engine より新しい版が入っている、の 2 つ。root は盤面の inputs.cwd の作業ツリーの根
+    （プロセスの状態——前に置かれた util.GIT_CWD——に依らない）"""
     out = []
     if any(isinstance(n.get("engine_run"), dict) for n in (g.get("nodes") or {}).values()):
-        root = repo_root()
         decl = declared.read(root) if root else None
         if decl is None or decl.get("error"):
             out.append(f"対象リポジトリのルートに {declared.DECL_NAME} が" + ("無い" if decl is None else f"読めない（{decl['error']}）")
@@ -2301,7 +2375,7 @@ def cmd_init(a):
                            f"（宣言済みの入力: {', '.join(sorted(g.get('inputs') or {}))}）" for k in ignored]
     notes += [f"--input {k}=… は rules が埋める入力（graph の inputs の by: rules）で、渡した値は上書きされる（効かない）"
               for k in rules_owned_inputs(g, given)]
-    notes += init_notices(g)
+    notes += init_notices(g, (git("-C", inputs["cwd"], "rev-parse", "--show-toplevel") or "").strip() or None)
     for n in notes:
         print(f"注意: {n}", file=sys.stderr)
     d.mkdir(parents=True, exist_ok=False)
@@ -2316,13 +2390,20 @@ def cmd_init(a):
         "inputs": inputs, "validator": validator, "outputs": {}, "done_ever": {}, "loop": {},
         **({"notes": notes} if notes else {}),
     }
-    if getattr(a, "engine_runners", False) and not (g.get("launch") or {}).get("runner"):
+    runners = getattr(a, "engine_runners", None)   # None＝旗なし（既定）・True＝--engine-runners・False＝--no-engine-runners
+    has_runner = bool((g.get("launch") or {}).get("runner"))
+    if runners and not has_runner:
         notes.append("--engine-runners は、graph が launch.runner（回す側の節を起こす語）を宣言していないので効かない——回す側の節は会話がこなす")
         print(f"注意: {notes[-1]}", file=sys.stderr)
         state["notes"] = notes
-    if getattr(a, "engine_runners", False):
-        # 選ぶのは init の 1 か所で、盤面に残る。印の無い盤面（旗を付けない run・前の版で始めた run）は今どおり会話がこなす
-        state["engine_runners"] = {"at": now()}
+    if runners is False:
+        # 旧い道の撤去の予告（PEP 387 の手順 2: 消す前に、旧い使い方に警告を出す）。盤面の notes には足さない（知らせの数を変えない）
+        print("注意: --no-engine-runners（回す側の節を会話がこなす道）は人の決定（2026-09-27）で消す予定——旗の無い init（既定）で"
+              "回し役なしに回せ（会話に返る節は loop.py run が 13 で名指す）", file=sys.stderr)
+    if runners or (runners is None and has_runner):
+        # 選ぶのは init の 1 か所で、盤面に残る（by は既定か旗か）。印の無い盤面（--no-engine-runners の run・前の版で始めた run・
+        # launch.runner を持たない graph の旗なしの run）は今どおり会話がこなす
+        state["engine_runners"] = {"at": now(), "by": "flag" if runners else "default"}
     if getattr(a, "unfenced_delegates", None):
         # 人が run ごとに明示したときだけ、任せ先を sandbox で縛らずに回す側が Agent で起こす（人の決定 2026-09-25）。
         # 外した事実と理由は盤面（state と trace）に残り、next の notes と任せ先の instance（unfenced）に毎回出る
@@ -2332,7 +2413,8 @@ def cmd_init(a):
     with open(d / "trace.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"t": now(), "op": "init", "thickness": th, "decider": decider,
                             **({"unfenced_delegates": state["unfenced_delegates"]} if state.get("unfenced_delegates") else {}),
-                            **({"engine_runners": state["engine_runners"]} if state.get("engine_runners") else {})},
+                            **({"engine_runners": state["engine_runners"]} if state.get("engine_runners") else {}),
+                            **({"no_engine_runners": True} if runners is False else {})},
                            ensure_ascii=False) + "\n")
     fn = hook(rules, "on_init")
     if fn:
