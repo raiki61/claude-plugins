@@ -323,24 +323,15 @@ class TestTestsBlock(RepoCase):
 
 # ---------------------------------------------------------------- blk-tests の明示の形 mid・final（仕様 3.5・裁定 TA4・TA5）
 # 盤面は盤面の層の試験の道具（手本の盤面を p4.ci の手の前に戻す。読むだけ・import するだけ）で組み、節のスクリプトの main を
-# Archon と同じ環境変数で同じプロセスの中で呼ぶ。entry（Task 3 の open_board・Task 7 の run_ci）は偽物を sys.modules に差す:
-# open_board は盤面をディスクから開き直し、run_ci は Task 7 の約束（relaunch は 1 度だけ呼び直す・任せ先は cmd を走らせて done・
-# why だけの返りは CiRefused）をなぞる。run_ci そのものの試験は Task 7 の test_entry の側（test_run_ci_*）
+# Archon と同じ環境変数で同じプロセスの中で呼ぶ。盤面は 1 本目のラインの本物の表で組み、本物の entry（Task 3 の open_board）で開く。
+# 偽物は Task 7 の run_ci・CiRefused だけ（この枝にまだ無い）: run_ci は Task 7 の約束（relaunch は 1 度だけ呼び直す・任せ先は
+# 起こした印を置いてから cmd を走らせた素材を done・why だけの返りは CiRefused）をなぞる。run_ci そのものの試験は Task 7 の側
 import contextlib  # noqa: E402
-import types  # noqa: E402
 
+import entry as real_entry  # noqa: E402
 import test_board_engine_run as ER  # noqa: E402
-from board import DiskBoard  # noqa: E402
 from engine import declared  # noqa: E402
-from test_board_steps import TABLE as EVERY  # noqa: E402
 
-# 1 本目のラインの表（Task 3 の darkfactory/nodes.json）と同じく、p4.ci の後ろの役の節を「このラインに無い」にした表。
-# これで p4.ci の後の settle が p4.record・converge まで回り、stop_after_round で止まる
-AFTER_CI_ABSENT = ("r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare", "r3.coherence", "r4.hidden_scope",
-                   "stop.premise_check", "p4.final_gates", "report.human_items", "report.cold_check", "report")
-LINE_TABLE = EVERY
-for _nid in AFTER_CI_ABSENT:
-    LINE_TABLE = ER.with_by(LINE_TABLE, _nid, by="absent", reason="試験: このラインに無い")
 DECL_BROKEN = {"suite": []}
 
 
@@ -365,6 +356,9 @@ def ref_run_ci(b, nid, *, test_cmd, runner=None):
         code = subprocess.run(["bash", "-c", test_cmd], cwd=b.state["inputs"]["cwd"], stdin=subprocess.DEVNULL,
                               stdout=f, stderr=subprocess.STDOUT).returncode
     tail = log.read_text(encoding="utf-8", errors="replace")[-400:]
+    # 任せ先の返答を出す側が、出す前に起こした印を置く（board.py の頭の決まり 2。印の無い instance の返答は受けない）
+    inst = next(i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending")
+    b.mark_launched(nid, inst.get("attempts", 1))
     # clean には checked が要る（受け付けの記録の整合: 何を見たかを書け）
     b.done(nid, {"material": {"status": "clean", "count": 0, "detail": tail, "checked": f"bash -c {test_cmd}: exit 0"}
                  if code == 0 else {"status": "found", "count": 1, "detail": tail}})
@@ -376,12 +370,20 @@ def never_run_ci(*a, **kw):
 
 
 class TestTestsModes(ER.EngineRunCase):
-    def mode_board(self, decl=ER.GREEN, nth=0, table=LINE_TABLE):
-        """p4.ci が待っている盤面（stop_after_round は今の周）。decl は宣言の suite（None なら宣言を消す、dict なら本文そのもの）"""
+    def mode_board(self, decl=ER.GREEN, nth=0):
+        """p4.ci が待っている darkfactory の盤面（stop_after_round は今の周）。手本の盤面を 1 本目のラインの本物の表
+        （Task 3 の darkfactory/nodes.json）で組み、state.works に line・table_sha を置いて、本物の entry.open_board で開き直す。
+        表は p4.ci の後ろの役の節を「このラインに無い」にするので、p4.ci の後の settle が p4.record・converge まで回る。
+        decl は宣言の suite（None なら宣言を消す、dict なら本文そのもの）"""
+        table = real_entry.load_table("darkfactory")
+
         def edit(mem):
             ER.minimal("p4.ci")(mem)
             mem["state"]["stop_after_round"] = mem["state"]["round"]
         b = self.board_before(ER.engine_run_step("p4.ci", nth), table=table, edit=edit)
+        state = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
+        state["works"].update(line=table.line, table_sha=table.sha())
+        (b.dir / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         p = self.repo(b) / ER.DECL
         if decl is None:
             p.unlink()
@@ -389,25 +391,36 @@ class TestTestsModes(ER.EngineRunCase):
             p.write_text(json.dumps(decl), encoding="utf-8")
         else:
             self.write_decl(b, decl)
-        return b
+        return real_entry.open_board(b.dir)
 
     def reopen(self, b):
-        return DiskBoard.open(b.dir, table=b.table, repo=self.repo(b), allow_halted=True)
+        return real_entry.open_board(b.dir, allow_halted=True)
 
-    def call(self, b, mode, cmd, run_ci=ref_run_ci, entry="fake"):
-        """節のスクリプトの main を Archon と同じ環境変数で呼ぶ → (終了コード, 出口の dict か None, stderr)"""
+    def call(self, b, mode, cmd, run_ci=ref_run_ci, entry="real"):
+        """節のスクリプトの main を Archon と同じ環境変数で呼ぶ → (終了コード, 出口の dict か None, stderr)。
+        entry は本物（Task 3 の open_board）。Task 7 の run_ci・CiRefused だけはこの枝に無いので偽物を足す。
+        entry=None は entry が import できない時"""
         opened = []
+        real_open = real_entry.open_board
 
-        def open_board(d, *, allow_halted=False):
+        def open_board(d, **kw):
             opened.append(pathlib.Path(d))
-            return DiskBoard.open(d, table=b.table, repo=self.repo(b), allow_halted=allow_halted)
+            return real_open(d, **kw)
 
-        fake = types.SimpleNamespace(open_board=open_board, run_ci=run_ci, CiRefused=CiRefused) if entry == "fake" else entry
         env = {"INPUTS_CMD": cmd, "INPUTS_MODE": mode, "ARTIFACTS_DIR": str(b.dir.parent)}
         out, err = io.StringIO(), io.StringIO()
         mod = load_run_tests()
-        with mock.patch.dict(sys.modules, {"entry": fake}), mock.patch.dict(os.environ, env), \
-                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with contextlib.ExitStack() as stack:
+            if entry is None:
+                stack.enter_context(mock.patch.dict(sys.modules, {"entry": None}))
+            else:
+                stack.enter_context(mock.patch.dict(sys.modules, {"entry": real_entry}))
+                stack.enter_context(mock.patch.object(real_entry, "open_board", open_board))
+                stack.enter_context(mock.patch.object(real_entry, "run_ci", run_ci, create=True))
+                stack.enter_context(mock.patch.object(real_entry, "CiRefused", CiRefused, create=True))
+            stack.enter_context(mock.patch.dict(os.environ, env))
+            stack.enter_context(contextlib.redirect_stdout(out))
+            stack.enter_context(contextlib.redirect_stderr(err))
             rc = mod.main()
         self.assertIn(opened, ([], [b.dir]))   # 盤面は <ARTIFACTS_DIR>/board を開く
         text = out.getvalue()
