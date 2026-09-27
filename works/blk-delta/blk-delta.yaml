@@ -131,6 +131,11 @@ nodes:
               reason: {type: string}
               reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               review_file: {type: string}
+              # 通った時の entry.take の欄（blk-refix の受け付けと同じ。run 25 はこれが無くて落ちた。tests/test_script_contract.py）
+              ready: {type: array, items: {type: string}}
+              asking: {type: boolean}
+              halted: {type: boolean}
+              out_file: {type: string}
 
   # 読んだ証拠（受け付けの条件にしない。今の周の reads-review.json）。機械が渡したパスは brief と差分
   - id: review-reads

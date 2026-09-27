@@ -85,6 +85,7 @@ HEAVY = frozenset({
     "test_line",            # 5 秒（負荷 64）git init
     "test_script_headers",  # 5 秒（負荷 64）git・uv run
     "test_tree_run",        # 20 秒（負荷 62）プロセスの木
+    "test_script_contract", # script の節の本物の出力と output_format: 種の git と本物の盤面で線を本物のスクリプトで 6 回通す（scriptline）
     "test_tdd_suite",       # TDD の実行器 dev/tdd-suite.sh: uv run で本物の pytest を起こす（偽の小さな試験だけを回す）
 })
 
