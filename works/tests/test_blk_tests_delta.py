@@ -7,6 +7,8 @@
 - 作業ツリーの写し（snapshot_tree）が、未追跡のフォルダ（入れ子の git リポジトリ）で落ちないか
 筋書き（fixtures/*.stubs.yaml）は dev/check.sh が Archon で回す。
 """
+import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -56,6 +58,14 @@ def find_node(nodes, nid):
 
 def git(repo, *args):
     return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def load_run_tests():
+    """blk-tests の節のスクリプトを module として読む（main は __main__ の時だけ走る）。読むたびに新しく読む"""
+    spec = importlib.util.spec_from_file_location("blk_tests_run_tests", ROOT / "blk-tests" / "scripts" / "run_tests.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 class RepoCase(unittest.TestCase):
@@ -131,19 +141,22 @@ class TestDeltaSchema(unittest.TestCase):
 
 # ---------------------------------------------------------------- blk-tests
 class TestTestsBlock(RepoCase):
-    def cmd_env(self, cmd):
-        # Archon の口と同じ: 節の with: が INPUTS_CMD に、盤面の置き場が ARTIFACTS_DIR に届く。
+    def cmd_env(self, cmd, mode=None):
+        # Archon の口と同じ: 節の with: が INPUTS_CMD（と INPUTS_MODE）に、盤面の置き場が ARTIFACTS_DIR に届く。
+        # mode=None は INPUTS_MODE を渡さない（線 C の mutgate の include の形）。
         # PYTHONDONTWRITEBYTECODE は外す（スクリプトがテストのコマンドに立てるかを見るため）
         env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "PYTHONDONTWRITEBYTECODE"}
         env.update(INPUTS_CMD=cmd, ARTIFACTS_DIR=str(self.artifacts))
+        if mode is not None:
+            env["INPUTS_MODE"] = mode
         return env
 
-    def run_tests(self, cmd, rc=0):
+    def run_tests(self, cmd, rc=0, mode=None):
         node = find_node(workflow("blk-tests")["nodes"], "run")
         r = subprocess.run([sys.executable, str(ROOT / "blk-tests" / "scripts" / "run_tests.py")], cwd=str(self.repo),
-                           env=self.cmd_env(cmd), capture_output=True, text=True, timeout=120)
+                           env=self.cmd_env(cmd, mode), capture_output=True, text=True, timeout=120)
         if rc:
-            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(r.returncode, rc, r.stderr)
             self.assertEqual(r.stdout, "")
             return None
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -179,6 +192,37 @@ class TestTestsBlock(RepoCase):
             with self.subTest(cmd=cmd):
                 self.run_tests(cmd, rc=1)
                 self.assertFalse((self.board / "tests.log").exists())
+
+    def test_plain_mode_is_mutgate_contract(self):
+        # 線 C の mutgate は `include: blk-tests`・`with: {cmd}` だけで使う（盤面なし・INPUTS_MODE なし）。既定の形 plain は
+        # 1 本目のまま: 盤面を作らず（state.json が無い）、ログは <ARTIFACTS_DIR>/board/tests.log（線 C の筋書きの log の形）、
+        # 出口の鍵は ok・green・log だけ（裁定 TA4・審査 I1）。INPUTS_MODE に plain を明示しても、空でも同じ
+        for mode in (None, "plain", ""):
+            with self.subTest(mode=mode):
+                shutil.rmtree(self.board, ignore_errors=True)
+                out = self.run_tests("test -f stats.py", mode=mode)
+                self.assertEqual(out, {"ok": True, "green": True, "log": str(self.artifacts / "board" / "tests.log")})
+                self.assertEqual(sorted(p.name for p in self.board.iterdir()), ["tests.log"])
+                self.assertFalse((self.board / "state.json").exists())
+                out = self.run_tests("exit 1", mode=mode)
+                self.assertEqual(set(out), {"ok", "green", "log"})
+                self.assertEqual((out["ok"], out["green"]), (True, False))
+
+    def test_plain_mode_empty_cmd_fails(self):
+        # plain で cmd が空なら 1 本目と同じく節を落とす（空の cmd を許すのは mid・final だけ）
+        for mode in (None, "plain"):
+            with self.subTest(mode=mode):
+                self.run_tests(" ", rc=1, mode=mode)
+                self.assertFalse(self.board.exists())
+
+    def test_unknown_mode_refused(self):
+        # 知らない形は回す側の配線の誤り（終了コード 2）。盤面もログも作らない
+        self.run_tests("true", rc=2, mode="middle")
+        self.assertFalse(self.board.exists())
+
+    def test_inputs_constant(self):
+        # 裁定 TA16: 読む INPUTS_* の名前の組を定数に持つ（Task 17 の試験が YAML の with: の鍵と突き合わせる）
+        self.assertEqual(load_run_tests().INPUTS, ("INPUTS_CMD", "INPUTS_MODE"))
 
     def test_tests_leave_no_bytecode(self):
         # 種の .gitignore が無くても、テストが作業ツリーに __pycache__ を作らない（修正の差分に紛れ込まない）
@@ -275,6 +319,283 @@ class TestTestsBlock(RepoCase):
             except (OSError, ValueError):
                 pass
 
+
+
+# ---------------------------------------------------------------- blk-tests の明示の形 mid・final（仕様 3.5・裁定 TA4・TA5）
+# 盤面は盤面の層の試験の道具（手本の盤面を p4.ci の手の前に戻す。読むだけ・import するだけ）で組み、節のスクリプトの main を
+# Archon と同じ環境変数で同じプロセスの中で呼ぶ。entry（Task 3 の open_board・Task 7 の run_ci）は偽物を sys.modules に差す:
+# open_board は盤面をディスクから開き直し、run_ci は Task 7 の約束（relaunch は 1 度だけ呼び直す・任せ先は cmd を走らせて done・
+# why だけの返りは CiRefused）をなぞる。run_ci そのものの試験は Task 7 の test_entry の側（test_run_ci_*）
+import contextlib  # noqa: E402
+import types  # noqa: E402
+
+import test_board_engine_run as ER  # noqa: E402
+from board import DiskBoard  # noqa: E402
+from engine import declared  # noqa: E402
+from test_board_steps import TABLE as EVERY  # noqa: E402
+
+# 1 本目のラインの表（Task 3 の darkfactory/nodes.json）と同じく、p4.ci の後ろの役の節を「このラインに無い」にした表。
+# これで p4.ci の後の settle が p4.record・converge まで回り、stop_after_round で止まる
+AFTER_CI_ABSENT = ("r1.comment_candidates", "r1.minimality", "r2.design", "r2.compare", "r3.coherence", "r4.hidden_scope",
+                   "stop.premise_check", "p4.final_gates", "report.human_items", "report.cold_check", "report")
+LINE_TABLE = EVERY
+for _nid in AFTER_CI_ABSENT:
+    LINE_TABLE = ER.with_by(LINE_TABLE, _nid, by="absent", reason="試験: このラインに無い")
+DECL_BROKEN = {"suite": []}
+
+
+class CiRefused(Exception):
+    """entry.CiRefused の代わり"""
+
+
+def ref_run_ci(b, nid, *, test_cmd, runner=None):
+    """entry.run_ci（Task 7）の約束をなぞる偽物"""
+    got = b.run_engine(nid, runner=runner)
+    if got.get("relaunch"):
+        got = b.run_engine(nid, runner=runner)
+        if got.get("relaunch"):
+            raise CiRefused(got["why"])
+    if got["ok"]:
+        runs = got.get("runs") or []
+        return {"by": "engine", "log": runs[0]["out"] if runs else ""}
+    if "fallback" not in got:
+        raise CiRefused(got["why"])
+    log = b.work("tests.log")
+    with open(log, "wb") as f:
+        code = subprocess.run(["bash", "-c", test_cmd], cwd=b.state["inputs"]["cwd"], stdin=subprocess.DEVNULL,
+                              stdout=f, stderr=subprocess.STDOUT).returncode
+    tail = log.read_text(encoding="utf-8", errors="replace")[-400:]
+    # clean には checked が要る（受け付けの記録の整合: 何を見たかを書け）
+    b.done(nid, {"material": {"status": "clean", "count": 0, "detail": tail, "checked": f"bash -c {test_cmd}: exit 0"}
+                 if code == 0 else {"status": "found", "count": 1, "detail": tail}})
+    return {"by": "role", "log": str(log)}
+
+
+def never_run_ci(*a, **kw):
+    raise AssertionError("run_ci を呼んではいけない")
+
+
+class TestTestsModes(ER.EngineRunCase):
+    def mode_board(self, decl=ER.GREEN, nth=0, table=LINE_TABLE):
+        """p4.ci が待っている盤面（stop_after_round は今の周）。decl は宣言の suite（None なら宣言を消す、dict なら本文そのもの）"""
+        def edit(mem):
+            ER.minimal("p4.ci")(mem)
+            mem["state"]["stop_after_round"] = mem["state"]["round"]
+        b = self.board_before(ER.engine_run_step("p4.ci", nth), table=table, edit=edit)
+        p = self.repo(b) / ER.DECL
+        if decl is None:
+            p.unlink()
+        elif isinstance(decl, dict):
+            p.write_text(json.dumps(decl), encoding="utf-8")
+        else:
+            self.write_decl(b, decl)
+        return b
+
+    def reopen(self, b):
+        return DiskBoard.open(b.dir, table=b.table, repo=self.repo(b), allow_halted=True)
+
+    def call(self, b, mode, cmd, run_ci=ref_run_ci, entry="fake"):
+        """節のスクリプトの main を Archon と同じ環境変数で呼ぶ → (終了コード, 出口の dict か None, stderr)"""
+        opened = []
+
+        def open_board(d, *, allow_halted=False):
+            opened.append(pathlib.Path(d))
+            return DiskBoard.open(d, table=b.table, repo=self.repo(b), allow_halted=allow_halted)
+
+        fake = types.SimpleNamespace(open_board=open_board, run_ci=run_ci, CiRefused=CiRefused) if entry == "fake" else entry
+        env = {"INPUTS_CMD": cmd, "INPUTS_MODE": mode, "ARTIFACTS_DIR": str(b.dir.parent)}
+        out, err = io.StringIO(), io.StringIO()
+        mod = load_run_tests()
+        with mock.patch.dict(sys.modules, {"entry": fake}), mock.patch.dict(os.environ, env), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = mod.main()
+        self.assertIn(opened, ([], [b.dir]))   # 盤面は <ARTIFACTS_DIR>/board を開く
+        text = out.getvalue()
+        if rc:
+            self.assertEqual(text, "")
+            return rc, None, err.getvalue()
+        self.assertEqual(text.count("\n"), 1)
+        return rc, json.loads(text), err.getvalue()
+
+    # -- mid
+    def test_mid_runs_declared_suite_without_shell(self):
+        # 宣言の段を 1 つずつ shell を通さずに走らせる（argv の $・; はそのまま字で届く）。cmd は走らせない。盤面の節には書かない
+        steps = [{"name": "unit", "argv": ["python3", "-c", "import sys; print(sys.argv[1:])", "$HOME;", "|x"]},
+                 {"name": "lint", "argv": ["python3", "-c", "import sys; sys.exit(4)"]}]
+        b = self.mode_board(decl=steps)
+        before = ER.disk_bytes(b)
+        marker = self.repo(b) / "cmd-ran"
+        rc, out, err = self.call(b, "mid", f"touch {marker}")
+        self.assertEqual(rc, 0, err)
+        log, res = b.work("mid-tests.log"), b.work("mid-tests.json")
+        self.assertEqual(out, {"ok": True, "green": False, "log": str(log),
+                               "suites": [{"name": "unit", "exit": 0}, {"name": "lint", "exit": 4}], "by": "mid"})
+        self.assertIn("['$HOME;', '|x']", log.read_text(encoding="utf-8"))
+        self.assertFalse(marker.exists())
+        got = json.loads(res.read_text(encoding="utf-8"))
+        self.assertEqual({k: got[k] for k in ("by", "source", "green", "suites", "log", "sha")},
+                         {"by": "mid", "source": "declared", "green": False, "suites": out["suites"], "log": str(log),
+                          "sha": declared.steps_sha(steps)})
+        self.assertEqual(ER.disk_bytes(b), before)   # state・record・trace は 1 バイトも変わらない（process.checks も）
+        self.assertEqual(self.reopen(b).rd["instances"]["p4.ci"]["status"], "pending")
+
+    def test_mid_green_suite(self):
+        b = self.mode_board(decl=ER.GREEN)
+        rc, out, err = self.call(b, "mid", "")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((out["ok"], out["green"], out["suites"]), (True, True, [{"name": "suite", "exit": 0}]))
+
+    def test_mid_runs_cmd_when_no_declaration(self):
+        # 宣言が無ければ cmd を 1 本目と同じく bash で走らせる。赤でも ok: true
+        b = self.mode_board(decl=None)
+        before = ER.disk_bytes(b)
+        rc, out, err = self.call(b, "mid", "[[ -d . ]] && echo 赤 >&2; exit 3")
+        self.assertEqual(rc, 0, err)
+        log = b.work("mid-tests.log")
+        self.assertEqual(out, {"ok": True, "green": False, "log": str(log), "suites": [{"name": "cmd", "exit": 3}],
+                               "by": "mid"})
+        self.assertIn("赤", log.read_text(encoding="utf-8"))
+        self.assertEqual(json.loads(b.work("mid-tests.json").read_text(encoding="utf-8"))["source"], "cmd")
+        self.assertEqual(ER.disk_bytes(b), before)
+
+    def test_mid_broken_declaration_not_run(self):
+        # 在るのに読めない宣言は engine と同じく走らせない（cmd にも落とさない）。走れなかった回は green: false で理由を残す
+        b = self.mode_board(decl=DECL_BROKEN)
+        marker = self.repo(b) / "cmd-ran"
+        rc, out, err = self.call(b, "mid", f"touch {marker}")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((out["ok"], out["green"], out["suites"], out["by"]), (True, False, [], "mid"))
+        self.assertFalse(marker.exists())
+        got = json.loads(b.work("mid-tests.json").read_text(encoding="utf-8"))
+        self.assertEqual(got["source"], "none")
+        self.assertIn(ER.DECL, got["reason"])
+        self.assertIn(ER.DECL, pathlib.Path(out["log"]).read_text(encoding="utf-8"))
+
+    def test_mid_nothing_to_run(self):
+        # 宣言も cmd も無い（修正役が宣言を消した等）→ 走れなかった回として green: false・ok: true（中の関所に見せる）
+        b = self.mode_board(decl=None)
+        rc, out, err = self.call(b, "mid", "  ")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((out["ok"], out["green"], out["suites"]), (True, False, []))
+        self.assertTrue(json.loads(b.work("mid-tests.json").read_text(encoding="utf-8"))["reason"])
+
+    def test_mid_round_two(self):
+        # 周 2 の盤面でも作業ファイルは今の周の置き場（b.work）。周の番号を仮定しない（裁定 TA17）
+        b = self.mode_board(nth=1)
+        self.assertGreaterEqual(b.round, 2)
+        rc, out, err = self.call(b, "mid", "")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["log"], str(b.work("mid-tests.log")))
+        self.assertTrue(b.work("mid-tests.json").exists())
+
+    # -- final
+    def test_final_by_engine(self):
+        # 宣言が在れば engine が走らせる（cmd は空でよい）。process.checks["p4.ci"].by == "engine"、green は素材の clean
+        b = self.mode_board(decl=ER.GREEN)
+        rc, out, err = self.call(b, "final", "")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, True, "engine", [{"name": "suite", "exit": 0}]))
+        after = self.reopen(b)
+        self.assertEqual(after.record["process"]["checks"]["p4.ci"]["by"], "engine")
+        self.assertEqual(after.record["materials"]["local_checks"]["status"], "clean")
+
+    def test_final_red_suite_is_ok(self):
+        b = self.mode_board(decl=ER.RED)
+        rc, out, err = self.call(b, "final", "")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, False, "engine", [{"name": "suite", "exit": 3}]))
+
+    def test_final_log_from_run_engine(self):
+        # engine が走らせた時の log は run_engine の返りの runs[0].out（runs/r<N>/ を組み立てない）
+        seen = {}
+
+        def spy(b, nid, *, test_cmd, runner=None):
+            orig = b.run_engine
+
+            def run_engine(*a, **kw):
+                seen["got"] = orig(*a, **kw)
+                return seen["got"]
+            b.run_engine = run_engine
+            return ref_run_ci(b, nid, test_cmd=test_cmd, runner=runner)
+
+        b = self.mode_board(decl=ER.GREEN)
+        rc, out, err = self.call(b, "final", "", run_ci=spy)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out["log"], seen["got"]["runs"][0]["out"])
+        self.assertEqual(pathlib.Path(out["log"]).read_text(encoding="utf-8"), "1 passed\n")
+
+    def test_final_fallback_runs_cmd(self):
+        # 宣言が無ければ任せ先（by: role）: cmd を走らせた結果を素材で done。green は cmd の結果
+        for cmd, green, status in (("echo 走った", True, "clean"), ("echo 赤; exit 2", False, "found")):
+            with self.subTest(cmd=cmd):
+                b = self.mode_board(decl=None)
+                rc, out, err = self.call(b, "final", cmd)
+                self.assertEqual(rc, 0, err)
+                self.assertEqual((out["ok"], out["green"], out["by"], out["suites"]), (True, green, "role", []))
+                self.assertEqual(out["log"], str(b.work("tests.log")))
+                after = self.reopen(b)
+                self.assertEqual(after.record["process"]["checks"]["p4.ci"]["by"], "role")
+                self.assertEqual(after.record["materials"]["local_checks"]["status"], status)
+                self.assertEqual(after.node_state("p4.ci"), "done")
+
+    def test_final_empty_cmd_on_fallback_fails(self):
+        # 宣言が無く cmd も空 → 任せ先に落とせない。終了コード 1・理由を stderr、盤面は書かない
+        b = self.mode_board(decl=None)
+        before = ER.disk_bytes(b)
+        rc, out, err = self.call(b, "final", " ", run_ci=never_run_ci)
+        self.assertEqual((rc, out), (1, None))
+        self.assertIn(ER.DECL, err)
+        self.assertEqual(ER.disk_bytes(b), before)
+
+    def test_final_ci_refused(self):
+        # run_ci が拒んだ（2 度とも relaunch・why だけの返り）→ 終了コード 1、stderr に why
+        def refuse(*a, **kw):
+            raise CiRefused("宣言が計画の後に 2 度変わった")
+
+        b = self.mode_board(decl=ER.GREEN)
+        rc, out, err = self.call(b, "final", "", run_ci=refuse)
+        self.assertEqual((rc, out), (1, None))
+        self.assertIn("宣言が計画の後に 2 度変わった", err)
+
+    def test_final_settles_to_record(self):
+        # final の後の盤面で p4.record と converge が済み、stop_after_round で止まっている
+        b = self.mode_board(decl=ER.GREEN)
+        rc, out, err = self.call(b, "final", "")
+        self.assertEqual(rc, 0, err)
+        after = self.reopen(b)
+        self.assertEqual((after.node_state("p4.record"), after.node_state("converge")), ("done", "done"))
+        self.assertEqual(after.state["halted"]["by"], "stop_after_round")
+
+    def test_final_round_two(self):
+        b = self.mode_board(nth=1)
+        self.assertGreaterEqual(b.round, 2)
+        rc, out, err = self.call(b, "final", "")
+        self.assertEqual(rc, 0, err)
+        after = self.reopen(b)
+        self.assertEqual(out["log"], after.record["process"]["checks"]["p4.ci"]["runs"][0]["out"])
+        self.assertEqual(after.state["halted"]["by"], "stop_after_round")
+
+    # -- 共通
+    def test_exit_keeps_v1_fields(self):
+        # 出口は 1 本目の ok・green・log を全部残し、mid・final の時だけ suites・by を足す
+        for mode in ("mid", "final"):
+            with self.subTest(mode=mode):
+                b = self.mode_board()
+                rc, out, err = self.call(b, mode, "")
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(set(out), {"ok", "green", "log", "suites", "by"})
+                self.assertTrue(all(set(s) == {"name", "exit"} for s in out["suites"]))
+
+    def test_modes_need_entry(self):
+        # mid・final は盤面の口（entry）が要る。読めなければ回す側の誤り（終了コード 2）で、盤面を書かない
+        for mode in ("mid", "final"):
+            with self.subTest(mode=mode):
+                b = self.mode_board()
+                before = ER.disk_bytes(b)
+                rc, out, err = self.call(b, mode, "true", entry=None)
+                self.assertEqual((rc, out), (2, None))
+                self.assertIn("entry", err)
+                self.assertEqual(ER.disk_bytes(b), before)
 
 # ---------------------------------------------------------------- blk-delta の cut
 class TestCut(RepoCase):
