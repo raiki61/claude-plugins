@@ -5,8 +5,6 @@ dev/target-seed/ を一時ディレクトリの git に写した使い捨ての�
 """
 import json
 import pathlib
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -19,8 +17,8 @@ SEED = ROOT / "dev" / "target-seed"
 sys.path.insert(0, str(CORE))
 
 from accept import check_delta, check_fix, check_judge, check_request, role_schema, snapshot_tree  # noqa: E402
+from gitkit import committed_copy  # noqa: E402
 
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 FIXED_STATS = '''"""直した後の姿。"""
 
 
@@ -41,20 +39,12 @@ def load(name):
     return json.loads((REPLIES / f"{name}.json").read_text())
 
 
-def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
-
-
 class AcceptCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = pathlib.Path(self._tmp.name)
         self.repo = tmp / "repo"
-        shutil.copytree(SEED, self.repo)
-        git(self.repo, "init", "-q")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-q", "-m", "seed")
-        self.base = git(self.repo, "rev-parse", "HEAD")
+        self.base = committed_copy(self.repo, SEED)   # 種を写して commit した git（型の写し。gitkit）
         self.board = tmp / "board"
         self.board.mkdir()
 
@@ -135,6 +125,32 @@ class TestJudge(AcceptCase):
         self.assertFalse(r["ok"])
         self.assertIn("extra.txt", r["reason"])
         self.assertFalse((self.board / "judgment.json").exists())
+
+    def test_judge_rejects_ignored_file_without_snapshot(self):
+        # 写しが無い時も、git が無視するファイル（__pycache__ など）を読むだけの役が作れば拒む
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("__pycache__", r["reason"])
+
+    def test_judge_rejects_ignored_file_after_snapshot(self):
+        # 依頼の受け付けの時の写し（judge-snapshot.json）の後に、git が無視するファイルが増えた・書き換わったら拒む。
+        # 前から在った無視されるファイルは、変わっていなければ通る
+        (self.repo / "__pycache__").mkdir()
+        old = self.repo / "__pycache__" / "old.pyc"
+        old.write_bytes(b"old")
+        (self.board / "judge-snapshot.json").write_text(json.dumps(snapshot_tree(self.repo)))
+        self.assertTrue(check_judge(load("judge_ok"), self.board, self.base, self.repo)["ok"])
+        (self.repo / ".env.pyc").write_bytes(b"x")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn(".env.pyc", r["reason"])
+        (self.repo / ".env.pyc").unlink()
+        old.write_bytes(b"new")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"], "無視されるファイルの中身の書き換えも拒む")
+        self.assertIn("作業ツリー", r["reason"])
 
     def test_judge_carried_r1_tells_to_copy_the_where(self):
         # graphloops 0.21.0 の _carried_r1_accounted は、前の周の R1 の削除候補に無い where を拒むとき『貼られた行の no で指せ』と
@@ -232,6 +248,25 @@ class TestDelta(AcceptCase):
         r = check_delta(load("delta_ok"), self.board, self.base, self.repo)
         self.assertFalse(r["ok"])
         self.assertIn("作業ツリー", r["reason"])
+
+    def test_delta_rejects_ignored_file_after_snapshot(self):
+        self.fix_stats()
+        (self.board / "delta-snapshot.json").write_text(json.dumps(snapshot_tree(self.repo)))
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        r = check_delta(load("delta_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("__pycache__/", r["reason"])
+
+    def test_snapshot_sees_ignored_content(self):
+        (self.repo / "__pycache__").mkdir()
+        pyc = self.repo / "__pycache__" / "stats.cpython-314.pyc"
+        pyc.write_bytes(b"a")
+        before = snapshot_tree(self.repo)
+        self.assertEqual(before["ignored"], ["__pycache__/"])
+        self.assertEqual(before["porcelain"], "", "porcelain は無視されるファイルを映さない（だから ignored が要る）")
+        pyc.write_bytes(b"b")
+        self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
 
     def test_delta_rejects_plan_only_kind(self):
         # graphloops 0.21.0 の face_kind は事前審査と共有で regression・policy・precedent を含むが、修正差分のレビューでは拒む語

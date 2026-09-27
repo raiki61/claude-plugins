@@ -33,7 +33,7 @@ if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
 import subprocess  # noqa: E402
-from accept import role_schema, snapshot_tree  # noqa: E402
+from accept import SNAPSHOT_KEYS, role_schema, snapshot_tree  # noqa: E402
 from board import GRAPH_PATH, BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.schema import validate_schema  # noqa: E402
 from engine.util import AnswerReject, Reject  # noqa: E402
@@ -232,7 +232,7 @@ def take(board_dir, reply: dict, repo, *, opener=None) -> dict:
         raise BoardGap(f"{snap_p} が無い——pr-snap が走っていない（役を起こす前の写しと比べられない）")
     try:
         snap = json.loads(snap_p.read_text(encoding="utf-8"))
-        before = {k: snap[k] for k in ("porcelain", "diff_sha256", "head", "ref")}
+        before = {k: snap[k] for k in (*SNAPSHOT_KEYS, "head", "ref")}   # 写しの鍵は accept と同じ（ignored も見る）
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise BoardGap(f"{snap_p} が読めない: {e}") from None
     repo = pathlib.Path(repo)

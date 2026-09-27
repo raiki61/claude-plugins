@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # works/dev/guard.sh — archon.sh・mktarget.sh・real-run.sh・dogfood.sh が . で読む（単独では走らせない）
 #
 # Claude Code のサンドボックスは、自分の一時フォルダ（/private/tmp/claude-<uid>/。/tmp は macOS では /private/tmp への

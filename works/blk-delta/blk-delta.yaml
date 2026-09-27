@@ -44,7 +44,8 @@ nodes:
           allowed_tools: [Read, Grep, Glob]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # 指示書（commands/delta-review.md）は $cut.output.* と $LOOP_PREV.review-accept.output.reason を直に読む（Ruling R16）。
+          # 指示書（commands/delta-review.md）は $cut.output.* と $LOOP_PREV.review-accept.output.reason_file を直に読む（Ruling R16）。
+          # 拒否の理由の本文は reason_file のファイルにだけ置く（本文を $LOOP_PREV で貼ると、中の $… が置き換えに通る）。
           # include は $cut を reviewing__cut に付け替えるが、輪の中の節の id（review-accept）は付け替えない——輪の中で解ける。
           # 宣言していない $INPUTS.<名> は読み込みで拒まれる
           # role_schema("p3.delta_review") を 1 度出して貼った物（tests/test_blk_tests_delta.py が一致を見る）
@@ -87,10 +88,11 @@ nodes:
           output_format:
             type: object
             additionalProperties: false
-            required: [ok, reason]          # 返答が JSON でないときの拒否は review_file を持たない（script_io）
+            required: [ok, reason, reason_file]          # 返答が JSON でないときの拒否は review_file を持たない（script_io）
             properties:
               ok: {type: boolean}
               reason: {type: string}
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               review_file: {type: string}
 
   # loop_group の出力は型を持てないので、輪の後ろで盤面の delta-review.json から出口を組む

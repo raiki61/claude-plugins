@@ -32,8 +32,8 @@ sys.path.insert(0, str(CORE))
 
 from accept import check_delta, role_schema, snapshot_tree  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+from gitkit import committed_copy, git  # noqa: E402
 
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
 def load(name):
@@ -56,10 +56,6 @@ def find_node(nodes, nid):
     return None
 
 
-def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
-
-
 def load_run_tests():
     """blk-tests の節のスクリプトを module として読む（main は __main__ の時だけ走る）。読むたびに新しく読む"""
     spec = importlib.util.spec_from_file_location("blk_tests_run_tests", ROOT / "blk-tests" / "scripts" / "run_tests.py")
@@ -75,11 +71,7 @@ class RepoCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = pathlib.Path(self._tmp.name)
         self.repo = tmp / "repo"
-        shutil.copytree(SEED, self.repo)
-        git(self.repo, "init", "-q")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-q", "-m", "seed")
-        self.base = git(self.repo, "rev-parse", "HEAD")
+        self.base = committed_copy(self.repo, SEED)   # 種を写して commit した git（型の写し。gitkit）
         self.artifacts = tmp / "artifacts"
         self.artifacts.mkdir()
         self.board = self.artifacts / "board"
@@ -122,7 +114,7 @@ class TestDeltaSchema(unittest.TestCase):
         # 宣言していない $INPUTS.<名> は Archon 0.11.1 の include が読み込みで拒むので、節の with: で束ねない
         body = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
         refs = re.findall(r"\$[A-Za-z_][A-Za-z0-9_.-]*", body)
-        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.review-accept.output.reason", "$cut.output.diff_file",
+        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.review-accept.output.reason_file", "$cut.output.diff_file",
                                              "$cut.output.files"])
         review = find_node(workflow("blk-delta")["nodes"], "review")
         self.assertNotIn("with", review)

@@ -24,6 +24,8 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 
 テストは `works/tests/run.sh`。実際に Archon の上で回す手順（実行ファイルの取得・使い捨ての対象作り・`archon workflow test` 相当の検査・自分食い）は `works/dev/` を見る。キャッシュした Archon の実行ファイルの sha256 が合わないときは、止まった時の 1 行に出るそのファイルを消して回し直せば取り直す（殻は消さない）。
 
+直しながら回すのは速い段 `WORKS_TESTS=fast sh works/tests/run.sh [-k 名前]`（試験ごとに git のリポジトリを作らない・uv run・Archon・golden・プロセスの木・決まった秒の待ちを使わないモジュールだけ。種の git を `works/tests/gitkit.py` の型の写しで配るのは可。`WORKS_TESTS=heavy` は残りの重い段で、2 つを合わせると全部）。作業の終わりと merge の前は、既定（何も付けない）の全部を回す。どのモジュールがどちらの段かは `works/tests/tiers.py` に 1 か所で書き、新しいテストのモジュールはどちらかに書き足す（書き忘れると段を選んだ実行とテストが止める）。全部と heavy は、機械全体で重いテストを同時に 4 本までにする枠の台本（mainline の `testslot.sh`。既定の置き場は `/Users/p03623/src/claude-plugins/.git/graphloops/ops/testslot.sh`、`WORKS_TESTSLOT` で差し替え。枠の置き場は台本の約束 `TESTSLOT_DIR`（既定は `/private/tmp/claude-<uid>/testslots`）で、`run.sh` が解決して台本へ渡す）を通して、枠が空くまで期限なしで待ってから回る。台本が無い・枠の置き場に書けない（サンドボックスの中など）ときは、1 行出して枠を取らずに回す。
+
 `works/dev/archon.sh`（固定した版の Archon を隔離して回す殻）の認証に既定の口座は無い。AI を呼ぶ実行（`workflow run`・`workflow approve`・`workflow resume`、`dev/real-run.sh`）の前に、次のどちらかを設定する:
 
 1. `CLAUDE_CODE_OAUTH_TOKEN`（`claude setup-token` で作るトークン）
@@ -41,7 +43,7 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 
 1. `WORKS_KEYCHAIN_ITEM=<keychain の項目名> sh works/dev/real-run.sh [<dir>]` を前景で打つ。使い捨ての対象を作り、ライン（模型は `WORKS_DEV_MODEL`、既定は opus）を回し、人の関所で止まって戻る。
 2. 関所の文面の「テストが緑か」「テストのログ」と、殻が出す「修正の差分がある worktree」を見る。修正は対象ではなく、Archon が run ごとに切った worktree の中にある。
-3. 殻が出す approve のコマンドを打つ。承認はその場で続き（差分の審査）を回して終わる。`resume` は失敗・中断から続けるときだけ要る。
+3. 殻が出す approve のコマンドを打つ。承認はその場で続き（差分の審査）を回して終わる。`WORKS_KEYCHAIN_ITEM` で起こしたなら、出た行に項目名が載っているので、export していない殻でもそのまま打てる。`CLAUDE_CODE_OAUTH_TOKEN` だけで起こしたなら、値は出さないので、それを export した殻で打つ。`resume` は失敗・中断から続けるときだけ要る。
 
 ### 結果（2026-09-26・Archon v0.11.1・opus・3 回）
 
@@ -83,7 +85,7 @@ works 自身の直しをライン `darkfactory` に回す殻が `works/dev/dogfo
 - 模型は固定しないと黙って変わる。当初は `real-run.sh` だけが模型を設定に書いていたので、`archon.sh workflow run` を直に打つと Claude CLI の既定の模型（sonnet）で回った。今は `archon.sh` が認証を使う実行のたびに書く（開発の回し方の節）。
 - テストのコマンドが確かめるのは、渡した物だけ。ラインにはまだ全体を回す CI の節が無いので、迷ったら全体（`sh works/tests/run.sh`）を渡す。
 - サンドボックスの中の修正役は `tests/test_dev.py` を回せない。サンドボックスの TMPDIR は `/tmp/claude-*` の下で、`guard.sh` がそこを拒むため。修正役は環境のせいの赤を 10 件ほど報告するが、修正の良し悪しとは関係ない。
-- 修正役は run の worktree に `__pycache__` などの git が無視するファイルを残すことがある。fix.diff には載らないので取り込みには響かないが、worktree を直に見るときは混ざっている。
+- 修正役は run の worktree に `__pycache__` などの git が無視するファイルを残すことがある。fix.diff には載らないが、テストの節の緑赤を左右した（自分食いの run で、バイトコードが無いことを見る試験が偽の赤になった）。今は blk-fix が修正役の前に git が無視するファイルを控え（節 `ignored-before`）、修正役の後、テストの前に、控えに無かった物だけを消す（節 `clean`。消した物は関所の文面に出る）。判定・審査の読むだけの検査（作業ツリーの写し）も、git が無視するファイルの増減・書き換えを見る。
 
 ## 足りない所
 

@@ -9,6 +9,7 @@
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -26,10 +27,10 @@ sys.path.insert(0, str(CORE))
 
 from accept import JUDGE_SNAPSHOT_FILE, check_judge, role_schema, snapshot_tree  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+from gitkit import committed_copy, git  # noqa: E402
 from node_marker import strip  # noqa: E402
 
 DEADLINE = 1728000000
-GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
 
 
 def load(name):
@@ -55,10 +56,6 @@ def find_node(y, nid):
     if n is None:
         raise AssertionError(f"節 {nid} が無い")
     return n
-
-
-def git(repo, *args):
-    return subprocess.run(["git", *GIT_ID, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
 
 
 class YamlCase(unittest.TestCase):
@@ -105,15 +102,17 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(judge["idle_timeout"], DEADLINE)
         acc = find_node(self.y, "judge-accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$judge.output"}, "base_rev": "$INPUTS.base_rev"})
-        self.assertEqual(sorted(acc["output_format"]["required"]), ["ok", "open_units", "reason"])
+        self.assertEqual(sorted(acc["output_format"]["required"]), ["ok", "open_units", "reason", "reason_file"])
         self.assertEqual(find_node(self.y, "collect")["depends_on"], ["judge-loop"])
 
     def test_diagnose_prompt_wires_request_and_retry_reason(self):
         text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
-        for needle in ("$INPUTS.request", "$LOOP_PREV.judge-accept.output.reason", "one_shot_closes", "class_query",
+        for needle in ("$INPUTS.request", "$LOOP_PREV.judge-accept.output.reason_file", "one_shot_closes", "class_query",
                        "precedents", "searched", "questions", "反証"):
             with self.subTest(needle):
                 self.assertIn(needle, text)
+        # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す）。パスだけを貼って Read させる
+        self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", text), ["$LOOP_PREV.judge-accept.output.reason_file"])
         self.assertNotIn("{{", text, "engine の穴が残っている")
 
     def test_fixtures(self):
@@ -145,10 +144,7 @@ class ScriptCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = pathlib.Path(self._tmp.name)
         self.repo = tmp / "repo"
-        shutil.copytree(SEED, self.repo)
-        git(self.repo, "init", "-q")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-q", "-m", "seed")
+        committed_copy(self.repo, SEED)   # 種を写して commit した git（型の写し。gitkit）
         self.art = tmp / "art"
         self.board = self.art / "board"
 
@@ -156,7 +152,9 @@ class ScriptCase(unittest.TestCase):
         self._tmp.cleanup()
 
     def run_script(self, name, **env):
-        e = dict(os.environ, ARTIFACTS_DIR=str(self.art), **env)
+        # 走らせる側（ラインの script の節）の INPUTS_*・ARTIFACTS_DIR は継がない。欠けを確かめる試験が継いだ値を見ないように
+        base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
+        e = dict(base, ARTIFACTS_DIR=str(self.art), **env)
         return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=self.repo, env=e,
                               capture_output=True, text=True, timeout=300)
 

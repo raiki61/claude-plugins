@@ -571,7 +571,7 @@
   },
   "result": {
    "ok": false,
-   "reason": "作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: ['?? extra.txt']）",
+   "reason": "作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain --ignored: ['?? extra.txt']）",
    "open_units": [],
    "judgment_file": ""
   },
@@ -729,7 +729,7 @@
   },
   "result": {
    "ok": false,
-   "reason": "依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 受け付けた時 [] / 今 ['?? extra.txt']）",
+   "reason": "依頼を受け付けた後から作業ツリーが変わった——判定役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 写した時 [] / 今 ['?? extra.txt']）",
    "open_units": [],
    "judgment_file": ""
   },
@@ -1618,7 +1618,7 @@
   },
   "result": {
    "ok": false,
-   "reason": "差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 切った時 [' M stats.py'] / 今 [' M stats.py']）",
+   "reason": "差分を切った後から作業ツリーが変わった——審査役は読むだけの役で、作業ツリーを変えてはいけない（git status --porcelain: 写した時 [' M stats.py'] / 今 [' M stats.py']）",
    "review_file": ""
   },
   "files": [

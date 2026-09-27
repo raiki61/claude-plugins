@@ -441,10 +441,10 @@ def take(board_dir, nid, reply, repo, *, snapshot_name=SNAPSHOT_NAME) -> dict:
     b = open_board(board_dir, repo=repo)
     p = _pass_of(b, nid)
     saved = _read_json(b.work(snapshot_name))
-    if not isinstance(saved, dict) or not {"porcelain", "diff_sha256"} <= set(saved):
+    if not isinstance(saved, dict) or not set(_accept.SNAPSHOT_KEYS) <= set(saved):
         raise BoardGap(f"作業ツリーの写し {b.work(snapshot_name)} が無い・形が違う（rj-snap が先に走る）")
     tree = _accept.snapshot_tree(pathlib.Path(repo))
-    if tree != {k: saved[k] for k in ("porcelain", "diff_sha256")}:
+    if tree != {k: saved[k] for k in _accept.SNAPSHOT_KEYS}:   # 写しの鍵は accept と同じ（ignored も見る）
         return _reject(b, nid, "読むだけの役が作業ツリーを変えた: git status --porcelain が "
                                f"起こす前 {saved['porcelain'].splitlines()[:5]} / 今 {tree['porcelain'].splitlines()[:5]}")
     before_doc = _read_json(b.work(f"{BEFORE_PREFIX}{p['role']}.json"))

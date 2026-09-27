@@ -22,6 +22,12 @@ archon 本体のダウンロードやネットワークは伴わない範囲だ�
   どれか 1 つでも赤なら終了コード 1 になること（Archon は偽物の記録係に差し替える。Ruling R10）。
   validate する工程が 0 本（名前の合わない YAML だけ・YAML 無し）の時も、glob の型の文字列を
   validate に渡さずに終了コード 1 になること。
+
+試験の一時フォルダの基は setUpModule が 1 か所で決める。TMPDIR（tempfile の既定）が Claude Code の一時フォルダの
+下か（guard.sh の works_dev_refuse_claude_tmp を正本として呼んで決める）なら、そのままでは置き場が全部 guard.sh に
+拒まれて殻の振る舞いまで届かないので、リポジトリの根の .works-test-tmp/（gitignore。works/ の中は _dogfood が
+自分を写し込むので避ける）へ移す。移す時は tempfile.tempdir と、子が継ぐ os.environ の TMPDIR を揃えて差し替え、
+tearDownModule で両方を戻す。guard.sh は緩めない。
 """
 import json
 import os
@@ -31,16 +37,51 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
+
+from gitkit import GIT_ID, committed_copy, git
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEV = ROOT / "dev"
 
+BASETEMP_PARENT = ROOT.parent / ".works-test-tmp"
+_saved = {}
 
-def git(cwd, *args):
-    result = subprocess.run(
-        ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True
-    )
-    return result.stdout.strip()
+
+def in_claude_tmp(path):
+    """path を guard.sh の works_dev_refuse_claude_tmp が拒むか（正本を呼び、終了コード 2 なら真）。"""
+    r = subprocess.run(
+        ["sh", "-c", '. "$1"; works_dev_refuse_claude_tmp in_claude_tmp path "$2"', "_", str(DEV / "guard.sh"), str(path)],
+        capture_output=True, text=True)
+    if r.returncode not in (0, 2):
+        raise RuntimeError(f"guard.sh の判定が終了コード {r.returncode} で終わった: {r.stderr}")
+    return r.returncode == 2
+
+
+def setUpModule():
+    """試験の一時フォルダ（TemporaryDirectory() の既定と、子へ渡す TMPDIR）を Claude Code の一時フォルダの外に置く。"""
+    _saved["tempdir"] = tempfile.tempdir
+    _saved["origin"] = tempfile.gettempdir()
+    if in_claude_tmp(_saved["origin"]):
+        BASETEMP_PARENT.mkdir(exist_ok=True)
+        _saved["base"] = tempfile.mkdtemp(prefix="run-", dir=str(BASETEMP_PARENT))   # 同時に回る別の run と分ける
+        tempfile.tempdir = _saved["base"]
+        _saved["environ"] = mock.patch.dict(os.environ, {"TMPDIR": _saved["base"]})   # 子が継ぐ TMPDIR も揃える
+        _saved["environ"].start()
+
+
+def tearDownModule():
+    base = _saved.pop("base", None)
+    environ = _saved.pop("environ", None)
+    if environ:
+        environ.stop()
+    tempfile.tempdir = _saved.get("tempdir")
+    if base:
+        shutil.rmtree(base, ignore_errors=True)
+        try:
+            BASETEMP_PARENT.rmdir()   # 空の時だけ消える
+        except OSError:
+            pass
 
 
 def run_tests(cwd):
@@ -432,8 +473,6 @@ class TestDevShell(unittest.TestCase):
                 self.assertIn("workflow test works", args)   # 赤でも残りは回す
 
     # ---- dogfood.sh（works 自身のリポジトリを対象にラインを回す）。AI の要らない所だけを偽の Archon で見る
-    GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
-
     def _dogfood(self, tmp, *args, working_path="/wt/run-1", output_root="/out", runs_json=None, **env_kw):
         """TMPDIR の下に works/ を写した git の元（src）を作り、その写しの dogfood.sh を偽の Archon で回す。
         src には commit していない物（根の未追跡・works/ の中の書き換えと未追跡）を残す。
@@ -441,10 +480,8 @@ class TestDevShell(unittest.TestCase):
         runs_json（省略時は working_path・output_root の止まった run を 1 本）を返す。
         戻り値は (結果, 元のリポジトリ, 呼び出しの記録)。"""
         src = tmp / "src"
-        shutil.copytree(ROOT, src / "works", ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
-        subprocess.run(["git", "init", "-q", str(src)], check=True)
-        subprocess.run(["git", "-C", str(src), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(src), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
+        # works/ を src/works に写して commit した git（型の写し。gitkit）
+        committed_copy(src, ROOT, sub="works", ignore=("__pycache__", "*.pyc", ".DS_Store"))
         # commit していない物は clone にも pack にも入らない
         (src / "uncommitted.txt").write_text("手元だけの変更\n")
         with (src / "works" / "archon-plugin.json").open("a") as f:
@@ -541,7 +578,7 @@ class TestDevShell(unittest.TestCase):
             subprocess.run(["git", "init", "-q", str(wt)], check=True)
             (wt / ".archon" / "workflows" / "works" / "a.yaml").write_text("x\n")
             subprocess.run(["git", "-C", str(wt), "add", "-A"], check=True)
-            subprocess.run(["git", "-C", str(wt), *self.GIT_ID, "commit", "-q", "-m", "base"], check=True)
+            subprocess.run(["git", "-C", str(wt), *GIT_ID, "commit", "-q", "-m", "base"], check=True)
             board = tmp / "out" / "artifacts" / "runs" / "run-1" / "board"
             board.mkdir(parents=True)
             cases = {
@@ -561,6 +598,43 @@ class TestDevShell(unittest.TestCase):
                     notes = [l for l in result.stdout.splitlines() if "注意" in l]
                     self.assertEqual(len(notes), 1, result.stdout)
                     self.assertIn(".archon/", notes[0])
+
+    def test_dogfood_next_commands_carry_keychain_item(self):
+        """README どおり WORKS_KEYCHAIN_ITEM を 1 コマンドの前置で渡して起こしたら、出た承認・拒否・続きの行は
+        項目名を cd の後・sh の直前に載せ、認証の変数を export していない殻でそのまま打って Archon に認証が届くこと。"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"),
+                                               CLAUDE_CODE_OAUTH_TOKEN=None, WORKS_KEYCHAIN_ITEM="item for test")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = {verb: [l for l in result.stdout.splitlines() if f"workflow {verb} run-1" in l]
+                     for verb in ("approve", "reject", "resume")}
+            for verb, found in lines.items():
+                with self.subTest(verb):
+                    self.assertEqual(len(found), 1, result.stdout)
+                    self.assertRegex(found[0], r"&& WORKS_KEYCHAIN_ITEM='item for test' [^&]* sh ")
+            self.assertNotIn("export", result.stdout)
+            # 出た行を、認証の変数の無い殻で打つ。偽の Archon は届いた項目名と cwd を書く
+            (tmp / "fake-archon.sh").write_text(
+                '#!/bin/sh\nprintf "%s|%s|%s\\n" "${WORKS_KEYCHAIN_ITEM:-}" "$(pwd -P)" "$*"\n')
+            cmd = lines["approve"][0].split(": ", 1)[1]
+            ran = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, env=self._env())
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            self.assertEqual(ran.stdout.strip(),
+                             f"item for test|{(tmp / 'dog' / 'repo').resolve()}|workflow approve run-1")
+
+    def test_dogfood_token_only_names_variable_without_value(self):
+        """トークンだけで起こしたら、値は出さずに CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つよう案内すること。"""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = pathlib.Path(tmp_str)
+            (tmp / "req.json").write_text("[]\n")
+            result, src, calls = self._dogfood(tmp, str(tmp / "req.json"), "true", str(tmp / "dog"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            notes = [l for l in result.stdout.splitlines() if l.startswith("認証:")]
+            self.assertEqual(len(notes), 1, result.stdout)
+            self.assertIn("CLAUDE_CODE_OAUTH_TOKEN を export した殻で打つ", notes[0])
+            self.assertNotIn("WORKS_KEYCHAIN_ITEM=", result.stdout.replace("WORKS_KEYCHAIN_ITEM=<項目名>", ""))
 
     def test_dogfood_refuses_used_dir(self):
         """<dir> に前の回の clone か依頼が在れば、何も書かずに 1 行で止まる（前の回の依頼を上書きしない）。"""
@@ -636,6 +710,34 @@ class TestDevShell(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("usage: dogfood.sh", result.stderr)
             self.assertEqual(calls, [])
+
+    def test_inherited_tmpdir_is_outside_claude_tmp(self):
+        """TMPDIR を継ぐ子の置き場（${TMPDIR}/works-dev など）も guard.sh に拒まれない。"""
+        r = subprocess.run(["sh", "-c", 'printf %s "${TMPDIR:-/tmp}"'], capture_output=True, text=True, check=True)
+        self.assertFalse(in_claude_tmp(r.stdout), r.stdout)
+        self.assertEqual(os.path.realpath(r.stdout), os.path.realpath(tempfile.gettempdir()))
+
+    def test_positive_path_reaches_shell_when_tmpdir_in_claude_tmp(self):
+        """TMPDIR が Claude Code の一時フォルダの下でも、正の道の試験が guard.sh に拒まれず緑になる。"""
+        origin = _saved["origin"]
+        try:
+            if in_claude_tmp(origin):
+                hole = tempfile.mkdtemp(prefix="works-tmpdir-", dir=origin)
+            else:
+                hole = tempfile.mkdtemp(prefix="claude-works-tmpdir-", dir="/private/tmp")
+        except OSError as e:
+            self.skipTest(f"Claude Code の一時フォルダの下に試しのフォルダを作れない（{e}）")
+        try:
+            self.assertTrue(in_claude_tmp(hole), hole)
+            r = subprocess.run(
+                ["python3", "-m", "unittest", "test_dev.TestDevShell.test_mktarget_places_pack_without_dev_files",
+                 "test_dev.TestDevShell.test_inherited_tmpdir_is_outside_claude_tmp"],
+                cwd=str(pathlib.Path(__file__).resolve().parent), capture_output=True, text=True,
+                env=dict(os.environ, TMPDIR=hole, PYTHONDONTWRITEBYTECODE="1"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("OK", r.stderr)
+        finally:
+            shutil.rmtree(hole, ignore_errors=True)
 
 
 if __name__ == "__main__":

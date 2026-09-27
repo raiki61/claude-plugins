@@ -207,8 +207,9 @@ nodes:
             properties:
               ok: {type: boolean}
               reason: {type: string}
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               open_units: {type: array, items: {type: string}}
-            required: [ok, reason, open_units]
+            required: [ok, reason, reason_file, open_units]
 
   # loop_group の出力は型を持てないので、輪の後ろで盤面の judgment.json から出口を組む
   - id: collect
