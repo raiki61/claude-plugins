@@ -51,7 +51,7 @@ nodes:
         - id: refix
           command: refix
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # refix.output_format("refix")（写しの p3.delta_fix の schema に印 works-node: refix）を貼った物（tests/test_line.py が一致を見る）
@@ -289,7 +289,7 @@ nodes:
         - id: refix2
           command: refix2
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # refix.output_format("refix2")（写しの p3.delta_fix2 の schema に印 works-node: refix2）を貼った物（tests/test_line.py が一致を見る）

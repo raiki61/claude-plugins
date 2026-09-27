@@ -70,6 +70,15 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    何もしない。読めない・指示書が 2 つ・指示書の中身が全文版とも包みの差分版とも違う時は指示書に触らない。選んだ版は
    起動の記録の `prompt`（{file, variant, rules_sha, iteration, full_sha, reason}）に残す（variants.json の無い起動は欄を持たない）
 
+10. **借りる MCP を渡す**（印のある起動だけ）: Archon の役の節は周りの MCP（利用者・プラグインの MCP）を読まない
+   （SDK が `--strict-mcp-config` を付ける。Archon v0.11.1 の providers/claude/provider.ts の strictMcpConfig）。開発の殻が
+   隔離した設定の置き場に書く `works-mcp.json`（dev/toolset.py が許す一覧 borrow.json の使用許諾を確かめて書く。Context7）を、
+   env の WORKS_CONTEXT7_MCP が on の時だけ（既定は渡さない。役が書く問いに対象のコードの字が載り、外のサービスへ出うるため。
+   controller の裁定 2026-09-28。持ち主が決めるまで安全側）、web を持つ起動（`--tools` に WebFetch が在る）にだけ
+   `--mcp-config=<ファイル>` で渡す（web を読む道具と同じ扱い。
+   道具ゼロ・web を持たない役には渡さない）。SDK が自分の `--mcp-config` を渡した起動は触らない。ファイルが読めない時は
+   渡さずに起動の記録の fence.mcp に理由を書く（足す物なので、渡せなくても役は起こす）
+
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は、8 で網を閉じる時の --settings の値のほかは argv を 1 バイトも
 変えない（stdin も中継しない）。見分けられない形
 （印の跡の無い `--json-schema` が 2 つ・読めない JSON・値の無い旗）は足さずに素通しし、警告を 1 行出す。
@@ -118,6 +127,9 @@ FLAGS = ("no-post", "no-tree-write", "isolated")
 NO_TREE_WRITE = "no-tree-write"
 ISOLATED = "isolated"
 ISOLATED_PREFIX = "works-isolated-"
+MCP_FILE = "works-mcp.json"        # dev/toolset.py の MCP_FILE と同じ（隔離した設定の置き場の下）
+WEB_TOOL = "WebFetch"              # これを持つ起動にだけ借りる MCP を渡す
+ENV_MCP = "WORKS_CONTEXT7_MCP"     # on の時だけ借りる MCP を渡す（既定は渡さない）
 # 印 no-post（読むだけの役）の gh の柵は許す物の一覧で組む。Claude Code の permissions は deny が allow に勝つので
 # 「gh を拒んで一部だけ許す」は規則では書けない。そこで gh は丸ごと拒み（Bash(gh:*) と本物の gh の絶対パス）、
 # 読む 4 つの形だけを通す口 works-gh（no-post-bin/。env の WORKS_GH が絶対パス）を役に渡す。PATH の頭にも同じ口を
@@ -767,9 +779,43 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             return _refuse(argv, node, cont, tools_empty, f"Git の外の置き場が Git の作業ツリーの中にある（{place}）")
         child_cwd = str(place)
         fence["isolated"] = child_cwd
+    mcp = mcp_config(out, env, tools_empty or ISOLATED in marker.flags)
+    if mcp is not None:
+        out, fence["mcp"] = mcp
     child_env = no_post_env(env, gh) if gh is not None else None
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence, child_env,
                 strict_net=strict, cwd=child_cwd)
+
+
+def _tools(argv: Sequence[str]) -> set:
+    """--tools の値の道具の名（, と空白で切る）"""
+    try:
+        return {t for _, _, v, _ in find_opt(argv, "--tools") for t in re.split(r"[,\s]+", v) if t}
+    except Unrecognised:
+        return set()
+
+
+def mcp_config(argv: List[str], env, no_tools: bool) -> Optional[Tuple[List[str], dict]]:
+    """10. 借りる MCP のファイルを --mcp-config で足した argv と、起動の記録に書く fence.mcp。ファイルが無ければ None"""
+    cfg = env.get("CLAUDE_CONFIG_DIR")
+    path = pathlib.Path(cfg) / MCP_FILE if cfg else None
+    if path is None or not path.is_file():
+        return None
+    if str(env.get(ENV_MCP, "")).strip().lower() != "on":
+        return argv, {"skipped": f"既定では渡さない（{ENV_MCP}=on の時だけ渡す）"}
+    if no_tools or WEB_TOOL not in _tools(argv):
+        return argv, {"skipped": "web を持たない役（--tools に WebFetch が無い）には渡さない"}
+    try:
+        if find_opt(argv, "--mcp-config"):
+            return argv, {"skipped": "SDK が --mcp-config を渡した（混ぜない）"}
+    except Unrecognised:
+        return argv, {"skipped": "SDK の --mcp-config に値が無い"}
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        servers = sorted(doc["mcpServers"])
+    except (OSError, ValueError, TypeError, KeyError) as e:
+        return argv, {"skipped": f"{path} が読めない（{type(e).__name__}）"}
+    return list(argv) + ["--mcp-config=" + str(path)], {"file": str(path), "servers": servers}
 
 
 def _refuse(argv, node, cont, tools_empty, why) -> Plan:

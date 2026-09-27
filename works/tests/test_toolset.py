@@ -105,6 +105,7 @@ def plugin_version(src: pathlib.Path) -> str:
 
 
 PLUGINS = ("coldwrite", "pr-review-toolkit")   # 手元の marketplace に並ぶ名の順（sorted）
+CONTEXT7_URL = "https://mcp.context7.com/mcp"   # Context7 の MCP（upstash/context7 の README の手で入れる形。MIT）
 
 
 class Base(unittest.TestCase):
@@ -145,7 +146,7 @@ class Base(unittest.TestCase):
 class BorrowListCase(unittest.TestCase):
     def test_borrow_json_is_superpowers_skills_and_coldwrite(self):
         b = toolset.load_borrow(ROOT)
-        self.assertEqual(sorted(b), ["coldwrite", "pr-review-toolkit", "superpowers"])
+        self.assertEqual(sorted(b), ["coldwrite", "context7", "pr-review-toolkit", "superpowers"])
         # pr-review-toolkit は版を固めた写し（.shared/pr-review-toolkit/<版>/）から入れる。素材集めの局所レビューのレンズ（agent）
         self.assertEqual(b["pr-review-toolkit"], {"kind": "plugin", "pinned": True})
         self.assertEqual(b["superpowers"]["kind"], "skills")
@@ -154,7 +155,8 @@ class BorrowListCase(unittest.TestCase):
 
     def test_fixed_sources_are_the_pinned_copy_and_the_repo_plugin(self):
         chosen = toolset.fixed_sources(ROOT, toolset.load_borrow(ROOT))
-        self.assertEqual(chosen, {"superpowers": pinned(), "coldwrite": COLDWRITE.resolve(), "pr-review-toolkit": pinned(PRT)})
+        self.assertEqual(chosen, {"superpowers": pinned(), "coldwrite": COLDWRITE.resolve(), "pr-review-toolkit": pinned(PRT),
+                                  "context7": CONTEXT7_URL})
 
     def test_pinned_plugin_copy_is_apache_and_complete(self):
         """写しは元のキャッシュの物をバイトのまま（COPIED_FROM が元と版を名指す）・使用許諾は Apache-2.0・agent のレンズが在る"""
@@ -177,7 +179,7 @@ class InstallCase(Base):
         want = sorted(
             [f"skills/{n}/{f}" for n in BORROW_SKILLS for f in files_under(pinned() / "skills" / n)]
             + [f"works-marketplace/{n}/{f}" for n, s in srcs.items() for f in files_under(s)]
-            + ["works-marketplace/.claude-plugin/marketplace.json", "settings.json", ".works-toolset.json",
+            + ["works-marketplace/.claude-plugin/marketplace.json", "settings.json", ".works-toolset.json", toolset.MCP_FILE,
                "plugins/known_marketplaces.json", "plugins/installed_plugins.json"]
             + [f"plugins/cache/{MP}/{n}/{plugin_version(s)}/{f}" for n, s in srcs.items() for f in files_under(s)])
         self.assertEqual(files_under(self.cfg), want)
@@ -200,10 +202,10 @@ class InstallCase(Base):
                           "enabledPlugins": {f"{n}@{MP}": True for n in PLUGINS}})
         self.assertEqual(self.calls(), [["plugin", "marketplace", "add", str(self.cfg / "works-marketplace")]]
                          + [["plugin", "install", f"{n}@{MP}"] for n in PLUGINS])
-        self.assertEqual(sorted(rec), ["coldwrite", "pr-review-toolkit", "superpowers"])
+        self.assertEqual(sorted(rec), ["coldwrite", "context7", "pr-review-toolkit", "superpowers"])
         self.assertEqual({k: (v["version"], v["loaded"]) for k, v in rec.items()},
                          {"superpowers": (pinned().name, True), "coldwrite": (ver, True),
-                          "pr-review-toolkit": (pinned(PRT).name, True)})
+                          "pr-review-toolkit": (pinned(PRT).name, True), "context7": (self.borrow["context7"]["version"], True)})
         self.assertEqual(json.loads((self.cfg / ".works-toolset.json").read_text()), rec)
         self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
 
@@ -342,3 +344,52 @@ class CliCase(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class McpCase(Base):
+    """借りる MCP（kind "mcp"。Context7）: 使用許諾が MIT・Apache-2.0・BSD の時だけ、隔離した設定の置き場の works-mcp.json に
+    載せる（Archon の役の節は周りの MCP を読まない——strictMcpConfig——ので、包みがこのファイルを --mcp-config で渡す）"""
+
+    def test_borrow_entry_is_the_remote_context7_server(self):
+        c7 = self.borrow["context7"]
+        self.assertEqual(c7["kind"], "mcp")
+        self.assertEqual(c7["transport"], "http")
+        self.assertEqual(c7["url"], CONTEXT7_URL)
+        self.assertEqual(c7["licence"], "MIT")
+        self.assertIn("upstash/context7", c7["source"])
+
+    def test_install_writes_the_mcp_file_when_licence_ok(self):
+        rec = self.install()
+        doc = json.loads((self.cfg / toolset.MCP_FILE).read_text())
+        self.assertEqual(doc, {"mcpServers": {"context7": {"type": "http", "url": CONTEXT7_URL}}})
+        self.assertEqual(rec["context7"]["source"], CONTEXT7_URL)
+        self.assertEqual(toolset.guard(self.cfg, self.borrow), [])
+
+    def test_licence_not_ok_refuses_and_writes_nothing(self):
+        for lic in ("SSPL-1.0", "", None, "proprietary"):
+            with self.subTest(lic):
+                bad = {"context7": dict(self.borrow["context7"], licence=lic)}   # 借りる物は MCP だけ（リポジトリの外の置き場に依らない）
+                with self.assertRaises(toolset.ToolsetError) as cm:
+                    toolset.install(self.cfg, {"context7": CONTEXT7_URL}, bad, claude_bin=str(self.claude), plugins=False)
+                self.assertIn("使用許諾", str(cm.exception))
+                self.assertFalse((self.cfg / toolset.MCP_FILE).exists())
+
+    def test_licence_ok_writes_the_file_without_other_borrowings(self):
+        good = {"context7": self.borrow["context7"]}
+        rec = toolset.install(self.cfg, {"context7": CONTEXT7_URL}, good, claude_bin=str(self.claude), plugins=False)
+        self.assertEqual(sorted(rec), ["context7"])
+        self.assertEqual(json.loads((self.cfg / toolset.MCP_FILE).read_text())["mcpServers"],
+                         {"context7": {"type": "http", "url": CONTEXT7_URL}})
+
+    def test_guard_refuses_unlisted_mcp_server(self):
+        (self.cfg / toolset.MCP_FILE).write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": CONTEXT7_URL},
+                                                                          "evil": {"command": "sh"}}}))
+        self.assertEqual(toolset.guard(self.cfg, self.borrow), [f"{toolset.MCP_FILE} の MCP evil"])
+        (self.cfg / toolset.MCP_FILE).write_text("[]")
+        self.assertEqual(toolset.guard(self.cfg, self.borrow), [f"{toolset.MCP_FILE}（JSON の表として読めない）"])
+
+    def test_changed_url_is_rewritten(self):
+        self.install()
+        (self.cfg / toolset.MCP_FILE).write_text(json.dumps({"mcpServers": {"context7": {"type": "http", "url": "https://x.invalid"}}}))
+        self.install()
+        self.assertEqual(json.loads((self.cfg / toolset.MCP_FILE).read_text())["mcpServers"]["context7"]["url"], CONTEXT7_URL)

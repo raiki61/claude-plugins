@@ -52,7 +52,7 @@ nodes:
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           # 測るためにコマンドを走らせる（graphloops では writer が回す節）。Bash はサンドボックスの中だけで、書く道具
           # （Edit・Write）は持たない。作業ツリーを変えれば受け付けが写しと比べて拒む
-          allowed_tools: [Read, Grep, Glob, Bash]
+          allowed_tools: [Read, Grep, Glob, Bash, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # role_schema("p0.premises") を 1 度出して貼り、印 works-node: premises を付けた物（tests/test_blk_premises.py が一致を見る）。

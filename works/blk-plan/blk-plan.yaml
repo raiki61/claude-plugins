@@ -81,7 +81,7 @@ nodes:
           prompt: 指示書 `$plan-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
           depends_on: [plan-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # planblk.output_format("plan")（写しの p2.fix_plan の schema に印 works-node: plan）を貼った物（tests/test_blk_plan.py が一致を見る）
@@ -237,7 +237,7 @@ nodes:
           prompt: 指示書 `$plan-review-prep.output.prompt_file` を Read で読み、その指示に従え。返すのは指示書の JSON Schema に合う JSON だけ。
           depends_on: [plan-review-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob]
+          allowed_tools: [Read, Grep, Glob, WebSearch, WebFetch]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
           # planblk.output_format("plan-review")（写しの p2.plan_review の schema に印 works-node: plan-review）を貼った物

@@ -41,6 +41,7 @@ if str(_CORE) not in sys.path:
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 import entry  # noqa: E402
 from leftovers import Unreadable, git_names  # noqa: E402
+import libdocs  # noqa: E402
 import recount  # noqa: E402
 import rolekit  # noqa: E402
 import script_io  # noqa: E402
@@ -218,13 +219,14 @@ def _all_kinds() -> dict:
     return {k: "種類を選ばない組み立て（全部）" for k in KINDS}
 
 
-def fix_parts(values: dict, kinds: dict | None = None) -> list:
-    """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）"""
+def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "") -> list:
+    """直す役の決まりの節 [(id, 本文, 理由)]（順は指示書の順）。libdocs はライブラリの今の文書の節（libdocs.section。空なら載せない）"""
     c, d = sections(SHARED), sections(DIRECT)
     kinds = _all_kinds() if kinds is None else kinds
     return [("fix-head", fill(d["fix-head"], _pick(values, FIX_VALUES)), ALWAYS + "（役・読む物・run の値）"),
             ("core-fix", c["core-fix"], ALWAYS + "（本線の核）"), *_evidence(c, kinds),
             ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"), ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
+            *([("libdocs", libdocs, "機械が引いた（Context7。見つけた数と取れた数は節の頭）")] if libdocs else []),
             ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
 
 
@@ -268,9 +270,10 @@ def render(role: str, iteration: int, parts: list, *, prior=None, rules_file: st
 
 
 def fix_prompt(values: dict, *, kinds: dict | None = None, reject_file: str = "", prior=None, iteration: int = 1,
-               rules_file: str = "") -> str:
+               rules_file: str = "", libdocs: str = "") -> str:
     """直す役の指示書の 1 つの形（純粋）"""
-    return render("fix", iteration, fix_parts(values, kinds), prior=prior, rules_file=rules_file, reject_file=reject_file)["text"]
+    return render("fix", iteration, fix_parts(values, kinds, libdocs), prior=prior, rules_file=rules_file,
+                  reject_file=reject_file)["text"]
 
 
 def tdd_prompt(values: dict, phase: str, phase_text: str, *, title: str, reason: str = "", kinds: dict | None = None,
@@ -352,6 +355,17 @@ def write_variants(prompt: pathlib.Path, repo, values: dict, build, iteration: i
 
 
 # ---------------------------------------------------------------- 節 fix-prep
+def lib_section(b, repo, values: dict) -> str:
+    """ライブラリの今の文書の節（libdocs.section）: 直す義務の単位のファイルと今の差分のファイルが使うライブラリ"""
+    try:
+        keys = set(json.loads(values.get("open_units") or "[]"))
+    except (ValueError, TypeError):
+        keys = None
+    files, why = libdocs.unit_files(repo, values.get("judgment_file") or "", keys) if repo is not None else ([], "")
+    text = libdocs.section(b, repo, files + (changed_paths(repo) if repo is not None else []))
+    return text + (f"\n- 単位のファイルの引き: {why}" if why else "")
+
+
 def prompt_path(b) -> pathlib.Path:
     return b.work(rolekit.prompt_name(recount.FIX_NODE))
 
@@ -377,9 +391,10 @@ def prep(board_dir, repo, values: dict) -> dict:
     reject = last_reject(board_dir) if inst.get("launched_at") else ""
     path = prompt_path(b)
     n = iteration_next(path)
+    docs = lib_section(b, repo, values)
 
     def build(kinds, prior, rules_file):
-        return render("fix", n, fix_parts(values, kinds), prior=prior, rules_file=rules_file, reject_file=reject)
+        return render("fix", n, fix_parts(values, kinds, docs), prior=prior, rules_file=rules_file, reject_file=reject)
     write_variants(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))
     return {"prompt_file": str(path), "attempt": m["attempt"], "out_path": m["out_path"], "node": nid, "already": m["already"],

@@ -109,7 +109,7 @@ class YamlCase(unittest.TestCase):
         role = find_node(self.y, "premises")
         self.assertEqual(role["command"], "premises")
         # 測るためにコマンドを走らせる（graphloops では writer が回す節）。書く道具は持たない
-        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Bash"])
+        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Bash", "WebSearch", "WebFetch"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["settingSources"], ["user"])
         self.assertEqual(role["idle_timeout"], DEADLINE)

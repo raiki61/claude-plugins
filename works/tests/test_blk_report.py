@@ -188,7 +188,7 @@ class YamlCase(unittest.TestCase):
                 if role["id"] == "report-cold":
                     self.assertEqual(role["allowed_tools"], [], "初見の読み手は道具を持たない（本文だけを読む。X3）")
                 else:
-                    self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob"])
+                    self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
 
     def test_output_formats(self):
         self.assertEqual(rr.output_format("report-items")["description"], "works-node: report-items")

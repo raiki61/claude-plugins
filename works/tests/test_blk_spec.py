@@ -145,7 +145,7 @@ class YamlCase(unittest.TestCase):
                 self.assertNotIn("context", r)
                 self.assertEqual(r["idle_timeout"], DEADLINE)
                 self.assertEqual(r["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
-                want = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"] if role in WRITERS else ["Read", "Grep", "Glob"]
+                want = (["Read", "Grep", "Glob", "Edit", "Write", "Bash"] if role in WRITERS else ["Read", "Grep", "Glob"]) + ["WebSearch", "WebFetch"]
                 self.assertEqual(r["allowed_tools"], want, "書く役（writer）はテストを書く。審査（judge）は読むだけ")
                 accept = g["nodes"][2]
                 self.assertEqual(accept["with"], {"role": role, "reply": {"from": f"$spec-{role}.output"}})

@@ -91,7 +91,7 @@ nodes:
           command: ci
           depends_on: [ci-prep]
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
-          allowed_tools: [Read, Grep, Glob, Bash]   # Bash はテストを走らせるため。Edit・Write は無い（作業ツリーの変化は受け付けが拒む）
+          allowed_tools: [Read, Grep, Glob, Bash, WebSearch, WebFetch]   # Bash はテストを走らせるため。Edit・Write は無い（作業ツリーの変化は受け付けが拒む）
           # graphloops の任せ先（role_run.delegate_settings）と同じ形（裁定 R56）: 依存の導入（~/.cache・網）と localhost のテストを
           # 通す。本物の作業ツリーは包みが印の旗 no-tree-write を見て起動ごとに denyWrite に足す（run ごとの場所は YAML に書けない）。
           # 包み無しの run は graphloops と同じ晒され方で、保険は受け付けの作業ツリーの比べ（役は盤面も書ける。仕様 5.1 の「包み無し」）

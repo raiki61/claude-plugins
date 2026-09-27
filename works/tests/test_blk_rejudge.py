@@ -128,7 +128,7 @@ class YamlCase(unittest.TestCase):
                 self.assertEqual(role.get("context") == "fresh", p["cont"] is not None, "continue= を持つ役だけ context: fresh")
                 self.assertEqual(role["command"], role["id"])
                 self.assertTrue((BLK / "commands" / f"{role['id']}.md").is_file())
-                self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob"])
+                self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
                 self.assertEqual(role["settingSources"], ["user"])
                 self.assertEqual(role["idle_timeout"], DEADLINE)
                 ids = [m["id"] for m in g["nodes"]]

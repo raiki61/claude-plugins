@@ -42,7 +42,7 @@ nodes:
           settingSources: [user]      # 選んだ物だけの隔離した設定（dev/toolset.py）を読む。対象の CLAUDE.md は読ませない（JSON だけを返す約束）
           # 読むだけ＋Bash（gh の読む口 "$WORKS_GH" と git の読む語）。書く道具は持たない。網は閉じ、口 works-gh だけを sandbox の外で
           # 走らせる（包みの印 no-post が gh の書き込みの語と本物の gh を permissions.deny で拒む）。作業ツリーを変えれば受け付けが拒む
-          allowed_tools: [Read, Grep, Glob, Bash]
+          allowed_tools: [Read, Grep, Glob, Bash, WebSearch, WebFetch]
           sandbox:
             enabled: true
             allowUnsandboxedCommands: false
