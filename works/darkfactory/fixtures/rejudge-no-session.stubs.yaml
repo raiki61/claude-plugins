@@ -1,7 +1,9 @@
-# 筋書き stop-flag: 止め札（dev/stop.sh）を h-review が見て止める（stop 真）。差分の審査から後のブロックは飛び、
-# 境の節と報告は走る。報告は stopped_by_request。止めた盤面は報告の役の節を出すので AI の報告も回る
+# 筋書き rejudge-no-session: 修正役が判定に異議を出したが、判定役の会話を確かめられない（包みを通らない run）。
+# h-rejudge が役を起こさずに盤面を止め（by works:rejudge-session）、再審・差分の審査・手直し・最後のテスト・独立の目は飛び、
+# 境の節と報告は走る。報告は stopped_by_line（record_invalid にしない）。止めた盤面は報告の役の節を出すので AI の報告も回る
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
+# 食い違いの申し出が無い run: conflict-check は go 偽で、裁定の輪と 2 回目の修正の輪は飛ぶ（輪の中の stub は使われない）
 start:
   ok: true
   base_rev: 0123456789abcdef0123456789abcdef01234567
@@ -212,8 +214,8 @@ h-mat:
 gathering__mat-route:
   ok: true
   stopped: false
-  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards: 回す・p1.procedure_trace:
-    回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance: 回す'
+  why: 'p0.prior_decisions: 回す・p0.purpose_review: cond ...・p1.local_review: 回す・p1.consistency_bypass: 回す・p1.hygiene: 回す・p1.external_standards:
+    回す・p1.procedure_trace: 回す・p1.gate_efficacy: 回す・p1.test_double_fidelity: 回す・p1.main_path_observation: 回す・p1.provenance: 回す'
   snapshot_file: board/r1/material-snapshot.json
   prior_decisions: true
   purpose_review: false
@@ -578,8 +580,8 @@ judge:
   - key: 'stats.py mean: 分母が len(xs) - 1 になっている'
     label: block
     disposition: do-now
-    reason: '事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と docstring は算術平均で、テストも
-      2 を期待する'
+    reason: '事実: stats.py の mean は sum(xs) / (len(xs) - 1) を返す。mean([1, 2, 3]) は 3.0 になり test_mean_of_three が赤。反証: 標本分散の不偏推定と取り違えた意図の可能性を当たったが、関数名と
+      docstring は算術平均で、テストも 2 を期待する'
     origin_analysis: 算術平均と不偏分散の分母の取り違え
     class_query:
       how:
@@ -594,7 +596,8 @@ judge:
   - key: 'stats.py clamp: 上限を超えた値に lo を返す'
     label: block
     disposition: do-now
-    reason: '事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp とテストは hi を期待する'
+    reason: '事実: stats.py の clamp は x > hi の枝で lo を返す。clamp(15, 0, 10) は 0 になり test_clamp_above_range が赤。反証: 上限超えを下限に畳む仕様の可能性を当たったが、関数名 clamp
+      とテストは hi を期待する'
     origin_analysis: 下限の枝を写したときに戻り値を直し忘れた形
     class_query:
       how:
@@ -737,15 +740,15 @@ h-gate:
   ok: true
   stop: false
   go: false
-  ask: false
-  gate_text: ''
+  ask: true
+  gate_text: （文）
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
   notes: ''
   notes_file: ''
   why: ''
-  gate_file: ''
+  gate_file: board/r1/gate.md
   premises_file: ''
   pr_go: false
   premises_go: false
@@ -765,8 +768,8 @@ h-fix:
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: board/out/r1/p2.fix_plan.json
-  notes: ''
-  notes_file: ''
+  notes: 範囲
+  notes_file: board/r1/human-notes.md
   why: ''
   gate_file: ''
   premises_file: ''
@@ -885,7 +888,6 @@ fix-accept:
     files:
     - stats.py
     what: clamp の上限の枝で hi を返すように直した
-# 食い違いの申し出が無い run: conflict-check は go 偽で、裁定の輪と 2 回目の修正の輪は飛ぶ（輪の中の stub は使われない）
 fixing__conflict-check:
   go: false
   count: 0
@@ -951,8 +953,7 @@ fix-ruled:
     closure:
       mechanism: 下限の枝を写して上限の枝を作ったとき、戻り値を lo のまま残した
       fix_mechanism: 上限の枝は hi を返し、下限の枝は lo を返す形に揃えた
-      verified_how: 'return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5,
-        0, 10) が 0 を返すことを見た'
+      verified_how: 'return lo の 2 行（下限の枝と上限の枝）を 1 行ずつ確かめた: 上限の枝を lo に戻す退行を注入して test_clamp_above_range の赤を見て復元して緑、下限の枝は clamp(-5, 0, 10) が 0 を返すことを見た'
       sites:
       - site: stats.py clamp の x > hi の枝
         red_seen: true
@@ -1023,7 +1024,7 @@ fixing__collect:
     units: []
 h-rejudge:
   ok: true
-  stop: false
+  stop: true
   go: false
   ask: false
   gate_text: ''
@@ -1032,7 +1033,7 @@ h-rejudge:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1119,8 +1120,8 @@ rejudging__collect:
   reads_file: ''
 h-mid:
   ok: true
-  stop: false
-  go: true
+  stop: true
+  go: false
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1128,7 +1129,7 @@ h-mid:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: ''
+  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1151,7 +1152,7 @@ h-review:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1196,7 +1197,7 @@ h-refix:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1300,7 +1301,7 @@ h-tests:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1331,7 +1332,7 @@ h-final:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1354,7 +1355,7 @@ h-eyes:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: 判定役の会話が見つからない（判定役の会話の id のファイル が無い（包みを通らない run か、判定役に印が無い））。再審せずに止めた
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1605,7 +1606,7 @@ eyeing__eyes-collect:
   exit_file: board/r1/eyes-exit.json
 report:
   ok: true
-  outcome: stopped_by_request
+  outcome: stopped_by_line
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
@@ -1707,7 +1708,7 @@ reporting__collect:
   record_invalid: false
 result:
   ok: true
-  outcome: stopped_by_request
+  outcome: stopped_by_line
   judgment_file: board/judgment.json
   report_file: board/report-ai.md
   next_request_file: board/next-request.json

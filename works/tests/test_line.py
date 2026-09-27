@@ -35,7 +35,8 @@ DEADLINE = 1728000000
 ALWAYS = {"start", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}
 REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き（TA16）
 FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
-            "start-refused", "pr-fallback", "ai-report-fail", "conflict-ask"}   # conflict-ask は test_blk_fix_conflict が中身を見る
+            "start-refused", "pr-fallback", "ai-report-fail", "conflict-ask", "rejudge", "rejudge-no-session"}
+# conflict-ask は test_blk_fix_conflict が中身を見る
 # 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}
 OPTIONAL_INPUTS = {}
 
@@ -359,7 +360,8 @@ class LineFixturesCase(unittest.TestCase):
         self.assertEqual(f["start-refused"]["fixture"]["fail-node"], ["start", "result"])
         self.assertEqual(f["start-refused"]["fixture"]["inputs"]["thickness"], "軽量")
         for name, outcome in (("standard", "fixed"), ("no-fix", "no_fix_needed"), ("policy-stop", "stopped_by_human"),
-                              ("final-stop", "stopped_by_human"), ("stop-flag", "stopped_by_request")):
+                              ("final-stop", "stopped_by_human"), ("stop-flag", "stopped_by_request"), ("rejudge", "fixed"),
+                              ("rejudge-no-session", "stopped_by_line")):
             with self.subTest(name):
                 self.assertEqual(f[name]["fixture"]["expect"], "completed")
                 self.assertEqual(f[name]["report"]["outcome"], outcome)
@@ -390,6 +392,15 @@ class LineFixturesCase(unittest.TestCase):
         self.assertIs(f["stop-flag"]["h-review"]["stop"], True)
         self.assertIs(f["policy-stop"]["h-fix"]["stop"], True)
         self.assertIs(f["policy-continue"]["h-gate"]["ask"], True)
+        # 修正役の異議（run 28）: 再審を回してから最後のテストへ。判定役の会話が無ければ h-rejudge が止め、後ろは飛ぶ
+        self.assertIs(f["rejudge"]["h-rejudge"]["go"], True)
+        self.assertLessEqual({"rejudging__collect", "testing__run", "eyeing__eyes-collect"}, set(f["rejudge"]["fixture"]["reached"]))
+        self.assertEqual((f["rejudge-no-session"]["h-rejudge"]["stop"], f["rejudge-no-session"]["h-rejudge"]["go"]), (True, False))
+        self.assertFalse({"rejudging__collect", "reviewing__collect", "testing__run", "eyeing__eyes-collect"}
+                         & set(f["rejudge-no-session"]["fixture"]["reached"]))
+        for name in set(FIXTURES) - {"rejudge", "rejudge-no-session", "start-refused"}:
+            with self.subTest(name):
+                self.assertIs(f[name]["h-rejudge"]["go"], False)
         self.assertTrue(f["policy-continue"]["h-fix"]["notes_file"])
 
 

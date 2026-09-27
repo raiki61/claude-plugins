@@ -360,6 +360,18 @@
      "TestAcceptConflict.test_valid_conflict_parks_unit_and_is_not_a_reject"
     ]
    }
+  },
+  {
+   "id": "rj1",
+   "title": "修正役の異議の周は h-rejudge が再審のブロックを回す（回さないと p2.rejudge が待ったままで p4.ci が出ず、最後のテストが走らない。run 28）",
+   "file": "darkfactory/lib/line_edge.py",
+   "old": "        return {**out, **rejudge_edge(board_dir, repo)}",
+   "new": "        return out",
+   "tests": {
+    "tests/test_edge.py": [
+     "RejudgeEdgeCase.test_rejudge_edge_go"
+    ]
+   }
   }
  ],
  "dropped": []

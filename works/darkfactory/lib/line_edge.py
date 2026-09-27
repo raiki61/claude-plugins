@@ -5,6 +5,7 @@
 - edge(board_dir, at, repo, …): 境の節（darkfactory/scripts/edge.py の中身）。止め札・関所の答え・次のブロックを盤面から決める
 - judge_edge(b, …): h-judge の固有の仕事（包みの確かめ・前提の実測が盤面に在るか。計画 P1 Task 24・P1-R9）
 - mat_edge(b, …): h-mat の固有の仕事（目的の文を盤面へ渡し、P1 の目を回すか。計画 P1 Task 32・33）
+- rejudge_edge(board_dir, repo): h-rejudge の固有の仕事（修正役の異議の再審を回すか。判定役の会話が無ければ止める。計画 P1 Task 31）
 - eyes_edge(b): h-eyes の固有の仕事（独立の目を回すか。計画 P1 Task 33）
 - plan_edge(b, …): h-plan の固有の仕事（判定の出口の控え・判定の渡し替え・直す物が無い周の締め。計画 P1 Task 23）
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
@@ -43,7 +44,7 @@ import rejudge  # noqa: E402
 # ---------------------------------------------------------------- 境の節（線 A の仕様 2 節・計画 Task 10a・裁定 TA1・TA4）
 # いつも走る script の節 1 本（darkfactory/scripts/edge.py）を、ラインの中で at を替えて使う。並びは C18 の順（中の関所は無い。
 # 人が止まれる所は最後の人の関所 final-gate。P1-R3）。when: と関所の文は境の節の欄だけを読み、go は盤面の ready から決める（TA1）。
-# rejudge は枠（go False。中身は計画 P1 Task 31）。eyes は最後の関所の答えを受け、独立の目を回すかを決める（計画 P1 Task 33）
+# rejudge は修正役の異議の再審を回すかを決める（計画 P1 Task 31）。eyes は最後の関所の答えを受け、独立の目を回すかを決める（計画 P1 Task 33）
 AT = ("entry", "judge", "mat", "plan", "gate", "fix", "rejudge", "mid", "review", "refix", "tests", "final", "eyes")
 GO_NODE = {"plan": "p2.fix_plan", "fix": "p3.fix", "review": "p3.delta_review", "refix": "p3.delta_fix", "tests": "p4.ci"}
 GATE_AT = ("fix", "eyes")            # 関所の答えを受ける境の節（fix は policy-gate、eyes は final-gate）
@@ -539,6 +540,19 @@ def mat_edge(b, board_dir, repo) -> dict:
     return {"go": True, "mat_go": bool(_role_ready(b, MAT_BLOCK)), "purpose_file": _out_file(b, PURPOSE_NODE)}
 
 
+def rejudge_edge(board_dir, repo) -> dict:
+    """h-rejudge の固有の仕事（修正の後・中の検査の前。計画 P1 Task 31・rejudge 設計 23c）: 修正役が判定に異議
+    （rejudge_requested）を出した周は、盤面が再審の節（p2.rejudge）を出して待つ。その節は p4.ci・p3.gates_cut の deps なので、
+    回さないと最後のテストが出ない（run 28）。core の rejudge.route が盤面を settle し、待っている再審の節の役を返す——判定役の
+    会話の続きで起こす役なら会話を確かめ（session_ready）、確かめられなければ役を起こさずに盤面を止める（by works:rejudge-session）。
+    返り: go は回す役が在るか、止めたら stop と理由"""
+    got = rejudge.route(pathlib.Path(board_dir), repo)
+    if got["stopped"]:
+        info = _stopped(entry.open_board(pathlib.Path(board_dir), allow_halted=True)) or {}
+        return {"stop": True, "go": False, "why": str(info.get("reason") or got["why"])}
+    return {"go": bool(got["next"])}
+
+
 def eyes_edge(b) -> dict:
     """h-eyes の固有の仕事（最後の関所の答えの後。計画 P1 Task 33）: go は独立の目（表の where が blk-eyes の役の節）が盤面で
     1 つでも待っているか（p4.assemble が済み、条件に当たった目）。r4.human_gate が人に聞いたら、残りの目は答えるまで出ない——
@@ -596,7 +610,8 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
     5. entry: 盤面の ready から pr_go・premises_go・purpose_go・spec_go（go True）。judge: judge_edge。plan: plan_edge。
        gate: 盤面の問い（pending_human）が在れば ask と plan.gate_text の文（b.work(GATE_FILE) にも）。
        fix: go は p3.fix が ready・notes は今の周の human_items の一言（notes_file はそれを書いた b.work のファイル。空なら ""）・plan_file は今の周の p2.fix_plan の出力。
-       mat: mat_edge（目的の文を盤面へ・mat_go）。eyes: eyes_edge（go は独立の目が待っているか）。rejudge: 枠（go False）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
+       mat: mat_edge（目的の文を盤面へ・mat_go）。eyes: eyes_edge（go は独立の目が待っているか）。rejudge: rejudge_edge
+       （go は再審の節が待っているか。判定役の会話を確かめられなければ止める）。mid: go は今の周の p3.fix を役が出した（機械の空の返答は trace の by works:empty-fix で
        見分ける）・runtime_go・holdout_go は False・mid_note。review・refix・tests: go は p3.delta_review・p3.delta_fix・p4.ci が ready。
        final: final_edge（final_gate と最後のテストの出口 tests から ask と文）。
     ready は DiskBoard.ready（書かない。開き直した盤面でも explicit の機械の節を落とさない）。
@@ -657,7 +672,7 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         return {**out, "go": GO_NODE["fix"] in b.ready(), "notes": notes, "notes_file": notes_file,
                 "plan_file": _out_file(b, "p2.fix_plan")}
     if at == "rejudge":
-        return out
+        return {**out, **rejudge_edge(board_dir, repo)}
     if at == "mat":
         return {**out, **mat_edge(b, board_dir, repo)}
     if at == "eyes":

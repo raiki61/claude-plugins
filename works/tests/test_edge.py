@@ -600,12 +600,76 @@ class EntryMidCase(EdgeBase):
         self.assertEqual(got["mid_note"], line_edge.MID_NOTE)
 
     def test_slots_do_not_go(self):
-        """rejudge は枠（go False。中身は計画 P1 Task 31）。eyes は目が待っていない盤面（修正の直後）では go False"""
+        """異議の無い修正の直後: rejudge は再審の節が待っていないので go False。eyes は目が待っていないので go False"""
         self.fixed()
         for at in ("rejudge", "eyes"):
             with self.subTest(at=at):
                 got = self.edge(at)
                 self.assertEqual((got["go"], got["stop"]), (False, False))
+
+
+class RejudgeEdgeCase(EdgeBase):
+    """h-rejudge（修正の後・中の検査の前。計画 P1 Task 31・rejudge 設計 23c）: 修正役が判定に異議を出した周は、盤面が待つ
+    再審の節（p2.rejudge）を blk-rejudge に回す。判定役の会話を確かめられなければ役を起こさずに止める（by works:rejudge-session）。
+    run 28: 異議の後に再審を回す節がラインに無く、p2.rejudge が待ったままで p4.ci が出ず、最後のテストが走らなかった"""
+
+    def objected(self):
+        """修正の返答に判定への異議（rejudge_requested）を持つ盤面（p2.rejudge が待つ）"""
+        self.planned()
+        entry.open_board(self.board).answer("continue", "")
+        src = (self.repo / "stats.py").read_text(encoding="utf-8")
+        (self.repo / "stats.py").write_text(src.replace("(len(xs) - 1)", "len(xs)").replace(
+            "    if x > hi:\n        return lo", "    if x > hi:\n        return hi"), encoding="utf-8")
+        self.take("p3.fix", {**fix_reply(faces=True), "rejudge_requested": "判定の clamp の単位は上限の意味の読みが違う"})
+        self.assertIn("p2.rejudge", entry.open_board(self.board).ready())
+
+    def test_rejudge_edge_go(self):
+        """異議あり・判定役の会話あり → go True・stop False。確かめた会話を rejudge-session.json に"""
+        import rejudge
+        import rejudgekit
+        self.objected()
+        sid = rejudgekit.put_session(self.repo)
+        got = self.edge("rejudge")
+        self.assertEqual((got["go"], got["stop"]), (True, False), got)
+        doc = json.loads(entry.open_board(self.board).work(rejudge.SESSION_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(doc["id"], sid)
+
+    def test_rejudge_edge_stop(self):
+        """異議あり・判定役の会話なし → stop True・go False、盤面は by works:rejudge-session で止まり、p2.rejudge を起こさない"""
+        import rejudge
+        self.objected()
+        got = self.edge("rejudge")
+        self.assertEqual((got["go"], got["stop"]), (False, True), got)
+        self.assertIn("判定役の会話", got["why"])
+        st = self.state()
+        self.assertEqual(st["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertNotIn("launched_at", entry.open_board(self.board, allow_halted=True).rd["instances"]["p2.rejudge"])
+
+    def test_rejudge_edge_idle(self):
+        """異議なし → go False・stop False（p2.rejudge は条件で na）"""
+        self.fixed()
+        got = self.edge("rejudge")
+        self.assertEqual((got["go"], got["stop"]), (False, False), got)
+        self.assertEqual(entry.open_board(self.board).node_state("p2.rejudge"), "na")
+
+    def test_tests_wait_for_rejudge(self):
+        """再審の節が待つ間は p4.ci が出ない（at tests の go False）。再審を受けると p4.ci が出て go True"""
+        import rejudge
+        import rejudgekit
+        self.objected()
+        self.take("p3.delta_review", DELTA_REVIEW)
+        self.take("p3.delta_fix", DELTA_FIX)
+        self.assertFalse(self.edge("tests")["go"])
+        rejudgekit.put_session(self.repo)
+        self.assertTrue(self.edge("rejudge")["go"])
+        rejudge.snap(self.board, self.repo)
+        rejudge.prep(self.board, "rejudge", self.repo)
+        units = entry.open_board(self.board).record["units"]
+        got = rejudge.take(self.board, "p2.rejudge", {
+            "verdict": "退ける", "new_facts": "stats.py の clamp の上限の枝を読み、判定の読みどおり hi を返すのが定義だと確かめた",
+            "units": [{k: u[k] for k in ("key", "label", "disposition", "reason") if k in u} for u in units]}, self.repo)
+        self.assertTrue(got["ok"], got)
+        self.assertTrue(self.edge("tests")["go"])
 
 
 class StopFlagCase(EdgeBase):

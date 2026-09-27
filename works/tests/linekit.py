@@ -192,7 +192,11 @@ LINE_ORDER = [
               "plan_file": "$h-fix.output.plan_file", "notes_file": "$h-fix.output.notes_file",
               "base_rev": "$start.output.base_rev", "policy_path": "$start.output.policy_path",
               "tdd_suite": "$INPUTS.tdd_suite"}},
-    _edge("h-mid", "mid", ["start", "h-fix", "fixing"]),
+    _edge("h-rejudge", "rejudge", ["start", "h-fix", "fixing"]),
+    {"id": "rejudging", "kind": "include", "block": "blk-rejudge", "depends_on": ["h-rejudge"],
+     "when": "$h-rejudge.output.go == true",
+     "with": {"base_rev": "$start.output.base_rev", "policy_paste": "$start.output.policy_paste"}},
+    _edge("h-mid", "mid", ["start", "h-rejudge", "rejudging"]),
     _edge("h-review", "review", ["start", "h-mid"]),
     {"id": "reviewing", "kind": "include", "block": "blk-delta", "depends_on": ["h-review"],
      "when": "$h-review.output.go == true", "with": {"base_rev": "$start.output.base_rev"}},
@@ -232,15 +236,17 @@ class LineRun:
     Archon の置き換え（with: → INPUTS_*）は tests/test_line.py の test_script_inputs_match_with が静的に縛り、Archon の配線は
     dev/check.sh の模擬実行が見る。ここは線の順と盤面の約束（境の節が次を決め、関所の答えと止め札が盤面へ届き、報告が結末を
     出す）を見る。役の返答は replies[役]、役が作業ツリーに当てる変更は edits[役]（repo を受ける関数）、関所の答えは
-    gates[関所]（無ければ continue・空の一言）、stop_at の境の節の前に止め札を置く"""
+    gates[関所]（無ければ continue・空の一言）、stop_at の境の節の前に止め札を置く。sessions なら start の後に包みの家へ
+    判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run。無ければ包みを通らない run と同じ）"""
 
-    def __init__(self, tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None):
+    def __init__(self, tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False):
         import entry  # noqa: F401  （.shared/core は頭で sys.path に足してある）
         self.tmp = pathlib.Path(tmp)
         self.replies, self.gates, self.edits = replies, gates or {}, edits or {}
         self.inputs = {"test_cmd": "", "thickness": "", "gates": "", "final_gate": "", "adapter": "optional", "policy_md": "",
                        **(inputs or {})}
         self.stop_at = stop_at
+        self.sessions = sessions
         self.repo = seed_repo(self.tmp / "repo", declared=True)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True, exist_ok=True)
@@ -252,6 +258,7 @@ class LineRun:
         self.judge_brief = None   # blk-judge の支度（judge-brief）の出口
         self.judge_takes = []     # blk-judge の受け付け（judge-accept）の返り（回した順）
         self.mat_roles = []    # blk-material が起こした役（起こした順）
+        self.rejudge_roles = []   # blk-rejudge が起こした役（起こした順）
 
     # -- 盤面の口
     def take(self, nid, reply):
@@ -393,6 +400,27 @@ class LineRun:
         self.take("p3.fix", self.replies["fix"])
         return {"ok": True, "files": ["stats.py"], "changes_file": "", "removed": []}
 
+    def blk_rejudge(self):
+        """blk-rejudge の中の節の順（rj-snap → 段ごとに経路 rj-route<k> → 支度・役・受け付けの輪 → 出口 collect）を本物の口で回す。
+        役の返答は replies[<役>]（無ければ盤面の今の単位をそのまま返して異議を退ける見本）。輪は受け付けの done で抜ける（R50）"""
+        import entry
+        import rejudge
+        rejudge.snap(self.board, self.repo)
+        for _ in rejudge.passes():
+            r = rejudge.route(self.board, self.repo)
+            if not r["next"]:
+                continue
+            for _ in range(rejudge.GIVE_UP_AFTER):
+                rejudge.prep(self.board, r["next"], self.repo)
+                units = entry.open_board(self.board).record.get("units") or []
+                body = self.replies.get(r["next"]) or {
+                    "verdict": "退ける", "new_facts": "修正役の異議の文を読み、作業ツリーの stats.py で判定の単位の読みを確かめ直した",
+                    "units": [{k: u[k] for k in ("key", "label", "disposition", "reason") if k in u} for u in units]}
+                if rejudge.take(self.board, r["node"], body, self.repo)["done"]:
+                    break
+            self.rejudge_roles.append(r["next"])
+        return rejudge.collect(self.board)
+
     def blk_delta(self):
         import refix
         assert refix.cut(self.board, 1, self.repo)["ok"]
@@ -454,7 +482,7 @@ class LineRun:
         blocks = {"blk-pr": self.blk_pr, "blk-premises": self.blk_premises, "blk-purpose": self.blk_purpose,
                   "blk-judge": self.blk_judge, "blk-plan": self.blk_plan, "blk-fix": self.blk_fix, "blk-delta": self.blk_delta,
                   "blk-refix": self.blk_refix, "blk-tests": self.blk_tests, "blk-eyes": self.blk_eyes,
-                  "blk-report": self.blk_report, "blk-material": self.blk_material}
+                  "blk-report": self.blk_report, "blk-material": self.blk_material, "blk-rejudge": self.blk_rejudge}
         for row in LINE_ORDER:
             nid = row["id"]
             if nid == "launch":
@@ -463,6 +491,9 @@ class LineRun:
                 raw = {"request": str(self.request), **self.inputs}
                 self.out[nid] = entry.start(self.board, self.repo, raw, run_id=RUN_ID)
                 self.trail.append(nid)
+                if self.sessions:
+                    import rejudgekit
+                    rejudgekit.put_session(self.repo)
             elif row.get("script") == "edge":
                 if self.stop_at == nid:
                     halt.place(self.board, "止め札の試し", "test")
@@ -494,9 +525,10 @@ class LineRun:
         rep = self.out["result"]
         return {"outcome": rep["outcome"], "report": rep, "board_dir": self.board, "trail": self.trail, "out": self.out,
                 "eyes_roles": self.eyes_roles, "mat_roles": self.mat_roles, "judge_brief": self.judge_brief,
-                "judge_takes": self.judge_takes}
+                "judge_takes": self.judge_takes, "rejudge_roles": self.rejudge_roles}
 
 
-def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None) -> dict:
-    """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles, mat_roles, judge_brief, judge_takes}"""
-    return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits).run()
+def run_line(tmp, *, replies, gates=None, inputs=None, stop_at=None, edits=None, sessions=False) -> dict:
+    """LineRun(...).run()。返り {outcome, report, board_dir, trail, out, eyes_roles, mat_roles, judge_brief, judge_takes,
+    rejudge_roles}"""
+    return LineRun(tmp, replies=replies, gates=gates, inputs=inputs, stop_at=stop_at, edits=edits, sessions=sessions).run()

@@ -1,5 +1,6 @@
-# 筋書き stop-flag: 止め札（dev/stop.sh）を h-review が見て止める（stop 真）。差分の審査から後のブロックは飛び、
-# 境の節と報告は走る。報告は stopped_by_request。止めた盤面は報告の役の節を出すので AI の報告も回る
+# 筋書き rejudge: 修正役が判定に異議（rejudge_requested）を出した周。h-rejudge の go で再審のブロック（blk-rejudge）が
+# 判定役の会話の続きで再審し（1 回で決着）、その後に中の検査・差分の審査・手直し・最後のテスト・最後の関所・独立の目・
+# 報告 fixed へ進む（run 28: 再審を回す節が無いと p4.ci が出ず、最後のテストが走らなかった）
 # 生成の元: tests/linekit.LINE_ORDER の線とブロックの見本（役の返答は tests/replies/）。関所は模擬実行で自動で通るので、
 # 関所の後の答えは境の節の stub で差す（P1 計画 Task 29 の持ち越し 7）
 start:
@@ -737,15 +738,15 @@ h-gate:
   ok: true
   stop: false
   go: false
-  ask: false
-  gate_text: ''
+  ask: true
+  gate_text: （文）
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
   notes: ''
   notes_file: ''
   why: ''
-  gate_file: ''
+  gate_file: board/r1/gate.md
   premises_file: ''
   pr_go: false
   premises_go: false
@@ -765,8 +766,8 @@ h-fix:
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: board/out/r1/p2.fix_plan.json
-  notes: ''
-  notes_file: ''
+  notes: 範囲
+  notes_file: board/r1/human-notes.md
   why: ''
   gate_file: ''
   premises_file: ''
@@ -1024,7 +1025,7 @@ fixing__collect:
 h-rejudge:
   ok: true
   stop: false
-  go: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1059,23 +1060,21 @@ rejudge-prep:
   node: p2.rejudge
   already: false
 rejudge:
-  verdict: 採る
-  new_facts: src/a.py を読み、g から f への直の呼び出しが上限を通らないことを確かめた（g の 12 行目）。修正は共通経路の片方だけに上限を掛けている
-  reason: 回す側が挙げた道を現物で確かめ、単位の見立てはそのまま（処方の足りない道は修正役に返す）
+  verdict: 退ける
+  new_facts: stats.py の clamp の上限の枝を読み、上限を超えた値に hi を返すのが定義だと確かめた（修正の後の 13 行目）。判定の単位の読みはそのまま
+  reason: 修正役の異議の事実は現物で確かめられなかった（人の関所の答えも hi を返す形）ので、単位の見立ては変えない
   units:
-  - key: src/a.py:f — 上限が効かない経路がある
+  - key: 'stats.py mean: 分母が len(xs) - 1 になっている'
     label: block
-    reason: 上限が 2 つの入口の片方にしか掛かっていない（g からの直の呼び出しを確かめた）
-  - key: src/b.py:g — 定数の重複
-    label: suggest
-    disposition: do-now
+  - key: 'stats.py clamp: 上限を超えた値に lo を返す'
+    label: block
 rejudge-accept:
   ok: true
   done: true
   give_up: false
   reason: ok p2.rejudge を受け付けた
   node: p2.rejudge
-  verdict: 採る
+  verdict: 退ける
 rejudging__rj-route2:
   next: ''
   node: ''
@@ -1109,7 +1108,7 @@ rejudging__collect:
   reason: ''
   passes: 1
   verdicts:
-  - 採る
+  - 退ける
   unsettled:
     text: ''
     settled: true
@@ -1142,8 +1141,8 @@ h-mid:
   mat_go: false
 h-review:
   ok: true
-  stop: true
-  go: false
+  stop: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1151,7 +1150,7 @@ h-review:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1187,8 +1186,8 @@ reviewing__collect:
   diff_file: board/fix.diff
 h-refix:
   ok: true
-  stop: true
-  go: false
+  stop: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1196,7 +1195,7 @@ h-refix:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1291,8 +1290,8 @@ refixing__collect:
   reads_files: {}
 h-tests:
   ok: true
-  stop: true
-  go: false
+  stop: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1300,7 +1299,7 @@ h-tests:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1322,17 +1321,17 @@ testing__run:
   by: engine
 h-final:
   ok: true
-  stop: true
+  stop: false
   go: false
-  ask: false
-  gate_text: ''
+  ask: true
+  gate_text: （文）
   judgment_file: board/judgment.json
   open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
-  gate_file: ''
+  why: ''
+  gate_file: board/r1/final-gate.md
   premises_file: ''
   pr_go: false
   premises_go: false
@@ -1345,8 +1344,8 @@ h-final:
   mat_go: false
 h-eyes:
   ok: true
-  stop: true
-  go: false
+  stop: false
+  go: true
   ask: false
   gate_text: ''
   judgment_file: board/judgment.json
@@ -1354,7 +1353,7 @@ h-eyes:
   plan_file: ''
   notes: ''
   notes_file: ''
-  why: 止め札
+  why: ''
   gate_file: ''
   premises_file: ''
   pr_go: false
@@ -1605,11 +1604,11 @@ eyeing__eyes-collect:
   exit_file: board/r1/eyes-exit.json
 report:
   ok: true
-  outcome: stopped_by_request
+  outcome: fixed
   judgment_file: board/judgment.json
   report_file: board/report.md
   next_request_file: board/next-request.json
-  tests_green: false
+  tests_green: true
   validator_exit: 0
   ai_report_go: true
 reporting__rp-route1:
@@ -1707,11 +1706,11 @@ reporting__collect:
   record_invalid: false
 result:
   ok: true
-  outcome: stopped_by_request
+  outcome: fixed
   judgment_file: board/judgment.json
   report_file: board/report-ai.md
   next_request_file: board/next-request.json
-  tests_green: false
+  tests_green: true
   validator_exit: 0
   ai_report_go: true
   machine_report_file: board/report.md
@@ -1749,12 +1748,23 @@ fixture:
   - h-fix
   - fixing__collect
   - h-rejudge
+  - rejudging__rj-snap
+  - rejudging__rj-route1
+  - rejudge-prep
+  - rejudge
+  - rejudge-accept
+  - rejudging__rj-route2
+  - rejudging__collect
   - h-mid
   - h-review
+  - reviewing__collect
   - h-refix
+  - refixing__collect
   - h-tests
+  - testing__run
   - h-final
   - h-eyes
+  - eyeing__eyes-collect
   - report
   - reporting__collect
   - result

@@ -14,6 +14,9 @@ blk-delta の review-accept が entry.take の欄（ready・asking・halted・ou
   盤面を止め、run は落ちずに報告まで届く（R50）
 - no-fix・policy-stop・stop-flag: 修正の無い周・修正の前の関所の stop・止め札
 - conflict: 修正役が食い違いを申し出て parked → 裁定の輪（1 回目は拒む）→ fix_code_as → 2 回目の修正役が全部を直す
+- rejudge（run 28）: 修正役が判定に異議 → 再審の輪（1 回目は拒む。判定役の会話の続き）→ 差分の審査 → 手直し → 2 回目の審査 →
+  2 回目の手直し → 最後のテスト（ラインの test_cmd）→ 最後の関所 → 独立の目 → 報告 fixed
+- rejudge-no-session: 同じ異議で判定役の会話が無い → h-rejudge が盤面を止め、後ろは飛んで報告は stopped_by_line
 網羅: 線と線が include する全部のブロックの script の節（output_format を持つ物）を、(ブロック・スクリプト・output_format) の
 組で 1 回は起こす（同じスクリプトと同じ型の節は、役の名だけが違う同じ口——例えば素材集めの P1 の役は判定から入る run の
 周では起きないが、prep・accept は同じスクリプトと同じ型で prior-decisions が通る）。受け付けのスクリプトは通る出口と拒む
@@ -41,7 +44,6 @@ from test_edge import CLEAN_REVIEW, DELTA_FACE  # noqa: E402
 # 線に include されていないブロック（線の run では起きない。自分の試験が口の関数を見る）。線に入れたらここから消す
 UNWIRED = {
     "blk-spec": "仕様から入る道（flow: spec）はまだ線に配線していない（P1-R2）。test_blk_spec が口の関数を見る",
-    "blk-rejudge": "再判定のブロックはまだ線に配線していない。test_blk_rejudge が口の関数を見る",
 }
 
 
@@ -108,6 +110,11 @@ def scenarios(tmp: pathlib.Path) -> dict:
     edits = {"fix": TL.fix_tree}
     full = {**TL.replies(), "refix": REFIX_FIXED, "review2": REVIEW2_OK, "tdd": TDD_ALL_DIRECT}
     nofix = {**TL.replies(review=CLEAN_REVIEW), "judge": linekit.reply("judge_no_fix")}
+    judged = linekit.reply("judge_ok")["units"]
+    objection = {**TL.replies(), "fix": {**TL.replies()["fix"], "rejudge_requested": TL.OBJECTION},
+                 "refix": REFIX_FIXED, "review2": TL.REVIEW2_FACES, "refix2": TL.REFIX2_DECLARED,
+                 "rejudge": {"verdict": "退ける", "new_facts": "stats.py の clamp の上限の枝を読み、hi を返すのが定義だと確かめた",
+                             "units": [{k: u[k] for k in ("key", "label", "disposition", "reason") if k in u} for u in judged]}}
     return {
         "full": dict(replies=full, edits={**edits, "refix": refix_edit}, bad_first=ai_keys(),
                      inputs={"tdd_suite": str(suite)}, gates={"policy-gate": {"decision": "continue", "text": "$x `y` \"z\""}}),
@@ -130,11 +137,16 @@ def scenarios(tmp: pathlib.Path) -> dict:
         # 食い違いの申し出: 1 回目の修正役が mean を申し出て parked → 裁定役（1 回目は拒む）が fix_code_as → 2 回目の修正役が全部を直す
         "conflict": dict(replies={**TL.replies(), "fix": conflict_fix(), "rule": RULING_CODE, "fix-ruled": TL.replies()["fix"]},
                          edits={"fix": clamp_only, "fix-ruled": TL.fix_tree}, bad_first={"blk-fix/rule"}),
+        # run 28: 修正役の異議の後に再審を回さないと p2.rejudge が待ったままで p4.ci が出ず、最後のテストが走らなかった
+        "rejudge": dict(replies=objection, edits={**edits, "refix": refix_edit}, inputs={"test_cmd": TL.TEST_CMD},
+                        bad_first={"blk-rejudge/rejudge"}, sessions=True),
+        "rejudge-no-session": dict(replies=objection, edits={**edits, "refix": refix_edit}, inputs={"test_cmd": TL.TEST_CMD}),
     }
 
 
 OUTCOMES = {"material-give-up": "stopped_by_line", "material-give-up-awaiting": "stopped_by_line", "conflict": "fixed", "fix-give-up": "stopped_by_line", "unchanged-file": "stopped_by_line", "full": "fixed", "ci-final-stop": "stopped_by_human", "give-up": "stopped_by_line", "no-fix": "no_fix_needed",
-            "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request"}
+            "policy-stop": "stopped_by_human", "stop-flag": "stopped_by_request", "rejudge": "fixed",
+            "rejudge-no-session": "stopped_by_line"}
 
 
 def signature(block, node) -> tuple:
@@ -186,6 +198,25 @@ class ScriptContractCase(unittest.TestCase):
         text = pathlib.Path(rep["report_file"]).read_text(encoding="utf-8")
         self.assertIn("報告の節は出ない（本線の止めと同じ）: 止めた周の記録が検証器を通らない", text)
         self.assertIn("素材 'parallel_pr' が awaiting_human なのに問いの台帳に無い", text)
+
+    def test_objection_reaches_final_tests(self):
+        """run 28 の形（修正役の異議 → 再審 → 手直し 2 回）を本物のスクリプトで: h-tests が go 真で最後のテストがラインの
+        test_cmd で走り、周が締まって独立の目と報告が回る（record_invalid・「最後のテスト: 走っていない」にならない）。
+        判定役の会話が無ければ h-rejudge が止め、再審・最後のテストは飛んで stopped_by_line"""
+        got = self.got["rejudge"]
+        out = got["out"]
+        self.assertIs(out["h-rejudge"]["go"], True)
+        self.assertIs(out["h-tests"]["go"], True)
+        for key in ("blk-rejudge/collect", "blk-refix/refix2-accept", "blk-tests/run", "blk-eyes/eyes-collect",
+                    "darkfactory/report"):
+            self.assertIn(key, got["trail"])
+        self.assertEqual(out["start"]["test_cmd"], TL.TEST_CMD)
+        self.assertIs(out["report"]["tests_green"], True)
+        self.assertNotIn(TL.NOT_RUN, pathlib.Path(out["report"]["report_file"]).read_text(encoding="utf-8"))
+        stopped = self.got["rejudge-no-session"]
+        self.assertIs(stopped["out"]["h-rejudge"]["stop"], True)
+        for key in ("blk-rejudge/collect", "blk-tests/run", "blk-eyes/eyes-collect"):
+            self.assertNotIn(key, stopped["trail"])
 
     def test_every_script_signature_ran(self):
         """線と線が include する全部のブロックの script の節（output_format を持つ物）を、(ブロック・スクリプト・型) の組で

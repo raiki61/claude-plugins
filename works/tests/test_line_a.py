@@ -22,7 +22,7 @@ import engine.util as engine_util  # noqa: E402,F401  （linekit が .shared/cor
 import entry  # noqa: E402
 import line_edge  # noqa: E402
 import linekit  # noqa: E402
-from test_edge import CLEAN_REVIEW, DELTA_FIX, DELTA_REVIEW, ODD_NOTE, fix_reply, plan_reply  # noqa: E402
+from test_edge import CLEAN_REVIEW, DELTA_FACE, DELTA_FIX, DELTA_REVIEW, FACE, ODD_NOTE, fix_reply, plan_reply  # noqa: E402
 
 
 def fix_tree(repo):
@@ -395,6 +395,117 @@ class JudgeAwaitingCase(LineBase):
         self.assertIn("3 回とも", stop.get("reason", ""))
         self.assertIn("kind=awaiting", stop.get("reason", ""))
         self.assertNotIn("planning", got["trail"])
+
+
+# 手直しの後に最後のテストへ届く道（run 28: 修正役の異議の後に p2.rejudge を回す節がラインに無く、手直しを 2 回した後の h-tests が
+# go False になって最後のテストが走らず、周が締まらずに record_invalid で独立の目も飛んだ）
+DELTA_FACE2 = "clamp の docstring が境の値の扱いを書いていない"
+TEST_CMD = "python3 -m unittest test_stats"
+OBJECTION = "判定の clamp の単位は上限の意味の読みが違う（人の関所の答えは hi を返す形）"
+NOT_RUN = "最後のテスト: 走っていない"
+
+
+def refix_tree(repo):
+    """手直し役の代わり: 種の docstring の clamp の行を、直した後の振る舞い（上限を超えたら hi）に合わせる"""
+    p = repo / "stats.py"
+    p.write_text(p.read_text(encoding="utf-8").replace("- clamp: 上限を超えたときに lo を返している（正しくは hi）。",
+                                                       "- clamp: 上限を超えたときに hi を返す。"), encoding="utf-8")
+
+
+DELTA_FIX_FIXED = {"handled": [{"key": DELTA_FACE, "handled": "fixed", "files": ["stats.py"],
+                                "how": "docstring の clamp の行を、直した後の振る舞い（上限を超えたら hi を返す）に書き直した"}]}
+REVIEW2_FACES = {"faces": [{"key": DELTA_FACE2, "kind": "contract_drift", "where": "stats.py", "cite": "上限を超えたときに hi を返す",
+                            "why": "docstring は上限の枝だけを書き、x が lo か hi に等しい境の値をそのまま返す約束が読む側に見えない"}],
+                 "checks": [{"key": DELTA_FACE, "closed": True, "why": "docstring の clamp の行が hi を返す形になり、振る舞いと揃った"}]}
+REFIX2_DECLARED = {"handled": [{"key": DELTA_FACE2, "handled": "declared",
+                                "how": "境の値は本体が x をそのまま返し、2 つの枝の約束の外側で自明なので書き足さない"}]}
+CLEAN_DELTA_REVIEW = {"faces": [], "faces_none": "stats.py の差分 2 行（mean の分母・clamp の上限の戻り値）と test_stats.py を読んだ。"
+                                               "写し・入口・宣言とのずれは無い",
+                      "checks": [{"key": FACE, "closed": True, "why": "clamp の上限の枝が hi を返す形になり、人の答えどおり"}]}
+
+
+class RefixToTestsCase(LineBase):
+    """手直しの後（1 回・2 回・手直しなし・判定への異議の再審つき）に h-tests が go True になり、最後のテスト（blk-tests の final）が
+    ラインの test_cmd で走り、周が締まって最後の関所・独立の目・報告まで届く。報告に「最後のテスト: 走っていない」が出ない"""
+
+    def reached_tests(self, got):
+        rep_text = pathlib.Path(got["report"]["report_file"]).read_text(encoding="utf-8")
+        self.order_ok(got["trail"])
+        self.assertIs(got["out"]["h-tests"]["go"], True, got["out"]["h-tests"])
+        for nid in ("testing", "h-final", "final-gate", "h-eyes", "eyeing", "report", "reporting", "result"):
+            self.assertIn(nid, got["trail"])
+        self.assertEqual(got["out"]["testing"]["by"], "engine")
+        self.assertIs(got["report"]["tests_green"], True)
+        self.assertEqual(got["outcome"], "fixed", rep_text)
+        self.assertNotIn(NOT_RUN, rep_text)
+        self.assertNotIn(NOT_RUN, pathlib.Path(got["out"]["report"]["report_file"]).read_text(encoding="utf-8"))
+        self.assertTrue(got["eyes_roles"])
+        b = entry.open_board(got["board_dir"], allow_halted=True)
+        self.assertEqual(b.node_state("p4.ci"), "done")
+        self.assertEqual(b.state["works"]["after_round"]["by"], "stop_after_round")
+        self.assertTrue(any((got["board_dir"] / "rounds").glob("round-*.json")))
+        # blk-tests の final はラインの test_cmd（start の出口）を受けて走る。種は宣言を持つので engine は宣言の段を走らせる
+        self.assertEqual(got["out"]["start"]["test_cmd"], TEST_CMD)
+        self.assertIn("test_stats", pathlib.Path(got["out"]["testing"]["log"]).read_text(encoding="utf-8"))
+        return b
+
+    def two_rounds(self, **extra):
+        r = replies()
+        r.update(refix=DELTA_FIX_FIXED, review2=REVIEW2_FACES, refix2=REFIX2_DECLARED, **extra)
+        return r
+
+    def test_run28_objection_then_two_refix_rounds(self):
+        """run 28 の形: 修正の返答に判定への異議 → h-rejudge が再審を回す（判定役の会話の続き）→ 差分の審査 → 手直し →
+        2 回目の審査 → 2 回目の手直し → h-tests go True → 最後のテスト → 最後の関所 → 独立の目 → 報告 fixed"""
+        r = self.two_rounds()
+        r["fix"] = {**r["fix"], "rejudge_requested": OBJECTION}
+        got = self.run_line(replies=r, edits={"fix": fix_tree, "refix": refix_tree}, inputs={"test_cmd": TEST_CMD},
+                            sessions=True)
+        ids = got["trail"]
+        self.assertEqual(ids[ids.index("fixing"):ids.index("h-mid") + 1], ["fixing", "h-rejudge", "rejudging", "h-mid"])
+        self.assertIs(got["out"]["h-rejudge"]["go"], True)
+        self.assertEqual((got["out"]["rejudging"]["ok"], got["out"]["rejudging"]["passes"]), (True, 1), got["out"]["rejudging"])
+        b = self.reached_tests(got)
+        for nid in ("p2.rejudge", "p3.delta_review", "p3.delta_fix", "p3.delta_review2", "p3.delta_fix2"):
+            self.assertEqual(b.node_state(nid), "done", nid)
+        self.assertEqual(len(b.record["process"]["rejudge"]), 1)
+
+    def test_two_refix_rounds_reach_tests(self):
+        """異議なし・手直し 2 回 → 再審は回らず（h-rejudge go False）、最後のテストが走って fixed"""
+        got = self.run_line(replies=self.two_rounds(), edits={"fix": fix_tree, "refix": refix_tree},
+                            inputs={"test_cmd": TEST_CMD})
+        self.assertNotIn("rejudging", got["trail"])
+        b = self.reached_tests(got)
+        self.assertEqual(b.node_state("p3.delta_fix2"), "done")
+
+    def test_one_refix_round_reaches_tests(self):
+        """手直し 1 回（残す理由の申告だけ。2 回目の審査は条件で na）→ 最後のテストが走って fixed"""
+        got = self.run_line(inputs={"test_cmd": TEST_CMD})
+        b = self.reached_tests(got)
+        self.assertEqual((b.node_state("p3.delta_fix"), b.node_state("p3.delta_review2")), ("done", "na"))
+
+    def test_refix_skipped_reaches_tests(self):
+        """差分の審査に穴が無い → 手直しは飛び（h-refix go False）、最後のテストが走って fixed"""
+        r = replies()
+        r["review"] = CLEAN_DELTA_REVIEW
+        got = self.run_line(replies=r, inputs={"test_cmd": TEST_CMD})
+        self.assertNotIn("refixing", got["trail"])
+        b = self.reached_tests(got)
+        self.assertEqual(b.node_state("p3.delta_fix"), "na")
+
+    def test_objection_without_session_stops(self):
+        """異議あり・判定役の会話が無い（包みを通らない run）→ h-rejudge が役を起こさずに盤面を止め（by works:rejudge-session）、
+        後ろのブロックは飛び、報告は stopped_by_line（record_invalid にならない）。次の依頼の下書きに異議の文"""
+        import rejudge
+        r = replies()
+        r["fix"] = {**r["fix"], "rejudge_requested": OBJECTION}
+        got = self.run_line(replies=r, inputs={"test_cmd": TEST_CMD})
+        self.assertIs(got["out"]["h-rejudge"]["stop"], True)
+        for nid in ("rejudging", "reviewing", "refixing", "testing", "eyeing"):
+            self.assertNotIn(nid, got["trail"])
+        self.assertEqual(got["outcome"], "stopped_by_line")
+        self.assertEqual(self.state(got)["stop"]["by"], rejudge.STOP_BY_SESSION)
+        self.assertIn(OBJECTION, pathlib.Path(got["report"]["next_request_file"]).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

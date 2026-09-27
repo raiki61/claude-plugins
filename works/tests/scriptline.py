@@ -113,14 +113,16 @@ class ScriptLine:
     bad_first に在る役（同じ鍵）は 1 回目に bad の返答を返す（受け付けの拒否の出口を通す）。edits[<鍵>] は役が作業ツリーに
     当てる変更（repo を受ける関数。返答の前に毎回当てる）。gates[<関所>] は関所の答え。stop_at の境の節の前に止め札を置く。
     declared が偽なら種にテストの宣言（.review-checks.json）を置かない（CI の任せ先の役 blk-ci が回る）。
+    sessions なら start の後に包みの家へ判定役の会話の id と起動の行を置く（再審の役が判定役の会話を継げる run）。
     runs は起こした script の節の記録 {block, node, rc, out, errors, stderr}（errors は output_format に当てた食い違い）"""
 
     def __init__(self, tmp, *, replies=None, gates=None, inputs=None, edits=None, bad_first=(), bad=None, stop_at=None,
-                 declared=True):
+                 declared=True, sessions=False):
         self.tmp = pathlib.Path(tmp)
         self.replies, self.gates, self.edits = replies or {}, gates or {}, edits or {}
         self.bad_first, self.bad = set(bad_first), bad if bad is not None else {}
         self.stop_at = stop_at
+        self.sessions = sessions
         self.repo = linekit.seed_repo(self.tmp / "repo", declared=declared)
         req = self.tmp / "req" / "request.json"
         req.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +171,13 @@ class ScriptLine:
         if "output_format" in n:
             rec["errors"] = validate_schema(out, n["output_format"])
         return out
+
+    def _put_session(self):
+        """包みの家（子のプロセスと同じ WORKS_ADAPTER_HOME）に判定役の会話の id と起動の行（盤面を作った後）を置く"""
+        from unittest import mock
+        import rejudgekit
+        with mock.patch.dict(os.environ, {"WORKS_ADAPTER_HOME": self.env["WORKS_ADAPTER_HOME"]}):
+            rejudgekit.put_session(self.repo)
 
     def _edge_stop(self, n):
         if self.stop_at == n["id"]:
@@ -234,6 +243,8 @@ class ScriptLine:
                 if n["script"] == "edge":
                     self._edge_stop(n)
                 out = self._script(scope, n)
+                if self.sessions and scope.block == LINE and nid == "start":
+                    self._put_session()
             elif "include" in n:
                 out = self._include(scope, n)
             elif "loop_group" in n:

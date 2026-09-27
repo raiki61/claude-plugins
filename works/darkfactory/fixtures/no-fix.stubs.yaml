@@ -1019,6 +1019,102 @@ fixing__collect:
     suite: ''
     reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
     units: []
+h-rejudge:
+  ok: true
+  stop: false
+  go: false
+  ask: false
+  gate_text: ''
+  judgment_file: board/judgment.json
+  open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+  plan_file: ''
+  notes: ''
+  notes_file: ''
+  why: ''
+  gate_file: ''
+  premises_file: ''
+  pr_go: false
+  premises_go: false
+  purpose_go: false
+  spec_go: false
+  runtime_go: false
+  holdout_go: false
+  mid_note: ''
+  purpose_file: ''
+  mat_go: false
+rejudging__rj-snap:
+  ok: true
+  snapshot_file: board/r1/rejudge-snapshot.json
+rejudging__rj-route1:
+  next: rejudge
+  node: p2.rejudge
+  why: p2.rejudge が ready
+  stopped: false
+rejudge-prep:
+  prompt_file: board/prompts/r1/p2.rejudge.md
+  attempt: 1
+  out_path: board/out/r1/p2.rejudge.json
+  node: p2.rejudge
+  already: false
+rejudge:
+  verdict: 採る
+  new_facts: src/a.py を読み、g から f への直の呼び出しが上限を通らないことを確かめた（g の 12 行目）。修正は共通経路の片方だけに上限を掛けている
+  reason: 回す側が挙げた道を現物で確かめ、単位の見立てはそのまま（処方の足りない道は修正役に返す）
+  units:
+  - key: src/a.py:f — 上限が効かない経路がある
+    label: block
+    reason: 上限が 2 つの入口の片方にしか掛かっていない（g からの直の呼び出しを確かめた）
+  - key: src/b.py:g — 定数の重複
+    label: suggest
+    disposition: do-now
+rejudge-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ok p2.rejudge を受け付けた
+  node: p2.rejudge
+  verdict: 採る
+rejudging__rj-route2:
+  next: ''
+  node: ''
+  why: '再審の節が ready に無い（p2.rejudge: done・p2.rejudge_third: cond rejudge_exhausted: 今の周の異議に往復 1 回（上限 3））'
+  stopped: false
+rejudge-third-prep:
+  prompt_file: board/prompts/r1/p2.rejudge_third.md
+  attempt: 1
+  out_path: board/out/r1/p2.rejudge_third.json
+  node: p2.rejudge_third
+  already: false
+rejudge-third:
+  verdict: 退ける
+  new_facts: 往復を読み、争点を g からの直の呼び出しの有無に絞った。g の 12 行目は上限を通る共通経路を呼んでおり、直の呼び出しは無かった
+  reason: 回す側の根拠は現物で確かめられなかったので退ける
+  units:
+  - key: src/a.py:f — 上限が効かない経路がある
+    label: block
+  - key: src/b.py:g — 定数の重複
+    label: suggest
+    disposition: do-now
+rejudge-third-accept:
+  ok: true
+  done: true
+  give_up: false
+  reason: ok p2.rejudge_third を受け付けた
+  node: p2.rejudge_third
+  verdict: 退ける
+rejudging__collect:
+  ok: true
+  reason: ''
+  passes: 1
+  verdicts:
+  - 採る
+  unsettled:
+    text: ''
+    settled: true
+  new_open_units: []
+  unnamed_changed: []
+  diff_file: board/r1/rejudge-diff.json
+  reads_file: ''
 h-mid:
   ok: true
   stop: false
@@ -1648,6 +1744,7 @@ fixture:
   - h-plan
   - h-gate
   - h-fix
+  - h-rejudge
   - h-mid
   - h-review
   - h-refix
