@@ -10,9 +10,14 @@
   と同じ扱い。あちらは元の commit を引けなければ git show が失敗して赤になる）。同じ版の superpowers の checkout を
   WORKS_SP_SOURCE に渡せば、そこを元として比べる。
 - NOTICE（works/NOTICE）: superpowers が MIT であることと、LICENSE の著作権者の行をそのまま持つ。
+- 無人の読み替え（works/.shared/superpowers/unattended.md）: 写しの .md の中で、人か調整役（下請けを起こす親の会話）を
+  前提にする言い回しの目印（TRIGGERS）に当たる行を全部、行の索引に 1 行ずつ持つ（パス・行番号・読み替えの決まりの名・
+  その行の文そのもの）。索引に無い行・索引にあるのに今の写しに無い行・文が違う行は赤。新しい版の写しが人への問いを
+  足したり行を動かしたりすると、ここが赤くなり、読み替えを見直させる。
 """
 import os
 import pathlib
+import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -25,6 +30,17 @@ REFERENCE_ONLY = frozenset({"writing-plans"})       # 読んで参考にする�
 NEVER = frozenset({"brainstorming", "subagent-driven-development", "executing-plans", "using-git-worktrees",
                    "finishing-a-development-branch", "dispatching-parallel-agents", "writing-skills",
                    "using-superpowers", "diagnosing-superpowers"})
+
+
+OVERLAY = SP / "unattended.md"
+# 人か調整役を前提にする言い回しの目印（大文字小文字を問わない）。広めに取り、当たっただけで関係の無い行は
+# 索引で決まり NA（対象外）に振る。目印を狭めると新しい版の人への問いを見落とすので、狭めるときは理由を書く
+TRIGGERS = re.compile(
+    r"partner|\bhuman\b|\buser\b|\bask\b|clarif|discuss|approv|permission"
+    r"|commit|\bpush\b|\bPR\b|pull request|\bmerge"
+    r"|superpowers:|subagent|dispatch|spawn|delegat|\bagents?\b|coordinator"
+    r"|\bgh\b|github|\bgit (?:rev-parse|log|diff|show|worktree|merge-base)", re.I)
+ROW = re.compile(r"^(?P<path>skills/[^ :]+\.md):(?P<line>[0-9]+) \[(?P<rule>[A-Z0-9-]+)\] (?P<text>.*)$")
 
 
 def pinned():
@@ -92,6 +108,80 @@ class PinnedCopyCase(unittest.TestCase):
         self.assertIn("MIT", notice)
         self.assertIn(holder, notice)
         self.assertIn(f".shared/superpowers/{pinned().name}/LICENSE", notice)
+
+
+def trigger_lines():
+    """写しの .md の目印に当たる行: {(パス, 行番号): 前後の空白を除いた行の文}"""
+    base = pinned()
+    found = {}
+    for f in sorted((base / "skills").rglob("*.md")):
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if TRIGGERS.search(line):
+                found[(f.relative_to(base).as_posix(), i)] = line.strip()
+    return found
+
+
+def overlay_rows():
+    """行の索引: {(パス, 行番号): (決まりの名, 文)}。同じ行を 2 度書いたら例外"""
+    rows = {}
+    for ln in OVERLAY.read_text(encoding="utf-8").splitlines():
+        m = ROW.match(ln)
+        if m:
+            key = (m["path"], int(m["line"]))
+            if key in rows:
+                raise AssertionError(f"索引に同じ行が 2 度ある: {key}")
+            rows[key] = (m["rule"], m["text"])
+    return rows
+
+
+class UnattendedOverlayCase(unittest.TestCase):
+    def test_triggers_catch_human_asks(self):
+        """目印の自己検査: 人への問い・commit・下請け・superpowers の参照の典型を拾い、ただの文は拾わない"""
+        for s in ("ask your human partner", "Check with the user first", "commit the fix", "Dispatch a reviewer",
+                  "Use the `superpowers:x` skill", "Discuss before continuing", "open a pull request",
+                  "Get approval", "BASE=$(git rev-parse HEAD)"):
+            with self.subTest(s):
+                self.assertTrue(TRIGGERS.search(s))
+        for s in ("Write the test first.", "Watch it fail.", "task list", "asking"):
+            with self.subTest(s):
+                self.assertFalse(TRIGGERS.search(s))
+
+    def test_every_trigger_line_has_a_row_with_its_text(self):
+        found = trigger_lines()
+        rows = overlay_rows()
+        self.assertTrue(found, "目印に 1 行も当たらない（走査の空回り）")
+        self.assertEqual(sorted(set(found) - set(rows)), [], "索引に無い目印の行（読み替えを足す）")
+        self.assertEqual(sorted(set(rows) - set(found)), [], "索引にあるのに今の写しに目印の行が無い（古い行を消す）")
+        for key, text in found.items():
+            with self.subTest(f"{key[0]}:{key[1]}"):
+                self.assertEqual(rows[key][1], text, "索引の文が写しの行と違う（行が動いたか中身が変わった）")
+
+    def test_every_rule_is_defined_once(self):
+        body = OVERLAY.read_text(encoding="utf-8")
+        heads = re.findall(r"^## ([A-Z0-9-]+) ", body, re.M)
+        self.assertEqual(len(heads), len(set(heads)), heads)
+        used = {r for r, _ in overlay_rows().values()}
+        self.assertEqual(sorted(used - set(heads)), [], "索引が使う決まりの名に見出しが無い")
+        self.assertEqual(sorted(set(heads) - used), [], "どの行にも使わない決まりがある")
+
+    def test_named_replacements(self):
+        """持ち主が名指した読み替え: 人に聞く → not_done か再審・commit → 修正役は commit しない・
+        superpowers: の参照 → 無視・3 回の失敗で人と話す → not_done と理由"""
+        rows = overlay_rows()
+        want = {("skills/test-driven-development/SKILL.md", 24): "ASK",
+                ("skills/receiving-code-review/SKILL.md", 45): "ASK",
+                ("skills/verification-before-completion/SKILL.md", 54): "COMMIT",
+                ("skills/systematic-debugging/SKILL.md", 177): "SP-REF",
+                ("skills/systematic-debugging/SKILL.md", 210): "THREE-FAILS"}
+        for key, rule in want.items():
+            with self.subTest(f"{key[0]}:{key[1]}"):
+                self.assertEqual(rows[key][0], rule)
+        body = OVERLAY.read_text(encoding="utf-8")
+        for word in ("not_done", "rejudge_requested", "commit しない", "無視"):
+            self.assertIn(word, body)
+
+    def test_overlay_names_the_pinned_version(self):
+        self.assertIn(f"superpowers {pinned().name}", OVERLAY.read_text(encoding="utf-8").split("\n", 3)[2])
 
 
 if __name__ == "__main__":
