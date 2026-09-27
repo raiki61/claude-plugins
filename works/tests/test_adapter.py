@@ -180,10 +180,10 @@ class MarkerCase(unittest.TestCase):
         self.assertEqual(adapter.marker_from_argv(a).cont, "judge")
         self.assertIsNone(adapter.marker_from_argv(["--tools", ""]))
 
-    def test_dangling_settings_is_unrecognised(self):
+    def test_dangling_settings_on_marked_launch_is_refused(self):
         p = adapter.plan(sdk_argv("works-node: fix", settings=None) + ["--settings"], "/x", pathlib.Path("/h"), "H",
                          new_id=lambda: "u")
-        self.assertEqual((p.mode, p.warn, p.hook), ("passthrough", True, False))
+        self.assertEqual((p.mode, p.warn, p.hook, p.record), ("refused", True, False, []))
 
     def test_marker_from_argv_unrecognised_shapes(self):
         two = ["--json-schema", schema(), "--json-schema", schema()]
@@ -194,9 +194,15 @@ class MarkerCase(unittest.TestCase):
                 self.assertNotIsInstance(cm.exception, adapter.BadMarker)
 
     def test_marker_traces_in_odd_shapes_are_bad(self):
+        # 同じ規則を JSON として読める形にも読めない形にも当てる（M2）
         two = ["--json-schema", schema("works-node: a"), "--json-schema", schema("works-node: b")]
+        nested = json.dumps({"type": "object", "properties": {"a": {"type": "string",
+                                                                   "description": "works-node: rejudge continue=judge"}}})
         for a in (two, ["--json-schema", '{"description": "works-node: judge", '],
-                  ["--json-schema", schema("works-node: judge x")]):
+                  ["--json-schema", schema("works-node: judge x")],
+                  ["--json-schema", schema(" works-node: rejudge continue=judge")],     # 頭に空白
+                  ["--json-schema", nested],                                            # 入れ子の description
+                  ["--json-schema", json.dumps({"title": "works-node: judge"})]):     # 一番上の別の鍵
             with self.subTest(a):
                 with self.assertRaises(adapter.BadMarker):
                     adapter.marker_from_argv(a)
@@ -287,28 +293,64 @@ class AdapterCase(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.e.child()["argv"], argv)
 
-    def test_unknown_shapes_pass_through_with_warning(self):
+    def test_marked_launch_with_unreadable_settings_fails_closed(self):
+        # 印のある起動は柵（フック・no-post・切符）なしで起こさない（裁定 I2）
         broken = [
             sdk_argv("works-node: judge", extra=["--settings", SANDBOX]),                       # --settings が 2 つ
             sdk_argv("works-node: judge", settings="{not json"),                                # 読めない JSON
             sdk_argv("works-node: judge", settings="/no/such/settings.json"),                   # 無いファイル
             sdk_argv("works-node: judge", settings="[1, 2]"),                                   # 辞書でない
+            sdk_argv("works-node: pr-check no-post", settings='{"permissions": []}'),           # 混ぜられない
+            sdk_argv("works-node: fix", settings='{"sandbox": {"filesystem": 1}}'),             # 混ぜられない（柵の口）
+            sdk_argv("works-node: judge", settings=None) + ["--settings"],                      # 値の無い旗
         ]
         for argv in broken:
             with self.subTest(argv=argv[-2:]):
+                if "filesystem" in argv[-1]:
+                    t = adapter.ticket_path(self.e.cwd, self.e.home)
+                    t.parent.mkdir(parents=True, exist_ok=True)
+                    t.write_text(json.dumps({"protected": [str(self.e.tmp / "board")]}), encoding="utf-8")
+                r = self.e.run(argv)
+                self.assertEqual(r.returncode, 3, r.stderr)
+                lines = r.stderr.splitlines()
+                self.assertEqual(len(lines), 1, r.stderr)
+                self.assertIn("起こさない", lines[0])
+                self.assertIsNone(self.e.child())
+                row = self.e.launches()[-1]
+                self.assertEqual((row["mode"], row["session"]["mode"]), ("refused", "refused"))
+                self.assertFalse(adapter.session_path(self.e.cwd, row["node"], self.e.home).exists())
+
+    def test_unmarked_unknown_shapes_pass_through_with_warning(self):
+        # 印の跡の無い見分けられない形は、1 バイトも変えずに素通しして警告を 1 行
+        for argv in (sdk_argv("") + ["--json-schema", schema()], sdk_argv("") [:-2] + ["--json-schema", "{not json"]):
+            with self.subTest(argv=argv[-1][:20]):
                 r = self.e.run(argv)
                 self.assertEqual(r.returncode, 0, r.stderr)
-                lines = r.stderr.strip().splitlines()
-                self.assertEqual(len(lines), 1, r.stderr)
-                self.assertIn("素通し", lines[0])
-                got = self.e.child()["argv"]
-                # --settings は 1 バイトも変えない。会話の継ぎ（--session-id）だけは行う（継がずに黙って別の目にしない）
-                self.assertEqual(got[:len(argv)], argv)
-                self.assertEqual(len(got), len(argv) + 1)
-                self.assertTrue(got[-1].startswith("--session-id="))
-                row = self.e.launches()[-1]
-                self.assertEqual((row["mode"], row["node"], row["session"]["mode"]), ("passthrough", "judge", "new"))
-                self.assertTrue(row["why"])
+                self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
+                self.assertIn("素通し", r.stderr)
+                self.assertEqual(self.e.child()["argv"], argv)
+
+    def test_judge_id_unwritable_fails_closed(self):
+        # 判定役の id を記録できなければ起こさない（再審が古い id を継がないように。M6）
+        key_dir = adapter.session_path(self.e.cwd, "judge", self.e.home).parent
+        key_dir.parent.mkdir(parents=True)
+        key_dir.write_text("ファイルで塞ぐ", encoding="utf-8")   # makedirs が失敗する
+        r = self.e.run(sdk_argv("works-node: judge"))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+        self.assertIn("記録できない", r.stderr)
+        self.assertIsNone(self.e.child())
+        self.assertEqual(self.e.launches()[-1]["mode"], "refused")
+
+    def test_stale_judge_id_removed_when_new_id_unwritable(self):
+        path = adapter.session_path(self.e.cwd, "judge", self.e.home)
+        path.parent.mkdir(parents=True)
+        path.write_text("dddddddd-0000-4000-8000-000000000001\n", encoding="utf-8")
+        path.parent.chmod(0o500)   # 一時ファイルを置けない（古い id は消しに行く。消せなくても起こさない）
+        self.addCleanup(path.parent.chmod, 0o700)
+        r = self.e.run(sdk_argv("works-node: judge"))
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIsNone(self.e.child())
 
     def test_bad_marker_fails_closed(self):
         # 印の跡が在るのに読めない起動は素通ししない（黙って新しい会話で再審させず、no-post の柵も落とさない）
@@ -334,7 +376,11 @@ class AdapterCase(unittest.TestCase):
         s, _ = self._hook_settings(self.e.child()["argv"])
         for rule in adapter.NO_POST_DENY:
             self.assertIn(rule, s["permissions"]["deny"])
-        self.assertIn("Bash(gh pr comment:*)", s["permissions"]["deny"])
+        # gh api は丸ごと（-X・-f・--field・graphql がパスの後ろに来ても拾えるように）。ほかの書き込みの語も
+        for rule in ("Bash(gh api:*)", "Bash(gh pr comment:*)", "Bash(gh pr ready:*)", "Bash(gh pr reopen:*)",
+                     "Bash(gh pr checkout:*)", "Bash(gh issue edit:*)", "Bash(gh issue close:*)", "Bash(gh label:*)"):
+            self.assertIn(rule, s["permissions"]["deny"])
+        self.assertFalse([r for r in s["permissions"]["deny"] if r.startswith("Bash(gh api ")], "gh api の一部だけの規則は要らない")
         self.assertEqual(self.e.launches()[-1]["fence"]["no_post"], len(adapter.NO_POST_DENY))
         # 印に no-post の無い起動には足さない
         self.e.run(sdk_argv("works-node: pr-check"))
@@ -738,12 +784,14 @@ class StopCase(unittest.TestCase):
         self.e = Env(self)
         self.pidfile = self.e.tmp / "grandchild.pid"
 
-    def start(self, stay):
+    def start(self, stay, orphan=False):
         env = {k: v for k, v in os.environ.items() if not k.startswith("WORKS_")}
         env.update(WORKS_ADAPTER_HOME=str(self.e.home), WORKS_REAL_CLAUDE=str(FAKE), FAKE_CLAUDE_LOG=str(self.e.log),
                    FAKE_CLAUDE_GRANDCHILD=str(self.pidfile), PYTHONDONTWRITEBYTECODE="1")
         if stay:
             env["FAKE_CLAUDE_STAY"] = "1"
+        if orphan:
+            env["FAKE_CLAUDE_ORPHAN"] = "1"
         p = subprocess.Popen([str(ADAPTER), *sdk_argv("works-node: fix")], cwd=str(self.e.cwd), env=env,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         self.addCleanup(self._reap, p)
@@ -790,9 +838,28 @@ class StopCase(unittest.TestCase):
 
     def test_constants_come_from_tree_run(self):
         import tree_run
-        self.assertEqual(adapter.KILL_GRACE, tree_run.KILL_GRACE)
+        for name in ("KILL_GRACE", "POLL", "LINGER", "PS_TIMEOUT", "STOP_SIGNALS"):
+            self.assertEqual(getattr(adapter, name), getattr(tree_run, name), name)   # 値を 2 か所に書かない（M9）
         self.assertEqual(adapter.KILL_GRACE, 2)
-        self.assertLess(adapter.POLL + adapter.KILL_GRACE + adapter.LINGER, 5)
+        # tree_run の上限の勘定（信号に気づくまで POLL、SIGKILL まで KILL_GRACE + PS_TIMEOUT、抜けるまで LINGER）が
+        # Archon の cancel の猶予 5 秒より前
+        self.assertLess(adapter.POLL + adapter.KILL_GRACE + adapter.PS_TIMEOUT + adapter.LINGER, 5)
+
+    def test_stop_uses_tree_run(self):
+        # 止め方は tree_run.stop_group（数え上げ→送る→数え直し）。弱い写しを持たない（M4）
+        import inspect
+        src = inspect.getsource(adapter.supervise) + inspect.getsource(adapter._stop) + inspect.getsource(adapter.watch)
+        self.assertIn("tree_run.stop_group", src)
+        self.assertIn("tree_run._tree_members", src)
+        self.assertFalse(hasattr(adapter, "stop_all") or hasattr(adapter, "remember") or hasattr(adapter, "_ps"))
+
+    def test_orphan_in_claude_session_between_polls_killed(self):
+        # 見回りの間（POLL より短い間）に親が抜けて孤児になった孫も、claude のセッションに居れば拾う（M3・M4）。
+        # 孫は setpgid で別のグループ（本物の Bash の道具の形）、SIGTERM を無視、親はすぐ抜ける
+        p = self.start(stay=False, orphan=True)
+        rc = p.wait()
+        self.assertEqual(rc, 0, p.stderr.read())
+        self.assertTrue(gone(self.grandchild, 0.5), "見回りの間に孤児になった孫が残った")
 
 
 def git(cwd, *args):
@@ -816,7 +883,8 @@ class FenceCase(unittest.TestCase):
         self.board = self.e.tmp / "board"
         self.board.mkdir()
         # 切符（ticket.write の形。protected は start の時点で git から引いた物）
-        self.ticket_protected = [str(self.repo / ".git"), str(self.repo), str(self.board)]
+        # ticket.protected_paths と同じく、役の worktree の `<cwd>/.git`（gitdir を指すファイル）も守る場所に入る（I1）
+        self.ticket_protected = [str(self.repo / ".git"), str(self.repo), str(self.board), str(self.e.cwd / ".git")]
         t = adapter.ticket_path(self.e.cwd, self.e.home)
         t.parent.mkdir(parents=True)
         t.write_text(json.dumps({"run_id": "r1", "board": str(self.board), "cwd": str(self.e.cwd),
@@ -843,8 +911,12 @@ class FenceCase(unittest.TestCase):
         self.assertIn(str(self.board), dw)
         self.assertIn(pub, dw)
         self.assertEqual({k: v for k, v in s["sandbox"].items() if k != "filesystem"}, json.loads(SANDBOX)["sandbox"])
-        # 役の cwd の worktree 自身は守らない（役はそこに書く）
-        self.assertFalse(any(str(self.e.cwd) in r_ for r_ in deny), deny)
+        # 役の cwd の worktree 自身は守らない（役はそこに書く）。切符に在る cwd の中の `.git` は守る（I1）
+        self.assertNotIn(f"Edit(/{self.e.cwd})", deny)
+        self.assertNotIn(f"Edit(/{self.e.cwd}/**)", deny)
+        self.assertIn(f"Write(/{self.e.cwd}/.git)", deny)
+        self.assertIn(f"Edit(//var/{str(self.e.cwd)[len('/private/var/'):]}/.git/**)", deny)
+        self.assertIn(str(self.e.cwd / ".git"), dw)
         row = self.e.launches()[-1]
         self.assertGreater(row["fence"]["permissions_deny"], 0)
         self.assertGreater(row["fence"]["deny_write"], 0)
@@ -894,11 +966,22 @@ class FenceCase(unittest.TestCase):
         self.assertNotIn("filesystem", s["sandbox"])
         self.assertEqual(self.e.launches()[-1]["fence"], {"deny_write": 0, "permissions_deny": 0})
 
-    def test_broken_ticket_no_fence(self):
-        adapter.ticket_path(self.e.cwd, self.e.home).write_text('{"protected": ["relative/path"]}', encoding="utf-8")
-        r = self.e.run(sdk_argv("works-node: fix"))
+    def test_unreadable_ticket_fails_closed(self):
+        # 切符のファイルが在るのに読めない時、印のある起動は柵なしで起こさない（M1）
+        t = adapter.ticket_path(self.e.cwd, self.e.home)
+        for body in ('{"protected": ["relative/path"]}', "{not json", '{"protected": "x"}', "[]"):
+            with self.subTest(body):
+                t.write_text(body, encoding="utf-8")
+                r = self.e.run(sdk_argv("works-node: fix"))
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                self.assertIn("切符", r.stderr)
+                self.assertIsNone(self.e.child())
+        # 印の無い起動は切符に依らずそのまま
+        argv = sdk_argv(None)
+        r = self.e.run(argv)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertNotIn("permissions", self.settings())
+        self.assertEqual(self.e.child()["argv"], argv)
 
     def test_unmarked_launch_gets_no_fence(self):
         argv = sdk_argv(None)
@@ -974,6 +1057,12 @@ class DevWiringCase(unittest.TestCase):
         self.assertNotIn("claudeBinaryPath", config)
         self.assertEqual(seen["CLAUDE_BIN_PATH"], str(tmp / "fake-bin" / "claude"))
         self.assertIsNone(seen["WORKS_REAL_CLAUDE"])
+
+    def test_adapter_home_relative_refused(self):
+        r, config, seen, tmp = self._exec(WORKS_DEV_ADAPTER="1", WORKS_ADAPTER_HOME="rel/adapter")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("絶対パス", r.stderr)
+        self.assertIsNone(seen)
 
     def test_adapter_home_in_claude_tmp_refused(self):
         r, config, seen, tmp = self._exec(WORKS_DEV_ADAPTER="1", WORKS_ADAPTER_HOME="/private/tmp/claude-0/x")

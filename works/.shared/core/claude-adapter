@@ -10,7 +10,8 @@ SDK が組んだ argv に Read のフック・会話の継ぎ・起動ごとの�
 - 本物の claude: env の WORKS_REAL_CLAUDE（絶対パス）、無ければ PATH の実行ファイル `claude`（この包み自身は飛ばす）。
   見つからなければ 1 行を出して終了コード 127
 - 置き場: env の WORKS_ADAPTER_HOME（無ければ ${XDG_STATE_HOME:-~/.local/state}/works/adapter）。絶対パスでなければ 1 行を出して終了コード 2
-- continue=X の節で X の会話の id が無ければ、子を起こさずに 1 行を出して終了コード 3（fail closed）
+- 印のある起動で、continue=X の X の id が無い・印が読めない・--settings を混ぜられない・切符が読めない・会話の id を
+  記録できない時は、子を起こさずに 1 行を出して終了コード 3（fail closed）
 - 名前を .js で終わらせない（Archon は .js の実行ファイルを bun で起こして --no-env-file を足す）
 uv を通さない（Archon が直に起こす）。標準ライブラリだけ。
 """
@@ -58,7 +59,8 @@ def log_launch(home_dir, cwd, p):
 
 
 def protected(cwd, home_dir):
-    """守る場所。切符が無ければ柵を足さない（線の start が切符を書く前の起動・線の外の起動）"""
+    """守る場所。切符が無ければ柵を足さない（線の start が切符を書く前の起動・線の外の起動）。
+    切符のファイルが在るのに読めなければ adapter.BadTicket（plan が起動を拒む）"""
     doc = adapter.read_ticket(cwd, home_dir)
     if doc is None:
         return []
@@ -98,7 +100,18 @@ def main():
         try:
             write_id(path, sid)
         except OSError as e:
-            say(f"会話の id を記録できない（{path}: {e}）。この節の続きの節は起こせない")
+            # 記録できない会話で起こすと、続きの節（再審）が前の run・前の起動の古い id を継ぎうる。古い id は消しに行き、
+            # 起こさない（fail closed）
+            try:
+                os.unlink(str(path))
+            except OSError:
+                pass
+            p = p._replace(mode="refused", hook=False, record=[],
+                           why=f"works: 節 {p.node} を起こさない: 会話の id を記録できない（{path}: {e}）",
+                           session=dict(p.session or {}, mode="refused"))
+            log_launch(home_dir, cwd, p)
+            sys.stderr.write(p.why + "\n")
+            return 3
     if p.hook:
         try:
             os.makedirs(str(sink), mode=0o700, exist_ok=True)

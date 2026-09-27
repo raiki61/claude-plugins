@@ -180,7 +180,7 @@ def _name(members):
     return ", ".join(f"pid {m.pid}（pgid {m.pgid}・{m.stat}）" for m in list(members.values())[:5])
 
 
-def stop_group(p, first=signal.SIGTERM, born=None):
+def stop_group(p, first=signal.SIGTERM, born=None, known=None):
     """p（長）の木を止める。返すのは止め切れなかった理由（None なら止まった・居なかった）。本線 role_run._stop_tree の式
     （数え上げ→送る→数え直し）で、猶予は KILL_GRACE、送る列は (first と SIGTERM) → SIGKILL:
     回ごとに仲間を数え上げ、生きた仲間が居なければ戻る。居れば、生きた仲間が属するグループのうち長が仲間のグループと
@@ -190,7 +190,9 @@ def stop_group(p, first=signal.SIGTERM, born=None):
     1 度でも表を読めなければ、以後の回は ps を起こさずに直ちに送る——送り先は p のグループと、前の回に数えて待ち終えても
     消えたのを見ていない仲間（番号は同じ相手のまま）。これで SIGKILL は止め始めから KILL_GRACE + PS_TIMEOUT 秒の内に出る
     （＋殻が信号に気づくまでの POLL。Archon の cancel の 5 秒より前）。表を読めなかった回は、外へ出た子孫を確かめていないと返す。
-    born は長の番号の再利用の目印で、長を回収した後にだけ効かせる（回収していない子の番号は再利用されない）"""
+    born は長の番号の再利用の目印で、長を回収した後にだけ効かせる（回収していない子の番号は再利用されない）。
+    known は呼ぶ側が前に数えた仲間 {pid: 開始時刻}（_tree_members の known。Claude の包みが走る間の見回りで溜めた物。
+    同じ辞書に数えた仲間を足していく）。省けば空から数える"""
     t0 = time.monotonic()
 
     def wait(done, end):
@@ -207,7 +209,8 @@ def stop_group(p, first=signal.SIGTERM, born=None):
             return not pids and not (group and _answers(os.killpg, p.pid))
         return done
 
-    known, blind, pending = {}, None, set()   # blind: 表を読めなかった理由（以後は ps を起こさない）
+    known = {} if known is None else known
+    blind, pending = None, set()   # blind: 表を読めなかった理由（以後は ps を起こさない）
     for i, sigs in enumerate(((first, signal.SIGTERM), (signal.SIGKILL,), ())):   # 空の回は送らずに数え直して判定だけ
         sigs = tuple(dict.fromkeys(sigs))
         end = t0 + KILL_GRACE if i == 0 else None

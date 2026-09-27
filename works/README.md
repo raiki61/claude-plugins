@@ -53,13 +53,14 @@ archon plugin install raiki61/claude-plugins/works@<tag>
 - 読んだ記録は `<家>/reads/<cwd の hash>/reads.jsonl` に、ファイルの sha と部分読みかを 1 行ずつ書く。形は graphloops のままなので engine の `hook_evidence` がそのまま読む。Claude の子の env には `ARTIFACTS_DIR` が来ないので、run は cwd（Archon が run ごとに切る worktree）で分ける。
 - 判定役（`works-node: judge`）は、包みが `--session-id=<uuid>` を足して起こし、id を `<家>/sessions/<cwd の hash>/judge.id` に書く。SDK が自分で `--resume`・`--session-id` を付けた起動はその id を記録する。
 - 再審（`works-node: rejudge continue=judge`。YAML の節は `context: fresh`）は、SDK の会話の旗を外して `--resume <judge の id>` で起こす（fork しない）。id が無ければ子を起こさず、1 行を出して終了コード 3 で止まる。ただし Archon はこれを落ちた起動として約 12 回起こし直すので、先に script の節で id が在るかを見る。再開した節の費用の表示は判定役の分を重ねて数える（SDK の `total_cost_usd` が累積のため）。
-- 見分けられない形（`--settings`・`--json-schema` が 2 つ、読めない JSON）は足さずに素通しし、stderr に警告を 1 行出す。印が読めて `--settings` だけが見分けられない時も、会話の継ぎは行う。
-- 印の跡（`works-node:`）が在るのに読めない起動（知らない旗・大文字・余分な空白・印を持つ `--json-schema` が 2 つ）は素通しせず、claude を起こさずに 1 行を出して終了コード 3 で止まる（黙って新しい会話で再審させず、柵を落とさない）。印の文法は `node_marker.parse` と同じ。
-- 印に `no-post` を持つ起動（並行 PR の任せ先の役）は、`permissions.deny` に `gh` の書き込みの語（`gh pr comment` ほか 10 個）を足す。
+- 印の無い起動で見分けられない形（`--json-schema` が 2 つ、読めない JSON）は、足さずに素通しし、stderr に警告を 1 行出す。
+- 印のある起動は柵なしで起こさない: `--settings` を読めない・混ぜられない、切符のファイルが在るのに読めない、会話の id を記録できない時は、claude を起こさずに 1 行を出して終了コード 3 で止まる。
+- 印の跡（`works-node:`）が `--json-schema` のどこかに在るのに、一番上の `description` の印として読めない起動（知らない旗・大文字・余分な空白・入れ子の `description`・印を持つ `--json-schema` が 2 つ・壊れた JSON）は素通しせず、claude を起こさずに 1 行を出して終了コード 3 で止まる（黙って新しい会話で再審させず、柵を落とさない）。印の文法は `node_marker.parse` と同じ。
+- 印に `no-post` を持つ起動（並行 PR の任せ先の役）は、`permissions.deny` に `gh` の書き込みの語を足す（`gh api` は丸ごと。ほかに `gh pr comment`・`review`・`edit`・`create`・`close`・`merge`・`ready`・`reopen`・`checkout`、`gh issue comment`・`create`・`edit`・`close`、`gh label`）。
 - SDK が `--resume <id> --fork-session` で継ぐ起動（Archon が輪の中の節を続ける形）は、新しい会話の id が argv に出ないので、包みが `--session-id=<uuid>` を足してその id を記録する（元の id を記録すると、後の再審が古い会話を継ぐ）。
-- 柵（線の `start` が切符 `<家>/tickets/<cwd の hash>.json` を書いた run だけ）: 切符の守る場所（共通の `.git`・ほかの worktree・盤面など）に、起動の時に引き直す `CLAUDE_CONFIG_DIR` と `git worktree list` の今の worktree を足し、`/var` と `/private/var`・`/tmp` と `/private/tmp` の両方の綴りで `permissions.deny`（`Edit(//<場所>/**)`・`Write(…)`）に足す。これで Bash・Edit・Write が止まる。SDK が sandbox の塊を渡した起動は `sandbox.filesystem.denyWrite` にも足す（これだけでは Bash しか止まらない）。役の cwd の worktree 自身は守らない。
+- 柵（線の `start` が切符 `<家>/tickets/<cwd の hash>.json` を書いた run だけ）: 切符の守る場所（共通の `.git`・ほかの worktree・盤面など）に、起動の時に引き直す `CLAUDE_CONFIG_DIR` と `git worktree list` の今の worktree を足し、`/var` と `/private/var`・`/tmp` と `/private/tmp` の両方の綴りで `permissions.deny`（`Edit(//<場所>/**)`・`Write(…)`）に足す。これで Bash・Edit・Write が止まる。SDK が sandbox の塊を渡した起動は `sandbox.filesystem.denyWrite` にも足す（これだけでは Bash しか止まらない）。役の cwd の worktree 自身は守らない（切符に在る `<cwd>/.git` は守る）。
 - 起動ごとに `<家>/launches/<cwd の hash>.jsonl` に 1 行（時刻 `at`・節の名・足したか・柵の数・会話の id と継ぎ方と元の id `from`）を書く。引数の本文は書かない。再審の前の確かめは `adapter.session_path`・`adapter.last_launch` でこれを読む。
-- 本物の claude は子として新しいセッションで起こす（標準入出力は継がせ、終了コードは子のまま）。走っている間は 0.2 秒ごとに子孫のプロセスグループを覚え、SIGINT・SIGTERM・SIGHUP を受けた時と claude が終わった後に、その全部へ TERM → 2 秒 → KILL を送る（claude の Bash の道具はコマンドを別のグループで走らせるので、claude だけを止めると SIGTERM を無視する孫が残る）。信号で止めた時は 1 秒待ってから抜ける（すぐ抜けると Archon の run が running のまま固まる）。合わせて 5 秒（Archon の cancel の猶予）より前に抜ける。
+- 本物の claude は子として新しいセッションで起こす（標準入出力は継がせ、終了コードは子のまま）。走っている間は 0.2 秒ごとに木の仲間（グループ・セッション・親子の鎖。開始時刻で番号の再利用を見分ける）を数えて溜め、SIGINT・SIGTERM・SIGHUP を受けた時と claude が終わった後に、`tree_run.stop_group`（数え上げ→送る→数え直し。TERM → 2 秒 → KILL）で溜めた仲間ごと止める（claude の Bash の道具はコマンドを別のグループで走らせるので、claude だけを止めると SIGTERM を無視する孫が残る）。信号で止めた時は 1 秒待ってから抜ける（すぐ抜けると Archon の run が running のまま固まる）。上限の勘定は tree_run と同じで、Archon の cancel の猶予 5 秒より前に抜ける。
 - 名前は `.js` で終わらせない（Archon が `.js` の実行ファイルに `--no-env-file` を足すため）。
 - 版上げで壊れうる所（今は壊れていない）: SDK が `--json-schema` の渡し方・`--resume` の綴り・`--settings` の位置を変える、Claude がフックの入力の形を変える。版を上げたら `tests/adapter/argv/` の実物の argv を取り直す。
 

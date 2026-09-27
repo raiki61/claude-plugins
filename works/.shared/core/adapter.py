@@ -28,19 +28,21 @@ resume-probe-summary.md・probes-p14-p15-summary.md・trackB-probes-wave2.md の
    どちらも SDK の配列の後ろに足し、SDK の項目は消さない。
 
 4. **木ごと止める**: 本物の claude は exec せずに子として新しいセッションで起こし（標準入出力は継ぐ）、走っている間
-   POLL 秒ごとに子孫（ppid を辿る）の pid とプロセスグループを覚える。claude の Bash の道具はコマンドを claude と別の
-   グループで走らせるので、claude のグループへ送るだけでは孫に届かない（試し P15: SIGTERM を無視する孫が Ctrl-C でも
-   cancel でも残った）。SIGINT・SIGTERM・SIGHUP を受けた時（か直下の親が替わった時）と claude が終わった後に、覚えた
-   仲間のうちまだ居る物のグループ全部へ TERM → KILL_GRACE（2 秒）→ KILL を送る。信号で止めた時は LINGER（1 秒）待って
-   から 128+信号で抜ける（すぐ死ぬと Archon の run が running のまま固まる。試し P17）。上限は 0.2 + 2 + 1 秒余りで、
-   Archon の cancel の猶予 5 秒より前。限界: 2 回の見回りの間に生まれて孤児になった物は拾えない
+   POLL 秒ごとに木の仲間（tree_run._tree_members: グループ・セッションの番号・親子の鎖・前に数えた物。開始時刻で番号の
+   再利用を見分ける）を数えて溜める。claude の Bash の道具はコマンドを claude と別のグループで走らせるので、claude の
+   グループへ送るだけでは孫に届かない（試し P15: SIGTERM を無視する孫が Ctrl-C でも cancel でも残った）。
+   SIGINT・SIGTERM・SIGHUP を受けた時（か直下の親が替わった時）と claude が終わった後に、溜めた仲間ごと
+   tree_run.stop_group（数え上げ→送る→数え直し。TERM → KILL_GRACE → KILL）で止める。信号で止めた時は LINGER 待ってから
+   128+信号で抜ける（すぐ死ぬと Archon の run が running のまま固まる。試し P17）。上限は tree_run と同じ勘定。
 5. **印 no-post**（並行 PR の任せ先の役）: permissions.deny に gh の書き込みの語（NO_POST_DENY）を足す（切符に依らない）。
+6. **印のある起動は柵なしで起こさない**: --settings を読めない・混ぜられない、切符のファイルが在るのに読めない、
+   会話の id を記録できない時は、claude を起こさずに 1 行を出して止まる（fail closed）。
 
 印の無い起動（Archon の題の生成＝`--tools ""` の起動など）は argv を 1 バイトも変えない。見分けられない形
-（`--json-schema` や `--settings` が 2 つ・読めない JSON・値の無い旗）は足さずに素通しし、警告を 1 行出す。
-ただし印が読めて `--settings` だけが見分けられない時も、会話の継ぎは行う（継がずに再審すると黙って別の目になる）。
-印の跡（`works-node:`）が在るのに読めない起動（知らない旗・大文字・余分な空白・印を持つ --json-schema が 2 つ など）は
-素通しせず、claude を起こさずに 1 行を出して止まる（黙って新しい会話で再審させず、no-post の柵を落とさない）。
+（印の跡の無い `--json-schema` が 2 つ・読めない JSON・値の無い旗）は足さずに素通しし、警告を 1 行出す。
+印の跡（`works-node:`）が --json-schema のどこかに在るのに一番上の description の印として読めない起動（知らない旗・
+大文字・余分な空白・入れ子の description・印を持つ --json-schema が 2 つ・壊れた JSON）は、JSON として読めても
+読めなくても同じ規則で素通しせず、claude を起こさずに 1 行を出して止まる（黙って新しい会話で再審させず、柵を落とさない）。
 
 置き場（包みの家）は env の `WORKS_ADAPTER_HOME`（無ければ `${XDG_STATE_HOME:-~/.local/state}/works/adapter`。切符と同じ）。Claude の子の env には
 ARTIFACTS_DIR が来ないので、run の区別は cwd（Archon が run ごとに切る worktree）の realpath の sha256 の先頭 16 字で付ける:
@@ -77,9 +79,13 @@ SESSION_BARE_FLAGS = ("--fork-session", "--continue", "-c")
 _NAME_RE = re.compile(r"[a-z0-9-]+")   # node_marker._NAME と同じ
 FLAGS = ("no-post",)                   # node_marker.FLAGS と同じ。no-post: gh の書き込みの語を柵に足す（仕様 3.8）
 # no-post の起動の permissions.deny に足す gh の書き込みの語（計画 Task 5 の NO_POST_DENY）
-NO_POST_DENY = ("Bash(gh pr comment:*)", "Bash(gh pr review:*)", "Bash(gh pr edit:*)", "Bash(gh pr create:*)",
-                "Bash(gh pr close:*)", "Bash(gh pr merge:*)", "Bash(gh issue comment:*)", "Bash(gh issue create:*)",
-                "Bash(gh api -X:*)", "Bash(gh api --method:*)")
+# gh api は丸ごと拒む（-X・-f・--field・graphql がパスの後ろのどこに来ても前方一致の規則では拾えないため）
+NO_POST_DENY = ("Bash(gh api:*)",
+                "Bash(gh pr comment:*)", "Bash(gh pr review:*)", "Bash(gh pr edit:*)", "Bash(gh pr create:*)",
+                "Bash(gh pr close:*)", "Bash(gh pr merge:*)", "Bash(gh pr ready:*)", "Bash(gh pr reopen:*)",
+                "Bash(gh pr checkout:*)",
+                "Bash(gh issue comment:*)", "Bash(gh issue create:*)", "Bash(gh issue edit:*)", "Bash(gh issue close:*)",
+                "Bash(gh label:*)")
 _ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 
 
@@ -161,28 +167,32 @@ def find_opt(argv: Sequence[str], name: str) -> List[Tuple[int, int, str, bool]]
 
 
 def marker_from_argv(argv: Sequence[str]) -> Optional[Marker]:
-    """argv の --json-schema から印を読む。無ければ None。見分けられない形は Unrecognised（素通し）、
-    印の跡（`works-node:`）が在るのに読めなければ BadMarker（止める。黙って新しい会話で再審させない）"""
+    """argv の --json-schema から印を読む。規則は JSON として読めても読めなくても 1 つ:
+    一番上の description が印として読めればその印。読めず、--json-schema の本文のどこかに印の跡（`works-node:`）が
+    在れば BadMarker（止める）。跡が無ければ、--json-schema が無い・object なら None、形が見分けられなければ Unrecognised"""
     try:
         found = find_opt(argv, "--json-schema")
     except Unrecognised:
         raise Unrecognised("--json-schema に値が無い") from None
     if not found:
         return None
+    traced = any(MARK_PREFIX in v for _, _, v, _ in found)
     if len(found) > 1:
-        if any(MARK_PREFIX in v for _, _, v, _ in found):
-            raise BadMarker("--json-schema が 2 つ以上あり、印を持つ")
+        if traced:
+            raise BadMarker("--json-schema が 2 つ以上あり、印の跡を持つ")
         raise Unrecognised("--json-schema が 2 つ以上")
-    text = found[0][2]
     try:
-        schema = json.loads(text)
+        schema = json.loads(found[0][2])
     except ValueError:
         schema = None
+    marker = parse_marker(schema.get("description")) if isinstance(schema, dict) else None   # 崩れた印は BadMarker
+    if marker is not None:
+        return marker
+    if traced:
+        raise BadMarker("--json-schema に印の跡が在るのに、一番上の description の印として読めない")
     if not isinstance(schema, dict):
-        if MARK_PREFIX in text:
-            raise BadMarker("--json-schema が JSON の object として読めないのに印の跡を持つ")
         raise Unrecognised("--json-schema が JSON の object として読めない")
-    return parse_marker(schema.get("description"))
+    return None
 
 
 def home(env=None) -> pathlib.Path:
@@ -335,16 +345,23 @@ def ticket_path(cwd, home_dir=None) -> pathlib.Path:
     return _home_or(home_dir) / "tickets" / f"{cwd_key(cwd)}.json"
 
 
+class BadTicket(Exception):
+    """切符のファイルが在るのに読めない（印のある起動は柵なしで起こさない）"""
+
+
 def read_ticket(cwd, home_dir=None) -> Optional[dict]:
     """切符（ticket.read の代わりの薄い口。枝 wip/works-a4 の ticket.py と同じファイルを読む）。
-    無い・読めない・object でない・protected が文字列の配列でなければ None"""
-    try:
-        doc = json.loads(ticket_path(cwd, home_dir).read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeDecodeError):
+    ファイルが無ければ None。在るのに読めない・object でない・protected が絶対パスの文字列の配列でなければ BadTicket"""
+    path = ticket_path(cwd, home_dir)
+    if not os.path.lexists(str(path)):
         return None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        raise BadTicket(f"切符が読めない: {path}（{e}）") from None
     if not isinstance(doc, dict) or not isinstance(doc.get("protected"), list) \
             or not all(isinstance(p, str) and os.path.isabs(p) for p in doc["protected"]):
-        return None
+        raise BadTicket(f"切符の形が違う（protected は絶対パスの配列）: {path}")
     return doc
 
 
@@ -382,17 +399,14 @@ def live_worktrees(cwd) -> List[str]:
 
 def protected_now(ticket_doc: dict, cwd, env, worktrees: Sequence[str]) -> List[str]:
     """この起動で守る場所: 切符の protected ＋ 起動の env の CLAUDE_CONFIG_DIR ＋ 今の worktree。全部の綴りで。
-    役の cwd の worktree 自身とその中は外す（役はそこに書く）"""
+    切符の項はそのまま写す（役の worktree の `<cwd>/.git` のように cwd の中の物も守る。何を守るかは ticket.py が決める）。
+    worktrees は live_worktrees の値で、役の cwd の worktree 自身は既に外してある"""
     places = list(ticket_doc.get("protected") or [])
     if env.get("CLAUDE_CONFIG_DIR"):
         places.append(os.path.abspath(env["CLAUDE_CONFIG_DIR"]))
     places += list(worktrees)
-    mine = os.path.realpath(str(cwd))
     out, seen = [], set()
     for p in places:
-        real = os.path.realpath(p)
-        if real == mine or real.startswith(mine + os.sep):
-            continue
         for s in spellings(p):
             if s not in seen:
                 seen.add(s)
@@ -472,7 +486,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
          new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
          protected: Optional[Callable[[], Sequence[str]]] = None) -> Plan:
     """argv をどう直すかを決める（ファイルは id の読みと --settings のファイルの読みだけ。書かない）。
-    protected は守る場所を返す関数（フックを足す起動でだけ呼ぶ。切符が無ければ空を返す）"""
+    protected は守る場所を返す関数（印のある起動でだけ呼ぶ。切符が無ければ空、在るのに読めなければ BadTicket）"""
     argv = list(argv)
     tools_empty = _tools_empty(argv)
     try:
@@ -504,7 +518,7 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             resumed = find_opt(argv, "--resume")
             given = find_opt(argv, "--session-id")
         except Unrecognised as e:
-            return Plan(argv, "passthrough", str(e), True, node, cont, False, tools_empty, None, [])
+            return _refuse(argv, node, cont, tools_empty, f"会話の旗が見分けられない（{e}）")
         src = resumed[-1][2] if resumed else None
         if given:
             sid, mode = given[-1][2], "sdk-fork" if src and "--fork-session" in argv else "sdk-session"
@@ -521,122 +535,80 @@ def plan(argv: Sequence[str], cwd, home_dir, command: str,
             session["from"] = src
     record.append((session_path(cwd, node, home_dir), sid))
 
-    # 2. Read のフック
+    # 2. Read のフックと柵。印のある起動は、柵を足せなければ起こさない（fail closed）
     try:
-        out, fence = _with_hook(out, command, protected() if protected else [], "no-post" in marker.flags)
-    except Unrecognised as e:
-        return Plan(out, "passthrough", str(e), True, node, cont, False, tools_empty, session, record)
+        places = protected() if protected else []
+        out, fence = _with_hook(out, command, places, "no-post" in marker.flags)
+    except (Unrecognised, BadTicket) as e:
+        return _refuse(argv, node, cont, tools_empty, f"柵を足せない（{e}）")
     return Plan(out, "merged", None, False, node, cont, True, tools_empty, session, record, fence)
 
 
+def _refuse(argv, node, cont, tools_empty, why) -> Plan:
+    session = {"mode": "refused", "id": None}
+    if cont:
+        session["of"] = cont
+    return Plan(list(argv), "refused", f"works: 節 {node} を起こさない: {why}", True, node, cont, False, tools_empty,
+                session, [])
+
+
 # --- 木ごと止める（試し P15 の直しの形。scratchpad/probes-p14-p15-summary.md） ------------------------------------
-KILL_GRACE = tree_run.KILL_GRACE                  # 2 秒（台帳 R31）。新しい値を作らない
-POLL = tree_run.POLL                              # 0.2 秒
+# 止め方は tree_run（本流 role_run と同じ数え上げ→送る→数え直し）をそのまま使う。包みが足すのは、走っている間の見回りで
+# 仲間（{pid: 開始時刻}）を溜めて stop_group に渡すことだけ（claude が先に抜けて親子の鎖が切れた孫も拾うため）
+KILL_GRACE = tree_run.KILL_GRACE      # 2 秒（台帳 R31）
+POLL = tree_run.POLL                  # 0.2 秒
+LINGER = tree_run.LINGER              # 1 秒（試し P17）
+PS_TIMEOUT = tree_run.PS_TIMEOUT      # 1 秒
 STOP_SIGNALS = tree_run.STOP_SIGNALS
-LINGER = getattr(tree_run, "LINGER", 1.0)         # 枝 wip/works-treerun の tree_run.LINGER（試し P17）と同じ値
 
 
-def _ps() -> Optional[List[Tuple[int, int, int]]]:
-    """全プロセスの (pid, ppid, pgid)。読めなければ None"""
-    try:
-        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], stdin=subprocess.DEVNULL, capture_output=True,
-                             text=True).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
-    rows = []
-    for line in out.splitlines():
-        f = line.split()
-        if len(f) == 3 and all(x.isdigit() for x in f):
-            rows.append((int(f[0]), int(f[1]), int(f[2])))
-    return rows or None
+def watch(p: subprocess.Popen, known: Dict[int, float], born: float) -> None:
+    """claude（p）の木の仲間を数えて known に足す（tree_run._tree_members。グループ・セッション・親子の鎖・前に数えた物）"""
+    members, _ = tree_run._tree_members(p.pid, known, born if p.poll() is not None else None)
+    if members:
+        known.update({pid: m.started for pid, m in members.items()})
 
 
-def remember(root: int, seen: Dict[int, int]) -> None:
-    """root の子孫（ppid を辿る。root を含む）の {pid: pgid} を seen に足す。自分（包み）は数えない"""
-    rows = _ps()
-    if rows is None:
-        return
-    fam, grew = {root}, True
-    while grew:
-        grew = False
-        for pid, ppid, _ in rows:
-            if ppid in fam and pid not in fam:
-                fam.add(pid)
-                grew = True
-    for pid, _, pgid in rows:
-        if pid in fam and pid != os.getpid():
-            seen[pid] = pgid
-
-
-def _groups_alive(root: int, seen: Dict[int, int]) -> List[int]:
-    """覚えた仲間のうち、今も同じ pid・同じグループで居る物のグループ（番号の再利用で他人を撃たない）と root のグループ"""
-    rows = _ps() or []
-    now = {pid: pgid for pid, _, pgid in rows}
-    groups = {pgid for pid, pgid in seen.items() if now.get(pid) == pgid}
-    groups.add(root)
-    return sorted(groups)
-
-
-def _alive(pgid: int) -> bool:
-    try:
-        os.killpg(pgid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-
-
-def stop_all(p: subprocess.Popen, seen: Dict[int, int], first: int = signal.SIGTERM) -> None:
-    """覚えた仲間のグループ全部へ (first と SIGTERM) → KILL_GRACE → SIGKILL"""
-    if p.poll() is None:
-        remember(p.pid, seen)
-    groups = _groups_alive(p.pid, seen)
-    for sig in dict.fromkeys((first, signal.SIGTERM)):
-        for g in groups:
-            try:
-                os.killpg(g, sig)
-            except OSError:
-                pass
-    end = time.monotonic() + KILL_GRACE
-    while time.monotonic() < end and any(_alive(g) for g in groups):
-        p.poll()
-        time.sleep(0.05)
-    for g in groups:
-        try:
-            os.killpg(g, signal.SIGKILL)
-        except OSError:
-            pass
-    p.poll()
+def _stop(p, known, born, first=signal.SIGTERM) -> None:
+    why = tree_run.stop_group(p, first, born, known)
+    if why:
+        sys.stderr.write(f"works claude-adapter: 木を止め切れない: {why}\n")
 
 
 def supervise(argv: Sequence[str]) -> int:
     """argv（本物の claude と引数）を新しいセッションで起こして待ち、終了コードを返す（信号で死んだら 128+信号）。
-    止める信号を受けたか直下の親が替わったら木ごと止め、LINGER 待って 128+信号（親の替わりは SIGHUP）を返す"""
+    待つ間は POLL ごとに仲間を数えて溜める。止める信号を受けたか直下の親が替わったら、溜めた仲間ごと木を止め
+    （tree_run.stop_group）、LINGER 待って 128+信号（親の替わりは SIGHUP）を返す。claude が自分で終わった後も
+    残った仲間を止める。上限の勘定は tree_run と同じ（信号に気づくまで POLL、SIGKILL まで KILL_GRACE + PS_TIMEOUT、
+    抜けるまで LINGER）。ただし見回りの ps の最中に届いた信号は、その ps が返るまで気づかない（ps が固まれば +PS_TIMEOUT）"""
     got: List[int] = []
     old = {s: signal.signal(s, lambda signum, _f: got.append(signum)) for s in STOP_SIGNALS}
     ppid = os.getppid()
-    seen: Dict[int, int] = {}
+    known: Dict[int, float] = {}
+    born = time.time()
     p = subprocess.Popen(list(argv), start_new_session=True)
+    stopped = False
     try:
         while True:
             if got or os.getppid() != ppid:
                 signum = got[0] if got else signal.SIGHUP
-                stop_all(p, seen, signum)
+                _stop(p, known, born, signum)
+                stopped = True
                 time.sleep(LINGER)
                 return 128 + signum
             try:
                 rc = p.wait(POLL)
                 break
             except subprocess.TimeoutExpired:
-                remember(p.pid, seen)
-        stop_all(p, seen)       # claude が背景に残した孫（Bash の道具の別のグループ）
+                watch(p, known, born)
+        _stop(p, known, born)      # claude が残した孫（Bash の道具の別のグループ・別のセッション）
+        stopped = True
         if got:
             time.sleep(LINGER)
             return 128 + got[0]
         return rc if rc >= 0 else 128 - rc
     finally:
-        if p.poll() is None:
-            stop_all(p, seen)
+        if not stopped:
+            _stop(p, known, born)
         for s, h in old.items():
             signal.signal(s, h)

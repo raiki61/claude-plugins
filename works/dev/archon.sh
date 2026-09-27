@@ -27,6 +27,14 @@ case "${WORKS_DEV_ADAPTER:-}" in
   "" | 0) WORKS_DEV_ADAPTER="" ;;
   1)
     WORKS_ADAPTER_HOME="${WORKS_ADAPTER_HOME:-$WORKS_DEV_HOME/adapter}"
+    case "$WORKS_ADAPTER_HOME" in
+      /*) ;;
+      *)
+        # 相対だと包みは起動ごとに止まり、Archon が起こし直しを繰り返す。殻で先に拒む
+        echo "archon.sh: WORKS_ADAPTER_HOME は絶対パスにする（受けた値: ${WORKS_ADAPTER_HOME}）" >&2
+        exit 2
+        ;;
+    esac
     works_dev_refuse_claude_tmp archon.sh "WORKS_ADAPTER_HOME" "$WORKS_ADAPTER_HOME"
     ;;
   *)

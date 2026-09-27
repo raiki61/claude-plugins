@@ -9,6 +9,8 @@ $FAKE_CLAUDE_GRANDCHILD（pid を書くファイル）を渡すと、本物の c
 - 孫は新しいセッション（＝別のプロセスグループ）で走る `bash -c "trap '' INT TERM HUP; sleep 600"`（SIGTERM を無視する）
 - SIGTERM・SIGINT を受けたら孫へ SIGTERM だけを送って即抜ける（143・130。SIGKILL へは上げない）
 - $FAKE_CLAUDE_STAY=1 なら信号まで待つ。無ければ 1 秒待って（包みが見回る間）孫を残したまま普通に終わる
+$FAKE_CLAUDE_ORPHAN=1 を足すと、孫は中継ぎの子から setpgid で別のグループ（セッションは claude のまま）に出て、
+中継ぎはすぐ抜ける（見回りの間に孤児になる孫。SIGTERM・SIGINT・SIGHUP を無視する）
 """
 import json
 import os
@@ -30,7 +32,24 @@ with open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8") as f:
     f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 pidfile = os.environ.get("FAKE_CLAUDE_GRANDCHILD")
-if pidfile:
+if pidfile and os.environ.get("FAKE_CLAUDE_ORPHAN") == "1":
+    # 中継ぎの子が、setpgid で別のグループ（セッションは claude のまま）に出た孫を起こしてすぐ抜ける。
+    # 孫は親 1 の孤児になる。包みの見回り（0.2 秒ごと）より先に起きるので、親子の鎖では拾えない
+    mid = os.fork()
+    if mid == 0:
+        kid = os.fork()
+        if kid == 0:
+            os.setpgid(0, 0)
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                signal.signal(sig, signal.SIG_IGN)
+            os.execvp("sleep", ["sleep", "600"])
+        with open(pidfile + ".tmp", "w", encoding="utf-8") as f:
+            f.write(f"{kid}\n")
+        os.replace(pidfile + ".tmp", pidfile)
+        os._exit(0)
+    os.waitpid(mid, 0)
+    time.sleep(0.5)   # claude はまだ走る（包みの見回りが回る。孫は既に孤児）
+elif pidfile:
     child = subprocess.Popen(["bash", "-c", "trap '' INT TERM HUP; sleep 600"], start_new_session=True,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
