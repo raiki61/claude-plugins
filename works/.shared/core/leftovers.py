@@ -24,10 +24,12 @@ class Unreadable(Exception):
     pass
 
 
-def git(repo, *args, text=True):
-    """repo を cwd にして git <args> を呼び、標準出力を返す（text なら文字列、でなければ bytes）。呼べない・失敗は Unreadable"""
+def git(repo, *args, text=True, env=None):
+    """repo を cwd にして git <args> を呼び、標準出力を返す（text なら文字列、でなければ bytes）。呼べない・失敗は Unreadable。
+    env は子の環境を丸ごと替える（一時の index を GIT_INDEX_FILE で渡すなど。None はこのプロセスの環境のまま）"""
     try:
-        r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT)
+        r = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
+                           env=env)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise Unreadable(f"git {' '.join(args)} を呼べない（{type(e).__name__}: {e}）")
     if r.returncode != 0:

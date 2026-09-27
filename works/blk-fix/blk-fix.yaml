@@ -1,7 +1,10 @@
 name: blk-fix
 description: |
   修正のブロック（support workflow。ラインから include で使う）。
-  修正役の前に git が無視するファイルを控え（ignored-before）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix）、
+  修正役の前に git が無視するファイルを控え（ignored-before）、テストの実行器（入力 tdd_suite）が在る run だけ単位ごとの
+  TDD の輪を回し（tdd-start → tdd-loop。振り分け → 単位ごとにテスト・赤（機械）・直し・緑（機械）・整え・確かめ直し（機械）。
+  実行器が無い run は輪を飛ばし、今と同じに動く）、判定のブロックが受け付けた根本の単位を修正役に直させ（fix。輪で直した単位は
+  changes に行を書くだけ）、
   返答を写した規則で受け付け（fix-accept。拒めば理由を貼って同じ会話で出し直し、上限 3 回）、修正役が残した git が
   無視するファイル（テストを回して出来た __pycache__ など）のうち控えに無かった物だけを消し（clean。後のテストの節を
   生成物の無い木で回す）、申告したファイルが実際に変わったかを確かめ（assert-changed。何も変えずに済んだと言えば
@@ -27,6 +30,12 @@ inputs:
   policy_path:
     default: ""
     description: 人の方針の文書（盤面が固めた写し）のパス。空は方針の無い run
+  tdd_suite:
+    default: ""
+    description: |
+      テストの実行器（JUnit XML の書き先を第 1 引数に受け、リポジトリの根で走る実行ファイル。本線の tdd_suite と同じ約束。
+      相対なら対象リポジトリの根から）。空は実行器の無い run で、TDD の輪を飛ばして全部の単位を今どおり直す。
+      実行器を探して決めるのはラインの start（設計 6 節）で、ここはその結果を受けるだけ
 
 returns: collect
 outcome_field: ok
@@ -45,8 +54,108 @@ nodes:
         count: {type: integer, minimum: 0}
         file: {type: string}
 
-  - id: fix-loop
+  # TDD の輪の頭。実行器が無ければ何も書かずに go: false（輪は飛ぶ）。在れば一式を 1 回走らせて元の結末を取る
+  - id: tdd-start
+    script: tdd_start
+    runtime: uv
     depends_on: [ignored-before]
+    timeout: 1728000000
+    with:
+      tdd_suite: $INPUTS.tdd_suite
+      open_units: $INPUTS.open_units
+    output_format:
+      type: object
+      additionalProperties: false
+      required: [go, reason, suite, state_file, summary_file]
+      properties:
+        go: {type: boolean}
+        reason: {type: string}
+        suite: {type: string}
+        state_file: {type: string}     # 輪の状態（盤面の tdd-<k>/state.json）。go: false なら空
+        summary_file: {type: string}   # 輪の結果（修正役が読む）。go: false なら空
+
+  # 単位ごとの TDD の輪（設計 2 節 3・案 (i)。graph は変えない）。役 tdd は輪のただ 1 つの AI の節（TA13）で、振り分け・
+  # テスト・直し・整えを同じ会話で返す（C17）。赤・緑は tdd-step が写しの red_problems・green_problems で決める。
+  # 拒否の理由は tdd-prep が次の指示書に書く（$LOOP_PREV で貼らない。R44）。段ごとに 3 回目の拒否で諦め（その単位は direct）、
+  # 実行器が走らない・回数が max_iterations に届く周では残りを direct にして done を立てる（max_iterations で落とさない。R50）
+  - id: tdd-loop
+    depends_on: [tdd-start]
+    when: "$tdd-start.output.go == true"
+    loop_group:
+      max_iterations: 40
+      fresh_context: false
+      until_bash: test $tdd-step.output.done = true
+      nodes:
+        - id: tdd-prep
+          script: tdd_prep
+          runtime: uv
+          timeout: 1728000000
+          with:
+            state_file: $tdd-start.output.state_file
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [prompt_file]
+            properties:
+              prompt_file: {type: string}
+
+        - id: tdd
+          command: tdd
+          depends_on: [tdd-prep]
+          settingSources: []          # 役に利用者・対象の CLAUDE.md を読ませない
+          allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
+          sandbox: {enabled: true, allowUnsandboxedCommands: false}
+          idle_timeout: 1728000000
+          output_format:
+            type: object
+            additionalProperties: false
+            required: [phase]
+            properties:
+              phase: {type: string, enum: [route, test, fix, refactor]}
+              units:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [unit_key, route]
+                  properties:
+                    unit_key: {type: string, minLength: 1}
+                    route: {type: string, enum: [tdd, direct]}
+                    why: {type: string}
+              unit_key: {type: string}
+              test_files:
+                type: array
+                items: {type: string}
+              tests:
+                type: array
+                items: {type: string}
+              direct_why: {type: string}
+              files:
+                type: array
+                items: {type: string}
+              what: {type: string}
+
+        - id: tdd-step
+          script: tdd_step
+          runtime: uv
+          depends_on: [tdd]
+          timeout: 1728000000
+          with:
+            reply: {from: "$tdd.output"}
+            state_file: $tdd-start.output.state_file
+          output_format:
+            type: object
+            required: [ok, done, reason, reason_file, phase]
+            properties:
+              ok: {type: boolean}
+              done: {type: boolean}
+              reason: {type: string}
+              reason_file: {type: string}
+              phase: {type: string}
+
+  - id: fix-loop
+    depends_on: [tdd-start, tdd-loop]
+    trigger_rule: none_failed_min_one_success   # 実行器の無い run は tdd-loop が飛ばされる
     loop_group:
       max_iterations: 3
       fresh_context: false
@@ -87,6 +196,7 @@ nodes:
           with:
             reply: {from: "$fix.output"}
             base_rev: $INPUTS.base_rev
+            tdd_state: $tdd-start.output.state_file   # 輪で凍ったテストのファイルを修正役が変えていないか（空は輪の無い run）
           output_format:
             type: object
             required: [ok, reason, reason_file, changes]
@@ -137,9 +247,10 @@ nodes:
       accepted: $fix-loop.output
       changed: {from: "$assert-changed.output"}
       cleaned: {from: "$clean.output"}
+      tdd: {from: "$tdd-start.output"}   # tdd-start はいつも走る（飛ばされない）
     output_format:
       type: object
-      required: [ok, files, changes_file, removed]
+      required: [ok, files, changes_file, removed, tdd]
       properties:
         ok: {type: boolean}
         files:
@@ -149,3 +260,6 @@ nodes:
         removed:
           type: array
           items: {type: string}
+        # TDD の輪の結果 {ran, suite, reason, units: [{unit_key, route, why, tests, test_files, red, green, refactor,
+        # gave_up, problems}]}。実行器の無い run は ran: false・units は空（tddloop.exit_fields）
+        tdd: {type: object}

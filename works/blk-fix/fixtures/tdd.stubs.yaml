@@ -1,0 +1,67 @@
+# 筋書き tdd: 実行器が在る run の配線だけを見る。tdd-start（stub）が go: true を返し、tdd-loop が 1 周で済む
+# （tdd-step の stub が done: true。until_bash で抜ける）。その後の fix-loop・clean・collect は pass と同じ stub。
+# 輪の中の赤・緑の確かめの実物は tests/test_blk_fix_tdd.py が種の git と小さな実行器で回す。
+tdd-start:
+  go: true
+  reason: ""
+  suite: suite.py
+  state_file: board/tdd-1/state.json
+  summary_file: board/tdd-1/summary.md
+tdd-prep:
+  prompt_file: board/tdd-1/next.md
+tdd:
+  phase: refactor
+  unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
+  what: 整える物は無い
+tdd-step:
+  ok: true
+  done: true
+  reason: ""
+  reason_file: ""
+  phase: done
+fix:
+  changes:
+    - unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
+      files: [stats.py]
+      what: "mean の分母を len(xs) に直した"
+    - unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
+      files: [stats.py]
+      what: "clamp の上限の枝で hi を返すように直した"
+fix-accept:
+  ok: true
+  reason: ""
+  reason_file: ""
+  changes:
+    - unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
+      files: [stats.py]
+      what: "mean の分母を len(xs) に直した"
+    - unit_key: "stats.py clamp: 上限を超えた値に lo を返す"
+      files: [stats.py]
+      what: "clamp の上限の枝で hi を返すように直した"
+assert-changed:
+  ok: true
+  files: [stats.py]
+collect:
+  ok: true
+  files: [stats.py]
+  changes_file: board/r<N>/changes.json
+  removed: []
+  fix_file: board/out/r<N>/p3.fix.json
+  not_done: 0
+  coverage: {}
+  reads_file: ""
+  tdd:
+    ran: true
+    suite: suite.py
+    reason: ""
+    units:
+      - {unit_key: "stats.py mean: 分母が len(xs) - 1 になっている", route: tdd, why: "", tests: ["test_stats.py::TestStats::test_mean_of_two"], test_files: [test_stats.py], red: ok, green: ok, refactor: none, gave_up: "", problems: []}
+      - {unit_key: "stats.py clamp: 上限を超えた値に lo を返す", route: direct, why: "試験のための direct の理由（10 字以上）", tests: [], test_files: [], red: "", green: "", refactor: "", gave_up: "", problems: []}
+fixture:
+  expect: completed
+  reached: [tdd-step, collect]
+  inputs:
+    judgment_file: board/judgment.json
+    tdd_suite: suite.py
+    open_units: '["stats.py mean: 分母が len(xs) - 1 になっている", "stats.py clamp: 上限を超えた値に lo を返す"]'
+exec-code: true

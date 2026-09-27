@@ -43,6 +43,9 @@ import linekit  # noqa: E402
 import node_marker  # noqa: E402
 
 DEADLINE = 1728000000
+# 実行器の無い run の tdd-start の出口（tddloop.start の go: false。test_blk_fix_tdd が実物で見る）
+NO_SUITE_START = {"go": False, "reason": "テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す", "suite": "",
+                  "state_file": "", "summary_file": ""}
 
 
 def load(name):
@@ -86,15 +89,16 @@ class TestBlockYaml(unittest.TestCase):
     def test_signature(self):
         y = block()
         self.assertEqual(y["name"], "blk-fix")
-        self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "human_notes", "policy_path"})
-        for k in ("base_rev", "plan_file", "human_notes", "policy_path"):   # 足した 3 つは空でよい（仕様 3.2）
+        self.assertEqual(set(y["inputs"]), {"judgment_file", "open_units", "base_rev", "plan_file", "human_notes", "policy_path",
+                                            "tdd_suite"})
+        for k in ("base_rev", "plan_file", "human_notes", "policy_path", "tdd_suite"):   # 足した物は空でよい（仕様 3.2・TDD の輪）
             self.assertEqual(y["inputs"][k].get("default"), "", k)
             self.assertNotIn("required", y["inputs"][k], k)
         self.assertEqual(y["returns"], "collect")
         self.assertEqual(y["outcome_field"], "ok")
         out = find_node(y["nodes"], "collect")["output_format"]
-        self.assertEqual(set(out["properties"]), {"ok", "files", "changes_file", "removed"})
-        self.assertEqual(set(out["required"]), {"ok", "files", "changes_file", "removed"})
+        self.assertEqual(set(out["properties"]), {"ok", "files", "changes_file", "removed", "tdd"})   # tdd は TDD の輪の欄
+        self.assertEqual(set(out["required"]), {"ok", "files", "changes_file", "removed", "tdd"})
         self.assertEqual(out["properties"]["removed"], {"type": "array", "items": {"type": "string"}})
         self.assertEqual(out["properties"]["ok"]["type"], "boolean")
         self.assertEqual(out["properties"]["files"], {"type": "array", "items": {"type": "string"}})
@@ -102,11 +106,12 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_nodes_and_loop(self):
         nodes = block()["nodes"]
-        self.assertEqual([n["id"] for n in nodes], ["ignored-before", "fix-loop", "clean", "assert-changed", "collect"])
-        before, loop, clean, changed, collect = nodes
+        self.assertEqual([n["id"] for n in nodes],
+                         ["ignored-before", "tdd-start", "tdd-loop", "fix-loop", "clean", "assert-changed", "collect"])
+        before, _start, _tdd, loop, clean, changed, collect = nodes   # TDD の輪の節は test_blk_fix_tdd が見る
         self.assertNotIn("depends_on", before)
         self.assertEqual(before["script"], "ignored_before")
-        self.assertEqual(loop["depends_on"], ["ignored-before"], "控えは修正役より前")
+        self.assertEqual(loop["depends_on"], ["tdd-start", "tdd-loop"], "控えは修正役より前（tdd-start が ignored-before の後）")
         self.assertEqual(clean["script"], "clean")
         self.assertEqual(clean["depends_on"], ["fix-loop"])
         self.assertEqual(collect["with"]["cleaned"], {"from": "$clean.output"})
@@ -125,6 +130,7 @@ class TestBlockYaml(unittest.TestCase):
             self.assertEqual(n["timeout"], DEADLINE)
         self.assertEqual(changed["with"], {"base_rev": "$INPUTS.base_rev", "accepted": "$fix-loop.output"})
         self.assertEqual(accept["with"]["base_rev"], "$INPUTS.base_rev")
+        self.assertEqual(accept["with"]["tdd_state"], "$tdd-start.output.state_file")
 
     def test_fix_node(self):
         fix = find_node(block()["nodes"], "fix")
@@ -190,7 +196,8 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_script_inputs_constants(self):
         """各 script は読む INPUTS_* を定数 INPUTS に持つ（裁定 TA16。Task 17 が YAML の with: と突き合わせる）"""
-        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV"), "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED"),
+        want = {"accept": ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE"),
+                "collect": ("INPUTS_ACCEPTED", "INPUTS_CHANGED", "INPUTS_CLEANED", "INPUTS_TDD"),
                 "reads": ("INPUTS_MUST",)}
         for name, inputs in want.items():
             with self.subTest(name):
@@ -202,7 +209,7 @@ class TestBlockYaml(unittest.TestCase):
 
     def test_fixtures(self):
         fx = {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in (BLK / "fixtures").glob("*.stubs.yaml")}
-        self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml"})
+        self.assertEqual(set(fx), {"pass.stubs.yaml", "no-change.stubs.yaml", "tdd.stubs.yaml"})   # tdd は test_blk_fix_tdd が見る
         for name, f in fx.items():
             with self.subTest(name):
                 self.assertEqual(f["fix"], load("fix_ok"))
@@ -210,7 +217,7 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(fx["pass.stubs.yaml"]["fixture"]["expect"], "completed")
         self.assertIn("assert-changed", fx["pass.stubs.yaml"])
         # collect は盤面を開く（数え直しの後）。このブロック単体の模擬実行には盤面が無いので stub する（出口の 1 本目の欄を持つ）
-        self.assertLessEqual({"ok", "files", "changes_file", "removed"}, set(fx["pass.stubs.yaml"]["collect"]))
+        self.assertLessEqual({"ok", "files", "changes_file", "removed", "tdd"}, set(fx["pass.stubs.yaml"]["collect"]))
         nc = fx["no-change.stubs.yaml"]
         self.assertEqual((nc["fixture"]["expect"], nc["fixture"]["fail-node"]), ("failed", "assert-changed"))
         self.assertNotIn("assert-changed", nc, "no-change は assert-changed を実物で回す")
@@ -687,7 +694,7 @@ class TestCollect(BoardCase):
             cleaned = {"ok": True, "removed": []}
         env = {"INPUTS_ACCEPTED": accepted if isinstance(accepted, str) else json.dumps(accepted, ensure_ascii=False),
                "INPUTS_CHANGED": json.dumps(changed), "INPUTS_CLEANED": json.dumps(cleaned),
-               "ARTIFACTS_DIR": str(self.art)}
+               "INPUTS_TDD": json.dumps(NO_SUITE_START, ensure_ascii=False), "ARTIFACTS_DIR": str(self.art)}
         return run_script("collect", self.repo, env)
 
     def accepted(self, reply="fix2_ok"):
@@ -703,7 +710,9 @@ class TestCollect(BoardCase):
         self.assertEqual(code, 0, err)
         r = json.loads(out)
         self.assertLessEqual({"ok", "files", "changes_file", "removed"}, set(r), "1 本目の欄を全部残す")
-        self.assertEqual(set(r), {"ok", "files", "changes_file", "removed", "fix_file", "not_done", "coverage", "reads_file"})
+        self.assertEqual(set(r), {"ok", "files", "changes_file", "removed", "fix_file", "not_done", "coverage", "reads_file", "tdd"})
+        # 実行器の無い run（tdd-start が go: false）: 1 本目の欄は今と同じで、tdd は ran: false・単位は空
+        self.assertEqual(r["tdd"], {"ran": False, "suite": "", "reason": NO_SUITE_START["reason"], "units": []})
         b = entry.open_board(self.board)
         self.assertEqual((r["ok"], r["files"], r["removed"]), (True, ["stats.py"], ["__pycache__/"]))
         self.assertEqual(r["changes_file"], str(b.work("changes.json")))

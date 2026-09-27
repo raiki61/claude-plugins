@@ -28,7 +28,9 @@ check_file(path) は 1 本の工程の YAML を読み、決まりに反する所
   スキルの写し（.shared/superpowers/<版>/skills/。SP_SKILLS）に在る節だけに許す（dev/skills.sh が隔離した CLAUDE_CONFIG_DIR の
   skills/ に写し、Archon は [user] のときそこを探す）
 - approval・include・loop_group の節は期限を持たない。書く期限の欄は上の 2 つだけ（AI の節の timeout・bash の節の idle_timeout も違反）
-- loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る
+- loop_group は max_iterations: 3 と until_bash を持つ。中の節（loop_group.nodes）も同じ決まりで辿る。
+  3 でない上限は表 LOOP_MAX の輪だけ（blk-fix の TDD の輪: 単位の数が run ごとに違う。抜けるのは until_bash の印で、
+  上限に届く周で機械が印を立てる。R50）
 - 上のどれでもない種類の節（loop: など）は違反（決まりを決めていない種類を黙って通さない）
 
 違反の見本は tests/yaml_bad/（1 本 1 違反。どの決まりに引っかかるべきかは BAD_EXPECT に置き、件数だけでなく文面で照合する）、
@@ -46,7 +48,10 @@ TESTS = pathlib.Path(__file__).resolve().parent
 
 DEADLINE = 1728000000                     # 20 日（ms）
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob"}
-WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい唯一の節: (フォルダ, ファイル, 節)
+WRITER = ("blk-fix", "blk-fix.yaml", "fix")   # 書く道具を持ってよい節: (フォルダ, ファイル, 節)
+TDD_WRITER = ("blk-fix", "blk-fix.yaml", "tdd")   # TDD の輪の修正役（テストを書く・直す・整える。設計 4 節）
+# max_iterations が 3 でない輪: (フォルダ, ファイル, 輪の節) → 上限（blk-fix/lib/tddloop.py の MAX_ITERATIONS と同じ値）
+LOOP_MAX = {("blk-fix", "blk-fix.yaml", "tdd-loop"): 40}
 CI_ROLE = ("blk-ci", "blk-ci.yaml", "ci")      # CI の任せ先の役（裁定 R52・R56）
 MEASURER = ("blk-premises", "blk-premises.yaml", "premises")   # 前提の実測の役（読む道具に Bash だけを足す）
 MEASURE_TOOLS = READ_ONLY_TOOLS | {"Bash"}
@@ -80,6 +85,7 @@ EXCEPTIONS = {
     WRITER: {"tools": None},
     SPEC_WRITE: {"tools": None},
     SPEC_REVISE: {"tools": None},
+    TDD_WRITER: {"tools": None},
     CI_ROLE: {"tools": READ_ONLY_TOOLS | {"Bash"}, "sandbox": DELEGATE_SANDBOX, "flag": "no-tree-write"},
     **{("blk-material", "blk-material.yaml", n): row for n, row in _MATERIAL.items()},
     ("blk-eyes", "blk-eyes.yaml", "r1-minimality"): {"tools": JUDGE_WEB_TOOLS},
@@ -92,7 +98,7 @@ AI_KEYS = ("prompt", "command")
 TIMED_KEYS = ("bash", "script")
 QUIET_KEYS = ("approval", "include", "loop_group")   # 期限を持たない種類
 # 役の節: (フォルダ, ファイル, 節)。どれもブロックの最初の AI の節で、輪（loop_group）の 1 周目の新しい会話で起きる
-ROLES = (("blk-judge", "blk-judge.yaml", "judge"), ("blk-fix", "blk-fix.yaml", "fix"),
+ROLES = (("blk-judge", "blk-judge.yaml", "judge"), ("blk-fix", "blk-fix.yaml", "fix"), TDD_WRITER,
          ("blk-delta", "blk-delta.yaml", "review"), ("blk-purpose", "blk-purpose.yaml", "purpose"), CI_ROLE, MEASURER,
          SPEC_WRITE)
 
@@ -214,8 +220,9 @@ def _check_node(node, where, place, out):
         if not isinstance(g, dict):
             out.append(f"{at}: loop_group が表でない")
             return
-        if not (type(g.get("max_iterations")) is int and g["max_iterations"] == 3):
-            out.append(f"{at}: loop_group の max_iterations が 3 でない（{g.get('max_iterations')!r}）")
+        want = LOOP_MAX.get((*place, nid), 3)
+        if not (type(g.get("max_iterations")) is int and g["max_iterations"] == want):
+            out.append(f"{at}: loop_group の max_iterations が {want} でない（{g.get('max_iterations')!r}）")
         if not (isinstance(g.get("until_bash"), str) and g["until_bash"].strip()):
             out.append(f"{at}: loop_group に until_bash が無い")
         _check_nodes(g.get("nodes"), f"{at} の中の", place, out)

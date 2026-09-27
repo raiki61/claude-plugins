@@ -80,6 +80,24 @@ fixing__ignored-before:
   ok: true
   count: 0
   file: board/fix-ignored-before.json
+fixing__tdd-start:
+  go: false
+  reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
+  suite: ''
+  state_file: ''
+  summary_file: ''
+# TDD の輪（tdd-loop）は実行器の無い run では when: で飛ぶ。輪の中の節の stub は形だけ（使われない）
+tdd-prep:
+  prompt_file: ''
+tdd:
+  phase: route
+  units: []
+tdd-step:
+  ok: true
+  done: true
+  reason: ''
+  reason_file: ''
+  phase: done
 fix:
   changes:
   - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
@@ -118,6 +136,11 @@ fixing__collect:
   changes_file: board/changes.json
   removed:
   - __pycache__/test_stats.cpython-314.pyc
+  tdd:
+    ran: false
+    suite: ''
+    reason: テストの実行器（入力 tdd_suite）が無い run——全部の単位を今どおり直す
+    units: []
 testing__run:
   ok: true
   green: true
