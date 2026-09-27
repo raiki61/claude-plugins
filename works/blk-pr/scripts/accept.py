@@ -6,7 +6,8 @@
 1. check_no_post（works だけの検査。TA25 で accept.py には足さない）: conflicts[].handed_over が真の行が在れば拒む
    （このラインは担当の PR へ申し送りを投稿しない。持ち主の決定 2026-09-27: 案 (a)）
 2. prcheck.main_take: 読むだけの役が作業ツリーを変えていないか → 盤面の done（写しの schema と規則）
-中身の拒否は終了コード 0 の {"ok": false, "reason"} を 1 行。回す側の誤りは 2"""
+中身の拒否は終了コード 0 の {"ok": false, "reason", "reason_file"} を 1 行（どちらの拒否も script_io.emit_result を通し、
+理由の本文を盤面のファイルに書く。指示書は reason_file だけを $LOOP_PREV で差し込む）。回す側の誤りは 2"""
 import json
 import os
 import sys
@@ -36,8 +37,10 @@ def main() -> int:
         reply = None   # 読めない返答の文は main_take が出す
     posted = check_no_post(reply)
     if posted:
-        script_io._emit({"ok": False, "reason": NO_POST + ", ".join(posted)})
-        return 0
+        board = script_io.board_dir()
+        if board is None:
+            return 2
+        return script_io.emit_result(board, check_no_post, {"ok": False, "reason": NO_POST + ", ".join(posted)})
     return prcheck.main_take(reply_env=INPUTS[0])
 
 

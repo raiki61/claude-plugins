@@ -34,6 +34,7 @@ import engine.util as engine_util  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
 from accept import role_schema  # noqa: E402
 import prcheck  # noqa: E402
+import script_io  # noqa: E402
 
 REPLIES = HERE / "replies"
 BLOCK = PACK / "blk-pr"
@@ -57,9 +58,11 @@ def opener(d, **kw):
 
 
 def board_shas(d):
+    # reject-*.txt は受け付けの出口（script_io.emit_result）が拒否の本文を書く reason_file で、盤面の層のファイルではない
     d = pathlib.Path(d)
     return {p.relative_to(d).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(d.rglob("*")) if p.is_file() and not p.name.startswith(("pr-snapshot", "pr-brief"))}
+            for p in sorted(d.rglob("*"))
+            if p.is_file() and not p.name.startswith(("pr-snapshot", "pr-brief", script_io.REJECT_PREFIX))}
 
 
 def helper_out(conflicts):
@@ -310,6 +313,9 @@ class AcceptCase(PrCase):
         self.assertIn("投稿しない", got["reason"])
         self.assertIn("持ち主の決定 2026-09-27", got["reason"])
         self.assertTrue(got["reason"].endswith(": 7"), got["reason"])
+        # 次の周へは本文でなく reason_file（盤面のファイル。中身は本文と字のまま同じ）を渡す
+        self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), got["reason"])
+        self.assertEqual(pathlib.Path(got["reason_file"]).parent, (self.art / "board").resolve())
         self.assertEqual(board_shas(b.dir), before)
 
     def test_handover_draft_accepted(self):
@@ -494,10 +500,63 @@ class AcceptCase(PrCase):
         self.assertIn("INPUTS_REPLY", r.stderr)
 
     def test_accept_script_unreadable_reply(self):
-        """返答が JSON でない → 0 で ok false（中身の誤り。役に返す）"""
-        r = run_script("accept", {"INPUTS_REPLY": "not json", "ARTIFACTS_DIR": str(self.tmp)})
+        """返答が JSON でない・オブジェクトでない → 0 で ok false（中身の誤り。役に返す）。本文（返答の頭の生の字。$ が入りうる）は
+        reason_file に字のまま書く"""
+        for raw in ("not json $judge.output.pass", '["$ARTIFACTS_DIR"]'):
+            with self.subTest(raw):
+                r = run_script("accept", {"INPUTS_REPLY": raw, "ARTIFACTS_DIR": str(self.tmp)})
+                self.assertEqual(r.returncode, 0, r.stderr)
+                got = json.loads(r.stdout)
+                self.assertFalse(got["ok"])
+                self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), got["reason"])
+
+    def test_accept_script_reject_writes_reason_file(self):
+        """take の拒否（作業ツリーの変化）も reason_file を出し、中身は本文と字のまま同じ。通れば reason_file は空"""
+        b = self.fallen()
+        env = {"ARTIFACTS_DIR": str(self.art)}
+        self.assertEqual(run_script("snap", env, cwd=self.repo).returncode, 0)
+        (self.repo / "new.txt").write_text("x\n", encoding="utf-8")
+        r = run_script("accept", {**env, "INPUTS_REPLY": json.dumps(reply("pr_ok.json"))}, cwd=self.repo)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertFalse(json.loads(r.stdout)["ok"])
+        got = json.loads(r.stdout)
+        self.assertFalse(got["ok"])
+        self.assertIn("作業ツリーを変えた", got["reason"])
+        self.assertEqual(pathlib.Path(got["reason_file"]).read_text(encoding="utf-8"), got["reason"])
+        (self.repo / "new.txt").unlink()
+        r = run_script("accept", {**env, "INPUTS_REPLY": json.dumps(reply("pr_ok.json"))}, cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["ok"], got["reason_file"]), (True, ""))
+        self.assertTrue(b.dir.is_dir())
+
+    def test_accept_script_dollar_board_stops(self):
+        """盤面を解決した後のパスが $ を含む → 2、標準出力は空（reason_file のパスが置き換えに通る）。handed_over の早い拒否も同じ"""
+        art = self.tmp / "a$WORKFLOW_ID"
+        art.mkdir()
+        for name in ("pr_ok.json", "pr_handed_over.json"):
+            with self.subTest(name):
+                r = run_script("accept", {"INPUTS_REPLY": json.dumps(reply(name)), "ARTIFACTS_DIR": str(art)})
+                self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
+                self.assertIn("ARTIFACTS_DIR", r.stderr)
+
+    def test_tree_change_names_the_changed_field(self):
+        """porcelain の行が前後で同じ変化も、拒否の文が変わった欄を名指す（無視されるパスの増えた／消えた・中身だけの変化）"""
+        b = self.fallen()
+        (self.repo / ".git" / "info").mkdir(exist_ok=True)
+        (self.repo / ".git" / "info" / "exclude").write_text("*.log\n", encoding="utf-8")
+        (self.repo / "stats.py").write_text("def mean(xs):\n    return 0\n", encoding="utf-8")   # 起こす前から変更済み
+        prcheck.snapshot(b.dir, self.repo, opener=opener)
+        (self.repo / "run.log").write_text("x\n", encoding="utf-8")
+        got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+        self.assertFalse(got["ok"])
+        self.assertIn("git が無視するパス: 増えた ['run.log'] 消えた []", got["reason"])
+        self.assertNotIn("git status --porcelain: 役を起こす前", got["reason"])
+        (self.repo / "run.log").unlink()
+        (self.repo / "stats.py").write_text("def mean(xs):\n    return 1\n", encoding="utf-8")
+        got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
+        self.assertFalse(got["ok"])
+        self.assertIn("中身が変わった", got["reason"])
+        self.assertNotIn("git status --porcelain: 役を起こす前", got["reason"])
 
     def test_no_conflicts_reply_accepted(self):
         """任せ先の役が同等のコマンドで見て交差 0（GitHub でない remote）→ 通る、素材は clean"""
@@ -643,7 +702,8 @@ class DeclaredCase(unittest.TestCase):
             self.assertTrue(cmd in prcheck.GH_DENY or cmd == "gh repo view", cmd)
         self.assertIn("素の `gh`", text)
         self.assertIn("$pr-snap.output.brief_file", text)
-        self.assertIn("$LOOP_PREV.pr-accept.output.reason", text)
+        # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す）。パスだけを貼って Read させる
+        self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", text), ["$LOOP_PREV.pr-accept.output.reason_file"])
 
     def test_downgrades_declared(self):
         """darkfactory/downgrades.json はちょうど 1 行（p0.parallel_pr）。頭の行の部品は「下げている所: 1 個」"""

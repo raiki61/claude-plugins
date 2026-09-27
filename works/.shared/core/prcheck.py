@@ -288,8 +288,13 @@ def collect(board, *, opener=None) -> dict:
 
 
 # ---------------------------------------------------------------- スクリプトの入口
-# 1 行の出口は script_io._emit を使う（script_io の公開の口は main(fn) だけで、INPUTS_BASE_REV を要り、回す側の誤りを
-# 終了コード 2 にする道を持たないため。形は script_io と同じ 1 行・ensure_ascii=False）
+# 受け付け（pr-accept）の出口は script_io の公開の口 board_dir・emit_result を通す（盤面の resolve と $ の柵・拒否なら
+# reason_file を書く。script_io.main は INPUTS_BASE_REV を要り、回す側の誤りを終了コード 2 にする道を持たないので呼ばない）。
+# 次の周の役へ理由を届けるのは reason_file で、指示書は $LOOP_PREV.pr-accept.output.reason_file だけを差し込む。
+# pr-snap・collect の 1 行は $LOOP_PREV で次の周へ渡らないので script_io._emit で出す（形は同じ 1 行・ensure_ascii=False）
+TAKE_NAME = "pr_take"   # 拒否の本文のファイルの名前（reject-pr_take-<連番>.txt）
+
+
 def _artifacts():
     d = os.environ.get(ARTIFACTS_ENV)
     if not d:
@@ -299,30 +304,28 @@ def _artifacts():
 
 
 def main_take(reply_env: str = "INPUTS_REPLY") -> int:
-    """pr-accept のスクリプトの入口（script_io.main と同じ約束）。中身の拒否は 0 で {"ok": false, "reason"} を 1 行、
-    回す側の誤り（環境変数の欠け・BoardGap・止めた run への書き込み）は標準エラーに 1 行で 2（TA19）"""
+    """pr-accept のスクリプトの入口（script_io.main と同じ約束）。中身の拒否は 0 で {"ok": false, "reason", "reason_file"} を
+    1 行（出口は script_io.emit_result）、回す側の誤り（環境変数の欠け・盤面の $・BoardGap・止めた run への書き込み）は
+    標準エラーに 1 行で 2（TA19）"""
     if reply_env not in os.environ:
         print(f"環境変数が無い: {reply_env}", file=sys.stderr)
         return 2
-    board = _artifacts()
+    board = script_io.board_dir()
     if board is None:
         return 2
     raw = os.environ[reply_env]
     try:
         reply = json.loads(raw)
     except ValueError as e:
-        script_io._emit({"ok": False, "reason": f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）"})
-        return 0
+        return script_io.emit_result(board, TAKE_NAME, {"ok": False, "reason": f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）"})
     if not isinstance(reply, dict):
-        script_io._emit({"ok": False, "reason": f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"})
-        return 0
+        return script_io.emit_result(board, TAKE_NAME, {"ok": False, "reason": f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"})
     try:
         got = take(board, reply, pathlib.Path.cwd())
     except (BoardGap, Reject) as e:
         print(f"{NODE} の受け付けを回せない: {e}", file=sys.stderr)
         return 2
-    script_io._emit(got)
-    return 0
+    return script_io.emit_result(board, TAKE_NAME, got)
 
 
 def main_snapshot() -> int:
