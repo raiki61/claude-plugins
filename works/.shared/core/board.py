@@ -587,33 +587,44 @@ class DiskBoard(_EngineBoard):
         self.trace("emit", instance=nid)
         return inst
 
-    def mark_launched(self, nid: str) -> dict:
-        """ラインが役を起こす前に、待っている instance に起こした印（launched_at）を置いて保存する（裁定 BL-R3。engine の launch の
-        印付けと同じ欄。RL の _started がこの欄を読み、判定役が起きた後の依頼を拒み・起きた読み手を描き直さない）。
-        ラインは表で role・machine の節の役を起こす**前に毎回**呼ぶ（印 → 起こす。engine の launch と同じ順）。
+    def mark_launched(self, nid: str, attempt: int) -> dict:
+        """ラインが役を起こす前に、待っている instance の試行 attempt に起こした印（launched_at）を置いて保存する（裁定 BL-R3。engine の
+        launch の印付けと同じ欄。RL の _started がこの欄を読み、判定役が起きた後の依頼を拒み・起きた読み手を描き直さない）。
+        ラインは役を起こす**前に毎回**、描いた試行の番号（instance の attempts）を渡して呼び、返りの out_path の試行を起こす
+        （印 → 起こす。engine の launch と同じ順。印の無い instance の返答は accept が BoardGap で受けない）。
+        - 置けるのは表で role・machine の節と、任せ先に落ちた（engine_fallback を持つ）engine_run の節のうち表の fallback が role・
+          machine の物（ラインが任せ先の役を起こす。engine も任せ先に launch を持たせて印を付ける）。落ちる前の engine_run の節は
+          run_engine が置く。他・待っている instance の無い節・試行の番号が整数でない時は BoardGap。止めた run は Reject
+        - 待っている試行が attempt と違う（描いた後に依頼が描き直した）なら Reject で、盤面は書かない——今の試行で描き直して起こす
         - 保存は版の突き合わせ（engine の save）で、別の入れ物が先に進めていたら（BoardConflict）盤面を読み直して当て直す
           （engine の _board_update と同じく CONFLICT_RETRIES 回まで。trace の行は保存まで控える）
         - 同じ試行への二度目は前の印を返して保存しない。印は試行ごと: 描き直し・任せ先への出し直しの新しい試行は印を持たない
         - 起こせなかった試行も印は残る（fail-closed: その周の依頼の締めは閉じたまま。印を外す口は持たない）
-        - 表で role・machine でない節（engine_run は run_engine が置く）・待っている instance の無い節は BoardGap。止めた run は Reject
-        返り {node, id, attempts, launched_at, already}"""
+        返り {node, id, attempt, out_path, launched_at, already}"""
+        if type(attempt) is not int or attempt < 1:
+            raise BoardGap(f"mark_launched の試行の番号は 1 以上の整数（{attempt!r}）——描いた instance の attempts を渡す")
         for n in range(CONFLICT_RETRIES):
             _refuse_halted(self)
             if nid not in self.nodes:
                 raise BoardGap(f"節 '{nid}' は graph に無い")
             e = self._entry(nid)
-            if e.by not in ("role", "machine"):
-                raise BoardGap(f"節 '{nid}' は表で {e.by}——起こした印を置くのは役（role・machine）の節だけ"
-                               "（engine が走らせる節は run_engine が置く）")
             inst = next((i for i in self.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+            fell_back = e.by == "engine_run" and inst is not None and inst.get("engine_fallback") and e.fallback in ("role", "machine")
+            if e.by not in ("role", "machine") and not fell_back:
+                raise BoardGap(f"節 '{nid}' は表で {e.by}——起こした印を置くのは役（role・machine）の節と、任せ先に落ちた engine_run の節だけ"
+                               "（落ちる前の engine が走らせる節は run_engine が置く）")
             if inst is None:
                 raise BoardGap(f"この周に節 '{nid}' の待っている instance が無い（settle が出した節の役だけを起こす）")
-            got = {"node": nid, "id": inst["id"], "attempts": inst.get("attempts", 1)}
+            now_attempt = inst.get("attempts", 1)
+            if now_attempt != attempt:
+                raise Reject(f"節 '{nid}' は描き直された（描いた試行 {attempt} ／ 待っている試行 {now_attempt}。置き場 {inst['out_path']}）"
+                             "——今の試行で描き直して起こせ（前の試行のプロンプトには後から積んだ物が入っていない）")
+            got = {"node": nid, "id": inst["id"], "attempt": now_attempt, "out_path": inst["out_path"]}
             if inst.get("launched_at"):
                 return {**got, "launched_at": inst["launched_at"], "already": True}
             inst["launched_at"] = now()
             self.held_trace = []
-            self.trace("launch", instance=inst["id"])
+            self.trace("launch", instance=inst["id"], attempt=now_attempt)
             try:
                 self.save()
                 return {**got, "launched_at": inst["launched_at"], "already": False}
@@ -639,7 +650,8 @@ class DiskBoard(_EngineBoard):
         settle しない）。順は engine と同じ: 止めた run の拒否 → instance → 依存 → 型 → 番号の読み替え → post_check →
         writes → check_record → out/r<N>/<節>.json → state.outputs → instance を done → 周の箱の done・done_ever → trace → 保存。
         返答の中身の誤りは engine の AnswerReject と同じ文で拒み、盤面（ディスク）は書かない（記憶の入れ物は汚れうるので捨てる）。
-        ラインの配線の誤り（表で受けられない節・待っている instance が無い・依存が済んでいない）は BoardGap。
+        ラインの配線の誤り（表で受けられない節・待っている instance が無い・起こした印（mark_launched）が無い・依存が済んでいない）は
+        BoardGap。
         engine の受け付けのうち、描画・起動に関わる所（read_from・agent_id・tree_before の突合・save_text_as）は持たない
         （再生の比べない欄 tests/boardreplay.py の NOT_REPRODUCED）。扇の節・段の昇格を持つ節は受けずに BoardGap。
         本文を返す節の返答は {text} だけ（engine と同じく他の鍵は届かない形。余分な鍵は BoardGap）"""
@@ -663,6 +675,9 @@ class DiskBoard(_EngineBoard):
         if not engine_reply and "engine_run" in n and not inst.get("engine_fallback"):
             raise BoardGap(f"節 '{nid}' は engine が走らせる節（engine_run）で、まだ任せ先に落ちていない——結果は run_engine が組む"
                            "（ラインの accept・done は受けない。任せ先に落ちた後なら表の fallback の持ち主が渡す）")
+        if not engine_reply and not inst.get("launched_at"):
+            raise BoardGap(f"節 '{nid}' の instance（試行 {inst.get('attempts', 1)}）に起こした印が無い——ラインが mark_launched を呼ばずに"
+                           "役を起こした（印が無いと、起きた後の依頼の締めと描き直しの外しが効かない。起こす前に mark_launched(節, 試行)）")
         if not self.deps_met(nid):
             wait = [d for d in n.get("deps", []) if self.node_state(d) == "pending"]
             raise BoardGap(f"節 '{nid}' の deps {wait} がまだ済んでいない——先にそちらを受ける")

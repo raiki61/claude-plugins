@@ -273,6 +273,7 @@ class RunEngineCase(EngineRunCase):
             b.accept("p4.ci", out)
         self.assertEqual(disk_bytes(b), before)
         b.run_engine("p4.ci")
+        R.mark(b, "p4.ci")        # 任せ先の役を起こす前の印（ラインと同じ）
         p = b.done("p4.ci", out)
         self.assertEqual(b.rd["instances"]["p4.ci"]["status"], "done")
         self.assertNotIn("p4.ci", p["ready"])

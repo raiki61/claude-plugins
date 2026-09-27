@@ -141,7 +141,7 @@ class ReplayCase(unittest.TestCase):
         lines = [f"\n通しの再生: {total} 本の Run のうち {total - len(bad)} 本が engine と同じ（{time.monotonic() - t0:.0f} 秒。"
                  f"当てた手 {counts.get('steps')}・settle {counts.get('settle')}・next の中の計画の落ち {counts.get('fallback')}・"
                  f"同じ文の拒み {counts.get('reject')}・BoardGap {counts.get('gap')}・当てない作業ツリーの突合 {counts.get('tree')}・"
-                 f"起こした印の読み替え {counts.get('marks')}・盤面の計画と同じ engine_run {counts.get('plans')}・手当て {counts.get('patches')}）"]
+                 f"受け付けの前の起こした印 {counts.get('marked')}・起こした印の読み替え {counts.get('marks')}・盤面の計画と同じ engine_run {counts.get('plans')}・手当て {counts.get('patches')}）"]
         print("\n".join(lines), file=sys.stderr)
         print_tables()
         self.assertEqual(bad, [], "\n".join(bad))
@@ -164,6 +164,12 @@ class ReplayCase(unittest.TestCase):
         self.assertEqual(o.got["final"]["record"]["process"]["checks"]["p0.local_checks"]["by"], "role")
         self.assertEqual(o.counts["fallback"], 1)
         self.assertEqual(outcome("test_human_gate", 3).got["final"]["state"]["halted"]["by"], "unattended")
+        # 盤面は印の無い返答を受けない: ラインが受けた役の instance（engine が走らせて受けた物を含む）は全部 launched_at を持つ
+        for scen, run in SAMPLE:
+            got = outcome(scen, run).got["final"]["state"]
+            done = [i for rd in got["rounds"] for i in rd["instances"].values() if i["status"] == "done"]
+            self.assertTrue(done or scen == "test_rejections")
+            self.assertEqual([i["id"] for i in done if not i.get("launched_at")], [], f"{scen} run {run}")
         print(f"\n通しの再生（見本 3 本）: engine と同じ（{time.monotonic() - t0:.0f} 秒）", file=sys.stderr)
         print_tables()
 

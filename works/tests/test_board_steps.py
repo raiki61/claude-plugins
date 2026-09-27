@@ -79,6 +79,15 @@ def parent_of(step):
     return next(x for x in step.run_steps if x["seq"] == step["parent"]) if step.get("parent") else None
 
 
+def markable(board, nid):
+    """ラインが起こした印を置ける形か（止めていない・待っている instance が在る・表で役の節か任せ先に落ちた engine_run の節）"""
+    if board.state.get("halted") or nid not in board.nodes:
+        return False
+    inst = next((i for i in board.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+    e = board.table.nodes.get(nid)
+    return bool(inst) and e is not None and (e.by in ("role", "machine") or e.by == "engine_run" and bool(inst.get("engine_fallback")))
+
+
 def under_engine_run(step):
     """engine_run の手の中の受け付け（launch_engine_run が組んだ返答の accept_output）か"""
     p = parent_of(step)
@@ -111,15 +120,21 @@ class StepCase(unittest.TestCase):
         self.addCleanup(setattr, engine_util, "GIT_CWD", cwd)
         self.n = 0
 
-    def board_before(self, step, table=TABLE, edit=None, which="before"):
-        """手の前（which="after" なら後）を一時の場所に戻し、記憶から DiskBoard を組む。edit(記憶) で組む前に記憶を書き換えられる"""
+    def board_before(self, step, table=TABLE, edit=None, which="before", mark=True):
+        """手の前（which="after" なら後）を一時の場所に戻し、記憶から DiskBoard を組む。edit(記憶) で組む前に記憶を書き換えられる。
+        受け付けの手（engine_run の中でない）なら、ラインと同じくその節の待っている試行に起こした印を置く（mark=False で置かない。
+        手本の台本は役を起こさずに done したが、盤面は印の無い返答を受けない。置けない形——止めた run・表で役でない節・待っている
+        instance が無い——なら置かない）"""
         self.n += 1
         into = self.tmp / f"s{self.n}"
         d, _ = R.restore(step.run_steps, step["seq"], which, into)
         mem = R.memory_at(step.run_steps, step["seq"], which)
         if edit:
             edit(mem)
-        return R.board_from_memory(mem, d, table)
+        b = R.board_from_memory(mem, d, table)
+        if mark and which == "before" and step["kind"] == "accept" and not under_engine_run(step) and markable(b, step["node"]):
+            R.mark(b, step["node"])
+        return b
 
     def engine_reject_text(self, step, edit_output):
         """同じ手の前の盤面を別に戻し、手の返答を edit_output で書き換えて engine の accept_output に当て、拒みの文を取る"""
@@ -291,6 +306,7 @@ class AcceptStepsCase(StepCase):
         inst = b._emit("p1.local_review")
         lens = next(e for e in inst["skills"] if e["skill"] == "/security-review")
         self.assertIs(lens["applies"], False)
+        R.mark(b, "p1.local_review")
         b.accept("p1.local_review", out)
         self.assertEqual(b.rd["instances"]["p1.local_review"]["status"], "done")
         # 対照: skills の無い instance は graph の生の宣言（applies が無い＝当てる側）に倒れて拒まれる
@@ -315,6 +331,7 @@ class AcceptStepsCase(StepCase):
         lens = next(e for e in b._emit("p1.local_review")["skills"] if e["skill"] == "/security-review")
         self.assertIs(lens["applies"], True)
         self.assertEqual(lens["applies_why"], b.cond("security_surface_touched")[1])
+        R.mark(b, "p1.local_review")
         out = R.reply(s, b)
         with self.assertRaises(Reject) as cm:
             b.accept("p1.local_review", out)
@@ -821,8 +838,9 @@ class LaunchMarkCase(StepCase):
             b = self.unmarked(s, "p2.diagnose")
             self.assertEqual(set(b.add_request(items, s["args"]["reason"])), {"msg", "redraw"})   # 印が無い: 通る
             b = self.unmarked(s, "p2.diagnose")
-            got = b.mark_launched("p2.diagnose")
-            self.assertEqual((got["node"], got["attempts"]), ("p2.diagnose", 1))
+            got = R.mark(b, "p2.diagnose")
+            self.assertEqual((got["node"], got["attempt"]), ("p2.diagnose", 1))
+            self.assertEqual(got["out_path"], b.rd["instances"]["p2.diagnose"]["out_path"])
             disk = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))
             self.assertEqual(disk["rounds"][-1]["instances"]["p2.diagnose"]["launched_at"], got["launched_at"])
             before = tree_shas(b.dir)
@@ -838,7 +856,7 @@ class LaunchMarkCase(StepCase):
         b = self.unmarked(s, "p0.prior_decisions")
         self.assertIn("p0.prior_decisions", b.add_request(items, s["args"]["reason"])["redraw"])
         b = self.unmarked(s, "p0.prior_decisions")
-        b.mark_launched("p0.prior_decisions")
+        R.mark(b, "p0.prior_decisions")
         got = b.add_request(items, s["args"]["reason"])
         self.assertNotIn("p0.prior_decisions", got["redraw"])
         self.assertEqual(b.rd["instances"]["p0.prior_decisions"]["attempts"], 2)
@@ -846,8 +864,8 @@ class LaunchMarkCase(StepCase):
     def test_new_attempt_drops_mark(self):
         """新しい試行（描き直し _reissue・任せ先への出し直し _emit）は印を持たない。印は試行ごと"""
         s = first_step("test_converges", "p1.hygiene")
-        b = self.board_before(s)
-        b.mark_launched("p1.hygiene")
+        b = self.board_before(s, mark=False)
+        R.mark(b, "p1.hygiene")
         prev = b.rd["instances"]["p1.hygiene"]
         self.assertTrue(prev["launched_at"])
         new = b._reissue(prev, "検査")
@@ -859,10 +877,10 @@ class LaunchMarkCase(StepCase):
         """同じ試行への二度目の印は前の時刻を返して保存しない（Archon の起こし直しで止めない）。起こせなかった試行も印は残り、
         その周の依頼の締めは閉じたまま（fail-closed。印を外す口は持たない——開き直すのは新しい試行）"""
         s = first_step("test_converges", "p1.hygiene")
-        b = self.board_before(s)
-        first = b.mark_launched("p1.hygiene")
+        b = self.board_before(s, mark=False)
+        first = R.mark(b, "p1.hygiene")
         rev = json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["rev"]
-        again = b.mark_launched("p1.hygiene")
+        again = R.mark(b, "p1.hygiene")
         self.assertEqual(again["launched_at"], first["launched_at"])
         self.assertEqual(json.loads((b.dir / "state.json").read_text(encoding="utf-8"))["rev"], rev)
         self.assertFalse(hasattr(b, "unmark_launched"))
@@ -871,10 +889,10 @@ class LaunchMarkCase(StepCase):
         """別の入れ物が先に保存していたら、盤面を読み直して印を当て直す（engine の _board_update と同じ）。相手の書き込みは残る。
         当て直しの回数（engine の CONFLICT_RETRIES）まで負け続けたら BoardConflict を上げる"""
         s = first_step("test_converges", "p1.hygiene")
-        b1 = self.board_before(s)
+        b1 = self.board_before(s, mark=False)
         b2 = DiskBoard.open(b1.dir, table=TABLE)
-        b2.mark_launched("p1.provenance")
-        b1.mark_launched("p1.hygiene")
+        R.mark(b2, "p1.provenance")
+        R.mark(b1, "p1.hygiene")
         disk = json.loads((b1.dir / "state.json").read_text(encoding="utf-8"))["rounds"][-1]["instances"]
         self.assertTrue(disk["p1.provenance"]["launched_at"] and disk["p1.hygiene"]["launched_at"])
         rows = [r for r in trace_ops(b1) if r["op"] == "launch"]
@@ -882,26 +900,26 @@ class LaunchMarkCase(StepCase):
         b3 = DiskBoard.open(b1.dir, table=TABLE)
         with mock.patch.object(DiskBoard, "save", side_effect=BoardConflict("検査")) as save:
             with self.assertRaises(BoardConflict):
-                b3.mark_launched("p0.prior_decisions")
+                R.mark(b3, "p0.prior_decisions")
         self.assertEqual(save.call_count, engine_commands.CONFLICT_RETRIES)
 
     def test_mark_wiring(self):
         """印を置けるのは表で role・machine の待っている instance だけ（engine_run は run_engine が置く・機械の節・無い節は BoardGap）。
         止めた run は engine の Reject"""
         s = first_step("test_converges", "p1.hygiene")
-        b = self.board_before(s)
+        b = self.board_before(s, mark=False)
         for nid in ("p1.worktree_after", "no.such.node", "p2.diagnose"):
             with self.assertRaises(BoardGap):
-                b.mark_launched(nid)
+                b.mark_launched(nid, 1)
         s = next(x for x in kind_steps("engine_run"))
         b = self.board_before(s)
         with self.assertRaises(BoardGap):
-            b.mark_launched(s["node"])
+            b.mark_launched(s["node"], 1)
         s = run_step("test_human_gate", 2, 208)
         b = self.board_before(s)
         b.answer("stop", "止める")
         with self.assertRaises(Reject):
-            b.mark_launched("p3.fix")      # 止めた run は、節を見る前に engine の文で拒む
+            b.mark_launched("p3.fix", 1)      # 止めた run は、節を見る前に engine の文で拒む
 
     def test_run_engine_marks_launched(self):
         """engine が走らせる節も engine の launch と同じく起こした印を持つ（受けた instance に launched_at。在否は再生で比べる）"""
@@ -910,6 +928,75 @@ class LaunchMarkCase(StepCase):
         self.assertNotIn("launched_at", b.rd["instances"][s["node"]])
         b.run_engine(s["node"], runner=R.captured_runner(s, b), plan=R.engine_run_plan(s, b))
         self.assertTrue(b.rd["instances"][s["node"]]["launched_at"])
+
+    def test_mark_fallen_back_engine_run(self):
+        """任せ先に落ちた engine_run の節（表の fallback が role・machine）は、ラインが役を起こすので印を置ける（engine は任せ先に
+        launch を持たせて印を付ける）: test_converges run 1 seq 20 の p0.parallel_pr（審査の再現の手）。印の後の依頼は、その instance を
+        描き直さない（判定から入る run の周で依頼が loop.request_wheres を書き直す test_request_entry run 1 seq 23）。
+        落ちる前の engine_run の節は BoardGap のまま（run_engine が置く）"""
+        s = run_step("test_converges", 1, 20)
+        self.assertEqual((s["kind"], s["node"]), ("accept", "p0.parallel_pr"))
+        b = self.board_before(s, mark=False)
+        self.assertTrue(b.rd["instances"]["p0.parallel_pr"]["engine_fallback"])
+        got = R.mark(b, "p0.parallel_pr")
+        self.assertEqual((got["already"], got["attempt"]), (False, 1))
+        s = run_step("test_request_entry", 1, 23)
+        self.assertEqual((s["kind"], s["node"]), ("accept", "p0.parallel_pr"))
+        items = [{"where": "src/a.py:f", "text": "上限を掛けたい（検査用）"}]
+        b = self.board_before(s, mark=False)
+        self.assertIn("p0.parallel_pr", b.add_request(items, "検査用")["redraw"])       # 印が無ければ描き直す
+        b = self.board_before(s, mark=False)
+        R.mark(b, "p0.parallel_pr")
+        self.assertNotIn("p0.parallel_pr", b.add_request(items, "検査用")["redraw"])
+        e = next(x for x in kind_steps("engine_run"))
+        b = self.board_before(e)
+        self.assertFalse(b.rd["instances"][e["node"]].get("engine_fallback"))
+        with self.assertRaises(BoardGap):
+            b.mark_launched(e["node"], 1)
+
+    def test_accept_needs_mark(self):
+        """起こした印の無い instance の返答は受けない（BoardGap。ラインが mark_launched を呼ばずに役を起こした）。盤面は書かない。
+        任せ先に落ちた engine_run の節の done も同じ。印の後は受ける"""
+        s = first_step("test_converges", "p0.base")
+        b = self.board_before(s, mark=False)
+        before = tree_shas(b.dir)
+        with self.assertRaises(BoardGap) as cm:
+            b.accept("p0.base", R.reply(s, b))
+        self.assertIn("mark_launched", str(cm.exception))
+        with self.assertRaises(BoardGap):
+            b.done("p0.base", R.reply(s, b))
+        self.assertEqual(tree_shas(b.dir), before)
+        R.mark(b, "p0.base")
+        b.accept("p0.base", R.reply(s, b))
+        s = run_step("test_converges", 1, 20)
+        b = self.board_before(s, mark=False)
+        with self.assertRaises(BoardGap):
+            b.accept("p0.parallel_pr", R.reply(s, b))
+        R.mark(b, "p0.parallel_pr")
+        b.accept("p0.parallel_pr", R.reply(s, b))
+
+    def test_mark_refuses_other_attempt(self):
+        """印は、ラインが描いて起こす試行にだけ置く: 描いた後・印の前に依頼が描き直した（試行が進んだ）なら、前の試行の番号での印は
+        Reject（今の試行で描き直して起こす）で、盤面は書かない。返りの out_path と attempt が、ラインが起こす試行（test_request_entry
+        run 8 seq 454 の add が p0.prior_decisions を描き直す手）"""
+        s = run_step("test_request_entry", 8, 454)
+        self.assertEqual(s["kind"], "add")
+        b = self.board_before(s)
+        drawn = dict(b.rd["instances"]["p0.prior_decisions"])        # ラインが描いた試行（1）
+        self.assertEqual(drawn["attempts"], 1)
+        got = b.add_request(file_items(s, b), s["args"]["reason"])
+        self.assertIn("p0.prior_decisions", got["redraw"])
+        before = tree_shas(b.dir)
+        with self.assertRaises(Reject) as cm:
+            b.mark_launched("p0.prior_decisions", drawn["attempts"])
+        self.assertIn("描き直", str(cm.exception))
+        self.assertEqual(tree_shas(b.dir), before)
+        now = b.rd["instances"]["p0.prior_decisions"]
+        got = b.mark_launched("p0.prior_decisions", now["attempts"])
+        self.assertEqual((got["attempt"], got["out_path"]), (2, now["out_path"]))
+        self.assertTrue(got["out_path"].endswith("p0.prior_decisions.a2.json"))
+        with self.assertRaises(BoardGap):
+            b.mark_launched("p0.prior_decisions", "2")      # 試行の番号は整数
 
 
 class SettleCase(StepCase):
@@ -939,6 +1026,7 @@ class SettleCase(StepCase):
         b = self.board_before(ask, which="after")
         ph = copy.deepcopy(b.state["pending_human"])
         self.assertEqual(b.rd["instances"]["r1.comment_candidates"]["status"], "pending")
+        R.mark(b, "r1.comment_candidates")
         p = b.done("r1.comment_candidates", R.reply(acc, b))
         self.assertEqual(b.rd["instances"]["r1.comment_candidates"]["status"], "done")
         self.assertEqual(b.state["pending_human"], ph)
@@ -1068,6 +1156,7 @@ class SettleCase(StepCase):
         path = b.dir / b.state["outputs"]["p0.base"]["file"]
         b.rewind(["p0.base"], "検査用")
         b._emit("p0.base")
+        R.mark(b, "p0.base")
         out = R.reply(base, b)
         out["touches_security_surface"] = True
         b.accept("p0.base", out)

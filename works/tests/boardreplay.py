@@ -76,8 +76,9 @@ NOT_REPRODUCED = {
     "created": "時刻（盤面を作った時）",
     "done_at": "時刻（instance を受けた時）",
     "emitted_at": "時刻（instance を出した時）",
-    "launched_at": "時刻（役を起こした時）——値だけを比べず、在否は比べる（起こした印。RL の _started が読む。盤面は mark_launched・"
-                   "run_engine が置く。裁定 BL-R3）",
+    "launched_at": "時刻（役を起こした時）——値は比べず、待っている instance でだけ在否を比べる（起こした印。RL の _started が"
+                   "待っている instance で読む。盤面は mark_launched・run_engine が置き、印の無い返答は受けない。手本の台本は役を起こさずに"
+                   "done したので、済んだ instance の印は盤面にだけ在る。裁定 BL-R3）",
     # 盤面の版
     "state.rev": "盤面の版（保存の回数。手本の engine と保存の回数が違いうる）",
     "run_id": "盤面を作った時刻から engine が決める名前",
@@ -157,7 +158,10 @@ def normalize(obj, _path=()):
             if k in _ANY_KEYS:
                 continue
             if k in _PRESENCE_KEYS:
-                out[k] = "@時刻@" if v else v
+                # 起こした印は待っている間だけ意味を持つ（RL の _started は待っていない instance を常に起きたと読む）ので、
+                # 在否を比べるのは待っている instance だけ
+                if obj.get("status") == "pending":
+                    out[k] = "@時刻@" if v else v
                 continue
             if len(p) == 2 and p[0] == "state" and k in _STATE_KEYS:
                 continue
@@ -539,6 +543,13 @@ def reply(step: Step, board: DiskBoard, names: bool = True) -> dict:
     return out
 
 
+def mark(board: DiskBoard, nid: str) -> dict:
+    """ラインと同じく、節の待っている試行に起こした印を置く（mark_launched(節, 今の試行)。手本の台本は役を起こさずに done したが、
+    盤面は印の無い返答を受けないので、再生は受け付けの前にこれを呼ぶ）"""
+    inst = next((i for i in board.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+    return board.mark_launched(nid, (inst or {}).get("attempts", 1))
+
+
 def engine_run_plan(step: Step, board: DiskBoard) -> dict:
     """engine_run の手の撮った計画（instance の launch）を、RL の ENGINE_RUNS[..].plan の返りの形にする
     （DiskBoard.run_engine の plan= に差し込む。印は盤面の置き場の実パスに戻す）"""
@@ -761,7 +772,7 @@ class _Replay:
         self.table = table
         self.rounds = {}
         self.planned = set()      # 計画を見た engine_run の instance（周・節・試行）
-        self.counts = {"steps": 0, "settle": 0, "fallback": 0, "reject": 0, "gap": 0, "tree": 0, "marks": 0, "plans": 0, "patches": 0}
+        self.counts = {"steps": 0, "settle": 0, "fallback": 0, "reject": 0, "gap": 0, "tree": 0, "marks": 0, "marked": 0, "plans": 0, "patches": 0}
         self.b = None
 
     # -- 盤面の入れ物
@@ -859,10 +870,10 @@ class _Replay:
             return
         restore_repo(self.rs, s["seq"], self.into)
         raised = s.get("raised")
-        mark = HAND_MARKS.get((self.rs.scenario, self.rs.run, s["seq"]))
-        if mark:
+        mark_ = HAND_MARKS.get((self.rs.scenario, self.rs.run, s["seq"]))
+        if mark_:
             # 台本の手書きの「役が起きた」印を、ラインが役を起こす前に置く印（mark_launched）に読み替える（裁定 BL-R3）
-            self.b.mark_launched(mark[1])
+            mark(self.b, mark_[1])
             self.counts["marks"] += 1
         if k == "accept":
             if raised and raised["type"] == "Reject" and "作業ツリーが変わっている" in raised["text"]:
@@ -872,6 +883,9 @@ class _Replay:
             if not gap:
                 self.ensure_emitted(s)
             out = reply(s, self.b)
+            if not gap:
+                mark(self.b, nid)         # ラインと同じく、起こす前に印（手本の台本は役を起こさずに done した）
+                self.counts["marked"] += 1
             if raised:
                 self.expect_reject(s, lambda: self.b.accept(nid, out), gap=gap)
             elif self.public:
@@ -883,6 +897,7 @@ class _Replay:
             self.ensure_emitted(s)
             plan = engine_run_plan(s, self.b)
             er = registry(self.b.rules, "ENGINE_RUNS")[self.b.nodes[nid]["engine_run"]["builtin"]]
+            self.b._drop_read_caches()        # run_engine と同じく、前の受け付け・settle の控えのまま計画しない
             own = er["plan"](self.b, nid)      # 盤面自身の計画（engine は出す時に立てた。同じ宣言なら同じ計画）
             if own != plan:
                 raise ReplayDivergence(f"seq {s['seq']} engine_run {nid}: 盤面の計画 {own} ／ 手本の計画 {plan}")
