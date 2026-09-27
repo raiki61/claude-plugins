@@ -1665,8 +1665,8 @@ for key in ("name", "version", "description"):
 
 # **同梱プラグインも版を宣言する。** 利用者が『手元の実体と配布の実体が同じか』を見分ける手段は
 # version だけで、docs/loop-graph/README.md はその見分け方を読者に約束している。宣言が欠けると
-# 見分けようがない（挙動を変えたのに版を上げ忘れる形は、この検査だけでは止められない——
-# 止めるには merge-base との比較が要り、それは CI の仕事。ここで見るのは宣言の実在まで）。
+# 見分けようがない（挙動を変えたのに版を上げ忘れる形は、履歴を見る下の VERSION_BUMP_OK が止める。
+# ここで見るのは宣言の実在まで）。
 import re as _re
 def _bad_version(d):
     """版の宣言として受け取れない理由（無ければ None）。**柵の射程を標本で示す**ためにここに切り出す。"""
@@ -1752,6 +1752,121 @@ for t in sorted((root/"templates").glob("round-*.example.json")):
     assert "gh repo view" not in t.read_text(encoding="utf-8"), \
         f"{t.name} が手順書の禁じ手（gh repo view で owner/repo を確認）を実例として見せている"
 PY
+
+# **中身を変えたら版も上げる。** marketplace の更新は plugin の version が変わった時だけ中身を取り直すので、中身だけ変えて版を
+# 据え置くと、利用者の手元は古い中身のまま残る（実測 2026-09-27: 検証器 scripts/review-record.py に関数を足したのに
+# convergence-loops が 0.40.0 のままで、graphloops 0.21.5 の engine がその関数を見つけられずに止まった）。
+# 見るのは commit 済みの履歴だけ——作業ツリーの未 commit の変更は見ない。
+# **据え置きを赤にするのは、CI が main か release/* の枝を見ているとき（GITHUB_REF_NAME）と、手元で VERSION_BUMP_STRICT=1 を
+# 渡したときだけ。** 作業枝（wip）は版を上げずに run ごとに push して CI を回すので、そこで赤にすると毎回赤になる。それ以外では
+# 柵の標本だけを走らせ、据え置きの一覧を「# SKIP version-bump:」の見送りの行で出す（CI は 3 OS とも SKIP_ALLOW でこの能力を許す）。
+# 赤にする枝で浅い clone（履歴の無い checkout）なら測れないので、黙って緑にせず赤にする（CI の test の job は fetch-depth: 0 で取る）。
+expect_output 0 "VERSION_BUMP_OK" "配る plugin の置き場のファイルが、その plugin.json の version を最後に変えた commit より後に変わっていれば、version も上がっている（main・release/* の CI と VERSION_BUMP_STRICT=1 のときだけ赤）" \
+    "$PY_BIN" - "$ROOT" <<'PYBUMP'
+import json, pathlib, posixpath, subprocess, sys, tempfile
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8")
+root = pathlib.Path(sys.argv[1])
+# 根が ./ の plugin（リポジトリのルート）はルートの木を丸ごと中身にしない——他の plugin の置き場・tests/・docs/ も入るので、
+# 部品の既定の置き場（commands・agents・skills・hooks）と、手順書が呼ぶ scripts と、宣言の .claude-plugin に絞る。
+# .claude-plugin のうち marketplace.json は catalog で、どの plugin の版上げでも変わるので外す（入れると他の plugin を上げるたびに根が赤）。
+# plugin.json が部品の置き場を宣言していれば足す（公式の plugin.json の path の欄）
+ROOT_SCOPE = ("commands", "agents", "skills", "hooks", "scripts", ".claude-plugin", ":(exclude).claude-plugin/marketplace.json")
+DECL_KEYS = ("commands", "agents", "skills", "hooks", "mcpServers", "outputStyles", "lspServers")
+
+def git(repo, *a):
+    r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, f"git {' '.join(a)} が失敗（{r.returncode}）: {r.stderr.strip()}"
+    return r.stdout
+
+def scope(src, pj, others):
+    """plugin の中身の置き場（リポジトリの根からの posix の相対パス）。src は marketplace.json の source を正規化した物"""
+    if src != ".":
+        return [src]
+    paths = set(ROOT_SCOPE)
+    for k in DECL_KEYS:
+        v = pj.get(k)
+        for x in ([v] if isinstance(v, str) else v if isinstance(v, list) else []):
+            p = posixpath.normpath(x) if isinstance(x, str) and x.startswith("./") else "."
+            if p != "." and p.split("/")[0] != "tests" and not any(p == o or p.startswith(o + "/") for o in others):
+                paths.add(p)
+    return sorted(paths)
+
+def stale(repo, plugins):
+    """版が据え置きの plugin の {名前: 版を最後に変えた commit より後に置き場を変えた commit の短い id の一覧}。
+    plugins は marketplace.json の plugins[]（name と source）"""
+    srcs = {p["name"]: posixpath.normpath(p["source"]) for p in plugins}
+    out = {}
+    for name, src in sorted(srcs.items()):
+        pjpath = posixpath.join(src, ".claude-plugin/plugin.json") if src != "." else ".claude-plugin/plugin.json"
+        pj = json.loads((pathlib.Path(repo) / pjpath).read_text(encoding="utf-8"))
+        # 今の版を持つ commit が続く一番古い物が、版をその値にした commit。作業ツリーの版がどの commit にも無ければ上げ途中で、据え置きでない
+        bump = None
+        for c in git(repo, "log", "--format=%H", "--", pjpath).split():
+            if json.loads(git(repo, "show", f"{c}:{pjpath}")).get("version") != pj.get("version"):
+                break
+            bump = c
+        if bump is None:
+            continue
+        others = [s for n, s in srcs.items() if n != name and s != "."]
+        after = git(repo, "log", "--format=%h", f"{bump}..HEAD", "--", *scope(src, pj, others)).split()
+        if after:
+            out[name] = after
+    return out
+
+# **柵そのものを標本で測る**（据え置きが今 0 件でも、柵が生きていることを毎回踏む）。根が ./ の plugin と置き場を持つ plugin の 2 本で、
+# 根の中身の外（tests/・docs/・catalog・他の plugin の置き場）の変更は根の据え置きに数えず、中身の変更は数え、版を上げれば消える
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    t = pathlib.Path(d)
+    def put(rel, text):
+        (t / rel).parent.mkdir(parents=True, exist_ok=True)
+        (t / rel).write_text(text, encoding="utf-8")
+    def commit():
+        git(t, "add", "-A")
+        git(t, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "x")
+    git(t, "init", "-q")
+    pls = [{"name": "top", "source": "./"}, {"name": "sub", "source": "./sub"}]
+    for rel in (".claude-plugin/plugin.json", "sub/.claude-plugin/plugin.json"):
+        put(rel, '{"version": "0.1.0"}')
+    for rel in ("scripts/a.py", "tests/t.sh", "docs/d.md", "sub/x.md"):
+        put(rel, "1")
+    commit()
+    assert stale(t, pls) == {}, f"柵が、版を付けたばかりの plugin を据え置きと拾う: {stale(t, pls)}"
+    put(".claude-plugin/marketplace.json", "{}")
+    for rel in ("tests/t.sh", "docs/d.md", "sub/x.md"):
+        put(rel, "2")
+    commit()
+    got = stale(t, pls)
+    assert set(got) == {"sub"}, f"柵が、置き場の中の変更を拾わないか、根の中身の外（tests/・docs/・catalog・他の plugin）の変更を根の据え置きに数える: {got}"
+    put("scripts/a.py", "2")
+    commit()
+    assert set(stale(t, pls)) == {"top", "sub"}, f"柵が、根の中身（scripts）の変更を拾わない: {stale(t, pls)}"
+    put(".claude-plugin/plugin.json", '{"version": "0.1.1"}')
+    put("sub/.claude-plugin/plugin.json", '{"version": "0.1.1"}')
+    commit()
+    assert stale(t, pls) == {}, f"柵が、版を上げた後も据え置きと拾う: {stale(t, pls)}"
+
+import os
+ref = os.environ.get("GITHUB_REF_NAME", "")
+in_ci = os.environ.get("GITHUB_ACTIONS") == "true"
+# CI の上で枝の名前が取れないなら、赤にすべき枝かを決められない——見送りに倒さず赤にする
+assert ref or not in_ci, "CI の上なのに GITHUB_REF_NAME が空で、据え置きを赤にする枝（main・release/*）かを決められない"
+strict = os.environ.get("VERSION_BUMP_STRICT") == "1" or (in_ci and (ref == "main" or ref.startswith("release/")))
+shallow = git(root, "rev-parse", "--is-shallow-repository").strip() != "false"
+assert not (strict and shallow), "浅い clone で、版を最後に変えた commit を辿れない（CI は actions/checkout に fetch-depth: 0 を渡す）"
+mk = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+bad = {} if shallow else stale(root, mk["plugins"])
+listed = " / ".join(f"{n}（版を最後に変えた後の commit: {' '.join(cs[:5])}{' ほか' if len(cs) > 5 else ''}）" for n, cs in sorted(bad.items()))
+if strict:
+    assert not bad, f"中身を変えたのに version が据え置きの plugin: {listed}——plugin.json の version を上げる（手順は docs/releasing.md）"
+    print(f"VERSION_BUMP_OK（{len(mk['plugins'])} 本の版が中身の変更に追いついている）")
+else:
+    why = f"CI の枝 {ref} は main でも release/* でもない" if in_ci else "手元では VERSION_BUMP_STRICT=1 を渡したときだけ赤にする"
+    what = "浅い clone で一覧を出せない" if shallow else (f"据え置き {len(bad)} 本: {listed}" if bad else "据え置き 0 本")
+    print(f"  ok   据え置きの版を赤にする # SKIP version-bump: {why}ので、柵の標本だけを走らせた（{what}）")
+    print("VERSION_BUMP_OK（柵の標本だけ。据え置きは見送りの行に出した）")
+PYBUMP
 
 # **番人を置く。** 隣の定数実在検査は出力（末尾の合図の語）まで見るのに、ここだけ終了コード
 # しか見ていなかった。**引用を拾う正規表現を絶対に一致しない形に変えても全件緑**になる（実測）
@@ -2033,7 +2148,7 @@ PY
 # 機械が止められない（削った本人が数も一緒に下げれば一致するので通る）。増やす側と、下げ忘れ・
 # 上げ忘れは `-ne` が止めるので、ここには書かない。下げた実例は commit 4bb8d62（自作の剥がす
 # 仕掛けを落として検査面が対象ごと消えた周）。
-EXPECTED_CHECKS=595
+EXPECTED_CHECKS=596
 # ---- coldread ゲート ------------------------------------------------------
 # 読み役は COLDREAD_READER_CMD のスタブに差し替えて検査する(CI に claude も Keychain も無い)。
 # allow 系は「出力が空」を ALLOW_EMPTY の目印に変換して検査する(空文字の contains は恒真のため)。

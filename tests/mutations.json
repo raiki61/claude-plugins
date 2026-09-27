@@ -6510,8 +6510,8 @@
    "title": "CI の突合: ジョブ全体が失敗を無視すれば赤",
    "file": ".github/workflows/test.yml",
    "suite": "root",
-   "old": "    runs-on: ${{ matrix.os }}\n    steps:\n      - uses: actions/checkout@v5\n      # **README",
-   "new": "    runs-on: ${{ matrix.os }}\n    continue-on-error: true\n    steps:\n      - uses: actions/checkout@v5\n      # **README",
+   "old": "    runs-on: ${{ matrix.os }}\n    steps:\n      # 履歴を丸ごと取る。",
+   "new": "    runs-on: ${{ matrix.os }}\n    continue-on-error: true\n    steps:\n      # 履歴を丸ごと取る。",
    "expect": "CI の設定が shellcheck を回す"
   },
   {

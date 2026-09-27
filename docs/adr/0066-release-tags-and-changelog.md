@@ -41,10 +41,11 @@
 - convergence-loops の 0.1.0〜0.7.2 の 9 版は、その commit の plugin.json の name が review-loops（0.8.0 で convergence-loops に改名）なので、`convergence-loops--v` の tag を付けない。公式の解決は marketplace の plugin の名前の tag を版の範囲で引くので、付けると名前の違う plugin の中身が convergence-loops として入りうる。記録（ルートの CHANGELOG.md）には版を残す。gates の前身の coldread（coldread 0.1.0）にも tag を付けない。
 - 版の番号は飛ぶことがある（convergence-loops の 0.39.0 は main に無い）。表に無い版に tag を付けない。
 
-  convergence-loops（50 版。新しい順）:
+  convergence-loops（51 版。新しい順）:
 
   | tag | commit |
   |---|---|
+  | convergence-loops--v0.41.0 | 97c464c |
   | convergence-loops--v0.40.0 | 25d6338 |
   | convergence-loops--v0.38.0 | 9c8ef5d |
   | convergence-loops--v0.37.0 | a58681e |
@@ -175,10 +176,11 @@
   | attention--v0.2.0 | 53c2cac |
   | attention--v0.1.0 | c0ce2c9 |
 
-  graphloops（40 版。新しい順）:
+  graphloops（41 版。新しい順）:
 
   | tag | commit |
   |---|---|
+  | graphloops--v0.21.5 | e908a2d |
   | graphloops--v0.21.4 | c7e8b7f |
   | graphloops--v0.21.3 | 25e2dc7 |
   | graphloops--v0.21.2 | 98ae029 |
@@ -220,7 +222,7 @@
   | graphloops--v0.2.0 | fd4fd5a |
   | graphloops--v0.1.0 | 4c1fc14 |
 
-- 今の版の tag（上の各表の先頭の行）: convergence-loops--v0.40.0・gates--v0.11.3・coldwrite--v0.1.3・attention--v0.25.1・graphloops--v0.21.4（0.21.5 は、この一覧を入れた版上げの commit に付ける）。
+- 今の版の tag: graphloops--v0.21.5・convergence-loops--v0.41.0（上の 2 つの表の先頭の行）と、gates--v0.11.4・coldwrite--v0.1.4・attention--v0.25.2。後の 3 本は、この行を足した版上げの commit（main の 97c464c の次の commit）に付ける。gates・coldwrite・attention の表の先頭の行（gates--v0.11.3・coldwrite--v0.1.3・attention--v0.25.1）は 1 つ前の版で、今の版ではない。
 
 ## 見直す条件
 

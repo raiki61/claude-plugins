@@ -25,12 +25,22 @@ jobs:
         # **欠けてよい能力の一覧（tests/run.sh の SKIP_ALLOW）は OS ごとに書き、既定は空。** include に無い OS は何も許さない。
         # 書くのはその OS で本当にできない物だけ——道具で無くせる見送り（shellcheck）は道具を入れて無くす。
         # 名前は見送りの行の「# SKIP <能力>:」の頭。一覧に無い名前の見送りは、下の FAIL_ON_SKIP=1 で赤になる
+        # version-bump だけは OS でなく枝の都合: 版の据え置きは main・release/* の枝でだけ赤にし、ほかの枝では見送りで一覧を出す
+        # （tests/run.sh の VERSION_BUMP_OK）。main・release/* ではその検査が見送りを出さないので、許しても効かない
         include: &skip_allow
+          - os: ubuntu-latest
+            skip_allow: "version-bump"
+          - os: macos-latest
+            skip_allow: "version-bump"
           - os: windows-latest
-            skip_allow: "posix-mode process-group fifo read-permission"
+            skip_allow: "posix-mode process-group fifo read-permission version-bump"
     runs-on: ${{ matrix.os }}
     steps:
+      # 履歴を丸ごと取る。tests/run.sh の VERSION_BUMP_OK が、plugin.json の version を最後に変えた commit より後の変更を
+      # 履歴から引く（既定の深さ 1 では辿れず、その検査は赤になる）
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       # **README が宣言した最小版を 1 本固定して測る。** runner の既定に任せると、宣言した下限で
       # 通るかを誰も測っていない状態になる（実測 2026-09-12: 必須要件が 3.8 のまま graphcheck.py が
       # graphlib（3.9 追加）を import していたのに、版を固定していないので CI は緑のままだった）。
