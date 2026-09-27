@@ -9,13 +9,16 @@ main(fn) が読む環境変数:
 返答が JSON として読めない・JSON のオブジェクトでないときは fn を呼ばずに ok: false を出して 0。
 出口は 1 本で、どの結果にも reason_file を足す。拒否（ok が true でない）なら reason の本文を盤面の
 reject-<fn の名>-<連番>.txt に UTF-8 で字のまま書いてその絶対パスを、通れば空の文字列を入れる。
+盤面のパスは main で一度だけ resolve し（シンボリックリンクを辿り、相対なら cwd を足す）、下の $ の柵も、fn へ渡す board も、
+reason_file も、その同じ解決した後の値から作る（検査した字と外へ出す字を揃える。正規化してから検査する）。
 次の周の役へ理由を届けるのは reason_file の方。指示書は $LOOP_PREV.<役>-accept.output.reason_file だけを差し込み、
 役に Read させる。Archon は $LOOP_PREV で貼った中身をもう一度変数・節の参照の置き換えに通すので、役の返答から
 派生した reason の本文（$ARTIFACTS_DIR や $<節>.output.<欄> を含みうる）を貼ると黙って化けるか OutputRefError で
 run が落ちる。$LOOP_PREV で渡してよいのは、評価器が読み直しても変わらない固定の形の値（$ を含まないパス）だけ。
 reason は記録のために残す。
 環境変数が欠けたとき（ARTIFACTS_DIR は空も欠けと同じ。空だと盤面が対象リポジトリの board/ になる）と、
-ARTIFACTS_DIR が $ を含むとき（reason_file のパスが置き換えに通ってしまう）だけ、標準エラーに名前を出して 2
+盤面を解決した後のパスが $ を含むとき（reason_file のパスが置き換えに通ってしまう。ARTIFACTS_DIR の字そのものに
+$ が無くても、リンクの先や相対パスの cwd から現れうる）だけ、標準エラーに名前を出して 2
 （標準出力には何も出さない）。
 
 ブロックのスクリプトは、次の前置きをそのまま写し、最後の 2 行の関数だけを替える:
@@ -70,7 +73,8 @@ def _emit(obj) -> None:
 
 
 def _write_reason(board: pathlib.Path, fn, reason: str) -> str:
-    """拒否の理由の本文を盤面の新しいファイルに書き、その絶対パスを返す（受け付けごと・書くたびに別の名前）"""
+    """拒否の理由の本文を盤面の新しいファイルに書き、その絶対パスを返す（受け付けごと・書くたびに別の名前）。
+    board は main が解決して $ の柵を当てた値。ここでもう一度 resolve すると柵を当てていない字を返すので、しない"""
     name = re.sub(r"[^A-Za-z0-9_-]", "_", getattr(fn, "__name__", "") or "fn")
     n = 1
     while True:
@@ -78,7 +82,7 @@ def _write_reason(board: pathlib.Path, fn, reason: str) -> str:
         try:
             with open(p, "x", encoding="utf-8", newline="") as f:
                 f.write(reason)
-            return str(p.resolve())
+            return str(p)
         except FileExistsError:
             n += 1
 
@@ -91,7 +95,7 @@ def main(fn, reply_env: str = "INPUTS_REPLY") -> int:
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
-    board = pathlib.Path(os.environ[ARTIFACTS_ENV]) / BOARD_DIR
+    board = (pathlib.Path(os.environ[ARTIFACTS_ENV]) / BOARD_DIR).resolve()   # 柵も fn も reason_file もこの値から
     if "$" in str(board):
         print(f"{ARTIFACTS_ENV} が $ を含む（reason_file のパスが置き換えに通る）: {board}", file=sys.stderr)
         return 2

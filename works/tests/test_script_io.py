@@ -36,7 +36,7 @@ def run_main(fn, env, **kw):
 class ScriptIoCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.tmp = pathlib.Path(self._tmp.name)
+        self.tmp = pathlib.Path(self._tmp.name).resolve()   # main は盤面を解決して渡す（macOS の /var → /private/var）
         self.env = {"INPUTS_REPLY": json.dumps({"units": []}), "INPUTS_BASE_REV": "abc123",
                     "ARTIFACTS_DIR": str(self.tmp / "artifacts")}
 
@@ -103,6 +103,39 @@ class ScriptIoCase(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("ARTIFACTS_DIR", err)
         self.assertEqual(out, "")
+
+    def test_dollar_revealed_by_resolve_stops(self):
+        # 柵は解決した後の盤面に当てる。ARTIFACTS_DIR の字に $ が無くても、リンクの先や相対パスの cwd に $ が在れば
+        # reason_file（解決した後のパス）が $ を含むので止める
+        target = self.tmp / "real$WORKFLOW_ID"
+        target.mkdir()
+        link = self.tmp / "link"
+        link.symlink_to(target)
+        code, out, err = run_main(lambda *a: self.fail("呼ばない"), {**self.env, "ARTIFACTS_DIR": str(link)})
+        self.assertEqual((code, out), (2, ""), "リンクの先の $")
+        self.assertIn("ARTIFACTS_DIR", err)
+        here = os.getcwd()
+        os.chdir(target)
+        try:
+            code, out, err = run_main(lambda *a: self.fail("呼ばない"), {**self.env, "ARTIFACTS_DIR": "artifacts"})
+        finally:
+            os.chdir(here)
+        self.assertEqual((code, out), (2, ""), "相対の ARTIFACTS_DIR と $ を含む cwd")
+        self.assertIn("ARTIFACTS_DIR", err)
+
+    def test_reason_file_is_under_checked_board(self):
+        # 柵を当てた盤面と reason_file の親が同じ字（リンク越しでも）。fn へ渡す board もその値
+        target = self.tmp / "real"
+        target.mkdir()
+        link = self.tmp / "link"
+        link.symlink_to(target)
+        seen = []
+        code, out, _ = run_main(lambda *a: seen.append(a) or {"ok": False, "reason": "r"},
+                                {**self.env, "ARTIFACTS_DIR": str(link)})
+        self.assertEqual(code, 0)
+        board = seen[0][1]
+        self.assertEqual(board, target / "board")
+        self.assertEqual(pathlib.Path(json.loads(out)["reason_file"]).parent, board)
 
     def test_empty_base_rev_is_passed_through(self):
         # Ruling R2: 空の INPUTS_BASE_REV は「HEAD を使う」の意味で、欠けではない
