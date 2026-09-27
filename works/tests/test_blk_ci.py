@@ -6,7 +6,7 @@ graphloops の p0.local_checks（修正前）と p4.ci（修正後）は、engin
 受け付けは役を起こす前と後の作業ツリーの姿（accept.tree_state: porcelain・差分・git が無視するパス・HEAD・枝）を比べる。
 
 - YAML の形: 役の output_format が ci_role.OUTPUT_FORMAT（写しの schema に印 works-node: ci）・輪は fresh_context で AI の節は 1 つ・
-  上限は GIVE_UP_AFTER・役の道具は Read・Grep・Glob・Bash・sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ形で、
+  上限は GIVE_UP_AFTER・役の道具は Read・Grep・Glob・Bash・WebSearch・WebFetch・sandbox は graphloops の任せ先（role_run.delegate_settings）と同じ形で、
   本物の作業ツリーは包みが印の旗 no-tree-write を見て守る（裁定 R56）・スクリプトの INPUTS_* と with: が同じ
 - 包みの確かめ（裁定 R58）: 最初の節 ci-fence は run が宣言した包みの形（start の控えの adapter）を読む。包みを宣言した run
   （adapter が空）は切符を見て進み、受け付けが包みの起動の記録で、この試行の役の起動に柵 no_tree_write が掛かったかを見る
@@ -145,7 +145,7 @@ class YamlCase(unittest.TestCase):
         role = ai[0]
         self.assertEqual(role["command"], "ci")
         self.assertTrue((BLK / "commands" / "ci.md").is_file())
-        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Bash"])   # Edit・Write は無い
+        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Bash", "WebSearch", "WebFetch"])   # Edit・Write は無い（web は本線の writer と同じ）
         self.assertEqual(role["settingSources"], ["user"])
         self.assertNotIn("context", role)
         self.assertEqual(role["idle_timeout"], DEADLINE)

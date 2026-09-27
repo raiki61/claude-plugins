@@ -134,7 +134,7 @@ class TestYaml(unittest.TestCase):
         self.assertNotIn("command", role)
         self.assertIn("`$tdd-prep.output.prompt_file` を Read で", role["prompt"])
         self.assertEqual(role["settingSources"], ["user"])
-        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash"])
+        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebSearch", "WebFetch"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
         of = role["output_format"]

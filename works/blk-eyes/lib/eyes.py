@@ -57,9 +57,10 @@ NODE_OF = {r: n for n, r in ROLE_OF.items()}
 LANES = (("r1.comment_candidates", "r1.minimality"), ("r2.design", "r2.compare", "stop.premise_check"),
          ("r3.coherence",), ("r4.hidden_scope",))
 # 役の道具（graph の run_by → Archon の allowed_tools）。graphloops の役の定義（convergence-loops 0.40.0 の agents/<役>.md）の
-# 道具から、書く道具と shell を除いた物。comment-analyzer（別 plugin）は定義が全部の道具を持つが、目は読むだけなので Read・Grep・Glob
+# 道具から、書く道具と shell を除いた物。comment-analyzer（別 plugin）は定義が全部の道具を持つが、目は読むだけなので同じく書く道具と
+# shell を除いた Read・Grep・Glob・WebSearch・WebFetch（tests/test_tool_parity.py の NARROWED）
 TOOLS = {"judge": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"], "inspector": ["Read", "Grep", "Glob"],
-         "blind-judge": [], "comment-analyzer": ["Read", "Grep", "Glob"]}
+         "blind-judge": [], "comment-analyzer": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]}
 # 道具ゼロの役（graphloops は Git の外の一時の置き場で起こす。commands._isolated_cwd）。包みの旗 isolated が同じことをする
 ISOLATED_RUN_BY = frozenset({"blind-judge"})
 ISOLATED_FLAG = "isolated"

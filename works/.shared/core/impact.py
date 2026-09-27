@@ -18,6 +18,7 @@ AI に探させず、1 回作って使い回す（鍵 = rev・起点・作業ツ
 - miss(m, junit, fast=(), scope=None) -> dict: 最後の一式で落ちたのに選んでいなかったテスト（地図の取りこぼし）
 - seeds_from_units(repo, units) -> list: 判定の単位の文（key・reason・class_query・prescriptions など全部の字）に
   現れる追跡中の file（パスそのものか、一意な basename）
+- py_imports(text) -> list | None: Python の file の import の一覧（地図の import の辺と同じ読み取り。libdocs が使う）
 
 地図の JSON（schema works-impact/1）の欄:
 - key・rev（commit の sha）・rev_name・seeds {given, files, names, from_diff, missing}
@@ -272,6 +273,13 @@ def _py_facts(text):
     imports.sort(key=lambda x: (x[2], x[0]))
     dyn.sort(key=lambda x: x[0])
     return {"error": None, "imports": imports, "syspath": syspath, "dyn": dyn, "defs": defs}
+
+
+def py_imports(text):
+    """Python の file の import の一覧 [[名, 段, 行番号, 行の字, from の名の一覧]]（_py_facts の imports と同じ形）。
+    構文の誤りで読めなければ None（ほかの模块が import の読み取りを 2 か所に持たないための公開の口）"""
+    facts = _py_facts(text)
+    return None if facts["error"] else facts["imports"]
 
 
 def _scan(data: bytes, want_py: bool):

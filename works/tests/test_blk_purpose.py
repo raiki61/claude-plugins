@@ -120,7 +120,7 @@ class YamlCase(unittest.TestCase):
         role = find_node(self.y, "purpose")
         self.assertEqual(role["command"], "purpose")
         self.assertEqual(role["settingSources"], ["user"])
-        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob"])
+        self.assertEqual(role["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
         self.assertEqual(role["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(role["idle_timeout"], DEADLINE)
         self.assertNotIn("model", role)

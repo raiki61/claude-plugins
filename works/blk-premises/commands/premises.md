@@ -2,7 +2,7 @@
 
 ## 道具と守ること
 
-- 道具は Read・Grep・Glob・Bash。Bash はサンドボックスの中で走る。測るためのコマンド（`grep -c`・`wc -c`・`ls`・`git log`・テストの実行など）を走らせてよい。
+- 道具は Read・Grep・Glob・Bash と web を引く WebSearch・WebFetch。Bash はサンドボックスの中で走る。測るためのコマンド（`grep -c`・`wc -c`・`ls`・`git log`・テストの実行など）を走らせてよい。
 - **作業ツリーを 1 文字も変えるな。** 受け付けは、依頼を受け付けた時に取った作業ツリーの写しと今の作業ツリーを比べ、変わっていれば拒む（測った物がこの後の修正の差分に混じるため）。
   - 出力を書くなら作業ツリーの外（`$TMPDIR`）に書け。Python を走らせるなら `PYTHONDONTWRITEBYTECODE=1` を付けよ。
   - `git add`・`git commit`・`git stash`・`git reset`・`git checkout` で作業ツリーや履歴を動かさない（受け付けは HEAD の移動も見る。commit しても拒まれる）。

@@ -101,7 +101,7 @@ class YamlCase(unittest.TestCase):
         self.assertEqual([n["id"] for n in lg["nodes"]], ["judge", "judge-accept"])
         judge = find_node(self.y, "judge")
         self.assertEqual(judge["command"], "diagnose")
-        self.assertEqual(judge["allowed_tools"], ["Read", "Grep", "Glob"])
+        self.assertEqual(judge["allowed_tools"], ["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
         self.assertEqual(judge["sandbox"], {"enabled": True, "allowUnsandboxedCommands": False})
         self.assertEqual(judge["idle_timeout"], DEADLINE)
         acc = find_node(self.y, "judge-accept")

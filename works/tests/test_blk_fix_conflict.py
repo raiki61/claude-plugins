@@ -348,7 +348,7 @@ class TestYaml(unittest.TestCase):
         self.assertEqual([n["id"] for n in g["nodes"]], ["rule-prep", "rule", "rule-accept"])
         ai = [n for n in g["nodes"] if "prompt" in n]
         self.assertEqual(len(ai), 1)
-        self.assertTrue(set(ai[0]["allowed_tools"]) <= {"Read", "Grep", "Glob"})
+        self.assertTrue(set(ai[0]["allowed_tools"]) <= {"Read", "Grep", "Glob", "WebSearch", "WebFetch"}, "書く道具と shell を持たない")
         self.assertEqual(ai[0]["output_format"], ruling.RULE_OUTPUT_FORMAT)
         self.assertEqual(ai[0]["idle_timeout"], DEADLINE)
 
