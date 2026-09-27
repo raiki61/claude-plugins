@@ -88,7 +88,7 @@ class TestCoreCopy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as cfg:
             env = {k: v for k, v in os.environ.items() if k != "CONVERGENCE_LOOPS_ROOT"}
             env.update(CLAUDE_CONFIG_DIR=cfg, PYTHONDONTWRITEBYTECODE="1")
-            r = subprocess.run([sys.executable, "-c", code, str(CORE), *sorted(roles)], env=env, capture_output=True, text=True)
+            r = subprocess.run([sys.executable, "-c", code, str(CORE), *sorted(roles)], env=env, capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout)
         self.assertIsNone(out["env"], "置き場の環境変数を残した")
@@ -161,7 +161,7 @@ class TestCoreCopy(unittest.TestCase):
         self.assertNotIn("archon workflow run raiki61/works:darkfactory", body)
         p = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(p["name"], "works")
-        self.assertEqual(p["version"], "0.1.0")
+        self.assertEqual(p["version"], "0.2.0")
         self.assertTrue(p.get("description"))
 
 
