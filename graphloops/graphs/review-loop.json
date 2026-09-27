@@ -936,8 +936,31 @@
     "spec.revise"
    ],
    "preamble": "あなたはレビューループを回す engine から、回す側（writer）の 1 つの節を任された子で、claude -p として動いている。会話の相手はいない。\n- 作業ディレクトリ（cwd）はレビュー対象の本物の作業ツリーである。指示書が直せと言う物は、ここのファイルを Edit・Write で直せ。作業ツリーの外・.git・盤面の置き場には書けない（権限と OS の sandbox が拒む）。拒まれたら別の書き方を探さず、書けなかったことを返答に書け。\n- git の書き込み（add・commit・stash・checkout・reset・worktree・branch）は打つな。index も共通の .git も書けず、engine が起こす前後で git の状態を突き合わせて違えば受け付けない。未追跡の新規ファイルは engine が周の版に載せる（指示書の git add -N は打てない——打てなかったパスは intent_to_add に書くだけにし、打っていないと detail に書け）。\n- コマンド（テスト・lint・計器・git の読み）は Bash で走らせてよい。OS の sandbox の中で走り、外への通信は無い（網から依存を取って走らせる語は落ちる。手元に在る実行器で確かめよ）。\n- 別の役（Agent）は起こせない。指示書が investigator に Web を調べさせろと言う所は、判定者の先行例の行を採る（from_judge_row）か、調べていないことを not_found と searched に正直に書け。\n- 人の方針の文書の置き場が指示書に在れば、先に Read で全部読め。\n- 返答は、指示書が求めた JSON だけを最後のメッセージとして返せ。置き場のファイル（out_path）には書くな——engine があなたの返答を置き場に書き、受け付けに回す。受け付けが拒んだら、理由が同じ会話に届く。\n",
-   "why": "回す側の節（graph の runners の節のうち、任せ先・skill・走らせるだけの宣言を持たない物: 基準点・前提・目的・修正案・修正・手直し・報告・仕様）も、init --engine-runners の run では engine が claude -p で起こす（advance.runner_launch_spec。手順 H の H3）。回す側の会話が自分で書いていた頃、1 周 30〜45 万トークンを使い、知らせ待ちで止まる・手で写す・柵の注意を入れ忘れる、が起きた（2026-09-27 の run）。権限は engine が決める（role_run.runner_permission。graph は語の並び・前置きの文・モデルだけを持つ）: 読むだけの節は道具つきの役（investigator）と同じ形（sandbox か read_only）で、前提を測るコマンドを sandbox の中で走らせられる。作業ツリーを書き換える節（edits）は dontAsk・パスで縛った Edit(./**)・Write(./**)・読むだけの gh の前置で、Bash は OS の sandbox の中だけ——書けるのは作業ツリーの根と一時ディレクトリで、.git・ほかの作業ツリー・盤面・利用者の git とシェルの設定・engine 自身は denyWrite（util.protected_paths から根だけを外す）。前提の実験（scratchpad/headless-spike/FINDINGS.md、2026-09-25）: acceptEdits は許可の無い rm・touch を通し、縛りの無い Edit・Write は外に書け、テストの実行器が読み込む設定のファイルと git diff --output= は Bash から外と .git に書けた——許可の字面では縛れないので OS の境界に置く。sandbox が立たない場は起こさず会話に返す（Bash 抜きの書く子に黙って落とさない）。この作業ツリーの git の状態（HEAD・枝）は起こす前後で突き合わせ、違えば受け付けない（全作業ツリーで共有する stash と作業ツリーの一覧は並行の run も動かすので、違っても受け付けて trace に残す——子が共通の .git に書くことは sandbox が止める）。作業ツリーを書き換える子は落ちても、前の試行の子を止め切った後で作業ツリーと HEAD・枝が起こした時点と同じと測れたときだけ 1 回起こし直す（途中の編集を知らない新しい会話が重ねて書かない）。CLAUDE.md は読ませない（--setting-sources \"\"。道具つきの役と同じ理由）ので、フックも動かず、子の読了は reads.jsonl に載らない——記録の loop.wrote_refs_reads と報告の人向けの項目に、記録が無いことを書く。skill を呼ぶ節（局所レビュー）と背景の任せ先（変異の検算の線）は今どおり会話に返す（人の答え 2026-09-27: 変異は CI だけ）。"
-  }
+   "why": "回す側の節（graph の runners の節のうち、任せ先・走らせるだけの宣言を持たない物: 基準点・前提・目的・修正案・修正・手直し・報告・仕様・局所レビュー）も、回し役なしの run（init の既定。--no-engine-runners の run は会話がこなす）では engine が claude -p で起こす（advance.runner_launch_spec。手順 H の H3）。回す側の会話が自分で書いていた頃、1 周 30〜45 万トークンを使い、知らせ待ちで止まる・手で写す・柵の注意を入れ忘れる、が起きた（2026-09-27 の run）。権限は engine が決める（role_run.runner_permission。graph は語の並び・前置きの文・モデルだけを持つ）: 読むだけの節は道具つきの役（investigator）と同じ形（sandbox か read_only）で、前提を測るコマンドを sandbox の中で走らせられる。作業ツリーを書き換える節（edits）は dontAsk・パスで縛った Edit(./**)・Write(./**)・読むだけの gh の前置で、Bash は OS の sandbox の中だけ——書けるのは作業ツリーの根と一時ディレクトリで、.git・ほかの作業ツリー・盤面・利用者の git とシェルの設定・engine 自身は denyWrite（util.protected_paths から根だけを外す）。前提の実験（scratchpad/headless-spike/FINDINGS.md、2026-09-25）: acceptEdits は許可の無い rm・touch を通し、縛りの無い Edit・Write は外に書け、テストの実行器が読み込む設定のファイルと git diff --output= は Bash から外と .git に書けた——許可の字面では縛れないので OS の境界に置く。sandbox が立たない場は起こさず、起こせない理由（instance の unlaunched）を人に渡す（Bash 抜きの書く子に黙って落とさない）。入れ子の sandbox（道具は在るのに子の Bash が sandbox の初期化で落ちる場）は、確かめの子（道具は Bash だけ）の返答に初期化の失敗の文が在ったときだけそう決め、書き換える節・skill の節・任せ先は子を起こさずに外し方を名指して止め、読むだけの子は起こして Bash で測れていないことを残す（commands._sandbox_probe・launch_one。人の関所の答え 2026-09-27 の 3 周目）。この作業ツリーの git の状態（HEAD・枝）は起こす前後で突き合わせ、違えば受け付けない（全作業ツリーで共有する stash と作業ツリーの一覧は並行の run も動かすので、違っても受け付けて trace に残す——子が共通の .git に書くことは sandbox が止める）。作業ツリーを書き換える子は落ちても、前の試行の子を止め切った後で作業ツリーと HEAD・枝が起こした時点と同じと測れたときだけ 1 回起こし直す（途中の編集を知らない新しい会話が重ねて書かない）。CLAUDE.md は読ませない（--setting-sources \"\"。道具つきの役と同じ理由）ので、フックも動かず、子の読了は reads.jsonl に載らない——記録の loop.wrote_refs_reads と報告の人向けの項目に、記録が無いことを書く。skill を呼ぶ節（局所レビュー）も同じ語で起こす: 道具は Read・Glob・Grep・Bash・Skill・Agent で書く道具は無く、sandbox の形のときだけ起こす（role_run.skill_permission）。前置きは skill_preamble と、プラグインの agent のレンズの定義の置き場だけで組む（書く子の preamble は継がない——『Edit・Write で直せ』『別の役は起こせない』が skill の子の指示とぶつかる）——子はプラグインを読まないので、agent のレンズは Agent の汎用の子に定義を読ませて起こす（--plugin-dir でプラグインを読ませる形は採らない: hooks・mcpServers・settings.json・bin/ など、argv の柵の外で子を変える部品まで入る）。Agent の子の待ちの上限は外す（role_run.SKILL_ENV。人の方針: 期限を足さない）。必須のレンズを起こさなかった・material が awaiting_human の子の返答は受け付けが拒み（同じ会話に続きを頼む）、上限まで続けば人に渡る。条件が真の周の条件付きのレンズを起こさなかった行は受け付け、報告の『未確認のレンズ』に並べる（rules の local_review_covers_lenses。人の関所の答え 2026-09-27 の 3 周目——会話に返す手番は持たず、13 は engine の不具合だけ）。背景の任せ先（変異の検算の線）は、回し手が受領を done して切り離して立てる（runner.start_lane。人の関所の答え 2026-09-27 の条件 3——手元で変異を撃たない方針は、方針の段と、対象リポジトリの permissions.deny と、engine の子の環境の印（role_run.ENGINE_CHILD_ENV）を見る対象リポジトリの入口の拒みで守る）。",
+   "skill_preamble": "あなたはレビューループを回す engine から、局所レビュー（skill を呼ぶ節）を任された子で、claude -p として動いている。会話の相手はいない。\n- あなたは Skill と Agent を持つ。書く道具は無く、作業ディレクトリ（レビュー対象の本物の作業ツリー）・.git・盤面の置き場には OS の sandbox が書かせない——修正まで行く道具（/simplify）にも指摘だけを返させよ。\n- 名前が / で始まるレンズは Skill で起こせ。\n- 名前が <plugin>:<役> のレンズ（プラグインの agent）は、この子ではプラグインを読まないので名前では起きない。Agent で汎用の子（general-purpose）を起こし、下の一覧の定義の置き場を Read で読んでその役として振る舞うよう頼み、指示書どおりに対象を渡せ。findings[].skill には宣言の綴りをそのまま書け。\n- git の書き込み（add・commit・stash・checkout・reset・worktree・branch）は打つな。git の index にも書けない（git add -N を打てない）ので、変更ファイルの一覧に在るのに git diff に出ない未追跡の新規ファイルは、git diff を読むレンズには載らない——そのレンズにはファイルのパスを名指して Read で全文を読ませよ。\n- コマンド（テスト・lint・git の読み）は Bash で走らせてよい。OS の sandbox の中で走り、外への通信は無い。\n- 人の方針の文書の置き場が指示書に在れば、先に Read で全部読め。\n- 起こしたレンズの行には invoked: true を書け。必須のレンズ（required が true）が起こせなかったら、理由を確かめて起こし直せ——invoked: true の無い必須の行と、material が awaiting_human の返答は受け付けが拒み、理由が同じ会話に届く（上限まで拒まれると人に渡る）。条件付きのレンズ（required: false）が起こせなかったら failed に理由を書くだけで、material を awaiting_human にしない（engine が報告の『未確認のレンズ』に並べる）。\n- 返答は、指示書が求めた JSON だけを最後のメッセージとして返せ。置き場のファイル（out_path）には書くな——engine があなたの返答を置き場に書き、受け付けに回す。受け付けが拒んだら、理由が同じ会話に届く。\n"
+  },
+  "append": [
+   {
+    "to": "commands",
+    "files": [
+     "../prompts/policy-path.md",
+     "../prompts/policy.md",
+     "../prompts/review-loop/test-scope.md"
+    ],
+    "reads": [
+     "record.process.policy.path",
+     "record.process.checks"
+    ]
+   },
+   {
+    "to": "tooled",
+    "files": [
+     "../prompts/board-files.md"
+    ],
+    "reads": []
+   }
+  ],
+  "append_why": "起こす子の形ごとに指示書の末尾へ足す段（advance.launch_appends。節の名前でなく子の形で当てる）。commands はコマンドを走らせる子（回す側の節の全部・任せ先・Bash を持つ役）で、人の方針の置き場と手元で走らせてよい範囲だけを届ける——節ごとの prompt_append で足していたとき、方針が届くのは足した 4 節だけで、任せ先と Bash を持つ P1 の役には届かなかった（束 A r3 で手元の e2e が 2 回走った）。依頼の本文は貼らない（依頼を読まない節に依頼者の見立てを混ぜない。人の関所の答え 2026-09-27 の条件 4）——依頼の守ることは、依頼を読む節だけが prompt_append の request-scope.md で受ける。tooled は道具を持つ子で、盤面のファイルの読み方を届ける。同じファイルを節の prompt_append に書くと graphcheck が拒む（重ねて貼らない）"
  },
  "basis": "commands/review-loop.md と scripts/review-record.py（同じリポジトリの convergence-loops。版は .claude-plugin/plugin.json が正本で、ここに写さない）から起こした現状の写し。正本は手順書と検証器で、このファイルは両者を 1 つのグラフとして読めるようにした抽象。役の道具は agents/<役>.md が正本なのでここに写さない。各節の source は手順書の見出し（行番号は腐るので書かない）",
  "record": {
@@ -1014,6 +1037,46 @@
  "$defs": {
   "counts": {
    "$ref": "../blocks/review-loop/fix/exit.schema.json#/$defs/counts"
+  },
+  "named_narrowings": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "key",
+     "unit_key",
+     "what",
+     "source",
+     "ref"
+    ],
+    "properties": {
+     "key": {
+      "type": "string",
+      "minLength": 4
+     },
+     "unit_key": {
+      "type": "string",
+      "minLength": 1
+     },
+     "what": {
+      "type": "string",
+      "minLength": 4
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "request",
+       "gate_answer"
+      ]
+     },
+     "ref": {
+      "type": "string",
+      "minLength": 4
+     }
+    }
+   },
+   "note": "持ち主が依頼の本文か人の関所の答えで名指しした狭め（判定役が名指しと判じた物だけ。無ければ省くか空配列）。key は修正案の narrows[].named が指す名前、unit_key はその狭めが属する直す単位、what は何が狭まるか（修正案は同じ字面で写す）、ref は出どころ——依頼なら request:<init の依頼の本文の 10 字以上の引用>、人の関所の答えなら gate:<人が continue で答えた行の ID（human_items の asked_ids）>。修正案の狭めがこの key を named で指し、what と単位が同じで、出どころが持ち主の物なら、修正の前の関所は聞かずに通して報告に並べる（rules の _named_ok）"
   },
   "precedents": {
    "type": "array",
@@ -2027,7 +2090,7 @@
     "p1.worktree_before",
     "p0.local_checks"
    ],
-   "source": "P1 ＞ 局所（writer が main session で実行）",
+   "source": "P1 ＞ 局所（skill を呼ぶ。回し役なしの run——init の既定——は engine が子で起こし、起こせなければ理由を人に渡す。--no-engine-runners の run は会話が実行）",
    "inputs": [
     "対象差分",
     "REVIEW.md「指摘の提出基準」（プロンプトに貼る——skill は REVIEW.md を読まない）"
@@ -2802,9 +2865,7 @@
    "carry_reason": "手順書・スクリプト・CI に変更が無い周は前の判定を持ち越す",
    "escalate_note": "同じクラスが周をまたいで戻った run では条件に関わらず走る（rules の escalate_on_thrash。下げるのは人の手当てだけ）",
    "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md"
+    "../prompts/review-loop/request-scope.md"
    ]
   },
   "p1.gate_efficacy": {
@@ -3065,7 +3126,8 @@
     "prev.p3.fix.wrote_refs_reads",
     "prev.p3.fix.coverage_after",
     "record.process.fix_claim_mismatch",
-    "record.process.policy.path"
+    "record.process.policy.path",
+    "record.process.human_items"
    ],
    "pointers": [
     {
@@ -3258,6 +3320,9 @@
      "precedents": {
       "$ref": "#/$defs/precedents"
      },
+     "named_narrowings": {
+      "$ref": "#/$defs/named_narrowings"
+     },
      "engine_zero": {
       "type": "array",
       "items": {
@@ -3309,7 +3374,8 @@
       "framing",
       "one_shot",
       "units",
-      "one_shot_closes"
+      "one_shot_closes",
+      "named_narrowings"
      ]
     },
     {
@@ -3561,6 +3627,9 @@
       },
       "note": "前の周に直さずに残すと宣言された穴（hist.prev_declared_faces）1 件ごとに振り分ける。to_unit＝今の周の直す単位に上げた（unit_key にその単位の key）／accept＝残すことを認めた（理由）"
      },
+     "named_narrowings": {
+      "$ref": "#/$defs/named_narrowings"
+     },
      "engine_zero": {
       "type": "array",
       "items": {
@@ -3622,7 +3691,8 @@
       "framing",
       "one_shot",
       "units",
-      "one_shot_closes"
+      "one_shot_closes",
+      "named_narrowings"
      ],
      "note": "最新の判定を正本にする——p2.diagnose だけが書いていた頃、履歴の再審で開き直した単位の class_query を修正役も母数の突合も読まなかった"
     }
@@ -3693,7 +3763,8 @@
     "record.questions",
     "record.process.policy.path",
     "record.base",
-    "inputs.review_md"
+    "inputs.review_md",
+    "record.process.human_items"
    ],
    "pointers": [
     {
@@ -3810,20 +3881,20 @@
            "why": {
             "type": "string",
             "minLength": 10
+           },
+           "named": {
+            "type": "string",
+            "minLength": 4
            }
           }
          },
-         "note": "この案で BASE にあった能力が消える・狭まるもの（無ければ空配列）。1 件でもあれば p2.human_gate が人に聞く——役は代償として決めない"
+         "note": "この案で BASE にあった能力が消える・狭まるもの（無ければ空配列）。1 件でもあれば p2.human_gate が人に聞く——役は代償として決めない。named は判定役の named_narrowings の key（持ち主が名指しした狭めだと判定役が判じた物）を指すときだけ書き、what はその名指しの what と同じ字面にする——関所は what と単位が名指しと同じ狭めだけを聞かずに通して報告に並べる"
         }
        }
       }
      }
     }
-   },
-   "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md"
-   ]
+   }
   },
   "p2.plan_review": {
    "stage": "P2",
@@ -3849,7 +3920,8 @@
     "hist.snapshot.rev",
     "inputs.review_md",
     "record.process.policy.path",
-    "record.base"
+    "record.base",
+    "record.process.human_items"
    ],
    "pointers": [
     {
@@ -4057,9 +4129,7 @@
    "enforced_by": "rejudge_requested（フレーミング・disposition への異議）は process.fixes とこの節の出力に残り（手当ては loop.py patch --path out.p3.fix.rejudge_requested）、擦り合わせで決着しなければ次の周の p2.history が hist.prev_rejudge で再審する。この周は判定どおり直す（post_check fix_covers_open_units）",
    "na_self_ok": "その周に修正が 0 件なら閉鎖の実証は対象が無い（fix_covers_open_units が changes 非空との食い違いを別に拒む）",
    "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
   },
@@ -4209,9 +4279,7 @@
     "$ref": "../blocks/review-loop/delta/exit.schema.json#/properties/p3.delta_fix"
    },
    "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
   },
@@ -4361,9 +4429,7 @@
     "$ref": "../blocks/review-loop/delta/exit.schema.json#/properties/p3.delta_fix2"
    },
    "prompt_append": [
-    "../prompts/policy-path.md",
-    "../prompts/policy.md",
-    "../prompts/review-loop/test-scope.md",
+    "../prompts/review-loop/request-scope.md",
     "../prompts/declared-files.md"
    ]
   },
@@ -4405,12 +4471,15 @@
    "outputs": [
     "lanes/r<周>-<版>.json（線の結果。任せ先の返答を engine が置く）"
    ],
-   "note": "回す側は受領（置き場）を返して done し、その後で engine に任せ先を背景で起こさせる（loop.py launch --node）。足したテストの patch は任せ先の写しの側に在り、結果の patch の欄が名指す。線の結果は、書き終えた後の周の頭（周の頭の節 p1.worktree_before が渡した行を出力の lane_rows に置き hist.prev_declared_faces へ——needs_test・defect・使えない結果。defect は依頼の入口 record.process.request_findings にも）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
+   "note": "受領（置き場）を done し、その後で engine に任せ先を背景で起こさせる（loop.py launch --node）——受領の形は delegate.receipt で、engine が {result_path} を置き場で埋め、回し手（loop.py run）が done と launch を打つ。足したテストの patch は任せ先の写しの側に在り、結果の patch の欄が名指す。線の結果は、書き終えた後の周の頭（周の頭の節 p1.worktree_before が渡した行を出力の lane_rows に置き hist.prev_declared_faces へ——needs_test・defect・使えない結果。defect は依頼の入口 record.process.request_findings にも）と修正の前（p3.lane_merge——足したテストの合流）が置き場から読む。誰もこの節を待たない（p4.ci・R1〜R4・converge の deps に無い）。以前は p3.delta_owed がこの節を待ち、見逃しへの答えを手直し（p3.delta_fix）の義務に入れていた（実測 2026-09-24: 4 周目は 172 分＋167 分）",
    "delegate": {
     "model": "sonnet",
     "background": true,
     "why": "変異の実行器を走らせ、見逃した腕にテストを足す作業で、周の判断は要らない（テストを書くので haiku でなく sonnet）。背景で走らせ、回す側の周を止めない",
-    "result_to": "cur.p3.gates_cut.result"
+    "result_to": "cur.p3.gates_cut.result",
+    "receipt": {
+     "lane": "{result_path}"
+    }
    },
    "prompt_file": "../prompts/review-loop/p3.delta_gates.md",
    "reads": [
@@ -5442,9 +5511,7 @@
    "cond": "rejudge_reply_due",
    "prompt_file": "../prompts/review-loop/p3.rejudge_reply.md",
    "prompt_append": [
-    "../prompts/review-loop/rejudge-reply-rules.md",
-    "../prompts/policy-path.md",
-    "../prompts/policy.md"
+    "../prompts/review-loop/rejudge-reply-rules.md"
    ]
   },
   "p2.rejudge2": {
@@ -5533,9 +5600,7 @@
    "cond": "rejudge_reply2_due",
    "prompt_file": "../prompts/review-loop/p3.rejudge_reply2.md",
    "prompt_append": [
-    "../prompts/review-loop/rejudge-reply-rules.md",
-    "../prompts/policy-path.md",
-    "../prompts/policy.md"
+    "../prompts/review-loop/rejudge-reply-rules.md"
    ]
   },
   "p2.rejudge3": {

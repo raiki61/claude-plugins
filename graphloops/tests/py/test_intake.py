@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import threading
@@ -125,6 +126,74 @@ def test_commit_is_the_plugin_not_the_repo_under_review(tmp_path, monkeypatch):
     assert p["run"] == {"loop_name": "review-loop", "run_id": "r1", "round": 2, "graph_sha": "g"}
     assert intake.stamp_line({"engine": {"root": str(root), "version": "1.0.0"}, "loop_name": "review-loop",
                               "run_id": "r1", "round": 2, "graph_sha": "g"}) == "graphloops 1.0.0 (abcdef012345) / review-loop run r1 / round 2 / graph g"
+
+
+def _cached(tmp_path, ver, name="graphloops"):
+    root = tmp_path / "plugins" / "cache" / "mkt" / name / ver
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": name, "version": ver}), encoding="utf-8")
+    return root
+
+
+def test_newer_installed_names_a_later_version_beside_the_running_one(tmp_path):
+    old, _new, _older, _other = _cached(tmp_path, "0.9.0"), _cached(tmp_path, "0.10.0"), _cached(tmp_path, "0.2.0"), _cached(tmp_path, "1.0.0", "gates")
+    assert intake.newer_installed(old) == "0.10.0"          # 版は数で並べる（字で並べると 0.2.0 が勝つ）
+    assert intake.newer_installed(tmp_path / "plugins" / "cache" / "mkt" / "graphloops" / "0.10.0") is None
+    assert intake.newer_installed(PLUGIN) is None           # checkout から走る回は比べない
+
+
+def test_init_notices_name_a_missing_declaration_and_a_newer_version(tmp_path, monkeypatch):
+    g = {"nodes": {"p4.ci": {"engine_run": {"builtin": "x"}}, "p0.base": {}}}
+    monkeypatch.setattr(intake, "newer_installed", lambda: None)
+    root = str(tmp_path)
+    assert any(".review-checks.json が無い" in n for n in commands.init_notices(g, root))
+    (tmp_path / ".review-checks.json").write_text("{壊れた", encoding="utf-8")
+    assert any("読めない" in n for n in commands.init_notices(g, root))
+    (tmp_path / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "t", "argv": ["x"]}]}), encoding="utf-8")
+    assert commands.init_notices(g, root) == []
+    assert commands.init_notices({"nodes": {"p0.base": {}}}, root) == []   # 走らせるだけの節を持たない graph には言わない
+    monkeypatch.setattr(intake, "newer_installed", lambda: "9.9.9")
+    assert any("新しい版 9.9.9" in n for n in commands.init_notices(g, root))
+
+
+def test_init_reads_the_declaration_from_the_board_cwd_not_a_leftover_git_cwd(tmp_path, monkeypatch):
+    """init の知らせは盤面の inputs.cwd の作業ツリーから宣言を読む——同じプロセスで前に置かれた util.GIT_CWD（別のリポジトリ）に依らない
+    （cli と同じプロセスの口で知らせの数が割れない）"""
+    from glharness import inproc
+    from engine import util
+    here, elsewhere = tmp_path / "here", tmp_path / "elsewhere"
+    for r in (here, elsewhere):
+        r.mkdir()
+        subprocess.run(["git", "init", "-q", str(r)], check=True)
+    (elsewhere / ".review-checks.json").write_text(json.dumps({"suite": [{"name": "t", "argv": ["x"]}]}), encoding="utf-8")
+    monkeypatch.setattr(util, "GIT_CWD", str(elsewhere))
+    r = inproc(["init", "--loop", "review-loop", "--request", "検査", "--dir", str(tmp_path / "st"), "--no-engine-runners",
+                "--validator", str(PLUGIN.parent / "scripts" / "review-record.py")], cwd=here)
+    assert r.returncode == 0, r.stderr
+    assert ".review-checks.json が無い" in r.stderr
+
+
+def test_convergence_loops_dependency_floor_is_met_by_the_repo():
+    """graphloops の依存の下限（version の >=x.y.z）が、同じリポジトリの convergence-loops の版以下——下限の書き損じで graphloops 自身を
+    読み込みの時点で無効にしない（範囲の外なら Claude Code は依存する側を無効にする）"""
+    from conftest import REPO
+    dep = [d for d in json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["dependencies"]
+           if d["name"] == "convergence-loops"]
+    assert len(dep) == 1 and dep[0]["version"].startswith(">=")
+    floor = intake.version_key(re.sub(r"^[<>=^~ ]+", "", dep[0]["version"]))
+    cl = json.loads((REPO / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert cl["name"] == "convergence-loops" and floor <= intake.version_key(cl["version"])
+
+
+def test_version_key_follows_semver_precedence():
+    """SemVer 2.0.0 §11 の例の並び。プレリリースは同じ本体の正式版より下で、build（+ 以降）は見ない。プレリリースの無い名前の並びは
+    数字の大小のまま（0.9 < 0.10）"""
+    chain = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0",
+             "1.0.1", "1.1.0", "2.0.0"]
+    assert sorted(reversed(chain), key=intake.version_key) == chain
+    assert intake.version_key("0.22.0") > intake.version_key("0.22.0-rc1")
+    assert intake.version_key("1.0.0+build.5") == intake.version_key("1.0.0")
+    assert sorted(["0.10.0", "0.9.0", "0.9.10"], key=intake.version_key) == ["0.9.0", "0.9.10", "0.10.0"]
 
 
 def test_manual_row_has_no_key_and_export_hands_over_once(tmp_path):

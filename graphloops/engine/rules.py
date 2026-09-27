@@ -8,11 +8,11 @@ import pathlib
 
 from . import checks_cache, declared
 from .schema import validate_schema
-from .role_run import run_tree
+from .role_run import lane_failure, run_tree
 from .hist import HIST_ABSENT, hist_reads
 from .effects import write_loop
-from .util import (DIFF_FIXED_ARGS, READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, loads_outside, note_unevaluable, pick, read_capped,
-                   repo_root, run_count, sum_counts, porcelain, read_json, sha, tree_names_between, worktree_tree, write_json)
+from .util import (DIFF_FIXED_ARGS, LANE_FAILED, READ_CAP, Reject, _grep, die, git, git_bytes, hook_evidence, loads_outside, note_unevaluable, pick,
+                   read_capped, repo_root, run_count, sum_counts, porcelain, read_json, sha, tree_names_between, worktree_tree, write_json)
 
 _VALIDATORS = {}
 
@@ -60,7 +60,7 @@ INJECT = {"Reject": Reject, "pick": pick, "porcelain": porcelain, "read_json": r
           "run_tree": run_tree, "hist_reads": hist_reads, "HIST_ABSENT": HIST_ABSENT, "write_loop": write_loop,
           "declared_checks": declared.read, "DECL_NAME": declared.DECL_NAME, "note_unevaluable": note_unevaluable,
           "worktree_tree": worktree_tree, "tree_names_between": tree_names_between, "DIFF_FIXED_ARGS": DIFF_FIXED_ARGS,
-          "loads_outside": loads_outside, "CHECKS_RERUN_ENV": checks_cache.RERUN_ENV}
+          "loads_outside": loads_outside, "CHECKS_RERUN_ENV": checks_cache.RERUN_ENV, "LANE_FAILED": LANE_FAILED, "lane_failure": lane_failure}
 
 
 def load_rules(graph_path, graph):

@@ -41,6 +41,9 @@
      background（任せ先を背景で立てて待たずに受領を返す）は真偽で、背景の節をほかの節が待たない（deps・instance_deps）。
      {{node.<欄>}} は engine が埋める欄（skills）だけ
      背景の節は delegate.result_to に返答の置き場（reads のどれか）を名指しし、delegate を持つ節が在れば launch.delegate.argv が在る。
+     delegate.receipt（背景の節の受領の形）は、{result_path} を埋めた値が節の schema に合う object。
+     launch.append の段は当て先の語（APPEND_TO）と在るファイルで書き、段の穴は当たる節の本文と reads に入って節の穴と同じ照らしに
+     通る（advance.node_appends・render.node_prompt の segs）。段と同じファイルを節の prompt_append に書かない（重ねて貼らない）。
  15. 節の鍵が engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和に在る（綴り違いの鍵は黙って効かない）。
      機械の節（driver）は返りの形（schema）を持つ。どちらも init から呼ぶときは NG にせず警告（持ち込みの graph を止めない）
  16. 盤面の loop の形（graph の state_schema。type: object・additionalProperties: false）の鍵と rules の LOOP_KEYS が両向きで一致する。
@@ -88,10 +91,11 @@ PLUGIN_ROOT = HERE.parent
 
 sys.path.insert(0, str(PLUGIN_ROOT))
 # 穴の形・path の剥がし方・節の最長一致・cond と writes の op は engine が正本——ここに写すと engine だけ変えたとき検査が黙って緩む
-from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of  # noqa: E402
+from engine.board import COND_HEADS, COND_NODE_HEADS, empty_round, node_of, runner_node  # noqa: E402
 from engine.effects import REDUCER_KEY, REDUCERS, declares_reducers  # noqa: E402
 from engine.hist import LOOKUP_HEADS as HIST_LOOKUP_HEADS  # noqa: E402
-from engine.advance import ENGINE_PRE, LAUNCH_HOLES, NARROW_TOOLS  # noqa: E402
+from engine.advance import (APPEND_TO, ENGINE_PRE, LAUNCH_HOLES, NARROW_TOOLS, agent_type_in, fill_receipt, narrowed_def, node_appends,  # noqa: E402
+                            node_reads, tooled_launchable)
 from engine.record import ENGINE_WRITE_OPS  # noqa: E402
 from engine.schema import DOC_NODE_KEYS, ENGINE_NODE_KEYS, extends_path, end_anchored, load_graph, schema_at, unknown_keywords, walk_schema  # noqa: E402
 DELEGATE_MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")   # この graph が任せ先に書ける名前: Claude Code の subagent の model の別名
@@ -194,6 +198,45 @@ def agent_names(g):
     """graph の plugin の agents/*.md から役の名前を取る。見つからなければ None（役の検査はできない）。"""
     d = find_plugin_path("agents", g.get("plugin"), kind="dir") if g.get("plugin") else None
     return {p.stem for p in pathlib.Path(d).glob("*.md")} if d else None
+
+
+def appended(g, n):
+    """節に当たる launch.append の段——engine と同じ advance.node_appends で引く ——(段, 当たりが決まるか)。別 plugin の役は、その plugin が
+    入った機械でだけ定義が読めて当たりが変わるので、段を当てずに『決まらない』と返す"""
+    atype = None if runner_node(g, n) else agent_type_in(g, n)
+    if atype and ":" in atype and atype.rpartition(":")[0] != g.get("plugin"):
+        return [], False
+    return node_appends(g, n), True
+
+
+def unlaunched_nodes(g, nodes):
+    """launch.runner を宣言する graph（回し役なしの run を既定に持つ）で、engine が起こす語を宣言から組めない節——会話に返す手番（13）を
+    engine の不具合だけにするための静的な縛り。見るのは宣言の欠けだけで、起こす条件そのもの（sandbox・定義の読み・守る場所）は起こす側の
+    関数（advance）が起こす時に決める（副作用を持つ起こす側を、盤面の無い検査から呼ばない）。別 plugin の役は、その plugin が入った機械で
+    だけ定義が決まるので見ない（起こせなければ emit が理由を unlaunched に書き、人に渡る）"""
+    launch, errs = g.get("launch") or {}, []
+    narrow = (launch.get("tooled") or {}).get("narrow")
+    for nid, v in nodes.items():
+        dg = v.get("delegate")
+        if (dg or v.get("engine_run")) and not launch.get("delegate"):
+            errs.append(f"{nid}: 任せ先を持つのに launch.delegate が無い——回し役なしの run で起こす語を組めず、会話に返る")
+        if v.get("engine_run") and not dg:
+            errs.append(f"{nid}: engine_run の節に delegate が無い——engine の組んだ返答を使えない回の任せ先が無く、会話に返る")
+        if isinstance(dg, dict) and dg.get("background") and not isinstance(dg.get("receipt"), dict):
+            errs.append(f"{nid}: 背景の任せ先に delegate.receipt が無い——回し手が線を立てられず、会話に返る")
+        if v.get("run_by") == "driver" or runner_node(g, v):
+            continue
+        atype = agent_type_in(g, v)
+        d = agent_def(atype) if atype.rpartition(":")[0] == g.get("plugin") else None
+        if d is None:
+            continue
+        form = "isolated" if d["tools"] == [] else "tooled"
+        if not launch.get(form):
+            errs.append(f"{nid}: 役 {atype} を起こす launch.{form} が無い——回し役なしの run で起こす語を組めず、会話に返る")
+        elif form == "tooled" and not tooled_launchable(narrowed_def(d, narrow)):
+            errs.append(f"{nid}: 役 {atype} は engine が起こせない形（道具の一覧を持たない・書く道具を持つ・モデルか effort を名指さない）"
+                        "——回し役なしの run で起こせず、人に止まる")
+    return errs
 
 
 def unused_reads(nid, node, holes):
@@ -316,6 +359,13 @@ def _record_ok(rest, g, rules):
             if first in (sch.get("properties") or {}):
                 return True
     return any(rest == c or c.startswith(rest + ".") for c in exact)
+
+
+def hole_read_checked(core, rules):
+    """プロンプトの穴（接頭を剥いだ core）のうち check_read_path で照らすもの（launch.append の段の穴は、当たる節の本文に入って同じ
+    一覧を通る）。loop. は rules が LOOP_KEYS を持つときだけ（持ち込みの graph を止めない）"""
+    return (core.startswith(("record.", "hist.")) or core.split(".", 1)[0] in COND_NODE_HEADS
+            or core.startswith("loop.") and getattr(rules, "LOOP_KEYS", None) is not None)
 
 
 def check_read_path(path, where, g, rules, errs, before=None, reading=True):
@@ -777,7 +827,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         if not n.get("prompt_file"):
             continue
         try:
-            tpl = node_prompt(gpath, n, errors="replace")
+            tpl = node_prompt(gpath, n, errors="replace", segs=appended(g, n)[0])
         except OSError:
             continue
         # **穴の抽出と接頭の剥がしは engine の正本（render の TOKEN / strip_prefix）を使う。**
@@ -986,6 +1036,15 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 if dg.get("result_to") not in (v.get("reads") or []):
                     errs.append(f"節 {k}: 背景の任せ先は delegate.result_to に返答の置き場（この節の reads のどれか）を名指しする"
                                 "——engine が子の返答をそこへ置く")
+        if isinstance(dg, dict) and "receipt" in dg:
+            rc = dg["receipt"]
+            bad_receipt = not (isinstance(rc, dict) and dg.get("background") is True)
+            if not bad_receipt and isinstance(v.get("schema"), dict):
+                from engine.schema import validate_schema
+                bad_receipt = bool(validate_schema(fill_receipt(rc, "/置き場"), v["schema"]))
+            if bad_receipt:
+                errs.append(f"節 {k}: delegate.receipt は背景の任せ先の受領の返答（{{result_path}} の穴を埋めた値が節の schema に合う object）"
+                            "——回し手がそのまま done する")
         if v.get("skills"):
             # skill（/simplify・/code-review）は中でさらに役を背景で起こす。任せ先の役越しに呼ぶと、孫の完了の知らせが
             # 任せ先に届かないまま待ち続けた（実測 2026-09-25: 局所レビューの任せ先が 7 時間以上戻らなかった）
@@ -1019,6 +1078,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         for k in ("model", "effort"):
             if not runner_spec.get(k):
                 errs.append(f"launch.runner に '{k}' が無い（回す側の節を起こす語の {{{k}}} を埋められない）")
+        errs += unlaunched_nodes(g, nodes)
     # 申告の突合（commands._record_declared）の申告の欄は、回す側の節の schema の文字列の葉を指す（外れると突合が黙って空を読む）。
     # 位置の綴りは受け付けの読み手（pointers.values_at）と同じ pointers._schema_at で引く。作業ツリーを書き換える節（launch.runner.edits）
     # は申告を持つ——書く節の一覧と突合の対象を 1 つの正本にそろえる。申告が無いことと旧い綴り（文字列の配列の葉）は記録が欠けるだけなので、
@@ -1121,6 +1181,30 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
     if rules_unreadable:
         errs.append(rules)
         rules = None
+    # 起こす子の形ごとに指示書へ足す段（launch.append。engine の advance.launch_appends が当てる）の形: 当て先の語・ファイルの実在。
+    # 段の穴は、当たる節の本文（render.node_prompt の segs）と reads（advance.node_reads）に入れて、節のプロンプトの検査（下の 7.）が見る
+    appends = launch.get("append")
+    if appends is not None and not isinstance(appends, list):
+        errs.append("launch.append は段（{to, files, reads}）の一覧")
+        appends = []
+    shaped = []
+    for i, seg in enumerate(appends or []):
+        where = f"launch.append[{i}]"
+        if not (isinstance(seg, dict) and seg.get("to") in APPEND_TO and isinstance(seg.get("files"), list) and seg["files"]
+                and isinstance(seg.get("reads"), list) and all(isinstance(x, str) for x in seg["files"] + seg["reads"])):
+            errs.append(f"{where} は {{to: {'/'.join(APPEND_TO)}, files: [指示書の断片…], reads: [穴が読む欄…]}}")
+            continue
+        errs += [f"{where}: {f} が無い" for f in seg["files"] if not (gpath.parent / f).is_file()]
+        shaped.append(seg)
+    # 段と同じファイルを節の prompt_append に書くと、段が当たる子には同じ本文が 2 度貼られる（engine は黙って消さない）。当たりが決まらない
+    # 役（別 plugin の役——入っている機械でだけ当たる）の節は、段のどのファイルとも重ねられない
+    every = {f for seg in shaped for f in seg["files"]}
+    for nid, v in nodes.items():
+        segs, known = appended(g, v) if isinstance(v, dict) and v.get("prompt_append") else ([], True)
+        dup = sorted(set(v.get("prompt_append") or []) & ({f for s in segs for f in s["files"]} if known else every)) if isinstance(v, dict) else []
+        if dup:
+            errs.append(f"節 {nid}: prompt_append の {dup} は launch.append の段が{'この節に当てる' if known else '当てうる（別 plugin の役）'}"
+                        "——節から消せ（段が子の形で当てる）")
     # 15. 節の鍵は閉じた集合（engine の ENGINE_NODE_KEYS・DOC_NODE_KEYS と rules の NODE_KEYS・NODE_NOTE_KEYS の和）
     if rules is not None and any(getattr(rules, n, None) is None for n in ("NODE_KEYS", "NODE_NOTE_KEYS")):
         node_errs.append("rules が NODE_KEYS / NODE_NOTE_KEYS（このループが節に書く鍵の宣言）を持たない——節の知らない鍵を照らせない")
@@ -1304,16 +1388,21 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
         tf = v.get("thickness_from")
         if tf and tf not in v.get("schema", {}).get("properties", {}):
             errs.append(f"節 {k}: thickness_from '{tf}' が schema に無い")
-        reads = v.get("reads")
-        if reads is None:
+        if v.get("reads") is None:
             errs.append(f"節 {k}: reads が無い（貼ってよいものを宣言しろ。宣言に無い穴は engine が埋めない）")
-            reads = []
+        # 当たる launch.append の段も、節の本文と reads に入れて同じ検査に通す（engine の emit と同じ node_prompt・node_reads）
+        segs = appended(g, v)[0]
+        reads = node_reads(v, segs) or []
         if v.get("fresh_context") and "record" in reads:
             errs.append(f"節 {k}: fresh_context なのに record 全体を読む（判定と見立てが丸ごと渡る）")
         anc = ancestors(nodes, k)
-        tpl = node_prompt(gpath, v)
+        try:
+            tpl = node_prompt(gpath, v, segs=segs)
+        except OSError as e:
+            errs.append(f"節 {k}: 指示書（prompt_file・prompt_append・launch.append の段）が読めない（{e}）")
+            continue
         # **逆向きも見る。** 穴 ⊆ reads だけでは、宣言だけ在って誰にも届いていない欄が赤くならない
-        errs += unused_reads(k, v, {m.group(2).strip() for m in TOKEN.finditer(tpl)})
+        errs += unused_reads(k, {**v, "reads": reads}, {m.group(2).strip() for m in TOKEN.finditer(tpl)})
         for m in TOKEN.finditer(tpl):
             path = m.group(2).strip()
             core = strip_prefix(path)
@@ -1340,7 +1429,7 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
             # record.<欄> と loop.<…> の穴も条件の読みと同じ照らし（記録を書く宣言・loop の形の宣言）に通す——省略可の穴（{{?record.…}}）の綴り違いは
             # 実行時に『（この周には無い）』で黙って埋まる。rules が在るのに読めなかった回は照らさない（init_record を
             # 引けず、全部の穴が偽の NG になって本当の原因——rules が読めない——が埋もれる）
-            if (core.startswith(("record.", "hist.")) or core.startswith("loop.") and getattr(rules, "LOOP_KEYS", None) is not None) and not rules_unreadable:
+            if hole_read_checked(core, rules) and not rules_unreadable:
                 check_read_path(core, f"節 {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
             # loop と節の出力の穴の pick の欄も同じ木（state_schema・節の schema）で照らす（util.pick は無い欄を黙って落とす）。
             # 番号で指す欄（pointers）は照らさない
@@ -1360,8 +1449,6 @@ def check(gpath, script=None, emit=print, node_keys="ng"):
                 for f in (x.strip() for x in m.group(3).split(",") if x.strip()):
                     if at is not None and schema_at(at, [f])[1]:
                         errs.append(f"節 {k}: プロンプトの穴 {{{{{path}}}}} の pick の欄 '{f}' が {owner} に無い")
-            if core.split(".", 1)[0] in COND_NODE_HEADS and not rules_unreadable:
-                check_read_path(core, f"節 {k}: プロンプトの穴 {{{{{path}}}}}", g, rules, errs)
             if core.startswith("out.") or core.startswith("cur."):
                 src = node_of(core[4:], nodes)
                 if src is None or src not in anc:

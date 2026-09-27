@@ -58,6 +58,28 @@ def _installed(root):
     return None
 
 
+def version_key(name):
+    """版の名前（数値でない部分が混ざってもよい）を大小で並べられる形。並べ方は SemVer 2.0.0 §11 の優先順位——+ 以降（build）は見ず、
+    - 以降のプレリリースは同じ本体の正式版より下、識別子は数字どうしなら数で、ほかは字で比べて数字を字より下に置き、前が全部等しければ
+    短い方が下。版を並べる所（validator.find_plugin_path・newer_installed・scripts/quality-ledger.py）は全部これを引く"""
+    core, _, pre = name.split("+", 1)[0].partition("-")
+    ids = lambda s: [(0, int(x)) if x.isdigit() else (1, x) for x in s.split(".")]   # noqa: E731
+    return ids(core), ((0, ids(pre)) if pre else (1, []))
+
+
+@quiet
+def newer_installed(root=PLUGIN_ROOT):
+    """root が Claude Code の入れた置き場なら、同じ plugin の置き場に並ぶ版のうち root より新しい物の最大（無ければ None）。
+    checkout から走る回（--plugin-dir を含む）と、読めない回も None——止めずに知らせるだけの材料"""
+    if not _installed(root):
+        return None
+    cur = plugin_meta(root)[1]
+    here = pathlib.Path(root).resolve()
+    vers = [v for v in (plugin_meta(p)[1] for p in here.parent.iterdir() if p.is_dir() and p != here) if v]
+    best = max(vers, key=version_key, default=None)
+    return best if cur and best and version_key(best) > version_key(cur) else None
+
+
 def data_dir(given=None):
     """残す置き場。明示の値 → 環境変数 CLAUDE_PLUGIN_DATA → 入れた置き場から Claude Code と同じ規則で導く。
 

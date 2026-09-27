@@ -27,13 +27,13 @@ ABSENT = "（この周には無い）"
 FILE_CAP = 40000
 
 
-def node_prompt(graph_path, n, errors="strict"):
-    """節の指示書の本文——prompt_file に、prompt_append の各ファイルを順に続けた物（graph の置き場からの相対パス）。
-    prompt_append は差し替えの版（graph の extends）が、元の指示書を写さずに段落を足す口。指示書を読む所（役に渡す本文・
-    必須の入力の導出・graphcheck の穴の検査）は全部この 1 本を通す——1 か所だけ足し忘れると、足した段落の穴が
-    検査に掛からないか、役に届かない。読めなければ OSError"""
+def node_prompt(graph_path, n, errors="strict", segs=()):
+    """節の指示書の本文——prompt_file に、prompt_append の各ファイルと、この節に当たる launch.append の段（segs。advance.launch_appends）の
+    ファイルを順に続けた物（graph の置き場からの相対パス）。prompt_append は差し替えの版（graph の extends）が、元の指示書を写さずに
+    段落を足す口。指示書を読む所（役に渡す本文・必須の入力の導出・graphcheck の穴の検査）は全部この 1 本を通す——1 か所だけ足し忘れると、
+    足した段落の穴が検査に掛からないか、役に届かない。読めなければ OSError"""
     base = pathlib.Path(graph_path).parent
-    parts = [n["prompt_file"], *(n.get("prompt_append") or [])]
+    parts = [n["prompt_file"], *(n.get("prompt_append") or []), *(f for seg in segs for f in seg["files"])]
     return "\n".join((base / p).read_text(encoding="utf-8", errors=errors) for p in parts)
 
 

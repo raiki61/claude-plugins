@@ -101,6 +101,23 @@ def test_converge_asks_when_ci_clean_without_any_checks_note(tmp_path):
     assert got["ask"]["items"] == ["local_checks: clean（任せ先の申告）— "]
 
 
+@pytest.mark.parametrize("ci", [{"status": "clean"}, {"status": "not_applicable", "reason": "回す側が省いた: CI で回す"}])
+def test_converge_does_not_re_ask_an_answered_ci_question_and_stops_instead_of_spinning(tmp_path, ci):
+    """人が一度 continue で答えた CI の問いは、後の周で聞き直さない。残る阻害が CI 未確認だけの周は、収束の見込みの無い次の周を
+    開かずに止める（next_round を返すと max_rounds まで空回りする）——止めた理由は盤面の stop_reason に残り、報告が 1 項を立てる。
+    省いた CI の節の理由は問いと止めた理由の両方に添える"""
+    b = board(tmp_path, outputs={"p4.record": {"branch": "converged"}}, rnd=3,
+              record={"materials": {"local_checks": ci},
+                      "process": {"human_answers": [{"round": 2, "kinds": ["ci_unverified"], "note": "CI で見る", "asked": []}]}})
+    b.state["preset_skips"] = {"p4.ci": "CI で回す"}
+    got = RULES.converge(b, "p4.converge")
+    assert got["decision"] == "stopped" and "CI 未確認のまま止めた" in got["reason"] and "r2" in got["reason"] and "CI で回す" in got["reason"]
+    assert b.loop_state["stop_reason"] == RULES.CI_UNVERIFIED_STOP and b.loop_state["outcome"] == "stopped"
+    b.record["process"]["human_answers"] = []
+    got = RULES.converge(b, "p4.converge")
+    assert got["decision"] == "ask" and "p4.ci: CI で回す" in got["ask"]["question"] and "聞き直さず" in got["ask"]["question"]
+
+
 # ---------------------------------------------------------------- 規模の数値（scalars・_comment_ratio）
 def script(tmp_path, body):
     d = tmp_path / "scripts"

@@ -21,7 +21,7 @@ linked worktree の盤面（<共有>/worktrees/<名>/graphloops/<loop>/<run_id>/
 - 関所の答え: trace の answer の値と kinds をそのまま数える。答えを打った者は盤面に記録が無い
 - 受け付け: trace の role_run の accepted の値（True / False / None / 欄なし）をそのまま数え、False の行は why の頭の句で数える
   （頭の句は、絶対パス・家の置き場・ログイン名を伏せてから切って束ねる——パスだけ違う頭は 1 つに束ねられる）
-- 費用: role_run の total_cost_usd は会話の累計なので、会話（session_id）ごとの最大を足す
+- 費用: role_run の total_cost_usd は会話の累計なので、engine の role_run.session_costs（会話ごとの前の最大との差を足す）で数える
 - 時間: 経過（trace の最初と最後の時刻の差。人待ち・止めた間を含む）と、役の実行の合計（role_run の wall_s の和）
 - 走っている run: status が running でも生きているとは限らないので、最後の痕跡（trace の最後の時刻）からの経過を出す
 
@@ -48,7 +48,9 @@ sys.dont_write_bytecode = True  # engine・rules・検証器を読むときに p
 PLUGIN = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN))
 
+from engine.intake import version_key  # noqa: E402
 from engine import schema as schema_mod  # noqa: E402
+from engine import role_run as role_run_mod  # noqa: E402
 from engine import rules as rules_mod  # noqa: E402
 from engine import util as util_mod  # noqa: E402
 from engine import validator as validator_mod  # noqa: E402
@@ -244,7 +246,7 @@ def _read_run(d, where, verdicts, now):
     ev = collections.defaultdict(lambda: {"answers": collections.Counter(), "answer_kinds": collections.Counter(),
                                           "accepted": collections.Counter(), "reject_heads": collections.Counter(),
                                           "relaunched": 0, "launch_not_ok": collections.Counter(), "role_wall_s": 0.0})
-    sessions = {}
+    role_rows = []   # op=role_run の行（その時点の版を添える）——費用の数え方は engine の role_run.session_costs が正本
     times, bad = [], 0
     cur = first
     try:
@@ -273,10 +275,7 @@ def _read_run(d, where, verdicts, now):
                         e["reject_heads"][head_of(t.get("why"))] += 1
                     if isinstance(t.get("wall_s"), (int, float)):
                         e["role_wall_s"] += t["wall_s"]
-                    sid, cost = t.get("session_id"), t.get("total_cost_usd")
-                    if sid and isinstance(cost, (int, float)):
-                        prev = sessions.get(sid)
-                        sessions[sid] = (prev[0] if prev else cur, max(cost, prev[1] if prev else cost))
+                    role_rows.append({**t, "_version": cur})
                 elif op == "relaunched":
                     e["relaunched"] += 1
                 elif op == "launched" and t.get("ok") is False:
@@ -287,9 +286,7 @@ def _read_run(d, where, verdicts, now):
         parts.append(f"trace.jsonl（{type(e).__name__}）")
     if bad:
         parts.append(f"trace.jsonl の読めない行 {bad}")
-    cost = collections.defaultdict(float)
-    for v, c in sessions.values():
-        cost[v] += c
+    cost = role_run_mod.session_costs(role_rows, group=lambda r: r["_version"])
     row["events"] = {v: {k: (dict(x) if isinstance(x, collections.Counter) else round(x, 1) if isinstance(x, float) else x)
                          for k, x in e.items()} for v, e in ev.items()}
     row["cost_usd"] = {v: round(c, 4) for v, c in cost.items()}
@@ -361,10 +358,6 @@ def aggregate(rows):
     return out
 
 
-def _vkey(v):
-    return [(0, int(x)) if x.isdigit() else (1, x) for x in v.replace("-", ".").split(".")]
-
-
 def _c(counter, top=None):
     items = list(counter.items())[:top] if top else list(counter.items())
     return " / ".join(f"{k} {n}" for k, n in items) or "なし"
@@ -372,7 +365,7 @@ def _c(counter, top=None):
 
 def render(agg, total, roots_note):
     lines = [f"盤面 {total} 本（{roots_note}）。版は周の判定を周ごとの版、trace の行をその時の版、run の数を最後の版に数える"]
-    for v in sorted(agg, key=_vkey):
+    for v in sorted(agg, key=version_key):
         a = agg[v]
         lines.append(f"\n== {v} ==（run {a['runs']}・閉じた周 {a['rounds_closed']}・版が混在 {a['mixed_versions']}）")
         lines.append(f"状態: {_c(a['status'])}（止めた訳: {_c(a['halted_by'])}・今人待ち {a['pending_human']}）")
@@ -395,7 +388,7 @@ def render(agg, total, roots_note):
         el, idle = a["elapsed_min"], a["since_last_trace_min"]
         lines.append(f"時間: 経過の中央値 {el['median']} 分（{el['n']} 本。人待ち・止めた間を含む）・役の実行の合計 "
                      f"{round(a['role_wall_s'] / 3600, 1)} 時間・running の最後の痕跡からの経過の中央値 {idle['median']} 分（{idle['n']} 本）")
-        lines.append(f"費用: {a['cost_usd']} USD（会話ごとの最大の和）")
+        lines.append(f"費用: {a['cost_usd']} USD（engine が起こした子の会話の累計の増え分の和）")
         if a["unreadable_parts"]:
             lines.append(f"一部が読めない run: {a['unreadable_parts']}（--runs の unreadable_parts）")
     return "\n".join(lines)

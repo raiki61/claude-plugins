@@ -126,3 +126,33 @@ def resolve(output, ptrs, snap):
             else:
                 box[k] = names[v - 1]
     return errs
+
+
+HINT_CANDIDATES = 3   # 名前の列に無い文字列 1 つに挙げる候補の no の数
+HINT_ROWS = 30        # 手がかりに載せる no と名前の対応の行数
+HINT_HEAD = 60        # 対応の行に載せる名前の頭の字数
+
+
+def hint(output, ptrs, snap):
+    """番号で指す欄に、固めた名前の列のどれとも一致しない文字列が残る返答への手がかり（無ければ None）。
+    拒みの理由（rules の突き合わせ）は名前の字面で書かれ、役は続きの往復でも同じ写し違えを繰り返した（実測 2026-09-27:
+    wt-t2 の p2.fix_plan・wt-bunda の p2.plan_review が、続きを 2 回頼んでも直らず人に渡った）。直す材料——前方一致する候補の no と、
+    no と名前の頭の対応——を同じ拒みに添える。材料は emit で固めた名前の列だけ（snap）"""
+    lines = []
+    for i, r in enumerate(ptrs or []):
+        names = snap[i]["names"] if snap and i < len(snap) and snap[i]["at"] == r["at"] else None
+        if not names:
+            continue
+        known = {n for n in names if isinstance(n, str)}
+        bad = [box[k] for box, k in _slots(output, _segs(r["at"])) if isinstance(box[k], str) and box[k] not in known]
+        if not bad:
+            continue
+        for v in dict.fromkeys(bad):
+            head = v.strip()
+            cand = [j + 1 for j, n in enumerate(names) if isinstance(n, str) and head and n.startswith(head)][:HINT_CANDIDATES]
+            lines.append(f"{r['at']} の {v[:HINT_HEAD]!r} は貼った一覧（{'・'.join(r['from'])}）の名前に無い——名前を写さず no（整数）で指せ"
+                         + (f"（前方一致する no: {cand}）" if cand else ""))
+        rows = [f"  {j + 1} = {n[:HINT_HEAD]}" for j, n in enumerate(names) if isinstance(n, str)]
+        lines.append(f"{r['at']} の no と名前の頭:\n" + "\n".join(rows[:HINT_ROWS])
+                     + (f"\n  …ほか {len(rows) - HINT_ROWS} 行" if len(rows) > HINT_ROWS else ""))
+    return "\n".join(lines) or None

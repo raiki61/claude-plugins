@@ -34,7 +34,20 @@ def repo(tmp_path, monkeypatch):
     git(r, "commit", "-q", "-m", "base")
     git(r, "worktree", "add", "-q", str(tmp_path / "other"), "-b", "other")
     monkeypatch.setattr(util, "GIT_CWD", str(r))
+    monkeypatch.chdir(r)   # プロセスの cwd の .claude/settings.json（走らせたリポジトリの deny）に柵のテストが依らない
     return r
+
+
+def test_delegate_fence_ignores_a_deny_in_the_process_cwd(repo, tmp_path, monkeypatch):
+    """走らせた場所（プロセスの cwd）に deny を持つ .claude/settings.json が在っても、任せ先の柵は対象リポジトリ（cwd を名指した
+    作業ツリー）の宣言だけを読む"""
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / ".claude").mkdir(parents=True)
+    git(elsewhere, "init", "-q")
+    (elsewhere / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"deny": ["Bash(bash tests/run.sh:*)"]}}), encoding="utf-8")
+    monkeypatch.chdir(elsewhere)
+    assert role_run.repo_deny(str(repo)) == ([], None)
+    assert role_run.repo_deny(str(elsewhere))[0] == ["Bash(bash tests/run.sh:*)"]
 
 
 def test_protected_paths_names_tree_gitdirs_worktrees_and_board(repo, tmp_path):
@@ -159,7 +172,7 @@ def test_run_role_without_deadline_waits_to_the_end(tmp_path):
 
 def _delegate_board(tmp_path, graph):
     import types
-    return types.SimpleNamespace(graph=graph, dir=tmp_path / "board")
+    return types.SimpleNamespace(graph=graph, dir=tmp_path / "board", state={})
 
 
 def test_delegate_launch_spec_needs_the_graph_words(tmp_path):
@@ -188,7 +201,7 @@ def test_delegate_launch_spec_resolves_claude_on_path(repo, tmp_path, monkeypatc
 def _board(tmp_path, launch):
     import types
     g = {"launch": {"delegate": launch}} if launch is not None else {"launch": {}}
-    return types.SimpleNamespace(graph=g, dir=tmp_path / "board")
+    return types.SimpleNamespace(graph=g, dir=tmp_path / "board", state={})   # 盤面の state（inputs.cwd が無ければ呼んだ場所で起こす）
 
 
 def _inst(tmp_path):
@@ -239,9 +252,12 @@ def test_delegate_launch_spec_background_needs_a_result_place(repo, tmp_path):
     spec = {"argv": [sys.executable]}
     n = {"delegate": {"background": True, "result_to": "loop.lane.result"}}
     got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), n, {"loop": {"lane": {"result": "/r.json"}}})
-    assert got["background"] is True and got["result_path"] == "/r.json"
+    assert got["background"] is True and got["result_path"] == "/r.json" and "receipt" not in got   # 受領の形の無い旧い graph
     with pytest.raises(SystemExit):
         advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), n, {"loop": {}})
+    n["delegate"]["receipt"] = {"lane": "{result_path}", "rows": ["{result_path}", 1]}
+    got = advance.delegate_launch_spec(_board(tmp_path, spec), _inst(tmp_path), n, {"loop": {"lane": {"result": "/r.json"}}})
+    assert got["receipt"] == {"lane": "/r.json", "rows": ["/r.json", 1]}   # 回し手がそのまま done する受領
 
 
 def test_delegate_refusal_without_stdin(repo, tmp_path):
@@ -256,7 +272,7 @@ def test_launch_one_removes_the_work_place_when_the_copy_fails(repo, tmp_path, m
     tmp = tmp_path / "tmpdir"
     tmp.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
-    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None: None)
+    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None, state=None: None)
 
     def boom(dst):
         pathlib.Path(dst).mkdir()
@@ -406,7 +422,7 @@ def test_launch_one_background_delegate_has_no_deadline_and_places_the_answer(re
     tmp = tmp_path / "tmpdir"
     tmp.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
-    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None: None)
+    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd=None, d=None, state=None: None)
     board = tmp_path / "board"
     board.mkdir()
     prompt = tmp_path / "p.md"

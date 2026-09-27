@@ -5,6 +5,7 @@
 
 engine が差し込む道具は engine/rules.py の INJECT が正本（ここに写さない）。
 """
+import collections
 import importlib.util
 import json
 import pathlib
@@ -1058,7 +1059,7 @@ def _mutation_ran(b):
     return bool(b.loop_state.get("lanes")) or any(n in b.state.get("outputs", {}) for n in ("p1.gate_efficacy", "p4.final_gates"))
 
 
-UNRECORDED_READS = ("engine が claude -p で起こした子（init --engine-runners）ではフックが動かず、子の Read は reads.jsonl に"
+UNRECORDED_READS = ("engine が claude -p で起こした子（回し役なしの run）ではフックが動かず、子の Read は reads.jsonl に"
                     "載らない——items の none・absent は『読んでいない』でなく『記録が無い』かもしれない")
 
 
@@ -1073,7 +1074,15 @@ def notices(b):
     写しを持たず、呼ぶたびに正本（engine の init の知らせ・宣言の読み・線の台帳）から組み直す——宣言を直せば次に組むとき消える"""
     out = [f"init: {n}" for n in b.state.get("notes") or []]
     if b.state.get("engine_runners"):
-        out.append("回す側の節は engine が起こした（init --engine-runners）: " + UNRECORDED_READS)
+        out.append("回す側の節は engine が起こした（回し役なしの run）: " + UNRECORDED_READS)
+    if b.loop_state.get("stop_reason") == CI_UNVERIFIED_STOP:
+        out.append("CI 未確認のまま止めた——人が一度答えた CI の問いを聞き直さず、残る阻害が CI 未確認だけの周で次の周を開かなかった。"
+                   f"収束と言えるのは、CI を engine が走らせる run（宣言 {DECL_NAME} の一式・CI の節を省かない）だけ")
+    for x in b.record["process"].get("gate_named_passes") or []:
+        out.append(f"r{x['round']} の修正前の関所で聞かずに通した狭め（判定役が持ち主の本文と結んだ名指し: {x['named'].get('ref')}）: {x['row']}")
+    for x in b.record["process"].get("unverified_lenses") or []:
+        out.append(f"未確認のレンズ r{x['round']} {x['skill']}: 条件が真の周なのに engine が起こした子が起こさなかった（{x['why']}）——"
+                   "所見ゼロと同じではない。要るなら会話で起こせ")
     md = b.loop_state.get("mutation_decl") or {}
     if md.get("unknown"):
         out.append(f"宣言 {DECL_NAME} にこの engine が読まない最上位の段 {md['unknown']} が在る——綴り違いなら宣言を直せ"
@@ -1162,11 +1171,12 @@ def _lane_errors(out, rev, final):
 
 
 def _lane_result(b, lane):
-    """線の結果（置き場のファイル）を読む ——（結果, 誤り）。まだ無ければ（None, []）＝走っている。
+    """線の結果（置き場のファイル）を読む ——（結果, 誤り）。まだ無く、launch が締めの前に居なくなってもいなければ（None, []）＝走っている。
     **読むのは書き終えた物だけ**——線は <置き場>.tmp に書いてから置き場へ移す（途中の書きかけを読まない）"""
     p = pathlib.Path(lane["result"])
     if not p.is_file():
-        return None, []
+        why = lane_failure(lane["result"])
+        return None, [f"線の launch が受け付けまで届かなかった: {why}"] if why else []
     # engine の read_json は読めないと die する——線の結果は engine の外で書かれるので、壊れた 1 本で周を止めない。
     # 読み口は engine の外から来た JSON の正本（loads_outside。孤立サロゲートも読めない側に倒す）
     try:
@@ -1175,6 +1185,8 @@ def _lane_result(b, lane):
         return None, [f"結果が読めない（{e}）"]
     if not isinstance(out, dict):
         return None, [f"結果が JSON のオブジェクトでない（{type(out).__name__}）"]
+    if LANE_FAILED in out:   # 線の launch が結果を書かずに終わった（engine か回し手が書いた落ちた印）
+        return None, [f"線の launch が受け付けまで届かなかった: {out[LANE_FAILED]}"]
     errs = validate_schema(out, _lane_schema(b))
     return out, errs or _lane_errors(out, lane["rev"], final=False)
 
@@ -2575,6 +2587,16 @@ def converge(b, nid):
     return out
 
 
+CI_UNVERIFIED_STOP = "ci_unverified_stopped"   # 盤面の stop_reason: 人が一度答えた CI の問いを聞き直さず、CI 未確認のまま止めた（報告が 1 項を立てる）
+CI_NODES = ("p0.local_checks", "p4.ci")
+
+
+def _ci_skip_why(b):
+    """run の間ずっと省いた CI の節（skip --every-round）の理由——CI の問いと止めた理由に添える。省いていなければ空"""
+    got = [f"{n}: {r}" for n, r in (b.state.get("preset_skips") or {}).items() if n in CI_NODES]
+    return f"。CI の節は run の間ずっと省かれている（{'; '.join(got)}）——この run では CI を engine が走らせず、収束しない" if got else ""
+
+
 def _converge(b, nid):
     V = validator_module(b)
     rec_out = b.output_of_round("p4.record", b.round) or {}
@@ -2638,12 +2660,24 @@ def _converge(b, nid):
         st = ci.get("status")
         if st == "found":
             return {"decision": "next_round", "reason": "検証器は阻害なしだが CI が赤（local_checks が found）——P3 で直してから"}
+        unverified = (st == "clean" and not _ci_by_engine(b.record["process"].get("checks"), b.round)) or st != "clean"
+        answered = next((h.get("round") for h in b.record["process"].get("human_answers") or [] if "ci_unverified" in (h.get("kinds") or [])),
+                        None)
+        if unverified and answered is not None:
+            # 人が一度答えた CI の問いは聞き直さない。残る阻害が CI 未確認だけの周は、収束の見込みの無い周を開かずに止める
+            # （聞かない・回さない。人の関所 round 2 の条件 5——聞かずに next_round を返すと max_rounds まで空回りする）
+            write_loop(b, "outcome", "overwrite", "stopped")
+            write_loop(b, "stop_reason", "overwrite", CI_UNVERIFIED_STOP)
+            return {"decision": "stopped", "reason": f"CI 未確認のまま止めた——検証器は阻害なしだが CI を engine が確かめていない（local_checks が "
+                                                    f"{st or '無し'}{_ci_skip_why(b)}）。r{answered} で人が CI の問いに continue で答えたので聞き直さず、"
+                                                    "収束の見込みの無い次の周も開かない"}
         if st == "clean" and not _ci_by_engine(b.record["process"].get("checks"), b.round):
             why = ((b.record["process"].get("checks") or {}).get("p4.ci") or {}).get("why") or "この周の p4.ci を engine が走らせていない"
             return {"decision": "ask", "reason": "ci_unverified（local_checks の clean は任せ先の自己申告）", "ask": {
                 "kinds": ["ci_unverified"],
-                "question": (f"検証器は阻害なしで CI は clean と書かれたが、engine が走らせた結果ではない（{why}）。"
-                             f"走らせる語を宣言 {DECL_NAME} に書けば次の周から engine が走らせる。"
+                "question": (f"検証器は阻害なしで CI は clean と書かれたが、engine が走らせた結果ではない（{why}{_ci_skip_why(b)}）。"
+                             f"走らせる語を宣言 {DECL_NAME} に書けば次の周から engine が走らせる。一度答えた後は聞き直さず、"
+                             "残る阻害が CI 未確認だけの周で止める。"
                              "確かめてから続けるか（continue --note <何を走らせて何色だったか>）、未収束のまま報告に進むか（stop）"),
                 "items": [f"local_checks: clean（任せ先の申告）— {ci.get('checked') or ''}"],
                 "options": ["continue", "stop"],
@@ -2655,7 +2689,8 @@ def _converge(b, nid):
             return {"decision": "ask", "reason": f"ci_unverified（local_checks が {st or '無し'}）", "ask": {
                 "kinds": ["ci_unverified"],
                 "question": (f"検証器は阻害なしだが CI を確かめていない（local_checks が {st or '無し'}: "
-                             f"{ci.get('reason') or ci.get('checked') or ci.get('detail') or ''}）。"
+                             f"{ci.get('reason') or ci.get('checked') or ci.get('detail') or ''}{_ci_skip_why(b)}）。一度答えた後は聞き直さず、"
+                             "残る阻害が CI 未確認だけの周で止める。"
                              "確かめてから続けるか（continue --note <何を走らせて何色だったか>）、未収束のまま報告に進むか（stop）"),
                 "items": [f"local_checks: {st or '無し'} — {ci.get('reason') or ci.get('checked') or ci.get('detail') or ''}"],
                 "options": ["continue", "stop"],
@@ -3807,6 +3842,12 @@ def local_review_covers_lenses(b, nid, out, item):
 
     照合の両側は同じ文字列: engine が `{{node.skills}}` で正典をそのまま役へ渡し、ここは同じ配列の
     `skill` を読む。綴りの正規化という段は存在しない（在れば、その規則自体が誰も決めていない未定義物になる）。
+
+    engine が起こした子の返答（instance の reply_origin——engine が読んだファイルの同一性で決める）は、必須のレンズの行に invoked: true を
+    求め、material の awaiting_human を拒む——拒みは同じ会話への続きになり、上限まで続けば人に渡る（会話に返す手番を持たない。人の関所の
+    答え 2026-09-27 の 3 周目）。/simplify の持ち越しは、engine が持ち越しの条件を確かめられる周だけ受け付ける（_simplify_carry_ok）。条件が真の
+    周の条件付きのレンズを起こさなかった行は拒まずに受け付け、記録の process.unverified_lenses に積む（報告の知らせの『未確認のレンズ』）。
+    会話が渡した返答には、必須のレンズの invoked を求めない（今までの受け付けを狭めない）。
     """
     inst = next((i for i in reversed(list(b.rd["instances"].values())) if i.get("node") == nid and i.get("status") != "done"), None)
     skills = (inst or {}).get("skills") or b.graph["nodes"][nid].get("skills") or []
@@ -3838,16 +3879,44 @@ def local_review_covers_lenses(b, nid, out, item):
             errs.append(f"'{name}' の行が items も failed も持たない——『起こして 0 件』なら failed に"
                         "『起こしたが所見なし』と何を見たかを書け。空の行は『起こしていない』と区別できない")
     awaiting = (out.get("material") or {}).get("status") == "awaiting_human"
+    child = (inst or {}).get("reply_origin") == "engine_child"
+    unverified = []
     for e in skills:
         row = seen.get(e["skill"])
-        if row is None or "applies_cond" not in e or not e.get("applies", True) or awaiting:
+        if row is None or row.get("invoked") is True:
             continue
-        if row.get("invoked") is not True:
+        cond = "applies_cond" in e and e.get("applies", True)
+        if child and e.get("required", True) and not (e["skill"] == SIMPLIFY_LENS and out.get("simplify_carried") and _simplify_carry_ok(b)):
+            errs.append(f"'{e['skill']}' は必須のレンズなのに invoked が true でない——engine が起こした子の返答は、必須のレンズを起こした行だけを"
+                        "受け付ける。/ で始まるレンズは Skill で、<plugin>:<役> は定義の置き場を Read で読ませた汎用の子（Agent）で起こし直せ"
+                        + ("（/simplify の持ち越しは、周の頭の版が前の周から 1 ファイルも変わっていない周だけ）" if e["skill"] == SIMPLIFY_LENS else ""))
+        elif cond and child:
+            unverified.append({"round": b.round, "node": nid, "skill": e["skill"],
+                               "why": (row.get("failed") or "").strip() or "invoked が true でない"})
+        elif cond and not awaiting:
             errs.append(f"'{e['skill']}' は条件 {e['applies_cond']} が真の周（{e.get('applies_why', '評価の値が無いので当てる側に倒した')}）"
                         "なのに invoked が true でない——起こして invoked: true を書け。呼び出しが落ちたなら failed に理由を書き、"
                         "material を awaiting_human にせよ")
+    if child and awaiting:
+        errs.append("engine が起こした子の返答は material を awaiting_human にできない——必須のレンズは起こし直して invoked: true を書き、"
+                    "条件付きのレンズの呼び出しの失敗は failed に書くだけにせよ（engine が報告の『未確認のレンズ』に並べる）")
     if errs:
         raise Reject("宣言したレンズと findings の行が合わない:\n" + "\n".join("  - " + e for e in errs))
+    if child:
+        kept = [x for x in b.record["process"].get("unverified_lenses") or [] if (x.get("round"), x.get("node")) != (b.round, nid)]
+        b.record["process"]["unverified_lenses"] = kept + unverified
+
+
+SIMPLIFY_LENS = "/simplify"   # 指示書が持ち越しを許すレンズ（返答の simplify_carried）
+
+
+def _simplify_carry_ok(b):
+    """/simplify の持ち越し（指示書: 直前の周から対象差分にロジックの変更が無い）を engine が確かめられるか——周の頭の節が測った前の周からの
+    変更ファイル（changed_since_prev_round）が空で、周の途中で撮り直していない。ロジックの変更かを機械は分けないので、ファイルが 1 本でも
+    変わった周は持ち越しを認めない（子は /simplify を起こし直す）"""
+    if b.round < 2 or b.output_of_round("p1.worktree_after", b.round):
+        return False
+    return (b.output_of_round("p1.worktree_before", b.round) or {}).get("changed_since_prev_round") == []
 
 
 @cond_reads("hist.snapshot")
@@ -4695,8 +4764,9 @@ HUMAN_FACE_KINDS = ("regression", "policy")
 PLAN_ONLY_FACE_KINDS = HUMAN_FACE_KINDS + ("precedent",)
 
 
-# 関所の行の頭（組み立てと剥がしの正本）。頭の後ろが本文で、人が通した行と聞く行は本文どうしで照らす——R4 の指示書は同じ単位
-# （頭の後ろの文）を写させる。事前審査の穴の頭は key を「」で囲む（key が「: 」を含んでも頭の終わりが 1 つに決まる）
+# 関所の行の頭（組み立てと剥がしの正本）。頭の後ろが本文。人が通した行は出どころの ID（_gate_row_id）で照らす（_passed）——修正案・
+# 事前審査・R4 の指示書は、前に通した行と同じ物なら同じ字面（what・key・本文）を写させる。事前審査の穴の頭は key を「」で囲む（key が
+# 「: 」を含んでも頭の終わりが 1 つに決まる）
 GATE_HEADS = {"narrows": "修正案 {n} が狭める能力: ", "face": "事前審査の穴 [{kind}] 「{key}」: ",
               "lost": "R4 が BASE から消えたと見た能力: ", "policy_conflicts": "R4 が見た人の方針とのぶつかり: "}
 _GATE_HEAD_RES = tuple(re.compile("^" + re.escape(h).replace(r"\{n\}", r"\d+").replace(r"\{kind\}", r"[a-z_]+").replace(r"\{key\}", r".*?"))
@@ -4704,53 +4774,119 @@ _GATE_HEAD_RES = tuple(re.compile("^" + re.escape(h).replace(r"\{n\}", r"\d+").r
 
 
 def _gate_body(row):
-    """関所の行から頭を除いた本文（頭が表のどれにも当たらない行——方針の文書の変化——は行そのもの）"""
-    for rx in _GATE_HEAD_RES:
-        m = rx.match(row)
-        if m:
-            return row[m.end():]
-    return row
+    """関所の行から頭を除いた本文——頭が当たらなくなるまで剥がす（R4 は前に通した行を頭ごと写す: 『R4 が BASE から消えたと見た能力:
+    修正案 N が狭める能力: X』）。頭が表のどれにも当たらない行（方針の文書の変化）は行そのもの"""
+    while True:
+        m = next((m for m in (rx.match(row) for rx in _GATE_HEAD_RES) if m), None)
+        if m is None:
+            return row
+        row = row[m.end():]
+
+
+def _gate_row_id(head, *parts):
+    """関所の行の出どころの ID——修正案の狭めは単位の key と what（_narrow_fp）、事前審査の穴は語と key、R4 の行は欄と本文、方針の文書の
+    変化は行。周の番号も案の中の並び（修正案 {n}）も入れない: 人が continue で通した同じ出どころを、後の周でも同じ ID で照らす（人の関所
+    round 2 の答え: 聞き直さない）"""
+    return f"{head}:" + sha("\n".join(parts))
+
+
+def _narrow_fp(unit_keys, what):
+    """狭めの指紋（承認を中身に結ぶ）——修正前の関所の行・R4 が写した狭め・判定役の名指しが同じここを通る"""
+    return _gate_row_id("narrows", *sorted(unit_keys), what)
+
+
+def _known_rows(b):
+    """全周の修正案の狭めと事前審査の穴の、頭を除いた本文 → 出どころの ID の集合。R4 が前の行を写した行に、写した元と同じ ID を持たせる
+    （what を切り出さず本文の全体で照らす——what が ——を含んでも、同じ what が別の単位の組で出ても外れない）"""
+    known = collections.defaultdict(set)
+    for n in range(1, b.round + 1):
+        for i, p in enumerate((b.output_of_round("p2.fix_plan", n) or {}).get("plan") or []):
+            for x in p.get("narrows") or []:
+                known[_gate_body(GATE_HEADS["narrows"].format(n=i + 1) + f"{x['what']}——{x['why']}")].add(_narrow_fp(p.get("unit_keys") or [],
+                                                                                                              x["what"]))
+        for f in (b.output_of_round("p2.plan_review", n) or {}).get("faces") or []:
+            if f["kind"] in HUMAN_FACE_KINDS:
+                known[f["why"]].add(_gate_row_id("face", f["kind"], f["key"]))
+    return known
+
+
+def _named_ok(b, named, n, keys):
+    """修正案の狭め n を、判定役（p2.diagnose）の named_narrowings の行 named が持ち主の本文に結べるか——名指しの what が狭めの what と字面で
+    一致し、名指しの単位が案の単位に在り、出どころが持ち主の物: 依頼（request:<引用>）なら init で固めた依頼の本文（inputs.request）に引用が
+    字面で在り、人の関所の答え（gate:<ID>）なら人が continue で答えた行の ID（human_items の asked_ids）にその ID が在る。名指しと判じるのは
+    判定役で、機械は中身と出どころが結ばれていることを確かめる（人の関所 round 2 の条件 4）。修正依頼の入口の本文は出どころにしない
+    ——add の一括は機械の線や道具も積むので、持ち主の本文と言えない"""
+    if named.get("what") != n.get("what") or named.get("unit_key") not in keys:
+        return False
+    src, ref = named.get("source"), named.get("ref") or ""
+    if src == "request":
+        quote = ref.removeprefix("request:").strip()
+        return len(quote) >= NAMED_QUOTE_MIN and quote in (b.state["inputs"].get("request") or "")
+    return src == "gate_answer" and ref.startswith("gate:") and ref[len("gate:"):] in _passed(b)[0]
+
+
+NAMED_QUOTE_MIN = 10   # 依頼を出どころにする名指しの引用の最短（短い語は依頼のどこにでも当たり、名指しにならない）
 
 
 def _plan_gate_items(b):
-    items = []
+    """修正前の関所の行 ——[(語, 行, ID の組)]。修正案の狭めのうち、判定役が持ち主の本文と結んだ名指し（_named_ok）は聞かずに通し、記録の
+    process.gate_named_passes に残す（報告が並べる）"""
+    items, passes = [], []
+    judged = b.output_of_round("p2.history", b.round) or b.output_of_round("p2.diagnose", b.round) or {}   # 2 周目からは同じ判定者の後の出力
+    named = {x["key"]: x for x in judged.get("named_narrowings") or [] if isinstance(x, dict)}
     for i, p in enumerate((b.output_of_round("p2.fix_plan", b.round) or {}).get("plan") or []):
-        items += [("regression", GATE_HEADS["narrows"].format(n=i + 1) + f"{n['what']}——{n['why']}") for n in p.get("narrows") or []]
-    items += [(f["kind"], GATE_HEADS["face"].format(kind=f["kind"], key=f["key"]) + f["why"])
+        keys = sorted(p.get("unit_keys") or [])   # 欄の無い旧い出力は単位なし（ID は what だけで組む）
+        for n in p.get("narrows") or []:
+            row = GATE_HEADS["narrows"].format(n=i + 1) + f"{n['what']}——{n['why']}"
+            hit = named.get(n.get("named"))
+            if hit and _named_ok(b, hit, n, keys):
+                passes.append({"round": b.round, "row": row, "named": hit})
+                continue
+            items.append(("regression", row, (_narrow_fp(keys, n["what"]),)))
+    items += [(f["kind"], GATE_HEADS["face"].format(kind=f["kind"], key=f["key"]) + f["why"], (_gate_row_id("face", f["kind"], f["key"]),))
               for f in (b.output_of_round("p2.plan_review", b.round) or {}).get("faces") or [] if f["kind"] in HUMAN_FACE_KINDS]
+    if passes:
+        b.record["process"]["gate_named_passes"] = [x for x in b.record["process"].get("gate_named_passes") or []
+                                                    if x.get("round") != b.round] + passes
     return items
 
 
 R4_ROWS = (("regression", "lost"), ("policy", "policy_conflicts"))
 
 
-def _passed_bodies(b):
-    """修正後の関所が聞き直さない本文: 人が continue で通した修正後の関所の行（どの周でも）と、この周の修正前の関所の行。
-    修正前の関所で前の周に通した本文は外さない（人の決定 2026-09-27: 修正前の関所は周ごとに毎回聞く）"""
-    return {_gate_body(a) for h in b.record["process"]["human_items"] if h.get("answer") == "continue"
-            and (h.get("node") != "p2.human_gate" or h.get("round") == b.round) for a in h.get("asked") or []}
+def _passed(b):
+    """人が continue で通した関所の行 ——(ID の集合, 頭を除いた本文の集合)。周と関所を問わない。本文で照らすのは、ID を持たない旧い盤面の
+    行だけ（ID を持つ行を本文で照らすと、同じ本文の別の単位の狭めまで通る）"""
+    rows = [h for h in b.record["process"].get("human_items") or [] if h.get("answer") == "continue"]
+    ids = {i for h in rows for x in h.get("asked_ids") or [] for i in (x if isinstance(x, list) else [x])}
+    return ids, {_gate_body(a) for h in rows if not h.get("asked_ids") for a in h.get("asked") or []}
 
 
 def _r4_gate_items(b):
-    passed = _passed_bodies(b)
+    """修正後の関所の行 ——[(語, 行, ID の組)]。R4 が前の行（修正案の狭め・事前審査の穴）を写した行は、写した元の ID も持つ（_known_rows）"""
     out = b.output_of_round("r4.hidden_scope", b.round) or {}
     got = {"lost": (out.get("capability_inventory") or {}).get("lost") or [], "policy_conflicts": out.get("policy_conflicts") or []}
-    return [(kind, GATE_HEADS[field] + x) for kind, field in R4_ROWS for x in got[field] if x not in passed]
+    known = _known_rows(b)
+    return [(kind, GATE_HEADS[field] + x, (_gate_row_id("r4", field, x), *sorted(known.get(_gate_body(x), ()))))
+            for kind, field in R4_ROWS for x in got[field]]
 
 
 HUMAN_GATES = {"p2.human_gate": _plan_gate_items, "r4.human_gate": _r4_gate_items}
 
 
 def human_gate(b, nid):
-    """能力の後退・方針とのぶつかり・方針の文書の変化が 1 件でも在れば、人に聞く（周の途中の問い）。無ければ素通り"""
-    rows = HUMAN_GATES[nid](b)
+    """能力の後退・方針とのぶつかり・方針の文書の変化が 1 件でも在れば、人に聞く（周の途中の問い）。人が continue で一度通した行
+    （ID の組のどれかが同じ。ID を持たない旧い盤面の行は同じ本文）は、周と関所を問わず聞き直さない。無ければ素通り"""
+    ids, bodies = _passed(b)
+    rows = [r for r in HUMAN_GATES[nid](b) if not set(r[2]) & ids and _gate_body(r[1]) not in bodies]
     ch = policy_input.change(b, git, b.record["process"].get("policy") or {})
     if ch:
         write_loop(b, "policy_change", "overwrite", ch)
-        rows.append(("policy_changed", policy_input.change_row(ch)))
+        row = policy_input.change_row(ch)
+        rows.append(("policy_changed", row, (_gate_row_id("policy", row),)))
     if not rows:
         return {"ok": True}
-    kinds = sorted({k for k, _ in rows})
+    kinds = sorted({k for k, _, _ in rows})
     exclude = ""
     if nid == "p2.human_gate":
         owed = _owed_units(_view(b, _owed_units))
@@ -4762,7 +4898,14 @@ def human_gate(b, nid):
         "question": ("今ある能力を減らす・狭める変更、人の方針とぶつかる変更、または方針の文書そのものの変更が挙がった。役は代償として決めない"
                      "——人が決める。通すなら continue --note <通す範囲と条件>（答えは記録の process.human_items に残り、修正役に届く。"
                      "方針の文書の変更を通すと、その版を固定し直す）。" + exclude + "通さないなら stop（run をここで止める。直す向きを決めてから新しい run で）"),
-        "items": [r for _, r in rows], "options": ["continue", "stop"]}}
+        "items": [r for _, r, _ in rows], "options": ["continue", "stop"]}}
+
+
+def _asked_ids(b, ph):
+    """聞いた行の出どころの ID（items と同じ並び。1 行が ID を 2 つ以上持つ——R4 が前の行を写した——なら ID の一覧）——周の途中の問いへの
+    答えなので、聞いた時と同じ周の出力から組み直す（engine の問いの形は ID の欄を持たない）。組み直せない行（方針の文書の変化）は行そのものの ID"""
+    got = {t: list(i) if len(i) > 1 else i[0] for _, t, i in HUMAN_GATES[ph["node"]](b)} if ph.get("node") in HUMAN_GATES else {}
+    return [got.get(t) or _gate_row_id("policy", t) for t in ph.get("items") or []]
 
 
 def answer_detail(b, ph, ans, detail):
@@ -4789,6 +4932,7 @@ def answer_detail(b, ph, ans, detail):
 def human_gate_answered(b, ph, ans):
     excluded = (ph.get("detail") or {}).get("exclude")
     b.record["process"]["human_items"].append({"round": b.round, "kinds": ph.get("kinds") or [], "asked": ph["items"],
+                                               "asked_ids": _asked_ids(b, ph),
                                                "answer": ans, "note": ph.get("note", ""), "node": ph["node"],
                                                **({"excluded": excluded} if excluded else {})})
     if excluded and _in_round(b.loop_state.get("fix_units"), b.round) is not None:

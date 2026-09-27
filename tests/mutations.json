@@ -260,6 +260,379 @@
    ]
   },
   {
+   "id": "DR1",
+   "title": "回し役なしの盤面では、起こせない理由を持つ節を人に渡す（会話に返さない）",
+   "file": "graphloops/engine/runner.py",
+   "suite": "graphloops",
+   "old": "    unlaunched = [i for i in pending if not i.get(\"launch\") and i.get(\"unlaunched\")] if defects_only(st) else []",
+   "new": "    unlaunched = []",
+   "why": "殺すテストは pytest だけに在る（e13 と同じ理由——実行器 tests/mutate.py が pytest を撃つ口を持つまで arms に入れない）。手元では撃たない（人の方針）。退行の注入で赤は確かめた（回し役なしの束 3 周目の P3）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_classify_on_a_defects_only_board_hands_every_unlaunched_or_ended_node_to_a_human"
+   ]
+  },
+  {
+   "id": "DR3",
+   "title": "線の締めは、起こした周の試行で引く（周が進んでも superseded と読まない）",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "            i = find_attempt(b.state[\"rounds\"], r[\"id\"], r[\"out_path\"])   # 背景の線は周をまたいで走る",
+   "new": "            i = b.rd[\"instances\"].get(r[\"id\"])",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_settle_marks_a_lane_that_fell_after_the_round_moved_on"
+   ]
+  },
+  {
+   "id": "DR4",
+   "title": "engine の子の返答は、必須のレンズの invoked が無ければ拒む",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if child and e.get(\"required\", True) and not (e[\"skill\"] == SIMPLIFY_LENS and out.get(\"simplify_carried\") and _simplify_carry_ok(b)):",
+   "new": "        if False:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_review_lens.py::test_engine_child_reply_needs_required_lenses_and_no_awaiting_human[required-not-invoked]"
+   ]
+  },
+  {
+   "id": "DR5",
+   "title": "確かめの子の返答に sandbox の初期化の失敗の文が在れば、入れ子の sandbox と決める",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        if said:\n            return {\"sandbox\": False,",
+   "new": "        if False:\n            return {\"sandbox\": False,",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_worktree_guards.py::test_a_probe_that_sees_the_sandbox_init_failure_stops_writers_skills_and_delegates[writer]"
+   ]
+  },
+  {
+   "id": "DR6",
+   "title": "入れ子の sandbox と測った run では、書き換える子・skill の子・任せ先を起こさずに止める",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    if down and (launch.get(\"edits\") or launch.get(\"skill\") or launch.get(\"kind\") == \"delegate\"):",
+   "new": "    if False:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_worktree_guards.py::test_a_probe_that_sees_the_sandbox_init_failure_stops_writers_skills_and_delegates[delegate]"
+   ]
+  },
+  {
+   "id": "DR7",
+   "title": "宣言の deny が読めなければ、柵の入口が任せ先を起こさない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        return bad or _delegate_refusal(inst, launch, board_dir, denied, unfenced=bool((state or {}).get(\"unfenced_delegates\")))",
+   "new": "        return _delegate_refusal(inst, launch, board_dir, denied, unfenced=bool((state or {}).get(\"unfenced_delegates\")))",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_unreadable_repo_deny_refuses_every_bash_entrance_naming_the_file"
+   ]
+  },
+  {
+   "id": "DR8",
+   "title": "deny は settings.json と settings.local.json を合わせて写す",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    for rel in REPO_SETTINGS:",
+   "new": "    for rel in REPO_SETTINGS[:1]:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_repo_deny_merges_the_local_settings_like_claude_code"
+   ]
+  },
+  {
+   "id": "DR9",
+   "title": "graphcheck は、段と同じファイルを節の prompt_append に書くことを拒む",
+   "file": "graphloops/scripts/graphcheck.py",
+   "suite": "graphloops",
+   "old": "        if dup:\n            errs.append(f\"節 {nid}: prompt_append の {dup}",
+   "new": "        if False:\n            errs.append(f\"節 {nid}: prompt_append の {dup}",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_review_lens.py::test_graphcheck_rejects_append_and_receipt_shapes[append-dup-in-node]"
+   ]
+  },
+  {
+   "id": "DR10",
+   "title": "graphcheck は、当たる段を節の本文と reads に入れて節の検査に通す",
+   "file": "graphloops/scripts/graphcheck.py",
+   "suite": "graphloops",
+   "old": "        segs = appended(g, v)[0]",
+   "new": "        segs = []",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_review_lens.py::test_graphcheck_holds_the_runner_paste_fence_on_appended_sections"
+   ]
+  },
+  {
+   "id": "DR11",
+   "title": "人が continue で通した関所の行（同じ ID）は後の周で聞き直さない",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    rows = [r for r in HUMAN_GATES[nid](b) if not set(r[2]) & ids and _gate_body(r[1]) not in bodies]",
+   "new": "    rows = [r for r in HUMAN_GATES[nid](b) if _gate_body(r[1]) not in bodies]",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_policy_gate.py::test_gate_rows_passed_once_are_not_reasked_in_any_round_or_gate"
+   ]
+  },
+  {
+   "id": "DR12",
+   "title": "名指しの狭めは、判定役が中身と出どころを結んだときだけ聞かずに通す",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "            if hit and _named_ok(b, hit, n, keys):",
+   "new": "            if hit:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_policy_gate.py::test_named_narrowing_passes_only_when_the_judge_bound_it_to_the_owner[gate-answer-row-stopped]"
+   ]
+  },
+  {
+   "id": "DR13",
+   "title": "人が一度答えた CI の問いは聞き直さず、CI 未確認だけの周で止める",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        if unverified and answered is not None:",
+   "new": "        if False:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_review_rules.py::test_converge_does_not_re_ask_an_answered_ci_question_and_stops_instead_of_spinning"
+   ]
+  },
+  {
+   "id": "DR15",
+   "title": "版の並べ方はプレリリースを正式版より下に置く",
+   "file": "graphloops/engine/intake.py",
+   "suite": "graphloops",
+   "old": "    return ids(core), ((0, ids(pre)) if pre else (1, []))",
+   "new": "    return ids(core), ((2, ids(pre)) if pre else (1, []))",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_intake.py::test_version_key_follows_semver_precedence"
+   ]
+  },
+  {
+   "id": "DR16",
+   "title": "trace の読めない行を skipped に数える",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "        elif line.strip():\n            skipped += 1",
+   "new": "        elif False:\n            skipped += 1",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_trace_costs_take_each_conversation_max_and_say_what_they_count"
+   ]
+  },
+  {
+   "id": "DR17",
+   "title": "試行は全周から id と置き場で引く（周をまたぐ線を自分の物と読む）",
+   "file": "graphloops/engine/util.py",
+   "suite": "graphloops",
+   "old": "    for rd in reversed(rounds):",
+   "new": "    for rd in reversed(rounds[-1:]):",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_still_mine_finds_a_lane_attempt_in_an_earlier_round"
+   ]
+  },
+  {
+   "id": "DR18",
+   "title": "launch の印が在るのに launch も子も居ない線は、締めの前に落ちたと読む",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    if pathlib.Path(mark).is_file() and group_alive(mark) is False and group_alive(pgid_path(str(result_path) + \".tmp\")) is False:",
+   "new": "    if False:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_lane_failure_derives_a_launch_that_left_before_settling[launch-died-before-its-child]"
+   ]
+  },
+  {
+   "id": "DR19",
+   "title": "関所の行の頭は当たらなくなるまで剥がす（R4 が頭ごと写した行）",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        row = row[m.end():]",
+   "new": "        return row[m.end():]",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_policy_gate.py::test_r4_copies_of_rows_passed_before_the_fix_are_not_reasked"
+   ]
+  },
+  {
+   "id": "DR20",
+   "title": "名指しの what が狭めの what と違えば聞く",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    if named.get(\"what\") != n.get(\"what\") or named.get(\"unit_key\") not in keys:",
+   "new": "    if named.get(\"unit_key\") not in keys:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_policy_gate.py::test_named_narrowing_passes_only_when_the_judge_bound_it_to_the_owner[named-what-differs]"
+   ]
+  },
+  {
+   "id": "DR21",
+   "title": "依頼を出どころにする名指しは init の依頼の本文だけで照らす",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "        return len(quote) >= NAMED_QUOTE_MIN and quote in (b.state[\"inputs\"].get(\"request\") or \"\")",
+   "new": "        return len(quote) >= NAMED_QUOTE_MIN",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_policy_gate.py::test_named_narrowing_passes_only_when_the_judge_bound_it_to_the_owner[quote-only-in-an-added-batch]"
+   ]
+  },
+  {
+   "id": "DR22",
+   "title": "確かめの子は sandbox の中で走る語の前でだけ起こす",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "    probe = _sandbox_probe(d, inst) if _sandboxed(launch[\"argv\"]) else {}",
+   "new": "    probe = _sandbox_probe(d, inst)",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_worktree_guards.py::test_a_child_without_a_sandbox_is_neither_probed_nor_stopped[None]"
+   ]
+  },
+  {
+   "id": "DR23",
+   "title": "確かめの子の道具は Bash だけ（書く道具で印を作らせない）",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        out.append(PROBE_MODEL if prev == \"--model\" else \"Bash\" if prev == \"--tools\" else a)",
+   "new": "        out.append(PROBE_MODEL if prev == \"--model\" else a)",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_worktree_guards.py::test_launch_one_probes_once_and_falls_back_to_the_shared_tmp[made-True]"
+   ]
+  },
+  {
+   "id": "DR24",
+   "title": "run_role が起こす子の環境に engine の子の印を足す",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "    env = {**(os.environ if env is None else env), ENGINE_CHILD_ENV: \"1\"}",
+   "new": "    env = {**(os.environ if env is None else env)}",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_run_role_marks_every_child_it_starts"
+   ]
+  },
+  {
+   "id": "DR25",
+   "title": "変異の実行器は engine の子の中で --check のほかを走らせない",
+   "file": "tests/mutate.py",
+   "suite": "graphloops",
+   "old": "    if os.environ.get(ENGINE_CHILD) and not a.check:",
+   "new": "    if False:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）。検査は撃つ腕の無い --only で呼ぶので、拒みが外れても手元で変異は撃たれない",
+   "kill_by": [
+    "graphloops/tests/py/test_engine_guards.py::test_mutate_refuses_all_but_check_in_an_engine_child"
+   ]
+  },
+  {
+   "id": "DR26",
+   "title": "台本の一式は engine の子の中では絞らずに走らせない",
+   "file": "graphloops/tests/parallel.py",
+   "suite": "graphloops",
+   "old": "    if os.environ.get(ENGINE_CHILD) and not os.environ.get(\"GL_TEST_ONLY\"):",
+   "new": "    if False:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_engine_guards.py::test_scenario_runner_refuses_an_unnarrowed_suite_in_an_engine_child"
+   ]
+  },
+  {
+   "id": "DR27",
+   "title": "同じ会話を続ける節の費用は、前の最大との差をその節に付ける",
+   "file": "graphloops/engine/role_run.py",
+   "suite": "graphloops",
+   "old": "            out[group(r)] += max(0, cost - prev)",
+   "new": "            out[group(r)] += cost",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_session_costs_charge_a_continued_conversation_to_the_node_that_spent_it"
+   ]
+  },
+  {
+   "id": "DR28",
+   "title": "launch.runner を持つ graph は、背景の任せ先に受領の形を求める",
+   "file": "graphloops/scripts/graphcheck.py",
+   "suite": "graphloops",
+   "old": "        if isinstance(dg, dict) and dg.get(\"background\") and not isinstance(dg.get(\"receipt\"), dict):",
+   "new": "        if False:",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_review_lens.py::test_graphcheck_rejects_append_and_receipt_shapes[background-without-receipt]"
+   ]
+  },
+  {
+   "id": "DR29",
+   "title": "子の置き場の中身と同じ本文は、どの読み口で渡しても子の返答と読む",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        return \"engine_child\" if pathlib.Path(out).read_text(encoding=\"utf-8\") == text else \"conversation\"",
+   "new": "        return \"conversation\"",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_reply_origin_is_the_childs_whenever_the_text_is_what_the_child_left",
+    "graphloops/tests/py/test_runner_launch.py::test_done_marks_the_child_reply_whichever_way_it_is_passed[output-copy-of-the-child-reply]"
+   ]
+  },
+  {
+   "id": "DR30",
+   "title": "/simplify の持ち越しは、周の頭の版が前の周から変わっていない周だけ受け付ける",
+   "file": "graphloops/rules/review-loop.py",
+   "suite": "graphloops",
+   "old": "    return (b.output_of_round(\"p1.worktree_before\", b.round) or {}).get(\"changed_since_prev_round\") == []",
+   "new": "    return True",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_review_lens.py::test_engine_child_may_carry_simplify_only_when_engine_sees_no_change[a-file-changed]"
+   ]
+  },
+  {
+   "id": "DR31",
+   "title": "起こして終わった試行を会話に返すのは前の版の盤面だけ",
+   "file": "graphloops/engine/runner.py",
+   "suite": "graphloops",
+   "old": "    return not defects_only(st) and (",
+   "new": "    return (",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_classify_on_a_defects_only_board_hands_every_unlaunched_or_ended_node_to_a_human"
+   ]
+  },
+  {
+   "id": "DR32",
+   "title": "環境の予定どおりの止まり（env）は engine の欠陥として記録しない",
+   "file": "graphloops/engine/commands.py",
+   "suite": "graphloops",
+   "old": "        if not r[\"ok\"] and not r.get(\"superseded\") and not r.get(\"fell_back\") and not r.get(\"env\"):",
+   "new": "        if not r[\"ok\"] and not r.get(\"superseded\") and not r.get(\"fell_back\"):",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_environment_stops_are_not_recorded_as_engine_defects"
+   ]
+  },
+  {
+   "id": "DR33",
+   "title": "回し役なしの盤面の 13 だけを記録器に残す",
+   "file": "graphloops/engine/runner.py",
+   "suite": "graphloops",
+   "old": "    if kind == \"handoff\" and defects_only(st):",
+   "new": "    if kind == \"handoff\":",
+   "why": "DR1 と同じ（pytest だけ・手元で撃たない）",
+   "kill_by": [
+    "graphloops/tests/py/test_runner_launch.py::test_only_a_defects_only_board_records_its_13"
+   ]
+  },
+  {
    "id": "q02",
    "why": "守る分岐（依頼の where を範囲にするのは入口の周だけ）は rules の request_wheres(b) を消して hist.request_wheres の 1 本に寄せ（手順 3 の 3-6）、その検査は pytest（test_hist の test_request_wheres_from_an_old_snapshot_rebuild_the_entry）に移った——実行器が pytest を撃つ口を持つまで腕を外す"
   }
@@ -2274,7 +2647,8 @@
       "framing",
       "one_shot",
       "units",
-      "one_shot_closes"
+      "one_shot_closes",
+      "named_narrowings"
      ],
      "note": "最新の判定を正本にする——p2.diagnose だけが書いていた頃、履歴の再審で開き直した単位の class_query を修正役も母数の突合も読まなかった"
     }
@@ -4260,8 +4634,8 @@
    "title": "sandbox を使えない環境では読むだけの形に落とす",
    "file": "graphloops/engine/role_run.py",
    "suite": "graphloops",
-   "old": "    deny = protected_paths(cwd, board_dir) if sandbox_available() else None",
-   "new": "    deny = protected_paths(cwd, board_dir)",
+   "old": "    protected = protected_paths(cwd, board_dir) if sandbox_available() else None",
+   "new": "    protected = protected_paths(cwd, board_dir)",
    "expect": "sandbox を使えない環境では Bash を持つ役も dontAsk にし",
    "tests": {
     "graphloops/tests/simulate.py": [
@@ -4991,7 +5365,7 @@
      "test_graphcheck_review_shapes"
     ]
    },
-   "old": "            if (core.startswith((\"record.\", \"hist.\")) or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
+   "old": "            if hole_read_checked(core, rules) and not rules_unreadable:",
    "new": "            if False:"
   },
   {
@@ -5005,8 +5379,8 @@
      "test_graphcheck_review_shapes"
     ]
    },
-   "old": "            if (core.startswith((\"record.\", \"hist.\")) or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None) and not rules_unreadable:",
-   "new": "            if (core.startswith((\"record.\", \"hist.\")) or core.startswith(\"loop.\") and getattr(rules, \"LOOP_KEYS\", None) is not None):"
+   "old": "            if hole_read_checked(core, rules) and not rules_unreadable:",
+   "new": "            if hole_read_checked(core, rules):"
   },
   {
    "id": "OB1",

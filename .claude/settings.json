@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(bash tests/run.sh *)",
+      "Bash(bash graphloops/tests/run.sh *)",
+      "Bash(sh tests/run.sh *)",
+      "Bash(sh graphloops/tests/run.sh *)",
+      "Bash(./tests/run.sh *)",
+      "Bash(./graphloops/tests/run.sh *)"
+    ]
+  }
+}

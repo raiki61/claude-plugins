@@ -4,12 +4,14 @@ import pathlib
 import sys
 
 from . import effects, intake, pointers
+from .board import runner_node
 from .render import FILE_CAP, Renderer, node_prompt
 from .rules import hook, registry
 from .schema import graph_text, validate_schema
-from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, die, dump, get_path, note_unevaluable, now, protected_paths, read_json, repo_root,
-                   safe_name, sha, write_json)
-from .role_run import DELEGATE_TOOLS, RUNNER_READ_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path, read_rule, runner_permission, tooled_permission
+from .util import (ANSWER_ACTIONS, IN_ROUND_ACTIONS, TERMINAL_STATUS, defects_only, die, dump, get_path, note_unevaluable, now, protected_paths,
+                   read_json, repo_root, safe_name, sha, write_json)
+from .role_run import (COMMAND_TOOLS, DELEGATE_TOOLS, RUNNER_READ_TOOLS, WRITE_TOOLS, delegate_permission, delegate_settings, read_grant_path,
+                       read_rule, repo_deny, runner_permission, sandbox_down_why, skill_permission, tooled_permission, unfenced_delegate_permission)
 from .validator import agent_def, finalize, report_accepts, run_validator, deliver_mode
 
 ENGINE_PRE = ("finalize",)  # 節の pre で engine が解釈する値。graphcheck が import して綴り違いを落とす
@@ -152,8 +154,8 @@ def launch_spec(b, inst, d, resume_sid=None, read_grant=None):
         if not tooled_launchable(d):
             return None
         tools = list(d["tools"])
-        # 守る場所（sandbox の denyWrite）は子が起きる場所で引く——launch は盤面の inputs.cwd で子を起こす（commands.launch_one）
-        perm = tooled_permission(tools, launch_cwd(b), b.dir)
+        # 守る場所（sandbox の denyWrite）と宣言の deny は子が起きる場所で引く——launch は盤面の inputs.cwd で子を起こす（commands.launch_one）
+        perm = tooled_permission(tools, launch_cwd(b), b.dir, repo_deny(launch_cwd(b))[0] or ())
         form = perm["form"]
         sub.update(tools=",".join(tools), allowed_tools=",".join(perm["allowed_tools"]),
                    permission_mode=perm["permission_mode"], settings=perm["settings"])
@@ -198,7 +200,8 @@ def delegate_launch_spec(b, inst, n, ctx):
     未コミットの修正を消した（2026-09-25）。そこで役の節と同じ起動路（claude -p）で起こし、書ける範囲を OS の sandbox で縛る:
     denyWrite は起こす瞬間に git から引いた守る場所（util.protected_paths）、作業ディレクトリは本物の写し（launch_one が作る）。
     権限の値（道具・許す道具・権限の形・sandbox）は engine が決め、graph は語の並びと前置きの文（preamble）だけを持つ。
-    人が init --unfenced-delegates で柵を外した run では呼ばない（回す側が Agent で起こす。外した事実は盤面に残る）"""
+    人が init --unfenced-delegates で柵を外した回し役なしの run では、sandbox を持たない形（role_run.unfenced_delegate_permission）で起こす
+    ——会話に Agent で起こさせる手番を持たない。外した事実は盤面（state.unfenced_delegates と instance の unfenced）に残る"""
     spec = b.graph.get("launch", {}).get("delegate")
     if not spec:
         return None
@@ -207,13 +210,16 @@ def delegate_launch_spec(b, inst, n, ctx):
     rdir.mkdir(parents=True, exist_ok=True)
     role_file = rdir / "delegate.txt"
     role_file.write_text(spec.get("preamble") or "", encoding="utf-8")
-    mode, allowed = delegate_permission()
     protected = protected_paths([b.dir])
+    denied, _bad = repo_deny(launch_cwd(b))   # 読めない宣言は柵（commands._delegate_refusal）が起こす瞬間に拒む
+    if b.state.get("unfenced_delegates"):
+        mode, allowed, settings = unfenced_delegate_permission(denied or ())
+    else:
+        (mode, allowed), settings = delegate_permission(), delegate_settings(protected or [], denied or ())
     sub = dict.fromkeys(LAUNCH_HOLES, "")
     sub.update(model=delegate.get("model") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
                out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
-               tools=",".join(DELEGATE_TOOLS), allowed_tools=",".join(allowed), permission_mode=mode,
-               settings=delegate_settings(protected or []))
+               tools=",".join(DELEGATE_TOOLS), allowed_tools=",".join(allowed), permission_mode=mode, settings=settings)
     import shutil  # 起こす節でだけ要る
     via = [a.format(**sub) for a in (spec.get("via") or [])]
 
@@ -238,31 +244,91 @@ def delegate_launch_spec(b, inst, n, ctx):
         except (KeyError, TypeError):
             die(f"{inst['id']}: delegate.result_to {delegate.get('result_to')!r} がこの節の材料から引けない（graph を直せ）")
         launch["background"] = True
+        if isinstance(delegate.get("receipt"), dict):
+            # 受領の形（graph の delegate.receipt）の {result_path} を埋めた返答——回し手が置き場に書いて done し、線を切り離して立てる
+            # （runner._Runner.start_lane）。受領を持たない旧い盤面の背景の節は、今どおり会話に返る
+            launch["receipt"] = fill_receipt(delegate["receipt"], launch["result_path"])
     return launch
 
 
-def runner_launch_spec(b, inst, n):
-    """回す側の節（graph の runners の節）を engine の中で起こす語。起こさないなら None（会話に返す）。
+def fill_receipt(template, result_path):
+    """受領の形の文字列の値の {result_path} を埋めた写し（入れ子の辞書と配列も辿る）"""
+    if isinstance(template, dict):
+        return {k: fill_receipt(v, result_path) for k, v in template.items()}
+    if isinstance(template, list):
+        return [fill_receipt(v, result_path) for v in template]
+    return template.replace("{result_path}", result_path) if isinstance(template, str) else template
 
-    起こすのは init --engine-runners の run で、graph が launch.runner を宣言し、節が任せ先・skill・走らせるだけの宣言を持たない
-    ときだけ。節が作業ツリーを書き換えるか（graph の launch.runner.edits に名がある）で権限の形が分かれる（role_run.runner_permission）。
+
+def lens_files(b, inst):
+    """skill の子に渡すレンズの定義——プラグインの agent（名前が <plugin>:<役>）のレンズごとに、定義の本文を盤面の roles/ に写した置き場。
+    子はプラグインを読まない（--setting-sources ""）ので agent を名前で起こせず、Agent の汎用の子に定義を読ませて起こす（プラグインごと
+    読ませる形を採らない理由は graph の launch.runner.why）。({名前: 置き場}, 起こせない理由)"""
+    out = {}
+    for e in inst.get("skills") or []:
+        name = e.get("skill") if isinstance(e, dict) else e
+        if not isinstance(name, str) or ":" not in name:
+            continue
+        d = agent_def(name)
+        if d is None:
+            return None, f"レンズ {name} の定義がこの環境に無い（別 plugin）"
+        f = b.dir / "roles" / (safe_name(name) + ".lens.txt")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(d["body"], encoding="utf-8")
+        out[name] = str(f)
+    return out, None
+
+
+def runner_form(skill, edits, cwd, board_dir, deny):
+    """回す側の節の子の権限の形（role_run の skill_permission・runner_permission）。縛れないなら None。**起こす側（runner_launch_spec）と
+    柵（commands._runner_refusal）が同じここを引く**——形の選び方（skill か・書くか・守る場所・根）を 2 か所で手書きしない"""
+    if skill:
+        return None if edits else skill_permission(cwd, board_dir, deny)
+    return runner_permission(edits, cwd, board_dir, protected_paths([board_dir] if board_dir else []) if edits else None,
+                             repo_root() if edits else None, deny)
+
+
+def runner_launch_spec(b, inst, n):
+    """回す側の節（graph の runners の節）を engine の中で起こす語。起こさないなら None——起こせない理由は instance の unlaunched に残す
+    （回し役なしの盤面は人に渡り、前の版の盤面は会話に返る。runner.classify）。
+
+    起こすのは回し役なしの run（盤面の engine_runners。init の既定）で、graph が launch.runner を宣言し、節が任せ先・走らせるだけの
+    宣言を持たないときだけ。
+    節が作業ツリーを書き換えるか（graph の launch.runner.edits に名がある）で権限の形が分かれる（role_run.runner_permission）。
+    skill を持つ節（局所レビュー）は Skill と Agent を持つ読むだけの子（role_run.skill_permission。sandbox の形だけ）で起こし、前置きは
+    graph の launch.runner.skill_preamble とレンズの定義の置き場（lens_files）だけで組む（理由の正本は graph の launch.runner.why）。
     子は盤面の inputs.cwd（本物の作業ツリー）で起こし、修正は会話の writer と同じくそこに入る——作業ツリーの前後の突合と修正の
-    前後の数え方はそのまま効く。書けない形（sandbox が立たない・守る場所が引けない）は理由を instance の runner_unlaunched に残して
-    会話に返す。権限の値は engine が決め、graph は語の並び・前置きの文・モデルと effort だけを持つ（launch.delegate と同じ線）"""
+    前後の数え方はそのまま効く。入れ子の sandbox は起こす瞬間に commands.launch_one が測る。権限の値は engine が決め、graph は
+    語の並び・前置きの文・モデルと effort だけを持つ（launch.delegate と同じ線）"""
     spec = b.graph.get("launch", {}).get("runner")
-    if not spec or not b.state.get("engine_runners") or n.get("delegate") or n.get("skills") or n.get("engine_run"):
+    if not spec or not b.state.get("engine_runners") or n.get("delegate") or n.get("engine_run"):
         return None
-    edits = inst["node"] in (spec.get("edits") or [])
+    skill = bool(n.get("skills"))
+    edits = not skill and inst["node"] in (spec.get("edits") or [])
+    what = "skill の節" if skill else "作業ツリーを書き換える節"
+    down = sandbox_down_why(b.state.get("child_tmp_probe")) if (skill or edits) and not defects_only(b.state) else None
+    if down:   # 前の版の盤面は今までどおり emit で会話に返す（人の関所の答え 2026-09-27 の 3 周目の条件 2）
+        inst["unlaunched"] = f"{what}を子で起こせない（{down}）"
+        return None
     cwd = launch_cwd(b)
-    perm = runner_permission(edits, cwd, b.dir, protected_paths([b.dir]) if edits else None, repo_root() if edits else None)
-    if perm is None:
-        inst["runner_unlaunched"] = ("作業ツリーを書き換える子を縛れない（sandbox が立たない・守る場所が引けない・作業ツリーの根が別の"
-                                     "作業ツリーの下に在る）——会話に返す")
-        return None
     rdir = b.dir / "roles"
     rdir.mkdir(parents=True, exist_ok=True)
-    role_file = rdir / "runner.txt"
-    role_file.write_text(spec.get("preamble") or "", encoding="utf-8")
+    preamble = spec.get("preamble") or ""
+    perm = runner_form(skill, edits, cwd, b.dir, repo_deny(cwd)[0] or ())   # 読めない宣言は柵の入口が起こす瞬間に拒む
+    if perm is None:
+        inst["unlaunched"] = (f"{what}を子で縛れない（sandbox が立たない場——Windows・bwrap の無い Linux——か、守る場所が引けない・作業ツリーの根が"
+                              "別の作業ツリーの下に在る）——sandbox の立つ機械か、別の作業ツリーの下でない作業ツリーで run を打ち直せ")
+        return None
+    if skill:
+        lenses, why = lens_files(b, inst)
+        if why:
+            inst["unlaunched"] = f"skill の節を子で起こせない（{why}）——レンズの定義を持つプラグインを入れてから loop.py relaunch"
+            return None
+        preamble = spec.get("skill_preamble") or ""
+        if lenses:
+            preamble += "\nレンズの定義の置き場（Agent の子に Read で読ませる）:\n" + "".join(f"- {k}: {v}\n" for k, v in lenses.items())
+    role_file = rdir / ("skill.txt" if skill else "runner.txt")
+    role_file.write_text(preamble, encoding="utf-8")
     sub = dict.fromkeys(LAUNCH_HOLES, "")
     sub.update(model=spec.get("model") or "", effort=spec.get("effort") or "", role_file=str(role_file), prompt_file=inst["prompt_file"],
                out_path=inst["out_path"], python=sys.executable, plugin_root=str(PLUGIN_ROOT), session_id="{session_id}",
@@ -281,9 +347,52 @@ def runner_launch_spec(b, inst, n):
               "resume_argv": resolve(spec["resume"])[0] if spec.get("resume") else None,
               "tools": perm["tools"], "form": perm["form"], "edits": edits,
               "model": spec.get("model") or "", "effort": spec.get("effort") or ""}
+    if skill:
+        launch["skill"] = True
     if not found:
         launch["missing"] = argv[len(via)]
     return launch
+
+
+APPEND_TO = ("commands", "tooled")   # graph の launch.append の段が当たる子の形（graphcheck が import して綴りを照らす）
+
+
+def launch_appends(graph, n, role_def, runner):
+    """graph の launch.append の段のうち、この節の子の形に当たる物——[{files, reads}]。**節の名前を見ずに、子の形で決める唯一の口**。
+    節ごとの prompt_append に方針の段を足していたとき、覆いは足した 4 節だけで、任せ先・道具つきの役には届かなかった（2026-09-27）。
+      commands: コマンドを走らせる子——回す側の節の全部（会話・子・任せ先）と、役の定義（狭めた後）の道具に Bash を持つ役
+      tooled:   道具を持つ子——回す側の節の全部と、道具ゼロでない役
+    役の定義が読めない役（別 plugin が入っていない）には当てない（道具が分からない）。段と同じファイルを節の prompt_append に書くことは
+    graphcheck が拒む（重ねて貼らない）"""
+    tools = [] if runner else (role_def or {}).get("tools") or []
+    hit = {"commands": runner or any(t in COMMAND_TOOLS or t == "*" for t in tools), "tooled": runner or bool(tools)}
+    return [{"files": list(seg.get("files") or []), "reads": list(seg.get("reads") or [])}
+            for seg in (graph.get("launch") or {}).get("append") or [] if hit.get(seg.get("to"))]
+
+
+def node_appends(graph, n, role_def_of=None):
+    """節に当たる launch.append の段（launch_appends）を、graph だけから引く口——必須の入力の導出と graphcheck が使う（emit は役の定義を
+    読んだ後で launch_appends を直に呼ぶ）。役の定義は role_def_of（既定は agent_def——emit と同じ読み方）で読む。
+    **段を宣言しない graph では役を引かない**——当たる段が無いのに役の名前（run_by）と定義を読みに行くと、段と無関係な読み
+    （必須の入力の導出）が run_by を持たない節で KeyError になった（実測 2026-09-28: 部品を直に呼ぶ試験の graph）"""
+    if not (graph.get("launch") or {}).get("append"):
+        return []
+    runner = runner_node(graph, n)
+    atype = None if runner else agent_type_in(graph, n)
+    role_def = narrowed_def((role_def_of or agent_def)(atype), (graph.get("launch") or {}).get("tooled", {}).get("narrow")) if atype else None
+    return launch_appends(graph, n, role_def, runner)
+
+
+def node_reads(n, segs):
+    """節の reads に、当たる段の reads を足した一覧（reads を持たない節は None のまま）——emit・graphcheck が同じ 1 本で足す"""
+    reads = n.get("reads")
+    if reads is None:
+        return None
+    out = list(reads)
+    for x in (x for seg in segs for x in seg["reads"]):
+        if x not in out:
+            out.append(x)
+    return out
 
 
 def slim_item(item):
@@ -342,9 +451,13 @@ def load_item(inst, board_dir=None):
 
 
 def agent_type_of(b, n):
+    return agent_type_in(b.graph, n)
+
+
+def agent_type_in(graph, n):
     if n.get("agent_type"):
         return n["agent_type"]  # 別プラグインの agent（接頭ごと書く）
-    return (b.plugin + ":" + n["run_by"]) if b.plugin else n["run_by"]
+    return (graph["plugin"] + ":" + n["run_by"]) if graph.get("plugin") else n["run_by"]
 
 
 def prompt_growth(b, nid, prompt_bytes):
@@ -410,10 +523,6 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
     n = b.nodes[nid]
     iid = nid + (f"[{item['key']}]" if item else "") + suffix
     emitted = now()
-    try:
-        tpl = node_prompt(b.state["graph"], n)
-    except OSError as e:
-        die(f"{nid}: prompt_file が読めない: {e}")
     ctx = b.ctx(item)
     # 節そのものの宣言をプロンプトから引けるようにする（{{node.skills}}）。**正本を 1 か所にするための口**
     # ——レンズの一覧を散文へ手で写すと、正本を直した周に写しだけが古くなり、しかも役は写しの方を読む
@@ -456,6 +565,11 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         b.state.setdefault("role_def_missing", []).append({"instance": iid, "round": b.round, "agent_type": atype})
     isolated = role_def is not None and role_def["tools"] == []
     runner = b.is_runner(n)
+    segs = launch_appends(b.graph, n, role_def, runner)
+    try:
+        tpl = node_prompt(b.state["graph"], n, segs=segs)
+    except OSError as e:
+        die(f"{nid}: prompt_file か launch.append のファイルが読めない: {e}")
     # engine が起こせる役か（launch_spec が語を組める役）。起こせる役の材料は標準入力で子へ流すので、Agent ツールの貼る先の上限が無い
     launchable = not runner and role_def is not None and (
         isolated or bool(b.graph.get("launch", {}).get("tooled") and tooled_launchable(role_def)))
@@ -472,7 +586,7 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
     # 遮断系は deliver_mode が paste を返す（道具ゼロなので path_tools を持たない）ため切られる側に回る
     # ——最初にこの 3 つ目を落として台本が 2 件赤くなった（実測 2026-09-13: 45,118 バイトの本文が切られた）
     snap, offsets = pointers.snapshot(ctx, n.get("pointers"))
-    r = Renderer(ctx, n.get("reads"), ref=b.ref,
+    r = Renderer(ctx, node_reads(n, segs), ref=b.ref,
                  cap=None if (runner or launchable or deliver == "path") else FILE_CAP, numbered=offsets)
     try:
         prompt = r.render(tpl)
@@ -512,7 +626,8 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
         "prompt_file": str(pfile), "prompt_sha": sha(prompt), "item": item, "status": "pending", "emitted_at": emitted,
         # 出した盤面の版（読んだ版。この保存で 1 つ進む）——区間の重なり（commands._in_interval）を秒でなく保存の順で分ける論理時計
         "emitted_rev": b.state.get("rev", 0),
-        # 返答の置き場（運び手がここへ書けば done は --output 無しで読む）。**本文を返す節（text）は .md**——
+        # 返答の置き場（launch を持たない節は運び手がここへ書けば done は --output 無しで読む。launch を持つ節の置き場は engine が子の返答を
+        # 書く——会話が引き取るなら別のファイルを --output で渡す。commands.reply_origin）。**本文を返す節（text）は .md**——
         # 拡張子が .json だと、Markdown を返す節で運び手が別名に書き、初回の done が『返答が無い』で必ず落ちた。
         # **起こし直した試行は置き場を分ける**（.a<試行>）——前の試行が遅れて書いても別のファイルに落ち、記録に入らない
         # （Temporal の task token が試行ごとに一意で、古い試行の完了の報告を受け付けないのと同じ締め出し）
@@ -537,18 +652,18 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
     if skills:
         inst["skills"] = skills
     if runner and n.get("delegate"):
-        # 回す側の節のうち、自分の文脈で抱えずに小さな役へ任せてよいもの。既定は engine が sandbox の中で起こす（launch）。
-        # 人が柵を外した run だけ launch を付けず、回す側が Agent で起こす
+        # 回す側の節のうち、自分の文脈で抱えずに小さな役へ任せてよいもの。engine が起こす（launch。既定は sandbox の中）。
+        # 人が柵を外した run は外した形で起こし、前の版の盤面と --no-engine-runners の run だけ launch を付けず、回す側が Agent で起こす
         inst["delegate"] = n["delegate"]
         if b.state.get("unfenced_delegates"):
             inst["unfenced"] = b.state["unfenced_delegates"]
-        else:
+        if not inst.get("unfenced") or defects_only(b.state):
             spec = delegate_launch_spec(b, inst, n, ctx)
             if spec:
                 inst["launch"] = spec
     if runner and n.get("engine_run"):
         plan_engine_run(b, nid, n, inst, engine_fallback)
-    if runner and not inst.get("launch") and not inst.get("unfenced"):
+    if runner and not inst.get("launch") and not n.get("delegate"):
         spec = runner_launch_spec(b, inst, n)
         if spec:
             inst["launch"] = spec
@@ -568,6 +683,11 @@ def emit_instance(b, nid, item=None, suffix="", attempt=1, engine_fallback=None)
             spec = launch_spec(b, inst, role_def, resume_sid=(prior or {}).get("session_id"), read_grant=read_grant)
             if spec:
                 inst["launch"] = spec
+        if not inst.get("launch") and defects_only(b.state):
+            # 回し役なしの盤面では会話が Agent で起こす手番を持たない——起こせない理由を人に渡す（runner.classify が 14 に出す）
+            inst["unlaunched"] = (f"{role_def_missing}——定義を持つプラグインを入れてから loop.py relaunch" if role_def_missing else
+                                  f"役 {atype} を engine が起こす語を組めない（定義が道具の一覧を持たない・書く道具を持つ・モデルか effort を名指さない"
+                                  "形で graph に launch.tooled.narrow が当たらない、または graph の launch に要る語が無い）")
     if same:
         if prior and prior.get("session_id") and inst.get("launch"):
             inst["mode"] = "agent_continue"

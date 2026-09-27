@@ -1,6 +1,7 @@
 """engine が子の書いた物を測る口——道具つきの役の前後の突合（中身の木の id・区間の重なり）・書き換える節の申告の両方向の記録・
 書き換える子の専用の一時の置き場の数えと確かめ・外から来た JSON と引数の孤立サロゲートの検め。本物の git の使い捨てのリポジトリの上で直に呼ぶ"""
 import argparse
+import json
 import os
 import pathlib
 import re
@@ -424,13 +425,21 @@ class ProbeBoard:
         pass
 
 
-def probe_launch(tmp_path, monkeypatch, probe_says):
-    """確かめの子が probe_says（'made'・'empty'・'failed'）の形で終わる run_role を置き、launch_one を呼ぶ関数と呼び出しの一覧を返す。
-    書く子は、起こされた時点で盤面に専用の置き場の記録（child_tmp）が在ったかを覚える"""
+SANDBOX_FAILED = "Sandbox is required but failed to initialize: EPERM: operation not permitted, listen /tmp/srt-mux-1.sock"
+
+
+SANDBOXED = json.dumps({"sandbox": {"enabled": True, "filesystem": {"denyWrite": ["/x"]}}})
+
+
+def probe_launch(tmp_path, monkeypatch, probe_says, launch=None):
+    """確かめの子が probe_says の形で終わる run_role を置き、launch_one を呼ぶ関数と呼び出しの一覧を返す。形は 'made'（両方のファイル）・
+    'ran'（作業ディレクトリのファイルだけ——専用の置き場が書けない版）・'silent'（何も作らずに終わった——Bash を呼ばなかった）・
+    'failed'（子が落ちた）・'sandbox'（返答に sandbox の初期化の失敗の文）。書く子は、起こされた時点で盤面に専用の置き場の記録
+    （child_tmp）が在ったかを覚える。launch を渡すと起こす子の形を替える（既定は sandbox の中の書き換える子）"""
     ProbeBoard.state = {"round": 1}
     monkeypatch.delenv("CLAUDE_CODE_TMPDIR", raising=False)   # engine 自身が claude の子として走る場は親の値を持つ——拾わない
     monkeypatch.setattr(commands, "Board", ProbeBoard)
-    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd, d: None)
+    monkeypatch.setattr(commands, "launch_refusal", lambda inst, cwd, d, state=None: None)
     calls = []
 
     def fake_run_role(argv, prompt, out_path, **kw):
@@ -440,6 +449,10 @@ def probe_launch(tmp_path, monkeypatch, probe_says):
         if meta.get("probe"):
             if probe_says == "made":
                 pathlib.Path(env["TMPDIR"], commands.PROBE_FILE).write_text("", encoding="utf-8")
+            if probe_says in ("made", "ran"):
+                pathlib.Path(kw["cwd"], commands.PROBE_RAN).write_text("", encoding="utf-8")
+            if probe_says == "sandbox":
+                pathlib.Path(out_path).write_text(json.dumps({"made": False, "error": SANDBOX_FAILED}), encoding="utf-8")
             return {"ok": probe_says != "failed", "why": "rate limit" if probe_says == "failed" else None, "session_id": "p",
                     "superseded": False, "runs": [], "rejections": []}
         if env.get("CLAUDE_CODE_TMPDIR"):
@@ -449,25 +462,31 @@ def probe_launch(tmp_path, monkeypatch, probe_says):
     prompt = tmp_path / "p.md"
     prompt.write_text("x", encoding="utf-8")
     inst = {"id": "p3.fix", "node": "p3.fix", "out_path": str(tmp_path / "o.json"),
-            "launch": {"kind": "runner", "edits": True, "stdin": str(prompt),
-                       "argv": ["claude", "-p", "--model", "opus", "--effort", "high", "--output-format", "json"]}}
+            "launch": launch or {"kind": "runner", "edits": True, "stdin": str(prompt),
+                                 "argv": ["claude", "-p", "--model", "opus", "--effort", "high", "--tools", "Read,Bash,Edit,Write",
+                                          "--allowedTools", "Read,Edit(./**),Write(./**)", "--settings", SANDBOXED,
+                                          "--output-format", "json"]}}
+    inst["launch"].setdefault("stdin", str(prompt))
     ProbeBoard.rd = {"instances": {"p3.fix": dict(inst)}}
+    ProbeBoard.state["rounds"] = [ProbeBoard.rd]
     return (lambda: commands.launch_one(str(tmp_path), inst, 0, cwd=str(tmp_path))), calls
 
 
-@pytest.mark.parametrize("probe_says, writable", [("made", True), ("empty", False)])
+@pytest.mark.parametrize("probe_says, writable", [("made", True), ("ran", False)])
 def test_launch_one_probes_once_and_falls_back_to_the_shared_tmp(tmp_path, monkeypatch, probe_says, writable):
-    """書き換える子の専用の一時の置き場は、決まった結果が出るまで確かめの子（いちばん安いモデル・作業ツリーの外）で書けるかを測り、
-    書けなければ共有の置き場で起こして、測れていないことを痕跡に残す（人の関所の条件 2）。専用の置き場は子を起こす前に盤面に書き、
-    数えた後に消す（先に書く記録）"""
+    """書き換える子の専用の一時の置き場は、決まった結果が出るまで確かめの子（いちばん安いモデル・作業ツリーの外・役の前置きなし）で
+    書けるかを測り、書けなければ共有の置き場で起こして、測れていないことを痕跡に残す（人の関所の条件 2）。Bash が走った印（作業
+    ディレクトリのファイル）が在れば sandbox は立つと決まる。専用の置き場は子を起こす前に盤面に書き、数えた後に消す（先に書く記録）"""
     launch, calls = probe_launch(tmp_path, monkeypatch, probe_says)
     for _ in range(2):
         launch()
     probes, writers = [c for c in calls if c["probe"]], [c for c in calls if not c["probe"]]
     assert len(probes) == 1 and len(writers) == 2
-    assert probes[0]["argv"] == ["claude", "-p", "--model", commands.PROBE_MODEL, "--output-format", "json"]
+    # 道具は Bash だけ（印を作れるのは Bash だけ）。sandbox の形は起こす子と同じ
+    assert probes[0]["argv"] == ["claude", "-p", "--model", commands.PROBE_MODEL, "--tools", "Bash", "--settings", SANDBOXED,
+                                 "--output-format", "json"]
     assert probes[0]["cwd"] != str(tmp_path)
-    assert ProbeBoard.state["child_tmp_probe"]["writable"] is writable
+    assert ProbeBoard.state["child_tmp_probe"]["writable"] is writable and ProbeBoard.state["child_tmp_probe"]["sandbox"] is True
     rows = ProbeBoard.state["git_mismatches"]
     if writable:
         assert all(w["env"].get("CLAUDE_CODE_TMPDIR") == w["env"]["TMPDIR"] == w["recorded"] for w in writers)
@@ -479,17 +498,75 @@ def test_launch_one_probes_once_and_falls_back_to_the_shared_tmp(tmp_path, monke
     assert "child_tmp" not in ProbeBoard.rd["instances"]["p3.fix"]
 
 
-def test_a_failed_probe_is_not_fixed_and_is_retried_up_to_the_limit(tmp_path, monkeypatch):
-    """確かめの子が落ちた回は『書けない版』と固めず、次の launch で確かめ直す。run で PROBE_TRIES 回決まらなければ、決まらないまま
-    固めて共有の置き場で起こす（人の関所 3 周目の条件 4）。痕跡は『確かめられない』で、『書けない版』と取り違えない"""
-    launch, calls = probe_launch(tmp_path, monkeypatch, "failed")
+@pytest.mark.parametrize("probe_says, said", [("failed", "rate limit"), ("silent", "Bash が走った印も")])
+def test_an_undecided_probe_is_not_fixed_and_is_retried_up_to_the_limit(tmp_path, monkeypatch, probe_says, said):
+    """確かめの子が落ちた回・Bash を呼ばずに終わった回は『書けない版』とも『sandbox が立たない』とも固めず、次の launch で確かめ直す。
+    run で PROBE_TRIES 回決まらなければ、決まらないまま固めて共有の置き場で起こす（人の関所 3 周目の条件 4・round 2 の条件 1）。
+    痕跡は『確かめられない』で、『書けない版』と取り違えない。書く子は止めずに起こす"""
+    launch, calls = probe_launch(tmp_path, monkeypatch, probe_says)
     for _ in range(commands.PROBE_TRIES + 1):
-        launch()
+        assert launch()["ok"] is True
     assert len([c for c in calls if c["probe"]]) == commands.PROBE_TRIES
     got = ProbeBoard.state["child_tmp_probe"]
-    assert got["writable"] is None and got["tries"] == commands.PROBE_TRIES
+    assert got["writable"] is None and got["sandbox"] is None and got["tries"] == commands.PROBE_TRIES
     notes = [r["note"] for r in ProbeBoard.state["git_mismatches"]]
-    assert all("確かめられない" in n and "rate limit" in n and "書けない版" not in n for n in notes)
+    assert all("確かめられない" in n and said in n and "書けない版" not in n for n in notes)
+
+
+def _sandboxed_launch(tmp_path, **kw):
+    return {"argv": ["claude", "-p", "--model", "opus", "--tools", "Read,Bash", "--settings", SANDBOXED, "--output-format", "json"], **kw}
+
+
+@pytest.mark.parametrize("launch_kw", [
+    pytest.param({"kind": "runner", "edits": True}, id="writer"),
+    pytest.param({"kind": "runner", "skill": True}, id="skill"),
+    pytest.param({"kind": "delegate"}, id="delegate"),
+])
+def test_a_probe_that_sees_the_sandbox_init_failure_stops_writers_skills_and_delegates(tmp_path, monkeypatch, launch_kw):
+    """確かめの子の返答に sandbox の初期化の失敗の文が在れば、入れ子の sandbox（子の Bash が走らない場）と固め、書き換える子・skill の子・
+    任せ先を起こさずに止める（env の印——環境の予定どおりの止まり）。理由は外し方を名指す。固めた後の launch は確かめ直さない"""
+    launch, calls = probe_launch(tmp_path, monkeypatch, "sandbox", _sandboxed_launch(tmp_path, **launch_kw))
+    for _ in range(2):
+        got = launch()
+        assert got["ok"] is False and got["env"] is True and "excludedCommands" in got["why"] and "--reprobe" in got["why"]
+    assert [c["probe"] for c in calls] == ["child_tmp"]                     # 子は起こさない・確かめは 1 回
+    rec = ProbeBoard.state["child_tmp_probe"]
+    assert rec["sandbox"] is False and "初期化で落ちた" in rec["why"]
+
+
+def test_a_read_only_sandboxed_child_is_launched_but_marked_unmeasured(tmp_path, monkeypatch):
+    """読むだけの sandbox の形の子（道具つきの役・読むだけの回す側の節）は、入れ子の sandbox の場でも起こす——その前に確かめを通し、
+    Bash で測れていないことを盤面の unevaluable と instance の note に残す（正常終了として黙って受け付けない）"""
+    launch, calls = probe_launch(tmp_path, monkeypatch, "sandbox", _sandboxed_launch(tmp_path, kind="tooled", form="sandbox"))
+    assert launch()["ok"] is True
+    assert [c["probe"] for c in calls] == ["child_tmp", None]
+    assert "sandbox_down_read" in [u["trigger"] for u in ProbeBoard.state["unevaluable"]]
+    assert "Bash で測った結果は無い" in ProbeBoard.rd["instances"]["p3.fix"]["note"]
+
+
+@pytest.mark.parametrize("settings", [None, json.dumps({}), json.dumps({"permissions": {"deny": ["Bash(x:*)"]}})])
+def test_a_child_without_a_sandbox_is_neither_probed_nor_stopped(tmp_path, monkeypatch, settings):
+    """sandbox を持たない語の子（柵を外した任せ先・道具ゼロの役・Bash を持たない役）は、確かめを起こさず、入れ子の sandbox と固めた盤面でも
+    止めない——起こすか・止めるかは語の --settings の sandbox.enabled の 1 本で決め、節の種類を並べない"""
+    argv = ["claude", "-p", "--model", "sonnet", *(["--settings", settings] if settings else []), "--output-format", "json"]
+    launch, calls = probe_launch(tmp_path, monkeypatch, "made", {"kind": "delegate", "argv": argv})
+    # 任せ先の写し（copy_worktree）は pytest を走らせたリポジトリを clone する——この検査の主題（確かめるか・止めるか）の外で、
+    # 走らせた場所の git に緑が依る（CI の ubuntu・windows で写しが拒まれて ok が偽になった。run 36355973925）。写しは空の置き場で置き換える
+    monkeypatch.setattr(commands, "copy_worktree", lambda dst: (pathlib.Path(dst).mkdir(parents=True), str(dst))[1])
+    ProbeBoard.state["child_tmp_probe"] = {"sandbox": False, "writable": None, "why": "入れ子", "tries": 1}
+    got = launch()
+    assert got["ok"] is True and [c["probe"] for c in calls] == [None], got.get("why")
+
+
+def test_old_board_probe_record_keeps_what_it_proved(tmp_path, monkeypatch):
+    """旧い盤面の記録（sandbox の鍵が無い）は、専用の置き場に書けた（Bash が走った）ときだけ決まった物と読み、ほかは確かめ直す"""
+    launch, calls = probe_launch(tmp_path, monkeypatch, "made")
+    ProbeBoard.state["child_tmp_probe"] = {"writable": True, "at": "t", "why": None, "tries": 1}
+    launch()
+    assert not [c for c in calls if c["probe"]]
+    ProbeBoard.state["child_tmp_probe"] = {"writable": False, "at": "t", "why": "旧い版の『書けない版』", "tries": 1}
+    launch()
+    assert len([c for c in calls if c["probe"]]) == 1 and ProbeBoard.state["child_tmp_probe"]["sandbox"] is True
 
 
 def test_probe_that_cannot_make_its_places_is_undecided_not_a_crash(monkeypatch):

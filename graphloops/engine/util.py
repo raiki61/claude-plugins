@@ -23,6 +23,47 @@ class AnswerReject(Reject):
     作業ツリーが変わった・前段が済んでいない）は役に返しても直らないので、続きを頼まずに回す側へ上げる。"""
 
 
+# 回し役なしの run の盤面の印（state.engine_runners.handoff）。この版の init が書き、会話に返す（13）のは engine の不具合（盤面の矛盾）
+# だけになる——engine が起こせない節は理由（instance の unlaunched）を持って人に渡る（runner.classify）。印の無い盤面（前の版で始めた run・
+# --no-engine-runners の run）は今までどおり会話がこなす節を返す（人の関所の答え 2026-09-27 の 3 周目の条件 2: 旧い盤面は警告して通す）
+HANDOFF_DEFECTS = "defects"
+
+
+def defects_only(state):
+    return (state.get("engine_runners") or {}).get("handoff") == HANDOFF_DEFECTS
+
+
+# 背景の線が結果を書かずに終わった印の鍵（結果の置き場の {LANE_FAILED: 理由}）。書くのは write_lane_failed だけ
+LANE_FAILED = "lane_failed"
+
+
+def write_lane_failed(path, why):
+    """背景の線の結果の置き場に、落ちた印を書く（置き場が既に在れば書かない——書き終えた結果を上書きしない）。書けたら True。
+    書き手は線の launch そのもの（commands.cmd_launch）か、launch を起こせなかった回し手だけなので、置き場を取り合う相手は居ない。
+    launch が印を書く前に居なくなった回は、読む側が導く（role_run.lane_failure）"""
+    p = pathlib.Path(path)
+    if p.exists():
+        return False
+    tmp = p.with_name(p.name + ".failed.tmp")
+    try:
+        tmp.write_text(json.dumps({LANE_FAILED: why}, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, p)   # 読む側は書き終えた物だけを読む
+    except OSError:
+        return False
+    return True
+
+
+def find_attempt(rounds, iid, out_path):
+    """周の表（state.rounds）の全部から、id と置き場（out_path）が一致する試行の instance（無ければ None）。置き場は試行ごとに一意
+    （relaunch は .a<試行> の新しい置き場を作る。Temporal の task token と同じ）なので、周をまたいで走る背景の線の試行も、今の周の表に
+    依らずに引ける——今の周の表で引いていたとき、周が進んだ後に落ちた線を『起こし直された古い試行』と読み、落ちた印を書かなかった"""
+    for rd in reversed(rounds):
+        inst = rd["instances"].get(iid)
+        if inst is not None and inst.get("out_path") == out_path:
+            return inst
+    return None
+
+
 class BoardConflict(SystemExit):
     """盤面を読んだ後に別のプロセスが盤面を進めていた（Board.save）。die と同じく exit 2 で終わる。別の型にしたのは、
     読み直して当て直してよい失敗（版の衝突）を、ほかの die（記録の書き込みの失敗など）と見分けるため（commands._board_update・
@@ -42,10 +83,13 @@ def now():
 
 
 def waiting(inst):
-    """待っている instance の経過と試行の回数——{elapsed_min, attempts}。**その場で計算し、盤面には書かない**"""
+    """待っている instance の経過と試行の回数——{elapsed_min, attempts}。engine が起こして走っている試行は、起こしてからの経過
+    （launched_min）も足す（子の出力は終わりに 1 回なので、最後の出力からの経過は測れない——止めずに見せるだけ）。
+    **その場で計算し、盤面には書かない**"""
     t = datetime.datetime.fromisoformat(now())
-    return {"elapsed_min": int((t - datetime.datetime.fromisoformat(inst["emitted_at"])).total_seconds() // 60),
-            "attempts": inst.get("attempts", 1)}
+    mins = lambda at: int((t - datetime.datetime.fromisoformat(at)).total_seconds() // 60)   # noqa: E731
+    return {"elapsed_min": mins(inst["emitted_at"]), "attempts": inst.get("attempts", 1),
+            **({"launched_min": mins(inst["launched_at"])} if inst.get("launched_at") and inst.get("launch_state") == "running" else {})}
 
 
 def sha(text):

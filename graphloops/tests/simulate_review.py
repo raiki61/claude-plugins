@@ -205,7 +205,9 @@ class Run:
             args += ["--input", kv]
         if unattended:
             args.append("--unattended")
-        args += [*(["--graph", str(graph)] if graph else []), *init_args]
+        # 台本は会話で回す筋書き（役の返答を done で返す）——回し役なしの既定を外し、会話で回す道の網を保つ
+        runners = [] if "--engine-runners" in init_args else ["--no-engine-runners"]
+        args += [*(["--graph", str(graph)] if graph else []), *runners, *init_args]
         self.init = self.cmd(*args)
 
     def launch(self, node):
@@ -912,23 +914,35 @@ def test_launch_delegate_background_lane():
 
 
 def test_unfenced_delegates_only_when_named():
-    """柵を外すのは人が init --unfenced-delegates で明示した run だけ。外した事実は盤面と next の notes に残る"""
-    print("柵を外す口: init --unfenced-delegates の run だけ任せ先が launch を持たず、外した事実と理由が盤面と notes に出る")
+    """柵を外すのは人が init --unfenced-delegates で明示した run だけ。外した事実は盤面と next の notes に残る。回し役なしの run（既定）では
+    engine が sandbox の外で起こし（会話に Agent で起こさせる手番を持たない）、会話で回す run では今までどおり launch を持たない"""
+    print("柵を外す口: init --unfenced-delegates の run だけ任せ先が柵を外した形になり、外した事実と理由が盤面と notes に出る")
     run = Run("unfenced", checks=None)   # 宣言が無いので p0.local_checks は任せ先の節として出る（宣言が在れば engine_run）
-    d2 = run.tmp / "s-unfenced"
-    r = subprocess.run([PY, str(LOOP), "init", "--loop", "review-loop", "--request", "q", "--dir", str(d2),
-                        "--validator", str(VALIDATOR), "--unfenced-delegates", "docker を使う CI（検査用）"],
-                       cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
-    check(r.returncode == 0, f"柵を外した run を init できる（{r.stderr[-120:]}）")
-    r = subprocess.run([PY, str(LOOP), "next", "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
-    nx = json.loads(r.stdout) if r.returncode == 0 else {"ready": [], "notes": []}
-    inst = next((i for i in nx["ready"] if i["node"] == "p0.local_checks"), {})
-    st = json.loads((d2 / "state.json").read_text(encoding="utf-8"))
-    trace = (d2 / "trace.jsonl").read_text(encoding="utf-8")
-    check(not inst.get("launch") and (inst.get("unfenced") or {}).get("reason") == "docker を使う CI（検査用）"
-          and st.get("unfenced_delegates", {}).get("reason") == "docker を使う CI（検査用）" and "unfenced_delegates" in trace
-          and any("柵" in n for n in nx.get("notes") or []),
-          f"外した run の任せ先は launch を持たず unfenced を持ち、外した事実が state・trace・notes に残る（{inst.get('launch')}）")
+
+    def unfenced_next(name, *flags):
+        d2 = run.tmp / name
+        r = subprocess.run([PY, str(LOOP), "init", "--loop", "review-loop", "--request", "q", "--dir", str(d2),
+                            "--validator", str(VALIDATOR), "--unfenced-delegates", "docker を使う CI（検査用）", *flags],
+                           cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+        check(r.returncode == 0, f"柵を外した run を init できる（{flags}: {r.stderr[-120:]}）")
+        r = subprocess.run([PY, str(LOOP), "next", "--dir", str(d2)], cwd=run.repo, capture_output=True, text=True, encoding="utf-8", timeout=600)
+        nx = json.loads(r.stdout) if r.returncode == 0 else {"ready": [], "notes": []}
+        inst = next((i for i in nx["ready"] if i["node"] == "p0.local_checks"), {})
+        st = json.loads((d2 / "state.json").read_text(encoding="utf-8"))
+        trace = (d2 / "trace.jsonl").read_text(encoding="utf-8")
+        check((inst.get("unfenced") or {}).get("reason") == "docker を使う CI（検査用）"
+              and st.get("unfenced_delegates", {}).get("reason") == "docker を使う CI（検査用）" and "unfenced_delegates" in trace
+              and any("柵" in n for n in nx.get("notes") or []),
+              f"外した事実が instance・state・trace・notes に残る（{flags}）")
+        return d2, inst
+
+    _d, inst = unfenced_next("s-unfenced")
+    argv = (inst.get("launch") or {}).get("argv") or []
+    settings = json.loads(argv[argv.index("--settings") + 1]) if "--settings" in argv else {"sandbox": "?"}
+    check((inst.get("launch") or {}).get("kind") == "delegate" and "sandbox" not in settings,
+          f"回し役なしの run では engine が柵を外した形（sandbox の設定を持たない）で起こす（{settings}）")
+    d2, inst = unfenced_next("s-unfenced-conv", "--no-engine-runners")
+    check(not inst.get("launch"), f"会話で回す run の任せ先は launch を持たない（{inst.get('launch')}）")
     r = subprocess.run([PY, str(LOOP), "launch", "--node", inst.get("id") or "p0.local_checks", "--dir", str(d2)], cwd=run.repo,
                        capture_output=True, text=True, encoding="utf-8", timeout=600)
     check(r.returncode == 1 and "起こせる節が無い" in r.stderr,
@@ -4282,7 +4296,7 @@ def test_launch_wait_wording():
     決める形で、LLM に見に行きのループを書かせない（残骸のループが 17〜24 時間残った。実測 2026-09-26）。next の how と
     loop.py の使い方も、会話からは launch を打たずに run に任せる形を案内する（背景の launch を見に行く旧い形を残さない）。
     知らせを待った回す側が起こされずに止まった（実測 2026-09-25）"""
-    print("待ち方: 手順書は run の作法（20 は打ち直す・13 は handoff・手番を終えるのは 0・11・12・14）で、見に行きのループを書かせない")
+    print("待ち方: 手順書は run の作法（20 は打ち直す・13 は handoff・手番を終えてよい終了コードを名指す）で、見に行きのループを書かせない")
     run = Run("waitword")
     how = run.next()["how"]
     books = {name: (PLUGIN / "commands" / name).read_text(encoding="utf-8") for name in ("review-graph.md", "research-graph.md")}
@@ -5447,8 +5461,11 @@ def test_vocab_not_copied():
     check("{{validator.question_kinds}}" in tpl, "プロンプトは種類の表を穴で受ける")
     check("{{validator.question_fields}}" in tpl, "書ける欄の一覧も穴で受ける")
 
+    # 節の他の穴（record.* 等）は reads の外なので、語彙の穴だけを取り出して埋める（simulate.py の研究の語彙の検査と同じ形）
+    holes = "\n".join(ln for ln in tpl.splitlines() if "{{validator." in ln)
+
     def render(tables):
-        return Renderer({"validator": tables}, ["validator"]).render(tpl[tpl.index("問いの台帳（questions）"):])
+        return Renderer({"validator": tables}, ["validator"]).render(holes)
 
     got = render(V.PROMPT_TABLES)
     missing = [k for k in V.QUESTION_KINDS if k not in got]
@@ -5754,9 +5771,12 @@ def test_big_diff():
     rm(run.tmp)
     # engine が起こさない役（graph に launch.tooled が無い）でも、役が自分でファイルを読む渡し方（deliver=path）なら貼る上限で
     # 切らない——上限は Agent ツールに本文を貼る経路の性質（advance.emit_instance の cap の注記）。道具つきの役の指示書に
-    # 差分の本文の穴を足した graph の写しで、path の役の本文が末尾まで残るかを見る
+    # 差分の本文の穴を足した graph の写しで、path の役の本文が末尾まで残るかを見る。
+    # launch.runner（回し役なしの run）も外す——それを宣言する graph は、engine が起こせない役を graphcheck が拒む（会話に返る節を
+    # 静的に作らない）ので、起こさない役を持てるのは launch.runner を持たない graph（research-loop の形）だけ
     g = json.loads((PLUGIN / "graphs" / "review-loop.json").read_text(encoding="utf-8"))
     del g["launch"]["tooled"]
+    del g["launch"]["runner"]
     g["nodes"]["p1.procedure_trace"]["reads"].append("file:hist.snapshot.diff_file")
     _td_g, gtmp = parallel.workspace("gl-review-big-path-")
     for sub in ("prompts", "rules", "blocks"):
