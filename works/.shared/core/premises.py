@@ -23,7 +23,7 @@ CORE = pathlib.Path(__file__).resolve().parent
 if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
-from accept import (TREE_KEYS, TREE_SCHEMA, guard, head_at_rev, in_repo, read_board, resolve_rev,  # noqa: E402
+from accept import (TREE_KEYS, TREE_SCHEMA, guard, in_repo, read_board, resolve_rev,  # noqa: E402
                     tree_moved, tree_state, type_errors, write_board)
 from board import DiskBoard  # noqa: E402
 from engine.rules import registry  # noqa: E402
@@ -33,7 +33,6 @@ from engine.util import Reject  # noqa: E402
 PREMISES_NODE = "p0.premises"
 PREMISES_FILE = "premises.json"                     # 受け付けた実測役の返答 {"constraints": [...]}
 PREMISES_SNAPSHOT_FILE = "premises-snapshot.json"   # 実測役を起こす前の作業ツリーの姿。形は accept.TREE_SCHEMA（tree_state）
-ROLE = "実測役"
 RULE = "実測役は作業ツリーを変えてはいけない"
 
 
@@ -43,7 +42,7 @@ def _tree_unchanged(repo, board, rev):
     盤面に premises-snapshot.json（intake の時の tree_state）が在れば今と比べる（HEAD・枝・git が無視するパスの増減も見る。
     役が作った物を commit しても head で見える）。古い形（head の無い写し）は型で拒み、intake から取り直させる。
     無ければ作業ツリーが綺麗（git status --porcelain と git が無視するパスが空）で、HEAD が数える版 rev のままであることを
-    求める（accept.head_at_rev）。違えば Reject"""
+    求める（判定役の見張りと同じ。dogfood run 21）。違えば Reject"""
     snap = read_board(board, PREMISES_SNAPSHOT_FILE)
     if snap is None:
         now = tree_state(repo, bytecode=False)
@@ -51,7 +50,9 @@ def _tree_unchanged(repo, board, rev):
         if dirty:
             raise Reject(f"作業ツリーに変更が在る——{RULE}。測るときに作った物を消してから出し直せ"
                          f"（git status --porcelain --ignored: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
-        head_at_rev(repo, rev, ROLE)
+        if now["head"] != rev:
+            raise Reject(f"HEAD が数える版から動いた（版 {rev[:12]} / 今 {now['head'][:12]}）——{RULE}。commit・reset・checkout で"
+                         "履歴を動かしてはいけない")
         return
     type_errors(snap, TREE_SCHEMA, f"盤面の {PREMISES_SNAPSHOT_FILE}（古い形なら intake から写しを取り直せ）")
     moved = tree_moved({k: snap[k] for k in TREE_KEYS}, repo, bytecode=False)

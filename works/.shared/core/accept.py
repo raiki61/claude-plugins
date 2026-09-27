@@ -460,7 +460,7 @@ def check_request(items: list, board: pathlib.Path, reason: str) -> dict:
     return _guard(run)
 
 
-def head_at_rev(repo, rev, role):
+def _head_at_rev(repo, rev, role):
     """HEAD が数える版 rev のままか。動いていれば Reject（写しの無い見張りで、役が作った物を commit して
     git status を空に戻す道を塞ぐ。dogfood run 21）。role は読むだけの役の名"""
     head = _git(repo, "rev-parse", "--verify", "-q", "HEAD").strip()
@@ -475,14 +475,14 @@ def _judge_tree_unchanged(repo, board, rev):
     ファイルの増減・書き換えも見る）。写しが tree_state の形（intake が置く。HEAD と枝を持つ）なら共通の tree_moved
     （R47）で HEAD・枝の移動も見る。snapshot_tree の形（前の版の盤面）は porcelain・ignored・diff_sha256 だけを比べる。
     無ければ作業ツリーが綺麗（git status --porcelain --ignored が空。無視されるファイルも無い）で、HEAD が数える版 rev の
-    ままであることを求める（head_at_rev）。違えば Reject"""
+    ままであることを求める（_head_at_rev）。違えば Reject"""
     snap = _read_board(board, JUDGE_SNAPSHOT_FILE)
     if snap is None:
         dirty = _git(repo, "status", "--porcelain", "--ignored").splitlines()
         if dirty:
             raise Reject("作業ツリーに変更が在る——判定役は読むだけの役で、作業ツリーを変えてはいけない"
                          f"（git status --porcelain --ignored: {dirty[:5]}{' ほか' if len(dirty) > 5 else ''}）")
-        head_at_rev(repo, rev, "判定役")
+        _head_at_rev(repo, rev, "判定役")
         return
     if isinstance(snap, dict) and ("head" in snap or "ref" in snap):
         _type_errors(snap, TREE_SCHEMA, f"盤面の {JUDGE_SNAPSHOT_FILE} ")
