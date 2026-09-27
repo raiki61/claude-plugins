@@ -101,6 +101,10 @@ mkdir -p "$HOME" "$ARCHON_HOME" "$CLAUDE_CONFIG_DIR" \
 export HOME ARCHON_HOME CLAUDE_CONFIG_DIR
 export XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
 
+# 借りた superpowers のスキルの写しを、隔離した Claude の設定の skills/ へ写す（skills.sh）。節の settingSources: [user] と
+# skills: で読ませるため。認証の要らない道（validate）も同じ置き場でスキルを探すので、毎回写す
+sh "$(cd "$(dirname "$0")" && pwd -P)/skills.sh" "$CLAUDE_CONFIG_DIR"
+
 # 認証を使う（AI を呼びうる）実行は毎回、隔離した Archon の全体設定に既定の模型を書き、run の題を作る
 # 模型も同じにする（TITLE_GENERATION_MODEL。設定済みならそのまま）。書かないと Claude CLI の既定の模型で
 # 黙って回る。模型は WORKS_DEV_MODEL（既定は opus）。works の YAML には model: を書かない——利用者の選択を残すため。

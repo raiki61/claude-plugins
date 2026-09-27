@@ -1,0 +1,11 @@
+# 違反: settingSources: [user] の節が skills: を持たない（[user] は借りたスキルを読むためだけに許す）
+name: bad-user-without-skills
+description: 違反の見本
+nodes:
+  - id: judge
+    prompt: 判定せよ
+    allowed_tools: [Read, Grep, Glob]
+    settingSources: [user]
+    sandbox: {enabled: true, allowUnsandboxedCommands: false}
+    idle_timeout: 1728000000
+    output_format: {type: object}

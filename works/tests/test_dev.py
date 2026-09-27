@@ -246,7 +246,7 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("sha256", result.stderr)
 
-    def _exec_archon_sh(self, **overrides):
+    def _exec_archon_sh(self, prepare=None, **overrides):
         """偽の shasum（固定の sha256 を出す）で確かめを通し、キャッシュの偽の実行ファイル（受けた
         TITLE_GENERATION_MODEL と引数を記録する）まで exec させる。本物の Archon もネットワークも要らない。
         戻り値は (結果, 隔離した Archon の config.yaml の中身か None, 偽の実行ファイルが記録した行)。"""
@@ -255,11 +255,15 @@ class TestDevShell(unittest.TestCase):
             tmp = pathlib.Path(tmp_str)
             dev_home = tmp / "dev-home"
             (dev_home / "bin").mkdir(parents=True)
+            if prepare:
+                prepare(dev_home)
             seen = tmp / "seen.txt"
             fake_archon = dev_home / "bin" / "archon-darwin-arm64"
+            skills_seen = tmp / "skills.txt"
             fake_archon.write_text(
                 "#!/bin/sh\n"
                 f'printf \'%s\\n\' "${{TITLE_GENERATION_MODEL-(unset)}}" "$*" > "{seen}"\n'
+                f'ls "$CLAUDE_CONFIG_DIR/skills" > "{skills_seen}" 2>&1\n'
             )
             fake_bin = tmp / "fake-bin"
             fake_bin.mkdir()
@@ -275,6 +279,8 @@ class TestDevShell(unittest.TestCase):
                                     capture_output=True, text=True, env=env)
             config = dev_home / "archon-home" / "config.yaml"
             self.assertNotIn("dummy-token-for-test", result.stdout + result.stderr)
+            # exec した時の隔離した CLAUDE_CONFIG_DIR/skills の中身（test_archon_sh_installs_borrowed_skills が見る）
+            self.skills_seen = skills_seen.read_text().split() if skills_seen.exists() else None
             return (result, config.read_text() if config.exists() else None,
                     seen.read_text().splitlines() if seen.exists() else None)
 
@@ -306,6 +312,28 @@ class TestDevShell(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNone(config)
         self.assertEqual(seen, ["(unset)", "workflow run x"])
+
+    def test_archon_sh_installs_borrowed_skills(self):
+        """archon.sh は exec の前に、借りた superpowers のスキルの写しを隔離した CLAUDE_CONFIG_DIR/skills へ写す
+        （dev/skills.sh）。節の settingSources: [user] と skills: で読ませるため。認証の要らない道（validate）も同じ
+        （Archon の validate も同じ置き場でスキルを探す）"""
+        from test_sp_skills import BORROW
+        for env in ({"CLAUDE_CODE_OAUTH_TOKEN": "dummy-token-for-test"}, {"WORKS_DEV_NO_AUTH": "1"}):
+            with self.subTest(sorted(env)):
+                result, _, _ = self._exec_archon_sh(**env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(sorted(self.skills_seen), sorted(BORROW))
+
+    def test_archon_sh_stops_when_isolated_config_leaks_into_user_scope(self):
+        """隔離した CLAUDE_CONFIG_DIR に CLAUDE.md（や設定・借りる一覧の外のスキル）が在れば、skills.sh が名前を出して
+        終了コード 2 で止め、archon.sh は Archon を起こさない（settingSources: [user] の節に読ませない）"""
+        def put_claude_md(home):
+            (home / "claude-config").mkdir()
+            (home / "claude-config" / "CLAUDE.md").write_text("# 文体の決まり\n", encoding="utf-8")
+        result, _, seen = self._exec_archon_sh(prepare=put_claude_md, WORKS_DEV_NO_AUTH="1")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("CLAUDE.md", result.stderr)
+        self.assertIsNone(seen, "止めるべき所で Archon を起こした")
 
     def test_real_run_stops_without_auth_before_making_target(self):
         """real-run.sh（費用の掛かる実走）は、認証が無ければ対象を作る前に 1 行の案内で止まること。"""

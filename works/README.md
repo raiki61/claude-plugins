@@ -55,6 +55,17 @@ TDD の修正の段が使うテストの実行器（ラインの入力 `tdd_suit
 
 ほかに、輪の無い import・`*/scripts/*.py` は YAML の節だけ（模块は `lib/` か core へ）・動的な import は定数だけ、を縛る。今ある破れは試験の `KNOWN` に載せてあり、減らす方向にだけ変える（直したら行を消す。残すと赤）。`KNOWN` に置けるのは破れの組だけで、「層が決まっていない」類の印（新しい core の模块の `unassigned` など）は置けない。失敗の文が印ごとに直し方（`MOD` に層を足す・`PLANNED_SCRIPTS` に足す など）を言う。`lib/` は Archon が探さない（探すのは `scripts/` など）ので、スクリプトとして拾われない。
 
+## 借りた superpowers のスキル
+
+superpowers（Claude Code のプラグインのスキル集。MIT。表示は `NOTICE`）6.4.2 から、test-driven-development・systematic-debugging・verification-before-completion・receiving-code-review・requesting-code-review の 5 本を `.shared/superpowers/6.4.2/skills/` にバイトのまま写している（元と写したファイルは同じ置き場の `COPIED_FROM`。写しは直さない）。
+
+- 読ませ方: AI の節に `skills: [<名>]` と `settingSources: [user]` を書く。Archon は `[user]` のとき `$CLAUDE_CONFIG_DIR/skills/<名>/SKILL.md` を探す。開発の殻 `dev/archon.sh` は、実行のたびに `dev/skills.sh` で写しを隔離した `$WORKS_DEV_HOME/claude-config/skills/` へ写す。
+- YAML の決まり（`tests/test_yaml_rules.py`）: `[user]` は、`skills:` を持ち、その全部が写しに在る節だけに許す。
+- 柵: `[user]` は同じ置き場の CLAUDE.md・settings*.json・rules/・agents/・commands/・plugins/ も読ませる。`dev/skills.sh` は、そのどれかか借りる一覧の外のスキルが隔離した置き場に在れば、名前を出して終了コード 2 で止まる（`archon.sh` も Archon を起こさない）。
+- **実物の線の YAML には、まだ `[user]` を入れない。** 開発の殻の外（利用者が自分の Archon で pack を入れる場合）では `CLAUDE_CONFIG_DIR` が利用者の本物の `~/.claude` で、借りたスキルは無く、利用者の CLAUDE.md と hooks を読む。殻の外の入れ方ができるまで、`[user]` は開発の殻の中の試しだけに使う。
+- 無人の読み替え: スキルの文が人（your human partner）や下請けの AI を前提にする所は、`.shared/superpowers/unattended.md` の決まりで読み替える（直す義務の単位は必ず直して `changes` に載せ、人に聞きたいこと・疑いは `rejudge_requested` に書く。`not_done` は受け付けが免除する単位と義務の外の単位だけ。修正役は commit しない、`superpowers:` の参照は無視、など）。
+- 試験（`tests/test_sp_skills.py`）は写しと元（プラグインのキャッシュ）のバイトの一致を見る。元が無ければ飛ばさずに赤になるので、同じ版の checkout を `WORKS_SP_SOURCE` に渡す。
+
 ## Claude の包み
 
 `.shared/core/claude-adapter` は、Archon が起こす Claude Code の実行ファイルの前に挟む薄い殻（芯は `.shared/core/adapter.py`）。役が読んだファイルの記録・再審の役が判定役の会話の続きで起きること・役に書かせない場所の柵・止める時に孫まで止めることを受け持つ。形は本物の Archon v0.11.1・SDK 0.3.282・claude 2.1.283 との有料の試しで確かめ、試験（`tests/test_adapter.py`）は偽の claude で縛る。今のラインの YAML はまだ印を持たないので、入れても何も足さずに素通しする（印を付けるのは線 A の後の作業）。
