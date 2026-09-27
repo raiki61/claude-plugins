@@ -372,6 +372,30 @@
      "RejudgeEdgeCase.test_rejudge_edge_go"
     ]
    }
+  },
+  {
+   "id": "lw1",
+   "title": "表が役・任せ先に置いた節の置き場のブロックをラインが include しているかを速い段で見る（run 28 は blk-rejudge の配線を忘れ、最後のテストが出なかった）",
+   "file": "darkfactory/darkfactory.yaml",
+   "old": "    include: blk-rejudge\n",
+   "new": "    include: blk-rejudge-unwired\n",
+   "tests": {
+    "tests/test_line_wiring.py": [
+     "TableWiringCase.test_table_role_nodes_are_wired"
+    ]
+   }
+  },
+  {
+   "id": "lw2",
+   "title": "同じ節の stub はどの筋書きでも同じ鍵の組を持つ（run 28 の merge の後、3 本の筋書きが輪の受け付けの done を欠いたまま残った）",
+   "file": "darkfactory/fixtures/conflict-ask.stubs.yaml",
+   "old": "premises-accept:\n  ok: true\n  done: true\n",
+   "new": "premises-accept:\n  ok: true\n",
+   "tests": {
+    "tests/test_line_wiring.py": [
+     "FixtureStubKeysCase.test_same_node_stubs_share_keys"
+    ]
+   }
   }
  ],
  "dropped": []
