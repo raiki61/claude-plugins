@@ -161,6 +161,32 @@ class TestJudge(AcceptCase):
         self.assertNotIn("no で指せ", r["reason"])
         self.assertFalse((self.board / "judgment.json").exists())
 
+    def test_judge_rejects_ignored_file_without_snapshot(self):
+        # 写しが無い時も、git が無視するファイル（__pycache__ など）を読むだけの役が作れば拒む
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("__pycache__", r["reason"])
+
+    def test_judge_rejects_ignored_file_after_snapshot(self):
+        # 依頼の受け付けの時の写し（judge-snapshot.json）の後に、git が無視するファイルが増えた・書き換わったら拒む。
+        # 前から在った無視されるファイルは、変わっていなければ通る
+        (self.repo / "__pycache__").mkdir()
+        old = self.repo / "__pycache__" / "old.pyc"
+        old.write_bytes(b"old")
+        (self.board / "judge-snapshot.json").write_text(json.dumps(snapshot_tree(self.repo)))
+        self.assertTrue(check_judge(load("judge_ok"), self.board, self.base, self.repo)["ok"])
+        (self.repo / ".env.pyc").write_bytes(b"x")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn(".env.pyc", r["reason"])
+        (self.repo / ".env.pyc").unlink()
+        old.write_bytes(b"new")
+        r = check_judge(load("judge_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"], "無視されるファイルの中身の書き換えも拒む")
+        self.assertIn("作業ツリー", r["reason"])
+
     def test_judge_rejects_non_object(self):
         r = check_judge("units", self.board, self.base, self.repo)
         self.assertFalse(r["ok"])
@@ -246,6 +272,25 @@ class TestDelta(AcceptCase):
             self.assertNotIn("事前審査だけの語", r["reason"])
             self.assertNotIn("r4.human_gate", r["reason"])
             self.assertFalse((self.board / "delta-review.json").exists())
+
+    def test_delta_rejects_ignored_file_after_snapshot(self):
+        self.fix_stats()
+        (self.board / "delta-snapshot.json").write_text(json.dumps(snapshot_tree(self.repo)))
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "stats.cpython-314.pyc").write_bytes(b"x")
+        r = check_delta(load("delta_ok"), self.board, self.base, self.repo)
+        self.assertFalse(r["ok"])
+        self.assertIn("__pycache__/", r["reason"])
+
+    def test_snapshot_sees_ignored_content(self):
+        (self.repo / "__pycache__").mkdir()
+        pyc = self.repo / "__pycache__" / "stats.cpython-314.pyc"
+        pyc.write_bytes(b"a")
+        before = snapshot_tree(self.repo)
+        self.assertEqual(before["ignored"], ["__pycache__/"])
+        self.assertEqual(before["porcelain"], "", "porcelain は無視されるファイルを映さない（だから ignored が要る）")
+        pyc.write_bytes(b"b")
+        self.assertNotEqual(before["diff_sha256"], snapshot_tree(self.repo)["diff_sha256"])
 
     def test_snapshot_sees_untracked_content(self):
         (self.repo / "new.txt").write_text("a\n")

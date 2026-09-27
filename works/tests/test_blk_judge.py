@@ -156,7 +156,9 @@ class ScriptCase(unittest.TestCase):
         self._tmp.cleanup()
 
     def run_script(self, name, **env):
-        e = dict(os.environ, ARTIFACTS_DIR=str(self.art), **env)
+        # 走らせる側（ラインの script の節）の INPUTS_*・ARTIFACTS_DIR は継がない。欠けを確かめる試験が継いだ値を見ないように
+        base = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_") and k != "ARTIFACTS_DIR"}
+        e = dict(base, ARTIFACTS_DIR=str(self.art), **env)
         return subprocess.run([sys.executable, str(BLK / "scripts" / f"{name}.py")], cwd=self.repo, env=e,
                               capture_output=True, text=True, timeout=300)
 

@@ -75,6 +75,10 @@ judging__collect:
   need_fix: true
   judgment_file: board/judgment.json
   one_shot: mean の分母を len(xs) に、clamp の上限の枝の戻り値を hi に直す
+fixing__ignored-before:
+  ok: true
+  count: 0
+  file: board/fix-ignored-before.json
 fix:
   changes:
   - unit_key: 'stats.py mean: 分母が len(xs) - 1 になっている'
@@ -97,6 +101,10 @@ fix-accept:
     files:
     - stats.py
     what: clamp の上限の枝で hi を返すように直した
+fixing__clean:
+  ok: true
+  removed:
+  - __pycache__/test_stats.cpython-314.pyc
 fixing__assert-changed:
   ok: true
   files:
@@ -106,6 +114,8 @@ fixing__collect:
   files:
   - stats.py
   changes_file: board/changes.json
+  removed:
+  - __pycache__/test_stats.cpython-314.pyc
 testing__run:
   ok: true
   green: true

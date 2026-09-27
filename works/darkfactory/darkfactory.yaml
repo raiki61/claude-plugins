@@ -69,6 +69,7 @@ nodes:
         修正とテストが済んだ。差分の審査へ進めてよいか。
         - 判定の一手: $judging.output.one_shot
         - 判定のファイル: $judging.output.judgment_file
+        - 修正役が残した git が無視するファイルで、テストの前に消した物: $fixing.output.removed
         - テストが緑か: $testing.output.green（true が緑・false が赤）
         - テストのログ: $testing.output.log
         修正の差分は Archon の run ごとの worktree にある（commit していない。場所は archon workflow runs --json の

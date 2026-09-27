@@ -3,7 +3,7 @@
 - YAML の口（inputs・returns・outcome_field・節の並び）と、修正役の output_format を良い返答の見本（replies/fix_ok.json）が通るか
 - 指示書（commands/fix.md）が差し込みと決まり（commit しない・テストを消さない）を持つか
 - 筋書き（fixtures/）の形: pass は assert-changed を stub し、no-change は assert-changed を実物で回して落とす
-- 3 本のスクリプト（accept・assert_changed・collect）を、dev/target-seed/ を写した使い捨ての git で実際に起こす
+- 5 本のスクリプト（ignored_before・accept・clean・assert_changed・collect）を、dev/target-seed/ を写した使い捨ての git で実際に起こす
 """
 import json
 import os
@@ -81,29 +81,37 @@ class TestBlockYaml(unittest.TestCase):
         self.assertEqual(y["returns"], "collect")
         self.assertEqual(y["outcome_field"], "ok")
         out = find_node(y["nodes"], "collect")["output_format"]
-        self.assertEqual(set(out["properties"]), {"ok", "files", "changes_file"})
-        self.assertEqual(set(out["required"]), {"ok", "files", "changes_file"})
+        self.assertEqual(set(out["properties"]), {"ok", "files", "changes_file", "removed"})
+        self.assertEqual(set(out["required"]), {"ok", "files", "changes_file", "removed"})
+        self.assertEqual(out["properties"]["removed"], {"type": "array", "items": {"type": "string"}})
         self.assertEqual(out["properties"]["ok"]["type"], "boolean")
         self.assertEqual(out["properties"]["files"], {"type": "array", "items": {"type": "string"}})
         self.assertEqual(out["properties"]["changes_file"]["type"], "string")
 
     def test_nodes_and_loop(self):
         nodes = block()["nodes"]
-        self.assertEqual([n["id"] for n in nodes], ["fix-loop", "assert-changed", "collect"])
-        g = nodes[0]["loop_group"]
+        self.assertEqual([n["id"] for n in nodes], ["ignored-before", "fix-loop", "clean", "assert-changed", "collect"])
+        before, loop, clean, changed, collect = nodes
+        self.assertNotIn("depends_on", before)
+        self.assertEqual(before["script"], "ignored_before")
+        self.assertEqual(loop["depends_on"], ["ignored-before"], "控えは修正役より前")
+        self.assertEqual(clean["script"], "clean")
+        self.assertEqual(clean["depends_on"], ["fix-loop"])
+        self.assertEqual(collect["with"]["cleaned"], {"from": "$clean.output"})
+        g = loop["loop_group"]
         self.assertEqual(g["max_iterations"], 3)
         self.assertIs(g["fresh_context"], False)
         self.assertEqual(g["until_bash"], "test $fix-accept.output.ok = true")
         self.assertEqual([n["id"] for n in g["nodes"]], ["fix", "fix-accept"])
-        self.assertEqual(nodes[1]["depends_on"], ["fix-loop"])
-        self.assertEqual(nodes[2]["depends_on"], ["assert-changed"])
+        self.assertEqual(changed["depends_on"], ["clean"])
+        self.assertEqual(collect["depends_on"], ["assert-changed"])
         accept = find_node(nodes, "fix-accept")
         self.assertEqual(accept["script"], "accept")
         self.assertEqual(accept["with"]["reply"], {"from": "$fix.output"})
-        self.assertEqual(nodes[1]["script"], "assert_changed")
-        for n in (accept, nodes[1], nodes[2]):
+        self.assertEqual(changed["script"], "assert_changed")
+        for n in (before, accept, clean, changed, collect):
             self.assertEqual(n["timeout"], DEADLINE)
-        self.assertEqual(nodes[1]["with"], {"base_rev": "$INPUTS.base_rev", "accepted": "$fix-loop.output"})
+        self.assertEqual(changed["with"], {"base_rev": "$INPUTS.base_rev", "accepted": "$fix-loop.output"})
         self.assertEqual(accept["with"]["base_rev"], "$INPUTS.base_rev")
 
     def test_fix_node(self):
@@ -286,17 +294,22 @@ class TestAccept(ScriptCase):
 
 
 class TestCollect(ScriptCase):
-    def run_it(self, accepted, changed):
+    def run_it(self, accepted, changed, cleaned=None):
+        if cleaned is None:
+            cleaned = {"ok": True, "removed": []}
         env = {"INPUTS_ACCEPTED": accepted if isinstance(accepted, str) else json.dumps(accepted, ensure_ascii=False),
-               "INPUTS_CHANGED": json.dumps(changed), "ARTIFACTS_DIR": str(self.artifacts)}
+               "INPUTS_CHANGED": json.dumps(changed), "INPUTS_CLEANED": json.dumps(cleaned),
+               "ARTIFACTS_DIR": str(self.artifacts)}
         return run_script("collect", self.repo, env)
 
     def test_collects(self):
         changes = load("fix_ok")["changes"]
-        code, out, _ = self.run_it({"ok": True, "reason": "", "changes": changes}, {"ok": True, "files": ["stats.py"]})
+        code, out, _ = self.run_it({"ok": True, "reason": "", "changes": changes}, {"ok": True, "files": ["stats.py"]},
+                                   {"ok": True, "removed": ["__pycache__/"]})
         self.assertEqual(code, 0)
         r = json.loads(out)
-        self.assertEqual(r, {"ok": True, "files": ["stats.py"], "changes_file": str(self.board / "changes.json")})
+        self.assertEqual(r, {"ok": True, "files": ["stats.py"], "changes_file": str(self.board / "changes.json"),
+                             "removed": ["__pycache__/"]}, "消した生成物を出口に並べる")
         self.assertEqual(json.loads((self.board / "changes.json").read_text(encoding="utf-8")), {"changes": changes})
 
     def test_refuses_unaccepted_or_unreadable(self):
@@ -307,6 +320,111 @@ class TestCollect(ScriptCase):
                 self.assertEqual(out, "")
                 self.assertTrue(err.strip())
                 self.assertFalse((self.board / "changes.json").exists())
+
+    def test_refuses_without_clean_output(self):
+        changes = load("fix_ok")["changes"]
+        for cleaned in ({"ok": True}, {"ok": False, "removed": []}, {"ok": True, "removed": [1]}):
+            with self.subTest(cleaned=cleaned):
+                code, out, _ = self.run_it({"ok": True, "reason": "", "changes": changes},
+                                           {"ok": True, "files": ["stats.py"]}, cleaned)
+                self.assertEqual((code, out), (2, ""))
+
+
+class TestCleanIgnored(ScriptCase):
+    """修正役の前に git が無視するファイルを控え（ignored_before）、後で増えた物だけを消す（clean）"""
+
+    def env(self):
+        return {"ARTIFACTS_DIR": str(self.artifacts)}
+
+    def ignored(self):
+        return git(self.repo, "status", "--porcelain", "--ignored", "--untracked-files=all")
+
+    def test_removes_only_what_the_fixer_left(self):
+        # 前から在った無視されるファイル（対象の .venv の代わりに __pycache__ の下の 1 本）は残す
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "old.pyc").write_bytes(b"old")
+        code, out, err = run_script("ignored_before", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["count"], 1)
+        before = self.ignored()
+        # 修正役が直にテストを回す（PYTHONDONTWRITEBYTECODE 無し）と、__pycache__ の下にバイトコードが増える
+        r = subprocess.run([sys.executable, "-m", "unittest", "-q"], cwd=str(self.repo), capture_output=True,
+                           env={"PATH": os.environ["PATH"]}, timeout=120)
+        (self.repo / "sub" / "__pycache__").mkdir(parents=True)
+        (self.repo / "sub" / "__pycache__" / "x.pyc").write_bytes(b"x")
+        (self.repo / "stats.py").write_text("x = 1\n")      # 修正そのもの（追跡しているファイル）は触らない
+        (self.repo / "helper.py").write_text("y = 1\n")     # 未追跡でも無視されないファイルは触らない
+        made = sorted(p.name for p in (self.repo / "__pycache__").iterdir())
+        self.assertGreater(len(made), 1, r.stderr)
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        removed = json.loads(out)["removed"]
+        self.assertIn("sub/__pycache__/x.pyc", removed)
+        self.assertNotIn("__pycache__/old.pyc", removed)
+        self.assertEqual(sorted(p.name for p in (self.repo / "__pycache__").iterdir()), ["old.pyc"])
+        self.assertFalse((self.repo / "sub").exists(), "空になった親のフォルダも消す")
+        self.assertEqual([l for l in self.ignored().splitlines() if l.startswith("!!")],
+                         [l for l in before.splitlines() if l.startswith("!!")], "無視される物は修正役の前と同じ")
+        self.assertEqual((self.repo / "stats.py").read_text(), "x = 1\n")
+        self.assertTrue((self.repo / "helper.py").exists())
+
+    def test_keeps_empty_dir_that_was_there_before(self):
+        # 前から在った空のフォルダ（対象の道具が作る build/ など）に修正役が無視されるファイルを置いても、消すのはファイルだけ
+        (self.repo / "build" / "empty").mkdir(parents=True)
+        (self.repo / "src").mkdir()
+        (self.repo / "src" / "keep.txt").write_text("k\n")
+        git(self.repo, "add", "src/keep.txt")
+        git(self.repo, "commit", "-q", "-m", "src")
+        (self.repo / "src" / "cache").mkdir()                   # 追跡しているフォルダの下の、前から在った空のフォルダ
+        self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
+        (self.repo / "build" / "empty" / "x.pyc").write_bytes(b"x")
+        (self.repo / "src" / "cache" / "y.pyc").write_bytes(b"y")
+        (self.repo / "src" / "new" / "__pycache__").mkdir(parents=True)
+        (self.repo / "src" / "new" / "__pycache__" / "z.pyc").write_bytes(b"z")
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["removed"], ["build/empty/x.pyc", "src/cache/y.pyc", "src/new/__pycache__/z.pyc"])
+        self.assertTrue((self.repo / "build" / "empty").is_dir(), "前から在った空のフォルダは残す")
+        self.assertTrue((self.repo / "src" / "cache").is_dir(), "前から在った空のフォルダは残す")
+        self.assertFalse((self.repo / "src" / "new").exists(), "修正役の後に出来たフォルダは消す")
+        self.assertTrue((self.repo / "src" / "keep.txt").exists())
+
+    def test_refuses_old_record_without_dirs(self):
+        # フォルダの控えが無い古い形の控えでは、前から在った空のフォルダを見分けられないので何も消さない
+        (self.board / "fix-ignored-before.json").write_text(json.dumps({"ignored": []}))
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "x.pyc").write_bytes(b"x")
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("dirs", err)
+        self.assertTrue((self.repo / "__pycache__" / "x.pyc").exists())
+
+    def test_nothing_left(self):
+        self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
+        code, out, _ = run_script("clean", self.repo, self.env())
+        self.assertEqual((code, json.loads(out)), (0, {"ok": True, "removed": []}))
+
+    def test_archon_dir_is_left_alone(self):
+        (self.repo / ".gitignore").write_text("__pycache__/\n*.pyc\n.archon/\n")
+        git(self.repo, "commit", "-q", "-am", "ignore .archon")
+        self.assertEqual(run_script("ignored_before", self.repo, self.env())[0], 0)
+        (self.repo / ".archon").mkdir()
+        (self.repo / ".archon" / "x.yaml").write_text("a: 1\n")
+        code, out, _ = run_script("clean", self.repo, self.env())
+        self.assertEqual((code, json.loads(out)["removed"]), (0, []))
+        self.assertTrue((self.repo / ".archon" / "x.yaml").exists())
+
+    def test_without_record_removes_nothing(self):
+        (self.repo / "__pycache__").mkdir()
+        (self.repo / "__pycache__" / "x.pyc").write_bytes(b"x")
+        code, out, err = run_script("clean", self.repo, self.env())
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("fix-ignored-before.json", err)
+        self.assertTrue((self.repo / "__pycache__" / "x.pyc").exists(), "控えが無ければ何も消さない")
+
+    def test_missing_env(self):
+        self.assertEqual(run_script("ignored_before", self.repo, {})[0], 2)
+        self.assertEqual(run_script("clean", self.repo, {})[0], 2)
 
 
 if __name__ == "__main__":

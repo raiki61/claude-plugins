@@ -436,11 +436,12 @@ class AcceptCase(PrCase):
         self.assertIn("build/", got["reason"])
         self.assertEqual(board_shas(b.dir), before)
         shutil.rmtree(self.repo / "build")
-        (self.repo / "old.cache").unlink()
+        aside = self.repo / ".git" / "old.cache.aside"   # 名前を戻すだけなら stat の印（mtime・ino）も元のまま
+        (self.repo / "old.cache").rename(aside)
         got = prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)
         self.assertFalse(got["ok"])
         self.assertIn("old.cache", got["reason"])
-        (self.repo / "old.cache").write_text("x\n", encoding="utf-8")
+        aside.rename(self.repo / "old.cache")
         self.assertTrue(prcheck.take(b.dir, reply("pr_ok.json"), self.repo, opener=opener)["ok"])
 
     def test_head_move_rejected(self):
