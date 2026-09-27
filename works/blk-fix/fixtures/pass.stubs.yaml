@@ -44,6 +44,11 @@ collect:
 fix-reads:   # 読んだ証拠の節は盤面を要るので stub（中身は tests/test_reads.py）
   ok: true
   reads_file: ""
+# 食い違いの申し出が無い run（裁定の輪と 2 回目の修正の輪は飛ぶ）
+conflict-check:
+  go: false
+  count: 0
+  file: ''
 fixture:
   expect: completed
   reached: [collect]

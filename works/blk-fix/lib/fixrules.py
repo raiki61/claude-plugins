@@ -6,6 +6,8 @@
   本線（p3.fix.md）から書き直した文は 1 本目の commands/fix.md から字のまま移した。ほかの置き場に写さない（tests/test_fix_rules.py）
 - direct.md: 直す役（節 fix）の道。fix-head（役・読む物。run の値の穴 <<名>>）・fix-keep・fix-reply（返答の欄の書き方）
 - tdd.md: TDD の輪の役（節 tdd）の道。tdd-head・tdd-remap（この輪での読み替え）・tdd-phase-<段>（今の段の約束だけ）・tdd-end
+- ruler.md・principles.md: 食い違いの申し出の裁定役（節 rule。読むだけ）の道と、持ち主の決まり（裁定の拠り所）。
+  修正役と TDD の輪の役の両方に、正本の core-conflict（緑にするために曲げず、食い違いとして返す）をいつも載せる
 
 量を減らす 2 つの形（持ち主 2026-09-28）: 役は輪の周をまたいで 1 つの会話で起きる（fresh_context: false）。支度の節は毎回
 2 つの形を並べて書く（write_variants）:
@@ -21,7 +23,8 @@
 同じ入力からはバイト単位で同じ指示書になる（時刻を書かない）。
 
 - fix_prompt / tdd_prompt: 2 つの道の指示書（純粋な関数。prior を渡せば delta の形）
-- prep: 節 fix-prep の中身（盤面が p3.fix を待っていれば書き、起こした印を置く）。tddloop.prep は tdd_render を使う
+- prep: 節 fix-prep・fix-ruled-prep の中身（盤面が p3.fix を待っていれば書き、起こした印を置く）。tddloop.prep は tdd_render を使う
+- ruler_prompt: 裁定役の指示書（ruling.prep が書く）
 - reads_more: 節 fix-reads が読んだ証拠を集めるパスに足す物（今の周に組んだ指示書）
 """
 import hashlib
@@ -39,6 +42,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
+import conflict  # noqa: E402
 import entry  # noqa: E402
 from leftovers import Unreadable, git_names  # noqa: E402
 import libdocs  # noqa: E402
@@ -48,8 +52,15 @@ import script_io  # noqa: E402
 
 RULES_DIR = pathlib.Path(__file__).resolve().parents[1] / "rules"
 SHARED, DIRECT, TDD = "common.md", "direct.md", "tdd.md"
+RULER, PRINCIPLES = "ruler.md", "principles.md"   # 裁定役の道と、持ち主の決まり（裁定の拠り所）
 FIX_VALUES = ("judgment_file", "open_units", "plan_file", "policy_path", "notes_file", "summary_file")
 TDD_VALUES = ("judgment_file", "open_units", "plan_file", "policy_path", "notes_file")
+RULER_VALUES = ("conflicts_file", "ids", "judgment_file", "request_file", "policy_path")
+CONFLICT_WHY = "（食い違いの申し出。緑にするために曲げない）"
+PASSES = ("first", "ruled")   # 修正役の 1 回目と、裁定の後の 2 回目（印 continue=fix の会話の続き）
+RULED_TAIL = "-ruled.md"      # 2 回目の指示書の名の尾（1 回目の <名>.md の隣。輪の控えを分ける）
+RULINGS_LINE = ("食い違いの申し出への裁定を書いたファイル {path} を、先に Read で全部読め。裁定に従って直し、返答を丸ごと出し直せ"
+                "（裁定の文そのものはここに貼らない）")
 EMPTY = "（空）"
 HOLE = re.compile(r"<<([a-z_]+)>>")
 MARK = re.compile(r"^<!-- 節 ([a-z0-9-]+) -->$")
@@ -225,7 +236,8 @@ def fix_parts(values: dict, kinds: dict | None = None, libdocs: str = "") -> lis
     kinds = _all_kinds() if kinds is None else kinds
     return [("fix-head", fill(d["fix-head"], _pick(values, FIX_VALUES)), ALWAYS + "（役・読む物・run の値）"),
             ("core-fix", c["core-fix"], ALWAYS + "（本線の核）"), *_evidence(c, kinds),
-            ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"), ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
+            ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
+            ("fix-keep", d["fix-keep"], ALWAYS + "（直す役）"),
             *([("libdocs", libdocs, "機械が引いた（Context7。見つけた数と取れた数は節の頭）")] if libdocs else []),
             ("fix-reply", d["fix-reply"], ALWAYS + "（返答の欄）")]
 
@@ -236,7 +248,8 @@ def tdd_parts(values: dict, kinds: dict | None = None) -> list:
     kinds = _all_kinds() if kinds is None else kinds
     return [("tdd-head", fill(t["tdd-head"], _pick(values, TDD_VALUES)), ALWAYS + "（役・読む物・run の値）"),
             ("core-fix", c["core-fix"], ALWAYS + "（本線の核）"), *_evidence(c, kinds),
-            ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"), ("tdd-remap", t["tdd-remap"], ALWAYS + "（この輪での読み替え）")]
+            ("core-conflict", c["core-conflict"], ALWAYS + CONFLICT_WHY), ("core-keep", c["core-keep"], ALWAYS + "（本線の核）"),
+            ("tdd-remap", t["tdd-remap"], ALWAYS + "（この輪での読み替え）")]
 
 
 def tdd_phase_rules(phase: str) -> str:
@@ -245,6 +258,18 @@ def tdd_phase_rules(phase: str) -> str:
         raise Unfilled(f"段 {phase!r} は {PHASES} のどれでもない")
     t = sections(TDD)
     return join([t["tdd-phase"], t[f"tdd-phase-{phase}"], t["tdd-phase-all"]])
+
+
+def ruler_parts(values: dict) -> list:
+    """裁定役の決まりの節（役・読む物・run の値 → 持ち主の決まり → 返す JSON）"""
+    r, pr = sections(RULER), sections(PRINCIPLES)
+    return [("ruler-head", fill(r["ruler-head"], _pick(values, RULER_VALUES)), ALWAYS + "（役・読む物・run の値）"),
+            ("principles", pr["principles"], ALWAYS + "（持ち主の決まり）"), ("ruler-reply", r["ruler-reply"], ALWAYS + "（返答の欄）")]
+
+
+def ruler_prompt(values: dict, *, reject_file: str = "", iteration: int = 1) -> str:
+    """裁定役の指示書（純粋。いつも全部——輪は 3 回までで、出し直しは同じ会話）"""
+    return render("rule", iteration, ruler_parts(values), reject_file=reject_file)["text"]
 
 
 def render(role: str, iteration: int, parts: list, *, prior=None, rules_file: str = "", before=(), after=(),
@@ -379,22 +404,36 @@ def last_reject(board_dir) -> str:
     return str(got[-1]) if got else ""
 
 
-def prep(board_dir, repo, values: dict) -> dict:
-    """節 fix-prep: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。返り {prompt_file, attempt, out_path, node,
-    already, variants_file, iteration}（iteration はこの周の輪の何回目か。fix-accept が 3 回目の拒否で done を立てる。R50）。同じ試行の出し直し（印が既に在る。通れば輪を抜けるので、前の回の返答は受け付けで拒まれた）なら、
-    受け付けが書いた一番新しい拒否の理由のファイルを見出しの次の 1 行で名指す（R44）。盤面が p3.fix を待っていなければ BoardGap"""
+def prep(board_dir, repo, values: dict, pass_: str = PASSES[0]) -> dict:
+    """節 fix-prep（pass_ first）と fix-ruled-prep（pass_ ruled）: 2 つの形を書き（prompt_file は full の写し）、起こした印を置く。
+    返り {prompt_file, attempt, out_path, node, already, variants_file, iteration}（iteration はこの輪の何回目か。受け付けが
+    3 回目の拒否で done を立てる。R50）。同じ試行の出し直し（印が既に在る。通れば輪を抜けるので、前の回の返答は受け付けで
+    拒まれた）なら、受け付けが書いた一番新しい拒否の理由のファイルを見出しの次の 1 行で名指す（R44）。
+    ruled は指示書を <名>-ruled.md に分け（輪の回を別に数える）、1 回目は裁定の文のファイル（conflict.RULINGS_FILE）を見出しの
+    次の 1 行で名指す（裁定の文は貼らない。R44）。盤面が p3.fix を待っていなければ BoardGap"""
+    if pass_ not in PASSES:
+        raise Unfilled(f"pass {pass_!r} は {PASSES} のどれでもない")
     nid = recount.FIX_NODE
     b = entry.open_board(pathlib.Path(board_dir))
     inst = b.rd["instances"].get(nid)
     if not inst or inst.get("status") != "pending":
         raise BoardGap(f"この周に節 {nid} の待っている instance が無い（修正役を起こす番でない）")
-    reject = last_reject(board_dir) if inst.get("launched_at") else ""
     path = prompt_path(b)
+    before = ()
+    if pass_ == "ruled":
+        path = path.with_name(path.name[:-len(".md")] + RULED_TAIL)
     n = iteration_next(path)
+    reject = last_reject(board_dir) if inst.get("launched_at") else ""
+    if pass_ == "ruled" and n == 1:
+        rulings = b.work(conflict.RULINGS_FILE)
+        if not rulings.is_file():
+            rulings = conflict.write_rulings(b)
+        reject, before = "", (RULINGS_LINE.format(path=rulings),)
     docs = lib_section(b, repo, values)
 
     def build(kinds, prior, rules_file):
-        return render("fix", n, fix_parts(values, kinds, docs), prior=prior, rules_file=rules_file, reject_file=reject)
+        return render("fix", n, fix_parts(values, kinds, docs), prior=prior, rules_file=rules_file, reject_file=reject,
+                      before=before)
     write_variants(path, repo, values, build, n)
     m = b.mark_launched(nid, inst.get("attempts", 1))
     return {"prompt_file": str(path), "attempt": m["attempt"], "out_path": m["out_path"], "node": nid, "already": m["already"],

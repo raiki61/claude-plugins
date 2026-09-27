@@ -35,7 +35,7 @@ DEADLINE = 1728000000
 ALWAYS = {"start", "report", "result"} | {r["id"] for r in linekit.LINE_ORDER if r.get("script") == "edge"}
 REAL_START = {"standard", "start-refused"}   # start を本物で回す筋書き（TA16）
 FIXTURES = {"standard", "no-fix", "policy-continue", "policy-stop", "final-when-needed-green", "final-stop", "stop-flag",
-            "start-refused", "pr-fallback", "ai-report-fail"}
+            "start-refused", "pr-fallback", "ai-report-fail", "conflict-ask"}   # conflict-ask は test_blk_fix_conflict が中身を見る
 # 既定の在る入力で、with: に書かなくてよい物: {(フォルダ, スクリプト): {INPUTS_*}}
 OPTIONAL_INPUTS = {}
 

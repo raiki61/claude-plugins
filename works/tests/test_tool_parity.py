@@ -85,6 +85,11 @@ ROLE_NODES = {
 }
 
 
+# 本線の graph に無い works だけの役の節 → 本線のどの役に当たるか（食い違いの申し出の出口。持ち主 2026-09-28）:
+# 2 回目の修正役は p3.fix の続き（writer）、裁定役は読むだけで裁く目（judge）
+EXTRA_ROLES = {("blk-fix", "fix-ruled"): "writer", ("blk-fix", "rule"): "judge"}
+
+
 def graph_run_by() -> dict:
     out = {}
     for name in ("review-loop.json", "review-loop-tdd.json"):
@@ -144,8 +149,16 @@ class ToolParityCase(unittest.TestCase):
         roles = {k for k, v in table.items() if v.get("by") == "role" or v.get("fallback") == "role"}
         self.assertEqual(sorted(roles - set(ROLE_NODES)), [], "nodes.json の役の節が表 ROLE_NODES に無い")
 
+    def test_works_only_roles_have_at_least_their_mainline_counterpart(self):
+        for place, rb in sorted(EXTRA_ROLES.items()):
+            with self.subTest(place):
+                have = set(self.nodes[place].get("allowed_tools") or [])
+                self.assertEqual(sorted(required(rb) - have), [], f"{place} の道具が本線の {rb} より少ない")
+        self.assertEqual(set(self.nodes[("blk-fix", "fix-ruled")]["allowed_tools"]),
+                         set(self.nodes[("blk-fix", "fix")]["allowed_tools"]), "2 回目の修正役は修正役と同じ道具")
+
     def test_table_covers_every_ai_node(self):
-        self.assertEqual(sorted(set(self.nodes) - set(ROLE_NODES.values())), [],
+        self.assertEqual(sorted(set(self.nodes) - set(ROLE_NODES.values()) - set(EXTRA_ROLES)), [],
                          "YAML の AI の節が表 ROLE_NODES に無い（本線のどの役かを決めていない）")
 
     def test_writers_can_read_the_web(self):

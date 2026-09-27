@@ -324,6 +324,30 @@
      "McpCase.test_off_by_default"
     ]
    }
+  },
+  {
+   "id": "cf1",
+   "title": "食い違いの申し出の名指しの行がファイルの中に在るかを確かめる（無い所を指す申し出は普通の拒否。持ち主 2026-09-28）",
+   "file": ".shared/core/conflict.py",
+   "old": "    if b > n:",
+   "new": "    if b > n + 10 ** 9:",
+   "tests": {
+    "tests/test_blk_fix_conflict.py": [
+     "TestAcceptConflict.test_fake_citation_is_a_normal_reject"
+    ]
+   }
+  },
+  {
+   "id": "cf2",
+   "title": "名指しの在る食い違いの申し出は拒否に数えず、その単位を止めて輪を抜ける（parked。3 回目の起動でも）",
+   "file": "blk-fix/scripts/accept.py",
+   "old": "        return reply, {\"ok\": True, \"parked\": True, \"reason\": \"\", \"changes\": []}",
+   "new": "        return reply, {\"ok\": False, \"parked\": True, \"reason\": \"止めた\", \"changes\": []}",
+   "tests": {
+    "tests/test_blk_fix_conflict.py": [
+     "TestAcceptConflict.test_valid_conflict_parks_unit_and_is_not_a_reject"
+    ]
+   }
   }
  ],
  "dropped": []

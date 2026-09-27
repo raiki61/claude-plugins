@@ -38,6 +38,7 @@ if str(CORE) not in sys.path:
     sys.path.insert(0, str(CORE))
 
 import adapter  # noqa: E402
+import conflict  # noqa: E402
 from board import BoardGap, DiskBoard, RecordInvalid  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.validator import TRACES, report_accepts  # noqa: E402
 import entry  # noqa: E402
@@ -216,7 +217,7 @@ def _no_fix(b, judged) -> bool:
 
 def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | None = None) -> str:
     """結末。順: 止め札（by request:）→ stopped_by_request、関所の stop・reject（halted.by answer か by human:）→ stopped_by_human、
-    機械の止め（by works:）→ stopped_by_line、人に聞いたまま（pending_human）→ needs_human、関所が通らない（accepted か
+    機械の止め（by works:）→ stopped_by_line、人に聞いたまま（pending_human）か食い違いの申し出を人に回した → needs_human、関所が通らない（accepted か
     round_closed が偽）→ record_invalid、直す物が無い周 → no_fix_needed、他 → fixed。
     **fixed・no_fix_needed は accepted と round_closed が真の時だけ**。needs_human を record_invalid の前に置くのは、人に聞いて
     いる盤面は周の記録がまだ無く（検証器が 2）、record_invalid の後ろでは needs_human に届かないため（〔線A計〕T15 の並びから
@@ -228,7 +229,7 @@ def decide_outcome(b, gate: dict, *, tests: dict | None = None, judged: dict | N
         return "stopped_by_human"
     if by.startswith(LINE_BY):
         return "stopped_by_line"
-    if b.state.get("pending_human"):
+    if b.state.get("pending_human") or _asked(b):   # 食い違いの申し出を人に回した単位は直さずに残した
         return "needs_human"
     if not gate.get("accepted") or not gate.get("round_closed"):
         return "record_invalid"
@@ -242,7 +243,8 @@ def next_request(b, *, tests: dict | None = None) -> list:
     """次の run に渡す依頼（1 本目の依頼の型 [{where, text}]。key・一言は字のまま）:
     手直し 2 回目が fixed と言った穴（検算が要る）・declared で残した穴・修正の not_done・最後のテストの赤・
     再審されずに残った異議（loop.rejudge_requested。写し直しの前で再審の節が無い run と、会話が無くて止めた run）・
-    盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)）"""
+    盤面が人に聞いたままの問い（独立の目の r4.human_gate など。この run では答えを受けないので次の run へ渡す。計画 P1 Task 33 の (b)）・
+    食い違いの申し出を人に回して直さずに残した単位（conflict の ask_human）"""
     items = []
     for nid in REFIX_NODES:
         out = _output(b, nid) or {}
@@ -266,6 +268,10 @@ def next_request(b, *, tests: dict | None = None) -> list:
     req = (b.loop_state or {}).get("rejudge_requested") or {}
     if isinstance(req, dict) and isinstance(req.get("text"), str) and req["text"]:
         items.append({"where": "判定（再審されずに残った異議）", "text": req["text"]})
+    for r in _asked(b):
+        items.append({"where": r["unit_key"],
+                      "text": f"{r['unit_key']}（{conflict.HEAD}を人に回した——直さずに残した: {_one_line(r['ruling']['text'])}。"
+                              f"名指し {', '.join(r['between'])}）"})
     ph = b.state.get("pending_human") or {}
     if ph.get("question"):
         asked = "・".join(str(x) for x in ph.get("items") or [])
@@ -321,12 +327,31 @@ def head_decisions(b, gate: dict, *, tests: dict | None = None, outcome: str = "
     if ph:
         lines.append(f"盤面が人に聞いている（{ph.get('node')}）: {ph.get('question') or ''}")
         lines += [f"  - {x}" for x in ph.get("items") or []]
+    lines.append(_conflict_line(b))
     lines += _rejudge_changes(b)
     lines += _premise_hypotheses(b)
     lines += _pr_lines(b)
     n = len(next_items or [])
     lines.append(f"次の run に渡す物: {n} 件" + (f"（{next_file}）" if next_file else ""))
     return lines
+
+
+def _asked(b) -> list:
+    """今の周に人に回した食い違いの申し出（控えが読めなければ空。件数の行が「読めない」と言う）"""
+    try:
+        return conflict.asked(b)
+    except BoardGap:
+        return []
+
+
+def _conflict_line(b) -> str:
+    """冒頭 1 の食い違いの申し出の件数（run ごと。0 件も出す）"""
+    try:
+        c = conflict.counts(b)
+    except BoardGap as e:
+        return f"{conflict.HEAD}: 控えが読めない（{_one_line(str(e))}）"
+    return (f"{conflict.HEAD}: {c['parked']} 件（裁定 fix_test_scope {c['fix_test_scope']}・fix_code_as {c['fix_code_as']}・"
+            f"ask_human {c['ask_human']}・裁定なし {c['unruled']}）")
 
 
 def _rejudge_changes(b) -> list:

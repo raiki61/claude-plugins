@@ -3,6 +3,9 @@
 # dependencies = []
 # ///
 """修正役の返答の受け付け（blk-fix の節 fix-accept）。順は
+-1. 食い違いの申し出（欄 conflicts。INPUTS_PASS が first か ruled）: take_conflicts。名指しが現物に無ければ普通の拒否、在れば
+   拒否に数えずその単位を止める。1 回目（first）で裁かれていない申し出が在れば盤面に渡さずに {ok: true, parked: true}
+   （輪を抜け、裁定の輪 → 2 回目の修正役 fix-ruled が渡す）。盤面に渡す返答からは conflicts を外す（写しの schema に無い欄）
 0. 盤面が p3.fix を待っている（instance が待ち・起こした印が在る・依存が済んだ）ときだけ、返答の changes[].unit_key を盤面の
    控え（graph の pointers。mark_launched が固めた一覧）で名前に戻した列を作り、次の 2 つの works だけの検査に当てる。
    待っていない・番号を名前に戻せないときは検査せず 2 に進む（entry.take が回す側の誤り（2）か型・番号の文で拒む）
@@ -23,6 +26,7 @@ done は輪を抜ける旗（通った時か輪の 3 回目の拒否。R50: max_
 assert-changed が盤面を止め、collect が ok: false の出口を出す
 """
 import copy
+import json
 import sys
 from pathlib import Path
 
@@ -32,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".shared" / "core")
 import os  # noqa: E402
 import posixpath  # noqa: E402
 
+import conflict  # noqa: E402   食い違いの申し出（.shared/core）
 import leftovers  # noqa: E402   .archon/ の決まりと修正役の前の控え（.shared/core）
 import recount  # noqa: E402
 import tddloop  # noqa: E402
@@ -39,11 +44,16 @@ import entry  # noqa: E402
 from engine import pointers  # noqa: E402  （recount が import した board が写しの engine を sys.path に足す）
 from engine.rules import validator_module  # noqa: E402
 
-INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION")
+INPUTS = ("INPUTS_REPLY", "INPUTS_BASE_REV", "INPUTS_TDD_STATE", "INPUTS_ITERATION", "INPUTS_PASS")
 GIVE_UP_AFTER = 3   # 輪 fix-loop の max_iterations と同じ（tests/test_blk_fix.py が YAML と突き合わせる）
 DUPLICATE = "同じ unit_key を 2 行以上に分けた（直した単位ごとにちょうど 1 行。1 つの単位が複数のファイルに及ぶなら files に並べよ）: "
 NOT_OPENED = ("今の周に直す単位に無い unit_key を changes に書いた（判定が defer にした単位・判定に無い単位は直さない。"
               "単位を切り直さず、貼られた単位の no か key で指せ。判定への異議は rejudge_requested に書く）: ")
+
+
+CONFLICT_BAD = "食い違いの申し出を受けない（名指した所が現物に無いか、形が違う。直して丸ごと出し直せ）: "
+SECOND_CONFLICT = ("裁定の後の出し直しで新しく申し出た食い違い——裁定の輪は 1 周に 1 回だけなので、機械が人に回した"
+                   "（最後の人の関所で人が決める）")
 
 
 PACK_COPY = ("修正役は .archon/ の下を変えてはいけない（Archon の置き場で、自分食いの run では .archon/workflows/works/** が"
@@ -109,10 +119,56 @@ def check_opened_units(keys: list, opened: set) -> list:
     return list(dict.fromkeys(k for k in keys if k not in opened))
 
 
+def _reject(reason: str) -> dict:
+    return {"ok": False, "reason": reason, "changes": []}
+
+
+def take_conflicts(reply: dict, board: Path, repo: Path, pass_: str):
+    """食い違いの申し出（欄 conflicts）を外した返答と、拒否の文か止めた印。返り (返答, 結果 | None)。結果が None なら受け付けを続ける。
+    - 申し出が在れば機械が確かめる（conflict.problems: 形・今の直す義務の単位か・名指した所が現物に在るか）。外れれば普通の拒否
+    - first: 通った申し出を盤面の控えに積み（拒否に数えない）、裁かれていない申し出が在れば（TDD の輪の分も）盤面に渡さずに
+      {ok: true, parked: true, changes: []}（裁定の輪の後、2 回目の修正役が渡す）。返答は盤面の置き場に控える（PARKED_REPLY）
+    - ruled: 裁定の後の新しい申し出は、裁定の輪がもう無いので機械が ask_human に裁いて積む。ask_human の単位を直した返答は拒む"""
+    reply = dict(reply)
+    items = reply.pop("conflicts", None) or []
+    b = entry.open_board(board)
+    V = validator_module(b)
+    owed = {u["key"] for u in b.record["units"] if V.is_open(u)} - conflict.asked_keys(b)
+    if items:
+        bad = conflict.problems(items, repo=repo, board_dir=board, owed=owed)
+        both = sorted({i.get("unit_key") for i in items if isinstance(i, dict)}
+                      & {c.get("unit_key") for c in reply.get("changes") or [] if isinstance(c, dict)})
+        if both:
+            bad.append(f"申し出た単位を changes にも書いた: {both}（申し出た単位は直さない）")
+        if bad:
+            return reply, _reject(CONFLICT_BAD + " / ".join(bad))
+        if pass_ == "first":
+            conflict.park(b, items, source="fix")
+        else:
+            conflict.park(b, items, source="fix", ruling={"decision": conflict.ASK, "text": SECOND_CONFLICT, "limits": [],
+                                                          "by": "works:fix-accept"})
+            conflict.write_rulings(b)
+    if pass_ == "first" and conflict.unruled(b):
+        path = b.work(conflict.PARKED_REPLY)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps({**reply, "conflicts": items}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+        return reply, {"ok": True, "parked": True, "reason": "", "changes": []}
+    asked = sorted(conflict.asked_keys(b) & {c.get("unit_key") for c in reply.get("changes") or [] if isinstance(c, dict)})
+    if asked:
+        return reply, _reject(f"ask_human に裁いた単位を直した: {asked}（最後の人の関所で人が決める。changes から外し、作業ツリーの"
+                              "その単位の直しを戻す）")
+    return reply, None
+
+
 def accept_fix(reply, board, base_rev, repo):
     frozen = tddloop.frozen_problems(os.environ.get("INPUTS_TDD_STATE", ""), repo)
     if frozen:
-        return {"ok": False, "reason": " / ".join(frozen), "changes": []}
+        return _reject(" / ".join(frozen))
+    pass_ = os.environ.get("INPUTS_PASS") or "first"
+    reply, done = take_conflicts(reply, board, repo, pass_)
+    if done is not None:
+        return done
     got = fix_unit_keys(reply, board)
     if got is not None:
         pack = check_pack_copy(reply, board, repo)

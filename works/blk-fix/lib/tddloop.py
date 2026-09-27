@@ -30,6 +30,7 @@ import tempfile
 sys.dont_write_bytecode = True
 
 import board  # noqa: E402
+import conflict  # noqa: E402  （.shared/core。食い違いの申し出の確かめ）
 import fixrules  # noqa: E402  （同じブロックの lib。指示書の組み立て）
 import tree_run  # noqa: E402
 from leftovers import Unreadable, git, git_names  # noqa: E402
@@ -200,7 +201,7 @@ def start(board_dir, repo, suite: str, open_units: str) -> dict:
           "baseline": {_key(c): c["outcome"] for c in cases}, "baseline_exit": code,
           "handoff": snapshot(repo), "suite_made": [], "phase": "route", "tries": 0, "reason": "", "iterations": 0,
           "runs": 1, "order": [], "units": {}, "queue": [], "cur": 0, "unit_head": "", "green_tree": "",
-          "done": False, "note": "", "frozen": {}}
+          "done": False, "note": "", "frozen": {}, "parked": [], "parked_why": {}}
     state_file = work / STATE
     _save(state_file, st)
     return {"go": True, "reason": "", "suite": suite, "state_file": str(state_file), "summary_file": str(work / SUMMARY)}
@@ -215,6 +216,10 @@ RETURN = {
     "fix": '{"phase": "fix", "unit_key": "<今の単位>", "files": ["<直したファイル>"], "what": "<何をどう直したか>"}',
     "refactor": '{"phase": "refactor", "unit_key": "<今の単位>", "what": "<何を整えたか。整える物が無ければそう書く>"}',
 }
+RETURN_CONFLICT = ('どの段でも、緑にするためにテスト・依頼・コードのどれかを曲げるしかないと分かった単位は '
+                   '{"phase": "conflict", "unit_key": "<単位>", "between": ["<パス>:<行>", "<パス>:<行>"], '
+                   '"why_both_cannot_hold": "<なぜ両方は成り立たないか>", "which_is_right": "request か test か code か unknown"}'
+                   '（振り分けの段なら義務の単位のどれか、ほかの段なら今の単位）')
 DO = {
     "route": "直す義務の単位を全部、ちょうど 1 度ずつ振り分けよ。tdd＝直す前に落ち、直した後に通るテストをリポジトリのテスト一式に"
              "書ける単位。direct＝先にテストを書けない単位（文書・指示書・注記・設定だけの直しなど）で、理由を 10 字以上で書く。"
@@ -240,7 +245,7 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
     title = f"# TDD の輪の指示書（{st['iterations'] + 1} 回目・段 {phase}）"
     lines = ["## この段ですること", "", DO[phase], ""]
     if phase == "route":
-        lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in st["open_units"]] + [""]
+        lines += ["## 直す義務の単位", ""] + [f"- {k}" for k in st["open_units"] if k not in st.get("parked", [])] + [""]
     else:
         u = st["units"][st["queue"][st["cur"]]]
         lines += ["## 今の単位", "", f"- {u['unit_key']}", ""]
@@ -251,7 +256,7 @@ def prep(state_file, values: dict | None = None, repo=None) -> dict:
             lines += ["この後の tdd の単位（今は手を付けるな）: " + " / ".join(left), ""]
     lines += ["## テストの回し方", "",
               f"リポジトリの根で `{st['exe']} <JUnit XML の書き先>`（書き先は /tmp の下など作業ツリーの外に）。", "",
-              "## 返す JSON", "", RETURN[phase]]
+              "## 返す JSON", "", RETURN[phase], "", RETURN_CONFLICT]
     vals = {**{k: "" for k in fixrules.TDD_VALUES}, **(values or {}),
             "open_units": json.dumps(st["open_units"], ensure_ascii=False)}
     path = pathlib.Path(st["work"]) / PROMPT
@@ -316,10 +321,10 @@ def _route(st, reply, repo) -> list:
     if moved:
         errs.append(f"振り分けの段で作業ツリーを変えた: {moved[:5]}（この段では何も書かない）")
     keys = [r.get("unit_key") for r in rows]
-    owed = st["open_units"]
+    owed = [k for k in st["open_units"] if k not in st.get("parked", [])]
     errs += [f"'{k}' を 2 度以上振った" for k in dict.fromkeys(k for k in keys if keys.count(k) > 1)]
     errs += [f"直す義務の単位 '{k}' を振っていない" for k in owed if k not in keys]
-    errs += [f"'{k}' は直す義務の単位に無い" for k in dict.fromkeys(k for k in keys if k not in owed)]
+    errs += [f"'{k}' は直す義務の単位に無い（食い違いで止めた単位は振らない）" for k in dict.fromkeys(k for k in keys if k not in owed)]
     for r in rows:
         if r.get("route") not in ("tdd", "direct"):
             errs.append(f"'{r.get('unit_key')}' の route は tdd か direct（{r.get('route')!r}）")
@@ -446,14 +451,48 @@ def _abort(st, repo, why, stage) -> None:
     st["done"] = True
 
 
+def _conflict(st, reply, repo) -> tuple:
+    """phase conflict（どの段でも）: 名指しが現物に在れば拒否に数えず、その単位を止める（振り分けの段は義務から外し、ほかの段は
+    作業ツリーを単位の頭に戻して次の単位へ）。返り (問題, 申し出の 1 件)。盤面の控えに積むのは節 tdd-step（盤面を開く口）"""
+    extra = sorted(set(reply) - {"phase", *conflict.FIELDS})
+    if extra:
+        return [f"食い違いの申し出の欄は phase と {list(conflict.FIELDS)} だけ（{extra}）"], None
+    item = {k: reply.get(k) for k in conflict.FIELDS}
+    parked = st.setdefault("parked", [])
+    if st["phase"] == "route":
+        owed = {k for k in st["open_units"] if k not in parked}
+    else:
+        owed = {st["queue"][st["cur"]]}
+    probs = conflict.problems([item], repo=repo, board_dir=pathlib.Path(st["work"]).parent, owed=owed)
+    if probs:
+        return probs, None
+    parked.append(item["unit_key"])
+    st.setdefault("parked_why", {})[item["unit_key"]] = item["why_both_cannot_hold"]
+    if st["phase"] == "route":
+        if not owed - {item["unit_key"]}:   # 振る単位が残らない
+            st.update(order=[], units={}, queue=[], cur=0, done=True)
+        st["reason"] = ""
+        return [], item
+    u = _cur(st)
+    restore(repo, st["unit_head"])
+    u.update(route="parked", why=item["why_both_cannot_hold"])
+    st["cur"] += 1
+    _next_unit(st, repo)
+    return [], item
+
+
 def step(state_file, reply, repo) -> dict:
-    """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）}"""
+    """節 tdd-step。{ok（この返答を受けた）, done（輪を抜ける）, reason, phase（次の段）, conflict（止めた申し出の 1 件か None。
+    節が盤面の控えに積む）}"""
     st = _load(state_file)
     if st["done"]:
         raise Broken("TDD の輪は済んでいる（tdd-step を呼ぶ番でない）")
     phase = st["phase"]
+    item = None
     if not isinstance(reply, dict):
         probs = ["返答が JSON のオブジェクトでない"]
+    elif reply.get("phase") == "conflict":
+        probs, item = _conflict(st, reply, repo)
     elif reply.get("phase") != phase:
         probs = [f"今の段は {phase}（返答の phase は {reply.get('phase')!r}）"]
     elif phase != "route" and reply.get("unit_key") != st["queue"][st["cur"]]:
@@ -476,7 +515,8 @@ def step(state_file, reply, repo) -> dict:
         _finish(st, repo)
     st["handoff"] = snapshot(repo)
     _save(state_file, st)
-    return {"ok": not probs, "done": st["done"], "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"]}
+    return {"ok": not probs, "done": st["done"], "reason": "\n".join(probs), "phase": "done" if st["done"] else st["phase"],
+            "conflict": item}
 
 
 def _finish(st, repo) -> None:
@@ -491,6 +531,10 @@ def _finish(st, repo) -> None:
         lines += [f"- {u['unit_key']}", f"  - 名指しのテスト（機械が赤→緑を確かめた）: {', '.join(u['tests'])}",
                   f"  - テストのファイル: {', '.join(u['test_files'])}", f"  - 直したファイル: {', '.join(u['files'])}",
                   f"  - 直し: {u['what']}", f"  - 整え: {u['refactor']}"]
+    parked = st.get("parked", [])
+    if parked:
+        lines += ["", "## 食い違いで止めた単位（直すな。輪の後に裁定役が裁き、裁定が理由のファイルで届く）", ""]
+        lines += [f"- {k}: {st.get('parked_why', {}).get(k, '')}" for k in parked]
     lines += ["", "## direct の単位（ここで直せ）", ""]
     lines += [f"- {st['units'][k]['unit_key']}: {st['units'][k]['why']}" for k in st["order"] if st["units"][k]["route"] == "direct"]
     (pathlib.Path(st["work"]) / SUMMARY).write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -518,5 +562,7 @@ def exit_fields(start_out: dict) -> dict:
     st = _load(start_out["state_file"])
     if not st["done"]:
         raise Broken("TDD の輪が済んでいない（done の印が無い）")
-    return {"ran": True, "suite": st["suite"], "reason": st["note"],
-            "units": [{f: st["units"][k][f] for f in FIELDS} for k in st["order"]]}
+    rows = [{f: st["units"][k][f] for f in FIELDS} for k in st["order"]]
+    rows += [{**{f: _unit(k, "parked")[f] for f in FIELDS}, "why": st.get("parked_why", {}).get(k, "")}
+             for k in st.get("parked", []) if k not in st["order"]]   # 振り分けの段で止めた単位
+    return {"ran": True, "suite": st["suite"], "reason": st["note"], "units": rows}

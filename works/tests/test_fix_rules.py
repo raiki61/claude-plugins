@@ -92,10 +92,26 @@ class TestSharedSource(unittest.TestCase):
         self.assertEqual(fixrules.shared(), "\n".join(shared_lines()).strip("\n"))
         self.assertEqual(list(fixrules.sections(fixrules.SHARED)),
                          ["core-fix", "evidence", "evidence-docs", "evidence-prompts", "evidence-config", "evidence-code",
-                          "core-keep"])
+                          "core-conflict", "core-keep"])
+
+    def test_conflict_rule_in_both_prompts_and_ruler(self):
+        """食い違いの申し出（持ち主 2026-09-28）: 正本の core-conflict の決まりの文が、組んだ修正役・TDD の輪の役の指示書の両方に
+        いつも載る（種類を選ばない時も）。裁定役の指示書は持ち主の決まり（principles.md）の全文と返す JSON の形を持つ"""
+        rule = "緑にするためにテスト・依頼・コードのどれかを曲げるくらいなら、食い違いとして返せ"
+        self.assertIn(rule, fixrules.sections(fixrules.SHARED)["core-conflict"])
+        self.assertEqual(sum(ln.count(rule) for ln in shared_lines()), 1, "正本に 1 か所だけ")
+        for text in (fixrules.fix_prompt(VALUES, kinds={}),
+                     fixrules.tdd_prompt({k: VALUES[k] for k in fixrules.TDD_VALUES}, "route", "## 今の段", title="# t", kinds={})):
+            self.assertIn(rule, text)
+        ruler = fixrules.ruler_prompt({"conflicts_file": "/b/r1/conflicts.json", "ids": "c1-1", "judgment_file": "/b/j.json",
+                                       "request_file": "", "policy_path": ""})
+        self.assertIn(fixrules.sections(fixrules.PRINCIPLES)["principles"], ruler)
+        for w in ("`c1-1`", "`/b/r1/conflicts.json`", "fix_test_scope", "fix_code_as", "ask_human", "review-graph"):
+            self.assertIn(w, ruler)
 
     def test_every_rules_file_is_cut_into_sections(self):
-        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-reply"]),
+        for name, ids in ((fixrules.DIRECT, ["fix-head", "fix-keep", "fix-reply"]), (fixrules.RULER, ["ruler-head", "ruler-reply"]),
+                          (fixrules.PRINCIPLES, ["principles"]),
                           (fixrules.TDD, ["tdd-head", "tdd-remap", "tdd-phase", *(f"tdd-phase-{p}" for p in fixrules.PHASES),
                                           "tdd-phase-all", "tdd-end"])):
             with self.subTest(name):
@@ -248,7 +264,8 @@ class TestCompose(unittest.TestCase):
         h = header(self.fix(kinds={"code": "判定 stats.py"}))
         self.assertEqual((h["role"], h["iteration"], h["mode"]), ("fix", 1, "full"))
         self.assertEqual([s["id"] for s in h["sections"]],
-                         ["fix-head", "core-fix", "evidence", "evidence-code", "core-keep", "fix-keep", "fix-reply"])
+                         ["fix-head", "core-fix", "evidence", "evidence-code", "core-conflict", "core-keep", "fix-keep",
+                          "fix-reply"])
         self.assertTrue(all(s["sent"] and s["why"] for s in h["sections"]))
         self.assertEqual(len(h["rules_sha"]), 64)
 
@@ -406,8 +423,9 @@ class TestRoleNodes(unittest.TestCase):
         self.assertEqual(fp["script"], "fix_prep")
         self.assertEqual(fp["with"], {"judgment_file": "$INPUTS.judgment_file", "open_units": "$INPUTS.open_units",
                                       "plan_file": "$INPUTS.plan_file", "policy_path": "$INPUTS.policy_path",
-                                      "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file"})
-        self.assertEqual(set(fp["with"]), set(fixrules.FIX_VALUES))
+                                      "notes_file": "$INPUTS.notes_file", "summary_file": "$tdd-start.output.summary_file",
+                                      "pass": "first"})
+        self.assertEqual(set(fp["with"]) - {"pass"}, set(fixrules.FIX_VALUES))
         self.assertIn("variants_file", fp["output_format"]["required"])
         tp = find_node(nodes, "tdd-prep")
         self.assertEqual(tp["with"], {"state_file": "$tdd-start.output.state_file", "judgment_file": "$INPUTS.judgment_file",

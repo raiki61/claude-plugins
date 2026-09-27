@@ -10,7 +10,8 @@ done("p3.fix") に替える。graph の p3.fix の受け付けの検査は写し
 
 ここに在る物:
 - FIX_NODE・ROLE・FIX_OUTPUT_FORMAT: 節の名前、役の名前（印の名）、役の output_format（graph の p3.fix の schema に
-  印 works-node: fix を付けた物。Task 17 で blk-fix.yaml の fix に貼る）
+  印 works-node: fix と食い違いの申し出の欄 conflicts を足した物。blk-fix.yaml の fix に貼る）。RULED_OUTPUT_FORMAT は裁定の後の
+  2 回目の修正役（印 works-node: fix-ruled continue=fix）の物
 - READS: 読んだ証拠の節 fix-reads が reads.main_for に渡す (役, include, 輪, 節)
 - accept_fix: 節 fix-accept の中身。entry.take に渡し、1 本目の出口のための changes を足す
 - collect: 節 collect の中身。1 本目の出口の欄に fix_file・not_done・coverage・reads_file を足す
@@ -30,12 +31,24 @@ if str(CORE) not in sys.path:
 from accept import role_schema  # noqa: E402
 from board import BoardGap  # noqa: E402  （board が写しの engine を sys.path に足す）
 from engine.util import Reject  # noqa: E402
+import conflict  # noqa: E402
 import entry  # noqa: E402
 import node_marker  # noqa: E402
 
 FIX_NODE = "p3.fix"
 ROLE = "fix"
-FIX_OUTPUT_FORMAT = node_marker.mark(role_schema(FIX_NODE), ROLE)
+RULED_ROLE = "fix-ruled"   # 裁定の後の 2 回目の修正役（修正役の会話の続き。印 continue=fix）
+
+
+def fix_output_format(name: str = ROLE, cont: str | None = None) -> dict:
+    """修正役の output_format: 写しの p3.fix の schema に印と、食い違いの申し出の欄 conflicts（任意。受け付けが盤面へ渡す前に外す）"""
+    out = node_marker.mark(role_schema(FIX_NODE), name, cont=cont)
+    out["properties"]["conflicts"] = conflict.CONFLICTS_SCHEMA
+    return out
+
+
+FIX_OUTPUT_FORMAT = fix_output_format()
+RULED_OUTPUT_FORMAT = fix_output_format(RULED_ROLE, ROLE)
 READS = (ROLE, "fixing", "fix-loop", ROLE)   # reads.main_for の (役, include, 輪, 節)。include の名は darkfactory の fixing
 V1_CHANGE_KEYS = ("unit_key", "files", "what")   # 1 本目の出口の changes の欄（assert-changed・changes.json が読む）
 CHANGES_FILE = "changes.json"

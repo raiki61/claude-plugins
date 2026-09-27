@@ -10,7 +10,10 @@
 - trace_empty_fix(b): 直す物の無い周に機械が p3.fix の空の返答を渡した印（at mid が役の修正と見分ける）
 - 守りのファイル（core の protect・protected.json。ASF の floor.json に倣う）: h-final は run の差分（record.base から。未追跡を
   含む）が一覧に当たれば最後の関所を final_gate に関わらず開き、文の頭に並べ、process.human_items に 1 行。h-eyes は答えを
-  その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ
+  その行に写し、答えが来なければ（関所が開かなかった）止める。通すのは人の continue だけ。食い違いの申し出の裁定（core の conflict）
+  が許したテストの変更（fix_test_scope の範囲）も守りのファイルの行として並ぶ
+- 食い違いの申し出（core の conflict）: 裁定役か機械が ask_human に裁いた単位が在れば、h-final は最後の関所を final_gate に関わらず
+  開き、文に「食い違いの申し出」の節を並べ、process.human_items に 1 行。答えの写しと、答えが来ない時の止めは守りのファイルと同じ
 """
 import json
 import os
@@ -28,6 +31,7 @@ for _p in (_LIB, _CORE):   # core を頭に（節のスクリプトと同じ順�
 from board import BoardGap  # noqa: E402
 from engine.util import Reject  # noqa: E402  （board が写しの engine を sys.path に足した後）
 import accept  # noqa: E402
+import conflict  # noqa: E402
 import entry  # noqa: E402
 import halt  # noqa: E402
 import plan  # noqa: E402
@@ -229,9 +233,8 @@ def _answer_final_gate(b, gate: dict) -> tuple:
         answer = "continue" if decision in GATE_GO else "stop"
         b.record["process"]["human_items"].append({"round": b.round, "kinds": [FINAL_GATE_KIND], "asked": [FINAL_GATE_FILE],
                                                    "answer": answer, "note": text, "node": FINAL_GATE_BY})
-        guarded = _protected_row(b)
-        if guarded is not None:   # 守りのファイルの行に人の答えを写す（報告の冒頭 1 に continue か stop で出る）
-            guarded["answer"] = answer
+        for row in _waiting_rows(b):   # 守りのファイル・食い違いの申し出の行に人の答えを写す（報告の冒頭 1 に出る）
+            row["answer"] = answer
         b.save()
     stop = decision in GATE_STOP
     return stop, (text if text.strip() else FINAL_GATE_STOP_NOTE) if stop else ""
@@ -311,12 +314,14 @@ def _final_text(b, head: str, tests, objection: str, repo, run_id: str) -> str:
 
 def _protected(b, repo) -> tuple:
     """run の差分（record.base＝p0.base が固めた版から今の作業ツリーまで。commit・消した物・未追跡を含む）のうち守りのファイルに
-    当たる物。返り (rows, rev, 確かめられなかった理由)。一覧・版・git が読めなければ rows は空で理由を返す（fail closed）"""
+    当たる物と、食い違いの裁定（fix_test_scope）が直してよいと許したテストの物。返り (rows, rev, 確かめられなかった理由)。
+    一覧・版・git・申し出の控えが読めなければ rows は空で理由を返す（fail closed）"""
     rev = ""
     try:
         rev = accept.resolve_rev(repo, b.record.get("base") or "")
-        return protect.touched(repo, rev), rev, ""
-    except (protect.Broken, Reject) as e:
+        ruled = conflict.ruled_test_doc(b)
+        return protect.touched(repo, rev) + (protect.touched(repo, rev, ruled) if ruled else []), rev, ""
+    except (protect.Broken, Reject, BoardGap) as e:
         return [], rev, str(e)
 
 
@@ -336,9 +341,41 @@ def _protected_text(rows, rev: str, err: str, repo) -> str:
     return "\n".join(lines)
 
 
-def _protected_row(b):
+def _row(b, node: str):
+    """今の周の process.human_items の node の行（無ければ None）"""
     items = (b.record.get("process") or {}).get("human_items") or []
-    return next((h for h in items if isinstance(h, dict) and h.get("node") == PROTECTED_BY and h.get("round") == b.round), None)
+    return next((h for h in items if isinstance(h, dict) and h.get("node") == node and h.get("round") == b.round), None)
+
+
+def _protected_row(b):
+    return _row(b, PROTECTED_BY)
+
+
+def _waiting_rows(b) -> list:
+    """最後の関所の答えを写す今の周の行（守りのファイル・食い違いの申し出）"""
+    return [r for r in (_row(b, PROTECTED_BY), _row(b, conflict.BY)) if r is not None]
+
+
+def _record_conflict(b, asks: list) -> None:
+    """process.human_items に今の周の 1 行（kinds conflict・answer は最後の関所の答えまで None・note に件数と単位）。
+    呼び直しでは積み増さず、答えの前なら中身だけを今の申し出に合わせる"""
+    note = f"{conflict.HEAD} {len(asks)} 件: " + "、".join(asks) + "——最後の関所で人が決める（通すのは continue だけ）"
+    row = _row(b, conflict.BY)
+    if row is None:
+        b.record["process"]["human_items"].append({"round": b.round, "kinds": [conflict.KIND], "asked": list(asks),
+                                                   "answer": None, "note": note, "node": conflict.BY})
+    elif row.get("answer") is None and (row.get("asked"), row.get("note")) != (list(asks), note):
+        row.update(asked=list(asks), note=note)
+    else:
+        return
+    b.save()
+
+
+def _conflict_text(asks: list) -> str:
+    """最後の関所の文の節（裁定役か機械が人に回した食い違いの申し出。どの単位を直さずに残したか）"""
+    lines = [f"## {conflict.HEAD}（{len(asks)} 件。裁定役か機械が人に回した。単位は直さずに残した。通すのは人の continue だけ）", ""]
+    lines += [f"- {x}" for x in asks]
+    return "\n".join(lines + ["", ""])
 
 
 def _record_protected(b, rows, err: str) -> None:
@@ -378,12 +415,19 @@ def final_edge(b, repo, *, run_id: str, mode: str, tests) -> dict:
     objection = "" if left["settled"] else left["text"]
     rows, rev, err = _protected(b, repo)
     guarded = bool(rows) or bool(err)
-    need = head != "緑" or bool(b.state.get("pending_human")) or bool(objection) or guarded
+    try:
+        asks = conflict.human_lines(b)
+    except BoardGap as e:   # 申し出の控えが読めない: 黙って空にせず、人に回す
+        asks = [f"申し出の控えが読めない（{e}）"]
+    need = head != "緑" or bool(b.state.get("pending_human")) or bool(objection) or guarded or bool(asks)
     if mode == "when_needed" and not need:
         return {}
     if guarded:
         _record_protected(b, rows, err)
-    text = (_protected_text(rows, rev, err, repo) if guarded else "") + _final_text(b, head, tests, objection, repo, run_id)
+    if asks:
+        _record_conflict(b, asks)
+    text = ((_protected_text(rows, rev, err, repo) if guarded else "") + (_conflict_text(asks) if asks else "")
+            + _final_text(b, head, tests, objection, repo, run_id))
     _write_text(b.work(FINAL_GATE_FILE), text)
     return {"ask": True, "gate_text": text, "gate_file": str(b.work(FINAL_GATE_FILE))}
 
@@ -581,6 +625,11 @@ def edge(board_dir, at: str, repo, *, run_id: str, adapter_mode: str, final_gate
         if guarded is not None and guarded.get("answer") is None:   # 守りのファイルを触ったのに最後の関所が開かなかった
             reason = f"{PROTECTED_HEAD}のに最後の関所の答えが無い（関所が開かなかった）——通すのは人の continue だけ: {guarded.get('note')}"
             _stop_board(b, at, reason, PROTECTED_BY)
+            return {**out, "stop": True, "why": reason}
+        asked = _row(b, conflict.BY)
+        if asked is not None and asked.get("answer") is None:   # 食い違いの申し出が人に回ったのに最後の関所が開かなかった
+            reason = f"{conflict.HEAD}が人に回ったのに最後の関所の答えが無い（関所が開かなかった）: {asked.get('note')}"
+            _stop_board(b, at, reason, conflict.BY)
             return {**out, "stop": True, "why": reason}
     if flag:
         b.trace(FLAG_SEEN_OP, at=at, reason=flag["reason"], by=flag["by"])

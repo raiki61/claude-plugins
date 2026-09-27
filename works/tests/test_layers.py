@@ -53,6 +53,7 @@ MOD = {
     "impact": (3, None),      # 変更の周りの地図（役が共有して読む。地図はまだどのブロックにも配線しない。libdocs が import の読み取りを使う）
     "libdocs": (3, None),     # ライブラリの今の文書（Context7）を支度の節が引いて指示書に貼る（blk-fix・blk-plan が使う）
     "protect": (3, None),
+    "conflict": (3, None),    # 食い違いの申し出の控え・名指しの確かめ・写しの RL の _owed_units の差し替え（blk-fix と境の節と報告が使う）
     "ci_role": (4, "blk-ci"), "purpose": (4, "blk-purpose"), "rejudge": (4, "blk-rejudge"), "prcheck": (4, "blk-pr"),
     "premises": (4, "blk-premises"),
 }

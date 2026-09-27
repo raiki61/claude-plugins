@@ -40,6 +40,7 @@ import engine.util as _util  # noqa: E402
 from engine.commands import _refuse_halted  # noqa: E402  （board.py と同じ入口の拒み。写しの engine の関数）
 from engine.util import AnswerReject, Reject, safe_name  # noqa: E402
 import accept  # noqa: E402
+import conflict  # noqa: E402
 import policy  # noqa: E402
 import prcheck  # noqa: E402
 import ticket  # noqa: E402
@@ -115,6 +116,9 @@ def _hook_evidence_at_adapter(board_dir, doc, cache=None, data=None):
 CORE_OVERRIDES = {
     "hook_evidence": (_hook_evidence_at_adapter,
                       "読んだ記録は盤面の隣でなく包みの置き場 adapter.reads_dir(run の worktree)/reads.jsonl に在る（Task 6 の直し 1）"),
+    "_owed_units": (conflict.owed_units_but_asked,
+                    "食い違いの申し出を裁定役か機械が ask_human に裁いた単位は、直す義務から外す（最後の人の関所で人が決める。"
+                    "conflict.py）"),
 }
 
 
