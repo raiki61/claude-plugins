@@ -3,26 +3,33 @@
 - 行き先の名乗りは pytest の印 1 本: ``@pytest.mark.moved_from("<台本のモジュール>.<関数>", "<check の説明の頭>", kept=None)``。
   parametrize の行は ``pytest.param(..., marks=pytest.mark.moved_from(...))``。node id は pytest が振った物を集める段で拾う
   （pytest_itemcollected。-k などで選び外す前）。``kept`` は同じプロセスの検査では見えない物を通し（台本）に残す理由
+- 台本→移し先の対応の正本はこの印 1 つ。見張る台本は、印が名乗る台本と、MIGRATION.md の刷った塊に前の版で載っていた台本の和
+  から、同じ文書の「外した台本」の一覧に在る物を引いた集合（印を消すだけでは見張りから外れない——外すのは一覧への 1 行だけ）
 - 台本の側の正本は台本の本文: 名指しした関数の中の ``check(条件, 説明)`` を ast で全部並べ、説明の頭（字列の定数か、f 字列の
-  最初の穴までの字）を持つ。印の頭は、その頭で始まる check がちょうど 1 つだけのときに当たる（0 は名乗りの誤り、2 以上は曖昧）
-- 1 つの check 呼び出しが 1 本の ok 行になる前提で数える——ループの中の check は赤にする（静的な 1 行が複数の ok 行になる）
+  穴を ``{式}`` と描いた型紙）を持つ。印の頭は、その頭で始まる check がちょうど 1 つだけのときに当たる（0 は名乗りの誤り、2 以上は曖昧）
+- ループの中の check は、回数を字面で読めるループ（字面の tuple・list か、関数の中で 1 度だけそれに束ねた名前。条件式の両腕が
+  字面なら読めるが、長さが違えば回数は決まらない）に限って型紙の 1 行として載せる。if の下に無く、ループの中に continue・break・
+  return・raise が無い check は、入れ子の回数の積と行き先の本数が一致しないと赤。回数が決まらない check は 1 本以上で通し、表に出す。
+  回数を字面で読めないループ（while・関数の呼び出しなど）の中の check は赤のまま
 
-使い方（表を刷る）: ``python3 graphloops/tests/py/ledger.py`` —— pytest で集めるだけ（走らせない）して、MIGRATION.md に貼る表を出す。
-表が MIGRATION.md の中身と食い違えば test_ledger.py が赤になる。
+使い方（表を刷る）: ``python3 graphloops/tests/py/ledger.py`` —— 置き場のテストを pytest で全部集めるだけ（走らせない）して、
+MIGRATION.md の ``<!-- ledger:begin -->`` と ``<!-- ledger:end -->`` の間に貼る塊を出す。塊が今の台帳と違えば test_ledger.py が赤になる。
 """
 import ast
 import pathlib
+import re
 import sys
 
 import pytest
 
 HERE = pathlib.Path(__file__).resolve().parent
 TESTS = HERE.parent
-# 台帳が見張る台本の関数（移す段ごとに足す）と、移した先のテストのファイル
-SCRIPTS = ("simulate_review.test_rejections", "simulate.test_rejections")
-MOVED_FILES = ("test_rejections_review.py", "test_rejections_research.py")
+MIGRATION = HERE / "MIGRATION.md"
 MARK = "moved_from"
+BEGIN, END = "<!-- ledger:begin -->", "<!-- ledger:end -->"
+# 回数を字面で読めないループ（読めるかは _times が決める）と、ループの回を飛ばしうる文
 LOOPS = (ast.For, ast.AsyncFor, ast.While, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+EXITS = (ast.Continue, ast.Break, ast.Return, ast.Raise)
 ENTRIES = pytest.StashKey[list]()
 
 
@@ -42,38 +49,145 @@ def entries(config):
 
 
 def _head(node):
-    """check の説明の頭: 字列の定数ならそのまま、f 字列なら最初の穴までの字"""
+    """check の説明の頭: 字列の定数ならそのまま、f 字列なら穴を {式} と描いた型紙"""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.JoinedStr):
-        out = ""
-        for v in node.values:
-            if not isinstance(v, ast.Constant):
-                break
-            out += v.value
-        return out
+        return "".join(v.value if isinstance(v, ast.Constant) else "{" + ast.unparse(v.value) + "}" for v in node.values)
     return None
 
 
+def _is_check(n):
+    return isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "check"
+
+
+def _literal_len(node):
+    """字面の tuple・list の長さ（* の展開を含むなら None）"""
+    if isinstance(node, (ast.Tuple, ast.List)) and not any(isinstance(e, ast.Starred) for e in node.elts):
+        return len(node.elts)
+    return None
+
+
+def _times(iterable, func):
+    """ループの回数 ——(回数, 読めたか)。回数 None で読めた＝字面だが長さが決まらない（条件式の両腕の長さが違う）"""
+    if isinstance(iterable, ast.Name):
+        bound = [a.value for a in ast.walk(func) if isinstance(a, ast.Assign)
+                 for t in a.targets if isinstance(t, ast.Name) and t.id == iterable.id]
+        if len(bound) != 1:
+            return None, False
+        iterable = bound[0]
+    if isinstance(iterable, ast.IfExp):
+        a, b = _literal_len(iterable.body), _literal_len(iterable.orelse)
+        return (a if a == b else None), a is not None and b is not None
+    n = _literal_len(iterable)
+    return n, n is not None
+
+
+def _body_nodes(node):
+    """node の中の節点（中で定義した関数・lambda・class の中には降りない——そこの return はループを抜けない）"""
+    for c in ast.iter_child_nodes(node):
+        yield c
+        if not isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            yield from _body_nodes(c)
+
+
+def checks_in(func):
+    """関数の ast の check を並べる ——([{line, head, times}], [字面で読めないループの中の check の行])。
+
+    times はループの外なら None、ループの中なら {"n": 回数（決まらなければ None）, "why": 決まらない理由}"""
+    parents = {}
+    for p in ast.walk(func):
+        for c in ast.iter_child_nodes(p):
+            parents[c] = p
+    rows, unreadable = [], []
+    for call in sorted((n for n in ast.walk(func) if _is_check(n)), key=lambda n: n.lineno):
+        n, why, readable, looped, pending_if = 1, None, True, False, False
+        node = call
+        while node in parents and node is not func:
+            up = parents[node]
+            if isinstance(up, (ast.If, ast.IfExp)) and node is not up.test:
+                pending_if = True   # 外側にループが見つかれば、その回の中の分かれ
+            if isinstance(up, LOOPS) and node is not getattr(up, "iter", None):
+                looped = True
+                if pending_if:
+                    why, pending_if = why or "if の下に在る", False
+                gens = up.generators if hasattr(up, "generators") else [up]
+                for g in gens:
+                    k, ok = (None, False) if isinstance(g, ast.While) else _times(g.iter, func)
+                    readable = readable and ok
+                    if getattr(g, "ifs", None):
+                        why = why or "if の下に在る"
+                    if k is None and ok:
+                        why = why or "条件式の両腕で回数が違う"
+                    n = None if (k is None or n is None) else n * k
+                if isinstance(up, (ast.For, ast.AsyncFor, ast.While)) and any(isinstance(x, EXITS) for x in _body_nodes(up)):
+                    why = why or "ループの中に continue・break・return・raise が在る"
+            node = up
+        if looped and not readable:
+            unreadable.append(call.lineno)
+            why = why or "回数を字面で読めない"
+        rows.append({"line": call.lineno, "head": _head(call.args[1]) if len(call.args) > 1 else None,
+                     "times": {"n": None if why else n, "why": why} if looped else None})
+    return rows, unreadable
+
+
 def script_checks(script):
-    """(check の一覧 [{line, head}], ループの中の check の行) —— script は "<モジュール>.<関数>" """
-    mod, fn = script.split(".")
-    tree = ast.parse((TESTS / f"{mod}.py").read_text(encoding="utf-8"))
-    func = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == fn)
-    calls = [n for n in ast.walk(func) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "check"]
-    looped = sorted({c.lineno for loop in ast.walk(func) if isinstance(loop, LOOPS)
-                     for c in ast.walk(loop) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "check"})
-    rows = sorted(({"line": c.lineno, "head": _head(c.args[1]) if len(c.args) > 1 else None} for c in calls), key=lambda r: r["line"])
-    return rows, looped
+    """(check の一覧, 字面で読めないループの中の check の行) —— script は "<モジュール>.<関数>"。読めなければ ValueError"""
+    try:
+        mod, fn = script.split(".")
+        tree = ast.parse((TESTS / f"{mod}.py").read_text(encoding="utf-8"))
+    except (ValueError, OSError, SyntaxError) as e:
+        raise ValueError(f"台本のファイルが読めない（{e}）") from e
+    func = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == fn), None)
+    if func is None:
+        raise ValueError(f"{mod}.py に関数 {fn} が無い")
+    return checks_in(func)
 
 
-def build(found):
-    """台帳 —— ({script: [行]}, [問題])。行は {line, head, tests: [node id], kept: [理由]}"""
+# MIGRATION.md の刷った塊の中の台本の見出しと、「外した台本」の節の 1 行（- `<台本>`: <理由>）
+SCRIPT_HEADING = re.compile(r"^#### (\S+)$", re.M)
+REMOVED_ROW = re.compile(r"^- `([^`]+)`: \S", re.M)
+
+
+def block(text):
+    """MIGRATION.md の刷った塊（印の間。無ければ None）"""
+    if BEGIN not in text or END not in text:
+        return None
+    return text.split(BEGIN, 1)[1].split(END, 1)[0].strip("\n")
+
+
+def watched_before(text):
+    """刷った塊に載っている台本（前の版で見張っていた台本）"""
+    return set(SCRIPT_HEADING.findall(block(text) or ""))
+
+
+def removed(text):
+    """「外した台本」の節に 1 行を持つ台本（追記だけの一覧。見張りから外す唯一の口）"""
+    part = text.split("\n## 外した台本", 1)
+    if len(part) < 2:
+        return set()
+    return set(REMOVED_ROW.findall(part[1].split("\n## ", 1)[0]))
+
+
+def build(found, before=(), gone=()):
+    """台帳 —— ({script: [行]}, [問題])。行は {line, head, times, tests: [node id], kept: [理由]}。
+
+    見張る台本は、found（集めた印）の台本と before（前の版で見張っていた台本）の和から gone（外した台本）を引いた物"""
     problems, table = [], {}
-    for script in SCRIPTS:
-        rows, looped = script_checks(script)
-        if looped:
-            problems.append(f"{script}: ループの中に check が在る（行 {looped}）——1 行 1 件の数え方が崩れる")
+    named = {}
+    for e in found:
+        named.setdefault(e["script"], []).append(e["nodeid"])
+    for script in sorted((set(named) | set(before)) - set(gone)):
+        try:
+            rows, unreadable = script_checks(script)
+        except ValueError as err:
+            problems.append(f"台帳が読めない台本 {script} を名乗る（{err}）: {', '.join(named.get(script, [])[:3]) or '前の版の塊'}")
+            continue
+        if script not in named:
+            problems.append(f"{script}: 前の版で見張っていた台本を名乗るテストが無い——見張りから外すなら MIGRATION.md の"
+                            f"「外した台本」に台本と理由を 1 行足す")
+        if unreadable:
+            problems.append(f"{script}: 回数を字面で読めないループの中に check が在る（行 {unreadable}）——1 行 1 件の数え方が崩れる")
         for r in rows:
             r["tests"], r["kept"] = [], []
             if not r["head"]:
@@ -82,7 +196,8 @@ def build(found):
     for e in found:
         rows = table.get(e["script"])
         if rows is None:
-            problems.append(f"{e['nodeid']}: 台帳が見張らない台本 {e['script']} を名乗る")
+            if e["script"] in gone:
+                problems.append(f"{e['nodeid']}: 外した台本 {e['script']} を名乗る")
             continue
         hit = [r for r in rows if r["head"] and r["head"].startswith(e["head"])]
         if len(hit) != 1:
@@ -93,8 +208,11 @@ def build(found):
             hit[0]["kept"].append(e["kept"])
     for script, rows in table.items():
         for r in rows:
+            n = (r["times"] or {}).get("n")
             if not r["tests"]:
                 problems.append(f"{script}:{r['line']}: 行き先が空（{r['head']}）")
+            elif n is not None and len(r["tests"]) != n:
+                problems.append(f"{script}:{r['line']}: ループで {n} 回走る check の行き先が {len(r['tests'])} 本（回数と同じ本数で当たる）")
     return table, problems
 
 
@@ -102,21 +220,28 @@ def _cell(s):
     return s.replace("|", "\\|").replace("\n", " ")
 
 
+def _times_cell(t):
+    if t is None:
+        return ""
+    return f"型紙 ×{t['n']}" if t["n"] is not None else f"型紙・1 本以上（{t['why']}）"
+
+
 def render_md(table):
-    """MIGRATION.md に貼る check ごとの対応の表（台本ごとに 1 つ）"""
+    """MIGRATION.md の刷った塊に貼る check ごとの対応の表（台本ごとに 1 つ）"""
     out = []
     for script, rows in table.items():
-        out += [f"#### {script}", "", "| 行 | 元の check（説明の頭） | 移した先 | 通しに残す |", "|---|---|---|---|"]
+        out += [f"#### {script}", "", "| 行 | 元の check（説明の頭） | ループ | 移した先 | 通しに残す |", "|---|---|---|---|---|"]
         for r in rows:
             short = (r["head"] or "")[:60] + ("…" if len(r["head"] or "") > 60 else "")
-            out.append(f"| {r['line']} | {_cell(short)} | {'<br>'.join(_cell(t) for t in r['tests'])} | {_cell(' / '.join(r['kept']))} |")
+            out.append(f"| {r['line']} | {_cell(short)} | {_times_cell(r['times'])} | {'<br>'.join(_cell(t) for t in r['tests'])} "
+                       f"| {_cell(' / '.join(r['kept']))} |")
         out.append("")
-    return "\n".join(out)
+    return "\n".join(out).rstrip("\n")
 
 
-def main(argv):
-    """移した先のファイルを pytest で集めるだけ（走らせない）して、表と問題を出す。conftest.py が載せた方の本 module
-    （import 名 ledger）の登録物から読む——__main__ として読んだこの module とは別物"""
+def collect(paths=(HERE,)):
+    """置き場のテストを pytest で集めるだけ（走らせない）して、印の一覧を返す ——(集めた印, 終わりのコード, 出力)。conftest.py が
+    載せた方の本 module（import 名 ledger）の登録物から読む——__main__ として読んだこの module とは別物"""
     import contextlib
     import io
     sys.path.insert(0, str(HERE))
@@ -130,13 +255,19 @@ def main(argv):
 
     log = io.StringIO()
     with contextlib.redirect_stdout(log):
-        code = pytest.main(["-q", "--collect-only", "-p", "no:cacheprovider", *[str(HERE / f) for f in MOVED_FILES]], plugins=[Collect()])
+        code = pytest.main(["-q", "--collect-only", "-p", "no:cacheprovider", *map(str, paths)], plugins=[Collect()])
+    return found, code, log.getvalue()
+
+
+def main(argv):
+    found, code, log = collect()
     if code != pytest.ExitCode.OK:
-        print(log.getvalue()[-2000:], file=sys.stderr)
+        print(log[-2000:], file=sys.stderr)
         print(f"集める段が {code} で終わった", file=sys.stderr)
         return 1
-    table, problems = plugin.build(found)
-    print(plugin.render_md(table))
+    text = MIGRATION.read_text(encoding="utf-8")
+    table, problems = build(found, watched_before(text), removed(text))
+    print(render_md(table))
     for p in problems:
         print("台帳の問題: " + p, file=sys.stderr)
     return 1 if problems else 0
