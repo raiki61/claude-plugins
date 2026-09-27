@@ -60,12 +60,12 @@ core で使えず、子のプロセスにテストの名前を運ばないので
 status（Killed / Survived / NoCoverage / Timeout / RuntimeError / Ignored）と、実際に落ちた検査 killedBy。共通形式の外の欄は
 empty（撃てた腕 0 本の理由）・partial（撃つ途中の版。腕 1 本ごとに書き直す）・pending（期限で撃たずに残った腕）・pruned（1 行 1 本と
 効かない行の規則で作らなかった自動の腕と理由）・marker_unhealthy（印の写しが赤で、通らない行を決めなかった理由。そのとき通らなかった
-自動の腕は status が Pending で unrunnable に理由）・worktree_moved（基点を写した後に作業ツリーで変わった、腕の結果を決めるファイル。
+自動の腕と、台本の覆いが無く pytest だけで撃って緑だった腕は status が Pending で unrunnable に理由）・worktree_moved（基点を写した後に作業ツリーで変わった、腕の結果を決めるファイル。
 撃った結果は基点の版の物で、終了コードと証拠には使わない）の 6 つと、印の写しの detail（赤の回の検査ごとの本文と出力の末尾）と、腕ごとの cover（印の写しで行を通した台本。? は帰属できない印）と
 attribution（赤の出どころ: narrowed＝絞った台本から / unrelated＝絞った台本は緑で一式の確かめ直しだけ赤 / unattributed＝一式だけで撃った /
 pytest＝行を通した pytest のテストから / pytest_whole＝pytest 一式だけで撃った / pytest_unrelated＝絞った pytest は緑で pytest 一式の確かめ直しだけ赤）と、
 自動の腕の pytest_cover（印の写しで行を通した pytest のテストの node id）・pytest（pytest の段の結果と撃ち方 how）・pytest_selected（pytest を
-絞って緑）・pytest_only（台本が行を通さない腕）、印の写しの pytest・pytest_seen・pytest_cover・script_seen（seen は台本と pytest の和）、
+絞って緑）・pytest_only（印の写しの台本が緑の回に台本が行を通さなかった腕）、印の写しの pytest・pytest_seen・pytest_cover・script_seen（seen は台本と pytest の和）、
 control の pytest（腕が撃つテストのファイルの和。赤なら pytest の赤だけを証拠にしない）、pytest の段を足さなかった理由 pytest_stage（--gate-efficacy の material にも出る）。
 止める信号（SIGTERM・SIGINT・SIGHUP）を受けたら、起こした子のグループと写しを片付けて 128＋信号の番号で抜ける。
 
@@ -621,7 +621,7 @@ def worktree_moved(sel):
 
 
 def pytest_files(root):
-    """pytest の段の結果を決めるファイル（置き場のテスト・設定と、版を固定した宣言）。自動の腕の指紋にだけ入れる"""
+    """pytest の段の結果を決めるファイル（置き場のテスト・設定と、版を固定した宣言）"""
     d = root / PYDIR
     own = sorted(f"{PYDIR}/{p.name}" for p in d.glob("*.py")) if d.is_dir() else []
     return (".review-checks.json", f"{PYDIR}/pytest.ini", *own)
@@ -798,7 +798,7 @@ def pytest_pick(a):
 
 
 def pytest_ready():
-    """pytest の段を足せるか ——理由（足せるなら空）。足せない回は今の撃ち方（台本だけ）のまま撃つ"""
+    """pytest の段を足せるか ——理由（足せるなら空）"""
     if not shutil.which(PYTEST[0]):
         return f"{PYTEST[0]} が PATH に無い（pytest を起こせない）"
     if not (base() / PYDIR).is_dir():
@@ -830,8 +830,8 @@ def run_pytest(repo, args, failfast=False):
 
 def narrow_why(a):
     """自動の腕を回す台本（台本 → 関数名）と、絞れないときの理由 ——(台本 か None, 理由)。絞るのは、印の写しで行を通した台本が全部
-    分かり、行が関数の本体に在るときだけ。理由は、一覧の腕（not_auto）・印が無い（no_cover）・帰属できない印（unknown_owner）・
-    import の時に走る行（import_time）・台本の一覧（SCRIPTS）の外の台本（outside_scripts）。理由の件数は evaluate が数える"""
+    分かり、行が関数の本体に在るときだけ。理由は cover_why の理由と、台本の一覧（SCRIPTS）の外の台本（outside_scripts）。
+    理由の件数は evaluate が数える"""
     cov, why = cover_why(a, "cover")
     if why:
         return None, why
@@ -877,7 +877,6 @@ def one(a):
             if py["rc"] not in (0, "timeout", "no-test"):
                 return pytest_killed(head, py, "pytest" if how in ("nodes", "files") else "pytest_whole")
         if auto and py is not None and "cover" not in a:
-            # 台本が行を通さない腕（今までは撃たずに NoCoverage）は台本を撃たない。pytest が緑なら生き残り
             if py["rc"] in ("timeout", "no-test"):
                 return {**head, "status": "Timeout" if py["rc"] == "timeout" else "RuntimeError", "own": False, "rc": py["rc"],
                         "failed": py["failed"][:3], "killedBy": [], "tail": py["tail"], "pytest": py, "pytest_only": True,
@@ -934,8 +933,7 @@ def pytest_green(repo, head, py, r):
 
 def control(suites, selected=None, pytest=None):
     """壊していない写しで、撃つときと同じ走らせ方が緑になるか（絞った台本も、絞った形のまま確かめる）。pytest は腕が撃つ pytest の
-    テストのファイルの和（node id は並べない——argv の長さと件数の柵を node id で外さないため）。pytest の結果は control_ok に入れず、
-    赤なら pytest で殺した腕だけを証拠から外す（evaluate）"""
+    テストのファイルの和（node id は並べない——argv の長さと件数の柵を node id で外さないため）"""
     repo, d = copy("control")
     try:
         res = {s: run_suite(repo, s) for s in sorted(suites)}
@@ -1093,6 +1091,7 @@ def pick(arms, only=None, files=None, since=None, root=ROOT, env=None):
 
 SURVIVED = ("Survived", "NoCoverage")   # 壊しても台本が赤にならなかった腕（NoCoverage は緑の印の写しで印の行も通らなかった）。腕の結果の正本は status だけ
 MARKER_RED = "印の写しが赤（rc={rc}）で、途中までの記録から『通らない行』を決めない——通らなかった自動の腕は撃たず、NoCoverage にもしない"
+MARKER_RED_PYTEST = "印の写しの台本が赤（rc={rc}）で、台本が行を通したかを決めない——pytest だけで撃って緑だった腕を Survived にしない"
 
 
 def healthy(res):
@@ -1121,6 +1120,11 @@ def evaluate(res, sel):
         # 印を差した行を台本も pytest も一度も通らない。印の写しが赤の回は途中で止まった記録なので、通らなかったとは言えない
         if r.get("status") == "Survived" and m.get("rc", 0) == 0 and r["id"] in m["placed"] and r["id"] not in m["seen"]:
             r["status"] = "NoCoverage"
+        # 同じ理由で、印の写しの台本が赤の回は『台本が行を通さなかった』とも言えない——pytest だけで撃って緑だった腕を Survived にしない
+        if r.get("pytest_only") and m.get("rc", 0) != 0:
+            del r["pytest_only"]
+            if r.get("status") == "Survived":
+                r["status"], r["unrunnable"] = "Pending", MARKER_RED_PYTEST.format(rc=m.get("rc"))
         r["evidence"] = ""
         r.pop("no_evidence_why", None)
         if r.get("status") == "Killed":
@@ -1138,13 +1142,11 @@ def evaluate(res, sel):
                       "unrelated": [r["id"] for r in fresh if r.get("attribution") == "unrelated"],
                       "unattributed": [r["id"] for r in fresh if r.get("attribution") == "unattributed"],
                       "narrowed_green": [r["id"] for r in fresh if r.get("status") == "Survived" and r.get("selected")],
-                      # pytest の段: 赤の出どころ（pytest＝行を通したテストから / pytest_whole＝pytest 一式だけで撃った / pytest_unrelated＝
-                      # 絞った pytest は緑で一式の確かめ直しだけ赤）・pytest を絞って緑（一式で確かめていない）・台本は通らず pytest だけが
-                      # 通した腕・pytest の撃ち方の内訳（nodes / files / 一式に倒した理由）
+                      # pytest の段（欄の意味は冒頭の --out の説明）
                       "by_pytest": [r["id"] for r in fresh if r.get("attribution") in ("pytest", "pytest_whole")],
                       "pytest_unrelated": [r["id"] for r in fresh if r.get("attribution") == "pytest_unrelated"],
                       "pytest_narrowed_green": [r["id"] for r in fresh if r.get("status") == "Survived" and r.get("pytest_selected")],
-                      "pytest_only": sorted(set(m.get("pytest_seen", ())) - set(m.get("script_seen", m.get("seen", ())))),
+                      "pytest_only": sorted(set(m.get("pytest_seen", ())) - set(m.get("script_seen", m.get("seen", ())))) if m.get("rc", 0) == 0 else [],
                       "pytest_how": dict(sorted(collections.Counter((r.get("pytest") or {}).get("how") for r in fresh if r.get("pytest")).items())),
                       "pytest_control_ok": py_ctl_ok,
                       "pruned": len(res.get("pruned") or []),
@@ -1367,9 +1369,6 @@ def main():
         print(f"pytest の段: 撃ち方 {s['pytest_how']} / pytest の赤 {len(s['by_pytest'])} / 絞った pytest は緑で一式だけ赤 "
               f"{len(s['pytest_unrelated'])}: {' '.join(s['pytest_unrelated'])} / pytest 一式で確かめていない緑 {len(s['pytest_narrowed_green'])}"
               f" / 台本は通らず pytest だけが通した腕 {len(s['pytest_only'])}" + ("" if s["pytest_control_ok"] else " / control の pytest が赤（pytest の赤は証拠にしない）"))
-    nowhere = [i for i in unhit if i.startswith("auto:")]
-    if nowhere:
-        print(f"覆いの無い行（台本も pytest も通らない）の自動の腕 {len(nowhere)} 本")
     res["summary"]["carried"] = [x["id"] for x in carried]
     moved = worktree_moved(sel)
     if moved:

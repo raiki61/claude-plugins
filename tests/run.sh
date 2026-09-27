@@ -3672,8 +3672,6 @@ PYNAR
 expect_output 0 "one_per_line=True line6=['cond'] every=11>5 pruned=6==6 why=['1 行 1 本', '効かない行'] arid=['log.debug', 'logging.info', 'time.sleep'] module_line=False fn_line=True
 narrow=['sel'] tests={'graphloops/tests/simulate.py': ['test_a'], 'graphloops/tests/simulate_review.py': ['test_b']} failfast=True status=Survived selected=True unknown=['full'] module=['full'] outside=['full'] confirm=['sel', 'full'] Killed unrelated red_narrow=['sel'] narrowed red_full=unattributed evidence=True unrelated=['u1'] narrowed_green=['g1'] pruned=1 note=True material=True" "Google 型の絞り: 自動の腕は 1 行 1 本（cond を残す）・効かない行（ログ・待ち）は作らず pruned に理由つき（--every-node 相当で全部）。行を通した台本が全部分かる関数の中の行だけ、その台本で撃つ（? ・import の時の行・一覧の外の台本は一式）。一式の確かめ直しは --confirm-survivors の回だけで、赤の出どころは記録に残り証拠は外さない。--gate-efficacy は一式で確かめていない緑と pruned を言う" \
     "$PY_BIN" "$WORK/mut-narrow.py" "$ROOT/tests"
-# pytest の段（自動の腕の前段）: 宣言との版の揃い・撃ち方の選び方・pytest の赤の読み方・腕の撃ち分け（pytest が赤なら打ち切り、
-# 緑なら今の台本の道を必ず撃つ）・赤の出どころ・control の pytest が赤の回の証拠・--gate-efficacy の言葉
 cat > "$WORK/mut-pytest.py" <<'PYPYT'
 import json, os, pathlib, sys, tempfile
 for _s in (sys.stdout, sys.stderr):

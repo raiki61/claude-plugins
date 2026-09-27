@@ -38,3 +38,40 @@ def test_mark_names_the_running_test_and_reads_back_as_pytest_cover(tmp_path, mo
     ids, cover = mutate.read_hits(hits, pytest=True)
     assert (ids, cover) == (["a1", "a2"], {"a1": ["?"], "a2": ["test_x.py::test_y[1]"]})
     assert mutate.read_hits(hits)[0] == ["a0"]
+
+
+def _res(marker_rc):
+    """pytest だけが通した腕（台本の覆いが無い）の行を並べた --out。p1＝pytest が緑 / p2＝pytest が赤 / p3＝pytest が時間切れ /
+    p4＝確かめ直しの pytest 一式で赤"""
+    py = {"rc": 0, "how": "nodes"}
+    return {"marker": {"rc": marker_rc, "placed": ["p1", "p2", "p3", "p4"], "seen": ["p1", "p2", "p3", "p4"], "script_seen": [],
+                       "pytest_seen": ["p1", "p2", "p3", "p4"]},
+            "control": {"root": {"rc": 0}, "pytest": {"rc": 0}},
+            "arms": [{"id": "p1", "title": "t", "status": "Survived", "own": False, "pytest": py, "pytest_only": True, "pytest_selected": True},
+                     {"id": "p2", "title": "t", "status": "Killed", "own": False, "pytest": py, "attribution": "pytest"},
+                     {"id": "p3", "title": "t", "status": "Timeout", "own": False, "pytest": {**py, "rc": "timeout"}, "pytest_only": True,
+                      "unrunnable": "時間切れ（pytest）"},
+                     {"id": "p4", "title": "t", "status": "Killed", "own": False, "pytest": py, "attribution": "pytest_unrelated"}]}
+
+
+@pytest.mark.small
+def test_script_marker_red_keeps_pending_for_pytest_only_arms():
+    """印の写しの台本が赤の回は『台本が行を通さなかった』と言えない。pytest だけで撃って緑だった腕は Survived でなく Pending
+    （unrunnable に理由）にし、pytest_only と数えず、--gate-efficacy に『台本は行を通さない』と書かない。pytest の赤・時間切れ・
+    確かめ直しの赤はそのまま。台本の印の写しが緑の回は今のまま（Survived・pytest_only）"""
+    red = _res(2)
+    s = mutate.evaluate(red, [{"id": i} for i in ("p1", "p2", "p3", "p4")])
+    rows = {r["id"]: r for r in red["arms"]}
+    assert {i: r["status"] for i, r in rows.items()} == {"p1": "Pending", "p2": "Killed", "p3": "Timeout", "p4": "Killed"}
+    assert rows["p1"]["unrunnable"] == mutate.MARKER_RED_PYTEST.format(rc=2) and rows["p1"]["pytest"]["how"] == "nodes"
+    assert not any(r.get("pytest_only") for r in red["arms"]) and s["pytest_only"] == []
+    assert rows["p3"]["unrunnable"] == "時間切れ（pytest）"
+    assert "p1" in s["unrunnable"] and "p1" not in s["green"]
+    notes = " ".join(a.get("note", "") for a in mutate.gate_efficacy(red)["arms"])
+    assert "台本は行を通さない" not in notes and "pytest だけで撃って緑" in notes
+    green = _res(0)
+    s = mutate.evaluate(green, [{"id": i} for i in ("p1", "p2", "p3", "p4")])
+    rows = {r["id"]: r for r in green["arms"]}
+    assert rows["p1"]["status"] == "Survived" and rows["p1"]["pytest_only"] and rows["p3"]["pytest_only"]
+    assert s["pytest_only"] == ["p1", "p2", "p3", "p4"]
+    assert "台本は行を通さない" in mutate.gate_efficacy(green)["arms"][0]["note"]
