@@ -26,6 +26,7 @@ sys.path.insert(0, str(CORE))
 
 from accept import JUDGE_SNAPSHOT_FILE, check_judge, role_schema, snapshot_tree  # noqa: E402
 from engine.schema import validate_schema  # noqa: E402
+from gitkit import committed_copy  # noqa: E402
 
 DEADLINE = 1728000000
 GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
@@ -143,10 +144,7 @@ class ScriptCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         tmp = pathlib.Path(self._tmp.name)
         self.repo = tmp / "repo"
-        shutil.copytree(SEED, self.repo)
-        git(self.repo, "init", "-q")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-q", "-m", "seed")
+        committed_copy(self.repo, SEED)   # 種を写して commit した git（型の写し。gitkit）
         self.art = tmp / "art"
         self.board = self.art / "board"
 
