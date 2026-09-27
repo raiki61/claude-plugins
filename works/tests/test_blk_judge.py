@@ -9,6 +9,7 @@
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -103,15 +104,17 @@ class YamlCase(unittest.TestCase):
         self.assertEqual(judge["idle_timeout"], DEADLINE)
         acc = find_node(self.y, "judge-accept")
         self.assertEqual(acc["with"], {"reply": {"from": "$judge.output"}, "base_rev": "$INPUTS.base_rev"})
-        self.assertEqual(sorted(acc["output_format"]["required"]), ["ok", "open_units", "reason"])
+        self.assertEqual(sorted(acc["output_format"]["required"]), ["ok", "open_units", "reason", "reason_file"])
         self.assertEqual(find_node(self.y, "collect")["depends_on"], ["judge-loop"])
 
     def test_diagnose_prompt_wires_request_and_retry_reason(self):
         text = (BLK / "commands" / "diagnose.md").read_text(encoding="utf-8")
-        for needle in ("$INPUTS.request", "$LOOP_PREV.judge-accept.output.reason", "one_shot_closes", "class_query",
+        for needle in ("$INPUTS.request", "$LOOP_PREV.judge-accept.output.reason_file", "one_shot_closes", "class_query",
                        "precedents", "searched", "questions", "反証"):
             with self.subTest(needle):
                 self.assertIn(needle, text)
+        # 理由の本文は貼らない（Archon は $LOOP_PREV で貼った中身をもう一度置き換えに通す）。パスだけを貼って Read させる
+        self.assertEqual(re.findall(r"\$LOOP_PREV\.[\w.-]*", text), ["$LOOP_PREV.judge-accept.output.reason_file"])
         self.assertNotIn("{{", text, "engine の穴が残っている")
 
     def test_fixtures(self):

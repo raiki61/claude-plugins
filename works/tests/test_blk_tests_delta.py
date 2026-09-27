@@ -112,7 +112,7 @@ class TestDeltaSchema(unittest.TestCase):
         # 宣言していない $INPUTS.<名> は Archon 0.11.1 の include が読み込みで拒むので、節の with: で束ねない
         body = (ROOT / "blk-delta" / "commands" / "delta-review.md").read_text(encoding="utf-8")
         refs = re.findall(r"\$[A-Za-z_][A-Za-z0-9_.-]*", body)
-        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.review-accept.output.reason", "$cut.output.diff_file",
+        self.assertEqual(sorted(set(refs)), ["$LOOP_PREV.review-accept.output.reason_file", "$cut.output.diff_file",
                                              "$cut.output.files"])
         review = find_node(workflow("blk-delta")["nodes"], "review")
         self.assertNotIn("with", review)

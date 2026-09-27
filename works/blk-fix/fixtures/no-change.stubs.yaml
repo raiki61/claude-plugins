@@ -11,6 +11,7 @@ fix:
 fix-accept:
   ok: true
   reason: ""
+  reason_file: ""
   changes:
     - unit_key: "stats.py mean: 分母が len(xs) - 1 になっている"
       files: [stats.py]

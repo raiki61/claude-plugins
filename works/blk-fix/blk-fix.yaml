@@ -48,7 +48,8 @@ nodes:
           allowed_tools: [Read, Grep, Glob, Edit, Write, Bash]
           sandbox: {enabled: true, allowUnsandboxedCommands: false}
           idle_timeout: 1728000000
-          # 前の周の拒否の理由は、指示書（commands/fix.md）が $LOOP_PREV.fix-accept.output.reason で直に読む（Ruling R16）。
+          # 前の周の拒否の理由は、指示書（commands/fix.md）が $LOOP_PREV.fix-accept.output.reason_file（盤面のファイルのパス）を
+          # 直に読み、役がそのファイルを Read する（Ruling R16）。理由の本文を $LOOP_PREV で貼ると、中の $… が置き換えに通る。
           # include は輪の中の節の id（fix-accept）を付け替えない——輪の中で解ける。宣言していない $INPUTS.<名> は読み込みで拒まれる
           output_format:
             type: object
@@ -78,10 +79,11 @@ nodes:
             base_rev: $INPUTS.base_rev
           output_format:
             type: object
-            required: [ok, reason, changes]
+            required: [ok, reason, reason_file, changes]
             properties:
               ok: {type: boolean}
               reason: {type: string}
+              reason_file: {type: string}     # 拒否の理由の本文を書いた盤面のファイル（通れば空。script_io）
               changes: {type: array}
 
   # 修正役が残した git が無視するファイル（控えに無かった物だけ）を消す。差分には載らないが、テストの緑赤を左右する

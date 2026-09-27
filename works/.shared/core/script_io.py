@@ -7,8 +7,16 @@ main(fn) が読む環境変数:
 呼ぶ形は fn(reply: dict, board: Path, base_rev: str, repo: Path) -> dict。repo は cwd（Archon は対象リポジトリで起こす）。
 出口: fn の結果を ensure_ascii=False の 1 行の JSON で標準出力に出し、0 で終わる（拒否 {"ok": false, "reason": …} も 0）。
 返答が JSON として読めない・JSON のオブジェクトでないときは fn を呼ばずに ok: false を出して 0。
-環境変数が欠けたとき（ARTIFACTS_DIR は空も欠けと同じ。空だと盤面が対象リポジトリの board/ になる）だけ、
-標準エラーに名前を出して 2（標準出力には何も出さない）。
+出口は 1 本で、どの結果にも reason_file を足す。拒否（ok が true でない）なら reason の本文を盤面の
+reject-<fn の名>-<連番>.txt に UTF-8 で字のまま書いてその絶対パスを、通れば空の文字列を入れる。
+次の周の役へ理由を届けるのは reason_file の方。指示書は $LOOP_PREV.<役>-accept.output.reason_file だけを差し込み、
+役に Read させる。Archon は $LOOP_PREV で貼った中身をもう一度変数・節の参照の置き換えに通すので、役の返答から
+派生した reason の本文（$ARTIFACTS_DIR や $<節>.output.<欄> を含みうる）を貼ると黙って化けるか OutputRefError で
+run が落ちる。$LOOP_PREV で渡してよいのは、評価器が読み直しても変わらない固定の形の値（$ を含まないパス）だけ。
+reason は記録のために残す。
+環境変数が欠けたとき（ARTIFACTS_DIR は空も欠けと同じ。空だと盤面が対象リポジトリの board/ になる）と、
+ARTIFACTS_DIR が $ を含むとき（reason_file のパスが置き換えに通ってしまう）だけ、標準エラーに名前を出して 2
+（標準出力には何も出さない）。
 
 ブロックのスクリプトは、次の前置きをそのまま写し、最後の 2 行の関数だけを替える:
 
@@ -41,6 +49,7 @@ sys.exit(script_io.main(check_judge))
 import json
 import os
 import pathlib
+import re
 import sys
 
 sys.dont_write_bytecode = True   # 念押し（上の注意: この物自身の .pyc を止めるのは import する側）
@@ -48,6 +57,7 @@ sys.dont_write_bytecode = True   # 念押し（上の注意: この物自身の 
 BASE_REV_ENV = "INPUTS_BASE_REV"
 ARTIFACTS_ENV = "ARTIFACTS_DIR"
 BOARD_DIR = "board"
+REJECT_PREFIX = "reject-"
 
 
 def _emit(obj) -> None:
@@ -59,6 +69,20 @@ def _emit(obj) -> None:
     out.flush()
 
 
+def _write_reason(board: pathlib.Path, fn, reason: str) -> str:
+    """拒否の理由の本文を盤面の新しいファイルに書き、その絶対パスを返す（受け付けごと・書くたびに別の名前）"""
+    name = re.sub(r"[^A-Za-z0-9_-]", "_", getattr(fn, "__name__", "") or "fn")
+    n = 1
+    while True:
+        p = board / f"{REJECT_PREFIX}{name}-{n}.txt"
+        try:
+            with open(p, "x", encoding="utf-8", newline="") as f:
+                f.write(reason)
+            return str(p.resolve())
+        except FileExistsError:
+            n += 1
+
+
 def main(fn, reply_env: str = "INPUTS_REPLY") -> int:
     """環境変数を読み fn(reply, board, base_rev, repo) を呼んで 1 行の JSON を出す。終了コードを返す（0 か 2）"""
     missing = [n for n in (reply_env, BASE_REV_ENV, ARTIFACTS_ENV) if n not in os.environ]
@@ -67,16 +91,21 @@ def main(fn, reply_env: str = "INPUTS_REPLY") -> int:
     if missing:
         print(f"環境変数が無い: {', '.join(missing)}", file=sys.stderr)
         return 2
+    board = pathlib.Path(os.environ[ARTIFACTS_ENV]) / BOARD_DIR
+    if "$" in str(board):
+        print(f"{ARTIFACTS_ENV} が $ を含む（reason_file のパスが置き換えに通る）: {board}", file=sys.stderr)
+        return 2
+    board.mkdir(parents=True, exist_ok=True)
     raw = os.environ[reply_env]
     try:
         reply = json.loads(raw)
     except json.JSONDecodeError as e:
-        _emit({"ok": False, "reason": f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）"})
-        return 0
-    if not isinstance(reply, dict):
-        _emit({"ok": False, "reason": f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"})
-        return 0
-    board = pathlib.Path(os.environ[ARTIFACTS_ENV]) / BOARD_DIR
-    board.mkdir(parents=True, exist_ok=True)
-    _emit(fn(reply, board, os.environ[BASE_REV_ENV], pathlib.Path.cwd()))
+        out = {"ok": False, "reason": f"返答が JSON として読めない: {e}（頭: {raw[:200]!r}）"}
+    else:
+        if not isinstance(reply, dict):
+            out = {"ok": False, "reason": f"返答が JSON のオブジェクトでない（{type(reply).__name__}）"}
+        else:
+            out = dict(fn(reply, board, os.environ[BASE_REV_ENV], pathlib.Path.cwd()))
+    out["reason_file"] = "" if out.get("ok") is True else _write_reason(board, fn, str(out.get("reason", "")))
+    _emit(out)
     return 0
