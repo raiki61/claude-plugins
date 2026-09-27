@@ -160,7 +160,7 @@
 | 2 | 読めない記録は 1 と区別して落ちる | 開けない | unreadable | test_review_record.py::test_validator[unreadable] |
 | 2 | 引数なしは 1 と区別して落ちる | （終了コードだけ） | （引数なし） | test_review_record.py::test_validator[no-args] |
 | 2 | 引数が多すぎる場合も 1 と区別して落ちる | （終了コードだけ） | tmpl-12 repo:templates/round-1.example.json | test_review_record.py::test_validator[too-many-args] |
-| 2 | 深いネストの JSON も 1 と区別して落ちる（経路は環境で変わる） | （終了コードだけ） | deep | test_review_record.py::test_cli_smoke_deep_nesting |
+| 2 | 深いネストの JSON も 1 と区別して落ちる（経路は環境で変わる） | （終了コードだけ） | deep | test_review_record.py::test_validator_in_child[deep] |
 <!-- ledger:end -->
 
 ## 上位互換の証明
@@ -168,41 +168,29 @@
 台本の節（tests/run.sh の review-record.py の節）が見ていたものを、この置き場が全部見ていることを 3 段で示す。
 
 1. **行の対応**: 台本の検査 1 件ごとに行き先がある。`test_ledger_matches_script` が、台本の行と表（`review_record_cases.CASES`）を
-   `ledger.Row`（終了コード・期待の文言・説明文・読む記録）の多重集合で突き合わせる。読む記録まで見るので、期待が同じ行どうしで
-   読む記録を入れ替えても赤になる
+   `ledger.Row`（終了コード・期待の文言・説明文・読む記録）の多重集合で突き合わせる（同じ説明文の行が 2 つあるので、集合にすると
+   片方を落としても通る。読む記録まで見るので、期待が同じ行どうしで読む記録を入れ替えても赤になる）。行き先（台帳の「移した先」）は
+   pytest が集めたテストの node id と照らし、集まっていない・ほかの行と重なる行き先があれば赤になる（表の where の誤記・id の重複）
 2. **入力の一致**: [broken_records.py](broken_records.py) は壊した記録の作り方を写さず、tests/run.sh の `write_broken_records` の
-   heredoc を読んで走らせる。関数の形が変わったら止まる。写しを消す前に一度だけ、旧い写しと heredoc の出力を木とバイト列で比べ、
-   289 ファイル・140 ディレクトリが一致した（2026-09-27。`filecmp.dircmp` と `cmpfiles(shallow=False)`）
+   heredoc を読んで走らせる
 3. **被覆の包含**: 台本の節が検証器（scripts/review-record.py・scripts/record_common.py）の中で通した行が、この置き場が通した行の
-   和に含まれる。測る道具は [coverage_proof.py](coverage_proof.py)（下）
+   和に含まれる。測る道具は [coverage_proof.py](coverage_proof.py)（使い方と終了コードは道具の docstring）
 
 2 までで言えるのは「同じ引数・同じ入力で同じ検証器を走らせる」ところまでで、起こし方の違い（台本は子プロセスで `"$@" 2>&1`、
 ここは `runpy` で同じプロセス）が通る行を変えないことは言えない。3 はそこを実測で埋める。
 
 ### 被覆の包含の測り方
 
-```bash
-python3 tests/py/coverage_proof.py <置き場> [--coverage-from <coverage.py の在る置き場>]
-```
+- 台本が実際に起こした引数の集合が台帳の読み取り（`ledger.script_rows`）と違えば、道具は終了 2 で止まる。台帳の `args_of` の
+  読み違いもここで出る
+- **赤の腕**: `--only-new` で旧い側を回し直さずに新しい側だけを回し、`-- --deselect "test_review_record.py::test_validator[<id>]"`
+  で 1 件を外す。id は台帳の表の「移した先」の列の値をそのまま渡す（node id は tests/py を根に作る。`tests/py/` を頭に付けると
+  何も外れない）。何も外れなければ、道具は pytest の要約の「N deselected」を見て終了 2 で止まる。外した検査だけが通していた行が
+  あれば終了 1 になる。どの 1 件で赤になるかは、旧い側の測りを取った回に決めてここに書く
+- 限り: 測るのは行だけで、枝は測らない。新しい側の同じプロセスの行は 1 つの文脈（`new`）にまとまる
 
-- 旧い側は、台本の頭から節の終わりまでを本物の bash で回す（節の手前に `$WORK`・`$ROOT` を子へ渡す 1 行だけを足す）。
-  台帳の読み取りは使わない——使うと、台帳の突合が緑なら包含も作りの上で成り立ち、何も測らない
-- 新しい側は `python3 -m pytest tests/py` を回す。両側とも、python の起動ごとに生成した sitecustomize から coverage.py を始める
-  （環境変数 COVERAGE_PROCESS_START）ので、台本の検査の子プロセスも煙テストの子プロセスも測る。検証器の起動には、読む記録の引数で
-  文脈の名前を付ける
-- 台本が実際に起こした引数の集合が、台帳の読み取り（`ledger.script_rows`）と違えば終了 2。台帳の `args_of` の読み違いもここで出る
-- 終了は 0 = 含まれる・1 = はみ出た行がある（行と、その行を通した台本の検査の引数を出す）・2 = 空振りか道具の不備（どちらかの側が
-  赤・測った行が 0・引数の集合の食い違い）
-- **赤の腕**: `--only-new` で旧い側を回し直さずに新しい側だけを回し、`-- --deselect "tests/py/test_review_record.py::test_validator[<id>]"`
-  で 1 件を外す。外した検査だけが通していた行があれば終了 1 になる。どの 1 件で赤になるかは、旧い側の測りを取った回に決めてここに書く
-- 限り: 測るのは行だけで、枝は測らない。新しい側の同じプロセスの行は 1 つの文脈（`new`）にまとまる——`dynamic_context =
-  test_function` は、`include` の外（テストの関数）のフレームを tracer が見ないので付かない（実測）
-
-**結果: 包含は未実施（2026-09-27）。** 手元の python3 3.14.7 に coverage.py は入っていない。uv の cache の写し（coverage 7.16.1。
-C の tracer は cpython-314）は `--coverage-from` で渡せば import できた。新しい側だけは手元で測れた（review-record.py 606 行・
-record_common.py 28 行）。旧い側（台本の節を回す 1 回）は人が「testslot の枠を通して 1 回だけ」と条件を付けて許したが、この run の
-修正役の起動からは枠の台本を起こせなかった（権限で拒まれた）ので、枠の外では回していない。人が枠を通して 1 回回すか、CI の段
-（下の「門と CI の段」）で回し、結果をここに書く。
+**結果: 包含は未実施。** 旧い側は、人が許した testslot の枠で 1 回回す（問いの台帳の held の問い）か、CI の段（下の「門と CI の段」）で
+回し、結果をここに書く。
 
 ### 変異の腕（CI で撃つ手順）
 
@@ -213,26 +201,14 @@ record_common.py 28 行）。旧い側（台本の節を回す 1 回）は人が
   落ちる腕ではないので、台本の節を消しても付け替えは要らない。節の検査を当てにする腕を足すなら、腕の実行器 [tests/mutate.py](../mutate.py)
   に pytest の口が要る（今は bash の台本しか回せない。[graphloops/README.md の「検査」](../../graphloops/README.md#検査) の
   「置き場の方針」）
-- **mutmut**: 回し方（作業ツリーの一時の写しの上で、毎回新しく撃つ）は [graphloops/README.md の「検査」](../../graphloops/README.md#検査) に
-  従う。違うのは、写しの根で回すことと、設定（写しの根の setup.cfg）だけ:
-
-  ```ini
-  [mutmut]
-  source_paths = scripts/
-  only_mutate = scripts/review-record.py
-  pytest_add_cli_args_test_selection =
-      tests/py/
-  also_copy =
-      tests/
-      templates/
-      graphloops/tests/py/
-  ```
-
-  `graphloops/tests/py/` を写すのは、tests/py/conftest.py が写しの根から graphloops/tests/py/fence.py を読むため（fence.py は標準
-  ライブラリと pytest だけを import する）。tests/ は台本（broken_records.py と ledger.py が読む tests/run.sh）を、templates/ は
-  壊した記録の雛形を運ぶ。CI で最初に確かめる点: 検証器はハイフン付きの名前で、`runpy.run_path(run_name="__main__")` で起こしている。
-  mutmut の trampoline がこの形で変異を拾えるか——拾えなければ、生き残りが「テスト無し」に化ける。差分の行だけを撃つ形（Google 型）に
-  どう絞るかは、job を作る run で決める。Windows では mutmut が動かない
+- **mutmut**: この置き場のテストのままでは、pytest の側の mutmut は review-record.py の変異を拾えない。mutmut の trampoline は、
+  変異の名前の module と、呼ばれた関数の `__module__` を突き合わせ、違えば元の関数を呼ぶ（mutmut の
+  [src/mutmut/mutation/trampoline.py](https://github.com/boxed/mutmut/blob/main/src/mutmut/mutation/trampoline.py)）。検証器は
+  `runpy.run_path(run_name="__main__")` で（子プロセスでも `__main__` として）起こすので、関数の `__module__` は `__main__` になり、
+  変異は効かず、どのテストにも結び付かない。載せる job を作る run が選ぶ道は次の 2 つ:
+  - 本体を import できるモジュールへ移し、scripts/review-record.py を薄い殻にする（scripts/ を触る）
+  - テストの側で、検証器を mutmut が付ける module の名前のまま読み込み、`__main__` の段の境界（想定外の例外を 2 に倒す）は子プロセスの
+    検査に任せる
 - **既存の記述とのずれ**（どれも tests/py の外なので、この run では直していない）: graphloops/README.md の「検査」節・tests/mutate.py の
   docstring の「mutmut との受け持ち」・.github/workflows/mutation.yml の冒頭の注記は、どれも「mutmut は手元で撃ち CI では回さない。
   受け持ちは graphloops/engine/schema.py」と書いている。人の方針とも、ここに足す 2 本目の対象とも食い違う。直すのは、CI の job を
@@ -248,7 +224,7 @@ fence は 1 回の起動に 1 つの置き場しか載せないので別の起�
 
 ### 台本の側を消す run でやること
 
-- ledger.py・coverage_proof.py と、それを見る検査（`test_ledger_*`）を同じ変更で消す
+- ledger.py・coverage_proof.py と、それを見る検査（`test_ledger_*`・`test_coverage_proof_*`）を同じ変更で消す
 - **生成の正本の向きを逆にする。** 今は壊した記録の作り方の正本が台本の `write_broken_records` に在り、broken_records.py がそれを読む。
   台本の review-record.py の節を消しても、research-record.py・doctor-record.py の節が同じ記録を使うので、生成は残る。その run
   （か、fork が「tests/py の外を触ってよい」と答えた周）で、heredoc の本文を broken_records.py へ移し、台本の `write_broken_records` が

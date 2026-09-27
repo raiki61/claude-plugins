@@ -3,13 +3,9 @@
 
 台本の行は、節（`echo "review-record.py"` から `echo "research-record.py"` の手前まで）を bash に読ませて取る。
 expect_output・expect_exit を「引数を書き出すだけ」の関数に差し替え、検証器は起こさない——表のループ（CASES）の
-展開も bash 自身がするので、読み違えない。台本の行と表（review_record_cases.CASES）は Row の 4 つの欄（検証器に
-渡す引数まで）の多重集合で突き合わせる（同じ説明文の行が 2 つある。集合にすると片方を落としても通る。引数を外すと、
-期待が同じ行どうしで読む記録を入れ替えても通る）。
+展開も bash 自身がするので、読み違えない。行き先は pytest が集めたテストの node id（rootdir は tests/py）と照らす。
 
-`python3 tests/py/ledger.py` で tests/py/MIGRATION.md の台帳の表を書き直す（表は手で直さない。
-test_review_record.py が、表が今の台本と表から作った物と一致することを見る）。
-台本の側を消す run では、この道具と、それを見る検査も同じ変更で消す。
+`python3 tests/py/ledger.py` で tests/py/MIGRATION.md の台帳の表を書き直す（表は手で直さない）。
 """
 import collections
 import pathlib
@@ -24,8 +20,10 @@ REPO = HERE.parents[1]
 DOC = HERE / "MIGRATION.md"
 BEGIN, END = "<!-- ledger:begin -->", "<!-- ledger:end -->"
 SECTION = ('echo "review-record.py"', 'echo "research-record.py"')
+# ran を 0 のまま見るのは、expect_output を通らずに手で数える検査（ここの読み取りが拾わない形）を止めるため
 STUB = r"""set -uo pipefail
 ROOT=@ROOT@; WORK=@WORK@; PY_BIN=@PY@
+fail=0 ran=0
 ANY_OUTPUT='__any_output__'
 emit() { printf '%s\x1e' "$@"; printf '\x1d'; }
 expect_output() { emit "$@"; }
@@ -38,7 +36,6 @@ Row = collections.namedtuple("Row", "exit want was args")
 
 
 def args_of(argv):
-    """台本が起こす argv を Case.args の形（素の名前は <work> の下・repo: は根の下）に写す。知らない形は止める"""
     if list(argv[:2]) != ["@PY@", VALIDATOR]:
         raise SystemExit(f"台本の節の検査が検証器を \"$PY_BIN\" \"$RECORD\" で起こしていない: {argv}")
     out = []
@@ -52,24 +49,47 @@ def args_of(argv):
     return tuple(out)
 
 
-def script_rows(root=REPO):
-    """台本の節の検査を Row の並びで返す（台本の順）"""
-    lines = (root / "tests" / "run.sh").read_text(encoding="utf-8").splitlines()
+def bounds(lines):
     try:
         a, b = lines.index(SECTION[0]), lines.index(SECTION[1])
     except ValueError:
-        raise SystemExit(f"tests/run.sh に節の境目 {SECTION} が無い——台本の節を動かしたら、この道具も直せ")
+        a = b = None
+    if a is None or b < a:
+        raise SystemExit(f"tests/run.sh に節の境目 {SECTION} がこの順で無い——台本の節を動かしたら、この道具も直せ")
+    return a, b
+
+
+def script_rows(root=REPO):
+    """台本の節の検査を Row の並びで返す（台本の順）"""
+    lines = (root / "tests" / "run.sh").read_text(encoding="utf-8").splitlines()
+    a, b = bounds(lines)
     bash = shutil.which("bash") or "bash"
-    got = subprocess.run([bash, "-s"], input="\n".join([STUB, *lines[a:b], ""]).encode("utf-8"),
-                         capture_output=True, check=True).stdout.decode("utf-8")
-    rows = [r.split("\x1e")[:-1] for r in got.split("\x1d") if r]
+    got = subprocess.run([bash, "-s"], input="\n".join([STUB, *lines[a:b], "printf '\\x1c%s' \"$ran\"", ""]).encode("utf-8"),
+                         capture_output=True)
+    out, err = got.stdout.decode("utf-8"), got.stderr.decode("utf-8", "replace")
+    body, sep, ran = out.rpartition("\x1c")
+    if got.returncode != 0 or err or not sep:
+        raise SystemExit(f"台本の節を読み切れない（終了 {got.returncode}。STUB に無い関数・未定義の変数か）: {err[-2000:]}")
+    if ran != "0":
+        raise SystemExit(f"台本の節に expect_output・expect_exit を通らない検査が在る（ran={ran}）——台帳が拾えない")
+    rows = [r.split("\x1e")[:-1] for r in body.split("\x1d") if r]
     return [Row(int(e), w, d, args_of(argv)) for e, w, d, *argv in rows]
 
 
+def collected(here=HERE):
+    """pytest が集めたテストの node id の集合（rootdir は here の pytest.ini）"""
+    got = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", str(here)],
+                         cwd=here, capture_output=True)
+    out = got.stdout.decode("utf-8", "replace")
+    if got.returncode != 0:
+        raise SystemExit(f"テストを集められない（終了 {got.returncode}。件数の柵 EXPECTED_ITEMS の更新漏れもここに出る）: "
+                         f"{out[-2000:]}{got.stderr.decode('utf-8', 'replace')[-2000:]}")
+    return {line for line in out.splitlines() if "::" in line}
+
+
 def node(case):
-    if case.where == "smoke":
-        return "test_review_record.py::test_cli_smoke_deep_nesting"
-    return f"test_review_record.py::test_validator[{case.id}]"
+    # 未知の where も test_validator に落とす。そこには集まらないので stray が拾う
+    return f"test_review_record.py::{'test_validator_in_child' if case.where == 'smoke' else 'test_validator'}[{case.id}]"
 
 
 def row_of(case):
@@ -83,6 +103,12 @@ def pair(rows, cases=review_record_cases.CASES):
         left[row_of(c)].append(c)
     out = [(r, node(left[r].pop(0)) if left[r] else None) for r in rows]
     return out, [c for cs in left.values() for c in cs]
+
+
+def stray(pairs, ids):
+    """行き先が無い・集めたテスト（ids）に無い・ほかの行と重なる行"""
+    seen = collections.Counter(d for _, d in pairs)
+    return [(r, d) for r, d in pairs if d not in ids or seen[d] > 1]
 
 
 def cell(s):
@@ -105,12 +131,12 @@ def block(text):
 
 def main():
     pairs, extra = pair(script_rows())
-    empty = sum(1 for _, d in pairs if d is None)
+    bad = stray(pairs, collected())
     text = DOC.read_text(encoding="utf-8")
     a, b = text.index(BEGIN) + len(BEGIN), text.index(END)
     DOC.write_text(text[:a] + "\n" + render(pairs) + "\n" + text[b:], encoding="utf-8")
-    print(f"台本の検査 {len(pairs)} 件・空欄 {empty} 件・台本に無い表の行 {len(extra)} 件")
-    sys.exit(1 if empty or extra else 0)
+    print(f"台本の検査 {len(pairs)} 件・行き先が無いか集めたテストに無いか重なる {len(bad)} 件・台本に無い表の行 {len(extra)} 件")
+    sys.exit(1 if bad or extra else 0)
 
 
 if __name__ == "__main__":

@@ -6,17 +6,24 @@
 - 旧い側は、台本の頭から節の終わりまでを本物の bash で回す（expect_output が "$@" を展開して検証器を起こす形も、冒頭の
   unset PYTHONOPTIMIZE などの環境もそのまま）。台帳（ledger.py）の読み取りは使わない——使うと、台帳の突合が緑なら
   包含も作りの上で成り立ち、何も測らない。新しい側は pytest を回す。どちらも python の起動ごとに sitecustomize から
-  coverage.py を始め（COVERAGE_PROCESS_START）、子プロセス（台本の検査・煙テスト）も測る
-- --only-new: 旧い側を回し直さず、<置き場>/old の測りを使う（台本の節を手元で回すのは人が許した回数に限るため）
+  coverage.py を始め（COVERAGE_PROCESS_START）、子プロセス（台本の検査・煙テスト）も測る。旧い側は、この道具を動かす python を
+  PATH の先頭に置いて回し、台本が選ぶ python がそれと違えば止める（両側を同じ解釈系で測る）
+- --only-new: 旧い側を回し直さず、<置き場>/old の測りを使う（台本の節を手元で回すのは人が許した回数に限るため）。測った時の入力
+  （検証器・台本の節の終わりまで・templates/・python と coverage.py の版）のハッシュが今と違えば止める
+- -- の後の引数は、新しい側から検査を選び外すためだけに渡す（赤の腕）。pytest の要約に「N deselected」が無ければ止める
 - 終了: 0 = 含まれる / 1 = はみ出た行がある（行と、それを通した台本の検査の引数を出す）/ 2 = 空振りか道具の不備
-  （どちらかの側が赤・測った行が 0・台本が実際に起こした引数の集合が台帳の読み取りと違う）
+  （どちらかの側が赤・測った行が 0・台本が実際に起こした引数の集合が台帳の読み取りと違う・何も選び外していない・旧い側の測りの
+  版違い・想定外の例外）
 """
 import argparse
+import hashlib
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
+import traceback
 
 import ledger
 
@@ -64,10 +71,28 @@ def env_for(out, side, cov_from):
     return {**os.environ, "COVERAGE_PROCESS_START": str(rc(out, side)), "PYTHONPATH": os.pathsep.join(paths)}
 
 
+def inputs_digest(root, extra):
+    """旧い側の測りが依る入力（旧い側が回す台本の範囲・検証器・雛形と extra の文字列）のハッシュ"""
+    lines = (root / "tests" / "run.sh").read_text(encoding="utf-8").splitlines()
+    _, b = ledger.bounds(lines)
+    files = [root / "scripts" / t.name for t in TARGETS] + sorted(p for p in (root / "templates").rglob("*") if p.is_file())
+    parts = [("tests/run.sh", "\n".join(lines[:b]).encode("utf-8")),
+             *((f.relative_to(root).as_posix(), f.read_bytes()) for f in files),
+             *((f"extra{i}", e.encode("utf-8")) for i, e in enumerate(extra))]
+    h = hashlib.sha256()
+    for name, data in parts:
+        h.update(b"%s\0%d\0" % (name.encode("utf-8"), len(data)) + data)
+    return h.hexdigest()
+
+
 def run_old(out, env):
-    """台本の頭から review-record.py の節の終わりまでを回す。節の手前で $WORK と $ROOT を子へ渡すだけ足す"""
+    env = {**env, "PATH": os.pathsep.join([os.path.dirname(sys.executable), env.get("PATH", "")])}
+    # 台本は PATH の python3（無ければ python）で検証器を起こす
+    picked = shutil.which("python3", path=env["PATH"]) or shutil.which("python", path=env["PATH"])
+    if not picked or not os.path.samefile(picked, sys.executable):
+        stop(f"台本が選ぶ python（{picked}）がこの道具を動かす {sys.executable} と違う——両側を同じ解釈系で測れない")
     lines = (REPO / "tests" / "run.sh").read_text(encoding="utf-8").splitlines()
-    a, b = lines.index(ledger.SECTION[0]), lines.index(ledger.SECTION[1])
+    a, b = ledger.bounds(lines)
     text = [*lines[:a], 'export COVPROOF_WORK="$WORK" COVPROOF_ROOT="$ROOT"', *lines[a:b], 'exit "$fail"', ""]
     (out / "old.sh").write_text("\n".join(text), encoding="utf-8")
     # source なので $0 は台本のパスのまま（台本は $0 から ROOT を出す）
@@ -79,6 +104,15 @@ def run_old(out, env):
 def run_new(env, extra):
     return subprocess.run([sys.executable, "-m", "pytest", str(HERE), "-q", "-p", "no:cacheprovider", *extra],
                           env=env, cwd=REPO, capture_output=True)
+
+
+def deselected(pytest_args, summary):
+    """pytest の要約が言う選び外した件数。-- の後の引数を渡したのに 0 なら止める（赤の腕の空振り）"""
+    m = re.search(r"(\d+) deselected", summary)
+    n = int(m.group(1)) if m else 0
+    if pytest_args and not n:
+        stop(f"-- の後の引数 {pytest_args} で新しい側から何も選び外していない（node id は tests/py を根に書く）: {summary[-2000:]}")
+    return n
 
 
 def stop(msg, got=None):
@@ -101,7 +135,8 @@ def measured(out, side):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("out", type=pathlib.Path)
-    p.add_argument("--coverage-from", action="append", default=[])
+    # 子は cwd=REPO で PYTHONPATH を読むので、相対のままだと親と別の場所を指す
+    p.add_argument("--coverage-from", action="append", default=[], type=lambda s: str(pathlib.Path(s).resolve()))
     p.add_argument("--only-new", action="store_true")
     p.add_argument("pytest_args", nargs="*")
     a = p.parse_args()
@@ -114,9 +149,14 @@ def main():
     (out / "new").mkdir(parents=True, exist_ok=True)
     for f in (out / "new").iterdir():
         f.unlink()
+    # 回す前に取る（回している間に変わった物を掴まない）。old/ の中に置くので、旧い側を回し直すたびに消える
+    digest = inputs_digest(REPO, (sys.version, coverage.__version__))
+    mark = out / "old" / "inputs"
     if a.only_new:
-        if not any((out / "old").glob(".coverage*")):
-            stop(f"--only-new なのに {out / 'old'} に旧い側の測りが無い")
+        if not any((out / "old").glob(".coverage*")) or not mark.is_file():
+            stop(f"--only-new なのに {out / 'old'} に旧い側の測り（か、測った時の入力の印 inputs）が無い")
+        if mark.read_text(encoding="utf-8") != digest:
+            stop("旧い側の測りが、今の検証器・台本・雛形・python・coverage.py と別の版で取られた——旧い側を回し直せ")
     else:
         (out / "old").mkdir(exist_ok=True)
         for f in (out / "old").iterdir():
@@ -125,10 +165,12 @@ def main():
         (out / "old.log").write_bytes(got.stdout + got.stderr)
         if got.returncode != 0:
             stop(f"旧い側（台本の節）が赤で終わった（終了 {got.returncode}）——包含を言える状態でない", got)
+        mark.write_text(digest, encoding="utf-8")
     got = run_new(env_for(out, "new", a.coverage_from), a.pytest_args)
     (out / "new.log").write_bytes(got.stdout + got.stderr)
     if got.returncode != 0:
         stop(f"新しい側（pytest）が赤で終わった（終了 {got.returncode}）——包含を言える状態でない", got)
+    print(f"新しい側から選び外した検査 {deselected(a.pytest_args, got.stdout.decode('utf-8', 'replace'))} 件")
     print(f"coverage.py {coverage.__version__}")
     want = {"argv:" + " ".join(r.args) for r in ledger.script_rows()}
     sys.exit(1 if judge(measured(out, "old"), measured(out, "new"), want) else 0)
@@ -155,8 +197,22 @@ def judge(old, new, want):
     return excess
 
 
+def guarded_main():
+    """終了コードの境界: 文を渡した SystemExit（素のままだと 1）と想定外の例外を、はみ出し（1）と分けて 2 に倒す"""
+    try:
+        main()
+    except SystemExit as e:
+        if e.code is None or isinstance(e.code, int):
+            raise
+        print(e.code)
+        sys.exit(2)
+    except Exception:
+        traceback.print_exc()
+        sys.exit(2)
+
+
 if __name__ == "__main__":
     for _s in (sys.stdout, sys.stderr):
         if hasattr(_s, "reconfigure"):
             _s.reconfigure(encoding="utf-8")
-    main()
+    guarded_main()

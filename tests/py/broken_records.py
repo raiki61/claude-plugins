@@ -12,8 +12,7 @@ HEAD = ("write_broken_records() {", '    "$PY_BIN" - "$ROOT" "$WORK" <<\'PY\'')
 TAIL = ("PY", "}")
 
 
-def generator(root):
-    """tests/run.sh の write_broken_records の heredoc の本文"""
+def heredoc_body(root):
     lines = (pathlib.Path(root) / "tests" / "run.sh").read_text(encoding="utf-8").splitlines()
     try:
         a = lines.index(HEAD[0])
@@ -29,4 +28,4 @@ def generator(root):
 
 def write_all(root, work):
     """<root>/templates の雛形から壊した記録を <work> の下に書く（<work> は在る空のディレクトリ）"""
-    subprocess.run([sys.executable, "-", str(root), str(work)], input=generator(root).encode("utf-8"), check=True)
+    subprocess.run([sys.executable, "-", str(root), str(work)], input=heredoc_body(root).encode("utf-8"), check=True)
