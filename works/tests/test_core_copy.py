@@ -119,7 +119,10 @@ class TestCoreCopy(unittest.TestCase):
         meta = yaml.safe_load(fm)
         self.assertEqual(meta["name"], "works")
         self.assertTrue(meta.get("description"))
-        self.assertIn("raiki61/works:darkfactory", body)
+        # ほかのリポジトリの入口は起動の殻 use.sh（入れる・確かめる・起動・差分の出し直し）。Archon を直に打つ形は案内しない
+        for line in ('dev/use.sh" check', 'dev/use.sh" start', 'dev/use.sh" show', "claude plugin install works@raiki61"):
+            self.assertIn(line, body)
+        self.assertNotIn("archon workflow run raiki61/works:darkfactory", body)
         p = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
         self.assertEqual(p["name"], "works")
         self.assertEqual(p["version"], "0.1.0")

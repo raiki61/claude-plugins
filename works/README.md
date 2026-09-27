@@ -2,23 +2,35 @@
 
 持ち主の普段の作業を Archon（AI の工程を YAML で書いて機械が順に回す道具）の上に移す pack。最初の生産ライン `darkfactory` は、人の修正依頼を判定 → 修正 → テスト → 人の承認 → 修正の審査の順に流す。並べ方は Archon に任せ、差を付けるのは各節の受け付け——graphloops（このリポジトリの既存のプラグイン）の規則と記録の検証器を `.shared/core/` に写して使い、中身が通ったときだけ次へ進める。
 
-## 入れ方
+## 入れ方（ほかのリポジトリで使う）
 
-```
-archon plugin install raiki61/claude-plugins/works@<tag>
-```
+入口は Claude Code のスキル `skills/works/SKILL.md`（`/works`）。手順の正本はそこで、ここは要点だけ。
+
+1. このリポジトリを clone し、場所を `WORKS_REPO` に置く。起動の殻 `works/dev/use.sh` と pack はこの clone から使う。
+2. スキルを入れる: `claude plugin marketplace add raiki61/claude-plugins`（登録済みなら `claude plugin marketplace update raiki61`）→ `claude plugin install works@raiki61`。marketplace の works の行（リポジトリ直下の `.claude-plugin/marketplace.json`）が GitHub に届く前は `claude --plugin-dir "$WORKS_REPO/works"`。
+3. 対象リポジトリで確かめる（AI を起こさない）: `sh "$WORKS_REPO/works/dev/use.sh" check <対象>`。
+4. 回す: `sh "$WORKS_REPO/works/dev/use.sh" start <対象> <依頼の JSON> "<test_cmd>" [<tdd_suite>]`。関所で止まるたびに次に打つ行が出る。`use.sh show <対象>` で状態・報告の置き場・差分のファイル（`git -C <対象> apply` の行）を出し直す。
+
+`use.sh` の決まり:
+
+- pack は対象に置かず、利用の家（`WORKS_USE_HOME`。既定 `${XDG_STATE_HOME:-~/.local/state}/works/use`）の Archon の全体の工程の置き場 `archon-home/workflows/works` に、起こすたびに写す。Archon v0.11.1 は `$ARCHON_HOME/workflows/<pack>/` も探す（実行ファイルの中の探し方で確かめ、使い捨ての対象で `validate`・`workflow test works` が通った）。
+- Archon と AI の役は `archon.sh` を通してだけ起こす。家は開発の家（`WORKS_DEV_HOME`）を継がない（走っている自分食いの家を書き換えない）。
+- run の worktree は `--from <対象の HEAD>` で切る。対象に commit していない変更・未追跡のファイルがある・`origin` が無い・`/private/tmp` の下・pack の写し `.archon/workflows/works` がある時は、何もせずに 1 行で止まる。
+- `tdd_suite` を省くと、`test_cmd` が pytest の 1 コマンドの時だけ `--junitxml` を足す実行器を家の `suites/` に書いて渡し、そうでなければ空（直に直す）にして 1 行で知らせる。
+- 差分は家の `diffs/run-<id>.diff`。当てるのは人。
+- Claude Code のプラグインの置き場の写し（`plugins/cache/…/works/<版>/`）からは起動できない。`dev/toolset.py` が coldwrite をリポジトリ直下の marketplace から写すため（写しの親に marketplace.json が無い）。
+
+`archon plugin install raiki61/claude-plugins/works@<tag>` で入れて Archon を直に打つ形は、tag を打つまで入らず、入れても AI の役が利用者の本物の `~/.claude` を読む（下の「選んだ物だけの隔離した Claude の設定」）ので、まだ使わない。
 
 ## 要る物
 
 - Archon v0.11.1 以上 0.12.0 未満（`archon-plugin.json` の `compatibility.archon` が `>=0.11.1 <0.12.0`。確かめたのは v0.11.1 だけ）。
 - uv（script の節は `runtime: uv` で起きる）と git。節のスクリプトは PEP 723 の塊を持つので、対象が pyproject.toml を持っても uv は対象の project を拾わない（worktree に .venv・uv.lock を作らない）。既知の限界: 対象の uv の設定（`[tool.uv]`・`uv.toml`）は読まれるので、それが壊れているか、手元の uv に合わない `required-version` を持つと、works の script の節は起動時に終了コード 2 で止まる。直すのは対象か uv の設定。`UV_NO_CONFIG=1` を Archon の環境に立てて逃げるのは勧めない: 対象自身の uv の動きも変わり（テストのコマンドや修正役の Bash が私的な index を読まずに公開の PyPI から解決する）、偽の赤と依存の取り違えの口になる。
-- 対象リポジトリに git の remote。Archon は run ごとの worktree を既定で `origin/<既定の枝>` から切るので、remote が無いと run が始まらない。手元の枝や commit していない変更は worktree に入らないので、依頼の JSON は対象の外に置いて絶対パスで渡す（`skills/works/SKILL.md` の 2 節）。
+- 対象リポジトリに git の remote。Archon は run ごとの worktree を既定で `origin/<既定の枝>` から切るので、remote が無いと run が始まらない。手元の commit していない変更は worktree に入らないので、依頼の JSON は対象の外に置いて絶対パスで渡す（`dev/use.sh` は依頼を利用の家に写して渡し、worktree を対象の HEAD から切る）。
 
 ## Claude Code のスキル
 
-`skills/works/SKILL.md`（`/works`）に、依頼の JSON の書き方・起動の 1 行・人の関所での答え方・run の後に見る物（判定・審査の返答・修正の差分・run ごとの worktree）を置く。Claude Code のプラグインの定義は `.claude-plugin/plugin.json`。
-
-持ち主に確かめること: Claude Code のプラグインとして配るには、リポジトリ直下の `.claude-plugin/marketplace.json` に works の 1 行が要る。共有のファイルなので、まだ足していない。
+`skills/works/SKILL.md`（`/works`）に、入れ方・依頼の JSON の書き方・起動の 1 行（`dev/use.sh`）・人の関所での答え方・報告と差分の取り込み方を置く。Claude Code のプラグインの定義は `.claude-plugin/plugin.json`、配る行はリポジトリ直下の `.claude-plugin/marketplace.json` の `works`（source `./works`）。
 
 ## 開発の回し方
 
