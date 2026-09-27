@@ -545,10 +545,12 @@ def reply(step: Step, board: DiskBoard, names: bool = True) -> dict:
 
 
 def mark(board: DiskBoard, nid: str) -> dict:
-    """ラインと同じく、節の待っている試行に起こした印を置く（mark_launched(節, 今の試行)。手本の台本は役を起こさずに done したが、
+    """ラインと同じく、節の待っている試行に起こした印を置く（mark_launched(節, 今の試行, pointers=描いた一覧の控え)。手本の台本は役を起こさずに done したが、
     盤面は印の無い返答を受けないので、再生は受け付けの前にこれを呼ぶ）"""
     inst = next((i for i in board.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
-    return board.mark_launched(nid, (inst or {}).get("attempts", 1))
+    # 番号で指す節は、ラインと同じく描いた一覧（pointer_rows の控え）を渡す（描く → 印を、印の直前に描いた形で当てる）
+    drawn = board.pointer_rows(nid)["pointers"] if board.nodes.get(nid, {}).get("pointers") else None
+    return board.mark_launched(nid, (inst or {}).get("attempts", 1), pointers=drawn)
 
 
 def engine_run_plan(step: Step, board: DiskBoard) -> dict:

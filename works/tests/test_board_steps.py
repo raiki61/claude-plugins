@@ -195,7 +195,7 @@ class AcceptStepsCase(StepCase):
         self.assertEqual(bad, [], "\n".join(bad[:20]))
         self.assertEqual(named, 1)   # 台本の役が番号で書いた手（p2.plan_review）。撮り直しで増えたら黙って通さない
         self.assertEqual(nested, 71)
-        self.assertGreater(snaps, 0)
+        self.assertEqual(snaps, 179)   # 番号で指す節の受け付けの手。撮り直しで印を置かなくなったら黙って通さない
 
     def test_accept_reject_leaves_board(self):
         """拒まれた accept の手: accept が Reject、文が手本の文と同じ、盤面の置き場の全部のファイルが前のまま。
@@ -293,7 +293,10 @@ class AcceptStepsCase(StepCase):
         snap = copy.deepcopy(b.rd["instances"]["p2.fix_plan"]["pointers"])
         self.assertEqual(snap, [{"at": "plan[].unit_keys[]", "names": keys}])
         b.record["units"].reverse()
-        self.assertTrue(R.mark(b, "p2.fix_plan")["already"])
+        self.assertTrue(b.mark_launched("p2.fix_plan", 1)["already"])
+        self.assertTrue(b.mark_launched("p2.fix_plan", 1, pointers=snap)["already"])
+        with self.assertRaises(Reject):   # 起こした後に別の一覧で描き直した（起こした役のプロンプトと番号が合わない）
+            b.mark_launched("p2.fix_plan", 1, pointers=b.pointer_rows("p2.fix_plan")["pointers"])
         self.assertEqual(b.rd["instances"]["p2.fix_plan"]["pointers"], snap)
         out = copy.deepcopy(named)
         for p in out["plan"]:
@@ -302,6 +305,53 @@ class AcceptStepsCase(StepCase):
         b.accept("p2.fix_plan", out)
         got = json.loads((b.dir / "out" / f"r{b.round}" / "p2.fix_plan.json").read_text(encoding="utf-8"))
         self.assertEqual(got["plan"], named["plan"])
+
+    def test_pointer_rows_number_like_engine(self):
+        """pointer_rows: ラインが貼る一覧の行（engine の pointers.number と同じ no）と、印に渡す控え（engine の出す時の控えと同じ）"""
+        s = first_step("test_converges", "p2.fix_plan")
+        want = R.memory_at(s.run_steps, s["seq"], "before")["state"]["rounds"][-1]["instances"]["p2.fix_plan"]["pointers"]
+        b = self.board_before(s, edit=strip_pointers, mark=False)
+        got = b.pointer_rows("p2.fix_plan")
+        self.assertEqual(R.Places.of_board(b.dir).tokenize(got["pointers"]), want)
+        self.assertEqual(got["rows"], {"record.units": engine_pointers.number(b.record["units"], 0)})
+        self.assertEqual([r["no"] for r in got["rows"]["record.units"]], list(range(1, len(b.record["units"]) + 1)))
+        self.assertEqual(b.pointer_rows("p0.base"), {"pointers": None, "rows": {}})   # 番号で指さない節
+        with self.assertRaises(BoardGap):
+            b.pointer_rows("p9.none")
+
+    def test_pointer_mark_rejects_list_changed_after_draw(self):
+        """描いた後・印の前に一覧が変わったら、mark_launched は Reject（描き直せ）で盤面を書かない。描き直せば印が置け、控えは描いた一覧"""
+        s = first_step("test_converges", "p2.fix_plan")
+        b = self.board_before(s, edit=strip_pointers, mark=False)
+        drawn = b.pointer_rows("p2.fix_plan")["pointers"]
+        b.record["units"].reverse()
+        before = tree_shas(b.dir)
+        with self.assertRaises(Reject) as cm:
+            b.mark_launched("p2.fix_plan", 1, pointers=drawn)
+        self.assertIn("描き直して", str(cm.exception))
+        self.assertEqual(tree_shas(b.dir), before)
+        self.assertNotIn("launched_at", b.rd["instances"]["p2.fix_plan"])
+        redrawn = b.pointer_rows("p2.fix_plan")["pointers"]
+        self.assertNotEqual(redrawn, drawn)
+        self.assertFalse(b.mark_launched("p2.fix_plan", 1, pointers=redrawn)["already"])
+        self.assertEqual(b.rd["instances"]["p2.fix_plan"]["pointers"], redrawn)
+
+    def test_pointer_mark_without_drawn_list(self):
+        """描いた一覧を渡さない印は控えを持たない（番号は受け付けで engine の文で拒む）。番号で指さない節に一覧を渡すのは配線の誤り"""
+        s = first_step("test_converges", "p2.fix_plan")
+        b = self.board_before(s, edit=strip_pointers, mark=False)
+        b.mark_launched("p2.fix_plan", 1)
+        self.assertNotIn("pointers", b.rd["instances"]["p2.fix_plan"])
+        out = R.reply(s, b)
+        out["plan"][0]["unit_keys"] = [1]
+        errs = engine_pointers.resolve(copy.deepcopy(out), GRAPH["nodes"]["p2.fix_plan"]["pointers"], None)
+        with self.assertRaises(Reject) as cm:
+            b.accept("p2.fix_plan", out)
+        self.assertEqual(str(cm.exception), "p2.fix_plan: " + "; ".join(errs))
+        s = first_step("test_converges", "p0.base")
+        b = self.board_before(s, mark=False)
+        with self.assertRaises(BoardGap):
+            b.mark_launched("p0.base", 1, pointers=[])
 
     def test_instance_done_and_output_link(self):
         s = first_step("test_converges", "p0.base")
