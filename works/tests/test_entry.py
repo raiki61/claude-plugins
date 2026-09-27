@@ -6,6 +6,7 @@ p2.rejudge・p2.rejudge_third は役（blk-rejudge。包みが判定役の会話
 盤面を作る試験は linekit の種（dev/target-seed/）を使い捨ての家（linekit.work_home()）の下に置いて回す。
 """
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -339,6 +340,578 @@ class LinekitCase(unittest.TestCase):
                     linekit.work_home()
                 self.assertNotIn("\n", str(cm.exception))
                 self.assertFalse(pathlib.Path(base).exists())
+
+
+
+# ---------------------------------------------------------------- start（線 A の仕様 4 節。計画 Task 7）
+# 入力の確かめ・盤面を開く・修正前のテストの記録・方針の文・切符。盤面は linekit の種（stats.py・test_stats.py。赤 2 件）で
+# 本物の darkfactory の表で作る。切符は包みの家を使い捨ての場所に向けて書く（WORKS_ADAPTER_HOME）。
+# 裁定 R52（review-graph と同等）: test_cmd が空で宣言も無い run は拒まない。p0.local_checks は任せ先に落ちたまま残し、
+# run_ci は偽の素材を渡さずに role_needed を返し、start の返りの ci_role_go が真になる（任せ先の役のブロックは後の Task）
+import subprocess  # noqa: E402
+
+import ticket  # noqa: E402
+
+SCRIPT = ROOT / "darkfactory" / "scripts" / "start.py"
+SEED_CMD = "python3 -m unittest test_stats"
+
+
+def request_file(into: pathlib.Path, items=None) -> pathlib.Path:
+    """依頼のファイル（既定は種の request_ok.json の中身。2 件）"""
+    into.parent.mkdir(parents=True, exist_ok=True)
+    doc = items if items is not None else json.loads((linekit.SEED / "request_ok.json").read_text(encoding="utf-8"))
+    into.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    return into
+
+
+def pending_inst(b, nid):
+    return next((i for i in b.rd["instances"].values() if i["node"] == nid and i["status"] == "pending"), None)
+
+
+class StartCaseBase(unittest.TestCase):
+    def setUp(self):
+        self._old_cwd = engine_util.GIT_CWD
+        self._tmp = tempfile.TemporaryDirectory(dir=linekit.work_home())
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.home = self.tmp / "adapter-home"
+        env = mock.patch.dict("os.environ", {"WORKS_ADAPTER_HOME": str(self.home)})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def tearDown(self):
+        engine_util.GIT_CWD = self._old_cwd
+        self._tmp.cleanup()
+
+    def seed(self, **kw):
+        return linekit.seed_repo(self.tmp / "repo", **kw)
+
+    def raw(self, **kw):
+        req = request_file(self.tmp / "req" / "request.json")
+        return {"request": str(req), "test_cmd": "", "thickness": "", "gates": "", "mid_gate": "", "adapter": "",
+                "policy_md": "", **kw}
+
+    def start(self, repo, raw=None, **kw):
+        self.board = self.tmp / "board"
+        return entry.start(self.board, repo, raw if raw is not None else self.raw(**kw), run_id="run-7")
+
+
+class CheckInputsCase(StartCaseBase):
+    def test_inputs_defaults(self):
+        """依頼だけ → thickness 標準・gates ""・mid_gate always・adapter ""。返りに thickness_decider が無い"""
+        repo = self.seed()
+        got = entry.check_inputs({"request": str(request_file(self.tmp / "r.json"))}, repo)
+        self.assertEqual(set(got), {"request_file", "items", "request_text", "test_cmd", "thickness", "gates",
+                                    "mid_gate", "adapter", "policy_md"})
+        self.assertEqual((got["thickness"], got["gates"], got["mid_gate"], got["adapter"], got["test_cmd"], got["policy_md"]),
+                         ("標準", "", "always", "", "", ""))
+        self.assertEqual(len(got["items"]), 2)
+        self.assertEqual(got["request_file"], str((self.tmp / "r.json").resolve()))
+        self.assertIn("mean", got["request_text"])
+        self.assertEqual(entry.THICKNESS, ("軽量", "標準", "重厚"))
+        self.assertEqual(entry.MID_GATES, ("always", "when_needed"))
+        self.assertEqual(entry.ADAPTER_MODES, ("", "optional"))
+        self.assertEqual(entry.GATES, ("", "merge"))
+
+    def test_request_relative_to_repo(self):
+        """相対の依頼のパスは対象の根から（1 本目の intake と同じ）"""
+        repo = self.seed()
+        request_file(repo / "req.json")
+        self.assertEqual(entry.check_inputs({"request": "req.json"}, repo)["request_file"], str(repo / "req.json"))
+
+    def test_light_refused_by_owner_decision(self):
+        repo = self.seed()
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.check_inputs(self.raw(thickness="軽量"), repo)
+        self.assertIn("持ち主の決定", str(cm.exception))
+        self.assertIn("省けない節", str(cm.exception))
+
+    def test_heavy_refused(self):
+        repo = self.seed()
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.check_inputs(self.raw(thickness="重厚"), repo)
+        self.assertIn("重厚で足す工程がまだ無い", str(cm.exception))
+
+    def test_unknown_words_refused(self):
+        repo = self.seed()
+        for key in ("thickness", "mid_gate", "adapter", "gates"):
+            with self.subTest(key):
+                with self.assertRaises(entry.InputRefused) as cm:
+                    entry.check_inputs(self.raw(**{key: "x"}), repo)
+                self.assertNotIn("\n", str(cm.exception))
+                self.assertIn("'x'", str(cm.exception))
+                self.assertIn(key, str(cm.exception))
+        # gates の文は写しの RL の check_inputs の文（使えるのは gates=merge）
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.check_inputs(self.raw(gates="x"), repo)
+        self.assertIn("gates=merge", str(cm.exception))
+        for key, ok in (("mid_gate", "when_needed"), ("adapter", "optional"), ("gates", "merge")):
+            with self.subTest(ok=ok):
+                self.assertEqual(entry.check_inputs(self.raw(**{key: ok}), repo)[key], ok)
+
+    def test_request_unreadable_or_not_array(self):
+        """依頼が読めない・JSON の配列でない・依頼の型（写しの RL の REQUEST_SCHEMA）に合わない → InputRefused（1 行）"""
+        repo = self.seed()
+        bad = self.tmp / "bad"
+        bad.mkdir()
+        (bad / "broken.json").write_text("[{", encoding="utf-8")
+        (bad / "obj.json").write_text('{"where": "a", "text": "b"}', encoding="utf-8")
+        (bad / "empty.json").write_text("[]", encoding="utf-8")
+        (bad / "shape.json").write_text('[{"where": "a"}]', encoding="utf-8")
+        for req in ("", str(bad / "nowhere.json"), *(str(bad / n) for n in ("broken.json", "obj.json", "empty.json", "shape.json"))):
+            with self.subTest(req):
+                with self.assertRaises(entry.InputRefused) as cm:
+                    entry.check_inputs({"request": req}, repo)
+                self.assertNotIn("\n", str(cm.exception))
+
+    def test_no_tests_accepted_by_r52(self):
+        """test_cmd が空で宣言も無い run は拒まない（裁定 R52: graphloops では p0.local_checks が任せ先の役に落ち、役が
+        リポジトリを読んでテストの走らせ方を探す。拒むとそれを失う）"""
+        repo = self.seed()
+        self.assertEqual(entry.check_inputs(self.raw(), repo)["test_cmd"], "")
+
+    def test_policy_md_named_but_missing(self):
+        repo = self.seed()
+        with self.assertRaises(entry.InputRefused) as cm:
+            entry.check_inputs(self.raw(policy_md="nowhere.md"), repo)
+        self.assertIn("nowhere.md", str(cm.exception))
+        (repo / "pol.md").write_text("方針\n", encoding="utf-8")
+        self.assertEqual(entry.check_inputs(self.raw(policy_md="pol.md"), repo)["policy_md"], str(repo / "pol.md"))
+
+
+class LocalChecksMaterialCase(StartCaseBase):
+    def test_local_checks_material_callable_alone(self):
+        """盤面なしで呼べる（線 B の申し送り 2）: 種の赤 2 件 → found・count 1・detail にログの末尾"""
+        repo = self.seed()
+        log = self.tmp / "logs" / "ci.log"
+        got = entry.local_checks_material(repo, SEED_CMD, log)
+        m = got["material"]
+        self.assertEqual((m["status"], m["count"]), ("found", 1))
+        tail = log.read_text(encoding="utf-8").rstrip().splitlines()[-1]
+        self.assertIn("FAILED", tail)
+        self.assertIn(tail, m["detail"])
+
+    def test_clean_carries_checked(self):
+        """clean は写しの RR の規則で checked が要る（何を見たか）。count 0・detail も付く"""
+        repo = self.seed()
+        m = entry.local_checks_material(repo, "echo all-green", self.tmp / "ok.log")["material"]
+        self.assertEqual((m["status"], m["count"]), ("clean", 0))
+        self.assertIn("echo all-green", m["checked"])
+        self.assertIn("exit 0", m["checked"])
+        self.assertIn("all-green", m["detail"])
+
+    def test_empty_cmd_not_run(self):
+        m = entry.local_checks_material(self.seed(), "  ", self.tmp / "x.log")["material"]
+        self.assertEqual(m["status"], "not_run")
+        self.assertTrue(m["reason"].strip())
+        self.assertFalse((self.tmp / "x.log").exists())
+
+    def test_env_outside_uv_no_bytecode(self):
+        """子の環境は tree_run.outside_env（PYTHONDONTWRITEBYTECODE=1）"""
+        repo = self.seed()
+        log = self.tmp / "env.log"
+        entry.local_checks_material(repo, 'echo "pdwb=$PYTHONDONTWRITEBYTECODE"', log)
+        self.assertIn("pdwb=1", log.read_text(encoding="utf-8"))
+
+
+class _StubBoard:
+    """run_engine の返りを順に返す偽の盤面（run_ci の分かれ道だけを見る）"""
+
+    def __init__(self, tmp, replies):
+        self.replies = list(replies)
+        self.calls = 0
+        self.tmp = pathlib.Path(tmp)
+        self.record = {"materials": {"local_checks": {"status": "clean", "checked": "偽"}}}
+
+    def run_engine(self, nid, *, runner=None):
+        self.calls += 1
+        return self.replies.pop(0)
+
+    def work(self, name):
+        p = self.tmp / "r1" / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def done(self, *a, **kw):
+        raise AssertionError("done を呼んではいけない")
+
+
+class RunCiCase(StartCaseBase):
+    def ok_reply(self):
+        out, err = self.tmp / "1.out", self.tmp / "1.err"
+        out.write_text("ran\n", encoding="utf-8")
+        err.write_text("", encoding="utf-8")
+        return {"ok": True, "node": "p0.local_checks",
+                "runs": [{"name": "suite", "argv": ["x"], "out": str(out), "err": str(err), "exit": 0}]}
+
+    def test_run_ci_relaunch_once(self):
+        """1 度目 relaunch・2 度目通る → 通る。2 度とも relaunch → CiRefused、文に why"""
+        relaunch = {"ok": False, "node": "p0.local_checks", "why": "宣言の sha が計画と違う", "relaunch": True}
+        b = _StubBoard(self.tmp, [relaunch, self.ok_reply()])
+        got = entry.run_ci(b, "p0.local_checks", test_cmd="")
+        self.assertEqual((got["by"], b.calls), ("engine", 2))
+        b = _StubBoard(self.tmp, [relaunch, relaunch])
+        with self.assertRaises(entry.CiRefused) as cm:
+            entry.run_ci(b, "p0.local_checks", test_cmd="")
+        self.assertIn("宣言の sha が計画と違う", str(cm.exception))
+        self.assertEqual(b.calls, 2)
+
+    def test_run_ci_why_only_refused(self):
+        """{ok: False, why} だけの返り（対象の根が引けない）→ CiRefused（黙って素通りしない）"""
+        b = _StubBoard(self.tmp, [{"ok": False, "node": "p4.ci", "why": "対象リポジトリのルートが引けない"}])
+        with self.assertRaises(entry.CiRefused) as cm:
+            entry.run_ci(b, "p4.ci", test_cmd="true")
+        self.assertIn("ルートが引けない", str(cm.exception))
+        self.assertIsInstance(cm.exception, entry.InputRefused)   # start は AI を起こす前に止める（同じ扱い）
+
+    def test_engine_log_has_every_stage_and_stderr(self):
+        """engine が走らせた回の log は全部の段の標準出力と標準エラー（2 段目の赤・標準エラーだけの出力も見える。Task 14 M2/M4）"""
+        repo = self.seed()
+        decl = {"suite": [{"name": "one", "argv": ["python3", "-c", "print('stage-one-out')"]},
+                          {"name": "two", "argv": ["python3", "-c", "import sys; sys.stderr.write('stage-two-err\\n'); sys.exit(3)"]}]}
+        (repo / ".review-checks.json").write_text(json.dumps(decl), encoding="utf-8")
+        linekit.git(repo, "add", "-A")
+        linekit.git(repo, "commit", "-q", "-m", "decl")
+        b, p = DiskBoard.begin(self.tmp / "board", repo=repo, table=entry.load_table(), items=[{"where": "stats.py", "text": "x"}],
+                               origin="works/darkfactory", base_rev="", request_text="x", stop_after_round=1)
+        self.assertIn("p0.local_checks", p["run_engine"])
+        got = entry.run_ci(b, "p0.local_checks", test_cmd="")
+        self.assertEqual(got["by"], "engine")
+        text = pathlib.Path(got["log"]).read_text(encoding="utf-8")
+        for part in ("stage-one-out", "stage-two-err", "one", "two", "exit 3"):
+            self.assertIn(part, text)
+        self.assertEqual(b.record["materials"]["local_checks"]["status"], "found")
+
+    def test_fallback_empty_cmd_role_needed_no_material(self):
+        """宣言が無く test_cmd も空 → 任せ先に落ちたまま、偽の素材を渡さず role_needed（裁定 R52）。印も置かない"""
+        repo = self.seed()
+        b, p = DiskBoard.begin(self.tmp / "board", repo=repo, table=entry.load_table(), items=[{"where": "stats.py", "text": "x"}],
+                               origin="works/darkfactory", base_rev="", request_text="x", stop_after_round=1)
+        got = entry.run_ci(b, "p0.local_checks", test_cmd=" ")
+        self.assertEqual(got["by"], "role_needed")
+        self.assertIn(".review-checks.json", got["why"])
+        inst = pending_inst(b, "p0.local_checks")
+        self.assertTrue(inst.get("engine_fallback"))
+        self.assertFalse(inst.get("launched_at"))
+        self.assertNotIn("local_checks", b.record["materials"])
+        self.assertIn("p0.local_checks", b.settle()["ready"])
+
+
+class StartCase(StartCaseBase):
+    def test_start_with_declaration_by_engine(self):
+        repo = self.seed(declared=True)
+        got = self.start(repo, test_cmd="touch should-not-run")
+        b = entry.open_board(self.board)
+        self.assertEqual(b.record["process"]["checks"]["p0.local_checks"]["by"], "engine")
+        self.assertEqual(b.record["materials"]["local_checks"]["status"], "found")   # 種は赤
+        self.assertFalse((repo / "should-not-run").exists())
+        ready = b.settle()["ready"]
+        self.assertIn("p0.premises", ready)
+        self.assertNotIn("p0.local_checks", ready)
+        self.assertEqual(b.settle()["run_engine"], [])
+        self.assertFalse(got["ci_role_go"])
+
+    def test_start_without_declaration_runs_test_cmd(self):
+        repo = self.seed()
+        got = self.start(repo, test_cmd=SEED_CMD)
+        b = entry.open_board(self.board)
+        self.assertEqual(b.record["process"]["checks"]["p0.local_checks"]["by"], "role")
+        m = b.record["materials"]["local_checks"]
+        self.assertEqual((m["status"], m["count"]), ("found", 1))
+        self.assertEqual(b.record["process"]["baseline_checks"]["status"], "found")
+        self.assertNotIn("p0.local_checks", b.settle()["ready"])
+        self.assertFalse(got["ci_role_go"])
+
+    def test_start_without_declaration_green_cmd_clean(self):
+        """緑の test_cmd の素材（clean・checked つき）を受け付けが通す"""
+        repo = self.seed()
+        self.start(repo, test_cmd="true")
+        m = entry.open_board(self.board).record["materials"]["local_checks"]
+        self.assertEqual(m["status"], "clean")
+        self.assertIn("exit 0", m["checked"])
+
+    def test_start_no_tests_signals_role(self):
+        """test_cmd 空・宣言無し → 拒まない。p0.local_checks は任せ先に落ちたまま ready に残り、ci_role_go が真で head_line も言う"""
+        repo = self.seed()
+        got = self.start(repo)
+        self.assertTrue(got["ok"])
+        self.assertTrue(got["ci_role_go"])
+        self.assertEqual(got["pr_go"], "pending")   # p0.parallel_pr は p0.local_checks を待つ（まだ測れない。偽と言わない）
+        self.assertIn("任せ先", got["head_line"])
+        b = entry.open_board(self.board)
+        self.assertNotIn("local_checks", b.record["materials"])
+        self.assertIn("p0.local_checks", b.settle()["ready"])
+
+    def test_start_broken_declaration_not_fallback(self):
+        """読めない宣言 → engine が返答を組み（任せ先に落ちない）、test_cmd を走らせない"""
+        repo = self.seed(broken_declaration=True)
+        got = self.start(repo, test_cmd="touch should-not-run")
+        b = entry.open_board(self.board)
+        self.assertEqual(b.record["process"]["checks"]["p0.local_checks"]["by"], "engine")
+        self.assertEqual(b.record["materials"]["local_checks"]["status"], "awaiting_human")
+        self.assertFalse((repo / "should-not-run").exists())
+        self.assertFalse(got["ci_role_go"])
+
+    def test_start_refuses_before_board(self):
+        """入力の拒みは盤面の置き場を作る前（軽量・知らない語・読めない依頼）"""
+        repo = self.seed()
+        for raw in (self.raw(thickness="軽量"), self.raw(mid_gate="x"), {"request": str(self.tmp / "nowhere.json")}):
+            with self.subTest(raw):
+                with self.assertRaises(entry.InputRefused):
+                    self.start(repo, raw)
+                self.assertFalse(self.board.exists())
+                self.assertIsNone(ticket.read(repo))
+
+    def test_start_records_request_and_entry(self):
+        repo = self.seed(declared=True)
+        self.start(repo)
+        b = entry.open_board(self.board)
+        batches = b.record["process"]["request_findings"]
+        self.assertEqual(len(batches), 1)
+        self.assertEqual(len(batches[0]["findings"]), 2)
+        self.assertEqual(b.record["process"]["request_entry"]["origin"], "works/darkfactory")
+        self.assertEqual(b.state["works"]["line"], "darkfactory")
+
+    def test_start_stop_after_round_one(self):
+        repo = self.seed(declared=True)
+        self.start(repo)
+        self.assertEqual(json.loads((self.board / "state.json").read_text(encoding="utf-8"))["stop_after_round"], 1)
+
+    def test_start_writes_ticket(self):
+        repo = self.seed(declared=True)
+        self.start(repo)
+        t = ticket.read(repo)
+        self.assertEqual(t["run_id"], "run-7")
+        self.assertEqual(t["board"], str(self.board))
+        self.assertEqual(t["cwd"], str(repo))
+
+    def test_start_head_line(self):
+        repo = self.seed(declared=True)
+        got = self.start(repo)
+        absent = len(entry.load_table().absent())
+        line = got["head_line"]
+        for part in ("判定から", "依頼 2 件", "標準（既定）", "gates: 空", f"このラインに無い節: {absent} 個", "下げている所: 1 個"):
+            self.assertIn(part, line)
+        self.assertNotIn("\n", line)
+
+    def test_start_head_line_named_words(self):
+        """thickness を名指せば（既定）を付けない。gates=merge は語のまま"""
+        repo = self.seed(declared=True)
+        got = self.start(repo, thickness="標準", gates="merge")
+        self.assertIn("段: 標準・", got["head_line"])
+        self.assertNotIn("（既定）", got["head_line"])
+        self.assertIn("gates: merge", got["head_line"])
+        self.assertEqual(entry.open_board(self.board).state["inputs"]["gates"], "merge")
+
+    def test_start_result_and_inputs_copy(self):
+        repo = self.seed(declared=True)
+        got = self.start(repo, test_cmd=SEED_CMD, mid_gate="when_needed", adapter="optional")
+        b = entry.open_board(self.board)
+        self.assertEqual(got["base_rev"], linekit.git(repo, "rev-parse", "HEAD"))
+        self.assertEqual((got["test_cmd"], got["mid_gate"], got["adapter"], got["thickness"], got["gates"]),
+                         (SEED_CMD, "when_needed", "optional", "標準", ""))
+        self.assertEqual((got["policy_paste"], got["policy_path"]), ("", ""))
+        self.assertIsNone(b.state["inputs"]["gates"])
+        doc = json.loads(b.work("start.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc["run_id"], "run-7")
+        self.assertEqual(doc["test_cmd"], SEED_CMD)
+        self.assertEqual(doc["mid_gate"], "when_needed")
+        self.assertEqual(doc["request_file"], self.raw()["request"])
+
+    def test_start_parallel_pr_by_helper(self):
+        """p0.parallel_pr は prcheck.run_helper で回す（run_ci でない）。種は remote を持たないので任せ先に落ち、pr_go が真。
+        start は印を置かない（blk-pr の pr-snap が置く）"""
+        repo = self.seed(declared=True)
+        got = self.start(repo)
+        self.assertTrue(got["pr_go"])
+        b = entry.open_board(self.board)
+        inst = pending_inst(b, "p0.parallel_pr")
+        self.assertTrue(inst.get("engine_fallback"))
+        self.assertFalse(inst.get("launched_at"))
+        self.assertNotIn("parallel_pr", b.record["materials"])
+
+    def test_start_pr_refused_stops(self):
+        """prcheck.Refused は CiRefused と同じく AI の前で止める（InputRefused）。切符を書かない"""
+        import prcheck
+        repo = self.seed(declared=True)
+
+        def refuse(b, *, runner=None):
+            raise prcheck.Refused("計画が 2 度とも拒まれた")
+        with mock.patch.object(prcheck, "run_helper", refuse):
+            with self.assertRaises(entry.InputRefused) as cm:
+                self.start(repo)
+        self.assertIn("2 度とも", str(cm.exception))
+        self.assertIsNone(ticket.read(repo))
+
+    def test_start_idempotent(self):
+        """同じ置き場で呼び直しても盤面を作り直さず、同じ返り（Archon の再開）"""
+        repo = self.seed()
+        first = self.start(repo, test_cmd=SEED_CMD)
+        again = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD), run_id="run-7")
+        self.assertEqual({k: first[k] for k in ("base_rev", "ci_role_go", "pr_go", "head_line")},
+                         {k: again[k] for k in ("base_rev", "ci_role_go", "pr_go", "head_line")})
+
+
+class ResumeCase(StartCaseBase):
+    def ci_role_done(self, material):
+        """任せ先の CI の役（後の Task のブロック）の代わり: 印を置いて素材を done"""
+        b = entry.open_board(self.board)
+        inst = pending_inst(b, "p0.local_checks")
+        b.mark_launched("p0.local_checks", inst.get("attempts", 1))
+        b.done("p0.local_checks", {"material": material})
+        return entry.open_board(self.board)
+
+    def test_resume_after_ci(self):
+        """ラインの約束: 任せ先の CI の役が p0.local_checks を渡した後、ラインは resume_after_ci で start の輪に戻る
+        （run_engine → settle と p0.parallel_pr の run_helper）。返りの pr_go が測った値になる"""
+        repo = self.seed()
+        self.assertEqual(self.start(repo)["pr_go"], "pending")
+        b = entry.open_board(self.board)
+        still = entry.resume_after_ci(b)   # 役がまだ渡していない: 何も走らせず、同じ値
+        self.assertEqual((still["ci_role_go"], still["pr_go"]), (True, "pending"))
+        b = self.ci_role_done({"status": "found", "count": 1, "detail": "役が走らせた: 赤 2 件"})
+        got = entry.resume_after_ci(b)
+        self.assertEqual((got["ci_role_go"], got["pr_go"]), (False, True))   # 種は remote が無いので任せ先へ
+        b = entry.open_board(self.board)
+        inst = pending_inst(b, "p0.parallel_pr")
+        self.assertTrue(inst.get("engine_fallback"))
+        self.assertFalse(inst.get("launched_at"))
+        self.assertEqual(b.settle()["run_engine"], [])
+        again = entry.resume_after_ci(b)   # 呼び直しても同じ（走らせ直さない）
+        self.assertEqual((again["ci_role_go"], again["pr_go"]), (False, True))
+
+    def test_start_resume_after_cancel_mid_cmd(self):
+        """test_cmd の途中で止められた run を呼び直すと、test_cmd を走らせ直す（任せ先の役に黙って替えない）。
+        選んだ道（test_cmd）はテストを走らせる前に start.json に置く"""
+        import tree_run
+        repo = self.seed()
+
+        def stopped(*a, **kw):
+            doc = json.loads((self.board / "r1" / "start.json").read_text(encoding="utf-8"))
+            self.assertEqual((doc["ci_fallback"], doc["test_cmd"]), ("test_cmd", SEED_CMD))
+            raise tree_run.Stopped(15)
+        with mock.patch.object(entry, "local_checks_material", stopped):
+            with self.assertRaises(tree_run.Stopped):
+                self.start(repo, test_cmd=SEED_CMD)
+        b = entry.open_board(self.board)
+        self.assertTrue(pending_inst(b, "p0.local_checks").get("launched_at"))
+        got = entry.start(self.board, repo, self.raw(test_cmd=SEED_CMD), run_id="run-7")
+        self.assertFalse(got["ci_role_go"])
+        b = entry.open_board(self.board)
+        self.assertEqual(b.record["process"]["checks"]["p0.local_checks"]["by"], "role")
+        self.assertEqual(b.record["materials"]["local_checks"]["status"], "found")
+        self.assertIn(got["pr_go"], (True, False))
+
+    def test_start_resume_changed_test_cmd_refused(self):
+        """呼び直しで test_cmd が替わった（空になった）ら、前に選んだ道を黙って替えずに拒む"""
+        import tree_run
+        repo = self.seed()
+        with mock.patch.object(entry, "local_checks_material", mock.Mock(side_effect=tree_run.Stopped(15))):
+            with self.assertRaises(tree_run.Stopped):
+                self.start(repo, test_cmd=SEED_CMD)
+        for cmd in ("", "true"):
+            with self.subTest(cmd):
+                with self.assertRaises(entry.InputRefused) as cm:
+                    entry.start(self.board, repo, self.raw(test_cmd=cmd), run_id="run-7")
+                self.assertIn("test_cmd", str(cm.exception))
+
+    def test_fallback_cmd_runs_from_git_top(self):
+        """任せ先の test_cmd は engine と同じく git の根（--show-toplevel）で走らせる（入力の cwd が下のフォルダでも）"""
+        repo = self.seed()
+        sub = repo / "sub"
+        sub.mkdir()
+        b, p = DiskBoard.begin(self.tmp / "board", repo=sub, table=entry.load_table(), items=[{"where": "stats.py", "text": "x"}],
+                               origin="works/darkfactory", base_rev="", request_text="x", stop_after_round=1)
+        got = entry.run_ci(b, "p0.local_checks", test_cmd="pwd -P")
+        self.assertEqual(got["by"], "role")
+        self.assertIn(f"\n{os.path.realpath(repo)}\n", "\n" + pathlib.Path(got["log"]).read_text(encoding="utf-8"))
+
+
+class StartScriptCase(StartCaseBase):
+    def env(self, repo, **kw):
+        req = request_file(self.tmp / "req" / "request.json")
+        base = {"INPUTS_REQUEST": str(req), "INPUTS_TEST_CMD": "", "INPUTS_THICKNESS": "", "INPUTS_GATES": "",
+                "INPUTS_MID_GATE": "", "INPUTS_ADAPTER": "", "INPUTS_POLICY_MD": "", "ARTIFACTS_DIR": str(self.tmp / "art"),
+                "WORKFLOW_ID": "wf-1", "WORKS_ADAPTER_HOME": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"}
+        env = {k: v for k, v in os.environ.items() if not k.startswith("INPUTS_")}
+        env.update(base)
+        env.update(kw)
+        return {k: v for k, v in env.items() if v is not None}
+
+    def run_script(self, repo, **kw):
+        return subprocess.run([sys.executable, str(SCRIPT)], cwd=repo, env=self.env(repo, **kw), capture_output=True,
+                              text=True, stdin=subprocess.DEVNULL)
+
+    def test_start_script_refusal_exit_1(self):
+        repo = self.seed()
+        r = self.run_script(repo, INPUTS_THICKNESS="軽量")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(len(r.stderr.strip().splitlines()), 1)
+        self.assertIn("持ち主の決定", r.stderr)
+        self.assertFalse((self.tmp / "art" / "board").exists())
+
+    def test_start_script_missing_env_exit_2(self):
+        repo = self.seed()
+        for name in ("ARTIFACTS_DIR", "WORKFLOW_ID", "INPUTS_TEST_CMD"):
+            with self.subTest(name):
+                r = self.run_script(repo, **{name: None})
+                self.assertEqual(r.returncode, 2)
+                self.assertIn(name, r.stderr)
+                self.assertEqual(r.stdout, "")
+
+    def test_start_script_success_one_line(self):
+        repo = self.seed(declared=True)
+        r = self.run_script(repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(len(lines), 1)
+        got = json.loads(lines[0])
+        self.assertTrue(got["ok"])
+        self.assertIn("判定から", got["head_line"])
+        self.assertEqual(ticket.read(repo)["run_id"], "wf-1")
+        self.assertTrue((self.tmp / "art" / "board" / "state.json").is_file())
+        self.assertFalse([*CORE.rglob("__pycache__"), *(ROOT / "darkfactory").rglob("__pycache__")])
+
+
+    def main_in_process(self, repo, **kw):
+        """start.py の main を同じプロセスで呼ぶ（entry の中を差し替えるため）。返り (終了コード, stdout, stderr)"""
+        import contextlib
+        import importlib.util
+        import io
+        spec = importlib.util.spec_from_file_location("_works_start_script", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        out, err = io.StringIO(), io.StringIO()
+        old = os.getcwd()
+        os.chdir(repo)
+        try:
+            with mock.patch.dict("os.environ", self.env(repo, **kw), clear=True), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = mod.main()
+        finally:
+            os.chdir(old)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_start_script_fallback_rejected_exit_2(self):
+        """任せ先の素材を受け付けが拒んだ（機械の欠陥）→ 2 と 1 行（入力の拒み 1 と分ける）"""
+        repo = self.seed()
+        bad = mock.Mock(return_value={"material": {"status": "bogus"}})
+        with mock.patch.object(entry, "local_checks_material", bad):
+            rc, out, err = self.main_in_process(repo, INPUTS_TEST_CMD="true")
+        self.assertEqual(rc, 2, err)
+        self.assertEqual(out, "")
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("盤面の誤り", err)
+
+    def test_start_script_unexpected_exit_2_one_line(self):
+        repo = self.seed()
+        with mock.patch.object(entry, "start", mock.Mock(side_effect=RuntimeError("壊れた\n2 行目"))):
+            rc, out, err = self.main_in_process(repo)
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "")
+        self.assertEqual(len(err.strip().splitlines()), 1)
+        self.assertIn("RuntimeError", err)
+        self.assertIn("壊れた", err)
 
 
 if __name__ == "__main__":
